@@ -1,0 +1,7 @@
+# 這底下是 per-machine 的執行期狀態,不版控、不跨機當權威
+# (CI 讀的是 docs/.governance-log.jsonl,那份刻意沒被忽略)。
+# code-loop:代碼審留痕與棧別提問表態的本機標記,綁 HEAD 版本號——一提交版本就移動、自己作廢。
+# runtime:hook 事件流水,每台機器各自的事實。★2026-09-09 補★:第一版漏了它,
+# 而第一個接入的真專案(calc-ios)因此把 hook-events.jsonl 提交進版控。
+code-loop/
+runtime/

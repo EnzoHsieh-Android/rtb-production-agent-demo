@@ -1,0 +1,500 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Enzo Hsieh
+# SPDX-License-Identifier: MIT
+# MIT licensed. Full text: scripts/lumos header, or LICENSE at
+# https://github.com/EnzoHsieh-Android/Lumos
+# Git pre-push hook — 圖譜健康同步把關(push 前最後一道,同步可見)
+#
+# 為什麼需要:
+#   L2 pre-commit 只擋「污染指紋 + code 無圖譜」,不跑完整 doctor。
+#   壞圖譜狀態(斷連結 / orphan / verified_by 漏寫 / plan_refs 斷鏈)能 commit 過。
+#   CI push 觸發雖會抓,但**非同步、終端看不到、擋不了**(push 已發生)。
+#   pre-push 在 push 前**同步**跑 lumos doctor:Claude Code / 終端當場看到輸出,
+#   有問題擋下 push,壞圖譜出不了本機。self-contained(lumos 零 Obsidian 依賴)。
+#
+# Bypass: git push --no-verify(業界標準;GitHub Actions CI(.github/workflows/ci.yml)在 push 後仍會跑全套+doctor --ci+anchor verify)
+#
+# 安裝: scripts/install-hooks.sh 已設 core.hooksPath=scripts/hooks,此檔放進去即生效
+
+set -u
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$REPO_ROOT" || exit 0
+
+# ── stdin 必須最先讀(prepush範圍修法 #1)──
+# githooks(5):每行 "<local_ref> <local_sha> <remote_ref> <remote_sha>"。
+# 先整批讀進陣列——後段的 anchor verify/測試/doctor 都是 subprocess,會繼承並吃掉 fd0,
+# 若不先讀,推送範圍就丟了。無 stdin 行(如手動測試)=空陣列,代碼風險段自然跳過。
+_PP_LINES=()
+while IFS= read -r _line; do
+  [[ -n "$_line" ]] && _PP_LINES+=("$_line")
+done
+
+# 無 lumos / python3 → 降級放行(不為缺環境 brick push,CI 兜底)
+GRAPHCTL="$REPO_ROOT/scripts/lumos"
+PY="$(command -v python3 || command -v python || true)"
+
+# ── 波及計算(給合約測試閘用):這裡只呼叫、不碰內容。
+# ★一次推送只算一次波及★(2026-09-07 全 repo 審視 #17,設計 [S1] 第 3 步):以前同步點名與合約測試閘各自呼叫,
+# 等於一次推送算兩次——這不是便宜的計算。算一次寫進暫存檔給消費者讀。
+# (2026-09-11 起同步點名改由每支檔有家照家算,不再讀這一份;見下面 sync_nudge 原位置的說明。)
+# ★失敗隔離★:算不出來 → 暫存檔不存在或是空的 → 合約測試閘記一筆帳放行,不拖垮別的檢查。
+_IMPACT_JSON=""
+impact_once() {   # $1=diff range;算一次,結果放進 $_IMPACT_JSON
+  _IMPACT_JSON=""
+  [ -n "$PY" ] && [ -f "$GRAPHCTL" ] || return 0
+  # ★用同檔既有的樣板寫法與命名家族★(代碼審 r1 架構對齊席):
+  # 同一支腳本下面幾行就有 lumos-prepush-autoloop-XXXXXX / lumos-prepush-tests-XXXXXX,
+  # 而且旁邊的註解特別說明過「★XXXXXX 必須在結尾★」是踩過才定下來的。
+  local _f; _f="$(mktemp "${TMPDIR:-/tmp}/lumos-prepush-impact-XXXXXX" 2>/dev/null || true)"
+  [ -n "$_f" ] || return 0
+  if "$PY" "$GRAPHCTL" impact --diff "$1" --sync-check --json --repo "$REPO_ROOT" > "$_f" 2>/dev/null \
+     && [ -s "$_f" ]; then
+    _IMPACT_JSON="$_f"
+  else
+    rm -f "$_f"
+  fi
+}
+impact_done() { [ -n "$_IMPACT_JSON" ] && rm -f "$_IMPACT_JSON"; _IMPACT_JSON=""; }
+# ★硬擋或收到訊號時也要清★(代碼審 r1 外家否決席判 minor,屬實):
+# 上面那支只在 ref 迴圈正常跑到尾端時執行。高風險那條路 rc1 會直接 exit 1,
+# 收到訊號也一樣——每被硬擋一次就留一個暫存檔在 $TMPDIR 裡慢慢累積。
+# 本次推送所有暫存檔的家,離開時整個清(r1 併發席:逐檔 rm 在 exit 1 / Ctrl-C 那條路會漏)。
+# 建不出來就擋(r2 邊界席):空字串會讓後面每個 "$_PP_TMP/…" 變成根目錄路徑,測試 log 全寫不出來、擋下訊息一片空白。
+_PP_TMP="$(mktemp -d "${TMPDIR:-/tmp}/lumos-prepush-XXXXXX" 2>/dev/null || true)"
+if [[ -z "$_PP_TMP" || ! -d "$_PP_TMP" ]]; then
+  echo "擋下:推送前檢查需要一個暫存目錄,但 ${TMPDIR:-/tmp} 建不出來(不存在或不可寫);修好 TMPDIR 再推。" >&2
+  exit 1
+fi
+trap 'impact_done; rm -rf "$_PP_TMP"' EXIT INT TERM
+# (2026-09-11 起「該動哪篇」的點名改由每支檔有家照家算——下面 home check --diff 會印;原本這裡以反引號為種子的
+#  impact --sync-only 會把人推回寫了一堆別人檔名的大雜燴節點,拿掉。Projects/每支檔有家_計劃 [S15]。impact_once 留給合約測試閘用。)
+# ★合約測試閘:低風險也跑,紅了印出來記帳但不擋;高風險照舊擋★(人裁 2026-09-07)
+# 不選「低風險也擋」的理由:擋下去最可能的結果不是人去修測試,是人改走 --no-verify
+# ——而這支腳本自己在別的地方就把那條當第三選項在教,那條零留痕。
+bound_tests_advisory() {   # $1=diff range(暫存檔沒算出來時退回自己算)
+  [ -n "$PY" ] && [ -f "$GRAPHCTL" ] || return 0
+  if [ -n "$_IMPACT_JSON" ]; then
+    "$PY" "$GRAPHCTL" bound-tests --from-json "$_IMPACT_JSON" --advisory --repo "$REPO_ROOT" || true
+  else
+    "$PY" "$GRAPHCTL" bound-tests --diff "$1" --advisory --repo "$REPO_ROOT" || true
+  fi
+}
+if [[ -z "$PY" || ! -f "$GRAPHCTL" ]]; then
+  echo "提醒:這台機器找不到 python3 或 lumos,推送前的知識庫檢查這次沒跑;推上去之後 CI 會再跑一遍兜底。" >&2
+  exit 0
+fi
+
+# ★同一次推送的事件要串得起來★(#19 S6):這支是逐 ref 迴圈,而錨點與健檢跑在迴圈外面
+# ——「當下的 commit」對整支層級的閘沒有唯一答案(同次推多個 ref、推的不是目前 checkout 的 ref、
+# detached HEAD 或推 tag,盲取 HEAD 都會歸錯)。所以整支層級的事件改用這個一次性識別碼,
+# 逐 ref 的事件另外帶那一行真正的 sha。lumos 端讀這個環境變數,hook 只負責產生它。
+export LUMOS_PUSH_ATTEMPT="$(date -u '+%Y%m%dT%H%M%SZ')-$$"
+
+# 錨點完整性:驗證器(runner/hooks)沒被動過,後面的「doctor 過/測試綠」才可信(repo 層,vault 無關)
+if ! "$PY" "$GRAPHCTL" anchor verify; then
+  {
+    echo ""
+    echo "擋下:負責把關的檔案(測試程式、hook 腳本)跟登記過的版本不一樣。"
+    echo "這些檔案是裁判,裁判被改過而沒人簽名,後面所有「測試綠、檢查過」都不可信,所以先擋。"
+    echo ""
+    echo "三條路選一條:"
+    echo "  1. 不是故意改的 → 把那個檔還原再推:"
+    echo "       git checkout -- <檔案>"
+    echo "  2. 是故意改的 → 簽名登記新版本再推:"
+    echo "       lumos anchor approve --note \"為什麼改\""
+    echo "  3. 真的要先推 → git push --no-verify(CI 之後會發現少了簽名紀錄)"
+    echo ""
+  } >&2
+  exit 1
+fi
+
+# ★簽名檔要跟著推★(2026-09-06 實際被 CI 咬到):上面那道拿的是「工作目錄現在的樣子」,
+# 所以你剛簽完名它就是綠的;但 CI 拿的是「已經推上去的內容」。簽名檔沒 commit 就推,
+# 這邊全綠、CI 必紅——而且錯誤訊息會叫你再簽一次名,再簽也沒用,因為問題是沒提交。
+_BASELINE="governance/anchor-baseline.json"
+if [[ -f "$REPO_ROOT/$_BASELINE" ]] && ! git -C "$REPO_ROOT" diff --quiet -- "$_BASELINE" 2>/dev/null; then
+  {
+    echo ""
+    echo "擋下:簽名檔改過了但沒提交,這樣推上去 CI 一定紅。"
+    echo "你剛才簽了名(或它被更新過),但那個改動還留在工作目錄裡沒進版控;"
+    echo "推送前的檢查看的是工作目錄所以是綠的,CI 看的是推上去的內容,對不起來。"
+    echo ""
+    echo "把它一起提交再推:"
+    echo "       git add $_BASELINE && git commit -m \"gov: 錨點簽名\""
+    echo ""
+  } >&2
+  exit 1
+fi
+
+# ══ 閘的順序(2026-09-06 全 repo 審視 #12 重排)══
+# 便宜的先跑、貴的最後。實測:除了全套測試以外,所有閘加起來約 13 秒
+# (anchor 0.22s / 簽名檔 0.04s / doctor 1.1s / pitfalls 0.23s / code-loop 0.61s
+#  / test-layers 0.21s / 自主迴圈那支 10.3s),而全套是 8 分鐘。
+# ★原本全套排在第四位★,所以被那 13 秒裡任何一道擋下時,8 分鐘已經白燒完了。
+
+# 圖譜健康(只在 vault 存在時跑)
+# ★2026-09-06 重排:原本這段在最後面,而且「沒有 vault 就 exit 0」會直接結束整支 hook。
+#   現在它排在全套測試之前,那個 exit 0 會把後面的測試閘一起跳掉——所以改成只跳過這一段。
+have_vault=0
+for d in docs/*-knowledge docs/knowledge; do
+  [[ -d "$d" ]] && have_vault=1 && break
+done
+if [[ $have_vault -eq 1 ]] && ! "$PY" "$GRAPHCTL" doctor --ci; then
+  {
+    echo ""
+    echo "擋下:知識庫健康檢查發現問題(細節在上面)。"
+    echo "有問題的筆記推上去,下一個讀它的人會拿到錯的合約或斷掉的連結。"
+    echo ""
+    echo "三條路選一條:"
+    echo "  1. 照上面的提示把筆記修好再推。"
+    echo "  2. 覺得是檢查工具本身判錯 → 本機重跑一次確認,真的是工具錯就開一張 Issue 記下來。"
+    echo "  3. 真的要先推 → git push --no-verify(CI 還是會跑全套,紅了會看到)"
+    echo ""
+  } >&2
+  exit 1
+fi
+
+
+# 代碼偏科 + code-loop 必用守衛(tier=high):push 前把 diff 的代碼形態風險攤在眼前。
+# prepush範圍修法(2026-07-21):改讀 stdin 推送範圍逐 ref 判,取代 merge-base——分支與
+# main-direct 同軌;無基準(新 ref/缺物件)倒向保守掃 empty-tree..local_sha(非 fail-open,
+# 否則守衛升格成穩定繞法);留痕綁 remote_ref 目的地(非 checkout);逐 ref 獨立判,某 ref
+# high 未過即擋。fail-open 僅剩:pitfalls 本身出錯 / empty-tree 都跑不動。
+_ZERO="0000000000000000000000000000000000000000"
+_EMPTY_TREE="$(git hash-object -t tree /dev/null 2>/dev/null || true)"
+# 推送前要跑哪個測試範圍(2026-09-18 Enzo 裁:純文件改動、或判成 light 的小改動,不用等全套):
+# 每個 ref 各判一次,任何一個 ref 要全套就全套。docs=只改到 README/docs/assets 這類文件(pitfalls --json 的 suite);
+# light=改到程式檔但 spec-gate --push-check 判成 light(風險低計劃、全靠人驗、小改動閘過)。
+_SUITE_SEEN=0; _SUITE_FULL=0; _SUITE_LIGHT=0; _SUITE_KEYS=""; _SUITE_GRAPH=0; _AUTOLOOP_FULL=0
+for _ppl in ${_PP_LINES+"${_PP_LINES[@]}"}; do
+  read -r _lref _lsha _rref _rsha <<< "$_ppl"
+  # 刪除遠端 ref(local_sha 全零)→ 無代碼推送,跳過
+  [[ "$_lsha" == "$_ZERO" ]] && continue
+  # 推導檢查範圍
+  _range=""
+  if [[ "$_rsha" == "$_ZERO" ]]; then
+    # 新 ref(含首推 main:遠端無此 ref)→ 保守掃全部引入內容
+    _range="$_EMPTY_TREE..$_lsha"
+  elif ! git cat-file -e "$_rsha" 2>/dev/null; then
+    # remote_sha 本地無此物件(shallow/force-push 分岔未 fetch)→ 保守掃
+    _range="$_EMPTY_TREE..$_lsha"
+  else
+    # 一般情形:增量 endpoint diff
+    _range="$_rsha..$_lsha"
+  fi
+  [[ -z "$_EMPTY_TREE" ]] && continue   # 連空樹都算不出=git 環境壞,advisory 放行
+
+  # 每支檔有家(2026-09-11,Projects/每支檔有家_計劃 [S26]):把這次要推的範圍整段查一次,接住跳過提交前檢查的。
+  # ★新分支不沿用上面的空樹兜底★(那會把整段歷史當新改動,本工具鏈有 1900 多個提交):起點改用
+  # 「不在任何遠端分支上的提交」裡最早那一個的上一個提交;全部已在遠端就不查;最早那個沒有上一個提交(真的全新)才從空樹比。
+  # 起點早於這道檢查上線的那個提交時,lumos 會自己改從上線點算(上線前進來的是舊帳)。rc1=擋;其他非零=放行。
+  # ★跟上面 _range 是刻意不同的兩套★(代碼審 r1 架構席問過):_range 給波及計算與風險掃描用,只提醒、寧可掃多;
+  # 這道會擋,把整段歷史當新改動就是誤擋。別把兩套合併成一套。
+  _hrange=""
+  if [[ "$_rsha" != "$_ZERO" ]] && git cat-file -e "$_rsha" 2>/dev/null; then
+    _hrange="$_rsha..$_lsha"
+  else
+    _hold="$(git rev-list --topo-order --reverse "$_lsha" --not --remotes 2>/dev/null | head -1)"
+    if [[ -n "$_hold" ]]; then
+      if git rev-parse -q --verify "$_hold^" >/dev/null 2>&1; then
+        _hrange="$(git rev-parse "$_hold^")..$_lsha"
+      else
+        _hrange="$_EMPTY_TREE..$_lsha"
+      fi
+    fi
+  fi
+  if [[ -n "$_hrange" ]]; then
+    nh_rc=0
+    "$PY" "$GRAPHCTL" home check --diff "$_hrange" --repo "$REPO_ROOT" || nh_rc=$?
+    if [[ "$nh_rc" -eq 1 ]]; then
+      {
+        echo ""
+        echo "逃生:照上面的指令替檔安家、或把說明改寫進對的那篇,再推;整個專案先改成只提醒 → .lumos/config.json 的 node_home.gate 設成 warn;緊急硬推 git push --no-verify(本機不留痕)。"
+        echo ""
+      } >&2
+      exit 1
+    fi
+  fi
+
+  impact_once "$_range"
+  pf_json="$("$PY" "$GRAPHCTL" pitfalls --diff "$_range" --no-lint --json --repo "$REPO_ROOT" 2>/dev/null || true)"
+  _tier_high=0
+  printf '%s' "$pf_json" | grep -q '"tier": *"high"' && _tier_high=1
+  _SUITE_SEEN=1
+  _suite_this="full"
+  printf '%s' "$pf_json" | grep -q '"suite": *"docs"' && _suite_this="docs"
+  printf '%s' "$pf_json" | grep -q '"suite_graph": *true' && _SUITE_GRAPH=1
+  if [[ "$_tier_high" -eq 1 ]]; then
+    {
+      echo ""
+      echo "提醒:這次推送的程式碼裡有高風險寫法(像是沒包交易的寫入、沒關的檔案控制代碼、沒限流的外部呼叫),tier=high。"
+      echo "命中的地方列在下面:"
+      "$PY" "$GRAPHCTL" pitfalls --diff "$_range" --no-lint --repo "$REPO_ROOT" 2>/dev/null | sed 's/^/    /'
+      echo ""
+    } >&2
+  fi
+  # 留痕座標綁 remote_ref 目的地:refs/heads/* → 分支:★無條件★叫 check(表態閘 2026-09-09,Projects/棧別提問表態閘_計劃 S7):
+  # 合約測試紅 / 有適用題表態不完整 / tier=high 無留痕,三個獨立判定各自出各自的訊息、由 check 印
+  # ——這裡不再自己寫死「跑一輪代碼審」文案、也不再把它的輸出丟 /dev/null(r3 正確性席 C3)。非 heads → advisory。
+  # 雙向門放行(Projects/雙向門放行_計劃 S11–S14/S21):這次範圍碰到、仍 doing、有雙向門留痕的計劃,留痕裡的測試全綠才准推;
+  # 留痕過期(條款或它連到的節點變了)也擋。風險低計劃不派設計審,這裡是它唯一的閘;lumos 算不出範圍/索引就 fail-open 放行(rc≠1)。
+  sg_rc=0
+  _sg_out="$_PP_TMP/sg-$RANDOM.log"
+  # tee:一邊即時印到 stderr(r1 併發席:先存檔跑完才印,人會以為卡住去 Ctrl-C)、一邊留一份給下面認 light 用;rc 取管線第一段
+  "$PY" "$GRAPHCTL" spec-gate --push-check "$_range" --repo "$REPO_ROOT" 2>&1 | tee "$_sg_out" >&2
+  sg_rc="${PIPESTATUS[0]}"
+  # push-check 判成 light(它才有圖譜、才知道計劃風險低與小改動閘過):改到程式檔也不跑全套,
+  # 只跑文件子集 + 原始碼提到「改到的函式/子命令/檔名」的測試;CI 那邊照樣跑全套當後盾。
+  # ★還要 pitfalls 說 light_ok★(r1 資安席):小改動閘的擴散只查程式檔,測試檔/skills/workflow 這種既不是文件也不是程式的
+  # 會從它眼皮下溜過——範圍裡只要有一支這種檔,就不准少跑全套。
+  if [[ "$_suite_this" == "full" ]] && grep -q '改動風險分級:light' "$_sg_out" && printf '%s' "$pf_json" | grep -q '"light_ok": *true'; then
+    _suite_this="light"
+    _k="$(printf '%s' "$pf_json" | "$PY" -c 'import json,sys; print(",".join(json.load(sys.stdin).get("affected_keys", [])))' 2>/dev/null || true)"
+    [[ -n "$_k" ]] && _SUITE_KEYS="${_SUITE_KEYS:+$_SUITE_KEYS,}$_k"
+    printf '%s' "$pf_json" | grep -q '"autoloop_full": *true' && _AUTOLOOP_FULL=1
+  fi
+  case "$_suite_this" in full) _SUITE_FULL=1 ;; light) _SUITE_LIGHT=1 ;; esac
+  if [[ "$sg_rc" -eq 1 ]]; then
+    echo "" >&2
+    echo "風險低計劃的條款測試沒全綠(或留痕過期),推送擋下:把測試做綠、或重跑 lumos spec-gate <計劃> 之後再推。" >&2
+    exit 1
+  fi
+  if [[ "$_rref" == refs/heads/* ]]; then
+    _rbranch="${_rref#refs/heads/}"
+    cl_rc=0
+    # ★高風險這條路也把算好的那份傳進去★:不傳的話它會自己再算一次波及。
+    _fj=(); [ -n "$_IMPACT_JSON" ] && _fj=(--from-json "$_IMPACT_JSON")
+    # 低風險推送的受波及合約測試維持「只提醒不擋」(2026-09-07 全 repo 審視 #17 人裁);高風險不帶旗標,照擋
+    # pitfalls 沒吐 JSON(暫時失敗)就不帶 advisory:讓 check 自己算 tier 決定擋不擋(r1 外家 finder f4/否決 f3)
+    _ba=(); [[ -n "$pf_json" && "$_tier_high" -eq 0 ]] && _ba=(--bound-tests-advisory)
+    _cl_out="$("$PY" "$GRAPHCTL" code-loop check --diff "$_range" --at-sha "$_lsha" --branch "$_rbranch" \
+      --repo "$REPO_ROOT" ${_fj+"${_fj[@]}"} ${_ba+"${_ba[@]}"} 2>&1)" || cl_rc=$?
+    if [[ "$cl_rc" -eq 1 ]]; then
+      # 逃逸自動記(規格落成可驗收條件_計劃 第五節):推送閘擋下=下游抓到了設計審/規格閘放行後的洞,
+      # 碰到的計劃筆記各記一筆;對不回就不記。★永遠 fail-open★——記帳失敗不能變成擋推送的第二個理由。
+      # ★只認「受波及合約的測試沒過」那型★:缺表態/高風險缺留痕是流程沒走完,不是下游抓到缺陷,不進逃逸帳(首輪前掃訂正)
+      if printf '%s' "$_cl_out" | grep -q "受波及合約的測試沒過"; then
+        "$PY" "$GRAPHCTL" loop escape --auto --stage push-gate --severity major \
+          --desc "推送閘擋下:$(printf '%s' "$_cl_out" | grep -m1 '受波及合約的測試沒過')" --range "$_range" --repo "$REPO_ROOT" >&2 || true
+      fi
+      # 高風險缺審查留痕:只有「該計劃被判成風險低、跳過設計審」才算逃逸(lumos 那邊查有沒有風險低留痕,沒有就不記)
+      # ★只認「tier=high 且…」開頭的缺留痕句★:測試紅的擋下句尾巴也帶 tier=high,認整個詞會兩筆都記(r2 回滾席)
+      if printf '%s' "$_cl_out" | grep -q "tier=high 且"; then
+        "$PY" "$GRAPHCTL" loop escape --auto --stage push-gate-unreviewed --severity major \
+          --desc "推送閘擋下:高風險缺審查留痕" --range "$_range" --repo "$REPO_ROOT" >&2 || true
+      fi
+      {
+        echo ""
+        printf '%s\n' "$_cl_out"
+        echo ""
+        echo "逃生路依上面 check 講的原因走:缺表態 → 先表態(上面的 dispositions 指令);高風險缺審查留痕 → 審過 lumos code-loop pass --note、或刻意不審 lumos code-loop skip --note \"為什麼\";合約測試紅 → 修測試。緊急硬推 git push --no-verify(本機不留痕,CI 會把這次推送標紅)"
+        echo ""
+      } >&2
+      exit 1
+    fi
+    # rc=0(已收斂/已表態/skip):check 的提醒行(低風險合約測試紅、設定檔警告、表態閘小結)原樣給人看;rc≠0/1(異常):fail-open 放行
+    [ -n "$_cl_out" ] && { printf '%s\n' "$_cl_out" | grep -E '提醒|受波及合約測試|表態閘' >&2 || true; }
+  else
+    # 非分支 remote_ref(tag/其他 namespace):無 branch marker 通道,一律 advisory(r2 外家 F7)
+    [[ "$_tier_high" -eq 1 ]] && echo "提醒:這次推的是 tag 不是分支,高風險檢查只提醒不擋(advisory)。" >&2
+    if printf '%s' "$pf_json" | grep -q '"stack_questions_applicable": *{"'; then
+      {
+        echo ""
+        echo "提醒:這次改到的技術棧有幾題效能檢核被觸發(推的是 tag,只提醒不擋),列在下面:"
+        "$PY" "$GRAPHCTL" pitfalls --diff "$_range" --no-lint --repo "$REPO_ROOT" 2>/dev/null | sed 's/^/    /'
+        echo ""
+      } >&2 || true
+    fi
+    bound_tests_advisory "$_range"
+  fi
+  # ★合約測試閘:低風險這一路也要跑★(2026-09-07 全 repo 審視 #17,人裁)
+  # 舊行為:這件事藏在 code-loop check 裡,而那支只在 tier=high 且推的是分支時才跑
+  # ——所以「改到硬合約就跑那些合約綁的測試」這句話,在低風險推送上是假的,
+  # 而改一行低風險的碼一樣可以打破合約。
+  # 高風險那條路已經在上面的 code-loop check 裡跑過(它會擋),這裡只補低風險那半。
+  # (表態閘 2026-09-09 起)分支 ref 的低風險推送:合約測試已在上面的 code-loop check 裡以 advisory 跑過一次,這裡不再跑第二次;
+  # tag 走上面 else 分支的 bound_tests_advisory。
+  # test-layers 軟提醒(advisory,恆不影響 rc;無 .lumos/test-layers.json 靜默)
+  "$PY" "$GRAPHCTL" test-layers --diff "$_range" --repo "$REPO_ROOT" 2>/dev/null || true
+  impact_done
+done
+
+# ★第二支測試檔也要跑★(2026-09-06 全 repo 審視:CI 因此紅過一次)
+# 這支只跑 12 秒,但一直以來只有 CI 在跑它——結果是「改了預設行為、跑了關鍵字子集、
+# 推上去才被 CI 打回來」。紅在別支檔而不是你改的那支,是最難查的那種。
+# ★log 檔改隨機名★(2026-09-06 全 repo 審視 #6):原本寫死 /tmp/lumos-prepush-*.log。
+# 理由不是假想的攻擊,是已經發生過的碰撞——hook 測試平行跑時三次覆寫同一路徑,害過一次誤診
+# (看到的是別人那次的輸出)。加上現在分片會同時起好幾個行程,更該各用各的。
+# ★XXXXXX 必須在結尾★:macOS 的 mktemp 不吃「樣板中間有 XXXXXX」,會直接報
+# 「File exists」——第一版寫成 -XXXXXX.log,四支 pre-push 測試當場翻紅。
+_AUTOLOOP_LOG="$(mktemp "${TMPDIR:-/tmp}/lumos-prepush-autoloop-XXXXXX" 2>/dev/null || true)"
+_TESTS_LOG="$(mktemp "${TMPDIR:-/tmp}/lumos-prepush-tests-XXXXXX" 2>/dev/null || true)"
+# ★mktemp 失敗要講實話★(2026-09-07 通才審查席):這支沒有 set -e,mktemp 失敗時變數會是
+# 空字串,後面的重導向自己先失敗,於是被判成「測試有紅」——**訊息會叫人去查測試,
+# 而測試根本沒被跑過**。擋下 push 沒錯(保守方向),但理由說謊就會讓人查錯方向。
+if [[ -z "$_AUTOLOOP_LOG" || -z "$_TESTS_LOG" ]]; then
+  {
+    echo ""
+    echo "擋下:建不出暫存檔,所以這次的測試沒辦法跑。"
+    echo "★不是測試紅了,是暫存目錄有問題★——多半是空間滿了或沒有寫入權限。"
+    echo ""
+    echo "先看一眼暫存目錄:"
+    echo "      df -h \"${TMPDIR:-/tmp}\" && ls -ld \"${TMPDIR:-/tmp}\""
+    echo ""
+  } >&2
+  exit 1
+fi
+
+# 純文件推送(每個 ref 都判成 docs)自主迴圈那支只跑讀真 CLAUDE.md 的那一條(2026-09-18 實推量到整支 68 秒,
+# 而它 144 支裡只有這一條讀 repo 的文件,其餘測的是自主迴圈的程式);light 或全套照舊整支跑。CI 同一條規則。
+# light 也一樣(2026-09-18 實測 light 推送前 108 秒、其中 67 秒是這支):除非 pitfalls 說 autoloop_full——
+# 改到的檔名或函式名整字出現在這支測試裡(它測自主迴圈模組、主程式常數、兩支探針腳本),或抽不出任何關鍵字(不知道改了什麼)。
+# 判斷在 lumos 裡做(_autoloop_full_for,整字比對跟執行器同一支 _keys_mentioned),這裡只讀結果(r1 架構席:別在 bash 另刻一份)。
+_AUTOLOOP_ARGS=()
+if [[ "$_SUITE_SEEN" -eq 1 && "$_SUITE_FULL" -eq 0 ]]; then
+  _AUTOLOOP_ARGS=(-k real_claude_md)
+  [[ "$_SUITE_LIGHT" -eq 1 && "$_AUTOLOOP_FULL" -eq 1 ]] && _AUTOLOOP_ARGS=()
+fi
+if [[ -d "$REPO_ROOT/skills/lumos-project-notes" && -f "$REPO_ROOT/scripts/test_autonomous_loop.py" ]]; then
+  # 支數從實際輸出讀,不寫死——寫死的會靜靜地漂(2026-09-08:實際 144,訊息還印著 132)
+  _autoloop_count() { sed -n 's/^Ran \([0-9]*\) tests.*/\1/p' "$_AUTOLOOP_LOG" | tail -1; }
+  if ! "$PY" "$REPO_ROOT/scripts/test_autonomous_loop.py" ${_AUTOLOOP_ARGS+"${_AUTOLOOP_ARGS[@]}"} >"$_AUTOLOOP_LOG" 2>&1; then
+    _AUTOLOOP_N="$(_autoloop_count)"
+    {
+      echo ""
+      echo "擋下:test_autonomous_loop.py 有紅(自主迴圈那${_AUTOLOOP_N:+ $_AUTOLOOP_N }支)。"
+      echo "完整輸出在這裡:"
+      echo "   $_AUTOLOOP_LOG"
+      tail -15 "$_AUTOLOOP_LOG" | sed 's/^/    /'
+      echo ""
+      echo "兩條路選一條:"
+      echo "  1. 修到全綠再推(正常做法)。"
+      echo "  2. 確定是測試本身不穩或環境問題 → git push --no-verify(後果自負;CI 還是會再跑一次)"
+      echo ""
+    } >&2
+    exit 1
+  fi
+  _AUTOLOOP_N="$(_autoloop_count)"
+  echo "  ✓ 自主迴圈那${_AUTOLOOP_N:+ $_AUTOLOOP_N }支也綠" >&2
+fi
+
+# 測試套件閘(僅 Lumos 源 repo;2026-07-07):紅測試兩度溜進 main(pre-push 原只跑 doctor 不跑測試)。
+# 事件點修法:push 前全量跑一次(2026-09-06 實測約 8 分鐘、3700+ 案例;「~32s」是 2026-07-07、183 支測試時代的舊數字)。消費專案不跑——skills/ 只存在於源 repo(不 vendor),
+# 消費端自己的測試歸自己的 CI/hooks 管,lumos 不越俎。逃生:git push --no-verify(自負)。
+if [[ -d "$REPO_ROOT/skills/lumos-project-notes" && -f "$REPO_ROOT/scripts/test_lumos.py" ]]; then
+  # ★分片並行★(2026-09-06 全 repo 審視 #12):全套串行約 8 分鐘,大部分時間在等子進程
+  # 而不是吃 CPU,所以切成幾片同時跑很划算。實測四片牆鐘 271 秒(對照串行 480 秒,省 43%
+  # ——不是四倍,因為瓶頸是 IO 不是 CPU)。片數可用 LUMOS_TEST_SHARDS 調;設 1 就是串行。
+  _shards="${LUMOS_TEST_SHARDS:-4}"
+  # 不是正整數就串行(r2 邊界席 blocker:給 abc 會讓 seq 一片都不起,零測試回綠)
+  [[ "$_shards" =~ ^[0-9]+$ && "$_shards" -ge 1 ]] || _shards=1
+  # ★先探這支 runner 支不支援分片★:新 hook 配到舊的(或別人自己寫的)runner 時,
+  # 硬塞它不認得的旗標會讓它整個報錯 → 人被莫名其妙擋下。探不到就乖乖退回串行,
+  # 行為跟以前一模一樣。(2026-09-06 實際踩到:假 runner 不認得新旗標,當場被判紅。)
+  #
+  # ★探測不能用「跑 --help 看輸出」★(r1 外家席抓到):舊版 runner 正是「不認得的參數
+  # 就靜默丟掉」,所以餵它 --help 等於什麼都沒帶——**它會直接跑滿八分鐘的全套**,
+  # 探測完再串行跑一次,一次推送變十六分鐘。改成直接讀檔找旗標字樣:不執行、瞬間完成,
+  # 而且對「會把 --help 當成沒帶參數」的舊 runner 一樣有效。
+  if ! grep -q -- '"--shard"' "$REPO_ROOT/scripts/test_lumos.py" 2>/dev/null; then
+    _shards=1
+  fi
+  # 純文件 / light 只跑子集(2026-09-18):runner 認得 --suite 才走;每個 ref 都不是全套才算。
+  # 探法同上:讀檔找旗標字樣,不執行。
+  _suite_mode="full"
+  if [[ "$_SUITE_SEEN" -eq 1 && "$_SUITE_FULL" -eq 0 ]] && grep -q -- '"--suite"' "$REPO_ROOT/scripts/test_lumos.py" 2>/dev/null; then
+    _suite_mode="docs"; [[ "$_SUITE_LIGHT" -eq 1 ]] && _suite_mode="light"
+  fi
+  _suite_args=(); _suite_word="全部測試"
+  if [[ "$_suite_mode" != "full" ]]; then
+    _suite_args=(--suite docs)
+    _suite_word="文件子集(這次沒改到程式、或改動判成 light,不跑全套)"
+    # 碰到圖譜筆記:加跑讀真圖譜的測試(檢索品質、評測)。執行器不認得 --graph(舊版)就退全套——跟上面探 --suite/--shard
+    # 同一個理由:硬塞不認得的旗標,執行器會整個報錯,被判成「測試有紅」(r2 通才席實測重現)
+    if [[ "$_SUITE_GRAPH" -eq 1 ]]; then
+      if grep -q -- '"--graph"' "$REPO_ROOT/scripts/test_lumos.py" 2>/dev/null; then
+        _suite_args+=(--graph)
+      else
+        _suite_mode="full"; _suite_args=(); _suite_word="全部測試"
+      fi
+    fi
+  fi
+  # light 的關鍵字子集跟文件子集一起分片、平行跑(r1 併發席:原本等分片收完才串行跑一趟);
+  # 一支都沒對到(每片都 rc3)不擋,只把話講清楚:CI 會跑全套當後盾。有紅照擋。
+  _keys_args=()
+  if [[ "$_suite_mode" == "light" && -n "$_SUITE_KEYS" ]]; then
+    _keys_args=(--suite keys --keys "$_SUITE_KEYS")
+  elif [[ "$_suite_mode" == "light" ]]; then
+    echo "  這次改動抽不出函式或檔名當關鍵字,推送前只跑文件子集;CI 會跑全套當後盾。" >&2
+  fi
+  _sdir="$_PP_TMP/shards"; mkdir -p "$_sdir"
+  _rc=0; _krc_all3=1
+  run_group() {   # $1=log 前綴,其餘=執行器參數;每片一個子行程,回傳 0=全綠、3=每片都選中 0 支、1=有紅
+    local _pfx="$1"; shift
+    local _pids=() _i _p _r _any3=0 _bad=0
+    for _i in $(seq 1 "$_shards"); do
+      if [[ "$_shards" -le 1 ]]; then
+        "$PY" "$REPO_ROOT/scripts/test_lumos.py" "$@" > "$_sdir/$_pfx$_i.log" 2>&1 &
+      else
+        # 這條路不帶 --json-summary:判紅靠子行程離開碼、列紅的靠 log,摘要檔寫了沒人讀
+        # 就是白工(r1 通才席抓到)。那個旗標留著給要機讀的人用,不是給這裡用的。
+        "$PY" "$REPO_ROOT/scripts/test_lumos.py" --shard "$_i/$_shards" "$@" > "$_sdir/$_pfx$_i.log" 2>&1 &
+      fi
+      _pids+=($!)
+    done
+    # ★用每個子行程自己的離開碼判★,不是用有沒有寫出摘要檔判——摘要檔是給人看的加值,
+    # 拿它當判準等於「runner 不支援新旗標就一律紅」。
+    for _p in "${_pids[@]}"; do _r=0; wait "$_p" || _r=$?; [[ "$_r" -eq 3 ]] && _any3=1; [[ "$_r" -ne 0 && "$_r" -ne 3 ]] && _bad=1; done
+    [[ "$_bad" -eq 1 ]] && return 1
+    [[ "$_any3" -eq 1 ]] && return 3
+    return 0
+  }
+  if [[ "$_suite_mode" != "full" ]]; then
+    echo "推送前先跑$_suite_word(切成 $_shards 片同時跑;嫌久可 --no-verify,CI 會兜底)…" >&2
+  elif [[ "$_shards" -le 1 ]]; then
+    echo "推送前先跑全部測試(約 8 分鐘;嫌久可 --no-verify,CI 會兜底)…" >&2
+  else
+    echo "推送前先跑全部測試(切成 $_shards 片同時跑,約 4-5 分鐘;嫌久可 --no-verify,CI 會兜底)…" >&2
+  fi
+  # 兩組真的同時跑(2026-09-18 實測:原本 keys 那組等文件子集跑完才開始,註解卻寫「平行」)
+  _grc=0; _krc=0
+  ( run_group s ${_suite_args+"${_suite_args[@]}"} ) & _gpid=$!
+  if [[ ${#_keys_args[@]} -gt 0 ]]; then
+    ( run_group k "${_keys_args[@]}" ) & _kpid=$!
+    wait "$_kpid" || _krc=$?
+  fi
+  wait "$_gpid" || _grc=$?
+  [[ "$_grc" -ne 0 ]] && _rc=1      # 文件子集/全套選中 0 支也算紅(執行器那邊本來就這樣判)
+  if [[ ${#_keys_args[@]} -gt 0 ]]; then
+    if [[ "$_krc" -eq 3 ]]; then
+      echo "  沒有測試提到這次改到的函式或檔名($_SUITE_KEYS),推送前只跑了文件子集;CI 會跑全套當後盾。" >&2
+    elif [[ "$_krc" -ne 0 ]]; then
+      _rc=1
+    fi
+  fi
+  cat "$_sdir"/*.log > "$_TESTS_LOG" 2>/dev/null || true
+  if [[ $_rc -ne 0 ]]; then
+    {
+      echo ""
+      echo "擋下:test_lumos.py 有紅,有測試沒過。"
+      echo "紅的是這幾支:"
+      grep -h "✗ " "$_TESTS_LOG" | head -20 | sed 's/^/    /'
+      echo ""
+      echo "完整輸出(所有分片接在一起)在這裡:"
+      echo "   $_TESTS_LOG"
+      echo ""
+      echo "兩條路選一條:"
+      echo "  1. 修到全綠再推。只重跑紅的那幾支:"
+      echo "       python3 scripts/test_lumos.py --ff -x"
+      echo "  2. 確定是測試本身不穩或環境問題 → git push --no-verify(後果自負;CI 還是會再跑一次)"
+      echo ""
+    } >&2
+    exit 1
+  fi
+  # 各片印一行「N passed, M failed」,用 awk 加總成一行(維持薄殼:不在 hook 裡塞 python)
+  grep -h "passed," "$_TESTS_LOG" \
+    | awk -F'[ ,]+' '{p+=$1; f+=$3} END{if (NR) printf "  全部 %d 條斷言過、%d 條紅(%d 片加總)\n", p, f, NR}' >&2 || true
+fi
+
+exit 0

@@ -1,0 +1,9 @@
+# 本機流水帳(不進版控);★治理帳 .governance-log.jsonl 刻意不在這裡★——
+# CI 靠它讀代碼審留痕與棧別提問表態,忽略掉那條路就斷了。
+.bypass-log.jsonl
+.rot-queue.jsonl
+.canary-log.jsonl
+.kill-log.jsonl
+.signoff-log.jsonl
+.usage-log.jsonl
+.ci-log.jsonl

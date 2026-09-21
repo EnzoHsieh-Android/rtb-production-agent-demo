@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Enzo Hsieh
+# SPDX-License-Identifier: MIT
+# MIT licensed. Full text: scripts/lumos header, or LICENSE at
+# https://github.com/EnzoHsieh-Android/Lumos
+# Git post-commit hook — bypass 留痕 (L2 的觀測面)
+#
+# 設計理由 (2026-06-10, 治理調研 gap「逃生口與警告忽略皆無留痕」):
+#   L2 pre-commit 硬擋有合法後門 `--no-verify`,但走後門零痕跡——bypass 率
+#   是「不更新圖譜比更新圖譜更難」這個核心宣稱唯一沒被量測的數字。
+#   關鍵事實:--no-verify 只跳過 pre-commit / commit-msg,post-commit 永遠會跑,
+#   所以本 hook 是天然的偵測點:凡「有 code 異動但無圖譜 .md」的 commit 能落地,
+#   必然繞過了 L2 → append 結構化事件到 docs/.bypass-log.jsonl。
+#
+#   只記錄、不阻擋、不問理由——bypass 本來就是被認可的逃生口,這裡要的是
+#   「率」不是「罪」;weekly 由 `lumos gov --since 7` 顯示 bypass 率(原寫 rot-queue-digest.sh,從未存在,2026-08-21 更正)。
+#   (L1 警告被忽略的最終結果就是一筆 bypass commit,同一個訊號,不另外追蹤)
+#
+# 判定邏輯與 scripts/hooks/pre-commit 完全對齊 (CODE_EXTS_RE / 排除規則 /
+# GRAPH_ROOT 偵測),兩邊認定不一致會產生幽靈 bypass 或漏記。
+
+set -u
+
+# post-commit 絕不能影響 commit 結果:任何錯誤都靜默結束
+trap 'exit 0' ERR
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT" || exit 0
+
+# 找圖譜目錄 (對齊 pre-commit)
+GRAPH_ROOT=""
+if [[ -d docs ]]; then
+  for d in docs/*-knowledge; do
+    [[ -d "$d" ]] && GRAPH_ROOT="$d" && break
+  done
+  [[ -z "$GRAPH_ROOT" && -d docs/knowledge ]] && GRAPH_ROOT="docs/knowledge"
+fi
+[[ -z "$GRAPH_ROOT" ]] && exit 0
+
+# merge commit 不適用 bypass 概念 (內容來自既有 commit) → 跳過
+if [[ "$(git rev-list --parents -n 1 HEAD | wc -w)" -gt 2 ]]; then
+  exit 0
+fi
+
+# 本次 commit 的檔案清單 (quotePath=off 對齊 pre-commit 的中文路徑處理)
+CHANGED="$(git -c core.quotePath=off diff-tree --no-commit-id --name-only -r HEAD)"
+[[ -z "$CHANGED" ]] && exit 0
+
+# code 副檔名與排除規則 (對齊 pre-commit / check-graph-sync.py CODE_EXTS)
+CODE_EXTS_RE='\.(cs|vue|js|ts|tsx|jsx|mjs|sql|py|kt|kts|java|swift|go|rs|c|cc|cpp|h|hpp|sh|ps1)$'  # sh/ps1 2026-08-21 補(體檢 #7);各份清單由 t_code_exts_lists_agree 釘
+
+is_shebang_code() {   # 沒副檔名的檔:看 剛 commit 的 內容首行是不是 #!(2026-09-05 README 審視 d1:scripts/lumos 這種主程式五月起 26 次漏過)
+  local path="$1" base
+  # git 對含 " \ 或控制字元的檔名會印成 C 式引號("a\"b");拿去 git show 會找不到 → 先解引號(r2 delta major)
+  if [[ "$path" == \"*\" && ${#path} -ge 2 ]]; then   # 長度守衛:單一個引號的假輸入不做子字串(r3 delta minor,set -u 下會吐錯)
+    path="${path:1:${#path}-2}"; path="${path//\\\"/\"}"; path="$(printf '%b' "$path")"   # \" 手解;\\ \t \ooo(控制字元)交給 printf %b(r3 外家:八進位沒解 → 找不到 → 放行)
+  fi
+  base="${path##*/}"; base="${base#"${base%%[!.]*}"}"; [[ "$base" == *.* ]] && return 1   # 去掉所有開頭的點再看有沒有副檔名(.pythonrc、..foo 也要看 shebang)
+  local first; first="$(git show "HEAD:$path" 2>/dev/null | head -c 200 | head -n 1)" || return 1
+  [[ "$first" == "#!"* ]]   # 任何 shebang 都算(不列直譯器清單:r1 外家 #!/bin/dash 漏判;各處同一條規則,由 t_code_exts_lists_agree 釘)
+}
+should_exclude() {
+  local path="$1"
+  case "$path" in
+    docs/*|*/node_modules/*|*/bin/*|*/obj/*|*/.git/*|*/dist/*|*/build/*|*/__pycache__/*) return 0;;
+    *package-lock.json|*yarn.lock|*pnpm-lock.yaml) return 0;;
+    # vendored 工具白名單+源 repo 守門(與 pre-commit 完全對齊,2026-07-25):例行 lumos update
+    # 的 vendored .py 不該進 bypass 帳(pre-commit 已放行,這裡再記=假 bypass 灌水稀釋真訊號)。
+    scripts/lumos|scripts/test_lumos.py|scripts/merge-claude-settings.py|scripts/graph-rename.sh|scripts/fetch-notesmd.sh|scripts/hooks/*|scripts/templates/*)
+      [[ -d "skills/lumos-project-notes" ]] && return 1   # 源 repo:不豁免
+      return 0;;
+  esac
+  return 1
+}
+
+src_files=()
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  if ! [[ "$f" =~ $CODE_EXTS_RE ]] && ! is_shebang_code "$f"; then continue; fi
+  if should_exclude "$f"; then continue; fi
+  src_files+=("$f")
+done <<< "$CHANGED"
+
+# 沒 code → 本來就會被 pre-commit 放行,不是 bypass
+[[ ${#src_files[@]} -eq 0 ]] && exit 0
+
+# 有圖譜 .md 一起 commit → 正常通過 L2,不是 bypass
+if echo "$CHANGED" | grep -qE "^${GRAPH_ROOT}/.*\.md$"; then
+  exit 0
+fi
+
+# ── 走到這裡 = 這筆 commit 繞過了 L2 → 留痕 ──
+BYPASS_LOG="$REPO_ROOT/docs/.bypass-log.jsonl"
+
+PY="$(command -v python3 || command -v python)"
+COMMIT_HASH="$(git rev-parse --short HEAD)" \
+BRANCH="$(git branch --show-current)" \
+SUBJECT="$(git log -1 --format=%s)" \
+SRC_COUNT="${#src_files[@]}" \
+SRC_SAMPLE="$(printf '%s\n' "${src_files[@]:0:10}")" \
+"$PY" - "$BYPASS_LOG" <<'PYEOF'
+import json, os, sys
+from datetime import datetime, timezone
+
+entry = {
+    "ts": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+    "commit": os.environ["COMMIT_HASH"],
+    "branch": os.environ["BRANCH"],
+    "subject": os.environ["SUBJECT"],
+    "code_file_count": int(os.environ["SRC_COUNT"]),
+    "code_files": os.environ["SRC_SAMPLE"].splitlines(),
+}
+with open(sys.argv[1], "a", encoding="utf-8") as f:
+    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+PYEOF
+
+{
+  echo ""
+  echo "記下了:這次 commit 有 ${#src_files[@]} 個程式碼檔沒帶筆記改動,已寫進跳過紀錄(不擋,只留痕)。"
+  echo "如果這次其實該補筆記,趁記憶還新鮮補上;每週可以用這個看跳過率:"
+  echo "   lumos gov --since 7"
+  echo ""
+} >&2
+
+exit 0

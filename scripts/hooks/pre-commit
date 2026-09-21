@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Enzo Hsieh
+# SPDX-License-Identifier: MIT
+# MIT licensed. Full text: scripts/lumos header, or LICENSE at
+# https://github.com/EnzoHsieh-Android/Lumos
+# Git pre-commit hook — 圖譜同步硬擋 (L2)
+#
+# 設計理由 (2026-05-25 從 PreToolUse 搬家):
+#   舊版 L2 在 Claude Code PreToolUse 攔 `git commit`,但 staged 區在 -a/-am
+#   flag 跟 `git commit <path>` 場景下 hook 看到的是空的 (因 -a 在 git 程序內
+#   部才 stage), 造成 silent 漏網。教 PreToolUse 解 git command 是追 git 尾巴
+#   永遠補不完,根因是「攔截點不對」。改放到 git pre-commit hook,git 內部
+#   已決定最終 staged 內容,所有 commit 形態(-a/-am/<path>/--amend)都涵蓋。
+#
+# Bypass: 用業界標準 `git commit --no-verify` (有儀式感、code review 看得到、
+#         比自製 `[no-graph]` marker 難被無意識濫用)
+#
+# 安裝:
+#   git config core.hooksPath scripts/hooks
+#   (一次設定,之後 git 自動跑此 hook)
+
+set -u
+
+# 找專案 root (避免在 submodule / worktree 出錯)
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT" || exit 0
+
+# 找圖譜目錄 (docs/{slug}-knowledge/)
+GRAPH_ROOT=""
+if [[ -d docs ]]; then
+  for d in docs/*-knowledge; do
+    [[ -d "$d" ]] && GRAPH_ROOT="$d" && break
+  done
+  [[ -z "$GRAPH_ROOT" && -d docs/knowledge ]] && GRAPH_ROOT="docs/knowledge"
+fi
+
+# Gate 0: 圖譜不存在 → 放行
+[[ -z "$GRAPH_ROOT" ]] && exit 0
+
+# 拿最終 staged (git 在 pre-commit 時 staged 已確定,-a/-am/path 都涵蓋)
+# core.quotePath=off: 避免 git 對中文/non-ASCII 路徑加雙引號 ("docs/.../節點.md"),
+# 否則 L65 grep "^${GRAPH_ROOT}/..." 比對不到 → 圖譜檔已 staged 仍誤判為未同步擋下
+STAGED="$(git -c core.quotePath=off diff --cached --name-only)"
+[[ -z "$STAGED" ]] && exit 0  # 空 commit 不擋
+
+# Gate CC (advisory): co-change 漏改警告 —— 恆不影響 rc(|| true 隔離)。
+# 必須在 Gate 1 之前:後面每條路徑都顯式 exit,「末段」是不可達死碼;
+# docs-only commit 在 Gate 2 就 exit 0,唯有這裡能覆蓋主場景(改文件漏同步夥伴)。
+# 警告走 stdout(2>/dev/null 只吞診斷,含版本偏斜時舊 vendored lumos 的 argparse 錯)。
+CC_PY="$(command -v python3 || command -v python || true)"
+if [ -n "$CC_PY" ] && [ -f "$REPO_ROOT/scripts/lumos" ]; then
+  "$CC_PY" "$REPO_ROOT/scripts/lumos" cochange check --staged 2>/dev/null || true
+else
+  echo "提醒:這台機器找不到 python3 或 scripts/lumos,所以「漏改夥伴檔」的提醒這次沒跑。" >&2
+fi
+
+# Gate DG: code 側刪除傳播守衛 (advisory;spec=Projects/code側刪除傳播守衛_計劃)
+# 警告走 stdout(2>/dev/null 只吞診斷);|| true 只兜 crash,hang 由 lumos 內部 deadline 兜(fail-open)
+# -f 必檢:沒有 scripts/lumos 的 repo(未 vendored)只有 CC_PY 也會跑,python 報「can't open file」
+if [[ -n "${CC_PY:-}" && -f "$REPO_ROOT/scripts/lumos" ]]; then
+  "$CC_PY" "$REPO_ROOT/scripts/lumos" delguard --staged 2>/dev/null || true
+fi
+
+# Gate 1: 圖譜污染指紋 (2026-06-13 對抗審計 P0)
+# 攔 notesmd-cli `frontmatter --edit` 的副作用: 日期欄位加引號 (Obsidian property
+# 型別 date→text 靜默損傷,且通常伴隨整篇 frontmatter 鍵序重排)。
+# 必須放在 Gate 2 之前 — 污染 commit 是 docs-only,Gate 2 的 code 判定對它直接放行。
+if echo "$STAGED" | grep -qE "^${GRAPH_ROOT}/.*\.md$"; then
+  polluted="$(git -c core.quotePath=off diff --cached -- "$GRAPH_ROOT" \
+    | grep -E '^\+[[:space:]]*(date|created|updated|decided|ended):[[:space:]]*"[0-9]{4}-[0-9]{2}-[0-9]{2}"' || true)"
+  if [[ -n "$polluted" ]]; then
+    {
+      echo ""
+      echo "擋下:有筆記的日期欄位被加上了引號(例如 created: \"2026-08-21\")。"
+      echo "這幾乎都是某個編輯工具順手改的,不是人打的;它會讓日期欄位變成純文字,而且通常整篇欄位順序都被重排——這種 diff 沒辦法審。"
+      echo ""
+      echo "被改到的行:"
+      echo "$polluted" | head -5 | sed 's/^/   /'
+      echo ""
+      echo "看完整改動:"
+      echo "   git diff --cached -- ${GRAPH_ROOT}"
+      echo "還原那個檔:"
+      echo "   git checkout -- <檔案>"
+      echo "真的是刻意要這樣(非常少見)→ git commit --no-verify"
+      echo ""
+    } >&2
+    exit 1
+  fi
+fi
+
+# Gate L: staged 圖譜 .md 逐檔 lumos lint (2026-08-21 體檢 #6)
+# 為什麼:lint 自 2026-06 起沒有任何 hook/CI 呼叫,它的每條鐵則(YAML list/白名單/枚舉/frontmatter
+# 閉合)全靠人記得跑——「有機制,沒接線」。硬擋:lint rc≠0 即擋,訊息原樣轉出。
+# 只跑 staged 的圖譜檔(每檔 <1s),不跑全 vault。找不到 python/lumos → 跳過(與 Gate CC 同語意)。
+if [[ -n "${CC_PY:-}" && -f "$REPO_ROOT/scripts/lumos" ]]; then
+  lint_fail=0
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    [[ -f "$f" ]] || continue          # 刪除的檔不 lint
+    # ★傳 vault 相對路徑、去 .md★——lumos lint 的精確比對鍵是 vault 相對的「Systems/foo」;
+    # 丟 repo 相對路徑會落到 stem 查找,同檔名不同資料夾時 lint 到別的節點、壞的放行(code-loop r1 s1)。
+    rel="${f#$GRAPH_ROOT/}"; rel="${rel%.md}"
+    if ! out="$("$CC_PY" "$REPO_ROOT/scripts/lumos" lint "$rel" 2>&1)"; then
+      lint_fail=1
+      { echo ""; echo "擋下:這篇筆記的格式檢查沒過——$f"; echo "$out" | sed 's/^/   /'; } >&2
+    fi
+  done < <(echo "$STAGED" | grep -E "^${GRAPH_ROOT}/.*\.md$" || true)
+  if [[ "$lint_fail" == 1 ]]; then
+    { echo ""; echo "格式錯的筆記進了版控,之後的工具會讀錯(合約標記消失、連結變鬼節點)。照上面的提示修好再 commit。"; echo "真的要先進去 → git commit --no-verify,並在訊息裡留一句為什麼。"; echo ""; } >&2
+    exit 1
+  fi
+fi
+
+
+# Gate H: 每支檔有家(2026-09-11,Projects/每支檔有家_計劃 [S25]):每支程式檔要有一篇管它的節點、
+# 節點只准寫自己家的檔、寫回要落在改動檔的家——新違規擋,舊帳交給健檢提醒。判定全在 lumos 裡,這裡只呼叫。
+# ★要放在「改程式沒動圖譜」那道之前★:那道只要有圖譜筆記加進索引就提早放行離開,放後面等於只在最不需要的時候才跑。
+# 合併提交由 lumos 自己判斷跳過(推送前會把合併的結果整段查一次)。
+# 「該動哪篇」的點名(原本在這裡呼叫 impact --sync-only,以反引號為種子)也改由它照家算——
+# 反引號那一套會把人推回寫了一堆別人檔名的大雜燴節點(計劃「為什麼」第 3 條)。
+# rc1=新違規擋;其他非零(lumos 自己出錯)=放行,這道不因為環境壞了擋人。
+if [[ -n "${CC_PY:-}" && -f "$REPO_ROOT/scripts/lumos" ]]; then
+  nh_rc=0
+  "$CC_PY" "$REPO_ROOT/scripts/lumos" home check --staged --repo "$REPO_ROOT" || nh_rc=$?
+  [[ "$nh_rc" -eq 1 ]] && exit 1
+fi
+
+# Gate 2: code 副檔名 (對齊 check-graph-sync.py CODE_EXTS)
+CODE_EXTS_RE='\.(cs|vue|js|ts|tsx|jsx|mjs|sql|py|kt|kts|java|swift|go|rs|c|cc|cpp|h|hpp|sh|ps1)$'  # sh/ps1 2026-08-21 補(體檢 #7);各份清單由 t_code_exts_lists_agree 釘
+
+# 排除路徑
+is_shebang_code() {   # 沒副檔名的檔:看 staged 內容首行是不是 #!(2026-09-05 README 審視 d1:scripts/lumos 這種主程式五月起 26 次漏過)
+  local path="$1" base
+  # git 對含 " \ 或控制字元的檔名會印成 C 式引號("a\"b");拿去 git show 會找不到 → 先解引號(r2 delta major)
+  if [[ "$path" == \"*\" && ${#path} -ge 2 ]]; then   # 長度守衛:單一個引號的假輸入不做子字串(r3 delta minor,set -u 下會吐錯)
+    path="${path:1:${#path}-2}"; path="${path//\\\"/\"}"; path="$(printf '%b' "$path")"   # \" 手解;\\ \t \ooo(控制字元)交給 printf %b(r3 外家:八進位沒解 → 找不到 → 放行)
+  fi
+  base="${path##*/}"; base="${base#"${base%%[!.]*}"}"; [[ "$base" == *.* ]] && return 1   # 去掉所有開頭的點再看有沒有副檔名(.pythonrc、..foo 也要看 shebang)
+  local first; first="$(git show ":$path" 2>/dev/null | head -c 200 | head -n 1)" || return 1
+  [[ "$first" == "#!"* ]]   # 任何 shebang 都算(不列直譯器清單:r1 外家 #!/bin/dash 漏判;各處同一條規則,由 t_code_exts_lists_agree 釘)
+}
+should_exclude() {
+  local path="$1"
+  case "$path" in
+    docs/*|*/node_modules/*|*/bin/*|*/obj/*|*/.git/*|*/dist/*|*/build/*|*/__pycache__/*) return 0;;
+    *package-lock.json|*yarn.lock|*pnpm-lock.yaml) return 0;;
+    # vendored 工具白名單(lumos 自有物,例行 lumos update 不該撞圖譜閘;2026-07-25)。
+    # ★精確白名單,非 scripts/* 整夾★——專案自有 scripts/foo.py 仍照擋。
+    # ★源 repo 守門★:在 Lumos 來源 repo 本身(有 skills/lumos-project-notes),這些檔=產品碼,
+    # 豁免不適用(否則源 repo 自家改 scripts/lumos 不帶圖譜會靜默放行=弄弱自家閘)。
+    # 與 scripts/lumos 的 _VENDORED_TOOLKIT 常數同源;漂移守衛 t_precommit_whitelist_drift_guard。
+    scripts/lumos|scripts/test_lumos.py|scripts/merge-claude-settings.py|scripts/graph-rename.sh|scripts/fetch-notesmd.sh|scripts/hooks/*|scripts/templates/*)
+      [[ -d "skills/lumos-project-notes" ]] && return 1   # 源 repo:不豁免
+      return 0;;
+  esac
+  return 1
+}
+
+src_files=()
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  if ! [[ "$f" =~ $CODE_EXTS_RE ]] && ! is_shebang_code "$f"; then continue; fi
+  if should_exclude "$f"; then continue; fi
+  src_files+=("$f")
+done <<< "$STAGED"
+
+# Gate 2: 沒 code → 放行
+[[ ${#src_files[@]} -eq 0 ]] && exit 0
+
+# Gate 3: 有圖譜 .md staged → 放行(「該動卻沒動」的點名已由上面的 Gate H 照家算好印出,2026-09-11)
+if echo "$STAGED" | grep -qE "^${GRAPH_ROOT}/.*\.md$"; then
+  exit 0
+fi
+
+# ── 印警告並擋 ──
+{
+  echo ""
+  echo "擋下:這次 commit 改了程式碼,但知識筆記一個字都沒動。"
+  echo "程式碼記的是「現在長怎樣」,筆記記的是「為什麼這樣做」——只改其中一邊,下一個人(或下一個 session 的 Claude)就會拿舊的理由去理解新的程式碼。"
+  echo ""
+  echo "這次改到的程式碼(${#src_files[@]} 個):"
+  for f in "${src_files[@]:0:10}"; do echo "   • $f"; done
+  if [[ ${#src_files[@]} -gt 10 ]]; then
+    echo "   … 還有 $(( ${#src_files[@]} - 10 )) 個"
+  fi
+  echo ""
+  echo "筆記放在這個資料夾,這次沒有任何一篇被加進 commit:"
+  echo "   ${GRAPH_ROOT}/"
+  echo ""
+  echo "通常要跟著改的是:受影響功能的說明(Systems)、這次驗證了什麼(Verification)、相關問題單的狀態(Issues)。"
+  echo ""
+  echo "兩條路選一條:"
+  echo "   1. 把該改的筆記改一改,加進 commit,再提交一次。"
+  echo "   2. 這次真的不需要動筆記(改錯字、排版、註解、還在進行中的半成品)→ 跳過這道檢查:"
+  echo "        git commit --no-verify -m '<訊息>'"
+  echo "      跳過會留下紀錄,不是偷偷放行。"
+  echo ""
+} >&2
+
+exit 1

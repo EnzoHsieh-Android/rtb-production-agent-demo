@@ -1,0 +1,1 @@
+{"ts": "2026-09-21T22:25:10+08:00", "commit": "HEAD", "gate": "canary", "kind": "blocked", "hard": true, "nodes": [], "note": "findings-over-reported:36>9 loop=rtb-agent-phase0架構 auditor=s2-failure-semantics id=c8229631", "detail": "findings-over-reported:36>9 loop=rtb-agent-phase0架構 auditor=s2-failure-semantics id=c8229631", "head_sha": "HEAD"}

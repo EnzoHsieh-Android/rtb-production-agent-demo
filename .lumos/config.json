@@ -1,0 +1,7 @@
+{
+  "test_profile": "python",
+  "symbol_profile": "python",
+  "test": {
+    "run_cmd": "python3 -m pytest -k {method} -q"
+  }
+}
