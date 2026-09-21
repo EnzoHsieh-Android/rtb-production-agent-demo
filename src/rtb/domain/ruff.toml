@@ -4,6 +4,8 @@ extend = "../../../pyproject.toml"
 
 [lint.flake8-tidy-imports.banned-api]
 "sqlite3".msg = "領域層不得碰資料庫"
+"rtb.sqlitekit".msg = "領域層不得碰資料庫(共用的資料庫基礎)"
+"rtb.httpkit".msg = "領域層不得碰網路(共用的 HTTP 基礎)"
 "socket".msg = "領域層不得碰網路"
 "urllib.request".msg = "領域層不得碰網路"
 "http.client".msg = "領域層不得碰網路"

@@ -9,7 +9,6 @@ import hashlib
 import json
 import math
 import re
-import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -25,6 +24,7 @@ from rtb.dsp.errors import (
     ValidationRejected,
     VersionConflict,
 )
+from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, begin_immediate, connect
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS campaigns (
@@ -40,7 +40,6 @@ CREATE TABLE IF NOT EXISTS metrics (
     conversions INTEGER, spend REAL, revenue REAL, PRIMARY KEY (campaign_id, window_name));
 """
 
-BUSY_TIMEOUT_SECONDS = 5.0
 SQLITE_INTEGER_MAX = 2**63 - 1
 METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
 COUNT_FIELDS = ("impressions", "clicks", "conversions")  # METRIC_FIELDS 的子集:存成整數
@@ -173,13 +172,10 @@ class CampaignStore:
         busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
     ):
         self._clock = clock
-        self._conn = sqlite3.connect(path, isolation_level=None, timeout=busy_timeout_seconds)
         try:
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.executescript(SCHEMA)
-        except BaseException:
-            self._conn.close()  # 設定失敗時不留下沒人關的連線
-            raise
+            self._conn = connect(path, busy_timeout_seconds, SCHEMA)
+        except DatabaseBusy as exc:
+            raise StoreBusy(str(exc)) from exc
 
     def close(self) -> None:
         self._conn.close()
@@ -248,12 +244,9 @@ class CampaignStore:
 
     def _begin_write_transaction(self) -> None:
         try:
-            self._conn.execute("BEGIN IMMEDIATE")
-        except sqlite3.OperationalError as exc:
-            primary_code = exc.sqlite_errorcode & 0xFF  # 擴充碼的低 8 位才是主要錯誤碼
-            if primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
-                raise StoreBusy(str(exc)) from exc
-            raise  # 唯讀資料庫、磁碟錯誤等永久故障,不能偽裝成可重試
+            begin_immediate(self._conn)
+        except DatabaseBusy as exc:
+            raise StoreBusy(str(exc)) from exc
 
     def _execute_in_transaction(self, op: Operation, received_at: str) -> OperationResult:
         existing = self._existing_operation(op)

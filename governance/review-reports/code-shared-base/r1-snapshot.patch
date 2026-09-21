@@ -1,0 +1,1009 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+index 1e91d6b..4f6374a 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+@@ -43,10 +43,12 @@ verified_by:
+ - 計劃列為以標頭注入的三種故障(版本衝突、同鍵同內容重送、同鍵不同內容)沒有做成標頭注入,而是用真實邏輯產生並測試。這是有意的偏離:真實邏輯比注入更能證明行為。
+ - 動作驗證與狀態轉換目前是 if 分支,不是計劃「狀態機是資料」所說的動作表;只有預算與暫停兩種動作,可接受。
+ REVISIT:2026-11-21 動作增加到第三種時,把驗證與狀態轉換抽成動作表。
+ - 「只綁本機」的測試在沒有非回送網卡的機器上會略過,略過時沒有訊號進治理帳。
+ - 仍沒有測試守護的小防護(第二輪代碼審的存活變異):伺服器端每個請求結束時關閉資料庫連線(拿掉只會等垃圾回收)、對客戶端中途離開靜音的 `handle_error`、回應是否帶 Content-Length。三者行為現況正確,缺的是回歸網。
+ - 部分「提交前逾時」類測試仍用固定睡眠等待(等過處理程式睡醒),慢機器上只會讓測試少等而偏向漏抓,不會誤紅;提交後逾時與慢請求進行中已改用輪詢與同步點。
+ - 歷史查詢沒有分頁;每個請求新建資料庫連線;這兩項是效能檢核題的「張力」表態,Mock 規模可接受。
+ - 測試的白箱部分(對 `_record_idempotency`、`_conn` 打補丁)綁定私有成員,重構時會跟著紅,屬刻意。
+ 
+ 型別檢查:2026-09-22 起 `store.py` 與 `server.py` 通過 mypy 嚴格模式。`Operation.params` 與 `expected_version` 都標成未驗證(`dict[str, object]` 與 `object`),`_next_state` 讀預算時用 `_is_plain_int` 收窄,型別檢查因此守得住這條不可信資料的路徑。順手修了兩個真的隱患:`cursor.lastrowid` 可能是 None(現在明確報錯並回滾),以及 `Operation.params` 與 `expected_version` 來自不可信請求,型別改標為未驗證的 `object`,由 `_validate` 用 `TypeGuard` 確認後才使用。伺服器的等待逾時改成直接設定連線的逾時,不再設定基底類別的類別變數。
++
++2026-09-22:伺服器共通行為(Host 檢查、請求本文上限、逾時、JSON 錯誤與 500 後備)與 SQLite 連線及寫入交易已抽到 [[Systems/共用行程基礎]],DSP 只保留路由、錯誤對照表與故障注入;上面這些規則的實作與防回歸現在在那一篇。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md b/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md
+new file mode 100644
+index 0000000..0b79d84
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md
+@@ -0,0 +1,25 @@
++---
++type: system
++status: doing
++created: 2026-09-22
++updated: 2026-09-22
++responsibility: 負責 HTTP 服務與 SQLite 的共用做法(只綁回送位址、Host 檢查、有上限的請求本文、逾時、JSON 錯誤與 500 後備、WAL、忙碌逾時、BEGIN IMMEDIATE);不負責任何業務規則、路由或資料表結構。
++aliases: []
++about_code:
++  - src/rtb/httpkit.py
++  - src/rtb/sqlitekit.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: DSP 與之後的提案收件口都是「只綁本機、收不可信輸入、寫 SQLite」的服務;把這些共同做法抽成一份,才不會各自長出不同的防護與錯誤語意(第 1 輪設計審的架構對齊席指出,自建收件口會重寫一套 DSP 已有的東西)。出處:[[Projects/RTB_Phase2任務流程_計劃]] 增量 2 設計。
++  RULE: 沒預期到的例外一律回 500 JSON 並把細節只寫到標準錯誤,回應不含內部細節;不准無聲斷線,因為呼叫端會分不出「永久錯誤」與「提交前逾時」。[since:2026-09-21] [retire:改由框架提供統一錯誤處理時撤除]
++  RULE: Host 標頭比對不分大小寫;缺 Host 只有 HTTP/1.0 請求放行(舊式探針),因為瀏覽器一定會送 Host,DNS rebinding 的攻擊從瀏覽器來。伺服器建構時就拒絕綁定回送位址以外的位置。[since:2026-09-21] [retire:服務不再只綁本機回送位址時重審]
++  PITFALL: SQLite 的錯誤碼在新版回傳擴充碼(例如 517),直接比對主碼會漏判「忙碌」;要取低 8 位。反過來,不是鎖競爭的錯誤(例如已在交易裡再開交易)不能偽裝成忙碌,否則呼叫者會無限重試。防回歸:[test:test_a_failure_that_is_not_lock_contention_is_not_disguised_as_busy]、[test:test_extended_busy_error_codes_are_still_recognised_as_retryable_store_busy]。
++  PITFALL: 寫入交易若用普通 BEGIN,並行請求在 WAL 下會直接回 database is locked,忙碌逾時不會等;必須 BEGIN IMMEDIATE。防回歸:[test:test_a_second_writer_gets_database_busy_after_the_timeout]。
++  PITFALL: 畸形請求行由基底類別處理,回應是沒有標頭的 HTTP/0.9 形式,只有 JSON 本文;測試不能要求標頭。防回歸:[test:test_a_malformed_request_line_gets_a_json_error_not_an_html_page]。
++  TEST: tests/kit 涵蓋回送位址、Host 檢查、重複標頭、本文上限與各種壞輸入、500 不洩漏內部細節、卡住的連線會被放棄、WAL 與忙碌與永久故障的區分、設定失敗不留連線,以及 DSP 沒有留下第二份實作。
++---
++# 共用行程基礎
++
++`src/rtb/httpkit.py`(httpkit)提供伺服器與處理程式基底:子類別實作 handle_request,需要時覆寫 map_exception 把自己的例外對應成錯誤回應。`src/rtb/sqlitekit.py`(sqlitekit)提供連線與寫入交易。使用者見 [[Systems/Mock-DSP]];之後的提案收件口也用這兩個模組。
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index 5cd897b..aef3ce8 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -1,49 +1,48 @@
+ """Mock DSP 的 HTTP 介面(獨立行程)。
+ 
+ 故障注入只在啟動時帶 --fault-injection 才接受 X-Fault 標頭;旗標關閉時收到標頭一律回 400,
+ 且不改任何狀態。每種故障都由處理程式「決定」提交或不提交,不靠睡眠長短與逾時賽跑。
+ 只綁定本機回送位址,且只接受 Host 標頭指向回送位址的請求(防 DNS rebinding)。
+ 任何沒預期到的例外都回 500 JSON,絕不無聲切斷連線:呼叫端看到斷線,就分不出
+ 「永久錯誤」與「提交前逾時」。
+ """
+ 
+ import argparse
+-import json
+ import re
+-import sys
+ import time
+-import traceback
+ from dataclasses import asdict
+-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+ from typing import Any
+ from urllib.parse import parse_qs, urlsplit
+ 
+ from rtb.dsp.errors import (
+     CampaignNotFound,
+     DspError,
+     IdempotencyConflict,
+     MetricsNotFound,
+     StoreBusy,
+     TransientError,
+     UnknownAction,
+     ValidationRejected,
+     VersionConflict,
+ )
+-from rtb.dsp.store import BUSY_TIMEOUT_SECONDS, CampaignStore, Operation
++from rtb.dsp.store import CampaignStore, Operation
++from rtb.httpkit import (
++    SOCKET_TIMEOUT_SECONDS,
++    JsonHandler,
++    KitServer,
++    NoResponse,
++    RequestRejected,
++)
++from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS
+ 
+-LOOPBACK = "127.0.0.1"
+-MAX_BODY_BYTES = 64 * 1024
+-SOCKET_TIMEOUT_SECONDS = 10.0
+-MAX_LENGTH_DIGITS = 10  # Content-Length 位數上限;更長的必然超過本文上限
+-LISTEN_BACKLOG = 128
+ FAULT_MODES = frozenset(
+     {
+         "timeout_before_commit",
+         "timeout_after_commit",
+         "delayed_response",
+         "transient_5xx",
+         "permanent_validation_error",
+     }
+ )
+ # 錯誤型別 -> (HTTP 狀態碼, 錯誤代碼, 可否重試);查表沿著繼承鏈找,子類別也查得到
+@@ -68,136 +67,54 @@ ROUTES = [
+ 
+ def error_entry(exc: DspError) -> tuple[int, str, bool]:
+     for cls in type(exc).__mro__:
+         if cls in ERROR_TABLE:
+             return ERROR_TABLE[cls]
+     if isinstance(exc, TransientError):
+         return 503, "transient_error", True
+     return 500, "dsp_error", False
+ 
+ 
+-class RequestRejected(Exception):
+-    """請求本身有問題,直接對應成一個 HTTP 錯誤回應。"""
+-
+-    def __init__(self, status: int, code: str, retryable: bool = False):
+-        super().__init__(code)
+-        self.status, self.code, self.retryable = status, code, retryable
+-
+-
+-class _NoResponse(Exception):
+-    """內部用:故障注入要求不回應。"""
+-
+-
+-class DspHandler(BaseHTTPRequestHandler):
++class DspHandler(JsonHandler):
+     server: DspServer
+ 
+-    def setup(self) -> None:
+-        super().setup()
+-        # 讀不到請求就放棄,不佔住執行緒
+-        self.connection.settimeout(self.server.socket_timeout_seconds)
+-
+-    def log_message(self, format: str, *args: Any) -> None:  # 不把每個請求印到終端
+-        pass
+-
+-    def send_error(
+-        self,
+-        code: int,
+-        message: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
+-        explain: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
+-    ) -> None:
+-        self._reply_error(code, "http_error", False)  # 基底類別的錯誤頁也用 JSON
+-
+-    def do_GET(self) -> None:
+-        self._dispatch("GET")
+-
+-    def do_POST(self) -> None:
+-        self._dispatch("POST")
+-
+-    def _dispatch(self, method: str) -> None:
+-        store = None
++    def handle_request(self, method: str) -> tuple[int, dict[str, Any]]:
++        fault = self._read_fault()
++        handler, campaign_or_key = self._route(method)
++        store = CampaignStore(
++            self.server.db_path, busy_timeout_seconds=self.server.busy_timeout_seconds
++        )
+         try:
+-            self._check_host()
+-            fault = self._read_fault()
+-            handler, campaign_or_key = self._route(method)
+-            store = CampaignStore(self.server.db_path,
+-                                  busy_timeout_seconds=self.server.busy_timeout_seconds)
+-            self._reply(200, getattr(self, "_" + handler)(store, campaign_or_key, fault))
+-        except RequestRejected as exc:
+-            self._reply_error(exc.status, exc.code, exc.retryable)
+-        except DspError as exc:
+-            self._reply_error(*error_entry(exc))
+-        except _NoResponse:
+-            return  # 故障注入:刻意不回應
+-        except Exception:  # 沒預期到的例外:記下來,並回型別化的 500
+-            traceback.print_exc(file=sys.stderr)
+-            self._reply_error(500, "internal_error", False)
++            return 200, getattr(self, "_" + handler)(store, campaign_or_key, fault)
+         finally:
+-            if store is not None:
+-                store.close()
++            store.close()
+ 
+-    def _check_host(self) -> None:
+-        port = self.server.server_address[1]
+-        host = self.headers.get("Host")
+-        if host is None and self.request_version == "HTTP/1.0":
+-            return  # 舊式探針可能不送 Host;瀏覽器(DNS rebinding 的來源)一定會送
+-        if host is None or host.lower() not in (f"127.0.0.1:{port}", f"localhost:{port}"):
+-            raise RequestRejected(400, "invalid_host")
+-
+-    def _single_header(self, name: str) -> str | None:
+-        values = self.headers.get_all(name) or []
+-        if len(values) > 1:
+-            raise RequestRejected(400, "duplicate_header")
+-        return values[0] if values else None
++    def map_exception(self, exc: Exception) -> tuple[int, str, bool] | None:
++        return error_entry(exc) if isinstance(exc, DspError) else None
+ 
+     def _read_fault(self) -> str | None:
+-        mode = self._single_header("X-Fault")
++        mode = self.single_header("X-Fault")
+         if mode is None:
+             return None
+         if not self.server.fault_injection:
+             raise RequestRejected(400, "fault_injection_disabled")
+         if mode not in FAULT_MODES:
+             raise RequestRejected(400, "unknown_fault_mode")
+         return mode
+ 
+     def _route(self, method: str) -> tuple[str, str]:
+         for route_method, pattern, name in ROUTES:
+             match = pattern.match(urlsplit(self.path).path)
+             if route_method == method and match:
+                 return name, match.group(1)
+         raise RequestRejected(404, "not_found")
+ 
+-    def _read_json(self) -> dict[str, Any]:
+-        if self.headers.get("Transfer-Encoding"):
+-            raise RequestRejected(411, "chunked_not_supported")
+-        raw_length = (self.headers.get("Content-Length") or "0").strip()
+-        if not raw_length.isascii() or not raw_length.isdigit():
+-            raise RequestRejected(400, "invalid_content_length")
+-        if len(raw_length) > MAX_LENGTH_DIGITS or int(raw_length) > MAX_BODY_BYTES:
+-            raise RequestRejected(413, "body_too_large")
+-        raw = self._read_exactly(int(raw_length))
+-        try:
+-            body = json.loads(raw or b"{}")
+-        except ValueError as exc:  # 含 JSONDecodeError、超長數字、非 UTF-8
+-            raise RequestRejected(400, "invalid_json") from exc
+-        if not isinstance(body, dict):
+-            raise RequestRejected(400, "invalid_json")
+-        return body
+-
+-    def _read_exactly(self, length: int) -> bytes:
+-        try:
+-            raw = self.rfile.read(length)
+-        except TimeoutError as exc:  # 客戶端宣告了長度卻遲遲不送完
+-            raise RequestRejected(408, "request_timeout") from exc
+-        if len(raw) < length:
+-            raise RequestRejected(400, "incomplete_body")
+-        return raw
+-
+     # ---- 讀取介面 ----
+     def _get_campaign(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+     ) -> dict[str, Any]:
+         return asdict(store.get_campaign(campaign_id))
+ 
+     def _get_history(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+     ) -> dict[str, Any]:
+         store.get_campaign(campaign_id)  # 不存在就回 404
+@@ -216,35 +133,35 @@ class DspHandler(BaseHTTPRequestHandler):
+     ) -> dict[str, Any]:
+         result = store.get_operation_by_key(key)
+         if result is None:
+             raise RequestRejected(404, "operation_not_found")
+         return asdict(result)
+ 
+     # ---- 寫入介面 ----
+     def _update_budget(
+         self, store: CampaignStore, campaign_id: str, fault: str | None
+     ) -> dict[str, Any]:
+-        body = self._read_json()
++        body = self.read_json(allow_empty=True)
+         params = {"new_budget": body.get("new_budget")}
+         op = self._operation(campaign_id, "update_budget", params, body)
+         return self._write(store, op, fault)
+ 
+     def _pause_campaign(
+         self, store: CampaignStore, campaign_id: str, fault: str | None
+     ) -> dict[str, Any]:
+-        body = self._read_json()
++        body = self.read_json(allow_empty=True)
+         return self._write(store, self._operation(campaign_id, "pause_campaign", {}, body), fault)
+ 
+     def _operation(
+         self, campaign_id: str, action: str, params: dict[str, Any], body: dict[str, Any]
+     ) -> Operation:
+-        key = self._single_header("Idempotency-Key")
++        key = self.single_header("Idempotency-Key")
+         if not key:
+             raise RequestRejected(400, "missing_idempotency_key")
+         return Operation(campaign_id, action, params, body.get("expected_version"), key)
+ 
+     def _write(
+         self, store: CampaignStore, op: Operation, fault: str | None
+     ) -> dict[str, Any]:
+         self._apply_fault_before_commit(fault)
+         result = asdict(store.execute(op))
+         if fault == "timeout_after_commit":
+@@ -253,58 +170,31 @@ class DspHandler(BaseHTTPRequestHandler):
+ 
+     def _apply_fault_before_commit(self, fault: str | None) -> None:
+         if fault == "delayed_response":
+             time.sleep(self.server.delay_seconds)
+         elif fault == "transient_5xx":
+             raise RequestRejected(503, "injected_transient_error", retryable=True)
+         elif fault == "permanent_validation_error":
+             raise RequestRejected(422, "injected_validation_error")
+         elif fault == "timeout_before_commit":
+             time.sleep(self.server.hang_seconds)  # 不論客戶端是否還在,都不提交
+-            raise _NoResponse
++            raise NoResponse
+ 
+-    # ---- 回應 ----
+-    def _reply_error(self, status: int, code: str, retryable: bool) -> None:
+-        self._reply(status, {"error": code, "retryable": retryable})
+-
+-    def _reply(self, status: int, payload: dict[str, Any]) -> None:
+-        raw = json.dumps(payload).encode()
+-        try:
+-            self.send_response(status)
+-            self.send_header("Content-Type", "application/json")
+-            self.send_header("Content-Length", str(len(raw)))
+-            self.end_headers()
+-            self.wfile.write(raw)
+-        except OSError:
+-            pass  # 客戶端已逾時離開,回應寫不出去是正常情況
+-
+-
+-class DspServer(ThreadingHTTPServer):
+-    daemon_threads = True
+-    request_queue_size = LISTEN_BACKLOG
+ 
++class DspServer(KitServer):
+     def __init__(self, db_path: Path, fault_injection: bool, hang_seconds: float,
+                  delay_seconds: float, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+                  socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS):
+-        super().__init__((LOOPBACK, 0), DspHandler)
++        super().__init__(DspHandler, socket_timeout_seconds)
+         self.db_path, self.fault_injection = db_path, fault_injection
+         self.hang_seconds, self.delay_seconds = hang_seconds, delay_seconds
+         self.busy_timeout_seconds = busy_timeout_seconds
+-        self.socket_timeout_seconds = socket_timeout_seconds
+-
+-    def handle_error(
+-        self,
+-        request: Any,  # noqa: ARG002 - 沿用基底類別的簽章
+-        client_address: Any,  # noqa: ARG002 - 沿用基底類別的簽章
+-    ) -> None:
+-        if not isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+-            traceback.print_exc(file=sys.stderr)  # 客戶端中途離開不吵;其他例外要看得到
+ 
+ 
+ def main(argv: list[str] | None = None) -> None:
+     parser = argparse.ArgumentParser(description="Mock DSP")
+     parser.add_argument("--db", required=True, type=Path)
+     parser.add_argument("--fault-injection", action="store_true")
+     parser.add_argument("--hang-seconds", type=float, default=2.0)
+     parser.add_argument("--delay-seconds", type=float, default=0.3)
+     parser.add_argument("--busy-timeout-seconds", type=float, default=BUSY_TIMEOUT_SECONDS)
+     parser.add_argument("--socket-timeout-seconds", type=float, default=SOCKET_TIMEOUT_SECONDS)
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index d392ca9..e23b85c 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -2,52 +2,51 @@
+ 
+ 不變量:一次操作的「狀態變更、操作歷史、冪等紀錄」在同一個交易裡一起提交或一起回滾;
+ 同一把冪等鍵最多套用一次;寫入交易一律用 BEGIN IMMEDIATE,所以並行的同鍵請求會排隊,
+ 後到的看見已提交的冪等紀錄後直接回原結果。
+ """
+ 
+ import hashlib
+ import json
+ import math
+ import re
+-import sqlite3
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from pathlib import Path
+ from typing import TypeGuard
+ 
+ from rtb.dsp.errors import (
+     CampaignNotFound,
+     IdempotencyConflict,
+     MetricsNotFound,
+     StoreBusy,
+     UnknownAction,
+     ValidationRejected,
+     VersionConflict,
+ )
++from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, begin_immediate, connect
+ 
+ SCHEMA = """
+ CREATE TABLE IF NOT EXISTS campaigns (
+     id TEXT PRIMARY KEY, budget INTEGER NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS operations (
+     operation_id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL,
+     action TEXT NOT NULL, params_json TEXT NOT NULL, version_after INTEGER NOT NULL,
+     received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE);
+ CREATE TABLE IF NOT EXISTS idempotency_keys (
+     key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, operation_id INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS metrics (
+     campaign_id TEXT NOT NULL, window_name TEXT NOT NULL, impressions INTEGER, clicks INTEGER,
+     conversions INTEGER, spend REAL, revenue REAL, PRIMARY KEY (campaign_id, window_name));
+ """
+ 
+-BUSY_TIMEOUT_SECONDS = 5.0
+ SQLITE_INTEGER_MAX = 2**63 - 1
+ METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
+ COUNT_FIELDS = ("impressions", "clicks", "conversions")  # METRIC_FIELDS 的子集:存成整數
+ AMOUNT_FIELDS = ("spend", "revenue")  # 存成 REAL
+ METRIC_FIELDS = COUNT_FIELDS + AMOUNT_FIELDS
+ EXACT_FLOAT_INT_MAX = 2**53  # 超過這個大小的整數放進浮點數會失真
+ IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")  # 用 fullmatch,避免 $ 放行結尾換行
+ 
+ 
+ def _utc_now() -> str:
+@@ -166,27 +165,21 @@ def _next_state(campaign: Campaign, op: Operation) -> Campaign:
+ 
+ 
+ class CampaignStore:
+     def __init__(
+         self,
+         path: Path,
+         clock: Callable[[], str] = _utc_now,
+         busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+     ):
+         self._clock = clock
+-        self._conn = sqlite3.connect(path, isolation_level=None, timeout=busy_timeout_seconds)
+-        try:
+-            self._conn.execute("PRAGMA journal_mode=WAL")
+-            self._conn.executescript(SCHEMA)
+-        except BaseException:
+-            self._conn.close()  # 設定失敗時不留下沒人關的連線
+-            raise
++        self._conn = connect(path, busy_timeout_seconds, SCHEMA)
+ 
+     def close(self) -> None:
+         self._conn.close()
+ 
+     def seed_campaign(self, campaign_id: str, budget: int, status: str = "active") -> None:
+         self._conn.execute(
+             "INSERT INTO campaigns (id, budget, status, version) VALUES (?, ?, ?, 1)",
+             (campaign_id, budget, status),
+         )
+ 
+@@ -241,26 +234,23 @@ class CampaignStore:
+             result = self._execute_in_transaction(op, received_at)
+             self._conn.execute("COMMIT")
+             return result
+         except BaseException:
+             if self._conn.in_transaction:  # SQLite 有時已自行回滾;再回滾會蓋掉真正的原因
+                 self._conn.execute("ROLLBACK")
+             raise
+ 
+     def _begin_write_transaction(self) -> None:
+         try:
+-            self._conn.execute("BEGIN IMMEDIATE")
+-        except sqlite3.OperationalError as exc:
+-            primary_code = exc.sqlite_errorcode & 0xFF  # 擴充碼的低 8 位才是主要錯誤碼
+-            if primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+-                raise StoreBusy(str(exc)) from exc
+-            raise  # 唯讀資料庫、磁碟錯誤等永久故障,不能偽裝成可重試
++            begin_immediate(self._conn)
++        except DatabaseBusy as exc:
++            raise StoreBusy(str(exc)) from exc
+ 
+     def _execute_in_transaction(self, op: Operation, received_at: str) -> OperationResult:
+         existing = self._existing_operation(op)
+         if existing is not None:
+             return existing
+         current = self.get_campaign(op.campaign_id)
+         if current.version != op.expected_version:
+             raise VersionConflict(f"預期 {op.expected_version},目前 {current.version}")
+         updated = _next_state(current, op)
+         committed_at = self._clock()
+diff --git a/src/rtb/httpkit.py b/src/rtb/httpkit.py
+new file mode 100644
+index 0000000..8c41c2e
+--- /dev/null
++++ b/src/rtb/httpkit.py
+@@ -0,0 +1,167 @@
++"""HTTP 服務的共用基礎(DSP 與提案收件口都用它,不各寫一套)。
++
++提供:只綁回送位址的伺服器、Host 檢查(防 DNS rebinding)、有上限的請求本文、
++逾時、JSON 錯誤回應,以及「任何沒預期到的例外都回 500 JSON,絕不無聲切斷連線」。
++呼叫端看到斷線,就分不出「永久錯誤」與「提交前逾時」。
++
++子類別實作 handle_request(回 (狀態碼, 內容));要把自己的例外對應成錯誤回應就覆寫 map_exception。
++"""
++
++import json
++import sys
++import traceback
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++from typing import Any
++
++LOOPBACK = "127.0.0.1"
++MAX_BODY_BYTES = 64 * 1024
++SOCKET_TIMEOUT_SECONDS = 10.0
++MAX_LENGTH_DIGITS = 10  # Content-Length 位數上限;更長的必然超過本文上限
++LISTEN_BACKLOG = 128
++
++
++class RequestRejected(Exception):
++    """請求本身有問題,直接對應成一個 HTTP 錯誤回應。"""
++
++    def __init__(self, status: int, code: str, retryable: bool = False):
++        super().__init__(code)
++        self.status, self.code, self.retryable = status, code, retryable
++
++
++class NoResponse(Exception):
++    """故障注入用:刻意不回應。"""
++
++
++class KitServer(ThreadingHTTPServer):
++    daemon_threads = True
++    request_queue_size = LISTEN_BACKLOG
++
++    def __init__(
++        self,
++        handler_class: type[BaseHTTPRequestHandler],
++        socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS,
++        host: str = LOOPBACK,
++    ):
++        if host != LOOPBACK:
++            raise ValueError("只允許綁定回送位址")
++        super().__init__((host, 0), handler_class)
++        self.socket_timeout_seconds = socket_timeout_seconds
++
++    def handle_error(
++        self,
++        request: Any,  # noqa: ARG002 - 沿用基底類別的簽章
++        client_address: Any,  # noqa: ARG002 - 沿用基底類別的簽章
++    ) -> None:
++        if not isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
++            traceback.print_exc(file=sys.stderr)  # 客戶端中途離開不吵;其他例外要看得到
++
++
++class JsonHandler(BaseHTTPRequestHandler):
++    server: KitServer
++    max_body_bytes = MAX_BODY_BYTES
++
++    def setup(self) -> None:
++        super().setup()
++        # 讀不到請求就放棄,不佔住執行緒
++        self.connection.settimeout(self.server.socket_timeout_seconds)
++
++    def log_message(self, format: str, *args: Any) -> None:  # 不把每個請求印到終端
++        pass
++
++    def send_error(
++        self,
++        code: int,
++        message: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
++        explain: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
++    ) -> None:
++        self.reply_error(code, "http_error", False)  # 基底類別的錯誤頁也用 JSON
++
++    def do_GET(self) -> None:
++        self._dispatch("GET")
++
++    def do_POST(self) -> None:
++        self._dispatch("POST")
++
++    # ---- 子類別實作 ----
++    def handle_request(self, method: str) -> tuple[int, dict[str, Any]]:
++        raise NotImplementedError
++
++    def map_exception(
++        self,
++        exc: Exception,  # noqa: ARG002 - 預設實作不看,子類別覆寫時才用
++    ) -> tuple[int, str, bool] | None:
++        """把自己的例外對應成 (狀態碼, 錯誤代碼, 可否重試);不認得就回 None。"""
++        return None
++
++    # ---- 流程 ----
++    def _dispatch(self, method: str) -> None:
++        try:
++            self.check_host()
++            status, payload = self.handle_request(method)
++            self.reply(status, payload)
++        except RequestRejected as exc:
++            self.reply_error(exc.status, exc.code, exc.retryable)
++        except NoResponse:
++            return  # 故障注入:刻意不回應
++        except Exception as exc:
++            mapped = self.map_exception(exc)
++            if mapped is not None:
++                self.reply_error(*mapped)
++                return
++            traceback.print_exc(file=sys.stderr)  # 沒預期到的例外:記下來,並回型別化的 500
++            self.reply_error(500, "internal_error", False)
++
++    def check_host(self) -> None:
++        port = self.server.server_address[1]
++        host = self.headers.get("Host")
++        if host is None and self.request_version == "HTTP/1.0":
++            return  # 舊式探針可能不送 Host;瀏覽器(DNS rebinding 的來源)一定會送
++        if host is None or host.lower() not in (f"127.0.0.1:{port}", f"localhost:{port}"):
++            raise RequestRejected(400, "invalid_host")
++
++    def single_header(self, name: str) -> str | None:
++        values = self.headers.get_all(name) or []
++        if len(values) > 1:
++            raise RequestRejected(400, "duplicate_header")
++        return values[0] if values else None
++
++    def read_json(self, allow_empty: bool = False) -> dict[str, Any]:
++        if self.headers.get("Transfer-Encoding"):
++            raise RequestRejected(411, "chunked_not_supported")
++        raw_length = (self.headers.get("Content-Length") or "0").strip()
++        if not raw_length.isascii() or not raw_length.isdigit():
++            raise RequestRejected(400, "invalid_content_length")
++        if len(raw_length) > MAX_LENGTH_DIGITS or int(raw_length) > self.max_body_bytes:
++            raise RequestRejected(413, "body_too_large")
++        raw = self.read_exactly(int(raw_length))
++        try:
++            body = json.loads(raw or (b"{}" if allow_empty else b""))
++        except ValueError as exc:  # 含 JSONDecodeError、超長數字、非 UTF-8
++            raise RequestRejected(400, "invalid_json") from exc
++        if not isinstance(body, dict):
++            raise RequestRejected(400, "invalid_json")
++        return body
++
++    def read_exactly(self, length: int) -> bytes:
++        try:
++            raw = self.rfile.read(length)
++        except TimeoutError as exc:  # 客戶端宣告了長度卻遲遲不送完
++            raise RequestRejected(408, "request_timeout") from exc
++        if len(raw) < length:
++            raise RequestRejected(400, "incomplete_body")
++        return raw
++
++    # ---- 回應 ----
++    def reply_error(self, status: int, code: str, retryable: bool) -> None:
++        self.reply(status, {"error": code, "retryable": retryable})
++
++    def reply(self, status: int, payload: dict[str, Any]) -> None:
++        raw = json.dumps(payload).encode()
++        try:
++            self.send_response(status)
++            self.send_header("Content-Type", "application/json")
++            self.send_header("Content-Length", str(len(raw)))
++            self.end_headers()
++            self.wfile.write(raw)
++        except OSError:
++            pass  # 客戶端已逾時離開,回應寫不出去是正常情況
+diff --git a/src/rtb/sqlitekit.py b/src/rtb/sqlitekit.py
+new file mode 100644
+index 0000000..289a0bd
+--- /dev/null
++++ b/src/rtb/sqlitekit.py
+@@ -0,0 +1,39 @@
++"""SQLite 的共用做法:WAL、忙碌逾時、手動交易(BEGIN IMMEDIATE),忙碌與永久故障分得開。
++
++DSP 與提案收件口都用它,不各寫一套。每個執行緒或請求自己開一條連線,不共用。
++"""
++
++import sqlite3
++from pathlib import Path
++
++BUSY_TIMEOUT_SECONDS = 5.0
++
++
++class DatabaseBusy(Exception):
++    """資料庫正被別的寫入佔用,等待逾時。呼叫者決定要不要重試。"""
++
++
++def connect(
++    path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS, schema: str = ""
++) -> sqlite3.Connection:
++    """開連線(isolation_level=None:交易一律手動控制,不會悄悄開啟)、啟用 WAL、建立表。"""
++    conn = sqlite3.connect(path, isolation_level=None, timeout=busy_timeout_seconds)
++    try:
++        conn.execute("PRAGMA journal_mode=WAL")
++        if schema:
++            conn.executescript(schema)
++    except BaseException:
++        conn.close()  # 設定失敗時不留下沒人關的連線
++        raise
++    return conn
++
++
++def begin_immediate(conn: sqlite3.Connection) -> None:
++    """開寫入交易;鎖不到就丟 DatabaseBusy。唯讀資料庫、磁碟錯誤等永久故障原樣往外丟。"""
++    try:
++        conn.execute("BEGIN IMMEDIATE")
++    except sqlite3.OperationalError as exc:
++        primary_code = exc.sqlite_errorcode & 0xFF  # 擴充碼的低 8 位才是主要錯誤碼
++        if primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
++            raise DatabaseBusy(str(exc)) from exc
++        raise
+diff --git a/tests/kit/__init__.py b/tests/kit/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/kit/test_httpkit.py b/tests/kit/test_httpkit.py
+new file mode 100644
+index 0000000..776d865
+--- /dev/null
++++ b/tests/kit/test_httpkit.py
+@@ -0,0 +1,201 @@
++"""共用的 HTTP 基礎:回送位址、Host 檢查、有上限的本文、JSON 錯誤、逾時、未預期例外的 500。"""
++
++import http.client
++import json
++import socket
++import threading
++import time
++
++import pytest
++
++from rtb.httpkit import JsonHandler, KitServer, NoResponse, RequestRejected
++
++
++class EchoHandler(JsonHandler):
++    def handle_request(self, method):
++        path = self.path
++        if path == "/boom":
++            raise RuntimeError("secret internal detail")
++        if path == "/reject":
++            raise RequestRejected(418, "teapot", retryable=True)
++        if path == "/silent":
++            raise NoResponse
++        if path == "/mapped":
++            raise KeyError("mapped")
++        if path == "/echo":
++            return 200, {"body": self.read_json()}
++        if path == "/echo-empty-ok":
++            return 200, {"body": self.read_json(allow_empty=True)}
++        if path == "/header":
++            return 200, {"value": self.single_header("X-One")}
++        return 200, {"method": method}
++
++    def map_exception(self, exc):
++        if isinstance(exc, KeyError):
++            return 409, "mapped_error", False
++        return None
++
++
++@pytest.fixture
++def server():
++    started = []
++
++    def start(**kwargs):
++        srv = KitServer(EchoHandler, **kwargs)
++        threading.Thread(target=srv.serve_forever, args=(0.02,), daemon=True).start()
++        started.append(srv)
++        return srv
++
++    yield start
++    for srv in started:
++        srv.shutdown()
++        srv.server_close()
++
++
++def call(srv, method, path, body=None, headers=None, raw_body=None):
++    conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=3)
++    payload = raw_body if raw_body is not None else (None if body is None else json.dumps(body))
++    conn.request(method, path, body=payload, headers=headers or {})
++    resp = conn.getresponse()
++    data = json.loads(resp.read())
++    conn.close()
++    return resp.status, data
++
++
++def test_the_server_refuses_to_bind_anything_but_loopback():
++    with pytest.raises(ValueError):
++        KitServer(EchoHandler, host="0.0.0.0")  # noqa: S104 - 測試的就是它會被拒絕
++
++
++def test_a_request_with_a_foreign_host_header_is_rejected(server):
++    srv = server()
++
++    status, data = call(srv, "GET", "/", headers={"Host": "evil.example"})
++
++    assert (status, data["error"]) == (400, "invalid_host")
++
++
++def test_loopback_host_headers_are_accepted(server):
++    srv = server()
++    port = srv.server_address[1]
++
++    for host in (f"127.0.0.1:{port}", f"localhost:{port}"):
++        assert call(srv, "GET", "/", headers={"Host": host})[0] == 200
++
++
++def test_a_duplicated_single_valued_header_is_rejected(server):
++    srv = server()
++    conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=3)
++    conn.putrequest("GET", "/header")
++    conn.putheader("X-One", "a")
++    conn.putheader("X-One", "b")
++    conn.endheaders()
++    resp = conn.getresponse()
++
++    assert (resp.status, json.loads(resp.read())["error"]) == (400, "duplicate_header")
++
++
++def test_a_valid_json_object_body_is_read(server):
++    srv = server()
++
++    assert call(srv, "POST", "/echo", {"a": 1})[1] == {"body": {"a": 1}}
++
++
++@pytest.mark.parametrize(("raw", "expected"), [
++    ("not json", "invalid_json"), ("[1,2]", "invalid_json"), ("", "invalid_json"),
++    ("\xff\xfe", "invalid_json"),
++])
++def test_a_body_that_is_not_a_json_object_is_rejected(server, raw, expected):
++    srv = server()
++
++    status, data = call(srv, "POST", "/echo", raw_body=raw.encode("latin-1"))
++
++    assert (status, data["error"]) == (400, expected)
++
++
++def test_an_empty_body_is_allowed_only_when_the_route_asks_for_it(server):
++    srv = server()
++
++    assert call(srv, "POST", "/echo-empty-ok", raw_body=b"")[1] == {"body": {}}
++
++
++def test_a_body_over_the_limit_is_rejected_before_it_is_read(server):
++    srv = server()
++    too_big = b'{"x":"' + b"a" * (64 * 1024) + b'"}'
++
++    status, data = call(srv, "POST", "/echo", raw_body=too_big)
++
++    assert (status, data["error"]) == (413, "body_too_large")
++
++
++def test_a_bad_content_length_is_rejected(server):
++    srv = server()
++    conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=3)
++    conn.putrequest("POST", "/echo")
++    conn.putheader("Content-Length", "abc")
++    conn.endheaders()
++    resp = conn.getresponse()
++
++    assert (resp.status, json.loads(resp.read())["error"]) == (400, "invalid_content_length")
++
++
++def test_chunked_bodies_are_not_supported(server):
++    srv = server()
++
++    chunked = {"Transfer-Encoding": "chunked"}
++    status, data = call(srv, "POST", "/echo", raw_body=b"{}", headers=chunked)
++
++    assert (status, data["error"]) == (411, "chunked_not_supported")
++
++
++def test_a_rejection_becomes_a_typed_json_error(server):
++    srv = server()
++
++    status, data = call(srv, "GET", "/reject")
++
++    assert (status, data) == (418, {"error": "teapot", "retryable": True})
++
++
++def test_an_unexpected_exception_is_a_500_that_leaks_nothing_and_the_server_lives(server, capfd):
++    srv = server()
++
++    status, data = call(srv, "GET", "/boom")
++
++    assert (status, data) == (500, {"error": "internal_error", "retryable": False})
++    assert "secret" not in json.dumps(data)
++    assert "secret internal detail" in capfd.readouterr().err  # 細節只進 stderr,不進回應
++    assert call(srv, "GET", "/")[0] == 200
++
++
++def test_a_subclass_can_map_its_own_exceptions(server):
++    srv = server()
++
++    assert call(srv, "GET", "/mapped") == (409, {"error": "mapped_error", "retryable": False})
++
++
++def test_a_stalled_connection_is_dropped_after_the_socket_timeout(server):
++    srv = server(socket_timeout_seconds=0.3)
++    sock = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=3)
++    sock.sendall(b"GET / HTTP/1.1\r\nHost: 127.0.0.1")  # 只送一半就不動了
++    started = time.monotonic()
++
++    leftover = sock.recv(1024)  # 伺服器放棄之後會關閉連線,recv 才會返回
++
++    assert time.monotonic() - started < 2.0
++    assert b"200" not in leftover
++    sock.close()
++    assert call(srv, "GET", "/")[0] == 200  # 沒有被卡住的執行緒拖垮
++
++
++def test_a_malformed_request_line_gets_a_json_error_not_an_html_page(server):
++    srv = server()
++    sock = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=3)
++    sock.sendall(b"NONSENSE\r\n\r\n")
++    raw = b""
++    while chunk := sock.recv(1024):
++        raw += chunk
++    sock.close()
++
++    # 畸形請求行按 HTTP/0.9 回應:沒有標頭,只有 JSON 本文
++    assert json.loads(raw)["error"] == "http_error"
++    assert b"<html" not in raw.lower()
+diff --git a/tests/kit/test_shared_base.py b/tests/kit/test_shared_base.py
+new file mode 100644
+index 0000000..89e2a87
+--- /dev/null
++++ b/tests/kit/test_shared_base.py
+@@ -0,0 +1,22 @@
++"""抽出共用基礎之後,DSP 沒有留下第二份實作。行為不變由 tests/dsp 的既有測試守著。"""
++
++import ast
++import inspect
++
++import rtb.dsp.server as dsp_server
++import rtb.dsp.store as dsp_store
++from rtb.httpkit import JsonHandler
++
++
++def test_the_dsp_server_behaviour_is_unchanged_after_extracting_the_shared_base():
++    handler = dsp_server.DspHandler
++    duplicated = {"_check_host", "_read_json", "_read_exactly", "_reply", "_reply_error",
++                  "_single_header", "setup", "log_message", "send_error"}
++
++    assert issubclass(handler, JsonHandler)
++    assert not duplicated & set(vars(handler)), "DSP 不該再自帶這些共用行為"
++    store_source = inspect.getsource(dsp_store)
++    assert "connect(" in store_source and "sqlite3.connect" not in store_source
++    tree = ast.parse(inspect.getsource(dsp_server))
++    attributes = [n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)]
++    assert "settimeout" not in attributes
+diff --git a/tests/kit/test_sqlitekit.py b/tests/kit/test_sqlitekit.py
+new file mode 100644
+index 0000000..cd4d5a3
+--- /dev/null
++++ b/tests/kit/test_sqlitekit.py
+@@ -0,0 +1,69 @@
++"""共用的 SQLite 基礎:WAL、忙碌逾時、BEGIN IMMEDIATE、忙碌與永久故障要分得開。"""
++
++import sqlite3
++
++import pytest
++
++from rtb.sqlitekit import DatabaseBusy, begin_immediate, connect
++
++SCHEMA = "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT);"
++
++
++def test_connect_enables_wal_creates_the_schema_and_uses_manual_transactions(tmp_path):
++    conn = connect(tmp_path / "x.db", schema=SCHEMA)
++
++    assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
++    conn.execute("INSERT INTO t (v) VALUES ('a')")
++    assert not conn.in_transaction  # isolation_level=None:沒有悄悄開啟的交易
++    conn.close()
++
++
++def test_a_second_writer_gets_database_busy_after_the_timeout(tmp_path):
++    first = connect(tmp_path / "x.db", schema=SCHEMA)
++    second = connect(tmp_path / "x.db", busy_timeout_seconds=0.05)
++    begin_immediate(first)
++
++    with pytest.raises(DatabaseBusy):
++        begin_immediate(second)
++
++    first.execute("ROLLBACK")
++    begin_immediate(second)  # 鎖放掉之後就能進
++    second.execute("ROLLBACK")
++    first.close()
++    second.close()
++
++
++def test_a_failure_that_is_not_lock_contention_is_not_disguised_as_busy(tmp_path):
++    conn = connect(tmp_path / "x.db", schema=SCHEMA)
++    begin_immediate(conn)
++
++    with pytest.raises(sqlite3.OperationalError) as caught:
++        begin_immediate(conn)  # 已經在交易裡:這種錯誤重試也不會好,不能當成「忙碌」
++
++    assert not isinstance(caught.value, DatabaseBusy)
++    conn.execute("ROLLBACK")
++    conn.close()
++
++
++def test_a_database_that_cannot_be_opened_raises_the_original_error(tmp_path):
++    with pytest.raises(sqlite3.OperationalError):
++        connect(tmp_path / "missing-dir" / "x.db", schema=SCHEMA)
++
++
++def test_a_failing_schema_leaves_no_open_connection(tmp_path, monkeypatch):
++    opened = []
++    real_connect = sqlite3.connect
++
++    def tracking_connect(*args, **kwargs):
++        conn = real_connect(*args, **kwargs)
++        opened.append(conn)
++        return conn
++
++    monkeypatch.setattr(sqlite3, "connect", tracking_connect)
++
++    with pytest.raises(sqlite3.Error):
++        connect(tmp_path / "x.db", schema="THIS IS NOT SQL;")
++
++    assert len(opened) == 1
++    with pytest.raises(sqlite3.ProgrammingError):  # 已關閉的連線不能再用
++        opened[0].execute("SELECT 1")

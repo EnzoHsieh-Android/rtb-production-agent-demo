@@ -8,13 +8,9 @@
 """
 
 import argparse
-import json
 import re
-import sys
 import time
-import traceback
 from dataclasses import asdict
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -30,13 +26,16 @@ from rtb.dsp.errors import (
     ValidationRejected,
     VersionConflict,
 )
-from rtb.dsp.store import BUSY_TIMEOUT_SECONDS, CampaignStore, Operation
+from rtb.dsp.store import CampaignStore, Operation
+from rtb.httpkit import (
+    SOCKET_TIMEOUT_SECONDS,
+    JsonHandler,
+    KitServer,
+    NoResponse,
+    RequestRejected,
+)
+from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS
 
-LOOPBACK = "127.0.0.1"
-MAX_BODY_BYTES = 64 * 1024
-SOCKET_TIMEOUT_SECONDS = 10.0
-MAX_LENGTH_DIGITS = 10  # Content-Length 位數上限;更長的必然超過本文上限
-LISTEN_BACKLOG = 128
 FAULT_MODES = frozenset(
     {
         "timeout_before_commit",
@@ -75,81 +74,25 @@ def error_entry(exc: DspError) -> tuple[int, str, bool]:
     return 500, "dsp_error", False
 
 
-class RequestRejected(Exception):
-    """請求本身有問題,直接對應成一個 HTTP 錯誤回應。"""
-
-    def __init__(self, status: int, code: str, retryable: bool = False):
-        super().__init__(code)
-        self.status, self.code, self.retryable = status, code, retryable
-
-
-class _NoResponse(Exception):
-    """內部用:故障注入要求不回應。"""
-
-
-class DspHandler(BaseHTTPRequestHandler):
+class DspHandler(JsonHandler):
     server: DspServer
 
-    def setup(self) -> None:
-        super().setup()
-        # 讀不到請求就放棄,不佔住執行緒
-        self.connection.settimeout(self.server.socket_timeout_seconds)
-
-    def log_message(self, format: str, *args: Any) -> None:  # 不把每個請求印到終端
-        pass
-
-    def send_error(
-        self,
-        code: int,
-        message: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
-        explain: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
-    ) -> None:
-        self._reply_error(code, "http_error", False)  # 基底類別的錯誤頁也用 JSON
-
-    def do_GET(self) -> None:
-        self._dispatch("GET")
-
-    def do_POST(self) -> None:
-        self._dispatch("POST")
-
-    def _dispatch(self, method: str) -> None:
-        store = None
+    def handle_request(self, method: str) -> tuple[int, dict[str, Any]]:
+        fault = self._read_fault()
+        handler, campaign_or_key = self._route(method)
+        store = CampaignStore(
+            self.server.db_path, busy_timeout_seconds=self.server.busy_timeout_seconds
+        )
         try:
-            self._check_host()
-            fault = self._read_fault()
-            handler, campaign_or_key = self._route(method)
-            store = CampaignStore(self.server.db_path,
-                                  busy_timeout_seconds=self.server.busy_timeout_seconds)
-            self._reply(200, getattr(self, "_" + handler)(store, campaign_or_key, fault))
-        except RequestRejected as exc:
-            self._reply_error(exc.status, exc.code, exc.retryable)
-        except DspError as exc:
-            self._reply_error(*error_entry(exc))
-        except _NoResponse:
-            return  # 故障注入:刻意不回應
-        except Exception:  # 沒預期到的例外:記下來,並回型別化的 500
-            traceback.print_exc(file=sys.stderr)
-            self._reply_error(500, "internal_error", False)
+            return 200, getattr(self, "_" + handler)(store, campaign_or_key, fault)
         finally:
-            if store is not None:
-                store.close()
+            store.close()
 
-    def _check_host(self) -> None:
-        port = self.server.server_address[1]
-        host = self.headers.get("Host")
-        if host is None and self.request_version == "HTTP/1.0":
-            return  # 舊式探針可能不送 Host;瀏覽器(DNS rebinding 的來源)一定會送
-        if host is None or host.lower() not in (f"127.0.0.1:{port}", f"localhost:{port}"):
-            raise RequestRejected(400, "invalid_host")
-
-    def _single_header(self, name: str) -> str | None:
-        values = self.headers.get_all(name) or []
-        if len(values) > 1:
-            raise RequestRejected(400, "duplicate_header")
-        return values[0] if values else None
+    def map_exception(self, exc: Exception) -> tuple[int, str, bool] | None:
+        return error_entry(exc) if isinstance(exc, DspError) else None
 
     def _read_fault(self) -> str | None:
-        mode = self._single_header("X-Fault")
+        mode = self.single_header("X-Fault")
         if mode is None:
             return None
         if not self.server.fault_injection:
@@ -164,32 +107,6 @@ class DspHandler(BaseHTTPRequestHandler):
             if route_method == method and match:
                 return name, match.group(1)
         raise RequestRejected(404, "not_found")
-
-    def _read_json(self) -> dict[str, Any]:
-        if self.headers.get("Transfer-Encoding"):
-            raise RequestRejected(411, "chunked_not_supported")
-        raw_length = (self.headers.get("Content-Length") or "0").strip()
-        if not raw_length.isascii() or not raw_length.isdigit():
-            raise RequestRejected(400, "invalid_content_length")
-        if len(raw_length) > MAX_LENGTH_DIGITS or int(raw_length) > MAX_BODY_BYTES:
-            raise RequestRejected(413, "body_too_large")
-        raw = self._read_exactly(int(raw_length))
-        try:
-            body = json.loads(raw or b"{}")
-        except ValueError as exc:  # 含 JSONDecodeError、超長數字、非 UTF-8
-            raise RequestRejected(400, "invalid_json") from exc
-        if not isinstance(body, dict):
-            raise RequestRejected(400, "invalid_json")
-        return body
-
-    def _read_exactly(self, length: int) -> bytes:
-        try:
-            raw = self.rfile.read(length)
-        except TimeoutError as exc:  # 客戶端宣告了長度卻遲遲不送完
-            raise RequestRejected(408, "request_timeout") from exc
-        if len(raw) < length:
-            raise RequestRejected(400, "incomplete_body")
-        return raw
 
     # ---- 讀取介面 ----
     def _get_campaign(
@@ -223,7 +140,7 @@ class DspHandler(BaseHTTPRequestHandler):
     def _update_budget(
         self, store: CampaignStore, campaign_id: str, fault: str | None
     ) -> dict[str, Any]:
-        body = self._read_json()
+        body = self.read_json(allow_empty=True)
         params = {"new_budget": body.get("new_budget")}
         op = self._operation(campaign_id, "update_budget", params, body)
         return self._write(store, op, fault)
@@ -231,13 +148,13 @@ class DspHandler(BaseHTTPRequestHandler):
     def _pause_campaign(
         self, store: CampaignStore, campaign_id: str, fault: str | None
     ) -> dict[str, Any]:
-        body = self._read_json()
+        body = self.read_json(allow_empty=True)
         return self._write(store, self._operation(campaign_id, "pause_campaign", {}, body), fault)
 
     def _operation(
         self, campaign_id: str, action: str, params: dict[str, Any], body: dict[str, Any]
     ) -> Operation:
-        key = self._single_header("Idempotency-Key")
+        key = self.single_header("Idempotency-Key")
         if not key:
             raise RequestRejected(400, "missing_idempotency_key")
         return Operation(campaign_id, action, params, body.get("expected_version"), key)
@@ -260,44 +177,17 @@ class DspHandler(BaseHTTPRequestHandler):
             raise RequestRejected(422, "injected_validation_error")
         elif fault == "timeout_before_commit":
             time.sleep(self.server.hang_seconds)  # 不論客戶端是否還在,都不提交
-            raise _NoResponse
-
-    # ---- 回應 ----
-    def _reply_error(self, status: int, code: str, retryable: bool) -> None:
-        self._reply(status, {"error": code, "retryable": retryable})
-
-    def _reply(self, status: int, payload: dict[str, Any]) -> None:
-        raw = json.dumps(payload).encode()
-        try:
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(raw)))
-            self.end_headers()
-            self.wfile.write(raw)
-        except OSError:
-            pass  # 客戶端已逾時離開,回應寫不出去是正常情況
+            raise NoResponse
 
 
-class DspServer(ThreadingHTTPServer):
-    daemon_threads = True
-    request_queue_size = LISTEN_BACKLOG
-
+class DspServer(KitServer):
     def __init__(self, db_path: Path, fault_injection: bool, hang_seconds: float,
                  delay_seconds: float, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
                  socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS):
-        super().__init__((LOOPBACK, 0), DspHandler)
+        super().__init__(DspHandler, socket_timeout_seconds)
         self.db_path, self.fault_injection = db_path, fault_injection
         self.hang_seconds, self.delay_seconds = hang_seconds, delay_seconds
         self.busy_timeout_seconds = busy_timeout_seconds
-        self.socket_timeout_seconds = socket_timeout_seconds
-
-    def handle_error(
-        self,
-        request: Any,  # noqa: ARG002 - 沿用基底類別的簽章
-        client_address: Any,  # noqa: ARG002 - 沿用基底類別的簽章
-    ) -> None:
-        if not isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
-            traceback.print_exc(file=sys.stderr)  # 客戶端中途離開不吵;其他例外要看得到
 
 
 def main(argv: list[str] | None = None) -> None:

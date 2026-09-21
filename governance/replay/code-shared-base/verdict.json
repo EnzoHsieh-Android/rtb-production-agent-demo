@@ -1,0 +1,40 @@
+{
+ "loop": "code-shared-base",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-22T03:07:49+08:00",
+ "spec_path": "governance/review-reports/code-shared-base/r1-snapshot.patch",
+ "spec_sha": "4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883",
+ "rows": [
+  "{\"ts\": \"2026-09-22T03:07:38+08:00\", \"kind\": \"none\", \"auditor\": \"s1\", \"token\": \"CANARY-093cdef8\", \"note\": \"\", \"loop\": \"code-shared-base\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 8, \"result_sha256\": \"4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883\", \"reviewed_sha256\": \"4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883\", \"spec_path\": \"governance/review-reports/code-shared-base/r1-snapshot.patch\", \"scope_lines\": 1009, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 8, \"report_path\": \"governance/review-reports/code-shared-base/r1-s1.md\", \"report_sha256\": \"20d7be54efaea0ac06c9fc41b014ccc1ed8da4c9f6345c009e4386261a283259\", \"snapshot_path\": \"governance/review-reports/code-shared-base/r1-snapshot.patch\", \"snapshot_sha256\": \"4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883\"}",
+  "{\"ts\": \"2026-09-22T03:07:38+08:00\", \"kind\": \"none\", \"auditor\": \"sarch\", \"token\": \"CANARY-6ce6acde\", \"note\": \"\", \"loop\": \"code-shared-base\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 4, \"result_sha256\": \"4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883\", \"reviewed_sha256\": \"4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883\", \"spec_path\": \"governance/review-reports/code-shared-base/r1-snapshot.patch\", \"scope_lines\": 1009, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 4, \"report_path\": \"governance/review-reports/code-shared-base/r1-sarch.md\", \"report_sha256\": \"ac4e27cdda1faf83e6c09a3fbe9ba8ad4c2b11e6264271c79d4f521ca19dc304\", \"snapshot_path\": \"governance/review-reports/code-shared-base/r1-snapshot.patch\", \"snapshot_sha256\": \"4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883\"}",
+  "{\"ts\": \"2026-09-22T03:07:39+08:00\", \"kind\": \"none\", \"auditor\": \"x1\", \"token\": \"CANARY-79501ae6\", \"note\": \"\", \"loop\": \"code-shared-base\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 4, \"result_sha256\": \"4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883\", \"reviewed_sha256\": \"4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883\", \"spec_path\": \"governance/review-reports/code-shared-base/r1-snapshot.patch\", \"scope_lines\": 1009, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"s1f1\", \"s1f2\", \"s1f3\", \"s1f4\", \"s1f5\", \"s1f6\", \"s1f7\", \"s1f8\", \"saf1\", \"saf2\", \"saf3\", \"saf4\", \"x1f1\", \"x1f2\", \"x1f3\", \"x1f4\"], \"folded_set\": [\"s1f1\", \"s1f2\", \"s1f3\", \"s1f4\", \"s1f5\", \"s1f6\", \"s1f7\", \"s1f8\", \"saf1\", \"saf2\", \"saf3\", \"saf4\", \"x1f1\", \"x1f2\", \"x1f3\", \"x1f4\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 4, \"report_path\": \"governance/review-reports/code-shared-base/r1-x1.md\", \"report_sha256\": \"c5e12888dcc3f423de7fc29aebf4d14f7017cb57963e0c0d77bd12788c80e86a\", \"snapshot_path\": \"governance/review-reports/code-shared-base/r1-snapshot.patch\", \"snapshot_sha256\": \"4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883\", \"intake_path\": \"governance/review-reports/code-shared-base/r1-intake.md\", \"intake_sha256\": \"2f55c997e6c0a90342f1df04cc2f09aa51c74d403e2418174e2ae50f25a3e9fc\"}"
+ ],
+ "all_row_shas": [
+  "1f706a3ad6baa626c991e81e76790a41f9f0fbe003724fd6bf30afeb90281e00",
+  "6d6676f91e838a2dd894c8d84066cd5ccc52048f9b3e3e37c184fda470bb4271",
+  "af11351ff9a7eb24102cc4baf82475bbfc8c8d38b5c3447f746b865a390b4b23"
+ ],
+ "files": {
+  "governance/review-reports/code-shared-base/r1-s1.md": {
+   "sha256": "20d7be54efaea0ac06c9fc41b014ccc1ed8da4c9f6345c009e4386261a283259",
+   "git_blob": "a746a3c01cf6150fcdd75c7d11e25ef6a87f0d29"
+  },
+  "governance/review-reports/code-shared-base/r1-snapshot.patch": {
+   "sha256": "4cce2fa60c75f0179456a6a9d163c6c20646b7d096393949c78cc3f49a91b883",
+   "git_blob": "78cd0908a1c42e4123b223340ea6d6fa668c20b1"
+  },
+  "governance/review-reports/code-shared-base/r1-sarch.md": {
+   "sha256": "ac4e27cdda1faf83e6c09a3fbe9ba8ad4c2b11e6264271c79d4f521ca19dc304",
+   "git_blob": "7bd52fc28d9892d5a76f19b5d7f2255bd7bc01a6"
+  },
+  "governance/review-reports/code-shared-base/r1-x1.md": {
+   "sha256": "c5e12888dcc3f423de7fc29aebf4d14f7017cb57963e0c0d77bd12788c80e86a",
+   "git_blob": "7e392a43760315d0f8be57b44dd527d25d105bea"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}
