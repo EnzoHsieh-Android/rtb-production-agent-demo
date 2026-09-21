@@ -1,1 +1,15 @@
 {"ts": "2026-09-21T22:25:10+08:00", "commit": "HEAD", "gate": "canary", "kind": "blocked", "hard": true, "nodes": [], "note": "findings-over-reported:36>9 loop=rtb-agent-phase0架構 auditor=s2-failure-semantics id=c8229631", "detail": "findings-over-reported:36>9 loop=rtb-agent-phase0架構 auditor=s2-failure-semantics id=c8229631", "head_sha": "HEAD"}
+{"ts": "2026-09-21T22:38:43+08:00", "commit": "HEAD", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "HEAD"}
+{"ts": "2026-09-21T22:38:49+08:00", "commit": "25f25b0", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-21T22:38:50+08:00", "commit": "25f25b0", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "25f25b092150670d116a1154af63ad6f20025369"}
+{"ts": "2026-09-21T22:41:16+08:00", "commit": "12c4dd9", "gate": "check-cascade", "kind": "warned", "hard": false, "nodes": [], "note": "unseen=1 broken=0"}
+{"ts": "2026-09-21T22:41:16+08:00", "commit": "12c4dd9", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=1 soft=4"}
+{"ts": "2026-09-21T22:41:17+08:00", "commit": "12c4dd9", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260921T144116Z-16471", "head_sha": "12c4dd99f20cdc74ee8a7000e88f051e9e6dfd3f"}
+{"ts": "2026-09-21T22:41:20+08:00", "commit": "12c4dd9", "gate": "bound-tests", "kind": "no-pins", "hard": false, "nodes": [], "note": "12c4dd99f20cdc74ee8a7000e88f051e9e6dfd3f..12c4dd99f20cdc74ee8a7000e88f051e9e6dfd3f"}
+{"ts": "2026-09-21T22:41:45+08:00", "commit": "12c4dd9", "gate": "check-cascade", "kind": "warned", "hard": false, "nodes": [], "note": "unseen=1 broken=0"}
+{"ts": "2026-09-21T22:41:45+08:00", "commit": "12c4dd9", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=1 soft=4"}
+{"ts": "2026-09-21T22:41:46+08:00", "commit": "12c4dd9", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260921T144144Z-16815", "head_sha": "12c4dd99f20cdc74ee8a7000e88f051e9e6dfd3f"}
+{"ts": "2026-09-21T22:41:49+08:00", "commit": "12c4dd9", "gate": "bound-tests", "kind": "no-pins", "hard": false, "nodes": [], "note": "12c4dd99f20cdc74ee8a7000e88f051e9e6dfd3f..12c4dd99f20cdc74ee8a7000e88f051e9e6dfd3f"}
+{"ts": "2026-09-21T22:45:14+08:00", "commit": "12c4dd9", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-agent-phase0架構"], "note": "disposal gate PASS"}
+{"ts": "2026-09-21T22:46:03+08:00", "commit": "12c4dd9", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-21T22:46:04+08:00", "commit": "12c4dd9", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "12c4dd99f20cdc74ee8a7000e88f051e9e6dfd3f"}

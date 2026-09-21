@@ -1,0 +1,6 @@
+{"round":"r3","spec":"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md","sha256":"68df0f57191ed010aef3d4eb0805c7f4d8a0e6142dc74626b3b8f0771b5ba020","snapshot":"governance/review-reports/rtb-agent-phase0架構/r3-snapshot.md","seats":[
+{"seat":"w1","lens":"process-split-failure-semantics","auditor":"sonnet","materials":["plan","handoff 7,9,10"]},
+{"seat":"w2","lens":"process-split-trust-and-consistency","auditor":"sonnet","materials":["plan","handoff 5,8,11"]},
+{"seat":"w3","lens":"whole-document-consistency-fresh","auditor":"sonnet","materials":["plan"]},
+{"seat":"arch3","lens":"architecture-alignment","auditor":"sonnet","materials":["plan","CLAUDE.md"]}],
+"external_seat":"not dispatched r3 (noted)"}
