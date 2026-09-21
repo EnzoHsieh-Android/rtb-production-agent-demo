@@ -1,0 +1,22 @@
+{
+ "round": "r2",
+ "spec": "governance/review-reports/code-mock-dsp/r2-snapshot.patch",
+ "sha256": "f95fab85f357465c387e6f660e4dcc91a8c7edf1b52c907eabbe3e1b27838bd7",
+ "seats": [
+  {
+   "seat": "d1",
+   "lens": "fix-regression-correctness",
+   "auditor": "sonnet"
+  },
+  {
+   "seat": "d2",
+   "lens": "fix-security-boundaries",
+   "auditor": "sonnet"
+  },
+  {
+   "seat": "d3",
+   "lens": "test-strength-fresh",
+   "auditor": "sonnet"
+  }
+ ]
+}

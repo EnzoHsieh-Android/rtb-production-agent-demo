@@ -1,0 +1,1038 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..ad3164f
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,5 @@
++.venv/
++__pycache__/
++.pytest_cache/
++.ruff_cache/
++*.pyc
+diff --git a/.lumos/config.json b/.lumos/config.json
+index 6beeadf..8f7e539 100644
+--- a/.lumos/config.json
++++ b/.lumos/config.json
+@@ -1,7 +1,7 @@
+ {
+   "test_profile": "python",
+   "symbol_profile": "python",
+   "test": {
+-    "run_cmd": "python3 -m pytest -k {method} -q"
++    "run_cmd": ".venv/bin/python -m pytest tests -k {method} -q"
+   }
+ }
+diff --git a/.lumos/lint.json b/.lumos/lint.json
+new file mode 100644
+index 0000000..3d07a8c
+--- /dev/null
++++ b/.lumos/lint.json
+@@ -0,0 +1,5 @@
++{
++  "py": [
++    ".venv/bin/ruff check --output-format sarif --output-file {LINT_SARIF_OUT} src tests"
++  ]
++}
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+new file mode 100644
+index 0000000..017366f
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+@@ -0,0 +1,27 @@
++---
++type: system
++status: doing
++created: 2026-09-21
++updated: 2026-09-21
++responsibility: 負責 Mock DSP 的廣告狀態、版本、操作歷史與冪等紀錄的儲存與原子提交、型別化錯誤,以及獨立行程的 HTTP 介面與故障注入;不負責指標計算與 agent 端的任何邏輯。
++aliases: []
++about_code:
++  - src/rtb/dsp/store.py
++  - src/rtb/dsp/errors.py
++  - src/rtb/dsp/server.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: DSP 是獨立的外部事實來源,儲存與 agent 完全分開,agent 只能走它的公開介面;這樣「DSP 已提交但 agent 不知道」才測得出來。出處:[[RTB_Agent_Phase0架構]] 決策 d2。
++  WHY: 一次操作的狀態變更、操作歷史、冪等紀錄放在同一個交易裡一起提交或回滾,避免「狀態已改但冪等鍵沒記」讓重送雙寫。出處:[[RTB_Agent_Phase0架構]] 的外部寫入失敗語意一節。
++  PITFALL: 寫入交易若用普通 BEGIN(延遲交易),並行同鍵請求在 WAL 下會直接回 database is locked,busy_timeout 不會等;必須 BEGIN IMMEDIATE。防回歸:[test:test_concurrent_requests_with_the_same_key_apply_exactly_once],改成 BEGIN 會紅(2026-09-21 變異檢查實測)。
++  PITFALL: 故障注入的「提交前逾時」若處理程式睡醒後繼續往下走,會在客戶端離開之後才提交,變成提交後逾時;必須睡醒後明確不提交。防回歸:[test:test_timeout_before_commit_client_sees_timeout_and_dsp_never_commits_later],測試必須等過處理程式睡醒的時間才檢查狀態(2026-09-21 變異檢查實測:太早檢查會讓這個錯誤存活)。
++  PITFALL: 驗證「慢請求進行中查詢仍即時回應」時,必須確保慢請求真的已進入 DSP,否則查詢可能搶先被處理而讓單執行緒伺服器也通過。防回歸:[test:test_query_is_answered_immediately_while_a_slow_request_is_in_flight](2026-09-21 變異檢查實測)。
++  TEST: tests/dsp/test_store.py 涵蓋同鍵只套用一次、同鍵不同內容被拒、過期版本被拒、重開後冪等紀錄仍在、交易中途失敗整體回滾、20 個並行同鍵請求只套用一次。
++---
++# Mock-DSP
++
++已有儲存層與獨立行程的 HTTP 介面(查廣告、改預算、暫停、用冪等鍵查操作、查歷史)加故障注入(需啟動旗標,旗標關閉時收到故障標頭回 400 且不改狀態)。`getMetrics` 與指標計算尚未實作。各檔分工:`src/rtb/dsp/store.py` 是儲存層,負責廣告狀態、版本、操作歷史、冪等紀錄與原子提交;`src/rtb/dsp/errors.py` 是型別化錯誤,讓呼叫端靠型別分辨可重試、永久拒絕、版本已變;`src/rtb/dsp/server.py` 是獨立行程的 HTTP 介面與故障注入,只綁定本機回送位址。
++
++冪等鍵的並行語意是「有上限地等,再回原結果」:後到的請求在寫入鎖上排隊,等第一個提交後看見冪等紀錄,直接回同樣的結果;等待上限由連線的 busy_timeout 決定,逾時回可重試的暫時性錯誤。
+diff --git a/pyproject.toml b/pyproject.toml
+new file mode 100644
+index 0000000..ec260b5
+--- /dev/null
++++ b/pyproject.toml
+@@ -0,0 +1,20 @@
++[tool.ruff]
++line-length = 100
++target-version = "py314"
++src = ["src", "tests"]
++
++[tool.ruff.lint]
++# 風格、未使用、匯入排序、複雜度、函式長度(敘述數)、禁用匯入
++select = ["E", "F", "I", "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "TID"]
++
++[tool.ruff.lint.mccabe]
++max-complexity = 10
++
++[tool.ruff.lint.pylint]
++max-statements = 30
++max-branches = 10
++max-args = 6
++
++[tool.pytest.ini_options]
++testpaths = ["tests"]
++pythonpath = ["src"]
+diff --git a/requirements-dev.txt b/requirements-dev.txt
+new file mode 100644
+index 0000000..cf587d8
+--- /dev/null
++++ b/requirements-dev.txt
+@@ -0,0 +1,6 @@
++iniconfig==2.3.0
++packaging==26.3
++pluggy==1.6.0
++Pygments==2.21.0
++pytest==9.1.1
++ruff==0.16.8
+diff --git a/src/rtb/dsp/errors.py b/src/rtb/dsp/errors.py
+new file mode 100644
+index 0000000..b91a2c3
+--- /dev/null
++++ b/src/rtb/dsp/errors.py
+@@ -0,0 +1,37 @@
++"""Mock DSP 的型別化錯誤:呼叫端靠型別分辨「可重試」「永久拒絕」「版本已變」。"""
++
++
++class DspError(Exception):
++    """所有 DSP 錯誤的基底。"""
++
++
++class TransientError(DspError):
++    """暫時性錯誤:同一把冪等鍵可以安全重試。"""
++
++
++class StoreBusy(TransientError):
++    """儲存正被別的寫入佔用,等待逾時。"""
++
++
++class PermanentError(DspError):
++    """永久性錯誤:原樣重試不會成功。"""
++
++
++class ValidationRejected(PermanentError):
++    """請求內容不合法,例如預算不是正數。"""
++
++
++class UnknownAction(PermanentError):
++    """不認得的動作。"""
++
++
++class CampaignNotFound(PermanentError):
++    """找不到這個廣告。"""
++
++
++class IdempotencyConflict(PermanentError):
++    """同一把冪等鍵搭配了不同內容。"""
++
++
++class VersionConflict(PermanentError):
++    """預期版本與 DSP 目前版本不符,提案已過期,不可強制覆寫。"""
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+new file mode 100644
+index 0000000..088599d
+--- /dev/null
++++ b/src/rtb/dsp/server.py
+@@ -0,0 +1,221 @@
++"""Mock DSP 的 HTTP 介面(獨立行程)。
++
++故障注入只在啟動時帶 --fault-injection 才接受 X-Fault 標頭;旗標關閉時收到標頭一律回 400,
++且不改任何狀態。每種故障都由處理程式「決定」提交或不提交,不靠睡眠長短與逾時賽跑。
++只綁定本機回送位址。
++"""
++
++import argparse
++import json
++import re
++import sys
++import time
++from dataclasses import asdict
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++from pathlib import Path
++
++from rtb.dsp.errors import (
++    CampaignNotFound,
++    DspError,
++    IdempotencyConflict,
++    StoreBusy,
++    UnknownAction,
++    ValidationRejected,
++    VersionConflict,
++)
++from rtb.dsp.store import CampaignStore, Operation
++
++LOOPBACK = "127.0.0.1"
++MAX_BODY_BYTES = 64 * 1024
++FAULT_MODES = frozenset(
++    {
++        "timeout_before_commit",
++        "timeout_after_commit",
++        "delayed_response",
++        "transient_5xx",
++        "permanent_validation_error",
++    }
++)
++# 錯誤型別 -> (HTTP 狀態碼, 錯誤代碼, 可否重試)
++ERROR_TABLE = {
++    StoreBusy: (503, "store_busy", True),
++    VersionConflict: (409, "version_conflict", False),
++    IdempotencyConflict: (422, "idempotency_conflict", False),
++    ValidationRejected: (422, "validation_rejected", False),
++    UnknownAction: (400, "unknown_action", False),
++    CampaignNotFound: (404, "campaign_not_found", False),
++}
++ROUTES = [
++    ("GET", re.compile(r"^/campaigns/([^/]+)$"), "get_campaign"),
++    ("GET", re.compile(r"^/campaigns/([^/]+)/history$"), "get_history"),
++    ("GET", re.compile(r"^/operations/([^/]+)$"), "get_operation"),
++    ("POST", re.compile(r"^/campaigns/([^/]+)/budget$"), "update_budget"),
++    ("POST", re.compile(r"^/campaigns/([^/]+)/pause$"), "pause_campaign"),
++]
++
++
++class RequestRejected(Exception):
++    """請求本身有問題,直接對應成一個 HTTP 錯誤回應。"""
++
++    def __init__(self, status: int, code: str, retryable: bool = False):
++        super().__init__(code)
++        self.status, self.code, self.retryable = status, code, retryable
++
++
++class DspHandler(BaseHTTPRequestHandler):
++    server: "DspServer"
++
++    def log_message(self, *_args) -> None:  # 不把每個請求印到終端
++        pass
++
++    def do_GET(self) -> None:
++        self._dispatch("GET")
++
++    def do_POST(self) -> None:
++        self._dispatch("POST")
++
++    def _dispatch(self, method: str) -> None:
++        store = CampaignStore(self.server.db_path)
++        try:
++            fault = self._read_fault()
++            handler, campaign_or_key = self._route(method)
++            self._reply(200, getattr(self, "_" + handler)(store, campaign_or_key, fault))
++        except RequestRejected as exc:
++            self._reply_error(exc.status, exc.code, exc.retryable)
++        except DspError as exc:
++            status, code, retryable = ERROR_TABLE.get(type(exc), (500, "dsp_error", False))
++            self._reply_error(status, code, retryable)
++        except _NoResponse:
++            return  # 故障注入:刻意不回應
++        finally:
++            store.close()
++
++    def _read_fault(self) -> str | None:
++        mode = self.headers.get("X-Fault")
++        if mode is None:
++            return None
++        if not self.server.fault_injection:
++            raise RequestRejected(400, "fault_injection_disabled")
++        if mode not in FAULT_MODES:
++            raise RequestRejected(400, "unknown_fault_mode")
++        return mode
++
++    def _route(self, method: str):
++        for route_method, pattern, name in ROUTES:
++            match = pattern.match(self.path.split("?")[0])
++            if route_method == method and match:
++                return name, match.group(1)
++        raise RequestRejected(404, "not_found")
++
++    def _read_json(self) -> dict:
++        length = int(self.headers.get("Content-Length") or 0)
++        if length > MAX_BODY_BYTES:
++            raise RequestRejected(413, "body_too_large")
++        try:
++            body = json.loads(self.rfile.read(length) or b"{}")
++        except json.JSONDecodeError as exc:
++            raise RequestRejected(400, "invalid_json") from exc
++        if not isinstance(body, dict):
++            raise RequestRejected(400, "invalid_json")
++        return body
++
++    # ---- 讀取介面 ----
++    def _get_campaign(self, store, campaign_id, _fault):
++        return asdict(store.get_campaign(campaign_id))
++
++    def _get_history(self, store, campaign_id, _fault):
++        store.get_campaign(campaign_id)  # 不存在就回 404
++        return {"history": [asdict(h) for h in store.history(campaign_id)]}
++
++    def _get_operation(self, store, key, _fault):
++        result = store.get_operation_by_key(key)
++        if result is None:
++            raise RequestRejected(404, "operation_not_found")
++        return asdict(result)
++
++    # ---- 寫入介面 ----
++    def _update_budget(self, store, campaign_id, fault):
++        body = self._read_json()
++        return self._write(store, self._operation(campaign_id, "update_budget", body), fault)
++
++    def _pause_campaign(self, store, campaign_id, fault):
++        body = self._read_json()
++        return self._write(store, self._operation(campaign_id, "pause_campaign", body), fault)
++
++    def _operation(self, campaign_id: str, action: str, body: dict) -> Operation:
++        key = self.headers.get("Idempotency-Key")
++        if not key:
++            raise RequestRejected(400, "missing_idempotency_key")
++        params = {"new_budget": body["new_budget"]} if action == "update_budget" and (
++            "new_budget" in body) else {}
++        return Operation(campaign_id, action, params, body.get("expected_version", 0), key)
++
++    def _write(self, store: CampaignStore, op: Operation, fault: str | None) -> dict:
++        self._apply_fault_before_commit(fault)
++        result = asdict(store.execute(op))
++        if fault == "timeout_after_commit":
++            time.sleep(self.server.hang_seconds)  # 已提交,但回應遲到
++        return result
++
++    def _apply_fault_before_commit(self, fault: str | None) -> None:
++        if fault == "delayed_response":
++            time.sleep(self.server.delay_seconds)
++        elif fault == "transient_5xx":
++            raise RequestRejected(503, "injected_transient_error", retryable=True)
++        elif fault == "permanent_validation_error":
++            raise RequestRejected(422, "injected_validation_error")
++        elif fault == "timeout_before_commit":
++            time.sleep(self.server.hang_seconds)  # 不論客戶端是否還在,都不提交
++            raise _NoResponse
++
++    # ---- 回應 ----
++    def _reply_error(self, status: int, code: str, retryable: bool) -> None:
++        self._reply(status, {"error": code, "retryable": retryable})
++
++    def _reply(self, status: int, payload: dict) -> None:
++        raw = json.dumps(payload).encode()
++        try:
++            self.send_response(status)
++            self.send_header("Content-Type", "application/json")
++            self.send_header("Content-Length", str(len(raw)))
++            self.end_headers()
++            self.wfile.write(raw)
++        except OSError:
++            pass  # 客戶端已逾時離開,回應寫不出去是正常情況
++
++
++class _NoResponse(Exception):
++    """內部用:故障注入要求不回應。"""
++
++
++class DspServer(ThreadingHTTPServer):
++    daemon_threads = True
++
++    def __init__(self, db_path: Path, fault_injection: bool, hang_seconds: float,
++                 delay_seconds: float):
++        super().__init__((LOOPBACK, 0), DspHandler)
++        self.db_path, self.fault_injection = db_path, fault_injection
++        self.hang_seconds, self.delay_seconds = hang_seconds, delay_seconds
++
++    def handle_error(self, request, client_address) -> None:
++        pass  # 客戶端中途離開的例外不需要印到終端
++
++
++def main(argv: list[str] | None = None) -> None:
++    parser = argparse.ArgumentParser(description="Mock DSP")
++    parser.add_argument("--db", required=True, type=Path)
++    parser.add_argument("--fault-injection", action="store_true")
++    parser.add_argument("--hang-seconds", type=float, default=2.0)
++    parser.add_argument("--delay-seconds", type=float, default=0.3)
++    args = parser.parse_args(argv)
++    CampaignStore(args.db).close()  # 確保資料庫與表已建立
++    server = DspServer(args.db, args.fault_injection, args.hang_seconds, args.delay_seconds)
++    print(f"PORT={server.server_address[1]}", flush=True)
++    try:
++        server.serve_forever()
++    finally:
++        server.server_close()
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+new file mode 100644
+index 0000000..07492ff
+--- /dev/null
++++ b/src/rtb/dsp/store.py
+@@ -0,0 +1,208 @@
++"""Mock DSP 的儲存層:廣告狀態、版本、操作歷史與冪等紀錄。
++
++不變量:一次操作的「狀態變更、操作歷史、冪等紀錄」在同一個交易裡一起提交或一起回滾;
++同一把冪等鍵最多套用一次;寫入交易一律用 BEGIN IMMEDIATE,所以並行的同鍵請求會排隊,
++後到的看見已提交的冪等紀錄後直接回原結果。
++"""
++
++import hashlib
++import json
++import sqlite3
++from collections.abc import Callable
++from dataclasses import dataclass
++from datetime import UTC, datetime
++from pathlib import Path
++
++from rtb.dsp.errors import (
++    CampaignNotFound,
++    IdempotencyConflict,
++    StoreBusy,
++    UnknownAction,
++    ValidationRejected,
++    VersionConflict,
++)
++
++SCHEMA = """
++CREATE TABLE IF NOT EXISTS campaigns (
++    id TEXT PRIMARY KEY, budget INTEGER NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL);
++CREATE TABLE IF NOT EXISTS operations (
++    operation_id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL,
++    action TEXT NOT NULL, params_json TEXT NOT NULL, version_after INTEGER NOT NULL,
++    received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE);
++CREATE TABLE IF NOT EXISTS idempotency_keys (
++    key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, operation_id INTEGER NOT NULL);
++"""
++
++BUSY_TIMEOUT_SECONDS = 5.0
++
++
++def _utc_now() -> str:
++    return datetime.now(UTC).isoformat()
++
++
++@dataclass(frozen=True)
++class Campaign:
++    id: str
++    budget: int
++    status: str
++    version: int
++
++
++@dataclass(frozen=True)
++class Operation:
++    campaign_id: str
++    action: str
++    params: dict
++    expected_version: int
++    idempotency_key: str
++
++    def fingerprint(self) -> str:
++        body = [self.campaign_id, self.action, self.params, self.expected_version]
++        return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
++
++
++@dataclass(frozen=True)
++class OperationResult:
++    operation_id: int
++    campaign_id: str
++    action: str
++    version_after: int
++    committed_at: str
++    replayed: bool
++
++
++@dataclass(frozen=True)
++class HistoryEntry:
++    operation_id: int
++    action: str
++    version_after: int
++    received_at: str
++    committed_at: str
++    idempotency_key: str
++
++
++def _validate(op: Operation) -> None:
++    if op.action == "update_budget":
++        budget = op.params.get("new_budget")
++        if not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0:
++            raise ValidationRejected("new_budget 必須是正整數")
++    elif op.action != "pause_campaign":
++        raise UnknownAction(op.action)
++
++
++def _next_state(campaign: Campaign, op: Operation) -> Campaign:
++    if op.action == "update_budget":
++        return Campaign(campaign.id, op.params["new_budget"], campaign.status, campaign.version + 1)
++    return Campaign(campaign.id, campaign.budget, "paused", campaign.version + 1)
++
++
++class CampaignStore:
++    def __init__(self, path: Path, clock: Callable[[], str] = _utc_now):
++        self._clock = clock
++        self._conn = sqlite3.connect(path, isolation_level=None, timeout=BUSY_TIMEOUT_SECONDS)
++        self._conn.execute("PRAGMA journal_mode=WAL")
++        self._conn.executescript(SCHEMA)
++
++    def close(self) -> None:
++        self._conn.close()
++
++    def seed_campaign(self, campaign_id: str, budget: int, status: str = "active") -> None:
++        self._conn.execute(
++            "INSERT INTO campaigns (id, budget, status, version) VALUES (?, ?, ?, 1)",
++            (campaign_id, budget, status),
++        )
++
++    def get_campaign(self, campaign_id: str) -> Campaign:
++        row = self._conn.execute(
++            "SELECT id, budget, status, version FROM campaigns WHERE id = ?", (campaign_id,)
++        ).fetchone()
++        if row is None:
++            raise CampaignNotFound(campaign_id)
++        return Campaign(*row)
++
++    def history(self, campaign_id: str) -> list[HistoryEntry]:
++        rows = self._conn.execute(
++            "SELECT operation_id, action, version_after, received_at, committed_at, "
++            "idempotency_key FROM operations WHERE campaign_id = ? ORDER BY operation_id",
++            (campaign_id,),
++        ).fetchall()
++        return [HistoryEntry(*row) for row in rows]
++
++    def get_operation_by_key(self, key: str) -> OperationResult | None:
++        return self._replayed_result(key)
++
++    def execute(self, op: Operation) -> OperationResult:
++        _validate(op)
++        received_at = self._clock()
++        try:
++            self._conn.execute("BEGIN IMMEDIATE")
++        except sqlite3.OperationalError as exc:
++            raise StoreBusy(str(exc)) from exc
++        try:
++            result = self._execute_in_transaction(op, received_at)
++            self._conn.execute("COMMIT")
++            return result
++        except BaseException:
++            self._conn.execute("ROLLBACK")
++            raise
++
++    def _execute_in_transaction(self, op: Operation, received_at: str) -> OperationResult:
++        existing = self._existing_operation(op)
++        if existing is not None:
++            return existing
++        current = self.get_campaign(op.campaign_id)
++        if current.version != op.expected_version:
++            raise VersionConflict(f"預期 {op.expected_version},目前 {current.version}")
++        updated = _next_state(current, op)
++        committed_at = self._clock()
++        operation_id = self._apply(op, updated, received_at, committed_at)
++        self._record_idempotency(op, operation_id)
++        return OperationResult(
++            operation_id, op.campaign_id, op.action, updated.version, committed_at, False
++        )
++
++    def _existing_operation(self, op: Operation) -> OperationResult | None:
++        row = self._conn.execute(
++            "SELECT fingerprint FROM idempotency_keys WHERE key = ?", (op.idempotency_key,)
++        ).fetchone()
++        if row is None:
++            return None
++        if row[0] != op.fingerprint():
++            raise IdempotencyConflict(op.idempotency_key)
++        return self._replayed_result(op.idempotency_key)
++
++    def _replayed_result(self, key: str) -> OperationResult | None:
++        row = self._conn.execute(
++            "SELECT operation_id, campaign_id, action, version_after, committed_at "
++            "FROM operations WHERE idempotency_key = ?",
++            (key,),
++        ).fetchone()
++        return None if row is None else OperationResult(*row, replayed=True)
++
++    def _apply(
++        self, op: Operation, updated: Campaign, received_at: str, committed_at: str
++    ) -> int:
++        self._conn.execute(
++            "UPDATE campaigns SET budget = ?, status = ?, version = ? WHERE id = ?",
++            (updated.budget, updated.status, updated.version, updated.id),
++        )
++        cursor = self._conn.execute(
++            "INSERT INTO operations (campaign_id, action, params_json, version_after, "
++            "received_at, committed_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
++            (
++                op.campaign_id,
++                op.action,
++                json.dumps(op.params, sort_keys=True),
++                updated.version,
++                received_at,
++                committed_at,
++                op.idempotency_key,
++            ),
++        )
++        return cursor.lastrowid
++
++    def _record_idempotency(self, op: Operation, operation_id: int) -> None:
++        self._conn.execute(
++            "INSERT INTO idempotency_keys (key, fingerprint, operation_id) VALUES (?, ?, ?)",
++            (op.idempotency_key, op.fingerprint(), operation_id),
++        )
+diff --git a/tests/__init__.py b/tests/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/dsp/__init__.py b/tests/dsp/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/dsp/conftest.py b/tests/dsp/conftest.py
+new file mode 100644
+index 0000000..d84bbe7
+--- /dev/null
++++ b/tests/dsp/conftest.py
+@@ -0,0 +1,62 @@
++"""DSP 行程測試的共用工具:真的啟動獨立行程、埠由系統分配、結束時一定關閉。"""
++
++import json
++import os
++import subprocess
++import sys
++import urllib.error
++import urllib.request
++from pathlib import Path
++
++import pytest
++
++SRC = str(Path(__file__).resolve().parents[2] / "src")
++
++
++class DspProcess:
++    def __init__(self, db_path, fault_injection=False, hang_seconds=1.5, delay_seconds=0.3):
++        cmd = [sys.executable, "-m", "rtb.dsp.server", "--db", str(db_path),
++               "--hang-seconds", str(hang_seconds), "--delay-seconds", str(delay_seconds)]
++        if fault_injection:
++            cmd.append("--fault-injection")
++        env = {**os.environ, "PYTHONPATH": SRC}
++        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, env=env)
++        line = self.proc.stdout.readline().strip()
++        assert line.startswith("PORT="), f"DSP 沒有印出埠:{line!r}"
++        self.base = f"http://127.0.0.1:{line.split('=')[1]}"
++
++    def stop(self):
++        if self.proc.poll() is None:
++            self.proc.kill()
++        self.proc.wait(timeout=5)
++        self.proc.stdout.close()
++
++    def request(self, method, path, body=None, headers=None, timeout=3.0):
++        """回 (狀態碼, 解析後的 JSON)。逾時會丟 TimeoutError,不吞掉。"""
++        data = None if body is None else json.dumps(body).encode()
++        req = urllib.request.Request(self.base + path, data=data, method=method,
++                                     headers=headers or {})
++        try:
++            with urllib.request.urlopen(req, timeout=timeout) as resp:
++                return resp.status, json.loads(resp.read())
++        except urllib.error.HTTPError as err:
++            return err.code, json.loads(err.read())
++
++
++@pytest.fixture
++def start_dsp(tmp_path):
++    started = []
++
++    def _start(fault_injection=False, seed=True, **kwargs):
++        from rtb.dsp.store import CampaignStore
++
++        db = tmp_path / "dsp.db"
++        if seed and not db.exists():
++            CampaignStore(db).seed_campaign("c1", budget=100)
++        proc = DspProcess(db, fault_injection=fault_injection, **kwargs)
++        started.append(proc)
++        return proc
++
++    yield _start
++    for proc in started:
++        proc.stop()
+diff --git a/tests/dsp/test_server.py b/tests/dsp/test_server.py
+new file mode 100644
+index 0000000..2e9d533
+--- /dev/null
++++ b/tests/dsp/test_server.py
+@@ -0,0 +1,216 @@
++"""Mock DSP 的 HTTP 事故測試:真的獨立行程、真的網路逾時。"""
++
++import socket
++import threading
++import time
++
++import pytest
++
++BUDGET = "/campaigns/c1/budget"
++HEADERS = {"Idempotency-Key": "k1"}
++
++
++def set_budget(dsp, budget=150, version=1, key="k1", fault=None, timeout=3.0):
++    headers = {"Idempotency-Key": key}
++    if fault:
++        headers["X-Fault"] = fault
++    return dsp.request("POST", BUDGET, {"new_budget": budget, "expected_version": version},
++                       headers, timeout=timeout)
++
++
++def campaign(dsp):
++    return dsp.request("GET", "/campaigns/c1")[1]
++
++
++def history(dsp):
++    return dsp.request("GET", "/campaigns/c1/history")[1]["history"]
++
++
++def test_timeout_before_commit_client_sees_timeout_and_dsp_never_commits_later(start_dsp):
++    dsp = start_dsp(fault_injection=True, hang_seconds=0.6)
++
++    with pytest.raises(TimeoutError):
++        set_budget(dsp, fault="timeout_before_commit", timeout=0.3)
++    time.sleep(0.9)  # 等過處理程式睡醒的時間:客戶端早已離開,DSP 也不可以在這時才提交
++
++    assert campaign(dsp)["version"] == 1 and campaign(dsp)["budget"] == 100
++    assert history(dsp) == []
++    assert dsp.request("GET", "/operations/k1")[0] == 404
++
++
++def test_timeout_after_commit_client_sees_timeout_but_dsp_applied_exactly_once(start_dsp):
++    dsp = start_dsp(fault_injection=True)
++
++    with pytest.raises(TimeoutError):
++        set_budget(dsp, fault="timeout_after_commit", timeout=0.3)
++
++    assert campaign(dsp)["version"] == 2 and campaign(dsp)["budget"] == 150
++    assert len(history(dsp)) == 1
++    status, body = dsp.request("GET", "/operations/k1")
++    assert status == 200 and body["version_after"] == 2
++
++
++def test_retry_with_same_key_after_commit_timeout_replays_and_does_not_apply_twice(start_dsp):
++    dsp = start_dsp(fault_injection=True)
++    with pytest.raises(TimeoutError):
++        set_budget(dsp, fault="timeout_after_commit", timeout=0.3)
++
++    status, body = set_budget(dsp)  # 沒有故障標頭的正常重試
++
++    assert status == 200 and body["replayed"] is True
++    assert len(history(dsp)) == 1 and campaign(dsp)["version"] == 2
++
++
++def test_fault_header_is_rejected_with_400_and_changes_nothing_when_injection_is_off(start_dsp):
++    dsp = start_dsp(fault_injection=False)
++
++    status, body = set_budget(dsp, fault="timeout_after_commit")
++
++    assert status == 400 and body["error"] == "fault_injection_disabled"
++    assert campaign(dsp)["version"] == 1 and history(dsp) == []
++
++
++def test_unknown_fault_mode_is_rejected_even_when_injection_is_on(start_dsp):
++    dsp = start_dsp(fault_injection=True)
++
++    status, body = set_budget(dsp, fault="timeout_befor_commit")  # 故意拼錯
++
++    assert status == 400 and body["error"] == "unknown_fault_mode"
++    assert history(dsp) == []
++
++
++def test_transient_5xx_does_not_change_state_and_same_key_retry_then_succeeds(start_dsp):
++    dsp = start_dsp(fault_injection=True)
++
++    status, body = set_budget(dsp, fault="transient_5xx")
++    assert status == 503 and body["retryable"] is True
++    assert history(dsp) == []
++
++    status, body = set_budget(dsp)
++    assert status == 200 and body["replayed"] is False
++    assert len(history(dsp)) == 1
++
++
++def test_permanent_validation_error_is_not_retryable_and_changes_nothing(start_dsp):
++    dsp = start_dsp(fault_injection=True)
++
++    status, body = set_budget(dsp, fault="permanent_validation_error")
++
++    assert status == 422 and body["retryable"] is False
++    assert history(dsp) == []
++
++
++def test_negative_budget_is_a_422_permanent_rejection(start_dsp):
++    dsp = start_dsp()
++
++    status, body = set_budget(dsp, budget=-1)
++
++    assert status == 422 and body["error"] == "validation_rejected"
++
++
++def test_stale_version_gets_409_and_does_not_overwrite_newer_state(start_dsp):
++    dsp = start_dsp()
++    set_budget(dsp, budget=150, version=1, key="k1")
++
++    status, body = set_budget(dsp, budget=999, version=1, key="k2")
++
++    assert status == 409 and body["error"] == "version_conflict" and body["retryable"] is False
++    assert campaign(dsp)["budget"] == 150
++
++
++def test_same_key_with_different_payload_is_rejected_with_422(start_dsp):
++    dsp = start_dsp()
++    set_budget(dsp, budget=150, key="k1")
++
++    status, body = set_budget(dsp, budget=999, key="k1")
++
++    assert status == 422 and body["error"] == "idempotency_conflict"
++    assert campaign(dsp)["budget"] == 150
++
++
++def test_missing_idempotency_key_is_rejected_with_400(start_dsp):
++    dsp = start_dsp()
++
++    status, body = dsp.request("POST", BUDGET, {"new_budget": 150, "expected_version": 1})
++
++    assert status == 400 and body["error"] == "missing_idempotency_key"
++
++
++def test_pause_campaign_over_http(start_dsp):
++    dsp = start_dsp()
++
++    status, _ = dsp.request("POST", "/campaigns/c1/pause", {"expected_version": 1},
++                            {"Idempotency-Key": "p1"})
++
++    assert status == 200 and campaign(dsp)["status"] == "paused"
++
++
++def test_query_is_answered_immediately_while_a_slow_request_is_in_flight(start_dsp):
++    dsp = start_dsp(fault_injection=True, hang_seconds=1.5)
++    slow = threading.Thread(target=lambda: _swallow_timeout(dsp))
++    slow.start()
++    time.sleep(0.3)  # 確保慢請求已經進入 DSP 並卡在處理中
++
++    status, body = dsp.request("GET", "/operations/nothing", timeout=0.5)
++
++    assert status == 404  # 有回應(而不是逾時)就代表伺服器不是單執行緒
++    slow.join()
++
++
++def _swallow_timeout(dsp):
++    try:
++        set_budget(dsp, fault="timeout_after_commit", timeout=0.3)
++    except TimeoutError:
++        pass
++
++
++def test_concurrent_same_key_requests_over_http_apply_exactly_once(start_dsp):
++    dsp = start_dsp(fault_injection=True, delay_seconds=0.3)  # 延遲讓請求必然在 DSP 內重疊
++    workers, barrier, results = 20, threading.Barrier(20), []
++
++    def call():
++        barrier.wait()
++        results.append(set_budget(dsp, fault="delayed_response", timeout=5.0))
++
++    threads = [threading.Thread(target=call) for _ in range(workers)]
++    [t.start() for t in threads]
++    [t.join() for t in threads]
++
++    assert all(status == 200 for status, _ in results)
++    assert len(history(dsp)) == 1 and campaign(dsp)["version"] == 2
++    assert sum(1 for _, body in results if body["replayed"] is False) == 1
++
++
++def test_idempotency_record_survives_a_real_dsp_process_restart(start_dsp):
++    first = start_dsp()
++    set_budget(first, budget=150, key="k1")
++    first.stop()
++
++    second = start_dsp()  # 同一個資料庫檔,新的行程
++
++    status, body = set_budget(second, budget=150, key="k1")
++    assert status == 200 and body["replayed"] is True
++    assert len(history(second)) == 1
++
++
++def _non_loopback_ip():
++    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
++    try:
++        probe.connect(("10.255.255.255", 1))  # 不會真的送出封包,只是問系統走哪張網卡
++        ip = probe.getsockname()[0]
++    except OSError:
++        return None
++    finally:
++        probe.close()
++    return None if ip.startswith("127.") else ip
++
++
++def test_dsp_refuses_connections_on_non_loopback_addresses(start_dsp):
++    ip = _non_loopback_ip()
++    if ip is None:
++        pytest.skip("這台機器沒有非回送的網路介面可供檢查")
++    dsp = start_dsp()
++    port = int(dsp.base.rsplit(":", 1)[1])
++
++    with pytest.raises(ConnectionRefusedError):
++        socket.create_connection((ip, port), timeout=1.0).close()
+diff --git a/tests/dsp/test_store.py b/tests/dsp/test_store.py
+new file mode 100644
+index 0000000..9bc2638
+--- /dev/null
++++ b/tests/dsp/test_store.py
+@@ -0,0 +1,146 @@
++"""Mock DSP 儲存層的事故測試:每條測試名稱描述一個失敗情境與它要守住的不變量。"""
++
++import threading
++
++import pytest
++
++from rtb.dsp.errors import IdempotencyConflict, ValidationRejected, VersionConflict
++from rtb.dsp.store import CampaignStore, Operation
++
++NOW = "2026-09-21T12:00:00+00:00"
++
++
++@pytest.fixture
++def store(tmp_path):
++    s = CampaignStore(tmp_path / "dsp.db", clock=lambda: NOW)
++    s.seed_campaign("c1", budget=100)
++    return s
++
++
++def budget_op(key="k1", budget=150, expected_version=1, campaign="c1"):
++    return Operation(
++        campaign_id=campaign,
++        action="update_budget",
++        params={"new_budget": budget},
++        expected_version=expected_version,
++        idempotency_key=key,
++    )
++
++
++def test_same_key_same_payload_applies_once_and_returns_original_result(store):
++    first = store.execute(budget_op())
++    second = store.execute(budget_op())
++
++    assert second.replayed is True and first.replayed is False
++    assert second.operation_id == first.operation_id
++    assert second.version_after == first.version_after == 2
++    assert store.get_campaign("c1").budget == 150
++    assert len(store.history("c1")) == 1
++
++
++def test_same_key_different_payload_is_rejected_and_changes_nothing(store):
++    store.execute(budget_op(budget=150))
++
++    with pytest.raises(IdempotencyConflict):
++        store.execute(budget_op(budget=999))
++
++    assert store.get_campaign("c1").budget == 150
++    assert store.get_campaign("c1").version == 2
++    assert len(store.history("c1")) == 1
++
++
++def test_stale_expected_version_is_rejected_without_writing(store):
++    store.execute(budget_op(key="k1", budget=150, expected_version=1))
++
++    with pytest.raises(VersionConflict):
++        store.execute(budget_op(key="k2", budget=200, expected_version=1))
++
++    assert store.get_campaign("c1").budget == 150
++    assert len(store.history("c1")) == 1
++    assert store.get_operation_by_key("k2") is None
++
++
++def test_each_operation_bumps_version_by_one_and_records_received_and_committed_times(store):
++    store.execute(budget_op(key="k1", budget=150, expected_version=1))
++    store.execute(budget_op(key="k2", budget=160, expected_version=2))
++
++    versions = [h.version_after for h in store.history("c1")]
++    assert versions == [2, 3]
++    for entry in store.history("c1"):
++        assert entry.received_at and entry.committed_at
++        assert entry.committed_at >= entry.received_at
++
++
++def test_invalid_budget_is_a_permanent_rejection_and_changes_nothing(store):
++    with pytest.raises(ValidationRejected):
++        store.execute(budget_op(budget=-5))
++
++    assert store.get_campaign("c1").version == 1
++    assert store.history("c1") == []
++
++
++def test_pause_campaign_sets_paused_and_bumps_version(store):
++    op = Operation("c1", "pause_campaign", {}, expected_version=1, idempotency_key="p1")
++    store.execute(op)
++
++    campaign = store.get_campaign("c1")
++    assert campaign.status == "paused" and campaign.version == 2
++
++
++def test_idempotency_record_survives_reopening_the_store(tmp_path):
++    path = tmp_path / "dsp.db"
++    first = CampaignStore(path, clock=lambda: NOW)
++    first.seed_campaign("c1", budget=100)
++    first.execute(budget_op())
++
++    reopened = CampaignStore(path, clock=lambda: NOW)
++    replay = reopened.execute(budget_op())
++
++    assert replay.replayed is True
++    assert len(reopened.history("c1")) == 1
++
++
++def test_failure_between_state_change_and_idempotency_record_rolls_everything_back(
++    store, monkeypatch
++):
++    def explode(*_args, **_kwargs):
++        raise RuntimeError("crash after state change, before idempotency record")
++
++    monkeypatch.setattr(store, "_record_idempotency", explode)
++
++    with pytest.raises(RuntimeError):
++        store.execute(budget_op())
++
++    assert store.get_campaign("c1").budget == 100
++    assert store.get_campaign("c1").version == 1
++    assert store.history("c1") == []
++    assert store.get_operation_by_key("k1") is None
++
++
++def test_concurrent_requests_with_the_same_key_apply_exactly_once(tmp_path):
++    path = tmp_path / "dsp.db"
++    CampaignStore(path, clock=lambda: NOW).seed_campaign("c1", budget=100)
++    workers = 20
++    barrier = threading.Barrier(workers)
++    results, errors = [], []
++
++    def call():
++        own_store = CampaignStore(path, clock=lambda: NOW)  # 每個執行緒自己的連線
++        barrier.wait()
++        try:
++            results.append(own_store.execute(budget_op()))
++        except Exception as exc:  # noqa: BLE001 - 收集以便斷言
++            errors.append(exc)
++
++    threads = [threading.Thread(target=call) for _ in range(workers)]
++    for t in threads:
++        t.start()
++    for t in threads:
++        t.join()
++
++    check = CampaignStore(path, clock=lambda: NOW)
++    assert errors == []
++    assert len(check.history("c1")) == 1
++    assert check.get_campaign("c1").version == 2
++    assert len({r.operation_id for r in results}) == 1
++    assert sum(1 for r in results if not r.replayed) == 1

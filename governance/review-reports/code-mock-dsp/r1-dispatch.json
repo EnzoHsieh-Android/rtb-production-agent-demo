@@ -1,0 +1,8 @@
+{"round":"r1","spec":"governance/review-reports/code-mock-dsp/r1-snapshot.patch","sha256":"e46c54f9cb7642db87bd0a94c6dec02b39de55c9898efc8ea638ad32ae36d3df","seats":[
+{"seat":"c1","lens":"correctness","auditor":"sonnet"},
+{"seat":"c2","lens":"concurrency-and-resources","auditor":"sonnet"},
+{"seat":"c3","lens":"boundaries-and-inputs","auditor":"sonnet"},
+{"seat":"c4","lens":"contract-and-graph-consistency","auditor":"sonnet"},
+{"seat":"cx","lens":"external-finder","auditor":"codex"},
+{"seat":"carch","lens":"architecture-alignment","auditor":"sonnet"},
+{"seat":"csec","lens":"security","auditor":"sonnet"}]}
