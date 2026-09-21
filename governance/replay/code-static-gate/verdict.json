@@ -1,0 +1,38 @@
+{
+ "loop": "code-static-gate",
+ "round": "r2",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-22T02:23:49+08:00",
+ "spec_path": "governance/review-reports/code-static-gate/r2-snapshot.patch",
+ "spec_sha": "a4d559e826689a0f0fe21f93d18d4ecd8f06e5233c841a7b05c604900a5cfa0b",
+ "rows": [
+  "{\"ts\": \"2026-09-22T02:07:07+08:00\", \"kind\": \"none\", \"auditor\": \"sarch-architecture\", \"token\": \"CANARY-54f19a1e\", \"note\": \"\", \"loop\": \"code-static-gate\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 5, \"result_sha256\": \"ef9949639d9b82f2e470431c4e41b8dc9498bf4e692186c2f624804d1fc83a3f\", \"reviewed_sha256\": \"ef9949639d9b82f2e470431c4e41b8dc9498bf4e692186c2f624804d1fc83a3f\", \"spec_path\": \"governance/review-reports/code-static-gate/r1-snapshot.patch\", \"scope_lines\": 1693, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 5, \"report_path\": \"governance/review-reports/code-static-gate/r1-sarch.md\", \"report_sha256\": \"f3cd3fd764c090dbe9eeb7fbc3cfe222bee5f2a5aad04b2090274456f094739c\", \"snapshot_path\": \"governance/review-reports/code-static-gate/r1-snapshot.patch\", \"snapshot_sha256\": \"ef9949639d9b82f2e470431c4e41b8dc9498bf4e692186c2f624804d1fc83a3f\"}",
+  "{\"ts\": \"2026-09-22T02:07:07+08:00\", \"kind\": \"none\", \"auditor\": \"s1-generalist\", \"token\": \"CANARY-a5008010\", \"note\": \"\", \"loop\": \"code-static-gate\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 8, \"result_sha256\": \"ef9949639d9b82f2e470431c4e41b8dc9498bf4e692186c2f624804d1fc83a3f\", \"reviewed_sha256\": \"ef9949639d9b82f2e470431c4e41b8dc9498bf4e692186c2f624804d1fc83a3f\", \"spec_path\": \"governance/review-reports/code-static-gate/r1-snapshot.patch\", \"scope_lines\": 1693, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"s1f1\", \"s1f2\", \"s1f3\", \"s1f4\", \"s1f5\", \"s1f6\", \"s1f7\", \"s1f8\", \"saf1\", \"saf2\", \"saf3\", \"saf4\", \"saf5\"], \"folded_set\": [\"s1f1\", \"s1f2\", \"s1f3\", \"s1f4\", \"s1f5\", \"s1f6\", \"s1f7\", \"s1f8\", \"saf1\", \"saf2\", \"saf3\", \"saf4\", \"saf5\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"s1f1\": \"code\", \"s1f2\": \"code\", \"s1f3\": \"code\", \"s1f4\": \"code\", \"s1f5\": \"code\", \"s1f6\": \"code\", \"s1f7\": \"code\", \"s1f8\": \"code\", \"saf1\": \"code\", \"saf2\": \"code\", \"saf3\": \"code\", \"saf4\": \"code\", \"saf5\": \"code\"}, \"reported\": 8, \"report_path\": \"governance/review-reports/code-static-gate/r1-s1.md\", \"report_sha256\": \"c529a75ffb06425f9915570c7ab9380df96009fe58e8345a047faa704fbe0561\", \"snapshot_path\": \"governance/review-reports/code-static-gate/r1-snapshot.patch\", \"snapshot_sha256\": \"ef9949639d9b82f2e470431c4e41b8dc9498bf4e692186c2f624804d1fc83a3f\", \"intake_path\": \"governance/review-reports/code-static-gate/r1-intake.md\", \"intake_sha256\": \"13690966edbbbe4cdff6159940233d4101cb0be9a06b655e13572db5bad49f03\"}",
+  "{\"ts\": \"2026-09-22T02:18:25+08:00\", \"kind\": \"none\", \"auditor\": \"tarch\", \"token\": \"CANARY-fc32077a\", \"note\": \"\", \"loop\": \"code-static-gate\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 3, \"result_sha256\": \"a4d559e826689a0f0fe21f93d18d4ecd8f06e5233c841a7b05c604900a5cfa0b\", \"reviewed_sha256\": \"a4d559e826689a0f0fe21f93d18d4ecd8f06e5233c841a7b05c604900a5cfa0b\", \"spec_path\": \"governance/review-reports/code-static-gate/r2-snapshot.patch\", \"scope_lines\": 692, \"reported\": 3, \"report_path\": \"governance/review-reports/code-static-gate/r2-tarch.md\", \"report_sha256\": \"cc8108d96014a99d012ee475872012cd2ceef40a9dc669a6f8ff36afbed6b370\", \"snapshot_path\": \"governance/review-reports/code-static-gate/r2-snapshot.patch\", \"snapshot_sha256\": \"a4d559e826689a0f0fe21f93d18d4ecd8f06e5233c841a7b05c604900a5cfa0b\"}",
+  "{\"ts\": \"2026-09-22T02:23:02+08:00\", \"kind\": \"none\", \"auditor\": \"t2\", \"token\": \"CANARY-c8b68a78\", \"note\": \"\", \"loop\": \"code-static-gate\", \"round\": \"r2\", \"severity\": \"major\", \"findings\": 7, \"result_sha256\": \"a4d559e826689a0f0fe21f93d18d4ecd8f06e5233c841a7b05c604900a5cfa0b\", \"reviewed_sha256\": \"a4d559e826689a0f0fe21f93d18d4ecd8f06e5233c841a7b05c604900a5cfa0b\", \"spec_path\": \"governance/review-reports/code-static-gate/r2-snapshot.patch\", \"scope_lines\": 692, \"findings_set\": [\"t1f1\", \"t1f2\", \"t1f3\", \"t1f4\", \"t1f5\", \"taf1\", \"taf2\", \"taf3\", \"t2f1\", \"t2f3\", \"t2f5\", \"t2f6\", \"t2f7\"], \"folded_set\": [\"t1f1\", \"t1f2\", \"t1f3\", \"t1f4\", \"t1f5\", \"taf1\", \"taf2\", \"taf3\", \"t2f1\", \"t2f3\", \"t2f5\", \"t2f6\", \"t2f7\"], \"accepted_set\": [], \"refuted_set\": [\"t2f2\", \"t2f4\"], \"refuted_reasons\": {\"t2f2\": \"對含點斜線前綴的路徑實測仍被正規化保留\", \"t2f4\": \"實測已被回報為標籤限制\"}, \"reported\": 7, \"report_path\": \"governance/review-reports/code-static-gate/r2-t2.md\", \"report_sha256\": \"f010cc71c17d4f0bd1a576f7b89b7c04cb83010e143bf0c5d7cfab2eab6b904b\", \"snapshot_path\": \"governance/review-reports/code-static-gate/r2-snapshot.patch\", \"snapshot_sha256\": \"a4d559e826689a0f0fe21f93d18d4ecd8f06e5233c841a7b05c604900a5cfa0b\", \"intake_path\": \"governance/review-reports/code-static-gate/r2-intake.md\", \"intake_sha256\": \"e7c27bee4360b1d043c0785156541d940c49df808fa14022565d5573a77b65f4\"}"
+ ],
+ "all_row_shas": [
+  "2cb7e153e31849c39d0a23143cd3e93c00edd83a73028e60be6d6e16846b448a",
+  "667955766ed0d50da721a1f6c259e37679e778f660e62b7daf60d5c8344184b3",
+  "9970227a799c2f4faaefa7b27c5e0b4bd36234a5505c19328151918b1cb979de",
+  "cf2f4f0c7211f3cf136445885738c31748706b1af5bba5f86830e3f46591fbf7"
+ ],
+ "files": {
+  "governance/review-reports/code-static-gate/r2-tarch.md": {
+   "sha256": "cc8108d96014a99d012ee475872012cd2ceef40a9dc669a6f8ff36afbed6b370",
+   "git_blob": "8d895d0629d9f35fe3b3c367087f035d39a902e3"
+  },
+  "governance/review-reports/code-static-gate/r2-snapshot.patch": {
+   "sha256": "a4d559e826689a0f0fe21f93d18d4ecd8f06e5233c841a7b05c604900a5cfa0b",
+   "git_blob": "5adff62496dc47157c492c0fabf48c5ae1e45afb"
+  },
+  "governance/review-reports/code-static-gate/r2-t2.md": {
+   "sha256": "f010cc71c17d4f0bd1a576f7b89b7c04cb83010e143bf0c5d7cfab2eab6b904b",
+   "git_blob": "dfdc204d924d944b4f4fe30f0103836fdcf6fed7"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

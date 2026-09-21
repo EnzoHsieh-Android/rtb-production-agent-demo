@@ -73,7 +73,7 @@ def test_the_table_is_complete_and_has_no_dangling_targets():
 
 
 def test_terminal_states_are_exactly_the_five_documented_ones():
-    assert TERMINAL_STATES == {S.COMPLETED, S.FAILED, S.BLOCKED, S.NO_ACTION, S.SUPERSEDED}
+    assert {S.COMPLETED, S.FAILED, S.BLOCKED, S.NO_ACTION, S.SUPERSEDED} == TERMINAL_STATES
 
 
 def test_unknown_or_non_state_values_are_illegal_not_a_crash_or_a_pass():

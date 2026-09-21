@@ -1,0 +1,17 @@
+{
+ "round": "r2",
+ "spec": "governance/review-reports/code-static-gate/r2-snapshot.patch",
+ "sha256": "a4d559e826689a0f0fe21f93d18d4ecd8f06e5233c841a7b05c604900a5cfa0b",
+ "seats": [
+  {
+   "seat": "t1",
+   "lens": "fix-delta-reviewer",
+   "auditor": "sonnet"
+  },
+  {
+   "seat": "tarch",
+   "lens": "architecture-alignment",
+   "auditor": "sonnet"
+  }
+ ]
+}

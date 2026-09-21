@@ -14,6 +14,7 @@
 import math
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TypeGuard
 
 from rtb.domain._checks import is_plain_number
 
@@ -64,7 +65,7 @@ def _unknown(reason: Reason) -> MetricResult:
     return MetricResult(value=None, reason=reason)
 
 
-def _is_finite_number(value: object) -> bool:
+def _is_finite_number(value: object) -> TypeGuard[int | float]:
     if not is_plain_number(value):
         return False
     return not isinstance(value, float) or math.isfinite(value)  # 整數一定有限,不轉成 float
@@ -75,18 +76,18 @@ def _check_threshold(threshold: object) -> None:
         raise ValueError("門檻必須是有限的數字")
 
 
-def _is_valid_amount(value: object) -> bool:
+def _is_valid_amount(value: object) -> TypeGuard[int | float]:
     return _is_finite_number(value) and value >= 0
 
 
-def _classify(*inputs: object) -> Reason | None:
-    """回傳輸入的問題類別;None 代表全部有效。不合理優先於缺漏。"""
-    present = [v for v in inputs if v is not None]
-    if any(not _is_valid_amount(v) for v in present):
+def _checked(*inputs: float | None) -> tuple[float, ...] | Reason:
+    """全部有效就回傳(已確定不是空值的)數字;否則回傳問題類別。不合理優先於缺漏。"""
+    present = [value for value in inputs if value is not None]
+    if any(not _is_valid_amount(value) for value in present):
         return Reason.INVALID_DATA
     if len(present) < len(inputs):
         return Reason.MISSING_DATA
-    return None
+    return tuple(present)
 
 
 def _ratio(numerator: float, denominator: float) -> MetricResult:
@@ -103,22 +104,29 @@ def _ratio(numerator: float, denominator: float) -> MetricResult:
 
 def ctr(clicks: int | None, impressions: int | None) -> MetricResult:
     """點擊率 = 點擊 / 曝光。"""
-    problem = _classify(clicks, impressions)
-    if problem is None and clicks > impressions:
-        problem = Reason.INVALID_DATA  # 點擊不可能比曝光多
-    return _unknown(problem) if problem else _ratio(clicks, impressions)
+    checked = _checked(clicks, impressions)
+    if isinstance(checked, Reason):
+        return _unknown(checked)
+    clicked, shown = checked
+    if clicked > shown:
+        return _unknown(Reason.INVALID_DATA)  # 點擊不可能比曝光多
+    return _ratio(clicked, shown)
 
 
 def cvr(conversions: int | None, clicks: int | None) -> MetricResult:
     """轉換率 = 轉換 / 點擊。轉換可以多於點擊(例如瀏覽後轉換),所以不算不合理。"""
-    problem = _classify(conversions, clicks)
-    return _unknown(problem) if problem else _ratio(conversions, clicks)
+    checked = _checked(conversions, clicks)
+    if isinstance(checked, Reason):
+        return _unknown(checked)
+    return _ratio(*checked)
 
 
 def roas(revenue: float | None, spend: float | None) -> MetricResult:
     """廣告投資報酬率 = 營收 / 花費。"""
-    problem = _classify(revenue, spend)
-    return _unknown(problem) if problem else _ratio(revenue, spend)
+    checked = _checked(revenue, spend)
+    if isinstance(checked, Reason):
+        return _unknown(checked)
+    return _ratio(*checked)
 
 
 def pacing(
@@ -129,16 +137,16 @@ def pacing(
     elapsed_fraction 必須在 0 到 1 之間。1.0 代表剛好符合預期,小於 1 是落後,大於 1 是超前。
     時間比例為 0 時預期花費是 0,回分母為零(即使已經花了錢:那是語意上的邊角,不另立類別)。
     """
-    problem = _classify(spend, budget, elapsed_fraction)
-    elapsed_too_large = _is_valid_amount(elapsed_fraction) and elapsed_fraction > 1
-    if elapsed_too_large:
-        problem = Reason.INVALID_DATA  # 單欄位的不合理,即使別的欄位缺漏也優先
-    if problem:
-        return _unknown(problem)
+    if _is_valid_amount(elapsed_fraction) and elapsed_fraction > 1:
+        return _unknown(Reason.INVALID_DATA)  # 單欄位的不合理,即使別的欄位缺漏也優先
+    checked = _checked(spend, budget, elapsed_fraction)
+    if isinstance(checked, Reason):
+        return _unknown(checked)
+    spent, planned, elapsed = checked
     try:
-        expected = budget * elapsed_fraction
+        expected = planned * elapsed
     except OverflowError:  # 預算是超過浮點範圍的整數
         return _unknown(Reason.INVALID_DATA)
-    if expected == 0 and budget != 0 and elapsed_fraction != 0:
+    if expected == 0 and planned != 0 and elapsed != 0:
         return _unknown(Reason.INVALID_DATA)  # 兩者都不是 0 乘積卻下溢成 0,不是真的分母為零
-    return _ratio(spend, expected)
+    return _ratio(spent, expected)

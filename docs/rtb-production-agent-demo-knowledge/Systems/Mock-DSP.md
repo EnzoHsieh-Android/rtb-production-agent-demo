@@ -48,3 +48,5 @@ REVISIT:2026-11-21 動作增加到第三種時,把驗證與狀態轉換抽成動
 - 部分「提交前逾時」類測試仍用固定睡眠等待(等過處理程式睡醒),慢機器上只會讓測試少等而偏向漏抓,不會誤紅;提交後逾時與慢請求進行中已改用輪詢與同步點。
 - 歷史查詢沒有分頁;每個請求新建資料庫連線;這兩項是效能檢核題的「張力」表態,Mock 規模可接受。
 - 測試的白箱部分(對 `_record_idempotency`、`_conn` 打補丁)綁定私有成員,重構時會跟著紅,屬刻意。
+
+型別檢查:2026-09-22 起 `store.py` 與 `server.py` 通過 mypy 嚴格模式。`Operation.params` 與 `expected_version` 都標成未驗證(`dict[str, object]` 與 `object`),`_next_state` 讀預算時用 `_is_plain_int` 收窄,型別檢查因此守得住這條不可信資料的路徑。順手修了兩個真的隱患:`cursor.lastrowid` 可能是 None(現在明確報錯並回滾),以及 `Operation.params` 與 `expected_version` 來自不可信請求,型別改標為未驗證的 `object`,由 `_validate` 用 `TypeGuard` 確認後才使用。伺服器的等待逾時改成直接設定連線的逾時,不再設定基底類別的類別變數。

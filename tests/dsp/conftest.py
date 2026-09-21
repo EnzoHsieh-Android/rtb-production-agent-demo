@@ -1,5 +1,6 @@
 """DSP 行程測試的共用工具:真的啟動獨立行程、埠由系統分配、結束時一定關閉。"""
 
+import contextlib
 import json
 import os
 import select
@@ -83,7 +84,5 @@ def start_dsp(tmp_path):
 
     yield _start
     for proc in started:
-        try:
+        with contextlib.suppress(Exception):  # 一個行程收不掉,也要繼續收其他的
             proc.stop()
-        except Exception:  # 一個行程收不掉,也要繼續收其他的
-            pass

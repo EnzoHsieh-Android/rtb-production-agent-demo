@@ -16,6 +16,7 @@ import traceback
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from rtb.dsp.errors import (
@@ -87,16 +88,22 @@ class _NoResponse(Exception):
 
 
 class DspHandler(BaseHTTPRequestHandler):
-    server: "DspServer"
+    server: DspServer
 
     def setup(self) -> None:
-        self.timeout = self.server.socket_timeout_seconds  # 讀不到請求就放棄,不佔住執行緒
         super().setup()
+        # 讀不到請求就放棄,不佔住執行緒
+        self.connection.settimeout(self.server.socket_timeout_seconds)
 
-    def log_message(self, *_args) -> None:  # 不把每個請求印到終端
+    def log_message(self, format: str, *args: Any) -> None:  # 不把每個請求印到終端
         pass
 
-    def send_error(self, code, message=None, explain=None) -> None:
+    def send_error(
+        self,
+        code: int,
+        message: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
+        explain: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
+    ) -> None:
         self._reply_error(code, "http_error", False)  # 基底類別的錯誤頁也用 JSON
 
     def do_GET(self) -> None:
@@ -151,14 +158,14 @@ class DspHandler(BaseHTTPRequestHandler):
             raise RequestRejected(400, "unknown_fault_mode")
         return mode
 
-    def _route(self, method: str):
+    def _route(self, method: str) -> tuple[str, str]:
         for route_method, pattern, name in ROUTES:
             match = pattern.match(urlsplit(self.path).path)
             if route_method == method and match:
                 return name, match.group(1)
         raise RequestRejected(404, "not_found")
 
-    def _read_json(self) -> dict:
+    def _read_json(self) -> dict[str, Any]:
         if self.headers.get("Transfer-Encoding"):
             raise RequestRejected(411, "chunked_not_supported")
         raw_length = (self.headers.get("Content-Length") or "0").strip()
@@ -185,43 +192,59 @@ class DspHandler(BaseHTTPRequestHandler):
         return raw
 
     # ---- 讀取介面 ----
-    def _get_campaign(self, store, campaign_id, _fault):
+    def _get_campaign(
+        self, store: CampaignStore, campaign_id: str, _fault: str | None
+    ) -> dict[str, Any]:
         return asdict(store.get_campaign(campaign_id))
 
-    def _get_history(self, store, campaign_id, _fault):
+    def _get_history(
+        self, store: CampaignStore, campaign_id: str, _fault: str | None
+    ) -> dict[str, Any]:
         store.get_campaign(campaign_id)  # 不存在就回 404
         return {"history": [asdict(h) for h in store.history(campaign_id)]}
 
-    def _get_metrics(self, store, campaign_id, _fault):
+    def _get_metrics(
+        self, store: CampaignStore, campaign_id: str, _fault: str | None
+    ) -> dict[str, Any]:
         windows = parse_qs(urlsplit(self.path).query).get("window", [])
         if len(windows) > 1:
             raise RequestRejected(400, "duplicate_query_parameter")
         return asdict(store.get_metrics(campaign_id, windows[0] if windows else None))
 
-    def _get_operation(self, store, key, _fault):
+    def _get_operation(
+        self, store: CampaignStore, key: str, _fault: str | None
+    ) -> dict[str, Any]:
         result = store.get_operation_by_key(key)
         if result is None:
             raise RequestRejected(404, "operation_not_found")
         return asdict(result)
 
     # ---- 寫入介面 ----
-    def _update_budget(self, store, campaign_id, fault):
+    def _update_budget(
+        self, store: CampaignStore, campaign_id: str, fault: str | None
+    ) -> dict[str, Any]:
         body = self._read_json()
         params = {"new_budget": body.get("new_budget")}
         op = self._operation(campaign_id, "update_budget", params, body)
         return self._write(store, op, fault)
 
-    def _pause_campaign(self, store, campaign_id, fault):
+    def _pause_campaign(
+        self, store: CampaignStore, campaign_id: str, fault: str | None
+    ) -> dict[str, Any]:
         body = self._read_json()
         return self._write(store, self._operation(campaign_id, "pause_campaign", {}, body), fault)
 
-    def _operation(self, campaign_id: str, action: str, params: dict, body: dict) -> Operation:
+    def _operation(
+        self, campaign_id: str, action: str, params: dict[str, Any], body: dict[str, Any]
+    ) -> Operation:
         key = self._single_header("Idempotency-Key")
         if not key:
             raise RequestRejected(400, "missing_idempotency_key")
         return Operation(campaign_id, action, params, body.get("expected_version"), key)
 
-    def _write(self, store: CampaignStore, op: Operation, fault: str | None) -> dict:
+    def _write(
+        self, store: CampaignStore, op: Operation, fault: str | None
+    ) -> dict[str, Any]:
         self._apply_fault_before_commit(fault)
         result = asdict(store.execute(op))
         if fault == "timeout_after_commit":
@@ -243,7 +266,7 @@ class DspHandler(BaseHTTPRequestHandler):
     def _reply_error(self, status: int, code: str, retryable: bool) -> None:
         self._reply(status, {"error": code, "retryable": retryable})
 
-    def _reply(self, status: int, payload: dict) -> None:
+    def _reply(self, status: int, payload: dict[str, Any]) -> None:
         raw = json.dumps(payload).encode()
         try:
             self.send_response(status)
@@ -268,7 +291,11 @@ class DspServer(ThreadingHTTPServer):
         self.busy_timeout_seconds = busy_timeout_seconds
         self.socket_timeout_seconds = socket_timeout_seconds
 
-    def handle_error(self, request, client_address) -> None:
+    def handle_error(
+        self,
+        request: Any,  # noqa: ARG002 - 沿用基底類別的簽章
+        client_address: Any,  # noqa: ARG002 - 沿用基底類別的簽章
+    ) -> None:
         if not isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
             traceback.print_exc(file=sys.stderr)  # 客戶端中途離開不吵;其他例外要看得到
 
@@ -293,4 +320,4 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

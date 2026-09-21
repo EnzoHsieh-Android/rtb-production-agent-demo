@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
+from typing import Any, TypeGuard
 
 from rtb.domain._checks import ID_PATTERN, is_plain_int
 
@@ -40,7 +41,7 @@ class Proposal:
     revision: int
     campaign_id: str
     action_type: ActionType
-    requested_change: MappingProxyType
+    requested_change: MappingProxyType[str, Any]
     reason_codes: tuple[str, ...]
     evidence_refs: tuple[str, ...]
     campaign_version_observed: int
@@ -65,7 +66,7 @@ class Proposal:
         if raw is None or _field_errors(raw) or _expiry_errors(raw):
             raise ValueError("提案欄位不合法")
 
-    def to_primitives(self) -> dict:
+    def to_primitives(self) -> dict[str, Any]:
         """轉成只含字串、整數、串列與字典的形式,可以安全地存成 JSON 再解析回來。"""
         return {
             "task_id": self.task_id, "revision": self.revision, "campaign_id": self.campaign_id,
@@ -90,7 +91,7 @@ class ParsedProposal:
             raise ValueError("解析結果必須是「有提案且沒有錯誤」或「沒有提案且有錯誤」")
 
 
-def _matches(pattern: re.Pattern, value: object) -> bool:
+def _matches(pattern: re.Pattern[str], value: object) -> TypeGuard[str]:
     return isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
@@ -108,7 +109,15 @@ def _parse_time(value: object) -> datetime | None:
     return parsed if parsed.utcoffset() is not None else None
 
 
-def _string_list(value: object, pattern: re.Pattern) -> bool:
+def _require_time(value: object) -> datetime:
+    """只在欄位已通過驗證之後才呼叫;萬一仍不合法,明確失敗而不是傳出 None。"""
+    parsed = _parse_time(value)
+    if parsed is None:
+        raise ValueError("時間欄位不合法")
+    return parsed
+
+
+def _string_list(value: object, pattern: re.Pattern[str]) -> bool:
     return (
         isinstance(value, list)
         and 1 <= len(value) <= MAX_LIST_ITEMS
@@ -117,7 +126,7 @@ def _string_list(value: object, pattern: re.Pattern) -> bool:
     )
 
 
-def _valid_change(raw: dict) -> bool:
+def _valid_change(raw: dict[str, Any]) -> bool:
     change, action = raw.get("requested_change"), raw.get("action_type")
     if not isinstance(change, dict):
         return False
@@ -128,19 +137,19 @@ def _valid_change(raw: dict) -> bool:
     return False
 
 
-def _valid_action(raw: dict) -> bool:
+def _valid_action(raw: dict[str, Any]) -> bool:
     value = raw["action_type"]
     return isinstance(value, str) and value in {a.value for a in ActionType}
 
 
-def _valid_risk_summary(raw: dict) -> bool:
+def _valid_risk_summary(raw: dict[str, Any]) -> bool:
     text = raw["risk_summary"]
     # isprintable 擋掉控制字元、換行、孤立 surrogate 與雙向覆寫字元
     return isinstance(text, str) and len(text) <= MAX_RISK_SUMMARY and text.isprintable()
 
 
 # 欄位 -> 檢查函式。_field_errors 只在欄位存在時才呼叫,所以檢查函式可以直接讀 raw[欄位]。
-CHECKS: dict[str, Callable[[dict], bool]] = {
+CHECKS: dict[str, Callable[[dict[str, Any]], bool]] = {
     "task_id": lambda raw: _matches(ID_PATTERN, raw["task_id"]),
     "revision": lambda raw: _positive_int(raw["revision"], 1_000_000),
     "campaign_id": lambda raw: _matches(ID_PATTERN, raw["campaign_id"]),
@@ -192,7 +201,7 @@ def _size_error(raw: object) -> str | None:
     return None
 
 
-def _children(node: object) -> list | None:
+def _children(node: object) -> list[Any] | None:
     """容器回傳它的子節點(字典的鍵也算),葉節點回傳 None。字典的鍵必須先確認是字串。"""
     if isinstance(node, dict):
         return [part for key, value in node.items() for part in (key, value)]
@@ -201,14 +210,16 @@ def _children(node: object) -> list | None:
     return None
 
 
-def _shape_errors(raw: object) -> list[str]:
-    if not isinstance(raw, dict) or not all(isinstance(key, str) for key in raw):
-        return ["not_an_object"]
+def _is_string_keyed_dict(value: object) -> TypeGuard[dict[str, Any]]:
+    return isinstance(value, dict) and all(isinstance(key, str) for key in value)
+
+
+def _shape_errors(raw: dict[str, Any]) -> list[str]:
     problem = _size_error(raw)
     return [problem] if problem else []
 
 
-def _field_errors(raw: dict) -> list[str]:
+def _field_errors(raw: dict[str, Any]) -> list[str]:
     errors = [f"unknown_field:{str(key)[:64]}" for key in raw if key not in CHECKS]
     for field, check in CHECKS.items():
         if field not in raw:
@@ -218,7 +229,7 @@ def _field_errors(raw: dict) -> list[str]:
     return errors
 
 
-def _expiry_errors(raw: dict) -> list[str]:
+def _expiry_errors(raw: dict[str, Any]) -> list[str]:
     created = _parse_time(raw["decision_created_at"])
     expires = _parse_time(raw["decision_expires_at"])
     if created is not None and expires is not None and expires <= created:
@@ -226,15 +237,15 @@ def _expiry_errors(raw: dict) -> list[str]:
     return []
 
 
-def _build(raw: dict) -> Proposal:
+def _build(raw: dict[str, Any]) -> Proposal:
     return Proposal(
         task_id=raw["task_id"], revision=raw["revision"], campaign_id=raw["campaign_id"],
         action_type=ActionType(raw["action_type"]),
         requested_change=MappingProxyType(dict(raw["requested_change"])),
         reason_codes=tuple(raw["reason_codes"]), evidence_refs=tuple(raw["evidence_refs"]),
         campaign_version_observed=raw["campaign_version_observed"],
-        decision_created_at=_parse_time(raw["decision_created_at"]),
-        decision_expires_at=_parse_time(raw["decision_expires_at"]),
+        decision_created_at=_require_time(raw["decision_created_at"]),
+        decision_expires_at=_require_time(raw["decision_expires_at"]),
         policy_version=raw["policy_version"], risk_summary=raw["risk_summary"],
     )
 
@@ -252,6 +263,8 @@ def parse_proposal(raw: object) -> ParsedProposal:
 
 
 def _parse(raw: object) -> ParsedProposal:
+    if not _is_string_keyed_dict(raw):
+        return ParsedProposal(None, ("not_an_object",))
     errors = _shape_errors(raw)
     if errors:
         return ParsedProposal(None, tuple(errors))

@@ -47,7 +47,7 @@ if set(_FLOW) != set(TaskState):  # 新增狀態卻忘了寫進表:匯入時就�
     raise RuntimeError("狀態轉換表沒有涵蓋所有狀態")
 
 # 唯讀:「終點狀態沒有出路」要靠結構保證,不能被外部改寫
-TRANSITIONS: MappingProxyType = MappingProxyType({
+TRANSITIONS: MappingProxyType[TaskState, frozenset[TaskState]] = MappingProxyType({
     state: targets if state in TERMINAL_STATES else targets | {S.FAILED}
     for state, targets in _FLOW.items()
 })
@@ -57,14 +57,23 @@ def _name(value: object) -> str:
     return str(getattr(value, "value", value))
 
 
-def can_transition(current: object, target: object) -> bool:
+def _as_state(value: object) -> TaskState | None:
+    """只有字串才可能是狀態;其他型別、不認得的字串都當作「不是狀態」。"""
+    if not isinstance(value, str):
+        return None
     try:
-        return TaskState(target) in TRANSITIONS[TaskState(current)]
-    except ValueError:  # 不是任何一個已知狀態
-        return False
+        return TaskState(value)
+    except ValueError:
+        return None
+
+
+def can_transition(current: object, target: object) -> bool:
+    origin, destination = _as_state(current), _as_state(target)
+    return origin is not None and destination is not None and destination in TRANSITIONS[origin]
 
 
 def transition(current: object, target: object) -> TaskState:
-    if not can_transition(current, target):
+    origin, destination = _as_state(current), _as_state(target)
+    if origin is None or destination is None or destination not in TRANSITIONS[origin]:
         raise IllegalTransition(f"不合法的轉換:{_name(current)} -> {_name(target)}")
-    return TaskState(target)
+    return destination

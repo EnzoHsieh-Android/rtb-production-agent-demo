@@ -1,0 +1,1693 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..c923669
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,23 @@
++# 推送後的機械閘:即使本機用 git push --no-verify 繞過推送前檢查,這裡仍會跑。
++name: ci
++
++on:
++  push:
++  pull_request:
++
++jobs:
++  checks:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: "3.14"
++      - name: 安裝開發期工具
++        run: python -m pip install -r requirements-dev.txt
++      - name: 程式碼規則(ruff)
++        run: python -m ruff check .
++      - name: 型別檢查(mypy,嚴格模式)
++        run: python -m mypy
++      - name: 測試(pytest)
++        run: python -m pytest -q
+diff --git a/.lumos/lint.json b/.lumos/lint.json
+index 3d07a8c..9f778ac 100644
+--- a/.lumos/lint.json
++++ b/.lumos/lint.json
+@@ -1,5 +1,6 @@
+ {
+   "py": [
+-    ".venv/bin/ruff check --output-format sarif --output-file {LINT_SARIF_OUT} src tests"
++    ".venv/bin/ruff check --output-format sarif --output-file {LINT_SARIF_OUT} src tests",
++    ".venv/bin/python tools/mypy_sarif.py --out {LINT_SARIF_OUT}"
+   ]
+ }
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+index 909568d..621a9bc 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+@@ -41,10 +41,12 @@ verified_by:
+ 
+ - 計劃驗收要求「同一種故障連續 50 次結果 100% 一致」。目前是手動用迴圈重跑相關測試(2026-09-21:第一批 50 次、修復後 50 次、第二輪代碼審修復後 30 次,各 0 次失敗),沒有自動化進 CI。指令:對 `-k "concurrent or naive or process_death or timeout or in_flight or restart or lock_contention or non_loopback"` 重複執行。
+ - 計劃列為以標頭注入的三種故障(版本衝突、同鍵同內容重送、同鍵不同內容)沒有做成標頭注入,而是用真實邏輯產生並測試。這是有意的偏離:真實邏輯比注入更能證明行為。
+ - 動作驗證與狀態轉換目前是 if 分支,不是計劃「狀態機是資料」所說的動作表;只有預算與暫停兩種動作,可接受。
+ REVISIT:2026-11-21 動作增加到第三種時,把驗證與狀態轉換抽成動作表。
+ - 「只綁本機」的測試在沒有非回送網卡的機器上會略過,略過時沒有訊號進治理帳。
+ - 仍沒有測試守護的小防護(第二輪代碼審的存活變異):伺服器端每個請求結束時關閉資料庫連線(拿掉只會等垃圾回收)、對客戶端中途離開靜音的 `handle_error`、回應是否帶 Content-Length。三者行為現況正確,缺的是回歸網。
+ - 部分「提交前逾時」類測試仍用固定睡眠等待(等過處理程式睡醒),慢機器上只會讓測試少等而偏向漏抓,不會誤紅;提交後逾時與慢請求進行中已改用輪詢與同步點。
+ - 歷史查詢沒有分頁;每個請求新建資料庫連線;這兩項是效能檢核題的「張力」表態,Mock 規模可接受。
+ - 測試的白箱部分(對 `_record_idempotency`、`_conn` 打補丁)綁定私有成員,重構時會跟著紅,屬刻意。
++
++型別檢查:2026-09-22 起 `store.py` 與 `server.py` 通過 mypy 嚴格模式。順手修了兩個真的隱患:`cursor.lastrowid` 可能是 None(現在明確報錯並回滾),以及 `Operation.params` 與 `expected_version` 來自不可信請求,型別改標為未驗證的 `object`,由 `_validate` 用 `TypeGuard` 確認後才使用。伺服器的等待逾時改成直接設定連線的逾時,不再設定基底類別的類別變數。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md b/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
+index c786ba8..ae2de1f 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
+@@ -30,10 +30,12 @@ summary: |-
+ 四支檔案:`src/rtb/domain/_checks.py` 放領域層共用的小檢查(識別碼格式、整數不含布林、數字不含布林),讓同一個規則只有一份定義;指標計算([[Systems/確定性指標計算]])也用其中的「數字不含布林」。其餘三支模組:`src/rtb/domain/task_state.py` 是狀態機,合法轉換是一張表,終點狀態沒有出路,非終點都可以轉失敗,分析或已提案階段可以因證據或提案過期回到蒐集證據,交接之後不行;`src/rtb/domain/evidence.py` 是證據型別與 `check_freshness`,先判年齡再判版本,結果分新鮮、過期、版本已變、未驗證四種,只有新鮮可用;`src/rtb/domain/proposal.py` 是提案型別與 `parse_proposal`,把不可信的原始資料解析成提案或一份完整的錯誤清單。三者都在領域層,由該目錄的 ruff 設定禁止匯入資料庫、網路與模型。
+ 
+ ## 已知缺口(如實標明)
+ 
+ - 只有分析行程這一側的狀態機;執行行程那一側的操作狀態、事件與 trace 尚未定義,屬後續增量。
+ - `parse_proposal` 最外層有一道保底:萬一有東西讓解析丟例外(例如刻意會丟例外的自訂物件,真實 JSON 輸入走不到),只回一個 `unexpected_failure:<例外型別>` 錯誤,不讓例外逃出去。這是安全邊界的最後一道防線,由 [test:test_even_hostile_python_objects_that_raise_are_turned_into_an_error_result] 守著。
+ - `task_state.py` 匯入時會檢查轉換表涵蓋所有狀態(漏了就匯入失敗),測試裡也有同一條斷言;兩處都守是有意的:測試只在開發時跑,而匯入時檢查讓漏表的程式根本起不來,不會拖到執行時才 KeyError。
+ - 提案解析只檢查格式,不做政策或授權檢查;大小是粗估的位元組數(字串用 UTF-8 位元組、整數用位數估算、每個容器有固定開銷),不是精確的 JSON 長度,目的是擋超大與過深,不是量準;新鮮度的年齡上限由呼叫端傳入,還沒有集中的政策。
+ - 風險摘要目前只是不超過 500 字的字串,沒有結構。
+ - 這個增量沒有經過設計審;狀態機與證據格式在增量 2 設計審前先定型,審查員可能要求修改。
++
++型別檢查:2026-09-22 起這一層通過 mypy 嚴格模式。判斷函式(`is_plain_int`、`is_id` 等)用 `TypeGuard` 標明通過後的型別,讓型別檢查能驗證邊界判斷;行為沒有改變,343 條測試仍全過。由 [[Systems/靜態檢查閘]] 的三層守衛持續檢查。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md b/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md
+index e5f024c..02c3910 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md
+@@ -33,10 +33,12 @@ verified_by:
+ 
+ ## 已知缺口(如實標明)
+ 
+ - ruff 的禁用匯入擋不住 `__import__("...")` 與逐行的 `# noqa: TID251`;前者靠審查、後者靠代碼審看得到。禁用清單也不完整(例如 `shutil`、`asyncio` 的其他成員、資料庫驅動 `psycopg`、`sqlalchemy` 沒列),目前只列了會碰資料庫、網路、行程、動態匯入與模型的常見模組。
+ - 清單只在這個目錄的 `ruff.toml`;若之後有第二個受限層(例如 agent、client),要另放一份並複製清單,子設定裡的禁用清單是覆寫,不是與別處合併。
+ REVISIT:2026-11-21 或新增第二個受限層時,決定是複製清單還是抽共用。
+ - 整數與浮點混用時,超出浮點範圍的整數(例如 `ctr(1.0, 10**400)`)會被判成資料不合理,即使輸入本身合法;極小值相除會下溢成 0.0(`roas(5e-324, 1e10)` 回 0.0)。方向是保守的,不會產生假的大數字,屬已知的極端輸入取捨。
+ - `cvr` 允許轉換多於點擊(瀏覽後轉換是合理情況),所以不像 `ctr` 那樣把它視為不合理;`pacing` 在時間比例為 0 時回分母為零,即使已經花了錢,不另立「不合理」類別。這兩個是語意取捨。
+ REVISIT:2026-11-21 決策端開始使用這些指標時,回頭確認這兩個取捨是否符合實際需求。
+ - `MetricResult` 只擋了排序比較與真值判斷,`==` 與 `hash` 仍可用;兩個「沒有值」的結果若原因相同會相等,這是刻意的。
++
++型別檢查:2026-09-22 起通過 mypy 嚴格模式。四個指標函式內部改用 `_checked` 一次回傳「已確定非空的數字或問題原因」,取代原本的 `_classify` 加空值假設,型別檢查因此能驗證;對外行為與所有測試結果不變。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/靜態檢查閘.md b/docs/rtb-production-agent-demo-knowledge/Systems/靜態檢查閘.md
+new file mode 100644
+index 0000000..d88f397
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/靜態檢查閘.md
+@@ -0,0 +1,30 @@
++---
++type: system
++status: doing
++created: 2026-09-22
++updated: 2026-09-22
++responsibility: 負責把 mypy 的輸出轉成 lumos 認得的 SARIF,讓新增的型別錯誤在推送前被擋;不負責 ruff 本身、CI 設定內容,也不決定哪些工具該接(那是接線檢查測試與 lumos 的技術棧槽位檢查的事)。
++aliases: []
++about_code:
++  - tools/mypy_sarif.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: 靜態檢查(型別檢查、程式碼規則、安全規則)不能靠人記得去跑,忘了就等於沒檢查。所以分三層守著:推送前的 lumos 新增告警閘(不分風險等級)、推送後的 CI(git push --no-verify 也繞不過)、以及接線檢查測試(專案設定了某個靜態工具,就必須真的被 CI 與 lumos 執行,不能只是設定放著)。出處:對話 2026-09-22,使用者要求「否則我忘記的話,剛剛那些都沒檢查到」。
++  WHY: mypy 沒有現成的 SARIF 輸出,lumos 也沒附轉換器,所以自寫一支轉換器把 mypy 接進 lumos 的 lint 宣告。等 lumos 自己提供 mypy 轉換器之後,這支可以換掉。出處:2026-09-22 查證(在 lumos 原始碼搜過 mypy、pyright、bandit 都沒有,只附 sqlfluff、stylelint、dart 三個轉換器)。
++  PITFALL: 轉換器若在 mypy 本身壞掉時仍寫出空報告,會被當成「沒有告警」而放行。防回歸:[test:test_when_mypy_itself_cannot_run_the_adapter_fails_loudly_instead_of_writing_an_empty_report]。
++  PITFALL: 接線檢查若只看 CI 檔案裡有沒有工具名稱的字,步驟名稱就能讓它誤過(2026-09-22 變異檢查抓到「CI 不跑 pytest」仍綠);必須只看真正會執行的 run: 指令。防回歸:[test:test_every_configured_analyzer_is_executed_by_the_ci_workflow]、[test:test_the_ci_workflow_runs_on_every_push_and_actually_runs_the_test_suite]。
++  TEST: tests/tools/test_mypy_sarif.py 涵蓋輸出解析(note 不算發現、沒有規則代碼時用預設)、SARIF 結構、端到端真實型別錯誤、乾淨專案零發現、mypy 壞掉時大聲失敗;tests/test_static_wiring.py 涵蓋工具設定必須被 CI 與 lumos 執行;tests/test_static_checks.py 讓 mypy 嚴格模式與 ruff 成為測試的一部分。
++---
++# 靜態檢查閘
++
++`tools/mypy_sarif.py` 執行 `python -m mypy`,解析文字輸出,寫出 SARIF 2.1.0;結束碼 0 表示轉換成功(有型別錯誤也是 0,由 lumos 判斷告警),2 表示 mypy 本身無法產出可用結果。CI 設定在 `.github/workflows/ci.yml`(不是程式檔,不需要家),推送與 pull request 都會跑 ruff、mypy 與 pytest。
++
++## 已知缺口(如實標明)
++
++- **CI 還沒有真的跑過。** 工作流程檔已寫好,但要 push 之後才知道 GitHub 上跑不跑得起來(Python 3.14 版本、固定的套件版本能否安裝、Linux 上的連線與逾時測試是否穩定);第一次 push 之後必須回頭確認並在這裡補記結果。
++REVISIT:2026-09-25 確認 CI 首次執行的結果,失敗就修,不能讓它一直紅著。
++- CI 沒有跑 lumos 的 doctor(那需要驗證圖譜的執行環境),所以圖譜一致性仍只在本機推送前被檢查。
++- mypy 只嚴格檢查 `src` 與 `tools`,測試程式沒有檢查型別。
++- 「技術棧槽位是否空著就要反映」這件事屬於 lumos 本身,已另外交給處理 lumos 工具鏈的 session,專案端目前靠接線檢查測試頂著。
+diff --git a/pyproject.toml b/pyproject.toml
+index 71b548d..bfe8394 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,22 +1,41 @@
+ [tool.ruff]
+ line-length = 100
+ target-version = "py314"
+ src = ["src", "tests"]
+ extend-exclude = ["scripts"]  # lumos 工具的複本,不是本專案的程式
+ 
+ [tool.ruff.lint]
+-# 風格、未使用、匯入排序、複雜度、函式長度(敘述數)、匯入規則(TID)。
++# 風格、未使用、匯入排序、複雜度、函式長度(敘述數)、匯入規則(TID),以及安全與常見錯誤規則。
+ # 禁用匯入的清單不在這裡:各層在自己目錄的 ruff.toml 宣告(目前只有 src/rtb/domain)。
+-select = ["E", "F", "I", "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "TID"]
++select = [
++    "E", "F", "I", "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "TID",
++    "S",    # 安全(bandit 的規則):不安全的呼叫、寫死的密碼、吞掉例外等
++    "B",    # 常見錯誤(bugbear)
++    "UP",   # 過時寫法
++    "SIM",  # 可簡化的寫法
++    "RUF", "C4", "PIE", "RET", "ARG",
++]
++
++[tool.ruff.lint.per-file-ignores]
++# 測試裡本來就會 assert、啟動子行程、開連線到本機、用固定種子的亂數
++"tests/**" = ["S101", "S603", "S310", "S311", "S110", "ARG", "SIM117"]
+ 
+ [tool.ruff.lint.mccabe]
+ max-complexity = 10
+ 
+ [tool.ruff.lint.pylint]
+ max-statements = 30
+ max-branches = 10
+ max-args = 6
+ 
+ [tool.pytest.ini_options]
+ testpaths = ["tests"]
+ pythonpath = ["src"]
++
++[tool.mypy]
++python_version = "3.14"
++mypy_path = "src"
++namespace_packages = true
++explicit_package_bases = true
++strict = true
++files = ["src", "tools"]
+diff --git a/requirements-dev.txt b/requirements-dev.txt
+index cf587d8..8d9407c 100644
+--- a/requirements-dev.txt
++++ b/requirements-dev.txt
+@@ -1,6 +1,11 @@
+ iniconfig==2.3.0
++librt==0.15.0
++mypy==2.3.1
++mypy_extensions==1.1.0
+ packaging==26.3
++pathspec==1.1.1
+ pluggy==1.6.0
+ Pygments==2.21.0
+ pytest==9.1.1
+ ruff==0.16.8
++typing_extensions==4.16.0
+diff --git a/src/rtb/domain/_checks.py b/src/rtb/domain/_checks.py
+index adf3e6d..a0ccebf 100644
+--- a/src/rtb/domain/_checks.py
++++ b/src/rtb/domain/_checks.py
+@@ -1,23 +1,25 @@
+ """領域層共用的小檢查:同一個規則只有一份定義,免得各模組改了一處漏另一處。
+ 
+ 只放「證據編號、任務編號這類識別碼的格式」與「整數不含布林」這類到處要用的判斷。
++判斷函式用 TypeGuard 標明「通過之後是什麼型別」,讓型別檢查(mypy)能驗證邊界判斷。
+ DSP(rtb.dsp)是外部系統的模擬器,刻意不依賴這裡,所以它自己另有一份。
+ """
+ 
+ import re
++from typing import TypeGuard
+ 
+ ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+ 
+ 
+-def is_plain_int(value: object) -> bool:
++def is_plain_int(value: object) -> TypeGuard[int]:
+     """是整數,而且不是布林(Python 的 True 也是整數,會繞過型別檢查)。"""
+     return isinstance(value, int) and not isinstance(value, bool)
+ 
+ 
+-def is_plain_number(value: object) -> bool:
++def is_plain_number(value: object) -> TypeGuard[int | float]:
+     """是整數或浮點數,而且不是布林。"""
+     return isinstance(value, int | float) and not isinstance(value, bool)
+ 
+ 
+-def is_id(value: object) -> bool:
++def is_id(value: object) -> TypeGuard[str]:
+     return isinstance(value, str) and ID_PATTERN.fullmatch(value) is not None
+diff --git a/src/rtb/domain/evidence.py b/src/rtb/domain/evidence.py
+index cf3db39..c51ae82 100644
+--- a/src/rtb/domain/evidence.py
++++ b/src/rtb/domain/evidence.py
+@@ -3,20 +3,21 @@
+ 新鮮度由純程式判斷,先看年齡,再看版本:過期或版本已變就要重讀。
+ 重讀是安全的,重做副作用才危險;執行的那一刻執行行程仍要重讀現況並重新授權,
+ 新鮮度只是第一道,不是最後一道。
+ """
+ 
+ import math
+ import re
+ from dataclasses import dataclass
+ from datetime import datetime
+ from enum import StrEnum
++from typing import TypeGuard
+ 
+ from rtb.domain._checks import is_id, is_plain_int, is_plain_number
+ 
+ HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
+ MAX_SOURCE_LENGTH = 64
+ 
+ 
+ class EvidenceKind(StrEnum):
+     CAMPAIGN_STATE = "campaign_state"
+     METRICS = "metrics"
+@@ -31,21 +32,21 @@ class Freshness(StrEnum):
+     FRESH = "fresh"
+     EXPIRED = "expired"
+     VERSION_CHANGED = "version_changed"
+     UNVERIFIED = "unverified"  # 有版本卻沒讀到現況的版本,不能說新鮮
+ 
+     @property
+     def is_usable(self) -> bool:
+         return self is Freshness.FRESH
+ 
+ 
+-def _is_aware(value: object) -> bool:
++def _is_aware(value: object) -> TypeGuard[datetime]:
+     """有時區,而且時區真的給得出偏移(有些 tzinfo 的 utcoffset 回 None,等於沒有時區)。"""
+     return isinstance(value, datetime) and value.utcoffset() is not None
+ 
+ 
+ @dataclass(frozen=True)
+ class Evidence:
+     evidence_id: str
+     task_id: str
+     kind: EvidenceKind
+     source: str
+@@ -63,25 +64,25 @@ class Evidence:
+             ("trust_class", isinstance(self.trust_class, TrustClass)),
+             ("observed_at", _is_aware(self.observed_at)),
+             ("campaign_version_observed", _is_version_or_none(self.campaign_version_observed)),
+             ("content_hash", _is_hash(self.content_hash)),
+         ]
+         bad = [name for name, ok in problems if not ok]
+         if bad:
+             raise ValueError(f"證據欄位不合法:{', '.join(bad)}")
+ 
+ 
+-def _is_hash(value: object) -> bool:
++def _is_hash(value: object) -> TypeGuard[str]:
+     return isinstance(value, str) and HASH_PATTERN.fullmatch(value) is not None
+ 
+ 
+-def _is_version_or_none(value: object) -> bool:
++def _is_version_or_none(value: object) -> TypeGuard[int | None]:
+     return value is None or (is_plain_int(value) and value >= 1)
+ 
+ 
+ def _is_positive_finite(value: object) -> bool:
+     if not is_plain_number(value):
+         return False
+     try:
+         return math.isfinite(value) and value > 0
+     except OverflowError:  # 大到超出浮點範圍的整數,視為不合法
+         return False
+diff --git a/src/rtb/domain/metrics.py b/src/rtb/domain/metrics.py
+index 762a18a..b937c4d 100644
+--- a/src/rtb/domain/metrics.py
++++ b/src/rtb/domain/metrics.py
+@@ -7,20 +7,21 @@
+ - INVALID_DATA:輸入不合理(負數、非有限數、點擊比曝光多),或算出來不是有限數。
+ 判斷優先順序:不合理 > 缺漏 > 分母為零。
+ 
+ 這一層用「結果型別」而不是例外:指標的空值是預期中的資料狀態,批次處理不該因為一個
+ 廣告沒資料就中斷;DSP 層用例外,因為那裡的錯誤是協定失敗,呼叫端必須分辨並處理。
+ """
+ 
+ import math
+ from dataclasses import dataclass
+ from enum import StrEnum
++from typing import TypeGuard
+ 
+ from rtb.domain._checks import is_plain_number
+ 
+ 
+ class Reason(StrEnum):
+     NO_DENOMINATOR = "no_denominator"
+     MISSING_DATA = "missing_data"
+     INVALID_DATA = "invalid_data"
+ 
+ 
+@@ -57,88 +58,95 @@ class MetricResult:
+ 
+     def at_least(self, threshold: float) -> bool | None:
+         _check_threshold(threshold)
+         return None if self.value is None else self.value >= threshold
+ 
+ 
+ def _unknown(reason: Reason) -> MetricResult:
+     return MetricResult(value=None, reason=reason)
+ 
+ 
+-def _is_finite_number(value: object) -> bool:
++def _is_finite_number(value: object) -> TypeGuard[int | float]:
+     if not is_plain_number(value):
+         return False
+     return not isinstance(value, float) or math.isfinite(value)  # 整數一定有限,不轉成 float
+ 
+ 
+ def _check_threshold(threshold: object) -> None:
+     if not _is_finite_number(threshold):
+         raise ValueError("門檻必須是有限的數字")
+ 
+ 
+-def _is_valid_amount(value: object) -> bool:
++def _is_valid_amount(value: object) -> TypeGuard[int | float]:
+     return _is_finite_number(value) and value >= 0
+ 
+ 
+-def _classify(*inputs: object) -> Reason | None:
+-    """回傳輸入的問題類別;None 代表全部有效。不合理優先於缺漏。"""
+-    present = [v for v in inputs if v is not None]
+-    if any(not _is_valid_amount(v) for v in present):
++def _checked(*inputs: float | None) -> tuple[float, ...] | Reason:
++    """全部有效就回傳(已確定不是空值的)數字;否則回傳問題類別。不合理優先於缺漏。"""
++    present = [value for value in inputs if value is not None]
++    if any(not _is_valid_amount(value) for value in present):
+         return Reason.INVALID_DATA
+     if len(present) < len(inputs):
+         return Reason.MISSING_DATA
+-    return None
++    return tuple(present)
+ 
+ 
+ def _ratio(numerator: float, denominator: float) -> MetricResult:
+     if denominator == 0:
+         return _unknown(Reason.NO_DENOMINATOR)
+     try:
+         result = numerator / denominator
+     except OverflowError:  # 整數相除的結果大到無法表示
+         return _unknown(Reason.INVALID_DATA)
+     if not math.isfinite(result):  # 例如極小的分母算出無限大:不是「有值」
+         return _unknown(Reason.INVALID_DATA)
+     return MetricResult(value=result)
+ 
+ 
+ def ctr(clicks: int | None, impressions: int | None) -> MetricResult:
+     """點擊率 = 點擊 / 曝光。"""
+-    problem = _classify(clicks, impressions)
+-    if problem is None and clicks > impressions:
+-        problem = Reason.INVALID_DATA  # 點擊不可能比曝光多
+-    return _unknown(problem) if problem else _ratio(clicks, impressions)
++    checked = _checked(clicks, impressions)
++    if isinstance(checked, Reason):
++        return _unknown(checked)
++    clicked, shown = checked
++    if clicked > shown:
++        return _unknown(Reason.INVALID_DATA)  # 點擊不可能比曝光多
++    return _ratio(clicked, shown)
+ 
+ 
+ def cvr(conversions: int | None, clicks: int | None) -> MetricResult:
+     """轉換率 = 轉換 / 點擊。轉換可以多於點擊(例如瀏覽後轉換),所以不算不合理。"""
+-    problem = _classify(conversions, clicks)
+-    return _unknown(problem) if problem else _ratio(conversions, clicks)
++    checked = _checked(conversions, clicks)
++    if isinstance(checked, Reason):
++        return _unknown(checked)
++    return _ratio(*checked)
+ 
+ 
+ def roas(revenue: float | None, spend: float | None) -> MetricResult:
+     """廣告投資報酬率 = 營收 / 花費。"""
+-    problem = _classify(revenue, spend)
+-    return _unknown(problem) if problem else _ratio(revenue, spend)
++    checked = _checked(revenue, spend)
++    if isinstance(checked, Reason):
++        return _unknown(checked)
++    return _ratio(*checked)
+ 
+ 
+ def pacing(
+     spend: float | None, budget: float | None, elapsed_fraction: float | None
+ ) -> MetricResult:
+     """預算花費進度 = 實際花費 / 到目前為止預期該花的金額(預算 x 已過去的時間比例)。
+ 
+     elapsed_fraction 必須在 0 到 1 之間。1.0 代表剛好符合預期,小於 1 是落後,大於 1 是超前。
+     時間比例為 0 時預期花費是 0,回分母為零(即使已經花了錢:那是語意上的邊角,不另立類別)。
+     """
+-    problem = _classify(spend, budget, elapsed_fraction)
+-    elapsed_too_large = _is_valid_amount(elapsed_fraction) and elapsed_fraction > 1
+-    if elapsed_too_large:
+-        problem = Reason.INVALID_DATA  # 單欄位的不合理,即使別的欄位缺漏也優先
+-    if problem:
+-        return _unknown(problem)
++    if _is_valid_amount(elapsed_fraction) and elapsed_fraction > 1:
++        return _unknown(Reason.INVALID_DATA)  # 單欄位的不合理,即使別的欄位缺漏也優先
++    checked = _checked(spend, budget, elapsed_fraction)
++    if isinstance(checked, Reason):
++        return _unknown(checked)
++    spent, planned, elapsed = checked
+     try:
+-        expected = budget * elapsed_fraction
++        expected = planned * elapsed
+     except OverflowError:  # 預算是超過浮點範圍的整數
+         return _unknown(Reason.INVALID_DATA)
+-    if expected == 0 and budget != 0 and elapsed_fraction != 0:
++    if expected == 0 and planned != 0 and elapsed != 0:
+         return _unknown(Reason.INVALID_DATA)  # 兩者都不是 0 乘積卻下溢成 0,不是真的分母為零
+-    return _ratio(spend, expected)
++    return _ratio(spent, expected)
+diff --git a/src/rtb/domain/proposal.py b/src/rtb/domain/proposal.py
+index 4b41145..b5e1a94 100644
+--- a/src/rtb/domain/proposal.py
++++ b/src/rtb/domain/proposal.py
+@@ -7,20 +7,21 @@
+ 會在超過上限的那一刻就被拒絕。
+ """
+ 
+ import math
+ import re
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import datetime
+ from enum import StrEnum
+ from types import MappingProxyType
++from typing import Any, TypeGuard
+ 
+ from rtb.domain._checks import ID_PATTERN, is_plain_int
+ 
+ POLICY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}")
+ REASON_PATTERN = re.compile(r"[a-z0-9_]{1,64}")
+ MAX_PAYLOAD_BYTES = 16 * 1024
+ MAX_DEPTH = 6
+ MAX_LIST_ITEMS = 20
+ MAX_RISK_SUMMARY = 500
+ MAX_INT = 2**63 - 1
+@@ -33,21 +34,21 @@ class ActionType(StrEnum):
+ 
+ 
+ @dataclass(frozen=True)
+ class Proposal:
+     """自我驗證:直接建構也不能繞過解析的規則(欄位型別與內容都要合法)。"""
+ 
+     task_id: str
+     revision: int
+     campaign_id: str
+     action_type: ActionType
+-    requested_change: MappingProxyType
++    requested_change: MappingProxyType[str, Any]
+     reason_codes: tuple[str, ...]
+     evidence_refs: tuple[str, ...]
+     campaign_version_observed: int
+     decision_created_at: datetime
+     decision_expires_at: datetime
+     policy_version: str
+     risk_summary: str
+ 
+     def __post_init__(self) -> None:
+         # 刻意重用解析的規則(轉成 primitives 再檢查),不另寫第二份欄位驗證;
+@@ -58,21 +59,21 @@ class Proposal:
+             and isinstance(self.reason_codes, tuple)
+             and isinstance(self.evidence_refs, tuple)
+         )
+         try:
+             raw = self.to_primitives() if shape_ok else None
+         except (AttributeError, TypeError, ValueError):
+             raw = None
+         if raw is None or _field_errors(raw) or _expiry_errors(raw):
+             raise ValueError("提案欄位不合法")
+ 
+-    def to_primitives(self) -> dict:
++    def to_primitives(self) -> dict[str, Any]:
+         """轉成只含字串、整數、串列與字典的形式,可以安全地存成 JSON 再解析回來。"""
+         return {
+             "task_id": self.task_id, "revision": self.revision, "campaign_id": self.campaign_id,
+             "action_type": self.action_type.value, "requested_change": dict(self.requested_change),
+             "reason_codes": list(self.reason_codes), "evidence_refs": list(self.evidence_refs),
+             "campaign_version_observed": self.campaign_version_observed,
+             "decision_created_at": self.decision_created_at.isoformat(),
+             "decision_expires_at": self.decision_expires_at.isoformat(),
+             "policy_version": self.policy_version, "risk_summary": self.risk_summary,
+         }
+@@ -83,71 +84,79 @@ class ParsedProposal:
+     """成功時 proposal 有值、errors 為空;失敗時 proposal 為 None、errors 列出所有問題。"""
+ 
+     proposal: Proposal | None
+     errors: tuple[str, ...]
+ 
+     def __post_init__(self) -> None:
+         if (self.proposal is None) == (len(self.errors) == 0):
+             raise ValueError("解析結果必須是「有提案且沒有錯誤」或「沒有提案且有錯誤」")
+ 
+ 
+-def _matches(pattern: re.Pattern, value: object) -> bool:
++def _matches(pattern: re.Pattern[str], value: object) -> TypeGuard[str]:
+     return isinstance(value, str) and pattern.fullmatch(value) is not None
+ 
+ 
+ def _positive_int(value: object, maximum: int = MAX_INT) -> bool:
+     return is_plain_int(value) and 1 <= value <= maximum
+ 
+ 
+ def _parse_time(value: object) -> datetime | None:
+     if not isinstance(value, str):
+         return None
+     try:
+         parsed = datetime.fromisoformat(value)
+     except ValueError:
+         return None
+     return parsed if parsed.utcoffset() is not None else None
+ 
+ 
+-def _string_list(value: object, pattern: re.Pattern) -> bool:
++def _require_time(value: object) -> datetime:
++    """只在欄位已通過驗證之後才呼叫;萬一仍不合法,明確失敗而不是傳出 None。"""
++    parsed = _parse_time(value)
++    if parsed is None:
++        raise ValueError("時間欄位不合法")
++    return parsed
++
++
++def _string_list(value: object, pattern: re.Pattern[str]) -> bool:
+     return (
+         isinstance(value, list)
+         and 1 <= len(value) <= MAX_LIST_ITEMS
+         and all(_matches(pattern, item) for item in value)
+         and len(set(value)) == len(value)  # 不允許重複項
+     )
+ 
+ 
+-def _valid_change(raw: dict) -> bool:
++def _valid_change(raw: dict[str, Any]) -> bool:
+     change, action = raw.get("requested_change"), raw.get("action_type")
+     if not isinstance(change, dict):
+         return False
+     if action == ActionType.UPDATE_BUDGET:
+         return set(change) == {"new_budget"} and _positive_int(change["new_budget"])
+     if action == ActionType.PAUSE_CAMPAIGN:
+         return change == {}
+     return False
+ 
+ 
+-def _valid_action(raw: dict) -> bool:
++def _valid_action(raw: dict[str, Any]) -> bool:
+     value = raw["action_type"]
+     return isinstance(value, str) and value in {a.value for a in ActionType}
+ 
+ 
+-def _valid_risk_summary(raw: dict) -> bool:
++def _valid_risk_summary(raw: dict[str, Any]) -> bool:
+     text = raw["risk_summary"]
+     # isprintable 擋掉控制字元、換行、孤立 surrogate 與雙向覆寫字元
+     return isinstance(text, str) and len(text) <= MAX_RISK_SUMMARY and text.isprintable()
+ 
+ 
+ # 欄位 -> 檢查函式。_field_errors 只在欄位存在時才呼叫,所以檢查函式可以直接讀 raw[欄位]。
+-CHECKS: dict[str, Callable[[dict], bool]] = {
++CHECKS: dict[str, Callable[[dict[str, Any]], bool]] = {
+     "task_id": lambda raw: _matches(ID_PATTERN, raw["task_id"]),
+     "revision": lambda raw: _positive_int(raw["revision"], 1_000_000),
+     "campaign_id": lambda raw: _matches(ID_PATTERN, raw["campaign_id"]),
+     "action_type": _valid_action,
+     "requested_change": _valid_change,
+     "reason_codes": lambda raw: _string_list(raw["reason_codes"], REASON_PATTERN),
+     "evidence_refs": lambda raw: _string_list(raw["evidence_refs"], ID_PATTERN),
+     "campaign_version_observed": lambda raw: _positive_int(raw["campaign_version_observed"]),
+     "decision_created_at": lambda raw: _parse_time(raw["decision_created_at"]) is not None,
+     "decision_expires_at": lambda raw: _parse_time(raw["decision_expires_at"]) is not None,
+@@ -185,79 +194,83 @@ def _size_error(raw: object) -> str | None:
+                 return "not_json_serializable"
+             total += size
+         else:
+             total += CONTAINER_OVERHEAD + CONTAINER_OVERHEAD * len(children)
+             stack.extend((child, depth + 1) for child in children)
+         if total > MAX_PAYLOAD_BYTES:
+             return f"too_large:{total}"
+     return None
+ 
+ 
+-def _children(node: object) -> list | None:
++def _children(node: object) -> list[Any] | None:
+     """容器回傳它的子節點(字典的鍵也算),葉節點回傳 None。字典的鍵必須先確認是字串。"""
+     if isinstance(node, dict):
+         return [part for key, value in node.items() for part in (key, value)]
+     if isinstance(node, list):
+         return list(node)
+     return None
+ 
+ 
+-def _shape_errors(raw: object) -> list[str]:
+-    if not isinstance(raw, dict) or not all(isinstance(key, str) for key in raw):
+-        return ["not_an_object"]
++def _is_string_keyed_dict(value: object) -> TypeGuard[dict[str, Any]]:
++    return isinstance(value, dict) and all(isinstance(key, str) for key in value)
++
++
++def _shape_errors(raw: dict[str, Any]) -> list[str]:
+     problem = _size_error(raw)
+     return [problem] if problem else []
+ 
+ 
+-def _field_errors(raw: dict) -> list[str]:
++def _field_errors(raw: dict[str, Any]) -> list[str]:
+     errors = [f"unknown_field:{str(key)[:64]}" for key in raw if key not in CHECKS]
+     for field, check in CHECKS.items():
+         if field not in raw:
+             errors.append(f"{field}:missing")
+         elif not check(raw):
+             errors.append(f"{field}:invalid")
+     return errors
+ 
+ 
+-def _expiry_errors(raw: dict) -> list[str]:
++def _expiry_errors(raw: dict[str, Any]) -> list[str]:
+     created = _parse_time(raw["decision_created_at"])
+     expires = _parse_time(raw["decision_expires_at"])
+     if created is not None and expires is not None and expires <= created:
+         return ["decision_expires_at:not_after_creation"]
+     return []
+ 
+ 
+-def _build(raw: dict) -> Proposal:
++def _build(raw: dict[str, Any]) -> Proposal:
+     return Proposal(
+         task_id=raw["task_id"], revision=raw["revision"], campaign_id=raw["campaign_id"],
+         action_type=ActionType(raw["action_type"]),
+         requested_change=MappingProxyType(dict(raw["requested_change"])),
+         reason_codes=tuple(raw["reason_codes"]), evidence_refs=tuple(raw["evidence_refs"]),
+         campaign_version_observed=raw["campaign_version_observed"],
+-        decision_created_at=_parse_time(raw["decision_created_at"]),
+-        decision_expires_at=_parse_time(raw["decision_expires_at"]),
++        decision_created_at=_require_time(raw["decision_created_at"]),
++        decision_expires_at=_require_time(raw["decision_expires_at"]),
+         policy_version=raw["policy_version"], risk_summary=raw["risk_summary"],
+     )
+ 
+ 
+ def parse_proposal(raw: object) -> ParsedProposal:
+     """把不可信的原始資料解析成提案;絕不丟例外、絕不修改輸入。
+ 
+     真正的不可信輸入來自 JSON 解析,走不到自訂物件;但這是安全邊界,所以再加一層保底:
+     萬一有東西(例如刻意會丟例外的子類別)讓解析出錯,也只回一個可辨認的錯誤,不讓例外逃出去。
+     """
+     try:
+         return _parse(raw)
+     except Exception as exc:  # 安全邊界的最後一道保底,錯誤型別記在結果裡
+         return ParsedProposal(None, (f"unexpected_failure:{type(exc).__name__}",))
+ 
+ 
+ def _parse(raw: object) -> ParsedProposal:
++    if not _is_string_keyed_dict(raw):
++        return ParsedProposal(None, ("not_an_object",))
+     errors = _shape_errors(raw)
+     if errors:
+         return ParsedProposal(None, tuple(errors))
+     errors = _field_errors(raw)
+     if not errors:
+         errors = _expiry_errors(raw)
+     if errors:
+         return ParsedProposal(None, tuple(errors))
+     return ParsedProposal(_build(raw), ())
+diff --git a/src/rtb/domain/task_state.py b/src/rtb/domain/task_state.py
+index e201064..3532377 100644
+--- a/src/rtb/domain/task_state.py
++++ b/src/rtb/domain/task_state.py
+@@ -40,31 +40,40 @@ _FLOW: dict[TaskState, frozenset[TaskState]] = {
+     S.NO_ACTION: frozenset(),
+     S.SUPERSEDED: frozenset(),
+ }
+ 
+ TERMINAL_STATES = frozenset(state for state, targets in _FLOW.items() if not targets)
+ 
+ if set(_FLOW) != set(TaskState):  # 新增狀態卻忘了寫進表:匯入時就失敗,不等到執行時才 KeyError
+     raise RuntimeError("狀態轉換表沒有涵蓋所有狀態")
+ 
+ # 唯讀:「終點狀態沒有出路」要靠結構保證,不能被外部改寫
+-TRANSITIONS: MappingProxyType = MappingProxyType({
++TRANSITIONS: MappingProxyType[TaskState, frozenset[TaskState]] = MappingProxyType({
+     state: targets if state in TERMINAL_STATES else targets | {S.FAILED}
+     for state, targets in _FLOW.items()
+ })
+ 
+ 
+ def _name(value: object) -> str:
+     return str(getattr(value, "value", value))
+ 
+ 
+-def can_transition(current: object, target: object) -> bool:
++def _as_state(value: object) -> TaskState | None:
++    """只有字串才可能是狀態;其他型別、不認得的字串都當作「不是狀態」。"""
++    if not isinstance(value, str):
++        return None
+     try:
+-        return TaskState(target) in TRANSITIONS[TaskState(current)]
+-    except ValueError:  # 不是任何一個已知狀態
+-        return False
++        return TaskState(value)
++    except ValueError:
++        return None
++
++
++def can_transition(current: object, target: object) -> bool:
++    origin, destination = _as_state(current), _as_state(target)
++    return origin is not None and destination is not None and destination in TRANSITIONS[origin]
+ 
+ 
+ def transition(current: object, target: object) -> TaskState:
+-    if not can_transition(current, target):
++    origin, destination = _as_state(current), _as_state(target)
++    if origin is None or destination is None or destination not in TRANSITIONS[origin]:
+         raise IllegalTransition(f"不合法的轉換:{_name(current)} -> {_name(target)}")
+-    return TaskState(target)
++    return destination
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index abc1569..25c754e 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -9,20 +9,21 @@
+ 
+ import argparse
+ import json
+ import re
+ import sys
+ import time
+ import traceback
+ from dataclasses import asdict
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
++from typing import Any
+ from urllib.parse import parse_qs, urlsplit
+ 
+ from rtb.dsp.errors import (
+     CampaignNotFound,
+     DspError,
+     IdempotencyConflict,
+     MetricsNotFound,
+     StoreBusy,
+     TransientError,
+     UnknownAction,
+@@ -80,30 +81,36 @@ class RequestRejected(Exception):
+     def __init__(self, status: int, code: str, retryable: bool = False):
+         super().__init__(code)
+         self.status, self.code, self.retryable = status, code, retryable
+ 
+ 
+ class _NoResponse(Exception):
+     """內部用:故障注入要求不回應。"""
+ 
+ 
+ class DspHandler(BaseHTTPRequestHandler):
+-    server: "DspServer"
++    server: DspServer
+ 
+     def setup(self) -> None:
+-        self.timeout = self.server.socket_timeout_seconds  # 讀不到請求就放棄,不佔住執行緒
+         super().setup()
++        # 讀不到請求就放棄,不佔住執行緒
++        self.connection.settimeout(self.server.socket_timeout_seconds)
+ 
+-    def log_message(self, *_args) -> None:  # 不把每個請求印到終端
++    def log_message(self, format: str, *args: Any) -> None:  # 不印每個請求  # 不把每個請求印到終端
+         pass
+ 
+-    def send_error(self, code, message=None, explain=None) -> None:
++    def send_error(
++        self,
++        code: int,
++        message: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
++        explain: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
++    ) -> None:
+         self._reply_error(code, "http_error", False)  # 基底類別的錯誤頁也用 JSON
+ 
+     def do_GET(self) -> None:
+         self._dispatch("GET")
+ 
+     def do_POST(self) -> None:
+         self._dispatch("POST")
+ 
+     def _dispatch(self, method: str) -> None:
+         store = None
+@@ -144,28 +151,28 @@ class DspHandler(BaseHTTPRequestHandler):
+     def _read_fault(self) -> str | None:
+         mode = self._single_header("X-Fault")
+         if mode is None:
+             return None
+         if not self.server.fault_injection:
+             raise RequestRejected(400, "fault_injection_disabled")
+         if mode not in FAULT_MODES:
+             raise RequestRejected(400, "unknown_fault_mode")
+         return mode
+ 
+-    def _route(self, method: str):
++    def _route(self, method: str) -> tuple[str, str]:
+         for route_method, pattern, name in ROUTES:
+             match = pattern.match(urlsplit(self.path).path)
+             if route_method == method and match:
+                 return name, match.group(1)
+         raise RequestRejected(404, "not_found")
+ 
+-    def _read_json(self) -> dict:
++    def _read_json(self) -> dict[str, Any]:
+         if self.headers.get("Transfer-Encoding"):
+             raise RequestRejected(411, "chunked_not_supported")
+         raw_length = (self.headers.get("Content-Length") or "0").strip()
+         if not raw_length.isascii() or not raw_length.isdigit():
+             raise RequestRejected(400, "invalid_content_length")
+         if len(raw_length) > MAX_LENGTH_DIGITS or int(raw_length) > MAX_BODY_BYTES:
+             raise RequestRejected(413, "body_too_large")
+         raw = self._read_exactly(int(raw_length))
+         try:
+             body = json.loads(raw or b"{}")
+@@ -178,57 +185,73 @@ class DspHandler(BaseHTTPRequestHandler):
+     def _read_exactly(self, length: int) -> bytes:
+         try:
+             raw = self.rfile.read(length)
+         except TimeoutError as exc:  # 客戶端宣告了長度卻遲遲不送完
+             raise RequestRejected(408, "request_timeout") from exc
+         if len(raw) < length:
+             raise RequestRejected(400, "incomplete_body")
+         return raw
+ 
+     # ---- 讀取介面 ----
+-    def _get_campaign(self, store, campaign_id, _fault):
++    def _get_campaign(
++        self, store: CampaignStore, campaign_id: str, _fault: str | None
++    ) -> dict[str, Any]:
+         return asdict(store.get_campaign(campaign_id))
+ 
+-    def _get_history(self, store, campaign_id, _fault):
++    def _get_history(
++        self, store: CampaignStore, campaign_id: str, _fault: str | None
++    ) -> dict[str, Any]:
+         store.get_campaign(campaign_id)  # 不存在就回 404
+         return {"history": [asdict(h) for h in store.history(campaign_id)]}
+ 
+-    def _get_metrics(self, store, campaign_id, _fault):
++    def _get_metrics(
++        self, store: CampaignStore, campaign_id: str, _fault: str | None
++    ) -> dict[str, Any]:
+         windows = parse_qs(urlsplit(self.path).query).get("window", [])
+         if len(windows) > 1:
+             raise RequestRejected(400, "duplicate_query_parameter")
+         return asdict(store.get_metrics(campaign_id, windows[0] if windows else None))
+ 
+-    def _get_operation(self, store, key, _fault):
++    def _get_operation(
++        self, store: CampaignStore, key: str, _fault: str | None
++    ) -> dict[str, Any]:
+         result = store.get_operation_by_key(key)
+         if result is None:
+             raise RequestRejected(404, "operation_not_found")
+         return asdict(result)
+ 
+     # ---- 寫入介面 ----
+-    def _update_budget(self, store, campaign_id, fault):
++    def _update_budget(
++        self, store: CampaignStore, campaign_id: str, fault: str | None
++    ) -> dict[str, Any]:
+         body = self._read_json()
+         params = {"new_budget": body.get("new_budget")}
+         op = self._operation(campaign_id, "update_budget", params, body)
+         return self._write(store, op, fault)
+ 
+-    def _pause_campaign(self, store, campaign_id, fault):
++    def _pause_campaign(
++        self, store: CampaignStore, campaign_id: str, fault: str | None
++    ) -> dict[str, Any]:
+         body = self._read_json()
+         return self._write(store, self._operation(campaign_id, "pause_campaign", {}, body), fault)
+ 
+-    def _operation(self, campaign_id: str, action: str, params: dict, body: dict) -> Operation:
++    def _operation(
++        self, campaign_id: str, action: str, params: dict[str, Any], body: dict[str, Any]
++    ) -> Operation:
+         key = self._single_header("Idempotency-Key")
+         if not key:
+             raise RequestRejected(400, "missing_idempotency_key")
+         return Operation(campaign_id, action, params, body.get("expected_version"), key)
+ 
+-    def _write(self, store: CampaignStore, op: Operation, fault: str | None) -> dict:
++    def _write(
++        self, store: CampaignStore, op: Operation, fault: str | None
++    ) -> dict[str, Any]:
+         self._apply_fault_before_commit(fault)
+         result = asdict(store.execute(op))
+         if fault == "timeout_after_commit":
+             time.sleep(self.server.hang_seconds)  # 已提交,但回應遲到
+         return result
+ 
+     def _apply_fault_before_commit(self, fault: str | None) -> None:
+         if fault == "delayed_response":
+             time.sleep(self.server.delay_seconds)
+         elif fault == "transient_5xx":
+@@ -236,21 +259,21 @@ class DspHandler(BaseHTTPRequestHandler):
+         elif fault == "permanent_validation_error":
+             raise RequestRejected(422, "injected_validation_error")
+         elif fault == "timeout_before_commit":
+             time.sleep(self.server.hang_seconds)  # 不論客戶端是否還在,都不提交
+             raise _NoResponse
+ 
+     # ---- 回應 ----
+     def _reply_error(self, status: int, code: str, retryable: bool) -> None:
+         self._reply(status, {"error": code, "retryable": retryable})
+ 
+-    def _reply(self, status: int, payload: dict) -> None:
++    def _reply(self, status: int, payload: dict[str, Any]) -> None:
+         raw = json.dumps(payload).encode()
+         try:
+             self.send_response(status)
+             self.send_header("Content-Type", "application/json")
+             self.send_header("Content-Length", str(len(raw)))
+             self.end_headers()
+             self.wfile.write(raw)
+         except OSError:
+             pass  # 客戶端已逾時離開,回應寫不出去是正常情況
+ 
+@@ -261,21 +284,25 @@ class DspServer(ThreadingHTTPServer):
+ 
+     def __init__(self, db_path: Path, fault_injection: bool, hang_seconds: float,
+                  delay_seconds: float, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+                  socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS):
+         super().__init__((LOOPBACK, 0), DspHandler)
+         self.db_path, self.fault_injection = db_path, fault_injection
+         self.hang_seconds, self.delay_seconds = hang_seconds, delay_seconds
+         self.busy_timeout_seconds = busy_timeout_seconds
+         self.socket_timeout_seconds = socket_timeout_seconds
+ 
+-    def handle_error(self, request, client_address) -> None:
++    def handle_error(
++        self,
++        request: Any,  # noqa: ARG002 - 沿用基底類別的簽章
++        client_address: Any,  # noqa: ARG002 - 沿用基底類別的簽章
++    ) -> None:
+         if not isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+             traceback.print_exc(file=sys.stderr)  # 客戶端中途離開不吵;其他例外要看得到
+ 
+ 
+ def main(argv: list[str] | None = None) -> None:
+     parser = argparse.ArgumentParser(description="Mock DSP")
+     parser.add_argument("--db", required=True, type=Path)
+     parser.add_argument("--fault-injection", action="store_true")
+     parser.add_argument("--hang-seconds", type=float, default=2.0)
+     parser.add_argument("--delay-seconds", type=float, default=0.3)
+@@ -286,11 +313,11 @@ def main(argv: list[str] | None = None) -> None:
+     server = DspServer(args.db, args.fault_injection, args.hang_seconds, args.delay_seconds,
+                        args.busy_timeout_seconds, args.socket_timeout_seconds)
+     print(f"PORT={server.server_address[1]}", flush=True)
+     try:
+         server.serve_forever()
+     finally:
+         server.server_close()
+ 
+ 
+ if __name__ == "__main__":
+-    sys.exit(main())
++    main()
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index 91cf9c5..70fc11e 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -7,20 +7,21 @@
+ 
+ import hashlib
+ import json
+ import math
+ import re
+ import sqlite3
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from pathlib import Path
++from typing import Any, TypeGuard
+ 
+ from rtb.dsp.errors import (
+     CampaignNotFound,
+     IdempotencyConflict,
+     MetricsNotFound,
+     StoreBusy,
+     UnknownAction,
+     ValidationRejected,
+     VersionConflict,
+ )
+@@ -58,22 +59,22 @@ class Campaign:
+     id: str
+     budget: int
+     status: str
+     version: int
+ 
+ 
+ @dataclass(frozen=True)
+ class Operation:
+     campaign_id: str
+     action: str
+-    params: dict
+-    expected_version: int
++    params: dict[str, Any]  # 來自不可信的請求:_validate 會檢查內容
++    expected_version: object  # 同上:先當作未驗證的值,_validate 確認是正整數
+     idempotency_key: str
+ 
+     def fingerprint(self) -> str:
+         body = [self.campaign_id, self.action, self.params, self.expected_version]
+         return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+ 
+ 
+ @dataclass(frozen=True)
+ class OperationResult:
+     operation_id: int
+@@ -100,60 +101,61 @@ class MetricsRecord:
+ @dataclass(frozen=True)
+ class HistoryEntry:
+     operation_id: int
+     action: str
+     version_after: int
+     received_at: str
+     committed_at: str
+     idempotency_key: str
+ 
+ 
+-def _is_plain_int(value: object) -> bool:
++def _is_plain_int(value: object) -> TypeGuard[int]:
+     return isinstance(value, int) and not isinstance(value, bool)
+ 
+ 
+ def _validate(op: Operation) -> None:
+     if not isinstance(op.idempotency_key, str) or not IDEMPOTENCY_KEY_PATTERN.fullmatch(
+         op.idempotency_key
+     ):
+         raise ValidationRejected("冪等鍵必須是 1 到 128 個英數字或 . _ : -")
+     if not _is_plain_int(op.expected_version) or op.expected_version < 1:
+         raise ValidationRejected("expected_version 必須是正整數")
+     if op.action == "update_budget":
+         budget = op.params.get("new_budget")
+         if not _is_plain_int(budget) or not 0 < budget <= SQLITE_INTEGER_MAX:
+             raise ValidationRejected("new_budget 必須是 1 到 2**63-1 的整數")
+     elif op.action != "pause_campaign":
+         raise UnknownAction(op.action)
+ 
+ 
+-def _is_storable_count(value: object) -> bool:
++def _is_storable_count(value: object) -> TypeGuard[int]:
+     return _is_plain_int(value) and abs(value) <= SQLITE_INTEGER_MAX
+ 
+ 
+-def _is_storable_amount(value: object) -> bool:
++def _is_storable_amount(value: object) -> TypeGuard[int | float]:
+     if _is_plain_int(value):
+         return abs(value) <= EXACT_FLOAT_INT_MAX
+     return isinstance(value, float) and math.isfinite(value)
+ 
+ 
+ def _checked_metric(name: str, value: object) -> float | None:
+     """只收存進去不會失真、也不會被讀成別的東西的值;沒給的欄位維持 None,不補成 0。
+ 
+     金額欄位是 REAL,整數讀回會是浮點數(12 變成 12.0);所以整數只收到浮點數能精確表示的大小。
+     """
+     if value is None:
+         return None
+-    is_valid = _is_storable_count if name in COUNT_FIELDS else _is_storable_amount
+-    if not is_valid(value):
+-        raise ValidationRejected(f"{name} 的值不合法:{value!r}")
+-    return value
++    if name in COUNT_FIELDS and _is_storable_count(value):
++        return value
++    if name not in COUNT_FIELDS and _is_storable_amount(value):
++        return value
++    raise ValidationRejected(f"{name} 的值不合法:{value!r}")
+ 
+ 
+ def _check_window(window: str | None) -> None:
+     if window not in METRIC_WINDOWS:
+         raise ValidationRejected("window 必須是 1h、1d 或 7d 其中之一")
+ 
+ 
+ def _next_state(campaign: Campaign, op: Operation) -> Campaign:
+     if op.action == "update_budget":
+         return Campaign(campaign.id, op.params["new_budget"], campaign.status, campaign.version + 1)
+@@ -274,21 +276,26 @@ class CampaignStore:
+         if row[0] != op.fingerprint():
+             raise IdempotencyConflict(op.idempotency_key)
+         return self._recorded_result(op.idempotency_key, replayed=True)
+ 
+     def _recorded_result(self, key: str, replayed: bool) -> OperationResult | None:
+         row = self._conn.execute(
+             "SELECT operation_id, campaign_id, action, version_after, committed_at "
+             "FROM operations WHERE idempotency_key = ?",
+             (key,),
+         ).fetchone()
+-        return None if row is None else OperationResult(*row, replayed=replayed)
++        if row is None:
++            return None
++        operation_id, campaign_id, action, version_after, committed_at = row
++        return OperationResult(
++            operation_id, campaign_id, action, version_after, committed_at, replayed
++        )
+ 
+     def _apply(
+         self, op: Operation, updated: Campaign, received_at: str, committed_at: str
+     ) -> int:
+         self._conn.execute(
+             "UPDATE campaigns SET budget = ?, status = ?, version = ? WHERE id = ?",
+             (updated.budget, updated.status, updated.version, updated.id),
+         )
+         cursor = self._conn.execute(
+             "INSERT INTO operations (campaign_id, action, params_json, version_after, "
+@@ -296,17 +303,20 @@ class CampaignStore:
+             (
+                 op.campaign_id,
+                 op.action,
+                 json.dumps(op.params, sort_keys=True),
+                 updated.version,
+                 received_at,
+                 committed_at,
+                 op.idempotency_key,
+             ),
+         )
+-        return cursor.lastrowid
++        operation_id = cursor.lastrowid
++        if operation_id is None:  # INSERT 一定會有列編號;沒有代表出了預期外的事,讓交易回滾
++            raise RuntimeError("INSERT 沒有回傳列編號")
++        return operation_id
+ 
+     def _record_idempotency(self, op: Operation, operation_id: int) -> None:
+         self._conn.execute(
+             "INSERT INTO idempotency_keys (key, fingerprint, operation_id) VALUES (?, ?, ?)",
+             (op.idempotency_key, op.fingerprint(), operation_id),
+         )
+diff --git a/tests/domain/test_evidence.py b/tests/domain/test_evidence.py
+index 4d2e387..7cdc2af 100644
+--- a/tests/domain/test_evidence.py
++++ b/tests/domain/test_evidence.py
+@@ -10,25 +10,25 @@ from rtb.domain.evidence import (
+     Freshness,
+     TrustClass,
+     check_freshness,
+ )
+ 
+ T0 = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
+ HASH = "a" * 64
+ 
+ 
+ def make(**overrides):
+-    fields = dict(
+-        evidence_id="e1", task_id="t1", kind=EvidenceKind.CAMPAIGN_STATE, source="dsp",
+-        observed_at=T0, campaign_version_observed=3, content_hash=HASH,
+-        trust_class=TrustClass.TRUSTED,
+-    )
++    fields = {
++        "evidence_id": "e1", "task_id": "t1", "kind": EvidenceKind.CAMPAIGN_STATE,
++        "source": "dsp", "observed_at": T0, "campaign_version_observed": 3,
++        "content_hash": HASH, "trust_class": TrustClass.TRUSTED,
++    }
+     fields.update(overrides)
+     return Evidence(**fields)
+ 
+ 
+ def test_valid_evidence_is_constructed_and_immutable():
+     evidence = make()
+ 
+     assert evidence.campaign_version_observed == 3
+     with pytest.raises(AttributeError):
+         evidence.source = "other"
+diff --git a/tests/domain/test_task_state.py b/tests/domain/test_task_state.py
+index 3d7f662..72f1593 100644
+--- a/tests/domain/test_task_state.py
++++ b/tests/domain/test_task_state.py
+@@ -66,21 +66,21 @@ def test_every_non_terminal_state_can_fail():
+             assert can_transition(state, S.FAILED), state
+ 
+ 
+ def test_the_table_is_complete_and_has_no_dangling_targets():
+     assert set(TRANSITIONS) == set(TaskState)
+     for targets in TRANSITIONS.values():
+         assert targets <= set(TaskState)
+ 
+ 
+ def test_terminal_states_are_exactly_the_five_documented_ones():
+-    assert TERMINAL_STATES == {S.COMPLETED, S.FAILED, S.BLOCKED, S.NO_ACTION, S.SUPERSEDED}
++    assert {S.COMPLETED, S.FAILED, S.BLOCKED, S.NO_ACTION, S.SUPERSEDED} == TERMINAL_STATES
+ 
+ 
+ def test_unknown_or_non_state_values_are_illegal_not_a_crash_or_a_pass():
+     with pytest.raises(IllegalTransition):
+         transition(S.RECEIVED, "bogus")
+     with pytest.raises(IllegalTransition):
+         transition("bogus", S.RECEIVED)
+     assert can_transition(S.RECEIVED, None) is False
+ 
+ 
+diff --git a/tests/dsp/conftest.py b/tests/dsp/conftest.py
+index 8c49c89..35d41ed 100644
+--- a/tests/dsp/conftest.py
++++ b/tests/dsp/conftest.py
+@@ -1,12 +1,13 @@
+ """DSP 行程測試的共用工具:真的啟動獨立行程、埠由系統分配、結束時一定關閉。"""
+ 
++import contextlib
+ import json
+ import os
+ import select
+ import subprocess
+ import sys
+ import time
+ import urllib.error
+ import urllib.request
+ from pathlib import Path
+ 
+@@ -76,14 +77,12 @@ def start_dsp(tmp_path):
+ 
+         db = tmp_path / "dsp.db"
+         if seed and not db.exists():
+             CampaignStore(db).seed_campaign("c1", budget=100)
+         proc = DspProcess(db, fault_injection=fault_injection, **kwargs)
+         started.append(proc)
+         return proc
+ 
+     yield _start
+     for proc in started:
+-        try:
++        with contextlib.suppress(Exception):  # 一個行程收不掉,也要繼續收其他的
+             proc.stop()
+-        except Exception:  # 一個行程收不掉,也要繼續收其他的
+-            pass
+diff --git a/tests/dsp/test_server.py b/tests/dsp/test_server.py
+index 30a78b6..20a06c4 100644
+--- a/tests/dsp/test_server.py
++++ b/tests/dsp/test_server.py
+@@ -1,12 +1,13 @@
+ """Mock DSP 的 HTTP 事故測試:真的獨立行程、真的網路逾時。"""
+ 
++import contextlib
+ import http.client
+ import json
+ import os
+ import signal
+ import socket
+ import sqlite3
+ import threading
+ import time
+ 
+ import pytest
+@@ -164,31 +165,29 @@ def test_pause_campaign_over_http(start_dsp):
+     assert status == 200 and campaign(dsp)["status"] == "paused"
+ 
+ 
+ def test_query_is_answered_immediately_while_a_slow_request_is_in_flight(start_dsp):
+     dsp = start_dsp(fault_injection=True, hang_seconds=1.5)
+     slow = threading.Thread(target=lambda: _swallow_timeout(dsp))
+     slow.start()
+     # 同步點:提交完成(版本變 2)代表慢請求已進入 DSP,並正卡在「提交後的長睡眠」
+     assert wait_until(lambda: campaign(dsp)["version"] == 2)
+ 
+-    status, body = dsp.request("GET", "/operations/nothing", timeout=0.5)
++    status, _body = dsp.request("GET", "/operations/nothing", timeout=0.5)
+ 
+     assert status == 404  # 有回應(而不是逾時)就代表伺服器不是單執行緒
+     slow.join()
+ 
+ 
+ def _swallow_timeout(dsp):
+-    try:
++    with contextlib.suppress(TimeoutError):
+         set_budget(dsp, fault="timeout_after_commit", timeout=0.3)
+-    except TimeoutError:
+-        pass
+ 
+ 
+ def test_concurrent_same_key_requests_over_http_apply_exactly_once(start_dsp):
+     # 請求以柵欄同時放出而同時在途;誰先誰後由 BEGIN IMMEDIATE 的排隊決定
+     dsp = start_dsp(fault_injection=True, delay_seconds=0.3)
+     workers, barrier, results = 20, threading.Barrier(20), []
+ 
+     def call():
+         barrier.wait()
+         results.append(set_budget(dsp, fault="delayed_response", timeout=5.0))
+@@ -525,24 +524,22 @@ def test_idle_connection_that_sends_nothing_is_closed_by_the_socket_timeout(star
+     assert closed == b"" and 0.8 <= elapsed < 4.0
+ 
+ 
+ def test_a_burst_of_connections_beyond_the_default_backlog_is_still_accepted(start_dsp):
+     dsp = start_dsp()
+     port = int(dsp.base.rsplit(":", 1)[1])
+     os.kill(dsp.proc.pid, signal.SIGSTOP)  # 凍結 accept 迴圈,連線只能排在佇列裡
+     opened = []
+     try:
+         for _ in range(100):
+-            try:
++            with contextlib.suppress(OSError):
+                 opened.append(socket.create_connection(("127.0.0.1", port), timeout=0.5))
+-            except OSError:
+-                pass
+     finally:
+         os.kill(dsp.proc.pid, signal.SIGCONT)
+         for conn in opened:
+             conn.close()
+ 
+     assert len(opened) >= 50  # 預設佇列只有 5,加大到 128 才會通過
+ 
+ 
+ def test_query_string_is_ignored_when_routing(start_dsp):
+     dsp = start_dsp()
+diff --git a/tests/test_static_checks.py b/tests/test_static_checks.py
+new file mode 100644
+index 0000000..2931c08
+--- /dev/null
++++ b/tests/test_static_checks.py
+@@ -0,0 +1,39 @@
++"""靜態檢查閘:型別檢查(mypy)與程式碼規則(ruff)必須是乾淨的。
++
++這兩個檢查沒有接進 lumos 的 linter 宣告(mypy 沒有現成的 SARIF 轉換器),所以用測試來守:
++只要測試套件會跑(本機、CI),它們就會被機械地檢查,不靠人記得去跑。
++"""
++
++import subprocess
++import sys
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def run_tool(*args: str) -> subprocess.CompletedProcess[str]:
++    return subprocess.run(
++        [sys.executable, "-m", *args], capture_output=True, text=True, cwd=ROOT, timeout=300
++    )
++
++
++def test_mypy_strict_mode_reports_no_type_errors_in_src():
++    result = run_tool("mypy")
++
++    assert result.returncode == 0, result.stdout + result.stderr
++
++
++def test_ruff_reports_no_rule_violations_anywhere_in_the_project():
++    result = run_tool("ruff", "check", ".")
++
++    assert result.returncode == 0, result.stdout + result.stderr
++
++
++def test_the_type_checker_would_actually_catch_a_type_error(tmp_path):
++    """守衛的守衛:確認 mypy 真的會對型別錯誤變紅,而不是設定壞了永遠綠。"""
++    bad = tmp_path / "bad.py"
++    bad.write_text("def f(x: int) -> str:\n    return x\n", encoding="utf-8")
++
++    result = run_tool("mypy", "--strict", str(bad))
++
++    assert result.returncode != 0 and "incompatible return value" in result.stdout.lower()
+diff --git a/tests/test_static_wiring.py b/tests/test_static_wiring.py
+new file mode 100644
+index 0000000..866eb2f
+--- /dev/null
++++ b/tests/test_static_wiring.py
+@@ -0,0 +1,65 @@
++"""接線檢查:專案裡設定了哪個靜態分析工具,它就必須真的被閘執行,不能只是設定放著。
++
++專治「加了工具卻忘記接線」:設定存在、卻沒人在推送前或 CI 執行,等於沒有檢查。
++"""
++
++import json
++import tomllib
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++ANALYZERS = {"ruff", "mypy", "pyright", "bandit", "pylint", "flake8", "pytype", "pyre"}
++CI_FILE = ROOT / ".github" / "workflows" / "ci.yml"
++
++
++def configured_analyzers() -> set[str]:
++    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
++    return ANALYZERS & set(pyproject.get("tool", {}))
++
++
++def ci_run_commands() -> list[str]:
++    """只取 CI 裡真正會執行的指令(run: 那一行),不看步驟名稱或註解,免得字面上出現就算數。"""
++    lines = CI_FILE.read_text(encoding="utf-8").splitlines()
++    return [
++        line.split("run:", 1)[1].strip()
++        for line in lines
++        if line.strip().startswith(("run:", "- run:"))
++    ]
++
++
++def lint_commands() -> str:
++    declared = json.loads((ROOT / ".lumos" / "lint.json").read_text(encoding="utf-8"))
++    return "\n".join(command for commands in declared.values() for command in commands)
++
++
++def test_the_expected_analyzers_are_actually_configured():
++    assert {"ruff", "mypy"} <= configured_analyzers()  # 守衛的守衛:設定沒了,這條檢查就沒意義
++
++
++def test_every_configured_analyzer_is_executed_by_the_ci_workflow():
++    commands = ci_run_commands()
++
++    for tool in configured_analyzers():
++        executed = any(f"-m {tool}" in command for command in commands)
++        assert executed, f"{tool} 有設定,但 CI 沒有執行它"
++
++
++def test_every_configured_analyzer_is_also_wired_into_lumos_before_push():
++    commands = lint_commands()
++
++    for tool in configured_analyzers():
++        wired = tool in commands or f"{tool}_sarif" in commands
++        assert wired, f"{tool} 沒有接進 lumos 的 lint 宣告"
++
++
++def test_the_ci_workflow_runs_on_every_push_and_actually_runs_the_test_suite():
++    triggers = [line.strip() for line in CI_FILE.read_text(encoding="utf-8").splitlines()]
++
++    assert "push:" in triggers
++    assert any("-m pytest" in command for command in ci_run_commands())
++
++
++def test_the_lumos_lint_declaration_still_contains_a_command_writing_sarif():
++    declared = json.loads((ROOT / ".lumos" / "lint.json").read_text(encoding="utf-8"))
++
++    assert declared["py"] and all("{LINT_SARIF_OUT}" in command for command in declared["py"])
+diff --git a/tests/tools/__init__.py b/tests/tools/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/tools/test_mypy_sarif.py b/tests/tools/test_mypy_sarif.py
+new file mode 100644
+index 0000000..6996e85
+--- /dev/null
++++ b/tests/tools/test_mypy_sarif.py
+@@ -0,0 +1,108 @@
++"""mypy 轉 SARIF 的轉換器:讓 lumos 的「新增告警閘」能擋下新增的型別錯誤。"""
++
++import importlib.util
++import json
++import subprocess
++import sys
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++ADAPTER = ROOT / "tools" / "mypy_sarif.py"
++
++
++def load_adapter():
++    spec = importlib.util.spec_from_file_location("mypy_sarif", ADAPTER)
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++SAMPLE = "\n".join([
++    'src/a.py:2:12: error: Incompatible return value type (got "int", expected "str")'
++    "  [return-value]",
++    "src/a.py:2:12: note: this is a note that belongs to the error above",
++    "src/b.py:10:5: warning: Unused type: ignore comment  [unused-ignore]",
++    "src/c.py:7:1: error: Something without a code",
++    "not a diagnostic line at all",
++])
++
++
++def test_parse_reads_errors_and_warnings_with_position_rule_and_message():
++    adapter = load_adapter()
++
++    found = adapter.parse_mypy_output(SAMPLE)
++
++    assert [(f.path, f.line, f.column, f.level, f.rule) for f in found] == [
++        ("src/a.py", 2, 12, "error", "return-value"),
++        ("src/b.py", 10, 5, "warning", "unused-ignore"),
++        ("src/c.py", 7, 1, "error", "mypy"),  # 沒有規則代碼時用工具名
++    ]
++    assert "Incompatible return value" in found[0].message
++
++
++def test_notes_and_unrelated_lines_are_not_reported_as_findings():
++    adapter = load_adapter()
++
++    assert adapter.parse_mypy_output("src/a.py:1:1: note: just a note\nrandom text\n") == []
++
++
++def test_sarif_document_has_the_structure_lumos_and_other_consumers_expect():
++    adapter = load_adapter()
++    findings = adapter.parse_mypy_output(SAMPLE)
++
++    document = adapter.to_sarif(findings)
++
++    assert document["version"] == "2.1.0" and len(document["runs"]) == 1
++    run = document["runs"][0]
++    assert run["tool"]["driver"]["name"] == "mypy" and len(run["results"]) == 3
++    first = run["results"][0]
++    assert first["ruleId"] == "return-value" and first["level"] == "error"
++    location = first["locations"][0]["physicalLocation"]
++    assert location["artifactLocation"]["uri"] == "src/a.py"
++    assert location["region"] == {"startLine": 2, "startColumn": 12}
++    rules = {rule["id"] for rule in run["tool"]["driver"]["rules"]}
++    assert rules == {"return-value", "unused-ignore", "mypy"}
++
++
++def test_an_empty_result_is_still_a_valid_sarif_document():
++    adapter = load_adapter()
++
++    document = adapter.to_sarif([])
++
++    assert document["runs"][0]["results"] == []
++
++
++def run_adapter(tmp_path, *mypy_args):
++    out = tmp_path / "out.sarif"
++    result = subprocess.run(
++        [sys.executable, str(ADAPTER), "--out", str(out), *mypy_args],
++        capture_output=True, text=True, cwd=ROOT, timeout=300,
++    )
++    return result, out
++
++
++def test_end_to_end_a_real_type_error_becomes_a_sarif_result(tmp_path):
++    bad = tmp_path / "bad.py"
++    bad.write_text("def f(x: int) -> str:\n    return x\n", encoding="utf-8")
++
++    result, out = run_adapter(tmp_path, "--config-file", "/dev/null", "--strict", str(bad))
++
++    assert result.returncode == 0, result.stderr  # 有發現不代表工具失敗;告警由 lumos 判斷
++    results = json.loads(out.read_text(encoding="utf-8"))["runs"][0]["results"]
++    assert any(r["ruleId"] == "return-value" for r in results)
++
++
++def test_a_clean_project_produces_zero_results(tmp_path):
++    result, out = run_adapter(tmp_path)  # 用專案設定檢查 src
++
++    assert result.returncode == 0, result.stderr
++    assert json.loads(out.read_text(encoding="utf-8"))["runs"][0]["results"] == []
++
++
++def test_when_mypy_itself_cannot_run_the_adapter_fails_loudly_instead_of_writing_an_empty_report(
++    tmp_path,
++):
++    result, out = run_adapter(tmp_path, "--config-file", "/nonexistent/mypy.ini")
++
++    assert result.returncode != 0  # 工具壞掉不能被當成「沒有告警」
++    assert not out.exists()
+diff --git a/tools/mypy_sarif.py b/tools/mypy_sarif.py
+new file mode 100644
+index 0000000..2bab590
+--- /dev/null
++++ b/tools/mypy_sarif.py
+@@ -0,0 +1,116 @@
++"""把 mypy 的文字輸出轉成 SARIF 2.1.0,讓 lumos 的「新增告警閘」能擋下新增的型別錯誤。
++
++用法:python tools/mypy_sarif.py --out <輸出檔> [其餘參數原樣交給 mypy]
++mypy 沒有現成的 SARIF 輸出;等 lumos 自己提供轉換器之後,這支可以換掉。
++
++工具自己壞掉(mypy 無法執行、輸出看不懂)要大聲失敗,不能寫出一份空報告被當成「沒有告警」。
++"""
++
++import argparse
++import json
++import re
++import subprocess
++import sys
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++MYPY_FLAGS = ["--show-column-numbers", "--show-error-codes", "--no-error-summary",
++              "--no-pretty", "--no-color-output"]
++LINE = re.compile(
++    r"^(?P<path>.+?):(?P<line>\d+):(?P<column>\d+): (?P<level>error|warning|note): "
++    r"(?P<message>.*?)(?:  \[(?P<rule>[\w-]+)\])?$"
++)
++DEFAULT_RULE = "mypy"
++ROOT = Path(__file__).resolve().parents[1]
++
++
++@dataclass(frozen=True)
++class Finding:
++    path: str
++    line: int
++    column: int
++    level: str
++    rule: str
++    message: str
++
++
++def parse_mypy_output(text: str) -> list[Finding]:
++    """只收 error 與 warning;note 是前一個錯誤的補充說明,不算獨立的發現。"""
++    findings = []
++    for raw in text.splitlines():
++        match = LINE.match(raw)
++        if match is None or match["level"] == "note":
++            continue
++        findings.append(Finding(
++            path=match["path"], line=int(match["line"]), column=int(match["column"]),
++            level=match["level"], rule=match["rule"] or DEFAULT_RULE, message=match["message"],
++        ))
++    return findings
++
++
++def _relative_uri(path: str) -> str:
++    candidate = Path(path)
++    if candidate.is_absolute():
++        try:
++            return candidate.relative_to(ROOT).as_posix()
++        except ValueError:
++            return candidate.as_posix()
++    return candidate.as_posix()
++
++
++def to_sarif(findings: list[Finding]) -> dict[str, Any]:
++    rules = sorted({finding.rule for finding in findings})
++    results = [
++        {
++            "ruleId": finding.rule,
++            "level": finding.level,
++            "message": {"text": finding.message},
++            "locations": [{
++                "physicalLocation": {
++                    "artifactLocation": {"uri": _relative_uri(finding.path)},
++                    "region": {"startLine": finding.line, "startColumn": finding.column},
++                }
++            }],
++        }
++        for finding in findings
++    ]
++    return {
++        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
++        "version": "2.1.0",
++        "runs": [{
++            "tool": {"driver": {"name": "mypy", "rules": [{"id": rule} for rule in rules]}},
++            "results": results,
++        }],
++    }
++
++
++def run_mypy(extra_args: list[str]) -> subprocess.CompletedProcess[str]:
++    command = [sys.executable, "-m", "mypy", *MYPY_FLAGS, *extra_args]
++    # 參數是開發者自己在指令列給的,固定執行目前這個 Python 的 mypy,不是外部輸入
++    return subprocess.run(  # noqa: S603
++        command, capture_output=True, text=True, cwd=ROOT, timeout=600
++    )
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(description="mypy 轉 SARIF")
++    parser.add_argument("--out", required=True, type=Path)
++    args, mypy_args = parser.parse_known_args(argv)
++    completed = run_mypy(mypy_args)
++    findings = parse_mypy_output(completed.stdout)
++    # mypy 的結束碼:0 乾淨、1 有型別錯誤、其他(例如 2)是工具本身出問題
++    tool_failed = completed.returncode not in (0, 1) or (
++        completed.returncode == 1 and not findings
++    )
++    if tool_failed:
++        sys.stderr.write(f"mypy 無法產出可用的結果(結束碼 {completed.returncode}):\n")
++        sys.stderr.write(completed.stdout + completed.stderr)
++        return 2
++    report = json.dumps(to_sarif(findings), ensure_ascii=False, indent=2)
++    args.out.write_text(report, encoding="utf-8")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())

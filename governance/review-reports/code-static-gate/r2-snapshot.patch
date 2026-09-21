@@ -1,0 +1,692 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index c923669..3232592 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1,16 +1,18 @@
+ # 推送後的機械閘:即使本機用 git push --no-verify 繞過推送前檢查,這裡仍會跑。
+ name: ci
+ 
+ on:
+   push:
+-  pull_request:
++
++permissions:
++  contents: read
+ 
+ jobs:
+   checks:
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-python@v5
+         with:
+           python-version: "3.14"
+       - name: 安裝開發期工具
+diff --git a/.lumos/lint.json b/.lumos/lint.json
+index 9f778ac..85b3639 100644
+--- a/.lumos/lint.json
++++ b/.lumos/lint.json
+@@ -1,6 +1,6 @@
+ {
+   "py": [
+-    ".venv/bin/ruff check --output-format sarif --output-file {LINT_SARIF_OUT} src tests",
+-    ".venv/bin/python tools/mypy_sarif.py --out {LINT_SARIF_OUT}"
++    ".venv/bin/ruff check --output-format sarif --output-file {LINT_SARIF_OUT} {LINT_FILES}",
++    ".venv/bin/python tools/mypy_sarif.py --out {LINT_SARIF_OUT} --only-configured-paths {LINT_FILES}"
+   ]
+ }
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+index 621a9bc..1e91d6b 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+@@ -42,11 +42,11 @@ verified_by:
+ - 計劃驗收要求「同一種故障連續 50 次結果 100% 一致」。目前是手動用迴圈重跑相關測試(2026-09-21:第一批 50 次、修復後 50 次、第二輪代碼審修復後 30 次,各 0 次失敗),沒有自動化進 CI。指令:對 `-k "concurrent or naive or process_death or timeout or in_flight or restart or lock_contention or non_loopback"` 重複執行。
+ - 計劃列為以標頭注入的三種故障(版本衝突、同鍵同內容重送、同鍵不同內容)沒有做成標頭注入,而是用真實邏輯產生並測試。這是有意的偏離:真實邏輯比注入更能證明行為。
+ - 動作驗證與狀態轉換目前是 if 分支,不是計劃「狀態機是資料」所說的動作表;只有預算與暫停兩種動作,可接受。
+ REVISIT:2026-11-21 動作增加到第三種時,把驗證與狀態轉換抽成動作表。
+ - 「只綁本機」的測試在沒有非回送網卡的機器上會略過,略過時沒有訊號進治理帳。
+ - 仍沒有測試守護的小防護(第二輪代碼審的存活變異):伺服器端每個請求結束時關閉資料庫連線(拿掉只會等垃圾回收)、對客戶端中途離開靜音的 `handle_error`、回應是否帶 Content-Length。三者行為現況正確,缺的是回歸網。
+ - 部分「提交前逾時」類測試仍用固定睡眠等待(等過處理程式睡醒),慢機器上只會讓測試少等而偏向漏抓,不會誤紅;提交後逾時與慢請求進行中已改用輪詢與同步點。
+ - 歷史查詢沒有分頁;每個請求新建資料庫連線;這兩項是效能檢核題的「張力」表態,Mock 規模可接受。
+ - 測試的白箱部分(對 `_record_idempotency`、`_conn` 打補丁)綁定私有成員,重構時會跟著紅,屬刻意。
+ 
+-型別檢查:2026-09-22 起 `store.py` 與 `server.py` 通過 mypy 嚴格模式。順手修了兩個真的隱患:`cursor.lastrowid` 可能是 None(現在明確報錯並回滾),以及 `Operation.params` 與 `expected_version` 來自不可信請求,型別改標為未驗證的 `object`,由 `_validate` 用 `TypeGuard` 確認後才使用。伺服器的等待逾時改成直接設定連線的逾時,不再設定基底類別的類別變數。
++型別檢查:2026-09-22 起 `store.py` 與 `server.py` 通過 mypy 嚴格模式。`Operation.params` 與 `expected_version` 都標成未驗證(`dict[str, object]` 與 `object`),`_next_state` 讀預算時用 `_is_plain_int` 收窄,型別檢查因此守得住這條不可信資料的路徑。順手修了兩個真的隱患:`cursor.lastrowid` 可能是 None(現在明確報錯並回滾),以及 `Operation.params` 與 `expected_version` 來自不可信請求,型別改標為未驗證的 `object`,由 `_validate` 用 `TypeGuard` 確認後才使用。伺服器的等待逾時改成直接設定連線的逾時,不再設定基底類別的類別變數。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md b/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
+index ae2de1f..9753cf7 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
+@@ -31,11 +31,11 @@ summary: |-
+ 
+ ## 已知缺口(如實標明)
+ 
+ - 只有分析行程這一側的狀態機;執行行程那一側的操作狀態、事件與 trace 尚未定義,屬後續增量。
+ - `parse_proposal` 最外層有一道保底:萬一有東西讓解析丟例外(例如刻意會丟例外的自訂物件,真實 JSON 輸入走不到),只回一個 `unexpected_failure:<例外型別>` 錯誤,不讓例外逃出去。這是安全邊界的最後一道防線,由 [test:test_even_hostile_python_objects_that_raise_are_turned_into_an_error_result] 守著。
+ - `task_state.py` 匯入時會檢查轉換表涵蓋所有狀態(漏了就匯入失敗),測試裡也有同一條斷言;兩處都守是有意的:測試只在開發時跑,而匯入時檢查讓漏表的程式根本起不來,不會拖到執行時才 KeyError。
+ - 提案解析只檢查格式,不做政策或授權檢查;大小是粗估的位元組數(字串用 UTF-8 位元組、整數用位數估算、每個容器有固定開銷),不是精確的 JSON 長度,目的是擋超大與過深,不是量準;新鮮度的年齡上限由呼叫端傳入,還沒有集中的政策。
+ - 風險摘要目前只是不超過 500 字的字串,沒有結構。
+ - 這個增量沒有經過設計審;狀態機與證據格式在增量 2 設計審前先定型,審查員可能要求修改。
+ 
+-型別檢查:2026-09-22 起這一層通過 mypy 嚴格模式。判斷函式(`is_plain_int`、`is_id` 等)用 `TypeGuard` 標明通過後的型別,讓型別檢查能驗證邊界判斷;行為沒有改變,343 條測試仍全過。由 [[Systems/靜態檢查閘]] 的三層守衛持續檢查。
++型別檢查:2026-09-22 起這一層通過 mypy 嚴格模式。判斷函式(`is_plain_int`、`is_id` 等)用 `TypeGuard` 標明通過後的型別,讓型別檢查能驗證邊界判斷;行為沒有改變,既有測試全部通過。由 [[Systems/靜態檢查閘]] 的三層守衛持續檢查。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/靜態檢查閘.md b/docs/rtb-production-agent-demo-knowledge/Systems/靜態檢查閘.md
+index d88f397..5956be9 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/靜態檢查閘.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/靜態檢查閘.md
+@@ -4,27 +4,39 @@ status: doing
+ created: 2026-09-22
+ updated: 2026-09-22
+ responsibility: 負責把 mypy 的輸出轉成 lumos 認得的 SARIF,讓新增的型別錯誤在推送前被擋;不負責 ruff 本身、CI 設定內容,也不決定哪些工具該接(那是接線檢查測試與 lumos 的技術棧槽位檢查的事)。
+ aliases: []
+ about_code:
+   - tools/mypy_sarif.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+-  WHY: 靜態檢查(型別檢查、程式碼規則、安全規則)不能靠人記得去跑,忘了就等於沒檢查。所以分三層守著:推送前的 lumos 新增告警閘(不分風險等級)、推送後的 CI(git push --no-verify 也繞不過)、以及接線檢查測試(專案設定了某個靜態工具,就必須真的被 CI 與 lumos 執行,不能只是設定放著)。出處:對話 2026-09-22,使用者要求「否則我忘記的話,剛剛那些都沒檢查到」。
++  WHY: 靜態檢查(型別檢查、程式碼規則、安全規則)不能靠人記得去跑,忘了就等於沒檢查。所以分三層守著:推送前的 lumos 新增告警閘(不分風險等級;2026-09-22 用 lumos 自己的判定函式實測過:新增型別錯誤與新增 ruff 違規都被擋、只改測試檔不誤擋)、推送後的 CI(git push --no-verify 也繞不過)、以及接線檢查測試(專案設定了某個靜態工具,就必須真的被 CI 與 lumos 執行,不能只是設定放著)。出處:對話 2026-09-22,使用者要求「否則我忘記的話,剛剛那些都沒檢查到」。
+   WHY: mypy 沒有現成的 SARIF 輸出,lumos 也沒附轉換器,所以自寫一支轉換器把 mypy 接進 lumos 的 lint 宣告。等 lumos 自己提供 mypy 轉換器之後,這支可以換掉。出處:2026-09-22 查證(在 lumos 原始碼搜過 mypy、pyright、bandit 都沒有,只附 sqlfluff、stylelint、dart 三個轉換器)。
+   PITFALL: 轉換器若在 mypy 本身壞掉時仍寫出空報告,會被當成「沒有告警」而放行。防回歸:[test:test_when_mypy_itself_cannot_run_the_adapter_fails_loudly_instead_of_writing_an_empty_report]。
+   PITFALL: 接線檢查若只看 CI 檔案裡有沒有工具名稱的字,步驟名稱就能讓它誤過(2026-09-22 變異檢查抓到「CI 不跑 pytest」仍綠);必須只看真正會執行的 run: 指令。防回歸:[test:test_every_configured_analyzer_is_executed_by_the_ci_workflow]、[test:test_the_ci_workflow_runs_on_every_push_and_actually_runs_the_test_suite]。
++  PITFALL: lumos 的新增告警閘只執行帶 {LINT_FILES} 佔位符的命令;沒帶的整條被跳過而且不報錯,看起來有接、其實一條都沒跑。我一開始登記的兩條命令(包含原本的 ruff)都沒帶。防回歸:[test:test_every_lumos_lint_command_can_actually_run_in_the_new_alert_gate](2026-09-22 代碼審抓到)。
++  PITFALL: lumos 執行命令前會把「改動前」與「現在」的檔案各抽到 .lumos/lintbase-*/base|head/ 臨時目錄,再把臨時路徑交給命令。轉換器的範圍判斷若看到的是這層前綴,會把所有檔案當成範圍外而跳過 mypy,新增的型別錯誤全部漏過。防回歸:[test:test_lumos_passes_temporary_extracted_copies_of_the_changed_files_and_they_must_still_match](2026-09-22 用 lumos 自己的判定函式實測抓到:第一次驗證結果是「沒有新增告警」)。
++  PITFALL: mypy 對某些錯誤(例如未使用的 type: ignore)不輸出欄位號,解析若要求欄位號,這類錯誤會被靜默丟掉。防回歸:[test:test_errors_without_a_column_number_are_still_reported]。
++  PITFALL: mypy 結束碼為 1 卻解析不到任何發現,代表輸出格式看不懂,必須當成工具失敗,不能寫出空報告。防回歸:[test:test_a_nonzero_exit_with_output_nobody_can_parse_is_a_failure_not_a_clean_report]。
+   TEST: tests/tools/test_mypy_sarif.py 涵蓋輸出解析(note 不算發現、沒有規則代碼時用預設)、SARIF 結構、端到端真實型別錯誤、乾淨專案零發現、mypy 壞掉時大聲失敗;tests/test_static_wiring.py 涵蓋工具設定必須被 CI 與 lumos 執行;tests/test_static_checks.py 讓 mypy 嚴格模式與 ruff 成為測試的一部分。
+ ---
+ # 靜態檢查閘
+ 
+ `tools/mypy_sarif.py` 執行 `python -m mypy`,解析文字輸出,寫出 SARIF 2.1.0;結束碼 0 表示轉換成功(有型別錯誤也是 0,由 lumos 判斷告警),2 表示 mypy 本身無法產出可用結果。CI 設定在 `.github/workflows/ci.yml`(不是程式檔,不需要家),推送與 pull request 都會跑 ruff、mypy 與 pytest。
+ 
+ ## 已知缺口(如實標明)
+ 
+-- **CI 還沒有真的跑過。** 工作流程檔已寫好,但要 push 之後才知道 GitHub 上跑不跑得起來(Python 3.14 版本、固定的套件版本能否安裝、Linux 上的連線與逾時測試是否穩定);第一次 push 之後必須回頭確認並在這裡補記結果。
++- **CI 還沒有真的跑過。** 工作流程檔已寫好,但要 push 之後才知道 GitHub 上跑不跑得起來(Python 3.14 版本、固定的套件版本能否安裝、Linux 上的連線與逾時測試是否穩定)。第一次 push 之後必須回頭確認並在這裡補記結果。
+ REVISIT:2026-09-25 確認 CI 首次執行的結果,失敗就修,不能讓它一直紅著。
++- lumos 的新增告警閘只掃「這次改到的檔案」:改 A 檔讓沒改的 B 檔出現型別錯誤,這道閘抓不到,只有 CI 的整包 mypy 抓得到。
++REVISIT:2026-10-22 看 CI 是否曾抓到推送前閘漏掉的型別錯誤,決定要不要讓推送前也跑整包 mypy。
+ - CI 沒有跑 lumos 的 doctor(那需要驗證圖譜的執行環境),所以圖譜一致性仍只在本機推送前被檢查。
++REVISIT:2026-10-22 決定要不要在 CI 補跑 lumos doctor。
+ - mypy 只嚴格檢查 `src` 與 `tools`,測試程式沒有檢查型別。
++REVISIT:2026-10-22 看測試程式是否累積了型別上的隱藏錯誤,決定要不要納入檢查。
++- 同一次推送裡 mypy 與 ruff 各被跑三遍(pytest 內的靜態檢查測試、CI 的獨立步驟、lumos 的 lint 宣告)。這是有意的:三處各自獨立,任何一處失守其他兩處仍會抓到;代價是多花約十秒。
++- CI 只在 push 觸發,不開 pull request 觸發,避免同一個分支雙跑;若之後改用 PR 流程,要補上。
++- 接線檢查對 CI 的剖析是自寫的簡易版(支援單行與多行的 run,並檢查 if、continue-on-error、|| true、分支與路徑限制),不是完整的 YAML 解析;標準函式庫沒有 YAML 解析器,而我們不想為它加依賴。
+ - 「技術棧槽位是否空著就要反映」這件事屬於 lumos 本身,已另外交給處理 lumos 工具鏈的 session,專案端目前靠接線檢查測試頂著。
++REVISIT:2026-10-05 詢問 lumos 那邊的槽位檢查進度;若已提供 mypy 轉換器,就把這支自寫的換掉。
+diff --git a/pyproject.toml b/pyproject.toml
+index bfe8394..a7d40f6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,21 +11,21 @@ select = [
+     "E", "F", "I", "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "TID",
+     "S",    # 安全(bandit 的規則):不安全的呼叫、寫死的密碼、吞掉例外等
+     "B",    # 常見錯誤(bugbear)
+     "UP",   # 過時寫法
+     "SIM",  # 可簡化的寫法
+     "RUF", "C4", "PIE", "RET", "ARG",
+ ]
+ 
+ [tool.ruff.lint.per-file-ignores]
+ # 測試裡本來就會 assert、啟動子行程、開連線到本機、用固定種子的亂數
+-"tests/**" = ["S101", "S603", "S310", "S311", "S110", "ARG", "SIM117"]
++"tests/**" = ["S101", "S603", "S310", "S311", "ARG002"]
+ 
+ [tool.ruff.lint.mccabe]
+ max-complexity = 10
+ 
+ [tool.ruff.lint.pylint]
+ max-statements = 30
+ max-branches = 10
+ max-args = 6
+ 
+ [tool.pytest.ini_options]
+diff --git a/requirements-dev.txt b/requirements-dev.txt
+index 8d9407c..c073603 100644
+--- a/requirements-dev.txt
++++ b/requirements-dev.txt
+@@ -1,10 +1,11 @@
++ast_serialize==0.11.2
+ iniconfig==2.3.0
+ librt==0.15.0
+ mypy==2.3.1
+ mypy_extensions==1.1.0
+ packaging==26.3
+ pathspec==1.1.1
+ pluggy==1.6.0
+ Pygments==2.21.0
+ pytest==9.1.1
+ ruff==0.16.8
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index 25c754e..5cd897b 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -88,21 +88,21 @@ class _NoResponse(Exception):
+ 
+ 
+ class DspHandler(BaseHTTPRequestHandler):
+     server: DspServer
+ 
+     def setup(self) -> None:
+         super().setup()
+         # 讀不到請求就放棄,不佔住執行緒
+         self.connection.settimeout(self.server.socket_timeout_seconds)
+ 
+-    def log_message(self, format: str, *args: Any) -> None:  # 不印每個請求  # 不把每個請求印到終端
++    def log_message(self, format: str, *args: Any) -> None:  # 不把每個請求印到終端
+         pass
+ 
+     def send_error(
+         self,
+         code: int,
+         message: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
+         explain: str | None = None,  # noqa: ARG002 - 沿用基底類別的簽章
+     ) -> None:
+         self._reply_error(code, "http_error", False)  # 基底類別的錯誤頁也用 JSON
+ 
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index 70fc11e..d392ca9 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -7,21 +7,21 @@
+ 
+ import hashlib
+ import json
+ import math
+ import re
+ import sqlite3
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from pathlib import Path
+-from typing import Any, TypeGuard
++from typing import TypeGuard
+ 
+ from rtb.dsp.errors import (
+     CampaignNotFound,
+     IdempotencyConflict,
+     MetricsNotFound,
+     StoreBusy,
+     UnknownAction,
+     ValidationRejected,
+     VersionConflict,
+ )
+@@ -59,21 +59,21 @@ class Campaign:
+     id: str
+     budget: int
+     status: str
+     version: int
+ 
+ 
+ @dataclass(frozen=True)
+ class Operation:
+     campaign_id: str
+     action: str
+-    params: dict[str, Any]  # 來自不可信的請求:_validate 會檢查內容
++    params: dict[str, object]  # 來自不可信的請求:先當作未驗證的值,_validate 會檢查內容
+     expected_version: object  # 同上:先當作未驗證的值,_validate 確認是正整數
+     idempotency_key: str
+ 
+     def fingerprint(self) -> str:
+         body = [self.campaign_id, self.action, self.params, self.expected_version]
+         return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+ 
+ 
+ @dataclass(frozen=True)
+ class OperationResult:
+@@ -151,21 +151,24 @@ def _checked_metric(name: str, value: object) -> float | None:
+     raise ValidationRejected(f"{name} 的值不合法:{value!r}")
+ 
+ 
+ def _check_window(window: str | None) -> None:
+     if window not in METRIC_WINDOWS:
+         raise ValidationRejected("window 必須是 1h、1d 或 7d 其中之一")
+ 
+ 
+ def _next_state(campaign: Campaign, op: Operation) -> Campaign:
+     if op.action == "update_budget":
+-        return Campaign(campaign.id, op.params["new_budget"], campaign.status, campaign.version + 1)
++        budget = op.params.get("new_budget")
++        if not _is_plain_int(budget):  # _validate 已檢查過;這裡讓型別檢查也能確認
++            raise ValidationRejected("new_budget 必須是整數")
++        return Campaign(campaign.id, budget, campaign.status, campaign.version + 1)
+     return Campaign(campaign.id, campaign.budget, "paused", campaign.version + 1)
+ 
+ 
+ class CampaignStore:
+     def __init__(
+         self,
+         path: Path,
+         clock: Callable[[], str] = _utc_now,
+         busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+     ):
+diff --git a/tests/test_static_checks.py b/tests/test_static_checks.py
+index 2931c08..acf01e6 100644
+--- a/tests/test_static_checks.py
++++ b/tests/test_static_checks.py
+@@ -1,14 +1,15 @@
+ """靜態檢查閘:型別檢查(mypy)與程式碼規則(ruff)必須是乾淨的。
+ 
+-這兩個檢查沒有接進 lumos 的 linter 宣告(mypy 沒有現成的 SARIF 轉換器),所以用測試來守:
+-只要測試套件會跑(本機、CI),它們就會被機械地檢查,不靠人記得去跑。
++這兩個檢查已經接進 lumos 的 lint 宣告(推送前)與 CI(推送後),這裡再放一份測試,理由是:
++pytest 只要跑就會檢查,拿不到 lumos 或 CI 環境的地方(例如只有 .venv 的乾淨機器)也守得住。
++三處各自獨立,任何一處失守,其他兩處仍會抓到。
+ """
+ 
+ import subprocess
+ import sys
+ from pathlib import Path
+ 
+ ROOT = Path(__file__).resolve().parents[1]
+ 
+ 
+ def run_tool(*args: str) -> subprocess.CompletedProcess[str]:
+diff --git a/tests/test_static_wiring.py b/tests/test_static_wiring.py
+index 866eb2f..5eb50cf 100644
+--- a/tests/test_static_wiring.py
++++ b/tests/test_static_wiring.py
+@@ -1,65 +1,145 @@
+ """接線檢查:專案裡設定了哪個靜態分析工具,它就必須真的被閘執行,不能只是設定放著。
+ 
+-專治「加了工具卻忘記接線」:設定存在、卻沒人在推送前或 CI 執行,等於沒有檢查。
++專治「加了工具卻忘記接線」與「接了線卻沒有作用」:
++- 設定存在、卻沒人在推送前或 CI 執行,等於沒有檢查;
++- lumos 的新增告警閘只會執行帶 {LINT_FILES} 佔位符的命令,沒帶的整條被跳過(2026-09-22 代碼審抓到);
++- CI 的指令若被 echo、|| true、if: 條件包住,字面上有工具名稱也不會真的擋。
+ """
+ 
+ import json
+ import tomllib
+ from pathlib import Path
+ 
+ ROOT = Path(__file__).resolve().parents[1]
+ ANALYZERS = {"ruff", "mypy", "pyright", "bandit", "pylint", "flake8", "pytype", "pyre"}
+ CI_FILE = ROOT / ".github" / "workflows" / "ci.yml"
++LINT_TOOL_PREFIX = {"ruff": ".venv/bin/ruff check", "mypy": ".venv/bin/python tools/mypy_sarif.py"}
++
++
++def _indent(line: str) -> int:
++    return len(line) - len(line.lstrip())
++
++
++def parse_run_commands(text: str) -> list[str]:
++    """取出 CI 裡真正會執行的指令,支援單行 run: 與多行的 run: | 區塊;不看步驟名稱或註解。"""
++    lines, commands, index = text.splitlines(), [], 0
++    while index < len(lines):
++        stripped = lines[index].strip()
++        if stripped.startswith(("run:", "- run:")):
++            value = stripped.split("run:", 1)[1].strip()
++            if value in ("|", ">", "|-", ">-"):
++                indent = _indent(lines[index])
++                block = []
++                index += 1
++                while index < len(lines) and (
++                    not lines[index].strip() or _indent(lines[index]) > indent
++                ):
++                    block.append(lines[index].strip())
++                    index += 1
++                commands.extend(line for line in block if line)
++                continue
++            commands.append(value)
++        index += 1
++    return commands
++
++
++def ci_problems(text: str) -> list[str]:
++    """CI 檔案裡會讓檢查「看起來有跑、其實不擋」的寫法。"""
++    problems = []
++    for number, line in enumerate(text.splitlines(), start=1):
++        code = line.split("#", 1)[0]
++        if "continue-on-error" in code:
++            problems.append(f"{number}: continue-on-error")
++        if code.strip().startswith(("if:", "- if:")):
++            problems.append(f"{number}: 步驟或工作被條件包住")
++        if "branches" in code or "paths" in code:
++            problems.append(f"{number}: 推送觸發被分支或路徑限制")
++        if "|| true" in code or "||true" in code:
++            problems.append(f"{number}: || true 吞掉失敗")
++    return problems
++
++
++def runs_tool(commands: list[str], tool: str) -> bool:
++    """指令必須直接以 python -m <工具> 開頭(不是被 echo 或其他指令包住)。"""
++    return any(command.split()[:3] == ["python", "-m", tool] for command in commands)
+ 
+ 
+ def configured_analyzers() -> set[str]:
+     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+     return ANALYZERS & set(pyproject.get("tool", {}))
+ 
+ 
+-def ci_run_commands() -> list[str]:
+-    """只取 CI 裡真正會執行的指令(run: 那一行),不看步驟名稱或註解,免得字面上出現就算數。"""
+-    lines = CI_FILE.read_text(encoding="utf-8").splitlines()
+-    return [
+-        line.split("run:", 1)[1].strip()
+-        for line in lines
+-        if line.strip().startswith(("run:", "- run:"))
+-    ]
+-
+-
+-def lint_commands() -> str:
++def lint_commands() -> list[str]:
+     declared = json.loads((ROOT / ".lumos" / "lint.json").read_text(encoding="utf-8"))
+-    return "\n".join(command for commands in declared.values() for command in commands)
++    return [command for commands in declared.values() for command in commands]
+ 
+ 
+ def test_the_expected_analyzers_are_actually_configured():
+     assert {"ruff", "mypy"} <= configured_analyzers()  # 守衛的守衛:設定沒了,這條檢查就沒意義
+ 
+ 
+ def test_every_configured_analyzer_is_executed_by_the_ci_workflow():
+-    commands = ci_run_commands()
++    commands = parse_run_commands(CI_FILE.read_text(encoding="utf-8"))
+ 
+     for tool in configured_analyzers():
+-        executed = any(f"-m {tool}" in command for command in commands)
+-        assert executed, f"{tool} 有設定,但 CI 沒有執行它"
++        assert runs_tool(commands, tool), f"{tool} 有設定,但 CI 沒有直接執行它"
++
++
++def test_the_ci_workflow_contains_nothing_that_makes_a_failing_check_pass():
++    assert ci_problems(CI_FILE.read_text(encoding="utf-8")) == []
++
++
++def test_the_ci_workflow_runs_on_every_push_and_actually_runs_the_test_suite():
++    text = CI_FILE.read_text(encoding="utf-8")
++
++    assert "push:" in [line.strip() for line in text.splitlines()]
++    assert runs_tool(parse_run_commands(text), "pytest")
++
++
++def test_every_lumos_lint_command_can_actually_run_in_the_new_alert_gate():
++    commands = lint_commands()
++
++    assert commands
++    for command in commands:
++        # lumos 的新增告警閘只執行帶 {LINT_FILES} 的命令;沒帶的被整條跳過,而且不會報錯
++        assert "{LINT_FILES}" in command and "{LINT_SARIF_OUT}" in command, command
+ 
+ 
+ def test_every_configured_analyzer_is_also_wired_into_lumos_before_push():
+     commands = lint_commands()
+ 
+-    for tool in configured_analyzers():
+-        wired = tool in commands or f"{tool}_sarif" in commands
+-        assert wired, f"{tool} 沒有接進 lumos 的 lint 宣告"
++    for tool in configured_analyzers() & set(LINT_TOOL_PREFIX):
++        assert any(command.startswith(LINT_TOOL_PREFIX[tool]) for command in commands), (
++            f"{tool} 沒有接進 lumos 的 lint 宣告"
++        )
+ 
+ 
+-def test_the_ci_workflow_runs_on_every_push_and_actually_runs_the_test_suite():
+-    triggers = [line.strip() for line in CI_FILE.read_text(encoding="utf-8").splitlines()]
++# ---- 守衛的守衛:剖析與檢查函式本身要抓得到問題 ----
+ 
+-    assert "push:" in triggers
+-    assert any("-m pytest" in command for command in ci_run_commands())
+ 
++def test_the_ci_parser_reads_multiline_run_blocks():
++    text = (
++        "steps:\n  - name: x\n    run: |\n      python -m ruff check .\n      python -m mypy\n"
++        "  - run: python -m pytest -q\n"
++    )
+ 
+-def test_the_lumos_lint_declaration_still_contains_a_command_writing_sarif():
+-    declared = json.loads((ROOT / ".lumos" / "lint.json").read_text(encoding="utf-8"))
++    found = parse_run_commands(text)
++
++    assert found == ["python -m ruff check .", "python -m mypy", "python -m pytest -q"]
++
++
++def test_a_command_that_merely_mentions_the_tool_does_not_count_as_running_it():
++    assert not runs_tool(['echo "python -m mypy"'], "mypy")
++    assert not runs_tool(["python -m mypy --version && true"], "pytest")
++    assert runs_tool(["python -m mypy"], "mypy")
++
++
++def test_the_ci_problem_detector_flags_every_way_of_making_a_check_toothless():
++    bad = "\n".join([
++        "on:", "  push:", "    branches: [nonexistent]", "jobs:", "  x:", "    if: false",
++        "    steps:", "      - run: python -m mypy || true", "        continue-on-error: true",
++    ])
++
++    found = " ".join(ci_problems(bad))
+ 
+-    assert declared["py"] and all("{LINT_SARIF_OUT}" in command for command in declared["py"])
++    assert all(word in found for word in ("分支", "條件", "|| true", "continue-on-error"))
+diff --git a/tests/tools/test_mypy_sarif.py b/tests/tools/test_mypy_sarif.py
+index 6996e85..3eb1682 100644
+--- a/tests/tools/test_mypy_sarif.py
++++ b/tests/tools/test_mypy_sarif.py
+@@ -99,10 +99,87 @@ def test_a_clean_project_produces_zero_results(tmp_path):
+     assert json.loads(out.read_text(encoding="utf-8"))["runs"][0]["results"] == []
+ 
+ 
+ def test_when_mypy_itself_cannot_run_the_adapter_fails_loudly_instead_of_writing_an_empty_report(
+     tmp_path,
+ ):
+     result, out = run_adapter(tmp_path, "--config-file", "/nonexistent/mypy.ini")
+ 
+     assert result.returncode != 0  # 工具壞掉不能被當成「沒有告警」
+     assert not out.exists()
++
++
++def test_errors_without_a_column_number_are_still_reported():
++    adapter = load_adapter()
++    text = 'src/x.py:8: error: Unused "type: ignore" comment  [unused-ignore]\n'
++
++    found = adapter.parse_mypy_output(text)
++
++    expected = [("src/x.py", 8, 1, "unused-ignore")]
++    assert [(f.path, f.line, f.column, f.rule) for f in found] == expected
++
++
++def test_paths_are_percent_encoded_in_the_sarif_uri_and_survive_a_decode_round_trip():
++    from urllib.parse import unquote
++
++    adapter = load_adapter()
++    finding = adapter.Finding("d with space/b c%20.py", 3, 2, "error", "x", "m")
++
++    uri = adapter.to_sarif([finding])["runs"][0]["results"][0]["locations"][0][
++        "physicalLocation"]["artifactLocation"]["uri"]
++
++    assert " " not in uri and unquote(uri) == "d with space/b c%20.py"
++
++
++def test_only_paths_inside_the_configured_type_checked_directories_are_passed_to_mypy():
++    adapter = load_adapter()
++
++    kept = adapter.select_paths(["src/rtb/a.py", "tests/test_x.py", "tools/t.py", "docs/n.py"],
++                                ["src", "tools"])
++
++    assert kept == ["src/rtb/a.py", "tools/t.py"]
++
++
++def test_when_every_changed_file_is_outside_the_checked_directories_mypy_is_not_run(
++    tmp_path, monkeypatch
++):
++    adapter = load_adapter()
++    calls = []
++    monkeypatch.setattr(adapter, "run_mypy", lambda args: calls.append(args))
++    out = tmp_path / "o.sarif"
++
++    code = adapter.main(["--out", str(out), "--only-configured-paths", "tests/test_x.py"])
++
++    assert code == 0 and calls == []  # 只改了測試檔:沒有要檢查的型別,不能誤跑整包 mypy
++    assert json.loads(out.read_text(encoding="utf-8"))["runs"][0]["results"] == []
++
++
++def test_a_nonzero_exit_with_output_nobody_can_parse_is_a_failure_not_a_clean_report(
++    tmp_path, monkeypatch
++):
++    adapter = load_adapter()
++    fake = subprocess.CompletedProcess(
++        args=[], returncode=1, stdout="weird unparseable text\n", stderr=""
++    )
++    monkeypatch.setattr(adapter, "run_mypy", lambda _args: fake)
++    out = tmp_path / "o.sarif"
++
++    code = adapter.main(["--out", str(out)])
++
++    assert code == 2 and not out.exists()  # 這個分支曾經沒有測試守著
++
++
++def test_lumos_passes_temporary_extracted_copies_of_the_changed_files_and_they_must_still_match():
++    """lumos 會把「改動前」與「現在」的檔案各抽到 .lumos/lintbase-*/base|head/ 再交給命令;
++    範圍判斷不能被這層臨時目錄擋掉,否則 mypy 根本不會跑,新增的型別錯誤就全部漏過
++    (2026-09-22 用 lumos 自己的判定函式實測抓到)。"""
++    adapter = load_adapter()
++    paths = [
++        ".lumos/lintbase-ab12/head/src/rtb/domain/x.py",
++        ".lumos/lintbase-ab12/base/tools/t.py",
++        ".lumos/lintbase-ab12/head/tests/test_x.py",
++        ".lumos/lintbase-ab12/head/docs/n.py",
++    ]
++
++    kept = adapter.select_paths(paths, ["src", "tools"])
++
++    assert kept == paths[:2]
+diff --git a/tools/mypy_sarif.py b/tools/mypy_sarif.py
+index 2bab590..37241d4 100644
+--- a/tools/mypy_sarif.py
++++ b/tools/mypy_sarif.py
+@@ -1,69 +1,95 @@
+ """把 mypy 的文字輸出轉成 SARIF 2.1.0,讓 lumos 的「新增告警閘」能擋下新增的型別錯誤。
+ 
+ 用法:python tools/mypy_sarif.py --out <輸出檔> [其餘參數原樣交給 mypy]
+ mypy 沒有現成的 SARIF 輸出;等 lumos 自己提供轉換器之後,這支可以換掉。
+ 
+ 工具自己壞掉(mypy 無法執行、輸出看不懂)要大聲失敗,不能寫出一份空報告被當成「沒有告警」。
+ """
+ 
+ import argparse
++import contextlib
+ import json
+ import re
+ import subprocess
+ import sys
++import tomllib
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any
++from urllib.parse import quote
+ 
+ MYPY_FLAGS = ["--show-column-numbers", "--show-error-codes", "--no-error-summary",
+               "--no-pretty", "--no-color-output"]
+ LINE = re.compile(
+-    r"^(?P<path>.+?):(?P<line>\d+):(?P<column>\d+): (?P<level>error|warning|note): "
++    r"^(?P<path>.+?):(?P<line>\d+)(?::(?P<column>\d+))?: (?P<level>error|warning|note): "
+     r"(?P<message>.*?)(?:  \[(?P<rule>[\w-]+)\])?$"
+ )
+ DEFAULT_RULE = "mypy"
+ ROOT = Path(__file__).resolve().parents[1]
++# lumos 執行命令前,會把「改動前」與「現在」的檔案各抽到這種臨時目錄再交給命令
++LUMOS_TEMP_PREFIX = re.compile(r"^\.lumos/lintbase-[^/]+/(?:base|head)/")
+ 
+ 
+ @dataclass(frozen=True)
+ class Finding:
+     path: str
+     line: int
+     column: int
+     level: str
+     rule: str
+     message: str
+ 
+ 
+ def parse_mypy_output(text: str) -> list[Finding]:
+     """只收 error 與 warning;note 是前一個錯誤的補充說明,不算獨立的發現。"""
+     findings = []
+     for raw in text.splitlines():
+         match = LINE.match(raw)
+         if match is None or match["level"] == "note":
+             continue
+         findings.append(Finding(
+-            path=match["path"], line=int(match["line"]), column=int(match["column"]),
++            path=match["path"], line=int(match["line"]), column=int(match["column"] or 1),
+             level=match["level"], rule=match["rule"] or DEFAULT_RULE, message=match["message"],
+         ))
+     return findings
+ 
+ 
+ def _relative_uri(path: str) -> str:
++    """SARIF 的 uri 是 URI 參照:空白與百分號都要編碼(lumos 讀取時會解碼)。"""
+     candidate = Path(path)
+     if candidate.is_absolute():
+-        try:
+-            return candidate.relative_to(ROOT).as_posix()
+-        except ValueError:
+-            return candidate.as_posix()
+-    return candidate.as_posix()
++        with contextlib.suppress(ValueError):  # 專案外的絕對路徑保持絕對
++            candidate = candidate.relative_to(ROOT)
++    return quote(candidate.as_posix(), safe="/:")
++
++
++def configured_directories() -> list[str]:
++    """pyproject 的 [tool.mypy].files:型別檢查的範圍。"""
++    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
++    return list(config.get("tool", {}).get("mypy", {}).get("files", []))
++
++
++def select_paths(paths: list[str], directories: list[str]) -> list[str]:
++    """只留下在型別檢查範圍內的檔案(例如 src、tools);測試程式不做嚴格型別檢查,不能被丟給 mypy。"""
++    kept = []
++    for raw in paths:
++        candidate = Path(raw)
++        if candidate.is_absolute():
++            try:
++                candidate = candidate.relative_to(ROOT)
++            except ValueError:
++                continue
++        relative = LUMOS_TEMP_PREFIX.sub("", candidate.as_posix())  # 判斷範圍前先去掉臨時目錄前綴
++        if any(relative == d or relative.startswith(d.rstrip("/") + "/") for d in directories):
++            kept.append(raw)
++    return kept
+ 
+ 
+ def to_sarif(findings: list[Finding]) -> dict[str, Any]:
+     rules = sorted({finding.rule for finding in findings})
+     results = [
+         {
+             "ruleId": finding.rule,
+             "level": finding.level,
+             "message": {"text": finding.message},
+             "locations": [{
+@@ -89,21 +115,31 @@ def run_mypy(extra_args: list[str]) -> subprocess.CompletedProcess[str]:
+     command = [sys.executable, "-m", "mypy", *MYPY_FLAGS, *extra_args]
+     # 參數是開發者自己在指令列給的,固定執行目前這個 Python 的 mypy,不是外部輸入
+     return subprocess.run(  # noqa: S603
+         command, capture_output=True, text=True, cwd=ROOT, timeout=600
+     )
+ 
+ 
+ def main(argv: list[str] | None = None) -> int:
+     parser = argparse.ArgumentParser(description="mypy 轉 SARIF")
+     parser.add_argument("--out", required=True, type=Path)
++    parser.add_argument(
++        "--only-configured-paths", action="store_true",
++        help="其餘參數都是檔案路徑(lumos 的 {LINT_FILES}):只檢查在 mypy 設定範圍內的檔案;"
++             "全部都在範圍外就不執行 mypy,回報零發現",
++    )
+     args, mypy_args = parser.parse_known_args(argv)
++    if args.only_configured_paths:
++        mypy_args = select_paths(mypy_args, configured_directories())
++        if not mypy_args:
++            args.out.write_text(json.dumps(to_sarif([]), indent=2), encoding="utf-8")
++            return 0
+     completed = run_mypy(mypy_args)
+     findings = parse_mypy_output(completed.stdout)
+     # mypy 的結束碼:0 乾淨、1 有型別錯誤、其他(例如 2)是工具本身出問題
+     tool_failed = completed.returncode not in (0, 1) or (
+         completed.returncode == 1 and not findings
+     )
+     if tool_failed:
+         sys.stderr.write(f"mypy 無法產出可用的結果(結束碼 {completed.returncode}):\n")
+         sys.stderr.write(completed.stdout + completed.stderr)
+         return 2

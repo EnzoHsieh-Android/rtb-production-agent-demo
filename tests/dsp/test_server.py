@@ -1,5 +1,6 @@
 """Mock DSP 的 HTTP 事故測試:真的獨立行程、真的網路逾時。"""
 
+import contextlib
 import http.client
 import json
 import os
@@ -171,17 +172,15 @@ def test_query_is_answered_immediately_while_a_slow_request_is_in_flight(start_d
     # 同步點:提交完成(版本變 2)代表慢請求已進入 DSP,並正卡在「提交後的長睡眠」
     assert wait_until(lambda: campaign(dsp)["version"] == 2)
 
-    status, body = dsp.request("GET", "/operations/nothing", timeout=0.5)
+    status, _body = dsp.request("GET", "/operations/nothing", timeout=0.5)
 
     assert status == 404  # 有回應(而不是逾時)就代表伺服器不是單執行緒
     slow.join()
 
 
 def _swallow_timeout(dsp):
-    try:
+    with contextlib.suppress(TimeoutError):
         set_budget(dsp, fault="timeout_after_commit", timeout=0.3)
-    except TimeoutError:
-        pass
 
 
 def test_concurrent_same_key_requests_over_http_apply_exactly_once(start_dsp):
@@ -532,10 +531,8 @@ def test_a_burst_of_connections_beyond_the_default_backlog_is_still_accepted(sta
     opened = []
     try:
         for _ in range(100):
-            try:
+            with contextlib.suppress(OSError):
                 opened.append(socket.create_connection(("127.0.0.1", port), timeout=0.5))
-            except OSError:
-                pass
     finally:
         os.kill(dsp.proc.pid, signal.SIGCONT)
         for conn in opened:

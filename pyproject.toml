@@ -5,9 +5,24 @@ src = ["src", "tests"]
 extend-exclude = ["scripts"]  # lumos 工具的複本,不是本專案的程式
 
 [tool.ruff.lint]
-# 風格、未使用、匯入排序、複雜度、函式長度(敘述數)、匯入規則(TID)。
+# 風格、未使用、匯入排序、複雜度、函式長度(敘述數)、匯入規則(TID),以及安全與常見錯誤規則。
 # 禁用匯入的清單不在這裡:各層在自己目錄的 ruff.toml 宣告(目前只有 src/rtb/domain)。
-select = ["E", "F", "I", "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "TID"]
+select = [
+    "E", "F", "I", "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "TID",
+    "S",    # 安全(bandit 的規則):不安全的呼叫、寫死的密碼、吞掉例外等
+    "B",    # 常見錯誤(bugbear)
+    "UP",   # 過時寫法
+    "SIM",  # 可簡化的寫法
+    "RUF", "C4", "PIE", "RET", "ARG",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 測試裡本來就會 assert、啟動子行程、開連線到本機、用固定種子的亂數
+"tests/**" = ["S101", "S603", "S310", "S311", "ARG002"]
+
+# lumos 會把檔案抽到 .lumos/lintbase-*/ 臨時目錄再跑 ruff;明寫第一方套件,匯入排序才不會因目錄不同而判斷不一樣
+[tool.ruff.lint.isort]
+known-first-party = ["rtb"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -20,3 +35,11 @@ max-args = 6
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.14"
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+strict = true
+files = ["src", "tools"]

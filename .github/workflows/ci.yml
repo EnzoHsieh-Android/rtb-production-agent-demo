@@ -1,0 +1,25 @@
+# 推送後的機械閘:即使本機用 git push --no-verify 繞過推送前檢查,這裡仍會跑。
+name: ci
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: 安裝開發期工具
+        run: python -m pip install -r requirements-dev.txt
+      - name: 程式碼規則(ruff)
+        run: python -m ruff check .
+      - name: 型別檢查(mypy,嚴格模式)
+        run: python -m mypy
+      - name: 測試(pytest)
+        run: python -m pytest -q

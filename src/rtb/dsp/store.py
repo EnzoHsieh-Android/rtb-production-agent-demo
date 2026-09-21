@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypeGuard
 
 from rtb.dsp.errors import (
     CampaignNotFound,
@@ -65,8 +66,8 @@ class Campaign:
 class Operation:
     campaign_id: str
     action: str
-    params: dict
-    expected_version: int
+    params: dict[str, object]  # 來自不可信的請求:先當作未驗證的值,_validate 會檢查內容
+    expected_version: object  # 同上:先當作未驗證的值,_validate 確認是正整數
     idempotency_key: str
 
     def fingerprint(self) -> str:
@@ -107,7 +108,7 @@ class HistoryEntry:
     idempotency_key: str
 
 
-def _is_plain_int(value: object) -> bool:
+def _is_plain_int(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
@@ -126,11 +127,11 @@ def _validate(op: Operation) -> None:
         raise UnknownAction(op.action)
 
 
-def _is_storable_count(value: object) -> bool:
+def _is_storable_count(value: object) -> TypeGuard[int]:
     return _is_plain_int(value) and abs(value) <= SQLITE_INTEGER_MAX
 
 
-def _is_storable_amount(value: object) -> bool:
+def _is_storable_amount(value: object) -> TypeGuard[int | float]:
     if _is_plain_int(value):
         return abs(value) <= EXACT_FLOAT_INT_MAX
     return isinstance(value, float) and math.isfinite(value)
@@ -143,10 +144,11 @@ def _checked_metric(name: str, value: object) -> float | None:
     """
     if value is None:
         return None
-    is_valid = _is_storable_count if name in COUNT_FIELDS else _is_storable_amount
-    if not is_valid(value):
-        raise ValidationRejected(f"{name} 的值不合法:{value!r}")
-    return value
+    if name in COUNT_FIELDS and _is_storable_count(value):
+        return value
+    if name not in COUNT_FIELDS and _is_storable_amount(value):
+        return value
+    raise ValidationRejected(f"{name} 的值不合法:{value!r}")
 
 
 def _check_window(window: str | None) -> None:
@@ -156,7 +158,10 @@ def _check_window(window: str | None) -> None:
 
 def _next_state(campaign: Campaign, op: Operation) -> Campaign:
     if op.action == "update_budget":
-        return Campaign(campaign.id, op.params["new_budget"], campaign.status, campaign.version + 1)
+        budget = op.params.get("new_budget")
+        if not _is_plain_int(budget):  # _validate 已檢查過;這裡讓型別檢查也能確認
+            raise ValidationRejected("new_budget 必須是整數")
+        return Campaign(campaign.id, budget, campaign.status, campaign.version + 1)
     return Campaign(campaign.id, campaign.budget, "paused", campaign.version + 1)
 
 
@@ -281,7 +286,12 @@ class CampaignStore:
             "FROM operations WHERE idempotency_key = ?",
             (key,),
         ).fetchone()
-        return None if row is None else OperationResult(*row, replayed=replayed)
+        if row is None:
+            return None
+        operation_id, campaign_id, action, version_after, committed_at = row
+        return OperationResult(
+            operation_id, campaign_id, action, version_after, committed_at, replayed
+        )
 
     def _apply(
         self, op: Operation, updated: Campaign, received_at: str, committed_at: str
@@ -303,7 +313,10 @@ class CampaignStore:
                 op.idempotency_key,
             ),
         )
-        return cursor.lastrowid
+        operation_id = cursor.lastrowid
+        if operation_id is None:  # INSERT 一定會有列編號;沒有代表出了預期外的事,讓交易回滾
+            raise RuntimeError("INSERT 沒有回傳列編號")
+        return operation_id
 
     def _record_idempotency(self, op: Operation, operation_id: int) -> None:
         self._conn.execute(

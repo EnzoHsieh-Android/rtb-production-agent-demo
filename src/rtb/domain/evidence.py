@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import TypeGuard
 
 from rtb.domain._checks import is_id, is_plain_int, is_plain_number
 
@@ -38,7 +39,7 @@ class Freshness(StrEnum):
         return self is Freshness.FRESH
 
 
-def _is_aware(value: object) -> bool:
+def _is_aware(value: object) -> TypeGuard[datetime]:
     """有時區,而且時區真的給得出偏移(有些 tzinfo 的 utcoffset 回 None,等於沒有時區)。"""
     return isinstance(value, datetime) and value.utcoffset() is not None
 
@@ -70,11 +71,11 @@ class Evidence:
             raise ValueError(f"證據欄位不合法:{', '.join(bad)}")
 
 
-def _is_hash(value: object) -> bool:
+def _is_hash(value: object) -> TypeGuard[str]:
     return isinstance(value, str) and HASH_PATTERN.fullmatch(value) is not None
 
 
-def _is_version_or_none(value: object) -> bool:
+def _is_version_or_none(value: object) -> TypeGuard[int | None]:
     return value is None or (is_plain_int(value) and value >= 1)
 
 

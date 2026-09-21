@@ -17,11 +17,11 @@ HASH = "a" * 64
 
 
 def make(**overrides):
-    fields = dict(
-        evidence_id="e1", task_id="t1", kind=EvidenceKind.CAMPAIGN_STATE, source="dsp",
-        observed_at=T0, campaign_version_observed=3, content_hash=HASH,
-        trust_class=TrustClass.TRUSTED,
-    )
+    fields = {
+        "evidence_id": "e1", "task_id": "t1", "kind": EvidenceKind.CAMPAIGN_STATE,
+        "source": "dsp", "observed_at": T0, "campaign_version_observed": 3,
+        "content_hash": HASH, "trust_class": TrustClass.TRUSTED,
+    }
     fields.update(overrides)
     return Evidence(**fields)
 
