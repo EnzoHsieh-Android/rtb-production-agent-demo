@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from rtb.sqlitekit import DatabaseBusy, begin_immediate, connect
+from rtb.sqlitekit import DatabaseBusy, begin_immediate, connect, immediate_transaction
 
 SCHEMA = "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT);"
 
@@ -81,3 +81,30 @@ def test_lock_contention_while_initialising_the_connection_is_database_busy(tmp_
     holder.execute("ROLLBACK")
     holder.close()
     connect(path, schema=SCHEMA).close()  # 鎖放掉之後可以正常開
+
+
+def test_an_immediate_transaction_commits_on_success_and_rolls_back_on_any_error(tmp_path):
+    conn = connect(tmp_path / "x.db", schema=SCHEMA)
+
+    with immediate_transaction(conn):
+        conn.execute("INSERT INTO t (v) VALUES ('kept')")
+    with pytest.raises(RuntimeError), immediate_transaction(conn):
+        conn.execute("INSERT INTO t (v) VALUES ('lost')")
+        raise RuntimeError
+
+    assert conn.execute("SELECT v FROM t").fetchall() == [("kept",)]
+    assert not conn.in_transaction
+    conn.close()
+
+
+def test_an_immediate_transaction_reports_lock_contention_as_database_busy(tmp_path):
+    first = connect(tmp_path / "x.db", schema=SCHEMA)
+    second = connect(tmp_path / "x.db", busy_timeout_seconds=0.05)
+    begin_immediate(first)
+
+    with pytest.raises(DatabaseBusy), immediate_transaction(second):
+        pass
+
+    first.execute("ROLLBACK")
+    first.close()
+    second.close()

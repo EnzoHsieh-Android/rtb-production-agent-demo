@@ -7,11 +7,13 @@
 會在超過上限的那一刻就被拒絕。
 """
 
+import hashlib
+import json
 import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, TypeGuard
@@ -25,6 +27,9 @@ MAX_DEPTH = 6
 MAX_LIST_ITEMS = 20
 MAX_RISK_SUMMARY = 500
 MAX_INT = 2**63 - 1
+MIN_TIME = datetime(2000, 1, 1, tzinfo=UTC)  # 時間欄位的合理範圍:換成 UTC 不會溢位,也不會離現實太遠
+MAX_TIME = datetime(2100, 1, 1, tzinfo=UTC)
+MAX_DECISION_LIFETIME = timedelta(hours=1)  # 決策從建立到到期最多一小時:壓低一份提案佔住名額的時間
 CONTAINER_OVERHEAD = 8  # 每個容器與每個鍵值的粗估開銷(位元組),讓大量空容器也會被計入
 
 
@@ -106,7 +111,13 @@ def _parse_time(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
-    return parsed if parsed.utcoffset() is not None else None
+    if parsed.utcoffset() is None:
+        return None
+    try:
+        in_utc = parsed.astimezone(UTC)  # 極端的年份加上時區偏移,換成 UTC 會溢位
+    except OverflowError:
+        return None
+    return parsed if MIN_TIME <= in_utc <= MAX_TIME else None
 
 
 def _require_time(value: object) -> datetime:
@@ -232,8 +243,12 @@ def _field_errors(raw: dict[str, Any]) -> list[str]:
 def _expiry_errors(raw: dict[str, Any]) -> list[str]:
     created = _parse_time(raw["decision_created_at"])
     expires = _parse_time(raw["decision_expires_at"])
-    if created is not None and expires is not None and expires <= created:
+    if created is None or expires is None:
+        return []
+    if expires <= created:
         return ["decision_expires_at:not_after_creation"]
+    if expires - created > MAX_DECISION_LIFETIME:
+        return ["decision_expires_at:lifetime_too_long"]
     return []
 
 
@@ -274,3 +289,18 @@ def _parse(raw: object) -> ParsedProposal:
     if errors:
         return ParsedProposal(None, tuple(errors))
     return ParsedProposal(_build(raw), ())
+
+
+def content_hash(proposal: Proposal) -> str:
+    """提案內容的 SHA-256:同一份提案的等價寫法得到同一個雜湊。
+
+    先轉成基本型別,時間一律換成 UTC(不同時區寫法的同一時刻得到同一個雜湊),再以鍵排序、
+    無多餘空白、不允許 NaN 的 JSON 序列化。串列順序有意義:順序不同就是不同的提案。
+    """
+    primitives = proposal.to_primitives()
+    for field in ("decision_created_at", "decision_expires_at"):
+        moment = getattr(proposal, field).astimezone(UTC)
+        primitives[field] = moment.isoformat()
+    encoded = json.dumps(primitives, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=True, allow_nan=False)
+    return hashlib.sha256(encoded.encode("ascii")).hexdigest()

@@ -87,3 +87,26 @@ def test_the_domain_layer_may_not_import_the_shared_process_modules():
              "--stdin-filename", str(domain_config.parent / "probe.py"), "-"],
             input=f"import {module}\n", capture_output=True, text=True, timeout=60, check=False)
         assert result.returncode == 1 and "TID251" in result.stdout, (module, result.stdout)
+
+
+def test_the_dsp_server_behaviour_is_unchanged_after_extracting_the_shared_base(tmp_path):
+    srv = _serve(tmp_path)
+    try:
+        assert _get(srv, "/campaigns/c1") == (
+            200, {"id": "c1", "budget": 100, "status": "active", "version": 1})
+        assert _get(srv, "/campaigns/nope") == (
+            404, {"error": "campaign_not_found", "retryable": False})
+        assert _get(srv, "/no/such/route") == (404, {"error": "not_found", "retryable": False})
+        assert _get(srv, "/campaigns/c1", {"Host": "evil.example"}) == (
+            400, {"error": "invalid_host", "retryable": False})
+        assert _get(srv, "/campaigns/c1", {"X-Fault": "transient_5xx"}) == (
+            400, {"error": "fault_injection_disabled", "retryable": False})
+        conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=3)
+        conn.request("POST", "/campaigns/c1/budget", body=b"not json",
+                     headers={"Idempotency-Key": "k1"})
+        resp = conn.getresponse()
+        assert (resp.status, json.loads(resp.read())["error"]) == (400, "invalid_json")
+        conn.close()
+    finally:
+        srv.shutdown()
+        srv.server_close()

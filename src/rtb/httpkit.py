@@ -7,8 +7,12 @@
 子類別實作 handle_request(回 (狀態碼, 內容));要把自己的例外對應成錯誤回應就覆寫 map_exception。
 """
 
+import contextlib
 import json
+import math
+import socket
 import sys
+import threading
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -18,6 +22,8 @@ MAX_BODY_BYTES = 64 * 1024
 SOCKET_TIMEOUT_SECONDS = 10.0
 MAX_LENGTH_DIGITS = 10  # Content-Length 位數上限;更長的必然超過本文上限
 LISTEN_BACKLOG = 128
+REQUEST_DEADLINE_SECONDS = 30.0  # 整個請求(從連線建立到處理完)的期限;單次閒置逾時擋不住慢速滴入
+MAX_CONNECTIONS = 64  # 同時處理中的連線上限;超過的立刻關閉,不排隊也不開新執行緒
 
 
 class RequestRejected(Exception):
@@ -41,11 +47,37 @@ class KitServer(ThreadingHTTPServer):
         handler_class: type[JsonHandler],
         socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS,
         host: str = LOOPBACK,
+        fault_injection: bool = False,
+        request_deadline_seconds: float = REQUEST_DEADLINE_SECONDS,
+        max_connections: int = MAX_CONNECTIONS,
     ):
         if host != LOOPBACK:
             raise ValueError("只允許綁定回送位址")
         super().__init__((host, 0), handler_class)
         self.socket_timeout_seconds = socket_timeout_seconds
+        self.fault_injection = fault_injection  # 只有啟動時明確開啟,才接受 X-Fault 標頭
+        self.request_deadline_seconds = request_deadline_seconds
+        if not math.isfinite(request_deadline_seconds) or request_deadline_seconds <= 0:
+            raise ValueError("request_deadline_seconds 必須是有限的正數,否則每條連線會被立刻切斷")
+        if max_connections < 1:
+            raise ValueError("max_connections 必須至少是 1,否則伺服器會拒絕所有連線")
+        self._slots = threading.BoundedSemaphore(max_connections)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)  # 已達連線上限:立刻關閉,不佔執行緒
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
     def handle_error(
         self,
@@ -59,12 +91,24 @@ class KitServer(ThreadingHTTPServer):
 class JsonHandler(BaseHTTPRequestHandler):
     server: KitServer
     max_body_bytes = MAX_BODY_BYTES
+    require_host = False  # 子類別可改成 True:連 HTTP/1.0 也必須帶合法的 Host
     _body_read = False  # 每個請求一個處理程式實例,所以這個旗標只屬於這一個請求
 
     def setup(self) -> None:
         super().setup()
-        # 讀不到請求就放棄,不佔住執行緒
+        # 讀不到請求就放棄,不佔住執行緒;另外整個請求有總期限,慢速滴入也會被切斷
         self.connection.settimeout(self.server.socket_timeout_seconds)
+        self._deadline = threading.Timer(self.server.request_deadline_seconds, self._abort)
+        self._deadline.daemon = True
+        self._deadline.start()
+
+    def finish(self) -> None:
+        self._deadline.cancel()
+        super().finish()
+
+    def _abort(self) -> None:
+        with contextlib.suppress(OSError):
+            self.connection.shutdown(socket.SHUT_RDWR)
 
     def log_message(self, format: str, *args: Any) -> None:  # 不把每個請求印到終端
         pass
@@ -94,6 +138,13 @@ class JsonHandler(BaseHTTPRequestHandler):
         """把自己的例外對應成 (狀態碼, 錯誤代碼, 可否重試);不認得就回 None。"""
         return None
 
+    def error_extras(
+        self,
+        exc: Exception,  # noqa: ARG002 - 預設實作不看,子類別覆寫時才用
+    ) -> dict[str, Any]:
+        """對應成錯誤回應時要多帶的固定欄位(例如 highest_revision);預設沒有。"""
+        return {}
+
     # ---- 流程 ----
     def _dispatch(self, method: str) -> None:
         try:
@@ -113,7 +164,9 @@ class JsonHandler(BaseHTTPRequestHandler):
             mapped = self.map_exception(exc)
             if mapped is not None:
                 status, code, retryable = mapped
-                self.reply_error(status, code, retryable)
+                # 額外欄位放在前面:子類別不能藉由同名的鍵覆寫錯誤代碼或可否重試
+                self.reply(status, {**self.error_extras(exc), "error": code,
+                                    "retryable": retryable})
                 return
         except Exception:
             traceback.print_exc(file=sys.stderr)  # 對應本身出錯:記下來,改回 500
@@ -124,7 +177,7 @@ class JsonHandler(BaseHTTPRequestHandler):
     def check_host(self) -> None:
         port = self.server.server_address[1]
         host = self.single_header("Host")
-        if host is None and self.request_version == "HTTP/1.0":
+        if host is None and self.request_version == "HTTP/1.0" and not self.require_host:
             return  # 舊式探針可能不送 Host;瀏覽器(DNS rebinding 的來源)一定會送
         if host is None or host.lower() not in (f"127.0.0.1:{port}", f"localhost:{port}"):
             raise RequestRejected(400, "invalid_host")
@@ -134,6 +187,17 @@ class JsonHandler(BaseHTTPRequestHandler):
         if len(values) > 1:
             raise RequestRejected(400, "duplicate_header")
         return values[0] if values else None
+
+    def read_fault(self, modes: frozenset[str]) -> str | None:
+        """讀 X-Fault 標頭:旗標沒開就一律拒絕(不改任何狀態),不認得的模式也拒絕。"""
+        mode = self.single_header("X-Fault")
+        if mode is None:
+            return None
+        if not self.server.fault_injection:
+            raise RequestRejected(400, "fault_injection_disabled")
+        if mode not in modes:
+            raise RequestRejected(400, "unknown_fault_mode")
+        return mode
 
     def read_json(self, allow_empty: bool = False) -> dict[str, Any]:
         if self._body_read:
@@ -149,7 +213,7 @@ class JsonHandler(BaseHTTPRequestHandler):
         raw = self.read_exactly(int(raw_length))
         try:
             body = json.loads(raw or (b"{}" if allow_empty else b""))
-        except ValueError as exc:  # 含 JSONDecodeError、超長數字、非 UTF-8
+        except (ValueError, RecursionError) as exc:  # 含語法錯、超長數字、非 UTF-8、過深巢狀
             raise RequestRejected(400, "invalid_json") from exc
         if not isinstance(body, dict):
             raise RequestRejected(400, "invalid_json")

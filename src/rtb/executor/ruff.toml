@@ -1,0 +1,5 @@
+# executor 與 dsp 是兩個獨立的行程,不得互相匯入(見 Phase 0 架構的行程拆分)。
+extend = "../../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"rtb.dsp".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"

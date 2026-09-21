@@ -1,0 +1,1284 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+index 59d3dc9..3ad94c0 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+@@ -46,10 +46,11 @@ REVISIT:2026-11-21 動作增加到第三種時,把驗證與狀態轉換抽成動
+ - 「只綁本機」的測試在沒有非回送網卡的機器上會略過,略過時沒有訊號進治理帳。
+ - 仍沒有測試守護的小防護(第二輪代碼審的存活變異):伺服器端每個請求結束時關閉資料庫連線(拿掉只會等垃圾回收)、對客戶端中途離開靜音的 `handle_error`、回應是否帶 Content-Length。三者行為現況正確,缺的是回歸網。
+ - 部分「提交前逾時」類測試仍用固定睡眠等待(等過處理程式睡醒),慢機器上只會讓測試少等而偏向漏抓,不會誤紅;提交後逾時與慢請求進行中已改用輪詢與同步點。
+ - 歷史查詢沒有分頁;每個請求新建資料庫連線;這兩項是效能檢核題的「張力」表態,Mock 規模可接受。
+ - 測試的白箱部分(對 `_record_idempotency`、`_conn` 打補丁)綁定私有成員,重構時會跟著紅,屬刻意。
+ 
+ 型別檢查:2026-09-22 起 `store.py` 與 `server.py` 通過 mypy 嚴格模式。`Operation.params` 與 `expected_version` 都標成未驗證(`dict[str, object]` 與 `object`),`_next_state` 讀預算時用 `_is_plain_int` 收窄,型別檢查因此守得住這條不可信資料的路徑。順手修了兩個真的隱患:`cursor.lastrowid` 可能是 None(現在明確報錯並回滾),以及 `Operation.params` 與 `expected_version` 來自不可信請求,型別改標為未驗證的 `object`,由 `_validate` 用 `TypeGuard` 確認後才使用。伺服器的等待逾時改成直接設定連線的逾時,不再設定基底類別的類別變數。
+ 
+ 2026-09-22:伺服器共通行為(Host 檢查、請求本文上限、逾時、JSON 錯誤與 500 後備)與 SQLite 連線及寫入交易已抽到 [[Systems/共用行程基礎]],DSP 只保留路由、錯誤對照表與故障注入;上面這些規則的實作與防回歸現在在那一篇。
+ 連線建立階段(切換 WAL、建表)撞上鎖競爭,現在也回 503 store_busy(可重試),不再落到不可重試的 500;每個請求開的儲存連線在成功、領域例外與非預期例外三條路徑都會關閉,有測試守著(見共用行程基礎的測試)。
++X-Fault 標頭的讀取與「沒開旗標就拒絕」也改由共用基礎提供(提案收件口共用同一套),DSP 只保留自己的故障模式清單。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md b/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
+index 9753cf7..39836a0 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
+@@ -16,25 +16,25 @@ tags:
+ summary: |-
+   WHY: 狀態(State)是系統已知的事實,檢查點(Checkpoint)只是「這一步的輸出已安全存好」的進度標記,不保證證據現在還是真的;所以證據要帶讀取時間與讀到的廣告版本,重啟後由純程式判斷新鮮度,而不是因為檢查點還在就直接沿用。出處:對話 2026-09-22,使用者答對「重啟後證據依新鮮度沿用或重讀」;[[RTB_Phase2任務流程_計劃]]。
+   WHY: 提案是不可信輸入,解析採嚴格白名單並回「成功或錯誤清單」,不丟例外也不放行,因為提案內容可能受廣告文字或模型輸出影響。出處:[[RTB_Agent_Phase0架構]] 的不可信輸入一節。
+   PITFALL: 新鮮度若先看版本再看年齡,或把「沒讀到現況版本」當成新鮮,重啟後會沿用過時證據。防回歸:[test:test_expiry_takes_priority_over_a_changed_version]、[test:test_evidence_with_a_version_but_no_current_version_is_unverified_not_fresh]。
+   PITFALL: 時鐘倒退(現在比讀取時間還早)若算新鮮,會讓不可信的時間戳通過。防回歸:[test:test_a_clock_that_went_backwards_is_treated_as_expired_not_as_super_fresh]。
+   PITFALL: 提案若允許多餘欄位,可以夾帶工具名稱、網址、憑證或政策覆寫。防回歸:[test:test_unknown_fields_are_rejected_so_nothing_can_be_smuggled_in]。
+   PITFALL: 交接給執行行程之後,分析端若還能回到「蒐集證據」,同一個任務會在兩個行程各跑一份。防回歸:[test:test_illegal_transitions_are_rejected_with_both_states_named](含交接後不能重來)。
+   PITFALL: 提案解析若對「不能雜湊的值」(list、dict)先做集合成員判斷,或用遞迴序列化量大小,不可信輸入就能讓它丟 TypeError 或 RecursionError,違反「絕不丟例外」的承諾。防回歸:[test:test_unhashable_values_in_any_field_return_errors_instead_of_raising]、[test:test_absurdly_deep_nesting_is_rejected_without_recursion_errors]、[test:test_random_garbage_in_every_field_never_raises_and_the_result_is_always_consistent](2026-09-22 代碼審第一輪指出,我自己用指令重現)。
+   PITFALL: 用 json.dumps 量大小會先吃完記憶體與時間才被拒,而且算的是字元數不是位元組。改成不遞迴、有深度與位元組上限的迭代式走訪。防回歸:[test:test_size_is_counted_in_utf8_bytes_not_characters]、[test:test_a_huge_input_is_rejected_early_without_serializing_all_of_it]。
+   RULE: 領域層的共用小檢查(識別碼格式、整數不含布林)只有 `_checks.py` 一份定義;DSP 是外部系統的模擬器,刻意不依賴領域層,所以自己另有一份,兩邊不同步是有意的。[since:2026-09-22] [retire:DSP 改成真實外部系統的客戶端,或抽出共用套件時撤除]
+-  TEST: tests/domain/test_task_state.py、test_evidence.py、test_proposal.py 涵蓋合法與非法轉換、終點狀態沒有出路、表完整、新鮮度的邊界與優先順序、提案缺欄位或多餘欄位或型別錯或過大或到期早於建立、垃圾輸入不丟例外。
++  TEST: tests/domain/test_task_state.py、test_evidence.py、test_proposal.py、test_proposal_hash.py 涵蓋合法與非法轉換、終點狀態沒有出路、表完整、新鮮度的邊界與優先順序、提案缺欄位或多餘欄位或型別錯或過大或到期早於建立、垃圾輸入不丟例外。
+ ---
+ # 任務流程領域模型
+ 
+-四支檔案:`src/rtb/domain/_checks.py` 放領域層共用的小檢查(識別碼格式、整數不含布林、數字不含布林),讓同一個規則只有一份定義;指標計算([[Systems/確定性指標計算]])也用其中的「數字不含布林」。其餘三支模組:`src/rtb/domain/task_state.py` 是狀態機,合法轉換是一張表,終點狀態沒有出路,非終點都可以轉失敗,分析或已提案階段可以因證據或提案過期回到蒐集證據,交接之後不行;`src/rtb/domain/evidence.py` 是證據型別與 `check_freshness`,先判年齡再判版本,結果分新鮮、過期、版本已變、未驗證四種,只有新鮮可用;`src/rtb/domain/proposal.py` 是提案型別與 `parse_proposal`,把不可信的原始資料解析成提案或一份完整的錯誤清單。三者都在領域層,由該目錄的 ruff 設定禁止匯入資料庫、網路與模型。
++四支檔案:`src/rtb/domain/_checks.py` 放領域層共用的小檢查(識別碼格式、整數不含布林、數字不含布林),讓同一個規則只有一份定義;指標計算([[Systems/確定性指標計算]])也用其中的「數字不含布林」。其餘三支模組:`src/rtb/domain/task_state.py` 是狀態機,合法轉換是一張表,終點狀態沒有出路,非終點都可以轉失敗,分析或已提案階段可以因證據或提案過期回到蒐集證據,交接之後不行;`src/rtb/domain/evidence.py` 是證據型別與 `check_freshness`,先判年齡再判版本,結果分新鮮、過期、版本已變、未驗證四種,只有新鮮可用;`src/rtb/domain/proposal.py` 是提案型別與 `parse_proposal`,把不可信的原始資料解析成提案或一份完整的錯誤清單,另有 `content_hash`(提案內容的 SHA-256:時間換成 UTC、鍵排序、串列順序有意義;序列化格式有測試釘住,因為雜湊會存進收件表,改格式會讓升級後的重送被誤判成衝突)。三者都在領域層,由該目錄的 ruff 設定禁止匯入資料庫、網路與模型。
+ 
+ ## 已知缺口(如實標明)
+ 
+ - 只有分析行程這一側的狀態機;執行行程那一側的操作狀態、事件與 trace 尚未定義,屬後續增量。
+ - `parse_proposal` 最外層有一道保底:萬一有東西讓解析丟例外(例如刻意會丟例外的自訂物件,真實 JSON 輸入走不到),只回一個 `unexpected_failure:<例外型別>` 錯誤,不讓例外逃出去。這是安全邊界的最後一道防線,由 [test:test_even_hostile_python_objects_that_raise_are_turned_into_an_error_result] 守著。
+ - `task_state.py` 匯入時會檢查轉換表涵蓋所有狀態(漏了就匯入失敗),測試裡也有同一條斷言;兩處都守是有意的:測試只在開發時跑,而匯入時檢查讓漏表的程式根本起不來,不會拖到執行時才 KeyError。
+ - 提案解析只檢查格式,不做政策或授權檢查;大小是粗估的位元組數(字串用 UTF-8 位元組、整數用位數估算、每個容器有固定開銷),不是精確的 JSON 長度,目的是擋超大與過深,不是量準;新鮮度的年齡上限由呼叫端傳入,還沒有集中的政策。
+ - 風險摘要目前只是不超過 500 字的字串,沒有結構。
+ - 這個增量沒有經過設計審;狀態機與證據格式在增量 2 設計審前先定型,審查員可能要求修改。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md b/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md
+index 969801b..0b2446b 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md
+@@ -18,17 +18,17 @@ summary: |-
+   PITFALL: SQLite 的錯誤碼在新版回傳擴充碼(例如 517),直接比對主碼會漏判「忙碌」;要取低 8 位。反過來,不是鎖競爭的錯誤(例如已在交易裡再開交易)不能偽裝成忙碌,否則呼叫者會無限重試。防回歸:[test:test_a_failure_that_is_not_lock_contention_is_not_disguised_as_busy]、[test:test_extended_busy_error_codes_are_still_recognised_as_retryable_store_busy]。
+   PITFALL: 寫入交易若用普通 BEGIN,並行請求在 WAL 下會直接回 database is locked,忙碌逾時不會等;必須 BEGIN IMMEDIATE。防回歸:[test:test_a_second_writer_gets_database_busy_after_the_timeout]。
+   PITFALL: 畸形請求行由基底類別處理,不同 Python 小版本的回應形式不同(本機舊版只回 JSON 本文,GitHub 上的 3.14.7 有完整狀態行與標頭);測試不能假設有或沒有標頭,只能假設本文是 JSON。2026-09-22 CI 第一次因此失敗。防回歸:[test:test_a_malformed_request_line_gets_a_json_error_not_an_html_page]。
+   PITFALL: 子類別的 map_exception 自己丟例外或回傳形狀不對時,若沒有被接住,連線會被無聲切斷,又回到「呼叫端分不出永久錯誤與逾時」;現在對應本身失敗也一律落到 500 JSON 並把原因寫到標準錯誤。防回歸:[test:test_a_mapper_that_itself_fails_still_yields_a_json_500_not_a_silent_disconnect](2026-09-22 代碼審,外家與通才兩席都指出)。
+   PITFALL: Host 與 Content-Length 若用一般的取值,重複標頭只會取其中一個(第一個合法、第二個非法照樣通過,或本文邊界有歧義);這兩個內建檢查必須用單值讀取。防回歸:[test:test_two_host_headers_are_rejected_even_when_the_first_one_is_fine]、[test:test_two_content_length_headers_are_rejected]。
+   PITFALL: 剛建立資料庫時切換成 WAL 要獨佔鎖,撞上別的連線會丟一般的 OperationalError,DSP 會把它當永久的 500;連線初始化的鎖競爭也必須是「忙碌」。防回歸:[test:test_lock_contention_while_initialising_the_connection_is_database_busy]。
+   TEST: tests/kit 涵蓋回送位址、Host 檢查、重複標頭、本文上限與各種壞輸入、500 不洩漏內部細節、卡住的連線會被放棄、WAL 與忙碌與永久故障的區分、設定失敗不留連線,以及 DSP 沒有留下第二份實作。
+ ---
+ # 共用行程基礎
+ 
+-`src/rtb/httpkit.py`(httpkit)提供伺服器與處理程式基底:子類別實作 handle_request,需要時覆寫 map_exception 把自己的例外對應成錯誤回應。`src/rtb/sqlitekit.py`(sqlitekit)提供連線與寫入交易。使用者見 [[Systems/Mock-DSP]];之後的提案收件口也用這兩個模組。
++`src/rtb/httpkit.py`(httpkit)提供伺服器與處理程式基底(含故障注入標頭的開關 `read_fault`:啟動時沒開旗標就一律拒絕 X-Fault):子類別實作 handle_request,需要時覆寫 map_exception 把自己的例外對應成錯誤回應。`src/rtb/sqlitekit.py`(sqlitekit)提供連線與寫入交易。使用者見 [[Systems/Mock-DSP]];之後的提案收件口也用這兩個模組。
+ 
+ 已知缺口(如實標明):
+ - 逾時是「每次接收的閒置逾時」,不是整個請求的期限:慢速滴入(每個逾時內送一點)可以佔住一條執行緒直到本文上限。DSP 抽出前就是這樣,沒有變糟,但之後的提案收件口會繼承。
+ REVISIT:2026-10-20 提案收件口實作完成後,評估是否加上整個請求的期限。
+ - `read_json` 只能讀一次(讀第二次是程式錯誤,會回 500);`NoResponse` 是通用的「刻意不回應」機制,目前只有 DSP 的故障注入在用。
+ - 共用行為的測試分兩處:tests/kit 測共用基礎本身,tests/dsp 測 DSP 的路由與業務;兩邊對同一種行為(例如逾時)都有覆蓋屬於有意的重疊,改共用行為時兩邊都要跑。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+new file mode 100644
+index 0000000..2905237
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+@@ -0,0 +1,37 @@
++---
++type: system
++status: doing
++created: 2026-09-22
++updated: 2026-09-22
++responsibility: 負責執行行程收提案的入口:去重、修訂連號、取代、上限、到期標記與有界的事件紀錄,以及對應的 HTTP 收件口;不負責執行提案、呼叫 DSP、政策或租戶檢查(那是 Phase 3),也不負責共用的伺服器與資料庫基礎。
++aliases: []
++about_code:
++  - src/rtb/executor/inbox_store.py
++  - src/rtb/executor/inbox_server.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: 收件口是「不可信內容進入有寫入能力的行程」的入口,所以只做安全地收、去重、記帳,不執行、不授權。相同內容重送是正常(分析行程當機重啟),必須冪等;不同內容送同一個收件鍵是可疑事件,必須拒收;不能讓「送得晚」變成「有權改寫決策」。出處:2026-09-22 使用者選擇「相同內容當作重送、不同內容拒收」,設計見 [[Projects/RTB_Phase2任務流程_計劃]] 增量 2。
++  RULE: 收件鍵是(任務編號, 修訂序號);修訂必須嚴格連號(第一份是 1,之後是已收最高加 1),所以送巨大序號搶位只會被拒收,不會卡死該任務。[since:2026-09-22] [retire:Phase 3 有能力憑證與呼叫者認證、能擋掉不可信的呼叫者時重審]
++  RULE: 所有判斷(過期標記、查收件鍵、連號、決策到期、全域上限、寫入)都在同一個 BEGIN IMMEDIATE 交易內;先提交,才回 2xx。重送不受全域上限影響;接受新修訂時先把同任務的舊待處理標為已被取代,釋放名額,所以取代不會被上限擋住。[since:2026-09-22] [retire:收件表改成別的儲存或佇列時重審]
++  RULE: 對呼叫者的錯誤回應只含固定的錯誤代碼與必要數字(例如 highest_revision),絕不回顯請求內容;解析錯誤清單含請求裡的欄位名稱,所以也不回給呼叫者。事件紀錄只存固定欄位與封閉列舉的事件代碼、有筆數上限、寫入失敗不影響回應。[since:2026-09-22] [retire:改成結構化日誌服務且有內容過濾時重審]
++  RULE: HTTP 層防護:只收 Content-Type 為 application/json 的 POST(否則 415)、帶 Origin 標頭一律 403(擋瀏覽器跨站請求,只擋 Host 擋不住)、Host 必須是回送位址、只綁回送位址。[since:2026-09-22] [retire:改成有認證的通道時重審]
++  PITFALL: 解析器的欄位驗證只能有一份:收件口模組不得自帶驗證,測試用同一批「解析器一定拒絕」的樣本要求收件口也拒絕。防回歸:[test:test_every_sample_the_domain_parser_rejects_is_also_rejected_by_the_inbox_and_the_inbox_defines_no_validators]。
++  PITFALL: 同鍵並行請求必須恰好接受一個;先查後寫若不在同一個 IMMEDIATE 交易內,會雙寫或誤回 409。防回歸:[test:test_concurrent_requests_for_the_same_key_accept_exactly_one](穩定性:連跑 25 次 0 次失敗)。
++  PITFALL: 「刻意不回應」與「回 500」必須分得開,故障注入才能測出「提交前中斷」與「提交後回應前中斷」兩種不同語意。防回歸:[test:test_a_crash_before_commit_loses_nothing_and_a_crash_after_commit_is_answered_by_the_replay]。
++  TEST: tests/executor/test_inbox_server.py 涵蓋 S1 到 S18(重送、衝突、連號、取代、上限、忙碌、兩種中斷、並行、過期、防護標頭、不回顯、事件有界、重啟保留、解析器唯一、逾時);tests/domain/test_proposal_hash.py 涵蓋雜湊的等價寫法與序列化釘住。
++---
++# 提案收件口
++
++`src/rtb/executor/inbox_store.py` 是收件表與所有判斷;`src/rtb/executor/inbox_server.py` 是 HTTP 收件口(建立在 [[Systems/共用行程基礎]] 之上,用增量 1 的 `parse_proposal` 與 `content_hash`,見 [[Systems/任務流程領域模型]])。
++
++已知缺口(如實標明):
++- 沒有請求速率限制:用不同任務編號輪流送新提案,仍能在「待處理上限加上到期時間」的範圍內持續佔滿名額。
++REVISIT:2026-10-20 Phase 3 開始前,決定要不要在收件口加請求速率限制,或交給 Phase 3 的政策層。
++- 沒有收件表清理與保留期限:已被取代與已過期的提案會累積。
++REVISIT:2026-10-20 決定保留期限與清理方式(可與 Phase 8 的死信處理一起做)。
++- 沒有身分認證,租戶相符檢查也還沒做(Phase 3 的能力憑證與執行前授權)。
++- 收件表的三個狀態(待處理、已被取代、已過期)是執行行程這一側的小表,與分析行程那一側的任務狀態機(見 [[Systems/任務流程領域模型]])的對應關係要在增量 3 定義,現在不宣稱一致。
++- 重啟保留的測試是「同一個資料庫檔、新的伺服器」,沒有真的殺行程;真正猝死的語意由資料庫交易本身保證,在 Phase 4 的當機測試再驗。
++REVISIT:2026-10-20 Phase 4 當機恢復測試時補上殺行程的版本。
+diff --git a/src/rtb/domain/proposal.py b/src/rtb/domain/proposal.py
+index b5e1a94..ed918c1 100644
+--- a/src/rtb/domain/proposal.py
++++ b/src/rtb/domain/proposal.py
+@@ -1,24 +1,26 @@
+ """提案:分析端產出的「想做什麼」,只是資料,沒有任何執行能力。
+ 
+ 提案是不可信輸入(內容可能受廣告文字或模型輸出影響),所以解析採嚴格白名單:
+ 不認得的欄位一律拒收(防止夾帶工具名稱、網址、憑證或政策覆寫),型別、大小與長度都有上限。
+ 解析結果是「成功或錯誤清單」,不丟例外也不放行;所有問題一次列出,不只回報第一個。
+ 量大小用迭代式、有深度與位元組上限的走訪,不遞迴、不先序列化整份輸入,超大或過深的輸入
+ 會在超過上限的那一刻就被拒絕。
+ """
+ 
++import hashlib
++import json
+ import math
+ import re
+ from collections.abc import Callable
+ from dataclasses import dataclass
+-from datetime import datetime
++from datetime import UTC, datetime
+ from enum import StrEnum
+ from types import MappingProxyType
+ from typing import Any, TypeGuard
+ 
+ from rtb.domain._checks import ID_PATTERN, is_plain_int
+ 
+ POLICY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}")
+ REASON_PATTERN = re.compile(r"[a-z0-9_]{1,64}")
+ MAX_PAYLOAD_BYTES = 16 * 1024
+ MAX_DEPTH = 6
+@@ -267,10 +269,25 @@ def _parse(raw: object) -> ParsedProposal:
+         return ParsedProposal(None, ("not_an_object",))
+     errors = _shape_errors(raw)
+     if errors:
+         return ParsedProposal(None, tuple(errors))
+     errors = _field_errors(raw)
+     if not errors:
+         errors = _expiry_errors(raw)
+     if errors:
+         return ParsedProposal(None, tuple(errors))
+     return ParsedProposal(_build(raw), ())
++
++
++def content_hash(proposal: Proposal) -> str:
++    """提案內容的 SHA-256:同一份提案的等價寫法得到同一個雜湊。
++
++    先轉成基本型別,時間一律換成 UTC(不同時區寫法的同一時刻得到同一個雜湊),再以鍵排序、
++    無多餘空白、不允許 NaN 的 JSON 序列化。串列順序有意義:順序不同就是不同的提案。
++    """
++    primitives = proposal.to_primitives()
++    for field in ("decision_created_at", "decision_expires_at"):
++        moment = getattr(proposal, field).astimezone(UTC)
++        primitives[field] = moment.isoformat()
++    encoded = json.dumps(primitives, sort_keys=True, separators=(",", ":"),
++                         ensure_ascii=True, allow_nan=False)
++    return hashlib.sha256(encoded.encode("ascii")).hexdigest()
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index aef3ce8..022f1c9 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -71,43 +71,33 @@ def error_entry(exc: DspError) -> tuple[int, str, bool]:
+             return ERROR_TABLE[cls]
+     if isinstance(exc, TransientError):
+         return 503, "transient_error", True
+     return 500, "dsp_error", False
+ 
+ 
+ class DspHandler(JsonHandler):
+     server: DspServer
+ 
+     def handle_request(self, method: str) -> tuple[int, dict[str, Any]]:
+-        fault = self._read_fault()
++        fault = self.read_fault(FAULT_MODES)
+         handler, campaign_or_key = self._route(method)
+         store = CampaignStore(
+             self.server.db_path, busy_timeout_seconds=self.server.busy_timeout_seconds
+         )
+         try:
+             return 200, getattr(self, "_" + handler)(store, campaign_or_key, fault)
+         finally:
+             store.close()
+ 
+     def map_exception(self, exc: Exception) -> tuple[int, str, bool] | None:
+         return error_entry(exc) if isinstance(exc, DspError) else None
+ 
+-    def _read_fault(self) -> str | None:
+-        mode = self.single_header("X-Fault")
+-        if mode is None:
+-            return None
+-        if not self.server.fault_injection:
+-            raise RequestRejected(400, "fault_injection_disabled")
+-        if mode not in FAULT_MODES:
+-            raise RequestRejected(400, "unknown_fault_mode")
+-        return mode
+-
+     def _route(self, method: str) -> tuple[str, str]:
+         for route_method, pattern, name in ROUTES:
+             match = pattern.match(urlsplit(self.path).path)
+             if route_method == method and match:
+                 return name, match.group(1)
+         raise RequestRejected(404, "not_found")
+ 
+     # ---- 讀取介面 ----
+     def _get_campaign(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+@@ -177,22 +167,22 @@ class DspHandler(JsonHandler):
+             raise RequestRejected(422, "injected_validation_error")
+         elif fault == "timeout_before_commit":
+             time.sleep(self.server.hang_seconds)  # 不論客戶端是否還在,都不提交
+             raise NoResponse
+ 
+ 
+ class DspServer(KitServer):
+     def __init__(self, db_path: Path, fault_injection: bool, hang_seconds: float,
+                  delay_seconds: float, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+                  socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS):
+-        super().__init__(DspHandler, socket_timeout_seconds)
+-        self.db_path, self.fault_injection = db_path, fault_injection
++        super().__init__(DspHandler, socket_timeout_seconds, fault_injection=fault_injection)
++        self.db_path = db_path
+         self.hang_seconds, self.delay_seconds = hang_seconds, delay_seconds
+         self.busy_timeout_seconds = busy_timeout_seconds
+ 
+ 
+ def main(argv: list[str] | None = None) -> None:
+     parser = argparse.ArgumentParser(description="Mock DSP")
+     parser.add_argument("--db", required=True, type=Path)
+     parser.add_argument("--fault-injection", action="store_true")
+     parser.add_argument("--hang-seconds", type=float, default=2.0)
+     parser.add_argument("--delay-seconds", type=float, default=0.3)
+diff --git a/src/rtb/executor/inbox_server.py b/src/rtb/executor/inbox_server.py
+new file mode 100644
+index 0000000..f71bd54
+--- /dev/null
++++ b/src/rtb/executor/inbox_server.py
+@@ -0,0 +1,145 @@
++"""提案收件口(執行行程,獨立行程):不可信的提案從這裡進來。
++
++只做「安全地收、去重、記帳」:不執行提案、不呼叫 DSP、不做政策與租戶檢查。
++每個請求依序:Host 檢查(共用基礎)→ 路由 → 故障標頭 → Origin 與 Content-Type →
++讀本文 → 嚴格解析(增量 1 的 parse_proposal,收件口自己沒有任何欄位驗證)→ 收件交易。
++錯誤回應只含固定的錯誤代碼與必要數字,絕不回顯請求內容。
++"""
++
++import argparse
++import sys
++from collections.abc import Callable
++from datetime import datetime
++from pathlib import Path
++from typing import Any
++from urllib.parse import urlsplit
++
++from rtb.domain.proposal import parse_proposal
++from rtb.executor.inbox_store import (
++    DEFAULT_MAX_PENDING,
++    Accepted,
++    ContentConflict,
++    InboxBusy,
++    InboxFull,
++    InboxRejected,
++    InboxStore,
++    ProposalExpired,
++    RevisionOutOfOrder,
++    utc_now,
++)
++from rtb.httpkit import (
++    LOOPBACK,
++    SOCKET_TIMEOUT_SECONDS,
++    JsonHandler,
++    KitServer,
++    NoResponse,
++    RequestRejected,
++)
++from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS
++
++PROPOSALS_PATH = "/proposals"
++FAULT_MODES = frozenset({"crash_before_commit", "crash_after_commit"})
++REJECTION_STATUS = {
++    ContentConflict: 409,
++    RevisionOutOfOrder: 409,
++    ProposalExpired: 422,
++    InboxFull: 503,
++    InboxBusy: 503,
++}
++
++
++def _crash_before_commit() -> None:
++    raise NoResponse  # 交易還沒提交就中斷:回滾,呼叫者什麼都收不到
++
++
++class InboxHandler(JsonHandler):
++    server: InboxServer
++
++    def handle_request(self, method: str) -> tuple[int, dict[str, Any]]:
++        if method != "POST" or urlsplit(self.path).path != PROPOSALS_PATH:
++            raise RequestRejected(404, "not_found")
++        fault = self.read_fault(FAULT_MODES)
++        if self.headers.get("Origin") is not None:  # 瀏覽器的跨站請求會帶;程式呼叫者不帶
++            raise RequestRejected(403, "origin_not_allowed")
++        media_type = (self.single_header("Content-Type") or "").split(";")[0].strip().lower()
++        if media_type != "application/json":
++            raise RequestRejected(415, "unsupported_media_type")
++        parsed = parse_proposal(self.read_json())
++        try:
++            store = InboxStore(self.server.db_path, self.server.max_pending,
++                               self.server.busy_timeout_seconds)
++        except InboxRejected as rejection:  # 連線初始化就撞上鎖競爭
++            return _rejection_reply(rejection)
++        try:
++            if parsed.proposal is None:
++                # 解析錯誤清單含請求裡的欄位名稱,不回給呼叫者,也不進事件紀錄
++                store.record_event("invalid_proposal", None, self.server.clock())
++                raise RequestRejected(400, "invalid_proposal")
++            before = _crash_before_commit if fault == "crash_before_commit" else None
++            try:
++                result = store.accept(parsed.proposal, self.server.clock(), before)
++            except InboxRejected as rejection:
++                if not isinstance(rejection, InboxBusy):
++                    store.record_event(rejection.code, parsed.proposal, self.server.clock())
++                return _rejection_reply(rejection)
++        finally:
++            store.close()
++        if fault == "crash_after_commit":
++            raise NoResponse  # 已提交,但呼叫者收不到回應:重送會得到重送結果
++        return (200 if result.replayed else 201), _accepted_body(result)
++
++
++def _rejection_reply(rejection: InboxRejected) -> tuple[int, dict[str, Any]]:
++    body: dict[str, Any] = {"error": rejection.code, "retryable": rejection.retryable}
++    if rejection.highest_revision is not None:
++        body["highest_revision"] = rejection.highest_revision
++    return REJECTION_STATUS[type(rejection)], body
++
++
++def _accepted_body(result: Accepted) -> dict[str, Any]:
++    return {"status": "accepted", "task_id": result.task_id, "revision": result.revision,
++            "state": result.state, "content_hash": result.content_hash,
++            "replayed": result.replayed}
++
++
++class InboxServer(KitServer):
++    def __init__(  # noqa: PLR0913 - 啟動參數,全部有預設值,測試與命令列各用一部分
++        self,
++        db_path: Path,
++        max_pending: int = DEFAULT_MAX_PENDING,
++        clock: Callable[[], datetime] = utc_now,
++        busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
++        socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS,
++        fault_injection: bool = False,
++        host: str = LOOPBACK,
++    ):
++        super().__init__(InboxHandler, socket_timeout_seconds, host, fault_injection)
++        self.db_path, self.max_pending, self.clock = db_path, max_pending, clock
++        self.busy_timeout_seconds = busy_timeout_seconds
++        InboxStore(db_path).close()  # 確保資料庫與表已建立(不在請求路徑上第一次建立)
++
++
++def main(argv: list[str] | None = None) -> None:
++    parser = argparse.ArgumentParser(description="提案收件口")
++    parser.add_argument("--db", required=True, type=Path)
++    parser.add_argument("--host", default=LOOPBACK)
++    parser.add_argument("--max-pending", type=int, default=DEFAULT_MAX_PENDING)
++    parser.add_argument("--fault-injection", action="store_true")
++    parser.add_argument("--busy-timeout-seconds", type=float, default=BUSY_TIMEOUT_SECONDS)
++    parser.add_argument("--socket-timeout-seconds", type=float, default=SOCKET_TIMEOUT_SECONDS)
++    args = parser.parse_args(argv)
++    try:
++        server = InboxServer(args.db, args.max_pending, utc_now, args.busy_timeout_seconds,
++                             args.socket_timeout_seconds, args.fault_injection, args.host)
++    except ValueError as error:
++        sys.stderr.write(f"拒絕啟動:{error}\n")
++        raise SystemExit(2) from error
++    print(f"PORT={server.server_address[1]}", flush=True)
++    try:
++        server.serve_forever()
++    finally:
++        server.server_close()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+new file mode 100644
+index 0000000..d6b8d43
+--- /dev/null
++++ b/src/rtb/executor/inbox_store.py
+@@ -0,0 +1,211 @@
++"""提案收件表(執行行程自己的 SQLite):安全地收、去重、記帳,不執行任何提案。
++
++收件鍵是(任務編號, 修訂序號)。所有判斷都在同一個 BEGIN IMMEDIATE 交易內完成:
++先把到期的待處理標為已過期,再依序查收件鍵、修訂連號、決策到期時間、全域上限,最後寫入並提交。
++主鍵是最後一道防線,但正常路徑靠交易內的先查後寫,並行的同鍵請求會排隊。
++
++事件紀錄只存固定欄位(時間、合法的任務編號或空、修訂、封閉列舉的事件代碼、內容雜湊或空),
++絕不存請求原文;筆數有上限;事件寫入失敗不影響對呼叫者的回應。
++"""
++
++import json
++import sqlite3
++from collections.abc import Callable
++from dataclasses import dataclass
++from datetime import UTC, datetime
++from pathlib import Path
++
++from rtb.domain.proposal import Proposal, content_hash
++from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, begin_immediate, connect
++
++DEFAULT_MAX_PENDING = 8
++MAX_EVENTS = 1000
++EVENT_CODES = frozenset(
++    {"content_conflict", "revision_out_of_order", "inbox_full", "expired_proposal",
++     "invalid_proposal"}
++)
++SCHEMA = """
++CREATE TABLE IF NOT EXISTS proposals (
++    task_id TEXT NOT NULL, revision INTEGER NOT NULL, content_hash TEXT NOT NULL,
++    state TEXT NOT NULL CHECK (state IN ('pending', 'superseded', 'expired')),
++    payload TEXT NOT NULL, expires_at TEXT NOT NULL, received_at TEXT NOT NULL,
++    PRIMARY KEY (task_id, revision));
++CREATE TABLE IF NOT EXISTS inbox_events (
++    id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT, revision INTEGER,
++    code TEXT NOT NULL, content_hash TEXT);
++"""
++
++
++class InboxRejected(Exception):
++    """收件口拒收這份提案;code 是給呼叫者的固定錯誤代碼。"""
++
++    code = "rejected"
++    retryable = False
++
++    def __init__(self, message: str = "", highest_revision: int | None = None):
++        super().__init__(message or self.code)
++        self.highest_revision = highest_revision
++
++
++class ContentConflict(InboxRejected):
++    code = "content_conflict"
++
++
++class RevisionOutOfOrder(InboxRejected):
++    code = "revision_out_of_order"
++
++
++class InboxFull(InboxRejected):
++    code = "inbox_full"
++    retryable = True
++
++
++class ProposalExpired(InboxRejected):
++    code = "expired_proposal"
++
++
++class InboxBusy(InboxRejected):
++    """資料庫忙碌到逾時:沒收到,可以重送。與 InboxFull 是不同的錯誤。"""
++
++    code = "busy"
++    retryable = True
++
++
++@dataclass(frozen=True)
++class Accepted:
++    task_id: str
++    revision: int
++    state: str
++    content_hash: str
++    replayed: bool
++
++
++def _iso(moment: datetime) -> str:
++    """固定格式的 UTC 字串:字串比大小就等於比時間先後。"""
++    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
++
++
++def utc_now() -> datetime:
++    return datetime.now(UTC)
++
++
++class InboxStore:
++    def __init__(
++        self,
++        path: Path,
++        max_pending: int = DEFAULT_MAX_PENDING,
++        busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
++    ):
++        self._max_pending = max_pending
++        try:
++            self._conn = connect(path, busy_timeout_seconds, SCHEMA)
++        except DatabaseBusy as exc:
++            raise InboxBusy(str(exc)) from exc
++
++    def close(self) -> None:
++        self._conn.close()
++
++    def accept(
++        self,
++        proposal: Proposal,
++        now: datetime,
++        before_commit: Callable[[], None] | None = None,
++    ) -> Accepted:
++        """收下提案,或丟出 InboxRejected 的子類別。before_commit 只給故障注入用。"""
++        try:
++            begin_immediate(self._conn)
++        except DatabaseBusy as exc:
++            raise InboxBusy(str(exc)) from exc
++        try:
++            outcome = self._accept_in_transaction(proposal, now)
++            if before_commit is not None:
++                before_commit()
++            self._conn.execute("COMMIT")
++        except BaseException:
++            if self._conn.in_transaction:
++                self._conn.execute("ROLLBACK")
++            raise
++        return outcome
++
++    def _accept_in_transaction(self, proposal: Proposal, now: datetime) -> Accepted:
++        digest = content_hash(proposal)
++        self._conn.execute(
++            "UPDATE proposals SET state = 'expired' WHERE state = 'pending' AND expires_at <= ?",
++            (_iso(now),),
++        )
++        existing = self._conn.execute(
++            "SELECT content_hash, state FROM proposals WHERE task_id = ? AND revision = ?",
++            (proposal.task_id, proposal.revision),
++        ).fetchone()
++        if existing is not None:
++            if existing[0] == digest:
++                return Accepted(proposal.task_id, proposal.revision, existing[1], digest, True)
++            raise ContentConflict()
++        highest = self._highest_revision(proposal.task_id)
++        if proposal.revision != highest + 1:
++            raise RevisionOutOfOrder(highest_revision=highest)
++        if proposal.decision_expires_at <= now:
++            raise ProposalExpired()
++        supersedes = self._has_pending(proposal.task_id, highest)
++        pending = self._conn.execute(
++            "SELECT COUNT(*) FROM proposals WHERE state = 'pending'").fetchone()[0]
++        if pending - (1 if supersedes else 0) >= self._max_pending:
++            raise InboxFull()
++        if supersedes:
++            self._conn.execute(
++                "UPDATE proposals SET state = 'superseded' WHERE task_id = ? AND revision = ?",
++                (proposal.task_id, highest),
++            )
++        self._conn.execute(
++            "INSERT INTO proposals VALUES (?, ?, ?, 'pending', ?, ?, ?)",
++            (proposal.task_id, proposal.revision, digest, _payload(proposal),
++             _iso(proposal.decision_expires_at), _iso(now)),
++        )
++        return Accepted(proposal.task_id, proposal.revision, "pending", digest, False)
++
++    def _highest_revision(self, task_id: str) -> int:
++        row = self._conn.execute(
++            "SELECT MAX(revision) FROM proposals WHERE task_id = ?", (task_id,)).fetchone()
++        return int(row[0] or 0)
++
++    def _has_pending(self, task_id: str, revision: int) -> bool:
++        if revision == 0:
++            return False
++        row = self._conn.execute(
++            "SELECT state FROM proposals WHERE task_id = ? AND revision = ?",
++            (task_id, revision),
++        ).fetchone()
++        return bool(row and row[0] == "pending")
++
++    def record_event(self, code: str, proposal: Proposal | None, now: datetime) -> None:
++        """盡力而為:寫不進去(忙碌、磁碟滿)就放棄,不影響對呼叫者的回應。"""
++        if code not in EVENT_CODES:
++            raise ValueError("事件代碼必須是封閉列舉的成員")
++        digest = content_hash(proposal) if proposal is not None else None
++        task_id = proposal.task_id if proposal is not None else None
++        revision = proposal.revision if proposal is not None else None
++        try:
++            self._write_event(_iso(now), task_id, revision, code, digest)
++        except (sqlite3.Error, DatabaseBusy):
++            return
++
++    def _write_event(
++        self, at: str, task_id: str | None, revision: int | None, code: str, digest: str | None
++    ) -> None:
++        begin_immediate(self._conn)
++        try:
++            self._conn.execute(
++                "INSERT INTO inbox_events (at, task_id, revision, code, content_hash) "
++                "VALUES (?, ?, ?, ?, ?)", (at, task_id, revision, code, digest))
++            self._conn.execute(  # 只留最新的 MAX_EVENTS 筆,在同一個交易內刪除最舊的
++                "DELETE FROM inbox_events WHERE id <= (SELECT MAX(id) FROM inbox_events) - ?",
++                (MAX_EVENTS,))
++            self._conn.execute("COMMIT")
++        except BaseException:
++            if self._conn.in_transaction:
++                self._conn.execute("ROLLBACK")
++            raise
++
++
++def _payload(proposal: Proposal) -> str:
++    return json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True)
+diff --git a/src/rtb/httpkit.py b/src/rtb/httpkit.py
+index d2df83a..55d6b91 100644
+--- a/src/rtb/httpkit.py
++++ b/src/rtb/httpkit.py
+@@ -34,25 +34,27 @@ class NoResponse(Exception):
+ 
+ class KitServer(ThreadingHTTPServer):
+     daemon_threads = True
+     request_queue_size = LISTEN_BACKLOG
+ 
+     def __init__(
+         self,
+         handler_class: type[JsonHandler],
+         socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS,
+         host: str = LOOPBACK,
++        fault_injection: bool = False,
+     ):
+         if host != LOOPBACK:
+             raise ValueError("只允許綁定回送位址")
+         super().__init__((host, 0), handler_class)
+         self.socket_timeout_seconds = socket_timeout_seconds
++        self.fault_injection = fault_injection  # 只有啟動時明確開啟,才接受 X-Fault 標頭
+ 
+     def handle_error(
+         self,
+         request: Any,  # noqa: ARG002 - 沿用基底類別的簽章
+         client_address: Any,  # noqa: ARG002 - 沿用基底類別的簽章
+     ) -> None:
+         if not isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+             traceback.print_exc(file=sys.stderr)  # 客戶端中途離開不吵;其他例外要看得到
+ 
+ 
+@@ -128,20 +130,31 @@ class JsonHandler(BaseHTTPRequestHandler):
+             return  # 舊式探針可能不送 Host;瀏覽器(DNS rebinding 的來源)一定會送
+         if host is None or host.lower() not in (f"127.0.0.1:{port}", f"localhost:{port}"):
+             raise RequestRejected(400, "invalid_host")
+ 
+     def single_header(self, name: str) -> str | None:
+         values = self.headers.get_all(name) or []
+         if len(values) > 1:
+             raise RequestRejected(400, "duplicate_header")
+         return values[0] if values else None
+ 
++    def read_fault(self, modes: frozenset[str]) -> str | None:
++        """讀 X-Fault 標頭:旗標沒開就一律拒絕(不改任何狀態),不認得的模式也拒絕。"""
++        mode = self.single_header("X-Fault")
++        if mode is None:
++            return None
++        if not self.server.fault_injection:
++            raise RequestRejected(400, "fault_injection_disabled")
++        if mode not in modes:
++            raise RequestRejected(400, "unknown_fault_mode")
++        return mode
++
+     def read_json(self, allow_empty: bool = False) -> dict[str, Any]:
+         if self._body_read:
+             raise RuntimeError("read_json 只能呼叫一次:請求本文讀過就沒了")
+         self._body_read = True
+         if self.headers.get("Transfer-Encoding"):
+             raise RequestRejected(411, "chunked_not_supported")
+         raw_length = (self.single_header("Content-Length") or "0").strip()
+         if not raw_length.isascii() or not raw_length.isdigit():
+             raise RequestRejected(400, "invalid_content_length")
+         if len(raw_length) > MAX_LENGTH_DIGITS or int(raw_length) > self.max_body_bytes:
+diff --git a/tests/domain/proposal_samples.py b/tests/domain/proposal_samples.py
+new file mode 100644
+index 0000000..4803ac2
+--- /dev/null
++++ b/tests/domain/proposal_samples.py
+@@ -0,0 +1,36 @@
++"""提案測試共用的樣本:領域層的解析測試與收件口測試用同一批,不各寫一份。"""
++
++CREATED = "2026-09-22T12:00:00+00:00"
++EXPIRES = "2026-09-22T12:30:00+00:00"
++
++
++def valid(**overrides):
++    raw = {
++        "task_id": "t1", "revision": 1, "campaign_id": "c1", "action_type": "update_budget",
++        "requested_change": {"new_budget": 150}, "reason_codes": ["low_pacing"],
++        "evidence_refs": ["e1", "e2"], "campaign_version_observed": 3,
++        "decision_created_at": CREATED, "decision_expires_at": EXPIRES,
++        "policy_version": "v1", "risk_summary": "budget +50%",
++    }
++    raw.update(overrides)
++    return raw
++
++
++# 解析器一定要拒絕的樣本:每一筆是「合法提案加上一處壞掉」的覆寫
++REJECTED_OVERRIDES = [
++    {"task_id": 5}, {"task_id": ""}, {"task_id": "a/b"}, {"campaign_id": None},
++    {"revision": 0}, {"revision": True}, {"revision": "1"},
++    {"campaign_version_observed": 0}, {"campaign_version_observed": True},
++    {"campaign_version_observed": "3"}, {"campaign_version_observed": 1.5},
++    {"reason_codes": "low_pacing"}, {"reason_codes": [5]}, {"reason_codes": ["Bad Code"]},
++    {"reason_codes": []}, {"evidence_refs": []}, {"evidence_refs": "e1"},
++    {"evidence_refs": [""]}, {"policy_version": ""}, {"risk_summary": 5},
++    {"action_type": "delete_campaign"}, {"action_type": None},
++    {"requested_change": {}}, {"requested_change": {"new_budget": 0}},
++    {"requested_change": {"new_budget": True}}, {"requested_change": {"new_budget": "150"}},
++    {"requested_change": {"new_budget": 150, "url": "x"}},
++    {"decision_created_at": "2026-09-22T12:00:00"},
++    {"decision_expires_at": "2026-09-22T11:00:00+00:00"},
++    {"tool_name": "delete_all"}, {"url": "http://evil.example"}, {"credential": "secret"},
++    {"risk_summary": "x" * 501}, {"reason_codes": ["r"] * 21},
++]
+diff --git a/tests/domain/test_proposal.py b/tests/domain/test_proposal.py
+index 6aabb41..241621f 100644
+--- a/tests/domain/test_proposal.py
++++ b/tests/domain/test_proposal.py
+@@ -4,35 +4,21 @@ import copy
+ import dataclasses
+ import json
+ import random
+ from datetime import UTC, datetime
+ 
+ import pytest
+ 
+ from rtb.domain import _checks
+ from rtb.domain import proposal as proposal_module
+ from rtb.domain.proposal import ActionType, ParsedProposal, Proposal, parse_proposal
+-
+-CREATED = "2026-09-22T12:00:00+00:00"
+-EXPIRES = "2026-09-22T12:30:00+00:00"
+-
+-
+-def valid(**overrides):
+-    raw = {
+-        "task_id": "t1", "revision": 1, "campaign_id": "c1", "action_type": "update_budget",
+-        "requested_change": {"new_budget": 150}, "reason_codes": ["low_pacing"],
+-        "evidence_refs": ["e1", "e2"], "campaign_version_observed": 3,
+-        "decision_created_at": CREATED, "decision_expires_at": EXPIRES,
+-        "policy_version": "v1", "risk_summary": "budget +50%",
+-    }
+-    raw.update(overrides)
+-    return raw
++from tests.domain.proposal_samples import CREATED, EXPIRES, valid
+ 
+ 
+ def test_a_valid_budget_proposal_is_parsed_into_typed_fields():
+     parsed = parse_proposal(valid())
+ 
+     assert parsed.errors == () and parsed.proposal is not None
+     proposal = parsed.proposal
+     assert proposal.action_type is ActionType.UPDATE_BUDGET
+     assert proposal.requested_change["new_budget"] == 150
+     assert proposal.evidence_refs == ("e1", "e2") and proposal.reason_codes == ("low_pacing",)
+diff --git a/tests/domain/test_proposal_hash.py b/tests/domain/test_proposal_hash.py
+new file mode 100644
+index 0000000..ee7192c
+--- /dev/null
++++ b/tests/domain/test_proposal_hash.py
+@@ -0,0 +1,53 @@
++"""提案內容雜湊:同一份提案的等價寫法必須得到同一個雜湊,不同內容必須得到不同雜湊。"""
++
++import hashlib
++import json
++
++from rtb.domain.proposal import content_hash, parse_proposal
++from tests.domain.proposal_samples import valid
++
++
++def parsed(**overrides):
++    result = parse_proposal(valid(**overrides))
++    assert result.proposal is not None, result.errors
++    return result.proposal
++
++
++def test_the_hash_is_a_stable_sha256_hex_digest():
++    digest = content_hash(parsed())
++
++    assert len(digest) == 64 and set(digest) <= set("0123456789abcdef")
++    assert content_hash(parsed()) == digest
++
++
++def test_the_content_hash_ignores_timezone_notation_and_json_formatting():
++    utc = parsed()
++    plus_eight = parsed(decision_created_at="2026-09-22T20:00:00+08:00",
++                        decision_expires_at="2026-09-22T20:30:00+08:00")  # 同一時刻,不同寫法
++    reordered = json.loads(json.dumps(valid(), indent=4, sort_keys=False))
++    reformatted = parse_proposal(dict(reversed(list(reordered.items())))).proposal
++
++    assert content_hash(utc) == content_hash(plus_eight) == content_hash(reformatted)
++
++
++def test_any_difference_in_content_changes_the_hash():
++    base = content_hash(parsed())
++
++    for change in ({"requested_change": {"new_budget": 151}}, {"reason_codes": ["other"]},
++                   {"campaign_version_observed": 4}, {"policy_version": "v2"},
++                   {"risk_summary": "different"}, {"evidence_refs": ["e2", "e1"]},  # 順序有意義
++                   {"revision": 2}):
++        assert content_hash(parsed(**change)) != base, change
++
++
++def test_the_serialisation_is_pinned_because_stored_hashes_must_stay_comparable_after_upgrades():
++    expected = (
++        '{"action_type":"update_budget","campaign_id":"c1","campaign_version_observed":3,'
++        '"decision_created_at":"2026-09-22T12:00:00+00:00",'
++        '"decision_expires_at":"2026-09-22T12:30:00+00:00","evidence_refs":["e1","e2"],'
++        '"policy_version":"v1","reason_codes":["low_pacing"],'
++        '"requested_change":{"new_budget":150},"revision":1,"risk_summary":"budget +50%",'
++        '"task_id":"t1"}'
++    )
++
++    assert content_hash(parsed()) == hashlib.sha256(expected.encode()).hexdigest()
+diff --git a/tests/executor/__init__.py b/tests/executor/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/executor/conftest.py b/tests/executor/conftest.py
+new file mode 100644
+index 0000000..72c3ab8
+--- /dev/null
++++ b/tests/executor/conftest.py
+@@ -0,0 +1,76 @@
++"""收件口測試的共用工具:在測試行程內以執行緒啟動伺服器,時間可控,資料庫檔可直接查。"""
++
++import contextlib
++import http.client
++import json
++import sqlite3
++import threading
++from datetime import UTC, datetime, timedelta
++
++import pytest
++
++from rtb.executor.inbox_server import InboxServer
++
++NOW = datetime(2026, 9, 22, 12, 5, tzinfo=UTC)
++
++
++class Clock:
++    def __init__(self):
++        self.now = NOW
++
++    def __call__(self):
++        return self.now
++
++    def advance(self, **kwargs):
++        self.now += timedelta(**kwargs)
++
++
++class Inbox:
++    def __init__(self, db, clock, **kwargs):
++        self.db, self.clock = db, clock
++        self.server = InboxServer(db, clock=clock, **kwargs)
++        threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
++        self.port = self.server.server_address[1]
++
++    def stop(self):
++        self.server.shutdown()
++        self.server.server_close()
++
++    def post(self, body=None, *, raw=None, headers=None, path="/proposals", timeout=5):
++        merged = {"Content-Type": "application/json", **(headers or {})}
++        payload = raw if raw is not None else json.dumps(body).encode()
++        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
++        try:
++            conn.request("POST", path, body=payload, headers=merged)
++            resp = conn.getresponse()
++            data = resp.read()
++            return resp.status, (json.loads(data) if data else None)
++        finally:
++            conn.close()
++
++    def rows(self, sql="SELECT task_id, revision, state FROM proposals ORDER BY task_id, revision"):
++        conn = sqlite3.connect(self.db)
++        try:
++            return conn.execute(sql).fetchall()
++        finally:
++            conn.close()
++
++
++@pytest.fixture
++def clock():
++    return Clock()
++
++
++@pytest.fixture
++def start_inbox(tmp_path, clock):
++    started = []
++
++    def start(**kwargs):
++        inbox = Inbox(tmp_path / "inbox.db", clock, **kwargs)
++        started.append(inbox)
++        return inbox
++
++    yield start
++    for inbox in started:
++        with contextlib.suppress(Exception):
++            inbox.stop()
+diff --git a/tests/executor/test_inbox_server.py b/tests/executor/test_inbox_server.py
+new file mode 100644
+index 0000000..0e068b2
+--- /dev/null
++++ b/tests/executor/test_inbox_server.py
+@@ -0,0 +1,373 @@
++"""提案收件口:對應設計審通過的 S1~S18。每個測試對應計劃裡一條合約。"""
++
++import ast
++import http.client
++import inspect
++import json
++import socket
++import sqlite3
++import threading
++import time
++
++import pytest
++
++from rtb.executor import inbox_server, inbox_store
++from tests.domain.proposal_samples import REJECTED_OVERRIDES, valid
++
++
++def budget(value, **overrides):
++    return valid(requested_change={"new_budget": value}, **overrides)
++
++
++def test_a_first_valid_proposal_is_accepted_with_201(start_inbox):
++    inbox = start_inbox()
++
++    status, data = inbox.post(valid())
++
++    assert status == 201
++    assert data["status"] == "accepted" and data["state"] == "pending"
++    assert (data["task_id"], data["revision"], data["replayed"]) == ("t1", 1, False)
++    assert len(data["content_hash"]) == 64
++    assert inbox.rows() == [("t1", 1, "pending")]
++
++
++# ---- S1 ----
++def test_a_resent_identical_proposal_returns_the_current_state_and_adds_nothing_even_when_full_or_superseded(  # noqa: E501
++        start_inbox, clock):
++    inbox = start_inbox(max_pending=1)
++    first = inbox.post(valid())[1]
++
++    status, again = inbox.post(valid())  # 已滿(上限 1、已有 1 個待處理)也照樣回重送結果
++    assert (status, again["replayed"], again["state"]) == (200, True, "pending")
++    assert again["content_hash"] == first["content_hash"]
++
++    assert inbox.post(budget(160, revision=2))[0] == 201  # 取代 r1
++    status, again = inbox.post(valid())
++    assert (status, again["state"]) == (200, "superseded")
++
++    clock.advance(hours=1)  # 全部過期
++    assert inbox.post(budget(160, revision=2))[1]["state"] == "expired"
++    assert len(inbox.rows()) == 2
++
++
++# ---- S2 ----
++def test_a_different_proposal_for_the_same_key_is_rejected_and_the_original_is_untouched(
++        start_inbox):
++    inbox = start_inbox()
++    inbox.post(valid())
++    before = inbox.rows("SELECT content_hash, payload FROM proposals")
++
++    status, data = inbox.post(budget(999))
++
++    assert (status, data["error"]) == (409, "content_conflict")
++    assert inbox.rows("SELECT content_hash, payload FROM proposals") == before
++    assert ("content_conflict",) in inbox.rows("SELECT code FROM inbox_events")
++
++
++# ---- S3 ----
++def test_a_revision_that_is_not_exactly_the_next_one_is_rejected_with_the_current_highest(
++        start_inbox):
++    inbox = start_inbox()
++
++    status, data = inbox.post(valid(revision=2))  # 第一份必須是 1
++    assert (status, data["error"], data["highest_revision"]) == (409, "revision_out_of_order", 0)
++
++    inbox.post(valid())
++    for bad in (3, 999_999):  # 解析器本身也把修訂序號限制在 100 萬以內
++        status, data = inbox.post(valid(revision=bad))
++        assert (status, data["error"], data["highest_revision"]) == (
++            409, "revision_out_of_order", 1)
++    assert inbox.post(valid(revision=10**9))[0] == 400  # 超過解析器上限:根本進不了收件交易
++    assert inbox.rows() == [("t1", 1, "pending")]
++    assert inbox.post(valid(revision=2))[0] == 201  # 正確的下一個序號沒有被卡死
++
++
++# ---- S4 ----
++def test_accepting_the_next_revision_supersedes_the_previous_one_even_when_the_inbox_is_full(
++        start_inbox):
++    inbox = start_inbox(max_pending=1)
++    inbox.post(valid())
++
++    status, _ = inbox.post(budget(160, revision=2))
++
++    assert status == 201
++    assert inbox.rows() == [("t1", 1, "superseded"), ("t1", 2, "pending")]
++    assert inbox.post(valid(task_id="t2"))[1]["error"] == "inbox_full"  # 名額仍然只有 1
++
++
++# ---- S5 ----
++def test_malformed_or_oversized_bodies_are_rejected_without_writing_or_crashing(start_inbox):
++    inbox = start_inbox()
++    bad_requests = [
++        {"raw": b"not json"}, {"raw": b"[1,2]"}, {"raw": b""},
++        {"raw": b'{"x":"' + b"a" * (70 * 1024) + b'"}'},
++        {"body": {**valid(), "tool_name": "delete_all"}},
++        {"body": valid(revision="1")}, {"body": valid(risk_summary="x" * 20_000)},
++    ]
++
++    for request in bad_requests:
++        status, data = inbox.post(**request)
++        assert 400 <= status < 500 and data["retryable"] is False, request
++    assert inbox.rows() == []
++    assert inbox.post(valid())[0] == 201  # 行程還活著
++
++
++# ---- S6 ----
++def test_a_full_inbox_answers_503_inbox_full_and_writes_nothing(start_inbox):
++    inbox = start_inbox(max_pending=2)
++    inbox.post(valid(task_id="t1"))
++    inbox.post(valid(task_id="t2"))
++
++    status, data = inbox.post(valid(task_id="t3"))
++
++    assert (status, data["error"], data["retryable"]) == (503, "inbox_full", True)
++    assert [row[0] for row in inbox.rows()] == ["t1", "t2"]
++
++
++# ---- S7 ----
++def test_a_busy_database_answers_503_busy_and_leaves_nothing_behind(start_inbox):
++    inbox = start_inbox(busy_timeout_seconds=0.1)
++    holder = sqlite3.connect(inbox.db, isolation_level=None)
++    holder.execute("BEGIN IMMEDIATE")
++
++    status, data = inbox.post(valid())
++
++    assert (status, data["error"], data["retryable"]) == (503, "busy", True)
++    holder.execute("ROLLBACK")
++    holder.close()
++    assert inbox.rows() == []
++    assert inbox.post(valid())[0] == 201
++
++
++# ---- S8 ----
++def _raw_post(inbox, body, fault):
++    conn = http.client.HTTPConnection("127.0.0.1", inbox.port, timeout=5)
++    conn.request("POST", "/proposals", body=json.dumps(body).encode(),
++                 headers={"Content-Type": "application/json", "X-Fault": fault})
++    try:
++        conn.getresponse()
++    except (http.client.RemoteDisconnected, ConnectionError):
++        return "no_response"
++    finally:
++        conn.close()
++    return "responded"
++
++
++def test_a_crash_before_commit_loses_nothing_and_a_crash_after_commit_is_answered_by_the_replay(
++        start_inbox):
++    inbox = start_inbox(fault_injection=True)
++
++    assert _raw_post(inbox, valid(), "crash_before_commit") == "no_response"
++    assert inbox.rows() == []  # 沒提交就沒有任何痕跡,也就不可能已經回過 2xx
++    assert inbox.post(valid())[0] == 201  # 重送被當成第一次接受
++
++    assert _raw_post(inbox, valid(task_id="t2"), "crash_after_commit") == "no_response"
++    assert ("t2", 1, "pending") in inbox.rows()  # 提交了,只是呼叫者不知道
++    status, data = inbox.post(valid(task_id="t2"))
++    assert (status, data["replayed"]) == (200, True)
++
++
++def test_fault_headers_are_refused_unless_the_process_was_started_with_fault_injection(
++        start_inbox):
++    inbox = start_inbox(fault_injection=False)
++
++    status, data = inbox.post(valid(), headers={"X-Fault": "crash_after_commit"})
++
++    assert (status, data["error"]) == (400, "fault_injection_disabled")
++    assert inbox.rows() == []
++
++
++# ---- S9 ----
++def test_concurrent_requests_for_the_same_key_accept_exactly_one(start_inbox):
++    inbox = start_inbox()
++    results = []
++
++    def run(body):
++        results.append(inbox.post(body)[0])
++
++    same = [threading.Thread(target=run, args=(valid(),)) for _ in range(12)]
++    for t in same:
++        t.start()
++    for t in same:
++        t.join()
++    assert sorted(results) == [200] * 11 + [201]
++
++    results.clear()
++    different = [threading.Thread(target=run, args=(budget(200 + i, task_id="t2"),))
++                 for i in range(12)]
++    for t in different:
++        t.start()
++    for t in different:
++        t.join()
++    assert sorted(results) == [201] + [409] * 11
++    assert len([r for r in inbox.rows() if r[0] == "t2"]) == 1
++
++
++# ---- S10 ----
++def test_an_already_expired_proposal_is_rejected_with_422_and_not_stored(start_inbox, clock):
++    inbox = start_inbox()
++    clock.advance(hours=1)  # 現在 13:05,提案 12:30 就到期
++
++    status, data = inbox.post(valid())
++
++    assert (status, data["error"], data["retryable"]) == (422, "expired_proposal", False)
++    assert inbox.rows() == []
++    assert ("expired_proposal",) in inbox.rows("SELECT code FROM inbox_events")
++
++
++# ---- S11 ----
++def test_a_pending_proposal_that_expires_is_marked_expired_and_frees_its_slot(
++        start_inbox, clock):
++    inbox = start_inbox(max_pending=1)
++    inbox.post(valid())
++    clock.advance(minutes=40)  # 12:45:t1 已過期(12:30)
++    later = valid(task_id="t2", decision_created_at="2026-09-22T12:40:00+00:00",
++                  decision_expires_at="2026-09-22T13:30:00+00:00")
++
++    status, _ = inbox.post(later)
++
++    assert status == 201
++    assert inbox.rows() == [("t1", 1, "expired"), ("t2", 1, "pending")]
++
++
++# ---- S12 ----
++def test_the_inbox_rejects_foreign_hosts_origins_content_types_and_non_loopback_binding(
++        start_inbox, tmp_path):
++    inbox = start_inbox()
++
++    assert inbox.post(valid(), headers={"Host": "evil.example"})[1]["error"] == "invalid_host"
++    status, data = inbox.post(valid(), headers={"Origin": "http://evil.example"})
++    assert (status, data["error"]) == (403, "origin_not_allowed")
++    for content_type in ("text/plain", "application/x-www-form-urlencoded", ""):
++        status, data = inbox.post(valid(), headers={"Content-Type": content_type})
++        assert (status, data["error"]) == (415, "unsupported_media_type"), content_type
++    charset = {"Content-Type": "application/json; charset=utf-8"}
++    assert inbox.post(valid(), headers=charset)[0] == 201
++    assert inbox.rows() == [("t1", 1, "pending")]
++    with pytest.raises(ValueError):
++        inbox_server.InboxServer(tmp_path / "other.db", host="0.0.0.0")  # noqa: S104
++
++
++def test_only_post_to_the_proposals_path_is_served(start_inbox):
++    inbox = start_inbox()
++
++    assert inbox.post(valid(), path="/elsewhere")[0] == 404
++    conn = http.client.HTTPConnection("127.0.0.1", inbox.port, timeout=3)
++    conn.request("GET", "/proposals")
++    assert conn.getresponse().status == 404
++    conn.close()
++
++
++# ---- S13 ----
++def test_error_responses_never_echo_request_content(start_inbox):
++    inbox = start_inbox()
++    marker = "SECRET_MARKER_7f3a"
++    inbox.post(valid())
++
++    responses = [
++        inbox.post({**valid(), marker: "value"}),
++        inbox.post(valid(risk_summary=marker + "x" * 600)),
++        inbox.post(budget(999, risk_summary=marker)),  # 內容衝突
++        inbox.post(valid(revision=5, risk_summary=marker)),  # 序號不對
++        inbox.post(raw=marker.encode()),
++    ]
++
++    for status, data in responses:
++        assert status >= 400
++        assert marker not in json.dumps(data)
++        assert set(data) <= {"error", "retryable", "highest_revision"}
++
++
++# ---- S14 ----
++def test_the_event_log_is_bounded_fixed_shape_and_never_affects_the_response(
++        start_inbox, monkeypatch):
++    monkeypatch.setattr(inbox_store, "MAX_EVENTS", 5)
++    inbox = start_inbox()
++    inbox.post(valid())
++    for i in range(20):
++        inbox.post(budget(300 + i))  # 20 次衝突
++
++    columns = [r[1] for r in inbox.rows("PRAGMA table_info(inbox_events)")]
++    events = inbox.rows("SELECT code, task_id, revision, content_hash FROM inbox_events")
++    assert columns == ["id", "at", "task_id", "revision", "code", "content_hash"]
++    assert len(events) == 5
++    assert {e[0] for e in events} <= inbox_store.EVENT_CODES
++
++    def failing(*_args, **_kwargs):
++        raise sqlite3.OperationalError("disk full")
++
++    monkeypatch.setattr(inbox_store.InboxStore, "_write_event", failing)
++    status, data = inbox.post(budget(999))
++    assert (status, data["error"]) == (409, "content_conflict")  # 事件寫不進去,回應照舊
++
++
++def test_an_event_never_stores_untrusted_text_only_a_valid_task_id_or_nothing(start_inbox):
++    inbox = start_inbox()
++
++    inbox.post({**valid(task_id="../../etc/passwd; DROP TABLE x")})
++    inbox.post(raw=b"garbage")
++
++    for task_id, _revision in inbox.rows("SELECT task_id, revision FROM inbox_events"):
++        assert task_id is None
++
++
++# ---- S15 ----
++def test_proposals_survive_a_restart_and_a_resend_is_a_replay(start_inbox):
++    first = start_inbox()
++    first.post(valid())
++    db = first.db
++    first.stop()
++
++    second = start_inbox()  # 同一個資料庫檔,新的伺服器
++    assert second.db == db
++
++    status, data = second.post(valid())
++    assert (status, data["replayed"], data["state"]) == (200, True, "pending")
++
++
++# ---- S16 ----
++def test_every_sample_the_domain_parser_rejects_is_also_rejected_by_the_inbox_and_the_inbox_defines_no_validators(  # noqa: E501
++        start_inbox, monkeypatch):
++    inbox = start_inbox()
++    calls = []
++    real = inbox_server.parse_proposal
++
++    def spy(raw):
++        calls.append(1)
++        return real(raw)
++
++    monkeypatch.setattr(inbox_server, "parse_proposal", spy)
++
++    for override in REJECTED_OVERRIDES:
++        status, data = inbox.post(valid(**override))
++        assert status == 400 and data["error"] == "invalid_proposal", override
++    assert len(calls) == len(REJECTED_OVERRIDES)  # 每個請求都經過同一個解析函式
++    assert inbox.rows() == []
++
++    for module in (inbox_server, inbox_store):  # 收件口模組沒有自己的欄位驗證
++        tree = ast.parse(inspect.getsource(module))
++        imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
++                    and n.module and n.module.startswith("rtb.domain") for a in n.names}
++        assert imported <= {"parse_proposal", "content_hash", "Proposal"}, imported
++        assert not [n for n in ast.walk(tree) if isinstance(n, ast.Import)
++                    and any(a.name == "re" for a in n.names)]
++
++
++def test_the_inbox_uses_the_domain_parser_for_every_request_module_level_check():
++    assert inbox_server.parse_proposal.__module__ == "rtb.domain.proposal"
++
++
++# ---- S18 ----
++def test_a_stalled_connection_is_dropped_after_the_socket_timeout(start_inbox):
++    inbox = start_inbox(socket_timeout_seconds=0.3)
++    sock = socket.create_connection(("127.0.0.1", inbox.port), timeout=3)
++    sock.sendall(b"POST /proposals HTTP/1.1\r\nHost: 127.0.0.1")
++    started = time.monotonic()
++
++    sock.recv(1024)
++
++    assert time.monotonic() - started < 2.0
++    sock.close()
++    assert inbox.post(valid())[0] == 201
++
++

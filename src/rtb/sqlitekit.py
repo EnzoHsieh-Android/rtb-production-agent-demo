@@ -4,6 +4,8 @@ DSP 與提案收件口都用它,不各寫一套。每個執行緒或請求自己
 """
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 BUSY_TIMEOUT_SECONDS = 5.0
@@ -45,4 +47,17 @@ def begin_immediate(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError as exc:
         if _is_lock_contention(exc):
             raise DatabaseBusy(str(exc)) from exc
+        raise
+
+
+@contextmanager
+def immediate_transaction(conn: sqlite3.Connection) -> Iterator[None]:
+    """寫入交易:進入時 BEGIN IMMEDIATE(鎖不到丟 DatabaseBusy),正常結束就提交,任何例外都回滾。"""
+    begin_immediate(conn)
+    try:
+        yield
+        conn.execute("COMMIT")
+    except BaseException:
+        if conn.in_transaction:  # SQLite 有時已自行回滾;再回滾會蓋掉真正的原因
+            conn.execute("ROLLBACK")
         raise

@@ -78,7 +78,7 @@ class DspHandler(JsonHandler):
     server: DspServer
 
     def handle_request(self, method: str) -> tuple[int, dict[str, Any]]:
-        fault = self._read_fault()
+        fault = self.read_fault(FAULT_MODES)
         handler, campaign_or_key = self._route(method)
         store = CampaignStore(
             self.server.db_path, busy_timeout_seconds=self.server.busy_timeout_seconds
@@ -90,16 +90,6 @@ class DspHandler(JsonHandler):
 
     def map_exception(self, exc: Exception) -> tuple[int, str, bool] | None:
         return error_entry(exc) if isinstance(exc, DspError) else None
-
-    def _read_fault(self) -> str | None:
-        mode = self.single_header("X-Fault")
-        if mode is None:
-            return None
-        if not self.server.fault_injection:
-            raise RequestRejected(400, "fault_injection_disabled")
-        if mode not in FAULT_MODES:
-            raise RequestRejected(400, "unknown_fault_mode")
-        return mode
 
     def _route(self, method: str) -> tuple[str, str]:
         for route_method, pattern, name in ROUTES:
@@ -184,8 +174,8 @@ class DspServer(KitServer):
     def __init__(self, db_path: Path, fault_injection: bool, hang_seconds: float,
                  delay_seconds: float, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
                  socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS):
-        super().__init__(DspHandler, socket_timeout_seconds)
-        self.db_path, self.fault_injection = db_path, fault_injection
+        super().__init__(DspHandler, socket_timeout_seconds, fault_injection=fault_injection)
+        self.db_path = db_path
         self.hang_seconds, self.delay_seconds = hang_seconds, delay_seconds
         self.busy_timeout_seconds = busy_timeout_seconds
 

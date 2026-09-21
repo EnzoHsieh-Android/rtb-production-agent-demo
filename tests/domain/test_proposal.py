@@ -11,21 +11,7 @@ import pytest
 from rtb.domain import _checks
 from rtb.domain import proposal as proposal_module
 from rtb.domain.proposal import ActionType, ParsedProposal, Proposal, parse_proposal
-
-CREATED = "2026-09-22T12:00:00+00:00"
-EXPIRES = "2026-09-22T12:30:00+00:00"
-
-
-def valid(**overrides):
-    raw = {
-        "task_id": "t1", "revision": 1, "campaign_id": "c1", "action_type": "update_budget",
-        "requested_change": {"new_budget": 150}, "reason_codes": ["low_pacing"],
-        "evidence_refs": ["e1", "e2"], "campaign_version_observed": 3,
-        "decision_created_at": CREATED, "decision_expires_at": EXPIRES,
-        "policy_version": "v1", "risk_summary": "budget +50%",
-    }
-    raw.update(overrides)
-    return raw
+from tests.domain.proposal_samples import CREATED, EXPIRES, valid
 
 
 def test_a_valid_budget_proposal_is_parsed_into_typed_fields():
@@ -304,3 +290,24 @@ def test_non_string_keys_nested_inside_are_rejected_as_not_json():
         parsed = parse_proposal(valid(requested_change=nested))
 
         assert parsed.proposal is None and parsed.errors
+
+
+@pytest.mark.parametrize("extreme", [
+    {"decision_expires_at": "9999-12-31T23:00:00-05:00"},
+    {"decision_created_at": "0001-01-01T00:00:00+05:00",
+     "decision_expires_at": "0001-01-01T01:00:00+05:00"},
+])
+def test_times_that_overflow_when_converted_to_utc_are_ordinary_field_errors_not_crashes(extreme):
+    parsed = parse_proposal(valid(**extreme))
+
+    assert parsed.proposal is None
+    assert not any(error.startswith("unexpected_failure") for error in parsed.errors)
+
+
+def test_times_before_the_lower_bound_are_rejected_and_the_bound_itself_is_allowed():
+    early = parse_proposal(valid(decision_created_at="1999-12-31T23:59:00+00:00",
+                                 decision_expires_at="2000-01-01T00:30:00+00:00"))
+    edge = parse_proposal(valid(decision_created_at="2000-01-01T00:00:00+00:00",
+                                decision_expires_at="2000-01-01T00:30:00+00:00"))
+
+    assert early.proposal is None and edge.proposal is not None
