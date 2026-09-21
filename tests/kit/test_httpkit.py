@@ -206,8 +206,10 @@ def test_a_malformed_request_line_gets_a_json_error_not_an_html_page(server):
         raw += chunk
     sock.close()
 
-    # 畸形請求行按 HTTP/0.9 回應:沒有標頭,只有 JSON 本文
-    assert json.loads(raw)["error"] == "http_error"
+    # 不同的 Python 小版本對畸形請求行的回應不同:舊的只回 JSON 本文(HTTP/0.9 形式),
+    # 新的(例如 3.14.7)有完整狀態行與標頭;兩種都要接受,本文一定是 JSON
+    body = raw.split(b"\r\n\r\n", 1)[-1]
+    assert json.loads(body)["error"] == "http_error"
     assert b"<html" not in raw.lower()
 
 
