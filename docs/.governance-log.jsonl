@@ -177,3 +177,10 @@
 {"ts": "2026-09-22T02:25:33+08:00", "commit": "1dbe75d", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=3 soft=4"}
 {"ts": "2026-09-22T02:25:34+08:00", "commit": "1dbe75d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260921T182532Z-93405", "head_sha": "1dbe75d585eb34e9385b754d40a3358de82a6651"}
 {"ts": "2026-09-22T02:25:36+08:00", "commit": "1dbe75d", "gate": "bound-tests", "kind": "no-pins", "hard": false, "nodes": [], "note": "8dc75b90858de84478c8b4e3e877f5d2cb8d7ca3..1dbe75d585eb34e9385b754d40a3358de82a6651"}
+{"ts": "2026-09-22T02:31:24+08:00", "commit": "1dbe75d", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-22T02:31:25+08:00", "commit": "1dbe75d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "1dbe75d585eb34e9385b754d40a3358de82a6651"}
+{"ts": "2026-09-22T02:35:13+08:00", "commit": "c53d887", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase2任務流程_計劃.md"], "note": "door=high clauses=9 bound=0 red=0 green=0 weak=0 regress=0 no-run"}
+{"ts": "2026-09-22T02:39:23+08:00", "commit": "c53d887", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase2任務流程_計劃.md"], "note": "door=high clauses=19 bound=0 red=0 green=0 weak=0 regress=0 no-run"}
+{"ts": "2026-09-22T02:40:08+08:00", "commit": "c53d887", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase2任務流程"], "note": "disposal gate PASS"}
+{"ts": "2026-09-22T02:40:19+08:00", "commit": "c53d887", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-22T02:40:20+08:00", "commit": "c53d887", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "c53d887653b687f4c2c7450b3be8068d8f4ff0af"}
