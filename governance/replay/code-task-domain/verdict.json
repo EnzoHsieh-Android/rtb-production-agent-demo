@@ -1,0 +1,38 @@
+{
+ "loop": "code-task-domain",
+ "round": "r2",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-22T01:11:53+08:00",
+ "spec_path": "governance/review-reports/code-task-domain/r2-snapshot.patch",
+ "spec_sha": "6c731f1a235d9786700b3d1a88c2fac69f286bfb6a77c58b19871052a3b5c295",
+ "rows": [
+  "{\"ts\": \"2026-09-22T01:05:57+08:00\", \"kind\": \"none\", \"auditor\": \"tarch-architecture\", \"token\": \"CANARY-a82a3fb5\", \"note\": \"\", \"loop\": \"code-task-domain\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 4, \"result_sha256\": \"cfa9ece92706c7e6873c578996eb0cb77034606f4b597d5bddc24e1a15139b16\", \"reviewed_sha256\": \"cfa9ece92706c7e6873c578996eb0cb77034606f4b597d5bddc24e1a15139b16\", \"spec_path\": \"governance/review-reports/code-task-domain/r1-snapshot.patch\", \"scope_lines\": 890, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 4, \"report_path\": \"governance/review-reports/code-task-domain/r1-tarch.md\", \"report_sha256\": \"b369491feae7e0aee8175f744be0f8ed2a2b3c990714415413864c6719159fb6\", \"snapshot_path\": \"governance/review-reports/code-task-domain/r1-snapshot.patch\", \"snapshot_sha256\": \"cfa9ece92706c7e6873c578996eb0cb77034606f4b597d5bddc24e1a15139b16\"}",
+  "{\"ts\": \"2026-09-22T01:05:57+08:00\", \"kind\": \"none\", \"auditor\": \"t1-generalist\", \"token\": \"CANARY-5dc08a9c\", \"note\": \"\", \"loop\": \"code-task-domain\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 6, \"result_sha256\": \"cfa9ece92706c7e6873c578996eb0cb77034606f4b597d5bddc24e1a15139b16\", \"reviewed_sha256\": \"cfa9ece92706c7e6873c578996eb0cb77034606f4b597d5bddc24e1a15139b16\", \"spec_path\": \"governance/review-reports/code-task-domain/r1-snapshot.patch\", \"scope_lines\": 890, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"t1f1\", \"t1f2\", \"t1f3\", \"t1f4\", \"t1f5\", \"t1f6\", \"taf1\", \"taf2\", \"taf3\", \"taf4\"], \"folded_set\": [\"t1f1\", \"t1f2\", \"t1f3\", \"t1f4\", \"t1f5\", \"t1f6\", \"taf1\", \"taf2\", \"taf3\", \"taf4\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"t1f1\": \"code\", \"t1f2\": \"code\", \"t1f3\": \"code\", \"t1f4\": \"code\", \"t1f5\": \"code\", \"t1f6\": \"code\", \"taf1\": \"code\", \"taf2\": \"code\", \"taf3\": \"code\", \"taf4\": \"code\"}, \"reported\": 6, \"report_path\": \"governance/review-reports/code-task-domain/r1-t1.md\", \"report_sha256\": \"fcd2b306f604d1242b3da2d4713cf1254127775c024e09440c0cf29db7f0f262\", \"snapshot_path\": \"governance/review-reports/code-task-domain/r1-snapshot.patch\", \"snapshot_sha256\": \"cfa9ece92706c7e6873c578996eb0cb77034606f4b597d5bddc24e1a15139b16\", \"intake_path\": \"governance/review-reports/code-task-domain/r1-intake.md\", \"intake_sha256\": \"30649da53491b9580856db1704ebaf336d98c33d6ead5a4389545f8afeb79682\"}",
+  "{\"ts\": \"2026-09-22T01:10:39+08:00\", \"kind\": \"none\", \"auditor\": \"uarch-architecture\", \"token\": \"CANARY-563ab666\", \"note\": \"\", \"loop\": \"code-task-domain\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 3, \"result_sha256\": \"6c731f1a235d9786700b3d1a88c2fac69f286bfb6a77c58b19871052a3b5c295\", \"reviewed_sha256\": \"6c731f1a235d9786700b3d1a88c2fac69f286bfb6a77c58b19871052a3b5c295\", \"spec_path\": \"governance/review-reports/code-task-domain/r2-snapshot.patch\", \"scope_lines\": 709, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 3, \"report_path\": \"governance/review-reports/code-task-domain/r2-uarch.md\", \"report_sha256\": \"f7d9b1bcd2df8a5e96706043f48682109d5ed6b30dc76b6ed9db92b6d628b639\", \"snapshot_path\": \"governance/review-reports/code-task-domain/r2-snapshot.patch\", \"snapshot_sha256\": \"6c731f1a235d9786700b3d1a88c2fac69f286bfb6a77c58b19871052a3b5c295\"}",
+  "{\"ts\": \"2026-09-22T01:10:39+08:00\", \"kind\": \"none\", \"auditor\": \"u1-fix-delta\", \"token\": \"CANARY-81321bf2\", \"note\": \"\", \"loop\": \"code-task-domain\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 1, \"result_sha256\": \"6c731f1a235d9786700b3d1a88c2fac69f286bfb6a77c58b19871052a3b5c295\", \"reviewed_sha256\": \"6c731f1a235d9786700b3d1a88c2fac69f286bfb6a77c58b19871052a3b5c295\", \"spec_path\": \"governance/review-reports/code-task-domain/r2-snapshot.patch\", \"scope_lines\": 709, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"u1f1\", \"uaf1\", \"uaf2\", \"uaf3\"], \"folded_set\": [\"u1f1\", \"uaf1\", \"uaf2\", \"uaf3\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"u1f1\": \"code\", \"uaf1\": \"code\", \"uaf2\": \"code\", \"uaf3\": \"code\"}, \"reported\": 1, \"report_path\": \"governance/review-reports/code-task-domain/r2-u1.md\", \"report_sha256\": \"05572ab9ddae16e849266c40ac8cba091b7bf480d4dae10a129bd60b977b4dad\", \"snapshot_path\": \"governance/review-reports/code-task-domain/r2-snapshot.patch\", \"snapshot_sha256\": \"6c731f1a235d9786700b3d1a88c2fac69f286bfb6a77c58b19871052a3b5c295\", \"intake_path\": \"governance/review-reports/code-task-domain/r2-intake.md\", \"intake_sha256\": \"b635a42a127756f7477f6231147d28f91d43cab5a208588d4278d7a79a607949\"}"
+ ],
+ "all_row_shas": [
+  "2b77999eb608bc4352008c6677790e8efca94f78b3096bb2dcab4c818b6b800c",
+  "2eecb4ac81bf5d9dfadeb39da0cab54f1cd94cdf64f00def8629354d84126c95",
+  "6bedca05ef72de2a8d2dae2ae35f556fbebb715502a000375e43055304460439",
+  "f63bb7e15899cd7423cb1d45ff4cf5551a17dd8b7b61c20e83fba9936aed3955"
+ ],
+ "files": {
+  "governance/review-reports/code-task-domain/r2-uarch.md": {
+   "sha256": "f7d9b1bcd2df8a5e96706043f48682109d5ed6b30dc76b6ed9db92b6d628b639",
+   "git_blob": "d91eb73a114b9ce2ee5fdc100f7bb410d47f66d0"
+  },
+  "governance/review-reports/code-task-domain/r2-snapshot.patch": {
+   "sha256": "6c731f1a235d9786700b3d1a88c2fac69f286bfb6a77c58b19871052a3b5c295",
+   "git_blob": "b61cca93263e7d4cd27bf84f093ab810aa9f3067"
+  },
+  "governance/review-reports/code-task-domain/r2-u1.md": {
+   "sha256": "05572ab9ddae16e849266c40ac8cba091b7bf480d4dae10a129bd60b977b4dad",
+   "git_blob": "510ec635e6b983e6038fdf7d707ca2c570d7598a"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

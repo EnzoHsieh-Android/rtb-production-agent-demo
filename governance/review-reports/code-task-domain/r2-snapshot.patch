@@ -1,0 +1,709 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md b/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
+index 2a84cc5..2dc7137 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
+@@ -2,32 +2,36 @@
+ type: system
+ status: doing
+ created: 2026-09-22
+ updated: 2026-09-22
+ responsibility: 負責任務狀態機(分析行程這一側的合法轉換)、證據與新鮮度判斷、提案的嚴格解析這三個純判斷;不負責儲存、網路、執行行程那一側的操作狀態,也不做授權或政策檢查。
+ aliases: []
+ about_code:
+   - src/rtb/domain/task_state.py
+   - src/rtb/domain/evidence.py
+   - src/rtb/domain/proposal.py
++  - src/rtb/domain/_checks.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: 狀態(State)是系統已知的事實,檢查點(Checkpoint)只是「這一步的輸出已安全存好」的進度標記,不保證證據現在還是真的;所以證據要帶讀取時間與讀到的廣告版本,重啟後由純程式判斷新鮮度,而不是因為檢查點還在就直接沿用。出處:對話 2026-09-22,使用者答對「重啟後證據依新鮮度沿用或重讀」;[[RTB_Phase2任務流程_計劃]]。
+   WHY: 提案是不可信輸入,解析採嚴格白名單並回「成功或錯誤清單」,不丟例外也不放行,因為提案內容可能受廣告文字或模型輸出影響。出處:[[RTB_Agent_Phase0架構]] 的不可信輸入一節。
+   PITFALL: 新鮮度若先看版本再看年齡,或把「沒讀到現況版本」當成新鮮,重啟後會沿用過時證據。防回歸:[test:test_expiry_takes_priority_over_a_changed_version]、[test:test_evidence_with_a_version_but_no_current_version_is_unverified_not_fresh]。
+   PITFALL: 時鐘倒退(現在比讀取時間還早)若算新鮮,會讓不可信的時間戳通過。防回歸:[test:test_a_clock_that_went_backwards_is_treated_as_expired_not_as_super_fresh]。
+   PITFALL: 提案若允許多餘欄位,可以夾帶工具名稱、網址、憑證或政策覆寫。防回歸:[test:test_unknown_fields_are_rejected_so_nothing_can_be_smuggled_in]。
+   PITFALL: 交接給執行行程之後,分析端若還能回到「蒐集證據」,同一個任務會在兩個行程各跑一份。防回歸:[test:test_illegal_transitions_are_rejected_with_both_states_named](含交接後不能重來)。
++  PITFALL: 提案解析若對「不能雜湊的值」(list、dict)先做集合成員判斷,或用遞迴序列化量大小,不可信輸入就能讓它丟 TypeError 或 RecursionError,違反「絕不丟例外」的承諾。防回歸:[test:test_unhashable_values_in_any_field_return_errors_instead_of_raising]、[test:test_absurdly_deep_nesting_is_rejected_without_recursion_errors]、[test:test_random_garbage_in_every_field_never_raises_and_the_result_is_always_consistent](2026-09-22 代碼審第一輪指出,我自己用指令重現)。
++  PITFALL: 用 json.dumps 量大小會先吃完記憶體與時間才被拒,而且算的是字元數不是位元組。改成不遞迴、有深度與位元組上限的迭代式走訪。防回歸:[test:test_size_is_counted_in_utf8_bytes_not_characters]、[test:test_a_huge_input_is_rejected_early_without_serializing_all_of_it]。
++  RULE: 領域層的共用小檢查(識別碼格式、整數不含布林)只有 `_checks.py` 一份定義;DSP 是外部系統的模擬器,刻意不依賴領域層,所以自己另有一份,兩邊不同步是有意的。[since:2026-09-22] [retire:DSP 改成真實外部系統的客戶端,或抽出共用套件時撤除]
+   TEST: tests/domain/test_task_state.py、test_evidence.py、test_proposal.py 涵蓋合法與非法轉換、終點狀態沒有出路、表完整、新鮮度的邊界與優先順序、提案缺欄位或多餘欄位或型別錯或過大或到期早於建立、垃圾輸入不丟例外。
+ ---
+ # 任務流程領域模型
+ 
+-三支模組:`src/rtb/domain/task_state.py` 是狀態機,合法轉換是一張表,終點狀態沒有出路,非終點都可以轉失敗,分析或已提案階段可以因證據或提案過期回到蒐集證據,交接之後不行;`src/rtb/domain/evidence.py` 是證據型別與 `check_freshness`,先判年齡再判版本,結果分新鮮、過期、版本已變、未驗證四種,只有新鮮可用;`src/rtb/domain/proposal.py` 是提案型別與 `parse_proposal`,把不可信的原始資料解析成提案或一份完整的錯誤清單。三者都在領域層,由該目錄的 ruff 設定禁止匯入資料庫、網路與模型。
++四支檔案:`src/rtb/domain/_checks.py` 放領域層共用的小檢查(識別碼格式與整數不含布林),讓同一個規則只有一份定義。其餘三支模組:`src/rtb/domain/task_state.py` 是狀態機,合法轉換是一張表,終點狀態沒有出路,非終點都可以轉失敗,分析或已提案階段可以因證據或提案過期回到蒐集證據,交接之後不行;`src/rtb/domain/evidence.py` 是證據型別與 `check_freshness`,先判年齡再判版本,結果分新鮮、過期、版本已變、未驗證四種,只有新鮮可用;`src/rtb/domain/proposal.py` 是提案型別與 `parse_proposal`,把不可信的原始資料解析成提案或一份完整的錯誤清單。三者都在領域層,由該目錄的 ruff 設定禁止匯入資料庫、網路與模型。
+ 
+ ## 已知缺口(如實標明)
+ 
+ - 只有分析行程這一側的狀態機;執行行程那一側的操作狀態、事件與 trace 尚未定義,屬後續增量。
+-- 提案解析只檢查格式,不做政策或授權檢查;新鮮度的年齡上限由呼叫端傳入,還沒有集中的政策。
++- 提案解析只檢查格式,不做政策或授權檢查;大小是粗估的位元組數(字串用 UTF-8 位元組、整數用位數估算、每個容器有固定開銷),不是精確的 JSON 長度,目的是擋超大與過深,不是量準;新鮮度的年齡上限由呼叫端傳入,還沒有集中的政策。
+ - 風險摘要目前只是不超過 500 字的字串,沒有結構。
+ - 這個增量沒有經過設計審;狀態機與證據格式在增量 2 設計審前先定型,審查員可能要求修改。
+diff --git a/src/rtb/domain/_checks.py b/src/rtb/domain/_checks.py
+new file mode 100644
+index 0000000..942cda6
+--- /dev/null
++++ b/src/rtb/domain/_checks.py
+@@ -0,0 +1,18 @@
++"""領域層共用的小檢查:同一個規則只有一份定義,免得各模組改了一處漏另一處。
++
++只放「證據編號、任務編號這類識別碼的格式」與「整數不含布林」這類到處要用的判斷。
++DSP(rtb.dsp)是外部系統的模擬器,刻意不依賴這裡,所以它自己另有一份。
++"""
++
++import re
++
++ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
++
++
++def is_plain_int(value: object) -> bool:
++    """是整數,而且不是布林(Python 的 True 也是整數,會繞過型別檢查)。"""
++    return isinstance(value, int) and not isinstance(value, bool)
++
++
++def is_id(value: object) -> bool:
++    return isinstance(value, str) and ID_PATTERN.fullmatch(value) is not None
+diff --git a/src/rtb/domain/evidence.py b/src/rtb/domain/evidence.py
+index afc6617..6d6568c 100644
+--- a/src/rtb/domain/evidence.py
++++ b/src/rtb/domain/evidence.py
+@@ -4,21 +4,22 @@
+ 重讀是安全的,重做副作用才危險;執行的那一刻執行行程仍要重讀現況並重新授權,
+ 新鮮度只是第一道,不是最後一道。
+ """
+ 
+ import math
+ import re
+ from dataclasses import dataclass
+ from datetime import datetime
+ from enum import StrEnum
+ 
+-ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
++from rtb.domain._checks import is_id, is_plain_int
++
+ HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
+ MAX_SOURCE_LENGTH = 64
+ 
+ 
+ class EvidenceKind(StrEnum):
+     CAMPAIGN_STATE = "campaign_state"
+     METRICS = "metrics"
+ 
+ 
+ class TrustClass(StrEnum):
+@@ -30,72 +31,73 @@ class Freshness(StrEnum):
+     FRESH = "fresh"
+     EXPIRED = "expired"
+     VERSION_CHANGED = "version_changed"
+     UNVERIFIED = "unverified"  # 有版本卻沒讀到現況的版本,不能說新鮮
+ 
+     @property
+     def is_usable(self) -> bool:
+         return self is Freshness.FRESH
+ 
+ 
+-def _is_plain_int(value: object) -> bool:
+-    return isinstance(value, int) and not isinstance(value, bool)
+-
+-
+ def _is_aware(value: object) -> bool:
+-    return isinstance(value, datetime) and value.tzinfo is not None
++    """有時區,而且時區真的給得出偏移(有些 tzinfo 的 utcoffset 回 None,等於沒有時區)。"""
++    return isinstance(value, datetime) and value.utcoffset() is not None
+ 
+ 
+ @dataclass(frozen=True)
+ class Evidence:
+     evidence_id: str
+     task_id: str
+     kind: EvidenceKind
+     source: str
+     observed_at: datetime
+     campaign_version_observed: int | None
+     content_hash: str
+     trust_class: TrustClass
+ 
+     def __post_init__(self) -> None:
+         problems = [
+-            ("evidence_id", _is_id(self.evidence_id)),
+-            ("task_id", _is_id(self.task_id)),
++            ("evidence_id", is_id(self.evidence_id)),
++            ("task_id", is_id(self.task_id)),
+             ("source", isinstance(self.source, str) and 0 < len(self.source) <= MAX_SOURCE_LENGTH),
+             ("kind", isinstance(self.kind, EvidenceKind)),
+             ("trust_class", isinstance(self.trust_class, TrustClass)),
+             ("observed_at", _is_aware(self.observed_at)),
+             ("campaign_version_observed", _is_version_or_none(self.campaign_version_observed)),
+             ("content_hash", _is_hash(self.content_hash)),
+         ]
+         bad = [name for name, ok in problems if not ok]
+         if bad:
+             raise ValueError(f"證據欄位不合法:{', '.join(bad)}")
+ 
+ 
+-def _is_id(value: object) -> bool:
+-    return isinstance(value, str) and ID_PATTERN.fullmatch(value) is not None
+-
+-
+ def _is_hash(value: object) -> bool:
+     return isinstance(value, str) and HASH_PATTERN.fullmatch(value) is not None
+ 
+ 
+ def _is_version_or_none(value: object) -> bool:
+-    return value is None or (_is_plain_int(value) and value >= 1)
++    return value is None or (is_plain_int(value) and value >= 1)
++
++
++def _is_positive_finite(value: object) -> bool:
++    if not isinstance(value, int | float) or isinstance(value, bool):
++        return False
++    try:
++        return math.isfinite(value) and value > 0
++    except OverflowError:  # 大到超出浮點範圍的整數,視為不合法
++        return False
+ 
+ 
+ def _check_inputs(now: object, max_age_seconds: object, current_version: object) -> None:
+     if not _is_aware(now):
+         raise ValueError("now 必須是有時區的 datetime")
+-    is_number = isinstance(max_age_seconds, int | float) and not isinstance(max_age_seconds, bool)
+-    if not is_number or not math.isfinite(max_age_seconds) or max_age_seconds <= 0:
++    if not _is_positive_finite(max_age_seconds):
+         raise ValueError("max_age_seconds 必須是正的有限數")
+     if not _is_version_or_none(current_version):
+         raise ValueError("current_version 必須是正整數或 None")
+ 
+ 
+ def check_freshness(
+     evidence: Evidence, now: datetime, max_age_seconds: float, current_version: int | None
+ ) -> Freshness:
+     """先判年齡(時鐘倒退也算過期,保守),再判版本。沒有版本的證據只看年齡。"""
+     _check_inputs(now, max_age_seconds, current_version)
+diff --git a/src/rtb/domain/proposal.py b/src/rtb/domain/proposal.py
+index 50e0ab3..13738ac 100644
+--- a/src/rtb/domain/proposal.py
++++ b/src/rtb/domain/proposal.py
+@@ -1,150 +1,216 @@
+ """提案:分析端產出的「想做什麼」,只是資料,沒有任何執行能力。
+ 
+ 提案是不可信輸入(內容可能受廣告文字或模型輸出影響),所以解析採嚴格白名單:
+ 不認得的欄位一律拒收(防止夾帶工具名稱、網址、憑證或政策覆寫),型別、大小與長度都有上限。
+ 解析結果是「成功或錯誤清單」,不丟例外也不放行;所有問題一次列出,不只回報第一個。
++量大小用迭代式、有深度與位元組上限的走訪,不遞迴、不先序列化整份輸入,超大或過深的輸入
++會在超過上限的那一刻就被拒絕。
+ """
+ 
+-import json
++import math
+ import re
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import datetime
+ from enum import StrEnum
+ from types import MappingProxyType
+ 
+-ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
++from rtb.domain._checks import ID_PATTERN, is_plain_int
++
+ POLICY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}")
+ REASON_PATTERN = re.compile(r"[a-z0-9_]{1,64}")
+ MAX_PAYLOAD_BYTES = 16 * 1024
++MAX_DEPTH = 6
+ MAX_LIST_ITEMS = 20
+ MAX_RISK_SUMMARY = 500
+ MAX_INT = 2**63 - 1
++CONTAINER_OVERHEAD = 8  # 每個容器與每個鍵值的粗估開銷(位元組),讓大量空容器也會被計入
+ 
+ 
+ class ActionType(StrEnum):
+     UPDATE_BUDGET = "update_budget"
+     PAUSE_CAMPAIGN = "pause_campaign"
+ 
+ 
+-FIELDS = (
+-    "task_id", "revision", "campaign_id", "action_type", "requested_change", "reason_codes",
+-    "evidence_refs", "campaign_version_observed", "decision_created_at", "decision_expires_at",
+-    "policy_version", "risk_summary",
+-)
+-
+-
+ @dataclass(frozen=True)
+ class Proposal:
++    """自我驗證:直接建構也不能繞過解析的規則(欄位型別與內容都要合法)。"""
++
+     task_id: str
+     revision: int
+     campaign_id: str
+     action_type: ActionType
+     requested_change: MappingProxyType
+     reason_codes: tuple[str, ...]
+     evidence_refs: tuple[str, ...]
+     campaign_version_observed: int
+     decision_created_at: datetime
+     decision_expires_at: datetime
+     policy_version: str
+     risk_summary: str
+ 
++    def __post_init__(self) -> None:
++        shape_ok = (
++            isinstance(self.action_type, ActionType)
++            and isinstance(self.requested_change, MappingProxyType)
++            and isinstance(self.reason_codes, tuple)
++            and isinstance(self.evidence_refs, tuple)
++        )
++        try:
++            raw = self.to_primitives() if shape_ok else None
++        except (AttributeError, TypeError, ValueError):
++            raw = None
++        if raw is None or _field_errors(raw) or _expiry_errors(raw):
++            raise ValueError("提案欄位不合法")
++
+     def to_primitives(self) -> dict:
+         """轉成只含字串、整數、串列與字典的形式,可以安全地存成 JSON 再解析回來。"""
+         return {
+             "task_id": self.task_id, "revision": self.revision, "campaign_id": self.campaign_id,
+             "action_type": self.action_type.value, "requested_change": dict(self.requested_change),
+             "reason_codes": list(self.reason_codes), "evidence_refs": list(self.evidence_refs),
+             "campaign_version_observed": self.campaign_version_observed,
+             "decision_created_at": self.decision_created_at.isoformat(),
+             "decision_expires_at": self.decision_expires_at.isoformat(),
+             "policy_version": self.policy_version, "risk_summary": self.risk_summary,
+         }
+ 
+ 
+ @dataclass(frozen=True)
+ class ParsedProposal:
+     """成功時 proposal 有值、errors 為空;失敗時 proposal 為 None、errors 列出所有問題。"""
+ 
+     proposal: Proposal | None
+     errors: tuple[str, ...]
+ 
+-
+-def _is_plain_int(value: object) -> bool:
+-    return isinstance(value, int) and not isinstance(value, bool)
++    def __post_init__(self) -> None:
++        if (self.proposal is None) == (len(self.errors) == 0):
++            raise ValueError("解析結果必須是「有提案且沒有錯誤」或「沒有提案且有錯誤」")
+ 
+ 
+ def _matches(pattern: re.Pattern, value: object) -> bool:
+     return isinstance(value, str) and pattern.fullmatch(value) is not None
+ 
+ 
+ def _positive_int(value: object, maximum: int = MAX_INT) -> bool:
+-    return _is_plain_int(value) and 1 <= value <= maximum
++    return is_plain_int(value) and 1 <= value <= maximum
+ 
+ 
+ def _parse_time(value: object) -> datetime | None:
+     if not isinstance(value, str):
+         return None
+     try:
+         parsed = datetime.fromisoformat(value)
+     except ValueError:
+         return None
+-    return parsed if parsed.tzinfo is not None else None
++    return parsed if parsed.utcoffset() is not None else None
+ 
+ 
+ def _string_list(value: object, pattern: re.Pattern) -> bool:
+     return (
+         isinstance(value, list)
+         and 1 <= len(value) <= MAX_LIST_ITEMS
+         and all(_matches(pattern, item) for item in value)
++        and len(set(value)) == len(value)  # 不允許重複項
+     )
+ 
+ 
+ def _valid_change(raw: dict) -> bool:
+     change, action = raw.get("requested_change"), raw.get("action_type")
+     if not isinstance(change, dict):
+         return False
+     if action == ActionType.UPDATE_BUDGET:
+         return set(change) == {"new_budget"} and _positive_int(change["new_budget"])
+     if action == ActionType.PAUSE_CAMPAIGN:
+         return change == {}
+     return False
+ 
+ 
+-# 欄位 -> 檢查函式(收到整份原始資料,回傳這個欄位是否合法)
++def _valid_action(raw: dict) -> bool:
++    value = raw["action_type"]
++    return isinstance(value, str) and value in {a.value for a in ActionType}
++
++
++def _valid_risk_summary(raw: dict) -> bool:
++    text = raw["risk_summary"]
++    # isprintable 擋掉控制字元、換行、孤立 surrogate 與雙向覆寫字元
++    return isinstance(text, str) and len(text) <= MAX_RISK_SUMMARY and text.isprintable()
++
++
++# 欄位 -> 檢查函式。_field_errors 只在欄位存在時才呼叫,所以檢查函式可以直接讀 raw[欄位]。
+ CHECKS: dict[str, Callable[[dict], bool]] = {
+     "task_id": lambda raw: _matches(ID_PATTERN, raw["task_id"]),
+     "revision": lambda raw: _positive_int(raw["revision"], 1_000_000),
+     "campaign_id": lambda raw: _matches(ID_PATTERN, raw["campaign_id"]),
+-    "action_type": lambda raw: raw["action_type"] in {a.value for a in ActionType},
++    "action_type": _valid_action,
+     "requested_change": _valid_change,
+     "reason_codes": lambda raw: _string_list(raw["reason_codes"], REASON_PATTERN),
+     "evidence_refs": lambda raw: _string_list(raw["evidence_refs"], ID_PATTERN),
+     "campaign_version_observed": lambda raw: _positive_int(raw["campaign_version_observed"]),
+     "decision_created_at": lambda raw: _parse_time(raw["decision_created_at"]) is not None,
+     "decision_expires_at": lambda raw: _parse_time(raw["decision_expires_at"]) is not None,
+     "policy_version": lambda raw: _matches(POLICY_PATTERN, raw["policy_version"]),
+-    "risk_summary": lambda raw: (
+-        isinstance(raw["risk_summary"], str) and len(raw["risk_summary"]) <= MAX_RISK_SUMMARY
+-    ),
++    "risk_summary": _valid_risk_summary,
+ }
+ 
+ 
++def _leaf_bytes(value: object) -> int | None:
++    """葉節點的粗估位元組數;不是 JSON 能表示的值就回 None。"""
++    if value is None or isinstance(value, bool):
++        return 5
++    if isinstance(value, str):
++        return len(value.encode("utf-8", "surrogatepass")) + 2
++    if isinstance(value, int):
++        return value.bit_length() // 3 + 2  # 位數的粗估,避免對超大整數呼叫 str()
++    if isinstance(value, float) and math.isfinite(value):
++        return 24
++    return None
++
++
++def _size_error(raw: object) -> str | None:
++    """不遞迴地走訪整份輸入,超過大小或深度上限的那一刻就回報,不必走完。"""
++    stack, total = [(raw, 1)], 0
++    while stack:
++        node, depth = stack.pop()
++        if depth > MAX_DEPTH:
++            return "too_deep"
++        children = _children(node)
++        if children is None:
++            size = _leaf_bytes(node)
++            if size is None:
++                return "not_json_serializable"
++            total += size
++        else:
++            total += CONTAINER_OVERHEAD + CONTAINER_OVERHEAD * len(children)
++            stack.extend((child, depth + 1) for child in children)
++        if total > MAX_PAYLOAD_BYTES:
++            return f"too_large:{total}"
++    return None
++
++
++def _children(node: object) -> list | None:
++    """容器回傳它的子節點(字典的鍵也算),葉節點回傳 None。鍵必須是字串。"""
++    if isinstance(node, dict):
++        if not all(isinstance(key, str) for key in node):
++            return [object()]  # 讓走訪在下一步把它當成「不是 JSON 能表示的值」
++        return [part for key, value in node.items() for part in (key, value)]
++    if isinstance(node, list):
++        return list(node)
++    return None
++
++
+ def _shape_errors(raw: object) -> list[str]:
+     if not isinstance(raw, dict) or not all(isinstance(key, str) for key in raw):
+         return ["not_an_object"]
+-    try:
+-        size = len(json.dumps(raw))
+-    except (TypeError, ValueError):
+-        return ["not_json_serializable"]
+-    return [f"too_large:{size}"] if size > MAX_PAYLOAD_BYTES else []
++    problem = _size_error(raw)
++    return [problem] if problem else []
+ 
+ 
+ def _field_errors(raw: dict) -> list[str]:
+     errors = [f"unknown_field:{str(key)[:64]}" for key in raw if key not in CHECKS]
+     for field, check in CHECKS.items():
+         if field not in raw:
+             errors.append(f"{field}:missing")
+         elif not check(raw):
+             errors.append(f"{field}:invalid")
+     return errors
+diff --git a/src/rtb/domain/task_state.py b/src/rtb/domain/task_state.py
+index faf1088..e201064 100644
+--- a/src/rtb/domain/task_state.py
++++ b/src/rtb/domain/task_state.py
+@@ -1,17 +1,18 @@
+ """任務狀態機(分析行程這一側):合法轉換是一張表,不散落在各處的條件判斷裡。
+ 
+ 狀態是系統已知的事實;檢查點只是「這一步的輸出已安全存好」的進度標記,兩者不同。
+ 執行行程那一側的操作狀態(接受、驗證、執行中、成功、失敗、結果不明)之後另外定義。
+ """
+ 
+ from enum import StrEnum
++from types import MappingProxyType
+ 
+ 
+ class TaskState(StrEnum):
+     RECEIVED = "received"
+     COLLECTING_EVIDENCE = "collecting_evidence"
+     ANALYZING = "analyzing"
+     PROPOSED = "proposed"
+     HANDED_OFF = "handed_off"  # 執行行程的收件表已接受提案,之後的操作狀態歸執行行程
+     COMPLETED = "completed"
+     FAILED = "failed"
+@@ -35,24 +36,28 @@ _FLOW: dict[TaskState, frozenset[TaskState]] = {
+     S.HANDED_OFF: frozenset({S.COMPLETED, S.BLOCKED, S.SUPERSEDED}),
+     S.COMPLETED: frozenset(),
+     S.FAILED: frozenset(),
+     S.BLOCKED: frozenset(),
+     S.NO_ACTION: frozenset(),
+     S.SUPERSEDED: frozenset(),
+ }
+ 
+ TERMINAL_STATES = frozenset(state for state, targets in _FLOW.items() if not targets)
+ 
+-TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
++if set(_FLOW) != set(TaskState):  # 新增狀態卻忘了寫進表:匯入時就失敗,不等到執行時才 KeyError
++    raise RuntimeError("狀態轉換表沒有涵蓋所有狀態")
++
++# 唯讀:「終點狀態沒有出路」要靠結構保證,不能被外部改寫
++TRANSITIONS: MappingProxyType = MappingProxyType({
+     state: targets if state in TERMINAL_STATES else targets | {S.FAILED}
+     for state, targets in _FLOW.items()
+-}
++})
+ 
+ 
+ def _name(value: object) -> str:
+     return str(getattr(value, "value", value))
+ 
+ 
+ def can_transition(current: object, target: object) -> bool:
+     try:
+         return TaskState(target) in TRANSITIONS[TaskState(current)]
+     except ValueError:  # 不是任何一個已知狀態
+diff --git a/tests/domain/test_evidence.py b/tests/domain/test_evidence.py
+index cfc2c55..4d2e387 100644
+--- a/tests/domain/test_evidence.py
++++ b/tests/domain/test_evidence.py
+@@ -1,13 +1,13 @@
+ """證據與新鮮度:證據是「事實在某個時間點的快照」,新鮮度由純程式判斷。"""
+ 
+-from datetime import UTC, datetime, timedelta
++from datetime import UTC, datetime, timedelta, tzinfo
+ 
+ import pytest
+ 
+ from rtb.domain.evidence import (
+     Evidence,
+     EvidenceKind,
+     Freshness,
+     TrustClass,
+     check_freshness,
+ )
+@@ -107,10 +107,37 @@ def test_only_fresh_evidence_is_usable():
+ @pytest.mark.parametrize("bad_now", [datetime(2026, 9, 22, 12, 0, 30), "2026-09-22", None])
+ def test_now_must_be_a_timezone_aware_datetime(bad_now):
+     with pytest.raises(ValueError):
+         check_freshness(make(), bad_now, 60, 3)
+ 
+ 
+ @pytest.mark.parametrize("bad_age", [0, -5, True, "60", None, float("nan")])
+ def test_the_age_limit_must_be_a_positive_number(bad_age):
+     with pytest.raises(ValueError):
+         check_freshness(make(), T0, bad_age, 3)
++
++
++class OffsetlessZone(tzinfo):
++    """有 tzinfo,但 utcoffset() 回 None:實際上等於沒有時區,不能當作有時區的時間。"""
++
++    def utcoffset(self, dt):
++        return None
++
++    def dst(self, dt):
++        return None
++
++    def tzname(self, dt):
++        return "none"
++
++
++def test_a_timezone_object_that_gives_no_offset_is_not_timezone_aware():
++    weird = datetime(2026, 9, 22, 12, 0, 0, tzinfo=OffsetlessZone())
++
++    with pytest.raises(ValueError):
++        make(observed_at=weird)
++    with pytest.raises(ValueError):
++        check_freshness(make(), weird, 60, 3)
++
++
++def test_an_age_limit_beyond_float_range_is_a_value_error_not_an_overflow():
++    with pytest.raises(ValueError):
++        check_freshness(make(), T0, 10**400, 3)
+diff --git a/tests/domain/test_proposal.py b/tests/domain/test_proposal.py
+index 2420a8f..c76013c 100644
+--- a/tests/domain/test_proposal.py
++++ b/tests/domain/test_proposal.py
+@@ -1,20 +1,23 @@
+ """提案的嚴格解析:提案是不可信輸入,解析結果是「成功或錯誤清單」,不丟例外也不放行。"""
+ 
+ import copy
+ import dataclasses
+ import json
++import random
+ from datetime import UTC, datetime
+ 
+ import pytest
+ 
+-from rtb.domain.proposal import ActionType, Proposal, parse_proposal
++from rtb.domain import _checks
++from rtb.domain import proposal as proposal_module
++from rtb.domain.proposal import ActionType, ParsedProposal, Proposal, parse_proposal
+ 
+ CREATED = "2026-09-22T12:00:00+00:00"
+ EXPIRES = "2026-09-22T12:30:00+00:00"
+ 
+ 
+ def valid(**overrides):
+     raw = {
+         "task_id": "t1", "revision": 1, "campaign_id": "c1", "action_type": "update_budget",
+         "requested_change": {"new_budget": 150}, "reason_codes": ["low_pacing"],
+         "evidence_refs": ["e1", "e2"], "campaign_version_observed": 3,
+@@ -157,10 +160,119 @@ def test_a_proposal_is_plain_immutable_data_with_no_ability_to_act():
+         if not attribute.startswith("__") and attribute not in allowed_methods:
+             assert not callable(getattr(proposal, attribute)), attribute
+     assert isinstance(proposal, Proposal)
+ 
+ 
+ def test_the_parsed_proposal_can_round_trip_through_json_safe_primitives():
+     proposal = parse_proposal(valid()).proposal
+ 
+     assert json.loads(json.dumps(proposal.to_primitives()))["campaign_id"] == "c1"
+     assert parse_proposal(proposal.to_primitives()).proposal == proposal
++
++
++@pytest.mark.parametrize("unhashable", [[], {}, [[]], {"a": 1}, [1, 2]])
++def test_unhashable_values_in_any_field_return_errors_instead_of_raising(unhashable):
++    for field in valid():
++        parsed = parse_proposal(valid(**{field: unhashable}))
++        assert parsed.proposal is None and parsed.errors, field
++
++
++def _nested(depth, leaf="l"):
++    node = leaf
++    for _ in range(depth):
++        node = {"a": node}
++    return node
++
++
++def test_absurdly_deep_nesting_is_rejected_without_recursion_errors():
++    for deep in (_nested(100_000), [[]] * 3 and _nested(5_000)):
++        parsed = parse_proposal(valid(risk_summary=deep))
++
++        assert parsed.proposal is None and parsed.errors
++
++
++def test_a_cyclic_structure_is_rejected_not_looped_forever():
++    cyclic = {}
++    cyclic["self"] = cyclic
++
++    parsed = parse_proposal(valid(requested_change=cyclic))
++
++    assert parsed.proposal is None and parsed.errors
++
++
++def test_size_is_counted_in_utf8_bytes_not_characters():
++    assert parse_proposal(valid(risk_summary="中" * 500)).proposal is not None  # 1500 位元組
++    big = parse_proposal({**valid(), "extra": "中" * 6000})  # 18000 位元組,超過 16KB
++
++    assert big.errors and big.errors[0].startswith("too_large")
++
++
++def test_a_huge_input_is_rejected_early_without_serializing_all_of_it():
++    huge = {**valid(), "blob": ["x" * 1000] * 200_000}  # 約 200MB;完整序列化會很慢
++
++    parsed = parse_proposal(huge)
++
++    assert parsed.errors and parsed.errors[0].startswith("too_large")
++
++
++def test_non_json_leaf_values_are_rejected():
++    for leaf in (object(), b"bytes", float("nan"), float("inf"), {1, 2}):
++        parsed = parse_proposal(valid(risk_summary=leaf))
++        assert parsed.proposal is None and parsed.errors
++
++
++def test_duplicate_reason_codes_and_evidence_refs_are_rejected():
++    assert parse_proposal(valid(reason_codes=["a", "a"])).proposal is None
++    assert parse_proposal(valid(evidence_refs=["e1", "e1"])).proposal is None
++
++
++@pytest.mark.parametrize("bad", ["\ud800", "a\x00b", "a\u202eb", "line1\nline2", "tab\there"])
++def test_risk_summary_rejects_control_characters_lone_surrogates_and_bidi_overrides(bad):
++    assert parse_proposal(valid(risk_summary=bad)).proposal is None
++
++
++def test_risk_summary_still_accepts_ordinary_text_including_cjk_and_punctuation():
++    assert parse_proposal(valid(risk_summary="預算 +50%,原因:pacing 落後")).proposal is not None
++
++
++GARBAGE = [None, [], {}, "", "x", 0, -1, 1, True, 1.5, float("nan"), 2**70, ["x"], {"a": 1},
++           [[["deep"]]], "2026-09-22T12:00:00+00:00", "9999-12-31T23:59:59-23:59", b"b", object()]
++
++
++def test_random_garbage_in_every_field_never_raises_and_the_result_is_always_consistent():
++    rng = random.Random(20260922)
++    fields = list(valid())
++    for _ in range(3000):
++        raw = valid()
++        for field in rng.sample(fields, rng.randint(1, 4)):
++            raw[field] = rng.choice(GARBAGE)
++        if rng.random() < 0.2:
++            raw.pop(rng.choice(fields), None)
++        parsed = parse_proposal(raw)  # 只要丟出例外,測試就失敗
++        assert (parsed.proposal is None) == bool(parsed.errors)
++
++
++def test_a_proposal_cannot_be_constructed_directly_with_invalid_fields():
++    good = parse_proposal(valid()).proposal
++    fields = {f.name: getattr(good, f.name) for f in dataclasses.fields(good)}
++
++    for bad in ({"action_type": "rm -rf"}, {"reason_codes": "abc"}, {"revision": 0},
++                {"requested_change": {"new_budget": 1}}, {"decision_created_at": "2026"},
++                {"decision_expires_at": good.decision_created_at}):
++        with pytest.raises(ValueError):
++            Proposal(**{**fields, **bad})
++
++
++def test_a_parsed_result_cannot_be_both_empty_and_error_free_or_both_filled():
++    good = parse_proposal(valid()).proposal
++
++    with pytest.raises(ValueError):
++        ParsedProposal(None, ())
++    with pytest.raises(ValueError):
++        ParsedProposal(good, ("something",))
++
++
++def test_the_evidence_id_format_has_a_single_shared_definition():
++    from rtb.domain import evidence
++
++    assert proposal_module.ID_PATTERN is _checks.ID_PATTERN
++    assert evidence.is_id is _checks.is_id  # 證據自己的編號檢查用的就是同一份定義
+diff --git a/tests/domain/test_task_state.py b/tests/domain/test_task_state.py
+index 9606d29..3d7f662 100644
+--- a/tests/domain/test_task_state.py
++++ b/tests/domain/test_task_state.py
+@@ -82,10 +82,16 @@ def test_unknown_or_non_state_values_are_illegal_not_a_crash_or_a_pass():
+     with pytest.raises(IllegalTransition):
+         transition("bogus", S.RECEIVED)
+     assert can_transition(S.RECEIVED, None) is False
+ 
+ 
+ def test_state_names_are_stable_strings_because_they_will_be_stored():
+     assert {s.value for s in TaskState} == {
+         "received", "collecting_evidence", "analyzing", "proposed", "handed_off",
+         "completed", "failed", "blocked", "no_action", "superseded",
+     }
++
++
++def test_the_transition_table_cannot_be_modified_from_outside():
++    with pytest.raises(TypeError):
++        TRANSITIONS[S.FAILED] = frozenset({S.RECEIVED})  # 「終點沒有出路」要靠結構保證,不只靠測試
++    assert can_transition(S.FAILED, S.RECEIVED) is False

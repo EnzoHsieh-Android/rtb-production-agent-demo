@@ -1,0 +1,17 @@
+{
+ "round": "r1",
+ "spec": "governance/review-reports/code-task-domain/r1-snapshot.patch",
+ "sha256": "cfa9ece92706c7e6873c578996eb0cb77034606f4b597d5bddc24e1a15139b16",
+ "seats": [
+  {
+   "seat": "t1",
+   "lens": "generalist-reviewer",
+   "auditor": "sonnet"
+  },
+  {
+   "seat": "tarch",
+   "lens": "architecture-alignment",
+   "auditor": "sonnet"
+  }
+ ]
+}

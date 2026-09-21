@@ -1,0 +1,890 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase2任務流程_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase2任務流程_計劃.md
+new file mode 100644
+index 0000000..473c1a8
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase2任務流程_計劃.md
+@@ -0,0 +1,76 @@
++---
++type: project
++status: doing
++created: 2026-09-22
++updated: 2026-09-22
++tags:
++  - type/project
++  - status/doing
++lands_in:
++  - Systems/任務流程領域模型
++---
++# RTB_Phase2任務流程_計劃
++
++PRIOR-ART: 任務狀態機、證據與提案都可以用標準函式庫的 dataclass 與列舉自己寫,不需要工作流程引擎(Temporal、Airflow 等);本專案要證明的是「當機重啟後的安全語意」,引擎會把這些語意藏起來。採用:借用列舉與 dataclass,自建狀態轉換表。
++RETIRE-IF: 若 Phase 3 到 4 做完後,任務狀態機的轉換表仍沒有抓到任何一次「非法轉換」或「過期證據被沿用」的錯誤,而換成現成的狀態機函式庫才抓得到,就該重審自建的部分。
++
++## 這份計劃在解決什麼
++
++- 事故:agent 做到一半當機重啟,不知道自己做到哪,於是把做過的事重做一遍(浪費錢,甚至重複寫入),或把過時的判斷當成現在的事實繼續執行。
++- 範圍:交接文件 Phase 2 的「單一廣告的完整流程」,不加佇列。依 [[Projects/RTB_Agent_Phase0架構]] 的決策,從這一階段起分析與執行是兩個行程,中間以有大小上限的提案通道交接。
++- 一次只做一個增量,每個增量先寫事故測試。
++
++## 四個增量
++
++- 增量 1:純程式的領域模型(任務狀態機、證據與新鮮度檢查、提案的嚴格解析)。放在領域層,不碰資料庫與網路。
++- 增量 2:執行行程的提案收件口與提案佇列(有大小上限的 HTTP)。這是高風險的跨行程交接,動手前要先過設計審。
++- 增量 3:分析行程的流程與檢查點,存進自己的資料庫。
++- 增量 4:事件與 trace,把整條正常流程串起來,並補驗 agent 端連不到故障注入、不匯入 DSP 內部模組這兩條(Phase 1 留下的)。
++
++## 核心概念(使用者已在 2026-09-22 對話中答對並收到回饋)
++
++- 狀態(State)是系統已知的事實;檢查點(Checkpoint)只是「哪一步的輸出已安全存好、重跑不出事」的進度標記,不保證證據現在還是真的。
++- 證據是「事實在某個時間點的快照」,要記下讀取時間與讀到的廣告版本。
++- 新鮮度由純程式判斷:先看年齡,再看版本;過期或版本已變就重讀。重讀是安全的,重做副作用才危險。
++- 就算證據沿用,執行的那一刻執行行程仍要重讀 DSP 現況、比對版本、重跑整套檢查。新鮮度是第一道,執行前重新授權是最後一道。
++
++## 任務狀態機(分析行程這一側)
++
++- 狀態:收到、蒐集證據、分析、已提案、已交接(執行行程的收件表已接受)。終點:完成、失敗、被擋、不需動作、被取代。
++- 合法轉換:收到 → 蒐集證據;蒐集證據 → 分析;分析 → 已提案 或 不需動作;已提案 → 已交接;已交接 → 完成、被擋或被取代。任何非終點狀態都可以 → 失敗。
++- 重新規劃的路:分析 或 已提案(證據過期、提案過期)→ 蒐集證據。
++- 終點狀態沒有任何出路。狀態機是一張表,不散落在條件判斷裡。
++- 執行行程那一側的操作狀態(接受、驗證、執行中、驗證結果、成功、失敗、結果不明)留到增量 2 與 Phase 3 定義。
++
++## 證據與提案
++
++- 證據欄位:證據編號、任務編號、種類(廣告狀態或指標)、來源、讀取時間、讀到的廣告版本、內容雜湊、信任標記(可信或不可信文字)。
++- 提案欄位照交接文件第 3 節:任務編號、廣告編號、動作類型、要求的變更、原因代碼、證據參照、觀察到的廣告版本、決策建立時間、決策到期時間、政策版本、風險摘要;另加版本序號。
++- 提案是不可信輸入:解析採嚴格白名單,不認得的欄位一律拒收(防止夾帶工具名稱、網址或憑證),型別、大小與長度都有上限,解析結果是「成功或錯誤清單」,不丟例外也不放行。
++
++## 驗收(對照交接文件 Phase 2 的完成條件)
++
++- 合法與非法的狀態轉換都有測試,包含終點狀態沒有出路。
++- 新鮮度:過期、版本已變、剛好在邊界、時鐘倒退、沒有時區的時間,各有測試。
++- 提案解析:合法、缺欄位、多餘欄位、型別錯、過大、過期時間早於建立時間,各有測試。
++- 提案與副作用明確分離:提案物件沒有任何執行能力,只是資料。
++- 使用者能用自己的話說明狀態與檢查點的差別:已在 2026-09-22 對話完成。
++- 增量 4 才會有「能由任務走到驗證完成」與「一條 trace 連結證據、決策、政策、工具呼叫與驗證」,這兩條在那之前不宣稱完成。
++
++## 設計審的安排
++
++- 增量 1(純程式、沒有副作用、風險低)先做,不先過設計審;狀態機與證據格式會在設計審前先定型,審查員若要求改,代價由我承擔。
++- 增量 2 動手前,把「提案通道」的設計補進這份計劃並過設計審。REVISIT:2026-10-05 若增量 2 尚未開始,回頭確認這個安排是否還適用。
++
++## 實務隱患
++
++- 已排除:金流:整個專案只有本機的 Mock DSP,預算數字都是模擬值。
++- 已排除:對外送出:Phase 2 的四個增量都不呼叫模型 API,也不連外部網路;分析行程接模型是後面階段的事,屆時另開設計審。
++- 已排除:不可逆:這一階段沒有資料搬移或刪除;任務狀態只增不改的資料表在增量 3 才出現,且沒有外部副作用。
++- 未排除:守衛面:增量 2 的提案通道與提案的嚴格解析,是「不可信內容進入有寫入能力的行程」的入口,屬守衛面。這個增量動手前必須把通道設計補進本計劃並過設計審;增量 1 的解析只是純函式,不構成授權決定。
++- 殘留風險:狀態機與證據格式在設計審前先定型,審查員可能要求修改,已在「設計審的安排」承認。
++
++## 落點
++
++- lands_in: 增量 1 新開一篇 Systems 節點「任務流程領域模型」,管任務狀態、證據、提案三個模組。
++
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md b/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
+new file mode 100644
+index 0000000..2a84cc5
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/任務流程領域模型.md
+@@ -0,0 +1,33 @@
++---
++type: system
++status: doing
++created: 2026-09-22
++updated: 2026-09-22
++responsibility: 負責任務狀態機(分析行程這一側的合法轉換)、證據與新鮮度判斷、提案的嚴格解析這三個純判斷;不負責儲存、網路、執行行程那一側的操作狀態,也不做授權或政策檢查。
++aliases: []
++about_code:
++  - src/rtb/domain/task_state.py
++  - src/rtb/domain/evidence.py
++  - src/rtb/domain/proposal.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: 狀態(State)是系統已知的事實,檢查點(Checkpoint)只是「這一步的輸出已安全存好」的進度標記,不保證證據現在還是真的;所以證據要帶讀取時間與讀到的廣告版本,重啟後由純程式判斷新鮮度,而不是因為檢查點還在就直接沿用。出處:對話 2026-09-22,使用者答對「重啟後證據依新鮮度沿用或重讀」;[[RTB_Phase2任務流程_計劃]]。
++  WHY: 提案是不可信輸入,解析採嚴格白名單並回「成功或錯誤清單」,不丟例外也不放行,因為提案內容可能受廣告文字或模型輸出影響。出處:[[RTB_Agent_Phase0架構]] 的不可信輸入一節。
++  PITFALL: 新鮮度若先看版本再看年齡,或把「沒讀到現況版本」當成新鮮,重啟後會沿用過時證據。防回歸:[test:test_expiry_takes_priority_over_a_changed_version]、[test:test_evidence_with_a_version_but_no_current_version_is_unverified_not_fresh]。
++  PITFALL: 時鐘倒退(現在比讀取時間還早)若算新鮮,會讓不可信的時間戳通過。防回歸:[test:test_a_clock_that_went_backwards_is_treated_as_expired_not_as_super_fresh]。
++  PITFALL: 提案若允許多餘欄位,可以夾帶工具名稱、網址、憑證或政策覆寫。防回歸:[test:test_unknown_fields_are_rejected_so_nothing_can_be_smuggled_in]。
++  PITFALL: 交接給執行行程之後,分析端若還能回到「蒐集證據」,同一個任務會在兩個行程各跑一份。防回歸:[test:test_illegal_transitions_are_rejected_with_both_states_named](含交接後不能重來)。
++  TEST: tests/domain/test_task_state.py、test_evidence.py、test_proposal.py 涵蓋合法與非法轉換、終點狀態沒有出路、表完整、新鮮度的邊界與優先順序、提案缺欄位或多餘欄位或型別錯或過大或到期早於建立、垃圾輸入不丟例外。
++---
++# 任務流程領域模型
++
++三支模組:`src/rtb/domain/task_state.py` 是狀態機,合法轉換是一張表,終點狀態沒有出路,非終點都可以轉失敗,分析或已提案階段可以因證據或提案過期回到蒐集證據,交接之後不行;`src/rtb/domain/evidence.py` 是證據型別與 `check_freshness`,先判年齡再判版本,結果分新鮮、過期、版本已變、未驗證四種,只有新鮮可用;`src/rtb/domain/proposal.py` 是提案型別與 `parse_proposal`,把不可信的原始資料解析成提案或一份完整的錯誤清單。三者都在領域層,由該目錄的 ruff 設定禁止匯入資料庫、網路與模型。
++
++## 已知缺口(如實標明)
++
++- 只有分析行程這一側的狀態機;執行行程那一側的操作狀態、事件與 trace 尚未定義,屬後續增量。
++- 提案解析只檢查格式,不做政策或授權檢查;新鮮度的年齡上限由呼叫端傳入,還沒有集中的政策。
++- 風險摘要目前只是不超過 500 字的字串,沒有結構。
++- 這個增量沒有經過設計審;狀態機與證據格式在增量 2 設計審前先定型,審查員可能要求修改。
+diff --git a/src/rtb/domain/evidence.py b/src/rtb/domain/evidence.py
+new file mode 100644
+index 0000000..afc6617
+--- /dev/null
++++ b/src/rtb/domain/evidence.py
+@@ -0,0 +1,111 @@
++"""證據與新鮮度:證據是「事實在某個時間點的快照」,不是永遠成立的事實。
++
++新鮮度由純程式判斷,先看年齡,再看版本:過期或版本已變就要重讀。
++重讀是安全的,重做副作用才危險;執行的那一刻執行行程仍要重讀現況並重新授權,
++新鮮度只是第一道,不是最後一道。
++"""
++
++import math
++import re
++from dataclasses import dataclass
++from datetime import datetime
++from enum import StrEnum
++
++ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
++HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
++MAX_SOURCE_LENGTH = 64
++
++
++class EvidenceKind(StrEnum):
++    CAMPAIGN_STATE = "campaign_state"
++    METRICS = "metrics"
++
++
++class TrustClass(StrEnum):
++    TRUSTED = "trusted"  # 程式算出來的,或有型別的結構化事實
++    UNTRUSTED_TEXT = "untrusted_text"  # 廣告名稱、素材文字等不可信的文字
++
++
++class Freshness(StrEnum):
++    FRESH = "fresh"
++    EXPIRED = "expired"
++    VERSION_CHANGED = "version_changed"
++    UNVERIFIED = "unverified"  # 有版本卻沒讀到現況的版本,不能說新鮮
++
++    @property
++    def is_usable(self) -> bool:
++        return self is Freshness.FRESH
++
++
++def _is_plain_int(value: object) -> bool:
++    return isinstance(value, int) and not isinstance(value, bool)
++
++
++def _is_aware(value: object) -> bool:
++    return isinstance(value, datetime) and value.tzinfo is not None
++
++
++@dataclass(frozen=True)
++class Evidence:
++    evidence_id: str
++    task_id: str
++    kind: EvidenceKind
++    source: str
++    observed_at: datetime
++    campaign_version_observed: int | None
++    content_hash: str
++    trust_class: TrustClass
++
++    def __post_init__(self) -> None:
++        problems = [
++            ("evidence_id", _is_id(self.evidence_id)),
++            ("task_id", _is_id(self.task_id)),
++            ("source", isinstance(self.source, str) and 0 < len(self.source) <= MAX_SOURCE_LENGTH),
++            ("kind", isinstance(self.kind, EvidenceKind)),
++            ("trust_class", isinstance(self.trust_class, TrustClass)),
++            ("observed_at", _is_aware(self.observed_at)),
++            ("campaign_version_observed", _is_version_or_none(self.campaign_version_observed)),
++            ("content_hash", _is_hash(self.content_hash)),
++        ]
++        bad = [name for name, ok in problems if not ok]
++        if bad:
++            raise ValueError(f"證據欄位不合法:{', '.join(bad)}")
++
++
++def _is_id(value: object) -> bool:
++    return isinstance(value, str) and ID_PATTERN.fullmatch(value) is not None
++
++
++def _is_hash(value: object) -> bool:
++    return isinstance(value, str) and HASH_PATTERN.fullmatch(value) is not None
++
++
++def _is_version_or_none(value: object) -> bool:
++    return value is None or (_is_plain_int(value) and value >= 1)
++
++
++def _check_inputs(now: object, max_age_seconds: object, current_version: object) -> None:
++    if not _is_aware(now):
++        raise ValueError("now 必須是有時區的 datetime")
++    is_number = isinstance(max_age_seconds, int | float) and not isinstance(max_age_seconds, bool)
++    if not is_number or not math.isfinite(max_age_seconds) or max_age_seconds <= 0:
++        raise ValueError("max_age_seconds 必須是正的有限數")
++    if not _is_version_or_none(current_version):
++        raise ValueError("current_version 必須是正整數或 None")
++
++
++def check_freshness(
++    evidence: Evidence, now: datetime, max_age_seconds: float, current_version: int | None
++) -> Freshness:
++    """先判年齡(時鐘倒退也算過期,保守),再判版本。沒有版本的證據只看年齡。"""
++    _check_inputs(now, max_age_seconds, current_version)
++    age = (now - evidence.observed_at).total_seconds()
++    if age < 0 or age > max_age_seconds:
++        return Freshness.EXPIRED
++    if evidence.campaign_version_observed is None:
++        return Freshness.FRESH
++    if current_version is None:
++        return Freshness.UNVERIFIED
++    if current_version != evidence.campaign_version_observed:
++        return Freshness.VERSION_CHANGED
++    return Freshness.FRESH
+diff --git a/src/rtb/domain/proposal.py b/src/rtb/domain/proposal.py
+new file mode 100644
+index 0000000..50e0ab3
+--- /dev/null
++++ b/src/rtb/domain/proposal.py
+@@ -0,0 +1,184 @@
++"""提案:分析端產出的「想做什麼」,只是資料,沒有任何執行能力。
++
++提案是不可信輸入(內容可能受廣告文字或模型輸出影響),所以解析採嚴格白名單:
++不認得的欄位一律拒收(防止夾帶工具名稱、網址、憑證或政策覆寫),型別、大小與長度都有上限。
++解析結果是「成功或錯誤清單」,不丟例外也不放行;所有問題一次列出,不只回報第一個。
++"""
++
++import json
++import re
++from collections.abc import Callable
++from dataclasses import dataclass
++from datetime import datetime
++from enum import StrEnum
++from types import MappingProxyType
++
++ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
++POLICY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}")
++REASON_PATTERN = re.compile(r"[a-z0-9_]{1,64}")
++MAX_PAYLOAD_BYTES = 16 * 1024
++MAX_LIST_ITEMS = 20
++MAX_RISK_SUMMARY = 500
++MAX_INT = 2**63 - 1
++
++
++class ActionType(StrEnum):
++    UPDATE_BUDGET = "update_budget"
++    PAUSE_CAMPAIGN = "pause_campaign"
++
++
++FIELDS = (
++    "task_id", "revision", "campaign_id", "action_type", "requested_change", "reason_codes",
++    "evidence_refs", "campaign_version_observed", "decision_created_at", "decision_expires_at",
++    "policy_version", "risk_summary",
++)
++
++
++@dataclass(frozen=True)
++class Proposal:
++    task_id: str
++    revision: int
++    campaign_id: str
++    action_type: ActionType
++    requested_change: MappingProxyType
++    reason_codes: tuple[str, ...]
++    evidence_refs: tuple[str, ...]
++    campaign_version_observed: int
++    decision_created_at: datetime
++    decision_expires_at: datetime
++    policy_version: str
++    risk_summary: str
++
++    def to_primitives(self) -> dict:
++        """轉成只含字串、整數、串列與字典的形式,可以安全地存成 JSON 再解析回來。"""
++        return {
++            "task_id": self.task_id, "revision": self.revision, "campaign_id": self.campaign_id,
++            "action_type": self.action_type.value, "requested_change": dict(self.requested_change),
++            "reason_codes": list(self.reason_codes), "evidence_refs": list(self.evidence_refs),
++            "campaign_version_observed": self.campaign_version_observed,
++            "decision_created_at": self.decision_created_at.isoformat(),
++            "decision_expires_at": self.decision_expires_at.isoformat(),
++            "policy_version": self.policy_version, "risk_summary": self.risk_summary,
++        }
++
++
++@dataclass(frozen=True)
++class ParsedProposal:
++    """成功時 proposal 有值、errors 為空;失敗時 proposal 為 None、errors 列出所有問題。"""
++
++    proposal: Proposal | None
++    errors: tuple[str, ...]
++
++
++def _is_plain_int(value: object) -> bool:
++    return isinstance(value, int) and not isinstance(value, bool)
++
++
++def _matches(pattern: re.Pattern, value: object) -> bool:
++    return isinstance(value, str) and pattern.fullmatch(value) is not None
++
++
++def _positive_int(value: object, maximum: int = MAX_INT) -> bool:
++    return _is_plain_int(value) and 1 <= value <= maximum
++
++
++def _parse_time(value: object) -> datetime | None:
++    if not isinstance(value, str):
++        return None
++    try:
++        parsed = datetime.fromisoformat(value)
++    except ValueError:
++        return None
++    return parsed if parsed.tzinfo is not None else None
++
++
++def _string_list(value: object, pattern: re.Pattern) -> bool:
++    return (
++        isinstance(value, list)
++        and 1 <= len(value) <= MAX_LIST_ITEMS
++        and all(_matches(pattern, item) for item in value)
++    )
++
++
++def _valid_change(raw: dict) -> bool:
++    change, action = raw.get("requested_change"), raw.get("action_type")
++    if not isinstance(change, dict):
++        return False
++    if action == ActionType.UPDATE_BUDGET:
++        return set(change) == {"new_budget"} and _positive_int(change["new_budget"])
++    if action == ActionType.PAUSE_CAMPAIGN:
++        return change == {}
++    return False
++
++
++# 欄位 -> 檢查函式(收到整份原始資料,回傳這個欄位是否合法)
++CHECKS: dict[str, Callable[[dict], bool]] = {
++    "task_id": lambda raw: _matches(ID_PATTERN, raw["task_id"]),
++    "revision": lambda raw: _positive_int(raw["revision"], 1_000_000),
++    "campaign_id": lambda raw: _matches(ID_PATTERN, raw["campaign_id"]),
++    "action_type": lambda raw: raw["action_type"] in {a.value for a in ActionType},
++    "requested_change": _valid_change,
++    "reason_codes": lambda raw: _string_list(raw["reason_codes"], REASON_PATTERN),
++    "evidence_refs": lambda raw: _string_list(raw["evidence_refs"], ID_PATTERN),
++    "campaign_version_observed": lambda raw: _positive_int(raw["campaign_version_observed"]),
++    "decision_created_at": lambda raw: _parse_time(raw["decision_created_at"]) is not None,
++    "decision_expires_at": lambda raw: _parse_time(raw["decision_expires_at"]) is not None,
++    "policy_version": lambda raw: _matches(POLICY_PATTERN, raw["policy_version"]),
++    "risk_summary": lambda raw: (
++        isinstance(raw["risk_summary"], str) and len(raw["risk_summary"]) <= MAX_RISK_SUMMARY
++    ),
++}
++
++
++def _shape_errors(raw: object) -> list[str]:
++    if not isinstance(raw, dict) or not all(isinstance(key, str) for key in raw):
++        return ["not_an_object"]
++    try:
++        size = len(json.dumps(raw))
++    except (TypeError, ValueError):
++        return ["not_json_serializable"]
++    return [f"too_large:{size}"] if size > MAX_PAYLOAD_BYTES else []
++
++
++def _field_errors(raw: dict) -> list[str]:
++    errors = [f"unknown_field:{str(key)[:64]}" for key in raw if key not in CHECKS]
++    for field, check in CHECKS.items():
++        if field not in raw:
++            errors.append(f"{field}:missing")
++        elif not check(raw):
++            errors.append(f"{field}:invalid")
++    return errors
++
++
++def _expiry_errors(raw: dict) -> list[str]:
++    created = _parse_time(raw["decision_created_at"])
++    expires = _parse_time(raw["decision_expires_at"])
++    if created is not None and expires is not None and expires <= created:
++        return ["decision_expires_at:not_after_creation"]
++    return []
++
++
++def _build(raw: dict) -> Proposal:
++    return Proposal(
++        task_id=raw["task_id"], revision=raw["revision"], campaign_id=raw["campaign_id"],
++        action_type=ActionType(raw["action_type"]),
++        requested_change=MappingProxyType(dict(raw["requested_change"])),
++        reason_codes=tuple(raw["reason_codes"]), evidence_refs=tuple(raw["evidence_refs"]),
++        campaign_version_observed=raw["campaign_version_observed"],
++        decision_created_at=_parse_time(raw["decision_created_at"]),
++        decision_expires_at=_parse_time(raw["decision_expires_at"]),
++        policy_version=raw["policy_version"], risk_summary=raw["risk_summary"],
++    )
++
++
++def parse_proposal(raw: object) -> ParsedProposal:
++    """把不可信的原始資料解析成提案;絕不丟例外、絕不修改輸入。"""
++    errors = _shape_errors(raw)
++    if errors:
++        return ParsedProposal(None, tuple(errors))
++    errors = _field_errors(raw)
++    if not errors:
++        errors = _expiry_errors(raw)
++    if errors:
++        return ParsedProposal(None, tuple(errors))
++    return ParsedProposal(_build(raw), ())
+diff --git a/src/rtb/domain/task_state.py b/src/rtb/domain/task_state.py
+new file mode 100644
+index 0000000..faf1088
+--- /dev/null
++++ b/src/rtb/domain/task_state.py
+@@ -0,0 +1,65 @@
++"""任務狀態機(分析行程這一側):合法轉換是一張表,不散落在各處的條件判斷裡。
++
++狀態是系統已知的事實;檢查點只是「這一步的輸出已安全存好」的進度標記,兩者不同。
++執行行程那一側的操作狀態(接受、驗證、執行中、成功、失敗、結果不明)之後另外定義。
++"""
++
++from enum import StrEnum
++
++
++class TaskState(StrEnum):
++    RECEIVED = "received"
++    COLLECTING_EVIDENCE = "collecting_evidence"
++    ANALYZING = "analyzing"
++    PROPOSED = "proposed"
++    HANDED_OFF = "handed_off"  # 執行行程的收件表已接受提案,之後的操作狀態歸執行行程
++    COMPLETED = "completed"
++    FAILED = "failed"
++    BLOCKED = "blocked"
++    NO_ACTION = "no_action"
++    SUPERSEDED = "superseded"
++
++
++class IllegalTransition(ValueError):
++    """不合法的狀態轉換:這是程式錯誤,不是預期中的資料狀態,所以丟例外。"""
++
++
++S = TaskState
++
++# 正常流程與重新規劃的路。任何非終點狀態另外都可以轉成失敗(下面統一加上)。
++_FLOW: dict[TaskState, frozenset[TaskState]] = {
++    S.RECEIVED: frozenset({S.COLLECTING_EVIDENCE}),
++    S.COLLECTING_EVIDENCE: frozenset({S.ANALYZING}),
++    S.ANALYZING: frozenset({S.PROPOSED, S.NO_ACTION, S.COLLECTING_EVIDENCE}),
++    S.PROPOSED: frozenset({S.HANDED_OFF, S.COLLECTING_EVIDENCE}),
++    S.HANDED_OFF: frozenset({S.COMPLETED, S.BLOCKED, S.SUPERSEDED}),
++    S.COMPLETED: frozenset(),
++    S.FAILED: frozenset(),
++    S.BLOCKED: frozenset(),
++    S.NO_ACTION: frozenset(),
++    S.SUPERSEDED: frozenset(),
++}
++
++TERMINAL_STATES = frozenset(state for state, targets in _FLOW.items() if not targets)
++
++TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
++    state: targets if state in TERMINAL_STATES else targets | {S.FAILED}
++    for state, targets in _FLOW.items()
++}
++
++
++def _name(value: object) -> str:
++    return str(getattr(value, "value", value))
++
++
++def can_transition(current: object, target: object) -> bool:
++    try:
++        return TaskState(target) in TRANSITIONS[TaskState(current)]
++    except ValueError:  # 不是任何一個已知狀態
++        return False
++
++
++def transition(current: object, target: object) -> TaskState:
++    if not can_transition(current, target):
++        raise IllegalTransition(f"不合法的轉換:{_name(current)} -> {_name(target)}")
++    return TaskState(target)
+diff --git a/tests/domain/test_evidence.py b/tests/domain/test_evidence.py
+new file mode 100644
+index 0000000..cfc2c55
+--- /dev/null
++++ b/tests/domain/test_evidence.py
+@@ -0,0 +1,116 @@
++"""證據與新鮮度:證據是「事實在某個時間點的快照」,新鮮度由純程式判斷。"""
++
++from datetime import UTC, datetime, timedelta
++
++import pytest
++
++from rtb.domain.evidence import (
++    Evidence,
++    EvidenceKind,
++    Freshness,
++    TrustClass,
++    check_freshness,
++)
++
++T0 = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
++HASH = "a" * 64
++
++
++def make(**overrides):
++    fields = dict(
++        evidence_id="e1", task_id="t1", kind=EvidenceKind.CAMPAIGN_STATE, source="dsp",
++        observed_at=T0, campaign_version_observed=3, content_hash=HASH,
++        trust_class=TrustClass.TRUSTED,
++    )
++    fields.update(overrides)
++    return Evidence(**fields)
++
++
++def test_valid_evidence_is_constructed_and_immutable():
++    evidence = make()
++
++    assert evidence.campaign_version_observed == 3
++    with pytest.raises(AttributeError):
++        evidence.source = "other"
++
++
++@pytest.mark.parametrize("bad", [
++    {"evidence_id": ""}, {"task_id": ""}, {"source": ""},
++    {"observed_at": datetime(2026, 9, 22, 12, 0, 0)},  # 沒有時區
++    {"campaign_version_observed": 0}, {"campaign_version_observed": True},
++    {"campaign_version_observed": "3"}, {"content_hash": "short"},
++    {"content_hash": "z" * 64}, {"trust_class": "trusted"}, {"kind": "campaign_state"},
++])
++def test_malformed_evidence_cannot_be_constructed(bad):
++    with pytest.raises(ValueError):
++        make(**bad)
++
++
++def test_evidence_without_a_version_is_allowed_for_sources_that_have_none():
++    assert make(campaign_version_observed=None).campaign_version_observed is None
++
++
++def test_fresh_when_young_enough_and_the_version_is_unchanged():
++    now = T0 + timedelta(seconds=30)
++
++    assert check_freshness(make(), now, max_age_seconds=60, current_version=3) is Freshness.FRESH
++
++
++def test_exactly_at_the_age_limit_is_still_fresh_and_one_second_over_is_expired():
++    at_limit = T0 + timedelta(seconds=60)
++    over = T0 + timedelta(seconds=61)
++
++    assert check_freshness(make(), at_limit, 60, 3) is Freshness.FRESH
++    assert check_freshness(make(), over, 60, 3) is Freshness.EXPIRED
++
++
++def test_a_changed_version_makes_young_evidence_stale():
++    now = T0 + timedelta(seconds=5)
++
++    assert check_freshness(make(), now, 60, current_version=4) is Freshness.VERSION_CHANGED
++
++
++def test_expiry_takes_priority_over_a_changed_version():
++    now = T0 + timedelta(hours=2)  # 兩小時後重啟:年齡先判,版本不必再看
++
++    assert check_freshness(make(), now, 60, current_version=4) is Freshness.EXPIRED
++
++
++def test_a_clock_that_went_backwards_is_treated_as_expired_not_as_super_fresh():
++    before_observation = T0 - timedelta(seconds=10)
++
++    assert check_freshness(make(), before_observation, 60, 3) is Freshness.EXPIRED
++
++
++def test_evidence_with_a_version_but_no_current_version_is_unverified_not_fresh():
++    now = T0 + timedelta(seconds=5)
++
++    result = check_freshness(make(), now, 60, current_version=None)
++
++    assert result is Freshness.UNVERIFIED  # 沒讀到現況,就不能說新鮮
++
++
++def test_evidence_without_any_version_only_depends_on_age():
++    evidence = make(campaign_version_observed=None)
++    now = T0 + timedelta(seconds=5)
++
++    assert check_freshness(evidence, now, 60, current_version=None) is Freshness.FRESH
++    assert check_freshness(evidence, now, 60, current_version=9) is Freshness.FRESH
++
++
++def test_only_fresh_evidence_is_usable():
++    assert Freshness.FRESH.is_usable is True
++    for other in (Freshness.EXPIRED, Freshness.VERSION_CHANGED, Freshness.UNVERIFIED):
++        assert other.is_usable is False
++
++
++@pytest.mark.parametrize("bad_now", [datetime(2026, 9, 22, 12, 0, 30), "2026-09-22", None])
++def test_now_must_be_a_timezone_aware_datetime(bad_now):
++    with pytest.raises(ValueError):
++        check_freshness(make(), bad_now, 60, 3)
++
++
++@pytest.mark.parametrize("bad_age", [0, -5, True, "60", None, float("nan")])
++def test_the_age_limit_must_be_a_positive_number(bad_age):
++    with pytest.raises(ValueError):
++        check_freshness(make(), T0, bad_age, 3)
+diff --git a/tests/domain/test_proposal.py b/tests/domain/test_proposal.py
+new file mode 100644
+index 0000000..2420a8f
+--- /dev/null
++++ b/tests/domain/test_proposal.py
+@@ -0,0 +1,166 @@
++"""提案的嚴格解析:提案是不可信輸入,解析結果是「成功或錯誤清單」,不丟例外也不放行。"""
++
++import copy
++import dataclasses
++import json
++from datetime import UTC, datetime
++
++import pytest
++
++from rtb.domain.proposal import ActionType, Proposal, parse_proposal
++
++CREATED = "2026-09-22T12:00:00+00:00"
++EXPIRES = "2026-09-22T12:30:00+00:00"
++
++
++def valid(**overrides):
++    raw = {
++        "task_id": "t1", "revision": 1, "campaign_id": "c1", "action_type": "update_budget",
++        "requested_change": {"new_budget": 150}, "reason_codes": ["low_pacing"],
++        "evidence_refs": ["e1", "e2"], "campaign_version_observed": 3,
++        "decision_created_at": CREATED, "decision_expires_at": EXPIRES,
++        "policy_version": "v1", "risk_summary": "budget +50%",
++    }
++    raw.update(overrides)
++    return raw
++
++
++def test_a_valid_budget_proposal_is_parsed_into_typed_fields():
++    parsed = parse_proposal(valid())
++
++    assert parsed.errors == () and parsed.proposal is not None
++    proposal = parsed.proposal
++    assert proposal.action_type is ActionType.UPDATE_BUDGET
++    assert proposal.requested_change["new_budget"] == 150
++    assert proposal.evidence_refs == ("e1", "e2") and proposal.reason_codes == ("low_pacing",)
++    assert proposal.decision_created_at == datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
++
++
++def test_a_pause_proposal_has_an_empty_requested_change():
++    parsed = parse_proposal(valid(action_type="pause_campaign", requested_change={}))
++
++    assert parsed.errors == () and parsed.proposal.action_type is ActionType.PAUSE_CAMPAIGN
++
++
++@pytest.mark.parametrize("field", list(valid()))
++def test_every_required_field_missing_is_reported_by_name(field):
++    raw = valid()
++    del raw[field]
++
++    parsed = parse_proposal(raw)
++
++    assert parsed.proposal is None and any(field in error for error in parsed.errors)
++
++
++@pytest.mark.parametrize("smuggled", [
++    {"tool_name": "delete_all"}, {"url": "http://evil.example"}, {"credential": "secret"},
++    {"policy_override": True}, {"instructions": "ignore the rules"},
++])
++def test_unknown_fields_are_rejected_so_nothing_can_be_smuggled_in(smuggled):
++    parsed = parse_proposal({**valid(), **smuggled})
++
++    assert parsed.proposal is None
++    assert any("unknown_field" in error for error in parsed.errors)
++
++
++@pytest.mark.parametrize("bad", [
++    {"task_id": 5}, {"task_id": ""}, {"task_id": "a/b"}, {"campaign_id": None},
++    {"revision": 0}, {"revision": True}, {"revision": "1"},
++    {"campaign_version_observed": 0}, {"campaign_version_observed": True},
++    {"campaign_version_observed": "3"}, {"campaign_version_observed": 1.5},
++    {"reason_codes": "low_pacing"}, {"reason_codes": [5]}, {"reason_codes": ["Bad Code"]},
++    {"reason_codes": []}, {"evidence_refs": []}, {"evidence_refs": "e1"},
++    {"evidence_refs": [""]}, {"policy_version": ""}, {"risk_summary": 5},
++    {"action_type": "delete_campaign"}, {"action_type": None},
++])
++def test_wrong_types_and_values_are_reported_and_never_raise(bad):
++    parsed = parse_proposal(valid(**bad))
++
++    assert parsed.proposal is None and parsed.errors
++
++
++@pytest.mark.parametrize("change", [
++    {}, {"new_budget": 0}, {"new_budget": -1}, {"new_budget": True}, {"new_budget": 1.5},
++    {"new_budget": "150"}, {"new_budget": 2**63}, {"new_budget": 150, "url": "x"},
++    {"budget": 150},
++])
++def test_a_budget_change_must_be_exactly_one_positive_integer_new_budget(change):
++    parsed = parse_proposal(valid(requested_change=change))
++
++    assert parsed.proposal is None and parsed.errors
++
++
++def test_a_pause_proposal_must_not_carry_any_change_payload():
++    parsed = parse_proposal(valid(action_type="pause_campaign", requested_change={"x": 1}))
++
++    assert parsed.proposal is None and parsed.errors
++
++
++@pytest.mark.parametrize("bad", [
++    {"decision_created_at": "2026-09-22T12:00:00"},  # 沒有時區
++    {"decision_created_at": "not a time"}, {"decision_created_at": 5},
++    {"decision_expires_at": EXPIRES.replace("12:30", "11:00")},  # 到期早於建立
++    {"decision_expires_at": CREATED},  # 到期等於建立
++])
++def test_times_must_be_timezone_aware_and_the_expiry_must_be_after_creation(bad):
++    parsed = parse_proposal(valid(**bad))
++
++    assert parsed.proposal is None and parsed.errors
++
++
++def test_size_limits_reject_oversized_fields():
++    assert parse_proposal(valid(reason_codes=["r"] * 21)).proposal is None
++    assert parse_proposal(valid(evidence_refs=["e"] * 21)).proposal is None
++    assert parse_proposal(valid(risk_summary="x" * 501)).proposal is None
++    assert parse_proposal(valid(task_id="x" * 129)).proposal is None
++
++
++def test_a_payload_larger_than_the_overall_limit_is_rejected_before_field_checks():
++    huge = valid(risk_summary="x" * 20_000)
++
++    parsed = parse_proposal(huge)
++
++    assert parsed.proposal is None and any("too_large" in error for error in parsed.errors)
++
++
++@pytest.mark.parametrize("garbage", [None, 5, "text", [], [1, 2], object(), b"{}", {1: 2}])
++def test_garbage_input_returns_errors_instead_of_raising(garbage):
++    parsed = parse_proposal(garbage)
++
++    assert parsed.proposal is None and parsed.errors
++
++
++def test_all_problems_are_collected_not_just_the_first():
++    parsed = parse_proposal(valid(task_id="", revision=0, campaign_version_observed=0))
++
++    assert len(parsed.errors) >= 3
++
++
++def test_parsing_never_mutates_the_input():
++    raw = valid()
++    before = copy.deepcopy(raw)
++
++    parse_proposal(raw)
++
++    assert raw == before
++
++
++def test_a_proposal_is_plain_immutable_data_with_no_ability_to_act():
++    proposal = parse_proposal(valid()).proposal
++
++    with pytest.raises(dataclasses.FrozenInstanceError):
++        proposal.action_type = ActionType.PAUSE_CAMPAIGN
++    with pytest.raises(TypeError):
++        proposal.requested_change["new_budget"] = 999_999  # 內層也不可改
++    allowed_methods = {"to_primitives"}  # 只有序列化,沒有任何「去做」的方法
++    for attribute in dir(proposal):
++        if not attribute.startswith("__") and attribute not in allowed_methods:
++            assert not callable(getattr(proposal, attribute)), attribute
++    assert isinstance(proposal, Proposal)
++
++
++def test_the_parsed_proposal_can_round_trip_through_json_safe_primitives():
++    proposal = parse_proposal(valid()).proposal
++
++    assert json.loads(json.dumps(proposal.to_primitives()))["campaign_id"] == "c1"
++    assert parse_proposal(proposal.to_primitives()).proposal == proposal
+diff --git a/tests/domain/test_task_state.py b/tests/domain/test_task_state.py
+new file mode 100644
+index 0000000..9606d29
+--- /dev/null
++++ b/tests/domain/test_task_state.py
+@@ -0,0 +1,91 @@
++"""任務狀態機:合法與非法轉換、終點狀態沒有出路、表本身完整。"""
++
++import pytest
++
++from rtb.domain.task_state import (
++    TERMINAL_STATES,
++    TRANSITIONS,
++    IllegalTransition,
++    TaskState,
++    can_transition,
++    transition,
++)
++
++S = TaskState
++
++LEGAL = [
++    (S.RECEIVED, S.COLLECTING_EVIDENCE),
++    (S.COLLECTING_EVIDENCE, S.ANALYZING),
++    (S.ANALYZING, S.PROPOSED),
++    (S.ANALYZING, S.NO_ACTION),
++    (S.PROPOSED, S.HANDED_OFF),
++    (S.HANDED_OFF, S.COMPLETED),
++    (S.HANDED_OFF, S.BLOCKED),
++    (S.HANDED_OFF, S.SUPERSEDED),
++    (S.ANALYZING, S.COLLECTING_EVIDENCE),  # 證據過期,重新蒐集
++    (S.PROPOSED, S.COLLECTING_EVIDENCE),  # 提案過期,重新規劃
++]
++
++ILLEGAL = [
++    (S.RECEIVED, S.ANALYZING),  # 跳過蒐集證據
++    (S.RECEIVED, S.PROPOSED),
++    (S.COLLECTING_EVIDENCE, S.PROPOSED),  # 沒分析就提案
++    (S.ANALYZING, S.HANDED_OFF),  # 沒提案就交接
++    (S.PROPOSED, S.COMPLETED),  # 沒交接就完成
++    (S.HANDED_OFF, S.COLLECTING_EVIDENCE),  # 交接之後分析端不能重來,只能走新的版本序號
++    (S.HANDED_OFF, S.ANALYZING),
++    (S.RECEIVED, S.RECEIVED),  # 不能原地轉換
++    (S.ANALYZING, S.ANALYZING),
++]
++
++
++@pytest.mark.parametrize("current,target", LEGAL)
++def test_legal_transitions_are_accepted(current, target):
++    assert can_transition(current, target) is True
++    assert transition(current, target) == target
++
++
++@pytest.mark.parametrize("current,target", ILLEGAL)
++def test_illegal_transitions_are_rejected_with_both_states_named(current, target):
++    assert can_transition(current, target) is False
++    with pytest.raises(IllegalTransition) as caught:
++        transition(current, target)
++    assert current.value in str(caught.value) and target.value in str(caught.value)
++
++
++@pytest.mark.parametrize("terminal", sorted(TERMINAL_STATES))
++def test_terminal_states_have_no_way_out(terminal):
++    assert TRANSITIONS[terminal] == frozenset()
++    for other in TaskState:
++        assert can_transition(terminal, other) is False
++
++
++def test_every_non_terminal_state_can_fail():
++    for state in TaskState:
++        if state not in TERMINAL_STATES:
++            assert can_transition(state, S.FAILED), state
++
++
++def test_the_table_is_complete_and_has_no_dangling_targets():
++    assert set(TRANSITIONS) == set(TaskState)
++    for targets in TRANSITIONS.values():
++        assert targets <= set(TaskState)
++
++
++def test_terminal_states_are_exactly_the_five_documented_ones():
++    assert TERMINAL_STATES == {S.COMPLETED, S.FAILED, S.BLOCKED, S.NO_ACTION, S.SUPERSEDED}
++
++
++def test_unknown_or_non_state_values_are_illegal_not_a_crash_or_a_pass():
++    with pytest.raises(IllegalTransition):
++        transition(S.RECEIVED, "bogus")
++    with pytest.raises(IllegalTransition):
++        transition("bogus", S.RECEIVED)
++    assert can_transition(S.RECEIVED, None) is False
++
++
++def test_state_names_are_stable_strings_because_they_will_be_stored():
++    assert {s.value for s in TaskState} == {
++        "received", "collecting_evidence", "analyzing", "proposed", "handed_off",
++        "completed", "failed", "blocked", "no_action", "superseded",
++    }

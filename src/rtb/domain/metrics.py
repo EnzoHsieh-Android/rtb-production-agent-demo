@@ -15,6 +15,8 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 
+from rtb.domain._checks import is_plain_number
+
 
 class Reason(StrEnum):
     NO_DENOMINATOR = "no_denominator"
@@ -62,12 +64,8 @@ def _unknown(reason: Reason) -> MetricResult:
     return MetricResult(value=None, reason=reason)
 
 
-def _is_number(value: object) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
-
-
 def _is_finite_number(value: object) -> bool:
-    if not _is_number(value):
+    if not is_plain_number(value):
         return False
     return not isinstance(value, float) or math.isfinite(value)  # 整數一定有限,不轉成 float
 
