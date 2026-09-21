@@ -1,0 +1,6 @@
+{"round":"r1","spec":"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md","sha256":"91de84b053d48f1a776e6df49e81df4417c48ad65f50e51aab2a1fa7941f1a9d","snapshot":"governance/review-reports/rtb-agent-phase0架構/r1-snapshot.md","seats":[
+{"seat":"s1","lens":"generalist","auditor":"sonnet","materials":["handoff sections 1-8,17,18","plan"]},
+{"seat":"s2","lens":"failure-semantics-and-concurrency","auditor":"sonnet","materials":["handoff sections 6,7,9,10,16","plan"]},
+{"seat":"s3","lens":"trust-boundary-and-scope-vs-handoff","auditor":"sonnet","materials":["handoff sections 11,12,14,17,19","plan"]},
+{"seat":"arch","lens":"architecture-alignment","auditor":"sonnet","materials":["plan","CLAUDE.md","lumos conventions"]}],
+"external_seat":"not dispatched r1 (codex present but skipped to limit cost; noted)"}

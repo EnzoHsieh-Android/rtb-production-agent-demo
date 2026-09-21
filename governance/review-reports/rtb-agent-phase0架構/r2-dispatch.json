@@ -1,0 +1,6 @@
+{"round":"r2","spec":"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md","sha256":"19bd781b1959d1bf8b30279fad3c4edd35b6300b542425210f911cf7d2be7350","snapshot":"governance/review-reports/rtb-agent-phase0架構/r2-snapshot.md","seats":[
+{"seat":"v1","lens":"r1-fix-verification","auditor":"sonnet","materials":["r1 reports","plan"]},
+{"seat":"v2","lens":"failure-semantics-and-concurrency-fresh","auditor":"sonnet","materials":["handoff 6,7,9,10,16","plan"]},
+{"seat":"v3","lens":"trust-scope-consistency-fresh","auditor":"sonnet","materials":["handoff 8,11,12,17,19","plan"]},
+{"seat":"arch2","lens":"architecture-alignment","auditor":"sonnet","materials":["plan","CLAUDE.md"]}],
+"external_seat":"not dispatched r2 (same reason as r1; noted)"}
