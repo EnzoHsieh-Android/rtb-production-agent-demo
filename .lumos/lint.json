@@ -1,0 +1,5 @@
+{
+  "py": [
+    ".venv/bin/ruff check --output-format sarif --output-file {LINT_SARIF_OUT} src tests"
+  ]
+}
