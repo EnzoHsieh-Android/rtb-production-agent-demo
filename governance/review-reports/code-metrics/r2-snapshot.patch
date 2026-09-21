@@ -1,0 +1,555 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+index 5633c34..0b65468 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+@@ -35,12 +35,13 @@ summary: |-
+ 
+ ## 已知缺口(如實標明,尚未做或刻意不做)
+ 
+ - 計劃驗收要求「同一種故障連續 50 次結果 100% 一致」。目前是手動用迴圈重跑相關測試(2026-09-21:第一批 50 次、修復後 50 次、第二輪代碼審修復後 30 次,各 0 次失敗),沒有自動化進 CI。指令:對 `-k "concurrent or naive or process_death or timeout or in_flight or restart or lock_contention or non_loopback"` 重複執行。
+ - 計劃列為以標頭注入的三種故障(版本衝突、同鍵同內容重送、同鍵不同內容)沒有做成標頭注入,而是用真實邏輯產生並測試。這是有意的偏離:真實邏輯比注入更能證明行為。
+ - 動作驗證與狀態轉換目前是 if 分支,不是計劃「狀態機是資料」所說的動作表;只有預算與暫停兩種動作,可接受。
+ REVISIT:2026-11-21 動作增加到第三種時,把驗證與狀態轉換抽成動作表。
+ - 「只綁本機」的測試在沒有非回送網卡的機器上會略過,略過時沒有訊號進治理帳。
+ - 仍沒有測試守護的小防護(第二輪代碼審的存活變異):伺服器端每個請求結束時關閉資料庫連線(拿掉只會等垃圾回收)、對客戶端中途離開靜音的 `handle_error`、回應是否帶 Content-Length。三者行為現況正確,缺的是回歸網。
+ - 部分「提交前逾時」類測試仍用固定睡眠等待(等過處理程式睡醒),慢機器上只會讓測試少等而偏向漏抓,不會誤紅;提交後逾時與慢請求進行中已改用輪詢與同步點。
++- 測試用的 `seed_metrics` 現在會拒絕字串、bytes、布林、NaN、無限大、超出 SQLite 範圍的值,以及不存在的廣告或時間窗;沒給的欄位維持 null。
+ - 歷史查詢沒有分頁;每個請求新建資料庫連線;這兩項是效能檢核題的「張力」表態,Mock 規模可接受。
+ - 測試的白箱部分(對 `_record_idempotency`、`_conn` 打補丁)綁定私有成員,重構時會跟著紅,屬刻意。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md b/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md
+index b7d48ea..818c6c8 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md
+@@ -9,18 +9,28 @@ about_code:
+   - src/rtb/domain/metrics.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: 指標結果是「有值」或「沒有值加原因」,不是數字 0。分母為零(例如沒有曝光)回明確的空值,因為 0 會讓下游把「還沒開始跑」讀成「表現很差」而誤判暫停。出處:對話 2026-09-22,使用者裁定;[[RTB_Agent_Phase0架構]] Phase 1 範圍。
+   WHY: 判斷優先順序是 不合理資料 > 缺漏 > 分母為零。缺漏代表不知道,不能被說成正常的零。出處:對話 2026-09-22。
+   PITFALL: 分母為零或缺資料若被算成 0,決策端會把證據不足當成表現差。防回歸:[test:test_zero_denominator_is_reported_with_its_reason_and_no_value],以及決策端必須把空值當成證據不足的示範:[test:test_a_decision_helper_treats_unknown_as_insufficient_evidence_not_as_bad_performance]。
+   PITFALL: 有點擊卻沒有曝光是不可能的資料,不是分母為零;把它歸成分母為零會讓壞資料看起來像正常的零。防回歸:[test:test_clicks_without_any_impressions_is_impossible_data_not_a_zero_denominator](2026-09-22 我第一次寫測試時自己寫錯期望,是程式對、測試錯)。
+   PITFALL: 誤把空值當數字比大小若不報錯,就會默默判成 0;結果型別刻意不支援 < > 比較。防回歸:[test:test_unknown_metric_cannot_be_compared_like_a_number]。
+-  RULE: 領域層(src/rtb/domain)不得匯入資料庫、網路、行程或模型客戶端,由 ruff 的禁用匯入規則機械檢查。[since:2026-09-22] [retire:領域層改由別的機制隔離,或專案不再用 ruff 時撤除]
++  PITFALL: 極大的整數與極小的分母會讓指標函式丟 OverflowError,或算出無限大卻被當成「有值」通過門檻。防回歸:[test:test_huge_integers_never_crash_and_overflowing_results_are_invalid_not_infinite](2026-09-22 代碼審指出,用修復前的程式碼重現)。
++  PITFALL: 「不合理優先於缺漏」若只在別的欄位都有值時才檢查跨欄位條件,pacing(None, 100, 2) 會被說成缺資料。防回歸:[test:test_invalid_beats_missing_even_for_the_cross_field_elapsed_fraction_check]。
++  PITFALL: MetricResult 若能被造成自相矛盾(有值又有原因),或被寫成 if result: 而把「不知道」當真值,都會讓空值悄悄溜過去。防回歸:[test:test_self_contradictory_results_cannot_even_be_constructed]、[test:test_an_unknown_result_cannot_be_used_as_a_truth_value]。
++  RULE: 領域層(src/rtb/domain)不得匯入資料庫、網路、行程、動態匯入或模型客戶端,由該目錄自己的 ruff.toml 機械檢查;規則只在這個目錄生效,DSP、測試與之後的其他層不受影響。[since:2026-09-22] [retire:領域層改由別的機制隔離,或專案不再用 ruff 時撤除]
+   TEST: tests/domain/test_metrics.py 涵蓋正常值、真正的零、零分母、缺資料、不合理資料、優先順序、邊界值、空值不可比大小,以及禁用匯入規則本身會抓到違規。
+ ---
+ # 確定性指標計算
+ 
+ `src/rtb/domain/metrics.py` 是這一層唯一的模組:四個指標函式加 `MetricResult` 結果型別。
+ 
+ 四個指標的定義:CTR=點擊/曝光;CVR=轉換/點擊(轉換可以多於點擊,例如瀏覽後轉換,所以不算不合理);ROAS=營收/花費;Pacing=實際花費/(預算 x 已過去的時間比例),1.0 剛好符合預期、小於 1 落後、大於 1 超前,已過去的時間比例必須在 0 到 1 之間。
++
++## 已知缺口(如實標明)
++
++- ruff 的禁用匯入擋不住 `__import__("...")` 與逐行的 `# noqa: TID251`;前者靠審查、後者靠代碼審看得到。
++- `cvr` 允許轉換多於點擊(瀏覽後轉換是合理情況),所以不像 `ctr` 那樣把它視為不合理;`pacing` 在時間比例為 0 時回分母為零,即使已經花了錢,不另立「不合理」類別。這兩個是語意取捨。
++REVISIT:2026-11-21 決策端開始使用這些指標時,回頭確認這兩個取捨是否符合實際需求。
++- `MetricResult` 只擋了排序比較與真值判斷,`==` 與 `hash` 仍可用;兩個「沒有值」的結果若原因相同會相等,這是刻意的。
+diff --git a/pyproject.toml b/pyproject.toml
+index 02c6bd9..407ad2c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,36 +1,20 @@
+ [tool.ruff]
+ line-length = 100
+ target-version = "py314"
+ src = ["src", "tests"]
+ extend-exclude = ["scripts"]  # lumos 工具的複本,不是本專案的程式
+ 
+ [tool.ruff.lint]
+ # 風格、未使用、匯入排序、複雜度、函式長度(敘述數)、禁用匯入
+ select = ["E", "F", "I", "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "TID"]
+ 
+-# 領域層(src/rtb/domain)是純判斷:不得匯入資料庫、網路、行程或模型客戶端。
+-# DSP 與測試本來就要用這些,所以在它們的路徑上關掉這條規則。
+-[tool.ruff.lint.flake8-tidy-imports.banned-api]
+-"sqlite3".msg = "領域層不得碰資料庫"
+-"socket".msg = "領域層不得碰網路"
+-"urllib.request".msg = "領域層不得碰網路"
+-"http.client".msg = "領域層不得碰網路"
+-"http.server".msg = "領域層不得碰網路"
+-"subprocess".msg = "領域層不得啟動行程"
+-"anthropic".msg = "領域層不得呼叫模型"
+-"openai".msg = "領域層不得呼叫模型"
+-
+-[tool.ruff.lint.per-file-ignores]
+-"src/rtb/dsp/**" = ["TID251"]
+-"tests/**" = ["TID251"]
+-
+ [tool.ruff.lint.mccabe]
+ max-complexity = 10
+ 
+ [tool.ruff.lint.pylint]
+ max-statements = 30
+ max-branches = 10
+ max-args = 6
+ 
+ [tool.pytest.ini_options]
+ testpaths = ["tests"]
+diff --git a/src/rtb/domain/metrics.py b/src/rtb/domain/metrics.py
+index d0bc911..434360f 100644
+--- a/src/rtb/domain/metrics.py
++++ b/src/rtb/domain/metrics.py
+@@ -1,105 +1,143 @@
+ """廣告指標的確定性計算:CTR、CVR、ROAS、Pacing。
+ 
+-純函式,不碰資料庫、網路或模型(由 ruff 的禁用匯入規則機械檢查),也不使用 LLM。
++純函式,不碰資料庫、網路或模型(由這個目錄的 ruff 設定機械檢查),也不使用 LLM。
+ 每個指標的結果是「有值」或「沒有值加原因」,絕不把「不知道」悄悄變成 0:
+ - NO_DENOMINATOR:分母為零(例如沒有曝光),是正常的零,不是壞表現。
+ - MISSING_DATA:輸入缺漏,我們不知道。
+-- INVALID_DATA:輸入不合理(負數、非有限數、點擊比曝光多),不能信。
++- INVALID_DATA:輸入不合理(負數、非有限數、點擊比曝光多),或算出來不是有限數。
+ 判斷優先順序:不合理 > 缺漏 > 分母為零。
++
++這一層用「結果型別」而不是例外:指標的空值是預期中的資料狀態,批次處理不該因為一個
++廣告沒資料就中斷;DSP 層用例外,因為那裡的錯誤是協定失敗,呼叫端必須分辨並處理。
+ """
+ 
+ import math
+ from dataclasses import dataclass
++from enum import StrEnum
++
++
++class Reason(StrEnum):
++    NO_DENOMINATOR = "no_denominator"
++    MISSING_DATA = "missing_data"
++    INVALID_DATA = "invalid_data"
+ 
+-NO_DENOMINATOR = "no_denominator"
+-MISSING_DATA = "missing_data"
+-INVALID_DATA = "invalid_data"
++
++NO_DENOMINATOR = Reason.NO_DENOMINATOR
++MISSING_DATA = Reason.MISSING_DATA
++INVALID_DATA = Reason.INVALID_DATA
+ 
+ 
+ @dataclass(frozen=True)
+ class MetricResult:
+-    """沒有實作 < > 等比較:誤把空值當數字比大小會直接報 TypeError,而不是默默判成 0。"""
++    """有值(value 是有限數、reason 為 None),或沒有值(value 為 None、reason 說明原因)。
++
++    沒有實作 < > 等比較,也不能當真值用:誤把空值當數字比大小或寫成 if result:,
++    會直接報 TypeError,而不是默默判成 0 或「有值」。
++    """
+ 
+     value: float | None
+-    reason: str | None = None
++    reason: Reason | None = None
++
++    def __post_init__(self) -> None:
++        if self.value is None:
++            if not isinstance(self.reason, Reason):
++                raise ValueError("沒有值的結果必須附上原因")
++        elif self.reason is not None or not _is_finite_number(self.value):
++            raise ValueError("有值的結果必須是有限數,而且不能附原因")
++
++    def __bool__(self) -> bool:
++        raise TypeError("不要把指標結果當真值用;請用 is_known、below() 或 at_least()")
+ 
+     @property
+     def is_known(self) -> bool:
+         return self.value is not None
+ 
+     def below(self, threshold: float) -> bool | None:
+         """低於門檻嗎?不知道就回 None(證據不足),絕不回 True 或 False。"""
+         _check_threshold(threshold)
+         return None if self.value is None else self.value < threshold
+ 
+     def at_least(self, threshold: float) -> bool | None:
+         _check_threshold(threshold)
+         return None if self.value is None else self.value >= threshold
+ 
+ 
+-def _unknown(reason: str) -> MetricResult:
++def _unknown(reason: Reason) -> MetricResult:
+     return MetricResult(value=None, reason=reason)
+ 
+ 
+-def _check_threshold(threshold: object) -> None:
+-    if not _is_number(threshold) or not math.isfinite(threshold):
+-        raise ValueError("門檻必須是有限的數字")
+-
+-
+ def _is_number(value: object) -> bool:
+     return isinstance(value, int | float) and not isinstance(value, bool)
+ 
+ 
++def _is_finite_number(value: object) -> bool:
++    if not _is_number(value):
++        return False
++    return not isinstance(value, float) or math.isfinite(value)  # 整數一定有限,不轉成 float
++
++
++def _check_threshold(threshold: object) -> None:
++    if not _is_finite_number(threshold):
++        raise ValueError("門檻必須是有限的數字")
++
++
+ def _is_valid_amount(value: object) -> bool:
+-    return _is_number(value) and math.isfinite(value) and value >= 0
++    return _is_finite_number(value) and value >= 0
+ 
+ 
+-def _classify(*inputs: object) -> str | None:
++def _classify(*inputs: object) -> Reason | None:
+     """回傳輸入的問題類別;None 代表全部有效。不合理優先於缺漏。"""
+     present = [v for v in inputs if v is not None]
+     if any(not _is_valid_amount(v) for v in present):
+         return INVALID_DATA
+     if len(present) < len(inputs):
+         return MISSING_DATA
+     return None
+ 
+ 
+ def _ratio(numerator: float, denominator: float) -> MetricResult:
+     if denominator == 0:
+         return _unknown(NO_DENOMINATOR)
+-    return MetricResult(value=numerator / denominator)
++    try:
++        result = numerator / denominator
++    except OverflowError:  # 整數相除的結果大到無法表示
++        return _unknown(INVALID_DATA)
++    if not math.isfinite(result):  # 例如極小的分母算出無限大:不是「有值」
++        return _unknown(INVALID_DATA)
++    return MetricResult(value=result)
+ 
+ 
+ def ctr(clicks: int | None, impressions: int | None) -> MetricResult:
+     """點擊率 = 點擊 / 曝光。"""
+     problem = _classify(clicks, impressions)
+     if problem is None and clicks > impressions:
+         problem = INVALID_DATA  # 點擊不可能比曝光多
+     return _unknown(problem) if problem else _ratio(clicks, impressions)
+ 
+ 
+ def cvr(conversions: int | None, clicks: int | None) -> MetricResult:
+-    """轉換率 = 轉換 / 點擊。"""
++    """轉換率 = 轉換 / 點擊。轉換可以多於點擊(例如瀏覽後轉換),所以不算不合理。"""
+     problem = _classify(conversions, clicks)
+     return _unknown(problem) if problem else _ratio(conversions, clicks)
+ 
+ 
+ def roas(revenue: float | None, spend: float | None) -> MetricResult:
+     """廣告投資報酬率 = 營收 / 花費。"""
+     problem = _classify(revenue, spend)
+     return _unknown(problem) if problem else _ratio(revenue, spend)
+ 
+ 
+ def pacing(
+     spend: float | None, budget: float | None, elapsed_fraction: float | None
+ ) -> MetricResult:
+     """預算花費進度 = 實際花費 / 到目前為止預期該花的金額(預算 x 已過去的時間比例)。
+ 
+     elapsed_fraction 必須在 0 到 1 之間。1.0 代表剛好符合預期,小於 1 是落後,大於 1 是超前。
++    時間比例為 0 時預期花費是 0,回分母為零(即使已經花了錢:那是語意上的邊角,不另立類別)。
+     """
+     problem = _classify(spend, budget, elapsed_fraction)
+-    if problem is None and elapsed_fraction > 1:
+-        problem = INVALID_DATA
++    if problem != INVALID_DATA and _is_valid_amount(elapsed_fraction) and elapsed_fraction > 1:
++        problem = INVALID_DATA  # 單欄位的不合理,即使別的欄位缺漏也優先
+     if problem:
+         return _unknown(problem)
+     return _ratio(spend, budget * elapsed_fraction)
+diff --git a/src/rtb/domain/ruff.toml b/src/rtb/domain/ruff.toml
+new file mode 100644
+index 0000000..647f660
+--- /dev/null
++++ b/src/rtb/domain/ruff.toml
+@@ -0,0 +1,21 @@
++# 領域層(src/rtb/domain)是純判斷:不得匯入資料庫、網路、行程、動態匯入或模型客戶端。
++# 這份設定只在這個目錄生效;DSP、測試與之後的其他層本來就要用這些,不受影響。
++extend = "../../../pyproject.toml"
++
++[lint]
++extend-select = ["TID251"]
++
++[lint.flake8-tidy-imports.banned-api]
++"sqlite3".msg = "領域層不得碰資料庫"
++"socket".msg = "領域層不得碰網路"
++"urllib.request".msg = "領域層不得碰網路"
++"http.client".msg = "領域層不得碰網路"
++"http.server".msg = "領域層不得碰網路"
++"requests".msg = "領域層不得碰網路"
++"httpx".msg = "領域層不得碰網路"
++"urllib3".msg = "領域層不得碰網路"
++"aiohttp".msg = "領域層不得碰網路"
++"subprocess".msg = "領域層不得啟動行程"
++"importlib.import_module".msg = "領域層不得動態匯入,會繞過這裡的檢查"
++"anthropic".msg = "領域層不得呼叫模型"
++"openai".msg = "領域層不得呼叫模型"
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index 0376d9d..abc1569 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -146,21 +146,21 @@ class DspHandler(BaseHTTPRequestHandler):
+         if mode is None:
+             return None
+         if not self.server.fault_injection:
+             raise RequestRejected(400, "fault_injection_disabled")
+         if mode not in FAULT_MODES:
+             raise RequestRejected(400, "unknown_fault_mode")
+         return mode
+ 
+     def _route(self, method: str):
+         for route_method, pattern, name in ROUTES:
+-            match = pattern.match(self.path.split("?")[0])
++            match = pattern.match(urlsplit(self.path).path)
+             if route_method == method and match:
+                 return name, match.group(1)
+         raise RequestRejected(404, "not_found")
+ 
+     def _read_json(self) -> dict:
+         if self.headers.get("Transfer-Encoding"):
+             raise RequestRejected(411, "chunked_not_supported")
+         raw_length = (self.headers.get("Content-Length") or "0").strip()
+         if not raw_length.isascii() or not raw_length.isdigit():
+             raise RequestRejected(400, "invalid_content_length")
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index 00198fd..e2f3514 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -1,19 +1,20 @@
+ """Mock DSP 的儲存層:廣告狀態、版本、操作歷史與冪等紀錄。
+ 
+ 不變量:一次操作的「狀態變更、操作歷史、冪等紀錄」在同一個交易裡一起提交或一起回滾;
+ 同一把冪等鍵最多套用一次;寫入交易一律用 BEGIN IMMEDIATE,所以並行的同鍵請求會排隊,
+ 後到的看見已提交的冪等紀錄後直接回原結果。
+ """
+ 
+ import hashlib
+ import json
++import math
+ import re
+ import sqlite3
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from pathlib import Path
+ 
+ from rtb.dsp.errors import (
+     CampaignNotFound,
+     IdempotencyConflict,
+@@ -115,20 +116,38 @@ def _validate(op: Operation) -> None:
+     if not _is_plain_int(op.expected_version) or op.expected_version < 1:
+         raise ValidationRejected("expected_version 必須是正整數")
+     if op.action == "update_budget":
+         budget = op.params.get("new_budget")
+         if not _is_plain_int(budget) or not 0 < budget <= SQLITE_INTEGER_MAX:
+             raise ValidationRejected("new_budget 必須是 1 到 2**63-1 的整數")
+     elif op.action != "pause_campaign":
+         raise UnknownAction(op.action)
+ 
+ 
++COUNT_FIELDS = ("impressions", "clicks", "conversions")
++
++
++def _is_storable_number(value: object, allow_float: bool) -> bool:
++    if _is_plain_int(value):
++        return abs(value) <= SQLITE_INTEGER_MAX
++    return allow_float and isinstance(value, float) and math.isfinite(value)
++
++
++def _checked_metric(name: str, value: object) -> float | None:
++    """只收會被原樣存、原樣回傳的值;沒給的欄位維持 None,不補成 0。"""
++    if value is None:
++        return None
++    if not _is_storable_number(value, allow_float=name not in COUNT_FIELDS):
++        raise ValidationRejected(f"{name} 的值不合法:{value!r}")
++    return value
++
++
+ def _next_state(campaign: Campaign, op: Operation) -> Campaign:
+     if op.action == "update_budget":
+         return Campaign(campaign.id, op.params["new_budget"], campaign.status, campaign.version + 1)
+     return Campaign(campaign.id, campaign.budget, "paused", campaign.version + 1)
+ 
+ 
+ class CampaignStore:
+     def __init__(
+         self,
+         path: Path,
+@@ -158,21 +177,24 @@ class CampaignStore:
+             "SELECT id, budget, status, version FROM campaigns WHERE id = ?", (campaign_id,)
+         ).fetchone()
+         if row is None:
+             raise CampaignNotFound(campaign_id)
+         return Campaign(*row)
+ 
+     def seed_metrics(self, campaign_id: str, window: str, **fields: float | None) -> None:
+         unknown = set(fields) - set(METRIC_FIELDS)
+         if unknown:
+             raise TypeError(f"不認得的指標欄位:{sorted(unknown)}")
+-        values = [fields.get(name) for name in METRIC_FIELDS]  # 沒給的欄位維持 None
++        if window not in METRIC_WINDOWS:
++            raise ValidationRejected("window 必須是 1h、1d 或 7d 其中之一")
++        self.get_campaign(campaign_id)  # 不存在的廣告不能留下讀不到的孤兒列
++        values = [_checked_metric(name, fields.get(name)) for name in METRIC_FIELDS]
+         self._conn.execute(
+             "INSERT OR REPLACE INTO metrics (campaign_id, window_name, impressions, clicks, "
+             "conversions, spend, revenue) VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (campaign_id, window, *values),
+         )
+ 
+     def get_metrics(self, campaign_id: str, window: str | None) -> MetricsRecord:
+         if window not in METRIC_WINDOWS:
+             raise ValidationRejected("window 必須是 1h、1d 或 7d 其中之一")
+         self.get_campaign(campaign_id)  # 廣告不存在就回 CampaignNotFound
+diff --git a/tests/domain/test_metrics.py b/tests/domain/test_metrics.py
+index 82cb5f1..1b2d63c 100644
+--- a/tests/domain/test_metrics.py
++++ b/tests/domain/test_metrics.py
+@@ -4,20 +4,22 @@ import math
+ import subprocess
+ import sys
+ from pathlib import Path
+ 
+ import pytest
+ 
+ from rtb.domain.metrics import (
+     INVALID_DATA,
+     MISSING_DATA,
+     NO_DENOMINATOR,
++    MetricResult,
++    Reason,
+     ctr,
+     cvr,
+     pacing,
+     roas,
+ )
+ 
+ 
+ def test_ratios_return_a_known_value_for_normal_inputs():
+     assert ctr(clicks=50, impressions=1000).value == pytest.approx(0.05)
+     assert cvr(conversions=5, clicks=50).value == pytest.approx(0.1)
+@@ -116,28 +118,80 @@ def test_a_decision_helper_treats_unknown_as_insufficient_evidence_not_as_bad_pe
+     assert should_pause_for_low_ctr(ctr(None, 100)) == "insufficient_evidence"
+     assert should_pause_for_low_ctr(ctr(1, 1000)) == "pause"
+     assert should_pause_for_low_ctr(ctr(50, 1000)) == "keep"
+ 
+ 
+ def test_thresholds_must_be_finite_numbers():
+     with pytest.raises(ValueError):
+         ctr(1, 10).below(math.nan)
+ 
+ 
+-def test_domain_layer_is_forbidden_from_importing_database_network_or_model_clients():
++def test_invalid_beats_missing_even_for_the_cross_field_elapsed_fraction_check():
++    assert pacing(None, 100.0, 2).reason == INVALID_DATA
++    assert pacing(1.0, None, 1.5).reason == INVALID_DATA
++
++
++def test_huge_integers_never_crash_and_overflowing_results_are_invalid_not_infinite():
++    assert ctr(2**1024, 1).reason == INVALID_DATA  # 點擊遠多於曝光
++    assert ctr(10**400, 10**401).value == pytest.approx(0.1)  # 大整數相除仍然精確
++    for result in (roas(10**400, 1), roas(1e300, 1e-300), roas(5, 1e-320)):
++        assert result.value is None and result.reason == INVALID_DATA  # 無限大不是「有值」
++
++
++def test_an_unknown_result_cannot_be_used_as_a_truth_value():
++    with pytest.raises(TypeError):
++        bool(ctr(0, 0))  # 寫成 if ctr(...): 會把「不知道」當成「有值」,必須直接報錯
++
++
++@pytest.mark.parametrize("make", [
++    lambda: MetricResult(value=1.0, reason=Reason.NO_DENOMINATOR),  # 有值卻又有原因
++    lambda: MetricResult(value=None),  # 沒有值卻沒有原因
++    lambda: MetricResult(value=float("nan")),
++    lambda: MetricResult(value=float("inf")),
++    lambda: MetricResult(value=None, reason="typo_reason"),
++])
++def test_self_contradictory_results_cannot_even_be_constructed(make):
++    with pytest.raises(ValueError):
++        make()
++
++
++def test_reasons_are_a_closed_set_of_named_values():
++    assert {r.value for r in Reason} == {"no_denominator", "missing_data", "invalid_data"}
++    assert ctr(0, 0).reason is Reason.NO_DENOMINATOR
++
++
++def ruff_on(source: str, virtual_path: str):
+     root = Path(__file__).resolve().parents[2]
+-    for module in ("sqlite3", "socket", "urllib.request", "http.client", "subprocess", "anthropic"):
+-        probe = subprocess.run(
+-            [sys.executable, "-m", "ruff", "check", "--config", str(root / "pyproject.toml"),
+-             "--stdin-filename", str(root / "src/rtb/domain/_probe.py"), "-"],
+-            input=f"import {module}\n", capture_output=True, text=True, cwd=root,
+-        )
+-        assert probe.returncode != 0 and "TID251" in probe.stdout, f"{module} 沒被禁用"
++    return subprocess.run(
++        [sys.executable, "-m", "ruff", "check", "--stdin-filename", str(root / virtual_path), "-"],
++        input=source, capture_output=True, text=True, cwd=root,
++    )
++
++
++@pytest.mark.parametrize("source", [
++    "import sqlite3\n", "from sqlite3 import connect\n", "import sqlite3 as db\n",
++    "import socket\n", "import urllib.request\n", "from urllib import request\n",
++    "import http.client\n", "import http.server\n", "from subprocess import run\n",
++    "import anthropic\n", "import openai\n", "import requests\n", "import httpx\n",
++    "import urllib3\n", "import aiohttp\n", "from importlib import import_module\n",
++    "def f():\n    import sqlite3\n",
++])
++def test_domain_layer_is_forbidden_from_importing_database_network_process_or_model_clients(source):
++    result = ruff_on(source, "src/rtb/domain/_probe.py")
++
++    assert result.returncode != 0 and "TID251" in result.stdout, source
++
++
++@pytest.mark.parametrize("path", ["src/rtb/dsp/_probe.py", "tests/_probe.py"])
++def test_the_ban_applies_only_to_the_domain_layer_not_to_dsp_or_tests(path):
++    result = ruff_on("import sqlite3\nimport socket\nimport subprocess\n", path)
++
++    assert "TID251" not in result.stdout, result.stdout
+ 
+ 
+ def test_the_real_domain_modules_pass_the_same_check():
+     root = Path(__file__).resolve().parents[2]
+ 
+     result = subprocess.run([sys.executable, "-m", "ruff", "check", "src/rtb/domain"],
+                             capture_output=True, text=True, cwd=root)
+ 
+     assert result.returncode == 0, result.stdout
+diff --git a/tests/dsp/test_store.py b/tests/dsp/test_store.py
+index 44889dd..4e5b366 100644
+--- a/tests/dsp/test_store.py
++++ b/tests/dsp/test_store.py
+@@ -451,10 +451,30 @@ def test_metrics_for_an_unknown_window_campaign_or_missing_row_are_typed_errors(
+         store.get_metrics("ghost", "1d")
+     with pytest.raises(MetricsNotFound):
+         store.get_metrics("c1", "7d")
+ 
+ 
+ def test_seeding_the_same_window_again_replaces_the_previous_numbers(store):
+     store.seed_metrics("c1", "1d", impressions=10)
+     store.seed_metrics("c1", "1d", impressions=99)
+ 
+     assert store.get_metrics("c1", "1d").impressions == 99
++
++
++@pytest.mark.parametrize("bad", [
++    {"impressions": "abc"}, {"impressions": b"x"}, {"impressions": True}, {"impressions": 1.5},
++    {"impressions": 2**63}, {"spend": float("nan")}, {"spend": float("inf")},
++    {"spend": "12"}, {"revenue": [1]},
++])
++def test_seeding_rejects_values_that_would_be_stored_or_served_as_something_else(store, bad):
++    with pytest.raises(ValidationRejected):
++        store.seed_metrics("c1", "1d", **bad)
++
++    with pytest.raises(MetricsNotFound):
++        store.get_metrics("c1", "1d")  # 被拒絕的資料沒有留下任何列
++
++
++def test_seeding_rejects_an_unknown_window_or_an_unknown_campaign(store):
++    with pytest.raises(ValidationRejected):
++        store.seed_metrics("c1", "2h", impressions=1)
++    with pytest.raises(CampaignNotFound):
++        store.seed_metrics("ghost", "1d", impressions=1)

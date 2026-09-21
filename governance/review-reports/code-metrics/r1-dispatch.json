@@ -1,0 +1,17 @@
+{
+ "round": "r1",
+ "spec": "governance/review-reports/code-metrics/r1-snapshot.patch",
+ "sha256": "191e3d24e1bb1fa9b23461d45f771039e2a8af4d1aef86824a69d8ed54d1eb12",
+ "seats": [
+  {
+   "seat": "m1",
+   "lens": "generalist-reviewer",
+   "auditor": "sonnet"
+  },
+  {
+   "seat": "march",
+   "lens": "architecture-alignment",
+   "auditor": "sonnet"
+  }
+ ]
+}

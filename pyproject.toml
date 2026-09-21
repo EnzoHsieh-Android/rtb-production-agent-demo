@@ -2,9 +2,11 @@
 line-length = 100
 target-version = "py314"
 src = ["src", "tests"]
+extend-exclude = ["scripts"]  # lumos 工具的複本,不是本專案的程式
 
 [tool.ruff.lint]
-# 風格、未使用、匯入排序、複雜度、函式長度(敘述數)、禁用匯入
+# 風格、未使用、匯入排序、複雜度、函式長度(敘述數)、匯入規則(TID)。
+# 禁用匯入的清單不在這裡:各層在自己目錄的 ruff.toml 宣告(目前只有 src/rtb/domain)。
 select = ["E", "F", "I", "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "TID"]
 
 [tool.ruff.lint.mccabe]

@@ -1,0 +1,27 @@
+# 領域層(src/rtb/domain)是純判斷:不得匯入資料庫、網路、行程、動態匯入或模型客戶端。
+# 這份設定只在這個目錄生效;DSP、測試與之後的其他層本來就要用這些,不受影響。
+extend = "../../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"sqlite3".msg = "領域層不得碰資料庫"
+"socket".msg = "領域層不得碰網路"
+"urllib.request".msg = "領域層不得碰網路"
+"http.client".msg = "領域層不得碰網路"
+"http.server".msg = "領域層不得碰網路"
+"requests".msg = "領域層不得碰網路"
+"httpx".msg = "領域層不得碰網路"
+"urllib3".msg = "領域層不得碰網路"
+"aiohttp".msg = "領域層不得碰網路"
+"subprocess".msg = "領域層不得啟動行程"
+"os.system".msg = "領域層不得啟動行程"
+"os.popen".msg = "領域層不得啟動行程"
+"asyncio.create_subprocess_exec".msg = "領域層不得啟動行程"
+"asyncio.create_subprocess_shell".msg = "領域層不得啟動行程"
+"multiprocessing".msg = "領域層不得啟動行程"
+"ctypes".msg = "領域層不得呼叫原生程式"
+"ssl".msg = "領域層不得碰網路"
+"smtplib".msg = "領域層不得碰網路"
+"socketserver".msg = "領域層不得碰網路"
+"importlib.import_module".msg = "領域層不得動態匯入,會繞過這裡的檢查"
+"anthropic".msg = "領域層不得呼叫模型"
+"openai".msg = "領域層不得呼叫模型"

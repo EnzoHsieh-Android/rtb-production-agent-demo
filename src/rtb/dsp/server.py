@@ -16,11 +16,13 @@ import traceback
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from rtb.dsp.errors import (
     CampaignNotFound,
     DspError,
     IdempotencyConflict,
+    MetricsNotFound,
     StoreBusy,
     TransientError,
     UnknownAction,
@@ -51,10 +53,12 @@ ERROR_TABLE = {
     ValidationRejected: (422, "validation_rejected", False),
     UnknownAction: (400, "unknown_action", False),
     CampaignNotFound: (404, "campaign_not_found", False),
+    MetricsNotFound: (404, "metrics_not_found", False),
 }
 ROUTES = [
     ("GET", re.compile(r"^/campaigns/([^/]+)$"), "get_campaign"),
     ("GET", re.compile(r"^/campaigns/([^/]+)/history$"), "get_history"),
+    ("GET", re.compile(r"^/campaigns/([^/]+)/metrics$"), "get_metrics"),
     ("GET", re.compile(r"^/operations/([^/]+)$"), "get_operation"),
     ("POST", re.compile(r"^/campaigns/([^/]+)/budget$"), "update_budget"),
     ("POST", re.compile(r"^/campaigns/([^/]+)/pause$"), "pause_campaign"),
@@ -149,7 +153,7 @@ class DspHandler(BaseHTTPRequestHandler):
 
     def _route(self, method: str):
         for route_method, pattern, name in ROUTES:
-            match = pattern.match(self.path.split("?")[0])
+            match = pattern.match(urlsplit(self.path).path)
             if route_method == method and match:
                 return name, match.group(1)
         raise RequestRejected(404, "not_found")
@@ -187,6 +191,12 @@ class DspHandler(BaseHTTPRequestHandler):
     def _get_history(self, store, campaign_id, _fault):
         store.get_campaign(campaign_id)  # 不存在就回 404
         return {"history": [asdict(h) for h in store.history(campaign_id)]}
+
+    def _get_metrics(self, store, campaign_id, _fault):
+        windows = parse_qs(urlsplit(self.path).query).get("window", [])
+        if len(windows) > 1:
+            raise RequestRejected(400, "duplicate_query_parameter")
+        return asdict(store.get_metrics(campaign_id, windows[0] if windows else None))
 
     def _get_operation(self, store, key, _fault):
         result = store.get_operation_by_key(key)

@@ -1,4 +1,8 @@
-"""Mock DSP 的型別化錯誤:呼叫端靠型別分辨「可重試」「永久拒絕」「版本已變」。"""
+"""Mock DSP 的型別化錯誤:呼叫端靠型別分辨「可重試」「永久拒絕」「版本已變」。
+
+這是外部邊界的慣例:協定失敗用例外,呼叫端必須分辨並處理。領域層(rtb.domain)相反,
+預期中的資料狀態(沒資料、分母為零)用結果型別,見 rtb/domain/metrics.py。
+"""
 
 
 class DspError(Exception):
@@ -35,3 +39,7 @@ class IdempotencyConflict(PermanentError):
 
 class VersionConflict(PermanentError):
     """預期版本與 DSP 目前版本不符,提案已過期,不可強制覆寫。"""
+
+
+class MetricsNotFound(PermanentError):
+    """這個廣告在這個時間窗沒有指標資料。"""

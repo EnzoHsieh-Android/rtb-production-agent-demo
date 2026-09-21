@@ -11,7 +11,9 @@ from pathlib import Path
 import pytest
 
 from rtb.dsp.errors import (
+    CampaignNotFound,
     IdempotencyConflict,
+    MetricsNotFound,
     StoreBusy,
     UnknownAction,
     ValidationRejected,
@@ -420,3 +422,70 @@ def test_runtime_code_imports_only_the_standard_library_and_this_project():
                 names = [node.module.split(".")[0]]
             offenders += [f"{file.name}: {n}" for n in names if n not in allowed]
     assert offenders == []
+
+
+def test_metrics_are_returned_as_raw_facts_for_a_known_window(store):
+    store.seed_metrics("c1", "1d", impressions=1000, clicks=50, conversions=5,
+                       spend=100.0, revenue=300.0)
+
+    record = store.get_metrics("c1", "1d")
+
+    assert (record.impressions, record.clicks, record.conversions) == (1000, 50, 5)
+    assert (record.spend, record.revenue) == (100.0, 300.0)
+
+
+def test_missing_fields_stay_missing_and_are_not_turned_into_zero(store):
+    store.seed_metrics("c1", "1d", impressions=1000, clicks=None)
+
+    record = store.get_metrics("c1", "1d")
+
+    assert record.impressions == 1000 and record.clicks is None and record.revenue is None
+
+
+def test_metrics_for_an_unknown_window_campaign_or_missing_row_are_typed_errors(store):
+    store.seed_metrics("c1", "1d", impressions=1)
+
+    with pytest.raises(ValidationRejected):
+        store.get_metrics("c1", "5years")
+    with pytest.raises(CampaignNotFound):
+        store.get_metrics("ghost", "1d")
+    with pytest.raises(MetricsNotFound):
+        store.get_metrics("c1", "7d")
+
+
+def test_seeding_the_same_window_again_replaces_the_previous_numbers(store):
+    store.seed_metrics("c1", "1d", impressions=10)
+    store.seed_metrics("c1", "1d", impressions=99)
+
+    assert store.get_metrics("c1", "1d").impressions == 99
+
+
+@pytest.mark.parametrize("bad", [
+    {"impressions": "abc"}, {"impressions": b"x"}, {"impressions": True}, {"impressions": 1.5},
+    {"impressions": 2**63}, {"spend": float("nan")}, {"spend": float("inf")},
+    {"spend": "12"}, {"revenue": [1]},
+])
+def test_seeding_rejects_values_that_would_be_stored_or_served_as_something_else(store, bad):
+    with pytest.raises(ValidationRejected):
+        store.seed_metrics("c1", "1d", **bad)
+
+    with pytest.raises(MetricsNotFound):
+        store.get_metrics("c1", "1d")  # 被拒絕的資料沒有留下任何列
+
+
+def test_seeding_rejects_an_unknown_window_or_an_unknown_campaign(store):
+    with pytest.raises(ValidationRejected):
+        store.seed_metrics("c1", "2h", impressions=1)
+    with pytest.raises(CampaignNotFound):
+        store.seed_metrics("ghost", "1d", impressions=1)
+
+
+def test_amounts_are_stored_as_floats_and_integers_beyond_exact_float_range_are_rejected(store):
+    store.seed_metrics("c1", "1d", spend=12)
+
+    assert store.get_metrics("c1", "1d").spend == 12.0  # REAL 欄位:整數讀回是浮點數,不是「原樣」
+    with pytest.raises(ValidationRejected):
+        store.seed_metrics("c1", "1h", spend=2**53 + 1)  # 浮點數無法精確表示,存了會失真
+    exact = store.seed_metrics("c1", "7d", spend=2**53)
+
+    assert exact is None and store.get_metrics("c1", "7d").spend == float(2**53)

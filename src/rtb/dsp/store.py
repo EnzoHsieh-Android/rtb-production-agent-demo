@@ -7,6 +7,7 @@
 
 import hashlib
 import json
+import math
 import re
 import sqlite3
 from collections.abc import Callable
@@ -17,6 +18,7 @@ from pathlib import Path
 from rtb.dsp.errors import (
     CampaignNotFound,
     IdempotencyConflict,
+    MetricsNotFound,
     StoreBusy,
     UnknownAction,
     ValidationRejected,
@@ -32,10 +34,18 @@ CREATE TABLE IF NOT EXISTS operations (
     received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, operation_id INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS metrics (
+    campaign_id TEXT NOT NULL, window_name TEXT NOT NULL, impressions INTEGER, clicks INTEGER,
+    conversions INTEGER, spend REAL, revenue REAL, PRIMARY KEY (campaign_id, window_name));
 """
 
 BUSY_TIMEOUT_SECONDS = 5.0
 SQLITE_INTEGER_MAX = 2**63 - 1
+METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
+COUNT_FIELDS = ("impressions", "clicks", "conversions")  # METRIC_FIELDS 的子集:存成整數
+AMOUNT_FIELDS = ("spend", "revenue")  # 存成 REAL
+METRIC_FIELDS = COUNT_FIELDS + AMOUNT_FIELDS
+EXACT_FLOAT_INT_MAX = 2**53  # 超過這個大小的整數放進浮點數會失真
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")  # 用 fullmatch,避免 $ 放行結尾換行
 
 
@@ -75,6 +85,19 @@ class OperationResult:
 
 
 @dataclass(frozen=True)
+class MetricsRecord:
+    """DSP 回報的原始事實;沒有的欄位維持 None,不會被換成 0。"""
+
+    campaign_id: str
+    window: str
+    impressions: int | None
+    clicks: int | None
+    conversions: int | None
+    spend: float | None
+    revenue: float | None
+
+
+@dataclass(frozen=True)
 class HistoryEntry:
     operation_id: int
     action: str
@@ -101,6 +124,34 @@ def _validate(op: Operation) -> None:
             raise ValidationRejected("new_budget 必須是 1 到 2**63-1 的整數")
     elif op.action != "pause_campaign":
         raise UnknownAction(op.action)
+
+
+def _is_storable_count(value: object) -> bool:
+    return _is_plain_int(value) and abs(value) <= SQLITE_INTEGER_MAX
+
+
+def _is_storable_amount(value: object) -> bool:
+    if _is_plain_int(value):
+        return abs(value) <= EXACT_FLOAT_INT_MAX
+    return isinstance(value, float) and math.isfinite(value)
+
+
+def _checked_metric(name: str, value: object) -> float | None:
+    """只收存進去不會失真、也不會被讀成別的東西的值;沒給的欄位維持 None,不補成 0。
+
+    金額欄位是 REAL,整數讀回會是浮點數(12 變成 12.0);所以整數只收到浮點數能精確表示的大小。
+    """
+    if value is None:
+        return None
+    is_valid = _is_storable_count if name in COUNT_FIELDS else _is_storable_amount
+    if not is_valid(value):
+        raise ValidationRejected(f"{name} 的值不合法:{value!r}")
+    return value
+
+
+def _check_window(window: str | None) -> None:
+    if window not in METRIC_WINDOWS:
+        raise ValidationRejected("window 必須是 1h、1d 或 7d 其中之一")
 
 
 def _next_state(campaign: Campaign, op: Operation) -> Campaign:
@@ -141,6 +192,30 @@ class CampaignStore:
         if row is None:
             raise CampaignNotFound(campaign_id)
         return Campaign(*row)
+
+    def seed_metrics(self, campaign_id: str, window: str, **fields: float | None) -> None:
+        unknown = set(fields) - set(METRIC_FIELDS)
+        if unknown:
+            raise TypeError(f"不認得的指標欄位:{sorted(unknown)}")
+        _check_window(window)
+        self.get_campaign(campaign_id)  # 不存在的廣告不能留下讀不到的孤兒列
+        values = [_checked_metric(name, fields.get(name)) for name in METRIC_FIELDS]
+        self._conn.execute(
+            "INSERT OR REPLACE INTO metrics (campaign_id, window_name, impressions, clicks, "
+            "conversions, spend, revenue) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (campaign_id, window, *values),
+        )
+
+    def get_metrics(self, campaign_id: str, window: str | None) -> MetricsRecord:
+        _check_window(window)
+        self.get_campaign(campaign_id)  # 廣告不存在就回 CampaignNotFound
+        row = self._conn.execute(
+            "SELECT campaign_id, window_name, impressions, clicks, conversions, spend, revenue "
+            "FROM metrics WHERE campaign_id = ? AND window_name = ?", (campaign_id, window),
+        ).fetchone()
+        if row is None:
+            raise MetricsNotFound(f"{campaign_id}/{window}")
+        return MetricsRecord(*row)
 
     def history(self, campaign_id: str) -> list[HistoryEntry]:
         rows = self._conn.execute(

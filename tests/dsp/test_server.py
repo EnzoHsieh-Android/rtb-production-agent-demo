@@ -559,3 +559,61 @@ def test_error_table_lookup_follows_the_inheritance_chain():
     assert error_entry(BusyForAWhile()) == (503, "store_busy", True)
     assert error_entry(TransientError()) == (503, "transient_error", True)
     assert error_entry(PermanentError()) == (500, "dsp_error", False)
+
+
+def seed_metrics(tmp_path, **fields):
+    from rtb.dsp.store import CampaignStore
+
+    store = CampaignStore(tmp_path / "dsp.db")
+    store.seed_metrics("c1", "1d", **fields)
+    store.close()
+
+
+def test_get_metrics_returns_raw_counts_and_keeps_missing_fields_as_null(start_dsp, tmp_path):
+    dsp = start_dsp()
+    seed_metrics(tmp_path, impressions=1000, clicks=None, spend=12.5)
+
+    status, body = dsp.request("GET", "/campaigns/c1/metrics?window=1d")
+
+    assert status == 200 and body["impressions"] == 1000 and body["spend"] == 12.5
+    assert body["clicks"] is None and body["revenue"] is None
+    assert "ctr" not in body  # DSP 只給事實,比率由我們自己算
+
+
+@pytest.mark.parametrize("query,expected_status,expected_error", [
+    ("", 422, "validation_rejected"),
+    ("?window=5years", 422, "validation_rejected"),
+    ("?window=1d&window=7d", 400, "duplicate_query_parameter"),
+    ("?window=7d", 404, "metrics_not_found"),
+])
+def test_get_metrics_rejects_bad_windows_with_typed_errors(
+    start_dsp, tmp_path, query, expected_status, expected_error
+):
+    dsp = start_dsp()
+    seed_metrics(tmp_path, impressions=1)
+
+    status, body = dsp.request("GET", f"/campaigns/c1/metrics{query}")
+
+    assert status == expected_status and body["error"] == expected_error
+
+
+def test_get_metrics_for_an_unknown_campaign_is_a_404(start_dsp):
+    dsp = start_dsp()
+
+    status, body = dsp.request("GET", "/campaigns/ghost/metrics?window=1d")
+
+    assert status == 404 and body["error"] == "campaign_not_found"
+
+
+def test_a_path_starting_with_two_slashes_is_never_routed_as_if_it_had_a_host(start_dsp):
+    # 標準函式庫會把開頭的多個斜線收合;這條測試鎖住結果://網域/... 不會被當成網域而剝掉
+    target = "//evil.example/campaigns/c1"
+    dsp = start_dsp()
+    port = int(dsp.base.rsplit(":", 1)[1])
+    with socket.create_connection(("127.0.0.1", port), timeout=3) as conn:
+        conn.sendall(f"GET {target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n".encode())
+        reply = b""
+        while chunk := conn.recv(4096):
+            reply += chunk
+
+    assert b" 404 " in reply.split(b"\r\n")[0]
