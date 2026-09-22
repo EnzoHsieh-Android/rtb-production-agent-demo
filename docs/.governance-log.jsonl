@@ -894,3 +894,5 @@
 {"ts": "2026-09-22T22:48:15+08:00", "commit": "d650915", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase3-capability"], "note": "disposal gate PASS"}
 {"ts": "2026-09-22T22:48:45+08:00", "commit": "df900ba", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Projects/RTB_Phase2任務流程_計劃.md", "Systems/Mock-DSP.md", "Systems/任務流程領域模型.md", "Systems/共用行程基礎.md", "Systems/外部寫入嘗試紀錄.md", "Systems/提案收件口.md"], "note": "tokens=5 hits=7 secs=12.0"}
 {"ts": "2026-09-22T22:48:47+08:00", "commit": "df900ba", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "df900baa5ec145d99ae976f3ceb1a604e2ac0f84"}
+{"ts": "2026-09-22T22:48:48+08:00", "commit": "d17a422", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-22T22:48:49+08:00", "commit": "d17a422", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d17a422b115e2d8de49ca12569ca44572c8411c9"}
