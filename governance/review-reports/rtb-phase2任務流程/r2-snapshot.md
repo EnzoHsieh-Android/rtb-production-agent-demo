@@ -10,7 +10,6 @@ lands_in:
   - Systems/任務流程領域模型
   - Systems/共用行程基礎
   - Systems/提案收件口
-  - Systems/分析行程流程與檢查點
 ---
 # RTB_Phase2任務流程_計劃
 
@@ -123,76 +122,60 @@ RETIRE-IF: 若 Phase 4 做完後,收件口的衝突拒收、跳號拒收與滿�
 - 不做交接之後的狀態(已交接、完成等),那是 Phase 3 執行行程定義的。
 - 增量 1 的狀態機只描述分析行程這一側;收件表的「待處理、已被取代、已過期」是執行行程這一側的另一張小表,兩邊對應關係要在增量 3 定義,現在不宣稱一致。
 
-## 增量 3 設計:分析行程的流程與檢查點(2026-09-22,第 2 版:已折入第 1 輪設計審)
+## 增量 3 設計:分析行程的流程與檢查點(2026-09-22)
 
-PRIOR-ART: 最小解是「一支函式從頭跑到尾」,但那測不出「跑到一半當機、重啟後接著做」的安全語意,本專案要證明的正是這個。採用「一次只做一步、每步落地才推進狀態」的驅動函式,序號與並行檢查都在寫入交易內決定(不是收件口那種「查跟寫都不碰外部呼叫」的單一交易,詳見下方「並行與序號」);不引入工作流程引擎。
+PRIOR-ART: 最小解是「一支函式從頭跑到尾」,但那測不出「跑到一半當機、重啟後接著做」的安全語意,本專案要證明的正是這個。採用「一次只做一步、每步落地才推進狀態」的驅動函式(同一種做法已經在 DSP 與收件口用過:單一交易內先查後寫);不引入工作流程引擎。
 RETIRE-IF: 若 Phase 3、4 做完後,這裡的檢查點機制從沒真的擋到一次「重做已完成的外部副作用」,換成更簡單的整支函式重跑也不會有事,就該檢討是不是過度設計。
 
 - 事故:分析行程在流程跑到一半時當機重啟,不確定卡在哪一步、外部呼叫(蒐證、送出提案)有沒有真的發生,於是把已完成的事重做一遍(重複送出、重複決策),或把已經作廢的判斷當成現在的事實繼續走。
 - 範圍:只做流程與檢查點的機制;不做真的網路呼叫(蒐證與送出提案都是可替換介面,增量 4 才接真的 DSP 與收件口);不做真正的決策規則(介面先定,規則留給後面階段);不做多任務排程(一次推進一個任務,呼叫端決定何時對哪個任務呼叫)。
 - 核心概念已在 2026-09-22 對話裡使用者答對並收到回饋的部分(見上方「核心概念」節),這裡不重複。
 
-### 儲存:只增不改,而且刻意跟 DSP、收件口的做法不同
+### 儲存:只增不改
 
-- `tasks` 歷史表:每次狀態推進都是新增一列,不更新既有列;主鍵是(任務編號, 序號),一個任務的「目前狀態」永遠是序號最大的那一列。欄位:任務編號、序號、狀態、廣告編號、提案快照(JSON,只有狀態為 PROPOSED 或之後的列才非空;沿用同一份直到 HANDED_OFF)、錯誤細節(只有狀態為 FAILED 的列才非空)、寫入時間。
+- `tasks` 歷史表:每次狀態推進都是新增一列,不更新既有列;主鍵是(任務編號, 序號),一個任務的「目前狀態」永遠是序號最大的那一列。這樣「這一步的輸出已安全存好」跟「這一列真的寫進資料庫」是同一件事,不需要另外的「已完成」旗標。
 - `evidence` 表存增量 1 的 `Evidence`,同樣只增不改,歸屬某個任務的某次蒐證。
 - 兩者的寫入(還有狀態推進)在同一個 `BEGIN IMMEDIATE` 交易內一起提交,做法沿用 [[Systems/共用行程基礎]] 的 `immediate_transaction`。
-- **為什麼不跟 DSP(現況表+歷史表分兩張)或收件口(現況列原地改狀態+另一張事件表)一樣**:這個增量存在的目的就是要讓「這一步的輸出已安全存好」變成可以憑一列資料直接回答的問題。原地改寫現況列做不到這件事——一旦允許 UPDATE,就一定要另外回答「這次 UPDATE 到底有沒有真的提交」,那正是這個增量想避免重新發明的問題。全部只增不改,讓「目前狀態」的定義只有一種讀法(序號最大的那一列),沒有「表面上的目前列」跟「還沒提交完的目前列」兩種可能。代價:長時間運作歷史列會累積,見下方「已知限制」。
 
 ### 驅動函式:一次只做一步
 
 - `advance(task_id)`:讀這個任務目前(序號最大)的狀態列,依狀態呼叫對應的可替換介面,把結果連同新狀態列一起提交,回傳新狀態。呼叫端(增量 4)負責重複呼叫它,直到狀態不再變動或變成終點。
 - 狀態變化一律透過增量 1 `task_state.transition()` 計算,不手刻新的轉換邏輯;非法轉換會讓 `advance()` 直接丟出 `IllegalTransition`,不會靜默寫出壞資料。
-- 三個可替換介面(增量 3 用測試假物件,增量 4 接真的實作),比照收件口既有的「成功回傳值、預期內的失敗用型別化例外」風格(`src/rtb/executor/inbox_store.py` 的 `Accepted` 與 `InboxRejected` 子類別),不是自己另發明一套:
-  - `EvidenceSource`:`(task) -> tuple[Evidence, ...]`,讀現況,不改任何狀態。這是純讀取,重試永遠安全:任何例外都當成暫時性的,不觸發 FAILED。
-  - `Decide`:`(task, evidence) -> NoAction | ProposalDecision | NeedsFreshEvidence`,三選一的決策結果;`NeedsFreshEvidence` 是決策層自己判斷證據不夠新、要求重新蒐證的訊號,不是例外。這是對已經拿到手的證據做純計算,沒有外部狀態——如果它自己丟出例外(不是回傳上面三選一),代表輸入或決策邏輯本身有問題,用同一份證據重跑只會得到同樣的例外,所以不當成暫時性失敗,直接轉 FAILED。
-  - `Submit`:`(proposal) -> Accepted`,對應收件口的成功結果(含是否為重送);`SubmitStale`(對應收件口的 409/422,提案已過期或被取代)與 `SubmitBusy`(對應收件口的 503,暫時性)是兩個型別化例外,成功以外的預期結果一律用例外表達,不夾在回傳值裡。**前提**(必須明講,不能只靠讀者從收件口的合約反推):`Submit` 的實作保證對同一份提案(同一個修訂序號、同一份內容)重複呼叫是安全的——這正是增量 2 收件口的核心合約(重送回目前狀態,不新增、不改動),所以 `Submit` 丟出「三個已定義結果以外」的例外(例如逾時、連線失敗)一樣視為暫時性、可以放心重試,不觸發 FAILED。
-
-### 並行與序號
-
-- 同一個 `task_id` 原則上一次只有一個呼叫端在呼叫 `advance()`(增量 4 的排程負責保證);但驅動函式自己也要防禦:寫入交易內重新核對「準備要接的那一列(序號 N)」是不是真的還是目前最新的一列,不是就中止、不寫入、回傳「這次沒有進展,稍後再試」,不會把兩個互相矛盾的分析結果都當成合法轉換寫進去。
-- 新列的序號一律在寫入交易內用 `MAX(seq)+1` 決定,不在讀取當下先算好——序號的值本身就是「這次寫入有沒有搶到」的判斷依據。
+- 三個可替換介面(增量 3 用測試假物件,增量 4 接真的實作):
+  - `EvidenceSource`:`(task) -> tuple[Evidence, ...]`,讀現況,不改任何狀態。
+  - `Decide`:`(task, evidence) -> NoAction | ProposalDecision | NeedsFreshEvidence`,三選一的決策結果;`NeedsFreshEvidence` 是決策層自己判斷證據不夠新、要求重新蒐證的訊號,不是例外。
+  - `Submit`:`(proposal) -> Accepted | Stale | Busy`,對應收件口的三類結果:`Accepted` 含「是否為重送」;`Stale` 表示這份提案已經過期或被取代(收件口的 409/422);`Busy` 表示暫時性、可重試,不代表提案本身有問題。
 
 ### 每個狀態怎麼推進
 
-- [S20] 當 `create_task` 被呼叫、這個任務編號完全沒有歷史列,`create_task` 應新增一列 RECEIVED,欄位含任務編號與帶入的廣告編號。[test:test_creating_a_new_task_id_writes_a_received_row]
-- [S21] 當 `create_task` 被呼叫、這個任務編號已經有歷史列且廣告編號相同,`create_task` 應當作空操作,不新增任何列。[test:test_creating_the_same_task_id_twice_with_the_same_campaign_is_a_no_op]
-- [S22] 當 `create_task` 被呼叫、這個任務編號已經有歷史列但帶的廣告編號不同,`create_task` 應丟出例外,不得靜默接受。[test:test_creating_a_task_id_again_with_a_different_campaign_id_is_an_error]
-- [S23] 當 `advance()` 呼叫的任務編號完全沒有歷史列,`advance()` 應清楚地失敗,不得憑空生出 RECEIVED 狀態。[test:test_advancing_a_task_that_was_never_created_fails_loudly]
-- [S24] 當任務狀態是 RECEIVED,`advance()` 應只新增一列 COLLECTING_EVIDENCE,不呼叫任何介面。[test:test_leaving_received_writes_a_checkpoint_before_any_collaborator_is_called]
-- [S25] 當任務狀態是 COLLECTING_EVIDENCE、`EvidenceSource` 呼叫成功,`advance()` 應在同一個交易內把證據列與一列 ANALYZING 一起提交。[test:test_a_successful_evidence_fetch_commits_evidence_and_the_next_state_together]
-- [S26] 當任務狀態是 COLLECTING_EVIDENCE、`EvidenceSource` 呼叫丟出任何例外,`advance()` 應不寫入任何東西,讓狀態留在 COLLECTING_EVIDENCE 以便之後重試。[test:test_a_failing_evidence_fetch_leaves_no_trace_and_the_task_stays_ready_to_retry]
-- [S27] 當任務狀態是 ANALYZING、`Decide` 回傳 NoAction,`advance()` 應新增一列 NO_ACTION。[test:test_analyzing_with_no_action_ends_the_task]
-- [S28] 當任務狀態是 ANALYZING、`Decide` 回傳 ProposalDecision,`advance()` 應在同一個交易內把提案快照與一列 PROPOSED 一起提交。[test:test_analyzing_with_a_proposal_decision_stores_the_snapshot_and_moves_to_proposed]
-- [S29] 當任務狀態是 ANALYZING、`Decide` 回傳 NeedsFreshEvidence,`advance()` 應新增一列 COLLECTING_EVIDENCE。[test:test_analyzing_that_needs_fresh_evidence_goes_back_to_collecting_evidence]
-- [S30] 當任務狀態是 ANALYZING、`Decide` 呼叫丟出任何例外,`advance()` 應新增一列 FAILED 並記下錯誤細節,不得重試同一份證據。[test:test_a_decide_exception_ends_the_task_as_failed_instead_of_retrying_forever]
-- [S31] 當任務狀態是 PROPOSED,`advance()` 應把歷史列裡存的提案快照原封不動送給 `Submit`,不得另外組一份新的。[test:test_proposed_always_resubmits_the_stored_snapshot_never_a_freshly_built_one]
-- [S32] 當 `Submit` 回傳 Accepted(不論是否為重送),`advance()` 應新增一列 HANDED_OFF。[test:test_accepted_or_replayed_both_hand_off]
-- [S33] 當 `Submit` 丟出 `SubmitStale`,`advance()` 應新增一列 COLLECTING_EVIDENCE。[test:test_stale_goes_back_to_collecting_evidence]
-- [S34] 當 `Submit` 丟出 `SubmitBusy`,`advance()` 應不寫入任何東西,讓狀態留在 PROPOSED。[test:test_busy_leaves_the_task_untouched_for_a_later_retry]
-- [S35] 當 `Submit` 丟出前兩者以外的例外,`advance()` 應不寫入任何東西、視為可重試,讓狀態留在 PROPOSED(重送同一份提案永遠安全,是 `Submit` 介面的前提)。[test:test_an_unrecognised_submit_failure_is_treated_as_retryable_not_fatal]
-- [S36] 當任務狀態是終點狀態或 HANDED_OFF,`advance()` 應是空操作,不呼叫任何介面。[test:test_advancing_a_terminal_or_handed_off_task_calls_no_collaborator]
-- [S37] 當寫入交易內發現「準備要接的那一列」已經不是目前最新的一列,`advance()` 應中止、不寫入任何東西,回傳沒有進展。[test:test_two_concurrent_advance_calls_on_the_same_task_never_both_commit_conflicting_outcomes]
-- [S38] 新列的序號應在寫入交易內用目前最大序號加一決定,不得在讀取當下先行決定。[test:test_the_next_sequence_number_is_decided_inside_the_write_transaction]
-- [S39] 當任一步驟在提交前中斷後重新呼叫 `advance()`(交易的中斷鉤子語意與收件口的 `before_commit` 相同),結果應與沒有中斷時一致。[test:test_resuming_after_a_crash_before_commit_at_every_step_converges_to_the_uninterrupted_outcome]
-- [S40] 當任一步驟在提交後中斷後重新呼叫 `advance()`,`advance()` 應不重複呼叫已經成功的那一步、也不送出跟已存快照不同的內容。[test:test_resuming_after_a_crash_after_commit_never_repeats_or_diverges_from_the_committed_step]
-- [S41] 歷史表應只增不改,不得出現 UPDATE 或 DELETE 敘述。[test:test_the_history_table_has_no_update_or_delete_statements]
+- [S20] 當 `create_task` 被呼叫、這個任務編號已經有歷史列,驅動函式應當作空操作,不新增任何列。[test:test_creating_the_same_task_id_twice_is_a_no_op]
+- [S21] 當 `create_task` 被呼叫、帶的廣告編號與既有歷史不同,驅動函式應丟出例外,不得靜默接受。[test:test_creating_a_task_id_again_with_a_different_campaign_id_is_an_error]
+- [S22] 當 `advance()` 呼叫的任務編號完全沒有歷史列,`advance()` 應清楚地失敗,不得憑空生出 RECEIVED 狀態。[test:test_advancing_a_task_that_was_never_created_fails_loudly]
+- [S23] 當任務狀態是 RECEIVED,`advance()` 應只新增一列 COLLECTING_EVIDENCE,不呼叫任何介面。[test:test_leaving_received_writes_a_checkpoint_before_any_collaborator_is_called]
+- [S24] 當任務狀態是 COLLECTING_EVIDENCE、`EvidenceSource` 呼叫成功,`advance()` 應在同一個交易內把證據列與一列 ANALYZING 一起提交。[test:test_a_successful_evidence_fetch_commits_evidence_and_the_next_state_together]
+- [S25] 當任務狀態是 COLLECTING_EVIDENCE、`EvidenceSource` 呼叫失敗,`advance()` 應不寫入任何東西,讓狀態留在 COLLECTING_EVIDENCE。[test:test_a_failing_evidence_fetch_leaves_no_trace_and_the_task_stays_ready_to_retry]
+- [S26] 當任務狀態是 ANALYZING、`Decide` 回傳 NoAction,`advance()` 應新增一列 NO_ACTION。[test:test_analyzing_with_no_action_ends_the_task]
+- [S27] 當任務狀態是 ANALYZING、`Decide` 回傳 ProposalDecision,`advance()` 應在同一個交易內把提案快照與一列 PROPOSED 一起提交。[test:test_analyzing_with_a_proposal_decision_stores_the_snapshot_and_moves_to_proposed]
+- [S28] 當任務狀態是 ANALYZING、`Decide` 回傳 NeedsFreshEvidence,`advance()` 應新增一列 COLLECTING_EVIDENCE。[test:test_analyzing_that_needs_fresh_evidence_goes_back_to_collecting_evidence]
+- [S29] 當任務狀態是 PROPOSED,`advance()` 應重送歷史列裡存的提案快照給 `Submit`,不得另外組一份新的。[test:test_proposed_always_resubmits_the_stored_snapshot_never_a_freshly_built_one]
+- [S30] 當 `Submit` 回傳 Accepted(不論是否為重送),`advance()` 應新增一列 HANDED_OFF。[test:test_accepted_or_replayed_both_hand_off]
+- [S31] 當 `Submit` 回傳 Stale,`advance()` 應新增一列 COLLECTING_EVIDENCE。[test:test_stale_goes_back_to_collecting_evidence]
+- [S32] 當 `Submit` 回傳 Busy,`advance()` 應不寫入任何東西,讓狀態留在 PROPOSED。[test:test_busy_leaves_the_task_untouched_for_a_later_retry]
+- [S33] 當任務狀態是終點狀態或 HANDED_OFF,`advance()` 應是空操作,不呼叫任何介面。[test:test_advancing_a_terminal_or_handed_off_task_calls_no_collaborator]
+- [S34] 當任一步驟在提交前中斷後重新呼叫 `advance()`,結果應與沒有中斷時一致。[test:test_resuming_after_a_crash_before_commit_at_every_step_converges_to_the_uninterrupted_outcome]
+- [S35] 當任一步驟在提交後中斷後重新呼叫 `advance()`,`advance()` 應不重複呼叫已經成功的那一步、也不送出跟已存快照不同的內容。[test:test_resuming_after_a_crash_after_commit_never_repeats_or_diverges_from_the_committed_step]
+- [S36] 歷史表應只增不改,不得出現 UPDATE 或 DELETE 敘述。[test:test_the_history_table_has_no_update_or_delete_statements]
 
-### 不做的事(範圍)與已知限制
+### 不做的事(範圍)
 
 - 不做真的 HTTP 呼叫:`EvidenceSource`、`Submit` 在這個增量都是測試用的假物件;增量 4 接上真的 DSP 用戶端與收件口用戶端。
 - 不做決策規則:`Decide` 的真正邏輯(什麼情況該改預算、改多少)留給後面階段;這個增量只定義三選一的介面形狀。
-- 不做多任務排程:`advance()` 一次只推進一個任務;要不要輪詢多個待處理任務、多久輪詢一次,是增量 4 呼叫端的事;同一任務不能被並行呼叫也是排程端的責任,S37 只是最後一道防線,不是主要防護。
+- 不做多任務排程:`advance()` 一次只推進一個任務;要不要輪詢多個待處理任務、多久輪詢一次,是增量 4 呼叫端的事。
 - 分析行程套件(`src/rtb/analyzer/`)不得匯入 `rtb.dsp` 或 `rtb.executor`,比照現有兩個行程互不匯入的規則,加對應的 ruff 設定。
-- `tasks` 與 `evidence` 兩張表只增不改,長時間運作會無界成長(尤其 COLLECTING_EVIDENCE 到 ANALYZING 或 PROPOSED 之間反覆重新規劃的迴圈沒有次數上限);這跟 [[Systems/提案收件口]] 已經承認過的同類風險是同一件事,解法(清理、保留期限)留到那邊一起決定。
-REVISIT:2026-10-20 與提案收件口的保留期限一起決定分析行程歷史表的清理方式。
-- COMPLETED、BLOCKED、SUPERSEDED 三個終點不在這個增量寫入,留到 Phase 3 執行行程那一側定義;增量 3 的「不做的事」也沒有跟它們牴觸。
 
 ## 回退
 
 若收件口設計在審查或實作中被證明不成立,可整個移除收件口與收件表而不影響增量 1 的領域模型與 Phase 1 的 DSP,因為這個增量只新增檔案、沒有修改既有介面;回退就是刪掉新增的模組與測試,計劃改回「增量 2 未做」。
-
-若增量 3 的檢查點設計在審查或實作中被證明不成立,同樣只新增了 `src/rtb/analyzer/` 這個全新套件,沒有修改增量 1、2 的任何既有介面;回退就是刪掉這個套件與測試,計劃改回「增量 3 未做」。
 
 ## 設計審的安排
 
@@ -210,11 +193,8 @@ REVISIT:2026-10-20 與提案收件口的保留期限一起決定分析行程歷�
 ## 落點
 
 - lands_in: 增量 1 新開一篇 Systems 節點「任務流程領域模型」,管任務狀態、證據、提案三個模組。
-- lands_in: 增量 3 新開一篇 Systems 節點「分析行程流程與檢查點」,管 `src/rtb/analyzer/` 這個套件(tasks 歷史表、evidence 表、`advance()` 驅動函式、三個可替換介面)。
 
 ## 審計修正紀錄
 
 - r1(2026-09-22,6 席:正確性、併發與資源、安全、合約一致、可測性、架構對齊;沒派外家席):34 條/blocking 22(major 22、minor 12)/全部折入,第 2 版設計重寫了收件口:嚴格連號、單一交易的判斷順序、重送不受上限影響、取代先釋放名額、事件表有界、Origin 與 Content-Type 防護、共用基礎抽出、故障注入點。指標:governance/review-reports/rtb-phase2任務流程/。
 - 使用者裁定的部分沒動:相同內容當作重送、不同內容拒收(2026-09-22)。其餘全部是我依審查結果做的設計選擇,例如預設全域上限 8、事件上限 1000、把「新提案必須連號」定為規則;這幾個數字沒有實測依據,是暫用值,實作時可調。
-- r2(2026-09-22,3 席:正確性與可測性、併發與崩潰恢復、架構對齊;沒派外家席):8 條/blocking 4(major 4、minor 4)/全部折入,第 2 版設計補上:FAILED 狀態的觸發條件(Decide 丟例外)、並行呼叫的防禦(交易內重核對最新列、序號在交易內決定)、Submit 改成比照收件口的「成功回傳值、預期失敗用型別化例外」風格並明講重送安全是它的前提、tasks 表欄位、create_task 主線的條款、故障注入鉤子語意、無界成長的 REVISIT、lands_in。架構對齊席指出 tasks 表只增不改跟 DSP、收件口的做法不同,已在設計裡補上明確理由(不是照建議改成一致,是解釋為什麼刻意不同),屬合法的張力,不是壓掉。指標:governance/review-reports/rtb-phase2任務流程/。
-- 使用者這輪沒有新的裁定,全部是我依審查結果做的設計選擇。
