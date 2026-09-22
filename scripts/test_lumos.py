@@ -3802,7 +3802,7 @@ def t_python_profile_multiplatform():
         encoding="utf-8")
     (root / "test_m.py").write_text("def t_multi():\n    pass\n# status/* 註解\nX='glob:**/'\n",
                                     encoding="utf-8")
-    _, _, _, methods_for, _ = m._platform_test_index(root)
+    _, _, _, methods_for, _, _loose = m._platform_test_index(root)
     got = methods_for("py")
     check("pyprof multiplatform: t_multi 認得(欄位經 dict 直達)", "t_multi" in got, f"{got}")
 
@@ -44486,7 +44486,7 @@ def _mk_spec_gate_repo(d, run_cmd="python3 tests/run.py {method}"):
     # ★t_multi 旁邊真的要有第二支名字含它的測試★:篩選是子字串比對,「匹配到兩支」指的是
     # 真的有兩支不同的測試被選到。只宣告一支卻回報兩個案例,那是同一支測試的多組輸入(參數化),
     # 不是撞名——fixture 不擺出真正的撞名,那條測試就是在驗一個不存在的情境。
-    (d / "tests" / "test_x.py").write_text("def t_red():\n    assert False\n\ndef t_green():\n    assert True\n\ndef t_red2():\n    assert False\n\ndef t_green2():\n    assert True\n\ndef t_flip():\n    pass\n\ndef t_multi():\n    pass\n\ndef t_multi_extra():\n    pass\n\ndef t_param():\n    pass\n\ndef t_zero():\n    pass\n\ndef t_skip():\n    pass\n", encoding="utf-8")
+    (d / "tests" / "test_x.py").write_text("def t_red():\n    assert False\n\ndef t_green():\n    assert True\n\ndef t_red2():\n    assert False\n\ndef t_green2():\n    assert True\n\ndef t_flip():\n    pass\n\ndef t_multi():\n    pass\n\ndef t_multi_extra():\n    pass\n\ndef t_param():\n    pass\n\ndef t_nested():\n    pass\n\nclass TestGroup:\n    def t_nested_inner(self):\n        pass\n\ndef t_doc():\n    \"\"\"說明裡夾一段縮排的程式範例:\n\n        def t_doc_helper():\n            pass\n    \"\"\"\n    pass\n\ndef t_zero():\n    pass\n\ndef t_skip():\n    pass\n", encoding="utf-8")
     (d / "tests" / "run.py").write_text(
         "import sys\n"
         "m = sys.argv[1] if len(sys.argv) > 1 else ''\n"
@@ -44494,7 +44494,8 @@ def _mk_spec_gate_repo(d, run_cmd="python3 tests/run.py {method}"):
         "table = {'t_red': (1, '0 passed, 1 failed', 1), 't_green': (1, '3 passed, 0 failed', 0), 't_multi': (2, '2 passed, 0 failed', 0),\n"
         "         't_red2': (1, '0 passed, 1 failed', 1), 't_green2': (1, '1 passed, 0 failed', 0), 't_flip': (1, '1 passed, 0 failed', 0) if os.path.exists('tests/flip.ok') else (1, '0 passed, 1 failed', 1),\n"
         "         't_zero': (0, '0 passed, 0 failed', 0), 't_skip': (1, '0 passed, 0 failed (skipped=1)', 0),\n"
-        "         't_multi_extra': (1, '1 passed, 0 failed', 0), 't_param': (9, '9 passed, 0 failed', 0)}\n"
+        "         't_multi_extra': (1, '1 passed, 0 failed', 0), 't_param': (9, '9 passed, 0 failed', 0),\n"
+        "         't_nested': (2, '2 passed, 0 failed', 0), 't_doc': (9, '9 passed, 0 failed', 0)}\n"
         "if m not in table:\n    print('no such test', m); sys.exit(2)\n"
         "n, line, rc = table[m]\n"
         "print(f'lumos 測試({n} 案例)')\nprint(line)\nsys.exit(rc)\n", encoding="utf-8")
@@ -44607,6 +44608,106 @@ def t_spec_gate_parametrized_is_not_weak():
     check("② 收集到 9 個案例但只宣告一支 → 判綠,不是弱證據",
           "綠" in r.stdout and "唯一" not in r.stdout and "匹配到 9 支" not in r.stdout,
           r.stdout[-600:])
+
+
+def t_spec_gate_collision_inside_class_still_weak():
+    """撞名的那支縮排在類別裡時,照樣要判「測試名要唯一」,不准當成參數化放行。
+
+    出身:代碼審 r1 通才席 blocker——判「有沒有撞名」原本讀的是錨在欄位 0 的宣告掃描,
+    它看不到類別裡的測試;而真的跑測試時是子字串過濾,不管縮排也不管在不在類別裡,
+    那支會真的被選中一起跑。少算一支就把真撞名當成「同一支測試的多組輸入」放行
+    ——比這批改動之前更寬鬆,而風險低的計劃過了規格閘就直接跳過設計審,沒有下游補救。
+    翻紅釘:把放寬掃描換回正規那支(錨在欄位 0) → ②紅。
+    """
+    d, kg = _mk_spec_gate_repo(mkvault().parent.parent / "sgnest")
+    _sg_plan(kg, "類內撞名", ["- [S1] 當輸入不合法,系統應拒絕 [test:t_nested]"])
+    r = run(kg, "spec-gate", "Projects/類內撞名_計劃")
+    check("① 跑得起來", r.returncode == 0, r.stdout[-400:])
+    check("② 類別裡那支也算,判測試名要唯一",
+          "唯一" in r.stdout and "匹配到 2 支" in r.stdout, r.stdout[-600:])
+
+
+def t_spec_gate_docstring_example_is_not_a_declaration():
+    """說明文字裡縮排的程式範例,不算一支測試宣告,不能因此把參數化誤判成撞名。
+
+    出身:代碼審 r2 通才席 blocker——第一版用放寬的正則去掃,而 Python 那棧刻意不剝字串,
+    原本的行首錨同時兼任「別把字串裡的東西當宣告」的守門;放寬之後 docstring 裡的範例被當成真宣告
+    (實測本 repo 自己的測試檔多算 148 個),把同一支測試的多組輸入誤判成撞名,
+    原地重現這批本來要修的誤擋。現在改用語法剖析,字串就是字串。
+    翻紅釘:把語法剖析換回放寬的正則 → ②紅。
+    """
+    d, kg = _mk_spec_gate_repo(mkvault().parent.parent / "sgdoc")
+    _sg_plan(kg, "說明裡有範例", ["- [S1] 當輸入不合法,系統應拒絕 [test:t_doc]"])
+    r = run(kg, "spec-gate", "Projects/說明裡有範例_計劃")
+    check("① 跑得起來", r.returncode == 0, r.stdout[-400:])
+    check("② 收集到 9 個案例仍判綠(說明裡那段不算宣告)",
+          "綠" in r.stdout and "唯一" not in r.stdout, r.stdout[-600:])
+
+
+def t_platform_index_consumers_drift_guard():
+    """平台測試索引回幾個值,所有解構它的地方就要解幾個——用語法樹掃全 repo,不靠人記得改。
+
+    出身:2026-09-22 這批給那支索引加了第六個值,同一族的漏改連冒三次(表態閘那個「整包存起來、
+    在別的函式裡才解構」的、測試檔裡的)。每一次都是人去數「有幾個呼叫點」而數漏。
+    ★第一版用逐行正則,代碼審 r4 兩席各自實跑證明它對括號解構、星號解構、連鎖賦值、續行、
+    先存進 dict 這五種合法寫法全部假綠,而且只掃兩個寫死的檔★——防漏的東西自己會漏,
+    等於把「人數漏」換成「守衛掃漏」。改用語法樹:解構的形狀交給剖析器認,不自己用正則猜。
+    翻紅釘:把任一處解構改回五個(不管哪種寫法) → ②紅。
+    """
+    import ast as _ast
+    FUNC = "_platform_test_index"
+    SKIP = {".git", "node_modules", ".venv", "__pycache__", ".claude", "governance"}
+
+    def _is_call(node):
+        if not isinstance(node, _ast.Call):
+            return False
+        f = node.func
+        return (isinstance(f, _ast.Name) and f.id == FUNC) or (isinstance(f, _ast.Attribute) and f.attr == FUNC)
+
+    root = Path(GRAPHCTL).resolve().parent.parent
+    files = [Path(GRAPHCTL)] + [q for q in sorted(root.rglob("*.py"))
+                                if not (set(q.parts) & SKIP)]
+    trees = {}
+    for q in files:
+        try:
+            trees[q] = _ast.parse(q.read_text(encoding="utf-8", errors="replace"))
+        except (SyntaxError, ValueError, OSError):
+            continue      # 剖不動的檔跳過(那是別的問題),但不影響其他檔照掃
+
+    arity = None
+    for tree in trees.values():
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.FunctionDef) and node.name == FUNC:
+                for sub in _ast.walk(node):
+                    if isinstance(sub, _ast.Return) and isinstance(sub.value, _ast.Tuple):
+                        arity = len(sub.value.elts)
+    check("① 從語法樹讀得出那支索引回幾個值", arity is not None, f"掃了 {len(trees)} 個檔")
+    if arity is None:
+        return
+
+    problems, seen_consumer = [], 0
+    for q, tree in trees.items():
+        rel = q.name
+        holders = {tg.id for node in _ast.walk(tree) if isinstance(node, _ast.Assign) and _is_call(node.value)
+                   for tg in node.targets if isinstance(tg, _ast.Name)}
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Assign):
+                continue
+            from_index = _is_call(node.value) or (isinstance(node.value, _ast.Name) and node.value.id in holders)
+            if not from_index:
+                continue
+            for tg in node.targets:
+                if isinstance(tg, (_ast.Tuple, _ast.List)):
+                    seen_consumer += 1
+                    if any(isinstance(e, _ast.Starred) for e in tg.elts):
+                        continue     # 星號會自己吸收多出來的值,加欄位不會壞
+                    if len(tg.elts) != arity:
+                        problems.append(f"{rel}:{node.lineno} 解了 {len(tg.elts)} 個,該 {arity} 個")
+                elif isinstance(tg, (_ast.Subscript, _ast.Attribute)):
+                    problems.append(f"{rel}:{node.lineno} 把整包存進 dict/屬性,這支守衛追不下去——"
+                                    "改成存進一個普通變數,不然漏改沒人會發現")
+    check("② 每一處解構的個數都對得上", problems == [], "\n".join(problems))
+    check("③ 真的有掃到消費者(不是掃了個空的還說乾淨)", seen_consumer >= 5, f"只找到 {seen_consumer} 處")
 
 
 def t_spec_gate_run_summary():

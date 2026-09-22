@@ -14,9 +14,9 @@
   "scripts/hooks/post-commit": "754a88db17add2493587bc51e5891b8f810342d10bbddf6f7d97d6c05d3b9651",
   "scripts/hooks/pre-commit": "470f20b9b21f05078adf307ea739022c567f75aab0e91be4a94f1ec4121bb63a",
   "scripts/hooks/pre-push": "10f1b24c65f9fc8d6f221b3c18a2b659a4626fd71c217186c3de8de33b201525",
-  "scripts/lumos": "7726c352bf891f93ab51371ae99894e0da85df3a2d2f506984e354e77c1aa73d",
+  "scripts/lumos": "0e1657da2d454ca65685c433a5862e01dda46e2bd45bbee62822de1cc00c034f",
   "scripts/merge-claude-settings.py": "69e9f960f1fea34a443bd0b45ad964856047bd92f646d0335c5d5360d3b454e8",
   "scripts/templates/graph-discipline.md": "bed7cd843cf80a7a2cdcb20645ff483f4d6a0311dd64655a9e42a5cfa2ece40c",
-  "scripts/test_lumos.py": "bfa5b42190e735bdc3ddb0be68cd291b1e28d182327dc6b98e05eea3524749ad"
+  "scripts/test_lumos.py": "4ee3435a21842b67bc5beaf05f559f8416e183dc3d5ac5fae1c1b7cd50a59893"
  }
 }
