@@ -775,3 +775,26 @@
 {"ts": "2026-09-22T20:48:48+08:00", "commit": "5f6069c", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=3 soft=5"}
 {"ts": "2026-09-22T20:48:48+08:00", "commit": "5f6069c", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260922T124846Z-93029", "head_sha": "5f6069c5dae61313593f44e2eb23193068de7362"}
 {"ts": "2026-09-22T20:48:50+08:00", "commit": "5f6069c", "gate": "bound-tests", "kind": "no-pins", "hard": false, "nodes": [], "note": "c5b1102257d5f0ad9ce5ea61861d0b3c92835647..5f6069c5dae61313593f44e2eb23193068de7362"}
+{"ts": "2026-09-22T20:54:59+08:00", "commit": "5f6069c", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Projects/RTB_Phase2任務流程_計劃.md"], "note": "tokens=6 hits=1 secs=1.2"}
+{"ts": "2026-09-22T20:55:00+08:00", "commit": "5f6069c", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "5f6069c5dae61313593f44e2eb23193068de7362"}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-cascade", "kind": "warned", "hard": false, "nodes": [], "note": "unseen=2 broken=0"}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用HTTP伺服器連線名額測試在CI偶發逾時"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-22T20:55:05+08:00", "commit": "e377984", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=3 soft=6"}
+{"ts": "2026-09-22T20:55:06+08:00", "commit": "e377984", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260922T125504Z-4464", "head_sha": "e3779845b91fff1452f63151e06ca4f95a5edb31"}
+{"ts": "2026-09-22T20:55:08+08:00", "commit": "e377984", "gate": "bound-tests", "kind": "no-pins", "hard": false, "nodes": [], "note": "5f6069c5dae61313593f44e2eb23193068de7362..e3779845b91fff1452f63151e06ca4f95a5edb31"}

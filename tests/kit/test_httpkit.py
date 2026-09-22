@@ -463,6 +463,15 @@ def test_no_deadline_timer_threads_are_left_behind_after_requests_finish(server)
     assert [t for t in threading.enumerate() if isinstance(t, threading.Timer)] == []
 
 
+def _wait_until_free_slots(srv, expected, timeout=3.0):
+    """伺服器是先送出回應、再在處理緒收尾時還名額:收到回應不代表名額已經還了。
+    等到空名額數真的變成預期值再往下走(讀號誌的內部計數,只有測試這樣做)。"""
+    deadline = time.monotonic() + timeout
+    while srv._slots._value != expected:
+        assert time.monotonic() < deadline, f"空名額一直不是 {expected}"
+        time.sleep(0.01)
+
+
 def test_connection_slots_come_back_after_a_handler_error_and_over_limit_sockets_are_shut(
         server, monkeypatch):
     srv = server(max_connections=1)
@@ -476,9 +485,11 @@ def test_connection_slots_come_back_after_a_handler_error_and_over_limit_sockets
     monkeypatch.setattr(KitServer, "shutdown_request", recording)
 
     assert call(srv, "GET", "/boom")[0] == 500  # 處理程式出錯之後名額仍然要還
+    _wait_until_free_slots(srv, 1)
     assert call(srv, "GET", "/")[0] == 200
+    _wait_until_free_slots(srv, 1)
     held = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=3)
-    time.sleep(0.2)
+    _wait_until_free_slots(srv, 0)  # 確定名額被佔住,不靠固定等待(CI 慢時固定等待不夠)
     over = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=3)
     over_port = over.getsockname()[1]
     over.settimeout(2.0)
