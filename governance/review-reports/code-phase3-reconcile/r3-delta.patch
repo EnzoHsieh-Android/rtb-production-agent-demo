@@ -1,0 +1,118 @@
+diff --git a/src/rtb/executor/dsp_client.py b/src/rtb/executor/dsp_client.py
+index 4baff0d..6accd17 100644
+--- a/src/rtb/executor/dsp_client.py
++++ b/src/rtb/executor/dsp_client.py
+@@ -64,31 +64,49 @@ class DspClient:
+             status, reply = request_json(self._base + path, "POST", body, self._timeout, headers)
+         except (OSError, ValueError):
+             return WriteAnswer(None)
+         if not isinstance(reply, dict):  # 回應讀不懂:當成沒拿到回應
+             return WriteAnswer(None)
+         error = reply.get("error")
+         return WriteAnswer(status, error if isinstance(error, str) else None,
+                            _positive_int(reply.get("version_after")))
+ 
+     def operation_version(self, key: str) -> int | None:
+-        """增量 3 的介面,行為不變;解析只有 operation_record 一份,不各自再解析一次。"""
+-        record = self.operation_record(key)
+-        return None if record is None else record.version_after
++        """增量 3 的介面,行為照舊:只要寫入後版本讀得懂就回它。
+ 
+-    def operation_record(self, key: str) -> OperationRecord | None:
++        刻意不轉呼叫 operation_record:那支要求廣告、動作、參數都在,舊版 DSP 的成功回應沒有參數,
++        會被誤判成讀不懂。兩支共用的是查詢與「查不到」的判斷(_lookup),不是欄位解析。
++        """
++        body = self._lookup(key)
++        if body is None:
++            return None
++        version = _positive_int(body.get("version_after"))
++        if version is None:
++            raise DspUnavailable("查詢回的寫入後版本讀不懂")
++        return version
++
++    def _lookup(self, key: str) -> dict[str, Any] | None:
++        """查一把鍵的操作紀錄:查不到回 None,非 200 一律 DspUnavailable;欄位解析由呼叫端做。"""
+         status, body = self._get(f"/operations/{key}")
+         if status == 404 and body.get("error") == "operation_not_found":
+             return None
+-        record = _record(body) if status == 200 else None
+-        if record is None:
++        if status != 200:
+             raise DspUnavailable(f"查詢回 {status}")
++        return body
++
++    def operation_record(self, key: str) -> OperationRecord | None:
++        body = self._lookup(key)
++        if body is None:
++            return None
++        record = _record(body)
++        if record is None:  # 對帳要核對完整內容:少一個欄位就不能拿來下判斷
++            raise DspUnavailable("查詢回的操作紀錄讀不懂")
+         return record
+ 
+     def void(self, proposal: Proposal, key: str, token: str) -> VoidAnswer:
+         body = {"expected_version": proposal.campaign_version_observed}
+         headers = {ClientHeader.IDEMPOTENCY_KEY: key, ClientHeader.CAPABILITY: token}
+         path = f"/campaigns/{proposal.campaign_id}/void"
+         try:
+             status, reply = request_json(self._base + path, "POST", body, self._timeout, headers)
+         except (OSError, ValueError):
+             return VoidAnswer(None)
+diff --git a/tests/executor/test_execution_e2e.py b/tests/executor/test_execution_e2e.py
+index c1a77da..e085e4d 100644
+--- a/tests/executor/test_execution_e2e.py
++++ b/tests/executor/test_execution_e2e.py
+@@ -1,16 +1,17 @@
+ """執行一筆的端到端:真的 Mock DSP(測試行程內的執行緒)+ 真的執行行程 DSP 用戶端。
+ 
+ 執行行程的用戶端送不出故障注入標頭(共用用戶端的封閉列舉擋掉),所以故障改由測試在 DSP
+ 伺服器那一側排定:每個寫入請求依序取一個安排(故障模式、DSP 時鐘偏移)。
+ """
+ 
++import sqlite3
+ import threading
+ 
+ import pytest
+ 
+ from rtb.domain.attempt import operation_key
+ from rtb.dsp.server import DspHandler, DspServer
+ from rtb.dsp.store import CampaignStore, Operation
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import DspUnavailable, Executor, OperationRecord, Result
+@@ -334,15 +335,31 @@ def test_the_real_client_voids_a_key_through_the_dsp(world):
+ def test_a_void_call_that_times_out_comes_back_as_no_answer(world):
+     """作廢呼叫逾時要吞成「沒拿到回應」交給對照表(留在結果不明),不是讓例外炸穿對帳迴圈。"""
+     prop = world.submit(campaign_version_observed=1)
+     token = CapabilitySigner(TEST_KEY).sign_void(
+         prop, operation_key(prop), world.config, int(world.clock().timestamp()))
+     world.server.plan.append(("timeout_before_commit", 0))  # DSP 掛住比用戶端逾時久
+ 
+     answer = world.client.void(prop, operation_key(prop), token)
+ 
+     assert (answer.status, answer.state) == (None, None)
+-    store = world.dsp()
+-    try:  # 前置:DSP 真的沒有作廢成功
+-        assert store.void(operation_key(prop)).state == "voided"
++    conn = sqlite3.connect(world.dsp_db)
++    try:  # DSP 真的沒有留下作廢紀錄(再作廢一次分不出來:作廢是冪等的,兩種情況都回已作廢)
++        assert conn.execute("SELECT count(*) FROM voided_keys WHERE key = ?",
++                            (operation_key(prop),)).fetchone()[0] == 0
+     finally:
+-        store.close()
++        conn.close()
++
++
++def test_an_old_style_operation_answer_still_reads_back_its_version(monkeypatch):
++    """兩支查詢共用查詢與「查不到」判斷,但欄位要求各自照舊:
++    舊版 DSP 的成功回應沒有參數,查寫入後版本照樣讀得回來;核對完整內容那支才算讀不懂。"""
++    from rtb.executor import dsp_client
++
++    old = {"operation_id": 1, "campaign_id": "c1", "action": "update_budget",
++           "version_after": 5, "committed_at": "2026-09-23T00:00:00+00:00", "replayed": False}
++    client = dsp_client.DspClient("http://127.0.0.1:9", 1)
++    monkeypatch.setattr(dsp_client, "request_json", lambda *_a, **_k: (200, old))
++
++    assert client.operation_version("k1-x") == 5
++    with pytest.raises(DspUnavailable):
++        client.operation_record("k1-x")
