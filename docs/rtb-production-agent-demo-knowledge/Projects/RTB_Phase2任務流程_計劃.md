@@ -1,11 +1,11 @@
 ---
 type: project
-status: doing
+status: done
 created: 2026-09-22
 updated: 2026-09-22
 tags:
   - type/project
-  - status/doing
+  - status/done
 lands_in:
   - Systems/任務流程領域模型
   - Systems/共用行程基礎
@@ -58,7 +58,8 @@ RETIRE-IF: 若 Phase 3 到 4 做完後,任務狀態機的轉換表仍沒有抓�
 - 提案解析:合法、缺欄位、多餘欄位、型別錯、過大、過期時間早於建立時間,各有測試。
 - 提案與副作用明確分離:提案物件沒有任何執行能力,只是資料。
 - 使用者能用自己的話說明狀態與檢查點的差別:已在 2026-09-22 對話完成。
-- 增量 4 才會有「能由任務走到驗證完成」與「一條 trace 連結證據、決策、政策、工具呼叫與驗證」,這兩條在那之前不宣稱完成。
+- 增量 4 已交付:任務能真的從建立走到分析行程這一側的終點(HANDED_OFF 或 NO_ACTION),`trace_for` 把證據、決策(提案快照裡的 `policy_version`)、工具呼叫串成一條可查的紀錄,`test_the_agent_cannot_reach_fault_injection_on_production_style_servers` 用真的 DSP 與收件口跑過這整條路徑。
+- 措辭校正(2026-09-22 收尾核對時發現):交接文件原文 Phase 2 寫的是「一條 trace 可連結 Evidence、decision、policy、tool attempt 與 **verification**」(含執行後的驗證結果),但 [[Projects/RTB_Agent_Phase0架構]] 的決策已把分析與執行拆成兩個獨立行程,「verification」(執行是否真的成功)屬於執行行程(這份計劃稱為 Phase 3)的職責,不在分析行程能交付的範圍——這是決策的必然結果,不是漏做;trace 目前只到 HANDED_OFF 為止,交接之後的驗證結果要接上執行行程才看得到,屬 Phase 3 的範圍。
 
 ## 增量 2 設計:提案收件口(2026-09-22,第 2 版:已折入第 1 輪設計審)
 
@@ -242,20 +243,20 @@ RETIRE-IF: 若這個增量做完後,trace 表從沒被用來追查過一次真�
 ### 合約
 
 - [S42] 當 DSP 的現況與指標兩個請求都成功,`dsp_client` 應回傳兩筆證據。[test:test_both_endpoints_succeeding_returns_both_pieces_of_evidence]
-- [S43] 當 DSP 的現況或指標任一個請求失敗,`dsp_client` 應整個丟出例外,不回傳只含一部分的結果。[test:test_either_endpoint_failing_raises_and_returns_nothing_partial]
-- [S44] `dsp_client.py`、`inbox_client.py`、`httpclient.py` 三支檔的原始碼都不應該出現 `X-Fault` 字樣,`request_json` 的簽章也不應該有能傳入任意標頭名稱的參數。[test:test_no_client_module_can_send_the_fault_header]
-- [S45] 當收件口回應 201 或 200,`inbox_client` 應回傳 `Accepted`,`replayed` 對應狀態碼是否為 200。[test:test_201_and_200_map_to_accepted_with_the_right_replayed_flag]
-- [S46] 當收件口回應 409(`revision_out_of_order`、`content_conflict`)或 422(`expired_proposal`、`expiry_too_far`、`created_in_future`),`inbox_client` 應丟出 `SubmitStale`。[test:test_these_status_codes_map_to_submit_stale]
+- [S43] 當 DSP 的現況或指標任一個請求失敗,`dsp_client` 應整個丟出例外,不回傳只含一部分的結果。[test:test_a_nonexistent_campaign_makes_the_whole_call_raise] [test:test_the_dsp_being_unreachable_makes_the_whole_call_raise] [test:test_campaign_state_succeeding_but_metrics_failing_raises_and_returns_nothing_partial](第 1 輪代碼審指出,原本沒有測試覆蓋「現況成功、指標失敗」這個排列組合,已補上第三個測試)
+- [S44] `dsp_client.py`、`inbox_client.py`、`httpclient.py` 三支檔的原始碼都不應該出現 `X-Fault` 字樣,`request_json` 的簽章也不應該有能傳入任意標頭名稱的參數。[test:test_the_dsp_client_module_never_mentions_the_fault_header] [test:test_the_inbox_client_module_never_mentions_the_fault_header] [test:test_the_client_module_source_never_mentions_the_fault_header] [test:test_a_header_key_that_is_not_a_clientheader_member_is_rejected]
+- [S45] 當收件口回應 201 或 200,`inbox_client` 應回傳 `Accepted`,`replayed` 對應狀態碼是否為 200。[test:test_first_acceptance_maps_to_accepted_not_replayed] [test:test_a_resend_maps_to_accepted_replayed]
+- [S46] 當收件口回應 409(`revision_out_of_order`、`content_conflict`)或 422(`expired_proposal`、`expiry_too_far`、`created_in_future`),`inbox_client` 應丟出 `SubmitStale`。[test:test_a_content_conflict_maps_to_submit_stale] [test:test_an_expired_proposal_maps_to_submit_stale] [test:test_an_expiry_too_far_in_the_future_maps_to_submit_stale] [test:test_a_decision_created_too_far_in_the_future_maps_to_submit_stale]
 - [S46a] 當收件口回應 409 且錯誤代碼是 `too_many_revisions`,`inbox_client` 應丟出 `SubmitRejectedPermanently`,不是 `SubmitStale`。[test:test_too_many_revisions_maps_to_a_permanent_rejection_not_stale]
 - [S46b] 當 `_from_proposed` 收到 `SubmitRejectedPermanently`,`advance()` 應新增一列 FAILED,不得退回 COLLECTING_EVIDENCE。[test:test_a_permanent_submit_rejection_fails_the_task_instead_of_looping_forever]
-- [S47] 當收件口回應 503,`inbox_client` 應丟出 `SubmitBusy`。[test:test_503_maps_to_submit_busy]
-- [S48] 當收件口回應其他狀態碼或連線失敗,`inbox_client` 應讓例外原樣往外傳,不得自行吞掉或改分類。[test:test_unexpected_responses_and_connection_failures_propagate_unmapped]
-- [S49] 當配速已知且明顯偏低、曝光與點擊都大於零,`policy.decide` 應回傳調高預算的 `ProposalDecision`;當配速正常、沒有投放、或任一數值不知道,應回傳 `NoAction`,不得丟出例外。[test:test_the_demo_policy_proposes_a_budget_increase_only_when_underpacing_with_real_delivery] [test:test_the_demo_policy_never_raises_on_zero_budget_or_missing_metrics]
-- [S50] 每次對外呼叫(不論成功或失敗)都應該在 `tool_calls` 留下一筆紀錄;這筆寫入本身失敗不應該影響呼叫端拿到的結果。[test:test_every_outbound_call_leaves_a_tool_call_row_whether_it_succeeds_or_fails] [test:test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result]
+- [S47] 當收件口回應 503,`inbox_client` 應丟出 `SubmitBusy`。[test:test_a_full_inbox_maps_to_submit_busy]
+- [S48] 當收件口回應其他狀態碼或連線失敗,`inbox_client` 應讓例外原樣往外傳,不得自行吞掉或改分類。[test:test_an_unreachable_inbox_propagates_unmapped]
+- [S49] 當配速已知且明顯偏低、曝光與點擊都大於零,`policy.decide` 應回傳調高預算的 `ProposalDecision`;當配速正常、沒有投放、或任一數值不知道,應回傳 `NoAction`,不得丟出例外。[test:test_underpacing_with_real_delivery_proposes_a_budget_increase] [test:test_normal_pacing_is_no_action] [test:test_underpacing_with_zero_delivery_is_no_action_not_a_proposal] [test:test_zero_budget_never_raises_and_is_no_action] [test:test_missing_metrics_never_raises_and_is_no_action]
+- [S50] 每次對外呼叫(不論成功或失敗)都應該在 `tool_calls` 留下一筆紀錄;這筆寫入本身失敗不應該影響呼叫端拿到的結果。[test:test_a_successful_call_is_recorded] [test:test_a_failing_call_is_recorded_and_the_exception_still_propagates] [test:test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result] [test:test_submit_calls_are_recorded_too] [test:test_a_failing_submit_call_is_recorded_and_the_exception_still_propagates]
 - [S51] `trace_for` 應該回傳一個包含這個任務的狀態史、每一步證據與每一次呼叫記錄的結構化紀錄。[test:test_trace_for_returns_the_full_history_evidence_and_calls_for_a_task]
 - [S52] 當 DSP 與收件口都沒有帶 `--fault-injection` 啟動,分析行程用真的用戶端跑完整套正常流程應該全部成功,且過程中沒有任何一次請求帶 `X-Fault`。[test:test_the_agent_cannot_reach_fault_injection_on_production_style_servers]
 - [S53] 分析行程套件不應該匯入 `rtb.dsp` 的任何內部模組(機械掃描,只能透過 HTTP 溝通)。[test:test_the_analyzer_package_never_imports_dsp_internals]
-- [S54] 當 `request_json` 被呼叫,呼叫端應明確提供逾時秒數(沒有預設值),請求應在逾時後真的放棄,不會無限期卡住。[test:test_request_json_has_no_default_timeout_and_actually_gives_up_after_it]
+- [S54] 當 `request_json` 被呼叫,呼叫端應明確提供逾時秒數(沒有預設值),請求應在逾時後真的放棄,不會無限期卡住。[test:test_request_json_has_no_default_timeout] [test:test_a_request_that_never_responds_gives_up_after_the_timeout]
 
 ### 不做的事(範圍)
 
