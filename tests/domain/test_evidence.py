@@ -164,3 +164,11 @@ def test_payload_over_the_item_limit_is_rejected():
 
     with pytest.raises(ValueError, match="payload"):
         make(payload=huge)
+
+
+def test_payload_rejects_nan_and_infinity_even_though_isinstance_float_accepts_them():
+    # PayloadValue 自稱「JSON 安全原始型別」,但 isinstance(nan, float) 是 True——
+    # 型別檢查通過不代表真的能安全序列化成 JSON,要跟 `_is_positive_finite` 一樣另外擋。
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="payload"):
+            make(payload=MappingProxyType({"budget": bad}))

@@ -74,3 +74,35 @@ def test_missing_state_evidence_never_raises_and_is_no_action():
     evidence = (metrics_evidence(spend=1.0, impressions=500, clicks=12),)
 
     assert isinstance(policy.decide(None, evidence), flow.NoAction)
+
+
+def test_a_small_budget_that_would_round_to_no_change_still_strictly_increases():
+    # budget=1 時 round(1 * 1.1) == round(1.1) == 1:字面上的公式對小額預算算不出漲幅。
+    evidence = (state_evidence(budget=1), metrics_evidence(spend=0.0, impressions=500, clicks=12))
+
+    decision = policy.decide(task_row(), evidence)
+
+    assert isinstance(decision, flow.ProposalDecision)
+    assert decision.proposal.requested_change["new_budget"] > 1
+
+
+def test_a_budget_near_the_proposal_ceiling_is_clamped_instead_of_raising():
+    from rtb.domain.proposal import MAX_INT
+
+    near_ceiling = MAX_INT - 1
+    evidence = (state_evidence(budget=near_ceiling),
+                metrics_evidence(spend=0.0, impressions=500, clicks=12))
+
+    decision = policy.decide(task_row(), evidence)  # 漲一成的公式算出來會超過上限,不該丟例外
+
+    assert isinstance(decision, flow.ProposalDecision)
+    assert decision.proposal.requested_change["new_budget"] == MAX_INT
+
+
+def test_boolean_impressions_or_clicks_do_not_count_as_real_delivery():
+    # bool 是 int 的子類別(True == 1);has_delivery 要跟領域層其他數值檢查一樣排除它,
+    # 不然壞掉的資料來源送 True/False 會被誤判成「有在投放」。
+    evidence = (state_evidence(budget=100),
+                metrics_evidence(spend=0.0, impressions=True, clicks=True))
+
+    assert isinstance(policy.decide(None, evidence), flow.NoAction)

@@ -32,17 +32,21 @@ def test_the_agent_cannot_reach_fault_injection_on_production_style_servers(tmp_
     dsp_store.seed_campaign("c1", budget=100)
     dsp_store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=1.0,
                            revenue=3.0)
+    # 兩個伺服器各自進自己的 try/finally:第二個建構或啟動失敗,第一個已經開的監聽 socket
+    # 也要關掉,不能等 GC 回收(代碼審第 1 輪指出,舊寫法把兩個建構都放在同一個保護傘外面)。
     dsp = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2, delay_seconds=0.0)
-    inbox = InboxServer(tmp_path / "inbox.db", max_pending=4, fault_injection=False)
-    threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
-    threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
     try:
-        _walk_one_task_end_to_end(tmp_path, dsp, inbox)
+        threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
+        inbox = InboxServer(tmp_path / "inbox.db", max_pending=4, fault_injection=False)
+        try:
+            threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
+            _walk_one_task_end_to_end(tmp_path, dsp, inbox)
+        finally:
+            inbox.shutdown()
+            inbox.server_close()
     finally:
         dsp.shutdown()
         dsp.server_close()
-        inbox.shutdown()
-        inbox.server_close()
 
 
 def _walk_one_task_end_to_end(tmp_path, dsp, inbox):

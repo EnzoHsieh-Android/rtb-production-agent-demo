@@ -78,6 +78,41 @@ def test_too_many_revisions_maps_to_a_permanent_rejection_not_stale(inbox, monke
         submit(make_proposal(revision=2))
 
 
+def test_an_expiry_too_far_in_the_future_maps_to_submit_stale(inbox):
+    # created→expires 只差 59 分(領域層的「決策存活最多 1 小時」不會擋),但到期時間離收件口
+    # 目前時鐘(12:05)超過 1 小時,是收件口自己另外設的上限。
+    too_far = make_proposal(decision_created_at="2026-09-22T12:09:00+00:00",
+                            decision_expires_at="2026-09-22T13:08:00+00:00")
+
+    with pytest.raises(flow.SubmitStale):
+        client(inbox)(too_far)
+
+
+def test_a_decision_created_too_far_in_the_future_maps_to_submit_stale(inbox):
+    # 建立時間比收件口目前時鐘(12:05)晚超過容許的 5 分鐘時鐘偏差,但到期時間本身仍在正常範圍。
+    from_the_future = make_proposal(decision_created_at="2026-09-22T12:20:00+00:00",
+                                    decision_expires_at="2026-09-22T12:50:00+00:00")
+
+    with pytest.raises(flow.SubmitStale):
+        client(inbox)(from_the_future)
+
+
+# ---- 狀態碼跟錯誤代碼要一起對,不能只看代碼字串 ----
+def test_a_permanent_rejection_code_under_the_wrong_status_is_not_misclassified():
+    from rtb.analyzer import inbox_client as _inbox_client
+
+    with pytest.raises(RuntimeError):
+        _inbox_client._handle_rejection(500, {"error": "too_many_revisions"})
+
+
+def test_a_stale_code_reported_under_the_wrong_status_is_not_misclassified():
+    from rtb.analyzer import inbox_client as _inbox_client
+
+    # content_conflict 是 409,不是 503
+    with pytest.raises(RuntimeError):
+        _inbox_client._handle_rejection(503, {"error": "content_conflict"})
+
+
 # ---- S47 ----
 def test_a_full_inbox_maps_to_submit_busy(inbox):
     submit = client(inbox)

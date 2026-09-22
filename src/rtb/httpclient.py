@@ -5,19 +5,38 @@ DSP 用戶端與收件口用戶端都用它,不各自造輪子。
 標頭只接受封閉列舉(`ClientHeader`),不接受任意字典:不管呼叫端用什麼方式組出一個標頭
 名稱字串,只要它不是這個列舉的成員,就送不出去。這是唯一的真正防線;掃描原始碼裡有沒有
 出現故障注入標頭那個字樣只是輔助訊號,不是安全機制本身。
+
+不自動跟隨 HTTP 重新導向:網址是呼叫端寫死的信任假設,只保證「第一個請求送去哪裡」,不保證
+「最終回應是誰給的」——應答端只要回一個 3xx 就能把請求接到任意主機,呼叫端毫無感知。3xx 一律
+變成 HTTPError 往外傳,不自動跟。
 """
 
 import json
+import time
 from enum import StrEnum
 from typing import Any
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+MAX_RESPONSE_BYTES = 64 * 1024  # 跟 httpkit.py 的 MAX_BODY_BYTES 對稱:回應本文也不能無界讀入記憶體
 
 
 class ClientHeader(StrEnum):
     """本專案的用戶端允許送出的標頭,封閉列舉;要加新的就在這裡加一個成員,不開放任意字串。"""
 
     IDEMPOTENCY_KEY = "Idempotency-Key"
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    """回 None 讓 urllib 把 3xx 當成一般的錯誤狀態碼丟 HTTPError,不建新請求去跟。"""
+
+    def redirect_request(
+        self, _req: Request, _fp: Any, _code: int, _msg: str, _headers: Any, _newurl: str,
+    ) -> Request | None:
+        return None
+
+
+_opener = build_opener(_NoRedirect)
 
 
 def request_json(
@@ -28,23 +47,60 @@ def request_json(
     headers: dict[ClientHeader, str] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """送一個 JSON 請求,回傳 (狀態碼, 解析後的內容)。非 2xx 狀態碼回傳,不丟例外;
-    逾時、連線失敗、內容不是合法 JSON 一律讓例外原樣往外傳,呼叫端自己決定怎麼處理。
+    逾時、連線失敗、內容不是合法 JSON、回應本文超過上限一律讓例外原樣往外傳,呼叫端自己決定
+    怎麼處理。
     """
-    for key in headers or {}:
+    validated_headers = dict(headers or {})  # 先具現化一次,不對呼叫端傳入的物件重複走訪
+    # (重複走訪同一個不可信的 dict 物件兩次,若它是自訂子類別可以讓兩次走訪回傳不同內容,
+    # 驗證跟實際取值就會不同步)
+    for key in validated_headers:
         if not isinstance(key, ClientHeader):
             raise TypeError(f"標頭名稱必須是 ClientHeader 的成員,得到 {key!r}")
     raw = None if body is None else json.dumps(body).encode()
     request_headers = {"Content-Type": "application/json"}
-    request_headers.update({str(key): value for key, value in (headers or {}).items()})
+    request_headers.update({str(key): value for key, value in validated_headers.items()})
     request = Request(url, data=raw, method=method, headers=request_headers)  # noqa: S310
+    deadline = time.monotonic() + timeout_seconds
     try:
-        with urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310 - 只用來打本機的 DSP/收件口,網址由呼叫端(dsp_client/inbox_client)寫死,不是外部輸入
-            return response.status, json.loads(response.read())
+        with _opener.open(request, timeout=timeout_seconds) as response:
+            return response.status, json.loads(_read_capped(response, deadline))
     except HTTPError as error:
-        return error.code, json.loads(error.read())
+        return error.code, json.loads(_read_capped(error, deadline))
     except TimeoutError:
         raise
     except OSError as error:
         if isinstance(error, TimeoutError):
             raise
         raise
+
+
+def _read_capped(response: Any, deadline: float) -> bytes:
+    """分段讀回應本文,每段之間核對總位元組數上限與總期限。
+
+    `urlopen(..., timeout=timeout_seconds)` 的 timeout 只保證單一次阻塞的 socket 操作不超過
+    這個秒數,不保證整個請求的總耗時——只要伺服器每次都在逾時前送出一點點資料(慢速持續送),
+    一次讀到底的 `response.read()` 可以被拖到不設限。這裡改成有界的分段讀取:總位元組數超過
+    `MAX_RESPONSE_BYTES`、或下一段開始前已經過了 `deadline`,就直接放棄,不繼續等。
+    這不是逐位元組精確的總期限(單一段 `read1()` 呼叫本身仍可能阻塞到接近 timeout_seconds 才
+    回來),是比「完全沒有總上限」更緊的盡力而為版本,跟伺服器端 `httpkit.py` 用
+    `threading.Timer` 中止連線一樣,都是同一種「無法做到絕對精確,但比不做好」的取捨。
+
+    用 `read1()` 不是 `read()`:一般的 `read(n)` 是 `io.BufferedIOBase` 的行為,會在內部
+    重複呼叫底層 socket 直到湊滿 n 個位元組(或連線關閉)才回傳——對慢速持續送資料的回應,
+    一次 `read(8192)` 呼叫本身就可能悶著等到整包收完,回到這個迴圈時已經沒有意義。
+    `read1(n)` 保證最多只做一次底層讀取,收到多少就回傳多少,才能讓下面的期限檢查真的有機會
+    在資料收完之前介入。
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        if time.monotonic() > deadline:
+            raise TimeoutError("回應在整體期限內沒有讀完(慢速持續送資料)")
+        chunk = response.read1(8192)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise ValueError(f"回應本文超過上限 {MAX_RESPONSE_BYTES} 位元組")
+        chunks.append(chunk)
+    return b"".join(chunks)

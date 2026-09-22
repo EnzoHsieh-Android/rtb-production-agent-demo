@@ -15,9 +15,10 @@ from typing import Any
 
 from rtb.analyzer.flow import Decision, NoAction, ProposalDecision
 from rtb.analyzer.task_store import TaskRow
+from rtb.domain._checks import is_plain_number
 from rtb.domain.evidence import Evidence, EvidenceKind
 from rtb.domain.metrics import pacing
-from rtb.domain.proposal import ActionType, Proposal
+from rtb.domain.proposal import MAX_INT, ActionType, Proposal
 
 POLICY_VERSION = "demo-pacing-v1"
 UNDERPACING_THRESHOLD = 0.5  # 暫用值:配速低於這個比例才算「明顯偏低」
@@ -43,16 +44,20 @@ def decide(task: TaskRow | None, evidence: tuple[Evidence, ...]) -> Decision:
     spend = metrics.get("spend")
     impressions, clicks = metrics.get("impressions"), metrics.get("clicks")
     underpacing = pacing(spend, budget, ELAPSED_FRACTION_1H).below(UNDERPACING_THRESHOLD)
-    has_delivery = isinstance(impressions, int | float) and isinstance(clicks, int | float) \
+    has_delivery = is_plain_number(impressions) and is_plain_number(clicks) \
         and impressions > 0 and clicks > 0
     if underpacing is not True or not has_delivery:
         return NoAction()
 
     if task is None:
         raise AssertionError("有真的證據可以決策,task 不該是 None")
-    if not isinstance(budget, int | float):  # underpacing 已經驗過,這裡只是給型別檢查看
+    if not is_plain_number(budget):  # underpacing 已經驗過,這裡只是給型別檢查看
         raise AssertionError("underpacing 為 True 時 budget 一定是數字")
-    new_budget = round(budget * (1 + BUDGET_INCREASE_FRACTION))
+    # 小額預算乘 1.1 四捨五入可能還是原值(例如 1、2),那就不是「調高」;用 max 保證至少 +1。
+    # 上限截在 Proposal 允許的最大值:budget 已經逼近上限時,示範規則寧可送出「漲到上限」的
+    # 提案,也不要讓 Proposal 建構式丟例外、被上層的廣義例外處理悶成 FAILED。
+    new_budget = min(max(round(budget * (1 + BUDGET_INCREASE_FRACTION)), int(budget) + 1),
+                     MAX_INT)
     now = datetime.now(UTC)
     proposal = Proposal(
         task_id=task.task_id, revision=1, campaign_id=task.campaign_id,

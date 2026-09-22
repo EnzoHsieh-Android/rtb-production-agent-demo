@@ -1,0 +1,75 @@
+"""TaskStore 自己的行為,不透過 flow.py:目前只有舊資料庫升級這一項。
+
+代碼審第 1 輪指出:`evidence` 表新增 `payload_json` 欄位時用的是
+`CREATE TABLE IF NOT EXISTS`,不會幫增量 3 就存在的舊資料庫補欄位;沒有這個測試,
+升級後開一個舊資料庫會在讀寫證據時直接 `no such column`。
+"""
+
+import sqlite3
+from datetime import UTC, datetime
+
+import pytest
+
+from rtb.analyzer.task_store import TaskStore
+from rtb.domain.task_state import TaskState
+
+NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
+
+# 增量 3 時代的九欄舊表(沒有 payload_json),用來模擬升級前就存在的資料庫。
+_OLD_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tasks (
+    task_id TEXT NOT NULL, seq INTEGER NOT NULL, state TEXT NOT NULL,
+    campaign_id TEXT NOT NULL, proposal_json TEXT, error_detail TEXT,
+    written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
+CREATE TABLE IF NOT EXISTS evidence (
+    task_id TEXT NOT NULL, task_seq INTEGER NOT NULL, evidence_id TEXT NOT NULL,
+    kind TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL,
+    campaign_version_observed INTEGER, content_hash TEXT NOT NULL, trust_class TEXT NOT NULL,
+    PRIMARY KEY (task_id, task_seq, evidence_id));
+"""
+
+
+def test_opening_a_pre_increment_4_database_adds_the_missing_payload_column(tmp_path):
+    db_path = tmp_path / "analyzer.db"
+    old_conn = sqlite3.connect(db_path)
+    try:
+        old_conn.executescript(_OLD_SCHEMA)
+        old_conn.execute(
+            "INSERT INTO tasks VALUES ('t1', 1, 'received', 'c1', NULL, NULL, ?)",
+            (NOW.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),),
+        )
+        old_conn.commit()
+    finally:
+        old_conn.close()
+
+    store = TaskStore(db_path)  # 升級前的資料庫,開啟時應該自動補上欄位,不是炸掉
+    try:
+        assert store.evidence_for("t1", 1) == ()  # 舊列沒有證據,但至少讀得回來、不丟例外
+        store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, NOW)
+    finally:
+        store.close()
+
+
+def test_record_tool_call_swallows_database_errors_but_not_programming_errors(tmp_path):
+    """代碼審第 1 輪指出:`record_tool_call` 曾經用 `except Exception` 吞掉所有寫入失敗,
+    比收件口事件表既有的 `except (sqlite3.Error, DatabaseBusy)` 寬——連呼叫端自己傳錯參數
+    型別這類程式錯誤都會被靜默吞掉,不是只吞「資料庫忙碌/連線已關閉」這類預期中的寫入失敗。
+    """
+    store = TaskStore(tmp_path / "analyzer.db")
+    try:
+        store.create_task("t1", "c1", NOW)
+        # now 不是 datetime,_iso(now) 會丟 AttributeError——這是呼叫端自己傳錯型別的程式
+        # 錯誤,不是「資料庫忙碌/連線已關閉」這類預期中的寫入失敗,不該被吞掉。
+        with pytest.raises(AttributeError):
+            store.record_tool_call("t1", 1, "dsp:evidence", "ok", 1.0, "not-a-datetime")
+    finally:
+        store.close()
+
+
+def test_a_fresh_database_already_has_the_column_and_migration_is_a_no_op(tmp_path):
+    store = TaskStore(tmp_path / "analyzer.db")
+    try:
+        columns = {row[1] for row in store._conn.execute("PRAGMA table_info(evidence)")}
+        assert "payload_json" in columns
+    finally:
+        store.close()

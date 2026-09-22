@@ -1,0 +1,1368 @@
+diff --git a/src/rtb/analyzer/dsp_client.py b/src/rtb/analyzer/dsp_client.py
+new file mode 100644
+index 0000000..0591d99
+--- /dev/null
++++ b/src/rtb/analyzer/dsp_client.py
+@@ -0,0 +1,67 @@
++"""真的 EvidenceSource:呼叫 Mock DSP 讀廣告現況與指標。
++
++兩個端點都成功才回傳兩筆證據;任一個失敗(逾時、連線失敗、4xx/5xx)整個函式往外丟例外,
++不吞、不回傳半套(增量 3 的 S26 已經保證:EvidenceSource 丟例外時,advance() 不寫入任何
++東西,狀態留在原地等下次重試——這支檔只需要老實丟例外,不用自己做任何重試邏輯)。
++
++只做「打 HTTP、轉成 Evidence」,不碰 TaskStore、不做任何持久化。
++"""
++
++import hashlib
++import json
++from collections.abc import Callable
++from datetime import UTC, datetime
++from types import MappingProxyType
++from typing import Any
++
++from rtb.analyzer.task_store import TaskRow
++from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
++from rtb.httpclient import request_json
++
++
++class DspRequestFailed(Exception):
++    """DSP 的其中一個端點沒有成功回應(非 2xx、逾時、連線失敗)。"""
++
++
++def _content_hash(payload: dict[str, Any]) -> str:
++    """跟增量 2 收件口的提案內容雜湊同一套規則:鍵排序、無多餘空白、不允許 NaN 的 JSON。"""
++    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"),
++                         ensure_ascii=True, allow_nan=False)
++    return hashlib.sha256(encoded.encode("ascii")).hexdigest()
++
++
++def _get(base_url: str, path: str, timeout_seconds: float) -> dict[str, Any]:
++    status, body = request_json(f"{base_url}{path}", "GET", None, timeout_seconds)
++    if status != 200:
++        raise DspRequestFailed(f"{path} 回 {status}:{body.get('error', '未知錯誤')}")
++    return body
++
++
++def make_client(
++    base_url: str, timeout_seconds: float
++) -> Callable[[TaskRow], tuple[Evidence, ...]]:
++    """回傳一個符合 EvidenceSource 協定的函式,綁定 DSP 的位址與逾時。"""
++
++    def fetch(task: TaskRow) -> tuple[Evidence, ...]:
++        now = datetime.now(UTC)
++        state = _get(base_url, f"/campaigns/{task.campaign_id}", timeout_seconds)
++        metrics = _get(base_url, f"/campaigns/{task.campaign_id}/metrics?window=1h",
++                       timeout_seconds)
++        return (
++            Evidence(
++                evidence_id=f"{task.task_id}-{task.seq}-state", task_id=task.task_id,
++                kind=EvidenceKind.CAMPAIGN_STATE, source="dsp", observed_at=now,
++                campaign_version_observed=state["version"],
++                content_hash=_content_hash(state), trust_class=TrustClass.TRUSTED,
++                payload=MappingProxyType(state),
++            ),
++            Evidence(
++                evidence_id=f"{task.task_id}-{task.seq}-metrics", task_id=task.task_id,
++                kind=EvidenceKind.METRICS, source="dsp", observed_at=now,
++                campaign_version_observed=None,
++                content_hash=_content_hash(metrics), trust_class=TrustClass.TRUSTED,
++                payload=MappingProxyType(metrics),
++            ),
++        )
++
++    return fetch
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+index c856b6d..d249faa 100644
+--- a/src/rtb/analyzer/flow.py
++++ b/src/rtb/analyzer/flow.py
+@@ -62,20 +62,27 @@ class Accepted:
+ 
+ 
+ class SubmitStale(Exception):
+     """這份提案已經過期或被取代(對應收件口的 409/422)。"""
+ 
+ 
+ class SubmitBusy(Exception):
+     """暫時性、可以重試(對應收件口的 503)。"""
+ 
+ 
++class SubmitRejectedPermanently(Exception):
++    """收件口的拒收原因不是重送就能解決的(對應收件口的 too_many_revisions):退回蒐證、送下一個
++    修訂只會再次碰到同一個上限,重試不會變好。跟 `Decide` 自己丟例外(對已到手的證據做純計算,
++    重跑只會再犯同樣的錯)是同一種道理,所以一樣轉 FAILED,不是 SubmitStale。
++    """
++
++
+ class Submit(Protocol):
+     def __call__(self, proposal: Proposal) -> Accepted: ...
+ 
+ 
+ class _BrokenCollaborator(Exception):
+     """協作介面回傳了合約之外的型別:這是協作介面本身的錯,不是暫時性失敗,不能重試。"""
+ 
+ 
+ @dataclass(frozen=True)
+ class _Collaborators:
+@@ -157,20 +164,22 @@ def _from_analyzing(store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepO
+     if isinstance(decision, NeedsFreshEvidence):
+         return _Step(TaskState.COLLECTING_EVIDENCE)
+     raise _BrokenCollaborator(f"Decide 回傳了合約之外的型別:{type(decision)!r}")
+ 
+ 
+ def _from_proposed(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
+     if row.proposal is None:
+         raise AssertionError("PROPOSED 狀態的列一定帶著提案快照")
+     try:
+         result = c.submit(row.proposal)
++    except SubmitRejectedPermanently as exc:
++        return _Step(TaskState.FAILED, error_detail=repr(exc))
+     except SubmitStale:
+         return _Step(TaskState.COLLECTING_EVIDENCE)
+     except SubmitBusy:
+         return None
+     except Exception:  # 未定義的失敗一律視為可重試:重送同一份提案永遠安全
+         return None
+     if not isinstance(result, Accepted):
+         raise _BrokenCollaborator(f"Submit 回傳了合約之外的型別:{type(result)!r}")
+     return _Step(TaskState.HANDED_OFF, proposal=row.proposal)
+ 
+diff --git a/src/rtb/analyzer/inbox_client.py b/src/rtb/analyzer/inbox_client.py
+new file mode 100644
+index 0000000..18f9693
+--- /dev/null
++++ b/src/rtb/analyzer/inbox_client.py
+@@ -0,0 +1,44 @@
++"""真的 Submit:呼叫提案收件口的 /proposals。
++
++把收件口的 HTTP 回應對照回增量 3 定義的 Accepted/SubmitStale/SubmitBusy,加上這個增量新增
++的 SubmitRejectedPermanently(收件口的 too_many_revisions:重送不會解決,不是暫時性)。
++其餘狀態碼或連線失敗一律讓例外原樣往外傳,由 flow.py 既有的「未定義例外視為可重試」接住,
++不在這裡另外分類。
++"""
++
++from collections.abc import Callable
++from typing import Any
++
++from rtb.analyzer.flow import Accepted, SubmitBusy, SubmitRejectedPermanently, SubmitStale
++from rtb.domain.proposal import Proposal
++from rtb.httpclient import request_json
++
++_STALE_CODES = frozenset(
++    {"revision_out_of_order", "content_conflict", "expired_proposal", "expiry_too_far",
++     "created_in_future"}
++)
++
++
++def _handle_rejection(status: int, body: dict[str, Any]) -> None:
++    code = body.get("error")
++    if code == "too_many_revisions":
++        raise SubmitRejectedPermanently(str(code))
++    if code in _STALE_CODES:
++        raise SubmitStale(str(code))
++    if code in ("inbox_full", "busy"):
++        raise SubmitBusy(str(code))
++    raise RuntimeError(f"收件口回 {status}:{code}")  # 未定義的狀態,原樣往外傳,不改分類
++
++
++def make_client(base_url: str, timeout_seconds: float) -> Callable[[Proposal], Accepted]:
++    """回傳一個符合 Submit 協定的函式,綁定收件口的位址與逾時。"""
++
++    def submit(proposal: Proposal) -> Accepted:
++        status, body = request_json(
++            f"{base_url}/proposals", "POST", proposal.to_primitives(), timeout_seconds)
++        if status in (200, 201):
++            return Accepted(replayed=status == 200)
++        _handle_rejection(status, body)
++        raise AssertionError("_handle_rejection 對每個非成功狀態都應該丟出例外")
++
++    return submit
+diff --git a/src/rtb/analyzer/instrumented.py b/src/rtb/analyzer/instrumented.py
+new file mode 100644
+index 0000000..68492c9
+--- /dev/null
++++ b/src/rtb/analyzer/instrumented.py
+@@ -0,0 +1,70 @@
++"""把真的用戶端包成會記錄 tool_calls 的版本,`flow.advance()` 拿到的一律是包裝過的版本。
++
++`flow.py` 不知道、也不需要知道 tool_calls 這件事——這支檔是唯一知道「証據來源/送出提案」
++跟「TaskStore」都存在的地方,保持 dsp_client.py、inbox_client.py 兩支檔繼續不碰 TaskStore。
++"""
++
++import time
++from collections.abc import Callable
++from datetime import UTC, datetime
++
++from rtb.analyzer.flow import Accepted
++from rtb.analyzer.task_store import TaskRow, TaskStore
++from rtb.domain.evidence import Evidence
++from rtb.domain.proposal import Proposal
++
++
++class InstrumentedEvidenceSource:
++    """包裝一個原始的 EvidenceSource,呼叫的同時記一筆 tool_calls。"""
++
++    def __init__(
++        self,
++        store: TaskStore,
++        inner: Callable[[TaskRow], tuple[Evidence, ...]],
++        endpoint: str,
++    ):
++        self._store, self._inner, self._endpoint = store, inner, endpoint
++
++    def __call__(self, task: TaskRow) -> tuple[Evidence, ...]:
++        started = time.monotonic()
++        try:
++            result = self._inner(task)
++        except Exception as exc:
++            self._record(task, type(exc).__name__, started)
++            raise
++        self._record(task, "ok", started)
++        return result
++
++    def _record(self, task: TaskRow, outcome: str, started: float) -> None:
++        latency_ms = (time.monotonic() - started) * 1000
++        self._store.record_tool_call(
++            task.task_id, task.seq, self._endpoint, outcome, latency_ms, datetime.now(UTC))
++
++
++class InstrumentedSubmit:
++    """包裝一個原始的 Submit,呼叫的同時記一筆 tool_calls。
++
++    `Submit` 協定的簽章只有 proposal,沒有 task,所以用 `proposal.task_id` 向 `TaskStore`
++    查目前這一列的序號——查不到就代表任務不存在,是呼叫端的錯誤,直接讓例外往外傳,不吞。
++    """
++
++    def __init__(self, store: TaskStore, inner: Callable[[Proposal], Accepted], endpoint: str):
++        self._store, self._inner, self._endpoint = store, inner, endpoint
++
++    def __call__(self, proposal: Proposal) -> Accepted:
++        started = time.monotonic()
++        try:
++            result = self._inner(proposal)
++        except Exception as exc:
++            self._record(proposal.task_id, type(exc).__name__, started)
++            raise
++        self._record(proposal.task_id, "ok", started)
++        return result
++
++    def _record(self, task_id: str, outcome: str, started: float) -> None:
++        row = self._store.latest(task_id)
++        if row is None:
++            return  # 任務不存在的情況已經在呼叫本身炸過了,這裡不重複報
++        latency_ms = (time.monotonic() - started) * 1000
++        self._store.record_tool_call(
++            task_id, row.seq, self._endpoint, outcome, latency_ms, datetime.now(UTC))
+diff --git a/src/rtb/analyzer/policy.py b/src/rtb/analyzer/policy.py
+new file mode 100644
+index 0000000..e77b0a4
+--- /dev/null
++++ b/src/rtb/analyzer/policy.py
+@@ -0,0 +1,67 @@
++"""示範用的最小決策規則:讓整條流程能被示範跑完,不是交接文件後面階段要做的真正業務規則。
++
++規則:用增量 1 metrics.py 既有的 pacing() 判斷配速,缺值或不知道一律 NoAction,不猜、不丟例外。
++配速明顯偏低(暫用門檻 0.5)且曝光、點擊都大於零(真的有在投放,不是設定壞了)才提案調高預算
++(固定漲一成,暫用值)。
++
++已知限制:這支示範規則永遠把提案的修訂序號當成 1,不會追蹤同一個任務先前送過幾次修訂;
++一個任務被收件口退回(SubmitStale)之後重新分析,示範規則不會自動送出下一個修訂——這個限制
++不影響 S49 的合約(規則本身的判斷邏輯),留給接上真正決策邏輯的後面階段一併解決。
++"""
++
++from datetime import UTC, datetime, timedelta
++from types import MappingProxyType
++from typing import Any
++
++from rtb.analyzer.flow import Decision, NoAction, ProposalDecision
++from rtb.analyzer.task_store import TaskRow
++from rtb.domain.evidence import Evidence, EvidenceKind
++from rtb.domain.metrics import pacing
++from rtb.domain.proposal import ActionType, Proposal
++
++POLICY_VERSION = "demo-pacing-v1"
++UNDERPACING_THRESHOLD = 0.5  # 暫用值:配速低於這個比例才算「明顯偏低」
++BUDGET_INCREASE_FRACTION = 0.1  # 暫用值:提案調高一成
++ELAPSED_FRACTION_1H = 1 / 24  # 這個增量只讀 1 小時窗,對應一天預算的 1/24
++DECISION_LIFETIME = timedelta(minutes=30)  # 決策有效期,遠低於增量 3 的 1 小時上限
++
++
++def _payload(evidence: tuple[Evidence, ...], kind: EvidenceKind) -> dict[str, Any] | None:
++    for item in evidence:
++        if item.kind == kind:
++            return dict(item.payload)
++    return None
++
++
++def decide(task: TaskRow | None, evidence: tuple[Evidence, ...]) -> Decision:
++    state = _payload(evidence, EvidenceKind.CAMPAIGN_STATE)
++    metrics = _payload(evidence, EvidenceKind.METRICS)
++    if state is None or metrics is None:
++        return NoAction()
++
++    budget = state.get("budget")
++    spend = metrics.get("spend")
++    impressions, clicks = metrics.get("impressions"), metrics.get("clicks")
++    underpacing = pacing(spend, budget, ELAPSED_FRACTION_1H).below(UNDERPACING_THRESHOLD)
++    has_delivery = isinstance(impressions, int | float) and isinstance(clicks, int | float) \
++        and impressions > 0 and clicks > 0
++    if underpacing is not True or not has_delivery:
++        return NoAction()
++
++    if task is None:
++        raise AssertionError("有真的證據可以決策,task 不該是 None")
++    if not isinstance(budget, int | float):  # underpacing 已經驗過,這裡只是給型別檢查看
++        raise AssertionError("underpacing 為 True 時 budget 一定是數字")
++    new_budget = round(budget * (1 + BUDGET_INCREASE_FRACTION))
++    now = datetime.now(UTC)
++    proposal = Proposal(
++        task_id=task.task_id, revision=1, campaign_id=task.campaign_id,
++        action_type=ActionType.UPDATE_BUDGET,
++        requested_change=MappingProxyType({"new_budget": new_budget}),
++        reason_codes=("low_pacing",), evidence_refs=tuple(item.evidence_id for item in evidence),
++        campaign_version_observed=state.get("version") or 1,
++        decision_created_at=now, decision_expires_at=now + DECISION_LIFETIME,
++        policy_version=POLICY_VERSION,
++        risk_summary=f"budget +{int(BUDGET_INCREASE_FRACTION * 100)}%",
++    )
++    return ProposalDecision(proposal)
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index d5c5f2f..0b0407e 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -21,21 +21,25 @@ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate
+ 
+ SCHEMA = """
+ CREATE TABLE IF NOT EXISTS tasks (
+     task_id TEXT NOT NULL, seq INTEGER NOT NULL, state TEXT NOT NULL,
+     campaign_id TEXT NOT NULL, proposal_json TEXT, error_detail TEXT,
+     written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
+ CREATE TABLE IF NOT EXISTS evidence (
+     task_id TEXT NOT NULL, task_seq INTEGER NOT NULL, evidence_id TEXT NOT NULL,
+     kind TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL,
+     campaign_version_observed INTEGER, content_hash TEXT NOT NULL, trust_class TEXT NOT NULL,
++    payload_json TEXT NOT NULL,
+     PRIMARY KEY (task_id, task_seq, evidence_id));
++CREATE TABLE IF NOT EXISTS tool_calls (
++    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, task_seq INTEGER NOT NULL,
++    endpoint TEXT NOT NULL, outcome TEXT NOT NULL, latency_ms REAL NOT NULL, at TEXT NOT NULL);
+ """
+ MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
+ 
+ 
+ 
+ class TaskAlreadyExists(Exception):
+     """同一個任務編號已經存在,但這次帶的廣告編號不同:呼叫端的錯誤,不靜默接受。"""
+ 
+ 
+ class InvalidTaskId(Exception):
+@@ -51,20 +55,39 @@ class CorruptedHistoryRow(Exception):
+ 
+ 
+ class TaskStoreBusy(Exception):
+     """建立連線時資料庫忙碌到逾時。"""
+ 
+ 
+ class TaskNotFound(Exception):
+     """這個任務編號完全沒有歷史列。"""
+ 
+ 
++@dataclass(frozen=True)
++class ToolCall:
++    task_id: str
++    task_seq: int
++    endpoint: str
++    outcome: str
++    latency_ms: float
++    at: datetime
++
++
++@dataclass(frozen=True)
++class TraceRecord:
++    """給定一個任務編號的完整軌跡:狀態史、每一步的證據、每一次對外呼叫。"""
++
++    tasks: tuple[TaskRow, ...]
++    evidence: tuple[Evidence, ...]
++    tool_calls: tuple[ToolCall, ...]
++
++
+ @dataclass(frozen=True)
+ class TaskRow:
+     task_id: str
+     seq: int
+     state: TaskState
+     campaign_id: str
+     proposal: Proposal | None
+     error_detail: str | None
+     written_at: datetime
+ 
+@@ -138,30 +161,32 @@ class TaskStore:
+         record = self._conn.execute(
+             "SELECT task_id, seq, state, campaign_id, proposal_json, error_detail, written_at "
+             "FROM tasks WHERE task_id = ? ORDER BY seq DESC LIMIT 1",
+             (task_id,),
+         ).fetchone()
+         return None if record is None else _row_from_record(record)
+ 
+     def evidence_for(self, task_id: str, task_seq: int) -> tuple[Evidence, ...]:
+         rows = self._conn.execute(
+             "SELECT evidence_id, kind, source, observed_at, campaign_version_observed, "
+-            "content_hash, trust_class FROM evidence WHERE task_id = ? AND task_seq = ? "
++            "content_hash, trust_class, payload_json FROM evidence "
++            "WHERE task_id = ? AND task_seq = ? "
+             "ORDER BY rowid",  # rowid 保留寫入順序;evidence_id 是呼叫端給的,字母序不等於蒐證順序
+             (task_id, task_seq),
+         ).fetchall()
+         try:
+             return tuple(
+                 Evidence(
+                     evidence_id=r[0], task_id=task_id, kind=EvidenceKind(r[1]), source=r[2],
+                     observed_at=datetime.fromisoformat(r[3].replace("Z", "+00:00")),
+                     campaign_version_observed=r[4], content_hash=r[5], trust_class=TrustClass(r[6]),
++                    payload=MappingProxyType(json.loads(r[7])),
+                 )
+                 for r in rows
+             )
+         except (ValueError, KeyError) as exc:
+             raise CorruptedHistoryRow(f"{task_id} 第 {task_seq} 步的證據讀不回來:{exc!r}") from exc
+ 
+     def commit_step(  # noqa: PLR0913 - 每個關鍵字參數都對應計劃裡不同狀態要附帶的資料
+         self,
+         task_id: str,
+         expected_seq: int,
+@@ -195,18 +220,62 @@ class TaskStore:
+                 raise IllegalTransition(f"不合法的轉換:{current_state} -> {new_state}")
+             next_seq = expected_seq + 1
+             self._conn.execute(
+                 "INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (task_id, next_seq, new_state.value, campaign_id,
+                  None if proposal is None else _proposal_to_json(proposal),
+                  capped_detail, _iso(now)),
+             )
+             for item in evidence:
+                 self._conn.execute(
+-                    "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
++                    "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (task_id, next_seq, item.evidence_id, item.kind.value, item.source,
+                      _iso(item.observed_at), item.campaign_version_observed,
+-                     item.content_hash, item.trust_class.value),
++                     item.content_hash, item.trust_class.value,
++                     json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True)),
+                 )
+             if before_commit is not None:
+                 before_commit()
+         return True
++
++    def record_tool_call(
++        self, task_id: str, task_seq: int, endpoint: str, outcome: str, latency_ms: float,
++        now: datetime,
++    ) -> None:
++        """記一筆對外呼叫;這筆寫入自己絕不讓例外往外傳(比照收件口事件表的既有做法):
++        寫失敗就放棄這筆記錄,不能因為記錄失敗而讓包住的那次呼叫跟著失敗。
++        """
++        try:
++            self._conn.execute(
++                "INSERT INTO tool_calls (task_id, task_seq, endpoint, outcome, latency_ms, at) "
++                "VALUES (?, ?, ?, ?, ?, ?)",
++                (task_id, task_seq, endpoint, outcome, latency_ms, _iso(now)),
++            )
++        except Exception:
++            return
++
++    def list_tool_calls(self, task_id: str) -> tuple[ToolCall, ...]:
++        rows = self._conn.execute(
++            "SELECT task_id, task_seq, endpoint, outcome, latency_ms, at FROM tool_calls "
++            "WHERE task_id = ? ORDER BY id", (task_id,),
++        ).fetchall()
++        return tuple(
++            ToolCall(task_id=r[0], task_seq=r[1], endpoint=r[2], outcome=r[3],
++                     latency_ms=r[4], at=datetime.fromisoformat(r[5].replace("Z", "+00:00")))
++            for r in rows
++        )
++
++    def history(self, task_id: str) -> tuple[TaskRow, ...]:
++        records = self._conn.execute(
++            "SELECT task_id, seq, state, campaign_id, proposal_json, error_detail, written_at "
++            "FROM tasks WHERE task_id = ? ORDER BY seq", (task_id,),
++        ).fetchall()
++        return tuple(_row_from_record(r) for r in records)
++
++
++def trace_for(store: TaskStore, task_id: str) -> TraceRecord:
++    """把 tasks(狀態史)、evidence(證據)、tool_calls(呼叫記錄)用任務編號兜成一條軌跡。"""
++    history = store.history(task_id)
++    evidence = tuple(
++        item for row in history for item in store.evidence_for(task_id, row.seq)
++    )
++    return TraceRecord(tasks=history, evidence=evidence, tool_calls=store.list_tool_calls(task_id))
+diff --git a/src/rtb/domain/evidence.py b/src/rtb/domain/evidence.py
+index c51ae82..facd2ef 100644
+--- a/src/rtb/domain/evidence.py
++++ b/src/rtb/domain/evidence.py
+@@ -3,26 +3,29 @@
+ 新鮮度由純程式判斷,先看年齡,再看版本:過期或版本已變就要重讀。
+ 重讀是安全的,重做副作用才危險;執行的那一刻執行行程仍要重讀現況並重新授權,
+ 新鮮度只是第一道,不是最後一道。
+ """
+ 
+ import math
+ import re
+ from dataclasses import dataclass
+ from datetime import datetime
+ from enum import StrEnum
++from types import MappingProxyType
+ from typing import TypeGuard
+ 
+ from rtb.domain._checks import is_id, is_plain_int, is_plain_number
+ 
+ HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
+ MAX_SOURCE_LENGTH = 64
++MAX_PAYLOAD_ITEMS = 32  # 證據的原始欄位數;DSP 的現況、指標回應都是固定的小字典,遠低於這個上限
++PayloadValue = str | int | float | bool | None
+ 
+ 
+ class EvidenceKind(StrEnum):
+     CAMPAIGN_STATE = "campaign_state"
+     METRICS = "metrics"
+ 
+ 
+ class TrustClass(StrEnum):
+     TRUSTED = "trusted"  # 程式算出來的,或有型別的結構化事實
+     UNTRUSTED_TEXT = "untrusted_text"  # 廣告名稱、素材文字等不可信的文字
+@@ -47,41 +50,54 @@ def _is_aware(value: object) -> TypeGuard[datetime]:
+ @dataclass(frozen=True)
+ class Evidence:
+     evidence_id: str
+     task_id: str
+     kind: EvidenceKind
+     source: str
+     observed_at: datetime
+     campaign_version_observed: int | None
+     content_hash: str
+     trust_class: TrustClass
++    payload: MappingProxyType[str, PayloadValue]
++    """讀到的原始欄位(例如現況的 budget/status、指標的 impressions/spend),決策要用實際數字
++    判斷時讀這裡;`content_hash` 只用來判斷「有沒有變」,不是給決策讀的。"""
+ 
+     def __post_init__(self) -> None:
+         problems = [
+             ("evidence_id", is_id(self.evidence_id)),
+             ("task_id", is_id(self.task_id)),
+             ("source", isinstance(self.source, str) and 0 < len(self.source) <= MAX_SOURCE_LENGTH),
++            ("payload", _is_payload(self.payload)),
+             ("kind", isinstance(self.kind, EvidenceKind)),
+             ("trust_class", isinstance(self.trust_class, TrustClass)),
+             ("observed_at", _is_aware(self.observed_at)),
+             ("campaign_version_observed", _is_version_or_none(self.campaign_version_observed)),
+             ("content_hash", _is_hash(self.content_hash)),
+         ]
+         bad = [name for name, ok in problems if not ok]
+         if bad:
+             raise ValueError(f"證據欄位不合法:{', '.join(bad)}")
+ 
+ 
+ def _is_hash(value: object) -> TypeGuard[str]:
+     return isinstance(value, str) and HASH_PATTERN.fullmatch(value) is not None
+ 
+ 
++def _is_payload(value: object) -> TypeGuard[MappingProxyType[str, PayloadValue]]:
++    if not isinstance(value, MappingProxyType) or len(value) > MAX_PAYLOAD_ITEMS:
++        return False
++    return all(
++        isinstance(key, str) and (item is None or isinstance(item, str | int | float | bool))
++        for key, item in value.items()
++    )
++
++
+ def _is_version_or_none(value: object) -> TypeGuard[int | None]:
+     return value is None or (is_plain_int(value) and value >= 1)
+ 
+ 
+ def _is_positive_finite(value: object) -> bool:
+     if not is_plain_number(value):
+         return False
+     try:
+         return math.isfinite(value) and value > 0
+     except OverflowError:  # 大到超出浮點範圍的整數,視為不合法
+diff --git a/src/rtb/httpclient.py b/src/rtb/httpclient.py
+new file mode 100644
+index 0000000..95c17e3
+--- /dev/null
++++ b/src/rtb/httpclient.py
+@@ -0,0 +1,50 @@
++"""共用的 HTTP 用戶端基礎(跟 httpkit.py 是伺服器基礎、sqlitekit.py 是資料庫基礎同一層):
++DSP 用戶端與收件口用戶端都用它,不各自造輪子。
++
++逾時沒有預設值——呼叫端一定要自己決定要等多久,不會有人忘記設定而讓請求永遠卡住。
++標頭只接受封閉列舉(`ClientHeader`),不接受任意字典:不管呼叫端用什麼方式組出一個標頭
++名稱字串,只要它不是這個列舉的成員,就送不出去。這是唯一的真正防線;掃描原始碼裡有沒有
++出現故障注入標頭那個字樣只是輔助訊號,不是安全機制本身。
++"""
++
++import json
++from enum import StrEnum
++from typing import Any
++from urllib.error import HTTPError
++from urllib.request import Request, urlopen
++
++
++class ClientHeader(StrEnum):
++    """本專案的用戶端允許送出的標頭,封閉列舉;要加新的就在這裡加一個成員,不開放任意字串。"""
++
++    IDEMPOTENCY_KEY = "Idempotency-Key"
++
++
++def request_json(
++    url: str,
++    method: str,
++    body: dict[str, Any] | None,
++    timeout_seconds: float,
++    headers: dict[ClientHeader, str] | None = None,
++) -> tuple[int, dict[str, Any]]:
++    """送一個 JSON 請求,回傳 (狀態碼, 解析後的內容)。非 2xx 狀態碼回傳,不丟例外;
++    逾時、連線失敗、內容不是合法 JSON 一律讓例外原樣往外傳,呼叫端自己決定怎麼處理。
++    """
++    for key in headers or {}:
++        if not isinstance(key, ClientHeader):
++            raise TypeError(f"標頭名稱必須是 ClientHeader 的成員,得到 {key!r}")
++    raw = None if body is None else json.dumps(body).encode()
++    request_headers = {"Content-Type": "application/json"}
++    request_headers.update({str(key): value for key, value in (headers or {}).items()})
++    request = Request(url, data=raw, method=method, headers=request_headers)  # noqa: S310
++    try:
++        with urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310 - 只用來打本機的 DSP/收件口,網址由呼叫端(dsp_client/inbox_client)寫死,不是外部輸入
++            return response.status, json.loads(response.read())
++    except HTTPError as error:
++        return error.code, json.loads(error.read())
++    except TimeoutError:
++        raise
++    except OSError as error:
++        if isinstance(error, TimeoutError):
++            raise
++        raise
+diff --git a/tests/analyzer/conftest.py b/tests/analyzer/conftest.py
+index aaeca8c..56267e1 100644
+--- a/tests/analyzer/conftest.py
++++ b/tests/analyzer/conftest.py
+@@ -37,19 +37,22 @@ class Counting:
+ def make_proposal(**overrides):
+     from rtb.domain.proposal import parse_proposal
+     from tests.domain.proposal_samples import valid
+ 
+     result = parse_proposal(valid(**overrides))
+     assert result.proposal is not None, result.errors
+     return result.proposal
+ 
+ 
+ def make_evidence(**overrides):
++    from types import MappingProxyType
++
+     from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
+ 
+     fields = {
+         "evidence_id": "e1", "task_id": "t1", "kind": EvidenceKind.CAMPAIGN_STATE,
+         "source": "dsp", "observed_at": NOW, "campaign_version_observed": 3,
+         "content_hash": "a" * 64, "trust_class": TrustClass.TRUSTED,
++        "payload": MappingProxyType({"budget": 100}),
+     }
+     fields.update(overrides)
+     return Evidence(**fields)
+diff --git a/tests/analyzer/test_boundaries.py b/tests/analyzer/test_boundaries.py
+new file mode 100644
+index 0000000..369d9de
+--- /dev/null
++++ b/tests/analyzer/test_boundaries.py
+@@ -0,0 +1,89 @@
++"""Phase 1 留下的兩條邊界測試,增量 4 第一次有真的 DSP 客戶端時補驗:S52、S53。"""
++
++import subprocess
++import sys
++import threading
++from datetime import UTC, datetime
++from pathlib import Path
++
++from rtb.analyzer import dsp_client, flow, inbox_client, policy
++from rtb.analyzer.task_store import TaskStore
++from rtb.domain.task_state import TaskState
++from rtb.dsp.server import DspServer
++from rtb.dsp.store import CampaignStore
++from rtb.executor.inbox_server import InboxServer
++
++
++# ---- S53 ----
++def test_the_analyzer_package_never_imports_dsp_internals():
++    config = Path(__file__).resolve().parents[2] / "src" / "rtb" / "analyzer" / "ruff.toml"
++    for banned in ("rtb.dsp", "rtb.executor"):
++        result = subprocess.run(
++            [sys.executable, "-m", "ruff", "check", "--config", str(config),
++             "--stdin-filename", str(config.parent / "probe.py"), "-"],
++            input=f"import {banned}\n", capture_output=True, text=True, timeout=60, check=False)
++        assert result.returncode == 1 and "TID251" in result.stdout, (banned, result.stdout)
++
++
++# ---- S52 ----
++def test_the_agent_cannot_reach_fault_injection_on_production_style_servers(tmp_path):
++    """DSP 與收件口都不帶 --fault-injection 啟動(生產樣態),真的用戶端跑完整套正常流程。"""
++    dsp_store = CampaignStore(tmp_path / "dsp.db")
++    dsp_store.seed_campaign("c1", budget=100)
++    dsp_store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=1.0,
++                           revenue=3.0)
++    dsp = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2, delay_seconds=0.0)
++    inbox = InboxServer(tmp_path / "inbox.db", max_pending=4, fault_injection=False)
++    threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
++    threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
++    try:
++        _walk_one_task_end_to_end(tmp_path, dsp, inbox)
++    finally:
++        dsp.shutdown()
++        dsp.server_close()
++        inbox.shutdown()
++        inbox.server_close()
++
++
++def _walk_one_task_end_to_end(tmp_path, dsp, inbox):
++    dsp_url = f"http://127.0.0.1:{dsp.server_address[1]}"
++    inbox_url = f"http://127.0.0.1:{inbox.server_address[1]}"
++    store = TaskStore(tmp_path / "analyzer.db")
++    try:
++        now = datetime.now(UTC)
++        store.create_task("t1", "c1", now)
++        evidence_source = dsp_client.make_client(dsp_url, timeout_seconds=3)
++        submit = inbox_client.make_client(inbox_url, timeout_seconds=3)
++
++        state = flow.advance(store, "t1", evidence_source, policy.decide, submit, now)
++        assert state is TaskState.COLLECTING_EVIDENCE
++        state = flow.advance(store, "t1", evidence_source, policy.decide, submit, now)
++        assert state is TaskState.ANALYZING
++        state = flow.advance(store, "t1", evidence_source, policy.decide, submit, now)
++        assert state in (TaskState.PROPOSED, TaskState.NO_ACTION)
++        if state is TaskState.PROPOSED:
++            state = flow.advance(store, "t1", evidence_source, policy.decide, submit, now)
++            assert state is TaskState.HANDED_OFF
++    finally:
++        store.close()
++
++
++def test_fault_headers_sent_to_production_style_servers_are_refused(tmp_path):
++    """就算有人手動組出 X-Fault 標頭送給沒開故障注入的伺服器,伺服器自己也會拒絕——
++    這是最後一道防線,真正的防線是用戶端從沒有能送出這個標頭的公開介面(見 test_httpclient.py)。
++    """
++    import http.client
++
++    dsp_store = CampaignStore(tmp_path / "dsp.db")
++    dsp_store.seed_campaign("c1", budget=100)
++    dsp = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2, delay_seconds=0.0)
++    threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
++    try:
++        conn = http.client.HTTPConnection("127.0.0.1", dsp.server_address[1], timeout=3)
++        conn.request("GET", "/campaigns/c1", headers={"X-Fault": "timeout_before_commit"})
++        resp = conn.getresponse()
++        assert resp.status == 400
++        conn.close()
++    finally:
++        dsp.shutdown()
++        dsp.server_close()
+diff --git a/tests/analyzer/test_dsp_client.py b/tests/analyzer/test_dsp_client.py
+new file mode 100644
+index 0000000..e2716fc
+--- /dev/null
++++ b/tests/analyzer/test_dsp_client.py
+@@ -0,0 +1,83 @@
++"""真的 DSP 用戶端(EvidenceSource):S42~S44。"""
++
++import threading
++
++import pytest
++
++from rtb.analyzer import dsp_client
++from rtb.analyzer.task_store import TaskRow
++from rtb.domain.evidence import EvidenceKind
++from rtb.domain.task_state import TaskState
++from rtb.dsp.server import DspServer
++from rtb.dsp.store import CampaignStore
++
++
++def make_row(task_id="t1", seq=2, campaign_id="c1"):
++    from datetime import UTC, datetime
++
++    return TaskRow(task_id=task_id, seq=seq, state=TaskState.COLLECTING_EVIDENCE,
++                   campaign_id=campaign_id, proposal=None, error_detail=None,
++                   written_at=datetime(2026, 9, 22, 12, 0, tzinfo=UTC))
++
++
++@pytest.fixture
++def dsp(tmp_path):
++    store = CampaignStore(tmp_path / "dsp.db")
++    store.seed_campaign("c1", budget=100)
++    store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=2.0,
++                       revenue=5.0)
++    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
++                       delay_seconds=0.0)
++    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
++    yield f"http://127.0.0.1:{server.server_address[1]}"
++    server.shutdown()
++    server.server_close()
++
++
++# ---- S42 ----
++def test_both_endpoints_succeeding_returns_both_pieces_of_evidence(dsp):
++    evidence = dsp_client.make_client(dsp, timeout_seconds=3)(make_row())
++
++    kinds = {item.kind for item in evidence}
++    assert kinds == {EvidenceKind.CAMPAIGN_STATE, EvidenceKind.METRICS}
++    assert len(evidence) == 2
++
++
++def test_the_campaign_state_evidence_carries_the_observed_version(dsp):
++    evidence = dsp_client.make_client(dsp, timeout_seconds=3)(make_row())
++
++    state = next(e for e in evidence if e.kind == EvidenceKind.CAMPAIGN_STATE)
++    assert state.campaign_version_observed == 1
++    assert state.task_id == "t1"
++
++
++# ---- S43 ----
++def test_a_nonexistent_campaign_makes_the_whole_call_raise(dsp):
++    client = dsp_client.make_client(dsp, timeout_seconds=3)
++
++    with pytest.raises(Exception):  # noqa: B017 - 只驗證會整個丟例外,不驗證是哪一種
++        client(make_row(campaign_id="ghost"))
++
++
++def test_the_dsp_being_unreachable_makes_the_whole_call_raise():
++    client = dsp_client.make_client("http://127.0.0.1:1", timeout_seconds=1)
++
++    with pytest.raises(Exception):  # noqa: B017 - 只驗證會整個丟例外,不驗證是哪一種
++        client(make_row())
++
++
++# ---- content_hash ----
++def test_the_same_campaign_state_produces_the_same_content_hash(dsp):
++    client = dsp_client.make_client(dsp, timeout_seconds=3)
++
++    first = next(e for e in client(make_row()) if e.kind == EvidenceKind.CAMPAIGN_STATE)
++    second = next(e for e in client(make_row()) if e.kind == EvidenceKind.CAMPAIGN_STATE)
++
++    assert first.content_hash == second.content_hash
++
++
++# ---- S44(輔助訊號:原始碼掃描) ----
++def test_the_dsp_client_module_never_mentions_the_fault_header():
++    import inspect
++
++    assert "X-Fault" not in inspect.getsource(dsp_client)
+diff --git a/tests/analyzer/test_flow.py b/tests/analyzer/test_flow.py
+index a038d98..ead3bf3 100644
+--- a/tests/analyzer/test_flow.py
++++ b/tests/analyzer/test_flow.py
+@@ -570,10 +570,25 @@ def test_decide_receives_the_evidence_that_was_actually_collected_this_round(sto
+ 
+ def test_evidence_source_receives_the_task_row_it_is_gathering_for(store):
+     store.create_task("t1", "c1", NOW)
+     flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
+     source = evidence_source()
+ 
+     flow.advance(store, "t1", source, NOOP, NOOP, NOW)
+ 
+     assert source.calls[0][0].task_id == "t1"
+     assert source.calls[0][0].campaign_id == "c1"
++
++
++# ---- S46a/S46b:too_many_revisions 是永久拒收,不是暫時性 stale(增量 4) ----
++def test_a_permanent_submit_rejection_fails_the_task_instead_of_looping_forever(store):
++    _to_proposed(store)
++
++    new_state = flow.advance(
++        store, "t1", NOOP, NOOP, submit(raises=flow.SubmitRejectedPermanently("too many")), NOW)
++
++    assert new_state is TaskState.FAILED
++    assert "too many" in store.latest("t1").error_detail
++    # FAILED 是終點:再呼叫一次不會又跑 submit
++    s = submit()
++    assert flow.advance(store, "t1", NOOP, NOOP, s, NOW) is TaskState.FAILED
++    assert s.call_count == 0
+diff --git a/tests/analyzer/test_inbox_client.py b/tests/analyzer/test_inbox_client.py
+new file mode 100644
+index 0000000..c4e42b8
+--- /dev/null
++++ b/tests/analyzer/test_inbox_client.py
+@@ -0,0 +1,104 @@
++"""真的收件口用戶端(Submit):S45~S48、S46a。"""
++
++import threading
++
++import pytest
++
++from rtb.analyzer import flow, inbox_client
++from rtb.domain.proposal import parse_proposal
++from rtb.executor.inbox_server import InboxServer
++from tests.domain.proposal_samples import valid
++
++
++def make_proposal(**overrides):
++    result = parse_proposal(valid(**overrides))
++    assert result.proposal is not None, result.errors
++    return result.proposal
++
++
++@pytest.fixture
++def inbox(tmp_path):
++    from datetime import UTC, datetime
++
++    fixed_now = datetime(2026, 9, 22, 12, 5, tzinfo=UTC)  # 跟提案樣本的固定時間對得上
++    server = InboxServer(tmp_path / "inbox.db", max_pending=2, clock=lambda: fixed_now)
++    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
++    yield f"http://127.0.0.1:{server.server_address[1]}"
++    server.shutdown()
++    server.server_close()
++
++
++def client(url, timeout=3):
++    return inbox_client.make_client(url, timeout_seconds=timeout)
++
++
++# ---- S45 ----
++def test_first_acceptance_maps_to_accepted_not_replayed(inbox):
++    result = client(inbox)(make_proposal())
++
++    assert isinstance(result, flow.Accepted) and result.replayed is False
++
++
++def test_a_resend_maps_to_accepted_replayed(inbox):
++    submit = client(inbox)
++    proposal = make_proposal()
++    submit(proposal)
++
++    result = submit(proposal)
++
++    assert isinstance(result, flow.Accepted) and result.replayed is True
++
++
++# ---- S46 ----
++def test_a_content_conflict_maps_to_submit_stale(inbox):
++    submit = client(inbox)
++    submit(make_proposal())
++
++    with pytest.raises(flow.SubmitStale):
++        submit(make_proposal(requested_change={"new_budget": 999}))
++
++
++def test_an_expired_proposal_maps_to_submit_stale(inbox):
++    # 建立時間之後、但早於收件口目前時鐘(12:05)——已過期,不是「早於建立時間」那種不合法
++    expired = make_proposal(decision_expires_at="2026-09-22T12:03:00+00:00")
++
++    with pytest.raises(flow.SubmitStale):
++        client(inbox)(expired)
++
++
++# ---- S46a ----
++def test_too_many_revisions_maps_to_a_permanent_rejection_not_stale(inbox, monkeypatch):
++    from rtb.executor import inbox_store
++
++    monkeypatch.setattr(inbox_store, "MAX_REVISIONS_PER_TASK", 1)
++    submit = client(inbox)
++    submit(make_proposal())
++
++    with pytest.raises(flow.SubmitRejectedPermanently):
++        submit(make_proposal(revision=2))
++
++
++# ---- S47 ----
++def test_a_full_inbox_maps_to_submit_busy(inbox):
++    submit = client(inbox)
++    submit(make_proposal(task_id="t1"))
++    submit(make_proposal(task_id="t2"))
++
++    with pytest.raises(flow.SubmitBusy):
++        submit(make_proposal(task_id="t3"))
++
++
++# ---- S48 ----
++def test_an_unreachable_inbox_propagates_unmapped():
++    submit = inbox_client.make_client("http://127.0.0.1:1", timeout_seconds=1)
++
++    with pytest.raises(Exception) as excinfo:
++        submit(make_proposal())
++    assert excinfo.type not in (flow.SubmitStale, flow.SubmitBusy, flow.SubmitRejectedPermanently)
++
++
++# ---- 輔助訊號 ----
++def test_the_inbox_client_module_never_mentions_the_fault_header():
++    import inspect
++
++    assert "X-Fault" not in inspect.getsource(inbox_client)
+diff --git a/tests/analyzer/test_instrumented.py b/tests/analyzer/test_instrumented.py
+new file mode 100644
+index 0000000..dea1089
+--- /dev/null
++++ b/tests/analyzer/test_instrumented.py
+@@ -0,0 +1,81 @@
++"""tool_calls 只增不改的呼叫紀錄與 trace_for:S50、S51。"""
++
++from rtb.analyzer.flow import Accepted
++from rtb.analyzer.instrumented import InstrumentedEvidenceSource, InstrumentedSubmit
++from rtb.analyzer.task_store import TaskRow, trace_for
++from rtb.domain.task_state import TaskState
++from tests.analyzer.conftest import NOW, make_evidence, make_proposal
++
++
++def row(seq=2):
++    return TaskRow(task_id="t1", seq=seq, state=TaskState.COLLECTING_EVIDENCE,
++                   campaign_id="c1", proposal=None, error_detail=None, written_at=NOW)
++
++
++# ---- S50 ----
++def test_a_successful_call_is_recorded(store):
++    store.create_task("t1", "c1", NOW)
++    source = InstrumentedEvidenceSource(store, lambda _task: (make_evidence(),), "dsp:evidence")
++
++    source(row())
++
++    calls = store.list_tool_calls("t1")
++    assert len(calls) == 1 and calls[0].outcome == "ok" and calls[0].endpoint == "dsp:evidence"
++
++
++def test_a_failing_call_is_recorded_and_the_exception_still_propagates(store):
++    import pytest
++
++    store.create_task("t1", "c1", NOW)
++
++    def boom(_task):
++        raise RuntimeError("dsp unreachable")
++
++    source = InstrumentedEvidenceSource(store, boom, "dsp:evidence")
++
++    with pytest.raises(RuntimeError):
++        source(row())
++
++    calls = store.list_tool_calls("t1")
++    assert len(calls) == 1 and calls[0].outcome == "RuntimeError"
++
++
++def test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result(store):
++    store.create_task("t1", "c1", NOW)
++    store.close()  # 之後任何一次 execute() 都會丟 sqlite3.ProgrammingError,模擬寫入紀錄本身壞掉
++    source = InstrumentedEvidenceSource(store, lambda _task: (make_evidence(),), "dsp:evidence")
++
++    result = source(row())  # record_tool_call 內部寫入壞掉,呼叫本身的結果不受影響
++
++    assert result == (make_evidence(),)
++
++
++def test_submit_calls_are_recorded_too(store):
++    store.create_task("t1", "c1", NOW)
++    submit = InstrumentedSubmit(store, lambda _p: Accepted(False), "inbox:submit")
++
++    submit(make_proposal())
++
++    calls = store.list_tool_calls("t1")
++    assert len(calls) == 1 and calls[0].endpoint == "inbox:submit"
++
++
++# ---- S51 ----
++def test_trace_for_returns_the_full_history_evidence_and_calls_for_a_task(store):
++    store.create_task("t1", "c1", NOW)
++    store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, NOW)
++    store.commit_step("t1", 2, TaskState.ANALYZING, NOW, evidence=(make_evidence(),))
++    store.record_tool_call("t1", 2, "dsp:evidence", "ok", 12.5, NOW)
++
++    trace = trace_for(store, "t1")
++
++    assert len(trace.tasks) == 3
++    assert len(trace.evidence) == 1
++    assert len(trace.tool_calls) == 1
++    assert trace.tasks[-1].state is TaskState.ANALYZING
++
++
++def test_trace_for_an_unknown_task_returns_empty_everything(store):
++    trace = trace_for(store, "ghost")
++
++    assert trace.tasks == () and trace.evidence == () and trace.tool_calls == ()
+diff --git a/tests/analyzer/test_policy.py b/tests/analyzer/test_policy.py
+new file mode 100644
+index 0000000..f2a1de2
+--- /dev/null
++++ b/tests/analyzer/test_policy.py
+@@ -0,0 +1,76 @@
++"""示範用的最小決策規則:S49。重申:這不是交接文件後面階段要做的真正業務邏輯。"""
++
++from types import MappingProxyType
++
++from rtb.analyzer import flow, policy
++from rtb.analyzer.task_store import TaskRow
++from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
++from rtb.domain.task_state import TaskState
++from tests.analyzer.conftest import NOW
++
++
++def task_row():
++    return TaskRow(task_id="t1", seq=3, state=TaskState.ANALYZING, campaign_id="c1",
++                   proposal=None, error_detail=None, written_at=NOW)
++
++
++def state_evidence(budget=100):
++    return Evidence(
++        evidence_id="e-state", task_id="t1", kind=EvidenceKind.CAMPAIGN_STATE, source="dsp",
++        observed_at=NOW, campaign_version_observed=1, content_hash="a" * 64,
++        trust_class=TrustClass.TRUSTED, payload=MappingProxyType({"budget": budget}),
++    )
++
++
++def metrics_evidence(spend=None, impressions=None, clicks=None):
++    return Evidence(
++        evidence_id="e-metrics", task_id="t1", kind=EvidenceKind.METRICS, source="dsp",
++        observed_at=NOW, campaign_version_observed=None, content_hash="b" * 64,
++        trust_class=TrustClass.TRUSTED,
++        payload=MappingProxyType({"spend": spend, "impressions": impressions, "clicks": clicks}),
++    )
++
++
++def test_underpacing_with_real_delivery_proposes_a_budget_increase():
++    evidence = (state_evidence(budget=100), metrics_evidence(spend=1.0, impressions=500, clicks=12))
++
++    decision = policy.decide(task_row(), evidence)
++
++    assert isinstance(decision, flow.ProposalDecision)
++    assert decision.proposal.requested_change["new_budget"] == 110  # 漲一成,暫用值
++
++
++def test_normal_pacing_is_no_action():
++    # 一小時預期花費 = 100/24 ≈ 4.17,花了 4.2 已達標,不該提案
++    evidence = (state_evidence(budget=100), metrics_evidence(spend=4.2, impressions=500, clicks=12))
++
++    assert isinstance(policy.decide(None, evidence), flow.NoAction)
++
++
++def test_underpacing_with_zero_delivery_is_no_action_not_a_proposal():
++    evidence = (state_evidence(budget=100), metrics_evidence(spend=0.0, impressions=0, clicks=0))
++
++    assert isinstance(policy.decide(None, evidence), flow.NoAction)
++
++
++def test_zero_budget_never_raises_and_is_no_action():
++    evidence = (state_evidence(budget=0), metrics_evidence(spend=1.0, impressions=500, clicks=12))
++
++    assert isinstance(policy.decide(None, evidence), flow.NoAction)
++
++
++def test_missing_metrics_never_raises_and_is_no_action():
++    evidence = (state_evidence(budget=100),
++                metrics_evidence(spend=None, impressions=None, clicks=None))
++
++    assert isinstance(policy.decide(None, evidence), flow.NoAction)
++
++
++def test_no_evidence_at_all_never_raises_and_is_no_action():
++    assert isinstance(policy.decide(None, ()), flow.NoAction)
++
++
++def test_missing_state_evidence_never_raises_and_is_no_action():
++    evidence = (metrics_evidence(spend=1.0, impressions=500, clicks=12),)
++
++    assert isinstance(policy.decide(None, evidence), flow.NoAction)
+diff --git a/tests/domain/test_evidence.py b/tests/domain/test_evidence.py
+index 7cdc2af..314ddaa 100644
+--- a/tests/domain/test_evidence.py
++++ b/tests/domain/test_evidence.py
+@@ -1,33 +1,35 @@
+ """證據與新鮮度:證據是「事實在某個時間點的快照」,新鮮度由純程式判斷。"""
+ 
+ from datetime import UTC, datetime, timedelta, tzinfo
++from types import MappingProxyType
+ 
+ import pytest
+ 
+ from rtb.domain.evidence import (
+     Evidence,
+     EvidenceKind,
+     Freshness,
+     TrustClass,
+     check_freshness,
+ )
+ 
+ T0 = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
+ HASH = "a" * 64
+ 
+ 
+ def make(**overrides):
+     fields = {
+         "evidence_id": "e1", "task_id": "t1", "kind": EvidenceKind.CAMPAIGN_STATE,
+         "source": "dsp", "observed_at": T0, "campaign_version_observed": 3,
+         "content_hash": HASH, "trust_class": TrustClass.TRUSTED,
++        "payload": MappingProxyType({"budget": 100}),
+     }
+     fields.update(overrides)
+     return Evidence(**fields)
+ 
+ 
+ def test_valid_evidence_is_constructed_and_immutable():
+     evidence = make()
+ 
+     assert evidence.campaign_version_observed == 3
+     with pytest.raises(AttributeError):
+@@ -134,10 +136,31 @@ def test_a_timezone_object_that_gives_no_offset_is_not_timezone_aware():
+ 
+     with pytest.raises(ValueError):
+         make(observed_at=weird)
+     with pytest.raises(ValueError):
+         check_freshness(make(), weird, 60, 3)
+ 
+ 
+ def test_an_age_limit_beyond_float_range_is_a_value_error_not_an_overflow():
+     with pytest.raises(ValueError):
+         check_freshness(make(), T0, 10**400, 3)
++
++
++def test_payload_must_be_a_mapping_proxy_of_json_safe_primitives():
++    with pytest.raises(ValueError, match="payload"):
++        make(payload={"budget": 100})  # 普通 dict,不是 MappingProxyType
++
++
++def test_payload_values_must_be_json_safe_primitives_not_nested_containers():
++    with pytest.raises(ValueError, match="payload"):
++        make(payload=MappingProxyType({"nested": {"a": 1}}))
++
++
++def test_an_empty_payload_is_allowed():
++    assert make(payload=MappingProxyType({})).payload == {}
++
++
++def test_payload_over_the_item_limit_is_rejected():
++    huge = MappingProxyType({f"k{i}": i for i in range(33)})
++
++    with pytest.raises(ValueError, match="payload"):
++        make(payload=huge)
+diff --git a/tests/httpclient/__init__.py b/tests/httpclient/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/httpclient/test_httpclient.py b/tests/httpclient/test_httpclient.py
+new file mode 100644
+index 0000000..a040f61
+--- /dev/null
++++ b/tests/httpclient/test_httpclient.py
+@@ -0,0 +1,126 @@
++"""共用的 HTTP 用戶端基礎:逾時必填、標頭是封閉列舉、沒有能送任意標頭的路徑。"""
++
++import inspect
++import threading
++
++import pytest
++
++from rtb import httpclient
++from rtb.httpkit import JsonHandler, KitServer
++
++
++class EchoHandler(JsonHandler):
++    def handle_request(self, method):
++        if self.path == "/slow":
++            import time
++            time.sleep(2)
++            return 200, {}
++        if self.path == "/boom":
++            return 500, {"error": "internal_error"}
++        headers = {name: self.headers.get(name) for name in self.headers}
++        return 200, {"method": method, "headers": headers, "body": self.read_json(allow_empty=True)}
++
++
++@pytest.fixture
++def server():
++    started = []
++
++    def start():
++        srv = KitServer(EchoHandler)
++        threading.Thread(target=srv.serve_forever, args=(0.02,), daemon=True).start()
++        started.append(srv)
++        return srv
++
++    yield start
++    for srv in started:
++        srv.shutdown()
++        srv.server_close()
++
++
++def url(srv, path):
++    return f"http://127.0.0.1:{srv.server_address[1]}{path}"
++
++
++# ---- S54:逾時必填,真的會放棄 ----
++def test_request_json_has_no_default_timeout():
++    params = inspect.signature(httpclient.request_json).parameters
++    assert "timeout_seconds" in params
++    assert params["timeout_seconds"].default is inspect.Parameter.empty
++
++
++def test_a_request_that_never_responds_gives_up_after_the_timeout(server):
++    srv = server()
++    import time
++
++    started = time.monotonic()
++    with pytest.raises(TimeoutError):
++        httpclient.request_json(url(srv, "/slow"), "GET", None, timeout_seconds=0.3)
++
++    assert time.monotonic() - started < 1.5
++
++
++def test_a_successful_request_returns_status_and_decoded_body(server):
++    srv = server()
++
++    status, body = httpclient.request_json(url(srv, "/x"), "GET", None, timeout_seconds=3)
++
++    assert status == 200 and body["method"] == "GET"
++
++
++def test_a_body_is_sent_as_json_and_content_type_is_set(server):
++    srv = server()
++
++    status, body = httpclient.request_json(
++        url(srv, "/x"), "POST", {"a": 1}, timeout_seconds=3)
++
++    assert status == 200
++    assert body["body"] == {"a": 1}
++    assert body["headers"]["Content-Type"] == "application/json"
++
++
++def test_a_non_2xx_status_is_returned_not_raised(server):
++    srv = server()
++
++    status, body = httpclient.request_json(url(srv, "/boom"), "GET", None, timeout_seconds=3)
++
++    assert status == 500 and body["error"] == "internal_error"
++
++
++def test_a_connection_failure_raises(server):
++    srv = server()
++    port = srv.server_address[1]
++    srv.shutdown()
++    srv.server_close()
++
++    with pytest.raises(OSError):
++        httpclient.request_json(f"http://127.0.0.1:{port}/x", "GET", None, timeout_seconds=1)
++
++
++# ---- headers 是封閉列舉,不接受任意字串 ----
++def test_headers_must_be_clientheader_members(server):
++    srv = server()
++
++    _status, body = httpclient.request_json(
++        url(srv, "/x"), "GET", None, timeout_seconds=3,
++        headers={httpclient.ClientHeader.IDEMPOTENCY_KEY: "k1"})
++
++    assert body["headers"]["Idempotency-Key"] == "k1"
++
++
++def test_a_header_key_that_is_not_a_clientheader_member_is_rejected(server):
++    srv = server()
++
++    with pytest.raises(TypeError):
++        httpclient.request_json(
++            url(srv, "/x"), "GET", None, timeout_seconds=3, headers={"X-Fault": "boom"})
++
++
++# ---- S44:三支檔的原始碼都不出現 X-Fault(輔助訊號,主防線是上面的封閉列舉) ----
++@pytest.mark.parametrize("module_name", ["rtb.httpclient"])
++def test_the_client_module_source_never_mentions_the_fault_header(module_name):
++    import importlib
++
++    module = importlib.import_module(module_name)
++    source = inspect.getsource(module)
++
++    assert "X-Fault" not in source

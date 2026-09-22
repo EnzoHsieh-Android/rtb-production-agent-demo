@@ -7,6 +7,7 @@
 """
 
 import json
+import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -135,6 +136,18 @@ class TaskStore:
             self._conn = connect(path, busy_timeout_seconds, SCHEMA)
         except DatabaseBusy as exc:
             raise TaskStoreBusy(str(exc)) from exc
+        self._migrate_evidence_payload_column()
+
+    def _migrate_evidence_payload_column(self) -> None:
+        """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:增量 3 建立的舊資料庫只有九欄,
+        沒有增量 4 才加的 `payload_json`。每次連線都檢查一次,缺欄位就補上;舊列補
+        `'{}'`(誠實反映「這些舊證據沒有留下原始數值,只有雜湊」,不是編造資料)。
+        """
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(evidence)")}
+        if "payload_json" not in columns:
+            with immediate_transaction(self._conn):
+                self._conn.execute(
+                    "ALTER TABLE evidence ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'")
 
     def close(self) -> None:
         self._conn.close()
@@ -231,7 +244,8 @@ class TaskStore:
                     (task_id, next_seq, item.evidence_id, item.kind.value, item.source,
                      _iso(item.observed_at), item.campaign_version_observed,
                      item.content_hash, item.trust_class.value,
-                     json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True)),
+                     json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True,
+                                allow_nan=False)),
                 )
             if before_commit is not None:
                 before_commit()
@@ -241,8 +255,10 @@ class TaskStore:
         self, task_id: str, task_seq: int, endpoint: str, outcome: str, latency_ms: float,
         now: datetime,
     ) -> None:
-        """記一筆對外呼叫;這筆寫入自己絕不讓例外往外傳(比照收件口事件表的既有做法):
-        寫失敗就放棄這筆記錄,不能因為記錄失敗而讓包住的那次呼叫跟著失敗。
+        """記一筆對外呼叫;這筆寫入自己絕不讓「資料庫層面」的例外往外傳(比照收件口事件表
+        `inbox_store._write_event` 的既有做法,只吞 `sqlite3.Error`/`DatabaseBusy`):寫入本身
+        失敗(資料庫忙碌、連線已關閉等)就放棄這筆記錄,不能因為記錄失敗而讓包住的那次呼叫
+        跟著失敗;但呼叫端自己傳錯參數型別這類程式錯誤要老實丟出來,不能被這裡靜默吞掉。
         """
         try:
             self._conn.execute(
@@ -250,7 +266,7 @@ class TaskStore:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (task_id, task_seq, endpoint, outcome, latency_ms, _iso(now)),
             )
-        except Exception:
+        except (sqlite3.Error, DatabaseBusy):
             return
 
     def list_tool_calls(self, task_id: str) -> tuple[ToolCall, ...]:

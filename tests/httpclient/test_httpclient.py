@@ -1,7 +1,10 @@
 """共用的 HTTP 用戶端基礎:逾時必填、標頭是封閉列舉、沒有能送任意標頭的路徑。"""
 
 import inspect
+import socket
 import threading
+import time
+from collections.abc import Mapping
 
 import pytest
 
@@ -124,3 +127,125 @@ def test_the_client_module_source_never_mentions_the_fault_header(module_name):
     source = inspect.getsource(module)
 
     assert "X-Fault" not in source
+
+
+# ---- headers 只驗證一次:自訂物件不能在驗證跟送出之間變臉 ----
+class _ShiftingHeaders(Mapping):
+    """`.keys()` 第一次回傳合法鍵、之後改回不合法的鍵——模擬「驗證讀一次、送出又讀一次」
+    的兩段式走訪可以被繞過;只走訪一次(`dict(headers)` 具現化)的寫法不會被這招影響。"""
+
+    def __init__(self):
+        self._reads = 0
+
+    def __getitem__(self, key):
+        return "k1"
+
+    def keys(self):
+        self._reads += 1
+        if self._reads > 1:
+            return ["X-Fault"]
+        return [httpclient.ClientHeader.IDEMPOTENCY_KEY]
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def __len__(self):
+        return 1
+
+
+def test_a_header_mapping_that_changes_between_reads_cannot_smuggle_an_unvalidated_header(server):
+    srv = server()
+
+    status, body = httpclient.request_json(
+        url(srv, "/x"), "GET", None, timeout_seconds=3, headers=_ShiftingHeaders())
+
+    assert status == 200
+    assert "X-Fault" not in body["headers"]
+
+
+# ---- 不自動跟隨重新導向 ----
+def _raw_response_server(response_bytes: bytes, *, hold_open: bool = False):
+    """起一個最陽春的 TCP 伺服器,原樣回傳給定的位元組——用來組出 JsonHandler 送不出來的
+    回應(3xx、超大本文、分段慢速送出),不代表這是專案自己的 HTTP 伺服器實作。"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    port = sock.getsockname()[1]
+
+    def serve():
+        conn, _ = sock.accept()
+        with conn:
+            conn.recv(65536)  # 讀掉請求,不解析
+            try:
+                if hold_open:
+                    for i in range(0, len(response_bytes), 4):
+                        conn.sendall(response_bytes[i : i + 4])
+                        time.sleep(0.15)
+                else:
+                    conn.sendall(response_bytes)
+            except OSError:
+                pass  # 客戶端等到逾時就會提早斷線,這裡送不完是預期中的事,不是測試本身的錯
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return port, sock
+
+
+def test_a_3xx_response_is_not_followed_and_becomes_an_http_error():
+    body = b'{"error":"moved"}'
+    response = (
+        b"HTTP/1.1 302 Found\r\n"
+        b"Location: http://127.0.0.1:1/elsewhere\r\n"
+        b"Content-Type: application/json\r\n" + f"Content-Length: {len(body)}\r\n\r\n".encode()
+        + body
+    )
+    port, sock = _raw_response_server(response)
+    try:
+        status, decoded = httpclient.request_json(
+            f"http://127.0.0.1:{port}/x", "GET", None, timeout_seconds=3)
+        assert status == 302
+        assert decoded == {"error": "moved"}
+    finally:
+        sock.close()
+
+
+# ---- 回應本文有位元組上限 ----
+def test_a_response_body_over_the_byte_cap_is_rejected():
+    # 合法 JSON 字串,單純太長;不用巨大數字字面值,避免撞到 Python 自己對超長整數字面值
+    # 的解析上限(那是另一件事,不是這裡要驗證的位元組上限)。
+    oversized = b'"' + b"x" * (httpclient.MAX_RESPONSE_BYTES + 1) + b'"'
+    response = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Content-Type: application/json\r\n"
+        + f"Content-Length: {len(oversized)}\r\n\r\n".encode()
+        + oversized
+    )
+    port, sock = _raw_response_server(response)
+    try:
+        with pytest.raises(ValueError, match="超過上限"):
+            httpclient.request_json(f"http://127.0.0.1:{port}/x", "GET", None, timeout_seconds=3)
+    finally:
+        sock.close()
+
+
+# ---- 慢速持續送資料仍會在總期限後放棄,不是只看單次 socket 操作 ----
+def test_a_slow_drip_response_gives_up_once_the_total_deadline_passes():
+    body = b'{"ok": true, "pad": "' + b"x" * 20 + b'"}'  # 夠多段落,drip 總時間才拉得開
+    response = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Content-Type: application/json\r\n"
+        + f"Content-Length: {len(body)}\r\n\r\n".encode()
+        + body
+    )
+    port, sock = _raw_response_server(response, hold_open=True)
+    # 每段間隔 0.15 秒、每次只送 4 位元組:單次 socket 讀取永遠不會撞到逾時(遠小於下面的
+    # timeout_seconds),但整個回應要送完(約 10 段 * 0.15 秒 ≈ 1.5 秒)遠超過總期限。
+    try:
+        started = time.monotonic()
+        with pytest.raises(TimeoutError):
+            httpclient.request_json(
+                f"http://127.0.0.1:{port}/x", "GET", None, timeout_seconds=0.5)
+        elapsed = time.monotonic() - started
+        assert 0.4 < elapsed < 3  # 真的等到超過期限才放棄,但沒有等到整包收完(~1.5 秒)才放棄
+    finally:
+        sock.close()

@@ -55,8 +55,29 @@ def test_the_campaign_state_evidence_carries_the_observed_version(dsp):
 def test_a_nonexistent_campaign_makes_the_whole_call_raise(dsp):
     client = dsp_client.make_client(dsp, timeout_seconds=3)
 
-    with pytest.raises(Exception):  # noqa: B017 - 只驗證會整個丟例外,不驗證是哪一種
+    with pytest.raises(dsp_client.DspRequestFailed):
         client(make_row(campaign_id="ghost"))
+
+
+def test_campaign_state_succeeding_but_metrics_failing_raises_and_returns_nothing_partial(
+    tmp_path,
+):
+    """代碼審第 1 輪指出:兩個端點「先成功後失敗」這個排列組合完全沒有測試覆蓋到——
+    之前的假 fixture 一律同時 seed 了 state 跟 metrics,測不出「現況讀得到、指標讀不到」
+    這個真正需要 all-or-nothing 契約守住的情境。"""
+    store = CampaignStore(tmp_path / "dsp.db")
+    store.seed_campaign("c1", budget=100)  # 故意不 seed_metrics:模擬指標端點會失敗
+    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
+                       delay_seconds=0.0)
+    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+    try:
+        client = dsp_client.make_client(
+            f"http://127.0.0.1:{server.server_address[1]}", timeout_seconds=3)
+        with pytest.raises(dsp_client.DspRequestFailed):
+            client(make_row())  # 第一個端點(現況)成功,第二個(指標)失敗:整個呼叫要往外丟例外
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_the_dsp_being_unreachable_makes_the_whole_call_raise():

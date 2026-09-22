@@ -82,13 +82,21 @@ def _is_hash(value: object) -> TypeGuard[str]:
     return isinstance(value, str) and HASH_PATTERN.fullmatch(value) is not None
 
 
+def _is_payload_value(item: object) -> bool:
+    if item is None or isinstance(item, str | bool):
+        return True
+    if isinstance(item, int | float):
+        # bool 已經在上面排除;NaN/Infinity 不是合法 JSON 數字字面值,型別名稱
+        # PayloadValue 又自稱「JSON 安全」,兩邊要對得上,跟同檔案 `_is_positive_finite`
+        # 的既有做法一致(2026-09-22 代碼審發現這裡漏掉,跟數值驗證的既有慣例不一致)。
+        return math.isfinite(item)
+    return False
+
+
 def _is_payload(value: object) -> TypeGuard[MappingProxyType[str, PayloadValue]]:
     if not isinstance(value, MappingProxyType) or len(value) > MAX_PAYLOAD_ITEMS:
         return False
-    return all(
-        isinstance(key, str) and (item is None or isinstance(item, str | int | float | bool))
-        for key, item in value.items()
-    )
+    return all(isinstance(key, str) and _is_payload_value(item) for key, item in value.items())
 
 
 def _is_version_or_none(value: object) -> TypeGuard[int | None]:

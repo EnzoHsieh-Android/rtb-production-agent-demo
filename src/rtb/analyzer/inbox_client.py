@@ -13,19 +13,25 @@ from rtb.analyzer.flow import Accepted, SubmitBusy, SubmitRejectedPermanently, S
 from rtb.domain.proposal import Proposal
 from rtb.httpclient import request_json
 
-_STALE_CODES = frozenset(
-    {"revision_out_of_order", "content_conflict", "expired_proposal", "expiry_too_far",
-     "created_in_future"}
-)
+_PERMANENT_CODES: dict[int, frozenset[str]] = {409: frozenset({"too_many_revisions"})}
+_STALE_CODES: dict[int, frozenset[str]] = {
+    409: frozenset({"revision_out_of_order", "content_conflict"}),
+    422: frozenset({"expired_proposal", "expiry_too_far", "created_in_future"}),
+}
+_BUSY_CODES: dict[int, frozenset[str]] = {503: frozenset({"inbox_full", "busy"})}
 
 
 def _handle_rejection(status: int, body: dict[str, Any]) -> None:
+    """S46~S48 的分類是「狀態碼加錯誤代碼」兩者都要對得上,不是只看錯誤代碼字串——單看代碼
+    容易被不對應的狀態碼(例如打錯代碼的 500)誤分類成可重試或永久拒收;狀態碼跟代碼對不上
+    的,都當成未定義的失敗,原樣往外傳給 flow.py 既有的「未定義例外視為可重試」接住。
+    """
     code = body.get("error")
-    if code == "too_many_revisions":
+    if code in _PERMANENT_CODES.get(status, frozenset()):
         raise SubmitRejectedPermanently(str(code))
-    if code in _STALE_CODES:
+    if code in _STALE_CODES.get(status, frozenset()):
         raise SubmitStale(str(code))
-    if code in ("inbox_full", "busy"):
+    if code in _BUSY_CODES.get(status, frozenset()):
         raise SubmitBusy(str(code))
     raise RuntimeError(f"收件口回 {status}:{code}")  # 未定義的狀態,原樣往外傳,不改分類
 
