@@ -1,0 +1,93 @@
+[
+ {
+  "round": "r2",
+  "seat": "s1",
+  "lens": "確切值綁定與驗證流程能否實作",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r2-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "tests/dsp/conftest.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s2",
+  "lens": "攻擊面",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r2-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "tests/dsp/conftest.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s3",
+  "lens": "三塊分工與定義同步",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r2-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "tests/dsp/conftest.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s4",
+  "lens": "可測性與既有測試改寫",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r2-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "tests/dsp/conftest.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s5",
+  "lens": "失敗語意與增量 3、4 銜接",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r2-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "tests/dsp/conftest.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r2-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "tests/dsp/conftest.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "x1",
+  "lens": "外家 Codex",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r2-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "tests/dsp/conftest.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "codex"
+ }
+]

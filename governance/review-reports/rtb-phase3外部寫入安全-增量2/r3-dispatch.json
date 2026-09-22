@@ -1,0 +1,54 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "第 3 版修正本身",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r3-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "src/rtb/domain/attempt.py",
+   "src/rtb/executor/attempt_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "s2",
+  "lens": "與增量 3、4 銜接",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r3-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "src/rtb/domain/attempt.py",
+   "src/rtb/executor/attempt_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r3-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "src/rtb/domain/attempt.py",
+   "src/rtb/executor/attempt_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "lens": "外家 Codex",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量2/r3-snapshot.md",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "src/rtb/domain/attempt.py",
+   "src/rtb/executor/attempt_store.py"
+  ],
+  "auditor": "codex"
+ }
+]
