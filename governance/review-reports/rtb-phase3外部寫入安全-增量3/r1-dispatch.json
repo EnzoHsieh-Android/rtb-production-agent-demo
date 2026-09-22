@@ -1,0 +1,93 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "流程正確性與狀態對應",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量3/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "並行、崩潰與交易邊界",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量3/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "收件表重建與相容",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量3/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "可測性",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量3/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "與增量 4 銜接與失敗語意",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量3/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量3/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家 Codex",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量3/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/attempt.py"
+  ],
+  "auditor": "codex"
+ }
+]
