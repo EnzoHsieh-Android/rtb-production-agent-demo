@@ -637,3 +637,23 @@
 {"ts": "2026-09-22T18:40:34+08:00", "commit": "9fc9545", "gate": "bound-tests", "kind": "red-advisory", "hard": false, "nodes": ["Systems/分析行程流程與檢查點.md"], "note": "1 紅/43", "secs": 19.0, "calc_secs": 0.05}
 {"ts": "2026-09-22T18:41:50+08:00", "commit": "9fc9545", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Systems/分析行程流程與檢查點.md"], "note": "tokens=4 hits=1 secs=3.8"}
 {"ts": "2026-09-22T18:41:50+08:00", "commit": "9fc9545", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "9fc95454687e5ca0cfc42bb60d7f8bea3bca4548"}
+{"ts": "2026-09-22T18:41:55+08:00", "commit": "9fc9545", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Systems/分析行程流程與檢查點.md"], "note": "tokens=4 hits=1 secs=3.8"}
+{"ts": "2026-09-22T18:41:56+08:00", "commit": "9fc9545", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "9fc95454687e5ca0cfc42bb60d7f8bea3bca4548"}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-cascade", "kind": "warned", "hard": false, "nodes": [], "note": "unseen=2 broken=0"}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=3 soft=5"}
+{"ts": "2026-09-22T18:42:13+08:00", "commit": "9fc9545", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Systems/分析行程流程與檢查點.md"], "note": "tokens=4 hits=1 secs=3.8"}
+{"ts": "2026-09-22T18:42:14+08:00", "commit": "9fc9545", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "9fc95454687e5ca0cfc42bb60d7f8bea3bca4548"}
