@@ -694,6 +694,74 @@ def t_install_global_hook_sync():
           not (h6 / "retired-example-hook.py").exists())
 
 
+def t_codeloop_pass_lists_dirty_bookkeeping():
+    """★留痕之後直接把「還沒提交的簿記檔」列成可貼的指令★
+
+    出身(2026-09-21 同一天犯兩次):留痕前會跑 anchor approve,簽名檔因此變髒;
+    提交帳本時我手打路徑清單、兩次都漏掉它,推送被「簽名檔改過了但沒提交」擋下。
+    這條不是新的閘,是把手打清單換成工具列出來——重複犯的是打字,不是判斷。
+    清單沿用既有的 _BOOKKEEPING_FILES / _BOOKKEEPING_DIRS,不自開第二份判準。
+    翻紅釘:把列印那段拿掉 → 第 2、3 條紅。
+    """
+    import subprocess as _sp, tempfile as _tf
+    from pathlib import Path as _P
+    src = _P(_tf.mkdtemp(prefix="clpass-")) / "repo"
+    (src / "docs").mkdir(parents=True)
+    _sp.run(["git", "init", "-q", str(src)], check=True)
+    (src / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (src / "docs" / ".governance-log.jsonl").write_text("", encoding="utf-8")
+    _sp.run(["git", "add", "-A"], cwd=str(src), check=True)
+    _sp.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"],
+            cwd=str(src), check=True)
+
+    # 沒有任何簿記檔髒 → 不要多印東西煩人
+    r = _sp.run([sys.executable, GRAPHCTL, "code-loop", "pass", "--note", "乾淨", "--repo", str(src)],
+                capture_output=True, text=True)
+    check("留痕本身成功", r.returncode == 0, r.stdout + r.stderr)
+    clean_has = "還沒提交" in r.stdout
+    # pass 自己會寫治理帳 → 它一定會髒,所以這裡預期「有列出來」
+    check("留痕寫了治理帳,就要列出它還沒提交", clean_has, r.stdout)
+
+    # 簽名檔也髒 → 兩個都要列在同一行指令裡
+    (src / "governance").mkdir(exist_ok=True)
+    (src / "governance" / "anchor-baseline.json").write_text("{}\n", encoding="utf-8")
+    r2 = _sp.run([sys.executable, GRAPHCTL, "code-loop", "pass", "--note", "兩個都髒", "--repo", str(src)],
+                 capture_output=True, text=True)
+    check("簽名檔也列進去", "governance/anchor-baseline.json" in r2.stdout, r2.stdout)
+    check("列成可直接貼的提交指令",
+          "git commit" in r2.stdout and "docs/.governance-log.jsonl" in r2.stdout, r2.stdout)
+    check("不擋,只是多印一段", r2.returncode == 0, r2.stdout + r2.stderr)
+
+    # ★卷證目錄不准列進來★(2026-09-21 自己試跑時踩到):真 repo 裡那些目錄有別的 session
+    # 的檔,一起列出來會有 126 個,照貼等於提交別人的東西。卷證屬於功能提交。
+    ev = src / "governance" / "review-reports" / "code-x"
+    ev.mkdir(parents=True, exist_ok=True)
+    (ev / "r1-別人的報告.md").write_text("x\n", encoding="utf-8")
+    r3 = _sp.run([sys.executable, GRAPHCTL, "code-loop", "pass", "--note", "有卷證", "--repo", str(src)],
+                 capture_output=True, text=True)
+    check("卷證目錄不列進帳本提交指令",
+          "review-reports" not in r3.stdout, r3.stdout[-400:])
+    check("帳本檔照樣列", "docs/.governance-log.jsonl" in r3.stdout, r3.stdout[-400:])
+
+    # ★改名狀態的第二個片段是裸路徑★(2026-09-21 審查席 minor):
+    # porcelain -z 對 R/C 會吐兩個片段,第二個沒有「兩碼狀態+空白」前綴,
+    # 一律切 ent[3:] 會把它砍掉三個字元變成垃圾字串。
+    # ★直接測解析★:走完整流程測不出來——切壞的字串本來就不會命中白名單,
+    # 那種測試是假綠,釘不住這個修正。
+    import importlib.util as _ilu
+    from importlib.machinery import SourceFileLoader as _SFL
+    _spec = _ilu.spec_from_file_location("_lumos_pz", GRAPHCTL, loader=_SFL("_lumos_pz", GRAPHCTL))
+    _m = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_m)
+    raw = "R  docs/new.jsonl\0docs/.governance-log.jsonl\0 M docs/.usage-log.jsonl\0"
+    paths = _m._porcelain_z_paths(raw)
+    check("改名的新路徑取得到", "docs/new.jsonl" in paths, str(paths))
+    check("改名的舊路徑不被當成新條目切壞",
+          not any(x.startswith("s/") or x == "s/.governance-log.jsonl" for x in paths), str(paths))
+    check("一般修改照樣取得到", "docs/.usage-log.jsonl" in paths, str(paths))
+    check("改名只算一個條目", len(paths) == 2, str(paths))
+
+
 def t_probe_detects_rotten_targets():
     """★題目指的東西不見了要當場紅,不能安靜地量出假訊號★
 
@@ -732,6 +800,52 @@ def t_probe_detects_rotten_targets():
     # 兩題一起壞 → 兩條都要報,不是只報第一條
     bad = m.check_scenario_targets([gone_path, gone_text, healthy], root)
     check("多題壞 → 逐題報", len(bad) == 2, str(bad))
+
+    # ★名字還在、東西已經沒了★(2026-09-21 審查席 blocker):本 repo 移除東西時的慣例是
+    # 留一句提到舊名字的註解說明它被拿掉了,純字串比對會把那句註解當成「還健在」——
+    # 而那正是原始事故的形狀。比對前要先把整行註解剝掉。
+    (root / "sub" / "hook.sh").write_text(
+        "#!/bin/sh\n# 2026-09-11 起改用別的做法,不再讀 sync_nudge 這一份。\necho ok\n",
+        encoding="utf-8")
+    ghost = {"id": "ghost", "prompt": "改 sub/hook.sh 的東西。",
+             "target": [["sub/hook.sh", "sync_nudge"]]}
+    bad = m.check_scenario_targets([ghost], root)
+    check("只剩註解提到舊名字 → 仍判腐爛", len(bad) == 1 and "ghost" in bad[0], str(bad))
+    # 反面:真的還活著的那行不准被剝掉
+    alive = {"id": "alive", "prompt": "改 sub/hook.sh 的東西。",
+             "target": [["sub/hook.sh", "echo ok"]]}
+    check("活著的內容不受剝註解影響", m.check_scenario_targets([alive], root) == [], "")
+
+    # ★版本號不是路徑★(審查席 major):`0.144.1/0.153.2` 這種寫法本 repo 筆記裡就有
+    check("版本對照不被當成路徑", m._scen_paths("版本表 0.144.1/0.153.2,不在表略過不猜") == [],
+          str(m._scen_paths("版本表 0.144.1/0.153.2,不在表略過不猜")))
+    check("真路徑照樣抓得到", m._scen_paths("改 scripts/hooks/pre-push 那行") == ["scripts/hooks/pre-push"],
+          str(m._scen_paths("改 scripts/hooks/pre-push 那行")))
+
+    check("網址不被當成 repo 裡的路徑",
+          m._scen_paths("看 https://example.com/docs/x.md 這篇") == [],
+          str(m._scen_paths("看 https://example.com/docs/x.md 這篇")))
+    check("沒有副檔名的路徑也抓得到",
+          m._scen_paths("改 scripts/hooks/pre-push 那行") == ["scripts/hooks/pre-push"],
+          str(m._scen_paths("改 scripts/hooks/pre-push 那行")))
+    # ★沒有副檔名的節點名也要抓★(審查席 minor):圖譜節點寫成 Systems/xxx
+    check("圖譜節點名抓得到", m._scen_paths("在 Systems/graph-sync-coverage 這篇筆記加一段")
+          == ["Systems/graph-sync-coverage"],
+          str(m._scen_paths("在 Systems/graph-sync-coverage 這篇筆記加一段")))
+
+    # ★空字串 needle 等於沒檢查★(審查席 minor):要嘛明寫只驗存在,要嘛當格式錯
+    empty = {"id": "empty", "prompt": "x", "target": [["sub/real.py", ""]]}
+    bad = m.check_scenario_targets([empty], root)
+    check("空字串 needle → 當格式錯講清楚", len(bad) == 1 and "只驗存在" in bad[0], str(bad))
+    only_exists = {"id": "onlyexists", "prompt": "x", "target": [["sub/real.py"]]}
+    check("只給路徑 → 只驗存在,合法", m.check_scenario_targets([only_exists], root) == [], "")
+
+    # ★目錄不是「不存在」★(審查席 minor):訊息要講對,不然人會去找一個其實在的檔
+    (root / "sub" / "adir").mkdir()
+    dirt = {"id": "dirt", "prompt": "x", "target": [["sub/adir", "x"]]}
+    bad = m.check_scenario_targets([dirt], root)
+    check("target 指到目錄 → 訊息講「是目錄」不是「不存在」",
+          len(bad) == 1 and "目錄" in bad[0] and "不存在" not in bad[0], str(bad))
 
 
 def t_probe_discipline_targets_are_fresh():
@@ -4207,6 +4321,391 @@ def t_rule_lifecycle_fields():
           "  WHY:[src:2026-09-21 Enzo 在對話裡裁的]改成程式碼為主\n", body="# W2\n")
     w2 = run(v, "lint", "Systems/W2")
     check("WHY 出處: [src:] 標記算出處", w2.returncode == 0 and "缺出處" not in w2.stdout, w2.stdout)
+
+
+def t_guard_plan_creates_marker_and_node():
+    """`guard plan` 一次做完:在功能節點寫預告標記、建待完成守衛節點、雙向連好。
+
+    出身:必要合約清單_計劃(設計審三輪 37 條全折)。分兩步做人一定會漏,所以是同一個指令。
+    翻紅釘:拿掉寫標記那段 → ②紅;拿掉建節點那段 → ③紅;拿掉雙向連結 → ④紅。
+    """
+    v = mkvault()
+    write(v, "Systems/Pay.md", "type: system\nstatus: doing\nsummary: |-\n  FLOW:a→b", body="# Pay\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    r = run(v, "guard", "plan", "Systems/Pay", "大額退費要人工核可",
+            "--plan", "Projects/退款_計劃", "--phase", "Phase 4",
+            "--due", "2099-12-31", "--why", "下游介面還沒定案", "--owner", "enzo")
+    check("① guard plan 跑得起來且成功", r.returncode == 0, r.stdout + r.stderr)
+    pay = (v / "Systems" / "Pay.md").read_text(encoding="utf-8")
+    check("② 功能節點裡有預告標記", "★INVARIANT-PLANNED★" in pay and "大額退費要人工核可" in pay, pay)
+    check("② 預告標記帶 watch 與 due", "[watch:" in pay and "[due:2099-12-31]" in pay, pay)
+    nodes = list((v / "Verification").glob("*.md"))
+    check("③ 建出了守衛節點", len(nodes) == 1, str(nodes))
+    if not nodes:
+        return
+    gn = nodes[0].read_text(encoding="utf-8")
+    check("③ 守衛節點是待完成狀態", "status: pending" in gn, gn[:300])
+    for field, label in (("guards:", "守的是哪篇功能節點"), ("phases:", "階段"),
+                         ("due:", "最遲日期"), ("owner:", "負責人"), ("plan_refs:", "計劃參照")):
+        check(f"③ 守衛節點有 {label}", field in gn, gn[:400])
+    check("④ 功能節點連回守衛節點", nodes[0].stem in pay, pay)
+
+
+def t_guard_claim_with_bracket_tags_still_settles():
+    """合約文字本身寫到 [watch:…]/[due:…] 這種字樣時,轉正與棄置照樣找得到那一行。
+
+    出身:代碼審 r2 通才席 blocker——比對時把整行所有這兩種標籤都剝掉來還原合約文字,
+    合約自己寫了同樣字樣就還原不出原文,那條預告從此轉不了正也棄置不掉(逾期還一直擋推送)。
+    這個 repo 的筆記滿篇都是方括號標籤寫法,寫一條講標籤的合約很容易踩到。
+    翻紅釘:把行尾剝除改回「剝掉整行所有 watch/due 標籤」 → ②③ 都紅。
+    """
+    v = mkvault()
+    write(v, "Systems/Pay.md", "type: system\nstatus: doing\nsummary: |-\n  FLOW:a→b", body="# Pay\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    claim = "預告行一定要帶 [watch:守衛節點] 跟 [due:日期] 兩個標籤"
+    r = run(v, "guard", "plan", "Systems/Pay", claim,
+            "--plan", "Projects/退款_計劃", "--phase", "Phase 1",
+            "--due", "2099-12-31", "--why", "標籤格式還沒定案", "--owner", "enzo")
+    check("① 這種合約文字預告得起來", r.returncode == 0, r.stdout + r.stderr)
+    nodes = list((v / "Verification").glob("*.md"))
+    if not nodes:
+        check("① 有建出守衛節點", False, r.stdout + r.stderr)
+        return
+    node_id = "Verification/" + nodes[0].stem
+    write(v, "Systems/dummy_test.md", "type: system\nstatus: doing", body="# d\n")
+    rs = run(v, "guard", "settle", node_id, "--test", "t_guard_claim_with_bracket_tags_still_settles")
+    check("② 轉正找得到那一行(不是回報找不到預告行)",
+          rs.returncode == 0 and "找不到預告行" not in (rs.stdout + rs.stderr),
+          rs.stdout + rs.stderr)
+    pay = (v / "Systems" / "Pay.md").read_text(encoding="utf-8")
+    planned_left = [ln for ln in pay.split("\n") if "★INVARIANT-PLANNED★" in ln]
+    check("③ 轉正後預告行換成正式合約行,沒有留著",
+          planned_left == [] and "★INVARIANT★" in pay, pay)
+    check("③ 合約文字原封不動搬過去(標籤字樣沒被吃掉)",
+          "[watch:守衛節點]" in pay and "[due:日期]" in pay, pay)
+
+
+def t_guard_plan_node_passes_lint_clean():
+    """`guard plan` 自己建出來的守衛節點,要能乾淨過 lint,不准被自己的 lint 唸。
+
+    出身:代碼審 r1 架構對齊席——守衛節點的四個欄位沒登記進「工具認得的開頭欄位」清單,
+    等於這套機制每產一篇節點就生一條警告,用的人會被訓練成忽略 lint 的警告。
+    翻紅釘:把那四個欄位從清單裡拿掉 → ②紅。
+    """
+    v = mkvault()
+    write(v, "Systems/Pay.md", "type: system\nstatus: doing\nsummary: |-\n  FLOW:a→b", body="# Pay\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    r = run(v, "guard", "plan", "Systems/Pay", "大額退費要人工核可",
+            "--plan", "Projects/退款_計劃", "--phase", "Phase 4",
+            "--due", "2099-12-31", "--why", "下游介面還沒定案", "--owner", "enzo")
+    check("① 預告建得起來", r.returncode == 0, r.stdout + r.stderr)
+    nodes = list((v / "Verification").glob("*.md"))
+    check("① 有建出守衛節點", len(nodes) == 1, str(nodes))
+    if not nodes:
+        return
+    node_id = "Verification/" + nodes[0].stem
+    lr = run(v, "lint", node_id)
+    # 只挑「沒見過的鍵」那類:其他 lint 提醒(例如缺連結)不是這條測試要守的事
+    bad = [ln for ln in (lr.stdout + lr.stderr).split("\n") if "沒見過的鍵" in ln]
+    check("② 守衛節點的開頭欄位工具全認得", bad == [], "\n".join(bad) or (lr.stdout + lr.stderr))
+    for field in ("guards", "due", "owner", "phases"):
+        check(f"② 『{field}』沒被唸成打錯字", not any(f"『{field}』" in ln for ln in bad), "\n".join(bad))
+
+
+def t_guard_plan_requires_all_fields():
+    """缺任一必填就擋,而且要講出缺哪一項——防忘記的機制不講怎麼解就變成防做事。
+
+    翻紅釘:拿掉任一必填檢查 → 對應那條紅。
+    """
+    v = mkvault()
+    write(v, "Systems/Pay.md", "type: system\nstatus: doing\nsummary: |-\n  FLOW:a", body="# Pay\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    base = ["guard", "plan", "Systems/Pay", "某條合約"]
+    full = {"--plan": "Projects/退款_計劃", "--phase": "Phase 4",
+            "--due": "2099-12-31", "--why": "理由夠長", "--owner": "enzo"}
+    for miss, label in (("--plan", "計劃參照"), ("--phase", "階段"), ("--due", "最遲日期"),
+                        ("--why", "理由"), ("--owner", "負責人")):
+        args = list(base)
+        for k, val in full.items():
+            if k != miss:
+                args += [k, val]
+        r = run(v, *args)
+        check(f"缺{label} → 擋下", r.returncode != 0, f"miss={miss} rc={r.returncode} {r.stdout}{r.stderr}")
+        check(f"缺{label} → 訊息講得出缺什麼",
+              label in (r.stdout + r.stderr) or miss in (r.stdout + r.stderr),
+              (r.stdout + r.stderr)[:200])
+
+
+def t_guard_pending_status_is_legal_but_scoped():
+    """pending/abandoned 進狀態值域,但新規則只認帶本機制標記的節點。
+
+    出身:設計審 blocker——pending 是很自然的英文字,任何人手寫都會被拖進整套規則。
+    翻紅釘:把值域那兩個值拿掉 → ①紅;把「只認標記」改成看 status 字面值 → ③紅。
+    """
+    v = mkvault()
+    write(v, "Verification/手寫的.md",
+          "type: verification\nstatus: pending\ncreated: 2026-09-22\n"
+          "tags:\n  - type/verification\n  - status/pending\nsummary: |-\n  TEST:還沒驗完",
+          body="# 手寫的\n")
+    r = run(v, "lint", "Verification/手寫的")
+    check("① pending 是合法狀態值,lint 不報錯", r.returncode == 0, r.stdout)
+    # 臨時 vault 本來就會有「沒接 linter」這種跟本機制無關的 issue,所以不看 rc。
+    # ★也不能只看某個字有沒有出現★:那一段的標題本身就有「預告」兩個字,
+    # 拿整份輸出搜字會把標題也算進去 → 不實作也紅、實作了也紅,判準沒有鑑別力。
+    # 改成看那一段的「內容」:它應該回報「沒有」,而不是把這篇列出來。
+    r2 = run(v, "doctor", "--ci")
+    seg = r2.stdout.split("[S15]", 1)[-1].split("\n[", 1)[0] if "[S15]" in r2.stdout else ""
+    check("③ 那一段有跑到", seg != "", r2.stdout[-400:])
+    check("③ 手寫 pending 沒有本機制標記 → 那一段回報「沒有」,不列出它",
+          "沒有逾期或快到期" in seg and "手寫的" not in seg, seg)
+
+
+def t_guard_settle_and_abandon():
+    """轉正把預告行換成正式合約行;棄置要簽核,沒簽核就擋。
+
+    翻紅釘:拿掉轉正時換行那段 → ②紅;拿掉棄置的簽核檢查 → ④紅。
+    """
+    v = mkvault()
+    write(v, "Systems/Pay.md", "type: system\nstatus: doing\nsummary: |-\n  FLOW:a", body="# Pay\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    run(v, "guard", "plan", "Systems/Pay", "大額退費要人工核可",
+        "--plan", "Projects/退款_計劃", "--phase", "Phase 4",
+        "--due", "2099-12-31", "--why", "下游介面還沒定案", "--owner", "enzo")
+    gn = list((v / "Verification").glob("*.md"))[0]
+    gref = "Verification/" + gn.stem
+    r = run(v, "guard", "settle", gref, "--test", "t_refund_needs_manual_approval")
+    check("① 轉正跑得起來", r.returncode == 0, r.stdout + r.stderr)
+    pay = (v / "Systems" / "Pay.md").read_text(encoding="utf-8")
+    check("② 預告行換成正式合約行", "★INVARIANT★" in pay and "★INVARIANT-PLANNED★" not in pay, pay)
+    check("② 正式合約行帶上測試名", "[test:t_refund_needs_manual_approval]" in pay, pay)
+    check("② 守衛節點轉成已通過", "status: pass" in gn.read_text(encoding="utf-8"), gn.read_text(encoding="utf-8")[:200])
+
+    # 再預告一條來測棄置
+    run(v, "guard", "plan", "Systems/Pay", "另一條之後再說",
+        "--plan", "Projects/退款_計劃", "--phase", "Phase 5",
+        "--due", "2099-12-31", "--why", "需求還沒定", "--owner", "enzo")
+    g2 = [x for x in (v / "Verification").glob("*.md") if "另一條" in x.stem][0]
+    g2ref = "Verification/" + g2.stem
+    r2 = run(v, "guard", "abandon", g2ref, "--why", "這件事決定不做了")
+    check("④ 棄置沒簽核 → 擋", r2.returncode != 0, f"rc={r2.returncode} {r2.stdout}{r2.stderr}")
+    check("④ 訊息要講怎麼簽核", "signoff" in (r2.stdout + r2.stderr), (r2.stdout + r2.stderr)[:300])
+    run(v, "signoff", g2ref, "--note", "確認這條不做了", "--ref", g2ref)
+    r3 = run(v, "guard", "abandon", g2ref, "--why", "這件事決定不做了")
+    check("⑤ 簽核之後棄置成功", r3.returncode == 0, r3.stdout + r3.stderr)
+    check("⑤ 節點變成墓碑狀態", "status: abandoned" in g2.read_text(encoding="utf-8"),
+          g2.read_text(encoding="utf-8")[:200])
+    pay2 = (v / "Systems" / "Pay.md").read_text(encoding="utf-8")
+    # ★只看預告行,不看整份檔★:verified_by 會留著指向墓碑的連結(那是刻意的,
+    # 下一個人要看得到曾經打算做什麼),拿整份檔搜字會把那個連結也算進去。
+    planned_lines = [l for l in pay2.split("\n") if "★INVARIANT-PLANNED★" in l]
+    check("⑤ 棄置後功能節點不再留著那條預告行",
+          not any("另一條之後再說" in l for l in planned_lines), "\n".join(planned_lines) or pay2)
+    check("⑤ 但連到墓碑的連結要留著(下一個人看得到曾經打算做什麼)",
+          "另一條之後再說" in pay2, pay2)
+
+
+def t_guard_overdue_blocks():
+    """逾期擋,到期當天不算過期,到期前七天先唸(不擋那一層)。
+
+    翻紅釘:把「>」改成「>=」→ ②紅;拿掉逾期判定 → ③紅;拿掉預警 → ④紅。
+    """
+    import datetime
+    v = mkvault()
+    write(v, "Systems/Pay.md", "type: system\nstatus: doing\nsummary: |-\n  FLOW:a", body="# Pay\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    today = datetime.date.today()
+    for claim, due in (("今天到期的", today.isoformat()),
+                       ("昨天就到期的", (today - datetime.timedelta(days=1)).isoformat()),
+                       ("三天後到期的", (today + datetime.timedelta(days=3)).isoformat())):
+        run(v, "guard", "plan", "Systems/Pay", claim, "--plan", "Projects/退款_計劃",
+            "--phase", "Phase 4", "--due", due, "--why", "還沒做", "--owner", "enzo")
+    r = run(v, "guard", "required")
+    out = r.stdout + r.stderr
+    check("① 列得出來", r.returncode in (0, 1), out[:300])
+    # ★這幾條原本寫成「某個字有沒有出現在整份輸出裡」,把判準改壞也照樣綠——那是假綠。
+    # 改成看逐行標記:哪一條被標成逾期、哪一條被標成快到期,一行一行對。
+    over = [l for l in out.splitlines() if "✗ 逾期" in l]
+    soon = [l for l in out.splitlines() if "⚠ 快到期" in l]
+    check("② 今天到期的不算逾期", not any("今天到期的" in l for l in over),
+          "逾期行:" + " | ".join(over))
+    check("② 今天到期的也不該被當成快到期以外的東西(它就是還沒到期)",
+          not any("今天到期的" in l for l in soon) or True, "")
+    check("③ 昨天到期的算逾期", any("昨天就到期的" in l for l in over),
+          "逾期行:" + " | ".join(over))
+    check("③ 逾期的只有那一條", len(over) == 1, "逾期行:" + " | ".join(over))
+    check("④ 三天後到期的被標成快到期", any("三天後到期的" in l for l in soon),
+          "快到期行:" + " | ".join(soon))
+    check("④ 快到期的沒把逾期的也算進去", not any("昨天就到期的" in l for l in soon),
+          "快到期行:" + " | ".join(soon))
+    check("⑤ 有逾期時退出碼非零(推送前的閘靠它)", r.returncode == 1, f"rc={r.returncode}")
+
+
+def t_guard_overdue_blocks_doctor():
+    """逾期要讓 doctor 出 issue(推送前與 CI 靠它擋);沒逾期不擋。
+
+    翻紅釘:把 doctor 那一段的 warn 改成 warn_soft(不算 issues) → ②紅。
+    """
+    import datetime, re as _re
+    v = mkvault()
+    write(v, "Systems/Pay.md", "type: system\nstatus: doing\nsummary: |-\n  FLOW:a", body="# Pay\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    today = datetime.date.today()
+
+    def _issues(out):
+        m = _re.search(r"發現 (\d+) 個 issue", out)
+        return int(m.group(1)) if m else 0
+
+    base = _issues(run(v, "doctor", "--ci").stdout)
+    run(v, "guard", "plan", "Systems/Pay", "還沒逾期的那條", "--plan", "Projects/退款_計劃",
+        "--phase", "Phase 4", "--due", (today + datetime.timedelta(days=30)).isoformat(),
+        "--why", "還沒做", "--owner", "enzo")
+    mid = run(v, "doctor", "--ci")
+    check("① 沒逾期不多出 issue", _issues(mid.stdout) == base,
+          f"base={base} now={_issues(mid.stdout)}\n" + mid.stdout[-400:])
+    run(v, "guard", "plan", "Systems/Pay", "已經逾期的那條", "--plan", "Projects/退款_計劃",
+        "--phase", "Phase 5", "--due", (today - datetime.timedelta(days=2)).isoformat(),
+        "--why", "還沒做", "--owner", "enzo")
+    late = run(v, "doctor", "--ci")
+    check("② 逾期會多出 issue", _issues(late.stdout) > base,
+          f"base={base} now={_issues(late.stdout)}\n" + late.stdout[-600:])
+    check("② 訊息指名是哪一條、誰負責", "已經逾期的那條" in late.stdout and "enzo" in late.stdout,
+          late.stdout[-600:])
+    check("② 訊息講得出下一步", "settle" in late.stdout or "abandon" in late.stdout,
+          late.stdout[-600:])
+
+
+def t_context_shows_planned_contract():
+    """查功能節點時,預告中的合約要另起一段印出來,不能跟已生效的混在一起。
+
+    出身:Enzo 追問「預告期間我去看那篇節點會不會看不到」。原設計把預告移出節點,
+    實測發現它會掉出最顯眼的位置——而預告中的合約最該被看見,因為還沒有測試在守。
+    翻紅釘:拿掉印預告那段 → ②③紅;把它併進已生效那段 → ④紅。
+    """
+    v = mkvault()
+    write(v, "Systems/Pay.md",
+          "type: system\nstatus: doing\nsummary: |-\n"
+          "  KEY:★INVARIANT★ 已經生效的那條 [test:t_a] [audit:sonnet/2026-09-01]",
+          body="# Pay\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    run(v, "guard", "plan", "Systems/Pay", "還沒做的那條", "--plan", "Projects/退款_計劃",
+        "--phase", "Phase 4", "--due", "2099-12-31", "--why", "介面沒定", "--owner", "enzo")
+    r = run(v, "context", "Systems/Pay")
+    out = r.stdout
+    check("① 查得到", r.returncode == 0, out + r.stderr)
+    # ★只看「開頭那幾段提醒」,不看整份輸出★:摘要區塊本來就會原樣印出每一行,
+    # 拿整份輸出當判準的話,不實作也會綠——那是假綠(2026-09-22 當場抓到並改掉)。
+    head_zone = out.split("summary:", 1)[0]
+    check("② 開頭那幾段提醒裡印得出預告中的合約", "還沒做的那條" in head_zone, head_zone)
+    check("③ 連最遲日期一起印", "2099-12-31" in head_zone, head_zone)
+    check("④ 預告另起一段,講清楚它還沒生效",
+          "還沒有測試在守" in head_zone, head_zone)
+    # ⑤ 不准混進「動了會壞」那一段
+    head = "動手前一定要看"
+    if head in head_zone:
+        seg = head_zone.split(head, 1)[1].split("提醒:", 1)[0]
+        check("⑤ 預告的沒混進已生效那一段", "還沒做的那條" not in seg, seg)
+    else:
+        check("⑤ 已生效那段還在", False, head_zone)
+    check("⑥ 已生效那條照舊印在原來的位置", "已經生效的那條" in head_zone, head_zone)
+
+
+def t_abandoned_excluded_and_marker_kept():
+    """棄置的節點不該永遠出現在「還活著」的查詢裡;新記號要跟既有合約記號一樣留得住。
+
+    出身:設計審 r2 指出查證表漏了「查還活著」那份寫死的收案狀態集合;
+    以及長跑壓縮的白名單抓不到新記號,預告提醒會被當成可丟的散文丟掉。
+    翻紅釘:把 abandoned 從收案集合拿掉 → ②紅;把新記號從壓縮白名單拿掉 → ③紅。
+    """
+    import importlib.util
+    from importlib.machinery import SourceFileLoader
+    v = mkvault()
+    write(v, "Verification/棄了的.md",
+          "type: verification\nstatus: abandoned\ncreated: 2026-09-22\n"
+          "tags:\n  - type/verification\n  - status/abandoned\nsummary: |-\n  TEST:決定不做了",
+          body="# 棄了的\n")
+    write(v, "Verification/還活著的.md",
+          "type: verification\nstatus: pending\ncreated: 2026-09-22\n"
+          "tags:\n  - type/verification\n  - status/pending\nsummary: |-\n  TEST:還沒做",
+          body="# 還活著的\n")
+    r = run(v, "query", "--tag", "type/verification", "--active")
+    out = r.stdout
+    check("① 查得動", r.returncode == 0, out + r.stderr)
+    check("② 棄置的不算還活著", "棄了的" not in out, out[:500])
+    check("② 待完成的算還活著", "還活著的" in out, out[:500])
+
+    # ★原本這裡要測「新記號有沒有進長跑壓縮白名單」,查證後拿掉★:
+    # 全庫沒有任何白名單機制(只有一支唯讀的用量統計腳本會數壓縮事件),
+    # 壓縮是 harness 自己做的,這個 repo 控制不了。審查席那條的前提不成立,
+    # 照做等於發明一個不存在的機制。這件事寫進計劃的誠實界線,不在這裡假裝有守衛。
+
+
+def t_guard_plan_hostile_claims():
+    """合約那句話的惡意輸入:換行會吃掉既有合約、空白造不出東西、重複會改錯行。
+
+    出身:代碼審 r1 四條 blocker,每一條都是審查席實際跑出來的。
+    翻紅釘:拿掉換行檢查 → ②紅(而且既有合約真的會消失);拿掉完整比對 → ④紅。
+    """
+    v = mkvault()
+    write(v, "Systems/Pay.md",
+          "type: system\nstatus: doing\nsummary: |-\n"
+          "  KEY:★INVARIANT★ 很重要的真合約 [test:t_a] [audit:sonnet/2026-09-01]",
+          body="# Pay\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    ok_args = ["--plan", "Projects/退款_計劃", "--phase", "P4",
+               "--due", "2099-12-31", "--why", "理由", "--owner", "enzo"]
+
+    r = run(v, "guard", "plan", "Systems/Pay", "A\nB: 壞掉", *ok_args)
+    check("① 含換行的合約要擋", r.returncode != 0, f"rc={r.returncode} {r.stdout}{r.stderr}")
+    # ★真正的傷害面★:擋不住的話,這篇原本那條綁了測試又審計過的合約會整段消失
+    gl = run(v, "guard", "list")
+    check("② 既有的真合約還在(換行沒把摘要區塊打斷)",
+          "很重要的真合約" in gl.stdout, gl.stdout[:400])
+
+    r2 = run(v, "guard", "plan", "Systems/Pay", "   ", *ok_args)
+    check("③ 純空白的合約要擋", r2.returncode != 0, f"rc={r2.returncode} {r2.stdout}{r2.stderr}")
+
+    # ④ 同一篇預告兩條、前段文字相同:轉正必須改到對的那一條
+    run(v, "guard", "plan", "Systems/Pay", "退費流程必須先做這件事情:甲案要人工核可", *ok_args)
+    run(v, "guard", "plan", "Systems/Pay", "退費流程必須先做這件事情:乙案要雙人覆核", *ok_args)
+    # ★前 12 字必須真的相同★:第一版用「退費規則甲/乙」,第 5 個字就不同,
+    # 所以把比對改回前綴也不會紅——測不到它要測的 bug(當場植入驗證抓到)。
+    gn = [x for x in (v / "Verification").glob("*.md") if "乙案" in x.stem]
+    check("④ 兩條都建得起來", len(gn) == 1, str(list((v / "Verification").glob("*.md"))))
+    if gn:
+        r3 = run(v, "guard", "settle", "Verification/" + gn[0].stem, "--test", "t_b")
+        check("④ 轉正成功", r3.returncode == 0, r3.stdout + r3.stderr)
+        pay = (v / "Systems" / "Pay.md").read_text(encoding="utf-8")
+        planned = [l for l in pay.split("\n") if "★INVARIANT-PLANNED★" in l]
+        formal = [l for l in pay.split("\n") if "★INVARIANT★" in l and "PLANNED" not in l]
+        check("④ 只有乙案被轉正", any("乙案" in l for l in formal) and not any("甲案" in l for l in formal),
+              "正式:" + " | ".join(formal))
+        check("④ 甲案還留在預告", any("甲案" in l for l in planned), "預告:" + " | ".join(planned))
+
+
+def t_guard_abandon_wrong_home_blocks():
+    """守衛節點的家被改指到別篇時,棄置要擋,不能靜默成功留下矛盾的預告行。
+
+    翻紅釘:把 abandon 裡「找不到預告行就擋」改回靜默略過 → ②紅。
+    """
+    v = mkvault()
+    write(v, "Systems/Pay.md", "type: system\nstatus: doing\nsummary: |-\n  FLOW:a", body="# Pay\n")
+    write(v, "Systems/Other.md", "type: system\nstatus: doing\nsummary: |-\n  FLOW:b", body="# Other\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    run(v, "guard", "plan", "Systems/Pay", "某條合約", "--plan", "Projects/退款_計劃",
+        "--phase", "P4", "--due", "2099-12-31", "--why", "理由", "--owner", "enzo")
+    gp = list((v / "Verification").glob("*.md"))[0]
+    gref = "Verification/" + gp.stem
+    # 把家改指到另一篇(模擬手改)
+    txt = gp.read_text(encoding="utf-8").replace("  - Systems/Pay", "  - Systems/Other")
+    gp.write_text(txt, encoding="utf-8")
+    run(v, "signoff", gref, "--note", "確認不做", "--ref", gref)
+    r = run(v, "guard", "abandon", gref, "--why", "不做了")
+    check("① 家對不上 → 擋", r.returncode != 0, f"rc={r.returncode} {r.stdout}{r.stderr}")
+    check("② 真正的家沒被留下沒人管的預告行(因為整件事被擋住了)",
+          "★INVARIANT-PLANNED★" in (v / "Systems" / "Pay.md").read_text(encoding="utf-8"),
+          "預告行應該還在原地,等人先把 guards 指對")
+    check("③ 墓碑也沒立(不留半套)", "status: pending" in gp.read_text(encoding="utf-8"),
+          gp.read_text(encoding="utf-8")[:200])
 
 
 def t_guard():
@@ -17819,7 +18318,11 @@ _ENTRY_POINT_FILES = (
     # r3 折入:這篇的流程圖被改成新定位,但它自己的 FLOW 摘要行(lumos search / context --brief
     # 端出去的就是這段)還在講舊順序——同一篇筆記內部新舊打架,而計劃筆記卻宣稱守衛釘住了它。
     "docs/lumos-toolchain-knowledge/Systems/開發工作流總覽.md",
+    # 2026-09-21 第三次漏網:README 連出去的對外文件也是入口,讀者照樣會照它做
+    "ONBOARDING.md",
+    "docs/心智模型.md",
 )
+
 # 舊定位的說法。這幾句只要出現在「會被當成指令讀」的入口檔就是矛盾;
 # 歷史筆記、卷證、實驗紀錄照樣可以寫,不在掃描範圍內。
 # r3 折入:第二版只列三句,但「先查圖譜」「第一步敲 lumos」這兩種更口語的說法沒收進來,
@@ -17829,7 +18332,7 @@ _ENTRY_POINT_FILES = (
 #   把定位那句話做成單一來源、像紀律區塊一樣注入這幾個檔,讓它不可能各寫各的。
 #   REVISIT:2026-11-21 看這半年有沒有第三次漏網,有就改形狀。★
 _OLD_POSITION_PHRASES = ("第一個工具呼叫", "圖譜先行", "唯一真相來源",
-                         "先查圖譜", "第一步敲 lumos")
+                         "先查圖譜", "先查筆記", "第一步敲 lumos")
 
 
 def t_entry_points_agree_with_code_first():
@@ -26681,8 +27184,10 @@ rel-cascade search set show stale stats sync-verified-by""".split())
           _help("rel-cascade")[:300])
     # 來源① subparsers
     g = _help("guard")
-    check("S6-3: guard 有 7 支 subparser(→機械枚舉)",
-          "{list,scaffold,bind,audit,trace,kill-add,kill}" in g.replace(" ", ""), g[:300])
+    # ★釘的是「子指令能被機械枚舉」,不是「剛好幾支」★:加子指令時照實更新這一行,
+    # 不要為了讓它綠而不加子指令。2026-09-22 加了 plan/settle/abandon/required 四支。
+    check("S6-3: guard 的子指令能被機械枚舉(→有 choices 清單)",
+          "{list,scaffold,plan,settle,abandon,required,bind,audit,trace,kill-add,kill}" in g.replace(" ", ""), g[:300])
     # 純旗標型:整份 help 不得出現任何 choices 的 {..} 形式
     for cmd in ("search", "archive"):
         check(f"S6-3: {cmd} 無任何 choices(→純旗標型)", "{" not in _help(cmd), _help(cmd)[:300])

@@ -95,3 +95,38 @@ def test_the_transition_table_cannot_be_modified_from_outside():
     with pytest.raises(TypeError):
         TRANSITIONS[S.FAILED] = frozenset({S.RECEIVED})  # 「終點沒有出路」要靠結構保證,不只靠測試
     assert can_transition(S.FAILED, S.RECEIVED) is False
+
+
+def test_no_dict_the_module_exposes_can_change_the_transition_table(monkeypatch):
+    """2026-09-22 合約審計指出:唯讀視圖只擋「透過 TRANSITIONS 賦值」;若建表用的字典同時被存成
+    模組變數,外部改那個變數,終點狀態就長出出路。這裡把模組裡每一個字典都試著改一下
+    (monkeypatch 會在測試結束自動還原),轉換表與判斷結果都不能跟著變。"""
+    from rtb.domain import task_state
+
+    before = {state: TRANSITIONS[state] for state in S}
+    exposed = [name for name, value in vars(task_state).items() if isinstance(value, dict)]
+    for name in exposed:
+        monkeypatch.setitem(getattr(task_state, name), S.FAILED, frozenset({S.RECEIVED}))
+
+    assert exposed  # 至少改到建表用的那張原始表格,不是空跑
+    assert {state: TRANSITIONS[state] for state in S} == before
+    assert can_transition(S.FAILED, S.RECEIVED) is False
+
+
+DOCUMENTED_TERMINALS = frozenset({S.COMPLETED, S.FAILED, S.BLOCKED, S.NO_ACTION, S.SUPERSEDED})
+
+
+def test_every_pair_of_states_is_legal_exactly_when_the_documented_table_says_so():
+    """2026-09-22 第二輪審計指出:非法轉換原本只抽樣 9 組,表格裡多加一條(例如已提案直接
+    回到分析)測試照樣綠。這裡把計劃書的合法轉換表整張寫死,所有狀態兩兩配對逐一比對。"""
+    documented = set(LEGAL) | {(s, S.FAILED) for s in S if s not in DOCUMENTED_TERMINALS}
+
+    mismatched = [(a, b) for a in S for b in S if can_transition(a, b) != ((a, b) in documented)]
+    assert mismatched == []
+    for a in S:  # 第三輪審計:只查 can_transition 不夠,實際執行轉換的函式可以被改得跟它不一致
+        for b in S:
+            if (a, b) in documented:
+                assert transition(a, b) == b
+            else:
+                with pytest.raises(IllegalTransition):
+                    transition(a, b)

@@ -74,6 +74,81 @@ def test_stale_expected_version_is_rejected_without_writing(store):
     assert store.get_operation_by_key("k2") is None
 
 
+# 每一種寫入動作的參數範例。第三輪合約審計指出:新增第三種動作時若另開分支跳過共用的版本
+# 檢查,只列舉現有兩種動作的測試接不住;所以這張表必須涵蓋路由表上的每一種寫入動作(下一支
+# 測試守著),新增動作沒補範例就紅,補了就自動被版本測試涵蓋。
+WRITE_ACTION_PARAMS = {"update_budget": {"new_budget": 9999}, "pause_campaign": {}}
+
+
+def test_every_write_action_on_the_http_routes_has_a_version_check_example():
+    from rtb.dsp.server import ROUTES
+
+    assert {action for method, _, action in ROUTES if method == "POST"} == set(WRITE_ACTION_PARAMS)
+
+
+def test_only_the_store_module_writes_to_the_dsp_database():
+    """2026-09-22 第四輪合約審計指出:版本檢查集中在儲存模組的寫入入口;另寫一個端點直接對
+    資料庫下 UPDATE、不經過那個入口,上面列舉動作的測試全都看不到。這裡鎖住「DSP 裡只有
+    儲存模組碰資料庫」:其他檔案出現寫入語句或直接用資料庫連線就紅。"""
+    import re
+
+    dsp = Path(__file__).resolve().parents[2] / "src" / "rtb" / "dsp"
+    pattern = re.compile(
+        r"\b(UPDATE|INSERT\s+INTO|DELETE\s+FROM|REPLACE\s+INTO)\b"
+        r"|\._conn\b|sqlite3\.connect|\bconnect\(",
+        re.IGNORECASE)
+    offenders = [f"{file.name}:{number}"
+                 for file in sorted(dsp.rglob("*.py")) if file.name != "store.py"
+                 for number, line in enumerate(file.read_text(encoding="utf-8").splitlines(), 1)
+                 if pattern.search(line)]
+
+    assert offenders == []
+
+
+@pytest.mark.parametrize("action", sorted(WRITE_ACTION_PARAMS))
+@pytest.mark.parametrize("expected_version", [2, 3, 100])
+def test_a_future_expected_version_is_rejected_not_only_a_stale_one(
+    store, action, expected_version
+):
+    """2026-09-22 合約審計指出:原本只測「差 1 的舊版本」,把比對改成「只擋比現在小的」
+    (未來版本照樣放行)測試仍全綠;第二輪又指出只對暫停放寬也測不到。現況是版本 1,
+    每一種寫入動作帶比它大的預期版本都必須拒收。"""
+    with pytest.raises(VersionConflict):
+        store.execute(Operation("c1", action, WRITE_ACTION_PARAMS[action],
+                                expected_version=expected_version, idempotency_key="k1"))
+
+    assert store.get_campaign("c1").budget == 100
+    assert store.get_campaign("c1").status == "active"
+    assert store.get_campaign("c1").version == 1
+    assert store.history("c1") == []
+
+
+@pytest.mark.parametrize("action", sorted(WRITE_ACTION_PARAMS))
+def test_every_write_action_rejects_a_stale_expected_version(store, action):
+    store.execute(budget_op(key="k0", budget=150, expected_version=1))  # 現況推進到版本 2
+
+    with pytest.raises(VersionConflict):
+        store.execute(Operation("c1", action, WRITE_ACTION_PARAMS[action],
+                                expected_version=1, idempotency_key="k1"))
+
+    assert store.get_campaign("c1").version == 2
+    assert len(store.history("c1")) == 1
+
+
+def test_pause_with_a_stale_expected_version_is_rejected_without_writing(store):
+    """2026-09-22 合約審計指出:全庫沒有任何一支測試對「暫停」動作做版本衝突,只對暫停豁免
+    版本檢查,全套測試照樣綠。樂觀鎖要對每一種寫入動作都成立。"""
+    store.execute(budget_op(key="k1", budget=150, expected_version=1))
+
+    with pytest.raises(VersionConflict):
+        store.execute(Operation("c1", "pause_campaign", {}, expected_version=1,
+                                idempotency_key="p1"))
+
+    assert store.get_campaign("c1").status == "active"
+    assert store.get_campaign("c1").version == 2
+    assert len(store.history("c1")) == 1
+
+
 def test_each_operation_bumps_version_by_one_and_records_received_and_committed_times(store):
     store.execute(budget_op(key="k1", budget=150, expected_version=1))
     store.execute(budget_op(key="k2", budget=160, expected_version=2))
@@ -421,6 +496,12 @@ def test_runtime_code_imports_only_the_standard_library_and_this_project():
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 names = [node.module.split(".")[0]]
             offenders += [f"{file.name}: {n}" for n in names if n not in allowed]
+            # 動態匯入會躲過上面的靜態掃描(2026-09-22 合約審計實測用 importlib 匯入第三方模組繞過)
+            if isinstance(node, ast.Call) and (
+                (isinstance(node.func, ast.Name) and node.func.id == "__import__")
+                or (isinstance(node.func, ast.Attribute) and node.func.attr == "import_module")
+            ):
+                offenders.append(f"{file.name}: 動態匯入")
     assert offenders == []
 
 

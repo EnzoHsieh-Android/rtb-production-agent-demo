@@ -1,0 +1,4 @@
+{"round": "r1", "seats": [
+ {"seat": "s1", "lens": "正確性與測試有效性(通才)", "materials": ["governance/review-reports/code-freshness-contracts/r1-snapshot.patch"], "auditor": "sonnet"},
+ {"seat": "sarch", "lens": "架構對齊", "materials": ["governance/review-reports/code-freshness-contracts/r1-snapshot.patch"], "auditor": "sonnet"}
+]}

@@ -88,6 +88,41 @@ def test_the_server_refuses_to_bind_anything_but_loopback():
         KitServer(EchoHandler, host="0.0.0.0")  # noqa: S104 - 測試的就是它會被拒絕
 
 
+@pytest.mark.parametrize("host", ["0.0.0.0", "", "::", "10.0.0.1", "192.168.0.112", "localhost"])  # noqa: S104 - 測的就是會被拒絕
+def test_every_non_loopback_bind_address_is_refused_not_just_the_wildcard(host):
+    """2026-09-22 合約審計指出:原本只餵 0.0.0.0 一個值,把檢查改成黑名單(只擋那個字面值)
+    測試照樣綠,空字串與真實網卡位址就能繞過。第二輪又指出 localhost:它是主機名稱不是位址,
+    在某些環境解析結果不一定是 127.0.0.1,所以只接受 127.0.0.1 這個字面位址。"""
+    with pytest.raises(ValueError):
+        KitServer(EchoHandler, host=host)
+
+
+def _every_fault_mode():
+    from rtb.dsp.server import FAULT_MODES as DSP_MODES
+    from rtb.executor.inbox_server import FAULT_MODES as INBOX_MODES
+
+    return sorted(DSP_MODES | INBOX_MODES)
+
+
+@pytest.mark.parametrize("mode", _every_fault_mode())
+def test_every_fault_mode_is_refused_when_injection_is_off(mode):
+    """2026-09-22 第三輪合約審計指出:共用的旗標檢查若對某一種模式(例如延遲回應)開例外,
+    原本只試一種模式的測試接不住。這裡用 DSP 與收件口實際宣告的每一種模式逐一試。"""
+    class FaultReader(EchoHandler):
+        def handle_request(self, method):
+            return 200, {"mode": self.read_fault(frozenset(_every_fault_mode()))}
+
+    srv = KitServer(FaultReader, fault_injection=False)
+    threading.Thread(target=srv.serve_forever, args=(0.02,), daemon=True).start()
+    try:
+        status, data = call(srv, "GET", "/", headers={"X-Fault": mode})
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    assert (status, data["error"]) == (400, "fault_injection_disabled")
+
+
 def test_a_request_with_a_foreign_host_header_is_rejected(server):
     srv = server()
 

@@ -68,6 +68,22 @@ def test_a_different_proposal_for_the_same_key_is_rejected_and_the_original_is_u
     assert ("content_conflict",) in inbox.rows("SELECT code FROM inbox_events")
 
 
+def test_a_different_proposal_for_a_superseded_or_expired_key_is_still_a_conflict(
+        start_inbox, clock):
+    """2026-09-22 第二輪合約審計指出:原本的衝突測試只打「待處理」的那份;把內容比對改成
+    「只在待處理時才比、已退場的直接回現況」,測試照樣綠,換掉內容的請求會被當成重送接受。"""
+    inbox = start_inbox()
+    inbox.post(valid())
+    inbox.post(budget(160, revision=2))  # r1 被取代
+
+    status, data = inbox.post(budget(999))  # 對已被取代的 r1 送不同內容
+    assert (status, data["error"]) == (409, "content_conflict")
+
+    clock.advance(hours=1)  # r2 過期
+    status, data = inbox.post(budget(777, revision=2))  # 對已過期的 r2 送不同內容
+    assert (status, data["error"]) == (409, "content_conflict")
+
+
 # ---- S3 ----
 def test_a_revision_that_is_not_exactly_the_next_one_is_rejected_with_the_current_highest(
         start_inbox):

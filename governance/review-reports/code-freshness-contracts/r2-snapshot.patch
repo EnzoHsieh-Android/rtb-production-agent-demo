@@ -1,0 +1,359 @@
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+index d249faa..6cd793f 100644
+--- a/src/rtb/analyzer/flow.py
++++ b/src/rtb/analyzer/flow.py
+@@ -44,21 +44,24 @@ class NeedsFreshEvidence:
+ 
+ 
+ Decision = NoAction | ProposalDecision | NeedsFreshEvidence
+ 
+ 
+ class EvidenceSource(Protocol):
+     def __call__(self, task: TaskRow) -> tuple[Evidence, ...]: ...
+ 
+ 
+ class Decide(Protocol):
+-    def __call__(self, task: TaskRow, evidence: tuple[Evidence, ...]) -> Decision: ...
++    def __call__(
++        self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime
++    ) -> Decision: ...
++    """`now` 是 `advance()` 手上、也會寫進歷史列的同一個時間;決策層不自己讀系統時鐘。"""
+ 
+ 
+ @dataclass(frozen=True)
+ class Accepted:
+     """`Submit` 的成功結果。"""
+ 
+     replayed: bool
+ 
+ 
+ class SubmitStale(Exception):
+@@ -114,79 +117,87 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間與中斷鉤子,
+     before_commit: Callable[[], None] | None = None,
+ ) -> TaskState:
+     """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。"""
+     row = store.latest(task_id)
+     if row is None:
+         raise TaskNotFound(task_id)
+     if row.state in TERMINAL_STATES or row.state is TaskState.HANDED_OFF:
+         return row.state
+ 
+     collaborators = _Collaborators(evidence_source, decide, submit)
+-    outcome = _STEPS[row.state](store, row, collaborators)
++    outcome = _STEPS[row.state](store, row, collaborators, now)
+     if outcome is None:  # 這一步的結果是「不寫入,留在原狀態」
+         return row.state
+     transition(row.state, outcome.new_state)  # 非法轉換在這裡就會炸,不會靜默寫出壞資料
+     committed = store.commit_step(
+         task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
+         evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
+     )
+     return outcome.new_state if committed else row.state
+ 
+ 
+-def _from_received(_store: TaskStore, _row: TaskRow, _c: _Collaborators) -> _StepOutcome:
++def _from_received(
++    _store: TaskStore, _row: TaskRow, _c: _Collaborators, _now: datetime
++) -> _StepOutcome:
+     return _Step(TaskState.COLLECTING_EVIDENCE)
+ 
+ 
+-def _from_collecting_evidence(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
++def _from_collecting_evidence(
++    _store: TaskStore, row: TaskRow, c: _Collaborators, _now: datetime
++) -> _StepOutcome:
+     try:
+         evidence = c.evidence_source(row)
+         if not isinstance(evidence, tuple):
+             # 形狀不對也當成這次沒拿到證據:EvidenceSource 是純讀取,重試永遠安全,
+             # 不必為了型別錯誤另外走 FAILED(那是 Decide/Submit 才有的合約違反處理)。
+             raise TypeError(f"EvidenceSource 必須回傳 tuple[Evidence, ...],得到 {type(evidence)!r}")
+     except Exception:  # 純讀取,重試永遠安全:不寫入,留在原狀態
+         return None
+     return _Step(TaskState.ANALYZING, evidence=evidence)
+ 
+ 
+-def _from_analyzing(store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
++def _from_analyzing(
++    store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
++) -> _StepOutcome:
+     try:
+         evidence = store.evidence_for(row.task_id, row.seq)
+     except CorruptedHistoryRow as exc:  # 存好的資料本身毀損,重試沒有用:直接轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+     try:
+-        decision = c.decide(row, evidence)
++        decision = c.decide(row, evidence, now)
+     except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+     if isinstance(decision, NoAction):
+         return _Step(TaskState.NO_ACTION)
+     if isinstance(decision, ProposalDecision):
+         return _Step(TaskState.PROPOSED, proposal=decision.proposal)
+     if isinstance(decision, NeedsFreshEvidence):
+         return _Step(TaskState.COLLECTING_EVIDENCE)
+     raise _BrokenCollaborator(f"Decide 回傳了合約之外的型別:{type(decision)!r}")
+ 
+ 
+-def _from_proposed(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
++def _from_proposed(
++    _store: TaskStore, row: TaskRow, c: _Collaborators, _now: datetime
++) -> _StepOutcome:
+     if row.proposal is None:
+         raise AssertionError("PROPOSED 狀態的列一定帶著提案快照")
+     try:
+         result = c.submit(row.proposal)
+     except SubmitRejectedPermanently as exc:
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+     except SubmitStale:
+         return _Step(TaskState.COLLECTING_EVIDENCE)
+     except SubmitBusy:
+         return None
+     except Exception:  # 未定義的失敗一律視為可重試:重送同一份提案永遠安全
+         return None
+     if not isinstance(result, Accepted):
+         raise _BrokenCollaborator(f"Submit 回傳了合約之外的型別:{type(result)!r}")
+     return _Step(TaskState.HANDED_OFF, proposal=row.proposal)
+ 
+ 
+-_STEPS: dict[TaskState, Callable[[TaskStore, TaskRow, _Collaborators], _StepOutcome]] = {
++_STEPS: dict[TaskState, Callable[[TaskStore, TaskRow, _Collaborators, datetime], _StepOutcome]] = {
+     TaskState.RECEIVED: _from_received,
+     TaskState.COLLECTING_EVIDENCE: _from_collecting_evidence,
+     TaskState.ANALYZING: _from_analyzing,
+     TaskState.PROPOSED: _from_proposed,
+ }
+diff --git a/src/rtb/analyzer/policy.py b/src/rtb/analyzer/policy.py
+index d16e94c..6053638 100644
+--- a/src/rtb/analyzer/policy.py
++++ b/src/rtb/analyzer/policy.py
+@@ -6,21 +6,21 @@
+ 執行行程執行前重讀 DSP 時的事(Phase 3),不在這裡假裝做了。
+ 接著用增量 1 metrics.py 既有的 pacing() 判斷配速,缺值或不知道一律 NoAction,不猜、不丟例外。
+ 配速明顯偏低(暫用門檻 0.5)且曝光、點擊都大於零(真的有在投放,不是設定壞了)才提案調高預算
+ (固定漲一成,暫用值)。
+ 
+ 已知限制:這支示範規則永遠把提案的修訂序號當成 1,不會追蹤同一個任務先前送過幾次修訂;
+ 一個任務被收件口退回(SubmitStale)之後重新分析,示範規則不會自動送出下一個修訂——這個限制
+ 不影響 S49 的合約(規則本身的判斷邏輯),留給接上真正決策邏輯的後面階段一併解決。
+ """
+ 
+-from datetime import UTC, datetime, timedelta
++from datetime import datetime, timedelta
+ from types import MappingProxyType
+ from typing import Any
+ 
+ from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
+ from rtb.analyzer.task_store import TaskRow
+ from rtb.domain._checks import is_plain_number
+ from rtb.domain.evidence import Evidence, EvidenceKind, check_freshness
+ from rtb.domain.metrics import pacing
+ from rtb.domain.proposal import MAX_INT, ActionType, Proposal
+ 
+@@ -43,25 +43,22 @@ def _all_fresh(evidence: tuple[Evidence, ...], now: datetime) -> bool:
+     versions = [e.campaign_version_observed for e in evidence
+                 if e.kind == EvidenceKind.CAMPAIGN_STATE
+                 and e.campaign_version_observed is not None]
+     latest_known = max(versions) if versions else None  # 分析端知道的最新版本,見檔頭說明
+     return all(
+         check_freshness(item, now, MAX_EVIDENCE_AGE.total_seconds(), latest_known).is_usable
+         for item in evidence
+     )
+ 
+ 
+-def decide(
+-    task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime | None = None
+-) -> Decision:
+-    """`now` 只給測試固定時間用;流程呼叫時不傳,用系統時間。"""
+-    now = datetime.now(UTC) if now is None else now
++def decide(task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime) -> Decision:
++    """`now` 由流程層傳進來(`advance()` 手上、也寫進歷史列的同一個時間),這裡不自己讀系統時鐘。"""
+     if not _all_fresh(evidence, now):
+         return NeedsFreshEvidence()
+     state = _payload(evidence, EvidenceKind.CAMPAIGN_STATE)
+     metrics = _payload(evidence, EvidenceKind.METRICS)
+     if state is None or metrics is None:
+         return NoAction()
+ 
+     budget = state.get("budget")
+     spend = metrics.get("spend")
+     impressions, clicks = metrics.get("impressions"), metrics.get("clicks")
+diff --git a/tests/analyzer/test_boundaries.py b/tests/analyzer/test_boundaries.py
+index b5da5c6..5531b85 100644
+--- a/tests/analyzer/test_boundaries.py
++++ b/tests/analyzer/test_boundaries.py
+@@ -47,34 +47,34 @@ def test_the_agent_cannot_reach_fault_injection_on_production_style_servers(tmp_
+     finally:
+         dsp.shutdown()
+         dsp.server_close()
+ 
+ 
+ def _walk_one_task_end_to_end(tmp_path, dsp, inbox):
+     dsp_url = f"http://127.0.0.1:{dsp.server_address[1]}"
+     inbox_url = f"http://127.0.0.1:{inbox.server_address[1]}"
+     store = TaskStore(tmp_path / "analyzer.db")
+     try:
+-        now = datetime.now(UTC)
+-        store.create_task("t1", "c1", now)
++        store.create_task("t1", "c1", datetime.now(UTC))
+         evidence_source = dsp_client.make_client(dsp_url, timeout_seconds=3)
+         submit = inbox_client.make_client(inbox_url, timeout_seconds=3)
+ 
+-        state = flow.advance(store, "t1", evidence_source, policy.decide, submit, now)
+-        assert state is TaskState.COLLECTING_EVIDENCE
+-        state = flow.advance(store, "t1", evidence_source, policy.decide, submit, now)
+-        assert state is TaskState.ANALYZING
+-        state = flow.advance(store, "t1", evidence_source, policy.decide, submit, now)
++        def step():  # 每一步傳「這一步發生的時間」,跟真實的推進者一樣;不能整個流程共用一個
++            return flow.advance(store, "t1", evidence_source, policy.decide, submit,
++                                datetime.now(UTC))
++
++        assert step() is TaskState.COLLECTING_EVIDENCE
++        assert step() is TaskState.ANALYZING
++        state = step()
+         assert state in (TaskState.PROPOSED, TaskState.NO_ACTION)
+         if state is TaskState.PROPOSED:
+-            state = flow.advance(store, "t1", evidence_source, policy.decide, submit, now)
+-            assert state is TaskState.HANDED_OFF
++            assert step() is TaskState.HANDED_OFF
+     finally:
+         store.close()
+ 
+ 
+ def test_fault_headers_sent_to_production_style_servers_are_refused(tmp_path):
+     """就算有人手動組出 X-Fault 標頭送給沒開故障注入的伺服器,伺服器自己也會拒絕——
+     這是最後一道防線,真正的防線是用戶端從沒有能送出這個標頭的公開介面(見 test_httpclient.py)。
+     """
+     import http.client
+ 
+diff --git a/tests/analyzer/test_flow.py b/tests/analyzer/test_flow.py
+index ead3bf3..7ebe8ed 100644
+--- a/tests/analyzer/test_flow.py
++++ b/tests/analyzer/test_flow.py
+@@ -1,14 +1,15 @@
+ """分析行程的流程與檢查點:對應計劃的 S20~S41。"""
+ 
+ 
+ import threading
++from datetime import timedelta
+ 
+ import pytest
+ 
+ from rtb.analyzer import flow
+ from rtb.analyzer.task_store import TaskAlreadyExists, TaskNotFound, TaskStore
+ from rtb.domain.task_state import TaskState
+ from tests.analyzer.conftest import NOW, Counting, make_evidence, make_proposal
+ 
+ NOOP = Counting()  # 不該被呼叫的介面;呼叫了測試就會知道(引數列表非空)
+ 
+@@ -561,20 +562,34 @@ def test_decide_receives_the_evidence_that_was_actually_collected_this_round(sto
+     store.create_task("t1", "c1", NOW)
+     flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
+     flow.advance(store, "t1", evidence_source(returns=given), NOOP, NOOP, NOW)
+     d = decide()
+ 
+     flow.advance(store, "t1", NOOP, d, NOOP, NOW)
+ 
+     assert d.calls[0][1] == given  # decide(task, evidence) 的第二個引數就是剛蒐到的證據
+ 
+ 
++def test_decide_receives_the_same_now_that_advance_was_given(store):
++    """2026-09-22 代碼審(架構對齊席)指出:決策函式原本自己讀系統時鐘,跟流程層手上、要寫進
++    歷史列的那個時間是兩次獨立讀取;專案的慣例是由呼叫端把時間往下傳,不在下游自己讀。"""
++    store.create_task("t1", "c1", NOW)
++    flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
++    flow.advance(store, "t1", evidence_source(), NOOP, NOOP, NOW)
++    d = decide()
++    later = NOW + timedelta(minutes=7)
++
++    flow.advance(store, "t1", NOOP, d, NOOP, later)
++
++    assert d.calls[0][2] == later
++
++
+ def test_evidence_source_receives_the_task_row_it_is_gathering_for(store):
+     store.create_task("t1", "c1", NOW)
+     flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
+     source = evidence_source()
+ 
+     flow.advance(store, "t1", source, NOOP, NOOP, NOW)
+ 
+     assert source.calls[0][0].task_id == "t1"
+     assert source.calls[0][0].campaign_id == "c1"
+ 
+diff --git a/tests/analyzer/test_policy.py b/tests/analyzer/test_policy.py
+index f9ab754..be8c650 100644
+--- a/tests/analyzer/test_policy.py
++++ b/tests/analyzer/test_policy.py
+@@ -144,17 +144,13 @@ def test_a_restarted_analyzer_does_not_decide_on_evidence_that_went_stale_while_
+     """事故情境:分析行程在「分析」這一步之前當機,隔很久才重啟;存在歷史表裡的證據已經過時,
+     重啟後推進這個任務必須退回重新蒐證,不能拿舊數字做決策。"""
+     from datetime import timedelta
+ 
+     store.create_task("t1", "c1", NOW)
+     store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, NOW)
+     store.commit_step("t1", 2, TaskState.ANALYZING, NOW, evidence=(
+         state_evidence(budget=100), metrics_evidence(spend=0.0, impressions=500, clicks=12)))
+     restarted_at = NOW + timedelta(hours=3)
+ 
+-    def decide_at_restart(task, evidence):
+-        return policy.decide(task, evidence, now=restarted_at)
+-
+-    state = flow.advance(store, "t1", lambda _t: (), decide_at_restart, lambda _p: None,
+-                         restarted_at)
++    state = flow.advance(store, "t1", lambda _t: (), policy.decide, lambda _p: None, restarted_at)
+ 
+     assert state is TaskState.COLLECTING_EVIDENCE
+diff --git a/tests/domain/test_task_state.py b/tests/domain/test_task_state.py
+index 4de7dde..6e5ae77 100644
+--- a/tests/domain/test_task_state.py
++++ b/tests/domain/test_task_state.py
+@@ -90,37 +90,34 @@ def test_state_names_are_stable_strings_because_they_will_be_stored():
+         "completed", "failed", "blocked", "no_action", "superseded",
+     }
+ 
+ 
+ def test_the_transition_table_cannot_be_modified_from_outside():
+     with pytest.raises(TypeError):
+         TRANSITIONS[S.FAILED] = frozenset({S.RECEIVED})  # 「終點沒有出路」要靠結構保證,不只靠測試
+     assert can_transition(S.FAILED, S.RECEIVED) is False
+ 
+ 
+-def test_the_transition_tables_storage_is_not_shared_with_anything_the_module_exposes():
+-    """2026-09-22 合約審計指出:唯讀視圖只擋「透過 TRANSITIONS 賦值」;若底層字典同時被存成
+-    模組變數,外部改那個變數,終點狀態就長出出路,上一支測試抓不到。"""
+-    import gc
+-
++def test_no_dict_the_module_exposes_can_change_the_transition_table(monkeypatch):
++    """2026-09-22 合約審計指出:唯讀視圖只擋「透過 TRANSITIONS 賦值」;若建表用的字典同時被存成
++    模組變數,外部改那個變數,終點狀態就長出出路。這裡把模組裡每一個字典都試著改一下
++    (monkeypatch 會在測試結束自動還原),轉換表與判斷結果都不能跟著變。"""
+     from rtb.domain import task_state
+ 
+-    backing = next(r for r in gc.get_referents(TRANSITIONS) if isinstance(r, dict))
+-    exposed = [name for name, value in vars(task_state).items() if value is backing]
+-    assert exposed == []
+     before = {state: TRANSITIONS[state] for state in S}
+-    task_state._FLOW[S.FAILED] = frozenset({S.RECEIVED})  # 改原始表格也不能影響已建好的轉換表
+-    try:
+-        assert {state: TRANSITIONS[state] for state in S} == before
+-        assert can_transition(S.FAILED, S.RECEIVED) is False
+-    finally:
+-        task_state._FLOW[S.FAILED] = frozenset()
++    exposed = [name for name, value in vars(task_state).items() if isinstance(value, dict)]
++    for name in exposed:
++        monkeypatch.setitem(getattr(task_state, name), S.FAILED, frozenset({S.RECEIVED}))
++
++    assert exposed  # 至少改到建表用的那張原始表格,不是空跑
++    assert {state: TRANSITIONS[state] for state in S} == before
++    assert can_transition(S.FAILED, S.RECEIVED) is False
+ 
+ 
+ DOCUMENTED_TERMINALS = frozenset({S.COMPLETED, S.FAILED, S.BLOCKED, S.NO_ACTION, S.SUPERSEDED})
+ 
+ 
+ def test_every_pair_of_states_is_legal_exactly_when_the_documented_table_says_so():
+     """2026-09-22 第二輪審計指出:非法轉換原本只抽樣 9 組,表格裡多加一條(例如已提案直接
+     回到分析)測試照樣綠。這裡把計劃書的合法轉換表整張寫死,所有狀態兩兩配對逐一比對。"""
+     documented = set(LEGAL) | {(s, S.FAILED) for s in S if s not in DOCUMENTED_TERMINALS}
+ 

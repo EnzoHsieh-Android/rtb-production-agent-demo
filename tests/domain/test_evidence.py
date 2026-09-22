@@ -172,3 +172,22 @@ def test_payload_rejects_nan_and_infinity_even_though_isinstance_float_accepts_t
     for bad in (float("nan"), float("inf"), float("-inf")):
         with pytest.raises(ValueError, match="payload"):
             make(payload=MappingProxyType({"budget": bad}))
+
+
+def test_a_current_version_lower_than_the_observed_one_is_also_a_change():
+    """2026-09-22 第二輪審計指出:把「版本不同」寫成「版本變大」(以為版本只會往上),
+    版本被回滾時會誤判新鮮,原本沒有測試測這個方向。"""
+    now = T0 + timedelta(seconds=5)
+
+    result = check_freshness(make(campaign_version_observed=5), now, 60, 2)
+
+    assert result is Freshness.VERSION_CHANGED
+
+
+def test_evidence_without_a_version_still_expires_by_age():
+    """2026-09-22 第四輪合約審計指出:把「沒有版本就判新鮮」的分支挪到年齡判斷之前,沒有版本
+    的證據(DSP 指標本來就沒有版本)會永遠不過期,原本的測試只測了它年輕時是新鮮的。"""
+    evidence = make(campaign_version_observed=None)
+
+    assert check_freshness(evidence, T0 + timedelta(seconds=61), 60, None) is Freshness.EXPIRED
+    assert check_freshness(evidence, T0 - timedelta(seconds=1), 60, 9) is Freshness.EXPIRED

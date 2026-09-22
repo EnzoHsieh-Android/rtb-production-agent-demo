@@ -311,3 +311,34 @@ def test_times_before_the_lower_bound_are_rejected_and_the_bound_itself_is_allow
                                 decision_expires_at="2000-01-01T00:30:00+00:00"))
 
     assert early.proposal is None and edge.proposal is not None
+
+
+SPEC_CORRELATION_FIELDS = (  # 交接文件列的關聯欄位:開發者最可能「先放行」的名字
+    "trace_id", "task_id", "tenant_id", "campaign_id", "decision_id", "operation_id",
+    "idempotency_key", "worker_id", "attempt", "policy_version",
+)
+
+
+def _plausible_field_names():
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[2] / "src"
+    names = set(SPEC_CORRELATION_FIELDS)
+    for file in src.rglob("*.py"):
+        names |= set(re.findall(r"\b[a-z][a-z0-9_]{1,40}\b", file.read_text(encoding="utf-8")))
+    rng = random.Random(20260922)
+    names |= {"".join(rng.choice("abcdefghijklmnopqrstuvwxyz_") for _ in range(8))
+              for _ in range(200)}
+    return sorted(names - set(valid()))
+
+
+def test_no_field_name_outside_the_documented_list_is_ever_accepted():
+    """2026-09-22 第二輪審計指出:原本只試 5 個特定欄位名,偷偷放行一兩個「除錯用」欄位,
+    測試照樣綠。這裡用專案程式裡出現過的所有識別字、規格的關聯欄位與隨機名稱逐一試。
+    仍是有限的語料,不是證明;挑一個完全沒出現過的名字放行仍擋不住。"""
+    values = ("x", {"cmd": "x"}, ["x"], None, 1, True)  # 第三輪審計:值是字典時曾可被放行
+    leaked = [(name, value) for name in _plausible_field_names() for value in values
+              if parse_proposal({**valid(), name: value}).proposal is not None]
+
+    assert leaked == []

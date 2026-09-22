@@ -204,3 +204,73 @@ def test_the_real_domain_modules_pass_the_same_check():
                             capture_output=True, text=True, cwd=root)
 
     assert result.returncode == 0, result.stdout
+
+
+# 領域層匯入的白名單(2026-09-22 合約審計指出:上面的 ruff 禁令是黑名單,一行 `# noqa: TID251`
+# 就能跳過,清單沒列的模組也擋不住;這裡直接解析原始碼,不看 noqa 註解)。
+PURE_STDLIB_ALLOWLIST = frozenset({
+    "abc", "collections", "dataclasses", "datetime", "decimal", "enum", "fractions", "functools",
+    "hashlib", "itertools", "json", "math", "re", "string", "types", "typing", "unicodedata",
+})
+FORBIDDEN_BUILTIN_CALLS = frozenset({"__import__", "eval", "exec", "compile"})
+
+
+def _domain_imports_and_calls():
+    import ast
+
+    domain = Path(__file__).resolve().parents[2] / "src" / "rtb" / "domain"
+    imports, calls = [], []
+    for file in sorted(domain.rglob("*.py")):  # 遞迴:子資料夾也算領域層(2026-09-22 第二輪審計指出)
+        name = str(file.relative_to(domain))
+        for node in ast.walk(ast.parse(file.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                imports += [(name, alias.name) for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                imports.append((name, "." * node.level + (node.module or "")))
+            elif isinstance(node, ast.Name):  # 任何引用都算:先存成別名再呼叫也抓得到
+                calls.append((name, node.id))
+    return imports, calls
+
+
+def test_domain_layer_imports_only_an_allowlist_of_pure_standard_library_modules():
+    imports, calls = _domain_imports_and_calls()
+
+    def allowed(module):
+        return (module == "rtb.domain" or module.startswith(("rtb.domain.", "."))
+                or module.split(".")[0] in PURE_STDLIB_ALLOWLIST)
+
+    assert [(f, m) for f, m in imports if not allowed(m)] == []
+    assert [(f, c) for f, c in calls if c in FORBIDDEN_BUILTIN_CALLS] == []
+
+
+@pytest.mark.parametrize("reason", list(Reason))
+def test_every_kind_of_unknown_result_answers_unknown_to_threshold_comparisons(reason):
+    """2026-09-22 第二輪審計指出:原本只拿「分母為零」去比門檻,只特判那一種原因、
+    缺資料與不合理資料照樣拿去比大小,測試仍綠。"""
+    unknown = MetricResult(value=None, reason=reason)
+
+    assert unknown.below(0.5) is None
+    assert unknown.at_least(0.5) is None
+
+
+@pytest.mark.parametrize("spend,budget,elapsed",
+                         [(25.0, 100.0, 0.0), (25.0, 0.0, 0.5), (0.0, 0.0, 0.0)])
+def test_pacing_without_a_denominator_is_unknown_even_when_money_was_already_spent(
+    spend, budget, elapsed
+):
+    """2026-09-22 第三輪審計指出:原本只測「還沒花錢」的零分母,把「已經花了錢、但時間或預算
+    還是零」順手算成 0 進度,測試照樣綠;而決策規則會把那個 0 讀成「明顯配速不足」。"""
+    result = pacing(spend, budget, elapsed)
+
+    assert result.value is None and result.reason == Reason.NO_DENOMINATOR
+    assert result.below(0.5) is None
+
+
+@pytest.mark.parametrize("spend,budget,elapsed", [(50.0, None, 0.5), (50.0, 100.0, None),
+                                                  (None, 100.0, 0.5)])
+def test_pacing_with_any_single_input_missing_is_missing_data(spend, budget, elapsed):
+    """2026-09-22 第四輪合約審計指出:缺漏只測過花費那一欄;寫一個「沒給時間比例就當成整期
+    跑完」的捷徑,缺值會被算成有值的配速,測試照樣綠。三個輸入各自缺漏都必須是缺漏。"""
+    result = pacing(spend, budget, elapsed)
+
+    assert result.value is None and result.reason == Reason.MISSING_DATA

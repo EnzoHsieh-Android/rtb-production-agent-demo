@@ -129,6 +129,12 @@ def test_the_client_module_source_never_mentions_the_fault_header(module_name):
     assert "X-Fault" not in source
 
 
+def test_the_closed_header_enum_contains_exactly_the_documented_members():
+    """2026-09-22 第四輪合約審計指出:直接在封閉列舉加一個值是故障注入標頭的成員,驗證照樣
+    通過。這裡把成員整份寫死:要新增任何標頭,必須同時改這支測試,留下有意識的決定。"""
+    assert {member.value for member in httpclient.ClientHeader} == {"Idempotency-Key"}
+
+
 # ---- headers 只驗證一次:自訂物件不能在驗證跟送出之間變臉 ----
 class _ShiftingHeaders(Mapping):
     """`.keys()` 第一次回傳合法鍵、之後改回不合法的鍵——模擬「驗證讀一次、送出又讀一次」
@@ -191,11 +197,13 @@ def _raw_response_server(response_bytes: bytes, *, hold_open: bool = False):
     return port, sock
 
 
-def test_a_3xx_response_is_not_followed_and_becomes_an_http_error():
+# 第三輪審計:原本只測 302,對 307/308 開例外就測不到
+@pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
+def test_a_3xx_response_is_not_followed_and_becomes_an_http_error(code):
     body = b'{"error":"moved"}'
     response = (
-        b"HTTP/1.1 302 Found\r\n"
-        b"Location: http://127.0.0.1:1/elsewhere\r\n"
+        f"HTTP/1.1 {code} Redirect\r\n".encode()
+        + b"Location: http://127.0.0.1:1/elsewhere\r\n"
         b"Content-Type: application/json\r\n" + f"Content-Length: {len(body)}\r\n\r\n".encode()
         + body
     )
@@ -203,7 +211,7 @@ def test_a_3xx_response_is_not_followed_and_becomes_an_http_error():
     try:
         status, decoded = httpclient.request_json(
             f"http://127.0.0.1:{port}/x", "GET", None, timeout_seconds=3)
-        assert status == 302
+        assert status == code
         assert decoded == {"error": "moved"}
     finally:
         sock.close()

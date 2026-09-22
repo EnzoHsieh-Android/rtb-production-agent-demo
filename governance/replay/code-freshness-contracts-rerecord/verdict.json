@@ -1,0 +1,34 @@
+{
+ "loop": "code-freshness-contracts-rerecord",
+ "round": "r3",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-22T18:37:44+08:00",
+ "spec_path": "governance/review-reports/code-freshness-contracts/r3-snapshot.patch",
+ "spec_sha": "12b4afa3c9a84b082bbe1e0dbea18dd59be129affab55e0cab4fb102f1f56a50",
+ "rows": [
+  "{\"ts\": \"2026-09-22T18:37:11+08:00\", \"kind\": \"none\", \"auditor\": \"s1\", \"token\": \"CANARY-3e5f0196\", \"note\": \"重記:原迴圈 code-freshness-contracts 第 3 輪把「沒有發現」誤記成發現編號 none(只增不改的帳無法撤銷),證據與結論不變,換編號重記\", \"loop\": \"code-freshness-contracts-rerecord\", \"round\": \"r1\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"fb6382a371c93b29b71dd918c580693abb4f0cff74a6c930abb7bcc0380b06e6\", \"reviewed_sha256\": \"fb6382a371c93b29b71dd918c580693abb4f0cff74a6c930abb7bcc0380b06e6\", \"spec_path\": \"governance/review-reports/code-freshness-contracts/r1-snapshot.patch\", \"scope_lines\": 811, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 0, \"report_path\": \"governance/review-reports/code-freshness-contracts/r1-s1.md\", \"report_sha256\": \"81f836d99d2042ec440a5c6cba99353c35791ae7e3f6b5188f7fd11fa88f4530\", \"snapshot_path\": \"governance/review-reports/code-freshness-contracts/r1-snapshot.patch\", \"snapshot_sha256\": \"fb6382a371c93b29b71dd918c580693abb4f0cff74a6c930abb7bcc0380b06e6\"}",
+  "{\"ts\": \"2026-09-22T18:37:11+08:00\", \"kind\": \"none\", \"auditor\": \"sarch\", \"token\": \"CANARY-a2eb4a5b\", \"note\": \"重記:原迴圈 code-freshness-contracts 第 3 輪把「沒有發現」誤記成發現編號 none(只增不改的帳無法撤銷),證據與結論不變,換編號重記\", \"loop\": \"code-freshness-contracts-rerecord\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"fb6382a371c93b29b71dd918c580693abb4f0cff74a6c930abb7bcc0380b06e6\", \"reviewed_sha256\": \"fb6382a371c93b29b71dd918c580693abb4f0cff74a6c930abb7bcc0380b06e6\", \"spec_path\": \"governance/review-reports/code-freshness-contracts/r1-snapshot.patch\", \"scope_lines\": 811, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"sarch-1\", \"sarch-2\"], \"folded_set\": [\"sarch-1\", \"sarch-2\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 3, \"report_path\": \"governance/review-reports/code-freshness-contracts/r1-sarch.md\", \"report_sha256\": \"7067f8701f55f3dfbee09454d4d9c17cad6f4f31ad31d3289062ebd80e95eb2e\", \"snapshot_path\": \"governance/review-reports/code-freshness-contracts/r1-snapshot.patch\", \"snapshot_sha256\": \"fb6382a371c93b29b71dd918c580693abb4f0cff74a6c930abb7bcc0380b06e6\"}",
+  "{\"ts\": \"2026-09-22T18:37:11+08:00\", \"kind\": \"none\", \"auditor\": \"s2\", \"token\": \"CANARY-c8ab4874\", \"note\": \"重記:原迴圈 code-freshness-contracts 第 3 輪把「沒有發現」誤記成發現編號 none(只增不改的帳無法撤銷),證據與結論不變,換編號重記\", \"loop\": \"code-freshness-contracts-rerecord\", \"round\": \"r2\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"9fc6a48370ff9f319a1f5b0cbce833f6a9f594ec79691b1913f468ef48a76821\", \"reviewed_sha256\": \"9fc6a48370ff9f319a1f5b0cbce833f6a9f594ec79691b1913f468ef48a76821\", \"spec_path\": \"governance/review-reports/code-freshness-contracts/r2-snapshot.patch\", \"scope_lines\": 359, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"s2-1\", \"s2-2\"], \"folded_set\": [\"s2-1\", \"s2-2\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 2, \"report_path\": \"governance/review-reports/code-freshness-contracts/r2-s2.md\", \"report_sha256\": \"ebf407aee8b1de3d5c3dc70bef6d9b411480744413c324fea530807a91252c4b\", \"snapshot_path\": \"governance/review-reports/code-freshness-contracts/r2-snapshot.patch\", \"snapshot_sha256\": \"9fc6a48370ff9f319a1f5b0cbce833f6a9f594ec79691b1913f468ef48a76821\"}",
+  "{\"ts\": \"2026-09-22T18:37:12+08:00\", \"kind\": \"none\", \"auditor\": \"s3\", \"token\": \"CANARY-6385b499\", \"note\": \"重記:原迴圈 code-freshness-contracts 第 3 輪把「沒有發現」誤記成發現編號 none(只增不改的帳無法撤銷),證據與結論不變,換編號重記\", \"loop\": \"code-freshness-contracts-rerecord\", \"round\": \"r3\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"12b4afa3c9a84b082bbe1e0dbea18dd59be129affab55e0cab4fb102f1f56a50\", \"reviewed_sha256\": \"12b4afa3c9a84b082bbe1e0dbea18dd59be129affab55e0cab4fb102f1f56a50\", \"spec_path\": \"governance/review-reports/code-freshness-contracts/r3-snapshot.patch\", \"scope_lines\": 725, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 0, \"report_path\": \"governance/review-reports/code-freshness-contracts/r3-s3-quoted.md\", \"report_sha256\": \"82321635abaa2a5d6e60e999fadd1d72e514e6eaf2db9e7aac0db484d86f7ba2\", \"snapshot_path\": \"governance/review-reports/code-freshness-contracts/r3-snapshot.patch\", \"snapshot_sha256\": \"12b4afa3c9a84b082bbe1e0dbea18dd59be129affab55e0cab4fb102f1f56a50\"}"
+ ],
+ "all_row_shas": [
+  "333a16405007e3959a7ae148486f3beff26d03e313dc1108b57eb1fcfc50ba9e",
+  "779cb0124ecb1a5a2399700d16e5fbf72694a2b2112840924650ae0985afbc24",
+  "86df73146b5696a35d490a215c1ba7e2d9f8c09868d5e7f41872e1d3bf7a463f",
+  "d285f288ab9299455092103a1459d7232cd049cf1779907b116a4e7313532ba3"
+ ],
+ "files": {
+  "governance/review-reports/code-freshness-contracts/r3-s3-quoted.md": {
+   "sha256": "82321635abaa2a5d6e60e999fadd1d72e514e6eaf2db9e7aac0db484d86f7ba2",
+   "git_blob": "192371f8a1ec7556586a89b1ec40862acb79a162"
+  },
+  "governance/review-reports/code-freshness-contracts/r3-snapshot.patch": {
+   "sha256": "12b4afa3c9a84b082bbe1e0dbea18dd59be129affab55e0cab4fb102f1f56a50",
+   "git_blob": "c726eb599013d745351c617eea8c86d3d0c6437b"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

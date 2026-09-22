@@ -2292,6 +2292,43 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
         warn_soft([], f"這一段算不出來({_e.__class__.__name__}: {_e}),先跳過")
     print()
 
+    section("S15", "預告了但還沒做的合約:逾期會擋(不准延期),七天內到期先唸(必要合約清單_計劃)")
+    try:
+        import datetime as _gd
+        _gtoday = _gd.date.today()
+        _gover, _gsoon = [], []
+        for _grel, _gn in sorted(env.notes.items()):
+            if _gn.fields.get("type") != "verification" or not _gn.fields.get(GUARD_MARK_FIELD):
+                continue
+            if str(_gn.fields.get("status") or "") != "pending":
+                continue
+            try:
+                _gd2 = _gd.date.fromisoformat(str(_gn.fields.get("due") or "").strip())
+            except ValueError:
+                _gover.append(f"{_grel}:最遲日期寫壞了,讀不出來")
+                continue
+            _gowner = str(_gn.fields.get("owner") or "?").strip()
+            _gbody = (env.vault / _grel).read_text(encoding="utf-8", errors="replace")
+            _gm = re.search(r"^預告的合約:(.+)$", _gbody, re.M)
+            _gclaim = (_gm.group(1).strip() if _gm else _grel)
+            # ★到期當天不算過期★:最遲日期是人手寫的本地日期,誤擋一次比漏擋一天貴
+            if _gd2 < _gtoday:
+                _gover.append(f"{_gclaim}(負責人 {_gowner},最遲 {_gd2});{_grel}")
+            elif (_gd2 - _gtoday).days <= 7:
+                _gsoon.append(f"{_gclaim}(負責人 {_gowner},最遲 {_gd2});{_grel}")
+        if _gover:
+            warn(_gover, f"有 {len(_gover)} 條預告的合約已經逾期(不准延期,只能做完或棄置):",
+                 "做完了:lumos guard settle <守衛節點> --test <測試方法>;"
+                 "決定不做:先 lumos signoff <守衛節點> --ref <守衛節點> --note \"<為什麼>\",再 lumos guard abandon")
+        if _gsoon:
+            warn_soft(_gsoon, f"有 {len(_gsoon)} 條預告的合約七天內到期(先講,還不擋):",
+                      "現在做完最省事:lumos guard settle <守衛節點> --test <測試方法>")
+        if not _gover and not _gsoon:
+            ok("沒有逾期或快到期的預告合約")
+    except Exception as _e:
+        warn_soft([], f"這一段算不出來({_e.__class__.__name__}: {_e}),先跳過")
+    print()
+
     section("H", "這次改動碰到正式環境、外部 API 或寄送,筆記有沒有標「做了就回不去」(提醒,不擋)")
     if not ci:
         print("  (僅 --ci 模式掃 diff;互動模式略過)")
@@ -3632,6 +3669,32 @@ INVARIANT_RE = re.compile(r"^KEY:\s*(?:\([^)]*\)\s*)?★INVARIANT★\s*(.*)")
 DEBT_RE = re.compile(r"^KEY:\s*(?:\([^)]*\)\s*)?★DEBT★\s*(.*)")
 
 
+PLANNED_RE = re.compile(r"^KEY:\s*(?:\([^)]*\)\s*)?★INVARIANT-PLANNED★\s*(.*)")
+WATCH_REF_RE = re.compile(r"\[watch:\s*([^\]]+)\]")
+DUE_REF_RE = re.compile(r"\[due:\s*([^\]]+)\]")
+# ★只剝行尾那一對★(代碼審 r2 通才席 blocker):預告行是「合約文字 + 空格 + [watch:…] [due:…]」,
+# 兩個標籤是指令自己接在最後面的。原本用「把整行所有 [watch:]/[due:] 都拿掉」來還原合約文字,
+# 合約文字本身只要寫到這兩個字樣(這個 repo 滿篇都是這種方括號寫法),還原出來的就跟原文對不上
+# ——那條預告從此轉不了正也棄置不掉,逾期還會一直擋推送,只剩手改檔案一條路。
+_PLANNED_TAIL_RE = re.compile(r"\s*\[watch:[^\]]*\]\s*\[due:[^\]]*\]\s*$")
+
+
+def extract_planned(note):
+    """從 summary 抽預告中的合約(★INVARIANT-PLANNED★ 行),回每行剝掉前綴後的內容。
+
+    跟 extract_contracts 成對:那支只認正式合約記號(刻意撈不到預告),這支只認預告記號。
+    ★兩支都放這裡★(代碼審 r1 架構席):第一版把掃描迴圈寫在輸出層,等於同一件事兩個地方各做一次。
+    """
+    summ = note.fields.get("summary")
+    out = []
+    if isinstance(summ, str):
+        for line in summ.split("\n"):
+            m = PLANNED_RE.match(line.strip())
+            if m:
+                out.append(m.group(1).strip())
+    return out
+
+
 def extract_contracts(note):
     """從 summary block 的 KEY 行抽標準格式 ★INVARIANT★ / ★DEBT★。回傳 (invariants, debts)。
     只認 KEY 行前綴(標準格式),散文中提及不算 — 否則方法論文件會誤報。"""
@@ -4536,6 +4599,7 @@ _KNOWN_FRONTMATTER_KEYS = (
     "decision_refs", "decision_refs_ai", "pitfall_when", "pitfall_ask", "pitfall_source",
     "signed_off", "kill_recipes", "core_refs", "regen",
     "responsibility", "lands_in",   # 2026-09-11 每支檔有家:Systems 的負責範圍、計劃的落點
+    "guards", "due", "owner", "phases",   # 2026-09-22 預告合約:守衛節點的四個欄位(不登記的話這機制產的每篇節點都被唸欄位名打錯)
     "plan_risk", "door",   # 2026-09-17 計劃風險(作者只能往嚴標 high);door 是舊寫法,讀得懂但提醒改
 )
 # ↑ 2026-09-06 全 repo 審視 #16。★代碼審 r1 訂正★:初版清單來源是「掃本 vault 428 篇出現過的鍵」,
@@ -4688,7 +4752,9 @@ def cmd_lint(env, node):
         "system": {"doing", "done", "planned", "deferred", "rejected", "superseded", "stale"},
         "project": {"todo", "doing", "done", "superseded"},
         "issue": {"open", "doing", "resolved", "done", "wontfix"},
-        "verification": {"pass", "stale", "superseded"},
+        "verification": {"pass", "stale", "superseded", "pending", "abandoned"},
+        # pending=預告了還沒做、abandoned=決定不做了的墓碑(必要合約清單_計劃)。
+        # ★只是合法值,不代表被新規則管★:規則只認節點身上帶 guards 欄位的,手寫這兩個字行為照舊。
         "moc": {"doing", "done"},
     }
     _PRIORITY_ENUM = {"P0", "P1", "P2", "P3"}
@@ -6148,7 +6214,7 @@ def cmd_spec_trace(env, node, as_json=False):
     return 1 if untagged else 0
 
 
-def cmd_signoff(env, node, note, by=None):
+def cmd_signoff(env, node, note, by=None, ref=None):
     """業務簽核留痕(validation 那半):人對業務正確性點頭 → ledger+frontmatter 戳記。
     工具只記留痕,不證明確認真的發生(同 audit/self-audit 的誠實前提)。"""
     import json
@@ -6171,9 +6237,13 @@ def cmd_signoff(env, node, note, by=None):
     log = env.vault.parent / ".signoff-log.jsonl"
     try:
         with open(log, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"ts": datetime.datetime.now().isoformat(timespec="seconds"),
-                                 "node": rel, "by": by or "", "note": note,
-                                 "commit": commit}, ensure_ascii=False) + "\n")
+            _rec = {"ts": datetime.datetime.now().isoformat(timespec="seconds"),
+                    "node": rel, "by": by or "", "note": note, "commit": commit}
+            # ★可選的 ref★(必要合約清單_計劃):讓閘能機械比對「這次簽的是哪一個東西」,
+            # 不必去自由文字裡撈 id(撈文字最容易寫錯也最容易漏)。沒帶就不寫,既有紀錄與用法不受影響。
+            if (ref or "").strip():
+                _rec["ref"] = ref.strip()
+            fh.write(json.dumps(_rec, ensure_ascii=False) + "\n")
     except OSError as ex:
         print(f"擋下:簽核記錄寫不進去: {ex}", file=sys.stderr)
         return 2
@@ -10485,6 +10555,386 @@ def cmd_guard_scaffold(env, node, invariant_substr, method, gtype, claim,
     return 0
 
 
+# ═══ 預告合約與待完成守衛節點(必要合約清單_計劃;設計審三輪 37 條全折) ═══
+# 一句話:預告「之後要有這條合約」時,同一個指令一次做完「在功能節點寫預告標記」與
+# 「建一個待完成的守衛節點」,由那個節點追蹤它;做完轉正,預告行換成正式合約行。
+#
+# ★記號為什麼不是 ★INVARIANT★★:既有自檢對每條合約判沒綁測試/綁了但方法不存在/綁到非測試,
+# 三種都是推送前硬擋。預告時測試還沒寫,用正式記號會當場被擋,走不到「逾期才擋」——
+# 核心承諾在第一步就自相矛盾(設計審 r1 blocker)。所以用另一個記號,既有正則撈不到它。
+# ★標籤為什麼是 [watch:] 不是 [guard:]★:後者在本 repo 已被可逆性那一軸佔用(值固定 decisions),
+# 同名兩義會讓既有正則把節點路徑撈進去(設計審 r2 blocker)。
+PLANNED_MARK = "★INVARIANT-PLANNED★"
+# ↑ 這一組的正則(PLANNED_RE / WATCH_REF_RE / DUE_REF_RE / _PLANNED_TAIL_RE)不在這裡,
+#   在上面合約抽取那一區、緊貼 extract_planned——全檔每一支「從 KEY 行抽標記」的函式
+#   都是正則貼著函式放(代碼審 r2 架構席:這支原本是唯一的例外,正則離函式 6800 行)。
+# 節點自己身上的標記:規則只認帶這個欄位的節點,不看 status 字面值、也不查外部帳
+# (設計審 r1/r2 blocker:pending 是很自然的英文字,手寫的人不該被拖進整套規則;
+#  判準放節點自己身上,改名搬家都跟著走)
+GUARD_MARK_FIELD = "guards"
+
+
+def _guard_plan_slug(text):
+    """守衛節點檔名:取合約前段做 slug,保留中文,砍掉檔名不能用的字。"""
+    s = re.sub(r"[^\w\u4e00-\u9fff-]+", "-", text.strip())[:40].strip("-")
+    return s or "guard"
+
+
+def _guard_plan_check(env, node, claim, plan, phase, due, why, owner):
+    """預告指令的入口檢查,全部擋下的理由集中在這裡。
+
+    回 (rel, prel, phases, gname, gpath) 或 None(已經印過為什麼擋)。
+    ★抽出來是因為主體分支太多★:檢查跟動手寫混在一支函式裡,靜態檢查判它複雜度 17(上限 10),
+    而且讀的人要先跳過三十行檢查才看得到真正做事的那段。
+    """
+    import datetime
+    # ★合約文字不准含換行★(代碼審 r1 blocker,實測會吃掉既有合約):
+    # 摘要是 YAML block scalar,一個換行就把區塊打斷,後面每一行都變成別的欄位——
+    # 同一篇裡原本綁了測試又審計過的真合約會整段從圖譜消失,而指令還回報成功。
+    _c = (claim or "")
+    if not _c.strip():
+        print("擋下:合約那句話不能是空的", file=sys.stderr)
+        return None
+    if "\n" in _c or "\r" in _c:
+        print("擋下:合約那句話不能換行(摘要是一行一條,換行會把整個摘要區塊打斷,"
+              "連同這篇既有的合約一起從圖譜消失)", file=sys.stderr)
+        return None
+    missing = [(v, lbl) for v, lbl in ((plan, "計劃參照"), (phase, "階段"), (due, "最遲日期"),
+                                       (why, "理由"), (owner, "負責人")) if not (v or "").strip()]
+    if missing:
+        names = "、".join(lbl for _v, lbl in missing)
+        print(f"擋下:預告合約要寫清楚才追得動,還缺:{names}", file=sys.stderr)
+        print("  缺什麼就補什麼:--plan <計劃節點> --phase <階段,可多個逗號分隔> "
+              "--due YYYY-MM-DD --why <為什麼還不做> --owner <誰負責>", file=sys.stderr)
+        return None
+    try:
+        datetime.date.fromisoformat(due.strip())
+    except ValueError:
+        print(f"擋下:最遲日期『{due}』不是 YYYY-MM-DD", file=sys.stderr)
+        return None
+    rel = env.find(node)
+    if rel is None:
+        print(f"擋下:圖譜裡找不到叫 {node} 的筆記(lumos search <關鍵字> 可以找)", file=sys.stderr)
+        return None
+    prel = env.find(plan)
+    if prel is None:
+        print(f"擋下:圖譜裡找不到計劃節點 {plan}", file=sys.stderr)
+        return None
+    phases = [x.strip() for x in str(phase).split(",") if x.strip()]
+    gname = f"{datetime.date.today().isoformat()}_{_guard_plan_slug(claim)}"
+    gpath = env.vault / "Verification" / f"{gname}.md"
+    if gpath.exists():
+        print(f"擋下:守衛節點 {gname} 已經存在,換一句話或改名再試"
+              "(不靜默覆蓋:兩個人同時建同名節點會把對方的蓋掉)", file=sys.stderr)
+        return None
+    return rel, prel, phases, gname, gpath
+
+
+def _guard_plan_write_node(gpath, gname, rel, prel, phases, today, claim, due, why, owner):
+    """把守衛節點的內容組出來落盤,成功回 True(失敗已經印過為什麼)。
+
+    ★先建守衛節點(可重建的那一邊),再寫功能節點的標記(權威那一邊)★(設計審 r1 blocker):
+    本 repo 的寫入原語沒有刪除這一步,真回滾搭不起來;既有兩處同類問題都是
+    「先寫衍生、後寫權威,後者失敗印警告不回滾」。
+    """
+    guard_lines = [
+        "---\n", "type: verification\n", "status: pending\n",
+        f"created: {today}\n", f"updated: {today}\n", f"due: {due.strip()}\n",
+        f"owner: {owner.strip()}\n",
+        f"{GUARD_MARK_FIELD}:\n", f"  - {rel[:-3] if rel.endswith('.md') else rel}\n",
+        "phases:\n"] + [f"  - {x}\n" for x in phases] + [
+        "plan_refs:\n", f"  - \"[[{prel[:-3] if prel.endswith('.md') else prel}]]\"\n",
+        "tags:\n", "  - type/verification\n", "  - status/pending\n",
+        "summary: |-\n",
+        f"  WHY:[{today}]預告這條合約但還沒做:{why.strip()}\n",
+        f"  TEST:還沒有測試在守這條;最遲 {due.strip()} 要做完,負責人 {owner.strip()}\n",
+        "---\n", f"# {gname}\n", "\n",
+        f"預告的合約:{claim.strip()}\n", "\n",
+        f"為什麼還不做:{why.strip()}\n", "\n",
+        "做完之後跑 `lumos guard settle` 轉正,不要手改狀態。\n",
+    ]
+    # 新建檔走 vault 唯一寫入原語(tmp→os.replace);atomic_write_verify 是給「改既有檔」用的,
+    # 它會先讀原檔,對新檔會 FileNotFoundError。寫完自己讀回驗一次(★回報成功未落盤★的老教訓)。
+    try:
+        _write_lf(gpath, "".join(guard_lines))
+        _back = gpath.read_text(encoding="utf-8")
+        if "status: pending" not in _back or claim.strip() not in _back:
+            raise RuntimeError("寫完讀回來對不上")
+    except (OSError, RuntimeError) as ex:
+        print(f"擋下:守衛節點寫不進去,什麼都沒動: {ex}", file=sys.stderr)
+        return False
+    return True
+
+
+def cmd_guard_plan(env, node, claim, plan, phase, due, why, owner):
+    """預告一條之後要有的合約:寫標記 + 建待完成守衛節點,雙向連好。"""
+    import datetime
+    checked = _guard_plan_check(env, node, claim, plan, phase, due, why, owner)
+    if checked is None:
+        return 2
+    rel, prel, phases, gname, gpath = checked
+    today = datetime.date.today().isoformat()
+
+    if not _guard_plan_write_node(gpath, gname, rel, prel, phases, today, claim, due, why, owner):
+        return 2
+    # ── 再寫功能節點的預告標記
+    gref = f"Verification/{gname}"
+    path = env.vault / rel
+    try:
+        lines, _, e = load_raw_for_edit(path)
+    except (ValueError, RuntimeError) as ex:
+        print(f"⚠ 守衛節點已建好({gref}),但功能節點打不開,標記沒寫進去: {ex}", file=sys.stderr)
+        print("  不回滾(本 repo 的寫入原語沒有刪除這一步);手動補標記或把守衛節點刪掉重來", file=sys.stderr)
+        return 2
+    # ★行尾不帶換行★:load_raw_for_edit 回來的每一行都已經去掉換行,自己再加一個會多出空行
+    marker = f"  KEY:{PLANNED_MARK} {claim.strip()} [watch:{gref}] [due:{due.strip()}]"
+    # 插在摘要區塊第一行之前。★要跳過 summary: 那一行本身之後可能已有的空白行★,
+    # 不然會在標記後面留一個空行,讀起來像摘要斷成兩段。
+    ins = None
+    for i in range(1, e):
+        if lines[i].startswith("summary:"):
+            ins = i + 1
+            while ins < e and not lines[ins].strip():
+                ins += 1
+            break
+    if ins is None:
+        print(f"⚠ 守衛節點已建好({gref}),但功能節點沒有摘要區塊,標記沒寫進去", file=sys.stderr)
+        print("  不回滾;先給那篇補 summary 再手動加這一行:", file=sys.stderr)
+        print("    " + marker.strip(), file=sys.stderr)
+        return 2
+    new_lines = [*lines[:ins], marker, *lines[ins:]]
+    try:
+        atomic_write_verify(path, new_lines, PLANNED_MARK,
+                            lambda f: PLANNED_MARK in str(f.get("summary") or ""))
+    except (ValueError, RuntimeError) as ex:
+        print(f"⚠ 守衛節點已建好({gref}),但標記寫不進功能節點: {ex}", file=sys.stderr)
+        print("  不回滾;手動補上這一行:", file=sys.stderr)
+        print("    " + marker.strip(), file=sys.stderr)
+        return 2
+    # ★還要掛 verified_by★:不掛的話守衛節點在自檢裡是「沒人引用的孤兒驗證紀錄」,
+    # 等於預告一條合約就多一個 issue——防忘記的機制自己製造雜訊,人會學會忽略它。
+    # 掛了也順便讓「查那篇功能節點就看得到它」成立(設計審重點)。
+    _rc_v = cmd_append(env, rel, "verified_by", f"[[{gref}]]")
+    if _rc_v != 0:
+        print("⚠ 標記與守衛節點都寫好了,但 verified_by 沒掛上——它會被當成孤兒驗證紀錄", file=sys.stderr)
+        print(f"  手動補:lumos append {rel[:-3] if rel.endswith('.md') else rel} verified_by \"[[{gref}]]\"", file=sys.stderr)
+    print(f"✓ 預告合約已登記:{rel} 多了一行預告標記,{gref} 在守它")
+    print(f"  最遲 {due.strip()} 要做完(負責人 {owner.strip()});逾期會擋推送,而且不准延期")
+    print(f"  做完之後:lumos guard settle {gref} --test <測試方法名>")
+    return 0
+
+
+def _guard_nodes(env):
+    """帶本機制標記的守衛節點。★判準放節點身上,不看 status 字面值、不查外部帳★
+    (設計審:手寫 pending 的人不該被拖進整套規則;判準跟著節點走,改名搬家都對得上)。"""
+    out = []
+    for rel, n in sorted(env.notes.items()):
+        if n.fields.get("type") != "verification":
+            continue
+        g = n.fields.get(GUARD_MARK_FIELD)
+        if not g:
+            continue
+        out.append((rel, n))
+    return out
+
+
+def _guard_find(env, ref):
+    rel = env.find(ref)
+    if rel is None:
+        return None, None
+    n = env.notes.get(rel)
+    if n is None or not n.fields.get(GUARD_MARK_FIELD):
+        return None, None
+    return rel, n
+
+
+def _guard_planned_line(env, home_rel, claim):
+    """在功能節點裡找那一行預告標記,回 (lines, idx, e, err)。
+
+    ★比照既有引擎的兩道防呆★(代碼審 r1 blocker):`cmd_guard_bind`/`cmd_guard_audit` 對
+    「在功能節點裡找某條 KEY 行」都會 ①命中多條就擋,不猜是哪一條 ②找不到就擋。
+    第一版用「合約前 12 字」當子字串比對,同一篇預告兩條而前 12 字相同時會改到別條、互相覆蓋。
+    這裡改成比對「剝掉 [watch:]/[due:] 之後的完整文字」,並保留多條就擋。"""
+    path = env.vault / home_rel
+    try:
+        lines, _, e = load_raw_for_edit(path)
+    except (ValueError, RuntimeError) as ex:
+        return None, None, None, f"{home_rel} 打不開:{ex}"
+    want = (claim or "").strip()
+    idx = None
+    for i in range(1, e):
+        m = PLANNED_RE.match(lines[i].strip())
+        if not m:
+            continue
+        body = _PLANNED_TAIL_RE.sub("", m.group(1)).strip()
+        if body != want:
+            continue
+        if idx is not None:
+            return None, None, None, (f"{home_rel} 裡同時有好幾行預告寫著同一句話,分不清是哪一條"
+                                      "——先手動把重複的那行處理掉")
+        idx = i
+    if idx is None:
+        return None, None, None, f"{home_rel} 裡找不到預告行『{want[:30]}』(被手改過或已經轉正?)"
+    return lines, idx, e, None
+
+
+def _guard_home_of(n):
+    g = n.fields.get(GUARD_MARK_FIELD)
+    if isinstance(g, list) and g:
+        return str(g[0]).strip()
+    return str(g or "").strip()
+
+
+def cmd_guard_settle(env, ref, method):
+    """轉正:預告行換成正式合約行並綁上測試,守衛節點轉成已通過。"""
+    if not IDENT_RE.match(method or ""):
+        print(f"擋下:測試方法名『{method}』不合法(只能字母/數字/底線,不能數字開頭)", file=sys.stderr)
+        return 2
+    rel, n = _guard_find(env, ref)
+    if rel is None:
+        print(f"擋下:找不到守衛節點 {ref}(或那篇不是這套機制建的)", file=sys.stderr)
+        return 2
+    if str(n.fields.get("status")) != "pending":
+        print(f"擋下:{rel} 現在是 {n.fields.get('status')},只有待完成的才能轉正", file=sys.stderr)
+        return 2
+    home = _guard_home_of(n)
+    home_rel = env.find(home)
+    if home_rel is None:
+        print(f"擋下:守衛節點指名的功能節點 {home} 找不到", file=sys.stderr)
+        return 2
+    body = (env.vault / rel).read_text(encoding="utf-8")
+    m = re.search(r"^預告的合約:(.+)$", body, re.M)
+    claim = m.group(1).strip() if m else ""
+    if not claim:
+        print(f"擋下:{rel} 裡讀不出預告的合約是哪一條", file=sys.stderr)
+        return 2
+    lines, idx, _e, _err = _guard_planned_line(env, home_rel, claim)
+    if lines is None:
+        print(f"擋下:{_err}", file=sys.stderr)
+        return 2
+    newline = f"  KEY:★INVARIANT★ {claim} [test:{method}]"
+    try:
+        atomic_write_verify(env.vault / home_rel, [*lines[:idx], newline, *lines[idx + 1:]],
+                            f"[test:{method}]",
+                            lambda f: f"[test:{method}]" in str(f.get("summary") or ""))
+    except (ValueError, RuntimeError) as ex:
+        print(f"擋下:合約行換不過去,什麼都沒動: {ex}", file=sys.stderr)
+        return 2
+    rc = cmd_set(env, rel, "status", "pass")
+    print(f"✓ 轉正:{home_rel} 的預告行已換成正式合約並綁上 [test:{method}];{rel} 轉為已通過")
+    print("  下一步:lumos guard audit 補獨立審計,推送前的閘會查")
+    return rc
+
+
+def _guard_signoff_refs(env):
+    """簽核帳裡帶 --ref 的那些參照。"""
+    import json as _j
+    log = env.vault.parent / ".signoff-log.jsonl"
+    refs = set()
+    try:
+        for ln in log.read_text(encoding="utf-8").splitlines():
+            if not ln.strip():
+                continue
+            try:
+                d = _j.loads(ln)
+            except ValueError:
+                continue
+            r = str(d.get("ref") or "").strip()
+            if r:
+                refs.add(r)
+                refs.add(r[:-3] if r.endswith(".md") else r)
+    except OSError:
+        pass
+    return refs
+
+
+def cmd_guard_abandon(env, ref, why):
+    """棄置:留墓碑而不是刪掉。要有對得上的簽核紀錄——作用是留痕不是防偽造。"""
+    if not (why or "").strip():
+        print("擋下:棄置要寫 --why 說明為什麼決定不做了", file=sys.stderr)
+        return 2
+    rel, n = _guard_find(env, ref)
+    if rel is None:
+        print(f"擋下:找不到守衛節點 {ref}(或那篇不是這套機制建的)", file=sys.stderr)
+        return 2
+    refs = _guard_signoff_refs(env)
+    stem = rel[:-3] if rel.endswith(".md") else rel
+    if rel not in refs and stem not in refs:
+        print(f"擋下:棄置一條預告的合約要有人簽核,帳上找不到對得上 {stem} 的紀錄", file=sys.stderr)
+        print(f"  先簽核再來:lumos signoff {stem} --ref {stem} --note \"<為什麼決定不做>\"", file=sys.stderr)
+        return 2
+    home = _guard_home_of(n)
+    home_rel = env.find(home)
+    body = (env.vault / rel).read_text(encoding="utf-8")
+    m = re.search(r"^預告的合約:(.+)$", body, re.M)
+    claim = m.group(1).strip() if m else ""
+    if not home_rel:
+        print(f"擋下:守衛節點指名的功能節點 {home} 找不到——棄置前先把 guards 欄位指對,"
+              "不然那篇的預告行會永遠留著,跟墓碑互相矛盾", file=sys.stderr)
+        return 2
+    if not claim:
+        print(f"擋下:{rel} 裡讀不出預告的合約是哪一條(被手改過?)", file=sys.stderr)
+        return 2
+    lines, idx, _e, _err = _guard_planned_line(env, home_rel, claim)
+    if lines is None:
+        # ★找不到就擋,不靜默略過★(代碼審 r1 blocker):guards 被改指到別篇時,
+        # 原本會靜默成功,真正的家節點永久留著一條沒人管的預告行。
+        print(f"擋下:{_err}", file=sys.stderr)
+        print("  棄置會把功能節點那行預告拿掉;對不到那一行就不知道該拿掉哪一條,不能硬做", file=sys.stderr)
+        return 2
+    try:
+        atomic_write_verify(env.vault / home_rel, lines[:idx] + lines[idx + 1:],
+                            "", lambda f: claim not in str(f.get("summary") or ""))
+    except (ValueError, RuntimeError) as ex:
+        print(f"擋下:功能節點的預告行拿不掉,墓碑也不立(不留半套): {ex}", file=sys.stderr)
+        return 2
+    rc = cmd_set(env, rel, "status", "abandoned")
+    print(f"✓ 已棄置:{rel} 立成墓碑(不是刪掉,下一個人看得到曾經打算做什麼、為什麼不做了)")
+    return rc
+
+
+def cmd_guard_required(env, as_json=False):
+    """列必要集合現況:待完成幾條、逾期幾條、快到期幾條。"""
+    import datetime
+    today = datetime.date.today()
+    rows, overdue, soon = [], [], []
+    for rel, n in _guard_nodes(env):
+        st = str(n.fields.get("status") or "")
+        due = str(n.fields.get("due") or "").strip()
+        home = _guard_home_of(n)
+        owner = str(n.fields.get("owner") or "").strip()
+        body = (env.vault / rel).read_text(encoding="utf-8")
+        m = re.search(r"^預告的合約:(.+)$", body, re.M)
+        claim = (m.group(1).strip() if m else rel)
+        rows.append((rel, st, due, home, owner, claim))
+        if st != "pending":
+            continue
+        try:
+            d = datetime.date.fromisoformat(due)
+        except ValueError:
+            continue
+        # ★到期當天不算過期,隔天才算★:最遲日期是人手寫的本地日期;
+        # 誤擋一次的代價比漏擋一天高(設計審 r1)
+        if d < today:
+            overdue.append((rel, due, owner, claim))
+        elif (d - today).days <= 7:
+            soon.append((rel, due, owner, claim))
+    pend = [r for r in rows if r[1] == "pending"]
+    print(f"必要合約:待完成 {len(pend)}、逾期 {len(overdue)}、快到期(七天內) {len(soon)}、"
+          f"已通過 {len([r for r in rows if r[1] == 'pass'])}、"
+          f"已棄置 {len([r for r in rows if r[1] == 'abandoned'])}")
+    for rel, due, owner, claim in overdue:
+        print(f"  ✗ 逾期 {due}(負責人 {owner}):{claim}")
+        print(f"      {rel} — 做完跑 lumos guard settle,不做了跑 lumos guard abandon(要先簽核)")
+    for rel, due, owner, claim in soon:
+        print(f"  ⚠ 快到期 {due}(負責人 {owner}):{claim}")
+        print(f"      {rel}")
+    if not overdue and not soon and pend:
+        for _rel, _st, due, _home, owner, claim in pend:
+            print(f"  · 待完成 {due}(負責人 {owner}):{claim}")
+    return 1 if overdue else 0
+
+
 def cmd_guard_bind(env, node, invariant_substr, method, platform=None):
     if not IDENT_RE.match(method):
         print(f"擋下:method『{method}』不是合法的方法名(只能用字母/數字/底線,不能數字開頭)", file=sys.stderr)
@@ -11411,6 +11861,22 @@ def cmd_context(env, rel, brief=False, recommend=False, top=8, min_score=0.20, a
             print(f"  ★INVARIANT★ {x}")
         for x in debt:
             print(f"  ★DEBT★ {x}")
+    # ★預告中的合約另起一段★(必要合約清單_計劃):上面那段的標題語意是「現在生效、動了會壞」,
+    # 把還沒生效的印在同一段,字面上等於說它已經生效(設計審 r2)。
+    # 而它最該被看見——因為它還沒有測試在守,任何人為了別的事來看這篇都該知道。
+    # ★用共用的抽取函式,不要在這裡重寫一次掃描迴圈★(代碼審 r1 架構席):
+    # 既有的 extract_contracts 只認正式合約記號,預告記號它撈不到(那是刻意的),
+    # 所以另外有一支 extract_planned;兩支都放在合約抽取那一區,不散在輸出層。
+    _pl = extract_planned(n)
+    if _pl:
+        print("提醒:這篇有預告了但還沒做的合約(還沒有測試在守,到期會擋推送):")
+        for _x in _pl:
+            _d = DUE_REF_RE.search(_x)
+            _w = WATCH_REF_RE.search(_x)
+            _clean = DUE_REF_RE.sub("", WATCH_REF_RE.sub("", _x)).strip()
+            _due = f"最遲 {_d.group(1).strip()}" if _d else "沒寫最遲日期"
+            print(f"  ★預告★ {_clean} — {_due}" + (f";守它的是 {_w.group(1).strip()}" if _w else ""))
+
     summ = n.fields.get("summary")
     if isinstance(summ, str) and summ:
         lines = summ.split("\n")
@@ -11715,7 +12181,9 @@ def cmd_stale(env, match=None, candidate=False, legacy=False):
 
 
 # query 收案態(--active 排除集):與各 type 的 status enum 對齊(2026-08-16 圖譜結構化查詢)
-QUERY_CLOSED_STATUSES = {"done", "pass", "superseded", "resolved", "wontfix"}
+QUERY_CLOSED_STATUSES = {"done", "pass", "superseded", "resolved", "wontfix", "abandoned"}
+# abandoned(棄置的守衛節點)算收案(必要合約清單_計劃):它的意思就是「決定不做了」,
+# 不加的話會永遠出現在 --active 的結果裡,而且因為沒人會再碰它,這筆髒資料不會被順手清掉。
 
 
 def cmd_query(env, tags=None, no_tags=None, active=False, contract=False,
@@ -27033,6 +27501,61 @@ def _codeloop_read_from_ledger(repo_root, branch):
             "note": last.get("detail"), "ts": last.get("ts"), "_source": "ledger"}
 
 
+def _porcelain_z_paths(out):
+    """把 `git status --porcelain -z` 的輸出切成路徑清單。
+
+    ★改名/複製會吐兩個片段★(2026-09-21 審查席):第一個是「兩碼狀態+空白+新路徑」,
+    第二個是**裸的舊路徑,沒有前綴**。一律切 [3:] 會把舊路徑砍掉三個字元變成垃圾字串。
+    目前帳本白名單全是固定字面路徑所以打不到,但前提本身是錯的,白名單一擴充就會漏列。
+    """
+    parts = [x for x in out.split("\0") if x]
+    paths, i = [], 0
+    while i < len(parts):
+        ent = parts[i]
+        if len(ent) < 4:
+            i += 1
+            continue
+        paths.append(ent[3:])
+        i += 2 if (ent[0] in ("R", "C") or ent[1] in ("R", "C")) else 1
+    return paths
+
+
+def _codeloop_print_dirty_bookkeeping(repo_root, status):
+    """留痕之後,把「還沒提交的簿記檔」列成一行可直接貼的提交指令。
+
+    ★不是新的閘,是把手打路徑清單換成工具列出來★(2026-09-21 同一天犯兩次):
+    留痕前通常剛跑過 anchor approve,簽名檔因此變髒;人手打清單時漏掉它,
+    推送會被「簽名檔改過了但沒提交」擋下——重複犯的是打字,不是判斷。
+    清單沿用 _BOOKKEEPING_FILES / _BOOKKEEPING_DIRS,不自開第二份判準。
+    """
+    import subprocess as _sp
+    # -uall:未追蹤的目錄預設會被摺成一行(例如只印 governance/),逐檔列才對得上白名單
+    r = _sp.run(["git", "status", "--porcelain", "-z", "-uall"], cwd=str(repo_root),
+                capture_output=True, text=True, errors="replace")
+    if r.returncode != 0:
+        return
+    dirty = []
+    for rel in _porcelain_z_paths(r.stdout):
+        # ★只列帳本檔本身,不列卷證目錄★(2026-09-21 自己試跑時踩到):
+        # 把 _BOOKKEEPING_DIRS 一起算進來會列出 126 個檔,裡面全是別的 session 的
+        # 審查卷證與舊的未提交證據——照貼會把別人的檔一起提交(同工作區夾帶風險)。
+        # 卷證屬於功能提交,帳本檔才是留痕之後該單獨提交的東西。
+        if rel in _BOOKKEEPING_FILES and rel not in dirty:
+            dirty.append(rel)
+    if not dirty:
+        return
+    msg = "chore(lumos): 記錄代碼審通過" if status == "passed" else "chore(lumos): 記錄代碼審跳過"
+    print(f"  這幾個簿記檔還沒提交({len(dirty)} 個)——留痕之後只准提交它們,漏掉哪個推送都會被擋:")
+    quoted = " ".join(_sh_quote(d) for d in dirty)
+    print(f"    git commit -m '{msg}' -- {quoted}")
+
+
+def _sh_quote(s):
+    """路徑含空白或中文時照樣貼得上去。"""
+    import shlex
+    return shlex.quote(s)
+
+
 def _codeloop_write(repo_root, branch, status, note, head_sha, ts):
     """寫 governance/code-loop/<branch>.json。"""
     import json
@@ -28567,6 +29090,7 @@ def cmd_code_loop(subcmd, note=None, repo=None, as_json=False, diff_range=None, 
         what = "審查通過,已留痕" if status == "passed" else "刻意跳過審查,已留痕"
         print(f"{label} code-loop {status}:{what}(分支 {branch},版本 {head_sha[:8]})" + (f"——{note}" if note else ""))
         print("  這筆紀錄只認目前這個版本:之後再改任何程式碼(工具自己的紀錄檔除外)它就失效,要重跑一次 pass 或 skip。")
+        _codeloop_print_dirty_bookkeeping(repo_root, status)
         return 0
 
     if subcmd == "check":
@@ -29175,6 +29699,10 @@ HELP_WHEN = {
     "scaffold": "幫某條合約產一個測試骨架(預設紅燈,斷言留 TODO)。",
     "prune": "剪掉填錯的 decision_ref(正規化定位;--by 移該欄、無 --by 兩欄都移)。",
     "bind": "把寫好的測試綁回合約的 KEY 行([test:])。別手改。",
+    "plan": "這條合約之後才會做:一次寫好預告標記、建待完成的守衛節點、雙向連好。查那篇功能節點時會看到它,逾期會擋推送而且不准延期。",
+    "settle": "預告的那條做完了:預告行換成正式合約行並綁上測試,守衛節點就地轉成已通過。",
+    "abandon": "預告的那條決定不做了:立墓碑而不是刪掉(下一個人看得到曾經打算做什麼)。要先 lumos signoff <守衛節點> --ref <守衛節點>。",
+    "required": "看現在有幾條預告還沒做完、有沒有逾期或七天內到期。有逾期回非零。",
     "audit": "某條合約被不知道脈絡的人審過了,留 [audit:] 戳記。",
     "trace": "某條合約 → 守衛測試 → 驗證紀錄的證據鏈,反向可查爆炸半徑。",
     "kill-add": "宣告一個「故意弄壞」的配方,給 kill 驗測試守不守得住。",
@@ -29585,6 +30113,21 @@ def main():
     gs.add_argument("--class", dest="klass", help="測試類別名(預設 <method>Tests)")
     gs.add_argument("--platform", help="多平台 config 下指定平台(決定 root/profile/範本落點);"
                                        "省略且單一平台時自動選,多平台則必填")
+    gp = gsub.add_parser("plan", help="預告一條之後要有的合約:寫預告標記 + 建待完成守衛節點(同一次做完)")
+    gp.add_argument("node", help="這條合約落在哪篇功能節點")
+    gp.add_argument("claim", help="一句話合約")
+    gp.add_argument("--plan", dest="gp_plan", help="計劃節點")
+    gp.add_argument("--phase", dest="gp_phase", help="階段(可多個,逗號分隔)")
+    gp.add_argument("--due", dest="gp_due", help="最遲日期 YYYY-MM-DD(逾期就擋,不准延期)")
+    gp.add_argument("--why", dest="gp_why", help="為什麼現在還不做")
+    gp.add_argument("--owner", dest="gp_owner", help="誰負責")
+    gst = gsub.add_parser("settle", help="轉正:預告行換成正式合約行並綁測試,守衛節點轉已通過")
+    gst.add_argument("ref", help="守衛節點")
+    gst.add_argument("--test", dest="gs_test", required=True, help="測試方法名")
+    gab = gsub.add_parser("abandon", help="棄置:立墓碑而不是刪掉(要先 signoff --ref)")
+    gab.add_argument("ref", help="守衛節點")
+    gab.add_argument("--why", dest="ga_why", help="為什麼決定不做了")
+    gsub.add_parser("required", help="列必要合約現況:待完成/逾期/快到期")
     gb = gsub.add_parser("bind", help="把 [test:方法] 綁回 KEY 行(寫後自驗)")
     gb.add_argument("node")
     gb.add_argument("invariant", help="KEY 行子字串")
@@ -29628,6 +30171,7 @@ def main():
     p.add_argument("node")
     p.add_argument("--note", required=True, help="確認了什麼(必填,給未來的人看)")
     p.add_argument("--by", help="誰確認的")
+    p.add_argument("--ref", dest="so_ref", help="這次簽核針對哪個東西(任意字串,給機械比對用;必要合約清單_計劃)")
 
     p = sub.add_parser("sync-verified-by", help="補 Check 3 漏寫的 verified_by(dry-run 預設)")
     p.add_argument("--apply", action="store_true", help="真寫入(否則 dry-run 只列)")
@@ -30298,7 +30842,7 @@ def main():
     if args.cmd == "spec-trace":
         return cmd_spec_trace(env, args.node, as_json=args.st_json)
     if args.cmd == "signoff":
-        return cmd_signoff(env, args.node, note=args.note, by=args.by)
+        return cmd_signoff(env, args.node, note=args.note, by=args.by, ref=args.so_ref)
     if args.cmd == "gov":
         return cmd_gov(env, args.node, since_days=args.since, full=args.full, stats=args.stats, nags=args.gov_nags)
 
@@ -30378,6 +30922,15 @@ def main():
                                       args.type, args.claim, out_dir=args.out,
                                       template=args.template, klass=args.klass,
                                       platform=args.platform)
+        if args.gcmd == "plan":
+            return cmd_guard_plan(env, args.node, args.claim, args.gp_plan, args.gp_phase,
+                                  args.gp_due, args.gp_why, args.gp_owner)
+        if args.gcmd == "settle":
+            return cmd_guard_settle(env, args.ref, args.gs_test)
+        if args.gcmd == "abandon":
+            return cmd_guard_abandon(env, args.ref, args.ga_why)
+        if args.gcmd == "required":
+            return cmd_guard_required(env)
         if args.gcmd == "bind":
             return cmd_guard_bind(env, args.node, args.invariant, args.method,
                                   platform=args.platform)
