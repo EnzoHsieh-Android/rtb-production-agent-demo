@@ -570,3 +570,6 @@
 {"ts": "2026-09-22T18:37:27+08:00", "commit": "43abea8", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "43abea804db07b762699ba1de2a92e2bbb093213"}
 {"ts": "2026-09-22T18:37:35+08:00", "commit": "84a35e2", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=4 hits=0 secs=0.1"}
 {"ts": "2026-09-22T18:37:39+08:00", "commit": "84a35e2", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "84a35e26a9a1cbe834fa598311e3e9079a2f9679"}
+{"ts": "2026-09-22T18:37:49+08:00", "commit": "d14e0eb", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-22T18:37:50+08:00", "commit": "d14e0eb", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d14e0ebff2e487d3b35e3f4fa0af6c92e1d4b878"}
+{"ts": "2026-09-22T18:37:50+08:00", "commit": "5ed5f63", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "新鮮度接上流程+時間單一來源+合約測試補強:標準分級三輪(通才/架構對齊/兩輪折入差異回歸),架構席 2 條與第 2 輪 2 條全折;原迴圈第 3 輪記帳誤把零發現寫成編號 none,已換編號重記", "branch": "main", "head_sha": "5ed5f6361be99119c0faabdae2900a8682a01df3"}
