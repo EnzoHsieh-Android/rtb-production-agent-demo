@@ -1,0 +1,77 @@
+[
+ {
+  "round": "r2",
+  "seat": "s1",
+  "lens": "作廢流程與判定表",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r2-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "src/rtb/dsp/capability.py",
+   "src/rtb/executor/capability_signer.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s2",
+  "lens": "作廢的並行與正確性",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r2-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "src/rtb/dsp/capability.py",
+   "src/rtb/executor/capability_signer.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s3",
+  "lens": "可測性與銜接",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r2-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "src/rtb/dsp/capability.py",
+   "src/rtb/executor/capability_signer.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r2-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "src/rtb/dsp/capability.py",
+   "src/rtb/executor/capability_signer.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r2-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py",
+   "src/rtb/dsp/capability.py",
+   "src/rtb/executor/capability_signer.py"
+  ],
+  "auditor": "codex"
+ }
+]
