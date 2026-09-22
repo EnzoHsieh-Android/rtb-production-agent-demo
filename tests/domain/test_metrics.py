@@ -141,6 +141,9 @@ def test_lumos_lint_command_never_bypasses_the_nested_domain_config():
 
     for command in commands:  # --config 或 --isolated 會讓 domain/ruff.toml 無聲失效
         assert "--config" not in command and "--isolated" not in command
+    # 推送閘會點名傳入改到的檔;不加 --force-exclude,ruff 會無視 pyproject 的排除清單,
+    # 把 scripts/ 底下的 lumos 工具複本也當成本專案程式去查(2026-09-22 推送被 22 條誤報擋下)
+    assert any("ruff check" in c and "--force-exclude" in c for c in commands)
 
 
 def test_an_unknown_result_cannot_be_used_as_a_truth_value():

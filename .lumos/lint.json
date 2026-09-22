@@ -1,6 +1,6 @@
 {
   "py": [
-    ".venv/bin/ruff check --output-format sarif --output-file {LINT_SARIF_OUT} {LINT_FILES}",
+    ".venv/bin/ruff check --force-exclude --output-format sarif --output-file {LINT_SARIF_OUT} {LINT_FILES}",
     ".venv/bin/python tools/mypy_sarif.py --out {LINT_SARIF_OUT} --only-configured-paths {LINT_FILES}"
   ]
 }
