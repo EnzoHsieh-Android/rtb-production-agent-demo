@@ -1,0 +1,64 @@
+{
+ "loop": "code-analyzer-flow",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-22T12:38:10+08:00",
+ "spec_path": "governance/review-reports/code-analyzer-flow/r1-snapshot.patch",
+ "spec_sha": "061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf",
+ "rows": [
+  "{\"ts\": \"2026-09-22T12:37:32+08:00\", \"kind\": \"none\", \"auditor\": \"s1\", \"token\": \"CANARY-6eef6369\", \"note\": \"\", \"loop\": \"code-analyzer-flow\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 6, \"result_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"reviewed_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"spec_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"scope_lines\": 760, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 6, \"report_path\": \"governance/review-reports/code-analyzer-flow/r1-s1.md\", \"report_sha256\": \"cf968c77c73c36e47a0a5bdaef8046c5b6d1cb483775e4089fd5c234bcbc118b\", \"snapshot_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"snapshot_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\"}",
+  "{\"ts\": \"2026-09-22T12:37:33+08:00\", \"kind\": \"none\", \"auditor\": \"s3\", \"token\": \"CANARY-bebb0b99\", \"note\": \"\", \"loop\": \"code-analyzer-flow\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 4, \"result_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"reviewed_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"spec_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"scope_lines\": 760, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 4, \"report_path\": \"governance/review-reports/code-analyzer-flow/r1-s3.md\", \"report_sha256\": \"f213c9c19f97cf33930d63e6d9fe382ba9442aa548c3c30c0cd5b3a872e190f3\", \"snapshot_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"snapshot_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\"}",
+  "{\"ts\": \"2026-09-22T12:37:34+08:00\", \"kind\": \"none\", \"auditor\": \"sarch\", \"token\": \"CANARY-deab446f\", \"note\": \"\", \"loop\": \"code-analyzer-flow\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"reviewed_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"spec_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"scope_lines\": 760, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 1, \"report_path\": \"governance/review-reports/code-analyzer-flow/r1-sarch.md\", \"report_sha256\": \"17dbad570fd9c0e5c0da138a4de560e56119637107bf812e0918d52c0e9d3704\", \"snapshot_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"snapshot_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\"}",
+  "{\"ts\": \"2026-09-22T12:37:34+08:00\", \"kind\": \"none\", \"auditor\": \"資安-sonnet\", \"token\": \"CANARY-a3811de1\", \"note\": \"\", \"loop\": \"code-analyzer-flow\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 4, \"result_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"reviewed_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"spec_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"scope_lines\": 760, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 4, \"report_path\": \"governance/review-reports/code-analyzer-flow/r1-sec.md\", \"report_sha256\": \"2bc4b49edf7c723edfebce83fca804948520f61c4d433ebc700a5a7343a6ff31\", \"snapshot_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"snapshot_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\"}",
+  "{\"ts\": \"2026-09-22T12:37:35+08:00\", \"kind\": \"none\", \"auditor\": \"x1\", \"token\": \"CANARY-f71c0439\", \"note\": \"\", \"loop\": \"code-analyzer-flow\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 6, \"result_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"reviewed_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"spec_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"scope_lines\": 760, \"tier\": \"high\", \"orchestrator\": \"claude\", \"findings_set\": [\"s1f1\", \"s1f2\", \"s1f3\", \"s1f4\", \"s1f5\", \"s1f6\", \"s2f1\", \"s2f2\", \"s2f3\", \"s2f4\", \"s2f5\", \"s2f6\", \"s3f1\", \"s3f2\", \"s3f3\", \"s3f4\", \"s4f1\", \"s4f2\", \"s4f3\", \"s4f4\", \"s4f5\", \"s4f6\", \"saf1\", \"secf1\", \"secf2\", \"secf3\", \"secf4\", \"x1f1\", \"x1f2\", \"x1f3\", \"x1f4\", \"x1f5\", \"x1f6\"], \"folded_set\": [\"s1f1\", \"s1f2\", \"s1f3\", \"s1f4\", \"s1f5\", \"s1f6\", \"s2f1\", \"s2f2\", \"s2f3\", \"s2f4\", \"s2f5\", \"s2f6\", \"s3f1\", \"s3f2\", \"s3f3\", \"s3f4\", \"s4f1\", \"s4f2\", \"s4f3\", \"s4f4\", \"s4f5\", \"s4f6\", \"saf1\", \"secf1\", \"secf2\", \"secf3\", \"secf4\", \"x1f1\", \"x1f2\", \"x1f3\", \"x1f4\", \"x1f5\", \"x1f6\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 6, \"report_path\": \"governance/review-reports/code-analyzer-flow/r1-x1.md\", \"report_sha256\": \"85e7d79439462256dc213b8d76c947482ee31c8ed11d7ee3f7c0372a9a5c0184\", \"snapshot_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"snapshot_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"intake_path\": \"governance/review-reports/code-analyzer-flow/r1-intake.md\", \"intake_sha256\": \"974d57d1086b7d4e73ffbc1f526fde8dc0f06ef686e3b1a52d5ca1b8b2cd9f3e\"}",
+  "{\"ts\": \"2026-09-22T12:37:51+08:00\", \"kind\": \"none\", \"auditor\": \"s2\", \"token\": \"CANARY-570260d0\", \"note\": \"\", \"loop\": \"code-analyzer-flow\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"reviewed_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"spec_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"scope_lines\": 760, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 2, \"report_path\": \"governance/review-reports/code-analyzer-flow/r1-s2.md\", \"report_sha256\": \"daedc6641fd5c96cd7cd09954770b43c97bf2be6c5b63af69f90a5b86b038d56\", \"snapshot_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"snapshot_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\"}",
+  "{\"ts\": \"2026-09-22T12:37:51+08:00\", \"kind\": \"none\", \"auditor\": \"s4\", \"token\": \"CANARY-94a82130\", \"note\": \"\", \"loop\": \"code-analyzer-flow\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 5, \"result_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"reviewed_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\", \"spec_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"scope_lines\": 760, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 5, \"report_path\": \"governance/review-reports/code-analyzer-flow/r1-s4.md\", \"report_sha256\": \"771edd147f95d64e8a66e52ef327d4370d5ae2236f0f31118b7785726a2103f5\", \"snapshot_path\": \"governance/review-reports/code-analyzer-flow/r1-snapshot.patch\", \"snapshot_sha256\": \"061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf\"}"
+ ],
+ "all_row_shas": [
+  "56e38e6627a613c6e8f579bc72b295ebad26733e00a041d2ab8912bc8a578de9",
+  "5bf29deea93b67603e4755936817ce1571567be70b560502ad345abe45dfa665",
+  "8c9fcab29a28f15197ce54d3f008bef258ac3019d465d032408d0b2fada5f1fc",
+  "abd3bbdf0fe67fe9ffcf9f8fd90b370522bf9890e6af315793e3510a05a38623",
+  "be8c429cc932c99d241a29d4ef7708e74d3acd5f6f866cd65b9f4075e61c8cc5",
+  "ca71e4d28b13efa991f17922e69ff9547028026d768e1f19e62df3aed589216b",
+  "f8e1d1dad1fb14e36ab85a5e107e0a2b7af0a0027275a4b81d19e9442c0b1179"
+ ],
+ "files": {
+  "governance/review-reports/code-analyzer-flow/r1-s1.md": {
+   "sha256": "cf968c77c73c36e47a0a5bdaef8046c5b6d1cb483775e4089fd5c234bcbc118b",
+   "git_blob": "96dbfa7a57708272e1d1398c8f0e062776056eae"
+  },
+  "governance/review-reports/code-analyzer-flow/r1-snapshot.patch": {
+   "sha256": "061a29c1b198c5b868f3bad679bede1f4b491f96249540f63d2972b9ea4178bf",
+   "git_blob": "30d1aae02c596139ee2faf6b45719e30065ff033"
+  },
+  "governance/review-reports/code-analyzer-flow/r1-s3.md": {
+   "sha256": "f213c9c19f97cf33930d63e6d9fe382ba9442aa548c3c30c0cd5b3a872e190f3",
+   "git_blob": "3415b8d620500ac2a8f2771f54b222a888f6c319"
+  },
+  "governance/review-reports/code-analyzer-flow/r1-sarch.md": {
+   "sha256": "17dbad570fd9c0e5c0da138a4de560e56119637107bf812e0918d52c0e9d3704",
+   "git_blob": "c850c887f629fd6d2f76b6dfe795c3e588609a8b"
+  },
+  "governance/review-reports/code-analyzer-flow/r1-sec.md": {
+   "sha256": "2bc4b49edf7c723edfebce83fca804948520f61c4d433ebc700a5a7343a6ff31",
+   "git_blob": "e637f9e9f19a398d51f3d2fc70f84a56ae6cc63f"
+  },
+  "governance/review-reports/code-analyzer-flow/r1-x1.md": {
+   "sha256": "85e7d79439462256dc213b8d76c947482ee31c8ed11d7ee3f7c0372a9a5c0184",
+   "git_blob": "13f80415e900bc222e1388fc231c76837370250d"
+  },
+  "governance/review-reports/code-analyzer-flow/r1-s2.md": {
+   "sha256": "daedc6641fd5c96cd7cd09954770b43c97bf2be6c5b63af69f90a5b86b038d56",
+   "git_blob": "2a2fa3ce549dc14bb6ed6f7f80054b8fae64a610"
+  },
+  "governance/review-reports/code-analyzer-flow/r1-s4.md": {
+   "sha256": "771edd147f95d64e8a66e52ef327d4370d5ae2236f0f31118b7785726a2103f5",
+   "git_blob": "711bef7140f3bd53367ce10feafd1b69339fbcb6"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

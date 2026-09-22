@@ -13,10 +13,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
 
+from rtb.domain._checks import is_id
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
 from rtb.domain.proposal import ActionType, Proposal
-from rtb.domain.task_state import TaskState
-from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, connect, immediate_transaction
+from rtb.domain.task_state import IllegalTransition, TaskState, can_transition
+from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate_transaction
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -24,14 +25,33 @@ CREATE TABLE IF NOT EXISTS tasks (
     campaign_id TEXT NOT NULL, proposal_json TEXT, error_detail TEXT,
     written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
 CREATE TABLE IF NOT EXISTS evidence (
-    evidence_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, task_seq INTEGER NOT NULL,
+    task_id TEXT NOT NULL, task_seq INTEGER NOT NULL, evidence_id TEXT NOT NULL,
     kind TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL,
-    campaign_version_observed INTEGER, content_hash TEXT NOT NULL, trust_class TEXT NOT NULL);
+    campaign_version_observed INTEGER, content_hash TEXT NOT NULL, trust_class TEXT NOT NULL,
+    PRIMARY KEY (task_id, task_seq, evidence_id));
 """
+MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
+
 
 
 class TaskAlreadyExists(Exception):
     """同一個任務編號已經存在,但這次帶的廣告編號不同:呼叫端的錯誤,不靜默接受。"""
+
+
+class InvalidTaskId(Exception):
+    """任務編號或廣告編號格式不合法。"""
+
+
+class EvidenceTaskMismatch(Exception):
+    """要附帶的證據不屬於這個任務:呼叫端的錯誤,不靜默記成這個任務的。"""
+
+
+class CorruptedHistoryRow(Exception):
+    """歷史表或證據表的一列讀不回來(格式毀損);重試沒有用,呼叫端應轉 FAILED。"""
+
+
+class TaskStoreBusy(Exception):
+    """建立連線時資料庫忙碌到逾時。"""
 
 
 class TaskNotFound(Exception):
@@ -74,22 +94,31 @@ def _proposal_from_json(raw: str) -> Proposal:
 
 def _row_from_record(record: tuple[str, int, str, str, str | None, str | None, str]) -> TaskRow:
     task_id, seq, state, campaign_id, proposal_json, error_detail, written_at = record
-    stamp = datetime.fromisoformat(written_at.replace("Z", "+00:00"))
+    try:
+        stamp = datetime.fromisoformat(written_at.replace("Z", "+00:00"))
+        proposal = None if proposal_json is None else _proposal_from_json(proposal_json)
+        state_enum = TaskState(state)
+    except (ValueError, KeyError, json.JSONDecodeError) as exc:
+        raise CorruptedHistoryRow(f"{task_id} 第 {seq} 列讀不回來:{exc!r}") from exc
     return TaskRow(
-        task_id=task_id, seq=seq, state=TaskState(state), campaign_id=campaign_id,
-        proposal=None if proposal_json is None else _proposal_from_json(proposal_json),
-        error_detail=error_detail, written_at=stamp,
+        task_id=task_id, seq=seq, state=state_enum, campaign_id=campaign_id,
+        proposal=proposal, error_detail=error_detail, written_at=stamp,
     )
 
 
 class TaskStore:
     def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
-        self._conn = connect(path, busy_timeout_seconds, SCHEMA)
+        try:
+            self._conn = connect(path, busy_timeout_seconds, SCHEMA)
+        except DatabaseBusy as exc:
+            raise TaskStoreBusy(str(exc)) from exc
 
     def close(self) -> None:
         self._conn.close()
 
     def create_task(self, task_id: str, campaign_id: str, now: datetime) -> None:
+        if not is_id(task_id) or not is_id(campaign_id):
+            raise InvalidTaskId(f"任務編號或廣告編號格式不合法:{task_id!r}, {campaign_id!r}")
         with immediate_transaction(self._conn):
             existing = self._conn.execute(
                 "SELECT campaign_id FROM tasks WHERE task_id = ? ORDER BY seq DESC LIMIT 1",
@@ -117,17 +146,20 @@ class TaskStore:
         rows = self._conn.execute(
             "SELECT evidence_id, kind, source, observed_at, campaign_version_observed, "
             "content_hash, trust_class FROM evidence WHERE task_id = ? AND task_seq = ? "
-            "ORDER BY evidence_id",
+            "ORDER BY rowid",  # rowid 保留寫入順序;evidence_id 是呼叫端給的,字母序不等於蒐證順序
             (task_id, task_seq),
         ).fetchall()
-        return tuple(
-            Evidence(
-                evidence_id=r[0], task_id=task_id, kind=EvidenceKind(r[1]), source=r[2],
-                observed_at=datetime.fromisoformat(r[3].replace("Z", "+00:00")),
-                campaign_version_observed=r[4], content_hash=r[5], trust_class=TrustClass(r[6]),
+        try:
+            return tuple(
+                Evidence(
+                    evidence_id=r[0], task_id=task_id, kind=EvidenceKind(r[1]), source=r[2],
+                    observed_at=datetime.fromisoformat(r[3].replace("Z", "+00:00")),
+                    campaign_version_observed=r[4], content_hash=r[5], trust_class=TrustClass(r[6]),
+                )
+                for r in rows
             )
-            for r in rows
-        )
+        except (ValueError, KeyError) as exc:
+            raise CorruptedHistoryRow(f"{task_id} 第 {task_seq} 步的證據讀不回來:{exc!r}") from exc
 
     def commit_step(  # noqa: PLR0913 - 每個關鍵字參數都對應計劃裡不同狀態要附帶的資料
         self,
@@ -145,27 +177,33 @@ class TaskStore:
 
         回傳是否真的寫入了;False 表示輸給並行的另一次呼叫,這次呼叫沒有寫入任何東西。
         """
+        mismatched = [item.task_id for item in evidence if item.task_id != task_id]
+        if mismatched:
+            raise EvidenceTaskMismatch(
+                f"要附帶的證據裡有 {mismatched} 不屬於任務 {task_id}")
+        capped_detail = (
+            None if error_detail is None else error_detail[:MAX_ERROR_DETAIL_LENGTH])
         with immediate_transaction(self._conn):
-            current = self._conn.execute(
-                "SELECT MAX(seq) FROM tasks WHERE task_id = ?", (task_id,)
-            ).fetchone()[0]
-            if current != expected_seq:
+            row = self._conn.execute(
+                "SELECT seq, state, campaign_id FROM tasks WHERE task_id = ? "
+                "ORDER BY seq DESC LIMIT 1", (task_id,),
+            ).fetchone()
+            if row is None or row[0] != expected_seq:
                 return False
+            current_state, campaign_id = TaskState(row[1]), row[2]
+            if not can_transition(current_state, new_state):
+                raise IllegalTransition(f"不合法的轉換:{current_state} -> {new_state}")
             next_seq = expected_seq + 1
-            campaign_id = self._conn.execute(
-                "SELECT campaign_id FROM tasks WHERE task_id = ? AND seq = ?",
-                (task_id, expected_seq),
-            ).fetchone()[0]
             self._conn.execute(
                 "INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (task_id, next_seq, new_state.value, campaign_id,
                  None if proposal is None else _proposal_to_json(proposal),
-                 error_detail, _iso(now)),
+                 capped_detail, _iso(now)),
             )
             for item in evidence:
                 self._conn.execute(
                     "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (item.evidence_id, task_id, next_seq, item.kind.value, item.source,
+                    (task_id, next_seq, item.evidence_id, item.kind.value, item.source,
                      _iso(item.observed_at), item.campaign_version_observed,
                      item.content_hash, item.trust_class.value),
                 )

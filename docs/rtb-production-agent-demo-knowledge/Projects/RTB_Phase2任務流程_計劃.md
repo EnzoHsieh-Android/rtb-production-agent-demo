@@ -174,7 +174,7 @@ RETIRE-IF: 若 Phase 3、4 做完後,這裡的檢查點機制從沒真的擋到�
 - [S36] 當任務狀態是終點狀態或 HANDED_OFF,`advance()` 應是空操作,不呼叫任何介面。[test:test_advancing_a_terminal_or_handed_off_task_calls_no_collaborator]
 - [S37] 當寫入交易內發現「準備要接的那一列」已經不是目前最新的一列,`advance()` 應中止、不寫入任何東西,回傳沒有進展。[test:test_two_concurrent_advance_calls_on_the_same_task_never_both_commit_conflicting_outcomes]
 - [S38] 新列的序號應在寫入交易內用目前最大序號加一決定,不得在讀取當下先行決定。[test:test_the_next_sequence_number_is_decided_inside_the_write_transaction]
-- [S39] 當任一步驟在提交前中斷後重新呼叫 `advance()`(交易的中斷鉤子語意與收件口的 `before_commit` 相同),結果應與沒有中斷時一致。[test:test_resuming_after_a_crash_before_commit_at_every_step_converges_to_the_uninterrupted_outcome]
+- [S39] 當任一步驟在提交前中斷後重新呼叫 `advance()`(交易的中斷鉤子語意與收件口的 `before_commit` 相同),結果應與沒有中斷時一致。[test:test_a_crash_before_commit_while_leaving_received_loses_nothing] [test:test_a_crash_before_commit_while_collecting_evidence_loses_nothing] [test:test_a_crash_before_commit_while_analyzing_loses_nothing] [test:test_a_crash_before_commit_while_proposed_loses_nothing](實作時拆成四個測試、每個狀態各一個,原本單一測試名沒有真的涵蓋每一步,見 2026-09-22 代碼審 s1f5/x1f5)
 - [S40] 當任一步驟在提交後中斷後重新呼叫 `advance()`,`advance()` 應不重複呼叫已經成功的那一步、也不送出跟已存快照不同的內容。[test:test_resuming_after_a_crash_after_commit_never_repeats_or_diverges_from_the_committed_step]
 - [S41] 歷史表應只增不改,不得出現 UPDATE 或 DELETE 敘述。[test:test_the_history_table_has_no_update_or_delete_statements]
 

@@ -1,0 +1,760 @@
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+new file mode 100644
+index 0000000..80843ab
+--- /dev/null
++++ b/src/rtb/analyzer/flow.py
+@@ -0,0 +1,163 @@
++"""分析行程的流程與檢查點:一次只做一步,每步落地才推進狀態。
++
++事故:分析行程在流程跑到一半時當機重啟,不確定卡在哪一步、外部呼叫(蒐證、送出提案)有
++沒有真的發生。`advance()` 是唯一的驅動函式,每次呼叫只做狀態機的下一步,把結果連同新
++狀態列一起提交(檢查點);重複呼叫 `advance()` 在中斷後恢復是安全的。
++
++三個可替換介面比照收件口既有的風格:成功回傳值,預期內的失敗用型別化例外。
++`EvidenceSource`、`Submit` 的失敗一律視為暫時性、可以放心重試(前者是純讀取,後者的
++真實實作——收件口——保證同一份提案重送永遠安全);只有 `Decide` 自己丟出例外時才轉
++FAILED,因為那是對已經到手的證據做純計算,重跑同一份證據只會再次得到同樣的例外。
++"""
++
++from collections.abc import Callable
++from dataclasses import dataclass
++from datetime import datetime
++from typing import Protocol
++
++from rtb.analyzer.task_store import TaskNotFound, TaskRow, TaskStore
++from rtb.domain.evidence import Evidence
++from rtb.domain.proposal import Proposal
++from rtb.domain.task_state import TERMINAL_STATES, TaskState, transition
++
++
++@dataclass(frozen=True)
++class NoAction:
++    """這個任務不需要任何動作。"""
++
++
++@dataclass(frozen=True)
++class ProposalDecision:
++    """決定要送出的提案。"""
++
++    proposal: Proposal
++
++
++@dataclass(frozen=True)
++class NeedsFreshEvidence:
++    """決策層自己判斷手上的證據不夠新,要求重新蒐證;不是例外。"""
++
++
++Decision = NoAction | ProposalDecision | NeedsFreshEvidence
++
++
++class EvidenceSource(Protocol):
++    def __call__(self, task: TaskRow) -> tuple[Evidence, ...]: ...
++
++
++class Decide(Protocol):
++    def __call__(self, task: TaskRow, evidence: tuple[Evidence, ...]) -> Decision: ...
++
++
++@dataclass(frozen=True)
++class Accepted:
++    """`Submit` 的成功結果。"""
++
++    replayed: bool
++
++
++class SubmitStale(Exception):
++    """這份提案已經過期或被取代(對應收件口的 409/422)。"""
++
++
++class SubmitBusy(Exception):
++    """暫時性、可以重試(對應收件口的 503)。"""
++
++
++class Submit(Protocol):
++    def __call__(self, proposal: Proposal) -> Accepted: ...
++
++
++@dataclass(frozen=True)
++class _Collaborators:
++    evidence_source: EvidenceSource
++    decide: Decide
++    submit: Submit
++
++
++@dataclass(frozen=True)
++class _Step:
++    """一步的結果:新狀態,以及要跟著這一列一起提交的東西(都可省略)。"""
++
++    new_state: TaskState
++    evidence: tuple[Evidence, ...] = ()
++    proposal: Proposal | None = None
++    error_detail: str | None = None
++
++
++_StepOutcome = _Step | None
++
++
++def advance(  # noqa: PLR0913 - 三個可替換介面加時間與中斷鉤子,全部都是必要的參數
++    store: TaskStore,
++    task_id: str,
++    evidence_source: EvidenceSource,
++    decide: Decide,
++    submit: Submit,
++    now: datetime,
++    before_commit: Callable[[], None] | None = None,
++) -> TaskState:
++    """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。"""
++    row = store.latest(task_id)
++    if row is None:
++        raise TaskNotFound(task_id)
++    if row.state in TERMINAL_STATES or row.state is TaskState.HANDED_OFF:
++        return row.state
++
++    collaborators = _Collaborators(evidence_source, decide, submit)
++    outcome = _STEPS[row.state](store, row, collaborators)
++    if outcome is None:  # 這一步的結果是「不寫入,留在原狀態」
++        return row.state
++    transition(row.state, outcome.new_state)  # 非法轉換在這裡就會炸,不會靜默寫出壞資料
++    committed = store.commit_step(
++        task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
++        evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
++    )
++    return outcome.new_state if committed else row.state
++
++
++def _from_received(_store: TaskStore, _row: TaskRow, _c: _Collaborators) -> _StepOutcome:
++    return _Step(TaskState.COLLECTING_EVIDENCE)
++
++
++def _from_collecting_evidence(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
++    try:
++        evidence = c.evidence_source(row)
++    except Exception:  # 純讀取,重試永遠安全:不寫入,留在原狀態
++        return None
++    return _Step(TaskState.ANALYZING, evidence=evidence)
++
++
++def _from_analyzing(store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
++    evidence = store.evidence_for(row.task_id, row.seq)
++    try:
++        decision = c.decide(row, evidence)
++    except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
++        return _Step(TaskState.FAILED, error_detail=repr(exc))
++    if isinstance(decision, NoAction):
++        return _Step(TaskState.NO_ACTION)
++    if isinstance(decision, ProposalDecision):
++        return _Step(TaskState.PROPOSED, proposal=decision.proposal)
++    return _Step(TaskState.COLLECTING_EVIDENCE)
++
++
++def _from_proposed(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
++    if row.proposal is None:
++        raise AssertionError("PROPOSED 狀態的列一定帶著提案快照")
++    try:
++        c.submit(row.proposal)
++    except SubmitStale:
++        return _Step(TaskState.COLLECTING_EVIDENCE)
++    except SubmitBusy:
++        return None
++    except Exception:  # 未定義的失敗一律視為可重試:重送同一份提案永遠安全
++        return None
++    return _Step(TaskState.HANDED_OFF, proposal=row.proposal)
++
++
++_STEPS: dict[TaskState, Callable[[TaskStore, TaskRow, _Collaborators], _StepOutcome]] = {
++    TaskState.RECEIVED: _from_received,
++    TaskState.COLLECTING_EVIDENCE: _from_collecting_evidence,
++    TaskState.ANALYZING: _from_analyzing,
++    TaskState.PROPOSED: _from_proposed,
++}
+diff --git a/src/rtb/analyzer/ruff.toml b/src/rtb/analyzer/ruff.toml
+new file mode 100644
+index 0000000..3de5d35
+--- /dev/null
++++ b/src/rtb/analyzer/ruff.toml
+@@ -0,0 +1,6 @@
++# analyzer 與 dsp、executor 是不同的行程,不得互相匯入(見 Phase 0 架構的行程拆分)。
++extend = "../../../pyproject.toml"
++
++[lint.flake8-tidy-imports.banned-api]
++"rtb.dsp".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
++"rtb.executor".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+new file mode 100644
+index 0000000..f02f692
+--- /dev/null
++++ b/src/rtb/analyzer/task_store.py
+@@ -0,0 +1,174 @@
++"""分析行程自己的 SQLite:任務只增不改的歷史表,加證據表。
++
++「目前狀態」永遠是某個任務編號序號最大的那一列;沒有 UPDATE、沒有 DELETE。這樣
++「這一步的輸出已安全存好」跟「這一列真的寫進資料庫」是同一件事,不需要另外的旗標。
++新列的序號在寫入交易內用目前最大序號加一決定,並且核對「準備要接的那一列」仍是目前
++最新的一列,不是就中止、不寫入——這是並行呼叫 advance() 時的最後一道防線。
++"""
++
++import json
++from collections.abc import Callable, Sequence
++from dataclasses import dataclass
++from datetime import UTC, datetime
++from pathlib import Path
++from types import MappingProxyType
++
++from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
++from rtb.domain.proposal import ActionType, Proposal
++from rtb.domain.task_state import TaskState
++from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, connect, immediate_transaction
++
++SCHEMA = """
++CREATE TABLE IF NOT EXISTS tasks (
++    task_id TEXT NOT NULL, seq INTEGER NOT NULL, state TEXT NOT NULL,
++    campaign_id TEXT NOT NULL, proposal_json TEXT, error_detail TEXT,
++    written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
++CREATE TABLE IF NOT EXISTS evidence (
++    evidence_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, task_seq INTEGER NOT NULL,
++    kind TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL,
++    campaign_version_observed INTEGER, content_hash TEXT NOT NULL, trust_class TEXT NOT NULL);
++"""
++
++
++class TaskAlreadyExists(Exception):
++    """同一個任務編號已經存在,但這次帶的廣告編號不同:呼叫端的錯誤,不靜默接受。"""
++
++
++class TaskNotFound(Exception):
++    """這個任務編號完全沒有歷史列。"""
++
++
++@dataclass(frozen=True)
++class TaskRow:
++    task_id: str
++    seq: int
++    state: TaskState
++    campaign_id: str
++    proposal: Proposal | None
++    error_detail: str | None
++    written_at: datetime
++
++
++def _iso(moment: datetime) -> str:
++    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
++
++
++def _proposal_to_json(proposal: Proposal) -> str:
++    return json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True)
++
++
++def _proposal_from_json(raw: str) -> Proposal:
++    data = json.loads(raw)
++    return Proposal(
++        task_id=data["task_id"], revision=data["revision"], campaign_id=data["campaign_id"],
++        action_type=ActionType(data["action_type"]),
++        requested_change=MappingProxyType(data["requested_change"]),
++        reason_codes=tuple(data["reason_codes"]),
++        evidence_refs=tuple(data["evidence_refs"]),
++        campaign_version_observed=data["campaign_version_observed"],
++        decision_created_at=datetime.fromisoformat(data["decision_created_at"]),
++        decision_expires_at=datetime.fromisoformat(data["decision_expires_at"]),
++        policy_version=data["policy_version"], risk_summary=data["risk_summary"],
++    )
++
++
++def _row_from_record(record: tuple[str, int, str, str, str | None, str | None, str]) -> TaskRow:
++    task_id, seq, state, campaign_id, proposal_json, error_detail, written_at = record
++    stamp = datetime.fromisoformat(written_at.replace("Z", "+00:00"))
++    return TaskRow(
++        task_id=task_id, seq=seq, state=TaskState(state), campaign_id=campaign_id,
++        proposal=None if proposal_json is None else _proposal_from_json(proposal_json),
++        error_detail=error_detail, written_at=stamp,
++    )
++
++
++class TaskStore:
++    def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
++        self._conn = connect(path, busy_timeout_seconds, SCHEMA)
++
++    def close(self) -> None:
++        self._conn.close()
++
++    def create_task(self, task_id: str, campaign_id: str, now: datetime) -> None:
++        with immediate_transaction(self._conn):
++            existing = self._conn.execute(
++                "SELECT campaign_id FROM tasks WHERE task_id = ? ORDER BY seq DESC LIMIT 1",
++                (task_id,),
++            ).fetchone()
++            if existing is not None:
++                if existing[0] != campaign_id:
++                    raise TaskAlreadyExists(
++                        f"{task_id} 已存在,廣告編號是 {existing[0]},不是 {campaign_id}")
++                return
++            self._conn.execute(
++                "INSERT INTO tasks VALUES (?, 1, ?, ?, NULL, NULL, ?)",
++                (task_id, TaskState.RECEIVED.value, campaign_id, _iso(now)),
++            )
++
++    def latest(self, task_id: str) -> TaskRow | None:
++        record = self._conn.execute(
++            "SELECT task_id, seq, state, campaign_id, proposal_json, error_detail, written_at "
++            "FROM tasks WHERE task_id = ? ORDER BY seq DESC LIMIT 1",
++            (task_id,),
++        ).fetchone()
++        return None if record is None else _row_from_record(record)
++
++    def evidence_for(self, task_id: str, task_seq: int) -> tuple[Evidence, ...]:
++        rows = self._conn.execute(
++            "SELECT evidence_id, kind, source, observed_at, campaign_version_observed, "
++            "content_hash, trust_class FROM evidence WHERE task_id = ? AND task_seq = ? "
++            "ORDER BY evidence_id",
++            (task_id, task_seq),
++        ).fetchall()
++        return tuple(
++            Evidence(
++                evidence_id=r[0], task_id=task_id, kind=EvidenceKind(r[1]), source=r[2],
++                observed_at=datetime.fromisoformat(r[3].replace("Z", "+00:00")),
++                campaign_version_observed=r[4], content_hash=r[5], trust_class=TrustClass(r[6]),
++            )
++            for r in rows
++        )
++
++    def commit_step(  # noqa: PLR0913 - 每個關鍵字參數都對應計劃裡不同狀態要附帶的資料
++        self,
++        task_id: str,
++        expected_seq: int,
++        new_state: TaskState,
++        now: datetime,
++        *,
++        evidence: Sequence[Evidence] = (),
++        proposal: Proposal | None = None,
++        error_detail: str | None = None,
++        before_commit: Callable[[], None] | None = None,
++    ) -> bool:
++        """核對 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
++
++        回傳是否真的寫入了;False 表示輸給並行的另一次呼叫,這次呼叫沒有寫入任何東西。
++        """
++        with immediate_transaction(self._conn):
++            current = self._conn.execute(
++                "SELECT MAX(seq) FROM tasks WHERE task_id = ?", (task_id,)
++            ).fetchone()[0]
++            if current != expected_seq:
++                return False
++            next_seq = expected_seq + 1
++            campaign_id = self._conn.execute(
++                "SELECT campaign_id FROM tasks WHERE task_id = ? AND seq = ?",
++                (task_id, expected_seq),
++            ).fetchone()[0]
++            self._conn.execute(
++                "INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?)",
++                (task_id, next_seq, new_state.value, campaign_id,
++                 None if proposal is None else _proposal_to_json(proposal),
++                 error_detail, _iso(now)),
++            )
++            for item in evidence:
++                self._conn.execute(
++                    "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
++                    (item.evidence_id, task_id, next_seq, item.kind.value, item.source,
++                     _iso(item.observed_at), item.campaign_version_observed,
++                     item.content_hash, item.trust_class.value),
++                )
++            if before_commit is not None:
++                before_commit()
++        return True
+diff --git a/tests/analyzer/__init__.py b/tests/analyzer/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/analyzer/conftest.py b/tests/analyzer/conftest.py
+new file mode 100644
+index 0000000..aaeca8c
+--- /dev/null
++++ b/tests/analyzer/conftest.py
+@@ -0,0 +1,55 @@
++"""分析行程流程測試的共用工具:假的三個可替換介面、可控時鐘。"""
++
++from datetime import UTC, datetime
++
++import pytest
++
++from rtb.analyzer.task_store import TaskStore
++
++NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
++
++
++@pytest.fixture
++def store(tmp_path):
++    task_store = TaskStore(tmp_path / "analyzer.db")
++    yield task_store
++    task_store.close()
++
++
++class Counting:
++    """記錄被呼叫幾次、每次的引數;可以設成回傳固定值或丟固定例外。"""
++
++    def __init__(self, returns=None, raises=None):
++        self.calls = []
++        self._returns, self._raises = returns, raises
++
++    def __call__(self, *args):
++        self.calls.append(args)
++        if self._raises is not None:
++            raise self._raises
++        return self._returns
++
++    @property
++    def call_count(self):
++        return len(self.calls)
++
++
++def make_proposal(**overrides):
++    from rtb.domain.proposal import parse_proposal
++    from tests.domain.proposal_samples import valid
++
++    result = parse_proposal(valid(**overrides))
++    assert result.proposal is not None, result.errors
++    return result.proposal
++
++
++def make_evidence(**overrides):
++    from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
++
++    fields = {
++        "evidence_id": "e1", "task_id": "t1", "kind": EvidenceKind.CAMPAIGN_STATE,
++        "source": "dsp", "observed_at": NOW, "campaign_version_observed": 3,
++        "content_hash": "a" * 64, "trust_class": TrustClass.TRUSTED,
++    }
++    fields.update(overrides)
++    return Evidence(**fields)
+diff --git a/tests/analyzer/test_flow.py b/tests/analyzer/test_flow.py
+new file mode 100644
+index 0000000..f6e2777
+--- /dev/null
++++ b/tests/analyzer/test_flow.py
+@@ -0,0 +1,329 @@
++"""分析行程的流程與檢查點:對應計劃的 S20~S41。"""
++
++
++import pytest
++
++from rtb.analyzer import flow
++from rtb.analyzer.task_store import TaskAlreadyExists, TaskNotFound
++from rtb.domain.task_state import TaskState
++from tests.analyzer.conftest import NOW, Counting, make_evidence, make_proposal
++
++NOOP = Counting()  # 不該被呼叫的介面;呼叫了測試就會知道(引數列表非空)
++
++
++def evidence_source(returns=None, raises=None):
++    return Counting(returns=returns if returns is not None else (make_evidence(),), raises=raises)
++
++
++def decide(returns=None, raises=None):
++    return Counting(returns=returns if returns is not None else flow.NoAction(), raises=raises)
++
++
++def submit(returns=None, raises=None):
++    return Counting(returns=returns if returns is not None else flow.Accepted(replayed=False),
++                    raises=raises)
++
++
++# ---- S20/S21/S22:create_task ----
++def test_creating_a_new_task_id_writes_a_received_row(store):
++    store.create_task("t1", "c1", NOW)
++
++    row = store.latest("t1")
++    assert (row.state, row.campaign_id, row.seq) == (TaskState.RECEIVED, "c1", 1)
++
++
++def test_creating_the_same_task_id_twice_with_the_same_campaign_is_a_no_op(store):
++    store.create_task("t1", "c1", NOW)
++
++    store.create_task("t1", "c1", NOW)
++
++    assert store.latest("t1").seq == 1
++
++
++def test_creating_a_task_id_again_with_a_different_campaign_id_is_an_error(store):
++    store.create_task("t1", "c1", NOW)
++
++    with pytest.raises(TaskAlreadyExists):
++        store.create_task("t1", "c2", NOW)
++    assert store.latest("t1").campaign_id == "c1"
++
++
++# ---- S23 ----
++def test_advancing_a_task_that_was_never_created_fails_loudly(store):
++    with pytest.raises(TaskNotFound):
++        flow.advance(store, "ghost", NOOP, NOOP, NOOP, NOW)
++
++
++# ---- S24 ----
++def test_leaving_received_writes_a_checkpoint_before_any_collaborator_is_called(store):
++    store.create_task("t1", "c1", NOW)
++
++    new_state = flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
++
++    assert new_state is TaskState.COLLECTING_EVIDENCE
++    assert NOOP.call_count == 0
++
++
++# ---- S25 ----
++def test_a_successful_evidence_fetch_commits_evidence_and_the_next_state_together(store):
++    store.create_task("t1", "c1", NOW)
++    flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
++    source = evidence_source()
++
++    new_state = flow.advance(store, "t1", source, NOOP, NOOP, NOW)
++
++    assert new_state is TaskState.ANALYZING
++    row = store.latest("t1")
++    assert store.evidence_for("t1", row.seq) == source._returns
++
++
++# ---- S26 ----
++def test_a_failing_evidence_fetch_leaves_no_trace_and_the_task_stays_ready_to_retry(store):
++    store.create_task("t1", "c1", NOW)
++    flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
++    source = evidence_source(raises=RuntimeError("dsp unreachable"))
++
++    new_state = flow.advance(store, "t1", source, NOOP, NOOP, NOW)
++
++    assert new_state is TaskState.COLLECTING_EVIDENCE
++    assert store.latest("t1").seq == 2  # 沒有新增第 3 列
++    assert store.evidence_for("t1", 2) == ()
++
++
++def _to_analyzing(store, task_id="t1", campaign_id="c1"):
++    store.create_task(task_id, campaign_id, NOW)
++    flow.advance(store, task_id, NOOP, NOOP, NOOP, NOW)
++    flow.advance(store, task_id, evidence_source(), NOOP, NOOP, NOW)
++    return store.latest(task_id)
++
++
++# ---- S27 ----
++def test_analyzing_with_no_action_ends_the_task(store):
++    _to_analyzing(store)
++
++    new_state = flow.advance(store, "t1", NOOP, decide(returns=flow.NoAction()), NOOP, NOW)
++
++    assert new_state is TaskState.NO_ACTION
++
++
++# ---- S28 ----
++def test_analyzing_with_a_proposal_decision_stores_the_snapshot_and_moves_to_proposed(store):
++    _to_analyzing(store)
++    proposal = make_proposal()
++
++    new_state = flow.advance(
++        store, "t1", NOOP, decide(returns=flow.ProposalDecision(proposal)), NOOP, NOW)
++
++    assert new_state is TaskState.PROPOSED
++    assert store.latest("t1").proposal == proposal
++
++
++# ---- S29 ----
++def test_analyzing_that_needs_fresh_evidence_goes_back_to_collecting_evidence(store):
++    _to_analyzing(store)
++
++    new_state = flow.advance(
++        store, "t1", NOOP, decide(returns=flow.NeedsFreshEvidence()), NOOP, NOW)
++
++    assert new_state is TaskState.COLLECTING_EVIDENCE
++
++
++# ---- S30 ----
++def test_a_decide_exception_ends_the_task_as_failed_instead_of_retrying_forever(store):
++    _to_analyzing(store)
++
++    new_state = flow.advance(store, "t1", NOOP, decide(raises=ValueError("bad policy")), NOOP, NOW)
++
++    assert new_state is TaskState.FAILED
++    assert "bad policy" in store.latest("t1").error_detail
++    # 再呼叫一次:FAILED 是終點,不會再呼叫任何介面、也不會產生第二個結果
++    d = decide()
++    assert flow.advance(store, "t1", NOOP, d, NOOP, NOW) is TaskState.FAILED
++    assert d.call_count == 0
++
++
++def _to_proposed(store, proposal=None, task_id="t1"):
++    _to_analyzing(store, task_id)
++    proposal = proposal or make_proposal(task_id=task_id)
++    flow.advance(store, task_id, NOOP, decide(returns=flow.ProposalDecision(proposal)), NOOP, NOW)
++    return proposal
++
++
++# ---- S31 ----
++def test_proposed_always_resubmits_the_stored_snapshot_never_a_freshly_built_one(store):
++    proposal = _to_proposed(store)
++    s = submit()
++
++    flow.advance(store, "t1", NOOP, NOOP, s, NOW)
++
++    assert s.calls == [(proposal,)]
++
++
++# ---- S32 ----
++@pytest.mark.parametrize("replayed", [False, True])
++def test_accepted_or_replayed_both_hand_off(store, replayed):
++    _to_proposed(store)
++
++    new_state = flow.advance(store, "t1", NOOP, NOOP, submit(returns=flow.Accepted(replayed)), NOW)
++
++    assert new_state is TaskState.HANDED_OFF
++    assert store.latest("t1").proposal is not None
++
++
++# ---- S33 ----
++def test_stale_goes_back_to_collecting_evidence(store):
++    _to_proposed(store)
++
++    new_state = flow.advance(store, "t1", NOOP, NOOP, submit(raises=flow.SubmitStale()), NOW)
++
++    assert new_state is TaskState.COLLECTING_EVIDENCE
++
++
++# ---- S34 ----
++def test_busy_leaves_the_task_untouched_for_a_later_retry(store):
++    _to_proposed(store)
++    before = store.latest("t1")
++
++    new_state = flow.advance(store, "t1", NOOP, NOOP, submit(raises=flow.SubmitBusy()), NOW)
++
++    assert new_state is TaskState.PROPOSED
++    assert store.latest("t1") == before
++
++
++# ---- S35 ----
++def test_an_unrecognised_submit_failure_is_treated_as_retryable_not_fatal(store):
++    _to_proposed(store)
++    before = store.latest("t1")
++
++    new_state = flow.advance(store, "t1", NOOP, NOOP, submit(raises=TimeoutError()), NOW)
++
++    assert new_state is TaskState.PROPOSED
++    assert store.latest("t1") == before
++
++
++# ---- S36 ----
++@pytest.mark.parametrize("terminal_reacher", [
++    lambda store: flow.advance(store, "t1", NOOP, decide(returns=flow.NoAction()), NOOP, NOW),
++])
++def test_advancing_a_terminal_or_handed_off_task_calls_no_collaborator(store, terminal_reacher):
++    _to_analyzing(store)
++    terminal_reacher(store)
++
++    result = flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
++
++    assert result is TaskState.NO_ACTION
++    assert NOOP.call_count == 0
++
++
++def test_advancing_a_handed_off_task_calls_no_collaborator(store):
++    _to_proposed(store)
++    flow.advance(store, "t1", NOOP, NOOP, submit(), NOW)
++
++    result = flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
++
++    assert result is TaskState.HANDED_OFF
++    assert NOOP.call_count == 0
++
++
++# ---- S37/S38:並行與序號 ----
++def test_two_concurrent_advance_calls_on_the_same_task_never_both_commit_conflicting_outcomes(
++        store):
++    store.create_task("t1", "c1", NOW)
++    row = store.latest("t1")
++    # 模擬兩個呼叫端都讀到同一列(seq=1)之後,其中一個先提交
++    assert store.commit_step("t1", row.seq, TaskState.COLLECTING_EVIDENCE, NOW)
++
++    # 第二個呼叫端仍然拿著舊的 row(seq=1)試著提交,應該被擋下、什麼都沒寫
++    committed = store.commit_step("t1", row.seq, TaskState.COLLECTING_EVIDENCE, NOW)
++
++    assert committed is False
++    assert store.latest("t1").seq == 2  # 只有第一個成功的那次
++
++
++def test_the_next_sequence_number_is_decided_inside_the_write_transaction(store):
++    store.create_task("t1", "c1", NOW)
++    row = store.latest("t1")
++
++    store.commit_step("t1", row.seq, TaskState.COLLECTING_EVIDENCE, NOW)
++
++    assert store.latest("t1").seq == row.seq + 1
++
++
++# ---- S39/S40:崩潰恢復 ----
++def test_resuming_after_a_crash_before_commit_at_every_step_converges_to_the_uninterrupted_outcome(
++        store):
++    store.create_task("t1", "c1", NOW)
++
++    def boom():
++        raise RuntimeError("crash before commit")
++
++    with pytest.raises(RuntimeError):
++        flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW, before_commit=boom)
++    assert store.latest("t1").state is TaskState.RECEIVED  # 交易整個沒提交,什麼都沒變
++
++    # 沒有中斷地重跑一次,結果應該跟從沒中斷過一樣
++    result = flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
++    assert result is TaskState.COLLECTING_EVIDENCE
++
++
++def test_resuming_after_a_crash_after_commit_never_repeats_or_diverges_from_the_committed_step(
++        store):
++    proposal = _to_proposed(store)
++    s = submit(returns=flow.Accepted(replayed=False))
++    flow.advance(store, "t1", NOOP, NOOP, s, NOW)  # 成功送出並交接
++
++    # 模擬「行程在提交後才當機」:呼叫端不知道,重呼叫 advance()
++    result = flow.advance(store, "t1", NOOP, NOOP, s, NOW)
++
++    assert result is TaskState.HANDED_OFF  # 已經是終點,advance() 不會再呼叫 submit
++    assert s.calls == [(proposal,)]  # 只送出過一次,不是兩次
++
++
++# ---- S41 ----
++def test_the_history_table_has_no_update_or_delete_statements():
++    import ast
++    import inspect
++
++    from rtb.analyzer import task_store
++
++    tree = ast.parse(inspect.getsource(task_store))
++    sql_literals = [
++        node.value for node in ast.walk(tree)
++        if (isinstance(node, ast.Constant) and isinstance(node.value, str)
++        and "SELECT" in node.value.upper())
++        or (isinstance(node, ast.Constant) and isinstance(node.value, str)
++            and node.value.strip().upper().startswith(("INSERT", "CREATE")))
++    ]
++    assert sql_literals  # 守衛的守衛:真的有找到 SQL 字面量,不是空跑
++    assert not any("UPDATE " in sql.upper() or "DELETE " in sql.upper() for sql in sql_literals)
++
++
++# ---- 每一步的新狀態一律經過網域層的 transition() 計算,不是自己另刻邏輯 ----
++def test_every_step_computes_its_new_state_through_the_domain_transition_function(
++        store, monkeypatch):
++    from rtb.domain import task_state
++
++    store.create_task("t1", "c1", NOW)
++    calls = []
++    real = task_state.transition
++
++    def spying(current, target):
++        calls.append((current, target))
++        return real(current, target)
++
++    monkeypatch.setattr(flow, "transition", spying)
++
++    flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
++
++    assert calls == [(TaskState.RECEIVED, TaskState.COLLECTING_EVIDENCE)]
++
++
++def test_an_illegal_transition_from_the_domain_layer_is_never_swallowed(store, monkeypatch):
++    from rtb.domain.task_state import IllegalTransition
++
++    store.create_task("t1", "c1", NOW)
++    monkeypatch.setattr(flow, "transition", lambda *_: (_ for _ in ()).throw(IllegalTransition))
++
++    with pytest.raises(IllegalTransition):
++        flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
++    assert store.latest("t1").state is TaskState.RECEIVED  # 沒有寫入半筆壞資料

@@ -6,8 +6,13 @@
 
 三個可替換介面比照收件口既有的風格:成功回傳值,預期內的失敗用型別化例外。
 `EvidenceSource`、`Submit` 的失敗一律視為暫時性、可以放心重試(前者是純讀取,後者的
-真實實作——收件口——保證同一份提案重送永遠安全);只有 `Decide` 自己丟出例外時才轉
-FAILED,因為那是對已經到手的證據做純計算,重跑同一份證據只會再次得到同樣的例外。
+真實實作——收件口——保證同一份提案重送永遠安全);只有 `Decide` 自己丟出例外、或
+歷史資料本身毀損讀不回來時才轉 FAILED,因為重跑同一份輸入只會再次得到同樣的結果。
+
+三個介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
+多個參數與語意(不是單純「一個函式」),`Protocol` 讓型別檢查器能核對實作簽章、也讓文件
+掛在介面本身,是刻意的選擇,不是要在專案裡另立一套慣用法;現有 `Callable` 用法(單一動作
+的簡單回呼)不受影響。
 """
 
 from collections.abc import Callable
@@ -15,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from rtb.analyzer.task_store import TaskNotFound, TaskRow, TaskStore
+from rtb.analyzer.task_store import CorruptedHistoryRow, TaskNotFound, TaskRow, TaskStore
 from rtb.domain.evidence import Evidence
 from rtb.domain.proposal import Proposal
 from rtb.domain.task_state import TERMINAL_STATES, TaskState, transition
@@ -66,6 +71,10 @@ class SubmitBusy(Exception):
 
 class Submit(Protocol):
     def __call__(self, proposal: Proposal) -> Accepted: ...
+
+
+class _BrokenCollaborator(Exception):
+    """協作介面回傳了合約之外的型別:這是協作介面本身的錯,不是暫時性失敗,不能重試。"""
 
 
 @dataclass(frozen=True)
@@ -123,13 +132,20 @@ def _from_received(_store: TaskStore, _row: TaskRow, _c: _Collaborators) -> _Ste
 def _from_collecting_evidence(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
     try:
         evidence = c.evidence_source(row)
+        if not isinstance(evidence, tuple):
+            # 形狀不對也當成這次沒拿到證據:EvidenceSource 是純讀取,重試永遠安全,
+            # 不必為了型別錯誤另外走 FAILED(那是 Decide/Submit 才有的合約違反處理)。
+            raise TypeError(f"EvidenceSource 必須回傳 tuple[Evidence, ...],得到 {type(evidence)!r}")
     except Exception:  # 純讀取,重試永遠安全:不寫入,留在原狀態
         return None
     return _Step(TaskState.ANALYZING, evidence=evidence)
 
 
 def _from_analyzing(store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
-    evidence = store.evidence_for(row.task_id, row.seq)
+    try:
+        evidence = store.evidence_for(row.task_id, row.seq)
+    except CorruptedHistoryRow as exc:  # 存好的資料本身毀損,重試沒有用:直接轉 FAILED
+        return _Step(TaskState.FAILED, error_detail=repr(exc))
     try:
         decision = c.decide(row, evidence)
     except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
@@ -138,20 +154,24 @@ def _from_analyzing(store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepO
         return _Step(TaskState.NO_ACTION)
     if isinstance(decision, ProposalDecision):
         return _Step(TaskState.PROPOSED, proposal=decision.proposal)
-    return _Step(TaskState.COLLECTING_EVIDENCE)
+    if isinstance(decision, NeedsFreshEvidence):
+        return _Step(TaskState.COLLECTING_EVIDENCE)
+    raise _BrokenCollaborator(f"Decide 回傳了合約之外的型別:{type(decision)!r}")
 
 
 def _from_proposed(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
     if row.proposal is None:
         raise AssertionError("PROPOSED 狀態的列一定帶著提案快照")
     try:
-        c.submit(row.proposal)
+        result = c.submit(row.proposal)
     except SubmitStale:
         return _Step(TaskState.COLLECTING_EVIDENCE)
     except SubmitBusy:
         return None
     except Exception:  # 未定義的失敗一律視為可重試:重送同一份提案永遠安全
         return None
+    if not isinstance(result, Accepted):
+        raise _BrokenCollaborator(f"Submit 回傳了合約之外的型別:{type(result)!r}")
     return _Step(TaskState.HANDED_OFF, proposal=row.proposal)
 
 
