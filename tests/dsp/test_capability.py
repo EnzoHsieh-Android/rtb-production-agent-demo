@@ -15,7 +15,7 @@ import pytest
 
 from rtb.capabilitykit import MIN_KEY_BYTES, encode
 from rtb.dsp import capability as dsp_capability
-from rtb.dsp.server import ERROR_TABLE, ROUTES, DspServer
+from rtb.dsp.server import CAMPAIGN_WRITE_ACTIONS, ERROR_TABLE, ROUTES, DspServer
 from rtb.dsp.store import DEFAULT_TENANT, CampaignStore
 from tests.capability_samples import TEST_KEY, claims
 
@@ -452,7 +452,9 @@ def test_a_write_body_with_an_unexpected_field_is_refused(serve, path, body, cap
 def test_no_dsp_write_endpoint_can_change_a_campaigns_tenant(serve):
     srv = serve()
     writes = [name for method, _pattern, name in ROUTES if method == "POST"]
-    assert sorted(writes) == ["pause_campaign", "update_budget"]  # 新增寫入端點就要回來補
+    # 新增寫入端點就要回來補;分兩類明列:改廣告的寫入,與不改廣告的作廢(對帳用)
+    assert sorted(writes) == ["pause_campaign", "update_budget", "void_operation"]
+    assert sorted(CAMPAIGN_WRITE_ACTIONS) == ["pause_campaign", "update_budget"]
 
     assert budget(srv, cap=token())[0] == 200
     assert call(srv, "POST", "/campaigns/c1/pause", {"expected_version": 2},
@@ -463,8 +465,7 @@ def test_no_dsp_write_endpoint_can_change_a_campaigns_tenant(serve):
         assert store.tenant_of("c1") == DEFAULT_TENANT
     finally:
         store.close()
-    assert "tenant" not in dsp_capability.BODY_FIELDS["update_budget"]
-    assert "tenant" not in dsp_capability.BODY_FIELDS["pause_campaign"]
+    assert all("tenant" not in fields for fields in dsp_capability.BODY_FIELDS.values())
 
 
 def test_a_malformed_body_under_a_valid_capability_keeps_its_old_error(serve):

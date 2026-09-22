@@ -72,4 +72,18 @@ X-Fault 標頭的讀取與「沒開旗標就拒絕」也改由共用基礎提供
 
 憑證驗證在 `src/rtb/dsp/capability.py`:DSP 自己的聲明欄位、範圍欄位與本文白名單(刻意不依賴領域層,動作名稱用路由表既有的)。
 
+- RULE: 作廢紀錄永久保留、沒有筆數或保留期上限:本地已憑它把嘗試判成失敗,刪掉舊請求就可能又能提交。Demo 規模下只增不減可接受。[since:2026-09-23] [retire:真實部署或資料量成長到需要清理時,改成有保留期的設計並先解決「過期清理後舊請求又能提交」]
+REVISIT:2026-11-30 盤點作廢表的筆數成長,決定要不要設保留期與清理方式。
+- RULE: 會改狀態的端點(寫入與作廢)一律經同一層故障注入外殼,故障行為只有一套。防回歸:[test:test_a_void_call_that_times_out_comes_back_as_no_answer]。[since:2026-09-23] [retire:故障注入整個撤掉時]
+- RULE: 冪等鍵與預期版本的格式檢查(含預期版本的整數上界)由寫入與作廢共用同一支函式。防回歸:[test:test_an_out_of_range_expected_version_is_rejected_before_anything_is_voided]。[since:2026-09-23] [retire:兩個端點的驗證需求分岔時]
 - RULE: 儲存層建構子補欄位失敗時要關掉剛開的連線,等鎖逾時轉成自己模組的「忙碌」例外,跟收件表、分析行程的任務表同一寫法。防回歸:[test:test_a_failed_column_migration_closes_the_new_connection]。[since:2026-09-23] [retire:三支資料庫模組改用共用的開庫函式時撤除]
+
+## 作廢冪等鍵(Phase 3 增量 4 對帳)
+
+- WHY: 對帳要判「沒發生」之前,必須證明舊請求永遠不會晚到提交。「憑證到期時間加寬限」證明不了(DSP 驗完時間之後、提交之前可能被暫停),所以改由 DSP 提供作廢:作廢與寫入在同一把寫入鎖下排隊,結果只有「寫入先提交(作廢回已提交)」或「作廢先成功(之後同鍵寫入一律 409 operation_voided)」兩種。出處:[[Projects/RTB_Phase3外部寫入安全_計劃]] 增量 4 設計審第 1、2 輪。
+- RULE: 寫入要在拿到寫入鎖之後、冪等重放判斷之後才查作廢;放在鎖外,舊請求可能先查到「沒作廢」、等作廢完成後才提交。作廢只看鍵,不碰憑證與時間、不進操作指紋。[since:2026-09-23] [retire:DSP 改用別的 fencing 機制(例如佇列消費者的 lease)時撤除] 防回歸:[test:test_voiding_and_a_late_write_are_linearized_by_the_write_lock]
+- RULE: 作廢紀錄永久保留:回退時可以拿掉作廢端點,不能拿掉作廢表與寫入時的作廢檢查——執行行程已憑它把嘗試判成失敗。[since:2026-09-23] [retire:所有憑作廢判失敗的嘗試都已人工核對、且舊請求確定已排空時] 防回歸:[test:test_the_dsp_voids_a_key_or_reports_the_commit_that_won]
+- RULE: 模擬 DSP 沒有建立或刪除廣告的介面(只有測試的種子資料):廣告現在不存在就代表從來不存在,執行行程對帳時因此可以不作廢、直接判失敗(廣告不存在)。[since:2026-09-23] [retire:模擬 DSP 加了建立或刪除廣告的介面時,要回頭改對帳那一格] 防回歸:[test:test_reconcile_fails_a_missing_campaign_without_voiding]
+- 作廢端點:路徑掛在廣告底下、帶冪等鍵標頭與能力憑證,本文帶預期版本;驗證順序與範圍檢查照寫入端點(同一個函式),端點把自己的動作常數「void_operation」交給範圍檢查,所以一般寫入憑證拿來作廢會因動作不符被拒。防回歸:[test:test_voiding_needs_a_void_capability_scoped_to_the_key]
+- 操作紀錄補存預期版本(照補欄位做法;舊列留空值),用鍵查詢的端點多回參數、預期版本與冪等鍵。防回歸:[test:test_the_operation_lookup_returns_params_and_expected_version]、[test:test_an_old_dsp_database_gains_the_expected_version_column]
+- 寫入路由分兩類:改廣告的(改預算、暫停,`CAMPAIGN_WRITE_ACTIONS`)與作廢;兩支既有窮舉測試改成分兩類明列。

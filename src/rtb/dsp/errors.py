@@ -67,3 +67,7 @@ class CapabilityExpired(CapabilityError):
 
 class CapabilityScopeMismatch(CapabilityError):
     """請求(廣告、動作、冪等鍵、租戶、新預算、預期版本)與聲明不符。"""
+
+
+class OperationVoided(PermanentError):
+    """這把冪等鍵已被作廢(對帳判失敗之前的證明):同鍵的新寫入一律拒收,三張表都不動。"""

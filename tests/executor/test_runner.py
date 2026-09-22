@@ -242,3 +242,56 @@ def test_a_hard_linked_database_is_refused_before_sqlite_opens_it(tmp_path, monk
         code, opened = _run_counting_opens(monkeypatch, path, config, clock)
         assert code == runner.EXIT_UNSAFE_DB, path
         assert opened == []
+
+
+# ---- [S82] ----
+def test_each_round_reconciles_oldest_first_before_taking_a_new_proposal(h):
+    order = []
+    first = h.submit()  # 先開的嘗試,但它的最後一列會比較晚寫
+    h.dsp.answers.append(WriteAnswer(None))
+    h.dsp.on_write = lambda p, k, _t: h.dsp.apply(p, k)
+    h.process()
+    h.clock.advance(seconds=10)
+    second = h.submit(task_id="t2", campaign_id="c2")
+    h.dsp.answers.append(WriteAnswer(None))
+    h.process()
+    h.dsp.on_write = None
+    h.clock.advance(seconds=10)
+    with h.store.transaction() as tx:  # 讓先開的那把鍵最後一列比較新
+        row = attempt_store.latest(tx, operation_key(first))
+        attempt_store.record_verification_timeout(tx, row.key, row.seq, h.clock())
+    h.submit(task_id="t3", campaign_id="c3")  # 一份新提案
+
+    lookup = h.dsp.operation_record
+    h.dsp.operation_record = lambda key: (order.append(("lookup", key)), lookup(key))[1]
+    h.dsp.on_read = lambda campaign: order.append(("read", campaign))
+
+    assert run_in_process(h, max_rounds=1) == 0
+
+    lookups = [key for kind, key in order if kind == "lookup"]
+    assert lookups == [operation_key(second), operation_key(first)]  # 依最後一列由舊到新
+    assert order.index(("read", "c3")) > max(i for i, e in enumerate(order) if e[0] == "lookup")
+
+
+# ---- [S86] ----
+def test_a_round_with_a_failed_reconcile_call_sleeps(h):
+    h.submit()
+    h.dsp.answers.append(WriteAnswer(None))
+    h.process()  # 一筆結果不明
+    h.submit(task_id="t2", campaign_id="c2")  # 一份會被執行的新提案
+    h.dsp.lookup_failures = 1
+    slept = []
+
+    code = runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
+                      out=io.StringIO(), sleep=slept.append, max_rounds=1)
+
+    assert code == 0
+    assert h.dsp.writes[-1][0].campaign_id == "c2"  # 前置:新提案這輪確實被執行了
+    assert slept == [0.01]  # 對帳這輪有 DSP 呼叫失敗:照樣休息一個間隔
+
+    # 對照:這輪沒有失敗、新提案被執行,不休息
+    h.submit(task_id="t3", campaign_id="c3")
+    slept.clear()
+    runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
+               out=io.StringIO(), sleep=slept.append, max_rounds=1)
+    assert slept == []

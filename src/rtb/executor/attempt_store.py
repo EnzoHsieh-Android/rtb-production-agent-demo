@@ -247,8 +247,19 @@ def unresolved_count(tx: ExecutorTransaction, campaign_id: str | None = None) ->
     return count
 
 
+def awaiting_reconciliation(tx: ExecutorTransaction) -> tuple[str, ...]:
+    """要對帳的鍵:最新一列是結果不明或已提交待驗證(轉人工不算),依最新一列寫入時間由舊到新。"""
+    records = _conn(tx).execute(
+        "SELECT a.key FROM attempts a WHERE a.state IN (?, ?) AND a.seq = "
+        "(SELECT MAX(b.seq) FROM attempts b WHERE b.key = a.key) ORDER BY a.written_at, a.key",
+        (AttemptState.UNKNOWN.value, AttemptState.COMMITTED_UNVERIFIED.value),
+    ).fetchall()
+    return tuple(record[0] for record in records)
+
+
 def _expiry(value: object) -> str:
-    """轉進嘗試中必帶:這次送出所帶憑證的到期時間(增量 4 用它證明舊請求不會再被提交)。"""
+    """轉進嘗試中必帶:這次送出所帶憑證的到期時間。對帳不再拿它當證明(改用 DSP 端作廢,
+    見 Phase 3 計劃增量 4),保留給人工處置時參考。"""
     if not isinstance(value, datetime):
         raise IncompleteRow("轉進嘗試中要帶這次送出所帶憑證的到期時間")
     return _iso(value)

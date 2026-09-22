@@ -4,6 +4,7 @@
 伺服器那一側排定:每個寫入請求依序取一個安排(故障模式、DSP 時鐘偏移)。
 """
 
+import sqlite3
 import threading
 
 import pytest
@@ -13,7 +14,7 @@ from rtb.dsp.server import DspHandler, DspServer
 from rtb.dsp.store import CampaignStore, Operation
 from rtb.executor.capability_signer import CapabilitySigner
 from rtb.executor.dsp_client import DspClient
-from rtb.executor.execution import DspUnavailable, Executor, Result
+from rtb.executor.execution import DspUnavailable, Executor, OperationRecord, Result
 from rtb.executor.inbox_store import InboxStore
 from tests.capability_samples import TEST_KEY
 from tests.executor.fakes import proposal, write_config
@@ -21,6 +22,7 @@ from tests.executor.fakes import proposal, write_config
 
 class PlannedHandler(DspHandler):
     def read_fault(self, modes):
+        # 排定的故障照順序給每一個會改狀態的請求(寫入與作廢都算)
         if self.command != "POST" or not self.server.plan:
             return None
         fault, offset = self.server.plan.pop(0)
@@ -29,8 +31,8 @@ class PlannedHandler(DspHandler):
 
 
 class PlannedDsp(DspServer):
-    def __init__(self, db, clock):
-        super().__init__(db, fault_injection=True, hang_seconds=0.6, delay_seconds=0.0,
+    def __init__(self, db, clock, delay_seconds=0.0):
+        super().__init__(db, fault_injection=True, hang_seconds=0.6, delay_seconds=delay_seconds,
                          capability_key=TEST_KEY,
                          clock=lambda: clock().timestamp() + self.offset)
         self.RequestHandlerClass = PlannedHandler
@@ -39,11 +41,11 @@ class PlannedDsp(DspServer):
 
 
 class World:
-    def __init__(self, tmp_path, clock, dsp_timeout=3.0):
+    def __init__(self, tmp_path, clock, dsp_timeout=3.0, delay_seconds=0.0):
         self.clock = clock
         self.dsp_db = tmp_path / "dsp.db"
         CampaignStore(self.dsp_db).seed_campaign("c1", budget=100)
-        self.server = PlannedDsp(self.dsp_db, clock)
+        self.server = PlannedDsp(self.dsp_db, clock, delay_seconds)
         threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
         self.client = DspClient(f"http://127.0.0.1:{self.server.server_address[1]}", dsp_timeout)
         self.store = InboxStore(tmp_path / "executor.db")
@@ -222,3 +224,142 @@ def test_an_oversized_version_from_the_dsp_is_treated_as_unreadable(monkeypatch)
     monkeypatch.setattr(dsp_client, "request_json",
                         lambda *_a, **_k: (200, {"version_after": 2**63 - 1}))
     assert client.write(proposal(), "k1-x", "t").version_after == 2**63 - 1  # 上限本身可以
+
+
+# ---- 對帳(增量 4)的端到端 ----
+def applied(world, prop):
+    return [h for h in world.history() if h.idempotency_key == operation_key(prop)]
+
+
+# ---- [S79] ----
+def test_f1_timeout_before_commit_is_reconciled_by_a_same_key_resend(tmp_path, clock):
+    world = World(tmp_path, clock, dsp_timeout=0.2)
+    try:
+        prop = world.submit()
+        world.server.plan.append(("timeout_before_commit", 0))
+        world.executor.process_one()
+        assert world.states(prop)[-1] == ("unknown", None)  # 前置:逾時、DSP 沒提交
+
+        world.executor.reconcile_all()
+
+        assert world.states(prop)[-1] == ("verified", None)
+        assert len(applied(world, prop)) == 1  # 同一把鍵重送,DSP 只套用一次
+        threading.Event().wait(0.8)  # 等被掛住的舊請求放棄:它不會晚到提交
+        assert len(applied(world, prop)) == 1 and world.campaign().version == 2
+    finally:
+        world.close()
+
+
+# ---- [S80] ----
+def test_f1_timeout_after_commit_is_reconciled_from_the_operation_record(tmp_path, clock):
+    world = World(tmp_path, clock, dsp_timeout=0.2)
+    try:
+        prop = world.submit()
+        world.server.plan.append(("timeout_after_commit", 0))
+        world.executor.process_one()
+        assert world.states(prop)[-1] == ("unknown", None)  # 前置:逾時,但 DSP 已提交
+
+        world.executor.reconcile_all()
+
+        assert world.states(prop)[-2:] == [("committed_unverified", None), ("verified", None)]
+        assert len(applied(world, prop)) == 1 and world.campaign().version == 2
+    finally:
+        world.close()
+
+
+# ---- [S81] ----
+def test_f1_a_delayed_commit_and_a_resend_apply_once(tmp_path, clock):
+    world = World(tmp_path, clock, dsp_timeout=0.2, delay_seconds=0.6)
+    try:
+        prop = world.submit()
+        world.server.plan.append(("delayed_response", 0))
+        world.executor.process_one()
+        assert world.states(prop)[-1] == ("unknown", None)  # 前置:用戶端先逾時
+        assert applied(world, prop) == []  # 前置:DSP 還沒提交(舊請求還在睡)
+
+        world.executor.reconcile_all()  # 查不到 → 同鍵重送
+
+        threading.Event().wait(0.8)  # 等晚到的舊請求醒來:同鍵重放,不再套用
+        assert world.states(prop)[-1] == ("verified", None)
+        assert len(applied(world, prop)) == 1 and world.campaign().version == 2
+    finally:
+        world.close()
+
+
+# ---- [S91] ----
+def test_a_voided_key_answer_is_not_mistaken_for_a_version_conflict(world):
+    prop = world.submit()
+    store = world.dsp()
+    try:
+        store.void(operation_key(prop))  # 這把鍵在 DSP 已被作廢
+    finally:
+        store.close()
+
+    world.executor.process_one()
+
+    assert world.states(prop)[-1] == ("failed", "not_happened")
+    assert world.campaign().version == 1
+
+
+# ---- [S94] 的用戶端那一半 ----
+def test_the_real_client_reads_the_full_operation_record(world):
+    prop = world.submit()
+    world.executor.process_one()
+    key = operation_key(prop)
+
+    assert world.client.operation_record(key) == OperationRecord(
+        campaign_id="c1", action="update_budget", new_budget=150, expected_version=1,
+        version_after=2)
+    assert world.client.operation_record("k1-missing") is None
+
+    import sqlite3
+    conn = sqlite3.connect(world.dsp_db)
+    conn.execute("UPDATE operations SET expected_version = NULL")  # 補欄位之前寫的舊列
+    conn.commit()
+    conn.close()
+    old = world.client.operation_record(key)
+    assert old is not None and old.expected_version is None
+
+
+def test_the_real_client_voids_a_key_through_the_dsp(world):
+    prop = world.submit(campaign_version_observed=1)
+    token = CapabilitySigner(TEST_KEY).sign_void(
+        prop, operation_key(prop), world.config, int(world.clock().timestamp()))
+
+    answer = world.client.void(prop, operation_key(prop), token)
+
+    assert (answer.status, answer.state, answer.record) == (200, "voided", None)
+
+
+
+def test_a_void_call_that_times_out_comes_back_as_no_answer(world):
+    """作廢呼叫逾時要吞成「沒拿到回應」交給對照表(留在結果不明),不是讓例外炸穿對帳迴圈。"""
+    prop = world.submit(campaign_version_observed=1)
+    token = CapabilitySigner(TEST_KEY).sign_void(
+        prop, operation_key(prop), world.config, int(world.clock().timestamp()))
+    world.server.plan.append(("timeout_before_commit", 0))  # DSP 掛住比用戶端逾時久
+
+    answer = world.client.void(prop, operation_key(prop), token)
+
+    assert (answer.status, answer.state) == (None, None)
+    conn = sqlite3.connect(world.dsp_db)
+    try:  # DSP 真的沒有留下作廢紀錄(再作廢一次分不出來:作廢是冪等的,兩種情況都回已作廢)
+        assert conn.execute("SELECT count(*) FROM voided_keys WHERE key = ?",
+                            (operation_key(prop),)).fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_an_old_style_operation_answer_still_reads_back_its_version(monkeypatch):
+    """兩支查詢共用查詢與「查不到」判斷,但欄位要求各自照舊:
+    舊版 DSP 的成功回應沒有參數,查寫入後版本照樣讀得回來;核對完整內容那支才算讀不懂。"""
+    from rtb.executor import dsp_client
+
+    old = {"operation_id": 1, "campaign_id": "c1", "action": "update_budget",
+           "version_after": 5, "committed_at": "2026-09-23T00:00:00+00:00", "replayed": False}
+    client = dsp_client.DspClient("http://127.0.0.1:9", 1)
+    monkeypatch.setattr(dsp_client, "request_json", lambda *_a, **_k: (200, old))
+
+    assert client.operation_version("k1-x") == 5
+    with pytest.raises(DspUnavailable):
+        client.operation_record("k1-x")

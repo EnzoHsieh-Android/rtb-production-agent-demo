@@ -1,0 +1,493 @@
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index d659dd0..381d376 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -177,56 +177,62 @@ class DspHandler(JsonHandler):
+         params = {"new_budget": body.get("new_budget")} if action == "update_budget" else {}
+         op = replace(self._operation(campaign_id, action, params, body),
+                      policy_version=claims.policy_version)  # 只記不驗,供稽核
+         validate(op)  # 不合法的值照舊回 422,不被當成範圍不符
+         check_scope(claims, WriteRequest(campaign_id, action, op.idempotency_key,
+                                          params.get("new_budget"), op.expected_version),
+                     store.tenant_of(campaign_id))
+         return self._write(store, op, fault)
+ 
+     def _void_operation(
+-        self, store: CampaignStore, campaign_id: str, _fault: str | None
++        self, store: CampaignStore, campaign_id: str, fault: str | None
+     ) -> dict[str, Any]:
+         """作廢一把冪等鍵:驗證順序與範圍檢查照寫入端點(同一個函式),動作是本端點的常數,
+         所以一般寫入憑證拿來作廢會因動作不符被拒。作廢本身只看鍵,由儲存層在寫入鎖下做。"""
+         action = "void_operation"
+         claims = verified_claims(lambda: self.single_header(CAPABILITY_HEADER),
+                                  self.server.capability_key, self.server.clock)
+         body = self.read_json(allow_empty=True)
+         if check_body_fields(action, body):
+             raise RequestRejected(400, "unexpected_field")
+         key = self._idempotency_key()
+         validate_key_and_version(key, body.get("expected_version"))
+         check_scope(claims, WriteRequest(campaign_id, action, key, None,
+                                          body.get("expected_version")),
+                     store.tenant_of(campaign_id))
+-        result = store.void(key)
+-        return {"state": result.state,
+-                "operation": None if result.operation is None else asdict(result.operation)}
++        return self._commit(fault, lambda: {
++            "state": (result := store.void(key)).state,
++            "operation": None if result.operation is None else asdict(result.operation)})
+ 
+     def _idempotency_key(self) -> str:
+         key = self.single_header("Idempotency-Key")
+         if not key:
+             raise RequestRejected(400, "missing_idempotency_key")
+         return key
+ 
+     def _operation(
+         self, campaign_id: str, action: str, params: dict[str, Any], body: dict[str, Any]
+     ) -> Operation:
+         key = self._idempotency_key()
+         return Operation(campaign_id, action, params, body.get("expected_version"), key)
+ 
+     def _write(
+         self, store: CampaignStore, op: Operation, fault: str | None
+     ) -> dict[str, Any]:
++        return self._commit(fault, lambda: asdict(store.execute(op)))
++
++    def _commit(
++        self, fault: str | None, commit: Callable[[], dict[str, Any]]
++    ) -> dict[str, Any]:
++        """所有會改狀態的端點(寫入、作廢)共用同一層故障注入:提交前套用,提交後再視故障延遲回應。"""
+         self._apply_fault_before_commit(fault)
+-        result = asdict(store.execute(op))
++        result = commit()
+         if fault == "timeout_after_commit":
+             time.sleep(self.server.hang_seconds)  # 已提交,但回應遲到
+         return result
+ 
+     def _apply_fault_before_commit(self, fault: str | None) -> None:
+         if fault == "delayed_response":
+             time.sleep(self.server.delay_seconds)
+         elif fault == "transient_5xx":
+             raise RequestRejected(503, "injected_transient_error", retryable=True)
+         elif fault == "permanent_validation_error":
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index 911e668..839f924 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -134,22 +134,22 @@ def is_plain_int(value: object) -> TypeGuard[int]:
+ def validate(op: Operation) -> None:
+     """操作內容的合法性(冪等鍵格式、預期版本、動作、預算)。寫入端點在比對憑證範圍之前先跑,
+     讓不合法的值照舊回 422 而不是被當成範圍不符。"""
+     _validate(op)
+ 
+ 
+ def validate_key_and_version(key: object, expected_version: object) -> None:
+     """寫入與作廢共用的格式檢查:冪等鍵格式、預期版本是正整數。"""
+     if not isinstance(key, str) or not IDEMPOTENCY_KEY_PATTERN.fullmatch(key):
+         raise ValidationRejected("冪等鍵必須是 1 到 128 個英數字或 . _ : -")
+-    if not is_plain_int(expected_version) or expected_version < 1:
+-        raise ValidationRejected("expected_version 必須是正整數")
++    if not is_plain_int(expected_version) or not 0 < expected_version <= SQLITE_INTEGER_MAX:
++        raise ValidationRejected("expected_version 必須是正整數且不超過資料庫整數上限")
+ 
+ 
+ def _validate(op: Operation) -> None:
+     validate_key_and_version(op.idempotency_key, op.expected_version)
+     if op.action == "update_budget":
+         budget = op.params.get("new_budget")
+         if not is_plain_int(budget) or not 0 < budget <= SQLITE_INTEGER_MAX:
+             raise ValidationRejected("new_budget 必須是 1 到 2**63-1 的整數")
+     elif op.action != "pause_campaign":
+         raise UnknownAction(op.action)
+@@ -339,21 +339,22 @@ class CampaignStore:
+         except BaseException:
+             if self._conn.in_transaction:
+                 self._conn.execute("ROLLBACK")
+             raise
+         return VoidResult("voided") if committed is None else VoidResult("committed", committed)
+ 
+     def _execute_in_transaction(self, op: Operation, received_at: str) -> OperationResult:
+         existing = self._existing_operation(op)
+         if existing is not None:
+             return existing
+-        # 查作廢一定在拿到寫入鎖之後:放在交易外,舊請求可能先查到沒作廢、等作廢完成後才提交
++        # 這段查詢必須留在寫入交易內(已經拿到寫入鎖):搬到交易外的話,舊請求會先查到「沒作廢」、
++        # 等作廢完成之後才提交,就繞過了作廢
+         if self._conn.execute(
+                 "SELECT 1 FROM voided_keys WHERE key = ?", (op.idempotency_key,)).fetchone():
+             raise OperationVoided(op.idempotency_key)
+         current = self.get_campaign(op.campaign_id)
+         if current.version != op.expected_version:
+             raise VersionConflict(f"預期 {op.expected_version},目前 {current.version}")
+         updated = _next_state(current, op)
+         committed_at = self._clock()
+         operation_id = self._apply(op, updated, received_at, committed_at)
+         self._record_idempotency(op, operation_id)
+diff --git a/src/rtb/executor/dsp_client.py b/src/rtb/executor/dsp_client.py
+index 805ff31..4baff0d 100644
+--- a/src/rtb/executor/dsp_client.py
++++ b/src/rtb/executor/dsp_client.py
+@@ -64,27 +64,23 @@ class DspClient:
+             status, reply = request_json(self._base + path, "POST", body, self._timeout, headers)
+         except (OSError, ValueError):
+             return WriteAnswer(None)
+         if not isinstance(reply, dict):  # 回應讀不懂:當成沒拿到回應
+             return WriteAnswer(None)
+         error = reply.get("error")
+         return WriteAnswer(status, error if isinstance(error, str) else None,
+                            _positive_int(reply.get("version_after")))
+ 
+     def operation_version(self, key: str) -> int | None:
+-        status, body = self._get(f"/operations/{key}")
+-        if status == 404 and body.get("error") == "operation_not_found":
+-            return None
+-        version = _positive_int(body.get("version_after"))
+-        if status != 200 or version is None:
+-            raise DspUnavailable(f"查詢回 {status}")
+-        return version
++        """增量 3 的介面,行為不變;解析只有 operation_record 一份,不各自再解析一次。"""
++        record = self.operation_record(key)
++        return None if record is None else record.version_after
+ 
+     def operation_record(self, key: str) -> OperationRecord | None:
+         status, body = self._get(f"/operations/{key}")
+         if status == 404 and body.get("error") == "operation_not_found":
+             return None
+         record = _record(body) if status == 200 else None
+         if record is None:
+             raise DspUnavailable(f"查詢回 {status}")
+         return record
+ 
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index e1e9f93..2604da5 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -12,21 +12,21 @@
+ 用協定注入。時間只有一個來源——注入的時鐘——但不是整輪共用同一個值:到期判斷、每次簽發、
+ 每一筆寫入都在當下讀它,否則過期後的重簽會簽出跟第一張一樣已過期的憑證。
+ 呼叫 DSP 期間不開任何資料庫交易;每一筆寫入各自一個交易,條件是上一筆寫入回傳的序號。
+ """
+ 
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from enum import StrEnum
+ from pathlib import Path
+-from typing import Protocol
++from typing import Any, Protocol
+ 
+ from rtb.domain._checks import is_plain_int
+ from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
+ from rtb.domain.proposal import ActionType, Proposal
+ from rtb.executor import attempt_store
+ from rtb.executor.attempt_store import AttemptRow
+ from rtb.executor.capability_signer import LIFETIME_SECONDS, SigningRefused
+ from rtb.executor.inbox_store import BlockCode, InboxStore, PendingProposal
+ 
+ A = AttemptState
+@@ -124,22 +124,23 @@ class Reaction:
+ 
+ 
+ @dataclass(frozen=True)
+ class ResponseRule:
+     name: str
+     matches: Callable[[WriteAnswer], bool]
+     reaction: Reaction
+     example: WriteAnswer  # 落在這一列的一個回應,給測試逐列驗證
+ 
+ 
+-def _status(low: int, high: int, error: str | None = None) -> Callable[[WriteAnswer], bool]:
+-    def matches(answer: WriteAnswer) -> bool:
++def _status(low: int, high: int, error: str | None = None) -> Callable[[Any], bool]:
++    """兩張回應對照表共用:回應只要有狀態碼與錯誤代碼兩個欄位就能用。"""
++    def matches(answer: Any) -> bool:
+         return (answer.status is not None and low <= answer.status <= high
+                 and (error is None or answer.error == error))
+     return matches
+ 
+ 
+ def _committed(answer: WriteAnswer) -> bool:
+     version = answer.version_after
+     return answer.status == 200 and is_plain_int(version) and version > 0
+ 
+ 
+@@ -201,41 +202,34 @@ class VoidReaction:
+     halt: bool = False
+ 
+ 
+ @dataclass(frozen=True)
+ class VoidRule:
+     name: str
+     matches: Callable[[VoidAnswer], bool]
+     reaction: VoidReaction
+ 
+ 
+-def _void_status(low: int, high: int, error: str | None = None) -> Callable[[VoidAnswer], bool]:
+-    def matches(answer: VoidAnswer) -> bool:
+-        return (answer.status is not None and low <= answer.status <= high
+-                and (error is None or answer.error == error))
+-    return matches
+-
+-
+ VOID_TABLE = (
+     VoidRule("voided", lambda a: a.status == 200 and a.state == "voided",
+              VoidReaction(VoidOutcome.FAILED, C.NOT_HAPPENED)),
+     VoidRule("committed", lambda a: a.status == 200 and a.state == "committed"
+              and a.record is not None, VoidReaction(VoidOutcome.FOUND)),
+-    VoidRule("capability_expired", _void_status(401, 401, "capability_expired"),
++    VoidRule("capability_expired", _status(401, 401, "capability_expired"),
+              VoidReaction(VoidOutcome.TIMEOUT)),  # 下一輪重讀時鐘重簽
+-    VoidRule("capability_rejected", _void_status(401, 401),
++    VoidRule("capability_rejected", _status(401, 401),
+              VoidReaction(VoidOutcome.ESCALATED, C.CAPABILITY_REJECTED)),
+-    VoidRule("capability_scope_mismatch", _void_status(403, 403),
++    VoidRule("capability_scope_mismatch", _status(403, 403),
+              VoidReaction(VoidOutcome.ESCALATED, C.CAPABILITY_REJECTED)),
+-    VoidRule("capability_not_configured", _void_status(503, 503, "capability_not_configured"),
++    VoidRule("capability_not_configured", _status(503, 503, "capability_not_configured"),
+              VoidReaction(VoidOutcome.ESCALATED, C.CAPABILITY_REJECTED)),
+-    VoidRule("local_request_error", _void_status(400, 499),
++    VoidRule("local_request_error", _status(400, 499),
+              VoidReaction(VoidOutcome.ESCALATED, C.LOCAL_REQUEST_ERROR, halt=True)),
+     # 5xx、逾時、斷線、讀不懂、表上沒列的狀態碼(含 200 卻讀不出結論):留在結果不明
+     VoidRule("inconclusive", lambda _a: True, VoidReaction(VoidOutcome.TIMEOUT)),
+ )
+ 
+ 
+ def react_void(answer: VoidAnswer) -> VoidReaction:
+     return next(rule.reaction for rule in VOID_TABLE if rule.matches(answer))
+ 
+ 
+@@ -327,24 +321,26 @@ class Executor:
+ 
+     # ---- 第 1~4 步 ----
+     def _pick(self) -> PendingProposal | None:
+         """依收到時間由舊到新,跳過「同一個廣告已有未結案嘗試」的,挑第一份(只讀)。"""
+         with self.store.transaction() as tx:
+             for item in self.store.pending(tx):
+                 if not attempt_store.unresolved_count(tx, item.proposal.campaign_id):
+                     return item
+         return None
+ 
+-    def _sign(self, proposal: Proposal) -> _Signed | BlockCode:
++    def _sign(self, proposal: Proposal, key: str | None = None) -> _Signed | BlockCode:
++        """key 給對帳重送用:嘗試已經開過,一律用存下來的那把鍵簽,不從提案重算(增量 1 的規則)。"""
+         now = int(self.clock().timestamp())  # 每次簽發都重讀時鐘
+         try:
+-            token = self.signer.sign(proposal, operation_key(proposal), self.config_path, now)
++            token = self.signer.sign(proposal, key or operation_key(proposal),
++                                     self.config_path, now)
+         except SigningRefused as refused:
+             if refused.reason in _BUSINESS_REFUSALS:
+                 return _BUSINESS_REFUSALS[refused.reason]
+             raise ExecutorHalted(refused.reason) from refused
+         return _Signed(token, datetime.fromtimestamp(now + LIFETIME_SECONDS, UTC))
+ 
+     def _dispose(self, picked: PendingProposal, code: BlockCode | None, kind: Result) -> Processed:
+         """標已過期或已擋下;條件是仍待處理且內容雜湊沒變,被取代了就什麼都不改。"""
+         args = (picked.task_id, picked.revision, picked.content_hash)
+         with self.store.transaction() as tx:
+@@ -403,21 +399,21 @@ class Executor:
+         return reaction.target is A.UNKNOWN
+ 
+     def _after_expiry(self, proposal: Proposal, row: AttemptRow) -> bool:
+         """DSP 明確沒寫:重讀 DSP、重跑檢查;通過就重讀時鐘重簽、同鍵重送一次。"""
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id)
+         except DspUnavailable:
+             return True  # 留在結果不明,交給對帳
+         passed = (proposal.decision_expires_at > self.clock()
+                   and precheck(proposal, view) is None)
+-        signed = self._sign(proposal) if passed else None  # 設定檔壞掉在這裡停機,留在結果不明
++        signed = self._sign(proposal, row.key) if passed else None  # 設定檔壞掉在這裡停機
+         if not isinstance(signed, _Signed):  # 業務上沒通過:DSP 明確沒寫這一次,不再送
+             if row.send_count > 1:  # 送過多次:更早的請求可能還在路上,先作廢才能判失敗
+                 return self._void_then_fail(proposal, row)
+             self._write(row, A.FAILED, code=C.NOT_HAPPENED)
+             return False
+         try:
+             row = self._write(row, A.IN_FLIGHT, capability_expires_at=signed.expires_at)
+         except attempt_store.SendLimitReached:
+             self._write(row, A.ESCALATED, code=C.SEND_LIMIT_REACHED)
+             return False
+@@ -506,21 +502,21 @@ class Executor:
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id)
+         except DspUnavailable:
+             self._verification_timeout(row)
+             return True
+         if view is None:  # 模擬 DSP 沒有建立或刪除廣告的介面:不存在就代表從來不存在
+             self._write(row, A.FAILED, code=C.CAMPAIGN_NOT_FOUND)
+             return False
+         blocked = (proposal.decision_expires_at <= self.clock()
+                    or precheck(proposal, view) is not None)
+-        signed = None if blocked else self._sign(proposal)  # 設定檔壞掉在這裡停機
++        signed = None if blocked else self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
+         if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗
+             return self._void_then_fail(proposal, row)
+         try:
+             row = self._write(row, A.IN_FLIGHT, capability_expires_at=signed.expires_at)
+         except attempt_store.SendLimitReached:
+             self._write(row, A.ESCALATED, code=C.SEND_LIMIT_REACHED)
+             return False
+         return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token))
+ 
+     def _found(self, proposal: Proposal, row: AttemptRow, record: OperationRecord) -> bool:
+diff --git a/tests/dsp/test_void.py b/tests/dsp/test_void.py
+index e6106d6..8df7cf2 100644
+--- a/tests/dsp/test_void.py
++++ b/tests/dsp/test_void.py
+@@ -225,10 +225,25 @@ def test_voiding_needs_a_void_capability_scoped_to_the_key(serve, tmp_path):  #
+     with pytest.raises(SigningRefused):
+         signer.sign(over_cap, "k1", config, 1_800_000_000)
+     signed = signer.sign_void(over_cap, "k1", config, 1_800_000_000)
+     from rtb.capabilitykit import decode
+     voided = decode(signed, TEST_KEY)
+     assert (voided["action"], voided["new_budget"], voided["idempotency_key"]) == (
+         "void_operation", None, "k1")
+     with pytest.raises(SigningRefused) as refused:
+         signer.sign_void(proposal(campaign_id="c9"), "k1", config, 1_800_000_000)
+     assert refused.value.reason == "campaign_not_allowed"
++
++
++def test_an_out_of_range_expected_version_is_rejected_before_anything_is_voided(serve):  # noqa: F811
++    """預期版本要跟新預算一樣有上界:超過資料庫整數上限的值不能一路帶到寫入或作廢。"""
++    srv = serve()
++    before = tables(srv)
++    huge = 2**63
++
++    status, body = call(srv, "POST", "/campaigns/c1/void", {"expected_version": huge},
++                        {"Idempotency-Key": "k1",
++                         "X-Capability": token(action="void_operation", new_budget=None,
++                                               expected_version=huge, idempotency_key="k1")})
++
++    assert (status, body["error"]) == (422, "validation_rejected")
++    assert tables(srv) == before  # 三張表與作廢表都沒動
+diff --git a/tests/executor/test_execution.py b/tests/executor/test_execution.py
+index 918af48..c148b62 100644
+--- a/tests/executor/test_execution.py
++++ b/tests/executor/test_execution.py
+@@ -310,20 +310,36 @@ def test_an_expired_capability_is_recorded_rechecked_and_resent_once(h):
+ 
+     # 重簽後仍過期 → 轉人工(憑證被拒)
+     third = h.submit(task_id="t3", campaign_id="c3")
+     h.dsp.on_write = None
+     h.dsp.answers += [WriteAnswer(401, "capability_expired"),
+                       WriteAnswer(401, "capability_expired")]
+     h.process()
+     assert states(h, third)[-1] == ("escalated", "capability_rejected")
+ 
+ 
++def test_a_resigned_capability_after_expiry_signs_the_stored_key(h, monkeypatch):
++    """憑證過期後的重簽也只用嘗試紀錄存下的鍵:算法升版時從提案重算會簽出另一把鍵。"""
++    from rtb.capabilitykit import decode
++    from rtb.executor import execution
++
++    prop = h.submit()
++    stored = key_of(prop)
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++    monkeypatch.setattr(execution, "operation_key", lambda _p: "k2-recomputed")
++
++    h.process()
++
++    resend = h.dsp.writes[-1]
++    assert (resend[1], decode(resend[2], TEST_KEY)["idempotency_key"]) == (stored, stored)
++
++
+ def test_a_resigned_capability_uses_a_freshly_read_clock(h):
+     """一整輪共用同一個時間值的話,重簽會簽出跟第一張一樣已過期的憑證。"""
+     h.submit()
+     h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
+     h.dsp.on_read = lambda _c: h.clock.advance(seconds=200)  # 每次讀 DSP 都慢
+ 
+     h.process()
+ 
+     first, second = (expiry_of(w[2]) for w in h.dsp.writes)
+     assert second - first >= timedelta(seconds=200)
+diff --git a/tests/executor/test_execution_e2e.py b/tests/executor/test_execution_e2e.py
+index 25eac62..c1a77da 100644
+--- a/tests/executor/test_execution_e2e.py
++++ b/tests/executor/test_execution_e2e.py
+@@ -14,22 +14,22 @@ from rtb.dsp.store import CampaignStore, Operation
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import DspUnavailable, Executor, OperationRecord, Result
+ from rtb.executor.inbox_store import InboxStore
+ from tests.capability_samples import TEST_KEY
+ from tests.executor.fakes import proposal, write_config
+ 
+ 
+ class PlannedHandler(DspHandler):
+     def read_fault(self, modes):
+-        # 只排定改廣告的寫入;作廢請求不消耗安排
+-        if self.command != "POST" or self.path.endswith("/void") or not self.server.plan:
++        # 排定的故障照順序給每一個會改狀態的請求(寫入與作廢都算)
++        if self.command != "POST" or not self.server.plan:
+             return None
+         fault, offset = self.server.plan.pop(0)
+         self.server.offset = offset
+         return fault
+ 
+ 
+ class PlannedDsp(DspServer):
+     def __init__(self, db, clock, delay_seconds=0.0):
+         super().__init__(db, fault_injection=True, hang_seconds=0.6, delay_seconds=delay_seconds,
+                          capability_key=TEST_KEY,
+@@ -322,10 +322,27 @@ def test_the_real_client_reads_the_full_operation_record(world):
+ 
+ def test_the_real_client_voids_a_key_through_the_dsp(world):
+     prop = world.submit(campaign_version_observed=1)
+     token = CapabilitySigner(TEST_KEY).sign_void(
+         prop, operation_key(prop), world.config, int(world.clock().timestamp()))
+ 
+     answer = world.client.void(prop, operation_key(prop), token)
+ 
+     assert (answer.status, answer.state, answer.record) == (200, "voided", None)
+ 
++
++
++def test_a_void_call_that_times_out_comes_back_as_no_answer(world):
++    """作廢呼叫逾時要吞成「沒拿到回應」交給對照表(留在結果不明),不是讓例外炸穿對帳迴圈。"""
++    prop = world.submit(campaign_version_observed=1)
++    token = CapabilitySigner(TEST_KEY).sign_void(
++        prop, operation_key(prop), world.config, int(world.clock().timestamp()))
++    world.server.plan.append(("timeout_before_commit", 0))  # DSP 掛住比用戶端逾時久
++
++    answer = world.client.void(prop, operation_key(prop), token)
++
++    assert (answer.status, answer.state) == (None, None)
++    store = world.dsp()
++    try:  # 前置:DSP 真的沒有作廢成功
++        assert store.void(operation_key(prop)).state == "voided"
++    finally:
++        store.close()
+diff --git a/tests/executor/test_reconcile.py b/tests/executor/test_reconcile.py
+index 9e1212c..7f16d8c 100644
+--- a/tests/executor/test_reconcile.py
++++ b/tests/executor/test_reconcile.py
+@@ -306,10 +306,25 @@ def test_an_expired_resend_after_earlier_sends_voids_before_failing(h):
+ 
+ def test_one_failed_call_marks_the_whole_round_as_troubled(h):
+     """一輪有多筆:只要其中一筆的 DSP 呼叫失敗,整輪就算有失敗(不被後面成功的蓋掉)。"""
+     unknown_attempt(h)
+     h.clock.advance(seconds=5)
+     unknown_attempt(h, task_id="t2", campaign_id="c2")
+     h.dsp.lookup_failures = 1  # 只有最舊那一筆的查詢失敗
+ 
+     assert reconcile(h) is True
+ 
++
++def test_a_resend_signs_the_stored_key_not_a_recomputed_one(h, monkeypatch):
++    """算法升版後,同一份提案會算出另一把鍵;重送一律用嘗試紀錄存下的那把(憑證與標頭都是)。"""
++    from rtb.capabilitykit import decode
++    from rtb.executor import execution
++    from tests.capability_samples import TEST_KEY
++
++    prop = unknown_attempt(h)
++    stored = key_of(prop)
++    monkeypatch.setattr(execution, "operation_key", lambda _p: "k2-recomputed")
++
++    reconcile(h)
++
++    sent = [(w[1], decode(w[2], TEST_KEY)["idempotency_key"]) for w in h.dsp.writes]
++    assert sent[-1] == (stored, stored)  # 標頭與憑證都用存下的鍵

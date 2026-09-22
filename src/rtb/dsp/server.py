@@ -35,13 +35,14 @@ from rtb.dsp.errors import (
     DspError,
     IdempotencyConflict,
     MetricsNotFound,
+    OperationVoided,
     StoreBusy,
     TransientError,
     UnknownAction,
     ValidationRejected,
     VersionConflict,
 )
-from rtb.dsp.store import CampaignStore, Operation, validate
+from rtb.dsp.store import CampaignStore, Operation, validate, validate_key_and_version
 from rtb.httpkit import (
     SOCKET_TIMEOUT_SECONDS,
     JsonHandler,
@@ -64,6 +65,7 @@ FAULT_MODES = frozenset(
 ERROR_TABLE = {
     StoreBusy: (503, "store_busy", True),
     VersionConflict: (409, "version_conflict", False),
+    OperationVoided: (409, "operation_voided", False),
     IdempotencyConflict: (422, "idempotency_conflict", False),
     ValidationRejected: (422, "validation_rejected", False),
     UnknownAction: (400, "unknown_action", False),
@@ -82,7 +84,10 @@ ROUTES = [
     ("GET", re.compile(r"^/operations/([^/]+)$"), "get_operation"),
     ("POST", re.compile(r"^/campaigns/([^/]+)/budget$"), "update_budget"),
     ("POST", re.compile(r"^/campaigns/([^/]+)/pause$"), "pause_campaign"),
+    ("POST", re.compile(r"^/campaigns/([^/]+)/void$"), "void_operation"),
 ]
+# 改廣告的寫入路由;作廢路由不改廣告,另成一類(既有窮舉測試分兩類明列)
+CAMPAIGN_WRITE_ACTIONS = ("update_budget", "pause_campaign")
 
 
 def error_entry(exc: DspError) -> tuple[int, str, bool]:
@@ -178,19 +183,49 @@ class DspHandler(JsonHandler):
                     store.tenant_of(campaign_id))
         return self._write(store, op, fault)
 
-    def _operation(
-        self, campaign_id: str, action: str, params: dict[str, Any], body: dict[str, Any]
-    ) -> Operation:
+    def _void_operation(
+        self, store: CampaignStore, campaign_id: str, fault: str | None
+    ) -> dict[str, Any]:
+        """作廢一把冪等鍵:驗證順序與範圍檢查照寫入端點(同一個函式),動作是本端點的常數,
+        所以一般寫入憑證拿來作廢會因動作不符被拒。作廢本身只看鍵,由儲存層在寫入鎖下做。"""
+        action = "void_operation"
+        claims = verified_claims(lambda: self.single_header(CAPABILITY_HEADER),
+                                 self.server.capability_key, self.server.clock)
+        body = self.read_json(allow_empty=True)
+        if check_body_fields(action, body):
+            raise RequestRejected(400, "unexpected_field")
+        key = self._idempotency_key()
+        validate_key_and_version(key, body.get("expected_version"))
+        check_scope(claims, WriteRequest(campaign_id, action, key, None,
+                                         body.get("expected_version")),
+                    store.tenant_of(campaign_id))
+        return self._commit(fault, lambda: {
+            "state": (result := store.void(key)).state,
+            "operation": None if result.operation is None else asdict(result.operation)})
+
+    def _idempotency_key(self) -> str:
         key = self.single_header("Idempotency-Key")
         if not key:
             raise RequestRejected(400, "missing_idempotency_key")
+        return key
+
+    def _operation(
+        self, campaign_id: str, action: str, params: dict[str, Any], body: dict[str, Any]
+    ) -> Operation:
+        key = self._idempotency_key()
         return Operation(campaign_id, action, params, body.get("expected_version"), key)
 
     def _write(
         self, store: CampaignStore, op: Operation, fault: str | None
     ) -> dict[str, Any]:
+        return self._commit(fault, lambda: asdict(store.execute(op)))
+
+    def _commit(
+        self, fault: str | None, commit: Callable[[], dict[str, Any]]
+    ) -> dict[str, Any]:
+        """所有會改狀態的端點(寫入、作廢)共用同一層故障注入:提交前套用,提交後再視故障延遲回應。"""
         self._apply_fault_before_commit(fault)
-        result = asdict(store.execute(op))
+        result = commit()
         if fault == "timeout_after_commit":
             time.sleep(self.server.hang_seconds)  # 已提交,但回應遲到
         return result

@@ -22,6 +22,7 @@ from rtb.domain.proposal import ActionType, Proposal
 
 FORMAT_VERSION = "c1"
 LIFETIME_SECONDS = 120  # 簽發端用的有效期;DSP 端的上限是 300 秒
+VOID_ACTION = "void_operation"  # 作廢一把冪等鍵(對帳判失敗之前);DSP 聲明的動作清單有同名成員
 MAX_CONFIG_BYTES = 64 * 1024
 _UNSAFE_WRITE = stat.S_IWGRP | stat.S_IWOTH
 
@@ -108,18 +109,38 @@ class CapabilitySigner:
 
     def sign(self, proposal: Proposal, operation_key: str, config_path: Path, now: int) -> str:
         """proposal 是嘗試紀錄存下的提案快照;預期版本取快照裡觀察到的版本,不取 DSP 現況。"""
-        tenants = load_tenants(config_path)
-        tenant = next((t for t in tenants if proposal.campaign_id in t.campaigns), None)
-        if tenant is None:
-            raise SigningRefused("campaign_not_allowed")
+        tenant = self._tenant_of(proposal, config_path)
         new_budget = None
         if proposal.action_type is ActionType.UPDATE_BUDGET:
             new_budget = proposal.requested_change["new_budget"]
             if new_budget > tenant.max_budget:
                 raise SigningRefused("over_budget_cap")
+        return self._encode(proposal, operation_key, tenant, proposal.action_type.value,
+                            new_budget, now)
+
+    def sign_void(
+        self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
+    ) -> str:
+        """簽「作廢這把鍵」:只檢查廣告屬於允許的租戶,不檢查預算上限——作廢是撤掉一個寫入,
+        不是在寫。設定檔壞掉或不安全照舊丟 SigningRefused(呼叫端當系統故障)。"""
+        tenant = self._tenant_of(proposal, config_path)
+        return self._encode(proposal, operation_key, tenant, VOID_ACTION, None, now)
+
+    @staticmethod
+    def _tenant_of(proposal: Proposal, config_path: Path) -> Tenant:
+        tenants = load_tenants(config_path)
+        tenant = next((t for t in tenants if proposal.campaign_id in t.campaigns), None)
+        if tenant is None:
+            raise SigningRefused("campaign_not_allowed")
+        return tenant
+
+    def _encode(
+        self, proposal: Proposal, operation_key: str, tenant: Tenant, action: str,
+        new_budget: int | None, now: int,
+    ) -> str:
         claims = {
             "v": FORMAT_VERSION, "tenant": tenant.name, "campaign_id": proposal.campaign_id,
-            "action": proposal.action_type.value, "new_budget": new_budget,
+            "action": action, "new_budget": new_budget,
             "expected_version": proposal.campaign_version_observed,
             "idempotency_key": operation_key, "policy_version": proposal.policy_version,
             "iat": now, "exp": now + LIFETIME_SECONDS,

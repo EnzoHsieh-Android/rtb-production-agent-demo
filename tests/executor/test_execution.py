@@ -228,6 +228,7 @@ DOCUMENTED = [
     ("committed", WriteAnswer(200, None, 4), A.COMMITTED_UNVERIFIED, None, False),
     ("version_conflict", WriteAnswer(409, "version_conflict"), A.FAILED, C.VERSION_CONFLICT,
      False),
+    ("operation_voided", WriteAnswer(409, "operation_voided"), A.FAILED, C.NOT_HAPPENED, False),
     ("idempotency_conflict", WriteAnswer(422, "idempotency_conflict"), A.ESCALATED,
      C.IDEMPOTENCY_CONFLICT, False),
     ("validation_rejected", WriteAnswer(422, "validation_rejected"), A.FAILED,
@@ -316,6 +317,22 @@ def test_an_expired_capability_is_recorded_rechecked_and_resent_once(h):
     assert states(h, third)[-1] == ("escalated", "capability_rejected")
 
 
+def test_a_resigned_capability_after_expiry_signs_the_stored_key(h, monkeypatch):
+    """憑證過期後的重簽也只用嘗試紀錄存下的鍵:算法升版時從提案重算會簽出另一把鍵。"""
+    from rtb.capabilitykit import decode
+    from rtb.executor import execution
+
+    prop = h.submit()
+    stored = key_of(prop)
+    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
+    monkeypatch.setattr(execution, "operation_key", lambda _p: "k2-recomputed")
+
+    h.process()
+
+    resend = h.dsp.writes[-1]
+    assert (resend[1], decode(resend[2], TEST_KEY)["idempotency_key"]) == (stored, stored)
+
+
 def test_a_resigned_capability_uses_a_freshly_read_clock(h):
     """一整輪共用同一個時間值的話,重簽會簽出跟第一張一樣已過期的憑證。"""
     h.submit()
@@ -342,10 +359,10 @@ def test_verification_at_the_written_version_compares_the_intent_for_every_actio
     # 版本對上了但實際狀態不符意圖(DSP 回報成功卻沒改到)
     bad = h.submit(task_id="t2", campaign_id="c2", action_type=action, requested_change=change)
 
-    def wrote_nothing(_p, k, _t):
+    def wrote_nothing(p, k, _t):
         current = h.dsp.campaigns["c2"]
         h.dsp.campaigns["c2"] = CampaignView(current.budget, current.status, current.version + 1)
-        h.dsp.operations[k] = current.version + 1
+        h.dsp.operations[k] = h.dsp.record_for(p, current.version + 1)
 
     h.dsp.on_write = wrote_nothing
     h.dsp.answers.append(WriteAnswer(200, None, 4))
@@ -376,6 +393,24 @@ def test_verification_after_a_later_write_uses_the_operation_record(h):
     assert states(h, missing)[-1] == ("escalated", "verification_mismatch")
 
 
+# ---- [S87] ----
+def test_verification_after_a_later_write_checks_the_full_operation_record(h):
+    """版本後來又前進時,同鍵查到的操作紀錄要核對完整內容,不只比寫入後版本。"""
+    ours = h.submit()
+
+    def applied_with_other_content_then_moved(p, k, _t):
+        h.dsp.apply(p, k)
+        h.dsp.operations[k] = h.dsp.record_for(p, 4, new_budget=999)  # 同鍵、版本對,內容不對
+        h.dsp.campaigns["c1"] = CampaignView(999, "active", 5)
+
+    h.dsp.on_write = applied_with_other_content_then_moved
+    h.dsp.answers.append(WriteAnswer(200, None, 4))
+    h.process()
+
+    assert h.dsp.lookups == [key_of(ours)]  # 前置:走的是「版本已前進」那一支
+    assert states(h, ours)[-1] == ("escalated", "verification_mismatch")
+
+
 # ---- [S51] ----
 def test_a_failed_verification_read_records_a_timeout_and_keeps_the_written_version(h):
     prop = h.submit()
@@ -397,10 +432,10 @@ def test_a_failed_verification_read_records_a_timeout_and_keeps_the_written_vers
     # 轉人工那一列也帶著:回報成功、版本對上,實際狀態卻沒改到
     mismatch = h.submit(task_id="t3", campaign_id="c3")
 
-    def wrote_nothing(_p, k, _t):
+    def wrote_nothing(p, k, _t):
         current = h.dsp.campaigns["c3"]
         h.dsp.campaigns["c3"] = CampaignView(current.budget, current.status, 4)
-        h.dsp.operations[k] = 4
+        h.dsp.operations[k] = h.dsp.record_for(p, 4)
 
     h.dsp.on_write = wrote_nothing
     h.dsp.answers.append(WriteAnswer(200, None, 4))

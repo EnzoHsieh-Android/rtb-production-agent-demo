@@ -25,11 +25,13 @@ CLAIM_FIELDS = ("v", "tenant", "campaign_id", "action", "new_budget", "expected_
                 "idempotency_key", "policy_version", "iat", "exp")
 SCOPE_FIELDS = ("campaign_id", "action", "idempotency_key", "tenant", "new_budget",
                 "expected_version")
-ACTIONS = ("update_budget", "pause_campaign")
+# 「作廢操作」是對帳判失敗前的證明(撤掉一把還沒提交的冪等鍵),不改廣告;不帶新預算
+ACTIONS = ("update_budget", "pause_campaign", "void_operation")
 # 每個寫入端點只收這些本文欄位;多出的一律拒收(租戶不在裡面:沒有端點能改廣告的租戶)
 BODY_FIELDS = {
     "update_budget": frozenset({"new_budget", "expected_version"}),
     "pause_campaign": frozenset({"expected_version"}),
+    "void_operation": frozenset({"expected_version"}),
 }
 MAX_LIFETIME_SECONDS = 300
 MAX_SKEW_SECONDS = 30

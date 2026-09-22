@@ -1,0 +1,67 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "對帳判定表與狀態轉換",
+  "materials": [
+   "governance/review-reports/code-phase3-reconcile/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "作廢的並行與交易邊界",
+  "materials": [
+   "governance/review-reports/code-phase3-reconcile/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "邊界、輸入與回應對照",
+  "materials": [
+   "governance/review-reports/code-phase3-reconcile/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "合約與測試強度",
+  "materials": [
+   "governance/review-reports/code-phase3-reconcile/r1-snapshot-tests.patch",
+   "governance/review-reports/code-phase3-reconcile/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase3-reconcile/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sec",
+  "lens": "資安",
+  "materials": [
+   "governance/review-reports/code-phase3-reconcile/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/code-phase3-reconcile/r1-snapshot-src.patch",
+   "governance/review-reports/code-phase3-reconcile/r1-snapshot-tests.patch"
+  ],
+  "auditor": "codex"
+ }
+]

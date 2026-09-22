@@ -3,6 +3,10 @@
 不變量:一次操作的「狀態變更、操作歷史、冪等紀錄」在同一個交易裡一起提交或一起回滾;
 同一把冪等鍵最多套用一次;寫入交易一律用 BEGIN IMMEDIATE,所以並行的同鍵請求會排隊,
 後到的看見已提交的冪等紀錄後直接回原結果。
+
+作廢(執行行程對帳判失敗之前的證明):作廢與寫入都在同一把寫入鎖下進行,寫入在拿到鎖之後、
+冪等重放判斷之後才查作廢,所以結果只有兩種——寫入先提交(作廢回已提交),或作廢先成功(之後
+同鍵寫入一律拒收)。作廢只看鍵,不碰憑證、不碰時間、不進操作指紋;作廢紀錄永久保留。
 """
 
 import hashlib
@@ -19,6 +23,7 @@ from rtb.dsp.errors import (
     CampaignNotFound,
     IdempotencyConflict,
     MetricsNotFound,
+    OperationVoided,
     StoreBusy,
     UnknownAction,
     ValidationRejected,
@@ -34,9 +39,10 @@ CREATE TABLE IF NOT EXISTS operations (
     operation_id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL,
     action TEXT NOT NULL, params_json TEXT NOT NULL, version_after INTEGER NOT NULL,
     received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
-    policy_version TEXT);
+    policy_version TEXT, expected_version INTEGER);
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, operation_id INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS voided_keys (key TEXT PRIMARY KEY, voided_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS metrics (
     campaign_id TEXT NOT NULL, window_name TEXT NOT NULL, impressions INTEGER, clicks INTEGER,
     conversions INTEGER, spend REAL, revenue REAL, PRIMARY KEY (campaign_id, window_name));
@@ -86,6 +92,15 @@ class OperationResult:
     version_after: int
     committed_at: str
     replayed: bool
+    idempotency_key: str = ""
+    params: dict[str, object] | None = None
+    expected_version: int | None = None  # 補欄位之前寫的舊操作沒有記,誠實回空值
+
+
+@dataclass(frozen=True)
+class VoidResult:
+    state: str  # "voided":已作廢(之後同鍵寫入一律拒收);"committed":這把鍵已先提交
+    operation: OperationResult | None = None
 
 
 @dataclass(frozen=True)
@@ -122,13 +137,16 @@ def validate(op: Operation) -> None:
     _validate(op)
 
 
-def _validate(op: Operation) -> None:
-    if not isinstance(op.idempotency_key, str) or not IDEMPOTENCY_KEY_PATTERN.fullmatch(
-        op.idempotency_key
-    ):
+def validate_key_and_version(key: object, expected_version: object) -> None:
+    """寫入與作廢共用的格式檢查:冪等鍵格式、預期版本是正整數。"""
+    if not isinstance(key, str) or not IDEMPOTENCY_KEY_PATTERN.fullmatch(key):
         raise ValidationRejected("冪等鍵必須是 1 到 128 個英數字或 . _ : -")
-    if not is_plain_int(op.expected_version) or op.expected_version < 1:
-        raise ValidationRejected("expected_version 必須是正整數")
+    if not is_plain_int(expected_version) or not 0 < expected_version <= SQLITE_INTEGER_MAX:
+        raise ValidationRejected("expected_version 必須是正整數且不超過資料庫整數上限")
+
+
+def _validate(op: Operation) -> None:
+    validate_key_and_version(op.idempotency_key, op.expected_version)
     if op.action == "update_budget":
         budget = op.params.get("new_budget")
         if not is_plain_int(budget) or not 0 < budget <= SQLITE_INTEGER_MAX:
@@ -199,11 +217,11 @@ class CampaignStore:
     def _migrate_columns(self) -> None:
         """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:沿用分析行程歷史表的補欄位做法,
         每次連線檢查一次,缺就在交易內加欄位:廣告表的租戶(舊廣告補預設租戶;租戶只在建檔時
-        設定,DSP 沒有任何改廣告租戶的寫入介面)、操作紀錄的政策版本(舊操作留空值)。
+        設定,DSP 沒有任何改廣告租戶的寫入介面)、操作紀錄的政策版本與預期版本(舊操作留空值)。
         """
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
         op_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(operations)")}
-        if "tenant" in columns and "policy_version" in op_columns:
+        if "tenant" in columns and {"policy_version", "expected_version"} <= op_columns:
             return
         try:
             begin_immediate(self._conn)
@@ -218,6 +236,8 @@ class CampaignStore:
             op_columns = {r[1] for r in self._conn.execute("PRAGMA table_info(operations)")}
             if "policy_version" not in op_columns:  # 舊操作沒有紀錄政策版本,誠實留空值
                 self._conn.execute("ALTER TABLE operations ADD COLUMN policy_version TEXT")
+            if "expected_version" not in op_columns:  # 舊操作沒有紀錄預期版本,誠實留空值
+                self._conn.execute("ALTER TABLE operations ADD COLUMN expected_version INTEGER")
             self._conn.execute("COMMIT")
         except BaseException:
             if self._conn.in_transaction:
@@ -304,10 +324,33 @@ class CampaignStore:
         except DatabaseBusy as exc:
             raise StoreBusy(str(exc)) from exc
 
+    def void(self, key: str) -> VoidResult:
+        """作廢一把冪等鍵:已有操作紀錄就不作廢、回已提交;沒有就記下作廢(再作廢也回已作廢)。"""
+        validate_key_and_version(key, 1)
+        voided_at = self._clock()
+        self._begin_write_transaction()
+        try:
+            committed = self._recorded_result(key, replayed=False)
+            if committed is None:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO voided_keys (key, voided_at) VALUES (?, ?)",
+                    (key, voided_at))
+            self._conn.execute("COMMIT")
+        except BaseException:
+            if self._conn.in_transaction:
+                self._conn.execute("ROLLBACK")
+            raise
+        return VoidResult("voided") if committed is None else VoidResult("committed", committed)
+
     def _execute_in_transaction(self, op: Operation, received_at: str) -> OperationResult:
         existing = self._existing_operation(op)
         if existing is not None:
             return existing
+        # 這段查詢必須留在寫入交易內(已經拿到寫入鎖):搬到交易外的話,舊請求會先查到「沒作廢」、
+        # 等作廢完成之後才提交,就繞過了作廢
+        if self._conn.execute(
+                "SELECT 1 FROM voided_keys WHERE key = ?", (op.idempotency_key,)).fetchone():
+            raise OperationVoided(op.idempotency_key)
         current = self.get_campaign(op.campaign_id)
         if current.version != op.expected_version:
             raise VersionConflict(f"預期 {op.expected_version},目前 {current.version}")
@@ -316,7 +359,9 @@ class CampaignStore:
         operation_id = self._apply(op, updated, received_at, committed_at)
         self._record_idempotency(op, operation_id)
         return OperationResult(
-            operation_id, op.campaign_id, op.action, updated.version, committed_at, False
+            operation_id, op.campaign_id, op.action, updated.version, committed_at, False,
+            op.idempotency_key, dict(op.params),
+            op.expected_version if is_plain_int(op.expected_version) else None,
         )
 
     def _existing_operation(self, op: Operation) -> OperationResult | None:
@@ -331,15 +376,16 @@ class CampaignStore:
 
     def _recorded_result(self, key: str, replayed: bool) -> OperationResult | None:
         row = self._conn.execute(
-            "SELECT operation_id, campaign_id, action, version_after, committed_at "
-            "FROM operations WHERE idempotency_key = ?",
+            "SELECT operation_id, campaign_id, action, version_after, committed_at, params_json, "
+            "expected_version FROM operations WHERE idempotency_key = ?",
             (key,),
         ).fetchone()
         if row is None:
             return None
-        operation_id, campaign_id, action, version_after, committed_at = row
+        operation_id, campaign_id, action, version_after, committed_at, params, expected = row
         return OperationResult(
-            operation_id, campaign_id, action, version_after, committed_at, replayed
+            operation_id, campaign_id, action, version_after, committed_at, replayed,
+            key, json.loads(params), expected if is_plain_int(expected) else None,
         )
 
     def _apply(
@@ -351,8 +397,8 @@ class CampaignStore:
         )
         cursor = self._conn.execute(
             "INSERT INTO operations (campaign_id, action, params_json, version_after, "
-            "received_at, committed_at, idempotency_key, policy_version) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "received_at, committed_at, idempotency_key, policy_version, expected_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 op.campaign_id,
                 op.action,
@@ -362,6 +408,7 @@ class CampaignStore:
                 committed_at,
                 op.idempotency_key,
                 op.policy_version,
+                op.expected_version,
             ),
         )
         operation_id = cursor.lastrowid

@@ -1,4 +1,4 @@
-"""執行迴圈的啟動程式:讀金鑰、拿單一執行者鎖、重啟恢復、印就緒訊號,之後每輪處理一筆。
+"""執行迴圈的啟動程式:讀金鑰、拿單一執行者鎖、重啟恢復、印就緒訊號,之後每輪先對帳、再處理一筆。
 
 順序是合約:金鑰不可用就以非零代碼結束,連重啟恢復都不跑;拿不到鎖(已有另一個執行迴圈)
 也以非零代碼結束,同樣不跑重啟恢復——否則第二個執行迴圈的重啟恢復會把第一個正在跑的嘗試
@@ -49,8 +49,8 @@ class RunnerLock:
     def __init__(self, db_path: Path):
         real = Path(os.path.realpath(db_path))
         identity = os.stat(real)
-        # 鎖名只看資料庫檔的實體身分(裝置與 inode),不含檔名:同目錄的硬連結也算到同一把鎖。
-        # 不同目錄的硬連結會落在不同目錄,算不到同一把——那要刻意做,屬於繞過不是忘記
+        # 鎖名只看資料庫檔的實體身分(裝置與 inode),不含檔名。資料庫檔有硬連結的情況,
+        # 啟動程式在拿鎖之前就拒絕了(見 run),這裡不必再處理
         self.path = real.parent / f".rtb-runner-{identity.st_dev}-{identity.st_ino}.lock"
         conn = sqlite3.connect(self.path, timeout=0, isolation_level=None)
         try:
@@ -92,11 +92,13 @@ def _loop(
             sys.stderr.write("停機:單一執行者鎖檔被換掉了\n")
             return EXIT_HALTED
         try:
+            troubled = executor.reconcile_all()  # 先對帳,再處理新提案
             result = executor.process_one()
         except (ExecutorHalted, InboxBusy) as halted:  # 出事就停,讓人注意到;重啟時會做恢復
             sys.stderr.write(f"停機:{halted}\n")
             return EXIT_HALTED
-        if result.kind in _IDLE_RESULTS:
+        # 對帳有 DSP 呼叫失敗就照樣休息:DSP 變慢時不連續全速打它
+        if troubled or result.kind in _IDLE_RESULTS:
             sleep(interval)
     return 0
 

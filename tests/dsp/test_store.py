@@ -81,9 +81,13 @@ WRITE_ACTION_PARAMS = {"update_budget": {"new_budget": 9999}, "pause_campaign": 
 
 
 def test_every_write_action_on_the_http_routes_has_a_version_check_example():
-    from rtb.dsp.server import ROUTES
+    """寫入路由分兩類:改廣告的每一種都要有範例;作廢路由不改廣告、不經寫入入口,另有測試
+    (tests/dsp/test_void.py)。新增路由兩類都沒歸就紅。"""
+    from rtb.dsp.server import CAMPAIGN_WRITE_ACTIONS, ROUTES
 
-    assert {action for method, _, action in ROUTES if method == "POST"} == set(WRITE_ACTION_PARAMS)
+    posts = {action for method, _, action in ROUTES if method == "POST"}
+    assert set(CAMPAIGN_WRITE_ACTIONS) == set(WRITE_ACTION_PARAMS)
+    assert posts == set(CAMPAIGN_WRITE_ACTIONS) | {"void_operation"}
 
 
 def test_only_the_store_module_writes_to_the_dsp_database():
