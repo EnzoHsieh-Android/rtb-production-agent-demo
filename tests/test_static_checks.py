@@ -45,4 +45,4 @@ def test_the_first_party_package_is_declared_so_import_sorting_does_not_depend_o
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     isort = config["tool"]["ruff"]["lint"]["isort"]
-    assert "rtb" in isort["known-first-party"]
+    assert {"rtb", "tests"} <= set(isort["known-first-party"])
