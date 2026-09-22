@@ -188,79 +188,52 @@ RETIRE-IF: 若 Phase 3、4 做完後,這裡的檢查點機制從沒真的擋到�
 REVISIT:2026-10-20 與提案收件口的保留期限一起決定分析行程歷史表的清理方式。
 - COMPLETED、BLOCKED、SUPERSEDED 三個終點不在這個增量寫入,留到 Phase 3 執行行程那一側定義;增量 3 的「不做的事」也沒有跟它們牴觸。
 
-## 增量 4 設計:真的網路呼叫、最小決策規則與 trace(2026-09-22,第 2 版:已折入第 1 輪設計審)
+## 增量 4 設計:真的網路呼叫、最小決策規則與 trace(2026-09-22)
 
-PRIOR-ART: 最小解是把三個可替換介面直接接 urllib.request,不需要 HTTP client 框架;世界上這件事通常用重試庫加分散式追蹤系統,但本專案是單機 Demo,自建「只增不改的呼叫紀錄表」就夠當 trace 用,不需要 OpenTelemetry 這類工具。採用:標準函式庫 urllib.request,共用的「逾時、JSON 編解碼」邏輯抽成一個小模組(比照 httpkit.py 是共用的伺服器基礎,這是共用的用戶端基礎),trace 是既有 SQLite 表格模式的延伸,不引入新依賴。
-RETIRE-IF: 若這個增量做完後,trace 表從沒被用來追查過一次真實的問題,而且維護它的成本大於好處,就該檢討是不是過度設計。
+PRIOR-ART: 最小解是把三個可替換介面直接接 urllib.request,不需要 HTTP client 框架;世界上這件事通常用重試庫加分散式追蹤系統,但本專案是單機 Demo,自建「只增不改的呼叫紀錄表」就夠當 trace 用,不需要 OpenTelemetry 這類工具。採用:標準函式庫 urllib.request,trace 是既有 SQLite 表格模式的延伸,不引入新依賴。
+RETIRE-IF: 若這個增量做完後,trace 表從沒被用來追查過一次真實的問題(不管是這個專案自己除錯,還是被拿來當示範),而且維護它的成本大於好處,就該檢討是不是過度設計。
 
-- 事故:增量 1~3 都是用測試假物件證明流程與檢查點正確;真的接上網路之後,新的風險是「以為蒐證蒐了一半也算數」「收件口的錯誤代碼被接錯」「不小心讓分析端連得到故障注入」「對方掛了永遠卡住」。這個增量把假物件換成真的用戶端,重跑增量 3 的合約(S20~S41 不變),並補上這幾類新風險的合約。
-- 範圍:真的 DSP 用戶端(讀現況與指標)、真的收件口用戶端(送提案)、一個示範用的最小決策規則、把呼叫記錄成只增不改的 trace、補驗 Phase 1 留下的兩條邊界測試。
-- 核心判斷已在 2026-09-22 對話裡使用者答對:兩種證據要嘛都讀到、要嘛整輪都不算數,不存半套。
+- 事故:增量 1~3 都是用測試假物件證明流程與檢查點正確;真的接上網路之後,新的風險是「以為蒐證蒐了一半也算數」「收件口的錯誤代碼被接錯」「不小心讓分析端連得到故障注入」。這個增量把假物件換成真的用戶端,重跑增量 3 的合約(不重寫,S20~S41 不變),並補上這三類新風險的合約。
+- 範圍:真的 DSP 用戶端(讀現況與指標)、真的收件口用戶端(送提案)、一個示範用的最小決策規則(不是真正業務邏輯)、把呼叫記錄成只增不改的 trace、補驗 Phase 1 留下的兩條邊界測試。
+- 核心判斷已在 2026-09-22 對話裡使用者答對:兩種證據要嘛都讀到、要嘛整輪都不算數,不存半套(見下方核心概念延伸)。
 
 ### 核心概念延伸(使用者已在 2026-09-22 對話答對並收到回饋)
 
 - `EvidenceSource` 的合約本來就是「回傳這一輪要用的全部證據,或整個失敗」(增量 3 的 S25/S26);多證據來源不是新規則,是同一個合約套用在兩次 HTTP 呼叫上——兩個端點都成功才回傳,任一個失敗就讓整個函式丟例外,由 `advance()` 既有的「純讀取,重試永遠安全」處理,不需要新的部分完成狀態。
 
-### 共用的用戶端基礎(第 1 輪發現:兩個用戶端各自造輪子,而且都沒設逾時)
+### 三個用戶端
 
-- 新增 `src/rtb/httpclient.py`(跟 `httpkit.py`、`sqlitekit.py` 同一層,是第三個共用的行程基礎模組):提供 `request_json(url, method, body, timeout_seconds, headers=None) -> tuple[int, dict]`,固定用 `urllib.request`、固定帶 `Content-Type: application/json`、固定 `timeout=timeout_seconds`(呼叫端必填,不給預設值——沒有「忘記設逾時」這個選項,因為函式簽章逼你填)。連線不重用(`urllib` 本來就是每次呼叫開一條,跟收件口用戶端這種低頻呼叫的場景相稱;不做連線池,避免過度設計)。
-- `headers` 只接受一個**封閉的列舉**(不是任意字典):`class ClientHeader(StrEnum): IDEMPOTENCY_KEY = "Idempotency-Key"`(只給 DSP 用戶端用;之後如果真的需要更多,列舉再加,不開放任意標頭字串)。`request_json` 的公開介面上沒有任何一個參數可以傳「隨便一個標頭名稱」,`X-Fault` 這個字串在 `dsp_client.py`、`inbox_client.py`、`httpclient.py` 三支檔的原始碼裡都不應該出現——機械掃描(不是只看文件宣稱)驗證這一點,這就是 S44 能被驗證的具體做法。
-- 逾時值:`DSP_TIMEOUT_SECONDS = 5.0`、`INBOX_TIMEOUT_SECONDS = 5.0`(暫用值,比照 DSP 伺服器自己的 `SOCKET_TIMEOUT_SECONDS = 10.0` 抓一半)。
-
-### 三個新模組,以及它們放在哪裡
-
-- `src/rtb/analyzer/dsp_client.py`:真的 `EvidenceSource`。依序呼叫 `request_json` 打 `GET /campaigns/{id}`、`GET /campaigns/{id}/metrics?window=1h`;兩個都成功才把回應轉成 `Evidence`(CAMPAIGN_STATE、METRICS 各一筆)回傳;任一個失敗(逾時、連線失敗、4xx/5xx)整個函式往外丟例外,不吞、不回傳半套。這支檔只做「打 HTTP、轉成 Evidence」,不碰 `TaskStore`。
-- `src/rtb/analyzer/inbox_client.py`:真的 `Submit`。POST 到收件口的 `/proposals`;成功、`SubmitStale`、`SubmitBusy`、新增的 `SubmitRejectedPermanently`(見下)四種結果的對照見合約 S46a~S46c。同樣不碰 `TaskStore`。
-- `src/rtb/analyzer/policy.py`:示範用的最小 `Decide`,規則見下方「決策規則」。
-- `src/rtb/analyzer/instrumented.py`:**新增**(第 1 輪發現:tool_calls 誰寫、寫在哪沒交代)。提供 `InstrumentedEvidenceSource`、`InstrumentedSubmit` 兩個包裝類別,建構時吃一個原始的 `dsp_client`/`inbox_client` 函式與一個 `TaskStore`;每次呼叫內層函式,不論成功或丟例外都呼叫 `store.record_tool_call(...)`(S50),記完才把結果或例外原樣往外傳。`flow.advance()` 拿到的 `EvidenceSource`/`Submit` 一律是包裝過的版本,`flow.py` 本身不知道、也不需要知道 tool_calls 這件事——保持增量 3 的驅動函式不變。
-- 圖譜落點:三個既有檔案(dsp_client.py、inbox_client.py、policy.py、instrumented.py、httpclient.py)分兩篇:`src/rtb/httpclient.py` 併入既有的 [[Systems/共用行程基礎]](跟 httpkit.py、sqlitekit.py 同一篇管);其餘四支併入既有的 [[Systems/分析行程流程與檢查點]](這篇的 about_code 本次增列)。不新開節點。
-
-### 決策規則(policy.py)
-
-- 用增量 1 `src/rtb/domain/metrics.py` 既有的 `MetricResult`/`Reason` 設計判斷「有沒有值」,不自己重寫一套缺值判斷:配速 = 指標證據的花費 ÷ (現況證據的預算 ÷ 24);預算為 0、花費缺值、或曝光/點擊缺值,`below()` 一律回 `None`(不知道),對應到 `NoAction`,不丟例外。
-- 配速 `below(0.5)` 為 `True`(明顯偏低,暫用門檻)、且曝光與點擊都大於 0(真的有在投放)才提案調高預算(固定漲一成,暫用值);其餘(含配速正常、配速偏低但沒有投放、任何一項不知道)一律 `NoAction`。
+- `src/rtb/analyzer/dsp_client.py`:真的 `EvidenceSource`。依序 GET `/campaigns/{id}`、GET `/campaigns/{id}/metrics?window=1h`;兩個都成功才把回應轉成 `Evidence`(CAMPAIGN_STATE、METRICS 各一筆,`content_hash` 是回應內容正規化後的 SHA-256)回傳;任一個失敗(逾時、連線失敗、4xx/5xx)整個函式往外丟例外,不吞、不回傳半套。程式碼裡完全不出現 `X-Fault` 字樣,也不提供任何插入自訂標頭的公開參數——不是靠「不呼叫」保證安全,是靠「沒有這個能力」。
+- `src/rtb/analyzer/inbox_client.py`:真的 `Submit`。POST 到收件口的 `/proposals`;201/200 轉 `Accepted(replayed=狀態碼是否為 200)`;409(`content_conflict`/`revision_out_of_order`)或 422(`expired_proposal`/`expiry_too_far`/`created_in_future`)轉 `SubmitStale`;503(`busy`/`inbox_full`)轉 `SubmitBusy`;其餘一律讓例外原樣往外傳(增量 3 既有的「未定義例外視為可重試」接住,不在這裡另外分類)。
+- `src/rtb/analyzer/policy.py`:示範用的最小 `Decide`。規則:用指標算配速(過去一小時花費 ÷ (預算/24)),配速明顯偏低(門檻先訂 0.5,暫用值)且曝光、點擊都不是 0(代表真的有在投放,不是設定壞了)才提案調高預算(固定漲一成,暫用值);其餘情況一律 `NoAction`。這不是交接文件後面階段要做的真正業務規則,只是讓整條流程能被示範跑完。
 
 ### 事件與 trace
 
-- 只增不改的 `tool_calls` 表(`TaskStore` 新增 `record_tool_call(task_id, task_seq, endpoint, outcome, latency_ms, now)`),每次對外呼叫一筆:呼叫哪個端點、結果(狀態碼或例外類型名稱,不存回應內容或例外訊息全文——避免意外存進敏感資訊,這是第 1 輪資安鏡頭的提醒)、耗時、時間戳。這筆寫入不跟狀態推進同一個交易,而且**自己絕不讓例外往外傳**(比照收件口事件表「寫入失敗不影響回應」的既有做法):寫失敗就放棄這筆記錄,不能因為記錄失敗而讓整個檢查點卡住。
-- `trace_for(store, task_id) -> TraceRecord`(**新增具體介面**,第 1 輪發現 S51 原本沒有介面設計):`analyzer/task_store.py` 新增這支函式,回傳一個 dataclass,欄位是這個任務的完整歷史列(`tasks`)、每一步的證據(`evidence`)、每一次呼叫記錄(`tool_calls`),三者都用任務編號查、依序號或時間排序。政策版本從歷史列裡的提案快照(`proposal.policy_version`)取得,不用另外存。
-
-### 收件口拒絕代碼的分類(第 1 輪發現:too_many_revisions 被誤吸進 SubmitStale,會卡進無限重試)
-
-- `revision_out_of_order`、`content_conflict`、`expired_proposal`、`expiry_too_far`、`created_in_future`:轉 `SubmitStale`(退回蒐證、送下一個修訂能解決,重試有意義)。
-- `too_many_revisions`:轉**新的例外型別 `SubmitRejectedPermanently`**(不是 `SubmitStale`)。這個任務已經碰到修訂數上限,退回蒐證再送下一個修訂只會再次碰到同一個上限,重試不會解決——`flow.py` 的 `_from_proposed` 對這個新例外的處理是新增一列 FAILED(比照 `_from_analyzing` 對 `Decide` 自己丟例外的既有做法,同一種「重試不會變好,直接停」的邏輯延伸到 `Submit` 這邊)。這是這個增量唯一需要修改增量 3 既有程式碼(`flow.py`)的地方,原因寫清楚,不是悄悄擴權。
-- `inbox_full`、`busy`:轉 `SubmitBusy`(暫時性)。
-- 其他狀態碼或連線失敗:原樣往外丟,由既有的「未定義例外視為可重試」接住。
-
-### 故障注入的對稱保護(第 1 輪發現:S44/S52 只替 DSP 寫了,收件口沒有)
-
-- 收件口(增量 2)一樣支援 `X-Fault`(`crash_before_commit`/`crash_after_commit`),分析端的 `inbox_client.py` 同樣不得有任何送出這個標頭的路徑,適用跟 dsp_client 一樣的機械掃描與「沒有公開介面」設計(見上面「共用的用戶端基礎」)。
+- 只增不改的 `tool_calls` 表(比照 tasks、evidence 的做法),每次對外呼叫(DSP 或收件口)一筆:任務編號、對應的檢查點序號、呼叫的端點、狀態碼或例外類型、耗時、時間戳。寫入這張表不跟狀態推進同一個交易(呼叫本身在交易外,失敗要能記下來,不能因為這筆記錄失敗而讓整個檢查點卡住)。
+- trace 是查詢,不是新表:給定一個任務編號,把 tasks(狀態史)、evidence(證據)、tool_calls(呼叫記錄)三張表用任務編號兜起來,就是「證據、決策、政策版本、工具呼叫」的完整軌跡;政策版本目前是 `policy.py` 裡的一個常數字串,寫進提案快照的 `policy_version` 欄位(增量 1 提案格式已有這個欄位)。
 
 ### 合約
 
 - [S42] 當 DSP 的現況與指標兩個請求都成功,`dsp_client` 應回傳兩筆證據。[test:test_both_endpoints_succeeding_returns_both_pieces_of_evidence]
 - [S43] 當 DSP 的現況或指標任一個請求失敗,`dsp_client` 應整個丟出例外,不回傳只含一部分的結果。[test:test_either_endpoint_failing_raises_and_returns_nothing_partial]
-- [S44] `dsp_client.py`、`inbox_client.py`、`httpclient.py` 三支檔的原始碼都不應該出現 `X-Fault` 字樣,`request_json` 的簽章也不應該有能傳入任意標頭名稱的參數。[test:test_no_client_module_can_send_the_fault_header]
+- [S44] `dsp_client` 的原始碼與公開介面都不應該出現送出 `X-Fault` 標頭的路徑。[test:test_the_dsp_client_has_no_way_to_send_the_fault_header]
 - [S45] 當收件口回應 201 或 200,`inbox_client` 應回傳 `Accepted`,`replayed` 對應狀態碼是否為 200。[test:test_201_and_200_map_to_accepted_with_the_right_replayed_flag]
-- [S46] 當收件口回應 409(`revision_out_of_order`、`content_conflict`)或 422(`expired_proposal`、`expiry_too_far`、`created_in_future`),`inbox_client` 應丟出 `SubmitStale`。[test:test_these_status_codes_map_to_submit_stale]
-- [S46a] 當收件口回應 409 且錯誤代碼是 `too_many_revisions`,`inbox_client` 應丟出 `SubmitRejectedPermanently`,不是 `SubmitStale`。[test:test_too_many_revisions_maps_to_a_permanent_rejection_not_stale]
-- [S46b] 當 `_from_proposed` 收到 `SubmitRejectedPermanently`,`advance()` 應新增一列 FAILED,不得退回 COLLECTING_EVIDENCE。[test:test_a_permanent_submit_rejection_fails_the_task_instead_of_looping_forever]
+- [S46] 當收件口回應 409 或 422,`inbox_client` 應丟出 `SubmitStale`。[test:test_409_and_422_map_to_submit_stale]
 - [S47] 當收件口回應 503,`inbox_client` 應丟出 `SubmitBusy`。[test:test_503_maps_to_submit_busy]
 - [S48] 當收件口回應其他狀態碼或連線失敗,`inbox_client` 應讓例外原樣往外傳,不得自行吞掉或改分類。[test:test_unexpected_responses_and_connection_failures_propagate_unmapped]
-- [S49] 當配速已知且明顯偏低、曝光與點擊都大於零,`policy.decide` 應回傳調高預算的 `ProposalDecision`;當配速正常、沒有投放、或任一數值不知道,應回傳 `NoAction`,不得丟出例外。[test:test_the_demo_policy_proposes_a_budget_increase_only_when_underpacing_with_real_delivery] [test:test_the_demo_policy_never_raises_on_zero_budget_or_missing_metrics]
-- [S50] 每次對外呼叫(不論成功或失敗)都應該在 `tool_calls` 留下一筆紀錄;這筆寫入本身失敗不應該影響呼叫端拿到的結果。[test:test_every_outbound_call_leaves_a_tool_call_row_whether_it_succeeds_or_fails] [test:test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result]
-- [S51] `trace_for` 應該回傳一個包含這個任務的狀態史、每一步證據與每一次呼叫記錄的結構化紀錄。[test:test_trace_for_returns_the_full_history_evidence_and_calls_for_a_task]
-- [S52] 當 DSP 與收件口都沒有帶 `--fault-injection` 啟動,分析行程用真的用戶端跑完整套正常流程應該全部成功,且過程中沒有任何一次請求帶 `X-Fault`。[test:test_the_agent_cannot_reach_fault_injection_on_production_style_servers]
+- [S49] 當配速明顯偏低且曝光與點擊都不是零,`policy.decide` 應回傳調高預算的 `ProposalDecision`;其餘情況應回傳 `NoAction`。[test:test_the_demo_policy_proposes_a_budget_increase_only_when_underpacing_with_real_delivery]
+- [S50] 每次對外呼叫(不論成功或失敗)都應該在 `tool_calls` 留下一筆紀錄。[test:test_every_outbound_call_leaves_a_tool_call_row_whether_it_succeeds_or_fails]
+- [S51] 給定一個任務編號,應該能從 tasks、evidence、tool_calls 三張表重建出一條連結證據、決策、政策版本與工具呼叫的軌跡。[test:test_a_full_run_produces_a_traceable_record_linking_evidence_decision_and_calls]
+- [S52] 當 DSP 沒有帶 `--fault-injection` 啟動,分析行程用真的用戶端跑完整套正常流程應該全部成功,且過程中沒有任何一次請求帶 `X-Fault`。[test:test_the_agent_cannot_reach_fault_injection_on_a_production_style_dsp]
 - [S53] 分析行程套件不應該匯入 `rtb.dsp` 的任何內部模組(機械掃描,只能透過 HTTP 溝通)。[test:test_the_analyzer_package_never_imports_dsp_internals]
-- [S54] 當 `request_json` 被呼叫,呼叫端應明確提供逾時秒數(沒有預設值),請求應在逾時後真的放棄,不會無限期卡住。[test:test_request_json_has_no_default_timeout_and_actually_gives_up_after_it]
 
 ### 不做的事(範圍)
 
 - 不做真正的業務決策規則:`policy.py` 是示範用的最小規則,交接文件後面階段的真正邏輯不在這裡做。
 - 不做多任務併發呼叫排程:一次處理一個任務,跟增量 3 一樣。
-- 不做連線池或連線重用:每次呼叫各自開關,量體小,不值得為此增加複雜度。
+- 不做新的重試策略:未預期的失敗一律沿用增量 3 已經定義的「例外視為可重試」,這個增量不調整。
 - 不做 Phase 3 執行面的任何東西:HANDED_OFF 之後的狀態不歸這個增量管。
-- 不重寫增量 3 的合約(S20~S41):三個可替換介面的形狀不變,只新增 `SubmitRejectedPermanently` 這一個例外型別與 `_from_proposed` 對它的一個新分支,原因見上方「收件口拒絕代碼的分類」。
+- 不重寫增量 3 的合約(S20~S41):三個可替換介面的形狀不變,這個增量只是換上真的實作。
 
 ## 回退
 
