@@ -1,0 +1,93 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "確認時機與當機點",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/runner.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "租約、並行與重新投遞",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/runner.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "收件表既有規則的相容性",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/runner.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "可測性",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/runner.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "與增量2、3及事故F2F3銜接",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/runner.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/runner.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/runner.py"
+  ],
+  "auditor": "codex"
+ }
+]
