@@ -204,17 +204,16 @@ RETIRE-IF: 若這個增量做完後,trace 表從沒被用來追查過一次真�
 ### 共用的用戶端基礎(第 1 輪發現:兩個用戶端各自造輪子,而且都沒設逾時)
 
 - 新增 `src/rtb/httpclient.py`(跟 `httpkit.py`、`sqlitekit.py` 同一層,是第三個共用的行程基礎模組):提供 `request_json(url, method, body, timeout_seconds, headers=None) -> tuple[int, dict]`,固定用 `urllib.request`、固定帶 `Content-Type: application/json`、固定 `timeout=timeout_seconds`(呼叫端必填,不給預設值——沒有「忘記設逾時」這個選項,因為函式簽章逼你填)。連線不重用(`urllib` 本來就是每次呼叫開一條,跟收件口用戶端這種低頻呼叫的場景相稱;不做連線池,避免過度設計)。
-- `headers` 只接受一個**封閉的列舉**(不是任意字典):`class ClientHeader(StrEnum): IDEMPOTENCY_KEY = "Idempotency-Key"`(只給 DSP 用戶端用;之後如果真的需要更多,列舉再加,不開放任意標頭字串)。`request_json` 對傳入的 `headers` 一律用 `isinstance(name, ClientHeader)` 核對,不是 `ClientHeader` 成員就拒收——**這才是真正的保證**:不管呼叫端怎麼組出 `"X-Fault"` 這個字串(直接寫死、拼接、f-string),只要它不是這個封閉列舉的成員,`request_json` 根本不會把它放進請求裡。(第 2 輪發現:原本設計只講「原始碼掃描」,那只是子字串比對,能被拼接繞過,不是真正的防線;原始碼掃描改列為**輔助**訊號——留著是為了在程式審查時第一眼就看到有沒有人想加 `X-Fault`,不是安全機制本身。)
+- `headers` 只接受一個**封閉的列舉**(不是任意字典):`class ClientHeader(StrEnum): IDEMPOTENCY_KEY = "Idempotency-Key"`(只給 DSP 用戶端用;之後如果真的需要更多,列舉再加,不開放任意標頭字串)。`request_json` 的公開介面上沒有任何一個參數可以傳「隨便一個標頭名稱」,`X-Fault` 這個字串在 `dsp_client.py`、`inbox_client.py`、`httpclient.py` 三支檔的原始碼裡都不應該出現——機械掃描(不是只看文件宣稱)驗證這一點,這就是 S44 能被驗證的具體做法。
 - 逾時值:`DSP_TIMEOUT_SECONDS = 5.0`、`INBOX_TIMEOUT_SECONDS = 5.0`(暫用值,比照 DSP 伺服器自己的 `SOCKET_TIMEOUT_SECONDS = 10.0` 抓一半)。
 
 ### 三個新模組,以及它們放在哪裡
 
 - `src/rtb/analyzer/dsp_client.py`:真的 `EvidenceSource`。依序呼叫 `request_json` 打 `GET /campaigns/{id}`、`GET /campaigns/{id}/metrics?window=1h`;兩個都成功才把回應轉成 `Evidence`(CAMPAIGN_STATE、METRICS 各一筆)回傳;任一個失敗(逾時、連線失敗、4xx/5xx)整個函式往外丟例外,不吞、不回傳半套。這支檔只做「打 HTTP、轉成 Evidence」,不碰 `TaskStore`。
-  - **content_hash 演算法**(第 2 輪發現:第 1 版折入時文字沒有真的寫進來):沿用增量 2 收件口內容雜湊已經定案的做法(`Proposal.to_primitives` 那一套「鍵排序、無多餘空白、不允許 NaN」的 JSON 正規化),對 DSP 回應本身直接套用同一種正規化再取 SHA-256——不是重新發明一套,是把既有規則套用到新的資料形狀上;現況(campaign state)雜湊涵蓋 `id`/`budget`/`status`/`version`,指標雜湊涵蓋查到的那個時間窗與其中的欄位。
 - `src/rtb/analyzer/inbox_client.py`:真的 `Submit`。POST 到收件口的 `/proposals`;成功、`SubmitStale`、`SubmitBusy`、新增的 `SubmitRejectedPermanently`(見下)四種結果的對照見合約 S46a~S46c。同樣不碰 `TaskStore`。
 - `src/rtb/analyzer/policy.py`:示範用的最小 `Decide`,規則見下方「決策規則」。
 - `src/rtb/analyzer/instrumented.py`:**新增**(第 1 輪發現:tool_calls 誰寫、寫在哪沒交代)。提供 `InstrumentedEvidenceSource`、`InstrumentedSubmit` 兩個包裝類別,建構時吃一個原始的 `dsp_client`/`inbox_client` 函式與一個 `TaskStore`;每次呼叫內層函式,不論成功或丟例外都呼叫 `store.record_tool_call(...)`(S50),記完才把結果或例外原樣往外傳。`flow.advance()` 拿到的 `EvidenceSource`/`Submit` 一律是包裝過的版本,`flow.py` 本身不知道、也不需要知道 tool_calls 這件事——保持增量 3 的驅動函式不變。
-- 圖譜落點:五支新檔案(dsp_client.py、inbox_client.py、policy.py、instrumented.py、httpclient.py)分兩篇:`src/rtb/httpclient.py` 併入既有的 [[Systems/共用行程基礎]](跟 httpkit.py、sqlitekit.py 同一篇管);其餘四支併入既有的 [[Systems/分析行程流程與檢查點]](這篇的 about_code 本次增列)。不新開節點。
+- 圖譜落點:三個既有檔案(dsp_client.py、inbox_client.py、policy.py、instrumented.py、httpclient.py)分兩篇:`src/rtb/httpclient.py` 併入既有的 [[Systems/共用行程基礎]](跟 httpkit.py、sqlitekit.py 同一篇管);其餘四支併入既有的 [[Systems/分析行程流程與檢查點]](這篇的 about_code 本次增列)。不新開節點。
 
 ### 決策規則(policy.py)
 
@@ -224,14 +223,12 @@ RETIRE-IF: 若這個增量做完後,trace 表從沒被用來追查過一次真�
 ### 事件與 trace
 
 - 只增不改的 `tool_calls` 表(`TaskStore` 新增 `record_tool_call(task_id, task_seq, endpoint, outcome, latency_ms, now)`),每次對外呼叫一筆:呼叫哪個端點、結果(狀態碼或例外類型名稱,不存回應內容或例外訊息全文——避免意外存進敏感資訊,這是第 1 輪資安鏡頭的提醒)、耗時、時間戳。這筆寫入不跟狀態推進同一個交易,而且**自己絕不讓例外往外傳**(比照收件口事件表「寫入失敗不影響回應」的既有做法):寫失敗就放棄這筆記錄,不能因為記錄失敗而讓整個檢查點卡住。
-  - **task_seq 語意**(第 2 輪發現:原本沒定義):跟 `evidence` 表的 `task_seq` 是同一件事——`instrumented.py` 的包裝層呼叫內層函式之前,先從傳入的 `TaskRow`(`EvidenceSource`/`Decide`/`Submit` 都收得到目前這一列)讀出 `row.seq`,原封不動當成 `task_seq` 寫入;也就是「呼叫發生在哪一列的檢查點期間」,不是呼叫完成後才推算的新序號。這樣 `trace_for` 把 `tool_calls` 跟 `evidence` 用同一個 `task_seq` 對起來,兩張表的關聯方式完全一致,不是各自定義一套。
 - `trace_for(store, task_id) -> TraceRecord`(**新增具體介面**,第 1 輪發現 S51 原本沒有介面設計):`analyzer/task_store.py` 新增這支函式,回傳一個 dataclass,欄位是這個任務的完整歷史列(`tasks`)、每一步的證據(`evidence`)、每一次呼叫記錄(`tool_calls`),三者都用任務編號查、依序號或時間排序。政策版本從歷史列裡的提案快照(`proposal.policy_version`)取得,不用另外存。
 
 ### 收件口拒絕代碼的分類(第 1 輪發現:too_many_revisions 被誤吸進 SubmitStale,會卡進無限重試)
 
 - `revision_out_of_order`、`content_conflict`、`expired_proposal`、`expiry_too_far`、`created_in_future`:轉 `SubmitStale`(退回蒐證、送下一個修訂能解決,重試有意義)。
 - `too_many_revisions`:轉**新的例外型別 `SubmitRejectedPermanently`**(不是 `SubmitStale`)。這個任務已經碰到修訂數上限,退回蒐證再送下一個修訂只會再次碰到同一個上限,重試不會解決——`flow.py` 的 `_from_proposed` 對這個新例外的處理是新增一列 FAILED(比照 `_from_analyzing` 對 `Decide` 自己丟例外的既有做法,同一種「重試不會變好,直接停」的邏輯延伸到 `Submit` 這邊)。這是這個增量唯一需要修改增量 3 既有程式碼(`flow.py`)的地方,原因寫清楚,不是悄悄擴權。
-  - **定義在哪一層**(第 2 輪發現:原文兩處交代不一致):`SubmitRejectedPermanently` 跟 `SubmitStale`、`SubmitBusy` 一樣,定義在 `flow.py`(它們都是 `Submit` 這個介面自己的例外詞彙表,屬於介面定義的一部分);`inbox_client.py` 只是匯入並在對照到 `too_many_revisions` 時丟出它,不會反過來讓 `flow.py` 依賴 `inbox_client.py` 的實作。
 - `inbox_full`、`busy`:轉 `SubmitBusy`(暫時性)。
 - 其他狀態碼或連線失敗:原樣往外丟,由既有的「未定義例外視為可重試」接住。
 

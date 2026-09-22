@@ -35,3 +35,22 @@ refuted:none。
 
 ## 處置
 - 12 條全部折入,沒有放行(有 blocker,規定不得放行)。
+
+## 第 2 輪(r5)收貨與判讀
+- 兩席(全新的 s1、架構對齊複驗 sarch)。normalize、quote-check 全數通過。
+- 9 條確認真的修好(clean);5 條真的沒修好或有瑕疵。
+
+| 宣稱 | 做法 | 結果 |
+|---|---|---|
+| r5s1f1:content_hash 演算法折入時文字沒真的寫進去 | 讀快照確認確實空白 | HIT,這次真的補上演算法文字(沿用增量 2 的正規化 JSON + SHA-256) |
+| r5s1f2:X-Fault 的原始碼掃描可被拼接繞過 | 讀設計確認只有子字串比對 | HIT,改成「封閉列舉 + isinstance 核對」當真正防線,掃描降級為輔助訊號 |
+| r5s1f3:tool_calls 的 task_seq 語意未定義 | 讀設計確認沒講 | HIT,定義成跟 evidence 表同一顆 row.seq,兩表用同一個鍵對起來 |
+| r5s1f4(minor):落點段落文字瑕疵(三個 vs 五支) | 讀原文確認數字錯 | HIT,改成五支 |
+| r5sarchf1:SubmitRejectedPermanently 定義層次前後矛盾 | 讀原文確認兩處說法不一致 | HIT,明講定義在 flow.py,inbox_client.py 只匯入使用 |
+
+補充:重跑 spec-gate,54 條全部句式合格。
+
+refuted:none。
+
+## 第 2 輪處置
+- 5 條全部折入,沒有放行(有 major,規定不得放行)。
