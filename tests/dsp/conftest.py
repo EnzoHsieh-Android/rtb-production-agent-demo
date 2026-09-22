@@ -14,18 +14,27 @@ from pathlib import Path
 import pytest
 
 SRC = str(Path(__file__).resolve().parents[2] / "src")
+_DEFAULT_KEY = object()
 
 
 class DspProcess:
-    def __init__(self, db_path, fault_injection=False, hang_seconds=1.5, delay_seconds=0.3,
-                 busy_timeout_seconds=5.0, socket_timeout_seconds=10.0):
+    def __init__(self, db_path, fault_injection=False, hang_seconds=1.5, delay_seconds=0.3,  # noqa: PLR0913 - 對應 DSP 的啟動參數
+                 busy_timeout_seconds=5.0, socket_timeout_seconds=10.0,
+                 capability_key=_DEFAULT_KEY):
         cmd = [sys.executable, "-m", "rtb.dsp.server", "--db", str(db_path),
                "--hang-seconds", str(hang_seconds), "--delay-seconds", str(delay_seconds),
                "--busy-timeout-seconds", str(busy_timeout_seconds),
                "--socket-timeout-seconds", str(socket_timeout_seconds)]
         if fault_injection:
             cmd.append("--fault-injection")
+        from rtb.capabilitykit import KEY_ENV
+        from tests.capability_samples import TEST_KEY
+
+        key = TEST_KEY if capability_key is _DEFAULT_KEY else capability_key
         env = {**os.environ, "PYTHONPATH": SRC}
+        env.pop(KEY_ENV, None)  # 不給金鑰時要明確刪掉,不能靠「不設定」而繼承父行程遺留的
+        if key is not None:
+            env[KEY_ENV] = key.decode()  # 經環境變數傳給子行程,走真實的啟動程式讀取路徑
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, env=env)
         try:
             self.base = f"http://127.0.0.1:{self._read_port()}"

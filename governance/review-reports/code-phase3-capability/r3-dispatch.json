@@ -1,0 +1,29 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "修正後回歸",
+  "materials": [
+   "governance/review-reports/code-phase3-capability/r3-snapshot.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "sec",
+  "lens": "資安",
+  "materials": [
+   "governance/review-reports/code-phase3-capability/r3-snapshot.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/code-phase3-capability/r3-snapshot.patch"
+  ],
+  "auditor": "codex"
+ }
+]

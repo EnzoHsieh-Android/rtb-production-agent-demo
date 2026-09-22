@@ -9,10 +9,14 @@ about_code:
   - src/rtb/dsp/store.py
   - src/rtb/dsp/errors.py
   - src/rtb/dsp/server.py
+  - src/rtb/dsp/capability.py
 tags:
   - type/system
   - status/doing
 summary: |-
+  RULE: 所有寫入先驗寫入能力憑證,順序固定:金鑰已設定 → 標頭存在 → 格式與簽章 → 聲明欄位與型別 → 時間窗 → 讀本文(白名單外的欄位拒收)→ 驗操作內容(不合法的值照舊 422)→ 範圍(廣告、動作、冪等鍵、租戶、確切新預算、預期版本都要等於聲明,廣告不存在也算範圍不符)。每一步失敗都在任何寫入之前,三張表都不動;拒收代碼沿用錯誤對照表,都不可重試,只回固定代碼不回顯聲明。見 [[Systems/寫入能力憑證]]。[since:2026-09-22] [retire:換成真實 DSP 時撤除]
+  PITFALL: 代碼審第 1 輪指出:驗證函式若把「讀憑證標頭」當參數傳入,Python 會在函式內檢查金鑰之前就先讀標頭,沒金鑰又重複帶標頭時回的是「標頭重複」而不是「沒有可用金鑰」;現在標頭改成金鑰檢查之後才讀。政策版本原本驗完就丟,「只記不驗」沒有落實,現在寫進操作紀錄(舊操作留空值)。第 2 輪再補:時鐘也改成金鑰檢查之後才讀(時鐘出錯也蓋不掉沒有金鑰);政策版本 DSP 自己再擋一次格式(1 到 64 個英數與 . _ : -)。同一把鍵重放時操作紀錄只留第一次套用時的政策版本,這是刻意的:紀錄的是「這筆變更實際在哪個政策版本下套用」,重放沒有再套用一次。防回歸:[test:test_without_a_key_duplicate_capability_headers_still_answer_not_configured]、[test:test_the_policy_version_of_an_applied_write_is_recorded]、[test:test_the_key_is_checked_before_the_clock_is_read]、[test:test_every_earlier_check_answers_before_the_clock_is_read](有金鑰時標頭、格式、聲明的問題都在讀時鐘前回報)、[test:test_a_policy_version_outside_the_dsp_format_is_invalid]。
+  RULE: 廣告的租戶只在建檔時設定,沒有任何寫入端點能改(有測試從路由表列舉寫入端點);舊資料庫沿用補欄位做法,舊廣告屬於預設租戶,舊操作的政策版本留空值。只有啟動程式讀金鑰環境變數,伺服器物件收參數。[since:2026-09-22] [retire:需要支援改租戶時,改租戶必須推進廣告版本並重審]
   WHY: DSP 是獨立的外部事實來源,儲存與 agent 完全分開,agent 只能走它的公開介面;這樣「DSP 已提交但 agent 不知道」才測得出來。出處:[[RTB_Agent_Phase0架構]] 決策 d2。
   WHY: 一次操作的狀態變更、操作歷史、冪等紀錄放在同一個交易裡一起提交或回滾,避免「狀態已改但冪等鍵沒記」讓重送雙寫。出處:[[RTB_Agent_Phase0架構]] 的外部寫入失敗語意一節。
   PITFALL: 寫入交易若用普通 BEGIN(延遲交易),並行同鍵請求在 WAL 下會直接回 database is locked,busy_timeout 不會等;必須 BEGIN IMMEDIATE。防回歸:[test:test_concurrent_requests_with_the_same_key_apply_exactly_once],改成 BEGIN 會紅(2026-09-21 變異檢查實測)。
@@ -65,3 +69,5 @@ REVISIT:2026-11-30 Phase 4 開始有多個工作者行程時,補一支兩個獨�
 2026-09-22:伺服器共通行為(Host 檢查、請求本文上限、逾時、JSON 錯誤與 500 後備)與 SQLite 連線及寫入交易已抽到 [[Systems/共用行程基礎]],DSP 只保留路由、錯誤對照表與故障注入;上面這些規則的實作與防回歸現在在那一篇。
 連線建立階段(切換 WAL、建表)撞上鎖競爭,現在也回 503 store_busy(可重試),不再落到不可重試的 500;每個請求開的儲存連線在成功、領域例外與非預期例外三條路徑都會關閉,有測試守著(見共用行程基礎的測試)。
 X-Fault 標頭的讀取與「沒開旗標就拒絕」也改由共用基礎提供(提案收件口共用同一套),DSP 只保留自己的故障模式清單。
+
+憑證驗證在 `src/rtb/dsp/capability.py`:DSP 自己的聲明欄位、範圍欄位與本文白名單(刻意不依賴領域層,動作名稱用路由表既有的)。

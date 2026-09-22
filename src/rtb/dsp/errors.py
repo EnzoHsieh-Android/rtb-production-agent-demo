@@ -43,3 +43,27 @@ class VersionConflict(PermanentError):
 
 class MetricsNotFound(PermanentError):
     """這個廣告在這個時間窗沒有指標資料。"""
+
+
+class CapabilityError(PermanentError):
+    """寫入能力憑證不通過:都發生在任何寫入之前,原樣重送不會通過。"""
+
+
+class CapabilityNotConfigured(CapabilityError):
+    """DSP 沒有可用的金鑰(沒有或太短):所有寫入一律拒收,不是放行。"""
+
+
+class CapabilityMissing(CapabilityError):
+    """寫入請求沒帶憑證。"""
+
+
+class CapabilityInvalid(CapabilityError):
+    """憑證格式、簽章、聲明欄位或型別、格式版本任一不對。"""
+
+
+class CapabilityExpired(CapabilityError):
+    """憑證不在有效時間窗內。"""
+
+
+class CapabilityScopeMismatch(CapabilityError):
+    """請求(廣告、動作、冪等鍵、租戶、新預算、預期版本)與聲明不符。"""

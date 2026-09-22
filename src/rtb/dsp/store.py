@@ -28,11 +28,13 @@ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, begin_immediate, c
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS campaigns (
-    id TEXT PRIMARY KEY, budget INTEGER NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL);
+    id TEXT PRIMARY KEY, budget INTEGER NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL,
+    tenant TEXT NOT NULL DEFAULT 't-default');
 CREATE TABLE IF NOT EXISTS operations (
     operation_id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL,
     action TEXT NOT NULL, params_json TEXT NOT NULL, version_after INTEGER NOT NULL,
-    received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE);
+    received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+    policy_version TEXT);
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, operation_id INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS metrics (
@@ -41,6 +43,7 @@ CREATE TABLE IF NOT EXISTS metrics (
 """
 
 SQLITE_INTEGER_MAX = 2**63 - 1
+DEFAULT_TENANT = "t-default"  # 沒指定租戶的廣告(含補欄位前的舊資料)都屬於它
 METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
 COUNT_FIELDS = ("impressions", "clicks", "conversions")  # METRIC_FIELDS 的子集:存成整數
 AMOUNT_FIELDS = ("spend", "revenue")  # 存成 REAL
@@ -68,6 +71,7 @@ class Operation:
     params: dict[str, object]  # 來自不可信的請求:先當作未驗證的值,_validate 會檢查內容
     expected_version: object  # 同上:先當作未驗證的值,_validate 確認是正整數
     idempotency_key: str
+    policy_version: str | None = None  # 憑證上的政策版本:只記不驗,供稽核;不進指紋
 
     def fingerprint(self) -> str:
         body = [self.campaign_id, self.action, self.params, self.expected_version]
@@ -107,8 +111,15 @@ class HistoryEntry:
     idempotency_key: str
 
 
-def _is_plain_int(value: object) -> TypeGuard[int]:
+def is_plain_int(value: object) -> TypeGuard[int]:
+    """是整數而且不是布林;DSP 自己一份(刻意不依賴領域層),DSP 內部各模組共用這一份。"""
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def validate(op: Operation) -> None:
+    """操作內容的合法性(冪等鍵格式、預期版本、動作、預算)。寫入端點在比對憑證範圍之前先跑,
+    讓不合法的值照舊回 422 而不是被當成範圍不符。"""
+    _validate(op)
 
 
 def _validate(op: Operation) -> None:
@@ -116,22 +127,22 @@ def _validate(op: Operation) -> None:
         op.idempotency_key
     ):
         raise ValidationRejected("冪等鍵必須是 1 到 128 個英數字或 . _ : -")
-    if not _is_plain_int(op.expected_version) or op.expected_version < 1:
+    if not is_plain_int(op.expected_version) or op.expected_version < 1:
         raise ValidationRejected("expected_version 必須是正整數")
     if op.action == "update_budget":
         budget = op.params.get("new_budget")
-        if not _is_plain_int(budget) or not 0 < budget <= SQLITE_INTEGER_MAX:
+        if not is_plain_int(budget) or not 0 < budget <= SQLITE_INTEGER_MAX:
             raise ValidationRejected("new_budget 必須是 1 到 2**63-1 的整數")
     elif op.action != "pause_campaign":
         raise UnknownAction(op.action)
 
 
 def _is_storable_count(value: object) -> TypeGuard[int]:
-    return _is_plain_int(value) and abs(value) <= SQLITE_INTEGER_MAX
+    return is_plain_int(value) and abs(value) <= SQLITE_INTEGER_MAX
 
 
 def _is_storable_amount(value: object) -> TypeGuard[int | float]:
-    if _is_plain_int(value):
+    if is_plain_int(value):
         return abs(value) <= EXACT_FLOAT_INT_MAX
     return isinstance(value, float) and math.isfinite(value)
 
@@ -158,7 +169,7 @@ def _check_window(window: str | None) -> None:
 def _next_state(campaign: Campaign, op: Operation) -> Campaign:
     if op.action == "update_budget":
         budget = op.params.get("new_budget")
-        if not _is_plain_int(budget):  # _validate 已檢查過;這裡讓型別檢查也能確認
+        if not is_plain_int(budget):  # _validate 已檢查過;這裡讓型別檢查也能確認
             raise ValidationRejected("new_budget 必須是整數")
         return Campaign(campaign.id, budget, campaign.status, campaign.version + 1)
     return Campaign(campaign.id, campaign.budget, "paused", campaign.version + 1)
@@ -176,15 +187,53 @@ class CampaignStore:
             self._conn = connect(path, busy_timeout_seconds, SCHEMA)
         except DatabaseBusy as exc:
             raise StoreBusy(str(exc)) from exc
+        self._migrate_columns()
+
+    def _migrate_columns(self) -> None:
+        """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:沿用分析行程歷史表的補欄位做法,
+        每次連線檢查一次,缺就在交易內加欄位:廣告表的租戶(舊廣告補預設租戶;租戶只在建檔時
+        設定,DSP 沒有任何改廣告租戶的寫入介面)、操作紀錄的政策版本(舊操作留空值)。
+        """
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
+        op_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(operations)")}
+        if "tenant" in columns and "policy_version" in op_columns:
+            return
+        try:
+            begin_immediate(self._conn)
+        except DatabaseBusy as exc:
+            raise StoreBusy(str(exc)) from exc
+        try:
+            columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
+            if "tenant" not in columns:  # 等鎖期間別的連線可能已經補好
+                self._conn.execute(
+                    "ALTER TABLE campaigns ADD COLUMN tenant TEXT NOT NULL "
+                    f"DEFAULT '{DEFAULT_TENANT}'")
+            op_columns = {r[1] for r in self._conn.execute("PRAGMA table_info(operations)")}
+            if "policy_version" not in op_columns:  # 舊操作沒有紀錄政策版本,誠實留空值
+                self._conn.execute("ALTER TABLE operations ADD COLUMN policy_version TEXT")
+            self._conn.execute("COMMIT")
+        except BaseException:
+            if self._conn.in_transaction:
+                self._conn.execute("ROLLBACK")
+            raise
 
     def close(self) -> None:
         self._conn.close()
 
-    def seed_campaign(self, campaign_id: str, budget: int, status: str = "active") -> None:
+    def seed_campaign(
+        self, campaign_id: str, budget: int, status: str = "active",
+        tenant: str = DEFAULT_TENANT,
+    ) -> None:
         self._conn.execute(
-            "INSERT INTO campaigns (id, budget, status, version) VALUES (?, ?, ?, 1)",
-            (campaign_id, budget, status),
+            "INSERT INTO campaigns (id, budget, status, version, tenant) VALUES (?, ?, ?, 1, ?)",
+            (campaign_id, budget, status, tenant),
         )
+
+    def tenant_of(self, campaign_id: str) -> str | None:
+        """廣告屬於哪個租戶;廣告不存在回 None(驗證憑證時算範圍不符,不是 404)。"""
+        row = self._conn.execute(
+            "SELECT tenant FROM campaigns WHERE id = ?", (campaign_id,)).fetchone()
+        return None if row is None else str(row[0])
 
     def get_campaign(self, campaign_id: str) -> Campaign:
         row = self._conn.execute(
@@ -295,7 +344,8 @@ class CampaignStore:
         )
         cursor = self._conn.execute(
             "INSERT INTO operations (campaign_id, action, params_json, version_after, "
-            "received_at, committed_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "received_at, committed_at, idempotency_key, policy_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 op.campaign_id,
                 op.action,
@@ -304,6 +354,7 @@ class CampaignStore:
                 received_at,
                 committed_at,
                 op.idempotency_key,
+                op.policy_version,
             ),
         )
         operation_id = cursor.lastrowid

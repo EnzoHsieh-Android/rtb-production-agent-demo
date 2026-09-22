@@ -14,13 +14,30 @@ import pytest
 
 from rtb.dsp.errors import PermanentError, StoreBusy, TransientError
 from rtb.dsp.server import error_entry
+from tests.capability_samples import header as capability_header
 
 BUDGET = "/campaigns/c1/budget"
 HEADERS = {"Idempotency-Key": "k1"}
 
 
+def _positive_int(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def cap(action="update_budget", budget=150, version=1, key="k1"):
+    """明確呼叫的簽章輔助:既有測試帶合法憑證,走真實驗證路徑。本文故意放不合法的值時,
+    聲明放一個合法值,讓請求照舊在「驗操作內容」那一步回原本的錯誤。"""
+    return capability_header(
+        action=action, new_budget=budget if _positive_int(budget) else 1,
+        expected_version=version if _positive_int(version) else 1, idempotency_key=key)
+
+
+def pause_headers(key="p1", version=1, **extra):
+    return {"Idempotency-Key": key, **cap("pause_campaign", version=version, key=key), **extra}
+
+
 def set_budget(dsp, budget=150, version=1, key="k1", fault=None, timeout=3.0):
-    headers = {"Idempotency-Key": key}
+    headers = {"Idempotency-Key": key, **cap(budget=budget, version=version, key=key)}
     if fault:
         headers["X-Fault"] = fault
     return dsp.request("POST", BUDGET, {"new_budget": budget, "expected_version": version},
@@ -151,7 +168,7 @@ def test_same_key_with_different_payload_is_rejected_with_422(start_dsp):
 def test_missing_idempotency_key_is_rejected_with_400(start_dsp):
     dsp = start_dsp()
 
-    status, body = dsp.request("POST", BUDGET, {"new_budget": 150, "expected_version": 1})
+    status, body = dsp.request("POST", BUDGET, {"new_budget": 150, "expected_version": 1}, cap())
 
     assert status == 400 and body["error"] == "missing_idempotency_key"
 
@@ -160,7 +177,7 @@ def test_pause_campaign_over_http(start_dsp):
     dsp = start_dsp()
 
     status, _ = dsp.request("POST", "/campaigns/c1/pause", {"expected_version": 1},
-                            {"Idempotency-Key": "p1"})
+                            pause_headers())
 
     assert status == 200 and campaign(dsp)["status"] == "paused"
 
@@ -264,7 +281,7 @@ def test_bad_expected_version_gets_422_and_changes_nothing(start_dsp, bad_versio
     dsp = start_dsp()
 
     status, body = dsp.request("POST", BUDGET, {"new_budget": 150, "expected_version": bad_version},
-                               HEADERS)
+                               {**HEADERS, **cap()})
 
     assert status == 422 and body["error"] == "validation_rejected"
     assert campaign(dsp)["version"] == 1 and history(dsp) == []
@@ -273,7 +290,7 @@ def test_bad_expected_version_gets_422_and_changes_nothing(start_dsp, bad_versio
 def test_missing_expected_version_is_a_validation_error_not_a_version_conflict(start_dsp):
     dsp = start_dsp()
 
-    status, body = dsp.request("POST", BUDGET, {"new_budget": 150}, HEADERS)
+    status, body = dsp.request("POST", BUDGET, {"new_budget": 150}, {**HEADERS, **cap()})
 
     assert status == 422 and body["error"] == "validation_rejected"
 
@@ -283,7 +300,7 @@ def test_invalid_content_length_gets_400_json(start_dsp, length):
     dsp = start_dsp()
 
     status, body = raw_post(dsp, "/campaigns/c1/pause",
-                            {"Idempotency-Key": "p1", "Content-Length": length})
+                            {**pause_headers(), "Content-Length": length})
 
     assert status == 400 and body["error"] == "invalid_content_length"
     assert campaign(dsp)["status"] == "active"
@@ -293,7 +310,7 @@ def test_chunked_transfer_encoding_is_rejected_instead_of_silently_ignored(start
     dsp = start_dsp()
 
     status, body = raw_post(dsp, "/campaigns/c1/pause",
-                            {"Idempotency-Key": "p1", "Transfer-Encoding": "chunked"}, b"0\r\n\r\n")
+                            {**pause_headers(), "Transfer-Encoding": "chunked"}, b"0\r\n\r\n")
 
     assert status == 411 and body["error"] == "chunked_not_supported"
     assert campaign(dsp)["status"] == "active"
@@ -301,12 +318,12 @@ def test_chunked_transfer_encoding_is_rejected_instead_of_silently_ignored(start
 
 def test_invalid_json_body_gets_400_and_oversized_body_gets_413(start_dsp):
     dsp = start_dsp()
-    headers = {"Idempotency-Key": "k1", "Content-Length": "5"}
+    headers = {"Idempotency-Key": "k1", "Content-Length": "5", **cap()}
     assert raw_post(dsp, BUDGET, headers, b"nope!")[1]["error"] == "invalid_json"
 
     big = b"{" + b" " * (70 * 1024) + b"}"
-    status, body = raw_post(dsp, BUDGET, {"Idempotency-Key": "k1", "Content-Length": str(len(big))},
-                            big)
+    status, body = raw_post(dsp, BUDGET, {"Idempotency-Key": "k1", "Content-Length": str(len(big)),
+                                                **cap()}, big)
     assert status == 413 and body["error"] == "body_too_large"
 
 
@@ -314,7 +331,7 @@ def test_huge_digit_string_in_json_is_a_400_not_a_dropped_connection(start_dsp):
     dsp = start_dsp()
     body = b'{"new_budget": ' + b"9" * 5000 + b', "expected_version": 1}'
 
-    status, payload = raw_post(dsp, BUDGET, {"Idempotency-Key": "k1",
+    status, payload = raw_post(dsp, BUDGET, {"Idempotency-Key": "k1", **cap(),
                                              "Content-Length": str(len(body))}, body)
 
     assert status == 400 and payload["error"] == "invalid_json"
@@ -325,7 +342,7 @@ def test_idempotency_key_with_unsafe_characters_or_length_is_rejected(start_dsp,
     dsp = start_dsp()
 
     status, body = dsp.request("POST", BUDGET, {"new_budget": 150, "expected_version": 1},
-                               {"Idempotency-Key": bad_key})
+                               {"Idempotency-Key": bad_key, **cap(key=bad_key)})
 
     assert status == 422 and body["error"] == "validation_rejected"
     assert history(dsp) == []
@@ -336,7 +353,7 @@ def test_duplicate_idempotency_key_headers_are_rejected(start_dsp):
     body = json.dumps({"new_budget": 150, "expected_version": 1}).encode()
 
     status, payload = raw_post(dsp, BUDGET, {"Content-Length": str(len(body)),
-                                             "Idempotency-Key": "k1"}, body,
+                                             "Idempotency-Key": "k1", **cap()}, body,
                                extra_pairs=[("Idempotency-Key", "k2")])
 
     assert status == 400 and payload["error"] == "duplicate_header"
@@ -392,7 +409,7 @@ def test_stale_version_leaves_version_and_history_untouched(start_dsp):
 
 def test_pause_bumps_the_version_and_lookup_by_key_is_not_a_replay(start_dsp):
     dsp = start_dsp()
-    dsp.request("POST", "/campaigns/c1/pause", {"expected_version": 1}, {"Idempotency-Key": "p1"})
+    dsp.request("POST", "/campaigns/c1/pause", {"expected_version": 1}, pause_headers())
 
     status, body = dsp.request("GET", "/operations/p1")
 
@@ -484,7 +501,7 @@ def test_content_length_with_surrounding_spaces_is_accepted(start_dsp):
     body = json.dumps({"expected_version": 1}).encode()
 
     status, _ = raw_post(dsp, "/campaigns/c1/pause",
-                         {"Idempotency-Key": "p1", "Content-Length": f" {len(body)} "}, body)
+                         {**pause_headers(), "Content-Length": f" {len(body)} "}, body)
 
     assert status == 200
 
@@ -493,7 +510,7 @@ def test_absurdly_long_content_length_digits_get_413_not_a_500(start_dsp):
     dsp = start_dsp()
 
     status, body = raw_post(dsp, "/campaigns/c1/pause",
-                            {"Idempotency-Key": "p1", "Content-Length": "9" * 5000})
+                            {**pause_headers(), "Content-Length": "9" * 5000})
 
     assert status == 413 and body["error"] == "body_too_large"
 
@@ -502,8 +519,10 @@ def test_body_that_never_finishes_arriving_gets_408_and_no_traceback_noise(start
     dsp = start_dsp(socket_timeout_seconds=1.0)
     port = int(dsp.base.rsplit(":", 1)[1])
     with socket.create_connection(("127.0.0.1", port), timeout=5) as conn:
+        token = pause_headers()["X-Capability"]
         conn.sendall(f"POST /campaigns/c1/pause HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
-                     "Idempotency-Key: p1\r\nContent-Length: 100\r\n\r\n{".encode())
+                     f"Idempotency-Key: p1\r\nX-Capability: {token}\r\n"
+                     "Content-Length: 100\r\n\r\n{".encode())
         reply = b""
         while chunk := conn.recv(4096):
             reply += chunk

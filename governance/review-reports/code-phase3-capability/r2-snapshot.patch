@@ -1,0 +1,698 @@
+diff --git a/src/rtb/dsp/capability.py b/src/rtb/dsp/capability.py
+index 7e25421..fea12b8 100644
+--- a/src/rtb/dsp/capability.py
++++ b/src/rtb/dsp/capability.py
+@@ -1,29 +1,30 @@
+ """模擬 DSP 這一側的寫入能力憑證:聲明欄位集合、時間窗與範圍檢查。
+ 
+ DSP 是外部系統的模擬器,刻意不依賴領域層,欄位定義自己一份;動作名稱用路由表既有的
+ update_budget、pause_campaign。執行行程那一份由跨行程整合測試綁住。
+ 驗證失敗一律丟型別化的憑證錯誤,由錯誤對照表轉成固定代碼,不回顯聲明內容。
+ """
+ 
+-from collections.abc import Mapping
++from collections.abc import Callable, Mapping
+ from dataclasses import dataclass
+ from typing import TypeGuard
+ 
+ from rtb.capabilitykit import TokenRejected, decode, is_usable_key
+ from rtb.dsp.errors import (
+     CapabilityExpired,
+     CapabilityInvalid,
+     CapabilityMissing,
+     CapabilityNotConfigured,
+     CapabilityScopeMismatch,
+ )
++from rtb.dsp.store import is_plain_int
+ 
+ FORMAT_VERSION = "c1"
+ CLAIM_FIELDS = ("v", "tenant", "campaign_id", "action", "new_budget", "expected_version",
+                 "idempotency_key", "policy_version", "iat", "exp")
+ SCOPE_FIELDS = ("campaign_id", "action", "idempotency_key", "tenant", "new_budget",
+                 "expected_version")
+ ACTIONS = ("update_budget", "pause_campaign")
+ # 每個寫入端點只收這些本文欄位;多出的一律拒收(租戶不在裡面:沒有端點能改廣告的租戶)
+ BODY_FIELDS = {
+     "update_budget": frozenset({"new_budget", "expected_version"}),
+@@ -48,60 +49,63 @@ class Claims:
+ 
+ @dataclass(frozen=True)
+ class WriteRequest:
+     campaign_id: str
+     action: str
+     idempotency_key: str
+     new_budget: object
+     expected_version: object
+ 
+ 
+-def _plain_int(value: object) -> TypeGuard[int]:
+-    return isinstance(value, int) and not isinstance(value, bool)
+-
+-
+ def _nonempty_str(value: object) -> TypeGuard[str]:
+     return isinstance(value, str) and bool(value)
+ 
+ 
+ def _parse_claims(raw: Mapping[str, object]) -> Claims:
+     if set(raw) != set(CLAIM_FIELDS) or raw["v"] != FORMAT_VERSION:
+         raise CapabilityInvalid("聲明欄位集合或格式版本不對")
+     action, budget = raw["action"], raw["new_budget"]
+-    budget_ok = (_plain_int(budget) and budget > 0) if action == "update_budget" else (
++    budget_ok = (is_plain_int(budget) and budget > 0) if action == "update_budget" else (
+         budget is None)
+     texts = (raw["tenant"], raw["campaign_id"], raw["idempotency_key"], raw["policy_version"])
+     numbers = (raw["expected_version"], raw["iat"], raw["exp"])
+     if (action not in ACTIONS or not budget_ok or not all(_nonempty_str(t) for t in texts)
+-            or not all(_plain_int(n) for n in numbers)):
++            or not all(is_plain_int(n) for n in numbers)):
+         raise CapabilityInvalid("聲明欄位型別不對")
+     return Claims(
+         tenant=str(raw["tenant"]), campaign_id=str(raw["campaign_id"]), action=str(action),
+-        new_budget=budget if _plain_int(budget) else None,
++        new_budget=budget if is_plain_int(budget) else None,
+         expected_version=int(str(raw["expected_version"])),
+         idempotency_key=str(raw["idempotency_key"]), policy_version=str(raw["policy_version"]),
+         iat=int(str(raw["iat"])), exp=int(str(raw["exp"])),
+     )
+ 
+ 
+ def _check_time(claims: Claims, now: int) -> None:
+     lifetime = claims.exp - claims.iat
+     if (lifetime <= 0 or lifetime > MAX_LIFETIME_SECONDS
+             or claims.iat > now + MAX_SKEW_SECONDS or claims.exp <= now):
+         raise CapabilityExpired("憑證不在有效時間窗內")
+ 
+ 
+-def verified_claims(token: str | None, key: bytes | None, now: int) -> Claims:
+-    """金鑰已設定 → 標頭存在 → 格式與簽章 → 聲明 → 時間;範圍要等讀完本文再比。"""
++def verified_claims(
++    read_token: Callable[[], str | None], key: bytes | None, now: int,
++) -> Claims:
++    """金鑰已設定 → 標頭存在 → 格式與簽章 → 聲明 → 時間;範圍要等讀完本文再比。
++
++    標頭用函式傳進來、在金鑰檢查之後才讀:讀標頭本身也會拒收(例如標頭重複),
++    先讀就會蓋掉「DSP 沒有可用金鑰」這個更嚴重的狀況。
++    """
+     if not is_usable_key(key):
+         raise CapabilityNotConfigured("DSP 沒有可用的金鑰")
+     assert key is not None  # is_usable_key 已確認  # noqa: S101
++    token = read_token()
+     if token is None:
+         raise CapabilityMissing("寫入沒有帶憑證")
+     try:
+         raw = decode(token, key)
+     except TokenRejected as exc:
+         raise CapabilityInvalid("憑證格式或簽章不對") from exc
+     claims = _parse_claims(raw)
+     _check_time(claims, now)
+     return claims
+ 
+@@ -112,16 +116,16 @@ def check_body_fields(action: str, body: dict[str, object]) -> set[str]:
+ 
+ 
+ def check_scope(claims: Claims, request: WriteRequest, tenant_of_campaign: str | None) -> None:
+     """六項範圍都要等於聲明;廣告不存在(查不到租戶)也算範圍不符。"""
+     matches = (
+         claims.campaign_id == request.campaign_id,
+         claims.action == request.action,
+         claims.idempotency_key == request.idempotency_key,
+         tenant_of_campaign is not None and claims.tenant == tenant_of_campaign,
+         claims.new_budget == request.new_budget
+-        and (request.new_budget is None or _plain_int(request.new_budget)),
+-        _plain_int(request.expected_version)
++        and (request.new_budget is None or is_plain_int(request.new_budget)),
++        is_plain_int(request.expected_version)
+         and claims.expected_version == request.expected_version,
+     )
+     if not all(matches):
+         raise CapabilityScopeMismatch("請求與憑證的範圍不符")
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index 9d4f3a2..39c7c85 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -5,21 +5,21 @@
+ 只綁定本機回送位址,且只接受 Host 標頭指向回送位址的請求(防 DNS rebinding)。
+ 任何沒預期到的例外都回 500 JSON,絕不無聲切斷連線:呼叫端看到斷線,就分不出
+ 「永久錯誤」與「提交前逾時」。
+ """
+ 
+ import argparse
+ import os
+ import re
+ import time
+ from collections.abc import Callable
+-from dataclasses import asdict
++from dataclasses import asdict, replace
+ from pathlib import Path
+ from typing import Any
+ from urllib.parse import parse_qs, urlsplit
+ 
+ from rtb.capabilitykit import HEADER as CAPABILITY_HEADER
+ from rtb.capabilitykit import read_key
+ from rtb.dsp.capability import (
+     WriteRequest,
+     check_body_fields,
+     check_scope,
+@@ -157,27 +157,28 @@ class DspHandler(JsonHandler):
+     ) -> dict[str, Any]:
+         return self._authorized_write(store, campaign_id, "pause_campaign", fault)
+ 
+     def _authorized_write(
+         self, store: CampaignStore, campaign_id: str, action: str, fault: str | None
+     ) -> dict[str, Any]:
+         """先驗憑證(金鑰、標頭、格式、簽章、聲明、時間),再讀本文、驗操作內容,再比範圍,最後才寫。
+ 
+         每一步失敗都發生在任何寫入之前:廣告表、操作紀錄、冪等鍵表三者都不動。
+         """
+-        claims = verified_claims(self.single_header(CAPABILITY_HEADER),
++        claims = verified_claims(lambda: self.single_header(CAPABILITY_HEADER),
+                                  self.server.capability_key, int(self.server.clock()))
+         body = self.read_json(allow_empty=True)
+         if check_body_fields(action, body):
+             raise RequestRejected(400, "unexpected_field")
+         params = {"new_budget": body.get("new_budget")} if action == "update_budget" else {}
+-        op = self._operation(campaign_id, action, params, body)
++        op = replace(self._operation(campaign_id, action, params, body),
++                     policy_version=claims.policy_version)  # 只記不驗,供稽核
+         validate(op)  # 不合法的值照舊回 422,不被當成範圍不符
+         check_scope(claims, WriteRequest(campaign_id, action, op.idempotency_key,
+                                          params.get("new_budget"), op.expected_version),
+                     store.tenant_of(campaign_id))
+         return self._write(store, op, fault)
+ 
+     def _operation(
+         self, campaign_id: str, action: str, params: dict[str, Any], body: dict[str, Any]
+     ) -> Operation:
+         key = self.single_header("Idempotency-Key")
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index b846c38..0b8b050 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -26,21 +26,22 @@ from rtb.dsp.errors import (
+ )
+ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, begin_immediate, connect
+ 
+ SCHEMA = """
+ CREATE TABLE IF NOT EXISTS campaigns (
+     id TEXT PRIMARY KEY, budget INTEGER NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL,
+     tenant TEXT NOT NULL DEFAULT 't-default');
+ CREATE TABLE IF NOT EXISTS operations (
+     operation_id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL,
+     action TEXT NOT NULL, params_json TEXT NOT NULL, version_after INTEGER NOT NULL,
+-    received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE);
++    received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
++    policy_version TEXT);
+ CREATE TABLE IF NOT EXISTS idempotency_keys (
+     key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, operation_id INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS metrics (
+     campaign_id TEXT NOT NULL, window_name TEXT NOT NULL, impressions INTEGER, clicks INTEGER,
+     conversions INTEGER, spend REAL, revenue REAL, PRIMARY KEY (campaign_id, window_name));
+ """
+ 
+ SQLITE_INTEGER_MAX = 2**63 - 1
+ DEFAULT_TENANT = "t-default"  # 沒指定租戶的廣告(含補欄位前的舊資料)都屬於它
+ METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
+@@ -63,20 +64,21 @@ class Campaign:
+     version: int
+ 
+ 
+ @dataclass(frozen=True)
+ class Operation:
+     campaign_id: str
+     action: str
+     params: dict[str, object]  # 來自不可信的請求:先當作未驗證的值,_validate 會檢查內容
+     expected_version: object  # 同上:先當作未驗證的值,_validate 確認是正整數
+     idempotency_key: str
++    policy_version: str | None = None  # 憑證上的政策版本:只記不驗,供稽核;不進指紋
+ 
+     def fingerprint(self) -> str:
+         body = [self.campaign_id, self.action, self.params, self.expected_version]
+         return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+ 
+ 
+ @dataclass(frozen=True)
+ class OperationResult:
+     operation_id: int
+     campaign_id: str
+@@ -102,51 +104,52 @@ class MetricsRecord:
+ @dataclass(frozen=True)
+ class HistoryEntry:
+     operation_id: int
+     action: str
+     version_after: int
+     received_at: str
+     committed_at: str
+     idempotency_key: str
+ 
+ 
+-def _is_plain_int(value: object) -> TypeGuard[int]:
++def is_plain_int(value: object) -> TypeGuard[int]:
++    """是整數而且不是布林;DSP 自己一份(刻意不依賴領域層),DSP 內部各模組共用這一份。"""
+     return isinstance(value, int) and not isinstance(value, bool)
+ 
+ 
+ def validate(op: Operation) -> None:
+     """操作內容的合法性(冪等鍵格式、預期版本、動作、預算)。寫入端點在比對憑證範圍之前先跑,
+     讓不合法的值照舊回 422 而不是被當成範圍不符。"""
+     _validate(op)
+ 
+ 
+ def _validate(op: Operation) -> None:
+     if not isinstance(op.idempotency_key, str) or not IDEMPOTENCY_KEY_PATTERN.fullmatch(
+         op.idempotency_key
+     ):
+         raise ValidationRejected("冪等鍵必須是 1 到 128 個英數字或 . _ : -")
+-    if not _is_plain_int(op.expected_version) or op.expected_version < 1:
++    if not is_plain_int(op.expected_version) or op.expected_version < 1:
+         raise ValidationRejected("expected_version 必須是正整數")
+     if op.action == "update_budget":
+         budget = op.params.get("new_budget")
+-        if not _is_plain_int(budget) or not 0 < budget <= SQLITE_INTEGER_MAX:
++        if not is_plain_int(budget) or not 0 < budget <= SQLITE_INTEGER_MAX:
+             raise ValidationRejected("new_budget 必須是 1 到 2**63-1 的整數")
+     elif op.action != "pause_campaign":
+         raise UnknownAction(op.action)
+ 
+ 
+ def _is_storable_count(value: object) -> TypeGuard[int]:
+-    return _is_plain_int(value) and abs(value) <= SQLITE_INTEGER_MAX
++    return is_plain_int(value) and abs(value) <= SQLITE_INTEGER_MAX
+ 
+ 
+ def _is_storable_amount(value: object) -> TypeGuard[int | float]:
+-    if _is_plain_int(value):
++    if is_plain_int(value):
+         return abs(value) <= EXACT_FLOAT_INT_MAX
+     return isinstance(value, float) and math.isfinite(value)
+ 
+ 
+ def _checked_metric(name: str, value: object) -> float | None:
+     """只收存進去不會失真、也不會被讀成別的東西的值;沒給的欄位維持 None,不補成 0。
+ 
+     金額欄位是 REAL,整數讀回會是浮點數(12 變成 12.0);所以整數只收到浮點數能精確表示的大小。
+     """
+     if value is None:
+@@ -159,58 +162,62 @@ def _checked_metric(name: str, value: object) -> float | None:
+ 
+ 
+ def _check_window(window: str | None) -> None:
+     if window not in METRIC_WINDOWS:
+         raise ValidationRejected("window 必須是 1h、1d 或 7d 其中之一")
+ 
+ 
+ def _next_state(campaign: Campaign, op: Operation) -> Campaign:
+     if op.action == "update_budget":
+         budget = op.params.get("new_budget")
+-        if not _is_plain_int(budget):  # _validate 已檢查過;這裡讓型別檢查也能確認
++        if not is_plain_int(budget):  # _validate 已檢查過;這裡讓型別檢查也能確認
+             raise ValidationRejected("new_budget 必須是整數")
+         return Campaign(campaign.id, budget, campaign.status, campaign.version + 1)
+     return Campaign(campaign.id, campaign.budget, "paused", campaign.version + 1)
+ 
+ 
+ class CampaignStore:
+     def __init__(
+         self,
+         path: Path,
+         clock: Callable[[], str] = _utc_now,
+         busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+     ):
+         self._clock = clock
+         try:
+             self._conn = connect(path, busy_timeout_seconds, SCHEMA)
+         except DatabaseBusy as exc:
+             raise StoreBusy(str(exc)) from exc
+-        self._migrate_tenant_column()
++        self._migrate_columns()
+ 
+-    def _migrate_tenant_column(self) -> None:
++    def _migrate_columns(self) -> None:
+         """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:沿用分析行程歷史表的補欄位做法,
+-        每次連線檢查一次,缺就在交易內加欄位,舊廣告補預設租戶。租戶只在建檔時設定,
+-        DSP 沒有任何改廣告租戶的寫入介面。
++        每次連線檢查一次,缺就在交易內加欄位:廣告表的租戶(舊廣告補預設租戶;租戶只在建檔時
++        設定,DSP 沒有任何改廣告租戶的寫入介面)、操作紀錄的政策版本(舊操作留空值)。
+         """
+         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
+-        if "tenant" in columns:
++        op_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(operations)")}
++        if "tenant" in columns and "policy_version" in op_columns:
+             return
+         try:
+             begin_immediate(self._conn)
+         except DatabaseBusy as exc:
+             raise StoreBusy(str(exc)) from exc
+         try:
+             columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
+             if "tenant" not in columns:  # 等鎖期間別的連線可能已經補好
+                 self._conn.execute(
+                     "ALTER TABLE campaigns ADD COLUMN tenant TEXT NOT NULL "
+                     f"DEFAULT '{DEFAULT_TENANT}'")
++            op_columns = {r[1] for r in self._conn.execute("PRAGMA table_info(operations)")}
++            if "policy_version" not in op_columns:  # 舊操作沒有紀錄政策版本,誠實留空值
++                self._conn.execute("ALTER TABLE operations ADD COLUMN policy_version TEXT")
+             self._conn.execute("COMMIT")
+         except BaseException:
+             if self._conn.in_transaction:
+                 self._conn.execute("ROLLBACK")
+             raise
+ 
+     def close(self) -> None:
+         self._conn.close()
+ 
+     def seed_campaign(
+@@ -330,29 +337,31 @@ class CampaignStore:
+ 
+     def _apply(
+         self, op: Operation, updated: Campaign, received_at: str, committed_at: str
+     ) -> int:
+         self._conn.execute(
+             "UPDATE campaigns SET budget = ?, status = ?, version = ? WHERE id = ?",
+             (updated.budget, updated.status, updated.version, updated.id),
+         )
+         cursor = self._conn.execute(
+             "INSERT INTO operations (campaign_id, action, params_json, version_after, "
+-            "received_at, committed_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
++            "received_at, committed_at, idempotency_key, policy_version) "
++            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             (
+                 op.campaign_id,
+                 op.action,
+                 json.dumps(op.params, sort_keys=True),
+                 updated.version,
+                 received_at,
+                 committed_at,
+                 op.idempotency_key,
++                op.policy_version,
+             ),
+         )
+         operation_id = cursor.lastrowid
+         if operation_id is None:  # INSERT 一定會有列編號;沒有代表出了預期外的事,讓交易回滾
+             raise RuntimeError("INSERT 沒有回傳列編號")
+         return operation_id
+ 
+     def _record_idempotency(self, op: Operation, operation_id: int) -> None:
+         self._conn.execute(
+             "INSERT INTO idempotency_keys (key, fingerprint, operation_id) VALUES (?, ?, ?)",
+diff --git a/src/rtb/executor/capability_signer.py b/src/rtb/executor/capability_signer.py
+index 29c3a9c..6f626e9 100644
+--- a/src/rtb/executor/capability_signer.py
++++ b/src/rtb/executor/capability_signer.py
+@@ -47,42 +47,43 @@ def _check_owner_and_mode(fd: int, what: str) -> None:
+         raise SigningRefused(f"config_{what}_insecure")
+ 
+ 
+ def _read_config_securely(path: Path) -> bytes:
+     try:
+         dir_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+     except OSError as exc:
+         raise SigningRefused("config_unreadable") from exc
+     try:
+         _check_owner_and_mode(dir_fd, "directory")
+-        try:
+-            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
++        try:  # 不等待地開:具名管道這類特殊檔案用一般方式開會一直等下去
++            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+         except OSError as exc:  # 符號連結在這裡直接開不起來(ELOOP)
+             raise SigningRefused("config_unreadable") from exc
+         try:
+-            _check_owner_and_mode(fd, "file")
+-            if not stat.S_ISREG(os.fstat(fd).st_mode):
++            if not stat.S_ISREG(os.fstat(fd).st_mode):  # 先確認是一般檔案,才恢復一般讀取
+                 raise SigningRefused("config_unreadable")
++            os.set_blocking(fd, True)
++            _check_owner_and_mode(fd, "file")
+             data = os.read(fd, MAX_CONFIG_BYTES + 1)
+         finally:
+             os.close(fd)
+     finally:
+         os.close(dir_fd)
+     if len(data) > MAX_CONFIG_BYTES:
+         raise SigningRefused("config_invalid")
+     return data
+ 
+ 
+ def _parse_tenants(data: bytes) -> tuple[Tenant, ...]:
+     try:
+         raw: Any = json.loads(data.decode("utf-8"))
+-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
++    except ValueError as exc:  # 含解碼錯誤、JSON 格式錯誤、整數位數超過上限
+         raise SigningRefused("config_invalid") from exc
+     tenants = raw.get("tenants") if isinstance(raw, dict) else None
+     if not isinstance(tenants, dict):
+         raise SigningRefused("config_invalid")
+     result = []
+     for name, spec in tenants.items():
+         campaigns = spec.get("campaigns") if isinstance(spec, dict) else None
+         cap = spec.get("max_budget") if isinstance(spec, dict) else None
+         if (not is_id(name) or not isinstance(campaigns, list)
+                 or not all(is_id(c) for c in campaigns) or not is_plain_int(cap) or cap < 1):
+diff --git a/tests/dsp/test_capability.py b/tests/dsp/test_capability.py
+index 9cbfd14..229c7f2 100644
+--- a/tests/dsp/test_capability.py
++++ b/tests/dsp/test_capability.py
+@@ -244,28 +244,38 @@ def test_without_a_usable_key_the_dsp_refuses_every_write(serve, key):
+     status, body = budget(srv, cap=token())
+     assert (status, body["error"]) == (503, "capability_not_configured")
+     status, body = call(srv, "POST", "/campaigns/c1/pause", {"expected_version": 1},
+                         {"Idempotency-Key": "p1"})
+     assert (status, body["error"]) == (503, "capability_not_configured")
+     assert tables(srv) == before
+     assert call(srv, "GET", "/campaigns/c1")[0] == 200  # 讀取不受影響
+ 
+ 
+ # ---- [S28] ----
++def _wrong_but_json_native(field):
++    if field in ("expected_version", "iat", "exp"):
++        return [("text", "3"), ("null", None)]
++    if field == "new_budget":
++        return [("text", "150"), ("zero", 0)]
++    return [("int", 5), ("empty", ""), ("null", None)]
++
++
+ def _claim_cases():
+     base = claims(iat=NOW)
+     cases = {}
+     for field in dsp_capability.CLAIM_FIELDS:  # 從程式自己的欄位清單推導
+         missing = dict(base)
+         del missing[field]
+         cases[f"missing-{field}"] = missing
+-        cases[f"wrong-type-{field}"] = {**base, field: [] if field != "new_budget" else "150"}
++        # 共用層只收字串、整數、空值:用它放行、但 DSP 自己的型別檢查該擋的值,才測得到 DSP
++        for label, value in _wrong_but_json_native(field):
++            cases[f"wrong-type-{field}-{label}"] = {**base, field: value}
+     cases["extra-field"] = {**base, "scope": "all"}
+     cases["unknown-version"] = {**base, "v": "c2"}
+     cases["budget-action-without-amount"] = {**base, "new_budget": None}
+     cases["pause-with-amount"] = {**base, "action": "pause_campaign", "new_budget": 5}
+     cases["bool-version"] = {**base, "expected_version": True}
+     return cases
+ 
+ 
+ def _raw_claims_token(body):
+     """繞過 encode 的型別限制(例如塞串列),直接簽一份畸形聲明。"""
+@@ -276,20 +286,53 @@ def _raw_claims_token(body):
+ def test_claims_with_missing_extra_or_mistyped_fields_are_refused_without_a_500(serve, name):
+     srv = serve()
+     before = tables(srv)
+ 
+     status, body = budget(srv, cap=_raw_claims_token(_claim_cases()[name]))
+ 
+     assert (status, body["error"]) == (401, "capability_invalid"), name
+     assert tables(srv) == before
+ 
+ 
++def test_without_a_key_duplicate_capability_headers_still_answer_not_configured(serve):
++    """金鑰已設定是第一關:沒金鑰時,標頭重複也要回 capability_not_configured。"""
++    import socket
++
++    srv = serve(key=None)
++    body = b'{"new_budget": 150, "expected_version": 1}'
++    with socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=3) as conn:
++        port = srv.server_address[1]
++        head = f"POST /campaigns/c1/budget HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n".encode()
++        conn.sendall(head + b"Idempotency-Key: k1\r\nX-Capability: a\r\nX-Capability: b\r\n"
++                     b"Content-Type: application/json\r\n"
++                     + f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
++        reply = b""
++        while chunk := conn.recv(4096):
++            reply += chunk
++    assert b" 503 " in reply.split(b"\r\n")[0] and b"capability_not_configured" in reply
++
++
++def test_the_policy_version_of_an_applied_write_is_recorded(serve):
++    """政策版本 DSP 只記不驗:套用成功的操作要留下實際收到的政策版本,供稽核。"""
++    srv = serve()
++    assert budget(srv, cap=token(policy_version="audit-v99"))[0] == 200
++    conn = sqlite3.connect(srv.db_path)
++    try:
++        assert conn.execute("SELECT policy_version FROM operations").fetchall() == [("audit-v99",)]
++    finally:
++        conn.close()
++
++
++def test_the_dsp_capability_module_keeps_no_second_integer_check():
++    assert not hasattr(dsp_capability, "_plain_int")
++
++
+ # ---- [S32] ----
+ def test_every_capability_rejection_has_its_status_and_echoes_nothing(serve):
+     documented = {
+         "capability_not_configured": 503, "capability_missing": 401,
+         "capability_invalid": 401, "capability_expired": 401,
+         "capability_scope_mismatch": 403,
+     }
+     from_table = {code: (status, retryable) for status, code, retryable in ERROR_TABLE.values()
+                   if code.startswith("capability_")}
+     assert {code: status for code, (status, _r) in from_table.items()} == documented
+@@ -307,30 +350,42 @@ def test_every_capability_rejection_has_its_status_and_echoes_nothing(serve):
+         assert tok not in text and not any(bit in text for bit in secret_bits)
+ 
+ 
+ # ---- [S34] ----
+ def test_an_old_dsp_database_gains_the_tenant_column_without_losing_data(tmp_path):
+     db = tmp_path / "old.db"
+     conn = sqlite3.connect(db)
+     conn.executescript(
+         "CREATE TABLE campaigns (id TEXT PRIMARY KEY, budget INTEGER NOT NULL, "
+         "status TEXT NOT NULL, version INTEGER NOT NULL);"
+-        "INSERT INTO campaigns VALUES ('old', 77, 'active', 4);")
++        "INSERT INTO campaigns VALUES ('old', 77, 'active', 4);"
++        "CREATE TABLE operations (operation_id INTEGER PRIMARY KEY AUTOINCREMENT, "
++        "campaign_id TEXT NOT NULL, action TEXT NOT NULL, params_json TEXT NOT NULL, "
++        "version_after INTEGER NOT NULL, received_at TEXT NOT NULL, committed_at TEXT NOT NULL, "
++        "idempotency_key TEXT NOT NULL UNIQUE);"
++        "INSERT INTO operations (campaign_id, action, params_json, version_after, received_at, "
++        "committed_at, idempotency_key) VALUES ('old', 'pause_campaign', '{}', 4, 't', 't', 'o1');")
+     conn.close()
+ 
+     store = CampaignStore(db)
+     try:
+         assert store.tenant_of("old") == DEFAULT_TENANT
+         campaign = store.get_campaign("old")
+         assert (campaign.budget, campaign.status, campaign.version) == (77, "active", 4)
++        assert store.get_operation_by_key("o1") is not None  # 舊操作還在
+     finally:
+         store.close()
++    raw = sqlite3.connect(db)
++    try:  # 舊操作沒有紀錄政策版本:誠實留空值
++        assert raw.execute("SELECT policy_version FROM operations").fetchall() == [(None,)]
++    finally:
++        raw.close()
+     reopened = CampaignStore(db)  # 第二次開啟不重複加欄位
+     reopened.close()
+ 
+ 
+ # ---- [S37] ----
+ @pytest.mark.parametrize("path,body,cap_kwargs", [
+     ("/campaigns/c1/budget", {"new_budget": 150, "expected_version": 1, "tenant": "x"}, {}),
+     ("/campaigns/c1/pause", {"expected_version": 1, "note": "x"},
+      {"action": "pause_campaign"}),
+ ])
+diff --git a/tests/executor/test_capability_signer.py b/tests/executor/test_capability_signer.py
+index f50cc4b..1efa29e 100644
+--- a/tests/executor/test_capability_signer.py
++++ b/tests/executor/test_capability_signer.py
+@@ -80,20 +80,52 @@ def test_the_executor_refuses_to_sign_outside_its_current_tenant_configuration(c
+     for broken in ("not json", json.dumps({"tenants": {"t": {"campaigns": "c1"}}}),
+                    json.dumps({"tenants": {"a": {"campaigns": ["c1"], "max_budget": 1000},
+                                            "b": {"campaigns": ["c1"], "max_budget": 1000}}})):
+         path.write_text(broken, encoding="utf-8")
+         with pytest.raises(SigningRefused):
+             sign(path)
+     with pytest.raises(SigningRefused):
+         sign(tmp_path / "conf" / "missing.json")
+ 
+ 
++def test_a_config_that_is_a_named_pipe_is_refused_without_hanging(config):
++    import threading
++
++    path = config()
++    path.unlink()
++    os.mkfifo(path, 0o600)
++    outcome = []
++
++    def attempt():
++        try:
++            sign(path)
++            outcome.append("signed")
++        except SigningRefused:
++            outcome.append("refused")
++
++    worker = threading.Thread(target=attempt, daemon=True)
++    worker.start()
++    worker.join(timeout=3)
++    if worker.is_alive():  # 卡住了:打開寫端讓它醒來,再判失敗
++        os.close(os.open(path, os.O_WRONLY | os.O_NONBLOCK))
++        pytest.fail("讀具名管道的設定檔卡住,沒有拒絕簽發")
++    assert outcome == ["refused"]
++
++
++def test_a_config_with_a_huge_integer_is_refused_not_crashed(config):
++    path = config()
++    path.write_text('{"tenants": {"t": {"campaigns": ["c1"], "max_budget": ' + "9" * 5000 + "}}}",
++                    encoding="utf-8")
++    with pytest.raises(SigningRefused):
++        sign(path)
++
++
+ @pytest.mark.parametrize("mode", [0o620, 0o602, 0o666])
+ def test_a_config_file_writable_by_others_is_refused(config, mode):
+     with pytest.raises(SigningRefused):
+         sign(config(mode=mode))
+ 
+ 
+ def test_a_config_in_a_directory_writable_by_others_is_refused(config):
+     path = config()
+     os.chmod(path.parent, 0o777)  # noqa: S103 - 測試刻意造出不安全的目錄
+     try:
+@@ -114,31 +146,48 @@ def test_a_symlinked_config_is_refused(config):
+ def test_a_config_owned_by_someone_else_is_refused(config, monkeypatch):
+     path = config()
+     monkeypatch.setattr(os, "getuid", lambda: os.stat(path).st_uid + 1)
+     with pytest.raises(SigningRefused):
+         sign(path)
+ 
+ 
+ # ---- [S31] ----
+ @pytest.mark.parametrize("key", [None, b"", b"s" * (MIN_KEY_BYTES - 1)],
+                          ids=["none", "empty", "short"])
+-def test_a_missing_or_short_key_disables_both_signing_and_verifying(key):
++def test_a_missing_or_short_key_disables_both_signing_and_verifying(key, tmp_path):
+     with pytest.raises(ValueError):
+         CapabilitySigner(key)
+ 
+     from pathlib import Path
+ 
+     src = Path(__file__).resolve().parents[2] / "src" / "rtb"
+     readers = sorted(str(f.relative_to(src)) for f in src.rglob("*.py")
+                      if KEY_ENV in f.read_text(encoding="utf-8"))
+     assert readers == ["capabilitykit.py"]  # 變數名稱只出現在共用模組一處
+ 
++    # DSP 的啟動程式(真的子行程、真的讀環境變數):讀不到可用金鑰就啟動成「拒收所有寫入」
++    from tests.capability_samples import header
++    from tests.dsp.conftest import DspProcess
++
++    db = tmp_path / "dsp.db"
++    store = CampaignStore(db)
++    store.seed_campaign("c1", budget=100)
++    store.close()
++    dsp = DspProcess(db, capability_key=key)
++    try:
++        status, body = dsp.request("POST", "/campaigns/c1/budget",
++                                   {"new_budget": 150, "expected_version": 1},
++                                   {"Idempotency-Key": "k1", **header()})
++        assert (status, body["error"]) == (503, "capability_not_configured")
++    finally:
++        dsp.stop()
++
+ 
+ # ---- [S33] ----
+ def test_every_capability_the_executor_signs_is_accepted_by_a_separately_launched_dsp(
+     config, tmp_path, monkeypatch,
+ ):
+     """兩邊各自從同一個環境變數讀金鑰:執行行程這邊經共用讀取函式,DSP 是真的獨立子行程。"""
+     from rtb.capabilitykit import read_key
+     from tests.dsp.conftest import DspProcess
+ 
+     monkeypatch.setenv(KEY_ENV, TEST_KEY.decode())

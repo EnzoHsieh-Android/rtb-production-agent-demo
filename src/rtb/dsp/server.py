@@ -8,15 +8,30 @@
 """
 
 import argparse
+import os
 import re
 import time
-from dataclasses import asdict
+from collections.abc import Callable
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from rtb.capabilitykit import HEADER as CAPABILITY_HEADER
+from rtb.capabilitykit import read_key
+from rtb.dsp.capability import (
+    WriteRequest,
+    check_body_fields,
+    check_scope,
+    verified_claims,
+)
 from rtb.dsp.errors import (
     CampaignNotFound,
+    CapabilityExpired,
+    CapabilityInvalid,
+    CapabilityMissing,
+    CapabilityNotConfigured,
+    CapabilityScopeMismatch,
     DspError,
     IdempotencyConflict,
     MetricsNotFound,
@@ -26,7 +41,7 @@ from rtb.dsp.errors import (
     ValidationRejected,
     VersionConflict,
 )
-from rtb.dsp.store import CampaignStore, Operation
+from rtb.dsp.store import CampaignStore, Operation, validate
 from rtb.httpkit import (
     SOCKET_TIMEOUT_SECONDS,
     JsonHandler,
@@ -54,6 +69,11 @@ ERROR_TABLE = {
     UnknownAction: (400, "unknown_action", False),
     CampaignNotFound: (404, "campaign_not_found", False),
     MetricsNotFound: (404, "metrics_not_found", False),
+    CapabilityNotConfigured: (503, "capability_not_configured", False),
+    CapabilityMissing: (401, "capability_missing", False),
+    CapabilityInvalid: (401, "capability_invalid", False),
+    CapabilityExpired: (401, "capability_expired", False),
+    CapabilityScopeMismatch: (403, "capability_scope_mismatch", False),
 }
 ROUTES = [
     ("GET", re.compile(r"^/campaigns/([^/]+)$"), "get_campaign"),
@@ -130,16 +150,33 @@ class DspHandler(JsonHandler):
     def _update_budget(
         self, store: CampaignStore, campaign_id: str, fault: str | None
     ) -> dict[str, Any]:
-        body = self.read_json(allow_empty=True)
-        params = {"new_budget": body.get("new_budget")}
-        op = self._operation(campaign_id, "update_budget", params, body)
-        return self._write(store, op, fault)
+        return self._authorized_write(store, campaign_id, "update_budget", fault)
 
     def _pause_campaign(
         self, store: CampaignStore, campaign_id: str, fault: str | None
     ) -> dict[str, Any]:
+        return self._authorized_write(store, campaign_id, "pause_campaign", fault)
+
+    def _authorized_write(
+        self, store: CampaignStore, campaign_id: str, action: str, fault: str | None
+    ) -> dict[str, Any]:
+        """先驗憑證(金鑰、標頭、格式、簽章、聲明、時間),再讀本文、驗操作內容,再比範圍,最後才寫。
+
+        每一步失敗都發生在任何寫入之前:廣告表、操作紀錄、冪等鍵表三者都不動。
+        """
+        claims = verified_claims(lambda: self.single_header(CAPABILITY_HEADER),
+                                 self.server.capability_key, self.server.clock)
         body = self.read_json(allow_empty=True)
-        return self._write(store, self._operation(campaign_id, "pause_campaign", {}, body), fault)
+        if check_body_fields(action, body):
+            raise RequestRejected(400, "unexpected_field")
+        params = {"new_budget": body.get("new_budget")} if action == "update_budget" else {}
+        op = replace(self._operation(campaign_id, action, params, body),
+                     policy_version=claims.policy_version)  # 只記不驗,供稽核
+        validate(op)  # 不合法的值照舊回 422,不被當成範圍不符
+        check_scope(claims, WriteRequest(campaign_id, action, op.idempotency_key,
+                                         params.get("new_budget"), op.expected_version),
+                    store.tenant_of(campaign_id))
+        return self._write(store, op, fault)
 
     def _operation(
         self, campaign_id: str, action: str, params: dict[str, Any], body: dict[str, Any]
@@ -171,11 +208,15 @@ class DspHandler(JsonHandler):
 
 
 class DspServer(KitServer):
-    def __init__(self, db_path: Path, fault_injection: bool, hang_seconds: float,
+    def __init__(self, db_path: Path, fault_injection: bool, hang_seconds: float,  # noqa: PLR0913 - 啟動參數逐一對應命令列
                  delay_seconds: float, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
-                 socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS):
+                 socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS,
+                 capability_key: bytes | None = None,
+                 clock: Callable[[], float] = time.time):
+        """capability_key 由啟動程式讀好傳進來;伺服器物件本身不讀環境變數。沒給就拒收所有寫入。"""
         super().__init__(DspHandler, socket_timeout_seconds, fault_injection=fault_injection)
         self.db_path = db_path
+        self.capability_key, self.clock = capability_key, clock
         self.hang_seconds, self.delay_seconds = hang_seconds, delay_seconds
         self.busy_timeout_seconds = busy_timeout_seconds
 
@@ -191,7 +232,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     CampaignStore(args.db).close()  # 確保資料庫與表已建立
     server = DspServer(args.db, args.fault_injection, args.hang_seconds, args.delay_seconds,
-                       args.busy_timeout_seconds, args.socket_timeout_seconds)
+                       args.busy_timeout_seconds, args.socket_timeout_seconds,
+                       capability_key=read_key(os.environ))  # 只有啟動程式讀環境變數
     print(f"PORT={server.server_address[1]}", flush=True)
     try:
         server.serve_forever()

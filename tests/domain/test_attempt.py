@@ -233,3 +233,14 @@ def test_no_domain_module_defines_its_own_time_zone_check():
                  if f.name != "_checks.py" and "utcoffset()" in f.read_text(encoding="utf-8")]
     assert offenders == []
     assert not hasattr(evidence, "_is_aware")
+
+
+# ---- 寫入能力憑證 S35 ----
+def test_capability_rejected_is_an_escalation_code_and_the_old_codes_are_unchanged():
+    assert C.CAPABILITY_REJECTED.value == "capability_rejected"
+    assert C.CAPABILITY_REJECTED in ESCALATION_CODES
+    assert {c.value for c in OutcomeCode} - {"capability_rejected"} == {
+        "version_conflict", "validation_rejected", "campaign_not_found", "other_rejection",
+        "not_happened", "manual_failure", "idempotency_conflict",
+        "verification_timeouts_exhausted", "send_limit_reached", "verification_mismatch",
+        "cannot_prove_not_happened"}

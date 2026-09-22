@@ -121,3 +121,30 @@ def test_the_analyzer_reaches_the_network_only_through_the_shared_client():
             offenders += [f"{file.name}: {m}" for m in modules
                           if m in NETWORK_MODULES or m.split(".")[0] in NETWORK_MODULES]
     assert offenders == []
+
+
+# ---- 寫入能力憑證 S30 ----
+def test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer():
+    """直接解析分析行程的原始碼,不看 noqa:ruff 禁令一行 noqa 就能跳過(領域層踩過同一個坑)。"""
+    import ast
+
+    from rtb.capabilitykit import KEY_ENV
+    from rtb.executor import capability_signer
+
+    analyzer = Path(__file__).resolve().parents[2] / "src" / "rtb" / "analyzer"
+    offenders = []
+    for file in sorted(analyzer.rglob("*.py")):
+        source = file.read_text(encoding="utf-8")
+        if KEY_ENV in source:
+            offenders.append((file.name, "key env name"))
+        for node in ast.walk(ast.parse(source)):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            for name in names:
+                if name.startswith(("rtb.executor", "rtb.capabilitykit")):
+                    offenders.append((file.name, name))
+    assert offenders == []
+    assert capability_signer.__name__.startswith("rtb.executor.")  # 簽發器住在被禁的套件裡

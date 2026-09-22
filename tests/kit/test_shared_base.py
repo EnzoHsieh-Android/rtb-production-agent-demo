@@ -13,6 +13,8 @@ import rtb.dsp.server as dsp_server
 import rtb.dsp.store as dsp_store
 from rtb.dsp.store import CampaignStore
 from rtb.httpkit import JsonHandler
+from tests.capability_samples import TEST_KEY
+from tests.capability_samples import header as capability_header
 
 
 def test_the_dsp_server_keeps_no_second_copy_of_the_shared_behaviour():
@@ -32,7 +34,7 @@ def test_the_dsp_server_keeps_no_second_copy_of_the_shared_behaviour():
 def _serve(tmp_path, fault_injection=False):
     CampaignStore(tmp_path / "d.db").seed_campaign("c1", budget=100)
     srv = dsp_server.DspServer(tmp_path / "d.db", fault_injection, hang_seconds=0.05,
-                               delay_seconds=0.0)
+                               delay_seconds=0.0, capability_key=TEST_KEY)
     threading.Thread(target=srv.serve_forever, args=(0.02,), daemon=True).start()
     return srv
 
@@ -103,7 +105,7 @@ def test_the_dsp_server_behaviour_is_unchanged_after_extracting_the_shared_base(
             400, {"error": "fault_injection_disabled", "retryable": False})
         conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=3)
         conn.request("POST", "/campaigns/c1/budget", body=b"not json",
-                     headers={"Idempotency-Key": "k1"})
+                     headers={"Idempotency-Key": "k1", **capability_header()})
         resp = conn.getresponse()
         assert (resp.status, json.loads(resp.read())["error"]) == (400, "invalid_json")
         conn.close()
