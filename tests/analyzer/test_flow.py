@@ -289,11 +289,14 @@ def test_many_real_threads_racing_advance_on_the_same_task_commit_exactly_once(t
     for t in threads:
         t.join()
 
-    winners = [r for r in results if r is TaskState.COLLECTING_EVIDENCE]
-    losers = [r for r in results if r is TaskState.RECEIVED]
-    assert len(winners) == 1 and len(losers) == 19  # 恰好一個成功,其餘老實回報沒有進展
+    # 用回傳值數贏家不可靠(2026-09-22 推送時實測約兩成會紅):屏障只保證大家同時出發,不保證
+    # 都在贏家寫入前讀到舊列;讀得晚的那條看到的已是新列,什麼都沒寫、原地回傳同一個狀態,
+    # 會被誤數成第二個贏家。合約本身是「恰好寫進一列」,所以直接檢查歷史表,並要求每條
+    # 執行緒都正常回報(並行寫入撞主鍵之類的例外會讓回報數不足)。
+    assert len(results) == 20
+    assert set(results) <= {TaskState.RECEIVED, TaskState.COLLECTING_EVIDENCE}
     final = TaskStore(path)
-    assert final.latest("t1").seq == 2  # 只寫了一列,不是 20 列
+    assert [row.seq for row in final.history("t1")] == [1, 2]  # 只寫了一列,不是 20 列
     final.close()
 
 
