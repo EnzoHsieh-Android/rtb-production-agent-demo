@@ -1,0 +1,1 @@
+{"round":"r2","seats":[{"seat":"s1","lens":"狀態機與冪等鍵"},{"seat":"s2","lens":"並行、崩潰與儲存"},{"seat":"s3","lens":"後續增量銜接與失敗語意"},{"seat":"s4","lens":"可測性"},{"seat":"sec","lens":"資安"},{"seat":"sarch","lens":"架構對齊"},{"seat":"x1","lens":"外家 Codex"}],"materials":["governance/review-reports/rtb-phase3外部寫入安全/r2-snapshot.md"]}

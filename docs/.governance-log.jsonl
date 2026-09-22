@@ -657,3 +657,26 @@
 {"ts": "2026-09-22T18:41:58+08:00", "commit": "9fc9545", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=3 soft=5"}
 {"ts": "2026-09-22T18:42:13+08:00", "commit": "9fc9545", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Systems/分析行程流程與檢查點.md"], "note": "tokens=4 hits=1 secs=3.8"}
 {"ts": "2026-09-22T18:42:14+08:00", "commit": "9fc9545", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "9fc95454687e5ca0cfc42bb60d7f8bea3bca4548"}
+{"ts": "2026-09-22T18:42:15+08:00", "commit": "ff71f0d", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-22T18:42:16+08:00", "commit": "ff71f0d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "ff71f0dc7780e3f3de0cc275c09df1a68d4d522e"}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-cascade", "kind": "warned", "hard": false, "nodes": [], "note": "unseen=2 broken=0"}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=3 soft=5"}
+{"ts": "2026-09-22T18:42:18+08:00", "commit": "8679b76", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260922T104216Z-85682", "head_sha": "8679b760e9a29e38d7e0f55d50dd8bdb0fcc32de"}
+{"ts": "2026-09-22T18:42:20+08:00", "commit": "8679b76", "gate": "bound-tests", "kind": "no-pins", "hard": false, "nodes": [], "note": "9fc95454687e5ca0cfc42bb60d7f8bea3bca4548..8679b760e9a29e38d7e0f55d50dd8bdb0fcc32de"}
+{"ts": "2026-09-22T19:27:10+08:00", "commit": "8679b76", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase3外部寫入安全"], "note": "disposal gate PASS"}
+{"ts": "2026-09-22T19:27:22+08:00", "commit": "8679b76", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-22T19:27:23+08:00", "commit": "8679b76", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "8679b760e9a29e38d7e0f55d50dd8bdb0fcc32de"}
