@@ -1,0 +1,93 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "判定表與狀態轉換",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "並行、當機與時間",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "模擬DSP提交當下檢查",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "可測性",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "與增量1到3及F1預告合約銜接",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/rtb-phase3外部寫入安全-增量4/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/dsp/store.py"
+  ],
+  "auditor": "codex"
+ }
+]
