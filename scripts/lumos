@@ -971,7 +971,22 @@ def _append_governance_log(vault, events):
         pass
 
 
-def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, verbose=False):
+def _read_touched_list(path):
+    """讀「這次推送改到哪些檔」的清單(一行一個)。沒給=None(代表不收窄、照舊全擋)。
+
+    ★讀不到也回 None,不是回空集合★:空集合的意思是「這次什麼都沒碰到」,會讓整段靜音;
+    檔案打不開是我們自己的問題,不該因此少擋一條(必要合約清單_計劃〈擋的範圍〉)。
+    """
+    if not path:
+        return None
+    try:
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    return {ln.strip() for ln in lines if ln.strip()}
+
+
+def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, verbose=False, touched=None):
     C = {k: (v if color else "") for k, v in
          dict(R="\033[31m", Y="\033[33m", G="\033[32m", B="\033[1m", X="\033[0m").items()}
     notes, by_stem, resolve = env.notes, env.by_stem, env.resolve
@@ -2296,7 +2311,7 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
     try:
         import datetime as _gd
         _gtoday = _gd.date.today()
-        _gover, _gsoon = [], []
+        _gover, _gover_other, _gsoon = [], [], []
         for _grel, _gn in sorted(env.notes.items()):
             if _gn.fields.get("type") != "verification" or not _gn.fields.get(GUARD_MARK_FIELD):
                 continue
@@ -2313,18 +2328,30 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
             _gclaim = (_gm.group(1).strip() if _gm else _grel)
             # ★到期當天不算過期★:最遲日期是人手寫的本地日期,誤擋一次比漏擋一天貴
             if _gd2 < _gtoday:
-                _gover.append(f"{_gclaim}(負責人 {_gowner},最遲 {_gd2});{_grel}")
+                _ghit, _gwhy = _guard_touches(_gn, env, touched)
+                _gline = f"{_gclaim}(負責人 {_gowner},最遲 {_gd2});{_grel}"
+                (_gover if _ghit else _gover_other).append(_gline + _gwhy)
             elif (_gd2 - _gtoday).days <= 7:
                 _gsoon.append(f"{_gclaim}(負責人 {_gowner},最遲 {_gd2});{_grel}")
         if _gover:
             warn(_gover, f"有 {len(_gover)} 條預告的合約已經逾期(不准延期,只能做完或棄置):",
                  "做完了:lumos guard settle <守衛節點> --test <測試方法>;"
                  "決定不做:先 lumos signoff <守衛節點> --ref <守衛節點> --note \"<為什麼>\",再 lumos guard abandon")
+        if _gover_other:
+            # ★本機那一層只擋這次碰到的★(必要合約清單_計劃〈擋的範圍〉第一層):
+            # 這幾條是別人的債,列出來讓人知道,但不擋這次推送——被擋的人解不開別人的合約,
+            # 那不是嚴格,是防做事。CI 不給清單,所以那邊照舊全擋。
+            warn_soft(_gover_other, f"另有 {len(_gover_other)} 條逾期的預告合約,但這次改動沒碰到它們(不擋這次推送):",
+                      "推送前的閘只擋你這次碰到的,CI 會擋全部;想看全部待完成的:lumos guard required")
         if _gsoon:
             warn_soft(_gsoon, f"有 {len(_gsoon)} 條預告的合約七天內到期(先講,還不擋):",
                       "現在做完最省事:lumos guard settle <守衛節點> --test <測試方法>")
-        if not _gover and not _gsoon:
+        if not _gover and not _gsoon and not _gover_other:
             ok("沒有逾期或快到期的預告合約")
+        elif not _gover and not _gsoon:
+            # ★這一行是唯一會被當成「全都乾淨」掃過去的訊號★(代碼審 r1 通才席):
+            # 上面剛列完「還有 N 條逾期」,這裡再印「沒有逾期」會讓人誤信沒事。
+            ok(f"這次改動沒碰到任何逾期的預告合約(上面那 {len(_gover_other)} 條還在,只是不擋這次推送)")
     except Exception as _e:
         warn_soft([], f"這一段算不出來({_e.__class__.__name__}: {_e}),先跳過")
     print()
@@ -5602,10 +5629,32 @@ def _spec_gate_load(env, node):
     return p, text, rel
 
 
-def _spec_gate_verdict(n, skipped, verdict, detail):
+def _spec_gate_declared(method, methods):
+    """程式裡真的宣告了幾支「名字對得上這個篩選字串」的測試。算不出來回 None。
+
+    ★收集到幾個案例 ≠ 選到幾支測試★(2026-09-22 rtb-production-agent-demo 回報):
+    參數化測試(同一支測試餵多組輸入)跑一次會收集到很多個案例,測試工具的摘要行只數案例,
+    分不出「一支測試的九組輸入」跟「撞名選到九支不同的測試」。前者一起跑、全綠才是正確語意,
+    判它「測試名要唯一」是誤擋——對方 4 支合約因此全被擋住,而那些測試本身是好的。
+    篩選是子字串比對,所以這裡數的是「名字含這個字串的宣告」有幾個。
+    """
+    if not methods:
+        return None
+    m = str(method or "").strip()
+    if not m:
+        return None
+    return sum(1 for nm in methods if m in str(nm))
+
+
+def _spec_gate_verdict(n, skipped, verdict, detail, declared=None):
     """一支測試的規格閘判定:回 (red|green|weak, 為什麼)。支數 N 先於退出碼看。"""
     if n is not None and n >= 2:
-        return "weak", f"篩選匹配到 {n} 支,測試名要唯一(換更長、不互為子字串的名字)"
+        if declared == 1:
+            # 只宣告了一支、卻收集到好幾個案例 → 同一支測試的多組輸入,一起跑全綠才算過
+            pass
+        else:
+            _extra = "" if declared is None else f"(程式裡有 {declared} 支名字對得上)"
+            return "weak", f"篩選匹配到 {n} 支,測試名要唯一(換更長、不互為子字串的名字){_extra}"
     if n == 1 and skipped:
         return "weak", "弱證據:那一支被跳過(skipped/xfail)"
     if verdict in ("no-cmd", "unproven") or n == 0:
@@ -5641,7 +5690,7 @@ def _spec_gate_runnable(items, plats):
     return True
 
 
-def _spec_gate_run_clauses(rr, plats, items, per_prof):
+def _spec_gate_run_clauses(rr, plats, items, per_prof, methods_for):
     """把條款綁的測試跑一次;回 {條款 id: (verdict, why, method)}。一條多支測試時,任一非綠就蓋過綠。"""
     tails = {}
     results, rerr = _run_bound_tests(rr, items, tails=tails)
@@ -5651,7 +5700,8 @@ def _spec_gate_run_clauses(rr, plats, items, per_prof):
     verdicts = {}
     for node_id, plat, method, verdict, detail, _secs in results:
         n, skipped = _ran_count(per_prof(plat), tails.get((node_id, plat, method), ""))
-        v, why = _spec_gate_verdict(n, skipped, verdict, detail)
+        v, why = _spec_gate_verdict(n, skipped, verdict, detail,
+                                    declared=_spec_gate_declared(method, methods_for(plat)))
         prev = verdicts.get(node_id)
         if prev is None or (prev[0] == "green" and v != "green"):
             verdicts[node_id] = (v, why, method)
@@ -5685,7 +5735,8 @@ def _spec_gate_regress(env, rel, rr, split, default, methods_for, per_prof, no_r
         else:
             for rid, plat, method, verdict, detail, _secs in rres:
                 n, skipped = _ran_count(per_prof(plat), rtails.get((rid, plat, method), ""))
-                v, why = _spec_gate_verdict(n, skipped, verdict, detail)
+                v, why = _spec_gate_verdict(n, skipped, verdict, detail,
+                                            declared=_spec_gate_declared(method, methods_for(plat)))
                 lk = rmap.get((rid, plat, method), "?")
                 if v == "green":
                     ok += 1
@@ -5788,7 +5839,7 @@ def cmd_spec_gate(env, node, no_run=False):
     items = _spec_gate_items(text, clauses, split, default)
     verdicts = {}
     if _spec_gate_runnable(items, plats):
-        verdicts = _spec_gate_run_clauses(rr, plats, items, per_prof)
+        verdicts = _spec_gate_run_clauses(rr, plats, items, per_prof, methods_for)
     counts = {k: sum(1 for v in verdicts.values() if v[0] == k) for k in ("red", "green", "weak")}
     reg_fail, reg_ok, reg_nodes = _spec_gate_regress(env, rel, rr, split, default, methods_for, per_prof, no_run)
     if not _spec_gate_print_regress(reg_fail, reg_ok, reg_nodes):
@@ -6053,7 +6104,8 @@ def _spec_gate_push_one(env, rr, prel, n, rec, idx):
     reds = []
     for node_id, pl, m, verdict, detail, _secs in results:
         nn, sk = _ran_count((plats.get(pl) or {}).get("profile_name"), tails.get((node_id, pl, m), ""))
-        v, why = _spec_gate_verdict(nn, sk, verdict, detail)
+        v, why = _spec_gate_verdict(nn, sk, verdict, detail,
+                                    declared=_spec_gate_declared(m, methods_for(pl)))
         if v != "green":
             reds.append(f"{m}:{'紅' if v == 'red' else why}")
     if reds:
@@ -10783,6 +10835,91 @@ def _guard_home_of(n):
     if isinstance(g, list) and g:
         return str(g[0]).strip()
     return str(g or "").strip()
+
+
+def _guard_touched_hits(files, touched):
+    """家節點管的那些檔,跟這次改到的檔對得上哪幾個。回 (對上的清單, 是不是只在忽略大小寫時才對上)。
+
+    ★比對鍵走既有那支★(代碼審 r2 架構席 blocker):about_code 的比對鍵全 repo 只有一個算法
+    `_nodehome_key`(路徑正規化 + NFC),2026-09-10 那輪代碼審就是為了收斂「三處各寫一份、
+    各版解得不一樣」才立的。第一版自己刻了一份,解不了 `a/../b`——而那正是這個 repo
+    自己認證過、也修過一次的人手寫法,漏掉的話該擋的推送會安靜放行。
+
+    在那之上多兩條**只會多擋、不會少擋**的保險:家節點寫的是資料夾(看底下的檔)、只有忽略大小寫
+    才對得上。寫入端(`_about_code_path`)確實已經擋掉這兩種寫法(要求是檔案、大小寫要跟磁碟一致),
+    所以走指令寫進去的不會踩到;留著是因為★寫入端的保證不等於讀取端的保證★——開頭欄位可以被手改,
+    而這一層漏掉是沒人會發現的(多擋一次訊息會講清楚為什麼)。
+    """
+    tset = {_nodehome_key(x) for x in touched}
+    tset.discard("")
+    hits, only_case = [], []
+    for raw in files:
+        f = _nodehome_key(raw)
+        if not f:
+            continue
+        if f in tset:
+            hits.append(raw)
+            continue
+        under = sorted(x for x in tset if x.startswith(f + "/"))
+        if under:
+            hits.append(f"{raw}(底下的 {under[0]})")
+            continue
+        # ★排序後取第一個★(代碼審 r2 通才席):只差大小寫的兩支檔在大小寫敏感的檔案系統上
+        # 可以同時存在,用 dict 收會因為雜湊順序而每次點名到不同那支,排查訊息不穩定。
+        same = sorted(x for x in tset if x.lower() == f.lower())
+        if same:
+            hits.append(f"{raw}(大小寫不同:{same[0]})")
+            only_case.append(raw)
+    return hits, only_case
+
+
+def _guard_touches(gn, env, touched):
+    """這條逾期的預告合約,跟「這次改動碰到的檔」有沒有關係。回 (要不要擋, 補充說明)。
+
+    ★本機那一層只擋碰到的、CI 擋全部★(必要合約清單_計劃〈擋的範圍〉三層):
+    分辨兩層靠的是有沒有給清單——推送前的閘算得出這次推了哪些檔就給,CI 不給。
+    給了清單卻算不出這條跟哪些檔有關(家節點不見、或家節點沒寫 about_code),本機這一層放行:
+    這一層的定位是窄而準,誤擋一次的代價是有人被卡住又解不開別人的合約;CI 那邊照樣會擋,漏不掉。
+    """
+    if touched is None:
+        return True, ""            # 沒給清單=CI 那一層,照舊全擋
+    # ★guards 可以有好幾個值★(代碼審 r1 通才席):欄位本來就是清單,只看第一個會讓第二篇家節點
+    # 管的檔永遠算不到。_guard_home_of 是給「改哪一篇」用的(只能有一個目標),這裡要全看。
+    homes = [str(x).strip() for x in as_list(gn.fields.get(GUARD_MARK_FIELD)) if str(x).strip()]
+    if not homes:
+        return False, ";這篇沒寫它守的是哪篇功能節點,算不出有沒有碰到"
+    files, found, missing, nocode = [], [], [], []
+    for home in homes:
+        hrel = env.find(home)
+        hn = env.notes.get(hrel) if hrel else None
+        if hn is None:
+            missing.append(home)
+            continue
+        found.append(hrel)
+        got = [str(x).strip() for x in as_list(hn.fields.get("about_code")) if str(x).strip()]
+        if got:
+            files += got
+        else:
+            nocode.append(hrel)
+    # ★連結斷掉的那幾篇,不管這次擋不擋都要講★(代碼審 r2 通才席):
+    # 半條算得出來、半條算不出來時,算不出來的那半原本會無聲消失,那條合約就一直帶著沒人發現的壞連結。
+    broken = f"(另外 {'、'.join(missing)} 這幾篇找不到,連結可能斷了)" if missing else ""
+    if not files:
+        if missing and not found:
+            return False, f";找不到它守的功能節點 {'、'.join(missing)},算不出有沒有碰到"
+        return False, f";{'、'.join(nocode)} 沒寫它管哪幾支檔(about_code),算不出有沒有碰到{broken}"
+    hits, only_case = _guard_touched_hits(files, touched)
+    if hits:
+        # ★只列解析得到的那幾篇★(代碼審 r2 通才席):這句話存在的目的是讓被擋的人知道去哪篇查,
+        # 把找不到的節點也列進來,照著查的人會撲空。
+        # ★收窄的粒度是「整篇家節點」不是「每條合約」★(代碼審 r1):同一篇掛兩條逾期合約時兩條都會擋。
+        # 做得更細要讓每條合約自己記檔案清單(另一套資料);現在的代價是偶爾多擋一條,方向安全,
+        # 但要讓人看得出來為什麼,不要變成無法解釋的誤擋。
+        why = f";你這次改到 {'、'.join(hits[:3])}(它掛在 {'、'.join(found[:2])} 底下){broken}"
+        if only_case and len(only_case) == len(hits):
+            why += "——只有忽略大小寫才對得上,寧可多擋一次也不漏"
+        return True, why
+    return False, ("" if not broken else f";這次沒碰到它管的檔{broken}")
 
 
 def cmd_guard_settle(env, ref, method):
@@ -29894,6 +30031,9 @@ def main():
     d = sub.add_parser("doctor", help="圖譜健康巡檢")
     d.add_argument("--strict", action="store_true", help="有 finding 即 exit 1 (CI 用)")
     d.add_argument("--ci", action="store_true", help="CI 模式 = --strict + 無色彩(+軟提醒全列)")
+    d.add_argument("--touched-from", dest="touched_from",
+                   help="一個列出「這次推送改到哪些檔」的檔案(一行一個,repo 相對路徑)。"
+                        "給了它,預告合約逾期那一段就只擋這次碰到的;不給=擋全部(CI 走這條)")
     d.add_argument("--verbose", action="store_true", help="軟提醒全列(預設每段最多 3 條,硬檢查不受影響)")
     d.add_argument("--suggest", action="store_true",
                    help="orphan Verification 附推薦掛載 Systems(從正文連結/plan_refs/feature 推斷,供人確認)")
@@ -30776,7 +30916,9 @@ def main():
 
     if args.cmd == "doctor":
         color = sys.stdout.isatty() and not args.ci
-        return run_doctor(env, strict=(args.strict or args.ci), color=color, suggest=args.suggest, ci=args.ci, verbose=args.verbose)
+        _touched = _read_touched_list(getattr(args, "touched_from", None))
+        return run_doctor(env, strict=(args.strict or args.ci), color=color, suggest=args.suggest,
+                          ci=args.ci, verbose=args.verbose, touched=_touched)
 
     if args.cmd in ("links", "backlinks", "context", "map", "show") or \
        (args.cmd == "decisions" and not args.superseded):

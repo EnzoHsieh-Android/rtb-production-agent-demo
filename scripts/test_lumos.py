@@ -4574,6 +4574,242 @@ def t_guard_overdue_blocks_doctor():
           late.stdout[-600:])
 
 
+def t_guard_overdue_local_blocks_only_touched():
+    """本機推送只擋「這次改動碰到的」那幾條逾期合約,沒碰到的只列出來不擋;CI 照舊擋全部。
+
+    出身:必要合約清單_計劃〈擋的範圍〉第一層。沒有這一層的話,圖譜裡任何一條別人的逾期預告
+    都會擋掉所有人的所有推送,而被擋的人還解不開(那條不是他的)——防忘記變成防做事。
+    翻紅釘:把收窄那段拿掉(不看碰到沒碰到) → ③紅;把沒碰到的那條也算進 issue → ④紅。
+    """
+    import datetime, re as _re
+    v = mkvault()
+    write(v, "Systems/Pay.md", "type: system\nstatus: doing\nabout_code:\n  - scripts/pay.py\nsummary: |-\n  FLOW:a", body="# Pay\n")
+    write(v, "Systems/Ship.md", "type: system\nstatus: doing\nabout_code:\n  - scripts/ship.py\nsummary: |-\n  FLOW:b", body="# Ship\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    old = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
+    for node, claim, phase in (("Systems/Pay", "退費那條逾期了", "Phase 1"),
+                               ("Systems/Ship", "出貨那條逾期了", "Phase 2")):
+        r = run(v, "guard", "plan", node, claim, "--plan", "Projects/退款_計劃",
+                "--phase", phase, "--due", old, "--why", "還沒做", "--owner", "enzo")
+        check(f"① 預告建得起來({claim})", r.returncode == 0, r.stdout + r.stderr)
+
+    def _issues(out):
+        m = _re.search(r"發現 (\d+) 個 issue", out)
+        return int(m.group(1)) if m else 0
+
+    both = run(v, "doctor", "--ci")
+    check("② 沒給清單時(CI)兩條都算 issue、退出碼非零",
+          _issues(both.stdout) >= 2 and both.returncode != 0,
+          f"issues={_issues(both.stdout)} rc={both.returncode}\n" + both.stdout[-500:])
+
+    touched = v.parent / "touched.txt"
+    touched.write_text("scripts/pay.py\n", encoding="utf-8")
+    one = run(v, "doctor", "--ci", "--touched-from", str(touched))
+    seg = _section_of(one.stdout, "S15")
+    check("③ 給了清單時,碰到的那條仍然擋(退出碼非零)", one.returncode != 0,
+          f"rc={one.returncode}\n" + seg)
+    hard = [ln for ln in seg.split("\n") if "退費那條逾期了" in ln]
+    soft = [ln for ln in seg.split("\n") if "出貨那條逾期了" in ln]
+    check("③ 擋下的訊息指名碰到的那條", hard != [], seg)
+    check("④ 沒碰到的那條仍然列出來(不是消失)", soft != [], seg)
+    check("④ 沒碰到的那條不算進 issue", _issues(one.stdout) < _issues(both.stdout),
+          f"兩條={_issues(both.stdout)} 收窄後={_issues(one.stdout)}\n" + seg)
+
+    none_touched = v.parent / "touched2.txt"
+    none_touched.write_text("scripts/unrelated.py\n", encoding="utf-8")
+    zero = run(v, "doctor", "--ci", "--touched-from", str(none_touched))
+    zseg = _section_of(zero.stdout, "S15")
+    check("⑤ 一條都沒碰到時不擋(退出碼 0)", zero.returncode == 0,
+          f"rc={zero.returncode}\n" + zseg)
+    check("⑤ 但兩條還是都列出來", "退費那條逾期了" in zseg and "出貨那條逾期了" in zseg, zseg)
+
+
+def t_guard_touched_path_forms_still_match():
+    """家節點的路徑寫法跟 git 吐出來的不完全一樣時,照樣算得出「碰到了」,不會安靜漏掉。
+
+    出身:代碼審 r1 通才席 blocker——原本是純字串比對,about_code 寫成 `./scripts/pay.py`
+    (人手寫很自然)就永遠判成「沒碰到」,而且不出任何聲音,跟真的沒碰到長得一模一樣。
+    翻紅釘:把正規化拿掉(改回純字串交集) → ②③④ 全紅。
+    """
+    import importlib.util, importlib.machinery
+    loader = importlib.machinery.SourceFileLoader("lumosmod_touch", GRAPHCTL)
+    spec = importlib.util.spec_from_loader("lumosmod_touch", loader)
+    m = importlib.util.module_from_spec(spec)
+    loader.exec_module(m)
+    touched = {"scripts/pay.py"}
+    for label, written in (("前面多了 ./", "./scripts/pay.py"),
+                           ("結尾多了斜線", "scripts/pay.py/"),
+                           ("中間重複斜線", "scripts//pay.py"),
+                           ("繞一圈的相對路徑", "scripts/../scripts/pay.py")):
+        hits, _only = m._guard_touched_hits([written], touched)
+        check(f"② {label} 照樣算碰到", hits != [], f"{written} → {hits}")
+    hits, _o = m._guard_touched_hits(["scripts"], touched)
+    check("③ 家節點寫的是資料夾,底下的檔被改到也算碰到", hits != [], str(hits))
+    hits, only = m._guard_touched_hits(["Scripts/Pay.py"], touched)
+    check("④ 只有大小寫不同時也算碰到(寧可多擋一次)", hits != [], str(hits))
+    check("④ 而且要標明是靠忽略大小寫才對上的", only != [], str(only))
+    hits, _o = m._guard_touched_hits(["scripts/other.py"], touched)
+    check("⑤ 真的不相干的檔不算碰到", hits == [], str(hits))
+
+
+def t_guard_touched_reads_all_home_links():
+    """守衛節點的 guards 欄位有兩個家時,兩邊管的檔都要算進去,不能只看第一個。
+
+    出身:代碼審 r1 通才席——欄位本來就是清單,只取第一項會讓第二篇家節點管的檔永遠算不到,
+    那條合約在本機那一層就對它失效。
+    翻紅釘:把「全看」改回「只取第一個」 → ②紅。
+    """
+    import datetime
+    v = mkvault()
+    write(v, "Systems/A.md", "type: system\nstatus: doing\nabout_code:\n  - scripts/a.py\nsummary: |-\n  FLOW:a", body="# A\n")
+    write(v, "Systems/B.md", "type: system\nstatus: doing\nabout_code:\n  - scripts/b.py\nsummary: |-\n  FLOW:b", body="# B\n")
+    write(v, "Projects/P.md", "type: project\nstatus: doing", body="# P\n")
+    old = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
+    run(v, "guard", "plan", "Systems/A", "兩個家的那條", "--plan", "Projects/P",
+        "--phase", "P1", "--due", old, "--why", "還沒做", "--owner", "enzo")
+    node = list((v / "Verification").glob("*.md"))[0]
+    txt = node.read_text(encoding="utf-8")
+    node.write_text(txt.replace("  - Systems/A\n", "  - Systems/A\n  - Systems/B\n", 1), encoding="utf-8")
+    check("① 手改成兩個家之後檔案真的有兩行", node.read_text(encoding="utf-8").count("  - Systems/") == 2,
+          node.read_text(encoding="utf-8")[:400])
+    touched = v.parent / "t.txt"
+    touched.write_text("scripts/b.py\n", encoding="utf-8")   # 只碰到第二個家管的檔
+    r = run(v, "doctor", "--ci", "--touched-from", str(touched))
+    seg = _section_of(r.stdout, "S15")
+    check("② 碰到第二個家管的檔也要擋", r.returncode != 0, f"rc={r.returncode}\n" + seg)
+
+
+def t_guard_touched_reports_broken_home_links():
+    """守衛節點指到的家節點有一篇不見時:擋下訊息不准把它列成「去這篇查」,但要另外講連結斷了。
+
+    出身:代碼審 r2 通才席——那句「它掛在哪一篇底下」存在的目的就是讓被擋的人知道去哪查,
+    列進一篇根本不存在的節點,照著查的人會撲空;而且斷掉的連結在「有碰到」那條路上會被完全吞掉。
+    翻紅釘:把顯示用的清單換回「全部的 guards 值」 → ②紅;拿掉斷連結那句 → ③紅。
+    """
+    import datetime
+    v = mkvault()
+    write(v, "Systems/A.md", "type: system\nstatus: doing\nabout_code:\n  - scripts/pay.py\nsummary: |-\n  FLOW:a", body="# A\n")
+    write(v, "Projects/P.md", "type: project\nstatus: doing", body="# P\n")
+    old = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
+    run(v, "guard", "plan", "Systems/A", "半條斷了的那條", "--plan", "Projects/P",
+        "--phase", "P1", "--due", old, "--why", "還沒做", "--owner", "enzo")
+    node = list((v / "Verification").glob("*.md"))[0]
+    txt = node.read_text(encoding="utf-8")
+    node.write_text(txt.replace("  - Systems/A\n", "  - Systems/A\n  - Systems/Gone\n", 1), encoding="utf-8")
+    touched = v.parent / "t3.txt"
+    touched.write_text("scripts/pay.py\n", encoding="utf-8")
+    seg = _section_of(run(v, "doctor", "--ci", "--touched-from", str(touched)).stdout, "S15")
+    line = [ln for ln in seg.split("\n") if "半條斷了的那條" in ln]
+    check("① 有擋下並列出這一條", line != [], seg)
+    if not line:
+        return
+    ln = line[0]
+    check("② 「去哪篇查」只列解析得到的那篇", "掛在 Systems/A" in ln and "掛在 Systems/A、Systems/Gone" not in ln, ln)
+    check("③ 斷掉的那篇另外講、不是無聲消失", "Systems/Gone" in ln and "連結可能斷了" in ln, ln)
+
+
+def t_guard_overdue_tail_line_matches_the_list():
+    """列了「另有 N 條逾期」之後,收尾那行不准再說「沒有逾期」。
+
+    出身:代碼審 r1 通才席——收尾那行是唯一會被當成「全都乾淨」掃過去的訊號,
+    前一句剛說還有逾期、下一句說沒有,人會誤信沒事。
+    翻紅釘:把收尾判斷改回只看前兩堆 → ②紅。
+    """
+    import datetime
+    v = mkvault()
+    write(v, "Systems/Pay.md", "type: system\nstatus: doing\nabout_code:\n  - scripts/pay.py\nsummary: |-\n  FLOW:a", body="# Pay\n")
+    write(v, "Projects/P.md", "type: project\nstatus: doing", body="# P\n")
+    old = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
+    run(v, "guard", "plan", "Systems/Pay", "沒碰到的那條", "--plan", "Projects/P",
+        "--phase", "P1", "--due", old, "--why", "還沒做", "--owner", "enzo")
+    touched = v.parent / "t2.txt"
+    touched.write_text("scripts/unrelated.py\n", encoding="utf-8")
+    seg = _section_of(run(v, "doctor", "--ci", "--touched-from", str(touched)).stdout, "S15")
+    check("① 那條有被列出來", "沒碰到的那條" in seg, seg)
+    check("② 收尾那行不准說「沒有逾期或快到期的預告合約」",
+          "沒有逾期或快到期的預告合約" not in seg, seg)
+    check("② 收尾那行要講明那幾條還在、只是不擋這次",
+          "還在" in seg and "不擋這次推送" in seg, seg)
+
+
+def t_prepush_passes_touched_list_to_doctor():
+    """推送前的閘要把「這次推了哪些檔」算給自檢,別人的逾期預告才不會擋到你的推送。
+
+    這支是真跑整支 pre-push,不是檢查腳本裡有沒有那個字串——只比對字串的話,
+    把旗標拼錯、或算出來的清單是空的,測試照樣綠(測試假綠形態第①型)。
+    翻紅釘:把掛鉤裡傳清單那行拿掉 → ③紅(沒碰到的那條會把推送擋下來)。
+    """
+    import subprocess as _sp, os as _os, datetime, tempfile
+    pre_push = str(Path(__file__).resolve().parent / "hooks" / "pre-push")
+    lumos_real = str(Path(__file__).resolve().parent / "lumos")
+    old = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
+
+    def _build(d, home_about, touch_file):
+        g = lambda *a: _sp.run(["git", *a], cwd=d, capture_output=True, text=True)
+        g("init", "-q", "-b", "main"); g("config", "user.email", "t@t.t"); g("config", "user.name", "t")
+        vault = Path(d) / "docs" / "t-knowledge"
+        for sub in ("Systems", "Verification", "Projects", "MOC"):
+            (vault / sub).mkdir(parents=True, exist_ok=True)
+        (vault / "MOC" / "idx.md").write_text("---\ntype: moc\n---\n# idx\n", encoding="utf-8")
+        (vault / "Systems" / "Pay.md").write_text(
+            f"---\ntype: system\nstatus: doing\nabout_code:\n  - {home_about}\n"
+            "summary: |-\n  FLOW:a\n---\n# Pay\n", encoding="utf-8")
+        (vault / "Projects" / "P.md").write_text("---\ntype: project\nstatus: doing\n---\n# P\n", encoding="utf-8")
+        Path(d, "scripts").mkdir(exist_ok=True)
+        (Path(d) / "scripts" / "lumos").symlink_to(lumos_real)
+        _sp.run([sys.executable, lumos_real, "--vault", str(vault), "guard", "plan",
+                 "Systems/Pay", "逾期的那條", "--plan", "Projects/P", "--phase", "P1",
+                 "--due", old, "--why", "還沒做", "--owner", "enzo"], capture_output=True, text=True)
+        (Path(d) / touch_file).parent.mkdir(parents=True, exist_ok=True)
+        (Path(d) / touch_file).write_text("x = 1\n", encoding="utf-8")
+        g("add", "-A"); g("commit", "-qm", "init")
+        (Path(d) / touch_file).write_text("x = 2\n", encoding="utf-8")
+        g("add", "-A"); g("commit", "-qm", "change")
+        head = g("rev-parse", "HEAD").stdout.strip()
+        base = g("rev-parse", "HEAD~1").stdout.strip()
+        env = dict(_os.environ); env["GIT_DIR"] = str(Path(d) / ".git")
+        return _sp.run(["bash", pre_push], cwd=d, env=env, capture_output=True, text=True,
+                       input=f"refs/heads/main {head} refs/heads/main {base}\n")
+
+    with tempfile.TemporaryDirectory() as d:
+        r = _build(d, "app/pay.py", "app/other.py")
+        check("③ 這次沒碰到那條合約管的檔 → 推送不被擋",
+              r.returncode == 0, f"rc={r.returncode}\n{r.stdout[-1200:]}\n{r.stderr[-600:]}")
+        check("③ 但那條還是有被列出來(不是靜音)",
+              "逾期的那條" in r.stdout, r.stdout[-1200:])
+    with tempfile.TemporaryDirectory() as d:
+        r = _build(d, "app/pay.py", "app/pay.py")
+        check("④ 這次真的碰到了 → 推送被擋下",
+              r.returncode != 0, f"rc={r.returncode}\n{r.stdout[-1200:]}\n{r.stderr[-600:]}")
+        check("④ 訊息說得出是你改到哪支檔踩到它",
+              "app/pay.py" in r.stdout, r.stdout[-1200:])
+
+
+def t_guard_overdue_local_skips_home_without_code():
+    """家節點沒寫「管哪幾支檔」時,本機那一層算不出有沒有碰到,照設計不擋(CI 仍擋)。
+
+    出身:必要合約清單_計劃〈擋的範圍〉——本機那一層的定位是窄而準,誤擋一次的代價是
+    有人被卡住又解不開;算不出來就交給 CI,不會真的漏掉。
+    翻紅釘:把「算不出來就不擋」改成「算不出來也擋」 → ②紅。
+    """
+    import datetime, re as _re
+    v = mkvault()
+    write(v, "Systems/NoCode.md", "type: system\nstatus: doing\nsummary: |-\n  FLOW:a", body="# NoCode\n")
+    write(v, "Projects/退款_計劃.md", "type: project\nstatus: doing", body="# 退款\n")
+    old = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
+    run(v, "guard", "plan", "Systems/NoCode", "沒寫管哪幾支檔的那條", "--plan", "Projects/退款_計劃",
+        "--phase", "Phase 1", "--due", old, "--why", "還沒做", "--owner", "enzo")
+    touched = v.parent / "touched3.txt"
+    touched.write_text("scripts/pay.py\n", encoding="utf-8")
+    r = run(v, "doctor", "--ci", "--touched-from", str(touched))
+    seg = _section_of(r.stdout, "S15")
+    check("② 本機那一層不擋", r.returncode == 0, f"rc={r.returncode}\n" + seg)
+    check("② 但還是列出來,而且講明為什麼這次沒擋",
+          "沒寫管哪幾支檔的那條" in seg, seg)
+    ci = run(v, "doctor", "--ci")
+    check("③ CI(不給清單)照舊擋", ci.returncode != 0, ci.stdout[-400:])
+
+
 def t_context_shows_planned_contract():
     """查功能節點時,預告中的合約要另起一段印出來,不能跟已生效的混在一起。
 
@@ -27301,7 +27537,7 @@ def t_slim_gate_doctor_nameerror_counterfactual():
     check("★C3 反事實★ fixture: 生成 rc0", r.returncode == 0, r.stdout + r.stderr)
 
     text = dist_cli.read_text(encoding="utf-8")
-    marker = "def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, verbose=False):"  # 2026-08-21 +verbose(體檢 #10)
+    marker = "def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, verbose=False, touched=None):"  # 2026-08-21 +verbose(體檢 #10);2026-09-22 +touched(本機只擋碰到的)
     check("★C3 反事實★ 產物含預期的 run_doctor 簽名(竄改點存在,前提沒漂移)",
           marker in text, "")
     tampered = text.replace(
@@ -44247,14 +44483,18 @@ def _mk_spec_gate_repo(d, run_cmd="python3 tests/run.py {method}"):
     d = Path(d)
     _sp.run(["git", "init", "-q", str(d)])
     (d / "tests").mkdir()
-    (d / "tests" / "test_x.py").write_text("def t_red():\n    assert False\n\ndef t_green():\n    assert True\n\ndef t_red2():\n    assert False\n\ndef t_green2():\n    assert True\n\ndef t_flip():\n    pass\n\ndef t_multi():\n    pass\n\ndef t_zero():\n    pass\n\ndef t_skip():\n    pass\n", encoding="utf-8")
+    # ★t_multi 旁邊真的要有第二支名字含它的測試★:篩選是子字串比對,「匹配到兩支」指的是
+    # 真的有兩支不同的測試被選到。只宣告一支卻回報兩個案例,那是同一支測試的多組輸入(參數化),
+    # 不是撞名——fixture 不擺出真正的撞名,那條測試就是在驗一個不存在的情境。
+    (d / "tests" / "test_x.py").write_text("def t_red():\n    assert False\n\ndef t_green():\n    assert True\n\ndef t_red2():\n    assert False\n\ndef t_green2():\n    assert True\n\ndef t_flip():\n    pass\n\ndef t_multi():\n    pass\n\ndef t_multi_extra():\n    pass\n\ndef t_param():\n    pass\n\ndef t_zero():\n    pass\n\ndef t_skip():\n    pass\n", encoding="utf-8")
     (d / "tests" / "run.py").write_text(
         "import sys\n"
         "m = sys.argv[1] if len(sys.argv) > 1 else ''\n"
         "import os\n"
         "table = {'t_red': (1, '0 passed, 1 failed', 1), 't_green': (1, '3 passed, 0 failed', 0), 't_multi': (2, '2 passed, 0 failed', 0),\n"
         "         't_red2': (1, '0 passed, 1 failed', 1), 't_green2': (1, '1 passed, 0 failed', 0), 't_flip': (1, '1 passed, 0 failed', 0) if os.path.exists('tests/flip.ok') else (1, '0 passed, 1 failed', 1),\n"
-        "         't_zero': (0, '0 passed, 0 failed', 0), 't_skip': (1, '0 passed, 0 failed (skipped=1)', 0)}\n"
+        "         't_zero': (0, '0 passed, 0 failed', 0), 't_skip': (1, '0 passed, 0 failed (skipped=1)', 0),\n"
+        "         't_multi_extra': (1, '1 passed, 0 failed', 0), 't_param': (9, '9 passed, 0 failed', 0)}\n"
         "if m not in table:\n    print('no such test', m); sys.exit(2)\n"
         "n, line, rc = table[m]\n"
         "print(f'lumos 測試({n} 案例)')\nprint(line)\nsys.exit(rc)\n", encoding="utf-8")
@@ -44349,6 +44589,24 @@ def t_spec_gate_multi_ran_is_weak():
     d, kg = _mk_spec_gate_repo(mkvault().parent.parent / "sg7")
     _sg_plan(kg, "辛", ["- [S1] 系統應回 200 [test:t_multi]"]); r = run(kg, "spec-gate", "Projects/辛_計劃")
     check("① 匹配 2 支 → 測試名要唯一", r.returncode == 0 and "匹配到 2 支" in r.stdout and "唯一" in r.stdout, r.stdout[-500:])
+
+
+def t_spec_gate_parametrized_is_not_weak():
+    """同一支測試餵多組輸入(參數化)收集到很多案例時,不該被判成「測試名不唯一」。
+
+    出身:rtb-production-agent-demo 2026-09-22 回報——它 4 支已綁合約的測試是參數化的,
+    篩選收集到 5/5/9/25 個案例,規格閘全判「測試名要唯一,驗不了≠過」,擋住設計審進場。
+    那些案例不是不同的測試,是同一支測試的多組輸入;一起跑、全綠才是正確語意。
+    判準改成看「程式裡真的宣告了幾支名字對得上的測試」,不是看跑起來收集到幾個案例。
+    翻紅釘:把判準改回只看案例數 → ②紅。
+    """
+    d, kg = _mk_spec_gate_repo(mkvault().parent.parent / "sgparam")
+    _sg_plan(kg, "參數化", ["- [S1] 當輸入不合法,系統應拒絕 [test:t_param]"])
+    r = run(kg, "spec-gate", "Projects/參數化_計劃")
+    check("① 跑得起來", r.returncode == 0, r.stdout[-400:])
+    check("② 收集到 9 個案例但只宣告一支 → 判綠,不是弱證據",
+          "綠" in r.stdout and "唯一" not in r.stdout and "匹配到 9 支" not in r.stdout,
+          r.stdout[-600:])
 
 
 def t_spec_gate_run_summary():

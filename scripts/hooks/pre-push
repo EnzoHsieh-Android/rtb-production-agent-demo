@@ -30,6 +30,41 @@ while IFS= read -r _line; do
   [[ -n "$_line" ]] && _PP_LINES+=("$_line")
 done
 
+_ZERO="0000000000000000000000000000000000000000"
+_EMPTY_TREE="$(git hash-object -t tree /dev/null 2>/dev/null || true)"
+
+# 一個 ref 的檢查範圍:$1=remote_sha $2=local_sha。
+# 新 ref、或本地沒有那個 remote 物件(shallow / force-push 分岔沒 fetch)→ 保守掃全部引入內容
+# (不是 fail-open:放行會讓「推個新分支」變成穩定繞法)。其餘走增量。
+pp_range_for() {
+  if [[ "$1" == "$_ZERO" ]] || ! git cat-file -e "$1" 2>/dev/null; then
+    printf '%s..%s' "$_EMPTY_TREE" "$2"
+  else
+    printf '%s..%s' "$1" "$2"
+  fi
+}
+
+# 這次推送總共改到哪些檔(所有 ref 的聯集,一行一個)。寫進暫存檔,回印路徑;算不出來回空字串。
+# ★給圖譜健康那一段用★:逾期的預告合約,本機這一層只擋「這次碰到的」那幾條,
+# 別人的逾期不該擋掉你的推送(被擋的人解不開別人的合約)。CI 不給這份清單,那邊照舊擋全部。
+pp_touched_file() {
+  local _f _r
+  [[ -n "$_EMPTY_TREE" ]] || return 0
+  # ★放進 $_PP_TMP,不要自己另外 mktemp 一個檔★(代碼審 r1 架構席):那個目錄有 trap 在收,
+  # 正常結束、exit 1、Ctrl-C、被砍都會清掉。自己逐處 rm 會在「還沒回傳路徑就被打斷」時漏掉
+  # ——這支腳本前面那段註解就是為了同一種漏而寫的,不要再走一次同一條路。
+  [[ -n "$_PP_TMP" && -d "$_PP_TMP" ]] || return 0
+  _f="$_PP_TMP/touched.txt"
+  : > "$_f" 2>/dev/null || return 0
+  for _ppl in ${_PP_LINES+"${_PP_LINES[@]}"}; do
+    read -r _ _lsha _ _rsha <<< "$_ppl"
+    [[ "$_lsha" == "$_ZERO" ]] && continue
+    _r="$(pp_range_for "$_rsha" "$_lsha")"
+    git diff --no-ext-diff --no-textconv --name-only "$_r" >> "$_f" 2>/dev/null || true
+  done
+  if [[ -s "$_f" ]]; then printf '%s' "$_f"; else rm -f "$_f"; fi
+}
+
 # 無 lumos / python3 → 降級放行(不為缺環境 brick push,CI 兜底)
 GRAPHCTL="$REPO_ROOT/scripts/lumos"
 PY="$(command -v python3 || command -v python || true)"
@@ -140,7 +175,10 @@ have_vault=0
 for d in docs/*-knowledge docs/knowledge; do
   [[ -d "$d" ]] && have_vault=1 && break
 done
-if [[ $have_vault -eq 1 ]] && ! "$PY" "$GRAPHCTL" doctor --ci; then
+_TOUCHED_F="$(pp_touched_file)"
+_DOCTOR_ARGS=(doctor --ci)
+[[ -n "$_TOUCHED_F" ]] && _DOCTOR_ARGS+=(--touched-from "$_TOUCHED_F")
+if [[ $have_vault -eq 1 ]] && ! "$PY" "$GRAPHCTL" "${_DOCTOR_ARGS[@]}"; then
   {
     echo ""
     echo "擋下:知識庫健康檢查發現問題(細節在上面)。"
@@ -161,8 +199,6 @@ fi
 # main-direct 同軌;無基準(新 ref/缺物件)倒向保守掃 empty-tree..local_sha(非 fail-open,
 # 否則守衛升格成穩定繞法);留痕綁 remote_ref 目的地(非 checkout);逐 ref 獨立判,某 ref
 # high 未過即擋。fail-open 僅剩:pitfalls 本身出錯 / empty-tree 都跑不動。
-_ZERO="0000000000000000000000000000000000000000"
-_EMPTY_TREE="$(git hash-object -t tree /dev/null 2>/dev/null || true)"
 # 推送前要跑哪個測試範圍(2026-09-18 Enzo 裁:純文件改動、或判成 light 的小改動,不用等全套):
 # 每個 ref 各判一次,任何一個 ref 要全套就全套。docs=只改到 README/docs/assets 這類文件(pitfalls --json 的 suite);
 # light=改到程式檔但 spec-gate --push-check 判成 light(風險低計劃、全靠人驗、小改動閘過)。
@@ -171,18 +207,9 @@ for _ppl in ${_PP_LINES+"${_PP_LINES[@]}"}; do
   read -r _lref _lsha _rref _rsha <<< "$_ppl"
   # 刪除遠端 ref(local_sha 全零)→ 無代碼推送,跳過
   [[ "$_lsha" == "$_ZERO" ]] && continue
-  # 推導檢查範圍
-  _range=""
-  if [[ "$_rsha" == "$_ZERO" ]]; then
-    # 新 ref(含首推 main:遠端無此 ref)→ 保守掃全部引入內容
-    _range="$_EMPTY_TREE..$_lsha"
-  elif ! git cat-file -e "$_rsha" 2>/dev/null; then
-    # remote_sha 本地無此物件(shallow/force-push 分岔未 fetch)→ 保守掃
-    _range="$_EMPTY_TREE..$_lsha"
-  else
-    # 一般情形:增量 endpoint diff
-    _range="$_rsha..$_lsha"
-  fi
+  # 推導檢查範圍(同一套推導另一個使用者是上面的圖譜健康那一段,所以抽成函式——
+  # 兩處各寫一份的話,哪天保守兜底改了只改一邊,擋的範圍就會兩邊不一致)
+  _range="$(pp_range_for "$_rsha" "$_lsha")"
   [[ -z "$_EMPTY_TREE" ]] && continue   # 連空樹都算不出=git 環境壞,advisory 放行
 
   # 每支檔有家(2026-09-11,Projects/每支檔有家_計劃 [S26]):把這次要推的範圍整段查一次,接住跳過提交前檢查的。
