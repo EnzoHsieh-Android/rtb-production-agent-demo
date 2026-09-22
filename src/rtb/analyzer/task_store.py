@@ -28,7 +28,11 @@ CREATE TABLE IF NOT EXISTS evidence (
     task_id TEXT NOT NULL, task_seq INTEGER NOT NULL, evidence_id TEXT NOT NULL,
     kind TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL,
     campaign_version_observed INTEGER, content_hash TEXT NOT NULL, trust_class TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
     PRIMARY KEY (task_id, task_seq, evidence_id));
+CREATE TABLE IF NOT EXISTS tool_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, task_seq INTEGER NOT NULL,
+    endpoint TEXT NOT NULL, outcome TEXT NOT NULL, latency_ms REAL NOT NULL, at TEXT NOT NULL);
 """
 MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
 
@@ -56,6 +60,25 @@ class TaskStoreBusy(Exception):
 
 class TaskNotFound(Exception):
     """這個任務編號完全沒有歷史列。"""
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    task_id: str
+    task_seq: int
+    endpoint: str
+    outcome: str
+    latency_ms: float
+    at: datetime
+
+
+@dataclass(frozen=True)
+class TraceRecord:
+    """給定一個任務編號的完整軌跡:狀態史、每一步的證據、每一次對外呼叫。"""
+
+    tasks: tuple[TaskRow, ...]
+    evidence: tuple[Evidence, ...]
+    tool_calls: tuple[ToolCall, ...]
 
 
 @dataclass(frozen=True)
@@ -145,7 +168,8 @@ class TaskStore:
     def evidence_for(self, task_id: str, task_seq: int) -> tuple[Evidence, ...]:
         rows = self._conn.execute(
             "SELECT evidence_id, kind, source, observed_at, campaign_version_observed, "
-            "content_hash, trust_class FROM evidence WHERE task_id = ? AND task_seq = ? "
+            "content_hash, trust_class, payload_json FROM evidence "
+            "WHERE task_id = ? AND task_seq = ? "
             "ORDER BY rowid",  # rowid 保留寫入順序;evidence_id 是呼叫端給的,字母序不等於蒐證順序
             (task_id, task_seq),
         ).fetchall()
@@ -155,6 +179,7 @@ class TaskStore:
                     evidence_id=r[0], task_id=task_id, kind=EvidenceKind(r[1]), source=r[2],
                     observed_at=datetime.fromisoformat(r[3].replace("Z", "+00:00")),
                     campaign_version_observed=r[4], content_hash=r[5], trust_class=TrustClass(r[6]),
+                    payload=MappingProxyType(json.loads(r[7])),
                 )
                 for r in rows
             )
@@ -202,11 +227,55 @@ class TaskStore:
             )
             for item in evidence:
                 self._conn.execute(
-                    "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (task_id, next_seq, item.evidence_id, item.kind.value, item.source,
                      _iso(item.observed_at), item.campaign_version_observed,
-                     item.content_hash, item.trust_class.value),
+                     item.content_hash, item.trust_class.value,
+                     json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True)),
                 )
             if before_commit is not None:
                 before_commit()
         return True
+
+    def record_tool_call(
+        self, task_id: str, task_seq: int, endpoint: str, outcome: str, latency_ms: float,
+        now: datetime,
+    ) -> None:
+        """記一筆對外呼叫;這筆寫入自己絕不讓例外往外傳(比照收件口事件表的既有做法):
+        寫失敗就放棄這筆記錄,不能因為記錄失敗而讓包住的那次呼叫跟著失敗。
+        """
+        try:
+            self._conn.execute(
+                "INSERT INTO tool_calls (task_id, task_seq, endpoint, outcome, latency_ms, at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (task_id, task_seq, endpoint, outcome, latency_ms, _iso(now)),
+            )
+        except Exception:
+            return
+
+    def list_tool_calls(self, task_id: str) -> tuple[ToolCall, ...]:
+        rows = self._conn.execute(
+            "SELECT task_id, task_seq, endpoint, outcome, latency_ms, at FROM tool_calls "
+            "WHERE task_id = ? ORDER BY id", (task_id,),
+        ).fetchall()
+        return tuple(
+            ToolCall(task_id=r[0], task_seq=r[1], endpoint=r[2], outcome=r[3],
+                     latency_ms=r[4], at=datetime.fromisoformat(r[5].replace("Z", "+00:00")))
+            for r in rows
+        )
+
+    def history(self, task_id: str) -> tuple[TaskRow, ...]:
+        records = self._conn.execute(
+            "SELECT task_id, seq, state, campaign_id, proposal_json, error_detail, written_at "
+            "FROM tasks WHERE task_id = ? ORDER BY seq", (task_id,),
+        ).fetchall()
+        return tuple(_row_from_record(r) for r in records)
+
+
+def trace_for(store: TaskStore, task_id: str) -> TraceRecord:
+    """把 tasks(狀態史)、evidence(證據)、tool_calls(呼叫記錄)用任務編號兜成一條軌跡。"""
+    history = store.history(task_id)
+    evidence = tuple(
+        item for row in history for item in store.evidence_for(task_id, row.seq)
+    )
+    return TraceRecord(tasks=history, evidence=evidence, tool_calls=store.list_tool_calls(task_id))

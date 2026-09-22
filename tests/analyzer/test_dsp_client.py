@@ -1,0 +1,83 @@
+"""真的 DSP 用戶端(EvidenceSource):S42~S44。"""
+
+import threading
+
+import pytest
+
+from rtb.analyzer import dsp_client
+from rtb.analyzer.task_store import TaskRow
+from rtb.domain.evidence import EvidenceKind
+from rtb.domain.task_state import TaskState
+from rtb.dsp.server import DspServer
+from rtb.dsp.store import CampaignStore
+
+
+def make_row(task_id="t1", seq=2, campaign_id="c1"):
+    from datetime import UTC, datetime
+
+    return TaskRow(task_id=task_id, seq=seq, state=TaskState.COLLECTING_EVIDENCE,
+                   campaign_id=campaign_id, proposal=None, error_detail=None,
+                   written_at=datetime(2026, 9, 22, 12, 0, tzinfo=UTC))
+
+
+@pytest.fixture
+def dsp(tmp_path):
+    store = CampaignStore(tmp_path / "dsp.db")
+    store.seed_campaign("c1", budget=100)
+    store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=2.0,
+                       revenue=5.0)
+    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
+                       delay_seconds=0.0)
+    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
+
+
+# ---- S42 ----
+def test_both_endpoints_succeeding_returns_both_pieces_of_evidence(dsp):
+    evidence = dsp_client.make_client(dsp, timeout_seconds=3)(make_row())
+
+    kinds = {item.kind for item in evidence}
+    assert kinds == {EvidenceKind.CAMPAIGN_STATE, EvidenceKind.METRICS}
+    assert len(evidence) == 2
+
+
+def test_the_campaign_state_evidence_carries_the_observed_version(dsp):
+    evidence = dsp_client.make_client(dsp, timeout_seconds=3)(make_row())
+
+    state = next(e for e in evidence if e.kind == EvidenceKind.CAMPAIGN_STATE)
+    assert state.campaign_version_observed == 1
+    assert state.task_id == "t1"
+
+
+# ---- S43 ----
+def test_a_nonexistent_campaign_makes_the_whole_call_raise(dsp):
+    client = dsp_client.make_client(dsp, timeout_seconds=3)
+
+    with pytest.raises(Exception):  # noqa: B017 - 只驗證會整個丟例外,不驗證是哪一種
+        client(make_row(campaign_id="ghost"))
+
+
+def test_the_dsp_being_unreachable_makes_the_whole_call_raise():
+    client = dsp_client.make_client("http://127.0.0.1:1", timeout_seconds=1)
+
+    with pytest.raises(Exception):  # noqa: B017 - 只驗證會整個丟例外,不驗證是哪一種
+        client(make_row())
+
+
+# ---- content_hash ----
+def test_the_same_campaign_state_produces_the_same_content_hash(dsp):
+    client = dsp_client.make_client(dsp, timeout_seconds=3)
+
+    first = next(e for e in client(make_row()) if e.kind == EvidenceKind.CAMPAIGN_STATE)
+    second = next(e for e in client(make_row()) if e.kind == EvidenceKind.CAMPAIGN_STATE)
+
+    assert first.content_hash == second.content_hash
+
+
+# ---- S44(輔助訊號:原始碼掃描) ----
+def test_the_dsp_client_module_never_mentions_the_fault_header():
+    import inspect
+
+    assert "X-Fault" not in inspect.getsource(dsp_client)

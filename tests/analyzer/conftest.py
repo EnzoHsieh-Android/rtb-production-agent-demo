@@ -44,12 +44,15 @@ def make_proposal(**overrides):
 
 
 def make_evidence(**overrides):
+    from types import MappingProxyType
+
     from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
 
     fields = {
         "evidence_id": "e1", "task_id": "t1", "kind": EvidenceKind.CAMPAIGN_STATE,
         "source": "dsp", "observed_at": NOW, "campaign_version_observed": 3,
         "content_hash": "a" * 64, "trust_class": TrustClass.TRUSTED,
+        "payload": MappingProxyType({"budget": 100}),
     }
     fields.update(overrides)
     return Evidence(**fields)

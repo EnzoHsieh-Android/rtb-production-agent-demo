@@ -69,6 +69,13 @@ class SubmitBusy(Exception):
     """暫時性、可以重試(對應收件口的 503)。"""
 
 
+class SubmitRejectedPermanently(Exception):
+    """收件口的拒收原因不是重送就能解決的(對應收件口的 too_many_revisions):退回蒐證、送下一個
+    修訂只會再次碰到同一個上限,重試不會變好。跟 `Decide` 自己丟例外(對已到手的證據做純計算,
+    重跑只會再犯同樣的錯)是同一種道理,所以一樣轉 FAILED,不是 SubmitStale。
+    """
+
+
 class Submit(Protocol):
     def __call__(self, proposal: Proposal) -> Accepted: ...
 
@@ -164,6 +171,8 @@ def _from_proposed(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepO
         raise AssertionError("PROPOSED 狀態的列一定帶著提案快照")
     try:
         result = c.submit(row.proposal)
+    except SubmitRejectedPermanently as exc:
+        return _Step(TaskState.FAILED, error_detail=repr(exc))
     except SubmitStale:
         return _Step(TaskState.COLLECTING_EVIDENCE)
     except SubmitBusy:

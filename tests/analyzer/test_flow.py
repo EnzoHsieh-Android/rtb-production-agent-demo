@@ -577,3 +577,18 @@ def test_evidence_source_receives_the_task_row_it_is_gathering_for(store):
 
     assert source.calls[0][0].task_id == "t1"
     assert source.calls[0][0].campaign_id == "c1"
+
+
+# ---- S46a/S46b:too_many_revisions 是永久拒收,不是暫時性 stale(增量 4) ----
+def test_a_permanent_submit_rejection_fails_the_task_instead_of_looping_forever(store):
+    _to_proposed(store)
+
+    new_state = flow.advance(
+        store, "t1", NOOP, NOOP, submit(raises=flow.SubmitRejectedPermanently("too many")), NOW)
+
+    assert new_state is TaskState.FAILED
+    assert "too many" in store.latest("t1").error_detail
+    # FAILED 是終點:再呼叫一次不會又跑 submit
+    s = submit()
+    assert flow.advance(store, "t1", NOOP, NOOP, s, NOW) is TaskState.FAILED
+    assert s.call_count == 0

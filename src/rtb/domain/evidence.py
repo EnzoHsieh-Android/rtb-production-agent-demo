@@ -10,12 +10,15 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import TypeGuard
 
 from rtb.domain._checks import is_id, is_plain_int, is_plain_number
 
 HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 MAX_SOURCE_LENGTH = 64
+MAX_PAYLOAD_ITEMS = 32  # 證據的原始欄位數;DSP 的現況、指標回應都是固定的小字典,遠低於這個上限
+PayloadValue = str | int | float | bool | None
 
 
 class EvidenceKind(StrEnum):
@@ -54,12 +57,16 @@ class Evidence:
     campaign_version_observed: int | None
     content_hash: str
     trust_class: TrustClass
+    payload: MappingProxyType[str, PayloadValue]
+    """讀到的原始欄位(例如現況的 budget/status、指標的 impressions/spend),決策要用實際數字
+    判斷時讀這裡;`content_hash` 只用來判斷「有沒有變」,不是給決策讀的。"""
 
     def __post_init__(self) -> None:
         problems = [
             ("evidence_id", is_id(self.evidence_id)),
             ("task_id", is_id(self.task_id)),
             ("source", isinstance(self.source, str) and 0 < len(self.source) <= MAX_SOURCE_LENGTH),
+            ("payload", _is_payload(self.payload)),
             ("kind", isinstance(self.kind, EvidenceKind)),
             ("trust_class", isinstance(self.trust_class, TrustClass)),
             ("observed_at", _is_aware(self.observed_at)),
@@ -73,6 +80,15 @@ class Evidence:
 
 def _is_hash(value: object) -> TypeGuard[str]:
     return isinstance(value, str) and HASH_PATTERN.fullmatch(value) is not None
+
+
+def _is_payload(value: object) -> TypeGuard[MappingProxyType[str, PayloadValue]]:
+    if not isinstance(value, MappingProxyType) or len(value) > MAX_PAYLOAD_ITEMS:
+        return False
+    return all(
+        isinstance(key, str) and (item is None or isinstance(item, str | int | float | bool))
+        for key, item in value.items()
+    )
 
 
 def _is_version_or_none(value: object) -> TypeGuard[int | None]:

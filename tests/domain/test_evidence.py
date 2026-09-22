@@ -1,6 +1,7 @@
 """證據與新鮮度:證據是「事實在某個時間點的快照」,新鮮度由純程式判斷。"""
 
 from datetime import UTC, datetime, timedelta, tzinfo
+from types import MappingProxyType
 
 import pytest
 
@@ -21,6 +22,7 @@ def make(**overrides):
         "evidence_id": "e1", "task_id": "t1", "kind": EvidenceKind.CAMPAIGN_STATE,
         "source": "dsp", "observed_at": T0, "campaign_version_observed": 3,
         "content_hash": HASH, "trust_class": TrustClass.TRUSTED,
+        "payload": MappingProxyType({"budget": 100}),
     }
     fields.update(overrides)
     return Evidence(**fields)
@@ -141,3 +143,24 @@ def test_a_timezone_object_that_gives_no_offset_is_not_timezone_aware():
 def test_an_age_limit_beyond_float_range_is_a_value_error_not_an_overflow():
     with pytest.raises(ValueError):
         check_freshness(make(), T0, 10**400, 3)
+
+
+def test_payload_must_be_a_mapping_proxy_of_json_safe_primitives():
+    with pytest.raises(ValueError, match="payload"):
+        make(payload={"budget": 100})  # 普通 dict,不是 MappingProxyType
+
+
+def test_payload_values_must_be_json_safe_primitives_not_nested_containers():
+    with pytest.raises(ValueError, match="payload"):
+        make(payload=MappingProxyType({"nested": {"a": 1}}))
+
+
+def test_an_empty_payload_is_allowed():
+    assert make(payload=MappingProxyType({})).payload == {}
+
+
+def test_payload_over_the_item_limit_is_rejected():
+    huge = MappingProxyType({f"k{i}": i for i in range(33)})
+
+    with pytest.raises(ValueError, match="payload"):
+        make(payload=huge)
