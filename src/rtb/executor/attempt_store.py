@@ -1,0 +1,368 @@
+"""外部寫入嘗試的只增不改歷史表(執行行程資料庫裡的一張表)。
+
+主鍵是(鍵, 序號);一把鍵的目前狀態永遠是序號最大的那一列;沒有 UPDATE、沒有 DELETE。
+每一列都帶廣告編號,查「這個廣告有沒有未結案的鍵」只看每把鍵的最新列。第 1 列另外帶
+任務、修訂、動作、預期版本與完整提案快照:收件口會清掉過期提案,重新授權要有自己的依據。
+
+這支模組不開連線、不開交易:每個函式只接受執行行程資料庫模組(收件口資料庫模組)的交易入口
+發出的交易物件,而且那一筆交易還開著。交易物件建立時要出示入口專用的憑證(執行期檢查,
+不只靠掃原始碼),型別必須完全相同(子類別不收),交易結束時入口會把它作廢,所以同一條連線
+之後開了別的交易,舊物件也不會復活。自己開的連線、自己開的延遲交易(不排隊搶寫入鎖)都不收。
+威脅模型是「防忘記、不防刻意繞過」:憑證擋的是善意重構時不小心繞過入口。這樣「取件與開始一筆」能放在同一個交易裡,並行檢查也一定在寫入鎖之內。
+
+未結案計數不逐把鍵回頭讀最新列:每把鍵恰好有一列序號 1(主鍵保證),結案的鍵恰好有一列終點列
+(終點沒有出路,而且資料庫的唯一限制不准同一把鍵寫第二列終點列),所以「未結案數 = 第 1 列數 -
+終點列數」,兩個數都走部分索引。只看相減結果的正負擋不住毀損:會被另一把還沒結案的鍵抵銷。
+"""
+
+import json
+import sqlite3
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
+
+from rtb.domain._checks import is_aware, is_plain_int
+from rtb.domain.attempt import (
+    RESOLUTION_OUTCOMES,
+    TERMINAL_STATES,
+    TIMEOUT_STATES,
+    AttemptState,
+    IllegalAttemptTransition,
+    OutcomeCode,
+    can_transition,
+    code_fits,
+    is_clean_detail,
+    operation_key,
+)
+from rtb.domain.proposal import Proposal, parse_proposal
+
+MAX_SENDS = 3  # 同一把鍵最多送出幾次(含第一次)
+MAX_VERIFICATION_TIMEOUTS = 5  # 對帳與執行後驗證的查詢逾時,每把鍵累計
+MAX_ROWS_PER_KEY = 50  # 正常路徑最多 14 列;進入轉人工、人工處置與重啟恢復不受這個上限
+MAX_UNRESOLVED = 20  # 全表同時未結案的鍵數:滿了就停下所有新寫入,等人處理
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS attempts (
+    key TEXT NOT NULL, seq INTEGER NOT NULL, campaign_id TEXT NOT NULL, state TEXT NOT NULL,
+    code TEXT, detail TEXT, send_count INTEGER NOT NULL, verification_timeouts INTEGER NOT NULL,
+    written_at TEXT NOT NULL,
+    task_id TEXT, revision INTEGER, action TEXT, expected_version INTEGER, proposal_json TEXT,
+    PRIMARY KEY (key, seq));
+CREATE INDEX IF NOT EXISTS attempts_first_rows ON attempts (campaign_id) WHERE seq = 1;
+CREATE INDEX IF NOT EXISTS attempts_terminal_rows ON attempts (campaign_id)
+    WHERE state IN (TERMINAL_LIST);
+CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_terminal_per_key ON attempts (key)
+    WHERE state IN (TERMINAL_LIST);
+"""
+_COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verification_timeouts, "
+            "written_at")
+# 終點狀態是固定的列舉值,寫成字面值,查詢條件才對得上部分索引的條件
+_TERMINAL_LIST = ", ".join(f"'{state.value}'" for state in sorted(TERMINAL_STATES))
+SCHEMA = SCHEMA.replace("TERMINAL_LIST", _TERMINAL_LIST)
+
+
+class AttemptRejected(Exception):
+    """這次操作被拒絕,而且沒有寫入任何東西。"""
+
+
+class NotInTransaction(AttemptRejected):
+    """傳進來的不是執行行程資料庫交易入口發出、而且還開著的交易:這是程式錯誤。"""
+
+
+class CampaignLocked(AttemptRejected):
+    """同一個廣告已有另一把鍵的未結案嘗試。"""
+
+
+class TooManyUnresolved(AttemptRejected):
+    """全表未結案的鍵數已達上限。"""
+
+
+class InvalidOutcome(AttemptRejected):
+    """結果代碼與目標狀態不配、代碼不認得、細節文字或處置理由不乾淨。"""
+
+
+class SendLimitReached(AttemptRejected):
+    """同一把鍵的送出次數已達上限,只能轉人工。"""
+
+
+class VerificationTimeoutLimitReached(AttemptRejected):
+    """查證逾時次數已達上限,只能轉人工。"""
+
+
+class HistoryFull(AttemptRejected):
+    """這把鍵的歷史列已達上限;只剩轉人工與人工處置寫得進去。"""
+
+
+class CorruptedAttemptRow(Exception):
+    """歷史列讀不回來(格式毀損,或快照已對不上它的鍵)。"""
+
+
+_EXECUTOR_TRANSACTION_ISSUER = object()  # 只有收件口資料庫模組的交易入口拿它建交易物件(有測試擋)
+
+
+class ExecutorTransaction:
+    """執行行程資料庫交易入口發出的一筆交易;交易結束時由入口作廢。"""
+
+    __slots__ = ("_open", "conn")
+
+    def __init__(self, conn: sqlite3.Connection, issuer: object) -> None:
+        if issuer is not _EXECUTOR_TRANSACTION_ISSUER:
+            raise NotInTransaction("交易物件只能由執行行程資料庫交易入口發出")
+        self.conn = conn
+        self._open = True
+
+    def close(self) -> None:
+        self._open = False
+
+    @property
+    def is_open(self) -> bool:
+        return self._open and self.conn.in_transaction
+
+
+@dataclass(frozen=True)
+class Recovery:
+    moved: tuple[str, ...]  # 轉成結果不明的鍵
+    unreadable: tuple[str, ...]  # 歷史列讀不回來而跳過的鍵:要人處理,但不拖垮其他鍵
+
+
+@dataclass(frozen=True)
+class AttemptRow:
+    key: str
+    seq: int
+    campaign_id: str
+    state: AttemptState
+    code: OutcomeCode | None
+    detail: str | None
+    send_count: int
+    verification_timeouts: int
+    written_at: datetime
+
+
+@dataclass(frozen=True)
+class Begun:
+    row: AttemptRow
+    created: bool  # False:鍵已存在,原樣回傳目前那一列——呼叫端依狀態分支,絕不因此直接再送
+
+
+def _require_aware(now: datetime) -> None:
+    if not is_aware(now):
+        raise ValueError("時間必須帶時區")
+
+
+def _iso(moment: datetime) -> str:
+    _require_aware(moment)
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _conn(tx: ExecutorTransaction) -> sqlite3.Connection:
+    if type(tx) is not ExecutorTransaction or not tx.is_open:
+        raise NotInTransaction("嘗試紀錄只能在執行行程資料庫交易入口開的交易裡讀寫")
+    return tx.conn
+
+
+def _row(record: tuple[Any, ...]) -> AttemptRow:
+    key, seq, campaign_id, state, code, detail, sends, timeouts, written_at = record
+    try:
+        return AttemptRow(
+            key=key, seq=seq, campaign_id=campaign_id, state=AttemptState(state),
+            code=None if code is None else OutcomeCode(code), detail=detail,
+            send_count=sends, verification_timeouts=timeouts,
+            written_at=datetime.fromisoformat(written_at.replace("Z", "+00:00")),
+        )
+    # SQLite 不強制欄位型別:壞值可能是任何型別,讀不回來一律當成毀損
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise CorruptedAttemptRow(f"{key} 第 {seq} 列讀不回來:{exc!r}") from exc
+
+
+def latest(tx: ExecutorTransaction, key: str) -> AttemptRow | None:
+    record = _conn(tx).execute(
+        f"SELECT {_COLUMNS} FROM attempts WHERE key = ? ORDER BY seq DESC LIMIT 1",  # noqa: S608 - 只拼接模組內固定的欄位清單
+        (key,),
+    ).fetchone()
+    return None if record is None else _row(record)
+
+
+def history(tx: ExecutorTransaction, key: str) -> tuple[AttemptRow, ...]:
+    records = _conn(tx).execute(
+        f"SELECT {_COLUMNS} FROM attempts WHERE key = ? ORDER BY seq",  # noqa: S608 - 只拼接模組內固定的欄位清單
+        (key,)).fetchall()
+    return tuple(_row(record) for record in records)
+
+
+def snapshot(tx: ExecutorTransaction, key: str) -> Proposal:
+    """讀回第 1 列存的完整提案,經同一個解析器還原成領域層的提案物件,並核對它仍算得出這把鍵。"""
+    record = _conn(tx).execute(
+        "SELECT proposal_json FROM attempts WHERE key = ? AND seq = 1", (key,)).fetchone()
+    if record is None or record[0] is None:
+        raise CorruptedAttemptRow(f"{key} 沒有提案快照")
+    try:
+        raw = json.loads(record[0])
+    except json.JSONDecodeError as exc:
+        raise CorruptedAttemptRow(f"{key} 的提案快照不是 JSON") from exc
+    parsed = parse_proposal(raw)
+    if parsed.proposal is None:
+        raise CorruptedAttemptRow(f"{key} 的提案快照解析不回來:{parsed.errors}")
+    if operation_key(parsed.proposal) != key:
+        raise CorruptedAttemptRow(f"{key} 的提案快照已對不上它的鍵")
+    return parsed.proposal
+
+
+def unresolved_count_query(campaign_id: str | None = None) -> tuple[str, tuple[str, ...]]:
+    """未結案數 = 第 1 列數 - 終點列數(可限定一個廣告);兩邊都走部分索引。"""
+    where = "" if campaign_id is None else " AND campaign_id = ?"
+    params = () if campaign_id is None else (campaign_id, campaign_id)
+    query = (
+        f"SELECT (SELECT COUNT(*) FROM attempts WHERE seq = 1{where}) - "  # noqa: S608 - 只拼接固定條件
+        f"(SELECT COUNT(*) FROM attempts WHERE state IN ({_TERMINAL_LIST}){where})"
+    )
+    return query, params
+
+
+def unresolved_count(tx: ExecutorTransaction, campaign_id: str | None = None) -> int:
+    query, params = unresolved_count_query(campaign_id)
+    count = int(_conn(tx).execute(query, params).fetchone()[0])
+    if count < 0:  # 唯一限制之外的最後一道:算法前提不成立就當毀損,不放行
+        raise CorruptedAttemptRow("未結案計數為負,歷史表有鍵出現多列終點列")
+    return count
+
+
+def begin(tx: ExecutorTransaction, proposal: Proposal, now: datetime) -> Begun:
+    """開始一筆:鍵與第 1 列的欄位全由這份提案算出,呼叫端不能另外指定。"""
+    conn = _conn(tx)
+    _require_aware(now)
+    key = operation_key(proposal)
+    current = latest(tx, key)
+    if current is not None:
+        return Begun(current, created=False)
+    if unresolved_count(tx, proposal.campaign_id):
+        raise CampaignLocked(proposal.campaign_id)
+    if unresolved_count(tx) >= MAX_UNRESOLVED:
+        raise TooManyUnresolved()
+    snapshot_json = json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True,
+                               allow_nan=False)
+    conn.execute(
+        "INSERT INTO attempts VALUES (?, 1, ?, ?, NULL, NULL, 1, 0, ?, ?, ?, ?, ?, ?)",
+        (key, proposal.campaign_id, AttemptState.IN_FLIGHT.value, _iso(now),
+         proposal.task_id, proposal.revision, proposal.action_type.value,
+         proposal.campaign_version_observed, snapshot_json),
+    )
+    row = latest(tx, key)
+    assert row is not None  # 剛寫入的那一列  # noqa: S101
+    return Begun(row, created=True)
+
+
+def _append(  # noqa: PLR0913 - 每個欄位都是新列的一部分
+    tx: ExecutorTransaction, previous: AttemptRow, state: AttemptState, now: datetime, *,
+    code: OutcomeCode | None = None, detail: str | None = None,
+    send_count: int | None = None, verification_timeouts: int | None = None,
+    capped: bool = True,
+) -> AttemptRow:
+    if capped and previous.seq >= MAX_ROWS_PER_KEY:
+        raise HistoryFull(previous.key)
+    _conn(tx).execute(
+        f"INSERT INTO attempts ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608 - 只拼接模組內固定的欄位清單
+        (previous.key, previous.seq + 1, previous.campaign_id, state.value,
+         None if code is None else OutcomeCode(code).value, detail,
+         previous.send_count if send_count is None else send_count,
+         previous.verification_timeouts if verification_timeouts is None
+         else verification_timeouts,
+         _iso(now)),
+    )
+    row = latest(tx, previous.key)
+    assert row is not None  # noqa: S101
+    return row
+
+
+def _current(
+    tx: ExecutorTransaction, key: str, expected_seq: int, now: datetime,
+) -> AttemptRow | None:
+    """呼叫端帶的預期序號仍是最新一列才回傳;不是就回 None(沒有進展,不寫入)。"""
+    _conn(tx)
+    _require_aware(now)
+    if not is_plain_int(expected_seq):  # True == 1 在 Python 成立,不能靠 == 比對
+        raise TypeError("預期序號必須是整數")
+    row = latest(tx, key)
+    return row if row is not None and row.seq == expected_seq else None
+
+
+def transition(  # noqa: PLR0913 - 代碼與細節是轉換本身要記的內容
+    tx: ExecutorTransaction, key: str, expected_seq: int, target: AttemptState, now: datetime,
+    *, code: OutcomeCode | None = None, detail: str | None = None,
+) -> AttemptRow | None:
+    """一般轉換:照唯讀轉換表;回傳新列,預期序號已不是最新就回 None。"""
+    row = _current(tx, key, expected_seq, now)
+    if row is None:
+        return None
+    if not can_transition(row.state, target):
+        raise IllegalAttemptTransition(f"不合法的轉換:{row.state} -> {target}")
+    if not code_fits(target, code, by_resolution=False):
+        raise InvalidOutcome(f"結果代碼 {code!r} 不配目標狀態 {target}")
+    if detail is not None and not is_clean_detail(detail):
+        raise InvalidOutcome("細節文字只收有長度上限的 ASCII 可列印字元")
+    destination = AttemptState(target)
+    sends = row.send_count
+    if row.state is AttemptState.UNKNOWN and destination is AttemptState.IN_FLIGHT:
+        if sends >= MAX_SENDS:
+            raise SendLimitReached(key)
+        sends += 1
+    return _append(tx, row, destination, now, code=code, detail=detail, send_count=sends,
+                   capped=destination is not AttemptState.ESCALATED)
+
+
+def record_verification_timeout(
+    tx: ExecutorTransaction, key: str, expected_seq: int, now: datetime,
+) -> AttemptRow | None:
+    """記一次查證逾時:狀態不變、次數加 1,兩件事是同一次寫入。"""
+    row = _current(tx, key, expected_seq, now)
+    if row is None:
+        return None
+    if row.state not in TIMEOUT_STATES:
+        raise IllegalAttemptTransition(f"{row.state} 不能記查證逾時")
+    if row.verification_timeouts >= MAX_VERIFICATION_TIMEOUTS:
+        raise VerificationTimeoutLimitReached(key)
+    return _append(tx, row, row.state, now,
+                   verification_timeouts=row.verification_timeouts + 1)
+
+
+def resolve(
+    tx: ExecutorTransaction, key: str, expected_seq: int, outcome: AttemptState, reason: str,
+    now: datetime,
+) -> AttemptRow | None:
+    """人工處置:只對轉人工有效,結果只能是已驗證或失敗,理由必填;不受歷史列上限。"""
+    row = _current(tx, key, expected_seq, now)
+    if row is None:
+        return None
+    if row.state is not AttemptState.ESCALATED or outcome not in RESOLUTION_OUTCOMES:
+        raise IllegalAttemptTransition(f"人工處置不能把 {row.state} 處置成 {outcome}")
+    if not is_clean_detail(reason) or not reason.strip():
+        raise InvalidOutcome("處置理由必填,只收有長度上限的 ASCII 可列印字元")
+    destination = AttemptState(outcome)
+    code = OutcomeCode.MANUAL_FAILURE if destination is AttemptState.FAILED else None
+    return _append(tx, row, destination, now, code=code, detail=reason, capped=False)
+
+
+def recover_in_flight(tx: ExecutorTransaction, now: datetime) -> Recovery:
+    """重啟恢復(單一執行者):目前是嘗試中的鍵一律轉成結果不明,其他鍵完全不動。
+
+    不受歷史列上限:一把鍵撞上限若讓整批回滾,同一次重啟裡健康的鍵也會留在嘗試中。每次進入
+    嘗試中最多被恢復一次(恢復後就不是嘗試中了),所以豁免不會讓表無限長。
+    歷史列讀不回來的鍵跳過並回報:不然一把壞鍵會讓每次重啟都在同一點整批失敗。
+    """
+    conn = _conn(tx)
+    _require_aware(now)
+    keys = [record[0] for record in conn.execute(
+        "SELECT a.key FROM attempts a WHERE a.state = ? AND a.seq = "
+        "(SELECT MAX(b.seq) FROM attempts b WHERE b.key = a.key) ORDER BY a.key",
+        (AttemptState.IN_FLIGHT.value,),
+    ).fetchall()]
+    moved, unreadable = [], []
+    for key in keys:
+        try:
+            row = latest(tx, key)
+        except CorruptedAttemptRow:
+            unreadable.append(key)
+            continue
+        assert row is not None  # noqa: S101
+        _append(tx, row, AttemptState.UNKNOWN, now, capped=False)
+        moved.append(key)
+    return Recovery(tuple(moved), tuple(unreadable))

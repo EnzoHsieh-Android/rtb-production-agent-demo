@@ -18,7 +18,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, TypeGuard
 
-from rtb.domain._checks import ID_PATTERN, is_plain_int
+from rtb.domain._checks import ID_PATTERN, is_aware, is_plain_int
 
 POLICY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}")
 REASON_PATTERN = re.compile(r"[a-z0-9_]{1,64}")
@@ -111,7 +111,7 @@ def _parse_time(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
-    if parsed.utcoffset() is None:
+    if not is_aware(parsed):
         return None
     try:
         in_utc = parsed.astimezone(UTC)  # 極端的年份加上時區偏移,換成 UTC 會溢位

@@ -6,16 +6,22 @@
 
 事件紀錄只存固定欄位(時間、任務編號、修訂、封閉列舉的事件代碼、內容雜湊),
 絕不存請求原文;每種事件代碼各有筆數上限;事件寫入失敗不影響對呼叫者的回應。
+
+這支模組也是整個執行行程資料庫唯一開連線、開交易的地方:外部寫入嘗試的表結構在
+`attempt_store`,但由這裡建立;嘗試紀錄的讀寫只能透過 `transaction()` 拿到已在交易中的連線,
+所以之後「取件與開始一筆」可以放進同一個交易。交易物件只在這裡建立(建立時要出示憑證),交易結束就作廢。
 """
 
 import json
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from rtb.domain.proposal import MAX_DECISION_LIFETIME, Proposal, content_hash
+from rtb.executor import attempt_store
 from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate_transaction
 
 DEFAULT_MAX_PENDING = 8
@@ -140,12 +146,28 @@ class InboxStore:
             raise ValueError("max_pending 必須至少是 1,否則收件口永遠不接受任何提案")
         self._max_pending = max_pending
         try:
-            self._conn = connect(path, busy_timeout_seconds, SCHEMA)
+            self._conn = connect(path, busy_timeout_seconds, SCHEMA + attempt_store.SCHEMA)
         except DatabaseBusy as exc:
             raise InboxBusy(str(exc)) from exc
 
     def close(self) -> None:
         self._conn.close()
+
+    @contextmanager
+    def transaction(self) -> Iterator[attempt_store.ExecutorTransaction]:
+        """執行行程資料庫的寫入交易:給嘗試紀錄這類同一個檔裡的其他表用。
+
+        正常結束就提交,任何例外都回滾;鎖不到丟 InboxBusy(跟收件一樣可以重試)。
+        """
+        issuer = attempt_store._EXECUTOR_TRANSACTION_ISSUER  # 私有憑證:只給這個交易入口用
+        tx = attempt_store.ExecutorTransaction(self._conn, issuer)
+        try:
+            with immediate_transaction(self._conn):
+                yield tx
+        except DatabaseBusy as exc:
+            raise InboxBusy(str(exc)) from exc
+        finally:
+            tx.close()  # 交易結束就作廢:同一條連線之後開別的交易,舊物件也不能再用
 
     def accept(
         self,

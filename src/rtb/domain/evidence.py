@@ -13,7 +13,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import TypeGuard
 
-from rtb.domain._checks import is_id, is_plain_int, is_plain_number
+from rtb.domain._checks import is_aware, is_id, is_plain_int, is_plain_number
 
 HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 MAX_SOURCE_LENGTH = 64
@@ -42,11 +42,6 @@ class Freshness(StrEnum):
         return self is Freshness.FRESH
 
 
-def _is_aware(value: object) -> TypeGuard[datetime]:
-    """有時區,而且時區真的給得出偏移(有些 tzinfo 的 utcoffset 回 None,等於沒有時區)。"""
-    return isinstance(value, datetime) and value.utcoffset() is not None
-
-
 @dataclass(frozen=True)
 class Evidence:
     evidence_id: str
@@ -69,7 +64,7 @@ class Evidence:
             ("payload", _is_payload(self.payload)),
             ("kind", isinstance(self.kind, EvidenceKind)),
             ("trust_class", isinstance(self.trust_class, TrustClass)),
-            ("observed_at", _is_aware(self.observed_at)),
+            ("observed_at", is_aware(self.observed_at)),
             ("campaign_version_observed", _is_version_or_none(self.campaign_version_observed)),
             ("content_hash", _is_hash(self.content_hash)),
         ]
@@ -113,7 +108,7 @@ def _is_positive_finite(value: object) -> bool:
 
 
 def _check_inputs(now: object, max_age_seconds: object, current_version: object) -> None:
-    if not _is_aware(now):
+    if not is_aware(now):
         raise ValueError("now 必須是有時區的 datetime")
     if not _is_positive_finite(max_age_seconds):
         raise ValueError("max_age_seconds 必須是正的有限數")

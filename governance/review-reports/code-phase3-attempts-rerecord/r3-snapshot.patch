@@ -1,0 +1,503 @@
+diff --git a/src/rtb/domain/_checks.py b/src/rtb/domain/_checks.py
+index a0ccebf..1ce10cf 100644
+--- a/src/rtb/domain/_checks.py
++++ b/src/rtb/domain/_checks.py
+@@ -1,25 +1,31 @@
+ """領域層共用的小檢查:同一個規則只有一份定義,免得各模組改了一處漏另一處。
+ 
+-只放「證據編號、任務編號這類識別碼的格式」與「整數不含布林」這類到處要用的判斷。
++只放「證據編號、任務編號這類識別碼的格式」「整數不含布林」「時間帶時區」這類到處要用的判斷。
+ 判斷函式用 TypeGuard 標明「通過之後是什麼型別」,讓型別檢查(mypy)能驗證邊界判斷。
+ DSP(rtb.dsp)是外部系統的模擬器,刻意不依賴這裡,所以它自己另有一份。
+ """
+ 
+ import re
++from datetime import datetime
+ from typing import TypeGuard
+ 
+ ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+ 
+ 
+ def is_plain_int(value: object) -> TypeGuard[int]:
+     """是整數,而且不是布林(Python 的 True 也是整數,會繞過型別檢查)。"""
+     return isinstance(value, int) and not isinstance(value, bool)
+ 
+ 
+ def is_plain_number(value: object) -> TypeGuard[int | float]:
+     """是整數或浮點數,而且不是布林。"""
+     return isinstance(value, int | float) and not isinstance(value, bool)
+ 
+ 
+ def is_id(value: object) -> TypeGuard[str]:
+     return isinstance(value, str) and ID_PATTERN.fullmatch(value) is not None
++
++
++def is_aware(value: object) -> TypeGuard[datetime]:
++    """是帶時區的時間;沒有時區的時間換算 UTC 時會被當成伺服器本地時間,悄悄寫錯。"""
++    return isinstance(value, datetime) and value.utcoffset() is not None
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index a7db945..344e855 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -1,31 +1,33 @@
+ """外部寫入嘗試的只增不改歷史表(執行行程資料庫裡的一張表)。
+ 
+ 主鍵是(鍵, 序號);一把鍵的目前狀態永遠是序號最大的那一列;沒有 UPDATE、沒有 DELETE。
+ 每一列都帶廣告編號,查「這個廣告有沒有未結案的鍵」只看每把鍵的最新列。第 1 列另外帶
+ 任務、修訂、動作、預期版本與完整提案快照:收件口會清掉過期提案,重新授權要有自己的依據。
+ 
+ 這支模組不開連線、不開交易:每個函式只接受執行行程資料庫模組(收件口資料庫模組)的交易入口
+-發出的交易物件,而且那個交易還開著。自己開的連線、自己開的延遲交易(不排隊搶寫入鎖)
+-都不收。這樣「取件與開始一筆」能放在同一個交易裡,並行檢查也一定在寫入鎖之內。
++發出的交易物件,而且那一筆交易還開著。交易物件建立時要出示入口專用的憑證(執行期檢查,
++不只靠掃原始碼),型別必須完全相同(子類別不收),交易結束時入口會把它作廢,所以同一條連線
++之後開了別的交易,舊物件也不會復活。自己開的連線、自己開的延遲交易(不排隊搶寫入鎖)都不收。
++威脅模型是「防忘記、不防刻意繞過」:憑證擋的是善意重構時不小心繞過入口。這樣「取件與開始一筆」能放在同一個交易裡,並行檢查也一定在寫入鎖之內。
+ 
+ 未結案計數不逐把鍵回頭讀最新列:每把鍵恰好有一列序號 1,結案的鍵恰好有一列終點列(終點沒有
+ 出路),所以「未結案數 = 第 1 列數 - 終點列數」,兩個數都走部分索引。
+ """
+ 
+ import json
+ import sqlite3
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from typing import Any
+ 
+-from rtb.domain._checks import is_plain_int
++from rtb.domain._checks import is_aware, is_plain_int
+ from rtb.domain.attempt import (
+     RESOLUTION_OUTCOMES,
+     TERMINAL_STATES,
+     TIMEOUT_STATES,
+     AttemptState,
+     IllegalAttemptTransition,
+     OutcomeCode,
+     can_transition,
+     code_fits,
+     is_clean_detail,
+@@ -85,25 +87,46 @@ class VerificationTimeoutLimitReached(AttemptRejected):
+ 
+ 
+ class HistoryFull(AttemptRejected):
+     """這把鍵的歷史列已達上限;只剩轉人工與人工處置寫得進去。"""
+ 
+ 
+ class CorruptedAttemptRow(Exception):
+     """歷史列讀不回來(格式毀損,或快照已對不上它的鍵)。"""
+ 
+ 
+-@dataclass(frozen=True)
++EXECUTOR_TRANSACTION_ISSUER = object()  # 只有收件口資料庫模組的交易入口拿它建交易物件(有測試擋)
++
++
+ class ExecutorTransaction:
+-    """執行行程資料庫交易入口發出的交易;只有收件口資料庫模組建立它(有測試擋)。"""
++    """執行行程資料庫交易入口發出的一筆交易;交易結束時由入口作廢。"""
++
++    __slots__ = ("_open", "conn")
++
++    def __init__(self, conn: sqlite3.Connection, issuer: object) -> None:
++        if issuer is not EXECUTOR_TRANSACTION_ISSUER:
++            raise NotInTransaction("交易物件只能由執行行程資料庫交易入口發出")
++        self.conn = conn
++        self._open = True
+ 
+-    conn: sqlite3.Connection
++    def close(self) -> None:
++        self._open = False
++
++    @property
++    def is_open(self) -> bool:
++        return self._open and self.conn.in_transaction
++
++
++@dataclass(frozen=True)
++class Recovery:
++    moved: tuple[str, ...]  # 轉成結果不明的鍵
++    unreadable: tuple[str, ...]  # 歷史列讀不回來而跳過的鍵:要人處理,但不拖垮其他鍵
+ 
+ 
+ @dataclass(frozen=True)
+ class AttemptRow:
+     key: str
+     seq: int
+     campaign_id: str
+     state: AttemptState
+     code: OutcomeCode | None
+     detail: str | None
+@@ -111,33 +134,32 @@ class AttemptRow:
+     verification_timeouts: int
+     written_at: datetime
+ 
+ 
+ @dataclass(frozen=True)
+ class Begun:
+     row: AttemptRow
+     created: bool  # False:鍵已存在,原樣回傳目前那一列——呼叫端依狀態分支,絕不因此直接再送
+ 
+ 
+-def _check_now(now: datetime) -> None:
+-    """沒有時區的時間會被當成伺服器本地時間換算,悄悄寫錯;一律拒絕。"""
+-    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
++def _require_aware(now: datetime) -> None:
++    if not is_aware(now):
+         raise ValueError("時間必須帶時區")
+ 
+ 
+ def _iso(moment: datetime) -> str:
+-    _check_now(moment)
++    _require_aware(moment)
+     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+ 
+ 
+ def _conn(tx: ExecutorTransaction) -> sqlite3.Connection:
+-    if not isinstance(tx, ExecutorTransaction) or not tx.conn.in_transaction:
++    if type(tx) is not ExecutorTransaction or not tx.is_open:
+         raise NotInTransaction("嘗試紀錄只能在執行行程資料庫交易入口開的交易裡讀寫")
+     return tx.conn
+ 
+ 
+ def _row(record: tuple[Any, ...]) -> AttemptRow:
+     key, seq, campaign_id, state, code, detail, sends, timeouts, written_at = record
+     try:
+         return AttemptRow(
+             key=key, seq=seq, campaign_id=campaign_id, state=AttemptState(state),
+             code=None if code is None else OutcomeCode(code), detail=detail,
+@@ -187,27 +209,30 @@ def unresolved_count_query(campaign_id: str | None = None) -> tuple[str, tuple[s
+     params = () if campaign_id is None else (campaign_id, campaign_id)
+     query = (
+         f"SELECT (SELECT COUNT(*) FROM attempts WHERE seq = 1{where}) - "  # noqa: S608 - 只拼接固定條件
+         f"(SELECT COUNT(*) FROM attempts WHERE state IN ({_TERMINAL_LIST}){where})"
+     )
+     return query, params
+ 
+ 
+ def unresolved_count(tx: ExecutorTransaction, campaign_id: str | None = None) -> int:
+     query, params = unresolved_count_query(campaign_id)
+-    return int(_conn(tx).execute(query, params).fetchone()[0])
++    count = int(_conn(tx).execute(query, params).fetchone()[0])
++    if count < 0:  # 同一把鍵出現第二列終點列,算法的前提不成立:當成毀損,不放行
++        raise CorruptedAttemptRow("未結案計數為負,歷史表有鍵出現多列終點列")
++    return count
+ 
+ 
+ def begin(tx: ExecutorTransaction, proposal: Proposal, now: datetime) -> Begun:
+     """開始一筆:鍵與第 1 列的欄位全由這份提案算出,呼叫端不能另外指定。"""
+     conn = _conn(tx)
+-    _check_now(now)
++    _require_aware(now)
+     key = operation_key(proposal)
+     current = latest(tx, key)
+     if current is not None:
+         return Begun(current, created=False)
+     if unresolved_count(tx, proposal.campaign_id):
+         raise CampaignLocked(proposal.campaign_id)
+     if unresolved_count(tx) >= MAX_UNRESOLVED:
+         raise TooManyUnresolved()
+     snapshot_json = json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True,
+                                allow_nan=False)
+@@ -242,21 +267,21 @@ def _append(  # noqa: PLR0913 - 每個欄位都是新列的一部分
+     row = latest(tx, previous.key)
+     assert row is not None  # noqa: S101
+     return row
+ 
+ 
+ def _current(
+     tx: ExecutorTransaction, key: str, expected_seq: int, now: datetime,
+ ) -> AttemptRow | None:
+     """呼叫端帶的預期序號仍是最新一列才回傳;不是就回 None(沒有進展,不寫入)。"""
+     _conn(tx)
+-    _check_now(now)
++    _require_aware(now)
+     if not is_plain_int(expected_seq):  # True == 1 在 Python 成立,不能靠 == 比對
+         raise TypeError("預期序號必須是整數")
+     row = latest(tx, key)
+     return row if row is not None and row.seq == expected_seq else None
+ 
+ 
+ def transition(  # noqa: PLR0913 - 代碼與細節是轉換本身要記的內容
+     tx: ExecutorTransaction, key: str, expected_seq: int, target: AttemptState, now: datetime,
+     *, code: OutcomeCode | None = None, detail: str | None = None,
+ ) -> AttemptRow | None:
+@@ -305,28 +330,35 @@ def resolve(
+         return None
+     if row.state is not AttemptState.ESCALATED or outcome not in RESOLUTION_OUTCOMES:
+         raise IllegalAttemptTransition(f"人工處置不能把 {row.state} 處置成 {outcome}")
+     if not is_clean_detail(reason) or not reason.strip():
+         raise InvalidOutcome("處置理由必填,只收有長度上限的 ASCII 可列印字元")
+     destination = AttemptState(outcome)
+     code = OutcomeCode.MANUAL_FAILURE if destination is AttemptState.FAILED else None
+     return _append(tx, row, destination, now, code=code, detail=reason, capped=False)
+ 
+ 
+-def recover_in_flight(tx: ExecutorTransaction, now: datetime) -> tuple[str, ...]:
++def recover_in_flight(tx: ExecutorTransaction, now: datetime) -> Recovery:
+     """重啟恢復(單一執行者):目前是嘗試中的鍵一律轉成結果不明,其他鍵完全不動。
+ 
+     不受歷史列上限:一把鍵撞上限若讓整批回滾,同一次重啟裡健康的鍵也會留在嘗試中。每次進入
+     嘗試中最多被恢復一次(恢復後就不是嘗試中了),所以豁免不會讓表無限長。
++    歷史列讀不回來的鍵跳過並回報:不然一把壞鍵會讓每次重啟都在同一點整批失敗。
+     """
+     conn = _conn(tx)
+-    _check_now(now)
++    _require_aware(now)
+     keys = [record[0] for record in conn.execute(
+         "SELECT a.key FROM attempts a WHERE a.state = ? AND a.seq = "
+         "(SELECT MAX(b.seq) FROM attempts b WHERE b.key = a.key) ORDER BY a.key",
+         (AttemptState.IN_FLIGHT.value,),
+     ).fetchall()]
++    moved, unreadable = [], []
+     for key in keys:
+-        row = latest(tx, key)
++        try:
++            row = latest(tx, key)
++        except CorruptedAttemptRow:
++            unreadable.append(key)
++            continue
+         assert row is not None  # noqa: S101
+         _append(tx, row, AttemptState.UNKNOWN, now, capped=False)
+-    return tuple(keys)
++        moved.append(key)
++    return Recovery(tuple(moved), tuple(unreadable))
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 335fb91..2eb2d71 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -2,21 +2,21 @@
+ 
+ 收件鍵是(任務編號, 修訂序號)。所有判斷都在同一個 BEGIN IMMEDIATE 交易內完成:
+ 先把到期的待處理標為已過期,再依序查收件鍵、修訂連號、決策到期時間、全域上限,最後寫入並提交。
+ 主鍵是最後一道防線,但正常路徑靠交易內的先查後寫,並行的同鍵請求會排隊。
+ 
+ 事件紀錄只存固定欄位(時間、任務編號、修訂、封閉列舉的事件代碼、內容雜湊),
+ 絕不存請求原文;每種事件代碼各有筆數上限;事件寫入失敗不影響對呼叫者的回應。
+ 
+ 這支模組也是整個執行行程資料庫唯一開連線、開交易的地方:外部寫入嘗試的表結構在
+ `attempt_store`,但由這裡建立;嘗試紀錄的讀寫只能透過 `transaction()` 拿到已在交易中的連線,
+-所以之後「取件與開始一筆」可以放進同一個交易。交易物件只在這裡建立(有測試擋)。
++所以之後「取件與開始一筆」可以放進同一個交易。交易物件只在這裡建立(建立時要出示憑證),交易結束就作廢。
+ """
+ 
+ import json
+ import sqlite3
+ from collections.abc import Callable, Iterator
+ from contextlib import contextmanager
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
+ from pathlib import Path
+ 
+@@ -152,25 +152,29 @@ class InboxStore:
+ 
+     def close(self) -> None:
+         self._conn.close()
+ 
+     @contextmanager
+     def transaction(self) -> Iterator[attempt_store.ExecutorTransaction]:
+         """執行行程資料庫的寫入交易:給嘗試紀錄這類同一個檔裡的其他表用。
+ 
+         正常結束就提交,任何例外都回滾;鎖不到丟 InboxBusy(跟收件一樣可以重試)。
+         """
++        tx = attempt_store.ExecutorTransaction(
++            self._conn, attempt_store.EXECUTOR_TRANSACTION_ISSUER)
+         try:
+             with immediate_transaction(self._conn):
+-                yield attempt_store.ExecutorTransaction(self._conn)
++                yield tx
+         except DatabaseBusy as exc:
+             raise InboxBusy(str(exc)) from exc
++        finally:
++            tx.close()  # 交易結束就作廢:同一條連線之後開別的交易,舊物件也不能再用
+ 
+     def accept(
+         self,
+         proposal: Proposal,
+         clock: Callable[[], datetime],
+         before_commit: Callable[[], None] | None = None,
+     ) -> Accepted:
+         """收下提案,或丟出 InboxRejected 的子類別。
+ 
+         clock 在拿到寫入鎖之後才讀:等鎖可能很久,先讀的話會拿過時的時間判斷到期。
+diff --git a/tests/domain/test_attempt.py b/tests/domain/test_attempt.py
+index c614fcd..cba9fad 100644
+--- a/tests/domain/test_attempt.py
++++ b/tests/domain/test_attempt.py
+@@ -201,10 +201,22 @@ def test_clean_ascii_detail_is_accepted(text):
+     "line\nbreak",
+     "狀態:已驗證",  # 全形冒號與中文:能偽裝成系統欄位
+     "\uff53\uff54\uff41\uff54\uff45",  # 全形英文字(寫成跳脫碼,原始碼裡不放看不見差別的字)
+     "\u202eevil",  # 雙向覆寫(寫成跳脫碼,原始碼裡不放隱形字元)
+     "tab\there",
+     None,
+     5,
+ ])
+ def test_detail_that_is_not_short_printable_ascii_is_rejected(text):
+     assert is_clean_detail(text) is False
++
++
++def test_the_shared_time_zone_check_is_the_one_the_attempt_store_uses():
++    from datetime import UTC, datetime
++
++    from rtb.domain._checks import is_aware
++    from rtb.executor import attempt_store
++
++    assert is_aware(datetime(2026, 9, 22, tzinfo=UTC)) is True
++    assert is_aware(datetime(2026, 9, 22)) is False
++    assert is_aware("2026-09-22") is False
++    assert not hasattr(attempt_store, "_check_now")  # 不再各寫一份
+diff --git a/tests/executor/test_attempt_store.py b/tests/executor/test_attempt_store.py
+index 7cafd73..326163c 100644
+--- a/tests/executor/test_attempt_store.py
++++ b/tests/executor/test_attempt_store.py
+@@ -298,43 +298,73 @@ def test_the_timeout_count_is_carried_forward_by_later_rows(store):
+ 
+ # ---- [S13] ----
+ def test_restart_recovery_moves_every_in_flight_key_to_unknown_and_touches_nothing_else(store):
+     in_flight = [start_in(store, A.IN_FLIGHT, campaign_id=f"f{i}") for i in range(3)]
+     resent = start_in(store, A.IN_FLIGHT, paths=LONG_PATHS, campaign_id="f-resent")
+     others = {state: start_in(store, state, campaign_id=f"n-{state.value}")
+               for state in AttemptState if state is not A.IN_FLIGHT}
+     others_before = {key: history(store, key) for key in others.values()}
+ 
+     with store.transaction() as tx:
+-        moved = attempt_store.recover_in_flight(tx, NOW)
++        recovery = attempt_store.recover_in_flight(tx, NOW)
+ 
+-    assert set(moved) == {*in_flight, resent}
++    assert set(recovery.moved) == {*in_flight, resent} and recovery.unreadable == ()
+     for key in [*in_flight, resent]:
+         row = latest(store, key)
+         assert row.state is A.UNKNOWN
+     assert latest(store, resent).send_count == 2  # 送出次數跟著帶下去
+     assert {key: history(store, key) for key in others.values()} == others_before
+ 
+ 
+ def test_restart_recovery_still_works_for_a_key_whose_history_is_full(store):
+     healthy = start_in(store, A.IN_FLIGHT, campaign_id="healthy")
+     full = start_in(store, A.IN_FLIGHT, campaign_id="full")
+     _fill_history(store, full)
+ 
+     with store.transaction() as tx:
+-        moved = attempt_store.recover_in_flight(tx, NOW)
++        recovery = attempt_store.recover_in_flight(tx, NOW)
+ 
+-    assert set(moved) == {healthy, full}
++    assert set(recovery.moved) == {healthy, full}
+     assert latest(store, healthy).state is A.UNKNOWN
+     assert latest(store, full).state is A.UNKNOWN
+ 
+ 
++def test_restart_recovery_skips_an_unreadable_key_and_still_recovers_the_healthy_ones(store):
++    healthy = start_in(store, A.IN_FLIGHT, campaign_id="healthy")
++    victim = start_in(store, A.IN_FLIGHT, campaign_id="victim")
++    with store.transaction() as tx:  # 測試模擬毀損:時間欄位讀不回來,狀態仍是嘗試中
++        tx.conn.execute("DELETE FROM attempts WHERE key = ?", (victim,))
++        tx.conn.execute(
++            "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
++            "verification_timeouts, written_at) VALUES (?, 1, 'victim', 'in_flight', 1, 0, 'bad')",
++            (victim,))
++
++    for _restart in range(2):  # 連續兩次重啟都不能卡住
++        with store.transaction() as tx:
++            recovery = attempt_store.recover_in_flight(tx, NOW)
++        assert recovery.unreadable == (victim,)
++
++    assert latest(store, healthy).state is A.UNKNOWN
++
++
++def test_a_negative_unresolved_count_is_treated_as_a_corrupted_table(store):
++    key = start_in(store, A.FAILED)
++    with store.transaction() as tx:  # 測試模擬毀損:同一把鍵多出第二列終點列
++        tx.conn.execute(
++            "INSERT INTO attempts (key, seq, campaign_id, state, code, send_count, "
++            "verification_timeouts, written_at) VALUES (?, 3, 'c1', 'failed', 'other_rejection', "
++            "1, 0, '2026-09-22T12:05:00.000000Z')", (key,))
++
++    with pytest.raises(CorruptedAttemptRow):
++        begin(store, proposal(requested_change={"new_budget": 999}))
++
++
+ # ---- [S14] [S15] ----
+ def _race(tmp_path, proposals):
+     barrier = threading.Barrier(len(proposals))
+     results, errors = [], []
+ 
+     def worker(prop):
+         own = InboxStore(tmp_path / "executor.db")  # 每條執行緒自己的連線
+         try:
+             barrier.wait()
+             results.append(begin(own, prop))
+@@ -534,31 +564,63 @@ def test_only_a_transaction_from_the_executor_database_entry_is_accepted(store,
+         bare.execute("ROLLBACK")
+     finally:
+         bare.close()
+     with store.transaction() as tx:
+         pass
+     with pytest.raises(NotInTransaction):
+         attempt_store.begin(tx, proposal(), NOW)  # 交易已結束,拿舊物件再寫也不行
+     assert all_rows(store) == []
+ 
+ 
+-def test_nothing_outside_the_executor_database_module_builds_a_transaction_object():
+-    """交易物件只由收件口資料庫模組建立:別的模組自己包一個,就等於繞過交易入口。"""
++def test_a_transaction_object_cannot_be_built_without_the_entry_s_issuer(tmp_path):
++    """執行期就擋:不是交易入口發的(不管是直接建、換別名建、或子類別)都不收。"""
++    bare = sqlite3.connect(tmp_path / "executor.db", isolation_level=None)
++    try:
++        bare.execute("BEGIN")
++        with pytest.raises(NotInTransaction):
++            attempt_store.ExecutorTransaction(bare, object())
++        alias = attempt_store.ExecutorTransaction
++        with pytest.raises(NotInTransaction):
++            alias(bare, None)
++        bare.execute("ROLLBACK")
++    finally:
++        bare.close()
++
++
++def test_a_subclass_of_the_transaction_object_is_not_accepted(store):
++    class Imitation(attempt_store.ExecutorTransaction):
++        pass
++
++    with store.transaction() as tx:
++        fake = object.__new__(Imitation)  # 不經建構子,把真交易物件的內容整份複製過去
++        for slot in attempt_store.ExecutorTransaction.__slots__:
++            object.__setattr__(fake, slot, object.__getattribute__(tx, slot))
++        assert fake.is_open  # 除了型別,其他都跟真的一樣
++        with pytest.raises(NotInTransaction):
++            attempt_store.begin(fake, proposal(), NOW)
++    assert all_rows(store) == []
++
++
++def test_a_finished_transaction_object_stays_dead_even_when_the_connection_opens_another(store):
++    with store.transaction() as stale:
++        pass
++    with store.transaction(), pytest.raises(NotInTransaction):
++        attempt_store.begin(stale, proposal(), NOW)
++    assert all_rows(store) == []
++
++
++def test_only_the_executor_database_module_refers_to_the_issuer():
++    """原始碼層面也看一次:憑證只准在嘗試紀錄模組定義、在收件口資料庫模組使用。"""
+     src = Path(attempt_store.__file__).resolve().parents[1]
+-    builders = []
+-    for file in sorted(src.rglob("*.py")):
+-        for node in ast.walk(ast.parse(file.read_text(encoding="utf-8"))):
+-            if (isinstance(node, ast.Call)
+-                    and getattr(node.func, "attr", getattr(node.func, "id", None))
+-                    == "ExecutorTransaction"):
+-                builders.append(file.name)
+-    assert builders == ["inbox_store.py"]
++    users = sorted({file.name for file in src.rglob("*.py")
++                    if "EXECUTOR_TRANSACTION_ISSUER" in file.read_text(encoding="utf-8")})
++    assert users == ["attempt_store.py", "inbox_store.py"]
+ 
+ 
+ def test_writes_outside_a_transaction_are_refused(tmp_path):
+     conn = sqlite3.connect(tmp_path / "bare.db", isolation_level=None)
+     try:
+         with pytest.raises(NotInTransaction):
+             attempt_store.begin(conn, proposal(), NOW)
+     finally:
+         conn.close()
+ 
