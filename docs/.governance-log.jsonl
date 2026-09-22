@@ -703,3 +703,6 @@
 {"ts": "2026-09-22T20:44:37+08:00", "commit": "222ef00", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "222ef00f21a3914aaec88da99ebf66a69743dbb1"}
 {"ts": "2026-09-22T20:44:42+08:00", "commit": "f7efc82", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-22T20:44:43+08:00", "commit": "f7efc82", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "f7efc8288240c2b9eb731b307bbbb8b5e3062687"}
+{"ts": "2026-09-22T20:44:55+08:00", "commit": "d98b4ca", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-22T20:44:56+08:00", "commit": "d98b4ca", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d98b4ca32c97774a0b34f1466bd4d1feea095eaf"}
+{"ts": "2026-09-22T20:44:54+08:00", "commit": "4b8fd00", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "外部寫入嘗試紀錄增量 1:高風險代碼審 3 輪,七席/四席/三席,發現 9+6+6 條全部折入,最後一輪修正由資安席續談驗收;第一個編號記帳漏凍結 diff 欄位,換 code-phase3-attempts-rerecord 重記", "branch": "main", "head_sha": "4b8fd005b5a8cdf03b70f22c57ee71d73da6143f"}
