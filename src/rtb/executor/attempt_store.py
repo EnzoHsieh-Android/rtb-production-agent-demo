@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     code TEXT, detail TEXT, send_count INTEGER NOT NULL, verification_timeouts INTEGER NOT NULL,
     written_at TEXT NOT NULL,
     task_id TEXT, revision INTEGER, action TEXT, expected_version INTEGER, proposal_json TEXT,
+    written_version INTEGER, capability_expires_at TEXT,
     PRIMARY KEY (key, seq));
 CREATE INDEX IF NOT EXISTS attempts_first_rows ON attempts (campaign_id) WHERE seq = 1;
 CREATE INDEX IF NOT EXISTS attempts_terminal_rows ON attempts (campaign_id)
@@ -55,7 +56,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_terminal_per_key ON attempts (key
     WHERE state IN (TERMINAL_LIST);
 """
 _COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verification_timeouts, "
-            "written_at")
+            "written_at, written_version, capability_expires_at")
+# 執行一筆(Phase 3 增量 3)新增的欄位;舊資料庫由執行行程資料庫模組照補欄位做法補上
+ADDED_COLUMNS = (
+    ("written_version", "written_version INTEGER"),  # DSP 回報的寫入後版本
+    ("capability_expires_at", "capability_expires_at TEXT"),  # 最近一次送出所帶憑證的到期時間
+)
 # 終點狀態是固定的列舉值,寫成字面值,查詢條件才對得上部分索引的條件
 _TERMINAL_LIST = ", ".join(f"'{state.value}'" for state in sorted(TERMINAL_STATES))
 SCHEMA = SCHEMA.replace("TERMINAL_LIST", _TERMINAL_LIST)
@@ -91,6 +97,10 @@ class VerificationTimeoutLimitReached(AttemptRejected):
 
 class HistoryFull(AttemptRejected):
     """這把鍵的歷史列已達上限;只剩轉人工與人工處置寫得進去。"""
+
+
+class IncompleteRow(AttemptRejected):
+    """轉進嘗試中沒帶憑證到期時間,或轉進已提交待驗證沒帶寫入後版本。"""
 
 
 class CorruptedAttemptRow(Exception):
@@ -136,6 +146,9 @@ class AttemptRow:
     send_count: int
     verification_timeouts: int
     written_at: datetime
+    # 以下兩欄轉進時必帶、之後的列往下帶;增量 3 以前寫的列是空值
+    written_version: int | None = None
+    capability_expires_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -160,14 +173,22 @@ def _conn(tx: ExecutorTransaction) -> sqlite3.Connection:
     return tx.conn
 
 
+def _parse_time(text: str) -> datetime:
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
 def _row(record: tuple[Any, ...]) -> AttemptRow:
-    key, seq, campaign_id, state, code, detail, sends, timeouts, written_at = record
+    key, seq, campaign_id, state, code, detail, sends, timeouts, written_at, written, expires = (
+        record)
     try:
+        if written is not None and not is_plain_int(written):
+            raise TypeError("寫入後版本不是整數")
         return AttemptRow(
             key=key, seq=seq, campaign_id=campaign_id, state=AttemptState(state),
             code=None if code is None else OutcomeCode(code), detail=detail,
             send_count=sends, verification_timeouts=timeouts,
-            written_at=datetime.fromisoformat(written_at.replace("Z", "+00:00")),
+            written_at=_parse_time(written_at), written_version=written,
+            capability_expires_at=None if expires is None else _parse_time(expires),
         )
     # SQLite 不強制欄位型別:壞值可能是任何型別,讀不回來一律當成毀損
     except (ValueError, TypeError, AttributeError) as exc:
@@ -226,7 +247,17 @@ def unresolved_count(tx: ExecutorTransaction, campaign_id: str | None = None) ->
     return count
 
 
-def begin(tx: ExecutorTransaction, proposal: Proposal, now: datetime) -> Begun:
+def _expiry(value: object) -> str:
+    """轉進嘗試中必帶:這次送出所帶憑證的到期時間(增量 4 用它證明舊請求不會再被提交)。"""
+    if not isinstance(value, datetime):
+        raise IncompleteRow("轉進嘗試中要帶這次送出所帶憑證的到期時間")
+    return _iso(value)
+
+
+def begin(
+    tx: ExecutorTransaction, proposal: Proposal, now: datetime, *,
+    capability_expires_at: datetime | None,
+) -> Begun:
     """開始一筆:鍵與第 1 列的欄位全由這份提案算出,呼叫端不能另外指定。"""
     conn = _conn(tx)
     _require_aware(now)
@@ -234,6 +265,7 @@ def begin(tx: ExecutorTransaction, proposal: Proposal, now: datetime) -> Begun:
     current = latest(tx, key)
     if current is not None:
         return Begun(current, created=False)
+    expires = _expiry(capability_expires_at)
     if unresolved_count(tx, proposal.campaign_id):
         raise CampaignLocked(proposal.campaign_id)
     if unresolved_count(tx) >= MAX_UNRESOLVED:
@@ -241,10 +273,12 @@ def begin(tx: ExecutorTransaction, proposal: Proposal, now: datetime) -> Begun:
     snapshot_json = json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True,
                                allow_nan=False)
     conn.execute(
-        "INSERT INTO attempts VALUES (?, 1, ?, ?, NULL, NULL, 1, 0, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO attempts (key, seq, campaign_id, state, send_count, verification_timeouts, "
+        "written_at, task_id, revision, action, expected_version, proposal_json, "
+        "capability_expires_at) VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?)",
         (key, proposal.campaign_id, AttemptState.IN_FLIGHT.value, _iso(now),
          proposal.task_id, proposal.revision, proposal.action_type.value,
-         proposal.campaign_version_observed, snapshot_json),
+         proposal.campaign_version_observed, snapshot_json, expires),
     )
     row = latest(tx, key)
     assert row is not None  # 剛寫入的那一列  # noqa: S101
@@ -255,18 +289,22 @@ def _append(  # noqa: PLR0913 - 每個欄位都是新列的一部分
     tx: ExecutorTransaction, previous: AttemptRow, state: AttemptState, now: datetime, *,
     code: OutcomeCode | None = None, detail: str | None = None,
     send_count: int | None = None, verification_timeouts: int | None = None,
-    capped: bool = True,
+    capped: bool = True, written_version: int | None = None, expires: str | None = None,
 ) -> AttemptRow:
     if capped and previous.seq >= MAX_ROWS_PER_KEY:
         raise HistoryFull(previous.key)
+    carried_expiry = (None if previous.capability_expires_at is None
+                      else _iso(previous.capability_expires_at))
     _conn(tx).execute(
-        f"INSERT INTO attempts ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608 - 只拼接模組內固定的欄位清單
+        f"INSERT INTO attempts ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608 - 只拼接模組內固定的欄位清單
         (previous.key, previous.seq + 1, previous.campaign_id, state.value,
          None if code is None else OutcomeCode(code).value, detail,
          previous.send_count if send_count is None else send_count,
          previous.verification_timeouts if verification_timeouts is None
          else verification_timeouts,
-         _iso(now)),
+         _iso(now),
+         previous.written_version if written_version is None else written_version,
+         carried_expiry if expires is None else expires),
     )
     row = latest(tx, previous.key)
     assert row is not None  # noqa: S101
@@ -285,9 +323,28 @@ def _current(
     return row if row is not None and row.seq == expected_seq else None
 
 
-def transition(  # noqa: PLR0913 - 代碼與細節是轉換本身要記的內容
+def _send_fields(
+    destination: AttemptState, written_version: object, capability_expires_at: object,
+) -> tuple[int | None, str | None]:
+    """轉進嘗試中必帶憑證到期時間、轉進已提交待驗證必帶寫入後版本;其他轉換不准夾帶。"""
+    expires = None
+    if destination is AttemptState.IN_FLIGHT:
+        expires = _expiry(capability_expires_at)
+    elif capability_expires_at is not None:
+        raise InvalidOutcome("只有轉進嘗試中才帶憑證到期時間")
+    if destination is AttemptState.COMMITTED_UNVERIFIED:
+        if not is_plain_int(written_version) or written_version < 1:
+            raise IncompleteRow("轉進已提交待驗證要帶 DSP 回報的寫入後版本")
+        return written_version, expires
+    if written_version is not None:
+        raise InvalidOutcome("只有轉進已提交待驗證才帶寫入後版本")
+    return None, expires
+
+
+def transition(  # noqa: PLR0913 - 代碼、細節與送出欄位是轉換本身要記的內容
     tx: ExecutorTransaction, key: str, expected_seq: int, target: AttemptState, now: datetime,
     *, code: OutcomeCode | None = None, detail: str | None = None,
+    written_version: int | None = None, capability_expires_at: datetime | None = None,
 ) -> AttemptRow | None:
     """一般轉換:照唯讀轉換表;回傳新列,預期序號已不是最新就回 None。"""
     row = _current(tx, key, expected_seq, now)
@@ -300,13 +357,15 @@ def transition(  # noqa: PLR0913 - 代碼與細節是轉換本身要記的內容
     if detail is not None and not is_clean_detail(detail):
         raise InvalidOutcome("細節文字只收有長度上限的 ASCII 可列印字元")
     destination = AttemptState(target)
+    written, expires = _send_fields(destination, written_version, capability_expires_at)
     sends = row.send_count
     if row.state is AttemptState.UNKNOWN and destination is AttemptState.IN_FLIGHT:
         if sends >= MAX_SENDS:
             raise SendLimitReached(key)
         sends += 1
     return _append(tx, row, destination, now, code=code, detail=detail, send_count=sends,
-                   capped=destination is not AttemptState.ESCALATED)
+                   capped=destination is not AttemptState.ESCALATED,
+                   written_version=written, expires=expires)
 
 
 def record_verification_timeout(

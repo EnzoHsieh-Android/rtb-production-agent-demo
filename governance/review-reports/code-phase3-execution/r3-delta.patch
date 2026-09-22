@@ -1,0 +1,359 @@
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index eb77f2a..7b5ff40 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -131,20 +131,23 @@ def _row_from_record(record: tuple[str, int, str, str, str | None, str | None, s
+ 
+ 
+ class TaskStore:
+     def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
+         try:
+             self._conn = connect(path, busy_timeout_seconds, SCHEMA)
+         except DatabaseBusy as exc:
+             raise TaskStoreBusy(str(exc)) from exc
+         try:
+             self._migrate_evidence_payload_column()
++        except DatabaseBusy as exc:
++            self._conn.close()
++            raise TaskStoreBusy(str(exc)) from exc
+         except BaseException:
+             self._conn.close()  # 補欄位失敗時不留下沒人關的連線(三支資料庫模組同一寫法)
+             raise
+ 
+     def _migrate_evidence_payload_column(self) -> None:
+         """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:增量 3 建立的舊資料庫只有九欄,
+         沒有增量 4 才加的 `payload_json`。每次連線都檢查一次,缺欄位就補上;舊列補
+         `'{}'`(誠實反映「這些舊證據沒有留下原始數值,只有雜湊」,不是編造資料)。
+         """
+         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(evidence)")}
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index c0a7826..53e7b14 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -182,20 +182,23 @@ class CampaignStore:
+         clock: Callable[[], str] = _utc_now,
+         busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+     ):
+         self._clock = clock
+         try:
+             self._conn = connect(path, busy_timeout_seconds, SCHEMA)
+         except DatabaseBusy as exc:
+             raise StoreBusy(str(exc)) from exc
+         try:
+             self._migrate_columns()
++        except DatabaseBusy as exc:
++            self._conn.close()
++            raise StoreBusy(str(exc)) from exc
+         except BaseException:
+             self._conn.close()  # 補欄位失敗時不留下沒人關的連線(三支資料庫模組同一寫法)
+             raise
+ 
+     def _migrate_columns(self) -> None:
+         """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:沿用分析行程歷史表的補欄位做法,
+         每次連線檢查一次,缺就在交易內加欄位:廣告表的租戶(舊廣告補預設租戶;租戶只在建檔時
+         設定,DSP 沒有任何改廣告租戶的寫入介面)、操作紀錄的政策版本(舊操作留空值)。
+         """
+         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index c81a491..469121c 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -193,33 +193,31 @@ class _Signed:
+ 
+ 
+ @dataclass(frozen=True)
+ class Executor:
+     store: InboxStore
+     dsp: DspPort
+     signer: Signer
+     config_path: Path
+     clock: Callable[[], datetime]  # 單一動作的簡單回呼:照專案慣例用 Callable,不另開 Protocol
+ 
+-    def process_one(self) -> Processed:  # noqa: PLR0911 - 每個出口對應設計的一步
++    def process_one(self) -> Processed:
+         picked = self._pick()
+         if picked is None:
+             return Processed(Result.IDLE)
+         proposal = picked.proposal
+         if proposal.decision_expires_at <= self.clock():  # 過期先判,不必去讀 DSP
+             return self._dispose(picked, None, Result.EXPIRED)
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id)
+         except DspUnavailable:
+             return Processed(Result.DEFERRED)
+-        if proposal.decision_expires_at <= self.clock():  # 讀 DSP 期間可能剛好過期:讀完再判一次
+-            return self._dispose(picked, None, Result.EXPIRED)
+         signed = precheck(proposal, view) or self._sign(proposal)
+         if isinstance(signed, BlockCode):
+             return self._dispose(picked, signed, Result.BLOCKED)
+         taken = self._take(picked, signed)
+         if isinstance(taken, Processed):
+             return taken
+         self._record(proposal, taken, self.dsp.write(proposal, taken.key, signed.token))
+         return Processed(Result.EXECUTED, taken.key)
+ 
+     # ---- 第 1~4 步 ----
+@@ -248,22 +246,27 @@ class Executor:
+             done = (self.store.mark_expired(tx, *args) if code is None
+                     else self.store.block(tx, *args, code))
+         return Processed(kind, block_code=code) if done else Processed(Result.DEFERRED)
+ 
+     def _take(self, picked: PendingProposal, signed: _Signed) -> AttemptRow | Processed:
+         """取件與開始一筆在同一個交易裡;鍵已存在就依既有那把鍵的狀態分流。"""
+         args = (picked.task_id, picked.revision, picked.content_hash)
+         with self.store.transaction() as tx:
+             if not self.store.is_pending(tx, *args):  # 已被取代或內容不同
+                 return Processed(Result.DEFERRED)
++            now = self.clock()
++            # 讀 DSP、讀設定檔簽發都可能剛好跨過到期時間:在開始一筆的同一個交易裡再判一次
++            if picked.proposal.decision_expires_at <= now:
++                self.store.mark_expired(tx, *args)
++                return Processed(Result.EXPIRED)
+             try:
+-                begun = attempt_store.begin(tx, picked.proposal, self.clock(),
++                begun = attempt_store.begin(tx, picked.proposal, now,
+                                             capability_expires_at=signed.expires_at)
+             except (attempt_store.TooManyUnresolved, attempt_store.CampaignLocked):
+                 return Processed(Result.DEFERRED)  # 全表已滿是正常觸發;同廣告鎖住是防線
+             if begun.created or begun.row.state is not A.FAILED:
+                 self.store.hand_off(tx, *args)
+                 return begun.row if begun.created else Processed(
+                     Result.HANDED_OFF_TO_EXISTING, begun.row.key)
+             code = BlockCode.OPERATION_PREVIOUSLY_FAILED  # 人判過不做的操作不能貼成已交給執行
+             self.store.block(tx, *args, code)
+             return Processed(Result.BLOCKED, begun.row.key, code)
+diff --git a/src/rtb/executor/runner.py b/src/rtb/executor/runner.py
+index 86d76d3..ea2fc14 100644
+--- a/src/rtb/executor/runner.py
++++ b/src/rtb/executor/runner.py
+@@ -1,21 +1,23 @@
+ """執行迴圈的啟動程式:讀金鑰、拿單一執行者鎖、重啟恢復、印就緒訊號,之後每輪處理一筆。
+ 
+ 順序是合約:金鑰不可用就以非零代碼結束,連重啟恢復都不跑;拿不到鎖(已有另一個執行迴圈)
+ 也以非零代碼結束,同樣不跑重啟恢復——否則第二個執行迴圈的重啟恢復會把第一個正在跑的嘗試
+ 轉成結果不明,吞掉它的寫入結果。
+ 
+ 單一執行者鎖沿用專案既有的 SQLite 鎖,不引入檔案鎖:一條專用連線對一個專門當鎖用的小
+ SQLite 檔開一個不提交的「立即取得寫入鎖」交易,忙碌等待設 0;行程活著就一直握著,行程死了
+ 作業系統自動放掉。不能直接鎖執行行程資料庫本身:握著它的寫入鎖,收件口就收不了提案。
+ 鎖檔名由資料庫的實體身分(裝置與 inode 編號)決定,放在真實路徑的同一個目錄,所以相對路徑、
+-符號連結、硬連結指到同一個資料庫,算出來都是同一把鎖。鎖檔不走共用連線函式:那個函式會切
++符號連結、同目錄的硬連結指到同一個資料庫,算出來都是同一把鎖(不同目錄的硬連結
++算不到,屬於刻意繞過)。先拿鎖、才用 SQLite 開資料庫:經別的檔名開同一個資料庫
++會用另一組 WAL 檔。鎖檔不走共用連線函式:那個函式會切
+ WAL,多出的附屬檔在鎖檔被刪掉重建時會跟新檔對不上。程式從不刪鎖檔;每一輪開頭核對它還是
+ 當初那一個,不是就停下(威脅模型是防忘記,不防刻意繞過)。
+ """
+ 
+ import argparse
+ import os
+ import sqlite3
+ import sys
+ import time
+ from collections.abc import Callable, Mapping
+@@ -102,21 +104,23 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
+     argv: list[str] | None = None, *, environ: Mapping[str, str] | None = None,
+     clock: Callable[[], datetime] = utc_now, dsp: DspPort | None = None, out: TextIO | None = None,
+     max_rounds: int | None = None, sleep: Callable[[float], None] = time.sleep,
+ ) -> int:
+     args = _parse(argv)
+     try:  # 只有啟動程式經共用模組讀金鑰環境變數
+         signer = CapabilitySigner(read_key(os.environ if environ is None else environ))
+     except ValueError as error:
+         sys.stderr.write(f"拒絕啟動:{error}\n")
+         return EXIT_NO_KEY
+-    InboxStore(args.db).close()  # 先確保資料庫存在(含補欄位),才有實體身分可鎖
++    # 先拿鎖、才用 SQLite 開資料庫:同一個資料庫若經硬連結以別的檔名開,SQLite 會用另一組
++    # WAL 檔,可能損壞資料。鎖名要資料庫檔的 inode,所以只用作業系統建一個空檔(不截斷既有的)
++    os.close(os.open(args.db, os.O_RDONLY | os.O_CREAT, 0o600))
+     try:
+         lock = RunnerLock(args.db)
+     except LockHeld:
+         sys.stderr.write("拒絕啟動:已有另一個執行迴圈在跑\n")
+         return EXIT_LOCKED
+     store = InboxStore(args.db)
+     try:
+         now: datetime = clock()
+         with store.transaction() as tx:
+             recovery = attempt_store.recover_in_flight(tx, now)
+diff --git a/tests/executor/test_execution.py b/tests/executor/test_execution.py
+index 1e4a93d..0c8b4b9 100644
+--- a/tests/executor/test_execution.py
++++ b/tests/executor/test_execution.py
+@@ -66,20 +66,38 @@ def test_a_proposal_that_expires_while_the_dsp_is_read_is_not_executed(h):
+     """讀 DSP 期間剛好跨過到期時間:讀完要再判一次,不能簽發、開嘗試或寫入。"""
+     prop = h.submit()
+     h.dsp.on_read = lambda _c: h.clock.advance(hours=2)  # 讀取回來時提案已過期
+     assert prop.decision_expires_at > h.clock()  # 前置:開始處理時還沒過期
+ 
+     assert h.process().kind is Result.EXPIRED
+     assert h.attempts() == [] and h.dsp.writes == []
+     assert h.proposals()[0][2] == "expired"
+ 
+ 
++def test_a_proposal_that_expires_while_signing_is_not_executed(h):
++    """簽發要讀租戶設定檔,也可能剛好跨過到期時間:開始一筆的交易裡要再判一次。"""
++    prop = h.submit()
++    real_sign = h.signer.sign
++
++    def slow_sign(*args, **kwargs):
++        token = real_sign(*args, **kwargs)
++        h.clock.advance(hours=2)  # 簽完時提案已過期
++        return token
++
++    h.signer = type("SlowSigner", (), {"sign": staticmethod(slow_sign)})()
++    assert prop.decision_expires_at > h.clock()  # 前置:開始處理時還沒過期
++
++    assert h.process().kind is Result.EXPIRED
++    assert h.attempts() == [] and h.dsp.writes == []
++    assert h.proposals()[0][2] == "expired"
++
++
+ def _not_found(h):
+     del h.dsp.campaigns["c1"]
+ 
+ 
+ def _paused(h):
+     h.dsp.campaigns["c1"] = CampaignView(budget=100, status="paused", version=3)
+ 
+ 
+ def _version_changed(h):
+     h.dsp.campaigns["c1"] = CampaignView(budget=120, status="active", version=4)
+diff --git a/tests/executor/test_runner.py b/tests/executor/test_runner.py
+index bd3b576..2aff4a0 100644
+--- a/tests/executor/test_runner.py
++++ b/tests/executor/test_runner.py
+@@ -202,10 +202,29 @@ def test_a_conditional_write_without_progress_stops_the_runner(h):
+             with other.transaction() as tx:
+                 attempt_store.transition(tx, key, 1, attempt_store.AttemptState.UNKNOWN, h.clock())
+         finally:
+             other.close()
+ 
+     h.dsp.on_write = someone_else_moves_the_key
+ 
+     assert run_in_process(h) == runner.EXIT_HALTED
+ 
+     assert [(r[1], r[2]) for r in h.attempts()] == [(1, "in_flight"), (2, "unknown")]
++
++
++def test_a_locked_out_runner_never_opens_the_database_with_sqlite(tmp_path, monkeypatch, clock):
++    """經硬連結以別的檔名開同一個 SQLite 資料庫會用另一組 WAL 檔,可能損壞資料:
++    拿不到鎖的第二個執行迴圈必須在用 SQLite 開資料庫之前就結束。"""
++    db, config = tmp_path / "executor.db", write_config(tmp_path / "tenants.json")
++    InboxStore(db).close()
++    hard = tmp_path / "hard.db"
++    os.link(db, hard)
++    held = runner.RunnerLock(db)
++    opened = []
++    monkeypatch.setattr(runner, "InboxStore", lambda *a, **_k: opened.append(a))
++    try:
++        code = runner.run(argv(hard, config), environ=ENV, clock=clock, out=io.StringIO(),
++                          max_rounds=1, sleep=lambda _s: None)
++    finally:
++        held.release()
++    assert code == runner.EXIT_LOCKED
++    assert opened == []
+diff --git a/tests/kit/test_migration_failure_closes_the_connection.py b/tests/kit/test_migration_failure_closes_the_connection.py
+new file mode 100644
+index 0000000..d7ed0e9
+--- /dev/null
++++ b/tests/kit/test_migration_failure_closes_the_connection.py
+@@ -0,0 +1,48 @@
++"""三支「連線後補欄位」的資料庫模組:補欄位失敗時都要關掉剛開的連線,寫法一致。
++
++收件口與模擬 DSP 每個請求都會新開一個儲存物件,補欄位失敗(例如等鎖逾時)若不關連線,
++每個失敗的請求就漏一條連線;分析行程的任務表是長活物件,但同一件事用同一種寫法。
++等鎖逾時一律轉成各模組自己的「忙碌」例外,呼叫端用同一套方式判斷能不能重試。
++"""
++
++import sqlite3
++
++import pytest
++
++from rtb.analyzer import task_store
++from rtb.dsp import store as dsp_store
++from rtb.executor import inbox_store
++from rtb.sqlitekit import DatabaseBusy
++
++CASES = [
++    (dsp_store, "CampaignStore", "_migrate_columns", dsp_store.StoreBusy),
++    (task_store, "TaskStore", "_migrate_evidence_payload_column", task_store.TaskStoreBusy),
++    (inbox_store, "InboxStore", "_migrate_columns", inbox_store.InboxBusy),
++]
++ERRORS = [(RuntimeError("補欄位失敗"), RuntimeError), (DatabaseBusy("database is locked"), None)]
++
++
++@pytest.mark.parametrize(("raised", "expected"), ERRORS, ids=["other_error", "busy"])
++@pytest.mark.parametrize(("module", "cls", "migrate", "busy"), CASES, ids=[c[1] for c in CASES])
++def test_a_failed_column_migration_closes_the_new_connection(  # noqa: PLR0913 - 模組與錯誤兩組參數
++        tmp_path, monkeypatch, module, cls, migrate, busy, raised, expected):
++    opened = []
++    real_connect = module.connect
++
++    def recording_connect(*args, **kwargs):
++        conn = real_connect(*args, **kwargs)
++        opened.append(conn)
++        return conn
++
++    def fail(_self):
++        raise raised
++
++    monkeypatch.setattr(module, "connect", recording_connect)
++    monkeypatch.setattr(getattr(module, cls), migrate, fail)
++
++    with pytest.raises(expected or busy):
++        getattr(module, cls)(tmp_path / "x.db")
++
++    assert len(opened) == 1  # 前置:真的開過一條連線
++    with pytest.raises(sqlite3.ProgrammingError):  # 已關閉的連線不能再用
++        opened[0].execute("SELECT 1")
+diff --git a/tests/test_migration_failure_closes_the_connection.py b/tests/test_migration_failure_closes_the_connection.py
+deleted file mode 100644
+index 376446e..0000000
+--- a/tests/test_migration_failure_closes_the_connection.py
++++ /dev/null
+@@ -1,44 +0,0 @@
+-"""三支「連線後補欄位」的資料庫模組:補欄位失敗時都要關掉剛開的連線,寫法一致。
+-
+-收件口每個請求都會新開一個收件表物件,補欄位失敗(例如等鎖逾時)若不關連線,
+-每個失敗的請求就漏一條連線;另外兩支是長活物件,但同一件事用同一種寫法。
+-"""
+-
+-import sqlite3
+-
+-import pytest
+-
+-from rtb.analyzer import task_store
+-from rtb.dsp import store as dsp_store
+-from rtb.executor import inbox_store
+-
+-CASES = [
+-    (dsp_store, "CampaignStore", "_migrate_columns"),
+-    (task_store, "TaskStore", "_migrate_evidence_payload_column"),
+-    (inbox_store, "InboxStore", "_migrate_columns"),
+-]
+-
+-
+-@pytest.mark.parametrize(("module", "cls", "migrate"), CASES, ids=[c[1] for c in CASES])
+-def test_a_failed_column_migration_closes_the_new_connection(tmp_path, monkeypatch,
+-                                                              module, cls, migrate):
+-    opened = []
+-    real_connect = module.connect
+-
+-    def recording_connect(*args, **kwargs):
+-        conn = real_connect(*args, **kwargs)
+-        opened.append(conn)
+-        return conn
+-
+-    def fail(_self):
+-        raise RuntimeError("補欄位失敗")
+-
+-    monkeypatch.setattr(module, "connect", recording_connect)
+-    monkeypatch.setattr(getattr(module, cls), migrate, fail)
+-
+-    with pytest.raises(RuntimeError):
+-        getattr(module, cls)(tmp_path / "x.db")
+-
+-    assert len(opened) == 1  # 前置:真的開過一條連線
+-    with pytest.raises(sqlite3.ProgrammingError):  # 已關閉的連線不能再用
+-        opened[0].execute("SELECT 1")

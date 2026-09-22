@@ -25,6 +25,9 @@ class ClientHeader(StrEnum):
     """本專案的用戶端允許送出的標頭,封閉列舉;要加新的就在這裡加一個成員,不開放任意字串。"""
 
     IDEMPOTENCY_KEY = "Idempotency-Key"
+    # 寫入能力憑證。字串照抄共用格式模組的標頭名稱,由測試比對兩邊一致;不匯入那個模組,
+    # 免得分析行程經共用用戶端間接載入憑證模組
+    CAPABILITY = "X-Capability"
 
 
 class _NoRedirect(HTTPRedirectHandler):

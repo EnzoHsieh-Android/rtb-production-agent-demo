@@ -40,6 +40,17 @@ from tests.domain.proposal_samples import valid
 A = AttemptState
 C = OutcomeCode
 NOW = datetime(2026, 9, 22, 12, 5, tzinfo=UTC)
+EXPIRES = NOW + timedelta(minutes=2)  # 這次送出所帶憑證的到期時間(執行一筆起每次送出都要帶)
+WRITTEN = 4  # DSP 回報的寫入後版本(轉進已提交待驗證要帶)
+
+
+def send_fields(target):
+    """轉進嘗試中要帶憑證到期時間、轉進已提交待驗證要帶寫入後版本;其他轉換都不帶。"""
+    if target is A.IN_FLIGHT:
+        return {"capability_expires_at": EXPIRES}
+    if target is A.COMMITTED_UNVERIFIED:
+        return {"written_version": WRITTEN}
+    return {}
 
 # 走到每一種狀態的真實轉換路徑(每一步:目標狀態、結果代碼)
 SHORT_PATHS = {
@@ -74,7 +85,7 @@ def proposal(**overrides):
 
 def begin(store, prop, now=NOW):
     with store.transaction() as tx:
-        return attempt_store.begin(tx, prop, now)
+        return attempt_store.begin(tx, prop, now, capability_expires_at=EXPIRES)
 
 
 def latest(store, key):
@@ -91,7 +102,7 @@ def step(store, key, target, code=None, detail=None):
     with store.transaction() as tx:
         current = attempt_store.latest(tx, key)
         return attempt_store.transition(tx, key, current.seq, target, NOW,
-                                        code=code, detail=detail)
+                                        code=code, detail=detail, **send_fields(target))
 
 
 def timeout(store, key):
@@ -147,7 +158,7 @@ def test_nothing_is_visible_to_others_until_the_transaction_commits(store, tmp_p
     query = "SELECT COUNT(*) FROM attempts"
     try:
         with store.transaction() as tx:
-            attempt_store.begin(tx, proposal(), NOW)
+            attempt_store.begin(tx, proposal(), NOW, capability_expires_at=EXPIRES)
             assert reader.execute(query).fetchone()[0] == 0  # 呼叫端的交易還沒提交
         assert reader.execute(query).fetchone()[0] == 1
     finally:
@@ -568,14 +579,15 @@ def test_only_a_transaction_from_the_executor_database_entry_is_accepted(store, 
     try:
         bare.execute("BEGIN")
         with pytest.raises(NotInTransaction):
-            attempt_store.begin(bare, proposal(), NOW)
+            attempt_store.begin(bare, proposal(), NOW, capability_expires_at=EXPIRES)
         bare.execute("ROLLBACK")
     finally:
         bare.close()
     with store.transaction() as tx:
         pass
     with pytest.raises(NotInTransaction):
-        attempt_store.begin(tx, proposal(), NOW)  # 交易已結束,拿舊物件再寫也不行
+        # 交易已結束,拿舊物件再寫也不行
+        attempt_store.begin(tx, proposal(), NOW, capability_expires_at=EXPIRES)
     assert all_rows(store) == []
 
 
@@ -604,7 +616,7 @@ def test_a_subclass_of_the_transaction_object_is_not_accepted(store):
             object.__setattr__(fake, slot, object.__getattribute__(tx, slot))
         assert fake.is_open  # 除了型別,其他都跟真的一樣
         with pytest.raises(NotInTransaction):
-            attempt_store.begin(fake, proposal(), NOW)
+            attempt_store.begin(fake, proposal(), NOW, capability_expires_at=EXPIRES)
     assert all_rows(store) == []
 
 
@@ -612,7 +624,7 @@ def test_a_finished_transaction_object_stays_dead_even_when_the_connection_opens
     with store.transaction() as stale:
         pass
     with store.transaction(), pytest.raises(NotInTransaction):
-        attempt_store.begin(stale, proposal(), NOW)
+        attempt_store.begin(stale, proposal(), NOW, capability_expires_at=EXPIRES)
     assert all_rows(store) == []
 
 
@@ -653,7 +665,7 @@ def test_writes_outside_a_transaction_are_refused(tmp_path):
     conn = sqlite3.connect(tmp_path / "bare.db", isolation_level=None)
     try:
         with pytest.raises(NotInTransaction):
-            attempt_store.begin(conn, proposal(), NOW)
+            attempt_store.begin(conn, proposal(), NOW, capability_expires_at=EXPIRES)
     finally:
         conn.close()
 
@@ -668,7 +680,8 @@ def test_a_time_without_a_time_zone_is_refused_by_every_write_and_nothing_is_wri
     in_flight = start_in(store, A.IN_FLIGHT, campaign_id="fl")
     before = all_rows(store)
     writes = [
-        lambda tx: attempt_store.begin(tx, proposal(campaign_id="new"), NAIVE),
+        lambda tx: attempt_store.begin(tx, proposal(campaign_id="new"), NAIVE,
+                                       capability_expires_at=EXPIRES),
         lambda tx: attempt_store.transition(tx, key, 2, A.IN_FLIGHT, NAIVE),
         lambda tx: attempt_store.record_verification_timeout(tx, key, 2, NAIVE),
         lambda tx: attempt_store.resolve(tx, escalated, 2, A.FAILED, "checked by hand", NAIVE),
@@ -697,7 +710,8 @@ def _tamper_snapshot(store, key, text):
         tx.conn.execute("DELETE FROM attempts WHERE key = ?", (key,))  # 測試模擬毀損,只在測試裡
         tx.conn.execute(
             "INSERT INTO attempts VALUES (?, 1, 'c1', 'in_flight', NULL, NULL, 1, 0, "
-            "'2026-09-22T12:05:00.000000Z', 't1', 1, 'update_budget', 3, ?)", (key, text))
+            "'2026-09-22T12:05:00.000000Z', 't1', 1, 'update_budget', 3, ?, NULL, NULL)",
+            (key, text))
 
 
 def test_a_snapshot_that_is_not_json_reads_back_as_a_corrupted_row(store):
@@ -793,3 +807,43 @@ def test_the_time_is_stored_as_given(store):
     later = NOW + timedelta(minutes=3)
     key = begin(store, proposal(), later).row.key
     assert latest(store, key).written_at == later
+
+
+# ---- 執行一筆 [S66] ----
+def test_entering_committed_unverified_requires_the_written_version(store, tmp_path):
+    key = begin(store, proposal()).row.key
+    before = all_rows(store)
+    for bad in (None, 0, True, "4", 4.0):
+        with store.transaction() as tx, pytest.raises(attempt_store.IncompleteRow):
+            attempt_store.transition(tx, key, 1, A.COMMITTED_UNVERIFIED, NOW, written_version=bad)
+    with store.transaction() as tx, pytest.raises(InvalidOutcome):  # 別的轉換不能夾帶寫入後版本
+        attempt_store.transition(tx, key, 1, A.UNKNOWN, NOW, written_version=4)
+    assert all_rows(store) == before
+
+    committed = step(store, key, A.COMMITTED_UNVERIFIED)
+    assert committed.written_version == WRITTEN
+    verified = step(store, key, A.VERIFIED)  # 之後的列往下帶,跨重新開啟資料庫讀得回來
+    reopened = InboxStore(tmp_path / "executor.db")
+    try:
+        with reopened.transaction() as tx:
+            assert attempt_store.latest(tx, key).written_version == WRITTEN
+    finally:
+        reopened.close()
+    assert verified.written_version == WRITTEN
+
+
+def test_every_new_in_flight_row_requires_the_capability_expiry(store):
+    """S65 的儲存層那一半:開始一筆與重送都要帶這次送出所帶憑證的到期時間,缺了就拒絕寫入。"""
+    naive = datetime(2026, 9, 22, 12, 7)
+    for bad in (None, naive, "2026-09-22T12:07:00Z"):
+        with store.transaction() as tx, pytest.raises((attempt_store.IncompleteRow, ValueError)):
+            attempt_store.begin(tx, proposal(), NOW, capability_expires_at=bad)
+    assert all_rows(store) == []
+    key = start_in(store, A.UNKNOWN)
+    with store.transaction() as tx, pytest.raises(attempt_store.IncompleteRow):
+        attempt_store.transition(tx, key, 2, A.IN_FLIGHT, NOW)
+    later = EXPIRES + timedelta(minutes=5)
+    with store.transaction() as tx:
+        resent = attempt_store.transition(tx, key, 2, A.IN_FLIGHT, NOW, capability_expires_at=later)
+    assert resent.capability_expires_at == later
+    assert step(store, key, A.UNKNOWN).capability_expires_at == later  # 往下帶給對帳用

@@ -710,7 +710,7 @@ def test_purging_never_deletes_a_task_that_still_has_a_pending_row(tmp_path):
     conn = sqlite3.connect(tmp_path / "s.db", isolation_level=None)
     conn.execute(  # 直接塞一列「很久以前收到、到期時間卻很遠」的待處理(正常流程做不出來)
         "INSERT INTO proposals VALUES ('old', 1, 'h', 'pending', '{}', "
-        "'2099-01-01T00:00:00.000000Z', '2026-09-22T01:00:00.000000Z')")
+        "'2099-01-01T00:00:00.000000Z', '2026-09-22T01:00:00.000000Z', NULL, NULL)")
     proposal = inbox_server.parse_proposal(valid(task_id="new")).proposal
 
     store.accept(proposal, lambda: inbox_store.utc_now().replace(

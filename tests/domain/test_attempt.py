@@ -239,8 +239,14 @@ def test_no_domain_module_defines_its_own_time_zone_check():
 def test_capability_rejected_is_an_escalation_code_and_the_old_codes_are_unchanged():
     assert C.CAPABILITY_REJECTED.value == "capability_rejected"
     assert C.CAPABILITY_REJECTED in ESCALATION_CODES
-    assert {c.value for c in OutcomeCode} - {"capability_rejected"} == {
+    assert {c.value for c in OutcomeCode} - {"capability_rejected", "local_request_error"} == {
         "version_conflict", "validation_rejected", "campaign_not_found", "other_rejection",
         "not_happened", "manual_failure", "idempotency_conflict",
         "verification_timeouts_exhausted", "send_limit_reached", "verification_mismatch",
         "cannot_prove_not_happened"}
+
+
+# ---- 執行一筆 S61(領域層那一半):只新增「本地請求錯誤」,而且是轉人工類 ----
+def test_local_request_error_is_the_only_new_code_and_an_escalation():
+    assert C.LOCAL_REQUEST_ERROR.value == "local_request_error"
+    assert C.LOCAL_REQUEST_ERROR in ESCALATION_CODES

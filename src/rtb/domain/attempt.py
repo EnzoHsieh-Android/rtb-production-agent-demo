@@ -88,6 +88,7 @@ class OutcomeCode(StrEnum):
     VERIFICATION_MISMATCH = "verification_mismatch"
     CANNOT_PROVE_NOT_HAPPENED = "cannot_prove_not_happened"
     CAPABILITY_REJECTED = "capability_rejected"  # 憑證被 DSP 拒收:本地簽發或設定出錯,要人看
+    LOCAL_REQUEST_ERROR = "local_request_error"  # DSP 回其他 4xx:執行行程自己組壞請求,要人看
 
 
 C = OutcomeCode

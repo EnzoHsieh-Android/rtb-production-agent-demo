@@ -1,0 +1,3185 @@
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index 2cc3e41..7b5ff40 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -129,21 +129,28 @@ def _row_from_record(record: tuple[str, int, str, str, str | None, str | None, s
+         proposal=proposal, error_detail=error_detail, written_at=stamp,
+     )
+ 
+ 
+ class TaskStore:
+     def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
+         try:
+             self._conn = connect(path, busy_timeout_seconds, SCHEMA)
+         except DatabaseBusy as exc:
+             raise TaskStoreBusy(str(exc)) from exc
+-        self._migrate_evidence_payload_column()
++        try:
++            self._migrate_evidence_payload_column()
++        except DatabaseBusy as exc:
++            self._conn.close()
++            raise TaskStoreBusy(str(exc)) from exc
++        except BaseException:
++            self._conn.close()  # 補欄位失敗時不留下沒人關的連線(三支資料庫模組同一寫法)
++            raise
+ 
+     def _migrate_evidence_payload_column(self) -> None:
+         """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:增量 3 建立的舊資料庫只有九欄,
+         沒有增量 4 才加的 `payload_json`。每次連線都檢查一次,缺欄位就補上;舊列補
+         `'{}'`(誠實反映「這些舊證據沒有留下原始數值,只有雜湊」,不是編造資料)。
+         """
+         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(evidence)")}
+         if "payload_json" not in columns:
+             with immediate_transaction(self._conn):
+                 self._conn.execute(
+diff --git a/src/rtb/domain/attempt.py b/src/rtb/domain/attempt.py
+index e04a1ed..b0d1ffb 100644
+--- a/src/rtb/domain/attempt.py
++++ b/src/rtb/domain/attempt.py
+@@ -81,20 +81,21 @@ class OutcomeCode(StrEnum):
+     OTHER_REJECTION = "other_rejection"
+     NOT_HAPPENED = "not_happened"  # 查不到且版本已前進:舊請求不可能再提交
+     MANUAL_FAILURE = "manual_failure"  # 只有人工處置能用
+     # 轉人工類
+     IDEMPOTENCY_CONFLICT = "idempotency_conflict"
+     VERIFICATION_TIMEOUTS_EXHAUSTED = "verification_timeouts_exhausted"
+     SEND_LIMIT_REACHED = "send_limit_reached"
+     VERIFICATION_MISMATCH = "verification_mismatch"
+     CANNOT_PROVE_NOT_HAPPENED = "cannot_prove_not_happened"
+     CAPABILITY_REJECTED = "capability_rejected"  # 憑證被 DSP 拒收:本地簽發或設定出錯,要人看
++    LOCAL_REQUEST_ERROR = "local_request_error"  # DSP 回其他 4xx:執行行程自己組壞請求,要人看
+ 
+ 
+ C = OutcomeCode
+ FAILURE_CODES = frozenset({
+     C.VERSION_CONFLICT, C.VALIDATION_REJECTED, C.CAMPAIGN_NOT_FOUND, C.OTHER_REJECTION,
+     C.NOT_HAPPENED, C.MANUAL_FAILURE,
+ })
+ ESCALATION_CODES = frozenset(OutcomeCode) - FAILURE_CODES
+ 
+ if C.IDEMPOTENCY_CONFLICT not in ESCALATION_CODES:  # 同鍵不同內容一律轉人工
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index 0b8b050..53e7b14 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -180,21 +180,28 @@ class CampaignStore:
+         self,
+         path: Path,
+         clock: Callable[[], str] = _utc_now,
+         busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+     ):
+         self._clock = clock
+         try:
+             self._conn = connect(path, busy_timeout_seconds, SCHEMA)
+         except DatabaseBusy as exc:
+             raise StoreBusy(str(exc)) from exc
+-        self._migrate_columns()
++        try:
++            self._migrate_columns()
++        except DatabaseBusy as exc:
++            self._conn.close()
++            raise StoreBusy(str(exc)) from exc
++        except BaseException:
++            self._conn.close()  # 補欄位失敗時不留下沒人關的連線(三支資料庫模組同一寫法)
++            raise
+ 
+     def _migrate_columns(self) -> None:
+         """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:沿用分析行程歷史表的補欄位做法,
+         每次連線檢查一次,缺就在交易內加欄位:廣告表的租戶(舊廣告補預設租戶;租戶只在建檔時
+         設定,DSP 沒有任何改廣告租戶的寫入介面)、操作紀錄的政策版本(舊操作留空值)。
+         """
+         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
+         op_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(operations)")}
+         if "tenant" in columns and "policy_version" in op_columns:
+             return
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index 4a4d9f2..2e484d1 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -40,29 +40,35 @@ MAX_SENDS = 3  # 同一把鍵最多送出幾次(含第一次)
+ MAX_VERIFICATION_TIMEOUTS = 5  # 對帳與執行後驗證的查詢逾時,每把鍵累計
+ MAX_ROWS_PER_KEY = 50  # 正常路徑最多 14 列;進入轉人工、人工處置與重啟恢復不受這個上限
+ MAX_UNRESOLVED = 20  # 全表同時未結案的鍵數:滿了就停下所有新寫入,等人處理
+ 
+ SCHEMA = """
+ CREATE TABLE IF NOT EXISTS attempts (
+     key TEXT NOT NULL, seq INTEGER NOT NULL, campaign_id TEXT NOT NULL, state TEXT NOT NULL,
+     code TEXT, detail TEXT, send_count INTEGER NOT NULL, verification_timeouts INTEGER NOT NULL,
+     written_at TEXT NOT NULL,
+     task_id TEXT, revision INTEGER, action TEXT, expected_version INTEGER, proposal_json TEXT,
++    written_version INTEGER, capability_expires_at TEXT,
+     PRIMARY KEY (key, seq));
+ CREATE INDEX IF NOT EXISTS attempts_first_rows ON attempts (campaign_id) WHERE seq = 1;
+ CREATE INDEX IF NOT EXISTS attempts_terminal_rows ON attempts (campaign_id)
+     WHERE state IN (TERMINAL_LIST);
+ CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_terminal_per_key ON attempts (key)
+     WHERE state IN (TERMINAL_LIST);
+ """
+ _COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verification_timeouts, "
+-            "written_at")
++            "written_at, written_version, capability_expires_at")
++# 執行一筆(Phase 3 增量 3)新增的欄位;舊資料庫由執行行程資料庫模組照補欄位做法補上
++ADDED_COLUMNS = (
++    ("written_version", "written_version INTEGER"),  # DSP 回報的寫入後版本
++    ("capability_expires_at", "capability_expires_at TEXT"),  # 最近一次送出所帶憑證的到期時間
++)
+ # 終點狀態是固定的列舉值,寫成字面值,查詢條件才對得上部分索引的條件
+ _TERMINAL_LIST = ", ".join(f"'{state.value}'" for state in sorted(TERMINAL_STATES))
+ SCHEMA = SCHEMA.replace("TERMINAL_LIST", _TERMINAL_LIST)
+ 
+ 
+ class AttemptRejected(Exception):
+     """這次操作被拒絕,而且沒有寫入任何東西。"""
+ 
+ 
+ class NotInTransaction(AttemptRejected):
+@@ -86,20 +92,24 @@ class SendLimitReached(AttemptRejected):
+ 
+ 
+ class VerificationTimeoutLimitReached(AttemptRejected):
+     """查證逾時次數已達上限,只能轉人工。"""
+ 
+ 
+ class HistoryFull(AttemptRejected):
+     """這把鍵的歷史列已達上限;只剩轉人工與人工處置寫得進去。"""
+ 
+ 
++class IncompleteRow(AttemptRejected):
++    """轉進嘗試中沒帶憑證到期時間,或轉進已提交待驗證沒帶寫入後版本。"""
++
++
+ class CorruptedAttemptRow(Exception):
+     """歷史列讀不回來(格式毀損,或快照已對不上它的鍵)。"""
+ 
+ 
+ _EXECUTOR_TRANSACTION_ISSUER = object()  # 只有收件口資料庫模組的交易入口拿它建交易物件(有測試擋)
+ 
+ 
+ class ExecutorTransaction:
+     """執行行程資料庫交易入口發出的一筆交易;交易結束時由入口作廢。"""
+ 
+@@ -129,20 +139,23 @@ class Recovery:
+ class AttemptRow:
+     key: str
+     seq: int
+     campaign_id: str
+     state: AttemptState
+     code: OutcomeCode | None
+     detail: str | None
+     send_count: int
+     verification_timeouts: int
+     written_at: datetime
++    # 以下兩欄轉進時必帶、之後的列往下帶;增量 3 以前寫的列是空值
++    written_version: int | None = None
++    capability_expires_at: datetime | None = None
+ 
+ 
+ @dataclass(frozen=True)
+ class Begun:
+     row: AttemptRow
+     created: bool  # False:鍵已存在,原樣回傳目前那一列——呼叫端依狀態分支,絕不因此直接再送
+ 
+ 
+ def _require_aware(now: datetime) -> None:
+     if not is_aware(now):
+@@ -153,28 +166,36 @@ def _iso(moment: datetime) -> str:
+     _require_aware(moment)
+     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+ 
+ 
+ def _conn(tx: ExecutorTransaction) -> sqlite3.Connection:
+     if type(tx) is not ExecutorTransaction or not tx.is_open:
+         raise NotInTransaction("嘗試紀錄只能在執行行程資料庫交易入口開的交易裡讀寫")
+     return tx.conn
+ 
+ 
++def _parse_time(text: str) -> datetime:
++    return datetime.fromisoformat(text.replace("Z", "+00:00"))
++
++
+ def _row(record: tuple[Any, ...]) -> AttemptRow:
+-    key, seq, campaign_id, state, code, detail, sends, timeouts, written_at = record
++    key, seq, campaign_id, state, code, detail, sends, timeouts, written_at, written, expires = (
++        record)
+     try:
++        if written is not None and not is_plain_int(written):
++            raise TypeError("寫入後版本不是整數")
+         return AttemptRow(
+             key=key, seq=seq, campaign_id=campaign_id, state=AttemptState(state),
+             code=None if code is None else OutcomeCode(code), detail=detail,
+             send_count=sends, verification_timeouts=timeouts,
+-            written_at=datetime.fromisoformat(written_at.replace("Z", "+00:00")),
++            written_at=_parse_time(written_at), written_version=written,
++            capability_expires_at=None if expires is None else _parse_time(expires),
+         )
+     # SQLite 不強制欄位型別:壞值可能是任何型別,讀不回來一律當成毀損
+     except (ValueError, TypeError, AttributeError) as exc:
+         raise CorruptedAttemptRow(f"{key} 第 {seq} 列讀不回來:{exc!r}") from exc
+ 
+ 
+ def latest(tx: ExecutorTransaction, key: str) -> AttemptRow | None:
+     record = _conn(tx).execute(
+         f"SELECT {_COLUMNS} FROM attempts WHERE key = ? ORDER BY seq DESC LIMIT 1",  # noqa: S608 - 只拼接模組內固定的欄位清單
+         (key,),
+@@ -219,101 +240,139 @@ def unresolved_count_query(campaign_id: str | None = None) -> tuple[str, tuple[s
+ 
+ 
+ def unresolved_count(tx: ExecutorTransaction, campaign_id: str | None = None) -> int:
+     query, params = unresolved_count_query(campaign_id)
+     count = int(_conn(tx).execute(query, params).fetchone()[0])
+     if count < 0:  # 唯一限制之外的最後一道:算法前提不成立就當毀損,不放行
+         raise CorruptedAttemptRow("未結案計數為負,歷史表有鍵出現多列終點列")
+     return count
+ 
+ 
+-def begin(tx: ExecutorTransaction, proposal: Proposal, now: datetime) -> Begun:
++def _expiry(value: object) -> str:
++    """轉進嘗試中必帶:這次送出所帶憑證的到期時間(增量 4 用它證明舊請求不會再被提交)。"""
++    if not isinstance(value, datetime):
++        raise IncompleteRow("轉進嘗試中要帶這次送出所帶憑證的到期時間")
++    return _iso(value)
++
++
++def begin(
++    tx: ExecutorTransaction, proposal: Proposal, now: datetime, *,
++    capability_expires_at: datetime | None,
++) -> Begun:
+     """開始一筆:鍵與第 1 列的欄位全由這份提案算出,呼叫端不能另外指定。"""
+     conn = _conn(tx)
+     _require_aware(now)
+     key = operation_key(proposal)
+     current = latest(tx, key)
+     if current is not None:
+         return Begun(current, created=False)
++    expires = _expiry(capability_expires_at)
+     if unresolved_count(tx, proposal.campaign_id):
+         raise CampaignLocked(proposal.campaign_id)
+     if unresolved_count(tx) >= MAX_UNRESOLVED:
+         raise TooManyUnresolved()
+     snapshot_json = json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True,
+                                allow_nan=False)
+     conn.execute(
+-        "INSERT INTO attempts VALUES (?, 1, ?, ?, NULL, NULL, 1, 0, ?, ?, ?, ?, ?, ?)",
++        "INSERT INTO attempts (key, seq, campaign_id, state, send_count, verification_timeouts, "
++        "written_at, task_id, revision, action, expected_version, proposal_json, "
++        "capability_expires_at) VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?)",
+         (key, proposal.campaign_id, AttemptState.IN_FLIGHT.value, _iso(now),
+          proposal.task_id, proposal.revision, proposal.action_type.value,
+-         proposal.campaign_version_observed, snapshot_json),
++         proposal.campaign_version_observed, snapshot_json, expires),
+     )
+     row = latest(tx, key)
+     assert row is not None  # 剛寫入的那一列  # noqa: S101
+     return Begun(row, created=True)
+ 
+ 
+ def _append(  # noqa: PLR0913 - 每個欄位都是新列的一部分
+     tx: ExecutorTransaction, previous: AttemptRow, state: AttemptState, now: datetime, *,
+     code: OutcomeCode | None = None, detail: str | None = None,
+     send_count: int | None = None, verification_timeouts: int | None = None,
+-    capped: bool = True,
++    capped: bool = True, written_version: int | None = None, expires: str | None = None,
+ ) -> AttemptRow:
+     if capped and previous.seq >= MAX_ROWS_PER_KEY:
+         raise HistoryFull(previous.key)
++    carried_expiry = (None if previous.capability_expires_at is None
++                      else _iso(previous.capability_expires_at))
+     _conn(tx).execute(
+-        f"INSERT INTO attempts ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608 - 只拼接模組內固定的欄位清單
++        f"INSERT INTO attempts ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608 - 只拼接模組內固定的欄位清單
+         (previous.key, previous.seq + 1, previous.campaign_id, state.value,
+          None if code is None else OutcomeCode(code).value, detail,
+          previous.send_count if send_count is None else send_count,
+          previous.verification_timeouts if verification_timeouts is None
+          else verification_timeouts,
+-         _iso(now)),
++         _iso(now),
++         previous.written_version if written_version is None else written_version,
++         carried_expiry if expires is None else expires),
+     )
+     row = latest(tx, previous.key)
+     assert row is not None  # noqa: S101
+     return row
+ 
+ 
+ def _current(
+     tx: ExecutorTransaction, key: str, expected_seq: int, now: datetime,
+ ) -> AttemptRow | None:
+     """呼叫端帶的預期序號仍是最新一列才回傳;不是就回 None(沒有進展,不寫入)。"""
+     _conn(tx)
+     _require_aware(now)
+     if not is_plain_int(expected_seq):  # True == 1 在 Python 成立,不能靠 == 比對
+         raise TypeError("預期序號必須是整數")
+     row = latest(tx, key)
+     return row if row is not None and row.seq == expected_seq else None
+ 
+ 
+-def transition(  # noqa: PLR0913 - 代碼與細節是轉換本身要記的內容
++def _send_fields(
++    destination: AttemptState, written_version: object, capability_expires_at: object,
++) -> tuple[int | None, str | None]:
++    """轉進嘗試中必帶憑證到期時間、轉進已提交待驗證必帶寫入後版本;其他轉換不准夾帶。"""
++    expires = None
++    if destination is AttemptState.IN_FLIGHT:
++        expires = _expiry(capability_expires_at)
++    elif capability_expires_at is not None:
++        raise InvalidOutcome("只有轉進嘗試中才帶憑證到期時間")
++    if destination is AttemptState.COMMITTED_UNVERIFIED:
++        if not is_plain_int(written_version) or written_version < 1:
++            raise IncompleteRow("轉進已提交待驗證要帶 DSP 回報的寫入後版本")
++        return written_version, expires
++    if written_version is not None:
++        raise InvalidOutcome("只有轉進已提交待驗證才帶寫入後版本")
++    return None, expires
++
++
++def transition(  # noqa: PLR0913 - 代碼、細節與送出欄位是轉換本身要記的內容
+     tx: ExecutorTransaction, key: str, expected_seq: int, target: AttemptState, now: datetime,
+     *, code: OutcomeCode | None = None, detail: str | None = None,
++    written_version: int | None = None, capability_expires_at: datetime | None = None,
+ ) -> AttemptRow | None:
+     """一般轉換:照唯讀轉換表;回傳新列,預期序號已不是最新就回 None。"""
+     row = _current(tx, key, expected_seq, now)
+     if row is None:
+         return None
+     if not can_transition(row.state, target):
+         raise IllegalAttemptTransition(f"不合法的轉換:{row.state} -> {target}")
+     if not code_fits(target, code, by_resolution=False):
+         raise InvalidOutcome(f"結果代碼 {code!r} 不配目標狀態 {target}")
+     if detail is not None and not is_clean_detail(detail):
+         raise InvalidOutcome("細節文字只收有長度上限的 ASCII 可列印字元")
+     destination = AttemptState(target)
++    written, expires = _send_fields(destination, written_version, capability_expires_at)
+     sends = row.send_count
+     if row.state is AttemptState.UNKNOWN and destination is AttemptState.IN_FLIGHT:
+         if sends >= MAX_SENDS:
+             raise SendLimitReached(key)
+         sends += 1
+     return _append(tx, row, destination, now, code=code, detail=detail, send_count=sends,
+-                   capped=destination is not AttemptState.ESCALATED)
++                   capped=destination is not AttemptState.ESCALATED,
++                   written_version=written, expires=expires)
+ 
+ 
+ def record_verification_timeout(
+     tx: ExecutorTransaction, key: str, expected_seq: int, now: datetime,
+ ) -> AttemptRow | None:
+     """記一次查證逾時:狀態不變、次數加 1,兩件事是同一次寫入。"""
+     row = _current(tx, key, expected_seq, now)
+     if row is None:
+         return None
+     if row.state not in TIMEOUT_STATES:
+diff --git a/src/rtb/executor/dsp_client.py b/src/rtb/executor/dsp_client.py
+new file mode 100644
+index 0000000..0aef119
+--- /dev/null
++++ b/src/rtb/executor/dsp_client.py
+@@ -0,0 +1,72 @@
++"""執行行程的 DSP 讀寫用戶端:比照分析行程的 DSP 用戶端,只做「打 HTTP、轉成結果」,不碰儲存。
++
++經共用 HTTP 用戶端送出(只送得出封閉列舉裡的標頭:冪等鍵與能力憑證)。
++- 讀取:廣告不存在(404 campaign_not_found)回 None,讓執行前檢查擋下;其他失敗一律 DspUnavailable。
++- 寫入:不丟例外;逾時、斷線、回應讀不懂一律回「沒拿到回應」,交給回應對照表判成結果不明。
++- 查操作紀錄:查不到(404 operation_not_found)回 None;其他失敗一律 DspUnavailable。
++"""
++
++from typing import Any
++
++from rtb.domain._checks import is_plain_int
++from rtb.domain.proposal import ActionType, Proposal
++from rtb.executor.execution import CampaignView, DspUnavailable, WriteAnswer
++from rtb.httpclient import ClientHeader, request_json
++
++_WRITE_PATHS = {ActionType.UPDATE_BUDGET: "budget", ActionType.PAUSE_CAMPAIGN: "pause"}
++
++
++_SQLITE_INTEGER_MAX = 2**63 - 1  # 版本會寫進資料庫的整數欄位;超過就當成讀不懂,不讓寫入時崩潰
++
++
++def _positive_int(value: object) -> int | None:
++    return value if is_plain_int(value) and 0 < value <= _SQLITE_INTEGER_MAX else None
++
++
++class DspClient:
++    def __init__(self, base_url: str, timeout_seconds: float):
++        self._base, self._timeout = base_url.rstrip("/"), timeout_seconds
++
++    def _get(self, path: str) -> tuple[int, dict[str, Any]]:
++        try:
++            status, body = request_json(self._base + path, "GET", None, self._timeout)
++        except (OSError, ValueError) as exc:  # 逾時、斷線、回應不是 JSON 或太大
++            raise DspUnavailable(type(exc).__name__) from exc
++        if not isinstance(body, dict):
++            raise DspUnavailable("回應不是 JSON 物件")
++        return status, body
++
++    def read_campaign(self, campaign_id: str) -> CampaignView | None:
++        status, body = self._get(f"/campaigns/{campaign_id}")
++        if status == 404 and body.get("error") == "campaign_not_found":
++            return None
++        budget, version = _positive_int(body.get("budget")), _positive_int(body.get("version"))
++        state = body.get("status")
++        if status != 200 or budget is None or version is None or not isinstance(state, str):
++            raise DspUnavailable(f"讀取回 {status}")
++        return CampaignView(budget=budget, status=state, version=version)
++
++    def write(self, proposal: Proposal, key: str, token: str) -> WriteAnswer:
++        body: dict[str, Any] = {"expected_version": proposal.campaign_version_observed}
++        if proposal.action_type is ActionType.UPDATE_BUDGET:
++            body["new_budget"] = proposal.requested_change["new_budget"]
++        path = f"/campaigns/{proposal.campaign_id}/{_WRITE_PATHS[proposal.action_type]}"
++        headers = {ClientHeader.IDEMPOTENCY_KEY: key, ClientHeader.CAPABILITY: token}
++        try:
++            status, reply = request_json(self._base + path, "POST", body, self._timeout, headers)
++        except (OSError, ValueError):
++            return WriteAnswer(None)
++        if not isinstance(reply, dict):  # 回應讀不懂:當成沒拿到回應
++            return WriteAnswer(None)
++        error = reply.get("error")
++        return WriteAnswer(status, error if isinstance(error, str) else None,
++                           _positive_int(reply.get("version_after")))
++
++    def operation_version(self, key: str) -> int | None:
++        status, body = self._get(f"/operations/{key}")
++        if status == 404 and body.get("error") == "operation_not_found":
++            return None
++        version = _positive_int(body.get("version_after"))
++        if status != 200 or version is None:
++            raise DspUnavailable(f"查詢回 {status}")
++        return version
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+new file mode 100644
+index 0000000..469121c
+--- /dev/null
++++ b/src/rtb/executor/execution.py
+@@ -0,0 +1,355 @@
++"""執行迴圈的「處理一筆」:取一份待處理提案,檢查、帶憑證寫入 DSP、記結果、執行後驗證。
++
++事故:照提案當時的舊現況寫入,蓋掉別人較新的改動(F4);執行到已被取代的提案;DSP 回成功就
++當作完成。執行端只驗證並執行獲授權的動作:前提不成立就擋下,不重新分析。
++
++寫法比照分析行程的流程:一個同步函式,協作者(時鐘、DSP 讀寫用戶端、簽發器、租戶設定路徑)
++用協定注入。時間只有一個來源——注入的時鐘——但不是整輪共用同一個值:到期判斷、每次簽發、
++每一筆寫入都在當下讀它,否則過期後的重簽會簽出跟第一張一樣已過期的憑證。
++呼叫 DSP 期間不開任何資料庫交易;每一筆寫入各自一個交易,條件是上一筆寫入回傳的序號。
++"""
++
++from collections.abc import Callable
++from dataclasses import dataclass
++from datetime import UTC, datetime
++from enum import StrEnum
++from pathlib import Path
++from typing import Protocol
++
++from rtb.domain._checks import is_plain_int
++from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
++from rtb.domain.proposal import ActionType, Proposal
++from rtb.executor import attempt_store
++from rtb.executor.attempt_store import AttemptRow
++from rtb.executor.capability_signer import LIFETIME_SECONDS, SigningRefused
++from rtb.executor.inbox_store import BlockCode, InboxStore, PendingProposal
++
++A = AttemptState
++C = OutcomeCode
++
++
++@dataclass(frozen=True)
++class CampaignView:
++    """DSP 上廣告的現況(執行前檢查與執行後驗證要看的欄位)。"""
++
++    budget: int
++    status: str
++    version: int
++
++
++@dataclass(frozen=True)
++class WriteAnswer:
++    """DSP 對一次寫入的回應。status 是 None 代表沒拿到回應(逾時、斷線、回應讀不懂)。"""
++
++    status: int | None
++    error: str | None = None
++    version_after: int | None = None
++
++
++class DspUnavailable(Exception):
++    """讀取沒有成功(不含「廣告不存在」):逾時、斷線、5xx、回應讀不懂。"""
++
++
++class DspPort(Protocol):
++    def read_campaign(self, campaign_id: str) -> CampaignView | None:
++        """廣告不存在回 None;其他讀取失敗丟 DspUnavailable。"""
++        ...
++
++    def write(self, proposal: Proposal, key: str, token: str) -> WriteAnswer:
++        """帶憑證與冪等鍵送出寫入;不丟例外,沒拿到回應就回 status 為 None 的回應。"""
++        ...
++
++    def operation_version(self, key: str) -> int | None:
++        """用冪等鍵查 DSP 的操作紀錄,回寫入後版本;查不到回 None,查詢失敗丟 DspUnavailable。"""
++        ...
++
++
++class Signer(Protocol):
++    def sign(self, proposal: Proposal, operation_key: str, config_path: Path, now: int) -> str: ...
++
++
++class ExecutorHalted(Exception):
++    """系統故障(設定檔壞掉、本地請求錯誤、條件寫入沒有進展):這一輪停下,啟動程式以非零代碼結束。"""
++
++    def __init__(self, reason: str):
++        super().__init__(reason)
++        self.reason = reason
++
++
++# ---- DSP 回應對照表(唯一一份;處理一筆的寫結果一定經 react) ----
++@dataclass(frozen=True, eq=False)
++class Reaction:
++    target: AttemptState
++    code: OutcomeCode | None = None
++    halt: bool = False  # 記完之後這一輪以系統錯誤結束
++    capability_expired: bool = False  # DSP 明確沒寫:記成結果不明後重跑檢查、重簽重送
++
++
++@dataclass(frozen=True)
++class ResponseRule:
++    name: str
++    matches: Callable[[WriteAnswer], bool]
++    reaction: Reaction
++    example: WriteAnswer  # 落在這一列的一個回應,給測試逐列驗證
++
++
++def _status(low: int, high: int, error: str | None = None) -> Callable[[WriteAnswer], bool]:
++    def matches(answer: WriteAnswer) -> bool:
++        return (answer.status is not None and low <= answer.status <= high
++                and (error is None or answer.error == error))
++    return matches
++
++
++def _committed(answer: WriteAnswer) -> bool:
++    version = answer.version_after
++    return answer.status == 200 and is_plain_int(version) and version > 0
++
++
++RESPONSE_TABLE = (
++    ResponseRule("committed", _committed, Reaction(A.COMMITTED_UNVERIFIED),
++                 WriteAnswer(200, None, 4)),
++    ResponseRule("version_conflict", _status(409, 409), Reaction(A.FAILED, C.VERSION_CONFLICT),
++                 WriteAnswer(409, "version_conflict")),
++    ResponseRule("idempotency_conflict", _status(422, 422, "idempotency_conflict"),
++                 Reaction(A.ESCALATED, C.IDEMPOTENCY_CONFLICT),
++                 WriteAnswer(422, "idempotency_conflict")),
++    ResponseRule("validation_rejected", _status(422, 422),
++                 Reaction(A.FAILED, C.VALIDATION_REJECTED),
++                 WriteAnswer(422, "validation_rejected")),
++    ResponseRule("capability_expired", _status(401, 401, "capability_expired"),
++                 Reaction(A.UNKNOWN, capability_expired=True),
++                 WriteAnswer(401, "capability_expired")),
++    ResponseRule("capability_rejected", _status(401, 401),
++                 Reaction(A.ESCALATED, C.CAPABILITY_REJECTED),
++                 WriteAnswer(401, "capability_invalid")),
++    ResponseRule("capability_scope_mismatch", _status(403, 403),
++                 Reaction(A.ESCALATED, C.CAPABILITY_REJECTED),
++                 WriteAnswer(403, "capability_scope_mismatch")),
++    ResponseRule("capability_not_configured", _status(503, 503, "capability_not_configured"),
++                 Reaction(A.ESCALATED, C.CAPABILITY_REJECTED),
++                 WriteAnswer(503, "capability_not_configured")),
++    ResponseRule("local_request_error", _status(400, 499),
++                 Reaction(A.ESCALATED, C.LOCAL_REQUEST_ERROR, halt=True),
++                 WriteAnswer(400, "missing_idempotency_key")),
++    ResponseRule("dsp_unavailable", _status(500, 599), Reaction(A.UNKNOWN),
++                 WriteAnswer(503, "store_busy")),
++    ResponseRule("no_response", lambda answer: answer.status is None, Reaction(A.UNKNOWN),
++                 WriteAnswer(None)),
++    # 每個狀態碼都要有去處:共用用戶端不跟轉址,3xx 會原樣回來;沒列的一律結果不明,留給對帳
++    ResponseRule("unlisted_status", lambda _answer: True, Reaction(A.UNKNOWN),
++                 WriteAnswer(302, None)),
++)
++
++
++def react(answer: WriteAnswer) -> Reaction:
++    return next(rule.reaction for rule in RESPONSE_TABLE if rule.matches(answer))
++
++
++# ---- 處理一筆 ----
++class Result(StrEnum):
++    IDLE = "idle"  # 沒有可處理的提案
++    DEFERRED = "deferred"  # 這一輪什麼都沒寫,提案留在待處理(或已被取代)
++    EXPIRED = "expired"
++    BLOCKED = "blocked"
++    HANDED_OFF_TO_EXISTING = "handed_off_to_existing"  # 鍵已存在,由既有那筆嘗試負責
++    EXECUTED = "executed"  # 開了一筆嘗試並送出
++
++
++@dataclass(frozen=True)
++class Processed:
++    kind: Result
++    key: str | None = None
++    block_code: BlockCode | None = None
++
++
++# 簽發器拒簽的原因:這兩種是這份提案的問題(擋下);其他(設定檔壞掉、不安全)是系統故障
++_BUSINESS_REFUSALS = {
++    "campaign_not_allowed": BlockCode.CAMPAIGN_NOT_ALLOWED,
++    "over_budget_cap": BlockCode.OVER_BUDGET_CAP,
++}
++
++
++def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
++    """執行前檢查裡看 DSP 現況的三項;「不在投放」排在版本之前,代碼比較有意義。"""
++    if view is None:
++        return BlockCode.CAMPAIGN_NOT_FOUND
++    if view.status != "active":
++        return BlockCode.CAMPAIGN_NOT_ACTIVE
++    if view.version != proposal.campaign_version_observed:
++        return BlockCode.VERSION_CHANGED
++    return None
++
++
++def intent_holds(proposal: Proposal, view: CampaignView) -> bool:
++    if proposal.action_type is ActionType.UPDATE_BUDGET:
++        return bool(view.budget == proposal.requested_change["new_budget"])
++    return view.status == "paused"
++
++
++@dataclass(frozen=True)
++class _Signed:
++    token: str
++    expires_at: datetime
++
++
++@dataclass(frozen=True)
++class Executor:
++    store: InboxStore
++    dsp: DspPort
++    signer: Signer
++    config_path: Path
++    clock: Callable[[], datetime]  # 單一動作的簡單回呼:照專案慣例用 Callable,不另開 Protocol
++
++    def process_one(self) -> Processed:
++        picked = self._pick()
++        if picked is None:
++            return Processed(Result.IDLE)
++        proposal = picked.proposal
++        if proposal.decision_expires_at <= self.clock():  # 過期先判,不必去讀 DSP
++            return self._dispose(picked, None, Result.EXPIRED)
++        try:
++            view = self.dsp.read_campaign(proposal.campaign_id)
++        except DspUnavailable:
++            return Processed(Result.DEFERRED)
++        signed = precheck(proposal, view) or self._sign(proposal)
++        if isinstance(signed, BlockCode):
++            return self._dispose(picked, signed, Result.BLOCKED)
++        taken = self._take(picked, signed)
++        if isinstance(taken, Processed):
++            return taken
++        self._record(proposal, taken, self.dsp.write(proposal, taken.key, signed.token))
++        return Processed(Result.EXECUTED, taken.key)
++
++    # ---- 第 1~4 步 ----
++    def _pick(self) -> PendingProposal | None:
++        """依收到時間由舊到新,跳過「同一個廣告已有未結案嘗試」的,挑第一份(只讀)。"""
++        with self.store.transaction() as tx:
++            for item in self.store.pending(tx):
++                if not attempt_store.unresolved_count(tx, item.proposal.campaign_id):
++                    return item
++        return None
++
++    def _sign(self, proposal: Proposal) -> _Signed | BlockCode:
++        now = int(self.clock().timestamp())  # 每次簽發都重讀時鐘
++        try:
++            token = self.signer.sign(proposal, operation_key(proposal), self.config_path, now)
++        except SigningRefused as refused:
++            if refused.reason in _BUSINESS_REFUSALS:
++                return _BUSINESS_REFUSALS[refused.reason]
++            raise ExecutorHalted(refused.reason) from refused
++        return _Signed(token, datetime.fromtimestamp(now + LIFETIME_SECONDS, UTC))
++
++    def _dispose(self, picked: PendingProposal, code: BlockCode | None, kind: Result) -> Processed:
++        """標已過期或已擋下;條件是仍待處理且內容雜湊沒變,被取代了就什麼都不改。"""
++        args = (picked.task_id, picked.revision, picked.content_hash)
++        with self.store.transaction() as tx:
++            done = (self.store.mark_expired(tx, *args) if code is None
++                    else self.store.block(tx, *args, code))
++        return Processed(kind, block_code=code) if done else Processed(Result.DEFERRED)
++
++    def _take(self, picked: PendingProposal, signed: _Signed) -> AttemptRow | Processed:
++        """取件與開始一筆在同一個交易裡;鍵已存在就依既有那把鍵的狀態分流。"""
++        args = (picked.task_id, picked.revision, picked.content_hash)
++        with self.store.transaction() as tx:
++            if not self.store.is_pending(tx, *args):  # 已被取代或內容不同
++                return Processed(Result.DEFERRED)
++            now = self.clock()
++            # 讀 DSP、讀設定檔簽發都可能剛好跨過到期時間:在開始一筆的同一個交易裡再判一次
++            if picked.proposal.decision_expires_at <= now:
++                self.store.mark_expired(tx, *args)
++                return Processed(Result.EXPIRED)
++            try:
++                begun = attempt_store.begin(tx, picked.proposal, now,
++                                            capability_expires_at=signed.expires_at)
++            except (attempt_store.TooManyUnresolved, attempt_store.CampaignLocked):
++                return Processed(Result.DEFERRED)  # 全表已滿是正常觸發;同廣告鎖住是防線
++            if begun.created or begun.row.state is not A.FAILED:
++                self.store.hand_off(tx, *args)
++                return begun.row if begun.created else Processed(
++                    Result.HANDED_OFF_TO_EXISTING, begun.row.key)
++            code = BlockCode.OPERATION_PREVIOUSLY_FAILED  # 人判過不做的操作不能貼成已交給執行
++            self.store.block(tx, *args, code)
++            return Processed(Result.BLOCKED, begun.row.key, code)
++
++    # ---- 第 6 步:寫結果 ----
++    def _write(
++        self, row: AttemptRow, target: AttemptState, *, code: OutcomeCode | None = None,
++        written_version: int | None = None, capability_expires_at: datetime | None = None,
++    ) -> AttemptRow:
++        with self.store.transaction() as tx:
++            new = attempt_store.transition(
++                tx, row.key, row.seq, target, self.clock(), code=code,
++                written_version=written_version, capability_expires_at=capability_expires_at)
++        if new is None:  # 這把鍵被別的東西改過:單一執行者下不該發生
++            raise ExecutorHalted("no_progress")
++        return new
++
++    def _record(self, proposal: Proposal, row: AttemptRow, answer: WriteAnswer) -> None:
++        reaction = react(answer)
++        if reaction.target is A.COMMITTED_UNVERIFIED:
++            self._verify(proposal, self._write(row, reaction.target,
++                                               written_version=answer.version_after))
++        elif reaction.capability_expired:
++            self._after_expiry(proposal, self._write(row, A.UNKNOWN))
++        else:
++            self._write(row, reaction.target, code=reaction.code)
++            if reaction.halt:
++                raise ExecutorHalted(str(reaction.code))
++
++    def _after_expiry(self, proposal: Proposal, row: AttemptRow) -> None:
++        """DSP 明確沒寫:重讀 DSP、重跑檢查;通過就重讀時鐘重簽、同鍵重送一次。"""
++        try:
++            view = self.dsp.read_campaign(proposal.campaign_id)
++        except DspUnavailable:
++            return  # 留在結果不明,交給對帳
++        passed = (proposal.decision_expires_at > self.clock()
++                  and precheck(proposal, view) is None)
++        signed = self._sign(proposal) if passed else None  # 設定檔壞掉在這裡停機,留在結果不明
++        if not isinstance(signed, _Signed):  # 業務上沒通過:DSP 明確沒寫,不再送
++            self._write(row, A.FAILED, code=C.NOT_HAPPENED)
++            return
++        try:
++            row = self._write(row, A.IN_FLIGHT, capability_expires_at=signed.expires_at)
++        except attempt_store.SendLimitReached:
++            self._write(row, A.ESCALATED, code=C.SEND_LIMIT_REACHED)
++            return
++        answer = self.dsp.write(proposal, row.key, signed.token)
++        reaction = react(answer)
++        if reaction.capability_expired:  # 用新讀的時間重簽後仍過期:時鐘或設定有問題
++            self._write(row, A.ESCALATED, code=C.CAPABILITY_REJECTED)
++        else:
++            self._record(proposal, row, answer)
++
++    # ---- 第 7 步:執行後驗證 ----
++    def _verify(self, proposal: Proposal, row: AttemptRow) -> None:
++        try:
++            verified = self._check_applied(proposal, row)
++        except DspUnavailable:
++            self._verification_timeout(row)
++            return
++        if verified:
++            self._write(row, A.VERIFIED)
++        else:
++            self._write(row, A.ESCALATED, code=C.VERIFICATION_MISMATCH)
++
++    def _check_applied(self, proposal: Proposal, row: AttemptRow) -> bool:
++        view = self.dsp.read_campaign(proposal.campaign_id)
++        written = row.written_version
++        if view is None or written is None:
++            return False
++        if view.version == written:
++            return intent_holds(proposal, view)
++        if view.version > written:  # 之後有人又改了:只證明我們的寫入套用過一次
++            return self.dsp.operation_version(row.key) == written
++        return False
++
++    def _verification_timeout(self, row: AttemptRow) -> None:
++        try:
++            with self.store.transaction() as tx:
++                recorded = attempt_store.record_verification_timeout(
++                    tx, row.key, row.seq, self.clock())
++        except attempt_store.VerificationTimeoutLimitReached:
++            self._write(row, A.ESCALATED, code=C.VERIFICATION_TIMEOUTS_EXHAUSTED)
++            return
++        if recorded is None:
++            raise ExecutorHalted("no_progress")
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 808ea0c..490daa6 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -11,46 +11,83 @@
+ `attempt_store`,但由這裡建立;嘗試紀錄的讀寫只能透過 `transaction()` 拿到已在交易中的連線,
+ 所以之後「取件與開始一筆」可以放進同一個交易。交易物件只在這裡建立(建立時要出示憑證),交易結束就作廢。
+ """
+ 
+ import json
+ import sqlite3
+ from collections.abc import Callable, Iterator
+ from contextlib import contextmanager
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
++from enum import StrEnum
+ from pathlib import Path
+ 
+-from rtb.domain.proposal import MAX_DECISION_LIFETIME, Proposal, content_hash
++from rtb.domain.proposal import MAX_DECISION_LIFETIME, Proposal, content_hash, parse_proposal
+ from rtb.executor import attempt_store
+ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate_transaction
+ 
+ DEFAULT_MAX_PENDING = 8
+ MAX_REVISIONS_PER_TASK = 50  # 一個任務最多修訂這麼多次;要更多就得換任務編號
+ MAX_ROWS = 5000  # 收件表總列數上限:取代鏈不佔名額,沒有這個上限就能無限寫入吃光磁碟
+ RETENTION = timedelta(hours=2)  # 沒有待處理的舊任務超過這個時間就整個清掉;必須比提案能活的時間長
+ CLOCK_SKEW = timedelta(minutes=5)  # 決策建立時間最多可以比現在晚這麼多
+ MAX_EVENTS_PER_CODE = 200  # 每種事件代碼各留最新這幾筆,一種事件灌爆不會洗掉別種事件的紀錄
++
++
++class Disposition(StrEnum):
++    """執行行程對一份提案的處置;空值代表還沒處置(仍待處理)。不動既有的狀態欄位。"""
++
++    HANDED_OFF = "handed_off"  # 已交給執行:由那把鍵的嘗試負責
++    BLOCKED = "blocked"  # 執行前檢查沒過,附擋下原因代碼
++
++
++class BlockCode(StrEnum):
++    """擋下原因(封閉列舉):每一種都有真實觸發路徑,見執行迴圈的執行前檢查。"""
++
++    CAMPAIGN_NOT_FOUND = "campaign_not_found"
++    CAMPAIGN_NOT_ACTIVE = "campaign_not_active"
++    VERSION_CHANGED = "version_changed"
++    CAMPAIGN_NOT_ALLOWED = "campaign_not_allowed"
++    OVER_BUDGET_CAP = "over_budget_cap"
++    OPERATION_PREVIOUSLY_FAILED = "operation_previously_failed"  # 同一把鍵先前已判定失敗
++
++
++def _in_list(values: type[StrEnum]) -> str:
++    return ", ".join(f"'{member.value}'" for member in values)
++
++
++# 補欄位時用的定義:資料庫自己也只收列舉值,繞過模組直接寫也寫不進去
++_DISPOSITION_COLUMN = f"disposition TEXT CHECK (disposition IN ({_in_list(Disposition)}))"
++_BLOCK_CODE_COLUMN = f"block_code TEXT CHECK (block_code IN ({_in_list(BlockCode)}))"
++# 「待處理」= 狀態待處理而且沒有處置;收件口每一條規則都用這一句,不各寫一份
++PENDING = "state = 'pending' AND disposition IS NULL"
+ EVENT_CODES = frozenset(
+     {"content_conflict", "revision_out_of_order", "inbox_full", "expired_proposal",
+      "expiry_too_far", "created_in_future", "too_many_revisions"}
+ )
+ SCHEMA = """
+ CREATE TABLE IF NOT EXISTS proposals (
+     task_id TEXT NOT NULL, revision INTEGER NOT NULL, content_hash TEXT NOT NULL,
+     state TEXT NOT NULL CHECK (state IN ('pending', 'superseded', 'expired')),
+     payload TEXT NOT NULL, expires_at TEXT NOT NULL, received_at TEXT NOT NULL,
++    DISPOSITION_COLUMN, BLOCK_CODE_COLUMN,
+     PRIMARY KEY (task_id, revision));
+ CREATE TABLE IF NOT EXISTS inbox_events (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT, revision INTEGER,
+     code TEXT NOT NULL, content_hash TEXT);
+-"""
++""".replace("DISPOSITION_COLUMN", _DISPOSITION_COLUMN).replace("BLOCK_CODE_COLUMN",
++                                                               _BLOCK_CODE_COLUMN)
++# 舊資料庫缺的欄位:表 -> [(欄位名, 補欄位定義)]
++_ADDED_COLUMNS = {
++    "proposals": [("disposition", _DISPOSITION_COLUMN), ("block_code", _BLOCK_CODE_COLUMN)],
++    "attempts": list(attempt_store.ADDED_COLUMNS),
++}
+ 
+ 
+ class InboxRejected(Exception):
+     """收件口拒收這份提案;code 是給呼叫者的固定錯誤代碼。"""
+ 
+     code = "rejected"
+     retryable = False
+ 
+     def __init__(self, message: str = "", highest_revision: int | None = None):
+         super().__init__(message or self.code)
+@@ -92,20 +129,28 @@ class TooManyRevisions(InboxRejected):
+     code = "too_many_revisions"
+ 
+ 
+ class InboxBusy(InboxRejected):
+     """資料庫忙碌到逾時:沒收到,可以重送。與 InboxFull 是不同的錯誤。"""
+ 
+     code = "busy"
+     retryable = True
+ 
+ 
++@dataclass(frozen=True)
++class PendingProposal:
++    task_id: str
++    revision: int
++    content_hash: str
++    proposal: Proposal
++
++
+ @dataclass(frozen=True)
+ class Accepted:
+     task_id: str
+     revision: int
+     state: str
+     content_hash: str
+     replayed: bool
+ 
+ 
+ def _check_revision_and_times(proposal: Proposal, highest: int, now: datetime) -> None:
+@@ -142,20 +187,44 @@ class InboxStore:
+         max_pending: int = DEFAULT_MAX_PENDING,
+         busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+     ):
+         if max_pending < 1:
+             raise ValueError("max_pending 必須至少是 1,否則收件口永遠不接受任何提案")
+         self._max_pending = max_pending
+         try:
+             self._conn = connect(path, busy_timeout_seconds, SCHEMA + attempt_store.SCHEMA)
+         except DatabaseBusy as exc:
+             raise InboxBusy(str(exc)) from exc
++        try:
++            self._migrate_columns()
++        except DatabaseBusy as exc:
++            self._conn.close()
++            raise InboxBusy(str(exc)) from exc
++        except BaseException:
++            self._conn.close()  # 補欄位失敗時不留下沒人關的連線
++            raise
++
++    def _missing_columns(self) -> list[tuple[str, str]]:
++        missing = []
++        for table, columns in _ADDED_COLUMNS.items():
++            present = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
++            missing += [(table, ddl) for name, ddl in columns if name not in present]
++        return missing
++
++    def _migrate_columns(self) -> None:
++        """沿用 DSP 與分析行程的補欄位做法:每次連線檢查,缺才在交易內補,拿到鎖後再查一次
++        (等鎖期間別的連線可能已經補好)。舊資料的新欄位一律是空值:處置空=仍待處理。"""
++        if not self._missing_columns():
++            return
++        with immediate_transaction(self._conn):
++            for table, ddl in self._missing_columns():
++                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+ 
+     def close(self) -> None:
+         self._conn.close()
+ 
+     @contextmanager
+     def transaction(self) -> Iterator[attempt_store.ExecutorTransaction]:
+         """執行行程資料庫的寫入交易:給嘗試紀錄這類同一個檔裡的其他表用。
+ 
+         正常結束就提交,任何例外都回滾;鎖不到丟 InboxBusy(跟收件一樣可以重試)。
+         """
+@@ -193,81 +262,145 @@ class InboxStore:
+                     before_commit()
+         except DatabaseBusy as exc:
+             raise InboxBusy(str(exc)) from exc
+         if rejection is not None:
+             raise rejection
+         return outcome
+ 
+     def _accept_in_transaction(self, proposal: Proposal, now: datetime) -> Accepted:
+         digest = content_hash(proposal)
+         self._conn.execute(
+-            "UPDATE proposals SET state = 'expired' WHERE state = 'pending' AND expires_at <= ?",
++            f"UPDATE proposals SET state = 'expired' WHERE {PENDING} AND expires_at <= ?",  # noqa: S608 - 固定條件
+             (_iso(now),),
+         )
+         self._purge_finished_tasks(now)
+         existing = self._conn.execute(
+-            "SELECT content_hash, state FROM proposals WHERE task_id = ? AND revision = ?",
++            "SELECT content_hash, coalesce(disposition, state) FROM proposals "
++            "WHERE task_id = ? AND revision = ?",
+             (proposal.task_id, proposal.revision),
+         ).fetchone()
+-        if existing is not None:
++        if existing is not None:  # 有處置時回處置,沒有才回原狀態
+             if existing[0] == digest:
+                 return Accepted(proposal.task_id, proposal.revision, existing[1], digest, True)
+             raise ContentConflict()
+         highest = self._highest_revision(proposal.task_id)
+         _check_revision_and_times(proposal, highest, now)
+         supersedes = self._has_pending(proposal.task_id, highest)
+         self._check_capacity(supersedes)
+         if supersedes:
+             self._conn.execute(
+                 "UPDATE proposals SET state = 'superseded' WHERE task_id = ? AND revision = ?",
+                 (proposal.task_id, highest),
+             )
+         self._conn.execute(
+-            "INSERT INTO proposals VALUES (?, ?, ?, 'pending', ?, ?, ?)",
++            "INSERT INTO proposals (task_id, revision, content_hash, state, payload, expires_at, "
++            "received_at) VALUES (?, ?, ?, 'pending', ?, ?, ?)",
+             (proposal.task_id, proposal.revision, digest, _payload(proposal),
+              _iso(proposal.decision_expires_at), _iso(now)),
+         )
+         return Accepted(proposal.task_id, proposal.revision, "pending", digest, False)
+ 
+     def _check_capacity(self, supersedes: bool) -> None:
+         """待處理數與總列數都要有空間;取代自己任務的舊提案會先釋放一個名額。"""
+         pending = self._conn.execute(
+-            "SELECT COUNT(*) FROM proposals WHERE state = 'pending'").fetchone()[0]
++            f"SELECT COUNT(*) FROM proposals WHERE {PENDING}").fetchone()[0]  # noqa: S608 - 固定條件
+         total = self._conn.execute("SELECT COUNT(*) FROM proposals").fetchone()[0]
+         if pending - (1 if supersedes else 0) >= self._max_pending or total >= MAX_ROWS:
+             raise InboxFull()
+ 
+     def _purge_finished_tasks(self, now: datetime) -> None:
+         """整個清掉「沒有待處理、而且最後一次收件已超過保留期限」的任務。
+ 
+         只清整個任務,不清單一修訂:修訂連號是拿最高修訂算的,清一半會讓序號倒退。保留期限比
+         提案能活的時間長,所以被清掉的提案再送來一定已過期,不會被當成新提案收下。
+         """
+         self._conn.execute(
+-            "DELETE FROM proposals WHERE task_id IN (SELECT task_id FROM proposals "
+-            "GROUP BY task_id HAVING SUM(state = 'pending') = 0 AND MAX(received_at) < ?)",
++            "DELETE FROM proposals WHERE task_id IN (SELECT task_id FROM proposals "  # noqa: S608 - 固定條件
++            f"GROUP BY task_id HAVING SUM({PENDING}) = 0 AND MAX(received_at) < ?)",
+             (_iso(now - RETENTION),),
+         )
+ 
+     def _highest_revision(self, task_id: str) -> int:
+         row = self._conn.execute(
+             "SELECT MAX(revision) FROM proposals WHERE task_id = ?", (task_id,)).fetchone()
+         return int(row[0] or 0)
+ 
+     def _has_pending(self, task_id: str, revision: int) -> bool:
+         if revision == 0:
+             return False
+         row = self._conn.execute(
+-            "SELECT state FROM proposals WHERE task_id = ? AND revision = ?",
++            f"SELECT 1 FROM proposals WHERE task_id = ? AND revision = ? AND {PENDING}",  # noqa: S608 - 固定條件
+             (task_id, revision),
+         ).fetchone()
+-        return bool(row and row[0] == "pending")
++        return row is not None
++
++    # ---- 執行迴圈用:都在 transaction() 開的交易裡做,條件都是「仍待處理且內容雜湊沒變」 ----
++    def _own(self, tx: attempt_store.ExecutorTransaction) -> None:
++        if type(tx) is not attempt_store.ExecutorTransaction or not tx.is_open or (
++                tx.conn is not self._conn):
++            raise attempt_store.NotInTransaction("只能在這個收件口自己開的交易裡處置提案")
++
++    def pending(self, tx: attempt_store.ExecutorTransaction) -> tuple[PendingProposal, ...]:
++        """待處理的提案,依收到時間由舊到新。存的內容讀不回提案的列跳過(不讓一列壞資料卡住全部)。"""
++        self._own(tx)
++        found = []
++        for task_id, revision, digest, payload in self._conn.execute(
++                f"SELECT task_id, revision, content_hash, payload FROM proposals WHERE {PENDING} "  # noqa: S608 - 固定條件
++                "ORDER BY received_at, task_id, revision"):
++            try:
++                parsed = parse_proposal(json.loads(payload))
++            except ValueError:
++                continue
++            if parsed.proposal is not None:
++                found.append(PendingProposal(task_id, revision, digest, parsed.proposal))
++        return tuple(found)
++
++    def _dispose(
++        self, tx: attempt_store.ExecutorTransaction, task_id: str, revision: int, digest: str,
++        assignment: str, values: tuple[str, ...],
++    ) -> bool:
++        self._own(tx)
++        cursor = self._conn.execute(
++            f"UPDATE proposals SET {assignment} WHERE task_id = ? AND revision = ? "  # noqa: S608 - 只拼接模組內固定的欄位
++            f"AND content_hash = ? AND {PENDING}",
++            (*values, task_id, revision, digest),
++        )
++        return cursor.rowcount == 1
++
++    def hand_off(
++        self, tx: attempt_store.ExecutorTransaction, task_id: str, revision: int, digest: str,
++    ) -> bool:
++        return self._dispose(tx, task_id, revision, digest, "disposition = ?",
++                             (Disposition.HANDED_OFF.value,))
++
++    def block(
++        self, tx: attempt_store.ExecutorTransaction, task_id: str, revision: int, digest: str,
++        code: BlockCode,
++    ) -> bool:
++        if type(code) is not BlockCode:
++            raise ValueError("擋下原因代碼必須是封閉列舉 BlockCode 的成員")
++        return self._dispose(tx, task_id, revision, digest, "disposition = ?, block_code = ?",
++                             (Disposition.BLOCKED.value, code.value))
++
++    def mark_expired(
++        self, tx: attempt_store.ExecutorTransaction, task_id: str, revision: int, digest: str,
++    ) -> bool:
++        """提案過期沿用既有的「已過期」狀態,不是擋下原因。"""
++        return self._dispose(tx, task_id, revision, digest, "state = 'expired'", ())
++
++    def is_pending(
++        self, tx: attempt_store.ExecutorTransaction, task_id: str, revision: int, digest: str,
++    ) -> bool:
++        self._own(tx)
++        return self._conn.execute(
++            "SELECT 1 FROM proposals WHERE task_id = ? AND revision = ? AND content_hash = ? "  # noqa: S608 - 固定條件
++            f"AND {PENDING}", (task_id, revision, digest)).fetchone() is not None
+ 
+     def record_event(self, code: str, proposal: Proposal, now: datetime) -> None:
+         """盡力而為:寫不進去(忙碌、磁碟滿)就放棄,不影響對呼叫者的回應。
+ 
+         只記「格式合法的提案被拒收」:格式不合法的請求不記,不然任何人都能用垃圾請求沖掉紀錄。
+         跟最近一筆完全相同的事件不重複記,同一個拒收重複很多次只留一筆。
+         """
+         if code not in EVENT_CODES:
+             raise ValueError("事件代碼必須是封閉列舉的成員")
+         try:
+diff --git a/src/rtb/executor/runner.py b/src/rtb/executor/runner.py
+new file mode 100644
+index 0000000..ea2fc14
+--- /dev/null
++++ b/src/rtb/executor/runner.py
+@@ -0,0 +1,143 @@
++"""執行迴圈的啟動程式:讀金鑰、拿單一執行者鎖、重啟恢復、印就緒訊號,之後每輪處理一筆。
++
++順序是合約:金鑰不可用就以非零代碼結束,連重啟恢復都不跑;拿不到鎖(已有另一個執行迴圈)
++也以非零代碼結束,同樣不跑重啟恢復——否則第二個執行迴圈的重啟恢復會把第一個正在跑的嘗試
++轉成結果不明,吞掉它的寫入結果。
++
++單一執行者鎖沿用專案既有的 SQLite 鎖,不引入檔案鎖:一條專用連線對一個專門當鎖用的小
++SQLite 檔開一個不提交的「立即取得寫入鎖」交易,忙碌等待設 0;行程活著就一直握著,行程死了
++作業系統自動放掉。不能直接鎖執行行程資料庫本身:握著它的寫入鎖,收件口就收不了提案。
++鎖檔名由資料庫的實體身分(裝置與 inode 編號)決定,放在真實路徑的同一個目錄,所以相對路徑、
++符號連結、同目錄的硬連結指到同一個資料庫,算出來都是同一把鎖(不同目錄的硬連結
++算不到,屬於刻意繞過)。先拿鎖、才用 SQLite 開資料庫:經別的檔名開同一個資料庫
++會用另一組 WAL 檔。鎖檔不走共用連線函式:那個函式會切
++WAL,多出的附屬檔在鎖檔被刪掉重建時會跟新檔對不上。程式從不刪鎖檔;每一輪開頭核對它還是
++當初那一個,不是就停下(威脅模型是防忘記,不防刻意繞過)。
++"""
++
++import argparse
++import os
++import sqlite3
++import sys
++import time
++from collections.abc import Callable, Mapping
++from datetime import datetime
++from pathlib import Path
++from typing import TextIO
++
++from rtb.capabilitykit import read_key
++from rtb.executor import attempt_store
++from rtb.executor.capability_signer import CapabilitySigner
++from rtb.executor.dsp_client import DspClient
++from rtb.executor.execution import DspPort, Executor, ExecutorHalted, Result
++from rtb.executor.inbox_store import InboxBusy, InboxStore, utc_now
++from rtb.sqlitekit import DatabaseBusy, begin_immediate
++
++EXIT_NO_KEY = 2
++EXIT_LOCKED = 3
++EXIT_HALTED = 4
++READY = "READY"
++_IDLE_RESULTS = frozenset({Result.IDLE, Result.DEFERRED})
++
++
++class LockHeld(Exception):
++    """已有另一個執行迴圈握著這個資料庫的鎖。"""
++
++
++class RunnerLock:
++    def __init__(self, db_path: Path):
++        real = Path(os.path.realpath(db_path))
++        identity = os.stat(real)
++        # 鎖名只看資料庫檔的實體身分(裝置與 inode),不含檔名:同目錄的硬連結也算到同一把鎖。
++        # 不同目錄的硬連結會落在不同目錄,算不到同一把——那要刻意做,屬於繞過不是忘記
++        self.path = real.parent / f".rtb-runner-{identity.st_dev}-{identity.st_ino}.lock"
++        conn = sqlite3.connect(self.path, timeout=0, isolation_level=None)
++        try:
++            begin_immediate(conn)
++        except DatabaseBusy as exc:
++            conn.close()
++            raise LockHeld(str(self.path)) from exc
++        self._conn = conn
++        self._inode = os.stat(self.path).st_ino
++
++    def still_ours(self) -> bool:
++        try:
++            return os.stat(self.path).st_ino == self._inode
++        except FileNotFoundError:
++            return False
++
++    def release(self) -> None:
++        self._conn.close()
++
++
++def _parse(argv: list[str] | None) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="執行迴圈")
++    parser.add_argument("--db", required=True, type=Path)
++    parser.add_argument("--dsp-url", required=True)
++    parser.add_argument("--tenant-config", required=True, type=Path)
++    parser.add_argument("--interval-seconds", type=float, default=1.0)
++    parser.add_argument("--dsp-timeout-seconds", type=float, default=5.0)
++    return parser.parse_args(argv)
++
++
++def _loop(
++    executor: Executor, lock: RunnerLock, interval: float, max_rounds: int | None,
++    sleep: Callable[[float], None],
++) -> int:
++    rounds = 0
++    while max_rounds is None or rounds < max_rounds:
++        rounds += 1
++        if not lock.still_ours():
++            sys.stderr.write("停機:單一執行者鎖檔被換掉了\n")
++            return EXIT_HALTED
++        try:
++            result = executor.process_one()
++        except (ExecutorHalted, InboxBusy) as halted:  # 出事就停,讓人注意到;重啟時會做恢復
++            sys.stderr.write(f"停機:{halted}\n")
++            return EXIT_HALTED
++        if result.kind in _IDLE_RESULTS:
++            sleep(interval)
++    return 0
++
++
++def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
++    argv: list[str] | None = None, *, environ: Mapping[str, str] | None = None,
++    clock: Callable[[], datetime] = utc_now, dsp: DspPort | None = None, out: TextIO | None = None,
++    max_rounds: int | None = None, sleep: Callable[[float], None] = time.sleep,
++) -> int:
++    args = _parse(argv)
++    try:  # 只有啟動程式經共用模組讀金鑰環境變數
++        signer = CapabilitySigner(read_key(os.environ if environ is None else environ))
++    except ValueError as error:
++        sys.stderr.write(f"拒絕啟動:{error}\n")
++        return EXIT_NO_KEY
++    # 先拿鎖、才用 SQLite 開資料庫:同一個資料庫若經硬連結以別的檔名開,SQLite 會用另一組
++    # WAL 檔,可能損壞資料。鎖名要資料庫檔的 inode,所以只用作業系統建一個空檔(不截斷既有的)
++    os.close(os.open(args.db, os.O_RDONLY | os.O_CREAT, 0o600))
++    try:
++        lock = RunnerLock(args.db)
++    except LockHeld:
++        sys.stderr.write("拒絕啟動:已有另一個執行迴圈在跑\n")
++        return EXIT_LOCKED
++    store = InboxStore(args.db)
++    try:
++        now: datetime = clock()
++        with store.transaction() as tx:
++            recovery = attempt_store.recover_in_flight(tx, now)
++        if recovery.unreadable:
++            sys.stderr.write(f"讀不回來的嘗試(要人處理):{', '.join(recovery.unreadable)}\n")
++        print(READY, file=out or sys.stdout, flush=True)
++        executor = Executor(store, dsp or DspClient(args.dsp_url, args.dsp_timeout_seconds),
++                            signer, args.tenant_config, clock)
++        return _loop(executor, lock, args.interval_seconds, max_rounds, sleep)
++    finally:
++        store.close()
++        lock.release()
++
++
++def main(argv: list[str] | None = None) -> None:
++    raise SystemExit(run(argv))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/rtb/httpclient.py b/src/rtb/httpclient.py
+index db3c172..3ffa506 100644
+--- a/src/rtb/httpclient.py
++++ b/src/rtb/httpclient.py
+@@ -18,20 +18,23 @@ from typing import Any
+ from urllib.error import HTTPError
+ from urllib.request import HTTPRedirectHandler, Request, build_opener
+ 
+ MAX_RESPONSE_BYTES = 64 * 1024  # 跟 httpkit.py 的 MAX_BODY_BYTES 對稱:回應本文也不能無界讀入記憶體
+ 
+ 
+ class ClientHeader(StrEnum):
+     """本專案的用戶端允許送出的標頭,封閉列舉;要加新的就在這裡加一個成員,不開放任意字串。"""
+ 
+     IDEMPOTENCY_KEY = "Idempotency-Key"
++    # 寫入能力憑證。字串照抄共用格式模組的標頭名稱,由測試比對兩邊一致;不匯入那個模組,
++    # 免得分析行程經共用用戶端間接載入憑證模組
++    CAPABILITY = "X-Capability"
+ 
+ 
+ class _NoRedirect(HTTPRedirectHandler):
+     """回 None 讓 urllib 把 3xx 當成一般的錯誤狀態碼丟 HTTPError,不建新請求去跟。"""
+ 
+     def redirect_request(
+         self, _req: Request, _fp: Any, _code: int, _msg: str, _headers: Any, _newurl: str,
+     ) -> Request | None:
+         return None
+ 
+diff --git a/tests/analyzer/test_boundaries.py b/tests/analyzer/test_boundaries.py
+index e274e44..f62cb62 100644
+--- a/tests/analyzer/test_boundaries.py
++++ b/tests/analyzer/test_boundaries.py
+@@ -141,10 +141,31 @@ def test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer():
+             names = []
+             if isinstance(node, ast.Import):
+                 names = [alias.name for alias in node.names]
+             elif isinstance(node, ast.ImportFrom):
+                 names = [node.module or ""]
+             for name in names:
+                 if name.startswith(("rtb.executor", "rtb.capabilitykit")):
+                     offenders.append((file.name, name))
+     assert offenders == []
+     assert capability_signer.__name__.startswith("rtb.executor.")  # 簽發器住在被禁的套件裡
++
++
++def test_importing_the_analyzer_does_not_load_the_capability_module():
++    """S30 的補強:原始碼掃描只看直接匯入;這裡在乾淨的子行程裡載入整個分析行程,
++    確認連間接匯入(例如經共用 HTTP 用戶端)都沒有把憑證模組帶進來。"""
++    import os
++    import subprocess
++    import sys
++
++    src = Path(__file__).resolve().parents[2] / "src"
++    analyzer = src / "rtb" / "analyzer"
++    modules = sorted(f"rtb.analyzer.{f.stem}" for f in analyzer.glob("*.py")
++                     if f.stem != "__init__")
++    code = ("import importlib, sys\n"
++            f"for name in {modules!r}: importlib.import_module(name)\n"
++            "banned = ('rtb.capabilitykit', 'rtb.executor')\n"
++            "print(sorted(m for m in sys.modules if m.startswith(banned)))")
++    env = {**os.environ, "PYTHONPATH": str(src)}
++    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
++                         check=True, env=env)
++    assert out.stdout.strip() == "[]"
+diff --git a/tests/domain/test_attempt.py b/tests/domain/test_attempt.py
+index 7b87eca..f49616b 100644
+--- a/tests/domain/test_attempt.py
++++ b/tests/domain/test_attempt.py
+@@ -232,15 +232,21 @@ def test_no_domain_module_defines_its_own_time_zone_check():
+     offenders = [f.name for f in domain.rglob("*.py")
+                  if f.name != "_checks.py" and "utcoffset()" in f.read_text(encoding="utf-8")]
+     assert offenders == []
+     assert not hasattr(evidence, "_is_aware")
+ 
+ 
+ # ---- 寫入能力憑證 S35 ----
+ def test_capability_rejected_is_an_escalation_code_and_the_old_codes_are_unchanged():
+     assert C.CAPABILITY_REJECTED.value == "capability_rejected"
+     assert C.CAPABILITY_REJECTED in ESCALATION_CODES
+-    assert {c.value for c in OutcomeCode} - {"capability_rejected"} == {
++    assert {c.value for c in OutcomeCode} - {"capability_rejected", "local_request_error"} == {
+         "version_conflict", "validation_rejected", "campaign_not_found", "other_rejection",
+         "not_happened", "manual_failure", "idempotency_conflict",
+         "verification_timeouts_exhausted", "send_limit_reached", "verification_mismatch",
+         "cannot_prove_not_happened"}
++
++
++# ---- 執行一筆 S61(領域層那一半):只新增「本地請求錯誤」,而且是轉人工類 ----
++def test_local_request_error_is_the_only_new_code_and_an_escalation():
++    assert C.LOCAL_REQUEST_ERROR.value == "local_request_error"
++    assert C.LOCAL_REQUEST_ERROR in ESCALATION_CODES
+diff --git a/tests/executor/fakes.py b/tests/executor/fakes.py
+new file mode 100644
+index 0000000..0b255f2
+--- /dev/null
++++ b/tests/executor/fakes.py
+@@ -0,0 +1,125 @@
++"""執行迴圈測試共用的替身:假的 DSP 讀寫用戶端、租戶設定檔、帶一份提案的收件口。
++
++假 DSP 預設照真 DSP 的語意回應(寫入成功就升版本、記操作紀錄);測試要模擬別的回應就排進
++`answers`,要在呼叫當下插一腳(例如趁讀取時送新修訂)就設 `on_read`/`on_write`。
++"""
++
++import json
++import os
++from dataclasses import replace
++from pathlib import Path
++
++from rtb.domain.proposal import ActionType, parse_proposal
++from rtb.executor.capability_signer import CapabilitySigner
++from rtb.executor.execution import CampaignView, DspUnavailable, Executor, WriteAnswer
++from rtb.executor.inbox_store import InboxStore
++from tests.capability_samples import TEST_KEY
++from tests.domain.proposal_samples import valid
++
++
++def proposal(**overrides):
++    parsed = parse_proposal(valid(**overrides))
++    assert parsed.proposal is not None, parsed.errors
++    return parsed.proposal
++
++
++def write_config(path: Path, campaigns=("c1", "c2", "c3"), max_budget=1000):
++    path.write_text(json.dumps({"tenants": {"t-default": {
++        "campaigns": list(campaigns), "max_budget": max_budget}}}), encoding="utf-8")
++    os.chmod(path, 0o600)
++    return path
++
++
++class FakeDsp:
++    def __init__(self):
++        self.campaigns = {c: CampaignView(budget=100, status="active", version=3)
++                          for c in ("c1", "c2", "c3")}
++        self.answers: list[WriteAnswer] = []  # 排好的寫入回應;空了就照真 DSP 的語意成功
++        self.read_failures = 0  # 接下來幾次讀取要失敗
++        self.lookup_failures = 0
++        self.operations: dict[str, int] = {}  # 冪等鍵 -> 寫入後版本
++        self.writes: list[tuple] = []
++        self.reads: list[str] = []
++        self.lookups: list[str] = []
++        self.on_read = self.on_write = self.on_call = None
++
++    def _called(self, kind):
++        if self.on_call is not None:
++            self.on_call(kind)
++
++    def read_campaign(self, campaign_id):
++        self._called("read")
++        self.reads.append(campaign_id)
++        if self.on_read is not None:
++            self.on_read(campaign_id)
++        if self.read_failures:
++            self.read_failures -= 1
++            raise DspUnavailable("讀取失敗")
++        return self.campaigns.get(campaign_id)
++
++    def write(self, prop, key, token):
++        self._called("write")
++        self.writes.append((prop, key, token))
++        if self.on_write is not None:
++            self.on_write(prop, key, token)
++        if self.answers:
++            return self.answers.pop(0)
++        return self.apply(prop, key)
++
++    def apply(self, prop, key):
++        """照真 DSP 的語意套用一次寫入:升版本、記操作紀錄。"""
++        current = self.campaigns[prop.campaign_id]
++        if prop.action_type is ActionType.UPDATE_BUDGET:
++            updated = replace(current, budget=prop.requested_change["new_budget"],
++                              version=current.version + 1)
++        else:
++            updated = replace(current, status="paused", version=current.version + 1)
++        self.campaigns[prop.campaign_id] = updated
++        self.operations[key] = updated.version
++        return WriteAnswer(200, None, updated.version)
++
++    def operation_version(self, key):
++        self._called("lookup")
++        self.lookups.append(key)
++        if self.lookup_failures:
++            self.lookup_failures -= 1
++            raise DspUnavailable("查詢失敗")
++        return self.operations.get(key)
++
++
++class Harness:
++    """一個執行行程資料庫 + 假 DSP + 真的簽發器與租戶設定檔,時間由測試控制。"""
++
++    def __init__(self, tmp_path, clock, max_pending=20):
++        self.tmp_path, self.clock = tmp_path, clock
++        self.db = tmp_path / "executor.db"
++        self.store = InboxStore(self.db, max_pending=max_pending)
++        self.dsp = FakeDsp()
++        self.config = write_config(tmp_path / "tenants.json")
++        self.signer = CapabilitySigner(TEST_KEY)
++
++    def executor(self):
++        return Executor(self.store, self.dsp, self.signer, self.config, self.clock)
++
++    def submit(self, **overrides):
++        prop = proposal(**overrides)
++        self.store.accept(prop, self.clock)
++        return prop
++
++    def process(self):
++        return self.executor().process_one()
++
++    def query(self, sql, params=()):
++        with self.store.transaction() as tx:
++            return tx.conn.execute(sql, params).fetchall()
++
++    def attempts(self):
++        return self.query("SELECT key, seq, state, code, send_count, written_version "
++                          "FROM attempts ORDER BY key, seq")
++
++    def proposals(self):
++        return self.query("SELECT task_id, revision, state, disposition, block_code "
++                          "FROM proposals ORDER BY task_id, revision")
++
++    def close(self):
++        self.store.close()
+diff --git a/tests/executor/test_attempt_store.py b/tests/executor/test_attempt_store.py
+index c363bb3..8aebfd0 100644
+--- a/tests/executor/test_attempt_store.py
++++ b/tests/executor/test_attempt_store.py
+@@ -33,20 +33,31 @@ from rtb.executor.attempt_store import (
+     SendLimitReached,
+     TooManyUnresolved,
+     VerificationTimeoutLimitReached,
+ )
+ from rtb.executor.inbox_store import InboxStore
+ from tests.domain.proposal_samples import valid
+ 
+ A = AttemptState
+ C = OutcomeCode
+ NOW = datetime(2026, 9, 22, 12, 5, tzinfo=UTC)
++EXPIRES = NOW + timedelta(minutes=2)  # 這次送出所帶憑證的到期時間(執行一筆起每次送出都要帶)
++WRITTEN = 4  # DSP 回報的寫入後版本(轉進已提交待驗證要帶)
++
++
++def send_fields(target):
++    """轉進嘗試中要帶憑證到期時間、轉進已提交待驗證要帶寫入後版本;其他轉換都不帶。"""
++    if target is A.IN_FLIGHT:
++        return {"capability_expires_at": EXPIRES}
++    if target is A.COMMITTED_UNVERIFIED:
++        return {"written_version": WRITTEN}
++    return {}
+ 
+ # 走到每一種狀態的真實轉換路徑(每一步:目標狀態、結果代碼)
+ SHORT_PATHS = {
+     A.IN_FLIGHT: [],
+     A.UNKNOWN: [(A.UNKNOWN, None)],
+     A.COMMITTED_UNVERIFIED: [(A.COMMITTED_UNVERIFIED, None)],
+     A.VERIFIED: [(A.COMMITTED_UNVERIFIED, None), (A.VERIFIED, None)],
+     A.FAILED: [(A.FAILED, C.VERSION_CONFLICT)],
+     A.ESCALATED: [(A.ESCALATED, C.IDEMPOTENCY_CONFLICT)],
+ }
+@@ -67,38 +78,38 @@ def store(tmp_path):
+ 
+ 
+ def proposal(**overrides):
+     parsed = parse_proposal(valid(**overrides))
+     assert parsed.proposal is not None, parsed.errors
+     return parsed.proposal
+ 
+ 
+ def begin(store, prop, now=NOW):
+     with store.transaction() as tx:
+-        return attempt_store.begin(tx, prop, now)
++        return attempt_store.begin(tx, prop, now, capability_expires_at=EXPIRES)
+ 
+ 
+ def latest(store, key):
+     with store.transaction() as tx:
+         return attempt_store.latest(tx, key)
+ 
+ 
+ def history(store, key):
+     with store.transaction() as tx:
+         return attempt_store.history(tx, key)
+ 
+ 
+ def step(store, key, target, code=None, detail=None):
+     with store.transaction() as tx:
+         current = attempt_store.latest(tx, key)
+         return attempt_store.transition(tx, key, current.seq, target, NOW,
+-                                        code=code, detail=detail)
++                                        code=code, detail=detail, **send_fields(target))
+ 
+ 
+ def timeout(store, key):
+     seq = latest(store, key).seq
+     with store.transaction() as tx:
+         return attempt_store.record_verification_timeout(tx, key, seq, NOW)
+ 
+ 
+ def walk(store, key, path):
+     for target, code in path:
+@@ -140,21 +151,21 @@ def test_beginning_a_new_attempt_commits_the_first_row_with_the_full_proposal_sn
+     assert '"evidence_refs"' in first[4] and '"decision_expires_at"' in first[4]
+     with store.transaction() as tx:
+         assert attempt_store.snapshot(tx, row.key) == prop
+ 
+ 
+ def test_nothing_is_visible_to_others_until_the_transaction_commits(store, tmp_path):
+     reader = sqlite3.connect(tmp_path / "executor.db")  # 只讀的旁觀者,不搶寫入鎖
+     query = "SELECT COUNT(*) FROM attempts"
+     try:
+         with store.transaction() as tx:
+-            attempt_store.begin(tx, proposal(), NOW)
++            attempt_store.begin(tx, proposal(), NOW, capability_expires_at=EXPIRES)
+             assert reader.execute(query).fetchone()[0] == 0  # 呼叫端的交易還沒提交
+         assert reader.execute(query).fetchone()[0] == 1
+     finally:
+         reader.close()
+ 
+ 
+ # ---- [S5] ----
+ @pytest.mark.parametrize("state", list(AttemptState))
+ def test_beginning_an_existing_key_returns_its_current_row_unchanged_in_every_state(store, state):
+     key = start_in(store, state)
+@@ -561,28 +572,29 @@ def test_the_attempt_store_neither_reaches_the_network_nor_opens_its_own_connect
+     assert "BEGIN" not in strings and "COMMIT" not in strings and "ROLLBACK" not in strings
+ 
+ 
+ def test_only_a_transaction_from_the_executor_database_entry_is_accepted(store, tmp_path):
+     """自己開的連線、自己下 BEGIN(延遲交易,不排隊搶寫入鎖)都不算;
+     交易物件的連線已不在交易中也不算。"""
+     bare = sqlite3.connect(tmp_path / "executor.db", isolation_level=None)
+     try:
+         bare.execute("BEGIN")
+         with pytest.raises(NotInTransaction):
+-            attempt_store.begin(bare, proposal(), NOW)
++            attempt_store.begin(bare, proposal(), NOW, capability_expires_at=EXPIRES)
+         bare.execute("ROLLBACK")
+     finally:
+         bare.close()
+     with store.transaction() as tx:
+         pass
+     with pytest.raises(NotInTransaction):
+-        attempt_store.begin(tx, proposal(), NOW)  # 交易已結束,拿舊物件再寫也不行
++        # 交易已結束,拿舊物件再寫也不行
++        attempt_store.begin(tx, proposal(), NOW, capability_expires_at=EXPIRES)
+     assert all_rows(store) == []
+ 
+ 
+ def test_a_transaction_object_cannot_be_built_without_the_entry_s_issuer(tmp_path):
+     """執行期就擋:不是交易入口發的(不管是直接建、換別名建、或子類別)都不收。"""
+     bare = sqlite3.connect(tmp_path / "executor.db", isolation_level=None)
+     try:
+         bare.execute("BEGIN")
+         with pytest.raises(NotInTransaction):
+             attempt_store.ExecutorTransaction(bare, object())
+@@ -597,29 +609,29 @@ def test_a_transaction_object_cannot_be_built_without_the_entry_s_issuer(tmp_pat
+ def test_a_subclass_of_the_transaction_object_is_not_accepted(store):
+     class Imitation(attempt_store.ExecutorTransaction):
+         pass
+ 
+     with store.transaction() as tx:
+         fake = object.__new__(Imitation)  # 不經建構子,把真交易物件的內容整份複製過去
+         for slot in attempt_store.ExecutorTransaction.__slots__:
+             object.__setattr__(fake, slot, object.__getattribute__(tx, slot))
+         assert fake.is_open  # 除了型別,其他都跟真的一樣
+         with pytest.raises(NotInTransaction):
+-            attempt_store.begin(fake, proposal(), NOW)
++            attempt_store.begin(fake, proposal(), NOW, capability_expires_at=EXPIRES)
+     assert all_rows(store) == []
+ 
+ 
+ def test_a_finished_transaction_object_stays_dead_even_when_the_connection_opens_another(store):
+     with store.transaction() as stale:
+         pass
+     with store.transaction(), pytest.raises(NotInTransaction):
+-        attempt_store.begin(stale, proposal(), NOW)
++        attempt_store.begin(stale, proposal(), NOW, capability_expires_at=EXPIRES)
+     assert all_rows(store) == []
+ 
+ 
+ def test_only_the_executor_database_module_refers_to_the_issuer():
+     """原始碼層面也看一次:憑證只准在嘗試紀錄模組定義、在收件口資料庫模組使用。"""
+     src = Path(attempt_store.__file__).resolve().parents[1]
+     users = sorted({file.name for file in src.rglob("*.py")
+                     if "_EXECUTOR_TRANSACTION_ISSUER" in file.read_text(encoding="utf-8")})
+     assert users == ["attempt_store.py", "inbox_store.py"]
+     assert not hasattr(attempt_store, "EXECUTOR_TRANSACTION_ISSUER")  # 名稱是私有的
+@@ -646,36 +658,37 @@ def test_the_only_place_that_issues_a_transaction_opens_it_with_the_write_lock()
+     assert "immediate_transaction" in called
+     source = ast.get_source_segment(Path(inbox_store.__file__).read_text(encoding="utf-8"),
+                                     function) or ""
+     assert "BEGIN" not in source.upper().replace("IMMEDIATE_TRANSACTION", "")
+ 
+ 
+ def test_writes_outside_a_transaction_are_refused(tmp_path):
+     conn = sqlite3.connect(tmp_path / "bare.db", isolation_level=None)
+     try:
+         with pytest.raises(NotInTransaction):
+-            attempt_store.begin(conn, proposal(), NOW)
++            attempt_store.begin(conn, proposal(), NOW, capability_expires_at=EXPIRES)
+     finally:
+         conn.close()
+ 
+ 
+ # ---- 時間、序號與毀損資料 ----
+ NAIVE = datetime(2026, 9, 22, 12, 5)  # 沒有時區
+ 
+ 
+ def test_a_time_without_a_time_zone_is_refused_by_every_write_and_nothing_is_written(store):
+     key = start_in(store, A.UNKNOWN)
+     escalated = start_in(store, A.ESCALATED, campaign_id="esc")
+     in_flight = start_in(store, A.IN_FLIGHT, campaign_id="fl")
+     before = all_rows(store)
+     writes = [
+-        lambda tx: attempt_store.begin(tx, proposal(campaign_id="new"), NAIVE),
++        lambda tx: attempt_store.begin(tx, proposal(campaign_id="new"), NAIVE,
++                                       capability_expires_at=EXPIRES),
+         lambda tx: attempt_store.transition(tx, key, 2, A.IN_FLIGHT, NAIVE),
+         lambda tx: attempt_store.record_verification_timeout(tx, key, 2, NAIVE),
+         lambda tx: attempt_store.resolve(tx, escalated, 2, A.FAILED, "checked by hand", NAIVE),
+         lambda tx: attempt_store.recover_in_flight(tx, NAIVE),
+     ]
+     for write in writes:
+         with pytest.raises(ValueError), store.transaction() as tx:
+             write(tx)
+     assert all_rows(store) == before
+     assert latest(store, in_flight).state is A.IN_FLIGHT
+@@ -690,21 +703,22 @@ def test_an_expected_sequence_that_is_not_a_plain_integer_is_refused(store, seq)
+         attempt_store.transition(tx, key, seq, A.UNKNOWN, NOW)
+ 
+     assert all_rows(store) == before
+ 
+ 
+ def _tamper_snapshot(store, key, text):
+     with store.transaction() as tx:
+         tx.conn.execute("DELETE FROM attempts WHERE key = ?", (key,))  # 測試模擬毀損,只在測試裡
+         tx.conn.execute(
+             "INSERT INTO attempts VALUES (?, 1, 'c1', 'in_flight', NULL, NULL, 1, 0, "
+-            "'2026-09-22T12:05:00.000000Z', 't1', 1, 'update_budget', 3, ?)", (key, text))
++            "'2026-09-22T12:05:00.000000Z', 't1', 1, 'update_budget', 3, ?, NULL, NULL)",
++            (key, text))
+ 
+ 
+ def test_a_snapshot_that_is_not_json_reads_back_as_a_corrupted_row(store):
+     key = begin(store, proposal()).row.key
+     _tamper_snapshot(store, key, "{not valid json!!")
+ 
+     with pytest.raises(CorruptedAttemptRow), store.transaction() as tx:
+         attempt_store.snapshot(tx, key)
+ 
+ 
+@@ -786,10 +800,50 @@ def test_the_unresolved_counts_use_the_partial_indexes_instead_of_rereading_ever
+             plan = " ".join(str(row[3]) for row in tx.conn.execute(
+                 "EXPLAIN QUERY PLAN " + query, params))
+             assert "INDEX" in plan, plan
+             assert "CORRELATED" not in plan.upper(), plan
+ 
+ 
+ def test_the_time_is_stored_as_given(store):
+     later = NOW + timedelta(minutes=3)
+     key = begin(store, proposal(), later).row.key
+     assert latest(store, key).written_at == later
++
++
++# ---- 執行一筆 [S66] ----
++def test_entering_committed_unverified_requires_the_written_version(store, tmp_path):
++    key = begin(store, proposal()).row.key
++    before = all_rows(store)
++    for bad in (None, 0, True, "4", 4.0):
++        with store.transaction() as tx, pytest.raises(attempt_store.IncompleteRow):
++            attempt_store.transition(tx, key, 1, A.COMMITTED_UNVERIFIED, NOW, written_version=bad)
++    with store.transaction() as tx, pytest.raises(InvalidOutcome):  # 別的轉換不能夾帶寫入後版本
++        attempt_store.transition(tx, key, 1, A.UNKNOWN, NOW, written_version=4)
++    assert all_rows(store) == before
++
++    committed = step(store, key, A.COMMITTED_UNVERIFIED)
++    assert committed.written_version == WRITTEN
++    verified = step(store, key, A.VERIFIED)  # 之後的列往下帶,跨重新開啟資料庫讀得回來
++    reopened = InboxStore(tmp_path / "executor.db")
++    try:
++        with reopened.transaction() as tx:
++            assert attempt_store.latest(tx, key).written_version == WRITTEN
++    finally:
++        reopened.close()
++    assert verified.written_version == WRITTEN
++
++
++def test_every_new_in_flight_row_requires_the_capability_expiry(store):
++    """S65 的儲存層那一半:開始一筆與重送都要帶這次送出所帶憑證的到期時間,缺了就拒絕寫入。"""
++    naive = datetime(2026, 9, 22, 12, 7)
++    for bad in (None, naive, "2026-09-22T12:07:00Z"):
++        with store.transaction() as tx, pytest.raises((attempt_store.IncompleteRow, ValueError)):
++            attempt_store.begin(tx, proposal(), NOW, capability_expires_at=bad)
++    assert all_rows(store) == []
++    key = start_in(store, A.UNKNOWN)
++    with store.transaction() as tx, pytest.raises(attempt_store.IncompleteRow):
++        attempt_store.transition(tx, key, 2, A.IN_FLIGHT, NOW)
++    later = EXPIRES + timedelta(minutes=5)
++    with store.transaction() as tx:
++        resent = attempt_store.transition(tx, key, 2, A.IN_FLIGHT, NOW, capability_expires_at=later)
++    assert resent.capability_expires_at == later
++    assert step(store, key, A.UNKNOWN).capability_expires_at == later  # 往下帶給對帳用
+diff --git a/tests/executor/test_execution.py b/tests/executor/test_execution.py
+new file mode 100644
+index 0000000..0c8b4b9
+--- /dev/null
++++ b/tests/executor/test_execution.py
+@@ -0,0 +1,522 @@
++"""執行迴圈的「處理一筆」:執行一筆(Phase 3 增量 3)的流程合約,DSP 用替身。
++
++端到端(真的 DSP 行程)見 test_execution_e2e.py;啟動程式見 test_runner.py。
++"""
++
++import os
++import sqlite3
++from datetime import UTC, datetime, timedelta
++
++import pytest
++
++from rtb.capabilitykit import decode
++from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
++from rtb.executor import attempt_store
++from rtb.executor.capability_signer import LIFETIME_SECONDS
++from rtb.executor.execution import (
++    RESPONSE_TABLE,
++    CampaignView,
++    ExecutorHalted,
++    Result,
++    WriteAnswer,
++    react,
++)
++from rtb.executor.inbox_store import BlockCode
++from tests.capability_samples import TEST_KEY
++from tests.executor.fakes import Harness, proposal
++
++A = AttemptState
++C = OutcomeCode
++
++
++@pytest.fixture
++def h(tmp_path, clock):
++    harness = Harness(tmp_path, clock)
++    yield harness
++    harness.close()
++
++
++def key_of(prop):
++    return operation_key(prop)
++
++
++def states(h, prop):
++    return [(row[2], row[3]) for row in h.attempts() if row[0] == key_of(prop)]
++
++
++def expiry_of(token):
++    return datetime.fromtimestamp(decode(token, TEST_KEY)["exp"], UTC)
++
++
++# ---- [S42] ----
++def test_an_expired_proposal_is_marked_expired_without_touching_the_dsp(h):
++    h.submit()
++    h.clock.advance(minutes=30)  # 12:35,提案 12:30 到期
++
++    result = h.process()
++
++    assert result.kind is Result.EXPIRED
++    assert h.proposals() == [("t1", 1, "expired", None, None)]
++    assert h.attempts() == []
++    assert h.dsp.reads == [] and h.dsp.writes == []
++
++
++# ---- [S43] ----
++def test_a_proposal_that_expires_while_the_dsp_is_read_is_not_executed(h):
++    """讀 DSP 期間剛好跨過到期時間:讀完要再判一次,不能簽發、開嘗試或寫入。"""
++    prop = h.submit()
++    h.dsp.on_read = lambda _c: h.clock.advance(hours=2)  # 讀取回來時提案已過期
++    assert prop.decision_expires_at > h.clock()  # 前置:開始處理時還沒過期
++
++    assert h.process().kind is Result.EXPIRED
++    assert h.attempts() == [] and h.dsp.writes == []
++    assert h.proposals()[0][2] == "expired"
++
++
++def test_a_proposal_that_expires_while_signing_is_not_executed(h):
++    """簽發要讀租戶設定檔,也可能剛好跨過到期時間:開始一筆的交易裡要再判一次。"""
++    prop = h.submit()
++    real_sign = h.signer.sign
++
++    def slow_sign(*args, **kwargs):
++        token = real_sign(*args, **kwargs)
++        h.clock.advance(hours=2)  # 簽完時提案已過期
++        return token
++
++    h.signer = type("SlowSigner", (), {"sign": staticmethod(slow_sign)})()
++    assert prop.decision_expires_at > h.clock()  # 前置:開始處理時還沒過期
++
++    assert h.process().kind is Result.EXPIRED
++    assert h.attempts() == [] and h.dsp.writes == []
++    assert h.proposals()[0][2] == "expired"
++
++
++def _not_found(h):
++    del h.dsp.campaigns["c1"]
++
++
++def _paused(h):
++    h.dsp.campaigns["c1"] = CampaignView(budget=100, status="paused", version=3)
++
++
++def _version_changed(h):
++    h.dsp.campaigns["c1"] = CampaignView(budget=120, status="active", version=4)
++
++
++def _not_allowed(h):
++    from tests.executor.fakes import write_config
++
++    write_config(h.config, campaigns=("c2",))
++
++
++def _over_cap(h):
++    from tests.executor.fakes import write_config
++
++    write_config(h.config, max_budget=149)  # 提案要改成 150
++
++
++def _previously_failed(h):
++    """同一個邏輯操作先前已失敗(人工判失敗),DSP 版本沒動;換到期時間的新修訂進來。"""
++    first = h.submit()
++    h.dsp.answers.append(WriteAnswer(403, "capability_scope_mismatch"))
++    h.process()
++    key = key_of(first)
++    with h.store.transaction() as tx:
++        seq = attempt_store.latest(tx, key).seq
++        attempt_store.resolve(tx, key, seq, A.FAILED, "operator decided", h.clock())
++    h.store.accept(proposal(revision=2, decision_expires_at="2026-09-22T12:40:00+00:00"),
++                   h.clock)
++
++
++BLOCK_TRIGGERS = {
++    BlockCode.CAMPAIGN_NOT_FOUND: _not_found,
++    BlockCode.CAMPAIGN_NOT_ACTIVE: _paused,
++    BlockCode.VERSION_CHANGED: _version_changed,
++    BlockCode.CAMPAIGN_NOT_ALLOWED: _not_allowed,
++    BlockCode.OVER_BUDGET_CAP: _over_cap,
++    BlockCode.OPERATION_PREVIOUSLY_FAILED: _previously_failed,
++}
++
++
++@pytest.mark.parametrize("code", list(BlockCode))
++def test_each_failed_precheck_blocks_the_proposal_without_a_write(h, code):
++    assert set(BLOCK_TRIGGERS) == set(BlockCode)  # 從程式自己的清單列舉,每一種都有觸發條件
++    if code is not BlockCode.OPERATION_PREVIOUSLY_FAILED:
++        h.submit()
++    BLOCK_TRIGGERS[code](h)
++    attempts_before, writes_before = h.attempts(), len(h.dsp.writes)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, code)
++    blocked = [p for p in h.proposals() if p[3] == "blocked"]
++    assert blocked == [("t1", blocked[0][1], "pending", "blocked", code.value)]
++    assert h.attempts() == attempts_before  # 不寫嘗試紀錄
++    assert len(h.dsp.writes) == writes_before  # 不呼叫 DSP 寫入
++
++
++# ---- [S44] ----
++def test_an_unreachable_dsp_leaves_the_proposal_pending(h):
++    h.submit()
++    h.dsp.read_failures = 1
++
++    result = h.process()
++
++    assert result.kind is Result.DEFERRED
++    assert h.proposals() == [("t1", 1, "pending", None, None)]
++    assert h.attempts() == [] and h.dsp.writes == []
++    assert h.process().kind is Result.EXECUTED  # 下一輪 DSP 恢復就照常處理
++
++
++# ---- [S45] ----
++def test_a_proposal_superseded_before_taking_is_never_executed(h):
++    h.submit()
++    # 讀 DSP 的當下,分析行程送來修訂 2 把修訂 1 取代
++    h.dsp.on_read = lambda _c: h.store.accept(proposal(revision=2), h.clock)
++
++    result = h.process()
++
++    assert result.kind is Result.DEFERRED
++    assert h.attempts() == [] and h.dsp.writes == []
++    assert h.proposals() == [("t1", 1, "superseded", None, None),
++                             ("t1", 2, "pending", None, None)]
++
++
++# ---- [S46] ----
++def test_no_transaction_is_open_while_the_dsp_is_called(h):
++    seen = []
++
++    def no_lock_held(kind):
++        other = sqlite3.connect(h.db, timeout=0, isolation_level=None)
++        try:
++            other.execute("BEGIN IMMEDIATE")  # 有人握著寫入鎖就會立刻失敗
++            other.execute("ROLLBACK")
++        finally:
++            other.close()
++        seen.append((kind, h.store._conn.in_transaction))
++
++    h.dsp.on_call = no_lock_held
++    h.submit()
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))  # 連重讀、重送也一起驗
++
++    h.process()
++
++    kinds = [kind for kind, _ in seen]
++    assert kinds.count("write") == 2 and kinds.count("read") >= 3
++    assert all(open_ is False for _, open_ in seen)
++
++
++# ---- [S47] ----
++# 預期值照計劃的回應對照表手抄一份,不從程式的對照表產生:程式刪掉或改錯一列,這裡會紅
++DOCUMENTED = [
++    ("committed", WriteAnswer(200, None, 4), A.COMMITTED_UNVERIFIED, None, False),
++    ("version_conflict", WriteAnswer(409, "version_conflict"), A.FAILED, C.VERSION_CONFLICT,
++     False),
++    ("idempotency_conflict", WriteAnswer(422, "idempotency_conflict"), A.ESCALATED,
++     C.IDEMPOTENCY_CONFLICT, False),
++    ("validation_rejected", WriteAnswer(422, "validation_rejected"), A.FAILED,
++     C.VALIDATION_REJECTED, False),
++    ("capability_expired", WriteAnswer(401, "capability_expired"), A.UNKNOWN, None, False),
++    ("capability_invalid", WriteAnswer(401, "capability_invalid"), A.ESCALATED,
++     C.CAPABILITY_REJECTED, False),
++    ("capability_missing", WriteAnswer(401, "capability_missing"), A.ESCALATED,
++     C.CAPABILITY_REJECTED, False),
++    ("capability_scope_mismatch", WriteAnswer(403, "capability_scope_mismatch"), A.ESCALATED,
++     C.CAPABILITY_REJECTED, False),
++    ("capability_not_configured", WriteAnswer(503, "capability_not_configured"), A.ESCALATED,
++     C.CAPABILITY_REJECTED, False),
++    ("missing_idempotency_key", WriteAnswer(400, "missing_idempotency_key"), A.ESCALATED,
++     C.LOCAL_REQUEST_ERROR, True),
++    ("body_too_large", WriteAnswer(413, "body_too_large"), A.ESCALATED, C.LOCAL_REQUEST_ERROR,
++     True),
++    ("store_busy", WriteAnswer(503, "store_busy"), A.UNKNOWN, None, False),
++    ("server_error", WriteAnswer(500, None), A.UNKNOWN, None, False),
++    ("no_response", WriteAnswer(None), A.UNKNOWN, None, False),
++    ("redirect", WriteAnswer(302, None), A.UNKNOWN, None, False),
++    ("ok_without_version", WriteAnswer(200, None, None), A.UNKNOWN, None, False),
++]
++
++
++@pytest.mark.parametrize(("answer", "target", "code", "halt"), [d[1:] for d in DOCUMENTED],
++                         ids=[d[0] for d in DOCUMENTED])
++def test_every_dsp_answer_maps_to_the_documented_state_and_code(h, answer, target, code, halt):
++    prop = h.submit()
++    h.dsp.answers.append(answer)
++    if target is A.COMMITTED_UNVERIFIED:  # 讓執行後驗證看得到同一個版本
++        h.dsp.on_write = lambda p, k, _t: h.dsp.apply(p, k)
++
++    if halt:
++        with pytest.raises(ExecutorHalted):
++            h.process()
++    else:
++        h.process()
++
++    first_result = states(h, prop)[1]  # 第 1 列是嘗試中,第 2 列是這次回應的結果
++    assert first_result == (target.value, None if code is None else code.value)
++
++
++def test_the_documented_answers_reach_every_row_of_the_response_table():
++    """程式多加一列卻沒補預期值,這裡會紅:每一列都要有上面手抄的例子落進去。"""
++    reached = {next(r.name for r in RESPONSE_TABLE if r.matches(d[1])) for d in DOCUMENTED}
++    assert reached == {r.name for r in RESPONSE_TABLE}
++
++
++def test_the_response_table_ends_with_a_catch_all_and_every_status_has_a_row():
++    for status in [None, *range(100, 600)]:
++        assert react(WriteAnswer(status, "whatever")) is not None
++    assert RESPONSE_TABLE[-1].name == "unlisted_status"
++
++
++# ---- [S48] ----
++def test_an_expired_capability_is_recorded_rechecked_and_resent_once(h):
++    prop = h.submit()
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++
++    result = h.process()
++
++    assert result.kind is Result.EXECUTED
++    assert states(h, prop) == [("in_flight", None), ("unknown", None), ("in_flight", None),
++                               ("committed_unverified", None), ("verified", None)]
++    rows = [r for r in h.attempts() if r[0] == key_of(prop)]
++    assert [r[1] for r in rows] == [1, 2, 3, 4, 5]  # 每一筆用前一筆回傳的序號,一筆接一筆
++    assert rows[2][4] == 2  # 重送算一次送出
++    assert len(h.dsp.writes) == 2 and h.dsp.reads.count("c1") == 3  # 重讀一次再重送
++
++    # 業務上沒通過:重讀時版本已變 → 失敗(沒發生且不再送)
++    other = h.submit(task_id="t2", campaign_id="c2")
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++    h.dsp.on_write = lambda *_: h.dsp.campaigns.__setitem__(
++        "c2", CampaignView(budget=100, status="active", version=9))
++    h.process()
++    assert states(h, other)[-1] == ("failed", "not_happened")
++    assert len([w for w in h.dsp.writes if w[1] == key_of(other)]) == 1
++
++    # 重簽後仍過期 → 轉人工(憑證被拒)
++    third = h.submit(task_id="t3", campaign_id="c3")
++    h.dsp.on_write = None
++    h.dsp.answers += [WriteAnswer(401, "capability_expired"),
++                      WriteAnswer(401, "capability_expired")]
++    h.process()
++    assert states(h, third)[-1] == ("escalated", "capability_rejected")
++
++
++def test_a_resigned_capability_uses_a_freshly_read_clock(h):
++    """一整輪共用同一個時間值的話,重簽會簽出跟第一張一樣已過期的憑證。"""
++    h.submit()
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++    h.dsp.on_read = lambda _c: h.clock.advance(seconds=200)  # 每次讀 DSP 都慢
++
++    h.process()
++
++    first, second = (expiry_of(w[2]) for w in h.dsp.writes)
++    assert second - first >= timedelta(seconds=200)
++
++
++# ---- [S49] ----
++@pytest.mark.parametrize("action", ["update_budget", "pause_campaign"])
++def test_verification_at_the_written_version_compares_the_intent_for_every_action(h, action):
++    from rtb.domain.proposal import ActionType
++
++    assert {a.value for a in ActionType} == {"update_budget", "pause_campaign"}
++    change = {"new_budget": 150} if action == "update_budget" else {}
++    good = h.submit(action_type=action, requested_change=change)
++    h.process()
++    assert states(h, good)[-1] == ("verified", None)
++
++    # 版本對上了但實際狀態不符意圖(DSP 回報成功卻沒改到)
++    bad = h.submit(task_id="t2", campaign_id="c2", action_type=action, requested_change=change)
++
++    def wrote_nothing(_p, k, _t):
++        current = h.dsp.campaigns["c2"]
++        h.dsp.campaigns["c2"] = CampaignView(current.budget, current.status, current.version + 1)
++        h.dsp.operations[k] = current.version + 1
++
++    h.dsp.on_write = wrote_nothing
++    h.dsp.answers.append(WriteAnswer(200, None, 4))
++    h.process()
++    assert states(h, bad)[-1] == ("escalated", "verification_mismatch")
++
++
++# ---- [S50] ----
++def test_verification_after_a_later_write_uses_the_operation_record(h):
++    ours = h.submit()
++
++    def someone_else_writes_after(p, k, _t):  # 我們的寫入套用後,別人又改了一次
++        h.dsp.apply(p, k)
++        current = h.dsp.campaigns["c1"]
++        h.dsp.campaigns["c1"] = CampaignView(999, "active", current.version + 1)
++
++    h.dsp.on_write = someone_else_writes_after
++    h.dsp.answers.append(WriteAnswer(200, None, 4))
++    h.process()
++    assert states(h, ours)[-1] == ("verified", None)
++    assert h.dsp.lookups == [key_of(ours)]
++
++    # 查不到操作紀錄 → 轉人工
++    missing = h.submit(task_id="t2", campaign_id="c2")
++    h.dsp.on_write = lambda *_: h.dsp.campaigns.__setitem__("c2", CampaignView(999, "active", 9))
++    h.dsp.answers.append(WriteAnswer(200, None, 4))
++    h.process()
++    assert states(h, missing)[-1] == ("escalated", "verification_mismatch")
++
++
++# ---- [S51] ----
++def test_a_failed_verification_read_records_a_timeout_and_keeps_the_written_version(h):
++    prop = h.submit()
++    h.dsp.on_write = lambda *_: setattr(h.dsp, "read_failures", 1)  # 寫入之後的讀取失敗
++
++    h.process()
++
++    rows = [r for r in h.attempts() if r[0] == key_of(prop)]
++    assert [(r[2], r[5]) for r in rows] == [("in_flight", None), ("committed_unverified", 4),
++                                          ("committed_unverified", 4)]
++    with h.store.transaction() as tx:
++        assert attempt_store.latest(tx, key_of(prop)).verification_timeouts == 1
++    # 之後的列(轉成已驗證或轉人工)也帶著寫入後版本
++    h.dsp.on_write = None
++    other = h.submit(task_id="t2", campaign_id="c2")
++    h.process()
++    assert [(r[2], r[5]) for r in h.attempts() if r[0] == key_of(other)][-1] == ("verified", 4)
++
++    # 轉人工那一列也帶著:回報成功、版本對上,實際狀態卻沒改到
++    mismatch = h.submit(task_id="t3", campaign_id="c3")
++
++    def wrote_nothing(_p, k, _t):
++        current = h.dsp.campaigns["c3"]
++        h.dsp.campaigns["c3"] = CampaignView(current.budget, current.status, 4)
++        h.dsp.operations[k] = 4
++
++    h.dsp.on_write = wrote_nothing
++    h.dsp.answers.append(WriteAnswer(200, None, 4))
++    h.process()
++    last = [(r[2], r[5]) for r in h.attempts() if r[0] == key_of(mismatch)][-1]
++    assert last == ("escalated", 4)
++
++
++# ---- [S57] ----
++def test_a_locked_campaign_does_not_block_other_campaigns(h):
++    stuck = h.submit()  # 最舊的一份,廣告 c1 會卡在結果不明
++    h.dsp.answers.append(WriteAnswer(None))
++    h.process()
++    assert states(h, stuck)[-1] == ("unknown", None)
++    h.clock.advance(seconds=1)
++    h.submit(task_id="t9", campaign_id="c1", requested_change={"new_budget": 170})  # 同廣告
++    h.clock.advance(seconds=1)
++    later = h.submit(task_id="t2", campaign_id="c2")
++
++    result = h.process()
++
++    assert result.kind is Result.EXECUTED and result.key == key_of(later)
++    assert ("t9", 1, "pending", None, None) in h.proposals()  # 鎖住的廣告那份原封不動
++
++
++# ---- [S58] ----
++def test_a_proposal_for_an_already_attempted_operation_follows_the_existing_outcome(h):
++    first = h.submit()
++    h.process()
++    assert states(h, first)[-1] == ("verified", None)
++    # 只換到期時間的新修訂:同一把鍵;版本也對得上(DSP 已前進,所以改成讓讀取看到舊版本)
++    h.dsp.campaigns["c1"] = CampaignView(100, "active", 3)
++    h.store.accept(proposal(revision=2, decision_expires_at="2026-09-22T12:40:00+00:00"),
++                   h.clock)
++    writes = len(h.dsp.writes)
++
++    result = h.process()
++
++    assert result.kind is Result.HANDED_OFF_TO_EXISTING
++    assert ("t1", 2, "pending", "handed_off", None) in h.proposals()
++    assert len(states(h, first)) == 3 and len(h.dsp.writes) == writes  # 不開新嘗試、不送
++
++
++def test_an_existing_failed_operation_blocks_the_new_revision(h):
++    _previously_failed(h)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (
++        Result.BLOCKED, BlockCode.OPERATION_PREVIOUSLY_FAILED)
++
++
++# ---- [S59] ----
++def test_blocking_a_proposal_superseded_meanwhile_changes_nothing(h):
++    h.submit()
++    h.dsp.campaigns["c1"] = CampaignView(100, "active", 4)  # 會被擋下:版本已變
++    h.dsp.on_read = lambda _c: h.store.accept(proposal(revision=2), h.clock)
++
++    result = h.process()
++
++    assert result.kind is Result.DEFERRED
++    assert h.proposals() == [("t1", 1, "superseded", None, None),
++                             ("t1", 2, "pending", None, None)]
++
++
++# ---- [S62] ----
++def test_a_full_unresolved_table_leaves_the_proposal_pending(h, monkeypatch):
++    monkeypatch.setattr(attempt_store, "MAX_UNRESOLVED", 1)
++    h.submit()
++    h.dsp.answers.append(WriteAnswer(None))  # 第一份卡在結果不明,佔滿全表名額
++    h.process()
++    waiting = h.submit(task_id="t2", campaign_id="c2")
++    attempts_before, writes_before = h.attempts(), len(h.dsp.writes)
++
++    result = h.process()  # 不以系統錯誤結束
++
++    assert result.kind is Result.DEFERRED
++    assert ("t2", 1, "pending", None, None) in h.proposals()
++    assert h.attempts() == attempts_before and len(h.dsp.writes) == writes_before
++    assert key_of(waiting) not in {row[0] for row in h.attempts()}
++
++
++# ---- [S64] ----
++@pytest.mark.parametrize("answer", [
++    WriteAnswer(302, None), WriteAnswer(307, None), WriteAnswer(100, None),
++    WriteAnswer(201, None, 4), WriteAnswer(204, None), WriteAnswer(200, None, None),
++    WriteAnswer(200, None, 0),
++], ids=["302", "307", "100", "201", "204", "200-no-version", "200-bad-version"])
++def test_an_unlisted_status_is_recorded_as_unknown(h, answer):
++    prop = h.submit()
++    h.dsp.answers.append(answer)
++
++    h.process()
++
++    assert states(h, prop) == [("in_flight", None), ("unknown", None)]
++
++
++# ---- [S65] ----
++def test_every_send_records_the_capability_expiry(h):
++    prop = h.submit()
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++    h.dsp.on_read = lambda _c: h.clock.advance(seconds=30)
++
++    h.process()
++
++    with h.store.transaction() as tx:
++        rows = attempt_store.history(tx, key_of(prop))
++    sends = [r for r in rows if r.state is A.IN_FLIGHT]
++    assert [r.capability_expires_at for r in sends] == [expiry_of(w[2]) for w in h.dsp.writes]
++    assert sends[1].capability_expires_at > sends[0].capability_expires_at  # 新憑證的到期時間
++    token_life = decode(h.dsp.writes[0][2], TEST_KEY)
++    assert token_life["exp"] - token_life["iat"] == LIFETIME_SECONDS
++    assert rows[1].capability_expires_at == sends[0].capability_expires_at  # 往下帶
++
++
++# ---- [S67] ----
++def test_an_expired_capability_recheck_stops_on_broken_config_and_escalates_at_the_send_limit(
++    h, monkeypatch,
++):
++    prop = h.submit()
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++    h.dsp.on_write = lambda *_: os.chmod(h.config, 0o620)  # 送出之後設定檔被改成群組可寫
++
++    with pytest.raises(ExecutorHalted):
++        h.process()
++
++    assert states(h, prop)[-1] == ("unknown", None)  # 不下判斷,留在結果不明
++
++    os.chmod(h.config, 0o600)
++    h.dsp.on_write = None
++    monkeypatch.setattr(attempt_store, "MAX_SENDS", 1)  # 已送過一次就達上限
++    other = h.submit(task_id="t2", campaign_id="c2")
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++    h.process()
++    assert states(h, other)[-1] == ("escalated", "send_limit_reached")
+diff --git a/tests/executor/test_execution_e2e.py b/tests/executor/test_execution_e2e.py
+new file mode 100644
+index 0000000..24a49bc
+--- /dev/null
++++ b/tests/executor/test_execution_e2e.py
+@@ -0,0 +1,224 @@
++"""執行一筆的端到端:真的 Mock DSP(測試行程內的執行緒)+ 真的執行行程 DSP 用戶端。
++
++執行行程的用戶端送不出故障注入標頭(共用用戶端的封閉列舉擋掉),所以故障改由測試在 DSP
++伺服器那一側排定:每個寫入請求依序取一個安排(故障模式、DSP 時鐘偏移)。
++"""
++
++import threading
++
++import pytest
++
++from rtb.domain.attempt import operation_key
++from rtb.dsp.server import DspHandler, DspServer
++from rtb.dsp.store import CampaignStore, Operation
++from rtb.executor.capability_signer import CapabilitySigner
++from rtb.executor.dsp_client import DspClient
++from rtb.executor.execution import DspUnavailable, Executor, Result
++from rtb.executor.inbox_store import InboxStore
++from tests.capability_samples import TEST_KEY
++from tests.executor.fakes import proposal, write_config
++
++
++class PlannedHandler(DspHandler):
++    def read_fault(self, modes):
++        if self.command != "POST" or not self.server.plan:
++            return None
++        fault, offset = self.server.plan.pop(0)
++        self.server.offset = offset
++        return fault
++
++
++class PlannedDsp(DspServer):
++    def __init__(self, db, clock):
++        super().__init__(db, fault_injection=True, hang_seconds=0.6, delay_seconds=0.0,
++                         capability_key=TEST_KEY,
++                         clock=lambda: clock().timestamp() + self.offset)
++        self.RequestHandlerClass = PlannedHandler
++        self.plan: list[tuple[str | None, int]] = []
++        self.offset = 0
++
++
++class World:
++    def __init__(self, tmp_path, clock, dsp_timeout=3.0):
++        self.clock = clock
++        self.dsp_db = tmp_path / "dsp.db"
++        CampaignStore(self.dsp_db).seed_campaign("c1", budget=100)
++        self.server = PlannedDsp(self.dsp_db, clock)
++        threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
++        self.client = DspClient(f"http://127.0.0.1:{self.server.server_address[1]}", dsp_timeout)
++        self.store = InboxStore(tmp_path / "executor.db")
++        self.config = write_config(tmp_path / "tenants.json")
++        self.executor = Executor(self.store, self.client, CapabilitySigner(TEST_KEY),
++                                 self.config, clock)
++
++    def submit(self, **overrides):
++        prop = proposal(**{"campaign_version_observed": 1, **overrides})
++        self.store.accept(prop, self.clock)
++        return prop
++
++    def dsp(self):
++        return CampaignStore(self.dsp_db)
++
++    def campaign(self):
++        store = self.dsp()
++        try:
++            return store.get_campaign("c1")
++        finally:
++            store.close()
++
++    def history(self):
++        store = self.dsp()
++        try:
++            return store.history("c1")
++        finally:
++            store.close()
++
++    def other_party_updates(self, budget=120):
++        store = self.dsp()
++        try:
++            current = store.get_campaign("c1")
++            store.execute(Operation("c1", "update_budget", {"new_budget": budget},
++                                    current.version, f"other-{budget}"))
++        finally:
++            store.close()
++
++    def states(self, prop):
++        with self.store.transaction() as tx:
++            return [(r[0], r[1]) for r in tx.conn.execute(
++                "SELECT state, code FROM attempts WHERE key = ? ORDER BY seq",
++                (operation_key(prop),))]
++
++    def close(self):
++        self.store.close()
++        self.server.shutdown()
++        self.server.server_close()
++
++
++@pytest.fixture
++def world(tmp_path, clock):
++    w = World(tmp_path, clock)
++    yield w
++    w.close()
++
++
++# ---- [S52] ----
++def test_f4_a_stale_proposal_never_overwrites_a_newer_value(world):
++    stale = world.submit()
++    world.other_party_updates(budget=120)  # 提案形成之後,另一方先更新了廣告
++
++    result = world.executor.process_one()
++
++    assert result.block_code is not None and result.block_code.value == "version_changed"
++    assert world.campaign().budget == 120 and world.states(stale) == []
++
++    # 另一方搶在我們檢查之後、寫入之前改掉:DSP 的版本檢查擋下,值一樣不被覆蓋
++    racing = world.submit(task_id="t2", campaign_version_observed=2)
++    original_write = world.client.write
++
++    def race_then_write(prop, key, token):
++        world.other_party_updates(budget=130)
++        return original_write(prop, key, token)
++
++    world.client.write = race_then_write
++    world.executor.process_one()
++    assert world.states(racing)[-1] == ("failed", "version_conflict")
++    assert world.campaign().budget == 130
++
++
++# ---- [S53] ----
++def test_f1_a_timeout_after_commit_is_recorded_as_unknown_and_applied_once(tmp_path, clock):
++    world = World(tmp_path, clock, dsp_timeout=0.2)
++    try:
++        prop = world.submit()
++        world.server.plan.append(("timeout_after_commit", 0))
++
++        world.executor.process_one()
++
++        assert world.states(prop) == [("in_flight", None), ("unknown", None)]
++        ours = [h for h in world.history() if h.idempotency_key == operation_key(prop)]
++        assert len(ours) == 1  # DSP 只套用一次
++        assert world.campaign().version == 2
++        assert world.client.operation_version(operation_key(prop)) == 2  # 之後同鍵查得到
++    finally:
++        world.close()
++
++
++# ---- S47 的端到端那一半:正常流程造得出的回應 ----
++@pytest.mark.parametrize(("plan", "expected"), [
++    ([], ("verified", None)),
++    ([("permanent_validation_error", 0)], ("failed", "validation_rejected")),
++    ([(None, 300), (None, 0)], ("verified", None)),  # 第一張送到時 DSP 時鐘已過期,重簽成功
++    ([("transient_5xx", 0)], ("unknown", None)),
++])
++def test_normal_flow_answers_map_end_to_end(world, plan, expected):
++    prop = world.submit()
++    world.server.plan.extend(plan)
++
++    assert world.executor.process_one().kind is Result.EXECUTED
++
++    assert world.states(prop)[-1] == expected
++
++
++def test_a_timeout_before_commit_is_unknown_and_never_commits_later(tmp_path, clock):
++    world = World(tmp_path, clock, dsp_timeout=0.2)
++    try:
++        prop = world.submit()
++        world.server.plan.append(("timeout_before_commit", 0))
++
++        world.executor.process_one()
++
++        assert world.states(prop)[-1] == ("unknown", None)
++        clock.advance(seconds=1)
++        threading.Event().wait(0.8)  # 等 DSP 那邊的處理程式放棄
++        assert world.campaign().version == 1
++        assert world.client.operation_version(operation_key(prop)) is None
++    finally:
++        world.close()
++
++
++def test_the_clock_offset_fixture_really_expires_the_first_capability(world):
++    world.submit()
++    world.server.plan.extend([(None, 300), (None, 300)])
++
++    world.executor.process_one()
++
++    with world.store.transaction() as tx:
++        codes = [r[0] for r in tx.conn.execute("SELECT code FROM attempts ORDER BY seq")]
++    assert codes[-1] == "capability_rejected"  # 偏移 300 秒大於憑證有效期,兩張都過期
++
++
++# ---- 真的 DSP 用戶端:「不存在」與「讀取失敗」的分界(S43、S44 的替身背後那一段) ----
++def test_the_real_client_tells_a_missing_campaign_from_a_failed_read(world):
++    assert world.client.read_campaign("c-missing") is None  # 404 campaign_not_found
++    assert world.client.operation_version("k1-missing") is None  # 404 operation_not_found
++    with pytest.raises(DspUnavailable):  # 路由對不上的 404 不是「不存在」
++        world.client.read_campaign("c1/extra")
++
++
++def test_a_missing_campaign_is_blocked_through_the_real_client(world):
++    prop = world.submit(campaign_id="c-missing")
++
++    assert world.executor.process_one().kind is Result.BLOCKED
++    with world.store.transaction() as tx:
++        row = tx.conn.execute("SELECT disposition, block_code FROM proposals WHERE task_id = ?",
++                              (prop.task_id,)).fetchone()
++    assert row == ("blocked", "campaign_not_found")
++    assert world.states(prop) == []
++
++
++def test_an_oversized_version_from_the_dsp_is_treated_as_unreadable(monkeypatch):
++    """版本會寫進資料庫整數欄位;超過 64 位元上限就當成讀不懂(寫入 → 結果不明),不讓寫入時崩潰。"""
++    from rtb.executor import dsp_client
++
++    client = dsp_client.DspClient("http://127.0.0.1:9", 1)
++    monkeypatch.setattr(dsp_client, "request_json",
++                        lambda *_a, **_k: (200, {"version_after": 2**63, "budget": 1,
++                                                 "version": 2**63, "status": "active"}))
++    assert client.write(proposal(), "k1-x", "t").version_after is None
++    with pytest.raises(DspUnavailable):
++        client.read_campaign("c1")
++    with pytest.raises(DspUnavailable):
++        client.operation_version("k1-x")
++    monkeypatch.setattr(dsp_client, "request_json",
++                        lambda *_a, **_k: (200, {"version_after": 2**63 - 1}))
++    assert client.write(proposal(), "k1-x", "t").version_after == 2**63 - 1  # 上限本身可以
+diff --git a/tests/executor/test_executor_boundaries.py b/tests/executor/test_executor_boundaries.py
+new file mode 100644
+index 0000000..7ffe319
+--- /dev/null
++++ b/tests/executor/test_executor_boundaries.py
+@@ -0,0 +1,47 @@
++"""執行迴圈的邊界:不匯入 DSP 的內部模組,只經共用 HTTP 用戶端呼叫 DSP(執行一筆 S56)。
++
++直接解析原始碼,不看 noqa(比照分析行程的邊界掃描)。收件口伺服器本身是 HTTP 伺服器,
++不在這條規則的範圍:這裡只掃執行迴圈的三支檔。
++"""
++
++import ast
++from pathlib import Path
++
++from tests.analyzer.test_boundaries import NETWORK_MODULES
++
++EXECUTOR = Path(__file__).resolve().parents[2] / "src" / "rtb" / "executor"
++LOOP_FILES = ("execution.py", "dsp_client.py", "runner.py")
++
++
++def _offenders(source: str, name: str) -> list[str]:
++    found = []
++    for node in ast.walk(ast.parse(source)):
++        modules = []
++        if isinstance(node, ast.Import):
++            modules = [alias.name for alias in node.names]
++        elif isinstance(node, ast.ImportFrom) and node.module:
++            modules = [node.module]
++        elif (isinstance(node, ast.Name) and node.id in ("__import__", "import_module")) or (
++                isinstance(node, ast.Attribute) and node.attr == "import_module"):
++            found.append(f"{name}: 動態匯入")
++        for module in modules:
++            root = module.split(".")[0]
++            if module.startswith("rtb.dsp") or module in NETWORK_MODULES or (
++                    root in NETWORK_MODULES):
++                found.append(f"{name}: {module}")
++    return found
++
++
++# ---- [S56] ----
++def test_the_executor_reaches_the_dsp_only_through_the_shared_client():
++    offenders = []
++    for name in LOOP_FILES:
++        offenders += _offenders((EXECUTOR / name).read_text(encoding="utf-8"), name)
++    assert offenders == []
++    client = (EXECUTOR / "dsp_client.py").read_text(encoding="utf-8")
++    assert "from rtb.httpclient import" in client  # 真的經共用用戶端
++    # 掃描器自己會抓:各種寫法各試一次
++    for probe in ("import rtb.dsp.store", "from rtb.dsp.server import DspServer",
++                  "import urllib.request", "from http import client", "import socket",
++                  "__import__('socket')", "importlib.import_module('x')"):
++        assert _offenders(probe, "probe"), probe
+diff --git a/tests/executor/test_inbox_disposition.py b/tests/executor/test_inbox_disposition.py
+new file mode 100644
+index 0000000..ade63ac
+--- /dev/null
++++ b/tests/executor/test_inbox_disposition.py
+@@ -0,0 +1,230 @@
++"""收件表的處置欄位:執行一筆(Phase 3 增量 3)S39~S41。
++
++「待處理」= 狀態是待處理而且處置是空的;已交給執行、已擋下的提案不再算待處理。
++"""
++
++import sqlite3
++
++import pytest
++
++from rtb.domain.proposal import content_hash, parse_proposal
++from rtb.executor import attempt_store, inbox_store
++from rtb.executor.inbox_store import (
++    RETENTION,
++    BlockCode,
++    Disposition,
++    InboxFull,
++    InboxStore,
++)
++from tests.domain.proposal_samples import valid
++from tests.executor.conftest import Clock
++
++OLD_SCHEMA = """
++CREATE TABLE proposals (
++    task_id TEXT NOT NULL, revision INTEGER NOT NULL, content_hash TEXT NOT NULL,
++    state TEXT NOT NULL CHECK (state IN ('pending', 'superseded', 'expired')),
++    payload TEXT NOT NULL, expires_at TEXT NOT NULL, received_at TEXT NOT NULL,
++    PRIMARY KEY (task_id, revision));
++CREATE TABLE attempts (
++    key TEXT NOT NULL, seq INTEGER NOT NULL, campaign_id TEXT NOT NULL, state TEXT NOT NULL,
++    code TEXT, detail TEXT, send_count INTEGER NOT NULL, verification_timeouts INTEGER NOT NULL,
++    written_at TEXT NOT NULL,
++    task_id TEXT, revision INTEGER, action TEXT, expected_version INTEGER, proposal_json TEXT,
++    PRIMARY KEY (key, seq));
++INSERT INTO proposals VALUES ('t-old', 1, 'h', 'pending', '{}', '2026-09-22T12:30:00.000000Z',
++    '2026-09-22T12:00:00.000000Z');
++INSERT INTO attempts VALUES ('k1-old', 1, 'c9', 'unknown', NULL, NULL, 1, 0,
++    '2026-09-22T12:00:00.000000Z', 't-old', 1, 'update_budget', 3, NULL);
++"""
++
++
++def proposal(**overrides):
++    parsed = parse_proposal(valid(**overrides))
++    assert parsed.proposal is not None, parsed.errors
++    return parsed.proposal
++
++
++@pytest.fixture
++def store(tmp_path):
++    inbox = InboxStore(tmp_path / "executor.db", max_pending=2)
++    yield inbox
++    inbox.close()
++
++
++def accept(store, prop, clock=None):
++    return store.accept(prop, clock or Clock())
++
++
++def hand_off(store, prop):
++    with store.transaction() as tx:
++        return store.hand_off(tx, prop.task_id, prop.revision, content_hash(prop))
++
++
++def block(store, prop, code=BlockCode.VERSION_CHANGED):
++    with store.transaction() as tx:
++        return store.block(tx, prop.task_id, prop.revision, content_hash(prop), code)
++
++
++def rows(tmp_path, sql="SELECT task_id, revision, state, disposition, block_code "
++                      "FROM proposals ORDER BY task_id, revision"):
++    conn = sqlite3.connect(tmp_path / "executor.db")
++    try:
++        return conn.execute(sql).fetchall()
++    finally:
++        conn.close()
++
++
++# ---- [S39] ----
++def _old_database(db):
++    old = sqlite3.connect(db)
++    old.executescript(OLD_SCHEMA)
++    old.execute("PRAGMA journal_mode=WAL")
++    old.executescript(attempt_store.SCHEMA)  # 索引先建好:開連線不必搶寫入鎖
++    old.close()
++
++
++def _add_new_columns(db):
++    other = sqlite3.connect(db, isolation_level=None)
++    try:
++        for table, columns in (("proposals", ("disposition TEXT", "block_code TEXT")),
++                               ("attempts", ("written_version INTEGER",
++                                             "capability_expires_at TEXT"))):
++            for column in columns:
++                other.execute(f"ALTER TABLE {table} ADD COLUMN {column}")
++    finally:
++        other.close()
++
++
++def _columns(db):
++    conn = sqlite3.connect(db)
++    try:
++        return ([r[1] for r in conn.execute("PRAGMA table_info(proposals)")],
++                [r[1] for r in conn.execute("PRAGMA table_info(attempts)")])
++    finally:
++        conn.close()
++
++
++def _assert_columns_added_once(db):
++    proposal_columns, attempt_columns = _columns(db)
++    assert proposal_columns.count("disposition") == proposal_columns.count("block_code") == 1
++    assert attempt_columns.count("written_version") == 1
++    assert attempt_columns.count("capability_expires_at") == 1
++
++
++def test_an_old_inbox_database_gains_the_disposition_columns_once_without_losing_data(
++    tmp_path, monkeypatch,
++):
++    # 單獨開啟:補上兩張表的新欄位,既有資料不變,補上的欄位也帶著列舉限制
++    db = tmp_path / "executor.db"
++    _old_database(db)
++    InboxStore(db).close()
++    InboxStore(db).close()  # 已補好的再開一次不會重補
++    _assert_columns_added_once(db)
++    conn = sqlite3.connect(db)
++    try:
++        assert conn.execute("SELECT task_id, state, disposition, block_code FROM proposals"
++                            ).fetchall() == [("t-old", "pending", None, None)]
++        assert conn.execute("SELECT key, state, written_version, capability_expires_at "
++                            "FROM attempts").fetchall() == [("k1-old", "unknown", None, None)]
++        with pytest.raises(sqlite3.IntegrityError):
++            conn.execute("UPDATE proposals SET block_code = 'whatever'")
++    finally:
++        conn.close()
++
++    # 並行:它看到缺欄位、去等寫入鎖的期間,另一條連線先補好了;拿到鎖後要再查一次,不能重補
++    raced = tmp_path / "raced.db"
++    _old_database(raced)
++    real = inbox_store.immediate_transaction
++    calls = []
++
++    def someone_else_migrates_first(conn):
++        if not calls:
++            _add_new_columns(raced)
++        calls.append(1)
++        return real(conn)
++
++    monkeypatch.setattr(inbox_store, "immediate_transaction", someone_else_migrates_first)
++    InboxStore(raced).close()
++    assert calls  # 真的走到「缺欄位、去拿鎖」那一步
++    _assert_columns_added_once(raced)
++
++
++# ---- [S40] ----
++@pytest.mark.parametrize("dispose", [hand_off, block], ids=["handed_off", "blocked"])
++def test_taken_and_blocked_proposals_leave_pending_and_replay_their_disposition(
++    store, tmp_path, dispose,
++):
++    first = proposal()
++    accept(store, first)
++    assert dispose(store, first) is True
++    expected = "handed_off" if dispose is hand_off else "blocked"
++
++    # 同鍵重送:回處置、不新增任何一筆
++    before = rows(tmp_path)
++    again = accept(store, first)
++    assert (again.state, again.replayed) == (expected, True)
++    assert rows(tmp_path) == before
++
++    # 不佔待處理名額(上限 2):另外兩個任務都收得進來
++    accept(store, proposal(task_id="t2"))
++    accept(store, proposal(task_id="t3"))
++    with pytest.raises(InboxFull):
++        accept(store, proposal(task_id="t4"))
++
++    # 不會被新修訂取代:同任務的修訂 2 進來,修訂 1 仍是原狀態加處置
++    clock = Clock()
++    store_big = InboxStore(tmp_path / "executor.db", max_pending=10)
++    try:
++        store_big.accept(proposal(revision=2), clock)
++        state = rows(tmp_path, "SELECT state, disposition FROM proposals "
++                               "WHERE task_id = 't1' AND revision = 1")
++        assert state == [("pending", expected)]
++
++        # 到期後不會被收件時的到期標記改成已過期(t2、t3 這種沒處置的才會)
++        clock.advance(minutes=40)
++        store_big.accept(proposal(task_id="t5", decision_created_at="2026-09-22T12:40:00+00:00",
++                                  decision_expires_at="2026-09-22T13:10:00+00:00"), clock)
++        assert rows(tmp_path, "SELECT state, disposition FROM proposals "
++                               "WHERE task_id = 't1' AND revision = 1") == [("pending", expected)]
++        assert rows(tmp_path, "SELECT state FROM proposals WHERE task_id = 't2'") == [
++            ("expired",)]
++
++        # 不會被當成待處理:過了保留期,整個任務照樣被清掉
++        clock.advance(seconds=RETENTION.total_seconds())
++        store_big.accept(proposal(task_id="t6", decision_created_at="2026-09-22T14:50:00+00:00",
++                                  decision_expires_at="2026-09-22T15:20:00+00:00"), clock)
++        assert rows(tmp_path, "SELECT COUNT(*) FROM proposals WHERE task_id = 't1'") == [(0,)]
++    finally:
++        store_big.close()
++
++
++def test_a_pending_proposal_still_counts_as_pending(store):
++    """對照組:沒有處置的提案照舊佔名額(確認上面那條測試不是因為上限沒作用才通過)。"""
++    accept(store, proposal())
++    accept(store, proposal(task_id="t2"))
++    with pytest.raises(InboxFull):
++        accept(store, proposal(task_id="t3"))
++
++
++# ---- [S41] ----
++def test_block_reasons_are_a_closed_list(store, tmp_path):
++    assert {code.value for code in BlockCode} == {
++        "campaign_not_found", "campaign_not_active", "version_changed", "campaign_not_allowed",
++        "over_budget_cap", "operation_previously_failed"}
++    assert {d.value for d in Disposition} == {"handed_off", "blocked"}
++    prop = proposal()
++    accept(store, prop)
++    before = rows(tmp_path)
++    for bad in (None, "version_changed", "expired", 3):
++        with store.transaction() as tx, pytest.raises(ValueError):
++            store.block(tx, prop.task_id, prop.revision, content_hash(prop), bad)
++    assert rows(tmp_path) == before
++    conn = sqlite3.connect(tmp_path / "executor.db")  # 資料庫自己也擋:繞過模組寫也寫不進去
++    try:
++        with pytest.raises(sqlite3.IntegrityError):
++            conn.execute("UPDATE proposals SET disposition = 'blocked', block_code = 'whatever'")
++        with pytest.raises(sqlite3.IntegrityError):
++            conn.execute("UPDATE proposals SET disposition = 'taken'")
++    finally:
++        conn.close()
++
+diff --git a/tests/executor/test_inbox_server.py b/tests/executor/test_inbox_server.py
+index 7b947c2..8957903 100644
+--- a/tests/executor/test_inbox_server.py
++++ b/tests/executor/test_inbox_server.py
+@@ -703,19 +703,19 @@ def test_a_creation_time_in_the_future_is_refused(start_inbox):
+ 
+     assert (status, data["error"]) == (422, "created_in_future")
+     assert inbox.rows() == []
+ 
+ 
+ def test_purging_never_deletes_a_task_that_still_has_a_pending_row(tmp_path):
+     store = inbox_store.InboxStore(tmp_path / "s.db")
+     conn = sqlite3.connect(tmp_path / "s.db", isolation_level=None)
+     conn.execute(  # 直接塞一列「很久以前收到、到期時間卻很遠」的待處理(正常流程做不出來)
+         "INSERT INTO proposals VALUES ('old', 1, 'h', 'pending', '{}', "
+-        "'2099-01-01T00:00:00.000000Z', '2026-09-22T01:00:00.000000Z')")
++        "'2099-01-01T00:00:00.000000Z', '2026-09-22T01:00:00.000000Z', NULL, NULL)")
+     proposal = inbox_server.parse_proposal(valid(task_id="new")).proposal
+ 
+     store.accept(proposal, lambda: inbox_store.utc_now().replace(
+         year=2026, month=9, day=22, hour=12, minute=5))
+ 
+     assert ("old",) in conn.execute("SELECT task_id FROM proposals").fetchall()
+     conn.close()
+     store.close()
+diff --git a/tests/executor/test_runner.py b/tests/executor/test_runner.py
+new file mode 100644
+index 0000000..2aff4a0
+--- /dev/null
++++ b/tests/executor/test_runner.py
+@@ -0,0 +1,230 @@
++"""執行迴圈的啟動程式:金鑰、單一執行者鎖、重啟恢復與就緒訊號、系統錯誤停機。
++
++S54、S55 用真的子行程;其他在測試行程內跑 run(),DSP 用替身、時間可控。
++"""
++
++import io
++import os
++import select
++import sqlite3
++import subprocess
++import sys
++import time
++from pathlib import Path
++
++import pytest
++
++from rtb.capabilitykit import KEY_ENV, MIN_KEY_BYTES
++from rtb.domain.attempt import operation_key
++from rtb.executor import attempt_store, runner
++from rtb.executor.execution import WriteAnswer
++from rtb.executor.inbox_store import InboxStore
++from tests.capability_samples import TEST_KEY
++from tests.executor.fakes import Harness, proposal, write_config
++
++SRC = str(Path(__file__).resolve().parents[2] / "src")
++ENV = {KEY_ENV: TEST_KEY.decode()}
++
++
++@pytest.fixture
++def h(tmp_path, clock):
++    harness = Harness(tmp_path, clock)
++    yield harness
++    harness.close()
++
++
++def argv(db, config, dsp_url="http://127.0.0.1:9"):
++    return ["--db", str(db), "--dsp-url", dsp_url, "--tenant-config", str(config),
++            "--interval-seconds", "0.01"]
++
++
++def run_in_process(h, **kwargs):
++    kwargs.setdefault("max_rounds", 3)
++    return runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
++                      out=io.StringIO(), sleep=lambda _s: None, **kwargs)
++
++
++def in_flight_row(db, clock):
++    store = InboxStore(db)
++    try:
++        with store.transaction() as tx:
++            return attempt_store.begin(tx, proposal(campaign_id="c9"), clock(),
++                                       capability_expires_at=clock()).row.key
++    finally:
++        store.close()
++
++
++def state_of(db, key):
++    conn = sqlite3.connect(db)
++    try:
++        return conn.execute("SELECT state FROM attempts WHERE key = ? ORDER BY seq DESC LIMIT 1",
++                            (key,)).fetchone()[0]
++    finally:
++        conn.close()
++
++
++def spawn(db, config, env_key):
++    env = {**os.environ, "PYTHONPATH": SRC}
++    env.pop(KEY_ENV, None)
++    if env_key is not None:
++        env[KEY_ENV] = env_key
++    return subprocess.Popen(
++        [sys.executable, "-m", "rtb.executor.runner", *argv(db, config)],
++        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
++
++
++def read_line(proc, wait_seconds=15.0):
++    deadline, buffer = time.monotonic() + wait_seconds, b""
++    fd = proc.stdout.fileno()
++    while b"\n" not in buffer:
++        ready, _, _ = select.select([fd], [], [], max(deadline - time.monotonic(), 0))
++        assert ready, f"子行程在 {wait_seconds} 秒內沒印出一整行(目前:{buffer!r})"
++        chunk = os.read(fd, 256)
++        assert chunk, f"子行程提前結束(目前:{buffer!r})"
++        buffer += chunk
++    return buffer.split(b"\n")[0].decode().strip()
++
++
++def stop(proc):
++    if proc.poll() is None:
++        proc.kill()
++    proc.wait(timeout=5)
++    proc.stdout.close()
++    proc.stderr.close()
++
++
++# ---- [S54] ----
++@pytest.mark.parametrize("env_key", [None, "x" * (MIN_KEY_BYTES - 1)], ids=["missing", "short"])
++def test_the_runner_refuses_to_start_without_a_usable_key(tmp_path, clock, env_key):
++    db, config = tmp_path / "executor.db", write_config(tmp_path / "tenants.json")
++    key = in_flight_row(db, clock)
++
++    proc = spawn(db, config, env_key)
++    try:
++        assert proc.wait(timeout=30) == runner.EXIT_NO_KEY
++    finally:
++        stop(proc)
++
++    assert state_of(db, key) == "in_flight"  # 重啟恢復沒跑
++
++
++# ---- [S55] ----
++def test_the_runner_holds_a_single_instance_lock_and_recovers_before_ready(tmp_path, clock):
++    db, config = tmp_path / "executor.db", write_config(tmp_path / "tenants.json")
++    before_ready = in_flight_row(db, clock)
++    first = spawn(db, config, ENV[KEY_ENV])
++    try:
++        assert read_line(first) == runner.READY
++        assert state_of(db, before_ready) == "unknown"  # 就緒之前已做完重啟恢復
++
++        # 第一個還在跑:這時資料庫裡又有一筆嘗試中(它正在處理的操作)
++        store = InboxStore(db)
++        try:
++            with store.transaction() as tx:
++                running = attempt_store.begin(tx, proposal(campaign_id="c8"), clock(),
++                                              capability_expires_at=clock()).row.key
++        finally:
++            store.close()
++        alias = tmp_path / "alias.db"
++        alias.symlink_to(db)
++        hard = tmp_path / "hard.db"
++        os.link(db, hard)  # 同目錄的硬連結:檔名不同、實體相同
++        for path in (alias, hard, Path(os.path.relpath(db))):
++            second = subprocess.Popen(
++                [sys.executable, "-m", "rtb.executor.runner", *argv(path, config)],
++                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
++                env={**os.environ, "PYTHONPATH": SRC, **ENV})
++            try:
++                assert second.wait(timeout=30) == runner.EXIT_LOCKED, path
++            finally:
++                stop(second)
++            assert state_of(db, running) == "in_flight"  # 第二個沒跑重啟恢復
++    finally:
++        stop(first)
++
++
++# ---- [S60] ----
++def test_a_broken_tenant_configuration_stops_the_runner_without_blocking(h):
++    h.submit()
++    os.chmod(h.config, 0o664)  # 群組可寫:不安全
++
++    assert run_in_process(h) == runner.EXIT_HALTED
++
++    assert h.proposals() == [("t1", 1, "pending", None, None)]  # 不擋下,留在待處理
++    assert h.attempts() == [] and h.dsp.writes == []
++
++    h.config.write_text("{not json", encoding="utf-8")  # 內容壞掉也一樣
++    os.chmod(h.config, 0o600)
++    assert run_in_process(h) == runner.EXIT_HALTED
++    assert h.proposals() == [("t1", 1, "pending", None, None)]
++
++
++# ---- [S61] ----
++def test_other_client_errors_escalate_as_local_request_errors_and_stop_the_runner(h):
++    prop = h.submit()
++    h.submit(task_id="t2", campaign_id="c2")
++    h.dsp.answers.append(WriteAnswer(400, "missing_idempotency_key"))
++
++    assert run_in_process(h) == runner.EXIT_HALTED
++
++    rows = h.attempts()
++    assert [(r[2], r[3]) for r in rows if r[0] == operation_key(prop)][-1] == (
++        "escalated", "local_request_error")
++    assert ("t2", 1, "pending", None, None) in h.proposals()  # 停下了,沒有繼續鎖下一個廣告
++    assert len(h.dsp.writes) == 1
++
++
++# ---- [S68] ----
++def test_the_runner_stops_when_its_lock_file_is_replaced(h):
++    replaced = []
++
++    def replace_lock_file(_seconds):
++        if not replaced:
++            lock = next(h.tmp_path.glob(".rtb-runner-*.lock"))
++            lock.unlink()
++            lock.write_bytes(b"")  # 同路徑的新檔:inode 不同
++            replaced.append(lock)
++
++    code = runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
++                      out=io.StringIO(), sleep=replace_lock_file, max_rounds=5)
++
++    assert replaced and code == runner.EXIT_HALTED
++
++
++# ---- [S69] ----
++def test_a_conditional_write_without_progress_stops_the_runner(h):
++    prop = h.submit()
++    key = operation_key(prop)
++
++    def someone_else_moves_the_key(*_):  # 寫結果之前,這把鍵被別的東西改過
++        other = InboxStore(h.db)
++        try:
++            with other.transaction() as tx:
++                attempt_store.transition(tx, key, 1, attempt_store.AttemptState.UNKNOWN, h.clock())
++        finally:
++            other.close()
++
++    h.dsp.on_write = someone_else_moves_the_key
++
++    assert run_in_process(h) == runner.EXIT_HALTED
++
++    assert [(r[1], r[2]) for r in h.attempts()] == [(1, "in_flight"), (2, "unknown")]
++
++
++def test_a_locked_out_runner_never_opens_the_database_with_sqlite(tmp_path, monkeypatch, clock):
++    """經硬連結以別的檔名開同一個 SQLite 資料庫會用另一組 WAL 檔,可能損壞資料:
++    拿不到鎖的第二個執行迴圈必須在用 SQLite 開資料庫之前就結束。"""
++    db, config = tmp_path / "executor.db", write_config(tmp_path / "tenants.json")
++    InboxStore(db).close()
++    hard = tmp_path / "hard.db"
++    os.link(db, hard)
++    held = runner.RunnerLock(db)
++    opened = []
++    monkeypatch.setattr(runner, "InboxStore", lambda *a, **_k: opened.append(a))
++    try:
++        code = runner.run(argv(hard, config), environ=ENV, clock=clock, out=io.StringIO(),
++                          max_rounds=1, sleep=lambda _s: None)
++    finally:
++        held.release()
++    assert code == runner.EXIT_LOCKED
++    assert opened == []
+diff --git a/tests/httpclient/test_httpclient.py b/tests/httpclient/test_httpclient.py
+index 804b323..1a5a924 100644
+--- a/tests/httpclient/test_httpclient.py
++++ b/tests/httpclient/test_httpclient.py
+@@ -124,22 +124,37 @@ def test_the_client_module_source_never_mentions_the_fault_header(module_name):
+     import importlib
+ 
+     module = importlib.import_module(module_name)
+     source = inspect.getsource(module)
+ 
+     assert "X-Fault" not in source
+ 
+ 
+ def test_the_closed_header_enum_contains_exactly_the_documented_members():
+     """2026-09-22 第四輪合約審計指出:直接在封閉列舉加一個值是故障注入標頭的成員,驗證照樣
+-    通過。這裡把成員整份寫死:要新增任何標頭,必須同時改這支測試,留下有意識的決定。"""
+-    assert {member.value for member in httpclient.ClientHeader} == {"Idempotency-Key"}
++    通過。這裡把成員整份寫死:要新增任何標頭,必須同時改這支測試,留下有意識的決定。
++    2026-09-23 執行一筆(Phase 3 增量 3)有意識地加了能力憑證。"""
++    assert {member.value for member in httpclient.ClientHeader} == {
++        "Idempotency-Key", "X-Capability"}
++
++
++def test_client_headers_are_exactly_idempotency_key_and_capability():
++    """執行一筆 S63:執行行程要經共用用戶端送出能力憑證。
++
++    名稱跟共用格式模組的一致:兩邊不互相匯入,由這裡比對。"""
++    from rtb.capabilitykit import HEADER
++
++    assert {member.value for member in httpclient.ClientHeader} == {"Idempotency-Key", HEADER}
++    assert httpclient.ClientHeader.CAPABILITY.value == HEADER  # 兩份字串必須一致
++    with pytest.raises(TypeError):
++        httpclient.request_json("http://127.0.0.1:9/x", "GET", None, 1,
++                                headers={"X-Fault": "transient_5xx"})
+ 
+ 
+ # ---- headers 只驗證一次:自訂物件不能在驗證跟送出之間變臉 ----
+ class _ShiftingHeaders(Mapping):
+     """`.keys()` 第一次回傳合法鍵、之後改回不合法的鍵——模擬「驗證讀一次、送出又讀一次」
+     的兩段式走訪可以被繞過;只走訪一次(`dict(headers)` 具現化)的寫法不會被這招影響。"""
+ 
+     def __init__(self):
+         self._reads = 0
+ 
+diff --git a/tests/kit/test_migration_failure_closes_the_connection.py b/tests/kit/test_migration_failure_closes_the_connection.py
+new file mode 100644
+index 0000000..d7ed0e9
+--- /dev/null
++++ b/tests/kit/test_migration_failure_closes_the_connection.py
+@@ -0,0 +1,48 @@
++"""三支「連線後補欄位」的資料庫模組:補欄位失敗時都要關掉剛開的連線,寫法一致。
++
++收件口與模擬 DSP 每個請求都會新開一個儲存物件,補欄位失敗(例如等鎖逾時)若不關連線,
++每個失敗的請求就漏一條連線;分析行程的任務表是長活物件,但同一件事用同一種寫法。
++等鎖逾時一律轉成各模組自己的「忙碌」例外,呼叫端用同一套方式判斷能不能重試。
++"""
++
++import sqlite3
++
++import pytest
++
++from rtb.analyzer import task_store
++from rtb.dsp import store as dsp_store
++from rtb.executor import inbox_store
++from rtb.sqlitekit import DatabaseBusy
++
++CASES = [
++    (dsp_store, "CampaignStore", "_migrate_columns", dsp_store.StoreBusy),
++    (task_store, "TaskStore", "_migrate_evidence_payload_column", task_store.TaskStoreBusy),
++    (inbox_store, "InboxStore", "_migrate_columns", inbox_store.InboxBusy),
++]
++ERRORS = [(RuntimeError("補欄位失敗"), RuntimeError), (DatabaseBusy("database is locked"), None)]
++
++
++@pytest.mark.parametrize(("raised", "expected"), ERRORS, ids=["other_error", "busy"])
++@pytest.mark.parametrize(("module", "cls", "migrate", "busy"), CASES, ids=[c[1] for c in CASES])
++def test_a_failed_column_migration_closes_the_new_connection(  # noqa: PLR0913 - 模組與錯誤兩組參數
++        tmp_path, monkeypatch, module, cls, migrate, busy, raised, expected):
++    opened = []
++    real_connect = module.connect
++
++    def recording_connect(*args, **kwargs):
++        conn = real_connect(*args, **kwargs)
++        opened.append(conn)
++        return conn
++
++    def fail(_self):
++        raise raised
++
++    monkeypatch.setattr(module, "connect", recording_connect)
++    monkeypatch.setattr(getattr(module, cls), migrate, fail)
++
++    with pytest.raises(expected or busy):
++        getattr(module, cls)(tmp_path / "x.db")
++
++    assert len(opened) == 1  # 前置:真的開過一條連線
++    with pytest.raises(sqlite3.ProgrammingError):  # 已關閉的連線不能再用
++        opened[0].execute("SELECT 1")

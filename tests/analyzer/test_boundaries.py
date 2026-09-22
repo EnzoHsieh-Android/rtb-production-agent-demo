@@ -148,3 +148,24 @@ def test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer():
                     offenders.append((file.name, name))
     assert offenders == []
     assert capability_signer.__name__.startswith("rtb.executor.")  # 簽發器住在被禁的套件裡
+
+
+def test_importing_the_analyzer_does_not_load_the_capability_module():
+    """S30 的補強:原始碼掃描只看直接匯入;這裡在乾淨的子行程裡載入整個分析行程,
+    確認連間接匯入(例如經共用 HTTP 用戶端)都沒有把憑證模組帶進來。"""
+    import os
+    import subprocess
+    import sys
+
+    src = Path(__file__).resolve().parents[2] / "src"
+    analyzer = src / "rtb" / "analyzer"
+    modules = sorted(f"rtb.analyzer.{f.stem}" for f in analyzer.glob("*.py")
+                     if f.stem != "__init__")
+    code = ("import importlib, sys\n"
+            f"for name in {modules!r}: importlib.import_module(name)\n"
+            "banned = ('rtb.capabilitykit', 'rtb.executor')\n"
+            "print(sorted(m for m in sys.modules if m.startswith(banned)))")
+    env = {**os.environ, "PYTHONPATH": str(src)}
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                         check=True, env=env)
+    assert out.stdout.strip() == "[]"

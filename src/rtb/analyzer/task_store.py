@@ -136,7 +136,14 @@ class TaskStore:
             self._conn = connect(path, busy_timeout_seconds, SCHEMA)
         except DatabaseBusy as exc:
             raise TaskStoreBusy(str(exc)) from exc
-        self._migrate_evidence_payload_column()
+        try:
+            self._migrate_evidence_payload_column()
+        except DatabaseBusy as exc:
+            self._conn.close()
+            raise TaskStoreBusy(str(exc)) from exc
+        except BaseException:
+            self._conn.close()  # 補欄位失敗時不留下沒人關的連線(三支資料庫模組同一寫法)
+            raise
 
     def _migrate_evidence_payload_column(self) -> None:
         """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:增量 3 建立的舊資料庫只有九欄,
