@@ -1,6 +1,10 @@
 """示範用的最小決策規則:讓整條流程能被示範跑完,不是交接文件後面階段要做的真正業務規則。
 
-規則:用增量 1 metrics.py 既有的 pacing() 判斷配速,缺值或不知道一律 NoAction,不猜、不丟例外。
+規則:先檢查每一筆證據的新鮮度,任一筆不新鮮就回 NeedsFreshEvidence(退回重新蒐證),不拿
+過時的數字做決策——分析行程當機很久才重啟時,歷史表裡的證據可能早就過時。分析端手上最新的
+版本資訊就是這批證據自己讀到的版本,所以這裡實際起作用的只有年齡;「跟 DSP 現況比版本」是
+執行行程執行前重讀 DSP 時的事(Phase 3),不在這裡假裝做了。
+接著用增量 1 metrics.py 既有的 pacing() 判斷配速,缺值或不知道一律 NoAction,不猜、不丟例外。
 配速明顯偏低(暫用門檻 0.5)且曝光、點擊都大於零(真的有在投放,不是設定壞了)才提案調高預算
 (固定漲一成,暫用值)。
 
@@ -9,14 +13,14 @@
 不影響 S49 的合約(規則本身的判斷邏輯),留給接上真正決策邏輯的後面階段一併解決。
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from types import MappingProxyType
 from typing import Any
 
-from rtb.analyzer.flow import Decision, NoAction, ProposalDecision
+from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
 from rtb.analyzer.task_store import TaskRow
 from rtb.domain._checks import is_plain_number
-from rtb.domain.evidence import Evidence, EvidenceKind
+from rtb.domain.evidence import Evidence, EvidenceKind, check_freshness
 from rtb.domain.metrics import pacing
 from rtb.domain.proposal import MAX_INT, ActionType, Proposal
 
@@ -25,6 +29,7 @@ UNDERPACING_THRESHOLD = 0.5  # 暫用值:配速低於這個比例才算「明顯
 BUDGET_INCREASE_FRACTION = 0.1  # 暫用值:提案調高一成
 ELAPSED_FRACTION_1H = 1 / 24  # 這個增量只讀 1 小時窗,對應一天預算的 1/24
 DECISION_LIFETIME = timedelta(minutes=30)  # 決策有效期,遠低於增量 3 的 1 小時上限
+MAX_EVIDENCE_AGE = timedelta(minutes=15)  # 暫用值:證據超過這個年齡就重新蒐證,比決策有效期短
 
 
 def _payload(evidence: tuple[Evidence, ...], kind: EvidenceKind) -> dict[str, Any] | None:
@@ -34,7 +39,21 @@ def _payload(evidence: tuple[Evidence, ...], kind: EvidenceKind) -> dict[str, An
     return None
 
 
-def decide(task: TaskRow | None, evidence: tuple[Evidence, ...]) -> Decision:
+def _all_fresh(evidence: tuple[Evidence, ...], now: datetime) -> bool:
+    versions = [e.campaign_version_observed for e in evidence
+                if e.kind == EvidenceKind.CAMPAIGN_STATE
+                and e.campaign_version_observed is not None]
+    latest_known = max(versions) if versions else None  # 分析端知道的最新版本,見檔頭說明
+    return all(
+        check_freshness(item, now, MAX_EVIDENCE_AGE.total_seconds(), latest_known).is_usable
+        for item in evidence
+    )
+
+
+def decide(task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime) -> Decision:
+    """`now` 由流程層傳進來(`advance()` 手上、也寫進歷史列的同一個時間),這裡不自己讀系統時鐘。"""
+    if not _all_fresh(evidence, now):
+        return NeedsFreshEvidence()
     state = _payload(evidence, EvidenceKind.CAMPAIGN_STATE)
     metrics = _payload(evidence, EvidenceKind.METRICS)
     if state is None or metrics is None:
@@ -58,7 +77,6 @@ def decide(task: TaskRow | None, evidence: tuple[Evidence, ...]) -> Decision:
     # 提案,也不要讓 Proposal 建構式丟例外、被上層的廣義例外處理悶成 FAILED。
     new_budget = min(max(round(budget * (1 + BUDGET_INCREASE_FRACTION)), int(budget) + 1),
                      MAX_INT)
-    now = datetime.now(UTC)
     proposal = Proposal(
         task_id=task.task_id, revision=1, campaign_id=task.campaign_id,
         action_type=ActionType.UPDATE_BUDGET,

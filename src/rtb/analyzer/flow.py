@@ -47,11 +47,18 @@ Decision = NoAction | ProposalDecision | NeedsFreshEvidence
 
 
 class EvidenceSource(Protocol):
-    def __call__(self, task: TaskRow) -> tuple[Evidence, ...]: ...
+    def __call__(self, task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
+        """`now` 就是這批證據的讀取時間(`advance()` 手上的同一個時間);證據來源不自己讀系統時鐘,
+        否則推進者整批共用一個時間時,證據會比決策用的時間還晚,年齡變負而被判過期。"""
+        ...
 
 
 class Decide(Protocol):
-    def __call__(self, task: TaskRow, evidence: tuple[Evidence, ...]) -> Decision: ...
+    def __call__(
+        self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime
+    ) -> Decision:
+        """`now` 是 `advance()` 手上、也會寫進歷史列的同一個時間;決策層不自己讀系統時鐘。"""
+        ...
 
 
 @dataclass(frozen=True)
@@ -121,7 +128,7 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間與中斷鉤子,�
         return row.state
 
     collaborators = _Collaborators(evidence_source, decide, submit)
-    outcome = _STEPS[row.state](store, row, collaborators)
+    outcome = _STEPS[row.state](store, row, collaborators, now)
     if outcome is None:  # 這一步的結果是「不寫入,留在原狀態」
         return row.state
     transition(row.state, outcome.new_state)  # 非法轉換在這裡就會炸,不會靜默寫出壞資料
@@ -132,13 +139,17 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間與中斷鉤子,�
     return outcome.new_state if committed else row.state
 
 
-def _from_received(_store: TaskStore, _row: TaskRow, _c: _Collaborators) -> _StepOutcome:
+def _from_received(
+    _store: TaskStore, _row: TaskRow, _c: _Collaborators, _now: datetime
+) -> _StepOutcome:
     return _Step(TaskState.COLLECTING_EVIDENCE)
 
 
-def _from_collecting_evidence(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
+def _from_collecting_evidence(
+    _store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
+) -> _StepOutcome:
     try:
-        evidence = c.evidence_source(row)
+        evidence = c.evidence_source(row, now)
         if not isinstance(evidence, tuple):
             # 形狀不對也當成這次沒拿到證據:EvidenceSource 是純讀取,重試永遠安全,
             # 不必為了型別錯誤另外走 FAILED(那是 Decide/Submit 才有的合約違反處理)。
@@ -148,13 +159,15 @@ def _from_collecting_evidence(_store: TaskStore, row: TaskRow, c: _Collaborators
     return _Step(TaskState.ANALYZING, evidence=evidence)
 
 
-def _from_analyzing(store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
+def _from_analyzing(
+    store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
+) -> _StepOutcome:
     try:
         evidence = store.evidence_for(row.task_id, row.seq)
     except CorruptedHistoryRow as exc:  # 存好的資料本身毀損,重試沒有用:直接轉 FAILED
         return _Step(TaskState.FAILED, error_detail=repr(exc))
     try:
-        decision = c.decide(row, evidence)
+        decision = c.decide(row, evidence, now)
     except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
         return _Step(TaskState.FAILED, error_detail=repr(exc))
     if isinstance(decision, NoAction):
@@ -166,7 +179,9 @@ def _from_analyzing(store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepO
     raise _BrokenCollaborator(f"Decide 回傳了合約之外的型別:{type(decision)!r}")
 
 
-def _from_proposed(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepOutcome:
+def _from_proposed(
+    _store: TaskStore, row: TaskRow, c: _Collaborators, _now: datetime
+) -> _StepOutcome:
     if row.proposal is None:
         raise AssertionError("PROPOSED 狀態的列一定帶著提案快照")
     try:
@@ -184,7 +199,7 @@ def _from_proposed(_store: TaskStore, row: TaskRow, c: _Collaborators) -> _StepO
     return _Step(TaskState.HANDED_OFF, proposal=row.proposal)
 
 
-_STEPS: dict[TaskState, Callable[[TaskStore, TaskRow, _Collaborators], _StepOutcome]] = {
+_STEPS: dict[TaskState, Callable[[TaskStore, TaskRow, _Collaborators, datetime], _StepOutcome]] = {
     TaskState.RECEIVED: _from_received,
     TaskState.COLLECTING_EVIDENCE: _from_collecting_evidence,
     TaskState.ANALYZING: _from_analyzing,

@@ -2,6 +2,7 @@
 
 
 import threading
+from datetime import timedelta
 
 import pytest
 
@@ -568,6 +569,20 @@ def test_decide_receives_the_evidence_that_was_actually_collected_this_round(sto
     assert d.calls[0][1] == given  # decide(task, evidence) 的第二個引數就是剛蒐到的證據
 
 
+def test_decide_receives_the_same_now_that_advance_was_given(store):
+    """2026-09-22 代碼審(架構對齊席)指出:決策函式原本自己讀系統時鐘,跟流程層手上、要寫進
+    歷史列的那個時間是兩次獨立讀取;專案的慣例是由呼叫端把時間往下傳,不在下游自己讀。"""
+    store.create_task("t1", "c1", NOW)
+    flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
+    flow.advance(store, "t1", evidence_source(), NOOP, NOOP, NOW)
+    d = decide()
+    later = NOW + timedelta(minutes=7)
+
+    flow.advance(store, "t1", NOOP, d, NOOP, later)
+
+    assert d.calls[0][2] == later
+
+
 def test_evidence_source_receives_the_task_row_it_is_gathering_for(store):
     store.create_task("t1", "c1", NOW)
     flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
@@ -592,3 +607,17 @@ def test_a_permanent_submit_rejection_fails_the_task_instead_of_looping_forever(
     s = submit()
     assert flow.advance(store, "t1", NOOP, NOOP, s, NOW) is TaskState.FAILED
     assert s.call_count == 0
+
+
+def test_evidence_source_receives_the_same_now_that_advance_was_given(store):
+    """2026-09-22 代碼審第 2 輪指出:證據的讀取時間若由證據來源自己讀系統時鐘,推進者整批共用
+    一個時間時,證據會比決策用的時間還晚、年齡變負而被判過期,流程在蒐證與分析之間永遠彈跳。
+    時間只能有一個來源:流程層傳下來的那個。"""
+    store.create_task("t1", "c1", NOW)
+    flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
+    source = evidence_source()
+    later = NOW + timedelta(minutes=3)
+
+    flow.advance(store, "t1", source, NOOP, NOOP, later)
+
+    assert source.calls[0][1] == later

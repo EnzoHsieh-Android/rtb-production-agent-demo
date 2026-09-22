@@ -1,6 +1,7 @@
 """真的 DSP 用戶端(EvidenceSource):S42~S44。"""
 
 import threading
+from datetime import UTC, datetime
 
 import pytest
 
@@ -10,6 +11,8 @@ from rtb.domain.evidence import EvidenceKind
 from rtb.domain.task_state import TaskState
 from rtb.dsp.server import DspServer
 from rtb.dsp.store import CampaignStore
+
+NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
 
 
 def make_row(task_id="t1", seq=2, campaign_id="c1"):
@@ -36,7 +39,7 @@ def dsp(tmp_path):
 
 # ---- S42 ----
 def test_both_endpoints_succeeding_returns_both_pieces_of_evidence(dsp):
-    evidence = dsp_client.make_client(dsp, timeout_seconds=3)(make_row())
+    evidence = dsp_client.make_client(dsp, timeout_seconds=3)(make_row(), NOW)
 
     kinds = {item.kind for item in evidence}
     assert kinds == {EvidenceKind.CAMPAIGN_STATE, EvidenceKind.METRICS}
@@ -44,11 +47,12 @@ def test_both_endpoints_succeeding_returns_both_pieces_of_evidence(dsp):
 
 
 def test_the_campaign_state_evidence_carries_the_observed_version(dsp):
-    evidence = dsp_client.make_client(dsp, timeout_seconds=3)(make_row())
+    evidence = dsp_client.make_client(dsp, timeout_seconds=3)(make_row(), NOW)
 
     state = next(e for e in evidence if e.kind == EvidenceKind.CAMPAIGN_STATE)
     assert state.campaign_version_observed == 1
     assert state.task_id == "t1"
+    assert all(e.observed_at == NOW for e in evidence)  # 讀取時間用呼叫端傳來的時間,不自己讀時鐘
 
 
 # ---- S43 ----
@@ -56,7 +60,7 @@ def test_a_nonexistent_campaign_makes_the_whole_call_raise(dsp):
     client = dsp_client.make_client(dsp, timeout_seconds=3)
 
     with pytest.raises(dsp_client.DspRequestFailed):
-        client(make_row(campaign_id="ghost"))
+        client(make_row(campaign_id="ghost"), NOW)
 
 
 def test_campaign_state_succeeding_but_metrics_failing_raises_and_returns_nothing_partial(
@@ -74,7 +78,8 @@ def test_campaign_state_succeeding_but_metrics_failing_raises_and_returns_nothin
         client = dsp_client.make_client(
             f"http://127.0.0.1:{server.server_address[1]}", timeout_seconds=3)
         with pytest.raises(dsp_client.DspRequestFailed):
-            client(make_row())  # 第一個端點(現況)成功,第二個(指標)失敗:整個呼叫要往外丟例外
+            # 第一個端點(現況)成功,第二個(指標)失敗:整個呼叫要往外丟例外
+            client(make_row(), NOW)
     finally:
         server.shutdown()
         server.server_close()
@@ -84,15 +89,15 @@ def test_the_dsp_being_unreachable_makes_the_whole_call_raise():
     client = dsp_client.make_client("http://127.0.0.1:1", timeout_seconds=1)
 
     with pytest.raises(Exception):  # noqa: B017 - 只驗證會整個丟例外,不驗證是哪一種
-        client(make_row())
+        client(make_row(), NOW)
 
 
 # ---- content_hash ----
 def test_the_same_campaign_state_produces_the_same_content_hash(dsp):
     client = dsp_client.make_client(dsp, timeout_seconds=3)
 
-    first = next(e for e in client(make_row()) if e.kind == EvidenceKind.CAMPAIGN_STATE)
-    second = next(e for e in client(make_row()) if e.kind == EvidenceKind.CAMPAIGN_STATE)
+    first = next(e for e in client(make_row(), NOW) if e.kind == EvidenceKind.CAMPAIGN_STATE)
+    second = next(e for e in client(make_row(), NOW) if e.kind == EvidenceKind.CAMPAIGN_STATE)
 
     assert first.content_hash == second.content_hash
 

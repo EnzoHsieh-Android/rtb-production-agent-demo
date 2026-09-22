@@ -26,15 +26,15 @@ class InstrumentedEvidenceSource:
     def __init__(
         self,
         store: TaskStore,
-        inner: Callable[[TaskRow], tuple[Evidence, ...]],
+        inner: Callable[[TaskRow, datetime], tuple[Evidence, ...]],
         endpoint: str,
     ):
         self._store, self._inner, self._endpoint = store, inner, endpoint
 
-    def __call__(self, task: TaskRow) -> tuple[Evidence, ...]:
+    def __call__(self, task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
         started = time.monotonic()
         try:
-            result = self._inner(task)
+            result = self._inner(task, now)
         except Exception as exc:
             self._record(task, type(exc).__name__, started)
             raise
@@ -49,7 +49,7 @@ class InstrumentedEvidenceSource:
 
 def dsp_evidence_source(
     store: TaskStore, base_url: str, timeout_seconds: float,
-) -> Callable[[TaskRow], tuple[Evidence, ...]]:
+) -> Callable[[TaskRow, datetime], tuple[Evidence, ...]]:
     """建真的 DSP 用戶端,兩個內部端點(現況、指標)各自成功/失敗都各記一筆 tool_calls——
     不是像 `InstrumentedEvidenceSource` 那樣整個呼叫包一層才記一筆。呼叫端(`flow.advance()`
     要用的 EvidenceSource)拿到的就是這個函式本身,不用再另外包一層。

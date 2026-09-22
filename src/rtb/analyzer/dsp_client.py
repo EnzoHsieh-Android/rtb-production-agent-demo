@@ -12,7 +12,7 @@ import hashlib
 import json
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from types import MappingProxyType
 from typing import Any
 
@@ -57,15 +57,15 @@ def _get(
 
 def make_client(
     base_url: str, timeout_seconds: float, on_call: OnDspCall | None = None
-) -> Callable[[TaskRow], tuple[Evidence, ...]]:
+) -> Callable[[TaskRow, datetime], tuple[Evidence, ...]]:
     """回傳一個符合 EvidenceSource 協定的函式,綁定 DSP 的位址與逾時。
 
     `on_call` 不填就是原本的行為(不記錄任何東西);要記 tool_calls 的呼叫端(見
     `instrumented.dsp_evidence_source`)傳一個綁定 TaskStore 的鉤子進來。
     """
 
-    def fetch(task: TaskRow) -> tuple[Evidence, ...]:
-        now = datetime.now(UTC)
+    def fetch(task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
+        # 證據的讀取時間用呼叫端(流程層)傳來的時間,不自己讀系統時鐘,見 flow.EvidenceSource
         state = _get(base_url, f"/campaigns/{task.campaign_id}", timeout_seconds,
                     task, on_call, "dsp:campaign")
         metrics = _get(base_url, f"/campaigns/{task.campaign_id}/metrics?window=1h",

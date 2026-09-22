@@ -26,9 +26,10 @@ def row(seq=2):
 # ---- S50 ----
 def test_a_successful_call_is_recorded(store):
     store.create_task("t1", "c1", NOW)
-    source = InstrumentedEvidenceSource(store, lambda _task: (make_evidence(),), "dsp:evidence")
+    source = InstrumentedEvidenceSource(
+        store, lambda _task, _now: (make_evidence(),), "dsp:evidence")
 
-    source(row())
+    source(row(), NOW)
 
     calls = store.list_tool_calls("t1")
     assert len(calls) == 1 and calls[0].outcome == "ok" and calls[0].endpoint == "dsp:evidence"
@@ -37,13 +38,13 @@ def test_a_successful_call_is_recorded(store):
 def test_a_failing_call_is_recorded_and_the_exception_still_propagates(store):
     store.create_task("t1", "c1", NOW)
 
-    def boom(_task):
+    def boom(_task, _now):
         raise RuntimeError("dsp unreachable")
 
     source = InstrumentedEvidenceSource(store, boom, "dsp:evidence")
 
     with pytest.raises(RuntimeError):
-        source(row())
+        source(row(), NOW)
 
     calls = store.list_tool_calls("t1")
     assert len(calls) == 1 and calls[0].outcome == "RuntimeError"
@@ -52,9 +53,10 @@ def test_a_failing_call_is_recorded_and_the_exception_still_propagates(store):
 def test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result(store):
     store.create_task("t1", "c1", NOW)
     store.close()  # 之後任何一次 execute() 都會丟 sqlite3.ProgrammingError,模擬寫入紀錄本身壞掉
-    source = InstrumentedEvidenceSource(store, lambda _task: (make_evidence(),), "dsp:evidence")
+    source = InstrumentedEvidenceSource(
+        store, lambda _task, _now: (make_evidence(),), "dsp:evidence")
 
-    result = source(row())  # record_tool_call 內部寫入壞掉,呼叫本身的結果不受影響
+    result = source(row(), NOW)  # record_tool_call 內部寫入壞掉,呼叫本身的結果不受影響
 
     assert result == (make_evidence(),)
 
@@ -122,7 +124,7 @@ def test_dsp_evidence_source_records_one_call_per_endpoint_on_full_success(store
         source = dsp_evidence_source(
             store, f"http://127.0.0.1:{server.server_address[1]}", timeout_seconds=3)
 
-        source(row())
+        source(row(), NOW)
 
         calls = store.list_tool_calls("t1")
         endpoints = {c.endpoint for c in calls}
@@ -151,7 +153,7 @@ def test_dsp_evidence_source_still_records_the_first_endpoints_success_when_the_
             store, f"http://127.0.0.1:{server.server_address[1]}", timeout_seconds=3)
 
         with pytest.raises(dsp_client.DspRequestFailed):
-            source(row())
+            source(row(), NOW)
 
         calls = store.list_tool_calls("t1")
         by_endpoint = {c.endpoint: c.outcome for c in calls}
