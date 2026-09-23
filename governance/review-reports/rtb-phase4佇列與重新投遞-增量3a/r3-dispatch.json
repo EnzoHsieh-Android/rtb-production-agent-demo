@@ -1,0 +1,77 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "版本混跑與探鎖",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r3-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/fakes.py",
+   "tests/executor/test_runner.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "s2",
+  "lens": "前輪驗收與全面",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r3-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/fakes.py",
+   "tests/executor/test_runner.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "s3",
+  "lens": "並行測試與假DSP",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r3-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/fakes.py",
+   "tests/executor/test_runner.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r3-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/fakes.py",
+   "tests/executor/test_runner.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r3-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/fakes.py",
+   "tests/executor/test_runner.py"
+  ],
+  "auditor": "codex"
+ }
+]
