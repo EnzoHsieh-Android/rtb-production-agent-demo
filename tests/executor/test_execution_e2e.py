@@ -19,6 +19,9 @@ from rtb.executor.inbox_store import InboxStore
 from tests.capability_samples import TEST_KEY
 from tests.executor.fakes import proposal, write_config
 
+# 這幾支測試只看用戶端的回應,不看呼叫紀錄(Phase 9 起每支方法都要顯式傳回呼)
+IGNORE = lambda _call: None  # noqa: E731
+
 
 class PlannedHandler(DspHandler):
     def read_fault(self, modes):
@@ -117,9 +120,9 @@ def test_f4_a_stale_proposal_never_overwrites_a_newer_value(world):
     racing = world.submit(task_id="t2", campaign_version_observed=2)
     original_write = world.client.write
 
-    def race_then_write(prop, key, token):
+    def race_then_write(prop, key, token, *, on_call):
         world.other_party_updates(budget=130)
-        return original_write(prop, key, token)
+        return original_write(prop, key, token, on_call=on_call)
 
     world.client.write = race_then_write
     world.executor.process_one()
@@ -140,7 +143,8 @@ def test_f1_a_timeout_after_commit_is_recorded_as_unknown_and_applied_once(tmp_p
         ours = [h for h in world.history() if h.idempotency_key == operation_key(prop)]
         assert len(ours) == 1  # DSP 只套用一次
         assert world.campaign().version == 2
-        assert world.client.operation_version(operation_key(prop)) == 2  # 之後同鍵查得到
+        # 之後同鍵查得到
+        assert world.client.operation_version(operation_key(prop), on_call=IGNORE) == 2
     finally:
         world.close()
 
@@ -173,7 +177,7 @@ def test_a_timeout_before_commit_is_unknown_and_never_commits_later(tmp_path, cl
         clock.advance(seconds=1)
         threading.Event().wait(0.8)  # 等 DSP 那邊的處理程式放棄
         assert world.campaign().version == 1
-        assert world.client.operation_version(operation_key(prop)) is None
+        assert world.client.operation_version(operation_key(prop), on_call=IGNORE) is None
     finally:
         world.close()
 
@@ -191,10 +195,11 @@ def test_the_clock_offset_fixture_really_expires_the_first_capability(world):
 
 # ---- 真的 DSP 用戶端:「不存在」與「讀取失敗」的分界(S43、S44 的替身背後那一段) ----
 def test_the_real_client_tells_a_missing_campaign_from_a_failed_read(world):
-    assert world.client.read_campaign("c-missing") is None  # 404 campaign_not_found
-    assert world.client.operation_version("k1-missing") is None  # 404 operation_not_found
+    assert world.client.read_campaign("c-missing", on_call=IGNORE) is None  # 404 campaign_not_found
+    # 404 operation_not_found
+    assert world.client.operation_version("k1-missing", on_call=IGNORE) is None
     with pytest.raises(DspUnavailable):  # 路由對不上的 404 不是「不存在」
-        world.client.read_campaign("c1/extra")
+        world.client.read_campaign("c1/extra", on_call=IGNORE)
 
 
 def test_a_missing_campaign_is_blocked_through_the_real_client(world):
@@ -216,14 +221,15 @@ def test_an_oversized_version_from_the_dsp_is_treated_as_unreadable(monkeypatch)
     monkeypatch.setattr(dsp_client, "request_json",
                         lambda *_a, **_k: (200, {"version_after": 2**63, "budget": 1,
                                                  "version": 2**63, "status": "active"}))
-    assert client.write(proposal(), "k1-x", "t").version_after is None
+    assert client.write(proposal(), "k1-x", "t", on_call=IGNORE).version_after is None
     with pytest.raises(DspUnavailable):
-        client.read_campaign("c1")
+        client.read_campaign("c1", on_call=IGNORE)
     with pytest.raises(DspUnavailable):
-        client.operation_version("k1-x")
+        client.operation_version("k1-x", on_call=IGNORE)
     monkeypatch.setattr(dsp_client, "request_json",
                         lambda *_a, **_k: (200, {"version_after": 2**63 - 1}))
-    assert client.write(proposal(), "k1-x", "t").version_after == 2**63 - 1  # 上限本身可以
+    # 上限本身可以
+    assert client.write(proposal(), "k1-x", "t", on_call=IGNORE).version_after == 2**63 - 1
 
 
 # ---- 對帳(增量 4)的端到端 ----
@@ -314,17 +320,17 @@ def test_the_real_client_reads_the_full_operation_record(world):
     world.executor.process_one()
     key = operation_key(prop)
 
-    assert world.client.operation_record(key) == OperationRecord(
+    assert world.client.operation_record(key, on_call=IGNORE) == OperationRecord(
         campaign_id="c1", action="update_budget", new_budget=150, expected_version=1,
         version_after=2)
-    assert world.client.operation_record("k1-missing") is None
+    assert world.client.operation_record("k1-missing", on_call=IGNORE) is None
 
     import sqlite3
     conn = sqlite3.connect(world.dsp_db)
     conn.execute("UPDATE operations SET expected_version = NULL")  # 補欄位之前寫的舊列
     conn.commit()
     conn.close()
-    old = world.client.operation_record(key)
+    old = world.client.operation_record(key, on_call=IGNORE)
     assert old is not None and old.expected_version is None
 
 
@@ -333,7 +339,7 @@ def test_the_real_client_voids_a_key_through_the_dsp(world):
     token = CapabilitySigner(TEST_KEY).sign_void(
         prop, operation_key(prop), world.config, int(world.clock().timestamp()))
 
-    answer = world.client.void(prop, operation_key(prop), token)
+    answer = world.client.void(prop, operation_key(prop), token, on_call=IGNORE)
 
     assert (answer.status, answer.state, answer.record) == (200, "voided", None)
 
@@ -346,7 +352,7 @@ def test_a_void_call_that_times_out_comes_back_as_no_answer(world):
         prop, operation_key(prop), world.config, int(world.clock().timestamp()))
     world.server.plan.append(("timeout_before_commit", 0))  # DSP 掛住比用戶端逾時久
 
-    answer = world.client.void(prop, operation_key(prop), token)
+    answer = world.client.void(prop, operation_key(prop), token, on_call=IGNORE)
 
     assert (answer.status, answer.state) == (None, None)
     conn = sqlite3.connect(world.dsp_db)
@@ -367,6 +373,6 @@ def test_an_old_style_operation_answer_still_reads_back_its_version(monkeypatch)
     client = dsp_client.DspClient("http://127.0.0.1:9", 1)
     monkeypatch.setattr(dsp_client, "request_json", lambda *_a, **_k: (200, old))
 
-    assert client.operation_version("k1-x") == 5
+    assert client.operation_version("k1-x", on_call=IGNORE) == 5
     with pytest.raises(DspUnavailable):
-        client.operation_record("k1-x")
+        client.operation_record("k1-x", on_call=IGNORE)

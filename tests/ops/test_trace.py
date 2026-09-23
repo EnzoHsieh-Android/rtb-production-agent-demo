@@ -14,6 +14,7 @@ import pytest
 
 from rtb.analyzer.task_store import FollowUp, ReplanReason, TaskReader
 from rtb.domain.attempt import operation_key
+from rtb.domain.proposal import content_hash
 from rtb.domain.task_state import TaskState
 from rtb.executor.execution import Result
 from rtb.executor.inbox_store import RETENTION, ReadOnlyInbox
@@ -183,7 +184,8 @@ def test_a_shared_operation_key_is_attributed_to_the_revision_that_created_it(wo
     assert revisions["t1", 1].key == revisions["t1", 2].key == key
     assert revisions["t1", 1].key_origin is KeyOrigin.RECOMPUTED
     assert revisions["t1", 2].key_origin is KeyOrigin.ANALYZER_STORED
-    assert revisions["t1", 1].attempts_owner == revisions["t1", 2].attempts_owner == ("t1", 1)
+    assert revisions["t1", 1].attempts_owner == revisions["t1", 2].attempts_owner == (
+        "t1", 1, content_hash(first))
     assert (revisions["t1", 1].settled_by_existing_key,
             revisions["t1", 2].settled_by_existing_key) == (False, True)
 
@@ -247,3 +249,34 @@ def test_a_read_only_open_of_an_old_database_fails_cleanly(world):
     with pytest.raises(DatabaseNotUpgraded):
         TaskReader(world.analyzer_db)
     assert world.dump() == before
+
+
+# ---- [S614] 代碼審第 1 輪:任務與修訂重用、內容不同的兩份提案要各自追得到 ----
+def test_a_reused_task_and_revision_with_new_content_is_traced_separately(world):
+    first, result = world.execute(task_id="re")
+    assert result.kind is Result.EXECUTED
+    world.clock.advance(seconds=RETENTION.total_seconds() + 60)
+    now = world.clock()
+    fresh = {"decision_created_at": now.isoformat(),
+             "decision_expires_at": (now + timedelta(minutes=5)).isoformat()}
+    world.h.store.accept(proposal(task_id="other", **fresh), world.clock)  # 順手清掉舊的 re
+    assert world.h.query("SELECT count(*) FROM proposals WHERE task_id = 're'") == [(0,)]
+    world.h.process()  # 先把順手收的那份處理掉
+    second, result = world.execute(task_id="re", campaign_id="c2", **fresh)  # 同任務同修訂
+    assert result.kind is Result.EXECUTED
+    for prop in (first, second):
+        world.dsp.commit(operation_key(prop), now.isoformat(), campaign_id=prop.campaign_id)
+
+    traced = build(world, "re")
+    revisions = {(r.task_id, r.revision, r.content_hash): r for r in traced.revisions}
+    assert set(revisions) == {("re", 1, content_hash(first)), ("re", 1, content_hash(second))}
+    for prop in (first, second):
+        digest = content_hash(prop)
+        mine = revisions["re", 1, digest]
+        assert mine.key == operation_key(prop) and not mine.settled_by_existing_key
+        assert mine.attempts_owner == ("re", 1, digest)
+        for table in (Table.ATTEMPTS, Table.DSP_CALLS, Table.DSP_OPERATIONS):
+            owned = [s for s in traced.segments
+                     if s.table is table and s.field("key") == operation_key(prop)]
+            assert owned, (table, prop.campaign_id)
+            assert {s.field("content_hash") for s in owned} == {digest}, table

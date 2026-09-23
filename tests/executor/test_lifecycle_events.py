@@ -443,3 +443,33 @@ def test_settlements_from_an_existing_key_are_flagged(h):
     assert [(e["revision"], e["from_existing"], e["actor"]) for e in settled] == [(2, 1, "w2")]
     assert h.query("SELECT count(*) FROM lifecycle_events WHERE from_existing NOT IN (0, 1)") == [
         (0,)]
+
+
+# ---- [S600] 代碼審第 1 輪:放掉租約的原因是表上實際留下的最後一次失敗原因 ----
+def test_a_lease_release_event_records_the_last_failure_left_on_the_row(h):
+    h.submit(task_id="lf")
+    first = receive(h)
+    with h.store.transaction() as tx:
+        assert h.store.release(tx, first.receipt, h.clock(), LastFailure.TABLE_FULL)
+    second = receive(h)
+    with h.store.transaction() as tx:
+        assert h.store.release(tx, second.receipt, h.clock(), None)  # 這次沒帶原因
+    released = [e for e in events(h) if e["kind"] == "lease_released"]
+    assert [e["reason"] for e in released] == ["table_full", "table_full"]
+
+
+# ---- [S600] 代碼審第 1 輪:自己的租約還沒到期時接手,不是「租約過期被接手」 ----
+def test_the_same_owner_taking_over_its_live_lease_writes_no_reclaim_event(h):
+    h.submit(task_id="own")
+    delivery = receive(h, "w1")
+    for _ in range(2):  # 同一個擁有者連續兩輪對帳接手自己的租約
+        with h.store.transaction() as tx:
+            assert h.store.take_over(tx, delivery.message, h.clock(), "w1") is not None
+    assert [e["kind"] for e in events(h)] == ["received", "delivered"]
+
+    for owner in ("w1", "w2"):  # 舊租約真的到期了才記:自己接手自己過期的租約也算,換人更算
+        h.clock.advance(seconds=VISIBILITY_TIMEOUT.total_seconds() + 1)
+        with h.store.transaction() as tx:
+            assert h.store.take_over(tx, delivery.message, h.clock(), owner) is not None
+    reclaimed = [(e["kind"], e["actor"]) for e in events(h) if e["kind"] == "reclaimed"]
+    assert reclaimed == [("reclaimed", "w1"), ("reclaimed", "w2")]

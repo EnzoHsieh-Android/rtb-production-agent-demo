@@ -67,6 +67,7 @@ def _ops_offenders(ops_dir):
         offenders += [f"{path.name}:{line} {name}" for line, name, bare in _called_names(tree)
                       if name in defined and name not in READ_WHITELIST
                       and not (bare and name in local)]
+        offenders += _dynamic_lookups(path.name, tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr in defined - READ_WHITELIST:
                 offenders.append(f"{path.name}:{node.lineno} .{node.attr}")
@@ -80,6 +81,22 @@ def _ops_offenders(ops_dir):
                                   and (node.module or "").startswith(("rtb.analyzer",
                                                                       "rtb.executor")))]
     return offenders
+
+
+# 用字串動態取屬性的寫法(代碼審第 1 輪):名字掃描看不到字串裡的方法名,維運套件本身也用不到,一律不准
+DYNAMIC_LOOKUPS = frozenset({"getattr", "attrgetter", "methodcaller", "__getattribute__", "vars",
+                             "__dict__"})
+
+
+def _dynamic_lookups(label, tree):
+    found = []
+    for node in ast.walk(tree):
+        name = (node.id if isinstance(node, ast.Name) else node.attr
+                if isinstance(node, ast.Attribute) else node.name
+                if isinstance(node, ast.alias) else None)
+        if name in DYNAMIC_LOOKUPS:
+            found.append(f"{label}:{getattr(node, 'lineno', 0)} 動態取屬性 {name}")
+    return found
 
 
 def _importers_of_ops():
@@ -134,6 +151,13 @@ def test_the_ops_package_is_read_only_and_imported_by_nobody():
     "\nfrom rtb.executor.inbox_store import InboxStore as _S\n",
     "\ndef _w(s):\n    later = s.release\n    return later\n",  # 先取方法、之後再呼叫
     "\ndef _w():\n    from rtb.executor.attempt_store import begin as _b\n    return _b\n",
+    # 用字串動態取屬性(代碼審第 1 輪):維運套件本身用不到,一律不准
+    "\ndef _w(s, tx):\n    getattr(s, 'release')(tx, None, None, None)\n",
+    "\ndef _w(s):\n    return getattr(s, 'rel' + 'ease')\n",
+    "\nimport operator\n\ndef _w(s):\n    return operator.attrgetter('release')(s)\n",
+    "\nfrom operator import methodcaller\n\n_w = methodcaller('release', None, None)\n",
+    "\ndef _w(s):\n    return s.__getattribute__('release')\n",
+    "\ndef _w(s):\n    return vars(type(s))['release']\n",
 ])
 def test_the_ops_scan_catches_a_write_call(tmp_path, extra):
     """[S617] 的殺傷力:在維運套件的副本放一個寫入呼叫,掃描就要找到。"""

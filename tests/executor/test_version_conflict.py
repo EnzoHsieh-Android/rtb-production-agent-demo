@@ -244,11 +244,11 @@ class _RacingClient(DspClient):
 
     barrier: threading.Barrier
 
-    def write(self, prop, key, token):
+    def write(self, prop, key, token, *, on_call):
         # 另一邊若在柵欄前就失敗(例如慢機器上讀 DSP 逾時),這邊等 5 秒後丟 BrokenBarrierError,
         # 由 run() 收進結果、斷言時直接印出,不會悄悄卡住
         self.barrier.wait(5)
-        return super().write(prop, key, token)
+        return super().write(prop, key, token, on_call=on_call)
 
 
 def _one_writer(tmp_path, url, config, name, budget):

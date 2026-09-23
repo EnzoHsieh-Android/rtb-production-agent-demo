@@ -125,7 +125,8 @@ def test_the_execution_side_never_reads_free_text(tmp_path, monkeypatch):
     signer = CapabilitySigner(TEST_KEY)
     token = signer.sign(item, "k1", write_config(tmp_path / "tenants.json"),
                         int(NOW.timestamp()))
-    executor_dsp.DspClient("http://127.0.0.1:1", 1.0).write(item, "k1", token)
+    executor_dsp.DspClient("http://127.0.0.1:1", 1.0).write(item, "k1", token,
+                                                      on_call=lambda _call: None)
 
     assert sent["body"] is not None and MARKER not in repr(sent["body"])
     assert MARKER not in repr(decode(token, TEST_KEY))  # 聲明解開來看,不看編碼後的字串

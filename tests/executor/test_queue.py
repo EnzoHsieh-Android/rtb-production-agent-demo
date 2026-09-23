@@ -609,13 +609,13 @@ def test_a_lost_lease_skips_the_key_without_halting(h):
         h.store.take_over(tx, message, h.clock(), "executor")
     lookup = h.dsp.operation_record
 
-    def steal_first(key):
+    def steal_first(key, *, on_call):
         if key == operation_key(prop):
             with h.store.transaction() as tx:
                 message = h.store.in_progress_for(tx, "t1", key)
                 h.clock.advance(seconds=LEASE + 1)
                 h.store.take_over(tx, message, h.clock(), "w3")
-        return lookup(key)
+        return lookup(key, on_call=on_call)
 
     h.dsp.operation_record = steal_first
 

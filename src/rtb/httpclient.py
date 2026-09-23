@@ -66,15 +66,32 @@ def request_json(
     deadline = time.monotonic() + timeout_seconds
     try:
         with _opener.open(request, timeout=timeout_seconds) as response:
-            return response.status, json.loads(_read_capped(response, deadline))
+            return response.status, _parsed(response.status, response, deadline)
     except HTTPError as error:
-        return error.code, json.loads(_read_capped(error, deadline))
+        return error.code, _parsed(error.code, error, deadline)
     except TimeoutError:
         raise
     except OSError as error:
         if isinstance(error, TimeoutError):
             raise
         raise
+
+
+class UnreadableResponse(ValueError):
+    """拿到了狀態碼、但本文不是合法 JSON 或超過上限(Phase 9 增量 1 代碼審第 1 輪):帶著狀態碼往外丟,
+    呼叫端能依狀態碼分類(500 加 HTML 本文是 5xx,不是「沒有狀態碼的讀不懂」)。是 ValueError 的
+    子類別,既有只接 ValueError 的呼叫端不受影響。"""
+
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+
+
+def _parsed(status: int, source: Any, deadline: float) -> Any:
+    try:
+        return json.loads(_read_capped(source, deadline))
+    except ValueError as exc:  # JSON 解不開、編碼不對、超過上限
+        raise UnreadableResponse(status, str(exc)) from exc
 
 
 def _read_capped(response: Any, deadline: float) -> bytes:

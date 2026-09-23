@@ -7,15 +7,19 @@
   查寫入後版本(增量 3 的介面)原樣保留;對帳用的「查完整操作紀錄」另開一支。
 - 作廢:不丟例外;回應原樣交給作廢回應對照表判。
 
-呼叫回呼(Phase 9 增量 1,比照分析端 DSP 用戶端的 on_call):每一支公開方法都經同一個底層送出點
-`_send`,每一次 HTTP 呼叫在那裡觸發剛好一次回呼(呼叫類別、結果類別、狀態碼、耗時、DSP 回的錯誤
-代碼)。結果類別:傳輸層的例外依型別分逾時、連線失敗、回應讀不懂;有回應時依狀態碼分 4xx、5xx;
+呼叫回呼(Phase 9 增量 1,比照分析端 DSP 用戶端的 on_call):每一支公開方法都收一個必填的關鍵字
+參數 on_call(呼叫端綁好這次是為了哪份提案;漏傳在型別層就擋下,好幾個工作者共用一個用戶端也各記
+各的——代碼審第 1 輪拿掉了原本掛在用戶端上的共用回呼),都經同一個底層送出點 `_send`,每一次 HTTP
+呼叫在那裡觸發剛好一次回呼(呼叫類別、結果類別、狀態碼、耗時、DSP 回的錯誤代碼)。拿到狀態碼但本文
+讀不懂時照狀態碼分類、記下狀態碼(共用 HTTP 用戶端帶著狀態碼往外丟)。
+結果類別:傳輸層的例外依型別分逾時、連線失敗、回應讀不懂;有回應時依狀態碼分 4xx、5xx;
 狀態 2xx 但欄位讀不懂算回應讀不懂。沒拿到回應時,寫入與作廢的回應、讀取丟的例外也帶同一個分類。
 這支檔仍不碰儲存:寫呼叫紀錄的是掛上回呼的執行迴圈。
 """
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from rtb.domain._checks import is_plain_int
@@ -29,7 +33,7 @@ from rtb.executor.execution import (
     VoidAnswer,
     WriteAnswer,
 )
-from rtb.httpclient import ClientHeader, request_json
+from rtb.httpclient import ClientHeader, UnreadableResponse, request_json
 
 _WRITE_PATHS = {ActionType.UPDATE_BUDGET: "budget", ActionType.PAUSE_CAMPAIGN: "pause"}
 
@@ -63,17 +67,23 @@ def _by_status(status: int, readable: bool) -> DspCallResult:
     return R.UNREADABLE
 
 
+@dataclass(frozen=True)
+class _Request:
+    """一次呼叫送什麼:類別、方法、路徑、本文、標頭。"""
+
+    kind: DspCallKind
+    method: str
+    path: str
+    body: dict[str, Any] | None = None
+    headers: dict[ClientHeader, str] | None = None
+
+
 class DspClient:
-    def __init__(self, base_url: str, timeout_seconds: float, on_call: OnDspCall | None = None):
+    def __init__(self, base_url: str, timeout_seconds: float):
         self._base, self._timeout = base_url.rstrip("/"), timeout_seconds
-        self._on_call = on_call
 
-    def listen(self, on_call: OnDspCall) -> None:
-        self._on_call = on_call
-
-    def _send[T](  # noqa: PLR0913 - 一次呼叫要的全部:類別、方法、路徑、本文、標頭、兩個解讀
-        self, kind: DspCallKind, method: str, path: str, body: dict[str, Any] | None,
-        headers: dict[ClientHeader, str] | None,
+    def _send[T](
+        self, request: _Request, on_call: OnDspCall,
         read: Callable[[int, dict[str, Any] | None], tuple[T, bool]],
         no_reply: Callable[[DspCallResult], T],
     ) -> T:
@@ -81,32 +91,35 @@ class DspClient:
 
         read 解讀有回應的情況,回 (結果, 讀不讀得懂);丟 DspUnavailable 時照樣先觸發回呼。
         no_reply 處理沒拿到回應(回一個「沒拿到回應」的結果,或丟 DspUnavailable)。"""
-        started = time.monotonic()
+        kind, started = request.kind, time.monotonic()
+
+        def report(result: DspCallResult, status: int | None,
+                   reply: dict[str, Any] | None) -> None:
+            on_call(DspCall(kind, result, status, (time.monotonic() - started) * 1000,
+                            dsp_error_code(reply)))
+
         try:
-            status, reply = request_json(self._base + path, method, body, self._timeout, headers)
-        except (OSError, ValueError) as exc:  # 逾時、斷線、回應不是 JSON 或太大
+            status, reply = request_json(self._base + request.path, request.method,
+                                         request.body, self._timeout, request.headers)
+        except UnreadableResponse as exc:  # 有狀態碼、本文讀不懂:照狀態碼分類,結果照舊當沒回應
+            failure = _by_status(exc.status, False)
+            report(failure, exc.status, None)
+            return no_reply(failure)
+        except (OSError, ValueError) as exc:  # 逾時、斷線
             failure = _transport_failure(exc)
-            self._report(kind, failure, None, started, None)
+            report(failure, None, None)
             return no_reply(failure)
         parsed = reply if isinstance(reply, dict) else None
         try:
             result, readable = read(status, parsed)
         except DspUnavailable:
-            self._report(kind, _by_status(status, False), status, started, parsed)
+            report(_by_status(status, False), status, parsed)
             raise
-        self._report(kind, _by_status(status, readable), status, started, parsed)
+        report(_by_status(status, readable), status, parsed)
         return result
 
-    def _report(
-        self, kind: DspCallKind, result: DspCallResult, status: int | None, started: float,
-        reply: dict[str, Any] | None,
-    ) -> None:
-        if self._on_call is not None:
-            self._on_call(DspCall(kind, result, status, (time.monotonic() - started) * 1000,
-                                  dsp_error_code(reply)))
-
     def _get[T](
-        self, kind: DspCallKind, path: str,
+        self, kind: DspCallKind, path: str, on_call: OnDspCall,
         read: Callable[[int, dict[str, Any]], T],
     ) -> T:
         """讀取類(讀廣告、查操作紀錄):沒拿到回應、回應不是 JSON 物件一律丟 DspUnavailable。"""
@@ -118,9 +131,9 @@ class DspClient:
         def unavailable(failure: DspCallResult) -> T:
             raise DspUnavailable(failure.value, failure)
 
-        return self._send(kind, "GET", path, None, None, interpret, unavailable)
+        return self._send(_Request(kind, "GET", path), on_call, interpret, unavailable)
 
-    def read_campaign(self, campaign_id: str) -> CampaignView | None:
+    def read_campaign(self, campaign_id: str, *, on_call: OnDspCall) -> CampaignView | None:
         def read(status: int, body: dict[str, Any]) -> CampaignView | None:
             if status == 404 and body.get("error") == "campaign_not_found":
                 return None
@@ -130,9 +143,11 @@ class DspClient:
                 raise DspUnavailable(f"讀取回 {status}", _by_status(status, False))
             return CampaignView(budget=budget, status=state, version=version)
 
-        return self._get(DspCallKind.READ_CAMPAIGN, f"/campaigns/{campaign_id}", read)
+        return self._get(DspCallKind.READ_CAMPAIGN, f"/campaigns/{campaign_id}", on_call, read)
 
-    def write(self, proposal: Proposal, key: str, token: str) -> WriteAnswer:
+    def write(
+        self, proposal: Proposal, key: str, token: str, *, on_call: OnDspCall,
+    ) -> WriteAnswer:
         body: dict[str, Any] = {"expected_version": proposal.campaign_version_observed}
         if proposal.action_type is ActionType.UPDATE_BUDGET:
             body["new_budget"] = proposal.requested_change["new_budget"]
@@ -147,10 +162,10 @@ class DspClient:
             return (WriteAnswer(status, error if isinstance(error, str) else None, version),
                     version is not None)
 
-        return self._send(DspCallKind.WRITE, "POST", path, body, headers, read,
-                          lambda failure: WriteAnswer(None, failure=failure))
+        return self._send(_Request(DspCallKind.WRITE, "POST", path, body, headers), on_call,
+                          read, lambda failure: WriteAnswer(None, failure=failure))
 
-    def operation_version(self, key: str) -> int | None:
+    def operation_version(self, key: str, *, on_call: OnDspCall) -> int | None:
         """增量 3 的介面,行為照舊:只要寫入後版本讀得懂就回它。
 
         刻意不轉呼叫 operation_record:那支要求廣告、動作、參數都在,舊版 DSP 的成功回應沒有參數,
@@ -162,9 +177,11 @@ class DspClient:
                 raise DspUnavailable("查詢回的寫入後版本讀不懂", R.UNREADABLE)
             return version
 
-        return self._lookup(key, parse)
+        return self._lookup(key, on_call, parse)
 
-    def _lookup[T](self, key: str, parse: Callable[[dict[str, Any]], T]) -> T | None:
+    def _lookup[T](
+        self, key: str, on_call: OnDspCall, parse: Callable[[dict[str, Any]], T],
+    ) -> T | None:
         """查一把鍵的操作紀錄:查不到回 None,非 200 一律 DspUnavailable;欄位解析由呼叫端給。"""
         def read(status: int, body: dict[str, Any]) -> T | None:
             if status == 404 and body.get("error") == "operation_not_found":
@@ -173,18 +190,20 @@ class DspClient:
                 raise DspUnavailable(f"查詢回 {status}", _by_status(status, False))
             return parse(body)
 
-        return self._get(DspCallKind.LOOKUP_OPERATION, f"/operations/{key}", read)
+        return self._get(DspCallKind.LOOKUP_OPERATION, f"/operations/{key}", on_call, read)
 
-    def operation_record(self, key: str) -> OperationRecord | None:
+    def operation_record(self, key: str, *, on_call: OnDspCall) -> OperationRecord | None:
         def parse(body: dict[str, Any]) -> OperationRecord:
             record = _record(body)
             if record is None:  # 對帳要核對完整內容:少一個欄位就不能拿來下判斷
                 raise DspUnavailable("查詢回的操作紀錄讀不懂", R.UNREADABLE)
             return record
 
-        return self._lookup(key, parse)
+        return self._lookup(key, on_call, parse)
 
-    def void(self, proposal: Proposal, key: str, token: str) -> VoidAnswer:
+    def void(
+        self, proposal: Proposal, key: str, token: str, *, on_call: OnDspCall,
+    ) -> VoidAnswer:
         body = {"expected_version": proposal.campaign_version_observed}
         headers = {ClientHeader.IDEMPOTENCY_KEY: key, ClientHeader.CAPABILITY: token}
         path = f"/campaigns/{proposal.campaign_id}/void"
@@ -200,8 +219,8 @@ class DspClient:
             return answer, answer.state == "voided" or (
                 answer.state == "committed" and record is not None)
 
-        return self._send(DspCallKind.VOID, "POST", path, body, headers, read,
-                          lambda failure: VoidAnswer(None, failure=failure))
+        return self._send(_Request(DspCallKind.VOID, "POST", path, body, headers), on_call,
+                          read, lambda failure: VoidAnswer(None, failure=failure))
 
 
 def _record(body: dict[str, Any]) -> OperationRecord | None:

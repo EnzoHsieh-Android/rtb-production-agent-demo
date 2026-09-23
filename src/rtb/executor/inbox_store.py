@@ -1255,8 +1255,12 @@ class InboxStore(InboxReads):
             receipt, now,
             "lease_until = ?, lease_owner = NULL, last_failure = coalesce(?, last_failure)",
             (_iso(now), None if failure is None else failure.value))
-        if done:
-            self._log_held(receipt, now, LifecycleKind.LEASE_RELEASED, reason=failure)
+        if done:  # 原因記表上實際留下的最後一次失敗原因(沒帶原因時沿用舊的;代碼審第 1 輪)
+            left = self._conn.execute(
+                "SELECT last_failure FROM proposals WHERE task_id = ? AND revision = ?",
+                (receipt.task_id, receipt.revision)).fetchone()[0]
+            self._log_held(receipt, now, LifecycleKind.LEASE_RELEASED,
+                           reason=None if left is None else LastFailure(left))
         return done
 
     def ack_handed_off(
@@ -1432,6 +1436,9 @@ class InboxStore(InboxReads):
 
         不讀現值充當收據:別人持有而且沒到期就回 None,這一輪跳過。"""
         self._own(tx)
+        before = self._conn.execute(  # 同一個交易裡先讀舊租約:自己的租約還沒到期就不是「被接手」
+            "SELECT lease_until, lease_owner FROM proposals WHERE task_id = ? AND revision = ?",
+            (message.task_id, message.revision)).fetchone()
         cursor = self._conn.execute(
             "UPDATE proposals SET lease_seq = lease_seq + 1, lease_owner = ?, lease_until = ? "  # noqa: S608 - 固定條件
             f"WHERE task_id = ? AND revision = ? AND content_hash = ? AND {IN_PROGRESS} "
@@ -1443,9 +1450,11 @@ class InboxStore(InboxReads):
         seq = self._conn.execute(
             "SELECT lease_seq FROM proposals WHERE task_id = ? AND revision = ?",
             (message.task_id, message.revision)).fetchone()[0]
-        tenant = attempt_store.first_row_tenant(tx, operation_key(message.proposal))
-        self._log(now, message.task_id, message.revision, LifecycleKind.RECLAIMED,
-                  Actor(Source.EXECUTOR_LOOP, owner), tenant=tenant)
+        if before[1] != owner or before[0] is None or before[0] <= _iso(now):
+            # 舊租約真的到期了,或換了擁有者才記;自己續做不記(比照續租不寫事件,代碼審第 1 輪)
+            tenant = attempt_store.first_row_tenant(tx, operation_key(message.proposal))
+            self._log(now, message.task_id, message.revision, LifecycleKind.RECLAIMED,
+                      Actor(Source.EXECUTOR_LOOP, owner), tenant=tenant)
         return Receipt(message.task_id, message.revision, message.content_hash, owner, int(seq))
 
     def record_event(self, code: str, proposal: Proposal, now: datetime) -> None:

@@ -100,15 +100,21 @@ class Segment:
         return dict(self.fields)[name]
 
 
+Ident = tuple[str, int, str | None]  # 一份提案:任務、修訂、內容雜湊(任務編號重用時靠雜湊分開)
+
+
 @dataclass(frozen=True)
 class RevisionKey:
-    """一份修訂對應的冪等鍵、鍵從哪來、那把鍵的嘗試歸誰,以及它是不是由既有結果確認。"""
+    """一份提案(任務、修訂、內容雜湊)對應的冪等鍵、鍵從哪來、那把鍵的嘗試歸哪一份提案,以及它是
+    不是由既有結果確認。關聯一律用三件組,不用任務加修訂(代碼審第 1 輪:任務編號重用、內容不同的
+    第二份會被吞掉)。"""
 
     task_id: str
     revision: int
+    content_hash: str | None
     key: str
     key_origin: KeyOrigin
-    attempts_owner: tuple[str, int] | Absent
+    attempts_owner: Ident | Absent
     settled_by_existing_key: bool
 
 
@@ -155,7 +161,7 @@ def _sort_key(segment: Segment) -> tuple[str, int, int, tuple[str | int, ...]]:
 class _AnalyzerPart:
     tasks: tuple[str, ...]
     segments: tuple[Segment, ...]
-    keys: tuple[tuple[str, int, str, KeyOrigin], ...]  # (任務, 修訂, 冪等鍵, 鍵從哪來)
+    keys: tuple[tuple[Ident, str, KeyOrigin], ...]  # (提案, 冪等鍵, 鍵從哪來)
 
 
 def _chain(reader: TaskReader, task_id: str) -> list[str]:
@@ -198,22 +204,27 @@ def _tool_segment(index: int, position: int, call: ToolCall) -> Segment:
 
 def _analyzer_task(
     reader: TaskReader, index: int, task: str,
-) -> tuple[list[Segment], list[tuple[str, int, str, KeyOrigin]]]:
+) -> tuple[list[Segment], list[tuple[Ident, str, KeyOrigin]]]:
     stored = dict(reader.handed_off_keys(task))
-    segments, keys = [], {}
+    segments: list[Segment] = []
+    keys: dict[Ident, tuple[str, KeyOrigin]] = {}
     for row in reader.history(task):
         key = stored.get(row.seq)
         if row.proposal is not None:
+            ident = (task, row.proposal.revision, content_hash(row.proposal))
             if key is not None:
-                keys[row.proposal.revision] = (key, KeyOrigin.ANALYZER_STORED)
+                keys[ident] = (key, KeyOrigin.ANALYZER_STORED)
             else:
-                keys.setdefault(row.proposal.revision,
-                                (operation_key(row.proposal), KeyOrigin.RECOMPUTED))
+                keys.setdefault(ident, (operation_key(row.proposal), KeyOrigin.RECOMPUTED))
         segments.append(_history_segment(reader, index, row, key))
     segments += [_tool_segment(index, position, call)
                  for position, call in enumerate(reader.list_tool_calls(task))]
-    return segments, [(task, revision, key, origin)
-                      for revision, (key, origin) in sorted(keys.items())]
+    return segments, [(ident, key, origin) for ident, (key, origin) in sorted(
+        keys.items(), key=lambda item: _ident_order(item[0]))]
+
+
+def _ident_order(ident: Ident) -> tuple[str, int, str]:
+    return ident[0], ident[1], ident[2] or ""
 
 
 def _read_analyzer(path: Path, task_id: str) -> _AnalyzerPart:
@@ -222,7 +233,7 @@ def _read_analyzer(path: Path, task_id: str) -> _AnalyzerPart:
     try:
         tasks = _chain(reader, task_id)
         segments: list[Segment] = []
-        keys: list[tuple[str, int, str, KeyOrigin]] = []
+        keys: list[tuple[Ident, str, KeyOrigin]] = []
         for index, task in enumerate(tasks):
             found, revisions = _analyzer_task(reader, index, task)
             segments += found
@@ -237,7 +248,7 @@ def _read_analyzer(path: Path, task_id: str) -> _AnalyzerPart:
 class _ExecutorPart:
     segments: tuple[Segment, ...]
     revisions: tuple[RevisionKey, ...]
-    owned: tuple[tuple[str, tuple[str, int]], ...]  # 有嘗試的鍵與它歸的修訂(讀 DSP 用)
+    owned: tuple[tuple[str, Ident], ...]  # 有嘗試的鍵與它歸的那份提案(讀 DSP 用)
 
 
 def _event_segment(event: LifecycleEvent) -> Segment:
@@ -254,6 +265,7 @@ def _event_segment(event: LifecycleEvent) -> Segment:
 
 def _attempt_segment(row: AttemptTraceRow) -> Segment:
     fields = {"task_id": row.task_id, "revision": row.revision, "key": row.key,
+              "content_hash": row.content_hash,
               "tenant": row.tenant, "campaign_id": row.campaign_id, "worker": row.actor,
               "attempt": row.seq}
     return _segment((Origin.EXECUTOR, Table.ATTEMPTS), row.written_at, (row.key, row.seq),
@@ -262,8 +274,11 @@ def _attempt_segment(row: AttemptTraceRow) -> Segment:
                                         "program_version": row.program_version})
 
 
-def _call_segment(call: DspCallRow) -> Segment:
+def _call_segment(call: DspCallRow, hashes: Mapping[tuple[str, int, str], str | None]) -> Segment:
+    """呼叫紀錄沒存內容雜湊;同一個任務與修訂下,冪等鍵分得開內容不同的兩份提案,用它接回雜湊。"""
+    ident = (call.task_id or "", call.revision or 0, call.key or "")
     fields = {"task_id": call.task_id, "revision": call.revision, "key": call.key,
+              "content_hash": hashes.get(ident),
               "campaign_id": call.campaign_id, "worker": call.actor}
     return _segment((Origin.EXECUTOR, Table.DSP_CALLS), call.at, (call.id,), call.kind, fields,
                     {"result": call.result, "status": call.status, "error": call.error,
@@ -291,26 +306,25 @@ def _letter_segments(
 
 def _revision_keys(
     analyzer: _AnalyzerPart, events: Iterable[LifecycleEvent],
-) -> dict[tuple[str, int], tuple[str, KeyOrigin]]:
-    """每一份修訂的冪等鍵:分析端存下的 → 分析端提案重算 → 執行端事件記下的。"""
-    found = {(task, revision): (key, origin) for task, revision, key, origin in analyzer.keys}
+) -> dict[Ident, tuple[str, KeyOrigin]]:
+    """每一份提案(任務、修訂、內容雜湊)的冪等鍵:分析端存下的 → 分析端提案重算 → 執行端事件
+    記下的。"""
+    found = {ident: (key, origin) for ident, key, origin in analyzer.keys}
     for event in events:
         if event.key is not None:
-            found.setdefault((event.task_id, event.revision),
+            found.setdefault((event.task_id, event.revision, event.content_hash),
                              (event.key, KeyOrigin.EXECUTOR_RECORDED))
     return found
 
 
 def _revisions(
-    keys: Mapping[tuple[str, int], tuple[str, KeyOrigin]],
-    owners: Mapping[str, tuple[str, int]],
+    keys: Mapping[Ident, tuple[str, KeyOrigin]], owners: Mapping[str, Ident],
 ) -> tuple[RevisionKey, ...]:
     result = []
-    for (task, revision), (key, origin) in sorted(keys.items()):
+    for ident, (key, origin) in sorted(keys.items(), key=lambda item: _ident_order(item[0])):
         owner = owners.get(key)
-        result.append(RevisionKey(task, revision, key, origin,
-                                  MISSING if owner is None else owner,
-                                  owner is not None and owner != (task, revision)))
+        result.append(RevisionKey(*ident, key, origin, MISSING if owner is None else owner,
+                                  owner is not None and owner != ident))
     return tuple(result)
 
 
@@ -328,22 +342,24 @@ def _read_executor(path: Path, analyzer: _AnalyzerPart) -> _ExecutorPart:
             ops = [x for task in analyzer.tasks for x in inbox.dead_letter_ops_for(tx, task)]
     finally:
         inbox.close()
-    owners = {key: (rows[0].task_id or "", rows[0].revision or 0)
-              for key, rows in attempts.items() if rows}
+    owners: dict[str, Ident] = {
+        key: (rows[0].task_id or "", rows[0].revision or 0, rows[0].content_hash)
+        for key, rows in attempts.items() if rows}
+    hashes = {(task, revision, key): digest for (task, revision, digest), (key, _) in keys.items()}
     segments = [_event_segment(e) for e in events]
     segments += [_attempt_segment(row) for rows in attempts.values() for row in rows]
-    segments += [_call_segment(c) for c in calls] + _letter_segments(letters, ops)
+    segments += [_call_segment(c, hashes) for c in calls] + _letter_segments(letters, ops)
     return _ExecutorPart(tuple(segments), _revisions(keys, owners), tuple(sorted(owners.items())))
 
 
 # ---- DSP ----
 def _read_dsp(
-    url: str, timeout: float, owned: Iterable[tuple[str, tuple[str, int]]],
+    url: str, timeout: float, owned: Iterable[tuple[str, Ident]],
 ) -> tuple[Segment, ...] | None:
     """用冪等鍵讀 DSP 的唯讀操作紀錄端點;查不到(404)的鍵沒有這一段;逾時、斷線、其他狀態碼或
     讀不懂回 None(整個 DSP 來源標缺)。"""
     segments = []
-    for key, (task, revision) in owned:
+    for key, (task, revision, digest) in owned:
         try:
             status, body = request_json(f"{url.rstrip('/')}/operations/{key}", "GET", None,
                                         timeout)
@@ -363,7 +379,7 @@ def _read_dsp(
         segments.append(_segment(
             (Origin.DSP, Table.DSP_OPERATIONS), at,
             (operation if isinstance(operation, int) else 0,), "dsp_operation",
-            {"task_id": task, "revision": revision, "key": key,
+            {"task_id": task, "revision": revision, "content_hash": digest, "key": key,
              "campaign_id": body.get("campaign_id"), "dsp_operation_id": operation},
             {"action": body.get("action"), "version_after": body.get("version_after")}))
     return tuple(segments)
@@ -431,7 +447,8 @@ def to_primitives(trace: Trace) -> dict[str, Any]:
         "note": None if trace.stable else "讀取期間有新提交,時間線可能不一致",
         "missing": [origin.value for origin in trace.missing],
         "read_at": {origin.value: at for origin, at in trace.read_at},
-        "revisions": [{"task_id": r.task_id, "revision": r.revision, "key": r.key,
+        "revisions": [{"task_id": r.task_id, "revision": r.revision,
+                       "content_hash": r.content_hash, "key": r.key,
                        "key_origin": r.key_origin.value,
                        "attempts_owner": (r.attempts_owner if r.attempts_owner is MISSING
                                           else list(r.attempts_owner)),

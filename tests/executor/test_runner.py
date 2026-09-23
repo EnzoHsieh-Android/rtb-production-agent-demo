@@ -269,7 +269,8 @@ def test_each_round_reconciles_oldest_first_before_taking_a_new_proposal(h):
     h.submit(task_id="t3", campaign_id="c3")  # 一份新提案
 
     lookup = h.dsp.operation_record
-    h.dsp.operation_record = lambda key: (order.append(("lookup", key)), lookup(key))[1]
+    h.dsp.operation_record = lambda key, *, on_call: (
+        order.append(("lookup", key)), lookup(key, on_call=on_call))[1]
     h.dsp.on_read = lambda campaign: order.append(("read", campaign))
 
     assert run_in_process(h, max_rounds=1) == 0

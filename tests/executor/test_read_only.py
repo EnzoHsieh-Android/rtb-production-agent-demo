@@ -227,7 +227,7 @@ def test_the_write_function_list_is_derived_not_declared():
 
 
 # ---- [S626] ----
-def test_the_last_terminal_event_of_a_proposal_uses_the_terminal_index(store, reader):
+def test_the_last_terminal_event_lookup_uses_the_terminal_index(store, reader):
     store.accept(PROP, lambda: NOW)
     digest = inbox_store.content_hash(PROP)
     with store.transaction() as tx:

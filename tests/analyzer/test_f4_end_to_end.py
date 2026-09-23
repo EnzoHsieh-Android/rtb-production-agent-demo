@@ -58,11 +58,11 @@ class _PreemptedClient(DspClient):
         super().__init__(base_url, timeout_seconds)
         self._dsp_db, self._preempted = dsp_db, False
 
-    def write(self, prop, key, token):
+    def write(self, prop, key, token, *, on_call):
         if not self._preempted:
             self._preempted = True
             _other_writer_changes_the_budget(self._dsp_db)
-        return super().write(prop, key, token)
+        return super().write(prop, key, token, on_call=on_call)
 
 
 def run_f4(tmp_path, race):

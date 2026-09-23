@@ -83,6 +83,17 @@ def _loop(
     return 0
 
 
+def _serve(
+    executor: Executor, interval: float, max_rounds: int | None,
+    sleep: Callable[[float], None],
+) -> int:
+    """跑迴圈;結束前補寫欠著的呼叫紀錄,還是忙就只能放掉(跟當機一樣少記那幾列)。"""
+    try:
+        return _loop(executor, interval, max_rounds, sleep)
+    finally:
+        executor.flush_calls()
+
+
 @dataclass(frozen=True)
 class _Opened:
     store: InboxStore
@@ -167,7 +178,7 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
         print(READY, file=out or sys.stdout, flush=True)
         executor = Executor(store, dsp or DspClient(args.dsp_url, args.dsp_timeout_seconds),
                             signer, args.tenant_config, clock, owner, approval_key)
-        return _loop(executor, args.interval_seconds, max_rounds, sleep)
+        return _serve(executor, args.interval_seconds, max_rounds, sleep)
     finally:
         store.close()
 

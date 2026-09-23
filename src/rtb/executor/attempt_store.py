@@ -45,7 +45,7 @@ from rtb.domain.attempt import (
     is_clean_detail,
     operation_key,
 )
-from rtb.domain.proposal import Proposal, parse_proposal
+from rtb.domain.proposal import Proposal, content_hash, parse_proposal
 
 MAX_SENDS = 3  # 同一把鍵最多送出幾次(含第一次)
 MAX_VERIFICATION_TIMEOUTS = 5  # 對帳與執行後驗證的查詢逾時,每把鍵累計
@@ -340,6 +340,7 @@ class AttemptTraceRow:
     source: str | None
     actor: str | None
     program_version: str | None
+    content_hash: str | None = None  # 建立這把鍵那份提案的內容雜湊(第一列的快照算出;讀不回為空)
 
 
 @dataclass(frozen=True)
@@ -879,12 +880,26 @@ def dsp_calls_for(tx: Readable, task_id: str) -> tuple[DspCallRow, ...]:
 
 
 def trace_rows(tx: Readable, key: str) -> tuple[AttemptTraceRow, ...]:
-    """一把鍵的每一列嘗試,連同第一列記的任務、修訂與租戶(那把鍵歸建立它的修訂)。"""
-    return tuple(AttemptTraceRow(*row) for row in _read_conn(tx).execute(
+    """一把鍵的每一列嘗試,連同第一列記的任務、修訂、租戶與提案內容雜湊(那把鍵歸建立它的那份提案;
+    任務編號重用時靠內容雜湊分開,代碼審第 1 輪)。"""
+    rows = _read_conn(tx).execute(
         "SELECT a.key, a.seq, a.state, a.code, a.send_count, a.written_at, f.task_id, "
-        "f.revision, a.campaign_id, f.tenant, a.source, a.actor, a.program_version "
-        "FROM attempts a JOIN attempts f ON f.key = a.key AND f.seq = 1 "
-        "WHERE a.key = ? ORDER BY a.seq", (key,)))
+        "f.revision, a.campaign_id, f.tenant, a.source, a.actor, a.program_version, "
+        "f.proposal_json FROM attempts a JOIN attempts f ON f.key = a.key AND f.seq = 1 "
+        "WHERE a.key = ? ORDER BY a.seq", (key,)).fetchall()
+    return tuple(AttemptTraceRow(
+        key=row[0], seq=row[1], state=row[2], code=row[3], send_count=row[4], written_at=row[5],
+        task_id=row[6], revision=row[7], campaign_id=row[8], tenant=row[9], source=row[10],
+        actor=row[11], program_version=row[12], content_hash=_snapshot_hash(row[13]))
+        for row in rows)
+
+
+def _snapshot_hash(snapshot: str | None) -> str | None:
+    try:
+        parsed = parse_proposal(json.loads(snapshot or "null")).proposal
+    except (ValueError, TypeError):
+        return None
+    return None if parsed is None else content_hash(parsed)
 
 
 def first_row_tenant(tx: Readable, key: str) -> str | None:

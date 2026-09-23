@@ -23,17 +23,15 @@
 「處理待核可」那一步在核可到了時放回待處理、到期時確認成已擋下。用到核可的那一筆,憑證不能活得
 比核可久;同鍵重送前也重判比例與用過的核可。
 
-可觀測(Phase 9 增量 1):嘗試紀錄的每一列記來源與執行者(這個執行迴圈的擁有者);DSP 用戶端每一次
-HTTP 呼叫觸發一次回呼,執行迴圈掛上回呼、在獨立的短交易裡寫一列 DSP 呼叫紀錄——結果寫入回滾時呼叫
-紀錄照樣留著。回呼從目前這一份工作的範圍(處理一筆或對帳一把鍵時設定)拿關聯欄位與要寫的收件表,
-同一個 DSP 用戶端給好幾個工作者執行緒共用時各記各的。簽發之後收據帶上租戶,之後的生命週期事件記
-簽發當時的租戶。
+可觀測(Phase 9 增量 1):嘗試紀錄的每一列記來源與執行者(這個執行迴圈的擁有者);每一個 DSP 呼叫點
+都顯式傳一支綁好這份提案身分的回呼,DSP 用戶端每一次 HTTP 呼叫觸發它一次,在獨立的短交易裡寫一列
+DSP 呼叫紀錄——結果寫入回滾時呼叫紀錄照樣留著;同一個 DSP 用戶端給好幾個工作者共用時各記各的。
+寫紀錄撞到資料庫忙碌不丟例外,先留在這個執行器的待寫清單,之後補寫(代碼審第 1 輪,代使用者裁定)。
+簽發之後收據帶上租戶,之後的生命週期事件記簽發當時的租戶。
 """
 
-from collections.abc import Callable, Iterable, Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -61,6 +59,7 @@ from rtb.executor.inbox_store import (
     AwaitingProposal,
     BlockCode,
     CorruptedInboxRow,
+    InboxBusy,
     InboxStore,
     LastFailure,
     PendingProposal,
@@ -130,28 +129,32 @@ OnDspCall = Callable[[DspCall], None]
 
 
 class DspPort(Protocol):
-    def read_campaign(self, campaign_id: str) -> CampaignView | None:
+    """每一支方法都收必填的 on_call:這次呼叫的每一次 HTTP 呼叫都呼叫它剛好一次(呼叫類別、結果類別、
+    狀態碼、耗時、錯誤代碼)。呼叫端綁好這次是為了哪份提案(Phase 9 增量 1 代碼審第 1 輪:改成顯式
+    傳,漏傳在型別層就擋下)。"""
+
+    def read_campaign(self, campaign_id: str, *, on_call: OnDspCall) -> CampaignView | None:
         """廣告不存在回 None;其他讀取失敗丟 DspUnavailable。"""
         ...
 
-    def write(self, proposal: Proposal, key: str, token: str) -> WriteAnswer:
+    def write(
+        self, proposal: Proposal, key: str, token: str, *, on_call: OnDspCall,
+    ) -> WriteAnswer:
         """帶憑證與冪等鍵送出寫入;不丟例外,沒拿到回應就回 status 為 None 的回應。"""
         ...
 
-    def operation_version(self, key: str) -> int | None:
+    def operation_version(self, key: str, *, on_call: OnDspCall) -> int | None:
         """用冪等鍵查 DSP 的操作紀錄,回寫入後版本;查不到回 None,查詢失敗丟 DspUnavailable。"""
         ...
 
-    def operation_record(self, key: str) -> OperationRecord | None:
+    def operation_record(self, key: str, *, on_call: OnDspCall) -> OperationRecord | None:
         """用冪等鍵查完整操作紀錄;查不到回 None,查詢失敗丟 DspUnavailable。"""
         ...
 
-    def void(self, proposal: Proposal, key: str, token: str) -> VoidAnswer:
+    def void(
+        self, proposal: Proposal, key: str, token: str, *, on_call: OnDspCall,
+    ) -> VoidAnswer:
         """請 DSP 作廢這把鍵;不丟例外,沒拿到回應就回 status 為 None 的回應。"""
-        ...
-
-    def listen(self, on_call: OnDspCall) -> None:
-        """之後每一次 HTTP 呼叫都呼叫 on_call 一次(呼叫類別、結果類別、狀態碼、耗時、錯誤代碼)。"""
         ...
 
 
@@ -413,22 +416,12 @@ def _no_progress(key: str, receipt: Receipt | None) -> NoReturn:
 
 
 @dataclass(frozen=True)
-class _CallScope:
-    """目前這一份工作:DSP 呼叫紀錄的關聯欄位,以及要寫進哪個執行迴圈的收件表。"""
+class _PendingCall:
+    """還沒寫進去的一列呼叫紀錄:時間是呼叫當下的,不是補寫時的。"""
 
-    executor: Executor
+    call: DspCall
     subject: CallSubject
-
-
-_SCOPE: ContextVar[_CallScope | None] = ContextVar("dsp_call_scope", default=None)
-
-
-def record_dsp_call(call: DspCall) -> None:
-    """掛在 DSP 用戶端上的回呼:在目前這一份工作的範圍裡寫一列呼叫紀錄。執行迴圈每一次呼叫 DSP
-    都在處理一筆或對帳一把鍵的範圍裡;範圍外(沒有收件表可寫)不記。"""
-    scope = _SCOPE.get()
-    if scope is not None:
-        scope.executor.log_dsp_call(call, scope.subject)
+    at: datetime
 
 
 @dataclass(frozen=True)
@@ -440,47 +433,59 @@ class Executor:
     clock: Callable[[], datetime]  # 單一動作的簡單回呼:照專案慣例用 Callable,不另開 Protocol
     owner: str = "executor"  # 租約擁有者:啟動程式傳行程編號加啟動時間
     approval_key: bytes | None = None  # 人工核可金鑰(啟動程式讀);沒有就一張核可都不算數
-
-    def __post_init__(self) -> None:
-        self.dsp.listen(record_dsp_call)  # 同一支回呼:好幾個工作者共用一個 DSP 用戶端時不重複掛
+    # 撞到資料庫忙碌、還沒寫進去的呼叫紀錄(代使用者裁定,代碼審第 1 輪):只在這個行程的記憶體裡
+    _pending: list[_PendingCall] = field(default_factory=list, init=False, repr=False,
+                                         compare=False)
 
     @property
     def _by(self) -> Actor:
         return Actor(Source.EXECUTOR_LOOP, self.owner)
 
-    @contextmanager
-    def _calls_for(self, proposal: Proposal, key: str) -> Iterator[None]:
-        """這一份工作期間的 DSP 呼叫都記成這份提案的。"""
-        token = _SCOPE.set(_CallScope(self, CallSubject(
-            proposal.task_id, proposal.revision, proposal.campaign_id, key)))
-        try:
-            yield
-        finally:
-            _SCOPE.reset(token)
+    def _calls(self, proposal: Proposal, key: str) -> OnDspCall:
+        """給 DSP 用戶端的回呼,綁好這次呼叫是為了哪份提案(每個呼叫點顯式傳)。"""
+        subject = CallSubject(proposal.task_id, proposal.revision, proposal.campaign_id, key)
 
-    def log_dsp_call(self, call: DspCall, subject: CallSubject) -> None:
-        """一列 DSP 呼叫紀錄,獨立的短交易(資料庫忙碌照一般寫入丟 InboxBusy,由啟動程式休息再來)。"""
-        with self.store.transaction() as tx:
-            attempt_store.record_dsp_call(tx, call, subject, self._by, self.clock())
+        def on_call(call: DspCall) -> None:
+            self._pending.append(_PendingCall(call, subject, self.clock()))
+            self.flush_calls()
+
+        return on_call
+
+    def flush_calls(self) -> None:
+        """把欠著的呼叫紀錄用一個新的短交易寫進去;資料庫忙碌就留著下次再補,永遠不丟忙碌例外
+        (丟出去會蓋掉已經發生的 DSP 結果、對帳整輪被放棄;代碼審第 1 輪三席)。所以只有行程當機才會
+        少記。其他資料庫錯誤照舊往外丟。每一份工作開始前與結束時也各補一次。"""
+        if not self._pending:
+            return
+        waiting = list(self._pending)
+        try:
+            with self.store.transaction() as tx:
+                for item in waiting:
+                    attempt_store.record_dsp_call(tx, item.call, item.subject, self._by, item.at)
+        except InboxBusy:
+            return
+        del self._pending[:len(waiting)]
 
     def process_one(self) -> Processed:
+        self.flush_calls()
         with self.store.transaction() as tx:
             delivery = self.store.receive(tx, self.clock(), self.owner)
         if delivery is None:
             return Processed(Result.IDLE)
-        proposal = delivery.message.proposal
         try:
-            with self._calls_for(proposal, operation_key(proposal)):
-                return self._process(delivery.message, delivery.receipt)
+            return self._process(delivery.message, delivery.receipt)
         except LeaseLost:
             return Processed(Result.LEASE_LOST)
+        finally:
+            self.flush_calls()
 
     def _process(self, picked: PendingProposal, receipt: Receipt) -> Processed:
         proposal = picked.proposal
         if proposal.decision_expires_at <= self.clock():  # 過期先判,不必去讀 DSP
             return self._settle(receipt, None, Result.EXPIRED)
         try:
-            view = self.dsp.read_campaign(proposal.campaign_id)
+            view = self.dsp.read_campaign(proposal.campaign_id,
+                                          on_call=self._calls(proposal, operation_key(proposal)))
         except DspUnavailable:
             return self._release(receipt, LastFailure.DSP_UNAVAILABLE)
         if proposal.decision_expires_at <= self.clock():  # 讀 DSP 期間過期:先於其他檢查
@@ -506,7 +511,9 @@ class Executor:
         if isinstance(taken, Processed):
             return taken
         # 停在未結案就不確認:每一筆嘗試寫入都順手續租,所以租約已經延長,交給對帳
-        self._record(proposal, taken, self.dsp.write(proposal, taken.key, signed.token), receipt)
+        answer = self.dsp.write(proposal, taken.key, signed.token,
+                                on_call=self._calls(proposal, taken.key))
+        self._record(proposal, taken, answer, receipt)
         return Processed(Result.EXECUTED, taken.key)
 
     def _sign(
@@ -938,7 +945,8 @@ class Executor:
     ) -> bool:
         """DSP 明確沒寫:重讀 DSP、重跑檢查;通過就重讀時鐘重簽、同鍵重送一次。"""
         try:
-            view = self.dsp.read_campaign(proposal.campaign_id)
+            view = self.dsp.read_campaign(
+                proposal.campaign_id, on_call=self._calls(proposal, row.key))
         except DspUnavailable:
             return True  # 留在結果不明,交給對帳
         live = proposal.decision_expires_at > self.clock()
@@ -956,7 +964,8 @@ class Executor:
             return self._not_resent(proposal, row, receipt, None)
         except _DecisionStale:
             return self._not_resent(proposal, row, receipt, BlockCode.DECISION_STALE)
-        answer = self.dsp.write(proposal, row.key, signed.token)
+        answer = self.dsp.write(proposal, row.key, signed.token,
+                                on_call=self._calls(proposal, row.key))
         reaction = react(answer)
         if reaction.capability_expired:  # 用新讀的時間重簽後仍過期:時鐘或設定有問題
             self._write(row, A.ESCALATED, receipt, code=C.CAPABILITY_REJECTED)
@@ -988,14 +997,16 @@ class Executor:
         return False
 
     def _check_applied(self, proposal: Proposal, row: AttemptRow) -> bool:
-        view = self.dsp.read_campaign(proposal.campaign_id)
+        view = self.dsp.read_campaign(
+            proposal.campaign_id, on_call=self._calls(proposal, row.key))
         written = row.written_version
         if view is None or written is None:
             return False
         if view.version == written:
             return intent_holds(proposal, view)
         if view.version > written:  # 之後有人又改了:只證明我們的寫入套用過一次,內容也要對
-            record = self.dsp.operation_record(row.key)
+            record = self.dsp.operation_record(
+                row.key, on_call=self._calls(proposal, row.key))
             return (record is not None and record.version_after == written
                     and record_matches(proposal, record))
         return False
@@ -1021,6 +1032,7 @@ class Executor:
 
         回傳這一輪有沒有 DSP 呼叫失敗:有就讓啟動程式這輪結束後休息,DSP 變慢時不連續全速打它。
         """
+        self.flush_calls()
         with self.store.transaction() as tx:
             keys = list(attempt_store.unresolved_keys(tx))
             in_progress, unreadable = self.store.in_progress_keys(tx)
@@ -1037,6 +1049,8 @@ class Executor:
                 continue  # 租約被接手:這把鍵這一輪放棄
             except CorruptedInboxRow as exc:  # 這把鍵找不到、同任務又有壞列:先記下,別拖累其他鍵
                 corrupted.append(str(exc))
+            finally:
+                self.flush_calls()  # 這一把鍵結束時補寫欠著的呼叫紀錄
         if corrupted:  # 健康的都處理完了,才因為讀不回來的處理中列停下讓人看(不能默默跳過)
             raise ExecutorHalted("unreadable_message")
         return troubled
@@ -1069,10 +1083,9 @@ class Executor:
                 if moved is None:
                     _no_progress(key, receipt)
                 row = moved
-        with self._calls_for(proposal, key):  # 之後的 DSP 呼叫都記成這把鍵的
-            if row.state is A.COMMITTED_UNVERIFIED:
-                return self._verify(proposal, row, receipt)
-            return self._reconcile_unknown(proposal, row, receipt)
+        if row.state is A.COMMITTED_UNVERIFIED:
+            return self._verify(proposal, row, receipt)
+        return self._reconcile_unknown(proposal, row, receipt)
 
     def _take_over(
         self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, key: str, now: datetime,
@@ -1094,7 +1107,8 @@ class Executor:
         self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
     ) -> bool:
         try:
-            record = self.dsp.operation_record(row.key)
+            record = self.dsp.operation_record(
+                row.key, on_call=self._calls(proposal, row.key))
         except DspUnavailable:
             self._verification_timeout(row, receipt)
             return True
@@ -1107,7 +1121,8 @@ class Executor:
     ) -> bool:
         """查不到這把鍵:重讀廣告、重跑執行前檢查;通過就同鍵重送,不過就先作廢再判失敗。"""
         try:
-            view = self.dsp.read_campaign(proposal.campaign_id)
+            view = self.dsp.read_campaign(
+                proposal.campaign_id, on_call=self._calls(proposal, row.key))
         except DspUnavailable:
             self._verification_timeout(row, receipt)
             return True
@@ -1130,7 +1145,8 @@ class Executor:
             return self._void_then_fail(proposal, row, receipt, None)
         except _DecisionStale:
             return self._void_then_fail(proposal, row, receipt, BlockCode.DECISION_STALE)
-        return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token),
+        return self._record(proposal, row, self.dsp.write(
+            proposal, row.key, signed.token, on_call=self._calls(proposal, row.key)),
                             receipt)
 
     def _found(
@@ -1157,7 +1173,8 @@ class Executor:
             # 不能作廢,就證明不了舊請求不會晚到提交
             self._write(row, A.ESCALATED, receipt, code=C.CANNOT_PROVE_NOT_HAPPENED)
             return False
-        answer = self.dsp.void(proposal, row.key, token)
+        answer = self.dsp.void(proposal, row.key, token,
+                               on_call=self._calls(proposal, row.key))
         reaction = react_void(answer)
         if reaction.outcome is VoidOutcome.FOUND:
             assert answer.record is not None  # noqa: S101 - 這一列的條件保證
