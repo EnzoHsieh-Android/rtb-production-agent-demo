@@ -1,0 +1,27 @@
+[
+ {"round": "r2", "seat": "s1", "lens": "前輪修正驗收", "auditor": "sonnet", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r2-snapshot.md",
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-intake.md",
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-s4.md",
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-s5.md",
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-x1.md",
+  "src/rtb/domain/evidence.py", "src/rtb/analyzer/dsp_client.py", "src/rtb/analyzer/task_store.py",
+  "tests/executor/test_capability_signer.py", "tests/executor/test_execution.py"]},
+ {"round": "r2", "seat": "s2", "lens": "信任邊界與數值邊界", "auditor": "sonnet", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r2-snapshot.md",
+  "src/rtb/domain/evidence.py", "src/rtb/analyzer/dsp_client.py", "src/rtb/analyzer/policy.py",
+  "src/rtb/dsp/store.py", "src/rtb/dsp/server.py", "src/rtb/httpkit.py", "src/rtb/httpclient.py"]},
+ {"round": "r2", "seat": "s3", "lens": "新增合約可測性", "auditor": "sonnet", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r2-snapshot.md",
+  "src/rtb/domain/proposal.py", "src/rtb/executor/inbox_server.py", "src/rtb/executor/capability_signer.py",
+  "src/rtb/executor/dsp_client.py", "tests/executor/test_execution_e2e.py", "tests/kit/test_httpkit.py",
+  "tests/analyzer/test_task_store.py"]},
+ {"round": "r2", "seat": "sarch", "lens": "架構對齊", "auditor": "sonnet", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r2-snapshot.md",
+  "src/rtb/dsp/store.py", "src/rtb/domain/evidence.py", "src/rtb/executor/inbox_server.py",
+  "tests/executor/test_execution_e2e.py"]},
+ {"round": "r2", "seat": "x1", "lens": "外家否決", "auditor": "codex", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r2-snapshot.md",
+  "src/rtb/domain/evidence.py", "src/rtb/analyzer/dsp_client.py", "src/rtb/dsp/store.py",
+  "src/rtb/executor/inbox_server.py", "src/rtb/domain/proposal.py"]}
+]
