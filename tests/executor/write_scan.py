@@ -1,4 +1,6 @@
-"""機械判定「哪些函式會寫資料庫」(Phase 9 增量 1 [S621]、[S617]、[S600] 共用)。
+"""掃原始碼的共用工具:機械判定「哪些函式會寫資料庫」(Phase 9 增量 1 [S621]、[S617]、[S600] 共用),
+以及把拆開的字串拼回來(Phase 8 死信守衛與 Phase 9 增量 4 稽核表守衛共用)。兩種讀法並存、名字分開:
+判寫入函式用的只取字串常數、不含文件字串;拼回字串的那支把相鄰字串、+、f-string 拼成完整語句。
 
 不靠名字判斷(取件、處理待核可、接手名字像讀、其實會寫):解析原始碼,一支函式的本體、它用到的
 模組內字串常數、以及它呼叫的模組內函式(同一個類別與基底類別的方法、模組層函式,遞移)裡,只要有
@@ -121,3 +123,40 @@ def write_functions(path: Path) -> set[str]:
 
 def read_functions(path: Path) -> set[str]:
     return {name for name, writes in classify(path).items() if not writes}
+
+
+def text_of(node):
+    """把一段字串拼回來:相鄰字串、用 + 串起來的字串、f-string 的固定片段(代入的值記成 {}),
+    空白壓成一格。照專案一般寫法拆開的 SQL 也還原得回來;刻意用變數組表名之類的寫法還原不了,
+    那是刻意繞過,不在「防忘記」的範圍(Phase 8 代碼審第 1 輪審查席實測兩種繞法)。"""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        text = node.value
+    elif isinstance(node, ast.JoinedStr):
+        text = "".join(part.value if isinstance(part, ast.Constant) else "{}"
+                       for part in node.values)
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = text_of(node.left), text_of(node.right)
+        if left is None or right is None:  # 不是字串相加(例如數字)
+            return None
+        text = left + right
+    else:
+        return None
+    return " ".join(text.split())
+
+
+def reconstructed_strings(tree, skip_docstrings=False):
+    """一棵語法樹裡拼得回來的每一段字串(最外層的那段,不重複算它的組成片段)。skip_docstrings:
+    不算模組、類別、函式的文件字串(說明裡提到 SQL 字樣不是語句)。"""
+    inside = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.BinOp | ast.JoinedStr) and text_of(node) is not None:
+            inside.update(id(sub) for sub in ast.walk(node) if sub is not node)
+    if skip_docstrings:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+                body = node.body
+                if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value,
+                                                                         ast.Constant):
+                    inside.add(id(body[0].value))
+    return [text for node in ast.walk(tree)
+            if id(node) not in inside and (text := text_of(node)) is not None]

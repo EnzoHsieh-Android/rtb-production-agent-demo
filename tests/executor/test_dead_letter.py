@@ -31,6 +31,7 @@ from rtb.executor.inbox_store import (
     failure_class,
 )
 from tests.executor.fakes import Harness, proposal, write_config
+from tests.executor.write_scan import reconstructed_strings
 
 OPERATOR = "ops-alice"
 
@@ -448,41 +449,12 @@ TABLE_WRITE = re.compile(r"\b(UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+
                          re.IGNORECASE)
 
 
-def _text_of(node):
-    """把一段字串拼回來:相鄰字串、用 + 串起來的字串、f-string 的固定片段(代入的值記成 {}),
-    空白壓成一格。照專案一般寫法拆開的 SQL 也還原得回來;刻意用變數組表名之類的寫法還原不了,
-    那是刻意繞過,不在「防忘記」的範圍(代碼審第 1 輪審查席實測兩種繞法)。"""
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        text = node.value
-    elif isinstance(node, ast.JoinedStr):
-        text = "".join(part.value if isinstance(part, ast.Constant) else "{}"
-                       for part in node.values)
-    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left, right = _text_of(node.left), _text_of(node.right)
-        if left is None or right is None:  # 不是字串相加(例如數字)
-            return None
-        text = left + right
-    else:
-        return None
-    return " ".join(text.split())
-
-
-def _strings(tree):
-    """一棵語法樹裡拼得回來的每一段字串(最外層的那段,不重複算它的組成片段)。"""
-    inside = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.BinOp | ast.JoinedStr) and _text_of(node) is not None:
-            inside.update(id(sub) for sub in ast.walk(node) if sub is not node)
-    return [text for node in ast.walk(tree)
-            if id(node) not in inside and (text := _text_of(node)) is not None]
-
-
 def _functions_containing(text):
     """原始碼裡含這段字的每一個函式(檔名, 函式名)。"""
     return [(path.name, node.name) for path in SRC.rglob("*.py")
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-            and any(text in found for found in _strings(node))]
+            and any(text in found for found in reconstructed_strings(node))]
 
 
 def test_only_the_replay_method_revives_a_dead_letter():
@@ -493,7 +465,7 @@ def test_only_the_replay_method_revives_a_dead_letter():
 def test_the_dead_letter_tables_are_only_ever_inserted_into():
     """死信信封與稽核只增不改:全庫沒有任何語句修改、刪除或覆寫這兩張表。"""
     offenders = [(path.name, match.group(0)) for path in SRC.rglob("*.py")
-                 for text in _strings(ast.parse(path.read_text(encoding="utf-8")))
+                 for text in reconstructed_strings(ast.parse(path.read_text(encoding="utf-8")))
                  for match in TABLE_WRITE.finditer(text)]
     assert offenders == []
 
@@ -503,7 +475,7 @@ def test_the_source_checks_see_through_split_strings():
     tree = ast.parse('x = "UPDATE dead_" + "letters SET a = 1"\n'
                      'y = f"DELETE   FROM {t} WHERE 1"\n'
                      'z = ("SET disposition = NULL, dead_letter_" "reason = NULL")\n')
-    found = _strings(tree)
+    found = reconstructed_strings(tree)
     assert "UPDATE dead_letters SET a = 1" in found
     assert "DELETE FROM {} WHERE 1" in found
     assert any(REVIVE in text for text in found)
