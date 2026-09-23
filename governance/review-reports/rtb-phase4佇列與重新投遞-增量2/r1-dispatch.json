@@ -1,0 +1,100 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "當機點與恢復路徑",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r1-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "tests/executor/test_runner.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "當機注入機制與隔離",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r1-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "tests/executor/test_runner.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "可測性與時間",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r1-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "tests/executor/test_runner.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "F2F3轉正證據",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r1-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "tests/executor/test_runner.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "與增量1到3及既有測試銜接",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r1-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "tests/executor/test_runner.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r1-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "tests/executor/test_runner.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r1-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "tests/executor/test_runner.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "codex"
+ }
+]
