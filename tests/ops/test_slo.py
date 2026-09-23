@@ -467,3 +467,20 @@ def test_the_command_line_says_why_a_source_was_missing(rows, dsp_url):
     assert "401" in reasons["no_key"] and "audit_key_missing" in reasons["no_key"]
     assert "403" in reasons["wrong_key"] and "audit_key_invalid" in reasons["wrong_key"]
     assert len(set(reasons.values())) == 3, reasons
+
+
+# 整合增量 2 代碼審修正:服務水準命令列跟指標、追蹤共用參數解析與結束代碼表
+def test_the_slo_command_line_reports_bad_arguments_apart_from_a_missing_database(tmp_path,
+                                                                                 capsys):
+    full = ["--executor-db", str(tmp_path / "e.db"), "--analyzer-db", str(tmp_path / "a.db"),
+            "--dsp-url", "http://127.0.0.1:9", "--now", NOW.isoformat()]
+    naive = [*full[:-1], NOW.replace(tzinfo=None).isoformat()]
+    dropped = [full[:at_flag] + full[at_flag + 2:] for at_flag in range(0, len(full), 2)]
+    for argv in [*dropped, naive]:
+        with pytest.raises(SystemExit) as exited:
+            slo.run(argv, out=io.StringIO(), err=io.StringIO(), environ={})
+        assert exited.value.code == slo.EXIT_BAD_ARGUMENTS != slo.EXIT_NO_DATABASE, argv
+        assert "參數錯誤" in capsys.readouterr().err
+    assert slo.run(full, out=io.StringIO(), err=io.StringIO(), environ={}) == slo.EXIT_NO_DATABASE
+    assert len({slo.EXIT_OK, slo.EXIT_NO_DATABASE, slo.EXIT_NOT_UPGRADED, slo.EXIT_UNSTABLE,
+                slo.EXIT_BAD_CONFIG, slo.EXIT_BAD_ARGUMENTS, slo.EXIT_INCOMPLETE}) == 7

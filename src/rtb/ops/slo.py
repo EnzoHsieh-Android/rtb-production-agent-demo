@@ -35,6 +35,8 @@ from typing import Any, TextIO
 from rtb.capabilitykit import AuditKeyTooLong, read_audit_key
 from rtb.executor.inbox_store import DatabaseNotUpgraded
 from rtb.ops import sli
+from rtb.ops.cli import EXIT_BAD_ARGUMENTS as EXIT_BAD_ARGUMENTS  # 參數錯(7,維運套件共用)
+from rtb.ops.cli import Parser, aware_time
 from rtb.ops.side_effects import DspUnreadable, Tally, reason
 
 SCALE = 60  # 示範縮短倍數;正式環境改成 1
@@ -46,7 +48,7 @@ EXIT_NO_DATABASE = 2
 EXIT_NOT_UPGRADED = 3
 EXIT_UNSTABLE = 5  # 沿用指標的固定結束代碼:有一條跨資料庫讀了三輪都不同,照樣印出最後一輪
 # 有指標缺資料或出錯(代使用者裁定,代碼審第 2 輪):照樣印出每一條,哪幾條、為什麼印在標準錯誤;
-# 跟不穩定同時成立時回這個。8 沒被任何命令列用掉(維運套件 0/2/3/4/5/6,執行端 2/3/4/5/6/7)
+# 跟不穩定同時成立時回這個。8 沒被任何命令列用掉(維運套件 0/2/3/4/5/6/7,執行端 2/3/4/5/6/7)
 EXIT_INCOMPLETE = 8
 EXIT_BAD_CONFIG = 6  # 沿用指標的代碼:設定錯誤(稽核金鑰超過長度上限)
 
@@ -261,12 +263,12 @@ def to_primitives(statuses: tuple[SloStatus, ...]) -> dict[str, Any]:
 
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="服務水準指標的狀態與燒損告警(只讀)")
+    parser = Parser(description="服務水準指標的狀態與燒損告警(只讀)")
     parser.add_argument("--executor-db", required=True, type=Path)
     parser.add_argument("--analyzer-db", required=True, type=Path)
     parser.add_argument("--dsp-url", required=True)
     parser.add_argument("--dsp-timeout-seconds", type=float, default=2.0)
-    parser.add_argument("--now", required=True, type=datetime.fromisoformat)
+    parser.add_argument("--now", required=True, type=aware_time)
     return parser.parse_args(argv)
 
 

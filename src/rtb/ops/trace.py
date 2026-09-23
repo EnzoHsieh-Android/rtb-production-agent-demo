@@ -39,6 +39,8 @@ from rtb.executor.inbox_store import (
     ReadOnlyInbox,
 )
 from rtb.httpclient import request_json
+from rtb.ops.cli import EXIT_BAD_ARGUMENTS as EXIT_BAD_ARGUMENTS  # 參數錯(7,維運套件共用)
+from rtb.ops.cli import Parser
 
 EXIT_OK = 0
 EXIT_NO_DATABASE = 2  # 資料庫檔不存在
@@ -464,7 +466,7 @@ def to_primitives(trace: Trace) -> dict[str, Any]:
 
 # ---- 命令列入口 ----
 def _parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="一個任務的跨元件追蹤(只讀)")
+    parser = Parser(description="一個任務的跨元件追蹤(只讀)")
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--analyzer-db", required=True, type=Path)
     parser.add_argument("--executor-db", required=True, type=Path)

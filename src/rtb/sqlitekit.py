@@ -106,8 +106,10 @@ def read_snapshot(conn: sqlite3.Connection) -> Iterator[None]:
 
 def missing_schema(
     conn: sqlite3.Connection, required: Mapping[str, Iterable[str]],
+    indexes: Iterable[str] = (),
 ) -> list[str]:
-    """required 是 {表: 欄位};回傳缺的表與「表.欄位」(唯讀開法判斷資料庫升級了沒有)。"""
+    """required 是 {表: 欄位},indexes 是要有的索引名;回傳缺的表、「表.欄位」與「索引 名稱」(唯讀開法
+    判斷資料庫升級了沒有:唯讀連線不建索引,缺索引的查詢會退化成全表掃描,也算還沒升級)。"""
     missing = []
     for table, columns in required.items():
         present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
@@ -115,4 +117,7 @@ def missing_schema(
             missing.append(table)
             continue
         missing += [f"{table}.{column}" for column in columns if column not in present]
+    existing = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'index'")}
+    missing += [f"索引 {name}" for name in indexes if name not in existing]
     return missing
