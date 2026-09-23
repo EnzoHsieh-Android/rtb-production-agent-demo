@@ -1,0 +1,92 @@
+[
+ {
+  "round": "r2",
+  "seat": "s1",
+  "lens": "前輪修正驗收",
+  "materials": [
+   "governance/review-reports/rtb-phase5樂觀鎖與重新規劃/r2-snapshot.md",
+   "governance/review-reports/rtb-phase5樂觀鎖與重新規劃/r1-intake.md",
+   "src/rtb/analyzer/flow.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/analyzer/inbox_client.py",
+   "src/rtb/analyzer/dsp_client.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/task_state.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s2",
+  "lens": "DSP 查詢與處置分流",
+  "materials": [
+   "governance/review-reports/rtb-phase5樂觀鎖與重新規劃/r2-snapshot.md",
+   "governance/review-reports/rtb-phase5樂觀鎖與重新規劃/r1-intake.md",
+   "src/rtb/analyzer/flow.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/analyzer/inbox_client.py",
+   "src/rtb/analyzer/dsp_client.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/task_state.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s3",
+  "lens": "接續任務與F4完成條件",
+  "materials": [
+   "governance/review-reports/rtb-phase5樂觀鎖與重新規劃/r2-snapshot.md",
+   "governance/review-reports/rtb-phase5樂觀鎖與重新規劃/r1-intake.md",
+   "src/rtb/analyzer/flow.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/analyzer/inbox_client.py",
+   "src/rtb/analyzer/dsp_client.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/task_state.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase5樂觀鎖與重新規劃/r2-snapshot.md",
+   "governance/review-reports/rtb-phase5樂觀鎖與重新規劃/r1-intake.md",
+   "src/rtb/analyzer/flow.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/analyzer/inbox_client.py",
+   "src/rtb/analyzer/dsp_client.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/task_state.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "x1",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase5樂觀鎖與重新規劃/r2-snapshot.md",
+   "governance/review-reports/rtb-phase5樂觀鎖與重新規劃/r1-intake.md",
+   "src/rtb/analyzer/flow.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/analyzer/inbox_client.py",
+   "src/rtb/analyzer/dsp_client.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/dsp/server.py",
+   "src/rtb/domain/task_state.py"
+  ],
+  "auditor": "codex"
+ }
+]
