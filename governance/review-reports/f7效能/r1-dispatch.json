@@ -1,0 +1,72 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "新舊已用額度一模一樣的合約夠不夠嚴",
+  "materials": [
+   "governance/review-reports/f7效能/r1-snapshot.md",
+   "governance/review-reports/f7效能/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "設定檔快取的失效條件與安全讀檔",
+  "materials": [
+   "governance/review-reports/f7效能/r1-snapshot.md",
+   "governance/review-reports/f7效能/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "溢位退回與資料庫端加總的判斷點",
+  "materials": [
+   "governance/review-reports/f7效能/r1-snapshot.md",
+   "governance/review-reports/f7效能/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "可測性、完成條件與合約句",
+  "materials": [
+   "governance/review-reports/f7效能/r1-snapshot.md",
+   "governance/review-reports/f7效能/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "相容、並行與成本",
+  "materials": [
+   "governance/review-reports/f7效能/r1-snapshot.md",
+   "governance/review-reports/f7效能/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/f7效能/r1-snapshot.md",
+   "governance/review-reports/f7效能/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/f7效能/r1-snapshot.md",
+   "governance/review-reports/f7效能/r1-intake.md"
+  ],
+  "auditor": "codex"
+ }
+]
