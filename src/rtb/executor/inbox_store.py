@@ -19,17 +19,23 @@
 待核可(Phase 6 增量 3):被總曝險已滿或比例過大擋下、還沒有人工核可的提案停在這裡。跟處理中
 一樣是暫時狀態、算任務還沒結束;取件不會撿到它,由執行迴圈每輪的「處理待核可」那一步放回待處理、
 確認成已擋下或被取代。核可表與核可使用表也在這裡建(只增不改);驗核可在執行行程,不在這裡。
+
+生命週期事件(Phase 9 增量 1):每一支會寫收件表那一列的方法,都在同一個交易裡由同一支內部函式
+`_log` 寫一列事件(續租除外,保留期整批刪除也不寫);事件表只增不改、不隨收件表清除,廣告、冪等鍵、
+政策版本在寫事件時從那一列的提案內容算出存下。唯讀開法 `ReadOnlyInbox` 只有唯讀連線、只發唯讀
+交易,開啟時不建表、不補欄位,資料庫還沒升級就丟 DatabaseNotUpgraded。
 """
 
 import json
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
+from rtb import PROGRAM_VERSION
 from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
 from rtb.domain.proposal import (
     MAX_DECISION_LIFETIME,
@@ -39,7 +45,19 @@ from rtb.domain.proposal import (
     parse_proposal,
 )
 from rtb.executor import attempt_store
-from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate_transaction
+from rtb.executor.attempt_store import Actor, Source
+from rtb.sqlitekit import (
+    BUSY_TIMEOUT_SECONDS,
+    DatabaseBusy,
+    DatabaseNotUpgraded,
+    connect,
+    connect_read_only,
+    immediate_transaction,
+    missing_schema,
+    read_snapshot,
+)
+
+__all__ = ["DatabaseNotUpgraded"]  # 唯讀開法丟的例外,呼叫端從這裡拿
 
 DEFAULT_MAX_PENDING = 8
 MAX_REVISIONS_PER_TASK = 50  # 一個任務最多修訂這麼多次;要更多就得換任務編號
@@ -108,6 +126,30 @@ class StopKind(StrEnum):
     TABLE_FULL = "table_full"  # 全表未結案已滿:延後重投
     BUDGET_INCREASE_TOO_LARGE = "budget_increase_too_large"  # 比例過大:進待核可(增量 3)
 
+
+class LifecycleKind(StrEnum):
+    """生命週期事件的種類(Phase 9 增量 1,封閉列舉;資料庫層不設允許值限制,防線在寫事件的函式與
+    測試:這張表不清除,之後加種類若要改資料庫層限制得在寫入鎖下整表重建)。每一種都有真實觸發路徑。"""
+
+    RECEIVED = "received"  # 收件
+    SUPERSEDED = "superseded"  # 收件時被新修訂取代;或處理待核可時同任務已有更新的修訂
+    EXPIRED = "expired"  # 收件時順手標成已過期;或執行迴圈確認成已過期
+    DELIVERED = "delivered"  # 取件(不是上一個持有者沒回報)
+    RECLAIMED = "reclaimed"  # 租約過期被接手:取件時上一個持有者沒回報,或對帳原子接手
+    LEASE_RELEASED = "lease_released"  # 放掉租約,原因代碼是這次沒能開始的原因(可為空)
+    HANDED_OFF = "handed_off"
+    BLOCKED = "blocked"  # 帶擋下原因;處理待核可時到期也寫這一種,原因是原本那一關
+    DEAD_LETTERED = "dead_lettered"  # 帶死信原因
+    AWAITING_APPROVAL = "awaiting_approval"  # 帶關卡
+    APPROVAL_RELEASED = "approval_released"  # 處理待核可時核可放回待處理
+    REPLAY_REQUEUED = "replay_requeued"  # 死信重放放回待處理(管理指令)
+
+
+# 終點種類的事件:一份提案(任務、修訂、內容雜湊)最後一個終點事件就是它目前的結果(增量 2 的指標
+# 用);事件表另有只收這幾種的部分索引,查詢條件照抄同一份清單才對得上索引
+TERMINAL_KINDS = frozenset({LifecycleKind.HANDED_OFF, LifecycleKind.BLOCKED, LifecycleKind.EXPIRED,
+                            LifecycleKind.DEAD_LETTERED})
+_TERMINAL_KIND_LIST = ", ".join(sorted(f"'{kind.value}'" for kind in TERMINAL_KINDS))
 
 # 可以人工核可的兩種擋法(Phase 6 增量 3):都是「量的上限」;硬規則寫進去就是錯的,不能核可
 APPROVABLE = frozenset({BlockCode.AGGREGATE_LIMIT_REACHED, BlockCode.BUDGET_INCREASE_TOO_LARGE})
@@ -203,6 +245,15 @@ CREATE TABLE IF NOT EXISTS dead_letter_ops (
 CREATE INDEX IF NOT EXISTS dead_letter_ops_by_envelope ON dead_letter_ops (envelope);
 CREATE INDEX IF NOT EXISTS approval_uses_by_tenant ON approval_uses (tenant, at);
 CREATE INDEX IF NOT EXISTS approval_uses_by_time ON approval_uses (at);
+CREATE TABLE IF NOT EXISTS lifecycle_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT NOT NULL,
+    revision INTEGER NOT NULL, content_hash TEXT, campaign_id TEXT, key TEXT, policy_version TEXT,
+    tenant TEXT, kind TEXT NOT NULL, reason TEXT, source TEXT NOT NULL, actor TEXT,
+    deliveries INTEGER, from_existing INTEGER NOT NULL, program_version TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS lifecycle_events_by_time ON lifecycle_events (at);
+CREATE INDEX IF NOT EXISTS lifecycle_events_by_task ON lifecycle_events (task_id, id);
+CREATE INDEX IF NOT EXISTS lifecycle_events_terminal
+    ON lifecycle_events (task_id, revision, content_hash, id) WHERE kind IN (TERMINAL_KIND_LIST);
 """
 _PROPOSALS_COLUMNS = {
     "DISPOSITION_COLUMN": _DISPOSITION_COLUMN, "BLOCK_CODE_COLUMN": _BLOCK_CODE_COLUMN,
@@ -212,6 +263,7 @@ _PROPOSALS_COLUMNS = {
 for _name, _ddl in _PROPOSALS_COLUMNS.items():
     SCHEMA = SCHEMA.replace(_name, _ddl)
 SCHEMA = SCHEMA.replace("APPROVABLE_LIST", ", ".join(sorted(f"'{c.value}'" for c in APPROVABLE)))
+SCHEMA = SCHEMA.replace("TERMINAL_KIND_LIST", _TERMINAL_KIND_LIST)
 # 收件表現在該有的全部欄位;舊資料庫少了哪幾欄、或處置的資料庫層限制還是舊的,就重建這張表
 _PROPOSAL_FIELDS = ("task_id", "revision", "content_hash", "state", "payload", "expires_at",
                     "received_at", "disposition", "block_code", "dead_letter_reason",
@@ -219,6 +271,18 @@ _PROPOSAL_FIELDS = ("task_id", "revision", "content_hash", "state", "payload", "
 _FIELD_DEFAULTS = {"lease_seq": "0", "deliveries": "0"}
 # 舊資料庫缺的欄位(嘗試表):表 -> [(欄位名, 補欄位定義)]
 _ADDED_COLUMNS = {"attempts": list(attempt_store.ADDED_COLUMNS)}
+_LIFECYCLE_FIELDS = ("id", "at", "task_id", "revision", "content_hash", "campaign_id", "key",
+                     "policy_version", "tenant", "kind", "reason", "source", "actor", "deliveries",
+                     "from_existing", "program_version")
+# 唯讀開法要求資料庫已經有的表與欄位(缺了就是還沒升級,唯讀連線不能補)
+_REQUIRED_SCHEMA: dict[str, tuple[str, ...]] = {
+    "proposals": _PROPOSAL_FIELDS, "lifecycle_events": _LIFECYCLE_FIELDS,
+    "attempts": tuple(name for name, _ in attempt_store.ADDED_COLUMNS),
+    "dsp_calls": attempt_store.DSP_CALL_FIELDS, "write_stops": ("tenant",),
+    "approvals": ("token",), "approval_uses": ("tenant",), "dead_letters": ("key",),
+    "dead_letter_ops": ("operator",),
+}
+_INBOX = Actor(Source.INBOX)  # 收件口觸發的事件:沒有執行者
 
 
 class InboxRejected(Exception):
@@ -288,13 +352,69 @@ class PendingProposal:
 
 @dataclass(frozen=True)
 class Receipt:
-    """取件或接手時拿到的收據:之後延長租約、確認與嘗試寫入都要帶它做條件寫入。"""
+    """取件或接手時拿到的收據:之後延長租約、確認與嘗試寫入都要帶它做條件寫入。
+
+    tenant 不參與條件寫入:執行迴圈簽發之後(或接手時從嘗試第一列)填上,之後用這張收據寫的
+    生命週期事件記簽發當時的租戶;簽發之前是空值。"""
 
     task_id: str
     revision: int
     content_hash: str
     owner: str
     lease_seq: int
+    tenant: str | None = None
+
+
+@dataclass(frozen=True)
+class LifecycleEvent:
+    """一列生命週期事件(欄位順序同事件表)。"""
+
+    id: int
+    at: str
+    task_id: str
+    revision: int
+    content_hash: str | None
+    campaign_id: str | None
+    key: str | None
+    policy_version: str | None
+    tenant: str | None
+    kind: str
+    reason: str | None
+    source: str
+    actor: str | None
+    deliveries: int | None
+    from_existing: bool
+    program_version: str
+
+
+@dataclass(frozen=True)
+class DeadLetterRow:
+    """一列死信信封(追蹤檢視用)。"""
+
+    id: int
+    task_id: str
+    revision: int
+    content_hash: str
+    key: str
+    failure_class: str
+    reason: str
+    last_failure: str | None
+    deliveries: int
+    at: str
+
+
+@dataclass(frozen=True)
+class DeadLetterOp:
+    """一列死信操作稽核(追蹤檢視用)。"""
+
+    id: int
+    envelope: int | None
+    task_id: str
+    revision: int
+    action: str
+    operator: str
+    reason: str | None
+    at: str
 
 
 @dataclass(frozen=True)
@@ -415,7 +535,233 @@ if RETENTION <= MAX_DECISION_LIFETIME:  # 設定自相矛盾就不讓模組載�
     raise RuntimeError("RETENTION 必須比提案最長有效期長")
 
 
-class InboxStore:
+class InboxReads:
+    """收件口模組的讀取方法(Phase 9 增量 1):寫入開法(InboxStore)與唯讀開法(ReadOnlyInbox)共用。
+
+    讀取方法的守衛收寫入交易或唯讀交易,兩者都要型別完全相同、還開著、而且是這個物件自己的連線;
+    寫入方法在 InboxStore,只收寫入交易。
+    """
+
+    _conn: sqlite3.Connection
+
+    def _own_read(self, tx: attempt_store.Readable) -> None:
+        if type(tx) not in (attempt_store.ExecutorTransaction, attempt_store.ReadTransaction) or (
+                not tx.is_open or tx.conn is not self._conn):
+            raise attempt_store.NotInTransaction("只能在這個收件口自己開的交易裡讀")
+
+    def awaiting(
+        self, tx: attempt_store.Readable, now: datetime,
+    ) -> list[AwaitingProposal]:
+        """這一輪有事可做的待核可提案,依收件時間由舊到新:已到期、同任務有更新的修訂、這一關有人
+        簽過核可、或同任務已開過嘗試(同一把鍵可能已由另一份修訂在做)。其他待核可不讀,每輪的
+        工作量不隨待核可堆積變大(代碼審第 3 輪資安席:失控的來源能堆到全表上限)。這裡是寬的
+        預篩,真正的判斷在執行迴圈。讀不回來的列跳過(待核可沒有租約,不會卡住別人;真的資料
+        損毀才會走到,留給人看)。"""
+        self._own_read(tx)
+        result = []
+        for task_id, revision, digest, payload, code in self._conn.execute(
+                "SELECT p.task_id, p.revision, p.content_hash, p.payload, p.block_code "
+                "FROM proposals p WHERE p.state = 'pending' "
+                "AND p.disposition = 'awaiting_approval' "
+                "AND (p.expires_at <= ? "
+                "OR EXISTS (SELECT 1 FROM proposals n WHERE n.task_id = p.task_id "
+                "AND n.revision > p.revision) "
+                "OR EXISTS (SELECT 1 FROM approvals a WHERE a.task_id = p.task_id "
+                "AND a.revision = p.revision AND a.content_hash = p.content_hash "
+                "AND a.stage = p.block_code) "
+                "OR EXISTS (SELECT 1 FROM attempts f WHERE f.task_id = p.task_id AND f.seq = 1)) "
+                "ORDER BY p.received_at, p.task_id, p.revision", (_iso(now),)).fetchall():
+            proposal = _parse_payload(payload)
+            if proposal is not None:
+                result.append(AwaitingProposal(
+                    PendingProposal(task_id, revision, digest, proposal), BlockCode(code)))
+        return result
+
+    def has_newer_revision(
+        self, tx: attempt_store.Readable, task_id: str, revision: int,
+    ) -> bool:
+        self._own_read(tx)
+        return self._highest_revision(task_id) > revision
+
+    def stop_amount(
+        self, tx: attempt_store.Readable, message: PendingProposal, stage: BlockCode,
+    ) -> int | None:
+        """這份提案停在這一關時記下的金額(放回前判核可上限夠不夠用)。"""
+        self._own_read(tx)
+        row = self._conn.execute(
+            "SELECT amount FROM write_stops WHERE kind = ? AND task_id = ? AND revision = ? "
+            "AND content_hash = ?",
+            (stage.value, message.task_id, message.revision, message.content_hash)).fetchone()
+        return None if row is None else int(row[0])
+
+    def latest_approval(
+        self, tx: attempt_store.Readable, proposal: Proposal, stage: BlockCode,
+    ) -> str | None:
+        """同一份提案同一關最後寫進核可表的那一張(自動遞增列號最大);不回頭找舊的。"""
+        self._own_read(tx)
+        row = self._conn.execute(
+            "SELECT token FROM approvals WHERE task_id = ? AND revision = ? AND content_hash = ? "
+            "AND stage = ? ORDER BY seq DESC LIMIT 1",
+            (proposal.task_id, proposal.revision, content_hash(proposal), stage.value)).fetchone()
+        return None if row is None else str(row[0])
+
+    def used_approvals(
+        self, tx: attempt_store.Readable, proposal: Proposal,
+    ) -> list[tuple[BlockCode, str]]:
+        """這份提案用過的核可(關卡、整張核可):同鍵重送前要再核一次它們都還算數。"""
+        self._own_read(tx)
+        # 同一張核可可能寫過好幾列(每次下達一列),接出來會重複;內容一樣,逐張核對結果不變
+        return [(BlockCode(stage), str(token)) for stage, token in self._conn.execute(
+            "SELECT u.stage, a.token FROM approval_uses u "
+            "JOIN approvals a ON a.approval_id = u.approval_id "
+            "WHERE u.task_id = ? AND u.revision = ? AND u.content_hash = ? ORDER BY u.id",
+            (proposal.task_id, proposal.revision, content_hash(proposal))).fetchall()]
+
+    def in_progress_for(
+        self, tx: attempt_store.Readable, task_id: str, key: str,
+    ) -> PendingProposal | None:
+        """這把鍵對應、而且處置是處理中的那一列(同一把鍵可能對應多份修訂,只取處理中的)。
+
+        先掃完:找到讀得回來、鍵相符的就回它,同任務別的修訂壞掉不拖累它。找不到而又有讀不回來的
+        列,就分不出「真的沒有」還是「就是壞掉那列」,不能回「沒有」讓呼叫端走不帶收據的路。
+        """
+        self._own_read(tx)
+        unreadable = None
+        for revision, digest, payload in self._conn.execute(
+                f"SELECT revision, content_hash, payload FROM proposals WHERE task_id = ? "  # noqa: S608 - 固定條件
+                f"AND {IN_PROGRESS} ORDER BY revision", (task_id,)).fetchall():
+            proposal = _parse_payload(payload)
+            if proposal is None:
+                unreadable = unreadable or f"{task_id}/{revision}"
+            elif operation_key(proposal) == key:
+                return PendingProposal(task_id, revision, digest, proposal)
+        if unreadable is not None:
+            raise CorruptedInboxRow(unreadable)
+        return None
+
+    def in_progress_keys(
+        self, tx: attempt_store.Readable,
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """所有處理中那幾列的冪等鍵,以及讀不回來的列(任務/修訂):對帳用來找「嘗試已到終點、
+        收件表卻還沒確認」的漏網。
+
+        讀不回來的列算不出鍵,不能默默跳過(跳過的已結案訊息會永遠停在處理中);也不能讓它拖累
+        健康的鍵。所以兩份都回給呼叫端:先處理健康的,最後再因為有壞列停機讓人看。這是真的資料
+        損毀才會走到:收件時存的是驗證過、重新序列化的內容。
+        """
+        self._own_read(tx)
+        keys, unreadable = [], []
+        for task_id, revision, payload in self._conn.execute(
+                f"SELECT task_id, revision, payload FROM proposals WHERE {IN_PROGRESS} "  # noqa: S608 - 固定條件
+                "ORDER BY received_at, task_id, revision").fetchall():
+            proposal = _parse_payload(payload)
+            if proposal is None:
+                unreadable.append(f"{task_id}/{revision}")
+            else:
+                keys.append(operation_key(proposal))
+        return tuple(keys), tuple(unreadable)
+
+    def awaiting_count(
+        self, tx: attempt_store.Readable, *, tenant: str | None = None,
+        campaign_id: str | None = None,
+    ) -> tuple[int, int]:
+        """待核可份數(Phase 6 增量 4 查詢三),以及其中接不到停下紀錄的份數。依租戶、廣告篩時用
+        (任務、修訂、內容雜湊、停在哪一關)接停下紀錄;停下紀錄同一份提案同一種類只一列,所以
+        每份提案最多接到一列。接不到的只算進不篩的總數,另外回報,不悄悄丟掉。"""
+        self._own_read(tx)
+        join = ("LEFT JOIN write_stops w ON w.task_id = p.task_id AND w.revision = p.revision "
+                "AND w.content_hash = p.content_hash AND w.kind = p.block_code")
+        where, params = [_AWAITING_P], []
+        for clause, value in (("w.tenant = ?", tenant), ("w.campaign_id = ?", campaign_id)):
+            if value is not None:
+                where.append(clause)
+                params.append(value)
+        matched = self._conn.execute(
+            f"SELECT count(*) FROM proposals p {join} WHERE {' AND '.join(where)}",  # noqa: S608 - 只拼接固定條件
+            params).fetchone()[0]
+        unknown = self._conn.execute(
+            f"SELECT count(*) FROM proposals p {join} "  # noqa: S608 - 只拼接固定條件
+            f"WHERE {_AWAITING_P} AND w.id IS NULL").fetchone()[0]
+        return int(matched), int(unknown)
+
+    def approval_use_count(
+        self, tx: attempt_store.Readable, *, tenant: str | None = None,
+        campaign_id: str | None = None, since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
+        """已核可放行數(查詢三):核可使用表的列數。時間範圍包含起點、不包含終點。"""
+        self._own_read(tx)
+        sql, params = approval_use_count_query(tenant=tenant, campaign_id=campaign_id,
+                                               since=since, until=until)
+        return int(self._conn.execute(sql, params).fetchone()[0])
+
+    def stop_count(
+        self, tx: attempt_store.Readable, kind: StopKind, *, tenant: str | None = None,
+        campaign_id: str | None = None, since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
+        """停下紀錄計數(Phase 6 增量 4 可觀測查詢用);時間範圍包含起點、不包含終點。"""
+        self._own_read(tx)
+        sql, params = stop_count_query(kind, tenant=tenant, campaign_id=campaign_id,
+                                       since=since, until=until)
+        return int(self._conn.execute(sql, params).fetchone()[0])
+
+    def stops(
+        self, tx: attempt_store.Readable, kind: StopKind, tenant: str,
+        since: datetime, until: datetime,
+    ) -> tuple[tuple[object, ...], ...]:
+        """某租戶在時間範圍內的停下紀錄,依時間排序:(冪等鍵, 任務, 修訂, 內容雜湊, 廣告, 金額,
+        當時已用, 當時門檻, 時間)。已用與門檻在沒有額度快照的種類是空值。"""
+        self._own_read(tx)
+        return tuple(self._conn.execute(
+            "SELECT key, task_id, revision, content_hash, campaign_id, amount, used, cap, at "
+            "FROM write_stops WHERE kind = ? AND tenant = ? AND at >= ? AND at < ? "
+            "ORDER BY at, id",
+            (kind.value, tenant, attempt_store.iso(since), attempt_store.iso(until))))
+
+    def lifecycle_events(
+        self, tx: attempt_store.Readable, task_id: str,
+    ) -> tuple[LifecycleEvent, ...]:
+        """一個任務的生命週期事件,依寫入順序(自動遞增序號)。"""
+        self._own_read(tx)
+        rows = self._conn.execute(
+            f"SELECT {', '.join(_LIFECYCLE_FIELDS)} FROM lifecycle_events "  # noqa: S608 - 固定欄位清單
+            "WHERE task_id = ? ORDER BY id", (task_id,)).fetchall()
+        return tuple(_event(row) for row in rows)
+
+    def last_terminal_event(
+        self, tx: attempt_store.Readable, task_id: str, revision: int, digest: str,
+    ) -> LifecycleEvent | None:
+        """一份提案(任務、修訂、內容雜湊)最後一個終點事件;走終點部分索引,不掃全表。"""
+        self._own_read(tx)
+        sql, params = last_terminal_event_query(task_id, revision, digest)
+        row = self._conn.execute(sql, params).fetchone()
+        return None if row is None else _event(row)
+
+    def dead_letters_for(
+        self, tx: attempt_store.Readable, task_id: str,
+    ) -> tuple[DeadLetterRow, ...]:
+        self._own_read(tx)
+        return tuple(DeadLetterRow(*row) for row in self._conn.execute(
+            "SELECT id, task_id, revision, content_hash, key, failure_class, reason, "
+            "last_failure, deliveries, at FROM dead_letters WHERE task_id = ? ORDER BY id",
+            (task_id,)))
+
+    def dead_letter_ops_for(
+        self, tx: attempt_store.Readable, task_id: str,
+    ) -> tuple[DeadLetterOp, ...]:
+        self._own_read(tx)
+        return tuple(DeadLetterOp(*row) for row in self._conn.execute(
+            "SELECT id, envelope, task_id, revision, action, operator, reason, at "
+            "FROM dead_letter_ops WHERE task_id = ? ORDER BY id", (task_id,)))
+
+    def _highest_revision(self, task_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT MAX(revision) FROM proposals WHERE task_id = ?", (task_id,)).fetchone()
+        return int(row[0] or 0)
+
+
+class InboxStore(InboxReads):
     def __init__(
         self,
         path: Path,
@@ -540,10 +886,7 @@ class InboxStore:
 
     def _accept_in_transaction(self, proposal: Proposal, now: datetime) -> Accepted:
         digest = content_hash(proposal)
-        self._conn.execute(
-            f"UPDATE proposals SET state = 'expired' WHERE {PENDING} AND expires_at <= ?",  # noqa: S608 - 固定條件
-            (_iso(now),),
-        )
+        self._expire_pending(now)
         self._purge_finished_tasks(now)
         existing = self._conn.execute(
             "SELECT content_hash, coalesce(disposition, state), "
@@ -560,7 +903,8 @@ class InboxStore:
         _check_revision_and_times(proposal, highest, now)
         supersedes = self._has_pending(proposal.task_id, highest)
         self._check_capacity(supersedes)
-        if supersedes:
+        if supersedes:  # 事件的欄位取自被取代那一列自己的內容:先讀出(寫事件)再標
+            self._log(now, proposal.task_id, highest, LifecycleKind.SUPERSEDED, _INBOX)
             self._conn.execute(
                 "UPDATE proposals SET state = 'superseded' WHERE task_id = ? AND revision = ?",
                 (proposal.task_id, highest),
@@ -571,7 +915,62 @@ class InboxStore:
             (proposal.task_id, proposal.revision, digest, _payload(proposal),
              _iso(proposal.decision_expires_at), _iso(now)),
         )
+        self._log(now, proposal.task_id, proposal.revision, LifecycleKind.RECEIVED, _INBOX)
         return Accepted(proposal.task_id, proposal.revision, "pending", digest, False)
+
+    def _expire_pending(self, now: datetime) -> None:
+        """收件時順手把到期的待處理標成已過期:這條更新不限任務,先查出這次會被標的每一列、逐列寫
+        「已過期」事件,再更新(只替本次收件的任務寫會漏掉被順手標到的其他任務)。"""
+        swept = self._conn.execute(
+            f"SELECT task_id, revision FROM proposals WHERE {PENDING} AND expires_at <= ? "  # noqa: S608 - 固定條件
+            "ORDER BY received_at, task_id, revision", (_iso(now),)).fetchall()
+        for task_id, revision in swept:
+            self._log(now, task_id, revision, LifecycleKind.EXPIRED, _INBOX)
+        self._conn.execute(
+            f"UPDATE proposals SET state = 'expired' WHERE {PENDING} AND expires_at <= ?",  # noqa: S608 - 固定條件
+            (_iso(now),),
+        )
+
+    def _log(  # noqa: PLR0913 - 事件的每一欄
+        self, now: datetime, task_id: str, revision: int, kind: LifecycleKind, by: Actor, *,
+        reason: BlockCode | LastFailure | DeadLetterReason | None = None,
+        tenant: str | None = None, from_existing: bool = False,
+    ) -> None:
+        """寫一列生命週期事件,在呼叫端的交易裡(那次寫入回滾時事件也不在)。
+
+        種類、原因代碼、來源只收封閉列舉的成員。內容雜湊、廣告、冪等鍵、政策版本與投遞次數從收件表
+        那一列算出存下(執行前就被擋下的提案沒開過嘗試,收件表兩小時後清掉,只存雜湊就再也查不出
+        是哪個廣告);讀不回提案內容的列,那幾欄照實為空。"""
+        if type(kind) is not LifecycleKind:
+            raise ValueError("事件種類必須是封閉列舉 LifecycleKind 的成員")
+        if reason is not None and type(reason) not in (BlockCode, LastFailure, DeadLetterReason):
+            raise ValueError("原因代碼必須是擋下原因、最後失敗或死信原因的成員")
+        if type(by) is not Actor:
+            raise ValueError("來源與執行者必須是 Actor")
+        row = self._conn.execute(
+            "SELECT content_hash, payload, deliveries FROM proposals "
+            "WHERE task_id = ? AND revision = ?", (task_id, revision)).fetchone()
+        digest, deliveries = (None, None) if row is None else (row[0], row[2])
+        proposal = None if row is None else _parse_payload(row[1])
+        self._conn.execute(
+            "INSERT INTO lifecycle_events (at, task_id, revision, content_hash, campaign_id, key, "
+            "policy_version, tenant, kind, reason, source, actor, deliveries, from_existing, "
+            "program_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (_iso(now), task_id, revision, digest,
+             None if proposal is None else proposal.campaign_id,
+             None if proposal is None else operation_key(proposal),
+             None if proposal is None else proposal.policy_version, tenant, kind.value,
+             None if reason is None else reason.value, by.source.value, by.name, deliveries,
+             int(from_existing), PROGRAM_VERSION))
+
+    def _log_held(
+        self, receipt: Receipt, now: datetime, kind: LifecycleKind, *,
+        reason: BlockCode | LastFailure | None = None, from_existing: bool = False,
+    ) -> None:
+        """帶收據的寫入成功之後寫事件:執行者是收據的擁有者(執行迴圈),租戶是收據上簽發當時的。"""
+        self._log(now, receipt.task_id, receipt.revision, kind,
+                  Actor(Source.EXECUTOR_LOOP, receipt.owner), reason=reason,
+                  tenant=receipt.tenant, from_existing=from_existing)
 
     def _check_capacity(self, supersedes: bool) -> None:
         """待處理數與總列數都要有空間;取代自己任務的舊提案會先釋放一個名額。"""
@@ -594,11 +993,6 @@ class InboxStore:
             f"GROUP BY task_id HAVING SUM({OPEN}) = 0 AND MAX(received_at) < ?)",
             (_iso(now - RETENTION),),
         )
-
-    def _highest_revision(self, task_id: str) -> int:
-        row = self._conn.execute(
-            "SELECT MAX(revision) FROM proposals WHERE task_id = ?", (task_id,)).fetchone()
-        return int(row[0] or 0)
 
     def _has_pending(self, task_id: str, revision: int) -> bool:
         if revision == 0:
@@ -635,38 +1029,57 @@ class InboxStore:
             proposal = _parse_payload(payload)
             if proposal is None or proposal.campaign_id in locked:
                 continue
-            receipt = self._lease(task_id, revision, digest, now, owner)
-            if reclaimed:  # 上一個持有者沒回報就讓租約過期:當機或卡住
-                self._write_failure(receipt, LastFailure.NO_REPORT)
-            existing = attempt_store.latest(tx, operation_key(proposal))
-            if existing is not None:
-                self._settle_existing(tx, receipt, existing.state, existing.code, now)
-                continue
-            deliveries = self._conn.execute(
-                "SELECT deliveries FROM proposals WHERE task_id = ? AND revision = ?",
-                (task_id, revision)).fetchone()[0]
-            if deliveries >= MAX_DELIVERIES:
-                if self._finish(receipt, now, "disposition = ?, dead_letter_reason = ?",
-                                (Disposition.DEAD_LETTER.value,
-                                 DeadLetterReason.DELIVERY_LIMIT.value)):
-                    self._record_dead_letter(task_id, revision, digest, proposal, deliveries,
-                                             now, owner)
-                continue
-            self._conn.execute(
-                "UPDATE proposals SET deliveries = deliveries + 1 "
-                "WHERE task_id = ? AND revision = ?", (task_id, revision))
-            return Delivery(PendingProposal(task_id, revision, digest, proposal), receipt)
+            delivery = self._deliver(tx, PendingProposal(task_id, revision, digest, proposal),
+                                     bool(reclaimed), now, owner)
+            if delivery is not None:
+                return delivery
         return None
+
+    def _deliver(
+        self, tx: attempt_store.ExecutorTransaction, message: PendingProposal, reclaimed: bool,
+        now: datetime, owner: str,
+    ) -> Delivery | None:
+        """取件一份:取得租約拿收據、寫「取件」或「租約過期被接手」事件,再看這把鍵的嘗試紀錄;被
+        確認、死信或放掉的回 None(呼叫端改挑下一份)。交出去時事件寫在投遞次數加一之後,記含這一次
+        的次數。"""
+        task_id, revision = message.task_id, message.revision
+        receipt = self._lease(task_id, revision, message.content_hash, now, owner)
+        if reclaimed:  # 上一個持有者沒回報就讓租約過期:當機或卡住
+            self._write_failure(receipt, LastFailure.NO_REPORT)
+        picked = LifecycleKind.RECLAIMED if reclaimed else LifecycleKind.DELIVERED
+        by = Actor(Source.EXECUTOR_LOOP, owner)
+        existing = attempt_store.latest(tx, operation_key(message.proposal))
+        if existing is not None:  # 這把鍵已有嘗試:照確認或放掉的種類再寫一列
+            self._log(now, task_id, revision, picked, by)
+            signed = replace(receipt, tenant=attempt_store.first_row_tenant(tx, existing.key))
+            self._settle_existing(tx, signed, existing.state, existing.code, now)
+            return None
+        deliveries = self._conn.execute(
+            "SELECT deliveries FROM proposals WHERE task_id = ? AND revision = ?",
+            (task_id, revision)).fetchone()[0]
+        if deliveries >= MAX_DELIVERIES:
+            self._log(now, task_id, revision, picked, by)
+            if self._finish(receipt, now, "disposition = ?, dead_letter_reason = ?",
+                            (Disposition.DEAD_LETTER.value, DeadLetterReason.DELIVERY_LIMIT.value)):
+                self._record_dead_letter(task_id, revision, message.content_hash,
+                                         message.proposal, deliveries, now, owner)
+            return None
+        self._conn.execute(
+            "UPDATE proposals SET deliveries = deliveries + 1 "
+            "WHERE task_id = ? AND revision = ?", (task_id, revision))
+        self._log(now, task_id, revision, picked, by)
+        return Delivery(message, receipt)
 
     def _settle_existing(
         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, state: AttemptState,
         code: OutcomeCode | None, now: datetime,
     ) -> None:
-        """這把鍵已有嘗試:終點就確認;未結案就放掉租約,交給對帳。都不算投遞。"""
+        """這把鍵已有嘗試:終點就確認(事件標依既有結果確認);未結案就放掉租約,交給對帳。都不算投遞。"""
         if state is AttemptState.VERIFIED:
-            done = self.ack_handed_off(tx, receipt, now)
+            done = self.ack_handed_off(tx, receipt, now, from_existing=True)
         elif state is AttemptState.FAILED:
-            done = self.ack_blocked(tx, receipt, now, block_code_for_failure(code))
+            done = self.ack_blocked(tx, receipt, now, block_code_for_failure(code),
+                                    from_existing=True)
         else:
             done = self.release(tx, receipt, now, None)
         assert done  # noqa: S101 - 收據是同一個交易裡剛拿到的,條件寫入必然成立
@@ -697,6 +1110,8 @@ class InboxStore:
                                          now)
         self._audit_dead_letter(envelope, task_id, revision, DeadLetterAction.DEAD_LETTERED,
                                 owner, None, now)
+        self._log(now, task_id, revision, LifecycleKind.DEAD_LETTERED,
+                  Actor(Source.EXECUTOR_LOOP, owner), reason=DeadLetterReason.DELIVERY_LIMIT)
 
     def _insert_envelope(  # noqa: PLR0913 - 信封的每一欄
         self, task_id: str, revision: int, digest: str, proposal: Proposal, last: str | None,
@@ -765,6 +1180,8 @@ class InboxStore:
                 (task_id, revision, Disposition.DEAD_LETTER.value))
             self._audit_dead_letter(envelope, task_id, revision,
                                     DeadLetterAction.REPLAY_REQUEUED, operator, None, now)
+            self._log(now, task_id, revision, LifecycleKind.REPLAY_REQUEUED,
+                      Actor(Source.ADMIN_COMMAND, operator))
             return ReplayOutcome.REQUEUED
         self._audit_dead_letter(envelope, task_id, revision, DeadLetterAction.REPLAY_REFUSED,
                                 operator, refused, now)
@@ -834,26 +1251,38 @@ class InboxStore:
         self._own(tx)
         if failure is not None and type(failure) is not LastFailure:
             raise ValueError("失敗原因必須是封閉列舉 LastFailure 的成員")
-        return self._held(
+        done = self._held(
             receipt, now,
             "lease_until = ?, lease_owner = NULL, last_failure = coalesce(?, last_failure)",
             (_iso(now), None if failure is None else failure.value))
+        if done:
+            self._log_held(receipt, now, LifecycleKind.LEASE_RELEASED, reason=failure)
+        return done
 
     def ack_handed_off(
-        self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
+        self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime, *,
+        from_existing: bool = False,
     ) -> bool:
+        """from_existing:取件時撞到既有鍵、或開始一筆時鍵已存在,依既有結果確認(事件記「是」)。"""
         self._own(tx)
-        return self._finish(receipt, now, "disposition = ?", (Disposition.HANDED_OFF.value,))
+        done = self._finish(receipt, now, "disposition = ?", (Disposition.HANDED_OFF.value,))
+        if done:
+            self._log_held(receipt, now, LifecycleKind.HANDED_OFF, from_existing=from_existing)
+        return done
 
     def ack_blocked(
         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
-        code: BlockCode,
+        code: BlockCode, *, from_existing: bool = False,
     ) -> bool:
         self._own(tx)
         if type(code) is not BlockCode:
             raise ValueError("擋下原因代碼必須是封閉列舉 BlockCode 的成員")
-        return self._finish(receipt, now, "disposition = ?, block_code = ?",
+        done = self._finish(receipt, now, "disposition = ?, block_code = ?",
                             (Disposition.BLOCKED.value, code.value))
+        if done:
+            self._log_held(receipt, now, LifecycleKind.BLOCKED, reason=code,
+                           from_existing=from_existing)
+        return done
 
     def record_stop(
         self, tx: attempt_store.ExecutorTransaction, stop: Stop, now: datetime,
@@ -882,51 +1311,24 @@ class InboxStore:
         self._own(tx)
         if stage not in APPROVABLE:
             raise ValueError("只有總曝險已滿與比例過大可以等人工核可")
-        return self._finish(receipt, now, "disposition = ?, block_code = ?",
+        done = self._finish(receipt, now, "disposition = ?, block_code = ?",
                             (Disposition.AWAITING_APPROVAL.value, stage.value))
-
-    def awaiting(
-        self, tx: attempt_store.ExecutorTransaction, now: datetime,
-    ) -> list[AwaitingProposal]:
-        """這一輪有事可做的待核可提案,依收件時間由舊到新:已到期、同任務有更新的修訂、這一關有人
-        簽過核可、或同任務已開過嘗試(同一把鍵可能已由另一份修訂在做)。其他待核可不讀,每輪的
-        工作量不隨待核可堆積變大(代碼審第 3 輪資安席:失控的來源能堆到全表上限)。這裡是寬的
-        預篩,真正的判斷在執行迴圈。讀不回來的列跳過(待核可沒有租約,不會卡住別人;真的資料
-        損毀才會走到,留給人看)。"""
-        self._own(tx)
-        result = []
-        for task_id, revision, digest, payload, code in self._conn.execute(
-                "SELECT p.task_id, p.revision, p.content_hash, p.payload, p.block_code "
-                "FROM proposals p WHERE p.state = 'pending' "
-                "AND p.disposition = 'awaiting_approval' "
-                "AND (p.expires_at <= ? "
-                "OR EXISTS (SELECT 1 FROM proposals n WHERE n.task_id = p.task_id "
-                "AND n.revision > p.revision) "
-                "OR EXISTS (SELECT 1 FROM approvals a WHERE a.task_id = p.task_id "
-                "AND a.revision = p.revision AND a.content_hash = p.content_hash "
-                "AND a.stage = p.block_code) "
-                "OR EXISTS (SELECT 1 FROM attempts f WHERE f.task_id = p.task_id AND f.seq = 1)) "
-                "ORDER BY p.received_at, p.task_id, p.revision", (_iso(now),)).fetchall():
-            proposal = _parse_payload(payload)
-            if proposal is not None:
-                result.append(AwaitingProposal(
-                    PendingProposal(task_id, revision, digest, proposal), BlockCode(code)))
-        return result
-
-    def has_newer_revision(
-        self, tx: attempt_store.ExecutorTransaction, task_id: str, revision: int,
-    ) -> bool:
-        self._own(tx)
-        return self._highest_revision(task_id) > revision
+        if done:
+            self._log_held(receipt, now, LifecycleKind.AWAITING_APPROVAL, reason=stage)
+        return done
 
     def settle_awaiting(
         self, tx: attempt_store.ExecutorTransaction, message: PendingProposal,
-        outcome: AwaitingOutcome, now: datetime,
+        outcome: AwaitingOutcome, now: datetime, *, owner: str | None = None,
     ) -> bool:
         """處理待核可的三種轉換;寫入條件是「這一列現在仍是待核可」,0 列就是別的工作者先處理了。
 
-        待核可沒有租約與收據可以比對,這個條件就是它的並行防線。"""
+        待核可沒有租約與收據可以比對,這個條件就是它的並行防線。owner 是呼叫它的執行迴圈擁有者,
+        記進事件的執行者;事件的租戶取停在這一關時停下紀錄記的(簽發當時的)。"""
         self._own(tx)
+        stage = self._conn.execute(
+            f"SELECT block_code FROM proposals WHERE task_id = ? AND revision = ? AND {AWAITING}",  # noqa: S608 - 固定條件
+            (message.task_id, message.revision)).fetchone()
         assignment = {
             AwaitingOutcome.EXPIRED: ("disposition = ?", (Disposition.BLOCKED.value,)),
             AwaitingOutcome.SUPERSEDED: ("state = 'superseded', disposition = NULL, "
@@ -938,42 +1340,26 @@ class InboxStore:
             f"UPDATE proposals SET {assignment[0]} WHERE task_id = ? AND revision = ? "  # noqa: S608 - 只拼接模組內固定的欄位
             f"AND content_hash = ? AND {AWAITING}",
             (*assignment[1], message.task_id, message.revision, message.content_hash))
-        del now  # 目前三種轉換都不記時間;留著參數讓呼叫端照慣例在拿到寫入鎖後才讀時鐘
-        return cursor.rowcount == 1
+        if cursor.rowcount != 1:
+            return False
+        kind, reason = {
+            AwaitingOutcome.EXPIRED: (LifecycleKind.BLOCKED, BlockCode(stage[0])),
+            AwaitingOutcome.SUPERSEDED: (LifecycleKind.SUPERSEDED, None),
+            AwaitingOutcome.RELEASED: (LifecycleKind.APPROVAL_RELEASED, None),
+        }[outcome]
+        self._log(now, message.task_id, message.revision, kind,
+                  Actor(Source.EXECUTOR_LOOP, owner), reason=reason,
+                  tenant=self._stopped_tenant(message))
+        return True
 
-    def stop_amount(
-        self, tx: attempt_store.ExecutorTransaction, message: PendingProposal, stage: BlockCode,
-    ) -> int | None:
-        """這份提案停在這一關時記下的金額(放回前判核可上限夠不夠用)。"""
-        self._own(tx)
+    def _stopped_tenant(self, message: PendingProposal) -> str | None:
+        """這份提案停下時停下紀錄記的租戶(簽發當時的);三種停下種類都查,有多列取最新的。"""
         row = self._conn.execute(
-            "SELECT amount FROM write_stops WHERE kind = ? AND task_id = ? AND revision = ? "
-            "AND content_hash = ?",
-            (stage.value, message.task_id, message.revision, message.content_hash)).fetchone()
-        return None if row is None else int(row[0])
-
-    def latest_approval(
-        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, stage: BlockCode,
-    ) -> str | None:
-        """同一份提案同一關最後寫進核可表的那一張(自動遞增列號最大);不回頭找舊的。"""
-        self._own(tx)
-        row = self._conn.execute(
-            "SELECT token FROM approvals WHERE task_id = ? AND revision = ? AND content_hash = ? "
-            "AND stage = ? ORDER BY seq DESC LIMIT 1",
-            (proposal.task_id, proposal.revision, content_hash(proposal), stage.value)).fetchone()
+            f"SELECT tenant FROM write_stops WHERE kind IN ({_in_list(StopKind)}) "  # noqa: S608 - 固定列舉值
+            "AND task_id = ? AND revision = ? AND content_hash = ? AND tenant IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (message.task_id, message.revision, message.content_hash)).fetchone()
         return None if row is None else str(row[0])
-
-    def used_approvals(
-        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal,
-    ) -> list[tuple[BlockCode, str]]:
-        """這份提案用過的核可(關卡、整張核可):同鍵重送前要再核一次它們都還算數。"""
-        self._own(tx)
-        # 同一張核可可能寫過好幾列(每次下達一列),接出來會重複;內容一樣,逐張核對結果不變
-        return [(BlockCode(stage), str(token)) for stage, token in self._conn.execute(
-            "SELECT u.stage, a.token FROM approval_uses u "
-            "JOIN approvals a ON a.approval_id = u.approval_id "
-            "WHERE u.task_id = ? AND u.revision = ? AND u.content_hash = ? ORDER BY u.id",
-            (proposal.task_id, proposal.revision, content_hash(proposal))).fetchall()]
 
     def record_approval_use(
         self, tx: attempt_store.ExecutorTransaction, use: ApprovalUse, now: datetime,
@@ -1033,51 +1419,10 @@ class InboxStore:
     ) -> bool:
         """提案過期沿用既有的「已過期」狀態,不是處置:處置清空,從此不可取件。"""
         self._own(tx)
-        return self._finish(receipt, now, "state = 'expired', disposition = NULL", ())
-
-    def in_progress_for(
-        self, tx: attempt_store.ExecutorTransaction, task_id: str, key: str,
-    ) -> PendingProposal | None:
-        """這把鍵對應、而且處置是處理中的那一列(同一把鍵可能對應多份修訂,只取處理中的)。
-
-        先掃完:找到讀得回來、鍵相符的就回它,同任務別的修訂壞掉不拖累它。找不到而又有讀不回來的
-        列,就分不出「真的沒有」還是「就是壞掉那列」,不能回「沒有」讓呼叫端走不帶收據的路。
-        """
-        self._own(tx)
-        unreadable = None
-        for revision, digest, payload in self._conn.execute(
-                f"SELECT revision, content_hash, payload FROM proposals WHERE task_id = ? "  # noqa: S608 - 固定條件
-                f"AND {IN_PROGRESS} ORDER BY revision", (task_id,)).fetchall():
-            proposal = _parse_payload(payload)
-            if proposal is None:
-                unreadable = unreadable or f"{task_id}/{revision}"
-            elif operation_key(proposal) == key:
-                return PendingProposal(task_id, revision, digest, proposal)
-        if unreadable is not None:
-            raise CorruptedInboxRow(unreadable)
-        return None
-
-    def in_progress_keys(
-        self, tx: attempt_store.ExecutorTransaction,
-    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-        """所有處理中那幾列的冪等鍵,以及讀不回來的列(任務/修訂):對帳用來找「嘗試已到終點、
-        收件表卻還沒確認」的漏網。
-
-        讀不回來的列算不出鍵,不能默默跳過(跳過的已結案訊息會永遠停在處理中);也不能讓它拖累
-        健康的鍵。所以兩份都回給呼叫端:先處理健康的,最後再因為有壞列停機讓人看。這是真的資料
-        損毀才會走到:收件時存的是驗證過、重新序列化的內容。
-        """
-        self._own(tx)
-        keys, unreadable = [], []
-        for task_id, revision, payload in self._conn.execute(
-                f"SELECT task_id, revision, payload FROM proposals WHERE {IN_PROGRESS} "  # noqa: S608 - 固定條件
-                "ORDER BY received_at, task_id, revision").fetchall():
-            proposal = _parse_payload(payload)
-            if proposal is None:
-                unreadable.append(f"{task_id}/{revision}")
-            else:
-                keys.append(operation_key(proposal))
-        return tuple(keys), tuple(unreadable)
+        done = self._finish(receipt, now, "state = 'expired', disposition = NULL", ())
+        if done:
+            self._log_held(receipt, now, LifecycleKind.EXPIRED)
+        return done
 
     def take_over(
         self, tx: attempt_store.ExecutorTransaction, message: PendingProposal, now: datetime,
@@ -1098,65 +1443,10 @@ class InboxStore:
         seq = self._conn.execute(
             "SELECT lease_seq FROM proposals WHERE task_id = ? AND revision = ?",
             (message.task_id, message.revision)).fetchone()[0]
+        tenant = attempt_store.first_row_tenant(tx, operation_key(message.proposal))
+        self._log(now, message.task_id, message.revision, LifecycleKind.RECLAIMED,
+                  Actor(Source.EXECUTOR_LOOP, owner), tenant=tenant)
         return Receipt(message.task_id, message.revision, message.content_hash, owner, int(seq))
-
-    def awaiting_count(
-        self, tx: attempt_store.ExecutorTransaction, *, tenant: str | None = None,
-        campaign_id: str | None = None,
-    ) -> tuple[int, int]:
-        """待核可份數(Phase 6 增量 4 查詢三),以及其中接不到停下紀錄的份數。依租戶、廣告篩時用
-        (任務、修訂、內容雜湊、停在哪一關)接停下紀錄;停下紀錄同一份提案同一種類只一列,所以
-        每份提案最多接到一列。接不到的只算進不篩的總數,另外回報,不悄悄丟掉。"""
-        self._own(tx)
-        join = ("LEFT JOIN write_stops w ON w.task_id = p.task_id AND w.revision = p.revision "
-                "AND w.content_hash = p.content_hash AND w.kind = p.block_code")
-        where, params = [_AWAITING_P], []
-        for clause, value in (("w.tenant = ?", tenant), ("w.campaign_id = ?", campaign_id)):
-            if value is not None:
-                where.append(clause)
-                params.append(value)
-        matched = self._conn.execute(
-            f"SELECT count(*) FROM proposals p {join} WHERE {' AND '.join(where)}",  # noqa: S608 - 只拼接固定條件
-            params).fetchone()[0]
-        unknown = self._conn.execute(
-            f"SELECT count(*) FROM proposals p {join} "  # noqa: S608 - 只拼接固定條件
-            f"WHERE {_AWAITING_P} AND w.id IS NULL").fetchone()[0]
-        return int(matched), int(unknown)
-
-    def approval_use_count(
-        self, tx: attempt_store.ExecutorTransaction, *, tenant: str | None = None,
-        campaign_id: str | None = None, since: datetime | None = None,
-        until: datetime | None = None,
-    ) -> int:
-        """已核可放行數(查詢三):核可使用表的列數。時間範圍包含起點、不包含終點。"""
-        self._own(tx)
-        sql, params = approval_use_count_query(tenant=tenant, campaign_id=campaign_id,
-                                               since=since, until=until)
-        return int(self._conn.execute(sql, params).fetchone()[0])
-
-    def stop_count(
-        self, tx: attempt_store.ExecutorTransaction, kind: StopKind, *, tenant: str | None = None,
-        campaign_id: str | None = None, since: datetime | None = None,
-        until: datetime | None = None,
-    ) -> int:
-        """停下紀錄計數(Phase 6 增量 4 可觀測查詢用);時間範圍包含起點、不包含終點。"""
-        self._own(tx)
-        sql, params = stop_count_query(kind, tenant=tenant, campaign_id=campaign_id,
-                                       since=since, until=until)
-        return int(self._conn.execute(sql, params).fetchone()[0])
-
-    def stops(
-        self, tx: attempt_store.ExecutorTransaction, kind: StopKind, tenant: str,
-        since: datetime, until: datetime,
-    ) -> tuple[tuple[object, ...], ...]:
-        """某租戶在時間範圍內的停下紀錄,依時間排序:(冪等鍵, 任務, 修訂, 內容雜湊, 廣告, 金額,
-        當時已用, 當時門檻, 時間)。已用與門檻在沒有額度快照的種類是空值。"""
-        self._own(tx)
-        return tuple(self._conn.execute(
-            "SELECT key, task_id, revision, content_hash, campaign_id, amount, used, cap, at "
-            "FROM write_stops WHERE kind = ? AND tenant = ? AND at >= ? AND at < ? "
-            "ORDER BY at, id",
-            (kind.value, tenant, attempt_store.iso(since), attempt_store.iso(until))))
 
     def record_event(self, code: str, proposal: Proposal, now: datetime) -> None:
         """盡力而為:寫不進去(忙碌、磁碟滿)就放棄,不影響對呼叫者的回應。
@@ -1190,6 +1480,49 @@ class InboxStore:
                 (code, code, MAX_EVENTS_PER_CODE))
 
 
+class ReadOnlyInbox(InboxReads):
+    """收件口模組的唯讀開法(Phase 9 增量 1):只有唯讀連線、沒有寫入交易入口,只發唯讀交易。
+
+    開啟時不建表、不補欄位;資料庫還沒升級到這一版(缺事件表、呼叫紀錄表或新欄位)丟
+    DatabaseNotUpgraded,不寫任何東西。唯讀交易開始時下不取鎖的顯式交易開頭並立刻讀一次,同一個
+    唯讀交易裡的多次查詢讀同一個快照;執行迴圈佔著寫入鎖時照樣讀得到(WAL)。"""
+
+    def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
+        self._conn = connect_read_only(path, busy_timeout_seconds)
+        try:
+            missing = missing_schema(self._conn, _REQUIRED_SCHEMA)
+        except BaseException:
+            self._conn.close()
+            raise
+        if missing:
+            self._conn.close()
+            raise DatabaseNotUpgraded("執行行程資料庫還沒升級:缺 " + ", ".join(missing))
+
+    def close(self) -> None:
+        self._conn.close()
+
+    @contextmanager
+    def read_transaction(self) -> Iterator[attempt_store.ReadTransaction]:
+        issuer = attempt_store._READ_TRANSACTION_ISSUER  # 私有憑證:只給這個唯讀交易入口用
+        tx = attempt_store.ReadTransaction(self._conn, issuer)
+        try:
+            with read_snapshot(self._conn):
+                yield tx
+        finally:
+            tx.close()
+
+
+# 寫入函式的宣告清單:測試從原始碼機械算出寫入函式,必須跟這份完全相同(不靠名字判斷:取件、處理
+# 待核可、接手名字像讀、其實會寫)
+WRITE_FUNCTIONS = frozenset({
+    "InboxStore.accept", "InboxStore.replay", "InboxStore.receive", "InboxStore.extend",
+    "InboxStore.release", "InboxStore.ack_handed_off", "InboxStore.ack_blocked",
+    "InboxStore.record_stop", "InboxStore.await_approval", "InboxStore.settle_awaiting",
+    "InboxStore.record_approval_use", "InboxStore.add_approval", "InboxStore.ack_expired",
+    "InboxStore.take_over", "InboxStore.record_event",
+})
+
+
 def stop_count_query(
     kind: StopKind, *, tenant: str | None = None, campaign_id: str | None = None,
     since: datetime | None = None, until: datetime | None = None,
@@ -1203,6 +1536,16 @@ def stop_count_query(
             where.append(clause)
             params.append(value)
     return f"SELECT count(*) FROM write_stops WHERE {' AND '.join(where)}", tuple(params)  # noqa: S608 - 只拼接固定條件
+
+
+def last_terminal_event_query(
+    task_id: str, revision: int, digest: str,
+) -> tuple[str, tuple[object, ...]]:
+    """找一份提案最後一個終點事件的查詢語句(測試用它看查詢計畫);種類條件照抄部分索引的清單。"""
+    return (f"SELECT {', '.join(_LIFECYCLE_FIELDS)} FROM lifecycle_events "  # noqa: S608 - 固定欄位與列舉值
+            "WHERE task_id = ? AND revision = ? AND content_hash = ? "
+            f"AND kind IN ({_TERMINAL_KIND_LIST}) ORDER BY id DESC LIMIT 1",
+            (task_id, revision, digest))
 
 
 def approval_use_count_query(
@@ -1227,6 +1570,14 @@ def approval_use_count_query(
             params.append(value)
     return (f"SELECT count(*) FROM approval_uses u {join} WHERE {' AND '.join(where)}",  # noqa: S608 - 只拼接固定條件
             tuple(params))
+
+
+def _event(row: tuple[object, ...]) -> LifecycleEvent:
+    """事件表一列(欄位順序同 _LIFECYCLE_FIELDS)轉成事件;依既有結果確認存成 0/1,讀回布林。"""
+    values = list(row)
+    values[_LIFECYCLE_FIELDS.index("from_existing")] = bool(
+        values[_LIFECYCLE_FIELDS.index("from_existing")])
+    return LifecycleEvent(*values)  # type: ignore[arg-type]
 
 
 def _parse_payload(payload: str) -> Proposal | None:

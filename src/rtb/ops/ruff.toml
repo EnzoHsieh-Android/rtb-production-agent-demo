@@ -1,0 +1,9 @@
+# 維運套件(src/rtb/ops,Phase 9 增量 1):追蹤檢視這類只讀的維運工具。可以匯入分析端與執行端的
+# 讀取介面,但只准經唯讀開法讀資料庫(不自己開連線),DSP 只經它的 HTTP 唯讀端點讀。反過來分析端、
+# 執行端、DSP 都不准匯入這裡(禁令寫在各自目錄的 ruff.toml)。只准呼叫的讀取函式白名單由邊界測試守。
+extend = "../../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"sqlite3".msg = "維運套件只能經分析端、執行端的唯讀開法讀資料庫,不自己開連線"
+"rtb.sqlitekit".msg = "維運套件只能經唯讀開法讀資料庫;要的例外從收件口模組拿"
+"rtb.dsp".msg = "DSP 只經它的 HTTP 唯讀端點讀,不匯入 DSP 的程式"

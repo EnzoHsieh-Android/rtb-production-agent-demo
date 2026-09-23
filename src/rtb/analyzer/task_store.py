@@ -9,6 +9,9 @@
 同樣只增不改,取得與放掉各新增一列,「目前的租約」就是這個任務租約序號最大的那一列;
 提交時核對目前那一列正是自己的取得列(圍籬),過期被接手的舊持有者寫不進去。
 
+唯讀開法(Phase 9 增量 1):`TaskReader` 只開唯讀連線、不建表不補欄位,一開就進一個不取鎖的快照,
+直到關閉;缺表或缺欄位丟 DatabaseNotUpgraded。追蹤檢視用它讀,不跟分析行程搶寫入鎖。
+
 接續任務(Phase 5):已交給執行的任務因版本已變、決策過期、或收件表已清掉而 DSP 沒有寫入時,
 另開一個接續任務重讀現況再決定(任務狀態機不變,原任務轉擋下)。建接續任務、寫接續關係、原任務
 結案是同一個交易,走原任務的提交圍籬;接續關係表同樣只增不改,原任務編號是主鍵(一個任務最多
@@ -29,7 +32,17 @@ from rtb.domain._checks import is_id
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
 from rtb.domain.proposal import ActionType, Proposal
 from rtb.domain.task_state import IllegalTransition, TaskState, can_transition
-from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate_transaction
+from rtb.sqlitekit import (
+    BUSY_TIMEOUT_SECONDS,
+    DatabaseBusy,
+    DatabaseNotUpgraded,
+    begin_snapshot,
+    connect,
+    connect_read_only,
+    end_snapshot,
+    immediate_transaction,
+    missing_schema,
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -211,7 +224,86 @@ def _row_from_record(
     )
 
 
-class TaskStore:
+class TaskReads:
+    """任務歷史模組的讀取方法(Phase 9 增量 1):寫入開法(TaskStore)與唯讀開法(TaskReader)共用。
+    讀取方法都只有 SELECT;唯讀開法開出來的物件一開就進一個快照,所有讀取自動落在那個快照裡。"""
+
+    _conn: sqlite3.Connection
+
+    def latest(self, task_id: str) -> TaskRow | None:
+        record = self._conn.execute(
+            f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ? ORDER BY seq DESC LIMIT 1",  # noqa: S608 - 固定欄位清單
+            (task_id,),
+        ).fetchone()
+        return None if record is None else _row_from_record(record)
+
+    def operation_key_for(self, task_id: str) -> str | None:
+        """交給執行那一列存下的冪等鍵;Phase 5 之前寫的列沒有存,回 None。"""
+        record = self._conn.execute(
+            "SELECT operation_key FROM tasks WHERE task_id = ? AND state = ? "
+            "ORDER BY seq DESC LIMIT 1", (task_id, TaskState.HANDED_OFF.value),
+        ).fetchone()
+        return None if record is None else record[0]
+
+    def follow_up_to(self, task_id: str) -> str | None:
+        record = self._conn.execute(
+            "SELECT follow_up_task_id FROM follow_ups WHERE original_task_id = ?", (task_id,),
+        ).fetchone()
+        return None if record is None else record[0]
+
+    def follow_up_of(self, task_id: str) -> str | None:
+        record = self._conn.execute(
+            "SELECT original_task_id FROM follow_ups WHERE follow_up_task_id = ?", (task_id,),
+        ).fetchone()
+        return None if record is None else record[0]
+
+    def evidence_for(self, task_id: str, task_seq: int) -> tuple[Evidence, ...]:
+        rows = self._conn.execute(
+            "SELECT evidence_id, kind, source, observed_at, campaign_version_observed, "
+            "content_hash, trust_class, payload_json FROM evidence "
+            "WHERE task_id = ? AND task_seq = ? "
+            "ORDER BY rowid",  # rowid 保留寫入順序;evidence_id 是呼叫端給的,字母序不等於蒐證順序
+            (task_id, task_seq),
+        ).fetchall()
+        try:
+            return tuple(
+                Evidence(
+                    evidence_id=r[0], task_id=task_id, kind=EvidenceKind(r[1]), source=r[2],
+                    observed_at=datetime.fromisoformat(r[3].replace("Z", "+00:00")),
+                    campaign_version_observed=r[4], content_hash=r[5], trust_class=TrustClass(r[6]),
+                    payload=MappingProxyType(json.loads(r[7])),
+                )
+                for r in rows
+            )
+        except (ValueError, KeyError) as exc:
+            raise CorruptedHistoryRow(f"{task_id} 第 {task_seq} 步的證據讀不回來:{exc!r}") from exc
+
+    def list_tool_calls(self, task_id: str) -> tuple[ToolCall, ...]:
+        rows = self._conn.execute(
+            "SELECT task_id, task_seq, endpoint, outcome, latency_ms, at FROM tool_calls "
+            "WHERE task_id = ? ORDER BY id", (task_id,),
+        ).fetchall()
+        return tuple(
+            ToolCall(task_id=r[0], task_seq=r[1], endpoint=r[2], outcome=r[3],
+                     latency_ms=r[4], at=datetime.fromisoformat(r[5].replace("Z", "+00:00")))
+            for r in rows
+        )
+
+    def history(self, task_id: str) -> tuple[TaskRow, ...]:
+        records = self._conn.execute(
+            f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ? ORDER BY seq",  # noqa: S608 - 固定欄位清單
+            (task_id,),
+        ).fetchall()
+        return tuple(_row_from_record(r) for r in records)
+
+    def handed_off_keys(self, task_id: str) -> tuple[tuple[int, str | None], ...]:
+        """交給執行那幾列的(序號, 存下的冪等鍵);Phase 5 之前寫的列沒有存鍵,是空值。"""
+        return tuple((int(seq), key) for seq, key in self._conn.execute(
+            "SELECT seq, operation_key FROM tasks WHERE task_id = ? AND state = ? ORDER BY seq",
+            (task_id, TaskState.HANDED_OFF.value)))
+
+
+class TaskStore(TaskReads):
     def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
         try:
             self._conn = connect(path, busy_timeout_seconds, SCHEMA)
@@ -278,54 +370,6 @@ class TaskStore:
             f"INSERT INTO tasks ({_TASK_COLUMNS}) VALUES (?, 1, ?, ?, NULL, NULL, ?, NULL)",  # noqa: S608 - 固定欄位清單
             (task_id, TaskState.RECEIVED.value, campaign_id, _iso(now)),
         )
-
-    def latest(self, task_id: str) -> TaskRow | None:
-        record = self._conn.execute(
-            f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ? ORDER BY seq DESC LIMIT 1",  # noqa: S608 - 固定欄位清單
-            (task_id,),
-        ).fetchone()
-        return None if record is None else _row_from_record(record)
-
-    def operation_key_for(self, task_id: str) -> str | None:
-        """交給執行那一列存下的冪等鍵;Phase 5 之前寫的列沒有存,回 None。"""
-        record = self._conn.execute(
-            "SELECT operation_key FROM tasks WHERE task_id = ? AND state = ? "
-            "ORDER BY seq DESC LIMIT 1", (task_id, TaskState.HANDED_OFF.value),
-        ).fetchone()
-        return None if record is None else record[0]
-
-    def follow_up_to(self, task_id: str) -> str | None:
-        record = self._conn.execute(
-            "SELECT follow_up_task_id FROM follow_ups WHERE original_task_id = ?", (task_id,),
-        ).fetchone()
-        return None if record is None else record[0]
-
-    def follow_up_of(self, task_id: str) -> str | None:
-        record = self._conn.execute(
-            "SELECT original_task_id FROM follow_ups WHERE follow_up_task_id = ?", (task_id,),
-        ).fetchone()
-        return None if record is None else record[0]
-
-    def evidence_for(self, task_id: str, task_seq: int) -> tuple[Evidence, ...]:
-        rows = self._conn.execute(
-            "SELECT evidence_id, kind, source, observed_at, campaign_version_observed, "
-            "content_hash, trust_class, payload_json FROM evidence "
-            "WHERE task_id = ? AND task_seq = ? "
-            "ORDER BY rowid",  # rowid 保留寫入順序;evidence_id 是呼叫端給的,字母序不等於蒐證順序
-            (task_id, task_seq),
-        ).fetchall()
-        try:
-            return tuple(
-                Evidence(
-                    evidence_id=r[0], task_id=task_id, kind=EvidenceKind(r[1]), source=r[2],
-                    observed_at=datetime.fromisoformat(r[3].replace("Z", "+00:00")),
-                    campaign_version_observed=r[4], content_hash=r[5], trust_class=TrustClass(r[6]),
-                    payload=MappingProxyType(json.loads(r[7])),
-                )
-                for r in rows
-            )
-        except (ValueError, KeyError) as exc:
-            raise CorruptedHistoryRow(f"{task_id} 第 {task_seq} 步的證據讀不回來:{exc!r}") from exc
 
     def commit_step(  # noqa: PLR0913 - 每個關鍵字參數都對應計劃裡不同狀態要附帶的資料
         self,
@@ -508,26 +552,37 @@ class TaskStore:
         except (sqlite3.Error, DatabaseBusy):
             return
 
-    def list_tool_calls(self, task_id: str) -> tuple[ToolCall, ...]:
-        rows = self._conn.execute(
-            "SELECT task_id, task_seq, endpoint, outcome, latency_ms, at FROM tool_calls "
-            "WHERE task_id = ? ORDER BY id", (task_id,),
-        ).fetchall()
-        return tuple(
-            ToolCall(task_id=r[0], task_seq=r[1], endpoint=r[2], outcome=r[3],
-                     latency_ms=r[4], at=datetime.fromisoformat(r[5].replace("Z", "+00:00")))
-            for r in rows
-        )
 
-    def history(self, task_id: str) -> tuple[TaskRow, ...]:
-        records = self._conn.execute(
-            f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ? ORDER BY seq",  # noqa: S608 - 固定欄位清單
-            (task_id,),
-        ).fetchall()
-        return tuple(_row_from_record(r) for r in records)
+# 唯讀開法要求資料庫已經有的表與欄位
+_REQUIRED_SCHEMA: dict[str, tuple[str, ...]] = {
+    "tasks": ("task_id", "seq", "state", "proposal_json", "operation_key"),
+    "evidence": ("payload_json",), "tool_calls": ("latency_ms",), "task_leases": ("owner",),
+    "follow_ups": ("follow_up_task_id",),
+}
 
 
-def trace_for(store: TaskStore, task_id: str) -> TraceRecord:
+class TaskReader(TaskReads):
+    """唯讀開法:只有唯讀連線;開啟時不建表、不補欄位;一開就進同一個快照,直到 close。"""
+
+    def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
+        self._conn = connect_read_only(path, busy_timeout_seconds)
+        try:
+            missing = missing_schema(self._conn, _REQUIRED_SCHEMA)
+            if missing:
+                raise DatabaseNotUpgraded("分析行程資料庫還沒升級:缺 " + ", ".join(missing))
+            begin_snapshot(self._conn)
+        except BaseException:
+            self._conn.close()
+            raise
+
+    def close(self) -> None:
+        try:
+            end_snapshot(self._conn)
+        finally:
+            self._conn.close()
+
+
+def trace_for(store: TaskReads, task_id: str) -> TraceRecord:
     """把 tasks(狀態史)、evidence(證據)、tool_calls(呼叫記錄)用任務編號兜成一條軌跡。"""
     history = store.history(task_id)
     evidence = tuple(

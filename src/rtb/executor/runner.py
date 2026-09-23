@@ -90,19 +90,22 @@ class _Opened:
     unreadable_messages: tuple[str, ...]  # 讀不回來的處理中列:算不出鍵,這次重啟恢復一把都不轉
 
 
-def _recover(store: InboxStore, clock: Callable[[], datetime]) -> _Opened:
+def _recover(store: InboxStore, clock: Callable[[], datetime], owner: str) -> _Opened:
+    """owner 是啟動中的行程身分:轉成結果不明的每一列記來源「啟動恢復」與這個身分。"""
     with store.transaction() as tx:
         held, unreadable = store.in_progress_keys(tx)
         if unreadable:  # 任何一筆嘗試中都可能屬於那則讀不回來的訊息:不轉,對帳第一輪會停機讓人看
             return _Opened(store, attempt_store.Recovery((), ()), unreadable)
         now = clock()
         recovery = attempt_store.recover_in_flight(
-            tx, now, held=held, written_before=now - VISIBILITY_TIMEOUT)
+            tx, now, held=held, written_before=now - VISIBILITY_TIMEOUT,
+            by=attempt_store.Actor(attempt_store.Source.STARTUP_RECOVERY, owner))
         return _Opened(store, recovery, ())
 
 
 def _open_and_recover(
     db: Path, clock: Callable[[], datetime], sleep: Callable[[float], None], interval: float,
+    owner: str,
 ) -> _Opened | None:
     """開庫(可能要做重建表遷移)並做重啟恢復;忙碌就休息再試,連續 BUSY_LIMIT 次都忙回 None。"""
     for attempt in range(BUSY_LIMIT):
@@ -113,7 +116,7 @@ def _open_and_recover(
         except InboxBusy:
             continue
         try:
-            return _recover(store, clock)
+            return _recover(store, clock, owner)
         except InboxBusy:
             store.close()
     return None
@@ -147,7 +150,10 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
     if os.stat(args.db).st_nlink > 1:
         sys.stderr.write("拒絕啟動:資料庫檔有硬連結,可能被別的檔名同時開啟\n")
         return EXIT_UNSAFE_DB
-    opened = _open_and_recover(args.db, clock, sleep, args.interval_seconds)
+    # 租約擁有者:行程編號加啟動時間。重啟後是新的擁有者,上一次留下的租約要等到期才接手;
+    # 啟動恢復也記這個身分
+    owner = owner or f"{os.getpid()}-{int(time.time())}"
+    opened = _open_and_recover(args.db, clock, sleep, args.interval_seconds, owner)
     if opened is None:
         sys.stderr.write(f"拒絕啟動:資料庫連續 {BUSY_LIMIT} 次忙碌,稍後再試\n")
         return EXIT_BUSY
@@ -159,8 +165,6 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
             sys.stderr.write("重啟恢復跳過:有讀不回來的處理中訊息(要人處理):"
                              f"{', '.join(opened.unreadable_messages)}\n")
         print(READY, file=out or sys.stdout, flush=True)
-        # 租約擁有者:行程編號加啟動時間。重啟後是新的擁有者,上一次留下的租約要等到期才接手
-        owner = owner or f"{os.getpid()}-{int(time.time())}"
         executor = Executor(store, dsp or DspClient(args.dsp_url, args.dsp_timeout_seconds),
                             signer, args.tenant_config, clock, owner, approval_key)
         return _loop(executor, args.interval_seconds, max_rounds, sleep)

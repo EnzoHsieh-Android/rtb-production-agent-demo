@@ -14,6 +14,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from rtb.domain.proposal import POLICY_VERSION, ActionType, parse_proposal
+from rtb.executor.attempt_store import DspCall, DspCallKind, DspCallResult, dsp_error_code
 from rtb.executor.capability_signer import CapabilitySigner
 from rtb.executor.execution import (
     CampaignView,
@@ -66,6 +67,7 @@ class FakeDsp:
         self.reads: list[str] = []
         self.lookups: list[str] = []
         self.on_read = self.on_write = self.on_call = None
+        self.listener = None  # 執行迴圈掛上的呼叫回呼(Phase 9):每次呼叫照真用戶端觸發一次
         # 多個執行緒(並行測試裡的多個工作者)同時呼叫時,狀態的讀改寫要一段做完。攔截點
         # (on_write)在鎖外面先跑:等在攔截點的工作者不能握著鎖,否則接手的另一個永遠寫不進來
         self._lock = threading.RLock()
@@ -74,7 +76,33 @@ class FakeDsp:
         if self.on_call is not None:
             self.on_call(kind)
 
+    def listen(self, on_call):
+        self.listener = on_call
+
+    def _notify(self, kind, status, error=None, failure=None):
+        """照真用戶端的分類回報一次呼叫;假的沒有網路,耗時記 0。"""
+        if self.listener is None:
+            return
+        if status is None:
+            result = failure or DspCallResult.TIMEOUT
+        elif 200 <= status < 300:
+            result = DspCallResult.RESPONDED
+        else:
+            result = DspCallResult.CLIENT_ERROR if status < 500 else DspCallResult.SERVER_ERROR
+        code = None if status is None or error is None else dsp_error_code({"error": error})
+        self.listener(DspCall(kind, result, status, 0.0, code))
+
     def read_campaign(self, campaign_id):
+        try:
+            found = self._read_campaign(campaign_id)
+        except DspUnavailable:
+            self._notify(DspCallKind.READ_CAMPAIGN, None, failure=DspCallResult.SERVER_ERROR)
+            raise
+        self._notify(DspCallKind.READ_CAMPAIGN, 200 if found is not None else 404,
+                     None if found is not None else "campaign_not_found")
+        return found
+
+    def _read_campaign(self, campaign_id):
         self._called("read")
         with self._lock:
             self.reads.append(campaign_id)
@@ -87,6 +115,11 @@ class FakeDsp:
             return self.campaigns.get(campaign_id)
 
     def write(self, prop, key, token):
+        answer = self._write(prop, key, token)
+        self._notify(DspCallKind.WRITE, answer.status, answer.error, answer.failure)
+        return answer
+
+    def _write(self, prop, key, token):
         self._called("write")
         with self._lock:
             self.writes.append((prop, key, token))
@@ -134,10 +167,16 @@ class FakeDsp:
         self._called("lookup")
         with self._lock:
             self.lookups.append(key)
-            if self.lookup_failures:
+            failed = bool(self.lookup_failures)
+            if failed:
                 self.lookup_failures -= 1
-                raise DspUnavailable("查詢失敗")
-            return self.operations.get(key)
+            found = None if failed else self.operations.get(key)
+        if failed:
+            self._notify(DspCallKind.LOOKUP_OPERATION, None, failure=DspCallResult.SERVER_ERROR)
+            raise DspUnavailable("查詢失敗")
+        self._notify(DspCallKind.LOOKUP_OPERATION, 200 if found is not None else 404,
+                     None if found is not None else "operation_not_found")
+        return found
 
     def operation_version(self, key):
         record = self._lookup(key)
@@ -147,6 +186,11 @@ class FakeDsp:
         return self._lookup(key)
 
     def void(self, prop, key, token):
+        answer = self._void(prop, key, token)
+        self._notify(DspCallKind.VOID, answer.status, answer.error, answer.failure)
+        return answer
+
+    def _void(self, prop, key, token):
         self._called("void")
         with self._lock:
             self.voids.append(key)

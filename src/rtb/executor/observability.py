@@ -4,11 +4,18 @@
 資料一律從既有的耐久紀錄讀——停下紀錄表與嘗試紀錄——不另存計數器。一張表只透過擁有它的模組讀:
 停下紀錄走收件口模組的方法(先核對交易是它開的),嘗試紀錄走嘗試紀錄模組的函式;這裡不寫 SQL
 (代碼審第 1 輪架構席)。每支都收執行行程資料庫交易入口開的交易(會握寫入鎖,跟 Phase 5 的
-`version_conflict_count` 同一種做法),只讀不寫。依賴方向只有「這裡 → 收件口模組、嘗試紀錄模組」,
-那兩個模組都不依賴這裡。人工核可的查詢三(待核可數與已核可放行數)在增量 3 合進後補上。
+`version_conflict_count` 同一種做法)或唯讀開法開的唯讀交易(不握鎖),只讀不寫。依賴方向只有
+「這裡 → 收件口模組、嘗試紀錄模組」,那兩個模組都不依賴這裡。人工核可的查詢三(待核可數與已核可
+放行數)在增量 3 合進後補上。
 
-稽核明細的時間範圍不設上限:給極寬的範圍會掃大段歷史、握寫入鎖。目前只有人工與測試會呼叫;
-Phase 9 接告警或輪詢時要一併決定範圍上限與不握寫入鎖的讀法(代碼審第 1 輪資安席)。
+稽核明細的時間範圍不設上限:給極寬的範圍會掃大段歷史。目前只有人工與測試會呼叫;Phase 9 增量 2
+接上指標時要一併決定範圍上限(代碼審第 1 輪資安席)。
+
+不握寫入鎖的讀法(Phase 9 增量 1):每支都也收唯讀交易,收件表參數收寫入開法或唯讀開法;唯讀交易下
+結果跟寫入交易下相同,別人佔著寫入鎖時照樣讀。呼叫方式:
+    reader = ReadOnlyInbox(資料庫路徑)
+    with reader.read_transaction() as tx:
+        aggregate_stop_count(reader, tx, tenant=...)
 
 時間範圍一律包含起點、不包含終點;停下紀錄與嘗試紀錄的時間都寫成同一種固定格式的 UTC 字串,字串
 比較就是時間比較。「現在」與門檻都由呼叫端傳入:額度窗口依「現在」算,兩支查詢要對帳就傳同一個;
@@ -19,8 +26,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from rtb.executor import attempt_store
-from rtb.executor.attempt_store import CountedFirstRow, ExecutorTransaction
-from rtb.executor.inbox_store import InboxStore, StopKind
+from rtb.executor.attempt_store import CountedFirstRow, Readable
+from rtb.executor.inbox_store import InboxReads, StopKind
 
 
 @dataclass(frozen=True)
@@ -72,7 +79,7 @@ class AggregateAudit:
 
 
 def aggregate_stop_count(
-    store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
+    store: InboxReads, tx: Readable, *, tenant: str | None = None,
     campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
 ) -> int:
     """總曝險停下次數:被停下的次數,不是最後結果(增量 3 之後其中有些會被核可放行)。"""
@@ -81,7 +88,7 @@ def aggregate_stop_count(
 
 
 def table_full_deferral_count(
-    store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
+    store: InboxReads, tx: Readable, *, tenant: str | None = None,
     campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
 ) -> int:
     """表滿延後次數:同一份提案同一種類只記一列,數的是「被延後過的提案份數」,不是延後事件次數。"""
@@ -100,7 +107,7 @@ class ApprovalCounts:
 
 
 def approval_counts(
-    store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
+    store: InboxReads, tx: Readable, *, tenant: str | None = None,
     campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
 ) -> ApprovalCounts:
     awaiting, unknown = store.awaiting_count(tx, tenant=tenant, campaign_id=campaign_id)
@@ -109,7 +116,7 @@ def approval_counts(
     return ApprovalCounts(awaiting, unknown, applied)
 
 
-def utilization(tx: ExecutorTransaction, tenant: str, limit: int, now: datetime) -> Utilization:
+def utilization(tx: Readable, tenant: str, limit: int, now: datetime) -> Utilization:
     """只讀嘗試紀錄,所以不收收件表(另外三支讀停下紀錄,要收件表來核對交易歸屬)。"""
     return _utilization(attempt_store.aggregate_used(tx, tenant, now), limit)
 
@@ -119,7 +126,7 @@ def _utilization(used: int, limit: int) -> Utilization:
 
 
 def aggregate_audit(  # noqa: PLR0913 - 收件表、交易、租戶、門檻、現在、範圍都是稽核必須的輸入
-    store: InboxStore, tx: ExecutorTransaction, tenant: str, limit: int, now: datetime,
+    store: InboxReads, tx: Readable, tenant: str, limit: int, now: datetime,
     since: datetime | None, until: datetime | None,
 ) -> AggregateAudit:
     """總曝險稽核明細(事故 F7「哪些通過、哪些被阻擋、剩餘多少」):四樣都用同一個傳入的「現在」。"""

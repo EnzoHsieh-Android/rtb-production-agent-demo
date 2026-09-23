@@ -1,10 +1,15 @@
 """SQLite 的共用做法:WAL、忙碌逾時、手動交易(BEGIN IMMEDIATE),忙碌與永久故障分得開。
 
 DSP 與提案收件口都用它,不各寫一套。每個執行緒或請求自己開一條連線,不共用。
+
+唯讀連線(Phase 9 增量 1):以 SQLite 官方 URI 的 mode=ro 開,並明講這是 URI——把「mode=ro」字串
+丟給一般的連線函式不會報錯,而是在磁碟上悄悄新建一個以那串文字為檔名的空資料庫(前掃實測)。唯讀
+快照用不取鎖的顯式交易開頭,開頭之後立刻讀一次:SQLite 的讀取快照從第一次讀取才定,不先讀的話,
+開頭與第一次查詢之間別人提交的寫入也會被看到。
 """
 
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -13,6 +18,10 @@ BUSY_TIMEOUT_SECONDS = 5.0
 
 class DatabaseBusy(Exception):
     """資料庫正被別的寫入佔用,等待逾時。呼叫者決定要不要重試。"""
+
+
+class DatabaseNotUpgraded(Exception):
+    """唯讀開法發現資料庫還沒升級到這一版(缺表或缺欄位):唯讀連線不能補,要先用寫入開法開一次。"""
 
 
 def _is_lock_contention(exc: sqlite3.OperationalError) -> bool:
@@ -61,3 +70,49 @@ def immediate_transaction(conn: sqlite3.Connection) -> Iterator[None]:
         if conn.in_transaction:  # SQLite 有時已自行回滾;再回滾會蓋掉真正的原因
             conn.execute("ROLLBACK")
         raise
+
+
+def connect_read_only(
+    path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+) -> sqlite3.Connection:
+    """唯讀連線:任何寫入都失敗;檔案不存在丟 FileNotFoundError,不建新檔。不建表、不切日誌模式。"""
+    target = Path(path)
+    if not target.is_file():
+        raise FileNotFoundError(str(target))
+    uri = target.resolve().as_uri() + "?mode=ro"  # as_uri 會把檔名裡的 # ? 空白編碼掉
+    return sqlite3.connect(uri, uri=True, isolation_level=None, timeout=busy_timeout_seconds)
+
+
+def begin_snapshot(conn: sqlite3.Connection) -> None:
+    """不取鎖的顯式交易開頭,並立刻讀一次把快照定下來(之後同一個交易裡的查詢都讀這個快照)。"""
+    conn.execute("BEGIN")
+    conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
+
+
+def end_snapshot(conn: sqlite3.Connection) -> None:
+    if conn.in_transaction:
+        conn.execute("ROLLBACK")  # 唯讀交易沒有東西要提交;回滾同樣結束快照
+
+
+@contextmanager
+def read_snapshot(conn: sqlite3.Connection) -> Iterator[None]:
+    """唯讀交易:進入時定下快照,離開時結束(不論有沒有例外)。"""
+    begin_snapshot(conn)
+    try:
+        yield
+    finally:
+        end_snapshot(conn)
+
+
+def missing_schema(
+    conn: sqlite3.Connection, required: Mapping[str, Iterable[str]],
+) -> list[str]:
+    """required 是 {表: 欄位};回傳缺的表與「表.欄位」(唯讀開法判斷資料庫升級了沒有)。"""
+    missing = []
+    for table, columns in required.items():
+        present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if not present:
+            missing.append(table)
+            continue
+        missing += [f"{table}.{column}" for column in columns if column not in present]
+    return missing

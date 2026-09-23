@@ -377,13 +377,13 @@ def test_a_busy_restart_recovery_at_startup_retries_before_giving_up(h, monkeypa
     tries, closed = [], []
 
     def busy_then(fail_times):
-        def recover(store, clock):
+        def recover(store, clock, owner):  # Phase 9:重啟恢復多收行程身分,原樣轉交
             tries.append(1)
             if len(tries) <= fail_times:
                 real_close = store.close
                 store.close = lambda: (closed.append(1), real_close())[1]
                 raise InboxBusy("database is locked")
-            return real(store, clock)
+            return real(store, clock, owner)
         return recover
 
     orphan = in_flight_row(h.db, h.clock)

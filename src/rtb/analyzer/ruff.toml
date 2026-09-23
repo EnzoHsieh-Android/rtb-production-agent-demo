@@ -4,3 +4,4 @@ extend = "../../../pyproject.toml"
 [lint.flake8-tidy-imports.banned-api]
 "rtb.dsp".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
 "rtb.executor".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+"rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
