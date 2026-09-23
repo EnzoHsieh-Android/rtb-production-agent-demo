@@ -30,6 +30,7 @@ from rtb.executor.execution import Executor, Result
 from rtb.executor.inbox_store import InboxStore, ReadOnlyInbox
 from rtb.ops import metrics, side_effects, sli, slo, trace
 from tests.capability_samples import TEST_KEY
+from tests.executor.conftest import Clock
 from tests.executor.fakes import proposal
 
 A_BAD = [f"a{n:02d}" for n in range(1, 13)]  # 租戶甲:吃兩次 5xx 的 12 個廣告
@@ -38,24 +39,6 @@ B_OK = [f"b{n:02d}" for n in range(1, 5)]  # 租戶乙:正常
 INCIDENT = timedelta(minutes=12)
 HANG, CLIENT_TIMEOUT = 0.6, 0.3  # 提交後逾時:DSP 掛住比用戶端逾時久,用戶端才會真的逾時
 VERSIONS = ("0.9.1-a", "0.9.1-b")  # 兩個工作者掛的程式版本
-
-
-class VirtualClock:
-    """執行緒安全;每讀一次前進 1 毫秒,讓同一輪裡依序發生的事時間都不同;測試另外可以一步跳過去。"""
-
-    def __init__(self, start):
-        self.now, self.lock = start, threading.Lock()
-
-    def __call__(self):
-        with self.lock:
-            moment = self.now
-            self.now += timedelta(milliseconds=1)
-            return moment
-
-    def jump_to(self, moment):
-        with self.lock:
-            assert moment >= self.now
-            self.now = moment
 
 
 class KeyedHandler(DspHandler):
@@ -71,7 +54,9 @@ class KeyedHandler(DspHandler):
 
 class Drill:
     def __init__(self, tmp_path):
-        self.clock = VirtualClock(datetime.now(UTC))
+        # 從系統時間起跳:DSP 提交時間是系統時間,副作用核對依它歸窗;每讀一次前進 1 毫秒,
+        # 同一輪裡依序發生的事時間都不同
+        self.clock = Clock(start=datetime.now(UTC), tick=timedelta(milliseconds=1))
         self.t0 = self.clock.now + timedelta(minutes=5)
         self.dsp_db, self.executor_db = tmp_path / "dsp.db", tmp_path / "executor.db"
         self.analyzer_db = tmp_path / "analyzer.db"
@@ -145,6 +130,12 @@ class Drill:
                                       analyzer_db=self.analyzer_db, tenants=self.tenants)
 
 
+def jump_to(clock, moment):
+    """把虛擬時鐘一步推到某一刻(只能往前)。"""
+    assert moment >= clock.now
+    clock.advance(seconds=(moment - clock.now).total_seconds())
+
+
 @contextmanager
 def as_version(monkeypatch, version):
     """程式版本是行程載入時定的常數:比照事故 F6 端到端換政策版本,輪到哪個工作者前換成它的版本。"""
@@ -159,6 +150,13 @@ def drill(tmp_path):
     built = Drill(tmp_path)
     yield built
     built.close()
+
+
+def test_the_drill_clock_is_the_shared_test_clock(drill):
+    """代碼審第 1 輪:實演的時鐘沿用執行端測試共用的 Clock,只多「每讀一次前進 1 毫秒」與執行緒鎖。"""
+    assert isinstance(drill.clock, Clock)
+    first, second = drill.clock(), drill.clock()
+    assert second - first == timedelta(milliseconds=1)
 
 
 def pick(report, name, **labels):
@@ -176,22 +174,22 @@ def run_incident(d, monkeypatch):
     d.server.plan[operation_key(d.submit(A_TIMEOUT, d.t0))] = ["timeout_after_commit"]
     for campaign in B_OK:
         d.submit(campaign, d.t0)
-    d.clock.jump_to(d.t0)
+    jump_to(d.clock, d.t0)
     d.process(monkeypatch)  # T0:只取件
     assert {d.sends(c) for c in A_BAD} == {("unknown", 1)}
     assert d.sends(A_TIMEOUT) == ("unknown", 1)
     assert {d.sends(c) for c in B_OK} == {("verified", 1)}
 
-    d.clock.jump_to(d.t0 + timedelta(minutes=5))
+    jump_to(d.clock, d.t0 + timedelta(minutes=5))
     d.reconcile(monkeypatch)  # T0 + 5 分鐘:只對帳
     assert {d.sends(c) for c in A_BAD} == {("unknown", 2)}
     assert d.sends(A_TIMEOUT) == ("verified", 1)  # 查到就結案,不重送
 
-    d.clock.jump_to(d.t0 + timedelta(minutes=10, seconds=1))
+    jump_to(d.clock, d.t0 + timedelta(minutes=10, seconds=1))
     now = d.clock.now
     alert = slo.evaluate(now, counter=lambda n, s, u: sli.count(n, s, u, d.sources()))
 
-    d.clock.jump_to(d.t0 + INCIDENT + timedelta(seconds=1))
+    jump_to(d.clock, d.t0 + INCIDENT + timedelta(seconds=1))
     d.reconcile(monkeypatch)  # 事故結束:只對帳
     assert {d.sends(c) for c in A_BAD} == {("verified", 3)}
     return alert

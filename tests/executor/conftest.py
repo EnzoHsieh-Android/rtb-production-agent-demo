@@ -15,14 +15,22 @@ NOW = datetime(2026, 9, 22, 12, 5, tzinfo=UTC)
 
 
 class Clock:
-    def __init__(self):
-        self.now = NOW
+    """測試控制的時鐘。tick:每讀一次自動往前走這麼多(預設不走,只靠 advance);讀與走都在鎖裡,
+    多個執行緒同時讀也不會拿到同一刻(Phase 9 增量 4 調查實演用)。"""
+
+    def __init__(self, start=NOW, tick=None):
+        self.now, self.tick, self.lock = start, tick, threading.Lock()
 
     def __call__(self):
-        return self.now
+        with self.lock:
+            moment = self.now
+            if self.tick is not None:
+                self.now += self.tick
+            return moment
 
     def advance(self, **kwargs):
-        self.now += timedelta(**kwargs)
+        with self.lock:
+            self.now += timedelta(**kwargs)
 
 
 class Inbox:

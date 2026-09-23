@@ -7,7 +7,6 @@
 import ast
 import io
 import pathlib
-import re
 import sqlite3
 import threading
 
@@ -31,7 +30,7 @@ from rtb.executor.inbox_store import (
     failure_class,
 )
 from tests.executor.fakes import Harness, proposal, write_config
-from tests.executor.write_scan import reconstructed_strings
+from tests.executor.write_scan import audit_violations, reconstructed_strings
 
 OPERATOR = "ops-alice"
 
@@ -444,9 +443,7 @@ def test_a_blocked_proposal_cannot_be_replayed(h):
 # ---- 事故 F6 轉正第 1 次審計:三句排他性的宣稱要有機械守衛 ----
 SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "rtb"
 REVIVE = "dead_letter_reason = NULL"  # 把死信改回來的那一句(處置與死信原因一起清)
-TABLE_WRITE = re.compile(r"\b(UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+REPLACE\s+INTO|"
-                         r"DROP\s+TABLE|ALTER\s+TABLE)\s+(dead_letters|dead_letter_ops)\b",
-                         re.IGNORECASE)
+DEAD_LETTER_TABLES = ("dead_letters", "dead_letter_ops")
 
 
 def _functions_containing(text):
@@ -462,12 +459,29 @@ def test_only_the_replay_method_revives_a_dead_letter():
     assert _functions_containing(REVIVE) == [("inbox_store.py", "_replay")]
 
 
+def _dead_letter_violations(tree):
+    """跟七張稽核表共用同一套判定(Phase 9 增量 4 代碼審第 1 輪:原本要求動詞緊貼表名,抓不到
+    UPDATE OR REPLACE 與衝突時更新)。只能變嚴:文件字串照原本一起掃、死信兩張表連補欄位都不准。"""
+    return audit_violations(tree, DEAD_LETTER_TABLES, skip_docstrings=False)
+
+
 def test_the_dead_letter_tables_are_only_ever_inserted_into():
     """死信信封與稽核只增不改:全庫沒有任何語句修改、刪除或覆寫這兩張表。"""
-    offenders = [(path.name, match.group(0)) for path in SRC.rglob("*.py")
-                 for text in reconstructed_strings(ast.parse(path.read_text(encoding="utf-8")))
-                 for match in TABLE_WRITE.finditer(text)]
+    offenders = [(path.name, found) for path in SRC.rglob("*.py")
+                 for found in _dead_letter_violations(ast.parse(path.read_text(encoding="utf-8")))]
     assert offenders == []
+
+
+@pytest.mark.parametrize("source", [
+    'x = "UPDATE dead_" + "letters SET a = 1"',
+    'x = ("DELETE FROM dead_letter_" "ops WHERE 1")',
+    'x = "ALTER TABLE dead_" "letters ADD COLUMN note TEXT"',  # 死信兩張表連可為空的補欄位都不准
+    # Phase 9 增量 4 代碼審第 1 輪:動詞不緊貼表名的兩種改寫,舊守衛抓不到
+    'x = "UPDATE OR REPLACE dead_" + "letters SET a = 1"',
+    'x = "INSERT INTO dead_letter_" "ops (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = 2"',
+])
+def test_the_dead_letter_guard_catches_each_rewrite(source):
+    assert _dead_letter_violations(ast.parse(source)) != []
 
 
 def test_the_source_checks_see_through_split_strings():

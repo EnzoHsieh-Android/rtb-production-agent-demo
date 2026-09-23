@@ -1,6 +1,7 @@
 """稽核表只增不改的機械守衛(Phase 9 增量 4):[S675]。
 
-七張稽核表(停下紀錄、核可、核可使用、生命週期事件、DSP 呼叫紀錄、DSP 操作紀錄、嘗試紀錄)只准新增,
+七張稽核表(停下紀錄、核可、核可使用、生命週期事件、DSP 呼叫紀錄、DSP 操作紀錄、嘗試紀錄)只准新增;
+Phase 8 死信兩張表跟它們共用同一套判定(代碼審第 1 輪),判定本身在共用掃描模組。
 比照 Phase 8 死信兩張表那支結構檢查:全庫掃原始碼,把相鄰字串、用 + 串起來、f-string 的固定片段拼回
 完整語句再比對。跟 Phase 8 那支不同的是比法:只要同一段拼回來的文字裡出現任一張表的表名,又出現任一種
 改寫語句就算違規——SQLite 的「衝突時更新」把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。
@@ -17,39 +18,17 @@ import re
 import pytest
 
 from rtb.executor import inbox_store
-from tests.executor.write_scan import classify, reconstructed_strings
+from tests.executor.write_scan import (
+    AUDITED,
+    audit_violations,
+    classify,
+    dynamic_add_column_sites,
+    reconstructed_strings,
+    registry_violations,
+)
 
 SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "rtb"
-GUARDED = ("write_stops", "approvals", "approval_uses", "lifecycle_events", "dsp_calls",
-           "operations", "attempts")
-_TABLE = re.compile(r"(?<![\w.])(?:\w+\.)?(" + "|".join(GUARDED) + r")\b")
-# 同一段裡出現任一個 UPDATE 就算:衝突時更新(ON CONFLICT … DO UPDATE)與 UPDATE OR 某動作都含這個字,
-# 不必另列(變異檢查時另列的那一條拿掉照樣抓得到,是多餘的)
-REWRITES = re.compile(
-    r"\bUPDATE\b|\bDELETE\b|\bREPLACE\s+INTO\b|\bINSERT\s+OR\s+REPLACE\b|\bDROP\s+TABLE\b|"
-    r"\bALTER\s+TABLE\s+\S+\s+(?:RENAME|DROP)\b", re.IGNORECASE)
-ADD_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(\S+)\s+ADD\s+COLUMN\s+([^;]*)", re.IGNORECASE)
-LOOSENING = re.compile(r"\bNOT\s+NULL\b|\bDEFAULT\b", re.IGNORECASE)
-
-
-def audit_violations(tree):
-    """一棵語法樹裡違規的每一段文字(不含文件字串:說明裡提到改寫語句不是改寫)。"""
-    found = []
-    for text in reconstructed_strings(tree, skip_docstrings=True):
-        if not _TABLE.search(text):
-            continue
-        if REWRITES.search(text):
-            found.append(text)
-        for table, definition in ADD_COLUMN.findall(text):
-            if _TABLE.fullmatch(table) and LOOSENING.search(definition):
-                found.append(text)
-    return found
-
-
-def registry_violations(registry):
-    """通用補欄位迴圈的登記表:登記在七張表之下的欄位定義都要可為空、沒有預設值。"""
-    return [(table, ddl) for table, columns in registry.items() if table in GUARDED
-            for _name, ddl in columns if LOOSENING.search(ddl)]
+GUARDED = AUDITED  # 七張稽核表加 Phase 8 死信兩張表,共用同一套判定
 
 
 def _trees():
@@ -67,6 +46,10 @@ def test_audit_tables_are_only_ever_inserted_into():
     created = [m.group(1) for tree in trees.values()
                for text in reconstructed_strings(tree, skip_docstrings=True)
                for m in re.finditer(r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)", text)]
+    # 九張表共用一套(代碼審第 1 輪):清單少一張就等於那張沒人守
+    assert set(GUARDED) == {"write_stops", "approvals", "approval_uses", "lifecycle_events",
+                            "dsp_calls", "operations", "attempts", "dead_letters",
+                            "dead_letter_ops"}
     for table in GUARDED:  # 表名拼錯守衛就守空了:每張都要在某個建表語句裡出現一次
         assert created.count(table) == 1, (table, created)
 
@@ -88,6 +71,33 @@ def test_audit_tables_are_only_ever_inserted_into():
 def test_the_audit_guard_catches_each_rewrite(source):
     """殺傷力配方:每張表至少一條,另外逐一涵蓋各種改寫寫法;拆開字串的寫法,不跟檢查用同一種字面。"""
     assert audit_violations(ast.parse(source)) != []
+
+
+@pytest.mark.parametrize("source", [
+    # 代碼審第 1 輪:字面模板 .format(字面參數) 與 字面 % 字面 也要拼得回來
+    'x = "UPDATE {} SET status = 1".format("oper" "ations")',
+    'x = "UPDATE %s SET status = 1" % "operations"',
+    'x = "UPDATE %s SET status = %d" % ("operations", 1)',
+    # 參數含變數時保守判定:模板本身有改寫語句與受守護表名就算
+    'x = "UPDATE operations SET status = {}".format(value)',
+    'x = "DELETE FROM operations WHERE id = %s" % value',
+])
+def test_the_audit_guard_sees_through_format_and_percent(source):
+    assert audit_violations(ast.parse(source)) != []
+
+
+def test_only_one_place_adds_columns_by_a_variable_table_name():
+    """動態表名的補欄位只准一處(收件口的通用補欄位迴圈,守衛直接讀它的登記表);新開第二處就紅,
+    逼人接進同一個登記表。"""
+    sites = dynamic_add_column_sites(_trees())
+    assert [name for name, _ in sites] == ["inbox_store.py"], sites
+    probe = ast.parse(  # 殺傷力配方:另開登記表給操作紀錄補不可為空、帶預設值的欄位
+        'EXTRA = {"operations": [("x", "x INTEGER NOT NULL DEFAULT 1")]}\n'
+        'def migrate(conn):\n'
+        '    for table, columns in EXTRA.items():\n'
+        '        for _name, ddl in columns:\n'
+        '            conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")\n')
+    assert len(dynamic_add_column_sites({**_trees(), pathlib.Path("probe.py"): probe})) == 2
 
 
 def test_the_audit_guard_allows_a_plain_new_column_and_other_tables():
