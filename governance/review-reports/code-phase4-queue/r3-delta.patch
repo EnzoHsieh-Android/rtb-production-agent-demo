@@ -1,0 +1,187 @@
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index aea59b0..fb2869a 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -528,21 +528,25 @@ class Executor:
+ 
+     # ---- 對帳(Phase 3 增量 4;Phase 4 增量 1 接上收件表) ----
+     def reconcile_all(self) -> bool:
+         """每一輪處理兩種鍵:未結案的嘗試(含嘗試中與轉人工),以及嘗試已到終點、收件表卻還是
+         處理中的(人工處置只寫嘗試紀錄,或中途當機留下的漏網)。依最新一列寫入時間由舊到新。
+ 
+         回傳這一輪有沒有 DSP 呼叫失敗:有就讓啟動程式這輪結束後休息,DSP 變慢時不連續全速打它。
+         """
+         with self.store.transaction() as tx:
+             keys = list(attempt_store.unresolved_keys(tx))
+-            for key in self.store.in_progress_keys(tx):
++            try:
++                in_progress = self.store.in_progress_keys(tx)
++            except CorruptedInboxRow as exc:  # 讀不回來的處理中列:不能默默跳過,停下讓人看
++                raise ExecutorHalted("unreadable_message") from exc
++            for key in in_progress:
+                 row = attempt_store.latest(tx, key)
+                 if row is not None and row.state in TERMINAL_STATES and key not in keys:
+                     keys.append(key)
+         troubled = False
+         for key in keys:
+             try:
+                 troubled = self._reconcile(key) or troubled
+             except LeaseLost:
+                 continue  # 租約被接手:這把鍵這一輪放棄
+         return troubled
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 7a5b748..0a53465 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -567,42 +567,54 @@ class InboxStore:
+     def ack_expired(
+         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
+     ) -> bool:
+         """提案過期沿用既有的「已過期」狀態,不是處置:處置清空,從此不可取件。"""
+         self._own(tx)
+         return self._finish(receipt, now, "state = 'expired', disposition = NULL", ())
+ 
+     def in_progress_for(
+         self, tx: attempt_store.ExecutorTransaction, task_id: str, key: str,
+     ) -> PendingProposal | None:
+-        """這把鍵對應、而且處置是處理中的那一列(同一把鍵可能對應多份修訂,只取處理中的)。"""
++        """這把鍵對應、而且處置是處理中的那一列(同一把鍵可能對應多份修訂,只取處理中的)。
++
++        先掃完:找到讀得回來、鍵相符的就回它,同任務別的修訂壞掉不拖累它。找不到而又有讀不回來的
++        列,就分不出「真的沒有」還是「就是壞掉那列」,不能回「沒有」讓呼叫端走不帶收據的路。
++        """
+         self._own(tx)
++        unreadable = None
+         for revision, digest, payload in self._conn.execute(
+                 f"SELECT revision, content_hash, payload FROM proposals WHERE task_id = ? "  # noqa: S608 - 固定條件
+                 f"AND {IN_PROGRESS} ORDER BY revision", (task_id,)).fetchall():
+             proposal = _parse_payload(payload)
+-            if proposal is None:  # 讀不回來:分不出是不是這把鍵,不能回「沒有」讓呼叫端走不帶收據的路
+-                raise CorruptedInboxRow(f"{task_id}/{revision}")
+-            if operation_key(proposal) == key:
++            if proposal is None:
++                unreadable = unreadable or f"{task_id}/{revision}"
++            elif operation_key(proposal) == key:
+                 return PendingProposal(task_id, revision, digest, proposal)
++        if unreadable is not None:
++            raise CorruptedInboxRow(unreadable)
+         return None
+ 
+     def in_progress_keys(self, tx: attempt_store.ExecutorTransaction) -> tuple[str, ...]:
+-        """所有處理中那幾列的冪等鍵:對帳用來找「嘗試已到終點、收件表卻還沒確認」的漏網。"""
++        """所有處理中那幾列的冪等鍵:對帳用來找「嘗試已到終點、收件表卻還沒確認」的漏網。
++
++        讀不回來的列算不出鍵,跳過它就會讓一筆已結案的訊息永遠停在處理中(沒人找得到、取件又跳過),
++        所以丟例外,由呼叫端停機讓人看。這是真的資料損毀才會走到:收件時存的是驗證過、重新序列化的內容。
++        """
+         self._own(tx)
+         keys = []
+-        for (payload,) in self._conn.execute(
+-                f"SELECT payload FROM proposals WHERE {IN_PROGRESS} "  # noqa: S608 - 固定條件
++        for task_id, revision, payload in self._conn.execute(
++                f"SELECT task_id, revision, payload FROM proposals WHERE {IN_PROGRESS} "  # noqa: S608 - 固定條件
+                 "ORDER BY received_at, task_id, revision").fetchall():
+             proposal = _parse_payload(payload)
+-            if proposal is not None:
+-                keys.append(operation_key(proposal))
++            if proposal is None:
++                raise CorruptedInboxRow(f"{task_id}/{revision}")
++            keys.append(operation_key(proposal))
+         return tuple(keys)
+ 
+     def take_over(
+         self, tx: attempt_store.ExecutorTransaction, message: PendingProposal, now: datetime,
+         owner: str,
+     ) -> Receipt | None:
+         """原子接手租約:處理中而且租約已到期、或擁有者就是自己,才把序號加 1 換成自己。
+ 
+         不讀現值充當收據:別人持有而且沒到期就回 None,這一輪跳過。"""
+         self._own(tx)
+diff --git a/tests/executor/test_queue.py b/tests/executor/test_queue.py
+index de230ff..a371ffc 100644
+--- a/tests/executor/test_queue.py
++++ b/tests/executor/test_queue.py
+@@ -673,31 +673,81 @@ def test_a_failed_acknowledgement_gives_up_the_key_instead_of_claiming_success(h
+     monkeypatch.setattr(attempt_store, "begin",
+                         lambda *_a, **_k: attempt_store.Begun(verified, created=False))
+     monkeypatch.setattr(h.store, "ack_handed_off", lambda *_a, **_k: False)
+ 
+     assert h.process().kind is Result.LEASE_LOST
+     assert row(h, task_id="t2")[1] == "in_progress"  # 沒被當成已確認
+ 
+ 
+ def test_two_receipts_for_the_same_key_still_write_the_dsp_once(h):
+     """取件只排除「已有嘗試」的廣告:同一把鍵的兩份修訂可能各拿一張收據(開始一筆之前)。
+-    靠開始一筆的鍵唯一性兜住:第二張收據在第一份寫 DSP 的途中插進來(版本還沒變、檢查會過),
+-    開始一筆撞到既有的鍵,不再呼叫 DSP。"""
++    第二張收據在第一份寫 DSP 的途中插進來(版本還沒變、檢查會過),開始一筆時被擋下、不再呼叫
++    DSP。擋住它的有兩道:同一把鍵已有嘗試(鍵唯一),以及同廣告已有未結案嘗試(廣告鎖);
++    這支測試守的是「兩道都在時不會重複寫」,鍵唯一本身由嘗試紀錄的測試直接驗。"""
+     h.submit()
+     a = receive(h, owner="executor")  # 修訂 1 已取件、還沒開始嘗試(處理中,不會被取代)
+     h.submit(revision=2, decision_expires_at="2026-09-22T12:40:00+00:00")  # 只換到期時間:同一把鍵
+     b = receive(h, owner="w2")
+     assert a is not None and b is not None  # 前置:兩張收據同時有效
+     assert operation_key(a.message.proposal) == operation_key(b.message.proposal)
+     second = Executor(h.store, h.dsp, h.signer, h.config, h.clock, "w2")
+     interleaved = []
+ 
+     def second_runs_during_the_first_write(*_args):
+         h.dsp.on_write = None
+         interleaved.append(second._process(b.message, b.receipt))
+ 
+     h.dsp.on_write = second_runs_during_the_first_write
+     first_run = h.executor()._process(a.message, a.receipt)
+ 
+     assert first_run.kind is Result.EXECUTED
+     assert interleaved and interleaved[0].kind is not Result.EXECUTED  # 第二張收據沒開新嘗試
+     assert len(h.dsp.writes) == 1
++
++
++def test_another_revisions_unreadable_row_does_not_halt_a_healthy_key(h):
++    """同一任務另一份修訂的處理中列壞掉,但這把鍵自己那一列好好的:照常接手對帳,不停機。"""
++    first = h.submit()
++    receive(h, owner="w9")  # 修訂 1 處理中(之後把它弄壞)
++    h.submit(revision=2, campaign_id="c2", decision_expires_at="2026-09-22T12:40:00+00:00")
++    second = unknown_attempt_for_revision(h, revision=2)
++    h.query("UPDATE proposals SET payload = '{' WHERE task_id = 't1' AND revision = 1")
++    with h.store.transaction() as tx:
++        found = h.store.in_progress_for(tx, "t1", operation_key(second))
++        # 找不到相符的、又有讀不回來的列:分不出是不是就是壞掉那列,不能回「沒有」
++        with pytest.raises(inbox_store.CorruptedInboxRow):
++            h.store.in_progress_for(tx, "t1", operation_key(first))
++    assert found is not None and found.revision == 2
++    assert operation_key(first) != operation_key(second)  # 前置:兩份修訂是不同的鍵
++
++
++def unknown_attempt_for_revision(h, revision):
++    """取出指定修訂、寫入沒拿到回應,停在結果不明。"""
++    h.dsp.answers.append(WriteAnswer(None))
++    assert h.process().kind is Result.EXECUTED
++    rows = h.query("SELECT payload FROM proposals WHERE task_id = 't1' AND revision = ?",
++                   (revision,))
++    return inbox_store._parse_payload(rows[0][0])
++
++
++def test_an_unreadable_row_among_finished_messages_halts_the_reconciliation(h):
++    """已結案、確認前當機、內容又壞掉的處理中列:對帳的掃描不能默默跳過它(那樣它會永遠卡住)。"""
++    from rtb.executor.execution import ExecutorHalted
++
++    prop = h.submit()
++    h.dsp.answers.append(WriteAnswer(409, "version_conflict"))
++    h.process()
++    assert states(h, prop)[-1][0] == "failed"  # 前置:已到終點
++    h.query("UPDATE proposals SET disposition = 'in_progress', payload = '{' WHERE task_id = 't1'")
++
++    with pytest.raises(ExecutorHalted, match="unreadable_message"):
++        h.executor().reconcile_all()
++
++
++def test_a_finished_write_whose_acknowledgement_fails_gives_up_the_key(h, monkeypatch):
++    """處理一筆寫到終點時,確認也是帶收據的條件寫入:寫不進去要回「失去租約」,不能回報已執行完。"""
++    h.submit()
++    monkeypatch.setattr(h.store, "ack_handed_off", lambda *_a, **_k: False)
++
++    assert h.process().kind is Result.LEASE_LOST
++    assert row(h)[1] == "in_progress"
++

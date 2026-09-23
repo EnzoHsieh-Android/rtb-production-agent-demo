@@ -334,10 +334,15 @@ REVISIT:2026-12-31 分析行程第一次有獨立啟動程式時,補「啟動環
 - [S39] 收件表應有處置與擋下原因代碼兩欄;舊資料庫開啟時應補上這兩欄(拿到鎖後再查一次),既有資料不變,多條連線同時開啟也只補一次。[test:test_an_old_inbox_database_gains_the_disposition_columns_once_without_losing_data]
 - [S40] 當一份提案已交給執行或已擋下,同鍵重送應回處置、不新增任何一筆,且它不佔待處理名額、不會被新修訂取代、不會被當成待處理清除、到期後不會被收件時的到期標記改成已過期。[test:test_taken_and_blocked_proposals_leave_pending_and_replay_their_disposition]
 - [S41] 擋下原因代碼應是封閉列舉,每一種都應能由真實條件觸發;缺代碼或不認得的代碼應被拒絕。[test:test_block_reasons_are_a_closed_list]
+  - 後記(2026-09-23):「處置恰好兩個成員」這一句由 Phase 4 增量 1 的 [S103] 取代(四個成員);擋下原因封閉列舉照舊。
 - [S42] 當提案已過期,處理一筆應把它標成已過期,不寫嘗試紀錄、不呼叫 DSP。[test:test_an_expired_proposal_is_marked_expired_without_touching_the_dsp]
+  - 後記(2026-09-23):處理中的提案被判已過期時,確認改以收據為條件寫入:由 Phase 4 增量 1 的 [S111] 取代寫入條件,行為(不寫嘗試、不呼叫 DSP)照舊。
 - [S43] 從程式自己的擋下代碼清單列舉每一種,用真實條件觸發時,處理一筆應把提案處置標成已擋下並附對應代碼,不寫嘗試紀錄、不呼叫 DSP 寫入。[test:test_each_failed_precheck_blocks_the_proposal_without_a_write]
+  - 後記(2026-09-23):擋下改以收據為條件寫入,由 Phase 4 增量 1 的 [S111] 取代寫入條件;「同一操作先前已失敗」改在取件時就確認(見 [S106])。
 - [S44] 當重讀 DSP 失敗(不含 404),處理一筆應不寫任何東西、提案留在待處理。[test:test_an_unreachable_dsp_leaves_the_proposal_pending]
+  - 後記(2026-09-23):由 Phase 4 增量 1 的 [S115] 取代:讀不到 DSP 改成記下最後一次失敗、放掉租約,計入投遞次數,用完進死信。
 - [S45] 取件、開始一筆與處置標成已交給執行應在同一個交易裡;若交易前提案已被新修訂取代或內容雜湊不同,應不開始嘗試、不呼叫 DSP。[test:test_a_proposal_superseded_before_taking_is_never_executed]
+  - 後記(2026-09-23):由 Phase 4 增量 1 的 [S104] 與 [S108] 取代:取件寫處理中、開始一筆核對收據;取件之後提案不再能被取代。
 - [S46] 呼叫 DSP 期間不應開著任何資料庫交易。[test:test_no_transaction_is_open_while_the_dsp_is_called]
 - [S47] 從程式自己的 DSP 回應對照表逐列,用假的 DSP 寫入用戶端餵給處理一筆,嘗試最後的狀態與代碼應等於表上那一列;正常流程能造出的回應(成功、版本衝突、驗證被拒、憑證過期、可重試錯誤、逾時)另以故障注入端到端驗證。[test:test_every_dsp_answer_maps_to_the_documented_state_and_code]
 - [S48] 當 DSP 回憑證過期,處理一筆應記成結果不明,重跑檢查:通過就重讀時鐘重簽、轉回嘗試中(送出次數加 1)同鍵重送,每一筆寫入用前一筆回傳的序號;業務上沒通過就標失敗(沒發生且不再送);重簽後仍過期就轉人工(憑證被拒)。[test:test_an_expired_capability_is_recorded_rechecked_and_resent_once]
@@ -351,10 +356,13 @@ REVISIT:2026-12-31 分析行程第一次有獨立啟動程式時,補「啟動環
 - [S56] 執行迴圈程式不應匯入 DSP 的內部模組,只經共用 HTTP 用戶端呼叫 DSP。[test:test_the_executor_reaches_the_dsp_only_through_the_shared_client]
 - [S57] 當某個廣告已有未結案嘗試,處理一筆應跳過它的提案、處理其他廣告較新的提案。[test:test_a_locked_campaign_does_not_block_other_campaigns]
 - [S58] 當開始一筆遇到已存在的鍵,處理一筆應不開新嘗試:既有鍵已驗證或未結案就把提案處置標成已交給執行,既有鍵失敗就標已擋下並附「同一操作先前已失敗」。[test:test_a_proposal_for_an_already_attempted_operation_follows_the_existing_outcome]
+  - 後記(2026-09-23):由 Phase 4 增量 1 的 [S105]、[S106] 取代:取件時就讀既有嘗試,已驗證直接確認、失敗直接擋下,不交出去。
 - [S59] 擋下的寫入應以「仍待處理且內容雜湊沒變」為條件;若擋下前提案已被取代,應不改它的狀態。[test:test_blocking_a_proposal_superseded_meanwhile_changes_nothing]
+  - 後記(2026-09-23):由 Phase 4 增量 1 的 [S111] 取代:擋下以收據為條件,不以「仍待處理」為條件。
 - [S60] 當租戶設定檔壞掉或不安全,處理一筆應以系統錯誤結束、不擋下提案;啟動程式應以非零代碼結束。[test:test_a_broken_tenant_configuration_stops_the_runner_without_blocking]
 - [S61] 當 DSP 對寫入回其他 4xx,嘗試應轉人工並帶「本地請求錯誤」,這一輪以系統錯誤結束、啟動程式以非零代碼結束;增量 1 的結果代碼只新增這一個,既有代碼不變。[test:test_other_client_errors_escalate_as_local_request_errors_and_stop_the_runner]
 - [S62] 當全表未結案已滿,處理一筆應不寫收件表、不寫嘗試紀錄、不呼叫 DSP 寫入,提案留在待處理,不以系統錯誤結束。[test:test_a_full_unresolved_table_leaves_the_proposal_pending]
+  - 後記(2026-09-23):由 Phase 4 增量 1 的 [S115] 取代:全表已滿改成記下最後一次失敗、放掉租約,計入投遞次數。
 - [S63] 共用 HTTP 用戶端的標頭列舉應恰好是冪等鍵與能力憑證兩個;其他標頭名稱(包括故障注入標頭)應被拒絕。[test:test_client_headers_are_exactly_idempotency_key_and_capability]
 - [S64] 當 DSP 對寫入回表上沒列的狀態碼(例如 3xx),嘗試應記成結果不明。[test:test_an_unlisted_status_is_recorded_as_unknown]
 - [S65] 每一列嘗試中都應記下這次送出所帶憑證的到期時間,缺了應拒絕寫入;重簽重送那一列應是新憑證的到期時間。[test:test_every_send_records_the_capability_expiry]

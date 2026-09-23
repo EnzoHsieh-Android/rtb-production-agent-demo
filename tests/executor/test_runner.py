@@ -40,6 +40,7 @@ def argv(db, config, dsp_url="http://127.0.0.1:9"):
 
 def run_in_process(h, **kwargs):
     kwargs.setdefault("max_rounds", 3)
+    kwargs.setdefault("owner", "executor")  # 跟測試替身的執行者同一個擁有者:同一個工作者
     return runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
                       out=io.StringIO(), sleep=lambda _s: None, **kwargs)
 
@@ -148,13 +149,15 @@ def test_a_broken_tenant_configuration_stops_the_runner_without_blocking(h):
 
     assert run_in_process(h) == runner.EXIT_HALTED
 
-    assert h.proposals() == [("t1", 1, "pending", None, None)]  # 不擋下,留在待處理
+    # 不擋下:取件已寫處理中,停機後沒人確認,租約到期就會被重新投遞
+    assert h.proposals() == [("t1", 1, "pending", "in_progress", None)]
     assert h.attempts() == [] and h.dsp.writes == []
 
     h.config.write_text("{not json", encoding="utf-8")  # 內容壞掉也一樣
     os.chmod(h.config, 0o600)
+    h.clock.advance(seconds=61)  # 租約到期,重啟後能再取到
     assert run_in_process(h) == runner.EXIT_HALTED
-    assert h.proposals() == [("t1", 1, "pending", None, None)]
+    assert h.proposals() == [("t1", 1, "pending", "in_progress", None)]
 
 
 # ---- [S61] ----
@@ -283,7 +286,7 @@ def test_a_round_with_a_failed_reconcile_call_sleeps(h):
     slept = []
 
     code = runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
-                      out=io.StringIO(), sleep=slept.append, max_rounds=1)
+                      out=io.StringIO(), sleep=slept.append, max_rounds=1, owner="executor")
 
     assert code == 0
     assert h.dsp.writes[-1][0].campaign_id == "c2"  # 前置:新提案這輪確實被執行了
@@ -293,5 +296,18 @@ def test_a_round_with_a_failed_reconcile_call_sleeps(h):
     h.submit(task_id="t3", campaign_id="c3")
     slept.clear()
     runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
-               out=io.StringIO(), sleep=slept.append, max_rounds=1)
+               out=io.StringIO(), sleep=slept.append, max_rounds=1, owner="executor")
     assert slept == []
+
+
+def test_a_busy_database_at_startup_exits_cleanly_and_frees_the_lock(h, monkeypatch):
+    """開庫要做重建表遷移時握鎖較久,撞上收件口寫入會忙到逾時:乾淨結束、放掉單一執行者鎖。"""
+    from rtb.executor.inbox_store import InboxBusy
+
+    def busy(*_args, **_kwargs):
+        raise InboxBusy("database is locked")
+
+    monkeypatch.setattr(runner, "InboxStore", busy)
+    assert run_in_process(h) == runner.EXIT_BUSY
+    runner.RunnerLock(h.db).release()  # 鎖已放掉:下一次啟動拿得到
+

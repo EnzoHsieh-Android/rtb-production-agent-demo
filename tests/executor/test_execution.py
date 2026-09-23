@@ -36,6 +36,9 @@ def h(tmp_path, clock):
     harness.close()
 
 
+SOON = "2026-09-22T12:05:30+00:00"  # 現在 12:05,30 秒後到期
+
+
 def key_of(prop):
     return operation_key(prop)
 
@@ -63,9 +66,11 @@ def test_an_expired_proposal_is_marked_expired_without_touching_the_dsp(h):
 
 # ---- [S43] ----
 def test_a_proposal_that_expires_while_the_dsp_is_read_is_not_executed(h):
-    """讀 DSP 期間剛好跨過到期時間:讀完要再判一次,不能簽發、開嘗試或寫入。"""
-    prop = h.submit()
-    h.dsp.on_read = lambda _c: h.clock.advance(hours=2)  # 讀取回來時提案已過期
+    """讀 DSP 期間剛好跨過到期時間:讀完要再判一次,不能簽發、開嘗試或寫入。
+
+    提案 30 秒後到期、讀取花 45 秒:跨過到期時間,但沒超過租約(60 秒),收據仍有效。"""
+    prop = h.submit(decision_expires_at=SOON)
+    h.dsp.on_read = lambda _c: h.clock.advance(seconds=45)  # 讀取回來時提案已過期
     assert prop.decision_expires_at > h.clock()  # 前置:開始處理時還沒過期
 
     assert h.process().kind is Result.EXPIRED
@@ -75,12 +80,12 @@ def test_a_proposal_that_expires_while_the_dsp_is_read_is_not_executed(h):
 
 def test_an_expiry_during_the_read_wins_over_other_failed_checks(h):
     """讀 DSP 期間過期、DSP 同時回不在投放:照 S42 應標已過期,不是擋下(不在投放)。"""
-    prop = h.submit()
+    prop = h.submit(decision_expires_at=SOON)
 
     def pause_and_expire(_c):
         current = h.dsp.campaigns["c1"]
         h.dsp.campaigns["c1"] = CampaignView(current.budget, "paused", current.version)
-        h.clock.advance(hours=2)
+        h.clock.advance(seconds=45)
 
     h.dsp.on_read = pause_and_expire
     assert prop.decision_expires_at > h.clock()  # 前置:開始處理時還沒過期
@@ -91,12 +96,12 @@ def test_an_expiry_during_the_read_wins_over_other_failed_checks(h):
 
 def test_a_proposal_that_expires_while_signing_is_not_executed(h):
     """簽發要讀租戶設定檔,也可能剛好跨過到期時間:開始一筆的交易裡要再判一次。"""
-    prop = h.submit()
+    prop = h.submit(decision_expires_at=SOON)
     real_sign = h.signer.sign
 
     def slow_sign(*args, **kwargs):
         token = real_sign(*args, **kwargs)
-        h.clock.advance(hours=2)  # 簽完時提案已過期
+        h.clock.advance(seconds=45)  # 簽完時提案已過期(還在租約內)
         return token
 
     h.signer = type("SlowSigner", (), {"sign": staticmethod(slow_sign)})()
@@ -164,14 +169,17 @@ def test_each_failed_precheck_blocks_the_proposal_without_a_write(h, code):
 
     result = h.process()
 
-    assert (result.kind, result.block_code) == (Result.BLOCKED, code)
+    if code is BlockCode.OPERATION_PREVIOUSLY_FAILED:  # 取件時讀到既有失敗:直接確認,不交出去
+        assert result.kind is Result.IDLE
+    else:
+        assert (result.kind, result.block_code) == (Result.BLOCKED, code)
     blocked = [p for p in h.proposals() if p[3] == "blocked"]
     assert blocked == [("t1", blocked[0][1], "pending", "blocked", code.value)]
     assert h.attempts() == attempts_before  # 不寫嘗試紀錄
     assert len(h.dsp.writes) == writes_before  # 不呼叫 DSP 寫入
 
 
-# ---- [S44] ----
+# ---- [S44](由 Phase 4 增量 1 [S115] 取代:讀不到 DSP 改成放掉租約、計入投遞) ----
 def test_an_unreachable_dsp_leaves_the_proposal_pending(h):
     h.submit()
     h.dsp.read_failures = 1
@@ -179,23 +187,39 @@ def test_an_unreachable_dsp_leaves_the_proposal_pending(h):
     result = h.process()
 
     assert result.kind is Result.DEFERRED
-    assert h.proposals() == [("t1", 1, "pending", None, None)]
+    assert h.proposals() == [("t1", 1, "pending", "in_progress", None)]  # 處理中、租約已放掉
+    assert h.query("SELECT last_failure FROM proposals") == [("dsp_unavailable",)]
     assert h.attempts() == [] and h.dsp.writes == []
     assert h.process().kind is Result.EXECUTED  # 下一輪 DSP 恢復就照常處理
 
 
-# ---- [S45] ----
+# ---- [S108](取代 Phase 3 的 S45) ----
 def test_a_proposal_superseded_before_taking_is_never_executed(h):
+    """取件之後提案已是處理中,新修訂不能再取代它(取代會丟掉正在跑的工作);開始一筆的交易
+    核對收據,收據一旦失效(被接手、內容不同、已被取代)就不開始嘗試、不呼叫 DSP。"""
     h.submit()
-    # 讀 DSP 的當下,分析行程送來修訂 2 把修訂 1 取代
+    # 讀 DSP 的當下,分析行程送來修訂 2:修訂 1 已是處理中,不被取代
     h.dsp.on_read = lambda _c: h.store.accept(proposal(revision=2), h.clock)
 
-    result = h.process()
-
-    assert result.kind is Result.DEFERRED
-    assert h.attempts() == [] and h.dsp.writes == []
-    assert h.proposals() == [("t1", 1, "superseded", None, None),
+    assert h.process().kind is Result.EXECUTED
+    assert h.proposals() == [("t1", 1, "pending", "handed_off", None),
                              ("t1", 2, "pending", None, None)]
+
+    # 收據失效:讀 DSP 的當下,另一個工作者接手了這則訊息(過期後原子接手,序號加 1)
+    h2 = h.submit(task_id="t2", campaign_id="c2")
+
+    def someone_took_over(_c):
+        h.clock.advance(seconds=61)
+        with h.store.transaction() as tx:
+            message = h.store.in_progress_for(tx, "t2", key_of(h2))
+            assert h.store.take_over(tx, message, h.clock(), "other") is not None
+
+    h.dsp.on_read = someone_took_over
+    writes = len(h.dsp.writes)
+
+    assert h.process().kind is Result.LEASE_LOST
+    assert key_of(h2) not in {row[0] for row in h.attempts()}  # 不開始嘗試
+    assert len(h.dsp.writes) == writes  # 不呼叫 DSP
 
 
 # ---- [S46] ----
@@ -337,12 +361,12 @@ def test_a_resigned_capability_uses_a_freshly_read_clock(h):
     """一整輪共用同一個時間值的話,重簽會簽出跟第一張一樣已過期的憑證。"""
     h.submit()
     h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
-    h.dsp.on_read = lambda _c: h.clock.advance(seconds=200)  # 每次讀 DSP 都慢
+    h.dsp.on_read = lambda _c: h.clock.advance(seconds=50)  # 每次讀 DSP 都慢(仍在租約內)
 
     h.process()
 
     first, second = (expiry_of(w[2]) for w in h.dsp.writes)
-    assert second - first >= timedelta(seconds=200)
+    assert second - first >= timedelta(seconds=50)
 
 
 # ---- [S49] ----
@@ -474,7 +498,8 @@ def test_a_proposal_for_an_already_attempted_operation_follows_the_existing_outc
 
     result = h.process()
 
-    assert result.kind is Result.HANDED_OFF_TO_EXISTING
+    # Phase 4 增量 1:取件時就讀到既有嘗試已驗證,直接確認,不交出去
+    assert result.kind is Result.IDLE
     assert ("t1", 2, "pending", "handed_off", None) in h.proposals()
     assert len(states(h, first)) == 3 and len(h.dsp.writes) == writes  # 不開新嘗試、不送
 
@@ -484,24 +509,30 @@ def test_an_existing_failed_operation_blocks_the_new_revision(h):
 
     result = h.process()
 
-    assert (result.kind, result.block_code) == (
-        Result.BLOCKED, BlockCode.OPERATION_PREVIOUSLY_FAILED)
+    assert result.kind is Result.IDLE  # 取件時讀到既有失敗,直接確認,不交出去
+    assert ("t1", 2, "pending", "blocked", "operation_previously_failed") in h.proposals()
 
 
-# ---- [S59] ----
+# ---- [S59](由 Phase 4 增量 1 [S111] 取代:擋下改以收據為條件) ----
 def test_blocking_a_proposal_superseded_meanwhile_changes_nothing(h):
-    h.submit()
+    prop = h.submit()
     h.dsp.campaigns["c1"] = CampaignView(100, "active", 4)  # 會被擋下:版本已變
-    h.dsp.on_read = lambda _c: h.store.accept(proposal(revision=2), h.clock)
+
+    def someone_took_over(_c):
+        h.clock.advance(seconds=61)
+        with h.store.transaction() as tx:
+            message = h.store.in_progress_for(tx, "t1", key_of(prop))
+            h.store.take_over(tx, message, h.clock(), "other")
+
+    h.dsp.on_read = someone_took_over
 
     result = h.process()
 
-    assert result.kind is Result.DEFERRED
-    assert h.proposals() == [("t1", 1, "superseded", None, None),
-                             ("t1", 2, "pending", None, None)]
+    assert result.kind is Result.LEASE_LOST
+    assert h.proposals() == [("t1", 1, "pending", "in_progress", None)]  # 擋下沒寫進去
 
 
-# ---- [S62] ----
+# ---- [S62](由 Phase 4 增量 1 [S115] 取代:全表已滿改成放掉租約、計入投遞) ----
 def test_a_full_unresolved_table_leaves_the_proposal_pending(h, monkeypatch):
     monkeypatch.setattr(attempt_store, "MAX_UNRESOLVED", 1)
     h.submit()
@@ -513,7 +544,8 @@ def test_a_full_unresolved_table_leaves_the_proposal_pending(h, monkeypatch):
     result = h.process()  # 不以系統錯誤結束
 
     assert result.kind is Result.DEFERRED
-    assert ("t2", 1, "pending", None, None) in h.proposals()
+    assert ("t2", 1, "pending", "in_progress", None) in h.proposals()
+    assert ("table_full",) in h.query("SELECT last_failure FROM proposals WHERE task_id = 't2'")
     assert h.attempts() == attempts_before and len(h.dsp.writes) == writes_before
     assert key_of(waiting) not in {row[0] for row in h.attempts()}
 

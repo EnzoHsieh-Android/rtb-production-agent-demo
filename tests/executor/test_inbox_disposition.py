@@ -7,7 +7,7 @@ import sqlite3
 
 import pytest
 
-from rtb.domain.proposal import content_hash, parse_proposal
+from rtb.domain.proposal import parse_proposal
 from rtb.executor import attempt_store, inbox_store
 from rtb.executor.inbox_store import (
     RETENTION,
@@ -55,14 +55,25 @@ def accept(store, prop, clock=None):
     return store.accept(prop, clock or Clock())
 
 
+def _receive(store, tx):
+    """取件拿收據(Phase 4 增量 1 起,確認一律帶收據)。"""
+    delivery = store.receive(tx, Clock()(), "w1")
+    assert delivery is not None
+    return delivery.receipt
+
+
 def hand_off(store, prop):
     with store.transaction() as tx:
-        return store.hand_off(tx, prop.task_id, prop.revision, content_hash(prop))
+        receipt = _receive(store, tx)
+        assert (receipt.task_id, receipt.revision) == (prop.task_id, prop.revision)
+        return store.ack_handed_off(tx, receipt, Clock()())
 
 
 def block(store, prop, code=BlockCode.VERSION_CHANGED):
     with store.transaction() as tx:
-        return store.block(tx, prop.task_id, prop.revision, content_hash(prop), code)
+        receipt = _receive(store, tx)
+        assert (receipt.task_id, receipt.revision) == (prop.task_id, prop.revision)
+        return store.ack_blocked(tx, receipt, Clock()(), code)
 
 
 def rows(tmp_path, sql="SELECT task_id, revision, state, disposition, block_code "
@@ -211,13 +222,17 @@ def test_block_reasons_are_a_closed_list(store, tmp_path):
     assert {code.value for code in BlockCode} == {
         "campaign_not_found", "campaign_not_active", "version_changed", "campaign_not_allowed",
         "over_budget_cap", "operation_previously_failed"}
-    assert {d.value for d in Disposition} == {"handed_off", "blocked"}
+    # 「處置恰好兩個成員」由 Phase 4 增量 1 [S103] 取代:四個成員
+    assert {d.value for d in Disposition} == {"in_progress", "handed_off", "blocked",
+                                              "dead_letter"}
     prop = proposal()
     accept(store, prop)
+    with store.transaction() as tx:
+        receipt = _receive(store, tx)
     before = rows(tmp_path)
     for bad in (None, "version_changed", "expired", 3):
         with store.transaction() as tx, pytest.raises(ValueError):
-            store.block(tx, prop.task_id, prop.revision, content_hash(prop), bad)
+            store.ack_blocked(tx, receipt, Clock()(), bad)
     assert rows(tmp_path) == before
     conn = sqlite3.connect(tmp_path / "executor.db")  # 資料庫自己也擋:繞過模組寫也寫不進去
     try:

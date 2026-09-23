@@ -247,12 +247,21 @@ def unresolved_count(tx: ExecutorTransaction, campaign_id: str | None = None) ->
     return count
 
 
-def awaiting_reconciliation(tx: ExecutorTransaction) -> tuple[str, ...]:
-    """要對帳的鍵:最新一列是結果不明或已提交待驗證(轉人工不算),依最新一列寫入時間由舊到新。"""
+def campaigns_with_unresolved(tx: ExecutorTransaction) -> frozenset[str]:
+    """已有未結案嘗試的廣告(取件要排除它們);未結案 = 第 1 列在、終點列不在。"""
     records = _conn(tx).execute(
-        "SELECT a.key FROM attempts a WHERE a.state IN (?, ?) AND a.seq = "
-        "(SELECT MAX(b.seq) FROM attempts b WHERE b.key = a.key) ORDER BY a.written_at, a.key",
-        (AttemptState.UNKNOWN.value, AttemptState.COMMITTED_UNVERIFIED.value),
+        "SELECT DISTINCT f.campaign_id FROM attempts f WHERE f.seq = 1 AND NOT EXISTS "  # noqa: S608 - 只拼接固定條件
+        f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))"
+    ).fetchall()
+    return frozenset(record[0] for record in records)
+
+
+def unresolved_keys(tx: ExecutorTransaction) -> tuple[str, ...]:
+    """所有未結案的鍵(含嘗試中與轉人工),依最新一列寫入時間由舊到新:對帳每輪都要接手它們。"""
+    records = _conn(tx).execute(
+        "SELECT a.key FROM attempts a WHERE a.state NOT IN "  # noqa: S608 - 只拼接固定條件
+        f"({_TERMINAL_LIST}) AND a.seq = "
+        "(SELECT MAX(b.seq) FROM attempts b WHERE b.key = a.key) ORDER BY a.written_at, a.key"
     ).fetchall()
     return tuple(record[0] for record in records)
 

@@ -37,8 +37,9 @@ EXIT_NO_KEY = 2
 EXIT_LOCKED = 3
 EXIT_HALTED = 4
 EXIT_UNSAFE_DB = 5  # 資料庫檔有硬連結:同一個資料庫可能被別的檔名以另一組 WAL 開啟
+EXIT_BUSY = 6  # 啟動時資料庫一直忙(例如收件口正在寫、或別的行程在遷移):乾淨結束,稍後再啟動
 READY = "READY"
-_IDLE_RESULTS = frozenset({Result.IDLE, Result.DEFERRED})
+_IDLE_RESULTS = frozenset({Result.IDLE, Result.DEFERRED, Result.LEASE_LOST})
 
 
 class LockHeld(Exception):
@@ -103,10 +104,27 @@ def _loop(
     return 0
 
 
+def _open_and_recover(
+    db: Path, clock: Callable[[], datetime],
+) -> tuple[InboxStore, attempt_store.Recovery] | None:
+    """開庫(可能要做重建表遷移,握鎖比補欄位久)並做重啟恢復;撞上收件口寫入等到逾時就回 None。"""
+    try:
+        store = InboxStore(db)
+    except InboxBusy:
+        return None
+    try:
+        with store.transaction() as tx:
+            return store, attempt_store.recover_in_flight(tx, clock())
+    except InboxBusy:
+        store.close()
+        return None
+
+
 def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
     argv: list[str] | None = None, *, environ: Mapping[str, str] | None = None,
     clock: Callable[[], datetime] = utc_now, dsp: DspPort | None = None, out: TextIO | None = None,
     max_rounds: int | None = None, sleep: Callable[[float], None] = time.sleep,
+    owner: str | None = None,
 ) -> int:
     args = _parse(argv)
     try:  # 只有啟動程式經共用模組讀金鑰環境變數
@@ -127,16 +145,20 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
     except LockHeld:
         sys.stderr.write("拒絕啟動:已有另一個執行迴圈在跑\n")
         return EXIT_LOCKED
-    store = InboxStore(args.db)
+    opened = _open_and_recover(args.db, clock)
+    if opened is None:
+        lock.release()
+        sys.stderr.write("拒絕啟動:資料庫忙碌,稍後再試\n")
+        return EXIT_BUSY
+    store, recovery = opened
     try:
-        now: datetime = clock()
-        with store.transaction() as tx:
-            recovery = attempt_store.recover_in_flight(tx, now)
         if recovery.unreadable:
             sys.stderr.write(f"讀不回來的嘗試(要人處理):{', '.join(recovery.unreadable)}\n")
         print(READY, file=out or sys.stdout, flush=True)
+        # 租約擁有者:行程編號加啟動時間。重啟後是新的擁有者,上一次留下的租約要等到期才接手
+        owner = owner or f"{os.getpid()}-{int(time.time())}"
         executor = Executor(store, dsp or DspClient(args.dsp_url, args.dsp_timeout_seconds),
-                            signer, args.tenant_config, clock)
+                            signer, args.tenant_config, clock, owner)
         return _loop(executor, lock, args.interval_seconds, max_rounds, sleep)
     finally:
         store.close()

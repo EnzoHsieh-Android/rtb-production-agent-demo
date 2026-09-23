@@ -105,7 +105,8 @@ class InboxHandler(JsonHandler):
 
 def _accepted_body(result: Accepted) -> dict[str, Any]:
     # state 才是提案目前的狀態:重送一份已過期的提案,status 仍是 accepted(收過了),
-    # 但 state 會是 expired,代表它已經不能再被執行
+    # 但 state 會是 expired。已確認的處置(已交給執行、已擋下、死信)與 expired 代表它不會再被
+    # 交出去;in_progress(處理中)代表已交出去、還沒結案,仍可能被寫進 DSP
     return {"status": "accepted", "task_id": result.task_id, "revision": result.revision,
             "state": result.state, "content_hash": result.content_hash,
             "replayed": result.replayed}

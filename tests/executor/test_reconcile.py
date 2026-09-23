@@ -282,7 +282,7 @@ def test_a_voided_operation_blocks_the_same_key_from_a_new_revision(h):
                      decision_expires_at="2026-09-22T13:30:00+00:00")
     assert key_of(again) == key_of(prop)  # 只換到期時間:同一把鍵
 
-    assert h.process().kind is Result.BLOCKED
+    assert h.process().kind is Result.IDLE  # 取件時讀到既有失敗,直接確認,不交出去
     assert h.proposals()[-1][3:] == ("blocked", "operation_previously_failed")
     assert len(h.dsp.writes) == 1
 

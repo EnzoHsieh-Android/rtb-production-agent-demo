@@ -12,6 +12,11 @@
 用協定注入。時間只有一個來源——注入的時鐘——但不是整輪共用同一個值:到期判斷、每次簽發、
 每一筆寫入都在當下讀它,否則過期後的重簽會簽出跟第一張一樣已過期的憑證。
 呼叫 DSP 期間不開任何資料庫交易;每一筆寫入各自一個交易,條件是上一筆寫入回傳的序號。
+
+佇列(Phase 4 增量 1):處理一筆最前面是取件,收件表寫「處理中」並回一張收據;之後每一筆嘗試
+寫入都在同一個交易裡先核對收據仍有效(同一把租約管訊息與嘗試紀錄,Phase 0 的裁定),嘗試到
+終點就在同一個交易裡確認。收據對不上是正常的租約競爭:丟 LeaseLost,這把鍵這一輪放棄;只有
+嘗試紀錄自己的序號對不上才照舊停機。
 """
 
 from collections.abc import Callable
@@ -19,15 +24,22 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from rtb.domain._checks import is_plain_int
-from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
+from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
 from rtb.domain.proposal import ActionType, Proposal
 from rtb.executor import attempt_store
 from rtb.executor.attempt_store import AttemptRow
 from rtb.executor.capability_signer import LIFETIME_SECONDS, SigningRefused
-from rtb.executor.inbox_store import BlockCode, InboxStore, PendingProposal
+from rtb.executor.inbox_store import (
+    BlockCode,
+    CorruptedInboxRow,
+    InboxStore,
+    LastFailure,
+    PendingProposal,
+    Receipt,
+)
 
 A = AttemptState
 C = OutcomeCode
@@ -104,6 +116,10 @@ class Signer(Protocol):
     def sign_void(
         self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
     ) -> str: ...
+
+
+class LeaseLost(Exception):
+    """收據對不上(租約已被接手或已過期):這把鍵這一輪放棄,不停機——多工作者下這是正常競爭。"""
 
 
 class ExecutorHalted(Exception):
@@ -241,6 +257,7 @@ class Result(StrEnum):
     BLOCKED = "blocked"
     HANDED_OFF_TO_EXISTING = "handed_off_to_existing"  # 鍵已存在,由既有那筆嘗試負責
     EXECUTED = "executed"  # 開了一筆嘗試並送出
+    LEASE_LOST = "lease_lost"  # 收據對不上:這一輪放棄這份提案
 
 
 @dataclass(frozen=True)
@@ -296,37 +313,37 @@ class Executor:
     signer: Signer
     config_path: Path
     clock: Callable[[], datetime]  # 單一動作的簡單回呼:照專案慣例用 Callable,不另開 Protocol
+    owner: str = "executor"  # 租約擁有者:啟動程式傳行程編號加啟動時間
 
-    def process_one(self) -> Processed:  # noqa: PLR0911 - 每個出口對應設計的一步
-        picked = self._pick()
-        if picked is None:
+    def process_one(self) -> Processed:
+        with self.store.transaction() as tx:
+            delivery = self.store.receive(tx, self.clock(), self.owner)
+        if delivery is None:
             return Processed(Result.IDLE)
+        try:
+            return self._process(delivery.message, delivery.receipt)
+        except LeaseLost:
+            return Processed(Result.LEASE_LOST)
+
+    def _process(self, picked: PendingProposal, receipt: Receipt) -> Processed:
         proposal = picked.proposal
         if proposal.decision_expires_at <= self.clock():  # 過期先判,不必去讀 DSP
-            return self._dispose(picked, None, Result.EXPIRED)
+            return self._settle(receipt, None, Result.EXPIRED)
         try:
             view = self.dsp.read_campaign(proposal.campaign_id)
         except DspUnavailable:
-            return Processed(Result.DEFERRED)
+            return self._release(receipt, LastFailure.DSP_UNAVAILABLE)
         if proposal.decision_expires_at <= self.clock():  # 讀 DSP 期間過期:先於其他檢查
-            return self._dispose(picked, None, Result.EXPIRED)
+            return self._settle(receipt, None, Result.EXPIRED)
         signed = precheck(proposal, view) or self._sign(proposal)
         if isinstance(signed, BlockCode):
-            return self._dispose(picked, signed, Result.BLOCKED)
-        taken = self._take(picked, signed)
+            return self._settle(receipt, signed, Result.BLOCKED)
+        taken = self._take(picked, receipt, signed)
         if isinstance(taken, Processed):
             return taken
-        self._record(proposal, taken, self.dsp.write(proposal, taken.key, signed.token))
+        # 停在未結案就不確認:每一筆嘗試寫入都順手續租,所以租約已經延長,交給對帳
+        self._record(proposal, taken, self.dsp.write(proposal, taken.key, signed.token), receipt)
         return Processed(Result.EXECUTED, taken.key)
-
-    # ---- 第 1~4 步 ----
-    def _pick(self) -> PendingProposal | None:
-        """依收到時間由舊到新,跳過「同一個廣告已有未結案嘗試」的,挑第一份(只讀)。"""
-        with self.store.transaction() as tx:
-            for item in self.store.pending(tx):
-                if not attempt_store.unresolved_count(tx, item.proposal.campaign_id):
-                    return item
-        return None
 
     def _sign(self, proposal: Proposal, key: str | None = None) -> _Signed | BlockCode:
         """key 給對帳重送用:嘗試已經開過,一律用存下來的那把鍵簽,不從提案重算(增量 1 的規則)。"""
@@ -340,65 +357,110 @@ class Executor:
             raise ExecutorHalted(refused.reason) from refused
         return _Signed(token, datetime.fromtimestamp(now + LIFETIME_SECONDS, UTC))
 
-    def _dispose(self, picked: PendingProposal, code: BlockCode | None, kind: Result) -> Processed:
-        """標已過期或已擋下;條件是仍待處理且內容雜湊沒變,被取代了就什麼都不改。"""
-        args = (picked.task_id, picked.revision, picked.content_hash)
+    def _settle(self, receipt: Receipt, code: BlockCode | None, kind: Result) -> Processed:
+        """確認成已過期或已擋下;以收據為條件(提案已經是處理中,不再以「仍待處理」為條件)。"""
         with self.store.transaction() as tx:
-            done = (self.store.mark_expired(tx, *args) if code is None
-                    else self.store.block(tx, *args, code))
-        return Processed(kind, block_code=code) if done else Processed(Result.DEFERRED)
-
-    def _take(self, picked: PendingProposal, signed: _Signed) -> AttemptRow | Processed:
-        """取件與開始一筆在同一個交易裡;鍵已存在就依既有那把鍵的狀態分流。"""
-        args = (picked.task_id, picked.revision, picked.content_hash)
-        with self.store.transaction() as tx:
-            if not self.store.is_pending(tx, *args):  # 已被取代或內容不同
-                return Processed(Result.DEFERRED)
             now = self.clock()
+            done = (self.store.ack_expired(tx, receipt, now) if code is None
+                    else self.store.ack_blocked(tx, receipt, now, code))
+        return Processed(kind, block_code=code) if done else Processed(Result.LEASE_LOST)
+
+    def _release(self, receipt: Receipt, failure: LastFailure) -> Processed:
+        """沒能開始嘗試:記下原因、放掉租約,下一輪能再取(每取一次算一次投遞,用完進死信)。"""
+        with self.store.transaction() as tx:
+            done = self.store.release(tx, receipt, self.clock(), failure)
+        return Processed(Result.DEFERRED) if done else Processed(Result.LEASE_LOST)
+
+    def _take(  # noqa: PLR0911 - 每個出口對應鍵已存在分流的一格
+        self, picked: PendingProposal, receipt: Receipt, signed: _Signed,
+    ) -> AttemptRow | Processed:
+        """開始一筆:在核對收據仍有效的同一個交易裡做;鍵已存在就依既有那把鍵的狀態分流。"""
+        with self.store.transaction() as tx:
+            now = self.clock()
+            if not self.store.extend(tx, receipt, now):  # 已被取代、內容不同、或租約已不是我的
+                return Processed(Result.LEASE_LOST)
             # 讀 DSP、讀設定檔簽發都可能剛好跨過到期時間:在開始一筆的同一個交易裡再判一次
             if picked.proposal.decision_expires_at <= now:
-                self.store.mark_expired(tx, *args)
+                self.store.ack_expired(tx, receipt, now)
                 return Processed(Result.EXPIRED)
             try:
                 begun = attempt_store.begin(tx, picked.proposal, now,
                                             capability_expires_at=signed.expires_at)
-            except (attempt_store.TooManyUnresolved, attempt_store.CampaignLocked):
-                return Processed(Result.DEFERRED)  # 全表已滿是正常觸發;同廣告鎖住是防線
-            if begun.created or begun.row.state is not A.FAILED:
-                self.store.hand_off(tx, *args)
-                return begun.row if begun.created else Processed(
-                    Result.HANDED_OFF_TO_EXISTING, begun.row.key)
-            code = BlockCode.OPERATION_PREVIOUSLY_FAILED  # 人判過不做的操作不能貼成已交給執行
-            self.store.block(tx, *args, code)
-            return Processed(Result.BLOCKED, begun.row.key, code)
+            except attempt_store.TooManyUnresolved:  # 正常觸發:等未結案數降下來
+                self.store.release(tx, receipt, now, LastFailure.TABLE_FULL)
+                return Processed(Result.DEFERRED)
+            except attempt_store.CampaignLocked:  # 防線:取件已排除鎖住的廣告,單一執行者下走不到
+                self.store.release(tx, receipt, now, None)
+                return Processed(Result.DEFERRED)
+            if begun.created:
+                return begun.row
+            state = begun.row.state
+            if state is A.VERIFIED:
+                if not self.store.ack_handed_off(tx, receipt, now):
+                    raise LeaseLost(begun.row.key)
+                return Processed(Result.HANDED_OFF_TO_EXISTING, begun.row.key)
+            if state is A.FAILED:  # 人判過不做的操作不能貼成已交給執行
+                code = BlockCode.OPERATION_PREVIOUSLY_FAILED
+                if not self.store.ack_blocked(tx, receipt, now, code):
+                    raise LeaseLost(begun.row.key)
+                return Processed(Result.BLOCKED, begun.row.key, code)
+            self.store.release(tx, receipt, now, None)  # 防線:未結案的鍵歸對帳管
+            return Processed(Result.DEFERRED)
+
+    def _ack_terminal(
+        self, tx: attempt_store.ExecutorTransaction, row: AttemptRow, receipt: Receipt,
+        now: datetime,
+    ) -> None:
+        """確認也是帶收據的條件寫入:0 列就是收據失效,跟其他寫入一樣放棄這把鍵。"""
+        if row.state is A.VERIFIED:
+            done = self.store.ack_handed_off(tx, receipt, now)
+        elif row.state is A.FAILED:
+            done = self.store.ack_blocked(tx, receipt, now, BlockCode.OPERATION_PREVIOUSLY_FAILED)
+        else:
+            return
+        if not done:
+            raise LeaseLost(row.key)
 
     # ---- 第 6 步:寫結果 ----
     def _write(
-        self, row: AttemptRow, target: AttemptState, *, code: OutcomeCode | None = None,
-        written_version: int | None = None, capability_expires_at: datetime | None = None,
+        self, row: AttemptRow, target: AttemptState, receipt: Receipt | None, *,
+        code: OutcomeCode | None = None, written_version: int | None = None,
+        capability_expires_at: datetime | None = None,
     ) -> AttemptRow:
+        """嘗試寫入:同一個交易裡先核對收據並順手續租(對不上丟 LeaseLost),寫到終點就同時確認。
+
+        續租就是 Phase 0 要的續期機制:活著的工作者每寫一筆就把租約往後推,慢的 DSP 呼叫不會
+        讓它被當成當機;真的當機就不再續,租約到期後別人才能接手。
+        receipt 是 None 只給 Phase 3 時代留下、收件表沒有處理中那一列的鍵用(沒有訊息可確認)。"""
         with self.store.transaction() as tx:
+            now = self.clock()
+            if receipt is not None and not self.store.extend(tx, receipt, now):
+                raise LeaseLost(row.key)
             new = attempt_store.transition(
-                tx, row.key, row.seq, target, self.clock(), code=code,
+                tx, row.key, row.seq, target, now, code=code,
                 written_version=written_version, capability_expires_at=capability_expires_at)
-        if new is None:  # 這把鍵被別的東西改過:單一執行者下不該發生
-            raise ExecutorHalted("no_progress")
+            if new is None:  # 嘗試紀錄自己的序號被別的東西改過:單一執行者下不該發生
+                raise ExecutorHalted("no_progress")
+            if receipt is not None and new.state in TERMINAL_STATES:
+                self._ack_terminal(tx, new, receipt, now)
         return new
 
-    def _record(self, proposal: Proposal, row: AttemptRow, answer: WriteAnswer) -> bool:
+    def _record(
+        self, proposal: Proposal, row: AttemptRow, answer: WriteAnswer, receipt: Receipt | None,
+    ) -> bool:
         """寫結果整段(處理一筆與對帳重送共用);回傳這段有沒有 DSP 呼叫沒拿到結論。"""
         reaction = react(answer)
         if reaction.target is A.COMMITTED_UNVERIFIED:
-            return self._verify(proposal, self._write(row, reaction.target,
-                                                      written_version=answer.version_after))
+            return self._verify(proposal, self._write(
+                row, reaction.target, receipt, written_version=answer.version_after), receipt)
         if reaction.capability_expired:
-            return self._after_expiry(proposal, self._write(row, A.UNKNOWN))
-        self._write(row, reaction.target, code=reaction.code)
+            return self._after_expiry(proposal, self._write(row, A.UNKNOWN, receipt), receipt)
+        self._write(row, reaction.target, receipt, code=reaction.code)
         if reaction.halt:
             raise ExecutorHalted(str(reaction.code))
         return reaction.target is A.UNKNOWN
 
-    def _after_expiry(self, proposal: Proposal, row: AttemptRow) -> bool:
+    def _after_expiry(self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None) -> bool:
         """DSP 明確沒寫:重讀 DSP、重跑檢查;通過就重讀時鐘重簽、同鍵重送一次。"""
         try:
             view = self.dsp.read_campaign(proposal.campaign_id)
@@ -409,33 +471,33 @@ class Executor:
         signed = self._sign(proposal, row.key) if passed else None  # 設定檔壞掉在這裡停機
         if not isinstance(signed, _Signed):  # 業務上沒通過:DSP 明確沒寫這一次,不再送
             if row.send_count > 1:  # 送過多次:更早的請求可能還在路上,先作廢才能判失敗
-                return self._void_then_fail(proposal, row)
-            self._write(row, A.FAILED, code=C.NOT_HAPPENED)
+                return self._void_then_fail(proposal, row, receipt)
+            self._write(row, A.FAILED, receipt, code=C.NOT_HAPPENED)
             return False
         try:
-            row = self._write(row, A.IN_FLIGHT, capability_expires_at=signed.expires_at)
+            row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)
         except attempt_store.SendLimitReached:
-            self._write(row, A.ESCALATED, code=C.SEND_LIMIT_REACHED)
+            self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)
             return False
         answer = self.dsp.write(proposal, row.key, signed.token)
         reaction = react(answer)
         if reaction.capability_expired:  # 用新讀的時間重簽後仍過期:時鐘或設定有問題
-            self._write(row, A.ESCALATED, code=C.CAPABILITY_REJECTED)
+            self._write(row, A.ESCALATED, receipt, code=C.CAPABILITY_REJECTED)
             return False
-        return self._record(proposal, row, answer)
+        return self._record(proposal, row, answer, receipt)
 
     # ---- 第 7 步:執行後驗證 ----
-    def _verify(self, proposal: Proposal, row: AttemptRow) -> bool:
+    def _verify(self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None) -> bool:
         """回傳有沒有 DSP 呼叫失敗(讀取失敗記一次查證逾時)。"""
         try:
             verified = self._check_applied(proposal, row)
         except DspUnavailable:
-            self._verification_timeout(row)
+            self._verification_timeout(row, receipt)
             return True
         if verified:
-            self._write(row, A.VERIFIED)
+            self._write(row, A.VERIFIED, receipt)
         else:
-            self._write(row, A.ESCALATED, code=C.VERIFICATION_MISMATCH)
+            self._write(row, A.ESCALATED, receipt, code=C.VERIFICATION_MISMATCH)
         return False
 
     def _check_applied(self, proposal: Proposal, row: AttemptRow) -> bool:
@@ -451,82 +513,140 @@ class Executor:
                     and record_matches(proposal, record))
         return False
 
-    def _verification_timeout(self, row: AttemptRow) -> None:
+    def _verification_timeout(self, row: AttemptRow, receipt: Receipt | None) -> None:
         try:
             with self.store.transaction() as tx:
-                recorded = attempt_store.record_verification_timeout(
-                    tx, row.key, row.seq, self.clock())
+                now = self.clock()
+                if receipt is not None and not self.store.extend(tx, receipt, now):
+                    raise LeaseLost(row.key)
+                recorded = attempt_store.record_verification_timeout(tx, row.key, row.seq, now)
         except attempt_store.VerificationTimeoutLimitReached:
-            self._write(row, A.ESCALATED, code=C.VERIFICATION_TIMEOUTS_EXHAUSTED)
+            self._write(row, A.ESCALATED, receipt, code=C.VERIFICATION_TIMEOUTS_EXHAUSTED)
             return
         if recorded is None:
             raise ExecutorHalted("no_progress")
 
-    # ---- 對帳(增量 4) ----
+    # ---- 對帳(Phase 3 增量 4;Phase 4 增量 1 接上收件表) ----
     def reconcile_all(self) -> bool:
-        """結果不明與已提交待驗證的嘗試(轉人工不碰)各對帳一次,依最新一列寫入時間由舊到新。
+        """每一輪處理兩種鍵:未結案的嘗試(含嘗試中與轉人工),以及嘗試已到終點、收件表卻還是
+        處理中的(人工處置只寫嘗試紀錄,或中途當機留下的漏網)。依最新一列寫入時間由舊到新。
 
         回傳這一輪有沒有 DSP 呼叫失敗:有就讓啟動程式這輪結束後休息,DSP 變慢時不連續全速打它。
         """
         with self.store.transaction() as tx:
-            keys = attempt_store.awaiting_reconciliation(tx)
+            keys = list(attempt_store.unresolved_keys(tx))
+            in_progress, unreadable = self.store.in_progress_keys(tx)
+            for key in in_progress:
+                row = attempt_store.latest(tx, key)
+                if row is not None and row.state in TERMINAL_STATES and key not in keys:
+                    keys.append(key)
         troubled = False
+        corrupted = list(unreadable)
         for key in keys:
-            troubled = self._reconcile(key) or troubled
+            try:
+                troubled = self._reconcile(key) or troubled
+            except LeaseLost:
+                continue  # 租約被接手:這把鍵這一輪放棄
+            except CorruptedInboxRow as exc:  # 這把鍵找不到、同任務又有壞列:先記下,別拖累其他鍵
+                corrupted.append(str(exc))
+        if corrupted:  # 健康的都處理完了,才因為讀不回來的處理中列停下讓人看(不能默默跳過)
+            raise ExecutorHalted("unreadable_message")
         return troubled
 
     def _reconcile(self, key: str) -> bool:
         with self.store.transaction() as tx:
+            now = self.clock()
             try:
                 row = attempt_store.latest(tx, key)
                 proposal = attempt_store.snapshot(tx, key)
             except attempt_store.CorruptedAttemptRow as exc:  # 讀不回來:不猜,停下讓人看
                 raise ExecutorHalted("unreadable_attempt") from exc
-        assert row is not None  # noqa: S101 - 清單來自同一張表
+            assert row is not None  # noqa: S101 - 清單來自同一張表
+            taken = self._take_over(tx, proposal, key, now)
+            if taken is False:  # 別人持有而且沒到期:跳過這一輪
+                return False
+            receipt = taken
+            if row.state in TERMINAL_STATES:
+                if receipt is not None:
+                    self._ack_terminal(tx, row, receipt, now)
+                return False
+            if row.state is A.ESCALATED:  # 只能由人工處置離開:接手就是續租
+                return False
+            if row.state is A.IN_FLIGHT:
+                if receipt is None:  # 沒有訊息可接手:留給啟動時的重啟恢復
+                    return False
+                # 過期工作者留下的嘗試中:在新收據下先轉成結果不明,再照結果不明對帳
+                row = attempt_store.transition(tx, key, row.seq, A.UNKNOWN, now)
+                if row is None:
+                    raise ExecutorHalted("no_progress")
         if row.state is A.COMMITTED_UNVERIFIED:
-            return self._verify(proposal, row)
-        return self._reconcile_unknown(proposal, row)
+            return self._verify(proposal, row, receipt)
+        return self._reconcile_unknown(proposal, row, receipt)
 
-    def _reconcile_unknown(self, proposal: Proposal, row: AttemptRow) -> bool:
+    def _take_over(
+        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, key: str, now: datetime,
+    ) -> Receipt | Literal[False] | None:
+        """原子接手這把鍵對應的處理中訊息。回收據;沒有處理中訊息(Phase 3 留下的舊資料)回 None;
+        別人持有而且沒到期回 False。"""
+        # 讀不回來又找不到這把鍵時丟 CorruptedInboxRow:不能當成舊資料走不帶收據的路;
+        # 由對帳入口記下,處理完其他鍵後停機
+        message = self.store.in_progress_for(tx, proposal.task_id, key)
+        if message is None:
+            return None
+        receipt = self.store.take_over(tx, message, now, self.owner)
+        return False if receipt is None else receipt
+
+    def _reconcile_unknown(
+        self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
+    ) -> bool:
         try:
             record = self.dsp.operation_record(row.key)
         except DspUnavailable:
-            self._verification_timeout(row)
+            self._verification_timeout(row, receipt)
             return True
         if record is not None:
-            return self._found(proposal, row, record)
-        return self._reconcile_not_found(proposal, row)
+            return self._found(proposal, row, record, receipt)
+        return self._reconcile_not_found(proposal, row, receipt)
 
-    def _reconcile_not_found(self, proposal: Proposal, row: AttemptRow) -> bool:
+    def _reconcile_not_found(
+        self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
+    ) -> bool:
         """查不到這把鍵:重讀廣告、重跑執行前檢查;通過就同鍵重送,不過就先作廢再判失敗。"""
         try:
             view = self.dsp.read_campaign(proposal.campaign_id)
         except DspUnavailable:
-            self._verification_timeout(row)
+            self._verification_timeout(row, receipt)
             return True
         if view is None:  # 模擬 DSP 沒有建立或刪除廣告的介面:不存在就代表從來不存在
-            self._write(row, A.FAILED, code=C.CAMPAIGN_NOT_FOUND)
+            self._write(row, A.FAILED, receipt, code=C.CAMPAIGN_NOT_FOUND)
             return False
         blocked = (proposal.decision_expires_at <= self.clock()
                    or precheck(proposal, view) is not None)
         signed = None if blocked else self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
         if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗
-            return self._void_then_fail(proposal, row)
+            return self._void_then_fail(proposal, row, receipt)
         try:
-            row = self._write(row, A.IN_FLIGHT, capability_expires_at=signed.expires_at)
+            row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)
         except attempt_store.SendLimitReached:
-            self._write(row, A.ESCALATED, code=C.SEND_LIMIT_REACHED)
+            self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)
             return False
-        return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token))
+        return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token),
+                            receipt)
 
-    def _found(self, proposal: Proposal, row: AttemptRow, record: OperationRecord) -> bool:
+    def _found(
+        self, proposal: Proposal, row: AttemptRow, record: OperationRecord,
+        receipt: Receipt | None,
+    ) -> bool:
         if not record_matches(proposal, record):
-            self._write(row, A.ESCALATED, code=C.IDEMPOTENCY_CONFLICT)
+            self._write(row, A.ESCALATED, receipt, code=C.IDEMPOTENCY_CONFLICT)
             return False
-        row = self._write(row, A.COMMITTED_UNVERIFIED, written_version=record.version_after)
-        return self._verify(proposal, row)
+        row = self._write(row, A.COMMITTED_UNVERIFIED, receipt,
+                          written_version=record.version_after)
+        return self._verify(proposal, row, receipt)
 
-    def _void_then_fail(self, proposal: Proposal, row: AttemptRow) -> bool:
+    def _void_then_fail(
+        self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
+    ) -> bool:
         now = int(self.clock().timestamp())
         try:
             token = self.signer.sign_void(proposal, row.key, self.config_path, now)
@@ -534,18 +654,18 @@ class Executor:
             if refused.reason != "campaign_not_allowed":  # 設定檔壞掉或不安全:系統故障
                 raise ExecutorHalted(refused.reason) from refused
             # 不能作廢,就證明不了舊請求不會晚到提交
-            self._write(row, A.ESCALATED, code=C.CANNOT_PROVE_NOT_HAPPENED)
+            self._write(row, A.ESCALATED, receipt, code=C.CANNOT_PROVE_NOT_HAPPENED)
             return False
         answer = self.dsp.void(proposal, row.key, token)
         reaction = react_void(answer)
         if reaction.outcome is VoidOutcome.FOUND:
             assert answer.record is not None  # noqa: S101 - 這一列的條件保證
-            return self._found(proposal, row, answer.record)
+            return self._found(proposal, row, answer.record, receipt)
         if reaction.outcome is VoidOutcome.TIMEOUT:
-            self._verification_timeout(row)
+            self._verification_timeout(row, receipt)
             return True
         target = A.FAILED if reaction.outcome is VoidOutcome.FAILED else A.ESCALATED
-        self._write(row, target, code=reaction.code)
+        self._write(row, target, receipt, code=reaction.code)
         if reaction.halt:
             raise ExecutorHalted(str(reaction.code))
         return False

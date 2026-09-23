@@ -1,0 +1,67 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "狀態轉換與確認時機",
+  "materials": [
+   "governance/review-reports/code-phase4-queue/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "租約收據與並行",
+  "materials": [
+   "governance/review-reports/code-phase4-queue/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "遷移與既有規則相容",
+  "materials": [
+   "governance/review-reports/code-phase4-queue/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "合約與測試強度",
+  "materials": [
+   "governance/review-reports/code-phase4-queue/r1-snapshot-tests.patch",
+   "governance/review-reports/code-phase4-queue/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase4-queue/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sec",
+  "lens": "資安",
+  "materials": [
+   "governance/review-reports/code-phase4-queue/r1-snapshot-src.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/code-phase4-queue/r1-snapshot-src.patch",
+   "governance/review-reports/code-phase4-queue/r1-snapshot-tests.patch"
+  ],
+  "auditor": "codex"
+ }
+]

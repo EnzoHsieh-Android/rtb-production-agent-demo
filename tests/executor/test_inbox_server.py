@@ -368,7 +368,9 @@ def test_every_sample_the_domain_parser_rejects_is_also_rejected_by_the_inbox_an
         tree = ast.parse(inspect.getsource(module))
         imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
                     and n.module and n.module.startswith("rtb.domain") for a in n.names}
-        allowed = {"parse_proposal", "content_hash", "Proposal", "MAX_DECISION_LIFETIME"}
+        # 取件要用冪等鍵與嘗試狀態分流(佇列語意),這兩個不是欄位驗證
+        allowed = {"parse_proposal", "content_hash", "Proposal", "MAX_DECISION_LIFETIME",
+                   "operation_key", "AttemptState"}
         assert imported <= allowed, imported
         assert not [n for n in ast.walk(tree) if isinstance(n, ast.Import)
                     and any(a.name == "re" for a in n.names)]
@@ -709,8 +711,9 @@ def test_purging_never_deletes_a_task_that_still_has_a_pending_row(tmp_path):
     store = inbox_store.InboxStore(tmp_path / "s.db")
     conn = sqlite3.connect(tmp_path / "s.db", isolation_level=None)
     conn.execute(  # 直接塞一列「很久以前收到、到期時間卻很遠」的待處理(正常流程做不出來)
-        "INSERT INTO proposals VALUES ('old', 1, 'h', 'pending', '{}', "
-        "'2099-01-01T00:00:00.000000Z', '2026-09-22T01:00:00.000000Z', NULL, NULL)")
+        "INSERT INTO proposals (task_id, revision, content_hash, state, payload, expires_at, "
+        "received_at) VALUES ('old', 1, 'h', 'pending', '{}', "
+        "'2099-01-01T00:00:00.000000Z', '2026-09-22T01:00:00.000000Z')")
     proposal = inbox_server.parse_proposal(valid(task_id="new")).proposal
 
     store.accept(proposal, lambda: inbox_store.utc_now().replace(

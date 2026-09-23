@@ -1,0 +1,13 @@
+severity: clean
+
+已對照 5 個切面逐一核對,均比照專案既有寫法,沒有找到「引入第二種做法」或「跨層直呼」的偏離:
+
+1. **收件表是否直接對嘗試表下 SQL**:`inbox_store.py` 新增的 `receive()`、`_settle_existing()` 等只呼叫 `attempt_store.campaigns_with_unresolved()`、`attempt_store.latest()`,對 `attempts` 表沒有自組 SQL(`grep -n -i "attempts"` 該檔區塊只剩既有的補欄位清單與 `attempt_store.` 函式呼叫)。既有的 `ALTER TABLE attempts ...`(補欄位)是 Phase 3 之前就有、模組文件已明講「由這裡建立」的既有分工,這次沒新增違例。
+2. **重建表遷移的落點**:`diff --git` 只動到 `attempt_store.py`、`execution.py`、`inbox_server.py`、`inbox_store.py`、`runner.py` 五支檔,`src/rtb/sqlitekit.py`(共用資料庫工具)完全沒被觸碰;`_rebuild_proposals()`、`_proposals_outdated()` 整段留在 `inbox_store.py`,且模組文件自陳理由「專案裡只有這一處需要」,與設計筆記一致。
+3. **兩個新列舉的寫法**:`DeadLetterReason`、`LastFailure` 都是 `StrEnum`+class docstring+`成員 = "snake_case"  # 行內註解`,跟既有 `Disposition`、`BlockCode` 同一套寫法;對應的 `_DEAD_LETTER_COLUMN`/`_LAST_FAILURE_COLUMN` 也沿用既有 `_in_list()` 輔助函式組 CHECK 約束。外部參數(`release()` 的 `failure: LastFailure | None`)有 `type(...) is not LastFailure` 的執行期防呆,跟 `ack_blocked()` 對 `BlockCode` 的防呆手法一致;`DeadLetterReason` 只在模組內部用寫死的成員,沒有外部參數,所以沒配防呆,也跟既有分寸相符。
+4. **「失去租約」的處理**:`LeaseLost` 是純 `class LeaseLost(Exception):` 加docstring,沒有自訂 `__init__`,跟同檔的 `DspUnavailable`、`attempt_store.TooManyUnresolved`/`CampaignLocked` 這類「軟性控制流程例外」同一款式(跟真正停機用的 `ExecutorHalted`——有 `__init__(self, reason)`——刻意不同款)。用法上分兩種情境但都各自比照舊例:`_settle`/`_release`/`_take` 這類「呼叫端就在旁邊」的即時檢查,沿用 Phase 3 `_dispose()` 原本「回傳布林由呼叫端就地判斷」的寫法,改成回 `Processed(Result.LEASE_LOST)`;`_write()` 這種被多層呼叫、無法逐層回傳特殊值的深層檢查,則沿用同一支函式裡「序號對不上就 `raise ExecutorHalted`」的既有例外傳遞手法,改成 `raise LeaseLost`,在 `process_one()`/`reconcile_all()` 頂層接住——兩種寫法都各自對應舊碼裡原本就分開的兩種既有慣例,不是新開的第三種。
+5. **owner 從 runner 傳進 Executor 的方式**:`Executor` 仍是 `@dataclass(frozen=True)`,`owner: str = "executor"` 以位置參數方式插在既有協作者(`store`/`dsp`/`signer`/`config_path`/`clock`)之後,跟 `runner.py` 裡 `Executor(store, dsp or DspClient(...), signer, args.tenant_config, clock, owner)` 的既有建構呼叫同一套模式;`run()` 也新增同款 `owner: str | None = None` 關鍵字參數,由呼叫端(測試)以 `owner="executor"` 這種既有 `clock=`/`dsp=` 同款關鍵字注入方式帶入(見 `tests/executor/test_runner.py:1138` 的 `run_in_process`)。`owner` 帶預設值而其他協作者沒有,查過 `tests/executor/fakes.py:142` 的 `Executor(self.store, self.dsp, self.signer, self.config, self.clock)` 直接呼叫,證實這個預設值是刻意讓「不經 runner 的測試治具」與「經 `runner.run(owner="executor")` 的測試」共用同一個工作者身分,設計筆記「實作時決定」一段也明講這是測試用途,不是隨意留下的第二套注入管道。
+
+file:`/Users/enzo/rtb-production-agent-demo/governance/review-reports/code-phase4-queue/r1-snapshot-src.patch`
+file:`/Users/enzo/rtb-production-agent-demo/governance/review-reports/code-phase4-queue/r1-snapshot-tests.patch`
+file:`/Users/enzo/rtb-production-agent-demo/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md`

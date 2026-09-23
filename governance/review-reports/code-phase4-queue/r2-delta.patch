@@ -1,0 +1,514 @@
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index 91cc192..aea59b0 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -17,29 +17,36 @@
+ 寫入都在同一個交易裡先核對收據仍有效(同一把租約管訊息與嘗試紀錄,Phase 0 的裁定),嘗試到
+ 終點就在同一個交易裡確認。收據對不上是正常的租約競爭:丟 LeaseLost,這把鍵這一輪放棄;只有
+ 嘗試紀錄自己的序號對不上才照舊停機。
+ """
+ 
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from enum import StrEnum
+ from pathlib import Path
+-from typing import Any, Protocol
++from typing import Any, Literal, Protocol
+ 
+ from rtb.domain._checks import is_plain_int
+ from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
+ from rtb.domain.proposal import ActionType, Proposal
+ from rtb.executor import attempt_store
+ from rtb.executor.attempt_store import AttemptRow
+ from rtb.executor.capability_signer import LIFETIME_SECONDS, SigningRefused
+-from rtb.executor.inbox_store import BlockCode, InboxStore, LastFailure, PendingProposal, Receipt
++from rtb.executor.inbox_store import (
++    BlockCode,
++    CorruptedInboxRow,
++    InboxStore,
++    LastFailure,
++    PendingProposal,
++    Receipt,
++)
+ 
+ A = AttemptState
+ C = OutcomeCode
+ 
+ 
+ @dataclass(frozen=True)
+ class CampaignView:
+     """DSP 上廣告的現況(執行前檢查與執行後驗證要看的欄位)。"""
+ 
+     budget: int
+@@ -382,37 +389,44 @@ class Executor:
+             except attempt_store.TooManyUnresolved:  # 正常觸發:等未結案數降下來
+                 self.store.release(tx, receipt, now, LastFailure.TABLE_FULL)
+                 return Processed(Result.DEFERRED)
+             except attempt_store.CampaignLocked:  # 防線:取件已排除鎖住的廣告,單一執行者下走不到
+                 self.store.release(tx, receipt, now, None)
+                 return Processed(Result.DEFERRED)
+             if begun.created:
+                 return begun.row
+             state = begun.row.state
+             if state is A.VERIFIED:
+-                self.store.ack_handed_off(tx, receipt, now)
++                if not self.store.ack_handed_off(tx, receipt, now):
++                    raise LeaseLost(begun.row.key)
+                 return Processed(Result.HANDED_OFF_TO_EXISTING, begun.row.key)
+             if state is A.FAILED:  # 人判過不做的操作不能貼成已交給執行
+                 code = BlockCode.OPERATION_PREVIOUSLY_FAILED
+-                self.store.ack_blocked(tx, receipt, now, code)
++                if not self.store.ack_blocked(tx, receipt, now, code):
++                    raise LeaseLost(begun.row.key)
+                 return Processed(Result.BLOCKED, begun.row.key, code)
+             self.store.release(tx, receipt, now, None)  # 防線:未結案的鍵歸對帳管
+             return Processed(Result.DEFERRED)
+ 
+     def _ack_terminal(
+         self, tx: attempt_store.ExecutorTransaction, row: AttemptRow, receipt: Receipt,
+         now: datetime,
+     ) -> None:
++        """確認也是帶收據的條件寫入:0 列就是收據失效,跟其他寫入一樣放棄這把鍵。"""
+         if row.state is A.VERIFIED:
+-            self.store.ack_handed_off(tx, receipt, now)
++            done = self.store.ack_handed_off(tx, receipt, now)
+         elif row.state is A.FAILED:
+-            self.store.ack_blocked(tx, receipt, now, BlockCode.OPERATION_PREVIOUSLY_FAILED)
++            done = self.store.ack_blocked(tx, receipt, now, BlockCode.OPERATION_PREVIOUSLY_FAILED)
++        else:
++            return
++        if not done:
++            raise LeaseLost(row.key)
+ 
+     # ---- 第 6 步:寫結果 ----
+     def _write(
+         self, row: AttemptRow, target: AttemptState, receipt: Receipt | None, *,
+         code: OutcomeCode | None = None, written_version: int | None = None,
+         capability_expires_at: datetime | None = None,
+     ) -> AttemptRow:
+         """嘗試寫入:同一個交易裡先核對收據並順手續租(對不上丟 LeaseLost),寫到終點就同時確認。
+ 
+         續租就是 Phase 0 要的續期機制:活著的工作者每寫一筆就把租約往後推,慢的 DSP 呼叫不會
+@@ -526,52 +540,64 @@ class Executor:
+                 if row is not None and row.state in TERMINAL_STATES and key not in keys:
+                     keys.append(key)
+         troubled = False
+         for key in keys:
+             try:
+                 troubled = self._reconcile(key) or troubled
+             except LeaseLost:
+                 continue  # 租約被接手:這把鍵這一輪放棄
+         return troubled
+ 
+-    def _reconcile(self, key: str) -> bool:  # noqa: C901 - 每個分支對應一種嘗試狀態
++    def _reconcile(self, key: str) -> bool:
+         with self.store.transaction() as tx:
+             now = self.clock()
+             try:
+                 row = attempt_store.latest(tx, key)
+                 proposal = attempt_store.snapshot(tx, key)
+             except attempt_store.CorruptedAttemptRow as exc:  # 讀不回來:不猜,停下讓人看
+                 raise ExecutorHalted("unreadable_attempt") from exc
+             assert row is not None  # noqa: S101 - 清單來自同一張表
+-            message = self.store.in_progress_for(tx, proposal.task_id, key)
+-            receipt = None
+-            if message is not None:  # 原子接手:別人持有而且沒到期就跳過這一輪
+-                receipt = self.store.take_over(tx, message, now, self.owner)
+-                if receipt is None:
+-                    return False
++            taken = self._take_over(tx, proposal, key, now)
++            if taken is False:  # 別人持有而且沒到期:跳過這一輪
++                return False
++            receipt = taken
+             if row.state in TERMINAL_STATES:
+                 if receipt is not None:
+                     self._ack_terminal(tx, row, receipt, now)
+                 return False
+             if row.state is A.ESCALATED:  # 只能由人工處置離開:接手就是續租
+                 return False
+             if row.state is A.IN_FLIGHT:
+                 if receipt is None:  # 沒有訊息可接手:留給啟動時的重啟恢復
+                     return False
+                 # 過期工作者留下的嘗試中:在新收據下先轉成結果不明,再照結果不明對帳
+                 row = attempt_store.transition(tx, key, row.seq, A.UNKNOWN, now)
+                 if row is None:
+                     raise ExecutorHalted("no_progress")
+         if row.state is A.COMMITTED_UNVERIFIED:
+             return self._verify(proposal, row, receipt)
+         return self._reconcile_unknown(proposal, row, receipt)
+ 
++    def _take_over(
++        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, key: str, now: datetime,
++    ) -> Receipt | Literal[False] | None:
++        """原子接手這把鍵對應的處理中訊息。回收據;沒有處理中訊息(Phase 3 留下的舊資料)回 None;
++        別人持有而且沒到期回 False。"""
++        try:
++            message = self.store.in_progress_for(tx, proposal.task_id, key)
++        except CorruptedInboxRow as exc:  # 讀不回來:不能當成舊資料走不帶收據的路,停下讓人看
++            raise ExecutorHalted("unreadable_message") from exc
++        if message is None:
++            return None
++        receipt = self.store.take_over(tx, message, now, self.owner)
++        return False if receipt is None else receipt
++
+     def _reconcile_unknown(
+         self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
+     ) -> bool:
+         try:
+             record = self.dsp.operation_record(row.key)
+         except DspUnavailable:
+             self._verification_timeout(row, receipt)
+             return True
+         if record is not None:
+             return self._found(proposal, row, record, receipt)
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 8be23b5..7a5b748 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -168,20 +168,24 @@ class CreatedInFuture(InboxRejected):
+ 
+     code = "created_in_future"
+ 
+ 
+ class TooManyRevisions(InboxRejected):
+     """同一個任務修訂太多次。"""
+ 
+     code = "too_many_revisions"
+ 
+ 
++class CorruptedInboxRow(Exception):
++    """處理中那一列的提案內容讀不回來:不能當成「沒有這一列」,否則呼叫端會繞過租約。"""
++
++
+ class InboxBusy(InboxRejected):
+     """資料庫忙碌到逾時:沒收到,可以重送。與 InboxFull 是不同的錯誤。"""
+ 
+     code = "busy"
+     retryable = True
+ 
+ 
+ @dataclass(frozen=True)
+ class PendingProposal:
+     task_id: str
+@@ -473,25 +477,26 @@ class InboxStore:
+                 "WHERE task_id = ? AND revision = ?", (task_id, revision))
+             return Delivery(PendingProposal(task_id, revision, digest, proposal), receipt)
+         return None
+ 
+     def _settle_existing(
+         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, state: AttemptState,
+         now: datetime,
+     ) -> None:
+         """這把鍵已有嘗試:終點就確認;未結案就放掉租約,交給對帳。都不算投遞。"""
+         if state is AttemptState.VERIFIED:
+-            self.ack_handed_off(tx, receipt, now)
++            done = self.ack_handed_off(tx, receipt, now)
+         elif state is AttemptState.FAILED:
+-            self.ack_blocked(tx, receipt, now, BlockCode.OPERATION_PREVIOUSLY_FAILED)
++            done = self.ack_blocked(tx, receipt, now, BlockCode.OPERATION_PREVIOUSLY_FAILED)
+         else:
+-            self.release(tx, receipt, now, None)
++            done = self.release(tx, receipt, now, None)
++        assert done  # noqa: S101 - 收據是同一個交易裡剛拿到的,條件寫入必然成立
+ 
+     def _lease(self, task_id: str, revision: int, digest: str, now: datetime,
+                owner: str) -> Receipt:
+         self._conn.execute(
+             "UPDATE proposals SET disposition = ?, lease_seq = lease_seq + 1, lease_owner = ?, "
+             "lease_until = ? WHERE task_id = ? AND revision = ?",
+             (Disposition.IN_PROGRESS.value, owner, _iso(now + VISIBILITY_TIMEOUT),
+              task_id, revision))
+         seq = self._conn.execute(
+             "SELECT lease_seq FROM proposals WHERE task_id = ? AND revision = ?",
+@@ -568,21 +573,23 @@ class InboxStore:
+ 
+     def in_progress_for(
+         self, tx: attempt_store.ExecutorTransaction, task_id: str, key: str,
+     ) -> PendingProposal | None:
+         """這把鍵對應、而且處置是處理中的那一列(同一把鍵可能對應多份修訂,只取處理中的)。"""
+         self._own(tx)
+         for revision, digest, payload in self._conn.execute(
+                 f"SELECT revision, content_hash, payload FROM proposals WHERE task_id = ? "  # noqa: S608 - 固定條件
+                 f"AND {IN_PROGRESS} ORDER BY revision", (task_id,)).fetchall():
+             proposal = _parse_payload(payload)
+-            if proposal is not None and operation_key(proposal) == key:
++            if proposal is None:  # 讀不回來:分不出是不是這把鍵,不能回「沒有」讓呼叫端走不帶收據的路
++                raise CorruptedInboxRow(f"{task_id}/{revision}")
++            if operation_key(proposal) == key:
+                 return PendingProposal(task_id, revision, digest, proposal)
+         return None
+ 
+     def in_progress_keys(self, tx: attempt_store.ExecutorTransaction) -> tuple[str, ...]:
+         """所有處理中那幾列的冪等鍵:對帳用來找「嘗試已到終點、收件表卻還沒確認」的漏網。"""
+         self._own(tx)
+         keys = []
+         for (payload,) in self._conn.execute(
+                 f"SELECT payload FROM proposals WHERE {IN_PROGRESS} "  # noqa: S608 - 固定條件
+                 "ORDER BY received_at, task_id, revision").fetchall():
+diff --git a/src/rtb/executor/runner.py b/src/rtb/executor/runner.py
+index 85ec0e8..cb32737 100644
+--- a/src/rtb/executor/runner.py
++++ b/src/rtb/executor/runner.py
+@@ -30,20 +30,21 @@ from rtb.executor import attempt_store
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import DspPort, Executor, ExecutorHalted, Result
+ from rtb.executor.inbox_store import InboxBusy, InboxStore, utc_now
+ from rtb.sqlitekit import DatabaseBusy, begin_immediate
+ 
+ EXIT_NO_KEY = 2
+ EXIT_LOCKED = 3
+ EXIT_HALTED = 4
+ EXIT_UNSAFE_DB = 5  # 資料庫檔有硬連結:同一個資料庫可能被別的檔名以另一組 WAL 開啟
++EXIT_BUSY = 6  # 啟動時資料庫一直忙(例如收件口正在寫、或別的行程在遷移):乾淨結束,稍後再啟動
+ READY = "READY"
+ _IDLE_RESULTS = frozenset({Result.IDLE, Result.DEFERRED, Result.LEASE_LOST})
+ 
+ 
+ class LockHeld(Exception):
+     """已有另一個執行迴圈握著這個資料庫的鎖。"""
+ 
+ 
+ class RunnerLock:
+     def __init__(self, db_path: Path):
+@@ -96,20 +97,36 @@ def _loop(
+             result = executor.process_one()
+         except (ExecutorHalted, InboxBusy) as halted:  # 出事就停,讓人注意到;重啟時會做恢復
+             sys.stderr.write(f"停機:{halted}\n")
+             return EXIT_HALTED
+         # 對帳有 DSP 呼叫失敗就照樣休息:DSP 變慢時不連續全速打它
+         if troubled or result.kind in _IDLE_RESULTS:
+             sleep(interval)
+     return 0
+ 
+ 
++def _open_and_recover(
++    db: Path, clock: Callable[[], datetime],
++) -> tuple[InboxStore, attempt_store.Recovery] | None:
++    """開庫(可能要做重建表遷移,握鎖比補欄位久)並做重啟恢復;撞上收件口寫入等到逾時就回 None。"""
++    try:
++        store = InboxStore(db)
++    except InboxBusy:
++        return None
++    try:
++        with store.transaction() as tx:
++            return store, attempt_store.recover_in_flight(tx, clock())
++    except InboxBusy:
++        store.close()
++        return None
++
++
+ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
+     argv: list[str] | None = None, *, environ: Mapping[str, str] | None = None,
+     clock: Callable[[], datetime] = utc_now, dsp: DspPort | None = None, out: TextIO | None = None,
+     max_rounds: int | None = None, sleep: Callable[[float], None] = time.sleep,
+     owner: str | None = None,
+ ) -> int:
+     args = _parse(argv)
+     try:  # 只有啟動程式經共用模組讀金鑰環境變數
+         signer = CapabilitySigner(read_key(os.environ if environ is None else environ))
+     except ValueError as error:
+@@ -121,25 +138,27 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
+     # 有硬連結就拒絕啟動:收件口若用另一個檔名開同一個資料庫,兩邊各用一組 WAL 檔,
+     # 可能損壞資料(SQLite 官方〈How To Corrupt〉的多重連結)。符號連結 SQLite 會自己解析
+     if os.stat(args.db).st_nlink > 1:
+         sys.stderr.write("拒絕啟動:資料庫檔有硬連結,可能被別的檔名同時開啟\n")
+         return EXIT_UNSAFE_DB
+     try:
+         lock = RunnerLock(args.db)
+     except LockHeld:
+         sys.stderr.write("拒絕啟動:已有另一個執行迴圈在跑\n")
+         return EXIT_LOCKED
+-    store = InboxStore(args.db)
++    opened = _open_and_recover(args.db, clock)
++    if opened is None:
++        lock.release()
++        sys.stderr.write("拒絕啟動:資料庫忙碌,稍後再試\n")
++        return EXIT_BUSY
++    store, recovery = opened
+     try:
+-        now: datetime = clock()
+-        with store.transaction() as tx:
+-            recovery = attempt_store.recover_in_flight(tx, now)
+         if recovery.unreadable:
+             sys.stderr.write(f"讀不回來的嘗試(要人處理):{', '.join(recovery.unreadable)}\n")
+         print(READY, file=out or sys.stdout, flush=True)
+         # 租約擁有者:行程編號加啟動時間。重啟後是新的擁有者,上一次留下的租約要等到期才接手
+         owner = owner or f"{os.getpid()}-{int(time.time())}"
+         executor = Executor(store, dsp or DspClient(args.dsp_url, args.dsp_timeout_seconds),
+                             signer, args.tenant_config, clock, owner)
+         return _loop(executor, lock, args.interval_seconds, max_rounds, sleep)
+     finally:
+         store.close()
+diff --git a/tests/executor/test_queue.py b/tests/executor/test_queue.py
+index b91f96b..de230ff 100644
+--- a/tests/executor/test_queue.py
++++ b/tests/executor/test_queue.py
+@@ -96,67 +96,63 @@ def _phase3_database(db):
+ 
+ def _proposal_rows(db):
+     conn = sqlite3.connect(db)
+     try:
+         return conn.execute("SELECT task_id, revision, disposition, lease_seq, deliveries "
+                             "FROM proposals ORDER BY revision").fetchall()
+     finally:
+         conn.close()
+ 
+ 
+-def test_an_old_inbox_database_migrates_to_four_dispositions_without_losing_data(
+-    tmp_path, monkeypatch,
+-):
++def test_an_old_inbox_database_migrates_to_four_dispositions_without_losing_data(tmp_path):
+     db = tmp_path / "executor.db"
+     _phase3_database(db)
+     InboxStore(db).close()
+     InboxStore(db).close()  # 已遷移的再開一次不會重做
+     assert _proposal_rows(db) == [("t-old", 1, "handed_off", 0, 0), ("t-old", 2, None, 0, 0)]
+     conn = sqlite3.connect(db)
+     try:
+         columns = [r[1] for r in conn.execute("PRAGMA table_info(proposals)")]
+         for name in ("lease_until", "lease_seq", "lease_owner", "deliveries"):
+             assert columns.count(name) == 1
+         # 資料庫層限制已換成四態:新成員寫得進去,不認得的照樣擋
+         conn.execute("UPDATE proposals SET disposition = 'dead_letter' WHERE revision = 2")
+         conn.execute("UPDATE proposals SET disposition = 'in_progress' WHERE revision = 2")
+         with pytest.raises(sqlite3.IntegrityError):
+             conn.execute("UPDATE proposals SET disposition = 'taken'")
+         assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'proposals_rebuilt'"
+                             ).fetchall() == []
+     finally:
+         conn.close()
+-    _migration_race_rebuilds_once(tmp_path, monkeypatch)
+-    _only_the_old_constraint_also_triggers_a_rebuild(tmp_path)
+ 
+ 
+-def _only_the_old_constraint_also_triggers_a_rebuild(tmp_path):
++def test_only_an_outdated_constraint_also_triggers_a_rebuild(tmp_path):
+     """欄位都補齊了、只剩處置的資料庫層限制還是舊的:光看缺欄位不夠,也要重建。"""
+     db = tmp_path / "columns-only.db"
+     _phase3_database(db)
+     conn = sqlite3.connect(db, isolation_level=None)
+     try:
+         for ddl in ("dead_letter_reason TEXT", "last_failure TEXT", "lease_until TEXT",
+                     "lease_seq INTEGER NOT NULL DEFAULT 0", "lease_owner TEXT",
+                     "deliveries INTEGER NOT NULL DEFAULT 0"):
+             conn.execute(f"ALTER TABLE proposals ADD COLUMN {ddl}")
+     finally:
+         conn.close()
+     InboxStore(db).close()
+     conn = sqlite3.connect(db)
+     try:
+         conn.execute("UPDATE proposals SET disposition = 'dead_letter' WHERE revision = 2")
+     finally:
+         conn.close()
+ 
+ 
+-def _migration_race_rebuilds_once(tmp_path, monkeypatch):
++def test_two_connections_racing_to_migrate_rebuild_only_once(tmp_path, monkeypatch):
+     """並行:它看到要遷移、去等寫入鎖的期間,另一條連線先遷移好了;拿到鎖後要再查一次,不能重做。"""
+     raced = tmp_path / "raced.db"
+     _phase3_database(raced)
+     real = inbox_store.immediate_transaction
+     rebuilds, calls = [], []
+     real_rebuild = InboxStore._rebuild_proposals
+ 
+     def counting_rebuild(self):
+         rebuilds.append(1)
+         return real_rebuild(self)
+@@ -641,10 +637,67 @@ def test_reconciliation_recovers_an_in_flight_attempt_it_took_over(h):
+     assert row(h)[6] is None and row(h)[1] == "handed_off"
+ 
+ 
+ def test_the_lease_is_longer_than_the_slowest_single_dsp_call():
+     """可見性逾時要比一次 DSP 呼叫的用戶端逾時(預設 5 秒)長得多,活著的工作者才不會被當成當機。"""
+     from rtb.executor import runner
+ 
+     default_timeout = runner._parse(["--db", "x", "--dsp-url", "u", "--tenant-config", "c"]
+                                     ).dsp_timeout_seconds
+     assert timedelta(seconds=default_timeout * 6) < VISIBILITY_TIMEOUT
++
++
++# ---- 代碼審第 1 輪補的防線 ----
++def test_an_unreadable_in_progress_message_halts_instead_of_bypassing_the_lease(h):
++    """處理中那一列讀不回來時,對帳不能當成「沒有處理中訊息」走不帶收據的路:停下讓人看。"""
++    from rtb.executor.execution import ExecutorHalted
++
++    prop = unknown_attempt(h)
++    h.clock.advance(seconds=LEASE + 1)
++    h.query("UPDATE proposals SET payload = '{' WHERE task_id = 't1'")
++    before = states(h, prop)
++
++    with pytest.raises(ExecutorHalted, match="unreadable_message"):
++        h.executor().reconcile_all()
++    assert states(h, prop) == before  # 嘗試紀錄一筆都沒寫
++
++
++def test_a_failed_acknowledgement_gives_up_the_key_instead_of_claiming_success(h, monkeypatch):
++    """確認也是帶收據的條件寫入:0 列代表收據失效。開始一筆撞到既有已驗證的鍵時,確認寫不進去
++    就要回「失去租約」,不能回報已交給執行。"""
++    first = h.submit()
++    h.process()
++    with h.store.transaction() as tx:
++        verified = attempt_store.latest(tx, operation_key(first))
++    assert verified.state is A.VERIFIED  # 前置
++    h.submit(task_id="t2", campaign_id="c2")
++    monkeypatch.setattr(attempt_store, "begin",
++                        lambda *_a, **_k: attempt_store.Begun(verified, created=False))
++    monkeypatch.setattr(h.store, "ack_handed_off", lambda *_a, **_k: False)
++
++    assert h.process().kind is Result.LEASE_LOST
++    assert row(h, task_id="t2")[1] == "in_progress"  # 沒被當成已確認
++
++
++def test_two_receipts_for_the_same_key_still_write_the_dsp_once(h):
++    """取件只排除「已有嘗試」的廣告:同一把鍵的兩份修訂可能各拿一張收據(開始一筆之前)。
++    靠開始一筆的鍵唯一性兜住:第二張收據在第一份寫 DSP 的途中插進來(版本還沒變、檢查會過),
++    開始一筆撞到既有的鍵,不再呼叫 DSP。"""
++    h.submit()
++    a = receive(h, owner="executor")  # 修訂 1 已取件、還沒開始嘗試(處理中,不會被取代)
++    h.submit(revision=2, decision_expires_at="2026-09-22T12:40:00+00:00")  # 只換到期時間:同一把鍵
++    b = receive(h, owner="w2")
++    assert a is not None and b is not None  # 前置:兩張收據同時有效
++    assert operation_key(a.message.proposal) == operation_key(b.message.proposal)
++    second = Executor(h.store, h.dsp, h.signer, h.config, h.clock, "w2")
++    interleaved = []
++
++    def second_runs_during_the_first_write(*_args):
++        h.dsp.on_write = None
++        interleaved.append(second._process(b.message, b.receipt))
++
++    h.dsp.on_write = second_runs_during_the_first_write
++    first_run = h.executor()._process(a.message, a.receipt)
++
++    assert first_run.kind is Result.EXECUTED
++    assert interleaved and interleaved[0].kind is not Result.EXECUTED  # 第二張收據沒開新嘗試
++    assert len(h.dsp.writes) == 1
+diff --git a/tests/executor/test_runner.py b/tests/executor/test_runner.py
+index 829008b..b3d210e 100644
+--- a/tests/executor/test_runner.py
++++ b/tests/executor/test_runner.py
+@@ -291,10 +291,23 @@ def test_a_round_with_a_failed_reconcile_call_sleeps(h):
+     assert code == 0
+     assert h.dsp.writes[-1][0].campaign_id == "c2"  # 前置:新提案這輪確實被執行了
+     assert slept == [0.01]  # 對帳這輪有 DSP 呼叫失敗:照樣休息一個間隔
+ 
+     # 對照:這輪沒有失敗、新提案被執行,不休息
+     h.submit(task_id="t3", campaign_id="c3")
+     slept.clear()
+     runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
+                out=io.StringIO(), sleep=slept.append, max_rounds=1, owner="executor")
+     assert slept == []
++
++
++def test_a_busy_database_at_startup_exits_cleanly_and_frees_the_lock(h, monkeypatch):
++    """開庫要做重建表遷移時握鎖較久,撞上收件口寫入會忙到逾時:乾淨結束、放掉單一執行者鎖。"""
++    from rtb.executor.inbox_store import InboxBusy
++
++    def busy(*_args, **_kwargs):
++        raise InboxBusy("database is locked")
++
++    monkeypatch.setattr(runner, "InboxStore", busy)
++    assert run_in_process(h) == runner.EXIT_BUSY
++    runner.RunnerLock(h.db).release()  # 鎖已放掉:下一次啟動拿得到
++
