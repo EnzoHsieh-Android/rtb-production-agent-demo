@@ -1,0 +1,100 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "額度計算與狀態推導",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量1/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/capability_signer.py",
+   "src/rtb/executor/inbox_server.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "並行與交易邊界",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量1/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/capability_signer.py",
+   "src/rtb/executor/inbox_server.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "相容與遷移",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量1/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/capability_signer.py",
+   "src/rtb/executor/inbox_server.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "可測性",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量1/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/capability_signer.py",
+   "src/rtb/executor/inbox_server.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "F7 與完成條件及銜接",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量1/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/capability_signer.py",
+   "src/rtb/executor/inbox_server.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量1/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/capability_signer.py",
+   "src/rtb/executor/inbox_server.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量1/r1-snapshot.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/capability_signer.py",
+   "src/rtb/executor/inbox_server.py"
+  ],
+  "auditor": "codex"
+ }
+]
