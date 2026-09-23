@@ -683,3 +683,48 @@ def test_only_end_to_end_is_reread_until_stable(rows, monkeypatch):
     touch_end_to_end = True
     busy_report = window(rows)
     assert (busy_report.stable, busy_report.rounds) == (False, 3)
+
+
+# ---- [S641] 代碼審第 2 輪:整份報告都用第一輪;重讀只確認端到端跟第一輪一致 ----
+def test_a_terminal_written_after_the_first_read_marks_the_report_unstable(rows, monkeypatch):
+    rows.task("r1", at(0))
+    rows.event(at(minutes=12), "r1", "handed_off")
+    original_read = m._read_analyzer
+    calls = []
+
+    def racing(*args, **kwargs):  # 第一輪執行端讀完之後,才寫進一筆窗內、接得上的終點;之後不再變
+        calls.append(1)
+        if len(calls) == 1:
+            rows.task("e1", at(0))
+            rows.event(at(minutes=20), "e1", "handed_off")
+        return original_read(*args, **kwargs)
+
+    monkeypatch.setattr(m, "_read_analyzer", racing)
+    report = window(rows)
+
+    # 後兩輪彼此相等也不算穩定:它們跟第一輪不同
+    assert (report.stable, report.rounds) == (False, 3)
+    ends = one(report, "end_to_end_seconds.max")
+    terminal = {task for s in pick(report, "terminal_event_rate") for task in s.exemplars}
+    assert ends.exemplars == ("r1",) and ends.count == 1  # 報告的數字全部出自第一輪
+    assert set(ends.exemplars) <= terminal
+    assert terminal == {"r1"}
+
+
+# ---- [S635] 代碼審第 2 輪:命令列參數錯一律是參數錯那一號,不跟資料庫檔不存在撞號 ----
+def test_missing_or_mismatched_flags_exit_with_the_bad_arguments_code(rows, capsys):
+    since, until = at(0).isoformat(), at(minutes=60).isoformat()
+    for argv in (
+        ["--analyzer-db", str(rows.analyzer_db), "--tenants-config", "t.json",
+         "--since", since, "--until", until],  # 漏 --executor-db
+        ["--executor-db", str(rows.executor_db), "--analyzer-db", str(rows.analyzer_db),
+         "--since", since, "--until", until],  # 漏 --tenants-config
+        ["--executor-db", str(rows.executor_db), "--tenants-config", "t.json",
+         "--since", since, "--until", until],  # 窗內統計沒給 --analyzer-db
+        ["--executor-db", str(rows.executor_db), "--analyzer-db", str(rows.analyzer_db),
+         "--tenants-config", "t.json", "--since", since],  # 只給 --since
+    ):
+        with pytest.raises(SystemExit) as exited:
+            m.run(argv, out=io.StringIO(), err=io.StringIO())
+        assert exited.value.code == m.EXIT_BAD_ARGUMENTS != m.EXIT_NO_DATABASE, argv
+        assert "參數錯誤" in capsys.readouterr().err

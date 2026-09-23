@@ -32,7 +32,7 @@ from enum import StrEnum
 from typing import Any
 
 from rtb import PROGRAM_VERSION
-from rtb.domain._checks import is_aware, is_plain_int
+from rtb.domain._checks import is_plain_int, require_aware
 from rtb.domain.attempt import (
     RESOLUTION_OUTCOMES,
     TERMINAL_STATES,
@@ -375,13 +375,8 @@ class Begun:
     over_limit: AggregateLimitReached | None = None
 
 
-def _require_aware(now: datetime) -> None:
-    if not is_aware(now):
-        raise ValueError("時間必須帶時區")
-
-
 def _iso(moment: datetime) -> str:
-    _require_aware(moment)
+    require_aware(moment)
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
@@ -539,7 +534,7 @@ def begin(
     帶預留時,金額大於 0 就在同一個交易裡(立即取得寫入鎖)先算租戶已用額度,加上這筆超過門檻
     丟 AggregateLimitReached、什麼都不寫;鍵已存在時不再預留也不再檢查(那把鍵第一次就扣過)。"""
     conn = _conn(tx)
-    _require_aware(now)
+    require_aware(now)
     source, actor = _by(by)
     key = operation_key(proposal)
     current = latest(tx, key)
@@ -725,7 +720,7 @@ def _current(
 ) -> AttemptRow | None:
     """呼叫端帶的預期序號仍是最新一列才回傳;不是就回 None(沒有進展,不寫入)。"""
     _conn(tx)
-    _require_aware(now)
+    require_aware(now)
     if not is_plain_int(expected_seq):  # True == 1 在 Python 成立,不能靠 == 比對
         raise TypeError("預期序號必須是整數")
     row = latest(tx, key)
@@ -829,14 +824,14 @@ def recover_in_flight(
     歷史列讀不回來的鍵跳過並回報:不然一把壞鍵會讓每次重啟都在同一點整批失敗。
     """
     conn = _conn(tx)
-    _require_aware(now)
+    require_aware(now)
     keys = [record[0] for record in conn.execute(
         "SELECT a.key FROM attempts a WHERE a.state = ? AND a.seq = "
         "(SELECT MAX(b.seq) FROM attempts b WHERE b.key = a.key) ORDER BY a.key",
         (AttemptState.IN_FLIGHT.value,),
     ).fetchall()]
     moved, unreadable = [], []
-    _require_aware(written_before)
+    require_aware(written_before)
     for key in keys:
         if key in held:
             continue

@@ -29,7 +29,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from rtb.domain._checks import is_aware, is_id
+from rtb.domain._checks import is_id, require_aware
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
 from rtb.domain.proposal import ActionType, Proposal
 from rtb.domain.task_state import IllegalTransition, TaskState, can_transition
@@ -215,10 +215,9 @@ def _tool_call(row: tuple[Any, ...]) -> ToolCall:
 
 
 def _iso(moment: datetime) -> str:
-    """沒帶時區就拒絕(比照嘗試紀錄的同名函式):不然會被當成本機時間換算,窗界整段位移、悄悄漏資料
+    """沒帶時區就拒絕(領域層共用的檢查):不然會被當成本機時間換算,窗界整段位移、悄悄漏資料
     (Phase 9 增量 2 代碼審第 1 輪)。"""
-    if not is_aware(moment):
-        raise ValueError("時間必須帶時區")
+    require_aware(moment)
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 

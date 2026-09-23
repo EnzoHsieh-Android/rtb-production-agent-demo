@@ -35,10 +35,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, NoReturn, TextIO
+from typing import Any, TextIO
 
 from rtb.analyzer.task_store import TaskReader, ToolCall, ToolEndpoint
-from rtb.domain._checks import is_aware
+from rtb.domain._checks import require_aware
 from rtb.domain.attempt import AttemptState
 from rtb.domain.proposal import KNOWN_POLICY_VERSIONS
 from rtb.executor import attempt_store, observability
@@ -60,6 +60,8 @@ from rtb.executor.inbox_store import (
     LifecycleKind,
     ReadOnlyInbox,
 )
+from rtb.ops.cli import EXIT_BAD_ARGUMENTS as EXIT_BAD_ARGUMENTS  # 參數錯(7,維運套件共用)
+from rtb.ops.cli import Parser
 
 MAX_WINDOW = timedelta(hours=24)
 MAX_PROGRAM_VERSIONS = 20
@@ -74,7 +76,6 @@ EXIT_NOT_UPGRADED = 3
 EXIT_WINDOW_TOO_LONG = 4
 EXIT_UNSTABLE = 5  # 三輪都讀到不同結果:照樣印出最後一輪,結束代碼標明不穩定
 EXIT_BAD_CONFIG = 6
-EXIT_BAD_ARGUMENTS = 7  # 參數錯(缺參數、時間沒帶時區);argparse 預設的 2 跟資料庫檔不存在撞號
 EVENT_COUNT_NOTE = ("事件次數:同一份提案每擋一次、每進一次待核可都算一次(重投再擋算兩次);"
                     "可觀測查詢的停下紀錄是同提案同種類只記一次的提案數,定義不同,數字不必相等")
 JEV_NOTE = ("不適用:本系統的分析是確定性計算,沒有呼叫模型,沒有模型與 Jev 的延遲、成本、格式失敗或"
@@ -83,13 +84,6 @@ JEV_NOTE = ("不適用:本系統的分析是確定性計算,沒有呼叫模型,�
 
 class WindowTooLong(ValueError):
     """窗超過 24 小時,或迄不在起之後。"""
-
-
-def _require_aware(*moments: datetime) -> None:
-    """時間一律要帶時區:沒帶會被當成本機時間換算,窗界整段位移、悄悄漏資料;有帶沒帶混用則比較時丟
-    TypeError(代碼審第 1 輪)。"""
-    if not all(is_aware(moment) for moment in moments):
-        raise ValueError("時間必須帶時區(例:2026-09-24T01:00:00Z 或 2026-09-24T09:00:00+08:00)")
 
 
 class LabelKind(StrEnum):
@@ -777,7 +771,7 @@ def _compute_window(
 
 
 def _check_window(since: datetime, until: datetime) -> None:
-    _require_aware(since, until)
+    require_aware(since, until)  # 時間一律要帶時區(領域層共用的檢查)
     if until <= since:
         raise WindowTooLong("窗的迄必須在起之後")
     if until - since > MAX_WINDOW:
@@ -788,27 +782,25 @@ def collect_window(
     since: datetime, until: datetime, *, executor_db: Path, analyzer_db: Path,
     tenants: Sequence[Tenant],
 ) -> Report:
-    """窗內統計。執行端讀一個快照,除端到端以外的指標都出自它;端到端每一輪重開兩邊的快照重算,兩輪
-    端到端樣本相同才回傳,最多三輪,仍不同回最後一輪並標明不穩定(照規格只給跨資料庫的端到端,代碼審
-    第 1 輪)。時間沒帶時區丟 ValueError;資料庫檔不存在丟 FileNotFoundError;還沒升級丟
-    DatabaseNotUpgraded(都不寫任何東西)。"""
+    """窗內統計。報告的每一個數字(含端到端)都出自第一輪讀到的執行端與分析端輸入。端到端跨兩個資料庫,
+    之後最多再重讀兩輪,只用來確認端到端跟第一輪一致:有一輪一致就標穩定;都不一致就標不穩定,照樣回
+    第一輪的結果——不改採較新的快照,後兩輪彼此相等也不算(代碼審第 2 輪:改採較新的會讓同一份報告
+    端到端有、終點事件率沒有)。時間沒帶時區丟 ValueError;資料庫檔不存在丟 FileNotFoundError;還沒
+    升級丟 DatabaseNotUpgraded(都不寫任何東西)。"""
     _check_window(since, until)
     start, end = _iso(since), _iso(until)
     part = _read_executor(Path(executor_db), since, until)
     analyzer = _read_analyzer(Path(analyzer_db), since, until,
                               (task for task, _, _ in part.finals))
-    previous = _end_to_end(start, end, part, analyzer.chains)
+    first = _end_to_end(start, end, part, analyzer.chains)
+    samples = _compute_window(since, until, part, analyzer, tenants, first)
     for rounds in range(2, MAX_ROUNDS + 1):
         ends = _read_executor(Path(executor_db), since, until, full=False)
         chains = _read_analyzer(Path(analyzer_db), since, until,
                                 (task for task, _, _ in ends.finals), calls=False).chains
-        current = _end_to_end(start, end, ends, chains)
-        if current == previous:
-            return Report(_compute_window(since, until, part, analyzer, tenants, current), True,
-                          rounds)
-        previous = current
-    return Report(_compute_window(since, until, part, analyzer, tenants, previous), False,
-                  MAX_ROUNDS)
+        if _end_to_end(start, end, ends, chains) == first:
+            return Report(samples, True, rounds)
+    return Report(samples, False, MAX_ROUNDS)
 
 
 # ---- 算:現況快照 ----
@@ -825,7 +817,7 @@ def _entered(history: Sequence[AttemptRow]) -> datetime:
 def collect_snapshot(now: datetime, *, executor_db: Path, tenants: Sequence[Tenant]) -> Report:
     """現況快照:佇列現況、四種沒有終點的嘗試狀態、被未結案鍵鎖住的廣告數、總曝險使用率。不套時間窗。
     「現在」沒帶時區丟 ValueError。"""
-    _require_aware(now)
+    require_aware(now)
     inbox = ReadOnlyInbox(Path(executor_db))
     try:
         with inbox.read_transaction() as tx:
@@ -870,27 +862,21 @@ def to_primitives(result: Report) -> dict[str, Any]:
                          "note": s.note} for s in result.samples]}
 
 
-class _Parser(argparse.ArgumentParser):
-    """參數錯一律以 EXIT_BAD_ARGUMENTS 結束(argparse 預設的 2 跟資料庫檔不存在撞號)。"""
-
-    def error(self, message: str) -> NoReturn:
-        self.print_usage(sys.stderr)
-        self.exit(EXIT_BAD_ARGUMENTS, f"{self.prog}: 參數錯誤:{message}\n")
-
-
 def _aware_time(text: str) -> datetime:
     """--since、--until、--now 共用:ISO 8601,一定要帶時區(Z 或 +08:00 這類偏移)。"""
     try:
         value = datetime.fromisoformat(text)
     except ValueError as bad:
         raise argparse.ArgumentTypeError(f"看不懂的時間:{text}") from bad
-    if not is_aware(value):
-        raise argparse.ArgumentTypeError(f"時間必須帶時區(例:{text}Z 或 {text}+08:00)")
+    try:
+        require_aware(value)
+    except ValueError as naive:
+        raise argparse.ArgumentTypeError(f"{naive}(例:{text}Z 或 {text}+08:00)") from naive
     return value
 
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = _Parser(description="有界標籤的指標(只讀)")
+    parser = Parser(description="有界標籤的指標(只讀)")
     parser.add_argument("--executor-db", required=True, type=Path)
     parser.add_argument("--analyzer-db", type=Path, help="窗內統計才要")
     parser.add_argument("--tenants-config", required=True, type=Path)

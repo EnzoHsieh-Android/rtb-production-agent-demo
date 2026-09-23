@@ -32,3 +32,14 @@ def is_aware(value: object) -> TypeGuard[datetime]:
     沒有時區的時間換算 UTC 時會被當成伺服器本地時間,悄悄寫錯。證據、提案、嘗試紀錄共用這一份。
     """
     return isinstance(value, datetime) and value.utcoffset() is not None
+
+
+AWARE_REQUIRED = "時間必須帶時區"
+
+
+def require_aware(*moments: object) -> None:
+    """每一個都要是帶時區的時間,否則丟 ValueError(訊息固定)。沒帶會被當成本機時間換算,時間範圍整段
+    位移;有帶沒帶混用則比較時丟 TypeError。嘗試紀錄、分析端任務歷史、指標共用這一支(Phase 9
+    增量 2 代碼審第 2 輪:原本三處各寫一份,判準與訊息各自漂移)。"""
+    if not all(is_aware(moment) for moment in moments):
+        raise ValueError(AWARE_REQUIRED)

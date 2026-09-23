@@ -280,3 +280,18 @@ def test_a_reused_task_and_revision_with_new_content_is_traced_separately(world)
                      if s.table is table and s.field("key") == operation_key(prop)]
             assert owned, (table, prop.campaign_id)
             assert {s.field("content_hash") for s in owned} == {digest}, table
+
+
+# ---- [S619] 代碼審第 2 輪:追蹤檢視的參數錯也跟資料庫檔不存在分開 ----
+def test_the_trace_command_line_reports_bad_arguments_apart_from_a_missing_database(tmp_path,
+                                                                                   capsys):
+    full = ["--task-id", "t1", "--analyzer-db", str(tmp_path / "a.db"),
+            "--executor-db", str(tmp_path / "e.db"), "--dsp-url", "http://127.0.0.1:9"]
+    for drop in ("--task-id", "--executor-db", "--dsp-url"):
+        at_flag = full.index(drop)
+        argv = full[:at_flag] + full[at_flag + 2:]
+        with pytest.raises(SystemExit) as exited:
+            trace.run(argv, out=io.StringIO(), err=io.StringIO())
+        assert exited.value.code == trace.EXIT_BAD_ARGUMENTS != trace.EXIT_NO_DATABASE, drop
+        assert "參數錯誤" in capsys.readouterr().err
+    assert trace.run(full, out=io.StringIO(), err=io.StringIO()) == trace.EXIT_NO_DATABASE
