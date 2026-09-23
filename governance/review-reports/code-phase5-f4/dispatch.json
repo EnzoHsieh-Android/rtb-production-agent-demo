@@ -1,0 +1,3 @@
+{"loop": "code-phase5-f4", "tier": "light", "base": "59e16b7", "snapshot": "snapshot.patch", "reviewed_sha256": "3c1ab0cc67664921efe4b1970c5d4eb17bddd61be0dd62bd0e3c120f953f6e3c", "seats": [
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["snapshot.patch"]},
+ {"seat": "finder-codex", "lens": "外家(額外派):測試是否真的測到宣稱的東西", "materials": ["snapshot.patch"]}]}
