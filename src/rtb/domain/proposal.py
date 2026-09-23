@@ -20,6 +20,9 @@ from typing import Any, TypeGuard
 
 from rtb.domain._checks import ID_PATTERN, is_aware, is_plain_int
 
+# 分析端目前的決策政策版本:分析端產生提案時用它,執行端判人工核可是否還算數也看它(Phase 6
+# 增量 3)。兩邊從這裡匯入,只有一個來源,不靠人同步設定檔
+POLICY_VERSION = "demo-pacing-v1"
 POLICY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}")
 REASON_PATTERN = re.compile(r"[a-z0-9_]{1,64}")
 MAX_PAYLOAD_BYTES = 16 * 1024

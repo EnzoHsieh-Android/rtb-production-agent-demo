@@ -95,8 +95,15 @@ def test_a_budget_increase_reserves_its_amount_with_the_first_attempt(h):
     assert stops(h) == []
 
 
-# ---- [S331] ----
-@pytest.mark.parametrize(("cap", "second"), [(99, Result.BLOCKED), (100, Result.EXECUTED)])
+def expire_and_settle(h):
+    """撥時鐘過提案到期,跑一次處理待核可:沒有核可的待核可確認成已擋下(增量 3 改寫)。"""
+    h.clock.advance(hours=1, seconds=1)
+    return h.executor().process_awaiting()
+
+
+# ---- [S331](增量 3 改寫:沒有有效核可時先進待核可,到期才確認成已擋下) ----
+@pytest.mark.parametrize(("cap", "second"),
+                         [(99, Result.AWAITING_APPROVAL), (100, Result.EXECUTED)])
 def test_the_aggregate_limit_blocks_at_the_threshold_and_allows_exactly_reaching_it(
         h, cap, second):
     limit(h, cap)
@@ -107,11 +114,13 @@ def test_the_aggregate_limit_blocks_at_the_threshold_and_allows_exactly_reaching
     result = h.process()
 
     assert result.kind is second
-    if second is Result.BLOCKED:
+    if second is Result.AWAITING_APPROVAL:
         assert result.block_code is BlockCode.AGGREGATE_LIMIT_REACHED
-        assert h.proposals()[1][3:] == ("blocked", "aggregate_limit_reached")
+        assert h.proposals()[1][3:] == ("awaiting_approval", "aggregate_limit_reached")
         assert first_row(h, other) == []  # 不開嘗試
         assert len(h.dsp.writes) == 1  # 不呼叫 DSP
+        assert expire_and_settle(h) == 1
+        assert h.proposals()[1][3:] == ("blocked", "aggregate_limit_reached")
 
 
 # ---- [S332] ----
@@ -240,7 +249,7 @@ def test_two_workers_cannot_race_past_the_aggregate_limit(h, monkeypatch):
     results = _race_two_workers(h, monkeypatch)
 
     kinds = sorted(r.kind.value for r in results.values())
-    assert kinds == sorted([Result.EXECUTED.value, Result.BLOCKED.value])
+    assert kinds == sorted([Result.EXECUTED.value, Result.AWAITING_APPROVAL.value])
     assert len(h.dsp.writes) == 1
     assert used(h.store, h.clock()) <= 99
 
@@ -255,7 +264,7 @@ def test_a_missing_aggregate_limit_blocks_only_that_tenant_and_lowering_it_appli
     h.submit()
     h.submit(task_id="t2", campaign_id="c2")
 
-    assert h.process().kind is Result.BLOCKED  # 缺欄當 0:只擋 no-limit
+    assert h.process().kind is Result.AWAITING_APPROVAL  # 缺欄當 0:只擋 no-limit
     assert h.process().kind is Result.EXECUTED  # 另一個租戶照常
     assert stops(h)[0][0] == "aggregate_limit_reached" and stops(h)[0][4] == "no-limit"
 
@@ -263,7 +272,7 @@ def test_a_missing_aggregate_limit_blocks_only_that_tenant_and_lowering_it_appli
         "has-limit": {"campaigns": ["c2", "c3"], "max_budget": 1000, "aggregate_limit": 60},
         "no-limit": {"campaigns": ["c1"], "max_budget": 1000}}}), encoding="utf-8")
     h.submit(task_id="t3", campaign_id="c3")
-    assert h.process().kind is Result.BLOCKED  # 調降後下一次簽發起生效:50 + 50 > 60
+    assert h.process().kind is Result.AWAITING_APPROVAL  # 調降後下一次簽發起生效:50 + 50 > 60
 
     for broken in (-1, "100", 1.5, MAX_INT + 1, True):
         h.config.write_text(json.dumps({"tenants": {"x": {
@@ -372,7 +381,7 @@ def test_every_stop_leaves_one_durable_record_per_proposal(h):
     limit(h, 10)
     prop = h.submit()
 
-    assert h.process().kind is Result.BLOCKED
+    assert h.process().kind is Result.AWAITING_APPROVAL
     assert stops(h) == [("aggregate_limit_reached", "t1", 1, operation_key(prop), TENANT, "c1",
                          50, 0, 10, 0)]
     assert stop_identity(h) == [(content_hash(prop), attempt_store._iso(h.clock()))]
@@ -461,12 +470,12 @@ def test_an_unreadable_old_snapshot_halts_instead_of_crashing(h):
 
 
 def test_a_lost_receipt_during_an_aggregate_block_writes_no_stop(h, monkeypatch):
-    """收據失效代表這份提案已被別的工作者接手:由它擋、由它記;這邊整個交易回滾、不重複記。"""
+    """收據失效代表這份提案已被別的工作者接手:由它處置、由它記;這邊整個交易回滾、不重複記。"""
     from rtb.executor.execution import LeaseLost
 
     limit(h, 10)
     h.submit()
-    monkeypatch.setattr(InboxStore, "ack_blocked", lambda *_a, **_k: False)
+    monkeypatch.setattr(InboxStore, "await_approval", lambda *_a, **_k: False)
 
     assert h.process().kind is Result.LEASE_LOST
     assert stops(h) == []

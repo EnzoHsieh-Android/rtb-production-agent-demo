@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from rtb.capabilitykit import KEY_ENV, MIN_KEY_BYTES, decode
+from rtb.capabilitykit import APPROVAL_KEY_ENV, KEY_ENV, MIN_KEY_BYTES, decode
 from rtb.domain.attempt import operation_key
 from rtb.domain.proposal import parse_proposal
 from rtb.dsp.store import CampaignStore
@@ -160,9 +160,10 @@ def test_a_missing_or_short_key_disables_both_signing_and_verifying(key, tmp_pat
     from pathlib import Path
 
     src = Path(__file__).resolve().parents[2] / "src" / "rtb"
-    readers = sorted(str(f.relative_to(src)) for f in src.rglob("*.py")
-                     if KEY_ENV in f.read_text(encoding="utf-8"))
-    assert readers == ["capabilitykit.py"]  # 變數名稱只出現在共用模組一處
+    for name in (KEY_ENV, APPROVAL_KEY_ENV):  # 人工核可金鑰比照集中定義(Phase 6 增量 3)
+        readers = sorted(str(f.relative_to(src)) for f in src.rglob("*.py")
+                         if name in f.read_text(encoding="utf-8"))
+        assert readers == ["capabilitykit.py"], name  # 變數名稱只出現在共用模組一處
 
     # DSP 的啟動程式(真的子行程、真的讀環境變數):讀不到可用金鑰就啟動成「拒收所有寫入」
     from tests.capability_samples import header

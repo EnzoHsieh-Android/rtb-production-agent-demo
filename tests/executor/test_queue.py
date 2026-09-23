@@ -323,6 +323,11 @@ def _blocked(h):
     h.process()
 
 
+def _awaiting_approval(h):  # Phase 6 增量 3:比例過大又沒有核可
+    h.submit(requested_change={"new_budget": 151})
+    h.process()
+
+
 def _dead_letter(h):
     h.submit()
     h.dsp.read_failures = MAX_DELIVERIES
@@ -349,6 +354,7 @@ def _no_report(h):
 DISPOSITION_TRIGGERS = {
     Disposition.IN_PROGRESS: _in_progress, Disposition.HANDED_OFF: _handed_off,
     Disposition.BLOCKED: _blocked, Disposition.DEAD_LETTER: _dead_letter,
+    Disposition.AWAITING_APPROVAL: _awaiting_approval,
 }
 DEAD_LETTER_TRIGGERS = {DeadLetterReason.DELIVERY_LIMIT: _dead_letter}
 FAILURE_TRIGGERS = {

@@ -1,8 +1,9 @@
-"""護欄表格:Phase 6 增量 2 的 S400 到 S405、S409。
+"""護欄表格:Phase 6 增量 2 的 S400 到 S405、S409(增量 3 改寫比例那一條的位置與結果)。
 
 單筆規則只有兩處程式:執行前檢查(看 DSP 現況)與簽發器(看租戶設定)。這裡的護欄表把兩處的
 六條規則與順序寫在一起,當成測試資料跑邊界值;表不是第三套檢查。比例上限是使用者 2026-09-23
-裁定的值:加的量不得超過 max(現況的五成取下限, 1),全域一個值。
+裁定的值:加的量不得超過 max(現況的五成取下限, 1),全域一個值。增量 3 起比例是可核可的一關:
+判斷搬進護欄模組、排在簽發(租戶規則)之後,超過時停在待核可而不是擋下結案。
 完整性三份清單與舊收件表寫入新代碼([S404]、[S406])依賴增量 1,增量 1 合併後補上。
 """
 
@@ -20,9 +21,9 @@ from rtb.domain.attempt import operation_key
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
 from rtb.domain.proposal import MAX_INT
 from rtb.domain.task_state import TaskState
-from rtb.executor import attempt_store
+from rtb.executor import attempt_store, guardrails
 from rtb.executor.execution import CampaignView, Result, WriteAnswer, precheck
-from rtb.executor.inbox_store import BlockCode, InboxStore
+from rtb.executor.inbox_store import APPROVABLE, BlockCode, InboxStore
 from tests.executor.fakes import Harness, proposal, write_config
 
 LATER = "2026-09-22T12:40:00+00:00"
@@ -56,8 +57,8 @@ def _pause():
     (MAX_INT - 1, MAX_INT, False),
 ])
 def test_a_budget_increase_is_bounded_by_the_ratio_cap(current, new_budget, blocked):
-    expected = BlockCode.BUDGET_INCREASE_TOO_LARGE if blocked else None
-    assert precheck(_raise_to(new_budget), _view(current)) is expected
+    assert guardrails.increase_too_large(_raise_to(new_budget), current) is blocked
+    assert precheck(_raise_to(new_budget), _view(current)) is None  # 比例不在執行前檢查了
 
 
 def test_a_ratio_block_writes_nothing(h):
@@ -65,17 +66,19 @@ def test_a_ratio_block_writes_nothing(h):
 
     result = h.process()
 
-    assert (result.kind, result.block_code) == (Result.BLOCKED, BlockCode.BUDGET_INCREASE_TOO_LARGE)
-    assert h.proposals() == [("t1", 1, "pending", "blocked", "budget_increase_too_large")]
+    assert (result.kind, result.block_code) == (
+        Result.AWAITING_APPROVAL, BlockCode.BUDGET_INCREASE_TOO_LARGE)
+    assert h.proposals() == [("t1", 1, "pending", "awaiting_approval",
+                              "budget_increase_too_large")]
     assert h.attempts() == [] and h.dsp.writes == []  # 不寫嘗試紀錄、不呼叫 DSP 寫入
 
 
 # ---- S401 ----
 @pytest.mark.parametrize("current", [1, 100, 10_000])
 def test_decreases_and_pauses_are_not_bounded_by_the_ratio_cap(current):
-    assert precheck(_raise_to(1), _view(current)) is None  # 減到 1
-    assert precheck(_raise_to(current), _view(current)) is None  # 不變
-    assert precheck(_pause(), _view(current)) is None
+    assert not guardrails.increase_too_large(_raise_to(1), current)  # 減到 1
+    assert not guardrails.increase_too_large(_raise_to(current), current)  # 不變
+    assert not guardrails.increase_too_large(_pause(), current)
 
 
 # ---- S402 ----
@@ -104,9 +107,10 @@ def _policy_proposal(budget):
 def test_the_analyzer_policy_never_trips_the_ratio_cap():
     # 單一測試逐一檢查(不參數化成上千項,全套數字才看得出真實變化);失敗時指出第一個違反的預算
     budgets = [*range(1, 1001), 10**6, 10**9, 2**62, MAX_INT - 1, MAX_INT]
+    # 增量 3 起直接呼叫護欄模組的比例判斷:比例搬出執行前檢查後,呼叫那邊會永遠通過、測不到東西
     tripped = next((b for b in budgets
-                    if precheck(_policy_proposal(b), _view(b, version=7)) is not None), None)
-    assert tripped is None, f"預算 {tripped} 時分析端的提案被執行前檢查擋下"
+                    if guardrails.increase_too_large(_policy_proposal(b), b)), None)
+    assert tripped is None, f"預算 {tripped} 時分析端的提案撞到比例上限"
 
 
 # ---- S403 ----
@@ -139,22 +143,27 @@ GUARDRAILS = [
     ("version_changed", _campaign(version=4), 150, BlockCode.VERSION_CHANGED),
     ("version_changed", _campaign(version=2), 150, BlockCode.VERSION_CHANGED),
     ("version_changed", _campaign(version=3), 150, None),
-    # 4 比例上限(新):現況 100,上限加 50
-    ("budget_increase_too_large", _as_is, 150, None),
-    ("budget_increase_too_large", _as_is, 149, None),
-    ("budget_increase_too_large", _as_is, 151, BlockCode.BUDGET_INCREASE_TOO_LARGE),
-    # 5 不屬於租戶
+    # 4 不屬於租戶
     ("campaign_not_allowed", _tenant(campaigns=("c2",)), 150, BlockCode.CAMPAIGN_NOT_ALLOWED),
     ("campaign_not_allowed", _tenant(campaigns=("c1", "c2")), 150, None),
-    # 6 超過單一廣告上限:現況 900 讓加的量都在比例內,上限 1000
+    # 5 超過單一廣告上限:現況 900 讓加的量都在比例內,上限 1000
     ("over_budget_cap", _campaign(budget=900), 1000, None),
     ("over_budget_cap", _campaign(budget=900), 999, None),
     ("over_budget_cap", _campaign(budget=900), 1001, BlockCode.OVER_BUDGET_CAP),
+    # 6 比例上限(可核可,增量 3 起排在簽發之後、超過時停在待核可):現況 100,上限加 50
+    ("budget_increase_too_large", _as_is, 150, None),
+    ("budget_increase_too_large", _as_is, 149, None),
+    ("budget_increase_too_large", _as_is, 151, BlockCode.BUDGET_INCREASE_TOO_LARGE),
 ]
-SINGLE_RULE_CODES = (  # 表上的順序就是程式判斷的順序
+SINGLE_RULE_CODES = (  # 表上的順序就是程式判斷的順序:硬規則在前,可核可的比例最後
     BlockCode.CAMPAIGN_NOT_FOUND, BlockCode.CAMPAIGN_NOT_ACTIVE, BlockCode.VERSION_CHANGED,
-    BlockCode.BUDGET_INCREASE_TOO_LARGE, BlockCode.CAMPAIGN_NOT_ALLOWED, BlockCode.OVER_BUDGET_CAP,
+    BlockCode.CAMPAIGN_NOT_ALLOWED, BlockCode.OVER_BUDGET_CAP, BlockCode.BUDGET_INCREASE_TOO_LARGE,
 )
+
+
+def _outcome(code):
+    """可核可的一關停在待核可,硬規則擋下結案。"""
+    return Result.AWAITING_APPROVAL if code in APPROVABLE else Result.BLOCKED
 
 
 def _run(h, setup, new_budget):
@@ -172,7 +181,7 @@ def test_every_guardrail_holds_at_its_boundaries(h, rule, setup, new_budget, exp
         assert result.kind is Result.EXECUTED, rule
         assert len(h.dsp.writes) == 1
     else:
-        assert (result.kind, result.block_code) == (Result.BLOCKED, expected), rule
+        assert (result.kind, result.block_code) == (_outcome(expected), expected), rule
         assert h.attempts() == [] and h.dsp.writes == []
 
 
@@ -253,7 +262,8 @@ def test_an_old_inbox_accepts_the_new_block_code_after_opening(tmp_path, clock):
     ((_campaign(status="paused"),), 151, BlockCode.CAMPAIGN_NOT_ACTIVE),  # 不在投放 > 比例
     ((_campaign(status="paused", version=4),), 150, BlockCode.CAMPAIGN_NOT_ACTIVE),  # > 版本已變
     ((_campaign(version=4),), 151, BlockCode.VERSION_CHANGED),  # 版本已變 > 比例
-    ((_tenant(campaigns=("c2",)),), 151, BlockCode.BUDGET_INCREASE_TOO_LARGE),  # 比例 > 租戶
+    ((_tenant(campaigns=("c2",)),), 151, BlockCode.CAMPAIGN_NOT_ALLOWED),  # 租戶 > 比例(增量 3)
+    ((_tenant(max_budget=120),), 151, BlockCode.OVER_BUDGET_CAP),  # 單一廣告上限 > 比例(增量 3)
     ((_tenant(campaigns=("c2",), max_budget=120),), 150, BlockCode.CAMPAIGN_NOT_ALLOWED),
 ])
 def test_the_first_failing_guardrail_wins(h, setups, new_budget, expected):
@@ -261,7 +271,7 @@ def test_the_first_failing_guardrail_wins(h, setups, new_budget, expected):
     for setup in setups:
         setup(h)
     result = h.process()
-    assert (result.kind, result.block_code) == (Result.BLOCKED, expected)
+    assert (result.kind, result.block_code) == (_outcome(expected), expected)
 
 
 # ---- S409 ----

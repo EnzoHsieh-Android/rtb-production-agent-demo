@@ -139,15 +139,16 @@ def test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer():
     """直接解析分析行程的原始碼,不看 noqa:ruff 禁令一行 noqa 就能跳過(領域層踩過同一個坑)。"""
     import ast
 
-    from rtb.capabilitykit import KEY_ENV
+    from rtb.capabilitykit import APPROVAL_KEY_ENV, KEY_ENV
     from rtb.executor import capability_signer
 
     analyzer = Path(__file__).resolve().parents[2] / "src" / "rtb" / "analyzer"
     offenders = []
     for file in sorted(analyzer.rglob("*.py")):
         source = file.read_text(encoding="utf-8")
-        if KEY_ENV in source:
-            offenders.append((file.name, "key env name"))
+        for name in (KEY_ENV, APPROVAL_KEY_ENV):  # 簽發金鑰與人工核可金鑰(Phase 6 增量 3)
+            if name in source:
+                offenders.append((file.name, name))
         for node in ast.walk(ast.parse(source)):
             names = []
             if isinstance(node, ast.Import):

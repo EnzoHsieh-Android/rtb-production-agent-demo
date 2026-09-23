@@ -283,7 +283,8 @@ def _from_proposed(
 
 
 # 收件口回應的處置 → 下一步;不在表裡的處置當成回應讀不懂(這一輪沒有進展)
-_OPEN_STATES = frozenset({"pending", "in_progress"})
+# 待核可(Phase 6 增量 3)跟處理中一樣是等待:人核可後執行端接續處理,到期才確認成已擋下
+_OPEN_STATES = frozenset({"pending", "in_progress", "awaiting_approval"})
 _CLOSED_WITHOUT_REPLAN = frozenset({"blocked", "dead_letter"})
 _KNOWN_STATES = _OPEN_STATES | _CLOSED_WITHOUT_REPLAN | {"handed_off", "expired", "superseded"}
 _PURGED_CODES = frozenset({"expired_proposal", "revision_out_of_order"})  # 收件表已清掉

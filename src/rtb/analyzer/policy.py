@@ -22,9 +22,8 @@ from rtb.analyzer.task_store import TaskRow
 from rtb.domain._checks import is_plain_number
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass, check_freshness
 from rtb.domain.metrics import pacing
-from rtb.domain.proposal import MAX_INT, ActionType, Proposal
+from rtb.domain.proposal import MAX_INT, POLICY_VERSION, ActionType, Proposal
 
-POLICY_VERSION = "demo-pacing-v1"
 UNDERPACING_THRESHOLD = 0.5  # 暫用值:配速低於這個比例才算「明顯偏低」
 BUDGET_INCREASE_FRACTION = 0.1  # 暫用值:提案調高一成
 ELAPSED_FRACTION_1H = 1 / 24  # 這個增量只讀 1 小時窗,對應一天預算的 1/24
