@@ -69,6 +69,7 @@ class Table(StrEnum):
 
 class Absent(StrEnum):
     MISSING = "missing"  # 這一欄缺:來源沒有記、或這一段本來就不知道
+    UNKNOWN = "unknown"  # 呼叫紀錄沒記內容雜湊:同一把鍵可能對應好幾份內容,不任選一個
 
 
 class KeyOrigin(StrEnum):
@@ -78,6 +79,7 @@ class KeyOrigin(StrEnum):
 
 
 MISSING = Absent.MISSING
+UNKNOWN = Absent.UNKNOWN
 ORIGIN_ORDER = tuple(Origin)
 TABLE_ORDER = tuple(Table)
 FIELDS = ("task_id", "revision", "content_hash", "key", "tenant", "campaign_id", "worker",
@@ -274,11 +276,11 @@ def _attempt_segment(row: AttemptTraceRow) -> Segment:
                                         "program_version": row.program_version})
 
 
-def _call_segment(call: DspCallRow, hashes: Mapping[tuple[str, int, str], str | None]) -> Segment:
-    """呼叫紀錄沒存內容雜湊;同一個任務與修訂下,冪等鍵分得開內容不同的兩份提案,用它接回雜湊。"""
-    ident = (call.task_id or "", call.revision or 0, call.key or "")
+def _call_segment(call: DspCallRow) -> Segment:
+    """內容雜湊讀那一列自己在呼叫當下記的;沒記的標「不明」,不從冪等鍵回推(同鍵可以不同雜湊,
+    代碼審第 2 輪)。"""
     fields = {"task_id": call.task_id, "revision": call.revision, "key": call.key,
-              "content_hash": hashes.get(ident),
+              "content_hash": UNKNOWN if call.content_hash is None else call.content_hash,
               "campaign_id": call.campaign_id, "worker": call.actor}
     return _segment((Origin.EXECUTOR, Table.DSP_CALLS), call.at, (call.id,), call.kind, fields,
                     {"result": call.result, "status": call.status, "error": call.error,
@@ -345,10 +347,9 @@ def _read_executor(path: Path, analyzer: _AnalyzerPart) -> _ExecutorPart:
     owners: dict[str, Ident] = {
         key: (rows[0].task_id or "", rows[0].revision or 0, rows[0].content_hash)
         for key, rows in attempts.items() if rows}
-    hashes = {(task, revision, key): digest for (task, revision, digest), (key, _) in keys.items()}
     segments = [_event_segment(e) for e in events]
     segments += [_attempt_segment(row) for rows in attempts.values() for row in rows]
-    segments += [_call_segment(c, hashes) for c in calls] + _letter_segments(letters, ops)
+    segments += [_call_segment(c) for c in calls] + _letter_segments(letters, ops)
     return _ExecutorPart(tuple(segments), _revisions(keys, owners), tuple(sorted(owners.items())))
 
 

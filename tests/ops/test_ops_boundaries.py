@@ -83,19 +83,28 @@ def _ops_offenders(ops_dir):
     return offenders
 
 
-# 用字串動態取屬性的寫法(代碼審第 1 輪):名字掃描看不到字串裡的方法名,維運套件本身也用不到,一律不准
+# 用字串動態取屬性、用字串執行程式、動態匯入(代碼審第 1、2 輪):名字掃描看不到字串裡的方法名,
+# 維運套件本身也用不到,一律不准
 DYNAMIC_LOOKUPS = frozenset({"getattr", "attrgetter", "methodcaller", "__getattribute__", "vars",
-                             "__dict__"})
+                             "__dict__", "eval", "exec", "compile", "__import__", "importlib",
+                             "import_module"})
 
 
 def _dynamic_lookups(label, tree):
     found = []
     for node in ast.walk(tree):
-        name = (node.id if isinstance(node, ast.Name) else node.attr
-                if isinstance(node, ast.Attribute) else node.name
-                if isinstance(node, ast.alias) else None)
-        if name in DYNAMIC_LOOKUPS:
-            found.append(f"{label}:{getattr(node, 'lineno', 0)} 動態取屬性 {name}")
+        if isinstance(node, ast.Name):
+            names = [node.id]
+        elif isinstance(node, ast.Attribute):
+            names = [node.attr]
+        elif isinstance(node, ast.alias):
+            names = [node.name, node.name.split(".")[0]]
+        elif isinstance(node, ast.ImportFrom):
+            names = [(node.module or "").split(".")[0]]
+        else:
+            continue
+        found += [f"{label}:{getattr(node, 'lineno', 0)} 動態取屬性或執行 {name}"
+                  for name in names if name in DYNAMIC_LOOKUPS]
     return found
 
 
@@ -158,6 +167,16 @@ def test_the_ops_package_is_read_only_and_imported_by_nobody():
     "\nfrom operator import methodcaller\n\n_w = methodcaller('release', None, None)\n",
     "\ndef _w(s):\n    return s.__getattribute__('release')\n",
     "\ndef _w(s):\n    return vars(type(s))['release']\n",
+    # 用字串執行程式或動態匯入(代碼審第 2 輪)
+    "\ndef _w(s):\n    return eval('s.rel' + 'ease')\n",
+    "\ndef _w(s):\n    exec('s.release()')\n",
+    "\ndef _w():\n    return compile('x', 'y', 'eval')\n",
+    "\ndef _w():\n    return __import__('rtb.executor.inbox_store')\n",
+    "\nimport importlib\n",
+    "\nfrom importlib import import_module\n",
+    "\ndef _w():\n    import importlib.util\n    return importlib.util\n",
+    "\nimport importlib.util as _iu\n",  # 只有子模組的名字
+    "\nfrom importlib.util import find_spec as _fs\n",  # 從子模組匯入別的名字
 ])
 def test_the_ops_scan_catches_a_write_call(tmp_path, extra):
     """[S617] 的殺傷力:在維運套件的副本放一個寫入呼叫,掃描就要找到。"""

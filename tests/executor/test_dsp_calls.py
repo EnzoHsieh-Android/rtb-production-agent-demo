@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from rtb.domain.attempt import operation_key
+from rtb.domain.proposal import content_hash
 from rtb.executor.attempt_store import DspCallKind, DspCallResult, DspErrorCode
 from rtb.executor.dsp_client import DspClient
 from rtb.executor.execution import DspUnavailable, Result, WriteAnswer
@@ -282,6 +283,41 @@ def _other_database_errors_still_propagate(h, worker, monkeypatch):
 
 
 # ---- [S618] 代碼審第 1 輪:顯式傳回呼,共用一個 DSP 用戶端的工作者各記各的 ----
+def test_calls_owed_during_a_job_are_written_when_the_job_ends(tmp_path, clock, monkeypatch):
+    """每一份工作(處理一筆、對帳一把鍵)結束時補寫:工作中每次呼叫都撞忙,結束時鎖放開就補上。"""
+    from rtb.executor import attempt_store
+    from rtb.sqlitekit import DatabaseBusy
+
+    real, misses = attempt_store.record_dsp_call, {"left": 0}
+
+    def busy_during_the_job(*args, **kwargs):
+        if misses["left"]:
+            misses["left"] -= 1  # 每次撞忙的補寫只碰到第一列就丟,所以一次補寫扣一次
+            raise DatabaseBusy("database is locked")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(attempt_store, "record_dsp_call", busy_during_the_job)
+    h = Harness(tmp_path, clock)
+    try:
+        worker = h.executor()
+        h.submit()
+        misses["left"] = 3  # 讀、寫、查證讀:三次呼叫當下都補寫不進去
+        assert worker.process_one().kind is Result.EXECUTED
+        assert h.query("SELECT count(*) FROM dsp_calls") == [(3,)]
+        assert worker.unrecorded() == ()
+
+        h.submit(task_id="t2", campaign_id="c2")
+        h.dsp.answers.append(WriteAnswer(None))  # 結果不明:留一把要對帳的鍵
+        assert worker.process_one().kind is Result.EXECUTED
+        before = h.query("SELECT count(*) FROM dsp_calls")[0][0]
+        misses["left"] = 4  # 對帳這把鍵:查操作紀錄、讀、重送、查證讀,當下都補寫不進去
+        worker.reconcile_all()
+        assert h.query("SELECT count(*) FROM dsp_calls")[0][0] == before + 4
+        assert worker.unrecorded() == ()
+    finally:
+        h.close()
+
+
 def test_two_workers_sharing_one_dsp_client_record_their_own_calls(tmp_path, clock):
     from rtb.executor.execution import DspPort
 
@@ -314,3 +350,20 @@ def test_an_error_status_with_an_unreadable_body_keeps_its_status(dsp):
             assert [(c.kind, c.result, c.status) for c in seen] == [(kind, expected, status)], (
                 kind, status)
             assert getattr(answer, "failure", None) is expected  # 回應或例外帶同一個分類
+
+
+def test_a_call_record_table_opened_earlier_on_this_branch_gains_the_content_hash_column(
+        tmp_path, clock):
+    """內容雜湊欄在同一個增量後補(代碼審第 2 輪):早先開過的資料庫開啟時補上,之後照常寫。"""
+    Harness(tmp_path, clock).close()
+    conn = sqlite3.connect(tmp_path / "executor.db")
+    conn.execute("ALTER TABLE dsp_calls DROP COLUMN content_hash")
+    conn.commit()
+    conn.close()
+    h = Harness(tmp_path, clock)
+    try:
+        prop = h.submit()
+        assert h.process().kind is Result.EXECUTED
+        assert set(h.query("SELECT content_hash FROM dsp_calls")) == {(content_hash(prop),)}
+    finally:
+        h.close()

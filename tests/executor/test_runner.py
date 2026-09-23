@@ -401,3 +401,75 @@ def test_a_busy_restart_recovery_at_startup_retries_before_giving_up(h, monkeypa
     monkeypatch.setattr(runner, "_recover", busy_then(3))
     assert run_in_process(h) == runner.EXIT_BUSY
     assert len(tries) == 3
+
+
+# ---- [S618] 代碼審第 2 輪:呼叫紀錄的待寫清單要有信號、有上限、停機時不無聲丟掉 ----
+def _always_busy(monkeypatch):
+    from rtb.sqlitekit import DatabaseBusy
+
+    def busy(*_args, **_kwargs):
+        raise DatabaseBusy("database is locked")
+
+    monkeypatch.setattr(attempt_store, "record_dsp_call", busy)
+
+
+def test_a_call_record_backlog_that_stays_busy_counts_toward_the_busy_limit(
+        h, monkeypatch, capsys):
+    _always_busy(monkeypatch)  # 主交易都成功,只有補寫呼叫紀錄一直忙
+    for task, campaign in (("b1", "c1"), ("b2", "c2"), ("b3", "c3")):
+        h.submit(task_id=task, campaign_id=campaign)
+    assert run_in_process(h, max_rounds=10) == runner.EXIT_BUSY
+    assert len(h.dsp.writes) == runner.BUSY_LIMIT  # 每輪處理一筆,第 BUSY_LIMIT 輪之後就停
+    latest = {row[0]: row[2] for row in h.attempts()}  # 依序號排,最後一列就是現況
+    assert set(latest.values()) == {"verified"}  # 業務交易照常成功
+    assert "補寫" in capsys.readouterr().err
+
+
+def test_a_full_call_record_backlog_stops_new_dsp_calls(h, monkeypatch):
+    from rtb.executor import execution
+    from rtb.executor.execution import Result
+
+    assert execution.MAX_PENDING_CALLS == 50  # 上限 50 列(暫用,代使用者裁定)
+    monkeypatch.setattr(execution, "MAX_PENDING_CALLS", 2)
+    _always_busy(monkeypatch)
+    for task, campaign in (("p1", "c1"), ("p2", "c2")):
+        h.submit(task_id=task, campaign_id=campaign)
+    h.dsp.answers.append(WriteAnswer(None))  # 第一筆結果不明:留一把要對帳的鍵
+    worker = h.executor()
+    assert worker.process_one().kind is Result.EXECUTED  # 讀、寫兩次呼叫,清單到上限
+    calls = len(h.dsp.reads) + len(h.dsp.writes) + len(h.dsp.lookups)
+    assert worker.process_one().kind is Result.DEFERRED  # 到上限:不開始新的一筆
+    assert worker.reconcile_all() is False  # 也不對帳(那把結果不明的鍵這輪不查)
+    assert len(h.dsp.reads) + len(h.dsp.writes) + len(h.dsp.lookups) == calls  # 沒有新的 DSP 呼叫
+    assert h.query("SELECT count(*) FROM proposals WHERE disposition IS NULL") == [(1,)]
+
+    monkeypatch.undo()  # 補寫成功才恢復
+    monkeypatch.setattr(execution, "MAX_PENDING_CALLS", 2)
+    worker.reconcile_all()
+    assert len(h.dsp.lookups) == 1
+    assert h.query("SELECT count(*) FROM dsp_calls")[0][0] >= 3
+
+
+def test_calls_still_unrecorded_at_shutdown_are_reported(h, monkeypatch, capsys):
+    _always_busy(monkeypatch)
+    prop = h.submit()
+    assert run_in_process(h, max_rounds=1) == 0  # 退出碼照舊
+    err = capsys.readouterr().err
+    assert "少記 3 列" in err and operation_key(prop) in err
+
+
+def test_a_call_record_backlog_that_fills_mid_reconcile_stops_before_the_next_key(
+        h, monkeypatch):
+    from rtb.executor import execution
+
+    _always_busy(monkeypatch)
+    worker = h.executor()
+    for task, campaign in (("m1", "c1"), ("m2", "c2")):  # 兩筆結果不明:留兩把要對帳的鍵
+        h.submit(task_id=task, campaign_id=campaign)
+        h.dsp.answers.append(WriteAnswer(None))
+        worker.process_one()
+    owed = len(worker.unrecorded())
+    monkeypatch.setattr(execution, "MAX_PENDING_CALLS", owed + 1)  # 對帳開始時還沒到上限
+    worker.reconcile_all()
+    assert len(h.dsp.lookups) == 1  # 第一把鍵查一次就到上限:第二把鍵不查
+    assert len(worker.unrecorded()) > owed  # 第一把鍵的呼叫也欠著(補寫仍忙)

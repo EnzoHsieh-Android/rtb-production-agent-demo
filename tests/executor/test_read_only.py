@@ -62,7 +62,7 @@ def _populate(store):
         attempt_store.record_dsp_call(
             tx, attempt_store.DspCall(attempt_store.DspCallKind.WRITE,
                                       attempt_store.DspCallResult.RESPONDED, 200, 1.5, None),
-            attempt_store.CallSubject("r2", 1, "c2", begun.row.key),
+            attempt_store.CallSubject("r2", 1, "c2", begun.row.key, "h-r2"),
             attempt_store.Actor(attempt_store.Source.EXECUTOR_LOOP, "w1"), NOW)
     return begun.row.key
 

@@ -270,7 +270,8 @@ _PROPOSAL_FIELDS = ("task_id", "revision", "content_hash", "state", "payload", "
                     "last_failure", "lease_until", "lease_seq", "lease_owner", "deliveries")
 _FIELD_DEFAULTS = {"lease_seq": "0", "deliveries": "0"}
 # 舊資料庫缺的欄位(嘗試表):表 -> [(欄位名, 補欄位定義)]
-_ADDED_COLUMNS = {"attempts": list(attempt_store.ADDED_COLUMNS)}
+_ADDED_COLUMNS = {"attempts": list(attempt_store.ADDED_COLUMNS),
+                  "dsp_calls": list(attempt_store.DSP_CALL_ADDED_COLUMNS)}
 _LIFECYCLE_FIELDS = ("id", "at", "task_id", "revision", "content_hash", "campaign_id", "key",
                      "policy_version", "tenant", "kind", "reason", "source", "actor", "deliveries",
                      "from_existing", "program_version")
