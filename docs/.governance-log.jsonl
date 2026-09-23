@@ -2464,3 +2464,7 @@
 {"ts": "2026-09-23T18:15:22+08:00", "commit": "e1d0a3f", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-23T18:15:23+08:00", "commit": "e1d0a3f", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "e1d0a3f1af3135ec71caa120be68aaf3694caeaf"}
 {"ts": "2026-09-23T18:25:24+08:00", "commit": "37edebf", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase6權限護欄與總曝險_計劃.md"], "note": "door=high clauses=20 bound=1 red=0 green=1 weak=0 regress=34 S407=green"}
+{"ts": "2026-09-23T18:26:05+08:00", "commit": "37edebf", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T18:26:05+08:00", "commit": "37edebf", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "37edebf25101b5f1aa7177f7da67604192497ec4"}
+{"ts": "2026-09-23T18:26:17+08:00", "commit": "5510130", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase6權限護欄與總曝險-增量2"], "note": "disposal gate PASS"}
+{"ts": "2026-09-23T18:33:58+08:00", "commit": "5510130", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase6權限護欄與總曝險_計劃.md"], "note": "door=high clauses=20 bound=1 red=0 green=1 weak=0 regress=34 S407=green"}
