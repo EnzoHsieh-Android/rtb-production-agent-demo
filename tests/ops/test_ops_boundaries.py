@@ -25,10 +25,16 @@ READ_WHITELIST = frozenset({
     "handed_off_keys",  # 分析端
     "lifecycle_events", "dead_letters_for", "dead_letter_ops_for",  # 收件口
     "trace_rows", "dsp_calls_for",  # 嘗試紀錄
+    # 指標(增量 2):窗口讀取函式、現況快照的讀法、總曝險使用率與租戶設定檔的讀取
+    "lifecycle_events_between", "last_terminal_event", "pending_snapshot",  # 收件口
+    "dsp_calls_between", "terminal_rows_between", "unresolved_keys", "campaigns_with_unresolved",
+    "tool_calls_between",  # 分析端
+    "utilization", "load_tenants",
     "failure_class",  # 死信信封的欄位名;同名的是收件口的分類函式,也是機械判定的非寫入函式
 })
 SCANNED = (SRC / "executor" / "inbox_store.py", SRC / "executor" / "attempt_store.py",
-           SRC / "analyzer" / "task_store.py")
+           SRC / "analyzer" / "task_store.py", SRC / "executor" / "observability.py",
+           SRC / "executor" / "capability_signer.py")
 
 
 def _defined_names(classes=True):

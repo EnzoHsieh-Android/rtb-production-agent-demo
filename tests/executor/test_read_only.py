@@ -86,6 +86,8 @@ def _read_samples(key):
         "InboxReads.last_terminal_event": ("s", ("r1", 1, inbox_store.content_hash(PROP))),
         "InboxReads.dead_letters_for": ("s", ("r1",)),
         "InboxReads.dead_letter_ops_for": ("s", ("r1",)),
+        "InboxReads.lifecycle_events_between": ("s", (NOW - timedelta(hours=1), LATER)),
+        "InboxReads.pending_snapshot": ("s", ()),
         "latest": ("a", (key,)),
         "history": ("a", (key,)),
         "snapshot": ("a", (key,)),
@@ -99,6 +101,8 @@ def _read_samples(key):
         "aggregate_holdings": ("a", (TENANT, NOW)),
         "counted_first_rows_started": ("a", (TENANT, NOW - timedelta(hours=1), LATER)),
         "dsp_calls_for": ("a", ("r2",)),
+        "dsp_calls_between": ("a", (NOW - timedelta(hours=1), LATER)),
+        "terminal_rows_between": ("a", (NOW - timedelta(hours=1), LATER)),
     }
 
 

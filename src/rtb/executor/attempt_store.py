@@ -67,6 +67,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_terminal_per_key ON attempts (key
     WHERE state IN (TERMINAL_LIST);
 CREATE INDEX IF NOT EXISTS attempts_verified_by_time ON attempts (written_at)
     WHERE state = 'verified';
+CREATE INDEX IF NOT EXISTS attempts_terminal_by_time ON attempts (written_at)
+    WHERE state IN (TERMINAL_LIST);
 CREATE TABLE IF NOT EXISTS dsp_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, call_kind TEXT NOT NULL,
     result TEXT NOT NULL, status INTEGER, error_code TEXT, latency_ms REAL NOT NULL,
@@ -870,6 +872,45 @@ def record_dsp_call(
          None if call.error is None else call.error.value, float(call.latency_ms),
          subject.task_id, subject.revision, subject.campaign_id, subject.key, source, actor,
          PROGRAM_VERSION))
+
+
+def dsp_calls_between_query(since: datetime, until: datetime) -> tuple[str, tuple[str, ...]]:
+    """時間窗內 DSP 呼叫紀錄的查詢語句(測試用它看查詢計畫);含起點、不含終點。"""
+    return (f"SELECT {', '.join(DSP_CALL_FIELDS)} FROM dsp_calls "  # noqa: S608 - 固定欄位清單
+            "WHERE at >= ? AND at < ? ORDER BY at, id", (_iso(since), _iso(until)))
+
+
+def dsp_calls_between(tx: Readable, since: datetime, until: datetime) -> tuple[DspCallRow, ...]:
+    """時間窗內的 DSP 呼叫紀錄,依呼叫時間;走時間索引(Phase 9 增量 2 的指標用)。"""
+    sql, params = dsp_calls_between_query(since, until)
+    return tuple(DspCallRow(*row) for row in _read_conn(tx).execute(sql, params))
+
+
+@dataclass(frozen=True)
+class TerminalRow:
+    """一把鍵的終點列(已驗證或失敗):指標依它的寫入時間歸窗,再回頭讀那把鍵的整串。"""
+
+    key: str
+    state: str
+    written_at: str
+    program_version: str | None
+
+
+def terminal_rows_between_query(
+    since: datetime, until: datetime,
+) -> tuple[str, tuple[str, ...]]:
+    """時間窗內終點列的查詢語句(測試用它看查詢計畫);狀態條件照抄部分索引的清單。"""
+    return ("SELECT key, state, written_at, program_version FROM attempts "  # noqa: S608 - 只拼接固定的狀態清單
+            f"WHERE state IN ({_TERMINAL_LIST}) AND written_at >= ? AND written_at < ? "
+            "ORDER BY written_at, key", (_iso(since), _iso(until)))
+
+
+def terminal_rows_between(
+    tx: Readable, since: datetime, until: datetime,
+) -> tuple[TerminalRow, ...]:
+    """時間窗內到了終點的鍵(每把鍵最多一列終點列,有唯一索引守);走終點時間的部分索引。"""
+    sql, params = terminal_rows_between_query(since, until)
+    return tuple(TerminalRow(*row) for row in _read_conn(tx).execute(sql, params))
 
 
 def dsp_calls_for(tx: Readable, task_id: str) -> tuple[DspCallRow, ...]:

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from rtb.analyzer.task_store import TaskStore
+from rtb.analyzer.task_store import TaskStore, ToolEndpoint
 from rtb.domain.task_state import TaskState
 
 NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
@@ -100,7 +100,8 @@ def test_record_tool_call_swallows_database_errors_but_not_programming_errors(tm
         # now 不是 datetime,_iso(now) 會丟 AttributeError——這是呼叫端自己傳錯型別的程式
         # 錯誤,不是「資料庫忙碌/連線已關閉」這類預期中的寫入失敗,不該被吞掉。
         with pytest.raises(AttributeError):
-            store.record_tool_call("t1", 1, "dsp:evidence", "ok", 1.0, "not-a-datetime")
+            store.record_tool_call("t1", 1, ToolEndpoint.DSP_EVIDENCE, "ok", 1.0,
+                                   "not-a-datetime")
     finally:
         store.close()
 

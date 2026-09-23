@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 import pytest
 
 from rtb.analyzer import flow, inbox_client, instrumented, policy
-from rtb.analyzer.task_store import TaskStore
+from rtb.analyzer.task_store import TaskStore, ToolEndpoint
 from rtb.domain.proposal import CHECKS
 from rtb.domain.task_state import TaskState
 from rtb.dsp.server import DspServer
@@ -85,7 +85,7 @@ def _analyze(tmp_path, dsp_url, inbox_url):
             if state in (TaskState.HANDED_OFF, TaskState.NO_ACTION, TaskState.FAILED):
                 break
             # 送件的呼叫紀錄綁「呼叫當下讀到的那一列」:每一步都用當下的列重建
-            submit = instrumented.InstrumentedSubmit(analyzer, send, "inbox:submit",
+            submit = instrumented.InstrumentedSubmit(analyzer, send, ToolEndpoint.INBOX_SUBMIT,
                                                     analyzer.latest("t1"))
             state = flow.advance(analyzer, "t1", evidence_source, policy.decide, submit, now)
         proposal = next((row.proposal for row in reversed(analyzer.history("t1"))

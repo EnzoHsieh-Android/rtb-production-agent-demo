@@ -16,7 +16,7 @@ import pytest
 
 from rtb.analyzer import flow
 from rtb.analyzer import task_store as task_store_module
-from rtb.analyzer.task_store import LEASE_DURATION, TaskStore
+from rtb.analyzer.task_store import LEASE_DURATION, TaskStore, ToolEndpoint
 from rtb.domain.task_state import TaskState
 from rtb.sqlitekit import DatabaseBusy
 from tests.analyzer.conftest import NOW, Counting, make_evidence, make_proposal
@@ -308,7 +308,8 @@ def test_opening_an_old_task_database_adds_the_lease_table_without_touching_hist
         "SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "task_leases" in tables
     assert [(r.seq, r.state) for r in store.history("t1")] == [(1, TaskState.RECEIVED)]
-    assert [c.endpoint for c in store.list_tool_calls("t1")] == ["dsp:state"]
+    # 舊列的端點不在列舉裡,讀成其他(Phase 9 增量 2 [S648])
+    assert [c.endpoint for c in store.list_tool_calls("t1")] == [ToolEndpoint.OTHER]
     assert store.acquire_lease("t1", "first", NOW) is not None  # 新表真的可用
     store.close()
 

@@ -27,6 +27,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 from rtb.domain._checks import is_id
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS follow_ups (
     generation INTEGER NOT NULL, campaign_id TEXT NOT NULL, reason TEXT NOT NULL,
     outcome TEXT NOT NULL, written_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS follow_ups_by_campaign ON follow_ups (campaign_id);
+CREATE INDEX IF NOT EXISTS tool_calls_by_time ON tool_calls (at);
 """
 _TASK_COLUMNS = ("task_id, seq, state, campaign_id, proposal_json, error_detail, written_at, "
                  "operation_key")
@@ -114,6 +116,33 @@ class ReplanReason(StrEnum):
     DECISION_STALE = "decision_stale"  # 收件口回已擋下、原因是決策已過時(Phase 8)
 
 
+class ToolEndpoint(StrEnum):
+    """分析端對外呼叫的端點(Phase 9 增量 2,封閉列舉):會變成指標的標籤,不能收任意字串。
+
+    記呼叫紀錄只收「其他」以外的成員;「其他」只給讀舊列用:改成列舉之前寫進去的舊列,值不在列舉裡
+    的一律讀成它(只封住新寫入,舊列照樣會帶任意值進標籤)。"""
+
+    DSP_CAMPAIGN = "dsp:campaign"  # 讀廣告現況
+    DSP_METRICS = "dsp:metrics"  # 讀成效指標
+    DSP_EVIDENCE = "dsp:evidence"  # 整包證據來源(包一層只記一筆的那種)
+    DSP_OPERATION = "dsp:operation"  # 依冪等鍵查 DSP 操作
+    INBOX_SUBMIT = "inbox:submit"  # 送出提案到收件口
+    OTHER = "other"
+
+
+def _endpoint(raw: str) -> ToolEndpoint:
+    try:
+        return ToolEndpoint(raw)
+    except ValueError:
+        return ToolEndpoint.OTHER
+
+
+def tool_calls_between_query(since: datetime, until: datetime) -> tuple[str, tuple[str, ...]]:
+    """時間窗內對外呼叫的查詢語句(測試用它看查詢計畫)。"""
+    return ("SELECT task_id, task_seq, endpoint, outcome, latency_ms, at FROM tool_calls "
+            "WHERE at >= ? AND at < ? ORDER BY at, id", (_iso(since), _iso(until)))
+
+
 class _FollowUpOutcome(StrEnum):
     CREATED = "created"
     LIMIT_REACHED = "limit_reached"
@@ -143,7 +172,7 @@ def follow_up_id(task_id: str) -> str:
 class ToolCall:
     task_id: str
     task_seq: int
-    endpoint: str
+    endpoint: ToolEndpoint
     outcome: str
     latency_ms: float
     at: datetime
@@ -178,6 +207,11 @@ class TaskRow:
     proposal: Proposal | None
     error_detail: str | None
     written_at: datetime
+
+
+def _tool_call(row: tuple[Any, ...]) -> ToolCall:
+    return ToolCall(task_id=row[0], task_seq=row[1], endpoint=_endpoint(row[2]), outcome=row[3],
+                    latency_ms=row[4], at=datetime.fromisoformat(row[5].replace("Z", "+00:00")))
 
 
 def _iso(moment: datetime) -> str:
@@ -283,11 +317,12 @@ class TaskReads:
             "SELECT task_id, task_seq, endpoint, outcome, latency_ms, at FROM tool_calls "
             "WHERE task_id = ? ORDER BY id", (task_id,),
         ).fetchall()
-        return tuple(
-            ToolCall(task_id=r[0], task_seq=r[1], endpoint=r[2], outcome=r[3],
-                     latency_ms=r[4], at=datetime.fromisoformat(r[5].replace("Z", "+00:00")))
-            for r in rows
-        )
+        return tuple(_tool_call(r) for r in rows)
+
+    def tool_calls_between(self, since: datetime, until: datetime) -> tuple[ToolCall, ...]:
+        """時間窗內的對外呼叫(含起點、不含終點),依時間;走時間索引(Phase 9 增量 2 的指標用)。"""
+        sql, params = tool_calls_between_query(since, until)
+        return tuple(_tool_call(row) for row in self._conn.execute(sql, params))
 
     def history(self, task_id: str) -> tuple[TaskRow, ...]:
         records = self._conn.execute(
@@ -535,14 +570,19 @@ class TaskStore(TaskReads):
         )
 
     def record_tool_call(
-        self, task_id: str, task_seq: int, endpoint: str, outcome: str, latency_ms: float,
-        now: datetime,
+        self, task_id: str, task_seq: int, endpoint: ToolEndpoint, outcome: str,
+        latency_ms: float, now: datetime,
     ) -> None:
         """記一筆對外呼叫;這筆寫入自己絕不讓「資料庫層面」的例外往外傳(比照收件口事件表
         `inbox_store._write_event` 的既有做法,只吞 `sqlite3.Error`/`DatabaseBusy`):寫入本身
         失敗(資料庫忙碌、連線已關閉等)就放棄這筆記錄,不能因為記錄失敗而讓包住的那次呼叫
         跟著失敗;但呼叫端自己傳錯參數型別這類程式錯誤要老實丟出來,不能被這裡靜默吞掉。
+        端點只收列舉成員(一般字串連長得一樣的也拒,Phase 9 增量 2),「其他」只給讀舊列用。
         """
+        if type(endpoint) is not ToolEndpoint:
+            raise TypeError("端點必須是 ToolEndpoint 的成員")
+        if endpoint is ToolEndpoint.OTHER:
+            raise ValueError("「其他」只給讀舊列用,不能寫")
         try:
             self._conn.execute(
                 "INSERT INTO tool_calls (task_id, task_seq, endpoint, outcome, latency_ms, at) "

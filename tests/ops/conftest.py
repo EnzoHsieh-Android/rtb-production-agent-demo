@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from rtb.analyzer.task_store import TaskStore
+from rtb.analyzer.task_store import TaskStore, ToolEndpoint
 from rtb.domain.attempt import operation_key
 from rtb.domain.task_state import TaskState
 from tests.executor.conftest import NOW, Clock
@@ -85,7 +85,8 @@ class World:
                                      at + timedelta(seconds=seq), proposal=prop,
                                      operation_key=operation_key(prop) if key_stored else None)
                 seq += 1
-        s.record_tool_call(task_id, 2, "dsp:campaign", "ok", 3.5, at + timedelta(seconds=2))
+        s.record_tool_call(task_id, 2, ToolEndpoint.DSP_CAMPAIGN, "ok", 3.5,
+                           at + timedelta(seconds=2))
         return seq
 
     def execute(self, **overrides):

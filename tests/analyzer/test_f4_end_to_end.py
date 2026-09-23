@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 import pytest
 
 from rtb.analyzer import dsp_client, flow, inbox_client, instrumented, policy
-from rtb.analyzer.task_store import TaskStore, follow_up_id
+from rtb.analyzer.task_store import TaskStore, ToolEndpoint, follow_up_id
 from rtb.domain.attempt import operation_key
 from rtb.domain.task_state import TaskState
 from rtb.dsp.server import DspServer
@@ -123,9 +123,9 @@ def _advance(analyzer, task_id, dsp_url, inbox_url):
         # 呼叫紀錄綁「呼叫當下讀到的那一列」:每一步都用當下的列重建
         state = flow.advance(
             analyzer, task_id, evidence_source, policy.decide,
-            instrumented.InstrumentedSubmit(analyzer, send, "inbox:submit", row), _now(),
+            instrumented.InstrumentedSubmit(analyzer, send, ToolEndpoint.INBOX_SUBMIT, row), _now(),
             operation_lookup=instrumented.InstrumentedOperationLookup(
-                analyzer, lookup, "dsp:operation", row))
+                analyzer, lookup, ToolEndpoint.DSP_OPERATION, row))
         if state in TERMINAL:
             return state
     return analyzer.latest(task_id).state

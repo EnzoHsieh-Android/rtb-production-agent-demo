@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 from rtb.analyzer import dsp_client
 from rtb.analyzer.flow import Accepted, DspOperation
-from rtb.analyzer.task_store import TaskRow, TaskStore
+from rtb.analyzer.task_store import TaskRow, TaskStore, ToolEndpoint
 from rtb.domain.evidence import Evidence
 from rtb.domain.proposal import Proposal
 
@@ -27,7 +27,7 @@ class InstrumentedEvidenceSource:
         self,
         store: TaskStore,
         inner: Callable[[TaskRow, datetime], tuple[Evidence, ...]],
-        endpoint: str,
+        endpoint: ToolEndpoint,
     ):
         self._store, self._inner, self._endpoint = store, inner, endpoint
 
@@ -55,7 +55,9 @@ def dsp_evidence_source(
     要用的 EvidenceSource)拿到的就是這個函式本身,不用再另外包一層。
     """
 
-    def _on_call(task: TaskRow, endpoint: str, outcome: str, latency_ms: float) -> None:
+    def _on_call(
+        task: TaskRow, endpoint: ToolEndpoint, outcome: str, latency_ms: float,
+    ) -> None:
         store.record_tool_call(task.task_id, task.seq, endpoint, outcome, latency_ms,
                                datetime.now(UTC))
 
@@ -73,7 +75,7 @@ class InstrumentedSubmit:
     """
 
     def __init__(
-        self, store: TaskStore, inner: Callable[[Proposal], Accepted], endpoint: str,
+        self, store: TaskStore, inner: Callable[[Proposal], Accepted], endpoint: ToolEndpoint,
         task: TaskRow,
     ):
         self._store, self._inner, self._endpoint, self._task = store, inner, endpoint, task
@@ -102,7 +104,7 @@ class InstrumentedOperationLookup:
     呼叫端每次推進前用當下的 `TaskRow` 建一個新的。"""
 
     def __init__(
-        self, store: TaskStore, inner: Callable[[str], DspOperation | None], endpoint: str,
+        self, store: TaskStore, inner: Callable[[str], DspOperation | None], endpoint: ToolEndpoint,
         task: TaskRow,
     ):
         self._store, self._inner, self._endpoint, self._task = store, inner, endpoint, task

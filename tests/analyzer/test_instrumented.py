@@ -13,7 +13,7 @@ from rtb.analyzer.instrumented import (
     InstrumentedSubmit,
     dsp_evidence_source,
 )
-from rtb.analyzer.task_store import TaskRow, trace_for
+from rtb.analyzer.task_store import TaskRow, ToolEndpoint, trace_for
 from rtb.domain.task_state import TaskState
 from rtb.dsp.server import DspServer
 from rtb.dsp.store import CampaignStore
@@ -29,7 +29,7 @@ def row(seq=2):
 def test_a_successful_call_is_recorded(store):
     store.create_task("t1", "c1", NOW)
     source = InstrumentedEvidenceSource(
-        store, lambda _task, _now: (make_evidence(),), "dsp:evidence")
+        store, lambda _task, _now: (make_evidence(),), ToolEndpoint.DSP_EVIDENCE)
 
     source(row(), NOW)
 
@@ -43,7 +43,7 @@ def test_a_failing_call_is_recorded_and_the_exception_still_propagates(store):
     def boom(_task, _now):
         raise RuntimeError("dsp unreachable")
 
-    source = InstrumentedEvidenceSource(store, boom, "dsp:evidence")
+    source = InstrumentedEvidenceSource(store, boom, ToolEndpoint.DSP_EVIDENCE)
 
     with pytest.raises(RuntimeError):
         source(row(), NOW)
@@ -56,7 +56,7 @@ def test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result(
     store.create_task("t1", "c1", NOW)
     store.close()  # 之後任何一次 execute() 都會丟 sqlite3.ProgrammingError,模擬寫入紀錄本身壞掉
     source = InstrumentedEvidenceSource(
-        store, lambda _task, _now: (make_evidence(),), "dsp:evidence")
+        store, lambda _task, _now: (make_evidence(),), ToolEndpoint.DSP_EVIDENCE)
 
     result = source(row(), NOW)  # record_tool_call 內部寫入壞掉,呼叫本身的結果不受影響
 
@@ -65,7 +65,7 @@ def test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result(
 
 def test_submit_calls_are_recorded_too(store):
     store.create_task("t1", "c1", NOW)
-    submit = InstrumentedSubmit(store, lambda _p: Accepted(False), "inbox:submit", row())
+    submit = InstrumentedSubmit(store, lambda _p: Accepted(False), ToolEndpoint.INBOX_SUBMIT, row())
 
     submit(make_proposal())
 
@@ -79,7 +79,7 @@ def test_a_failing_submit_call_is_recorded_and_the_exception_still_propagates(st
     def boom(_p):
         raise RuntimeError("inbox unreachable")
 
-    submit = InstrumentedSubmit(store, boom, "inbox:submit", row())
+    submit = InstrumentedSubmit(store, boom, ToolEndpoint.INBOX_SUBMIT, row())
 
     with pytest.raises(RuntimeError):
         submit(make_proposal())
@@ -103,7 +103,8 @@ def test_submit_records_the_task_seq_bound_at_construction_not_whatever_is_lates
         store.commit_step("t1", 2, TaskState.ANALYZING, NOW)
         return Accepted(False)
 
-    submit = InstrumentedSubmit(store, advance_task_during_the_call, "inbox:submit",
+    submit = InstrumentedSubmit(store, advance_task_during_the_call,
+                                ToolEndpoint.INBOX_SUBMIT,
                                 called_at_row)
 
     submit(make_proposal())
@@ -171,7 +172,7 @@ def test_trace_for_returns_the_full_history_evidence_and_calls_for_a_task(store)
     store.create_task("t1", "c1", NOW)
     store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, NOW)
     store.commit_step("t1", 2, TaskState.ANALYZING, NOW, evidence=(make_evidence(),))
-    store.record_tool_call("t1", 2, "dsp:evidence", "ok", 12.5, NOW)
+    store.record_tool_call("t1", 2, ToolEndpoint.DSP_EVIDENCE, "ok", 12.5, NOW)
 
     trace = trace_for(store, "t1")
 
@@ -193,7 +194,7 @@ def test_trace_for_an_unknown_task_returns_empty_everything(store):
     (lambda _key: DspOperation("c1", "update_budget", 150, 1), "ok")])
 def test_operation_lookups_are_recorded_in_the_trace(store, inner, outcome):
     store.create_task("t1", "c1", NOW)
-    lookup = InstrumentedOperationLookup(store, inner, "dsp:operation", row())
+    lookup = InstrumentedOperationLookup(store, inner, ToolEndpoint.DSP_OPERATION, row())
 
     with contextlib.suppress(ZeroDivisionError):
         lookup("k1-abc")

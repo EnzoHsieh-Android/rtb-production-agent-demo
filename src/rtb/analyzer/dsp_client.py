@@ -24,13 +24,13 @@ from types import MappingProxyType
 from typing import Any
 
 from rtb.analyzer.flow import DspOperation
-from rtb.analyzer.task_store import TaskRow
+from rtb.analyzer.task_store import TaskRow, ToolEndpoint
 from rtb.domain._checks import is_id, is_plain_int, is_plain_number
 from rtb.domain.evidence import MAX_UNTRUSTED_TEXT_LENGTH, Evidence, EvidenceKind, TrustClass
 from rtb.domain.proposal import MAX_INT, ActionType
 from rtb.httpclient import request_json
 
-OnDspCall = Callable[[TaskRow, str, str, float], None]
+OnDspCall = Callable[[TaskRow, ToolEndpoint, str, float], None]
 """(task, endpoint, outcome, latency_ms) -> None;兩個端點各自成功/失敗都各呼叫一次,不是整個
 fetch() 完成才呼叫一次——代碼審第 1 輪指出,包一整個 fetch() 只記一筆會讓「現況成功、指標
 失敗」這種情況遺失第一個成功呼叫的紀錄。"""
@@ -111,7 +111,7 @@ def _content_hash(payload: dict[str, Any]) -> str:
 
 def _get(
     base_url: str, path: str, timeout_seconds: float,
-    task: TaskRow, on_call: OnDspCall | None, endpoint_name: str,
+    task: TaskRow, on_call: OnDspCall | None, endpoint_name: ToolEndpoint,
 ) -> dict[str, Any]:
     started = time.monotonic()
     try:
@@ -139,9 +139,10 @@ def make_client(
     def fetch(task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
         # 證據的讀取時間用呼叫端(流程層)傳來的時間,不自己讀系統時鐘,見 flow.EvidenceSource
         state_body = _get(base_url, f"/campaigns/{task.campaign_id}", timeout_seconds,
-                          task, on_call, "dsp:campaign")
+                          task, on_call, ToolEndpoint.DSP_CAMPAIGN)
         metrics_path = f"/campaigns/{task.campaign_id}/metrics?window={REQUESTED_WINDOW}"
-        metrics_body = _get(base_url, metrics_path, timeout_seconds, task, on_call, "dsp:metrics")
+        metrics_body = _get(base_url, metrics_path, timeout_seconds, task, on_call,
+                            ToolEndpoint.DSP_METRICS)
         state = _trusted(state_body, STATE_FIELDS, "id", task, "dsp:campaign")
         metrics = _trusted(metrics_body, METRICS_FIELDS, "campaign_id", task, "dsp:metrics")
         text = _campaign_text(state_body)

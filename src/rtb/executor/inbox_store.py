@@ -729,6 +729,23 @@ class InboxReads:
             "WHERE task_id = ? ORDER BY id", (task_id,)).fetchall()
         return tuple(_event(row) for row in rows)
 
+    def lifecycle_events_between(
+        self, tx: attempt_store.Readable, since: datetime, until: datetime,
+    ) -> tuple[LifecycleEvent, ...]:
+        """時間窗內的生命週期事件(含起點、不含終點),依時間、再依寫入順序;走時間索引(Phase 9
+        增量 2 的指標用)。"""
+        self._own_read(tx)
+        sql, params = lifecycle_events_between_query(since, until)
+        return tuple(_event(row) for row in self._conn.execute(sql, params))
+
+    def pending_snapshot(self, tx: attempt_store.Readable) -> tuple[int, str | None]:
+        """現在的待處理份數(還沒被取件、也還沒處置)與其中最早的收件時間;收件表有總列數上限,
+        查詢成本有上限(Phase 9 增量 2 的佇列現況)。"""
+        self._own_read(tx)
+        count, oldest = self._conn.execute(
+            f"SELECT count(*), min(received_at) FROM proposals WHERE {PENDING}").fetchone()  # noqa: S608 - 固定條件
+        return int(count), oldest
+
     def last_terminal_event(
         self, tx: attempt_store.Readable, task_id: str, revision: int, digest: str,
     ) -> LifecycleEvent | None:
@@ -1545,6 +1562,15 @@ def stop_count_query(
             where.append(clause)
             params.append(value)
     return f"SELECT count(*) FROM write_stops WHERE {' AND '.join(where)}", tuple(params)  # noqa: S608 - 只拼接固定條件
+
+
+def lifecycle_events_between_query(
+    since: datetime, until: datetime,
+) -> tuple[str, tuple[object, ...]]:
+    """時間窗內生命週期事件的查詢語句(測試用它看查詢計畫)。"""
+    return (f"SELECT {', '.join(_LIFECYCLE_FIELDS)} FROM lifecycle_events "  # noqa: S608 - 固定欄位清單
+            "WHERE at >= ? AND at < ? ORDER BY at, id",
+            (attempt_store.iso(since), attempt_store.iso(until)))
 
 
 def last_terminal_event_query(
