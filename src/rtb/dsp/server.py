@@ -19,7 +19,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from rtb.capabilitykit import AUDIT_KEY_ENV, is_usable_key, read_key
+from rtb.capabilitykit import (
+    AUDIT_HEADER,
+    AUDIT_KEY_ENV,
+    TokenRejected,
+    decode_audit_key,
+    is_usable_key,
+    read_key,
+)
 from rtb.capabilitykit import HEADER as CAPABILITY_HEADER
 from rtb.dsp.capability import (
     WriteRequest,
@@ -165,7 +172,8 @@ class DspHandler(JsonHandler):
 
     def _require_audit_key(self) -> None:
         """列操作兩支端點回全租戶的明細(含租戶、預算、冪等鍵),只給帶唯讀稽核金鑰的讀(Phase 9
-        增量 3 代碼審,代使用者裁定)。金鑰放在能力憑證那個標頭,原樣比對、固定時間。
+        增量 3 代碼審,代使用者裁定)。金鑰放在專用標頭(不借用能力憑證的標頭),寫法是金鑰位元組的
+        base64url;解回位元組後固定時間比對,解不開當帶錯(代碼審第 2 輪)。
 
         不沿用寫入憑證的驗證:那套聲明綁一個廣告、一把冪等鍵、一個寫入動作,又是用簽發金鑰簽的;
         維運套件要能簽,就得拿到能簽寫入憑證的那一把。所以另給一把只開這兩支端點的金鑰。
@@ -174,10 +182,14 @@ class DspHandler(JsonHandler):
         if not is_usable_key(expected):
             raise RequestRejected(503, "audit_not_configured")
         assert expected is not None  # is_usable_key 已確認  # noqa: S101
-        presented = self.single_header(CAPABILITY_HEADER)
+        presented = self.single_header(AUDIT_HEADER)
         if presented is None:
             raise RequestRejected(401, "audit_key_missing")
-        if not hmac.compare_digest(presented.encode("utf-8", "surrogateescape"), expected):
+        try:
+            candidate = decode_audit_key(presented)
+        except TokenRejected as exc:
+            raise RequestRejected(403, "audit_key_invalid") from exc
+        if not hmac.compare_digest(candidate, expected):
             raise RequestRejected(403, "audit_key_invalid")
 
     def _get_operation_cursor(

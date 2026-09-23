@@ -17,7 +17,8 @@ import pytest
 from rtb.capabilitykit import AUDIT_KEY_ENV
 from rtb.dsp.server import DspServer
 from rtb.dsp.store import CampaignStore
-from rtb.ops import sli, slo
+from rtb.ops import side_effects, sli, slo
+from rtb.ops.side_effects import DspUnreadable
 from rtb.ops.sli import Tally
 from tests.ops.rows import Rows, at
 
@@ -334,20 +335,26 @@ def test_an_unstable_cross_database_read_is_reported(rows, monkeypatch):
     monkeypatch.setattr(sli, "_handoff_round", lambda *_args: ((), next(endless), 0))
     code = slo.run(_cli_args(rows, "http://127.0.0.1:9"), out=io.StringIO(),
                    err=io.StringIO(), environ={})
+    assert code == slo.EXIT_INCOMPLETE  # DSP 讀不到:缺資料優先於不穩定
+
+    monkeypatch.setattr(side_effects, "unauthorized", lambda *_args: Tally(0, 0))
+    monkeypatch.setattr(side_effects, "duplicates", lambda *_args: Tally(0, 0))
+    code = slo.run(_cli_args(rows, "http://127.0.0.1:9"), out=io.StringIO(),
+                   err=io.StringIO(), environ={})
     assert code == slo.EXIT_UNSTABLE
 
 
 def test_one_unreadable_slo_does_not_hide_the_others():
-    """一條指標算不出來(例:讀不到),只有那一條標資料來源缺,另外五條照算。"""
+    """一條指標的資料來源讀不到,只有那一條標資料來源缺,另外五條照算。"""
     def counter(name, _since, _until):
         if name == "queue_wait":
-            raise RuntimeError("boom")
+            raise DspUnreadable("boom")
         return Tally(10, 10)
 
     result = slo.evaluate(NOW, counter=counter)
     assert len(result) == len(slo.SLOS)
     broken = status(result, "queue_wait")
-    assert broken.missing is True and "RuntimeError" in (broken.error or "")
+    assert broken.missing is True and "DspUnreadable" in (broken.error or "")
     assert all(not s.missing and s.period_valid == 10 for s in result if s.name != "queue_wait")
 
     def no_database(_name, _since, _until):
@@ -357,13 +364,34 @@ def test_one_unreadable_slo_does_not_hide_the_others():
         slo.evaluate(NOW, counter=no_database)
 
 
+@pytest.mark.parametrize("bug", [AssertionError("bug"), TypeError("bug"), AttributeError("bug"),
+                                 KeyError("bug"), sqlite3.DatabaseError("malformed")])
+def test_a_programming_error_or_a_broken_database_is_not_swallowed(bug, rows, monkeypatch):
+    """代碼審第 2 輪:只隔離資料來源讀不到;程式錯誤與資料庫毀損照樣往外丟,命令列不回 0。"""
+    def counter(name, _since, _until):
+        if name == "queue_wait":
+            raise bug
+        return Tally(10, 10)
+
+    with pytest.raises(type(bug)):
+        slo.evaluate(NOW, counter=counter)
+
+    def broken_count(*_args):
+        raise bug
+
+    monkeypatch.setattr(sli, "count", broken_count)
+    with pytest.raises(type(bug)):
+        slo.run(_cli_args(rows, "http://127.0.0.1:9"), out=io.StringIO(), err=io.StringIO(),
+                environ={})
+
+
 def _cli_args(rows, dsp_url, executor_db=None):
     return ["--executor-db", str(executor_db or rows.executor_db),
             "--analyzer-db", str(rows.analyzer_db), "--dsp-url", dsp_url,
             "--dsp-timeout-seconds", "0.5", "--now", NOW.isoformat()]
 
 
-CLI_KEY = "audit-" + "k" * 32
+CLI_KEY = "密" * 32  # 非 Latin-1 的金鑰也要送得出去(代碼審第 2 輪)
 
 
 @pytest.fixture
@@ -379,10 +407,11 @@ def dsp_url(tmp_path):
     server.server_close()
 
 
-def _printed(rows, url, environ):
-    """跑一次命令列入口(應該成功),回每條指標印出來的狀態。"""
+def _printed(rows, url, environ, expected, err=None):
+    """跑一次命令列入口,斷言結束代碼是 expected,回每條指標印出來的狀態。"""
     out = io.StringIO()
-    assert slo.run(_cli_args(rows, url), out=out, err=io.StringIO(), environ=environ) == slo.EXIT_OK
+    code = slo.run(_cli_args(rows, url), out=out, err=err or io.StringIO(), environ=environ)
+    assert code == expected
     return {s["name"]: s for s in json.loads(out.getvalue())["slos"]}
 
 
@@ -391,13 +420,16 @@ def test_the_command_line_reports_fixed_exit_codes(rows, tmp_path, dsp_url):
     rows.event(NOW - timedelta(minutes=5), "h1", "handed_off")
     rows.event(NOW - timedelta(minutes=4), "b1", "expired")
     rows.event(NOW - timedelta(hours=13), "old", "handed_off")  # 週期外
-    printed = _printed(rows, dsp_url, {AUDIT_KEY_ENV: CLI_KEY})
+    printed = _printed(rows, dsp_url, {AUDIT_KEY_ENV: CLI_KEY}, slo.EXIT_OK)
     safe = printed["safe_completion"]
     assert (safe["period_good"], safe["period_valid"], safe["period_bad"]) == (1, 2, 1)
     assert printed["unauthorized_side_effects"]["missing"] is False  # 金鑰帶到了
     assert printed["unauthorized_side_effects"]["violating"] is False
-    printed = _printed(rows, dsp_url, {})  # 沒金鑰:DSP 拒讀,照實標資料來源缺
+    err = io.StringIO()  # 沒金鑰:DSP 拒讀,照實標資料來源缺,結束代碼標明不完整
+    printed = _printed(rows, dsp_url, {}, slo.EXIT_INCOMPLETE, err)
     assert printed["unauthorized_side_effects"]["missing"] is True
+    assert "unauthorized_side_effects" in err.getvalue() and "harmful_duplicates" in err.getvalue()
+    assert "safe_completion" not in err.getvalue()
 
     err = io.StringIO()
     assert slo.run(_cli_args(rows, dsp_url, tmp_path / "nope.db"), out=io.StringIO(), err=err,

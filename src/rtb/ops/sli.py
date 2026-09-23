@@ -52,7 +52,7 @@ class Sources:
     analyzer_db: Path
     dsp_url: str
     dsp_timeout_seconds: float = 2.0
-    dsp_audit_key: str | None = None  # DSP 列操作端點的唯讀稽核金鑰;沒有就讀不到、照實標資料來源缺
+    dsp_audit_key: bytes | None = None  # DSP 列操作端點的唯讀稽核金鑰;沒有就讀不到、標資料來源缺
 
 
 def _time(text: str) -> datetime:

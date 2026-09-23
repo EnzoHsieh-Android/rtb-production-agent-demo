@@ -15,8 +15,9 @@
 評估器不存告警狀態、不自己讀時鐘:每個窗的時間從傳入的「現在」與設定表算出,交給計數函式。數字用
 分數算,剛好等於門檻就是等於(不被浮點誤差推到門檻下)。
 
-每條各自算:一條讀不到(例外)只把那一條標資料來源缺並記下例外,另外五條照算;只有找不到資料庫檔、
-資料庫還沒升級這兩種整份評估的設定錯誤往外丟,給命令列入口回固定結束代碼。目標為零的兩條:已證實的
+每條各自算:一條的資料來源讀不到(DSP 讀不到那一類)只把那一條標資料來源缺並記下原因,另外五條照算;
+程式錯誤、資料庫毀損、找不到資料庫檔、資料庫還沒升級一律往外丟,不吞(代碼審第 2 輪)。命令列入口
+在任何一條缺資料或出錯時回「不完整」的結束代碼,優先於不穩定。目標為零的兩條:已證實的
 違規優先,只有週期內沒看到壞事件、又有子窗缺資料才回「不知道」(代碼審第 1 輪)。
 """
 
@@ -34,7 +35,7 @@ from typing import Any, TextIO
 from rtb.capabilitykit import AUDIT_KEY_ENV, read_key
 from rtb.executor.inbox_store import DatabaseNotUpgraded
 from rtb.ops import sli
-from rtb.ops.side_effects import Tally
+from rtb.ops.side_effects import DspUnreadable, Tally
 
 SCALE = 60  # 示範縮短倍數;正式環境改成 1
 PERIOD = timedelta(days=30)
@@ -44,6 +45,9 @@ EXIT_OK = 0
 EXIT_NO_DATABASE = 2
 EXIT_NOT_UPGRADED = 3
 EXIT_UNSTABLE = 5  # 沿用指標的固定結束代碼:有一條跨資料庫讀了三輪都不同,照樣印出最後一輪
+# 有指標缺資料或出錯(代使用者裁定,代碼審第 2 輪):照樣印出每一條,哪幾條、為什麼印在標準錯誤;
+# 跟不穩定同時成立時回這個。8 沒被任何命令列用掉(維運套件 0/2/3/4/5/6,執行端 2/3/4/5/6/7)
+EXIT_INCOMPLETE = 8
 
 Counter = Callable[[str, datetime, datetime], Tally]
 
@@ -227,14 +231,12 @@ def _status(spec: Slo, now: datetime, counter: Counter) -> SloStatus:
 
 def evaluate(now: datetime, *, counter: Counter) -> tuple[SloStatus, ...]:
     """每條一份狀態。查詢次數固定:有目標的四條各查快燒、慢燒兩組各兩個窗(共 16 次)加週期統計,
-    目標為零的兩條各查週期統計。每條各自隔離例外(見模組說明)。"""
+    目標為零的兩條各查週期統計。只隔離資料來源讀不到(見模組說明),其餘例外往外丟。"""
     statuses = []
     for spec in SLOS:
         try:
             statuses.append(_status(spec, now, counter))
-        except (FileNotFoundError, DatabaseNotUpgraded):
-            raise  # 整份評估的設定錯誤:交給命令列入口回固定結束代碼
-        except Exception as exc:  # 一條讀不到不拖垮另外五條;例外記在這一條的狀態裡
+        except DspUnreadable as exc:  # 一條讀不到不拖垮另外五條;原因記在這一條的狀態裡
             statuses.append(SloStatus(spec.name, None, None, 0, 0, 0, Fraction(0), Fraction(0),
                                       None, None, 0, 0, 0, True,
                                       error=f"{type(exc).__name__}: {exc}"))
@@ -272,8 +274,7 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
     errors = err or sys.stderr
     audit_key = read_key(os.environ if environ is None else environ, AUDIT_KEY_ENV)
     sources = sli.Sources(args.executor_db, args.analyzer_db, args.dsp_url,
-                          args.dsp_timeout_seconds,
-                          None if audit_key is None else audit_key.decode("utf-8"))
+                          args.dsp_timeout_seconds, audit_key)
     try:
         statuses = evaluate(args.now, counter=lambda name, since, until: sli.count(
             name, since, until, sources))
@@ -286,6 +287,12 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
         return EXIT_NOT_UPGRADED
     print(json.dumps(to_primitives(statuses), ensure_ascii=False, indent=2),
           file=out or sys.stdout)
+    incomplete = [s for s in statuses if s.missing or s.error is not None]
+    if incomplete:
+        for s in incomplete:
+            print(f"{s.name}:{s.error or '資料來源讀不到(例:DSP 連不上或拒讀、稽核金鑰沒設)'},"
+                  "這一條沒算完整", file=errors)
+        return EXIT_INCOMPLETE  # 缺資料優先於不穩定:缺了的那一條本來就不能拿來判告警
     if not all(s.stable for s in statuses):
         print("讀取期間有新提交:有指標跨資料庫讀了三輪都不同,印出的是最後一輪", file=errors)
         return EXIT_UNSTABLE

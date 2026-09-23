@@ -14,6 +14,7 @@ from datetime import timedelta
 
 import pytest
 
+from rtb.capabilitykit import encode_audit_key
 from rtb.domain.attempt import operation_key
 from rtb.dsp.server import DspServer
 from rtb.dsp.store import OPERATION_PAGE, CampaignStore, operation_cursor_query
@@ -27,7 +28,7 @@ from tests.executor.fakes import proposal
 from tests.ops.rows import Rows, at
 
 K = "k1-" + "0" * 64
-AUDIT = "audit-" + "a" * 32  # 唯讀稽核金鑰(測試用,長度過最短金鑰)
+AUDIT = ("audit-" + "a" * 32).encode()  # 唯讀稽核金鑰(測試用,長度過最短金鑰)
 PROP = proposal(requested_change={"new_budget": 140})  # 觀察到的版本 3、現況 100:加 40
 
 
@@ -126,7 +127,7 @@ class World:
         store.seed_campaign("c1", budget=100, tenant="acme")
         store.close()
         self.server = DspServer(self.dsp_db, fault_injection=False, hang_seconds=0.2,
-                                delay_seconds=0.0, audit_key=AUDIT.encode())
+                                delay_seconds=0.0, audit_key=AUDIT)
         threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         self.version = 1
@@ -401,8 +402,9 @@ def test_a_page_boundary_between_equal_commit_times_reads_each_operation_once(wo
     assert keys(tied, base + timedelta(seconds=300)) == ["op-50", "op-51", "op-52"]
 
 
-def _call(world, path, token=None):
-    headers = None if token is None else {ClientHeader.CAPABILITY: token}
+def _call(world, path, value=None, header=ClientHeader.AUDIT_KEY):
+    """value 是標頭裡原樣送的字串(稽核金鑰要先 base64url)。"""
+    headers = None if value is None else {header: value}
     return request_json(f"{world.url}{path}", "GET", None, 2.0, headers)
 
 
@@ -411,9 +413,13 @@ def test_the_operation_list_endpoints_require_the_audit_key(world):
     的唯讀端點不變。"""
     for path in ("/operations/after/0", f"/operations/since/{at(0).isoformat()}"):
         assert _call(world, path)[0] == 401
-        assert _call(world, path, "x" * len(AUDIT))[0] == 403
-        assert _call(world, path, AUDIT + "x")[0] == 403
-        assert _call(world, path, AUDIT)[0] == 200
+        assert _call(world, path, encode_audit_key(b"x" * len(AUDIT)))[0] == 403
+        assert _call(world, path, encode_audit_key(AUDIT + b"x"))[0] == 403
+        assert _call(world, path, "not base64!")[0] == 403  # 解不開當帶錯
+        assert _call(world, path, AUDIT.decode())[0] == 403  # 沒編碼的原文不收
+        # 放在能力憑證標頭不算:稽核金鑰只認自己的專用標頭(代碼審第 2 輪)
+        assert _call(world, path, encode_audit_key(AUDIT), ClientHeader.CAPABILITY)[0] == 401
+        assert _call(world, path, encode_audit_key(AUDIT))[0] == 200
     assert _call(world, "/operations/" + K)[0] == 404  # 既有端點不要金鑰(查不到回 404)
 
     bare = DspServer(world.dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0)
@@ -421,7 +427,7 @@ def test_the_operation_list_endpoints_require_the_audit_key(world):
     try:
         url = f"http://127.0.0.1:{bare.server_address[1]}"
         status, body = request_json(f"{url}/operations/after/0", "GET", None, 2.0,
-                                    {ClientHeader.CAPABILITY: AUDIT})
+                                    {ClientHeader.AUDIT_KEY: encode_audit_key(AUDIT)})
         assert status == 503 and body["error"] == "audit_not_configured"  # 沒設金鑰一律拒收
     finally:
         bare.shutdown()
@@ -433,7 +439,7 @@ def _raw_response(world, path: bytes) -> bytes:
     port = world.server.server_address[1]
     with socket.create_connection(("127.0.0.1", port), timeout=2.0) as conn:
         conn.sendall(b"GET " + path + b" HTTP/1.1\r\nHost: 127.0.0.1:" + str(port).encode()
-                     + b"\r\nX-Capability: " + AUDIT.encode()
+                     + b"\r\nX-Dsp-Audit-Key: " + encode_audit_key(AUDIT).encode()
                      + b"\r\nConnection: close\r\n\r\n")
         return conn.makefile("rb").read()
 
@@ -443,9 +449,10 @@ def test_a_cursor_must_be_a_plain_decimal_within_the_integer_range(world):
     superscript = _raw_response(world, b"/operations/after/\xb2")  # 上標 2
     assert b" 400 " in superscript and b"invalid_cursor" in superscript, superscript
     for cursor in ("9999999999999999999", "9223372036854775808", "-1", "1e3"):
-        status, body = _call(world, "/operations/after/" + cursor, AUDIT)
+        status, body = _call(world, "/operations/after/" + cursor, encode_audit_key(AUDIT))
         assert (status, body.get("error")) == (400, "invalid_cursor"), cursor
-    assert _call(world, "/operations/after/9223372036854775807", AUDIT)[0] == 200
+    assert _call(world, "/operations/after/9223372036854775807",
+                 encode_audit_key(AUDIT))[0] == 200
 
 
 def test_approval_uses_for_a_batch_of_keys_uses_the_key_index(world):
@@ -454,3 +461,21 @@ def test_approval_uses_for_a_batch_of_keys_uses_the_key_index(world):
     steps = _plan(world.rows.executor_db, sql, params)
     assert any("approval_uses_by_key" in s for s in steps), steps
     assert not [s for s in steps if s.startswith("SCAN")], steps
+
+
+def test_a_non_latin1_audit_key_goes_through(world):
+    """代碼審第 2 輪:共用讀法認可的非 Latin-1 金鑰(例:"密" 重複 32 次)也要送得出去:標頭裡放
+    金鑰位元組的 base64url,DSP 解碼後比對。"""
+    key = ("密" * 32).encode()
+    server = DspServer(world.dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
+                       audit_key=key)
+    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+        assert se.read_dsp_window(url, at(0), at(minutes=60), 2.0, key) == ()
+        sources = replace(world.sources(), dsp_url=url, dsp_audit_key=key)
+        tally = sli.count("unauthorized_side_effects", at(0), at(minutes=60), sources)
+        assert tally.missing is False
+    finally:
+        server.shutdown()
+        server.server_close()

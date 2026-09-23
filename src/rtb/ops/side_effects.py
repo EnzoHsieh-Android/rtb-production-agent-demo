@@ -15,7 +15,8 @@
   這次讀到的 DSP 窗裡,不影響這次的答案(代碼審第 1 輪架構席)。
 - DSP 回應是不可信輸入:讀不到、狀態碼不對、欄位或提交時間讀不懂,一律轉成 DspUnreadable,這一條
   回資料來源缺,不讓例外穿出去拖垮其他指標。
-- 列操作兩支端點要帶唯讀稽核金鑰(放在能力憑證標頭);沒帶或帶錯 DSP 拒讀,照實回資料來源缺。
+- 列操作兩支端點要帶唯讀稽核金鑰(專用標頭,金鑰位元組的 base64url);沒帶或帶錯 DSP 拒讀,照實回
+  資料來源缺。
 """
 
 import re
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from rtb.capabilitykit import encode_audit_key
 from rtb.domain.proposal import ActionType, content_hash
 from rtb.executor import attempt_store
 from rtb.executor.attempt_store import FirstRow
@@ -194,10 +196,10 @@ def tally_unauthorized(
 
 # ---- 讀 DSP ----
 def get_json(url: str, path: str, timeout: float,
-             audit_key: str | None = None) -> tuple[int, Any]:
+             audit_key: bytes | None = None) -> tuple[int, Any]:
     """打 DSP 的唯讀端點(共用 HTTP 用戶端,只讀);連不上或讀不懂丟 DspUnreadable。列操作兩支端點
-    要帶唯讀稽核金鑰(放在能力憑證標頭);既有依鍵查的端點不用。"""
-    headers = None if audit_key is None else {ClientHeader.CAPABILITY: audit_key}
+    要帶唯讀稽核金鑰(專用標頭,金鑰位元組的 base64url);既有依鍵查的端點不用。"""
+    headers = None if audit_key is None else {ClientHeader.AUDIT_KEY: encode_audit_key(audit_key)}
     try:
         return request_json(f"{url.rstrip('/')}{path}", "GET", None, timeout, headers)
     except (OSError, ValueError) as exc:
@@ -230,7 +232,7 @@ def _write(entry: Any) -> DspWrite:
 
 
 def read_dsp_window(
-    url: str, since: datetime, until: datetime, timeout: float, audit_key: str | None,
+    url: str, since: datetime, until: datetime, timeout: float, audit_key: bytes | None,
 ) -> tuple[DspWrite, ...]:
     """窗 [since, until) 內 DSP 提交的寫入:先取起點游標,再依編號翻頁,讀到提交時間大於等於終點
     就停。"""
@@ -274,7 +276,7 @@ def _operation(url: str, key: str, timeout: float) -> tuple[str, int] | None:
 
 # ---- 兩條服務水準指標 ----
 def unauthorized(since: datetime, until: datetime, executor_db: Path, dsp_url: str,
-                 timeout: float, audit_key: str | None) -> Tally:
+                 timeout: float, audit_key: bytes | None) -> Tally:
     try:
         writes = read_dsp_window(dsp_url, since, until, timeout, audit_key)  # 先讀 DSP
     except DspUnreadable:
@@ -297,7 +299,7 @@ def _identity(first: FirstRow) -> tuple[str, int, str] | None:
 
 
 def duplicates(since: datetime, until: datetime, executor_db: Path, dsp_url: str,
-               timeout: float, audit_key: str | None) -> Tally:
+               timeout: float, audit_key: bytes | None) -> Tally:
     """同一份提案內容(任務、修訂、內容雜湊)在 DSP 的第二筆以及之後每一筆提交各算一個壞事件,依那
     一筆的提交時間歸窗;第一筆在窗外也算(用第一列往回查同一份提案的其他鍵,不限窗)。找不到第一列的
     算無法核對。同一把鍵在窗內出現兩筆以上操作(DSP 有唯一限制,防禦性核對)也算壞。讀窗與第二段
