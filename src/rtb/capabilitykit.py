@@ -27,6 +27,10 @@ APPROVAL_KEY_ENV = "RTB_APPROVAL_KEY"  # 同上,程式裡唯一出現這個名�
 AUDIT_KEY_ENV = "RTB_DSP_AUDIT_KEY"  # 同上,程式裡唯一出現這個名稱的地方
 # 稽核金鑰的專用標頭(代碼審第 2 輪:不借用能力憑證的標頭,那個標頭裝的一定是簽出來的憑證)
 AUDIT_HEADER = "X-Dsp-Audit-Key"
+# 稽核金鑰的長度上限(代碼審第 3 輪,代使用者裁定):HTTP 標頭一條最長 64 KB,沒有上限的話設定得
+# 「合法」的超長金鑰經 base64url 後會超過,兩端設定一致卻永遠送不到。上限遠低於那個量
+MAX_AUDIT_KEY_BYTES = 1024
+_MAX_AUDIT_KEY_CHARS = -(-MAX_AUDIT_KEY_BYTES * 4 // 3)  # 上限的 base64url 不帶補位最長幾個字元
 MIN_KEY_BYTES = 32  # 空字串或很短的金鑰也算得出簽章,但等於沒有防線
 MAX_TOKEN_CHARS = 2048
 HEADER = "X-Capability"
@@ -51,6 +55,10 @@ def is_usable_key(key: object) -> bool:
     return isinstance(key, bytes) and len(key) >= MIN_KEY_BYTES
 
 
+class AuditKeyTooLong(ValueError):
+    """稽核金鑰超過長度上限:設定錯誤,啟動程式要明確報錯(訊息不含金鑰)。"""
+
+
 def read_key(environ: Mapping[str, str], name: str = KEY_ENV) -> bytes | None:
     """從環境讀金鑰(預設讀簽發金鑰);沒有或太短一律回 None(代表沒有可用金鑰)。只給啟動程式呼叫。"""
     raw = environ.get(name)
@@ -60,6 +68,15 @@ def read_key(environ: Mapping[str, str], name: str = KEY_ENV) -> bytes | None:
     return key if is_usable_key(key) else None
 
 
+def read_audit_key(environ: Mapping[str, str]) -> bytes | None:
+    """讀稽核金鑰:沒有或太短回 None(同 read_key);超過上限丟 AuditKeyTooLong。只給啟動程式呼叫。"""
+    key = read_key(environ, AUDIT_KEY_ENV)
+    if key is not None and len(key) > MAX_AUDIT_KEY_BYTES:
+        raise AuditKeyTooLong(
+            f"{AUDIT_KEY_ENV} 有 {len(key)} 位元組,超過上限 {MAX_AUDIT_KEY_BYTES}")
+    return key
+
+
 def encode_audit_key(key: bytes) -> str:
     """稽核金鑰放進標頭的寫法:金鑰位元組的 base64url、不帶補位。HTTP 標頭只送得出 Latin-1,
     共用讀法認可的中文金鑰原文放不進去(代碼審第 2 輪)。"""
@@ -67,7 +84,10 @@ def encode_audit_key(key: bytes) -> str:
 
 
 def decode_audit_key(text: str) -> bytes:
-    """標頭裡的稽核金鑰解回位元組;字元或補位不對丟 TokenMalformed(DSP 當成帶錯)。"""
+    """標頭裡的稽核金鑰解回位元組;超過上限的長度、字元或補位不對丟 TokenMalformed(DSP 當成帶錯)。
+    先比字串長度再解碼,不替超長的輸入做解碼。"""
+    if len(text) > _MAX_AUDIT_KEY_CHARS:
+        raise TokenMalformed("稽核金鑰超過長度上限")
     return _b64decode(text)
 
 

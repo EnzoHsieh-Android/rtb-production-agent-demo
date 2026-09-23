@@ -10,13 +10,19 @@ import pytest
 
 from rtb import capabilitykit
 from rtb.capabilitykit import (
+    AUDIT_KEY_ENV,
     KEY_ENV,
+    MAX_AUDIT_KEY_BYTES,
     MAX_TOKEN_CHARS,
     MIN_KEY_BYTES,
+    AuditKeyTooLong,
     TokenBadSignature,
     TokenMalformed,
     decode,
+    decode_audit_key,
     encode,
+    encode_audit_key,
+    read_audit_key,
     read_key,
 )
 
@@ -43,6 +49,30 @@ def test_the_key_is_read_from_the_one_documented_environment_variable():
                          ids=["missing", "empty", "short"])
 def test_a_missing_or_short_key_reads_as_no_key(environ):
     assert read_key(environ) is None
+
+
+# ---- 唯讀稽核金鑰的長度(Phase 9 增量 3 代碼審第 3 輪;上限代使用者裁定) ----
+@pytest.mark.parametrize("raw", ["x" * MIN_KEY_BYTES, "x" * MAX_AUDIT_KEY_BYTES,
+                                 "密" * (MAX_AUDIT_KEY_BYTES // 3)],
+                         ids=["lower", "upper", "non_latin1_within"])
+def test_an_audit_key_within_the_bounds_round_trips_through_the_header(raw):
+    key = read_audit_key({AUDIT_KEY_ENV: raw})
+    assert key == raw.encode() and len(key) <= MAX_AUDIT_KEY_BYTES
+    assert decode_audit_key(encode_audit_key(key)) == key
+
+
+def test_an_audit_key_outside_the_bounds_is_refused():
+    assert MAX_AUDIT_KEY_BYTES == 1024  # 代使用者裁定的上限:改它要留下有意識的決定
+    assert read_audit_key({AUDIT_KEY_ENV: "x" * (MIN_KEY_BYTES - 1)}) is None  # 太短:等於沒有
+    assert read_audit_key({}) is None
+    for raw in ("x" * (MAX_AUDIT_KEY_BYTES + 1), "密" * (MAX_AUDIT_KEY_BYTES // 3 + 1)):
+        with pytest.raises(AuditKeyTooLong) as caught:
+            read_audit_key({AUDIT_KEY_ENV: raw})
+        assert raw not in str(caught.value)  # 報錯不回顯金鑰
+    too_long = encode_audit_key(b"x" * (MAX_AUDIT_KEY_BYTES + 1))
+    with pytest.raises(TokenMalformed):  # 先比字串長度再解碼
+        decode_audit_key(too_long)
+    assert decode_audit_key(encode_audit_key(b"x" * MAX_AUDIT_KEY_BYTES))
 
 
 # ---- [S36] 只收 JSON 原生型別,驗簽比對原始位元組 ----

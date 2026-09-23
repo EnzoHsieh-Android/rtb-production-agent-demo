@@ -479,3 +479,18 @@ def test_a_non_latin1_audit_key_goes_through(world):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_the_dsp_refuses_to_start_with_an_overlong_audit_key(tmp_path, monkeypatch):
+    """代碼審第 3 輪:超過上限的稽核金鑰在啟動時就當設定錯誤,不是啟動之後永遠比對失敗。"""
+    import rtb.dsp.server as server_module
+    from rtb.capabilitykit import AUDIT_KEY_ENV, MAX_AUDIT_KEY_BYTES
+
+    def must_not_start(*_args, **_kwargs):
+        raise AssertionError("超長金鑰不該走到建伺服器")
+
+    monkeypatch.setattr(server_module, "DspServer", must_not_start)
+    monkeypatch.setenv(AUDIT_KEY_ENV, "x" * (MAX_AUDIT_KEY_BYTES + 1))
+    with pytest.raises(SystemExit) as caught:
+        server_module.main(["--db", str(tmp_path / "dsp.db")])
+    assert caught.value.code not in (0, None)

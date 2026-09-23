@@ -14,7 +14,7 @@ from fractions import Fraction
 
 import pytest
 
-from rtb.capabilitykit import AUDIT_KEY_ENV
+from rtb.capabilitykit import AUDIT_KEY_ENV, MAX_AUDIT_KEY_BYTES, encode_audit_key
 from rtb.dsp.server import DspServer
 from rtb.dsp.store import CampaignStore
 from rtb.ops import side_effects, sli, slo
@@ -354,7 +354,7 @@ def test_one_unreadable_slo_does_not_hide_the_others():
     result = slo.evaluate(NOW, counter=counter)
     assert len(result) == len(slo.SLOS)
     broken = status(result, "queue_wait")
-    assert broken.missing is True and "DspUnreadable" in (broken.error or "")
+    assert broken.missing is True and "boom" in (broken.error or "")  # 原因帶到狀態
     assert all(not s.missing and s.period_valid == 10 for s in result if s.name != "queue_wait")
 
     def no_database(_name, _since, _until):
@@ -432,6 +432,11 @@ def test_the_command_line_reports_fixed_exit_codes(rows, tmp_path, dsp_url):
     assert "safe_completion" not in err.getvalue()
 
     err = io.StringIO()
+    assert slo.run(_cli_args(rows, dsp_url), out=io.StringIO(), err=err,
+                   environ={AUDIT_KEY_ENV: "x" * (MAX_AUDIT_KEY_BYTES + 1)}) == slo.EXIT_BAD_CONFIG
+    assert AUDIT_KEY_ENV in err.getvalue() and "x" * 64 not in err.getvalue()  # 超長金鑰是設定錯誤
+
+    err = io.StringIO()
     assert slo.run(_cli_args(rows, dsp_url, tmp_path / "nope.db"), out=io.StringIO(), err=err,
                    environ={}) == slo.EXIT_NO_DATABASE
     assert "找不到資料庫檔" in err.getvalue()
@@ -440,3 +445,25 @@ def test_the_command_line_reports_fixed_exit_codes(rows, tmp_path, dsp_url):
     assert slo.run(_cli_args(rows, dsp_url), out=io.StringIO(), err=err,
                    environ={}) == slo.EXIT_NOT_UPGRADED
     assert "請先啟動一次執行迴圈" in err.getvalue()
+
+
+def test_the_command_line_says_why_a_source_was_missing(rows, dsp_url):
+    """代碼審第 3 輪:缺資料的實際原因一路帶到標準錯誤(沒帶金鑰、帶錯金鑰、連不上各不相同),
+    而且不含金鑰與標頭值。"""
+    wrong = "錯" * 32
+    reasons = {}
+    for case, url, environ in (("no_key", dsp_url, {}),
+                               ("wrong_key", dsp_url, {AUDIT_KEY_ENV: wrong}),
+                               ("unreachable", "http://127.0.0.1:9", {AUDIT_KEY_ENV: CLI_KEY})):
+        err = io.StringIO()
+        printed = _printed(rows, url, environ, slo.EXIT_INCOMPLETE, err)
+        text = err.getvalue()
+        for secret in (CLI_KEY, wrong, encode_audit_key(CLI_KEY.encode()),
+                       encode_audit_key(wrong.encode())):
+            assert secret not in text, case
+        line = next(x for x in text.splitlines() if x.startswith("unauthorized_side_effects"))
+        reasons[case] = line
+        assert printed["unauthorized_side_effects"]["error"], case  # 原因也在狀態裡
+    assert "401" in reasons["no_key"] and "audit_key_missing" in reasons["no_key"]
+    assert "403" in reasons["wrong_key"] and "audit_key_invalid" in reasons["wrong_key"]
+    assert len(set(reasons.values())) == 3, reasons

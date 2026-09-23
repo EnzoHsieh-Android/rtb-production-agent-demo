@@ -21,10 +21,11 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from rtb.capabilitykit import (
     AUDIT_HEADER,
-    AUDIT_KEY_ENV,
+    AuditKeyTooLong,
     TokenRejected,
     decode_audit_key,
     is_usable_key,
+    read_audit_key,
     read_key,
 )
 from rtb.capabilitykit import HEADER as CAPABILITY_HEADER
@@ -336,11 +337,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--busy-timeout-seconds", type=float, default=BUSY_TIMEOUT_SECONDS)
     parser.add_argument("--socket-timeout-seconds", type=float, default=SOCKET_TIMEOUT_SECONDS)
     args = parser.parse_args(argv)
+    try:
+        audit_key = read_audit_key(os.environ)  # 只有啟動程式讀環境變數
+    except AuditKeyTooLong as bad:
+        raise SystemExit(f"設定錯誤:{bad}") from bad  # 啟動就報,不要啟動之後永遠比對失敗
     CampaignStore(args.db).close()  # 確保資料庫與表已建立
     server = DspServer(args.db, args.fault_injection, args.hang_seconds, args.delay_seconds,
                        args.busy_timeout_seconds, args.socket_timeout_seconds,
                        capability_key=read_key(os.environ),  # 只有啟動程式讀環境變數
-                       audit_key=read_key(os.environ, AUDIT_KEY_ENV))
+                       audit_key=audit_key)
     print(f"PORT={server.server_address[1]}", flush=True)
     try:
         server.serve_forever()

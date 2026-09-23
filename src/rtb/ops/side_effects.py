@@ -42,7 +42,23 @@ AGGREGATE = BlockCode.AGGREGATE_LIMIT_REACHED.value
 
 
 class DspUnreadable(Exception):
-    """DSP 的唯讀端點讀不到或讀不懂:這個窗的副作用核對做不了(呼叫端照實標資料來源缺)。"""
+    """DSP 的唯讀端點讀不到或讀不懂:這個窗的副作用核對做不了(呼叫端照實標資料來源缺)。訊息只含
+    分類、狀態碼與 DSP 回的錯誤代碼,不含金鑰與標頭值;會一路帶到命令列的標準錯誤。"""
+
+
+_ERROR_CODE = re.compile(r"[a-z_]{1,64}")
+MAX_REASON_CHARS = 200
+
+
+def _refused(what: str, status: int, body: Any) -> DspUnreadable:
+    """端點沒回 200:帶狀態碼與 DSP 回的錯誤代碼(只收固定格式的代碼,不回顯任意內容)。"""
+    code = body.get("error") if isinstance(body, dict) else None
+    shown = f" {code}" if isinstance(code, str) and _ERROR_CODE.fullmatch(code) else ""
+    return DspUnreadable(f"{what}回 {status}{shown}")
+
+
+def reason(exc: DspUnreadable) -> str:
+    return f"DSP 讀不到:{exc}"[:MAX_REASON_CHARS]
 
 
 class Verdict(StrEnum):
@@ -69,8 +85,8 @@ class DspWrite:
 @dataclass(frozen=True)
 class Tally:
     """一個窗的計數:好事件、有效事件、每個壞事件的時間,另報無法核對、接不上、時鐘異常的份數。
-    missing 為真:資料來源讀不到,這個窗沒算(不是 0 個事件)。stable 為假:跨資料庫讀了三輪都
-    不同,回的是最後一輪(比照追蹤檢視與指標的穩定欄;只有端到端交給執行會是假)。"""
+    missing 為真:資料來源讀不到,這個窗沒算(不是 0 個事件),reason 是讀不到的原因。stable 為假:
+    跨資料庫讀了三輪都不同,回的是最後一輪(比照追蹤檢視與指標的穩定欄;只有端到端交給執行會是假)。"""
 
     good: int
     valid: int
@@ -80,6 +96,7 @@ class Tally:
     clock_anomaly: int = 0
     missing: bool = False
     stable: bool = True
+    reason: str | None = None
 
     @property
     def bad(self) -> int:
@@ -202,8 +219,8 @@ def get_json(url: str, path: str, timeout: float,
     headers = None if audit_key is None else {ClientHeader.AUDIT_KEY: encode_audit_key(audit_key)}
     try:
         return request_json(f"{url.rstrip('/')}{path}", "GET", None, timeout, headers)
-    except (OSError, ValueError) as exc:
-        raise DspUnreadable(str(exc)) from exc
+    except (OSError, ValueError) as exc:  # 連不上、逾時、回應讀不懂;訊息不含請求的標頭
+        raise DspUnreadable(f"連不上或回應讀不懂({type(exc).__name__}: {exc})") from exc
 
 
 def commit_moment(text: object) -> datetime:
@@ -239,14 +256,14 @@ def read_dsp_window(
     status, body = get_json(url, f"/operations/since/{quote(since.isoformat(), safe='')}",
                             timeout, audit_key)
     if status != 200 or not isinstance(body, dict) or not isinstance(body.get("cursor"), int):
-        raise DspUnreadable(f"游標端點回 {status}")
+        raise _refused("游標端點", status, body)
     cursor: int = body["cursor"]
     found: list[DspWrite] = []
     for _ in range(MAX_PAGES):
         status, page = get_json(url, f"/operations/after/{cursor}", timeout, audit_key)
         if status != 200 or not isinstance(page, dict) or not isinstance(
                 page.get("operations"), list):
-            raise DspUnreadable(f"列操作端點回 {status}")
+            raise _refused("列操作端點", status, page)
         for entry in map(_write, page["operations"]):  # 提交時間在 _write 已驗過帶時區
             if datetime.fromisoformat(entry.committed_at) >= until:
                 return tuple(found)
@@ -267,7 +284,7 @@ def _operation(url: str, key: str, timeout: float) -> tuple[str, int] | None:
     if status == 404:
         return None
     if status != 200 or not isinstance(body, dict):
-        raise DspUnreadable(f"操作端點回 {status}")
+        raise _refused("操作端點", status, body)
     try:
         return iso(commit_moment(body.get("committed_at"))), int(body["operation_id"])
     except (KeyError, TypeError, ValueError) as exc:
@@ -279,8 +296,8 @@ def unauthorized(since: datetime, until: datetime, executor_db: Path, dsp_url: s
                  timeout: float, audit_key: bytes | None) -> Tally:
     try:
         writes = read_dsp_window(dsp_url, since, until, timeout, audit_key)  # 先讀 DSP
-    except DspUnreadable:
-        return Tally(0, 0, missing=True)
+    except DspUnreadable as exc:
+        return Tally(0, 0, missing=True, reason=reason(exc))
     keys = [w.key for w in writes if is_executor_key(w.key)]
     inbox = ReadOnlyInbox(executor_db)  # 再開執行端快照
     try:
@@ -309,8 +326,8 @@ def duplicates(since: datetime, until: datetime, executor_db: Path, dsp_url: str
                   if is_executor_key(w.key)]
         firsts, siblings = _executor_side(executor_db, writes)
         return _tally_duplicates(writes, firsts, siblings, dsp_url, timeout)
-    except DspUnreadable:
-        return Tally(0, 0, missing=True)
+    except DspUnreadable as exc:
+        return Tally(0, 0, missing=True, reason=reason(exc))
 
 
 def _executor_side(
