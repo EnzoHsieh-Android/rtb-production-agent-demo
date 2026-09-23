@@ -18,6 +18,7 @@ from rtb.domain.proposal import Proposal, parse_proposal
 from rtb.executor.inbox_store import (
     DEFAULT_MAX_PENDING,
     Accepted,
+    BlockCode,
     ContentConflict,
     CreatedInFuture,
     ExpiryTooFar,
@@ -127,13 +128,25 @@ class InboxHandler(JsonHandler):
         return {}
 
 
+# 權限類擋下原因合併成泛稱(使用者 2026-09-23 裁定,Phase 5 [S300]):重送就能讀到的原因若分得細,
+# 被劫持的分析行程可以一路試出租戶的預算上限與廣告歸屬。只在回應本文合併,收件表照記細分代碼
+_PERMISSION_BLOCKS = frozenset({BlockCode.OVER_BUDGET_CAP.value,
+                                BlockCode.CAMPAIGN_NOT_ALLOWED.value})
+NOT_PERMITTED = "not_permitted"
+
+
+def _answered_block_code(stored: str | None) -> str | None:
+    return NOT_PERMITTED if stored in _PERMISSION_BLOCKS else stored
+
+
 def _accepted_body(result: Accepted) -> dict[str, Any]:
     # state 才是提案目前的狀態:重送一份已過期的提案,status 仍是 accepted(收過了),
     # 但 state 會是 expired。已確認的處置(已交給執行、已擋下、死信)與 expired 代表它不會再被
     # 交出去;in_progress(處理中)代表已交出去、還沒結案,仍可能被寫進 DSP
     return {"status": "accepted", "task_id": result.task_id, "revision": result.revision,
             "state": result.state, "content_hash": result.content_hash,
-            "replayed": result.replayed}
+            "replayed": result.replayed,
+            "block_code": _answered_block_code(result.block_code)}
 
 
 class InboxServer(KitServer):

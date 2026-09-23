@@ -1,0 +1,3 @@
+{"round": "r3", "loop": "code-phase5-exec", "base": "0ef3ad1", "delta_base": "620c930", "snapshot": "r3-snapshot.patch", "delta": "r3-delta.patch", "reviewed_sha256": "9421982077fda2c86ff787d35fa73315b754dd70879321943c08bb961737dfbb", "seats": [
+ {"seat": "finder-codex", "lens": "外家 finder(第 2 輪修正回歸)", "materials": ["r3-snapshot.patch", "r3-delta.patch"]},
+ {"seat": "資安-sonnet", "lens": "資安", "materials": ["r3-snapshot.patch", "r3-delta.patch"]}]}
