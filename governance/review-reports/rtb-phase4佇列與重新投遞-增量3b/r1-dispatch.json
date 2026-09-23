@@ -1,0 +1,12 @@
+{"round": "r1", "loop": "rtb-phase4佇列與重新投遞-增量3b",
+ "spec": "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md",
+ "reviewed_sha256": "ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70",
+ "seats": [
+  {"seat": "lease", "lens": "租約只增不改表的正確性(臨時目錄實驗)", "auditor": "sonnet", "materials": ["r1-snapshot.md", "src/rtb/analyzer/task_store.py", "src/rtb/analyzer/flow.py", "src/rtb/sqlitekit.py", "tests/analyzer/test_flow.py"]},
+  {"seat": "race", "lens": "並發交錯與重讀(最壞時序)", "auditor": "sonnet", "materials": ["r1-snapshot.md", "src/rtb/analyzer/task_store.py", "src/rtb/analyzer/flow.py", "src/rtb/sqlitekit.py"]},
+  {"seat": "f3", "lens": "F3 轉正流程與措辭(接手的人)", "auditor": "sonnet", "materials": ["r1-snapshot.md", "docs/rtb-production-agent-demo-knowledge/Verification/事故F3_重複投遞不重複分析與副作用.md", "docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md", "docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md"]},
+  {"seat": "testability", "lens": "可測性", "auditor": "sonnet", "materials": ["r1-snapshot.md", "tests/analyzer/test_flow.py", "tests/analyzer/conftest.py", "src/rtb/analyzer/flow.py"]},
+  {"seat": "seam", "lens": "銜接(3a、Phase 5 重新規劃、回退)", "auditor": "sonnet", "materials": ["r1-snapshot.md", "src/rtb/analyzer/flow.py", "src/rtb/analyzer/task_store.py", "docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md"]},
+  {"seat": "arch", "lens": "架構對齊", "auditor": "sonnet", "materials": ["r1-snapshot.md", "src/rtb/analyzer/task_store.py", "src/rtb/executor/inbox_store.py", "src/rtb/analyzer/flow.py"]},
+  {"seat": "codex", "lens": "外家否決(通才)", "auditor": "codex", "materials": ["r1-snapshot.md", "src/rtb/analyzer/task_store.py", "src/rtb/analyzer/flow.py"]}
+ ]}
