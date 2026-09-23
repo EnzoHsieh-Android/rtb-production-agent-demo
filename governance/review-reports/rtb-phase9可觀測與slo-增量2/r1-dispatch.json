@@ -1,0 +1,100 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "指標定義正確性",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/observability.py",
+   "src/rtb/analyzer/task_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "標籤有界性",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/observability.py",
+   "src/rtb/analyzer/task_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "延遲與跨元件",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/observability.py",
+   "src/rtb/analyzer/task_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "成本與唯讀",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/observability.py",
+   "src/rtb/analyzer/task_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "完成條件與可測性",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/observability.py",
+   "src/rtb/analyzer/task_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/observability.py",
+   "src/rtb/analyzer/task_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r1-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/observability.py",
+   "src/rtb/analyzer/task_store.py"
+  ],
+  "auditor": "codex"
+ }
+]
