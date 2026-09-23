@@ -460,23 +460,41 @@ class Executor:
     def flush_calls(self) -> bool:
         """把欠著的呼叫紀錄用一個新的短交易寫進去,回傳是否排空;資料庫忙碌就留著下次再補,永遠不丟
         忙碌例外(丟出去會蓋掉已經發生的 DSP 結果、對帳整輪被放棄;代碼審第 1 輪三席)。補寫仍忙由
-        啟動程式跟主交易忙碌一樣計數(代碼審第 2 輪)。其他資料庫錯誤照舊往外丟。提交成功之後才從
-        清單拿掉,中間被打斷只可能是行程當機。"""
+        啟動程式跟主交易忙碌一樣計數(代碼審第 2 輪)。其他資料庫錯誤照舊往外丟。
+
+        先把這一批從清單拿出來再開交易,交易沒成就原樣放回清單最前面(代碼審第 3 輪,代使用者裁定):
+        提交之後才被 Ctrl+C 打斷時,例外會展開堆疊、跑啟動程式收尾的補寫,這批要是還在清單上就會
+        重寫一次(呼叫紀錄表沒有能去重的鍵)。放回的條件:這一批還沒寫完(交易一定回滾了),或是一般例外
+        (提交本身失敗也會回滾)。寫完之後才到的中斷不放回:訊號例外要等提交那一步回來才丟,那時已經
+        提交。所以不會重寫;中斷落在「拿出來之後、放回之前」或「寫完之後、提交之前」這兩段極短的空檔,
+        那一批就少記,跟當機一樣。"""
         if not self._pending:
             return True
-        waiting = list(self._pending)
+        batch = self._pending[:]
+        del self._pending[:]
+        written = False
         try:
             with self.store.transaction() as tx:
-                for item in waiting:
+                for item in batch:
                     attempt_store.record_dsp_call(tx, item.call, item.subject, self._by, item.at)
+                written = True
         except InboxBusy:
+            self._pending[:0] = batch
             return False
-        del self._pending[:len(waiting)]
-        return not self._pending
+        except BaseException as exc:
+            if not written or isinstance(exc, Exception):
+                self._pending[:0] = batch
+            raise
+        return True
 
     def _backlogged(self) -> bool:
         """先補寫一次;待寫清單仍到上限就不開始新的工作(背壓)。"""
         return not self.flush_calls() and len(self._pending) >= MAX_PENDING_CALLS
+
+    def owes_calls(self) -> bool:
+        """還有沒寫進去的呼叫紀錄。每一次呼叫、每一份工作結束都立刻補寫,所以清單不空就等於這一輪最後
+        一次補寫仍忙(啟動程式用它計忙碌,不自己再補寫一次;代碼審第 3 輪)。"""
+        return bool(self._pending)
 
     def unrecorded(self) -> tuple[str | None, ...]:
         """還沒寫進去的呼叫紀錄的冪等鍵(一列一個;啟動程式收尾時印出少記哪些)。"""

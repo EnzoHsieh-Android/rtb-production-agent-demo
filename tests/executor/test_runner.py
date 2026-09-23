@@ -473,3 +473,25 @@ def test_a_call_record_backlog_that_fills_mid_reconcile_stops_before_the_next_ke
     worker.reconcile_all()
     assert len(h.dsp.lookups) == 1  # 第一把鍵查一次就到上限:第二把鍵不查
     assert len(worker.unrecorded()) > owed  # 第一把鍵的呼叫也欠著(補寫仍忙)
+
+
+
+def test_a_busy_round_tries_the_call_records_once_per_job_not_again_in_the_loop(h, monkeypatch):
+    """啟動程式用這一輪實際的補寫結果計忙碌,不再自己多補寫一次(持續忙時多撞一次鎖;
+    代碼審第 3 輪)。"""
+    from rtb.sqlitekit import DatabaseBusy
+
+    tries = []
+
+    def busy(*_args, **_kwargs):
+        tries.append(1)
+        raise DatabaseBusy("database is locked")
+
+    monkeypatch.setattr(attempt_store, "record_dsp_call", busy)
+    h.submit()
+    marks = []
+    assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
+                      out=io.StringIO(), sleep=lambda _s: marks.append(len(tries)),
+                      max_rounds=2, owner="executor") == 0
+    # 第 2 輪只剩欠著的紀錄:對帳之前、處理一筆之前各補寫一次,迴圈本身不再補寫
+    assert len(marks) == 2 and marks[1] - marks[0] == 2

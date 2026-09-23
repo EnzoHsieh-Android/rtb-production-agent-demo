@@ -66,7 +66,8 @@ def _loop(
             troubled = executor.reconcile_all()  # 先對帳,再處理待核可,再處理新提案
             executor.process_awaiting()
             result = executor.process_one()
-            behind = not executor.flush_calls()  # 呼叫紀錄補寫仍忙:跟主交易忙碌一樣計數
+            # 這一輪最後一次補寫仍忙:跟主交易忙碌一樣計數。每份工作前後都補寫過,不再多撞一次鎖
+            behind = executor.owes_calls()
         except InboxBusy as busy:  # 多工作者下等鎖逾時是正常競爭:這一輪休息,連續幾次才停
             busy_streak += 1
             if busy_streak >= BUSY_LIMIT:

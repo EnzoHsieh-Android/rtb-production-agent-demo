@@ -9,6 +9,7 @@ import json
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -314,6 +315,109 @@ def test_calls_owed_during_a_job_are_written_when_the_job_ends(tmp_path, clock, 
         worker.reconcile_all()
         assert h.query("SELECT count(*) FROM dsp_calls")[0][0] == before + 4
         assert worker.unrecorded() == ()
+    finally:
+        h.close()
+
+
+def _owe_three_calls(h, worker, monkeypatch):
+    """處理一筆,三次呼叫(讀、寫、查證讀)都補寫不進去,欠在待寫清單上。"""
+    from rtb.executor import attempt_store
+    from rtb.sqlitekit import DatabaseBusy
+
+    real = attempt_store.record_dsp_call
+
+    def busy(*_args, **_kwargs):
+        raise DatabaseBusy("database is locked")
+
+    monkeypatch.setattr(attempt_store, "record_dsp_call", busy)
+    h.submit()
+    assert worker.process_one().kind is Result.EXECUTED
+    assert len(worker.unrecorded()) == 3
+    monkeypatch.setattr(attempt_store, "record_dsp_call", real)
+    return real
+
+
+def test_an_interrupt_after_the_flush_commits_does_not_write_the_calls_twice(
+        tmp_path, clock, monkeypatch):
+    """補寫提交之後、清單拿掉之前被 Ctrl+C 打斷:例外會展開堆疊、跑啟動程式收尾的補寫,不能把同一批
+    再寫一次(呼叫紀錄表沒有能去重的鍵;代碼審第 3 輪外家席)。"""
+    h = Harness(tmp_path, clock)
+    try:
+        worker = h.executor()
+        _owe_three_calls(h, worker, monkeypatch)
+        real = h.store.transaction
+
+        @contextmanager
+        def interrupted_after_commit():
+            with real() as tx:
+                yield tx
+            raise KeyboardInterrupt  # 提交已完成,例外才到
+
+        monkeypatch.setattr(h.store, "transaction", interrupted_after_commit)
+        with pytest.raises(KeyboardInterrupt):
+            worker.flush_calls()
+        monkeypatch.setattr(h.store, "transaction", real)
+        assert worker.flush_calls() is True  # 收尾補寫
+        rows = h.query("SELECT id FROM dsp_calls")
+        assert len(rows) == 3  # 沒有重複列
+        assert worker.unrecorded() == ()
+    finally:
+        h.close()
+
+
+def test_a_flush_whose_commit_fails_puts_the_batch_back(tmp_path, clock, monkeypatch):
+    """每一列都寫了、提交那一步才出錯:交易回滾,這一批照樣放回(不是寫完就當作已記)。"""
+    h = Harness(tmp_path, clock)
+    try:
+        worker = h.executor()
+        _owe_three_calls(h, worker, monkeypatch)
+        real = h.store.transaction
+
+        @contextmanager
+        def commit_fails():
+            with real() as tx:
+                yield tx
+                raise sqlite3.OperationalError("disk I/O error")  # 提交之前:交易回滾
+
+        monkeypatch.setattr(h.store, "transaction", commit_fails)
+        with pytest.raises(sqlite3.OperationalError):
+            worker.flush_calls()
+        monkeypatch.setattr(h.store, "transaction", real)
+        assert len(worker.unrecorded()) == 3
+        assert worker.flush_calls() is True
+        assert h.query("SELECT count(*) FROM dsp_calls") == [(3,)]
+    finally:
+        h.close()
+
+
+@pytest.mark.parametrize("failure", [KeyboardInterrupt, sqlite3.OperationalError])
+def test_a_flush_that_fails_before_commit_puts_the_batch_back(tmp_path, clock, monkeypatch,
+                                                              failure):
+    """交易還沒提交就失敗(被打斷,或忙碌以外的資料庫錯誤):這一批原樣放回清單最前面,例外照丟。"""
+    from rtb.executor import attempt_store
+
+    h = Harness(tmp_path, clock)
+    try:
+        worker = h.executor()
+        real = _owe_three_calls(h, worker, monkeypatch)
+        owed = worker.unrecorded()
+        seen = {"n": 0}
+
+        def fails_on_the_second_row(*args, **kwargs):
+            seen["n"] += 1
+            if seen["n"] == 2:
+                raise failure("disk I/O error")
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(attempt_store, "record_dsp_call", fails_on_the_second_row)
+        with pytest.raises(failure):
+            worker.flush_calls()
+        assert worker.unrecorded() == owed  # 原樣放回,順序不變
+        assert h.query("SELECT count(*) FROM dsp_calls") == [(0,)]  # 第一列跟著回滾
+        monkeypatch.setattr(attempt_store, "record_dsp_call", real)
+        assert worker.flush_calls() is True
+        assert h.query("SELECT call_kind FROM dsp_calls ORDER BY id") == [
+            ("read_campaign",), ("write",), ("read_campaign",)]
     finally:
         h.close()
 
