@@ -1850,3 +1850,6 @@
 {"ts": "2026-09-23T14:54:11+08:00", "commit": "e1981b2", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase7-inc1"], "note": "disposal gate PASS"}
 {"ts": "2026-09-23T14:55:05+08:00", "commit": "d6ead3a", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=2 hits=0 secs=0.2"}
 {"ts": "2026-09-23T14:55:07+08:00", "commit": "d6ead3a", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d6ead3a6668a112c436b648b7d4c14189ee3b9a5"}
+{"ts": "2026-09-23T14:55:13+08:00", "commit": "90f9b13", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T14:55:14+08:00", "commit": "90f9b13", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "90f9b13d47d5d0319c6b32899299c13ed7669a62"}
+{"ts": "2026-09-23T14:55:14+08:00", "commit": "7d5c065", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "Phase 7 增量 1(證據型別與分析端白名單)代碼審 2 輪收斂,standard:r1 通才、架構對齊、自願加派資安、否決席(Codex 撞用量上限由 opus 頂替)共 2 條全折,另依否決席觀察補可信證據鍵的短代號限制;r2 通才與架構 0 條(外家缺席:Codex 限額)。新防護 16 道變異檢查全紅;全套 1148 支綠。", "branch": "phase7-inc1", "head_sha": "7d5c065f24e0f0ec2a02a981849d446e2f31c011"}
