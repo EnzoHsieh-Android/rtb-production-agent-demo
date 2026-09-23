@@ -1,0 +1,7 @@
+{"round": "r1", "loop": "code-phase7-inc5", "base": "ea1740e", "snapshot": "r1-snapshot.patch", "reviewed_sha256": "675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b",
+ "seats": [
+  {"seat": "reviewer-sonnet", "lens": "單席通才", "materials": ["r1-snapshot.patch"]},
+  {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.patch"]},
+  {"seat": "資安-sonnet", "lens": "資安(自願加派)", "materials": ["r1-snapshot.patch"]}
+ ],
+ "absent": [{"seat": "外家否決", "reason": "Codex 用量上限到 17:48(派工時 16:11);standard 只要求缺席留痕"}]}
