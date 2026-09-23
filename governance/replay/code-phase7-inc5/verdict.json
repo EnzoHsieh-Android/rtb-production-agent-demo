@@ -1,0 +1,40 @@
+{
+ "loop": "code-phase7-inc5",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-23T16:16:52+08:00",
+ "spec_path": "governance/review-reports/code-phase7-inc5/r1-snapshot.patch",
+ "spec_sha": "675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b",
+ "rows": [
+  "{\"ts\": \"2026-09-23T16:15:45+08:00\", \"kind\": \"none\", \"auditor\": \"reviewer-sonnet\", \"token\": \"CANARY-80bfd00f\", \"note\": \"\", \"loop\": \"code-phase7-inc5\", \"round\": \"r1\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b\", \"reviewed_sha256\": \"675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b\", \"spec_path\": \"governance/review-reports/code-phase7-inc5/r1-snapshot.patch\", \"scope_lines\": 214, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 0, \"report_path\": \"governance/review-reports/code-phase7-inc5/r1-reviewer.md\", \"report_sha256\": \"1239060b9b193985e8305b238d48832a981c8bdf699efbd85f5551f78baac6fb\", \"snapshot_path\": \"governance/review-reports/code-phase7-inc5/r1-snapshot.patch\", \"snapshot_sha256\": \"675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b\"}",
+  "{\"ts\": \"2026-09-23T16:15:45+08:00\", \"kind\": \"none\", \"auditor\": \"arch-sonnet\", \"token\": \"CANARY-ca274666\", \"note\": \"\", \"loop\": \"code-phase7-inc5\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 1, \"result_sha256\": \"675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b\", \"reviewed_sha256\": \"675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b\", \"spec_path\": \"governance/review-reports/code-phase7-inc5/r1-snapshot.patch\", \"scope_lines\": 214, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 1, \"report_path\": \"governance/review-reports/code-phase7-inc5/r1-arch.md\", \"report_sha256\": \"358fe052da593aeae1648800654607ab6cd9f456e78af5ce898e3a077c3a9f7d\", \"snapshot_path\": \"governance/review-reports/code-phase7-inc5/r1-snapshot.patch\", \"snapshot_sha256\": \"675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b\"}",
+  "{\"ts\": \"2026-09-23T16:15:45+08:00\", \"kind\": \"none\", \"auditor\": \"資安-sonnet\", \"token\": \"CANARY-59e05045\", \"note\": \"自願加派;外家否決缺席:Codex 用量上限\", \"loop\": \"code-phase7-inc5\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 2, \"result_sha256\": \"675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b\", \"reviewed_sha256\": \"675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b\", \"spec_path\": \"governance/review-reports/code-phase7-inc5/r1-snapshot.patch\", \"scope_lines\": 214, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"arch-F1\", \"security-F1\", \"security-F2\"], \"folded_set\": [], \"accepted_set\": [\"arch-F1\", \"security-F1\", \"security-F2\"], \"refuted_set\": [], \"accept_reasons\": {\"arch-F1\": \"設計要求紀錄在回應前落地,flush 把順序寫明,多一行無害\", \"security-F1\": \"每行只含固定詞不外洩,節流與告警歸 Phase 9 可觀測性\", \"security-F2\": \"交錯最壞只混固定詞,一行一次寫入且標準錯誤逐行輸出\"}, \"finding_kinds\": {\"arch-F1\": \"code\", \"security-F1\": \"spec\", \"security-F2\": \"code\"}, \"reported\": 2, \"report_path\": \"governance/review-reports/code-phase7-inc5/r1-security.md\", \"report_sha256\": \"09a85201db1a7533eafee4f0587b537f6829bd3062961bcb2f3012d724e8963f\", \"snapshot_path\": \"governance/review-reports/code-phase7-inc5/r1-snapshot.patch\", \"snapshot_sha256\": \"675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b\", \"intake_path\": \"governance/review-reports/code-phase7-inc5/r1-intake.md\", \"intake_sha256\": \"b6741976c1d464b4030372bcc462c864e3b58513f0b4083c8d133c0772d99df0\"}"
+ ],
+ "all_row_shas": [
+  "56f4eb75baac7cda8e3b580504610cf323f475709c386bbdd3e1b2c3159a1fbc",
+  "5d56001558a61c9afbb07644c2e749bedc8b5758560a4dc4aa864a311127d2af",
+  "a7e12d1aa6eb92a4cf1bc88df086e8e7f6d473ac1468458bc8f8c51d9d2d2789"
+ ],
+ "files": {
+  "governance/review-reports/code-phase7-inc5/r1-reviewer.md": {
+   "sha256": "1239060b9b193985e8305b238d48832a981c8bdf699efbd85f5551f78baac6fb",
+   "git_blob": "4d25186f3cd05a437514e1db68aab10bc58f8d17"
+  },
+  "governance/review-reports/code-phase7-inc5/r1-snapshot.patch": {
+   "sha256": "675eb67e44830a4ba98b9599879edaaca69a58b23e26a097f6ee09422212003b",
+   "git_blob": "c134fc26a40ec68e6fff937dce4b4a06c05d09c6"
+  },
+  "governance/review-reports/code-phase7-inc5/r1-arch.md": {
+   "sha256": "358fe052da593aeae1648800654607ab6cd9f456e78af5ce898e3a077c3a9f7d",
+   "git_blob": "532540e6da766fdd25d4ed40d02f5bc8ac2551c1"
+  },
+  "governance/review-reports/code-phase7-inc5/r1-security.md": {
+   "sha256": "09a85201db1a7533eafee4f0587b537f6829bd3062961bcb2f3012d724e8963f",
+   "git_blob": "75fdadcebbb42b2c8cf43714c9771d49080934ff"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

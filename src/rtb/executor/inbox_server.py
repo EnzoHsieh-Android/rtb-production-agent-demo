@@ -8,13 +8,13 @@
 
 import argparse
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from rtb.domain.proposal import parse_proposal
+from rtb.domain.proposal import Proposal, parse_proposal
 from rtb.executor.inbox_store import (
     DEFAULT_MAX_PENDING,
     Accepted,
@@ -54,6 +54,19 @@ REJECTION_STATUS = {
 }
 
 
+# 解析錯誤裡帶攻擊者可控尾巴的三種:只留冒號前的類別(鍵名、位元組數、例外型別名都不記)
+_TAILED_ERRORS = frozenset({"unknown_field", "too_large", "unexpected_failure"})
+
+
+def _log_invalid_proposal(errors: Sequence[str]) -> None:
+    """格式不合法的提案被拒時,回應之前在標準錯誤寫一行固定格式紀錄:錯誤類別排序、去重、逗號分隔。
+    不碰資料庫、不拿鎖(收件口刻意不為無效請求記事件);持久化與告警留給 Phase 9 可觀測性。"""
+    classes = sorted({error.split(":", 1)[0] if error.split(":", 1)[0] in _TAILED_ERRORS
+                      else error for error in errors})
+    sys.stderr.write(f"invalid_proposal errors={','.join(classes)}\n")
+    sys.stderr.flush()
+
+
 def _crash_before_commit() -> None:
     raise NoResponse  # 交易還沒提交就中斷:回滾,呼叫者什麼都收不到
 
@@ -71,11 +84,7 @@ class InboxHandler(JsonHandler):
         media_type = (self.single_header("Content-Type") or "").split(";")[0].strip().lower()
         if media_type != "application/json":
             raise RequestRejected(415, "unsupported_media_type")
-        parsed = parse_proposal(self.read_json())
-        if parsed.proposal is None:
-            # 解析錯誤清單含請求裡的欄位名稱,不回給呼叫者;格式不合法的請求也不碰資料庫、不記事件
-            raise RequestRejected(400, "invalid_proposal")
-        proposal = parsed.proposal
+        proposal = self._parse_or_reject()
         store = InboxStore(self.server.db_path, self.server.max_pending,
                            self.server.busy_timeout_seconds)
         try:
@@ -91,6 +100,21 @@ class InboxHandler(JsonHandler):
         if fault == "crash_after_commit":
             raise NoResponse  # 已提交,但呼叫者收不到回應:重送會得到重送結果
         return (200 if result.replayed else 201), _accepted_body(result)
+
+    def _parse_or_reject(self) -> Proposal:
+        """讀本文並嚴格解析;格式不合法就在標準錯誤留一行只含錯誤類別的紀錄,再照原本的代碼拒收
+        (Phase 7 增量 5,使用者裁定選 b)。"""
+        try:
+            body = self.read_json()
+        except RequestRejected as rejection:  # 讀本文就被拒:拒收代碼本身是固定詞,直接當錯誤類別
+            _log_invalid_proposal((rejection.code,))
+            raise
+        parsed = parse_proposal(body)
+        if parsed.proposal is None:
+            # 解析錯誤清單含請求裡的欄位名稱,不回給呼叫者;格式不合法的請求也不碰資料庫、不記事件
+            _log_invalid_proposal(parsed.errors)
+            raise RequestRejected(400, "invalid_proposal")
+        return parsed.proposal
 
     def map_exception(self, exc: Exception) -> tuple[int, str, bool] | None:
         if isinstance(exc, InboxRejected):
