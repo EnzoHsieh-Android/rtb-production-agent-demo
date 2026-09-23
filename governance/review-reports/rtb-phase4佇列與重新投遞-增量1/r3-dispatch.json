@@ -1,0 +1,67 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "狀態轉換表逐格重走",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r3-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "s2",
+  "lens": "租約序號與圍籬對照Phase0",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r3-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "s3",
+  "lens": "既有規則相容與前輪修正驗收",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r3-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r3-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量1/r3-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md"
+  ],
+  "auditor": "codex"
+ }
+]
