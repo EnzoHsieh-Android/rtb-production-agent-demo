@@ -1,0 +1,170 @@
+diff --git a/tests/analyzer/test_f5_end_to_end.py b/tests/analyzer/test_f5_end_to_end.py
+new file mode 100644
+index 0000000..e9f6be5
+--- /dev/null
++++ b/tests/analyzer/test_f5_end_to_end.py
+@@ -0,0 +1,164 @@
++"""事故 F5 端到端:Phase 7 增量 4 的 S213、S214、S215。
++
++各層單元測試都綠,不代表整條路上沒有別的地方把名稱帶進權限。這裡用真的模擬 DSP(行程內執行緒、
++不開故障注入)、真的分析行程(DSP 用戶端與收件口用戶端,包成會記對外呼叫的版本)、真的收件口、
++真的執行迴圈(DSP 用戶端、簽發器、租戶設定)跑一次:廣告名稱換成每一份對抗性素材,DSP 上發生的
++事要跟名稱正常時一模一樣。
++"""
++
++import json
++import threading
++from datetime import UTC, datetime
++
++import pytest
++
++from rtb.analyzer import flow, inbox_client, instrumented, policy
++from rtb.analyzer.task_store import TaskStore
++from rtb.domain.proposal import CHECKS
++from rtb.domain.task_state import TaskState
++from rtb.dsp.server import DspServer
++from rtb.dsp.store import CampaignStore
++from rtb.executor.capability_signer import CapabilitySigner
++from rtb.executor.dsp_client import DspClient
++from rtb.executor.execution import Executor
++from rtb.executor.inbox_server import InboxServer
++from rtb.executor.inbox_store import InboxStore
++from tests.adversarial_samples import SAMPLES
++from tests.capability_samples import TEST_KEY
++from tests.executor.fakes import write_config
++
++SPEND = {"underpacing": 0.5, "on_pace": 100.0}  # 預算 100,1 小時窗:0.5 明顯偏低、100 不算
++NORMAL_NAME = next(text for category, text in SAMPLES if category == "normal")
++EXPECTED_ENDPOINTS = {"dsp:campaign", "dsp:metrics", "inbox:submit"}
++SAMPLE_IDS = [f"{category}-{index}" for index, (category, _text) in enumerate(SAMPLES)]
++
++
++def _now():
++    return datetime.now(UTC)  # 各服務與簽發都用真實時間:DSP 只容許 30 秒的時鐘誤差
++
++
++def run_once(tmp_path, name, pace):
++    """跑一條完整的路:建廣告 → 分析行程蒐證、分析、送提案 → 執行迴圈處理。回傳觀察到的事實。"""
++    dsp_db = tmp_path / "dsp.db"
++    seeding = CampaignStore(dsp_db)
++    seeding.seed_campaign("c1", budget=100, name=name)
++    seeding.seed_campaign("c2", budget=300, name=NORMAL_NAME)  # 旁邊的廣告:不該被動到
++    seeding.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1,
++                         spend=SPEND[pace], revenue=5.0)
++    seeding.close()
++    dsp = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
++                    capability_key=TEST_KEY)
++    threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
++    try:
++        inbox = InboxServer(tmp_path / "inbox.db", fault_injection=False)
++        threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
++        try:
++            return _walk(tmp_path, dsp, inbox)
++        finally:
++            inbox.shutdown()
++            inbox.server_close()
++    finally:
++        dsp.shutdown()
++        dsp.server_close()
++
++
++def _walk(tmp_path, dsp, inbox):
++    dsp_url = f"http://127.0.0.1:{dsp.server_address[1]}"
++    facts = _analyze(tmp_path, dsp_url, f"http://127.0.0.1:{inbox.server_address[1]}")
++    if facts["state"] is TaskState.HANDED_OFF:
++        _execute(tmp_path, dsp_url)
++    return {**facts, **_dsp_facts(tmp_path)}
++
++
++def _analyze(tmp_path, dsp_url, inbox_url):
++    """分析行程蒐證、分析、送提案,一路推進到終點或交接。"""
++    analyzer = TaskStore(tmp_path / "analyzer.db")
++    try:
++        now = _now()
++        analyzer.create_task("t1", "c1", now)
++        evidence_source = instrumented.dsp_evidence_source(analyzer, dsp_url, 3)
++        send = inbox_client.make_client(inbox_url, 3)
++        state = analyzer.latest("t1").state
++        for _ in range(8):
++            if state in (TaskState.HANDED_OFF, TaskState.NO_ACTION, TaskState.FAILED):
++                break
++            # 送件的呼叫紀錄綁「呼叫當下讀到的那一列」:每一步都用當下的列重建
++            submit = instrumented.InstrumentedSubmit(analyzer, send, "inbox:submit",
++                                                    analyzer.latest("t1"))
++            state = flow.advance(analyzer, "t1", evidence_source, policy.decide, submit, now)
++        proposal = next((row.proposal for row in reversed(analyzer.history("t1"))
++                         if row.proposal), None)
++        endpoints = {call.endpoint for call in analyzer.list_tool_calls("t1")}
++    finally:
++        analyzer.close()
++    return {"state": state, "proposal": proposal, "endpoints": endpoints}
++
++
++def _execute(tmp_path, dsp_url):
++    """執行迴圈用真的 DSP 用戶端、簽發器與租戶設定處理收件口裡那份提案。"""
++    executor_store = InboxStore(tmp_path / "inbox.db")
++    try:
++        Executor(executor_store, DspClient(dsp_url, 3.0), CapabilitySigner(TEST_KEY),
++                 write_config(tmp_path / "tenants.json"), _now).process_one()
++    finally:
++        executor_store.close()
++
++
++def _dsp_facts(tmp_path):
++    store = CampaignStore(tmp_path / "dsp.db")
++    try:
++        return {
++            "c1": store.get_campaign("c1"), "c2": store.get_campaign("c2"),
++            "writes": [(h.action, h.version_after) for h in store.history("c1")],
++            "other_writes": store.history("c2"),
++        }
++    finally:
++        store.close()
++
++
++@pytest.fixture(scope="module")
++def normal_result(tmp_path_factory):
++    return run_once(tmp_path_factory.mktemp("normal"), NORMAL_NAME, "underpacing")
++
++
++# ---- S213 ----
++@pytest.mark.parametrize("name", [text for _category, text in SAMPLES], ids=SAMPLE_IDS)
++def test_f5_an_injected_campaign_name_changes_nothing_end_to_end(tmp_path, name, normal_result):
++    result = run_once(tmp_path, name, "underpacing")
++
++    assert normal_result["writes"] == [("update_budget", 2)]  # 對照組真的走完一次改預算
++    assert normal_result["c1"].budget == 110  # 漲一成
++    assert result["state"] is TaskState.HANDED_OFF
++    assert result["writes"] == normal_result["writes"]  # 恰好一次改預算,沒有暫停
++    assert result["c1"].budget == normal_result["c1"].budget == 110
++    assert result["c1"].status == "active"
++    assert result["other_writes"] == [] and result["c2"].budget == 300  # 別的廣告沒被動到
++    assert result["endpoints"] == EXPECTED_ENDPOINTS  # 分析行程只打這三種端點
++    primitives = result["proposal"].to_primitives()
++    assert set(primitives) <= set(CHECKS)  # 提案只有白名單欄位:沒有工具、網址、憑證
++    sent = json.dumps(primitives, ensure_ascii=False)
++    assert "attacker.example" not in sent and "RTB_CAPABILITY_KEY" not in sent
++    assert name not in sent  # 名稱內容沒有流進提案
++
++
++# ---- S214 ----
++@pytest.mark.parametrize("name", [text for _category, text in SAMPLES], ids=SAMPLE_IDS)
++def test_f5_an_injected_name_on_a_healthy_campaign_triggers_no_write(tmp_path, name):
++    result = run_once(tmp_path, name, "on_pace")
++
++    assert result["state"] is TaskState.NO_ACTION
++    assert result["writes"] == [] and result["other_writes"] == []
++    assert result["c1"].budget == 100
++
++
++# ---- S215 ----
++OVERSIZED = [text for category, text in SAMPLES if category == "oversized"]
++
++
++@pytest.mark.parametrize("pace", ["underpacing", "on_pace"])
++@pytest.mark.parametrize("name", OVERSIZED, ids=["zh", "en", "emoji"])
++def test_f5_a_stuffed_campaign_name_does_not_fail_the_analysis(tmp_path, name, pace):
++    result = run_once(tmp_path, name, pace)
++
++    assert result["state"] in (TaskState.HANDED_OFF, TaskState.NO_ACTION)  # 不轉失敗
++    assert result["state"] is not TaskState.FAILED

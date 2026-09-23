@@ -1,0 +1,1 @@
+{"round": null, "loop": "code-phase7-inc4", "tier": "light", "base": "0bc8237e165423ee53605d867b432c05ea20c269", "snapshot": "r1-snapshot.patch", "reviewed_sha256": "a1ccbe2957325571e043de1446ac5524d05f1ac04ac103683fe82aa24034f565", "seats": [{"seat": "arch-sonnet", "lens": "架構對齊"}, {"seat": "reviewer-sonnet", "lens": "測試夠不夠格(自願加派)"}]}
