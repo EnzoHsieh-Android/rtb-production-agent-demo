@@ -17,7 +17,7 @@
 
 import json
 import sqlite3
-from collections.abc import Collection
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -68,6 +68,10 @@ ADDED_COLUMNS = (
     ("tenant", "tenant TEXT"),
     ("reserved_amount", "reserved_amount INTEGER"),
 )
+# 可觀測查詢(Phase 6 增量 4)用的第一列按租戶與開始時間索引。參照後補的租戶欄,不能放進 SCHEMA:
+# 開庫是先跑整份建表建索引、後補欄位,舊資料庫一開就會找不到欄位;由補欄位流程補完欄位之後才建
+TENANT_INDEX = ("CREATE INDEX IF NOT EXISTS attempts_first_rows_by_tenant "
+                "ON attempts (tenant, written_at) WHERE seq = 1")
 # 已驗證的預留在驗證完成後多久內仍佔額度(暫用值,沒有真實花費數據校準,見 Phase 6 計劃)
 AGGREGATE_WINDOW = timedelta(hours=24)
 # 終點狀態是固定的列舉值,寫成字面值,查詢條件才對得上部分索引的條件
@@ -196,6 +200,12 @@ def _require_aware(now: datetime) -> None:
 def _iso(moment: datetime) -> str:
     _require_aware(moment)
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def iso(moment: datetime) -> str:
+    """寫進嘗試紀錄與停下紀錄的時間格式;沒帶時區就拒絕(不然會被當成本機時間,範圍篩錯)。
+    收件口模組的停下紀錄讀取方法也用這支,兩張表的比較規則一致(Phase 6 增量 4 代碼審第 2 輪)。"""
+    return _iso(moment)
 
 
 def _conn(tx: ExecutorTransaction) -> sqlite3.Connection:
@@ -361,8 +371,22 @@ def begin(
     return Begun(row, created=True, over_limit=over_limit)
 
 
+def tenant_index_missing(conn: sqlite3.Connection) -> bool:
+    """補欄位流程的判斷之一:欄位已補齊的舊資料庫(增量 1 開過的)也要能補到這個索引。"""
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'index' "
+                        "AND name = 'attempts_first_rows_by_tenant'").fetchone() is None
+
+
 def aggregate_used(tx: ExecutorTransaction, tenant: str, now: datetime) -> int:
-    """租戶已用額度(Phase 6):從嘗試紀錄推,不另存狀態。
+    """租戶已用額度:目前計入的每一筆(`aggregate_holdings`)的加總。開始一筆與可觀測查詢都從這個
+    入口拿已用額度(既有並行測試靠攔截它造競態,Phase 6 增量 4 設計審第 2 輪)。"""
+    return sum(holding.amount for holding in aggregate_holdings(tx, tenant, now))
+
+
+def aggregate_holdings(
+    tx: ExecutorTransaction, tenant: str, now: datetime,
+) -> tuple[CountedFirstRow, ...]:
+    """租戶已用額度的逐筆明細(Phase 6):從嘗試紀錄推,不另存狀態。
 
     - 已驗證:驗證完成時間在窗口內的才算(從已驗證列的部分索引出發,只跟窗口內筆數成正比)。
     - 沒有終點:不論多久都算(全表最多 MAX_UNRESOLVED 把;先用計數判斷是不是 0)。
@@ -373,7 +397,7 @@ def aggregate_used(tx: ExecutorTransaction, tenant: str, now: datetime) -> int:
     # 租戶在資料庫裡就過濾(這個租戶的列與沒有租戶的舊列),不把全系統的列撈進程式:查詢在全域
     # 寫入鎖裡,多撈的列都是握鎖時間(代碼審第 2 輪資安席實測 30 萬列時一次 0.3 秒)
     rows = conn.execute(
-        "SELECT f.tenant, f.reserved_amount, f.action, f.proposal_json FROM attempts v "
+        f"SELECT {_first_row_columns('f')} FROM attempts v "  # noqa: S608 - 只拼接固定欄位
         "JOIN attempts f ON f.key = v.key AND f.seq = 1 "
         "WHERE v.state = ? AND v.written_at >= ? "  # 剛好滿 24 小時還不算「超過」
         "AND (f.tenant = ? OR f.tenant IS NULL)",
@@ -381,15 +405,74 @@ def aggregate_used(tx: ExecutorTransaction, tenant: str, now: datetime) -> int:
     ).fetchall()
     if unresolved_count(tx):
         rows += conn.execute(
-            "SELECT f.tenant, f.reserved_amount, f.action, f.proposal_json FROM attempts f "  # noqa: S608 - 只拼接固定條件
+            f"SELECT {_first_row_columns('f')} FROM attempts f "  # noqa: S608 - 只拼接固定條件
             "WHERE f.seq = 1 AND (f.tenant = ? OR f.tenant IS NULL) AND NOT EXISTS "
             f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))",
             (tenant,),
         ).fetchall()
-    return sum(_counted(row, tenant) for row in rows)
+    # 同一次查詢順便帶出身分欄位:可觀測查詢的「目前佔額度的」直接用這份,不再依鍵回查(鍵的數量
+    # 沒有上限,逐一當查詢參數會超過 SQLite 的參數上限;代碼審第 2 輪兩席 Codex)
+    return _counted_rows(rows, tenant)
 
 
-def _counted(row: tuple[Any, ...], tenant: str) -> int:
+@dataclass(frozen=True)
+class CountedFirstRow:
+    """照逐列計入規則算進這個租戶的一把鍵的第一列(Phase 6 增量 4 可觀測查詢用)。"""
+
+    key: str
+    task_id: str | None
+    revision: int | None
+    campaign_id: str
+    started_at: str
+    state: str  # 這把鍵目前(最新一列)的狀態
+    amount: int
+    legacy: bool  # Phase 6 之前沒有租戶的舊列:照既有規則算進每一個租戶
+
+
+_FIRST_ROW_FIELDS = ("key", "task_id", "revision", "campaign_id", "written_at", "tenant",
+                     "reserved_amount", "action", "proposal_json")
+
+
+def _first_row_columns(alias: str) -> str:
+    """第一列的欄位,加上這把鍵目前的狀態:同一次查詢帶出,沿主鍵找最新一列,不逐鍵回查
+    (大量紀錄時逐鍵查詢會在寫入鎖裡跑太久;代碼審第 3 輪外家否決席)。"""
+    fields = [f"{alias}.{name}" for name in _FIRST_ROW_FIELDS]
+    fields.insert(5, f"(SELECT s.state FROM attempts s WHERE s.key = {alias}.key "  # noqa: S608 - 別名是模組內固定字串
+                     "ORDER BY s.seq DESC LIMIT 1)")
+    return ", ".join(fields)
+
+
+def first_rows_started_query(
+    tenant: str, since: datetime, until: datetime,
+) -> tuple[str, tuple[Any, ...]]:
+    """範圍內開始、這個租戶或沒有租戶的舊列的第一列。拆成兩段合起來,兩段都用得上按租戶的索引
+    (寫成「租戶相符或租戶是空值」會讓索引用不上)。"""
+    start, end = _iso(since), _iso(until)
+    part = (f"SELECT {_first_row_columns('f')} FROM attempts f WHERE f.seq = 1 AND {{}} "  # noqa: S608 - 只拼接固定條件
+            "AND f.written_at >= ? AND f.written_at < ?")
+    return (f"{part.format('f.tenant = ?')} UNION ALL {part.format('f.tenant IS NULL')}",
+            (tenant, start, end, start, end))
+
+
+def counted_first_rows_started(
+    tx: ExecutorTransaction, tenant: str, since: datetime, until: datetime,
+) -> tuple[CountedFirstRow, ...]:
+    """範圍內開始、照逐列計入規則金額大於 0 的鍵(不看 24 小時窗口),依開始時間排序。"""
+    sql, params = first_rows_started_query(tenant, since, until)
+    return _counted_rows(_conn(tx).execute(sql, params), tenant)
+
+
+def _counted_rows(rows: Iterable[tuple[Any, ...]], tenant: str) -> tuple[CountedFirstRow, ...]:
+    counted = []
+    for key, task_id, revision, campaign_id, started_at, state, *rest in rows:
+        amount = _counted(rest, tenant)  # 跟已用額度同一條逐列計入規則,不另寫一份
+        if amount > 0:  # 減預算、暫停、別的租戶
+            counted.append(CountedFirstRow(key, task_id, revision, campaign_id, started_at,
+                                           state, amount, rest[0] is None))
+    return tuple(sorted(counted, key=lambda row: (row.started_at, row.key)))
+
+
+def _counted(row: Sequence[Any], tenant: str) -> int:
     owner, amount, action, snapshot = row
     if owner is not None:
         return int(amount) if owner == tenant and amount is not None else 0

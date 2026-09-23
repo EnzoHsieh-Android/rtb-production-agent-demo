@@ -1,0 +1,6 @@
+{"round": "r3", "loop": "code-phase6-inc4", "tier": "high", "base": "8616c96", "delta_base": "e95fb68", "snapshot": "r3-snapshot.patch", "delta": "r3-delta.patch", "reviewed_sha256": "5ab72a585f2e9bbdb7ba089ca864367ffee817d9de6bda02435c1c14a2c61162", "seats": [
+ {"seat": "correct-sonnet", "lens": "第 2 輪修正的正確性與回歸", "materials": ["r3-snapshot.patch", "r3-delta.patch"]},
+ {"seat": "finder-codex", "lens": "外家 finder", "materials": ["r3-snapshot.patch", "r3-delta.patch"]},
+ {"seat": "veto-codex", "lens": "外家否決", "materials": ["r3-snapshot.patch", "r3-delta.patch"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r3-snapshot.patch", "r3-delta.patch"]},
+ {"seat": "資安-sonnet", "lens": "資安", "materials": ["r3-snapshot.patch", "r3-delta.patch"]}]}

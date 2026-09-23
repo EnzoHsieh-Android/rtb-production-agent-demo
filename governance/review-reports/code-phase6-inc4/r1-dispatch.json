@@ -1,0 +1,10 @@
+{"round": "r1", "loop": "code-phase6-inc4", "tier": "high", "base": "8616c96", "snapshot": "r1-snapshot.patch", "reviewed_sha256": "01f32bd1de1a9cc95755d071021571ebd3d565558e91b5ca3db566d1fe6d7f1e", "seats": [
+ {"seat": "correct-sonnet", "lens": "查詢正確性與 SQL", "materials": ["r1-snapshot.patch"]},
+ {"seat": "migrate-sonnet", "lens": "開庫補欄位、索引與舊資料", "materials": ["r1-snapshot.patch"]},
+ {"seat": "tests-sonnet", "lens": "測試殺傷力與假綠", "materials": ["r1-snapshot.patch"]},
+ {"seat": "compat-sonnet", "lens": "對增量 1 既有程式與測試的影響", "materials": ["r1-snapshot.patch"]},
+ {"seat": "finder-codex", "lens": "外家 finder", "materials": ["r1-snapshot.patch"]},
+ {"seat": "veto-codex", "lens": "外家否決", "materials": ["r1-snapshot.patch"]},
+ {"seat": "spec-sonnet", "lens": "規格符合度", "materials": ["r1-snapshot.patch"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.patch"]},
+ {"seat": "資安-sonnet", "lens": "資安", "materials": ["r1-snapshot.patch"]}]}
