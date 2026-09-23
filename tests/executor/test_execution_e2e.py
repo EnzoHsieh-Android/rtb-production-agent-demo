@@ -259,10 +259,17 @@ def test_f1_timeout_after_commit_is_reconciled_from_the_operation_record(tmp_pat
         world.executor.process_one()
         assert world.states(prop)[-1] == ("unknown", None)  # 前置:逾時,但 DSP 已提交
 
+        voids = []
+        send_void = world.client.void
+        world.client.void = lambda *args: voids.append(args) or send_void(*args)
+
         world.executor.reconcile_all()
 
         assert world.states(prop)[-2:] == [("committed_unverified", None), ("verified", None)]
         assert len(applied(world, prop)) == 1 and world.campaign().version == 2
+        # 是用鍵查到操作紀錄,不是繞「查不到、版本已變、先作廢」那條路:那條路作廢回已提交再驗證,
+        # 終態一樣對、DSP 也不留作廢紀錄,只多送一次作廢(2026-09-23 殺傷力驗證抓到)
+        assert voids == []
     finally:
         world.close()
 
