@@ -1,0 +1,49 @@
+[
+ {
+  "round": "r2",
+  "seat": "s1",
+  "lens": "前輪驗收與鏡像",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r2-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-s1.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-s2.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-s3.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-s4.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-s5.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-sarch.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-x1.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s2",
+  "lens": "新劇本逐刻推演對照程式",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r2-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r2-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "x1",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r2-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md"
+  ],
+  "auditor": "codex"
+ }
+]
