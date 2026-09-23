@@ -14,21 +14,28 @@
 
 評估器不存告警狀態、不自己讀時鐘:每個窗的時間從傳入的「現在」與設定表算出,交給計數函式。數字用
 分數算,剛好等於門檻就是等於(不被浮點誤差推到門檻下)。
+
+每條各自算:一條的資料來源讀不到(DSP 讀不到那一類)只把那一條標資料來源缺並記下原因,另外五條照算;
+程式錯誤、資料庫毀損、找不到資料庫檔、資料庫還沒升級一律往外丟,不吞(代碼審第 2 輪)。命令列入口
+在任何一條缺資料或出錯時回「不完整」的結束代碼,優先於不穩定。目標為零的兩條:已證實的
+違規優先,只有週期內沒看到壞事件、又有子窗缺資料才回「不知道」(代碼審第 1 輪)。
 """
 
 import argparse
 import json
+import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, TextIO
 
+from rtb.capabilitykit import AuditKeyTooLong, read_audit_key
 from rtb.executor.inbox_store import DatabaseNotUpgraded
 from rtb.ops import sli
-from rtb.ops.side_effects import Tally
+from rtb.ops.side_effects import DspUnreadable, Tally, reason
 
 SCALE = 60  # 示範縮短倍數;正式環境改成 1
 PERIOD = timedelta(days=30)
@@ -37,6 +44,11 @@ DAY = timedelta(hours=24)  # 週期統計切子窗的上限(跟窗內統計的�
 EXIT_OK = 0
 EXIT_NO_DATABASE = 2
 EXIT_NOT_UPGRADED = 3
+EXIT_UNSTABLE = 5  # 沿用指標的固定結束代碼:有一條跨資料庫讀了三輪都不同,照樣印出最後一輪
+# 有指標缺資料或出錯(代使用者裁定,代碼審第 2 輪):照樣印出每一條,哪幾條、為什麼印在標準錯誤;
+# 跟不穩定同時成立時回這個。8 沒被任何命令列用掉(維運套件 0/2/3/4/5/6,執行端 2/3/4/5/6/7)
+EXIT_INCOMPLETE = 8
+EXIT_BAD_CONFIG = 6  # 沿用指標的代碼:設定錯誤(稽核金鑰超過長度上限)
 
 Counter = Callable[[str, datetime, datetime], Tally]
 
@@ -143,7 +155,8 @@ def period_tally(name: str, end: datetime, period: timedelta, counter: Counter) 
     return Tally(sum(p.good for p in parts), sum(p.valid for p in parts),
                  tuple(at for p in parts for at in p.bad_at), sum(p.unverifiable for p in parts),
                  sum(p.unlinked for p in parts), sum(p.clock_anomaly for p in parts),
-                 any(p.missing for p in parts))
+                 any(p.missing for p in parts), all(p.stable for p in parts),
+                 next((p.reason for p in parts if p.reason), None))  # 第一個讀不到的原因
 
 
 @dataclass(frozen=True)
@@ -164,7 +177,8 @@ class Alerting:
 @dataclass(frozen=True)
 class SloStatus:
     """一條的狀態。有目標的四條:快燒、慢燒、週期的錯誤預算與剩餘預算;目標為零的兩條:違規、週期內
-    壞事件數、最近一個壞事件時間(燒損為空)。missing:資料來源讀不到,這一條沒評估。"""
+    壞事件數、最近一個壞事件時間(燒損為空)。missing:資料來源讀不到(至少一個窗沒算);error:讀不
+    到的原因(週期裡第一個讀不到的窗;不含金鑰與標頭值)。stable 為假:有窗跨資料庫讀了三輪都不同。"""
 
     name: str
     fast: Alerting | None
@@ -180,6 +194,8 @@ class SloStatus:
     unlinked: int
     clock_anomaly: int
     missing: bool
+    stable: bool = True
+    error: str | None = None
 
 
 def _alerting(spec: Slo, burn: Burn, now: datetime, counter: Counter) -> Alerting:
@@ -193,22 +209,41 @@ def _alerting(spec: Slo, burn: Burn, now: datetime, counter: Counter) -> Alertin
     return Alerting(fired, insufficient, *windows)
 
 
+def _violating(period: Tally) -> bool | None:
+    """目標為零:週期內有壞事件就是違規(已證實,不因別的子窗缺資料而改判);沒有壞事件又有子窗缺
+    資料才是不知道。"""
+    if period.bad > 0:
+        return True
+    return None if period.missing else False
+
+
+def _status(spec: Slo, now: datetime, counter: Counter) -> SloStatus:
+    fast = slow = None
+    if not spec.zero_target:
+        fast, slow = (_alerting(spec, burn, now, counter) for burn in BURNS)
+    period = period_tally(spec.name, now, scaled(PERIOD), counter)
+    return SloStatus(
+        spec.name, fast, slow, period.good, period.valid, period.bad,
+        error_budget(period.valid, spec.target),
+        remaining_budget(period.valid, period.bad, spec.target),
+        _violating(period) if spec.zero_target else None,
+        max(period.bad_at) if period.bad_at else None, period.unverifiable,
+        period.unlinked, period.clock_anomaly, period.missing, period.stable, period.reason)
+
+
 def evaluate(now: datetime, *, counter: Counter) -> tuple[SloStatus, ...]:
     """每條一份狀態。查詢次數固定:有目標的四條各查快燒、慢燒兩組各兩個窗(共 16 次)加週期統計,
-    目標為零的兩條各查週期統計。"""
+    目標為零的兩條各查週期統計。只隔離資料來源讀不到(見模組說明),其餘例外往外丟。"""
     statuses = []
     for spec in SLOS:
-        fast = slow = None
-        if not spec.zero_target:
-            fast, slow = (_alerting(spec, burn, now, counter) for burn in BURNS)
-        period = period_tally(spec.name, now, scaled(PERIOD), counter)
-        statuses.append(SloStatus(
-            spec.name, fast, slow, period.good, period.valid, period.bad,
-            error_budget(period.valid, spec.target),
-            remaining_budget(period.valid, period.bad, spec.target),
-            (period.bad > 0 if not period.missing else None) if spec.zero_target else None,
-            max(period.bad_at) if period.bad_at else None, period.unverifiable,
-            period.unlinked, period.clock_anomaly, period.missing))
+        try:
+            statuses.append(_status(spec, now, counter))
+        # 現行六條都在自己裡面把讀不到轉成資料來源缺(原因帶在計數上),這裡接不到;留著給之後
+        # 沒自己處理 DSP 例外的指標當防線:一條讀不到不拖垮另外五條,原因記在這一條的狀態裡
+        except DspUnreadable as exc:
+            statuses.append(SloStatus(spec.name, None, None, 0, 0, 0, Fraction(0), Fraction(0),
+                                      None, None, 0, 0, 0, True,
+                                      error=reason(exc)))
     return tuple(statuses)
 
 
@@ -236,11 +271,18 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
 
 
 def run(argv: list[str] | None = None, *, out: TextIO | None = None,
-        err: TextIO | None = None) -> int:
+        err: TextIO | None = None, environ: Mapping[str, str] | None = None) -> int:
+    """命令列入口。DSP 列操作端點的唯讀稽核金鑰從環境讀(只有入口讀環境;測試傳 environ);沒有就
+    讀不到 DSP 的窗,兩條目標為零的指標照實標資料來源缺。"""
     args = _parse(argv)
     errors = err or sys.stderr
+    try:
+        audit_key = read_audit_key(os.environ if environ is None else environ)
+    except AuditKeyTooLong as bad:
+        print(f"設定錯誤:{bad}", file=errors)
+        return EXIT_BAD_CONFIG
     sources = sli.Sources(args.executor_db, args.analyzer_db, args.dsp_url,
-                          args.dsp_timeout_seconds)
+                          args.dsp_timeout_seconds, audit_key)
     try:
         statuses = evaluate(args.now, counter=lambda name, since, until: sli.count(
             name, since, until, sources))
@@ -253,6 +295,15 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
         return EXIT_NOT_UPGRADED
     print(json.dumps(to_primitives(statuses), ensure_ascii=False, indent=2),
           file=out or sys.stdout)
+    incomplete = [s for s in statuses if s.missing or s.error is not None]
+    if incomplete:
+        for s in incomplete:
+            print(f"{s.name}:{s.error or '資料來源讀不到(沒有記下原因)'},這一條沒算完整",
+                  file=errors)
+        return EXIT_INCOMPLETE  # 缺資料優先於不穩定:缺了的那一條本來就不能拿來判告警
+    if not all(s.stable for s in statuses):
+        print("讀取期間有新提交:有指標跨資料庫讀了三輪都不同,印出的是最後一輪", file=errors)
+        return EXIT_UNSTABLE
     return EXIT_OK
 
 

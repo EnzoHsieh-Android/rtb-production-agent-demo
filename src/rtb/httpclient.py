@@ -28,6 +28,9 @@ class ClientHeader(StrEnum):
     # 寫入能力憑證。字串照抄共用格式模組的標頭名稱,由測試比對兩邊一致;不匯入那個模組,
     # 免得分析行程經共用用戶端間接載入憑證模組
     CAPABILITY = "X-Capability"
+    # DSP 唯讀稽核金鑰(Phase 9 增量 3 代碼審第 2 輪):只給維運套件讀 DSP 列操作端點,不是故障注入
+    # 標頭;字串同樣照抄共用格式模組、由測試比對
+    AUDIT_KEY = "X-Dsp-Audit-Key"
 
 
 class _NoRedirect(HTTPRedirectHandler):

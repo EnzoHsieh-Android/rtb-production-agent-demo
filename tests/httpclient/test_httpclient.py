@@ -132,19 +132,24 @@ def test_the_client_module_source_never_mentions_the_fault_header(module_name):
 def test_the_closed_header_enum_contains_exactly_the_documented_members():
     """2026-09-22 第四輪合約審計指出:直接在封閉列舉加一個值是故障注入標頭的成員,驗證照樣
     通過。這裡把成員整份寫死:要新增任何標頭,必須同時改這支測試,留下有意識的決定。
-    2026-09-23 執行一筆(Phase 3 增量 3)有意識地加了能力憑證。"""
+    2026-09-23 執行一筆(Phase 3 增量 3)有意識地加了能力憑證。
+    2026-09-24 Phase 9 增量 3 代碼審第 2 輪有意識地加了 DSP 唯讀稽核金鑰:它不是故障注入標頭,
+    只給維運套件讀 DSP 列操作端點用,不再借用能力憑證的標頭。"""
     assert {member.value for member in httpclient.ClientHeader} == {
-        "Idempotency-Key", "X-Capability"}
+        "Idempotency-Key", "X-Capability", "X-Dsp-Audit-Key"}
 
 
 def test_client_headers_are_exactly_idempotency_key_and_capability():
     """執行一筆 S63:執行行程要經共用用戶端送出能力憑證。
 
-    名稱跟共用格式模組的一致:兩邊不互相匯入,由這裡比對。"""
-    from rtb.capabilitykit import HEADER
+    名稱跟共用格式模組的一致:兩邊不互相匯入,由這裡比對。第三個成員是 DSP 唯讀稽核金鑰
+    (Phase 9 增量 3 代碼審第 2 輪),不是故障注入標頭,名稱同樣跟共用格式模組比對。"""
+    from rtb.capabilitykit import AUDIT_HEADER, HEADER
 
-    assert {member.value for member in httpclient.ClientHeader} == {"Idempotency-Key", HEADER}
+    assert {member.value for member in httpclient.ClientHeader} == {
+        "Idempotency-Key", HEADER, AUDIT_HEADER}
     assert httpclient.ClientHeader.CAPABILITY.value == HEADER  # 兩份字串必須一致
+    assert httpclient.ClientHeader.AUDIT_KEY.value == AUDIT_HEADER
     with pytest.raises(TypeError):
         httpclient.request_json("http://127.0.0.1:9/x", "GET", None, 1,
                                 headers={"X-Fault": "transient_5xx"})

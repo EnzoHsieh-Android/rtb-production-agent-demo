@@ -5,6 +5,7 @@
 """
 
 import sqlite3
+from datetime import UTC, datetime
 
 from rtb.dsp.store import CampaignStore, Operation
 
@@ -36,6 +37,25 @@ def test_dsp_commit_times_never_go_backwards(tmp_path):
     assert ids == sorted(ids)
     stored = store_rows(tmp_path / "dsp.db")
     assert [t for _, t in stored] == sorted(t for _, t in stored)  # 依編號的順序就是依時間的順序
+
+
+def test_dsp_commit_times_are_stored_in_one_utc_form(tmp_path):
+    """代碼審第 1 輪:時鐘可注入非 UTC 的偏移;提交時間寫入前統一成固定 UTC 格式,游標查詢用同一種
+    表示,字串比較才等於時間比較。第二筆 07:30-05:00 就是 12:30Z,晚於第一筆。"""
+    readings = iter(["2026-09-22T12:00:00+00:00", "2026-09-22T12:00:00+00:00",
+                     "2026-09-22T07:30:00-05:00", "2026-09-22T07:30:00-05:00"])
+    store = CampaignStore(tmp_path / "dsp.db", clock=lambda: next(readings))
+    try:
+        store.seed_campaign("c1", budget=100)
+        results = [store.execute(_op("k-a", 110, 1)), store.execute(_op("k-b", 120, 2))]
+        assert [r.committed_at for r in results] == ["2026-09-22T12:00:00+00:00",
+                                                     "2026-09-22T12:30:00+00:00"]
+        assert [t for _, t in store_rows(tmp_path / "dsp.db")] == [
+            "2026-09-22T12:00:00+00:00", "2026-09-22T12:30:00+00:00"]
+        # 窗起點 12:15Z:第一筆 12:00 在窗外,游標停在它(編號 1),翻頁從 12:30 那筆開始
+        assert store.operation_cursor(datetime(2026, 9, 22, 12, 15, tzinfo=UTC)) == 1
+    finally:
+        store.close()
 
 
 def store_rows(path):

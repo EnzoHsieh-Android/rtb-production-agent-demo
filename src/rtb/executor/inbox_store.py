@@ -29,7 +29,7 @@
 import json
 import sqlite3
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -246,6 +246,7 @@ CREATE TABLE IF NOT EXISTS dead_letter_ops (
 CREATE INDEX IF NOT EXISTS dead_letter_ops_by_envelope ON dead_letter_ops (envelope);
 CREATE INDEX IF NOT EXISTS approval_uses_by_tenant ON approval_uses (tenant, at);
 CREATE INDEX IF NOT EXISTS approval_uses_by_time ON approval_uses (at);
+CREATE INDEX IF NOT EXISTS approval_uses_by_key ON approval_uses (key, stage);
 CREATE TABLE IF NOT EXISTS lifecycle_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT NOT NULL,
     revision INTEGER NOT NULL, content_hash TEXT, campaign_id TEXT, key TEXT, policy_version TEXT,
@@ -745,16 +746,13 @@ class InboxReads:
         self, tx: attempt_store.Readable, keys: Iterable[str],
     ) -> dict[str, frozenset[str]]:
         """一批冪等鍵各自用過核可的關卡(Phase 9 增量 3 副作用核對用);每批不超過嘗試紀錄模組的
-        批量上限,不逐筆查。沒用過核可的鍵不在結果裡。不另加依鍵的索引:核可使用表每筆人工核可才
-        一列,整表很小;加了會讓既有「已核可放行數」依廣告篩的查詢改走它、偏離那支查詢寫定的
-        索引路徑(有測試守)。"""
+        批量上限,不逐筆查。沒用過核可的鍵不在結果裡。走依鍵與關卡的索引(只讀這個索引就答得出來),
+        不每批整表掃(代碼審第 1 輪)。"""
         self._own_read(tx)
         wanted, found = sorted(set(keys)), defaultdict(set)
         for start in range(0, len(wanted), attempt_store.BATCH):
-            chunk = wanted[start:start + attempt_store.BATCH]
-            marks = ", ".join("?" * len(chunk))
             for key, stage in self._conn.execute(
-                    f"SELECT key, stage FROM approval_uses WHERE key IN ({marks})", chunk):  # noqa: S608 - 只拼佔位符
+                    *approval_uses_for_query(wanted[start:start + attempt_store.BATCH])):
                 found[key].add(stage)
         return {key: frozenset(stages) for key, stages in found.items()}
 
@@ -1601,6 +1599,16 @@ def last_terminal_event_query(
             "WHERE task_id = ? AND revision = ? AND content_hash = ? "
             f"AND kind IN ({_TERMINAL_KIND_LIST}) ORDER BY id DESC LIMIT 1",
             (task_id, revision, digest))
+
+
+def approval_uses_for_query(keys: Sequence[str]) -> tuple[str, tuple[str, ...]]:
+    """一批冪等鍵的核可使用查詢語句(測試用它看查詢計畫)。依鍵與關卡的索引是代碼審第 1 輪加的:
+    設計時怕它讓「已核可放行數」依廣告篩的查詢改走它,實測查詢計畫不變(那支查詢在接續條件上比到
+    任務與修訂,唯一限制的索引比得到兩欄,優先於只比得到一欄的依鍵索引),Phase 6 釘住查詢計畫的
+    測試照舊守著。"""
+    marks = ", ".join("?" * len(keys))
+    return (f"SELECT key, stage FROM approval_uses WHERE key IN ({marks})",  # noqa: S608 - 只拼佔位符
+            tuple(keys))
 
 
 def approval_use_count_query(

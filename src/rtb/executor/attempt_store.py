@@ -466,22 +466,33 @@ def history(tx: Readable, key: str) -> tuple[AttemptRow, ...]:
     return tuple(_row(record) for record in records)
 
 
-def snapshot(tx: Readable, key: str) -> Proposal:
-    """讀回第 1 列存的完整提案,經同一個解析器還原成領域層的提案物件,並核對它仍算得出這把鍵。"""
-    record = _read_conn(tx).execute(
-        "SELECT proposal_json FROM attempts WHERE key = ? AND seq = 1", (key,)).fetchone()
-    if record is None or record[0] is None:
+def _parsed_snapshot(key: str, text: str | None) -> Proposal:
+    """第 1 列存的提案快照經同一個解析器還原;沒有、不是 JSON、解析不回來都丟毀損例外。"""
+    if text is None:
         raise CorruptedAttemptRow(f"{key} 沒有提案快照")
     try:
-        raw = json.loads(record[0])
+        raw = json.loads(text)
     except json.JSONDecodeError as exc:
         raise CorruptedAttemptRow(f"{key} 的提案快照不是 JSON") from exc
     parsed = parse_proposal(raw)
     if parsed.proposal is None:
         raise CorruptedAttemptRow(f"{key} 的提案快照解析不回來:{parsed.errors}")
-    if operation_key(parsed.proposal) != key:
-        raise CorruptedAttemptRow(f"{key} 的提案快照已對不上它的鍵")
     return parsed.proposal
+
+
+def _snapshot_matches_key(key: str, proposal: Proposal) -> bool:
+    """快照的鍵一致性:這份提案仍算得出這把鍵(snapshot 與批量讀第一列共用這一條)。"""
+    return operation_key(proposal) == key
+
+
+def snapshot(tx: Readable, key: str) -> Proposal:
+    """讀回第 1 列存的完整提案,經同一個解析器還原成領域層的提案物件,並核對它仍算得出這把鍵。"""
+    record = _read_conn(tx).execute(
+        "SELECT proposal_json FROM attempts WHERE key = ? AND seq = 1", (key,)).fetchone()
+    proposal = _parsed_snapshot(key, None if record is None else record[0])
+    if not _snapshot_matches_key(key, proposal):
+        raise CorruptedAttemptRow(f"{key} 的提案快照已對不上它的鍵")
+    return proposal
 
 
 def unresolved_count_query(campaign_id: str | None = None) -> tuple[str, tuple[str, ...]]:
@@ -949,7 +960,9 @@ def unknown_rows_between(tx: Readable, since: datetime, until: datetime) -> tupl
 @dataclass(frozen=True)
 class FirstRow:
     """一把鍵的第一列:開始一筆時記下的提案快照、租戶、預留金額與四樣核對材料(副作用核對用)。
-    快照讀不回來時 proposal 為空;舊列沒有的欄位為空。"""
+    快照讀不回來時 proposal 為空;舊列沒有的欄位為空。snapshot_matches_key 沿用 snapshot 的鍵一致性
+    檢查:快照讀不回來、或讀得回來卻算不出這把鍵,都是假(代碼審第 1 輪:批量讀原本沒核對,毀損
+    的快照會被當成可信的提案內容)。"""
 
     key: str
     task_id: str | None
@@ -962,6 +975,7 @@ class FirstRow:
     aggregate_limit: int | None
     used_before: int | None  # 表上的欄位名是 aggregate_used(判門檻用的已用額度)
     proposal: Proposal | None
+    snapshot_matches_key: bool
     written_at: str
 
 
@@ -973,13 +987,16 @@ BATCH = 500  # 一批最多幾把鍵:遠低於 SQLite 參數上限
 
 def _first_row(row: Sequence[Any]) -> FirstRow:
     try:
-        parsed = parse_proposal(json.loads(row[10] or "null")).proposal
-    except (ValueError, TypeError):
+        parsed: Proposal | None = _parsed_snapshot(row[0], row[10])
+    except CorruptedAttemptRow:
         parsed = None
     return FirstRow(key=row[0], task_id=row[1], revision=row[2], campaign_id=row[3],
                     tenant=row[4], reserved_amount=row[5], ratio_allowance=row[6],
                     max_budget=row[7], aggregate_limit=row[8], used_before=row[9],
-                    proposal=parsed, written_at=row[11])
+                    proposal=parsed,
+                    snapshot_matches_key=parsed is not None and _snapshot_matches_key(
+                        row[0], parsed),
+                    written_at=row[11])
 
 
 def first_rows_for(tx: Readable, keys: Iterable[str]) -> dict[str, FirstRow]:

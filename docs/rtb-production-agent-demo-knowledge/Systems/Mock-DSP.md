@@ -99,3 +99,7 @@ REVISIT:2026-11-30 盤點作廢表的筆數成長,決定要不要設保留期與
 - WHY: Phase 4 增量 3a 設計審第 2 輪指出假 DSP 同鍵第二次寫入會再套用一次:失去租約的工作者醒來補送的舊請求本來就會晚到,不去重就變成假的「套用兩次」。攔截點(on_write)在狀態鎖外面先跑:等在攔截點的工作者若握著鎖,接手的另一個永遠寫不進來(第 3 輪外家席)。出處:[[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3a。
 
 - Phase 9 增量 3:提交時間取「時鐘讀數」與「上一筆提交時間」較大的那個(在寫入交易裡讀上一筆),依操作編號翻頁才等於依時間翻頁;時鐘倒退時提交時間會被墊高。防回歸:[test:test_dsp_commit_times_never_go_backwards]。另加提交時間索引與兩支唯讀端點(路徑恰好一個參數,照既有路由形狀):依時間找起點回「提交時間大於等於它的第一筆」之前的最後一個操作編號;依游標列之後的操作(連同廣告建檔時的租戶),一頁最多 50 筆並回下一頁游標。一頁 50 筆而不是設計寫的 5000 筆:讀它的是 [[Systems/服務水準與燒損告警]],經共用 HTTP 用戶端,回應上限 64 KB。
+- Phase 9 增量 3 代碼審第 1 輪(2026-09-24):
+  - 列操作兩支端點回全租戶明細,要帶唯讀稽核金鑰(代使用者裁定):放在專用標頭、寫法是金鑰位元組的 base64url,解回位元組後固定時間比對,解不開當帶錯(代碼審第 2 輪:第 1 輪借用能力憑證標頭、放原文,非 Latin-1 金鑰送不出);稽核金鑰超過 1024 位元組啟動就報設定錯誤、不啟動(代碼審第 3 輪,防回歸:[test:test_the_dsp_refuses_to_start_with_an_overlong_audit_key]);沒帶 401、帶錯 403、啟動時沒設這把金鑰一律 503(比照沒設簽發金鑰拒收寫入)。不沿用寫入憑證:那套聲明綁單一廣告、冪等鍵與寫入動作,又是簽發金鑰簽的。金鑰由啟動程式讀環境變數傳進伺服器物件。既有依鍵、依廣告的唯讀端點不變。防回歸:[test:test_the_operation_list_endpoints_require_the_audit_key]。
+  - 游標只收十進位數字(上標數字判數字會過、轉整數會失敗),轉整數後不得超過 SQLite 整數上限,都回 400 invalid_cursor。防回歸:[test:test_a_cursor_must_be_a_plain_decimal_within_the_integer_range]。
+  - 提交時間寫入前統一成固定 UTC 寫法(換算成 +00:00 的 isoformat),依時間找起點的查詢用同一支函式:時鐘注入非 UTC 偏移時,原樣存下會讓字串順序跟時間順序對不上、游標漏筆。舊資料不搬(理由:預設時鐘本來就是這種寫法、補欄位做法從不改寫舊列、操作紀錄只增不改;詳見 [[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 3 的實作解讀)。防回歸:[test:test_dsp_commit_times_are_stored_in_one_utc_form]、[test:test_a_page_boundary_between_equal_commit_times_reads_each_operation_once]。

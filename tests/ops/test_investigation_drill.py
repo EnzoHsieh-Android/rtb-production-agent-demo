@@ -39,6 +39,7 @@ B_OK = [f"b{n:02d}" for n in range(1, 5)]  # 租戶乙:正常
 INCIDENT = timedelta(minutes=12)
 HANG, CLIENT_TIMEOUT = 0.6, 0.3  # 提交後逾時:DSP 掛住比用戶端逾時久,用戶端才會真的逾時
 VERSIONS = ("0.9.1-a", "0.9.1-b")  # 兩個工作者掛的程式版本
+AUDIT = ("audit-" + "d" * 32).encode()  # DSP 列操作端點的唯讀稽核金鑰(增量 3 代碼審起必帶)
 
 
 class KeyedHandler(DspHandler):
@@ -74,7 +75,7 @@ class Drill:
         self.config.chmod(0o600)
         self.tenants = load_tenants(self.config)
         self.server = DspServer(self.dsp_db, fault_injection=True, hang_seconds=HANG,
-                                delay_seconds=0.0, capability_key=TEST_KEY,
+                                delay_seconds=0.0, capability_key=TEST_KEY, audit_key=AUDIT,
                                 clock=lambda: self.clock().timestamp())
         self.server.RequestHandlerClass = KeyedHandler
         self.server.plan, self.server.plan_lock = {}, threading.Lock()
@@ -123,7 +124,7 @@ class Drill:
         return None if row is None else (row.state.value, row.send_count)
 
     def sources(self):
-        return sli.Sources(self.executor_db, self.analyzer_db, self.url, 2.0)
+        return sli.Sources(self.executor_db, self.analyzer_db, self.url, 2.0, AUDIT)
 
     def window(self, since, until):
         return metrics.collect_window(since, until, executor_db=self.executor_db,
