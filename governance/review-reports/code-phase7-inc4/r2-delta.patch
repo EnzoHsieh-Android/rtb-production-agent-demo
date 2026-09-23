@@ -1,0 +1,36 @@
+diff --git a/tests/analyzer/test_f5_end_to_end.py b/tests/analyzer/test_f5_end_to_end.py
+index e9f6be5..6e9385e 100644
+--- a/tests/analyzer/test_f5_end_to_end.py
++++ b/tests/analyzer/test_f5_end_to_end.py
+@@ -39,27 +39,29 @@ def _now():
+ 
+ def run_once(tmp_path, name, pace):
+     """跑一條完整的路:建廣告 → 分析行程蒐證、分析、送提案 → 執行迴圈處理。回傳觀察到的事實。"""
+     dsp_db = tmp_path / "dsp.db"
+     seeding = CampaignStore(dsp_db)
+     seeding.seed_campaign("c1", budget=100, name=name)
+     seeding.seed_campaign("c2", budget=300, name=NORMAL_NAME)  # 旁邊的廣告:不該被動到
+     seeding.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1,
+                          spend=SPEND[pace], revenue=5.0)
+     seeding.close()
++    # 兩個伺服器各自進自己的 try/finally,連啟動執行緒也在保護傘內:第二個建構或啟動失敗,
++    # 第一個已經開的監聽 socket 也要關掉(比照 test_boundaries.py 代碼審第 1 輪的教訓)
+     dsp = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
+                     capability_key=TEST_KEY)
+-    threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
+     try:
++        threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
+         inbox = InboxServer(tmp_path / "inbox.db", fault_injection=False)
+-        threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
+         try:
++            threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
+             return _walk(tmp_path, dsp, inbox)
+         finally:
+             inbox.shutdown()
+             inbox.server_close()
+     finally:
+         dsp.shutdown()
+         dsp.server_close()
+ 
+ 
+ def _walk(tmp_path, dsp, inbox):
