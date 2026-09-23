@@ -1,23 +1,28 @@
 """有界標籤的指標(Phase 9 增量 2):從只增不改的紀錄即時算,不另存計數器。只讀。
 
-兩種查詢,時間一律由呼叫端傳入,不自己讀時鐘:
+兩種查詢,時間一律由呼叫端傳入,不自己讀時鐘,而且一定要帶時區(沒帶會被當成本機時間,窗界整段位移):
 - 窗內統計:起、迄(含起點、不含終點),迄減起不得超過 24 小時。
 - 現況快照:「現在」;不套時間窗,窗外開始、至今還卡著的也算。
 
-讀法跟追蹤檢視一樣只經唯讀開法(唯讀連線、不取寫入鎖、不補表)。窗內統計跨分析端與執行端兩個資料庫,
-不可能同一個快照:每一輪重開兩邊的快照、整份算完,兩輪結果相同才回傳;最多三輪,仍不同就回最後一輪並
-標明不穩定。現況快照只讀執行端一個快照。
+讀法跟追蹤檢視一樣只經唯讀開法(唯讀連線、不取寫入鎖、不補表)。執行端只讀一個快照,除端到端以外的
+指標都出自它(單一快照本來就自洽)。端到端要把執行端的終點跟分析端的接續鏈拼起來,兩個資料庫不可能同一
+個快照:只有它每一輪重開兩邊的快照重算,兩輪端到端樣本相同才回傳;最多三輪,仍不同就回最後一輪並標明
+不穩定。現況快照只讀執行端一個快照。
 
 每個樣本:名稱、標籤、數值、樣本數、狀態、分子(比率與計數才有)、範例(最多 3 個任務編號)、租戶靠
 查詢當下設定反查的份數、附註。任何比率分母為 0、延遲沒有樣本,都回「無樣本」,不是 0、不丟例外。
 - 比率的分母是跟它「分組標籤」相同的母體;「類別標籤」切分子(例:DSP 呼叫比率依呼叫類別分組、
   依結果類別切分子)。每一項的分組與類別寫在各自的計算函式旁。
 - 延遲依那一段的結束時間歸窗,還沒結束的不算;分位數用「排序後取最近排名」。事件型計數依事件時間歸窗。
-- 最終結果率與端到端依「查詢當下的最終結果」,重放之後同一個過去的窗會變;其餘是事件型,窗過去就不變。
+- 最終結果率與端到端依「查詢當下的最終結果」,重放之後同一個過去的窗會變;其餘是事件型,窗過去就不變
+  (執行端處理也是:依窗內實際出現的每個終點事件分段,不看查詢當下的最終終點)。
+- 擋下、進待核可、核可放回、過時決策拒絕是「事件次數」:同一份提案重投再擋一次算兩次。可觀測查詢的
+  停下紀錄是「同一份提案同一種類只記一次」的提案數,兩者定義不同、數字不必相等,不要拿來互相核對。
 
 標籤只准用宣告的種類(每個指標宣告哪幾種見 DECLARED,跟計劃的對照表一致),值域也有界:租戶是設定檔的
-名稱加「未知」;政策版本只有目前與其他;程式版本窗內超過 20 種時,依窗內最後出現時間排,較早的併成其他;
-其餘是封閉列舉,讀到列舉外的值歸成其他。
+名稱加「未知」;政策版本是版本字串本身,只收只增不刪的已知政策版本清單裡的值,其他歸其他;程式版本只看
+窗內真的貢獻樣本的紀錄,超過 20 種時依窗內最後出現時間排,較早的併成其他;其餘是封閉列舉,讀到列舉外的
+值歸成其他。
 """
 
 import argparse
@@ -30,11 +35,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, NoReturn, TextIO
 
 from rtb.analyzer.task_store import TaskReader, ToolCall, ToolEndpoint
+from rtb.domain._checks import is_aware
 from rtb.domain.attempt import AttemptState
-from rtb.domain.proposal import POLICY_VERSION
+from rtb.domain.proposal import KNOWN_POLICY_VERSIONS
 from rtb.executor import attempt_store, observability
 from rtb.executor.attempt_store import (
     AttemptRow,
@@ -62,19 +68,28 @@ MAX_ROUNDS = 3
 MAX_CHAIN = 8  # 接續鏈最長幾代(分析端上限 3 代;這裡只防資料毀損造成的迴圈)
 UNKNOWN_TENANT = "unknown"
 OTHER = "other"
-CURRENT = "current"
 EXIT_OK = 0
 EXIT_NO_DATABASE = 2
 EXIT_NOT_UPGRADED = 3
 EXIT_WINDOW_TOO_LONG = 4
 EXIT_UNSTABLE = 5  # 三輪都讀到不同結果:照樣印出最後一輪,結束代碼標明不穩定
 EXIT_BAD_CONFIG = 6
+EXIT_BAD_ARGUMENTS = 7  # 參數錯(缺參數、時間沒帶時區);argparse 預設的 2 跟資料庫檔不存在撞號
+EVENT_COUNT_NOTE = ("事件次數:同一份提案每擋一次、每進一次待核可都算一次(重投再擋算兩次);"
+                    "可觀測查詢的停下紀錄是同提案同種類只記一次的提案數,定義不同,數字不必相等")
 JEV_NOTE = ("不適用:本系統的分析是確定性計算,沒有呼叫模型,沒有模型與 Jev 的延遲、成本、格式失敗或"
             "退回率可量;Phase 10 若接模型再補")
 
 
 class WindowTooLong(ValueError):
     """窗超過 24 小時,或迄不在起之後。"""
+
+
+def _require_aware(*moments: datetime) -> None:
+    """時間一律要帶時區:沒帶會被當成本機時間換算,窗界整段位移、悄悄漏資料;有帶沒帶混用則比較時丟
+    TypeError(代碼審第 1 輪)。"""
+    if not all(is_aware(moment) for moment in moments):
+        raise ValueError("時間必須帶時區(例:2026-09-24T01:00:00Z 或 2026-09-24T09:00:00+08:00)")
 
 
 class LabelKind(StrEnum):
@@ -243,7 +258,9 @@ class _Resolver:
 
     @staticmethod
     def policy(value: str | None) -> str:
-        return CURRENT if value == POLICY_VERSION else OTHER
+        """政策版本標籤是版本字串本身(在只增不刪的已知清單裡才算),不跟查詢當下的目前版本比:改版後
+        同一個過去的窗標籤不變(代碼審第 1 輪,代使用者裁定)。"""
+        return value if value is not None and value in KNOWN_POLICY_VERSIONS else OTHER
 
 
 def _resolver(tenants: Sequence[Tenant], seen: Iterable[tuple[str | None, str]]) -> _Resolver:
@@ -271,12 +288,13 @@ def _exemplars(members: Iterable[_Member], slowest: bool = False) -> tuple[str, 
 
 def _counts(
     name: str, stage: Stage, groups: Mapping[tuple[Label, ...], list[_Member]],
+    note: str | None = None,
 ) -> list[Sample]:
     if not groups:
-        return [Sample(name, _labels(stage), 0, 0, numerator=0)]
+        return [Sample(name, _labels(stage), 0, 0, numerator=0, note=note)]
     return [Sample(name, labels, len(members), len(members), numerator=len(members),
                    exemplars=_exemplars(members),
-                   tenant_by_lookup=sum(x.by_lookup for x in members))
+                   tenant_by_lookup=sum(x.by_lookup for x in members), note=note)
             for labels, members in sorted(groups.items())]
 
 
@@ -335,11 +353,14 @@ class _ExecutorPart:
     histories: Mapping[Ident, tuple[LifecycleEvent, ...]]  # 窗內事件涉及的提案的全部事件
     task_revisions: Mapping[str, int]  # 窗內事件涉及的任務,事件裡出現過的最新修訂
     finals: Mapping[Ident, LifecycleEvent]  # 窗內有終點事件的提案,全域最後一個終點事件
-    calls: tuple[DspCallRow, ...]
-    reconciled: tuple[tuple[TerminalRow, tuple[AttemptTraceRow, ...]], ...]
+    calls: tuple[DspCallRow, ...]  # 只讀端到端的那幾輪是空的
+    reconciled: tuple[tuple[TerminalRow, tuple[AttemptTraceRow, ...]], ...]  # 同上
 
 
-def _read_executor(path: Path, since: datetime, until: datetime) -> _ExecutorPart:
+def _read_executor(path: Path, since: datetime, until: datetime, *,
+                   full: bool = True) -> _ExecutorPart:
+    """執行端一個快照。full 為假時只讀端到端要的(窗內事件、涉及任務的事件、最後終點),
+    給重讀的那幾輪。"""
     inbox = ReadOnlyInbox(path)
     try:
         with inbox.read_transaction() as tx:
@@ -352,9 +373,10 @@ def _read_executor(path: Path, since: datetime, until: datetime) -> _ExecutorPar
                 last = inbox.last_terminal_event(tx, *ident)
                 if last is not None:
                     finals[ident] = last
-            calls = attempt_store.dsp_calls_between(tx, since, until)
+            calls = attempt_store.dsp_calls_between(tx, since, until) if full else ()
             reconciled = tuple((row, attempt_store.trace_rows(tx, row.key))
-                               for row in attempt_store.terminal_rows_between(tx, since, until))
+                               for row in (attempt_store.terminal_rows_between(tx, since, until)
+                                           if full else ()))
     finally:
         inbox.close()
     histories: dict[Ident, list[LifecycleEvent]] = defaultdict(list)
@@ -400,10 +422,11 @@ def _chain(reader: TaskReader, task: str) -> _Chain:
 
 
 def _read_analyzer(path: Path, since: datetime, until: datetime,
-                   tasks: Iterable[str]) -> _AnalyzerPart:
+                   tasks: Iterable[str], *, calls: bool = True) -> _AnalyzerPart:
+    """分析端一個快照。calls 為假時只讀接續鏈(端到端重讀的那幾輪),對外呼叫只在第一輪讀一次。"""
     reader = TaskReader(path)
     try:
-        return _AnalyzerPart(reader.tool_calls_between(since, until),
+        return _AnalyzerPart(reader.tool_calls_between(since, until) if calls else (),
                              {task: _chain(reader, task) for task in sorted(set(tasks))})
     finally:
         reader.close()
@@ -417,6 +440,8 @@ class _Window:
     part: _ExecutorPart
     analyzer: _AnalyzerPart
     labeler: _Resolver
+    executions: Sequence[tuple[LifecycleEvent, LifecycleEvent]]  # 窗內的執行端處理段(開始, 終點)
+    end_to_end: Sequence[Sample]  # 端到端另外讀到穩定為止,這裡只把樣本放進清單
     samples: list[Sample] = field(default_factory=list)
 
     def inside(self, at: str) -> bool:
@@ -431,7 +456,10 @@ class _Window:
 
 def _event_counts(w: _Window) -> None:
     """擋下(依原因)、進待核可、核可放回、過時決策拒絕(版本已變、政策已變、決策已過時三種執行前
-    擋下)、擋掉的重複(依既有結果確認為是):依事件時間歸窗。"""
+    擋下)、擋掉的重複(依既有結果確認為是):依事件時間歸窗。
+
+    前四項是生命週期事件的「事件次數」(同一份提案重投再擋算兩次),刻意不呼叫可觀測查詢的停下紀錄:
+    那邊同一份提案同一種類只記一次,數的是提案數,定義不同;樣本附註寫明(代碼審第 1 輪)。"""
     groups: dict[str, dict[tuple[Label, ...], list[_Member]]] = defaultdict(
         lambda: defaultdict(list))
     for event in w.part.events:
@@ -455,7 +483,8 @@ def _event_counts(w: _Window) -> None:
                         ("approval_released", Stage.APPROVAL),
                         ("stale_rejections", Stage.EXECUTION),
                         ("duplicates_prevented", Stage.EXECUTION)):
-        w.samples += _counts(name, stage, groups[name])
+        w.samples += _counts(name, stage, groups[name],
+                             None if name == "duplicates_prevented" else EVENT_COUNT_NOTE)
 
 
 def _terminal_event_rate(w: _Window) -> None:
@@ -577,23 +606,43 @@ def _overlap(start: str, end: str, spans: Iterable[tuple[str, str]]) -> float:
     return total
 
 
+def _segments(history: Sequence[LifecycleEvent]) -> list[tuple[LifecycleEvent, LifecycleEvent]]:
+    """一份提案的執行端處理段:從第一次取件(或最近一次重放放回之後的第一次取件)到下一個終點事件。
+    每個終點事件各自結束一段;終點之後要等重放放回後再取件才開新的一段(沒開始的終點不成段)。"""
+    found: list[tuple[LifecycleEvent, LifecycleEvent]] = []
+    start: LifecycleEvent | None = None
+    for event in history:
+        if event.kind in _DELIVERIES and start is None:
+            start = event
+        elif event.kind == LifecycleKind.REPLAY_REQUEUED:
+            start = None
+        elif event.kind in TERMINAL_KINDS:
+            if start is not None:
+                found.append((start, event))
+            start = None
+    return found
+
+
+def _executions(part: _ExecutorPart, since: str, until: str,
+                ) -> list[tuple[LifecycleEvent, LifecycleEvent]]:
+    """窗內實際出現的每個終點事件各成一段,依那個終點事件的時間歸窗(代碼審第 1 輪:原本用查詢當下的
+    全域最後終點,窗一死信、窗外重放成功後,窗一的樣本會消失)。"""
+    return [(start, end) for history in part.histories.values()
+            for start, end in _segments(history) if since <= end.at < until]
+
+
 def _execution(w: _Window) -> None:
-    """執行端處理:第一次取件 → 最終終點,扣掉其間的人工核可等待與死信等待;依最終終點歸窗。"""
+    """執行端處理:每一段扣掉段內的人工核可等待與死信等待;分組是租戶與終點事件的程式版本。"""
     groups: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
-    for ident, final in w.part.finals.items():
-        if not w.inside(final.at):
-            continue
-        history = w.part.histories.get(ident, ())
-        first = next((e for e in history if e.kind in _DELIVERIES and e.at <= final.at), None)
-        if first is None:
-            continue
+    for start, end in w.executions:
+        history = w.part.histories.get(_ident(end), ())
         waits = [(s.at, e.at) for s, e in
                  _intervals(history, LifecycleKind.AWAITING_APPROVAL, _APPROVAL_ENDS)
                  + _intervals(history, LifecycleKind.DEAD_LETTERED, _DEAD_LETTER_ENDS)]
-        spent = _seconds(first.at, final.at) - _overlap(first.at, final.at, waits)
-        labels = _labels(Stage.EXECUTION, (K.TENANT, w.tenant_of(final)[0]),
-                         (K.PROGRAM_VERSION, w.labeler.version(final.program_version)))
-        groups[labels].append(w.member(final, spent))
+        spent = _seconds(start.at, end.at) - _overlap(start.at, end.at, waits)
+        labels = _labels(Stage.EXECUTION, (K.TENANT, w.tenant_of(end)[0]),
+                         (K.PROGRAM_VERSION, w.labeler.version(end.program_version)))
+        groups[labels].append(w.member(end, spent))
     w.samples += _latencies("execution_seconds", Stage.EXECUTION, groups)
 
 
@@ -620,20 +669,22 @@ def _reconciliation(w: _Window) -> None:
     w.samples += _rates("reconciliation_success_rate", Stage.RECONCILIATION, population, hits)
 
 
-def _end_to_end(w: _Window) -> None:
+def _end_to_end(since: str, until: str, part: _ExecutorPart,
+                chains: Mapping[str, _Chain]) -> tuple[Sample, ...]:
     """端到端(依查詢當下最終結果):沿接續關係回溯到根任務,從根任務在分析端建立 → 鏈上最後一個
     任務最新修訂的最終終點;每條鏈在窗內只算一次,被取代的修訂與非鏈尾的任務不另成樣本。分析端
-    沒有這個任務的另報接不上;算出負值(兩邊時鐘不同步)不計入、另報時鐘異常。"""
+    沒有這個任務的另報接不上;算出負值(兩邊時鐘不同步)不計入、另報時鐘異常。只看這兩份輸入,
+    給讀到穩定為止的那幾輪逐輪比。"""
     ends: dict[str, tuple[_Chain, LifecycleEvent]] = {}
     unlinked: dict[str, LifecycleEvent] = {}
-    for (task, revision, _), final in sorted(w.part.finals.items()):
-        if not w.inside(final.at):
+    for (task, revision, _), final in sorted(part.finals.items()):
+        if not since <= final.at < until:
             continue
-        chain = w.analyzer.chains.get(task)
+        chain = chains.get(task)
         if chain is None or chain.created is None:
             unlinked[task] = final
             continue
-        if task != chain.last or revision != w.part.task_revisions.get(task, revision):
+        if task != chain.last or revision != part.task_revisions.get(task, revision):
             continue
         seen = ends.get(chain.root)
         if seen is None or final.at > seen[1].at:
@@ -645,12 +696,13 @@ def _end_to_end(w: _Window) -> None:
         spent = _seconds(chain.created, final.at)
         (anomalies if spent < 0 else samples).append(_Member(final.at, final.task_id, False, spent))
     stage = _labels(Stage.ANALYSIS)
-    w.samples += _latencies("end_to_end_seconds", Stage.ANALYSIS,
-                            {stage: samples} if samples else {})
-    for name, members in (("end_to_end_unlinked", [w.member(e) for e in unlinked.values()]),
+    found = _latencies("end_to_end_seconds", Stage.ANALYSIS, {stage: samples} if samples else {})
+    for name, members in (("end_to_end_unlinked", [_Member(e.at, e.task_id)
+                                                   for e in unlinked.values()]),
                           ("end_to_end_clock_anomaly", anomalies)):
-        w.samples.append(Sample(name, stage, len(members), len(members), numerator=len(members),
-                                exemplars=_exemplars(members)))
+        found.append(Sample(name, stage, len(members), len(members), numerator=len(members),
+                            exemplars=_exemplars(members)))
+    return tuple(found)
 
 
 def _dsp(w: _Window) -> None:
@@ -699,18 +751,25 @@ def _analyzer_calls(w: _Window) -> None:
     w.samples += _latencies("analyzer_call_latency_ms", Stage.ANALYSIS, groups)
 
 
+def _add_end_to_end(w: _Window) -> None:
+    w.samples += w.end_to_end
+
+
 def _compute_window(
     since: datetime, until: datetime, part: _ExecutorPart, analyzer: _AnalyzerPart,
-    tenants: Sequence[Tenant],
+    tenants: Sequence[Tenant], end_to_end: Sequence[Sample],
 ) -> tuple[Sample, ...]:
-    seen: list[tuple[str | None, str]] = [(e.program_version, e.at) for e in part.events]
-    seen += [(f.program_version, f.at) for f in part.finals.values()]
+    start, end = _iso(since), _iso(until)
+    executions = _executions(part, start, end)
+    # 程式版本的值域只收窗內真的貢獻帶版本樣本的紀錄(代碼審第 1 輪:原本連窗外的全域最後終點也收,
+    # 窗外重放一次就能把窗內版本擠成其他)
+    seen: list[tuple[str | None, str]] = [(e.program_version, e.at) for _, e in executions]
     seen += [(c.program_version, c.at) for c in part.calls]
-    seen += [(row.program_version, row.written_at) for row, _ in part.reconciled]
-    w = _Window(_iso(since), _iso(until), part, analyzer,
-                _resolver(tenants, seen))
+    seen += [(row.program_version, row.written_at) for row, history in part.reconciled
+             if any(r.state == AttemptState.UNKNOWN for r in history)]
+    w = _Window(start, end, part, analyzer, _resolver(tenants, seen), executions, end_to_end)
     for step in (_terminal_event_rate, _final_outcome_rate, _redelivery_and_dead_letter_rates,
-                 _waits, _execution, _reconciliation, _end_to_end, _dsp, _analyzer_calls,
+                 _waits, _execution, _reconciliation, _add_end_to_end, _dsp, _analyzer_calls,
                  _event_counts):
         step(w)
     w.samples.append(Sample("model_and_jev", (), None, 0, Status.NOT_APPLICABLE, note=JEV_NOTE))
@@ -718,6 +777,7 @@ def _compute_window(
 
 
 def _check_window(since: datetime, until: datetime) -> None:
+    _require_aware(since, until)
     if until <= since:
         raise WindowTooLong("窗的迄必須在起之後")
     if until - since > MAX_WINDOW:
@@ -728,20 +788,27 @@ def collect_window(
     since: datetime, until: datetime, *, executor_db: Path, analyzer_db: Path,
     tenants: Sequence[Tenant],
 ) -> Report:
-    """窗內統計。每一輪重開兩邊的快照整份重算,兩輪結果相同才回傳;最多三輪,仍不同回最後一輪並標明
-    不穩定。資料庫檔不存在丟 FileNotFoundError;還沒升級丟 DatabaseNotUpgraded(都不寫任何東西)。"""
+    """窗內統計。執行端讀一個快照,除端到端以外的指標都出自它;端到端每一輪重開兩邊的快照重算,兩輪
+    端到端樣本相同才回傳,最多三輪,仍不同回最後一輪並標明不穩定(照規格只給跨資料庫的端到端,代碼審
+    第 1 輪)。時間沒帶時區丟 ValueError;資料庫檔不存在丟 FileNotFoundError;還沒升級丟
+    DatabaseNotUpgraded(都不寫任何東西)。"""
     _check_window(since, until)
-    previous: tuple[Sample, ...] | None = None
-    for rounds in range(1, MAX_ROUNDS + 1):
-        part = _read_executor(Path(executor_db), since, until)
-        analyzer = _read_analyzer(Path(analyzer_db), since, until,
-                                  (task for task, _, _ in part.finals))
-        current = _compute_window(since, until, part, analyzer, tenants)
+    start, end = _iso(since), _iso(until)
+    part = _read_executor(Path(executor_db), since, until)
+    analyzer = _read_analyzer(Path(analyzer_db), since, until,
+                              (task for task, _, _ in part.finals))
+    previous = _end_to_end(start, end, part, analyzer.chains)
+    for rounds in range(2, MAX_ROUNDS + 1):
+        ends = _read_executor(Path(executor_db), since, until, full=False)
+        chains = _read_analyzer(Path(analyzer_db), since, until,
+                                (task for task, _, _ in ends.finals), calls=False).chains
+        current = _end_to_end(start, end, ends, chains)
         if current == previous:
-            return Report(current, True, rounds)
+            return Report(_compute_window(since, until, part, analyzer, tenants, current), True,
+                          rounds)
         previous = current
-    assert previous is not None  # noqa: S101 - 至少算過一輪
-    return Report(previous, False, MAX_ROUNDS)
+    return Report(_compute_window(since, until, part, analyzer, tenants, previous), False,
+                  MAX_ROUNDS)
 
 
 # ---- 算:現況快照 ----
@@ -756,7 +823,9 @@ def _entered(history: Sequence[AttemptRow]) -> datetime:
 
 
 def collect_snapshot(now: datetime, *, executor_db: Path, tenants: Sequence[Tenant]) -> Report:
-    """現況快照:佇列現況、四種沒有終點的嘗試狀態、被未結案鍵鎖住的廣告數、總曝險使用率。不套時間窗。"""
+    """現況快照:佇列現況、四種沒有終點的嘗試狀態、被未結案鍵鎖住的廣告數、總曝險使用率。不套時間窗。
+    「現在」沒帶時區丟 ValueError。"""
+    _require_aware(now)
     inbox = ReadOnlyInbox(Path(executor_db))
     try:
         with inbox.read_transaction() as tx:
@@ -801,14 +870,33 @@ def to_primitives(result: Report) -> dict[str, Any]:
                          "note": s.note} for s in result.samples]}
 
 
+class _Parser(argparse.ArgumentParser):
+    """參數錯一律以 EXIT_BAD_ARGUMENTS 結束(argparse 預設的 2 跟資料庫檔不存在撞號)。"""
+
+    def error(self, message: str) -> NoReturn:
+        self.print_usage(sys.stderr)
+        self.exit(EXIT_BAD_ARGUMENTS, f"{self.prog}: 參數錯誤:{message}\n")
+
+
+def _aware_time(text: str) -> datetime:
+    """--since、--until、--now 共用:ISO 8601,一定要帶時區(Z 或 +08:00 這類偏移)。"""
+    try:
+        value = datetime.fromisoformat(text)
+    except ValueError as bad:
+        raise argparse.ArgumentTypeError(f"看不懂的時間:{text}") from bad
+    if not is_aware(value):
+        raise argparse.ArgumentTypeError(f"時間必須帶時區(例:{text}Z 或 {text}+08:00)")
+    return value
+
+
 def _parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="有界標籤的指標(只讀)")
+    parser = _Parser(description="有界標籤的指標(只讀)")
     parser.add_argument("--executor-db", required=True, type=Path)
     parser.add_argument("--analyzer-db", type=Path, help="窗內統計才要")
     parser.add_argument("--tenants-config", required=True, type=Path)
-    parser.add_argument("--since", type=datetime.fromisoformat)
-    parser.add_argument("--until", type=datetime.fromisoformat)
-    parser.add_argument("--now", type=datetime.fromisoformat, help="給了就是現況快照")
+    parser.add_argument("--since", type=_aware_time)
+    parser.add_argument("--until", type=_aware_time)
+    parser.add_argument("--now", type=_aware_time, help="給了就是現況快照")
     args = parser.parse_args(argv)
     if args.now is None and (args.since is None or args.until is None or args.analyzer_db is None):
         parser.error("窗內統計要 --since、--until 與 --analyzer-db;現況快照要 --now")

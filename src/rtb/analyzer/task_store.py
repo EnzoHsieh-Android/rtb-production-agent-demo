@@ -29,7 +29,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from rtb.domain._checks import is_id
+from rtb.domain._checks import is_aware, is_id
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
 from rtb.domain.proposal import ActionType, Proposal
 from rtb.domain.task_state import IllegalTransition, TaskState, can_transition
@@ -215,6 +215,10 @@ def _tool_call(row: tuple[Any, ...]) -> ToolCall:
 
 
 def _iso(moment: datetime) -> str:
+    """沒帶時區就拒絕(比照嘗試紀錄的同名函式):不然會被當成本機時間換算,窗界整段位移、悄悄漏資料
+    (Phase 9 增量 2 代碼審第 1 輪)。"""
+    if not is_aware(moment):
+        raise ValueError("時間必須帶時區")
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
@@ -579,8 +583,8 @@ class TaskStore(TaskReads):
         跟著失敗;但呼叫端自己傳錯參數型別這類程式錯誤要老實丟出來,不能被這裡靜默吞掉。
         端點只收列舉成員(一般字串連長得一樣的也拒,Phase 9 增量 2),「其他」只給讀舊列用。
         """
-        if type(endpoint) is not ToolEndpoint:
-            raise TypeError("端點必須是 ToolEndpoint 的成員")
+        if type(endpoint) is not ToolEndpoint:  # 比照執行端封閉列舉的既有慣例丟 ValueError
+            raise ValueError("端點必須是 ToolEndpoint 的成員")
         if endpoint is ToolEndpoint.OTHER:
             raise ValueError("「其他」只給讀舊列用,不能寫")
         try:
@@ -599,6 +603,9 @@ _REQUIRED_SCHEMA: dict[str, tuple[str, ...]] = {
     "evidence": ("payload_json",), "tool_calls": ("latency_ms",), "task_leases": ("owner",),
     "follow_ups": ("follow_up_task_id",),
 }
+# 唯讀開法要求已經有的索引:唯讀連線不建索引,缺了窗口讀取會退化成全表掃描,視同還沒升級(Phase 9 增量 2
+# 代碼審第 1 輪)
+_REQUIRED_INDEXES = ("tool_calls_by_time",)
 
 
 class TaskReader(TaskReads):
@@ -607,7 +614,7 @@ class TaskReader(TaskReads):
     def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
         self._conn = connect_read_only(path, busy_timeout_seconds)
         try:
-            missing = missing_schema(self._conn, _REQUIRED_SCHEMA)
+            missing = missing_schema(self._conn, _REQUIRED_SCHEMA, _REQUIRED_INDEXES)
             if missing:
                 raise DatabaseNotUpgraded("分析行程資料庫還沒升級:缺 " + ", ".join(missing))
             begin_snapshot(self._conn)

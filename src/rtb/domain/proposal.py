@@ -23,6 +23,10 @@ from rtb.domain._checks import ID_PATTERN, is_aware, is_plain_int
 # 分析端目前的決策政策版本:分析端產生提案時用它,執行端判人工核可是否還算數也看它(Phase 6
 # 增量 3)。兩邊從這裡匯入,只有一個來源,不靠人同步設定檔
 POLICY_VERSION = "demo-pacing-v1"
+# 用過的政策版本(含目前這個),只增不刪:改版時把新值加在後面、舊值留著。指標的政策版本標籤只收這份
+# 清單裡的值、其他一律歸「其他」,值域有界;標籤是版本字串本身、不跟查詢當下的目前版本比,改版後同一個
+# 過去的窗標籤不變(Phase 9 增量 2 代碼審第 1 輪,代使用者裁定)
+KNOWN_POLICY_VERSIONS: tuple[str, ...] = ("demo-pacing-v1",)
 POLICY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}")
 REASON_PATTERN = re.compile(r"[a-z0-9_]{1,64}")
 MAX_PAYLOAD_BYTES = 16 * 1024

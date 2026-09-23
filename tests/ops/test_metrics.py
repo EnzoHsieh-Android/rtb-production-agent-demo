@@ -7,10 +7,13 @@
 import io
 import math
 import sqlite3
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 import pytest
 
+from rtb.domain import proposal as proposal_module
+from rtb.domain.proposal import KNOWN_POLICY_VERSIONS, POLICY_VERSION
+from rtb.executor import attempt_store
 from rtb.executor.attempt_store import DspCallKind, DspCallResult
 from rtb.executor.inbox_store import BlockCode, InboxReads
 from rtb.ops import metrics as m
@@ -109,6 +112,9 @@ def test_metrics_cover_the_handoff_list_without_writing(rows):
     jev = one(report, "model_and_jev")
     assert jev.status is m.Status.NOT_APPLICABLE and jev.value is None
     assert "確定性" in jev.note  # 附理由:分析是確定性計算,沒有呼叫模型
+    for name in ("blocked", "awaiting_approval", "approval_released", "stale_rejections"):
+        # 事件次數,跟可觀測查詢停下紀錄的提案數定義不同(代碼審第 1 輪),樣本上寫明
+        assert "事件次數" in one(report, name).note, name
 
 
 # ---- [S631] ----
@@ -125,7 +131,7 @@ def test_metric_labels_and_values_are_bounded(rows):
     domains = {
         m.LabelKind.TENANT: {"acme", "beta", m.UNKNOWN_TENANT},
         m.LabelKind.STAGE: {s.value for s in m.Stage},
-        m.LabelKind.POLICY_VERSION: {m.CURRENT, m.OTHER},
+        m.LabelKind.POLICY_VERSION: {*KNOWN_POLICY_VERSIONS, m.OTHER},
         m.LabelKind.TERMINAL_KIND: {"handed_off", "blocked", "expired", "dead_lettered"},
         m.LabelKind.BLOCK_REASON: {c.value for c in BlockCode} | {m.OTHER},
         m.LabelKind.DSP_CALL_KIND: {k.value for k in DspCallKind} | {m.OTHER},
@@ -150,6 +156,44 @@ def test_metric_labels_and_values_are_bounded(rows):
     assert one(report, "terminal_event_rate", policy_version=m.OTHER,
                block_reason="version_changed").numerator == 1
     assert pick(report, "terminal_event_rate", tenant=m.UNKNOWN_TENANT)
+    assert POLICY_VERSION in KNOWN_POLICY_VERSIONS  # 改版時新版本要加進清單
+    assert {"demo-pacing-v1"} <= set(KNOWN_POLICY_VERSIONS)  # 用過的版本只增不刪
+
+
+# ---- [S631] 代碼審第 1 輪:程式版本值域只收窗內真的貢獻樣本的紀錄 ----
+def test_program_versions_come_only_from_records_in_the_window(rows):
+    for n in range(21):  # 窗內 21 種:最早的 v00 併成其他
+        rows.dsp_call(at(10 + n), "write", "responded", status=200, version=f"v{n:02d}")
+    rows.event(at(5), "t9", "dead_lettered", reason="delivery_limit", version="v00")
+
+    def versions(report):
+        return {value for s in report.samples for kind, value in s.labels
+                if kind is m.LabelKind.PROGRAM_VERSION}
+
+    before = window(rows)
+    assert versions(before) == {f"v{n:02d}" for n in range(1, 21)} | {m.OTHER}
+    rows.event(at(minutes=70), "t9", "replay_requeued", source="admin_command")
+    rows.event(at(minutes=75), "t9", "handed_off", version="future")  # 窗外、全域最後的終點
+    after = window(rows)
+    assert versions(after) == versions(before)
+    assert pick(after, "dsp_calls") == pick(before, "dsp_calls")
+
+
+# ---- [S631] 代碼審第 1 輪:政策版本標籤不跟查詢當下的目前版本比,改版後舊窗不變(代使用者裁定) ----
+def test_policy_version_labels_of_a_past_window_survive_a_policy_change(rows, monkeypatch):
+    rows.event(at(1), "t1", "handed_off")  # 寫入當時的目前版本
+    rows.event(at(2), "t2", "blocked", policy="made-up-v9", reason="version_changed")
+    before = window(rows)
+    labels = {s.label_map()["policy_version"] for s in pick(before, "terminal_event_rate")}
+    assert labels == {POLICY_VERSION, m.OTHER}
+
+    upgraded = "demo-pacing-v2"  # 部署改版:常數換新值,清單也加上新值
+    grown = (*KNOWN_POLICY_VERSIONS, upgraded)
+    for module in (proposal_module, m):
+        monkeypatch.setattr(module, "POLICY_VERSION", upgraded, raising=False)
+        monkeypatch.setattr(module, "KNOWN_POLICY_VERSIONS", grown, raising=False)
+    after = window(rows)
+    assert pick(after, "terminal_event_rate") == pick(before, "terminal_event_rate")
 
 
 # ---- [S632] ----
@@ -268,10 +312,16 @@ def test_metric_exemplars_are_real_members_of_the_sample(rows):
         rows.event(at(minutes=2 + n), f"r{n}", "delivered", deliveries=2)
     rows.event(at(minutes=10), "s0", "delivered", deliveries=1)
     rows.event(at(minutes=11), "s1", "delivered", deliveries=1)
+    # 租戶 beta 四筆都等 30 秒:耗時相同取結束時間最新的(50、40、35 秒),不是任務編號順序
+    for n, received in enumerate([0, 10, 20, 5]):
+        rows.event(at(received), f"b{n}", "received", tenant=None, campaign="c3")
+        rows.event(at(received + 30), f"b{n}", "delivered", deliveries=1, campaign="c3")
     report = window(rows)
 
     slowest = one(report, "queue_wait_seconds.p95", tenant="acme")
     assert slowest.exemplars == ("q0", "q2", "q4")  # 最慢的三筆:60、50、32 秒
+    tied = one(report, "queue_wait_seconds.max", tenant="beta")
+    assert (tied.value, tied.count, tied.exemplars) == (30, 4, ("b2", "b1", "b3"))
     redelivered = one(report, "redelivery_rate", tenant="acme")
     assert redelivered.numerator == 5
     assert redelivered.exemplars == ("r4", "r3", "r2")  # 分子裡時間最新的三筆
@@ -317,6 +367,8 @@ def test_end_to_end_latency_follows_the_follow_up_chain_once(rows):
     rows.event(at(minutes=8), "f1", "blocked", reason="version_changed")
     rows.event(at(minutes=10), "f2", "expired")  # 鏈尾的舊修訂
     rows.event(at(minutes=12), "f2", "handed_off", revision=2)
+    # 非鏈尾的任務(它自己的最新修訂)結案時間反而晚於鏈尾:「挑最新」的捷徑會選錯,只能靠鏈尾檢查
+    rows.event(at(minutes=14), "f1", "handed_off", revision=2)
     rows.task("s1", at(minutes=30))  # 兩邊時鐘不同步:結案比建立早
     rows.event(at(minutes=20), "s1", "handed_off")
     rows.event(at(minutes=15), "u1", "handed_off")  # 分析端沒有這個任務:接不上
@@ -480,7 +532,9 @@ def test_stale_rejections_dead_letter_wait_and_bounded_final_result_lookup(rows,
         "version_changed": 1, "policy_version_changed": 1, "decision_stale": 1}
     wait = one(report, "dead_letter_wait_seconds.max", tenant="acme")
     assert (wait.count, wait.value) == (1, 1800)
-    assert one(report, "execution_seconds.max", tenant="acme").value == 240  # 34 分鐘扣 30 分鐘
+    execution = one(report, "execution_seconds.max", tenant="acme")
+    # 依窗內每個終點事件分段:死信前 1→2 分(60 秒)、重放放回後 33→35 分(120 秒);死信等待不在段內
+    assert (execution.count, execution.value) == (2, 120)
     assert not any(task.startswith("old") for task in calls)
     assert len(calls) == 5 * report.rounds  # 窗內候選 5 份,每輪各查一次
 
@@ -501,3 +555,131 @@ def test_the_command_line_reports_fixed_exit_codes(rows, tmp_path):
     missing = ["--executor-db", str(tmp_path / "nope.db"), "--analyzer-db", str(rows.analyzer_db),
                "--tenants-config", str(config), "--now", at(0).isoformat()]
     assert m.run(missing, out=io.StringIO(), err=err) == m.EXIT_NO_DATABASE
+
+
+# ---- [S647][S649] 代碼審第 1 輪:執行端處理依窗內實際的每個終點事件分段,窗過去之後再查不變 ----
+def test_execution_latency_is_segmented_by_each_terminal_event_in_the_window(rows):
+    rows.event(at(minutes=0), "t2", "received", tenant=None)
+    rows.event(at(minutes=1), "t2", "delivered", deliveries=1)
+    rows.event(at(minutes=10), "t2", "dead_lettered", reason="delivery_limit")
+    before = window(rows)
+    execution = one(before, "execution_seconds.max", tenant="acme")
+    assert (execution.count, execution.value, execution.exemplars) == (1, 540, ("t2",))
+
+    rows.event(at(minutes=70), "t2", "replay_requeued", source="admin_command")  # 窗外重放成功
+    rows.event(at(minutes=71), "t2", "delivered", deliveries=1)
+    rows.event(at(minutes=75), "t2", "handed_off")
+    after = window(rows)
+    assert ([s for s in after.samples if s.base == "execution_seconds"]
+            == [s for s in before.samples if s.base == "execution_seconds"])
+    later = one(window(rows, at(minutes=60), at(minutes=120)), "execution_seconds.max",
+                tenant="acme")
+    assert (later.count, later.value) == (1, 240)  # 從重放放回之後第一次取件算起
+
+
+# ---- [S635] 代碼審第 1 輪:時間一律要帶時區 ----
+def test_metric_times_must_carry_a_time_zone(rows, tmp_path, capsys):
+    naive_since, naive_until = at(0).replace(tzinfo=None), at(minutes=60).replace(tzinfo=None)
+    for since, until in ((naive_since, naive_until), (at(0), naive_until),
+                         (naive_since, at(minutes=60))):
+        with pytest.raises(ValueError, match="時區"):
+            window(rows, since, until)
+    with pytest.raises(ValueError, match="時區"):
+        snapshot(rows, naive_since)
+    rows.pending("p1", at(0))  # 沒有租戶設定時也要在入口擋下,不靠下游哪一支讀取剛好會丟
+    with pytest.raises(ValueError, match="時區"):
+        m.collect_snapshot(naive_since, executor_db=rows.executor_db, tenants=())
+
+    config = tmp_path / "tenants.json"
+    config.write_text('{"tenants": {"acme": {"campaigns": ["c1"], "max_budget": 100}}}')
+    config.chmod(0o600)
+    base = ["--executor-db", str(rows.executor_db), "--analyzer-db", str(rows.analyzer_db),
+            "--tenants-config", str(config)]
+    for times in (["--since", naive_since.isoformat(), "--until", naive_until.isoformat()],
+                  ["--since", at(0).isoformat(), "--until", naive_until.isoformat()],
+                  ["--now", naive_since.isoformat()]):
+        with pytest.raises(SystemExit) as exited:
+            m.run([*base, *times], out=io.StringIO(), err=io.StringIO())
+        assert exited.value.code == m.EXIT_BAD_ARGUMENTS, times
+        assert "時區" in capsys.readouterr().err
+
+    # 非 UTC 偏移:換算成 UTC 後照樣是含起點、不含終點的半開窗
+    rows.event(at(0), "t1", "handed_off")
+    rows.event(at(minutes=60), "t2", "handed_off")
+    taipei = timezone(timedelta(hours=8))
+    since, until = at(0).astimezone(taipei), at(minutes=60).astimezone(taipei)
+    rate = one(window(rows, since, until), "terminal_event_rate", tenant="acme")
+    assert (rate.count, rate.exemplars) == (1, ("t1",))
+    out = io.StringIO()
+    assert m.run([*base, "--since", since.isoformat(), "--until", until.isoformat()], out=out,
+                 err=io.StringIO()) == m.EXIT_OK
+    assert "+08:00" in since.isoformat() and '"t2"' not in out.getvalue()
+
+
+# ---- [S647] 代碼審第 1 輪:窗界含起點、不含終點 ----
+def test_window_bounds_include_the_start_and_exclude_the_end(rows):
+    rows.task("t1", at(minutes=-10))
+    rows.event(at(-60), "t1", "delivered", deliveries=1)
+    rows.event(at(0), "t1", "handed_off")  # 剛好等於起點:算入
+    rows.event(at(minutes=59), "t2", "delivered", deliveries=1)
+    rows.event(at(minutes=60), "t2", "handed_off")  # 剛好等於終點:排除
+    rows.task("t3", at(0))  # 窗內死信、重放後最終結果剛好落在終點:最終結果與端到端都排除
+    rows.event(at(minutes=20), "t3", "delivered", deliveries=1)
+    rows.event(at(minutes=30), "t3", "dead_lettered", reason="delivery_limit")
+    rows.event(at(minutes=40), "t3", "replay_requeued", source="admin_command")
+    rows.event(at(minutes=50), "t3", "delivered", deliveries=1)
+    rows.event(at(minutes=60), "t3", "handed_off")
+    rows.event(at(-30), "q1", "received", tenant=None)
+    rows.event(at(0), "q1", "delivered", deliveries=1)  # 佇列等待結束剛好等於起點:算入
+    rows.event(at(minutes=59), "q2", "received", tenant=None)
+    rows.event(at(minutes=60), "q2", "delivered", deliveries=1)  # 結束剛好等於終點:排除
+    report = window(rows)
+
+    events = pick(report, "terminal_event_rate", tenant="acme")
+    assert {s.count for s in events} == {2}
+    assert {(s.label_map()["terminal_kind"], s.exemplars) for s in events} == {
+        ("handed_off", ("t1",)), ("dead_lettered", ("t3",))}
+    final = one(report, "final_outcome_rate", tenant="acme")
+    assert (final.count, final.exemplars) == (1, ("t1",))
+    queue = one(report, "queue_wait_seconds.max", tenant="acme")
+    assert (queue.count, queue.value, queue.exemplars) == (1, 30, ("q1",))
+    execution = one(report, "execution_seconds.max", tenant="acme")
+    assert (execution.count, execution.value, execution.exemplars) == (2, 600, ("t3", "t1"))
+    end_to_end = one(report, "end_to_end_seconds.max")
+    assert (end_to_end.count, end_to_end.value, end_to_end.exemplars) == (1, 600, ("t1",))
+
+
+# ---- [S641] 代碼審第 1 輪:讀到穩定為止只套在端到端,其他指標只讀一次 ----
+def test_only_end_to_end_is_reread_until_stable(rows, monkeypatch):
+    rows.task("r1", at(0))
+    rows.event(at(minutes=12), "r1", "handed_off")
+    full_reads = []
+    original_calls = attempt_store.dsp_calls_between
+
+    def counting(tx, since, until):
+        full_reads.append(since)
+        return original_calls(tx, since, until)
+
+    monkeypatch.setattr(attempt_store, "dsp_calls_between", counting)
+    original_read = m._read_analyzer
+    writes = iter(range(1, 20))
+    touch_end_to_end = False
+
+    def busy(*args, **kwargs):  # 每讀一次分析端,執行端就多一筆落在窗內的新寫入
+        n = next(writes)
+        rows.dsp_call(at(minutes=20 + n), "write", "responded", status=200)
+        rows.event(at(minutes=20 + n), f"n{n}", "received", tenant=None)
+        if touch_end_to_end:  # 接得上的新結案:端到端每輪都不同
+            rows.task(f"e{n}", at(0))
+            rows.event(at(minutes=20 + n), f"e{n}", "handed_off")
+        return original_read(*args, **kwargs)
+
+    monkeypatch.setattr(m, "_read_analyzer", busy)
+    calm = window(rows)
+    assert (calm.stable, calm.rounds) == (True, 2)  # 新寫入不影響端到端:不標不穩定
+    assert len(full_reads) == 1  # 非端到端指標只讀一次
+    assert one(calm, "end_to_end_seconds.max").count == 1
+
+    touch_end_to_end = True
+    busy_report = window(rows)
+    assert (busy_report.stable, busy_report.rounds) == (False, 3)

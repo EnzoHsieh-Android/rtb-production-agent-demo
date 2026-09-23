@@ -282,6 +282,10 @@ _REQUIRED_SCHEMA: dict[str, tuple[str, ...]] = {
     "approvals": ("token",), "approval_uses": ("tenant",), "dead_letters": ("key",),
     "dead_letter_ops": ("operator",),
 }
+# 唯讀開法要求已經有的索引(指標的窗口讀取與最後終點查法靠它們):唯讀連線不建索引,只被唯讀開過的舊庫
+# 缺了會退化成全表掃描,視同還沒升級(Phase 9 增量 2 代碼審第 1 輪)
+_REQUIRED_INDEXES = ("lifecycle_events_by_time", "lifecycle_events_terminal", "dsp_calls_by_time",
+                     "attempts_terminal_by_time")
 _INBOX = Actor(Source.INBOX)  # 收件口觸發的事件:沒有執行者
 
 
@@ -1516,7 +1520,7 @@ class ReadOnlyInbox(InboxReads):
     def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
         self._conn = connect_read_only(path, busy_timeout_seconds)
         try:
-            missing = missing_schema(self._conn, _REQUIRED_SCHEMA)
+            missing = missing_schema(self._conn, _REQUIRED_SCHEMA, _REQUIRED_INDEXES)
         except BaseException:
             self._conn.close()
             raise

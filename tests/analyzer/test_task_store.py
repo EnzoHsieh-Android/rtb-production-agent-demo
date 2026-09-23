@@ -97,11 +97,12 @@ def test_record_tool_call_swallows_database_errors_but_not_programming_errors(tm
     store = TaskStore(tmp_path / "analyzer.db")
     try:
         store.create_task("t1", "c1", NOW)
-        # now 不是 datetime,_iso(now) 會丟 AttributeError——這是呼叫端自己傳錯型別的程式
-        # 錯誤,不是「資料庫忙碌/連線已關閉」這類預期中的寫入失敗,不該被吞掉。
-        with pytest.raises(AttributeError):
-            store.record_tool_call("t1", 1, ToolEndpoint.DSP_EVIDENCE, "ok", 1.0,
-                                   "not-a-datetime")
+        # now 不是帶時區的時間,_iso(now) 會丟 ValueError(Phase 9 增量 2 代碼審第 1 輪起拒收無時區
+        # 時間)——這是呼叫端自己傳錯型別的程式錯誤,不是「資料庫忙碌/連線已關閉」這類預期中的
+        # 寫入失敗,不該被吞掉。
+        for wrong in ("not-a-datetime", NOW.replace(tzinfo=None)):
+            with pytest.raises(ValueError, match="時區"):
+                store.record_tool_call("t1", 1, ToolEndpoint.DSP_EVIDENCE, "ok", 1.0, wrong)
     finally:
         store.close()
 

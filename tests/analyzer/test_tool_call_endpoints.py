@@ -23,7 +23,7 @@ def test_analyzer_tool_call_endpoints_are_a_closed_list(tmp_path):
                 continue
             store.record_tool_call("t1", 1, endpoint, "ok", 1.0, NOW)
         for raw in ("dsp:campaign", "anything-goes", "x" * 200):  # 一般字串一律拒,連長得一樣的也拒
-            with pytest.raises(TypeError):
+            with pytest.raises(ValueError, match="ToolEndpoint"):  # 比照執行端封閉列舉的慣例
                 store.record_tool_call("t1", 1, raw, "ok", 1.0, NOW)
         with pytest.raises(ValueError, match="其他"):  # 「其他」只給讀舊列用,不能寫
             store.record_tool_call("t1", 1, ToolEndpoint.OTHER, "ok", 1.0, NOW)
