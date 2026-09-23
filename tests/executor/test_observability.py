@@ -1,10 +1,11 @@
-"""可觀測(Phase 6 增量 4):S360、S361、S363 到 S369、S380。
+"""可觀測(Phase 6 增量 4):S360 到 S369、S380。
 
-唯讀查詢:總曝險停下次數、表滿延後份數、額度使用率、總曝險稽核明細。資料一律從既有的耐久紀錄讀
-(停下紀錄表、嘗試紀錄),不另存計數器。人工核可的查詢三隨增量 3 交付,不在這裡。
+唯讀查詢:總曝險停下次數、表滿延後份數、人工核可、額度使用率、總曝險稽核明細。資料一律從既有的耐久
+紀錄讀(停下紀錄表、嘗試紀錄、收件表、核可使用表),不另存計數器。
 """
 
 import json
+import re
 import sqlite3
 from datetime import timedelta
 
@@ -58,7 +59,7 @@ def read(store, query, *args, **kwargs):
     """停下紀錄表歸收件口模組管:讀它的查詢要帶收件表物件(由它的方法核對交易是它開的)。"""
     with store.transaction() as tx:
         if query in (observability.aggregate_stop_count, observability.table_full_deferral_count,
-                     observability.aggregate_audit):
+                     observability.aggregate_audit, observability.approval_counts):
             return query(store, tx, *args, **kwargs)
         return query(tx, *args, **kwargs)
 
@@ -295,6 +296,30 @@ def test_observability_queries_use_their_indexes(store, filters, index):
     assert plan.count("attempts_first_rows_by_tenant") == 2, plan  # 兩段都用上
 
 
+# 已核可放行數(查詢三):依租戶、依時間走核可使用表的索引;依廣告走「第一列按廣告」的部分索引
+@pytest.mark.parametrize(("filters", "index"), [
+    ({"tenant": TENANT}, "approval_uses_by_tenant"),
+    ({"tenant": TENANT, "since": NOW}, "approval_uses_by_tenant"),
+    ({"since": NOW, "until": NOW + HOUR}, "approval_uses_by_time"),
+    # 依廣告:先走第一列按廣告的索引,再用核可使用表唯一限制的前兩欄(任務、修訂)查;
+    # 操作鍵已決定任務與修訂,多比這兩欄就是為了這一步用得上索引
+    ({"campaign_id": "c1"},
+     r"attempts_first_rows\b.*approval_uses_1 \(task_id=\? AND revision=\?\)"),
+])
+def test_applied_count_uses_its_index(store, filters, index):
+    sql, params = inbox_store.approval_use_count_query(**filters)
+    plan = _plan(store, sql, params)
+    assert re.search(rf"\b{index}", plan), plan
+    # 只看索引名會假綠:子查詢用上索引、外層照樣整張掃核可使用表(代碼審第 2 輪外家席、資安席)
+    assert not re.search(r"\bSCAN u\b", plan), plan
+
+
+def test_awaiting_condition_with_alias_matches_the_shared_one():
+    """帶別名的待核可條件是另寫一份字面:共用那句改了,這裡要跟著改。"""
+    aliased = " AND ".join(f"p.{part}" for part in inbox_store.AWAITING.split(" AND "))
+    assert aliased == inbox_store._AWAITING_P
+
+
 # ---- [S366]、[S380] ----
 def _indexes(conn):
     return {name for (name,) in conn.execute(
@@ -302,7 +327,8 @@ def _indexes(conn):
 
 
 OBSERVABILITY_INDEXES = {"write_stops_by_tenant", "write_stops_by_campaign", "write_stops_by_time",
-                         "attempts_first_rows_by_tenant"}
+                         "attempts_first_rows_by_tenant", "approval_uses_by_tenant",
+                         "approval_uses_by_time"}
 
 
 @pytest.mark.parametrize("old", ["no_tenant_column", "column_but_no_index"])
@@ -358,6 +384,10 @@ def test_stop_queries_only_accept_a_transaction_opened_by_the_same_inbox(tmp_pat
                 store.stop_count(tx, AGG)
             with pytest.raises(attempt_store.NotInTransaction):
                 store.stops(tx, AGG, TENANT, NOW, NOW + HOUR)
+            with pytest.raises(attempt_store.NotInTransaction):
+                store.awaiting_count(tx)
+            with pytest.raises(attempt_store.NotInTransaction):
+                store.approval_use_count(tx)
     finally:
         other.close()
 
@@ -412,3 +442,93 @@ def test_the_audit_does_not_look_up_each_key_one_by_one(store, monkeypatch):
     assert sorted((e.task_id, e.state) for e in audit.passed) == [("p2", "in_flight"),
                                                                   ("t1", "failed")]
     assert [(e.task_id, e.state) for e in audit.holding] == [("p2", "in_flight")]
+
+
+# ---- [S362] 查詢三 人工核可 ----
+RATIO = StopKind.BUDGET_INCREASE_TOO_LARGE
+Counts = observability.ApprovalCounts
+
+
+def _awaiting(store, task, campaign, stage=AGG, tenant=TENANT, with_stop=True):
+    """讓一份提案停在待核可(照執行迴圈的做法:處置寫待核可、同一個交易寫停下紀錄)。"""
+    from rtb.executor.inbox_store import BlockCode
+
+    prop = proposal(task_id=task, campaign_id=campaign)
+    store.accept(prop, lambda: NOW)
+    with store.transaction() as tx:
+        delivery = store.receive(tx, NOW, "worker")
+        assert delivery is not None and delivery.message.task_id == task
+        assert store.await_approval(tx, delivery.receipt, NOW, BlockCode(stage.value))
+        if with_stop:
+            store.record_stop(tx, Stop(stage, prop, operation_key(prop), tenant, 10, None, None),
+                              NOW)
+    return prop
+
+
+def _applied(store, prop, stages, tenant=TENANT, at=NOW):
+    """照執行迴圈的做法放行:開始一筆與核可使用紀錄在同一個交易寫。"""
+    from rtb.executor.inbox_store import ApprovalUse, BlockCode
+
+    with store.transaction() as tx:
+        attempt_store.begin(tx, prop, at, capability_expires_at=EXPIRES,
+                            reservation=Reservation(tenant, 10, 10**9))
+        for stage in stages:
+            store.record_approval_use(tx, ApprovalUse("ap-1", prop, operation_key(prop), tenant,
+                                                      BlockCode(stage.value), 10, None, None), at)
+
+
+def test_approval_counts_cover_waiting_and_applied(store):
+    _awaiting(store, "w1", "c1")  # 總曝險已滿那一關
+    _awaiting(store, "w2", "c2", stage=RATIO)  # 比例過大那一關
+    _awaiting(store, "w3", "c3", tenant=OTHER)
+    _awaiting(store, "w4", "c4", with_stop=False)  # 接不到停下紀錄:只進總數與未知租戶數
+    stop(store, RATIO, task="w1", campaign="c1")  # 同一份提案先前在另一關停過:不重複數
+    applied = proposal(task_id="a1", campaign_id="c5")
+    stop(store, AGG, task="a1", campaign="c5")  # 比例那一關沒有停下紀錄:依廣告篩也要算到
+    _applied(store, applied, [AGG, RATIO])  # 同一份提案兩關各一列
+    _applied(store, proposal(task_id="a2", campaign_id="c6"), [AGG], tenant=OTHER)
+    # 同任務的上一份修訂在別的廣告開過嘗試、沒用核可:放行只算到這一份修訂的廣告
+    _applied(store, proposal(task_id="a3", campaign_id="c9"), [])
+    _applied(store, proposal(task_id="a3", revision=2, campaign_id="c7"), [RATIO], at=NOW + HOUR)
+    # 同任務同修訂、內容不同(收件表清掉已結案任務後重用):舊內容的第一列不算這筆放行
+    _applied(store, proposal(task_id="a4", campaign_id="c10",
+                                    requested_change={"new_budget": 111}), [])
+    _applied(store, proposal(task_id="a4", campaign_id="c11",
+                                    requested_change={"new_budget": 222}), [AGG])
+
+    counts = observability.approval_counts
+    assert read(store, counts) == Counts(4, 1, 5)  # 待核可、其中接不到停下紀錄的、已核可放行
+    assert read(store, counts, tenant=TENANT) == Counts(2, 1, 4)
+    assert read(store, counts, campaign_id="c2") == Counts(1, 1, 0)
+    assert read(store, counts, campaign_id="c5") == Counts(0, 1, 2)
+    assert read(store, counts, since=NOW + HOUR) == Counts(4, 1, 1)  # 範圍只管已核可放行(含起點)
+    assert read(store, counts, until=NOW + HOUR) == Counts(4, 1, 4)  # 不含終點
+    assert read(store, counts, tenant="nobody") == Counts(0, 1, 0)
+    assert read(store, counts, campaign_id="c9") == Counts(0, 1, 0)
+    assert read(store, counts, campaign_id="c10") == Counts(0, 1, 0)
+    assert read(store, counts, campaign_id="c11") == Counts(0, 1, 1)
+
+
+def test_applied_count_follows_the_tenant_recorded_when_the_approval_was_used(store):
+    """等待期間廣告換了租戶:停下紀錄留舊租戶,放行記新租戶。這筆放行屬於新租戶、還是這個廣告。"""
+    prop = proposal(task_id="m1", campaign_id="c8")
+    stop(store, AGG, tenant=OTHER, task="m1", campaign="c8")
+    _applied(store, prop, [AGG], tenant=TENANT)
+
+    counts = observability.approval_counts
+    assert read(store, counts, tenant=TENANT, campaign_id="c8").applied == 1
+    assert read(store, counts, tenant=OTHER, campaign_id="c8").applied == 0
+
+
+@pytest.mark.parametrize("outcome", ["released", "expired", "superseded"])
+def test_settled_awaiting_proposals_stop_counting(store, outcome):
+    from rtb.executor.inbox_store import AwaitingOutcome
+
+    _awaiting(store, "w1", "c1")
+    assert read(store, observability.approval_counts) == Counts(1, 0, 0)
+    later = NOW + timedelta(days=365)  # 已到期:處理待核可那一步一定讀得到它
+    with store.transaction() as tx:
+        [found] = store.awaiting(tx, later)
+        assert store.settle_awaiting(tx, found.message, AwaitingOutcome(outcome), later)
+
+    assert read(store, observability.approval_counts) == Counts(0, 0, 0)

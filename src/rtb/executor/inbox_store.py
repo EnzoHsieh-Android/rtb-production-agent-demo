@@ -148,6 +148,7 @@ _LEASE_COLUMNS = ("lease_until TEXT, lease_seq INTEGER NOT NULL DEFAULT 0, lease
 PENDING = "state = 'pending' AND disposition IS NULL"
 IN_PROGRESS = "state = 'pending' AND disposition = 'in_progress'"
 AWAITING = "state = 'pending' AND disposition = 'awaiting_approval'"
+_AWAITING_P = "p.state = 'pending' AND p.disposition = 'awaiting_approval'"  # 同一句,帶別名
 # 保留期清除與「任務是否結束」都看這一句:處理中、待核可也算還沒結束
 OPEN = f"(({PENDING}) OR ({IN_PROGRESS}) OR ({AWAITING}))"
 EVENT_CODES = frozenset(
@@ -185,6 +186,8 @@ CREATE TABLE IF NOT EXISTS approval_uses (
     stage TEXT NOT NULL, amount INTEGER NOT NULL, used INTEGER, cap INTEGER,
     capped INTEGER NOT NULL, at TEXT NOT NULL,
     UNIQUE (task_id, revision, content_hash, stage));
+CREATE INDEX IF NOT EXISTS approval_uses_by_tenant ON approval_uses (tenant, at);
+CREATE INDEX IF NOT EXISTS approval_uses_by_time ON approval_uses (at);
 """
 _PROPOSALS_COLUMNS = {
     "DISPOSITION_COLUMN": _DISPOSITION_COLUMN, "BLOCK_CODE_COLUMN": _BLOCK_CODE_COLUMN,
@@ -923,6 +926,40 @@ class InboxStore:
             (message.task_id, message.revision)).fetchone()[0]
         return Receipt(message.task_id, message.revision, message.content_hash, owner, int(seq))
 
+    def awaiting_count(
+        self, tx: attempt_store.ExecutorTransaction, *, tenant: str | None = None,
+        campaign_id: str | None = None,
+    ) -> tuple[int, int]:
+        """待核可份數(Phase 6 增量 4 查詢三),以及其中接不到停下紀錄的份數。依租戶、廣告篩時用
+        (任務、修訂、內容雜湊、停在哪一關)接停下紀錄;停下紀錄同一份提案同一種類只一列,所以
+        每份提案最多接到一列。接不到的只算進不篩的總數,另外回報,不悄悄丟掉。"""
+        self._own(tx)
+        join = ("LEFT JOIN write_stops w ON w.task_id = p.task_id AND w.revision = p.revision "
+                "AND w.content_hash = p.content_hash AND w.kind = p.block_code")
+        where, params = [_AWAITING_P], []
+        for clause, value in (("w.tenant = ?", tenant), ("w.campaign_id = ?", campaign_id)):
+            if value is not None:
+                where.append(clause)
+                params.append(value)
+        matched = self._conn.execute(
+            f"SELECT count(*) FROM proposals p {join} WHERE {' AND '.join(where)}",  # noqa: S608 - 只拼接固定條件
+            params).fetchone()[0]
+        unknown = self._conn.execute(
+            f"SELECT count(*) FROM proposals p {join} "  # noqa: S608 - 只拼接固定條件
+            f"WHERE {_AWAITING_P} AND w.id IS NULL").fetchone()[0]
+        return int(matched), int(unknown)
+
+    def approval_use_count(
+        self, tx: attempt_store.ExecutorTransaction, *, tenant: str | None = None,
+        campaign_id: str | None = None, since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
+        """已核可放行數(查詢三):核可使用表的列數。時間範圍包含起點、不包含終點。"""
+        self._own(tx)
+        sql, params = approval_use_count_query(tenant=tenant, campaign_id=campaign_id,
+                                               since=since, until=until)
+        return int(self._conn.execute(sql, params).fetchone()[0])
+
     def stop_count(
         self, tx: attempt_store.ExecutorTransaction, kind: StopKind, *, tenant: str | None = None,
         campaign_id: str | None = None, since: datetime | None = None,
@@ -992,6 +1029,30 @@ def stop_count_query(
             where.append(clause)
             params.append(value)
     return f"SELECT count(*) FROM write_stops WHERE {' AND '.join(where)}", tuple(params)  # noqa: S608 - 只拼接固定條件
+
+
+def approval_use_count_query(
+    *, tenant: str | None = None, campaign_id: str | None = None,
+    since: datetime | None = None, until: datetime | None = None,
+) -> tuple[str, tuple[object, ...]]:
+    """已核可放行數的查詢語句(測試用它看查詢計畫)。用核可使用表的租戶、任務、修訂、操作鍵與時間;
+    依廣告篩時用操作鍵接回這筆放行開始的那一列(第一列)取廣告——核可使用紀錄跟開始一筆寫在同一個
+    交易,那一列一定在,而且只增不改。不接停下紀錄:核可先簽好就放行時沒有停下紀錄,等待期間換了
+    租戶時停下紀錄留的是舊租戶(代碼審第 1 輪)。要比操作鍵、不能只比任務與修訂:收件表清掉已結案
+    任務後,同一組任務與修訂可能再來一份內容不同的提案,舊內容的第一列還在(代碼審第 2 輪外家席)。
+    寫成連接而不是子查詢:只依廣告篩時才能從「第一列按廣告」的索引出發,不整張掃核可使用表。"""
+    join, where, params = "", ["1 = 1"], []
+    if campaign_id is not None:
+        join = ("JOIN attempts f ON f.key = u.key AND f.seq = 1 AND f.task_id = u.task_id "
+                "AND f.revision = u.revision")
+    for clause, value in (("u.tenant = ?", tenant), ("f.campaign_id = ?", campaign_id),
+                          ("u.at >= ?", None if since is None else attempt_store.iso(since)),
+                          ("u.at < ?", None if until is None else attempt_store.iso(until))):
+        if value is not None:
+            where.append(clause)
+            params.append(value)
+    return (f"SELECT count(*) FROM approval_uses u {join} WHERE {' AND '.join(where)}",  # noqa: S608 - 只拼接固定條件
+            tuple(params))
 
 
 def _parse_payload(payload: str) -> Proposal | None:
