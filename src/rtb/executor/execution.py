@@ -24,7 +24,7 @@
 比核可久;同鍵重送前也重判比例與用過的核可。
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -33,7 +33,7 @@ from typing import Any, Literal, NoReturn, Protocol
 
 from rtb.domain._checks import is_plain_int
 from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
-from rtb.domain.proposal import ActionType, Proposal
+from rtb.domain.proposal import POLICY_VERSION, ActionType, Proposal
 from rtb.executor import approval, attempt_store, guardrails
 from rtb.executor.approval import Approval
 from rtb.executor.attempt_store import AttemptRow
@@ -320,15 +320,23 @@ def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
         return BlockCode.CAMPAIGN_NOT_ACTIVE
     if view.version != proposal.campaign_version_observed:
         return BlockCode.VERSION_CHANGED
+    if proposal.policy_version != POLICY_VERSION:  # Phase 8:政策換版後,舊政策下的決策不寫
+        return BlockCode.POLICY_VERSION_CHANGED
     return None
 
 
-def _version_changed_or_none(live: bool, checked: BlockCode | None) -> BlockCode | None:
-    """重跑執行前檢查查到版本已變:收件口確認成「版本已變」(分析端要據此重新規劃),嘗試結果代碼
-    照舊記「沒發生」。其他原因(含提案過期、權限不過)回空值,照嘗試結果代碼確認。
-    過期與版本已變同時成立時過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)。
-    使用者 2026-09-23 裁定把 Phase 5 [S310] 擴到憑證過期後重讀與對帳查不到兩條路徑。"""
-    return BlockCode.VERSION_CHANGED if live and checked is BlockCode.VERSION_CHANGED else None
+# 重跑的執行前檢查查到這幾種,收件口照實確認成那個原因(分析端據此重新規劃);其他照嘗試結果
+# 代碼確認。決策已過時不在執行前檢查裡,由轉回嘗試中的交易直接帶出(見 _in_flight_again)
+_KEPT_ON_RERUN = frozenset({BlockCode.VERSION_CHANGED, BlockCode.POLICY_VERSION_CHANGED})
+
+
+def _kept_reason_or_none(live: bool, checked: BlockCode | None) -> BlockCode | None:
+    """重跑執行前檢查查到版本已變或政策已變:收件口確認成那個原因,嘗試結果代碼照舊記「沒發生」。
+    其他原因(含提案過期、權限不過)回空值,照嘗試結果代碼確認。
+    過期跟這幾種同時成立時過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)。
+    使用者 2026-09-23 裁定把 Phase 5 [S310] 擴到憑證過期後重讀與對帳查不到兩條路徑;政策已變與
+    決策已過時照同一個做法,使用者 2026-09-24 裁定(Phase 8 [S511])。"""
+    return checked if live and checked in _KEPT_ON_RERUN else None
 
 
 def intent_holds(proposal: Proposal, view: CampaignView) -> bool:
@@ -356,6 +364,10 @@ class _Signed:
 
 class _ApprovalSuperseded(Exception):
     """轉嘗試中的交易裡發現重送靠的核可已不是那一關最新的:不重送。"""
+
+
+class _DecisionStale(Exception):
+    """轉嘗試中的交易裡發現決策已過時(又沒有用過核可):不重送,收件口確認成決策已過時。"""
 
 
 def _no_progress(key: str, receipt: Receipt | None) -> NoReturn:
@@ -439,6 +451,18 @@ class Executor:
             raise ExecutorHalted(refused.reason) from refused
         return _Signed(grant.token, datetime.fromtimestamp(grant.expires_at, UTC), grant.tenant)
 
+    # ---- 決策新鮮度(Phase 8) ----
+    def _stale_without_approval(
+        self, proposal: Proposal, approvals: Iterable[Approval], now: datetime,
+    ) -> bool:
+        """決策過時、而且這一次靠的核可沒有一張此刻還算數。有效核可只放行它核准、而且這一次真的
+        需要的那一關(使用者 2026-09-24 裁定;代碼審第 1 輪三席:原本任一關任一張有效核可都能免):
+        處理一筆傳進來的是開始一筆前查好、用得到的那幾張(照增量 3 的核可查法,用不到的總曝險
+        核可已經拿掉),同鍵重送傳進來的是重簽時核對過、這次重送靠的那幾張。過時的決策碰到還要
+        一張新核可的關卡,由呼叫端直接擋下,不停進待核可。"""
+        return guardrails.decision_stale(proposal, now) and not any(
+            now.timestamp() < found.expires_at for found in approvals)
+
     # ---- 人工核可(Phase 6 增量 3) ----
     def _gate(
         self, receipt: Receipt, proposal: Proposal, signed: _Signed, view: CampaignView,
@@ -450,6 +474,8 @@ class Executor:
         if not guardrails.increase_too_large(proposal, view.budget):
             held.pop(RATIO, None)
         elif RATIO not in held:
+            if guardrails.decision_stale(proposal, self.clock()):  # 過時的決策不等新核可(Phase 8)
+                return self._settle(receipt, BlockCode.DECISION_STALE, Result.BLOCKED)
             return self._await(receipt, proposal, RATIO, self._ratio_stop(proposal, signed, amount))
         if not held:
             return signed, held
@@ -595,10 +621,13 @@ class Executor:
     def _in_flight_again(
         self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None, signed: _Signed,
     ) -> AttemptRow:
-        """同鍵重送前轉回嘗試中;靠核可的,同一個交易裡核對每張仍是那一關最新的。"""
-        def still_latest(tx: attempt_store.ExecutorTransaction) -> bool:
-            return not any(self._superseded(tx, proposal, item.stage, item)
-                           for item in signed.approvals)
+        """同鍵重送前轉回嘗試中;靠核可的,同一個交易裡核對每張仍是那一關最新的;決策新鮮度也在
+        這個交易裡用它的時間再判一次(Phase 8,跟開始一筆的交易同一個判斷點)。"""
+        def still_latest(tx: attempt_store.ExecutorTransaction) -> None:
+            if self._stale_without_approval(proposal, signed.approvals, self.clock()):
+                raise _DecisionStale(row.key)
+            if any(self._superseded(tx, proposal, item.stage, item) for item in signed.approvals):
+                raise _ApprovalSuperseded(row.key)
         return self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at,
                            guard=still_latest)
 
@@ -639,9 +668,10 @@ class Executor:
                 return Processed(Result.DEFERRED)
             live = {stage: found for stage, found in held.items()
                     if now.timestamp() < found.expires_at}
-            if RATIO in held and RATIO not in live:  # 比例的核可在取件後過期:回待核可
-                return self._await_in(tx, receipt, picked.proposal, RATIO,
-                                      self._ratio_stop(picked.proposal, signed, amount), now)
+            stopped = self._stop_before_begin(tx, receipt, picked.proposal, signed, amount, held,
+                                              live, now)
+            if stopped is not None:
+                return stopped
             reservation = attempt_store.Reservation(
                 signed.tenant.name, amount, signed.tenant.aggregate_limit,
                 approved=AGGREGATE in live)
@@ -668,6 +698,55 @@ class Executor:
                 self._audit(tx, picked.proposal, begun, live, reservation, now)
                 return begun.row
             return self._existing_key(tx, begun.row, receipt, now)
+
+    def _stop_before_begin(  # noqa: PLR0913 - 開始一筆的交易裡重判要用的每一樣
+        self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, proposal: Proposal,
+        signed: _Signed, amount: int, held: dict[BlockCode, Approval],
+        live: dict[BlockCode, Approval], now: datetime,
+    ) -> Processed | None:
+        """比例的核可在取件後過期就回待核可;決策已過時(Phase 8)又沒有這一次真的需要的有效
+        核可就擋下,不停進待核可等新的。live 可能被補上或拿掉總曝險那一張。"""
+        stale = guardrails.decision_stale(proposal, now)
+        if RATIO in held and RATIO not in live:
+            if stale:  # 過時的決策不等新核可
+                return self._block_stale(tx, receipt, now)
+            return self._await_in(tx, receipt, proposal, RATIO,
+                                  self._ratio_stop(proposal, signed, amount), now)
+        if not stale:
+            return None
+        verdict = self._stale_verdict(tx, proposal, signed.tenant, amount, live, now)
+        if verdict == "block":
+            return self._block_stale(tx, receipt, now)
+        if verdict == "retry":  # 憑證沒壓到核可到期:放掉重來,下一輪預判拿到核可再簽
+            self.store.release(tx, receipt, now, None)
+            return Processed(Result.DEFERRED)
+        return None
+
+    def _block_stale(
+        self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
+    ) -> Processed:
+        self.store.ack_blocked(tx, receipt, now, BlockCode.DECISION_STALE)
+        return Processed(Result.BLOCKED, block_code=BlockCode.DECISION_STALE)
+
+    def _stale_verdict(
+        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, tenant: Tenant,
+        amount: int, live: dict[BlockCode, Approval], now: datetime,
+    ) -> Literal["go", "block", "retry"]:
+        """決策已過時:只有「這一次真的需要、而且此刻有效」的核可才放行(使用者 2026-09-24
+        裁定)。總曝險需不需要核可以這個交易裡、握著寫入鎖重算的已用額度為準,跟開始一筆的判斷
+        同一個數字(代碼審第 2 輪三席:開始前另一個交易的預判會跟實際不同)。需要時:開始前就查好
+        的那張(憑證已壓到它的到期)放行;開始前沒查到、最新那張此刻算數,憑證沒壓短,放掉重來,
+        不當場放行(代碼審第 3 輪外家兩席:憑證會比核可活得久,違反增量 3 [S376]);都沒有就擋下,
+        不停進待核可等新的。比例那一關到這裡要嘛不需要、要嘛 live 裡有有效核可。"""
+        needed = amount > 0 and (
+            _aggregate_used(tx, tenant.name, now) + amount > tenant.aggregate_limit)
+        if not needed:
+            return "go" if RATIO in live else "block"
+        if AGGREGATE in live:
+            return "go"
+        found = self._read_approval(self.store.latest_approval(tx, proposal, AGGREGATE),
+                                    proposal, AGGREGATE, tenant, amount, now)
+        return "block" if found is None else "retry"
 
     def _superseded(
         self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, stage: BlockCode,
@@ -742,7 +821,7 @@ class Executor:
         self, row: AttemptRow, target: AttemptState, receipt: Receipt | None, *,
         code: OutcomeCode | None = None, written_version: int | None = None,
         capability_expires_at: datetime | None = None, block_code: BlockCode | None = None,
-        guard: Callable[[attempt_store.ExecutorTransaction], bool] | None = None,
+        guard: Callable[[attempt_store.ExecutorTransaction], None] | None = None,
     ) -> AttemptRow:
         """嘗試寫入:同一個交易裡先核對收據並順手續租(對不上丟 LeaseLost),寫到終點就同時確認。
 
@@ -753,8 +832,8 @@ class Executor:
             now = self.clock()
             if receipt is not None and not self.store.extend(tx, receipt, now):
                 raise LeaseLost(row.key)
-            if guard is not None and not guard(tx):
-                raise _ApprovalSuperseded(row.key)
+            if guard is not None:  # 不能轉就丟例外(核可被取代、決策已過時),交易回滾
+                guard(tx)
             new = attempt_store.transition(
                 tx, row.key, row.seq, target, now, code=code,
                 written_version=written_version, capability_expires_at=capability_expires_at)
@@ -779,7 +858,9 @@ class Executor:
             raise ExecutorHalted(str(reaction.code))
         return reaction.target is A.UNKNOWN
 
-    def _after_expiry(self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None) -> bool:
+    def _after_expiry(  # noqa: PLR0911 - 每個出口對應重送前的一種結果
+        self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
+    ) -> bool:
         """DSP 明確沒寫:重讀 DSP、重跑檢查;通過就重讀時鐘重簽、同鍵重送一次。"""
         try:
             view = self.dsp.read_campaign(proposal.campaign_id)
@@ -790,7 +871,7 @@ class Executor:
         signed = (self._resign(proposal, view, row.key)  # 設定檔壞掉在這裡停機
                   if live and checked is None else None)
         if not isinstance(signed, _Signed):  # 業務上沒通過:DSP 明確沒寫這一次,不再送
-            return self._not_resent(proposal, row, receipt, _version_changed_or_none(live, checked))
+            return self._not_resent(proposal, row, receipt, _kept_reason_or_none(live, checked))
         try:
             row = self._in_flight_again(proposal, row, receipt, signed)
         except attempt_store.SendLimitReached:
@@ -798,6 +879,8 @@ class Executor:
             return False
         except _ApprovalSuperseded:
             return self._not_resent(proposal, row, receipt, None)
+        except _DecisionStale:
+            return self._not_resent(proposal, row, receipt, BlockCode.DECISION_STALE)
         answer = self.dsp.write(proposal, row.key, signed.token)
         reaction = react(answer)
         if reaction.capability_expired:  # 用新讀的時間重簽後仍過期:時鐘或設定有問題
@@ -939,7 +1022,7 @@ class Executor:
             return self._found(proposal, row, record, receipt)
         return self._reconcile_not_found(proposal, row, receipt)
 
-    def _reconcile_not_found(
+    def _reconcile_not_found(  # noqa: PLR0911 - 每個出口對應重送前的一種結果
         self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
     ) -> bool:
         """查不到這把鍵:重讀廣告、重跑執行前檢查;通過就同鍵重送,不過就先作廢再判失敗。"""
@@ -957,7 +1040,7 @@ class Executor:
                   if live and checked is None else None)
         if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗
             return self._void_then_fail(proposal, row, receipt,
-                                        _version_changed_or_none(live, checked))
+                                        _kept_reason_or_none(live, checked))
         try:
             row = self._in_flight_again(proposal, row, receipt, signed)
         except attempt_store.SendLimitReached:
@@ -965,6 +1048,8 @@ class Executor:
             return False
         except _ApprovalSuperseded:
             return self._void_then_fail(proposal, row, receipt, None)
+        except _DecisionStale:
+            return self._void_then_fail(proposal, row, receipt, BlockCode.DECISION_STALE)
         return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token),
                             receipt)
 

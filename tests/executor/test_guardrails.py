@@ -188,6 +188,9 @@ def test_every_guardrail_holds_at_its_boundaries(h, rule, setup, new_budget, exp
 # 三份明列清單:之後誰加新擋下原因都得先決定歸哪一份,忘了就紅
 NON_SINGLE_CODES = (  # 不是單筆規則:鍵已存在的分流、總曝險(增量 1)
     BlockCode.OPERATION_PREVIOUSLY_FAILED, BlockCode.AGGREGATE_LIMIT_REACHED,
+    # Phase 8:看的是提案本身(政策版本、決策建立多久),不是 DSP 現況或租戶設定,邊界值在
+    # test_stale_decision.py([S504]、[S505])
+    BlockCode.POLICY_VERSION_CHANGED, BlockCode.DECISION_STALE,
 )
 HISTORICAL_CODES = ()  # 規則已拿掉、只為讀舊資料而留在列舉裡的代碼(回退時比例代碼搬來這裡)
 

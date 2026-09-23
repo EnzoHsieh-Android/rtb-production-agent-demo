@@ -97,6 +97,8 @@ class BlockCode(StrEnum):
     BUDGET_INCREASE_TOO_LARGE = "budget_increase_too_large"
     OPERATION_PREVIOUSLY_FAILED = "operation_previously_failed"  # 同一把鍵先前已判定失敗
     AGGREGATE_LIMIT_REACHED = "aggregate_limit_reached"  # 開始一筆時總曝險額度不夠(Phase 6)
+    POLICY_VERSION_CHANGED = "policy_version_changed"  # 提案的政策版本不是現行版本(Phase 8)
+    DECISION_STALE = "decision_stale"  # 決策建立超過新鮮度上限(Phase 8)
 
 
 class StopKind(StrEnum):
@@ -186,6 +188,19 @@ CREATE TABLE IF NOT EXISTS approval_uses (
     stage TEXT NOT NULL, amount INTEGER NOT NULL, used INTEGER, cap INTEGER,
     capped INTEGER NOT NULL, at TEXT NOT NULL,
     UNIQUE (task_id, revision, content_hash, stage));
+CREATE TABLE IF NOT EXISTS dead_letters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, revision INTEGER NOT NULL,
+    content_hash TEXT NOT NULL, key TEXT NOT NULL,
+    failure_class TEXT NOT NULL CHECK (failure_class IN (FAILURE_CLASS_LIST)),
+    reason TEXT NOT NULL CHECK (reason IN (DEAD_LETTER_REASON_LIST)), last_failure TEXT,
+    deliveries INTEGER NOT NULL, at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS dead_letters_by_proposal ON dead_letters (task_id, revision);
+CREATE TABLE IF NOT EXISTS dead_letter_ops (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, envelope INTEGER REFERENCES dead_letters (id),
+    task_id TEXT NOT NULL, revision INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK (action IN (DEAD_LETTER_ACTION_LIST)), operator TEXT NOT NULL,
+    reason TEXT, at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS dead_letter_ops_by_envelope ON dead_letter_ops (envelope);
 CREATE INDEX IF NOT EXISTS approval_uses_by_tenant ON approval_uses (tenant, at);
 CREATE INDEX IF NOT EXISTS approval_uses_by_time ON approval_uses (at);
 """
@@ -308,6 +323,51 @@ class ApprovalUse:
     amount: int
     used: int | None
     limit: int | None
+
+
+class FailureClass(StrEnum):
+    """失敗分類(Phase 8 [S501]):暫時的次數用完進死信,永久的走擋下結案、不進死信。"""
+
+    TRANSIENT = "transient"
+    PERMANENT = "permanent"
+
+
+def failure_class(kind: LastFailure | BlockCode) -> FailureClass:
+    """最後卡在哪一步的每一種都是暫時的(讀不到 DSP、全表未結案已滿、工作者沒回報);擋下原因的
+    每一種都是永久的(業務上不成立,重試不會變好)。兩個列舉之後加成員,測試逐一列舉會抓到。"""
+    if type(kind) is LastFailure:
+        return FailureClass.TRANSIENT
+    if type(kind) is BlockCode:
+        return FailureClass.PERMANENT
+    raise TypeError("只分類最後失敗與擋下原因兩個封閉列舉")
+
+
+class DeadLetterAction(StrEnum):
+    """死信操作稽核的動作(Phase 8 [S508])。"""
+
+    DEAD_LETTERED = "dead_lettered"
+    REPLAY_REQUESTED = "replay_requested"
+    REPLAY_REFUSED = "replay_refused"
+    REPLAY_REQUEUED = "replay_requeued"
+
+
+class ReplayOutcome(StrEnum):
+    """重放指令的結果(Phase 8 [S502]):放回待處理,或拒絕的原因。"""
+
+    REQUEUED = "requeued"
+    NOT_IN_INBOX = "not_in_inbox"  # 收件表已沒有這一列(過了保留期被清掉,或從來沒收過)
+    NOT_DEAD_LETTER = "not_dead_letter"  # 還在,但處置不是死信(例如已被放回、已擋下)
+    EXPIRED = "expired"  # 提案已過期
+    SUPERSEDED = "superseded"  # 同任務已有更新的修訂:放回舊的會讓已被取代的決策插隊
+    UNREADABLE = "unreadable"  # 存的內容讀不回提案:補不了信封,放回也處理不了
+    INBOX_FULL = "inbox_full"  # 待處理名額已滿:照收件口既有規則拒絕
+
+
+# 死信兩張表的允許值清單:列舉定義在建表語句之後,這裡才填進去(模組載入時就完成)
+for _name, _members in (("FAILURE_CLASS_LIST", FailureClass),
+                        ("DEAD_LETTER_REASON_LIST", DeadLetterReason),
+                        ("DEAD_LETTER_ACTION_LIST", DeadLetterAction)):
+    SCHEMA = SCHEMA.replace(_name, _in_list(_members))
 
 
 class AwaitingOutcome(StrEnum):
@@ -586,8 +646,11 @@ class InboxStore:
                 "SELECT deliveries FROM proposals WHERE task_id = ? AND revision = ?",
                 (task_id, revision)).fetchone()[0]
             if deliveries >= MAX_DELIVERIES:
-                self._finish(receipt, now, "disposition = ?, dead_letter_reason = ?",
-                             (Disposition.DEAD_LETTER.value, DeadLetterReason.DELIVERY_LIMIT.value))
+                if self._finish(receipt, now, "disposition = ?, dead_letter_reason = ?",
+                                (Disposition.DEAD_LETTER.value,
+                                 DeadLetterReason.DELIVERY_LIMIT.value)):
+                    self._record_dead_letter(task_id, revision, digest, proposal, deliveries,
+                                             now, owner)
                 continue
             self._conn.execute(
                 "UPDATE proposals SET deliveries = deliveries + 1 "
@@ -619,6 +682,117 @@ class InboxStore:
             "SELECT lease_seq FROM proposals WHERE task_id = ? AND revision = ?",
             (task_id, revision)).fetchone()[0]
         return Receipt(task_id, revision, digest, owner, int(seq))
+
+    def _record_dead_letter(  # noqa: PLR0913 - 信封的每一欄
+        self, task_id: str, revision: int, digest: str, proposal: Proposal, deliveries: int,
+        now: datetime, owner: str,
+    ) -> None:
+        """進死信的同一個交易裡寫一列死信信封與一列稽核(Phase 8 [S500]、[S508])。信封只增不改、
+        不被保留期清理;同一份提案重放後又進死信就另寫一列,不去重(兩次的內容雜湊、冪等鍵、投遞
+        次數都一樣,只靠流水編號分得開)。操作人記取件的工作者。"""
+        last = self._conn.execute(
+            "SELECT last_failure FROM proposals WHERE task_id = ? AND revision = ?",
+            (task_id, revision)).fetchone()[0]
+        envelope = self._insert_envelope(task_id, revision, digest, proposal, last, deliveries,
+                                         now)
+        self._audit_dead_letter(envelope, task_id, revision, DeadLetterAction.DEAD_LETTERED,
+                                owner, None, now)
+
+    def _insert_envelope(  # noqa: PLR0913 - 信封的每一欄
+        self, task_id: str, revision: int, digest: str, proposal: Proposal, last: str | None,
+        deliveries: int, now: datetime,
+    ) -> int:
+        cursor = self._conn.execute(
+            "INSERT INTO dead_letters (task_id, revision, content_hash, key, failure_class, "
+            "reason, last_failure, deliveries, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (task_id, revision, digest, operation_key(proposal), FailureClass.TRANSIENT.value,
+             DeadLetterReason.DELIVERY_LIMIT.value, last, deliveries, _iso(now)))
+        assert cursor.lastrowid is not None  # noqa: S101 - 自動遞增列號,插入成功就一定有
+        return cursor.lastrowid
+
+    def _backfill_envelope(self, task_id: str, revision: int, now: datetime) -> int | None:
+        """升級前就進死信、沒有信封的:重放時補寫一列,稽核才接得到信封(代碼審第 1 輪外家席)。
+        不是死信或讀不回提案就不補(之後的條件判斷會拒絕)。"""
+        row = self._conn.execute(
+            "SELECT content_hash, payload, deliveries, last_failure FROM proposals "
+            "WHERE task_id = ? AND revision = ? AND state = 'pending' AND disposition = ?",
+            (task_id, revision, Disposition.DEAD_LETTER.value)).fetchone()
+        proposal = None if row is None else _parse_payload(row[1])
+        if row is None or proposal is None:
+            return None
+        return self._insert_envelope(task_id, revision, row[0], proposal, row[3], row[2], now)
+
+    def _audit_dead_letter(  # noqa: PLR0913 - 稽核的每一欄
+        self, envelope: int | None, task_id: str, revision: int, action: DeadLetterAction,
+        operator: str, reason: ReplayOutcome | None, now: datetime,
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO dead_letter_ops (envelope, task_id, revision, action, operator, reason, "
+            "at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (envelope, task_id, revision, action.value, operator,
+             None if reason is None else reason.value, _iso(now)))
+
+    def replay(
+        self, task_id: str, revision: int, operator: str, clock: Callable[[], datetime],
+    ) -> ReplayOutcome:
+        """重放管理指令(Phase 8 [S502]):把還活著的死信放回待處理,之後由執行迴圈照一般流程處理,
+        沒有任何略過關卡的旗標。條件:收件表那一列還在、處置是死信、提案還沒過期、同任務沒有
+        更新的修訂、待處理還有名額;查條件與寫回在同一個立即取得寫入鎖的交易裡,兩人同時重放只有
+        一個放回。每次都寫「要求重放」與結果兩列稽核。操作人的格式由重放管理工具檢查(比照核可人
+        由核可模組檢查、收件口只存;收件口模組不做欄位驗證)。重放對這份提案最新那一列信封;從沒
+        進過死信的,稽核的信封欄是空值。clock 在拿到寫入鎖之後才讀:等鎖期間提案可能過期(代碼審
+        第 1 輪外家席)。"""
+        try:
+            with immediate_transaction(self._conn):
+                return self._replay(task_id, revision, operator, clock())
+        except DatabaseBusy as exc:
+            raise InboxBusy(str(exc)) from exc
+
+    def _replay(self, task_id: str, revision: int, operator: str, now: datetime) -> ReplayOutcome:
+        envelope = self._conn.execute(
+            "SELECT max(id) FROM dead_letters WHERE task_id = ? AND revision = ?",
+            (task_id, revision)).fetchone()[0]
+        if envelope is None:
+            envelope = self._backfill_envelope(task_id, revision, now)
+        self._audit_dead_letter(envelope, task_id, revision, DeadLetterAction.REPLAY_REQUESTED,
+                                operator, None, now)
+        refused = self._replay_refusal(task_id, revision, now)
+        if refused is None:
+            self._conn.execute(
+                "UPDATE proposals SET disposition = NULL, dead_letter_reason = NULL, "
+                "deliveries = 0, lease_until = NULL, lease_owner = NULL "
+                "WHERE task_id = ? AND revision = ? AND state = 'pending' AND disposition = ?",
+                (task_id, revision, Disposition.DEAD_LETTER.value))
+            self._audit_dead_letter(envelope, task_id, revision,
+                                    DeadLetterAction.REPLAY_REQUEUED, operator, None, now)
+            return ReplayOutcome.REQUEUED
+        self._audit_dead_letter(envelope, task_id, revision, DeadLetterAction.REPLAY_REFUSED,
+                                operator, refused, now)
+        return refused
+
+    def _replay_refusal(  # noqa: PLR0911 - 每一個重放條件一個出口
+        self, task_id: str, revision: int, now: datetime,
+    ) -> ReplayOutcome | None:
+        row = self._conn.execute(
+            "SELECT state, disposition, expires_at, payload FROM proposals "
+            "WHERE task_id = ? AND revision = ?",
+            (task_id, revision)).fetchone()
+        if row is None:
+            return ReplayOutcome.NOT_IN_INBOX
+        if row[0] != "pending" or row[1] != Disposition.DEAD_LETTER.value:
+            return ReplayOutcome.NOT_DEAD_LETTER
+        if _parse_payload(row[3]) is None:  # 代碼審第 2 輪外家席:原本照樣放回、稽核記成功
+            return ReplayOutcome.UNREADABLE
+        if row[2] <= _iso(now):
+            return ReplayOutcome.EXPIRED
+        if self._highest_revision(task_id) > revision:
+            return ReplayOutcome.SUPERSEDED
+        # 只看待處理名額:重放不新增列,總列數上限是收新提案用的(代碼審第 1 輪外家兩席)
+        pending = self._conn.execute(
+            f"SELECT COUNT(*) FROM proposals WHERE {PENDING}").fetchone()[0]  # noqa: S608 - 固定條件
+        if pending >= self._max_pending:
+            return ReplayOutcome.INBOX_FULL
+        return None
 
     def _write_failure(self, receipt: Receipt, failure: LastFailure) -> None:
         self._conn.execute(

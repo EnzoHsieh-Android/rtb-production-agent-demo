@@ -279,7 +279,8 @@ def test_awaiting_approval_reads_as_still_open(h):
 
     assert (answer.state, answer.block_code) == ("awaiting_approval", None)
     assert _belongs_to(answer, prop)  # 讀得懂
-    assert _from_inbox_answer(answer) is None  # 當成等待:這一輪沒有進展,不結案、不重新規劃
+    # 當成等待:這一輪沒有進展,不結案、不重新規劃(Phase 8 起這一步多收提案快照與「現在」)
+    assert _from_inbox_answer(answer, prop, h.clock()) is None
 
 
 # ---- [S357] ----
@@ -435,11 +436,14 @@ def test_hard_rules_win_over_approvable_ones(h, config, code):
 
 
 # ---- [S375] ----
-def test_an_approval_is_void_across_policy_or_tenant_changes(h):
-    old_policy = h.submit(requested_change={"new_budget": 151}, policy_version="v1")
-    assert h.process().kind is Result.AWAITING_APPROVAL
+def test_an_approval_is_void_across_policy_or_tenant_changes(h, monkeypatch):
+    # Phase 8 起政策版本不是現行版本的提案在執行前檢查就擋下、進不了待核可;改成照實際會發生的
+    # 順序造:用現行版本停在待核可、簽了核可,之後政策換版(新規則造成的改動,驗的東西不變)
+    old_policy = waiting(h, RATIO)
     approve_it(h, old_policy, RATIO)
-    assert settle(h) == 0  # 提案的政策版本不是目前那一版
+    with monkeypatch.context() as changed:
+        changed.setattr(approval, "POLICY_VERSION", "demo-pacing-v2")
+        assert settle(h) == 0  # 提案的政策版本不是目前那一版
 
     moved = waiting(h, RATIO, task_id="t2", campaign_id="c2")
     approve_it(h, moved, RATIO)
@@ -448,7 +452,7 @@ def test_an_approval_is_void_across_policy_or_tenant_changes(h):
     h.config.write_text(json.dumps({"tenants": {"t-other": spec}}), encoding="utf-8")
     assert settle(h) == 0  # 改掛到設定一模一樣的另一個租戶
     write_config(h.config)
-    assert settle(h) == 1  # 對照:換回原租戶就算數
+    assert settle(h) == 2  # 對照:換回原租戶就算數(第一份的政策也已換回,兩份一起放回)
 
 
 SCOPE_CHANGES = {  # 範圍指紋的每一樣材料各自改一次(F7 轉正第四次審計:原本只驗到其中三樣)

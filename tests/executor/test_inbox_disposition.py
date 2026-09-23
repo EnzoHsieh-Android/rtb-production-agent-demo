@@ -223,7 +223,8 @@ def test_block_reasons_are_a_closed_list(store, tmp_path):
         "campaign_not_found", "campaign_not_active", "version_changed", "campaign_not_allowed",
         "over_budget_cap", "operation_previously_failed",
         "budget_increase_too_large",  # Phase 6 增量 2 新增的單筆比例上限
-        "aggregate_limit_reached"}  # Phase 6 增量 1 [S331]:總曝險已滿
+        "aggregate_limit_reached",  # Phase 6 增量 1 [S331]:總曝險已滿
+        "policy_version_changed", "decision_stale"}  # Phase 8 [S504]、[S505]
     # 「處置恰好兩個成員」由 Phase 4 增量 1 [S103] 取代:四個成員;Phase 6 增量 3 加待核可
     assert {d.value for d in Disposition} == {"in_progress", "handed_off", "blocked",
                                               "dead_letter", "awaiting_approval"}

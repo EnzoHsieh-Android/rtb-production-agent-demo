@@ -165,7 +165,7 @@ REVISIT:2027-01-31 Phase 9 開工時,把兩支查詢接上正式指標與告警,
 - [S312] 當重送收件口或查 DSP 失敗(逾時、斷線、讀不懂、收件口忙碌、未定義拒收),推進函式應不改任務、放掉租約、不讓例外往外傳。[test:test_a_failed_lookup_or_resend_leaves_the_handed_off_task_for_the_next_round]
 - [S303] 當提案因版本已變被擋下,推進函式應在同一個交易裡建接續任務與接續關係,再把原任務轉擋下,錯誤說明記下接續任務編號。[test:test_a_version_conflict_hands_the_task_over_to_a_follow_up]
 - [S313] 當收件表還留著、提案處置是過期,推進函式應同樣建接續任務重新規劃。[test:test_an_expired_decision_is_replanned]
-- [S304] 當提案因其他原因被擋下、進了死信、或收件口永久拒收,推進函式應把任務轉擋下並記下原因,不建接續任務。[test:test_other_blocks_close_the_task_without_a_follow_up]
+- [S304] 當提案因其他原因被擋下、進了死信、或收件口永久拒收,推進函式應把任務轉擋下並記下原因,不建接續任務(Phase 8 起死信那一半由 [[Projects/RTB_Phase8死信重放與過時決策_計劃]] [S507] 取代:決策還沒過期時等待,因為死信可能被重放)。[test:test_other_blocks_close_the_task_without_a_follow_up]
 - [S305] 當提案被新修訂取代,推進函式應把任務轉被取代。[test:test_a_superseded_proposal_marks_the_task_superseded](目前只能用替身觸發,見上)
 - [S306] 當建接續任務、接續關係、原任務結案的交易提交前當機,三者應都沒寫入;重跑推進應只建一次接續任務並結案。[test:test_a_crash_before_the_follow_up_commit_is_recovered_once]
 - [S319] 當持有者讀到版本已變後超過租約、被另一方接手,過期持有者之後提交時應連接續任務與接續關係都寫不進去。[test:test_an_expired_holder_cannot_create_a_follow_up_after_a_takeover]
