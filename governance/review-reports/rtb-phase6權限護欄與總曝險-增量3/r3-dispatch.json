@@ -1,0 +1,62 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "前輪修正驗收",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量3/r3-snapshot.md",
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量3/r2-intake.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/runner.py",
+   "src/rtb/capabilitykit.py",
+   "src/rtb/executor/capability_signer.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "s2",
+  "lens": "處理待核可與順序",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量3/r3-snapshot.md",
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量3/r2-intake.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/runner.py",
+   "src/rtb/capabilitykit.py",
+   "src/rtb/executor/capability_signer.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量3/r3-snapshot.md",
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量3/r2-intake.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/runner.py",
+   "src/rtb/capabilitykit.py",
+   "src/rtb/executor/capability_signer.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量3/r3-snapshot.md",
+   "governance/review-reports/rtb-phase6權限護欄與總曝險-增量3/r2-intake.md",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/runner.py",
+   "src/rtb/capabilitykit.py",
+   "src/rtb/executor/capability_signer.py"
+  ],
+  "auditor": "codex"
+ }
+]
