@@ -1,0 +1,6 @@
+{"round": "r2", "loop": "code-phase7-inc1", "snapshot": "r2-snapshot.patch", "delta": "r2-delta.patch", "reviewed_sha256": "a44f16f400bac56cc59955d63792c10c67f98330c56152690492473b5c41fa45",
+ "seats": [
+  {"seat": "reviewer-sonnet", "lens": "單席通才(修正差異)", "materials": ["r2-delta.patch", "r2-snapshot.patch"]},
+  {"seat": "arch-sonnet", "lens": "架構對齊(驗收上輪 F1 F2)", "materials": ["r2-delta.patch"]}
+ ],
+ "absent": [{"seat": "外家否決", "reason": "Codex 用量上限到 17:48,standard 分級只要求缺席留痕"}]}

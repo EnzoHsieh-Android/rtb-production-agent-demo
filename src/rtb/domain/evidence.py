@@ -3,6 +3,9 @@
 新鮮度由純程式判斷,先看年齡,再看版本:過期或版本已變就要重讀。
 重讀是安全的,重做副作用才危險;執行的那一刻執行行程仍要重讀現況並重新授權,
 新鮮度只是第一道,不是最後一道。
+
+信任邊界(Phase 7 增量 1):不可信文字(廣告名稱這類)只能住在「廣告文字」這一種證據裡;
+標成可信的證據,字串只能是短代號。自由文字能不能被當成可信,由型別保證,不靠每個用戶端自律。
 """
 
 import math
@@ -18,12 +21,14 @@ from rtb.domain._checks import is_aware, is_id, is_plain_int, is_plain_number
 HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 MAX_SOURCE_LENGTH = 64
 MAX_PAYLOAD_ITEMS = 32  # 證據的原始欄位數;DSP 的現況、指標回應都是固定的小字典,遠低於這個上限
+MAX_UNTRUSTED_TEXT_LENGTH = 512  # 不可信文字證據裡每個字串的字元上限(2026-09-23 使用者裁定)
 PayloadValue = str | int | float | bool | None
 
 
 class EvidenceKind(StrEnum):
     CAMPAIGN_STATE = "campaign_state"
     METRICS = "metrics"
+    CAMPAIGN_TEXT = "campaign_text"  # 廣告名稱這類不可信文字;只能配不可信文字的信任標記
 
 
 class TrustClass(StrEnum):
@@ -67,8 +72,10 @@ class Evidence:
             ("observed_at", is_aware(self.observed_at)),
             ("campaign_version_observed", _is_version_or_none(self.campaign_version_observed)),
             ("content_hash", _is_hash(self.content_hash)),
+            ("trust_class", _trust_matches_kind(self.kind, self.trust_class)),
+            ("payload", _strings_fit_trust(self.payload, self.trust_class)),
         ]
-        bad = [name for name, ok in problems if not ok]
+        bad = list(dict.fromkeys(name for name, ok in problems if not ok))  # 同名只報一次
         if bad:
             raise ValueError(f"證據欄位不合法:{', '.join(bad)}")
 
@@ -84,7 +91,10 @@ def _is_payload_value(item: object) -> bool:
         # bool 已經在上面排除;NaN/Infinity 不是合法 JSON 數字字面值,型別名稱
         # PayloadValue 又自稱「JSON 安全」,兩邊要對得上,跟同檔案 `_is_positive_finite`
         # 的既有做法一致(2026-09-22 代碼審發現這裡漏掉,跟數值驗證的既有慣例不一致)。
-        return math.isfinite(item)
+        try:
+            return math.isfinite(item)
+        except OverflowError:  # 大到超出浮點範圍的整數,視為不合法(同檔 _is_positive_finite 的寫法)
+            return False
     return False
 
 
@@ -92,6 +102,22 @@ def _is_payload(value: object) -> TypeGuard[MappingProxyType[str, PayloadValue]]
     if not isinstance(value, MappingProxyType) or len(value) > MAX_PAYLOAD_ITEMS:
         return False
     return all(isinstance(key, str) and _is_payload_value(item) for key, item in value.items())
+
+
+def _trust_matches_kind(kind: object, trust: object) -> bool:
+    """不可信文字若且唯若廣告文字:不可信文字掛不到現況或指標底下,廣告文字也標不成可信。"""
+    return (kind is EvidenceKind.CAMPAIGN_TEXT) == (trust is TrustClass.UNTRUSTED_TEXT)
+
+
+def _strings_fit_trust(payload: object, trust: object) -> bool:
+    """可信證據的鍵與字串值都只能是短代號(跟識別碼同一個格式),自由文字躲不進欄位名稱;
+    不可信文字的字串值有長度上限。"""
+    if not isinstance(payload, MappingProxyType):
+        return False  # 型別不對由 _is_payload 報,這裡只是不要在壞輸入上往下走
+    strings = [item for item in payload.values() if isinstance(item, str)]
+    if trust is TrustClass.UNTRUSTED_TEXT:
+        return all(len(item) <= MAX_UNTRUSTED_TEXT_LENGTH for item in strings)
+    return all(is_id(item) for item in [*payload.keys(), *strings])
 
 
 def _is_version_or_none(value: object) -> TypeGuard[int | None]:

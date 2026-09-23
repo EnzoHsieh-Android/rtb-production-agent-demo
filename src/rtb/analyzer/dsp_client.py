@@ -1,8 +1,14 @@
 """真的 EvidenceSource:呼叫 Mock DSP 讀廣告現況與指標。
 
-兩個端點都成功才回傳兩筆證據;任一個失敗(逾時、連線失敗、4xx/5xx)整個函式往外丟例外,
-不吞、不回傳半套(增量 3 的 S26 已經保證:EvidenceSource 丟例外時,advance() 不寫入任何
-東西,狀態留在原地等下次重試——這支檔只需要老實丟例外,不用自己做任何重試邏輯)。
+兩個端點都成功才回傳三筆證據(廣告現況、指標、廣告文字);任一個失敗(逾時、連線失敗、
+4xx/5xx、可信欄位壞掉)整個函式往外丟例外,不吞、不回傳半套(增量 3 的 S26 已經保證:
+EvidenceSource 丟例外時,advance() 不寫入任何東西,狀態留在原地等下次重試——這支檔只需要
+老實丟例外,不用自己做任何重試邏輯)。
+
+逐欄白名單(Phase 7 增量 1):只有名單上的欄位進證據,名單外的連名稱都不記(欄位名稱本身也是
+不可信輸入);可信欄位缺漏、型別不對、超出範圍、廣告編號不是這個任務的,整個讀取失敗——那是
+「DSP 壞了」的訊號,不是攻擊者能從廣告文字觸發的。廣告名稱是不可信文字:原樣保存、超過上限就截斷
+並標記,不過濾、不拒收(塞字不能讓分析失敗)。
 
 只做「打 HTTP、轉成 Evidence」,不碰 TaskStore、不做任何持久化;`on_call` 是唯一的例外
 (選填的鉤子,呼叫端要不要拿它去記 tool_calls 是呼叫端的事,這支檔不知道 TaskStore 存在)。
@@ -10,6 +16,7 @@
 
 import hashlib
 import json
+import math
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -17,7 +24,9 @@ from types import MappingProxyType
 from typing import Any
 
 from rtb.analyzer.task_store import TaskRow
-from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
+from rtb.domain._checks import is_id, is_plain_int, is_plain_number
+from rtb.domain.evidence import MAX_UNTRUSTED_TEXT_LENGTH, Evidence, EvidenceKind, TrustClass
+from rtb.domain.proposal import MAX_INT
 from rtb.httpclient import request_json
 
 OnDspCall = Callable[[TaskRow, str, str, float], None]
@@ -27,7 +36,67 @@ fetch() 完成才呼叫一次——代碼審第 1 輪指出,包一整個 fetch()
 
 
 class DspRequestFailed(Exception):
-    """DSP 的其中一個端點沒有成功回應(非 2xx、逾時、連線失敗)。"""
+    """DSP 的其中一個端點沒有成功回應(非 2xx、逾時、連線失敗),或回應裡的可信欄位壞掉。"""
+
+
+CAMPAIGN_STATUSES = frozenset({"active", "paused"})  # DSP 實際回傳的狀態字串
+METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
+Check = Callable[[Any], bool]  # 比照提案白名單 CHECKS:每個欄位一支只看值的檢查
+
+
+def _is_int_between(low: int, value: Any) -> bool:
+    return is_plain_int(value) and low <= value <= MAX_INT  # 跟提案、模擬 DSP 同一個資料庫整數上限
+
+
+def _is_count_or_none(value: Any) -> bool:
+    return value is None or (is_plain_int(value) and abs(value) <= MAX_INT)
+
+
+def _is_finite_or_none(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        return is_plain_number(value) and math.isfinite(value)
+    except OverflowError:  # 大到超出浮點範圍的整數
+        return False
+
+
+STATE_FIELDS: dict[str, Check] = {
+    "id": is_id,
+    "budget": lambda value: _is_int_between(0, value),
+    "status": lambda value: isinstance(value, str) and value in CAMPAIGN_STATUSES,
+    "version": lambda value: _is_int_between(1, value),
+}
+METRICS_FIELDS: dict[str, Check] = {
+    "campaign_id": is_id,
+    "window": lambda value: isinstance(value, str) and value in METRIC_WINDOWS,
+    "impressions": _is_count_or_none,
+    "clicks": _is_count_or_none,
+    "conversions": _is_count_or_none,
+    "spend": _is_finite_or_none,
+    "revenue": _is_finite_or_none,
+}
+
+
+def _trusted(body: dict[str, Any], fields: dict[str, Check], campaign_field: str,
+             task: TaskRow, endpoint: str) -> dict[str, Any]:
+    """只取白名單上的可信欄位;任一欄缺漏或不合格、或廣告編號不是這個任務的,就整個讀取失敗
+    (不記欄位值,它是外來輸入)。"""
+    bad = [name for name, check in fields.items() if name not in body or not check(body[name])]
+    if not bad and body[campaign_field] != task.campaign_id:
+        bad = [campaign_field]
+    if bad:
+        raise DspRequestFailed(f"{endpoint} 的可信欄位不合格:{', '.join(bad)}")
+    return {name: body[name] for name in fields}
+
+
+def _campaign_text(body: dict[str, Any]) -> dict[str, Any]:
+    """名稱是不可信文字:是字串就原樣保存,超過上限截斷並標記;缺少或不是字串記空值,不丟例外。"""
+    name = body.get("name")
+    if not isinstance(name, str):
+        return {"name": None, "truncated": False}
+    return {"name": name[:MAX_UNTRUSTED_TEXT_LENGTH],
+            "truncated": len(name) > MAX_UNTRUSTED_TEXT_LENGTH}
 
 
 def _content_hash(payload: dict[str, Any]) -> str:
@@ -66,10 +135,13 @@ def make_client(
 
     def fetch(task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
         # 證據的讀取時間用呼叫端(流程層)傳來的時間,不自己讀系統時鐘,見 flow.EvidenceSource
-        state = _get(base_url, f"/campaigns/{task.campaign_id}", timeout_seconds,
-                    task, on_call, "dsp:campaign")
-        metrics = _get(base_url, f"/campaigns/{task.campaign_id}/metrics?window=1h",
-                       timeout_seconds, task, on_call, "dsp:metrics")
+        state_body = _get(base_url, f"/campaigns/{task.campaign_id}", timeout_seconds,
+                          task, on_call, "dsp:campaign")
+        metrics_body = _get(base_url, f"/campaigns/{task.campaign_id}/metrics?window=1h",
+                            timeout_seconds, task, on_call, "dsp:metrics")
+        state = _trusted(state_body, STATE_FIELDS, "id", task, "dsp:campaign")
+        metrics = _trusted(metrics_body, METRICS_FIELDS, "campaign_id", task, "dsp:metrics")
+        text = _campaign_text(state_body)
         return (
             Evidence(
                 evidence_id=f"{task.task_id}-{task.seq}-state", task_id=task.task_id,
@@ -84,6 +156,13 @@ def make_client(
                 campaign_version_observed=None,
                 content_hash=_content_hash(metrics), trust_class=TrustClass.TRUSTED,
                 payload=MappingProxyType(metrics),
+            ),
+            Evidence(
+                evidence_id=f"{task.task_id}-{task.seq}-text", task_id=task.task_id,
+                kind=EvidenceKind.CAMPAIGN_TEXT, source="dsp", observed_at=now,
+                campaign_version_observed=state["version"],  # 跟現況同一次回應讀到的
+                content_hash=_content_hash(text), trust_class=TrustClass.UNTRUSTED_TEXT,
+                payload=MappingProxyType(text),
             ),
         )
 
