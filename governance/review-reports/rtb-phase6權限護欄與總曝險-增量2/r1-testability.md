@@ -1,0 +1,19 @@
+severity: clean
+
+審查範圍:凍結快照「## 增量 2 設計:護欄表格」一節(含實務隱患、落點、使用者裁定),鏡頭是可測性——S400–S408 能不能用 `tests/executor/fakes.py` 的 `Harness`/`FakeDsp` 造出所需現況與租戶設定、拿掉守衛會不會真的翻紅、條款句式與測試名是否一一對應、有沒有寫了條款卻沒測試守、有沒有測試會假綠。已核對 `src/rtb/executor/execution.py`(`precheck`、`RESPONSE_TABLE`)、`src/rtb/executor/capability_signer.py`、`src/rtb/executor/inbox_store.py`(`BlockCode`、`_proposals_outdated`/`_rebuild_proposals`)、`tests/executor/fakes.py`、`tests/executor/test_execution.py` 的 `BLOCK_TRIGGERS`、`tests/executor/test_version_conflict.py` 的 `test_a_resend_hides_which_permission_blocked_it`、`tests/analyzer/test_boundaries.py` 的既有原始碼掃描測試、`src/rtb/analyzer/policy.py`、`inbox_client.py`、`dsp_client.py`、`src/rtb/httpclient.py`。
+
+## 逐條可測性核對
+
+- **S400/S401(比例上限本體)**:`precheck(proposal, view)` 是純函式,拿一個 `CampaignView` 與 `Proposal` 就能直接呼叫,不必經 `Harness`;要走端到端也只需 `harness.dsp.campaigns["c1"] = CampaignView(budget=X, status="active", version=3)` 加 `h.submit(requested_change=...)`,`FakeDsp` 預設每個廣告 `budget=100`、租戶 `max_budget=1000`,設計文件給的例子(100→150 過、151 擋等)都落在這個預設範圍內,不需要額外造數據。拿掉比例上限這一項檢查,S400 的期望(擋下、不寫嘗試、不呼叫 DSP 寫入)會變成 `EXECUTED`、DSP 收到寫入,測試真的會翻紅,殺傷力足夠。S401 反向驗證減預算/暫停不受影響,用既有 `_paused`/減預算提案即可造,同樣是真殺傷力(若有人誤把比例檢查套用到全部動作,S401 會紅)。
+- **S402(分析端規則不誤觸)**:`policy.decide` 產生的 `new_budget = min(max(round(budget*1.1), budget+1), MAX_INT)`,逐一代入 0~1000 及大額預算驗算,在 `budget=0,1,3` 等邊界都剛好落在 `max(budget//2, 1)` 之內(0→1 增量1=上限1、1→2 增量1=上限1、3→4 增量1=上限1),跟設計文件的例子吻合,不必真的跑 DSP,只需呼叫 `policy.decide` 拿 `Proposal` 再餵給 `precheck`,測試可獨立造、成本低。
+- **S403/S404(護欄表邊界與完整性)**:三點邊界(剛好通過/差 1 通過/剛好超過 1 擋下)是典型可翻紅設計,能抓 `>` 與 `>=` 的界線錯誤;數值型規則(比例上限、`over_budget_cap`)與布林型規則(`campaign_not_found` 等用成立/不成立兩列)分開處理,現有 `capability_signer.sign` 與 `precheck` 的檢查順序都能直接驅動,不用改程式介面。完整性測試(S404)若跟 S403 共用同一張表格資料(設計文件的意圖),等於「每一列都真的跑過 `process()`」,不是只比對列舉鍵——這正好補上現況section指出的既有 `BLOCK_TRIGGERS`(`set(BLOCK_TRIGGERS) == set(BlockCode)`)只驗鍵、沒驗兩側的假綠缺口,已核對 `tests/executor/test_execution.py:152-179` 確認舊測試就是只比對鍵,新設計的敘述有明確對症。
+- **S405(擋下原因順序)**:`precheck` 內部順序(存在→投放中→版本→比例)與 `capability_signer.sign` 內部順序(租戶歸屬先於預算上限,因為要先拿到 `Tenant` 物件才能比 `max_budget`)都是程式結構天然保證,可用交叉情境(例如同時觸發「不在投放」與「比例超額」)驗證,能真的抓到「有人把比例檢查放錯位置」這類錯誤。組間順序(precheck 全跑完才進 signer)一樣可測。
+- **S406(舊收件表寫入新代碼)**:讀了 `src/rtb/executor/inbox_store.py:289-296`,現況的 `_proposals_outdated()` 只檢查 `Disposition.DEAD_LETTER` 這個歷史成員是否在 CREATE TABLE 的 SQL 文字裡出現,跟 `BlockCode` 的 CHECK 約束完全無關——這印證了設計文件「現況」段落自己講的:「收件表模組判斷『要不要重建表』目前只看死信這個處置在不在限制裡,不看擋下原因」。S406 的測試要靠增量 1 的 [S338] 把這段判斷改成能偵測 `BlockCode` 新成員才能過;在增量 1 未合併前執行 S406,`_proposals_outdated()` 不會判定要重建,新代碼直接違反舊的 CHECK 約束,會以 `sqlite3.IntegrityError` 這類例外方式翻紅——不是靜默通過,不會假綠。設計文件自己在「實務隱患」段落已經寫明「增量 2 若先於增量 1 合併,[S406] 會紅,順序不能反」,對應到我要查的這一條:目前沒有機械閘擋合併順序,只靠文件提醒,但失敗模式是「明確翻紅」而非「悄悄放行」,對可測性本身沒有造成假綠風險,只是要求人工照順序合併——這件事設計文件已經自己承認,不算是新發現。
+- **S407(重送回應合併)**:直接沿用 `tests/executor/test_version_conflict.py:195-202` 現有的參數化測試,只加一組 `(BlockCode.BUDGET_INCREASE_TOO_LARGE, "not_permitted")`,測試骨架、fixture(`start_inbox`)都已存在,不必新開測試函式,符合設計文件說的「不是另開同名測試」。
+- **S408(分析端沒有寫入呼叫)**:`tests/analyzer/test_boundaries.py` 已有三支同類型的原始碼 AST 掃描測試(`test_the_analyzer_reaches_the_network_only_through_the_shared_client`、`test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer` 等),證明這種「解析 `ast.parse` 找呼叫」的手法在這個專案裡是成熟、已驗證能抓到問題的做法;`inbox_client.py` 唯一一次 `request_json(..., "POST", ...)` 的 URL 是 `f"{base_url}/proposals"`,方法是字面字串常數,`dsp_client.py` 兩處都是 `"GET"` 字面常數,S408 描述的檢查(方法須為字面常數、非提案 POST 都是 GET、不帶自訂 headers)可以直接沿用既有 AST 掃描寫法逐一驗證,不需要新的測試基礎設施。「掃描只防忘記,防不了故意動態組字串」這件事設計文件自己在「不做」/實務隱患段落已寫明,是揭露過的已知限制,不是遺漏。
+
+## 觀察(非發現)
+
+程式碼現況與設計文件的「現況」段落逐句核對下來一致:`precheck`(`src/rtb/executor/execution.py:280-288`)確實只有三項檢查、`capability_signer.sign`(`src/rtb/executor/capability_signer.py:110-119`)確實只檢查租戶歸屬與絕對上限,沒有任何地方在算「加的量相對現況的比例」,也沒有現成的分析端寫入呼叫掃描測試——增量 2 新增的六個測試點都是補在真正缺口上,不是重複造測試。
+
+沒有發現條款寫了行為卻沒有對應測試守、也沒有發現會假綠的測試設計;S403/S404 的表格驅動測試如果照設計文件「全部走真的處理一筆的路徑」實作,能夠修正既有 `BLOCK_TRIGGERS` 完整性測試只比對列舉鍵、不比對雙側結果的舊缺口。

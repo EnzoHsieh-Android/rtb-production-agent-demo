@@ -1,0 +1,8 @@
+{"round": "r1", "loop": "rtb-phase6權限護欄與總曝險-增量2", "snapshot": "r1-snapshot.md", "reviewed_sha256": "a09d27b61f79c26f8dcb308448f523e723023c6da82b89196e8c1018103c17da", "scope": "## 增量 2 設計:護欄表格 一節(含其末尾實務隱患、落點小節)", "seats": [
+ {"seat": "table-sonnet", "lens": "規則表與邊界值", "materials": ["r1-snapshot.md"]},
+ {"seat": "ratio-sonnet", "lens": "比例上限算法與整數邊界", "materials": ["r1-snapshot.md"]},
+ {"seat": "scan-sonnet", "lens": "分析行程不能寫的原始碼掃描能否被繞過", "materials": ["r1-snapshot.md"]},
+ {"seat": "compat-sonnet", "lens": "相容與既有測試", "materials": ["r1-snapshot.md"]},
+ {"seat": "testability-sonnet", "lens": "可測性", "materials": ["r1-snapshot.md"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.md"]},
+ {"seat": "finder-codex", "lens": "外家", "materials": ["r1-snapshot.md"]}]}
