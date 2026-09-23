@@ -232,7 +232,7 @@ def _forged(field, value):
 @pytest.mark.parametrize("spoil", [_wrong_key, _other_revision, _other_content, _other_stage,
                                    _scope_changed, _expired, _amount_over,
                                    _forged("task_id", "t9"), _forged("revision", 2)])
-def test_an_approval_is_void_when_scope_expiry_hash_stage_or_policy_changes(h, spoil):
+def test_an_approval_is_void_when_scope_expiry_hash_or_stage_changes(h, spoil):
     prop = waiting(h, RATIO)
     spoil(h, prop)
 
@@ -346,8 +346,8 @@ def test_an_approval_that_expires_mid_flight_lets_nothing_through(h, monkeypatch
 
     def slow(*args, **kwargs):
         granted = real(*args, **kwargs)
-        if args[4] is not None:  # 用核可封頂的那次簽發:簽完核可剛好過期
-            h.clock.advance(seconds=11)
+        if args[4] is not None:  # 用核可封頂的那次簽發:簽完剛好走到核可到期那一秒(邊界:
+            h.clock.advance(seconds=10)  # 到期那一刻就不算數,F7 轉正審計指出原本多撥 1 秒測不到)
         return granted
 
     monkeypatch.setattr(h.signer, "grant", slow)
@@ -449,6 +449,34 @@ def test_an_approval_is_void_across_policy_or_tenant_changes(h):
     assert settle(h) == 0  # 改掛到設定一模一樣的另一個租戶
     write_config(h.config)
     assert settle(h) == 1  # 對照:換回原租戶就算數
+
+
+SCOPE_CHANGES = {  # 範圍指紋的每一樣材料各自改一次(F7 轉正第四次審計:原本只驗到其中三樣)
+    "tenant_name": lambda h, _mp: h.config.write_text(json.dumps({"tenants": {"t-other": {
+        "campaigns": ["c1", "c2", "c3"], "max_budget": 1000,
+        "aggregate_limit": LOOSE_AGGREGATE_LIMIT}}}), encoding="utf-8"),
+    "campaigns": lambda h, _mp: write_config(h.config, campaigns=("c1", "c2", "c3", "c9")),
+    "max_budget": lambda h, _mp: write_config(h.config, max_budget=999),
+    "aggregate_limit": lambda h, _mp: write_config(h.config,
+                                                  aggregate_limit=LOOSE_AGGREGATE_LIMIT - 1),
+    "ratio_numerator": lambda _h, mp: mp.setattr(guardrails, "MAX_INCREASE_NUMERATOR", 0),
+    "ratio_denominator": lambda _h, mp: mp.setattr(guardrails, "MAX_INCREASE_DENOMINATOR", 3),
+    "ratio_min_step": lambda _h, mp: mp.setattr(guardrails, "MIN_INCREASE_STEP", 2),
+}
+
+
+@pytest.mark.parametrize("change", list(SCOPE_CHANGES))
+def test_an_approval_is_void_once_any_scope_field_changes(h, monkeypatch, change):
+    """核可簽發之後,範圍指紋的任一樣材料改了(租戶名稱、廣告清單、單一廣告上限、總額上限、
+    比例三個常數),舊核可都不算數;改回來就算數。改動都選成提案照樣超過比例,只驗核可本身。"""
+    prop = waiting(h, RATIO)
+    approve_it(h, prop, RATIO, max_increase=51)
+    SCOPE_CHANGES[change](h, monkeypatch)
+
+    assert settle(h) == 0
+    monkeypatch.undo()
+    write_config(h.config)
+    assert settle(h) == 1  # 對照:改回來就算數
 
 
 # ---- [S376] ----

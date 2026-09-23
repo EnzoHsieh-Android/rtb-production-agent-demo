@@ -123,6 +123,42 @@ def test_the_aggregate_limit_blocks_at_the_threshold_and_allows_exactly_reaching
         assert h.proposals()[1][3:] == ("blocked", "aggregate_limit_reached")
 
 
+def test_a_new_task_passes_once_the_budget_is_released(h):
+    """事故 F7 的「分批」只做到這一步:額度釋放後,一份全新的任務能再通過(沒有自動排程,
+    被擋的那份不會自己重來)。兩種釋放:已驗證的出了 24 小時窗口、未結案的判成失敗。"""
+    limit(h, 50)
+    h.submit()  # 加 50:剛好用滿
+    assert h.process().kind is Result.EXECUTED
+    h.submit(task_id="t2", campaign_id="c2")
+    assert h.process().kind is Result.AWAITING_APPROVAL  # 滿了:停下
+
+    h.clock.advance(hours=24, seconds=1)  # 已驗證那筆出窗
+    h.store.accept(fresh(h, task_id="t3", campaign_id="c3"), h.clock)
+    assert h.process().kind is Result.EXECUTED  # 全新的任務通過
+
+    h.clock.advance(hours=24, seconds=1)  # t3 出窗
+    h.dsp.answers.append(WriteAnswer(422, "idempotency_conflict"))  # 轉人工:佔住 50
+    held = fresh(h, task_id="t4", campaign_id="c1", campaign_version_observed=4,
+                 requested_change={"new_budget": 200})  # c1 已被寫成 150、版本 4
+    h.store.accept(held, h.clock)
+    assert h.process().kind is Result.EXECUTED
+    h.store.accept(fresh(h, task_id="t5", campaign_id="c2"), h.clock)
+    assert h.process().kind is Result.AWAITING_APPROVAL  # 轉人工那筆一直算
+    with h.store.transaction() as tx:  # 人工判成失敗:還回去
+        key = operation_key(held)
+        seq = attempt_store.latest(tx, key).seq
+        attempt_store.resolve(tx, key, seq, A.FAILED, "operator decided", h.clock())
+    h.store.accept(fresh(h, task_id="t6", campaign_id="c3", campaign_version_observed=4,
+                         requested_change={"new_budget": 200}), h.clock)
+    assert h.process().kind is Result.EXECUTED
+
+
+def fresh(h, **overrides):
+    now = h.clock()
+    return proposal(decision_created_at=now.isoformat(),
+                    decision_expires_at=(now + timedelta(minutes=10)).isoformat(), **overrides)
+
+
 # ---- [S332] ----
 @pytest.mark.parametrize("state", list(PATHS))
 def test_an_unresolved_reservation_counts_no_matter_how_old(store_only, state):

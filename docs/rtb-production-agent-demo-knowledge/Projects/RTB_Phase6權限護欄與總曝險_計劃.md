@@ -322,7 +322,7 @@ RETIRE-IF(增量 2): 比例上限連續三個月零觸發、而且總曝險預�
 - [S351] 當提案因硬規則被擋,執行端應照舊結案,不進待核可。[test:test_hard_rules_are_never_approvable]
 - [S352] 當待核可的提案到期,處理待核可那一步應把它確認成已擋下、擋下原因是原本那一關。[test:test_an_unapproved_proposal_expires_into_blocked]
 - [S353] 當待核可的提案還沒到期、而且有那一關的有效核可,處理待核可那一步應把它放回待處理並把投遞次數歸零;重新處理時比例過大應略過比例那一條、其他規則照跑,總曝險已滿應允許超過門檻但照樣寫預留。[test:test_a_valid_approval_lets_the_proposal_through_and_still_reserves]
-- [S354] 當核可的簽章不對、任務修訂或內容雜湊對不上、核准的關卡不是這一關、租戶設定指紋跟當下不同、已過期、或這筆金額超過核可上限,核可應不算數。[test:test_an_approval_is_void_when_scope_expiry_hash_stage_or_policy_changes]
+- [S354] 當核可的簽章不對、任務修訂或內容雜湊對不上、核准的關卡不是這一關、租戶設定指紋跟當下不同、已過期、或這筆金額超過核可上限,核可應不算數。[test:test_an_approval_is_void_when_scope_expiry_hash_or_stage_changes]
 - [S355] 當核可生效,執行端應在開始一筆的同一個交易裡寫一列核可使用紀錄(含租戶、放行關卡與金額、當時已用額度與門檻,數字封頂並標記);同一份提案同一關應只記一列。[test:test_an_applied_approval_is_audited]
 - [S356] 當待核可,收件口的回應應回狀態待核可、擋下原因為空;分析端應把待核可當成等待。[test:test_awaiting_approval_reads_as_still_open]
 - [S357] 管理工具應用核可金鑰簽發、核可到期應不晚於提案到期;分析行程的原始碼應找不到簽發金鑰與核可金鑰兩個名稱。[test:test_the_approval_tool_signs_with_its_own_key]
