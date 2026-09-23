@@ -2083,3 +2083,38 @@
 {"ts": "2026-09-23T15:50:04+08:00", "commit": "dfba971", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-23T15:50:05+08:00", "commit": "dfba971", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "dfba971cba3bac55cce74af8950b64e74a26cbdc"}
 {"ts": "2026-09-23T15:50:03+08:00", "commit": "a7d6472", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "Phase 7 增量 3(決策只讀可信證據、差異測試、執行側不讀自由文字)代碼審 2 輪收斂,standard:r1 通才、架構、自願加派資安、否決席由 opus 頂替撞用量上限的 Codex,4 條 minor 折 2 放行 2;r2 一席 0 條。變異檢查 6 道紅、「只讀可信」條件照設計存活;全套 1160 支綠。執行迴圈筆記因每支檔有家規則另開文件提交。", "branch": "phase7-inc3", "head_sha": "a7d647298e062e339d3cd810e3627eaf46259bbe"}
+{"ts": "2026-09-23T15:54:41+08:00", "commit": "6840a1d", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T15:21:23+08:00", "commit": "cba4b71", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T15:21:23+08:00", "commit": "cba4b71", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "cba4b7191151d529c599c831981e4cd3d884402e"}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["執行迴圈"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["寫入能力憑證"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-cascade", "kind": "warned", "hard": false, "nodes": [], "note": "unseen=2 broken=0"}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s5", "kind": "warned", "hard": false, "nodes": ["RTB_Phase7提示注入與信任邊界_計劃"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用HTTP伺服器連線名額測試在CI偶發逾時"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["執行迴圈"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["寫入能力憑證"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-23T15:21:27+08:00", "commit": "21e8e15", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=4 soft=6"}
+{"ts": "2026-09-23T15:21:28+08:00", "commit": "21e8e15", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260923T072124Z-66621", "head_sha": "21e8e15a36b4ba2d87ebda4fc529fbf150e96dff"}
+{"ts": "2026-09-23T15:22:06+08:00", "commit": "21e8e15", "gate": "bound-tests", "kind": "green", "hard": false, "nodes": ["Systems/Mock-DSP.md", "Systems/共用行程基礎.md", "Systems/分析行程流程與檢查點.md", "Systems/執行迴圈.md", "Systems/提案收件口.md", "Systems/確定性指標計算.md"], "note": "69 綠", "secs": 35.3, "calc_secs": 0.09}
+{"ts": "2026-09-23T15:35:54+08:00", "commit": "21e8e15", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md"], "note": "door=high clauses=10 bound=0 red=0 green=0 weak=0 regress=0 no-run"}
+{"ts": "2026-09-23T15:43:58+08:00", "commit": "21e8e15", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md"], "note": "door=high clauses=10 bound=0 red=0 green=0 weak=0 regress=0 no-run"}
+{"ts": "2026-09-23T15:44:10+08:00", "commit": "21e8e15", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T15:44:11+08:00", "commit": "21e8e15", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "21e8e15a36b4ba2d87ebda4fc529fbf150e96dff"}
+{"ts": "2026-09-23T15:54:40+08:00", "commit": "59999ee", "gate": "code-loop", "kind": "dispositions", "hard": false, "nodes": [], "detail": "表態 0 題", "branch": "main", "head_sha": "59999ee9b050bbffd5f4bb1ca0593c84827d3b02", "dispositions": {}, "candidates": 0, "written_at": "2026-09-23T15:54:50.380072+08:00"}
+{"ts": "2026-09-23T15:54:40+08:00", "commit": "59999ee", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "併入 Phase 7 增量 3(phase7-inc3):該分支代碼審 2 輪(standard 加派資安;r1 四席 4 條 minor 折 2 放行 2,Codex 限額由 opus 頂替;r2 clean),凍結判定已提交;全套 1160 支綠", "branch": "main", "head_sha": "59999ee9b050bbffd5f4bb1ca0593c84827d3b02"}
