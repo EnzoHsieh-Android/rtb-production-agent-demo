@@ -69,6 +69,10 @@ CREATE INDEX IF NOT EXISTS attempts_verified_by_time ON attempts (written_at)
     WHERE state = 'verified';
 CREATE INDEX IF NOT EXISTS attempts_terminal_by_time ON attempts (written_at)
     WHERE state IN (TERMINAL_LIST);
+CREATE INDEX IF NOT EXISTS attempts_unknown_by_time ON attempts (written_at)
+    WHERE state = 'unknown';
+CREATE INDEX IF NOT EXISTS attempts_first_rows_by_task ON attempts (task_id, revision)
+    WHERE seq = 1;
 CREATE TABLE IF NOT EXISTS dsp_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, call_kind TEXT NOT NULL,
     result TEXT NOT NULL, status INTEGER, error_code TEXT, latency_ms REAL NOT NULL,
@@ -90,6 +94,12 @@ ADDED_COLUMNS = (
     ("source", "source TEXT"),
     ("actor", "actor TEXT"),
     ("program_version", "program_version TEXT"),
+    # 開始時的核對材料(Phase 9 增量 3,只寫在第一列、只增不改;副作用核對用,別處不讀):
+    # 比例允許加的量、單一廣告上限、總額上限、判門檻用的已用額度。舊列為空
+    ("ratio_allowance", "ratio_allowance INTEGER"),
+    ("max_budget", "max_budget INTEGER"),
+    ("aggregate_limit", "aggregate_limit INTEGER"),
+    ("aggregate_used", "aggregate_used INTEGER"),
 )
 # DSP 呼叫紀錄表的欄位(唯讀開法用它判斷資料庫升級了沒有)
 DSP_CALL_FIELDS = ("id", "at", "call_kind", "result", "status", "error_code", "latency_ms",
@@ -137,6 +147,9 @@ class Reservation:
     amount: int
     limit: int
     approved: bool = False
+    # 開始時的核對材料(Phase 9 增量 3):比例允許加的量(暫停為空)與簽發時讀到的單一廣告上限
+    ratio_allowance: int | None = None
+    max_budget: int | None = None
 
 
 class TooManyUnresolved(AttemptRejected):
@@ -551,6 +564,7 @@ def begin(
     if unresolved_count(tx) >= MAX_UNRESOLVED:
         raise TooManyUnresolved()
     over_limit = None
+    used: int | None = None  # 判門檻用的已用額度;加的量是 0 時不判門檻,不記
     if reservation is not None and reservation.amount > 0:
         used = aggregate_used(tx, reservation.tenant, now)
         if used + reservation.amount > reservation.limit:
@@ -562,13 +576,17 @@ def begin(
     conn.execute(
         "INSERT INTO attempts (key, seq, campaign_id, state, send_count, verification_timeouts, "
         "written_at, task_id, revision, action, expected_version, proposal_json, "
-        "capability_expires_at, tenant, reserved_amount, source, actor, program_version) "
-        "VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "capability_expires_at, tenant, reserved_amount, source, actor, program_version, "
+        "ratio_allowance, max_budget, aggregate_limit, aggregate_used) "
+        "VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (key, proposal.campaign_id, AttemptState.IN_FLIGHT.value, _iso(now),
          proposal.task_id, proposal.revision, proposal.action_type.value,
          proposal.campaign_version_observed, snapshot_json, expires,
          None if reservation is None else reservation.tenant,
-         None if reservation is None else reservation.amount, source, actor, PROGRAM_VERSION),
+         None if reservation is None else reservation.amount, source, actor, PROGRAM_VERSION,
+         None if reservation is None else reservation.ratio_allowance,
+         None if reservation is None else reservation.max_budget,
+         None if reservation is None else reservation.limit, used),
     )
     row = latest(tx, key)
     assert row is not None  # 剛寫入的那一列  # noqa: S101
@@ -911,6 +929,85 @@ def terminal_rows_between(
     """時間窗內到了終點的鍵(每把鍵最多一列終點列,有唯一索引守);走終點時間的部分索引。"""
     sql, params = terminal_rows_between_query(since, until)
     return tuple(TerminalRow(*row) for row in _read_conn(tx).execute(sql, params))
+
+
+def unknown_rows_between_query(
+    since: datetime, until: datetime,
+) -> tuple[str, tuple[str, ...]]:
+    """時間窗內進結果不明的列的查詢語句(測試用它看查詢計畫)。"""
+    return ("SELECT DISTINCT key FROM attempts WHERE state = 'unknown' "
+            "AND written_at >= ? AND written_at < ? ORDER BY key", (_iso(since), _iso(until)))
+
+
+def unknown_rows_between(tx: Readable, since: datetime, until: datetime) -> tuple[str, ...]:
+    """時間窗內寫過結果不明列的鍵(Phase 9 增量 3 對帳服務水準的候選);走結果不明的部分索引。
+    呼叫端再用鍵讀整串,判第一次進結果不明是不是落在它要的範圍。"""
+    sql, params = unknown_rows_between_query(since, until)
+    return tuple(row[0] for row in _read_conn(tx).execute(sql, params))
+
+
+@dataclass(frozen=True)
+class FirstRow:
+    """一把鍵的第一列:開始一筆時記下的提案快照、租戶、預留金額與四樣核對材料(副作用核對用)。
+    快照讀不回來時 proposal 為空;舊列沒有的欄位為空。"""
+
+    key: str
+    task_id: str | None
+    revision: int | None
+    campaign_id: str
+    tenant: str | None
+    reserved_amount: int | None
+    ratio_allowance: int | None
+    max_budget: int | None
+    aggregate_limit: int | None
+    used_before: int | None  # 表上的欄位名是 aggregate_used(判門檻用的已用額度)
+    proposal: Proposal | None
+    written_at: str
+
+
+_FIRST_ROW_READ = ("key, task_id, revision, campaign_id, tenant, reserved_amount, "
+                   "ratio_allowance, max_budget, aggregate_limit, aggregate_used, proposal_json, "
+                   "written_at")
+BATCH = 500  # 一批最多幾把鍵:遠低於 SQLite 參數上限
+
+
+def _first_row(row: Sequence[Any]) -> FirstRow:
+    try:
+        parsed = parse_proposal(json.loads(row[10] or "null")).proposal
+    except (ValueError, TypeError):
+        parsed = None
+    return FirstRow(key=row[0], task_id=row[1], revision=row[2], campaign_id=row[3],
+                    tenant=row[4], reserved_amount=row[5], ratio_allowance=row[6],
+                    max_budget=row[7], aggregate_limit=row[8], used_before=row[9],
+                    proposal=parsed, written_at=row[11])
+
+
+def first_rows_for(tx: Readable, keys: Iterable[str]) -> dict[str, FirstRow]:
+    """一批冪等鍵各自的第一列(Phase 9 增量 3 副作用核對用);每批不超過 BATCH 把,不逐筆查。
+    找不到第一列的鍵不在結果裡。"""
+    conn, wanted, found = _read_conn(tx), sorted(set(keys)), {}
+    for start in range(0, len(wanted), BATCH):
+        chunk = wanted[start:start + BATCH]
+        marks = ", ".join("?" * len(chunk))
+        for row in conn.execute(
+                f"SELECT {_FIRST_ROW_READ} FROM attempts WHERE seq = 1 AND key IN ({marks})",  # noqa: S608 - 固定欄位與佔位符
+                chunk):
+            found[row[0]] = _first_row(row)
+    return found
+
+
+def first_rows_for_proposal_query(task_id: str, revision: int) -> tuple[str, tuple[object, ...]]:
+    """同一份提案(任務與修訂)的所有第一列的查詢語句(測試用它看查詢計畫)。"""
+    return (f"SELECT {_FIRST_ROW_READ} FROM attempts "  # noqa: S608 - 固定欄位
+            "WHERE seq = 1 AND task_id = ? AND revision = ? ORDER BY written_at, key",
+            (task_id, revision))
+
+
+def first_rows_for_proposal(tx: Readable, task_id: str, revision: int) -> tuple[FirstRow, ...]:
+    """同一個任務與修訂的每一把鍵的第一列(重複有害副作用往回查同一份提案);走第一列依任務與修訂
+    的部分索引。內容雜湊由呼叫端從快照比。"""
+    sql, params = first_rows_for_proposal_query(task_id, revision)
+    return tuple(_first_row(row) for row in _read_conn(tx).execute(sql, params))
 
 
 def dsp_calls_for(tx: Readable, task_id: str) -> tuple[DspCallRow, ...]:

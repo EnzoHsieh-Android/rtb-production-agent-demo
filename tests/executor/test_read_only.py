@@ -88,6 +88,7 @@ def _read_samples(key):
         "InboxReads.dead_letter_ops_for": ("s", ("r1",)),
         "InboxReads.lifecycle_events_between": ("s", (NOW - timedelta(hours=1), LATER)),
         "InboxReads.pending_snapshot": ("s", ()),
+        "InboxReads.approval_uses_for": ("s", ([KEY],)),
         "latest": ("a", (key,)),
         "history": ("a", (key,)),
         "snapshot": ("a", (key,)),
@@ -103,6 +104,9 @@ def _read_samples(key):
         "dsp_calls_for": ("a", ("r2",)),
         "dsp_calls_between": ("a", (NOW - timedelta(hours=1), LATER)),
         "terminal_rows_between": ("a", (NOW - timedelta(hours=1), LATER)),
+        "unknown_rows_between": ("a", (NOW - timedelta(hours=1), LATER)),
+        "first_rows_for": ("a", ([key],)),
+        "first_rows_for_proposal": ("a", ("r1", 1)),
     }
 
 

@@ -18,6 +18,7 @@ EXPECTED_INDEX = {
     (inbox_store, "lifecycle_events_between"): "lifecycle_events_by_time",
     (attempt_store, "dsp_calls_between"): "dsp_calls_by_time",
     (attempt_store, "terminal_rows_between"): "attempts_terminal_by_time",
+    (attempt_store, "unknown_rows_between"): "attempts_unknown_by_time",
     (task_store, "tool_calls_between"): "tool_calls_by_time",
 }
 

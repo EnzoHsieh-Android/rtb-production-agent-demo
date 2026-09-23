@@ -507,7 +507,9 @@ class Executor:
         if isinstance(gated, Processed):
             return gated
         signed, held = gated
-        taken = self._take(picked, receipt, signed, amount, held)
+        allowance = (guardrails.increase_allowance(view.budget)  # 開始一筆記下判比例用的量
+                     if proposal.action_type is ActionType.UPDATE_BUDGET else None)
+        taken = self._take(picked, receipt, signed, (amount, allowance), held)
         if isinstance(taken, Processed):
             return taken
         # 停在未結案就不確認:每一筆嘗試寫入都順手續租,所以租約已經延長,交給對帳
@@ -726,14 +728,16 @@ class Executor:
         return Processed(Result.DEFERRED) if done else Processed(Result.LEASE_LOST)
 
     def _take(  # noqa: PLR0911 - 每個出口對應開始一筆的一種結果
-        self, picked: PendingProposal, receipt: Receipt, signed: _Signed, amount: int,
-        held: dict[BlockCode, Approval],
+        self, picked: PendingProposal, receipt: Receipt, signed: _Signed,
+        increase: tuple[int, int | None], held: dict[BlockCode, Approval],
     ) -> AttemptRow | Processed:
         """開始一筆:在核對收據仍有效的同一個交易裡做;鍵已存在就依既有那把鍵的狀態分流。
 
         總曝險(Phase 6):預留金額 = 新預算減處理一筆開頭讀到的目前預算(版本已變排在前面,走到
         這裡的目前預算一定是提案觀察到的那一版),小於 0 算 0;額度不夠又沒有有效核可就停在
-        待核可並寫停下紀錄。held 是開始前查好的核可:在這個交易裡用當下時間再判一次到期。"""
+        待核可並寫停下紀錄。held 是開始前查好的核可:在這個交易裡用當下時間再判一次到期。
+        increase 是(加的量, 比例允許加的量;暫停為空),後者只記進第一列給副作用核對(增量 3)。"""
+        amount, allowance = increase
         with self.store.transaction() as tx:
             now = self.clock()
             if not self.store.extend(tx, receipt, now):  # 已被取代、內容不同、或租約已不是我的
@@ -754,7 +758,8 @@ class Executor:
                 return stopped
             reservation = attempt_store.Reservation(
                 signed.tenant.name, amount, signed.tenant.aggregate_limit,
-                approved=AGGREGATE in live)
+                approved=AGGREGATE in live, ratio_allowance=allowance,
+                max_budget=signed.tenant.max_budget)
             try:
                 begun = attempt_store.begin(tx, picked.proposal, now,
                                             capability_expires_at=signed.expires_at,

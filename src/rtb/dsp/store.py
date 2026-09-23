@@ -17,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeGuard
+from typing import Any, TypeGuard
 
 from rtb.dsp.errors import (
     CampaignNotFound,
@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS operations (
     action TEXT NOT NULL, params_json TEXT NOT NULL, version_after INTEGER NOT NULL,
     received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
     policy_version TEXT, expected_version INTEGER);
+CREATE INDEX IF NOT EXISTS operations_by_commit ON operations (committed_at);
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, operation_id INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS voided_keys (key TEXT PRIMARY KEY, voided_at TEXT NOT NULL);
@@ -49,6 +50,9 @@ CREATE TABLE IF NOT EXISTS metrics (
 """
 
 SQLITE_INTEGER_MAX = 2**63 - 1
+# 列操作端點一次最多回幾筆(Phase 9 增量 3 副作用核對翻頁用)。設計寫「最多 5000 筆」;實際取 50:
+# 讀它的共用 HTTP 用戶端回應上限是 64 KB,每筆最長約 700 位元組,5000 筆會超過上限整頁讀不回來
+OPERATION_PAGE = 50
 DEFAULT_TENANT = "t-default"  # 沒指定租戶的廣告(含補欄位前的舊資料)都屬於它
 # 廣告名稱的字元上限:真實 DSP 的名稱都有上限。最壞情況(每字都要代理對、回應用 ASCII 逃脫時
 # 每字 12 位元組)4096 字約 48 KB,仍低於分析端 64 KB 的回應上限,名稱塞不爆回應
@@ -64,6 +68,19 @@ IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")  # 用 fullmatch
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _moment(text: str) -> datetime:
+    value = datetime.fromisoformat(text)
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def operation_cursor_query(since: datetime) -> tuple[str, tuple[str]]:
+    """依時間找起點的查詢語句(測試用它看查詢計畫):提交時間大於等於 since 的第一筆。提交時間跟
+    寫入時同一種寫法(UTC 的 isoformat),字串比較就是時間比較。"""
+    return ("SELECT operation_id FROM operations WHERE committed_at >= ? "
+            "ORDER BY committed_at, operation_id LIMIT 1",
+            (since.astimezone(UTC).isoformat(),))
 
 
 @dataclass(frozen=True)
@@ -379,7 +396,7 @@ class CampaignStore:
         if current.version != op.expected_version:
             raise VersionConflict(f"預期 {op.expected_version},目前 {current.version}")
         updated = _next_state(current, op)
-        committed_at = self._clock()
+        committed_at = self._not_before_last(self._clock())
         operation_id = self._apply(op, updated, received_at, committed_at)
         self._record_idempotency(op, operation_id)
         return OperationResult(
@@ -387,6 +404,43 @@ class CampaignStore:
             op.idempotency_key, dict(op.params),
             op.expected_version if is_plain_int(op.expected_version) else None,
         )
+
+    def _not_before_last(self, reading: str) -> str:
+        """提交時間取時鐘讀數與上一筆提交時間較大的那個(Phase 9 增量 3):依操作編號翻頁才等於依
+        時間翻頁。時鐘倒退時提交時間會被墊高到上一筆。在寫入交易裡讀,上一筆不會被別人插隊。"""
+        row = self._conn.execute(
+            "SELECT committed_at FROM operations ORDER BY operation_id DESC LIMIT 1").fetchone()
+        if row is None or _moment(row[0]) <= _moment(reading):
+            return reading
+        return str(row[0])
+
+    def operation_cursor(self, since: datetime) -> int:
+        """提交時間大於等於 since 的第一筆之前的最後一個操作編號;沒有更早的回 0,沒有任何一筆
+        大於等於 since 回目前最大的編號(之後列操作就從這裡往下)。走提交時間索引。"""
+        sql, params = operation_cursor_query(since)
+        first = self._conn.execute(sql, params).fetchone()
+        if first is None:
+            row = self._conn.execute("SELECT max(operation_id) FROM operations").fetchone()
+        else:
+            row = self._conn.execute("SELECT max(operation_id) FROM operations "
+                                     "WHERE operation_id < ?", (first[0],)).fetchone()
+        return int(row[0] or 0)
+
+    def operations_after(self, cursor: int) -> tuple[list[dict[str, Any]], int | None]:
+        """操作編號大於 cursor 的操作,依編號由小到大最多 OPERATION_PAGE 筆,連同廣告建檔時的租戶;
+        第二個值是下一頁的游標(這一頁最後一筆的編號),沒有下一頁為空。"""
+        rows = self._conn.execute(
+            "SELECT o.operation_id, o.idempotency_key, o.campaign_id, c.tenant, o.action, "
+            "o.params_json, o.expected_version, o.committed_at, o.policy_version "
+            "FROM operations o LEFT JOIN campaigns c ON c.id = o.campaign_id "
+            "WHERE o.operation_id > ? ORDER BY o.operation_id LIMIT ?",
+            (cursor, OPERATION_PAGE)).fetchall()
+        found = [{"operation_id": r[0], "idempotency_key": r[1], "campaign_id": r[2],
+                  "tenant": r[3], "action": r[4],
+                  "new_budget": json.loads(r[5]).get("new_budget"),
+                  "expected_version": r[6], "committed_at": r[7], "policy_version": r[8]}
+                 for r in rows]
+        return found, (found[-1]["operation_id"] if len(found) == OPERATION_PAGE else None)
 
     def _existing_operation(self, op: Operation) -> OperationResult | None:
         row = self._conn.execute(

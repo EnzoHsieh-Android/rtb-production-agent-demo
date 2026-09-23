@@ -13,9 +13,10 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import asdict, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from rtb.capabilitykit import HEADER as CAPABILITY_HEADER
 from rtb.capabilitykit import read_key
@@ -77,11 +78,15 @@ ERROR_TABLE = {
     CapabilityExpired: (401, "capability_expired", False),
     CapabilityScopeMismatch: (403, "capability_scope_mismatch", False),
 }
+MAX_CURSOR_DIGITS = 19  # 游標是 SQLite 整數(最大 19 位數);更長的不收
 ROUTES = [
     ("GET", re.compile(r"^/campaigns/([^/]+)$"), "get_campaign"),
     ("GET", re.compile(r"^/campaigns/([^/]+)/history$"), "get_history"),
     ("GET", re.compile(r"^/campaigns/([^/]+)/metrics$"), "get_metrics"),
     ("GET", re.compile(r"^/operations/([^/]+)$"), "get_operation"),
+    # 副作用核對翻頁用(Phase 9 增量 3):照既有形狀,路徑裡恰好一個參數
+    ("GET", re.compile(r"^/operations/since/([^/]+)$"), "get_operation_cursor"),
+    ("GET", re.compile(r"^/operations/after/([^/]+)$"), "get_operations_after"),
     ("POST", re.compile(r"^/campaigns/([^/]+)/budget$"), "update_budget"),
     ("POST", re.compile(r"^/campaigns/([^/]+)/pause$"), "pause_campaign"),
     ("POST", re.compile(r"^/campaigns/([^/]+)/void$"), "void_operation"),
@@ -150,6 +155,27 @@ class DspHandler(JsonHandler):
         if result is None:
             raise RequestRejected(404, "operation_not_found")
         return asdict(result)
+
+    def _get_operation_cursor(
+        self, store: CampaignStore, since: str, _fault: str | None
+    ) -> dict[str, Any]:
+        """提交時間大於等於這個時間的第一筆之前的最後一個操作編號(時間要帶時區)。"""
+        try:
+            moment = datetime.fromisoformat(unquote(since))
+        except ValueError as exc:
+            raise RequestRejected(400, "invalid_time") from exc
+        if moment.tzinfo is None:
+            raise RequestRejected(400, "invalid_time")
+        return {"cursor": store.operation_cursor(moment)}
+
+    def _get_operations_after(
+        self, store: CampaignStore, cursor: str, _fault: str | None
+    ) -> dict[str, Any]:
+        """操作編號大於游標的操作,一次最多一頁,回下一頁的游標(沒有下一頁為空)。"""
+        if not cursor.isdigit() or len(cursor) > MAX_CURSOR_DIGITS:
+            raise RequestRejected(400, "invalid_cursor")
+        operations, following = store.operations_after(int(cursor))
+        return {"operations": operations, "next": following}
 
     # ---- 寫入介面 ----
     def _update_budget(

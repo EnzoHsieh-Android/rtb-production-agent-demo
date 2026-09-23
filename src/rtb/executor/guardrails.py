@@ -26,10 +26,15 @@ def increase(proposal: Proposal, budget: int) -> int:
     return max(0, int(proposal.requested_change["new_budget"]) - budget)
 
 
+def increase_allowance(budget: int) -> int:
+    """比例上限允許加的量:max(現況乘分子除以分母取整數下限, 最小加額)。判比例與開始一筆記下的
+    核對材料(Phase 9 增量 3)共用這一支,記的是算出的量、不是常數。"""
+    return max(budget * MAX_INCREASE_NUMERATOR // MAX_INCREASE_DENOMINATOR, MIN_INCREASE_STEP)
+
+
 def increase_too_large(proposal: Proposal, budget: int) -> bool:
     """加的量超過比例上限;減預算、暫停是 0,不受影響。budget 是處理一筆開頭讀到的現況。"""
-    allowed = max(budget * MAX_INCREASE_NUMERATOR // MAX_INCREASE_DENOMINATOR, MIN_INCREASE_STEP)
-    return increase(proposal, budget) > allowed
+    return increase(proposal, budget) > increase_allowance(budget)
 
 
 def decision_stale(proposal: Proposal, now: datetime) -> bool:

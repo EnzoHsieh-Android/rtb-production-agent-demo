@@ -28,7 +28,8 @@
 
 import json
 import sqlite3
-from collections.abc import Callable, Iterator
+from collections import defaultdict
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -737,6 +738,23 @@ class InboxReads:
         self._own_read(tx)
         sql, params = lifecycle_events_between_query(since, until)
         return tuple(_event(row) for row in self._conn.execute(sql, params))
+
+    def approval_uses_for(
+        self, tx: attempt_store.Readable, keys: Iterable[str],
+    ) -> dict[str, frozenset[str]]:
+        """一批冪等鍵各自用過核可的關卡(Phase 9 增量 3 副作用核對用);每批不超過嘗試紀錄模組的
+        批量上限,不逐筆查。沒用過核可的鍵不在結果裡。不另加依鍵的索引:核可使用表每筆人工核可才
+        一列,整表很小;加了會讓既有「已核可放行數」依廣告篩的查詢改走它、偏離那支查詢寫定的
+        索引路徑(有測試守)。"""
+        self._own_read(tx)
+        wanted, found = sorted(set(keys)), defaultdict(set)
+        for start in range(0, len(wanted), attempt_store.BATCH):
+            chunk = wanted[start:start + attempt_store.BATCH]
+            marks = ", ".join("?" * len(chunk))
+            for key, stage in self._conn.execute(
+                    f"SELECT key, stage FROM approval_uses WHERE key IN ({marks})", chunk):  # noqa: S608 - 只拼佔位符
+                found[key].add(stage)
+        return {key: frozenset(stages) for key, stages in found.items()}
 
     def pending_snapshot(self, tx: attempt_store.Readable) -> tuple[int, str | None]:
         """現在的待處理份數(還沒被取件、也還沒處置)與其中最早的收件時間;收件表有總列數上限,

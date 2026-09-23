@@ -30,6 +30,8 @@ READ_WHITELIST = frozenset({
     "dsp_calls_between", "terminal_rows_between", "unresolved_keys", "campaigns_with_unresolved",
     "tool_calls_between",  # 分析端
     "utilization", "load_tenants",
+    # 服務水準與副作用核對(增量 3):結果不明的窗口讀取、一批鍵的第一列與核可使用、同一份提案的第一列
+    "unknown_rows_between", "first_rows_for", "approval_uses_for", "first_rows_for_proposal",
     "failure_class",  # 死信信封的欄位名;同名的是收件口的分類函式,也是機械判定的非寫入函式
 })
 SCANNED = (SRC / "executor" / "inbox_store.py", SRC / "executor" / "attempt_store.py",
