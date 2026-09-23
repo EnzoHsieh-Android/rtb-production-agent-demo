@@ -2472,3 +2472,8 @@
 {"ts": "2026-09-23T18:34:18+08:00", "commit": "5510130", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "5510130be68c657582358b6a7a760886f3da617f"}
 {"ts": "2026-09-23T18:34:28+08:00", "commit": "d9e6d1a", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase6權限護欄與總曝險-增量2"], "note": "disposal gate PASS"}
 {"ts": "2026-09-23T18:41:40+08:00", "commit": "d9e6d1a", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase6權限護欄與總曝險_計劃.md"], "note": "door=high clauses=21 bound=1 red=0 green=1 weak=0 regress=34 S407=green"}
+{"ts": "2026-09-23T18:42:01+08:00", "commit": "d9e6d1a", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T18:42:02+08:00", "commit": "d9e6d1a", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d9e6d1a58bb4e7aeb1702c48b80cca6510463ec3"}
+{"ts": "2026-09-23T18:42:05+08:00", "commit": "b5dbf5c", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase6權限護欄與總曝險-增量2"], "note": "disposal gate PASS"}
+{"ts": "2026-09-23T18:42:13+08:00", "commit": "b5dbf5c", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T18:42:13+08:00", "commit": "b5dbf5c", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "b5dbf5c52e295f3a4b470b0c796d90501ecf35df"}
