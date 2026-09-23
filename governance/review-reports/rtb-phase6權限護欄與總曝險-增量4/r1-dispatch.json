@@ -1,0 +1,8 @@
+{"round": "r1", "loop": "rtb-phase6權限護欄與總曝險-增量4", "snapshot": "r1-snapshot.md", "reviewed_sha256": "b6f3ab565a3f3a462425c1e1bc90d97227011cb59f1b3ec1cb75aaab7031e97b", "scope": "## 增量 4 設計:可觀測 一節", "seats": [
+ {"seat": "goal-sonnet", "lens": "查詢語意與完成條件、F7 對照", "materials": ["r1-snapshot.md"]},
+ {"seat": "data-sonnet", "lens": "資料來源、篩選與舊資料", "materials": ["r1-snapshot.md"]},
+ {"seat": "perf-sonnet", "lens": "效能、索引與鎖", "materials": ["r1-snapshot.md"]},
+ {"seat": "dep-sonnet", "lens": "相依增量 3 與相容", "materials": ["r1-snapshot.md"]},
+ {"seat": "testability-sonnet", "lens": "可測性", "materials": ["r1-snapshot.md"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.md"]},
+ {"seat": "finder-codex", "lens": "外家", "materials": ["r1-snapshot.md"]}]}
