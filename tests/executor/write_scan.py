@@ -1,6 +1,8 @@
-"""掃原始碼的共用工具,只放兩種通用讀法:機械判定「哪些函式會寫資料庫」(Phase 9 增量 1 [S621]、
-[S617]、[S600] 共用),以及把拆開的字串拼回來(稽核表守衛共用)。兩種讀法並存、名字分開:判寫入函式
-用的只取字串常數、不含文件字串;拼回字串的那支把相鄰字串、+、f-string、.format、% 拼成完整語句。
+"""掃原始碼的共用工具,只放兩種通用讀法、名字分開:
+- 機械判定「哪些函式會寫資料庫」:只取字串常數、不含文件字串。使用者:Phase 9 增量 1 [S621]、[S617]、
+  [S600](收件口、嘗試紀錄的讀寫函式清單,維運套件邊界測試)。
+- 把拆開的字串拼回來:相鄰字串、+、f-string、.format、% 拼成完整語句。使用者:稽核表守衛(經同目錄的
+  稽核守衛模組)、Phase 8 死信測試(直接匯入,找「把死信改回待處理」那一句在哪個函式)。
 稽核表只增不改的判定(哪幾張表、哪些語句算改寫)不在這裡,在同目錄的稽核守衛模組。
 
 不靠名字判斷(取件、處理待核可、接手名字像讀、其實會寫):解析原始碼,一支函式的本體、它用到的
@@ -134,12 +136,13 @@ def _constant(node):
     return None
 
 
-_PERCENT_FIELD = re.compile(r"%(?:\((\w+)\))?[-#0 +]*\d*(?:\.\d+)?[sdifrxXeEgGc]")
+_PERCENT_FIELD = re.compile(r"%(?:\((\w+)\))?([-#0 +]*\d*(?:\.\d+)?)([sdifrxXeEgGc%])")
 
 
 def _format_call(template, node):
     """字面模板 .format(...):位置與具名佔位都認;對得上字面常數就代入,對不上或是變數就把那個佔位
-    正規化成裸 {}(模板裡的改寫語句與表名照樣抓得到,寧可誤報)。"""
+    正規化成裸 {}(模板裡的改寫語句與表名照樣抓得到,寧可誤報)。格式規格帶精度(字串會被截斷)時
+    不照規格截,代入完整常數:截掉的可能正是表名(代碼審第 3 輪)。"""
     positional = [_constant(arg) for arg in node.args]
     named = {kw.arg: _constant(kw.value) for kw in node.keywords if kw.arg is not None}
     out, auto = [], 0
@@ -160,32 +163,56 @@ def _format_call(template, node):
             value = positional[index] if index < len(positional) else None
         elif field.isidentifier():
             value = named.get(field)
-        try:
-            out.append("{}" if value is None else format(value, spec or ""))
-        except (TypeError, ValueError):
-            out.append("{}")
+        out.append(_formatted_value(value, spec or ""))
     return "".join(out)
 
 
-def _percent(template, right):
-    """字面模板 % 參數:參數是常數(單一、元組或字典)就代入;含變數時把佔位正規化成裸 %s 回模板。"""
-    if isinstance(right, ast.Dict):
-        keys = [_constant(k) if k is not None else None for k in right.keys]
-        values = [_constant(v) for v in right.values]
-        mapping = {k: v for k, v in zip(keys, values, strict=True) if k is not None}
-        complete = None not in keys and None not in values
-        return _substitute(template, lambda t: t % mapping if complete else None)
-    args = right.elts if isinstance(right, ast.Tuple) else [right]
-    values = [_constant(arg) for arg in args]
-    return _substitute(template, lambda t: t % tuple(values) if None not in values else None)
-
-
-def _substitute(template, apply):
+def _formatted_value(value, spec):
+    if value is None:
+        return "{}"
+    if "." in spec:  # 帶精度:不截,整段代入
+        return str(value)
     try:
-        done = apply(template)
-    except (KeyError, TypeError, ValueError):
-        done = None
-    return done if done is not None else _PERCENT_FIELD.sub("%s", template)
+        return format(value, spec)
+    except (TypeError, ValueError):
+        return "{}"
+
+
+def _percent(template, right):
+    """字面模板 % 參數:逐一處理每個佔位。字典看名字、元組或單一值照順序;解得出字面常數的就代入,
+    解不出的那一個正規化成裸 %s(不因為其中一個是變數就整段放棄代入,代碼審第 3 輪)。"""
+    if isinstance(right, ast.Dict):
+        mapping = {}
+        for key, value in zip(right.keys, right.values, strict=True):
+            name = _constant(key) if key is not None else None
+            if isinstance(name, str):
+                mapping[name] = _constant(value)
+        sequence = None
+    else:
+        mapping = None
+        sequence = [_constant(arg) for arg in (right.elts if isinstance(right, ast.Tuple)
+                                              else [right])]
+    position = 0
+
+    def replace(match):
+        nonlocal position
+        name, flags, conversion = match.groups()
+        if conversion == "%":
+            return "%"
+        if name is not None:
+            value = None if mapping is None else mapping.get(name)
+        else:
+            value = (sequence[position] if sequence is not None and position < len(sequence)
+                     else None)
+            position += 1
+        if value is None:
+            return "%s"
+        try:
+            return ("%" + flags + conversion) % value
+        except (TypeError, ValueError):
+            return "%s"
+
+    return _PERCENT_FIELD.sub(replace, template)
 
 
 def _raw_text(node):  # noqa: PLR0911 - 每一種拼法一個出口

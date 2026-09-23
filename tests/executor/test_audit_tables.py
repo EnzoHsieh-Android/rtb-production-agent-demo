@@ -100,6 +100,11 @@ def test_the_audit_guard_sees_through_format_and_percent(source):
     'x = "UPDATE %(t)s SET status = 1" % {"t": "operations"}',
     'x = "UPDATE operations SET status = {v}".format(v=value)',
     'x = "UPDATE operations SET status = %(v)s" % {"v": value}',
+    # 代碼審第 3 輪:字典與元組逐欄處理,解得出常數的佔位照樣代入
+    'x = "UPDATE %(table)s SET %(col)s = 1" % {"table": "operations", "col": col}',
+    'x = "UPDATE %s SET %s = 1" % ("operations", col)',
+    # 格式規格帶精度(會截斷字串)時不照規格截,代入完整常數(寧可誤報,表名照樣看得到)
+    'x = "UPDATE {:.3} SET status = 1".format("operations")',
 ])
 def test_the_audit_guard_sees_through_split_and_named_placeholders(source):
     assert audit_violations(ast.parse(source)) != []
@@ -125,6 +130,11 @@ def test_only_one_place_adds_columns_by_a_variable_table_name():
         'def migrate(conn, t, d):\n'
         '    conn.execute("ALTER TABLE %(table)s ADD COLUMN %(ddl)s" % {"table": t, "ddl": d})\n')
     assert len(dynamic_add_column_sites({**_trees(), pathlib.Path("mapped.py"): mapped})) == 2
+    constant_table = ast.parse(  # 代碼審第 3 輪:表名是常數、只有欄位定義是變數,不算動態補欄位
+        'def migrate(conn, ddl):\n'
+        '    conn.execute("ALTER TABLE %(table)s ADD COLUMN %(ddl)s" % {"table": "operations", '
+        '"ddl": ddl})\n')
+    assert len(dynamic_add_column_sites({**_trees(), pathlib.Path("c.py"): constant_table})) == 1
 
 
 def test_the_audit_guard_allows_a_plain_new_column_and_other_tables():
