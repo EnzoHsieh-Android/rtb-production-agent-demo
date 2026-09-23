@@ -1907,3 +1907,36 @@
 {"ts": "2026-09-23T14:55:13+08:00", "commit": "90f9b13", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-23T14:55:14+08:00", "commit": "90f9b13", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "90f9b13d47d5d0319c6b32899299c13ed7669a62"}
 {"ts": "2026-09-23T14:55:14+08:00", "commit": "7d5c065", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "Phase 7 增量 1(證據型別與分析端白名單)代碼審 2 輪收斂,standard:r1 通才、架構對齊、自願加派資安、否決席(Codex 撞用量上限由 opus 頂替)共 2 條全折,另依否決席觀察補可信證據鍵的短代號限制;r2 通才與架構 0 條(外家缺席:Codex 限額)。新防護 16 道變異檢查全紅;全套 1148 支綠。", "branch": "phase7-inc1", "head_sha": "7d5c065f24e0f0ec2a02a981849d446e2f31c011"}
+{"ts": "2026-09-23T14:57:10+08:00", "commit": "9738d9d", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=2 hits=0 secs=0.2"}
+{"ts": "2026-09-23T14:51:24+08:00", "commit": "d6ead3a", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T14:51:26+08:00", "commit": "d6ead3a", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d6ead3a6668a112c436b648b7d4c14189ee3b9a5"}
+{"ts": "2026-09-23T14:53:46+08:00", "commit": "16136d6", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=1 hits=0 secs=0.0"}
+{"ts": "2026-09-23T14:53:47+08:00", "commit": "16136d6", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "16136d6ea8632ae7d769d672bb9d461a86a4a85a"}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["執行迴圈"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["寫入能力憑證"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-cascade", "kind": "warned", "hard": false, "nodes": [], "note": "unseen=2 broken=0"}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s5", "kind": "warned", "hard": false, "nodes": ["RTB_Phase7提示注入與信任邊界_計劃"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用HTTP伺服器連線名額測試在CI偶發逾時"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["執行迴圈"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["寫入能力憑證"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-23T14:54:06+08:00", "commit": "9738d9d", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=4 soft=6"}
+{"ts": "2026-09-23T14:54:07+08:00", "commit": "9738d9d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260923T065401Z-55273", "head_sha": "9738d9df3d8cfc9b6e9a5f668f85e7a9914e99df"}
+{"ts": "2026-09-23T14:54:09+08:00", "commit": "9738d9d", "gate": "bound-tests", "kind": "no-pins", "hard": false, "nodes": [], "note": "d6ead3a6668a112c436b648b7d4c14189ee3b9a5..9738d9df3d8cfc9b6e9a5f668f85e7a9914e99df"}
+{"ts": "2026-09-23T14:57:09+08:00", "commit": "79e0d99", "gate": "code-loop", "kind": "dispositions", "hard": false, "nodes": [], "detail": "表態 0 題", "branch": "main", "head_sha": "79e0d99c93693ab672673ade13d9bf3d8462a251", "dispositions": {}, "candidates": 0, "written_at": "2026-09-23T14:57:24.652879+08:00"}
+{"ts": "2026-09-23T14:57:09+08:00", "commit": "79e0d99", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "併入 Phase 7 增量 1(phase7-inc1):該分支已跑完代碼審 2 輪(standard 加派資安;r1 架構席 2 條全折、其餘 clean,Codex 限額由 opus 頂替否決席;r2 clean),凍結判定已提交;合併只解治理帳追加衝突,全套 1148 支綠", "branch": "main", "head_sha": "79e0d99c93693ab672673ade13d9bf3d8462a251"}
