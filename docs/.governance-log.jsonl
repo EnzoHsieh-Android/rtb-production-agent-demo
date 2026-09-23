@@ -2873,3 +2873,6 @@
 {"ts": "2026-09-24T00:15:13+08:00", "commit": "868d31d", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-24T00:15:13+08:00", "commit": "868d31d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "868d31d3bf2a636454b77a96cfa2fcbb39cdc5f0"}
 {"ts": "2026-09-24T00:15:22+08:00", "commit": "1ebfeea", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase8死信重放與過時決策"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T00:20:30+08:00", "commit": "1ebfeea", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T00:20:31+08:00", "commit": "1ebfeea", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "1ebfeeaa703cdb632308ca04167ae75c6e00204a"}
+{"ts": "2026-09-24T00:20:33+08:00", "commit": "5818a46", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase8死信重放與過時決策"], "note": "disposal gate PASS"}
