@@ -1,0 +1,36 @@
+{
+ "loop": "code-phase7-inc3",
+ "round": "r2",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-23T15:48:40+08:00",
+ "spec_path": "governance/review-reports/code-phase7-inc3/r2-snapshot.patch",
+ "spec_sha": "90a0719e471cb2e80885fa403df2e1c90e0fb8dcd842c5b478abf9e7a8d3b3ed",
+ "rows": [
+  "{\"ts\": \"2026-09-23T15:44:02+08:00\", \"kind\": \"none\", \"auditor\": \"arch-sonnet\", \"token\": \"CANARY-63928c3c\", \"note\": \"\", \"loop\": \"code-phase7-inc3\", \"round\": \"r1\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\", \"reviewed_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\", \"spec_path\": \"governance/review-reports/code-phase7-inc3/r1-snapshot.patch\", \"scope_lines\": 235, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 0, \"report_path\": \"governance/review-reports/code-phase7-inc3/r1-arch.md\", \"report_sha256\": \"6f48faa2abf538a09e582a6fc63261fcebbfd17e8341361f27859897fb4bcbf4\", \"snapshot_path\": \"governance/review-reports/code-phase7-inc3/r1-snapshot.patch\", \"snapshot_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\"}",
+  "{\"ts\": \"2026-09-23T15:44:02+08:00\", \"kind\": \"none\", \"auditor\": \"veto-opus\", \"token\": \"CANARY-8b8847d1\", \"note\": \"外家否決原定 Codex,用量上限,由 opus 頂替\", \"loop\": \"code-phase7-inc3\", \"round\": \"r1\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\", \"reviewed_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\", \"spec_path\": \"governance/review-reports/code-phase7-inc3/r1-snapshot.patch\", \"scope_lines\": 235, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 0, \"report_path\": \"governance/review-reports/code-phase7-inc3/r1-veto.md\", \"report_sha256\": \"a1756afa5d4cc18e263d8037c732c8b8e9a4cd2b4908b276429c18531ecec29f\", \"snapshot_path\": \"governance/review-reports/code-phase7-inc3/r1-snapshot.patch\", \"snapshot_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\"}",
+  "{\"ts\": \"2026-09-23T15:44:03+08:00\", \"kind\": \"none\", \"auditor\": \"資安-sonnet\", \"token\": \"CANARY-710ca467\", \"note\": \"自願加派\", \"loop\": \"code-phase7-inc3\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 2, \"result_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\", \"reviewed_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\", \"spec_path\": \"governance/review-reports/code-phase7-inc3/r1-snapshot.patch\", \"scope_lines\": 235, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 2, \"report_path\": \"governance/review-reports/code-phase7-inc3/r1-security.md\", \"report_sha256\": \"4cbe39ed44edf167ffeaac9dd8970e2c9550ff9b6124c0363a0d546b36ed16f2\", \"snapshot_path\": \"governance/review-reports/code-phase7-inc3/r1-snapshot.patch\", \"snapshot_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\"}",
+  "{\"ts\": \"2026-09-23T15:44:03+08:00\", \"kind\": \"none\", \"auditor\": \"reviewer-sonnet\", \"token\": \"CANARY-e19ee3af\", \"note\": \"\", \"loop\": \"code-phase7-inc3\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 2, \"result_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\", \"reviewed_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\", \"spec_path\": \"governance/review-reports/code-phase7-inc3/r1-snapshot.patch\", \"scope_lines\": 235, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"reviewer-F1\", \"reviewer-F2\", \"security-F1\", \"security-F2\"], \"folded_set\": [\"reviewer-F1\", \"reviewer-F2\"], \"accepted_set\": [\"security-F1\", \"security-F2\"], \"refuted_set\": [], \"accept_reasons\": {\"security-F1\": \"設計刻意不過濾不改寫名稱,顯示時標明不可信文字是 Phase 6 人工畫面的責任,計劃已寫\", \"security-F2\": \"設計回退節已寫拿掉條件行為不變,計劃與筆記照實記了這道變異存活,差異測試才是咬得住的那道\"}, \"finding_kinds\": {\"reviewer-F1\": \"code\", \"reviewer-F2\": \"code\", \"security-F1\": \"spec\", \"security-F2\": \"spec\"}, \"reported\": 2, \"report_path\": \"governance/review-reports/code-phase7-inc3/r1-reviewer.md\", \"report_sha256\": \"74a4441348ebe2c09db6cae79f2fae4ee47e72c41d067fd9ad6e1aaedf7c47d2\", \"snapshot_path\": \"governance/review-reports/code-phase7-inc3/r1-snapshot.patch\", \"snapshot_sha256\": \"0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328\", \"intake_path\": \"governance/review-reports/code-phase7-inc3/r1-intake.md\", \"intake_sha256\": \"0969c8624b8d76813680e352cec9db4880b568c5a586c13dbddfdcca0f534a21\"}",
+  "{\"ts\": \"2026-09-23T15:47:41+08:00\", \"kind\": \"none\", \"auditor\": \"reviewer-sonnet\", \"token\": \"CANARY-d341e78e\", \"note\": \"外家否決缺席:Codex 用量上限\", \"loop\": \"code-phase7-inc3\", \"round\": \"r2\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"90a0719e471cb2e80885fa403df2e1c90e0fb8dcd842c5b478abf9e7a8d3b3ed\", \"reviewed_sha256\": \"90a0719e471cb2e80885fa403df2e1c90e0fb8dcd842c5b478abf9e7a8d3b3ed\", \"spec_path\": \"governance/review-reports/code-phase7-inc3/r2-snapshot.patch\", \"scope_lines\": 233, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 0, \"report_path\": \"governance/review-reports/code-phase7-inc3/r2-reviewer.md\", \"report_sha256\": \"693472569985e6e2f4470eec6dc503fb6e910357cdce5e8ef87dc6439aa4e185\", \"snapshot_path\": \"governance/review-reports/code-phase7-inc3/r2-snapshot.patch\", \"snapshot_sha256\": \"90a0719e471cb2e80885fa403df2e1c90e0fb8dcd842c5b478abf9e7a8d3b3ed\", \"intake_path\": \"governance/review-reports/code-phase7-inc3/r2-intake.md\", \"intake_sha256\": \"2fbdc3125e7a45a66d22ebe5c83e40e7f8dd5c390a280d11406d6399eed9df65\"}"
+ ],
+ "all_row_shas": [
+  "50f73e72368c04df7f4d3eb8ac2ad27d2cac121d4d8d957b63a0e3ade5f6a68c",
+  "6a8812bdaef36deb5692d42d73c91052bebde4c28cf69a79a6fe81689fdc0b1a",
+  "7c8ea904e98c4236636ea298fc414b778d67a45f8161e3cf9b46754f02c9f851",
+  "98d877f0cb052d5fb87a29eee657034eaacc2207a91c83a383903a459aeeec66",
+  "c6f6aa0698862b0e82758a4835aa04d78fea16c7d7cc7f5f39227b9968b553d4"
+ ],
+ "files": {
+  "governance/review-reports/code-phase7-inc3/r2-reviewer.md": {
+   "sha256": "693472569985e6e2f4470eec6dc503fb6e910357cdce5e8ef87dc6439aa4e185",
+   "git_blob": "64695b8ce3df2448138c24ac9426ce92f31c4f5e"
+  },
+  "governance/review-reports/code-phase7-inc3/r2-snapshot.patch": {
+   "sha256": "90a0719e471cb2e80885fa403df2e1c90e0fb8dcd842c5b478abf9e7a8d3b3ed",
+   "git_blob": "64e03b72f60c0f706b3e39f5b6b8cb1397e3a5c1"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

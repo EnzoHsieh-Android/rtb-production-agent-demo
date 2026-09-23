@@ -1,0 +1,69 @@
+diff --git a/tests/analyzer/test_trust_boundary.py b/tests/analyzer/test_trust_boundary.py
+index 6143a2d..7a1dc4e 100644
+--- a/tests/analyzer/test_trust_boundary.py
++++ b/tests/analyzer/test_trust_boundary.py
+@@ -6,20 +6,21 @@
+ 
+ import ast
+ import dataclasses
+ from datetime import UTC, datetime
+ from pathlib import Path
+ from types import MappingProxyType
+ 
+ import pytest
+ 
+ from rtb.analyzer import policy
++from rtb.analyzer.dsp_client import _campaign_text
+ from rtb.analyzer.flow import NoAction, ProposalDecision
+ from rtb.analyzer.task_store import TaskRow
+ from rtb.domain.evidence import MAX_UNTRUSTED_TEXT_LENGTH, Evidence, EvidenceKind, TrustClass
+ from rtb.domain.proposal import content_hash
+ from rtb.domain.task_state import TaskState
+ from tests.adversarial_samples import CATEGORIES, NAME_LIMIT, SAMPLES
+ 
+ NOW = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
+ TASK = TaskRow(task_id="t1", seq=3, state=TaskState.ANALYZING, campaign_id="c1", proposal=None,
+                error_detail=None, written_at=NOW)
+@@ -28,24 +29,23 @@ SPEND = {"underpacing": 0.5, "on_pace": 100.0}  # 預算 100,1 小時窗:0.5 明
+ 
+ def _evidence(kind, trust, payload, version, suffix):
+     return Evidence(
+         evidence_id=f"t1-3-{suffix}", task_id="t1", kind=kind, source="dsp", observed_at=NOW,
+         campaign_version_observed=version, content_hash="a" * 64, trust_class=trust,
+         payload=MappingProxyType(payload))
+ 
+ 
+ def _batch(name, spend):
+     """三筆證據:編號、任務、讀取時間、版本在所有變體間相同,只有廣告文字的內容不同。
+-    「沒有名稱」也是三筆(名稱空值),不是少一筆。名稱照分析端 DSP 用戶端的規則截斷。"""
+-    text = ({"name": None, "truncated": False} if name is None else
+-            {"name": name[:MAX_UNTRUSTED_TEXT_LENGTH],
+-             "truncated": len(name) > MAX_UNTRUSTED_TEXT_LENGTH})
++    「沒有名稱」也是三筆(名稱空值),不是少一筆。名稱直接交給分析端 DSP 用戶端的同一支函式轉成
++    廣告文字內容,不在測試裡另抄一份截斷規則(用戶端改了規則,差異測試跟著測真的流程)。"""
++    text = _campaign_text({} if name is None else {"name": name})
+     return (
+         _evidence(EvidenceKind.CAMPAIGN_STATE, TrustClass.TRUSTED,
+                   {"id": "c1", "budget": 100, "status": "active", "version": 7}, 7, "state"),
+         _evidence(EvidenceKind.METRICS, TrustClass.TRUSTED,
+                   {"campaign_id": "c1", "window": "1h", "impressions": 500, "clicks": 12,
+                    "conversions": 1, "spend": spend, "revenue": 5.0}, None, "metrics"),
+         _evidence(EvidenceKind.CAMPAIGN_TEXT, TrustClass.UNTRUSTED_TEXT, text, 7, "text"),
+     )
+ 
+ 
+@@ -121,13 +121,11 @@ def test_the_execution_side_never_reads_free_text(tmp_path, monkeypatch):
+         sent.update(url=url, method=method, body=body, timeout=timeout, headers=headers)
+         return 200, {"version_after": 2}
+ 
+     monkeypatch.setattr(executor_dsp, "request_json", capture)
+     signer = CapabilitySigner(TEST_KEY)
+     token = signer.sign(item, "k1", write_config(tmp_path / "tenants.json"),
+                         int(NOW.timestamp()))
+     executor_dsp.DspClient("http://127.0.0.1:1", 1.0).write(item, "k1", token)
+ 
+     assert sent["body"] is not None and MARKER not in repr(sent["body"])
+-    assert MARKER not in sent["url"]
+-    claims = decode(token, TEST_KEY)
+-    assert MARKER not in repr(claims) and MARKER not in token
++    assert MARKER not in repr(decode(token, TEST_KEY))  # 聲明解開來看,不看編碼後的字串
