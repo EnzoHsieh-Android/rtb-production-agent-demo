@@ -3090,3 +3090,5 @@
 {"ts": "2026-09-24T02:54:28+08:00", "commit": "d85096b", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d85096bec59ee2081b63c4c2fa378d177375f737"}
 {"ts": "2026-09-24T03:11:15+08:00", "commit": "84f3e63", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase9可觀測與SLO_計劃.md"], "note": "door=high clauses=47 bound=0 red=0 green=0 weak=0 regress=80 no-run"}
 {"ts": "2026-09-24T03:12:54+08:00", "commit": "84f3e63", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase9可觀測與slo-增量2"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T03:13:07+08:00", "commit": "84f3e63", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T03:13:08+08:00", "commit": "84f3e63", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "84f3e637c5571081f499ee51733d7919a326905f"}
