@@ -39,7 +39,7 @@ from typing import Any, Literal, NoReturn, Protocol
 
 from rtb.domain._checks import is_plain_int
 from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
-from rtb.domain.proposal import POLICY_VERSION, ActionType, Proposal
+from rtb.domain.proposal import POLICY_VERSION, ActionType, Proposal, content_hash
 from rtb.executor import approval, attempt_store, guardrails
 from rtb.executor.approval import Approval
 from rtb.executor.attempt_store import (
@@ -415,6 +415,11 @@ def _no_progress(key: str, receipt: Receipt | None) -> NoReturn:
     raise ExecutorHalted("no_progress")
 
 
+# 待寫呼叫紀錄的硬上限(暫用,代使用者裁定,代碼審第 2 輪):到上限就不開始新的一筆處理或對帳(不送新的
+# DSP 呼叫),只做補寫,補寫成功才恢復。一筆處理最多幾次 DSP 呼叫,所以上限可能多出那幾列。
+MAX_PENDING_CALLS = 50
+
+
 @dataclass(frozen=True)
 class _PendingCall:
     """還沒寫進去的一列呼叫紀錄:時間是呼叫當下的,不是補寫時的。"""
@@ -443,7 +448,8 @@ class Executor:
 
     def _calls(self, proposal: Proposal, key: str) -> OnDspCall:
         """給 DSP 用戶端的回呼,綁好這次呼叫是為了哪份提案(每個呼叫點顯式傳)。"""
-        subject = CallSubject(proposal.task_id, proposal.revision, proposal.campaign_id, key)
+        subject = CallSubject(proposal.task_id, proposal.revision, proposal.campaign_id, key,
+                              content_hash(proposal))
 
         def on_call(call: DspCall) -> None:
             self._pending.append(_PendingCall(call, subject, self.clock()))
@@ -451,23 +457,52 @@ class Executor:
 
         return on_call
 
-    def flush_calls(self) -> None:
-        """把欠著的呼叫紀錄用一個新的短交易寫進去;資料庫忙碌就留著下次再補,永遠不丟忙碌例外
-        (丟出去會蓋掉已經發生的 DSP 結果、對帳整輪被放棄;代碼審第 1 輪三席)。所以只有行程當機才會
-        少記。其他資料庫錯誤照舊往外丟。每一份工作開始前與結束時也各補一次。"""
+    def flush_calls(self) -> bool:
+        """把欠著的呼叫紀錄用一個新的短交易寫進去,回傳是否排空;資料庫忙碌就留著下次再補,永遠不丟
+        忙碌例外(丟出去會蓋掉已經發生的 DSP 結果、對帳整輪被放棄;代碼審第 1 輪三席)。補寫仍忙由
+        啟動程式跟主交易忙碌一樣計數(代碼審第 2 輪)。其他資料庫錯誤照舊往外丟。
+
+        先把這一批從清單拿出來再開交易,交易沒成就原樣放回清單最前面(代碼審第 3 輪,代使用者裁定):
+        提交之後才被 Ctrl+C 打斷時,例外會展開堆疊、跑啟動程式收尾的補寫,這批要是還在清單上就會
+        重寫一次(呼叫紀錄表沒有能去重的鍵)。放回的條件:這一批還沒寫完(交易一定回滾了),或是一般例外
+        (提交本身失敗也會回滾)。寫完之後才到的中斷不放回:訊號例外要等提交那一步回來才丟,那時已經
+        提交。所以不會重寫;中斷落在「拿出來之後、放回之前」或「寫完之後、提交之前」這兩段極短的空檔,
+        那一批就少記,跟當機一樣。"""
         if not self._pending:
-            return
-        waiting = list(self._pending)
+            return True
+        batch = self._pending[:]
+        del self._pending[:]
+        written = False
         try:
             with self.store.transaction() as tx:
-                for item in waiting:
+                for item in batch:
                     attempt_store.record_dsp_call(tx, item.call, item.subject, self._by, item.at)
+                written = True
         except InboxBusy:
-            return
-        del self._pending[:len(waiting)]
+            self._pending[:0] = batch
+            return False
+        except BaseException as exc:
+            if not written or isinstance(exc, Exception):
+                self._pending[:0] = batch
+            raise
+        return True
+
+    def _backlogged(self) -> bool:
+        """先補寫一次;待寫清單仍到上限就不開始新的工作(背壓)。"""
+        return not self.flush_calls() and len(self._pending) >= MAX_PENDING_CALLS
+
+    def owes_calls(self) -> bool:
+        """還有沒寫進去的呼叫紀錄。每一次呼叫、每一份工作結束都立刻補寫,所以清單不空就等於這一輪最後
+        一次補寫仍忙(啟動程式用它計忙碌,不自己再補寫一次;代碼審第 3 輪)。"""
+        return bool(self._pending)
+
+    def unrecorded(self) -> tuple[str | None, ...]:
+        """還沒寫進去的呼叫紀錄的冪等鍵(一列一個;啟動程式收尾時印出少記哪些)。"""
+        return tuple(item.subject.key for item in self._pending)
 
     def process_one(self) -> Processed:
-        self.flush_calls()
+        if self._backlogged():
+            return Processed(Result.DEFERRED)
         with self.store.transaction() as tx:
             delivery = self.store.receive(tx, self.clock(), self.owner)
         if delivery is None:
@@ -1036,6 +1071,8 @@ class Executor:
         處理中的(人工處置只寫嘗試紀錄,或中途當機留下的漏網)。依最新一列寫入時間由舊到新。
 
         回傳這一輪有沒有 DSP 呼叫失敗:有就讓啟動程式這輪結束後休息,DSP 變慢時不連續全速打它。
+        對帳之前先補寫欠著的呼叫紀錄;每一把鍵開始前看待寫清單,到上限就不再對帳(不送新的 DSP 呼叫),
+        所以一開始就滿或對帳到一半滿了都會停。每一把鍵結束時也補寫一次。
         """
         self.flush_calls()
         with self.store.transaction() as tx:
@@ -1048,6 +1085,8 @@ class Executor:
         troubled = False
         corrupted = list(unreadable)
         for key in keys:
+            if len(self._pending) >= MAX_PENDING_CALLS:  # 開始前或上一把鍵結束時剛補寫過
+                break
             try:
                 troubled = self._reconcile(key) or troubled
             except LeaseLost:

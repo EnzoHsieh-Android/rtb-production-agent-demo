@@ -42,7 +42,9 @@ def test_audit_tables_are_only_ever_inserted_into():
                  for text in audit_violations(tree)]
     assert offenders == []
     assert registry_violations(inbox_store._ADDED_COLUMNS) == []
-    assert set(inbox_store._ADDED_COLUMNS) & set(GUARDED) == {"attempts"}  # 登記表今天只有嘗試紀錄
+    # 登記表今天有嘗試紀錄與 DSP 呼叫紀錄(增量 1 代碼審第 2 輪補內容雜湊欄);兩張都受守護,
+    # 上一行逐欄驗過
+    assert set(inbox_store._ADDED_COLUMNS) & set(GUARDED) == {"attempts", "dsp_calls"}
     created = [m.group(1) for tree in trees.values()
                for text in reconstructed_strings(tree, skip_docstrings=True)
                for m in re.finditer(r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)", text)]

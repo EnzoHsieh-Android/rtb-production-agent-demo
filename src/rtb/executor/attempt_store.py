@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS dsp_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, call_kind TEXT NOT NULL,
     result TEXT NOT NULL, status INTEGER, error_code TEXT, latency_ms REAL NOT NULL,
     task_id TEXT, revision INTEGER, campaign_id TEXT, key TEXT, source TEXT, actor TEXT,
+    content_hash TEXT,
     program_version TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS dsp_calls_by_time ON dsp_calls (at);
 CREATE INDEX IF NOT EXISTS dsp_calls_by_task ON dsp_calls (task_id, id);
@@ -104,7 +105,9 @@ ADDED_COLUMNS = (
 # DSP 呼叫紀錄表的欄位(唯讀開法用它判斷資料庫升級了沒有)
 DSP_CALL_FIELDS = ("id", "at", "call_kind", "result", "status", "error_code", "latency_ms",
                    "task_id", "revision", "campaign_id", "key", "source", "actor",
-                   "program_version")
+                   "program_version", "content_hash")
+# 呼叫紀錄表在同一個增量裡後補的欄位(代碼審第 2 輪):這個分支早先開過的資料庫開啟時補上
+DSP_CALL_ADDED_COLUMNS = (("content_hash", "content_hash TEXT"),)
 # 可觀測查詢(Phase 6 增量 4)用的第一列按租戶與開始時間索引。參照後補的租戶欄,不能放進 SCHEMA:
 # 開庫是先跑整份建表建索引、後補欄位,舊資料庫一開就會找不到欄位;由補欄位流程補完欄位之後才建
 TENANT_INDEX = ("CREATE INDEX IF NOT EXISTS attempts_first_rows_by_tenant "
@@ -312,12 +315,14 @@ class DspCall:
 
 @dataclass(frozen=True)
 class CallSubject:
-    """呼叫紀錄的關聯欄位:這次呼叫是為了哪一份提案。"""
+    """呼叫紀錄的關聯欄位:這次呼叫是為了哪一份提案。內容雜湊在呼叫當下記下:冪等鍵不含決策時間與
+    說明文字、內容雜湊含,兩份提案可以同鍵不同雜湊,事後從鍵回推會撞(代碼審第 2 輪兩席)。"""
 
     task_id: str | None
     revision: int | None
     campaign_id: str | None
     key: str | None
+    content_hash: str | None
 
 
 @dataclass(frozen=True)
@@ -336,6 +341,7 @@ class DspCallRow:
     source: str | None
     actor: str | None
     program_version: str
+    content_hash: str | None
 
 
 @dataclass(frozen=True)
@@ -890,12 +896,12 @@ def record_dsp_call(
     source, actor = _by(by)
     conn.execute(
         "INSERT INTO dsp_calls (at, call_kind, result, status, error_code, latency_ms, task_id, "
-        "revision, campaign_id, key, source, actor, program_version) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "revision, campaign_id, key, source, actor, program_version, content_hash) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (_iso(now), call.kind.value, call.result.value, call.status,
          None if call.error is None else call.error.value, float(call.latency_ms),
          subject.task_id, subject.revision, subject.campaign_id, subject.key, source, actor,
-         PROGRAM_VERSION))
+         PROGRAM_VERSION, subject.content_hash))
 
 
 def dsp_calls_between_query(since: datetime, until: datetime) -> tuple[str, tuple[str, ...]]:

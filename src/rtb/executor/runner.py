@@ -66,6 +66,8 @@ def _loop(
             troubled = executor.reconcile_all()  # 先對帳,再處理待核可,再處理新提案
             executor.process_awaiting()
             result = executor.process_one()
+            # 這一輪最後一次補寫仍忙:跟主交易忙碌一樣計數。每份工作前後都補寫過,不再多撞一次鎖
+            behind = executor.owes_calls()
         except InboxBusy as busy:  # 多工作者下等鎖逾時是正常競爭:這一輪休息,連續幾次才停
             busy_streak += 1
             if busy_streak >= BUSY_LIMIT:
@@ -76,9 +78,13 @@ def _loop(
         except ExecutorHalted as halted:  # 出事就停,讓人注意到;重啟時會做恢復
             sys.stderr.write(f"停機:{halted}\n")
             return EXIT_HALTED
-        busy_streak = 0
-        # 對帳有 DSP 呼叫失敗就照樣休息:DSP 變慢時不連續全速打它
-        if troubled or result.kind in _IDLE_RESULTS:
+        busy_streak = busy_streak + 1 if behind else 0
+        if busy_streak >= BUSY_LIMIT:
+            sys.stderr.write(f"停機:DSP 呼叫紀錄連續 {busy_streak} 輪補寫不進去(資料庫忙碌),"
+                             f"欠 {len(executor.unrecorded())} 列\n")
+            return EXIT_BUSY
+        # 對帳有 DSP 呼叫失敗、或呼叫紀錄還欠著,就照樣休息:DSP 變慢或資料庫忙時不連續全速打
+        if behind or troubled or result.kind in _IDLE_RESULTS:
             sleep(interval)
     return 0
 
@@ -87,11 +93,15 @@ def _serve(
     executor: Executor, interval: float, max_rounds: int | None,
     sleep: Callable[[float], None],
 ) -> int:
-    """跑迴圈;結束前補寫欠著的呼叫紀錄,還是忙就只能放掉(跟當機一樣少記那幾列)。"""
+    """跑迴圈;結束前補寫欠著的呼叫紀錄。還是忙就只能放掉,但照實印出少記幾列、哪些冪等鍵,不無聲
+    (代碼審第 2 輪,代使用者裁定);退出碼照舊。"""
     try:
         return _loop(executor, interval, max_rounds, sleep)
     finally:
-        executor.flush_calls()
+        if not executor.flush_calls():
+            keys = executor.unrecorded()
+            sys.stderr.write(f"少記 {len(keys)} 列 DSP 呼叫紀錄(結束時資料庫仍忙):"
+                             f"{', '.join(sorted({str(key) for key in keys}))}\n")
 
 
 @dataclass(frozen=True)

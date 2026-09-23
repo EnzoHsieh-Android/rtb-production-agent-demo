@@ -16,7 +16,7 @@ from rtb.analyzer.task_store import FollowUp, ReplanReason, TaskReader
 from rtb.domain.attempt import operation_key
 from rtb.domain.proposal import content_hash
 from rtb.domain.task_state import TaskState
-from rtb.executor.execution import Result
+from rtb.executor.execution import CampaignView, Result
 from rtb.executor.inbox_store import RETENTION, ReadOnlyInbox
 from rtb.ops import trace
 from rtb.ops.trace import MISSING, KeyOrigin, Origin, Table
@@ -295,3 +295,34 @@ def test_the_trace_command_line_reports_bad_arguments_apart_from_a_missing_datab
         assert exited.value.code == trace.EXIT_BAD_ARGUMENTS != trace.EXIT_NO_DATABASE, drop
         assert "參數錯誤" in capsys.readouterr().err
     assert trace.run(full, out=io.StringIO(), err=io.StringIO()) == trace.EXIT_NO_DATABASE
+
+
+# ---- [S614] 代碼審第 2 輪:同一把冪等鍵、內容雜湊不同的兩份提案,呼叫紀錄各帶自己的雜湊 ----
+def test_calls_for_two_proposals_sharing_a_key_keep_their_own_content_hash(world):
+    world.h.dsp.campaigns["c1"] = CampaignView(budget=100, status="paused", version=3)
+    first, result = world.execute(task_id="sk")  # 廣告暫停:執行前擋下,只讀過一次 DSP
+    assert result.kind is Result.BLOCKED
+    world.clock.advance(seconds=RETENTION.total_seconds() + 60)
+    now = world.clock()
+    fresh = {"decision_created_at": now.isoformat(),
+             "decision_expires_at": (now + timedelta(minutes=5)).isoformat()}
+    world.h.store.accept(proposal(task_id="other", campaign_id="c3", **fresh), world.clock)
+    world.h.process()
+    world.h.dsp.campaigns["c1"] = CampaignView(budget=100, status="active", version=3)
+    second, result = world.execute(task_id="sk", **fresh)  # 只改決策時間:同一把冪等鍵
+    assert result.kind is Result.EXECUTED
+    assert operation_key(first) == operation_key(second)
+    assert content_hash(first) != content_hash(second)
+
+    rows = world.h.query("SELECT content_hash FROM dsp_calls WHERE task_id = 'sk' ORDER BY id")
+    assert [r[0] for r in rows] == [content_hash(first)] + [content_hash(second)] * 3
+    calls = [s for s in build(world, "sk").segments if s.table is Table.DSP_CALLS]
+    assert [s.field("content_hash") for s in calls] == [r[0] for r in rows]
+
+    # 呼叫紀錄沒記雜湊時標「不明」,不從別處任選一個
+    conn = sqlite3.connect(world.executor_db)
+    conn.execute("UPDATE dsp_calls SET content_hash = NULL WHERE task_id = 'sk'")
+    conn.commit()
+    conn.close()
+    calls = [s for s in build(world, "sk").segments if s.table is Table.DSP_CALLS]
+    assert {s.field("content_hash") for s in calls} == {trace.UNKNOWN}
