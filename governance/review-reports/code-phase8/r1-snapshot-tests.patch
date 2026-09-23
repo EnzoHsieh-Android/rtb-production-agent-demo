@@ -1,0 +1,1082 @@
+diff --git a/tests/analyzer/test_dead_letter_wait.py b/tests/analyzer/test_dead_letter_wait.py
+new file mode 100644
+index 0000000..3ac1a98
+--- /dev/null
++++ b/tests/analyzer/test_dead_letter_wait.py
+@@ -0,0 +1,60 @@
++"""分析端對死信與兩個新擋下原因的處理(Phase 8):S507。
++
++Phase 5 [S304] 的死信那一半改掉:死信可能被重放、之後真的寫進 DSP,所以收件口回死信而決策還沒
++過期時分析端當成還在處理、等待;決策已過期才結案、不建接續任務。過期沒由分析端用自己的時鐘
++比對提案快照的到期時間(收件口不會把死信轉成已過期)。收件口回「政策已變」或「決策已過時」就建
++接續任務重新規劃。
++"""
++
++from datetime import timedelta
++
++import pytest
++
++from rtb.analyzer.task_store import ReplanReason, follow_up_id, replan_counts
++from rtb.domain.task_state import TaskState
++from tests.analyzer.conftest import NOW, Counting
++from tests.analyzer.test_replan import _handed_off, answer, step
++
++EXPIRES = NOW + timedelta(minutes=30)  # 樣本提案的決策到期時間
++
++
++# ---- [S507] ----
++def test_the_analyzer_waits_on_a_live_dead_letter_and_replans_on_stale_reasons(store):
++    proposal = _handed_off(store)
++    before = store.latest("t1").seq
++
++    live = step(store, Counting(returns=answer(proposal, "dead_letter")),
++                now=EXPIRES - timedelta(seconds=1))
++
++    assert live is TaskState.HANDED_OFF  # 還沒過期:可能被重放,等
++    assert store.latest("t1").seq == before
++    assert store.follow_up_to("t1") is None
++
++
++def test_an_expired_dead_letter_closes_the_task_without_a_follow_up(store):
++    proposal = _handed_off(store)
++
++    closed = step(store, Counting(returns=answer(proposal, "dead_letter")), now=EXPIRES)
++
++    assert closed is TaskState.BLOCKED  # 到期那一刻起算已過期(跟收件口判過期同一個邊界)
++    assert "dead_letter" in store.latest("t1").error_detail
++    assert store.follow_up_to("t1") is None  # 死信是暫時失敗用完,不自動重做
++
++
++@pytest.mark.parametrize(("code", "reason"), [
++    ("policy_version_changed", ReplanReason.POLICY_VERSION_CHANGED),
++    ("decision_stale", ReplanReason.DECISION_STALE),
++])
++def test_a_new_block_reason_hands_the_task_over_to_a_follow_up(store, code, reason):
++    proposal = _handed_off(store)
++
++    result = step(store, Counting(returns=answer(proposal, "blocked", code)))
++
++    assert result is TaskState.BLOCKED
++    child = follow_up_id("t1")
++    detail = store.latest("t1").error_detail
++    assert f"blocked={code}" in detail and f"replan={reason.value}" in detail
++    assert store.latest(child).state is TaskState.RECEIVED
++    assert store.follow_up_of(child) == "t1"
++    assert replan_counts(store).replanned == 1
++    assert store._conn.execute("SELECT reason FROM follow_ups").fetchall() == [(reason.value,)]
+diff --git a/tests/analyzer/test_f6_end_to_end.py b/tests/analyzer/test_f6_end_to_end.py
+new file mode 100644
+index 0000000..5d9cbf3
+--- /dev/null
++++ b/tests/analyzer/test_f6_end_to_end.py
+@@ -0,0 +1,142 @@
++"""事故 F6 端到端:Phase 8 的 S509。
++
++舊工作進了死信,之後廣告、政策或決策變了;重放時必須重新驗證並拒絕舊決策,分析端改為重新規劃,
++不能直接寫入。四組:廣告版本變、政策版本變、決策變舊,各自被擋下並給對應原因、分析端另開接續
++任務,DSP 上沒有舊決策的值;沒有任何變化的那一組重放後照常寫成、任務完成。
++組法照事故 F4 端到端:真的模擬 DSP、收件口、分析行程與執行迴圈。讀不到 DSP 用連不上的位址造;
++「決策變舊」用執行端時鐘往後推 16 分鐘(其他服務照真實時間,DSP 只容許 30 秒的時鐘誤差,
++所以只給執行端推,而且這一組在簽發之後、送出之前就擋下,不會帶著推過的時間去 DSP)。
++"""
++
++import io
++import json
++import sqlite3
++import threading
++from datetime import timedelta
++
++import pytest
++
++from rtb.analyzer.task_store import TaskStore, follow_up_id
++from rtb.domain.task_state import TaskState
++from rtb.dsp.server import DspServer
++from rtb.dsp.store import CampaignStore
++from rtb.executor import replay as replay_tool
++from rtb.executor.capability_signer import CapabilitySigner
++from rtb.executor.dsp_client import DspClient
++from rtb.executor.execution import Executor
++from rtb.executor.inbox_server import InboxServer
++from rtb.executor.inbox_store import MAX_DELIVERIES, InboxStore
++from tests.analyzer.test_f4_end_to_end import (
++    OTHER_BUDGET,
++    STALE_BUDGET,
++    _advance,
++    _now,
++    _other_writer_changes_the_budget,
++)
++from tests.capability_samples import TEST_KEY
++from tests.executor.fakes import write_config
++
++UNREACHABLE = "http://127.0.0.1:9"  # 沒有人在聽:讀 DSP 立刻失敗,投遞次數用完進死信
++EXPECTED_BLOCK = {"version": "version_changed", "policy": "policy_version_changed",
++                  "stale": "decision_stale"}
++
++
++def _execute(tmp_path, client, clock=_now):
++    store = InboxStore(tmp_path / "inbox.db")
++    try:
++        Executor(store, client, CapabilitySigner(TEST_KEY),
++                 write_config(tmp_path / "tenants.json"), clock).process_one()
++    finally:
++        store.close()
++
++
++def run_f6(tmp_path, monkeypatch, change):
++    dsp_db = tmp_path / "dsp.db"
++    seeding = CampaignStore(dsp_db)
++    seeding.seed_campaign("c1", budget=100)
++    seeding.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=0.5,
++                         revenue=5.0)
++    seeding.close()
++    dsp = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
++                    capability_key=TEST_KEY)
++    try:
++        threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
++        inbox = InboxServer(tmp_path / "inbox.db", fault_injection=False)
++        try:
++            threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
++            return _walk(tmp_path, monkeypatch, change,
++                         f"http://127.0.0.1:{dsp.server_address[1]}",
++                         f"http://127.0.0.1:{inbox.server_address[1]}")
++        finally:
++            inbox.shutdown()
++            inbox.server_close()
++    finally:
++        dsp.shutdown()
++        dsp.server_close()
++
++
++def _walk(tmp_path, monkeypatch, change, dsp_url, inbox_url):
++    analyzer = TaskStore(tmp_path / "analyzer.db")
++    try:
++        analyzer.create_task("t1", "c1", _now())
++        _advance(analyzer, "t1", dsp_url, inbox_url)  # 分析完、送出提案:停在已交給執行
++        for _ in range(MAX_DELIVERIES + 1):  # DSP 一直讀不到:投遞次數用完進死信
++            _execute(tmp_path, DspClient(UNREACHABLE, 0.2))
++        waited = _advance(analyzer, "t1", dsp_url, inbox_url)  # 死信、決策還沒過期:等
++
++        clock = _now
++        if change == "version":
++            _other_writer_changes_the_budget(tmp_path / "dsp.db")
++        elif change == "policy":  # 執行端先升級到新政策版本
++            monkeypatch.setattr("rtb.executor.execution.POLICY_VERSION", "demo-pacing-v2")
++        elif change == "stale":
++            def clock():
++                return _now() + timedelta(minutes=16)
++        replayed = replay_tool.run(
++            ["--db", str(tmp_path / "inbox.db"), "--task-id", "t1", "--revision", "1",
++             "--operator", "ops-f6"], clock=clock, out=io.StringIO())
++        _execute(tmp_path, DspClient(dsp_url, 3.0), clock)
++        _advance(analyzer, "t1", dsp_url, inbox_url)
++        return _facts(tmp_path, analyzer, waited, replayed)
++    finally:
++        analyzer.close()
++
++
++def _facts(tmp_path, analyzer, waited, replayed):
++    conn = sqlite3.connect(tmp_path / "dsp.db")
++    try:
++        writes = [json.loads(params)["new_budget"] for (params,) in conn.execute(
++            "SELECT params_json FROM operations WHERE campaign_id = 'c1' ORDER BY operation_id")]
++    finally:
++        conn.close()
++    conn = sqlite3.connect(tmp_path / "inbox.db")
++    try:
++        actions = [a for (a,) in conn.execute("SELECT action FROM dead_letter_ops ORDER BY id")]
++    finally:
++        conn.close()
++    return {"waited": waited, "replayed": replayed, "writes": writes, "actions": actions,
++            "original": analyzer.latest("t1"), "child": analyzer.follow_up_to("t1")}
++
++
++# ---- [S509] ----
++@pytest.mark.parametrize("change", ["unchanged", "version", "policy", "stale"])
++def test_f6_a_stale_dead_letter_is_revalidated_on_replay(tmp_path, monkeypatch, change):
++    facts = run_f6(tmp_path, monkeypatch, change)
++
++    assert facts["waited"] is TaskState.HANDED_OFF  # 死信還能重放:分析端沒結案
++    assert facts["replayed"] == 0
++    assert facts["actions"] == ["dead_lettered", "replay_requested", "replay_requeued"]
++
++    if change == "unchanged":  # 沒有任何變化:重放照常寫成
++        assert facts["writes"] == [STALE_BUDGET]
++        assert facts["original"].state is TaskState.COMPLETED
++        assert facts["child"] is None
++        return
++
++    code = EXPECTED_BLOCK[change]
++    assert facts["original"].state is TaskState.BLOCKED
++    assert facts["original"].error_detail == (
++        f"blocked={code};replan={code};follow_up={follow_up_id('t1')}")
++    assert facts["child"] == follow_up_id("t1")
++    assert STALE_BUDGET not in facts["writes"]  # 舊決策從沒寫進 DSP
++    assert facts["writes"] == ([OTHER_BUDGET] if change == "version" else [])
+diff --git a/tests/analyzer/test_replan.py b/tests/analyzer/test_replan.py
+index 3ec81a0..98365e5 100644
+--- a/tests/analyzer/test_replan.py
++++ b/tests/analyzer/test_replan.py
+@@ -178,24 +178,25 @@ def test_a_version_conflict_hands_the_task_over_to_a_follow_up(store):
+ 
+ # ---- S313 ----
+ def test_an_expired_decision_is_replanned(store):
+     proposal = _handed_off(store)
+ 
+     assert step(store, Counting(returns=answer(proposal, "expired"))) is TaskState.BLOCKED
+     assert store.follow_up_to("t1") == follow_up_id("t1")
+ 
+ 
+ # ---- S304 ----
++# 死信那一組由 Phase 8 [S507] 取代(計劃改 Phase 5 [S304] 的死信那一半):決策還沒過期時等、
++# 過期才結案,見 test_dead_letter_wait.py。這裡留擋下的四種
+ @pytest.mark.parametrize(("state", "code"), [
+     ("blocked", "not_permitted"), ("blocked", "operation_previously_failed"),
+-    ("blocked", "campaign_not_found"), ("blocked", "campaign_not_active"),
+-    ("dead_letter", None)])
++    ("blocked", "campaign_not_found"), ("blocked", "campaign_not_active")])
+ def test_other_blocks_close_the_task_without_a_follow_up(store, state, code):
+     proposal = _handed_off(store)
+ 
+     assert step(store, Counting(returns=answer(proposal, state, code))) is TaskState.BLOCKED
+     detail = store.latest("t1").error_detail
+     assert state in detail
+     assert code is None or code in detail
+     assert store.follow_up_to("t1") is None
+ 
+ 
+diff --git a/tests/executor/fakes.py b/tests/executor/fakes.py
+index 3a9b47e..8b7de8c 100644
+--- a/tests/executor/fakes.py
++++ b/tests/executor/fakes.py
+@@ -6,36 +6,39 @@
+ 改那邊時回頭改這裡。測試要模擬別的回應就排進 `answers`/`void_answers`,
+ 要在呼叫當下插一腳(例如趁讀取時送新修訂)就設 `on_read`/`on_write`。
+ """
+ 
+ import json
+ import os
+ import threading
+ from dataclasses import replace
+ from pathlib import Path
+ 
+-from rtb.domain.proposal import ActionType, parse_proposal
++from rtb.domain.proposal import POLICY_VERSION, ActionType, parse_proposal
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.execution import (
+     CampaignView,
+     DspUnavailable,
+     Executor,
+     OperationRecord,
+     VoidAnswer,
+     WriteAnswer,
+ )
+ from rtb.executor.inbox_store import InboxStore
+ from tests.capability_samples import TEST_APPROVAL_KEY, TEST_KEY
+ from tests.domain.proposal_samples import valid
+ 
+ 
+ def proposal(**overrides):
++    # Phase 8 起執行前檢查會擋政策版本不是現行版本的提案;樣本預設的 "v1" 不是現行版本,執行端測試
++    # 預設改用現行版本。要測舊版本被擋就明寫 policy_version(新規則造成的改動,不是放寬檢查)
++    overrides.setdefault("policy_version", POLICY_VERSION)
+     parsed = parse_proposal(valid(**overrides))
+     assert parsed.proposal is not None, parsed.errors
+     return parsed.proposal
+ 
+ 
+ # 總曝險門檻預設給寬鬆值:Phase 6 之前的測試不是在測總曝險,缺欄會當 0 把加預算全擋掉
+ LOOSE_AGGREGATE_LIMIT = 10**12
+ 
+ 
+ def write_config(path: Path, campaigns=("c1", "c2", "c3"), max_budget=1000,
+diff --git a/tests/executor/test_approval.py b/tests/executor/test_approval.py
+index bfab628..3bf57a9 100644
+--- a/tests/executor/test_approval.py
++++ b/tests/executor/test_approval.py
+@@ -272,21 +272,22 @@ def test_an_applied_approval_is_audited(h):
+ 
+ 
+ # ---- [S356] ----
+ def test_awaiting_approval_reads_as_still_open(h):
+     prop = waiting(h, RATIO)
+ 
+     answer = h.store.accept(prop, h.clock)  # 分析端重送同一份提案問狀態
+ 
+     assert (answer.state, answer.block_code) == ("awaiting_approval", None)
+     assert _belongs_to(answer, prop)  # 讀得懂
+-    assert _from_inbox_answer(answer) is None  # 當成等待:這一輪沒有進展,不結案、不重新規劃
++    # 當成等待:這一輪沒有進展,不結案、不重新規劃(Phase 8 起這一步多收提案快照與「現在」)
++    assert _from_inbox_answer(answer, prop, h.clock()) is None
+ 
+ 
+ # ---- [S357] ----
+ def _tool_args(h, **overrides):
+     values = {"task-id": "t1", "revision": "1", "stage": RATIO.value, "max-increase": "51",
+               "approver": "ops", "expires-in-seconds": "600", **overrides}
+     args = ["--db", str(h.db), "--tenant-config", str(h.config)]
+     for name, value in values.items():
+         args += [f"--{name}", value]
+     return args
+@@ -428,34 +429,37 @@ def test_hard_rules_win_over_approvable_ones(h, config, code):
+     submit(h, 151)
+     write_config(h.config, **config)
+ 
+     result = h.process()
+ 
+     assert (result.kind, result.block_code) == (Result.BLOCKED, code)
+     assert row(h)[1] == "blocked" and stops(h) == []
+ 
+ 
+ # ---- [S375] ----
+-def test_an_approval_is_void_across_policy_or_tenant_changes(h):
+-    old_policy = h.submit(requested_change={"new_budget": 151}, policy_version="v1")
+-    assert h.process().kind is Result.AWAITING_APPROVAL
++def test_an_approval_is_void_across_policy_or_tenant_changes(h, monkeypatch):
++    # Phase 8 起政策版本不是現行版本的提案在執行前檢查就擋下、進不了待核可;改成照實際會發生的
++    # 順序造:用現行版本停在待核可、簽了核可,之後政策換版(新規則造成的改動,驗的東西不變)
++    old_policy = waiting(h, RATIO)
+     approve_it(h, old_policy, RATIO)
+-    assert settle(h) == 0  # 提案的政策版本不是目前那一版
++    with monkeypatch.context() as changed:
++        changed.setattr(approval, "POLICY_VERSION", "demo-pacing-v2")
++        assert settle(h) == 0  # 提案的政策版本不是目前那一版
+ 
+     moved = waiting(h, RATIO, task_id="t2", campaign_id="c2")
+     approve_it(h, moved, RATIO)
+     spec = {"campaigns": ["c1", "c2", "c3"], "max_budget": 1000,
+             "aggregate_limit": LOOSE_AGGREGATE_LIMIT}
+     h.config.write_text(json.dumps({"tenants": {"t-other": spec}}), encoding="utf-8")
+     assert settle(h) == 0  # 改掛到設定一模一樣的另一個租戶
+     write_config(h.config)
+-    assert settle(h) == 1  # 對照:換回原租戶就算數
++    assert settle(h) == 2  # 對照:換回原租戶就算數(第一份的政策也已換回,兩份一起放回)
+ 
+ 
+ SCOPE_CHANGES = {  # 範圍指紋的每一樣材料各自改一次(F7 轉正第四次審計:原本只驗到其中三樣)
+     "tenant_name": lambda h, _mp: h.config.write_text(json.dumps({"tenants": {"t-other": {
+         "campaigns": ["c1", "c2", "c3"], "max_budget": 1000,
+         "aggregate_limit": LOOSE_AGGREGATE_LIMIT}}}), encoding="utf-8"),
+     "campaigns": lambda h, _mp: write_config(h.config, campaigns=("c1", "c2", "c3", "c9")),
+     "max_budget": lambda h, _mp: write_config(h.config, max_budget=999),
+     "aggregate_limit": lambda h, _mp: write_config(h.config,
+                                                   aggregate_limit=LOOSE_AGGREGATE_LIMIT - 1),
+diff --git a/tests/executor/test_dead_letter.py b/tests/executor/test_dead_letter.py
+new file mode 100644
+index 0000000..200592f
+--- /dev/null
++++ b/tests/executor/test_dead_letter.py
+@@ -0,0 +1,364 @@
++"""死信信封、失敗分類、重放與死信操作稽核(Phase 8):S500、S501、S502、S508、S510。
++
++進死信在同一個交易裡寫一列死信信封(只增不改、不被清理);重放是管理指令把還活著的死信放回
++待處理,每一個死信操作(進死信、要求重放、重放被拒、重放已放回佇列)都寫一列稽核。
++"""
++
++import io
++import sqlite3
++import threading
++
++import pytest
++
++from rtb.domain.attempt import operation_key
++from rtb.domain.proposal import content_hash
++from rtb.executor import replay as replay_tool
++from rtb.executor.execution import CampaignView, Result
++from rtb.executor.inbox_store import (
++    MAX_DELIVERIES,
++    RETENTION,
++    BlockCode,
++    DeadLetterAction,
++    FailureClass,
++    InboxRejected,
++    InboxStore,
++    LastFailure,
++    ReplayOutcome,
++    failure_class,
++)
++from tests.executor.fakes import Harness, proposal, write_config
++
++OPERATOR = "ops-alice"
++
++
++@pytest.fixture
++def h(tmp_path, clock):
++    harness = Harness(tmp_path, clock)
++    yield harness
++    harness.close()
++
++
++def dead_letter(h, **overrides):
++    """讀不到 DSP 直到投遞次數用完:第 MAX_DELIVERIES + 1 次取件時進死信。"""
++    prop = h.submit(**overrides)
++    h.dsp.read_failures = MAX_DELIVERIES
++    for _ in range(MAX_DELIVERIES):
++        assert h.process().kind is Result.DEFERRED
++    assert h.process().kind is Result.IDLE  # 這一次取件把它寫成死信
++    return prop
++
++
++def envelopes(h):
++    return h.query("SELECT id, task_id, revision, content_hash, key, failure_class, reason, "
++                   "last_failure, deliveries FROM dead_letters ORDER BY id")
++
++
++def audit(h):
++    return h.query("SELECT envelope, task_id, revision, action, operator, reason "
++                   "FROM dead_letter_ops ORDER BY id")
++
++
++def replay(h, task_id="t1", revision=1, operator=OPERATOR):
++    return h.store.replay(task_id, revision, operator, h.clock())
++
++
++def disposition(h, task_id="t1"):
++    return next(row[2:4] for row in h.proposals() if row[0] == task_id)
++
++
++# ---- [S500] ----
++def test_a_dead_letter_leaves_a_durable_envelope(h):
++    prop = dead_letter(h)
++
++    assert disposition(h) == ("pending", "dead_letter")
++    assert envelopes(h) == [(1, "t1", 1, content_hash(prop), operation_key(prop), "transient",
++                             "delivery_limit", "dsp_unavailable", MAX_DELIVERIES)]
++
++    h.clock.advance(seconds=RETENTION.total_seconds() + 1)  # 過保留期,下一次收件順手清掉
++    with pytest.raises(InboxRejected):  # 樣本提案早已過期:拒收,但清理照樣提交
++        h.submit(task_id="t9")
++    assert h.proposals() == []
++    assert len(envelopes(h)) == 1  # 收件表清掉了,信封還在
++
++
++def test_a_dead_letter_writes_its_envelope_in_the_same_transaction(h, monkeypatch):
++    h.submit()
++    h.dsp.read_failures = MAX_DELIVERIES
++    for _ in range(MAX_DELIVERIES):
++        h.process()
++
++    def fail(*_args, **_kwargs):
++        raise RuntimeError("寫信封前當機")
++
++    monkeypatch.setattr(InboxStore, "_record_dead_letter", fail)
++    with pytest.raises(RuntimeError):
++        h.process()
++
++    assert disposition(h) == ("pending", "in_progress")  # 處置沒變成死信:整個交易回滾
++    assert envelopes(h) == [] and audit(h) == []
++
++
++def test_a_replayed_proposal_that_dead_letters_again_gets_a_second_envelope(h):
++    dead_letter(h)
++    assert replay(h) is ReplayOutcome.REQUEUED
++    h.dsp.read_failures = MAX_DELIVERIES
++    for _ in range(MAX_DELIVERIES):
++        assert h.process().kind is Result.DEFERRED
++    assert h.process().kind is Result.IDLE
++
++    assert [row[0] for row in envelopes(h)] == [1, 2]  # 不去重:兩次死信各一列
++    assert [row[:4] for row in audit(h)] == [
++        (1, "t1", 1, "dead_lettered"), (1, "t1", 1, "replay_requested"),
++        (1, "t1", 1, "replay_requeued"), (2, "t1", 1, "dead_lettered")]
++
++
++# ---- [S501] ----
++def test_every_failure_kind_is_classified():
++    for failure in LastFailure:
++        assert failure_class(failure) is FailureClass.TRANSIENT, failure
++    for code in BlockCode:
++        assert failure_class(code) is FailureClass.PERMANENT, code
++    assert {c.value for c in FailureClass} == {"transient", "permanent"}
++
++
++# ---- [S502] ----
++def test_a_replay_requeues_only_a_live_dead_letter(h):
++    dead_letter(h)
++
++    assert replay(h) is ReplayOutcome.REQUEUED
++    assert h.query("SELECT state, disposition, dead_letter_reason, deliveries, lease_owner "
++                   "FROM proposals") == [("pending", None, None, 0, None)]
++    assert replay(h) is ReplayOutcome.NOT_DEAD_LETTER  # 已放回:不再是死信
++
++
++def test_a_replay_is_refused_after_the_proposal_expires(h):
++    dead_letter(h)
++    h.clock.now = proposal().decision_expires_at
++
++    assert replay(h) is ReplayOutcome.EXPIRED
++    assert disposition(h) == ("pending", "dead_letter")
++
++
++def test_a_replay_is_refused_when_the_inbox_no_longer_has_the_proposal(h):
++    assert replay(h) is ReplayOutcome.NOT_IN_INBOX
++    assert audit(h) == [(None, "t1", 1, "replay_requested", OPERATOR, None),
++                        (None, "t1", 1, "replay_refused", OPERATOR, "not_in_inbox")]
++
++
++def test_a_replay_is_refused_when_the_task_has_a_newer_revision(h):
++    dead_letter(h)
++    h.store.accept(proposal(revision=2, requested_change={"new_budget": 140}), h.clock)
++
++    assert replay(h) is ReplayOutcome.SUPERSEDED
++    assert disposition(h) == ("pending", "dead_letter")
++
++
++def test_a_replay_is_refused_when_the_inbox_is_full(tmp_path, clock):
++    h = Harness(tmp_path, clock, max_pending=1)
++    try:
++        dead_letter(h)
++        h.submit(task_id="t2", campaign_id="c2")  # 待處理名額用完
++
++        assert replay(h) is ReplayOutcome.INBOX_FULL
++        assert disposition(h) == ("pending", "dead_letter")
++    finally:
++        h.close()
++
++
++def test_two_simultaneous_replays_requeue_once(h):
++    dead_letter(h)
++    barrier = threading.Barrier(2)
++    results = []
++
++    def one_operator(name):
++        store = InboxStore(h.db)
++        try:
++            barrier.wait()
++            results.append(store.replay("t1", 1, name, h.clock()))
++        finally:
++            store.close()
++
++    threads = [threading.Thread(target=one_operator, args=(f"ops-{i}",)) for i in range(2)]
++    for thread in threads:
++        thread.start()
++    for thread in threads:
++        thread.join()
++
++    assert sorted(r.value for r in results) == ["not_dead_letter", "requeued"]
++
++
++@pytest.mark.parametrize("operator", ["", "has space", "x" * 200])
++def test_a_replay_without_a_valid_operator_is_refused_without_an_audit_row(h, operator):
++    dead_letter(h)
++    before = audit(h)
++
++    assert replay_tool.run(_replay_args(h, operator=operator), clock=h.clock,
++                           err=io.StringIO()) == replay_tool.EXIT_REFUSED
++
++    assert audit(h) == before
++    assert disposition(h) == ("pending", "dead_letter")
++
++
++# ---- [S508] ----
++def test_every_dead_letter_operation_is_audited(h):
++    dead_letter(h)
++    replay(h)
++    replay(h)  # 被拒:已不是死信
++
++    assert audit(h) == [
++        (1, "t1", 1, "dead_lettered", "executor", None),
++        (1, "t1", 1, "replay_requested", OPERATOR, None),
++        (1, "t1", 1, "replay_requeued", OPERATOR, None),
++        (1, "t1", 1, "replay_requested", OPERATOR, None),
++        (1, "t1", 1, "replay_refused", OPERATOR, "not_dead_letter")]
++    assert {a.value for a in DeadLetterAction} == {
++        "dead_lettered", "replay_requested", "replay_refused", "replay_requeued"}
++
++
++# ---- [S510] ----
++def test_an_old_inbox_gains_the_dead_letter_tables(tmp_path, clock):
++    db = tmp_path / "executor.db"
++    old = InboxStore(db)
++    old.accept(proposal(task_id="old"), clock)
++    with old.transaction() as tx:
++        delivery = old.receive(tx, clock(), "worker")
++        assert old.ack_blocked(tx, delivery.receipt, clock(), BlockCode.VERSION_CHANGED)
++    old.close()
++    conn = sqlite3.connect(db)
++    try:  # 退回 Phase 8 之前:沒有兩張新表、允許值清單沒有兩個新擋下原因
++        conn.executescript("DROP TABLE dead_letters; DROP TABLE dead_letter_ops;")
++        sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'proposals'").fetchone()[0]
++        old_sql = sql.replace(", 'policy_version_changed', 'decision_stale'", "")
++        assert old_sql != sql
++        conn.executescript(f"ALTER TABLE proposals RENAME TO p_old; {old_sql};"  # noqa: S608 - 測試模擬舊表
++                           "INSERT INTO proposals SELECT * FROM p_old; DROP TABLE p_old;")
++        before = conn.execute("SELECT * FROM proposals").fetchall()
++    finally:
++        conn.close()
++
++    store = InboxStore(db)
++    try:
++        assert store._conn.execute("SELECT * FROM proposals").fetchall() == before
++        tables = {name for (name,) in store._conn.execute(
++            "SELECT name FROM sqlite_master WHERE type = 'table'")}
++        assert {"dead_letters", "dead_letter_ops"} <= tables
++        store.accept(proposal(task_id="new"), clock)
++        with store.transaction() as tx:
++            delivery = store.receive(tx, clock(), "worker")
++            assert store.ack_blocked(tx, delivery.receipt, clock(), BlockCode.DECISION_STALE)
++    finally:
++        store.close()
++
++
++def test_the_dead_letter_tables_have_their_lookup_indexes(h):
++    plan = " ".join(row[-1] for row in h.query(
++        "EXPLAIN QUERY PLAN SELECT max(id) FROM dead_letters WHERE task_id = ? AND revision = ?",
++        ("t1", 1)))
++    assert "dead_letters_by_proposal" in plan
++    plan = " ".join(row[-1] for row in h.query(
++        "EXPLAIN QUERY PLAN SELECT * FROM dead_letter_ops WHERE envelope = ?", (1,)))
++    assert "dead_letter_ops_by_envelope" in plan
++
++
++def test_a_replay_takes_no_shortcut_past_the_freshness_check(h):
++    """重放不略過任何關卡:放回之後照一般流程取件,決策過時就擋(死信佇列不是第二條通道)。"""
++    dead_letter(h)
++    replay(h)
++    h.clock.advance(minutes=11)  # 12:16:決策已過時、提案還沒到期
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, BlockCode.DECISION_STALE)
++    assert h.dsp.writes == []
++
++
++# ---- [S502] 管理指令 ----
++def _replay_args(h, **overrides):
++    args = {"db": str(h.db), "task-id": "t1", "revision": "1", "operator": OPERATOR, **overrides}
++    return [part for name, value in args.items() for part in (f"--{name}", value)]
++
++
++def test_the_replay_tool_requeues_a_dead_letter_and_reports_refusals(h):
++    dead_letter(h)
++    out = io.StringIO()
++
++    assert replay_tool.run(_replay_args(h), clock=h.clock, out=out) == 0
++    assert out.getvalue().strip() == "requeued"
++    assert disposition(h) == ("pending", None)
++
++    err = io.StringIO()
++    assert replay_tool.run(_replay_args(h), clock=h.clock, err=err) == replay_tool.EXIT_REFUSED
++    assert "not_dead_letter" in err.getvalue()
++    assert replay_tool.run(_replay_args(h, operator="has space"), clock=h.clock,
++                           err=io.StringIO()) == replay_tool.EXIT_REFUSED
++    assert [row[3] for row in audit(h)] == [
++        "dead_lettered", "replay_requested", "replay_requeued", "replay_requested",
++        "replay_refused"]  # 操作人不合格式那一次不寫稽核
++
++
++# ---- [S503] ----
++def _other_version(h, _mp):
++    h.dsp.campaigns["c1"] = CampaignView(budget=100, status="active", version=4)
++
++
++def _policy_upgraded(_h, mp):
++    mp.setattr("rtb.executor.execution.POLICY_VERSION", "demo-pacing-v2")
++
++
++def _stale(h, _mp):
++    h.clock.advance(minutes=11)  # 12:16:決策已過時、提案還沒到期
++
++
++def _not_allowed(h, _mp):
++    write_config(h.config, campaigns=("c2",))
++
++
++def _over_ratio(h, _mp):
++    h.dsp.campaigns["c1"] = CampaignView(budget=99, status="active", version=3)
++
++
++def _aggregate_full(h, _mp):
++    write_config(h.config, aggregate_limit=49)  # 提案從 100 改成 150,要佔 50
++
++
++GATES = {  # 放回之後每一關照一般流程判;可核可的兩關停在待核可(沒有核可就不寫)
++    "version_changed": (_other_version, Result.BLOCKED, BlockCode.VERSION_CHANGED),
++    "policy_version_changed": (_policy_upgraded, Result.BLOCKED, BlockCode.POLICY_VERSION_CHANGED),
++    "decision_stale": (_stale, Result.BLOCKED, BlockCode.DECISION_STALE),
++    "campaign_not_allowed": (_not_allowed, Result.BLOCKED, BlockCode.CAMPAIGN_NOT_ALLOWED),
++    "budget_increase_too_large": (_over_ratio, Result.AWAITING_APPROVAL,
++                                  BlockCode.BUDGET_INCREASE_TOO_LARGE),
++    "aggregate_limit_reached": (_aggregate_full, Result.AWAITING_APPROVAL,
++                                BlockCode.AGGREGATE_LIMIT_REACHED),
++}
++
++
++@pytest.mark.parametrize("gate", list(GATES))
++def test_a_replayed_proposal_goes_through_every_gate(h, monkeypatch, gate):
++    change, kind, code = GATES[gate]
++    dead_letter(h)
++    assert replay(h) is ReplayOutcome.REQUEUED
++    change(h, monkeypatch)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (kind, code)
++    assert h.dsp.writes == []  # 不呼叫 DSP 寫入
++
++
++# ---- [S506] ----
++def test_a_replayed_attempt_links_back_to_its_envelope(h):
++    prop = dead_letter(h)
++    replay(h)
++
++    assert h.process().kind is Result.EXECUTED
++
++    linked = h.query(
++        "SELECT d.id, a.seq, a.state, p.disposition FROM dead_letters d "
++        "JOIN attempts a ON a.key = d.key "
++        "JOIN proposals p ON p.task_id = d.task_id AND p.revision = d.revision "
++        "ORDER BY a.seq")
++    assert linked == [(1, 1, "in_flight", "handed_off"), (1, 2, "committed_unverified",
++                                                          "handed_off"),
++                      (1, 3, "verified", "handed_off")]  # 處置是收件表現在的值
++    assert h.dsp.writes[0][1] == operation_key(prop)  # 送出的就是信封上那把鍵
+diff --git a/tests/executor/test_execution.py b/tests/executor/test_execution.py
+index eb8063b..58eadde 100644
+--- a/tests/executor/test_execution.py
++++ b/tests/executor/test_execution.py
+@@ -135,20 +135,28 @@ def _over_cap(h):
+     from tests.executor.fakes import write_config
+ 
+     write_config(h.config, max_budget=149)  # 提案要改成 150
+ 
+ 
+ def _over_ratio(h):
+     # 提案要改成 150;現況 99 時最多加 49
+     h.dsp.campaigns["c1"] = CampaignView(budget=99, status="active", version=3)
+ 
+ 
++def _old_policy(h):
++    h.submit(policy_version="demo-pacing-v0")  # Phase 8 [S504]:不是現行政策版本
++
++
++def _stale(h):
++    h.clock.advance(minutes=11)  # Phase 8 [S505]:決策 12:00 建立,12:16 取件(到期 12:30 之前)
++
++
+ def _previously_failed(h):
+     """同一個邏輯操作先前已失敗(人工判失敗),DSP 版本沒動;換到期時間的新修訂進來。"""
+     first = h.submit()
+     h.dsp.answers.append(WriteAnswer(403, "capability_scope_mismatch"))
+     h.process()
+     key = key_of(first)
+     with h.store.transaction() as tx:
+         seq = attempt_store.latest(tx, key).seq
+         attempt_store.resolve(tx, key, seq, A.FAILED, "operator decided", h.clock())
+     h.store.accept(proposal(revision=2, decision_expires_at="2026-09-22T12:40:00+00:00"),
+@@ -164,29 +172,31 @@ def _aggregate_full(h):
+ BLOCK_TRIGGERS = {
+     BlockCode.CAMPAIGN_NOT_FOUND: _not_found,
+     BlockCode.CAMPAIGN_NOT_ACTIVE: _paused,
+     BlockCode.VERSION_CHANGED: _version_changed,
+     BlockCode.CAMPAIGN_NOT_ALLOWED: _not_allowed,
+     BlockCode.OVER_BUDGET_CAP: _over_cap,
+     # 下面「等於整個列舉」的斷言之後由護欄表三份清單取代(Phase 6 增量 2)
+     BlockCode.BUDGET_INCREASE_TOO_LARGE: _over_ratio,
+     BlockCode.OPERATION_PREVIOUSLY_FAILED: _previously_failed,
+     BlockCode.AGGREGATE_LIMIT_REACHED: _aggregate_full,  # Phase 6:開始一筆時擋,不是執行前檢查
++    BlockCode.POLICY_VERSION_CHANGED: _old_policy,
++    BlockCode.DECISION_STALE: _stale,
+ }
+ 
+ 
+ # 歷史相容代碼(規則已拿掉、只為讀舊資料而留)沒有觸發路徑,不在這張表(Phase 6 增量 2)
+ @pytest.mark.parametrize("code", [c for c in BlockCode if c not in HISTORICAL_CODES])
+ def test_each_failed_precheck_blocks_the_proposal_without_a_write(h, code):
+     # 「表的鍵等於整個列舉」由護欄表的三份清單斷言取代(Phase 6 增量 2 [S404]);這張表仍逐一觸發
+-    if code is not BlockCode.OPERATION_PREVIOUSLY_FAILED:
+-        h.submit()
++    if code not in (BlockCode.OPERATION_PREVIOUSLY_FAILED, BlockCode.POLICY_VERSION_CHANGED):
++        h.submit()  # 這兩種的觸發方式自己送提案
+     BLOCK_TRIGGERS[code](h)
+     attempts_before, writes_before = h.attempts(), len(h.dsp.writes)
+ 
+     result = h.process()
+ 
+     if code is BlockCode.OPERATION_PREVIOUSLY_FAILED:  # 取件時讀到既有失敗:直接確認,不交出去
+         assert result.kind is Result.IDLE
+     elif code in APPROVABLE:  # 可核可的兩關先停在待核可,提案到期才確認成已擋下(Phase 6 增量 3)
+         assert (result.kind, result.block_code) == (Result.AWAITING_APPROVAL, code)
+         h.clock.advance(hours=1, seconds=1)
+diff --git a/tests/executor/test_guardrails.py b/tests/executor/test_guardrails.py
+index ec1e564..111fa1e 100644
+--- a/tests/executor/test_guardrails.py
++++ b/tests/executor/test_guardrails.py
+@@ -181,20 +181,23 @@ def test_every_guardrail_holds_at_its_boundaries(h, rule, setup, new_budget, exp
+         assert result.kind is Result.EXECUTED, rule
+         assert len(h.dsp.writes) == 1
+     else:
+         assert (result.kind, result.block_code) == (_outcome(expected), expected), rule
+         assert h.attempts() == [] and h.dsp.writes == []
+ 
+ 
+ # 三份明列清單:之後誰加新擋下原因都得先決定歸哪一份,忘了就紅
+ NON_SINGLE_CODES = (  # 不是單筆規則:鍵已存在的分流、總曝險(增量 1)
+     BlockCode.OPERATION_PREVIOUSLY_FAILED, BlockCode.AGGREGATE_LIMIT_REACHED,
++    # Phase 8:看的是提案本身(政策版本、決策建立多久),不是 DSP 現況或租戶設定,邊界值在
++    # test_stale_decision.py([S504]、[S505])
++    BlockCode.POLICY_VERSION_CHANGED, BlockCode.DECISION_STALE,
+ )
+ HISTORICAL_CODES = ()  # 規則已拿掉、只為讀舊資料而留在列舉裡的代碼(回退時比例代碼搬來這裡)
+ 
+ 
+ # ---- S404 ----
+ def test_the_guardrail_table_covers_every_block_code():
+     lists = (set(SINGLE_RULE_CODES), set(NON_SINGLE_CODES), set(HISTORICAL_CODES))
+     assert set().union(*lists) == set(BlockCode)
+     assert all(not (a & b) for i, a in enumerate(lists) for b in lists[i + 1:])  # 兩兩不交集
+     assert {row[0] for row in GUARDRAILS} == {code.value for code in SINGLE_RULE_CODES}
+diff --git a/tests/executor/test_inbox_disposition.py b/tests/executor/test_inbox_disposition.py
+index 034c3bc..c8150d2 100644
+--- a/tests/executor/test_inbox_disposition.py
++++ b/tests/executor/test_inbox_disposition.py
+@@ -216,21 +216,22 @@ def test_a_pending_proposal_still_counts_as_pending(store):
+     with pytest.raises(InboxFull):
+         accept(store, proposal(task_id="t3"))
+ 
+ 
+ # ---- [S41] ----
+ def test_block_reasons_are_a_closed_list(store, tmp_path):
+     assert {code.value for code in BlockCode} == {
+         "campaign_not_found", "campaign_not_active", "version_changed", "campaign_not_allowed",
+         "over_budget_cap", "operation_previously_failed",
+         "budget_increase_too_large",  # Phase 6 增量 2 新增的單筆比例上限
+-        "aggregate_limit_reached"}  # Phase 6 增量 1 [S331]:總曝險已滿
++        "aggregate_limit_reached",  # Phase 6 增量 1 [S331]:總曝險已滿
++        "policy_version_changed", "decision_stale"}  # Phase 8 [S504]、[S505]
+     # 「處置恰好兩個成員」由 Phase 4 增量 1 [S103] 取代:四個成員;Phase 6 增量 3 加待核可
+     assert {d.value for d in Disposition} == {"in_progress", "handed_off", "blocked",
+                                               "dead_letter", "awaiting_approval"}
+     prop = proposal()
+     accept(store, prop)
+     with store.transaction() as tx:
+         receipt = _receive(store, tx)
+     before = rows(tmp_path)
+     for bad in (None, "version_changed", "expired", 3):
+         with store.transaction() as tx, pytest.raises(ValueError):
+diff --git a/tests/executor/test_stale_decision.py b/tests/executor/test_stale_decision.py
+new file mode 100644
+index 0000000..4da411a
+--- /dev/null
++++ b/tests/executor/test_stale_decision.py
+@@ -0,0 +1,221 @@
++"""執行前檢查多兩項(Phase 8):政策版本與決策新鮮度。S504、S505、S511、S512。
++
++政策版本不等於現行版本就擋成「政策已變」;現在比決策建立晚超過 15 分鐘就擋成「決策已過時」,
++剛好 15 分鐘通過。新鮮度在開始一筆的交易裡再判一次(檢查通過之後才跨線的也擋)。兩條重跑路徑
++(憑證過期後重讀、對帳查不到寫入)命中新原因時不再送,收件口確認成新原因(使用者 2026-09-24
++裁定)。有它停下那一關的有效核可的提案不判新鮮度,其他檢查照跑(使用者 2026-09-24 裁定)。
++"""
++
++from datetime import timedelta
++
++import pytest
++
++from rtb.domain.attempt import operation_key
++from rtb.domain.proposal import POLICY_VERSION
++from rtb.executor import attempt_store
++from rtb.executor.execution import CampaignView, Executor, Result, WriteAnswer
++from rtb.executor.inbox_store import BlockCode
++from tests.executor.conftest import NOW
++from tests.executor.fakes import Harness
++from tests.executor.test_approval import approve_it, settle, submit, waiting
++
++CREATED = NOW - timedelta(minutes=5)  # 樣本提案的決策建立時間(12:00)
++STALE = BlockCode.DECISION_STALE
++RATIO = BlockCode.BUDGET_INCREASE_TOO_LARGE
++
++
++@pytest.fixture
++def h(tmp_path, clock):
++    harness = Harness(tmp_path, clock)
++    yield harness
++    harness.close()
++
++
++def _block_of(h, task_id="t1"):
++    return next(row[3:] for row in h.proposals() if row[0] == task_id)
++
++
++def _attempt(h, prop):
++    with h.store.transaction() as tx:
++        row = attempt_store.latest(tx, operation_key(prop))
++    return None if row is None else (row.state.value, None if row.code is None else row.code.value)
++
++
++# ---- [S504] ----
++def test_a_proposal_from_another_policy_version_is_blocked(h):
++    h.submit(policy_version="demo-pacing-v0")
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, BlockCode.POLICY_VERSION_CHANGED)
++    assert _block_of(h) == ("blocked", "policy_version_changed")
++    assert h.dsp.writes == []
++
++
++def test_the_current_policy_version_passes(h):
++    h.submit(policy_version=POLICY_VERSION)
++
++    assert h.process().kind is Result.EXECUTED
++
++
++# ---- [S505] ----
++@pytest.mark.parametrize(("age", "expected"), [
++    (timedelta(minutes=15), Result.EXECUTED),  # 剛好 15 分鐘:通過
++    (timedelta(minutes=15, seconds=1), Result.BLOCKED),
++])
++def test_a_stale_decision_is_blocked(h, age, expected):
++    h.submit()
++    h.clock.now = CREATED + age
++
++    result = h.process()
++
++    assert result.kind is expected
++    if expected is Result.BLOCKED:
++        assert result.block_code is STALE
++        assert _block_of(h) == ("blocked", "decision_stale")
++        assert h.dsp.writes == []
++
++
++def test_a_decision_that_goes_stale_after_the_precheck_is_blocked_before_the_write(
++        h, monkeypatch):
++    h.submit()
++    h.clock.now = CREATED + timedelta(minutes=15)  # 執行前檢查那一刻剛好 15 分鐘:通過
++    original = Executor._approvals
++
++    def slow_lookup(self, *args, **kwargs):  # 查核可花了一秒:進開始一筆的交易時已過線
++        found = original(self, *args, **kwargs)
++        h.clock.advance(seconds=1)
++        return found
++
++    monkeypatch.setattr(Executor, "_approvals", slow_lookup)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, STALE)
++    assert h.attempts() == []  # 沒開嘗試
++    assert h.dsp.writes == []
++
++
++# ---- [S511] ----
++@pytest.mark.parametrize(("change", "block"), [
++    ("stale", "decision_stale"),
++    ("policy", "policy_version_changed"),
++])
++def test_a_rerun_that_hits_a_new_reason_keeps_the_reason(h, monkeypatch, change, block):
++    first = h.submit()
++    h.clock.now = CREATED + timedelta(minutes=14, seconds=50)
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++
++    def the_rule_changes_before_the_reread(*_):
++        if change == "stale":  # 只推 20 秒:不超過收件口租約(60 秒),這一輪寫得回去
++            h.clock.advance(seconds=20)
++        else:
++            monkeypatch.setattr("rtb.executor.execution.POLICY_VERSION", "demo-pacing-v2")
++
++    h.dsp.on_write = the_rule_changes_before_the_reread
++    h.process()
++
++    assert _attempt(h, first) == ("failed", "not_happened")  # 憑證過期是 DSP 明確拒收
++    assert _block_of(h) == ("blocked", block)
++    assert len(h.dsp.writes) == 1  # 不再送
++
++
++def test_a_reconcile_rerun_that_finds_a_stale_decision_voids_then_keeps_the_reason(h):
++    first = h.submit()
++    h.dsp.answers.append(WriteAnswer(None))  # 第一次送出沒回應:結果不明
++    h.process()
++    h.clock.now = CREATED + timedelta(minutes=16)
++
++    h.executor().reconcile_all()
++
++    assert h.dsp.voids == [operation_key(first)]  # DSP 查不到:先作廢才判失敗(既有規則)
++    assert _attempt(h, first) == ("failed", "not_happened")
++    assert _block_of(h) == ("blocked", "decision_stale")
++
++
++# ---- [S512] ----
++def test_an_approved_proposal_skips_only_the_freshness_check(h):
++    prop = waiting(h, RATIO)  # 12:05 停在比例過大
++    h.clock.now = CREATED + timedelta(minutes=20)
++    approve_it(h, prop, RATIO)
++    assert settle(h) == 1  # 放回待處理
++
++    result = h.process()
++
++    assert result.kind is Result.EXECUTED  # 超過 15 分鐘仍能執行
++    assert len(h.dsp.writes) == 1
++
++
++def test_an_approved_proposal_still_runs_the_other_checks(h):
++    prop = waiting(h, RATIO)
++    h.clock.now = CREATED + timedelta(minutes=20)
++    approve_it(h, prop, RATIO)
++    settle(h)
++    h.dsp.campaigns["c1"] = CampaignView(budget=100, status="paused", version=3)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, BlockCode.CAMPAIGN_NOT_ACTIVE)
++
++
++def test_a_proposal_without_a_valid_approval_is_still_blocked_as_stale(h):
++    submit(h, 120)  # 比例內:不需要核可
++    h.clock.now = CREATED + timedelta(minutes=20)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, STALE)
++
++
++def test_an_approval_for_another_proposal_does_not_exempt_a_stale_one(h):
++    prop = waiting(h, RATIO)
++    other = submit(h, 151, task_id="t2", campaign_id="c2")
++    h.clock.now = CREATED + timedelta(minutes=20)
++    approve_it(h, other, RATIO, signed_for=prop)  # t2 那一關掛的是替 t1 簽的核可:不算數
++
++    result = h.process()  # t1 在待核可,取到的是 t2:沒有有效核可、又過時
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, STALE)
++
++
++def test_a_stale_proposal_over_the_ratio_is_blocked_rather_than_left_waiting(h):
++    """過時又超過比例、沒有核可:直接擋成決策已過時,不停在待核可等一張注定用不上的核可。"""
++    submit(h, 151)
++    h.clock.now = CREATED + timedelta(minutes=16)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, STALE)
++    assert h.proposals()[0][3:] == ("blocked", "decision_stale")
++
++
++def test_a_resend_that_goes_stale_while_resigning_is_not_sent(h, monkeypatch):
++    first = h.submit()
++    h.clock.now = CREATED + timedelta(minutes=14, seconds=50)
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++    original = Executor._resign
++
++    def slow_resign(self, *args, **kwargs):  # 重跑的檢查通過之後、轉回送出中之前跨過 15 分鐘
++        signed = original(self, *args, **kwargs)
++        h.clock.advance(seconds=20)
++        return signed
++
++    monkeypatch.setattr(Executor, "_resign", slow_resign)
++    h.process()
++
++    assert _attempt(h, first) == ("failed", "not_happened")
++    assert _block_of(h) == ("blocked", "decision_stale")
++    assert len(h.dsp.writes) == 1  # 沒有重送
++
++
++def test_an_approved_resend_is_not_blocked_as_stale(h):
++    prop = waiting(h, RATIO)
++    h.clock.now = CREATED + timedelta(minutes=20)
++    approve_it(h, prop, RATIO)
++    settle(h)
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++
++    h.process()  # 第一次送出憑證過期,重讀重跑:用過核可,不判新鮮度,同鍵重送
++
++    assert len(h.dsp.writes) == 2
++    assert _attempt(h, prop)[0] == "verified"

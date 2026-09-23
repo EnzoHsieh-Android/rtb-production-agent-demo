@@ -97,6 +97,8 @@ class ReplanReason(StrEnum):
     VERSION_CHANGED = "version_changed"  # 收件口回已擋下、原因是版本已變
     EXPIRED = "expired"  # 收件口回決策已過期(收件表還留著)
     AFTER_RETENTION = "after_retention"  # 收件表已清掉、DSP 用存下的鍵查不到寫入
+    POLICY_VERSION_CHANGED = "policy_version_changed"  # 收件口回已擋下、原因是政策已變(Phase 8)
+    DECISION_STALE = "decision_stale"  # 收件口回已擋下、原因是決策已過時(Phase 8)
 
 
 class _FollowUpOutcome(StrEnum):

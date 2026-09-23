@@ -185,10 +185,11 @@ def test_an_expired_decision_is_replanned(store):
 
 
 # ---- S304 ----
+# 死信那一組由 Phase 8 [S507] 取代(計劃改 Phase 5 [S304] 的死信那一半):決策還沒過期時等、
+# 過期才結案,見 test_dead_letter_wait.py。這裡留擋下的四種
 @pytest.mark.parametrize(("state", "code"), [
     ("blocked", "not_permitted"), ("blocked", "operation_previously_failed"),
-    ("blocked", "campaign_not_found"), ("blocked", "campaign_not_active"),
-    ("dead_letter", None)])
+    ("blocked", "campaign_not_found"), ("blocked", "campaign_not_active")])
 def test_other_blocks_close_the_task_without_a_follow_up(store, state, code):
     proposal = _handed_off(store)
 

@@ -285,18 +285,24 @@ def _from_proposed(
 # 收件口回應的處置 → 下一步;不在表裡的處置當成回應讀不懂(這一輪沒有進展)
 # 待核可(Phase 6 增量 3)跟處理中一樣是等待:人核可後執行端接續處理,到期才確認成已擋下
 _OPEN_STATES = frozenset({"pending", "in_progress", "awaiting_approval"})
-_CLOSED_WITHOUT_REPLAN = frozenset({"blocked", "dead_letter"})
-_KNOWN_STATES = _OPEN_STATES | _CLOSED_WITHOUT_REPLAN | {"handed_off", "expired", "superseded"}
+# 死信(Phase 8 改 Phase 5 [S304] 的死信那一半):決策還沒過期就等(可能被重放),過期才結案
+_KNOWN_STATES = _OPEN_STATES | {"blocked", "dead_letter", "handed_off", "expired", "superseded"}
 _PURGED_CODES = frozenset({"expired_proposal", "revision_out_of_order"})  # 收件表已清掉
 _VERSION_CHANGED = "version_changed"
 # 收件口回給分析行程的擋下原因(權限類合併成 not_permitted,使用者 2026-09-23 裁定):不在這份
 # 清單的代碼當成回應讀不懂,不寫進只增不改的歷史表(對方回什麼字串都原樣寫進稽核紀錄是注入管道)
-_BLOCK_CODES = frozenset({_VERSION_CHANGED, "not_permitted", "campaign_not_found",
+# 這幾種擋下原因要重新規劃(另開接續任務重讀現況);Phase 8 加政策已變與決策已過時
+_REPLAN_ON_BLOCK = {
+    _VERSION_CHANGED: ReplanReason.VERSION_CHANGED,
+    "policy_version_changed": ReplanReason.POLICY_VERSION_CHANGED,
+    "decision_stale": ReplanReason.DECISION_STALE,
+}
+_BLOCK_CODES = frozenset({*_REPLAN_ON_BLOCK, "not_permitted", "campaign_not_found",
                           "campaign_not_active", "operation_previously_failed"})
 
 
 def _from_handed_off(
-    store: TaskStore, row: TaskRow, c: _Collaborators, _now: datetime
+    store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
 ) -> _StepOutcome:
     if row.proposal is None or c.operation_lookup is None:
         raise AssertionError("已交給執行的列一定帶著提案快照;沒給操作查詢不會走到這一步")
@@ -314,7 +320,7 @@ def _from_handed_off(
         raise _BrokenCollaborator(f"Submit 回傳了合約之外的型別:{type(answer)!r}")
     if not _belongs_to(answer, row.proposal):
         return None  # 別的提案的回應、或處置與原因對不上:不拿來結案
-    return _from_inbox_answer(answer)
+    return _from_inbox_answer(answer, row.proposal, now)
 
 
 def _belongs_to(answer: Accepted, proposal: Proposal) -> bool:
@@ -326,15 +332,21 @@ def _belongs_to(answer: Accepted, proposal: Proposal) -> bool:
     return same and consistent
 
 
-def _from_inbox_answer(answer: Accepted) -> _StepOutcome:
+def _from_inbox_answer(  # noqa: PLR0911 - 收件口每一種處置一個出口
+    answer: Accepted, proposal: Proposal, now: datetime,
+) -> _StepOutcome:
     if answer.state == "handed_off":
         return _Step(TaskState.COMPLETED)
     if answer.state in _OPEN_STATES:
         return None
+    if answer.state == "dead_letter" and now < proposal.decision_expires_at:
+        # 收件口不會把死信轉成已過期(待核可會,死信不會):過期沒由分析端用自己的時鐘比對快照的
+        # 到期時間,邊界跟收件口判過期一樣(到期那一刻起算過期)。收件表清掉之後照 [S317]
+        return None
     if answer.state == "superseded":
         return _Step(TaskState.SUPERSEDED)
-    if answer.state == "blocked" and answer.block_code == _VERSION_CHANGED:
-        return _replan(ReplanReason.VERSION_CHANGED, f"blocked={answer.block_code}")
+    if answer.state == "blocked" and answer.block_code in _REPLAN_ON_BLOCK:
+        return _replan(_REPLAN_ON_BLOCK[answer.block_code], f"blocked={answer.block_code}")
     if answer.state == "expired":
         return _replan(ReplanReason.EXPIRED, "expired")
     return _closed(f"{answer.state}={answer.block_code}")

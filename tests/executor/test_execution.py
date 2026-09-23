@@ -142,6 +142,14 @@ def _over_ratio(h):
     h.dsp.campaigns["c1"] = CampaignView(budget=99, status="active", version=3)
 
 
+def _old_policy(h):
+    h.submit(policy_version="demo-pacing-v0")  # Phase 8 [S504]:不是現行政策版本
+
+
+def _stale(h):
+    h.clock.advance(minutes=11)  # Phase 8 [S505]:決策 12:00 建立,12:16 取件(到期 12:30 之前)
+
+
 def _previously_failed(h):
     """同一個邏輯操作先前已失敗(人工判失敗),DSP 版本沒動;換到期時間的新修訂進來。"""
     first = h.submit()
@@ -171,6 +179,8 @@ BLOCK_TRIGGERS = {
     BlockCode.BUDGET_INCREASE_TOO_LARGE: _over_ratio,
     BlockCode.OPERATION_PREVIOUSLY_FAILED: _previously_failed,
     BlockCode.AGGREGATE_LIMIT_REACHED: _aggregate_full,  # Phase 6:開始一筆時擋,不是執行前檢查
+    BlockCode.POLICY_VERSION_CHANGED: _old_policy,
+    BlockCode.DECISION_STALE: _stale,
 }
 
 
@@ -178,8 +188,8 @@ BLOCK_TRIGGERS = {
 @pytest.mark.parametrize("code", [c for c in BlockCode if c not in HISTORICAL_CODES])
 def test_each_failed_precheck_blocks_the_proposal_without_a_write(h, code):
     # 「表的鍵等於整個列舉」由護欄表的三份清單斷言取代(Phase 6 增量 2 [S404]);這張表仍逐一觸發
-    if code is not BlockCode.OPERATION_PREVIOUSLY_FAILED:
-        h.submit()
+    if code not in (BlockCode.OPERATION_PREVIOUSLY_FAILED, BlockCode.POLICY_VERSION_CHANGED):
+        h.submit()  # 這兩種的觸發方式自己送提案
     BLOCK_TRIGGERS[code](h)
     attempts_before, writes_before = h.attempts(), len(h.dsp.writes)
 

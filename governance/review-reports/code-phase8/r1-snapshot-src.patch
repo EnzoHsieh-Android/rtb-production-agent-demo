@@ -1,0 +1,997 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase8死信重放與過時決策_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase8死信重放與過時決策_計劃.md
+index fad03aa..cdf5b47 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase8死信重放與過時決策_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase8死信重放與過時決策_計劃.md
+@@ -3,39 +3,44 @@ type: project
+ status: doing
+ created: 2026-09-23
+ updated: 2026-09-23
+ tags:
+   - type/project
+   - status/doing
+ lands_in:
+   - Systems/提案收件口
+   - Systems/執行迴圈
+   - Systems/分析行程流程與檢查點
++  - Systems/死信重放指令
+ ---
+ # RTB_Phase8死信重放與過時決策_計劃
+ 
+ PRIOR-ART: 死信佇列重放的業界做法(雲端訊息服務的 redrive:把死信訊息搬回原佇列,照一般流程重新消費,不另開消費路徑);本專案的收件表本身就是佇列,重放就是把那一列放回「待處理」,讓執行迴圈照原路處理,每一關都重跑。死信信封與操作稽核沿用既有「只增不改、不被清理」的停下紀錄表做法。
+ RETIRE-IF: 換成外部佇列服務且它自帶死信與重放(含稽核)時,撤掉這裡的信封表、稽核表與重放指令;或者死信連續三個月為零、也沒有人重放過時,重新評估要不要留重放指令。
+ 
+ ## 這份計劃在解決什麼
+ 
+ - 事故 F6(交接文件第 16 節):舊工作進了死信,之後廣告、政策或證據已經改變;重放時必須重新驗證並拒絕舊決策,改為重新規劃、結案或轉人工,不能直接寫入。
+ - 範圍:交接文件 Phase 8「DLQ 與 Stale Decision」與第 13 節。完成條件:F6 通過;重放保留原本的追蹤關聯並建立新的嘗試;永久與暫時失敗的分類有測試;過時決策被擋下或重新規劃,不能直接寫入;死信佇列的操作有稽核。
+ - 預告合約 [[Verification/事故F6_死信重放必須重新驗證]](最遲 2027-01-31)是這個階段要轉正的合約。
+ - 第 13 節要求重放時至少重新驗證:廣告現況與版本、決策到期、證據新鮮度、政策版本、權限與核可、總曝險額度、先前操作的結果。死信佇列是失敗工作的保管區,不是繞過安全檢查的第二條執行通道。
+ 
+ ## 使用者裁定(2026-09-23,主線轉達)
+ 
+ - 題 1「重放到底是什麼」選 a:同一份提案重跑完整檢查(執行前檢查、簽發、總曝險、核可,一關都不略過),全部通過才寫;任一項不過就擋下並說明原因。沒選的:b 一律改成重新規劃(還有效的決策也要重算)、c 自動分流(兩條路都要做)、d 只交人逐筆決定(人力不夠)。
+ - 題 2「哪些東西算進死信」選 a:維持現狀,只有「還沒開始嘗試、投遞次數用完」的進死信;轉人工的嘗試留在人工那條路(`resolve`),不進死信。沒選的:b 轉人工也進死信(可能已寫進 DSP,重放前一定要先對帳,範圍大很多)、c 分兩個佇列。
+ - 政策版本:增量 3 已把政策版本常數搬進提案領域模組(`rtb.domain.proposal.POLICY_VERSION`),分析端與執行端共用;增量 3 已合進 main(2026-09-23)。
+ 
++## 實作狀態
++
++- **2026-09-24 實作完成、待代碼審**(分支 phase8,從 main 078e7e8 切出):[S500]–[S512] 全部綁了測試並綠,變異檢查 23 條全紅。偏離設計兩處:(1) 新鮮度排在簽發之後、判比例之前,不是「簽發之前」——核可放回的例外要驗核可的範圍指紋,租戶要簽發時才讀到;簽發沒有副作用,只影響同時違反兩條時報哪個原因,過時又超過比例的仍直接擋成決策已過時。(2) 重跑的執行前檢查不另判新鮮度,只在轉回嘗試中的交易判一次:變異檢查看出兩處重複、拿掉一處結果不變。另外操作人格式由重放管理工具驗、不在收件口模組(收件口模組不做欄位驗證有守門測試)。重放管理工具另開一篇 [[Systems/死信重放指令]]。
++
+ ## 現況(2026-09-23 開檔核對;rebase 後以 main d07eeea 重新核對)
+ 
+ - 死信只有一種:收件口模組取件時,沒有嘗試紀錄的提案投遞次數滿 `MAX_DELIVERIES`(5,暫用)就寫處置「死信」、死信原因「投遞次數用完」,另記最後一次卡在哪一步(讀不到 DSP、全表未結案已滿、工作者沒回報)。死信是終點,沒有任何重放路徑。
+ - 死信紀錄不耐久:收件口模組 `_purge_finished_tasks` 會把「沒有待處理也沒有處理中、最後一次收件超過保留期(2 小時)」的任務整個清掉,死信也在其中;清掉之後原因、卡在哪、投遞次數都查不到。
+ - 永久與暫時失敗沒有寫明的分類:擋下(業務上不成立)實際上就是永久失敗,死信(暫時失敗但次數用完)實際上就是暫時失敗,但程式與測試沒有這層分類。
+ - 執行端一般流程不驗政策版本(提案有 `policy_version`,執行端記在能力憑證上給稽核;增量 3 之後只有核可那一關會比對提案政策版本等於共用常數,沒有核可的提案不比),也不驗證據新鮮度(證據在分析端;執行端只看得到決策建立時間與到期時間)。分析端規則:證據超過 15 分鐘就重新蒐證(`MAX_EVIDENCE_AGE`),決策有效期 30 分鐘(`DECISION_LIFETIME`);領域層上限:決策從建立到到期最多 1 小時(`MAX_DECISION_LIFETIME`)。
+ - 分析端收到死信就把任務轉擋下、不重新規劃(Phase 5 [S304]);收件表清掉後 DSP 查不到就重新規劃(Phase 5 [S317])。
+ - 死信佇列沒有任何操作,也就沒有稽核。
+ 
+ ## 最小設計
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+index e3844b4..0f62482 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+@@ -106,10 +106,17 @@ REVISIT:2027-01-31 分析行程的啟動程式開工時,確認它給了操作查
+ - PITFALL: 開舊資料庫補欄位時,「看欄位缺不缺」要在拿到寫入鎖之後再看一次:多個工作者同時開 Phase 5 之前的資料庫,都先看到缺欄位,先拿到鎖的補完,後到的照舊再補會撞「欄位重複」直接啟動失敗(2026-09-23 Phase 5 代碼審第 3 輪外家席實測重現;證據表補欄位也是同一個寫法,一起改成共用的補欄函式)。防回歸:[test:test_another_worker_migrating_between_the_check_and_the_lock_is_harmless]。
+ 
+ ## 分析行程沒有寫入呼叫(Phase 6 增量 2,2026-09-23)
+ 
+ - RULE: 分析行程原始碼的靜態匯入閉包(從分析行程套件出發,檔案裡任何位置的匯入都算,含函式內部與相對匯入,加上沿途各層套件的初始化檔,遞迴到沒有新的本專案模組)裡,共用 HTTP 用戶端只准被匯入請求函式這一個名字、不准取別名,而且只准分析端 DSP 用戶端與收件口用戶端兩支檔案匯入;也不准從任何其他模組轉手匯入請求函式(從允許的用戶端轉手再改名,名字就不再是請求函式,代碼審第 3 輪外家席);請求函式每次出現都要是直接呼叫、方法是字面常數、不帶標頭;DSP 用戶端只有 GET,收件口用戶端只有一個送到提案路徑的 POST;閉包裡每個模組(共用 HTTP 用戶端自己除外)也不准自己匯入網路模組或動態匯入(領域層小函式繞過共用用戶端直接發請求,代碼審第 1 輪外家席)。動態匯入只看名稱、刻意從嚴:閉包裡任何叫 import_module 的名字或屬性都算,撞到同名普通函式就改名,不要放寬判斷(代碼審第 2 輪)。防的是忘記(別名、偏函式、領域層順手加的呼叫、共用用戶端哪天多一支請求入口),不防刻意用動態匯入或反射藏起來;兜底是 DSP 沒有憑證一律拒收。既有的「不准匯入執行側與憑證模組」守的是拿不到憑證,這條守的是連寫入的呼叫都不存在。出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 2 [S408]。防回歸:[test:test_the_analyzer_has_no_write_call_besides_submitting_a_proposal],自我驗證 [test:test_the_write_call_scan_catches_forgetful_variants](十六種不小心的寫法都要抓到)。[since:2026-09-23] [retire:分析行程改由獨立的沙箱或網路政策隔離、在作業系統層就連不到 DSP 寫入端點時]
+ 
+ ## 待核可當成等待(Phase 6 增量 3,2026-09-23)
+ 
+ - 收件口回應的已知狀態多一個「待核可」,歸在等待那一類(跟待處理、處理中一樣這一輪沒有進展),不結案、不重新規劃;決策規則不用改。人核可後執行端接續處理,到期才回已擋下(原因併成不允許)。
+ - 出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 3。防回歸:[test:test_awaiting_approval_reads_as_still_open]。
++
++## 死信等待與新擋下原因(Phase 8,2026-09-24)
++
++- WHY: 收件口回死信而決策還沒過期就當成等待,過期才結案、不建接續任務(改 Phase 5 [S304] 的死信那一半):死信可能被重放、之後真的寫進 DSP,分析端若已結案,任務與 DSP 會對不上([[Projects/RTB_Phase8死信重放與過時決策_計劃]])。過期沒由分析端用自己的時鐘比對提案快照的到期時間,邊界跟收件口一樣(到期那一刻起算過期):收件口不會把死信轉成已過期。防回歸:[test:test_the_analyzer_waits_on_a_live_dead_letter_and_replans_on_stale_reasons]、[test:test_an_expired_dead_letter_closes_the_task_without_a_follow_up]。
++- 分析端停機跨過收件表保留期時,那一列已被清掉,恢復後照 [S317] 的清表路徑重新規劃,不是結案;安全(舊決策不寫),多花一次分析。
++- 收件口回「政策已變」或「決策已過時」跟版本已變一樣另開接續任務重新規劃,接續關係表記對應的原因。防回歸:[test:test_a_new_block_reason_hands_the_task_over_to_a_follow_up]。
++- 事故 F6 端到端(廣告版本變、政策版本變、決策變舊各自被擋下並重新規劃,沒變化的照常寫成):[test:test_f6_a_stale_dead_letter_is_revalidated_on_replay]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+index 10e8cba..5c37a85 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+@@ -138,10 +138,21 @@ kill_recipes: |-
+ 
+ - 處理一筆的順序:執行前檢查(三條硬規則)→ 簽發(不屬於租戶、超過單一廣告上限兩條硬規則)→ 比例上限(可核可)→ 開始一筆時的總曝險(可核可)。可核可的一關沒有有效核可就停在待核可:處置寫待核可、擋下原因記是哪一關、同一個交易裡寫一列停下紀錄,不開嘗試、不呼叫 DSP。硬規則有核可也照樣擋下結案。
+ - 核可在執行行程驗(驗章、任務修訂與內容雜湊、關卡、範圍指紋、提案政策版本等於共用常數、到期、金額上限),同一份提案同一關只看最後寫進核可表的那一張,最新那張不算數就整件不算數。開始一筆前先查好可能用到的核可(總曝險那一張只在照當下已用額度會超過門檻時才留,用不到的核可不壓短憑證),用到就重簽一次、憑證到期封頂在核可到期;重簽被硬規則拒簽就照硬規則擋下,重簽讀到的租戶設定跟第一次不同就放掉租約下一輪重來。開始一筆的交易裡再核一次:查好的那張已不是最後寫進核可表的那張就放掉租約下一輪重判,用當下時間判到期、過期就回待核可(代碼審第 1 輪)。核可生效時同一個交易寫一列核可使用紀錄(比例那一關有核可就記;總曝險那一關只在真的超過門檻時記)。
+ - 每輪先對帳、再處理待核可、再處理一筆。處理待核可只讀這一輪有事做的(到期、有更新修訂、這一關有人簽過核可、同任務開過嘗試),待核可堆積不讓每一輪變慢;逐筆各自一個交易:提案到期就確認成已擋下(擋下原因是原本那一關);同任務有更新的修訂就確認成被取代;同一把鍵已由另一份修訂開過嘗試(兩份都取到收據的競態)就放回待處理,取件照那把鍵的狀態確認,不要求第二張核可(事故 F3);有這一關的有效核可(金額用停下紀錄記的那一筆)就放回待處理、投遞次數歸零;寫入條件都是「這一列仍是待核可」,沒有租約可比,這就是並行防線。
+ - 同鍵重送(憑證過期後、對帳查不到後)也重判比例與這份提案用過的核可:比例超過而沒有有效核可,或用過的核可已不算數(當初用過的那張過期,就算之後補簽了足額的新核可也一樣;重送兩次簽發之間租戶設定改了、或又有人簽了更新的核可,也算不算數;最後一次「仍是最新」的核對跟轉嘗試中在同一個交易,之後才呼叫 DSP——跟處理一筆在開始一筆交易裡的核對是同一個判斷點),就照既有做法不重送(送過一次直接判失敗、送過多次先作廢再判失敗);總曝險不重判,預留在開始一筆時已寫下。
+ - 已知窄窗:預判要用總曝險核可、開始一筆時額度剛好被別的工作者釋放,憑證已按核可到期壓短、核可卻沒用上。不改(要在寫入鎖裡讀設定檔重簽,違反開始一筆不讀設定檔的規則);後果有界:DSP 回憑證過期時照既有做法重簽重送,這次沒有用過的核可,憑證拿回正常效期,多一趟往返。防回歸:[test:test_a_capability_shortened_by_an_unused_approval_recovers_with_a_full_lifetime]。
+ - 啟動程式經共用模組讀核可金鑰;沒有也照樣啟動,一張核可都不算數,待核可的提案等到期結案。
+ - PITFALL: 核可相關測試要把時鐘往前撥時,撥的量要比租約(60 秒)短,否則測到的是租約失效、不是核可過期(2026-09-23 增量 3 實作時踩到)。防回歸:[test:test_an_approval_that_expires_mid_flight_lets_nothing_through]。
+ - 出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 3;核可憑證與管理工具見 [[Systems/寫入能力憑證]],待核可處置與核可表見 [[Systems/提案收件口]]。
+ - PITFALL: 總曝險並行測試的第二個工作者,在「取件」那一步就會卡在第一個的寫入鎖上,永遠走不到開始一筆;要兩邊都先取完件、在開始一筆的入口會合,第一個進交易算完額度後停住,第二個才去開始一筆(2026-09-23 增量 1 實作時踩到)。防回歸:[test:test_two_workers_cannot_race_past_the_aggregate_limit]。
++
++## 政策版本與決策新鮮度(Phase 8,2026-09-24)
++
++- 政策版本不是現行版本就擋成「政策已變」,排在執行前檢查的版本已變之後;決策建立超過 15 分鐘(使用者 2026-09-23 裁定)就擋成「決策已過時」。新鮮度的判斷只有護欄模組一支,各判斷點都呼叫它。
++- WHY: 新鮮度排在簽發之後、判比例之前,不是計劃寫的「簽發之前」(2026-09-24 實作偏離,[[Projects/RTB_Phase8死信重放與過時決策_計劃]]):核可放回的例外要驗核可的範圍指紋,租戶要簽發時才讀到;簽發沒有副作用,排後面只影響「同時違反兩條時報哪一個原因」。過時又超過比例、沒有核可的,仍直接擋成決策已過時,不停到待核可。防回歸:[test:test_a_stale_proposal_over_the_ratio_is_blocked_rather_than_left_waiting]。
++- WHY: 有它停下那一關的有效核可就不判新鮮度,其他檢查照跑;有效核可照增量 3 的核可查法判,不加「核可放回」旗標(使用者 2026-09-24 裁定)。同鍵重送時改看這份提案開始一筆時有沒有用過核可,用過的核可此刻算不算數照舊在重簽時核對。防回歸:[test:test_an_approved_proposal_skips_only_the_freshness_check]、[test:test_an_approved_resend_is_not_blocked_as_stale]。
++- WHY: 判斷點三個:簽發之後、開始一筆的交易(跟既有的到期重判同一處)、兩條重跑路徑轉回嘗試中的那個交易。重跑的執行前檢查不另判新鮮度:2026-09-24 變異檢查看出它跟轉回時的判斷重複、拿掉結果不變,所以只留一處。防回歸:[test:test_a_decision_that_goes_stale_after_the_precheck_is_blocked_before_the_write]、[test:test_a_resend_that_goes_stale_while_resigning_is_not_sent]。
++- WHY: 重跑命中政策已變或決策已過時時照既有規則不再送、判沒發生,收件口確認成那個新原因,比照 Phase 5 [S310] 的版本已變(使用者 2026-09-24 裁定,[S511])。防回歸:[test:test_a_rerun_that_hits_a_new_reason_keeps_the_reason]、[test:test_a_reconcile_rerun_that_finds_a_stale_decision_voids_then_keeps_the_reason]。
++- RULE: 政策版本常數換版時,分析行程與執行行程要同時重啟;先升級的一端會讓另一端蓋的提案一律擋成政策已變,直到兩端一致(增量 3 的核可已有同樣效果)。[since:2026-09-24] [retire:政策版本改由部署系統同步、或執行端不再比對提案的政策版本] [applies:部署]
++- PITFALL: 執行端測試共用的樣本提案政策版本是 "v1",不是現行版本;Phase 8 起會被擋成政策已變,所以執行端測試造提案時預設帶現行版本,要測舊版本被擋就明寫(2026-09-24 實作時全套測試撞到)。防回歸:[test:test_a_proposal_from_another_policy_version_is_blocked]。
++- 出處:[[Projects/RTB_Phase8死信重放與過時決策_計劃]]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+index 3363366..45d53a7 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+@@ -86,10 +86,20 @@ REVISIT:2026-10-20 Phase 4 當機恢復測試時補上殺行程的版本。
+ - 停下紀錄表有兩個只讀方法 `stop_count`、`stops`(Phase 6 增量 4),給 [[Systems/可觀測查詢]] 用,開頭一樣先核對交易是這個收件表開的;別的模組不直接下 SQL 讀這張表(代碼審第 1 輪架構席)。停下紀錄表有三個索引(租戶/種類/時間、廣告/種類/時間、種類/時間,Phase 6 增量 4);參照的欄位建表時就有,放在建表語句裡。補欄位流程進交易的條件多一項「嘗試紀錄按租戶的索引不存在」,補完欄位後建它(那個索引參照後補的租戶欄,見 [[Systems/外部寫入嘗試紀錄]])。
+ 
+ ## 待核可處置與核可表(Phase 6 增量 3,2026-09-23)
+ 
+ - 處置多一個「待核可」:被總曝險已滿或比例過大擋下、還沒有有效核可的提案,擋下原因欄記是哪一關。跟處理中一樣是暫時狀態:「任務還沒結束」的共用條件擴成待處理、處理中或待核可,保留期不清它;取件條件不變,取件撿不到它。收件口回應讀擋下原因時已經只在已擋下才取,所以待核可回「待核可」、原因為空,收件口不用改。
+ - 待核可不佔待處理名額(跟處理中一樣是暫時狀態;佔了的話 8 份等人的提案就卡住整條流程),總量受全表列數上限,跟改版前「擋下結案的列留到保留期」同一個上限;每輪只讀有事可做的待核可(代碼審第 3 輪資安席)。
+ - 待核可的三種轉換(到期確認成已擋下、被更新修訂取代、放回待處理並把投遞次數歸零)由執行迴圈的處理待核可那一步呼叫;寫入條件都是「這一列仍是待核可」。這個模組只收、去重、記帳,不驗核可。
+ - 核可表與核可使用表在這裡建(只增不改);每次下達都寫一列、核可編號不設唯一,同一秒同樣參數重跑管理工具簽出的一模一樣那張照樣成為最新(依序簽 A、B、再簽 A,最新是 A;代碼審第 2 輪)。同一份提案同一關的「最新」照核可表的自動遞增列號,不照簽發時間(時間相同會並列)。核可使用紀錄同一份提案同一關只記一列,數字比照停下紀錄封頂並標記。停下紀錄多一個種類「比例過大」(已用額度與門檻為空)。
+ - 舊收件表加了待核可之後,開啟時照既有的逐一比對重建。回退時待核可與停下紀錄的比例過大種類不能拿掉(舊列記著它們)。
+ - 出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 3。防回歸:[test:test_an_approvable_block_waits_for_approval]、[test:test_two_workers_release_an_awaiting_proposal_once]、[test:test_an_old_inbox_accepts_the_awaiting_approval_disposition]、[test:test_the_latest_approval_wins_even_when_it_is_smaller]。
++
++## 死信信封、重放與稽核(Phase 8,2026-09-24)
++
++- 進死信的同一個交易寫一列死信信封與一列稽核;信封與稽核只增不改、不被保留期清理。同一份提案重放後又進死信就另寫一列信封,不去重(兩次的內容雜湊、冪等鍵、投遞次數都一樣,只靠流水編號分得開)。失敗分類:最後卡在哪一步的每一種是暫時的、擋下原因的每一種是永久的。防回歸:[test:test_a_dead_letter_leaves_a_durable_envelope]、[test:test_a_replayed_proposal_that_dead_letters_again_gets_a_second_envelope]、[test:test_every_failure_kind_is_classified]。
++- 重放方法:收件表那一列還在、處置是死信、還沒過期、同任務沒有更新的修訂、待處理還有名額才放回待處理(處置、死信原因清空,投遞次數歸零,租約清空);查條件與寫回在同一個交易,兩人同時重放只有一個放回。每次寫「要求重放」加結果兩列稽核;從沒進過死信的,稽核的信封欄是空值。防回歸:[test:test_a_replay_requeues_only_a_live_dead_letter]、[test:test_two_simultaneous_replays_requeue_once]、[test:test_every_dead_letter_operation_is_audited]。
++- WHY: 操作人格式不在這裡驗,由 [[Systems/死信重放指令]] 驗:收件口模組不做欄位驗證有守門測試,比照核可人由核可模組驗、這裡只存(2026-09-24 Phase 8 實作時撞到那條守門測試)。
++- 查一筆死信後來怎麼了:信封的冪等鍵接嘗試紀錄與停下紀錄(開過嘗試的都在,不被清);在執行前檢查就擋下的沒有嘗試紀錄,收件表清掉後改從分析端那個任務的歷史查(信封帶任務與修訂)。
++- 回退「分析端死信且未過期就等待」之前,要先確認沒有待重放的死信,查法:`SELECT count(*) FROM proposals WHERE state = 'pending' AND disposition = 'dead_letter' AND expires_at > <現在的 UTC 時間字串>` 要是 0。
++- 舊收件表開啟時自動補上兩張新表(建表語句「不存在才建」)與兩個新擋下原因(既有的允許值逐一比對重建)。防回歸:[test:test_an_old_inbox_gains_the_dead_letter_tables]。
++- 出處:[[Projects/RTB_Phase8死信重放與過時決策_計劃]]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/死信重放指令.md b/docs/rtb-production-agent-demo-knowledge/Systems/死信重放指令.md
+new file mode 100644
+index 0000000..54ca584
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/死信重放指令.md
+@@ -0,0 +1,23 @@
++---
++type: system
++status: doing
++created: 2026-09-24
++updated: 2026-09-24
++responsibility: 人對一份死信下重放的命令列入口:驗操作人格式、呼叫收件口的重放方法、印結果或拒絕原因。不負責重放條件判斷、放回與稽核(在收件口模組),不碰 DSP、不簽憑證、不讀租戶設定
++aliases: []
++about_code:
++  - src/rtb/executor/replay.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: 重放是把死信放回待處理、由執行迴圈照一般流程處理,工具本身沒有略過任何檢查的捷徑(使用者 2026-09-23 裁定題 1 選 a:重跑完整檢查;[[Projects/RTB_Phase8死信重放與過時決策_計劃]])。
++  WHY: 操作人格式在這裡驗、不在收件口模組:比照核可人由核可模組驗、收件口只存;收件口模組不做欄位驗證有守門測試(2026-09-24 Phase 8 實作時撞到)。
++---
++# 死信重放指令
++
++本篇管 `src/rtb/executor/replay.py`:Phase 8 的死信重放管理工具。設計、合約與三輪設計審見 [[Projects/RTB_Phase8死信重放與過時決策_計劃]];重放條件、放回待處理、死信信封與稽核在 [[Systems/提案收件口]];放回之後的每一關在 [[Systems/執行迴圈]]。
++
++- 比照核可管理工具的命令列形狀(收資料庫路徑與參數、出錯以非零代碼結束、資料庫忙碌回同一個代碼),核可工具見 [[Systems/寫入能力憑證]]。
++- 一次一份:不做自動、排程或批次重放,也不做網頁介面(計劃〈不做〉)。
++- 操作人不合識別格式就拒絕、不寫稽核(沒有可信的操作人可記)。防回歸:[test:test_a_replay_without_a_valid_operator_is_refused_without_an_audit_row]、[test:test_the_replay_tool_requeues_a_dead_letter_and_reports_refusals]。
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+index c44c11c..e0c2d4e 100644
+--- a/src/rtb/analyzer/flow.py
++++ b/src/rtb/analyzer/flow.py
+@@ -278,70 +278,82 @@ def _from_proposed(
+     if not isinstance(result, Accepted):
+         raise _BrokenCollaborator(f"Submit 回傳了合約之外的型別:{type(result)!r}")
+     # 交接這一列存下冪等鍵:之後收件表清掉要查 DSP 時用存下的這把,不從提案重算
+     return _Step(TaskState.HANDED_OFF, proposal=row.proposal,
+                  operation_key=operation_key(row.proposal))
+ 
+ 
+ # 收件口回應的處置 → 下一步;不在表裡的處置當成回應讀不懂(這一輪沒有進展)
+ # 待核可(Phase 6 增量 3)跟處理中一樣是等待:人核可後執行端接續處理,到期才確認成已擋下
+ _OPEN_STATES = frozenset({"pending", "in_progress", "awaiting_approval"})
+-_CLOSED_WITHOUT_REPLAN = frozenset({"blocked", "dead_letter"})
+-_KNOWN_STATES = _OPEN_STATES | _CLOSED_WITHOUT_REPLAN | {"handed_off", "expired", "superseded"}
++# 死信(Phase 8 改 Phase 5 [S304] 的死信那一半):決策還沒過期就等(可能被重放),過期才結案
++_KNOWN_STATES = _OPEN_STATES | {"blocked", "dead_letter", "handed_off", "expired", "superseded"}
+ _PURGED_CODES = frozenset({"expired_proposal", "revision_out_of_order"})  # 收件表已清掉
+ _VERSION_CHANGED = "version_changed"
+ # 收件口回給分析行程的擋下原因(權限類合併成 not_permitted,使用者 2026-09-23 裁定):不在這份
+ # 清單的代碼當成回應讀不懂,不寫進只增不改的歷史表(對方回什麼字串都原樣寫進稽核紀錄是注入管道)
+-_BLOCK_CODES = frozenset({_VERSION_CHANGED, "not_permitted", "campaign_not_found",
++# 這幾種擋下原因要重新規劃(另開接續任務重讀現況);Phase 8 加政策已變與決策已過時
++_REPLAN_ON_BLOCK = {
++    _VERSION_CHANGED: ReplanReason.VERSION_CHANGED,
++    "policy_version_changed": ReplanReason.POLICY_VERSION_CHANGED,
++    "decision_stale": ReplanReason.DECISION_STALE,
++}
++_BLOCK_CODES = frozenset({*_REPLAN_ON_BLOCK, "not_permitted", "campaign_not_found",
+                           "campaign_not_active", "operation_previously_failed"})
+ 
+ 
+ def _from_handed_off(
+-    store: TaskStore, row: TaskRow, c: _Collaborators, _now: datetime
++    store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
+ ) -> _StepOutcome:
+     if row.proposal is None or c.operation_lookup is None:
+         raise AssertionError("已交給執行的列一定帶著提案快照;沒給操作查詢不會走到這一步")
+     try:
+         answer = c.submit(row.proposal)
+     except SubmitStale as stale:
+         if str(stale) in _PURGED_CODES:
+             return _from_dsp(store, row, c.operation_lookup)
+         return _closed(f"rejected={stale}")
+     except SubmitRejectedPermanently as exc:
+         return _closed(f"rejected={exc}")
+     except Exception:  # 忙碌、未定義失敗、網路失敗:重送同一份提案永遠安全,下一輪再問
+         return None
+     if not isinstance(answer, Accepted):  # 同送出提案那一步:協作介面本身的錯,不能重試
+         raise _BrokenCollaborator(f"Submit 回傳了合約之外的型別:{type(answer)!r}")
+     if not _belongs_to(answer, row.proposal):
+         return None  # 別的提案的回應、或處置與原因對不上:不拿來結案
+-    return _from_inbox_answer(answer)
++    return _from_inbox_answer(answer, row.proposal, now)
+ 
+ 
+ def _belongs_to(answer: Accepted, proposal: Proposal) -> bool:
+     same = (answer.task_id == proposal.task_id and answer.revision == proposal.revision
+             and answer.content_hash == content_hash(proposal))
+     consistent = answer.state in _KNOWN_STATES and (
+         answer.block_code in _BLOCK_CODES if answer.state == "blocked"
+         else answer.block_code is None)
+     return same and consistent
+ 
+ 
+-def _from_inbox_answer(answer: Accepted) -> _StepOutcome:
++def _from_inbox_answer(  # noqa: PLR0911 - 收件口每一種處置一個出口
++    answer: Accepted, proposal: Proposal, now: datetime,
++) -> _StepOutcome:
+     if answer.state == "handed_off":
+         return _Step(TaskState.COMPLETED)
+     if answer.state in _OPEN_STATES:
+         return None
++    if answer.state == "dead_letter" and now < proposal.decision_expires_at:
++        # 收件口不會把死信轉成已過期(待核可會,死信不會):過期沒由分析端用自己的時鐘比對快照的
++        # 到期時間,邊界跟收件口判過期一樣(到期那一刻起算過期)。收件表清掉之後照 [S317]
++        return None
+     if answer.state == "superseded":
+         return _Step(TaskState.SUPERSEDED)
+-    if answer.state == "blocked" and answer.block_code == _VERSION_CHANGED:
+-        return _replan(ReplanReason.VERSION_CHANGED, f"blocked={answer.block_code}")
++    if answer.state == "blocked" and answer.block_code in _REPLAN_ON_BLOCK:
++        return _replan(_REPLAN_ON_BLOCK[answer.block_code], f"blocked={answer.block_code}")
+     if answer.state == "expired":
+         return _replan(ReplanReason.EXPIRED, "expired")
+     return _closed(f"{answer.state}={answer.block_code}")
+ 
+ 
+ def _from_dsp(store: TaskStore, row: TaskRow, lookup: OperationLookup) -> _StepOutcome:
+     """收件表已清掉:清掉時執行端早就結束(處理中與轉人工不會被清),DSP 那邊不會再有新寫入。"""
+     proposal = row.proposal
+     if proposal is None:
+         raise AssertionError("已交給執行的列一定帶著提案快照")
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index dccc81f..37e2e5b 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -90,20 +90,22 @@ class TaskStoreBusy(Exception):
+ class TaskNotFound(Exception):
+     """這個任務編號完全沒有歷史列。"""
+ 
+ 
+ class ReplanReason(StrEnum):
+     """為什麼要重新規劃;記進接續關係表,給衝突次數查詢分類。"""
+ 
+     VERSION_CHANGED = "version_changed"  # 收件口回已擋下、原因是版本已變
+     EXPIRED = "expired"  # 收件口回決策已過期(收件表還留著)
+     AFTER_RETENTION = "after_retention"  # 收件表已清掉、DSP 用存下的鍵查不到寫入
++    POLICY_VERSION_CHANGED = "policy_version_changed"  # 收件口回已擋下、原因是政策已變(Phase 8)
++    DECISION_STALE = "decision_stale"  # 收件口回已擋下、原因是決策已過時(Phase 8)
+ 
+ 
+ class _FollowUpOutcome(StrEnum):
+     CREATED = "created"
+     LIMIT_REACHED = "limit_reached"
+ 
+ 
+ @dataclass(frozen=True)
+ class FollowUp:
+     """commit_step 帶這個:原任務結案的同一個交易裡建接續任務(或記下代數用完)。"""
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index 1e509ff..b678424 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -26,21 +26,21 @@
+ 
+ from collections.abc import Callable
+ from dataclasses import dataclass, replace
+ from datetime import UTC, datetime
+ from enum import StrEnum
+ from pathlib import Path
+ from typing import Any, Literal, NoReturn, Protocol
+ 
+ from rtb.domain._checks import is_plain_int
+ from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
+-from rtb.domain.proposal import ActionType, Proposal
++from rtb.domain.proposal import POLICY_VERSION, ActionType, Proposal
+ from rtb.executor import approval, attempt_store, guardrails
+ from rtb.executor.approval import Approval
+ from rtb.executor.attempt_store import AttemptRow
+ from rtb.executor.capability_signer import Grant, SigningRefused, Tenant, load_tenants, tenant_for
+ from rtb.executor.inbox_store import (
+     APPROVABLE,
+     VISIBILITY_TIMEOUT,
+     ApprovalUse,
+     AwaitingOutcome,
+     AwaitingProposal,
+@@ -313,29 +313,37 @@ def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
+ 
+     比例上限(可核可)不在這裡:Phase 6 增量 3 搬到簽發之後,硬規則一律先判,否則同時違反比例與
+     單一廣告上限的提案會先停在待核可、等一張注定用不上的核可。比例的基準仍是這裡讀到的現況:版本
+     已變排在前面,走到比例時現況一定是提案觀察到的那個版本。"""
+     if view is None:
+         return BlockCode.CAMPAIGN_NOT_FOUND
+     if view.status != "active":
+         return BlockCode.CAMPAIGN_NOT_ACTIVE
+     if view.version != proposal.campaign_version_observed:
+         return BlockCode.VERSION_CHANGED
++    if proposal.policy_version != POLICY_VERSION:  # Phase 8:政策換版後,舊政策下的決策不寫
++        return BlockCode.POLICY_VERSION_CHANGED
+     return None
+ 
+ 
+-def _version_changed_or_none(live: bool, checked: BlockCode | None) -> BlockCode | None:
+-    """重跑執行前檢查查到版本已變:收件口確認成「版本已變」(分析端要據此重新規劃),嘗試結果代碼
+-    照舊記「沒發生」。其他原因(含提案過期、權限不過)回空值,照嘗試結果代碼確認。
+-    過期與版本已變同時成立時過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)。
+-    使用者 2026-09-23 裁定把 Phase 5 [S310] 擴到憑證過期後重讀與對帳查不到兩條路徑。"""
+-    return BlockCode.VERSION_CHANGED if live and checked is BlockCode.VERSION_CHANGED else None
++# 重跑的執行前檢查查到這幾種,收件口照實確認成那個原因(分析端據此重新規劃);其他照嘗試結果
++# 代碼確認。決策已過時不在執行前檢查裡,由轉回嘗試中的交易直接帶出(見 _stale_on_rerun)
++_KEPT_ON_RERUN = frozenset({BlockCode.VERSION_CHANGED, BlockCode.POLICY_VERSION_CHANGED})
++
++
++def _kept_reason_or_none(live: bool, checked: BlockCode | None) -> BlockCode | None:
++    """重跑執行前檢查查到版本已變或政策已變:收件口確認成那個原因,嘗試結果代碼照舊記「沒發生」。
++    其他原因(含提案過期、權限不過)回空值,照嘗試結果代碼確認。
++    過期跟這幾種同時成立時過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)。
++    使用者 2026-09-23 裁定把 Phase 5 [S310] 擴到憑證過期後重讀與對帳查不到兩條路徑;政策已變與
++    決策已過時照同一個做法,使用者 2026-09-24 裁定(Phase 8 [S511])。"""
++    return checked if live and checked in _KEPT_ON_RERUN else None
+ 
+ 
+ def intent_holds(proposal: Proposal, view: CampaignView) -> bool:
+     if proposal.action_type is ActionType.UPDATE_BUDGET:
+         return bool(view.budget == proposal.requested_change["new_budget"])
+     return view.status == "paused"
+ 
+ 
+ def record_matches(proposal: Proposal, record: OperationRecord) -> bool:
+     """DSP 同鍵查到的操作,內容要跟快照一致:冪等鍵是執行端算的,DSP 不會拿內容反算這把鍵。
+@@ -351,20 +359,24 @@ class _Signed:
+     token: str
+     expires_at: datetime
+     tenant: Tenant  # 同一次讀設定檔得到的整個租戶:總額上限、租戶名稱、核可範圍指紋都從這裡取
+     approvals: tuple[Approval, ...] = ()  # 同鍵重送時這張憑證靠的核可:轉嘗試中的交易裡再核一次
+ 
+ 
+ class _ApprovalSuperseded(Exception):
+     """轉嘗試中的交易裡發現重送靠的核可已不是那一關最新的:不重送。"""
+ 
+ 
++class _DecisionStale(Exception):
++    """轉嘗試中的交易裡發現決策已過時(又沒有用過核可):不重送,收件口確認成決策已過時。"""
++
++
+ def _no_progress(key: str, receipt: Receipt | None) -> NoReturn:
+     """嘗試紀錄的序號對不上(條件寫入沒進展)。
+ 
+     有收據:收據剛核對過還有效,序號卻被改過,代表有人繞過租約寫了嘗試紀錄——系統錯誤,停機。
+     沒有收據(收件表沒有對應處理中訊息的舊鍵,沒有租約可搶):多個工作者會同時對帳它,序號輸家是
+     正常競爭,放棄這把鍵、不停機。每一次呼叫 DSP 寫入之前都先有一筆成功的轉嘗試中寫入,所以兩邊
+     最多一個能走到 DSP 寫入。
+     """
+     if receipt is None:
+         raise LeaseLost(key)
+@@ -406,20 +418,22 @@ class Executor:
+             return self._settle(receipt, signed, Result.BLOCKED)
+         assert view is not None  # 廣告不存在時執行前檢查已擋下  # noqa: S101
+         return self._run(picked, receipt, signed, view)
+ 
+     def _run(
+         self, picked: PendingProposal, receipt: Receipt, signed: _Signed, view: CampaignView,
+     ) -> Processed:
+         """硬規則都過了:判可核可的兩關、開始一筆、送出。"""
+         proposal = picked.proposal
+         amount = guardrails.increase(proposal, view.budget)
++        if self._stale(proposal, signed.tenant, amount):  # Phase 8:要知道租戶才能判核可,排在簽發後
++            return self._settle(receipt, BlockCode.DECISION_STALE, Result.BLOCKED)
+         gated = self._gate(receipt, proposal, signed, view, amount)
+         if isinstance(gated, Processed):
+             return gated
+         signed, held = gated
+         taken = self._take(picked, receipt, signed, amount, held)
+         if isinstance(taken, Processed):
+             return taken
+         # 停在未結案就不確認:每一筆嘗試寫入都順手續租,所以租約已經延長,交給對帳
+         self._record(proposal, taken, self.dsp.write(proposal, taken.key, signed.token), receipt)
+         return Processed(Result.EXECUTED, taken.key)
+@@ -432,20 +446,47 @@ class Executor:
+         now = int(self.clock().timestamp())  # 每次簽發都重讀時鐘
+         try:
+             grant = self.signer.grant(proposal, key or operation_key(proposal),
+                                       self.config_path, now, not_after)
+         except SigningRefused as refused:
+             if refused.reason in _BUSINESS_REFUSALS:
+                 return _BUSINESS_REFUSALS[refused.reason]
+             raise ExecutorHalted(refused.reason) from refused
+         return _Signed(grant.token, datetime.fromtimestamp(grant.expires_at, UTC), grant.tenant)
+ 
++    # ---- 決策新鮮度(Phase 8) ----
++    def _stale(self, proposal: Proposal, tenant: Tenant, amount: int) -> bool:
++        with self.store.transaction() as tx:
++            return self._stale_in(tx, proposal, tenant, amount, self.clock())
++
++    def _stale_in(
++        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, tenant: Tenant,
++        amount: int, now: datetime,
++    ) -> bool:
++        """決策過時、又沒有任一關的有效核可。有效核可照增量 3 的查法判(每一關最新那張、此刻
++        算數),不另加「核可放回」旗標:旗標要另外維護,會跟核可對不上(使用者 2026-09-24 裁定)。"""
++        if not guardrails.decision_stale(proposal, now):
++            return False
++        return not any(
++            self._read_approval(self.store.latest_approval(tx, proposal, stage), proposal, stage,
++                                tenant, amount, now) is not None
++            for stage in APPROVABLE)
++
++    def _stale_on_rerun(
++        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, now: datetime,
++    ) -> bool:
++        """同鍵重送前:決策過時、而且開始一筆時沒有用過核可。用過的核可此刻還算不算數,重簽時
++        照舊核對(不算數就不重送)。兩條重跑路徑只在轉回嘗試中的那個交易裡判這一次(跟開始一筆的
++        交易同一個判斷點):重跑的執行前檢查不另判,判了也是同一個結果(變異檢查看出來的重複)。"""
++        return (guardrails.decision_stale(proposal, now)
++                and not self.store.used_approvals(tx, proposal))
++
+     # ---- 人工核可(Phase 6 增量 3) ----
+     def _gate(
+         self, receipt: Receipt, proposal: Proposal, signed: _Signed, view: CampaignView,
+         amount: int,
+     ) -> tuple[_Signed, dict[BlockCode, Approval]] | Processed:
+         """硬規則都過了之後:判比例上限(可核可),並查好開始一筆可能用到的核可。沒超過比例就用
+         不到那一張;超過又沒有有效核可就停在待核可。用到核可時重簽一次,憑證封頂在核可到期。"""
+         held = self._approvals(proposal, signed.tenant, amount)
+         if not guardrails.increase_too_large(proposal, view.budget):
+             held.pop(RATIO, None)
+@@ -588,22 +629,25 @@ class Executor:
+             return None  # 核可是照上一次讀到的租戶設定驗的:範圍變了就不算數(代碼審第 1 輪外家席)
+         if not isinstance(capped, _Signed):
+             return capped
+         # 靠的核可仍是最新這件事,在轉嘗試中的同一個交易裡核對(代碼審第 2、3 輪外家席):跟處理
+         # 一筆在開始一筆交易裡的核對是同一個判斷點,之後才呼叫 DSP
+         return replace(capped, approvals=tuple(item for item in found if item is not None))
+ 
+     def _in_flight_again(
+         self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None, signed: _Signed,
+     ) -> AttemptRow:
+-        """同鍵重送前轉回嘗試中;靠核可的,同一個交易裡核對每張仍是那一關最新的。"""
++        """同鍵重送前轉回嘗試中;靠核可的,同一個交易裡核對每張仍是那一關最新的;決策新鮮度也在
++        這個交易裡用它的時間再判一次(Phase 8,跟開始一筆的交易同一個判斷點)。"""
+         def still_latest(tx: attempt_store.ExecutorTransaction) -> bool:
++            if self._stale_on_rerun(tx, proposal, self.clock()):
++                raise _DecisionStale(row.key)
+             return not any(self._superseded(tx, proposal, item.stage, item)
+                            for item in signed.approvals)
+         return self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at,
+                            guard=still_latest)
+ 
+     def _settle(self, receipt: Receipt, code: BlockCode | None, kind: Result) -> Processed:
+         """確認成已過期或已擋下;以收據為條件(提案已經是處理中,不再以「仍待處理」為條件)。"""
+         with self.store.transaction() as tx:
+             now = self.clock()
+             done = (self.store.ack_expired(tx, receipt, now) if code is None
+@@ -622,24 +666,23 @@ class Executor:
+     ) -> AttemptRow | Processed:
+         """開始一筆:在核對收據仍有效的同一個交易裡做;鍵已存在就依既有那把鍵的狀態分流。
+ 
+         總曝險(Phase 6):預留金額 = 新預算減處理一筆開頭讀到的目前預算(版本已變排在前面,走到
+         這裡的目前預算一定是提案觀察到的那一版),小於 0 算 0;額度不夠又沒有有效核可就停在
+         待核可並寫停下紀錄。held 是開始前查好的核可:在這個交易裡用當下時間再判一次到期。"""
+         with self.store.transaction() as tx:
+             now = self.clock()
+             if not self.store.extend(tx, receipt, now):  # 已被取代、內容不同、或租約已不是我的
+                 return Processed(Result.LEASE_LOST)
+-            # 讀 DSP、讀設定檔簽發都可能剛好跨過到期時間:在開始一筆的同一個交易裡再判一次
+-            if picked.proposal.decision_expires_at <= now:
+-                self.store.ack_expired(tx, receipt, now)
+-                return Processed(Result.EXPIRED)
++            late = self._too_late(tx, receipt, picked.proposal, signed.tenant, amount, now)
++            if late is not None:
++                return late
+             if any(self._superseded(tx, picked.proposal, stage, found)
+                    for stage, found in held.items()):  # 查好之後又有人簽了更新的核可:下一輪重判
+                 self.store.release(tx, receipt, now, None)
+                 return Processed(Result.DEFERRED)
+             live = {stage: found for stage, found in held.items()
+                     if now.timestamp() < found.expires_at}
+             if RATIO in held and RATIO not in live:  # 比例的核可在取件後過期:回待核可
+                 return self._await_in(tx, receipt, picked.proposal, RATIO,
+                                       self._ratio_stop(picked.proposal, signed, amount), now)
+             reservation = attempt_store.Reservation(
+@@ -662,20 +705,34 @@ class Executor:
+             except attempt_store.CorruptedAttemptRow as exc:  # 算額度時讀到壞掉的舊快照
+                 raise ExecutorHalted("unreadable_attempt") from exc  # 比照對帳:不猜,停下讓人看
+             except attempt_store.CampaignLocked:  # 同廣告兩份提案被兩個工作者同時取出時會走到
+                 self.store.release(tx, receipt, now, None)
+                 return Processed(Result.DEFERRED)
+             if begun.created:
+                 self._audit(tx, picked.proposal, begun, live, reservation, now)
+                 return begun.row
+             return self._existing_key(tx, begun.row, receipt, now)
+ 
++    def _too_late(
++        self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, proposal: Proposal,
++        tenant: Tenant, amount: int, now: datetime,
++    ) -> Processed | None:
++        """讀 DSP、讀設定檔簽發、查核可都要時間:到期與決策新鮮度(Phase 8)在開始一筆的同一個
++        交易裡用這個交易的時間再判一次,檢查通過之後才跨線的也擋。"""
++        if proposal.decision_expires_at <= now:
++            self.store.ack_expired(tx, receipt, now)
++            return Processed(Result.EXPIRED)
++        if self._stale_in(tx, proposal, tenant, amount, now):
++            self.store.ack_blocked(tx, receipt, now, BlockCode.DECISION_STALE)
++            return Processed(Result.BLOCKED, block_code=BlockCode.DECISION_STALE)
++        return None
++
+     def _superseded(
+         self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, stage: BlockCode,
+         held: Approval,
+     ) -> bool:
+         """開始一筆前查好的那張已不是這一關最後寫進核可表的那張(代碼審第 1 輪外家席)。"""
+         token = self.store.latest_approval(tx, proposal, stage)
+         return token is None or approval.approval_id(token) != held.approval_id
+ 
+     def _audit(
+         self, tx: attempt_store.ExecutorTransaction, proposal: Proposal,
+@@ -772,39 +829,43 @@ class Executor:
+         if reaction.target is A.COMMITTED_UNVERIFIED:
+             return self._verify(proposal, self._write(
+                 row, reaction.target, receipt, written_version=answer.version_after), receipt)
+         if reaction.capability_expired:
+             return self._after_expiry(proposal, self._write(row, A.UNKNOWN, receipt), receipt)
+         self._write(row, reaction.target, receipt, code=reaction.code)
+         if reaction.halt:
+             raise ExecutorHalted(str(reaction.code))
+         return reaction.target is A.UNKNOWN
+ 
+-    def _after_expiry(self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None) -> bool:
++    def _after_expiry(  # noqa: PLR0911 - 每個出口對應重送前的一種結果
++        self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
++    ) -> bool:
+         """DSP 明確沒寫:重讀 DSP、重跑檢查;通過就重讀時鐘重簽、同鍵重送一次。"""
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id)
+         except DspUnavailable:
+             return True  # 留在結果不明,交給對帳
+         live = proposal.decision_expires_at > self.clock()
+         checked = precheck(proposal, view)
+         signed = (self._resign(proposal, view, row.key)  # 設定檔壞掉在這裡停機
+                   if live and checked is None else None)
+         if not isinstance(signed, _Signed):  # 業務上沒通過:DSP 明確沒寫這一次,不再送
+-            return self._not_resent(proposal, row, receipt, _version_changed_or_none(live, checked))
++            return self._not_resent(proposal, row, receipt, _kept_reason_or_none(live, checked))
+         try:
+             row = self._in_flight_again(proposal, row, receipt, signed)
+         except attempt_store.SendLimitReached:
+             self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)
+             return False
+         except _ApprovalSuperseded:
+             return self._not_resent(proposal, row, receipt, None)
++        except _DecisionStale:
++            return self._not_resent(proposal, row, receipt, BlockCode.DECISION_STALE)
+         answer = self.dsp.write(proposal, row.key, signed.token)
+         reaction = react(answer)
+         if reaction.capability_expired:  # 用新讀的時間重簽後仍過期:時鐘或設定有問題
+             self._write(row, A.ESCALATED, receipt, code=C.CAPABILITY_REJECTED)
+             return False
+         return self._record(proposal, row, answer, receipt)
+ 
+     def _not_resent(
+         self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
+         block: BlockCode | None,
+@@ -932,46 +993,48 @@ class Executor:
+     ) -> bool:
+         try:
+             record = self.dsp.operation_record(row.key)
+         except DspUnavailable:
+             self._verification_timeout(row, receipt)
+             return True
+         if record is not None:
+             return self._found(proposal, row, record, receipt)
+         return self._reconcile_not_found(proposal, row, receipt)
+ 
+-    def _reconcile_not_found(
++    def _reconcile_not_found(  # noqa: PLR0911 - 每個出口對應重送前的一種結果
+         self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
+     ) -> bool:
+         """查不到這把鍵:重讀廣告、重跑執行前檢查;通過就同鍵重送,不過就先作廢再判失敗。"""
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id)
+         except DspUnavailable:
+             self._verification_timeout(row, receipt)
+             return True
+         if view is None:  # 模擬 DSP 沒有建立或刪除廣告的介面:不存在就代表從來不存在
+             self._write(row, A.FAILED, receipt, code=C.CAMPAIGN_NOT_FOUND)
+             return False
+         live = proposal.decision_expires_at > self.clock()
+         checked = precheck(proposal, view)
+         signed = (self._resign(proposal, view, row.key)  # 設定檔壞掉在這裡停機
+                   if live and checked is None else None)
+         if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗
+             return self._void_then_fail(proposal, row, receipt,
+-                                        _version_changed_or_none(live, checked))
++                                        _kept_reason_or_none(live, checked))
+         try:
+             row = self._in_flight_again(proposal, row, receipt, signed)
+         except attempt_store.SendLimitReached:
+             self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)
+             return False
+         except _ApprovalSuperseded:
+             return self._void_then_fail(proposal, row, receipt, None)
++        except _DecisionStale:
++            return self._void_then_fail(proposal, row, receipt, BlockCode.DECISION_STALE)
+         return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token),
+                             receipt)
+ 
+     def _found(
+         self, proposal: Proposal, row: AttemptRow, record: OperationRecord,
+         receipt: Receipt | None,
+     ) -> bool:
+         if not record_matches(proposal, record):
+             self._write(row, A.ESCALATED, receipt, code=C.IDEMPOTENCY_CONFLICT)
+             return False
+diff --git a/src/rtb/executor/guardrails.py b/src/rtb/executor/guardrails.py
+index 794137a..69796ac 100644
+--- a/src/rtb/executor/guardrails.py
++++ b/src/rtb/executor/guardrails.py
+@@ -1,26 +1,38 @@
+ """單筆加預算的比例上限(Phase 6 增量 2 的規則;增量 3 從執行迴圈模組搬出來)。
+ 
+ 只放常數與判斷,不碰 DSP、資料庫與設定檔:執行迴圈、人工核可的範圍指紋、核可管理工具都從這裡
+ 匯入,管理工具不必拖進整個執行迴圈模組,也不會自己再寫一份常數。
+ """
+ 
++from datetime import datetime, timedelta
++
+ from rtb.domain.proposal import ActionType, Proposal
+ 
+ # 使用者 2026-09-23 裁定:五成、最小加額 1、全域一個值。
+ # 加的量不得超過 max(現況乘分子除以分母取整數下限, 最小加額),整數運算
+ MAX_INCREASE_NUMERATOR = 1
+ MAX_INCREASE_DENOMINATOR = 2
+ MIN_INCREASE_STEP = 1
+ 
++# 使用者 2026-09-23 裁定:決策建立超過 15 分鐘就當成過時(Phase 8)。跟分析端證據年齡上限同一個值,
++# 所以證據最多 30 分鐘舊。執行前檢查、開始一筆的交易、兩條重跑路徑都呼叫下面這一支,不各算一套
++DECISION_FRESHNESS = timedelta(minutes=15)
++
+ 
+ def increase(proposal: Proposal, budget: int) -> int:
+     """這筆提案加的量(也是它佔的總曝險):新預算減目前預算,小於 0 算 0;暫停是 0。"""
+     if proposal.action_type is not ActionType.UPDATE_BUDGET:
+         return 0
+     return max(0, int(proposal.requested_change["new_budget"]) - budget)
+ 
+ 
+ def increase_too_large(proposal: Proposal, budget: int) -> bool:
+     """加的量超過比例上限;減預算、暫停是 0,不受影響。budget 是處理一筆開頭讀到的現況。"""
+     allowed = max(budget * MAX_INCREASE_NUMERATOR // MAX_INCREASE_DENOMINATOR, MIN_INCREASE_STEP)
+     return increase(proposal, budget) > allowed
++
++
++def decision_stale(proposal: Proposal, now: datetime) -> bool:
++    """現在比決策建立晚超過新鮮度上限;剛好等於上限不算過時。執行端看不到證據本身,用決策建立
++    時間代替(分析端決策時證據最多 15 分鐘舊)。有這一關有效核可的提案不判,由呼叫端決定。"""
++    return now - proposal.decision_created_at > DECISION_FRESHNESS
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index c20b0de..0924339 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -90,20 +90,22 @@ class BlockCode(StrEnum):
+ 
+     CAMPAIGN_NOT_FOUND = "campaign_not_found"
+     CAMPAIGN_NOT_ACTIVE = "campaign_not_active"
+     VERSION_CHANGED = "version_changed"
+     CAMPAIGN_NOT_ALLOWED = "campaign_not_allowed"
+     OVER_BUDGET_CAP = "over_budget_cap"
+     # 單筆加預算超過比例上限(Phase 6 增量 2)
+     BUDGET_INCREASE_TOO_LARGE = "budget_increase_too_large"
+     OPERATION_PREVIOUSLY_FAILED = "operation_previously_failed"  # 同一把鍵先前已判定失敗
+     AGGREGATE_LIMIT_REACHED = "aggregate_limit_reached"  # 開始一筆時總曝險額度不夠(Phase 6)
++    POLICY_VERSION_CHANGED = "policy_version_changed"  # 提案的政策版本不是現行版本(Phase 8)
++    DECISION_STALE = "decision_stale"  # 決策建立超過新鮮度上限(Phase 8)
+ 
+ 
+ class StopKind(StrEnum):
+     """新寫入被停下的種類(Phase 6 停下紀錄表)。"""
+ 
+     AGGREGATE_LIMIT_REACHED = "aggregate_limit_reached"  # 總曝險已滿:擋下結案
+     TABLE_FULL = "table_full"  # 全表未結案已滿:延後重投
+     BUDGET_INCREASE_TOO_LARGE = "budget_increase_too_large"  # 比例過大:進待核可(增量 3)
+ 
+ 
+@@ -179,20 +181,33 @@ CREATE TABLE IF NOT EXISTS approvals (
+     task_id TEXT NOT NULL, revision INTEGER NOT NULL, content_hash TEXT NOT NULL,
+     stage TEXT NOT NULL CHECK (stage IN (APPROVABLE_LIST)), token TEXT NOT NULL, at TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS approvals_by_proposal
+     ON approvals (task_id, revision, content_hash, stage);
+ CREATE TABLE IF NOT EXISTS approval_uses (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL, task_id TEXT NOT NULL,
+     revision INTEGER NOT NULL, content_hash TEXT NOT NULL, key TEXT NOT NULL, tenant TEXT NOT NULL,
+     stage TEXT NOT NULL, amount INTEGER NOT NULL, used INTEGER, cap INTEGER,
+     capped INTEGER NOT NULL, at TEXT NOT NULL,
+     UNIQUE (task_id, revision, content_hash, stage));
++CREATE TABLE IF NOT EXISTS dead_letters (
++    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, revision INTEGER NOT NULL,
++    content_hash TEXT NOT NULL, key TEXT NOT NULL,
++    failure_class TEXT NOT NULL CHECK (failure_class IN (FAILURE_CLASS_LIST)),
++    reason TEXT NOT NULL CHECK (reason IN (DEAD_LETTER_REASON_LIST)), last_failure TEXT,
++    deliveries INTEGER NOT NULL, at TEXT NOT NULL);
++CREATE INDEX IF NOT EXISTS dead_letters_by_proposal ON dead_letters (task_id, revision);
++CREATE TABLE IF NOT EXISTS dead_letter_ops (
++    id INTEGER PRIMARY KEY AUTOINCREMENT, envelope INTEGER REFERENCES dead_letters (id),
++    task_id TEXT NOT NULL, revision INTEGER NOT NULL,
++    action TEXT NOT NULL CHECK (action IN (DEAD_LETTER_ACTION_LIST)), operator TEXT NOT NULL,
++    reason TEXT, at TEXT NOT NULL);
++CREATE INDEX IF NOT EXISTS dead_letter_ops_by_envelope ON dead_letter_ops (envelope);
+ CREATE INDEX IF NOT EXISTS approval_uses_by_tenant ON approval_uses (tenant, at);
+ CREATE INDEX IF NOT EXISTS approval_uses_by_time ON approval_uses (at);
+ """
+ _PROPOSALS_COLUMNS = {
+     "DISPOSITION_COLUMN": _DISPOSITION_COLUMN, "BLOCK_CODE_COLUMN": _BLOCK_CODE_COLUMN,
+     "DEAD_LETTER_COLUMN": _DEAD_LETTER_COLUMN, "LAST_FAILURE_COLUMN": _LAST_FAILURE_COLUMN,
+     "LEASE_COLUMNS": _LEASE_COLUMNS,
+ }
+ for _name, _ddl in _PROPOSALS_COLUMNS.items():
+     SCHEMA = SCHEMA.replace(_name, _ddl)
+@@ -303,20 +318,64 @@ class ApprovalUse:
+     approval_id: str
+     proposal: Proposal
+     key: str
+     tenant: str
+     stage: BlockCode
+     amount: int
+     used: int | None
+     limit: int | None
+ 
+ 
++class FailureClass(StrEnum):
++    """失敗分類(Phase 8 [S501]):暫時的次數用完進死信,永久的走擋下結案、不進死信。"""
++
++    TRANSIENT = "transient"
++    PERMANENT = "permanent"
++
++
++def failure_class(kind: LastFailure | BlockCode) -> FailureClass:
++    """最後卡在哪一步的每一種都是暫時的(讀不到 DSP、全表未結案已滿、工作者沒回報);擋下原因的
++    每一種都是永久的(業務上不成立,重試不會變好)。兩個列舉之後加成員,測試逐一列舉會抓到。"""
++    if type(kind) is LastFailure:
++        return FailureClass.TRANSIENT
++    if type(kind) is BlockCode:
++        return FailureClass.PERMANENT
++    raise TypeError("只分類最後失敗與擋下原因兩個封閉列舉")
++
++
++class DeadLetterAction(StrEnum):
++    """死信操作稽核的動作(Phase 8 [S508])。"""
++
++    DEAD_LETTERED = "dead_lettered"
++    REPLAY_REQUESTED = "replay_requested"
++    REPLAY_REFUSED = "replay_refused"
++    REPLAY_REQUEUED = "replay_requeued"
++
++
++class ReplayOutcome(StrEnum):
++    """重放指令的結果(Phase 8 [S502]):放回待處理,或拒絕的原因。"""
++
++    REQUEUED = "requeued"
++    NOT_IN_INBOX = "not_in_inbox"  # 收件表已沒有這一列(過了保留期被清掉,或從來沒收過)
++    NOT_DEAD_LETTER = "not_dead_letter"  # 還在,但處置不是死信(例如已被放回、已擋下)
++    EXPIRED = "expired"  # 提案已過期
++    SUPERSEDED = "superseded"  # 同任務已有更新的修訂:放回舊的會讓已被取代的決策插隊
++    INBOX_FULL = "inbox_full"  # 待處理名額已滿:照收件口既有規則拒絕
++
++
++# 死信兩張表的允許值清單:列舉定義在建表語句之後,這裡才填進去(模組載入時就完成)
++for _name, _members in (("FAILURE_CLASS_LIST", FailureClass),
++                        ("DEAD_LETTER_REASON_LIST", DeadLetterReason),
++                        ("DEAD_LETTER_ACTION_LIST", DeadLetterAction)):
++    SCHEMA = SCHEMA.replace(_name, _in_list(_members))
++
++
+ class AwaitingOutcome(StrEnum):
+     """處理待核可那一步對一份待核可提案的三種處置。"""
+ 
+     EXPIRED = "expired"  # 提案到期:確認成已擋下,擋下原因是原本那一關
+     SUPERSEDED = "superseded"  # 同任務已有更新的修訂:被取代,不放回
+     RELEASED = "released"  # 有這一關的有效核可:放回待處理、投遞次數歸零
+ 
+ 
+ @dataclass(frozen=True)
+ class Accepted:
+@@ -579,22 +638,25 @@ class InboxStore:
+             if reclaimed:  # 上一個持有者沒回報就讓租約過期:當機或卡住
+                 self._write_failure(receipt, LastFailure.NO_REPORT)
+             existing = attempt_store.latest(tx, operation_key(proposal))
+             if existing is not None:
+                 self._settle_existing(tx, receipt, existing.state, existing.code, now)
+                 continue
+             deliveries = self._conn.execute(
+                 "SELECT deliveries FROM proposals WHERE task_id = ? AND revision = ?",
+                 (task_id, revision)).fetchone()[0]
+             if deliveries >= MAX_DELIVERIES:
+-                self._finish(receipt, now, "disposition = ?, dead_letter_reason = ?",
+-                             (Disposition.DEAD_LETTER.value, DeadLetterReason.DELIVERY_LIMIT.value))
++                if self._finish(receipt, now, "disposition = ?, dead_letter_reason = ?",
++                                (Disposition.DEAD_LETTER.value,
++                                 DeadLetterReason.DELIVERY_LIMIT.value)):
++                    self._record_dead_letter(task_id, revision, digest, proposal, deliveries,
++                                             now, owner)
+                 continue
+             self._conn.execute(
+                 "UPDATE proposals SET deliveries = deliveries + 1 "
+                 "WHERE task_id = ? AND revision = ?", (task_id, revision))
+             return Delivery(PendingProposal(task_id, revision, digest, proposal), receipt)
+         return None
+ 
+     def _settle_existing(
+         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, state: AttemptState,
+         code: OutcomeCode | None, now: datetime,
+@@ -613,20 +675,100 @@ class InboxStore:
+         self._conn.execute(
+             "UPDATE proposals SET disposition = ?, lease_seq = lease_seq + 1, lease_owner = ?, "
+             "lease_until = ? WHERE task_id = ? AND revision = ?",
+             (Disposition.IN_PROGRESS.value, owner, _iso(now + VISIBILITY_TIMEOUT),
+              task_id, revision))
+         seq = self._conn.execute(
+             "SELECT lease_seq FROM proposals WHERE task_id = ? AND revision = ?",
+             (task_id, revision)).fetchone()[0]
+         return Receipt(task_id, revision, digest, owner, int(seq))
+ 
++    def _record_dead_letter(  # noqa: PLR0913 - 信封的每一欄
++        self, task_id: str, revision: int, digest: str, proposal: Proposal, deliveries: int,
++        now: datetime, owner: str,
++    ) -> None:
++        """進死信的同一個交易裡寫一列死信信封與一列稽核(Phase 8 [S500]、[S508])。信封只增不改、
++        不被保留期清理;同一份提案重放後又進死信就另寫一列,不去重(兩次的內容雜湊、冪等鍵、投遞
++        次數都一樣,只靠流水編號分得開)。操作人記取件的工作者。"""
++        last = self._conn.execute(
++            "SELECT last_failure FROM proposals WHERE task_id = ? AND revision = ?",
++            (task_id, revision)).fetchone()[0]
++        cursor = self._conn.execute(
++            "INSERT INTO dead_letters (task_id, revision, content_hash, key, failure_class, "
++            "reason, last_failure, deliveries, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
++            (task_id, revision, digest, operation_key(proposal), FailureClass.TRANSIENT.value,
++             DeadLetterReason.DELIVERY_LIMIT.value, last, deliveries, _iso(now)))
++        self._audit_dead_letter(cursor.lastrowid, task_id, revision,
++                                DeadLetterAction.DEAD_LETTERED, owner, None, now)
++
++    def _audit_dead_letter(  # noqa: PLR0913 - 稽核的每一欄
++        self, envelope: int | None, task_id: str, revision: int, action: DeadLetterAction,
++        operator: str, reason: ReplayOutcome | None, now: datetime,
++    ) -> None:
++        self._conn.execute(
++            "INSERT INTO dead_letter_ops (envelope, task_id, revision, action, operator, reason, "
++            "at) VALUES (?, ?, ?, ?, ?, ?, ?)",
++            (envelope, task_id, revision, action.value, operator,
++             None if reason is None else reason.value, _iso(now)))
++
++    def replay(self, task_id: str, revision: int, operator: str, now: datetime) -> ReplayOutcome:
++        """重放管理指令(Phase 8 [S502]):把還活著的死信放回待處理,之後由執行迴圈照一般流程處理,
++        沒有任何略過關卡的旗標。條件:收件表那一列還在、處置是死信、提案還沒過期、同任務沒有
++        更新的修訂、待處理還有名額;查條件與寫回在同一個立即取得寫入鎖的交易裡,兩人同時重放只有
++        一個放回。每次都寫「要求重放」與結果兩列稽核。操作人的格式由重放管理工具檢查(比照核可人
++        由核可模組檢查、收件口只存;收件口模組不做欄位驗證)。重放對這份提案最新那一列信封;從沒
++        進過死信的,稽核的信封欄是空值。"""
++        try:
++            with immediate_transaction(self._conn):
++                return self._replay(task_id, revision, operator, now)
++        except DatabaseBusy as exc:
++            raise InboxBusy(str(exc)) from exc
++
++    def _replay(self, task_id: str, revision: int, operator: str, now: datetime) -> ReplayOutcome:
++        envelope = self._conn.execute(
++            "SELECT max(id) FROM dead_letters WHERE task_id = ? AND revision = ?",
++            (task_id, revision)).fetchone()[0]
++        self._audit_dead_letter(envelope, task_id, revision, DeadLetterAction.REPLAY_REQUESTED,
++                                operator, None, now)
++        refused = self._replay_refusal(task_id, revision, now)
++        if refused is None:
++            self._conn.execute(
++                "UPDATE proposals SET disposition = NULL, dead_letter_reason = NULL, "
++                "deliveries = 0, lease_until = NULL, lease_owner = NULL "
++                "WHERE task_id = ? AND revision = ? AND state = 'pending' AND disposition = ?",
++                (task_id, revision, Disposition.DEAD_LETTER.value))
++            self._audit_dead_letter(envelope, task_id, revision,
++                                    DeadLetterAction.REPLAY_REQUEUED, operator, None, now)
++            return ReplayOutcome.REQUEUED
++        self._audit_dead_letter(envelope, task_id, revision, DeadLetterAction.REPLAY_REFUSED,
++                                operator, refused, now)
++        return refused
++
++    def _replay_refusal(self, task_id: str, revision: int, now: datetime) -> ReplayOutcome | None:
++        row = self._conn.execute(
++            "SELECT state, disposition, expires_at FROM proposals "
++            "WHERE task_id = ? AND revision = ?",
++            (task_id, revision)).fetchone()
++        if row is None:
++            return ReplayOutcome.NOT_IN_INBOX
++        if row[0] != "pending" or row[1] != Disposition.DEAD_LETTER.value:
++            return ReplayOutcome.NOT_DEAD_LETTER
++        if row[2] <= _iso(now):
++            return ReplayOutcome.EXPIRED
++        if self._highest_revision(task_id) > revision:
++            return ReplayOutcome.SUPERSEDED
++        try:
++            self._check_capacity(supersedes=False)
++        except InboxFull:
++            return ReplayOutcome.INBOX_FULL
++        return None
++
+     def _write_failure(self, receipt: Receipt, failure: LastFailure) -> None:
+         self._conn.execute(
+             "UPDATE proposals SET last_failure = ? WHERE task_id = ? AND revision = ?",
+             (failure.value, receipt.task_id, receipt.revision))
+ 
+     def _held(self, receipt: Receipt, now: datetime, assignment: str,
+               values: tuple[object, ...]) -> bool:
+         """帶收據的條件寫入:處理中、序號與擁有者相符、租約還沒到期;任何一項不符就 0 列。"""
+         if type(receipt) is not Receipt:
+             raise TypeError("收據必須是取件或接手時拿到的 Receipt")
+diff --git a/src/rtb/executor/replay.py b/src/rtb/executor/replay.py
+new file mode 100644
+index 0000000..65ba7d3
+--- /dev/null
++++ b/src/rtb/executor/replay.py
+@@ -0,0 +1,66 @@
++"""死信重放管理工具(Phase 8):人對一份死信下重放,把它放回待處理。
++
++比照核可管理工具的命令列入口:收資料庫路徑、任務、修訂與操作人,出錯以非零代碼結束。透過收件口
++模組開資料庫、呼叫它的重放方法;條件判斷、放回與稽核都在那個方法的同一個交易裡,這裡不重寫一份。
++放回之後由執行迴圈照一般流程處理,一關都不略過:這支工具不碰 DSP、不簽憑證、不讀租戶設定。
++不做自動重放、排程或批次重放(一次一份)。
++"""
++
++import argparse
++import sys
++from collections.abc import Callable
++from datetime import datetime
++from pathlib import Path
++from typing import TextIO
++
++from rtb.domain._checks import is_id
++from rtb.executor.inbox_store import InboxBusy, InboxStore, ReplayOutcome, utc_now
++
++EXIT_REFUSED = 4  # 重放被拒(原因印在標準錯誤)或操作人不合格式;跟核可工具同一個代碼
++EXIT_BUSY = 6  # 資料庫忙碌:稍後再試(跟執行迴圈、核可工具同一個代碼)
++
++
++def _parse(argv: list[str] | None) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="把一份死信放回待處理")
++    parser.add_argument("--db", required=True, type=Path)
++    parser.add_argument("--task-id", required=True)
++    parser.add_argument("--revision", required=True, type=int)
++    parser.add_argument("--operator", required=True)
++    return parser.parse_args(argv)
++
++
++def run(
++    argv: list[str] | None = None, *, clock: Callable[[], datetime] = utc_now,
++    out: TextIO | None = None, err: TextIO | None = None,
++) -> int:
++    args = _parse(argv)
++    errors = err or sys.stderr
++    # 比照核可工具驗核可人:不合格式就拒絕,不寫稽核(沒有可信的操作人可記)
++    if not is_id(args.operator):
++        errors.write("拒絕重放:操作人必須是合法的識別字串\n")
++        return EXIT_REFUSED
++    try:
++        store = InboxStore(args.db)
++    except InboxBusy:
++        errors.write("資料庫忙碌,稍後再試\n")
++        return EXIT_BUSY
++    try:
++        outcome = store.replay(args.task_id, args.revision, args.operator, clock())
++    except InboxBusy:
++        errors.write("資料庫忙碌,稍後再試\n")
++        return EXIT_BUSY
++    finally:
++        store.close()
++    if outcome is not ReplayOutcome.REQUEUED:
++        errors.write(f"拒絕重放:{outcome.value}\n")
++        return EXIT_REFUSED
++    print(outcome.value, file=out or sys.stdout, flush=True)
++    return 0
++
++
++def main(argv: list[str] | None = None) -> None:
++    raise SystemExit(run(argv))
++
++
++if __name__ == "__main__":
++    main()
