@@ -4,7 +4,10 @@
 待處理,每一個死信操作(進死信、要求重放、重放被拒、重放已放回佇列)都寫一列稽核。
 """
 
+import ast
 import io
+import pathlib
+import re
 import sqlite3
 import threading
 
@@ -435,3 +438,88 @@ def test_a_blocked_proposal_cannot_be_replayed(h):
 
     assert replay(h) is ReplayOutcome.NOT_DEAD_LETTER
     assert disposition(h) == ("pending", "blocked")
+
+
+# ---- 事故 F6 轉正第 1 次審計:三句排他性的宣稱要有機械守衛 ----
+SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "rtb"
+REVIVE = "dead_letter_reason = NULL"  # 把死信改回來的那一句(處置與死信原因一起清)
+TABLE_WRITE = re.compile(r"\b(UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+REPLACE\s+INTO|"
+                         r"DROP\s+TABLE|ALTER\s+TABLE)\s+(dead_letters|dead_letter_ops)\b",
+                         re.IGNORECASE)
+
+
+def _text_of(node):
+    """把一段字串拼回來:相鄰字串、用 + 串起來的字串、f-string 的固定片段(代入的值記成 {}),
+    空白壓成一格。照專案一般寫法拆開的 SQL 也還原得回來;刻意用變數組表名之類的寫法還原不了,
+    那是刻意繞過,不在「防忘記」的範圍(代碼審第 1 輪審查席實測兩種繞法)。"""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        text = node.value
+    elif isinstance(node, ast.JoinedStr):
+        text = "".join(part.value if isinstance(part, ast.Constant) else "{}"
+                       for part in node.values)
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _text_of(node.left), _text_of(node.right)
+        if left is None or right is None:  # 不是字串相加(例如數字)
+            return None
+        text = left + right
+    else:
+        return None
+    return " ".join(text.split())
+
+
+def _strings(tree):
+    """一棵語法樹裡拼得回來的每一段字串(最外層的那段,不重複算它的組成片段)。"""
+    inside = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.BinOp | ast.JoinedStr) and _text_of(node) is not None:
+            inside.update(id(sub) for sub in ast.walk(node) if sub is not node)
+    return [text for node in ast.walk(tree)
+            if id(node) not in inside and (text := _text_of(node)) is not None]
+
+
+def _functions_containing(text):
+    """原始碼裡含這段字的每一個函式(檔名, 函式名)。"""
+    return [(path.name, node.name) for path in SRC.rglob("*.py")
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+            and any(text in found for found in _strings(node))]
+
+
+def test_only_the_replay_method_revives_a_dead_letter():
+    """死信只能由管理指令逐筆重放:把死信改回待處理的寫法全庫只有重放方法一處。"""
+    assert _functions_containing(REVIVE) == [("inbox_store.py", "_replay")]
+
+
+def test_the_dead_letter_tables_are_only_ever_inserted_into():
+    """死信信封與稽核只增不改:全庫沒有任何語句修改、刪除或覆寫這兩張表。"""
+    offenders = [(path.name, match.group(0)) for path in SRC.rglob("*.py")
+                 for text in _strings(ast.parse(path.read_text(encoding="utf-8")))
+                 for match in TABLE_WRITE.finditer(text)]
+    assert offenders == []
+
+
+def test_the_source_checks_see_through_split_strings():
+    """結構檢查本身:照一般寫法拆開的 SQL(相鄰字串、+、f-string)拼得回來。"""
+    tree = ast.parse('x = "UPDATE dead_" + "letters SET a = 1"\n'
+                     'y = f"DELETE   FROM {t} WHERE 1"\n'
+                     'z = ("SET disposition = NULL, dead_letter_" "reason = NULL")\n')
+    found = _strings(tree)
+    assert "UPDATE dead_letters SET a = 1" in found
+    assert "DELETE FROM {} WHERE 1" in found
+    assert any(REVIVE in text for text in found)
+
+
+def test_no_periodic_work_or_resend_revives_a_dead_letter(h):
+    """執行迴圈每一個會定期跑的入口與分析端重送同一份提案,都不會把死信改回來、也不會多寫信封。"""
+    prop = dead_letter(h)
+    before = (envelopes(h), audit(h))
+    executor = h.executor()
+    h.clock.advance(minutes=5)
+
+    assert executor.process_one().kind is Result.IDLE
+    executor.process_awaiting()
+    executor.reconcile_all()
+    assert h.store.accept(prop, h.clock).state == "dead_letter"
+
+    assert disposition(h) == ("pending", "dead_letter")
+    assert (envelopes(h), audit(h)) == before

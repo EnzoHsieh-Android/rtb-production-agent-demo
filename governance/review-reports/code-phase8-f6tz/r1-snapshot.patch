@@ -1,0 +1,565 @@
+diff --git a/docs/.governance-log.jsonl b/docs/.governance-log.jsonl
+index cff4799..35c6221 100644
+--- a/docs/.governance-log.jsonl
++++ b/docs/.governance-log.jsonl
+@@ -2955,10 +2955,27 @@
+ {"ts": "2026-09-24T01:50:08+08:00", "commit": "8ed6710", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase8"], "note": "disposal gate PASS"}
+ {"ts": "2026-09-24T02:15:08+08:00", "commit": "8ed6710", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Projects/RTB_Phase2任務流程_計劃.md", "Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md", "Systems/Mock-DSP.md", "Systems/任務流程領域模型.md", "Systems/共用行程基礎.md", "Systems/分析行程流程與檢查點.md", "Systems/執行迴圈.md", "Systems/外部寫入嘗試紀錄.md", "Systems/提案收件口.md", "Systems/確定性指標計算.md"], "note": "tokens=6 hits=12 secs=5.8"}
+ {"ts": "2026-09-24T02:15:09+08:00", "commit": "8ed6710", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "8ed67109c355ef60fe93b97feecafe815bf54913"}
+ {"ts": "2026-09-24T02:15:11+08:00", "commit": "ca97da1", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase8"], "note": "disposal gate PASS"}
+ {"ts": "2026-09-24T02:16:11+08:00", "commit": "078e7e8", "gate": "delguard", "kind": "degraded", "hard": false, "nodes": [], "note": "reason=timeout tokens=13"}
+ {"ts": "2026-09-24T02:16:14+08:00", "commit": "078e7e8", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "078e7e80ecd9be080f00d69da6837d4fea4dd3fd"}
+ {"ts": "2026-09-24T02:16:19+08:00", "commit": "3bb22cf", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T02:16:20+08:00", "commit": "3bb22cf", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "3bb22cf67e2976dd1ee6a2a97a304890f34ace74"}
+ {"ts": "2026-09-24T02:16:20+08:00", "commit": "5fb9a5b", "gate": "code-loop", "kind": "dispositions", "hard": false, "nodes": [], "detail": "表態 5 題", "branch": "phase8", "head_sha": "5fb9a5b8d1b4f5d2322d542e77afe066fdf8bb84", "dispositions": {"py-eventloop": {"status": "na", "question": "事件迴圈:async def 裡有沒有同步阻塞(time.sleep/requests/同步 open 讀寫/subprocess.run/大 JSON 解析/CPU 重活)?該換 asyncio.sleep、非同步 client,或用 asyncio.to_thread 丟出去?有沒有「while True + sleep」輪詢該改成等事件或佇列?", "evidence": "", "reason": "這批改動沒有任何非同步函式,全是同步的資料庫交易與既有的同步用戶端", "issue": "", "carried": true}, "py-parallel": {"status": "na", "question": "並行與上限:互不依賴的 await 有沒有 asyncio.gather/TaskGroup 並行?gather 的集合有沒有上限(無界並行會打爆下游連線池或對方的速率限制,該用 Semaphore 有界)?create_task 的回傳值有沒有存起來並接住例外(沒存=可能被回收、例外無聲蒸發)?", "evidence": "", "reason": "新增程式碼沒有並行;測試裡用兩條執行緒只為驗證兩人同時重放只會放回一次", "issue": "", "carried": true}, "py-external": {"status": "satisfied", "question": "外呼與重試:每個 HTTP/WebSocket/DB 外呼有沒有逾時(requests 預設不逾時=對方掛了你永遠卡住)?重試有沒有退避與上限,而且不會對不可逆操作(下單/付款/寄信)盲目重送?session/client/連線有沒有重用而不是每次新建?斷線重連後本地狀態有沒有重新對齊?", "evidence": "src/rtb/executor/inbox_store.py:423", "reason": "", "issue": "", "carried": true}, "py-memory": {"status": "na", "question": "記憶體與資料量:大檔/大回應/大查詢有沒有一次讀進記憶體(read()/readlines()/json.load 大檔/fetchall()/read_csv 不分塊)而不是逐行、分塊或 generator?長活的 dict/list/cache 有沒有上限(lru_cache(maxsize=None)、以請求或時間為鍵的快取只增不減)?迴圈裡有沒有逐筆查 DB 或逐筆打 API(N+1)?", "evidence": "", "reason": "新查詢都只讀單列(最新信封編號、單一收件列),不把大量資料讀進記憶體;信封與稽核表只增不清是稽核表既有取捨,查詢有索引", "issue": "", "carried": true}, "py-hotpath": {"status": "na", "question": "熱路徑:這段會跑大量資料或高頻迴圈嗎?pandas 有沒有 iterrows/itertuples/apply(axis=1)/迴圈裡 concat(該向量化,或先收成 list 最後一次建 DataFrame)?索引式迴圈 range(len(x)) 該不該改成直接迭代或向量運算?list 當佇列 pop(0)、在 list 裡做成員查找,該不該換 deque/set?迴圈裡有沒有重複做不變的工作(每圈重新解析設定、重建物件)?", "evidence": "", "reason": "進死信與重放都是低頻的管理路徑;執行前檢查只多兩個常數時間的比較,新鮮度查核可只在決策已過時才發生", "issue": "", "carried": true}}, "candidates": 0, "written_at": "2026-09-24T02:16:32.653007+08:00"}
+ {"ts": "2026-09-24T02:16:20+08:00", "commit": "5fb9a5b", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "Phase 8 死信重放與過時決策代碼審 high 三輪:r1 九席(含 Codex finder/否決、資安、架構、規格)13 條,折 11、駁 2(資安新鮮度可繞過:死信建立時間收件就定、最多延後 5 分鐘,重現不出;架構跨層:核可模組同樣匯入);r2 五席 4 條全折(總曝險需不需要核可改在開始一筆的交易裡重算);r3 五席 2 條全折(交易裡才找到的核可放掉重來、壓短憑證),末輪折入另請發現席驗收 clean;變異 32 條全紅", "branch": "phase8", "head_sha": "5fb9a5b8d1b4f5d2322d542e77afe066fdf8bb84"}
++{"ts": "2026-09-24T02:16:37+08:00", "commit": "5fb9a5b", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T02:16:38+08:00", "commit": "5fb9a5b", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "5fb9a5b8d1b4f5d2322d542e77afe066fdf8bb84"}
++{"ts": "2026-09-24T02:18:16+08:00", "commit": "78ff7c0", "gate": "bound-tests", "kind": "green", "hard": false, "nodes": ["Systems/Mock-DSP.md", "Systems/任務流程領域模型.md", "Systems/共用行程基礎.md", "Systems/分析行程流程與檢查點.md", "Systems/執行迴圈.md", "Systems/提案收件口.md"], "note": "117 綠", "secs": 95.5, "calc_secs": 3.75}
++{"ts": "2026-09-24T02:21:37+08:00", "commit": "78ff7c0", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T02:22:27+08:00", "commit": "78ff7c0", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T02:22:37+08:00", "commit": "78ff7c0", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T02:22:38+08:00", "commit": "78ff7c0", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "78ff7c07007a38def571ea393307fd876a2fd9ea"}
++{"ts": "2026-09-24T02:23:32+08:00", "commit": "78ff7c0", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T02:23:33+08:00", "commit": "78ff7c0", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "78ff7c07007a38def571ea393307fd876a2fd9ea"}
++{"ts": "2026-09-24T02:35:36+08:00", "commit": "a220d4b", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T02:35:37+08:00", "commit": "a220d4b", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "a220d4bd6e18873721a23bd8e2153dd15c05d979"}
++{"ts": "2026-09-24T02:42:35+08:00", "commit": "acfd440", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T02:42:37+08:00", "commit": "acfd440", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "acfd4402f2a11cd4aab26c569a5a053e145f3913"}
++{"ts": "2026-09-24T02:43:01+08:00", "commit": "851ed7c", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T02:43:03+08:00", "commit": "851ed7c", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "851ed7cbe8f180016e1eb7dbac9a77759f82401f"}
++{"ts": "2026-09-24T02:45:24+08:00", "commit": "60c9bb7", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=2 hits=0 secs=0.1"}
++{"ts": "2026-09-24T02:45:25+08:00", "commit": "60c9bb7", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "60c9bb712c908b0ef9a2123702a8849e986feea2"}
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase8死信重放與過時決策_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase8死信重放與過時決策_計劃.md
+index 204578c..0328451 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase8死信重放與過時決策_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase8死信重放與過時決策_計劃.md
+@@ -27,20 +27,22 @@ RETIRE-IF: 換成外部佇列服務且它自帶死信與重放(含稽核)時,撤
+ ## 使用者裁定(2026-09-23,主線轉達)
+ 
+ - 題 1「重放到底是什麼」選 a:同一份提案重跑完整檢查(執行前檢查、簽發、總曝險、核可,一關都不略過),全部通過才寫;任一項不過就擋下並說明原因。沒選的:b 一律改成重新規劃(還有效的決策也要重算)、c 自動分流(兩條路都要做)、d 只交人逐筆決定(人力不夠)。
+ - 題 2「哪些東西算進死信」選 a:維持現狀,只有「還沒開始嘗試、投遞次數用完」的進死信;轉人工的嘗試留在人工那條路(`resolve`),不進死信。沒選的:b 轉人工也進死信(可能已寫進 DSP,重放前一定要先對帳,範圍大很多)、c 分兩個佇列。
+ - 政策版本:增量 3 已把政策版本常數搬進提案領域模組(`rtb.domain.proposal.POLICY_VERSION`),分析端與執行端共用;增量 3 已合進 main(2026-09-23)。
+ 
+ ## 實作狀態
+ 
+ - **2026-09-24 實作完成、待代碼審**(分支 phase8,從 main 078e7e8 切出):[S500]–[S512] 全部綁了測試並綠,變異檢查 23 條全紅。偏離設計三處:(1) 新鮮度不排在簽發之前,判斷點是判比例時(要等新核可之前)、開始一筆的交易、重跑轉回嘗試中的交易——核可例外要驗核可的範圍指紋,租戶要簽發時才讀到;簽發沒有副作用。(2) 重跑的執行前檢查不另判新鮮度,只在轉回嘗試中的交易判一次:變異檢查看出兩處重複、拿掉一處結果不變。(3) 「有它停下那一關的有效核可」落成「這一次真的需要、而且此刻有效的核可」:處理一筆在開始一筆的交易裡判(比例照開始前查好的;總曝險以握著寫入鎖重算的已用額度決定需不需要,需要時讀最新那張,代碼審第 2 輪;交易裡才發現要用的放掉重來、下一輪壓短憑證再寫,代碼審第 3 輪),同鍵重送看這次重送靠的那幾張(兩條路徑的判準字面不同、意思相同);過時的決策碰到還要一張新核可的關卡直接擋下,不停進待核可(代碼審第 1 輪三席,代使用者裁定:使用者原話的目的是核可過的提案不被新鮮度擋掉,不是讓一張用不到的核可免掉新鮮度)。另外操作人格式由重放管理工具驗、不在收件口模組(收件口模組不做欄位驗證有守門測試)。重放管理工具另開一篇 [[Systems/死信重放指令]]。
+ 
++- **2026-09-24 事故 F6 已轉正**(第 2 次獨立審計同意,正式合約在 [[Systems/提案收件口]]);轉正經過:措辭照實改寫(代使用者裁定)、綁測試、每個宣稱一條殺傷力配方;轉正前補了兩個宣稱還沒有測試的缺口(死信不會自己再交出去、已擋下的提案不能重放),第 1 次獨立審計不同意(三句排他性的宣稱只靠讀碼推論:只能由管理指令重放、不轉人工、只增不改),補了結構檢查與行為測試、「不轉人工」從合約拿掉改在說明寫明。
++
+ ## 現況(2026-09-23 開檔核對;rebase 後以 main d07eeea 重新核對)
+ 
+ - 死信只有一種:收件口模組取件時,沒有嘗試紀錄的提案投遞次數滿 `MAX_DELIVERIES`(5,暫用)就寫處置「死信」、死信原因「投遞次數用完」,另記最後一次卡在哪一步(讀不到 DSP、全表未結案已滿、工作者沒回報)。死信是終點,沒有任何重放路徑。
+ - 死信紀錄不耐久:收件口模組 `_purge_finished_tasks` 會把「沒有待處理也沒有處理中、最後一次收件超過保留期(2 小時)」的任務整個清掉,死信也在其中;清掉之後原因、卡在哪、投遞次數都查不到。
+ - 永久與暫時失敗沒有寫明的分類:擋下(業務上不成立)實際上就是永久失敗,死信(暫時失敗但次數用完)實際上就是暫時失敗,但程式與測試沒有這層分類。
+ - 執行端一般流程不驗政策版本(提案有 `policy_version`,執行端記在能力憑證上給稽核;增量 3 之後只有核可那一關會比對提案政策版本等於共用常數,沒有核可的提案不比),也不驗證據新鮮度(證據在分析端;執行端只看得到決策建立時間與到期時間)。分析端規則:證據超過 15 分鐘就重新蒐證(`MAX_EVIDENCE_AGE`),決策有效期 30 分鐘(`DECISION_LIFETIME`);領域層上限:決策從建立到到期最多 1 小時(`MAX_DECISION_LIFETIME`)。
+ - 分析端收到死信就把任務轉擋下、不重新規劃(Phase 5 [S304]);收件表清掉後 DSP 查不到就重新規劃(Phase 5 [S317])。
+ - 死信佇列沒有任何操作,也就沒有稽核。
+ 
+ ## 最小設計
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+index 99d1806..c2782c6 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+@@ -5,21 +5,22 @@ created: 2026-09-22
+ updated: 2026-09-23
+ responsibility: 負責執行行程收提案的入口:去重、修訂連號、取代、上限、到期標記與有界的事件紀錄,以及對應的 HTTP 收件口;不負責執行提案、呼叫 DSP、政策或租戶檢查(那是 Phase 3),也不負責共用的伺服器與資料庫基礎。
+ aliases: []
+ about_code:
+   - src/rtb/executor/inbox_store.py
+   - src/rtb/executor/inbox_server.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+-  KEY:★INVARIANT-PLANNED★ 事故 F6:死信佇列裡的舊工作重放時,若廣告、政策或證據已經改變,重放必須重新驗證並拒絕舊決策,改為重新規劃、結案或轉人工,不能直接寫入。 [watch:Verification/事故F6_死信重放必須重新驗證] [due:2027-01-31]
++  KEY:★INVARIANT★ 事故 F6:死信佇列裡的舊工作(還沒開始嘗試、投遞次數用完的提案)只能由管理指令逐筆重放,不會自己再交出去;重放只把它放回待處理,之後照一般流程重跑每一關(廣告現況與版本、政策版本、決策新鮮度、權限、比例與總曝險、核可),沒有略過任何一關的旗標。廣告版本變了、提案的政策版本不是現行版本、或決策建立超過 15 分鐘(證據新鮮度以決策建立時間代理;有這一次真的需要、此刻有效的核可則不判)就擋下並給對應原因,分析端另開接續任務重新規劃,舊決策不會寫進 DSP;都沒變就照常寫成。已不是死信(已放回、已擋下)、已過期、同任務已有更新的修訂、或存的內容讀不回的,拒絕重放。收件口回死信而決策還沒過期時分析端等待,已過期就結案、不重新規劃。每一次進死信、要求重放與其結果,都寫進只增不改、不被清理的死信信封與稽核。 [test:test_f6_a_stale_dead_letter_is_revalidated_on_replay,test_a_dead_letter_leaves_a_durable_envelope,test_a_dead_letter_is_never_handed_out_again,test_a_replay_requeues_only_a_live_dead_letter,test_a_replayed_proposal_goes_through_every_gate,test_a_stale_decision_is_blocked,test_an_approved_proposal_skips_only_the_freshness_check,test_an_unneeded_approval_does_not_exempt_a_stale_decision,test_a_blocked_proposal_cannot_be_replayed,test_a_replay_is_refused_after_the_proposal_expires,test_a_replay_is_refused_when_the_task_has_a_newer_revision,test_a_dead_letter_whose_proposal_cannot_be_read_back_is_not_replayed,test_the_analyzer_waits_on_a_live_dead_letter_and_replans_on_stale_reasons,test_an_expired_dead_letter_closes_the_task_without_a_follow_up,test_a_new_block_reason_hands_the_task_over_to_a_follow_up,test_every_dead_letter_operation_is_audited,test_only_the_replay_method_revives_a_dead_letter,test_the_dead_letter_tables_are_only_ever_inserted_into,test_no_periodic_work_or_resend_revives_a_dead_letter] [kill:recipes] [audit:sonnet/2026-09-24]
++  WHY:[2026-09-24]事故 F6 轉正:原文照實改寫(代使用者裁定,使用者 2026-09-24 授權情境題照推薦選項決定):證據新鮮度以決策建立時間代理、去向是擋下後重新規劃或決策過期時結案(系統沒有轉人工這條路,所以合約不寫「不轉人工」)、補上重放的拒絕條件、核可例外與稽核。綁 19 支測試、25 條殺傷力配方全紅。獨立審計第一次不同意:「只能由管理指令重放」「不轉人工」「只增不改」三句排他性的宣稱只靠讀碼推論;補了全庫結構檢查(把死信改回來的寫法只在重放方法、兩張死信表只有新增)與定期入口加重送都不會改回死信的行為測試、拿掉「不轉人工」,第二次審計同意(23 條宣稱逐條對到斷言與配方;次要建議:「沒有略過任何一關的旗標」沒有專屬配方,由六個關卡各自的配方間接撐住)。卷證 governance/review-reports/code-phase8/f6-audit-1.md、f6-audit-2.md。出處:[[Projects/RTB_Phase8死信重放與過時決策_計劃]]。
+   WHY: 收件口是「不可信內容進入有寫入能力的行程」的入口,所以只做安全地收、去重、記帳,不執行、不授權。相同內容重送是正常(分析行程當機重啟),必須冪等;不同內容送同一個收件鍵是可疑事件,必須拒收;不能讓「送得晚」變成「有權改寫決策」。出處:2026-09-22 使用者選擇「相同內容當作重送、不同內容拒收」,設計見 [[Projects/RTB_Phase2任務流程_計劃]] 增量 2。
+   RULE: 收件鍵是(任務編號, 修訂序號);修訂必須嚴格連號(第一份是 1,之後是已收最高加 1),所以送巨大序號搶位只會被拒收,不會卡死該任務。[since:2026-09-22] [retire:Phase 3 有能力憑證與呼叫者認證、能擋掉不可信的呼叫者時重審]
+   RULE: 所有判斷(過期標記、查收件鍵、連號、決策到期、全域上限、寫入)都在同一個 BEGIN IMMEDIATE 交易內;先提交,才回 2xx。重送不受全域上限影響;接受新修訂時先把同任務的舊待處理標為已被取代,釋放名額,所以取代不會被上限擋住。[since:2026-09-22] [retire:收件表改成別的儲存或佇列時重審]
+   RULE: 對呼叫者的錯誤回應只含固定的錯誤代碼與必要數字(例如 highest_revision),絕不回顯請求內容;解析錯誤清單含請求裡的欄位名稱,所以也不回給呼叫者。事件紀錄只存固定欄位與封閉列舉的事件代碼、每種代碼各留最新 200 筆(一種事件灌爆洗不掉別種)、寫入失敗不影響回應。[since:2026-09-22] [retire:改成結構化日誌服務且有內容過濾時重審]
+   RULE: HTTP 層防護:只收 Content-Type 為 application/json 的 POST(否則 415)、帶 Origin 標頭一律 403(擋瀏覽器跨站請求,只擋 Host 擋不住)、Host 必須是回送位址、只綁回送位址。[since:2026-09-22] [retire:改成有認證的通道時重審]
+   RULE: 決策有效期(建立到到期)最多 1 小時、時間欄位限定 2000 到 2100 年(換成 UTC 不會溢位),且到期時間離現在超過 1 小時拒收(422 expiry_too_far);否則一份提案能用遙遠的到期時間永久佔住名額,之後合法提案都拿到「可重試」的 503。[since:2026-09-22] [retire:名額有清理機制或每呼叫者配額時重審]
+   RULE: 格式不合法的請求不碰資料庫、不記事件;連續完全相同的拒收事件只記一筆;事件寫入失敗不影響回應。原因:每個無效請求若都要拿寫入鎖記事件,會放大鎖競爭,也能用垃圾請求沖掉稽核紀錄。[since:2026-09-22] [retire:事件改存到有配額的外部紀錄服務時重審]
+   RULE: 格式不合法的提案被拒時(讀本文就被拒的:分塊傳送、長度標頭不合法、本文過大、不是合法 JSON、逾時、本文不完整;或解析不過的),回應之前在標準錯誤寫一行「invalid_proposal errors=<錯誤類別>」,類別排序、去重、逗號分隔;解析錯誤裡帶攻擊者可控尾巴的三種(未知欄位的鍵名、過大的位元組數、例外型別名)只留冒號前的類別,其餘都是白名單欄位名或固定詞。不碰資料庫、不拿鎖,所以上一條「不記事件」照舊成立;被劫持的分析行程送垃圾,事後查得到。媒體類型、瀏覽器來源、路徑不對不算提案本文,不記。出處:[[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 增量 5(2026-09-23 使用者裁定選 b)。防回歸:[test:test_an_invalid_proposal_is_rejected_and_logged_without_its_content]、[test:test_body_rejections_before_parsing_are_logged_with_their_fixed_code]、[test:test_requests_that_are_not_a_proposal_body_are_not_logged]。[since:2026-09-23] [retire:Phase 9 可觀測性把拒收紀錄改成持久化或告警時重審]
+   RULE: 收件表有三道界限:每個任務最多 50 個修訂(409 too_many_revisions)、總列數最多 5000(滿了回可重試的 503 inbox_full)、沒有待處理且最後一次收件超過 2 小時的舊任務整個清掉(只清整個任務,清一半會讓修訂連號倒退;保留期限必須比提案最長有效期長,所以被清掉的提案再送來一定已過期,不會被當成新提案)。原因:「取代鏈」(同一任務連續送下一個修訂)不佔待處理名額,沒有這些界限就能無限寫入吃光磁碟(2026-09-22 第 3 輪資安席實測每秒約 540 列)。決策建立時間不得比現在晚超過 5 分鐘(422 created_in_future)。[since:2026-09-22] [retire:改成有配額與清理機制的外部儲存時重審]
+   RULE: 收件口資料庫模組同時是整個執行行程資料庫唯一開連線、開交易的地方:它也建外部寫入嘗試的表,並提供 `transaction()` 交易入口給 [[Systems/外部寫入嘗試紀錄]] 用(發出交易物件:只有這裡持有憑證能建立,交易結束時在 finally 裡把它作廢,所以留著的舊物件在同一條連線的下一筆交易裡也不能再用)(鎖不到丟跟收件一樣可重試的忙碌錯誤)。原因:Phase 3 的「取件與開始一筆」必須同一個交易,兩支模組各開連線就做不到。[since:2026-09-22] [retire:執行行程改用別的儲存或佇列時重審]
+@@ -35,21 +36,21 @@ summary: |-
+   KEY:★INVARIANT★ 同一個任務的同一個修訂只收一份:內容相同的重送回目前狀態、不新增任何一筆(即使收件口已滿或那份已被取代);內容不同一律拒收,已收的那份不動;並行搶同一個收件鍵只有一個被接受。 [test:test_a_resent_identical_proposal_returns_the_current_state_and_adds_nothing_even_when_full_or_superseded,test_a_different_proposal_for_the_same_key_is_rejected_and_the_original_is_untouched,test_concurrent_requests_for_the_same_key_accept_exactly_one,test_a_different_proposal_for_a_superseded_or_expired_key_is_still_a_conflict] [audit:sonnet/2026-09-22] [kill:recipes]
+   KEY:★INVARIANT★ 同一個任務的新修訂必須剛好是已收最高修訂加 1(第一份必須是 1),跳號或倒退一律拒收,不能用巨大序號搶位。 [test:test_a_revision_that_is_not_exactly_the_next_one_is_rejected_with_the_current_highest] [audit:sonnet/2026-09-22] [kill:recipes]
+ verified_by:
+   - "[[Verification/事故F6_死信重放必須重新驗證]]"
+   - "[[Verification/Phase3驗收紀錄]]"
+   - "[[Verification/Phase2驗收紀錄]]"
+   - "[[Verification/Phase4驗收紀錄]]"
+   - "[[Verification/Phase7驗收紀錄]]"
+   - "[[Verification/Phase5驗收紀錄]]"
+ kill_recipes: |-
+-  [{"invariant": "同一個修訂只收一份", "test": "test_a_different_proposal_for_the_same_key_is_rejected_and_the_original_is_untouched", "file": "src/rtb/executor/inbox_store.py", "old": "            raise ContentConflict()", "new": "            return Accepted(proposal.task_id, proposal.revision, existing[1], digest, True)", "note": "同鍵不同內容被當成重送接受"}, {"invariant": "剛好是已收最高修訂加 1", "test": "test_a_revision_that_is_not_exactly_the_next_one_is_rejected_with_the_current_highest", "file": "src/rtb/executor/inbox_store.py", "old": "    if proposal.revision != highest + 1:\n        raise RevisionOutOfOrder(highest_revision=highest)", "new": "    if False:\n        raise RevisionOutOfOrder(highest_revision=highest)", "note": "跳號的修訂被接受"}]
++  [{"invariant": "同一個修訂只收一份", "test": "test_a_different_proposal_for_the_same_key_is_rejected_and_the_original_is_untouched", "file": "src/rtb/executor/inbox_store.py", "old": "            raise ContentConflict()", "new": "            return Accepted(proposal.task_id, proposal.revision, existing[1], digest, True)", "note": "同鍵不同內容被當成重送接受"}, {"invariant": "剛好是已收最高修訂加 1", "test": "test_a_revision_that_is_not_exactly_the_next_one_is_rejected_with_the_current_highest", "file": "src/rtb/executor/inbox_store.py", "old": "    if proposal.revision != highest + 1:\n        raise RevisionOutOfOrder(highest_revision=highest)", "new": "    if False:\n        raise RevisionOutOfOrder(highest_revision=highest)", "note": "跳號的修訂被接受"}, {"invariant": "事故 F6", "test": "test_a_dead_letter_is_never_handed_out_again", "file": "src/rtb/executor/inbox_store.py", "old": "            if deliveries >= MAX_DELIVERIES:", "new": "            if False:", "note": "投遞次數用完也不進死信,讀不到 DSP 的提案永遠被交出去"}, {"invariant": "事故 F6", "test": "test_a_replay_requeues_only_a_live_dead_letter", "file": "src/rtb/executor/inbox_store.py", "old": "                \"UPDATE proposals SET disposition = NULL, dead_letter_reason = NULL, \"", "new": "                \"UPDATE proposals SET dead_letter_reason = NULL, \"", "note": "重放回報已放回,處置卻還是死信"}, {"invariant": "事故 F6", "test": "test_a_replayed_proposal_goes_through_every_gate", "file": "src/rtb/executor/execution.py", "old": "    if view.version != proposal.campaign_version_observed:", "new": "    if False:", "note": "重放後執行前檢查不看廣告版本,舊觀察版本的決策往下送"}, {"invariant": "事故 F6", "test": "test_f6_a_stale_dead_letter_is_revalidated_on_replay", "file": "src/rtb/executor/execution.py", "old": "    if proposal.policy_version != POLICY_VERSION:  # Phase 8:政策換版後,舊政策下的決策不寫", "new": "    if False:", "note": "政策換版後舊政策下的決策照樣寫進 DSP"}, {"invariant": "事故 F6", "test": "test_f6_a_stale_dead_letter_is_revalidated_on_replay", "file": "src/rtb/executor/guardrails.py", "old": "    return now - proposal.decision_created_at > DECISION_FRESHNESS", "new": "    return False", "note": "決策怎麼舊都不算過時,死信重放照樣寫進 DSP"}, {"invariant": "事故 F6", "test": "test_a_replayed_proposal_goes_through_every_gate", "file": "src/rtb/executor/capability_signer.py", "old": "        if tenant is None:\n            raise SigningRefused(\"campaign_not_allowed\")", "new": "        if tenant is None:\n            tenant = load_tenants(config_path)[0]", "note": "重放後不屬於任何租戶的廣告照樣簽發"}, {"invariant": "事故 F6", "test": "test_a_replayed_proposal_goes_through_every_gate", "file": "src/rtb/executor/execution.py", "old": "        if not guardrails.increase_too_large(proposal, view.budget):", "new": "        if True:", "note": "重放後不判比例上限,超過五成的加預算不必核可"}, {"invariant": "事故 F6", "test": "test_a_replayed_proposal_goes_through_every_gate", "file": "src/rtb/executor/execution.py", "old": "                approved=AGGREGATE in live)", "new": "                approved=True)", "note": "重放後總曝險當成有核可,超過門檻照樣寫"}, {"invariant": "事故 F6", "test": "test_an_unneeded_approval_does_not_exempt_a_stale_decision", "file": "src/rtb/executor/execution.py", "old": "            return \"go\" if RATIO in live else \"block\"", "new": "            return \"go\"", "note": "決策過時又沒有這一次需要的核可,照樣放行"}, {"invariant": "事故 F6", "test": "test_a_blocked_proposal_cannot_be_replayed", "file": "src/rtb/executor/inbox_store.py", "old": "        if row[0] != \"pending\" or row[1] != Disposition.DEAD_LETTER.value:\n            return ReplayOutcome.NOT_DEAD_LETTER", "new": "        if False:\n            return ReplayOutcome.NOT_DEAD_LETTER", "note": "已擋下的提案也能重放,擋下形同虛設"}, {"invariant": "事故 F6", "test": "test_a_replay_is_refused_after_the_proposal_expires", "file": "src/rtb/executor/inbox_store.py", "old": "        if row[2] <= _iso(now):\n            return ReplayOutcome.EXPIRED", "new": "        if False:\n            return ReplayOutcome.EXPIRED", "note": "已過期的死信也能放回"}, {"invariant": "事故 F6", "test": "test_a_replay_is_refused_when_the_task_has_a_newer_revision", "file": "src/rtb/executor/inbox_store.py", "old": "        if self._highest_revision(task_id) > revision:\n            return ReplayOutcome.SUPERSEDED", "new": "        if False:\n            return ReplayOutcome.SUPERSEDED", "note": "同任務已有新修訂,舊修訂照樣重放插隊"}, {"invariant": "事故 F6", "test": "test_a_dead_letter_whose_proposal_cannot_be_read_back_is_not_replayed", "file": "src/rtb/executor/inbox_store.py", "old": "        if _parse_payload(row[3]) is None:  # 代碼審第 2 輪外家席:原本照樣放回、稽核記成功\n            return ReplayOutcome.UNREADABLE", "new": "        if False:\n            return ReplayOutcome.UNREADABLE", "note": "讀不回的死信照樣放回,稽核記成功"}, {"invariant": "事故 F6", "test": "test_the_analyzer_waits_on_a_live_dead_letter_and_replans_on_stale_reasons", "file": "src/rtb/analyzer/flow.py", "old": "    if answer.state == \"dead_letter\" and now < proposal.decision_expires_at:", "new": "    if False:", "note": "死信一回來分析端就結案,重放後寫成的任務在分析端已結案"}, {"invariant": "事故 F6", "test": "test_a_new_block_reason_hands_the_task_over_to_a_follow_up", "file": "src/rtb/analyzer/flow.py", "old": "    \"decision_stale\": ReplanReason.DECISION_STALE,\n", "new": "", "note": "決策已過時分析端讀不懂,任務卡在已交給執行、不重新規劃"}, {"invariant": "事故 F6", "test": "test_a_dead_letter_leaves_a_durable_envelope", "file": "src/rtb/executor/inbox_store.py", "old": "                    self._record_dead_letter(task_id, revision, digest, proposal, deliveries,\n                                             now, owner)", "new": "                    pass", "note": "進死信沒寫信封,收件表清掉後查不到"}, {"invariant": "事故 F6", "test": "test_a_dead_letter_leaves_a_durable_envelope", "file": "src/rtb/executor/inbox_store.py", "old": "            (_iso(now - RETENTION),),\n        )\n\n    def _highest_revision", "new": "            (_iso(now - RETENTION),),\n        )\n        self._conn.execute(\"DELETE FROM dead_letters\")\n\n    def _highest_revision", "note": "保留期清理連死信信封一起清掉"}, {"invariant": "事故 F6", "test": "test_every_dead_letter_operation_is_audited", "file": "src/rtb/executor/inbox_store.py", "old": "            self._audit_dead_letter(envelope, task_id, revision,\n                                    DeadLetterAction.REPLAY_REQUEUED, operator, None, now)", "new": "            pass", "note": "重放放回沒寫稽核"}, {"invariant": "事故 F6", "test": "test_f6_a_stale_dead_letter_is_revalidated_on_replay", "file": "src/rtb/executor/inbox_store.py", "old": "                \"WHERE task_id = ? AND revision = ? AND state = 'pending' AND disposition = ?\",", "new": "                \"WHERE task_id = ? AND revision = ? AND state = 'pending' AND disposition = ? AND 0\",", "note": "重放回報已放回卻沒真的放回,沒有任何變化的死信也寫不成"}, {"invariant": "事故 F6", "test": "test_a_stale_decision_is_blocked", "file": "src/rtb/executor/guardrails.py", "old": "DECISION_FRESHNESS = timedelta(minutes=15)", "new": "DECISION_FRESHNESS = timedelta(minutes=15) - timedelta(seconds=1)", "note": "剛好 15 分鐘也擋成過時(邊界說得比實際嚴)"}, {"invariant": "事故 F6", "test": "test_an_approved_proposal_skips_only_the_freshness_check", "file": "src/rtb/executor/execution.py", "old": "        if not needed:\n            return \"go\" if RATIO in live else \"block\"", "new": "        if not needed:\n            return \"block\"", "note": "核可過的提案超過 15 分鐘被擋成過時,核可白簽"}, {"invariant": "事故 F6", "test": "test_an_expired_dead_letter_closes_the_task_without_a_follow_up", "file": "src/rtb/analyzer/flow.py", "old": "    if answer.state == \"dead_letter\" and now < proposal.decision_expires_at:\n        # 收件口不會", "new": "    if answer.state == \"dead_letter\":\n        # 收件口不會", "note": "過期的死信分析端一直等,任務永遠不結案"}, {"invariant": "事故 F6", "test": "test_only_the_replay_method_revives_a_dead_letter", "file": "src/rtb/executor/inbox_store.py", "old": "            \"lease_until = ?, lease_owner = NULL, last_failure = coalesce(?, last_failure)\",", "new": "            \"lease_until = ?, lease_owner = NULL, last_failure = coalesce(?, last_failure), \"\n            \"disposition = NULL, dead_letter_reason = NULL\",", "note": "放掉租約時順手把死信改回待處理,死信不必重放就會再被交出去"}, {"invariant": "事故 F6", "test": "test_the_dead_letter_tables_are_only_ever_inserted_into", "file": "src/rtb/executor/inbox_store.py", "old": "        self._audit_dead_letter(envelope, task_id, revision, DeadLetterAction.REPLAY_REQUESTED,", "new": "        self._conn.execute(\"UPDATE dead_letters SET deliveries = 0 WHERE id = ?\", (envelope,))\n        self._audit_dead_letter(envelope, task_id, revision, DeadLetterAction.REPLAY_REQUESTED,", "note": "重放時改寫舊信封,死信當時的樣子查不回來"}, {"invariant": "事故 F6", "test": "test_no_periodic_work_or_resend_revives_a_dead_letter", "file": "src/rtb/executor/inbox_store.py", "old": "                f\"WHERE ({PENDING}) OR ({IN_PROGRESS} AND lease_until <= ?) \"", "new": "                f\"WHERE ({PENDING}) OR ({IN_PROGRESS} AND lease_until <= ?) OR disposition = 'dead_letter' \"", "note": "取件也撿死信,每一輪都把它再寫一次死信信封"}]
+ ---
+ # 提案收件口
+ 
+ `src/rtb/executor/inbox_store.py` 是收件表與所有判斷;`src/rtb/executor/inbox_server.py` 是 HTTP 收件口(建立在 [[Systems/共用行程基礎]] 之上,用增量 1 的 `parse_proposal` 與 `content_hash`,見 [[Systems/任務流程領域模型]])。
+ 
+ 已知缺口(如實標明):
+ - **收件鍵只在保留期限內唯一:** 舊任務被清掉之後,同一個(任務編號, 修訂序號)可以用不同內容再被收下(那是全新的提案)。所以 Phase 3 的執行端不能只靠這個組合當跨時間的唯一識別,要用提案內容雜湊或收件時的流水號。
+ REVISIT:2026-10-20 Phase 3 設計執行端的操作鍵時確認這一點。
+ - 總列數上限與保留期限是我暫定的數字(5000 列、2 小時、每任務 50 修訂),沒有實測依據;上限被灌滿時,合法提案要等最舊的任務過了保留期限才有空間,這和名額佔用是同一類拒絕服務(影響分析行程自己的流程),解法同樣要等呼叫者身分與配額。
+ REVISIT:2026-10-20 與名額配額一起決定這幾個數字。
+@@ -96,10 +97,14 @@ REVISIT:2026-10-20 Phase 4 當機恢復測試時補上殺行程的版本。
+ 
+ ## 死信信封、重放與稽核(Phase 8,2026-09-24)
+ 
+ - 進死信的同一個交易寫一列死信信封與一列稽核;信封與稽核只增不改、不被保留期清理。同一份提案重放後又進死信就另寫一列信封,不去重(兩次的內容雜湊、冪等鍵、投遞次數都一樣,只靠流水編號分得開)。失敗分類:最後卡在哪一步的每一種是暫時的、擋下原因的每一種是永久的。防回歸:[test:test_a_dead_letter_leaves_a_durable_envelope]、[test:test_a_replayed_proposal_that_dead_letters_again_gets_a_second_envelope]、[test:test_every_failure_kind_is_classified]。
+ - 重放方法:收件表那一列還在、處置是死信、還沒過期、同任務沒有更新的修訂、待處理還有名額(只看待處理名額,不看總列數上限:重放不新增列,代碼審第 1 輪外家兩席)才放回待處理(處置、死信原因清空,投遞次數歸零,租約清空);查條件與寫回在同一個交易,兩人同時重放只有一個放回。每次寫「要求重放」加結果兩列稽核;從沒進過死信的,稽核的信封欄是空值;升級前就進死信、沒有信封的,第一次重放時補寫一列信封(代碼審第 1 輪外家席)。時間在拿到寫入鎖之後才讀(等鎖期間提案可能過期,代碼審第 1 輪外家席)。存的內容讀不回提案的死信拒絕重放(補不了信封、放回也處理不了;代碼審第 2 輪外家席)。防回歸:[test:test_a_dead_letter_whose_proposal_cannot_be_read_back_is_not_replayed]。防回歸:[test:test_a_replay_requeues_only_a_live_dead_letter]、[test:test_two_simultaneous_replays_requeue_once]、[test:test_every_dead_letter_operation_is_audited]。
+ - WHY: 操作人格式不在這裡驗,由 [[Systems/死信重放指令]] 驗:收件口模組不做欄位驗證有守門測試,比照核可人由核可模組驗、這裡只存(2026-09-24 Phase 8 實作時撞到那條守門測試)。
+ - 查一筆死信後來怎麼了:信封的冪等鍵接嘗試紀錄與停下紀錄(開過嘗試的都在,不被清);在執行前檢查就擋下的沒有嘗試紀錄,收件表清掉後改從分析端那個任務的歷史查(信封帶任務與修訂)。
+ - 回退「分析端死信且未過期就等待」之前,要先確認沒有待重放的死信,查法:`SELECT count(*) FROM proposals WHERE state = 'pending' AND disposition = 'dead_letter' AND expires_at > <現在的 UTC 時間字串>` 要是 0。
+ - 舊收件表開啟時自動補上兩張新表(建表語句「不存在才建」)與兩個新擋下原因(既有的允許值逐一比對重建)。防回歸:[test:test_an_old_inbox_gains_the_dead_letter_tables]。
+ - 出處:[[Projects/RTB_Phase8死信重放與過時決策_計劃]]。
++
++## 寫入時間一律要帶時區(2026-09-24)
++
++- WHY: 收件口每一個寫時間的地方(收件、停下紀錄、核可與核可使用、死信信封與稽核、租約與確認)都走同一支轉換,改用嘗試紀錄模組那一支:沒帶時區就拒絕。原本只有讀取停下紀錄的查詢會拒絕,寫入那一頭會把沒帶時區的時間當成伺服器本地時間寫錯,之後照時間篩、判過期、清保留期都跟著錯(Phase 6 增量 4 留下的不一致,Phase 6 驗收紀錄列為缺口)。防回歸:[test:test_a_stop_without_a_timezone_is_refused]、[test:test_a_proposal_received_at_a_time_without_a_timezone_is_refused]、[test:test_an_approval_or_its_use_without_a_timezone_is_refused]、[test:test_a_replay_at_a_time_without_a_timezone_is_refused]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Verification/Phase8驗收紀錄.md b/docs/rtb-production-agent-demo-knowledge/Verification/Phase8驗收紀錄.md
+new file mode 100644
+index 0000000..9f3bd51
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Verification/Phase8驗收紀錄.md
+@@ -0,0 +1,48 @@
++---
++type: verification
++status: pass
++date: 2026-09-24
++valid_under: "Python 3.14.6 與 sqlite3 3.53.3、pytest 9.1.1、ruff 0.16.8,macOS 本機;程式版本為分支 phase8 提交 57a5222(從 main 078e7e8 切出);決策新鮮度 15 分鐘(使用者裁定)、投遞次數上限 5、收件表保留 2 小時都是暫用值;政策版本是分析端與執行端共用的程式常數,兩端同一次部署一起重啟"
++revalidate_when: "改動執行前檢查的順序、開始一筆交易裡的判斷順序、核可有效判斷、處理待核可那一步、收件口的取件與死信、重放方法、分析端處理收件口回覆那一步時重跑全套;調整新鮮度上限、投遞次數上限或保留期時重驗事故 F6 端到端;Phase 9 把可觀測查詢改成唯讀交易時重驗死信信封的查法"
++tags:
++  - type/verification
++  - status/pass
++plan_refs:
++  - "[[Projects/RTB_Phase8死信重放與過時決策_計劃]]"
++---
++# Phase8驗收紀錄
++
++驗證對象:[[Systems/提案收件口]]、[[Systems/執行迴圈]]、[[Systems/分析行程流程與檢查點]]、[[Systems/死信重放指令]];依據計劃 [[Projects/RTB_Phase8死信重放與過時決策_計劃]]。
++
++## 結論
++
++Phase 8 完成:設計審三輪收斂並折入使用者兩項裁定,實作後代碼審 high 三輪收斂;事故 F6 的預告合約照實改寫原文後轉正,綁 19 支測試與 25 條殺傷力配方,獨立審計第二次同意。下面的缺口與偏離如實標明,不宣稱比這更多。
++
++## 對照交接文件 Phase 8 完成條件
++
++- 事故 F6 通過:死信重放後照一般流程重跑每一關,廣告版本變、政策版本變、決策變舊各自被擋下並給原因、分析端另開接續任務,DSP 上沒有舊決策的值;沒有任何變化的重放照常寫成。[test:test_f6_a_stale_dead_letter_is_revalidated_on_replay]、[test:test_a_replayed_proposal_goes_through_every_gate]
++- 重放保留原本的追蹤關聯並建立新的嘗試:信封帶任務與修訂(接分析端那個任務的軌跡)與冪等鍵(接執行端嘗試紀錄);重放放回的是同一份提案,開的是這把鍵的第一筆嘗試,信封、嘗試紀錄與收件表處置用這把鍵接得起來。[test:test_a_replayed_attempt_links_back_to_its_envelope]
++- 永久與暫時失敗的分類有測試:最後卡在哪一步的每一種是暫時的、擋下原因的每一種是永久的,兩個列舉逐一列舉,之後加成員忘了分類就紅。[test:test_every_failure_kind_is_classified]
++- 過時決策被擋下或重新規劃,不能直接寫入:政策版本不是現行版本擋成政策已變,決策建立超過 15 分鐘擋成決策已過時(剛好 15 分鐘通過;檢查通過之後才跨線、重跑路徑轉回送出時才跨線的也擋);有這一次真的需要、此刻有效的核可才不判新鮮度;分析端遇到這兩個原因另開接續任務。[test:test_a_proposal_from_another_policy_version_is_blocked]、[test:test_a_stale_decision_is_blocked]、[test:test_an_approved_proposal_skips_only_the_freshness_check]、[test:test_a_new_block_reason_hands_the_task_over_to_a_follow_up]
++- 死信佇列的操作有稽核:進死信、要求重放、重放被拒(附原因)、重放已放回佇列,每一個都寫一列只增不改、不被清理的稽核。[test:test_every_dead_letter_operation_is_audited]、[test:test_a_dead_letter_leaves_a_durable_envelope]
++
++## 怎麼驗的(2026-09-24)
++
++- 驗收指令 `.venv/bin/python -m pytest -q`:1551 條通過;`ruff check`、`mypy src` 乾淨。
++- 設計審:三輪收斂(6、3、3 席,第 2、3 輪各一席 Codex),之後折入使用者兩項裁定(核可放回的提案不判新鮮度、重跑路徑照實回報新原因),裁定折入沒有再審,由代碼審覆核;卷證 governance/review-reports/rtb-phase8死信重放與過時決策/。
++- 代碼審:high 三輪(9、5、5 席,每輪兩席 Codex 加資安、架構對齊),共 19 條,折 17、駁 2(附重現);第 3 輪折入後另請發現那條的外家席單獨驗收,結果 clean;卷證 governance/review-reports/code-phase8/。
++- 變異檢查:32 道,每道拿掉防護後對應測試翻紅;事故 F6 的 25 條殺傷力配方由 `lumos guard kill` 在隔離副本跑過,全部翻紅。
++- 事故 F6 轉正:獨立審計兩次。第一次不同意:「只能由管理指令重放」「不轉人工」「只增不改」三句排他性的宣稱只靠讀碼推論;補了全庫結構檢查(把死信改回來的寫法只在重放方法、兩張死信表只有新增)與定期入口加重送都不改回死信的行為測試,「不轉人工」從合約拿掉(系統沒有這條路)。第二次同意(23 條宣稱逐條對到斷言與配方);卷證 governance/review-reports/code-phase8/f6-audit-1.md、f6-audit-2.md。
++
++## 偏離與缺口
++
++- 新鮮度沒有排在簽發之前:核可例外要驗核可的範圍指紋,租戶要簽發時才讀到;判斷點是判比例時、開始一筆的交易、重跑轉回嘗試中的交易(計劃〈實作狀態〉)。
++- 「有它停下那一關的有效核可」落成「這一次真的需要、而且此刻有效的核可」,過時的決策不停進待核可等新核可(代使用者裁定,理由寫在計劃;代碼審三席各自找到任一核可都能免的漏洞)。
++- 證據新鮮度以決策建立時間代理:執行端看不到證據本身;決策建立時間由分析端填,收件口只容許比現在晚 5 分鐘,所以被劫持的分析行程最多讓過時判斷晚 5 分鐘(代碼審第 1 輪資安席,重現後駁回「永遠通不了」)。
++- 死信只有「還沒開始嘗試、投遞次數用完」一種;轉人工的嘗試不進死信、沒有重放(使用者裁定)。沒有自動、排程或批次重放,沒有網頁介面,沒有告警(Phase 9)。
++- 分析端停機跨過收件表保留期時,過期死信照 Phase 5 清表路徑重新規劃,不是結案;安全(舊決策不寫),多花一次分析。
++- 原本 Phase 5 的「死信就結案」改成決策沒過期時等待;回退前要先查沒有待重放的死信(查法在 [[Systems/提案收件口]])。
++- 代碼審第 3 輪的修正沒有再開一輪全面審,只由發現那條的外家席驗收。
++- 第 1 次審計時審計員違反派工單,在真的 repo 裡提交了一次(連同不准進版控的捷徑檔);發現後改寫本機歷史移除那個提交,內容由編排者重新提交,沒有推送。
++- 代碼審期間全套測試有一次出現 1 條失敗,之後連跑多次沒重現、沒查出是哪一條;回頭條件寫在 governance/review-reports/code-phase8/r3-intake.md。
++- Phase 6 留下的「寫入停下紀錄時不檢查時區」已在這條分支統一:收件口每個寫時間的地方都走嘗試紀錄模組的轉換,沒帶時區就拒絕。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Verification/事故F6_死信重放必須重新驗證.md b/docs/rtb-production-agent-demo-knowledge/Verification/事故F6_死信重放必須重新驗證.md
+index 485049b..e944f7f 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Verification/事故F6_死信重放必須重新驗證.md
++++ b/docs/rtb-production-agent-demo-knowledge/Verification/事故F6_死信重放必須重新驗證.md
+@@ -1,27 +1,31 @@
+ ---
+ type: verification
+-status: pending
++status: pass
+ created: 2026-09-22
+ updated: 2026-09-22
+ due: 2027-01-31
+ owner: Enzo
+ guards:
+   - Systems/提案收件口
+ phases:
+   - Phase 8
+ plan_refs:
+   - "[[Projects/RTB_Agent_Phase0架構]]"
+ tags:
+   - type/verification
+-  - status/pending
++  - status/pass
+ summary: |-
+-  WHY:[2026-09-22]預告這條合約但還沒做:Phase 8 的死信佇列與重放閘還沒開工,程式碼不存在
+-  TEST:還沒有測試在守這條;最遲 2027-01-31 要做完,負責人 Enzo
++  WHY:[2026-09-24]已轉正:原文照實改寫(代使用者裁定),正式合約在 [[Systems/提案收件口]],綁 19 支測試、25 條殺傷力配方全紅,獨立審計第二次同意;這篇只留預告當時的紀錄(出處:Phase 8)
++  TEST:權威在 Systems/提案收件口 的事故 F6 合約行,用 lumos contracts Systems/提案收件口 查
+ ---
+ # 事故F6_死信重放必須重新驗證
+ 
+-預告的合約:事故 F6:死信佇列裡的舊工作重放時,若廣告、政策或證據已經改變,重放必須重新驗證並拒絕舊決策,改為重新規劃、結案或轉人工,不能直接寫入。
++預告的合約:事故 F6:死信佇列裡的舊工作(還沒開始嘗試、投遞次數用完的提案)只能由管理指令逐筆重放,不會自己再交出去;重放只把它放回待處理,之後照一般流程重跑每一關(廣告現況與版本、政策版本、決策新鮮度、權限、比例與總曝險、核可),沒有略過任何一關的旗標。廣告版本變了、提案的政策版本不是現行版本、或決策建立超過 15 分鐘(證據新鮮度以決策建立時間代理;有這一次真的需要、此刻有效的核可則不判)就擋下並給對應原因,分析端另開接續任務重新規劃,舊決策不會寫進 DSP;都沒變就照常寫成。已不是死信(已放回、已擋下)、已過期、同任務已有更新的修訂、或存的內容讀不回的,拒絕重放。收件口回死信而決策還沒過期時分析端等待,已過期就結案、不重新規劃。每一次進死信、要求重放與其結果,都寫進只增不改、不被清理的死信信封與稽核。
+ 
+ 為什麼還不做:Phase 8 的死信佇列與重放閘還沒開工,程式碼不存在
+ 
+ 做完之後跑 `lumos guard settle` 轉正,不要手改狀態。
++
++2026-09-24 已轉正:正式合約與綁定測試在 [[Systems/提案收件口]];上面的「預告的合約」是轉正前一刻照實改寫後的版本。
++
++2026-09-24 轉正前照實改寫(代使用者裁定,使用者 2026-09-24 授權情境題照推薦選項決定):原始措辭是「死信佇列裡的舊工作重放時,若廣告、政策或證據已經改變,重放必須重新驗證並拒絕舊決策,改為重新規劃、結案或轉人工,不能直接寫入」。改的理由:執行端看不到證據本身,用決策建立時間代理(Phase 8 設計);實作的去向是擋下後重新規劃、或決策過期時結案,沒有轉人工這條路(系統裡沒有人工介入通道,所以合約不寫「不轉人工」,免得讀的人以為有一道機制在擋;第 1 次獨立審計建議);補上重放的拒絕條件、核可例外與稽核,讓每個宣稱都有測試對得上。設計見 [[Projects/RTB_Phase8死信重放與過時決策_計劃]]。
+diff --git a/governance/review-reports/code-phase8/f6-audit-1.md b/governance/review-reports/code-phase8/f6-audit-1.md
+new file mode 100644
+index 0000000..4dd412f
+--- /dev/null
++++ b/governance/review-reports/code-phase8/f6-audit-1.md
+@@ -0,0 +1,82 @@
++判定: 不同意
++
++# 事故 F6 合約審計(獨立審計員,無先備脈絡)
++
++審計對象:`docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md`(工作目錄未提交版本)開頭欄位裡
++「KEY:★INVARIANT★ 事故 F6:……」那一行,及其 `[test:…]` 綁定測試與 `kill_recipes` 裡 `invariant` 為
++「事故 F6」的 22 筆殺傷力配方。
++
++驗證方式:讀綁定測試檔的實際斷言(不只看測試名);跑
++`python3 scripts/lumos guard kill Systems/提案收件口 "事故 F6" --vault /Users/enzo/rtb-3b/docs/rtb-production-agent-demo-knowledge`
++——22 筆全部 `verdict: killed`(附加驗證:`docs/.governance-log.jsonl` 外,另跑
++`tests/executor/test_dead_letter.py tests/executor/test_stale_decision.py tests/analyzer/test_dead_letter_wait.py
++tests/analyzer/test_f6_end_to_end.py` 在未套壞法的原始碼上是 63 passed,基線乾淨)。再逐條對照
++`src/rtb/executor/{inbox_store,execution,guardrails,capability_signer}.py`、`src/rtb/analyzer/flow.py` 的
++實際程式行為,檢查措辭是否比實作滿。
++
++## 宣稱拆解與逐條核對
++
++| # | 宣稱 | 測試與斷言(檔:行) | 配方(note) | 守住? |
++|---|---|---|---|---|
++| 1 | 死信只能由管理指令逐筆重放,不會自己再自動交出去 | `tests/executor/test_dead_letter.py:421-429` `test_a_dead_letter_is_never_handed_out_again`:斷言 `h.process().kind is Result.IDLE`、`disposition==("pending","dead_letter")` 不變、`len(h.dsp.reads)` 不變 | `inbox_store.py` `if deliveries >= MAX_DELIVERIES` → `if False`,note「投遞次數用完也不進死信,讀不到 DSP 的提案永遠被交出去」→ killed | **部分守住**。「不會自動交出去」有直接斷言+配方翻紅。「只能由管理指令」這半句只是程式碼推論(全庫只有 `inbox_store.py:762` 一處清 `dead_letter_reason`,且只被 `InboxStore.replay()` 呼叫,該方法只被 `replay_tool` CLI 呼叫並驗操作人格式),沒有任何測試斷言「除了這個入口沒有別的路徑能清掉死信狀態」 |
++| 2 | 重放只把它放回待處理(不改別的欄位、不略過關卡) | `tests/executor/test_dead_letter.py:126-132` `test_a_replay_requeues_only_a_live_dead_letter`:`SELECT state, disposition, dead_letter_reason, deliveries, lease_owner FROM proposals` == `[("pending", None, None, 0, None)]` | `inbox_store.py` UPDATE 語句拿掉 `disposition = NULL` 那一半 → note「重放回報已放回,處置卻還是死信」→ killed | 守住 |
++| 3 | 放回後照一般流程重跑每一關(廣告現況與版本、政策版本、決策新鮮度、權限、比例、總曝險) | `tests/executor/test_dead_letter.py:337-347` `test_a_replayed_proposal_goes_through_every_gate`(parametrize 6 種:`version_changed`/`policy_version_changed`/`decision_stale`/`campaign_not_allowed`/`budget_increase_too_large`/`aggregate_limit_reached`),每組斷言 `(result.kind, result.block_code) == (kind, code)` 且 `h.dsp.writes == []` | 對應 6 筆配方(`execution.py` 版本檢查、`execution.py` 政策檢查、`guardrails.py` 新鮮度、`capability_signer.py` 租戶、`execution.py` 比例、`execution.py` 總曝險核可)→ 全部 killed | 守住(「重跑核可關」實際驗到的是「超過門檻又沒核可仍會停下,不被略過」,不是「核可通過後真的寫成」——但宣稱本身就是「沒有略過」,不是「核可會成功」,措辭與驗到的範圍相符) |
++| 4 | 廣告版本變 → 擋下 `version_changed`;分析端另開接續任務;舊決策不寫入 DSP | `tests/analyzer/test_f6_end_to_end.py:123-142` `test_f6_a_stale_dead_letter_is_revalidated_on_replay[version]`:`original.state is BLOCKED`、`error_detail` 含 `blocked=version_changed;replan=version_changed`、`child == follow_up_id('t1')`、`STALE_BUDGET not in writes` | `execution.py` `if view.version != proposal.campaign_version_observed` → `if False` → killed | 守住 |
++| 5 | 提案政策版本不是現行版本 → 擋下 `policy_version_changed`,同上 | 同上檔 `[policy]` 分支,斷言同構 | `execution.py` `if proposal.policy_version != POLICY_VERSION` → `if False` → killed | 守住 |
++| 6 | 決策建立超過 15 分鐘 → 擋下 `decision_stale`;剛好 15 分鐘不算過時 | `tests/executor/test_stale_decision.py:64-78` `test_a_stale_decision_is_blocked`,parametrize `(15min, EXECUTED)` `(15min1s, BLOCKED)`,斷言 `block_code is STALE`、`_block_of(h)==("blocked","decision_stale")`、`h.dsp.writes==[]` | `guardrails.py` `DECISION_FRESHNESS = timedelta(minutes=15) - timedelta(seconds=1)` → note「剛好 15 分鐘也擋成過時(邊界說得比實際嚴)」→ killed | 守住 |
++| 7 | 這一次真的需要、此刻有效的核可,決策新鮮度不判 | `tests/executor/test_stale_decision.py:139-148` `test_an_approved_proposal_skips_only_the_freshness_check`:核可比例關卡放回後 `result.kind is EXECUTED`(超過 15 分鐘仍執行);`test_stale_decision.py:230-239` `test_an_unneeded_approval_does_not_exempt_a_stale_decision`:掛著用不到的總曝險核可仍擋成 `STALE` | `execution.py` `if not needed: return "go" if RATIO in live else "block"` → `return "block"`,note「核可過的提案超過 15 分鐘被擋成過時,核可白簽」→ killed;另一筆「決策過時又沒有這一次需要的核可,照樣放行」→ killed | 守住 |
++| 8 | 廣告版本、政策版本、決策新鮮度都沒變就照常重放寫成 | `test_f6_a_stale_dead_letter_is_revalidated_on_replay[unchanged]`:`writes==[STALE_BUDGET]`、`original.state is COMPLETED`、`child is None` | `inbox_store.py` UPDATE 條件加 `AND 0` → note「重放回報已放回卻沒真的放回,沒有任何變化的死信也寫不成」→ killed | 守住 |
++| 9 | 已不是死信(已放回)→拒絕重放 | `test_dead_letter.py:126-132` 第二次 `replay(h)` → `ReplayOutcome.NOT_DEAD_LETTER` | 與 #10 同一段程式碼(`if row[0]!="pending" or row[1]!=DEAD_LETTER: return NOT_DEAD_LETTER`)守著 | 守住 |
++| 10 | 已不是死信(已擋下)→拒絕重放 | `test_dead_letter.py:432-437` `test_a_blocked_proposal_cannot_be_replayed`:先讓提案被 `policy_version_changed` 擋下,再 `replay(h) is ReplayOutcome.NOT_DEAD_LETTER`,`disposition==("pending","blocked")` | `inbox_store.py` `if row[0]!="pending" or row[1]!=Disposition.DEAD_LETTER.value: return NOT_DEAD_LETTER` → `if False`,note「已擋下的提案也能重放,擋下形同虛設」→ killed | 守住 |
++| 11 | 已過期 → 拒絕重放 | `test_dead_letter.py:135-141` `test_a_replay_is_refused_after_the_proposal_expires`:`replay(h) is ReplayOutcome.EXPIRED`,`disposition` 不變 | `inbox_store.py` `if row[2] <= _iso(now): return EXPIRED` → `if False` → killed | 守住 |
++| 12 | 同任務已有更新的修訂 → 拒絕重放 | `test_dead_letter.py:149-154` `test_a_replay_is_refused_when_the_task_has_a_newer_revision`:先收下 revision 2,`replay(h, revision=1) is ReplayOutcome.SUPERSEDED` | `inbox_store.py` `if self._highest_revision(task_id) > revision: return SUPERSEDED` → `if False` → killed | 守住 |
++| 13 | 存的內容讀不回 → 拒絕重放 | `test_dead_letter.py:406-417` `test_a_dead_letter_whose_proposal_cannot_be_read_back_is_not_replayed`:把 `payload` 改成壞 JSON,`replay(h) is ReplayOutcome.UNREADABLE`,稽核記 `replay_refused/unreadable` | `inbox_store.py` `if _parse_payload(row[3]) is None: return UNREADABLE` → `if False` → killed | 守住 |
++| 14 | 收件口回死信、決策還沒過期 → 分析端等待 | `tests/analyzer/test_dead_letter_wait.py:22-32` `test_the_analyzer_waits_on_a_live_dead_letter_and_replans_on_stale_reasons`:`live is TaskState.HANDED_OFF`,`store.latest("t1").seq==before`,`follow_up_to is None` | `flow.py` `if answer.state=="dead_letter" and now<proposal.decision_expires_at` → `if False`,note「死信一回來分析端就結案,重放後寫成的任務在分析端已結案」→ killed | 守住 |
++| 15 | 決策過期就結案,不重新規劃(不轉人工) | `tests/analyzer/test_dead_letter_wait.py:34-41` `test_an_expired_dead_letter_closes_the_task_without_a_follow_up`:`closed is TaskState.BLOCKED`,`"dead_letter" in error_detail`,`follow_up_to is None` | `flow.py` 拿掉 `now < proposal.decision_expires_at` 條件 → note「過期的死信分析端一直等,任務永遠不結案」→ killed | **多數守住**。「結案、不重新規劃」有直接斷言(`follow_up_to is None`)。「不轉人工」是消極描述:程式碼裡確實沒有任何「轉人工」動作,但沒有專門測試斷言這件事本身,只是「follow_up 為空」間接暗示——算推論帶過 |
++| 16 | 每一次進死信、要求重放與結果都寫進只增不改、不被清理的死信信封與稽核 | `test_dead_letter.py:71-82` `test_a_dead_letter_leaves_a_durable_envelope`:信封內容比對,過保留期清理後 `len(envelopes(h))==1`(信封沒被清);`test_dead_letter.py:102-113` `test_a_replayed_proposal_that_dead_letters_again_gets_a_second_envelope`:兩次死信各一列信封,稽核四列;`test_dead_letter.py:204-216` `test_every_dead_letter_operation_is_audited`:稽核五列 `dead_lettered/replay_requested/replay_requeued/replay_requested/replay_refused` | `inbox_store.py` 三筆配方(信封沒寫、保留期清理連信封一起刪、重放放回沒寫稽核)→ 全部 killed | **部分守住**。「每一次進死信/要求重放/結果都寫進稽核」「不被清理」都有直接斷言+配方翻紅。「只增不改」(這兩張表永遠只 INSERT、不 UPDATE)沒有專門測試——只用 `grep` 確認全庫對 `dead_letters`/`dead_letter_ops` 兩表除了建表與索引敘述外只有 `INSERT`/`SELECT`,沒有 `UPDATE`,是程式碼推論,不是斷言 |
++
++## 措辭是否比程式行為滿
++
++對照程式碼後,絕大多數措辭與實作一致,沒有「說得比程式做的滿」的地方:
++- 「證據新鮮度以決策建立時間代理」:`guardrails.py:35-38` docstring 原話就是「執行端看不到證據本身,用決策建立時間代替」,一致。
++- 「有這一次真的需要、此刻有效的核可則不判」:`execution.py` `_stale_without_approval` 只看呼叫端已篩出的「需要的那幾張」且判 `expires_at`,不是「隨便一張有效核可就免判」,跟措辭一致(這是代碼審第 1 輪從「任一張」改成「這一次需要的」之後的版本,文字也同步改了)。
++- 「沒有略過任何一關的旗標」:程式碼裡確實沒有任何 skip/bypass 旗標(`grep -rn "skip\|bypass\|force=True"` 在 `execution.py`/`inbox_store.py`/`flow.py` 無結果),measured 6 個關卡各有配方翻紅,措辭沒有超過驗到的範圍。
++
++唯一偏滿的地方是上表標「部分守住」的三處:「只能由管理指令」「不轉人工」「只增不改」都是**消極/排他性描述**(斷言「不存在別的路徑」),這類描述天然沒辦法只靠一個正面斷言完全鎖死,目前只靠程式碼檢視/grep 頂著,沒有測試把它們釘住。措辭本身沒有錯,但按審計標準(只有推論撐著就算沒守住),這三處還沒有到位。
++
++## 判定理由與建議
++
++**判定:不同意。**
++
++事故 F6 這條 ★INVARIANT★ 裡,16 條可拆解宣稱中有 13 條每一條都能指到「開測試檔讀到的具體斷言」+「跑
++`lumos guard kill` 證實會翻紅的配方」,守得很扎實,而且量到的 22 筆配方全數 killed,底層測試套件本身在
++乾淨程式碼上跑起來也是綠的,基線沒問題。
++
++但以下三個排他性/消極描述子句只靠程式碼推論,沒有任何測試或機械檢查直接釘住,按專案自己的審計標準
++(「只有推論……都算沒守住」)不能算過:
++
++1. 「死信佇列裡的舊工作**只能由**管理指令逐筆重放」——沒有測試證明「沒有別的路徑能把死信改回待處理」,
++   只是我人工 grep 全庫確認只有一處清除死信欄位的 UPDATE。建議:加一個結構性測試,例如掃描
++   `src/rtb/**/*.py` 斷言「只有 `inbox_store.py` 裡 `_replay` 這個方法會寫 `disposition = NULL, dead_letter_reason = NULL`」,或至少在 `test_dead_letter.py` 補一個嘗試從執行迴圈/收件口 HTTP 端直接把死信改回待處理會被拒絕的測試。
++
++2. 「已過期就結案、不重新規劃(**不轉人工**)」——現有測試只驗到「沒有 follow-up」,沒有驗到「也沒有任何
++   轉人工動作」。目前系統裡確實不存在轉人工機制,所以文字沒有說錯,但這個「不存在」本身沒有測試釘住。
++   建議:如果系統之後真的加了人工介入通道,要在這裡補一個「過期死信不會出現在待人工處理佇列/不會發出
++   人工通知」的迴歸測試;現在沒有這個通道就在筆記裡明講「不轉人工=系統裡沒有這條通道,不是刻意擋下」,
++   避免讀者以為有一道機械閂擋著轉人工。
++
++3. 「死信信封與稽核**只增不改**」——只有「不被保留期清理」有測試,「永遠不會被 UPDATE」沒有測試釘住。
++   建議:加一個測試直接對 `dead_letters`/`dead_letter_ops` 兩表跑一次 schema 檢查或 monkeypatch 斷言
++   `InboxStore` 除了 `INSERT` 之外不對這兩張表下 `UPDATE`/`DELETE`(可以用 sqlite 的 `PRAGMA` 或攔截
++   `execute` 呼叫做黑名單檢查),把「只增不改」從程式碼慣例升格成有機械守衛的合約。
++
++其餘 13 條(重放後每一關重跑、四種拒絕重放原因、廣告版本/政策版本/決策新鮮度三種擋下原因與接續任務、
++未變照常寫成、死信信封與稽核的正面部分)測試斷言與配方都對得上宣稱,措辭也沒有比程式行為誇大,判定
++上不需要修改用詞,只需要補上面三項的機械守衛或明講「這是推論,不是有守衛的合約」。
++
++## 摘要
++
++事故 F6 的死信重放合約在「重放要重新過每一關、拒絕四種不該重放的死信、擋下原因對到接續任務、信封稽核
++留痕」這些核心業務行為上都有真斷言和真的會翻紅的配方守著,基礎打得很穩;但「只能由管理指令走這條路」
++「不轉人工」「信封稽核表永遠不會被改」這三句排他性描述目前只靠我人工看程式碼推出來,沒有專門測試釘住,
++所以整體判定不同意,建議照上面三條補測試或改措辭後再轉正。
+diff --git a/governance/review-reports/code-phase8/f6-audit-2.md b/governance/review-reports/code-phase8/f6-audit-2.md
+new file mode 100644
+index 0000000..9d58133
+--- /dev/null
++++ b/governance/review-reports/code-phase8/f6-audit-2.md
+@@ -0,0 +1,51 @@
++判定: 同意
++
++## 方法
++把 `Systems/提案收件口.md`（工作目錄版本）開頭那一行 `KEY:★INVARIANT★ 事故 F6:...` 拆成 23 條獨立宣稱；每條去對應測試檔開實際斷言（不只看測試名），並比對 `kill_recipes` 裡標 `"invariant": "事故 F6"` 的配方是否真的會讓那個斷言翻紅。另外把整個 repo 複製到 `/tmp/f6audit/rtb-3b`（含 `.git`，`--no-verify` 快照一個 commit 純粹為了讓 `lumos guard kill` 能以 HEAD 為基準跑沙盒；沒有動到 `/Users/enzo/rtb-3b` 本身的工作目錄或暫存區），跑：
++
++```
++lumos --vault /tmp/f6audit/rtb-3b/docs/rtb-production-agent-demo-knowledge guard kill "Systems/提案收件口" "事故 F6" --json
++```
++
++結果：25 條配方全部 `verdict: killed`（無 `survived`）。
++
++## 宣稱拆解與逐條核對
++
++| # | 宣稱 | 測試與斷言(檔:行) | 配方(note) | 守住? |
++|---|---|---|---|---|
++| 1 | 死信定義=沒有嘗試紀錄、投遞次數用完的提案 | `inbox_store.py:63` 常數註解與 `test_dead_letter.py:45-52` `dead_letter()` 幫手：讀失敗 MAX_DELIVERIES 次後 `assert h.process().kind is Result.IDLE`、`disposition==("pending","dead_letter")` | `inbox_store.py` `if deliveries >= MAX_DELIVERIES:`→`if False:`，`test_a_dead_letter_is_never_handed_out_again` | 是 |
++| 2 | 只能由管理指令逐筆重放 | `test_dead_letter.py:461-464` `test_only_the_replay_method_revives_a_dead_letter`：AST 掃全庫，含 `dead_letter_reason = NULL` 這句字串的函式只能是 `inbox_store.py::_replay` | `inbox_store.py` 放租約時順手加回 `disposition = NULL, dead_letter_reason = NULL`，`test_only_the_replay_method_revives_a_dead_letter` | 是 |
++| 3 | 不會自己再交出去（執行迴圈不撿、不重讀 DSP） | `test_dead_letter.py:424-433` `test_a_dead_letter_is_never_handed_out_again`：`h.process().kind is Result.IDLE`、`len(h.dsp.reads)==reads_before`；`test_dead_letter.py:476-490` `test_no_periodic_work_or_resend_revives_a_dead_letter`：`process_one/process_awaiting/reconcile_all` 跑完後 `disposition==("pending","dead_letter")` 且信封/稽核不變 | 兩條：①上面同一條 note；② `inbox_store.py` 取件 SQL 加 `OR disposition = 'dead_letter'`，`test_no_periodic_work_or_resend_revives_a_dead_letter` | 是 |
++| 4 | 重放只把它放回待處理（處置、死信原因、投遞次數、租約都清空/歸零） | `test_dead_letter.py:129-136` `test_a_replay_requeues_only_a_live_dead_letter`：`SELECT state, disposition, dead_letter_reason, deliveries, lease_owner FROM proposals` == `("pending", None, None, 0, None)` | `inbox_store.py` UPDATE 少清 `disposition` 那一句，`test_a_replay_requeues_only_a_live_dead_letter` | 是 |
++| 5 | 之後照一般流程重跑每一關（列舉六項：廣告版本、政策版本、決策新鮮度、權限、比例與總曝險、核可） | `test_dead_letter.py:328-351` `GATES` 字典六項 parametrize `test_a_replayed_proposal_goes_through_every_gate`：逐一改變條件後 `(result.kind, result.block_code)` 對到對應碼、`h.dsp.writes==[]` | 六條分別打 `execution.py`(版本)、`capability_signer.py`(權限)、`execution.py`(比例)、`execution.py`(總曝險)，皆 `test_a_replayed_proposal_goes_through_every_gate` | 是 |
++| 6 | 重放不是第二條略過關卡的通道（沒有 bypass 旗標） | `_replay()` 簽章只有 `task_id, revision, operator, clock`，無任何 skip 參數（讀碼確認）；行為面由 #5 六條配方共同佐證：拿掉任一關檢查都會翻紅，代表重放跑的是同一套檢查，不是繞過 | 同 #5 六條 | 是（間接：無獨立配方直接示範「加一個 skip 旗標」，但六個關卡各自被拆開驗證+讀碼確認函式無此參數，足以支撐） |
++| 7 | 廣告版本變了就擋下給對應原因 | `test_dead_letter.py:340-351` gate `version_changed`：`(Result.BLOCKED, BlockCode.VERSION_CHANGED)` | `execution.py` `if view.version != proposal.campaign_version_observed:`→`if False:` | 是 |
++| 8 | 政策版本不是現行版本就擋下給對應原因 | 同上 gate `policy_version_changed`；另 `test_f6_end_to_end.py:123-142` `change=="policy"` 端到端驗證 | `execution.py` policy 檢查→`if False:` | 是 |
++| 9 | 決策建立超過 15 分鐘就擋下給對應原因（含邊界：剛好 15 分鐘不算過時） | `test_stale_decision.py:64-79` `test_a_stale_decision_is_blocked`：`(15min,EXECUTED)`、`(15min1s,BLOCKED, STALE)` | `guardrails.py` `DECISION_FRESHNESS - 1s`（把邊界說得更嚴），`test_a_stale_decision_is_blocked` | 是 |
++| 9b | 有這一次真的需要、此刻有效的核可則不判新鮮度 | `test_stale_decision.py:139-149` `skips_only_the_freshness_check`（超過15分鐘仍 EXECUTED）；`:230-240` `unneeded_approval_does_not_exempt`（掛著用不到的核可仍 BLOCKED/STALE） | `execution.py` `if not needed: return "go" if RATIO in live else "block"` → 兩處分別改成永遠 `"go"`／永遠 `"block"` | 是 |
++| 10 | 分析端另開接續任務重新規劃（限版本變/政策變/決策過時三種原因） | `test_f6_end_to_end.py:136-140`：三種 change 都 `facts["child"] == follow_up_id("t1")`；`test_dead_letter_wait.py:48-60` `test_a_new_block_reason_hands_the_task_over_to_a_follow_up`：`store.latest(child).state is TaskState.RECEIVED`、`follow_ups` 表寫入原因 | `flow.py` 拿掉 `"decision_stale": ReplanReason.DECISION_STALE` 映射，`test_a_new_block_reason_hands_the_task_over_to_a_follow_up` | 是 |
++| 11 | 舊決策不會寫進 DSP | `test_f6_end_to_end.py:141` `assert STALE_BUDGET not in facts["writes"]` | 涵蓋在 #7#8#9 配方（擋下即不送） | 是 |
++| 12 | 都沒變就照常寫成 | `test_f6_end_to_end.py:130-134`：`change=="unchanged"` 時 `writes==[STALE_BUDGET]`、`original.state is COMPLETED`、`child is None` | 若任一關檢查被關掉（#5系列）會讓其他組也誤判成"照常"，反向佐證此組必須靠六關全通過才行 | 是 |
++| 13 | 已不是死信（已放回/已擋下）拒絕重放 | `test_dead_letter.py:129-136`（已放回後第二次 `NOT_DEAD_LETTER`）；`:435-441` `test_a_blocked_proposal_cannot_be_replayed`（`disposition==("pending","blocked")`→`replay(h) is ReplayOutcome.NOT_DEAD_LETTER`） | `inbox_store.py` `if row[0]!="pending" or row[1]!=DEAD_LETTER: return NOT_DEAD_LETTER`→`if False:` | 是 |
++| 14 | 已過期拒絕重放 | `test_dead_letter.py:138-144` `test_a_replay_is_refused_after_the_proposal_expires`：`replay(h) is ReplayOutcome.EXPIRED`，`disposition` 不變 | `inbox_store.py` expired 檢查→`if False:` | 是 |
++| 15 | 同任務已有更新修訂拒絕重放 | `test_dead_letter.py:152-158` `test_a_replay_is_refused_when_the_task_has_a_newer_revision`：`replay(h) is ReplayOutcome.SUPERSEDED` | `inbox_store.py` 新修訂檢查→`if False:` | 是 |
++| 16 | 存的內容讀不回拒絕重放 | `test_dead_letter.py:409-421`：payload 損毀後 `replay(h) is ReplayOutcome.UNREADABLE`，`disposition` 不變，稽核只有 requested+refused | `inbox_store.py` `_parse_payload` 檢查→`if False:` | 是 |
++| 17 | 收件口回死信而決策未過期時分析端等待 | `test_dead_letter_wait.py:22-31`：`live is TaskState.HANDED_OFF`、任務 seq 不變、無 follow-up | `flow.py` `if answer.state=="dead_letter" and now<expires_at:`→`if False:` | 是 |
++| 18 | 已過期就結案、不重新規劃 | `test_dead_letter_wait.py:34-41`：`closed is TaskState.BLOCKED`，`follow_up_to("t1") is None` | `flow.py` 拿掉過期時間比較，變成一律結案（同上那條或另一條「一直等」配方，兩個方向都各有配方覆蓋） | 是 |
++| 19 | 每次進死信都寫進死信信封 | `test_dead_letter.py:74-86` `test_a_dead_letter_leaves_a_durable_envelope`：`envelopes(h)` 恰好一列且欄位齊 | `inbox_store.py` `_record_dead_letter(...)`→`pass` | 是 |
++| 20 | 每次要求重放與其結果都寫進稽核 | `test_dead_letter.py:207-220` `test_every_dead_letter_operation_is_audited`：四筆稽核（dead_lettered/requested/requeued/requested/refused）逐列比對 | `inbox_store.py` 重放放回那一句稽核寫入→`pass` | 是 |
++| 21 | 同一份提案重放後再進死信另寫一列，不去重 | `test_dead_letter.py:105-117` `test_a_replayed_proposal_that_dead_letters_again_gets_a_second_envelope`：`[row[0] for row in envelopes(h)] == [1, 2]` | 涵蓋於 #19 配方（拿掉寫入信封就不會有第二列） | 是 |
++| 22 | 死信信封與稽核只增不改 | `test_dead_letter.py:466-474` `test_the_dead_letter_tables_are_only_ever_inserted_into`：regex 掃全庫 `UPDATE/DELETE/REPLACE/DROP/ALTER ... dead_letters/dead_letter_ops`，`offenders==[]` | `inbox_store.py` 重放時多寫一句 `UPDATE dead_letters SET deliveries=0 ...`，`test_the_dead_letter_tables_are_only_ever_inserted_into` | 是 |
++| 23 | 死信信封與稽核不被保留期清理 | `test_dead_letter.py:74-86`：`RETENTION` 過後收件表清掉，`len(envelopes(h))==1`（信封還在） | `inbox_store.py` 保留期清理語句後加 `DELETE FROM dead_letters`，`test_a_dead_letter_leaves_a_durable_envelope` | 是 |
++
++## 措辭 vs 程式行為
++- 讀 `inbox_store.py:63`、`:648-652`、`:735-771` 與 `guardrails.py` 的 `DECISION_FRESHNESS`：宣稱裡「還沒開始嘗試、投遞次數用完」「只把它放回待處理」「證據新鮮度以決策建立時間代理」「剛好 15 分鐘」的邊界，都和程式常數/註解逐字對得上，沒有說得比實際寬。
++- 「沒有略過任何一關的旗標」是唯一一句沒有專屬機械配方直接示範「加一個 skip 旗標會怎樣」的宣稱；但 `_replay()` 簽章讀下來本身沒有任何旗標參數，且六個關卡各自獨立被 `test_a_replayed_proposal_goes_through_every_gate` 打過，行為上等於已經證明「重放跑的是同一條路徑、沒有分支」。判定仍算守住，但這句話比其他句更依賴「讀碼＋間接佐證」而非單一斷言，值得留意。
++- 「分析端另開接續任務重新規劃」在原文只綁在版本/政策/過時三種原因，測試（`EXPECTED_BLOCK` 只有這三種、`test_a_new_block_reason_hands_the_task_over_to_a_follow_up` 只 parametrize 這兩種+e2e 補第三種）範圍一致，沒有把權限/比例/總曝險也算進去，措辭沒有過滿。
++
++## 次要建議
++1. 可以幫「沒有略過任何一關的旗標」補一條專屬 kill 配方（例如在 `_replay` 或 `process_one` 插入一個假想的 `skip_gates` 分支硬編碼成 `False`），讓這句話也有直接翻紅的機械證據，而不只靠讀碼佐證，會更紮實。
++2. 表格裡 #6、#12、#18、#21 目前靠其他條目的配方間接覆蓋，不是各自獨有配方；不影響本次判定，但下次再加子句時建議逐句核對是否已有專屬配方，避免日後拆得更細時漏測。
++
++## 摘要
++把「事故 F6」那一行拆成 23 條具體宣稱，一條條回頭讀測試斷言和 kill 配方，25 個配方在隔離沙盒裡跑全部翻紅，措辭也跟程式常數、註解和邊界值逐字對得上，沒有說得比實際寬；唯一比較弱的一句（沒有略過任何一關的旗標）只是缺一條專屬配方、靠讀碼佐證頂著，不影響整體判定：同意這條合約每句宣稱都有測試真的守著。
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 476cae8..5261fac 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -396,22 +396,24 @@ def _check_revision_and_times(proposal: Proposal, highest: int, now: datetime) -
+         raise TooManyRevisions(highest_revision=highest)
+     if proposal.decision_expires_at <= now:
+         raise ProposalExpired()
+     if proposal.decision_expires_at > now + MAX_DECISION_LIFETIME:
+         raise ExpiryTooFar()
+     if proposal.decision_created_at > now + CLOCK_SKEW:
+         raise CreatedInFuture()
+ 
+ 
+ def _iso(moment: datetime) -> str:
+-    """固定格式的 UTC 字串:字串比大小就等於比時間先後。"""
+-    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
++    """固定格式的 UTC 字串:字串比大小就等於比時間先後。收件口每一個寫時間的地方都走這一支,
++    跟嘗試紀錄、停下紀錄的讀取路徑同一個轉換(沒帶時區就拒絕,不然會被當成本機時間寫錯;
++    Phase 6 增量 4 留下的寫入與讀取嚴格度不一致,2026-09-24 統一)。"""
++    return attempt_store.iso(moment)
+ 
+ 
+ def utc_now() -> datetime:
+     return datetime.now(UTC)
+ 
+ 
+ if RETENTION <= MAX_DECISION_LIFETIME:  # 設定自相矛盾就不讓模組載入
+     raise RuntimeError("RETENTION 必須比提案最長有效期長")
+ 
+ 
+diff --git a/tests/executor/test_dead_letter.py b/tests/executor/test_dead_letter.py
+index 8b58caa..880cd6d 100644
+--- a/tests/executor/test_dead_letter.py
++++ b/tests/executor/test_dead_letter.py
+@@ -1,17 +1,20 @@
+ """死信信封、失敗分類、重放與死信操作稽核(Phase 8):S500、S501、S502、S508、S510。
+ 
+ 進死信在同一個交易裡寫一列死信信封(只增不改、不被清理);重放是管理指令把還活著的死信放回
+ 待處理,每一個死信操作(進死信、要求重放、重放被拒、重放已放回佇列)都寫一列稽核。
+ """
+ 
++import ast
+ import io
++import pathlib
++import re
+ import sqlite3
+ import threading
+ 
+ import pytest
+ 
+ from rtb.domain.attempt import operation_key
+ from rtb.domain.proposal import content_hash
+ from rtb.executor import inbox_store
+ from rtb.executor import replay as replay_tool
+ from rtb.executor.execution import CampaignView, Result
+@@ -408,10 +411,79 @@ def test_a_dead_letter_whose_proposal_cannot_be_read_back_is_not_replayed(h):
+     dead_letter(h)
+     with h.store.transaction() as tx:
+         tx.conn.execute("DELETE FROM dead_letter_ops")
+         tx.conn.execute("DELETE FROM dead_letters")
+         tx.conn.execute("UPDATE proposals SET payload = '{'")
+ 
+     assert replay(h) is ReplayOutcome.UNREADABLE
+     assert disposition(h) == ("pending", "dead_letter")
+     assert [row[3:] for row in audit(h)] == [("replay_requested", OPERATOR, None),
+                                             ("replay_refused", OPERATOR, "unreadable")]
++
++
++# ---- 事故 F6 轉正:每個宣稱各有測試 ----
++def test_a_dead_letter_is_never_handed_out_again(h):
++    """死信只能由管理指令重放:執行迴圈不會自己再取到它、也不再讀 DSP。"""
++    dead_letter(h)
++    reads_before = len(h.dsp.reads)
++    h.clock.advance(minutes=5)
++
++    assert h.process().kind is Result.IDLE
++    assert disposition(h) == ("pending", "dead_letter")
++    assert len(h.dsp.reads) == reads_before
++
++
++def test_a_blocked_proposal_cannot_be_replayed(h):
++    h.submit(policy_version="demo-pacing-v0")
++    assert h.process().kind is Result.BLOCKED
++
++    assert replay(h) is ReplayOutcome.NOT_DEAD_LETTER
++    assert disposition(h) == ("pending", "blocked")
++
++
++# ---- 事故 F6 轉正第 1 次審計:三句排他性的宣稱要有機械守衛 ----
++SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "rtb"
++REVIVE = "dead_letter_reason = NULL"  # 把死信改回來的那一句(處置與死信原因一起清)
++
++
++def _functions_containing(text):
++    """原始碼裡含這段字的每一個函式(檔名, 函式名)。"""
++    found = []
++    for path in SRC.rglob("*.py"):
++        tree = ast.parse(path.read_text(encoding="utf-8"))
++        for node in ast.walk(tree):
++            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and any(
++                    isinstance(sub, ast.Constant) and isinstance(sub.value, str)
++                    and text in sub.value for sub in ast.walk(node)):
++                found.append((path.name, node.name))
++    return found
++
++
++def test_only_the_replay_method_revives_a_dead_letter():
++    """死信只能由管理指令逐筆重放:把死信改回待處理的寫法全庫只有重放方法一處。"""
++    assert _functions_containing(REVIVE) == [("inbox_store.py", "_replay")]
++
++
++def test_the_dead_letter_tables_are_only_ever_inserted_into():
++    """死信信封與稽核只增不改:全庫沒有任何語句修改、刪除或覆寫這兩張表。"""
++    writes = re.compile(r"\b(UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+REPLACE\s+INTO|"
++                        r"DROP\s+TABLE|ALTER\s+TABLE)\s+(dead_letters|dead_letter_ops)\b",
++                        re.IGNORECASE)
++    offenders = [(path.name, match.group(0)) for path in SRC.rglob("*.py")
++                 for match in writes.finditer(path.read_text(encoding="utf-8"))]
++    assert offenders == []
++
++
++def test_no_periodic_work_or_resend_revives_a_dead_letter(h):
++    """執行迴圈每一個會定期跑的入口與分析端重送同一份提案,都不會把死信改回來、也不會多寫信封。"""
++    prop = dead_letter(h)
++    before = (envelopes(h), audit(h))
++    executor = h.executor()
++    h.clock.advance(minutes=5)
++
++    assert executor.process_one().kind is Result.IDLE
++    executor.process_awaiting()
++    executor.reconcile_all()
++    assert h.store.accept(prop, h.clock).state == "dead_letter"
++
++    assert disposition(h) == ("pending", "dead_letter")
++    assert (envelopes(h), audit(h)) == before
+diff --git a/tests/executor/test_inbox_timezone.py b/tests/executor/test_inbox_timezone.py
+new file mode 100644
+index 0000000..4356fe1
+--- /dev/null
++++ b/tests/executor/test_inbox_timezone.py
+@@ -0,0 +1,58 @@
++"""收件口寫入的時間一律要帶時區:跟讀取路徑、嘗試紀錄同一條規則。
++
++沒帶時區的時間轉 UTC 字串時會被當成伺服器本地時間,寫進去的時間就錯了,之後照時間篩、判過期、
++清保留期都會跟著錯。Phase 6 增量 4 讓讀取停下紀錄的查詢拒絕沒帶時區的時間,寫入那一頭沒有同樣
++檢查,兩邊嚴格度不一樣;這裡把收件口所有寫時間的地方都收成同一支轉換(沒帶時區就拒絕)。
++"""
++
++import pytest
++
++from rtb.domain.attempt import operation_key
++from rtb.executor.inbox_store import ApprovalUse, BlockCode, InboxStore, Stop, StopKind
++from tests.executor.conftest import NOW
++from tests.executor.fakes import proposal
++
++NAIVE = NOW.replace(tzinfo=None)
++
++
++@pytest.fixture
++def store(tmp_path):
++    opened = InboxStore(tmp_path / "executor.db")
++    yield opened
++    opened.close()
++
++
++def _rows(store, table):
++    with store.transaction() as tx:
++        return tx.conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]  # noqa: S608 - 測試固定表名
++
++
++def test_a_stop_without_a_timezone_is_refused(store):
++    prop = proposal()
++    with store.transaction() as tx, pytest.raises(ValueError, match="時區"):
++        store.record_stop(tx, Stop(StopKind.AGGREGATE_LIMIT_REACHED, prop, operation_key(prop),
++                                   "t-default", 50, 90, 100), NAIVE)
++    assert _rows(store, "write_stops") == 0
++
++
++def test_a_proposal_received_at_a_time_without_a_timezone_is_refused(store):
++    with pytest.raises(ValueError, match="時區"):
++        store.accept(proposal(), lambda: NAIVE)
++    assert _rows(store, "proposals") == 0
++
++
++def test_an_approval_or_its_use_without_a_timezone_is_refused(store):
++    prop = proposal()
++    with pytest.raises(ValueError, match="時區"):
++        store.add_approval(prop, BlockCode.BUDGET_INCREASE_TOO_LARGE, "ap-1", "token", NAIVE)
++    with store.transaction() as tx, pytest.raises(ValueError, match="時區"):
++        store.record_approval_use(tx, ApprovalUse(
++            "ap-1", prop, operation_key(prop), "t-default",
++            BlockCode.BUDGET_INCREASE_TOO_LARGE, 10, None, None), NAIVE)
++    assert _rows(store, "approvals") == 0 and _rows(store, "approval_uses") == 0
++
++
++def test_a_replay_at_a_time_without_a_timezone_is_refused(store):
++    with pytest.raises(ValueError, match="時區"):
++        store.replay("t1", 1, "ops", lambda: NAIVE)
++    assert _rows(store, "dead_letter_ops") == 0

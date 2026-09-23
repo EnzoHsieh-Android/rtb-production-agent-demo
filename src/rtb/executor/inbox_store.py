@@ -403,8 +403,10 @@ def _check_revision_and_times(proposal: Proposal, highest: int, now: datetime) -
 
 
 def _iso(moment: datetime) -> str:
-    """固定格式的 UTC 字串:字串比大小就等於比時間先後。"""
-    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    """固定格式的 UTC 字串:字串比大小就等於比時間先後。收件口每一個寫時間的地方都走這一支,
+    跟嘗試紀錄、停下紀錄的讀取路徑同一個轉換(沒帶時區就拒絕,不然會被當成本機時間寫錯;
+    Phase 6 增量 4 留下的寫入與讀取嚴格度不一致,2026-09-24 統一)。"""
+    return attempt_store.iso(moment)
 
 
 def utc_now() -> datetime:

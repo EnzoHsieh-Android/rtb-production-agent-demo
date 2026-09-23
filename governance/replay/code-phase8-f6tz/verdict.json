@@ -1,0 +1,34 @@
+{
+ "loop": "code-phase8-f6tz",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-24T02:56:05+08:00",
+ "spec_path": "governance/review-reports/code-phase8-f6tz/r1-snapshot.patch",
+ "spec_sha": "77deb9554723d56eb546a4f997ac95cb9a7c8c22a3debe55fb541d4e78fdf528",
+ "rows": [
+  "{\"ts\": \"2026-09-24T02:54:58+08:00\", \"kind\": \"none\", \"auditor\": \"arch-sonnet\", \"token\": \"CANARY-84ce5e54\", \"note\": \"\", \"loop\": \"code-phase8-f6tz\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"77deb9554723d56eb546a4f997ac95cb9a7c8c22a3debe55fb541d4e78fdf528\", \"reviewed_sha256\": \"77deb9554723d56eb546a4f997ac95cb9a7c8c22a3debe55fb541d4e78fdf528\", \"spec_path\": \"governance/review-reports/code-phase8-f6tz/r1-snapshot.patch\", \"scope_lines\": 565, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 1, \"report_path\": \"governance/review-reports/code-phase8-f6tz/r1-arch.md\", \"report_sha256\": \"f71bd1eeaf855c4c76ece7b6a51e1f01549b106f97064a1358c295f4f60e1262\", \"snapshot_path\": \"governance/review-reports/code-phase8-f6tz/r1-snapshot.patch\", \"snapshot_sha256\": \"77deb9554723d56eb546a4f997ac95cb9a7c8c22a3debe55fb541d4e78fdf528\"}",
+  "{\"ts\": \"2026-09-24T02:54:58+08:00\", \"kind\": \"none\", \"auditor\": \"reviewer-sonnet\", \"token\": \"CANARY-231623ca\", \"note\": \"\", \"loop\": \"code-phase8-f6tz\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"77deb9554723d56eb546a4f997ac95cb9a7c8c22a3debe55fb541d4e78fdf528\", \"reviewed_sha256\": \"77deb9554723d56eb546a4f997ac95cb9a7c8c22a3debe55fb541d4e78fdf528\", \"spec_path\": \"governance/review-reports/code-phase8-f6tz/r1-snapshot.patch\", \"scope_lines\": 565, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"reviewer-F1\"], \"folded_set\": [\"reviewer-F1\"], \"accepted_set\": [], \"refuted_set\": [\"arch-F1\"], \"refuted_reasons\": {\"arch-F1\": \"全庫掃原始碼找字串與用語法樹走訪整個目錄都是專案既有做法，正規表示式只是找字串的嚴格版\"}, \"reported\": 1, \"report_path\": \"governance/review-reports/code-phase8-f6tz/r1-reviewer.md\", \"report_sha256\": \"bd662ed973597e1cbc8d3f5f786a9855eebafa7f1706b6b1e8df0e0071f3dada\", \"snapshot_path\": \"governance/review-reports/code-phase8-f6tz/r1-snapshot.patch\", \"snapshot_sha256\": \"77deb9554723d56eb546a4f997ac95cb9a7c8c22a3debe55fb541d4e78fdf528\", \"intake_path\": \"governance/review-reports/code-phase8-f6tz/r1-intake.md\", \"intake_sha256\": \"4cfdb5e224a8d88c6f910bd7f4bb8374097187b3b3977d0e5d11370fa72db6e5\"}"
+ ],
+ "all_row_shas": [
+  "10b6b73b3d305ff96d75a2260852c0d6ed98ee1e5f9dc48f5b8d74cc2097f9df",
+  "1648f91be052a8ef5b731e32541d85aab3cc4579dc227469acc2bd3cebb90d7f"
+ ],
+ "files": {
+  "governance/review-reports/code-phase8-f6tz/r1-arch.md": {
+   "sha256": "f71bd1eeaf855c4c76ece7b6a51e1f01549b106f97064a1358c295f4f60e1262",
+   "git_blob": "ed419329d2bdcbea809586a0af8a2129f0fa3c39"
+  },
+  "governance/review-reports/code-phase8-f6tz/r1-snapshot.patch": {
+   "sha256": "77deb9554723d56eb546a4f997ac95cb9a7c8c22a3debe55fb541d4e78fdf528",
+   "git_blob": "99ecd774ac62cc53977e454878f7322883bc4e94"
+  },
+  "governance/review-reports/code-phase8-f6tz/r1-reviewer.md": {
+   "sha256": "bd662ed973597e1cbc8d3f5f786a9855eebafa7f1706b6b1e8df0e0071f3dada",
+   "git_blob": "4a522bf09d7ae2f1bdf3dd3a2216c41a5edba394"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}
