@@ -3114,3 +3114,6 @@
 {"ts": "2026-09-24T04:07:39+08:00", "commit": "e79e9d1", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-24T04:07:39+08:00", "commit": "e79e9d1", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "e79e9d1c8a1c7c0b8eb9b386e320462a77914cce"}
 {"ts": "2026-09-24T04:20:29+08:00", "commit": "a2ad19d", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase9可觀測與SLO_計劃.md"], "note": "door=high clauses=71 bound=0 red=0 green=0 weak=0 regress=80 no-run"}
+{"ts": "2026-09-24T04:20:36+08:00", "commit": "a2ad19d", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T04:20:36+08:00", "commit": "a2ad19d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "a2ad19d0b4aa586904f9c4a44550cc2df7e98918"}
+{"ts": "2026-09-24T04:36:22+08:00", "commit": "25f5401", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase9可觀測與SLO_計劃.md"], "note": "door=high clauses=71 bound=0 red=0 green=0 weak=0 regress=80 no-run"}

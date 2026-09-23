@@ -13,3 +13,37 @@ preflight-4: ran
 | pf3 | ②壞引用 MISS(引用存在,分支基底較舊) | 比照 Phase 8 死信兩張表那一支 | 這條分支從 e79e9d1 開,不含主線 08199c6(`git merge-base --is-ancestor 08199c6 HEAD` 為否);主線上 `git show main:tests/executor/test_dead_letter.py` 有 `test_the_dead_letter_tables_are_only_ever_inserted_into` 與拆字串還原函式 | 引用改寫成「在執行端死信測試檔,Phase 8 收尾時合進主線,合主線後才看得到」;另註明唯一差異:那支連 ALTER 整個擋,這裡放行補欄位 |
 
 另補一條「不做」:不擴大 DSP 故障注入到讀取端點(改 DSP 故障範圍要使用者裁)。
+
+## 第 1 輪收貨(2026-09-24)
+
+七席:s1 調查劇本可行性、s2 指標與切片、s3 下鑽時間線與 DSP 歷史、s4 稽核守衛、s5 可測性與合約句、sarch 架構對齊(sonnet)、x1 外家 Codex(沒撞到用量限額)。受審版本:第 2 版(提交 25f5401)。收齊後才動計劃;收件前查 reflog 與作者,沒有不是編排者做的提交。共 27 條:2 blocker、20 major、5 minor。s3 報告檔首是一段總結散文,以 `lumos report-normalize --write` 只把檔級等級行搬到檔首(不改內容)。quote-check:x1 兩句錨不到(F6、F7:席位把快照原文裡巢狀的「」去掉了,原文 `把相鄰字串、用 + 串起來、f-string 的固定片段拼回完整語句,對這六張表比對「修改、刪除、覆寫、刪表、改名」`、`例外:補欄位流程的「新增欄位」(ALTER TABLE 某表 ADD COLUMN)准許`,編排者 grep 快照 HIT,內容由編排者讀碼核對),其餘全數錨定。refcheck 的錨不到:s2、s4 引的 `tests/executor/test_dead_letter.py` 行號在主線不在本分支(`git show main:tests/executor/test_dead_letter.py` 對得上),s4 的 `tests/_sql_scan.py` 是建議新開的檔。記帳載體用 sarch。
+
+| id | 重現 | 結果 | 處置 |
+|---|---|---|---|
+| sarch-F1 | 讀 `src/rtb/httpclient.py` 封閉列舉標頭、`tests/executor/test_execution_e2e.py` 檔頭與伺服器端排定故障 | HIT | 折:故障改在 DSP 伺服器端依冪等鍵排定,用戶端不改 |
+| sarch-F2 | grep 分析端 `datetime.now(UTC)` 直接讀系統時間,沒有時鐘參數 | HIT | 折:實演不帶分析行程,提案直接送收件口,時間線從收件開始 |
+| sarch-F3 | 讀 `src/rtb/dsp/server.py` 伺服器時鐘預設系統時間、`src/rtb/dsp/capability.py` 容許 30 秒誤差 | HIT | 折:DSP 驗憑證的時鐘接虛擬時鐘(比照既有端到端測試) |
+| s1-F1 | 同 sarch-F3;另讀 DSP 請求處理每次新開儲存物件沒傳時鐘 | HIT | 同上,並寫明 DSP 提交時間仍是系統時間、不做跨邊時間比較 |
+| s3-F1 | 同 sarch-F3 | HIT | 同上 |
+| s5-F4 | 同 s1-F1 | HIT | 同上 |
+| x1-F5 | 讀 DSP 提交後逾時用真實睡眠;受控時鐘不前進時兩時間相等 | HIT | 折:第 5 步改用因果事實(一次寫入呼叫卻有操作),不比時間 |
+| s2-F1 | 讀增量 3 裁定:只寫「所有時間窗等比縮短」,期限沒寫 | HIT | 折:代使用者裁定期限不縮短、虛擬時鐘走真實長度;回頭補增量 3 一句 |
+| x1-F2 | 同 s2-F1:20 秒事故碰不到 10 分鐘期限 | HIT | 同上 |
+| x1-F1 | 讀增量 3 短窗 5 秒、壞事件記在期限那一刻 | HIT | 折:第 1 步在 T0 + 10 分鐘 + 1 秒評估並存下結果 |
+| s1-F2 | 讀增量 3 [S660] 最少樣本 10 | HIT | 折:甲 12 把 5xx 鍵,測試開頭斷言不少於最少樣本 |
+| s2-F2 | 同 s1-F2 | HIT | 同上 |
+| s5-F2 | 讀增量 2 [S633] 零樣本回無樣本;事故前沒有鍵進結果不明 | HIT | 折:對帳耗時不跟事故前比,改斷言事故前無樣本、事故後 13 個樣本且 p95 超過期限 |
+| x1-F3 | 同 s5-F2 | HIT | 同上 |
+| s2-F4 | 讀第 1 步原句:描述與斷言混在一句 | HIT | 折:第 1 步重寫,斷言與描述分開 |
+| s5-F1 | grep tests 沒有 module 級共用 fixture;既有端到端都是一支函式 | HIT | 折:一支測試函式五個區塊,五條合約綁同一支 |
+| s5-F3 | 讀 `tests/executor/test_f7_end_to_end.py` 兩工作者搶鎖 | HIT | 折:同一執行緒輪流取件,斷言兩個版本寫入 5xx 都大於 0 |
+| s3-F2 | 讀 `src/rtb/executor/execution.py` 查不到後先讀廣告再重送、開頭也讀廣告 | HIT | 折:時間線列入讀廣告,定義成子序列比對 |
+| x1-F4 | 讀增量 1 同時刻固定表序;受控時鐘一輪內時間全同 | HIT | 折:虛擬時鐘每讀一次前進 1 毫秒;全域因果序號列回頭補增量 1 |
+| s4-F1 | 讀 `src/rtb/executor/inbox_store.py` 通用補欄位迴圈 f-string 組表名 | HIT | 折:守衛直接讀登記表,斷言不含六張表;六張表補欄位用字面表名 |
+| s2-F3 | 同 s4-F1 | HIT | 同上 |
+| s4-F2 | 讀主線 Phase 8 正則:要求動詞緊接表名 | HIT | 折:同一段含表名且含衝突時更新等語句即違規 |
+| x1-F6 | 同 s4-F2;另 UPDATE OR REPLACE、DROP TABLE IF EXISTS | HIT | 同上,配方逐種各一條 |
+| x1-F7 | 讀 `src/rtb/dsp/store.py` 操作表補欄位可為空無預設 | HIT | 折:只准可為空、無預設的補欄位 |
+| s4-F3 | 讀主線 Phase 8 兩支拼字串函式是模組私有 | HIT | 折:搬進共用測試模組,兩支都匯入;守衛等合主線後實作 |
+| s4-F4 | `git grep "CREATE TABLE" phase9-inc1 -- src` 兩張新表的建表語句 | HIT | 折:表名以建表語句為準,測試斷言六個名字都在建表語句裡 |
+| s5-F5 | 讀 [S675] 原句「刪除」重複、漏「刪表」 | HIT | 折:[S675] 重寫 |
