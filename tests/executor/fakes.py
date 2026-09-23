@@ -13,7 +13,7 @@ import threading
 from dataclasses import replace
 from pathlib import Path
 
-from rtb.domain.proposal import ActionType, parse_proposal
+from rtb.domain.proposal import POLICY_VERSION, ActionType, parse_proposal
 from rtb.executor.capability_signer import CapabilitySigner
 from rtb.executor.execution import (
     CampaignView,
@@ -29,6 +29,9 @@ from tests.domain.proposal_samples import valid
 
 
 def proposal(**overrides):
+    # Phase 8 起執行前檢查會擋政策版本不是現行版本的提案;樣本預設的 "v1" 不是現行版本,執行端測試
+    # 預設改用現行版本。要測舊版本被擋就明寫 policy_version(新規則造成的改動,不是放寬檢查)
+    overrides.setdefault("policy_version", POLICY_VERSION)
     parsed = parse_proposal(valid(**overrides))
     assert parsed.proposal is not None, parsed.errors
     return parsed.proposal
