@@ -1,0 +1,1079 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md
+index 2ede4ca..0767fd5 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md
+@@ -147,22 +147,22 @@ REVISIT:2027-01-31 Phase 9 開工時,把兩支查詢接上正式指標與告警,
+ 
+ ### 不做的事
+ 
+ - 不改任務狀態機(使用者裁定 B)。
+ - 收件表還留著時,死信不自動重新規劃(Phase 8);清掉之後分不出原因,統一重新規劃(見上)。
+ - 不做分析行程的啟動程式與多任務排程;接續任務由呼叫端推進,跟原任務一樣。
+ - 不做告警與儀表板(Phase 9)。
+ 
+ ### 合約
+ 
+-- [S300] 當提案處置是已擋下,收件口對同一份提案的重送回應應帶擋下原因;其他處置應不帶。[test:test_a_resend_reports_why_the_proposal_was_blocked]
+-- [S310] 當嘗試因 DSP 回版本衝突而失敗,執行端在終點確認、開始時撞到既有失敗鍵、收件口取件時撞到既有失敗鍵三處都應寫擋下原因「版本已變」;其他失敗應照舊寫「同一操作先前已失敗」。[test:test_a_dsp_version_conflict_is_acknowledged_as_version_changed]
++- [S300] 當提案處置是已擋下,收件口對同一份提案的重送回應應帶擋下原因,其中超過預算上限與廣告不允許兩種權限類原因應合併回泛稱「不允許」(not_permitted,只在回應本文合併,收件表仍記細分代碼;使用者 2026-09-23 裁定);其他處置的擋下原因欄位應在、值為空。[test:test_a_resend_reports_why_the_proposal_was_blocked] [test:test_a_resend_hides_which_permission_blocked_it]
++- [S310] 當嘗試因 DSP 回版本衝突而失敗,執行端在終點確認、開始時撞到既有失敗鍵、收件口取件時撞到既有失敗鍵三處都應寫擋下原因「版本已變」;憑證過期後重讀、以及結果不明對帳時 DSP 查不到而重跑執行前檢查,這兩條路徑只要提案仍有效、重跑的檢查回版本已變,也應確認成「版本已變」(過期與版本已變同時成立時過期優先,照舊確認,跟第一次處理時的順序一致)、嘗試結果代碼照舊記沒發生(這兩條是使用者 2026-09-23 裁定擴大範圍,代碼審第 1 輪外家席抓到);其他失敗應照舊寫「同一操作先前已失敗」。[test:test_a_dsp_version_conflict_is_acknowledged_as_version_changed] [test:test_a_version_change_found_after_capability_expiry_is_acknowledged_as_version_changed] [test:test_a_version_change_found_while_reconciling_is_acknowledged_as_version_changed]
+ - [S301] 當任務已交給執行、有給操作查詢、而收件口回已交給執行,推進函式應把任務轉完成,不查 DSP。[test:test_a_handed_off_task_completes_when_the_inbox_reports_handed_off]
+ - [S316] 當沒給操作查詢,推進函式對已交給執行的任務應不呼叫任何協作者、不改任務。[test:test_advancing_a_handed_off_task_calls_no_collaborator]
+ - [S311] 當收件表已清掉提案、DSP 用存下的鍵查得到內容相符的操作,推進函式應把任務轉完成;內容不符應轉擋下並記冪等衝突。[test:test_after_the_retention_window_the_dsp_decides_completion]
+ - [S317] 當收件表已清掉提案(包括原本因版本已變被擋下、分析端超過保留期才推進)、DSP 查不到操作,推進函式應建接續任務重新規劃,錯誤說明記結果已過保留期。[test:test_after_the_retention_window_a_missing_write_is_replanned]
+ - [S302] 當提案仍在處理中或待處理,推進函式應不改任務。[test:test_a_handed_off_task_waits_while_the_proposal_is_still_open]
+ - [S312] 當重送收件口或查 DSP 失敗(逾時、斷線、讀不懂、收件口忙碌、未定義拒收),推進函式應不改任務、放掉租約、不讓例外往外傳。[test:test_a_failed_lookup_or_resend_leaves_the_handed_off_task_for_the_next_round]
+ - [S303] 當提案因版本已變被擋下,推進函式應在同一個交易裡建接續任務與接續關係,再把原任務轉擋下,錯誤說明記下接續任務編號。[test:test_a_version_conflict_hands_the_task_over_to_a_follow_up]
+ - [S313] 當收件表還留著、提案處置是過期,推進函式應同樣建接續任務重新規劃。[test:test_an_expired_decision_is_replanned]
+ - [S304] 當提案因其他原因被擋下、進了死信、或收件口永久拒收,推進函式應把任務轉擋下並記下原因,不建接續任務。[test:test_other_blocks_close_the_task_without_a_follow_up]
+ - [S305] 當提案被新修訂取代,推進函式應把任務轉被取代。[test:test_a_superseded_proposal_marks_the_task_superseded](目前只能用替身觸發,見上)
+@@ -177,25 +177,27 @@ REVISIT:2027-01-31 Phase 9 開工時,把兩支查詢接上正式指標與告警,
+ - [S309] 當兩個寫入者同時改同一個廣告(執行前檢查都通過),DSP 應只接受預期版本相符的那一個,另一個的嘗試記版本衝突、收件口擋下原因記版本已變。[test:test_two_concurrent_writers_reproduce_a_version_conflict]
+ - [S315] 當有重新規劃與 DSP 版本衝突發生過,分析端的查詢應回報正確的重新規劃、用完、結果已過保留期次數,執行端的查詢應回報正確的 DSP 版本衝突次數,兩者都可依廣告篩。[test:test_conflict_counts_are_queryable]
+ 
+ ## 實務隱患
+ 
+ - 未排除:金流:重新規劃會再產生一份改預算的提案。
+ - 未排除:對外送出:接續任務會再對 DSP 發出寫入。
+ - 未排除:不可逆:舊決策若覆蓋新值,稽核上收不回來。
+ - 未排除:守衛面:版本檢查與重新規劃都是防舊決策覆蓋新值的守衛。
+ - 未排除:冪等鍵回退:Phase 5 之前就交給執行的舊任務沒有存鍵,只能從提案重算;算法改版後會查錯鍵、把已寫入的任務誤判成沒寫而重新規劃(重新規劃會重讀現況、受版本檢查,但同一個加預算的決策可能再做一次)。守法:[S321] 的測試把目前前綴釘住,改版的那次改動會先撞到它。
++- 未排除:回應把權限類原因合併,分析行程試不出預算上限與租戶歸屬:重送就讀得到擋下原因,若分得細,被劫持的分析行程可以換金額、換廣告一路試出租戶的預算上限精確值與廣告歸哪個租戶(代碼審第 1 輪資安席);所以超過預算上限與廣告不允許在回應裡合併成「不允許」,收件表與執行端紀錄照記細分代碼,稽核不失真(使用者 2026-09-23 裁定)。
++- 未排除:重跑檢查路徑的後續修訂:憑證過期後重讀、對帳重跑檢查兩條路徑確認成版本已變,但嘗試結果代碼記的是沒發生;同一把鍵的新修訂(只換到期時間)之後在取件時撞到這把失敗鍵,讀的是嘗試結果代碼,會確認成「同一操作先前已失敗」而不是版本已變。分析端第一次已拿到版本已變並建接續任務(新提案用新版本,鍵不同),這個情況只出在同一決策重送新修訂時。
+ - 未排除:清掉之後統一重新規劃:收件表清掉後,原本是死信或超過預算上限而被擋的提案也會重做,最多 3 代,每代都會再被執行端的檢查擋一次。
+ 
+ ## 回退
+ 
+-- 拿掉推進函式「已交給執行」那一步、接續任務表與衝突查詢,呼叫端不給操作查詢即回到 Phase 4 的行為(任務停在已交給執行);執行端三處版本衝突的確認代碼改回同一操作先前已失敗;任務表多出的冪等鍵欄位留著無害;收件口回應多出的擋下原因欄位留著無害。
++- 拿掉推進函式「已交給執行」那一步、接續任務表與衝突查詢,呼叫端不給操作查詢即回到 Phase 4 的行為(任務停在已交給執行);執行端三處版本衝突與兩條重跑檢查路徑的確認代碼改回同一操作先前已失敗;回應的權限類合併拿掉即回細分代碼;任務表多出的冪等鍵欄位留著無害;收件口回應多出的擋下原因欄位留著無害。
+ 
+ ## 落點
+ 
+ - lands_in:推進函式的新一步、接續任務寫進 [[Systems/分析行程流程與檢查點]];收件口回報擋下原因寫進 [[Systems/提案收件口]];三者分工的說明寫進 [[Systems/執行迴圈]] 與 [[Systems/分析行程流程與檢查點]]。
+ 
+ ## 審計修正紀錄
+ 
+ - r1(2026-09-23,7 席:處置對照與狀態機、接續任務正確性、F4 與完成條件、可測性與相容、銜接與範圍、架構對齊、外家 Codex):17 條全數折入。重點:DSP 端的版本衝突被確認成「同一操作先前已失敗」、不會重新規劃(四席各自抓到);只靠收件口當真相,保留期一過成功的任務會被誤判過期、版本衝突也會被抹掉,改成先查 DSP 操作紀錄;推進函式對已交給執行寫死直接返回;接續任務編號拼接會撞名與超長,改成固定長度雜湊加保留命名空間,建立與關係同交易;重送失敗照既有慣例視為沒進展;完成條件漏了指標,補最小查詢。指標:governance/review-reports/rtb-phase5樂觀鎖與重新規劃/。
+ - r2(2026-09-23,5 席:前輪修正驗收、收件口與 DSP 分流、接續任務與 F4、架構對齊、外家 Codex):14 條全數折入(第 2 輪收貨紀錄與這行原本誤寫成 16 條,第 3 輪更正)。重點:DSP 有操作紀錄不代表驗證通過,改成先問收件口、收件表清掉才問 DSP,也順帶消掉兩次查詢之間的競態;查 DSP 用存下的鍵並核對內容;版本衝突寫死的地方是三處不是兩處;推進函式用可選參數接新查詢,舊測試不用改;保留命名空間另開建接續任務入口;代數上限不分原因;軌跡雙向查補合約;指標改成兩側各讀自己不會被清的資料。
+ - r3(2026-09-23,4 席:前輪修正驗收、收件口優先與清除後補位、架構對齊、外家 Codex):9 條全數折入。重點:收件口重送時會先清掉過了保留期的已結案任務,執行前檢查擋下的版本已變只記在收件表,第 3 版在清掉後不重新規劃,分析端晚兩小時推進 F4 就失效,改成清掉後 DSP 查不到就重新規劃;建接續、寫關係、原任務結案併成一個交易並走租約圍籬;收件口回應要核對任務、修訂、雜湊;推進函式怎麼接進既有分派寫清楚;保留前綴只管任務編號參數;舊列重算冪等鍵用測試釘住前綴。設計審跑滿 3 輪,第 3 輪仍有 major,依上限停在這一版進實作,實作後的代碼審覆核這一版的折入。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+index 3d01526..620a0e5 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+@@ -20,40 +20,41 @@ summary: |-
+   WHY:[2026-09-23]事故 F3 轉正時先落在 [[Systems/提案收件口]],當天搬來執行迴圈,比照事故 F1、F2。措辭照實寫(使用者裁定):執行側重複投遞不重複副作用是無條件保證(冪等鍵加收據條件寫入);分析側只保證同一時間只有一個持有有效租約的一方花分析費用,持有者寫入前當機、或一步做超過租約被接手時會再分析一次(分析側沒有續租、猝死放不掉租約)。分析行程目前沒有訊息入口,「同一則訊息對應同一個任務編號」等分析行程有啟動程式才補(回頭條件在 [[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3b)。證據跨兩側:執行側三支 F3 端到端與兩個工作者同時取件,分析側六支租約測試。獨立審計(2026-09-23)同意,做了六組改壞實驗全部翻紅;卷證 governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/f3-audit.md。
+   WHY:[2026-09-23]這條合約轉正時掛在 [[Systems/提案收件口]](預告合約當初登記在那裡),當天就搬來執行迴圈:它描述的是執行迴圈的行為,實作也在這裡。獨立審計(2026-09-23)要求註明兩點:①「查到操作紀錄就核對內容再驗證、不重送」這半句由 test_reconcile_finds_the_operation_by_key_and_verifies_it 與 test_reconcile_escalates_a_mismatched_operation_record 兩支單元測試獨立守著,不是三支端到端測試單獨證明的,所以一起綁上;②「預算只改一次」真正的強制層是 DSP 的同鍵去重(Phase 1 的合約),這五支測試只是重申斷言,DSP 那層被改壞時它們不會紅。
+   WHY: 執行端只驗證並執行獲授權的動作,前提不成立就擋下,不重新分析、不靠 DSP 的版本檢查當第一道防線。出處:使用者情境題 2026-09-22 答 c、事故 F4;設計見 [[Projects/RTB_Phase3外部寫入安全_計劃]] 增量 3。
+   RULE: 呼叫 DSP 期間不開任何資料庫交易;每一筆寫入各自一個交易,以上一筆回傳的序號做條件寫入,沒有進展就停機。[since:2026-09-23] [retire:改用佇列與多工作者(Phase 4)時重審]
+   RULE: 時間只有一個來源(注入的時鐘),但每次簽發、每筆寫入都當下重讀,不整輪共用同一個值,否則過期後的重簽會簽出一樣過期的憑證。[since:2026-09-23] [retire:簽發改由別的服務負責時撤除]
+   RULE: 可以同時跑多個執行迴圈,互斥只靠收件表的租約與收據;重啟恢復只轉收件表沒有對應處理中訊息、而且寫下超過一個租約時間的嘗試中(舊鍵對帳時也會先寫嘗試中再呼叫 DSP,剛寫下的可能有人正在做),有處理中訊息的不碰(別人正在做,或租約到期後由對帳原子接手);對帳遇到寫下超過一個租約時間的舊鍵嘗試中也自己收,不必等重啟;資料庫忙碌休息重試、連續 3 次才以忙碌代碼(6,跟系統錯誤的停機代碼分開)結束;沒有收據的舊鍵序號對不上是正常競爭,放棄這把鍵。[since:2026-09-23] [retire:換成外部佇列軟體、訊息歸屬由它管時]
+   RULE: 新舊版本不能混跑:3a 上線前一次停掉所有舊版執行迴圈,之後不再啟動舊版;舊版會拿單一執行者鎖並把所有嘗試中轉結果不明,看不到新版的工作者,而它的程式已寫死、擋不住。[since:2026-09-23] [retire:支援滾動升級、改用資料庫版本標記加圍籬時]
+   RULE: 系統故障(租戶設定檔壞掉或不安全、DSP 回其他 4xx、有收據而條件寫入沒進展)一律停機並以非零代碼結束,不逐筆鎖廣告;同一個程式錯誤逐筆鎖會一輪鎖一個廣告直到全表上限。[since:2026-09-23] [retire:有監控告警與自動重啟策略時重審]
+   PITFALL: 共用 HTTP 用戶端不跟轉址,3xx 會原樣回來;回應對照表最後一列是兜底(記成結果不明),否則嘗試會卡在嘗試中永久鎖住廣告。防回歸:[test:test_an_unlisted_status_is_recorded_as_unknown]。
+   RULE: 執行行程不拿提案的自由文字(理由摘要)來判斷,也不送出去(Phase 7 增量 3,事故 F5):重讀的廣告現況只有預算、狀態、版本三欄;執行行程套件底下全部程式檔不以屬性存取讀理由摘要;送給 DSP 的寫入本文與能力憑證聲明不含理由摘要。由一支結構測試守,放在分析側的測試檔、不改執行行程程式;是機械掃描,防忘記,不防刻意用字串拼屬性名稱繞過(但寫入本文與聲明的內容檢查連繞過的寫法也抓得到)。守不到:整份提案被轉成字串印進日誌時理由摘要會跟著出現,見 [[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 實務隱患。防回歸:[test:test_the_execution_side_never_reads_free_text]。[since:2026-09-23] [retire:執行行程需要讀理由摘要(例如人工處置畫面)時重審,讀了也只能顯示、不能判斷]
++  RULE: 嘗試因 DSP 回版本衝突而失敗時,終點確認與開始一筆時撞到既有失敗鍵兩處都寫擋下原因「版本已變」(跟執行前檢查擋下的同一個代碼),其他失敗照舊寫「同一操作先前已失敗」。憑證過期後重讀、以及結果不明對帳時 DSP 查不到而重跑執行前檢查,這兩條路徑只要提案仍有效、重跑的檢查回版本已變,也確認成「版本已變」(過期與版本已變同時成立時過期優先,跟第一次處理時的順序一致;代碼審第 2 輪外家席),但嘗試結果代碼照舊記「沒發生」(DSP 明確沒寫;使用者 2026-09-23 裁定擴大範圍,代碼審第 1 輪外家席抓到;同一把鍵的新修訂之後取件讀的是結果代碼,會確認成「同一操作先前已失敗」,計劃實務隱患有記)。原本一律寫後者,把「另一方搶先改了廣告」蓋成「這個操作做不成」,分析端就不會重新規劃(Phase 5 設計審第 1 輪四席各自抓到,第 2 輪又抓到第三處在收件口取件)。三處共用收件表模組的 `block_code_for_failure`。版本衝突可以真的重現:兩套各自獨立的執行系統同時改同一個廣告、執行前檢查都通過,DSP 只接受預期版本相符的一方(同一套系統裡「同一廣告同時只開一筆嘗試」會先擋掉第二份,測不到 DSP 端)。分工:版本檢查(執行端)防根據過時現況的決策覆蓋新值;新鮮度(分析端)防用過期證據做決策;冪等(執行端與 DSP)防同一決策套用兩次;三者互補不能互相取代。出處:[[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]]。防回歸:[test:test_a_dsp_version_conflict_is_acknowledged_as_version_changed]、[test:test_two_concurrent_writers_reproduce_a_version_conflict]、[test:test_a_version_change_found_after_capability_expiry_is_acknowledged_as_version_changed]、[test:test_a_version_change_found_while_reconciling_is_acknowledged_as_version_changed]。[since:2026-09-23] [retire:版本衝突改由 DSP 端合併或重試處理時重審]
+   TEST: tests/executor/ 的 test_execution.py、test_execution_e2e.py、test_runner.py、test_executor_boundaries.py 涵蓋增量 3 的 S42–S69;2026-09-23 變異檢查 43 道防護逐一拆掉全部變紅。
+ verified_by:
+   - "[[Verification/Phase3驗收紀錄]]"
+   - "[[Verification/事故F1_結果不明只用原鍵對帳]]"
+   - "[[Verification/事故F2_確認前當機不重複副作用]]"
+   - "[[Verification/事故F3_重複投遞不重複分析與副作用]]"
+   - "[[Verification/Phase4驗收紀錄]]"
+ kill_recipes: |-
+   [{"invariant": "事故 F1 的執行面", "test": "test_f1_timeout_before_commit_is_reconciled_by_a_same_key_resend", "file": "src/rtb/executor/execution.py", "old": "        signed = None if blocked else self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機\n        if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗\n            return self._void_then_fail(proposal, row, receipt)\n        try:\n            row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)\n        except attempt_store.SendLimitReached:\n            self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)\n            return False\n        return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token),\n", "new": "        signed = None if blocked else self._sign(proposal, row.key + 'n')  # 設定檔壞掉在這裡停機\n        if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗\n            return self._void_then_fail(proposal, row, receipt)\n        try:\n            row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)\n        except attempt_store.SendLimitReached:\n            self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)\n            return False\n        return self._record(proposal, row, self.dsp.write(proposal, row.key + 'n', signed.token),\n", "note": "對帳查不到時換新鍵重送,結果不明的舊請求晚到會再套用一次"}, {"invariant": "事故 F1 的執行面", "test": "test_f1_timeout_after_commit_is_reconciled_from_the_operation_record", "file": "src/rtb/executor/execution.py", "old": "        if record is not None:\n            return self._found(", "new": "        if False:\n            return self._found(", "note": "對帳不看操作紀錄,DSP 已提交也當成沒做"}, {"invariant": "事故 F2:工作者在副作用", "test": "test_crash_after_the_dsp_commit_is_recovered_from_the_operation_record", "file": "src/rtb/executor/execution.py", "old": "        if record is not None:\n            return self._found(", "new": "        if False:\n            return self._found(", "note": "當機後對帳不看操作紀錄,已提交的寫入被當成沒做"}, {"invariant": "事故 F2:工作者在副作用", "test": "test_a_crash_before_the_terminal_commit_rolls_back_the_result_and_the_acknowledgement", "file": "src/rtb/executor/execution.py", "old": "            if receipt is not None and new.state in TERMINAL_STATES:\n                self._ack_terminal(tx, new, receipt, now)", "new": "            if receipt is not None and new.state in TERMINAL_STATES:\n                self.store._conn.execute('COMMIT'); self.store._conn.execute('BEGIN IMMEDIATE')\n                self._ack_terminal(tx, new, receipt, now)", "note": "結果與確認拆成兩個交易,中間當機會留下已驗證卻沒確認"}, {"invariant": "事故 F2:工作者在副作用", "test": "test_crash_before_verification_is_recovered_by_reconciliation", "file": "src/rtb/executor/execution.py", "old": "        if row.state is A.COMMITTED_UNVERIFIED:\n            return self._verify(proposal, row, receipt)", "new": "        if row.state is A.COMMITTED_UNVERIFIED:\n            return False", "note": "已提交待驗證的嘗試對帳不再推進,訊息永遠停在處理中"}, {"invariant": "事故 F2:工作者在副作用", "test": "test_a_stale_or_expired_receipt_can_write_nothing", "file": "src/rtb/executor/inbox_store.py", "old": "            \"AND lease_until > ?\",", "new": "            \"AND lease_until IS NOT ?\",", "note": "確認不核對租約是否到期,過期的工作者還能硬寫確認"}, {"invariant": "事故 F3:同一則訊息", "test": "test_f3_a_reanalysed_revision_still_passes_through_the_execution_gate", "file": "src/rtb/executor/execution.py", "old": "    if view.version != proposal.campaign_version_observed:", "new": "    if False:", "note": "重做分析的新目標不再過執行閘的版本檢查,舊觀察版本的寫入照樣送出"}, {"invariant": "事故 F3:同一則訊息", "test": "test_two_real_threads_advancing_the_same_task_pay_for_the_analysis_once", "file": "src/rtb/analyzer/task_store.py", "old": "    return lease[1] is not None and lease[2] > _iso(now)", "new": "    return False", "note": "分析側租約永遠算沒人持有,同一個任務被同時推進時兩邊都花分析的錢"}, {"invariant": "事故 F3:同一則訊息", "test": "test_two_live_workers_process_a_message_once", "file": "src/rtb/executor/inbox_store.py", "old": "f\"WHERE ({PENDING}) OR ({IN_PROGRESS} AND lease_until <= ?) \"", "new": "f\"WHERE ({PENDING}) OR ({IN_PROGRESS} AND lease_until IS NOT ?) \"", "note": "租約還沒到期的訊息也交出去,兩個工作者同時處理同一則訊息"}]
+ ---
+ # 執行迴圈
+ 
+ 三支檔:`src/rtb/executor/execution.py`(處理一筆與 DSP 回應對照表)、`src/rtb/executor/dsp_client.py`(執行行程的 DSP 讀寫用戶端,經 [[Systems/共用行程基礎]] 的共用 HTTP 用戶端)、`src/rtb/executor/runner.py`(啟動程式)。收件表與嘗試紀錄的儲存規則在 [[Systems/提案收件口]] 與 [[Systems/外部寫入嘗試紀錄]],簽發在 [[Systems/寫入能力憑證]]。
+ 
+ ## 處理一筆的順序
+ 
+ 1. 挑提案:依收到時間由舊到新,跳過同廣告已有未結案嘗試的。
+ 2. 提案已過期就標已過期(不讀 DSP);否則重讀 DSP,讀不到(不含廣告不存在)就這一輪什麼都不寫。
+ 3. 執行前檢查:廣告存在、仍在投放、版本等於提案觀察到的、簽發器願意簽;任一不過就在「仍待處理且內容雜湊沒變」的條件下標已擋下。
+-4. 同一個交易裡核對仍待處理、開始一筆、標已交給執行;鍵已存在就依既有那把鍵的狀態分流(失敗 → 擋下「同一操作先前已失敗」)。
++4. 同一個交易裡核對仍待處理、開始一筆、標已交給執行;鍵已存在就依既有那把鍵的狀態分流(失敗 → 擋下,原因依嘗試結果代碼:版本衝突寫「版本已變」,其他寫「同一操作先前已失敗」)。
+ 5. 帶憑證與冪等鍵寫 DSP,回應經唯一一份對照表轉成嘗試狀態;憑證過期時重讀、重跑檢查、重讀時鐘重簽、同鍵重送一次。
+ 6. 已提交待驗證就立刻做執行後驗證;之後的對帳是增量 4。
+ 
+ ## 對帳的代碼審修正(2026-09-23)
+ 
+ - PITFALL: 對帳重送與憑證過期後的重簽,簽發都要用嘗試紀錄存下的鍵,不從提案重算;算法升版後重算會簽出另一把鍵,DSP 判範圍不符。出處:增量 4 代碼審外家席。防回歸:[test:test_a_resend_signs_the_stored_key_not_a_recomputed_one]、[test:test_a_resigned_capability_after_expiry_signs_the_stored_key]。
+ - PITFALL: 作廢呼叫的例外吞成「沒拿到回應」這段防護,要有測試真的讓它逾時才守得住(測試工具原本把作廢排除在故障注入之外)。出處:增量 4 代碼審資安席。防回歸:[test:test_a_void_call_that_times_out_comes_back_as_no_answer]。
+ 
+ ## 執行一筆的代碼審修正(2026-09-23)
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md b/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
+index d9ba82b..1ec4c2b 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
+@@ -1,34 +1,35 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-22
+-updated: 2026-09-22
++updated: 2026-09-23
+ responsibility: 負責執行行程對 DSP 發出寫入之前先落地的嘗試紀錄:以(鍵, 序號)為主鍵的只增不改歷史表、同一個廣告的未結案互斥、全表未結案上限、送出次數與查證逾時次數及其上限、人工處置、重啟時把嘗試中轉成結果不明;不負責開資料庫連線與交易(由收件口資料庫模組提供)、呼叫 DSP、執行前檢查、對帳判定,也不負責冪等鍵算法與嘗試狀態機(在領域層)。
+ aliases: []
+ about_code:
+   - src/rtb/executor/attempt_store.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: 逾時只代表「不知道」,不代表「沒成功」;嘗試中紀錄必須在呼叫 DSP 之前提交,重啟後看到「有開始、沒結果」才知道要先對帳,而不是重送或換新鍵。出處:事故 F1、對話 2026-09-22 使用者作答;設計見 [[Projects/RTB_Phase3外部寫入安全_計劃]] 增量 1。
+   WHY: 用只增不改的歷史表(照 [[Systems/分析行程流程與檢查點]])而不是「現況列加事件表」:每次轉換都要留完整紀錄、用序號做條件寫入;收件口的事件表是有上限、會去重、盡力而為的拒收紀錄,不是稽核依據。出處:[[Projects/RTB_Phase3外部寫入安全_計劃]] 第 1 輪設計審架構對齊席。
+   RULE: 這支模組不開資料庫連線、不開交易,每個函式只接受收件口資料庫模組交易入口發出、而且那一筆交易還開著的交易物件:建立時要出示入口專用憑證(執行期檢查)、型別必須完全相同、交易結束時入口把它作廢。第一版只檢查「連線在交易中」,代碼審外家席實測自己下普通開始交易也能寫入;第二版改成交易物件但只看連線狀態,第 2 輪三席獨立實測舊物件會在同一連線的下一筆交易裡復活、換匯入別名或子類別就繞過原始碼掃描。威脅模型是防忘記,擋的是善意重構不小心繞過:憑證是私有名稱,且有測試要求收件口模組裡只有 transaction() 用它、那個函式用排隊搶寫入鎖的方式開交易(第 3 輪資安席指出改用普通開始交易仍會被放行);原因是之後「取件與開始一筆」必須同一個交易,否則會執行剛被新修訂取代的舊提案。見 [[Systems/提案收件口]]。[since:2026-09-22] [retire:執行行程改用別的儲存或佇列、交易邊界另有管理者時撤除]
+   RULE: 轉人工不是終點,會一直鎖住同一個廣告,只能經由附理由的人工處置離開;一般轉換表裡沒有轉人工的出口,也沒有自轉換(記查證逾時是專用操作)。[since:2026-09-22] [retire:改成有人工核准流程且另有鎖定機制時重審]
+   RULE: 上限(暫用值):同一把鍵最多送出 3 次、查證逾時累計 5 次、歷史 50 列(正常路徑最多 14 列;進入轉人工、人工處置與重啟恢復不受上限,保證卡住的鍵仍能轉人工與結案、一把鍵撞上限不會讓整批重啟恢復回滾)、全表同時未結案 20 把(滿了就停下所有新寫入,刻意「出事就停」)。[since:2026-09-22] [retire:有實際流量數據校準這些數字時改寫]
+   PITFALL: 第 2 版設計只在第 1 列記廣告編號、歷史列上限沒有豁免,四席審查員獨立指出:查互斥要回頭讀第 1 列、寫滿之後連轉人工都寫不進去,廣告永久鎖住。現在每列都帶廣告編號、轉人工與人工處置不受上限。防回歸:[test:test_every_unresolved_state_locks_the_campaign_against_a_new_key]、[test:test_a_capped_history_still_accepts_escalation_and_resolution_but_nothing_else]。
+   RULE: 未結案計數不逐把鍵回頭讀最新列,而是「第 1 列數減終點列數」,兩邊都走部分索引;成立的前提是每把鍵恰好一列序號 1(主鍵保證)、最多一列終點列(資料庫的部分唯一索引保證,寫第二列會被資料庫拒絕)。只看相減結果是否為負擋不住毀損:代碼審第 3 輪兩席實測,另一把還沒結案的鍵會把多出的終點列抵銷成 0,互斥因此失效。代碼審併發席實測舊寫法(每列比對是否為最新列)在 30 萬列歷史時每次約 90 毫秒而且在寫入鎖內,改寫後約 3.6 毫秒。[since:2026-09-22] [retire:終點狀態有了出路、或同一把鍵能寫出第二列終點列時,這個算法不再成立,必須改回]
+   PITFALL: 沒有時區的時間會被當成伺服器本地時間換算成 UTC,寫進去的時間悄悄差好幾小時(代碼審邊界席在 UTC+8 機器上實測 12:00 存成 04:00);現在所有寫入一律拒收沒有時區的時間。預期序號用 == 比對時 True 會被當成 1,現在非整數一律拒收。防回歸:[test:test_a_time_without_a_time_zone_is_refused_by_every_write_and_nothing_is_written]、[test:test_an_expected_sequence_that_is_not_a_plain_integer_is_refused]。
+   PITFALL: 讀回提案快照若不核對「快照算出的鍵等於存著的鍵」,快照被改過也會被當成可信提案(代碼審資安席實測);快照不是 JSON 時原本丟出的是解析錯誤而不是「歷史列讀不回來」。防回歸:[test:test_a_snapshot_whose_content_no_longer_matches_its_key_reads_back_as_corrupted]、[test:test_a_snapshot_that_is_not_json_reads_back_as_a_corrupted_row]。
+   PITFALL: 重啟恢復若在同一個交易裡逐把鍵處理、任何一把讀不回來就丟例外,整批回滾,而且每次重啟都在同一點失敗,所有嘗試中的鍵永久卡住(代碼審第 2 輪資安席實測)。現在讀不回來的鍵跳過並回報,其他照常恢復;「讀不回來」包含任何型別的壞值(SQLite 不強制欄位型別,時間欄位可能是二進位資料,第 3 輪兩席實測只接值錯誤會漏);未結案計數算出負數(同一把鍵多出終點列)當成毀損、拒絕開始新的一筆。防回歸:[test:test_restart_recovery_skips_an_unreadable_key_and_still_recovers_the_healthy_ones]、[test:test_a_negative_unresolved_count_is_treated_as_a_corrupted_table]、[test:test_a_finished_transaction_object_stays_dead_even_when_the_connection_opens_another]。
+   RULE: 執行一筆起多兩欄:轉進嘗試中必帶「這次送出所帶憑證的到期時間」、轉進已提交待驗證必帶「寫入後版本」,缺了就拒絕寫入,其他轉換不准夾帶;兩欄之後的列都往下帶。到期時間給增量 4 當起算點:DSP 拒收到期後的憑證,過了這個時間舊請求不可能再被提交。[since:2026-09-23] [retire:DSP 改用別的方式證明請求不會晚到提交時重審]
++  RULE: `version_conflict_count(tx, campaign_id=None)` 是執行側衝突的唯讀查詢:數結果代碼是版本衝突的嘗試列,可依廣告篩。嘗試紀錄只增不改、不會被清,所以是執行側衝突的稽核來源;執行前檢查擋下的「版本已變」只記在收件表、會被保留期清掉,長期計數與告警等 Phase 9(Phase 5 [S315] 的執行側那一半)。出處:[[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]]。防回歸:[test:test_conflict_counts_are_queryable]。[since:2026-09-23] [retire:Phase 9 接上正式指標時改成那支指標的說明]
+   TEST: tests/executor/test_attempt_store.py 涵蓋計劃增量 1 的 S4–S6、S9–S21,外加代碼審兩輪補的交易物件(憑證、作廢、完全型別)、時區、序號型別、快照核對、重啟恢復豁免與逐鍵隔離、計數算法與負數擋下(開始一筆、同鍵回傳、互斥、條件寫入、只增不改、送出與逾時上限、重啟恢復、並行、代碼配狀態、人工處置、列數上限、不開連線、快照還原、全表上限);2026-09-22 變異檢查 25 道防護逐一拆掉全部變紅。
+ verified_by:
+   - "[[Verification/Phase3驗收紀錄]]"
+   - "[[Verification/Phase4驗收紀錄]]"
+ ---
+ # 外部寫入嘗試紀錄
+ 
+ 一支檔:`src/rtb/executor/attempt_store.py`,只有純函式與一個交易物件型別,沒有類別持有連線。表結構字串在這裡定義,但由 [[Systems/提案收件口]] 建表並提供交易。
+ 
+ ## 要對帳的鍵(Phase 3 增量 4)
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+index 7849818..b0f5da2 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+@@ -25,20 +25,21 @@ summary: |-
+   RULE: 格式不合法的提案被拒時(讀本文就被拒的:分塊傳送、長度標頭不合法、本文過大、不是合法 JSON、逾時、本文不完整;或解析不過的),回應之前在標準錯誤寫一行「invalid_proposal errors=<錯誤類別>」,類別排序、去重、逗號分隔;解析錯誤裡帶攻擊者可控尾巴的三種(未知欄位的鍵名、過大的位元組數、例外型別名)只留冒號前的類別,其餘都是白名單欄位名或固定詞。不碰資料庫、不拿鎖,所以上一條「不記事件」照舊成立;被劫持的分析行程送垃圾,事後查得到。媒體類型、瀏覽器來源、路徑不對不算提案本文,不記。出處:[[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 增量 5(2026-09-23 使用者裁定選 b)。防回歸:[test:test_an_invalid_proposal_is_rejected_and_logged_without_its_content]、[test:test_body_rejections_before_parsing_are_logged_with_their_fixed_code]、[test:test_requests_that_are_not_a_proposal_body_are_not_logged]。[since:2026-09-23] [retire:Phase 9 可觀測性把拒收紀錄改成持久化或告警時重審]
+   RULE: 收件表有三道界限:每個任務最多 50 個修訂(409 too_many_revisions)、總列數最多 5000(滿了回可重試的 503 inbox_full)、沒有待處理且最後一次收件超過 2 小時的舊任務整個清掉(只清整個任務,清一半會讓修訂連號倒退;保留期限必須比提案最長有效期長,所以被清掉的提案再送來一定已過期,不會被當成新提案)。原因:「取代鏈」(同一任務連續送下一個修訂)不佔待處理名額,沒有這些界限就能無限寫入吃光磁碟(2026-09-22 第 3 輪資安席實測每秒約 540 列)。決策建立時間不得比現在晚超過 5 分鐘(422 created_in_future)。[since:2026-09-22] [retire:改成有配額與清理機制的外部儲存時重審]
+   RULE: 收件口資料庫模組同時是整個執行行程資料庫唯一開連線、開交易的地方:它也建外部寫入嘗試的表,並提供 `transaction()` 交易入口給 [[Systems/外部寫入嘗試紀錄]] 用(發出交易物件:只有這裡持有憑證能建立,交易結束時在 finally 裡把它作廢,所以留著的舊物件在同一條連線的下一筆交易裡也不能再用)(鎖不到丟跟收件一樣可重試的忙碌錯誤)。原因:Phase 3 的「取件與開始一筆」必須同一個交易,兩支模組各開連線就做不到。[since:2026-09-22] [retire:執行行程改用別的儲存或佇列時重審]
+   PITFALL: 拒收時交易若整個回滾,交易開頭「順手把到期的待處理標為已過期」也會跟著丟掉,反覆送會被拒收的請求就能讓已到期的資料一直顯示為待處理;所有拒收都發生在任何寫入之前,所以拒收照樣提交。防回歸:[test:test_an_expired_pending_proposal_is_marked_even_when_the_request_that_noticed_it_is_rejected]。
+   PITFALL: 現在時間若在等寫入鎖之前就讀,鎖被佔很久時會用過時的時間判斷到期(已到期的提案仍被收下);必須拿到鎖之後才讀。防回歸:[test:test_the_current_time_is_read_only_after_the_write_lock_is_held]。
+   PITFALL: 解析器的欄位驗證只能有一份:收件口模組不得自帶驗證,測試用同一批「解析器一定拒絕」的樣本要求收件口也拒絕。防回歸:[test:test_every_sample_the_domain_parser_rejects_is_also_rejected_by_the_inbox_and_the_inbox_defines_no_validators]。
+   PITFALL: 同鍵並行請求必須恰好接受一個;先查後寫若不在同一個 IMMEDIATE 交易內,會雙寫或誤回 409。防回歸:[test:test_concurrent_requests_for_the_same_key_accept_exactly_one](穩定性:連跑 25 次 0 次失敗)。
+   PITFALL: 「刻意不回應」與「回 500」必須分得開,故障注入才能測出「提交前中斷」與「提交後回應前中斷」兩種不同語意。防回歸:[test:test_a_crash_before_commit_loses_nothing_and_a_crash_after_commit_is_answered_by_the_replay]。
+   RULE: 「待處理」= 狀態是待處理而且處置是空的(執行一筆起新增處置與擋下原因兩欄,不動既有狀態欄位);待處理上限、取代、到期標記、保留期清除、執行迴圈挑提案都用模組裡同一句條件,不各寫一份。同鍵重送有處置時回處置。擋下原因是封閉列舉,資料庫欄位也只收列舉值。[since:2026-09-23] [retire:收件表改由佇列取代(Phase 4)時重審]
+   PITFALL: 收件時順手做的到期標記原本只看狀態,一份已交給執行、嘗試還卡在結果不明的提案到期後會在別的任務收件時被改成已過期,跟處置欄自相矛盾(增量 3 第 2 輪設計審收件規則席實驗重現)。防回歸:[test:test_taken_and_blocked_proposals_leave_pending_and_replay_their_disposition]。
++  RULE: 收件口對同一份提案的重送回應(以及第一次收下的回應)多帶鍵「block_code」:處置是已擋下時是擋下原因的字串值,其他處置一律是空值(鍵存在、值為空,不省略),分析端據此決定要不要重新規劃;超過預算上限與廣告不允許兩種權限類原因在回應裡合併成泛稱「not_permitted」,收件表照記細分代碼(使用者 2026-09-23 裁定:分得細的話,被劫持的分析行程重送就能換金額、換廣告一路試出租戶的預算上限與廣告歸屬;代碼審第 1 輪資安席),防回歸 [test:test_a_resend_hides_which_permission_blocked_it];其餘既有鍵不動(Phase 5 [S300])。取件時讀到這把鍵已有失敗的嘗試,擋下原因依嘗試的結果代碼分流:DSP 回版本衝突寫「版本已變」,其他失敗照舊寫「同一操作先前已失敗」,跟執行端兩處共用 `block_code_for_failure`(Phase 5 [S310])。出處:[[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]]。防回歸:[test:test_a_resend_reports_why_the_proposal_was_blocked]、[test:test_a_dsp_version_conflict_is_acknowledged_as_version_changed]、[test:test_other_failures_are_still_acknowledged_as_previously_failed]。[since:2026-09-23] [retire:分析端改成直接讀執行側的嘗試紀錄或另開查詢介面時重審]
+   TEST: tests/executor/test_inbox_server.py 涵蓋 S1 到 S18(重送、衝突、連號、取代、上限、忙碌、兩種中斷、並行、過期、防護標頭、不回顯、事件有界、重啟保留、解析器唯一、逾時);tests/domain/test_proposal_hash.py 涵蓋雜湊的等價寫法與序列化釘住。
+   KEY:★INVARIANT★ 同一個任務的同一個修訂只收一份:內容相同的重送回目前狀態、不新增任何一筆(即使收件口已滿或那份已被取代);內容不同一律拒收,已收的那份不動;並行搶同一個收件鍵只有一個被接受。 [test:test_a_resent_identical_proposal_returns_the_current_state_and_adds_nothing_even_when_full_or_superseded,test_a_different_proposal_for_the_same_key_is_rejected_and_the_original_is_untouched,test_concurrent_requests_for_the_same_key_accept_exactly_one,test_a_different_proposal_for_a_superseded_or_expired_key_is_still_a_conflict] [audit:sonnet/2026-09-22] [kill:recipes]
+   KEY:★INVARIANT★ 同一個任務的新修訂必須剛好是已收最高修訂加 1(第一份必須是 1),跳號或倒退一律拒收,不能用巨大序號搶位。 [test:test_a_revision_that_is_not_exactly_the_next_one_is_rejected_with_the_current_highest] [audit:sonnet/2026-09-22] [kill:recipes]
+ verified_by:
+   - "[[Verification/事故F4_舊版本寫入被拒不覆蓋]]"
+   - "[[Verification/事故F7_總曝險到門檻就停]]"
+   - "[[Verification/事故F6_死信重放必須重新驗證]]"
+   - "[[Verification/Phase3驗收紀錄]]"
+   - "[[Verification/Phase2驗收紀錄]]"
+   - "[[Verification/Phase4驗收紀錄]]"
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index d917f99..f8f29f5 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -241,20 +241,31 @@ def unresolved_count_query(campaign_id: str | None = None) -> tuple[str, tuple[s
+ 
+ 
+ def unresolved_count(tx: ExecutorTransaction, campaign_id: str | None = None) -> int:
+     query, params = unresolved_count_query(campaign_id)
+     count = int(_conn(tx).execute(query, params).fetchone()[0])
+     if count < 0:  # 唯一限制之外的最後一道:算法前提不成立就當毀損,不放行
+         raise CorruptedAttemptRow("未結案計數為負,歷史表有鍵出現多列終點列")
+     return count
+ 
+ 
++def version_conflict_count(tx: ExecutorTransaction, campaign_id: str | None = None) -> int:
++    """DSP 回版本衝突的嘗試次數(唯讀、可依廣告篩):嘗試紀錄只增不改、不會被清,是執行側衝突
++    的稽核來源。執行前檢查擋下的「版本已變」只記在收件表、會被清,長期計數等 Phase 9。"""
++    where = "" if campaign_id is None else " AND campaign_id = ?"
++    params: tuple[str, ...] = (OutcomeCode.VERSION_CONFLICT.value,) + (
++        () if campaign_id is None else (campaign_id,))
++    return int(_conn(tx).execute(
++        f"SELECT COUNT(*) FROM attempts WHERE code = ?{where}",  # noqa: S608 - 只拼接固定條件
++        params).fetchone()[0])
++
++
+ def campaigns_with_unresolved(tx: ExecutorTransaction) -> frozenset[str]:
+     """已有未結案嘗試的廣告(取件要排除它們);未結案 = 第 1 列在、終點列不在。"""
+     records = _conn(tx).execute(
+         "SELECT DISTINCT f.campaign_id FROM attempts f WHERE f.seq = 1 AND NOT EXISTS "  # noqa: S608 - 只拼接固定條件
+         f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))"
+     ).fetchall()
+     return frozenset(record[0] for record in records)
+ 
+ 
+ def unresolved_keys(tx: ExecutorTransaction) -> tuple[str, ...]:
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index 41e4b60..2a6c657 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -33,20 +33,21 @@ from rtb.executor import attempt_store
+ from rtb.executor.attempt_store import AttemptRow
+ from rtb.executor.capability_signer import LIFETIME_SECONDS, SigningRefused
+ from rtb.executor.inbox_store import (
+     VISIBILITY_TIMEOUT,
+     BlockCode,
+     CorruptedInboxRow,
+     InboxStore,
+     LastFailure,
+     PendingProposal,
+     Receipt,
++    block_code_for_failure,
+ )
+ 
+ A = AttemptState
+ C = OutcomeCode
+ 
+ 
+ @dataclass(frozen=True)
+ class CampaignView:
+     """DSP 上廣告的現況(執行前檢查與執行後驗證要看的欄位)。"""
+ 
+@@ -280,20 +281,28 @@ def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
+     """執行前檢查裡看 DSP 現況的三項;「不在投放」排在版本之前,代碼比較有意義。"""
+     if view is None:
+         return BlockCode.CAMPAIGN_NOT_FOUND
+     if view.status != "active":
+         return BlockCode.CAMPAIGN_NOT_ACTIVE
+     if view.version != proposal.campaign_version_observed:
+         return BlockCode.VERSION_CHANGED
+     return None
+ 
+ 
++def _version_changed_or_none(live: bool, checked: BlockCode | None) -> BlockCode | None:
++    """重跑執行前檢查查到版本已變:收件口確認成「版本已變」(分析端要據此重新規劃),嘗試結果代碼
++    照舊記「沒發生」。其他原因(含提案過期、權限不過)回空值,照嘗試結果代碼確認。
++    過期與版本已變同時成立時過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)。
++    使用者 2026-09-23 裁定把 Phase 5 [S310] 擴到憑證過期後重讀與對帳查不到兩條路徑。"""
++    return BlockCode.VERSION_CHANGED if live and checked is BlockCode.VERSION_CHANGED else None
++
++
+ def intent_holds(proposal: Proposal, view: CampaignView) -> bool:
+     if proposal.action_type is ActionType.UPDATE_BUDGET:
+         return bool(view.budget == proposal.requested_change["new_budget"])
+     return view.status == "paused"
+ 
+ 
+ def record_matches(proposal: Proposal, record: OperationRecord) -> bool:
+     """DSP 同鍵查到的操作,內容要跟快照一致:冪等鍵是執行端算的,DSP 不會拿內容反算這把鍵。
+     舊列沒有預期版本(空值)一律當成對不上。"""
+     return (record.campaign_id == proposal.campaign_id
+@@ -408,63 +417,65 @@ class Executor:
+                 self.store.release(tx, receipt, now, None)
+                 return Processed(Result.DEFERRED)
+             if begun.created:
+                 return begun.row
+             state = begun.row.state
+             if state is A.VERIFIED:
+                 if not self.store.ack_handed_off(tx, receipt, now):
+                     raise LeaseLost(begun.row.key)
+                 return Processed(Result.HANDED_OFF_TO_EXISTING, begun.row.key)
+             if state is A.FAILED:  # 人判過不做的操作不能貼成已交給執行
+-                code = BlockCode.OPERATION_PREVIOUSLY_FAILED
++                code = block_code_for_failure(begun.row.code)
+                 if not self.store.ack_blocked(tx, receipt, now, code):
+                     raise LeaseLost(begun.row.key)
+                 return Processed(Result.BLOCKED, begun.row.key, code)
+             self.store.release(tx, receipt, now, None)  # 防線:未結案的鍵歸對帳管
+             return Processed(Result.DEFERRED)
+ 
+     def _ack_terminal(
+         self, tx: attempt_store.ExecutorTransaction, row: AttemptRow, receipt: Receipt,
+-        now: datetime,
++        now: datetime, block_code: BlockCode | None = None,
+     ) -> None:
+-        """確認也是帶收據的條件寫入:0 列就是收據失效,跟其他寫入一樣放棄這把鍵。"""
++        """確認也是帶收據的條件寫入:0 列就是收據失效,跟其他寫入一樣放棄這把鍵。
++        block_code 給重跑執行前檢查的路徑用:檢查查到的原因比嘗試結果代碼更具體時由呼叫端指定。"""
+         if row.state is A.VERIFIED:
+             done = self.store.ack_handed_off(tx, receipt, now)
+         elif row.state is A.FAILED:
+-            done = self.store.ack_blocked(tx, receipt, now, BlockCode.OPERATION_PREVIOUSLY_FAILED)
++            done = self.store.ack_blocked(tx, receipt, now,
++                                          block_code or block_code_for_failure(row.code))
+         else:
+             return
+         if not done:
+             raise LeaseLost(row.key)
+ 
+     # ---- 第 6 步:寫結果 ----
+-    def _write(
++    def _write(  # noqa: PLR0913 - 關鍵字參數都是這次寫入要記的欄位,各有預設值
+         self, row: AttemptRow, target: AttemptState, receipt: Receipt | None, *,
+         code: OutcomeCode | None = None, written_version: int | None = None,
+-        capability_expires_at: datetime | None = None,
++        capability_expires_at: datetime | None = None, block_code: BlockCode | None = None,
+     ) -> AttemptRow:
+         """嘗試寫入:同一個交易裡先核對收據並順手續租(對不上丟 LeaseLost),寫到終點就同時確認。
+ 
+         續租就是 Phase 0 要的續期機制:活著的工作者每寫一筆就把租約往後推,慢的 DSP 呼叫不會
+         讓它被當成當機;真的當機就不再續,租約到期後別人才能接手。
+         receipt 是 None 只給 Phase 3 時代留下、收件表沒有處理中那一列的鍵用(沒有訊息可確認)。"""
+         with self.store.transaction() as tx:
+             now = self.clock()
+             if receipt is not None and not self.store.extend(tx, receipt, now):
+                 raise LeaseLost(row.key)
+             new = attempt_store.transition(
+                 tx, row.key, row.seq, target, now, code=code,
+                 written_version=written_version, capability_expires_at=capability_expires_at)
+             if new is None:
+                 _no_progress(row.key, receipt)
+             if receipt is not None and new.state in TERMINAL_STATES:
+-                self._ack_terminal(tx, new, receipt, now)
++                self._ack_terminal(tx, new, receipt, now, block_code)
+         return new
+ 
+     def _record(
+         self, proposal: Proposal, row: AttemptRow, answer: WriteAnswer, receipt: Receipt | None,
+     ) -> bool:
+         """寫結果整段(處理一筆與對帳重送共用);回傳這段有沒有 DSP 呼叫沒拿到結論。"""
+         reaction = react(answer)
+         if reaction.target is A.COMMITTED_UNVERIFIED:
+             return self._verify(proposal, self._write(
+                 row, reaction.target, receipt, written_version=answer.version_after), receipt)
+@@ -474,27 +485,29 @@ class Executor:
+         if reaction.halt:
+             raise ExecutorHalted(str(reaction.code))
+         return reaction.target is A.UNKNOWN
+ 
+     def _after_expiry(self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None) -> bool:
+         """DSP 明確沒寫:重讀 DSP、重跑檢查;通過就重讀時鐘重簽、同鍵重送一次。"""
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id)
+         except DspUnavailable:
+             return True  # 留在結果不明,交給對帳
+-        passed = (proposal.decision_expires_at > self.clock()
+-                  and precheck(proposal, view) is None)
+-        signed = self._sign(proposal, row.key) if passed else None  # 設定檔壞掉在這裡停機
++        live = proposal.decision_expires_at > self.clock()
++        checked = precheck(proposal, view)
++        signed = (self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
++                  if live and checked is None else None)
+         if not isinstance(signed, _Signed):  # 業務上沒通過:DSP 明確沒寫這一次,不再送
++            block = _version_changed_or_none(live, checked)
+             if row.send_count > 1:  # 送過多次:更早的請求可能還在路上,先作廢才能判失敗
+-                return self._void_then_fail(proposal, row, receipt)
+-            self._write(row, A.FAILED, receipt, code=C.NOT_HAPPENED)
++                return self._void_then_fail(proposal, row, receipt, block)
++            self._write(row, A.FAILED, receipt, code=C.NOT_HAPPENED, block_code=block)
+             return False
+         try:
+             row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)
+         except attempt_store.SendLimitReached:
+             self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)
+             return False
+         answer = self.dsp.write(proposal, row.key, signed.token)
+         reaction = react(answer)
+         if reaction.capability_expired:  # 用新讀的時間重簽後仍過期:時鐘或設定有問題
+             self._write(row, A.ESCALATED, receipt, code=C.CAPABILITY_REJECTED)
+@@ -630,25 +643,27 @@ class Executor:
+     ) -> bool:
+         """查不到這把鍵:重讀廣告、重跑執行前檢查;通過就同鍵重送,不過就先作廢再判失敗。"""
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id)
+         except DspUnavailable:
+             self._verification_timeout(row, receipt)
+             return True
+         if view is None:  # 模擬 DSP 沒有建立或刪除廣告的介面:不存在就代表從來不存在
+             self._write(row, A.FAILED, receipt, code=C.CAMPAIGN_NOT_FOUND)
+             return False
+-        blocked = (proposal.decision_expires_at <= self.clock()
+-                   or precheck(proposal, view) is not None)
+-        signed = None if blocked else self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
++        live = proposal.decision_expires_at > self.clock()
++        checked = precheck(proposal, view)
++        signed = (self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
++                  if live and checked is None else None)
+         if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗
+-            return self._void_then_fail(proposal, row, receipt)
++            return self._void_then_fail(proposal, row, receipt,
++                                        _version_changed_or_none(live, checked))
+         try:
+             row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)
+         except attempt_store.SendLimitReached:
+             self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)
+             return False
+         return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token),
+                             receipt)
+ 
+     def _found(
+         self, proposal: Proposal, row: AttemptRow, record: OperationRecord,
+@@ -656,33 +671,34 @@ class Executor:
+     ) -> bool:
+         if not record_matches(proposal, record):
+             self._write(row, A.ESCALATED, receipt, code=C.IDEMPOTENCY_CONFLICT)
+             return False
+         row = self._write(row, A.COMMITTED_UNVERIFIED, receipt,
+                           written_version=record.version_after)
+         return self._verify(proposal, row, receipt)
+ 
+     def _void_then_fail(
+         self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
++        block_code: BlockCode | None = None,
+     ) -> bool:
+         now = int(self.clock().timestamp())
+         try:
+             token = self.signer.sign_void(proposal, row.key, self.config_path, now)
+         except SigningRefused as refused:
+             if refused.reason != "campaign_not_allowed":  # 設定檔壞掉或不安全:系統故障
+                 raise ExecutorHalted(refused.reason) from refused
+             # 不能作廢,就證明不了舊請求不會晚到提交
+             self._write(row, A.ESCALATED, receipt, code=C.CANNOT_PROVE_NOT_HAPPENED)
+             return False
+         answer = self.dsp.void(proposal, row.key, token)
+         reaction = react_void(answer)
+         if reaction.outcome is VoidOutcome.FOUND:
+             assert answer.record is not None  # noqa: S101 - 這一列的條件保證
+             return self._found(proposal, row, answer.record, receipt)
+         if reaction.outcome is VoidOutcome.TIMEOUT:
+             self._verification_timeout(row, receipt)
+             return True
+         target = A.FAILED if reaction.outcome is VoidOutcome.FAILED else A.ESCALATED
+-        self._write(row, target, receipt, code=reaction.code)
++        self._write(row, target, receipt, code=reaction.code, block_code=block_code)
+         if reaction.halt:
+             raise ExecutorHalted(str(reaction.code))
+         return False
+diff --git a/src/rtb/executor/inbox_server.py b/src/rtb/executor/inbox_server.py
+index 8555412..56faddf 100644
+--- a/src/rtb/executor/inbox_server.py
++++ b/src/rtb/executor/inbox_server.py
+@@ -11,20 +11,21 @@ import sys
+ from collections.abc import Callable, Sequence
+ from datetime import datetime
+ from pathlib import Path
+ from typing import Any
+ from urllib.parse import urlsplit
+ 
+ from rtb.domain.proposal import Proposal, parse_proposal
+ from rtb.executor.inbox_store import (
+     DEFAULT_MAX_PENDING,
+     Accepted,
++    BlockCode,
+     ContentConflict,
+     CreatedInFuture,
+     ExpiryTooFar,
+     InboxBusy,
+     InboxFull,
+     InboxRejected,
+     InboxStore,
+     ProposalExpired,
+     RevisionOutOfOrder,
+     TooManyRevisions,
+@@ -120,27 +121,39 @@ class InboxHandler(JsonHandler):
+         if isinstance(exc, InboxRejected):
+             return REJECTION_STATUS[type(exc)], exc.code, exc.retryable
+         return None
+ 
+     def error_extras(self, exc: Exception) -> dict[str, Any]:
+         if isinstance(exc, InboxRejected) and exc.highest_revision is not None:
+             return {"highest_revision": exc.highest_revision}
+         return {}
+ 
+ 
++# 權限類擋下原因合併成泛稱(使用者 2026-09-23 裁定,Phase 5 [S300]):重送就能讀到的原因若分得細,
++# 被劫持的分析行程可以一路試出租戶的預算上限與廣告歸屬。只在回應本文合併,收件表照記細分代碼
++_PERMISSION_BLOCKS = frozenset({BlockCode.OVER_BUDGET_CAP.value,
++                                BlockCode.CAMPAIGN_NOT_ALLOWED.value})
++NOT_PERMITTED = "not_permitted"
++
++
++def _answered_block_code(stored: str | None) -> str | None:
++    return NOT_PERMITTED if stored in _PERMISSION_BLOCKS else stored
++
++
+ def _accepted_body(result: Accepted) -> dict[str, Any]:
+     # state 才是提案目前的狀態:重送一份已過期的提案,status 仍是 accepted(收過了),
+     # 但 state 會是 expired。已確認的處置(已交給執行、已擋下、死信)與 expired 代表它不會再被
+     # 交出去;in_progress(處理中)代表已交出去、還沒結案,仍可能被寫進 DSP
+     return {"status": "accepted", "task_id": result.task_id, "revision": result.revision,
+             "state": result.state, "content_hash": result.content_hash,
+-            "replayed": result.replayed}
++            "replayed": result.replayed,
++            "block_code": _answered_block_code(result.block_code)}
+ 
+ 
+ class InboxServer(KitServer):
+     def __init__(  # noqa: PLR0913 - 啟動參數,全部有預設值,測試與命令列各用一部分
+         self,
+         db_path: Path,
+         max_pending: int = DEFAULT_MAX_PENDING,
+         clock: Callable[[], datetime] = utc_now,
+         busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+         socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS,
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index a1f6803..cd82429 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -19,21 +19,21 @@
+ 
+ import json
+ import sqlite3
+ from collections.abc import Callable, Iterator
+ from contextlib import contextmanager
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from pathlib import Path
+ 
+-from rtb.domain.attempt import AttemptState, operation_key
++from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
+ from rtb.domain.proposal import MAX_DECISION_LIFETIME, Proposal, content_hash, parse_proposal
+ from rtb.executor import attempt_store
+ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate_transaction
+ 
+ DEFAULT_MAX_PENDING = 8
+ MAX_REVISIONS_PER_TASK = 50  # 一個任務最多修訂這麼多次;要更多就得換任務編號
+ MAX_ROWS = 5000  # 收件表總列數上限:取代鏈不佔名額,沒有這個上限就能無限寫入吃光磁碟
+ RETENTION = timedelta(hours=2)  # 沒有待處理的舊任務超過這個時間就整個清掉;必須比提案能活的時間長
+ CLOCK_SKEW = timedelta(minutes=5)  # 決策建立時間最多可以比現在晚這麼多
+ MAX_EVENTS_PER_CODE = 200  # 每種事件代碼各留最新這幾筆,一種事件灌爆不會洗掉別種事件的紀錄
+@@ -74,20 +74,28 @@ class BlockCode(StrEnum):
+     """擋下原因(封閉列舉):每一種都有真實觸發路徑,見執行迴圈的執行前檢查。"""
+ 
+     CAMPAIGN_NOT_FOUND = "campaign_not_found"
+     CAMPAIGN_NOT_ACTIVE = "campaign_not_active"
+     VERSION_CHANGED = "version_changed"
+     CAMPAIGN_NOT_ALLOWED = "campaign_not_allowed"
+     OVER_BUDGET_CAP = "over_budget_cap"
+     OPERATION_PREVIOUSLY_FAILED = "operation_previously_failed"  # 同一把鍵先前已判定失敗
+ 
+ 
++def block_code_for_failure(code: OutcomeCode | None) -> BlockCode:
++    """失敗嘗試對應的擋下原因:DSP 回版本衝突寫「版本已變」(分析端要據此重新規劃),其他失敗照舊寫
++    「同一操作先前已失敗」。執行端終點確認、開始時撞到既有失敗鍵、取件時撞到既有失敗鍵三處共用。"""
++    if code is OutcomeCode.VERSION_CONFLICT:
++        return BlockCode.VERSION_CHANGED
++    return BlockCode.OPERATION_PREVIOUSLY_FAILED
++
++
+ def _in_list(values: type[StrEnum]) -> str:
+     return ", ".join(f"'{member.value}'" for member in values)
+ 
+ 
+ # 補欄位時用的定義:資料庫自己也只收列舉值,繞過模組直接寫也寫不進去
+ _DISPOSITION_COLUMN = f"disposition TEXT CHECK (disposition IN ({_in_list(Disposition)}))"
+ _BLOCK_CODE_COLUMN = f"block_code TEXT CHECK (block_code IN ({_in_list(BlockCode)}))"
+ _DEAD_LETTER_COLUMN = (
+     f"dead_letter_reason TEXT CHECK (dead_letter_reason IN ({_in_list(DeadLetterReason)}))")
+ _LAST_FAILURE_COLUMN = f"last_failure TEXT CHECK (last_failure IN ({_in_list(LastFailure)}))"
+@@ -211,20 +219,21 @@ class Delivery:
+     receipt: Receipt
+ 
+ 
+ @dataclass(frozen=True)
+ class Accepted:
+     task_id: str
+     revision: int
+     state: str
+     content_hash: str
+     replayed: bool
++    block_code: str | None = None  # 只有處置是已擋下時有值:分析端據此決定要不要重新規劃
+ 
+ 
+ def _check_revision_and_times(proposal: Proposal, highest: int, now: datetime) -> None:
+     """修訂必須連號且有上限,決策的建立與到期時間必須落在現在附近的合理範圍。"""
+     if proposal.revision != highest + 1:
+         raise RevisionOutOfOrder(highest_revision=highest)
+     if proposal.revision > MAX_REVISIONS_PER_TASK:
+         raise TooManyRevisions(highest_revision=highest)
+     if proposal.decision_expires_at <= now:
+         raise ProposalExpired()
+@@ -364,27 +373,29 @@ class InboxStore:
+         return outcome
+ 
+     def _accept_in_transaction(self, proposal: Proposal, now: datetime) -> Accepted:
+         digest = content_hash(proposal)
+         self._conn.execute(
+             f"UPDATE proposals SET state = 'expired' WHERE {PENDING} AND expires_at <= ?",  # noqa: S608 - 固定條件
+             (_iso(now),),
+         )
+         self._purge_finished_tasks(now)
+         existing = self._conn.execute(
+-            "SELECT content_hash, coalesce(disposition, state) FROM proposals "
++            "SELECT content_hash, coalesce(disposition, state), "
++            "CASE WHEN disposition = ? THEN block_code END FROM proposals "
+             "WHERE task_id = ? AND revision = ?",
+-            (proposal.task_id, proposal.revision),
++            (Disposition.BLOCKED.value, proposal.task_id, proposal.revision),
+         ).fetchone()
+-        if existing is not None:  # 有處置時回處置,沒有才回原狀態
++        if existing is not None:  # 有處置時回處置,沒有才回原狀態;已擋下另帶擋下原因
+             if existing[0] == digest:
+-                return Accepted(proposal.task_id, proposal.revision, existing[1], digest, True)
++                return Accepted(proposal.task_id, proposal.revision, existing[1], digest, True,
++                                existing[2])
+             raise ContentConflict()
+         highest = self._highest_revision(proposal.task_id)
+         _check_revision_and_times(proposal, highest, now)
+         supersedes = self._has_pending(proposal.task_id, highest)
+         self._check_capacity(supersedes)
+         if supersedes:
+             self._conn.execute(
+                 "UPDATE proposals SET state = 'superseded' WHERE task_id = ? AND revision = ?",
+                 (proposal.task_id, highest),
+             )
+@@ -456,44 +467,44 @@ class InboxStore:
+                 f"WHERE ({PENDING}) OR ({IN_PROGRESS} AND lease_until <= ?) "
+                 "ORDER BY received_at, task_id, revision", (_iso(now),)).fetchall():
+             proposal = _parse_payload(payload)
+             if proposal is None or proposal.campaign_id in locked:
+                 continue
+             receipt = self._lease(task_id, revision, digest, now, owner)
+             if reclaimed:  # 上一個持有者沒回報就讓租約過期:當機或卡住
+                 self._write_failure(receipt, LastFailure.NO_REPORT)
+             existing = attempt_store.latest(tx, operation_key(proposal))
+             if existing is not None:
+-                self._settle_existing(tx, receipt, existing.state, now)
++                self._settle_existing(tx, receipt, existing.state, existing.code, now)
+                 continue
+             deliveries = self._conn.execute(
+                 "SELECT deliveries FROM proposals WHERE task_id = ? AND revision = ?",
+                 (task_id, revision)).fetchone()[0]
+             if deliveries >= MAX_DELIVERIES:
+                 self._finish(receipt, now, "disposition = ?, dead_letter_reason = ?",
+                              (Disposition.DEAD_LETTER.value, DeadLetterReason.DELIVERY_LIMIT.value))
+                 continue
+             self._conn.execute(
+                 "UPDATE proposals SET deliveries = deliveries + 1 "
+                 "WHERE task_id = ? AND revision = ?", (task_id, revision))
+             return Delivery(PendingProposal(task_id, revision, digest, proposal), receipt)
+         return None
+ 
+     def _settle_existing(
+         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, state: AttemptState,
+-        now: datetime,
++        code: OutcomeCode | None, now: datetime,
+     ) -> None:
+         """這把鍵已有嘗試:終點就確認;未結案就放掉租約,交給對帳。都不算投遞。"""
+         if state is AttemptState.VERIFIED:
+             done = self.ack_handed_off(tx, receipt, now)
+         elif state is AttemptState.FAILED:
+-            done = self.ack_blocked(tx, receipt, now, BlockCode.OPERATION_PREVIOUSLY_FAILED)
++            done = self.ack_blocked(tx, receipt, now, block_code_for_failure(code))
+         else:
+             done = self.release(tx, receipt, now, None)
+         assert done  # noqa: S101 - 收據是同一個交易裡剛拿到的,條件寫入必然成立
+ 
+     def _lease(self, task_id: str, revision: int, digest: str, now: datetime,
+                owner: str) -> Receipt:
+         self._conn.execute(
+             "UPDATE proposals SET disposition = ?, lease_seq = lease_seq + 1, lease_owner = ?, "
+             "lease_until = ? WHERE task_id = ? AND revision = ?",
+             (Disposition.IN_PROGRESS.value, owner, _iso(now + VISIBILITY_TIMEOUT),
+diff --git a/tests/executor/test_crash_recovery.py b/tests/executor/test_crash_recovery.py
+index 2215441..c0f2f7a 100644
+--- a/tests/executor/test_crash_recovery.py
++++ b/tests/executor/test_crash_recovery.py
+@@ -65,22 +65,22 @@ def die(in_tx=False):
+ def before(owner, name):
+     setattr(owner, name, lambda *a, **k: die())
+ 
+ def after(owner, name):
+     original = getattr(owner, name)
+     def wrapped(*a, **k):
+         original(*a, **k)
+         die()
+     setattr(owner, name, wrapped)
+ 
+-def inside_transaction(self, tx, row, receipt, now):
+-    ORIGINAL_ACK(self, tx, row, receipt, now)
++def inside_transaction(self, tx, row, receipt, now, *rest):  # 其餘參數原樣轉交
++    ORIGINAL_ACK(self, tx, row, receipt, now, *rest)
+     die(in_tx=self.store._conn.in_transaction)
+ 
+ if point == "before_dsp_call":
+     before(DspClient, "write")
+ elif point == "after_dsp_commit":
+     after(DspClient, "write")
+ elif point == "before_verification":
+     before(Executor, "_verify")
+ elif point == "before_terminal_commit":
+     ORIGINAL_ACK = Executor._ack_terminal
+diff --git a/tests/executor/test_inbox_server.py b/tests/executor/test_inbox_server.py
+index 3ce6c6a..1eb24c9 100644
+--- a/tests/executor/test_inbox_server.py
++++ b/tests/executor/test_inbox_server.py
+@@ -361,23 +361,24 @@ def test_every_sample_the_domain_parser_rejects_is_also_rejected_by_the_inbox_an
+     for override in REJECTED_OVERRIDES:
+         status, data = inbox.post(valid(**override))
+         assert status == 400 and data["error"] == "invalid_proposal", override
+     assert len(calls) == len(REJECTED_OVERRIDES)  # 每個請求都經過同一個解析函式
+     assert inbox.rows() == []
+ 
+     for module in (inbox_server, inbox_store):  # 收件口模組沒有自己的欄位驗證
+         tree = ast.parse(inspect.getsource(module))
+         imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+                     and n.module and n.module.startswith("rtb.domain") for a in n.names}
+-        # 取件要用冪等鍵與嘗試狀態分流(佇列語意),這兩個不是欄位驗證
++        # 取件要用冪等鍵與嘗試狀態分流(佇列語意);失敗嘗試的結果代碼決定擋下原因(Phase 5 [S310]),
++        # 這三個都不是欄位驗證
+         allowed = {"parse_proposal", "content_hash", "Proposal", "MAX_DECISION_LIFETIME",
+-                   "operation_key", "AttemptState"}
++                   "operation_key", "AttemptState", "OutcomeCode"}
+         assert imported <= allowed, imported
+         assert not [n for n in ast.walk(tree) if isinstance(n, ast.Import)
+                     and any(a.name == "re" for a in n.names)]
+ 
+ 
+ def test_the_inbox_uses_the_domain_parser_for_every_request_module_level_check():
+     assert inbox_server.parse_proposal.__module__ == "rtb.domain.proposal"
+ 
+ 
+ # ---- S18 ----
+diff --git a/tests/executor/test_queue.py b/tests/executor/test_queue.py
+index 8bb254c..a11e1ec 100644
+--- a/tests/executor/test_queue.py
++++ b/tests/executor/test_queue.py
+@@ -421,21 +421,22 @@ def test_a_verified_attempt_acknowledges_without_touching_the_dsp(h):
+ def test_a_failed_attempt_blocks_the_new_delivery(h):
+     first = h.submit()
+     h.dsp.answers.append(WriteAnswer(409, "version_conflict"))
+     h.process()
+     assert states(h, first)[-1] == ("failed", "version_conflict")  # 前置
+     h.store.accept(proposal(revision=2, decision_expires_at="2026-09-22T12:40:00+00:00"),
+                    h.clock)
+ 
+     assert receive(h) is None
+ 
+-    assert row(h, "t1", 2)[:3] == ("pending", "blocked", "operation_previously_failed")
++    # Phase 5 [S310]:前一筆因 DSP 回版本衝突而失敗,擋下原因寫「版本已變」(原本是同一操作先前已失敗)
++    assert row(h, "t1", 2)[:3] == ("pending", "blocked", "version_changed")
+ 
+ 
+ # ---- [S107] ----
+ def test_an_unresolved_attempt_is_never_redelivered_or_dead_lettered(h):
+     started = h.clock()
+     h.dsp.on_write = lambda *_a: h.clock.advance(seconds=20)  # 開始一筆之後,寫 DSP 花了時間
+     prop = unknown_attempt(h)
+     h.dsp.on_write = None
+     until = row(h)[7]
+     # 處理一筆結束時停在未結案:租約已經隨每一筆嘗試寫入延長,不是取件當下的那個到期時間
+diff --git a/tests/executor/test_version_conflict.py b/tests/executor/test_version_conflict.py
+new file mode 100644
+index 0000000..940cdc3
+--- /dev/null
++++ b/tests/executor/test_version_conflict.py
+@@ -0,0 +1,319 @@
++"""DSP 端的版本衝突回報成「版本已變」、收件口回報擋下原因、兩個寫入者重現衝突、衝突可查。
++
++Phase 5 執行側:S310、S300、S309、S315(執行側那一半)。版本衝突有兩層:執行前檢查發現(收件表記
++版本已變),或檢查通過後、寫入前被另一方搶先改(DSP 回 409,嘗試紀錄記版本衝突)。第二層原本一律
++確認成「同一操作先前已失敗」,把原因蓋掉,分析端就不知道要重新規劃。
++"""
++
++import threading
++from datetime import timedelta
++
++import pytest
++
++from rtb.domain.attempt import AttemptState as A
++from rtb.domain.attempt import OutcomeCode, operation_key
++from rtb.dsp.server import DspServer
++from rtb.dsp.store import CampaignStore
++from rtb.executor import attempt_store
++from rtb.executor.capability_signer import CapabilitySigner
++from rtb.executor.dsp_client import DspClient
++from rtb.executor.execution import CampaignView, Executor, Result, WriteAnswer
++from rtb.executor.inbox_store import BlockCode, InboxStore
++from tests.capability_samples import TEST_KEY
++from tests.executor.fakes import Harness, proposal, write_config
++
++LATER = "2026-09-22T12:40:00+00:00"
++
++
++@pytest.fixture
++def h(tmp_path, clock):
++    harness = Harness(tmp_path, clock)
++    yield harness
++    harness.close()
++
++
++def _block_of(h, task_id="t1", revision=1):
++    return next(row[3:] for row in h.proposals() if row[:2] == (task_id, revision))
++
++
++def _fail_with_version_conflict(h, prop):
++    """另一個工作者搶先開了這把鍵、DSP 回 409:嘗試紀錄停在失敗(版本衝突)。"""
++    with h.store.transaction() as tx:
++        begun = attempt_store.begin(tx, prop, h.clock(),
++                                    capability_expires_at=h.clock() + timedelta(minutes=2))
++        attempt_store.transition(tx, begun.row.key, begun.row.seq, A.FAILED, h.clock(),
++                                 code=OutcomeCode.VERSION_CONFLICT)
++
++
++# ---- S310 ----
++def test_a_dsp_version_conflict_is_acknowledged_as_version_changed(h):
++    # 第一處:終點確認。檢查通過、寫入時 DSP 回 409
++    first = h.submit()
++    h.dsp.answers.append(WriteAnswer(409, "version_conflict"))
++    h.process()
++    assert attempt_store_state(h, first) == ("failed", "version_conflict")
++    assert _block_of(h) == ("blocked", "version_changed")
++
++    # 第三處:收件口取件時讀到這把鍵已經失敗(版本衝突);換到期時間的新修訂是同一把鍵
++    h.store.accept(proposal(revision=2, decision_expires_at=LATER), h.clock)
++    assert h.process().kind is Result.IDLE  # 取件時就確認,不交出去
++    assert _block_of(h, revision=2) == ("blocked", "version_changed")
++
++    # 第二處:開始一筆時才撞到既有失敗鍵(取件之後、開始之前,另一個工作者搶先失敗了)
++    third = h.submit(task_id="t2")
++    h.dsp.on_read = lambda _campaign: _fail_with_version_conflict(h, third)
++    result = h.process()
++    assert (result.kind, result.block_code) == (Result.BLOCKED, BlockCode.VERSION_CHANGED)
++    assert _block_of(h, "t2") == ("blocked", "version_changed")
++
++
++def test_other_failures_are_still_acknowledged_as_previously_failed(h):
++    first = h.submit()
++    h.dsp.answers.append(WriteAnswer(403, "capability_scope_mismatch"))  # 不是版本衝突的失敗
++    h.process()
++    assert attempt_store_state(h, first)[0] in ("failed", "escalated")
++    key = operation_key(first)
++    with h.store.transaction() as tx:
++        latest = attempt_store.latest(tx, key)
++        if latest.state is not A.FAILED:
++            attempt_store.resolve(tx, key, latest.seq, A.FAILED, "operator decided", h.clock())
++    h.store.accept(proposal(revision=2, decision_expires_at=LATER), h.clock)
++    h.process()
++    assert _block_of(h, revision=2) == ("blocked", "operation_previously_failed")
++
++
++# 使用者 2026-09-23 裁定擴大範圍:另外兩條「重跑執行前檢查」的路徑,檢查回版本已變時也確認成
++# 「版本已變」;嘗試結果代碼照舊記「沒發生」(DSP 明確沒寫),只換收件口的擋下原因
++def _bump_version(h, campaign="c1"):
++    h.dsp.campaigns[campaign] = CampaignView(budget=100, status="active", version=9)
++
++
++@pytest.mark.parametrize(("expired", "block"), [
++    (False, "version_changed"),
++    (True, "operation_previously_failed"),  # 過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)
++])
++def test_a_version_change_found_after_capability_expiry_is_acknowledged_as_version_changed(
++        h, expired, block):
++    # 提案 20 秒後過期;時鐘只推 30 秒,不超過收件口租約(60 秒),這一輪寫得回去
++    first = h.submit(decision_expires_at="2026-09-22T12:05:20+00:00")
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++
++    def someone_else_writes(*_):  # 送出之後、重讀之前,別人改了廣告(也可能同時過期)
++        _bump_version(h)
++        if expired:
++            h.clock.advance(seconds=30)
++
++    h.dsp.on_write = someone_else_writes
++    h.process()
++
++    assert attempt_store_state(h, first) == ("failed", "not_happened")  # 結果代碼不動
++    assert _block_of(h) == ("blocked", block)
++
++
++def test_a_version_change_found_after_a_repeated_expiry_voids_then_says_version_changed(h):
++    first = h.submit()
++    h.dsp.answers.append(WriteAnswer(None))  # 第一次送出沒回應:結果不明
++    h.process()
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))  # 對帳重送:憑證過期
++
++    def bump_after_the_resend(_campaign):
++        if len(h.dsp.writes) == 2:
++            _bump_version(h)
++
++    h.dsp.on_read = bump_after_the_resend
++    h.executor().reconcile_all()
++
++    assert h.dsp.voids == [operation_key(first)]  # 送過兩次:先作廢才判失敗
++    assert attempt_store_state(h, first) == ("failed", "not_happened")
++    assert _block_of(h) == ("blocked", "version_changed")
++
++
++def test_a_version_change_found_while_reconciling_is_acknowledged_as_version_changed(h):
++    first = h.submit()
++    h.dsp.answers.append(WriteAnswer(None))
++    h.process()
++    _bump_version(h)  # DSP 查不到這把鍵,重讀時版本已變:先作廢再判失敗
++
++    h.executor().reconcile_all()
++
++    assert h.dsp.voids == [operation_key(first)]
++    assert attempt_store_state(h, first) == ("failed", "not_happened")
++    assert _block_of(h) == ("blocked", "version_changed")
++
++
++@pytest.mark.parametrize("change", ["expired", "paused", "expired_and_version_changed"])
++def test_other_failed_rechecks_are_still_acknowledged_as_previously_failed(h, change):
++    first = h.submit()
++    h.dsp.answers.append(WriteAnswer(None))
++    h.process()
++    if change.startswith("expired"):
++        h.clock.advance(hours=1)  # 提案過期:業務上不過,但不是版本已變
++    if change == "paused":  # 檢查查到別的原因(不在投放):只有版本已變才換,其他照嘗試結果代碼
++        h.dsp.campaigns["c1"] = CampaignView(budget=100, status="paused", version=3)
++    if change == "expired_and_version_changed":  # 過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)
++        _bump_version(h)
++
++    h.executor().reconcile_all()
++
++    assert attempt_store_state(h, first) == ("failed", "not_happened")
++    assert _block_of(h) == ("blocked", "operation_previously_failed")
++
++
++def attempt_store_state(h, prop):
++    with h.store.transaction() as tx:
++        row = attempt_store.latest(tx, operation_key(prop))
++        return row.state.value, (None if row.code is None else row.code.value)
++
++
++# ---- S300 ----
++def test_a_resend_reports_why_the_proposal_was_blocked(start_inbox):
++    from rtb.domain.proposal import parse_proposal
++    from tests.domain.proposal_samples import valid
++
++    inbox = start_inbox()
++    body = valid()
++    first = inbox.post(body)
++    assert first[0] == 201 and first[1]["block_code"] is None  # 鍵要存在,沒擋下就是空值
++
++    store = InboxStore(inbox.db)
++    try:
++        with store.transaction() as tx:
++            delivery = store.receive(tx, inbox.clock(), "worker")
++            assert delivery is not None
++            store.ack_blocked(tx, delivery.receipt, inbox.clock(), BlockCode.VERSION_CHANGED)
++    finally:
++        store.close()
++
++    status, answer = inbox.post(body)  # 同一份提案重送:回目前狀態與擋下原因
++    assert status == 200 and answer["state"] == "blocked"
++    assert answer["block_code"] == "version_changed"
++    assert set(answer) == {"status", "task_id", "revision", "state", "content_hash", "replayed",
++                           "block_code"}
++    assert parse_proposal(body).proposal is not None
++
++
++@pytest.mark.parametrize(("stored", "answered"), [
++    (BlockCode.OVER_BUDGET_CAP, "not_permitted"),  # 權限類合併成泛稱:試不出預算上限
++    (BlockCode.CAMPAIGN_NOT_ALLOWED, "not_permitted"),  # 也試不出廣告歸哪個租戶
++    (BlockCode.CAMPAIGN_NOT_FOUND, "campaign_not_found"),
++    (BlockCode.CAMPAIGN_NOT_ACTIVE, "campaign_not_active"),
++    (BlockCode.OPERATION_PREVIOUSLY_FAILED, "operation_previously_failed"),
++])
++def test_a_resend_hides_which_permission_blocked_it(start_inbox, stored, answered):
++    """使用者 2026-09-23 裁定:只在回給分析行程的本文合併,收件表內部仍記細分代碼(稽核不失真)。"""
++    from tests.domain.proposal_samples import valid
++
++    inbox = start_inbox()
++    body = valid()
++    inbox.post(body)
++    store = InboxStore(inbox.db)
++    try:
++        with store.transaction() as tx:
++            delivery = store.receive(tx, inbox.clock(), "worker")
++            assert delivery is not None
++            store.ack_blocked(tx, delivery.receipt, inbox.clock(), stored)
++    finally:
++        store.close()
++
++    assert inbox.post(body)[1]["block_code"] == answered
++    assert inbox.rows("SELECT block_code FROM proposals") == [(stored.value,)]
++
++
++# ---- S309 ----
++@pytest.fixture
++def real_dsp(tmp_path):
++    CampaignStore(tmp_path / "dsp.db").seed_campaign("c1", budget=100)
++    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
++                       delay_seconds=0.0, capability_key=TEST_KEY)
++    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
++    yield f"http://127.0.0.1:{server.server_address[1]}", tmp_path / "dsp.db"
++    server.shutdown()
++    server.server_close()
++
++
++def _now():
++    from datetime import UTC, datetime
++
++    return datetime.now(UTC)  # 真 DSP 只容許 30 秒時鐘誤差:兩套系統都用真實時間
++
++
++class _RacingClient(DspClient):
++    """兩邊都讀過 DSP、執行前檢查都通過,在柵欄會合後才一起寫。"""
++
++    barrier: threading.Barrier
++
++    def write(self, prop, key, token):
++        # 另一邊若在柵欄前就失敗(例如慢機器上讀 DSP 逾時),這邊等 5 秒後丟 BrokenBarrierError,
++        # 由 run() 收進結果、斷言時直接印出,不會悄悄卡住
++        self.barrier.wait(5)
++        return super().write(prop, key, token)
++
++
++def _one_writer(tmp_path, url, config, name, budget):
++    """一套獨立的執行系統(自己的收件表與嘗試紀錄),共用同一個 DSP;回傳結果、最後嘗試、處置。"""
++    store = InboxStore(tmp_path / f"{name}.db")
++    try:
++        created = _now()
++        store.accept(proposal(
++            task_id=name, requested_change={"new_budget": budget}, campaign_version_observed=1,
++            decision_created_at=created.isoformat(),
++            decision_expires_at=(created + timedelta(minutes=10)).isoformat()), _now)
++        result = Executor(store, _RacingClient(url, 3.0), CapabilitySigner(TEST_KEY), config,
++                          _now, owner=name).process_one()
++        with store.transaction() as tx:
++            attempt = tx.conn.execute(
++                "SELECT state, code FROM attempts ORDER BY seq DESC LIMIT 1").fetchone()
++            block = tx.conn.execute("SELECT disposition, block_code FROM proposals").fetchone()
++        return result.kind, attempt, block
++    finally:
++        store.close()
++
++
++def test_two_concurrent_writers_reproduce_a_version_conflict(tmp_path, real_dsp):
++    url, dsp_db = real_dsp
++    config = write_config(tmp_path / "tenants.json")
++    _RacingClient.barrier = threading.Barrier(2)
++    outcomes = {}
++
++    def run(name, budget):
++        # 執行緒裡的例外不會傳回主執行緒:收進結果,斷言失敗時直接看得到原因(代碼審第 1 輪併發席)
++        try:
++            outcomes[name] = _one_writer(tmp_path, url, config, name, budget)
++        except BaseException as exc:
++            outcomes[name] = ("error", repr(exc))
++
++    threads = [threading.Thread(target=run, args=args) for args in (("a", 150), ("b", 160))]
++    for thread in threads:
++        thread.start()
++    for thread in threads:
++        thread.join(20)
++
++    assert len(outcomes) == 2 and all(o[0] != "error" for o in outcomes.values()), outcomes
++    attempts = sorted(outcome[1] for outcome in outcomes.values())
++    assert attempts == [("failed", "version_conflict"), ("verified", None)]  # 只有一方寫進去
++    loser = next(outcome for outcome in outcomes.values() if outcome[1][0] == "failed")
++    assert loser[2] == ("blocked", "version_changed")  # 收件口擋下原因記版本已變
++    dsp = CampaignStore(dsp_db)
++    try:
++        assert [entry.action for entry in dsp.history("c1")] == ["update_budget"]
++        assert dsp.get_campaign("c1").version == 2
++    finally:
++        dsp.close()
++
++
++# ---- S315(執行側) ----
++def test_conflict_counts_are_queryable(h):
++    h.dsp.campaigns["c2"] = h.dsp.campaigns["c1"]
++    for task_id, campaign in (("t1", "c1"), ("t2", "c2"), ("t3", "c1")):
++        h.submit(task_id=task_id, campaign_id=campaign)
++        h.dsp.answers.append(WriteAnswer(409, "version_conflict"))
++        h.process()
++    h.submit(task_id="t4")
++    h.dsp.answers.append(WriteAnswer(403, "capability_scope_mismatch"))  # 別種失敗不算
++    h.process()
++
++    with h.store.transaction() as tx:
++        assert attempt_store.version_conflict_count(tx) == 3
++        assert attempt_store.version_conflict_count(tx, "c1") == 2
++        assert attempt_store.version_conflict_count(tx, "c2") == 1
++        assert attempt_store.version_conflict_count(tx, "c9") == 0

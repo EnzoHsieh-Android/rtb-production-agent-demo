@@ -40,6 +40,7 @@ from rtb.executor.inbox_store import (
     LastFailure,
     PendingProposal,
     Receipt,
+    block_code_for_failure,
 )
 
 A = AttemptState
@@ -287,6 +288,14 @@ def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
     return None
 
 
+def _version_changed_or_none(live: bool, checked: BlockCode | None) -> BlockCode | None:
+    """重跑執行前檢查查到版本已變:收件口確認成「版本已變」(分析端要據此重新規劃),嘗試結果代碼
+    照舊記「沒發生」。其他原因(含提案過期、權限不過)回空值,照嘗試結果代碼確認。
+    過期與版本已變同時成立時過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)。
+    使用者 2026-09-23 裁定把 Phase 5 [S310] 擴到憑證過期後重讀與對帳查不到兩條路徑。"""
+    return BlockCode.VERSION_CHANGED if live and checked is BlockCode.VERSION_CHANGED else None
+
+
 def intent_holds(proposal: Proposal, view: CampaignView) -> bool:
     if proposal.action_type is ActionType.UPDATE_BUDGET:
         return bool(view.budget == proposal.requested_change["new_budget"])
@@ -415,7 +424,7 @@ class Executor:
                     raise LeaseLost(begun.row.key)
                 return Processed(Result.HANDED_OFF_TO_EXISTING, begun.row.key)
             if state is A.FAILED:  # 人判過不做的操作不能貼成已交給執行
-                code = BlockCode.OPERATION_PREVIOUSLY_FAILED
+                code = block_code_for_failure(begun.row.code)
                 if not self.store.ack_blocked(tx, receipt, now, code):
                     raise LeaseLost(begun.row.key)
                 return Processed(Result.BLOCKED, begun.row.key, code)
@@ -424,23 +433,25 @@ class Executor:
 
     def _ack_terminal(
         self, tx: attempt_store.ExecutorTransaction, row: AttemptRow, receipt: Receipt,
-        now: datetime,
+        now: datetime, block_code: BlockCode | None = None,
     ) -> None:
-        """確認也是帶收據的條件寫入:0 列就是收據失效,跟其他寫入一樣放棄這把鍵。"""
+        """確認也是帶收據的條件寫入:0 列就是收據失效,跟其他寫入一樣放棄這把鍵。
+        block_code 給重跑執行前檢查的路徑用:檢查查到的原因比嘗試結果代碼更具體時由呼叫端指定。"""
         if row.state is A.VERIFIED:
             done = self.store.ack_handed_off(tx, receipt, now)
         elif row.state is A.FAILED:
-            done = self.store.ack_blocked(tx, receipt, now, BlockCode.OPERATION_PREVIOUSLY_FAILED)
+            done = self.store.ack_blocked(tx, receipt, now,
+                                          block_code or block_code_for_failure(row.code))
         else:
             return
         if not done:
             raise LeaseLost(row.key)
 
     # ---- 第 6 步:寫結果 ----
-    def _write(
+    def _write(  # noqa: PLR0913 - 關鍵字參數都是這次寫入要記的欄位,各有預設值
         self, row: AttemptRow, target: AttemptState, receipt: Receipt | None, *,
         code: OutcomeCode | None = None, written_version: int | None = None,
-        capability_expires_at: datetime | None = None,
+        capability_expires_at: datetime | None = None, block_code: BlockCode | None = None,
     ) -> AttemptRow:
         """嘗試寫入:同一個交易裡先核對收據並順手續租(對不上丟 LeaseLost),寫到終點就同時確認。
 
@@ -457,7 +468,7 @@ class Executor:
             if new is None:
                 _no_progress(row.key, receipt)
             if receipt is not None and new.state in TERMINAL_STATES:
-                self._ack_terminal(tx, new, receipt, now)
+                self._ack_terminal(tx, new, receipt, now, block_code)
         return new
 
     def _record(
@@ -481,13 +492,15 @@ class Executor:
             view = self.dsp.read_campaign(proposal.campaign_id)
         except DspUnavailable:
             return True  # 留在結果不明,交給對帳
-        passed = (proposal.decision_expires_at > self.clock()
-                  and precheck(proposal, view) is None)
-        signed = self._sign(proposal, row.key) if passed else None  # 設定檔壞掉在這裡停機
+        live = proposal.decision_expires_at > self.clock()
+        checked = precheck(proposal, view)
+        signed = (self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
+                  if live and checked is None else None)
         if not isinstance(signed, _Signed):  # 業務上沒通過:DSP 明確沒寫這一次,不再送
+            block = _version_changed_or_none(live, checked)
             if row.send_count > 1:  # 送過多次:更早的請求可能還在路上,先作廢才能判失敗
-                return self._void_then_fail(proposal, row, receipt)
-            self._write(row, A.FAILED, receipt, code=C.NOT_HAPPENED)
+                return self._void_then_fail(proposal, row, receipt, block)
+            self._write(row, A.FAILED, receipt, code=C.NOT_HAPPENED, block_code=block)
             return False
         try:
             row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)
@@ -637,11 +650,13 @@ class Executor:
         if view is None:  # 模擬 DSP 沒有建立或刪除廣告的介面:不存在就代表從來不存在
             self._write(row, A.FAILED, receipt, code=C.CAMPAIGN_NOT_FOUND)
             return False
-        blocked = (proposal.decision_expires_at <= self.clock()
-                   or precheck(proposal, view) is not None)
-        signed = None if blocked else self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
+        live = proposal.decision_expires_at > self.clock()
+        checked = precheck(proposal, view)
+        signed = (self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
+                  if live and checked is None else None)
         if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗
-            return self._void_then_fail(proposal, row, receipt)
+            return self._void_then_fail(proposal, row, receipt,
+                                        _version_changed_or_none(live, checked))
         try:
             row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)
         except attempt_store.SendLimitReached:
@@ -663,6 +678,7 @@ class Executor:
 
     def _void_then_fail(
         self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
+        block_code: BlockCode | None = None,
     ) -> bool:
         now = int(self.clock().timestamp())
         try:
@@ -682,7 +698,7 @@ class Executor:
             self._verification_timeout(row, receipt)
             return True
         target = A.FAILED if reaction.outcome is VoidOutcome.FAILED else A.ESCALATED
-        self._write(row, target, receipt, code=reaction.code)
+        self._write(row, target, receipt, code=reaction.code, block_code=block_code)
         if reaction.halt:
             raise ExecutorHalted(str(reaction.code))
         return False

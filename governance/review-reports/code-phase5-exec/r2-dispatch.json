@@ -1,0 +1,6 @@
+{"round": "r2", "loop": "code-phase5-exec", "base": "0ef3ad1", "delta_base": "f76a8b7", "snapshot": "r2-snapshot.patch", "delta": "r2-delta.patch", "reviewed_sha256": "b53f140a51ace69069cd53a29fd0c72416743a8dbbcf8ff3f4a593e53e742262", "seats": [
+ {"seat": "correct-sonnet", "lens": "正確性與回歸(第 1 輪修正)", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "crash-sonnet", "lens": "交易、當機復原與確認時機", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "finder-codex", "lens": "外家 finder", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "資安-sonnet", "lens": "資安", "materials": ["r2-snapshot.patch", "r2-delta.patch"]}]}

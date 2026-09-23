@@ -248,6 +248,17 @@ def unresolved_count(tx: ExecutorTransaction, campaign_id: str | None = None) ->
     return count
 
 
+def version_conflict_count(tx: ExecutorTransaction, campaign_id: str | None = None) -> int:
+    """DSP 回版本衝突的嘗試次數(唯讀、可依廣告篩):嘗試紀錄只增不改、不會被清,是執行側衝突
+    的稽核來源。執行前檢查擋下的「版本已變」只記在收件表、會被清,長期計數等 Phase 9。"""
+    where = "" if campaign_id is None else " AND campaign_id = ?"
+    params: tuple[str, ...] = (OutcomeCode.VERSION_CONFLICT.value,) + (
+        () if campaign_id is None else (campaign_id,))
+    return int(_conn(tx).execute(
+        f"SELECT COUNT(*) FROM attempts WHERE code = ?{where}",  # noqa: S608 - 只拼接固定條件
+        params).fetchone()[0])
+
+
 def campaigns_with_unresolved(tx: ExecutorTransaction) -> frozenset[str]:
     """已有未結案嘗試的廣告(取件要排除它們);未結案 = 第 1 列在、終點列不在。"""
     records = _conn(tx).execute(

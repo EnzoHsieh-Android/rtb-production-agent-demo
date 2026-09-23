@@ -72,8 +72,8 @@ def after(owner, name):
         die()
     setattr(owner, name, wrapped)
 
-def inside_transaction(self, tx, row, receipt, now):
-    ORIGINAL_ACK(self, tx, row, receipt, now)
+def inside_transaction(self, tx, row, receipt, now, *rest):  # 其餘參數原樣轉交
+    ORIGINAL_ACK(self, tx, row, receipt, now, *rest)
     die(in_tx=self.store._conn.in_transaction)
 
 if point == "before_dsp_call":

@@ -428,7 +428,8 @@ def test_a_failed_attempt_blocks_the_new_delivery(h):
 
     assert receive(h) is None
 
-    assert row(h, "t1", 2)[:3] == ("pending", "blocked", "operation_previously_failed")
+    # Phase 5 [S310]:前一筆因 DSP 回版本衝突而失敗,擋下原因寫「版本已變」(原本是同一操作先前已失敗)
+    assert row(h, "t1", 2)[:3] == ("pending", "blocked", "version_changed")
 
 
 # ---- [S107] ----

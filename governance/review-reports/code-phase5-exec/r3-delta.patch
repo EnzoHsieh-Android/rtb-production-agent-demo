@@ -1,0 +1,232 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md
+index b5d1ee4..0767fd5 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md
+@@ -148,21 +148,21 @@ REVISIT:2027-01-31 Phase 9 開工時,把兩支查詢接上正式指標與告警,
+ ### 不做的事
+ 
+ - 不改任務狀態機(使用者裁定 B)。
+ - 收件表還留著時,死信不自動重新規劃(Phase 8);清掉之後分不出原因,統一重新規劃(見上)。
+ - 不做分析行程的啟動程式與多任務排程;接續任務由呼叫端推進,跟原任務一樣。
+ - 不做告警與儀表板(Phase 9)。
+ 
+ ### 合約
+ 
+ - [S300] 當提案處置是已擋下,收件口對同一份提案的重送回應應帶擋下原因,其中超過預算上限與廣告不允許兩種權限類原因應合併回泛稱「不允許」(not_permitted,只在回應本文合併,收件表仍記細分代碼;使用者 2026-09-23 裁定);其他處置的擋下原因欄位應在、值為空。[test:test_a_resend_reports_why_the_proposal_was_blocked] [test:test_a_resend_hides_which_permission_blocked_it]
+-- [S310] 當嘗試因 DSP 回版本衝突而失敗,執行端在終點確認、開始時撞到既有失敗鍵、收件口取件時撞到既有失敗鍵三處都應寫擋下原因「版本已變」;憑證過期後重讀、以及結果不明對帳時 DSP 查不到而重跑執行前檢查,這兩條路徑只要重跑的檢查回版本已變,也應確認成「版本已變」、嘗試結果代碼照舊記沒發生(這兩條是使用者 2026-09-23 裁定擴大範圍,代碼審第 1 輪外家席抓到);其他失敗應照舊寫「同一操作先前已失敗」。[test:test_a_dsp_version_conflict_is_acknowledged_as_version_changed] [test:test_a_version_change_found_after_capability_expiry_is_acknowledged_as_version_changed] [test:test_a_version_change_found_while_reconciling_is_acknowledged_as_version_changed]
++- [S310] 當嘗試因 DSP 回版本衝突而失敗,執行端在終點確認、開始時撞到既有失敗鍵、收件口取件時撞到既有失敗鍵三處都應寫擋下原因「版本已變」;憑證過期後重讀、以及結果不明對帳時 DSP 查不到而重跑執行前檢查,這兩條路徑只要提案仍有效、重跑的檢查回版本已變,也應確認成「版本已變」(過期與版本已變同時成立時過期優先,照舊確認,跟第一次處理時的順序一致)、嘗試結果代碼照舊記沒發生(這兩條是使用者 2026-09-23 裁定擴大範圍,代碼審第 1 輪外家席抓到);其他失敗應照舊寫「同一操作先前已失敗」。[test:test_a_dsp_version_conflict_is_acknowledged_as_version_changed] [test:test_a_version_change_found_after_capability_expiry_is_acknowledged_as_version_changed] [test:test_a_version_change_found_while_reconciling_is_acknowledged_as_version_changed]
+ - [S301] 當任務已交給執行、有給操作查詢、而收件口回已交給執行,推進函式應把任務轉完成,不查 DSP。[test:test_a_handed_off_task_completes_when_the_inbox_reports_handed_off]
+ - [S316] 當沒給操作查詢,推進函式對已交給執行的任務應不呼叫任何協作者、不改任務。[test:test_advancing_a_handed_off_task_calls_no_collaborator]
+ - [S311] 當收件表已清掉提案、DSP 用存下的鍵查得到內容相符的操作,推進函式應把任務轉完成;內容不符應轉擋下並記冪等衝突。[test:test_after_the_retention_window_the_dsp_decides_completion]
+ - [S317] 當收件表已清掉提案(包括原本因版本已變被擋下、分析端超過保留期才推進)、DSP 查不到操作,推進函式應建接續任務重新規劃,錯誤說明記結果已過保留期。[test:test_after_the_retention_window_a_missing_write_is_replanned]
+ - [S302] 當提案仍在處理中或待處理,推進函式應不改任務。[test:test_a_handed_off_task_waits_while_the_proposal_is_still_open]
+ - [S312] 當重送收件口或查 DSP 失敗(逾時、斷線、讀不懂、收件口忙碌、未定義拒收),推進函式應不改任務、放掉租約、不讓例外往外傳。[test:test_a_failed_lookup_or_resend_leaves_the_handed_off_task_for_the_next_round]
+ - [S303] 當提案因版本已變被擋下,推進函式應在同一個交易裡建接續任務與接續關係,再把原任務轉擋下,錯誤說明記下接續任務編號。[test:test_a_version_conflict_hands_the_task_over_to_a_follow_up]
+ - [S313] 當收件表還留著、提案處置是過期,推進函式應同樣建接續任務重新規劃。[test:test_an_expired_decision_is_replanned]
+ - [S304] 當提案因其他原因被擋下、進了死信、或收件口永久拒收,推進函式應把任務轉擋下並記下原因,不建接續任務。[test:test_other_blocks_close_the_task_without_a_follow_up]
+ - [S305] 當提案被新修訂取代,推進函式應把任務轉被取代。[test:test_a_superseded_proposal_marks_the_task_superseded](目前只能用替身觸發,見上)
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+index 4d61471..620a0e5 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+@@ -20,21 +20,21 @@ summary: |-
+   WHY:[2026-09-23]事故 F3 轉正時先落在 [[Systems/提案收件口]],當天搬來執行迴圈,比照事故 F1、F2。措辭照實寫(使用者裁定):執行側重複投遞不重複副作用是無條件保證(冪等鍵加收據條件寫入);分析側只保證同一時間只有一個持有有效租約的一方花分析費用,持有者寫入前當機、或一步做超過租約被接手時會再分析一次(分析側沒有續租、猝死放不掉租約)。分析行程目前沒有訊息入口,「同一則訊息對應同一個任務編號」等分析行程有啟動程式才補(回頭條件在 [[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3b)。證據跨兩側:執行側三支 F3 端到端與兩個工作者同時取件,分析側六支租約測試。獨立審計(2026-09-23)同意,做了六組改壞實驗全部翻紅;卷證 governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/f3-audit.md。
+   WHY:[2026-09-23]這條合約轉正時掛在 [[Systems/提案收件口]](預告合約當初登記在那裡),當天就搬來執行迴圈:它描述的是執行迴圈的行為,實作也在這裡。獨立審計(2026-09-23)要求註明兩點:①「查到操作紀錄就核對內容再驗證、不重送」這半句由 test_reconcile_finds_the_operation_by_key_and_verifies_it 與 test_reconcile_escalates_a_mismatched_operation_record 兩支單元測試獨立守著,不是三支端到端測試單獨證明的,所以一起綁上;②「預算只改一次」真正的強制層是 DSP 的同鍵去重(Phase 1 的合約),這五支測試只是重申斷言,DSP 那層被改壞時它們不會紅。
+   WHY: 執行端只驗證並執行獲授權的動作,前提不成立就擋下,不重新分析、不靠 DSP 的版本檢查當第一道防線。出處:使用者情境題 2026-09-22 答 c、事故 F4;設計見 [[Projects/RTB_Phase3外部寫入安全_計劃]] 增量 3。
+   RULE: 呼叫 DSP 期間不開任何資料庫交易;每一筆寫入各自一個交易,以上一筆回傳的序號做條件寫入,沒有進展就停機。[since:2026-09-23] [retire:改用佇列與多工作者(Phase 4)時重審]
+   RULE: 時間只有一個來源(注入的時鐘),但每次簽發、每筆寫入都當下重讀,不整輪共用同一個值,否則過期後的重簽會簽出一樣過期的憑證。[since:2026-09-23] [retire:簽發改由別的服務負責時撤除]
+   RULE: 可以同時跑多個執行迴圈,互斥只靠收件表的租約與收據;重啟恢復只轉收件表沒有對應處理中訊息、而且寫下超過一個租約時間的嘗試中(舊鍵對帳時也會先寫嘗試中再呼叫 DSP,剛寫下的可能有人正在做),有處理中訊息的不碰(別人正在做,或租約到期後由對帳原子接手);對帳遇到寫下超過一個租約時間的舊鍵嘗試中也自己收,不必等重啟;資料庫忙碌休息重試、連續 3 次才以忙碌代碼(6,跟系統錯誤的停機代碼分開)結束;沒有收據的舊鍵序號對不上是正常競爭,放棄這把鍵。[since:2026-09-23] [retire:換成外部佇列軟體、訊息歸屬由它管時]
+   RULE: 新舊版本不能混跑:3a 上線前一次停掉所有舊版執行迴圈,之後不再啟動舊版;舊版會拿單一執行者鎖並把所有嘗試中轉結果不明,看不到新版的工作者,而它的程式已寫死、擋不住。[since:2026-09-23] [retire:支援滾動升級、改用資料庫版本標記加圍籬時]
+   RULE: 系統故障(租戶設定檔壞掉或不安全、DSP 回其他 4xx、有收據而條件寫入沒進展)一律停機並以非零代碼結束,不逐筆鎖廣告;同一個程式錯誤逐筆鎖會一輪鎖一個廣告直到全表上限。[since:2026-09-23] [retire:有監控告警與自動重啟策略時重審]
+   PITFALL: 共用 HTTP 用戶端不跟轉址,3xx 會原樣回來;回應對照表最後一列是兜底(記成結果不明),否則嘗試會卡在嘗試中永久鎖住廣告。防回歸:[test:test_an_unlisted_status_is_recorded_as_unknown]。
+   RULE: 執行行程不拿提案的自由文字(理由摘要)來判斷,也不送出去(Phase 7 增量 3,事故 F5):重讀的廣告現況只有預算、狀態、版本三欄;執行行程套件底下全部程式檔不以屬性存取讀理由摘要;送給 DSP 的寫入本文與能力憑證聲明不含理由摘要。由一支結構測試守,放在分析側的測試檔、不改執行行程程式;是機械掃描,防忘記,不防刻意用字串拼屬性名稱繞過(但寫入本文與聲明的內容檢查連繞過的寫法也抓得到)。守不到:整份提案被轉成字串印進日誌時理由摘要會跟著出現,見 [[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 實務隱患。防回歸:[test:test_the_execution_side_never_reads_free_text]。[since:2026-09-23] [retire:執行行程需要讀理由摘要(例如人工處置畫面)時重審,讀了也只能顯示、不能判斷]
+-  RULE: 嘗試因 DSP 回版本衝突而失敗時,終點確認與開始一筆時撞到既有失敗鍵兩處都寫擋下原因「版本已變」(跟執行前檢查擋下的同一個代碼),其他失敗照舊寫「同一操作先前已失敗」。憑證過期後重讀、以及結果不明對帳時 DSP 查不到而重跑執行前檢查,這兩條路徑只要重跑的檢查回版本已變,也確認成「版本已變」,但嘗試結果代碼照舊記「沒發生」(DSP 明確沒寫;使用者 2026-09-23 裁定擴大範圍,代碼審第 1 輪外家席抓到;同一把鍵的新修訂之後取件讀的是結果代碼,會確認成「同一操作先前已失敗」,計劃實務隱患有記)。原本一律寫後者,把「另一方搶先改了廣告」蓋成「這個操作做不成」,分析端就不會重新規劃(Phase 5 設計審第 1 輪四席各自抓到,第 2 輪又抓到第三處在收件口取件)。三處共用收件表模組的 `block_code_for_failure`。版本衝突可以真的重現:兩套各自獨立的執行系統同時改同一個廣告、執行前檢查都通過,DSP 只接受預期版本相符的一方(同一套系統裡「同一廣告同時只開一筆嘗試」會先擋掉第二份,測不到 DSP 端)。分工:版本檢查(執行端)防根據過時現況的決策覆蓋新值;新鮮度(分析端)防用過期證據做決策;冪等(執行端與 DSP)防同一決策套用兩次;三者互補不能互相取代。出處:[[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]]。防回歸:[test:test_a_dsp_version_conflict_is_acknowledged_as_version_changed]、[test:test_two_concurrent_writers_reproduce_a_version_conflict]、[test:test_a_version_change_found_after_capability_expiry_is_acknowledged_as_version_changed]、[test:test_a_version_change_found_while_reconciling_is_acknowledged_as_version_changed]。[since:2026-09-23] [retire:版本衝突改由 DSP 端合併或重試處理時重審]
++  RULE: 嘗試因 DSP 回版本衝突而失敗時,終點確認與開始一筆時撞到既有失敗鍵兩處都寫擋下原因「版本已變」(跟執行前檢查擋下的同一個代碼),其他失敗照舊寫「同一操作先前已失敗」。憑證過期後重讀、以及結果不明對帳時 DSP 查不到而重跑執行前檢查,這兩條路徑只要提案仍有效、重跑的檢查回版本已變,也確認成「版本已變」(過期與版本已變同時成立時過期優先,跟第一次處理時的順序一致;代碼審第 2 輪外家席),但嘗試結果代碼照舊記「沒發生」(DSP 明確沒寫;使用者 2026-09-23 裁定擴大範圍,代碼審第 1 輪外家席抓到;同一把鍵的新修訂之後取件讀的是結果代碼,會確認成「同一操作先前已失敗」,計劃實務隱患有記)。原本一律寫後者,把「另一方搶先改了廣告」蓋成「這個操作做不成」,分析端就不會重新規劃(Phase 5 設計審第 1 輪四席各自抓到,第 2 輪又抓到第三處在收件口取件)。三處共用收件表模組的 `block_code_for_failure`。版本衝突可以真的重現:兩套各自獨立的執行系統同時改同一個廣告、執行前檢查都通過,DSP 只接受預期版本相符的一方(同一套系統裡「同一廣告同時只開一筆嘗試」會先擋掉第二份,測不到 DSP 端)。分工:版本檢查(執行端)防根據過時現況的決策覆蓋新值;新鮮度(分析端)防用過期證據做決策;冪等(執行端與 DSP)防同一決策套用兩次;三者互補不能互相取代。出處:[[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]]。防回歸:[test:test_a_dsp_version_conflict_is_acknowledged_as_version_changed]、[test:test_two_concurrent_writers_reproduce_a_version_conflict]、[test:test_a_version_change_found_after_capability_expiry_is_acknowledged_as_version_changed]、[test:test_a_version_change_found_while_reconciling_is_acknowledged_as_version_changed]。[since:2026-09-23] [retire:版本衝突改由 DSP 端合併或重試處理時重審]
+   TEST: tests/executor/ 的 test_execution.py、test_execution_e2e.py、test_runner.py、test_executor_boundaries.py 涵蓋增量 3 的 S42–S69;2026-09-23 變異檢查 43 道防護逐一拆掉全部變紅。
+ verified_by:
+   - "[[Verification/Phase3驗收紀錄]]"
+   - "[[Verification/事故F1_結果不明只用原鍵對帳]]"
+   - "[[Verification/事故F2_確認前當機不重複副作用]]"
+   - "[[Verification/事故F3_重複投遞不重複分析與副作用]]"
+   - "[[Verification/Phase4驗收紀錄]]"
+ kill_recipes: |-
+   [{"invariant": "事故 F1 的執行面", "test": "test_f1_timeout_before_commit_is_reconciled_by_a_same_key_resend", "file": "src/rtb/executor/execution.py", "old": "        signed = None if blocked else self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機\n        if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗\n            return self._void_then_fail(proposal, row, receipt)\n        try:\n            row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)\n        except attempt_store.SendLimitReached:\n            self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)\n            return False\n        return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token),\n", "new": "        signed = None if blocked else self._sign(proposal, row.key + 'n')  # 設定檔壞掉在這裡停機\n        if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗\n            return self._void_then_fail(proposal, row, receipt)\n        try:\n            row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)\n        except attempt_store.SendLimitReached:\n            self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)\n            return False\n        return self._record(proposal, row, self.dsp.write(proposal, row.key + 'n', signed.token),\n", "note": "對帳查不到時換新鍵重送,結果不明的舊請求晚到會再套用一次"}, {"invariant": "事故 F1 的執行面", "test": "test_f1_timeout_after_commit_is_reconciled_from_the_operation_record", "file": "src/rtb/executor/execution.py", "old": "        if record is not None:\n            return self._found(", "new": "        if False:\n            return self._found(", "note": "對帳不看操作紀錄,DSP 已提交也當成沒做"}, {"invariant": "事故 F2:工作者在副作用", "test": "test_crash_after_the_dsp_commit_is_recovered_from_the_operation_record", "file": "src/rtb/executor/execution.py", "old": "        if record is not None:\n            return self._found(", "new": "        if False:\n            return self._found(", "note": "當機後對帳不看操作紀錄,已提交的寫入被當成沒做"}, {"invariant": "事故 F2:工作者在副作用", "test": "test_a_crash_before_the_terminal_commit_rolls_back_the_result_and_the_acknowledgement", "file": "src/rtb/executor/execution.py", "old": "            if receipt is not None and new.state in TERMINAL_STATES:\n                self._ack_terminal(tx, new, receipt, now)", "new": "            if receipt is not None and new.state in TERMINAL_STATES:\n                self.store._conn.execute('COMMIT'); self.store._conn.execute('BEGIN IMMEDIATE')\n                self._ack_terminal(tx, new, receipt, now)", "note": "結果與確認拆成兩個交易,中間當機會留下已驗證卻沒確認"}, {"invariant": "事故 F2:工作者在副作用", "test": "test_crash_before_verification_is_recovered_by_reconciliation", "file": "src/rtb/executor/execution.py", "old": "        if row.state is A.COMMITTED_UNVERIFIED:\n            return self._verify(proposal, row, receipt)", "new": "        if row.state is A.COMMITTED_UNVERIFIED:\n            return False", "note": "已提交待驗證的嘗試對帳不再推進,訊息永遠停在處理中"}, {"invariant": "事故 F2:工作者在副作用", "test": "test_a_stale_or_expired_receipt_can_write_nothing", "file": "src/rtb/executor/inbox_store.py", "old": "            \"AND lease_until > ?\",", "new": "            \"AND lease_until IS NOT ?\",", "note": "確認不核對租約是否到期,過期的工作者還能硬寫確認"}, {"invariant": "事故 F3:同一則訊息", "test": "test_f3_a_reanalysed_revision_still_passes_through_the_execution_gate", "file": "src/rtb/executor/execution.py", "old": "    if view.version != proposal.campaign_version_observed:", "new": "    if False:", "note": "重做分析的新目標不再過執行閘的版本檢查,舊觀察版本的寫入照樣送出"}, {"invariant": "事故 F3:同一則訊息", "test": "test_two_real_threads_advancing_the_same_task_pay_for_the_analysis_once", "file": "src/rtb/analyzer/task_store.py", "old": "    return lease[1] is not None and lease[2] > _iso(now)", "new": "    return False", "note": "分析側租約永遠算沒人持有,同一個任務被同時推進時兩邊都花分析的錢"}, {"invariant": "事故 F3:同一則訊息", "test": "test_two_live_workers_process_a_message_once", "file": "src/rtb/executor/inbox_store.py", "old": "f\"WHERE ({PENDING}) OR ({IN_PROGRESS} AND lease_until <= ?) \"", "new": "f\"WHERE ({PENDING}) OR ({IN_PROGRESS} AND lease_until IS NOT ?) \"", "note": "租約還沒到期的訊息也交出去,兩個工作者同時處理同一則訊息"}]
+ ---
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index 46efc03..2a6c657 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -281,25 +281,26 @@ def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
+     """執行前檢查裡看 DSP 現況的三項;「不在投放」排在版本之前,代碼比較有意義。"""
+     if view is None:
+         return BlockCode.CAMPAIGN_NOT_FOUND
+     if view.status != "active":
+         return BlockCode.CAMPAIGN_NOT_ACTIVE
+     if view.version != proposal.campaign_version_observed:
+         return BlockCode.VERSION_CHANGED
+     return None
+ 
+ 
+-def _version_changed_or_none(checked: BlockCode | None) -> BlockCode | None:
++def _version_changed_or_none(live: bool, checked: BlockCode | None) -> BlockCode | None:
+     """重跑執行前檢查查到版本已變:收件口確認成「版本已變」(分析端要據此重新規劃),嘗試結果代碼
+     照舊記「沒發生」。其他原因(含提案過期、權限不過)回空值,照嘗試結果代碼確認。
++    過期與版本已變同時成立時過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)。
+     使用者 2026-09-23 裁定把 Phase 5 [S310] 擴到憑證過期後重讀與對帳查不到兩條路徑。"""
+-    return BlockCode.VERSION_CHANGED if checked is BlockCode.VERSION_CHANGED else None
++    return BlockCode.VERSION_CHANGED if live and checked is BlockCode.VERSION_CHANGED else None
+ 
+ 
+ def intent_holds(proposal: Proposal, view: CampaignView) -> bool:
+     if proposal.action_type is ActionType.UPDATE_BUDGET:
+         return bool(view.budget == proposal.requested_change["new_budget"])
+     return view.status == "paused"
+ 
+ 
+ def record_matches(proposal: Proposal, record: OperationRecord) -> bool:
+     """DSP 同鍵查到的操作,內容要跟快照一致:冪等鍵是執行端算的,DSP 不會拿內容反算這把鍵。
+@@ -484,25 +485,26 @@ class Executor:
+         if reaction.halt:
+             raise ExecutorHalted(str(reaction.code))
+         return reaction.target is A.UNKNOWN
+ 
+     def _after_expiry(self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None) -> bool:
+         """DSP 明確沒寫:重讀 DSP、重跑檢查;通過就重讀時鐘重簽、同鍵重送一次。"""
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id)
+         except DspUnavailable:
+             return True  # 留在結果不明,交給對帳
++        live = proposal.decision_expires_at > self.clock()
+         checked = precheck(proposal, view)
+-        passed = proposal.decision_expires_at > self.clock() and checked is None
+-        signed = self._sign(proposal, row.key) if passed else None  # 設定檔壞掉在這裡停機
++        signed = (self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
++                  if live and checked is None else None)
+         if not isinstance(signed, _Signed):  # 業務上沒通過:DSP 明確沒寫這一次,不再送
+-            block = _version_changed_or_none(checked)
++            block = _version_changed_or_none(live, checked)
+             if row.send_count > 1:  # 送過多次:更早的請求可能還在路上,先作廢才能判失敗
+                 return self._void_then_fail(proposal, row, receipt, block)
+             self._write(row, A.FAILED, receipt, code=C.NOT_HAPPENED, block_code=block)
+             return False
+         try:
+             row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)
+         except attempt_store.SendLimitReached:
+             self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)
+             return False
+         answer = self.dsp.write(proposal, row.key, signed.token)
+@@ -641,25 +643,27 @@ class Executor:
+     ) -> bool:
+         """查不到這把鍵:重讀廣告、重跑執行前檢查;通過就同鍵重送,不過就先作廢再判失敗。"""
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id)
+         except DspUnavailable:
+             self._verification_timeout(row, receipt)
+             return True
+         if view is None:  # 模擬 DSP 沒有建立或刪除廣告的介面:不存在就代表從來不存在
+             self._write(row, A.FAILED, receipt, code=C.CAMPAIGN_NOT_FOUND)
+             return False
++        live = proposal.decision_expires_at > self.clock()
+         checked = precheck(proposal, view)
+-        blocked = proposal.decision_expires_at <= self.clock() or checked is not None
+-        signed = None if blocked else self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
++        signed = (self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
++                  if live and checked is None else None)
+         if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗
+-            return self._void_then_fail(proposal, row, receipt, _version_changed_or_none(checked))
++            return self._void_then_fail(proposal, row, receipt,
++                                        _version_changed_or_none(live, checked))
+         try:
+             row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)
+         except attempt_store.SendLimitReached:
+             self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)
+             return False
+         return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token),
+                             receipt)
+ 
+     def _found(
+         self, proposal: Proposal, row: AttemptRow, record: OperationRecord,
+diff --git a/tests/executor/test_version_conflict.py b/tests/executor/test_version_conflict.py
+index 6243a12..940cdc3 100644
+--- a/tests/executor/test_version_conflict.py
++++ b/tests/executor/test_version_conflict.py
+@@ -81,29 +81,40 @@ def test_other_failures_are_still_acknowledged_as_previously_failed(h):
+     h.process()
+     assert _block_of(h, revision=2) == ("blocked", "operation_previously_failed")
+ 
+ 
+ # 使用者 2026-09-23 裁定擴大範圍:另外兩條「重跑執行前檢查」的路徑,檢查回版本已變時也確認成
+ # 「版本已變」;嘗試結果代碼照舊記「沒發生」(DSP 明確沒寫),只換收件口的擋下原因
+ def _bump_version(h, campaign="c1"):
+     h.dsp.campaigns[campaign] = CampaignView(budget=100, status="active", version=9)
+ 
+ 
+-def test_a_version_change_found_after_capability_expiry_is_acknowledged_as_version_changed(h):
+-    first = h.submit()
++@pytest.mark.parametrize(("expired", "block"), [
++    (False, "version_changed"),
++    (True, "operation_previously_failed"),  # 過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)
++])
++def test_a_version_change_found_after_capability_expiry_is_acknowledged_as_version_changed(
++        h, expired, block):
++    # 提案 20 秒後過期;時鐘只推 30 秒,不超過收件口租約(60 秒),這一輪寫得回去
++    first = h.submit(decision_expires_at="2026-09-22T12:05:20+00:00")
+     h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
+-    h.dsp.on_write = lambda *_: _bump_version(h)  # 送出之後、重讀之前,別人改了廣告
+ 
++    def someone_else_writes(*_):  # 送出之後、重讀之前,別人改了廣告(也可能同時過期)
++        _bump_version(h)
++        if expired:
++            h.clock.advance(seconds=30)
++
++    h.dsp.on_write = someone_else_writes
+     h.process()
+ 
+     assert attempt_store_state(h, first) == ("failed", "not_happened")  # 結果代碼不動
+-    assert _block_of(h) == ("blocked", "version_changed")
++    assert _block_of(h) == ("blocked", block)
+ 
+ 
+ def test_a_version_change_found_after_a_repeated_expiry_voids_then_says_version_changed(h):
+     first = h.submit()
+     h.dsp.answers.append(WriteAnswer(None))  # 第一次送出沒回應:結果不明
+     h.process()
+     h.dsp.answers.append(WriteAnswer(401, "capability_expired"))  # 對帳重送:憑證過期
+ 
+     def bump_after_the_resend(_campaign):
+         if len(h.dsp.writes) == 2:
+@@ -123,29 +134,31 @@ def test_a_version_change_found_while_reconciling_is_acknowledged_as_version_cha
+     h.process()
+     _bump_version(h)  # DSP 查不到這把鍵,重讀時版本已變:先作廢再判失敗
+ 
+     h.executor().reconcile_all()
+ 
+     assert h.dsp.voids == [operation_key(first)]
+     assert attempt_store_state(h, first) == ("failed", "not_happened")
+     assert _block_of(h) == ("blocked", "version_changed")
+ 
+ 
+-@pytest.mark.parametrize("change", ["expired", "paused"])
++@pytest.mark.parametrize("change", ["expired", "paused", "expired_and_version_changed"])
+ def test_other_failed_rechecks_are_still_acknowledged_as_previously_failed(h, change):
+     first = h.submit()
+     h.dsp.answers.append(WriteAnswer(None))
+     h.process()
+-    if change == "expired":
++    if change.startswith("expired"):
+         h.clock.advance(hours=1)  # 提案過期:業務上不過,但不是版本已變
+-    else:  # 檢查查到別的原因(不在投放):只有版本已變才換,其他照嘗試結果代碼
++    if change == "paused":  # 檢查查到別的原因(不在投放):只有版本已變才換,其他照嘗試結果代碼
+         h.dsp.campaigns["c1"] = CampaignView(budget=100, status="paused", version=3)
++    if change == "expired_and_version_changed":  # 過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)
++        _bump_version(h)
+ 
+     h.executor().reconcile_all()
+ 
+     assert attempt_store_state(h, first) == ("failed", "not_happened")
+     assert _block_of(h) == ("blocked", "operation_previously_failed")
+ 
+ 
+ def attempt_store_state(h, prop):
+     with h.store.transaction() as tx:
+         row = attempt_store.latest(tx, operation_key(prop))

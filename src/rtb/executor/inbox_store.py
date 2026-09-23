@@ -26,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
-from rtb.domain.attempt import AttemptState, operation_key
+from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
 from rtb.domain.proposal import MAX_DECISION_LIFETIME, Proposal, content_hash, parse_proposal
 from rtb.executor import attempt_store
 from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate_transaction
@@ -79,6 +79,14 @@ class BlockCode(StrEnum):
     CAMPAIGN_NOT_ALLOWED = "campaign_not_allowed"
     OVER_BUDGET_CAP = "over_budget_cap"
     OPERATION_PREVIOUSLY_FAILED = "operation_previously_failed"  # 同一把鍵先前已判定失敗
+
+
+def block_code_for_failure(code: OutcomeCode | None) -> BlockCode:
+    """失敗嘗試對應的擋下原因:DSP 回版本衝突寫「版本已變」(分析端要據此重新規劃),其他失敗照舊寫
+    「同一操作先前已失敗」。執行端終點確認、開始時撞到既有失敗鍵、取件時撞到既有失敗鍵三處共用。"""
+    if code is OutcomeCode.VERSION_CONFLICT:
+        return BlockCode.VERSION_CHANGED
+    return BlockCode.OPERATION_PREVIOUSLY_FAILED
 
 
 def _in_list(values: type[StrEnum]) -> str:
@@ -218,6 +226,7 @@ class Accepted:
     state: str
     content_hash: str
     replayed: bool
+    block_code: str | None = None  # 只有處置是已擋下時有值:分析端據此決定要不要重新規劃
 
 
 def _check_revision_and_times(proposal: Proposal, highest: int, now: datetime) -> None:
@@ -371,13 +380,15 @@ class InboxStore:
         )
         self._purge_finished_tasks(now)
         existing = self._conn.execute(
-            "SELECT content_hash, coalesce(disposition, state) FROM proposals "
+            "SELECT content_hash, coalesce(disposition, state), "
+            "CASE WHEN disposition = ? THEN block_code END FROM proposals "
             "WHERE task_id = ? AND revision = ?",
-            (proposal.task_id, proposal.revision),
+            (Disposition.BLOCKED.value, proposal.task_id, proposal.revision),
         ).fetchone()
-        if existing is not None:  # 有處置時回處置,沒有才回原狀態
+        if existing is not None:  # 有處置時回處置,沒有才回原狀態;已擋下另帶擋下原因
             if existing[0] == digest:
-                return Accepted(proposal.task_id, proposal.revision, existing[1], digest, True)
+                return Accepted(proposal.task_id, proposal.revision, existing[1], digest, True,
+                                existing[2])
             raise ContentConflict()
         highest = self._highest_revision(proposal.task_id)
         _check_revision_and_times(proposal, highest, now)
@@ -463,7 +474,7 @@ class InboxStore:
                 self._write_failure(receipt, LastFailure.NO_REPORT)
             existing = attempt_store.latest(tx, operation_key(proposal))
             if existing is not None:
-                self._settle_existing(tx, receipt, existing.state, now)
+                self._settle_existing(tx, receipt, existing.state, existing.code, now)
                 continue
             deliveries = self._conn.execute(
                 "SELECT deliveries FROM proposals WHERE task_id = ? AND revision = ?",
@@ -480,13 +491,13 @@ class InboxStore:
 
     def _settle_existing(
         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, state: AttemptState,
-        now: datetime,
+        code: OutcomeCode | None, now: datetime,
     ) -> None:
         """這把鍵已有嘗試:終點就確認;未結案就放掉租約,交給對帳。都不算投遞。"""
         if state is AttemptState.VERIFIED:
             done = self.ack_handed_off(tx, receipt, now)
         elif state is AttemptState.FAILED:
-            done = self.ack_blocked(tx, receipt, now, BlockCode.OPERATION_PREVIOUSLY_FAILED)
+            done = self.ack_blocked(tx, receipt, now, block_code_for_failure(code))
         else:
             done = self.release(tx, receipt, now, None)
         assert done  # noqa: S101 - 收據是同一個交易裡剛拿到的,條件寫入必然成立
