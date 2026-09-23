@@ -415,3 +415,23 @@ def test_a_dead_letter_whose_proposal_cannot_be_read_back_is_not_replayed(h):
     assert disposition(h) == ("pending", "dead_letter")
     assert [row[3:] for row in audit(h)] == [("replay_requested", OPERATOR, None),
                                             ("replay_refused", OPERATOR, "unreadable")]
+
+
+# ---- 事故 F6 轉正:每個宣稱各有測試 ----
+def test_a_dead_letter_is_never_handed_out_again(h):
+    """死信只能由管理指令重放:執行迴圈不會自己再取到它、也不再讀 DSP。"""
+    dead_letter(h)
+    reads_before = len(h.dsp.reads)
+    h.clock.advance(minutes=5)
+
+    assert h.process().kind is Result.IDLE
+    assert disposition(h) == ("pending", "dead_letter")
+    assert len(h.dsp.reads) == reads_before
+
+
+def test_a_blocked_proposal_cannot_be_replayed(h):
+    h.submit(policy_version="demo-pacing-v0")
+    assert h.process().kind is Result.BLOCKED
+
+    assert replay(h) is ReplayOutcome.NOT_DEAD_LETTER
+    assert disposition(h) == ("pending", "blocked")
