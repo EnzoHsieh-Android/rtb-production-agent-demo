@@ -1,0 +1,114 @@
+[
+ {
+  "round": "r2",
+  "seat": "s1",
+  "lens": "沒有收據的舊鍵規則",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_crash_recovery.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_attempt_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s2",
+  "lens": "忙碌與停機分類",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_crash_recovery.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_attempt_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s3",
+  "lens": "並行測試可行性",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_crash_recovery.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_attempt_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s4",
+  "lens": "被取代與已轉正合約",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_crash_recovery.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_attempt_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s5",
+  "lens": "前輪修正驗收",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_crash_recovery.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_attempt_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_crash_recovery.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_attempt_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量3a/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_crash_recovery.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_attempt_store.py"
+  ],
+  "auditor": "codex"
+ }
+]
