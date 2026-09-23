@@ -1,0 +1,50 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "前輪修正驗收(末輪)",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo/r3-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo/r2-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/dsp_client.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/sqlitekit.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "s2",
+  "lens": "DSP 呼叫紀錄與熱路徑",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo/r3-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo/r2-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/dsp_client.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/sqlitekit.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "lens": "外家否決(末輪)",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo/r3-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo/r2-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/dsp_client.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/sqlitekit.py"
+  ],
+  "auditor": "codex"
+ }
+]
