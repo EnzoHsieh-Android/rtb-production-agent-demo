@@ -1587,3 +1587,8 @@
 {"ts": "2026-09-23T12:05:57+08:00", "commit": "bdfe7ea", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase4-crash"], "note": "disposal gate PASS"}
 {"ts": "2026-09-23T12:06:02+08:00", "commit": "bdfe7ea", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-23T12:06:03+08:00", "commit": "bdfe7ea", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "bdfe7ea467222f6b132817ad77672d575fc1d2db"}
+{"ts": "2026-09-23T12:06:04+08:00", "commit": "d2ae765", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T12:06:04+08:00", "commit": "d2ae765", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d2ae7658e25bad8f1051174db13b971a10452e7a"}
+{"ts": "2026-09-23T12:06:04+08:00", "commit": "9be1579", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "當機恢復測試代碼審 3 輪(pitfalls 判 light,照 standard 派):r1 三席 5 條、r2 兩席 4 條(Codex 限額由 Opus 頂替)、r3 一席 1 條(使用者指示略過外家席),全部修正;十七道變異檢查全紅", "branch": "main", "head_sha": "9be1579f60de56ca382147437972e8cec3f4824c"}
+{"ts": "2026-09-23T12:06:12+08:00", "commit": "9be1579", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T12:06:12+08:00", "commit": "9be1579", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "9be1579f60de56ca382147437972e8cec3f4824c"}
