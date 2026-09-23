@@ -1,0 +1,8 @@
+{"round": "r3", "loop": "rtb-phase6權限護欄與總曝險-增量2", "snapshot": "r3-snapshot.md", "reviewed_sha256": "7653246e8aeff7ce306686c20375af3aa3707a77ea846e1d375ea67117443a2e", "scope": "## 增量 2 設計:護欄表格 一節", "seats": [
+ {"seat": "fixcheck-sonnet", "lens": "第 2 輪修正驗收與前後一致", "materials": ["r3-snapshot.md", "r2-intake.md"]},
+ {"seat": "table-sonnet", "lens": "規則表、三份清單與回退", "materials": ["r3-snapshot.md"]},
+ {"seat": "scan-sonnet", "lens": "靜態匯入閉包掃描", "materials": ["r3-snapshot.md"]},
+ {"seat": "compat-sonnet", "lens": "相容、重建前提與既有測試", "materials": ["r3-snapshot.md"]},
+ {"seat": "testability-sonnet", "lens": "可測性", "materials": ["r3-snapshot.md"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r3-snapshot.md"]},
+ {"seat": "finder-codex", "lens": "外家", "materials": ["r3-snapshot.md"]}]}
