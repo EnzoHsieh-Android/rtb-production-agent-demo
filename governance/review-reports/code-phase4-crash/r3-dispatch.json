@@ -1,0 +1,16 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "修正回歸與假綠",
+  "materials": [
+   "governance/review-reports/code-phase4-crash/r3-snapshot.patch",
+   "governance/review-reports/code-phase4-crash/r3-delta.patch",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/runner.py",
+   "src/rtb/dsp/store.py"
+  ],
+  "auditor": "sonnet"
+ }
+]

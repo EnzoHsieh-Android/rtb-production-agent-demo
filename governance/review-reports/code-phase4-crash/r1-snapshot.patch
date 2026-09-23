@@ -1,0 +1,341 @@
+diff --git a/tests/executor/test_crash_recovery.py b/tests/executor/test_crash_recovery.py
+new file mode 100644
+index 0000000..8352429
+--- /dev/null
++++ b/tests/executor/test_crash_recovery.py
+@@ -0,0 +1,335 @@
++"""事故 F2、F3 端到端:執行迴圈真的猝死、再真的重啟,從持久事實恢復。
++
++照 Mock DSP 猝死測試的做法(tests/dsp/test_store.py):子行程跑一段內嵌腳本,把要監控的方法
++換成「印出死點狀態、os._exit(9)」再呼叫正式入口。跟那個前例不同的兩處:
++- 換在類別上:執行迴圈的物件建好後不能改屬性,而且在啟動函式裡面才建出來,測試拿不到。
++- 時間是真的:子行程拿不到測試行程的假時鐘。重啟的子行程把時鐘往後撥 5 分鐘(舊租約 60 秒
++  已到期、可以合法接手),DSP 伺服器的時鐘同步加同樣的偏移,憑證才不會被當成來自未來。
++
++DSP 伺服器跑在測試行程的執行緒裡,子行程死掉計數也還在。計數掛在請求處理器、照路由分類:
++同一把冪等鍵的第二次寫入在 DSP 儲存層更前面就回原結果,掛在套用那一步會漏數重送。
++
++跟既有的對帳與佇列測試情境重疊;這裡補的是「行程真的猝死(沒有例外、沒有回滾、沒有收尾)」
++與「走真的啟動程式重啟(單一執行者鎖、重啟恢復、每輪先對帳)」。
++"""
++
++import itertools
++import sqlite3
++import subprocess
++import sys
++import threading
++import time
++from datetime import UTC, datetime, timedelta
++from pathlib import Path
++
++import pytest
++
++from rtb.capabilitykit import KEY_ENV
++from rtb.domain.attempt import can_transition, operation_key
++from rtb.dsp.server import CAMPAIGN_WRITE_ACTIONS, DspHandler, DspServer
++from rtb.dsp.store import CampaignStore
++from rtb.executor.inbox_store import InboxStore
++from tests.capability_samples import TEST_KEY
++from tests.executor.fakes import proposal, write_config
++
++SRC = str(Path(__file__).resolve().parents[2] / "src")
++SHIFT_SECONDS = 300  # 重啟時往後撥的時間:大於租約 60 秒
++
++CHILD = """
++import os, sqlite3, sys
++from datetime import timedelta
++from rtb.executor import runner
++from rtb.executor.dsp_client import DspClient
++from rtb.executor.execution import Executor
++from rtb.executor.inbox_store import utc_now
++
++point, shift, db = sys.argv[1], int(sys.argv[2]), sys.argv[3]
++
++def die(in_tx=False):
++    conn = sqlite3.connect(db)
++    row = conn.execute("SELECT state FROM attempts ORDER BY seq DESC LIMIT 1").fetchone()
++    disposition = conn.execute("SELECT disposition FROM proposals").fetchone()[0]
++    attempt = row[0] if row else "無"
++    print(f"DEATH in_tx={in_tx} attempt={attempt} disposition={disposition}",
++          file=sys.stderr, flush=True)
++    os._exit(9)  # 行程猝死:沒有例外、沒有 ROLLBACK、沒有 finally
++
++def before(owner, name):
++    setattr(owner, name, lambda *a, **k: die())
++
++def after(owner, name):
++    original = getattr(owner, name)
++    def wrapped(*a, **k):
++        original(*a, **k)
++        die()
++    setattr(owner, name, wrapped)
++
++def inside_transaction(self, tx, row, receipt, now):
++    ORIGINAL_ACK(self, tx, row, receipt, now)
++    die(in_tx=self.store._conn.in_transaction)
++
++if point == "before_dsp_call":
++    before(DspClient, "write")
++elif point == "after_dsp_commit":
++    after(DspClient, "write")
++elif point == "before_verification":
++    before(Executor, "_verify")
++elif point == "before_terminal_commit":
++    ORIGINAL_ACK = Executor._ack_terminal
++    Executor._ack_terminal = inside_transaction
++elif point == "after_terminal_commit":
++    after(Executor, "_verify")
++elif point == "after_receiving":
++    before(Executor, "_take")
++
++clock = lambda: utc_now() + timedelta(seconds=shift)
++sys.exit(runner.run(sys.argv[4:], clock=clock, max_rounds=3))
++"""
++
++
++class CountingHandler(DspHandler):
++    def handle_request(self, method):
++        name, _ = self._route(method)
++        kind = ("write" if name in CAMPAIGN_WRITE_ACTIONS
++                else "void" if name == "void_operation" else "other")
++        with self.server.lock:
++            self.server.counts[kind] += 1
++        return super().handle_request(method)
++
++
++class CountingDsp(DspServer):
++    def __init__(self, db):
++        super().__init__(db, fault_injection=False, hang_seconds=0, delay_seconds=0,
++                         capability_key=TEST_KEY, clock=lambda: time.time() + self.offset)
++        self.RequestHandlerClass = CountingHandler
++        self.offset = 0
++        self.lock = threading.Lock()
++        self.counts = {"write": 0, "void": 0, "other": 0}
++
++
++class World:
++    def __init__(self, tmp_path):
++        self.dsp_db, self.db = tmp_path / "dsp.db", tmp_path / "executor.db"
++        CampaignStore(self.dsp_db).seed_campaign("c1", budget=100)
++        self.dsp = CountingDsp(self.dsp_db)
++        threading.Thread(target=self.dsp.serve_forever, args=(0.02,), daemon=True).start()
++        self.config = write_config(tmp_path / "tenants.json")
++        InboxStore(self.db).close()
++
++    def submit(self, expires_in=timedelta(minutes=30), **overrides):
++        now = datetime.now(UTC)
++        prop = proposal(**{
++            "campaign_version_observed": 1,
++            "decision_created_at": (now - timedelta(minutes=1)).isoformat(),
++            "decision_expires_at": (now + expires_in).isoformat(), **overrides})
++        return prop, self.resend(prop)
++
++    def resend(self, prop):
++        store = InboxStore(self.db)
++        try:
++            return store.accept(prop, lambda: datetime.now(UTC))
++        finally:
++            store.close()
++
++    def run(self, point="none", shift=0):
++        self.dsp.offset = shift
++        url = f"http://127.0.0.1:{self.dsp.server_address[1]}"
++        argv = ["--db", str(self.db), "--dsp-url", url, "--tenant-config", str(self.config),
++                "--interval-seconds", "0.01"]
++        return subprocess.run(
++            [sys.executable, "-c", CHILD, point, str(shift), str(self.db), *argv],
++            env={"PYTHONPATH": SRC, KEY_ENV: TEST_KEY.decode()},  # 只給這一次子行程
++            timeout=60, capture_output=True, text=True)
++
++    def restart(self):
++        child = self.run(shift=SHIFT_SECONDS)
++        # 重啟真的跑起來、跑完指定輪數;否則「重啟後什麼都不變」的斷言會在啟動失敗時假綠
++        assert child.returncode == 0, child.stderr
++        assert child.stdout.splitlines() == ["READY"], child.stdout
++        return child
++
++    def counts(self):
++        with self.dsp.lock:
++            return dict(self.dsp.counts)
++
++    def attempts(self):
++        return self._query("SELECT key, state FROM attempts ORDER BY key, seq")
++
++    def proposals(self):
++        return self._query("SELECT task_id, revision, disposition, block_code, deliveries "
++                           "FROM proposals ORDER BY task_id, revision")
++
++    def budget(self):
++        store = CampaignStore(self.dsp_db)
++        try:
++            return store.get_campaign("c1").budget, len(store.history("c1"))
++        finally:
++            store.close()
++
++    def _query(self, sql):
++        conn = sqlite3.connect(self.db)
++        try:
++            return conn.execute(sql).fetchall()
++        finally:
++            conn.close()
++
++    def close(self):
++        self.dsp.shutdown()
++        self.dsp.server_close()
++
++
++@pytest.fixture
++def world(tmp_path):
++    w = World(tmp_path)
++    yield w
++    w.close()
++
++
++def die_at(world, point):
++    child = world.run(point)
++    assert child.returncode == 9, child.stderr  # 真的死在換掉的方法裡,不是正常跑完
++    return child.stderr
++
++
++def assert_recovered(world, prop):
++    """恢復完成:只有這把鍵、最後一列已驗證、訊息已交給執行、預算只改一次。
++
++    也不作廢:查到操作紀錄就該直接驗證。改走「查不到、版本已變、先作廢」那條路,作廢回已提交
++    再驗證,終態一樣對,只多一次作廢,所以要數。"""
++    key = operation_key(prop)
++    assert world.counts()["void"] == 0
++    assert {k for k, _ in world.attempts()} == {key}
++    assert world.attempts()[-1][1] == "verified"
++    assert world.proposals() == [("t1", 1, "handed_off", None, 1)]
++    assert world.budget() == (150, 1)
++
++
++# ---- [S118] ----
++def test_crash_before_the_dsp_call_is_recovered_by_a_same_key_resend(world):
++    prop, _ = world.submit()
++
++    stderr = die_at(world, "before_dsp_call")
++
++    assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
++    assert world.counts()["write"] == 0
++    world.restart()
++    assert world.counts()["write"] == 1  # 對帳查不到、檢查通過,同一把鍵重送一次
++    assert_recovered(world, prop)
++
++
++# ---- [S123] ----
++def test_crash_before_the_dsp_call_then_a_failed_recheck_voids_and_blocks(world):
++    world.submit(expires_in=timedelta(minutes=2))  # 死的時候還有效,撥 5 分鐘後已過期
++
++    stderr = die_at(world, "before_dsp_call")
++
++    assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
++    world.restart()
++    assert world.counts()["write"] == 0 and world.counts()["void"] == 1
++    assert world.attempts()[-1][1] == "failed"
++    assert world.proposals() == [("t1", 1, "blocked", "operation_previously_failed", 1)]
++    assert world.budget() == (100, 0)
++
++
++# ---- [S119] ----
++def test_crash_after_the_dsp_commit_is_recovered_from_the_operation_record(world):
++    prop, _ = world.submit()
++
++    stderr = die_at(world, "after_dsp_commit")
++
++    assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
++    assert world.counts()["write"] == 1 and world.budget() == (150, 1)
++    world.restart()
++    assert world.counts()["write"] == 1  # 用冪等鍵查到操作紀錄,不重送
++    assert_recovered(world, prop)
++
++
++# ---- [S122] ----
++def test_crash_before_verification_is_recovered_by_reconciliation(world):
++    prop, _ = world.submit()
++
++    stderr = die_at(world, "before_verification")
++
++    # 事故 F2 的形狀:本地已有持久結果,收件表還沒確認
++    assert "DEATH in_tx=False attempt=committed_unverified disposition=in_progress" in stderr
++    world.restart()
++    assert world.counts()["write"] == 1
++    assert_recovered(world, prop)
++
++
++# ---- [S120] ----
++def test_a_crash_before_the_terminal_commit_rolls_back_the_result_and_the_acknowledgement(world):
++    prop, _ = world.submit()
++
++    stderr = die_at(world, "before_terminal_commit")
++
++    # 死點在交易裡:已驗證與確認都寫了、還沒提交;另一條連線看到的仍是提交前的狀態
++    assert "DEATH in_tx=True attempt=committed_unverified disposition=in_progress" in stderr
++    assert world.attempts()[-1][1] == "committed_unverified"
++    assert world.proposals()[0][2] == "in_progress"
++    world.restart()
++    assert world.counts()["write"] == 1
++    assert_recovered(world, prop)
++
++
++# ---- [S124] ----
++def test_a_crash_after_the_terminal_commit_changes_nothing_on_restart(world):
++    prop, _ = world.submit()
++
++    stderr = die_at(world, "after_terminal_commit")
++
++    assert "DEATH in_tx=False attempt=verified disposition=handed_off" in stderr
++    before = world.attempts(), world.proposals(), world.counts()
++    world.restart()
++    assert (world.attempts(), world.proposals(), world.counts()) == before
++    assert world.counts()["write"] == 1 and world.counts()["void"] == 0
++    assert_recovered(world, prop)
++
++
++# ---- [S121] ----
++def test_f3_a_message_delivered_twice_applies_once(world):
++    prop, _ = world.submit()
++
++    stderr = die_at(world, "after_receiving")
++
++    assert "DEATH in_tx=False attempt=無 disposition=in_progress" in stderr
++    world.restart()
++    # 第二次投遞是同一列、同一個任務與修訂,投遞次數 2
++    assert world.proposals() == [("t1", 1, "handed_off", None, 2)]
++    attempts = world.attempts()
++    assert {k for k, _ in attempts} == {operation_key(prop)}  # 全程只有一把鍵
++    states = [s for _, s in attempts]
++    assert all(can_transition(a, b) for a, b in itertools.pairwise(states))
++    assert world.counts()["write"] == 1 and world.budget() == (150, 1)
++
++
++# ---- [S125] ----
++def test_f3_a_reanalysed_revision_still_passes_through_the_execution_gate(world):
++    first, _ = world.submit()
++    assert world.run().returncode == 0
++    assert world.budget() == (150, 1)
++    # 重做分析:目標不同,看到的仍是第一版執行前的版本
++    second, _ = world.submit(revision=2, requested_change={"new_budget": 160})
++    assert operation_key(second) != operation_key(first)
++
++    assert world.run().returncode == 0
++
++    assert world.proposals()[1][:4] == ("t1", 2, "blocked", "version_changed")
++    assert world.counts()["write"] == 1 and world.budget() == (150, 1)
++
++
++# ---- [S126] ----
++def test_f3_a_revision_with_the_same_operation_is_settled_from_the_finished_record(world):
++    first, _ = world.submit()
++    assert world.run().returncode == 0
++    replay = world.resend(first)  # 分析行程重送同一份提案:收件口回目前狀態、不新增一筆
++    assert replay.replayed and replay.state == "handed_off"
++    second, _ = world.submit(revision=2, reason_codes=["pacing_recheck"])  # 只改理由
++    assert operation_key(second) == operation_key(first)
++    before = world.counts()
++
++    assert world.run().returncode == 0
++
++    assert world.proposals()[1][:3] == ("t1", 2, "handed_off")
++    assert world.counts() == before  # 不讀 DSP、不再寫入
++    assert world.budget() == (150, 1)

@@ -1548,3 +1548,42 @@
 {"ts": "2026-09-23T11:00:41+08:00", "commit": "c03f4e4", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=4 soft=7"}
 {"ts": "2026-09-23T11:00:42+08:00", "commit": "c03f4e4", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260923T030038Z-89814", "head_sha": "c03f4e444558a80742e173f7eee22783b1692f6e"}
 {"ts": "2026-09-23T11:00:43+08:00", "commit": "c03f4e4", "gate": "bound-tests", "kind": "no-pins", "hard": false, "nodes": [], "note": "58420f3c71df3533215c5e8488c1faf8b915fbd3..c03f4e444558a80742e173f7eee22783b1692f6e"}
+{"ts": "2026-09-23T11:01:01+08:00", "commit": "c03f4e4", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T11:01:02+08:00", "commit": "c03f4e4", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "c03f4e444558a80742e173f7eee22783b1692f6e"}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["執行迴圈"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["寫入能力憑證"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-cascade", "kind": "warned", "hard": false, "nodes": [], "note": "unseen=2 broken=0"}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s5", "kind": "warned", "hard": false, "nodes": ["RTB_Phase4佇列與重新投遞_計劃"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用HTTP伺服器連線名額測試在CI偶發逾時"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["執行迴圈"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["寫入能力憑證"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=4 soft=6"}
+{"ts": "2026-09-23T11:01:06+08:00", "commit": "cbff788", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260923T030103Z-90147", "head_sha": "cbff788156190106def5a9c45575eb8d04eb32fd"}
+{"ts": "2026-09-23T11:01:08+08:00", "commit": "cbff788", "gate": "bound-tests", "kind": "no-pins", "hard": false, "nodes": [], "note": "c03f4e444558a80742e173f7eee22783b1692f6e..cbff788156190106def5a9c45575eb8d04eb32fd"}
+{"ts": "2026-09-23T11:25:26+08:00", "commit": "cbff788", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T11:25:27+08:00", "commit": "cbff788", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "cbff788156190106def5a9c45575eb8d04eb32fd"}
+{"ts": "2026-09-23T11:38:12+08:00", "commit": "79d39e0", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase4-crash"], "note": "disposal gate PASS"}
+{"ts": "2026-09-23T11:38:24+08:00", "commit": "79d39e0", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T11:38:25+08:00", "commit": "79d39e0", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "79d39e0955dfface57941547d7f9bfe3cd1c37c4"}
+{"ts": "2026-09-23T11:50:28+08:00", "commit": "c568207", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase4-crash"], "note": "disposal gate PASS"}
+{"ts": "2026-09-23T11:50:40+08:00", "commit": "c568207", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T11:50:41+08:00", "commit": "c568207", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "c568207f3b1b8a17c3a1c43016cec614fe59d5d7"}
+{"ts": "2026-09-23T12:05:57+08:00", "commit": "bdfe7ea", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase4-crash"], "note": "disposal gate PASS"}
+{"ts": "2026-09-23T12:06:02+08:00", "commit": "bdfe7ea", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T12:06:03+08:00", "commit": "bdfe7ea", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "bdfe7ea467222f6b132817ad77672d575fc1d2db"}

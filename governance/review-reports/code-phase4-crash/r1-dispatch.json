@@ -1,0 +1,41 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "假綠與死點準確",
+  "materials": [
+   "governance/review-reports/code-phase4-crash/r1-snapshot.patch",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/runner.py",
+   "src/rtb/dsp/server.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase4-crash/r1-snapshot.patch",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/runner.py",
+   "src/rtb/dsp/server.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/code-phase4-crash/r1-snapshot.patch",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/runner.py",
+   "src/rtb/dsp/server.py"
+  ],
+  "auditor": "codex"
+ }
+]

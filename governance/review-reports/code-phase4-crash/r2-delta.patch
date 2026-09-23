@@ -1,0 +1,234 @@
+diff --git a/tests/executor/test_crash_recovery.py b/tests/executor/test_crash_recovery.py
+index 8352429..d15689d 100644
+--- a/tests/executor/test_crash_recovery.py
++++ b/tests/executor/test_crash_recovery.py
+@@ -36,26 +36,29 @@ SRC = str(Path(__file__).resolve().parents[2] / "src")
+ SHIFT_SECONDS = 300  # 重啟時往後撥的時間:大於租約 60 秒
+ 
+ CHILD = """
+ import os, sqlite3, sys
+ from datetime import timedelta
+ from rtb.executor import runner
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import Executor
+ from rtb.executor.inbox_store import utc_now
+ 
+-point, shift, db = sys.argv[1], int(sys.argv[2]), sys.argv[3]
++point, shift, rounds, db, key = (sys.argv[1], int(sys.argv[2]), int(sys.argv[3]),
++                                 sys.argv[4], sys.argv[5])
+ 
+ def die(in_tx=False):
+     conn = sqlite3.connect(db)
+-    row = conn.execute("SELECT state FROM attempts ORDER BY seq DESC LIMIT 1").fetchone()
+-    disposition = conn.execute("SELECT disposition FROM proposals").fetchone()[0]
++    row = conn.execute("SELECT state FROM attempts WHERE key = ? ORDER BY seq DESC LIMIT 1",
++                       (key,)).fetchone()
++    disposition = conn.execute(
++        "SELECT disposition FROM proposals WHERE task_id = 't1' AND revision = 1").fetchone()[0]
+     attempt = row[0] if row else "無"
+     print(f"DEATH in_tx={in_tx} attempt={attempt} disposition={disposition}",
+           file=sys.stderr, flush=True)
+     os._exit(9)  # 行程猝死:沒有例外、沒有 ROLLBACK、沒有 finally
+ 
+ def before(owner, name):
+     setattr(owner, name, lambda *a, **k: die())
+ 
+ def after(owner, name):
+     original = getattr(owner, name)
+@@ -76,21 +79,21 @@ elif point == "before_verification":
+     before(Executor, "_verify")
+ elif point == "before_terminal_commit":
+     ORIGINAL_ACK = Executor._ack_terminal
+     Executor._ack_terminal = inside_transaction
+ elif point == "after_terminal_commit":
+     after(Executor, "_verify")
+ elif point == "after_receiving":
+     before(Executor, "_take")
+ 
+ clock = lambda: utc_now() + timedelta(seconds=shift)
+-sys.exit(runner.run(sys.argv[4:], clock=clock, max_rounds=3))
++sys.exit(runner.run(sys.argv[6:], clock=clock, max_rounds=rounds))
+ """
+ 
+ 
+ class CountingHandler(DspHandler):
+     def handle_request(self, method):
+         name, _ = self._route(method)
+         kind = ("write" if name in CAMPAIGN_WRITE_ACTIONS
+                 else "void" if name == "void_operation" else "other")
+         with self.server.lock:
+             self.server.counts[kind] += 1
+@@ -108,75 +111,101 @@ class CountingDsp(DspServer):
+ 
+ 
+ class World:
+     def __init__(self, tmp_path):
+         self.dsp_db, self.db = tmp_path / "dsp.db", tmp_path / "executor.db"
+         CampaignStore(self.dsp_db).seed_campaign("c1", budget=100)
+         self.dsp = CountingDsp(self.dsp_db)
+         threading.Thread(target=self.dsp.serve_forever, args=(0.02,), daemon=True).start()
+         self.config = write_config(tmp_path / "tenants.json")
+         InboxStore(self.db).close()
++        self.key = ""
+ 
+     def submit(self, expires_in=timedelta(minutes=30), **overrides):
+         now = datetime.now(UTC)
+         prop = proposal(**{
+             "campaign_version_observed": 1,
+             "decision_created_at": (now - timedelta(minutes=1)).isoformat(),
+             "decision_expires_at": (now + expires_in).isoformat(), **overrides})
++        self.key = self.key or operation_key(prop)  # 死點狀態看第一份提案的鍵
+         return prop, self.resend(prop)
+ 
+     def resend(self, prop):
+         store = InboxStore(self.db)
+         try:
+             return store.accept(prop, lambda: datetime.now(UTC))
+         finally:
+             store.close()
+ 
+-    def run(self, point="none", shift=0):
++    def run(self, point="none", shift=0, rounds=3):
+         self.dsp.offset = shift
+         url = f"http://127.0.0.1:{self.dsp.server_address[1]}"
+         argv = ["--db", str(self.db), "--dsp-url", url, "--tenant-config", str(self.config),
+                 "--interval-seconds", "0.01"]
+         return subprocess.run(
+-            [sys.executable, "-c", CHILD, point, str(shift), str(self.db), *argv],
++            [sys.executable, "-c", CHILD, point, str(shift), str(rounds), str(self.db),
++             self.key or "", *argv],
+             env={"PYTHONPATH": SRC, KEY_ENV: TEST_KEY.decode()},  # 只給這一次子行程
+             timeout=60, capture_output=True, text=True)
+ 
++    def recover_only(self):
++        """只啟動、不跑任何一輪:印出就緒前做完重啟恢復就結束,這時還沒有對帳介入。
++
++        對帳接手過期租約時自己也會把嘗試中轉結果不明;撥快的時鐘讓舊租約必然已過期,所以只看
++        完整重啟的終態,拿掉重啟恢復也照樣綠。要單獨驗重啟恢復,就得在對帳之前看。"""
++        child = self.run(shift=SHIFT_SECONDS, rounds=0)
++        assert child.returncode == 0, child.stderr
++        assert child.stdout.splitlines() == ["READY"], child.stdout
++        assert self._query("SELECT state FROM attempts WHERE key = ? ORDER BY seq",
++                           (self.key,))[-1][0] == "unknown"
++        assert self.proposals()[0][2] == "in_progress"
++
+     def restart(self):
+         child = self.run(shift=SHIFT_SECONDS)
+         # 重啟真的跑起來、跑完指定輪數;否則「重啟後什麼都不變」的斷言會在啟動失敗時假綠
+         assert child.returncode == 0, child.stderr
+         assert child.stdout.splitlines() == ["READY"], child.stdout
+         return child
+ 
+     def counts(self):
+         with self.dsp.lock:
+             return dict(self.dsp.counts)
+ 
+     def attempts(self):
+         return self._query("SELECT key, state FROM attempts ORDER BY key, seq")
+ 
+     def proposals(self):
+         return self._query("SELECT task_id, revision, disposition, block_code, deliveries "
+                            "FROM proposals ORDER BY task_id, revision")
+ 
++    def dsp_keys(self):
++        """DSP 那一側記下的冪等鍵:套用過的寫入與作廢過的鍵。本地紀錄留著舊鍵,不代表 DSP 收到的
++        也是它;恢復時若換了新鍵,結果不明的舊請求晚到還會再套用一次。"""
++        conn = sqlite3.connect(self.dsp_db)
++        try:
++            return ([k for (k,) in conn.execute(
++                        "SELECT idempotency_key FROM operations ORDER BY rowid")],
++                    [k for (k,) in conn.execute("SELECT key FROM voided_keys ORDER BY key")])
++        finally:
++            conn.close()
++
+     def budget(self):
+         store = CampaignStore(self.dsp_db)
+         try:
+             return store.get_campaign("c1").budget, len(store.history("c1"))
+         finally:
+             store.close()
+ 
+-    def _query(self, sql):
++    def _query(self, sql, params=()):
+         conn = sqlite3.connect(self.db)
+         try:
+-            return conn.execute(sql).fetchall()
++            return conn.execute(sql, params).fetchall()
+         finally:
+             conn.close()
+ 
+     def close(self):
+         self.dsp.shutdown()
+         self.dsp.server_close()
+ 
+ 
+ @pytest.fixture
+ def world(tmp_path):
+@@ -191,61 +220,66 @@ def die_at(world, point):
+     return child.stderr
+ 
+ 
+ def assert_recovered(world, prop):
+     """恢復完成:只有這把鍵、最後一列已驗證、訊息已交給執行、預算只改一次。
+ 
+     也不作廢:查到操作紀錄就該直接驗證。改走「查不到、版本已變、先作廢」那條路,作廢回已提交
+     再驗證,終態一樣對,只多一次作廢,所以要數。"""
+     key = operation_key(prop)
+     assert world.counts()["void"] == 0
++    assert world.dsp_keys() == ([key], [])  # DSP 套用的就是原本那把鍵
+     assert {k for k, _ in world.attempts()} == {key}
+     assert world.attempts()[-1][1] == "verified"
+     assert world.proposals() == [("t1", 1, "handed_off", None, 1)]
+     assert world.budget() == (150, 1)
+ 
+ 
+ # ---- [S118] ----
+ def test_crash_before_the_dsp_call_is_recovered_by_a_same_key_resend(world):
+     prop, _ = world.submit()
+ 
+     stderr = die_at(world, "before_dsp_call")
+ 
+     assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
+     assert world.counts()["write"] == 0
++    world.recover_only()
+     world.restart()
+     assert world.counts()["write"] == 1  # 對帳查不到、檢查通過,同一把鍵重送一次
+     assert_recovered(world, prop)
+ 
+ 
+ # ---- [S123] ----
+ def test_crash_before_the_dsp_call_then_a_failed_recheck_voids_and_blocks(world):
+-    world.submit(expires_in=timedelta(minutes=2))  # 死的時候還有效,撥 5 分鐘後已過期
++    prop, _ = world.submit(expires_in=timedelta(minutes=2))  # 死的時候還有效,撥 5 分鐘後已過期
+ 
+     stderr = die_at(world, "before_dsp_call")
+ 
+     assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
++    world.recover_only()
+     world.restart()
++    assert world.dsp_keys() == ([], [operation_key(prop)])  # 作廢的正是原本那把鍵
+     assert world.counts()["write"] == 0 and world.counts()["void"] == 1
+     assert world.attempts()[-1][1] == "failed"
+     assert world.proposals() == [("t1", 1, "blocked", "operation_previously_failed", 1)]
+     assert world.budget() == (100, 0)
+ 
+ 
+ # ---- [S119] ----
+ def test_crash_after_the_dsp_commit_is_recovered_from_the_operation_record(world):
+     prop, _ = world.submit()
+ 
+     stderr = die_at(world, "after_dsp_commit")
+ 
+     assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
+     assert world.counts()["write"] == 1 and world.budget() == (150, 1)
++    world.recover_only()
+     world.restart()
+     assert world.counts()["write"] == 1  # 用冪等鍵查到操作紀錄,不重送
+     assert_recovered(world, prop)
+ 
+ 
+ # ---- [S122] ----
+ def test_crash_before_verification_is_recovered_by_reconciliation(world):
+     prop, _ = world.submit()
+ 
+     stderr = die_at(world, "before_verification")
