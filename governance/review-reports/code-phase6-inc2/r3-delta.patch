@@ -1,0 +1,73 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+index dc55546..5ccb171 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+@@ -100,11 +100,11 @@ REVISIT:2027-01-31 分析行程的啟動程式開工時,確認它給了操作查
+ - **收件口回應要核對任務、修訂、內容雜湊與「處置跟原因對得上」**,任何一項不符都當成這一輪沒有進展,不拿別的提案的回應替這個任務結案。
+ - 分析端核對 DSP 操作紀錄的四個欄位,跟執行端對帳核對的是同一組([[Systems/執行迴圈]]);兩邊各寫一份,因為分析行程不准匯入執行行程的模組(邊界測試守著)。以後改其中一邊的核對欄位,要兩邊一起改。
+ - 版本檢查、新鮮度、冪等的分工:版本檢查(執行端)防「根據過時現況做的決策覆蓋新值」;新鮮度(分析端)防「用過期證據做決策」;冪等(執行端與 DSP)防「同一個決策套用兩次」。三者互補、不能互相取代;這個階段多了一件:收件表清掉之後,冪等鍵是分析端查「有沒有寫進去」的鑰匙。
+ - 衝突指標(最小版):分析端只讀接續關係表(不會被清、帶廣告編號並建索引),算得出重新規劃、代數用完、因保留期而重新規劃的次數;DSP 回版本衝突的次數在執行端嘗試紀錄算。
+ - **收件口回來的擋下原因只收固定清單**(版本已變、不允許、廣告不存在、廣告未啟用、同一操作先前已失敗);不在清單的當成回應讀不懂、這一輪沒有進展,不寫進只增不改的歷史表(2026-09-23 代碼審資安席:對方回什麼字串都原樣寫進稽核紀錄,是偽造稽核行與終端機逃逸的注入管道)。「不允許」是超過預算上限與廣告不屬於租戶合併後的泛稱:使用者 2026-09-23 裁定,分析行程不該能用重送試出預算上限與租戶歸屬。
+ - 原任務的錯誤說明格式:`<收件口回的>;replan=<重新規劃原因>;<follow_up=接續任務編號|replan_limit_reached=3|follow_up_id_collision=編號>`,只有重新規劃時才有後兩段。
+ - PITFALL: 開舊資料庫補欄位時,「看欄位缺不缺」要在拿到寫入鎖之後再看一次:多個工作者同時開 Phase 5 之前的資料庫,都先看到缺欄位,先拿到鎖的補完,後到的照舊再補會撞「欄位重複」直接啟動失敗(2026-09-23 Phase 5 代碼審第 3 輪外家席實測重現;證據表補欄位也是同一個寫法,一起改成共用的補欄函式)。防回歸:[test:test_another_worker_migrating_between_the_check_and_the_lock_is_harmless]。
+ 
+ ## 分析行程沒有寫入呼叫(Phase 6 增量 2,2026-09-23)
+ 
+-- RULE: 分析行程原始碼的靜態匯入閉包(從分析行程套件出發,檔案裡任何位置的匯入都算,含函式內部與相對匯入,加上沿途各層套件的初始化檔,遞迴到沒有新的本專案模組)裡,共用 HTTP 用戶端只准被匯入請求函式這一個名字、不准取別名,而且只准分析端 DSP 用戶端與收件口用戶端兩支檔案匯入;請求函式每次出現都要是直接呼叫、方法是字面常數、不帶標頭;DSP 用戶端只有 GET,收件口用戶端只有一個送到提案路徑的 POST;閉包裡每個模組(共用 HTTP 用戶端自己除外)也不准自己匯入網路模組或動態匯入(領域層小函式繞過共用用戶端直接發請求,代碼審第 1 輪外家席)。防的是忘記(別名、偏函式、領域層順手加的呼叫、共用用戶端哪天多一支請求入口),不防刻意用動態匯入或反射藏起來;兜底是 DSP 沒有憑證一律拒收。既有的「不准匯入執行側與憑證模組」守的是拿不到憑證,這條守的是連寫入的呼叫都不存在。出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 2 [S408]。防回歸:[test:test_the_analyzer_has_no_write_call_besides_submitting_a_proposal],自我驗證 [test:test_the_write_call_scan_catches_forgetful_variants](十四種不小心的寫法都要抓到)。[since:2026-09-23] [retire:分析行程改由獨立的沙箱或網路政策隔離、在作業系統層就連不到 DSP 寫入端點時]
++- RULE: 分析行程原始碼的靜態匯入閉包(從分析行程套件出發,檔案裡任何位置的匯入都算,含函式內部與相對匯入,加上沿途各層套件的初始化檔,遞迴到沒有新的本專案模組)裡,共用 HTTP 用戶端只准被匯入請求函式這一個名字、不准取別名,而且只准分析端 DSP 用戶端與收件口用戶端兩支檔案匯入;請求函式每次出現都要是直接呼叫、方法是字面常數、不帶標頭;DSP 用戶端只有 GET,收件口用戶端只有一個送到提案路徑的 POST;閉包裡每個模組(共用 HTTP 用戶端自己除外)也不准自己匯入網路模組或動態匯入(領域層小函式繞過共用用戶端直接發請求,代碼審第 1 輪外家席)。動態匯入只看名稱、刻意從嚴:閉包裡任何叫 import_module 的名字或屬性都算,撞到同名普通函式就改名,不要放寬判斷(代碼審第 2 輪)。防的是忘記(別名、偏函式、領域層順手加的呼叫、共用用戶端哪天多一支請求入口),不防刻意用動態匯入或反射藏起來;兜底是 DSP 沒有憑證一律拒收。既有的「不准匯入執行側與憑證模組」守的是拿不到憑證,這條守的是連寫入的呼叫都不存在。出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 2 [S408]。防回歸:[test:test_the_analyzer_has_no_write_call_besides_submitting_a_proposal],自我驗證 [test:test_the_write_call_scan_catches_forgetful_variants](十四種不小心的寫法都要抓到)。[since:2026-09-23] [retire:分析行程改由獨立的沙箱或網路政策隔離、在作業系統層就連不到 DSP 寫入端點時]
+diff --git a/tests/analyzer/test_boundaries.py b/tests/analyzer/test_boundaries.py
+index ab00d19..bdd5915 100644
+--- a/tests/analyzer/test_boundaries.py
++++ b/tests/analyzer/test_boundaries.py
+@@ -107,21 +107,24 @@ def test_the_analyzer_reaches_the_network_only_through_the_shared_client():
+     另寫一個直接用 urllib 發請求的小工具,就能把任意標頭(含故障注入)送出去,原本的測試
+     與原始碼掃描都看不到。這裡直接解析原始碼:分析行程不准自己匯入網路模組,也不准動態匯入。"""
+     analyzer = Path(__file__).resolve().parents[2] / "src" / "rtb" / "analyzer"
+     offenders = []
+     for file in sorted(analyzer.rglob("*.py")):
+         offenders += _network_offenders(file.name, ast.parse(file.read_text(encoding="utf-8")))
+     assert offenders == []
+ 
+ 
+ def _network_offenders(label, tree):
+-    """自己匯入網路模組或動態匯入的地方(分析行程目錄與 [S408] 的匯入閉包共用這一份判斷)。"""
++    """自己匯入網路模組或動態匯入的地方(分析行程目錄與 [S408] 的匯入閉包共用這一份判斷)。
++
++    只看名稱、不追它綁到哪裡:任何叫 import_module 的名字或屬性都算動態匯入,刻意從嚴(寧可誤報、
++    不漏)。代價是閉包裡的模組不能有同名的普通函式;真的撞到就改名,不要放寬這裡(代碼審第 2 輪)。"""
+     offenders = []
+     for node in ast.walk(tree):
+         modules = []
+         if isinstance(node, ast.Import):
+             modules = [alias.name for alias in node.names]
+         elif isinstance(node, ast.ImportFrom) and node.module:
+             modules = [node.module]
+         elif (isinstance(node, ast.Name) and node.id in ("__import__", "import_module")) or (
+             isinstance(node, ast.Attribute) and node.attr == "import_module"
+         ) or (isinstance(node, ast.alias) and node.name == "import_module"):
+diff --git a/tests/executor/test_guardrails.py b/tests/executor/test_guardrails.py
+index 6f1499f..ba4dc50 100644
+--- a/tests/executor/test_guardrails.py
++++ b/tests/executor/test_guardrails.py
+@@ -179,20 +179,21 @@ def test_the_guardrail_table_covers_every_block_code():
+     for code in SINGLE_RULE_CODES:
+         rows = [row for row in GUARDRAILS if row[0] == code.value]
+         assert any(row[3] is code for row in rows), code  # 至少一列擋下
+         assert any(row[3] is None for row in rows), code  # 至少一列通過
+     assert all(row[3] in (None, BlockCode(row[0])) for row in GUARDRAILS)  # 擋下代碼就是那一列的
+ 
+ 
+ # ---- S405 ----
+ @pytest.mark.parametrize(("setups", "new_budget", "expected"), [
+     ((_campaign(status="paused"),), 151, BlockCode.CAMPAIGN_NOT_ACTIVE),  # 不在投放 > 比例
++    ((_campaign(status="paused", version=4),), 150, BlockCode.CAMPAIGN_NOT_ACTIVE),  # > 版本已變
+     ((_campaign(version=4),), 151, BlockCode.VERSION_CHANGED),  # 版本已變 > 比例
+     ((_tenant(campaigns=("c2",)),), 151, BlockCode.BUDGET_INCREASE_TOO_LARGE),  # 比例 > 租戶
+     ((_tenant(campaigns=("c2",), max_budget=120),), 150, BlockCode.CAMPAIGN_NOT_ALLOWED),
+ ])
+ def test_the_first_failing_guardrail_wins(h, setups, new_budget, expected):
+     h.submit(requested_change={"new_budget": new_budget})
+     for setup in setups:
+         setup(h)
+     result = h.process()
+     assert (result.kind, result.block_code) == (Result.BLOCKED, expected)

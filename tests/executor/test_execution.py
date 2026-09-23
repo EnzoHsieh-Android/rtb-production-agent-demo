@@ -24,6 +24,7 @@ from rtb.executor.execution import (
 from rtb.executor.inbox_store import BlockCode
 from tests.capability_samples import TEST_KEY
 from tests.executor.fakes import Harness, proposal
+from tests.executor.test_guardrails import HISTORICAL_CODES
 
 A = AttemptState
 C = OutcomeCode
@@ -136,6 +137,11 @@ def _over_cap(h):
     write_config(h.config, max_budget=149)  # 提案要改成 150
 
 
+def _over_ratio(h):
+    # 提案要改成 150;現況 99 時最多加 49
+    h.dsp.campaigns["c1"] = CampaignView(budget=99, status="active", version=3)
+
+
 def _previously_failed(h):
     """同一個邏輯操作先前已失敗(人工判失敗),DSP 版本沒動;換到期時間的新修訂進來。"""
     first = h.submit()
@@ -161,14 +167,17 @@ BLOCK_TRIGGERS = {
     BlockCode.VERSION_CHANGED: _version_changed,
     BlockCode.CAMPAIGN_NOT_ALLOWED: _not_allowed,
     BlockCode.OVER_BUDGET_CAP: _over_cap,
+    # 下面「等於整個列舉」的斷言之後由護欄表三份清單取代(Phase 6 增量 2)
+    BlockCode.BUDGET_INCREASE_TOO_LARGE: _over_ratio,
     BlockCode.OPERATION_PREVIOUSLY_FAILED: _previously_failed,
     BlockCode.AGGREGATE_LIMIT_REACHED: _aggregate_full,  # Phase 6:開始一筆時擋,不是執行前檢查
 }
 
 
-@pytest.mark.parametrize("code", list(BlockCode))
+# 歷史相容代碼(規則已拿掉、只為讀舊資料而留)沒有觸發路徑,不在這張表(Phase 6 增量 2)
+@pytest.mark.parametrize("code", [c for c in BlockCode if c not in HISTORICAL_CODES])
 def test_each_failed_precheck_blocks_the_proposal_without_a_write(h, code):
-    assert set(BLOCK_TRIGGERS) == set(BlockCode)  # 從程式自己的清單列舉,每一種都有觸發條件
+    # 「表的鍵等於整個列舉」由護欄表的三份清單斷言取代(Phase 6 增量 2 [S404]);這張表仍逐一觸發
     if code is not BlockCode.OPERATION_PREVIOUSLY_FAILED:
         h.submit()
     BLOCK_TRIGGERS[code](h)

@@ -144,7 +144,8 @@ def test_two_live_workers_process_a_message_once(h, monkeypatch):
 # ---- [S131] ----
 def test_two_workers_never_run_the_same_campaign_at_once(h, monkeypatch):
     h.submit(task_id="t1")
-    h.submit(task_id="t2", requested_change={"new_budget": 160})  # 同一個廣告的另一份提案
+    # 同一個廣告的另一份提案;新預算落在比例上限內(Phase 6 增量 2 起,從 100 最多加到 150)
+    h.submit(task_id="t2", requested_change={"new_budget": 140})
     # 兩邊都取完件、都還沒開始嘗試時一起放行:測的是開始嘗試那一道(同廣告已有未結案嘗試就不開始)。
     # 取件那一道(已有嘗試的廣告不交出去)是增量 1 已測過的另一道
     meet_before(monkeypatch, "_take")

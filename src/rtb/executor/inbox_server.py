@@ -132,6 +132,7 @@ class InboxHandler(JsonHandler):
 # 被劫持的分析行程可以一路試出租戶的預算上限與廣告歸屬。只在回應本文合併,收件表照記細分代碼
 _PERMISSION_BLOCKS = frozenset({BlockCode.OVER_BUDGET_CAP.value,
                                 BlockCode.CAMPAIGN_NOT_ALLOWED.value,
+                                BlockCode.BUDGET_INCREASE_TOO_LARGE.value,  # Phase 6 增量 2
                                 # 總曝險已滿也併進去:分析行程不該能用重送試出剩餘額度(Phase 6)
                                 BlockCode.AGGREGATE_LIMIT_REACHED.value})
 NOT_PERMITTED = "not_permitted"

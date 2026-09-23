@@ -1,0 +1,4 @@
+{"round": "r1", "loop": "code-phase6-inc2", "tier": "standard", "base": "48007b1", "snapshot": "r1-snapshot.patch", "reviewed_sha256": "4d9e6d9e0aa87f97b9c89a042e9137dff58d4f1815eb002ffa339a831d2f9f98", "seats": [
+ {"seat": "reviewer-sonnet", "lens": "正確性、邊界與既有測試改動", "materials": ["r1-snapshot.patch"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.patch"]},
+ {"seat": "veto-codex", "lens": "外家否決", "materials": ["r1-snapshot.patch"]}]}

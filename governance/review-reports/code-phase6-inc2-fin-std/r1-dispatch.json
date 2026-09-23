@@ -1,0 +1,3 @@
+{"round": "r1", "loop": "code-phase6-inc2-fin-std", "tier": "standard", "base": "5809cc5", "snapshot": "r1-snapshot.patch", "reviewed_sha256": "7bbe3a70a45a32a0c8d5f93a301ddd0f564d673d6d0c9e8f45fb36b25b3e59ec", "note": "light 迴圈 code-phase6-inc2-fin 抓到 major 後照 ratchet 改開 -std", "seats": [
+ {"seat": "reviewer-codex", "lens": "正確性與假綠", "materials": ["r1-snapshot.patch"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.patch"]}]}

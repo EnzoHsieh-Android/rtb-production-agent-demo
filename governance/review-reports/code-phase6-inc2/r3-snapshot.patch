@@ -1,0 +1,878 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
+index fa769c0..7de6b02 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
+@@ -120,21 +120,21 @@ REVISIT:2027-01-31 有真實的政策或模型改版推出流程時,評估要不
+ - [S342] 當總曝險擋下,執行端應在同一個交易裡寫一列擋下紀錄(冪等鍵、租戶、廣告、這筆金額、當時已用額度、當時門檻、時間),這張表只增不改、不被清理。[test:test_an_aggregate_block_leaves_a_durable_record]
+ - [S343] 當執行行程資料庫是 Phase 6 之前建的,開啟時應替嘗試紀錄補上租戶與預留金額兩欄、不回填;沒有租戶與金額的舊加預算鍵應以新預算全額算進每一個租戶的額度,已驗證的照驗證完成時間出窗,沒有終點的一直算到結案。[test:test_old_attempts_count_against_every_tenant_until_they_leave_the_window]
+ 
+ ### 回退(增量 1)
+ 
+ - 拿掉開始一筆時的總額檢查與預留欄位寫入,即回到只有單一廣告上限;嘗試紀錄多出的兩欄、新索引與擋下紀錄表留著無害。設定檔多出的欄位,舊版簽發器不讀(照既有解析,多的欄位不影響)。
+ - **擋下原因列舉裡的「總曝險已滿」不能拿掉**(增量 2 設計審第 1 輪指出):收件表已經記著這個值的舊列,重建表時會撞上允許值限制、資料庫開不起來。回退時這個成員留在列舉裡、標成「歷史相容代碼」(沒有觸發路徑),收件口回應的合併清單也照留。
+ 
+ ## 增量 2 設計:護欄表格
+ 
+-- **狀態(2026-09-23):設計初稿寫完,待主線看過再決定設計審怎麼跑**(另一個工作區撰寫)。
++- **狀態(2026-09-23):設計審三輪收斂;不依賴增量 1 的部分已實作**(比例上限 [S400]–[S402]、護欄表邊界 [S403]、[S404] 的表那一半、[S405]、[S407]、[S408]、[S409];另一個工作區做)。**剩依賴增量 1 的部分**:[S406] 用增量 1 版列舉建舊庫、[S404] 的三份清單斷言(要列總曝險擋下原因,屆時拿掉既有觸發表「等於整個列舉」那句)。實作時定下的細節:比例上限三個常數放在執行迴圈模組(分子 1、分母 2、最小加額 1);[S408] 另有一支自我驗證,複製一份原始碼放進十四種不小心的寫法,掃描都要抓到(代碼審第 1 輪外家席補了兩個洞:沿途各層套件的初始化檔也要收進閉包;網路模組與動態匯入禁令套到整個閉包,擋領域層小函式繞過共用用戶端直接發請求);既有三支測試的資料或列舉跟著改(兩支並行測試的第二份提案從 160 改成 140,落在比例內;擋下原因封閉列舉多一個值)。
+ 
+ PRIOR-ART(增量 2): 單筆變動比例上限是交易風控的標準「單筆限額」(券商的單筆下單上限、支付的單筆額度),以「現值的百分比」表示、另給一個絕對下限免得小額帳戶動彈不得;規則表加表格驅動測試是決策表測試(decision table testing)的常見做法。本專案的單筆檢查已經分成兩處(執行前檢查看 DSP 現況、簽發器看租戶設定),新規則放進其中一處,不另起第三處。
+ RETIRE-IF(增量 2): 比例上限連續三個月零觸發、而且總曝險預留(增量 1)已經擋住同類事故時,撤掉比例上限;或者 DSP 自己提供單筆變動上限時,改接 DSP 的機制。
+ 
+ - **實作前提:增量 1 已合併**(設計審第 2 輪規則表席:完整性清單要列增量 1 的總曝險擋下原因、[S406] 要用增量 1 版列舉建舊庫,兩者都要增量 1 先在)。
+ 
+ ### 現況(2026-09-23 開檔核對)
+ 
+ - 單筆檢查分兩處,依序跑,第一個不過就擋下、不寫嘗試紀錄、不呼叫 DSP 寫入:
+   - 執行前檢查(執行迴圈模組的 `precheck`,只看提案與 DSP 現況):廣告不存在 → 不在投放 → 版本已變。處理一筆、憑證過期後重讀、對帳查不到而重跑,三處都呼叫這同一支。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+index d8a84b1..5ccb171 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+@@ -97,10 +97,14 @@ REVISIT:2026-12-31 分析行程有正式啟動程式、或決策改接外部模
+ REVISIT:2027-01-31 分析行程的啟動程式開工時,確認它給了操作查詢,並考慮把預設空值拿掉。
+ - **建接續任務、寫接續關係、原任務結案是同一個交易,走原任務的租約圍籬。** 分成兩個交易的話,被接手的過期持有者會先寫進接續任務(Phase 4「被接手後零寫入」)。
+ - **查 DSP 用交接那一列存下的冪等鍵。** Phase 5 之前交接的舊列沒有存鍵,只能用目前的算法重算,只在算法還是第一版時正確;冪等鍵前綴由一支測試釘住,改算法的那次改動會先撞到它。
+ - **收件口回應要核對任務、修訂、內容雜湊與「處置跟原因對得上」**,任何一項不符都當成這一輪沒有進展,不拿別的提案的回應替這個任務結案。
+ - 分析端核對 DSP 操作紀錄的四個欄位,跟執行端對帳核對的是同一組([[Systems/執行迴圈]]);兩邊各寫一份,因為分析行程不准匯入執行行程的模組(邊界測試守著)。以後改其中一邊的核對欄位,要兩邊一起改。
+ - 版本檢查、新鮮度、冪等的分工:版本檢查(執行端)防「根據過時現況做的決策覆蓋新值」;新鮮度(分析端)防「用過期證據做決策」;冪等(執行端與 DSP)防「同一個決策套用兩次」。三者互補、不能互相取代;這個階段多了一件:收件表清掉之後,冪等鍵是分析端查「有沒有寫進去」的鑰匙。
+ - 衝突指標(最小版):分析端只讀接續關係表(不會被清、帶廣告編號並建索引),算得出重新規劃、代數用完、因保留期而重新規劃的次數;DSP 回版本衝突的次數在執行端嘗試紀錄算。
+ - **收件口回來的擋下原因只收固定清單**(版本已變、不允許、廣告不存在、廣告未啟用、同一操作先前已失敗);不在清單的當成回應讀不懂、這一輪沒有進展,不寫進只增不改的歷史表(2026-09-23 代碼審資安席:對方回什麼字串都原樣寫進稽核紀錄,是偽造稽核行與終端機逃逸的注入管道)。「不允許」是超過預算上限與廣告不屬於租戶合併後的泛稱:使用者 2026-09-23 裁定,分析行程不該能用重送試出預算上限與租戶歸屬。
+ - 原任務的錯誤說明格式:`<收件口回的>;replan=<重新規劃原因>;<follow_up=接續任務編號|replan_limit_reached=3|follow_up_id_collision=編號>`,只有重新規劃時才有後兩段。
+ - PITFALL: 開舊資料庫補欄位時,「看欄位缺不缺」要在拿到寫入鎖之後再看一次:多個工作者同時開 Phase 5 之前的資料庫,都先看到缺欄位,先拿到鎖的補完,後到的照舊再補會撞「欄位重複」直接啟動失敗(2026-09-23 Phase 5 代碼審第 3 輪外家席實測重現;證據表補欄位也是同一個寫法,一起改成共用的補欄函式)。防回歸:[test:test_another_worker_migrating_between_the_check_and_the_lock_is_harmless]。
++
++## 分析行程沒有寫入呼叫(Phase 6 增量 2,2026-09-23)
++
++- RULE: 分析行程原始碼的靜態匯入閉包(從分析行程套件出發,檔案裡任何位置的匯入都算,含函式內部與相對匯入,加上沿途各層套件的初始化檔,遞迴到沒有新的本專案模組)裡,共用 HTTP 用戶端只准被匯入請求函式這一個名字、不准取別名,而且只准分析端 DSP 用戶端與收件口用戶端兩支檔案匯入;請求函式每次出現都要是直接呼叫、方法是字面常數、不帶標頭;DSP 用戶端只有 GET,收件口用戶端只有一個送到提案路徑的 POST;閉包裡每個模組(共用 HTTP 用戶端自己除外)也不准自己匯入網路模組或動態匯入(領域層小函式繞過共用用戶端直接發請求,代碼審第 1 輪外家席)。動態匯入只看名稱、刻意從嚴:閉包裡任何叫 import_module 的名字或屬性都算,撞到同名普通函式就改名,不要放寬判斷(代碼審第 2 輪)。防的是忘記(別名、偏函式、領域層順手加的呼叫、共用用戶端哪天多一支請求入口),不防刻意用動態匯入或反射藏起來;兜底是 DSP 沒有憑證一律拒收。既有的「不准匯入執行側與憑證模組」守的是拿不到憑證,這條守的是連寫入的呼叫都不存在。出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 2 [S408]。防回歸:[test:test_the_analyzer_has_no_write_call_besides_submitting_a_proposal],自我驗證 [test:test_the_write_call_scan_catches_forgetful_variants](十四種不小心的寫法都要抓到)。[since:2026-09-23] [retire:分析行程改由獨立的沙箱或網路政策隔離、在作業系統層就連不到 DSP 寫入端點時]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+index 4d538d7..3bace32 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+@@ -110,13 +110,14 @@ kill_recipes: |-
+ 
+ ## 多工作者(Phase 4 增量 3a,2026-09-23)
+ 
+ - WHY: 單一執行者鎖是 Phase 3 先求安全的簡化,它的撤除條件就是「Phase 4 多工作者上線」;互斥本來就由增量 1 的租約與收據守著。拿掉鎖後,唯一還會碰到別人手上嘗試的全域動作是重啟恢復,收窄成只碰沒人持有的;新時代每一筆嘗試中都在核對收據的同一個交易裡開始,所以沒有處理中訊息的只可能是舊資料。出處:[[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3a 與它的三輪設計審。鎖相關的三條 PITFALL(鎖名綁實體身分、鎖外才開資料庫、符號連結拿到兩把鎖)隨鎖撤除;它們共同的顧慮——同一個資料庫被兩組 WAL 檔開啟——只剩硬連結一種,由「有硬連結就在用 SQLite 開庫前拒絕啟動」守(符號連結與相對路徑 SQLite 會解析成同一個檔,第 1 輪設計審相容席實測)。
+ - PITFALL: 沒有收據的舊鍵(收件表沒有對應處理中訊息)沒有租約可搶,多個工作者會同時對帳它;寫嘗試紀錄與記查證逾時是兩段各自獨立的「序號對不上」判斷,兩處都要改成放棄,只改一處另一條路照樣停機。有收據時序號對不上仍停機:那代表有人繞過租約寫了嘗試紀錄。防回歸:[test:test_two_workers_reconciling_a_legacy_key_never_halt_and_write_once]、[test:test_two_workers_timing_out_on_a_legacy_key_never_halt]。
+ - PITFALL: 「兩個工作者同時取件只處理一次」要讓先取到的一方停在取件之後、開始嘗試之前:「租約未到期不交出」只在這段空檔起作用,先取到的一旦開始嘗試,廣告被鎖、取件本來就跳過它。原本的寫法靠時序,拿掉那道防線有時仍綠(2026-09-23 事故 F3 轉正時的殺傷力驗證抓到)。防回歸:[test:test_two_live_workers_process_a_message_once]。
+ - PITFALL: 並行測試的柵欄要放在進資料庫交易之前(開始一筆、寫嘗試紀錄都包在立即取得寫入鎖的交易裡,柵欄在交易裡會兩邊互等);「同一個廣告不會同時執行兩筆」要讓先開始的那一方停在 DSP 寫入,否則它一路寫完結案,另一方之後合法開始,測不到開始嘗試那一道互斥(2026-09-23 實作時第一次寫的版本就是這樣假過)。防回歸:[test:test_two_workers_never_run_the_same_campaign_at_once]。
+ - 真並行驗證:[test:test_two_live_workers_process_a_message_once]、[test:test_a_restarting_worker_leaves_a_live_workers_attempt_alone]、[test:test_a_worker_that_wakes_after_losing_its_lease_gives_up_without_halting];兩個啟動程式真的同時啟動:[test:test_two_runners_start_side_by_side_and_each_recovers_before_ready];重啟恢復範圍:[test:test_restart_recovery_only_touches_attempts_without_an_in_progress_message]、[test:test_restart_recovery_moves_nothing_while_an_in_progress_row_is_unreadable];忙碌:[test:test_a_busy_database_rests_a_round_and_halts_only_after_three_in_a_row]。
+ - PITFALL: 啟動時的忙碌有兩處:開庫與重啟恢復那個交易。只讓開庫失敗的測試,把重啟恢復那段忙碌處理整段拿掉照樣綠(代碼審第 1 輪外家席與設計符合度席各自實驗抓到)。防回歸:[test:test_a_busy_restart_recovery_at_startup_retries_before_giving_up]。
+ - PITFALL: 「沒有處理中訊息的嘗試中一定是舊資料、沒人在做」這個前提不成立:對帳舊鍵時也會先寫嘗試中再呼叫 DSP。另一個工作者這時重啟,把它當孤兒轉掉,DSP 已套用、本地卻停在結果不明(代碼審第 2 輪外家席用確定性交錯重現)。舊鍵沒有租約可看,改看那一列寫下多久。防回歸:[test:test_a_restarting_worker_leaves_a_live_legacy_reconciliation_alone]、[test:test_reconciliation_recovers_a_stale_legacy_in_flight_attempt]。
++- RULE: 執行前檢查的第四項是單筆加預算的比例上限:改預算而且加的量超過 max(現況乘五成取下限, 1) 就擋下「單筆加預算超過比例上限」;減預算、暫停不受影響(使用者 2026-09-23 裁定:五成、最小加額 1、全域一個值)。排在版本已變之後,走到這一項時現況一定是提案觀察到的那個版本,比例的基準不會被另一方的修改帶偏;重跑檢查的兩條路徑不會新冒出比例擋下(DSP 每改一次都升版本,版本沒變預算就沒變)。現況預算 0 走不到這一項(DSP 用戶端讀成讀不懂)。單筆規則只有執行前檢查與簽發器兩處,護欄表是測試資料、不是第三套檢查。出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 2。防回歸:[test:test_a_budget_increase_is_bounded_by_the_ratio_cap]、[test:test_every_guardrail_holds_at_its_boundaries]、[test:test_the_first_failing_guardrail_wins]、[test:test_the_analyzer_policy_never_trips_the_ratio_cap]。[since:2026-09-23] [retire:比例上限連續三個月零觸發、而且總曝險預留已擋住同類事故,或 DSP 自己提供單筆變動上限時]
+ - RULE: DSP 逾時乘以 6 要小於租約時間(60 秒),否則啟動程式拒絕啟動(結束代碼 7)。判斷「有沒有人還在做」看的是租約(舊鍵看那一列寫下多久),都假設一次 DSP 呼叫一定在租約時間內結束;逾時是命令列參數,原本只靠預設值 5 秒剛好成立。[since:2026-09-23] [retire:租約改成量測校準、或改由佇列軟體管時] 防回歸:[test:test_a_dsp_timeout_too_close_to_the_lease_is_refused]。
+ - WHY: 「DSP 最多收到 1 次寫入」守的是兩個工作者同時搶;一次呼叫慢到超過租約、被接手重送時,DSP 會收到兩次同一把鍵的寫入,靠冪等鍵只套用一次——跟增量 1「失去租約的工作者醒來補送」是同一個保證(代碼審第 3 輪資安席實驗)。
+ - TEST: tests/executor/test_multi_worker.py、test_runner.py、test_attempt_store.py 涵蓋 S127–S136、S138、S139(S137 撤回);2026-09-23 變異檢查二十八道防護逐一拆掉全部變紅(含代碼審第 1 輪補的重啟恢復忙碌重試、關連線、每輪忙碌代碼、硬連結)。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+index dded551..47d2b2a 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+@@ -24,21 +24,21 @@ summary: |-
+   RULE: 格式不合法的提案被拒時(讀本文就被拒的:分塊傳送、長度標頭不合法、本文過大、不是合法 JSON、逾時、本文不完整;或解析不過的),回應之前在標準錯誤寫一行「invalid_proposal errors=<錯誤類別>」,類別排序、去重、逗號分隔;解析錯誤裡帶攻擊者可控尾巴的三種(未知欄位的鍵名、過大的位元組數、例外型別名)只留冒號前的類別,其餘都是白名單欄位名或固定詞。不碰資料庫、不拿鎖,所以上一條「不記事件」照舊成立;被劫持的分析行程送垃圾,事後查得到。媒體類型、瀏覽器來源、路徑不對不算提案本文,不記。出處:[[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 增量 5(2026-09-23 使用者裁定選 b)。防回歸:[test:test_an_invalid_proposal_is_rejected_and_logged_without_its_content]、[test:test_body_rejections_before_parsing_are_logged_with_their_fixed_code]、[test:test_requests_that_are_not_a_proposal_body_are_not_logged]。[since:2026-09-23] [retire:Phase 9 可觀測性把拒收紀錄改成持久化或告警時重審]
+   RULE: 收件表有三道界限:每個任務最多 50 個修訂(409 too_many_revisions)、總列數最多 5000(滿了回可重試的 503 inbox_full)、沒有待處理且最後一次收件超過 2 小時的舊任務整個清掉(只清整個任務,清一半會讓修訂連號倒退;保留期限必須比提案最長有效期長,所以被清掉的提案再送來一定已過期,不會被當成新提案)。原因:「取代鏈」(同一任務連續送下一個修訂)不佔待處理名額,沒有這些界限就能無限寫入吃光磁碟(2026-09-22 第 3 輪資安席實測每秒約 540 列)。決策建立時間不得比現在晚超過 5 分鐘(422 created_in_future)。[since:2026-09-22] [retire:改成有配額與清理機制的外部儲存時重審]
+   RULE: 收件口資料庫模組同時是整個執行行程資料庫唯一開連線、開交易的地方:它也建外部寫入嘗試的表,並提供 `transaction()` 交易入口給 [[Systems/外部寫入嘗試紀錄]] 用(發出交易物件:只有這裡持有憑證能建立,交易結束時在 finally 裡把它作廢,所以留著的舊物件在同一條連線的下一筆交易裡也不能再用)(鎖不到丟跟收件一樣可重試的忙碌錯誤)。原因:Phase 3 的「取件與開始一筆」必須同一個交易,兩支模組各開連線就做不到。[since:2026-09-22] [retire:執行行程改用別的儲存或佇列時重審]
+   PITFALL: 拒收時交易若整個回滾,交易開頭「順手把到期的待處理標為已過期」也會跟著丟掉,反覆送會被拒收的請求就能讓已到期的資料一直顯示為待處理;所有拒收都發生在任何寫入之前,所以拒收照樣提交。防回歸:[test:test_an_expired_pending_proposal_is_marked_even_when_the_request_that_noticed_it_is_rejected]。
+   PITFALL: 現在時間若在等寫入鎖之前就讀,鎖被佔很久時會用過時的時間判斷到期(已到期的提案仍被收下);必須拿到鎖之後才讀。防回歸:[test:test_the_current_time_is_read_only_after_the_write_lock_is_held]。
+   PITFALL: 解析器的欄位驗證只能有一份:收件口模組不得自帶驗證,測試用同一批「解析器一定拒絕」的樣本要求收件口也拒絕。防回歸:[test:test_every_sample_the_domain_parser_rejects_is_also_rejected_by_the_inbox_and_the_inbox_defines_no_validators]。
+   PITFALL: 同鍵並行請求必須恰好接受一個;先查後寫若不在同一個 IMMEDIATE 交易內,會雙寫或誤回 409。防回歸:[test:test_concurrent_requests_for_the_same_key_accept_exactly_one](穩定性:連跑 25 次 0 次失敗)。
+   PITFALL: 「刻意不回應」與「回 500」必須分得開,故障注入才能測出「提交前中斷」與「提交後回應前中斷」兩種不同語意。防回歸:[test:test_a_crash_before_commit_loses_nothing_and_a_crash_after_commit_is_answered_by_the_replay]。
+   RULE: 「待處理」= 狀態是待處理而且處置是空的(執行一筆起新增處置與擋下原因兩欄,不動既有狀態欄位);待處理上限、取代、到期標記、保留期清除、執行迴圈挑提案都用模組裡同一句條件,不各寫一份。同鍵重送有處置時回處置。擋下原因是封閉列舉,資料庫欄位也只收列舉值。[since:2026-09-23] [retire:收件表改由佇列取代(Phase 4)時重審]
+   PITFALL: 收件時順手做的到期標記原本只看狀態,一份已交給執行、嘗試還卡在結果不明的提案到期後會在別的任務收件時被改成已過期,跟處置欄自相矛盾(增量 3 第 2 輪設計審收件規則席實驗重現)。防回歸:[test:test_taken_and_blocked_proposals_leave_pending_and_replay_their_disposition]。
+-  RULE: 收件口對同一份提案的重送回應(以及第一次收下的回應)多帶鍵「block_code」:處置是已擋下時是擋下原因的字串值,其他處置一律是空值(鍵存在、值為空,不省略),分析端據此決定要不要重新規劃;超過預算上限與廣告不允許兩種權限類原因在回應裡合併成泛稱「not_permitted」,收件表照記細分代碼(使用者 2026-09-23 裁定:分得細的話,被劫持的分析行程重送就能換金額、換廣告一路試出租戶的預算上限與廣告歸屬;代碼審第 1 輪資安席),防回歸 [test:test_a_resend_hides_which_permission_blocked_it];其餘既有鍵不動(Phase 5 [S300])。取件時讀到這把鍵已有失敗的嘗試,擋下原因依嘗試的結果代碼分流:DSP 回版本衝突寫「版本已變」,其他失敗照舊寫「同一操作先前已失敗」,跟執行端兩處共用 `block_code_for_failure`(Phase 5 [S310])。出處:[[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]]。防回歸:[test:test_a_resend_reports_why_the_proposal_was_blocked]、[test:test_a_dsp_version_conflict_is_acknowledged_as_version_changed]、[test:test_other_failures_are_still_acknowledged_as_previously_failed]。[since:2026-09-23] [retire:分析端改成直接讀執行側的嘗試紀錄或另開查詢介面時重審]
++  RULE: 收件口對同一份提案的重送回應(以及第一次收下的回應)多帶鍵「block_code」:處置是已擋下時是擋下原因的字串值,其他處置一律是空值(鍵存在、值為空,不省略),分析端據此決定要不要重新規劃;超過預算上限、廣告不允許、單筆加預算超過比例上限(Phase 6 增量 2 [S407])三種權限類原因在回應裡合併成泛稱「not_permitted」,收件表照記細分代碼(使用者 2026-09-23 裁定:分得細的話,被劫持的分析行程重送就能換金額、換廣告一路試出租戶的預算上限與廣告歸屬;代碼審第 1 輪資安席),防回歸 [test:test_a_resend_hides_which_permission_blocked_it];其餘既有鍵不動(Phase 5 [S300])。取件時讀到這把鍵已有失敗的嘗試,擋下原因依嘗試的結果代碼分流:DSP 回版本衝突寫「版本已變」,其他失敗照舊寫「同一操作先前已失敗」,跟執行端兩處共用 `block_code_for_failure`(Phase 5 [S310])。出處:[[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]]。防回歸:[test:test_a_resend_reports_why_the_proposal_was_blocked]、[test:test_a_dsp_version_conflict_is_acknowledged_as_version_changed]、[test:test_other_failures_are_still_acknowledged_as_previously_failed]。[since:2026-09-23] [retire:分析端改成直接讀執行側的嘗試紀錄或另開查詢介面時重審]
+   TEST: tests/executor/test_inbox_server.py 涵蓋 S1 到 S18(重送、衝突、連號、取代、上限、忙碌、兩種中斷、並行、過期、防護標頭、不回顯、事件有界、重啟保留、解析器唯一、逾時);tests/domain/test_proposal_hash.py 涵蓋雜湊的等價寫法與序列化釘住。
+   KEY:★INVARIANT★ 同一個任務的同一個修訂只收一份:內容相同的重送回目前狀態、不新增任何一筆(即使收件口已滿或那份已被取代);內容不同一律拒收,已收的那份不動;並行搶同一個收件鍵只有一個被接受。 [test:test_a_resent_identical_proposal_returns_the_current_state_and_adds_nothing_even_when_full_or_superseded,test_a_different_proposal_for_the_same_key_is_rejected_and_the_original_is_untouched,test_concurrent_requests_for_the_same_key_accept_exactly_one,test_a_different_proposal_for_a_superseded_or_expired_key_is_still_a_conflict] [audit:sonnet/2026-09-22] [kill:recipes]
+   KEY:★INVARIANT★ 同一個任務的新修訂必須剛好是已收最高修訂加 1(第一份必須是 1),跳號或倒退一律拒收,不能用巨大序號搶位。 [test:test_a_revision_that_is_not_exactly_the_next_one_is_rejected_with_the_current_highest] [audit:sonnet/2026-09-22] [kill:recipes]
+ verified_by:
+   - "[[Verification/事故F7_總曝險到門檻就停]]"
+   - "[[Verification/事故F6_死信重放必須重新驗證]]"
+   - "[[Verification/Phase3驗收紀錄]]"
+   - "[[Verification/Phase2驗收紀錄]]"
+   - "[[Verification/Phase4驗收紀錄]]"
+   - "[[Verification/Phase7驗收紀錄]]"
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index 2a6c657..a251100 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -270,31 +270,50 @@ class Processed:
+     block_code: BlockCode | None = None
+ 
+ 
+ # 簽發器拒簽的原因:這兩種是這份提案的問題(擋下);其他(設定檔壞掉、不安全)是系統故障
+ _BUSINESS_REFUSALS = {
+     "campaign_not_allowed": BlockCode.CAMPAIGN_NOT_ALLOWED,
+     "over_budget_cap": BlockCode.OVER_BUDGET_CAP,
+ }
+ 
+ 
++# 單筆加預算的比例上限(使用者 2026-09-23 裁定:五成、最小加額 1、全域一個值):
++# 加的量不得超過 max(現況乘分子除以分母取整數下限, 最小加額),整數運算
++MAX_INCREASE_NUMERATOR = 1
++MAX_INCREASE_DENOMINATOR = 2
++MIN_INCREASE_STEP = 1
++
++
+ def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
+-    """執行前檢查裡看 DSP 現況的三項;「不在投放」排在版本之前,代碼比較有意義。"""
++    """執行前檢查裡看 DSP 現況的四項;「不在投放」排在版本之前,代碼比較有意義。比例上限排在
++    版本已變之後:走到那一項時現況一定是提案觀察到的那個版本,比例的基準不會被別人的修改帶偏。"""
+     if view is None:
+         return BlockCode.CAMPAIGN_NOT_FOUND
+     if view.status != "active":
+         return BlockCode.CAMPAIGN_NOT_ACTIVE
+     if view.version != proposal.campaign_version_observed:
+         return BlockCode.VERSION_CHANGED
++    if _increase_too_large(proposal, view.budget):
++        return BlockCode.BUDGET_INCREASE_TOO_LARGE
+     return None
+ 
+ 
++def _increase_too_large(proposal: Proposal, current: int) -> bool:
++    """減預算、暫停不受影響。"""
++    if proposal.action_type is not ActionType.UPDATE_BUDGET:
++        return False
++    increase = int(proposal.requested_change["new_budget"]) - current
++    allowed = max(current * MAX_INCREASE_NUMERATOR // MAX_INCREASE_DENOMINATOR, MIN_INCREASE_STEP)
++    return increase > allowed
++
++
+ def _version_changed_or_none(live: bool, checked: BlockCode | None) -> BlockCode | None:
+     """重跑執行前檢查查到版本已變:收件口確認成「版本已變」(分析端要據此重新規劃),嘗試結果代碼
+     照舊記「沒發生」。其他原因(含提案過期、權限不過)回空值,照嘗試結果代碼確認。
+     過期與版本已變同時成立時過期優先,跟第一次處理時的順序一致(代碼審第 2 輪)。
+     使用者 2026-09-23 裁定把 Phase 5 [S310] 擴到憑證過期後重讀與對帳查不到兩條路徑。"""
+     return BlockCode.VERSION_CHANGED if live and checked is BlockCode.VERSION_CHANGED else None
+ 
+ 
+ def intent_holds(proposal: Proposal, view: CampaignView) -> bool:
+     if proposal.action_type is ActionType.UPDATE_BUDGET:
+diff --git a/src/rtb/executor/inbox_server.py b/src/rtb/executor/inbox_server.py
+index 56faddf..23ed7d7 100644
+--- a/src/rtb/executor/inbox_server.py
++++ b/src/rtb/executor/inbox_server.py
+@@ -124,21 +124,22 @@ class InboxHandler(JsonHandler):
+ 
+     def error_extras(self, exc: Exception) -> dict[str, Any]:
+         if isinstance(exc, InboxRejected) and exc.highest_revision is not None:
+             return {"highest_revision": exc.highest_revision}
+         return {}
+ 
+ 
+ # 權限類擋下原因合併成泛稱(使用者 2026-09-23 裁定,Phase 5 [S300]):重送就能讀到的原因若分得細,
+ # 被劫持的分析行程可以一路試出租戶的預算上限與廣告歸屬。只在回應本文合併,收件表照記細分代碼
+ _PERMISSION_BLOCKS = frozenset({BlockCode.OVER_BUDGET_CAP.value,
+-                                BlockCode.CAMPAIGN_NOT_ALLOWED.value})
++                                BlockCode.CAMPAIGN_NOT_ALLOWED.value,
++                                BlockCode.BUDGET_INCREASE_TOO_LARGE.value})  # Phase 6 增量 2
+ NOT_PERMITTED = "not_permitted"
+ 
+ 
+ def _answered_block_code(stored: str | None) -> str | None:
+     return NOT_PERMITTED if stored in _PERMISSION_BLOCKS else stored
+ 
+ 
+ def _accepted_body(result: Accepted) -> dict[str, Any]:
+     # state 才是提案目前的狀態:重送一份已過期的提案,status 仍是 accepted(收過了),
+     # 但 state 會是 expired。已確認的處置(已交給執行、已擋下、死信)與 expired 代表它不會再被
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index cd82429..bbca305 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -71,20 +71,22 @@ class LastFailure(StrEnum):
+ 
+ 
+ class BlockCode(StrEnum):
+     """擋下原因(封閉列舉):每一種都有真實觸發路徑,見執行迴圈的執行前檢查。"""
+ 
+     CAMPAIGN_NOT_FOUND = "campaign_not_found"
+     CAMPAIGN_NOT_ACTIVE = "campaign_not_active"
+     VERSION_CHANGED = "version_changed"
+     CAMPAIGN_NOT_ALLOWED = "campaign_not_allowed"
+     OVER_BUDGET_CAP = "over_budget_cap"
++    # 單筆加預算超過比例上限(Phase 6 增量 2)
++    BUDGET_INCREASE_TOO_LARGE = "budget_increase_too_large"
+     OPERATION_PREVIOUSLY_FAILED = "operation_previously_failed"  # 同一把鍵先前已判定失敗
+ 
+ 
+ def block_code_for_failure(code: OutcomeCode | None) -> BlockCode:
+     """失敗嘗試對應的擋下原因:DSP 回版本衝突寫「版本已變」(分析端要據此重新規劃),其他失敗照舊寫
+     「同一操作先前已失敗」。執行端終點確認、開始時撞到既有失敗鍵、取件時撞到既有失敗鍵三處共用。"""
+     if code is OutcomeCode.VERSION_CONFLICT:
+         return BlockCode.VERSION_CHANGED
+     return BlockCode.OPERATION_PREVIOUSLY_FAILED
+ 
+diff --git a/tests/analyzer/test_boundaries.py b/tests/analyzer/test_boundaries.py
+index f62cb62..bdd5915 100644
+--- a/tests/analyzer/test_boundaries.py
++++ b/tests/analyzer/test_boundaries.py
+@@ -1,18 +1,21 @@
+ """Phase 1 留下的兩條邊界測試,增量 4 第一次有真的 DSP 客戶端時補驗:S52、S53。"""
+ 
++import ast
+ import subprocess
+ import sys
+ import threading
+ from datetime import UTC, datetime
+ from pathlib import Path
+ 
++import pytest
++
+ from rtb.analyzer import dsp_client, flow, inbox_client, policy
+ from rtb.analyzer.task_store import TaskStore
+ from rtb.domain.task_state import TaskState
+ from rtb.dsp.server import DspServer
+ from rtb.dsp.store import CampaignStore
+ from rtb.executor.inbox_server import InboxServer
+ 
+ 
+ # ---- S53 ----
+ def test_the_analyzer_package_never_imports_dsp_internals():
+@@ -96,40 +99,48 @@ def test_fault_headers_sent_to_production_style_servers_are_refused(tmp_path):
+ NETWORK_MODULES = frozenset({
+     "urllib", "http", "socket", "ssl", "socketserver", "asyncio", "requests", "httpx", "urllib3",
+     "aiohttp", "ftplib", "smtplib", "xmlrpc", "rtb.httpkit",
+ })
+ 
+ 
+ def test_the_analyzer_reaches_the_network_only_through_the_shared_client():
+     """2026-09-22 第二輪合約審計指出:標頭的封閉列舉只保護走共用用戶端的程式;分析行程裡
+     另寫一個直接用 urllib 發請求的小工具,就能把任意標頭(含故障注入)送出去,原本的測試
+     與原始碼掃描都看不到。這裡直接解析原始碼:分析行程不准自己匯入網路模組,也不准動態匯入。"""
+-    import ast
+-
+     analyzer = Path(__file__).resolve().parents[2] / "src" / "rtb" / "analyzer"
+     offenders = []
+     for file in sorted(analyzer.rglob("*.py")):
+-        for node in ast.walk(ast.parse(file.read_text(encoding="utf-8"))):
+-            modules = []
+-            if isinstance(node, ast.Import):
+-                modules = [alias.name for alias in node.names]
+-            elif isinstance(node, ast.ImportFrom) and node.module:
+-                modules = [node.module]
+-            elif (isinstance(node, ast.Name) and node.id in ("__import__", "import_module")) or (
+-                isinstance(node, ast.Attribute) and node.attr == "import_module"
+-            ) or (isinstance(node, ast.alias) and node.name == "import_module"):
+-                offenders.append(f"{file.name}: 動態匯入")  # 連引用或別名都不准,不只直接呼叫
+-            offenders += [f"{file.name}: {m}" for m in modules
+-                          if m in NETWORK_MODULES or m.split(".")[0] in NETWORK_MODULES]
++        offenders += _network_offenders(file.name, ast.parse(file.read_text(encoding="utf-8")))
+     assert offenders == []
+ 
+ 
++def _network_offenders(label, tree):
++    """自己匯入網路模組或動態匯入的地方(分析行程目錄與 [S408] 的匯入閉包共用這一份判斷)。
++
++    只看名稱、不追它綁到哪裡:任何叫 import_module 的名字或屬性都算動態匯入,刻意從嚴(寧可誤報、
++    不漏)。代價是閉包裡的模組不能有同名的普通函式;真的撞到就改名,不要放寬這裡(代碼審第 2 輪)。"""
++    offenders = []
++    for node in ast.walk(tree):
++        modules = []
++        if isinstance(node, ast.Import):
++            modules = [alias.name for alias in node.names]
++        elif isinstance(node, ast.ImportFrom) and node.module:
++            modules = [node.module]
++        elif (isinstance(node, ast.Name) and node.id in ("__import__", "import_module")) or (
++            isinstance(node, ast.Attribute) and node.attr == "import_module"
++        ) or (isinstance(node, ast.alias) and node.name == "import_module"):
++            offenders.append(f"{label}: 動態匯入")  # 連引用或別名都不准,不只直接呼叫
++        offenders += [f"{label}: {m}" for m in modules
++                      if m in NETWORK_MODULES or m.split(".")[0] in NETWORK_MODULES]
++    return offenders
++
++
+ # ---- 寫入能力憑證 S30 ----
+ def test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer():
+     """直接解析分析行程的原始碼,不看 noqa:ruff 禁令一行 noqa 就能跳過(領域層踩過同一個坑)。"""
+     import ast
+ 
+     from rtb.capabilitykit import KEY_ENV
+     from rtb.executor import capability_signer
+ 
+     analyzer = Path(__file__).resolve().parents[2] / "src" / "rtb" / "analyzer"
+     offenders = []
+@@ -162,10 +173,197 @@ def test_importing_the_analyzer_does_not_load_the_capability_module():
+     modules = sorted(f"rtb.analyzer.{f.stem}" for f in analyzer.glob("*.py")
+                      if f.stem != "__init__")
+     code = ("import importlib, sys\n"
+             f"for name in {modules!r}: importlib.import_module(name)\n"
+             "banned = ('rtb.capabilitykit', 'rtb.executor')\n"
+             "print(sorted(m for m in sys.modules if m.startswith(banned)))")
+     env = {**os.environ, "PYTHONPATH": str(src)}
+     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                          check=True, env=env)
+     assert out.stdout.strip() == "[]"
++
++
++# ---- Phase 6 增量 2 [S408] ----
++_ALLOWED_CALLERS = {"rtb.analyzer.dsp_client": "GET", "rtb.analyzer.inbox_client": "POST"}
++_HTTP_MODULE, _REQUEST = "rtb.httpclient", "request_json"
++
++
++def _source_of(src, module):
++    """本專案模組的原始碼檔;沒有原始碼檔(命名空間套件、不存在)回 None,跳過不當錯。"""
++    base = src.joinpath(*module.split("."))
++    for path in (base.with_suffix(".py"), base / "__init__.py"):
++        if path.is_file():
++            return path
++    return None
++
++
++def _imported_modules(src, module, tree):
++    """檔案裡任何位置(含函式內部、型別檢查專用區塊)的匯入,相對匯入依層數接成完整模組名。"""
++    found = set()
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import):
++            found |= {alias.name for alias in node.names}
++        elif isinstance(node, ast.ImportFrom):
++            target = _resolve_from(src, module, node)
++            found.add(target)
++            found |= {f"{target}.{alias.name}" for alias in node.names}  # 從套件匯入子模組
++    return {name for name in found if name == "rtb" or name.startswith("rtb.")}
++
++
++def analyzer_import_closure(src):
++    """分析行程原始碼的靜態匯入閉包:{模組名: 語法樹}。"""
++    analyzer = src / "rtb" / "analyzer"
++    # 套件初始化檔也算(代碼審第 1 輪外家席):匯入任何子模組都會先執行它所在各層套件的初始化檔
++    pending = [f"rtb.analyzer.{path.stem}" for path in sorted(analyzer.glob("*.py"))
++               if path.stem != "__init__"]
++    closure = {}
++    while pending:
++        module = pending.pop()
++        if module in closure:
++            continue
++        parts = module.split(".")
++        pending += [".".join(parts[:i]) for i in range(1, len(parts))]  # 沿途的父套件
++        path = _source_of(src, module)
++        if path is None:
++            continue
++        closure[module] = ast.parse(path.read_text(encoding="utf-8"))
++        pending += sorted(_imported_modules(src, module, closure[module]) - set(closure))
++    return closure
++
++
++def _resolve_from(src, module, node):
++    """from 匯入的完整模組名;相對匯入依點數往上找,跟所在檔案的套件路徑接起來。"""
++    if not node.level:
++        return node.module or ""
++    is_package = _source_of(src, module).name == "__init__.py"
++    parts = (module if is_package else module.rpartition(".")[0]).split(".")
++    base = ".".join(parts[:len(parts) - node.level + 1])
++    return f"{base}.{node.module}" if node.module else base
++
++
++def _check_http_imports(src, module, tree):
++    offenders = []
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import) and any(
++                a.name.split(".")[:2] == _HTTP_MODULE.split(".") for a in node.names):
++            offenders.append(f"{module}: 匯入整個共用 HTTP 用戶端模組")
++        elif isinstance(node, ast.ImportFrom):
++            target = _resolve_from(src, module, node)
++            names = {(a.name, a.asname) for a in node.names}
++            if f"{target}.httpclient" == _HTTP_MODULE and any(n == "httpclient" for n, _ in names):
++                offenders.append(f"{module}: 從套件匯入共用 HTTP 用戶端模組")
++            if target == _HTTP_MODULE and (module not in _ALLOWED_CALLERS
++                                           or names != {(_REQUEST, None)}):
++                offenders.append(f"{module}: 從共用 HTTP 用戶端匯入 {sorted(names)}")
++    return offenders
++
++
++def _check_request_uses(module, tree):
++    """請求函式每一次出現都要是直接呼叫,方法是字面常數、不帶標頭;回傳 (違規, 方法清單)。"""
++    calls = {id(node.func): node for node in ast.walk(tree)
++             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
++    offenders, methods = [], []
++    for node in ast.walk(tree):
++        mentioned = (isinstance(node, ast.Name) and node.id == _REQUEST) or (
++            isinstance(node, ast.Attribute) and node.attr == _REQUEST)
++        if not mentioned:
++            continue
++        call = calls.get(id(node))
++        if call is None or module not in _ALLOWED_CALLERS:
++            offenders.append(f"{module}:{node.lineno} 提到請求函式卻不是允許的直接呼叫")
++            continue
++        method = call.args[1] if len(call.args) > 1 else next(
++            (k.value for k in call.keywords if k.arg == "method"), None)
++        has_headers = len(call.args) > 4 or any(k.arg in ("headers", None) for k in call.keywords)
++        if not (isinstance(method, ast.Constant) and isinstance(method.value, str)) or has_headers:
++            offenders.append(f"{module}:{node.lineno} 方法不是字面常數或帶了標頭")
++            continue
++        url = call.args[0] if call.args else None
++        methods.append((method.value, url))
++    return offenders, methods
++
++
++def write_call_offenders(src):
++    offenders = []
++    for module, tree in sorted(analyzer_import_closure(src).items()):
++        if module == _HTTP_MODULE:
++            continue
++        offenders += _check_http_imports(src, module, tree)
++        # 繞過共用用戶端自己發請求:網路模組與動態匯入禁令套到整個閉包(代碼審第 1 輪外家席)
++        offenders += _network_offenders(module, tree)
++        found, methods = _check_request_uses(module, tree)
++        offenders += found
++        if module == "rtb.analyzer.dsp_client":
++            offenders += [f"{module}: DSP 用戶端用了 {m}" for m, _ in methods if m != "GET"]
++        if module == "rtb.analyzer.inbox_client":
++            posts = [url for m, url in methods if m == "POST"]
++            to_proposals = [u for u in posts if isinstance(u, ast.JoinedStr) and isinstance(
++                u.values[-1], ast.Constant) and u.values[-1].value == "/proposals"]
++            if len(posts) != 1 or len(to_proposals) != 1 or len(methods) != len(posts):
++                offenders.append(f"{module}: 收件口用戶端應只有一個送到提案路徑的 POST")
++    return offenders
++
++
++def test_the_analyzer_has_no_write_call_besides_submitting_a_proposal():
++    src = Path(__file__).resolve().parents[2] / "src"
++    closure = analyzer_import_closure(src)
++    assert {"rtb.analyzer.dsp_client", "rtb.analyzer.inbox_client", _HTTP_MODULE} <= set(closure)
++    assert not any(m.startswith(("rtb.executor", "rtb.dsp")) for m in closure)  # 閉包沒拉進執行側
++    assert write_call_offenders(src) == []
++
++
++_FORGETFUL = {  # 「一不小心」會寫出來的寫法:(要改的檔, 加在檔尾的程式)
++    "dsp_post": ("analyzer/dsp_client.py",
++                 '\ndef _w(u):\n    return request_json(u, "POST", {}, 1)\n'),
++    "alias_assign": ("analyzer/dsp_client.py", "\n_rj = request_json\n"),
++    "partial": ("analyzer/dsp_client.py",
++                "\nimport functools\n_p = functools.partial(request_json)\n"),
++    "import_as": ("analyzer/dsp_client.py", "\nfrom rtb.httpclient import request_json as _rj\n"),
++    "method_variable": ("analyzer/dsp_client.py",
++                        '\ndef _w(u):\n    m = "GET"\n    return request_json(u, m, None, 1)\n'),
++    "headers": ("analyzer/dsp_client.py",
++                '\ndef _w(u):\n    return request_json(u, "GET", None, 1, headers={})\n'),
++    "module_import": ("analyzer/policy.py", "\nimport rtb.httpclient as _h\n"),
++    "package_import": ("analyzer/policy.py", "\nfrom rtb import httpclient\n"),
++    "relative_in_function": ("analyzer/flow.py",
++                             "\ndef _w():\n    from ..httpclient import request_json\n"),
++    "second_entry": ("httpclient.py",
++                     "\ndef post_json(u):\n    return request_json(u, 'POST', {}, 1)\n"),
++}
++
++
++@pytest.mark.parametrize("variant", [*sorted(_FORGETFUL), "domain_helper", "package_init",
++                                     "domain_package_init", "domain_urllib"])
++def test_the_write_call_scan_catches_forgetful_variants(tmp_path, variant):
++    """[S408] 的殺傷力:複製一份原始碼,放進一種不小心的寫法,掃描就要找到。"""
++    import shutil
++
++    src = tmp_path / "src"
++    shutil.copytree(Path(__file__).resolve().parents[2] / "src" / "rtb", src / "rtb")
++    if variant == "package_init":  # 套件初始化檔:匯入任何子模組都會先執行它
++        target, extra = "analyzer/__init__.py", (
++            "from rtb.httpclient import request_json\n\n\ndef _w(u):\n"
++            "    return request_json(u, 'POST', {}, 1)\n")
++    elif variant == "domain_package_init":  # 沒有人寫 from rtb.domain import:只靠「沿途父套件」
++        target, extra = "domain/__init__.py", (
++            "from rtb.httpclient import request_json\n\n\ndef _w(u):\n"
++            "    return request_json(u, 'POST', {}, 1)\n")
++    elif variant == "domain_urllib":  # 領域層小函式繞過共用用戶端,直接用標準庫發請求
++        (src / "rtb" / "domain" / "raw_post.py").write_text(
++            "from urllib.request import Request, urlopen\n\n\ndef post(u):\n"
++            "    return urlopen(Request(u, method='POST'))\n", encoding="utf-8")
++        target, extra = "analyzer/flow.py", "\ndef _w():\n    from rtb.domain import raw_post\n"
++    elif variant == "domain_helper":  # 領域層順手加一支發請求的函式,分析端在函式裡才匯入它
++        (src / "rtb" / "domain" / "write_helper.py").write_text(
++            "from rtb.httpclient import request_json\n\n\ndef post(u):\n"
++            "    return request_json(u, 'POST', {}, 1)\n", encoding="utf-8")
++        target, extra = "analyzer/flow.py", "\ndef _w():\n    from rtb.domain import write_helper\n"
++    elif variant == "second_entry":
++        with (src / "rtb" / "httpclient.py").open("a", encoding="utf-8") as file:
++            file.write(_FORGETFUL[variant][1])
++        target, extra = "analyzer/dsp_client.py", "\nfrom rtb.httpclient import post_json\n"
++    else:
++        target, extra = _FORGETFUL[variant]
++    with (src / "rtb" / target).open("a", encoding="utf-8") as file:
++        file.write(extra)
++
++    assert write_call_offenders(src) != [], variant
+diff --git a/tests/executor/test_execution.py b/tests/executor/test_execution.py
+index dde29f5..eb739e3 100644
+--- a/tests/executor/test_execution.py
++++ b/tests/executor/test_execution.py
+@@ -129,39 +129,46 @@ def _not_allowed(h):
+ 
+     write_config(h.config, campaigns=("c2",))
+ 
+ 
+ def _over_cap(h):
+     from tests.executor.fakes import write_config
+ 
+     write_config(h.config, max_budget=149)  # 提案要改成 150
+ 
+ 
++def _over_ratio(h):
++    # 提案要改成 150;現況 99 時最多加 49
++    h.dsp.campaigns["c1"] = CampaignView(budget=99, status="active", version=3)
++
++
+ def _previously_failed(h):
+     """同一個邏輯操作先前已失敗(人工判失敗),DSP 版本沒動;換到期時間的新修訂進來。"""
+     first = h.submit()
+     h.dsp.answers.append(WriteAnswer(403, "capability_scope_mismatch"))
+     h.process()
+     key = key_of(first)
+     with h.store.transaction() as tx:
+         seq = attempt_store.latest(tx, key).seq
+         attempt_store.resolve(tx, key, seq, A.FAILED, "operator decided", h.clock())
+     h.store.accept(proposal(revision=2, decision_expires_at="2026-09-22T12:40:00+00:00"),
+                    h.clock)
+ 
+ 
+ BLOCK_TRIGGERS = {
+     BlockCode.CAMPAIGN_NOT_FOUND: _not_found,
+     BlockCode.CAMPAIGN_NOT_ACTIVE: _paused,
+     BlockCode.VERSION_CHANGED: _version_changed,
+     BlockCode.CAMPAIGN_NOT_ALLOWED: _not_allowed,
+     BlockCode.OVER_BUDGET_CAP: _over_cap,
++    # 下面「等於整個列舉」的斷言之後由護欄表三份清單取代(Phase 6 增量 2)
++    BlockCode.BUDGET_INCREASE_TOO_LARGE: _over_ratio,
+     BlockCode.OPERATION_PREVIOUSLY_FAILED: _previously_failed,
+ }
+ 
+ 
+ @pytest.mark.parametrize("code", list(BlockCode))
+ def test_each_failed_precheck_blocks_the_proposal_without_a_write(h, code):
+     assert set(BLOCK_TRIGGERS) == set(BlockCode)  # 從程式自己的清單列舉,每一種都有觸發條件
+     if code is not BlockCode.OPERATION_PREVIOUSLY_FAILED:
+         h.submit()
+     BLOCK_TRIGGERS[code](h)
+diff --git a/tests/executor/test_guardrails.py b/tests/executor/test_guardrails.py
+new file mode 100644
+index 0000000..ba4dc50
+--- /dev/null
++++ b/tests/executor/test_guardrails.py
+@@ -0,0 +1,224 @@
++"""護欄表格:Phase 6 增量 2 的 S400 到 S405、S409。
++
++單筆規則只有兩處程式:執行前檢查(看 DSP 現況)與簽發器(看租戶設定)。這裡的護欄表把兩處的
++六條規則與順序寫在一起,當成測試資料跑邊界值;表不是第三套檢查。比例上限是使用者 2026-09-23
++裁定的值:加的量不得超過 max(現況的五成取下限, 1),全域一個值。
++依賴增量 1 的部分(完整性三份清單、舊收件表寫入新代碼)等增量 1 合併後補。
++"""
++
++from dataclasses import replace
++from datetime import UTC, datetime, timedelta
++from types import MappingProxyType
++
++import pytest
++
++from rtb.analyzer import policy
++from rtb.analyzer.task_store import TaskRow
++from rtb.domain.attempt import AttemptState as A
++from rtb.domain.attempt import operation_key
++from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
++from rtb.domain.proposal import MAX_INT
++from rtb.domain.task_state import TaskState
++from rtb.executor import attempt_store
++from rtb.executor.execution import CampaignView, Result, WriteAnswer, precheck
++from rtb.executor.inbox_store import BlockCode
++from tests.executor.fakes import Harness, proposal, write_config
++
++LATER = "2026-09-22T12:40:00+00:00"
++
++
++@pytest.fixture
++def h(tmp_path, clock):
++    harness = Harness(tmp_path, clock)
++    yield harness
++    harness.close()
++
++
++def _view(budget, version=3, status="active"):
++    return CampaignView(budget=budget, status=status, version=version)
++
++
++def _raise_to(new_budget, **overrides):
++    return proposal(requested_change={"new_budget": new_budget}, **overrides)
++
++
++def _pause():
++    return proposal(action_type="pause_campaign", requested_change={})
++
++
++# ---- S400 ----
++@pytest.mark.parametrize(("current", "new_budget", "blocked"), [
++    (100, 150, False), (100, 149, False), (100, 151, True),  # 剛好等於、差 1、超過 1
++    (3, 4, False), (3, 5, True),  # 3 的五成取下限是 1
++    (1, 2, False), (1, 3, True),  # 小額:最小加額 1
++    (0, 1, False), (0, 2, True),  # 真實讀取路徑走不到(預算 0 讀成讀不懂),只在這一層驗公式
++    (MAX_INT - 1, MAX_INT, False),
++])
++def test_a_budget_increase_is_bounded_by_the_ratio_cap(current, new_budget, blocked):
++    expected = BlockCode.BUDGET_INCREASE_TOO_LARGE if blocked else None
++    assert precheck(_raise_to(new_budget), _view(current)) is expected
++
++
++def test_a_ratio_block_writes_nothing(h):
++    h.submit(requested_change={"new_budget": 151})
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, BlockCode.BUDGET_INCREASE_TOO_LARGE)
++    assert h.proposals() == [("t1", 1, "pending", "blocked", "budget_increase_too_large")]
++    assert h.attempts() == [] and h.dsp.writes == []  # 不寫嘗試紀錄、不呼叫 DSP 寫入
++
++
++# ---- S401 ----
++@pytest.mark.parametrize("current", [1, 100, 10_000])
++def test_decreases_and_pauses_are_not_bounded_by_the_ratio_cap(current):
++    assert precheck(_raise_to(1), _view(current)) is None  # 減到 1
++    assert precheck(_raise_to(current), _view(current)) is None  # 不變
++    assert precheck(_pause(), _view(current)) is None
++
++
++# ---- S402 ----
++_NOW = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
++
++
++def _policy_proposal(budget):
++    """分析端現行決策規則依這個預算產生的提案(配速極低、有投放,一定出提案)。"""
++    task = TaskRow(task_id="t1", seq=3, state=TaskState.ANALYZING, campaign_id="c1",
++                   proposal=None, error_detail=None, written_at=_NOW)
++    evidence = tuple(
++        Evidence(evidence_id=f"t1-3-{suffix}", task_id="t1", kind=kind, source="dsp",
++                 observed_at=_NOW, campaign_version_observed=version, content_hash="a" * 64,
++                 trust_class=TrustClass.TRUSTED, payload=MappingProxyType(payload))
++        for suffix, kind, version, payload in (
++            ("state", EvidenceKind.CAMPAIGN_STATE, 7,
++             {"id": "c1", "budget": budget, "status": "active", "version": 7}),
++            ("metrics", EvidenceKind.METRICS, None,
++             {"campaign_id": "c1", "window": "1h", "impressions": 500, "clicks": 12,
++              "conversions": 1, "spend": 0.0, "revenue": 5.0}),
++        ))
++    decision = policy.decide(task, evidence, _NOW)
++    return decision.proposal
++
++
++@pytest.mark.parametrize("budget", [*range(1, 1001), 10**6, 10**9, 2**62, MAX_INT - 1, MAX_INT])
++def test_the_analyzer_policy_never_trips_the_ratio_cap(budget):
++    made = _policy_proposal(budget)
++    assert precheck(made, _view(budget, version=7)) is None
++
++
++# ---- S403 ----
++def _campaign(budget=100, version=3, status="active"):
++    return lambda h: h.dsp.campaigns.__setitem__("c1", _view(budget, version, status))
++
++
++def _tenant(**kwargs):
++    return lambda h: write_config(h.config, **kwargs)
++
++
++def _no_campaign(h):
++    del h.dsp.campaigns["c1"]
++
++
++def _as_is(_h):
++    pass
++
++
++# 護欄表:(規則, 環境設定, 提案新預算, 預期擋下代碼或 None)。每一列只讓要驗的那一條在邊界上,
++# 其餘五條明確通過:預設現況 100(版本 3、投放中)、新預算 150、租戶上限 1000。
++GUARDRAILS = [
++    # 1 廣告不存在
++    ("campaign_not_found", _no_campaign, 150, BlockCode.CAMPAIGN_NOT_FOUND),
++    ("campaign_not_found", _as_is, 150, None),
++    # 2 不在投放
++    ("campaign_not_active", _campaign(status="paused"), 150, BlockCode.CAMPAIGN_NOT_ACTIVE),
++    ("campaign_not_active", _campaign(status="active"), 150, None),
++    # 3 版本已變:比對是不等,現況比觀察到的舊也擋
++    ("version_changed", _campaign(version=4), 150, BlockCode.VERSION_CHANGED),
++    ("version_changed", _campaign(version=2), 150, BlockCode.VERSION_CHANGED),
++    ("version_changed", _campaign(version=3), 150, None),
++    # 4 比例上限(新):現況 100,上限加 50
++    ("budget_increase_too_large", _as_is, 150, None),
++    ("budget_increase_too_large", _as_is, 149, None),
++    ("budget_increase_too_large", _as_is, 151, BlockCode.BUDGET_INCREASE_TOO_LARGE),
++    # 5 不屬於租戶
++    ("campaign_not_allowed", _tenant(campaigns=("c2",)), 150, BlockCode.CAMPAIGN_NOT_ALLOWED),
++    ("campaign_not_allowed", _tenant(campaigns=("c1", "c2")), 150, None),
++    # 6 超過單一廣告上限:現況 900 讓加的量都在比例內,上限 1000
++    ("over_budget_cap", _campaign(budget=900), 1000, None),
++    ("over_budget_cap", _campaign(budget=900), 999, None),
++    ("over_budget_cap", _campaign(budget=900), 1001, BlockCode.OVER_BUDGET_CAP),
++]
++SINGLE_RULE_CODES = (  # 表上的順序就是程式判斷的順序
++    BlockCode.CAMPAIGN_NOT_FOUND, BlockCode.CAMPAIGN_NOT_ACTIVE, BlockCode.VERSION_CHANGED,
++    BlockCode.BUDGET_INCREASE_TOO_LARGE, BlockCode.CAMPAIGN_NOT_ALLOWED, BlockCode.OVER_BUDGET_CAP,
++)
++
++
++def _run(h, setup, new_budget):
++    h.submit(requested_change={"new_budget": new_budget})
++    setup(h)
++    return h.process()
++
++
++@pytest.mark.parametrize(("rule", "setup", "new_budget", "expected"), GUARDRAILS,
++                         ids=[f"{row[0]}-{row[2]}-{i}" for i, row in enumerate(GUARDRAILS)])
++def test_every_guardrail_holds_at_its_boundaries(h, rule, setup, new_budget, expected):
++    result = _run(h, setup, new_budget)
++
++    if expected is None:
++        assert result.kind is Result.EXECUTED, rule
++        assert len(h.dsp.writes) == 1
++    else:
++        assert (result.kind, result.block_code) == (Result.BLOCKED, expected), rule
++        assert h.attempts() == [] and h.dsp.writes == []
++
++
++# ---- S404(表的那一半;三份清單等增量 1 合併後補) ----
++def test_the_guardrail_table_covers_every_block_code():
++    assert {row[0] for row in GUARDRAILS} == {code.value for code in SINGLE_RULE_CODES}
++    for code in SINGLE_RULE_CODES:
++        rows = [row for row in GUARDRAILS if row[0] == code.value]
++        assert any(row[3] is code for row in rows), code  # 至少一列擋下
++        assert any(row[3] is None for row in rows), code  # 至少一列通過
++    assert all(row[3] in (None, BlockCode(row[0])) for row in GUARDRAILS)  # 擋下代碼就是那一列的
++
++
++# ---- S405 ----
++@pytest.mark.parametrize(("setups", "new_budget", "expected"), [
++    ((_campaign(status="paused"),), 151, BlockCode.CAMPAIGN_NOT_ACTIVE),  # 不在投放 > 比例
++    ((_campaign(status="paused", version=4),), 150, BlockCode.CAMPAIGN_NOT_ACTIVE),  # > 版本已變
++    ((_campaign(version=4),), 151, BlockCode.VERSION_CHANGED),  # 版本已變 > 比例
++    ((_tenant(campaigns=("c2",)),), 151, BlockCode.BUDGET_INCREASE_TOO_LARGE),  # 比例 > 租戶
++    ((_tenant(campaigns=("c2",), max_budget=120),), 150, BlockCode.CAMPAIGN_NOT_ALLOWED),
++])
++def test_the_first_failing_guardrail_wins(h, setups, new_budget, expected):
++    h.submit(requested_change={"new_budget": new_budget})
++    for setup in setups:
++        setup(h)
++    result = h.process()
++    assert (result.kind, result.block_code) == (Result.BLOCKED, expected)
++
++
++# ---- S409 ----
++def test_an_already_failed_key_is_blocked_as_previously_failed(h):
++    first = h.submit()
++    h.dsp.answers.append(WriteAnswer(403, "capability_scope_mismatch"))  # 不是版本衝突的失敗
++    h.process()
++    key = operation_key(first)
++    with h.store.transaction() as tx:
++        seq = attempt_store.latest(tx, key).seq
++        attempt_store.resolve(tx, key, seq, A.FAILED, "operator decided", h.clock())
++    h.store.accept(proposal(revision=2, decision_expires_at=LATER), h.clock)
++    attempts_before, writes_before = h.attempts(), len(h.dsp.writes)
++
++    assert h.process().kind is Result.IDLE  # 取件時就確認,不交出去
++    assert h.proposals()[-1][3:] == ("blocked", "operation_previously_failed")
++    assert h.attempts() == attempts_before and len(h.dsp.writes) == writes_before
++
++
++def test_the_policy_helper_really_makes_an_increase():
++    """S402 的前置:替身證據真的讓決策規則出提案,而且是加預算。"""
++    made = _policy_proposal(100)
++    assert made.requested_change["new_budget"] == 110
++    assert replace(made, revision=1).campaign_version_observed == 7
++    assert made.decision_expires_at > _NOW - timedelta(seconds=1)
+diff --git a/tests/executor/test_inbox_disposition.py b/tests/executor/test_inbox_disposition.py
+index 26885c3..9210cf9 100644
+--- a/tests/executor/test_inbox_disposition.py
++++ b/tests/executor/test_inbox_disposition.py
+@@ -214,21 +214,22 @@ def test_a_pending_proposal_still_counts_as_pending(store):
+     accept(store, proposal())
+     accept(store, proposal(task_id="t2"))
+     with pytest.raises(InboxFull):
+         accept(store, proposal(task_id="t3"))
+ 
+ 
+ # ---- [S41] ----
+ def test_block_reasons_are_a_closed_list(store, tmp_path):
+     assert {code.value for code in BlockCode} == {
+         "campaign_not_found", "campaign_not_active", "version_changed", "campaign_not_allowed",
+-        "over_budget_cap", "operation_previously_failed"}
++        "over_budget_cap", "operation_previously_failed",
++        "budget_increase_too_large"}  # Phase 6 增量 2 新增的單筆比例上限
+     # 「處置恰好兩個成員」由 Phase 4 增量 1 [S103] 取代:四個成員
+     assert {d.value for d in Disposition} == {"in_progress", "handed_off", "blocked",
+                                               "dead_letter"}
+     prop = proposal()
+     accept(store, prop)
+     with store.transaction() as tx:
+         receipt = _receive(store, tx)
+     before = rows(tmp_path)
+     for bad in (None, "version_changed", "expired", 3):
+         with store.transaction() as tx, pytest.raises(ValueError):
+diff --git a/tests/executor/test_multi_worker.py b/tests/executor/test_multi_worker.py
+index 8c73585..d431701 100644
+--- a/tests/executor/test_multi_worker.py
++++ b/tests/executor/test_multi_worker.py
+@@ -137,21 +137,22 @@ def test_two_live_workers_process_a_message_once(h, monkeypatch):
+ 
+     kinds = sorted(r.kind.value for r in results)
+     assert kinds == sorted([Result.EXECUTED.value, Result.IDLE.value])  # 一個處理,另一個沒拿到
+     assert len(h.dsp.writes) == 1
+     assert h.proposals() == [("t1", 1, "pending", "handed_off", None)]
+ 
+ 
+ # ---- [S131] ----
+ def test_two_workers_never_run_the_same_campaign_at_once(h, monkeypatch):
+     h.submit(task_id="t1")
+-    h.submit(task_id="t2", requested_change={"new_budget": 160})  # 同一個廣告的另一份提案
++    # 同一個廣告的另一份提案;新預算落在比例上限內(Phase 6 增量 2 起,從 100 最多加到 150)
++    h.submit(task_id="t2", requested_change={"new_budget": 140})
+     # 兩邊都取完件、都還沒開始嘗試時一起放行:測的是開始嘗試那一道(同廣告已有未結案嘗試就不開始)。
+     # 取件那一道(已有嘗試的廣告不交出去)是增量 1 已測過的另一道
+     meet_before(monkeypatch, "_take")
+     # 先開始嘗試的那一方停在 DSP 寫入,等另一方的開始嘗試有結論才放行:「同時」指的是它還在途中。
+     # 不停住的話它會一路寫完、嘗試結案,另一方之後合法開始,就測不到這一道了
+     other_done = threading.Event()
+     h.dsp.on_write = lambda *_a: other_done.wait(WAIT)
+ 
+     results = [None, None]
+ 
+diff --git a/tests/executor/test_version_conflict.py b/tests/executor/test_version_conflict.py
+index 940cdc3..8bdaa31 100644
+--- a/tests/executor/test_version_conflict.py
++++ b/tests/executor/test_version_conflict.py
+@@ -188,20 +188,22 @@ def test_a_resend_reports_why_the_proposal_was_blocked(start_inbox):
+     assert status == 200 and answer["state"] == "blocked"
+     assert answer["block_code"] == "version_changed"
+     assert set(answer) == {"status", "task_id", "revision", "state", "content_hash", "replayed",
+                            "block_code"}
+     assert parse_proposal(body).proposal is not None
+ 
+ 
+ @pytest.mark.parametrize(("stored", "answered"), [
+     (BlockCode.OVER_BUDGET_CAP, "not_permitted"),  # 權限類合併成泛稱:試不出預算上限
+     (BlockCode.CAMPAIGN_NOT_ALLOWED, "not_permitted"),  # 也試不出廣告歸哪個租戶
++    # Phase 6 增量 2 [S407]:比例上限也是權限類
++    (BlockCode.BUDGET_INCREASE_TOO_LARGE, "not_permitted"),
+     (BlockCode.CAMPAIGN_NOT_FOUND, "campaign_not_found"),
+     (BlockCode.CAMPAIGN_NOT_ACTIVE, "campaign_not_active"),
+     (BlockCode.OPERATION_PREVIOUSLY_FAILED, "operation_previously_failed"),
+ ])
+ def test_a_resend_hides_which_permission_blocked_it(start_inbox, stored, answered):
+     """使用者 2026-09-23 裁定:只在回給分析行程的本文合併,收件表內部仍記細分代碼(稽核不失真)。"""
+     from tests.domain.proposal_samples import valid
+ 
+     inbox = start_inbox()
+     body = valid()
+@@ -275,21 +277,22 @@ def test_two_concurrent_writers_reproduce_a_version_conflict(tmp_path, real_dsp)
+     _RacingClient.barrier = threading.Barrier(2)
+     outcomes = {}
+ 
+     def run(name, budget):
+         # 執行緒裡的例外不會傳回主執行緒:收進結果,斷言失敗時直接看得到原因(代碼審第 1 輪併發席)
+         try:
+             outcomes[name] = _one_writer(tmp_path, url, config, name, budget)
+         except BaseException as exc:
+             outcomes[name] = ("error", repr(exc))
+ 
+-    threads = [threading.Thread(target=run, args=args) for args in (("a", 150), ("b", 160))]
++    # 兩份新預算都在比例上限內(Phase 6 增量 2 起,從 100 最多加到 150)
++    threads = [threading.Thread(target=run, args=args) for args in (("a", 150), ("b", 140))]
+     for thread in threads:
+         thread.start()
+     for thread in threads:
+         thread.join(20)
+ 
+     assert len(outcomes) == 2 and all(o[0] != "error" for o in outcomes.values()), outcomes
+     attempts = sorted(outcome[1] for outcome in outcomes.values())
+     assert attempts == [("failed", "version_conflict"), ("verified", None)]  # 只有一方寫進去
+     loser = next(outcome for outcome in outcomes.values() if outcome[1][0] == "failed")
+     assert loser[2] == ("blocked", "version_changed")  # 收件口擋下原因記版本已變

@@ -222,6 +222,7 @@ def test_block_reasons_are_a_closed_list(store, tmp_path):
     assert {code.value for code in BlockCode} == {
         "campaign_not_found", "campaign_not_active", "version_changed", "campaign_not_allowed",
         "over_budget_cap", "operation_previously_failed",
+        "budget_increase_too_large",  # Phase 6 增量 2 新增的單筆比例上限
         "aggregate_limit_reached"}  # Phase 6 增量 1 [S331]:總曝險已滿
     # 「處置恰好兩個成員」由 Phase 4 增量 1 [S103] 取代:四個成員
     assert {d.value for d in Disposition} == {"in_progress", "handed_off", "blocked",
