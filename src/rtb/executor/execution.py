@@ -31,7 +31,7 @@ from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, opera
 from rtb.domain.proposal import ActionType, Proposal
 from rtb.executor import attempt_store
 from rtb.executor.attempt_store import AttemptRow
-from rtb.executor.capability_signer import LIFETIME_SECONDS, SigningRefused
+from rtb.executor.capability_signer import LIFETIME_SECONDS, Grant, SigningRefused
 from rtb.executor.inbox_store import (
     VISIBILITY_TIMEOUT,
     BlockCode,
@@ -40,6 +40,8 @@ from rtb.executor.inbox_store import (
     LastFailure,
     PendingProposal,
     Receipt,
+    Stop,
+    StopKind,
     block_code_for_failure,
 )
 
@@ -114,6 +116,12 @@ class DspPort(Protocol):
 
 class Signer(Protocol):
     def sign(self, proposal: Proposal, operation_key: str, config_path: Path, now: int) -> str: ...
+
+    def grant(
+        self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
+    ) -> Grant:
+        """同 sign,另外帶回同一次讀設定檔得到的租戶與總額上限(Phase 6)。"""
+        ...
 
     def sign_void(
         self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
@@ -277,6 +285,21 @@ _BUSINESS_REFUSALS = {
 }
 
 
+def _aggregate_used(tx: attempt_store.ExecutorTransaction, tenant: str, now: datetime) -> int:
+    """表滿延後也要記當時已用額度;這裡在例外處理裡呼叫,壞快照要自己轉成停機。"""
+    try:
+        return attempt_store.aggregate_used(tx, tenant, now)
+    except attempt_store.CorruptedAttemptRow as exc:
+        raise ExecutorHalted("unreadable_attempt") from exc
+
+
+def _increase(proposal: Proposal, view: CampaignView) -> int:
+    """這筆提案佔的總曝險:新預算減目前預算,小於 0 算 0;暫停是 0。"""
+    if proposal.action_type is not ActionType.UPDATE_BUDGET:
+        return 0
+    return max(0, int(proposal.requested_change["new_budget"]) - view.budget)
+
+
 def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
     """執行前檢查裡看 DSP 現況的三項;「不在投放」排在版本之前,代碼比較有意義。"""
     if view is None:
@@ -315,6 +338,8 @@ def record_matches(proposal: Proposal, record: OperationRecord) -> bool:
 class _Signed:
     token: str
     expires_at: datetime
+    tenant: str = ""
+    aggregate_limit: int = 0
 
 
 def _no_progress(key: str, receipt: Receipt | None) -> NoReturn:
@@ -362,7 +387,8 @@ class Executor:
         signed = precheck(proposal, view) or self._sign(proposal)
         if isinstance(signed, BlockCode):
             return self._settle(receipt, signed, Result.BLOCKED)
-        taken = self._take(picked, receipt, signed)
+        assert view is not None  # 廣告不存在時執行前檢查已擋下  # noqa: S101
+        taken = self._take(picked, receipt, signed, view)
         if isinstance(taken, Processed):
             return taken
         # 停在未結案就不確認:每一筆嘗試寫入都順手續租,所以租約已經延長,交給對帳
@@ -373,13 +399,14 @@ class Executor:
         """key 給對帳重送用:嘗試已經開過,一律用存下來的那把鍵簽,不從提案重算(增量 1 的規則)。"""
         now = int(self.clock().timestamp())  # 每次簽發都重讀時鐘
         try:
-            token = self.signer.sign(proposal, key or operation_key(proposal),
-                                     self.config_path, now)
+            grant = self.signer.grant(proposal, key or operation_key(proposal),
+                                      self.config_path, now)
         except SigningRefused as refused:
             if refused.reason in _BUSINESS_REFUSALS:
                 return _BUSINESS_REFUSALS[refused.reason]
             raise ExecutorHalted(refused.reason) from refused
-        return _Signed(token, datetime.fromtimestamp(now + LIFETIME_SECONDS, UTC))
+        return _Signed(grant.token, datetime.fromtimestamp(now + LIFETIME_SECONDS, UTC),
+                       grant.tenant, grant.aggregate_limit)
 
     def _settle(self, receipt: Receipt, code: BlockCode | None, kind: Result) -> Processed:
         """確認成已過期或已擋下;以收據為條件(提案已經是處理中,不再以「仍待處理」為條件)。"""
@@ -395,10 +422,15 @@ class Executor:
             done = self.store.release(tx, receipt, self.clock(), failure)
         return Processed(Result.DEFERRED) if done else Processed(Result.LEASE_LOST)
 
-    def _take(  # noqa: PLR0911 - 每個出口對應鍵已存在分流的一格
-        self, picked: PendingProposal, receipt: Receipt, signed: _Signed,
+    def _take(  # noqa: PLR0911 - 每個出口對應開始一筆的一種結果
+        self, picked: PendingProposal, receipt: Receipt, signed: _Signed, view: CampaignView,
     ) -> AttemptRow | Processed:
-        """開始一筆:在核對收據仍有效的同一個交易裡做;鍵已存在就依既有那把鍵的狀態分流。"""
+        """開始一筆:在核對收據仍有效的同一個交易裡做;鍵已存在就依既有那把鍵的狀態分流。
+
+        總曝險(Phase 6):預留金額 = 新預算減處理一筆開頭讀到的目前預算(版本已變排在前面,走到
+        這裡的目前預算一定是提案觀察到的那一版),小於 0 算 0;額度不夠就擋下並寫停下紀錄。"""
+        reservation = attempt_store.Reservation(
+            signed.tenant, _increase(picked.proposal, view), signed.aggregate_limit)
         with self.store.transaction() as tx:
             now = self.clock()
             if not self.store.extend(tx, receipt, now):  # 已被取代、內容不同、或租約已不是我的
@@ -409,27 +441,56 @@ class Executor:
                 return Processed(Result.EXPIRED)
             try:
                 begun = attempt_store.begin(tx, picked.proposal, now,
-                                            capability_expires_at=signed.expires_at)
+                                            capability_expires_at=signed.expires_at,
+                                            reservation=reservation)
             except attempt_store.TooManyUnresolved:  # 正常觸發:等未結案數降下來
+                snapshot = attempt_store.AggregateLimitReached(
+                    _aggregate_used(tx, reservation.tenant, now), reservation.limit)
+                self.store.record_stop(tx, self._stop(
+                    StopKind.TABLE_FULL, picked.proposal, reservation, snapshot), now)
                 self.store.release(tx, receipt, now, LastFailure.TABLE_FULL)
                 return Processed(Result.DEFERRED)
+            except attempt_store.AggregateLimitReached as full:  # 總曝險已滿:擋下結案
+                self.store.record_stop(tx, self._stop(
+                    StopKind.AGGREGATE_LIMIT_REACHED, picked.proposal, reservation, full), now)
+                code = BlockCode.AGGREGATE_LIMIT_REACHED
+                if not self.store.ack_blocked(tx, receipt, now, code):
+                    raise LeaseLost(operation_key(picked.proposal)) from full
+                return Processed(Result.BLOCKED, operation_key(picked.proposal), code)
+            except attempt_store.CorruptedAttemptRow as exc:  # 算額度時讀到壞掉的舊快照
+                raise ExecutorHalted("unreadable_attempt") from exc  # 比照對帳:不猜,停下讓人看
             except attempt_store.CampaignLocked:  # 同廣告兩份提案被兩個工作者同時取出時會走到
                 self.store.release(tx, receipt, now, None)
                 return Processed(Result.DEFERRED)
             if begun.created:
                 return begun.row
-            state = begun.row.state
-            if state is A.VERIFIED:
-                if not self.store.ack_handed_off(tx, receipt, now):
-                    raise LeaseLost(begun.row.key)
-                return Processed(Result.HANDED_OFF_TO_EXISTING, begun.row.key)
-            if state is A.FAILED:  # 人判過不做的操作不能貼成已交給執行
-                code = block_code_for_failure(begun.row.code)
-                if not self.store.ack_blocked(tx, receipt, now, code):
-                    raise LeaseLost(begun.row.key)
-                return Processed(Result.BLOCKED, begun.row.key, code)
-            self.store.release(tx, receipt, now, None)  # 防線:未結案的鍵歸對帳管
-            return Processed(Result.DEFERRED)
+            return self._existing_key(tx, begun.row, receipt, now)
+
+    def _existing_key(
+        self, tx: attempt_store.ExecutorTransaction, row: AttemptRow, receipt: Receipt,
+        now: datetime,
+    ) -> Processed:
+        """開始一筆時鍵已存在:依既有那把鍵的狀態分流(在呼叫端的同一個交易裡)。"""
+        if row.state is A.VERIFIED:
+            if not self.store.ack_handed_off(tx, receipt, now):
+                raise LeaseLost(row.key)
+            return Processed(Result.HANDED_OFF_TO_EXISTING, row.key)
+        if row.state is A.FAILED:  # 人判過不做的操作不能貼成已交給執行
+            code = block_code_for_failure(row.code)
+            if not self.store.ack_blocked(tx, receipt, now, code):
+                raise LeaseLost(row.key)
+            return Processed(Result.BLOCKED, row.key, code)
+        self.store.release(tx, receipt, now, None)  # 防線:未結案的鍵歸對帳管
+        return Processed(Result.DEFERRED)
+
+    @staticmethod
+    def _stop(
+        kind: StopKind, proposal: Proposal, reservation: attempt_store.Reservation,
+        full: attempt_store.AggregateLimitReached | None,
+    ) -> Stop:
+        return Stop(kind, proposal, operation_key(proposal), reservation.tenant or None,
+                    reservation.amount, None if full is None else full.used,
+                    None if full is None else full.limit)
 
     def _ack_terminal(
         self, tx: attempt_store.ExecutorTransaction, row: AttemptRow, receipt: Receipt,

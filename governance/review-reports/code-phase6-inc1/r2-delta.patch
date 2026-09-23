@@ -1,0 +1,155 @@
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index 87c5bb1..2eb7fba 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -364,7 +364,7 @@ def aggregate_used(tx: ExecutorTransaction, tenant: str, now: datetime) -> int:
+     rows = conn.execute(
+         "SELECT f.tenant, f.reserved_amount, f.action, f.proposal_json FROM attempts v "
+         "JOIN attempts f ON f.key = v.key AND f.seq = 1 "
+-        "WHERE v.state = ? AND v.written_at > ?",
++        "WHERE v.state = ? AND v.written_at >= ?",  # 剛好滿 24 小時還不算「超過」
+         (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW)),
+     ).fetchall()
+     if unresolved_count(tx):
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index 422eed1..4d914c5 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -285,6 +285,14 @@ _BUSINESS_REFUSALS = {
+ }
+ 
+ 
++def _aggregate_used(tx: attempt_store.ExecutorTransaction, tenant: str, now: datetime) -> int:
++    """表滿延後也要記當時已用額度;這裡在例外處理裡呼叫,壞快照要自己轉成停機。"""
++    try:
++        return attempt_store.aggregate_used(tx, tenant, now)
++    except attempt_store.CorruptedAttemptRow as exc:
++        raise ExecutorHalted("unreadable_attempt") from exc
++
++
+ def _increase(proposal: Proposal, view: CampaignView) -> int:
+     """這筆提案佔的總曝險:新預算減目前預算,小於 0 算 0;暫停是 0。"""
+     if proposal.action_type is not ActionType.UPDATE_BUDGET:
+@@ -436,8 +444,10 @@ class Executor:
+                                             capability_expires_at=signed.expires_at,
+                                             reservation=reservation)
+             except attempt_store.TooManyUnresolved:  # 正常觸發:等未結案數降下來
++                snapshot = attempt_store.AggregateLimitReached(
++                    _aggregate_used(tx, reservation.tenant, now), reservation.limit)
+                 self.store.record_stop(tx, self._stop(
+-                    StopKind.TABLE_FULL, picked.proposal, reservation, None), now)
++                    StopKind.TABLE_FULL, picked.proposal, reservation, snapshot), now)
+                 self.store.release(tx, receipt, now, LastFailure.TABLE_FULL)
+                 return Processed(Result.DEFERRED)
+             except attempt_store.AggregateLimitReached as full:  # 總曝險已滿:擋下結案
+@@ -447,6 +457,8 @@ class Executor:
+                 if not self.store.ack_blocked(tx, receipt, now, code):
+                     raise LeaseLost(operation_key(picked.proposal)) from full
+                 return Processed(Result.BLOCKED, operation_key(picked.proposal), code)
++            except attempt_store.CorruptedAttemptRow as exc:  # 算額度時讀到壞掉的舊快照
++                raise ExecutorHalted("unreadable_attempt") from exc  # 比照對帳:不猜,停下讓人看
+             except attempt_store.CampaignLocked:  # 同廣告兩份提案被兩個工作者同時取出時會走到
+                 self.store.release(tx, receipt, now, None)
+                 return Processed(Result.DEFERRED)
+diff --git a/tests/executor/test_aggregate_limit.py b/tests/executor/test_aggregate_limit.py
+index 469c202..8151b8e 100644
+--- a/tests/executor/test_aggregate_limit.py
++++ b/tests/executor/test_aggregate_limit.py
+@@ -20,7 +20,7 @@ from rtb.executor.attempt_store import AGGREGATE_WINDOW, Reservation
+ from rtb.executor.execution import CampaignView, Executor, ExecutorHalted, Result, WriteAnswer
+ from rtb.executor.inbox_store import BlockCode, InboxStore
+ from tests.executor.conftest import NOW
+-from tests.executor.fakes import Harness, proposal, write_config
++from tests.executor.fakes import LOOSE_AGGREGATE_LIMIT, Harness, proposal, write_config
+ 
+ A = AttemptState
+ C = OutcomeCode
+@@ -145,6 +145,7 @@ def test_a_verified_reservation_leaves_the_window_24_hours_after_verification(st
+ 
+     assert used(store_only, verified_at + timedelta(minutes=1)) == 50
+     assert used(store_only, verified_at + AGGREGATE_WINDOW - timedelta(seconds=1)) == 50
++    assert used(store_only, verified_at + AGGREGATE_WINDOW) == 50  # 剛好滿 24 小時還不算「超過」
+     assert used(store_only, verified_at + AGGREGATE_WINDOW + timedelta(seconds=1)) == 0
+ 
+ 
+@@ -284,7 +285,9 @@ def test_an_already_reserved_key_is_not_revoked_by_lowering_the_limit(h):
+ 
+ # ---- [S338] ----
+ @pytest.mark.parametrize("missing", [["aggregate_limit_reached"],
+-                                     ["aggregate_limit_reached", "operation_previously_failed"]])
++                                     ["aggregate_limit_reached", "operation_previously_failed"],
++                                     # 新值在、舊值缺:只看新值的寫法抓不到這一組
++                                     ["operation_previously_failed"]])
+ def test_an_old_inbox_database_accepts_every_current_block_code(tmp_path, missing):
+     db = tmp_path / "executor.db"
+     InboxStore(db).close()
+@@ -384,7 +387,7 @@ def test_a_full_table_deferral_is_recorded_once_per_proposal(h, monkeypatch):
+     h.process()
+ 
+     assert [s[0] for s in stops(h)] == ["table_full"]
+-    assert stops(h)[0][7:9] == (None, None)
++    assert stops(h)[0][7:9] == (0, LOOSE_AGGREGATE_LIMIT)  # 當時已用額度與門檻照樣記
+ 
+ 
+ def inbox_store_stop(prop, amount, used_value, cap):
+@@ -430,3 +433,47 @@ def test_a_campaign_view_is_used_as_the_base_of_the_reservation(h):
+     h.process()
+ 
+     assert first_row(h, prop) == [(TENANT, 30)]  # 150 - 120,不是 150 - 100
++
++
++def test_an_unreadable_old_snapshot_halts_instead_of_crashing(h):
++    """算額度時讀到舊格式、快照壞掉的列:比照對帳讀不回來的慣例乾淨停機,不讓例外往外炸。"""
++    with h.store.transaction() as tx:
++        tx.conn.execute(  # 測試模擬毀損:Phase 6 之前格式、快照不是 JSON、已驗證且在窗內
++            "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
++            "verification_timeouts, written_at, action, proposal_json) VALUES "
++            "('old', 1, 'c9', 'in_flight', 1, 0, ?, 'update_budget', '{not json'), "
++            "('old', 2, 'c9', 'verified', 1, 0, ?, 'update_budget', NULL)",
++            (attempt_store._iso(h.clock()), attempt_store._iso(h.clock())))
++    h.submit()
++
++    with pytest.raises(ExecutorHalted):
++        h.process()
++    assert h.attempts() == [("old", 1, "in_flight", None, 1, None),
++                            ("old", 2, "verified", None, 1, None)]
++
++
++def test_a_lost_receipt_during_an_aggregate_block_writes_no_stop(h, monkeypatch):
++    """收據失效代表這份提案已被別的工作者接手:由它擋、由它記;這邊整個交易回滾、不重複記。"""
++    from rtb.executor.execution import LeaseLost
++
++    limit(h, 10)
++    h.submit()
++    monkeypatch.setattr(InboxStore, "ack_blocked", lambda *_a, **_k: False)
++
++    assert h.process().kind is Result.LEASE_LOST
++    assert stops(h) == []
++    assert LeaseLost  # 例外型別存在(process_one 接住後回 LEASE_LOST)
++
++
++def test_an_unreadable_old_snapshot_halts_when_the_table_is_full_too(h, monkeypatch):
++    monkeypatch.setattr(attempt_store, "MAX_UNRESOLVED", 0)
++    with h.store.transaction() as tx:
++        tx.conn.execute(  # 測試模擬毀損:舊格式、快照不是 JSON、沒有終點
++            "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
++            "verification_timeouts, written_at, action, proposal_json) VALUES "
++            "('old', 1, 'c9', 'in_flight', 1, 0, ?, 'update_budget', '{not json')",
++            (attempt_store._iso(h.clock()),))
++    h.submit()
++
++    with pytest.raises(ExecutorHalted):
++        h.process()
+diff --git a/tests/executor/test_f7_end_to_end.py b/tests/executor/test_f7_end_to_end.py
+index abcb2fc..be22ba6 100644
+--- a/tests/executor/test_f7_end_to_end.py
++++ b/tests/executor/test_f7_end_to_end.py
+@@ -70,7 +70,7 @@ def test_f7_many_small_increases_stop_at_the_aggregate_limit(tmp_path, clock):
+         blocked = h.query("SELECT count(*) FROM proposals WHERE block_code = ?",
+                           ("aggregate_limit_reached",))
+         assert blocked == [(CAMPAIGNS - EXPECTED_PASSES,)]
+-        recorded = h.query("SELECT count(*), max(used + amount > cap) FROM write_stops "
++        recorded = h.query("SELECT count(*), min(used + amount > cap) FROM write_stops "
+                            "WHERE kind = 'aggregate_limit_reached'")
+         assert recorded == [(CAMPAIGNS - EXPECTED_PASSES, 1)]  # 每一筆擋下都記了、當時確實超過
+     finally:
