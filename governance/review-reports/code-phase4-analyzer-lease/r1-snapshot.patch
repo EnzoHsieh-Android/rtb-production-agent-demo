@@ -1,0 +1,744 @@
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+index f7c6435..4e86e1f 100644
+--- a/src/rtb/analyzer/flow.py
++++ b/src/rtb/analyzer/flow.py
+@@ -8,29 +8,38 @@
+ `EvidenceSource`、`Submit` 的失敗一律視為暫時性、可以放心重試(前者是純讀取,後者的
+ 真實實作——收件口——保證同一份提案重送永遠安全);只有 `Decide` 自己丟出例外、或
+ 歷史資料本身毀損讀不回來時才轉 FAILED,因為重跑同一份輸入只會再次得到同樣的結果。
+ 
+ 三個介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
+ 多個參數與語意(不是單純「一個函式」),`Protocol` 讓型別檢查器能核對實作簽章、也讓文件
+ 掛在介面本身,是刻意的選擇,不是要在專案裡另立一套慣用法;現有 `Callable` 用法(單一動作
+ 的簡單回呼)不受影響。
+ """
+ 
++import sqlite3
++import uuid
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import datetime
+ from typing import Protocol
+ 
+-from rtb.analyzer.task_store import CorruptedHistoryRow, TaskNotFound, TaskRow, TaskStore
++from rtb.analyzer.task_store import (
++    CorruptedHistoryRow,
++    LeaseReceipt,
++    TaskNotFound,
++    TaskRow,
++    TaskStore,
++)
+ from rtb.domain.evidence import Evidence
+ from rtb.domain.proposal import Proposal
+ from rtb.domain.task_state import TERMINAL_STATES, TaskState, transition
++from rtb.sqlitekit import DatabaseBusy
+ 
+ 
+ @dataclass(frozen=True)
+ class NoAction:
+     """這個任務不需要任何動作。"""
+ 
+ 
+ @dataclass(frozen=True)
+ class ProposalDecision:
+     """決定要送出的提案。"""
+@@ -113,39 +122,84 @@ _StepOutcome = _Step | None
+ 
+ def advance(  # noqa: PLR0913 - 三個可替換介面加時間與中斷鉤子,全部都是必要的參數
+     store: TaskStore,
+     task_id: str,
+     evidence_source: EvidenceSource,
+     decide: Decide,
+     submit: Submit,
+     now: datetime,
+     before_commit: Callable[[], None] | None = None,
+ ) -> TaskState:
+-    """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。"""
++    """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。
++
++    呼叫任何外部介面之前先在任務上取得租約(Phase 4 增量 3b):拿不到就回原狀態、什麼都不
++    呼叫;這一步做完(寫入、沒進展或行程內例外)都放掉。行程真的猝死放不掉,租約留到到期,
++    接手者會再呼叫一次——至少一次的代價。
++    """
+     row = store.latest(task_id)
+     if row is None:
+         raise TaskNotFound(task_id)
+     if row.state in TERMINAL_STATES or row.state is TaskState.HANDED_OFF:
+         return row.state
+ 
+-    collaborators = _Collaborators(evidence_source, decide, submit)
++    lease = store.acquire_lease(task_id, uuid.uuid4().hex, now)
++    if lease is None:  # 別人正持有:不花錢,跟「沒有進展」一樣回原狀態
++        return row.state
++    try:
++        return _advance_holding(
++            store, row, _Collaborators(evidence_source, decide, submit), now, before_commit,
++            lease)
++    except BaseException:
++        _release_keeping_the_original_error(store, lease, now)
++        raise
++
++
++def _advance_holding(
++    store: TaskStore,
++    row: TaskRow,
++    collaborators: _Collaborators,
++    now: datetime,
++    before_commit: Callable[[], None] | None,
++    lease: LeaseReceipt,
++) -> TaskState:
++    current = store.latest(row.task_id)
++    if current is None or current.seq != row.seq:
++        # 讀列之後、取得租約之前,別人已做完一步:不拿舊列呼叫外部,也不在這一輪改用新列
++        # (送件的呼叫紀錄綁的是呼叫端在呼叫前讀到的那一列),交回呼叫端用新列重來
++        store.release_lease(lease, now)
++        return row.state if current is None else current.state
+     outcome = _STEPS[row.state](store, row, collaborators, now)
+     if outcome is None:  # 這一步的結果是「不寫入,留在原狀態」
++        store.release_lease(lease, now)
+         return row.state
+     transition(row.state, outcome.new_state)  # 非法轉換在這裡就會炸,不會靜默寫出壞資料
+     committed = store.commit_step(
+-        task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
++        row.task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
+         evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
++        lease=lease,
+     )
++    if not committed:  # 輸了序號或租約:還是自己的才放掉(條件寫在 release_lease 裡)
++        store.release_lease(lease, now)
+     return outcome.new_state if committed else row.state
+ 
+ 
++def _release_keeping_the_original_error(
++    store: TaskStore, lease: LeaseReceipt, now: datetime
++) -> None:
++    """例外往外傳之前放掉租約;放掉本身的資料庫層失敗吞掉,讓原本的例外照舊傳出去、租約等
++    到期。吞的範圍比照 `TaskStore.record_tool_call`:只吞資料庫層錯誤,程式錯誤不吞。"""
++    try:
++        store.release_lease(lease, now)
++    except (sqlite3.Error, DatabaseBusy):
++        return
++
++
+ def _from_received(
+     _store: TaskStore, _row: TaskRow, _c: _Collaborators, _now: datetime
+ ) -> _StepOutcome:
+     return _Step(TaskState.COLLECTING_EVIDENCE)
+ 
+ 
+ def _from_collecting_evidence(
+     _store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
+ ) -> _StepOutcome:
+     try:
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index 7b5ff40..b4009dd 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -1,23 +1,27 @@
+-"""分析行程自己的 SQLite:任務只增不改的歷史表,加證據表。
++"""分析行程自己的 SQLite:任務只增不改的歷史表,加證據表與租約紀錄表。
+ 
+ 「目前狀態」永遠是某個任務編號序號最大的那一列;沒有 UPDATE、沒有 DELETE。這樣
+ 「這一步的輸出已安全存好」跟「這一列真的寫進資料庫」是同一件事,不需要另外的旗標。
+ 新列的序號在寫入交易內用目前最大序號加一決定,並且核對「準備要接的那一列」仍是目前
+ 最新的一列,不是就中止、不寫入——這是並行呼叫 advance() 時的最後一道防線。
++
++租約(Phase 4 增量 3b):同一個任務同一時間只讓一個呼叫端去呼叫要花錢的外部介面。租約表
++同樣只增不改,取得與放掉各新增一列,「目前的租約」就是這個任務租約序號最大的那一列;
++提交時核對目前那一列正是自己的取得列(圍籬),過期被接手的舊持有者寫不進去。
+ """
+ 
+ import json
+ import sqlite3
+ from collections.abc import Callable, Sequence
+ from dataclasses import dataclass
+-from datetime import UTC, datetime
++from datetime import UTC, datetime, timedelta
+ from pathlib import Path
+ from types import MappingProxyType
+ 
+ from rtb.domain._checks import is_id
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
+ from rtb.domain.proposal import ActionType, Proposal
+ from rtb.domain.task_state import IllegalTransition, TaskState, can_transition
+ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate_transaction
+ 
+ SCHEMA = """
+@@ -27,22 +31,28 @@ CREATE TABLE IF NOT EXISTS tasks (
+     written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
+ CREATE TABLE IF NOT EXISTS evidence (
+     task_id TEXT NOT NULL, task_seq INTEGER NOT NULL, evidence_id TEXT NOT NULL,
+     kind TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL,
+     campaign_version_observed INTEGER, content_hash TEXT NOT NULL, trust_class TEXT NOT NULL,
+     payload_json TEXT NOT NULL,
+     PRIMARY KEY (task_id, task_seq, evidence_id));
+ CREATE TABLE IF NOT EXISTS tool_calls (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, task_seq INTEGER NOT NULL,
+     endpoint TEXT NOT NULL, outcome TEXT NOT NULL, latency_ms REAL NOT NULL, at TEXT NOT NULL);
++CREATE TABLE IF NOT EXISTS task_leases (
++    task_id TEXT NOT NULL, lease_seq INTEGER NOT NULL, owner TEXT, expires_at TEXT NOT NULL,
++    PRIMARY KEY (task_id, lease_seq));
+ """
+ MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
++# 暫用,沒有實測校準:要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件,各自的逾時由建用戶端
++# 的呼叫端決定);分析行程還沒有正式啟動程式,這條不等式目前沒有機械守衛(計劃增量 3b)
++LEASE_DURATION = timedelta(seconds=60)
+ 
+ 
+ 
+ class TaskAlreadyExists(Exception):
+     """同一個任務編號已經存在,但這次帶的廣告編號不同:呼叫端的錯誤,不靜默接受。"""
+ 
+ 
+ class InvalidTaskId(Exception):
+     """任務編號或廣告編號格式不合法。"""
+ 
+@@ -75,35 +85,49 @@ class ToolCall:
+ 
+ @dataclass(frozen=True)
+ class TraceRecord:
+     """給定一個任務編號的完整軌跡:狀態史、每一步的證據、每一次對外呼叫。"""
+ 
+     tasks: tuple[TaskRow, ...]
+     evidence: tuple[Evidence, ...]
+     tool_calls: tuple[ToolCall, ...]
+ 
+ 
++@dataclass(frozen=True)
++class LeaseReceipt:
++    """取得租約時拿到的收據:之後提交與放掉都要帶它,核對目前那一列還是這張收據的取得列。"""
++
++    task_id: str
++    lease_seq: int
++    owner: str
++
++
+ @dataclass(frozen=True)
+ class TaskRow:
+     task_id: str
+     seq: int
+     state: TaskState
+     campaign_id: str
+     proposal: Proposal | None
+     error_detail: str | None
+     written_at: datetime
+ 
+ 
+ def _iso(moment: datetime) -> str:
+     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+ 
+ 
++def _is_live(lease: tuple[int, str | None, str], now: datetime) -> bool:
++    """有擁有者而且還沒到期;到期時間與現在都是同一種固定格式的 UTC 字串,可以直接比大小。"""
++    return lease[1] is not None and lease[2] > _iso(now)
++
++
+ def _proposal_to_json(proposal: Proposal) -> str:
+     return json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True)
+ 
+ 
+ def _proposal_from_json(raw: str) -> Proposal:
+     data = json.loads(raw)
+     return Proposal(
+         task_id=data["task_id"], revision=data["revision"], campaign_id=data["campaign_id"],
+         action_type=ActionType(data["action_type"]),
+         requested_change=MappingProxyType(data["requested_change"]),
+@@ -210,32 +234,39 @@ class TaskStore:
+         self,
+         task_id: str,
+         expected_seq: int,
+         new_state: TaskState,
+         now: datetime,
+         *,
+         evidence: Sequence[Evidence] = (),
+         proposal: Proposal | None = None,
+         error_detail: str | None = None,
+         before_commit: Callable[[], None] | None = None,
++        lease: LeaseReceipt | None = None,
+     ) -> bool:
+-        """核對 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
++        """核對租約與 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
+ 
++        帶收據:目前那一列租約必須正是這張收據的取得列,寫入成功就在同一個交易裡放掉租約;
++        只核對號碼不核對到期時間(時間只有呼叫端步驟開頭傳進來的那個,判不出自己過期沒有;
++        過期但沒人接手時寫進去也沒有第二個人花過錢)。不帶收據:別人持有有效租約就不寫,
++        往後忘了帶收據的呼叫端也蓋不過正在花錢的持有者。
+         回傳是否真的寫入了;False 表示輸給並行的另一次呼叫,這次呼叫沒有寫入任何東西。
+         """
+         mismatched = [item.task_id for item in evidence if item.task_id != task_id]
+         if mismatched:
+             raise EvidenceTaskMismatch(
+                 f"要附帶的證據裡有 {mismatched} 不屬於任務 {task_id}")
+         capped_detail = (
+             None if error_detail is None else error_detail[:MAX_ERROR_DETAIL_LENGTH])
+         with immediate_transaction(self._conn):
++            if not self._lease_allows(task_id, lease, now):
++                return False
+             row = self._conn.execute(
+                 "SELECT seq, state, campaign_id FROM tasks WHERE task_id = ? "
+                 "ORDER BY seq DESC LIMIT 1", (task_id,),
+             ).fetchone()
+             if row is None or row[0] != expected_seq:
+                 return False
+             current_state, campaign_id = TaskState(row[1]), row[2]
+             if not can_transition(current_state, new_state):
+                 raise IllegalTransition(f"不合法的轉換:{current_state} -> {new_state}")
+             next_seq = expected_seq + 1
+@@ -247,24 +278,73 @@ class TaskStore:
+             )
+             for item in evidence:
+                 self._conn.execute(
+                     "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (task_id, next_seq, item.evidence_id, item.kind.value, item.source,
+                      _iso(item.observed_at), item.campaign_version_observed,
+                      item.content_hash, item.trust_class.value,
+                      json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True,
+                                 allow_nan=False)),
+                 )
++            if lease is not None:
++                self._append_release(lease, now)
+             if before_commit is not None:
+                 before_commit()
+         return True
+ 
++    def acquire_lease(self, task_id: str, owner: str, now: datetime) -> LeaseReceipt | None:
++        """目前沒人持有(沒有租約列、目前那一列是放掉列、或已過期)就新增一列取得列、回傳收據;
++        有人持有就什麼都不寫、回傳 None。"""
++        with immediate_transaction(self._conn):
++            current = self._current_lease(task_id)
++            if current is not None and _is_live(current, now):
++                return None
++            next_seq = 1 if current is None else current[0] + 1
++            self._conn.execute(
++                "INSERT INTO task_leases VALUES (?, ?, ?, ?)",
++                (task_id, next_seq, owner, _iso(now + LEASE_DURATION)),
++            )
++        return LeaseReceipt(task_id, next_seq, owner)
++
++    def release_lease(self, lease: LeaseReceipt, now: datetime) -> bool:
++        """目前那一列還是這張收據的取得列才新增放掉列;已被接手就什麼都不寫、回傳 False。
++        不帶條件的話,舊持有者遲來的放掉列會排在接手者的取得列之後,讓第三方在接手者還在
++        花錢時拿到租約(計劃增量 3b 第 1 輪設計審)。"""
++        with immediate_transaction(self._conn):
++            if not self._holds(lease):
++                return False
++            self._append_release(lease, now)
++        return True
++
++    def _current_lease(self, task_id: str) -> tuple[int, str | None, str] | None:
++        record = self._conn.execute(
++            "SELECT lease_seq, owner, expires_at FROM task_leases WHERE task_id = ? "
++            "ORDER BY lease_seq DESC LIMIT 1", (task_id,),
++        ).fetchone()
++        return None if record is None else (int(record[0]), record[1], record[2])
++
++    def _holds(self, lease: LeaseReceipt) -> bool:
++        current = self._current_lease(lease.task_id)
++        return current is not None and current[:2] == (lease.lease_seq, lease.owner)
++
++    def _lease_allows(self, task_id: str, lease: LeaseReceipt | None, now: datetime) -> bool:
++        if lease is not None:
++            return lease.task_id == task_id and self._holds(lease)
++        current = self._current_lease(task_id)
++        return current is None or not _is_live(current, now)
++
++    def _append_release(self, lease: LeaseReceipt, now: datetime) -> None:
++        self._conn.execute(
++            "INSERT INTO task_leases VALUES (?, ?, NULL, ?)",
++            (lease.task_id, lease.lease_seq + 1, _iso(now)),
++        )
++
+     def record_tool_call(
+         self, task_id: str, task_seq: int, endpoint: str, outcome: str, latency_ms: float,
+         now: datetime,
+     ) -> None:
+         """記一筆對外呼叫;這筆寫入自己絕不讓「資料庫層面」的例外往外傳(比照收件口事件表
+         `inbox_store._write_event` 的既有做法,只吞 `sqlite3.Error`/`DatabaseBusy`):寫入本身
+         失敗(資料庫忙碌、連線已關閉等)就放棄這筆記錄,不能因為記錄失敗而讓包住的那次呼叫
+         跟著失敗;但呼叫端自己傳錯參數型別這類程式錯誤要老實丟出來,不能被這裡靜默吞掉。
+         """
+         try:
+diff --git a/tests/analyzer/test_task_lease.py b/tests/analyzer/test_task_lease.py
+new file mode 100644
+index 0000000..cd2be9d
+--- /dev/null
++++ b/tests/analyzer/test_task_lease.py
+@@ -0,0 +1,378 @@
++"""分析側任務租約:對應 Phase 4 計劃增量 3b 的 S150~S160。
++
++同一個任務被同時推進時,只有持有租約的一方會呼叫外部介面(蒐證、分析、送件);寫入時再核對
++租約還是自己的。互斥類測試都讓先拿到租約的一方停在外部呼叫裡面,等另一方真的試過才放行,
++不然先拿到的一路做完,另一方之後合法進來,測不到互斥。
++"""
++
++import sqlite3
++import subprocess
++import sys
++import threading
++from datetime import timedelta
++from pathlib import Path
++
++import pytest
++
++from rtb.analyzer import flow
++from rtb.analyzer import task_store as task_store_module
++from rtb.analyzer.task_store import LEASE_DURATION, TaskStore
++from rtb.domain.task_state import TaskState
++from rtb.sqlitekit import DatabaseBusy
++from tests.analyzer.conftest import NOW, Counting, make_evidence, make_proposal
++
++SRC = str(Path(__file__).resolve().parents[2] / "src")
++AFTER_EXPIRY = NOW + LEASE_DURATION + timedelta(seconds=1)
++WAIT = 5  # 秒;每一個等待都有上限,卡住時測試會紅而不是掛住
++
++
++def _to_analyzing(store):
++    store.create_task("t1", "c1", NOW)
++    flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW)
++    flow.advance(store, "t1", Counting(returns=(make_evidence(),)), Counting(), Counting(), NOW)
++    assert store.latest("t1").state is TaskState.ANALYZING
++
++
++def _to_proposed(store):
++    _to_analyzing(store)
++    decide = Counting(returns=flow.ProposalDecision(make_proposal()))
++    flow.advance(store, "t1", Counting(), decide, Counting(), NOW)
++    assert store.latest("t1").state is TaskState.PROPOSED
++
++
++class _Blocking:
++    """被呼叫時記一筆、通知「已進來」,然後等放行才回傳;模擬一次卡住的付費外部呼叫。"""
++
++    def __init__(self, returns=None, raises=None):
++        self.calls = []
++        self.entered = threading.Event()
++        self.release = threading.Event()
++        self._returns, self._raises = returns, raises
++
++    def __call__(self, *args):
++        self.calls.append(args)
++        self.entered.set()
++        assert self.release.wait(WAIT), "測試沒有在時限內放行"
++        if self._raises is not None:
++            raise self._raises
++        return self._returns
++
++
++def _run_in_thread(path, target):
++    """每條執行緒自己開連線(SQLite 連線不能跨執行緒),結果或例外放進回傳的字典。"""
++    outcome = {}
++
++    def run():
++        thread_store = TaskStore(path)
++        try:
++            outcome["result"] = target(thread_store)
++        except BaseException as exc:
++            outcome["error"] = exc
++        finally:
++            thread_store.close()
++
++    thread = threading.Thread(target=run)
++    thread.start()
++    return thread, outcome
++
++
++# ---- S150 ----
++def test_two_real_threads_advancing_the_same_task_pay_for_the_analysis_once(tmp_path):
++    path = tmp_path / "race.db"
++    setup = TaskStore(path)
++    _to_analyzing(setup)
++    before = len(setup.history("t1"))
++    setup.close()
++
++    someone_returned = threading.Event()
++    calls = []
++
++    def decide(*args):
++        calls.append(args)
++        # 持有者停在付費呼叫裡,直到另一條執行緒已經試過並回來,互斥才真的被測到
++        assert someone_returned.wait(WAIT), "另一條執行緒沒有在時限內回來"
++        return flow.NoAction()
++
++    barrier = threading.Barrier(2)
++
++    def advance(thread_store):
++        barrier.wait(WAIT)  # 柵欄放在進資料庫交易之前,兩邊一起出發
++        try:
++            return flow.advance(thread_store, "t1", Counting(), decide, Counting(), NOW)
++        finally:
++            someone_returned.set()
++
++    runs = [_run_in_thread(path, advance) for _ in range(2)]
++    for thread, _ in runs:
++        thread.join(WAIT * 2)
++
++    outcomes = [outcome for _, outcome in runs]
++    assert all("error" not in outcome for outcome in outcomes), outcomes
++    assert len(calls) == 1  # 只有一方花了分析的錢
++    final = TaskStore(path)
++    assert len(final.history("t1")) == before + 1
++    final.close()
++
++
++# ---- S151 ----
++@pytest.mark.parametrize("reach", [None, _to_analyzing, _to_proposed])
++def test_a_caller_without_the_lease_calls_no_external_interface(store, reach):
++    if reach is None:  # 停在蒐證中
++        store.create_task("t1", "c1", NOW)
++        flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW)
++    else:
++        reach(store)
++    state = store.latest("t1").state
++    rows = len(store.history("t1"))
++    assert store.acquire_lease("t1", "someone-else", NOW) is not None
++
++    evidence, decide, submit = Counting(), Counting(), Counting()
++    result = flow.advance(store, "t1", evidence, decide, submit, NOW + timedelta(seconds=30))
++
++    assert result is state
++    assert (evidence.call_count, decide.call_count, submit.call_count) == (0, 0, 0)
++    assert len(store.history("t1")) == rows
++
++
++# ---- S152 ----
++def test_an_expired_holder_cannot_commit_after_a_takeover_even_when_the_sequence_still_matches(
++        tmp_path):
++    path = tmp_path / "takeover.db"
++    setup = TaskStore(path)
++    _to_analyzing(setup)
++    before = setup.latest("t1")
++    setup.close()
++
++    decide_a = _Blocking(returns=flow.ProposalDecision(make_proposal(risk_summary="A")))
++    decide_b = _Blocking(returns=flow.ProposalDecision(make_proposal(risk_summary="B")))
++    thread_a, outcome_a = _run_in_thread(
++        path, lambda s: flow.advance(s, "t1", Counting(), decide_a, Counting(), NOW))
++    assert decide_a.entered.wait(WAIT)
++    thread_b, outcome_b = _run_in_thread(
++        path, lambda s: flow.advance(s, "t1", Counting(), decide_b, Counting(), AFTER_EXPIRY))
++    assert decide_b.entered.wait(WAIT)  # B 在 A 過期後接手,也卡在分析裡
++
++    decide_a.release.set()  # A 醒來;此刻序號仍相符,只有租約核對擋得住它
++    thread_a.join(WAIT)
++    decide_b.release.set()
++    thread_b.join(WAIT)
++
++    assert outcome_a == {"result": TaskState.ANALYZING}
++    assert outcome_b == {"result": TaskState.PROPOSED}
++    check = TaskStore(path)
++    history = check.history("t1")
++    assert len(history) == before.seq + 1
++    assert history[-1].proposal.risk_summary == "B"  # 寫進去的是接手者的結果
++    check.close()
++    assert len(decide_a.calls) + len(decide_b.calls) == 2  # 照實:接手的情況錢花了兩次
++
++
++# ---- S153 ----
++CHILD = """
++import os, sys
++from datetime import datetime
++from rtb.analyzer import flow
++from rtb.analyzer.task_store import TaskStore
++
++db, calls, at = sys.argv[1], sys.argv[2], datetime.fromisoformat(sys.argv[3])
++
++def decide(*_args):
++    with open(calls, "a") as fh:
++        fh.write("paid\\n")
++    os._exit(9)  # 花完錢、提交前猝死:沒有例外、沒有 finally,租約放不掉
++
++def unused(*_args):
++    raise AssertionError("不該被呼叫")
++
++flow.advance(TaskStore(db), "t1", unused, decide, unused, at)
++"""
++
++
++def test_a_holder_that_dies_after_paying_is_analysed_again_once_the_lease_expires(tmp_path):
++    path, calls = tmp_path / "crash.db", tmp_path / "calls.txt"
++    store = TaskStore(path)
++    _to_analyzing(store)
++
++    child = subprocess.run(
++        [sys.executable, "-c", CHILD, str(path), str(calls), NOW.isoformat()],
++        env={"PYTHONPATH": SRC}, capture_output=True, text=True, timeout=30, check=False)
++
++    assert child.returncode == 9, child.stderr  # 真的死在付費呼叫之後
++    assert calls.read_text().splitlines() == ["paid"]
++
++    during = Counting(returns=flow.NoAction())
++    result = flow.advance(store, "t1", Counting(), during, Counting(), NOW + timedelta(seconds=30))
++    assert result is TaskState.ANALYZING
++    assert during.call_count == 0  # 租約還沒到期:不再花錢
++
++    after = Counting(returns=flow.NoAction())
++    result = flow.advance(store, "t1", Counting(), after, Counting(), AFTER_EXPIRY)
++    assert result is TaskState.NO_ACTION
++    assert after.call_count == 1  # 照實的限制:到期後接手者再分析一次,共兩次
++    store.close()
++
++
++# ---- S154 ----
++@pytest.mark.parametrize("other_decision", [flow.NeedsFreshEvidence(), flow.NoAction()])
++def test_a_caller_that_acquires_after_another_commit_returns_without_calling_out(
++        store, monkeypatch, other_decision):
++    _to_analyzing(store)
++    real_acquire = TaskStore.acquire_lease
++    state = {"raced": False}
++
++    def acquire_after_someone_else_finishes_a_step(self, task_id, owner, now):
++        if not state["raced"]:  # 第 1 步讀完列之後、取得租約之前,另一個呼叫端做完一步
++            state["raced"] = True
++            other = Counting(returns=other_decision)
++            flow.advance(self, task_id, Counting(), other, Counting(), now)
++            assert other.call_count == 1
++        return real_acquire(self, task_id, owner, now)
++
++    monkeypatch.setattr(TaskStore, "acquire_lease", acquire_after_someone_else_finishes_a_step)
++    evidence, decide, submit = Counting(), Counting(), Counting()
++
++    result = flow.advance(store, "t1", evidence, decide, submit, NOW)
++
++    newest = store.latest("t1").state
++    assert newest is not TaskState.ANALYZING
++    assert result is newest  # 回報重讀到的新狀態,交回呼叫端用新列重來
++    assert (evidence.call_count, decide.call_count, submit.call_count) == (0, 0, 0)
++    monkeypatch.setattr(TaskStore, "acquire_lease", real_acquire)
++    assert store.acquire_lease("t1", "next", NOW) is not None  # 租約已放掉
++
++
++# ---- S155 ----
++def test_no_progress_or_an_in_process_error_releases_the_lease(store):
++    store.create_task("t1", "c1", NOW)
++    flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW)
++
++    failing = Counting(raises=TimeoutError("DSP 沒回應"))
++    assert flow.advance(store, "t1", failing, Counting(), Counting(), NOW) is (
++        TaskState.COLLECTING_EVIDENCE)
++    receipt = store.acquire_lease("t1", "probe", NOW)  # 沒有進展:不必等到期
++    assert receipt is not None
++    assert store.release_lease(receipt, NOW)
++
++    def crash():
++        raise RuntimeError("提交前當機")
++
++    with pytest.raises(RuntimeError):
++        flow.advance(store, "t1", Counting(returns=(make_evidence(),)), Counting(), Counting(),
++                     NOW, before_commit=crash)
++    assert store.acquire_lease("t1", "probe", NOW) is not None  # 行程內例外:也放掉了
++
++
++# ---- S156 ----
++def test_a_commit_without_a_receipt_cannot_write_over_a_live_holder(store):
++    store.create_task("t1", "c1", NOW)
++    receipt = store.acquire_lease("t1", "holder", NOW)
++
++    assert not store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, NOW)
++    assert store.latest("t1").seq == 1
++
++    assert store.release_lease(receipt, NOW)
++    assert store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, NOW)  # 沒人持有:照舊
++
++
++# ---- S157 ----
++OLD_SCHEMA = """
++CREATE TABLE tasks (
++    task_id TEXT NOT NULL, seq INTEGER NOT NULL, state TEXT NOT NULL,
++    campaign_id TEXT NOT NULL, proposal_json TEXT, error_detail TEXT,
++    written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
++CREATE TABLE evidence (
++    task_id TEXT NOT NULL, task_seq INTEGER NOT NULL, evidence_id TEXT NOT NULL,
++    kind TEXT NOT NULL, source TEXT NOT NULL, observed_at TEXT NOT NULL,
++    campaign_version_observed INTEGER, content_hash TEXT NOT NULL, trust_class TEXT NOT NULL,
++    payload_json TEXT NOT NULL DEFAULT '{}',
++    PRIMARY KEY (task_id, task_seq, evidence_id));
++CREATE TABLE tool_calls (
++    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, task_seq INTEGER NOT NULL,
++    endpoint TEXT NOT NULL, outcome TEXT NOT NULL, latency_ms REAL NOT NULL, at TEXT NOT NULL);
++INSERT INTO tasks VALUES ('t1', 1, 'received', 'c1', NULL, NULL, '2026-09-22T12:00:00.000000Z');
++INSERT INTO tool_calls (task_id, task_seq, endpoint, outcome, latency_ms, at)
++    VALUES ('t1', 1, 'dsp:state', 'ok', 1.5, '2026-09-22T12:00:00.000000Z');
++"""
++
++
++def test_opening_an_old_task_database_adds_the_lease_table_without_touching_history(tmp_path):
++    import inspect
++
++    path = tmp_path / "old.db"
++    conn = sqlite3.connect(path)
++    conn.executescript(OLD_SCHEMA)
++    conn.close()
++
++    store = TaskStore(path)
++    tables = {row[0] for row in store._conn.execute(
++        "SELECT name FROM sqlite_master WHERE type = 'table'")}
++    assert "task_leases" in tables
++    assert [(r.seq, r.state) for r in store.history("t1")] == [(1, TaskState.RECEIVED)]
++    assert [c.endpoint for c in store.list_tool_calls("t1")] == ["dsp:state"]
++    assert store.acquire_lease("t1", "first", NOW) is not None  # 新表真的可用
++    store.close()
++
++    source = inspect.getsource(task_store_module).upper()
++    assert "UPDATE " not in source and "DELETE " not in source  # 租約表同樣只增不改
++
++
++# ---- S158 ----
++def test_an_expired_holder_that_nobody_took_over_still_commits(store):
++    store.create_task("t1", "c1", NOW)
++    receipt = store.acquire_lease("t1", "slow", NOW)
++
++    assert store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, AFTER_EXPIRY + timedelta(
++        minutes=5), lease=receipt)  # 過期但沒人接手:沒有第二個人花錢,照樣寫得進去
++    assert store.latest("t1").seq == 2
++
++
++# ---- S159 ----
++def test_a_late_release_from_a_replaced_holder_writes_nothing(tmp_path):
++    path = tmp_path / "late.db"
++    setup = TaskStore(path)
++    setup.create_task("t1", "c1", NOW)
++    flow.advance(setup, "t1", Counting(), Counting(), Counting(), NOW)
++    setup.close()
++
++    evidence_a = _Blocking(raises=TimeoutError("DSP 很慢,最後失敗"))
++    thread_a, outcome_a = _run_in_thread(
++        path, lambda s: flow.advance(s, "t1", evidence_a, Counting(), Counting(), NOW))
++    assert evidence_a.entered.wait(WAIT)
++
++    store = TaskStore(path)
++    receipt_b = store.acquire_lease("t1", "b", AFTER_EXPIRY)  # B 在 A 過期後接手
++    assert receipt_b is not None
++    evidence_a.release.set()  # A 的蒐證失敗(沒有進展),走放掉租約
++    thread_a.join(WAIT)
++    assert outcome_a == {"result": TaskState.COLLECTING_EVIDENCE}
++
++    assert store.acquire_lease("t1", "c", AFTER_EXPIRY) is None  # B 的租約仍有效
++    assert store.commit_step("t1", 2, TaskState.ANALYZING, AFTER_EXPIRY, lease=receipt_b)
++
++    crashing = TaskStore(path)
++    receipt_c = crashing.acquire_lease("t1", "c", AFTER_EXPIRY)
++    receipt_d = crashing.acquire_lease("t1", "d", AFTER_EXPIRY + LEASE_DURATION * 2)
++    assert not crashing.release_lease(receipt_c, AFTER_EXPIRY)  # 直接呼叫也一樣不寫
++    assert crashing.acquire_lease("t1", "e", AFTER_EXPIRY + LEASE_DURATION * 2) is None
++    assert crashing.release_lease(receipt_d, AFTER_EXPIRY)
++    crashing.close()
++    store.close()
++
++
++# ---- S160 ----
++class _PlannedCrash(Exception):
++    pass
++
++
++def test_a_failed_release_never_masks_the_original_error(store, monkeypatch):
++    store.create_task("t1", "c1", NOW)
++
++    def busy(*_args, **_kwargs):
++        raise DatabaseBusy("放掉租約時資料庫忙碌")
++
++    def crash():
++        raise _PlannedCrash
++
++    monkeypatch.setattr(TaskStore, "release_lease", busy)
++    with pytest.raises(_PlannedCrash):
++        flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW, before_commit=crash)

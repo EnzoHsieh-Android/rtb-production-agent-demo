@@ -1,0 +1,8 @@
+{"round": "r2", "loop": "code-phase4-analyzer-lease", "snapshot": "r2-snapshot.patch", "delta": "r2-delta.patch",
+ "reviewed_sha256": "4c8010f93874cab1a5dd8e7158e906757a522977212c41c24ed21358a966733d",
+ "seats": [
+  {"seat": "delta-sonnet", "lens": "修正差異的正確性與併發", "materials": ["r2-delta.patch", "r2-snapshot.patch"]},
+  {"seat": "arch-sonnet", "lens": "架構對齊(驗收上輪 F1 F2)", "materials": ["r2-delta.patch"]},
+  {"seat": "資安-sonnet", "lens": "資安", "materials": ["r2-snapshot.patch"]},
+  {"seat": "codex-veto", "lens": "外家否決", "materials": ["r2-delta.patch", "r2-snapshot.patch"]}
+ ]}

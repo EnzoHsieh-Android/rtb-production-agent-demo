@@ -1,0 +1,240 @@
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+index 4e86e1f..6a35f7b 100644
+--- a/src/rtb/analyzer/flow.py
++++ b/src/rtb/analyzer/flow.py
+@@ -2,44 +2,47 @@
+ 
+ 事故:分析行程在流程跑到一半時當機重啟,不確定卡在哪一步、外部呼叫(蒐證、送出提案)有
+ 沒有真的發生。`advance()` 是唯一的驅動函式,每次呼叫只做狀態機的下一步,把結果連同新
+ 狀態列一起提交(檢查點);重複呼叫 `advance()` 在中斷後恢復是安全的。
+ 
+ 三個可替換介面比照收件口既有的風格:成功回傳值,預期內的失敗用型別化例外。
+ `EvidenceSource`、`Submit` 的失敗一律視為暫時性、可以放心重試(前者是純讀取,後者的
+ 真實實作——收件口——保證同一份提案重送永遠安全);只有 `Decide` 自己丟出例外、或
+ 歷史資料本身毀損讀不回來時才轉 FAILED,因為重跑同一份輸入只會再次得到同樣的結果。
+ 
++呼叫任何外部介面之前先在任務上取得租約(Phase 4 增量 3b,事故 F3「重複投遞不重複分析費用」):
++同一個任務同一時間只有一個持有有效租約的呼叫端會花錢;拿不到租約就回原狀態、什麼都不呼叫。
++
+ 三個介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
+ 多個參數與語意(不是單純「一個函式」),`Protocol` 讓型別檢查器能核對實作簽章、也讓文件
+ 掛在介面本身,是刻意的選擇,不是要在專案裡另立一套慣用法;現有 `Callable` 用法(單一動作
+ 的簡單回呼)不受影響。
+ """
+ 
+-import sqlite3
+-import uuid
++import itertools
++import os
++import threading
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import datetime
+ from typing import Protocol
+ 
+ from rtb.analyzer.task_store import (
+     CorruptedHistoryRow,
+     LeaseReceipt,
+     TaskNotFound,
+     TaskRow,
+     TaskStore,
+ )
+ from rtb.domain.evidence import Evidence
+ from rtb.domain.proposal import Proposal
+ from rtb.domain.task_state import TERMINAL_STATES, TaskState, transition
+-from rtb.sqlitekit import DatabaseBusy
+ 
+ 
+ @dataclass(frozen=True)
+ class NoAction:
+     """這個任務不需要任何動作。"""
+ 
+ 
+ @dataclass(frozen=True)
+ class ProposalDecision:
+     """決定要送出的提案。"""
+@@ -134,32 +137,41 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間與中斷鉤子,
+     呼叫任何外部介面之前先在任務上取得租約(Phase 4 增量 3b):拿不到就回原狀態、什麼都不
+     呼叫;這一步做完(寫入、沒進展或行程內例外)都放掉。行程真的猝死放不掉,租約留到到期,
+     接手者會再呼叫一次——至少一次的代價。
+     """
+     row = store.latest(task_id)
+     if row is None:
+         raise TaskNotFound(task_id)
+     if row.state in TERMINAL_STATES or row.state is TaskState.HANDED_OFF:
+         return row.state
+ 
+-    lease = store.acquire_lease(task_id, uuid.uuid4().hex, now)
++    lease = store.acquire_lease(task_id, _new_owner(), now)
+     if lease is None:  # 別人正持有:不花錢,跟「沒有進展」一樣回原狀態
+         return row.state
+     try:
+         return _advance_holding(
+             store, row, _Collaborators(evidence_source, decide, submit), now, before_commit,
+             lease)
+     except BaseException:
+-        _release_keeping_the_original_error(store, lease, now)
++        store.release_lease_quietly(lease, now)  # 放掉失敗也不蓋掉原本的例外
+         raise
+ 
+ 
++_OWNER_CALLS = itertools.count()
++
++
++def _new_owner() -> str:
++    """租約擁有者:照執行側「行程編號開頭」的寫法看得出是哪個行程,再加執行緒與呼叫序號,讓
++    同一個行程裡的每一次推進都是不同的擁有者(一次推進只做一步,不跨呼叫沿用)。"""
++    return f"{os.getpid()}-{threading.get_ident()}-{next(_OWNER_CALLS)}"
++
++
+ def _advance_holding(
+     store: TaskStore,
+     row: TaskRow,
+     collaborators: _Collaborators,
+     now: datetime,
+     before_commit: Callable[[], None] | None,
+     lease: LeaseReceipt,
+ ) -> TaskState:
+     current = store.latest(row.task_id)
+     if current is None or current.seq != row.seq:
+@@ -175,31 +187,20 @@ def _advance_holding(
+     committed = store.commit_step(
+         row.task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
+         evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
+         lease=lease,
+     )
+     if not committed:  # 輸了序號或租約:還是自己的才放掉(條件寫在 release_lease 裡)
+         store.release_lease(lease, now)
+     return outcome.new_state if committed else row.state
+ 
+ 
+-def _release_keeping_the_original_error(
+-    store: TaskStore, lease: LeaseReceipt, now: datetime
+-) -> None:
+-    """例外往外傳之前放掉租約;放掉本身的資料庫層失敗吞掉,讓原本的例外照舊傳出去、租約等
+-    到期。吞的範圍比照 `TaskStore.record_tool_call`:只吞資料庫層錯誤,程式錯誤不吞。"""
+-    try:
+-        store.release_lease(lease, now)
+-    except (sqlite3.Error, DatabaseBusy):
+-        return
+-
+-
+ def _from_received(
+     _store: TaskStore, _row: TaskRow, _c: _Collaborators, _now: datetime
+ ) -> _StepOutcome:
+     return _Step(TaskState.COLLECTING_EVIDENCE)
+ 
+ 
+ def _from_collecting_evidence(
+     _store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
+ ) -> _StepOutcome:
+     try:
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index b4009dd..999d609 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -286,42 +286,56 @@ class TaskStore:
+                                 allow_nan=False)),
+                 )
+             if lease is not None:
+                 self._append_release(lease, now)
+             if before_commit is not None:
+                 before_commit()
+         return True
+ 
+     def acquire_lease(self, task_id: str, owner: str, now: datetime) -> LeaseReceipt | None:
+         """目前沒人持有(沒有租約列、目前那一列是放掉列、或已過期)就新增一列取得列、回傳收據;
+-        有人持有就什麼都不寫、回傳 None。"""
++        有人持有就什麼都不寫、回傳 None;沒有這個任務丟 TaskNotFound,不替它寫租約列。
++
++        命名對照執行側收件表:取得對應 `_lease`/`take_over`,放掉對應 `release`;
++        這裡沒有續租(`extend`),一次推進只做一步。"""
+         with immediate_transaction(self._conn):
++            if self._conn.execute(
++                    "SELECT 1 FROM tasks WHERE task_id = ? LIMIT 1", (task_id,)).fetchone() is None:
++                raise TaskNotFound(task_id)
+             current = self._current_lease(task_id)
+             if current is not None and _is_live(current, now):
+                 return None
+             next_seq = 1 if current is None else current[0] + 1
+             self._conn.execute(
+                 "INSERT INTO task_leases VALUES (?, ?, ?, ?)",
+                 (task_id, next_seq, owner, _iso(now + LEASE_DURATION)),
+             )
+         return LeaseReceipt(task_id, next_seq, owner)
+ 
+     def release_lease(self, lease: LeaseReceipt, now: datetime) -> bool:
+         """目前那一列還是這張收據的取得列才新增放掉列;已被接手就什麼都不寫、回傳 False。
+         不帶條件的話,舊持有者遲來的放掉列會排在接手者的取得列之後,讓第三方在接手者還在
+         花錢時拿到租約(計劃增量 3b 第 1 輪設計審)。"""
+         with immediate_transaction(self._conn):
+             if not self._holds(lease):
+                 return False
+             self._append_release(lease, now)
+         return True
+ 
++    def release_lease_quietly(self, lease: LeaseReceipt, now: datetime) -> None:
++        """例外路徑用:照 release_lease 放掉,放掉本身的資料庫層失敗吞掉(租約等到期),讓呼叫端
++        原本的例外照舊傳出去。吞的範圍比照 record_tool_call:只吞資料庫層錯誤,程式錯誤不吞。"""
++        try:
++            self.release_lease(lease, now)
++        except (sqlite3.Error, DatabaseBusy):
++            return
++
+     def _current_lease(self, task_id: str) -> tuple[int, str | None, str] | None:
+         record = self._conn.execute(
+             "SELECT lease_seq, owner, expires_at FROM task_leases WHERE task_id = ? "
+             "ORDER BY lease_seq DESC LIMIT 1", (task_id,),
+         ).fetchone()
+         return None if record is None else (int(record[0]), record[1], record[2])
+ 
+     def _holds(self, lease: LeaseReceipt) -> bool:
+         current = self._current_lease(lease.task_id)
+         return current is not None and current[:2] == (lease.lease_seq, lease.owner)
+diff --git a/tests/analyzer/test_task_lease.py b/tests/analyzer/test_task_lease.py
+index cd2be9d..1a0b117 100644
+--- a/tests/analyzer/test_task_lease.py
++++ b/tests/analyzer/test_task_lease.py
+@@ -369,10 +369,42 @@ def test_a_failed_release_never_masks_the_original_error(store, monkeypatch):
+ 
+     def busy(*_args, **_kwargs):
+         raise DatabaseBusy("放掉租約時資料庫忙碌")
+ 
+     def crash():
+         raise _PlannedCrash
+ 
+     monkeypatch.setattr(TaskStore, "release_lease", busy)
+     with pytest.raises(_PlannedCrash):
+         flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW, before_commit=crash)
++
++
++# ---- 代碼審第 1 輪折入 ----
++def test_acquiring_a_lease_for_an_unknown_task_writes_nothing(store):
++    from rtb.analyzer.task_store import TaskNotFound
++
++    with pytest.raises(TaskNotFound):
++        store.acquire_lease("ghost", "someone", NOW)
++    assert store._conn.execute("SELECT count(*) FROM task_leases").fetchone() == (0,)
++
++
++def test_a_lease_owner_names_the_process_and_thread(store):
++    import os
++
++    store.create_task("t1", "c1", NOW)
++    failing = Counting(raises=TimeoutError("沒有進展,留下取得列與放掉列"))
++    flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW)
++    flow.advance(store, "t1", failing, Counting(), Counting(), NOW)
++
++    owners = [row[0] for row in store._conn.execute(
++        "SELECT owner FROM task_leases WHERE owner IS NOT NULL ORDER BY lease_seq")]
++    prefix = f"{os.getpid()}-{threading.get_ident()}-"
++    assert len(owners) == 2
++    assert all(owner.startswith(prefix) for owner in owners)  # 跟執行側一樣看得出是哪個行程
++    assert len(set(owners)) == 2  # 同一條執行緒的兩次推進仍是不同的擁有者
++
++
++def test_the_flow_layer_never_names_database_errors():
++    import inspect
++
++    source = inspect.getsource(flow)
++    assert "sqlite3" not in source and "DatabaseBusy" not in source  # 資料庫錯誤留在任務模組
