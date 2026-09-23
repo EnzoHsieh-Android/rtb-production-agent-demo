@@ -1,0 +1,13 @@
+{"round": "r1", "loop": "code-phase7-inc2", "base": "15ba6a7", "snapshot": "r1-snapshot.patch",
+ "reviewed_sha256": "8a9c9931a9a4a59a9b6f95b2eea732e1491cc9a79d9012dd6f8952b285e7f9b5",
+ "seats": [
+  {"seat": "correct-sonnet", "lens": "正確性", "materials": ["r1-snapshot.patch"]},
+  {"seat": "migrate-sonnet", "lens": "併發與遷移", "materials": ["r1-snapshot.patch"]},
+  {"seat": "edge-sonnet", "lens": "邊界輸入與測試牙齒", "materials": ["r1-snapshot.patch"]},
+  {"seat": "graph-sonnet", "lens": "合約與圖譜一致", "materials": ["r1-snapshot.patch"]},
+  {"seat": "finder-opus", "lens": "外家 finder(Codex 限額,opus 頂替)", "materials": ["r1-snapshot.patch"]},
+  {"seat": "veto-opus", "lens": "外家否決(Codex 限額,opus 頂替)", "materials": ["r1-snapshot.patch"]},
+  {"seat": "spec-sonnet", "lens": "規格符合度", "materials": ["r1-snapshot.patch"]},
+  {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.patch"]},
+  {"seat": "資安-sonnet", "lens": "資安", "materials": ["r1-snapshot.patch"]}
+ ]}

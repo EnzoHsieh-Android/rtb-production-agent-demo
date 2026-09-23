@@ -114,7 +114,7 @@ RETIRE-IF: 若 Phase 4 做完後,收件口的衝突拒收、跳號拒收與滿�
 - [S16] 收件口收到請求時應使用增量 1 的 `parse_proposal` 作為唯一的欄位驗證:收件口模組不得自帶欄位驗證,且增量 1 解析器拒絕的每一份樣本(測試共用同一批樣本)收件口都得回 4xx。[test:test_every_sample_the_domain_parser_rejects_is_also_rejected_by_the_inbox_and_the_inbox_defines_no_validators]
 - [S17] 內容雜湊應與時區表示法無關(同一時刻的不同時區寫法得到同一個雜湊),並且欄位順序、空白不同的等價 JSON 得到同一個雜湊。[test:test_the_content_hash_ignores_timezone_notation_and_json_formatting]
 - [S18] 慢速連線與只送一半請求的連線應在逾時後被放棄,不佔住執行緒;逾時值沿用共用基礎的設定。[test:test_a_stalled_connection_is_dropped_after_the_socket_timeout]
-- [S19] 抽出共用基礎之後,DSP 既有的伺服器測試應全部維持通過,行為不變。[test:test_the_dsp_server_behaviour_is_unchanged_after_extracting_the_shared_base]
+- [S19] 抽出共用基礎之後,DSP 既有的伺服器測試應全部維持通過,行為不變。(2026-09-23 [[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 增量 2 讓查廣告回應多一個名稱欄位,這支測試的預期回應跟著加空字串名稱,其餘斷言不變)[test:test_the_dsp_server_behaviour_is_unchanged_after_extracting_the_shared_base]
 
 ### 不做的事(範圍)與已知限制
 

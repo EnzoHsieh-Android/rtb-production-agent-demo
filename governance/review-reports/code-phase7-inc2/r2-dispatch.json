@@ -1,0 +1,7 @@
+{"round": "r2", "loop": "code-phase7-inc2", "snapshot": "r2-snapshot.patch", "delta": "r2-delta.patch", "reviewed_sha256": "6f5908fa5f6d86243449d4b432489e24b3ef8ae2a33bc4286eac176d952d5ac0",
+ "seats": [
+  {"seat": "reviewer-sonnet", "lens": "修正差異通才", "materials": ["r2-delta.patch", "r2-snapshot.patch"]},
+  {"seat": "arch-sonnet", "lens": "架構對齊(驗收上輪 F1)", "materials": ["r2-delta.patch"]},
+  {"seat": "資安-sonnet", "lens": "資安", "materials": ["r2-snapshot.patch"]}
+ ],
+ "absent": [{"seat": "外家否決", "reason": "Codex 用量上限到 17:48;修正差異只有常數與註解,不另派 opus"}]}

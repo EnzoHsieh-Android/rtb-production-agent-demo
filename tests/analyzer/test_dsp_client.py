@@ -174,6 +174,8 @@ def test_fields_outside_the_allowlist_never_reach_the_evidence(rigged, endpoint)
     ("state", "budget", 2 ** 63), ("state", "budget", True), ("state", "status", "deleted"),
     ("state", "version", 0), ("state", "id", "c2"), ("state", "id", "has space"),
     ("metrics", "campaign_id", "c2"), ("metrics", "window", "30d"),
+    # 時間窗跟請求的 1h 不同(2026-09-23 使用者裁定收緊)
+    ("metrics", "window", "7d"), ("metrics", "window", "1d"),
     ("metrics", "impressions", 1.5), ("metrics", "clicks", 2 ** 63), ("metrics", "spend", "2.0"),
     ("metrics", "revenue", True),
 ])

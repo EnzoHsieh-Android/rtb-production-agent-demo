@@ -34,7 +34,7 @@ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, begin_immediate, c
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS campaigns (
     id TEXT PRIMARY KEY, budget INTEGER NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL,
-    tenant TEXT NOT NULL DEFAULT 't-default');
+    tenant TEXT NOT NULL DEFAULT 't-default', name TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS operations (
     operation_id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL,
     action TEXT NOT NULL, params_json TEXT NOT NULL, version_after INTEGER NOT NULL,
@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS metrics (
 
 SQLITE_INTEGER_MAX = 2**63 - 1
 DEFAULT_TENANT = "t-default"  # 沒指定租戶的廣告(含補欄位前的舊資料)都屬於它
+# 廣告名稱的字元上限:真實 DSP 的名稱都有上限。最壞情況(每字都要代理對、回應用 ASCII 逃脫時
+# 每字 12 位元組)4096 字約 48 KB,仍低於分析端 64 KB 的回應上限,名稱塞不爆回應
+MAX_CAMPAIGN_NAME_LENGTH = 4096
+DEFAULT_CAMPAIGN_NAME = ""  # 沒給名稱的廣告(含補欄位前的舊資料)名稱是空字串
 METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
 COUNT_FIELDS = ("impressions", "clicks", "conversions")  # METRIC_FIELDS 的子集:存成整數
 AMOUNT_FIELDS = ("spend", "revenue")  # 存成 REAL
@@ -68,6 +72,7 @@ class Campaign:
     budget: int
     status: str
     version: int
+    name: str  # 不可信文字:只在建檔時設定,沒有寫入端點能改(比照租戶);不給預設值,改狀態時必須沿用
 
 
 @dataclass(frozen=True)
@@ -184,13 +189,25 @@ def _check_window(window: str | None) -> None:
         raise ValidationRejected("window 必須是 1h、1d 或 7d 其中之一")
 
 
+def _check_campaign_name(name: object) -> None:
+    """名稱只收字串、不過濾內容;超過上限、不是字串、或含寫不進資料庫的字元(孤立的代理字元,
+    SQLite 只收合法 UTF-8)一律拒絕建檔。"""
+    if not isinstance(name, str) or len(name) > MAX_CAMPAIGN_NAME_LENGTH:
+        raise ValidationRejected(f"廣告名稱必須是最多 {MAX_CAMPAIGN_NAME_LENGTH} 字元的字串")
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValidationRejected("廣告名稱含寫不進資料庫的字元") from exc
+
+
 def _next_state(campaign: Campaign, op: Operation) -> Campaign:
+    # 名稱照抄只是因為 Campaign 必填;名稱不被寫入改掉,靠的是 _apply 的 UPDATE 根本不寫名稱欄
     if op.action == "update_budget":
         budget = op.params.get("new_budget")
         if not is_plain_int(budget):  # _validate 已檢查過;這裡讓型別檢查也能確認
             raise ValidationRejected("new_budget 必須是整數")
-        return Campaign(campaign.id, budget, campaign.status, campaign.version + 1)
-    return Campaign(campaign.id, campaign.budget, "paused", campaign.version + 1)
+        return Campaign(campaign.id, budget, campaign.status, campaign.version + 1, campaign.name)
+    return Campaign(campaign.id, campaign.budget, "paused", campaign.version + 1, campaign.name)
 
 
 class CampaignStore:
@@ -217,11 +234,12 @@ class CampaignStore:
     def _migrate_columns(self) -> None:
         """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:沿用分析行程歷史表的補欄位做法,
         每次連線檢查一次,缺就在交易內加欄位:廣告表的租戶(舊廣告補預設租戶;租戶只在建檔時
-        設定,DSP 沒有任何改廣告租戶的寫入介面)、操作紀錄的政策版本與預期版本(舊操作留空值)。
+        設定,DSP 沒有任何改廣告租戶的寫入介面)、廣告名稱(舊廣告補空字串,同樣只在建檔時設定)、
+        操作紀錄的政策版本與預期版本(舊操作留空值)。
         """
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
         op_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(operations)")}
-        if "tenant" in columns and {"policy_version", "expected_version"} <= op_columns:
+        if {"tenant", "name"} <= columns and {"policy_version", "expected_version"} <= op_columns:
             return
         try:
             begin_immediate(self._conn)
@@ -233,6 +251,10 @@ class CampaignStore:
                 self._conn.execute(
                     "ALTER TABLE campaigns ADD COLUMN tenant TEXT NOT NULL "
                     f"DEFAULT '{DEFAULT_TENANT}'")
+            if "name" not in columns:  # 舊廣告沒有名稱,誠實補空字串
+                self._conn.execute(
+                    "ALTER TABLE campaigns ADD COLUMN name TEXT NOT NULL "
+                    f"DEFAULT '{DEFAULT_CAMPAIGN_NAME}'")
             op_columns = {r[1] for r in self._conn.execute("PRAGMA table_info(operations)")}
             if "policy_version" not in op_columns:  # 舊操作沒有紀錄政策版本,誠實留空值
                 self._conn.execute("ALTER TABLE operations ADD COLUMN policy_version TEXT")
@@ -249,11 +271,13 @@ class CampaignStore:
 
     def seed_campaign(
         self, campaign_id: str, budget: int, status: str = "active",
-        tenant: str = DEFAULT_TENANT,
+        tenant: str = DEFAULT_TENANT, name: str = DEFAULT_CAMPAIGN_NAME,
     ) -> None:
+        _check_campaign_name(name)
         self._conn.execute(
-            "INSERT INTO campaigns (id, budget, status, version, tenant) VALUES (?, ?, ?, 1, ?)",
-            (campaign_id, budget, status, tenant),
+            "INSERT INTO campaigns (id, budget, status, version, tenant, name) "
+            "VALUES (?, ?, ?, 1, ?, ?)",
+            (campaign_id, budget, status, tenant, name),
         )
 
     def tenant_of(self, campaign_id: str) -> str | None:
@@ -264,7 +288,7 @@ class CampaignStore:
 
     def get_campaign(self, campaign_id: str) -> Campaign:
         row = self._conn.execute(
-            "SELECT id, budget, status, version FROM campaigns WHERE id = ?", (campaign_id,)
+            "SELECT id, budget, status, version, name FROM campaigns WHERE id = ?", (campaign_id,)
         ).fetchone()
         if row is None:
             raise CampaignNotFound(campaign_id)

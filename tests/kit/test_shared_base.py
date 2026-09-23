@@ -94,8 +94,9 @@ def test_the_domain_layer_may_not_import_the_shared_process_modules():
 def test_the_dsp_server_behaviour_is_unchanged_after_extracting_the_shared_base(tmp_path):
     srv = _serve(tmp_path)
     try:
+        # 2026-09-23 Phase 7 增量 2:查廣告的回應多了名稱欄位(S209 要求的設計變更),其餘不變
         assert _get(srv, "/campaigns/c1") == (
-            200, {"id": "c1", "budget": 100, "status": "active", "version": 1})
+            200, {"id": "c1", "budget": 100, "status": "active", "version": 1, "name": ""})
         assert _get(srv, "/campaigns/nope") == (
             404, {"error": "campaign_not_found", "retryable": False})
         assert _get(srv, "/no/such/route") == (404, {"error": "not_found", "retryable": False})

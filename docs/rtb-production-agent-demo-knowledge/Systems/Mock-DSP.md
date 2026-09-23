@@ -2,7 +2,7 @@
 type: system
 status: doing
 created: 2026-09-21
-updated: 2026-09-21
+updated: 2026-09-23
 responsibility: 負責 Mock DSP 的廣告狀態、版本、操作歷史與冪等紀錄的儲存與原子提交、型別化錯誤,以及獨立行程的 HTTP 介面與故障注入;不負責指標計算與 agent 端的任何邏輯。
 aliases: []
 about_code:
@@ -18,6 +18,8 @@ summary: |-
   RULE: 所有寫入先驗寫入能力憑證,順序固定:金鑰已設定 → 標頭存在 → 格式與簽章 → 聲明欄位與型別 → 時間窗 → 讀本文(白名單外的欄位拒收)→ 驗操作內容(不合法的值照舊 422)→ 範圍(廣告、動作、冪等鍵、租戶、確切新預算、預期版本都要等於聲明,廣告不存在也算範圍不符)。每一步失敗都在任何寫入之前,三張表都不動;拒收代碼沿用錯誤對照表,都不可重試,只回固定代碼不回顯聲明。見 [[Systems/寫入能力憑證]]。[since:2026-09-22] [retire:換成真實 DSP 時撤除]
   PITFALL: 代碼審第 1 輪指出:驗證函式若把「讀憑證標頭」當參數傳入,Python 會在函式內檢查金鑰之前就先讀標頭,沒金鑰又重複帶標頭時回的是「標頭重複」而不是「沒有可用金鑰」;現在標頭改成金鑰檢查之後才讀。政策版本原本驗完就丟,「只記不驗」沒有落實,現在寫進操作紀錄(舊操作留空值)。第 2 輪再補:時鐘也改成金鑰檢查之後才讀(時鐘出錯也蓋不掉沒有金鑰);政策版本 DSP 自己再擋一次格式(1 到 64 個英數與 . _ : -)。同一把鍵重放時操作紀錄只留第一次套用時的政策版本,這是刻意的:紀錄的是「這筆變更實際在哪個政策版本下套用」,重放沒有再套用一次。防回歸:[test:test_without_a_key_duplicate_capability_headers_still_answer_not_configured]、[test:test_the_policy_version_of_an_applied_write_is_recorded]、[test:test_the_key_is_checked_before_the_clock_is_read]、[test:test_every_earlier_check_answers_before_the_clock_is_read](有金鑰時標頭、格式、聲明的問題都在讀時鐘前回報)、[test:test_a_policy_version_outside_the_dsp_format_is_invalid]。
   RULE: 廣告的租戶只在建檔時設定,沒有任何寫入端點能改(有測試從路由表列舉寫入端點);舊資料庫沿用補欄位做法,舊廣告屬於預設租戶,舊操作的政策版本留空值。只有啟動程式讀金鑰環境變數,伺服器物件收參數。[since:2026-09-22] [retire:需要支援改租戶時,改租戶必須推進廣告版本並重審]
+  WHY:[2026-09-23] 事故 F5(不可信文字不能擴權)要有真的攻擊面可測:交接文件第 12 節點名廣告名稱與素材文字,使用者裁定只加廣告名稱(素材文字走同一條路,落地頁網址會引出「會不會去抓網址」的新問題)。出處:[[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 增量 2。
+  RULE: 廣告多一個名稱欄位(不可信文字),只在建檔時設定,沒有任何寫入端點能改(比照租戶;有測試列舉路由表的寫入端點,並掃儲存層原始碼確認改廣告的敘述不碰名稱——這才是防護,算下一個狀態時照抄名稱只是因為型別必填);查廣告回傳名稱;改預算、暫停只改預算、狀態、版本。建檔名稱只收字串、不過濾內容,上限 4096 字元,超過、不是字串、或含孤立代理字元(SQLite 只收合法 UTF-8)一律丟 `ValidationRejected`;最壞情況(每字都要代理對、回應用 ASCII 逃脫每字 12 位元組)4096 字的查詢回應約 48 KB,低於分析端 64 KB 上限。舊資料庫照補欄位做法補名稱,舊廣告為空字串。防回歸:[test:test_an_old_dsp_database_gains_the_campaign_name_column]、[test:test_the_dsp_caps_campaign_names_below_the_response_limit]、[test:test_writes_keep_the_campaign_name_and_no_route_changes_it]。[since:2026-09-23] [retire:需要支援改名稱時,改名稱必須推進廣告版本並重審;換真的 DSP 時核對它的名稱上限]
   WHY: DSP 是獨立的外部事實來源,儲存與 agent 完全分開,agent 只能走它的公開介面;這樣「DSP 已提交但 agent 不知道」才測得出來。出處:[[RTB_Agent_Phase0架構]] 決策 d2。
   WHY: 一次操作的狀態變更、操作歷史、冪等紀錄放在同一個交易裡一起提交或回滾,避免「狀態已改但冪等鍵沒記」讓重送雙寫。出處:[[RTB_Agent_Phase0架構]] 的外部寫入失敗語意一節。
   PITFALL: 寫入交易若用普通 BEGIN(延遲交易),並行同鍵請求在 WAL 下會直接回 database is locked,busy_timeout 不會等;必須 BEGIN IMMEDIATE。防回歸:[test:test_concurrent_requests_with_the_same_key_apply_exactly_once],改成 BEGIN 會紅(2026-09-21 變異檢查實測)。
