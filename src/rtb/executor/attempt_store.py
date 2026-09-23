@@ -17,6 +17,7 @@
 
 import json
 import sqlite3
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -420,8 +421,17 @@ def resolve(
     return _append(tx, row, destination, now, code=code, detail=reason, capped=False)
 
 
-def recover_in_flight(tx: ExecutorTransaction, now: datetime) -> Recovery:
-    """重啟恢復(單一執行者):目前是嘗試中的鍵一律轉成結果不明,其他鍵完全不動。
+def recover_in_flight(
+    tx: ExecutorTransaction, now: datetime, *, held: Collection[str], written_before: datetime,
+) -> Recovery:
+    """重啟恢復:目前是嘗試中、不在 held 裡、而且最新一列寫在 written_before 之前的鍵轉成結果
+    不明,其他鍵完全不動。
+
+    held 是收件表裡有處理中訊息的鍵(由呼叫端在同一個交易裡查好傳進來,這個模組不反過來依賴
+    收件表):那些是別的工作者正在做的、或租約到期後由對帳原子接手的,重啟恢復不碰。
+    不在 held 裡的是舊鍵(沒有收件表訊息),但它不一定沒人在做:對帳舊鍵時也會先寫嘗試中再呼叫
+    DSP。沒有租約可看,改看這一列寫下多久:呼叫端傳「現在減一個租約時間」,活著的工作者一次
+    DSP 呼叫一定在那之前寫完結果。兩個參數都必填、沒有預設值:漏傳時不能悄悄退回舊語意。
 
     不受歷史列上限:一把鍵撞上限若讓整批回滾,同一次重啟裡健康的鍵也會留在嘗試中。每次進入
     嘗試中最多被恢復一次(恢復後就不是嘗試中了),所以豁免不會讓表無限長。
@@ -435,13 +445,18 @@ def recover_in_flight(tx: ExecutorTransaction, now: datetime) -> Recovery:
         (AttemptState.IN_FLIGHT.value,),
     ).fetchall()]
     moved, unreadable = [], []
+    _require_aware(written_before)
     for key in keys:
+        if key in held:
+            continue
         try:
             row = latest(tx, key)
         except CorruptedAttemptRow:
             unreadable.append(key)
             continue
         assert row is not None  # noqa: S101
+        if row.written_at > written_before:  # 剛寫下的:可能有工作者正在對帳這把舊鍵
+            continue
         _append(tx, row, AttemptState.UNKNOWN, now, capped=False)
         moved.append(key)
     return Recovery(tuple(moved), tuple(unreadable))

@@ -295,7 +295,7 @@ REVISIT:2026-12-31 Phase 6 人工核准上線時,盤點轉人工任務的停留�
 - 使用者情境題(2026-09-23):A、B 兩個執行迴圈同時在跑;A 剛寫下嘗試中、正在等 DSP 回應,租約還有 50 秒;B 重新部署而重啟,照現在的做法把 A 那筆也轉成結果不明。會怎樣、怎麼改?a 沒事;b A 寫結果時序號對不上而整個停機,改成重啟恢復只處理沒人持有的;c B 啟動後先等所有租約到期;d 維持單一執行者鎖。使用者答 b,答對。回饋:A 寫結果時先核對收據(租約還是 A 的,過)、再用自己記得的序號寫嘗試紀錄,B 已在後面多加一列,序號對不上就走「系統錯誤停機」,健康的 A 被別人的重啟打掛;c 讓每次重啟白等一整段租約、一則卡住的訊息拖住整台;d 放棄 Phase 4 的要求。補一個細節:租約已過期的嘗試中,對帳接手時本來就會自己轉結果不明(增量 1 的規則、增量 2 已驗),所以重啟恢復要處理的比 b 還少,只剩「收件表沒有對應處理中訊息」的舊資料。
 - PRIOR-ART: 多消費者佇列的標準做法——訊息的歸屬只看租約(SQS 可見性逾時、Kafka 消費者群組的分區指派),消費者不做「全域清場」;過期的由下一個取件者接手。本專案增量 1 已照 Phase 0 裁定做好租約、收據與條件寫入,這裡只把最後一個全域動作(重啟恢復)收窄、補上「沒有收據的舊鍵」的競爭規則,並拿掉單一執行者鎖。不引入新機制。並行測試沿用本專案既有做法:同一個行程裡多執行緒、各自開自己的資料庫連線、用執行緒柵欄逼同時下手(嘗試紀錄、Mock DSP、分析行程的並行測試都是這樣寫)。
 - RETIRE-IF: 換成外部佇列軟體、訊息歸屬由它管時,撤掉收件表的租約與這裡的重啟恢復規則。
-- **狀態(2026-09-23):設計定案**(設計審 3 輪,13、8、7 條;第 3 輪的折入沒有再經下一輪審查,由代碼審把關)。
+- **狀態(2026-09-23):已完成**(設計審 3 輪,13、8、7 條;代碼審 3 輪,9、1、6 條,全部修正)。S127–S136、S138、S139 綁了會真跑的測試(S137 撤回),二十八道變異檢查全紅。代碼審第 2 輪證偽了一個設計前提(「沒有處理中訊息的嘗試中沒人在做」),補 S138;第 3 輪補 S139(DSP 逾時與租約的比例擋在啟動時)。第 3 輪的修正沒有再經下一輪審查。卷證在 governance/review-reports/code-phase4-multiworker/。
 
 ### 重啟恢復只碰沒人持有的嘗試中
 
@@ -303,6 +303,7 @@ REVISIT:2026-12-31 Phase 6 人工核准上線時,盤點轉人工任務的停留�
   - 還沒到期:別人正在做,不能碰。
   - 已到期:對帳接手時會在同一個交易裡先原子取得租約、再轉結果不明(增量 1 的規則);重啟恢復不取租約就改,會跟同時接手的工作者搶。
 - 為什麼「沒有處理中訊息」就等於沒人持有:開始一筆(寫第一列嘗試中)是在核對收據的同一個交易裡做的,所以新時代的每一筆嘗試中,在它存在的每一刻都有一則處理中訊息;沒有的只可能是舊資料。
+- 實作後更正(代碼審第 2 輪外家席):舊資料不等於沒人在做——對帳舊鍵時也會先寫嘗試中再呼叫 DSP。舊鍵沒有租約可看,改看那一列寫下多久:重啟恢復與對帳都只收寫下超過一個租約時間的舊鍵嘗試中([S138])。
 - 哪些鍵有處理中訊息,用收件表模組現成的「所有處理中列的鍵」查詢,跟轉換在同一個立即取得寫入鎖的交易裡做,讀到的是一致的快照。嘗試紀錄模組不反過來依賴收件表模組(收件表模組已依賴它):由呼叫端把「要略過的鍵」傳進重啟恢復。
 - 有讀不回來的處理中列時(算不出它的鍵),重啟恢復一把都不轉並回報:任何一把嘗試中都可能正屬於那則讀不回來的訊息。對帳本來就會在每一輪結尾因為讀不回來的列停機讓人看(增量 1 的規則),所以這不是默默卡住:第一輪就停,孤兒嘗試等人修好壞列後的下一次重啟再轉。
 
@@ -373,14 +374,16 @@ REVISIT:2026-12-31 有多工作者壓力測試時,量忙碌逾時的觸發頻率
 
 - [S127] 重啟恢復應只把沒有對應處理中訊息的嘗試中轉成結果不明;有處理中訊息的(不論租約到期與否)完全不動。[test:test_restart_recovery_only_touches_attempts_without_an_in_progress_message]
 - [S128] 當有讀不回來的處理中列,重啟恢復應一把都不轉並回報(隨後的對帳會在第一輪停機讓人看)。[test:test_restart_recovery_moves_nothing_while_an_in_progress_row_is_unreadable]
-- [S129] 當兩個執行迴圈同時跑,其中一個在另一個等 DSP 回應時重啟,正在做的那一個應不停機、照常寫完結果並確認;DSP 共收到 1 次寫入。[test:test_a_restarting_worker_leaves_a_live_workers_attempt_alone]
+- [S129] 當兩個執行迴圈同時跑,其中一個在另一個等 DSP 回應時重啟,正在做的那一個應不停機、照常寫完結果並確認;DSP 共收到 1 次寫入。[test:test_a_restarting_worker_leaves_a_live_workers_attempt_alone,test_a_restarting_worker_leaves_a_live_legacy_reconciliation_alone]
 - [S130] 當兩個執行迴圈同時取件,同一則訊息應只由一個處理;DSP 共收到 1 次寫入。[test:test_two_live_workers_process_a_message_once]
 - [S131] 當同一個廣告的兩份提案被兩個執行迴圈同時取出,應只有一份開始嘗試,另一份放回待處理;DSP 不會同時有兩筆這個廣告的寫入。[test:test_two_workers_never_run_the_same_campaign_at_once]
 - [S132] 當一個執行迴圈在呼叫 DSP 前卡住、租約過期被另一個接手,它醒來後應寫不進任何結果、放棄這則訊息、不停機;DSP 只套用一次,最終已驗證。[test:test_a_worker_that_wakes_after_losing_its_lease_gives_up_without_halting]
-- [S133] 啟動程式應不再拿單一執行者鎖:兩個執行迴圈可以同時啟動、都在做完重啟恢復後印出就緒;資料庫檔有硬連結時仍拒絕啟動。[test:test_two_runners_start_side_by_side_and_each_recovers_before_ready]
+- [S133] 啟動程式應不再拿單一執行者鎖:兩個執行迴圈可以同時啟動、都在做完重啟恢復後印出就緒;資料庫檔有硬連結時仍拒絕啟動。[test:test_two_runners_start_side_by_side_and_each_recovers_before_ready,test_a_hard_linked_database_is_refused_before_sqlite_opens_it]
 - [S134] 當兩個執行迴圈同時對帳同一把沒有處理中訊息的舊鍵,應只有一方寫入嘗試紀錄、另一方放棄這把鍵而不停機;DSP 最多收到 1 次寫入。[test:test_two_workers_reconciling_a_legacy_key_never_halt_and_write_once]
-- [S135] 當資料庫忙碌等到逾時,執行迴圈應這一輪休息、下一輪再試;連續 3 輪都忙才以非零代碼停機;啟動時的開庫與重啟恢復同樣連續 3 次都忙才結束。[test:test_a_busy_database_rests_a_round_and_halts_only_after_three_in_a_row]
+- [S135] 當資料庫忙碌等到逾時,執行迴圈應這一輪休息、下一輪再試;連續 3 輪都忙才以非零代碼停機;啟動時的開庫與重啟恢復同樣連續 3 次都忙才結束。[test:test_a_busy_database_rests_a_round_and_halts_only_after_three_in_a_row,test_a_busy_database_at_startup_retries_before_giving_up,test_a_busy_restart_recovery_at_startup_retries_before_giving_up]
 - [S136] 當兩個執行迴圈同時對帳同一把沒有處理中訊息、已提交待驗證的舊鍵,而兩邊查證都逾時,應只有一方記下查證逾時、另一方放棄這把鍵而不停機。[test:test_two_workers_timing_out_on_a_legacy_key_never_halt]
+- [S139] 當 DSP 逾時乘以 6 不小於租約時間,啟動程式應在重啟恢復之前拒絕啟動並以非零代碼結束。[test:test_a_dsp_timeout_too_close_to_the_lease_is_refused]
+- [S138] 當沒有處理中訊息的舊鍵停在嘗試中、而且那一列寫下超過一個租約時間,對帳應自己把它轉成結果不明再推進;剛寫下的應不碰(可能有別的工作者正在對帳它)。重啟恢復對舊鍵同樣只轉寫下超過一個租約時間的。[test:test_reconciliation_recovers_a_stale_legacy_in_flight_attempt,test_restart_recovery_leaves_a_freshly_written_legacy_attempt_alone,test_restart_recovery_age_cutoff_boundary]
 
 ### 回退(增量 3a)
 

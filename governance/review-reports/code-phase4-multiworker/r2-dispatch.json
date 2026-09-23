@@ -1,0 +1,32 @@
+[
+ {
+  "round": "r2",
+  "seat": "s1",
+  "lens": "修正回歸與假綠",
+  "materials": [
+   "governance/review-reports/code-phase4-multiworker/r2-snapshot.patch",
+   "governance/review-reports/code-phase4-multiworker/r2-delta.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "sec",
+  "lens": "資安",
+  "materials": [
+   "governance/review-reports/code-phase4-multiworker/r2-snapshot.patch",
+   "governance/review-reports/code-phase4-multiworker/r2-delta.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/code-phase4-multiworker/r2-snapshot.patch",
+   "governance/review-reports/code-phase4-multiworker/r2-delta.patch"
+  ],
+  "auditor": "codex"
+ }
+]

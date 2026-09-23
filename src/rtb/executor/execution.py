@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, NoReturn, Protocol
 
 from rtb.domain._checks import is_plain_int
 from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
@@ -33,6 +33,7 @@ from rtb.executor import attempt_store
 from rtb.executor.attempt_store import AttemptRow
 from rtb.executor.capability_signer import LIFETIME_SECONDS, SigningRefused
 from rtb.executor.inbox_store import (
+    VISIBILITY_TIMEOUT,
     BlockCode,
     CorruptedInboxRow,
     InboxStore,
@@ -119,7 +120,8 @@ class Signer(Protocol):
 
 
 class LeaseLost(Exception):
-    """收據對不上(租約已被接手或已過期):這把鍵這一輪放棄,不停機——多工作者下這是正常競爭。"""
+    """收據對不上(租約已被接手或已過期),或沒有收據的舊鍵序號被別的工作者先推進:這把鍵這一輪
+    放棄,不停機——多工作者下這是正常競爭。"""
 
 
 class ExecutorHalted(Exception):
@@ -306,6 +308,19 @@ class _Signed:
     expires_at: datetime
 
 
+def _no_progress(key: str, receipt: Receipt | None) -> NoReturn:
+    """嘗試紀錄的序號對不上(條件寫入沒進展)。
+
+    有收據:收據剛核對過還有效,序號卻被改過,代表有人繞過租約寫了嘗試紀錄——系統錯誤,停機。
+    沒有收據(收件表沒有對應處理中訊息的舊鍵,沒有租約可搶):多個工作者會同時對帳它,序號輸家是
+    正常競爭,放棄這把鍵、不停機。每一次呼叫 DSP 寫入之前都先有一筆成功的轉嘗試中寫入,所以兩邊
+    最多一個能走到 DSP 寫入。
+    """
+    if receipt is None:
+        raise LeaseLost(key)
+    raise ExecutorHalted("no_progress")
+
+
 @dataclass(frozen=True)
 class Executor:
     store: InboxStore
@@ -389,7 +404,7 @@ class Executor:
             except attempt_store.TooManyUnresolved:  # 正常觸發:等未結案數降下來
                 self.store.release(tx, receipt, now, LastFailure.TABLE_FULL)
                 return Processed(Result.DEFERRED)
-            except attempt_store.CampaignLocked:  # 防線:取件已排除鎖住的廣告,單一執行者下走不到
+            except attempt_store.CampaignLocked:  # 同廣告兩份提案被兩個工作者同時取出時會走到
                 self.store.release(tx, receipt, now, None)
                 return Processed(Result.DEFERRED)
             if begun.created:
@@ -439,8 +454,8 @@ class Executor:
             new = attempt_store.transition(
                 tx, row.key, row.seq, target, now, code=code,
                 written_version=written_version, capability_expires_at=capability_expires_at)
-            if new is None:  # 嘗試紀錄自己的序號被別的東西改過:單一執行者下不該發生
-                raise ExecutorHalted("no_progress")
+            if new is None:
+                _no_progress(row.key, receipt)
             if receipt is not None and new.state in TERMINAL_STATES:
                 self._ack_terminal(tx, new, receipt, now)
         return new
@@ -524,7 +539,7 @@ class Executor:
             self._write(row, A.ESCALATED, receipt, code=C.VERIFICATION_TIMEOUTS_EXHAUSTED)
             return
         if recorded is None:
-            raise ExecutorHalted("no_progress")
+            _no_progress(row.key, receipt)
 
     # ---- 對帳(Phase 3 增量 4;Phase 4 增量 1 接上收件表) ----
     def reconcile_all(self) -> bool:
@@ -573,12 +588,14 @@ class Executor:
             if row.state is A.ESCALATED:  # 只能由人工處置離開:接手就是續租
                 return False
             if row.state is A.IN_FLIGHT:
-                if receipt is None:  # 沒有訊息可接手:留給啟動時的重啟恢復
-                    return False
-                # 過期工作者留下的嘗試中:在新收據下先轉成結果不明,再照結果不明對帳
-                row = attempt_store.transition(tx, key, row.seq, A.UNKNOWN, now)
-                if row is None:
-                    raise ExecutorHalted("no_progress")
+                if receipt is None and row.written_at > now - VISIBILITY_TIMEOUT:
+                    return False  # 舊鍵剛寫下嘗試中:可能有別的工作者正在對帳它,不碰
+                # 過期工作者留下的嘗試中(有收據:租約已過期被接手;沒收據:寫下超過一個租約時間
+                # 的舊鍵):先轉成結果不明,再照結果不明對帳。舊鍵不必等重啟,對帳自己收
+                moved = attempt_store.transition(tx, key, row.seq, A.UNKNOWN, now)
+                if moved is None:
+                    _no_progress(key, receipt)
+                row = moved
         if row.state is A.COMMITTED_UNVERIFIED:
             return self._verify(proposal, row, receipt)
         return self._reconcile_unknown(proposal, row, receipt)

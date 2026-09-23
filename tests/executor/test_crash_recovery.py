@@ -10,8 +10,10 @@ DSP 伺服器跑在測試行程的執行緒裡,子行程死掉計數也還在。
 同一把冪等鍵的第二次寫入在 DSP 儲存層更前面就回原結果,掛在套用那一步會漏數重送。
 
 跟既有的對帳與佇列測試情境重疊;這裡補的是「行程真的猝死(沒有例外、沒有回滾、沒有收尾)」
-與「重啟恢復在對帳之前完成」。兩個子行程一先一後跑,單一執行者鎖從沒被搶過、每輪順序也不會
-被看出來,這兩項由 test_runner.py 的鎖測試與每輪先對帳的測試守。
+與「重啟恢復在對帳之前完成、而且不碰收件表有處理中訊息的嘗試」(Phase 4 增量 3a:死點留下的
+嘗試中都有處理中訊息,重啟恢復不動它,由對帳原子接手租約後轉結果不明)。兩個子行程一先一後跑,
+每輪先對帳的順序看不出來,那一項由 test_runner.py 的測試守;真的同時跑的工作者由
+test_multi_worker.py 守。
 """
 
 import itertools
@@ -153,28 +155,32 @@ class World:
             env={"PYTHONPATH": SRC, KEY_ENV: TEST_KEY.decode()},  # 只給這一次子行程
             timeout=60, capture_output=True, text=True)
 
-    def recover_only(self, expected="unknown"):
+    def recover_only(self, expected):
         """只啟動、不跑任何一輪:印出就緒前做完重啟恢復就結束,這時還沒有對帳介入。
 
-        對帳接手過期租約時自己也會把嘗試中轉結果不明;撥快的時鐘讓舊租約必然已過期,所以只看
-        完整重啟的終態,拿掉重啟恢復也照樣綠。要單獨驗重啟恢復,就得在對帳之前看。"""
-        shift = timedelta(seconds=SHIFT_SECONDS)
-        started = datetime.now(UTC) + shift
+        死點留下的嘗試中與已提交待驗證,收件表都有處理中訊息:重啟恢復不碰(預期仍是原狀態)。
+        要單獨驗這件事,就得在對帳之前看——對帳接手過期租約時自己也會轉結果不明。"""
         child = self.run(shift=SHIFT_SECONDS, rounds=0)
-        finished = datetime.now(UTC) + shift
         assert child.returncode == 0, child.stderr
         assert child.stdout.splitlines() == ["READY"], child.stdout
-        state, written_at = self.last_attempt()
-        assert state == expected
-        if expected == "unknown":  # 轉出的那一列記重啟當下:對帳依最新一列寫入時間由舊到新排
-            assert started <= datetime.fromisoformat(written_at) <= finished
+        assert self.last_attempt()[0] == expected
         assert self.proposals()[0][2] == "in_progress"
 
-    def restart(self):
+    def restart(self, takes_over_in_flight=False):
+        """takes_over_in_flight:死點留下嘗試中時,對帳接手後轉出的那一列結果不明記重啟當下的
+        時間(對帳依最新一列寫入時間由舊到新排,算錯全專案都看不出來)。"""
+        shift = timedelta(seconds=SHIFT_SECONDS)
+        started = datetime.now(UTC) + shift
         child = self.run(shift=SHIFT_SECONDS)
+        finished = datetime.now(UTC) + shift
         # 重啟真的跑起來、跑完指定輪數;否則「重啟後什麼都不變」的斷言會在啟動失敗時假綠
         assert child.returncode == 0, child.stderr
         assert child.stdout.splitlines() == ["READY"], child.stdout
+        if takes_over_in_flight:
+            unknown = self._query("SELECT written_at FROM attempts WHERE key = ? AND state = "
+                                  "'unknown' ORDER BY seq", (self.key,))
+            assert len(unknown) == 1
+            assert started <= datetime.fromisoformat(unknown[0][0]) <= finished
         return child
 
     def last_attempt(self):
@@ -265,8 +271,8 @@ def test_crash_before_the_dsp_call_is_recovered_by_a_same_key_resend(world):
 
     assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
     assert world.counts()["write"] == 0
-    world.recover_only()
-    world.restart()
+    world.recover_only(expected="in_flight")  # 重啟恢復不碰有處理中訊息的
+    world.restart(takes_over_in_flight=True)
     assert world.counts()["write"] == 1  # 對帳查不到、檢查通過,同一把鍵重送一次
     assert_recovered(world, prop)
 
@@ -278,8 +284,8 @@ def test_crash_before_the_dsp_call_then_a_failed_recheck_voids_and_blocks(world)
     stderr = die_at(world, "before_dsp_call")
 
     assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
-    world.recover_only()
-    world.restart()
+    world.recover_only(expected="in_flight")  # 重啟恢復不碰有處理中訊息的
+    world.restart(takes_over_in_flight=True)
     assert world.dsp_keys() == ([], [operation_key(prop)])  # 作廢的正是原本那把鍵
     # 先作廢、才判失敗:反過來的話,在「失敗已提交、作廢還沒送」猝死,舊請求還可能晚到被套用。
     # DSP 記作廢用真實時間;執行迴圈這邊撥快了,比之前扣回偏移
@@ -299,8 +305,8 @@ def test_crash_after_the_dsp_commit_is_recovered_from_the_operation_record(world
 
     assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
     assert world.counts()["write"] == 1 and world.budget() == (150, 1)
-    world.recover_only()
-    world.restart()
+    world.recover_only(expected="in_flight")  # 重啟恢復不碰有處理中訊息的
+    world.restart(takes_over_in_flight=True)
     assert world.counts()["write"] == 1  # 用冪等鍵查到操作紀錄,不重送
     assert_recovered(world, prop)
 

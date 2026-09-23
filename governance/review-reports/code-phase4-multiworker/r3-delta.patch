@@ -1,0 +1,413 @@
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index ed2ba1b..d917f99 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -415,43 +415,48 @@ def resolve(
+     if row.state is not AttemptState.ESCALATED or outcome not in RESOLUTION_OUTCOMES:
+         raise IllegalAttemptTransition(f"人工處置不能把 {row.state} 處置成 {outcome}")
+     if not is_clean_detail(reason) or not reason.strip():
+         raise InvalidOutcome("處置理由必填,只收有長度上限的 ASCII 可列印字元")
+     destination = AttemptState(outcome)
+     code = OutcomeCode.MANUAL_FAILURE if destination is AttemptState.FAILED else None
+     return _append(tx, row, destination, now, code=code, detail=reason, capped=False)
+ 
+ 
+ def recover_in_flight(
+-    tx: ExecutorTransaction, now: datetime, *, held: Collection[str],
++    tx: ExecutorTransaction, now: datetime, *, held: Collection[str], written_before: datetime,
+ ) -> Recovery:
+-    """重啟恢復:目前是嘗試中、而且不在 held 裡的鍵轉成結果不明,其他鍵完全不動。
++    """重啟恢復:目前是嘗試中、不在 held 裡、而且最新一列寫在 written_before 之前的鍵轉成結果
++    不明,其他鍵完全不動。
+ 
+     held 是收件表裡有處理中訊息的鍵(由呼叫端在同一個交易裡查好傳進來,這個模組不反過來依賴
+-    收件表):那些是別的工作者正在做的、或租約到期後由對帳原子接手的,重啟恢復不碰。新時代的
+-    每一筆嘗試中都在核對收據的交易裡開始,所以不在 held 裡的只可能是舊資料。必填、沒有預設值:
+-    漏傳時不能悄悄退回「全部轉」的舊語意。
++    收件表):那些是別的工作者正在做的、或租約到期後由對帳原子接手的,重啟恢復不碰。
++    不在 held 裡的是舊鍵(沒有收件表訊息),但它不一定沒人在做:對帳舊鍵時也會先寫嘗試中再呼叫
++    DSP。沒有租約可看,改看這一列寫下多久:呼叫端傳「現在減一個租約時間」,活著的工作者一次
++    DSP 呼叫一定在那之前寫完結果。兩個參數都必填、沒有預設值:漏傳時不能悄悄退回舊語意。
+ 
+     不受歷史列上限:一把鍵撞上限若讓整批回滾,同一次重啟裡健康的鍵也會留在嘗試中。每次進入
+     嘗試中最多被恢復一次(恢復後就不是嘗試中了),所以豁免不會讓表無限長。
+     歷史列讀不回來的鍵跳過並回報:不然一把壞鍵會讓每次重啟都在同一點整批失敗。
+     """
+     conn = _conn(tx)
+     _require_aware(now)
+     keys = [record[0] for record in conn.execute(
+         "SELECT a.key FROM attempts a WHERE a.state = ? AND a.seq = "
+         "(SELECT MAX(b.seq) FROM attempts b WHERE b.key = a.key) ORDER BY a.key",
+         (AttemptState.IN_FLIGHT.value,),
+     ).fetchall()]
+     moved, unreadable = [], []
++    _require_aware(written_before)
+     for key in keys:
+         if key in held:
+             continue
+         try:
+             row = latest(tx, key)
+         except CorruptedAttemptRow:
+             unreadable.append(key)
+             continue
+         assert row is not None  # noqa: S101
++        if row.written_at > written_before:  # 剛寫下的:可能有工作者正在對帳這把舊鍵
++            continue
+         _append(tx, row, AttemptState.UNKNOWN, now, capped=False)
+         moved.append(key)
+     return Recovery(tuple(moved), tuple(unreadable))
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index cf89257..41e4b60 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -26,20 +26,21 @@ from enum import StrEnum
+ from pathlib import Path
+ from typing import Any, Literal, NoReturn, Protocol
+ 
+ from rtb.domain._checks import is_plain_int
+ from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
+ from rtb.domain.proposal import ActionType, Proposal
+ from rtb.executor import attempt_store
+ from rtb.executor.attempt_store import AttemptRow
+ from rtb.executor.capability_signer import LIFETIME_SECONDS, SigningRefused
+ from rtb.executor.inbox_store import (
++    VISIBILITY_TIMEOUT,
+     BlockCode,
+     CorruptedInboxRow,
+     InboxStore,
+     LastFailure,
+     PendingProposal,
+     Receipt,
+ )
+ 
+ A = AttemptState
+ C = OutcomeCode
+@@ -580,26 +581,28 @@ class Executor:
+             if taken is False:  # 別人持有而且沒到期:跳過這一輪
+                 return False
+             receipt = taken
+             if row.state in TERMINAL_STATES:
+                 if receipt is not None:
+                     self._ack_terminal(tx, row, receipt, now)
+                 return False
+             if row.state is A.ESCALATED:  # 只能由人工處置離開:接手就是續租
+                 return False
+             if row.state is A.IN_FLIGHT:
+-                if receipt is None:  # 沒有訊息可接手:留給啟動時的重啟恢復
+-                    return False
+-                # 過期工作者留下的嘗試中:在新收據下先轉成結果不明,再照結果不明對帳
+-                row = attempt_store.transition(tx, key, row.seq, A.UNKNOWN, now)
+-                if row is None:
+-                    raise ExecutorHalted("no_progress")
++                if receipt is None and row.written_at > now - VISIBILITY_TIMEOUT:
++                    return False  # 舊鍵剛寫下嘗試中:可能有別的工作者正在對帳它,不碰
++                # 過期工作者留下的嘗試中(有收據:租約已過期被接手;沒收據:寫下超過一個租約時間
++                # 的舊鍵):先轉成結果不明,再照結果不明對帳。舊鍵不必等重啟,對帳自己收
++                moved = attempt_store.transition(tx, key, row.seq, A.UNKNOWN, now)
++                if moved is None:
++                    _no_progress(key, receipt)
++                row = moved
+         if row.state is A.COMMITTED_UNVERIFIED:
+             return self._verify(proposal, row, receipt)
+         return self._reconcile_unknown(proposal, row, receipt)
+ 
+     def _take_over(
+         self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, key: str, now: datetime,
+     ) -> Receipt | Literal[False] | None:
+         """原子接手這把鍵對應的處理中訊息。回收據;沒有處理中訊息(Phase 3 留下的舊資料)回 None;
+         別人持有而且沒到期回 False。"""
+         # 讀不回來又找不到這把鍵時丟 CorruptedInboxRow:不能當成舊資料走不帶收據的路;
+diff --git a/src/rtb/executor/runner.py b/src/rtb/executor/runner.py
+index 4b94a1e..ab42d5b 100644
+--- a/src/rtb/executor/runner.py
++++ b/src/rtb/executor/runner.py
+@@ -25,21 +25,21 @@ from collections.abc import Callable, Mapping
+ from dataclasses import dataclass
+ from datetime import datetime
+ from pathlib import Path
+ from typing import TextIO
+ 
+ from rtb.capabilitykit import read_key
+ from rtb.executor import attempt_store
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import DspPort, Executor, ExecutorHalted, Result
+-from rtb.executor.inbox_store import InboxBusy, InboxStore, utc_now
++from rtb.executor.inbox_store import VISIBILITY_TIMEOUT, InboxBusy, InboxStore, utc_now
+ 
+ EXIT_NO_KEY = 2
+ EXIT_HALTED = 4
+ EXIT_UNSAFE_DB = 5  # 資料庫檔有硬連結:同一個資料庫可能被別的檔名以另一組 WAL 開啟
+ EXIT_BUSY = 6  # 資料庫連續 BUSY_LIMIT 次都忙(啟動時或每一輪):乾淨結束,稍後再啟動;跟系統錯誤分開
+ BUSY_LIMIT = 3  # 連續幾次忙碌才放棄;暫用,沒有實測
+ READY = "READY"
+ _IDLE_RESULTS = frozenset({Result.IDLE, Result.DEFERRED, Result.LEASE_LOST})
+ 
+ 
+@@ -85,21 +85,24 @@ class _Opened:
+     store: InboxStore
+     recovery: attempt_store.Recovery
+     unreadable_messages: tuple[str, ...]  # 讀不回來的處理中列:算不出鍵,這次重啟恢復一把都不轉
+ 
+ 
+ def _recover(store: InboxStore, clock: Callable[[], datetime]) -> _Opened:
+     with store.transaction() as tx:
+         held, unreadable = store.in_progress_keys(tx)
+         if unreadable:  # 任何一筆嘗試中都可能屬於那則讀不回來的訊息:不轉,對帳第一輪會停機讓人看
+             return _Opened(store, attempt_store.Recovery((), ()), unreadable)
+-        return _Opened(store, attempt_store.recover_in_flight(tx, clock(), held=held), ())
++        now = clock()
++        recovery = attempt_store.recover_in_flight(
++            tx, now, held=held, written_before=now - VISIBILITY_TIMEOUT)
++        return _Opened(store, recovery, ())
+ 
+ 
+ def _open_and_recover(
+     db: Path, clock: Callable[[], datetime], sleep: Callable[[float], None], interval: float,
+ ) -> _Opened | None:
+     """開庫(可能要做重建表遷移)並做重啟恢復;忙碌就休息再試,連續 BUSY_LIMIT 次都忙回 None。"""
+     for attempt in range(BUSY_LIMIT):
+         if attempt:
+             sleep(interval)
+         try:
+diff --git a/tests/executor/test_attempt_store.py b/tests/executor/test_attempt_store.py
+index 0d3e01f..6982605 100644
+--- a/tests/executor/test_attempt_store.py
++++ b/tests/executor/test_attempt_store.py
+@@ -309,37 +309,37 @@ def test_the_timeout_count_is_carried_forward_by_later_rows(store):
+ 
+ # ---- Phase 3 的 S13,已由 Phase 4 的 [S127] 取代:這支留作「沒有任何持有鍵」時的邊界 ----
+ def test_restart_recovery_moves_every_in_flight_key_to_unknown_and_touches_nothing_else(store):
+     in_flight = [start_in(store, A.IN_FLIGHT, campaign_id=f"f{i}") for i in range(3)]
+     resent = start_in(store, A.IN_FLIGHT, paths=LONG_PATHS, campaign_id="f-resent")
+     others = {state: start_in(store, state, campaign_id=f"n-{state.value}")
+               for state in AttemptState if state is not A.IN_FLIGHT}
+     others_before = {key: history(store, key) for key in others.values()}
+ 
+     with store.transaction() as tx:
+-        recovery = attempt_store.recover_in_flight(tx, NOW, held=())
++        recovery = attempt_store.recover_in_flight(tx, NOW, held=(), written_before=NOW)
+ 
+     assert set(recovery.moved) == {*in_flight, resent} and recovery.unreadable == ()
+     for key in [*in_flight, resent]:
+         row = latest(store, key)
+         assert row.state is A.UNKNOWN
+     assert latest(store, resent).send_count == 2  # 送出次數跟著帶下去
+     assert {key: history(store, key) for key in others.values()} == others_before
+ 
+ 
+ def test_restart_recovery_still_works_for_a_key_whose_history_is_full(store):
+     healthy = start_in(store, A.IN_FLIGHT, campaign_id="healthy")
+     full = start_in(store, A.IN_FLIGHT, campaign_id="full")
+     _fill_history(store, full)
+ 
+     with store.transaction() as tx:
+-        recovery = attempt_store.recover_in_flight(tx, NOW, held=())
++        recovery = attempt_store.recover_in_flight(tx, NOW, held=(), written_before=NOW)
+ 
+     assert set(recovery.moved) == {healthy, full}
+     assert latest(store, healthy).state is A.UNKNOWN
+     assert latest(store, full).state is A.UNKNOWN
+ 
+ 
+ @pytest.mark.parametrize("bad_time", ["bad", b"bad", 12345], ids=["text", "blob", "int"])
+ def test_restart_recovery_skips_an_unreadable_key_and_still_recovers_the_healthy_ones(
+     store, bad_time,
+ ):
+@@ -348,48 +348,60 @@ def test_restart_recovery_skips_an_unreadable_key_and_still_recovers_the_healthy
+     victim = start_in(store, A.IN_FLIGHT, campaign_id="victim")
+     with store.transaction() as tx:  # 測試模擬毀損:時間欄位讀不回來,狀態仍是嘗試中
+         tx.conn.execute("DELETE FROM attempts WHERE key = ?", (victim,))
+         tx.conn.execute(
+             "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
+             "verification_timeouts, written_at) VALUES (?, 1, 'victim', 'in_flight', 1, 0, ?)",
+             (victim, bad_time))
+ 
+     for _restart in range(2):  # 連續兩次重啟都不能卡住
+         with store.transaction() as tx:
+-            recovery = attempt_store.recover_in_flight(tx, NOW, held=())
++            recovery = attempt_store.recover_in_flight(tx, NOW, held=(), written_before=NOW)
+         assert recovery.unreadable == (victim,)
+ 
+     assert latest(store, healthy).state is A.UNKNOWN
+ 
+ 
+ def test_restart_recovery_leaves_held_keys_alone_even_next_to_an_unreadable_key(store):
+     """別的工作者持有的鍵(收件表有處理中訊息)不動;同一次重啟裡讀不回來的鍵照樣跳過並回報,
+     健康的孤兒鍵照樣轉。"""
+     held = start_in(store, A.IN_FLIGHT, campaign_id="held")
+     orphan = start_in(store, A.IN_FLIGHT, campaign_id="orphan")
+     victim = start_in(store, A.IN_FLIGHT, campaign_id="victim")
+     with store.transaction() as tx:  # 測試模擬毀損:時間欄位讀不回來
+         tx.conn.execute("DELETE FROM attempts WHERE key = ?", (victim,))
+         tx.conn.execute(
+             "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
+             "verification_timeouts, written_at) VALUES (?, 1, 'victim', 'in_flight', 1, 0, 'bad')",
+             (victim,))
+     held_before = history(store, held)
+ 
+     with store.transaction() as tx:
+-        recovery = attempt_store.recover_in_flight(tx, NOW, held=[held])
++        recovery = attempt_store.recover_in_flight(tx, NOW, held=[held], written_before=NOW)
+ 
+     assert recovery.moved == (orphan,) and recovery.unreadable == (victim,)
+     assert history(store, held) == held_before
+     assert latest(store, orphan).state is A.UNKNOWN
+ 
+ 
++def test_restart_recovery_leaves_a_freshly_written_legacy_attempt_alone(store):
++    """舊鍵(不在 held 裡)剛寫下嘗試中:可能有工作者正在對帳它、等 DSP 回應,不能當孤兒轉。"""
++    fresh = start_in(store, A.IN_FLIGHT, campaign_id="fresh")
++    before = history(store, fresh)
++
++    with store.transaction() as tx:
++        recovery = attempt_store.recover_in_flight(
++            tx, NOW, held=(), written_before=NOW - timedelta(seconds=1))
++
++    assert recovery.moved == () and history(store, fresh) == before
++
++
+ def test_restart_recovery_requires_the_held_keys(store):
+     """漏傳持有鍵時不能悄悄退回「全部轉」:那會改掉別的工作者正在做的嘗試。"""
+     start_in(store, A.IN_FLIGHT)
+     with pytest.raises(TypeError), store.transaction() as tx:
+         attempt_store.recover_in_flight(tx, NOW)  # type: ignore[call-arg]
+ 
+ 
+ def test_the_database_itself_refuses_a_second_terminal_row_for_one_key(store):
+     """計數算法的前提(每把鍵最多一列終點列)由資料庫的唯一限制保證,不靠事後相減看正負:
+     相減會被另一把還沒結案的鍵抵銷成 0(代碼審第 3 輪兩席各自實測)。"""
+@@ -707,21 +719,21 @@ def test_a_time_without_a_time_zone_is_refused_by_every_write_and_nothing_is_wri
+     key = start_in(store, A.UNKNOWN)
+     escalated = start_in(store, A.ESCALATED, campaign_id="esc")
+     in_flight = start_in(store, A.IN_FLIGHT, campaign_id="fl")
+     before = all_rows(store)
+     writes = [
+         lambda tx: attempt_store.begin(tx, proposal(campaign_id="new"), NAIVE,
+                                        capability_expires_at=EXPIRES),
+         lambda tx: attempt_store.transition(tx, key, 2, A.IN_FLIGHT, NAIVE),
+         lambda tx: attempt_store.record_verification_timeout(tx, key, 2, NAIVE),
+         lambda tx: attempt_store.resolve(tx, escalated, 2, A.FAILED, "checked by hand", NAIVE),
+-        lambda tx: attempt_store.recover_in_flight(tx, NAIVE, held=()),
++        lambda tx: attempt_store.recover_in_flight(tx, NAIVE, held=(), written_before=NOW),
+     ]
+     for write in writes:
+         with pytest.raises(ValueError), store.transaction() as tx:
+             write(tx)
+     assert all_rows(store) == before
+     assert latest(store, in_flight).state is A.IN_FLIGHT
+ 
+ 
+ @pytest.mark.parametrize("seq", [True, 1.0, "1", None])
+ def test_an_expected_sequence_that_is_not_a_plain_integer_is_refused(store, seq):
+diff --git a/tests/executor/test_multi_worker.py b/tests/executor/test_multi_worker.py
+index 8990690..96a6527 100644
+--- a/tests/executor/test_multi_worker.py
++++ b/tests/executor/test_multi_worker.py
+@@ -178,20 +178,58 @@ def test_a_restarting_worker_leaves_a_live_workers_attempt_alone(h):
+     assert states(h, operation_key(prop)) == ["in_flight"]  # A 那筆沒被動
+ 
+     go.set()
+     thread.join(WAIT)
+     assert result and result[0].kind is Result.EXECUTED  # A 沒停機,照常寫完
+     assert states(h, operation_key(prop))[-1] == "verified"
+     assert h.proposals() == [("t1", 1, "pending", "handed_off", None)]
+     assert len(h.dsp.operations) == 1
+ 
+ 
++def test_a_restarting_worker_leaves_a_live_legacy_reconciliation_alone(h):
++    """舊鍵沒有收件表訊息,對帳它時也會先寫嘗試中再呼叫 DSP:另一個工作者這時重啟,不能把它當
++    孤兒轉掉(代碼審第 2 輪外家席重現:轉掉的話 DSP 已套用、本地卻停在結果不明)。"""
++    key = legacy_attempt(h, AttemptState.UNKNOWN)
++    at_dsp, go, a_thread = _pause_a_at_the_dsp_write(h)
++    result = []
++    a = worker(h, "A", reconcile)
++    thread = threading.Thread(target=lambda: result.append(a()))
++    a_thread.append(thread)
++    thread.start()
++    assert at_dsp.wait(WAIT)  # A 查不到、檢查通過、寫下嘗試中,正在等 DSP
++    assert states(h, key)[-1] == "in_flight"
++
++    assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
++                      max_rounds=0, sleep=lambda _s: None, owner="B") == 0
++    assert states(h, key)[-1] == "in_flight"  # A 那筆沒被動
++
++    go.set()
++    thread.join(WAIT)
++    assert states(h, key)[-1] == "verified"  # A 照常寫完
++    assert len(h.dsp.operations) == 1
++
++
++# ---- [S138] ----
++def test_reconciliation_recovers_a_stale_legacy_in_flight_attempt(h):
++    """舊鍵的嘗試中寫下超過一個租約時間:沒人在做了,對帳自己轉結果不明再推進,不必等重啟;
++    剛寫下的不碰。"""
++    key = legacy_attempt(h, AttemptState.IN_FLIGHT)
++    h.executor().reconcile_all()
++    assert states(h, key) == ["in_flight"]  # 剛寫下:可能有人正在做
++
++    h.clock.advance(seconds=LEASE + 1)
++    h.executor().reconcile_all()
++
++    assert states(h, key)[1] == "unknown" and states(h, key)[-1] == "verified"
++    assert len(h.dsp.operations) == 1
++
++
+ # ---- [S132] ----
+ def test_a_worker_that_wakes_after_losing_its_lease_gives_up_without_halting(h):
+     prop = h.submit()
+     b_clock = Clock()
+     at_dsp, go, a_thread = _pause_a_at_the_dsp_write(h)
+     result = []
+     a = worker(h, "A", process)
+     thread = threading.Thread(target=lambda: result.append(a()))
+     a_thread.append(thread)
+     thread.start()
+diff --git a/tests/executor/test_runner.py b/tests/executor/test_runner.py
+index 5987bfa..37a9417 100644
+--- a/tests/executor/test_runner.py
++++ b/tests/executor/test_runner.py
+@@ -137,20 +137,21 @@ def test_restart_recovery_only_touches_attempts_without_an_in_progress_message(h
+ 
+     assert state_of(h.db, orphan) == "unknown"
+     assert state_of(h.db, held) == "in_flight"
+ 
+ 
+ # ---- [S128] ----
+ def test_restart_recovery_moves_nothing_while_an_in_progress_row_is_unreadable(h, capsys):
+     held = _held_in_flight(h)
+     orphan = in_flight_row(h.db, h.clock)
+     h.query("UPDATE proposals SET payload = '{' WHERE task_id = 't1'")  # 算不出它的鍵
++    h.clock.advance(seconds=3600)  # 孤兒夠舊:不是因為「剛寫下」才沒轉
+ 
+     assert run_in_process(h, max_rounds=0, owner="restarted") == 0
+ 
+     assert state_of(h.db, orphan) == "in_flight"  # 可能正屬於那則讀不回來的訊息:不轉
+     assert state_of(h.db, held) == "in_flight"
+     assert "讀不回來的處理中訊息" in capsys.readouterr().err
+ 
+ 
+ # ---- [S133] ----
+ def test_two_runners_start_side_by_side_and_each_recovers_before_ready(tmp_path, clock):
+@@ -364,20 +365,21 @@ def test_a_busy_restart_recovery_at_startup_retries_before_giving_up(h, monkeypa
+         def recover(store, clock):
+             tries.append(1)
+             if len(tries) <= fail_times:
+                 real_close = store.close
+                 store.close = lambda: (closed.append(1), real_close())[1]
+                 raise InboxBusy("database is locked")
+             return real(store, clock)
+         return recover
+ 
+     orphan = in_flight_row(h.db, h.clock)
++    h.clock.advance(seconds=3600)
+     monkeypatch.setattr(runner, "_recover", busy_then(2))
+     out = io.StringIO()
+     assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp, out=out,
+                       sleep=lambda _s: None, max_rounds=0) == 0
+     assert out.getvalue().strip() == runner.READY and len(tries) == 3
+     assert len(closed) == 2  # 失敗的那兩次都把連線關掉了
+     assert state_of(h.db, orphan) == "unknown"  # 第三次真的做完重啟恢復
+ 
+     tries.clear()
+     monkeypatch.setattr(runner, "_recover", busy_then(3))

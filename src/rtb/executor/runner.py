@@ -1,26 +1,28 @@
-"""執行迴圈的啟動程式:讀金鑰、拿單一執行者鎖、重啟恢復、印就緒訊號,之後每輪先對帳、再處理一筆。
+"""執行迴圈的啟動程式:讀金鑰、重啟恢復、印就緒訊號,之後每輪先對帳、再處理一筆。
 
-順序是合約:金鑰不可用就以非零代碼結束,連重啟恢復都不跑;拿不到鎖(已有另一個執行迴圈)
-也以非零代碼結束,同樣不跑重啟恢復——否則第二個執行迴圈的重啟恢復會把第一個正在跑的嘗試
-轉成結果不明,吞掉它的寫入結果。
+可以同時跑好幾個執行迴圈(Phase 4 增量 3a):互斥交給收件表的租約與收據,同一則訊息同一時間
+只有一張有效收據,每一筆寫入都核對它。不再拿單一執行者鎖。
 
-單一執行者鎖沿用專案既有的 SQLite 鎖,不引入檔案鎖:一條專用連線對一個專門當鎖用的小
-SQLite 檔開一個不提交的「立即取得寫入鎖」交易,忙碌等待設 0;行程活著就一直握著,行程死了
-作業系統自動放掉。不能直接鎖執行行程資料庫本身:握著它的寫入鎖,收件口就收不了提案。
-鎖檔名由資料庫的實體身分(裝置與 inode 編號)決定,放在真實路徑的同一個目錄,所以相對路徑、
-符號連結指到同一個資料庫,算出來都是同一把鎖。資料庫檔有硬連結就拒絕啟動:收件口與
-執行迴圈若各用一個檔名開同一個資料庫,會各用一組 WAL 檔,可能損壞資料。先拿鎖、
-才用 SQLite 開資料庫。鎖檔不走共用連線函式:那個函式會切
-WAL,多出的附屬檔在鎖檔被刪掉重建時會跟新檔對不上。程式從不刪鎖檔;每一輪開頭核對它還是
-當初那一個,不是就停下(威脅模型是防忘記,不防刻意繞過)。
+順序是合約:金鑰不可用就以非零代碼結束,連重啟恢復都不跑。重啟恢復只轉「收件表沒有對應處理中
+訊息」的嘗試中(舊資料);有處理中訊息的是別的工作者正在做、或租約到期後由對帳原子接手的,不碰。
+
+資料庫檔有硬連結就拒絕啟動,而且在用 SQLite 開它之前:收件口與執行迴圈若各用一個檔名開同一個
+資料庫,會各用一組 WAL 檔,可能損壞資料(SQLite 官方〈How To Corrupt〉的多重連結)。符號連結與
+相對路徑 SQLite 會自己解析成同一個檔。
+
+資料庫忙碌(等鎖逾時)不再一撞就停:多個工作者共用一顆寫入鎖,排隊等鎖是正常事件。啟動時與每一輪
+都是休息一下再試,連續 BUSY_LIMIT 次都忙才結束。
+
+新舊版本不能混跑:舊版啟動時會拿單一執行者鎖、把所有嘗試中轉結果不明,看不到新版的工作者。
+上線前一次停掉所有舊版;舊版的程式已寫死,這一點擋不住,是部署規則(見 Phase 4 計劃增量 3a)。
 """
 
 import argparse
 import os
-import sqlite3
 import sys
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TextIO
@@ -30,46 +32,17 @@ from rtb.executor import attempt_store
 from rtb.executor.capability_signer import CapabilitySigner
 from rtb.executor.dsp_client import DspClient
 from rtb.executor.execution import DspPort, Executor, ExecutorHalted, Result
-from rtb.executor.inbox_store import InboxBusy, InboxStore, utc_now
-from rtb.sqlitekit import DatabaseBusy, begin_immediate
+from rtb.executor.inbox_store import VISIBILITY_TIMEOUT, InboxBusy, InboxStore, utc_now
 
 EXIT_NO_KEY = 2
-EXIT_LOCKED = 3
 EXIT_HALTED = 4
 EXIT_UNSAFE_DB = 5  # 資料庫檔有硬連結:同一個資料庫可能被別的檔名以另一組 WAL 開啟
-EXIT_BUSY = 6  # 啟動時資料庫一直忙(例如收件口正在寫、或別的行程在遷移):乾淨結束,稍後再啟動
+EXIT_UNSAFE_CONFIG = 7  # DSP 逾時太長:活著的工作者可能被當成已經不在做而被接手
+LEASE_MARGIN = 6  # 租約至少要是一次 DSP 呼叫逾時的這麼多倍
+EXIT_BUSY = 6  # 資料庫連續 BUSY_LIMIT 次都忙(啟動時或每一輪):乾淨結束,稍後再啟動;跟系統錯誤分開
+BUSY_LIMIT = 3  # 連續幾次忙碌才放棄;暫用,沒有實測
 READY = "READY"
 _IDLE_RESULTS = frozenset({Result.IDLE, Result.DEFERRED, Result.LEASE_LOST})
-
-
-class LockHeld(Exception):
-    """已有另一個執行迴圈握著這個資料庫的鎖。"""
-
-
-class RunnerLock:
-    def __init__(self, db_path: Path):
-        real = Path(os.path.realpath(db_path))
-        identity = os.stat(real)
-        # 鎖名只看資料庫檔的實體身分(裝置與 inode),不含檔名。資料庫檔有硬連結的情況,
-        # 啟動程式在拿鎖之前就拒絕了(見 run),這裡不必再處理
-        self.path = real.parent / f".rtb-runner-{identity.st_dev}-{identity.st_ino}.lock"
-        conn = sqlite3.connect(self.path, timeout=0, isolation_level=None)
-        try:
-            begin_immediate(conn)
-        except DatabaseBusy as exc:
-            conn.close()
-            raise LockHeld(str(self.path)) from exc
-        self._conn = conn
-        self._inode = os.stat(self.path).st_ino
-
-    def still_ours(self) -> bool:
-        try:
-            return os.stat(self.path).st_ino == self._inode
-        except FileNotFoundError:
-            return False
-
-    def release(self) -> None:
-        self._conn.close()
 
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
@@ -83,41 +56,66 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
 
 
 def _loop(
-    executor: Executor, lock: RunnerLock, interval: float, max_rounds: int | None,
+    executor: Executor, interval: float, max_rounds: int | None,
     sleep: Callable[[float], None],
 ) -> int:
-    rounds = 0
+    rounds = busy_streak = 0
     while max_rounds is None or rounds < max_rounds:
         rounds += 1
-        if not lock.still_ours():
-            sys.stderr.write("停機:單一執行者鎖檔被換掉了\n")
-            return EXIT_HALTED
         try:
             troubled = executor.reconcile_all()  # 先對帳,再處理新提案
             result = executor.process_one()
-        except (ExecutorHalted, InboxBusy) as halted:  # 出事就停,讓人注意到;重啟時會做恢復
+        except InboxBusy as busy:  # 多工作者下等鎖逾時是正常競爭:這一輪休息,連續幾次才停
+            busy_streak += 1
+            if busy_streak >= BUSY_LIMIT:
+                sys.stderr.write(f"停機:資料庫連續 {busy_streak} 輪忙碌:{busy}\n")
+                return EXIT_BUSY
+            sleep(interval)
+            continue
+        except ExecutorHalted as halted:  # 出事就停,讓人注意到;重啟時會做恢復
             sys.stderr.write(f"停機:{halted}\n")
             return EXIT_HALTED
+        busy_streak = 0
         # 對帳有 DSP 呼叫失敗就照樣休息:DSP 變慢時不連續全速打它
         if troubled or result.kind in _IDLE_RESULTS:
             sleep(interval)
     return 0
 
 
+@dataclass(frozen=True)
+class _Opened:
+    store: InboxStore
+    recovery: attempt_store.Recovery
+    unreadable_messages: tuple[str, ...]  # 讀不回來的處理中列:算不出鍵,這次重啟恢復一把都不轉
+
+
+def _recover(store: InboxStore, clock: Callable[[], datetime]) -> _Opened:
+    with store.transaction() as tx:
+        held, unreadable = store.in_progress_keys(tx)
+        if unreadable:  # 任何一筆嘗試中都可能屬於那則讀不回來的訊息:不轉,對帳第一輪會停機讓人看
+            return _Opened(store, attempt_store.Recovery((), ()), unreadable)
+        now = clock()
+        recovery = attempt_store.recover_in_flight(
+            tx, now, held=held, written_before=now - VISIBILITY_TIMEOUT)
+        return _Opened(store, recovery, ())
+
+
 def _open_and_recover(
-    db: Path, clock: Callable[[], datetime],
-) -> tuple[InboxStore, attempt_store.Recovery] | None:
-    """開庫(可能要做重建表遷移,握鎖比補欄位久)並做重啟恢復;撞上收件口寫入等到逾時就回 None。"""
-    try:
-        store = InboxStore(db)
-    except InboxBusy:
-        return None
-    try:
-        with store.transaction() as tx:
-            return store, attempt_store.recover_in_flight(tx, clock())
-    except InboxBusy:
-        store.close()
-        return None
+    db: Path, clock: Callable[[], datetime], sleep: Callable[[float], None], interval: float,
+) -> _Opened | None:
+    """開庫(可能要做重建表遷移)並做重啟恢復;忙碌就休息再試,連續 BUSY_LIMIT 次都忙回 None。"""
+    for attempt in range(BUSY_LIMIT):
+        if attempt:
+            sleep(interval)
+        try:
+            store = InboxStore(db)
+        except InboxBusy:
+            continue
+        try:
+            return _recover(store, clock)
+        except InboxBusy:
+            store.close()
+    return None
 
 
 def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
@@ -127,42 +125,43 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
     owner: str | None = None,
 ) -> int:
     args = _parse(argv)
+    # 判斷「有沒有人還在做」看的是租約(舊鍵看那一列寫下多久),都假設一次 DSP 呼叫一定在租約
+    # 時間內結束。這個假設要擋在啟動時,不能只靠預設值剛好成立(代碼審第 3 輪資安席)
+    if args.dsp_timeout_seconds * LEASE_MARGIN >= VISIBILITY_TIMEOUT.total_seconds():
+        sys.stderr.write(f"拒絕啟動:DSP 逾時 {args.dsp_timeout_seconds} 秒太長,"
+                         f"要小於租約的 1/{LEASE_MARGIN}\n")
+        return EXIT_UNSAFE_CONFIG
     try:  # 只有啟動程式經共用模組讀金鑰環境變數
         signer = CapabilitySigner(read_key(os.environ if environ is None else environ))
     except ValueError as error:
         sys.stderr.write(f"拒絕啟動:{error}\n")
         return EXIT_NO_KEY
-    # 先拿鎖、才用 SQLite 開資料庫:同一個資料庫若經硬連結以別的檔名開,SQLite 會用另一組
-    # WAL 檔,可能損壞資料。鎖名要資料庫檔的 inode,所以只用作業系統建一個空檔(不截斷既有的)
+    # 用 SQLite 開資料庫之前先查硬連結:要看連結數,所以只用作業系統建一個空檔(不截斷既有的)
     os.close(os.open(args.db, os.O_RDONLY | os.O_CREAT, 0o600))
     # 有硬連結就拒絕啟動:收件口若用另一個檔名開同一個資料庫,兩邊各用一組 WAL 檔,
     # 可能損壞資料(SQLite 官方〈How To Corrupt〉的多重連結)。符號連結 SQLite 會自己解析
     if os.stat(args.db).st_nlink > 1:
         sys.stderr.write("拒絕啟動:資料庫檔有硬連結,可能被別的檔名同時開啟\n")
         return EXIT_UNSAFE_DB
-    try:
-        lock = RunnerLock(args.db)
-    except LockHeld:
-        sys.stderr.write("拒絕啟動:已有另一個執行迴圈在跑\n")
-        return EXIT_LOCKED
-    opened = _open_and_recover(args.db, clock)
+    opened = _open_and_recover(args.db, clock, sleep, args.interval_seconds)
     if opened is None:
-        lock.release()
-        sys.stderr.write("拒絕啟動:資料庫忙碌,稍後再試\n")
+        sys.stderr.write(f"拒絕啟動:資料庫連續 {BUSY_LIMIT} 次忙碌,稍後再試\n")
         return EXIT_BUSY
-    store, recovery = opened
+    store = opened.store
     try:
-        if recovery.unreadable:
-            sys.stderr.write(f"讀不回來的嘗試(要人處理):{', '.join(recovery.unreadable)}\n")
+        if opened.recovery.unreadable:
+            sys.stderr.write(f"讀不回來的嘗試(要人處理):{', '.join(opened.recovery.unreadable)}\n")
+        if opened.unreadable_messages:
+            sys.stderr.write("重啟恢復跳過:有讀不回來的處理中訊息(要人處理):"
+                             f"{', '.join(opened.unreadable_messages)}\n")
         print(READY, file=out or sys.stdout, flush=True)
         # 租約擁有者:行程編號加啟動時間。重啟後是新的擁有者,上一次留下的租約要等到期才接手
         owner = owner or f"{os.getpid()}-{int(time.time())}"
         executor = Executor(store, dsp or DspClient(args.dsp_url, args.dsp_timeout_seconds),
                             signer, args.tenant_config, clock, owner)
-        return _loop(executor, lock, args.interval_seconds, max_rounds, sleep)
+        return _loop(executor, args.interval_seconds, max_rounds, sleep)
     finally:
         store.close()
-        lock.release()
 
 
 def main(argv: list[str] | None = None) -> None:

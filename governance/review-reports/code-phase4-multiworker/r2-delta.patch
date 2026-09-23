@@ -1,0 +1,234 @@
+diff --git a/src/rtb/executor/runner.py b/src/rtb/executor/runner.py
+index bf35952..4b94a1e 100644
+--- a/src/rtb/executor/runner.py
++++ b/src/rtb/executor/runner.py
+@@ -30,21 +30,21 @@ from typing import TextIO
+ from rtb.capabilitykit import read_key
+ from rtb.executor import attempt_store
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import DspPort, Executor, ExecutorHalted, Result
+ from rtb.executor.inbox_store import InboxBusy, InboxStore, utc_now
+ 
+ EXIT_NO_KEY = 2
+ EXIT_HALTED = 4
+ EXIT_UNSAFE_DB = 5  # 資料庫檔有硬連結:同一個資料庫可能被別的檔名以另一組 WAL 開啟
+-EXIT_BUSY = 6  # 啟動時資料庫連續 BUSY_LIMIT 次都忙:乾淨結束,稍後再啟動
++EXIT_BUSY = 6  # 資料庫連續 BUSY_LIMIT 次都忙(啟動時或每一輪):乾淨結束,稍後再啟動;跟系統錯誤分開
+ BUSY_LIMIT = 3  # 連續幾次忙碌才放棄;暫用,沒有實測
+ READY = "READY"
+ _IDLE_RESULTS = frozenset({Result.IDLE, Result.DEFERRED, Result.LEASE_LOST})
+ 
+ 
+ def _parse(argv: list[str] | None) -> argparse.Namespace:
+     parser = argparse.ArgumentParser(description="執行迴圈")
+     parser.add_argument("--db", required=True, type=Path)
+     parser.add_argument("--dsp-url", required=True)
+     parser.add_argument("--tenant-config", required=True, type=Path)
+@@ -60,21 +60,21 @@ def _loop(
+     rounds = busy_streak = 0
+     while max_rounds is None or rounds < max_rounds:
+         rounds += 1
+         try:
+             troubled = executor.reconcile_all()  # 先對帳,再處理新提案
+             result = executor.process_one()
+         except InboxBusy as busy:  # 多工作者下等鎖逾時是正常競爭:這一輪休息,連續幾次才停
+             busy_streak += 1
+             if busy_streak >= BUSY_LIMIT:
+                 sys.stderr.write(f"停機:資料庫連續 {busy_streak} 輪忙碌:{busy}\n")
+-                return EXIT_HALTED
++                return EXIT_BUSY
+             sleep(interval)
+             continue
+         except ExecutorHalted as halted:  # 出事就停,讓人注意到;重啟時會做恢復
+             sys.stderr.write(f"停機:{halted}\n")
+             return EXIT_HALTED
+         busy_streak = 0
+         # 對帳有 DSP 呼叫失敗就照樣休息:DSP 變慢時不連續全速打它
+         if troubled or result.kind in _IDLE_RESULTS:
+             sleep(interval)
+     return 0
+diff --git a/tests/executor/fakes.py b/tests/executor/fakes.py
+index 97beac4..bb77b9c 100644
+--- a/tests/executor/fakes.py
++++ b/tests/executor/fakes.py
+@@ -59,27 +59,29 @@ class FakeDsp:
+         # 多個執行緒(並行測試裡的多個工作者)同時呼叫時,狀態的讀改寫要一段做完。攔截點
+         # (on_write)在鎖外面先跑:等在攔截點的工作者不能握著鎖,否則接手的另一個永遠寫不進來
+         self._lock = threading.RLock()
+ 
+     def _called(self, kind):
+         if self.on_call is not None:
+             self.on_call(kind)
+ 
+     def read_campaign(self, campaign_id):
+         self._called("read")
+-        self.reads.append(campaign_id)
++        with self._lock:
++            self.reads.append(campaign_id)
+         if self.on_read is not None:
+             self.on_read(campaign_id)
+-        if self.read_failures:
+-            self.read_failures -= 1
+-            raise DspUnavailable("讀取失敗")
+-        return self.campaigns.get(campaign_id)
++        with self._lock:
++            if self.read_failures:
++                self.read_failures -= 1
++                raise DspUnavailable("讀取失敗")
++            return self.campaigns.get(campaign_id)
+ 
+     def write(self, prop, key, token):
+         self._called("write")
+         with self._lock:
+             self.writes.append((prop, key, token))
+         if self.on_write is not None:
+             self.on_write(prop, key, token)
+         with self._lock:
+             if self.answers:
+                 return self.answers.pop(0)
+@@ -113,25 +115,26 @@ class FakeDsp:
+         """這份提案若由 DSP 提交,操作紀錄長什麼樣;overrides 用來造出內容對不上的紀錄。"""
+         fields = {
+             "campaign_id": prop.campaign_id, "action": prop.action_type.value,
+             "new_budget": prop.requested_change.get("new_budget"),
+             "expected_version": prop.campaign_version_observed, "version_after": version_after,
+         }
+         return OperationRecord(**{**fields, **overrides})
+ 
+     def _lookup(self, key):
+         self._called("lookup")
+-        self.lookups.append(key)
+-        if self.lookup_failures:
+-            self.lookup_failures -= 1
+-            raise DspUnavailable("查詢失敗")
+-        return self.operations.get(key)
++        with self._lock:
++            self.lookups.append(key)
++            if self.lookup_failures:
++                self.lookup_failures -= 1
++                raise DspUnavailable("查詢失敗")
++            return self.operations.get(key)
+ 
+     def operation_version(self, key):
+         record = self._lookup(key)
+         return None if record is None else record.version_after
+ 
+     def operation_record(self, key):
+         return self._lookup(key)
+ 
+     def void(self, prop, key, token):
+         self._called("void")
+diff --git a/tests/executor/test_attempt_store.py b/tests/executor/test_attempt_store.py
+index 946122e..0d3e01f 100644
+--- a/tests/executor/test_attempt_store.py
++++ b/tests/executor/test_attempt_store.py
+@@ -300,21 +300,21 @@ def test_verification_timeouts_are_counted_durably_capped_and_only_in_the_two_wa
+ 
+ def test_the_timeout_count_is_carried_forward_by_later_rows(store):
+     key = start_in(store, A.UNKNOWN)
+     with store.transaction() as tx:
+         attempt_store.record_verification_timeout(tx, key, 2, NOW)
+     step(store, key, A.COMMITTED_UNVERIFIED)
+ 
+     assert latest(store, key).verification_timeouts == 1
+ 
+ 
+-# ---- [S13] ----
++# ---- Phase 3 的 S13,已由 Phase 4 的 [S127] 取代:這支留作「沒有任何持有鍵」時的邊界 ----
+ def test_restart_recovery_moves_every_in_flight_key_to_unknown_and_touches_nothing_else(store):
+     in_flight = [start_in(store, A.IN_FLIGHT, campaign_id=f"f{i}") for i in range(3)]
+     resent = start_in(store, A.IN_FLIGHT, paths=LONG_PATHS, campaign_id="f-resent")
+     others = {state: start_in(store, state, campaign_id=f"n-{state.value}")
+               for state in AttemptState if state is not A.IN_FLIGHT}
+     others_before = {key: history(store, key) for key in others.values()}
+ 
+     with store.transaction() as tx:
+         recovery = attempt_store.recover_in_flight(tx, NOW, held=())
+ 
+diff --git a/tests/executor/test_runner.py b/tests/executor/test_runner.py
+index 190c288..5987bfa 100644
+--- a/tests/executor/test_runner.py
++++ b/tests/executor/test_runner.py
+@@ -1,13 +1,13 @@
+-"""執行迴圈的啟動程式:金鑰、單一執行者鎖、重啟恢復與就緒訊號、系統錯誤停機。
++"""執行迴圈的啟動程式:金鑰、重啟恢復與就緒訊號、忙碌重試、系統錯誤停機。
+ 
+-S54、S55 用真的子行程;其他在測試行程內跑 run(),DSP 用替身、時間可控。
++S54、S133 用真的子行程;其他在測試行程內跑 run(),DSP 用替身、時間可控。
+ """
+ 
+ import io
+ import os
+ import select
+ import sqlite3
+ import subprocess
+ import sys
+ import time
+ from pathlib import Path
+@@ -314,21 +314,21 @@ def test_a_busy_database_rests_a_round_and_halts_only_after_three_in_a_row(h, mo
+         rounds.append(len(rounds) + 1)
+         if rounds[-1] in busy_rounds:
+             raise InboxBusy("database is locked")
+         return False
+ 
+     monkeypatch.setattr(runner.Executor, "reconcile_all", maybe_busy)
+     slept = []
+     code = runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
+                       out=io.StringIO(), sleep=slept.append, max_rounds=10, owner="executor")
+ 
+-    assert code == runner.EXIT_HALTED
++    assert code == runner.EXIT_BUSY  # 忙碌跟系統錯誤分開:稍後再啟動即可
+     assert rounds == [1, 2, 3, 4, 5, 6]  # 前兩輪忙沒停;第 6 輪是連續第 3 次才停
+     assert slept.count(0.01) >= 4  # 忙的那幾輪都休息了
+ 
+ 
+ def test_a_busy_database_at_startup_retries_before_giving_up(h, monkeypatch):
+     """啟動時開庫與重啟恢復撞到忙碌:休息再試;第 3 次成功就照常就緒,連續 3 次都忙才結束。"""
+     from rtb.executor.inbox_store import InboxBusy
+ 
+     real = runner.InboxStore
+     tries = []
+@@ -344,10 +344,42 @@ def test_a_busy_database_at_startup_retries_before_giving_up(h, monkeypatch):
+     monkeypatch.setattr(runner, "InboxStore", busy_then(2))
+     out = io.StringIO()
+     assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp, out=out,
+                       sleep=lambda _s: None, max_rounds=0) == 0
+     assert out.getvalue().strip() == runner.READY and len(tries) == 3
+ 
+     tries.clear()
+     monkeypatch.setattr(runner, "InboxStore", busy_then(3))
+     assert run_in_process(h) == runner.EXIT_BUSY
+     assert len(tries) == 3
++
++
++def test_a_busy_restart_recovery_at_startup_retries_before_giving_up(h, monkeypatch):
++    """開庫成功、但重啟恢復那個交易撞到忙碌:關掉這次開的連線、休息再試,連續 3 次才結束。"""
++    from rtb.executor.inbox_store import InboxBusy
++
++    real = runner._recover
++    tries, closed = [], []
++
++    def busy_then(fail_times):
++        def recover(store, clock):
++            tries.append(1)
++            if len(tries) <= fail_times:
++                real_close = store.close
++                store.close = lambda: (closed.append(1), real_close())[1]
++                raise InboxBusy("database is locked")
++            return real(store, clock)
++        return recover
++
++    orphan = in_flight_row(h.db, h.clock)
++    monkeypatch.setattr(runner, "_recover", busy_then(2))
++    out = io.StringIO()
++    assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp, out=out,
++                      sleep=lambda _s: None, max_rounds=0) == 0
++    assert out.getvalue().strip() == runner.READY and len(tries) == 3
++    assert len(closed) == 2  # 失敗的那兩次都把連線關掉了
++    assert state_of(h.db, orphan) == "unknown"  # 第三次真的做完重啟恢復
++
++    tries.clear()
++    monkeypatch.setattr(runner, "_recover", busy_then(3))
++    assert run_in_process(h) == runner.EXIT_BUSY
++    assert len(tries) == 3

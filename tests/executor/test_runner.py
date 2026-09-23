@@ -1,6 +1,6 @@
-"""執行迴圈的啟動程式:金鑰、單一執行者鎖、重啟恢復與就緒訊號、系統錯誤停機。
+"""執行迴圈的啟動程式:金鑰、重啟恢復與就緒訊號、忙碌重試、系統錯誤停機。
 
-S54、S55 用真的子行程;其他在測試行程內跑 run(),DSP 用替身、時間可控。
+S54、S133 用真的子行程;其他在測試行程內跑 run(),DSP 用替身、時間可控。
 """
 
 import io
@@ -109,37 +109,70 @@ def test_the_runner_refuses_to_start_without_a_usable_key(tmp_path, clock, env_k
     assert state_of(db, key) == "in_flight"  # 重啟恢復沒跑
 
 
-# ---- [S55] ----
-def test_the_runner_holds_a_single_instance_lock_and_recovers_before_ready(tmp_path, clock):
-    db, config = tmp_path / "executor.db", write_config(tmp_path / "tenants.json")
-    before_ready = in_flight_row(db, clock)
-    first = spawn(db, config, ENV[KEY_ENV])
-    try:
-        assert read_line(first) == runner.READY
-        assert state_of(db, before_ready) == "unknown"  # 就緒之前已做完重啟恢復
+# ---- [S127] ----
+class _Stop(Exception):
+    pass
 
-        # 第一個還在跑:這時資料庫裡又有一筆嘗試中(它正在處理的操作)
-        store = InboxStore(db)
-        try:
-            with store.transaction() as tx:
-                running = attempt_store.begin(tx, proposal(campaign_id="c8"), clock(),
-                                              capability_expires_at=clock()).row.key
-        finally:
-            store.close()
-        alias = tmp_path / "alias.db"
-        alias.symlink_to(db)
-        for path in (alias, Path(os.path.relpath(db))):
-            second = subprocess.Popen(
-                [sys.executable, "-m", "rtb.executor.runner", *argv(path, config)],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                env={**os.environ, "PYTHONPATH": SRC, **ENV})
-            try:
-                assert second.wait(timeout=30) == runner.EXIT_LOCKED, path
-            finally:
-                stop(second)
-            assert state_of(db, running) == "in_flight"  # 第二個沒跑重啟恢復
+
+def _held_in_flight(h):
+    """一筆收件表有處理中訊息的嘗試中:處理到呼叫 DSP 那一刻就停下(模擬別的工作者正在做)。"""
+    prop = h.submit()
+
+    def stop(*_args):
+        raise _Stop
+
+    h.dsp.on_write = stop
+    with pytest.raises(_Stop):
+        h.process()
+    h.dsp.on_write = None
+    return operation_key(prop)
+
+
+def test_restart_recovery_only_touches_attempts_without_an_in_progress_message(h):
+    held = _held_in_flight(h)
+    orphan = in_flight_row(h.db, h.clock)  # 收件表沒有它:舊資料
+    h.clock.advance(seconds=3600)  # 就算持有者的租約早就到期,重啟恢復也不碰(留給對帳原子接手)
+
+    assert run_in_process(h, max_rounds=0, owner="restarted") == 0
+
+    assert state_of(h.db, orphan) == "unknown"
+    assert state_of(h.db, held) == "in_flight"
+
+
+# ---- [S128] ----
+def test_restart_recovery_moves_nothing_while_an_in_progress_row_is_unreadable(h, capsys):
+    held = _held_in_flight(h)
+    orphan = in_flight_row(h.db, h.clock)
+    h.query("UPDATE proposals SET payload = '{' WHERE task_id = 't1'")  # 算不出它的鍵
+    h.clock.advance(seconds=3600)  # 孤兒夠舊:不是因為「剛寫下」才沒轉
+
+    assert run_in_process(h, max_rounds=0, owner="restarted") == 0
+
+    assert state_of(h.db, orphan) == "in_flight"  # 可能正屬於那則讀不回來的訊息:不轉
+    assert state_of(h.db, held) == "in_flight"
+    assert "讀不回來的處理中訊息" in capsys.readouterr().err
+
+
+# ---- [S133] ----
+def test_two_runners_start_side_by_side_and_each_recovers_before_ready(tmp_path, clock):
+    """不再有單一執行者鎖:兩個啟動程式真的同時啟動(兩個都先起、再一起等就緒),都做完重啟恢復
+    才印就緒。"""
+    db, config = tmp_path / "executor.db", write_config(tmp_path / "tenants.json")
+    orphan = in_flight_row(db, clock)
+    alias = tmp_path / "alias.db"
+    alias.symlink_to(db)
+    procs = [subprocess.Popen(
+        [sys.executable, "-m", "rtb.executor.runner", *argv(path, config)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env={**os.environ, "PYTHONPATH": SRC, **ENV}) for path in (db, alias)]
+    try:
+        for proc in procs:
+            assert read_line(proc) == runner.READY
+            assert proc.poll() is None  # 兩個都還活著
+        assert state_of(db, orphan) == "unknown"  # 就緒之前已做完重啟恢復
     finally:
-        stop(first)
+        for proc in procs:
+            stop(proc)
 
 
 # ---- [S60] ----
@@ -175,23 +208,6 @@ def test_other_client_errors_escalate_as_local_request_errors_and_stop_the_runne
     assert len(h.dsp.writes) == 1
 
 
-# ---- [S68] ----
-def test_the_runner_stops_when_its_lock_file_is_replaced(h):
-    replaced = []
-
-    def replace_lock_file(_seconds):
-        if not replaced:
-            lock = next(h.tmp_path.glob(".rtb-runner-*.lock"))
-            lock.unlink()
-            lock.write_bytes(b"")  # 同路徑的新檔:inode 不同
-            replaced.append(lock)
-
-    code = runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
-                      out=io.StringIO(), sleep=replace_lock_file, max_rounds=5)
-
-    assert replaced and code == runner.EXIT_HALTED
-
-
 # ---- [S69] ----
 def test_a_conditional_write_without_progress_stops_the_runner(h):
     prop = h.submit()
@@ -218,19 +234,6 @@ def _run_counting_opens(monkeypatch, db, config, clock):
     code = runner.run(argv(db, config), environ=ENV, clock=clock, out=io.StringIO(),
                       max_rounds=1, sleep=lambda _s: None)
     return code, opened
-
-
-def test_a_locked_out_runner_never_opens_the_database_with_sqlite(tmp_path, monkeypatch, clock):
-    """拿不到鎖的第二個執行迴圈必須在用 SQLite 開資料庫之前就結束(先鎖後開)。"""
-    db, config = tmp_path / "executor.db", write_config(tmp_path / "tenants.json")
-    InboxStore(db).close()
-    held = runner.RunnerLock(db)
-    try:
-        code, opened = _run_counting_opens(monkeypatch, Path(os.path.relpath(db)), config, clock)
-    finally:
-        held.release()
-    assert code == runner.EXIT_LOCKED
-    assert opened == []
 
 
 def test_a_hard_linked_database_is_refused_before_sqlite_opens_it(tmp_path, monkeypatch, clock):
@@ -300,14 +303,100 @@ def test_a_round_with_a_failed_reconcile_call_sleeps(h):
     assert slept == []
 
 
-def test_a_busy_database_at_startup_exits_cleanly_and_frees_the_lock(h, monkeypatch):
-    """開庫要做重建表遷移時握鎖較久,撞上收件口寫入會忙到逾時:乾淨結束、放掉單一執行者鎖。"""
+def test_a_dsp_timeout_too_close_to_the_lease_is_refused(h):
+    """判斷有沒有人還在做,假設一次 DSP 呼叫一定在租約時間內結束:逾時設太長就拒絕啟動,
+    而且在做任何事之前。"""
+    orphan = in_flight_row(h.db, h.clock)
+    h.clock.advance(seconds=3600)
+    code = runner.run([*argv(h.db, h.config), "--dsp-timeout-seconds", "10"], environ=ENV,
+                      clock=h.clock, dsp=h.dsp, out=io.StringIO(), sleep=lambda _s: None,
+                      max_rounds=0)
+    assert code == runner.EXIT_UNSAFE_CONFIG
+    assert state_of(h.db, orphan) == "in_flight"  # 連重啟恢復都沒跑
+    assert runner.run([*argv(h.db, h.config), "--dsp-timeout-seconds", "9.9"], environ=ENV,
+                      clock=h.clock, dsp=h.dsp, out=io.StringIO(), sleep=lambda _s: None,
+                      max_rounds=0) == 0  # 1/6 以內照常啟動
+
+
+# ---- [S135] ----
+def test_a_busy_database_rests_a_round_and_halts_only_after_three_in_a_row(h, monkeypatch):
+    """多工作者共用一顆寫入鎖,等鎖逾時是正常競爭:休息一輪再試,連續 3 輪都忙才停機。"""
     from rtb.executor.inbox_store import InboxBusy
 
-    def busy(*_args, **_kwargs):
-        raise InboxBusy("database is locked")
+    rounds = []
+    busy_rounds = {1, 2, 4, 5, 6}  # 第 3 輪成功一次,把連續次數歸零;之後連續 3 輪都忙
 
-    monkeypatch.setattr(runner, "InboxStore", busy)
+    def maybe_busy(_self):
+        rounds.append(len(rounds) + 1)
+        if rounds[-1] in busy_rounds:
+            raise InboxBusy("database is locked")
+        return False
+
+    monkeypatch.setattr(runner.Executor, "reconcile_all", maybe_busy)
+    slept = []
+    code = runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
+                      out=io.StringIO(), sleep=slept.append, max_rounds=10, owner="executor")
+
+    assert code == runner.EXIT_BUSY  # 忙碌跟系統錯誤分開:稍後再啟動即可
+    assert rounds == [1, 2, 3, 4, 5, 6]  # 前兩輪忙沒停;第 6 輪是連續第 3 次才停
+    assert slept.count(0.01) >= 4  # 忙的那幾輪都休息了
+
+
+def test_a_busy_database_at_startup_retries_before_giving_up(h, monkeypatch):
+    """啟動時開庫與重啟恢復撞到忙碌:休息再試;第 3 次成功就照常就緒,連續 3 次都忙才結束。"""
+    from rtb.executor.inbox_store import InboxBusy
+
+    real = runner.InboxStore
+    tries = []
+
+    def busy_then(fail_times):
+        def open_store(*args, **kwargs):
+            tries.append(1)
+            if len(tries) <= fail_times:
+                raise InboxBusy("database is locked")
+            return real(*args, **kwargs)
+        return open_store
+
+    monkeypatch.setattr(runner, "InboxStore", busy_then(2))
+    out = io.StringIO()
+    assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp, out=out,
+                      sleep=lambda _s: None, max_rounds=0) == 0
+    assert out.getvalue().strip() == runner.READY and len(tries) == 3
+
+    tries.clear()
+    monkeypatch.setattr(runner, "InboxStore", busy_then(3))
     assert run_in_process(h) == runner.EXIT_BUSY
-    runner.RunnerLock(h.db).release()  # 鎖已放掉:下一次啟動拿得到
+    assert len(tries) == 3
 
+
+def test_a_busy_restart_recovery_at_startup_retries_before_giving_up(h, monkeypatch):
+    """開庫成功、但重啟恢復那個交易撞到忙碌:關掉這次開的連線、休息再試,連續 3 次才結束。"""
+    from rtb.executor.inbox_store import InboxBusy
+
+    real = runner._recover
+    tries, closed = [], []
+
+    def busy_then(fail_times):
+        def recover(store, clock):
+            tries.append(1)
+            if len(tries) <= fail_times:
+                real_close = store.close
+                store.close = lambda: (closed.append(1), real_close())[1]
+                raise InboxBusy("database is locked")
+            return real(store, clock)
+        return recover
+
+    orphan = in_flight_row(h.db, h.clock)
+    h.clock.advance(seconds=3600)
+    monkeypatch.setattr(runner, "_recover", busy_then(2))
+    out = io.StringIO()
+    assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp, out=out,
+                      sleep=lambda _s: None, max_rounds=0) == 0
+    assert out.getvalue().strip() == runner.READY and len(tries) == 3
+    assert len(closed) == 2  # 失敗的那兩次都把連線關掉了
+    assert state_of(h.db, orphan) == "unknown"  # 第三次真的做完重啟恢復
+
+    tries.clear()
+    monkeypatch.setattr(runner, "_recover", busy_then(3))
+    assert run_in_process(h) == runner.EXIT_BUSY
+    assert len(tries) == 3

@@ -1,12 +1,15 @@
 """執行迴圈測試共用的替身:假的 DSP 讀寫用戶端、租戶設定檔、帶一份提案的收件口。
 
-假 DSP 預設照真 DSP 的語意回應(寫入成功就升版本、記完整操作紀錄;作廢時已有紀錄就回已提交,
-否則記下作廢、之後同鍵寫入回 409 操作已作廢);測試要模擬別的回應就排進 `answers`/`void_answers`,
+假 DSP 預設照真 DSP 的語意回應(寫入成功就升版本、記完整操作紀錄;同一把鍵再寫一次,
+內容相同回第一次的結果、內容不同回冪等衝突;作廢時已有紀錄就回已提交,否則記下作廢、
+之後同鍵寫入回 409 操作已作廢);冪等語意要跟真 DSP(src/rtb/dsp/store.py)對齊,
+改那邊時回頭改這裡。測試要模擬別的回應就排進 `answers`/`void_answers`,
 要在呼叫當下插一腳(例如趁讀取時送新修訂)就設 `on_read`/`on_write`。
 """
 
 import json
 import os
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -53,6 +56,9 @@ class FakeDsp:
         self.reads: list[str] = []
         self.lookups: list[str] = []
         self.on_read = self.on_write = self.on_call = None
+        # 多個執行緒(並行測試裡的多個工作者)同時呼叫時,狀態的讀改寫要一段做完。攔截點
+        # (on_write)在鎖外面先跑:等在攔截點的工作者不能握著鎖,否則接手的另一個永遠寫不進來
+        self._lock = threading.RLock()
 
     def _called(self, kind):
         if self.on_call is not None:
@@ -60,27 +66,40 @@ class FakeDsp:
 
     def read_campaign(self, campaign_id):
         self._called("read")
-        self.reads.append(campaign_id)
+        with self._lock:
+            self.reads.append(campaign_id)
         if self.on_read is not None:
             self.on_read(campaign_id)
-        if self.read_failures:
-            self.read_failures -= 1
-            raise DspUnavailable("讀取失敗")
-        return self.campaigns.get(campaign_id)
+        with self._lock:
+            if self.read_failures:
+                self.read_failures -= 1
+                raise DspUnavailable("讀取失敗")
+            return self.campaigns.get(campaign_id)
 
     def write(self, prop, key, token):
         self._called("write")
-        self.writes.append((prop, key, token))
+        with self._lock:
+            self.writes.append((prop, key, token))
         if self.on_write is not None:
             self.on_write(prop, key, token)
-        if self.answers:
-            return self.answers.pop(0)
-        if key in self.voided:
-            return WriteAnswer(409, "operation_voided")
-        return self.apply(prop, key)
+        with self._lock:
+            if self.answers:
+                return self.answers.pop(0)
+            if key in self.voided:
+                return WriteAnswer(409, "operation_voided")
+            existing = self.operations.get(key)
+            if existing is not None:  # 同鍵重送:內容相同回第一次的結果,不同就是冪等衝突
+                if existing == self.record_for(prop, existing.version_after):
+                    return WriteAnswer(200, None, existing.version_after)
+                return WriteAnswer(422, "idempotency_conflict")
+            return self.apply(prop, key)
 
     def apply(self, prop, key):
         """照真 DSP 的語意套用一次寫入:升版本、記操作紀錄。"""
+        with self._lock:
+            return self._apply(prop, key)
+
+    def _apply(self, prop, key):
         current = self.campaigns[prop.campaign_id]
         if prop.action_type is ActionType.UPDATE_BUDGET:
             updated = replace(current, budget=prop.requested_change["new_budget"],
@@ -103,11 +122,12 @@ class FakeDsp:
 
     def _lookup(self, key):
         self._called("lookup")
-        self.lookups.append(key)
-        if self.lookup_failures:
-            self.lookup_failures -= 1
-            raise DspUnavailable("查詢失敗")
-        return self.operations.get(key)
+        with self._lock:
+            self.lookups.append(key)
+            if self.lookup_failures:
+                self.lookup_failures -= 1
+                raise DspUnavailable("查詢失敗")
+            return self.operations.get(key)
 
     def operation_version(self, key):
         record = self._lookup(key)
@@ -118,13 +138,14 @@ class FakeDsp:
 
     def void(self, prop, key, token):
         self._called("void")
-        self.voids.append(key)
-        if self.void_answers:
-            return self.void_answers.pop(0)
-        if key in self.operations:
-            return VoidAnswer(200, None, "committed", self.operations[key])
-        self.voided.add(key)
-        return VoidAnswer(200, None, "voided")
+        with self._lock:
+            self.voids.append(key)
+            if self.void_answers:
+                return self.void_answers.pop(0)
+            if key in self.operations:
+                return VoidAnswer(200, None, "committed", self.operations[key])
+            self.voided.add(key)
+            return VoidAnswer(200, None, "voided")
 
 
 class Harness:

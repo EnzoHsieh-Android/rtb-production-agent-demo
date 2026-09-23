@@ -307,7 +307,7 @@ def test_the_timeout_count_is_carried_forward_by_later_rows(store):
     assert latest(store, key).verification_timeouts == 1
 
 
-# ---- [S13] ----
+# ---- Phase 3 的 S13,已由 Phase 4 的 [S127] 取代:這支留作「沒有任何持有鍵」時的邊界 ----
 def test_restart_recovery_moves_every_in_flight_key_to_unknown_and_touches_nothing_else(store):
     in_flight = [start_in(store, A.IN_FLIGHT, campaign_id=f"f{i}") for i in range(3)]
     resent = start_in(store, A.IN_FLIGHT, paths=LONG_PATHS, campaign_id="f-resent")
@@ -316,7 +316,7 @@ def test_restart_recovery_moves_every_in_flight_key_to_unknown_and_touches_nothi
     others_before = {key: history(store, key) for key in others.values()}
 
     with store.transaction() as tx:
-        recovery = attempt_store.recover_in_flight(tx, NOW)
+        recovery = attempt_store.recover_in_flight(tx, NOW, held=(), written_before=NOW)
 
     assert set(recovery.moved) == {*in_flight, resent} and recovery.unreadable == ()
     for key in [*in_flight, resent]:
@@ -332,7 +332,7 @@ def test_restart_recovery_still_works_for_a_key_whose_history_is_full(store):
     _fill_history(store, full)
 
     with store.transaction() as tx:
-        recovery = attempt_store.recover_in_flight(tx, NOW)
+        recovery = attempt_store.recover_in_flight(tx, NOW, held=(), written_before=NOW)
 
     assert set(recovery.moved) == {healthy, full}
     assert latest(store, healthy).state is A.UNKNOWN
@@ -355,10 +355,65 @@ def test_restart_recovery_skips_an_unreadable_key_and_still_recovers_the_healthy
 
     for _restart in range(2):  # 連續兩次重啟都不能卡住
         with store.transaction() as tx:
-            recovery = attempt_store.recover_in_flight(tx, NOW)
+            recovery = attempt_store.recover_in_flight(tx, NOW, held=(), written_before=NOW)
         assert recovery.unreadable == (victim,)
 
     assert latest(store, healthy).state is A.UNKNOWN
+
+
+def test_restart_recovery_leaves_held_keys_alone_even_next_to_an_unreadable_key(store):
+    """別的工作者持有的鍵(收件表有處理中訊息)不動;同一次重啟裡讀不回來的鍵照樣跳過並回報,
+    健康的孤兒鍵照樣轉。"""
+    held = start_in(store, A.IN_FLIGHT, campaign_id="held")
+    orphan = start_in(store, A.IN_FLIGHT, campaign_id="orphan")
+    victim = start_in(store, A.IN_FLIGHT, campaign_id="victim")
+    with store.transaction() as tx:  # 測試模擬毀損:時間欄位讀不回來
+        tx.conn.execute("DELETE FROM attempts WHERE key = ?", (victim,))
+        tx.conn.execute(
+            "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
+            "verification_timeouts, written_at) VALUES (?, 1, 'victim', 'in_flight', 1, 0, 'bad')",
+            (victim,))
+    held_before = history(store, held)
+
+    with store.transaction() as tx:
+        recovery = attempt_store.recover_in_flight(tx, NOW, held=[held], written_before=NOW)
+
+    assert recovery.moved == (orphan,) and recovery.unreadable == (victim,)
+    assert history(store, held) == held_before
+    assert latest(store, orphan).state is A.UNKNOWN
+
+
+def test_restart_recovery_leaves_a_freshly_written_legacy_attempt_alone(store):
+    """舊鍵(不在 held 裡)剛寫下嘗試中:可能有工作者正在對帳它、等 DSP 回應,不能當孤兒轉。"""
+    fresh = start_in(store, A.IN_FLIGHT, campaign_id="fresh")
+    before = history(store, fresh)
+
+    with store.transaction() as tx:
+        recovery = attempt_store.recover_in_flight(
+            tx, NOW, held=(), written_before=NOW - timedelta(seconds=1))
+
+    assert recovery.moved == () and history(store, fresh) == before
+
+
+def test_restart_recovery_requires_the_held_keys_and_the_age_cutoff(store):
+    """兩個參數各自都必填:漏傳任一個都不能悄悄退回舊語意(改掉別的工作者正在做的嘗試)。"""
+    start_in(store, A.IN_FLIGHT)
+    with pytest.raises(TypeError), store.transaction() as tx:
+        attempt_store.recover_in_flight(tx, NOW, written_before=NOW)  # type: ignore[call-arg]
+    with pytest.raises(TypeError), store.transaction() as tx:
+        attempt_store.recover_in_flight(tx, NOW, held=())  # type: ignore[call-arg]
+
+
+def test_restart_recovery_age_cutoff_boundary(store):
+    """剛好寫在截止時間那一刻的算夠舊(轉);晚一微秒的算剛寫下(不轉)。"""
+    at_cutoff = start_in(store, A.IN_FLIGHT, campaign_id="at")
+    with store.transaction() as tx:
+        just_after = attempt_store.recover_in_flight(
+            tx, NOW, held=(), written_before=NOW - timedelta(microseconds=1))
+    assert just_after.moved == ()
+    with store.transaction() as tx:
+        at = attempt_store.recover_in_flight(tx, NOW, held=(), written_before=NOW)
+    assert at.moved == (at_cutoff,)
 
 
 def test_the_database_itself_refuses_a_second_terminal_row_for_one_key(store):
@@ -685,7 +740,7 @@ def test_a_time_without_a_time_zone_is_refused_by_every_write_and_nothing_is_wri
         lambda tx: attempt_store.transition(tx, key, 2, A.IN_FLIGHT, NAIVE),
         lambda tx: attempt_store.record_verification_timeout(tx, key, 2, NAIVE),
         lambda tx: attempt_store.resolve(tx, escalated, 2, A.FAILED, "checked by hand", NAIVE),
-        lambda tx: attempt_store.recover_in_flight(tx, NAIVE),
+        lambda tx: attempt_store.recover_in_flight(tx, NAIVE, held=(), written_before=NOW),
     ]
     for write in writes:
         with pytest.raises(ValueError), store.transaction() as tx:

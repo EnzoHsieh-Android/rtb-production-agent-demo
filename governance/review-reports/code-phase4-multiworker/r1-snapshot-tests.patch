@@ -1,0 +1,919 @@
+diff --git a/tests/executor/fakes.py b/tests/executor/fakes.py
+index 266a012..97beac4 100644
+--- a/tests/executor/fakes.py
++++ b/tests/executor/fakes.py
+@@ -1,19 +1,22 @@
+ """執行迴圈測試共用的替身:假的 DSP 讀寫用戶端、租戶設定檔、帶一份提案的收件口。
+ 
+-假 DSP 預設照真 DSP 的語意回應(寫入成功就升版本、記完整操作紀錄;作廢時已有紀錄就回已提交,
+-否則記下作廢、之後同鍵寫入回 409 操作已作廢);測試要模擬別的回應就排進 `answers`/`void_answers`,
++假 DSP 預設照真 DSP 的語意回應(寫入成功就升版本、記完整操作紀錄;同一把鍵再寫一次,
++內容相同回第一次的結果、內容不同回冪等衝突;作廢時已有紀錄就回已提交,否則記下作廢、
++之後同鍵寫入回 409 操作已作廢);冪等語意要跟真 DSP(src/rtb/dsp/store.py)對齊,
++改那邊時回頭改這裡。測試要模擬別的回應就排進 `answers`/`void_answers`,
+ 要在呼叫當下插一腳(例如趁讀取時送新修訂)就設 `on_read`/`on_write`。
+ """
+ 
+ import json
+ import os
++import threading
+ from dataclasses import replace
+ from pathlib import Path
+ 
+ from rtb.domain.proposal import ActionType, parse_proposal
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.execution import (
+     CampaignView,
+     DspUnavailable,
+     Executor,
+     OperationRecord,
+@@ -46,48 +49,62 @@ class FakeDsp:
+         self.read_failures = 0  # 接下來幾次讀取要失敗
+         self.lookup_failures = 0
+         self.operations: dict[str, OperationRecord] = {}  # 冪等鍵 -> 完整操作紀錄
+         self.voided: set[str] = set()
+         self.void_answers: list[VoidAnswer] = []  # 排好的作廢回應;空了就照真 DSP 的語意
+         self.voids: list[str] = []
+         self.writes: list[tuple] = []
+         self.reads: list[str] = []
+         self.lookups: list[str] = []
+         self.on_read = self.on_write = self.on_call = None
++        # 多個執行緒(並行測試裡的多個工作者)同時呼叫時,狀態的讀改寫要一段做完。攔截點
++        # (on_write)在鎖外面先跑:等在攔截點的工作者不能握著鎖,否則接手的另一個永遠寫不進來
++        self._lock = threading.RLock()
+ 
+     def _called(self, kind):
+         if self.on_call is not None:
+             self.on_call(kind)
+ 
+     def read_campaign(self, campaign_id):
+         self._called("read")
+         self.reads.append(campaign_id)
+         if self.on_read is not None:
+             self.on_read(campaign_id)
+         if self.read_failures:
+             self.read_failures -= 1
+             raise DspUnavailable("讀取失敗")
+         return self.campaigns.get(campaign_id)
+ 
+     def write(self, prop, key, token):
+         self._called("write")
+-        self.writes.append((prop, key, token))
++        with self._lock:
++            self.writes.append((prop, key, token))
+         if self.on_write is not None:
+             self.on_write(prop, key, token)
+-        if self.answers:
+-            return self.answers.pop(0)
+-        if key in self.voided:
+-            return WriteAnswer(409, "operation_voided")
+-        return self.apply(prop, key)
++        with self._lock:
++            if self.answers:
++                return self.answers.pop(0)
++            if key in self.voided:
++                return WriteAnswer(409, "operation_voided")
++            existing = self.operations.get(key)
++            if existing is not None:  # 同鍵重送:內容相同回第一次的結果,不同就是冪等衝突
++                if existing == self.record_for(prop, existing.version_after):
++                    return WriteAnswer(200, None, existing.version_after)
++                return WriteAnswer(422, "idempotency_conflict")
++            return self.apply(prop, key)
+ 
+     def apply(self, prop, key):
+         """照真 DSP 的語意套用一次寫入:升版本、記操作紀錄。"""
++        with self._lock:
++            return self._apply(prop, key)
++
++    def _apply(self, prop, key):
+         current = self.campaigns[prop.campaign_id]
+         if prop.action_type is ActionType.UPDATE_BUDGET:
+             updated = replace(current, budget=prop.requested_change["new_budget"],
+                               version=current.version + 1)
+         else:
+             updated = replace(current, status="paused", version=current.version + 1)
+         self.campaigns[prop.campaign_id] = updated
+         self.operations[key] = self.record_for(prop, updated.version)
+         return WriteAnswer(200, None, updated.version)
+ 
+@@ -111,27 +128,28 @@ class FakeDsp:
+ 
+     def operation_version(self, key):
+         record = self._lookup(key)
+         return None if record is None else record.version_after
+ 
+     def operation_record(self, key):
+         return self._lookup(key)
+ 
+     def void(self, prop, key, token):
+         self._called("void")
+-        self.voids.append(key)
+-        if self.void_answers:
+-            return self.void_answers.pop(0)
+-        if key in self.operations:
+-            return VoidAnswer(200, None, "committed", self.operations[key])
+-        self.voided.add(key)
+-        return VoidAnswer(200, None, "voided")
++        with self._lock:
++            self.voids.append(key)
++            if self.void_answers:
++                return self.void_answers.pop(0)
++            if key in self.operations:
++                return VoidAnswer(200, None, "committed", self.operations[key])
++            self.voided.add(key)
++            return VoidAnswer(200, None, "voided")
+ 
+ 
+ class Harness:
+     """一個執行行程資料庫 + 假 DSP + 真的簽發器與租戶設定檔,時間由測試控制。"""
+ 
+     def __init__(self, tmp_path, clock, max_pending=20):
+         self.tmp_path, self.clock = tmp_path, clock
+         self.db = tmp_path / "executor.db"
+         self.store = InboxStore(self.db, max_pending=max_pending)
+         self.dsp = FakeDsp()
+diff --git a/tests/executor/test_attempt_store.py b/tests/executor/test_attempt_store.py
+index 8aebfd0..946122e 100644
+--- a/tests/executor/test_attempt_store.py
++++ b/tests/executor/test_attempt_store.py
+@@ -309,37 +309,37 @@ def test_the_timeout_count_is_carried_forward_by_later_rows(store):
+ 
+ # ---- [S13] ----
+ def test_restart_recovery_moves_every_in_flight_key_to_unknown_and_touches_nothing_else(store):
+     in_flight = [start_in(store, A.IN_FLIGHT, campaign_id=f"f{i}") for i in range(3)]
+     resent = start_in(store, A.IN_FLIGHT, paths=LONG_PATHS, campaign_id="f-resent")
+     others = {state: start_in(store, state, campaign_id=f"n-{state.value}")
+               for state in AttemptState if state is not A.IN_FLIGHT}
+     others_before = {key: history(store, key) for key in others.values()}
+ 
+     with store.transaction() as tx:
+-        recovery = attempt_store.recover_in_flight(tx, NOW)
++        recovery = attempt_store.recover_in_flight(tx, NOW, held=())
+ 
+     assert set(recovery.moved) == {*in_flight, resent} and recovery.unreadable == ()
+     for key in [*in_flight, resent]:
+         row = latest(store, key)
+         assert row.state is A.UNKNOWN
+     assert latest(store, resent).send_count == 2  # 送出次數跟著帶下去
+     assert {key: history(store, key) for key in others.values()} == others_before
+ 
+ 
+ def test_restart_recovery_still_works_for_a_key_whose_history_is_full(store):
+     healthy = start_in(store, A.IN_FLIGHT, campaign_id="healthy")
+     full = start_in(store, A.IN_FLIGHT, campaign_id="full")
+     _fill_history(store, full)
+ 
+     with store.transaction() as tx:
+-        recovery = attempt_store.recover_in_flight(tx, NOW)
++        recovery = attempt_store.recover_in_flight(tx, NOW, held=())
+ 
+     assert set(recovery.moved) == {healthy, full}
+     assert latest(store, healthy).state is A.UNKNOWN
+     assert latest(store, full).state is A.UNKNOWN
+ 
+ 
+ @pytest.mark.parametrize("bad_time", ["bad", b"bad", 12345], ids=["text", "blob", "int"])
+ def test_restart_recovery_skips_an_unreadable_key_and_still_recovers_the_healthy_ones(
+     store, bad_time,
+ ):
+@@ -348,26 +348,55 @@ def test_restart_recovery_skips_an_unreadable_key_and_still_recovers_the_healthy
+     victim = start_in(store, A.IN_FLIGHT, campaign_id="victim")
+     with store.transaction() as tx:  # 測試模擬毀損:時間欄位讀不回來,狀態仍是嘗試中
+         tx.conn.execute("DELETE FROM attempts WHERE key = ?", (victim,))
+         tx.conn.execute(
+             "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
+             "verification_timeouts, written_at) VALUES (?, 1, 'victim', 'in_flight', 1, 0, ?)",
+             (victim, bad_time))
+ 
+     for _restart in range(2):  # 連續兩次重啟都不能卡住
+         with store.transaction() as tx:
+-            recovery = attempt_store.recover_in_flight(tx, NOW)
++            recovery = attempt_store.recover_in_flight(tx, NOW, held=())
+         assert recovery.unreadable == (victim,)
+ 
+     assert latest(store, healthy).state is A.UNKNOWN
+ 
+ 
++def test_restart_recovery_leaves_held_keys_alone_even_next_to_an_unreadable_key(store):
++    """別的工作者持有的鍵(收件表有處理中訊息)不動;同一次重啟裡讀不回來的鍵照樣跳過並回報,
++    健康的孤兒鍵照樣轉。"""
++    held = start_in(store, A.IN_FLIGHT, campaign_id="held")
++    orphan = start_in(store, A.IN_FLIGHT, campaign_id="orphan")
++    victim = start_in(store, A.IN_FLIGHT, campaign_id="victim")
++    with store.transaction() as tx:  # 測試模擬毀損:時間欄位讀不回來
++        tx.conn.execute("DELETE FROM attempts WHERE key = ?", (victim,))
++        tx.conn.execute(
++            "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
++            "verification_timeouts, written_at) VALUES (?, 1, 'victim', 'in_flight', 1, 0, 'bad')",
++            (victim,))
++    held_before = history(store, held)
++
++    with store.transaction() as tx:
++        recovery = attempt_store.recover_in_flight(tx, NOW, held=[held])
++
++    assert recovery.moved == (orphan,) and recovery.unreadable == (victim,)
++    assert history(store, held) == held_before
++    assert latest(store, orphan).state is A.UNKNOWN
++
++
++def test_restart_recovery_requires_the_held_keys(store):
++    """漏傳持有鍵時不能悄悄退回「全部轉」:那會改掉別的工作者正在做的嘗試。"""
++    start_in(store, A.IN_FLIGHT)
++    with pytest.raises(TypeError), store.transaction() as tx:
++        attempt_store.recover_in_flight(tx, NOW)  # type: ignore[call-arg]
++
++
+ def test_the_database_itself_refuses_a_second_terminal_row_for_one_key(store):
+     """計數算法的前提(每把鍵最多一列終點列)由資料庫的唯一限制保證,不靠事後相減看正負:
+     相減會被另一把還沒結案的鍵抵銷成 0(代碼審第 3 輪兩席各自實測)。"""
+     finished = start_in(store, A.FAILED, requested_change={"new_budget": 998})
+     live = start_in(store, A.IN_FLIGHT)  # 同一個廣告另有一把還沒結案的鍵,會抵銷
+     with pytest.raises(sqlite3.IntegrityError), store.transaction() as tx:
+         tx.conn.execute(
+             "INSERT INTO attempts (key, seq, campaign_id, state, code, send_count, "
+             "verification_timeouts, written_at) VALUES (?, 3, 'c1', 'failed', 'other_rejection', "
+             "1, 0, '2026-09-22T12:05:00.000000Z')", (finished,))
+@@ -678,21 +707,21 @@ def test_a_time_without_a_time_zone_is_refused_by_every_write_and_nothing_is_wri
+     key = start_in(store, A.UNKNOWN)
+     escalated = start_in(store, A.ESCALATED, campaign_id="esc")
+     in_flight = start_in(store, A.IN_FLIGHT, campaign_id="fl")
+     before = all_rows(store)
+     writes = [
+         lambda tx: attempt_store.begin(tx, proposal(campaign_id="new"), NAIVE,
+                                        capability_expires_at=EXPIRES),
+         lambda tx: attempt_store.transition(tx, key, 2, A.IN_FLIGHT, NAIVE),
+         lambda tx: attempt_store.record_verification_timeout(tx, key, 2, NAIVE),
+         lambda tx: attempt_store.resolve(tx, escalated, 2, A.FAILED, "checked by hand", NAIVE),
+-        lambda tx: attempt_store.recover_in_flight(tx, NAIVE),
++        lambda tx: attempt_store.recover_in_flight(tx, NAIVE, held=()),
+     ]
+     for write in writes:
+         with pytest.raises(ValueError), store.transaction() as tx:
+             write(tx)
+     assert all_rows(store) == before
+     assert latest(store, in_flight).state is A.IN_FLIGHT
+ 
+ 
+ @pytest.mark.parametrize("seq", [True, 1.0, "1", None])
+ def test_an_expected_sequence_that_is_not_a_plain_integer_is_refused(store, seq):
+diff --git a/tests/executor/test_crash_recovery.py b/tests/executor/test_crash_recovery.py
+index 118d5ae..2215441 100644
+--- a/tests/executor/test_crash_recovery.py
++++ b/tests/executor/test_crash_recovery.py
+@@ -3,22 +3,24 @@
+ 照 Mock DSP 猝死測試的做法(tests/dsp/test_store.py):子行程跑一段內嵌腳本,把要監控的方法
+ 換成「印出死點狀態、os._exit(9)」再呼叫正式入口。跟那個前例不同的兩處:
+ - 換在類別上:執行迴圈的物件建好後不能改屬性,而且在啟動函式裡面才建出來,測試拿不到。
+ - 時間是真的:子行程拿不到測試行程的假時鐘。重啟的子行程把時鐘往後撥 5 分鐘(舊租約 60 秒
+   已到期、可以合法接手),DSP 伺服器的時鐘同步加同樣的偏移,憑證才不會被當成來自未來。
+ 
+ DSP 伺服器跑在測試行程的執行緒裡,子行程死掉計數也還在。計數掛在請求處理器、照路由分類:
+ 同一把冪等鍵的第二次寫入在 DSP 儲存層更前面就回原結果,掛在套用那一步會漏數重送。
+ 
+ 跟既有的對帳與佇列測試情境重疊;這裡補的是「行程真的猝死(沒有例外、沒有回滾、沒有收尾)」
+-與「重啟恢復在對帳之前完成」。兩個子行程一先一後跑,單一執行者鎖從沒被搶過、每輪順序也不會
+-被看出來,這兩項由 test_runner.py 的鎖測試與每輪先對帳的測試守。
++與「重啟恢復在對帳之前完成、而且不碰收件表有處理中訊息的嘗試」(Phase 4 增量 3a:死點留下的
++嘗試中都有處理中訊息,重啟恢復不動它,由對帳原子接手租約後轉結果不明)。兩個子行程一先一後跑,
++每輪先對帳的順序看不出來,那一項由 test_runner.py 的測試守;真的同時跑的工作者由
++test_multi_worker.py 守。
+ """
+ 
+ import itertools
+ import sqlite3
+ import subprocess
+ import sys
+ import threading
+ import time
+ from datetime import UTC, datetime, timedelta
+ from pathlib import Path
+@@ -146,42 +148,46 @@ class World:
+         self.dsp.offset = shift
+         url = f"http://127.0.0.1:{self.dsp.server_address[1]}"
+         argv = ["--db", str(self.db), "--dsp-url", url, "--tenant-config", str(self.config),
+                 "--interval-seconds", "0.01"]
+         return subprocess.run(
+             [sys.executable, "-c", CHILD, point, str(shift), str(rounds), str(self.db),
+              *self.watched, *argv],
+             env={"PYTHONPATH": SRC, KEY_ENV: TEST_KEY.decode()},  # 只給這一次子行程
+             timeout=60, capture_output=True, text=True)
+ 
+-    def recover_only(self, expected="unknown"):
++    def recover_only(self, expected):
+         """只啟動、不跑任何一輪:印出就緒前做完重啟恢復就結束,這時還沒有對帳介入。
+ 
+-        對帳接手過期租約時自己也會把嘗試中轉結果不明;撥快的時鐘讓舊租約必然已過期,所以只看
+-        完整重啟的終態,拿掉重啟恢復也照樣綠。要單獨驗重啟恢復,就得在對帳之前看。"""
+-        shift = timedelta(seconds=SHIFT_SECONDS)
+-        started = datetime.now(UTC) + shift
++        死點留下的嘗試中與已提交待驗證,收件表都有處理中訊息:重啟恢復不碰(預期仍是原狀態)。
++        要單獨驗這件事,就得在對帳之前看——對帳接手過期租約時自己也會轉結果不明。"""
+         child = self.run(shift=SHIFT_SECONDS, rounds=0)
+-        finished = datetime.now(UTC) + shift
+         assert child.returncode == 0, child.stderr
+         assert child.stdout.splitlines() == ["READY"], child.stdout
+-        state, written_at = self.last_attempt()
+-        assert state == expected
+-        if expected == "unknown":  # 轉出的那一列記重啟當下:對帳依最新一列寫入時間由舊到新排
+-            assert started <= datetime.fromisoformat(written_at) <= finished
++        assert self.last_attempt()[0] == expected
+         assert self.proposals()[0][2] == "in_progress"
+ 
+-    def restart(self):
++    def restart(self, takes_over_in_flight=False):
++        """takes_over_in_flight:死點留下嘗試中時,對帳接手後轉出的那一列結果不明記重啟當下的
++        時間(對帳依最新一列寫入時間由舊到新排,算錯全專案都看不出來)。"""
++        shift = timedelta(seconds=SHIFT_SECONDS)
++        started = datetime.now(UTC) + shift
+         child = self.run(shift=SHIFT_SECONDS)
++        finished = datetime.now(UTC) + shift
+         # 重啟真的跑起來、跑完指定輪數;否則「重啟後什麼都不變」的斷言會在啟動失敗時假綠
+         assert child.returncode == 0, child.stderr
+         assert child.stdout.splitlines() == ["READY"], child.stdout
++        if takes_over_in_flight:
++            unknown = self._query("SELECT written_at FROM attempts WHERE key = ? AND state = "
++                                  "'unknown' ORDER BY seq", (self.key,))
++            assert len(unknown) == 1
++            assert started <= datetime.fromisoformat(unknown[0][0]) <= finished
+         return child
+ 
+     def last_attempt(self):
+         return self._query("SELECT state, written_at FROM attempts WHERE key = ? ORDER BY seq",
+                            (self.key,))[-1]
+ 
+     def voided_at(self):
+         conn = sqlite3.connect(self.dsp_db)
+         try:
+             return conn.execute("SELECT voided_at FROM voided_keys WHERE key = ?",
+@@ -258,56 +264,56 @@ def assert_recovered(world, prop):
+ 
+ 
+ # ---- [S118] ----
+ def test_crash_before_the_dsp_call_is_recovered_by_a_same_key_resend(world):
+     prop, _ = world.submit()
+ 
+     stderr = die_at(world, "before_dsp_call")
+ 
+     assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
+     assert world.counts()["write"] == 0
+-    world.recover_only()
+-    world.restart()
++    world.recover_only(expected="in_flight")  # 重啟恢復不碰有處理中訊息的
++    world.restart(takes_over_in_flight=True)
+     assert world.counts()["write"] == 1  # 對帳查不到、檢查通過,同一把鍵重送一次
+     assert_recovered(world, prop)
+ 
+ 
+ # ---- [S123] ----
+ def test_crash_before_the_dsp_call_then_a_failed_recheck_voids_and_blocks(world):
+     prop, _ = world.submit(expires_in=timedelta(minutes=2))  # 死的時候還有效,撥 5 分鐘後已過期
+ 
+     stderr = die_at(world, "before_dsp_call")
+ 
+     assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
+-    world.recover_only()
+-    world.restart()
++    world.recover_only(expected="in_flight")  # 重啟恢復不碰有處理中訊息的
++    world.restart(takes_over_in_flight=True)
+     assert world.dsp_keys() == ([], [operation_key(prop)])  # 作廢的正是原本那把鍵
+     # 先作廢、才判失敗:反過來的話,在「失敗已提交、作廢還沒送」猝死,舊請求還可能晚到被套用。
+     # DSP 記作廢用真實時間;執行迴圈這邊撥快了,比之前扣回偏移
+     failed_at = datetime.fromisoformat(world.last_attempt()[1]) - timedelta(seconds=SHIFT_SECONDS)
+     assert datetime.fromisoformat(world.voided_at()) <= failed_at
+     assert world.counts()["write"] == 0 and world.counts()["void"] == 1
+     assert world.attempts()[-1][1] == "failed"
+     assert world.proposals() == [("t1", 1, "blocked", "operation_previously_failed", 1)]
+     assert world.budget() == (100, 0)
+ 
+ 
+ # ---- [S119] ----
+ def test_crash_after_the_dsp_commit_is_recovered_from_the_operation_record(world):
+     prop, _ = world.submit()
+ 
+     stderr = die_at(world, "after_dsp_commit")
+ 
+     assert "DEATH in_tx=False attempt=in_flight disposition=in_progress" in stderr
+     assert world.counts()["write"] == 1 and world.budget() == (150, 1)
+-    world.recover_only()
+-    world.restart()
++    world.recover_only(expected="in_flight")  # 重啟恢復不碰有處理中訊息的
++    world.restart(takes_over_in_flight=True)
+     assert world.counts()["write"] == 1  # 用冪等鍵查到操作紀錄,不重送
+     assert_recovered(world, prop)
+ 
+ 
+ # ---- [S122] ----
+ def test_crash_before_verification_is_recovered_by_reconciliation(world):
+     prop, _ = world.submit()
+ 
+     stderr = die_at(world, "before_verification")
+ 
+diff --git a/tests/executor/test_multi_worker.py b/tests/executor/test_multi_worker.py
+new file mode 100644
+index 0000000..8990690
+--- /dev/null
++++ b/tests/executor/test_multi_worker.py
+@@ -0,0 +1,248 @@
++"""多個執行迴圈同時跑(Phase 4 增量 3a):互斥只靠收件表的租約與收據,不再有單一執行者鎖。
++
++沿用本專案既有的並行測試做法(嘗試紀錄、Mock DSP、分析行程的並行測試都是這樣寫):同一個行程裡
++開多個執行緒,每個執行緒各自建自己的收件表連線與執行迴圈物件(不同擁有者、共用同一個資料庫檔與
++同一個假 DSP),用執行緒柵欄在指定位置讓兩邊同時放行。
++
++柵欄一律放在進資料庫交易之前:開始一筆與寫嘗試紀錄都包在立即取得寫入鎖的交易裡,柵欄放在交易
++裡面的話,先拿到鎖的那個等柵欄、另一個拿不到鎖進不來,兩邊互等。所以柵欄掛在那些方法的最開頭
++(它們一進去才開交易)。等待都有逾時,卡住時測試失敗而不是掛著。
++"""
++
++import threading
++
++import pytest
++
++from rtb.domain.attempt import AttemptState, operation_key
++from rtb.executor import attempt_store, runner
++from rtb.executor.execution import Executor, LeaseLost, Result
++from rtb.executor.inbox_store import InboxStore
++from tests.executor.conftest import Clock
++from tests.executor.fakes import Harness, proposal
++from tests.executor.test_runner import ENV, argv
++
++WAIT = 10  # 秒:柵欄與信號的逾時
++LEASE = 60
++
++
++@pytest.fixture
++def h(tmp_path, clock):
++    harness = Harness(tmp_path, clock)
++    yield harness
++    harness.close()
++
++
++def worker(h, owner, action, clock=None):
++    """一個工作者要做的事;連線在呼叫的那個執行緒裡才開(SQLite 連線只能在建立它的執行緒用)。"""
++    def run():
++        store = InboxStore(h.db)
++        try:
++            return action(Executor(store, h.dsp, h.signer, h.config, clock or h.clock, owner))
++        finally:
++            store.close()
++    return run
++
++
++def process(executor):
++    return executor.process_one()
++
++
++def reconcile(executor):
++    return executor.reconcile_all()
++
++
++def meet_before(monkeypatch, method, parties=2):
++    """在 Executor 的某個方法最開頭(它一進去才開交易)放柵欄:每個執行緒第一次呼叫時等齊再放行。"""
++    barrier = threading.Barrier(parties, timeout=WAIT)
++    local = threading.local()
++    original = getattr(Executor, method)
++
++    def wrapped(self, *args, **kwargs):
++        if not getattr(local, "met", False):
++            local.met = True
++            barrier.wait()
++        return original(self, *args, **kwargs)
++
++    monkeypatch.setattr(Executor, method, wrapped)
++
++
++def run_all(*calls):
++    """每個呼叫各開一個執行緒同時跑;回傳各自的結果或丟出的例外。"""
++    results = [None] * len(calls)
++
++    def target(i, call):
++        try:
++            results[i] = call()
++        except Exception as exc:  # 測試要看到每個執行緒丟了什麼
++            results[i] = exc
++
++    threads = [threading.Thread(target=target, args=(i, call)) for i, call in enumerate(calls)]
++    for thread in threads:
++        thread.start()
++    for thread in threads:
++        thread.join(timeout=WAIT)
++        assert not thread.is_alive(), "執行緒卡住了"
++    return results
++
++
++def legacy_attempt(h, state, **proposal_overrides):
++    """收件表沒有對應處理中訊息的舊鍵(Phase 3 時代留下、或收件表被人工處置過)。"""
++    prop = proposal(**proposal_overrides)
++    with h.store.transaction() as tx:
++        row = attempt_store.begin(tx, prop, h.clock(), capability_expires_at=h.clock()).row
++        if state is AttemptState.COMMITTED_UNVERIFIED:
++            row = attempt_store.transition(tx, row.key, row.seq, state, h.clock(),
++                                           written_version=4)
++        elif state is not AttemptState.IN_FLIGHT:
++            row = attempt_store.transition(tx, row.key, row.seq, state, h.clock())
++    return row.key
++
++
++def states(h, key):
++    return [r[2] for r in h.attempts() if r[0] == key]
++
++
++# ---- [S130] ----
++def test_two_live_workers_process_a_message_once(h, monkeypatch):
++    h.submit()
++    meet_before(monkeypatch, "process_one")  # 兩邊在取件之前一起放行
++
++    results = run_all(worker(h, "A", process), worker(h, "B", process))
++
++    kinds = sorted(r.kind.value for r in results)
++    assert kinds == sorted([Result.EXECUTED.value, Result.IDLE.value])  # 一個處理,另一個沒拿到
++    assert len(h.dsp.writes) == 1
++    assert h.proposals() == [("t1", 1, "pending", "handed_off", None)]
++
++
++# ---- [S131] ----
++def test_two_workers_never_run_the_same_campaign_at_once(h, monkeypatch):
++    h.submit(task_id="t1")
++    h.submit(task_id="t2", requested_change={"new_budget": 160})  # 同一個廣告的另一份提案
++    # 兩邊都取完件、都還沒開始嘗試時一起放行:測的是開始嘗試那一道(同廣告已有未結案嘗試就不開始)。
++    # 取件那一道(已有嘗試的廣告不交出去)是增量 1 已測過的另一道
++    meet_before(monkeypatch, "_take")
++    # 先開始嘗試的那一方停在 DSP 寫入,等另一方的開始嘗試有結論才放行:「同時」指的是它還在途中。
++    # 不停住的話它會一路寫完、嘗試結案,另一方之後合法開始,就測不到這一道了
++    other_done = threading.Event()
++    h.dsp.on_write = lambda *_a: other_done.wait(WAIT)
++
++    results = [None, None]
++
++    def run(i, owner):
++        results[i] = worker(h, owner, process)()
++        if results[i].kind is Result.DEFERRED:
++            other_done.set()
++
++    threads = [threading.Thread(target=run, args=(i, o)) for i, o in enumerate("AB")]
++    for thread in threads:
++        thread.start()
++    for thread in threads:
++        thread.join(WAIT)
++        assert not thread.is_alive()
++
++    kinds = sorted(r.kind.value for r in results)
++    assert kinds == sorted([Result.EXECUTED.value, Result.DEFERRED.value])
++    assert len(h.dsp.writes) == 1  # DSP 不會同時有兩筆這個廣告的寫入
++    assert len({r[0] for r in h.attempts()}) == 1  # 只有一份開始嘗試
++
++
++def _pause_a_at_the_dsp_write(h):
++    """A 走到假 DSP 的寫入攔截點就停,等測試放行;別的執行緒呼叫寫入不受影響。"""
++    at_dsp, go = threading.Event(), threading.Event()
++    a_thread = []
++
++    def hook(*_args):
++        if threading.current_thread() in a_thread:
++            at_dsp.set()
++            assert go.wait(WAIT)
++
++    h.dsp.on_write = hook
++    return at_dsp, go, a_thread
++
++
++# ---- [S129] ----
++def test_a_restarting_worker_leaves_a_live_workers_attempt_alone(h):
++    prop = h.submit()
++    at_dsp, go, a_thread = _pause_a_at_the_dsp_write(h)
++    result = []
++    a = worker(h, "A", process)
++    thread = threading.Thread(target=lambda: result.append(a()))
++    a_thread.append(thread)
++    thread.start()
++    assert at_dsp.wait(WAIT)  # A 已寫下嘗試中、正在等 DSP
++
++    # 另一個工作者重啟:只啟動、不跑任何一輪(等同重啟恢復跑完就結束)
++    assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
++                      max_rounds=0, sleep=lambda _s: None, owner="B") == 0
++    assert states(h, operation_key(prop)) == ["in_flight"]  # A 那筆沒被動
++
++    go.set()
++    thread.join(WAIT)
++    assert result and result[0].kind is Result.EXECUTED  # A 沒停機,照常寫完
++    assert states(h, operation_key(prop))[-1] == "verified"
++    assert h.proposals() == [("t1", 1, "pending", "handed_off", None)]
++    assert len(h.dsp.operations) == 1
++
++
++# ---- [S132] ----
++def test_a_worker_that_wakes_after_losing_its_lease_gives_up_without_halting(h):
++    prop = h.submit()
++    b_clock = Clock()
++    at_dsp, go, a_thread = _pause_a_at_the_dsp_write(h)
++    result = []
++    a = worker(h, "A", process)
++    thread = threading.Thread(target=lambda: result.append(a()))
++    a_thread.append(thread)
++    thread.start()
++    assert at_dsp.wait(WAIT)  # A 在呼叫 DSP 前卡住
++
++    b_clock.advance(seconds=LEASE + 1)  # 對 B 來說 A 的租約已過期
++    # B 原子接手、轉結果不明、查不到、同鍵重送、驗證、確認
++    worker(h, "B", reconcile, clock=b_clock)()
++    assert states(h, operation_key(prop))[-1] == "verified"
++
++    go.set()  # A 醒來:它那個卡住的寫入照樣送出(舊請求晚到),DSP 同鍵回原結果
++    thread.join(WAIT)
++    assert result and result[0].kind is Result.LEASE_LOST  # 寫不進任何結果,放棄,不停機
++    assert len(h.dsp.operations) == 1 and h.dsp.campaigns["c1"].version == 4  # 只套用一次
++    assert states(h, operation_key(prop))[-1] == "verified"
++    assert h.proposals() == [("t1", 1, "pending", "handed_off", None)]
++
++
++# ---- [S134] ----
++def test_two_workers_reconciling_a_legacy_key_never_halt_and_write_once(h, monkeypatch):
++    key = legacy_attempt(h, AttemptState.UNKNOWN)
++    meet_before(monkeypatch, "_write")  # 兩邊查不到、檢查通過後,寫嘗試紀錄之前一起放行
++
++    results = run_all(worker(h, "A", reconcile), worker(h, "B", reconcile))
++
++    assert not [r for r in results if isinstance(r, Exception)]  # 輸家放棄這把鍵,不停機
++    assert len(h.dsp.writes) <= 1 and len(h.dsp.operations) == 1
++    assert states(h, key)[-1] == "verified"
++
++
++# ---- [S136] ----
++def test_two_workers_timing_out_on_a_legacy_key_never_halt(h, monkeypatch):
++    key = legacy_attempt(h, AttemptState.COMMITTED_UNVERIFIED)
++    h.dsp.read_failures = 2  # 兩邊驗證讀 DSP 都逾時
++    meet_before(monkeypatch, "_verification_timeout")
++
++    results = run_all(worker(h, "A", reconcile), worker(h, "B", reconcile))
++
++    assert not [r for r in results if isinstance(r, Exception)]
++    with h.store.transaction() as tx:
++        row = attempt_store.latest(tx, key)
++    assert row.state is AttemptState.COMMITTED_UNVERIFIED
++    assert row.verification_timeouts == 1  # 只有一方記下
++
++
++def test_a_sequence_mismatch_with_a_valid_receipt_still_halts():
++    """對照:有收據而序號對不上,代表有人繞過租約寫了嘗試紀錄,仍是系統錯誤(Phase 3 的 S69 守
++    端到端,這裡守分流本身)。"""
++    from rtb.executor.execution import ExecutorHalted, _no_progress
++
++    with pytest.raises(LeaseLost):
++        _no_progress("k", None)
++    with pytest.raises(ExecutorHalted):
++        _no_progress("k", object())  # type: ignore[arg-type]
+diff --git a/tests/executor/test_runner.py b/tests/executor/test_runner.py
+index b3d210e..190c288 100644
+--- a/tests/executor/test_runner.py
++++ b/tests/executor/test_runner.py
+@@ -102,51 +102,83 @@ def test_the_runner_refuses_to_start_without_a_usable_key(tmp_path, clock, env_k
+ 
+     proc = spawn(db, config, env_key)
+     try:
+         assert proc.wait(timeout=30) == runner.EXIT_NO_KEY
+     finally:
+         stop(proc)
+ 
+     assert state_of(db, key) == "in_flight"  # 重啟恢復沒跑
+ 
+ 
+-# ---- [S55] ----
+-def test_the_runner_holds_a_single_instance_lock_and_recovers_before_ready(tmp_path, clock):
++# ---- [S127] ----
++class _Stop(Exception):
++    pass
++
++
++def _held_in_flight(h):
++    """一筆收件表有處理中訊息的嘗試中:處理到呼叫 DSP 那一刻就停下(模擬別的工作者正在做)。"""
++    prop = h.submit()
++
++    def stop(*_args):
++        raise _Stop
++
++    h.dsp.on_write = stop
++    with pytest.raises(_Stop):
++        h.process()
++    h.dsp.on_write = None
++    return operation_key(prop)
++
++
++def test_restart_recovery_only_touches_attempts_without_an_in_progress_message(h):
++    held = _held_in_flight(h)
++    orphan = in_flight_row(h.db, h.clock)  # 收件表沒有它:舊資料
++    h.clock.advance(seconds=3600)  # 就算持有者的租約早就到期,重啟恢復也不碰(留給對帳原子接手)
++
++    assert run_in_process(h, max_rounds=0, owner="restarted") == 0
++
++    assert state_of(h.db, orphan) == "unknown"
++    assert state_of(h.db, held) == "in_flight"
++
++
++# ---- [S128] ----
++def test_restart_recovery_moves_nothing_while_an_in_progress_row_is_unreadable(h, capsys):
++    held = _held_in_flight(h)
++    orphan = in_flight_row(h.db, h.clock)
++    h.query("UPDATE proposals SET payload = '{' WHERE task_id = 't1'")  # 算不出它的鍵
++
++    assert run_in_process(h, max_rounds=0, owner="restarted") == 0
++
++    assert state_of(h.db, orphan) == "in_flight"  # 可能正屬於那則讀不回來的訊息:不轉
++    assert state_of(h.db, held) == "in_flight"
++    assert "讀不回來的處理中訊息" in capsys.readouterr().err
++
++
++# ---- [S133] ----
++def test_two_runners_start_side_by_side_and_each_recovers_before_ready(tmp_path, clock):
++    """不再有單一執行者鎖:兩個啟動程式真的同時啟動(兩個都先起、再一起等就緒),都做完重啟恢復
++    才印就緒。"""
+     db, config = tmp_path / "executor.db", write_config(tmp_path / "tenants.json")
+-    before_ready = in_flight_row(db, clock)
+-    first = spawn(db, config, ENV[KEY_ENV])
++    orphan = in_flight_row(db, clock)
++    alias = tmp_path / "alias.db"
++    alias.symlink_to(db)
++    procs = [subprocess.Popen(
++        [sys.executable, "-m", "rtb.executor.runner", *argv(path, config)],
++        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
++        env={**os.environ, "PYTHONPATH": SRC, **ENV}) for path in (db, alias)]
+     try:
+-        assert read_line(first) == runner.READY
+-        assert state_of(db, before_ready) == "unknown"  # 就緒之前已做完重啟恢復
+-
+-        # 第一個還在跑:這時資料庫裡又有一筆嘗試中(它正在處理的操作)
+-        store = InboxStore(db)
+-        try:
+-            with store.transaction() as tx:
+-                running = attempt_store.begin(tx, proposal(campaign_id="c8"), clock(),
+-                                              capability_expires_at=clock()).row.key
+-        finally:
+-            store.close()
+-        alias = tmp_path / "alias.db"
+-        alias.symlink_to(db)
+-        for path in (alias, Path(os.path.relpath(db))):
+-            second = subprocess.Popen(
+-                [sys.executable, "-m", "rtb.executor.runner", *argv(path, config)],
+-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+-                env={**os.environ, "PYTHONPATH": SRC, **ENV})
+-            try:
+-                assert second.wait(timeout=30) == runner.EXIT_LOCKED, path
+-            finally:
+-                stop(second)
+-            assert state_of(db, running) == "in_flight"  # 第二個沒跑重啟恢復
++        for proc in procs:
++            assert read_line(proc) == runner.READY
++            assert proc.poll() is None  # 兩個都還活著
++        assert state_of(db, orphan) == "unknown"  # 就緒之前已做完重啟恢復
+     finally:
+-        stop(first)
++        for proc in procs:
++            stop(proc)
+ 
+ 
+ # ---- [S60] ----
+ def test_a_broken_tenant_configuration_stops_the_runner_without_blocking(h):
+     h.submit()
+     os.chmod(h.config, 0o664)  # 群組可寫:不安全
+ 
+     assert run_in_process(h) == runner.EXIT_HALTED
+ 
+     # 不擋下:取件已寫處理中,停機後沒人確認,租約到期就會被重新投遞
+@@ -168,37 +200,20 @@ def test_other_client_errors_escalate_as_local_request_errors_and_stop_the_runne
+ 
+     assert run_in_process(h) == runner.EXIT_HALTED
+ 
+     rows = h.attempts()
+     assert [(r[2], r[3]) for r in rows if r[0] == operation_key(prop)][-1] == (
+         "escalated", "local_request_error")
+     assert ("t2", 1, "pending", None, None) in h.proposals()  # 停下了,沒有繼續鎖下一個廣告
+     assert len(h.dsp.writes) == 1
+ 
+ 
+-# ---- [S68] ----
+-def test_the_runner_stops_when_its_lock_file_is_replaced(h):
+-    replaced = []
+-
+-    def replace_lock_file(_seconds):
+-        if not replaced:
+-            lock = next(h.tmp_path.glob(".rtb-runner-*.lock"))
+-            lock.unlink()
+-            lock.write_bytes(b"")  # 同路徑的新檔:inode 不同
+-            replaced.append(lock)
+-
+-    code = runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
+-                      out=io.StringIO(), sleep=replace_lock_file, max_rounds=5)
+-
+-    assert replaced and code == runner.EXIT_HALTED
+-
+-
+ # ---- [S69] ----
+ def test_a_conditional_write_without_progress_stops_the_runner(h):
+     prop = h.submit()
+     key = operation_key(prop)
+ 
+     def someone_else_moves_the_key(*_):  # 寫結果之前,這把鍵被別的東西改過
+         other = InboxStore(h.db)
+         try:
+             with other.transaction() as tx:
+                 attempt_store.transition(tx, key, 1, attempt_store.AttemptState.UNKNOWN, h.clock())
+@@ -213,33 +228,20 @@ def test_a_conditional_write_without_progress_stops_the_runner(h):
+ 
+ 
+ def _run_counting_opens(monkeypatch, db, config, clock):
+     opened = []
+     monkeypatch.setattr(runner, "InboxStore", lambda *a, **_k: opened.append(a))
+     code = runner.run(argv(db, config), environ=ENV, clock=clock, out=io.StringIO(),
+                       max_rounds=1, sleep=lambda _s: None)
+     return code, opened
+ 
+ 
+-def test_a_locked_out_runner_never_opens_the_database_with_sqlite(tmp_path, monkeypatch, clock):
+-    """拿不到鎖的第二個執行迴圈必須在用 SQLite 開資料庫之前就結束(先鎖後開)。"""
+-    db, config = tmp_path / "executor.db", write_config(tmp_path / "tenants.json")
+-    InboxStore(db).close()
+-    held = runner.RunnerLock(db)
+-    try:
+-        code, opened = _run_counting_opens(monkeypatch, Path(os.path.relpath(db)), config, clock)
+-    finally:
+-        held.release()
+-    assert code == runner.EXIT_LOCKED
+-    assert opened == []
+-
+-
+ def test_a_hard_linked_database_is_refused_before_sqlite_opens_it(tmp_path, monkeypatch, clock):
+     """資料庫檔有硬連結時,收件口與執行迴圈可能各用一個檔名開同一個資料庫、各用一組 WAL 檔,
+     可能損壞資料:不論用哪個名字啟動、有沒有別的執行迴圈,都拒絕啟動,也不用 SQLite 開它。"""
+     db, config = tmp_path / "executor.db", write_config(tmp_path / "tenants.json")
+     InboxStore(db).close()
+     other_dir = tmp_path / "elsewhere"
+     other_dir.mkdir()
+     os.link(db, other_dir / "hard.db")  # 連不同目錄的硬連結也擋
+     for path in (db, other_dir / "hard.db"):
+         code, opened = _run_counting_opens(monkeypatch, path, config, clock)
+@@ -293,21 +295,59 @@ def test_a_round_with_a_failed_reconcile_call_sleeps(h):
+     assert slept == [0.01]  # 對帳這輪有 DSP 呼叫失敗:照樣休息一個間隔
+ 
+     # 對照:這輪沒有失敗、新提案被執行,不休息
+     h.submit(task_id="t3", campaign_id="c3")
+     slept.clear()
+     runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
+                out=io.StringIO(), sleep=slept.append, max_rounds=1, owner="executor")
+     assert slept == []
+ 
+ 
+-def test_a_busy_database_at_startup_exits_cleanly_and_frees_the_lock(h, monkeypatch):
+-    """開庫要做重建表遷移時握鎖較久,撞上收件口寫入會忙到逾時:乾淨結束、放掉單一執行者鎖。"""
++# ---- [S135] ----
++def test_a_busy_database_rests_a_round_and_halts_only_after_three_in_a_row(h, monkeypatch):
++    """多工作者共用一顆寫入鎖,等鎖逾時是正常競爭:休息一輪再試,連續 3 輪都忙才停機。"""
+     from rtb.executor.inbox_store import InboxBusy
+ 
+-    def busy(*_args, **_kwargs):
+-        raise InboxBusy("database is locked")
++    rounds = []
++    busy_rounds = {1, 2, 4, 5, 6}  # 第 3 輪成功一次,把連續次數歸零;之後連續 3 輪都忙
+ 
+-    monkeypatch.setattr(runner, "InboxStore", busy)
+-    assert run_in_process(h) == runner.EXIT_BUSY
+-    runner.RunnerLock(h.db).release()  # 鎖已放掉:下一次啟動拿得到
++    def maybe_busy(_self):
++        rounds.append(len(rounds) + 1)
++        if rounds[-1] in busy_rounds:
++            raise InboxBusy("database is locked")
++        return False
++
++    monkeypatch.setattr(runner.Executor, "reconcile_all", maybe_busy)
++    slept = []
++    code = runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp,
++                      out=io.StringIO(), sleep=slept.append, max_rounds=10, owner="executor")
+ 
++    assert code == runner.EXIT_HALTED
++    assert rounds == [1, 2, 3, 4, 5, 6]  # 前兩輪忙沒停;第 6 輪是連續第 3 次才停
++    assert slept.count(0.01) >= 4  # 忙的那幾輪都休息了
++
++
++def test_a_busy_database_at_startup_retries_before_giving_up(h, monkeypatch):
++    """啟動時開庫與重啟恢復撞到忙碌:休息再試;第 3 次成功就照常就緒,連續 3 次都忙才結束。"""
++    from rtb.executor.inbox_store import InboxBusy
++
++    real = runner.InboxStore
++    tries = []
++
++    def busy_then(fail_times):
++        def open_store(*args, **kwargs):
++            tries.append(1)
++            if len(tries) <= fail_times:
++                raise InboxBusy("database is locked")
++            return real(*args, **kwargs)
++        return open_store
++
++    monkeypatch.setattr(runner, "InboxStore", busy_then(2))
++    out = io.StringIO()
++    assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp, out=out,
++                      sleep=lambda _s: None, max_rounds=0) == 0
++    assert out.getvalue().strip() == runner.READY and len(tries) == 3
++
++    tries.clear()
++    monkeypatch.setattr(runner, "InboxStore", busy_then(3))
++    assert run_in_process(h) == runner.EXIT_BUSY
++    assert len(tries) == 3
