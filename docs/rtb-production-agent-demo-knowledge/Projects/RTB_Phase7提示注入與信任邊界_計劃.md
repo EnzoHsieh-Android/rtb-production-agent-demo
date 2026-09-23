@@ -1,11 +1,11 @@
 ---
 type: project
-status: doing
+status: done
 created: 2026-09-23
 updated: 2026-09-23
 tags:
   - type/project
-  - status/doing
+  - status/done
 lands_in:
   - Systems/任務流程領域模型
   - Systems/分析行程流程與檢查點
