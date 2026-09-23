@@ -1,16 +1,20 @@
-"""分析行程自己的 SQLite:任務只增不改的歷史表,加證據表。
+"""分析行程自己的 SQLite:任務只增不改的歷史表,加證據表與租約紀錄表。
 
 「目前狀態」永遠是某個任務編號序號最大的那一列;沒有 UPDATE、沒有 DELETE。這樣
 「這一步的輸出已安全存好」跟「這一列真的寫進資料庫」是同一件事,不需要另外的旗標。
 新列的序號在寫入交易內用目前最大序號加一決定,並且核對「準備要接的那一列」仍是目前
 最新的一列,不是就中止、不寫入——這是並行呼叫 advance() 時的最後一道防線。
+
+租約(Phase 4 增量 3b):同一個任務同一時間只讓一個呼叫端去呼叫要花錢的外部介面。租約表
+同樣只增不改,取得與放掉各新增一列,「目前的租約」就是這個任務租約序號最大的那一列;
+提交時核對目前那一列正是自己的取得列(圍籬),過期被接手的舊持有者寫不進去。
 """
 
 import json
 import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
 
@@ -34,8 +38,14 @@ CREATE TABLE IF NOT EXISTS evidence (
 CREATE TABLE IF NOT EXISTS tool_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, task_seq INTEGER NOT NULL,
     endpoint TEXT NOT NULL, outcome TEXT NOT NULL, latency_ms REAL NOT NULL, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS task_leases (
+    task_id TEXT NOT NULL, lease_seq INTEGER NOT NULL, owner TEXT, expires_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, lease_seq));
 """
 MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
+# 暫用,沒有實測校準:要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件,各自的逾時由建用戶端
+# 的呼叫端決定);分析行程還沒有正式啟動程式,這條不等式目前沒有機械守衛(計劃增量 3b)
+LEASE_DURATION = timedelta(seconds=60)
 
 
 
@@ -83,6 +93,15 @@ class TraceRecord:
 
 
 @dataclass(frozen=True)
+class LeaseReceipt:
+    """取得租約時拿到的收據:之後提交與放掉都要帶它,核對目前那一列還是這張收據的取得列。"""
+
+    task_id: str
+    lease_seq: int
+    owner: str
+
+
+@dataclass(frozen=True)
 class TaskRow:
     task_id: str
     seq: int
@@ -95,6 +114,11 @@ class TaskRow:
 
 def _iso(moment: datetime) -> str:
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _is_live(lease: tuple[int, str | None, str], now: datetime) -> bool:
+    """有擁有者而且還沒到期;到期時間與現在都是同一種固定格式的 UTC 字串,可以直接比大小。"""
+    return lease[1] is not None and lease[2] > _iso(now)
 
 
 def _proposal_to_json(proposal: Proposal) -> str:
@@ -217,9 +241,14 @@ class TaskStore:
         proposal: Proposal | None = None,
         error_detail: str | None = None,
         before_commit: Callable[[], None] | None = None,
+        lease: LeaseReceipt | None = None,
     ) -> bool:
-        """核對 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
+        """核對租約與 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
 
+        帶收據:目前那一列租約必須正是這張收據的取得列,寫入成功就在同一個交易裡放掉租約;
+        只核對號碼不核對到期時間(時間只有呼叫端步驟開頭傳進來的那個,判不出自己過期沒有;
+        過期但沒人接手時寫進去也沒有第二個人花過錢)。不帶收據:別人持有有效租約就不寫,
+        往後忘了帶收據的呼叫端也蓋不過正在花錢的持有者。
         回傳是否真的寫入了;False 表示輸給並行的另一次呼叫,這次呼叫沒有寫入任何東西。
         """
         mismatched = [item.task_id for item in evidence if item.task_id != task_id]
@@ -229,6 +258,8 @@ class TaskStore:
         capped_detail = (
             None if error_detail is None else error_detail[:MAX_ERROR_DETAIL_LENGTH])
         with immediate_transaction(self._conn):
+            if not self._lease_allows(task_id, lease, now):
+                return False
             row = self._conn.execute(
                 "SELECT seq, state, campaign_id FROM tasks WHERE task_id = ? "
                 "ORDER BY seq DESC LIMIT 1", (task_id,),
@@ -254,9 +285,72 @@ class TaskStore:
                      json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True,
                                 allow_nan=False)),
                 )
+            if lease is not None:
+                self._append_release(lease, now)
             if before_commit is not None:
                 before_commit()
         return True
+
+    def acquire_lease(self, task_id: str, owner: str, now: datetime) -> LeaseReceipt | None:
+        """目前沒人持有(沒有租約列、目前那一列是放掉列、或已過期)就新增一列取得列、回傳收據;
+        有人持有就什麼都不寫、回傳 None;沒有這個任務丟 TaskNotFound,不替它寫租約列。
+
+        命名對照執行側收件表:取得對應 `_lease`/`take_over`,放掉對應 `release`;
+        這裡沒有續租(`extend`),一次推進只做一步。"""
+        with immediate_transaction(self._conn):
+            if self._conn.execute(
+                    "SELECT 1 FROM tasks WHERE task_id = ? LIMIT 1", (task_id,)).fetchone() is None:
+                raise TaskNotFound(task_id)
+            current = self._current_lease(task_id)
+            if current is not None and _is_live(current, now):
+                return None
+            next_seq = 1 if current is None else current[0] + 1
+            self._conn.execute(
+                "INSERT INTO task_leases VALUES (?, ?, ?, ?)",
+                (task_id, next_seq, owner, _iso(now + LEASE_DURATION)),
+            )
+        return LeaseReceipt(task_id, next_seq, owner)
+
+    def release_lease(self, lease: LeaseReceipt, now: datetime) -> bool:
+        """目前那一列還是這張收據的取得列才新增放掉列;已被接手就什麼都不寫、回傳 False。
+        不帶條件的話,舊持有者遲來的放掉列會排在接手者的取得列之後,讓第三方在接手者還在
+        花錢時拿到租約(計劃增量 3b 第 1 輪設計審)。"""
+        with immediate_transaction(self._conn):
+            if not self._holds(lease):
+                return False
+            self._append_release(lease, now)
+        return True
+
+    def release_lease_quietly(self, lease: LeaseReceipt, now: datetime) -> None:
+        """例外路徑用:照 release_lease 放掉,放掉本身的資料庫層失敗吞掉(租約等到期),讓呼叫端
+        原本的例外照舊傳出去。吞的範圍比照 record_tool_call:只吞資料庫層錯誤,程式錯誤不吞。"""
+        try:
+            self.release_lease(lease, now)
+        except (sqlite3.Error, DatabaseBusy):
+            return
+
+    def _current_lease(self, task_id: str) -> tuple[int, str | None, str] | None:
+        record = self._conn.execute(
+            "SELECT lease_seq, owner, expires_at FROM task_leases WHERE task_id = ? "
+            "ORDER BY lease_seq DESC LIMIT 1", (task_id,),
+        ).fetchone()
+        return None if record is None else (int(record[0]), record[1], record[2])
+
+    def _holds(self, lease: LeaseReceipt) -> bool:
+        current = self._current_lease(lease.task_id)
+        return current is not None and current[:2] == (lease.lease_seq, lease.owner)
+
+    def _lease_allows(self, task_id: str, lease: LeaseReceipt | None, now: datetime) -> bool:
+        if lease is not None:
+            return lease.task_id == task_id and self._holds(lease)
+        current = self._current_lease(task_id)
+        return current is None or not _is_live(current, now)
+
+    def _append_release(self, lease: LeaseReceipt, now: datetime) -> None:
+        self._conn.execute(
+            "INSERT INTO task_leases VALUES (?, ?, NULL, ?)",
+            (lease.task_id, lease.lease_seq + 1, _iso(now)),
+        )
 
     def record_tool_call(
         self, task_id: str, task_seq: int, endpoint: str, outcome: str, latency_ms: float,

@@ -9,6 +9,9 @@
 真實實作——收件口——保證同一份提案重送永遠安全);只有 `Decide` 自己丟出例外、或
 歷史資料本身毀損讀不回來時才轉 FAILED,因為重跑同一份輸入只會再次得到同樣的結果。
 
+呼叫任何外部介面之前先在任務上取得租約(Phase 4 增量 3b,事故 F3「重複投遞不重複分析費用」):
+同一個任務同一時間只有一個持有有效租約的呼叫端會花錢;拿不到租約就回原狀態、什麼都不呼叫。
+
 三個介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
 多個參數與語意(不是單純「一個函式」),`Protocol` 讓型別檢查器能核對實作簽章、也讓文件
 掛在介面本身,是刻意的選擇,不是要在專案裡另立一套慣用法;現有 `Callable` 用法(單一動作
@@ -20,7 +23,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from rtb.analyzer.task_store import CorruptedHistoryRow, TaskNotFound, TaskRow, TaskStore
+from rtb.analyzer.task_store import (
+    CorruptedHistoryRow,
+    LeaseReceipt,
+    TaskNotFound,
+    TaskRow,
+    TaskStore,
+)
 from rtb.domain.evidence import Evidence
 from rtb.domain.proposal import Proposal
 from rtb.domain.task_state import TERMINAL_STATES, TaskState, transition
@@ -111,7 +120,7 @@ class _Step:
 _StepOutcome = _Step | None
 
 
-def advance(  # noqa: PLR0913 - 三個可替換介面加時間與中斷鉤子,全部都是必要的參數
+def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子與租約擁有者,全部都是必要的參數
     store: TaskStore,
     task_id: str,
     evidence_source: EvidenceSource,
@@ -119,23 +128,59 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間與中斷鉤子,�
     submit: Submit,
     now: datetime,
     before_commit: Callable[[], None] | None = None,
+    owner: str = "analyzer",  # 租約擁有者:比照執行側由啟動程式傳入工作者身分,這裡只當標籤
 ) -> TaskState:
-    """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。"""
+    """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。
+
+    呼叫任何外部介面之前先在任務上取得租約(Phase 4 增量 3b):拿不到就回原狀態、什麼都不
+    呼叫;這一步做完(寫入、沒進展或行程內例外)都放掉。擋住舊持有者的是租約序號(每次取得都
+    不同),不是擁有者:多個呼叫端共用同一個擁有者也分得開。行程真的猝死放不掉,租約留到到期,
+    接手者會再呼叫一次——至少一次的代價。
+    """
     row = store.latest(task_id)
     if row is None:
         raise TaskNotFound(task_id)
     if row.state in TERMINAL_STATES or row.state is TaskState.HANDED_OFF:
         return row.state
 
-    collaborators = _Collaborators(evidence_source, decide, submit)
+    lease = store.acquire_lease(task_id, owner, now)
+    if lease is None:  # 別人正持有:不花錢,跟「沒有進展」一樣回原狀態
+        return row.state
+    try:
+        return _advance_holding(
+            store, row, _Collaborators(evidence_source, decide, submit), now, before_commit,
+            lease)
+    except BaseException:
+        store.release_lease_quietly(lease, now)  # 放掉失敗也不蓋掉原本的例外
+        raise
+
+
+def _advance_holding(
+    store: TaskStore,
+    row: TaskRow,
+    collaborators: _Collaborators,
+    now: datetime,
+    before_commit: Callable[[], None] | None,
+    lease: LeaseReceipt,
+) -> TaskState:
+    current = store.latest(row.task_id)
+    if current is None or current.seq != row.seq:
+        # 讀列之後、取得租約之前,別人已做完一步:不拿舊列呼叫外部,也不在這一輪改用新列
+        # (送件的呼叫紀錄綁的是呼叫端在呼叫前讀到的那一列),交回呼叫端用新列重來
+        store.release_lease(lease, now)
+        return row.state if current is None else current.state
     outcome = _STEPS[row.state](store, row, collaborators, now)
     if outcome is None:  # 這一步的結果是「不寫入,留在原狀態」
+        store.release_lease(lease, now)
         return row.state
     transition(row.state, outcome.new_state)  # 非法轉換在這裡就會炸,不會靜默寫出壞資料
     committed = store.commit_step(
-        task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
+        row.task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
         evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
+        lease=lease,
     )
+    if not committed:  # 輸了序號或租約:還是自己的才放掉(條件寫在 release_lease 裡)
+        store.release_lease(lease, now)
     return outcome.new_state if committed else row.state
 
 

@@ -1,0 +1,64 @@
+{
+ "loop": "rtb-phase4佇列與重新投遞-增量3b",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-23T13:41:08+08:00",
+ "spec_path": "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md",
+ "spec_sha": "e590d847e34a163e5564b6805888905fd497f2f2eb10e85e1607f088e0ef3eed",
+ "rows": [
+  "{\"ts\": \"2026-09-23T13:40:19+08:00\", \"kind\": \"none\", \"auditor\": \"lease-sonnet\", \"token\": \"CANARY-baa48f98\", \"note\": \"\", \"loop\": \"rtb-phase4佇列與重新投遞-增量3b\", \"round\": \"r1\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"e590d847e34a163e5564b6805888905fd497f2f2eb10e85e1607f088e0ef3eed\", \"reviewed_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md\", \"scope_lines\": 494, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 0, \"report_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-lease.md\", \"report_sha256\": \"ab9902e52d6de59876939113bfe8d624d68f759ace14751f365dfae18358299c\", \"snapshot_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-snapshot.md\", \"snapshot_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\"}",
+  "{\"ts\": \"2026-09-23T13:40:19+08:00\", \"kind\": \"none\", \"auditor\": \"race-sonnet\", \"token\": \"CANARY-3c2107cd\", \"note\": \"\", \"loop\": \"rtb-phase4佇列與重新投遞-增量3b\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"e590d847e34a163e5564b6805888905fd497f2f2eb10e85e1607f088e0ef3eed\", \"reviewed_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md\", \"scope_lines\": 494, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 1, \"report_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-race.md\", \"report_sha256\": \"1c02fecd0c7696a6a74e3fd97f85a3646fab29879bd946a848eb85f16923bb2b\", \"snapshot_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-snapshot.md\", \"snapshot_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\"}",
+  "{\"ts\": \"2026-09-23T13:40:20+08:00\", \"kind\": \"none\", \"auditor\": \"f3-sonnet\", \"token\": \"CANARY-6e5db521\", \"note\": \"\", \"loop\": \"rtb-phase4佇列與重新投遞-增量3b\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 3, \"result_sha256\": \"e590d847e34a163e5564b6805888905fd497f2f2eb10e85e1607f088e0ef3eed\", \"reviewed_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md\", \"scope_lines\": 494, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 3, \"report_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-f3.md\", \"report_sha256\": \"3dc7b2ccd8467b07aceb4c309dcd058e48a6eb337e725ab6aae697b791900b75\", \"snapshot_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-snapshot.md\", \"snapshot_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\"}",
+  "{\"ts\": \"2026-09-23T13:40:20+08:00\", \"kind\": \"none\", \"auditor\": \"testability-sonnet\", \"token\": \"CANARY-3b02fa16\", \"note\": \"\", \"loop\": \"rtb-phase4佇列與重新投遞-增量3b\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 3, \"result_sha256\": \"e590d847e34a163e5564b6805888905fd497f2f2eb10e85e1607f088e0ef3eed\", \"reviewed_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md\", \"scope_lines\": 494, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 3, \"report_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-testability.md\", \"report_sha256\": \"0f3498929c516a7b6766f1e7eb8fa842d8d87b547b6d523f1ff9acc4be546cd2\", \"snapshot_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-snapshot.md\", \"snapshot_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\"}",
+  "{\"ts\": \"2026-09-23T13:40:20+08:00\", \"kind\": \"none\", \"auditor\": \"seam-sonnet\", \"token\": \"CANARY-c1b0253e\", \"note\": \"\", \"loop\": \"rtb-phase4佇列與重新投遞-增量3b\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 4, \"result_sha256\": \"e590d847e34a163e5564b6805888905fd497f2f2eb10e85e1607f088e0ef3eed\", \"reviewed_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md\", \"scope_lines\": 494, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 4, \"report_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-seam.md\", \"report_sha256\": \"89193a415678a9aa379a02bce1fec3ae3d9ee76cb1918ac93bb47cb08274cd1b\", \"snapshot_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-snapshot.md\", \"snapshot_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\"}",
+  "{\"ts\": \"2026-09-23T13:40:21+08:00\", \"kind\": \"none\", \"auditor\": \"arch-sonnet\", \"token\": \"CANARY-83408545\", \"note\": \"\", \"loop\": \"rtb-phase4佇列與重新投遞-增量3b\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 3, \"result_sha256\": \"e590d847e34a163e5564b6805888905fd497f2f2eb10e85e1607f088e0ef3eed\", \"reviewed_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md\", \"scope_lines\": 494, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 3, \"report_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-arch.md\", \"report_sha256\": \"caddf6297d55e6ac9ed9a8cdbb6c35d8f5bb990e714fa55292b2aba40fcbf9f4\", \"snapshot_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-snapshot.md\", \"snapshot_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\"}",
+  "{\"ts\": \"2026-09-23T13:40:50+08:00\", \"kind\": \"none\", \"auditor\": \"codex\", \"token\": \"CANARY-0cbba106\", \"note\": \"\", \"loop\": \"rtb-phase4佇列與重新投遞-增量3b\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 4, \"result_sha256\": \"e590d847e34a163e5564b6805888905fd497f2f2eb10e85e1607f088e0ef3eed\", \"reviewed_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md\", \"scope_lines\": 494, \"tier\": \"high\", \"orchestrator\": \"claude\", \"findings_set\": [\"race-F1\", \"testability-F3\", \"arch-F1\", \"arch-F2\", \"arch-F3\", \"seam-F1\", \"seam-F2\", \"seam-F3\", \"seam-F4\", \"f3-F1\", \"f3-F2\", \"f3-F3\", \"testability-F1\", \"testability-F2\", \"codex-F1\", \"codex-F2\", \"codex-F3\", \"codex-F4\"], \"folded_set\": [\"race-F1\", \"testability-F3\", \"arch-F3\", \"seam-F1\", \"seam-F2\", \"seam-F3\", \"seam-F4\", \"f3-F1\", \"f3-F2\", \"f3-F3\", \"testability-F1\", \"testability-F2\", \"codex-F1\", \"codex-F2\", \"codex-F3\", \"codex-F4\"], \"accepted_set\": [\"arch-F1\", \"arch-F2\"], \"refuted_set\": [], \"accept_reasons\": {\"arch-F1\": \"擁有者用隨機識別是同行程多執行緒的必要差異,欄位與條件寫入結構照執行側\", \"arch-F2\": \"收據不符回布林值沿用同模組提交函式既有慣例,不是新機制\"}, \"finding_kinds\": {\"race-F1\": \"spec\", \"testability-F3\": \"spec\", \"arch-F1\": \"spec\", \"arch-F2\": \"spec\", \"arch-F3\": \"spec\", \"seam-F1\": \"spec\", \"seam-F2\": \"spec\", \"seam-F3\": \"spec\", \"seam-F4\": \"spec\", \"f3-F1\": \"spec\", \"f3-F2\": \"spec\", \"f3-F3\": \"spec\", \"testability-F1\": \"spec\", \"testability-F2\": \"spec\", \"codex-F1\": \"spec\", \"codex-F2\": \"spec\", \"codex-F3\": \"spec\", \"codex-F4\": \"spec\"}, \"reported\": 4, \"report_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-codex.md\", \"report_sha256\": \"12d128500ce4e6bd9eb2c79eb503115697e9284aecf2080842f56d21da8bd65e\", \"snapshot_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-snapshot.md\", \"snapshot_sha256\": \"ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70\", \"intake_path\": \"governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-intake.md\", \"intake_sha256\": \"a5cfbe628fd281e0f8433ac71165ce2090638e5651705acc3664ef51d8f6e2cb\"}"
+ ],
+ "all_row_shas": [
+  "487e1de803effb22ceea95cae62c7e1812cda231f8144a04332ece4fb4804ff5",
+  "4a4705f6d2e25d18b8f4f0fe019bd3839a6345320fb282015bf75b9c6bff4c49",
+  "5ac756897b115da6892d61867360aafb1dd6a59871985cb35220911dbcee1dac",
+  "7da493531331dd078dc74d7f4a648eb21a9be5c855d7b115cd51448eed0657dd",
+  "8c15a2273d78814f1e82d04d8cb2b12d86e6523d29d8ff6ab0e2d93967696a95",
+  "a000e36ecafa5dee787287e17de615ff678a1ec8ea0881740212c787da6c62c9",
+  "e76738709e91046d3ac53161e9affd4bf9afc7e1792ba873d8ee58677f141322"
+ ],
+ "files": {
+  "governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-lease.md": {
+   "sha256": "ab9902e52d6de59876939113bfe8d624d68f759ace14751f365dfae18358299c",
+   "git_blob": "8a6cad89fb931b7cf42afb939d3f1c6d8fde30c5"
+  },
+  "governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-snapshot.md": {
+   "sha256": "ebde356090f6aa097a7303d564e1f9ff7c8cabb38286168c00e1194189364c70",
+   "git_blob": "40ef7bceb7b1ec28562b058eef672561fbddbfbd"
+  },
+  "governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-race.md": {
+   "sha256": "1c02fecd0c7696a6a74e3fd97f85a3646fab29879bd946a848eb85f16923bb2b",
+   "git_blob": "91e475e4b6c7c3ed9c847bfa90259eb40d106893"
+  },
+  "governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-f3.md": {
+   "sha256": "3dc7b2ccd8467b07aceb4c309dcd058e48a6eb337e725ab6aae697b791900b75",
+   "git_blob": "8911be3896f860ca6bca03b30429403e825fabc4"
+  },
+  "governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-testability.md": {
+   "sha256": "0f3498929c516a7b6766f1e7eb8fa842d8d87b547b6d523f1ff9acc4be546cd2",
+   "git_blob": "7eaed6a2b132c1cb543b8d77958510944da81a76"
+  },
+  "governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-seam.md": {
+   "sha256": "89193a415678a9aa379a02bce1fec3ae3d9ee76cb1918ac93bb47cb08274cd1b",
+   "git_blob": "b2cabf45b3f0d3c697465a80f7c8c4ad9bfa2635"
+  },
+  "governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-arch.md": {
+   "sha256": "caddf6297d55e6ac9ed9a8cdbb6c35d8f5bb990e714fa55292b2aba40fcbf9f4",
+   "git_blob": "64563e4cb373a52021b4d940cb833499a55b845a"
+  },
+  "governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/r1-codex.md": {
+   "sha256": "12d128500ce4e6bd9eb2c79eb503115697e9284aecf2080842f56d21da8bd65e",
+   "git_blob": "eea940b19929e09b21340528151d6b6edc1284ba"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}
