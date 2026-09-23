@@ -369,9 +369,9 @@ def test_every_sample_the_domain_parser_rejects_is_also_rejected_by_the_inbox_an
         imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
                     and n.module and n.module.startswith("rtb.domain") for a in n.names}
         # 取件要用冪等鍵與嘗試狀態分流(佇列語意);失敗嘗試的結果代碼決定擋下原因(Phase 5 [S310]),
-        # 這三個都不是欄位驗證
+        # 這三個都不是欄位驗證;停下紀錄寫入時把金額封頂在整數上限(Phase 6),常數也不是驗證
         allowed = {"parse_proposal", "content_hash", "Proposal", "MAX_DECISION_LIFETIME",
-                   "operation_key", "AttemptState", "OutcomeCode"}
+                   "operation_key", "AttemptState", "OutcomeCode", "MAX_INT"}
         assert imported <= allowed, imported
         assert not [n for n in ast.walk(tree) if isinstance(n, ast.Import)
                     and any(a.name == "re" for a in n.names)]

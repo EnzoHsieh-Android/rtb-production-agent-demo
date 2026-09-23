@@ -97,14 +97,14 @@ def test_an_expiry_during_the_read_wins_over_other_failed_checks(h):
 def test_a_proposal_that_expires_while_signing_is_not_executed(h):
     """簽發要讀租戶設定檔,也可能剛好跨過到期時間:開始一筆的交易裡要再判一次。"""
     prop = h.submit(decision_expires_at=SOON)
-    real_sign = h.signer.sign
+    real_grant = h.signer.grant
 
-    def slow_sign(*args, **kwargs):
-        token = real_sign(*args, **kwargs)
+    def slow_grant(*args, **kwargs):
+        grant = real_grant(*args, **kwargs)
         h.clock.advance(seconds=45)  # 簽完時提案已過期(還在租約內)
-        return token
+        return grant
 
-    h.signer = type("SlowSigner", (), {"sign": staticmethod(slow_sign)})()
+    h.signer = type("SlowSigner", (), {"grant": staticmethod(slow_grant)})()
     assert prop.decision_expires_at > h.clock()  # 前置:開始處理時還沒過期
 
     assert h.process().kind is Result.EXPIRED
@@ -149,6 +149,12 @@ def _previously_failed(h):
                    h.clock)
 
 
+def _aggregate_full(h):
+    from tests.executor.fakes import write_config
+
+    write_config(h.config, aggregate_limit=49)  # 提案從 100 改成 150,要佔 50
+
+
 BLOCK_TRIGGERS = {
     BlockCode.CAMPAIGN_NOT_FOUND: _not_found,
     BlockCode.CAMPAIGN_NOT_ACTIVE: _paused,
@@ -156,6 +162,7 @@ BLOCK_TRIGGERS = {
     BlockCode.CAMPAIGN_NOT_ALLOWED: _not_allowed,
     BlockCode.OVER_BUDGET_CAP: _over_cap,
     BlockCode.OPERATION_PREVIOUSLY_FAILED: _previously_failed,
+    BlockCode.AGGREGATE_LIMIT_REACHED: _aggregate_full,  # Phase 6:開始一筆時擋,不是執行前檢查
 }
 
 

@@ -1,0 +1,788 @@
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index f8f29f5..87c5bb1 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -12,21 +12,21 @@
+ 
+ 未結案計數不逐把鍵回頭讀最新列:每把鍵恰好有一列序號 1(主鍵保證),結案的鍵恰好有一列終點列
+ (終點沒有出路,而且資料庫的唯一限制不准同一把鍵寫第二列終點列),所以「未結案數 = 第 1 列數 -
+ 終點列數」,兩個數都走部分索引。只看相減結果的正負擋不住毀損:會被另一把還沒結案的鍵抵銷。
+ """
+ 
+ import json
+ import sqlite3
+ from collections.abc import Collection
+ from dataclasses import dataclass
+-from datetime import UTC, datetime
++from datetime import UTC, datetime, timedelta
+ from typing import Any
+ 
+ from rtb.domain._checks import is_aware, is_plain_int
+ from rtb.domain.attempt import (
+     RESOLUTION_OUTCOMES,
+     TERMINAL_STATES,
+     TIMEOUT_STATES,
+     AttemptState,
+     IllegalAttemptTransition,
+     OutcomeCode,
+@@ -48,45 +48,69 @@ CREATE TABLE IF NOT EXISTS attempts (
+     code TEXT, detail TEXT, send_count INTEGER NOT NULL, verification_timeouts INTEGER NOT NULL,
+     written_at TEXT NOT NULL,
+     task_id TEXT, revision INTEGER, action TEXT, expected_version INTEGER, proposal_json TEXT,
+     written_version INTEGER, capability_expires_at TEXT,
+     PRIMARY KEY (key, seq));
+ CREATE INDEX IF NOT EXISTS attempts_first_rows ON attempts (campaign_id) WHERE seq = 1;
+ CREATE INDEX IF NOT EXISTS attempts_terminal_rows ON attempts (campaign_id)
+     WHERE state IN (TERMINAL_LIST);
+ CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_terminal_per_key ON attempts (key)
+     WHERE state IN (TERMINAL_LIST);
++CREATE INDEX IF NOT EXISTS attempts_verified_by_time ON attempts (written_at)
++    WHERE state = 'verified';
+ """
+ _COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verification_timeouts, "
+             "written_at, written_version, capability_expires_at")
+ # 執行一筆(Phase 3 增量 3)新增的欄位;舊資料庫由執行行程資料庫模組照補欄位做法補上
+ ADDED_COLUMNS = (
+     ("written_version", "written_version INTEGER"),  # DSP 回報的寫入後版本
+     ("capability_expires_at", "capability_expires_at TEXT"),  # 最近一次送出所帶憑證的到期時間
++    # 總曝險預留(Phase 6):只寫在第一列,開始一筆時算出之後不變;舊列不回填,空值由額度查詢保守計入
++    ("tenant", "tenant TEXT"),
++    ("reserved_amount", "reserved_amount INTEGER"),
+ )
++# 已驗證的預留在驗證完成後多久內仍佔額度(暫用值,沒有真實花費數據校準,見 Phase 6 計劃)
++AGGREGATE_WINDOW = timedelta(hours=24)
+ # 終點狀態是固定的列舉值,寫成字面值,查詢條件才對得上部分索引的條件
+ _TERMINAL_LIST = ", ".join(f"'{state.value}'" for state in sorted(TERMINAL_STATES))
+ SCHEMA = SCHEMA.replace("TERMINAL_LIST", _TERMINAL_LIST)
+ 
+ 
+ class AttemptRejected(Exception):
+     """這次操作被拒絕,而且沒有寫入任何東西。"""
+ 
+ 
+ class NotInTransaction(AttemptRejected):
+     """傳進來的不是執行行程資料庫交易入口發出、而且還開著的交易:這是程式錯誤。"""
+ 
+ 
+ class CampaignLocked(AttemptRejected):
+     """同一個廣告已有另一把鍵的未結案嘗試。"""
+ 
+ 
++class AggregateLimitReached(AttemptRejected):
++    """這筆加預算加上租戶已用額度會超過總曝險門檻(Phase 6):不開嘗試。"""
++
++    def __init__(self, used: int, limit: int):
++        super().__init__(f"已用 {used},門檻 {limit}")
++        self.used, self.limit = used, limit
++
++
++@dataclass(frozen=True)
++class Reservation:
++    """開始一筆時要記的預留:租戶、這筆加預算的金額(減預算與暫停是 0)、簽發時讀到的門檻。"""
++
++    tenant: str
++    amount: int
++    limit: int
++
++
+ class TooManyUnresolved(AttemptRejected):
+     """全表未結案的鍵數已達上限。"""
+ 
+ 
+ class InvalidOutcome(AttemptRejected):
+     """結果代碼與目標狀態不配、代碼不認得、細節文字或處置理由不乾淨。"""
+ 
+ 
+ class SendLimitReached(AttemptRejected):
+     """同一把鍵的送出次數已達上限,只能轉人工。"""
+@@ -282,48 +306,98 @@ def _expiry(value: object) -> str:
+     """轉進嘗試中必帶:這次送出所帶憑證的到期時間。對帳不再拿它當證明(改用 DSP 端作廢,
+     見 Phase 3 計劃增量 4),保留給人工處置時參考。"""
+     if not isinstance(value, datetime):
+         raise IncompleteRow("轉進嘗試中要帶這次送出所帶憑證的到期時間")
+     return _iso(value)
+ 
+ 
+ def begin(
+     tx: ExecutorTransaction, proposal: Proposal, now: datetime, *,
+     capability_expires_at: datetime | None,
++    reservation: Reservation | None = None,
+ ) -> Begun:
+-    """開始一筆:鍵與第 1 列的欄位全由這份提案算出,呼叫端不能另外指定。"""
++    """開始一筆:鍵與第 1 列的欄位全由這份提案算出,呼叫端不能另外指定。
++
++    帶預留時,金額大於 0 就在同一個交易裡(立即取得寫入鎖)先算租戶已用額度,加上這筆超過門檻
++    丟 AggregateLimitReached、什麼都不寫;鍵已存在時不再預留也不再檢查(那把鍵第一次就扣過)。"""
+     conn = _conn(tx)
+     _require_aware(now)
+     key = operation_key(proposal)
+     current = latest(tx, key)
+     if current is not None:
+         return Begun(current, created=False)
+     expires = _expiry(capability_expires_at)
+     if unresolved_count(tx, proposal.campaign_id):
+         raise CampaignLocked(proposal.campaign_id)
+     if unresolved_count(tx) >= MAX_UNRESOLVED:
+         raise TooManyUnresolved()
++    if reservation is not None and reservation.amount > 0:
++        used = aggregate_used(tx, reservation.tenant, now)
++        if used + reservation.amount > reservation.limit:
++            raise AggregateLimitReached(used, reservation.limit)
+     snapshot_json = json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True,
+                                allow_nan=False)
+     conn.execute(
+         "INSERT INTO attempts (key, seq, campaign_id, state, send_count, verification_timeouts, "
+         "written_at, task_id, revision, action, expected_version, proposal_json, "
+-        "capability_expires_at) VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?)",
++        "capability_expires_at, tenant, reserved_amount) "
++        "VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (key, proposal.campaign_id, AttemptState.IN_FLIGHT.value, _iso(now),
+          proposal.task_id, proposal.revision, proposal.action_type.value,
+-         proposal.campaign_version_observed, snapshot_json, expires),
++         proposal.campaign_version_observed, snapshot_json, expires,
++         None if reservation is None else reservation.tenant,
++         None if reservation is None else reservation.amount),
+     )
+     row = latest(tx, key)
+     assert row is not None  # 剛寫入的那一列  # noqa: S101
+     return Begun(row, created=True)
+ 
+ 
++def aggregate_used(tx: ExecutorTransaction, tenant: str, now: datetime) -> int:
++    """租戶已用額度(Phase 6):從嘗試紀錄推,不另存狀態。
++
++    - 已驗證:驗證完成時間在窗口內的才算(從已驗證列的部分索引出發,只跟窗口內筆數成正比)。
++    - 沒有終點:不論多久都算(全表最多 MAX_UNRESOLVED 把;先用計數判斷是不是 0)。
++    - 失敗:不算,等於還回去。
++    舊列(Phase 6 之前)沒有租戶與金額:改預算以新預算全額計、算進每一個租戶(分不出加減,寧可多擋)。
++    加總在程式裡用整數累加:門檻與金額都可以到整數上限,資料庫的整數加總會溢位。"""
++    conn = _conn(tx)
++    rows = conn.execute(
++        "SELECT f.tenant, f.reserved_amount, f.action, f.proposal_json FROM attempts v "
++        "JOIN attempts f ON f.key = v.key AND f.seq = 1 "
++        "WHERE v.state = ? AND v.written_at > ?",
++        (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW)),
++    ).fetchall()
++    if unresolved_count(tx):
++        rows += conn.execute(
++            "SELECT f.tenant, f.reserved_amount, f.action, f.proposal_json FROM attempts f "  # noqa: S608 - 只拼接固定條件
++            "WHERE f.seq = 1 AND NOT EXISTS "
++            f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))"
++        ).fetchall()
++    return sum(_counted(row, tenant) for row in rows)
++
++
++def _counted(row: tuple[Any, ...], tenant: str) -> int:
++    owner, amount, action, snapshot = row
++    if owner is not None:
++        return int(amount) if owner == tenant and amount is not None else 0
++    if action != "update_budget":  # 舊列:暫停不佔額度
++        return 0
++    try:
++        budget = json.loads(snapshot)["requested_change"]["new_budget"]
++    except (TypeError, ValueError, KeyError) as exc:
++        raise CorruptedAttemptRow("舊嘗試的提案快照讀不出新預算,無法保守計入額度") from exc
++    if not is_plain_int(budget):
++        raise CorruptedAttemptRow("舊嘗試的提案快照新預算不是整數")
++    return budget
++
++
+ def _append(  # noqa: PLR0913 - 每個欄位都是新列的一部分
+     tx: ExecutorTransaction, previous: AttemptRow, state: AttemptState, now: datetime, *,
+     code: OutcomeCode | None = None, detail: str | None = None,
+     send_count: int | None = None, verification_timeouts: int | None = None,
+     capped: bool = True, written_version: int | None = None, expires: str | None = None,
+ ) -> AttemptRow:
+     if capped and previous.seq >= MAX_ROWS_PER_KEY:
+         raise HistoryFull(previous.key)
+     carried_expiry = (None if previous.capability_expires_at is None
+                       else _iso(previous.capability_expires_at))
+diff --git a/src/rtb/executor/capability_signer.py b/src/rtb/executor/capability_signer.py
+index 86854fc..c01f994 100644
+--- a/src/rtb/executor/capability_signer.py
++++ b/src/rtb/executor/capability_signer.py
+@@ -11,21 +11,21 @@
+ 
+ import json
+ import os
+ import stat
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any
+ 
+ from rtb.capabilitykit import encode, is_usable_key
+ from rtb.domain._checks import is_id, is_plain_int
+-from rtb.domain.proposal import ActionType, Proposal
++from rtb.domain.proposal import MAX_INT, ActionType, Proposal
+ 
+ FORMAT_VERSION = "c1"
+ LIFETIME_SECONDS = 120  # 簽發端用的有效期;DSP 端的上限是 300 秒
+ VOID_ACTION = "void_operation"  # 作廢一把冪等鍵(對帳判失敗之前);DSP 聲明的動作清單有同名成員
+ MAX_CONFIG_BYTES = 64 * 1024
+ _UNSAFE_WRITE = stat.S_IWGRP | stat.S_IWOTH
+ 
+ 
+ class SigningRefused(Exception):
+     """不簽:reason 是固定代碼,只給本地判斷用。"""
+@@ -33,20 +33,31 @@ class SigningRefused(Exception):
+     def __init__(self, reason: str):
+         super().__init__(reason)
+         self.reason = reason
+ 
+ 
+ @dataclass(frozen=True)
+ class Tenant:
+     name: str
+     campaigns: frozenset[str]
+     max_budget: int
++    # 24 小時內加預算總額上限(Phase 6);設定檔缺這欄當 0:這個租戶不准加預算,其他租戶照常
++    aggregate_limit: int = 0
++
++
++@dataclass(frozen=True)
++class Grant:
++    """簽發結果:憑證,加上同一次讀設定檔得到的租戶與總額上限(開始一筆時比對額度用)。"""
++
++    token: str
++    tenant: str
++    aggregate_limit: int
+ 
+ 
+ def _check_owner_and_mode(fd: int, what: str) -> None:
+     info = os.fstat(fd)
+     if info.st_uid != os.getuid() or info.st_mode & _UNSAFE_WRITE:
+         raise SigningRefused(f"config_{what}_insecure")
+ 
+ 
+ def _read_config_securely(path: Path) -> bytes:
+     try:
+@@ -82,48 +93,60 @@ def _parse_tenants(data: bytes) -> tuple[Tenant, ...]:
+     tenants = raw.get("tenants") if isinstance(raw, dict) else None
+     if not isinstance(tenants, dict):
+         raise SigningRefused("config_invalid")
+     result = []
+     for name, spec in tenants.items():
+         campaigns = spec.get("campaigns") if isinstance(spec, dict) else None
+         cap = spec.get("max_budget") if isinstance(spec, dict) else None
+         if (not is_id(name) or not isinstance(campaigns, list)
+                 or not all(is_id(c) for c in campaigns) or not is_plain_int(cap) or cap < 1):
+             raise SigningRefused("config_invalid")
+-        result.append(Tenant(name, frozenset(campaigns), cap))
++        # 缺欄當 0(只擋這個租戶,不讓整份設定檔停機);有寫但值不對是打錯字,不猜,整份不合法
++        limit = spec.get("aggregate_limit", 0)
++        if not is_plain_int(limit) or not 0 <= limit <= MAX_INT:
++            raise SigningRefused("config_invalid")
++        result.append(Tenant(name, frozenset(campaigns), cap, limit))
+     owners = [c for t in result for c in t.campaigns]
+     if len(owners) != len(set(owners)):  # 一個廣告只能屬於一個租戶
+         raise SigningRefused("config_invalid")
+     return tuple(result)
+ 
+ 
+ def load_tenants(path: Path) -> tuple[Tenant, ...]:
+     return _parse_tenants(_read_config_securely(Path(path)))
+ 
+ 
+ class CapabilitySigner:
+     def __init__(self, key: bytes | None):
+         if not is_usable_key(key):
+             raise ValueError("金鑰不可用:沒有或短於最短長度")
+         assert key is not None  # noqa: S101
+         self._key = key
+ 
+     def sign(self, proposal: Proposal, operation_key: str, config_path: Path, now: int) -> str:
+         """proposal 是嘗試紀錄存下的提案快照;預期版本取快照裡觀察到的版本,不取 DSP 現況。"""
++        return self.grant(proposal, operation_key, config_path, now).token
++
++    def grant(
++        self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
++    ) -> Grant:
++        """同 sign,另外帶回這次讀到的租戶與總額上限:門檻跟單一廣告上限同一個生效語意(簽發時讀,
++        改設定從下一次簽發起生效),開始一筆時不在寫入鎖裡再讀設定檔。"""
+         tenant = self._tenant_of(proposal, config_path)
+         new_budget = None
+         if proposal.action_type is ActionType.UPDATE_BUDGET:
+             new_budget = proposal.requested_change["new_budget"]
+             if new_budget > tenant.max_budget:
+                 raise SigningRefused("over_budget_cap")
+-        return self._encode(proposal, operation_key, tenant, proposal.action_type.value,
+-                            new_budget, now)
++        token = self._encode(proposal, operation_key, tenant, proposal.action_type.value,
++                             new_budget, now)
++        return Grant(token, tenant.name, tenant.aggregate_limit)
+ 
+     def sign_void(
+         self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
+     ) -> str:
+         """簽「作廢這把鍵」:只檢查廣告屬於允許的租戶,不檢查預算上限——作廢是撤掉一個寫入,
+         不是在寫。設定檔壞掉或不安全照舊丟 SigningRefused(呼叫端當系統故障)。"""
+         tenant = self._tenant_of(proposal, config_path)
+         return self._encode(proposal, operation_key, tenant, VOID_ACTION, None, now)
+ 
+     @staticmethod
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index 2a6c657..422eed1 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -24,29 +24,31 @@ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from enum import StrEnum
+ from pathlib import Path
+ from typing import Any, Literal, NoReturn, Protocol
+ 
+ from rtb.domain._checks import is_plain_int
+ from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
+ from rtb.domain.proposal import ActionType, Proposal
+ from rtb.executor import attempt_store
+ from rtb.executor.attempt_store import AttemptRow
+-from rtb.executor.capability_signer import LIFETIME_SECONDS, SigningRefused
++from rtb.executor.capability_signer import LIFETIME_SECONDS, Grant, SigningRefused
+ from rtb.executor.inbox_store import (
+     VISIBILITY_TIMEOUT,
+     BlockCode,
+     CorruptedInboxRow,
+     InboxStore,
+     LastFailure,
+     PendingProposal,
+     Receipt,
++    Stop,
++    StopKind,
+     block_code_for_failure,
+ )
+ 
+ A = AttemptState
+ C = OutcomeCode
+ 
+ 
+ @dataclass(frozen=True)
+ class CampaignView:
+     """DSP 上廣告的現況(執行前檢查與執行後驗證要看的欄位)。"""
+@@ -108,20 +110,26 @@ class DspPort(Protocol):
+         ...
+ 
+     def void(self, proposal: Proposal, key: str, token: str) -> VoidAnswer:
+         """請 DSP 作廢這把鍵;不丟例外,沒拿到回應就回 status 為 None 的回應。"""
+         ...
+ 
+ 
+ class Signer(Protocol):
+     def sign(self, proposal: Proposal, operation_key: str, config_path: Path, now: int) -> str: ...
+ 
++    def grant(
++        self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
++    ) -> Grant:
++        """同 sign,另外帶回同一次讀設定檔得到的租戶與總額上限(Phase 6)。"""
++        ...
++
+     def sign_void(
+         self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
+     ) -> str: ...
+ 
+ 
+ class LeaseLost(Exception):
+     """收據對不上(租約已被接手或已過期),或沒有收據的舊鍵序號被別的工作者先推進:這把鍵這一輪
+     放棄,不停機——多工作者下這是正常競爭。"""
+ 
+ 
+@@ -270,20 +278,27 @@ class Processed:
+     block_code: BlockCode | None = None
+ 
+ 
+ # 簽發器拒簽的原因:這兩種是這份提案的問題(擋下);其他(設定檔壞掉、不安全)是系統故障
+ _BUSINESS_REFUSALS = {
+     "campaign_not_allowed": BlockCode.CAMPAIGN_NOT_ALLOWED,
+     "over_budget_cap": BlockCode.OVER_BUDGET_CAP,
+ }
+ 
+ 
++def _increase(proposal: Proposal, view: CampaignView) -> int:
++    """這筆提案佔的總曝險:新預算減目前預算,小於 0 算 0;暫停是 0。"""
++    if proposal.action_type is not ActionType.UPDATE_BUDGET:
++        return 0
++    return max(0, int(proposal.requested_change["new_budget"]) - view.budget)
++
++
+ def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
+     """執行前檢查裡看 DSP 現況的三項;「不在投放」排在版本之前,代碼比較有意義。"""
+     if view is None:
+         return BlockCode.CAMPAIGN_NOT_FOUND
+     if view.status != "active":
+         return BlockCode.CAMPAIGN_NOT_ACTIVE
+     if view.version != proposal.campaign_version_observed:
+         return BlockCode.VERSION_CHANGED
+     return None
+ 
+@@ -308,20 +323,22 @@ def record_matches(proposal: Proposal, record: OperationRecord) -> bool:
+     return (record.campaign_id == proposal.campaign_id
+             and record.action == proposal.action_type.value
+             and record.new_budget == proposal.requested_change.get("new_budget")
+             and record.expected_version == proposal.campaign_version_observed)
+ 
+ 
+ @dataclass(frozen=True)
+ class _Signed:
+     token: str
+     expires_at: datetime
++    tenant: str = ""
++    aggregate_limit: int = 0
+ 
+ 
+ def _no_progress(key: str, receipt: Receipt | None) -> NoReturn:
+     """嘗試紀錄的序號對不上(條件寫入沒進展)。
+ 
+     有收據:收據剛核對過還有效,序號卻被改過,代表有人繞過租約寫了嘗試紀錄——系統錯誤,停機。
+     沒有收據(收件表沒有對應處理中訊息的舊鍵,沒有租約可搶):多個工作者會同時對帳它,序號輸家是
+     正常競爭,放棄這把鍵、不停機。每一次呼叫 DSP 寫入之前都先有一筆成功的轉嘗試中寫入,所以兩邊
+     最多一個能走到 DSP 寫入。
+     """
+@@ -355,88 +372,120 @@ class Executor:
+             return self._settle(receipt, None, Result.EXPIRED)
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id)
+         except DspUnavailable:
+             return self._release(receipt, LastFailure.DSP_UNAVAILABLE)
+         if proposal.decision_expires_at <= self.clock():  # 讀 DSP 期間過期:先於其他檢查
+             return self._settle(receipt, None, Result.EXPIRED)
+         signed = precheck(proposal, view) or self._sign(proposal)
+         if isinstance(signed, BlockCode):
+             return self._settle(receipt, signed, Result.BLOCKED)
+-        taken = self._take(picked, receipt, signed)
++        assert view is not None  # 廣告不存在時執行前檢查已擋下  # noqa: S101
++        taken = self._take(picked, receipt, signed, view)
+         if isinstance(taken, Processed):
+             return taken
+         # 停在未結案就不確認:每一筆嘗試寫入都順手續租,所以租約已經延長,交給對帳
+         self._record(proposal, taken, self.dsp.write(proposal, taken.key, signed.token), receipt)
+         return Processed(Result.EXECUTED, taken.key)
+ 
+     def _sign(self, proposal: Proposal, key: str | None = None) -> _Signed | BlockCode:
+         """key 給對帳重送用:嘗試已經開過,一律用存下來的那把鍵簽,不從提案重算(增量 1 的規則)。"""
+         now = int(self.clock().timestamp())  # 每次簽發都重讀時鐘
+         try:
+-            token = self.signer.sign(proposal, key or operation_key(proposal),
+-                                     self.config_path, now)
++            grant = self.signer.grant(proposal, key or operation_key(proposal),
++                                      self.config_path, now)
+         except SigningRefused as refused:
+             if refused.reason in _BUSINESS_REFUSALS:
+                 return _BUSINESS_REFUSALS[refused.reason]
+             raise ExecutorHalted(refused.reason) from refused
+-        return _Signed(token, datetime.fromtimestamp(now + LIFETIME_SECONDS, UTC))
++        return _Signed(grant.token, datetime.fromtimestamp(now + LIFETIME_SECONDS, UTC),
++                       grant.tenant, grant.aggregate_limit)
+ 
+     def _settle(self, receipt: Receipt, code: BlockCode | None, kind: Result) -> Processed:
+         """確認成已過期或已擋下;以收據為條件(提案已經是處理中,不再以「仍待處理」為條件)。"""
+         with self.store.transaction() as tx:
+             now = self.clock()
+             done = (self.store.ack_expired(tx, receipt, now) if code is None
+                     else self.store.ack_blocked(tx, receipt, now, code))
+         return Processed(kind, block_code=code) if done else Processed(Result.LEASE_LOST)
+ 
+     def _release(self, receipt: Receipt, failure: LastFailure) -> Processed:
+         """沒能開始嘗試:記下原因、放掉租約,下一輪能再取(每取一次算一次投遞,用完進死信)。"""
+         with self.store.transaction() as tx:
+             done = self.store.release(tx, receipt, self.clock(), failure)
+         return Processed(Result.DEFERRED) if done else Processed(Result.LEASE_LOST)
+ 
+-    def _take(  # noqa: PLR0911 - 每個出口對應鍵已存在分流的一格
+-        self, picked: PendingProposal, receipt: Receipt, signed: _Signed,
++    def _take(  # noqa: PLR0911 - 每個出口對應開始一筆的一種結果
++        self, picked: PendingProposal, receipt: Receipt, signed: _Signed, view: CampaignView,
+     ) -> AttemptRow | Processed:
+-        """開始一筆:在核對收據仍有效的同一個交易裡做;鍵已存在就依既有那把鍵的狀態分流。"""
++        """開始一筆:在核對收據仍有效的同一個交易裡做;鍵已存在就依既有那把鍵的狀態分流。
++
++        總曝險(Phase 6):預留金額 = 新預算減處理一筆開頭讀到的目前預算(版本已變排在前面,走到
++        這裡的目前預算一定是提案觀察到的那一版),小於 0 算 0;額度不夠就擋下並寫停下紀錄。"""
++        reservation = attempt_store.Reservation(
++            signed.tenant, _increase(picked.proposal, view), signed.aggregate_limit)
+         with self.store.transaction() as tx:
+             now = self.clock()
+             if not self.store.extend(tx, receipt, now):  # 已被取代、內容不同、或租約已不是我的
+                 return Processed(Result.LEASE_LOST)
+             # 讀 DSP、讀設定檔簽發都可能剛好跨過到期時間:在開始一筆的同一個交易裡再判一次
+             if picked.proposal.decision_expires_at <= now:
+                 self.store.ack_expired(tx, receipt, now)
+                 return Processed(Result.EXPIRED)
+             try:
+                 begun = attempt_store.begin(tx, picked.proposal, now,
+-                                            capability_expires_at=signed.expires_at)
++                                            capability_expires_at=signed.expires_at,
++                                            reservation=reservation)
+             except attempt_store.TooManyUnresolved:  # 正常觸發:等未結案數降下來
++                self.store.record_stop(tx, self._stop(
++                    StopKind.TABLE_FULL, picked.proposal, reservation, None), now)
+                 self.store.release(tx, receipt, now, LastFailure.TABLE_FULL)
+                 return Processed(Result.DEFERRED)
++            except attempt_store.AggregateLimitReached as full:  # 總曝險已滿:擋下結案
++                self.store.record_stop(tx, self._stop(
++                    StopKind.AGGREGATE_LIMIT_REACHED, picked.proposal, reservation, full), now)
++                code = BlockCode.AGGREGATE_LIMIT_REACHED
++                if not self.store.ack_blocked(tx, receipt, now, code):
++                    raise LeaseLost(operation_key(picked.proposal)) from full
++                return Processed(Result.BLOCKED, operation_key(picked.proposal), code)
+             except attempt_store.CampaignLocked:  # 同廣告兩份提案被兩個工作者同時取出時會走到
+                 self.store.release(tx, receipt, now, None)
+                 return Processed(Result.DEFERRED)
+             if begun.created:
+                 return begun.row
+-            state = begun.row.state
+-            if state is A.VERIFIED:
+-                if not self.store.ack_handed_off(tx, receipt, now):
+-                    raise LeaseLost(begun.row.key)
+-                return Processed(Result.HANDED_OFF_TO_EXISTING, begun.row.key)
+-            if state is A.FAILED:  # 人判過不做的操作不能貼成已交給執行
+-                code = block_code_for_failure(begun.row.code)
+-                if not self.store.ack_blocked(tx, receipt, now, code):
+-                    raise LeaseLost(begun.row.key)
+-                return Processed(Result.BLOCKED, begun.row.key, code)
+-            self.store.release(tx, receipt, now, None)  # 防線:未結案的鍵歸對帳管
+-            return Processed(Result.DEFERRED)
++            return self._existing_key(tx, begun.row, receipt, now)
++
++    def _existing_key(
++        self, tx: attempt_store.ExecutorTransaction, row: AttemptRow, receipt: Receipt,
++        now: datetime,
++    ) -> Processed:
++        """開始一筆時鍵已存在:依既有那把鍵的狀態分流(在呼叫端的同一個交易裡)。"""
++        if row.state is A.VERIFIED:
++            if not self.store.ack_handed_off(tx, receipt, now):
++                raise LeaseLost(row.key)
++            return Processed(Result.HANDED_OFF_TO_EXISTING, row.key)
++        if row.state is A.FAILED:  # 人判過不做的操作不能貼成已交給執行
++            code = block_code_for_failure(row.code)
++            if not self.store.ack_blocked(tx, receipt, now, code):
++                raise LeaseLost(row.key)
++            return Processed(Result.BLOCKED, row.key, code)
++        self.store.release(tx, receipt, now, None)  # 防線:未結案的鍵歸對帳管
++        return Processed(Result.DEFERRED)
++
++    @staticmethod
++    def _stop(
++        kind: StopKind, proposal: Proposal, reservation: attempt_store.Reservation,
++        full: attempt_store.AggregateLimitReached | None,
++    ) -> Stop:
++        return Stop(kind, proposal, operation_key(proposal), reservation.tenant or None,
++                    reservation.amount, None if full is None else full.used,
++                    None if full is None else full.limit)
+ 
+     def _ack_terminal(
+         self, tx: attempt_store.ExecutorTransaction, row: AttemptRow, receipt: Receipt,
+         now: datetime, block_code: BlockCode | None = None,
+     ) -> None:
+         """確認也是帶收據的條件寫入:0 列就是收據失效,跟其他寫入一樣放棄這把鍵。
+         block_code 給重跑執行前檢查的路徑用:檢查查到的原因比嘗試結果代碼更具體時由呼叫端指定。"""
+         if row.state is A.VERIFIED:
+             done = self.store.ack_handed_off(tx, receipt, now)
+         elif row.state is A.FAILED:
+diff --git a/src/rtb/executor/inbox_server.py b/src/rtb/executor/inbox_server.py
+index 56faddf..2d9d3de 100644
+--- a/src/rtb/executor/inbox_server.py
++++ b/src/rtb/executor/inbox_server.py
+@@ -124,21 +124,23 @@ class InboxHandler(JsonHandler):
+ 
+     def error_extras(self, exc: Exception) -> dict[str, Any]:
+         if isinstance(exc, InboxRejected) and exc.highest_revision is not None:
+             return {"highest_revision": exc.highest_revision}
+         return {}
+ 
+ 
+ # 權限類擋下原因合併成泛稱(使用者 2026-09-23 裁定,Phase 5 [S300]):重送就能讀到的原因若分得細,
+ # 被劫持的分析行程可以一路試出租戶的預算上限與廣告歸屬。只在回應本文合併,收件表照記細分代碼
+ _PERMISSION_BLOCKS = frozenset({BlockCode.OVER_BUDGET_CAP.value,
+-                                BlockCode.CAMPAIGN_NOT_ALLOWED.value})
++                                BlockCode.CAMPAIGN_NOT_ALLOWED.value,
++                                # 總曝險已滿也併進去:分析行程不該能用重送試出剩餘額度(Phase 6)
++                                BlockCode.AGGREGATE_LIMIT_REACHED.value})
+ NOT_PERMITTED = "not_permitted"
+ 
+ 
+ def _answered_block_code(stored: str | None) -> str | None:
+     return NOT_PERMITTED if stored in _PERMISSION_BLOCKS else stored
+ 
+ 
+ def _accepted_body(result: Accepted) -> dict[str, Any]:
+     # state 才是提案目前的狀態:重送一份已過期的提案,status 仍是 accepted(收過了),
+     # 但 state 會是 expired。已確認的處置(已交給執行、已擋下、死信)與 expired 代表它不會再被
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index cd82429..b3dbc27 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -20,21 +20,27 @@
+ import json
+ import sqlite3
+ from collections.abc import Callable, Iterator
+ from contextlib import contextmanager
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from pathlib import Path
+ 
+ from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
+-from rtb.domain.proposal import MAX_DECISION_LIFETIME, Proposal, content_hash, parse_proposal
++from rtb.domain.proposal import (
++    MAX_DECISION_LIFETIME,
++    MAX_INT,
++    Proposal,
++    content_hash,
++    parse_proposal,
++)
+ from rtb.executor import attempt_store
+ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate_transaction
+ 
+ DEFAULT_MAX_PENDING = 8
+ MAX_REVISIONS_PER_TASK = 50  # 一個任務最多修訂這麼多次;要更多就得換任務編號
+ MAX_ROWS = 5000  # 收件表總列數上限:取代鏈不佔名額,沒有這個上限就能無限寫入吃光磁碟
+ RETENTION = timedelta(hours=2)  # 沒有待處理的舊任務超過這個時間就整個清掉;必須比提案能活的時間長
+ CLOCK_SKEW = timedelta(minutes=5)  # 決策建立時間最多可以比現在晚這麼多
+ MAX_EVENTS_PER_CODE = 200  # 每種事件代碼各留最新這幾筆,一種事件灌爆不會洗掉別種事件的紀錄
+ VISIBILITY_TIMEOUT = timedelta(seconds=60)  # 暫用,沒有實測校準:一輪最慢是幾次 DSP 呼叫加本地寫入
+@@ -64,28 +70,52 @@ class LastFailure(StrEnum):
+ 
+     定義在收件表模組:收件表是下層,不借執行迴圈的結果列舉(反過來匯入會變成循環匯入)。
+     """
+ 
+     DSP_UNAVAILABLE = "dsp_unavailable"  # 讀不到 DSP 現況
+     TABLE_FULL = "table_full"  # 全表未結案已滿
+     NO_REPORT = "no_report"  # 租約過期被回收:工作者當機或沒回報
+ 
+ 
+ class BlockCode(StrEnum):
+-    """擋下原因(封閉列舉):每一種都有真實觸發路徑,見執行迴圈的執行前檢查。"""
++    """擋下原因(封閉列舉):每一種都有真實觸發路徑,見執行迴圈的執行前檢查、簽發與開始一筆。
++
++    加成員之後,舊收件表會在開啟時照允許值清單逐一比對、缺哪個就重建;成員一旦用過就不能拿掉
++    (舊列記著它,重建時會撞允許值限制)。"""
+ 
+     CAMPAIGN_NOT_FOUND = "campaign_not_found"
+     CAMPAIGN_NOT_ACTIVE = "campaign_not_active"
+     VERSION_CHANGED = "version_changed"
+     CAMPAIGN_NOT_ALLOWED = "campaign_not_allowed"
+     OVER_BUDGET_CAP = "over_budget_cap"
+     OPERATION_PREVIOUSLY_FAILED = "operation_previously_failed"  # 同一把鍵先前已判定失敗
++    AGGREGATE_LIMIT_REACHED = "aggregate_limit_reached"  # 開始一筆時總曝險額度不夠(Phase 6)
++
++
++class StopKind(StrEnum):
++    """新寫入被停下的種類(Phase 6 停下紀錄表)。"""
++
++    AGGREGATE_LIMIT_REACHED = "aggregate_limit_reached"  # 總曝險已滿:擋下結案
++    TABLE_FULL = "table_full"  # 全表未結案已滿:延後重投
++
++
++@dataclass(frozen=True)
++class Stop:
++    """一筆停下紀錄的內容;已用額度與門檻在表滿延後時沒有算,是空值。"""
++
++    kind: StopKind
++    proposal: Proposal
++    key: str
++    tenant: str | None
++    amount: int
++    used: int | None
++    limit: int | None
+ 
+ 
+ def block_code_for_failure(code: OutcomeCode | None) -> BlockCode:
+     """失敗嘗試對應的擋下原因:DSP 回版本衝突寫「版本已變」(分析端要據此重新規劃),其他失敗照舊寫
+     「同一操作先前已失敗」。執行端終點確認、開始時撞到既有失敗鍵、取件時撞到既有失敗鍵三處共用。"""
+     if code is OutcomeCode.VERSION_CONFLICT:
+         return BlockCode.VERSION_CHANGED
+     return BlockCode.OPERATION_PREVIOUSLY_FAILED
+ 
+ 
+@@ -113,20 +143,26 @@ EVENT_CODES = frozenset(
+ SCHEMA = """
+ CREATE TABLE IF NOT EXISTS proposals (
+     task_id TEXT NOT NULL, revision INTEGER NOT NULL, content_hash TEXT NOT NULL,
+     state TEXT NOT NULL CHECK (state IN ('pending', 'superseded', 'expired')),
+     payload TEXT NOT NULL, expires_at TEXT NOT NULL, received_at TEXT NOT NULL,
+     DISPOSITION_COLUMN, BLOCK_CODE_COLUMN, DEAD_LETTER_COLUMN, LAST_FAILURE_COLUMN, LEASE_COLUMNS,
+     PRIMARY KEY (task_id, revision));
+ CREATE TABLE IF NOT EXISTS inbox_events (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT, revision INTEGER,
+     code TEXT NOT NULL, content_hash TEXT);
++CREATE TABLE IF NOT EXISTS write_stops (
++    id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, task_id TEXT NOT NULL,
++    revision INTEGER NOT NULL, content_hash TEXT NOT NULL, key TEXT NOT NULL, tenant TEXT,
++    campaign_id TEXT NOT NULL, amount INTEGER NOT NULL, used INTEGER, cap INTEGER,
++    capped INTEGER NOT NULL, at TEXT NOT NULL,
++    UNIQUE (kind, task_id, revision, content_hash));
+ """
+ _PROPOSALS_COLUMNS = {
+     "DISPOSITION_COLUMN": _DISPOSITION_COLUMN, "BLOCK_CODE_COLUMN": _BLOCK_CODE_COLUMN,
+     "DEAD_LETTER_COLUMN": _DEAD_LETTER_COLUMN, "LAST_FAILURE_COLUMN": _LAST_FAILURE_COLUMN,
+     "LEASE_COLUMNS": _LEASE_COLUMNS,
+ }
+ for _name, _ddl in _PROPOSALS_COLUMNS.items():
+     SCHEMA = SCHEMA.replace(_name, _ddl)
+ # 收件表現在該有的全部欄位;舊資料庫少了哪幾欄、或處置的資料庫層限制還是舊的,就重建這張表
+ _PROPOSAL_FIELDS = ("task_id", "revision", "content_hash", "state", "payload", "expires_at",
+@@ -286,21 +322,25 @@ class InboxStore:
+             missing += [(table, ddl) for name, ddl in columns if name not in present]
+         return missing
+ 
+     def _proposals_outdated(self) -> bool:
+         """收件表少了欄位,或處置的資料庫層限制還只認舊成員(加欄位改不了 CHECK 約束)。"""
+         present = {row[1] for row in self._conn.execute("PRAGMA table_info(proposals)")}
+         if not set(_PROPOSAL_FIELDS) <= present:
+             return True
+         sql = self._conn.execute(
+             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'proposals'").fetchone()
+-        return sql is None or f"'{Disposition.DEAD_LETTER.value}'" not in sql[0]
++        if sql is None:
++            return True
++        # 逐一比對目前列舉的每一個值:只看某個特定值,下次再加成員就又看不出來(Phase 6 設計審)
++        wanted = [f"'{member.value}'" for member in (*Disposition, *BlockCode)]
++        return any(value not in sql[0] for value in wanted)
+ 
+     def _migrate_columns(self) -> None:
+         """沿用 DSP 與分析行程的補欄位做法:每次連線檢查,缺才在交易內補,拿到鎖後再查一次
+         (等鎖期間別的連線可能已經補好)。舊資料的新欄位一律是空值:處置空=仍待處理。
+ 
+         收件表的處置欄位有資料庫層限制,加成員只能照 SQLite 官方的重建表步驟(建新表、抄資料、
+         換名),整段在同一個立即取得寫入鎖的交易裡。這段只寫在這裡,不放進共用資料庫工具:
+         專案裡只有這一處需要。
+         """
+         if not self._missing_columns() and not self._proposals_outdated():
+@@ -568,20 +608,39 @@ class InboxStore:
+     def ack_blocked(
+         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
+         code: BlockCode,
+     ) -> bool:
+         self._own(tx)
+         if type(code) is not BlockCode:
+             raise ValueError("擋下原因代碼必須是封閉列舉 BlockCode 的成員")
+         return self._finish(receipt, now, "disposition = ?, block_code = ?",
+                             (Disposition.BLOCKED.value, code.value))
+ 
++    def record_stop(
++        self, tx: attempt_store.ExecutorTransaction, stop: Stop, now: datetime,
++    ) -> None:
++        """寫一列停下紀錄(只增不改、不清理):同一份提案同一種類只記一列,重投時再記一次就略過。
++
++        已用額度與門檻寫入時封頂在資料庫整數上限並標記(舊資料保守加總可能超過,寫不進去會讓
++        整個擋下交易回滾、提案反覆重試又沒留證據)。"""
++        self._own(tx)
++        capped = any(v is not None and v > MAX_INT for v in (stop.used, stop.limit))
++        used, cap = (None if v is None else min(v, MAX_INT) for v in (stop.used, stop.limit))
++        prop = stop.proposal
++        self._conn.execute(
++            "INSERT OR IGNORE INTO write_stops (kind, task_id, revision, content_hash, key, "
++            "tenant, campaign_id, amount, used, cap, capped, at) "
++            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
++            (stop.kind.value, prop.task_id, prop.revision, content_hash(prop), stop.key,
++             stop.tenant, prop.campaign_id, min(stop.amount, MAX_INT), used, cap, int(capped),
++             _iso(now)))
++
+     def ack_expired(
+         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
+     ) -> bool:
+         """提案過期沿用既有的「已過期」狀態,不是處置:處置清空,從此不可取件。"""
+         self._own(tx)
+         return self._finish(receipt, now, "state = 'expired', disposition = NULL", ())
+ 
+     def in_progress_for(
+         self, tx: attempt_store.ExecutorTransaction, task_id: str, key: str,
+     ) -> PendingProposal | None:

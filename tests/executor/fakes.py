@@ -34,9 +34,16 @@ def proposal(**overrides):
     return parsed.proposal
 
 
-def write_config(path: Path, campaigns=("c1", "c2", "c3"), max_budget=1000):
-    path.write_text(json.dumps({"tenants": {"t-default": {
-        "campaigns": list(campaigns), "max_budget": max_budget}}}), encoding="utf-8")
+# 總曝險門檻預設給寬鬆值:Phase 6 之前的測試不是在測總曝險,缺欄會當 0 把加預算全擋掉
+LOOSE_AGGREGATE_LIMIT = 10**12
+
+
+def write_config(path: Path, campaigns=("c1", "c2", "c3"), max_budget=1000,
+                 aggregate_limit=LOOSE_AGGREGATE_LIMIT):
+    spec = {"campaigns": list(campaigns), "max_budget": max_budget}
+    if aggregate_limit is not None:
+        spec["aggregate_limit"] = aggregate_limit
+    path.write_text(json.dumps({"tenants": {"t-default": spec}}), encoding="utf-8")
     os.chmod(path, 0o600)
     return path
 
