@@ -10,6 +10,7 @@ about_code:
   - src/rtb/dsp/errors.py
   - src/rtb/dsp/server.py
   - src/rtb/dsp/capability.py
+  - tests/executor/fakes.py
 tags:
   - type/system
   - status/doing
@@ -88,3 +89,9 @@ REVISIT:2026-11-30 盤點作廢表的筆數成長,決定要不要設保留期與
 - 作廢端點:路徑掛在廣告底下、帶冪等鍵標頭與能力憑證,本文帶預期版本;驗證順序與範圍檢查照寫入端點(同一個函式),端點把自己的動作常數「void_operation」交給範圍檢查,所以一般寫入憑證拿來作廢會因動作不符被拒。防回歸:[test:test_voiding_needs_a_void_capability_scoped_to_the_key]
 - 操作紀錄補存預期版本(照補欄位做法;舊列留空值),用鍵查詢的端點多回參數、預期版本與冪等鍵。防回歸:[test:test_the_operation_lookup_returns_params_and_expected_version]、[test:test_an_old_dsp_database_gains_the_expected_version_column]
 - 寫入路由分兩類:改廣告的(改預算、暫停,`CAMPAIGN_WRITE_ACTIONS`)與作廢;兩支既有窮舉測試改成分兩類明列。
+
+## 執行行程測試用的假 DSP(2026-09-23)
+
+- RULE: tests/executor/fakes.py 的假 DSP 的冪等語意要跟真 DSP 對齊:同一把鍵再寫一次,內容相同回第一次的結果、內容不同回冪等衝突,已作廢的鍵回操作已作廢。改真 DSP 的冪等判斷時回頭改假 DSP。[since:2026-09-23] [retire:執行行程測試改用真 DSP 時]
+- WHY: Phase 4 增量 3a 設計審第 2 輪指出假 DSP 同鍵第二次寫入會再套用一次:失去租約的工作者醒來補送的舊請求本來就會晚到,不去重就變成假的「套用兩次」。攔截點(on_write)在狀態鎖外面先跑:等在攔截點的工作者若握著鎖,接手的另一個永遠寫不進來(第 3 輪外家席)。出處:[[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3a。
+
