@@ -1,0 +1,46 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "前兩輪修正驗收與鏡像(末輪)",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r3-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r2-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "s2",
+  "lens": "副作用核對端到端可行性(末輪)",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r3-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r2-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r3-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r2-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "lens": "外家 Codex(末輪)",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r3-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r2-intake.md"
+  ],
+  "auditor": "codex"
+ }
+]

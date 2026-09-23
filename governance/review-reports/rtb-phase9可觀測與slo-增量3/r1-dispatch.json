@@ -1,0 +1,72 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "服務水準指標定義與事件型",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "燒損數學與 SRE 對照",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "副作用核對的資料來源",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "可測性與完成條件",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "相容、遷移與成本",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家 Codex",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量3/r1-intake.md"
+  ],
+  "auditor": "codex"
+ }
+]

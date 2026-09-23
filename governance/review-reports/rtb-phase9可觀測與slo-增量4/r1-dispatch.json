@@ -1,0 +1,72 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "調查劇本對照程式碼的可行性",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "指標與切片只用增量 1 到 3",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "下鑽、時間線與 DSP 歷史",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "稽核守衛",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "可測性、完成條件與合約句",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量4/r1-intake.md"
+  ],
+  "auditor": "codex"
+ }
+]
