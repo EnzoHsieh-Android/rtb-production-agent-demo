@@ -97,11 +97,15 @@ class AggregateLimitReached(AttemptRejected):
 
 @dataclass(frozen=True)
 class Reservation:
-    """開始一筆時要記的預留:租戶、這筆加預算的金額(減預算與暫停是 0)、簽發時讀到的門檻。"""
+    """開始一筆時要記的預留:租戶、這筆加預算的金額(減預算與暫停是 0)、簽發時讀到的門檻。
+
+    approved:呼叫端手上有這一筆「總曝險已滿」的有效人工核可(Phase 6 增量 3;金額不超過核可
+    上限由呼叫端驗過)。有核可時照樣算已用額度、照樣寫預留,只是超過門檻也放行。"""
 
     tenant: str
     amount: int
     limit: int
+    approved: bool = False
 
 
 class TooManyUnresolved(AttemptRejected):
@@ -180,6 +184,8 @@ class AttemptRow:
 class Begun:
     row: AttemptRow
     created: bool  # False:鍵已存在,原樣回傳目前那一列——呼叫端依狀態分支,絕不因此直接再送
+    # 靠人工核可超過門檻放行時,當時的已用額度與門檻(寫核可使用紀錄用);沒超過是空值
+    over_limit: AggregateLimitReached | None = None
 
 
 def _require_aware(now: datetime) -> None:
@@ -330,10 +336,13 @@ def begin(
         raise CampaignLocked(proposal.campaign_id)
     if unresolved_count(tx) >= MAX_UNRESOLVED:
         raise TooManyUnresolved()
+    over_limit = None
     if reservation is not None and reservation.amount > 0:
         used = aggregate_used(tx, reservation.tenant, now)
         if used + reservation.amount > reservation.limit:
-            raise AggregateLimitReached(used, reservation.limit)
+            over_limit = AggregateLimitReached(used, reservation.limit)
+            if not reservation.approved:
+                raise over_limit
     snapshot_json = json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True,
                                allow_nan=False)
     conn.execute(
@@ -349,7 +358,7 @@ def begin(
     )
     row = latest(tx, key)
     assert row is not None  # 剛寫入的那一列  # noqa: S101
-    return Begun(row, created=True)
+    return Begun(row, created=True, over_limit=over_limit)
 
 
 def aggregate_used(tx: ExecutorTransaction, tenant: str, now: datetime) -> int:

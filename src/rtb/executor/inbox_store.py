@@ -15,6 +15,10 @@
 已交給執行、已擋下、死信(後三者是確認)。租約照 Phase 0 的裁定:到期時間加序號加擁有者;
 延長租約、確認與嘗試寫入一律帶收據做條件寫入,對不上就更新 0 列,呼叫端放棄這把鍵。
 處理中不是待處理:不佔名額、不會被取代、不會被收件時的到期標記改、任務不會被保留期清除。
+
+待核可(Phase 6 增量 3):被總曝險已滿或比例過大擋下、還沒有人工核可的提案停在這裡。跟處理中
+一樣是暫時狀態、算任務還沒結束;取件不會撿到它,由執行迴圈每輪的「處理待核可」那一步放回待處理、
+確認成已擋下或被取代。核可表與核可使用表也在這裡建(只增不改);驗核可在執行行程,不在這裡。
 """
 
 import json
@@ -57,6 +61,8 @@ class Disposition(StrEnum):
     HANDED_OFF = "handed_off"  # 已交給執行:這把鍵的嘗試到了已驗證
     BLOCKED = "blocked"  # 執行前檢查沒過或這把鍵的嘗試失敗,附擋下原因代碼
     DEAD_LETTER = "dead_letter"  # 沒有嘗試紀錄、投遞次數用完:不再交出去
+    # 可核可的擋法還沒有有效核可(Phase 6 增量 3):暫時狀態,擋下原因欄記是哪一關
+    AWAITING_APPROVAL = "awaiting_approval"
 
 
 class DeadLetterReason(StrEnum):
@@ -98,11 +104,16 @@ class StopKind(StrEnum):
 
     AGGREGATE_LIMIT_REACHED = "aggregate_limit_reached"  # 總曝險已滿:擋下結案
     TABLE_FULL = "table_full"  # 全表未結案已滿:延後重投
+    BUDGET_INCREASE_TOO_LARGE = "budget_increase_too_large"  # 比例過大:進待核可(增量 3)
+
+
+# 可以人工核可的兩種擋法(Phase 6 增量 3):都是「量的上限」;硬規則寫進去就是錯的,不能核可
+APPROVABLE = frozenset({BlockCode.AGGREGATE_LIMIT_REACHED, BlockCode.BUDGET_INCREASE_TOO_LARGE})
 
 
 @dataclass(frozen=True)
 class Stop:
-    """一筆停下紀錄的內容;兩種停法都記當時已用額度與門檻(沒有簽發到租戶的舊路徑才是空值)。"""
+    """一筆停下紀錄的內容。總曝險已滿與表滿延後記當時已用額度與門檻;比例過大這兩欄是空值。"""
 
     kind: StopKind
     proposal: Proposal
@@ -136,8 +147,9 @@ _LEASE_COLUMNS = ("lease_until TEXT, lease_seq INTEGER NOT NULL DEFAULT 0, lease
 # 「待處理」= 狀態待處理而且沒有處置;收件口每一條規則都用這一句,不各寫一份
 PENDING = "state = 'pending' AND disposition IS NULL"
 IN_PROGRESS = "state = 'pending' AND disposition = 'in_progress'"
-# 保留期清除與「任務是否結束」都看這一句:處理中也算還沒結束
-OPEN = f"(({PENDING}) OR ({IN_PROGRESS}))"
+AWAITING = "state = 'pending' AND disposition = 'awaiting_approval'"
+# 保留期清除與「任務是否結束」都看這一句:處理中、待核可也算還沒結束
+OPEN = f"(({PENDING}) OR ({IN_PROGRESS}) OR ({AWAITING}))"
 EVENT_CODES = frozenset(
     {"content_conflict", "revision_out_of_order", "inbox_full", "expired_proposal",
      "expiry_too_far", "created_in_future", "too_many_revisions"}
@@ -158,6 +170,18 @@ CREATE TABLE IF NOT EXISTS write_stops (
     campaign_id TEXT NOT NULL, amount INTEGER NOT NULL, used INTEGER, cap INTEGER,
     capped INTEGER NOT NULL, at TEXT NOT NULL,
     UNIQUE (kind, task_id, revision, content_hash));
+CREATE TABLE IF NOT EXISTS approvals (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL,
+    task_id TEXT NOT NULL, revision INTEGER NOT NULL, content_hash TEXT NOT NULL,
+    stage TEXT NOT NULL CHECK (stage IN (APPROVABLE_LIST)), token TEXT NOT NULL, at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS approvals_by_proposal
+    ON approvals (task_id, revision, content_hash, stage);
+CREATE TABLE IF NOT EXISTS approval_uses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL, task_id TEXT NOT NULL,
+    revision INTEGER NOT NULL, content_hash TEXT NOT NULL, key TEXT NOT NULL, tenant TEXT NOT NULL,
+    stage TEXT NOT NULL, amount INTEGER NOT NULL, used INTEGER, cap INTEGER,
+    capped INTEGER NOT NULL, at TEXT NOT NULL,
+    UNIQUE (task_id, revision, content_hash, stage));
 """
 _PROPOSALS_COLUMNS = {
     "DISPOSITION_COLUMN": _DISPOSITION_COLUMN, "BLOCK_CODE_COLUMN": _BLOCK_CODE_COLUMN,
@@ -166,6 +190,7 @@ _PROPOSALS_COLUMNS = {
 }
 for _name, _ddl in _PROPOSALS_COLUMNS.items():
     SCHEMA = SCHEMA.replace(_name, _ddl)
+SCHEMA = SCHEMA.replace("APPROVABLE_LIST", ", ".join(sorted(f"'{c.value}'" for c in APPROVABLE)))
 # 收件表現在該有的全部欄位;舊資料庫少了哪幾欄、或處置的資料庫層限制還是舊的,就重建這張表
 _PROPOSAL_FIELDS = ("task_id", "revision", "content_hash", "state", "payload", "expires_at",
                     "received_at", "disposition", "block_code", "dead_letter_reason",
@@ -255,6 +280,36 @@ class Receipt:
 class Delivery:
     message: PendingProposal
     receipt: Receipt
+
+
+@dataclass(frozen=True)
+class AwaitingProposal:
+    """一份待核可的提案,連同它停在哪一關。"""
+
+    message: PendingProposal
+    stage: BlockCode
+
+
+@dataclass(frozen=True)
+class ApprovalUse:
+    """核可生效時寫的一列使用紀錄(稽核用);比例過大那一關的已用額度與門檻是空值。"""
+
+    approval_id: str
+    proposal: Proposal
+    key: str
+    tenant: str
+    stage: BlockCode
+    amount: int
+    used: int | None
+    limit: int | None
+
+
+class AwaitingOutcome(StrEnum):
+    """處理待核可那一步對一份待核可提案的三種處置。"""
+
+    EXPIRED = "expired"  # 提案到期:確認成已擋下,擋下原因是原本那一關
+    SUPERSEDED = "superseded"  # 同任務已有更新的修訂:被取代,不放回
+    RELEASED = "released"  # 有這一關的有效核可:放回待處理、投遞次數歸零
 
 
 @dataclass(frozen=True)
@@ -635,6 +690,160 @@ class InboxStore:
             (stop.kind.value, prop.task_id, prop.revision, content_hash(prop), stop.key,
              stop.tenant, prop.campaign_id, min(stop.amount, MAX_INT), used, cap, int(capped),
              _iso(now)))
+
+    def await_approval(
+        self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
+        stage: BlockCode,
+    ) -> bool:
+        """帶收據把處置寫成待核可,擋下原因欄記是哪一關;租約清空(不再歸任何工作者)。"""
+        self._own(tx)
+        if stage not in APPROVABLE:
+            raise ValueError("只有總曝險已滿與比例過大可以等人工核可")
+        return self._finish(receipt, now, "disposition = ?, block_code = ?",
+                            (Disposition.AWAITING_APPROVAL.value, stage.value))
+
+    def awaiting(
+        self, tx: attempt_store.ExecutorTransaction, now: datetime,
+    ) -> list[AwaitingProposal]:
+        """這一輪有事可做的待核可提案,依收件時間由舊到新:已到期、同任務有更新的修訂、這一關有人
+        簽過核可、或同任務已開過嘗試(同一把鍵可能已由另一份修訂在做)。其他待核可不讀,每輪的
+        工作量不隨待核可堆積變大(代碼審第 3 輪資安席:失控的來源能堆到全表上限)。這裡是寬的
+        預篩,真正的判斷在執行迴圈。讀不回來的列跳過(待核可沒有租約,不會卡住別人;真的資料
+        損毀才會走到,留給人看)。"""
+        self._own(tx)
+        result = []
+        for task_id, revision, digest, payload, code in self._conn.execute(
+                "SELECT p.task_id, p.revision, p.content_hash, p.payload, p.block_code "
+                "FROM proposals p WHERE p.state = 'pending' "
+                "AND p.disposition = 'awaiting_approval' "
+                "AND (p.expires_at <= ? "
+                "OR EXISTS (SELECT 1 FROM proposals n WHERE n.task_id = p.task_id "
+                "AND n.revision > p.revision) "
+                "OR EXISTS (SELECT 1 FROM approvals a WHERE a.task_id = p.task_id "
+                "AND a.revision = p.revision AND a.content_hash = p.content_hash "
+                "AND a.stage = p.block_code) "
+                "OR EXISTS (SELECT 1 FROM attempts f WHERE f.task_id = p.task_id AND f.seq = 1)) "
+                "ORDER BY p.received_at, p.task_id, p.revision", (_iso(now),)).fetchall():
+            proposal = _parse_payload(payload)
+            if proposal is not None:
+                result.append(AwaitingProposal(
+                    PendingProposal(task_id, revision, digest, proposal), BlockCode(code)))
+        return result
+
+    def has_newer_revision(
+        self, tx: attempt_store.ExecutorTransaction, task_id: str, revision: int,
+    ) -> bool:
+        self._own(tx)
+        return self._highest_revision(task_id) > revision
+
+    def settle_awaiting(
+        self, tx: attempt_store.ExecutorTransaction, message: PendingProposal,
+        outcome: AwaitingOutcome, now: datetime,
+    ) -> bool:
+        """處理待核可的三種轉換;寫入條件是「這一列現在仍是待核可」,0 列就是別的工作者先處理了。
+
+        待核可沒有租約與收據可以比對,這個條件就是它的並行防線。"""
+        self._own(tx)
+        assignment = {
+            AwaitingOutcome.EXPIRED: ("disposition = ?", (Disposition.BLOCKED.value,)),
+            AwaitingOutcome.SUPERSEDED: ("state = 'superseded', disposition = NULL, "
+                                         "block_code = NULL", ()),
+            AwaitingOutcome.RELEASED: ("disposition = NULL, block_code = NULL, deliveries = 0, "
+                                       "lease_until = NULL, lease_owner = NULL", ()),
+        }[outcome]
+        cursor = self._conn.execute(
+            f"UPDATE proposals SET {assignment[0]} WHERE task_id = ? AND revision = ? "  # noqa: S608 - 只拼接模組內固定的欄位
+            f"AND content_hash = ? AND {AWAITING}",
+            (*assignment[1], message.task_id, message.revision, message.content_hash))
+        del now  # 目前三種轉換都不記時間;留著參數讓呼叫端照慣例在拿到寫入鎖後才讀時鐘
+        return cursor.rowcount == 1
+
+    def stop_amount(
+        self, tx: attempt_store.ExecutorTransaction, message: PendingProposal, stage: BlockCode,
+    ) -> int | None:
+        """這份提案停在這一關時記下的金額(放回前判核可上限夠不夠用)。"""
+        self._own(tx)
+        row = self._conn.execute(
+            "SELECT amount FROM write_stops WHERE kind = ? AND task_id = ? AND revision = ? "
+            "AND content_hash = ?",
+            (stage.value, message.task_id, message.revision, message.content_hash)).fetchone()
+        return None if row is None else int(row[0])
+
+    def latest_approval(
+        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, stage: BlockCode,
+    ) -> str | None:
+        """同一份提案同一關最後寫進核可表的那一張(自動遞增列號最大);不回頭找舊的。"""
+        self._own(tx)
+        row = self._conn.execute(
+            "SELECT token FROM approvals WHERE task_id = ? AND revision = ? AND content_hash = ? "
+            "AND stage = ? ORDER BY seq DESC LIMIT 1",
+            (proposal.task_id, proposal.revision, content_hash(proposal), stage.value)).fetchone()
+        return None if row is None else str(row[0])
+
+    def used_approvals(
+        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal,
+    ) -> list[tuple[BlockCode, str]]:
+        """這份提案用過的核可(關卡、整張核可):同鍵重送前要再核一次它們都還算數。"""
+        self._own(tx)
+        # 同一張核可可能寫過好幾列(每次下達一列),接出來會重複;內容一樣,逐張核對結果不變
+        return [(BlockCode(stage), str(token)) for stage, token in self._conn.execute(
+            "SELECT u.stage, a.token FROM approval_uses u "
+            "JOIN approvals a ON a.approval_id = u.approval_id "
+            "WHERE u.task_id = ? AND u.revision = ? AND u.content_hash = ? ORDER BY u.id",
+            (proposal.task_id, proposal.revision, content_hash(proposal))).fetchall()]
+
+    def record_approval_use(
+        self, tx: attempt_store.ExecutorTransaction, use: ApprovalUse, now: datetime,
+    ) -> None:
+        """核可生效時在開始一筆的同一個交易裡寫一列;同一份提案同一關只記一列。數字比照停下紀錄
+        封頂在整數上限並標記。"""
+        self._own(tx)
+        capped = any(v is not None and v > MAX_INT for v in (use.used, use.limit))
+        used, cap = (None if v is None else min(v, MAX_INT) for v in (use.used, use.limit))
+        prop = use.proposal
+        self._conn.execute(
+            "INSERT OR IGNORE INTO approval_uses (approval_id, task_id, revision, content_hash, "
+            "key, tenant, stage, amount, used, cap, capped, at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (use.approval_id, prop.task_id, prop.revision, content_hash(prop), use.key,
+             use.tenant, use.stage.value, min(use.amount, MAX_INT), used, cap, int(capped),
+             _iso(now)))
+
+    # ---- 核可管理工具用:各自一個交易 ----
+    def find_proposal(self, task_id: str, revision: int) -> AwaitingProposal | None:
+        """管理工具要簽核可的那一份提案,連同它現在停在哪一關:只有待核可的才回;讀不回來、
+        沒有、或不是待核可都回 None(不能替還沒走到的一關預先簽核可,代碼審第 3 輪外家席)。"""
+        try:
+            with immediate_transaction(self._conn):
+                row = self._conn.execute(
+                    f"SELECT content_hash, payload, block_code FROM proposals "  # noqa: S608 - 固定條件
+                    f"WHERE task_id = ? AND revision = ? AND {AWAITING}",
+                    (task_id, revision)).fetchone()
+        except DatabaseBusy as exc:
+            raise InboxBusy(str(exc)) from exc
+        proposal = None if row is None else _parse_payload(row[1])
+        if row is None or proposal is None:
+            return None
+        return AwaitingProposal(PendingProposal(task_id, revision, row[0], proposal),
+                                BlockCode(row[2]))
+
+    def add_approval(
+        self, proposal: Proposal, stage: BlockCode, approval_id: str, token: str, now: datetime,
+    ) -> None:
+        """寫一張核可(只增不改)。驗章在執行行程,這裡只存。每次下達都寫一列,「最新」照自動遞增
+        列號:同一秒同樣參數重跑管理工具會簽出一模一樣的一張,它照樣成為最新(依序簽 A、B、再簽 A,
+        最新是 A)。所以核可編號不設唯一(代碼審第 1 輪相容席、第 2 輪外家席)。"""
+        if stage not in APPROVABLE:
+            raise ValueError("只有總曝險已滿與比例過大可以核可")
+        try:
+            with immediate_transaction(self._conn):
+                self._conn.execute(
+                    "INSERT INTO approvals (approval_id, task_id, revision, "
+                    "content_hash, stage, token, at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (approval_id, proposal.task_id, proposal.revision, content_hash(proposal),
+                     stage.value, token, _iso(now)))
+        except DatabaseBusy as exc:
+            raise InboxBusy(str(exc)) from exc
 
     def ack_expired(
         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,

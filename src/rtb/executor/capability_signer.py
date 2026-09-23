@@ -46,11 +46,12 @@ class Tenant:
 
 @dataclass(frozen=True)
 class Grant:
-    """簽發結果:憑證,加上同一次讀設定檔得到的租戶與總額上限(開始一筆時比對額度用)。"""
+    """簽發結果:憑證與它的到期時間,加上同一次讀設定檔得到的整個租戶(總額上限、租戶名稱、
+    人工核可的範圍指紋都從這一個物件取,不另外攤平一份,Phase 6 增量 3)。"""
 
     token: str
-    tenant: str
-    aggregate_limit: int
+    tenant: Tenant
+    expires_at: int  # 秒;有「最晚到期」時取兩者較早的那一個
 
 
 def _check_owner_and_mode(fd: int, what: str) -> None:
@@ -115,6 +116,12 @@ def load_tenants(path: Path) -> tuple[Tenant, ...]:
     return _parse_tenants(_read_config_securely(Path(path)))
 
 
+def tenant_for(tenants: tuple[Tenant, ...], campaign_id: str) -> Tenant | None:
+    """這個廣告屬於哪個租戶(一個廣告只屬於一個租戶,解析時已驗);不屬於任何租戶回 None。
+    簽發、處理待核可、核可管理工具三處共用,不各寫一份(Phase 6 增量 3 代碼審)。"""
+    return next((t for t in tenants if campaign_id in t.campaigns), None)
+
+
 class CapabilitySigner:
     def __init__(self, key: bytes | None):
         if not is_usable_key(key):
@@ -128,18 +135,23 @@ class CapabilitySigner:
 
     def grant(
         self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
+        not_after: int | None = None,
     ) -> Grant:
-        """同 sign,另外帶回這次讀到的租戶與總額上限:門檻跟單一廣告上限同一個生效語意(簽發時讀,
-        改設定從下一次簽發起生效),開始一筆時不在寫入鎖裡再讀設定檔。"""
+        """同 sign,另外帶回這次讀到的租戶:門檻跟單一廣告上限同一個生效語意(簽發時讀,改設定從
+        下一次簽發起生效),開始一筆時不在寫入鎖裡再讀設定檔。
+
+        not_after 是「最晚到期」(Phase 6 增量 3):用到人工核可的那一筆,憑證不能活得比核可久。"""
         tenant = self._tenant_of(proposal, config_path)
         new_budget = None
         if proposal.action_type is ActionType.UPDATE_BUDGET:
             new_budget = proposal.requested_change["new_budget"]
             if new_budget > tenant.max_budget:
                 raise SigningRefused("over_budget_cap")
+        expires = now + LIFETIME_SECONDS if not_after is None else min(
+            now + LIFETIME_SECONDS, not_after)
         token = self._encode(proposal, operation_key, tenant, proposal.action_type.value,
-                             new_budget, now)
-        return Grant(token, tenant.name, tenant.aggregate_limit)
+                             new_budget, now, expires)
+        return Grant(token, tenant, expires)
 
     def sign_void(
         self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
@@ -147,25 +159,25 @@ class CapabilitySigner:
         """簽「作廢這把鍵」:只檢查廣告屬於允許的租戶,不檢查預算上限——作廢是撤掉一個寫入,
         不是在寫。設定檔壞掉或不安全照舊丟 SigningRefused(呼叫端當系統故障)。"""
         tenant = self._tenant_of(proposal, config_path)
-        return self._encode(proposal, operation_key, tenant, VOID_ACTION, None, now)
+        return self._encode(proposal, operation_key, tenant, VOID_ACTION, None, now,
+                            now + LIFETIME_SECONDS)
 
     @staticmethod
     def _tenant_of(proposal: Proposal, config_path: Path) -> Tenant:
-        tenants = load_tenants(config_path)
-        tenant = next((t for t in tenants if proposal.campaign_id in t.campaigns), None)
+        tenant = tenant_for(load_tenants(config_path), proposal.campaign_id)
         if tenant is None:
             raise SigningRefused("campaign_not_allowed")
         return tenant
 
-    def _encode(
+    def _encode(  # noqa: PLR0913 - 每個參數都是聲明的一個欄位
         self, proposal: Proposal, operation_key: str, tenant: Tenant, action: str,
-        new_budget: int | None, now: int,
+        new_budget: int | None, now: int, expires: int,
     ) -> str:
         claims = {
             "v": FORMAT_VERSION, "tenant": tenant.name, "campaign_id": proposal.campaign_id,
             "action": action, "new_budget": new_budget,
             "expected_version": proposal.campaign_version_observed,
             "idempotency_key": operation_key, "policy_version": proposal.policy_version,
-            "iat": now, "exp": now + LIFETIME_SECONDS,
+            "iat": now, "exp": expires,
         }
         return encode(claims, self._key)

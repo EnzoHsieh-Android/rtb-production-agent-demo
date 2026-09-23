@@ -24,7 +24,7 @@ from rtb.executor.execution import (
     WriteAnswer,
 )
 from rtb.executor.inbox_store import InboxStore
-from tests.capability_samples import TEST_KEY
+from tests.capability_samples import TEST_APPROVAL_KEY, TEST_KEY
 from tests.domain.proposal_samples import valid
 
 
@@ -166,8 +166,9 @@ class Harness:
         self.config = write_config(tmp_path / "tenants.json")
         self.signer = CapabilitySigner(TEST_KEY)
 
-    def executor(self):
-        return Executor(self.store, self.dsp, self.signer, self.config, self.clock)
+    def executor(self, owner="executor"):
+        return Executor(self.store, self.dsp, self.signer, self.config, self.clock, owner,
+                        TEST_APPROVAL_KEY)
 
     def submit(self, **overrides):
         prop = proposal(**overrides)

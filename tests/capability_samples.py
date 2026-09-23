@@ -9,6 +9,7 @@ import time
 from rtb.capabilitykit import MIN_KEY_BYTES, encode
 
 TEST_KEY = b"test-capability-key-" + b"0" * MIN_KEY_BYTES
+TEST_APPROVAL_KEY = b"test-approval-key-" + b"1" * MIN_KEY_BYTES  # 人工核可(Phase 6 增量 3)
 DEFAULT_TENANT = "t-default"
 LIFETIME = 120
 

@@ -1,0 +1,1358 @@
+diff --git a/tests/analyzer/test_boundaries.py b/tests/analyzer/test_boundaries.py
+index 61aea3f..46da31c 100644
+--- a/tests/analyzer/test_boundaries.py
++++ b/tests/analyzer/test_boundaries.py
+@@ -132,29 +132,30 @@ def _network_offenders(label, tree):
+         offenders += [f"{label}: {m}" for m in modules
+                       if m in NETWORK_MODULES or m.split(".")[0] in NETWORK_MODULES]
+     return offenders
+ 
+ 
+ # ---- 寫入能力憑證 S30 ----
+ def test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer():
+     """直接解析分析行程的原始碼,不看 noqa:ruff 禁令一行 noqa 就能跳過(領域層踩過同一個坑)。"""
+     import ast
+ 
+-    from rtb.capabilitykit import KEY_ENV
++    from rtb.capabilitykit import APPROVAL_KEY_ENV, KEY_ENV
+     from rtb.executor import capability_signer
+ 
+     analyzer = Path(__file__).resolve().parents[2] / "src" / "rtb" / "analyzer"
+     offenders = []
+     for file in sorted(analyzer.rglob("*.py")):
+         source = file.read_text(encoding="utf-8")
+-        if KEY_ENV in source:
+-            offenders.append((file.name, "key env name"))
++        for name in (KEY_ENV, APPROVAL_KEY_ENV):  # 簽發金鑰與人工核可金鑰(Phase 6 增量 3)
++            if name in source:
++                offenders.append((file.name, name))
+         for node in ast.walk(ast.parse(source)):
+             names = []
+             if isinstance(node, ast.Import):
+                 names = [alias.name for alias in node.names]
+             elif isinstance(node, ast.ImportFrom):
+                 names = [node.module or ""]
+             for name in names:
+                 if name.startswith(("rtb.executor", "rtb.capabilitykit")):
+                     offenders.append((file.name, name))
+     assert offenders == []
+diff --git a/tests/capability_samples.py b/tests/capability_samples.py
+index 7e19f12..2da9d37 100644
+--- a/tests/capability_samples.py
++++ b/tests/capability_samples.py
+@@ -2,20 +2,21 @@
+ 
+ 刻意不做「共用設定自動附上」:既有合約測試明確呼叫 header() 帶合法憑證、走真實驗證路徑;
+ 拒收測試直接不帶或組壞的,不會被自動簽章蓋掉。
+ """
+ 
+ import time
+ 
+ from rtb.capabilitykit import MIN_KEY_BYTES, encode
+ 
+ TEST_KEY = b"test-capability-key-" + b"0" * MIN_KEY_BYTES
++TEST_APPROVAL_KEY = b"test-approval-key-" + b"1" * MIN_KEY_BYTES  # 人工核可(Phase 6 增量 3)
+ DEFAULT_TENANT = "t-default"
+ LIFETIME = 120
+ 
+ 
+ def claims(campaign_id="c1", action="update_budget", new_budget=150, expected_version=1,  # noqa: PLR0913 - 每個參數對應一個聲明欄位
+            idempotency_key="k1", tenant=DEFAULT_TENANT, iat=None, exp=None, **overrides):
+     issued = int(time.time()) if iat is None else iat
+     body = {
+         "v": "c1", "tenant": tenant, "campaign_id": campaign_id, "action": action,
+         "new_budget": new_budget if action == "update_budget" else None,
+diff --git a/tests/executor/fakes.py b/tests/executor/fakes.py
+index dfab8f6..3a9b47e 100644
+--- a/tests/executor/fakes.py
++++ b/tests/executor/fakes.py
+@@ -17,21 +17,21 @@ from rtb.domain.proposal import ActionType, parse_proposal
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.execution import (
+     CampaignView,
+     DspUnavailable,
+     Executor,
+     OperationRecord,
+     VoidAnswer,
+     WriteAnswer,
+ )
+ from rtb.executor.inbox_store import InboxStore
+-from tests.capability_samples import TEST_KEY
++from tests.capability_samples import TEST_APPROVAL_KEY, TEST_KEY
+ from tests.domain.proposal_samples import valid
+ 
+ 
+ def proposal(**overrides):
+     parsed = parse_proposal(valid(**overrides))
+     assert parsed.proposal is not None, parsed.errors
+     return parsed.proposal
+ 
+ 
+ # 總曝險門檻預設給寬鬆值:Phase 6 之前的測試不是在測總曝險,缺欄會當 0 把加預算全擋掉
+@@ -159,22 +159,23 @@ class Harness:
+     """一個執行行程資料庫 + 假 DSP + 真的簽發器與租戶設定檔,時間由測試控制。"""
+ 
+     def __init__(self, tmp_path, clock, max_pending=20):
+         self.tmp_path, self.clock = tmp_path, clock
+         self.db = tmp_path / "executor.db"
+         self.store = InboxStore(self.db, max_pending=max_pending)
+         self.dsp = FakeDsp()
+         self.config = write_config(tmp_path / "tenants.json")
+         self.signer = CapabilitySigner(TEST_KEY)
+ 
+-    def executor(self):
+-        return Executor(self.store, self.dsp, self.signer, self.config, self.clock)
++    def executor(self, owner="executor"):
++        return Executor(self.store, self.dsp, self.signer, self.config, self.clock, owner,
++                        TEST_APPROVAL_KEY)
+ 
+     def submit(self, **overrides):
+         prop = proposal(**overrides)
+         self.store.accept(prop, self.clock)
+         return prop
+ 
+     def process(self):
+         return self.executor().process_one()
+ 
+     def query(self, sql, params=()):
+diff --git a/tests/executor/test_aggregate_limit.py b/tests/executor/test_aggregate_limit.py
+index 36015b3..1cb5f42 100644
+--- a/tests/executor/test_aggregate_limit.py
++++ b/tests/executor/test_aggregate_limit.py
+@@ -88,37 +88,46 @@ FAIL = [(A.FAILED, C.VERSION_CONFLICT)]
+ # ---- [S330] ----
+ def test_a_budget_increase_reserves_its_amount_with_the_first_attempt(h):
+     limit(h, 1000)
+     prop = h.submit()  # 100 -> 150
+ 
+     assert h.process().kind is Result.EXECUTED
+     assert first_row(h, prop) == [(TENANT, 50)]
+     assert stops(h) == []
+ 
+ 
+-# ---- [S331] ----
+-@pytest.mark.parametrize(("cap", "second"), [(99, Result.BLOCKED), (100, Result.EXECUTED)])
++def expire_and_settle(h):
++    """撥時鐘過提案到期,跑一次處理待核可:沒有核可的待核可確認成已擋下(增量 3 改寫)。"""
++    h.clock.advance(hours=1, seconds=1)
++    return h.executor().process_awaiting()
++
++
++# ---- [S331](增量 3 改寫:沒有有效核可時先進待核可,到期才確認成已擋下) ----
++@pytest.mark.parametrize(("cap", "second"),
++                         [(99, Result.AWAITING_APPROVAL), (100, Result.EXECUTED)])
+ def test_the_aggregate_limit_blocks_at_the_threshold_and_allows_exactly_reaching_it(
+         h, cap, second):
+     limit(h, cap)
+     h.submit()
+     other = h.submit(task_id="t2", campaign_id="c2")
+     assert h.process().kind is Result.EXECUTED
+ 
+     result = h.process()
+ 
+     assert result.kind is second
+-    if second is Result.BLOCKED:
++    if second is Result.AWAITING_APPROVAL:
+         assert result.block_code is BlockCode.AGGREGATE_LIMIT_REACHED
+-        assert h.proposals()[1][3:] == ("blocked", "aggregate_limit_reached")
++        assert h.proposals()[1][3:] == ("awaiting_approval", "aggregate_limit_reached")
+         assert first_row(h, other) == []  # 不開嘗試
+         assert len(h.dsp.writes) == 1  # 不呼叫 DSP
++        assert expire_and_settle(h) == 1
++        assert h.proposals()[1][3:] == ("blocked", "aggregate_limit_reached")
+ 
+ 
+ # ---- [S332] ----
+ @pytest.mark.parametrize("state", list(PATHS))
+ def test_an_unresolved_reservation_counts_no_matter_how_old(store_only, state):
+     row = begin(store_only, proposal(), reservation=Reservation(TENANT, 50, 1000))
+     row = drive(store_only, row, PATHS[state])
+ 
+     assert used(store_only, NOW + timedelta(days=30)) == 50  # 一個月後還算
+ 
+@@ -233,44 +242,44 @@ def _race_two_workers(h, monkeypatch):
+ 
+ 
+ def test_two_workers_cannot_race_past_the_aggregate_limit(h, monkeypatch):
+     limit(h, 99)
+     h.submit()
+     h.submit(task_id="t2", campaign_id="c2")
+ 
+     results = _race_two_workers(h, monkeypatch)
+ 
+     kinds = sorted(r.kind.value for r in results.values())
+-    assert kinds == sorted([Result.EXECUTED.value, Result.BLOCKED.value])
++    assert kinds == sorted([Result.EXECUTED.value, Result.AWAITING_APPROVAL.value])
+     assert len(h.dsp.writes) == 1
+     assert used(h.store, h.clock()) <= 99
+ 
+ 
+ # ---- [S337] ----
+ def test_a_missing_aggregate_limit_blocks_only_that_tenant_and_lowering_it_applies_from_the_next_signing(  # noqa: E501
+         h):
+     h.config.write_text(json.dumps({"tenants": {
+         "no-limit": {"campaigns": ["c1"], "max_budget": 1000},
+         "has-limit": {"campaigns": ["c2", "c3"], "max_budget": 1000, "aggregate_limit": 1000},
+     }}), encoding="utf-8")
+     h.submit()
+     h.submit(task_id="t2", campaign_id="c2")
+ 
+-    assert h.process().kind is Result.BLOCKED  # 缺欄當 0:只擋 no-limit
++    assert h.process().kind is Result.AWAITING_APPROVAL  # 缺欄當 0:只擋 no-limit
+     assert h.process().kind is Result.EXECUTED  # 另一個租戶照常
+     assert stops(h)[0][0] == "aggregate_limit_reached" and stops(h)[0][4] == "no-limit"
+ 
+     h.config.write_text(json.dumps({"tenants": {
+         "has-limit": {"campaigns": ["c2", "c3"], "max_budget": 1000, "aggregate_limit": 60},
+         "no-limit": {"campaigns": ["c1"], "max_budget": 1000}}}), encoding="utf-8")
+     h.submit(task_id="t3", campaign_id="c3")
+-    assert h.process().kind is Result.BLOCKED  # 調降後下一次簽發起生效:50 + 50 > 60
++    assert h.process().kind is Result.AWAITING_APPROVAL  # 調降後下一次簽發起生效:50 + 50 > 60
+ 
+     for broken in (-1, "100", 1.5, MAX_INT + 1, True):
+         h.config.write_text(json.dumps({"tenants": {"x": {
+             "campaigns": ["c1"], "max_budget": 1000, "aggregate_limit": broken}}}),
+             encoding="utf-8")
+         h.submit(task_id=f"t-{broken!s}".replace(".", "-").replace("+", "p"))
+         with pytest.raises(ExecutorHalted):
+             h.process()
+ 
+ 
+@@ -365,21 +374,21 @@ def test_the_aggregate_sum_does_not_overflow(store_only):
+         drive(store_only, row, VERIFY)
+ 
+     assert used(store_only, NOW) == 2 * MAX_INT
+ 
+ 
+ # ---- [S342] ----
+ def test_every_stop_leaves_one_durable_record_per_proposal(h):
+     limit(h, 10)
+     prop = h.submit()
+ 
+-    assert h.process().kind is Result.BLOCKED
++    assert h.process().kind is Result.AWAITING_APPROVAL
+     assert stops(h) == [("aggregate_limit_reached", "t1", 1, operation_key(prop), TENANT, "c1",
+                          50, 0, 10, 0)]
+     assert stop_identity(h) == [(content_hash(prop), attempt_store._iso(h.clock()))]
+ 
+     with h.store.transaction() as tx:  # 同一份提案再記一次:略過
+         h.store.record_stop(tx, inbox_store_stop(prop, 50, 0, 10), h.clock())
+     with h.store.transaction() as tx:  # 已用額度超過整數上限:封頂並標記,不丟例外
+         h.store.record_stop(tx, inbox_store_stop(
+             proposal(task_id="t9"), 1, 2 * MAX_INT, MAX_INT), h.clock())
+     assert len(stops(h)) == 2
+@@ -454,26 +463,26 @@ def test_an_unreadable_old_snapshot_halts_instead_of_crashing(h):
+             (attempt_store._iso(h.clock()), attempt_store._iso(h.clock())))
+     h.submit()
+ 
+     with pytest.raises(ExecutorHalted):
+         h.process()
+     assert h.attempts() == [("old", 1, "in_flight", None, 1, None),
+                             ("old", 2, "verified", None, 1, None)]
+ 
+ 
+ def test_a_lost_receipt_during_an_aggregate_block_writes_no_stop(h, monkeypatch):
+-    """收據失效代表這份提案已被別的工作者接手:由它擋、由它記;這邊整個交易回滾、不重複記。"""
++    """收據失效代表這份提案已被別的工作者接手:由它處置、由它記;這邊整個交易回滾、不重複記。"""
+     from rtb.executor.execution import LeaseLost
+ 
+     limit(h, 10)
+     h.submit()
+-    monkeypatch.setattr(InboxStore, "ack_blocked", lambda *_a, **_k: False)
++    monkeypatch.setattr(InboxStore, "await_approval", lambda *_a, **_k: False)
+ 
+     assert h.process().kind is Result.LEASE_LOST
+     assert stops(h) == []
+     assert LeaseLost  # 例外型別存在(process_one 接住後回 LEASE_LOST)
+ 
+ 
+ def test_an_unreadable_old_snapshot_halts_when_the_table_is_full_too(h, monkeypatch):
+     monkeypatch.setattr(attempt_store, "MAX_UNRESOLVED", 0)
+     with h.store.transaction() as tx:
+         tx.conn.execute(  # 測試模擬毀損:舊格式、快照不是 JSON、沒有終點
+diff --git a/tests/executor/test_approval.py b/tests/executor/test_approval.py
+new file mode 100644
+index 0000000..0488352
+--- /dev/null
++++ b/tests/executor/test_approval.py
+@@ -0,0 +1,624 @@
++"""人工核可(Phase 6 增量 3):對應計劃的 S350 到 S359、S370 到 S379。
++
++被總曝險已滿或比例過大擋下、還沒有有效核可的提案停在待核可;每輪的處理待核可在核可到了時放回
++待處理、到期時確認成已擋下、同任務有更新的修訂時確認成被取代。核可用另一把金鑰簽,綁定提案雜湊、
++關卡、範圍指紋與到期;用到核可的那一筆,憑證不能活得比核可久,同鍵重送前也重判。
++"""
++
++import io
++import json
++import sqlite3
++from dataclasses import replace
++from datetime import timedelta
++
++import pytest
++
++from rtb.analyzer.flow import _belongs_to, _from_inbox_answer
++from rtb.capabilitykit import APPROVAL_KEY_ENV, KEY_ENV, decode, encode
++from rtb.domain.attempt import AttemptState, operation_key
++from rtb.domain.proposal import MAX_INT, POLICY_VERSION, content_hash
++from rtb.dsp.capability import CapabilityExpired, verified_claims
++from rtb.executor import approval, approve, capability_signer, guardrails
++from rtb.executor.capability_signer import Tenant, load_tenants
++from rtb.executor.execution import Result, WriteAnswer
++from rtb.executor.inbox_store import ApprovalUse, BlockCode, InboxStore
++from tests.capability_samples import TEST_APPROVAL_KEY, TEST_KEY
++from tests.executor.fakes import LOOSE_AGGREGATE_LIMIT, Harness, proposal, write_config
++
++RATIO = BlockCode.BUDGET_INCREASE_TOO_LARGE
++AGGREGATE = BlockCode.AGGREGATE_LIMIT_REACHED
++TENANT = "t-default"
++
++
++@pytest.fixture
++def h(tmp_path, clock):
++    harness = Harness(tmp_path, clock)
++    yield harness
++    harness.close()
++
++
++def submit(h, new_budget=151, **overrides):
++    """現行政策版本的加預算提案(樣本預設的政策版本不是目前那一版,核可一律不算數)。"""
++    overrides.setdefault("policy_version", POLICY_VERSION)
++    return h.submit(requested_change={"new_budget": new_budget}, **overrides)
++
++
++def tenant_of(h, campaign="c1"):
++    return next(t for t in load_tenants(h.config) if campaign in t.campaigns)
++
++
++def approve_it(h, prop, stage, max_increase=1000, expires_in=600, *, key=TEST_APPROVAL_KEY,  # noqa: PLR0913 - 每個參數是核可的一個欄位
++               signed_for=None, issued_at=None):
++    """照管理工具的做法簽一張核可、寫進核可表;signed_for 用來造出綁錯提案的核可。"""
++    issued = int(h.clock().timestamp()) if issued_at is None else issued_at
++    token = approval.issue(key, signed_for or prop, stage, tenant_of(h, prop.campaign_id),
++                           approver="ops", max_increase=max_increase, issued_at=issued,
++                           expires_at=issued + expires_in)
++    h.store.add_approval(prop, stage, approval.approval_id(token), token, h.clock())
++    return token
++
++
++def limit(h, value):
++    write_config(h.config, aggregate_limit=value)
++
++
++def waiting(h, stage, task_id="t1", campaign_id="c1"):
++    """造一份停在這一關的待核可提案。"""
++    if stage is AGGREGATE:
++        limit(h, 10)
++        prop = submit(h, 150, task_id=task_id, campaign_id=campaign_id)  # 加 50:比例內、超過 10
++    else:
++        prop = submit(h, 151, task_id=task_id, campaign_id=campaign_id)  # 加 51:超過五成
++    result = h.process()
++    assert (result.kind, result.block_code) == (Result.AWAITING_APPROVAL, stage)
++    return prop
++
++
++def settle(h):
++    return h.executor().process_awaiting()
++
++
++def row(h, task_id="t1", revision=1):
++    return h.query("SELECT state, disposition, block_code, deliveries FROM proposals "
++                   "WHERE task_id = ? AND revision = ?", (task_id, revision))[0]
++
++
++def stops(h):
++    return h.query("SELECT kind, task_id, tenant, amount, used, cap FROM write_stops ORDER BY id")
++
++
++def uses(h):
++    return h.query("SELECT approval_id, task_id, tenant, stage, amount, used, cap, capped "
++                   "FROM approval_uses ORDER BY id")
++
++
++def first_row(h, prop):
++    return h.query("SELECT tenant, reserved_amount FROM attempts WHERE key = ? AND seq = 1",
++                   (operation_key(prop),))
++
++
++def fresh(h, **overrides):
++    """跟著目前時鐘建立的提案(撥過時鐘之後還要收新提案時用)。"""
++    now = h.clock()
++    return proposal(decision_created_at=now.isoformat(),
++                    decision_expires_at=(now + timedelta(minutes=10)).isoformat(), **overrides)
++
++
++# ---- [S350] ----
++@pytest.mark.parametrize("stage", [RATIO, AGGREGATE])
++def test_an_approvable_block_waits_for_approval(h, stage):
++    waiting(h, stage)
++
++    assert row(h) == ("pending", "awaiting_approval", stage.value, 1)
++    amount, used, cap = (51, None, None) if stage is RATIO else (50, 0, 10)
++    assert stops(h) == [(stage.value, "t1", TENANT, amount, used, cap)]
++    assert h.attempts() == [] and h.dsp.writes == []  # 不開嘗試、不呼叫 DSP
++    assert h.process().kind is Result.IDLE  # 取件不會撿到待核可
++
++    h.clock.advance(hours=3)  # 過了保留期,收件時的清除也不清它(任務還沒結束)
++    h.store.accept(fresh(h, task_id="t2", campaign_id="c2"), h.clock)
++    assert row(h)[1] == "awaiting_approval"
++
++
++# ---- [S351] ----
++HARD_RULES = {
++    BlockCode.CAMPAIGN_NOT_FOUND: lambda h: h.dsp.campaigns.pop("c1"),
++    BlockCode.CAMPAIGN_NOT_ACTIVE: lambda h: h.dsp.campaigns.__setitem__(
++        "c1", replace(h.dsp.campaigns["c1"], status="paused")),
++    BlockCode.VERSION_CHANGED: lambda h: h.dsp.campaigns.__setitem__(
++        "c1", replace(h.dsp.campaigns["c1"], version=4)),
++    BlockCode.CAMPAIGN_NOT_ALLOWED: lambda h: write_config(h.config, campaigns=("c2",)),
++    BlockCode.OVER_BUDGET_CAP: lambda h: write_config(h.config, max_budget=120),
++}
++
++
++@pytest.mark.parametrize("code", list(HARD_RULES))
++def test_hard_rules_are_never_approvable(h, code):
++    prop = submit(h, 151)  # 同時也超過比例
++    approve_it(h, prop, RATIO)
++    approve_it(h, prop, AGGREGATE)  # 兩關都有有效核可也一樣
++    HARD_RULES[code](h)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, code)
++    assert row(h)[1:3] == ("blocked", code.value)
++    assert stops(h) == [] and h.attempts() == [] and h.dsp.writes == []
++
++
++# ---- [S352] ----
++@pytest.mark.parametrize("stage", [RATIO, AGGREGATE])
++def test_an_unapproved_proposal_expires_into_blocked(h, stage):
++    waiting(h, stage)
++    assert settle(h) == 0  # 還沒到期、沒有核可:不動
++    assert row(h)[1] == "awaiting_approval"
++
++    h.clock.advance(minutes=25)  # 提案 12:30 到期
++
++    assert settle(h) == 1
++    assert row(h)[:3] == ("pending", "blocked", stage.value)
++    assert settle(h) == 0  # 已經結案,不會再處理
++
++
++# ---- [S353] ----
++def test_a_valid_approval_lets_the_proposal_through_and_still_reserves(h):
++    ratio = waiting(h, RATIO)
++    approve_it(h, ratio, RATIO, max_increase=51)
++    assert settle(h) == 1
++    assert row(h) == ("pending", None, None, 0)  # 放回待處理、投遞次數歸零
++    assert h.process().kind is Result.EXECUTED  # 重新處理時略過比例那一條
++    assert first_row(h, ratio) == [(TENANT, 51)]
++
++    moved = waiting(h, RATIO, task_id="t3", campaign_id="c3")  # 其他規則照跑:版本已變照樣擋
++    approve_it(h, moved, RATIO, max_increase=51)
++    assert settle(h) == 1
++    h.dsp.campaigns["c3"] = replace(h.dsp.campaigns["c3"], version=4)
++    assert h.process().block_code is BlockCode.VERSION_CHANGED
++
++    full = waiting(h, AGGREGATE, task_id="t2", campaign_id="c2")  # 已用 51,門檻 10
++    approve_it(h, full, AGGREGATE, max_increase=50)
++    assert settle(h) == 1
++    assert h.process().kind is Result.EXECUTED  # 允許超過門檻
++    assert first_row(h, full) == [(TENANT, 50)]  # 照樣寫預留
++
++
++# ---- [S354] ----
++def _wrong_key(h, prop):
++    approve_it(h, prop, RATIO, key=b"k" * 40)
++
++
++def _other_revision(h, prop):
++    approve_it(h, prop, RATIO, signed_for=replace(prop, revision=2))
++
++
++def _other_content(h, prop):
++    approve_it(h, prop, RATIO, signed_for=replace(prop, campaign_version_observed=4))
++
++
++def _other_stage(h, prop):
++    token = approval.issue(TEST_APPROVAL_KEY, prop, AGGREGATE, tenant_of(h), approver="ops",
++                           max_increase=1000, issued_at=int(h.clock().timestamp()),
++                           expires_at=int(h.clock().timestamp()) + 600)
++    h.store.add_approval(prop, RATIO, approval.approval_id(token), token, h.clock())
++
++
++def _scope_changed(h, prop):
++    approve_it(h, prop, RATIO)
++    write_config(h.config, max_budget=999)
++
++
++def _expired(h, prop):
++    approve_it(h, prop, RATIO, expires_in=60)
++    h.clock.advance(seconds=60)
++
++
++def _amount_over(h, prop):
++    approve_it(h, prop, RATIO, max_increase=50)  # 這筆加 51
++
++
++def _forged(field, value):
++    """內容雜湊照抄、只改任務或修訂的核可(雜湊之外的兩欄各自也要比對)。"""
++    def spoil(h, prop):
++        now = int(h.clock().timestamp())
++        claims = {"v": approval.FORMAT_VERSION, "task_id": prop.task_id, "revision": prop.revision,
++                  "content_hash": content_hash(prop), "stage": RATIO.value,
++                  "fingerprint": approval.scope_fingerprint(tenant_of(h)), "approver": "ops",
++                  "max_increase": 1000, "iat": now, "exp": now + 600, field: value}
++        token = encode(claims, TEST_APPROVAL_KEY)
++        h.store.add_approval(prop, RATIO, approval.approval_id(token), token, h.clock())
++    return spoil
++
++
++@pytest.mark.parametrize("spoil", [_wrong_key, _other_revision, _other_content, _other_stage,
++                                   _scope_changed, _expired, _amount_over,
++                                   _forged("task_id", "t9"), _forged("revision", 2)])
++def test_an_approval_is_void_when_scope_expiry_hash_stage_or_policy_changes(h, spoil):
++    prop = waiting(h, RATIO)
++    spoil(h, prop)
++
++    assert settle(h) == 0
++    assert row(h)[1] == "awaiting_approval"
++
++
++# ---- [S355] ----
++def test_an_applied_approval_is_audited(h):
++    ratio = waiting(h, RATIO)
++    ratio_token = approve_it(h, ratio, RATIO, max_increase=51)
++    settle(h)
++    h.process()
++    full = waiting(h, AGGREGATE, task_id="t2", campaign_id="c2")
++    full_token = approve_it(h, full, AGGREGATE, max_increase=50)
++    settle(h)
++    h.process()
++    limit(h, LOOSE_AGGREGATE_LIMIT)
++    spare = submit(h, 110, task_id="t3", campaign_id="c3")
++    approve_it(h, spare, AGGREGATE)  # 設定改完才簽:核可是有效的
++    approve_it(h, spare, RATIO)
++    assert h.process().kind is Result.EXECUTED  # 兩關都有核可但都沒用上(沒超過):不記
++    assert decode(h.dsp.writes[-1][2], TEST_KEY)["exp"] == int(h.clock().timestamp()) + 120
++    assert h.executor().process_awaiting() == 0
++
++    assert uses(h) == [
++        (approval.approval_id(ratio_token), "t1", TENANT, RATIO.value, 51, None, None, 0),
++        (approval.approval_id(full_token), "t2", TENANT, AGGREGATE.value, 50, 51, 10, 0)]
++    with h.store.transaction() as tx:  # 同一份提案同一關只記一列;數字封頂並標記
++        h.store.record_approval_use(tx, ApprovalUse(
++            "x", full, "k", TENANT, AGGREGATE, 1, 2, 3), h.clock())
++        h.store.record_approval_use(tx, ApprovalUse(
++            "y", spare, "k", TENANT, AGGREGATE, 1, 2 * MAX_INT, MAX_INT), h.clock())
++    assert len(uses(h)) == 3
++    assert uses(h)[1][0] == approval.approval_id(full_token)  # 第一次記的那列沒被蓋掉
++    assert uses(h)[2][5:] == (MAX_INT, MAX_INT, 1)
++
++
++# ---- [S356] ----
++def test_awaiting_approval_reads_as_still_open(h):
++    prop = waiting(h, RATIO)
++
++    answer = h.store.accept(prop, h.clock)  # 分析端重送同一份提案問狀態
++
++    assert (answer.state, answer.block_code) == ("awaiting_approval", None)
++    assert _belongs_to(answer, prop)  # 讀得懂
++    assert _from_inbox_answer(answer) is None  # 當成等待:這一輪沒有進展,不結案、不重新規劃
++
++
++# ---- [S357] ----
++def _tool_args(h, **overrides):
++    values = {"task-id": "t1", "revision": "1", "stage": RATIO.value, "max-increase": "51",
++              "approver": "ops", "expires-in-seconds": "600", **overrides}
++    args = ["--db", str(h.db), "--tenant-config", str(h.config)]
++    for name, value in values.items():
++        args += [f"--{name}", value]
++    return args
++
++
++def test_the_approval_tool_signs_with_its_own_key(h):
++    waiting(h, RATIO)
++    env = {APPROVAL_KEY_ENV: TEST_APPROVAL_KEY.decode()}
++    out = io.StringIO()
++
++    assert approve.run(_tool_args(h), environ=env, clock=h.clock, out=out) == 0
++
++    token = h.query("SELECT token FROM approvals")[0][0]
++    assert out.getvalue().strip() == approval.approval_id(token)
++    assert approval.read(token, TEST_APPROVAL_KEY) is not None
++    assert approval.read(token, TEST_KEY) is None  # 不是用簽發金鑰簽的
++    assert settle(h) == 1
++    signing_only = {KEY_ENV: TEST_KEY.decode()}
++    assert approve.run(_tool_args(h), environ=signing_only, clock=h.clock) == approve.EXIT_NO_KEY
++    assert approve.run(_tool_args(h, **{"expires-in-seconds": "3600"}), environ=env,
++                       clock=h.clock) == approve.EXIT_REFUSED  # 不能晚於提案到期
++    assert approve.run(_tool_args(h, **{"task-id": "t9"}), environ=env,
++                       clock=h.clock) == approve.EXIT_NOT_FOUND
++    assert len(h.query("SELECT token FROM approvals")) == 1
++
++
++# ---- [S358] ----
++def test_an_old_inbox_accepts_the_awaiting_approval_disposition(tmp_path, clock):
++    db = tmp_path / "executor.db"
++    InboxStore(db).close()
++    conn = sqlite3.connect(db)  # 模擬加入待核可之前的收件表:處置的允許值清單沒有它
++    try:
++        sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'proposals'").fetchone()[0]
++        old_sql = sql.replace(", 'awaiting_approval'", "")
++        assert old_sql != sql
++        conn.executescript(f"DROP TABLE proposals; {old_sql};")
++    finally:
++        conn.close()
++
++    h = Harness(tmp_path, clock)  # 開啟時重建
++    try:
++        waiting(h, RATIO)
++        assert row(h)[1] == "awaiting_approval"
++    finally:
++        h.close()
++
++
++# ---- [S359] ----
++@pytest.mark.parametrize("stage", [RATIO, AGGREGATE])
++def test_an_approval_that_expires_mid_flight_lets_nothing_through(h, monkeypatch, stage):
++    prop = waiting(h, stage)
++    approve_it(h, prop, stage, max_increase=51, expires_in=10)  # 比租約短,撥過去收據仍有效
++    assert settle(h) == 1
++    real = h.signer.grant
++
++    def slow(*args, **kwargs):
++        granted = real(*args, **kwargs)
++        if args[4] is not None:  # 用核可封頂的那次簽發:簽完核可剛好過期
++            h.clock.advance(seconds=11)
++        return granted
++
++    monkeypatch.setattr(h.signer, "grant", slow)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.AWAITING_APPROVAL, stage)
++    assert row(h)[1] == "awaiting_approval"
++    assert h.attempts() == [] and h.dsp.writes == []
++
++
++# ---- [S370] ----
++def test_an_approval_covers_only_its_own_stage(h):
++    limit(h, 10)
++    prop = submit(h, 151)  # 超過比例,也超過總曝險
++    assert h.process().block_code is RATIO
++    approve_it(h, prop, RATIO, max_increase=51)
++    settle(h)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.AWAITING_APPROVAL, AGGREGATE)
++    assert [s[0] for s in stops(h)] == [RATIO.value, AGGREGATE.value]  # 每一次超額都有停下紀錄
++    assert h.dsp.writes == []
++    approve_it(h, prop, AGGREGATE, max_increase=51)
++    settle(h)
++    assert h.process().kind is Result.EXECUTED
++    assert [u[3] for u in uses(h)] == [RATIO.value, AGGREGATE.value]
++
++
++# ---- [S371] ----
++@pytest.mark.parametrize(("amounts", "released"), [((1000, 10), 0), ((10, 1000), 1)])
++def test_the_latest_approval_wins_even_when_it_is_smaller(h, amounts, released):
++    prop = waiting(h, RATIO)
++    same_second = int(h.clock().timestamp())  # 簽發時間相同:以寫進核可表的順序為準
++    for amount in amounts:
++        approve_it(h, prop, RATIO, max_increase=amount, issued_at=same_second)
++
++    assert settle(h) == released
++
++
++# ---- [S372] ----
++def test_two_workers_release_an_awaiting_proposal_once(h):
++    prop = waiting(h, RATIO)
++    approve_it(h, prop, RATIO, max_increase=51)
++    with h.store.transaction() as tx:
++        seen = h.store.awaiting(tx)  # 慢的那一方先讀到清單
++    tenants = load_tenants(h.config)
++
++    assert h.executor("fast").process_awaiting() == 1
++    assert h.executor("slow")._settle_awaiting(seen[0], tenants) is False  # 已不是待核可
++
++    assert row(h) == ("pending", None, None, 0)
++    assert h.process().kind is Result.EXECUTED
++    assert h.executor("slow")._settle_awaiting(seen[0], tenants) is False  # 處理中也碰不到
++    assert len(h.dsp.writes) == 1
++
++
++# ---- [S373] ----
++def test_a_newer_revision_supersedes_an_awaiting_one(h):
++    prop = waiting(h, RATIO)
++    approve_it(h, prop, RATIO, max_increase=51)  # 就算有有效核可
++    submit(h, 120, revision=2)
++
++    assert settle(h) == 1
++
++    assert row(h)[:3] == ("superseded", None, None)
++    assert h.process().kind is Result.EXECUTED
++    assert [w[0].revision for w in h.dsp.writes] == [2]  # 舊修訂沒插隊
++
++
++# ---- [S374] ----
++@pytest.mark.parametrize(("config", "code"), [
++    ({"campaigns": ("c2",)}, BlockCode.CAMPAIGN_NOT_ALLOWED),
++    ({"max_budget": 120}, BlockCode.OVER_BUDGET_CAP),
++])
++def test_hard_rules_win_over_approvable_ones(h, config, code):
++    submit(h, 151)
++    write_config(h.config, **config)
++
++    result = h.process()
++
++    assert (result.kind, result.block_code) == (Result.BLOCKED, code)
++    assert row(h)[1] == "blocked" and stops(h) == []
++
++
++# ---- [S375] ----
++def test_an_approval_is_void_across_policy_or_tenant_changes(h):
++    old_policy = h.submit(requested_change={"new_budget": 151}, policy_version="v1")
++    assert h.process().kind is Result.AWAITING_APPROVAL
++    approve_it(h, old_policy, RATIO)
++    assert settle(h) == 0  # 提案的政策版本不是目前那一版
++
++    moved = waiting(h, RATIO, task_id="t2", campaign_id="c2")
++    approve_it(h, moved, RATIO)
++    spec = {"campaigns": ["c1", "c2", "c3"], "max_budget": 1000,
++            "aggregate_limit": LOOSE_AGGREGATE_LIMIT}
++    h.config.write_text(json.dumps({"tenants": {"t-other": spec}}), encoding="utf-8")
++    assert settle(h) == 0  # 改掛到設定一模一樣的另一個租戶
++    write_config(h.config)
++    assert settle(h) == 1  # 對照:換回原租戶就算數
++
++
++# ---- [S376] ----
++def test_the_capability_never_outlives_the_approval_it_used(h):
++    prop = waiting(h, RATIO)
++    approve_it(h, prop, RATIO, max_increase=51, expires_in=30)
++    approval_expires = int(h.clock().timestamp()) + 30
++    settle(h)
++
++    assert h.process().kind is Result.EXECUTED
++
++    token = h.dsp.writes[0][2]
++    assert decode(token, TEST_KEY)["exp"] == approval_expires  # 原本的有效期是 120 秒
++    assert verified_claims(lambda: token, TEST_KEY, lambda: approval_expires - 1)
++    with pytest.raises(CapabilityExpired):  # 開始一筆之後才過期:DSP 以憑證過期拒收
++        verified_claims(lambda: token, TEST_KEY, lambda: approval_expires)
++
++
++# ---- [S377] ----
++def _unknown_after_approval(h, stage, expires_in):
++    prop = waiting(h, stage)
++    approve_it(h, prop, stage, max_increase=51, expires_in=expires_in)
++    settle(h)
++    h.dsp.answers.append(WriteAnswer(None))  # 送出後結果不明;假 DSP 沒套用
++    assert h.process().kind is Result.EXECUTED
++    return prop
++
++
++def _states(h):
++    return [a[2] for a in h.attempts()]
++
++
++@pytest.mark.parametrize("stage", [RATIO, AGGREGATE])
++def test_a_resend_rechecks_the_ratio_and_the_approval_it_used(h, stage):
++    _unknown_after_approval(h, stage, expires_in=60)
++    h.clock.advance(seconds=61)  # 用過的核可過期
++
++    h.executor().reconcile_all()
++
++    assert _states(h)[-1] == AttemptState.FAILED.value  # 先作廢再判失敗
++    assert len(h.dsp.writes) == 1 and len(h.dsp.voids) == 1  # 不重送
++
++
++def test_a_resend_with_a_still_valid_approval_is_capped_at_its_expiry(h):
++    _unknown_after_approval(h, RATIO, expires_in=100)
++    approval_expires = int(h.clock().timestamp()) + 100
++    h.clock.advance(seconds=5)
++
++    h.executor().reconcile_all()
++
++    assert len(h.dsp.writes) == 2  # 照常同鍵重送
++    assert decode(h.dsp.writes[1][2], TEST_KEY)["exp"] == approval_expires
++
++
++def test_a_resend_needs_the_latest_ratio_approval_to_hold(h):
++    prop = _unknown_after_approval(h, RATIO, expires_in=600)
++    approve_it(h, prop, RATIO, max_increase=10)  # 更新的那張金額不夠:比例超過又沒有有效核可
++
++    h.executor().reconcile_all()
++
++    assert _states(h)[-1] == AttemptState.FAILED.value
++    assert len(h.dsp.writes) == 1
++
++
++def test_a_resend_after_capability_expiry_rechecks_the_approval(h):
++    prop = waiting(h, RATIO)
++    approve_it(h, prop, RATIO, max_increase=51, expires_in=10)
++    settle(h)
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))
++    h.dsp.on_write = lambda *_a: h.clock.advance(seconds=11)  # DSP 回憑證過期時核可也過期了
++
++    h.process()
++
++    assert _states(h)[-1] == AttemptState.FAILED.value
++    assert len(h.dsp.writes) == 1  # 不重簽重送
++
++
++# ---- [S378] ----
++def test_the_grant_carries_one_tenant_snapshot(h, monkeypatch):
++    reads = []
++    real = capability_signer.load_tenants
++    monkeypatch.setattr(capability_signer, "load_tenants",
++                        lambda path: reads.append(path) or real(path))
++    limit(h, 77)
++    prop = submit(h, 150)
++
++    granted = h.signer.grant(prop, "k", h.config, int(h.clock().timestamp()))
++
++    assert granted.tenant == Tenant(TENANT, frozenset({"c1", "c2", "c3"}), 1000, 77)
++    assert len(reads) == 1  # 同一次讀檔
++    assert h.process().kind is Result.EXECUTED
++    assert first_row(h, prop) == [(TENANT, 50)]
++    submit(h, 150, task_id="t2", campaign_id="c2")
++    assert h.process().block_code is AGGREGATE  # 50 + 50 > 77:門檻取自同一個租戶物件
++    assert stops(h)[-1][2:] == (TENANT, 50, 50, 77)
++
++
++# ---- [S379] ----
++def test_admin_and_executor_agree_on_the_scope_fingerprint(h, monkeypatch):
++    waiting(h, RATIO)
++    env = {APPROVAL_KEY_ENV: TEST_APPROVAL_KEY.decode()}
++
++    def tool_fingerprint():
++        assert approve.run(_tool_args(h), environ=env, clock=h.clock) == 0
++        token = h.query("SELECT token FROM approvals ORDER BY seq DESC LIMIT 1")[0][0]
++        return approval.read(token, TEST_APPROVAL_KEY).fingerprint
++
++    first = tool_fingerprint()
++    assert first == approval.scope_fingerprint(tenant_of(h))
++    monkeypatch.setattr(guardrails, "MIN_INCREASE_STEP", 2)  # 比例常數改了:兩邊一起變
++    changed = approval.scope_fingerprint(tenant_of(h))
++    assert changed != first and tool_fingerprint() == changed
++    monkeypatch.undo()
++    monkeypatch.setattr(approval, "POLICY_VERSION", "next-policy")  # 政策版本改了也一起變
++    assert approval.scope_fingerprint(tenant_of(h)) not in (first, changed)
++    monkeypatch.undo()
++    write_config(h.config, max_budget=999)  # 租戶任一欄改了:兩邊一起變
++    assert approval.scope_fingerprint(tenant_of(h)) not in (first, changed)
++    assert tool_fingerprint() == approval.scope_fingerprint(tenant_of(h))
++    assert settle(h) == 1  # 執行迴圈認得管理工具簽的最新那張
++
++
++# ---- 啟動程式:每輪先對帳、再處理待核可、再處理一筆;核可金鑰經共用模組讀 ----
++@pytest.mark.parametrize(("with_key", "writes"), [(True, 1), (False, 0)])
++def test_the_runner_releases_an_approved_proposal_in_the_same_round(h, with_key, writes):
++    from rtb.executor import runner
++
++    prop = waiting(h, RATIO)
++    approve_it(h, prop, RATIO, max_increase=51)
++    env = {KEY_ENV: TEST_KEY.decode()}
++    if with_key:
++        env[APPROVAL_KEY_ENV] = TEST_APPROVAL_KEY.decode()
++    args = ["--db", str(h.db), "--dsp-url", "http://127.0.0.1:9", "--tenant-config",
++            str(h.config), "--interval-seconds", "0.01"]
++
++    assert runner.run(args, environ=env, clock=h.clock, dsp=h.dsp, out=io.StringIO(),
++                      sleep=lambda _s: None, max_rounds=1, owner="executor") == 0
++
++    assert len(h.dsp.writes) == writes  # 沒有核可金鑰:一張核可都不算數,照樣啟動
++
++
++# ---- 防線:停下紀錄不見就不放回;只有兩種關卡能進待核可;兩次簽發之間租戶設定改了 ----
++def test_an_awaiting_proposal_without_its_stop_record_is_not_released(h):
++    prop = waiting(h, RATIO)
++    approve_it(h, prop, RATIO, max_increase=51)
++    with h.store.transaction() as tx:  # 測試模擬:停下紀錄不見了,不知道要核的金額
++        tx.conn.execute("DELETE FROM write_stops")
++
++    assert settle(h) == 0
++
++
++def test_only_the_two_approvable_stages_can_wait(h):
++    submit(h)
++    with h.store.transaction() as tx:
++        delivery = h.store.receive(tx, h.clock(), "w")
++        with pytest.raises(ValueError):
++            h.store.await_approval(tx, delivery.receipt, h.clock(), BlockCode.VERSION_CHANGED)
++
++
++def test_a_tenant_change_between_the_two_signings_starts_over(h, monkeypatch):
++    prop = waiting(h, RATIO)
++    approve_it(h, prop, RATIO, max_increase=51)
++    settle(h)
++    real = h.signer.grant
++
++    def changing(*args, **kwargs):
++        if args[4] is not None:  # 封頂重簽之前,有人改了租戶設定(照樣合法)
++            write_config(h.config, max_budget=999)
++        return real(*args, **kwargs)
++
++    monkeypatch.setattr(h.signer, "grant", changing)
++
++    assert h.process().kind is Result.DEFERRED  # 核可是照舊設定驗的:放掉租約,下一輪重來
++    assert h.attempts() == [] and h.dsp.writes == []
++    assert row(h)[1] == "in_progress"
+diff --git a/tests/executor/test_capability_signer.py b/tests/executor/test_capability_signer.py
+index 1efa29e..0562221 100644
+--- a/tests/executor/test_capability_signer.py
++++ b/tests/executor/test_capability_signer.py
+@@ -1,19 +1,19 @@
+ """執行行程的寫入能力憑證簽發:S29、S31、S33。"""
+ 
+ import json
+ import os
+ import time
+ 
+ import pytest
+ 
+-from rtb.capabilitykit import KEY_ENV, MIN_KEY_BYTES, decode
++from rtb.capabilitykit import APPROVAL_KEY_ENV, KEY_ENV, MIN_KEY_BYTES, decode
+ from rtb.domain.attempt import operation_key
+ from rtb.domain.proposal import parse_proposal
+ from rtb.dsp.store import CampaignStore
+ from rtb.executor.capability_signer import CapabilitySigner, SigningRefused
+ from tests.capability_samples import DEFAULT_TENANT, TEST_KEY
+ from tests.domain.proposal_samples import valid
+ 
+ NOW = 1_800_000_000
+ 
+ 
+@@ -153,23 +153,24 @@ def test_a_config_owned_by_someone_else_is_refused(config, monkeypatch):
+ # ---- [S31] ----
+ @pytest.mark.parametrize("key", [None, b"", b"s" * (MIN_KEY_BYTES - 1)],
+                          ids=["none", "empty", "short"])
+ def test_a_missing_or_short_key_disables_both_signing_and_verifying(key, tmp_path):
+     with pytest.raises(ValueError):
+         CapabilitySigner(key)
+ 
+     from pathlib import Path
+ 
+     src = Path(__file__).resolve().parents[2] / "src" / "rtb"
+-    readers = sorted(str(f.relative_to(src)) for f in src.rglob("*.py")
+-                     if KEY_ENV in f.read_text(encoding="utf-8"))
+-    assert readers == ["capabilitykit.py"]  # 變數名稱只出現在共用模組一處
++    for name in (KEY_ENV, APPROVAL_KEY_ENV):  # 人工核可金鑰比照集中定義(Phase 6 增量 3)
++        readers = sorted(str(f.relative_to(src)) for f in src.rglob("*.py")
++                         if name in f.read_text(encoding="utf-8"))
++        assert readers == ["capabilitykit.py"], name  # 變數名稱只出現在共用模組一處
+ 
+     # DSP 的啟動程式(真的子行程、真的讀環境變數):讀不到可用金鑰就啟動成「拒收所有寫入」
+     from tests.capability_samples import header
+     from tests.dsp.conftest import DspProcess
+ 
+     db = tmp_path / "dsp.db"
+     store = CampaignStore(db)
+     store.seed_campaign("c1", budget=100)
+     store.close()
+     dsp = DspProcess(db, capability_key=key)
+diff --git a/tests/executor/test_execution.py b/tests/executor/test_execution.py
+index 2c88cc5..eb8063b 100644
+--- a/tests/executor/test_execution.py
++++ b/tests/executor/test_execution.py
+@@ -14,21 +14,21 @@ from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
+ from rtb.executor import attempt_store
+ from rtb.executor.capability_signer import LIFETIME_SECONDS
+ from rtb.executor.execution import (
+     RESPONSE_TABLE,
+     CampaignView,
+     ExecutorHalted,
+     Result,
+     WriteAnswer,
+     react,
+ )
+-from rtb.executor.inbox_store import BlockCode
++from rtb.executor.inbox_store import APPROVABLE, BlockCode
+ from tests.capability_samples import TEST_KEY
+ from tests.executor.fakes import Harness, proposal
+ from tests.executor.test_guardrails import HISTORICAL_CODES
+ 
+ A = AttemptState
+ C = OutcomeCode
+ 
+ 
+ @pytest.fixture
+ def h(tmp_path, clock):
+@@ -180,20 +180,24 @@ def test_each_failed_precheck_blocks_the_proposal_without_a_write(h, code):
+     # 「表的鍵等於整個列舉」由護欄表的三份清單斷言取代(Phase 6 增量 2 [S404]);這張表仍逐一觸發
+     if code is not BlockCode.OPERATION_PREVIOUSLY_FAILED:
+         h.submit()
+     BLOCK_TRIGGERS[code](h)
+     attempts_before, writes_before = h.attempts(), len(h.dsp.writes)
+ 
+     result = h.process()
+ 
+     if code is BlockCode.OPERATION_PREVIOUSLY_FAILED:  # 取件時讀到既有失敗:直接確認,不交出去
+         assert result.kind is Result.IDLE
++    elif code in APPROVABLE:  # 可核可的兩關先停在待核可,提案到期才確認成已擋下(Phase 6 增量 3)
++        assert (result.kind, result.block_code) == (Result.AWAITING_APPROVAL, code)
++        h.clock.advance(hours=1, seconds=1)
++        assert h.executor().process_awaiting() == 1
+     else:
+         assert (result.kind, result.block_code) == (Result.BLOCKED, code)
+     blocked = [p for p in h.proposals() if p[3] == "blocked"]
+     assert blocked == [("t1", blocked[0][1], "pending", "blocked", code.value)]
+     assert h.attempts() == attempts_before  # 不寫嘗試紀錄
+     assert len(h.dsp.writes) == writes_before  # 不呼叫 DSP 寫入
+ 
+ 
+ # ---- [S44](由 Phase 4 增量 1 [S115] 取代:讀不到 DSP 改成放掉租約、計入投遞) ----
+ def test_an_unreachable_dsp_leaves_the_proposal_pending(h):
+diff --git a/tests/executor/test_f7_end_to_end.py b/tests/executor/test_f7_end_to_end.py
+index d27d1a8..4c6fb76 100644
+--- a/tests/executor/test_f7_end_to_end.py
++++ b/tests/executor/test_f7_end_to_end.py
+@@ -1,12 +1,13 @@
+ """事故 F7 端到端(Phase 6 增量 1,[S340]):3000 個廣告各加一成、單筆都在單一廣告上限內,
+-8 個工作者執行緒並行,總曝險到門檻就停,DSP 收到的加預算總額不超過門檻。
++8 個工作者執行緒並行,總曝險到門檻就停,DSP 收到的加預算總額不超過門檻。增量 3 起超過門檻的
++先停在待核可(沒有人核可),跑完之後撥時鐘過提案到期、跑一次處理待核可,才確認成已擋下。
+ 
+ 行程內假 DSP(寫入立刻成功、驗證也成功),每個工作者各開自己的收件表連線(SQLite 連線只能在建立它
+ 的執行緒用);工作者一直處理到沒有待處理的提案為止。比照啟動程式:資料庫忙碌休息一下再來;取件後
+ 碰到忙碌的那筆留在處理中,時鐘撥過租約後再跑一輪,讓它照正式的重新投遞被接手。
+ """
+ 
+ import json
+ import threading
+ import time
+ 
+@@ -75,20 +76,22 @@ def test_f7_many_small_increases_stop_at_the_aggregate_limit(tmp_path, clock):
+         outcomes = _run_workers(h)
+         for _ in range(5):  # 取件後碰到資料庫忙碌的那筆會留在處理中,要等租約到期才重投
+             if not h.query("SELECT 1 FROM proposals WHERE disposition = 'in_progress'"):
+                 break
+             h.clock.advance(seconds=61)
+             outcomes += _run_workers(h)
+ 
+         assert len(h.dsp.writes) == EXPECTED_PASSES
+         assert (NEW_BUDGET - BUDGET) * len(h.dsp.writes) <= AGGREGATE_LIMIT
+         assert outcomes.count(Result.EXECUTED) == EXPECTED_PASSES
+-        assert outcomes.count(Result.BLOCKED) == CAMPAIGNS - EXPECTED_PASSES
+-        blocked = h.query("SELECT count(*) FROM proposals WHERE block_code = ?",
+-                          ("aggregate_limit_reached",))
++        assert outcomes.count(Result.AWAITING_APPROVAL) == CAMPAIGNS - EXPECTED_PASSES
++        h.clock.advance(hours=1, seconds=1)  # 沒有人核可:提案到期後由處理待核可結案
++        assert h.executor().process_awaiting() == CAMPAIGNS - EXPECTED_PASSES
++        blocked = h.query("SELECT count(*) FROM proposals WHERE disposition = 'blocked' "
++                          "AND block_code = ?", ("aggregate_limit_reached",))
+         assert blocked == [(CAMPAIGNS - EXPECTED_PASSES,)]
+         recorded = h.query("SELECT count(*), min(used + amount > cap) FROM write_stops "
+                            "WHERE kind = 'aggregate_limit_reached'")
+         assert recorded == [(CAMPAIGNS - EXPECTED_PASSES, 1)]  # 每一筆擋下都記了、當時確實超過
+     finally:
+         h.close()
+     assert time.monotonic() - started < 60
+diff --git a/tests/executor/test_guardrails.py b/tests/executor/test_guardrails.py
+index 0bb6959..ec1e564 100644
+--- a/tests/executor/test_guardrails.py
++++ b/tests/executor/test_guardrails.py
+@@ -1,35 +1,36 @@
+-"""護欄表格:Phase 6 增量 2 的 S400 到 S405、S409。
++"""護欄表格:Phase 6 增量 2 的 S400 到 S405、S409(增量 3 改寫比例那一條的位置與結果)。
+ 
+ 單筆規則只有兩處程式:執行前檢查(看 DSP 現況)與簽發器(看租戶設定)。這裡的護欄表把兩處的
+ 六條規則與順序寫在一起,當成測試資料跑邊界值;表不是第三套檢查。比例上限是使用者 2026-09-23
+-裁定的值:加的量不得超過 max(現況的五成取下限, 1),全域一個值。
++裁定的值:加的量不得超過 max(現況的五成取下限, 1),全域一個值。增量 3 起比例是可核可的一關:
++判斷搬進護欄模組、排在簽發(租戶規則)之後,超過時停在待核可而不是擋下結案。
+ 完整性三份清單與舊收件表寫入新代碼([S404]、[S406])依賴增量 1,增量 1 合併後補上。
+ """
+ 
+ import sqlite3
+ from dataclasses import replace
+ from datetime import UTC, datetime, timedelta
+ from types import MappingProxyType
+ 
+ import pytest
+ 
+ from rtb.analyzer import policy
+ from rtb.analyzer.task_store import TaskRow
+ from rtb.domain.attempt import AttemptState as A
+ from rtb.domain.attempt import operation_key
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
+ from rtb.domain.proposal import MAX_INT
+ from rtb.domain.task_state import TaskState
+-from rtb.executor import attempt_store
++from rtb.executor import attempt_store, guardrails
+ from rtb.executor.execution import CampaignView, Result, WriteAnswer, precheck
+-from rtb.executor.inbox_store import BlockCode, InboxStore
++from rtb.executor.inbox_store import APPROVABLE, BlockCode, InboxStore
+ from tests.executor.fakes import Harness, proposal, write_config
+ 
+ LATER = "2026-09-22T12:40:00+00:00"
+ 
+ 
+ @pytest.fixture
+ def h(tmp_path, clock):
+     harness = Harness(tmp_path, clock)
+     yield harness
+     harness.close()
+@@ -49,40 +50,42 @@ def _pause():
+ 
+ # ---- S400 ----
+ @pytest.mark.parametrize(("current", "new_budget", "blocked"), [
+     (100, 150, False), (100, 149, False), (100, 151, True),  # 剛好等於、差 1、超過 1
+     (3, 4, False), (3, 5, True),  # 3 的五成取下限是 1
+     (1, 2, False), (1, 3, True),  # 小額:最小加額 1
+     (0, 1, False), (0, 2, True),  # 真實讀取路徑走不到(預算 0 讀成讀不懂),只在這一層驗公式
+     (MAX_INT - 1, MAX_INT, False),
+ ])
+ def test_a_budget_increase_is_bounded_by_the_ratio_cap(current, new_budget, blocked):
+-    expected = BlockCode.BUDGET_INCREASE_TOO_LARGE if blocked else None
+-    assert precheck(_raise_to(new_budget), _view(current)) is expected
++    assert guardrails.increase_too_large(_raise_to(new_budget), current) is blocked
++    assert precheck(_raise_to(new_budget), _view(current)) is None  # 比例不在執行前檢查了
+ 
+ 
+ def test_a_ratio_block_writes_nothing(h):
+     h.submit(requested_change={"new_budget": 151})
+ 
+     result = h.process()
+ 
+-    assert (result.kind, result.block_code) == (Result.BLOCKED, BlockCode.BUDGET_INCREASE_TOO_LARGE)
+-    assert h.proposals() == [("t1", 1, "pending", "blocked", "budget_increase_too_large")]
++    assert (result.kind, result.block_code) == (
++        Result.AWAITING_APPROVAL, BlockCode.BUDGET_INCREASE_TOO_LARGE)
++    assert h.proposals() == [("t1", 1, "pending", "awaiting_approval",
++                              "budget_increase_too_large")]
+     assert h.attempts() == [] and h.dsp.writes == []  # 不寫嘗試紀錄、不呼叫 DSP 寫入
+ 
+ 
+ # ---- S401 ----
+ @pytest.mark.parametrize("current", [1, 100, 10_000])
+ def test_decreases_and_pauses_are_not_bounded_by_the_ratio_cap(current):
+-    assert precheck(_raise_to(1), _view(current)) is None  # 減到 1
+-    assert precheck(_raise_to(current), _view(current)) is None  # 不變
+-    assert precheck(_pause(), _view(current)) is None
++    assert not guardrails.increase_too_large(_raise_to(1), current)  # 減到 1
++    assert not guardrails.increase_too_large(_raise_to(current), current)  # 不變
++    assert not guardrails.increase_too_large(_pause(), current)
+ 
+ 
+ # ---- S402 ----
+ _NOW = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
+ 
+ 
+ def _policy_proposal(budget):
+     """分析端現行決策規則依這個預算產生的提案(配速極低、有投放,一定出提案)。"""
+     task = TaskRow(task_id="t1", seq=3, state=TaskState.ANALYZING, campaign_id="c1",
+                    proposal=None, error_detail=None, written_at=_NOW)
+@@ -97,23 +100,24 @@ def _policy_proposal(budget):
+              {"campaign_id": "c1", "window": "1h", "impressions": 500, "clicks": 12,
+               "conversions": 1, "spend": 0.0, "revenue": 5.0}),
+         ))
+     decision = policy.decide(task, evidence, _NOW)
+     return decision.proposal
+ 
+ 
+ def test_the_analyzer_policy_never_trips_the_ratio_cap():
+     # 單一測試逐一檢查(不參數化成上千項,全套數字才看得出真實變化);失敗時指出第一個違反的預算
+     budgets = [*range(1, 1001), 10**6, 10**9, 2**62, MAX_INT - 1, MAX_INT]
++    # 增量 3 起直接呼叫護欄模組的比例判斷:比例搬出執行前檢查後,呼叫那邊會永遠通過、測不到東西
+     tripped = next((b for b in budgets
+-                    if precheck(_policy_proposal(b), _view(b, version=7)) is not None), None)
+-    assert tripped is None, f"預算 {tripped} 時分析端的提案被執行前檢查擋下"
++                    if guardrails.increase_too_large(_policy_proposal(b), b)), None)
++    assert tripped is None, f"預算 {tripped} 時分析端的提案撞到比例上限"
+ 
+ 
+ # ---- S403 ----
+ def _campaign(budget=100, version=3, status="active"):
+     return lambda h: h.dsp.campaigns.__setitem__("c1", _view(budget, version, status))
+ 
+ 
+ def _tenant(**kwargs):
+     return lambda h: write_config(h.config, **kwargs)
+ 
+@@ -132,54 +136,59 @@ GUARDRAILS = [
+     # 1 廣告不存在
+     ("campaign_not_found", _no_campaign, 150, BlockCode.CAMPAIGN_NOT_FOUND),
+     ("campaign_not_found", _as_is, 150, None),
+     # 2 不在投放
+     ("campaign_not_active", _campaign(status="paused"), 150, BlockCode.CAMPAIGN_NOT_ACTIVE),
+     ("campaign_not_active", _campaign(status="active"), 150, None),
+     # 3 版本已變:比對是不等,現況比觀察到的舊也擋
+     ("version_changed", _campaign(version=4), 150, BlockCode.VERSION_CHANGED),
+     ("version_changed", _campaign(version=2), 150, BlockCode.VERSION_CHANGED),
+     ("version_changed", _campaign(version=3), 150, None),
+-    # 4 比例上限(新):現況 100,上限加 50
+-    ("budget_increase_too_large", _as_is, 150, None),
+-    ("budget_increase_too_large", _as_is, 149, None),
+-    ("budget_increase_too_large", _as_is, 151, BlockCode.BUDGET_INCREASE_TOO_LARGE),
+-    # 5 不屬於租戶
++    # 4 不屬於租戶
+     ("campaign_not_allowed", _tenant(campaigns=("c2",)), 150, BlockCode.CAMPAIGN_NOT_ALLOWED),
+     ("campaign_not_allowed", _tenant(campaigns=("c1", "c2")), 150, None),
+-    # 6 超過單一廣告上限:現況 900 讓加的量都在比例內,上限 1000
++    # 5 超過單一廣告上限:現況 900 讓加的量都在比例內,上限 1000
+     ("over_budget_cap", _campaign(budget=900), 1000, None),
+     ("over_budget_cap", _campaign(budget=900), 999, None),
+     ("over_budget_cap", _campaign(budget=900), 1001, BlockCode.OVER_BUDGET_CAP),
++    # 6 比例上限(可核可,增量 3 起排在簽發之後、超過時停在待核可):現況 100,上限加 50
++    ("budget_increase_too_large", _as_is, 150, None),
++    ("budget_increase_too_large", _as_is, 149, None),
++    ("budget_increase_too_large", _as_is, 151, BlockCode.BUDGET_INCREASE_TOO_LARGE),
+ ]
+-SINGLE_RULE_CODES = (  # 表上的順序就是程式判斷的順序
++SINGLE_RULE_CODES = (  # 表上的順序就是程式判斷的順序:硬規則在前,可核可的比例最後
+     BlockCode.CAMPAIGN_NOT_FOUND, BlockCode.CAMPAIGN_NOT_ACTIVE, BlockCode.VERSION_CHANGED,
+-    BlockCode.BUDGET_INCREASE_TOO_LARGE, BlockCode.CAMPAIGN_NOT_ALLOWED, BlockCode.OVER_BUDGET_CAP,
++    BlockCode.CAMPAIGN_NOT_ALLOWED, BlockCode.OVER_BUDGET_CAP, BlockCode.BUDGET_INCREASE_TOO_LARGE,
+ )
+ 
+ 
++def _outcome(code):
++    """可核可的一關停在待核可,硬規則擋下結案。"""
++    return Result.AWAITING_APPROVAL if code in APPROVABLE else Result.BLOCKED
++
++
+ def _run(h, setup, new_budget):
+     h.submit(requested_change={"new_budget": new_budget})
+     setup(h)
+     return h.process()
+ 
+ 
+ @pytest.mark.parametrize(("rule", "setup", "new_budget", "expected"), GUARDRAILS,
+                          ids=[f"{row[0]}-{row[2]}-{i}" for i, row in enumerate(GUARDRAILS)])
+ def test_every_guardrail_holds_at_its_boundaries(h, rule, setup, new_budget, expected):
+     result = _run(h, setup, new_budget)
+ 
+     if expected is None:
+         assert result.kind is Result.EXECUTED, rule
+         assert len(h.dsp.writes) == 1
+     else:
+-        assert (result.kind, result.block_code) == (Result.BLOCKED, expected), rule
++        assert (result.kind, result.block_code) == (_outcome(expected), expected), rule
+         assert h.attempts() == [] and h.dsp.writes == []
+ 
+ 
+ # 三份明列清單:之後誰加新擋下原因都得先決定歸哪一份,忘了就紅
+ NON_SINGLE_CODES = (  # 不是單筆規則:鍵已存在的分流、總曝險(增量 1)
+     BlockCode.OPERATION_PREVIOUSLY_FAILED, BlockCode.AGGREGATE_LIMIT_REACHED,
+ )
+ HISTORICAL_CODES = ()  # 規則已拿掉、只為讀舊資料而留在列舉裡的代碼(回退時比例代碼搬來這裡)
+ 
+ 
+@@ -246,29 +255,30 @@ def test_an_old_inbox_accepts_the_new_block_code_after_opening(tmp_path, clock):
+         assert store._conn.execute(old_rows).fetchall() == before  # 寫入新代碼之後仍不變
+     finally:
+         store.close()
+ 
+ 
+ # ---- S405 ----
+ @pytest.mark.parametrize(("setups", "new_budget", "expected"), [
+     ((_campaign(status="paused"),), 151, BlockCode.CAMPAIGN_NOT_ACTIVE),  # 不在投放 > 比例
+     ((_campaign(status="paused", version=4),), 150, BlockCode.CAMPAIGN_NOT_ACTIVE),  # > 版本已變
+     ((_campaign(version=4),), 151, BlockCode.VERSION_CHANGED),  # 版本已變 > 比例
+-    ((_tenant(campaigns=("c2",)),), 151, BlockCode.BUDGET_INCREASE_TOO_LARGE),  # 比例 > 租戶
++    ((_tenant(campaigns=("c2",)),), 151, BlockCode.CAMPAIGN_NOT_ALLOWED),  # 租戶 > 比例(增量 3)
++    ((_tenant(max_budget=120),), 151, BlockCode.OVER_BUDGET_CAP),  # 單一廣告上限 > 比例(增量 3)
+     ((_tenant(campaigns=("c2",), max_budget=120),), 150, BlockCode.CAMPAIGN_NOT_ALLOWED),
+ ])
+ def test_the_first_failing_guardrail_wins(h, setups, new_budget, expected):
+     h.submit(requested_change={"new_budget": new_budget})
+     for setup in setups:
+         setup(h)
+     result = h.process()
+-    assert (result.kind, result.block_code) == (Result.BLOCKED, expected)
++    assert (result.kind, result.block_code) == (_outcome(expected), expected)
+ 
+ 
+ # ---- S409 ----
+ def test_an_already_failed_key_is_blocked_as_previously_failed(h):
+     first = h.submit()
+     h.dsp.answers.append(WriteAnswer(403, "capability_scope_mismatch"))  # 不是版本衝突的失敗
+     h.process()
+     key = operation_key(first)
+     with h.store.transaction() as tx:
+         seq = attempt_store.latest(tx, key).seq
+diff --git a/tests/executor/test_inbox_disposition.py b/tests/executor/test_inbox_disposition.py
+index dcd030b..034c3bc 100644
+--- a/tests/executor/test_inbox_disposition.py
++++ b/tests/executor/test_inbox_disposition.py
+@@ -217,23 +217,23 @@ def test_a_pending_proposal_still_counts_as_pending(store):
+         accept(store, proposal(task_id="t3"))
+ 
+ 
+ # ---- [S41] ----
+ def test_block_reasons_are_a_closed_list(store, tmp_path):
+     assert {code.value for code in BlockCode} == {
+         "campaign_not_found", "campaign_not_active", "version_changed", "campaign_not_allowed",
+         "over_budget_cap", "operation_previously_failed",
+         "budget_increase_too_large",  # Phase 6 增量 2 新增的單筆比例上限
+         "aggregate_limit_reached"}  # Phase 6 增量 1 [S331]:總曝險已滿
+-    # 「處置恰好兩個成員」由 Phase 4 增量 1 [S103] 取代:四個成員
++    # 「處置恰好兩個成員」由 Phase 4 增量 1 [S103] 取代:四個成員;Phase 6 增量 3 加待核可
+     assert {d.value for d in Disposition} == {"in_progress", "handed_off", "blocked",
+-                                              "dead_letter"}
++                                              "dead_letter", "awaiting_approval"}
+     prop = proposal()
+     accept(store, prop)
+     with store.transaction() as tx:
+         receipt = _receive(store, tx)
+     before = rows(tmp_path)
+     for bad in (None, "version_changed", "expired", 3):
+         with store.transaction() as tx, pytest.raises(ValueError):
+             store.ack_blocked(tx, receipt, Clock()(), bad)
+     assert rows(tmp_path) == before
+     conn = sqlite3.connect(tmp_path / "executor.db")  # 資料庫自己也擋:繞過模組寫也寫不進去
+diff --git a/tests/executor/test_queue.py b/tests/executor/test_queue.py
+index a11e1ec..fff9426 100644
+--- a/tests/executor/test_queue.py
++++ b/tests/executor/test_queue.py
+@@ -316,20 +316,25 @@ def _handed_off(h):
+     h.submit()
+     h.process()
+ 
+ 
+ def _blocked(h):
+     h.submit()
+     h.dsp.campaigns["c1"] = CampaignView(120, "active", 4)
+     h.process()
+ 
+ 
++def _awaiting_approval(h):  # Phase 6 增量 3:比例過大又沒有核可
++    h.submit(requested_change={"new_budget": 151})
++    h.process()
++
++
+ def _dead_letter(h):
+     h.submit()
+     h.dsp.read_failures = MAX_DELIVERIES
+     for _ in range(MAX_DELIVERIES + 1):
+         h.process()
+ 
+ 
+ def _table_full(h):
+     import unittest.mock
+ 
+@@ -342,20 +347,21 @@ def _table_full(h):
+ def _no_report(h):
+     h.submit()
+     receive(h)
+     h.clock.advance(seconds=LEASE)
+     receive(h)  # 上一個持有者沒回報就過期:回收時記「沒有回報」
+ 
+ 
+ DISPOSITION_TRIGGERS = {
+     Disposition.IN_PROGRESS: _in_progress, Disposition.HANDED_OFF: _handed_off,
+     Disposition.BLOCKED: _blocked, Disposition.DEAD_LETTER: _dead_letter,
++    Disposition.AWAITING_APPROVAL: _awaiting_approval,
+ }
+ DEAD_LETTER_TRIGGERS = {DeadLetterReason.DELIVERY_LIMIT: _dead_letter}
+ FAILURE_TRIGGERS = {
+     LastFailure.DSP_UNAVAILABLE: _dead_letter, LastFailure.TABLE_FULL: _table_full,
+     LastFailure.NO_REPORT: _no_report,
+ }
+ TRIGGER_CASES = ([("disposition", m, f) for m, f in DISPOSITION_TRIGGERS.items()]
+                  + [("dead_letter_reason", m, f) for m, f in DEAD_LETTER_TRIGGERS.items()]
+                  + [("last_failure", m, f) for m, f in FAILURE_TRIGGERS.items()])
+ 

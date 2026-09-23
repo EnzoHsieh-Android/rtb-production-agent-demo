@@ -17,10 +17,15 @@
 寫入都在同一個交易裡先核對收據仍有效(同一把租約管訊息與嘗試紀錄,Phase 0 的裁定),嘗試到
 終點就在同一個交易裡確認。收據對不上是正常的租約競爭:丟 LeaseLost,這把鍵這一輪放棄;只有
 嘗試紀錄自己的序號對不上才照舊停機。
+
+人工核可(Phase 6 增量 3):硬規則一律先判(執行前檢查的三條、簽發的兩條),可核可的兩關最後判
+——簽發之後判比例上限,開始一筆時判總曝險。沒有那一關的有效核可就停在待核可,不結案;每輪的
+「處理待核可」那一步在核可到了時放回待處理、到期時確認成已擋下。用到核可的那一筆,憑證不能活得
+比核可久;同鍵重送前也重判比例與用過的核可。
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -29,11 +34,16 @@ from typing import Any, Literal, NoReturn, Protocol
 from rtb.domain._checks import is_plain_int
 from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
 from rtb.domain.proposal import ActionType, Proposal
-from rtb.executor import attempt_store
+from rtb.executor import approval, attempt_store, guardrails
+from rtb.executor.approval import Approval
 from rtb.executor.attempt_store import AttemptRow
-from rtb.executor.capability_signer import LIFETIME_SECONDS, Grant, SigningRefused
+from rtb.executor.capability_signer import Grant, SigningRefused, Tenant, load_tenants, tenant_for
 from rtb.executor.inbox_store import (
+    APPROVABLE,
     VISIBILITY_TIMEOUT,
+    ApprovalUse,
+    AwaitingOutcome,
+    AwaitingProposal,
     BlockCode,
     CorruptedInboxRow,
     InboxStore,
@@ -47,6 +57,8 @@ from rtb.executor.inbox_store import (
 
 A = AttemptState
 C = OutcomeCode
+RATIO = BlockCode.BUDGET_INCREASE_TOO_LARGE
+AGGREGATE = BlockCode.AGGREGATE_LIMIT_REACHED
 
 
 @dataclass(frozen=True)
@@ -119,8 +131,10 @@ class Signer(Protocol):
 
     def grant(
         self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
+        not_after: int | None = None,
     ) -> Grant:
-        """同 sign,另外帶回同一次讀設定檔得到的租戶與總額上限(Phase 6)。"""
+        """同 sign,另外帶回憑證到期時間與同一次讀設定檔得到的整個租戶(Phase 6);not_after 是
+        最晚到期(用到人工核可時不能活得比核可久)。"""
         ...
 
     def sign_void(
@@ -268,6 +282,7 @@ class Result(StrEnum):
     BLOCKED = "blocked"
     HANDED_OFF_TO_EXISTING = "handed_off_to_existing"  # 鍵已存在,由既有那筆嘗試負責
     EXECUTED = "executed"  # 開了一筆嘗試並送出
+    AWAITING_APPROVAL = "awaiting_approval"  # 可核可的一關沒有有效核可:停在待核可(Phase 6 增量 3)
     LEASE_LOST = "lease_lost"  # 收據對不上:這一輪放棄這份提案
 
 
@@ -285,13 +300,6 @@ _BUSINESS_REFUSALS = {
 }
 
 
-# 單筆加預算的比例上限(使用者 2026-09-23 裁定:五成、最小加額 1、全域一個值):
-# 加的量不得超過 max(現況乘分子除以分母取整數下限, 最小加額),整數運算
-MAX_INCREASE_NUMERATOR = 1
-MAX_INCREASE_DENOMINATOR = 2
-MIN_INCREASE_STEP = 1
-
-
 def _aggregate_used(tx: attempt_store.ExecutorTransaction, tenant: str, now: datetime) -> int:
     """表滿延後也要記當時已用額度;這裡在例外處理裡呼叫,壞快照要自己轉成停機。"""
     try:
@@ -300,32 +308,19 @@ def _aggregate_used(tx: attempt_store.ExecutorTransaction, tenant: str, now: dat
         raise ExecutorHalted("unreadable_attempt") from exc
 
 
-def _increase(proposal: Proposal, view: CampaignView) -> int:
-    """這筆提案佔的總曝險:新預算減目前預算,小於 0 算 0;暫停是 0。"""
-    if proposal.action_type is not ActionType.UPDATE_BUDGET:
-        return 0
-    return max(0, int(proposal.requested_change["new_budget"]) - view.budget)
-
-
 def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
-    """執行前檢查裡看 DSP 現況的四項;「不在投放」排在版本之前,代碼比較有意義。比例上限排在
-    版本已變之後:走到那一項時現況一定是提案觀察到的那個版本,比例的基準不會被別人的修改帶偏。"""
+    """執行前檢查裡看 DSP 現況的三條硬規則;「不在投放」排在版本之前,代碼比較有意義。
+
+    比例上限(可核可)不在這裡:Phase 6 增量 3 搬到簽發之後,硬規則一律先判,否則同時違反比例與
+    單一廣告上限的提案會先停在待核可、等一張注定用不上的核可。比例的基準仍是這裡讀到的現況:版本
+    已變排在前面,走到比例時現況一定是提案觀察到的那個版本。"""
     if view is None:
         return BlockCode.CAMPAIGN_NOT_FOUND
     if view.status != "active":
         return BlockCode.CAMPAIGN_NOT_ACTIVE
     if view.version != proposal.campaign_version_observed:
         return BlockCode.VERSION_CHANGED
-    if _increase_too_large(proposal, view):
-        return BlockCode.BUDGET_INCREASE_TOO_LARGE
     return None
-
-
-def _increase_too_large(proposal: Proposal, view: CampaignView) -> bool:
-    """加的量跟總曝險同一個算法(`_increase`):減預算、暫停是 0,不受影響。"""
-    allowed = max(view.budget * MAX_INCREASE_NUMERATOR // MAX_INCREASE_DENOMINATOR,
-                  MIN_INCREASE_STEP)
-    return _increase(proposal, view) > allowed
 
 
 def _version_changed_or_none(live: bool, checked: BlockCode | None) -> BlockCode | None:
@@ -355,8 +350,12 @@ def record_matches(proposal: Proposal, record: OperationRecord) -> bool:
 class _Signed:
     token: str
     expires_at: datetime
-    tenant: str = ""
-    aggregate_limit: int = 0
+    tenant: Tenant  # 同一次讀設定檔得到的整個租戶:總額上限、租戶名稱、核可範圍指紋都從這裡取
+    approvals: tuple[Approval, ...] = ()  # 同鍵重送時這張憑證靠的核可:轉嘗試中的交易裡再核一次
+
+
+class _ApprovalSuperseded(Exception):
+    """轉嘗試中的交易裡發現重送靠的核可已不是那一關最新的:不重送。"""
 
 
 def _no_progress(key: str, receipt: Receipt | None) -> NoReturn:
@@ -380,6 +379,7 @@ class Executor:
     config_path: Path
     clock: Callable[[], datetime]  # 單一動作的簡單回呼:照專案慣例用 Callable,不另開 Protocol
     owner: str = "executor"  # 租約擁有者:啟動程式傳行程編號加啟動時間
+    approval_key: bytes | None = None  # 人工核可金鑰(啟動程式讀);沒有就一張核可都不算數
 
     def process_one(self) -> Processed:
         with self.store.transaction() as tx:
@@ -401,29 +401,206 @@ class Executor:
             return self._release(receipt, LastFailure.DSP_UNAVAILABLE)
         if proposal.decision_expires_at <= self.clock():  # 讀 DSP 期間過期:先於其他檢查
             return self._settle(receipt, None, Result.EXPIRED)
-        signed = precheck(proposal, view) or self._sign(proposal)
+        signed = precheck(proposal, view) or self._sign(proposal)  # 硬規則一律先判
         if isinstance(signed, BlockCode):
             return self._settle(receipt, signed, Result.BLOCKED)
         assert view is not None  # 廣告不存在時執行前檢查已擋下  # noqa: S101
-        taken = self._take(picked, receipt, signed, view)
+        return self._run(picked, receipt, signed, view)
+
+    def _run(
+        self, picked: PendingProposal, receipt: Receipt, signed: _Signed, view: CampaignView,
+    ) -> Processed:
+        """硬規則都過了:判可核可的兩關、開始一筆、送出。"""
+        proposal = picked.proposal
+        amount = guardrails.increase(proposal, view.budget)
+        gated = self._gate(receipt, proposal, signed, view, amount)
+        if isinstance(gated, Processed):
+            return gated
+        signed, held = gated
+        taken = self._take(picked, receipt, signed, amount, held)
         if isinstance(taken, Processed):
             return taken
         # 停在未結案就不確認:每一筆嘗試寫入都順手續租,所以租約已經延長,交給對帳
         self._record(proposal, taken, self.dsp.write(proposal, taken.key, signed.token), receipt)
         return Processed(Result.EXECUTED, taken.key)
 
-    def _sign(self, proposal: Proposal, key: str | None = None) -> _Signed | BlockCode:
-        """key 給對帳重送用:嘗試已經開過,一律用存下來的那把鍵簽,不從提案重算(增量 1 的規則)。"""
+    def _sign(
+        self, proposal: Proposal, key: str | None = None, not_after: int | None = None,
+    ) -> _Signed | BlockCode:
+        """key 給對帳重送用:嘗試已經開過,一律用存下來的那把鍵簽,不從提案重算(增量 1 的規則)。
+        not_after:用到人工核可時的最晚到期(Phase 6 增量 3)。"""
         now = int(self.clock().timestamp())  # 每次簽發都重讀時鐘
         try:
             grant = self.signer.grant(proposal, key or operation_key(proposal),
-                                      self.config_path, now)
+                                      self.config_path, now, not_after)
         except SigningRefused as refused:
             if refused.reason in _BUSINESS_REFUSALS:
                 return _BUSINESS_REFUSALS[refused.reason]
             raise ExecutorHalted(refused.reason) from refused
-        return _Signed(grant.token, datetime.fromtimestamp(now + LIFETIME_SECONDS, UTC),
-                       grant.tenant, grant.aggregate_limit)
+        return _Signed(grant.token, datetime.fromtimestamp(grant.expires_at, UTC), grant.tenant)
+
+    # ---- 人工核可(Phase 6 增量 3) ----
+    def _gate(
+        self, receipt: Receipt, proposal: Proposal, signed: _Signed, view: CampaignView,
+        amount: int,
+    ) -> tuple[_Signed, dict[BlockCode, Approval]] | Processed:
+        """硬規則都過了之後:判比例上限(可核可),並查好開始一筆可能用到的核可。沒超過比例就用
+        不到那一張;超過又沒有有效核可就停在待核可。用到核可時重簽一次,憑證封頂在核可到期。"""
+        held = self._approvals(proposal, signed.tenant, amount)
+        if not guardrails.increase_too_large(proposal, view.budget):
+            held.pop(RATIO, None)
+        elif RATIO not in held:
+            return self._await(receipt, proposal, RATIO, self._ratio_stop(proposal, signed, amount))
+        if not held:
+            return signed, held
+        capped = self._sign(proposal, not_after=min(a.expires_at for a in held.values()))
+        if isinstance(capped, BlockCode):  # 兩次簽發之間設定檔改了:照硬規則擋下
+            return self._settle(receipt, capped, Result.BLOCKED)
+        if approval.scope_fingerprint(capped.tenant) != approval.scope_fingerprint(signed.tenant):
+            return self._release(receipt, None)  # 核可是照上一次讀到的租戶設定驗的:下一輪重來
+        return capped, held
+
+    def _read_approval(
+        self, token: str | None, proposal: Proposal, stage: BlockCode, tenant: Tenant,
+        amount: int, now: datetime,
+    ) -> Approval | None:
+        """最新那一張核可此刻算不算數;不算數回 None(不回頭找舊的)。"""
+        found = None if token is None else approval.read(token, self.approval_key)
+        if found is None or not approval.holds(found, proposal, stage, tenant, amount, now):
+            return None
+        return found
+
+    def _approvals(
+        self, proposal: Proposal, tenant: Tenant, amount: int,
+    ) -> dict[BlockCode, Approval]:
+        """這份提案兩關各自最新、而且此刻算數的核可。開始一筆前先查好:用到核可要先封頂憑證。
+
+        總曝險那一張只在「照現在的已用額度會超過門檻」時才留下:用不到的核可不該把憑證效期壓短
+        (代碼審第 1 輪相容席)。這裡算的已用額度只是預判,開始一筆的交易裡照舊重算;預判沒超過、
+        實際超過時照樣進待核可,下一輪再用上這張。"""
+        with self.store.transaction() as tx:
+            now = self.clock()
+            tokens = {stage: self.store.latest_approval(tx, proposal, stage)
+                      for stage in APPROVABLE}
+            if tokens[AGGREGATE] is not None and (
+                    _aggregate_used(tx, tenant.name, now) + amount <= tenant.aggregate_limit):
+                tokens[AGGREGATE] = None
+        held = {stage: self._read_approval(token, proposal, stage, tenant, amount, now)
+                for stage, token in tokens.items()}
+        return {stage: found for stage, found in held.items() if found is not None}
+
+    @staticmethod
+    def _ratio_stop(proposal: Proposal, signed: _Signed, amount: int) -> Stop:
+        return Stop(StopKind.BUDGET_INCREASE_TOO_LARGE, proposal, operation_key(proposal),
+                    signed.tenant.name, amount, None, None)
+
+    def _await(
+        self, receipt: Receipt, proposal: Proposal, stage: BlockCode, stop: Stop,
+    ) -> Processed:
+        with self.store.transaction() as tx:
+            return self._await_in(tx, receipt, proposal, stage, stop, self.clock())
+
+    def _await_in(
+        self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, proposal: Proposal,
+        stage: BlockCode, stop: Stop, now: datetime,
+    ) -> Processed:
+        """停在待核可:處置寫待核可、擋下原因記這一關,同一個交易裡寫一列停下紀錄。收據失效就
+        什麼都不寫(丟 LeaseLost 讓交易回滾)。"""
+        if not self.store.await_approval(tx, receipt, now, stage):
+            raise LeaseLost(operation_key(proposal))
+        self.store.record_stop(tx, stop, now)
+        return Processed(Result.AWAITING_APPROVAL, operation_key(proposal), stage)
+
+    def process_awaiting(self) -> int:
+        """每輪處理待核可:到期確認成已擋下;同任務有更新的修訂就確認成被取代;有這一關的有效
+        核可就放回待處理、投遞次數歸零;其他不動。逐筆各自一個交易,回傳這一輪轉換了幾份。
+
+        驗核可在這裡(執行行程),不在收件表模組:收件表只收、去重、記帳,不做授權。"""
+        with self.store.transaction() as tx:
+            waiting = self.store.awaiting(tx, self.clock())
+        if not waiting:
+            return 0
+        try:  # 設定檔只在有待核可時讀一次;壞掉或不安全是系統故障
+            tenants = load_tenants(self.config_path)
+        except SigningRefused as refused:
+            raise ExecutorHalted(refused.reason) from refused
+        return sum(self._settle_awaiting(item, tenants) for item in waiting)
+
+    def _settle_awaiting(self, item: AwaitingProposal, tenants: tuple[Tenant, ...]) -> bool:
+        proposal = item.message.proposal
+        tenant = tenant_for(tenants, proposal.campaign_id)
+        with self.store.transaction() as tx:
+            now = self.clock()
+            if proposal.decision_expires_at <= now:
+                outcome = AwaitingOutcome.EXPIRED
+            elif self.store.has_newer_revision(tx, proposal.task_id, proposal.revision):
+                outcome = AwaitingOutcome.SUPERSEDED  # 分析端已改送新修訂:舊的放回會插隊
+            elif attempt_store.latest(tx, operation_key(proposal)) is not None:
+                # 同一把鍵已由另一份修訂開過嘗試(兩份都取到收據的競態):放回待處理,取件照既有
+                # 規則依那把鍵的狀態確認,不要求第二張核可(代碼審第 3 輪外家席,事故 F3)
+                outcome = AwaitingOutcome.RELEASED
+            elif tenant is not None and self._approved(tx, item, tenant, now):
+                outcome = AwaitingOutcome.RELEASED
+            else:
+                return False
+            return self.store.settle_awaiting(tx, item.message, outcome, now)
+
+    def _approved(
+        self, tx: attempt_store.ExecutorTransaction, item: AwaitingProposal, tenant: Tenant,
+        now: datetime,
+    ) -> bool:
+        """放回前判核可:金額用停在這一關時記下的那個(重新處理時會照當下現況再判一次)。"""
+        amount = self.store.stop_amount(tx, item.message, item.stage)
+        if amount is None:
+            return False
+        token = self.store.latest_approval(tx, item.message.proposal, item.stage)
+        return self._read_approval(
+            token, item.message.proposal, item.stage, tenant, amount, now) is not None
+
+    def _resign(
+        self, proposal: Proposal, view: CampaignView | None, key: str,
+    ) -> _Signed | BlockCode | None:
+        """同鍵重送前的簽發(憑證過期後重送、對帳查不到後重送共用):硬規則之後比照處理一筆重判
+        比例,並核對這份提案用過的核可此刻都還算數;回 None 代表業務上不過(比例超過而沒有有效
+        核可,或用過的核可已不算數),呼叫端照既有做法先作廢再判失敗。用到核可時憑證封頂在核可
+        到期。總曝險不重判:預留在開始一筆時已寫下,一直算在已用額度裡(Phase 6 增量 3)。"""
+        signed = self._sign(proposal, key)
+        if isinstance(signed, BlockCode):
+            return signed
+        assert view is not None  # 呼叫端先跑過執行前檢查  # noqa: S101
+        amount = guardrails.increase(proposal, view.budget)
+        with self.store.transaction() as tx:
+            now = self.clock()
+            needed: list[tuple[BlockCode, str | None]] = list(
+                self.store.used_approvals(tx, proposal))
+            if guardrails.increase_too_large(proposal, view.budget):
+                needed.append((RATIO, self.store.latest_approval(tx, proposal, RATIO)))
+        found = [self._read_approval(token, proposal, stage, signed.tenant, amount, now)
+                 for stage, token in needed]
+        if any(item is None for item in found):
+            return None
+        if not found:
+            return signed
+        capped = self._sign(proposal, key,
+                            not_after=min(item.expires_at for item in found if item is not None))
+        if isinstance(capped, _Signed) and approval.scope_fingerprint(
+                capped.tenant) != approval.scope_fingerprint(signed.tenant):
+            return None  # 核可是照上一次讀到的租戶設定驗的:範圍變了就不算數(代碼審第 1 輪外家席)
+        if not isinstance(capped, _Signed):
+            return capped
+        # 靠的核可仍是最新這件事,在轉嘗試中的同一個交易裡核對(代碼審第 2、3 輪外家席):跟處理
+        # 一筆在開始一筆交易裡的核對是同一個判斷點,之後才呼叫 DSP
+        return replace(capped, approvals=tuple(item for item in found if item is not None))
+
+    def _in_flight_again(
+        self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None, signed: _Signed,
+    ) -> AttemptRow:
+        """同鍵重送前轉回嘗試中;靠核可的,同一個交易裡核對每張仍是那一關最新的。"""
+        def still_latest(tx: attempt_store.ExecutorTransaction) -> bool:
+            return not any(self._superseded(tx, proposal, item.stage, item)
+                           for item in signed.approvals)
+        return self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at,
+                           guard=still_latest)
 
     def _settle(self, receipt: Receipt, code: BlockCode | None, kind: Result) -> Processed:
         """確認成已過期或已擋下;以收據為條件(提案已經是處理中,不再以「仍待處理」為條件)。"""
@@ -433,21 +610,21 @@ class Executor:
                     else self.store.ack_blocked(tx, receipt, now, code))
         return Processed(kind, block_code=code) if done else Processed(Result.LEASE_LOST)
 
-    def _release(self, receipt: Receipt, failure: LastFailure) -> Processed:
+    def _release(self, receipt: Receipt, failure: LastFailure | None) -> Processed:
         """沒能開始嘗試:記下原因、放掉租約,下一輪能再取(每取一次算一次投遞,用完進死信)。"""
         with self.store.transaction() as tx:
             done = self.store.release(tx, receipt, self.clock(), failure)
         return Processed(Result.DEFERRED) if done else Processed(Result.LEASE_LOST)
 
     def _take(  # noqa: PLR0911 - 每個出口對應開始一筆的一種結果
-        self, picked: PendingProposal, receipt: Receipt, signed: _Signed, view: CampaignView,
+        self, picked: PendingProposal, receipt: Receipt, signed: _Signed, amount: int,
+        held: dict[BlockCode, Approval],
     ) -> AttemptRow | Processed:
         """開始一筆:在核對收據仍有效的同一個交易裡做;鍵已存在就依既有那把鍵的狀態分流。
 
         總曝險(Phase 6):預留金額 = 新預算減處理一筆開頭讀到的目前預算(版本已變排在前面,走到
-        這裡的目前預算一定是提案觀察到的那一版),小於 0 算 0;額度不夠就擋下並寫停下紀錄。"""
-        reservation = attempt_store.Reservation(
-            signed.tenant, _increase(picked.proposal, view), signed.aggregate_limit)
+        這裡的目前預算一定是提案觀察到的那一版),小於 0 算 0;額度不夠又沒有有效核可就停在
+        待核可並寫停下紀錄。held 是開始前查好的核可:在這個交易裡用當下時間再判一次到期。"""
         with self.store.transaction() as tx:
             now = self.clock()
             if not self.store.extend(tx, receipt, now):  # 已被取代、內容不同、或租約已不是我的
@@ -456,6 +633,18 @@ class Executor:
             if picked.proposal.decision_expires_at <= now:
                 self.store.ack_expired(tx, receipt, now)
                 return Processed(Result.EXPIRED)
+            if any(self._superseded(tx, picked.proposal, stage, found)
+                   for stage, found in held.items()):  # 查好之後又有人簽了更新的核可:下一輪重判
+                self.store.release(tx, receipt, now, None)
+                return Processed(Result.DEFERRED)
+            live = {stage: found for stage, found in held.items()
+                    if now.timestamp() < found.expires_at}
+            if RATIO in held and RATIO not in live:  # 比例的核可在取件後過期:回待核可
+                return self._await_in(tx, receipt, picked.proposal, RATIO,
+                                      self._ratio_stop(picked.proposal, signed, amount), now)
+            reservation = attempt_store.Reservation(
+                signed.tenant.name, amount, signed.tenant.aggregate_limit,
+                approved=AGGREGATE in live)
             try:
                 begun = attempt_store.begin(tx, picked.proposal, now,
                                             capability_expires_at=signed.expires_at,
@@ -467,21 +656,44 @@ class Executor:
                     StopKind.TABLE_FULL, picked.proposal, reservation, snapshot), now)
                 self.store.release(tx, receipt, now, LastFailure.TABLE_FULL)
                 return Processed(Result.DEFERRED)
-            except attempt_store.AggregateLimitReached as full:  # 總曝險已滿:擋下結案
-                self.store.record_stop(tx, self._stop(
+            except attempt_store.AggregateLimitReached as full:  # 總曝險已滿又沒有有效核可
+                return self._await_in(tx, receipt, picked.proposal, AGGREGATE, self._stop(
                     StopKind.AGGREGATE_LIMIT_REACHED, picked.proposal, reservation, full), now)
-                code = BlockCode.AGGREGATE_LIMIT_REACHED
-                if not self.store.ack_blocked(tx, receipt, now, code):
-                    raise LeaseLost(operation_key(picked.proposal)) from full
-                return Processed(Result.BLOCKED, operation_key(picked.proposal), code)
             except attempt_store.CorruptedAttemptRow as exc:  # 算額度時讀到壞掉的舊快照
                 raise ExecutorHalted("unreadable_attempt") from exc  # 比照對帳:不猜,停下讓人看
             except attempt_store.CampaignLocked:  # 同廣告兩份提案被兩個工作者同時取出時會走到
                 self.store.release(tx, receipt, now, None)
                 return Processed(Result.DEFERRED)
             if begun.created:
+                self._audit(tx, picked.proposal, begun, live, reservation, now)
                 return begun.row
             return self._existing_key(tx, begun.row, receipt, now)
+
+    def _superseded(
+        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal, stage: BlockCode,
+        held: Approval,
+    ) -> bool:
+        """開始一筆前查好的那張已不是這一關最後寫進核可表的那張(代碼審第 1 輪外家席)。"""
+        token = self.store.latest_approval(tx, proposal, stage)
+        return token is None or approval.approval_id(token) != held.approval_id
+
+    def _audit(
+        self, tx: attempt_store.ExecutorTransaction, proposal: Proposal,
+        begun: attempt_store.Begun, live: dict[BlockCode, Approval],
+        reservation: attempt_store.Reservation, now: datetime,
+    ) -> None:
+        """核可生效就在開始一筆的同一個交易裡寫核可使用紀錄:比例那一關有核可就記;總曝險那一關
+        只在真的超過門檻、靠核可放行時記(有核可但沒用上不記)。"""
+        uses = []
+        if RATIO in live:
+            uses.append(ApprovalUse(live[RATIO].approval_id, proposal, begun.row.key,
+                                    reservation.tenant, RATIO, reservation.amount, None, None))
+        if AGGREGATE in live and begun.over_limit is not None:
+            uses.append(ApprovalUse(live[AGGREGATE].approval_id, proposal, begun.row.key,
+                                    reservation.tenant, AGGREGATE, reservation.amount,
+                                    begun.over_limit.used, begun.over_limit.limit))
+        for use in uses:
+            self.store.record_approval_use(tx, use, now)
 
     def _existing_key(
         self, tx: attempt_store.ExecutorTransaction, row: AttemptRow, receipt: Receipt,
@@ -530,6 +742,7 @@ class Executor:
         self, row: AttemptRow, target: AttemptState, receipt: Receipt | None, *,
         code: OutcomeCode | None = None, written_version: int | None = None,
         capability_expires_at: datetime | None = None, block_code: BlockCode | None = None,
+        guard: Callable[[attempt_store.ExecutorTransaction], bool] | None = None,
     ) -> AttemptRow:
         """嘗試寫入:同一個交易裡先核對收據並順手續租(對不上丟 LeaseLost),寫到終點就同時確認。
 
@@ -540,6 +753,8 @@ class Executor:
             now = self.clock()
             if receipt is not None and not self.store.extend(tx, receipt, now):
                 raise LeaseLost(row.key)
+            if guard is not None and not guard(tx):
+                raise _ApprovalSuperseded(row.key)
             new = attempt_store.transition(
                 tx, row.key, row.seq, target, now, code=code,
                 written_version=written_version, capability_expires_at=capability_expires_at)
@@ -572,25 +787,33 @@ class Executor:
             return True  # 留在結果不明,交給對帳
         live = proposal.decision_expires_at > self.clock()
         checked = precheck(proposal, view)
-        signed = (self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
+        signed = (self._resign(proposal, view, row.key)  # 設定檔壞掉在這裡停機
                   if live and checked is None else None)
         if not isinstance(signed, _Signed):  # 業務上沒通過:DSP 明確沒寫這一次,不再送
-            block = _version_changed_or_none(live, checked)
-            if row.send_count > 1:  # 送過多次:更早的請求可能還在路上,先作廢才能判失敗
-                return self._void_then_fail(proposal, row, receipt, block)
-            self._write(row, A.FAILED, receipt, code=C.NOT_HAPPENED, block_code=block)
-            return False
+            return self._not_resent(proposal, row, receipt, _version_changed_or_none(live, checked))
         try:
-            row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)
+            row = self._in_flight_again(proposal, row, receipt, signed)
         except attempt_store.SendLimitReached:
             self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)
             return False
+        except _ApprovalSuperseded:
+            return self._not_resent(proposal, row, receipt, None)
         answer = self.dsp.write(proposal, row.key, signed.token)
         reaction = react(answer)
         if reaction.capability_expired:  # 用新讀的時間重簽後仍過期:時鐘或設定有問題
             self._write(row, A.ESCALATED, receipt, code=C.CAPABILITY_REJECTED)
             return False
         return self._record(proposal, row, answer, receipt)
+
+    def _not_resent(
+        self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None,
+        block: BlockCode | None,
+    ) -> bool:
+        """憑證過期後業務上不能再送:送過多次時更早的請求可能還在路上,先作廢才能判失敗。"""
+        if row.send_count > 1:
+            return self._void_then_fail(proposal, row, receipt, block)
+        self._write(row, A.FAILED, receipt, code=C.NOT_HAPPENED, block_code=block)
+        return False
 
     # ---- 第 7 步:執行後驗證 ----
     def _verify(self, proposal: Proposal, row: AttemptRow, receipt: Receipt | None) -> bool:
@@ -730,16 +953,18 @@ class Executor:
             return False
         live = proposal.decision_expires_at > self.clock()
         checked = precheck(proposal, view)
-        signed = (self._sign(proposal, row.key)  # 設定檔壞掉在這裡停機
+        signed = (self._resign(proposal, view, row.key)  # 設定檔壞掉在這裡停機
                   if live and checked is None else None)
         if not isinstance(signed, _Signed):  # 業務上不過:先作廢,作廢成功才判失敗
             return self._void_then_fail(proposal, row, receipt,
                                         _version_changed_or_none(live, checked))
         try:
-            row = self._write(row, A.IN_FLIGHT, receipt, capability_expires_at=signed.expires_at)
+            row = self._in_flight_again(proposal, row, receipt, signed)
         except attempt_store.SendLimitReached:
             self._write(row, A.ESCALATED, receipt, code=C.SEND_LIMIT_REACHED)
             return False
+        except _ApprovalSuperseded:
+            return self._void_then_fail(proposal, row, receipt, None)
         return self._record(proposal, row, self.dsp.write(proposal, row.key, signed.token),
                             receipt)
 

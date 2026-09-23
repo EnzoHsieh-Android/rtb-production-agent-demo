@@ -21,7 +21,7 @@ from rtb.executor.execution import (
     WriteAnswer,
     react,
 )
-from rtb.executor.inbox_store import BlockCode
+from rtb.executor.inbox_store import APPROVABLE, BlockCode
 from tests.capability_samples import TEST_KEY
 from tests.executor.fakes import Harness, proposal
 from tests.executor.test_guardrails import HISTORICAL_CODES
@@ -187,6 +187,10 @@ def test_each_failed_precheck_blocks_the_proposal_without_a_write(h, code):
 
     if code is BlockCode.OPERATION_PREVIOUSLY_FAILED:  # 取件時讀到既有失敗:直接確認,不交出去
         assert result.kind is Result.IDLE
+    elif code in APPROVABLE:  # 可核可的兩關先停在待核可,提案到期才確認成已擋下(Phase 6 增量 3)
+        assert (result.kind, result.block_code) == (Result.AWAITING_APPROVAL, code)
+        h.clock.advance(hours=1, seconds=1)
+        assert h.executor().process_awaiting() == 1
     else:
         assert (result.kind, result.block_code) == (Result.BLOCKED, code)
     blocked = [p for p in h.proposals() if p[3] == "blocked"]

@@ -1,0 +1,290 @@
+diff --git a/src/rtb/executor/approve.py b/src/rtb/executor/approve.py
+index ee9093f..2b8543d 100644
+--- a/src/rtb/executor/approve.py
++++ b/src/rtb/executor/approve.py
+@@ -44,22 +44,25 @@ def run(
+     args = _parse(argv)
+     key = read_key(os.environ if environ is None else environ, APPROVAL_KEY_ENV)
+     if key is None:
+         sys.stderr.write("拒絕簽核可:沒有可用的核可金鑰\n")
+         return EXIT_NO_KEY
+     try:
+         store = InboxStore(args.db)
+     except InboxBusy:
+         sys.stderr.write("資料庫忙碌,稍後再試\n")
+         return EXIT_BUSY
+-    try:
++    try:  # 找提案與寫核可都可能等不到寫入鎖:同一個固定代碼,稍後再試
+         return _sign(store, key, args, clock, out or sys.stdout)
++    except InboxBusy:
++        sys.stderr.write("資料庫忙碌,稍後再試\n")
++        return EXIT_BUSY
+     finally:
+         store.close()
+ 
+ 
+ def _sign(
+     store: InboxStore, key: bytes, args: argparse.Namespace, clock: Callable[[], datetime],
+     out: TextIO,
+ ) -> int:
+     proposal = store.find_proposal(args.task_id, args.revision)
+     if proposal is None:
+@@ -77,25 +80,21 @@ def _sign(
+     now = clock()
+     issued = int(now.timestamp())
+     stage = BlockCode(args.stage)
+     try:
+         token = approval.issue(key, proposal, stage, tenant, approver=args.approver,
+                                max_increase=args.max_increase, issued_at=issued,
+                                expires_at=issued + args.expires_in_seconds)
+     except approval.ApprovalRefused as refused:
+         sys.stderr.write(f"拒絕簽核可:{refused.reason}\n")
+         return EXIT_REFUSED
+-    try:
+-        store.add_approval(proposal, stage, approval.approval_id(token), token, now)
+-    except InboxBusy:
+-        sys.stderr.write("資料庫忙碌,稍後再試\n")
+-        return EXIT_BUSY
++    store.add_approval(proposal, stage, approval.approval_id(token), token, now)
+     print(approval.approval_id(token), file=out, flush=True)
+     return 0
+ 
+ 
+ def main(argv: list[str] | None = None) -> None:
+     raise SystemExit(run(argv))
+ 
+ 
+ if __name__ == "__main__":
+     main()
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index 904b0fe..7bf1a4d 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -570,20 +570,24 @@ class Executor:
+                  for stage, token in needed]
+         if any(item is None for item in found):
+             return None
+         if not found:
+             return signed
+         capped = self._sign(proposal, key,
+                             not_after=min(item.expires_at for item in found if item is not None))
+         if isinstance(capped, _Signed) and approval.scope_fingerprint(
+                 capped.tenant) != approval.scope_fingerprint(signed.tenant):
+             return None  # 核可是照上一次讀到的租戶設定驗的:範圍變了就不算數(代碼審第 1 輪外家席)
++        with self.store.transaction() as tx:  # 重簽期間又有人簽了更新的核可:以最新為準,保守不送
++            if any(self._superseded(tx, proposal, item.stage, item)
++                   for item in found if item is not None):
++                return None  # 代碼審第 2 輪外家席:跟處理一筆在開始一筆交易裡的核對同一個判斷點
+         return capped
+ 
+     def _settle(self, receipt: Receipt, code: BlockCode | None, kind: Result) -> Processed:
+         """確認成已過期或已擋下;以收據為條件(提案已經是處理中,不再以「仍待處理」為條件)。"""
+         with self.store.transaction() as tx:
+             now = self.clock()
+             done = (self.store.ack_expired(tx, receipt, now) if code is None
+                     else self.store.ack_blocked(tx, receipt, now, code))
+         return Processed(kind, block_code=code) if done else Processed(Result.LEASE_LOST)
+ 
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 3b648ce..f1e976e 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -164,21 +164,21 @@ CREATE TABLE IF NOT EXISTS proposals (
+ CREATE TABLE IF NOT EXISTS inbox_events (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT, revision INTEGER,
+     code TEXT NOT NULL, content_hash TEXT);
+ CREATE TABLE IF NOT EXISTS write_stops (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, task_id TEXT NOT NULL,
+     revision INTEGER NOT NULL, content_hash TEXT NOT NULL, key TEXT NOT NULL, tenant TEXT,
+     campaign_id TEXT NOT NULL, amount INTEGER NOT NULL, used INTEGER, cap INTEGER,
+     capped INTEGER NOT NULL, at TEXT NOT NULL,
+     UNIQUE (kind, task_id, revision, content_hash));
+ CREATE TABLE IF NOT EXISTS approvals (
+-    seq INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL UNIQUE,
++    seq INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL,
+     task_id TEXT NOT NULL, revision INTEGER NOT NULL, content_hash TEXT NOT NULL,
+     stage TEXT NOT NULL CHECK (stage IN (APPROVABLE_LIST)), token TEXT NOT NULL, at TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS approvals_by_proposal
+     ON approvals (task_id, revision, content_hash, stage);
+ CREATE TABLE IF NOT EXISTS approval_uses (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL, task_id TEXT NOT NULL,
+     revision INTEGER NOT NULL, content_hash TEXT NOT NULL, key TEXT NOT NULL, tenant TEXT NOT NULL,
+     stage TEXT NOT NULL, amount INTEGER NOT NULL, used INTEGER, cap INTEGER,
+     capped INTEGER NOT NULL, at TEXT NOT NULL,
+     UNIQUE (task_id, revision, content_hash, stage));
+@@ -764,20 +764,21 @@ class InboxStore:
+             "SELECT token FROM approvals WHERE task_id = ? AND revision = ? AND content_hash = ? "
+             "AND stage = ? ORDER BY seq DESC LIMIT 1",
+             (proposal.task_id, proposal.revision, content_hash(proposal), stage.value)).fetchone()
+         return None if row is None else str(row[0])
+ 
+     def used_approvals(
+         self, tx: attempt_store.ExecutorTransaction, proposal: Proposal,
+     ) -> list[tuple[BlockCode, str]]:
+         """這份提案用過的核可(關卡、整張核可):同鍵重送前要再核一次它們都還算數。"""
+         self._own(tx)
++        # 同一張核可可能寫過好幾列(每次下達一列),接出來會重複;內容一樣,逐張核對結果不變
+         return [(BlockCode(stage), str(token)) for stage, token in self._conn.execute(
+             "SELECT u.stage, a.token FROM approval_uses u "
+             "JOIN approvals a ON a.approval_id = u.approval_id "
+             "WHERE u.task_id = ? AND u.revision = ? AND u.content_hash = ? ORDER BY u.id",
+             (proposal.task_id, proposal.revision, content_hash(proposal))).fetchall()]
+ 
+     def record_approval_use(
+         self, tx: attempt_store.ExecutorTransaction, use: ApprovalUse, now: datetime,
+     ) -> None:
+         """核可生效時在開始一筆的同一個交易裡寫一列;同一份提案同一關只記一列。數字比照停下紀錄
+@@ -802,28 +803,29 @@ class InboxStore:
+                 row = self._conn.execute(
+                     "SELECT payload FROM proposals WHERE task_id = ? AND revision = ?",
+                     (task_id, revision)).fetchone()
+         except DatabaseBusy as exc:
+             raise InboxBusy(str(exc)) from exc
+         return None if row is None else _parse_payload(row[0])
+ 
+     def add_approval(
+         self, proposal: Proposal, stage: BlockCode, approval_id: str, token: str, now: datetime,
+     ) -> None:
+-        """寫一張核可(只增不改)。驗章在執行行程,這裡只存。同一張核可(同一秒、同樣參數重跑
+-        管理工具會簽出一模一樣的)再寫一次就略過,不丟資料庫錯誤(代碼審第 1 輪相容席)。"""
++        """寫一張核可(只增不改)。驗章在執行行程,這裡只存。每次下達都寫一列,「最新」照自動遞增
++        列號:同一秒同樣參數重跑管理工具會簽出一模一樣的一張,它照樣成為最新(依序簽 A、B、再簽 A,
++        最新是 A)。所以核可編號不設唯一(代碼審第 1 輪相容席、第 2 輪外家席)。"""
+         if stage not in APPROVABLE:
+             raise ValueError("只有總曝險已滿與比例過大可以核可")
+         try:
+             with immediate_transaction(self._conn):
+                 self._conn.execute(
+-                    "INSERT OR IGNORE INTO approvals (approval_id, task_id, revision, "
++                    "INSERT INTO approvals (approval_id, task_id, revision, "
+                     "content_hash, stage, token, at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     (approval_id, proposal.task_id, proposal.revision, content_hash(proposal),
+                      stage.value, token, _iso(now)))
+         except DatabaseBusy as exc:
+             raise InboxBusy(str(exc)) from exc
+ 
+     def ack_expired(
+         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
+     ) -> bool:
+         """提案過期沿用既有的「已過期」狀態,不是處置:處置清空,從此不可取件。"""
+diff --git a/tests/executor/test_approval.py b/tests/executor/test_approval.py
+index 5e48293..d5ae509 100644
+--- a/tests/executor/test_approval.py
++++ b/tests/executor/test_approval.py
+@@ -14,21 +14,21 @@ from datetime import timedelta
+ import pytest
+ 
+ from rtb.analyzer.flow import _belongs_to, _from_inbox_answer
+ from rtb.capabilitykit import APPROVAL_KEY_ENV, KEY_ENV, decode, encode
+ from rtb.domain.attempt import AttemptState, operation_key
+ from rtb.domain.proposal import MAX_INT, POLICY_VERSION, content_hash
+ from rtb.dsp.capability import CapabilityExpired, verified_claims
+ from rtb.executor import approval, approve, attempt_store, capability_signer, guardrails
+ from rtb.executor.capability_signer import Tenant, load_tenants
+ from rtb.executor.execution import Result, WriteAnswer
+-from rtb.executor.inbox_store import ApprovalUse, BlockCode, InboxStore
++from rtb.executor.inbox_store import ApprovalUse, BlockCode, InboxBusy, InboxStore
+ from tests.capability_samples import TEST_APPROVAL_KEY, TEST_KEY
+ from tests.executor.fakes import LOOSE_AGGREGATE_LIMIT, Harness, proposal, write_config
+ 
+ RATIO = BlockCode.BUDGET_INCREASE_TOO_LARGE
+ AGGREGATE = BlockCode.AGGREGATE_LIMIT_REACHED
+ TENANT = "t-default"
+ 
+ 
+ @pytest.fixture
+ def h(tmp_path, clock):
+@@ -718,11 +718,92 @@ def test_a_resend_needs_the_approval_it_used_even_after_a_newer_one(h):
+     assert len(h.dsp.writes) == 1
+ 
+ 
+ def test_running_the_approval_tool_twice_in_the_same_second_is_harmless(h):
+     waiting(h, RATIO)
+     env = {APPROVAL_KEY_ENV: TEST_APPROVAL_KEY.decode()}
+ 
+     assert approve.run(_tool_args(h), environ=env, clock=h.clock) == 0
+     assert approve.run(_tool_args(h), environ=env, clock=h.clock) == 0  # 簽出一模一樣的那張
+ 
+-    assert len(h.query("SELECT token FROM approvals")) == 1
++    assert len(h.query("SELECT token FROM approvals")) == 2  # 每次下達都記一列,不報錯
++    assert settle(h) == 1
++
++
++# ---- 代碼審第 2 輪折入 ----
++def test_reissuing_an_earlier_approval_makes_it_the_latest_again(h):
++    """同一秒依序下達 A(上限 10)、B(上限 1000)、再下達 A:最新是 A(外家席)。"""
++    waiting(h, RATIO)
++    env = {APPROVAL_KEY_ENV: TEST_APPROVAL_KEY.decode()}
++    for amount in ("10", "1000", "10"):
++        assert approve.run(_tool_args(h, **{"max-increase": amount}), environ=env,
++                           clock=h.clock) == 0
++
++    assert settle(h) == 0  # 最後下達的是上限 10 的那張:加 51 不夠
++
++
++def test_the_approval_tool_reports_a_busy_database_while_finding_the_proposal(h, monkeypatch):
++    waiting(h, RATIO)
++
++    def busy(*_args, **_kwargs):
++        raise InboxBusy("locked")
++
++    monkeypatch.setattr(InboxStore, "find_proposal", busy)
++    env = {APPROVAL_KEY_ENV: TEST_APPROVAL_KEY.decode()}
++
++    assert approve.run(_tool_args(h), environ=env, clock=h.clock) == approve.EXIT_BUSY
++
++
++def test_a_resend_honours_an_approval_signed_while_resigning(h, monkeypatch):
++    """重送重簽期間管理員補簽一張更新(更小)的核可:以最新為準,不重送(外家席)。"""
++    prop = _unknown_after_approval(h, RATIO, expires_in=600)
++    real = h.signer.grant
++
++    def meanwhile(*args, **kwargs):
++        if args[4] is not None:
++            approve_it(h, prop, RATIO, max_increase=10)
++        return real(*args, **kwargs)
++
++    monkeypatch.setattr(h.signer, "grant", meanwhile)
++
++    h.executor().reconcile_all()
++
++    assert _states(h)[-1] == AttemptState.FAILED.value
++    assert len(h.dsp.writes) == 1
++
++
++def test_a_capability_shortened_by_an_unused_approval_recovers_with_a_full_lifetime(
++        h, monkeypatch):
++    """預判要用總曝險核可、開始一筆時額度剛好被別人釋放:憑證已按核可到期壓短。這個窄窗不改
++    (要在寫入鎖裡讀設定檔重簽);後果有界:DSP 回憑證過期時,照既有做法重簽重送,這次沒有
++    用過的核可,憑證拿回正常效期(前輪驗收席)。"""
++    limit(h, 60)
++    other = submit(h, 150, task_id="t2", campaign_id="c2")
++    h.dsp.answers.append(WriteAnswer(422, "idempotency_conflict"))  # 轉人工:佔住 50
++    h.process()
++    prop = submit(h, 150)
++    assert h.process().block_code is AGGREGATE
++    approve_it(h, prop, AGGREGATE, max_increase=50, expires_in=30)
++    settle(h)
++    real_used = attempt_store.aggregate_used
++    released = []
++
++    def release_meanwhile(tx, tenant, now):
++        value = real_used(tx, tenant, now)
++        if not released:  # 預判讀完之後,另一個工作者把佔額度那筆判成失敗
++            released.append(True)
++            key = operation_key(other)
++            seq = attempt_store.latest(tx, key).seq
++            attempt_store.resolve(tx, key, seq, AttemptState.FAILED, "operator decided", now)
++        return value
++
++    monkeypatch.setattr(attempt_store, "aggregate_used", release_meanwhile)
++    h.dsp.answers.append(WriteAnswer(401, "capability_expired"))  # 壓短的憑證真的過期了
++    issued = int(h.clock().timestamp())
++
++    assert h.process().kind is Result.EXECUTED
++
++    assert decode(h.dsp.writes[-2][2], TEST_KEY)["exp"] == issued + 30  # 窄窗:被壓短
++    assert decode(h.dsp.writes[-1][2], TEST_KEY)["exp"] == issued + 120  # 重送拿回正常效期
++    final = h.query("SELECT state FROM attempts WHERE key = ? ORDER BY seq DESC LIMIT 1",
++                    (operation_key(prop),))
++    assert final == [(AttemptState.VERIFIED.value,)] and uses(h) == []

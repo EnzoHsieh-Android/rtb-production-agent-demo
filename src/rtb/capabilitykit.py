@@ -20,6 +20,8 @@ from collections.abc import Mapping
 from typing import Any
 
 KEY_ENV = "RTB_CAPABILITY_KEY"  # 程式裡唯一出現這個名稱的地方(有測試擋)
+# 人工核可金鑰(Phase 6 增量 3):跟簽發金鑰分開,管理工具簽核可、執行迴圈驗核可;格式機制共用
+APPROVAL_KEY_ENV = "RTB_APPROVAL_KEY"  # 同上,程式裡唯一出現這個名稱的地方
 MIN_KEY_BYTES = 32  # 空字串或很短的金鑰也算得出簽章,但等於沒有防線
 MAX_TOKEN_CHARS = 2048
 HEADER = "X-Capability"
@@ -44,9 +46,9 @@ def is_usable_key(key: object) -> bool:
     return isinstance(key, bytes) and len(key) >= MIN_KEY_BYTES
 
 
-def read_key(environ: Mapping[str, str]) -> bytes | None:
-    """從環境讀金鑰;沒有或太短一律回 None(代表沒有可用金鑰)。只給啟動程式呼叫。"""
-    raw = environ.get(KEY_ENV)
+def read_key(environ: Mapping[str, str], name: str = KEY_ENV) -> bytes | None:
+    """從環境讀金鑰(預設讀簽發金鑰);沒有或太短一律回 None(代表沒有可用金鑰)。只給啟動程式呼叫。"""
+    raw = environ.get(name)
     if raw is None:
         return None
     key = raw.encode("utf-8")

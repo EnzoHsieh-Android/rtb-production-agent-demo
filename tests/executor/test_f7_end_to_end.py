@@ -1,5 +1,6 @@
 """事故 F7 端到端(Phase 6 增量 1,[S340]):3000 個廣告各加一成、單筆都在單一廣告上限內,
-8 個工作者執行緒並行,總曝險到門檻就停,DSP 收到的加預算總額不超過門檻。
+8 個工作者執行緒並行,總曝險到門檻就停,DSP 收到的加預算總額不超過門檻。增量 3 起超過門檻的
+先停在待核可(沒有人核可),跑完之後撥時鐘過提案到期、跑一次處理待核可,才確認成已擋下。
 
 行程內假 DSP(寫入立刻成功、驗證也成功),每個工作者各開自己的收件表連線(SQLite 連線只能在建立它
 的執行緒用);工作者一直處理到沒有待處理的提案為止。比照啟動程式:資料庫忙碌休息一下再來;取件後
@@ -82,9 +83,11 @@ def test_f7_many_small_increases_stop_at_the_aggregate_limit(tmp_path, clock):
         assert len(h.dsp.writes) == EXPECTED_PASSES
         assert (NEW_BUDGET - BUDGET) * len(h.dsp.writes) <= AGGREGATE_LIMIT
         assert outcomes.count(Result.EXECUTED) == EXPECTED_PASSES
-        assert outcomes.count(Result.BLOCKED) == CAMPAIGNS - EXPECTED_PASSES
-        blocked = h.query("SELECT count(*) FROM proposals WHERE block_code = ?",
-                          ("aggregate_limit_reached",))
+        assert outcomes.count(Result.AWAITING_APPROVAL) == CAMPAIGNS - EXPECTED_PASSES
+        h.clock.advance(hours=1, seconds=1)  # 沒有人核可:提案到期後由處理待核可結案
+        assert h.executor().process_awaiting() == CAMPAIGNS - EXPECTED_PASSES
+        blocked = h.query("SELECT count(*) FROM proposals WHERE disposition = 'blocked' "
+                          "AND block_code = ?", ("aggregate_limit_reached",))
         assert blocked == [(CAMPAIGNS - EXPECTED_PASSES,)]
         recorded = h.query("SELECT count(*), min(used + amount > cap) FROM write_stops "
                            "WHERE kind = 'aggregate_limit_reached'")

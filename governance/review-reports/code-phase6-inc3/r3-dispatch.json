@@ -1,0 +1,35 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "前輪修正驗收與回歸",
+  "materials": [
+   "governance/review-reports/code-phase6-inc3/r3-src.patch",
+   "governance/review-reports/code-phase6-inc3/r3-tests.patch",
+   "governance/review-reports/code-phase6-inc3/r3-delta.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "資安-sonnet",
+  "lens": "資安",
+  "materials": [
+   "governance/review-reports/code-phase6-inc3/r3-src.patch",
+   "governance/review-reports/code-phase6-inc3/r3-tests.patch",
+   "governance/review-reports/code-phase6-inc3/r3-delta.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/code-phase6-inc3/r3-src.patch",
+   "governance/review-reports/code-phase6-inc3/r3-tests.patch",
+   "governance/review-reports/code-phase6-inc3/r3-delta.patch"
+  ],
+  "auditor": "codex"
+ }
+]

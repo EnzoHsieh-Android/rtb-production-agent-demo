@@ -1,4 +1,4 @@
-"""執行迴圈的啟動程式:讀金鑰、重啟恢復、印就緒訊號,之後每輪先對帳、再處理一筆。
+"""執行迴圈的啟動程式:讀金鑰、重啟恢復、印就緒訊號,之後每輪先對帳、再處理待核可、再處理一筆。
 
 可以同時跑好幾個執行迴圈(Phase 4 增量 3a):互斥交給收件表的租約與收據,同一則訊息同一時間
 只有一張有效收據,每一筆寫入都核對它。不再拿單一執行者鎖。
@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
-from rtb.capabilitykit import read_key
+from rtb.capabilitykit import APPROVAL_KEY_ENV, read_key
 from rtb.executor import attempt_store
 from rtb.executor.capability_signer import CapabilitySigner
 from rtb.executor.dsp_client import DspClient
@@ -63,7 +63,8 @@ def _loop(
     while max_rounds is None or rounds < max_rounds:
         rounds += 1
         try:
-            troubled = executor.reconcile_all()  # 先對帳,再處理新提案
+            troubled = executor.reconcile_all()  # 先對帳,再處理待核可,再處理新提案
+            executor.process_awaiting()
             result = executor.process_one()
         except InboxBusy as busy:  # 多工作者下等鎖逾時是正常競爭:這一輪休息,連續幾次才停
             busy_streak += 1
@@ -131,11 +132,14 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
         sys.stderr.write(f"拒絕啟動:DSP 逾時 {args.dsp_timeout_seconds} 秒太長,"
                          f"要小於租約的 1/{LEASE_MARGIN}\n")
         return EXIT_UNSAFE_CONFIG
+    env = os.environ if environ is None else environ
     try:  # 只有啟動程式經共用模組讀金鑰環境變數
-        signer = CapabilitySigner(read_key(os.environ if environ is None else environ))
+        signer = CapabilitySigner(read_key(env))
     except ValueError as error:
         sys.stderr.write(f"拒絕啟動:{error}\n")
         return EXIT_NO_KEY
+    # 人工核可金鑰(Phase 6 增量 3)可以沒有:沒有就一張核可都不算數,待核可的提案等到期結案
+    approval_key = read_key(env, APPROVAL_KEY_ENV)
     # 用 SQLite 開資料庫之前先查硬連結:要看連結數,所以只用作業系統建一個空檔(不截斷既有的)
     os.close(os.open(args.db, os.O_RDONLY | os.O_CREAT, 0o600))
     # 有硬連結就拒絕啟動:收件口若用另一個檔名開同一個資料庫,兩邊各用一組 WAL 檔,
@@ -158,7 +162,7 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
         # 租約擁有者:行程編號加啟動時間。重啟後是新的擁有者,上一次留下的租約要等到期才接手
         owner = owner or f"{os.getpid()}-{int(time.time())}"
         executor = Executor(store, dsp or DspClient(args.dsp_url, args.dsp_timeout_seconds),
-                            signer, args.tenant_config, clock, owner)
+                            signer, args.tenant_config, clock, owner, approval_key)
         return _loop(executor, args.interval_seconds, max_rounds, sleep)
     finally:
         store.close()
