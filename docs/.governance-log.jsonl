@@ -3194,3 +3194,6 @@
 {"ts": "2026-09-24T06:51:09+08:00", "commit": "2916e57", "gate": "canary", "kind": "blocked", "hard": true, "nodes": [], "note": "findings-over-reported:8>4 loop=f7效能 auditor=codex-x1 id=44485a8b", "detail": "findings-over-reported:8>4 loop=f7效能 auditor=codex-x1 id=44485a8b", "head_sha": "2916e575a84ab36299922adf79f86288cc2fc078"}
 {"ts": "2026-09-24T06:51:18+08:00", "commit": "2916e57", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["f7效能"], "note": "disposal gate PASS"}
 {"ts": "2026-09-24T06:59:18+08:00", "commit": "2916e57", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/F7效能_計劃.md"], "note": "door=high clauses=7 bound=0 red=0 green=0 weak=0 regress=10 no-run"}
+{"ts": "2026-09-24T06:59:29+08:00", "commit": "2916e57", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T06:59:30+08:00", "commit": "2916e57", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "2916e575a84ab36299922adf79f86288cc2fc078"}
+{"ts": "2026-09-24T06:59:37+08:00", "commit": "492b436", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["f7效能"], "note": "disposal gate PASS"}
