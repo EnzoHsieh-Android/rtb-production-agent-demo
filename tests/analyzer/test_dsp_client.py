@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from rtb.analyzer import dsp_client
+from rtb.analyzer import dsp_client, flow
 from rtb.analyzer.task_store import TaskRow
 from rtb.domain.evidence import EvidenceKind, TrustClass
 from rtb.domain.task_state import TaskState
@@ -220,3 +220,87 @@ def test_only_changing_the_name_leaves_the_state_hash_alone(rigged):
     second = next(e for e in _fetch(rigged) if e.kind == EvidenceKind.CAMPAIGN_STATE)
 
     assert first.content_hash == second.content_hash
+
+
+# ---- Phase 5:依冪等鍵查操作紀錄 ----
+def _seed_operation(db_path, key="k1-abc", new_budget=150):
+    from rtb.dsp.store import Operation
+
+    store = CampaignStore(db_path)
+    try:
+        store.execute(Operation(campaign_id="c1", action="update_budget",
+                                params={"new_budget": new_budget}, expected_version=1,
+                                idempotency_key=key))
+    finally:
+        store.close()
+
+
+def test_an_operation_lookup_returns_the_fields_needed_to_match_the_proposal(tmp_path, dsp):
+    _seed_operation(tmp_path / "dsp.db")
+    lookup = dsp_client.make_operation_lookup(dsp, timeout_seconds=3)
+
+    assert lookup("k1-abc") == flow.DspOperation(
+        campaign_id="c1", action="update_budget", new_budget=150, expected_version=1)
+    assert lookup("k1-missing") is None
+
+
+@pytest.fixture
+def rigged_operation(tmp_path):
+    """讓操作查詢端點回測試指定的本文與狀態碼。"""
+    from rtb.dsp.server import DspHandler
+    from rtb.httpkit import RequestRejected
+
+    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
+                       delay_seconds=0.0)
+    server.answer = {}
+
+    class Rigged(DspHandler):
+        def _get_operation(self, _store, _key, _fault):
+            if isinstance(self.server.answer, RequestRejected):
+                raise self.server.answer
+            return self.server.answer
+
+    server.RequestHandlerClass = Rigged
+    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+GOOD_OPERATION = {"campaign_id": "c1", "action": "update_budget", "params": {"new_budget": 150},
+                  "expected_version": 1, "version_after": 2, "operation_id": 1,
+                  "committed_at": "x", "replayed": False, "idempotency_key": "k1-abc"}
+
+
+@pytest.mark.parametrize("change", [
+    {"campaign_id": "has space"}, {"campaign_id": None}, {"action": "drop_table"},
+    {"params": "150"}, {"params": {"new_budget": "150"}}, {"params": {"new_budget": -1}},
+    {"params": {"new_budget": True}}, {"expected_version": 2 ** 63}, {"expected_version": 0},
+    {"params": {"new_budget": 0}}])
+def test_a_malformed_operation_record_fails_the_lookup(rigged_operation, change):
+    rigged_operation.answer = GOOD_OPERATION | change
+    url = f"http://127.0.0.1:{rigged_operation.server_address[1]}"
+
+    with pytest.raises(dsp_client.DspRequestFailed):
+        dsp_client.make_operation_lookup(url, timeout_seconds=3)("k1-abc")
+
+
+def test_an_operation_lookup_ignores_fields_outside_the_allowlist(rigged_operation):
+    rigged_operation.answer = GOOD_OPERATION | {"tool": MARKER, MARKER: 1}
+    url = f"http://127.0.0.1:{rigged_operation.server_address[1]}"
+
+    record = dsp_client.make_operation_lookup(url, timeout_seconds=3)("k1-abc")
+
+    assert MARKER not in repr(record)
+
+
+def test_an_operation_lookup_failure_other_than_not_found_raises(rigged_operation):
+    from rtb.httpkit import RequestRejected
+
+    rigged_operation.answer = RequestRejected(404, "campaign_not_found")  # 404 但不是查不到操作
+    url = f"http://127.0.0.1:{rigged_operation.server_address[1]}"
+
+    with pytest.raises(dsp_client.DspRequestFailed):
+        dsp_client.make_operation_lookup(url, timeout_seconds=3)("k1-abc")
+    with pytest.raises(dsp_client.DspRequestFailed):
+        dsp_client.make_operation_lookup(url, timeout_seconds=3)("has space/../x")

@@ -1,0 +1,250 @@
+diff --git a/src/rtb/analyzer/dsp_client.py b/src/rtb/analyzer/dsp_client.py
+index 859dc36..40f2c62 100644
+--- a/src/rtb/analyzer/dsp_client.py
++++ b/src/rtb/analyzer/dsp_client.py
+@@ -172,8 +172,9 @@ def make_client(
+     return fetch
+ 
+ 
+-def _int_or_none(value: Any) -> bool:
+-    return value is None or _is_int_between(0, value)
++def _positive_or_none(value: Any) -> bool:
++    """預算與版本都從 1 起算(同提案與執行端的核對);0 讀不懂,不拿來判內容不符。"""
++    return value is None or _is_int_between(1, value)
+ 
+ 
+ def make_operation_lookup(
+@@ -199,7 +200,7 @@ def make_operation_lookup(
+                 or not isinstance(params, dict)):
+             raise DspRequestFailed("操作紀錄的欄位讀不懂")
+         budget, expected = params.get("new_budget"), body.get("expected_version")
+-        if not _int_or_none(budget) or not _int_or_none(expected):
++        if not _positive_or_none(budget) or not _positive_or_none(expected):
+             raise DspRequestFailed("操作紀錄的數字欄位讀不懂")
+         return DspOperation(campaign_id=campaign, action=action, new_budget=budget,
+                             expected_version=expected)
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+index fb5ff7c..8203561 100644
+--- a/src/rtb/analyzer/flow.py
++++ b/src/rtb/analyzer/flow.py
+@@ -288,6 +288,10 @@ _CLOSED_WITHOUT_REPLAN = frozenset({"blocked", "dead_letter"})
+ _KNOWN_STATES = _OPEN_STATES | _CLOSED_WITHOUT_REPLAN | {"handed_off", "expired", "superseded"}
+ _PURGED_CODES = frozenset({"expired_proposal", "revision_out_of_order"})  # 收件表已清掉
+ _VERSION_CHANGED = "version_changed"
++# 收件口回給分析行程的擋下原因(權限類合併成 not_permitted,使用者 2026-09-23 裁定):不在這份
++# 清單的代碼當成回應讀不懂,不寫進只增不改的歷史表(對方回什麼字串都原樣寫進稽核紀錄是注入管道)
++_BLOCK_CODES = frozenset({_VERSION_CHANGED, "not_permitted", "campaign_not_found",
++                          "campaign_not_active", "operation_previously_failed"})
+ 
+ 
+ def _from_handed_off(
+@@ -305,18 +309,19 @@ def _from_handed_off(
+         return _closed(f"rejected={exc}")
+     except Exception:  # 忙碌、未定義失敗、網路失敗:重送同一份提案永遠安全,下一輪再問
+         return None
++    if not isinstance(answer, Accepted):  # 同送出提案那一步:協作介面本身的錯,不能重試
++        raise _BrokenCollaborator(f"Submit 回傳了合約之外的型別:{type(answer)!r}")
+     if not _belongs_to(answer, row.proposal):
+         return None  # 別的提案的回應、或處置與原因對不上:不拿來結案
+     return _from_inbox_answer(answer)
+ 
+ 
+-def _belongs_to(answer: object, proposal: Proposal) -> bool:
+-    if not isinstance(answer, Accepted):
+-        return False
++def _belongs_to(answer: Accepted, proposal: Proposal) -> bool:
+     same = (answer.task_id == proposal.task_id and answer.revision == proposal.revision
+             and answer.content_hash == content_hash(proposal))
+     consistent = answer.state in _KNOWN_STATES and (
+-        (answer.state == "blocked") == isinstance(answer.block_code, str))
++        answer.block_code in _BLOCK_CODES if answer.state == "blocked"
++        else answer.block_code is None)
+     return same and consistent
+ 
+ 
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index 4566534..b99f8a2 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -390,20 +390,25 @@ class TaskStore:
+         self, task_id: str, campaign_id: str, reason: ReplanReason, now: datetime,
+     ) -> str:
+         """在呼叫端的交易裡建接續任務與接續關係;回傳要補進原任務錯誤說明的一段話。"""
+-        existing = self.follow_up_to(task_id)
+-        if existing is not None:  # 防線:同一個交易寫原任務結案,正常不會已有關係
+-            return f"follow_up={existing}"
++        head = f"replan={reason.value}"
++        link = self._conn.execute(
++            "SELECT follow_up_task_id FROM follow_ups WHERE original_task_id = ?", (task_id,),
++        ).fetchone()
++        if link is not None:  # 防線:同一個交易寫原任務結案,正常不會已有關係;沿用、不再寫
++            return f"{head};follow_up={link[0] or 'none'}"
+         parent = self._conn.execute(
+             "SELECT generation FROM follow_ups WHERE follow_up_task_id = ?", (task_id,),
+         ).fetchone()
+         generation = 2 if parent is None else int(parent[0]) + 1
+         child = follow_up_id(task_id)
++        if not is_id(child):  # 格式檢查照做,只跳過一般入口的保留命名空間檢查
++            raise InvalidTaskId(f"接續任務編號格式不合法:{child!r}")
+         if generation > MAX_GENERATION:
+             outcome, recorded_child, note = (
+                 _FollowUpOutcome.LIMIT_REACHED, None, f"replan_limit_reached={MAX_GENERATION}")
+         elif self._conn.execute(
+                 "SELECT 1 FROM tasks WHERE task_id = ? LIMIT 1", (child,)).fetchone() is not None:
+-            return f"follow_up_id_collision={child}"  # 防線:不建立、不記關係
++            return f"{head};follow_up_id_collision={child}"  # 防線:不建立、不記關係
+         else:
+             self._insert_first_row(child, campaign_id, now)
+             outcome, recorded_child, note = _FollowUpOutcome.CREATED, child, f"follow_up={child}"
+@@ -412,7 +417,7 @@ class TaskStore:
+             (task_id, recorded_child, generation, campaign_id, reason.value, outcome.value,
+              _iso(now)),
+         )
+-        return f"{reason.value};{note}"
++        return f"{head};{note}"
+ 
+     def acquire_lease(self, task_id: str, owner: str, now: datetime) -> LeaseReceipt | None:
+         """目前沒人持有(沒有租約列、目前那一列是放掉列、或已過期)就新增一列取得列、回傳收據;
+diff --git a/tests/analyzer/test_dsp_client.py b/tests/analyzer/test_dsp_client.py
+index d94021b..0be0342 100644
+--- a/tests/analyzer/test_dsp_client.py
++++ b/tests/analyzer/test_dsp_client.py
+@@ -275,7 +275,8 @@ GOOD_OPERATION = {"campaign_id": "c1", "action": "update_budget", "params": {"ne
+ @pytest.mark.parametrize("change", [
+     {"campaign_id": "has space"}, {"campaign_id": None}, {"action": "drop_table"},
+     {"params": "150"}, {"params": {"new_budget": "150"}}, {"params": {"new_budget": -1}},
+-    {"params": {"new_budget": True}}, {"expected_version": 2 ** 63}])
++    {"params": {"new_budget": True}}, {"expected_version": 2 ** 63}, {"expected_version": 0},
++    {"params": {"new_budget": 0}}])
+ def test_a_malformed_operation_record_fails_the_lookup(rigged_operation, change):
+     rigged_operation.answer = GOOD_OPERATION | change
+     url = f"http://127.0.0.1:{rigged_operation.server_address[1]}"
+diff --git a/tests/analyzer/test_replan.py b/tests/analyzer/test_replan.py
+index 5e37289..9fa2392 100644
+--- a/tests/analyzer/test_replan.py
++++ b/tests/analyzer/test_replan.py
+@@ -8,7 +8,10 @@ import pytest
+ from rtb.analyzer import flow
+ from rtb.analyzer.task_store import (
+     FOLLOW_UP_PREFIX,
++    MAX_GENERATION,
++    FollowUp,
+     InvalidTaskId,
++    ReplanReason,
+     TaskStore,
+     follow_up_id,
+     replan_counts,
+@@ -96,8 +99,29 @@ def test_after_the_retention_window_the_dsp_decides_completion(store):
+ 
+ def test_the_stored_key_is_used_even_if_the_proposal_would_hash_differently(store):
+     proposal = _handed_off(store)
+-
+     assert store.operation_key_for("t1") == operation_key(proposal)
++    store._conn.execute(  # 模擬算法改版:存下的鍵跟現在重算的不同
++        "UPDATE tasks SET operation_key = 'k1-stored' WHERE operation_key IS NOT NULL")
++    store._conn.commit()
++    lookup = Counting(returns=dsp_operation(proposal))
++
++    step(store, Counting(raises=flow.SubmitStale("expired_proposal")), lookup)
++
++    assert lookup.calls == [("k1-stored",)]
++
++
++# ---- S311:四個欄位每一個對不上都不算完成 ----
++@pytest.mark.parametrize("change", [
++    {"campaign_id": "c9"}, {"action": "pause_campaign"}, {"new_budget": 1},
++    {"expected_version": 99}])
++def test_every_mismatching_field_is_an_idempotency_conflict(store, change):
++    proposal = _handed_off(store)
++
++    lookup = Counting(returns=dsp_operation(proposal, **change))
++    step(store, Counting(raises=flow.SubmitStale("expired_proposal")), lookup)
++
++    assert store.latest("t1").state is TaskState.BLOCKED
++    assert "idempotency_conflict" in store.latest("t1").error_detail
+ 
+ 
+ # ---- S317 ----
+@@ -162,7 +186,8 @@ def test_an_expired_decision_is_replanned(store):
+ 
+ # ---- S304 ----
+ @pytest.mark.parametrize(("state", "code"), [
+-    ("blocked", "over_budget_cap"), ("blocked", "operation_previously_failed"),
++    ("blocked", "not_permitted"), ("blocked", "operation_previously_failed"),
++    ("blocked", "campaign_not_found"), ("blocked", "campaign_not_active"),
+     ("dead_letter", None)])
+ def test_other_blocks_close_the_task_without_a_follow_up(store, state, code):
+     proposal = _handed_off(store)
+@@ -255,7 +280,7 @@ def test_the_follow_up_chain_stops_at_the_generation_limit(store):
+     conflict = answer(proposal, "blocked", "version_changed")
+     task = "t1"
+     chain = [task]
+-    while store.follow_up_to(task) is None:
++    for _ in range(MAX_GENERATION + 2):  # 守衛壞掉時用斷言失敗收場,不是無限迴圈
+         if task != "t1":
+             _drive_to_handed_off(store, task)
+             conflict = answer(store.latest(task).proposal, "expired")  # 原因不同也算同一條鏈
+@@ -265,6 +290,8 @@ def test_the_follow_up_chain_stops_at_the_generation_limit(store):
+             break
+         chain.append(child)
+         task = child
++    else:
++        pytest.fail("代數上限沒有擋下接續鏈")
+ 
+     assert len(chain) == 3  # 原任務加兩次重做
+     assert "replan_limit_reached" in store.latest(chain[-1]).error_detail
+@@ -355,6 +382,45 @@ def test_a_resend_answer_for_another_proposal_is_ignored(store, overrides):
+     assert store.latest("t1").seq == before
+ 
+ 
++def test_an_unknown_block_code_is_not_written_into_the_history(store):
++    proposal = _handed_off(store)
++    before = store.latest("t1").seq
++    forged = "over_budget_cap\x1b[31m\ninjected:approved"
++
++    assert step(store, Counting(returns=answer(proposal, "blocked", forged))) \
++        is TaskState.HANDED_OFF
++    assert store.latest("t1").seq == before
++
++
++def test_a_submit_returning_the_wrong_type_fails_loudly(store):
++    _handed_off(store)
++
++    with pytest.raises(flow._BrokenCollaborator):
++        step(store, Counting(returns="not-an-Accepted"))
++    assert store.latest("t1").state is TaskState.HANDED_OFF
++
++
++def test_the_error_detail_names_the_inbox_answer_the_replan_reason_and_the_outcome(store):
++    proposal = _handed_off(store)
++
++    step(store, Counting(returns=answer(proposal, "blocked", "version_changed")))
++
++    assert store.latest("t1").error_detail == (
++        f"blocked=version_changed;replan=version_changed;follow_up={follow_up_id('t1')}")
++
++
++def test_closing_a_task_that_already_has_a_limit_reached_link_does_not_crash(store):
++    _handed_off(store)
++    row = store.latest("t1")
++    store._conn.execute(  # 防線:已記過代數用完、又被要求結案一次
++        "INSERT INTO follow_ups VALUES ('t1', NULL, 4, 'c1', 'expired', 'limit_reached', 'x')")
++    store._conn.commit()
++
++    assert store.commit_step("t1", row.seq, TaskState.BLOCKED, NOW, error_detail="expired",
++                             follow_up=FollowUp(ReplanReason.EXPIRED))
++    assert store.latest("t1").error_detail == "expired;replan=expired;follow_up=none"
++
++
+ # ---- S321 ----
+ def test_old_rows_may_recompute_the_key_only_while_the_algorithm_is_unchanged(store):
+     assert KEY_PREFIX == "k1-", (
+@@ -379,7 +445,7 @@ def test_conflict_counts_are_queryable(store):
+             step(store, Counting(raises=flow.SubmitStale("expired_proposal")),
+                  Counting(returns=None), task_id=task_id)
+         elif how == "other":
+-            step(store, Counting(returns=answer(proposal, "blocked", "over_budget_cap")),
++            step(store, Counting(returns=answer(proposal, "blocked", "not_permitted")),
+                  task_id=task_id)
+         else:
+             step(store, Counting(returns=answer(proposal, "blocked", how)), task_id=task_id)

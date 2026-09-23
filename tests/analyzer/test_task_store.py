@@ -50,6 +50,45 @@ def test_opening_a_pre_increment_4_database_adds_the_missing_payload_column(tmp_
         store.close()
 
 
+@pytest.mark.parametrize("column", ["payload_json", "operation_key"])
+def test_another_worker_migrating_between_the_check_and_the_lock_is_harmless(
+        tmp_path, monkeypatch, column):
+    """外家席(Phase 5 代碼審第 3 輪):兩個工作者同時開舊資料庫,都先看到欄位不存在;先拿到
+    寫入鎖的補完之後,後到的要在拿到鎖之後重查,不能照舊再補一次而撞「欄位重複」。"""
+    from contextlib import contextmanager
+
+    from rtb.analyzer import task_store
+
+    db_path = tmp_path / "analyzer.db"
+    old_conn = sqlite3.connect(db_path)
+    old_conn.executescript(_OLD_SCHEMA)
+    if column == "operation_key":  # 只留這一個欄位待補,插隊才會落在它的補欄交易前
+        old_conn.execute("ALTER TABLE evidence ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'")
+    old_conn.commit()
+    old_conn.close()
+    real = task_store.immediate_transaction
+    ddl = {"payload_json": "ALTER TABLE evidence ADD COLUMN payload_json TEXT NOT NULL "
+                           "DEFAULT '{}'",
+           "operation_key": "ALTER TABLE tasks ADD COLUMN operation_key TEXT"}[column]
+
+    @contextmanager
+    def other_worker_finishes_first(conn):
+        other = sqlite3.connect(db_path)
+        columns = {row[1] for row in other.execute(
+            f"PRAGMA table_info({'evidence' if column == 'payload_json' else 'tasks'})")}
+        if column not in columns:  # 只在這個欄位的補欄交易前插隊一次
+            other.execute(ddl)
+            other.commit()
+        other.close()
+        with real(conn):
+            yield
+
+    monkeypatch.setattr(task_store, "immediate_transaction", other_worker_finishes_first)
+
+    store = TaskStore(db_path)  # 不應丟 duplicate column name
+    store.close()
+
+
 def test_record_tool_call_swallows_database_errors_but_not_programming_errors(tmp_path):
     """代碼審第 1 輪指出:`record_tool_call` 曾經用 `except Exception` 吞掉所有寫入失敗,
     比收件口事件表既有的 `except (sqlite3.Error, DatabaseBusy)` 寬——連呼叫端自己傳錯參數

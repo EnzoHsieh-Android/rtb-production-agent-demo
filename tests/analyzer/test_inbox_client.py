@@ -137,3 +137,40 @@ def test_the_inbox_client_module_never_mentions_the_fault_header():
     import inspect
 
     assert "X-Fault" not in inspect.getsource(inbox_client)
+
+
+# ---- Phase 5:重送的回應本文帶回處置,給「已交給執行之後」那一步核對 ----
+def test_a_resend_reports_the_disposition_and_identifies_the_proposal(inbox):
+    from rtb.domain.proposal import content_hash
+
+    submit = client(inbox)
+    proposal = make_proposal()
+    submit(proposal)
+
+    result = submit(proposal)
+
+    assert (result.task_id, result.revision, result.content_hash, result.state) == (
+        proposal.task_id, proposal.revision, content_hash(proposal), "pending")
+    assert result.block_code is None
+
+
+@pytest.mark.parametrize(("body", "expected"), [
+    ({"state": "blocked", "block_code": "version_changed"}, ("blocked", "version_changed")),
+    ({"state": "blocked", "block_code": 7}, ("blocked", None)),
+    ({"state": ["handed_off"], "block_code": None}, (None, None))])
+def test_the_block_code_in_the_response_body_is_read(body, expected):
+    base = {"task_id": "t1", "revision": 1, "content_hash": "a" * 64, "replayed": True}
+
+    result = inbox_client._accepted(200, base | body)
+
+    assert (result.state, result.block_code) == expected
+    assert (result.task_id, result.revision, result.content_hash) == ("t1", 1, "a" * 64)
+
+
+@pytest.mark.parametrize("revision", [True, "1", 1.0, None])
+def test_a_revision_that_is_not_a_plain_integer_is_read_as_missing(revision):
+    """布林 True 等於 1:型別守衛拿掉的話,偽造的 revision=true 會被當成修訂 1 而核對通過。"""
+    body = {"task_id": "t1", "revision": revision, "content_hash": "a" * 64,
+            "state": "handed_off", "block_code": None, "replayed": True}
+
+    assert inbox_client._accepted(200, body).revision is None

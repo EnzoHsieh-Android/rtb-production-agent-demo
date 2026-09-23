@@ -4,12 +4,16 @@
 的 SubmitRejectedPermanently(收件口的 too_many_revisions:重送不會解決,不是暫時性)。
 其餘狀態碼或連線失敗一律讓例外原樣往外傳,由 flow.py 既有的「未定義例外視為可重試」接住,
 不在這裡另外分類。
+
+成功回應本文的任務編號、修訂、內容雜湊、處置、擋下原因照型別讀進 Accepted(Phase 5);型別不對的
+欄位當成沒有(None),由流程判成「回應不屬於這份提案」、這一輪沒有進展,不在這裡丟例外。
 """
 
 from collections.abc import Callable
 from typing import Any
 
 from rtb.analyzer.flow import Accepted, SubmitBusy, SubmitRejectedPermanently, SubmitStale
+from rtb.domain._checks import is_plain_int
 from rtb.domain.proposal import Proposal
 from rtb.httpclient import request_json
 
@@ -36,6 +40,20 @@ def _handle_rejection(status: int, body: dict[str, Any]) -> None:
     raise RuntimeError(f"收件口回 {status}:{code}")  # 未定義的狀態,原樣往外傳,不改分類
 
 
+def _text(body: dict[str, Any], name: str) -> str | None:
+    value = body.get(name)
+    return value if isinstance(value, str) else None
+
+
+def _accepted(status: int, body: dict[str, Any]) -> Accepted:
+    revision = body.get("revision")
+    return Accepted(
+        replayed=status == 200, task_id=_text(body, "task_id"),
+        revision=revision if is_plain_int(revision) else None,
+        content_hash=_text(body, "content_hash"), state=_text(body, "state"),
+        block_code=_text(body, "block_code"))
+
+
 def make_client(base_url: str, timeout_seconds: float) -> Callable[[Proposal], Accepted]:
     """回傳一個符合 Submit 協定的函式,綁定收件口的位址與逾時。"""
 
@@ -43,7 +61,7 @@ def make_client(base_url: str, timeout_seconds: float) -> Callable[[Proposal], A
         status, body = request_json(
             f"{base_url}/proposals", "POST", proposal.to_primitives(), timeout_seconds)
         if status in (200, 201):
-            return Accepted(replayed=status == 200)
+            return _accepted(status, body)
         _handle_rejection(status, body)
         raise AssertionError("_handle_rejection 對每個非成功狀態都應該丟出例外")
 

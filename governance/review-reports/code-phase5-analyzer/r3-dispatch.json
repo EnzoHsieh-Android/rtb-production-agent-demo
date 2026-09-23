@@ -1,0 +1,29 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "materials": [
+   "governance/review-reports/code-phase5-analyzer/r3-snapshot.patch",
+   "governance/review-reports/code-phase5-analyzer/r3-delta.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "sec",
+  "materials": [
+   "governance/review-reports/code-phase5-analyzer/r3-snapshot.patch",
+   "governance/review-reports/code-phase5-analyzer/r3-delta.patch"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "materials": [
+   "governance/review-reports/code-phase5-analyzer/r3-snapshot.patch",
+   "governance/review-reports/code-phase5-analyzer/r3-delta.patch"
+  ],
+  "auditor": "codex"
+ }
+]

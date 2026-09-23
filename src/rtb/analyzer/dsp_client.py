@@ -23,10 +23,11 @@ from datetime import datetime
 from types import MappingProxyType
 from typing import Any
 
+from rtb.analyzer.flow import DspOperation
 from rtb.analyzer.task_store import TaskRow
 from rtb.domain._checks import is_id, is_plain_int, is_plain_number
 from rtb.domain.evidence import MAX_UNTRUSTED_TEXT_LENGTH, Evidence, EvidenceKind, TrustClass
-from rtb.domain.proposal import MAX_INT
+from rtb.domain.proposal import MAX_INT, ActionType
 from rtb.httpclient import request_json
 
 OnDspCall = Callable[[TaskRow, str, str, float], None]
@@ -169,3 +170,39 @@ def make_client(
         )
 
     return fetch
+
+
+def _positive_or_none(value: Any) -> bool:
+    """預算與版本都從 1 起算(同提案與執行端的核對);0 讀不懂,不拿來判內容不符。"""
+    return value is None or _is_int_between(1, value)
+
+
+def make_operation_lookup(
+    base_url: str, timeout_seconds: float,
+) -> Callable[[str], DspOperation | None]:
+    """依冪等鍵查 DSP 的操作紀錄(Phase 5:收件表已清掉時,分析端查「有沒有寫進去」)。
+
+    查不到(404 operation_not_found)回 None;其他狀態碼、逾時、斷線、欄位讀不懂一律丟
+    DspRequestFailed,由流程判成這一輪沒有進展。只取核對內容要用的四個欄位,其餘不讀;
+    回應大小上限由共用 HTTP 用戶端守。要記 tool_calls 的呼叫端自己包一層(instrumented.py)。
+    """
+
+    def lookup(key: str) -> DspOperation | None:
+        if not is_id(key):
+            raise DspRequestFailed("冪等鍵格式不合法")
+        status, body = request_json(f"{base_url}/operations/{key}", "GET", None, timeout_seconds)
+        if status == 404 and body.get("error") == "operation_not_found":
+            return None
+        if status != 200:
+            raise DspRequestFailed(f"/operations 回 {status}:{body.get('error', '未知錯誤')}")
+        campaign, action, params = body.get("campaign_id"), body.get("action"), body.get("params")
+        if (not is_id(campaign) or action not in {item.value for item in ActionType}
+                or not isinstance(params, dict)):
+            raise DspRequestFailed("操作紀錄的欄位讀不懂")
+        budget, expected = params.get("new_budget"), body.get("expected_version")
+        if not _positive_or_none(budget) or not _positive_or_none(expected):
+            raise DspRequestFailed("操作紀錄的數字欄位讀不懂")
+        return DspOperation(campaign_id=campaign, action=action, new_budget=budget,
+                            expected_version=expected)
+
+    return lookup
