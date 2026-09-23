@@ -1,13 +1,15 @@
 """tool_calls 只增不改的呼叫紀錄與 trace_for:S50、S51。"""
 
+import contextlib
 import threading
 
 import pytest
 
 from rtb.analyzer import dsp_client
-from rtb.analyzer.flow import Accepted
+from rtb.analyzer.flow import Accepted, DspOperation
 from rtb.analyzer.instrumented import (
     InstrumentedEvidenceSource,
+    InstrumentedOperationLookup,
     InstrumentedSubmit,
     dsp_evidence_source,
 )
@@ -183,3 +185,18 @@ def test_trace_for_an_unknown_task_returns_empty_everything(store):
     trace = trace_for(store, "ghost")
 
     assert trace.tasks == () and trace.evidence == () and trace.tool_calls == ()
+
+
+# ---- S318 的呼叫紀錄那一半:依冪等鍵查 DSP 也進呼叫紀錄 ----
+@pytest.mark.parametrize(("inner", "outcome"), [
+    (lambda _key: None, "not_found"), (lambda _key: 1 / 0, "ZeroDivisionError"),
+    (lambda _key: DspOperation("c1", "update_budget", 150, 1), "ok")])
+def test_operation_lookups_are_recorded_in_the_trace(store, inner, outcome):
+    store.create_task("t1", "c1", NOW)
+    lookup = InstrumentedOperationLookup(store, inner, "dsp:operation", row())
+
+    with contextlib.suppress(ZeroDivisionError):
+        lookup("k1-abc")
+
+    calls = trace_for(store, "t1").tool_calls
+    assert [(c.endpoint, c.outcome, c.task_seq) for c in calls] == [("dsp:operation", outcome, 2)]

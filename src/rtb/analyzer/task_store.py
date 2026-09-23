@@ -8,13 +8,20 @@
 租約(Phase 4 增量 3b):同一個任務同一時間只讓一個呼叫端去呼叫要花錢的外部介面。租約表
 同樣只增不改,取得與放掉各新增一列,「目前的租約」就是這個任務租約序號最大的那一列;
 提交時核對目前那一列正是自己的取得列(圍籬),過期被接手的舊持有者寫不進去。
+
+接續任務(Phase 5):已交給執行的任務因版本已變、決策過期、或收件表已清掉而 DSP 沒有寫入時,
+另開一個接續任務重讀現況再決定(任務狀態機不變,原任務轉擋下)。建接續任務、寫接續關係、原任務
+結案是同一個交易,走原任務的提交圍籬;接續關係表同樣只增不改,原任務編號是主鍵(一個任務最多
+接續一次)。
 """
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 
@@ -41,12 +48,23 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 CREATE TABLE IF NOT EXISTS task_leases (
     task_id TEXT NOT NULL, lease_seq INTEGER NOT NULL, owner TEXT, expires_at TEXT NOT NULL,
     PRIMARY KEY (task_id, lease_seq));
+CREATE TABLE IF NOT EXISTS follow_ups (
+    original_task_id TEXT PRIMARY KEY, follow_up_task_id TEXT UNIQUE,
+    generation INTEGER NOT NULL, campaign_id TEXT NOT NULL, reason TEXT NOT NULL,
+    outcome TEXT NOT NULL, written_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS follow_ups_by_campaign ON follow_ups (campaign_id);
 """
+_TASK_COLUMNS = ("task_id, seq, state, campaign_id, proposal_json, error_detail, written_at, "
+                 "operation_key")
 MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
 # 暫用,沒有實測校準:要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件,各自的逾時由建用戶端
 # 的呼叫端決定);分析行程還沒有正式啟動程式,這條不等式目前沒有機械守衛(計劃增量 3b)
 LEASE_DURATION = timedelta(seconds=60)
-
+# 接續任務的保留命名空間:一般建任務入口拒收這個開頭的任務編號,只有建接續任務寫得進去
+FOLLOW_UP_PREFIX = "fu-"
+_FOLLOW_UP_HASH_LENGTH = 24
+# 整條接續鏈最多幾代(原任務是第 1 代):暫用,沒有真實衝突頻率數據(計劃 REVISIT 2026-12-31)
+MAX_GENERATION = 3
 
 
 class TaskAlreadyExists(Exception):
@@ -73,6 +91,39 @@ class TaskNotFound(Exception):
     """這個任務編號完全沒有歷史列。"""
 
 
+class ReplanReason(StrEnum):
+    """為什麼要重新規劃;記進接續關係表,給衝突次數查詢分類。"""
+
+    VERSION_CHANGED = "version_changed"  # 收件口回已擋下、原因是版本已變
+    EXPIRED = "expired"  # 收件口回決策已過期(收件表還留著)
+    AFTER_RETENTION = "after_retention"  # 收件表已清掉、DSP 用存下的鍵查不到寫入
+
+
+class _FollowUpOutcome(StrEnum):
+    CREATED = "created"
+    LIMIT_REACHED = "limit_reached"
+
+
+@dataclass(frozen=True)
+class FollowUp:
+    """commit_step 帶這個:原任務結案的同一個交易裡建接續任務(或記下代數用完)。"""
+
+    reason: ReplanReason
+
+
+@dataclass(frozen=True)
+class ReplanCounts:
+    replanned: int  # 建了接續任務的次數
+    exhausted: int  # 需要重新規劃但代數用完、只結案的次數
+    after_retention: int  # 其中因收件表已清掉而重新規劃的次數
+
+
+def follow_up_id(task_id: str) -> str:
+    """接續任務編號:由原任務編號算出、固定長度,不管原編號多長都不會超過識別碼上限。"""
+    digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
+    return FOLLOW_UP_PREFIX + digest[:_FOLLOW_UP_HASH_LENGTH]
+
+
 @dataclass(frozen=True)
 class ToolCall:
     task_id: str
@@ -90,6 +141,8 @@ class TraceRecord:
     tasks: tuple[TaskRow, ...]
     evidence: tuple[Evidence, ...]
     tool_calls: tuple[ToolCall, ...]
+    follow_up_of: str | None = None  # 這個任務是接續哪個任務的
+    follow_up_to: str | None = None  # 這個任務接續到哪個任務
 
 
 @dataclass(frozen=True)
@@ -140,8 +193,10 @@ def _proposal_from_json(raw: str) -> Proposal:
     )
 
 
-def _row_from_record(record: tuple[str, int, str, str, str | None, str | None, str]) -> TaskRow:
-    task_id, seq, state, campaign_id, proposal_json, error_detail, written_at = record
+def _row_from_record(
+    record: tuple[str, int, str, str, str | None, str | None, str, str | None],
+) -> TaskRow:
+    task_id, seq, state, campaign_id, proposal_json, error_detail, written_at, _key = record
     try:
         stamp = datetime.fromisoformat(written_at.replace("Z", "+00:00"))
         proposal = None if proposal_json is None else _proposal_from_json(proposal_json)
@@ -162,6 +217,7 @@ class TaskStore:
             raise TaskStoreBusy(str(exc)) from exc
         try:
             self._migrate_evidence_payload_column()
+            self._migrate_operation_key_column()
         except DatabaseBusy as exc:
             self._conn.close()
             raise TaskStoreBusy(str(exc)) from exc
@@ -174,11 +230,26 @@ class TaskStore:
         沒有增量 4 才加的 `payload_json`。每次連線都檢查一次,缺欄位就補上;舊列補
         `'{}'`(誠實反映「這些舊證據沒有留下原始數值,只有雜湊」,不是編造資料)。
         """
-        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(evidence)")}
-        if "payload_json" not in columns:
-            with immediate_transaction(self._conn):
-                self._conn.execute(
-                    "ALTER TABLE evidence ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'")
+        self._add_column_if_missing(
+            "evidence", "payload_json",
+            "ALTER TABLE evidence ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'")
+
+    def _migrate_operation_key_column(self) -> None:
+        """Phase 5 在任務表加「交接時用的冪等鍵」;舊資料庫補欄位,舊列照實留空值。"""
+        self._add_column_if_missing(
+            "tasks", "operation_key", "ALTER TABLE tasks ADD COLUMN operation_key TEXT")
+
+    def _add_column_if_missing(self, table: str, column: str, ddl: str) -> None:
+        """先不拿鎖看一次(已補過就不必搶寫入鎖),缺欄位才拿寫入鎖、拿到之後再看一次:多個工作者
+        同時開舊資料庫時,另一個可能剛補完(Phase 5 代碼審第 3 輪外家席)。"""
+        if column in self._columns(table):
+            return
+        with immediate_transaction(self._conn):
+            if column not in self._columns(table):
+                self._conn.execute(ddl)
+
+    def _columns(self, table: str) -> set[str]:
+        return {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
 
     def close(self) -> None:
         self._conn.close()
@@ -186,6 +257,8 @@ class TaskStore:
     def create_task(self, task_id: str, campaign_id: str, now: datetime) -> None:
         if not is_id(task_id) or not is_id(campaign_id):
             raise InvalidTaskId(f"任務編號或廣告編號格式不合法:{task_id!r}, {campaign_id!r}")
+        if task_id.startswith(FOLLOW_UP_PREFIX):  # 只管任務編號這一個參數,共用格式檢查不動
+            raise InvalidTaskId(f"{FOLLOW_UP_PREFIX} 開頭的任務編號保留給接續任務:{task_id!r}")
         with immediate_transaction(self._conn):
             existing = self._conn.execute(
                 "SELECT campaign_id FROM tasks WHERE task_id = ? ORDER BY seq DESC LIMIT 1",
@@ -196,18 +269,40 @@ class TaskStore:
                     raise TaskAlreadyExists(
                         f"{task_id} 已存在,廣告編號是 {existing[0]},不是 {campaign_id}")
                 return
-            self._conn.execute(
-                "INSERT INTO tasks VALUES (?, 1, ?, ?, NULL, NULL, ?)",
-                (task_id, TaskState.RECEIVED.value, campaign_id, _iso(now)),
-            )
+            self._insert_first_row(task_id, campaign_id, now)
+
+    def _insert_first_row(self, task_id: str, campaign_id: str, now: datetime) -> None:
+        self._conn.execute(
+            f"INSERT INTO tasks ({_TASK_COLUMNS}) VALUES (?, 1, ?, ?, NULL, NULL, ?, NULL)",  # noqa: S608 - 固定欄位清單
+            (task_id, TaskState.RECEIVED.value, campaign_id, _iso(now)),
+        )
 
     def latest(self, task_id: str) -> TaskRow | None:
         record = self._conn.execute(
-            "SELECT task_id, seq, state, campaign_id, proposal_json, error_detail, written_at "
-            "FROM tasks WHERE task_id = ? ORDER BY seq DESC LIMIT 1",
+            f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ? ORDER BY seq DESC LIMIT 1",  # noqa: S608 - 固定欄位清單
             (task_id,),
         ).fetchone()
         return None if record is None else _row_from_record(record)
+
+    def operation_key_for(self, task_id: str) -> str | None:
+        """交給執行那一列存下的冪等鍵;Phase 5 之前寫的列沒有存,回 None。"""
+        record = self._conn.execute(
+            "SELECT operation_key FROM tasks WHERE task_id = ? AND state = ? "
+            "ORDER BY seq DESC LIMIT 1", (task_id, TaskState.HANDED_OFF.value),
+        ).fetchone()
+        return None if record is None else record[0]
+
+    def follow_up_to(self, task_id: str) -> str | None:
+        record = self._conn.execute(
+            "SELECT follow_up_task_id FROM follow_ups WHERE original_task_id = ?", (task_id,),
+        ).fetchone()
+        return None if record is None else record[0]
+
+    def follow_up_of(self, task_id: str) -> str | None:
+        record = self._conn.execute(
+            "SELECT original_task_id FROM follow_ups WHERE follow_up_task_id = ?", (task_id,),
+        ).fetchone()
+        return None if record is None else record[0]
 
     def evidence_for(self, task_id: str, task_seq: int) -> tuple[Evidence, ...]:
         rows = self._conn.execute(
@@ -242,6 +337,8 @@ class TaskStore:
         error_detail: str | None = None,
         before_commit: Callable[[], None] | None = None,
         lease: LeaseReceipt | None = None,
+        operation_key: str | None = None,
+        follow_up: FollowUp | None = None,
     ) -> bool:
         """核對租約與 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
 
@@ -250,6 +347,9 @@ class TaskStore:
         過期但沒人接手時寫進去也沒有第二個人花過錢)。不帶收據:別人持有有效租約就不寫,
         往後忘了帶收據的呼叫端也蓋不過正在花錢的持有者。
         回傳是否真的寫入了;False 表示輸給並行的另一次呼叫,這次呼叫沒有寫入任何東西。
+
+        帶 follow_up:原任務這一列(結案)跟接續任務、接續關係在同一個交易裡寫,同一道圍籬;
+        錯誤說明後面補上接續任務編號、代數用完、或接續編號衝突(防線,不建立)。
         """
         mismatched = [item.task_id for item in evidence if item.task_id != task_id]
         if mismatched:
@@ -270,11 +370,14 @@ class TaskStore:
             if not can_transition(current_state, new_state):
                 raise IllegalTransition(f"不合法的轉換:{current_state} -> {new_state}")
             next_seq = expected_seq + 1
+            if follow_up is not None:
+                note = self._write_follow_up(task_id, campaign_id, follow_up.reason, now)
+                capped_detail = f"{error_detail or ''};{note}"[:MAX_ERROR_DETAIL_LENGTH]
             self._conn.execute(
-                "INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO tasks ({_TASK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608 - 固定欄位清單
                 (task_id, next_seq, new_state.value, campaign_id,
                  None if proposal is None else _proposal_to_json(proposal),
-                 capped_detail, _iso(now)),
+                 capped_detail, _iso(now), operation_key),
             )
             for item in evidence:
                 self._conn.execute(
@@ -290,6 +393,39 @@ class TaskStore:
             if before_commit is not None:
                 before_commit()
         return True
+
+    def _write_follow_up(
+        self, task_id: str, campaign_id: str, reason: ReplanReason, now: datetime,
+    ) -> str:
+        """在呼叫端的交易裡建接續任務與接續關係;回傳要補進原任務錯誤說明的一段話。"""
+        head = f"replan={reason.value}"
+        link = self._conn.execute(
+            "SELECT follow_up_task_id FROM follow_ups WHERE original_task_id = ?", (task_id,),
+        ).fetchone()
+        if link is not None:  # 防線:同一個交易寫原任務結案,正常不會已有關係;沿用、不再寫
+            return f"{head};follow_up={link[0] or 'none'}"
+        parent = self._conn.execute(
+            "SELECT generation FROM follow_ups WHERE follow_up_task_id = ?", (task_id,),
+        ).fetchone()
+        generation = 2 if parent is None else int(parent[0]) + 1
+        child = follow_up_id(task_id)
+        if not is_id(child):  # 格式檢查照做,只跳過一般入口的保留命名空間檢查
+            raise InvalidTaskId(f"接續任務編號格式不合法:{child!r}")
+        if generation > MAX_GENERATION:
+            outcome, recorded_child, note = (
+                _FollowUpOutcome.LIMIT_REACHED, None, f"replan_limit_reached={MAX_GENERATION}")
+        elif self._conn.execute(
+                "SELECT 1 FROM tasks WHERE task_id = ? LIMIT 1", (child,)).fetchone() is not None:
+            return f"{head};follow_up_id_collision={child}"  # 防線:不建立、不記關係
+        else:
+            self._insert_first_row(child, campaign_id, now)
+            outcome, recorded_child, note = _FollowUpOutcome.CREATED, child, f"follow_up={child}"
+        self._conn.execute(
+            "INSERT INTO follow_ups VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (task_id, recorded_child, generation, campaign_id, reason.value, outcome.value,
+             _iso(now)),
+        )
+        return f"{head};{note}"
 
     def acquire_lease(self, task_id: str, owner: str, now: datetime) -> LeaseReceipt | None:
         """目前沒人持有(沒有租約列、目前那一列是放掉列、或已過期)就新增一列取得列、回傳收據;
@@ -383,8 +519,8 @@ class TaskStore:
 
     def history(self, task_id: str) -> tuple[TaskRow, ...]:
         records = self._conn.execute(
-            "SELECT task_id, seq, state, campaign_id, proposal_json, error_detail, written_at "
-            "FROM tasks WHERE task_id = ? ORDER BY seq", (task_id,),
+            f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ? ORDER BY seq",  # noqa: S608 - 固定欄位清單
+            (task_id,),
         ).fetchall()
         return tuple(_row_from_record(r) for r in records)
 
@@ -395,4 +531,22 @@ def trace_for(store: TaskStore, task_id: str) -> TraceRecord:
     evidence = tuple(
         item for row in history for item in store.evidence_for(task_id, row.seq)
     )
-    return TraceRecord(tasks=history, evidence=evidence, tool_calls=store.list_tool_calls(task_id))
+    return TraceRecord(tasks=history, evidence=evidence, tool_calls=store.list_tool_calls(task_id),
+                       follow_up_of=store.follow_up_of(task_id),
+                       follow_up_to=store.follow_up_to(task_id))
+
+
+def replan_counts(store: TaskStore, campaign_id: str | None = None) -> ReplanCounts:
+    """分析端的衝突指標(最小版):只讀接續關係表(不會被清、帶廣告編號並建索引)。
+
+    DSP 回版本衝突的次數在執行端嘗試紀錄,由執行端的查詢算;收件表清掉後原因分不出來的那一類
+    只算得出「因保留期而重新規劃」,算不出其中幾次是版本衝突(計劃〈衝突可查〉)。"""
+    where, params = ("", ()) if campaign_id is None else ("WHERE campaign_id = ?", (campaign_id,))
+    created, limit, retention = store._conn.execute(  # 同模組的唯讀統計
+        "SELECT coalesce(sum(outcome = 'created'), 0), "  # noqa: S608 - 條件是固定字串
+        "coalesce(sum(outcome = 'limit_reached'), 0), "
+        "coalesce(sum(outcome = 'created' AND reason = 'after_retention'), 0) "
+        f"FROM follow_ups {where}", params,
+    ).fetchone()
+    return ReplanCounts(replanned=int(created), exhausted=int(limit),
+                        after_retention=int(retention))

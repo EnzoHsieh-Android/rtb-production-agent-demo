@@ -9,7 +9,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from rtb.analyzer import dsp_client
-from rtb.analyzer.flow import Accepted
+from rtb.analyzer.flow import Accepted, DspOperation
 from rtb.analyzer.task_store import TaskRow, TaskStore
 from rtb.domain.evidence import Evidence
 from rtb.domain.proposal import Proposal
@@ -86,6 +86,35 @@ class InstrumentedSubmit:
             self._record(type(exc).__name__, started)
             raise
         self._record("ok", started)
+        return result
+
+    def _record(self, outcome: str, started: float) -> None:
+        latency_ms = (time.monotonic() - started) * 1000
+        self._store.record_tool_call(
+            self._task.task_id, self._task.seq, self._endpoint, outcome, latency_ms,
+            datetime.now(UTC))
+
+
+class InstrumentedOperationLookup:
+    """包裝依冪等鍵查 DSP 的操作查詢,呼叫的同時記一筆 tool_calls(Phase 5)。
+
+    跟 `InstrumentedSubmit` 一樣綁定建構當下讀到的那一列:協定簽章只有冪等鍵、沒有任務,
+    呼叫端每次推進前用當下的 `TaskRow` 建一個新的。"""
+
+    def __init__(
+        self, store: TaskStore, inner: Callable[[str], DspOperation | None], endpoint: str,
+        task: TaskRow,
+    ):
+        self._store, self._inner, self._endpoint, self._task = store, inner, endpoint, task
+
+    def __call__(self, key: str) -> DspOperation | None:
+        started = time.monotonic()
+        try:
+            result = self._inner(key)
+        except Exception as exc:
+            self._record(type(exc).__name__, started)
+            raise
+        self._record("ok" if result is not None else "not_found", started)
         return result
 
     def _record(self, outcome: str, started: float) -> None:

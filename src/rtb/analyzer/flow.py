@@ -12,6 +12,11 @@
 呼叫任何外部介面之前先在任務上取得租約(Phase 4 增量 3b,事故 F3「重複投遞不重複分析費用」):
 同一個任務同一時間只有一個持有有效租約的呼叫端會花錢;拿不到租約就回原狀態、什麼都不呼叫。
 
+已交給執行之後(Phase 5,事故 F4):呼叫端有給「操作查詢」時才往下走,先重送同一份提案問收件口
+(它的處置是執行端驗證過的結果);收件表已清掉才用交接時存下的冪等鍵查 DSP。版本已變、決策過期、
+或清掉後 DSP 查不到寫入,就在原任務結案的同一個交易裡建接續任務重新規劃。沒給操作查詢照 Phase 4
+的行為停在已交給執行。
+
 三個介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
 多個參數與語意(不是單純「一個函式」),`Protocol` 讓型別檢查器能核對實作簽章、也讓文件
 掛在介面本身,是刻意的選擇,不是要在專案裡另立一套慣用法;現有 `Callable` 用法(單一動作
@@ -25,13 +30,16 @@ from typing import Protocol
 
 from rtb.analyzer.task_store import (
     CorruptedHistoryRow,
+    FollowUp,
     LeaseReceipt,
+    ReplanReason,
     TaskNotFound,
     TaskRow,
     TaskStore,
 )
+from rtb.domain.attempt import operation_key
 from rtb.domain.evidence import Evidence
-from rtb.domain.proposal import Proposal
+from rtb.domain.proposal import Proposal, content_hash
 from rtb.domain.task_state import TERMINAL_STATES, TaskState, transition
 
 
@@ -72,9 +80,15 @@ class Decide(Protocol):
 
 @dataclass(frozen=True)
 class Accepted:
-    """`Submit` 的成功結果。"""
+    """`Submit` 的成功結果。後五個欄位是收件口回應本文的內容(Phase 5),已交給執行之後那一步
+    要核對它們屬於送出的這份提案;只看有沒有收下的呼叫端與測試替身可以不給。"""
 
     replayed: bool
+    task_id: str | None = None
+    revision: int | None = None
+    content_hash: str | None = None
+    state: str | None = None  # 收件口的處置,沒有處置時是提案本身的狀態
+    block_code: str | None = None  # 只有處置是已擋下時才有值
 
 
 class SubmitStale(Exception):
@@ -96,6 +110,22 @@ class Submit(Protocol):
     def __call__(self, proposal: Proposal) -> Accepted: ...
 
 
+@dataclass(frozen=True)
+class DspOperation:
+    """DSP 依冪等鍵查到的操作紀錄(分析端只拿核對內容要用的四個欄位)。"""
+
+    campaign_id: str
+    action: str
+    new_budget: int | None
+    expected_version: int | None
+
+
+class OperationLookup(Protocol):
+    def __call__(self, key: str) -> DspOperation | None:
+        """查不到回 None;逾時、斷線、讀不懂一律丟例外(這一輪沒有進展)。"""
+        ...
+
+
 class _BrokenCollaborator(Exception):
     """協作介面回傳了合約之外的型別:這是協作介面本身的錯,不是暫時性失敗,不能重試。"""
 
@@ -105,6 +135,7 @@ class _Collaborators:
     evidence_source: EvidenceSource
     decide: Decide
     submit: Submit
+    operation_lookup: OperationLookup | None = None  # 只有已交給執行那一步讀
 
 
 @dataclass(frozen=True)
@@ -115,12 +146,14 @@ class _Step:
     evidence: tuple[Evidence, ...] = ()
     proposal: Proposal | None = None
     error_detail: str | None = None
+    operation_key: str | None = None
+    follow_up: FollowUp | None = None
 
 
 _StepOutcome = _Step | None
 
 
-def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子與租約擁有者,全部都是必要的參數
+def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、租約擁有者與操作查詢
     store: TaskStore,
     task_id: str,
     evidence_source: EvidenceSource,
@@ -129,6 +162,7 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子與
     now: datetime,
     before_commit: Callable[[], None] | None = None,
     owner: str = "analyzer",  # 租約擁有者:比照執行側由啟動程式傳入工作者身分,這裡只當標籤
+    operation_lookup: OperationLookup | None = None,  # 不給:已交給執行的任務停在原地
 ) -> TaskState:
     """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。
 
@@ -140,7 +174,9 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子與
     row = store.latest(task_id)
     if row is None:
         raise TaskNotFound(task_id)
-    if row.state in TERMINAL_STATES or row.state is TaskState.HANDED_OFF:
+    if row.state in TERMINAL_STATES:
+        return row.state
+    if row.state is TaskState.HANDED_OFF and operation_lookup is None:
         return row.state
 
     lease = store.acquire_lease(task_id, owner, now)
@@ -148,8 +184,8 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子與
         return row.state
     try:
         return _advance_holding(
-            store, row, _Collaborators(evidence_source, decide, submit), now, before_commit,
-            lease)
+            store, row, _Collaborators(evidence_source, decide, submit, operation_lookup), now,
+            before_commit, lease)
     except BaseException:
         store.release_lease_quietly(lease, now)  # 放掉失敗也不蓋掉原本的例外
         raise
@@ -177,7 +213,7 @@ def _advance_holding(
     committed = store.commit_step(
         row.task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
         evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
-        lease=lease,
+        lease=lease, operation_key=outcome.operation_key, follow_up=outcome.follow_up,
     )
     if not committed:  # 輸了序號或租約:還是自己的才放掉(條件寫在 release_lease 裡)
         store.release_lease(lease, now)
@@ -241,7 +277,102 @@ def _from_proposed(
         return None
     if not isinstance(result, Accepted):
         raise _BrokenCollaborator(f"Submit 回傳了合約之外的型別:{type(result)!r}")
-    return _Step(TaskState.HANDED_OFF, proposal=row.proposal)
+    # 交接這一列存下冪等鍵:之後收件表清掉要查 DSP 時用存下的這把,不從提案重算
+    return _Step(TaskState.HANDED_OFF, proposal=row.proposal,
+                 operation_key=operation_key(row.proposal))
+
+
+# 收件口回應的處置 → 下一步;不在表裡的處置當成回應讀不懂(這一輪沒有進展)
+_OPEN_STATES = frozenset({"pending", "in_progress"})
+_CLOSED_WITHOUT_REPLAN = frozenset({"blocked", "dead_letter"})
+_KNOWN_STATES = _OPEN_STATES | _CLOSED_WITHOUT_REPLAN | {"handed_off", "expired", "superseded"}
+_PURGED_CODES = frozenset({"expired_proposal", "revision_out_of_order"})  # 收件表已清掉
+_VERSION_CHANGED = "version_changed"
+# 收件口回給分析行程的擋下原因(權限類合併成 not_permitted,使用者 2026-09-23 裁定):不在這份
+# 清單的代碼當成回應讀不懂,不寫進只增不改的歷史表(對方回什麼字串都原樣寫進稽核紀錄是注入管道)
+_BLOCK_CODES = frozenset({_VERSION_CHANGED, "not_permitted", "campaign_not_found",
+                          "campaign_not_active", "operation_previously_failed"})
+
+
+def _from_handed_off(
+    store: TaskStore, row: TaskRow, c: _Collaborators, _now: datetime
+) -> _StepOutcome:
+    if row.proposal is None or c.operation_lookup is None:
+        raise AssertionError("已交給執行的列一定帶著提案快照;沒給操作查詢不會走到這一步")
+    try:
+        answer = c.submit(row.proposal)
+    except SubmitStale as stale:
+        if str(stale) in _PURGED_CODES:
+            return _from_dsp(store, row, c.operation_lookup)
+        return _closed(f"rejected={stale}")
+    except SubmitRejectedPermanently as exc:
+        return _closed(f"rejected={exc}")
+    except Exception:  # 忙碌、未定義失敗、網路失敗:重送同一份提案永遠安全,下一輪再問
+        return None
+    if not isinstance(answer, Accepted):  # 同送出提案那一步:協作介面本身的錯,不能重試
+        raise _BrokenCollaborator(f"Submit 回傳了合約之外的型別:{type(answer)!r}")
+    if not _belongs_to(answer, row.proposal):
+        return None  # 別的提案的回應、或處置與原因對不上:不拿來結案
+    return _from_inbox_answer(answer)
+
+
+def _belongs_to(answer: Accepted, proposal: Proposal) -> bool:
+    same = (answer.task_id == proposal.task_id and answer.revision == proposal.revision
+            and answer.content_hash == content_hash(proposal))
+    consistent = answer.state in _KNOWN_STATES and (
+        answer.block_code in _BLOCK_CODES if answer.state == "blocked"
+        else answer.block_code is None)
+    return same and consistent
+
+
+def _from_inbox_answer(answer: Accepted) -> _StepOutcome:
+    if answer.state == "handed_off":
+        return _Step(TaskState.COMPLETED)
+    if answer.state in _OPEN_STATES:
+        return None
+    if answer.state == "superseded":
+        return _Step(TaskState.SUPERSEDED)
+    if answer.state == "blocked" and answer.block_code == _VERSION_CHANGED:
+        return _replan(ReplanReason.VERSION_CHANGED, f"blocked={answer.block_code}")
+    if answer.state == "expired":
+        return _replan(ReplanReason.EXPIRED, "expired")
+    return _closed(f"{answer.state}={answer.block_code}")
+
+
+def _from_dsp(store: TaskStore, row: TaskRow, lookup: OperationLookup) -> _StepOutcome:
+    """收件表已清掉:清掉時執行端早就結束(處理中與轉人工不會被清),DSP 那邊不會再有新寫入。"""
+    proposal = row.proposal
+    if proposal is None:
+        raise AssertionError("已交給執行的列一定帶著提案快照")
+    # Phase 5 之前寫的列沒有存鍵:用目前的算法重算,只在算法沒改版時正確(S321 的測試釘住)
+    key = store.operation_key_for(row.task_id) or operation_key(proposal)
+    try:
+        record = lookup(key)
+    except Exception:  # 逾時、斷線、讀不懂:這一輪沒有進展
+        return None
+    if record is None:  # 從來沒寫進去:重讀現況再決定
+        return _replan(ReplanReason.AFTER_RETENTION, "inbox_purged;dsp_operation_not_found")
+    if not isinstance(record, DspOperation):
+        raise _BrokenCollaborator(f"OperationLookup 回傳了合約之外的型別:{type(record)!r}")
+    if _matches(record, proposal):
+        return _Step(TaskState.COMPLETED)
+    return _closed("inbox_purged;idempotency_conflict")
+
+
+def _matches(record: DspOperation, proposal: Proposal) -> bool:
+    """跟執行端對帳核對同一組欄位:冪等鍵是執行端算的,DSP 不會拿內容反算這把鍵。"""
+    return (record.campaign_id == proposal.campaign_id
+            and record.action == proposal.action_type.value
+            and record.new_budget == proposal.requested_change.get("new_budget")
+            and record.expected_version == proposal.campaign_version_observed)
+
+
+def _replan(reason: ReplanReason, detail: str) -> _Step:
+    return _Step(TaskState.BLOCKED, error_detail=detail, follow_up=FollowUp(reason))
+
+
+def _closed(detail: str) -> _Step:
+    return _Step(TaskState.BLOCKED, error_detail=detail)
 
 
 _STEPS: dict[TaskState, Callable[[TaskStore, TaskRow, _Collaborators, datetime], _StepOutcome]] = {
@@ -249,4 +380,5 @@ _STEPS: dict[TaskState, Callable[[TaskStore, TaskRow, _Collaborators, datetime],
     TaskState.COLLECTING_EVIDENCE: _from_collecting_evidence,
     TaskState.ANALYZING: _from_analyzing,
     TaskState.PROPOSED: _from_proposed,
+    TaskState.HANDED_OFF: _from_handed_off,
 }

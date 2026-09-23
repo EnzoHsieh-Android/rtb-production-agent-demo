@@ -1,0 +1,83 @@
+diff --git a/tests/analyzer/test_inbox_client.py b/tests/analyzer/test_inbox_client.py
+index a4c3e72..5c9598e 100644
+--- a/tests/analyzer/test_inbox_client.py
++++ b/tests/analyzer/test_inbox_client.py
+@@ -152,3 +152,16 @@ def test_a_resend_reports_the_disposition_and_identifies_the_proposal(inbox):
+     assert (result.task_id, result.revision, result.content_hash, result.state) == (
+         proposal.task_id, proposal.revision, content_hash(proposal), "pending")
+     assert result.block_code is None
++
++
++@pytest.mark.parametrize(("body", "expected"), [
++    ({"state": "blocked", "block_code": "version_changed"}, ("blocked", "version_changed")),
++    ({"state": "blocked", "block_code": 7}, ("blocked", None)),
++    ({"state": ["handed_off"], "block_code": None}, (None, None))])
++def test_the_block_code_in_the_response_body_is_read(body, expected):
++    base = {"task_id": "t1", "revision": 1, "content_hash": "a" * 64, "replayed": True}
++
++    result = inbox_client._accepted(200, base | body)
++
++    assert (result.state, result.block_code) == expected
++    assert (result.task_id, result.revision, result.content_hash) == ("t1", 1, "a" * 64)
+diff --git a/tests/analyzer/test_instrumented.py b/tests/analyzer/test_instrumented.py
+index 29c40f5..c221b96 100644
+--- a/tests/analyzer/test_instrumented.py
++++ b/tests/analyzer/test_instrumented.py
+@@ -6,7 +6,7 @@ import threading
+ import pytest
+ 
+ from rtb.analyzer import dsp_client
+-from rtb.analyzer.flow import Accepted
++from rtb.analyzer.flow import Accepted, DspOperation
+ from rtb.analyzer.instrumented import (
+     InstrumentedEvidenceSource,
+     InstrumentedOperationLookup,
+@@ -189,7 +189,8 @@ def test_trace_for_an_unknown_task_returns_empty_everything(store):
+ 
+ # ---- S318 的呼叫紀錄那一半:依冪等鍵查 DSP 也進呼叫紀錄 ----
+ @pytest.mark.parametrize(("inner", "outcome"), [
+-    (lambda _key: None, "not_found"), (lambda _key: 1 / 0, "ZeroDivisionError")])
++    (lambda _key: None, "not_found"), (lambda _key: 1 / 0, "ZeroDivisionError"),
++    (lambda _key: DspOperation("c1", "update_budget", 150, 1), "ok")])
+ def test_operation_lookups_are_recorded_in_the_trace(store, inner, outcome):
+     store.create_task("t1", "c1", NOW)
+     lookup = InstrumentedOperationLookup(store, inner, "dsp:operation", row())
+diff --git a/tests/analyzer/test_replan.py b/tests/analyzer/test_replan.py
+index 9fa2392..3ec81a0 100644
+--- a/tests/analyzer/test_replan.py
++++ b/tests/analyzer/test_replan.py
+@@ -5,7 +5,7 @@ from datetime import timedelta
+ 
+ import pytest
+ 
+-from rtb.analyzer import flow
++from rtb.analyzer import flow, task_store
+ from rtb.analyzer.task_store import (
+     FOLLOW_UP_PREFIX,
+     MAX_GENERATION,
+@@ -421,6 +421,25 @@ def test_closing_a_task_that_already_has_a_limit_reached_link_does_not_crash(sto
+     assert store.latest("t1").error_detail == "expired;replan=expired;follow_up=none"
+ 
+ 
++def test_an_operation_lookup_returning_the_wrong_type_fails_loudly(store):
++    _handed_off(store)
++
++    with pytest.raises(flow._BrokenCollaborator):
++        step(store, Counting(raises=flow.SubmitStale("expired_proposal")),
++             Counting(returns="not-a-DspOperation"))
++    assert store.latest("t1").state is TaskState.HANDED_OFF
++
++
++def test_a_malformed_follow_up_id_is_never_written(store, monkeypatch):
++    proposal = _handed_off(store)
++    monkeypatch.setattr(task_store, "follow_up_id", lambda _task_id: "fu- has space")
++
++    with pytest.raises(InvalidTaskId):
++        step(store, Counting(returns=answer(proposal, "blocked", "version_changed")))
++    assert store.latest("t1").state is TaskState.HANDED_OFF
++    assert store.follow_up_to("t1") is None
++
++
+ # ---- S321 ----
+ def test_old_rows_may_recompute_the_key_only_while_the_algorithm_is_unchanged(store):
+     assert KEY_PREFIX == "k1-", (
