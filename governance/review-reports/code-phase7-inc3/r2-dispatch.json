@@ -1,0 +1,3 @@
+{"round": "r2", "loop": "code-phase7-inc3", "snapshot": "r2-snapshot.patch", "delta": "r2-delta.patch", "reviewed_sha256": "90a0719e471cb2e80885fa403df2e1c90e0fb8dcd842c5b478abf9e7a8d3b3ed",
+ "seats": [{"seat": "reviewer-sonnet", "lens": "修正差異通才", "materials": ["r2-delta.patch", "r2-snapshot.patch"]}],
+ "absent": [{"seat": "外家否決", "reason": "Codex 用量上限到 17:48;修正只動測試檔,standard 只要求缺席留痕"}]}

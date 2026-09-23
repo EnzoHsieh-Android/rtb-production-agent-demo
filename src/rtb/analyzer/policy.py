@@ -20,7 +20,7 @@ from typing import Any
 from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
 from rtb.analyzer.task_store import TaskRow
 from rtb.domain._checks import is_plain_number
-from rtb.domain.evidence import Evidence, EvidenceKind, check_freshness
+from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass, check_freshness
 from rtb.domain.metrics import pacing
 from rtb.domain.proposal import MAX_INT, ActionType, Proposal
 
@@ -33,8 +33,11 @@ MAX_EVIDENCE_AGE = timedelta(minutes=15)  # 暫用值:證據超過這個年齡�
 
 
 def _payload(evidence: tuple[Evidence, ...], kind: EvidenceKind) -> dict[str, Any] | None:
+    """決策只讀可信證據(Phase 7 增量 3):按種類找之外再加信任標記。證據型別的成對規則已讓不可信
+    文字掛不到現況或指標底下,這一條是把意圖寫在讀取端,不靠上游自律;廣告文字仍在證據裡、
+    仍被提案引用、仍做新鮮度判斷,只是不拿來決定動作或金額。"""
     for item in evidence:
-        if item.kind == kind:
+        if item.kind == kind and item.trust_class is TrustClass.TRUSTED:
             return dict(item.payload)
     return None
 

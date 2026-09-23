@@ -1,0 +1,8 @@
+{"round": "r1", "loop": "code-phase7-inc3", "base": "21e8e15", "snapshot": "r1-snapshot.patch",
+ "reviewed_sha256": "0a35b181bc03ef0df56019067c55a2227cbae5ceb847535bf44f30d608369328",
+ "seats": [
+  {"seat": "reviewer-sonnet", "lens": "單席通才", "materials": ["r1-snapshot.patch"]},
+  {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.patch"]},
+  {"seat": "資安-sonnet", "lens": "資安(自願加派)", "materials": ["r1-snapshot.patch"]},
+  {"seat": "veto-opus", "lens": "外家否決(Codex 限額,opus 頂替)", "materials": ["r1-snapshot.patch"]}
+ ]}
