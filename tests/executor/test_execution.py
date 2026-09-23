@@ -136,6 +136,11 @@ def _over_cap(h):
     write_config(h.config, max_budget=149)  # 提案要改成 150
 
 
+def _over_ratio(h):
+    # 提案要改成 150;現況 99 時最多加 49
+    h.dsp.campaigns["c1"] = CampaignView(budget=99, status="active", version=3)
+
+
 def _previously_failed(h):
     """同一個邏輯操作先前已失敗(人工判失敗),DSP 版本沒動;換到期時間的新修訂進來。"""
     first = h.submit()
@@ -155,6 +160,8 @@ BLOCK_TRIGGERS = {
     BlockCode.VERSION_CHANGED: _version_changed,
     BlockCode.CAMPAIGN_NOT_ALLOWED: _not_allowed,
     BlockCode.OVER_BUDGET_CAP: _over_cap,
+    # 下面「等於整個列舉」的斷言之後由護欄表三份清單取代(Phase 6 增量 2)
+    BlockCode.BUDGET_INCREASE_TOO_LARGE: _over_ratio,
     BlockCode.OPERATION_PREVIOUSLY_FAILED: _previously_failed,
 }
 

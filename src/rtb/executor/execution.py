@@ -277,15 +277,34 @@ _BUSINESS_REFUSALS = {
 }
 
 
+# 單筆加預算的比例上限(使用者 2026-09-23 裁定:五成、最小加額 1、全域一個值):
+# 加的量不得超過 max(現況乘分子除以分母取整數下限, 最小加額),整數運算
+MAX_INCREASE_NUMERATOR = 1
+MAX_INCREASE_DENOMINATOR = 2
+MIN_INCREASE_STEP = 1
+
+
 def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
-    """執行前檢查裡看 DSP 現況的三項;「不在投放」排在版本之前,代碼比較有意義。"""
+    """執行前檢查裡看 DSP 現況的四項;「不在投放」排在版本之前,代碼比較有意義。比例上限排在
+    版本已變之後:走到那一項時現況一定是提案觀察到的那個版本,比例的基準不會被別人的修改帶偏。"""
     if view is None:
         return BlockCode.CAMPAIGN_NOT_FOUND
     if view.status != "active":
         return BlockCode.CAMPAIGN_NOT_ACTIVE
     if view.version != proposal.campaign_version_observed:
         return BlockCode.VERSION_CHANGED
+    if _increase_too_large(proposal, view.budget):
+        return BlockCode.BUDGET_INCREASE_TOO_LARGE
     return None
+
+
+def _increase_too_large(proposal: Proposal, current: int) -> bool:
+    """減預算、暫停不受影響。"""
+    if proposal.action_type is not ActionType.UPDATE_BUDGET:
+        return False
+    increase = int(proposal.requested_change["new_budget"]) - current
+    allowed = max(current * MAX_INCREASE_NUMERATOR // MAX_INCREASE_DENOMINATOR, MIN_INCREASE_STEP)
+    return increase > allowed
 
 
 def _version_changed_or_none(live: bool, checked: BlockCode | None) -> BlockCode | None:

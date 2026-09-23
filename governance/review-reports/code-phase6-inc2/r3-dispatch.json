@@ -1,0 +1,3 @@
+{"round": "r3", "loop": "code-phase6-inc2", "tier": "standard", "base": "48007b1", "delta_base": "144eb7d", "snapshot": "r3-snapshot.patch", "delta": "r3-delta.patch", "reviewed_sha256": "bc149b0c4bf5c14c3ffed5ada6a089ddeabec57d3915bec80c57717c68d81a10", "seats": [
+ {"seat": "veto-codex", "lens": "外家(第 2 輪修正回歸)", "materials": ["r3-snapshot.patch", "r3-delta.patch"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r3-snapshot.patch", "r3-delta.patch"]}]}

@@ -78,6 +78,8 @@ class BlockCode(StrEnum):
     VERSION_CHANGED = "version_changed"
     CAMPAIGN_NOT_ALLOWED = "campaign_not_allowed"
     OVER_BUDGET_CAP = "over_budget_cap"
+    # 單筆加預算超過比例上限(Phase 6 增量 2)
+    BUDGET_INCREASE_TOO_LARGE = "budget_increase_too_large"
     OPERATION_PREVIOUSLY_FAILED = "operation_previously_failed"  # 同一把鍵先前已判定失敗
 
 

@@ -195,6 +195,8 @@ def test_a_resend_reports_why_the_proposal_was_blocked(start_inbox):
 @pytest.mark.parametrize(("stored", "answered"), [
     (BlockCode.OVER_BUDGET_CAP, "not_permitted"),  # 權限類合併成泛稱:試不出預算上限
     (BlockCode.CAMPAIGN_NOT_ALLOWED, "not_permitted"),  # 也試不出廣告歸哪個租戶
+    # Phase 6 增量 2 [S407]:比例上限也是權限類
+    (BlockCode.BUDGET_INCREASE_TOO_LARGE, "not_permitted"),
     (BlockCode.CAMPAIGN_NOT_FOUND, "campaign_not_found"),
     (BlockCode.CAMPAIGN_NOT_ACTIVE, "campaign_not_active"),
     (BlockCode.OPERATION_PREVIOUSLY_FAILED, "operation_previously_failed"),
@@ -282,7 +284,8 @@ def test_two_concurrent_writers_reproduce_a_version_conflict(tmp_path, real_dsp)
         except BaseException as exc:
             outcomes[name] = ("error", repr(exc))
 
-    threads = [threading.Thread(target=run, args=args) for args in (("a", 150), ("b", 160))]
+    # 兩份新預算都在比例上限內(Phase 6 增量 2 起,從 100 最多加到 150)
+    threads = [threading.Thread(target=run, args=args) for args in (("a", 150), ("b", 140))]
     for thread in threads:
         thread.start()
     for thread in threads:

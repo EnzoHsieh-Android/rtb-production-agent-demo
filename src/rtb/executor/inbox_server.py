@@ -131,7 +131,8 @@ class InboxHandler(JsonHandler):
 # 權限類擋下原因合併成泛稱(使用者 2026-09-23 裁定,Phase 5 [S300]):重送就能讀到的原因若分得細,
 # 被劫持的分析行程可以一路試出租戶的預算上限與廣告歸屬。只在回應本文合併,收件表照記細分代碼
 _PERMISSION_BLOCKS = frozenset({BlockCode.OVER_BUDGET_CAP.value,
-                                BlockCode.CAMPAIGN_NOT_ALLOWED.value})
+                                BlockCode.CAMPAIGN_NOT_ALLOWED.value,
+                                BlockCode.BUDGET_INCREASE_TOO_LARGE.value})  # Phase 6 增量 2
 NOT_PERMITTED = "not_permitted"
 
 
