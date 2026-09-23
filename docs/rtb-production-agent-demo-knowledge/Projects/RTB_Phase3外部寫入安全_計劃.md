@@ -352,7 +352,7 @@ REVISIT:2026-12-31 分析行程第一次有獨立啟動程式時,補「啟動環
 - [S52] 事故 F4 端到端:提案形成後另一方先更新了廣告,執行時應擋下提案、DSP 的值不被覆蓋。[test:test_f4_a_stale_proposal_never_overwrites_a_newer_value]
 - [S53] 事故 F1 執行面(提交後逾時):執行時逾時應記成結果不明,DSP 只套用一次,之後同鍵查得到那筆操作。[test:test_f1_a_timeout_after_commit_is_recorded_as_unknown_and_applied_once]
 - [S54] 當金鑰環境變數沒有或太短,執行迴圈啟動程式應以非零代碼結束,且不跑重啟恢復。[test:test_the_runner_refuses_to_start_without_a_usable_key]
-- [S55] 執行迴圈啟動程式應先取得單一執行者鎖,再把嘗試中轉成結果不明,完成後印出就緒訊號;當鎖已被另一個執行迴圈握著(包括經符號連結或相對路徑指到同一個資料庫),第二個應以非零代碼結束,且資料庫裡的嘗試中列完全沒被動過。[test:test_the_runner_holds_a_single_instance_lock_and_recovers_before_ready]
+- [S55] 執行迴圈啟動程式應先取得單一執行者鎖,再把嘗試中轉成結果不明,完成後印出就緒訊號;當鎖已被另一個執行迴圈握著(包括經符號連結或相對路徑指到同一個資料庫),第二個應以非零代碼結束,且資料庫裡的嘗試中列完全沒被動過。[manual:已由 Phase 4 增量 3a 取代,單一執行者鎖拿掉改成多工作者租約,這支測試在那次一起移除,見 Phase4 佇列與重新投遞計劃]
 - [S56] 執行迴圈程式不應匯入 DSP 的內部模組,只經共用 HTTP 用戶端呼叫 DSP。[test:test_the_executor_reaches_the_dsp_only_through_the_shared_client]
 - [S57] 當某個廣告已有未結案嘗試,處理一筆應跳過它的提案、處理其他廣告較新的提案。[test:test_a_locked_campaign_does_not_block_other_campaigns]
 - [S58] 當開始一筆遇到已存在的鍵,處理一筆應不開新嘗試:既有鍵已驗證或未結案就把提案處置標成已交給執行,既有鍵失敗就標已擋下並附「同一操作先前已失敗」。[test:test_a_proposal_for_an_already_attempted_operation_follows_the_existing_outcome]
@@ -368,7 +368,7 @@ REVISIT:2026-12-31 分析行程第一次有獨立啟動程式時,補「啟動環
 - [S65] 每一列嘗試中都應記下這次送出所帶憑證的到期時間,缺了應拒絕寫入;重簽重送那一列應是新憑證的到期時間。[test:test_every_send_records_the_capability_expiry]
 - [S66] 轉進已提交待驗證應帶寫入後版本,缺了應拒絕寫入。[test:test_entering_committed_unverified_requires_the_written_version]
 - [S67] 當憑證過期後的重跑檢查遇到租戶設定檔壞掉,嘗試應留在結果不明,這一輪以系統錯誤結束;當送出次數已達上限,應轉人工(送出次數達上限)。[test:test_an_expired_capability_recheck_stops_on_broken_config_and_escalates_at_the_send_limit]
-- [S68] 當執行迴圈握著鎖期間鎖檔被換成另一個檔,下一輪開頭應以系統錯誤結束、啟動程式以非零代碼結束。[test:test_the_runner_stops_when_its_lock_file_is_replaced]
+- [S68] 當執行迴圈握著鎖期間鎖檔被換成另一個檔,下一輪開頭應以系統錯誤結束、啟動程式以非零代碼結束。[manual:已由 Phase 4 增量 3a 取代,單一執行者鎖拿掉改成多工作者租約,這支測試在那次一起移除,見 Phase4 佇列與重新投遞計劃]
 - [S69] 當寫結果的條件寫入回報沒有進展(這把鍵已被別的東西改過),處理一筆應以系統錯誤結束、不再寫任何一筆,啟動程式應以非零代碼結束。[test:test_a_conditional_write_without_progress_stops_the_runner]
 
 ### 不做的事(增量 3 範圍)
