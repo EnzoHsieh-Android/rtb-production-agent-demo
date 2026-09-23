@@ -1,0 +1,1 @@
+{"round": "r1", "loop": "code-phase8-f6tz", "tier": "standard", "base": "78ff7c0", "snapshot": "r1-snapshot.patch", "reviewed_sha256": "77deb9554723d56eb546a4f997ac95cb9a7c8c22a3debe55fb541d4e78fdf528", "seats": [{"seat": "reviewer-sonnet", "lens": "正確性與測試殺傷力", "materials": ["r1-snapshot.patch"]}, {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.patch"]}]}
