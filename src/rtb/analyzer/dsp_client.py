@@ -40,7 +40,9 @@ class DspRequestFailed(Exception):
 
 
 CAMPAIGN_STATUSES = frozenset({"active", "paused"})  # DSP 實際回傳的狀態字串
-METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
+# 用戶端只要 1 小時的指標(示範規則也只按 1 小時換算);回應的時間窗跟請求的不同就當可信欄位不合格
+# (2026-09-23 使用者裁定,原本收 1h/1d/7d 任一個,DSP 對 1h 的請求回 7d 也會被當成可信收下)
+REQUESTED_WINDOW = "1h"
 Check = Callable[[Any], bool]  # 比照提案白名單 CHECKS:每個欄位一支只看值的檢查
 
 
@@ -69,7 +71,7 @@ STATE_FIELDS: dict[str, Check] = {
 }
 METRICS_FIELDS: dict[str, Check] = {
     "campaign_id": is_id,
-    "window": lambda value: isinstance(value, str) and value in METRIC_WINDOWS,
+    "window": lambda value: value == REQUESTED_WINDOW,
     "impressions": _is_count_or_none,
     "clicks": _is_count_or_none,
     "conversions": _is_count_or_none,
@@ -137,8 +139,8 @@ def make_client(
         # 證據的讀取時間用呼叫端(流程層)傳來的時間,不自己讀系統時鐘,見 flow.EvidenceSource
         state_body = _get(base_url, f"/campaigns/{task.campaign_id}", timeout_seconds,
                           task, on_call, "dsp:campaign")
-        metrics_body = _get(base_url, f"/campaigns/{task.campaign_id}/metrics?window=1h",
-                            timeout_seconds, task, on_call, "dsp:metrics")
+        metrics_path = f"/campaigns/{task.campaign_id}/metrics?window={REQUESTED_WINDOW}"
+        metrics_body = _get(base_url, metrics_path, timeout_seconds, task, on_call, "dsp:metrics")
         state = _trusted(state_body, STATE_FIELDS, "id", task, "dsp:campaign")
         metrics = _trusted(metrics_body, METRICS_FIELDS, "campaign_id", task, "dsp:metrics")
         text = _campaign_text(state_body)
