@@ -2865,3 +2865,5 @@
 {"ts": "2026-09-23T23:00:28+08:00", "commit": "db74d3d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "db74d3d163bd01390b4235063b433ca0f21cfc3d"}
 {"ts": "2026-09-23T23:05:03+08:00", "commit": "2c5d9f4", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase8死信重放與過時決策_計劃.md"], "note": "door=high clauses=11 bound=0 red=0 green=0 weak=0 regress=55 no-run"}
 {"ts": "2026-09-23T23:58:36+08:00", "commit": "861d649", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase8死信重放與過時決策_計劃.md"], "note": "door=high clauses=11 bound=0 red=0 green=0 weak=0 regress=55 no-run"}
+{"ts": "2026-09-23T23:58:47+08:00", "commit": "861d649", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-23T23:58:48+08:00", "commit": "861d649", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "861d649676ef5ad0e3b5e04d8c57ec0ff8b0652a"}
