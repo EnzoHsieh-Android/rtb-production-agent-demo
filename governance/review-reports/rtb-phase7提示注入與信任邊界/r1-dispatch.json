@@ -1,0 +1,35 @@
+[
+ {"round": "r1", "seat": "s1", "lens": "信任邊界是否密不透風", "auditor": "sonnet", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-snapshot.md",
+  "src/rtb/domain/evidence.py", "src/rtb/analyzer/dsp_client.py", "src/rtb/analyzer/policy.py",
+  "src/rtb/dsp/server.py", "src/rtb/domain/proposal.py", "src/rtb/domain/_checks.py", "src/rtb/httpclient.py"]},
+ {"round": "r1", "seat": "s2", "lens": "差異測試能否證明邊界", "auditor": "sonnet", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-snapshot.md",
+  "src/rtb/domain/evidence.py", "src/rtb/analyzer/dsp_client.py", "src/rtb/analyzer/policy.py",
+  "src/rtb/domain/proposal.py", "src/rtb/analyzer/flow.py", "tests/analyzer/test_policy.py"]},
+ {"round": "r1", "seat": "s3", "lens": "遷移與既有合約相容", "auditor": "sonnet", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-snapshot.md",
+  "src/rtb/domain/evidence.py", "src/rtb/analyzer/dsp_client.py", "src/rtb/analyzer/policy.py",
+  "src/rtb/dsp/store.py", "src/rtb/analyzer/task_store.py", "tests/analyzer/test_dsp_client.py", "tests/dsp/test_store.py",
+  "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase2任務流程_計劃.md"]},
+ {"round": "r1", "seat": "s4", "lens": "F5 轉正流程", "auditor": "sonnet", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-snapshot.md",
+  "src/rtb/domain/evidence.py", "src/rtb/analyzer/dsp_client.py", "src/rtb/analyzer/policy.py",
+  "docs/rtb-production-agent-demo-knowledge/Verification/事故F5_不可信文字不能擴權.md",
+  "docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md",
+  "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase4佇列與重新投遞_計劃.md",
+  "tests/analyzer/test_boundaries.py"]},
+ {"round": "r1", "seat": "s5", "lens": "可測性", "auditor": "sonnet", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-snapshot.md",
+  "src/rtb/domain/evidence.py", "src/rtb/analyzer/dsp_client.py", "src/rtb/analyzer/policy.py",
+  "tests/executor/test_execution_e2e.py", "tests/analyzer/test_boundaries.py", "src/rtb/executor/execution.py",
+  "src/rtb/executor/inbox_server.py", "src/rtb/httpkit.py"]},
+ {"round": "r1", "seat": "sarch", "lens": "架構對齊", "auditor": "sonnet", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-snapshot.md",
+  "src/rtb/domain/evidence.py", "src/rtb/analyzer/dsp_client.py", "src/rtb/analyzer/policy.py",
+  "src/rtb/dsp/store.py", "src/rtb/executor/dsp_client.py", "tests/capability_samples.py"]},
+ {"round": "r1", "seat": "x1", "lens": "外家否決", "auditor": "codex", "materials": [
+  "governance/review-reports/rtb-phase7提示注入與信任邊界/r1-snapshot.md",
+  "src/rtb/domain/evidence.py", "src/rtb/analyzer/dsp_client.py", "src/rtb/analyzer/policy.py",
+  "src/rtb/dsp/store.py", "src/rtb/executor/execution.py", "src/rtb/executor/capability_signer.py"]}
+]

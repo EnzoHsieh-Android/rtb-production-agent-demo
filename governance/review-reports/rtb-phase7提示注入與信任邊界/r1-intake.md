@@ -20,3 +20,30 @@ preflight-4: ran
 代理沒查透、留給設計審的點:
 - 沒有實跑測試。「會紅」的結論都是讀程式碼推出來的。
 - 「歷史表那支檔是 3b 正在改的」是從 Phase 4 計劃的增量描述推出來的,沒有逐字對到檔名。
+
+# 第 1 輪設計審收貨與重現紀錄(2026-09-23)
+
+## 收貨
+- 七席收齊才動計劃:s1 信任邊界、s2 差異測試、s3 遷移相容、s4 F5 轉正、s5 可測性、sarch 架構對齊、x1 外家 Codex(codex exec --sandbox read-only,沒有撞到用量限額,不用頂替)。
+- 存檔時編排者動過的格式(不改證據、不改等級):sarch 的引句原本換行寫在「引句:」下一行,改成同一行;s4、s5、s3、s2、s1 的非 finding 段落標題拿掉編號、敘述條目刪掉重複的說明句,引句與佐證行號沒動;s3 報告裡一個簡體字「处理」改成「處理」;各席報告尾端的總結句保留。
+- report-normalize:七份都已是正規化格式。quote-check:七份全數錨定。
+
+## 編排者重現表
+
+| id | 重現 | 結論 |
+|---|---|---|
+| s1-1 | PYTHONPATH=src python -c 建一筆可信證據,內容 budget=10**400 → 丟出 OverflowError int too large to convert to float | HIT,採信,折入 |
+| s3-1 | 讀 src/rtb/analyzer/task_store.py:196-207,讀回時用 Evidence(...) 重建 | HIT,採信,折入 |
+| s4-2 | 讀 docs/.../Systems/寫入能力憑證.md 沒有 ★INVARIANT★ 行;tests/executor/test_capability_signer.py:68 與 tests/executor/test_execution.py:163 存在 | HIT,採信,折入 |
+| s4-3 | 讀 /Users/enzo/harness/lumos-toolchain/scripts/lumos:3721 PLANNED_RE 只認 ★INVARIANT-PLANNED★,:10962 _guard_planned_line 用它找行,:11147 cmd_guard_abandon 呼叫同一支 | HIT,採信,折入 |
+| s5-1 | 讀 src/rtb/domain/proposal.py:41-56 為沒有覆寫字串化的 frozen dataclass | HIT,採信;判準另想:使用者裁定管的是「拿來判斷」,字串化進日誌不是判斷,所以折入方式是把 S212 措辭縮到它真正守得住的範圍、日誌風險寫進實務隱患,不是加掃描 |
+| s5-3 | 讀 src/rtb/analyzer/policy.py:84 證據引用列入全部證據編號、src/rtb/domain/proposal.py:294-306 雜湊含證據引用 | HIT,採信,折入(與 s2-2 同一件事) |
+| x1-1 | 讀 src/rtb/httpclient.py:106 超過 64 KB 丟 ValueError、src/rtb/analyzer/flow.py:157 蒐證例外一律留原地重試 | HIT,採信;判準另想:不放寬回應上限,改由模擬 DSP 設名稱上限 4096 字元(真實 DSP 都有),超過歸「DSP 壞了」 |
+
+## 處置
+- 折入 16:s1-1、s1-2、s1-3、s2-1、s2-2、s3-1、s3-2、s4-2、s4-3、s4-4、s5-1、s5-2、s5-3、s5-5、s5-6、x1-1。
+- 放行 3(都是 minor):
+  - s4-1「3b 正在改」用錯時態:編排者告知 Phase 4 增量 3b 正由另一個會談進行中,「正在改」屬實。
+  - s5-4:席位自註「此條只為跟 finding 1 區隔,不另計問題」,不是缺陷。
+  - sarch-1「已截斷」旗標是新做法:截斷的是之後要給人或模型讀的不可信文字,讀者必須知道它不完整;既有的靜默截斷(錯誤細節、解析錯誤鍵名)是內部診斷字串,情境不同,不構成第二套做法。
+- 重現不到而列入駁回的:無。
