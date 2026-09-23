@@ -1,0 +1,100 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "事件完整性與交易邊界",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/sqlitekit.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "追蹤組裝正確性",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/sqlitekit.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "唯讀讀法與並行",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/sqlitekit.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "相容、遷移與效能",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/sqlitekit.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "完成條件與可測性",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/sqlitekit.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/sqlitekit.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo/r1-snapshot.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/analyzer/task_store.py",
+   "src/rtb/sqlitekit.py"
+  ],
+  "auditor": "codex"
+ }
+]
