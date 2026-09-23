@@ -3,9 +3,10 @@
 單筆規則只有兩處程式:執行前檢查(看 DSP 現況)與簽發器(看租戶設定)。這裡的護欄表把兩處的
 六條規則與順序寫在一起,當成測試資料跑邊界值;表不是第三套檢查。比例上限是使用者 2026-09-23
 裁定的值:加的量不得超過 max(現況的五成取下限, 1),全域一個值。
-依賴增量 1 的部分(完整性三份清單、舊收件表寫入新代碼)等增量 1 合併後補。
+完整性三份清單與舊收件表寫入新代碼([S404]、[S406])依賴增量 1,增量 1 合併後補上。
 """
 
+import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
@@ -21,7 +22,7 @@ from rtb.domain.proposal import MAX_INT
 from rtb.domain.task_state import TaskState
 from rtb.executor import attempt_store
 from rtb.executor.execution import CampaignView, Result, WriteAnswer, precheck
-from rtb.executor.inbox_store import BlockCode
+from rtb.executor.inbox_store import BlockCode, InboxStore
 from tests.executor.fakes import Harness, proposal, write_config
 
 LATER = "2026-09-22T12:40:00+00:00"
@@ -100,10 +101,12 @@ def _policy_proposal(budget):
     return decision.proposal
 
 
-@pytest.mark.parametrize("budget", [*range(1, 1001), 10**6, 10**9, 2**62, MAX_INT - 1, MAX_INT])
-def test_the_analyzer_policy_never_trips_the_ratio_cap(budget):
-    made = _policy_proposal(budget)
-    assert precheck(made, _view(budget, version=7)) is None
+def test_the_analyzer_policy_never_trips_the_ratio_cap():
+    # 單一測試逐一檢查(不參數化成上千項,全套數字才看得出真實變化);失敗時指出第一個違反的預算
+    budgets = [*range(1, 1001), 10**6, 10**9, 2**62, MAX_INT - 1, MAX_INT]
+    tripped = next((b for b in budgets
+                    if precheck(_policy_proposal(b), _view(b, version=7)) is not None), None)
+    assert tripped is None, f"預算 {tripped} 時分析端的提案被執行前檢查擋下"
 
 
 # ---- S403 ----
@@ -173,14 +176,76 @@ def test_every_guardrail_holds_at_its_boundaries(h, rule, setup, new_budget, exp
         assert h.attempts() == [] and h.dsp.writes == []
 
 
-# ---- S404(表的那一半;三份清單等增量 1 合併後補) ----
+# 三份明列清單:之後誰加新擋下原因都得先決定歸哪一份,忘了就紅
+NON_SINGLE_CODES = (  # 不是單筆規則:鍵已存在的分流、總曝險(增量 1)
+    BlockCode.OPERATION_PREVIOUSLY_FAILED, BlockCode.AGGREGATE_LIMIT_REACHED,
+)
+HISTORICAL_CODES = ()  # 規則已拿掉、只為讀舊資料而留在列舉裡的代碼(回退時比例代碼搬來這裡)
+
+
+# ---- S404 ----
 def test_the_guardrail_table_covers_every_block_code():
+    lists = (set(SINGLE_RULE_CODES), set(NON_SINGLE_CODES), set(HISTORICAL_CODES))
+    assert set().union(*lists) == set(BlockCode)
+    assert all(not (a & b) for i, a in enumerate(lists) for b in lists[i + 1:])  # 兩兩不交集
     assert {row[0] for row in GUARDRAILS} == {code.value for code in SINGLE_RULE_CODES}
     for code in SINGLE_RULE_CODES:
         rows = [row for row in GUARDRAILS if row[0] == code.value]
         assert any(row[3] is code for row in rows), code  # 至少一列擋下
         assert any(row[3] is None for row in rows), code  # 至少一列通過
     assert all(row[3] in (None, BlockCode(row[0])) for row in GUARDRAILS)  # 擋下代碼就是那一列的
+
+
+# ---- S406 ----
+def _increment_1_inbox(db, clock):
+    """用增量 1 版的允許值清單(含總曝險已滿、不含比例上限)建舊收件表,照增量 1 [S338] 的手法;
+    舊列帶著增量 1 的擋下原因,重建時要原樣搬過去(代碼審外家席)。回傳舊列內容。"""
+    old = InboxStore(db)
+    old.accept(proposal(task_id="old"), clock)
+    with old.transaction() as tx:
+        delivery = old.receive(tx, clock(), "worker")
+        assert delivery is not None
+        assert old.ack_blocked(tx, delivery.receipt, clock(), BlockCode.AGGREGATE_LIMIT_REACHED)
+    old.close()
+    conn = sqlite3.connect(db)
+    try:
+        sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'proposals'").fetchone()[0]
+        old_sql = sql.replace(", 'budget_increase_too_large'", "").replace(
+            "'budget_increase_too_large', ", "")
+        assert old_sql != sql and "'aggregate_limit_reached'" in old_sql  # 真的是增量 1 版
+        conn.executescript(f"ALTER TABLE proposals RENAME TO p_old; {old_sql};"  # noqa: S608 - 測試模擬舊表
+                           "INSERT INTO proposals SELECT * FROM p_old; DROP TABLE p_old;")
+        assert conn.execute("SELECT disposition, block_code FROM proposals").fetchall() == [
+            ("blocked", "aggregate_limit_reached")]
+        return conn.execute("SELECT * FROM proposals").fetchall()
+    finally:
+        conn.close()
+
+
+def _block_new_by_ratio(store, clock):
+    store.accept(proposal(task_id="new"), clock)
+    with store.transaction() as tx:
+        delivery = store.receive(tx, clock(), "worker")
+        assert delivery is not None and delivery.message.proposal.task_id == "new"
+        assert store.ack_blocked(tx, delivery.receipt, clock(),
+                                 BlockCode.BUDGET_INCREASE_TOO_LARGE)
+
+
+def test_an_old_inbox_accepts_the_new_block_code_after_opening(tmp_path, clock):
+    db = tmp_path / "executor.db"
+    before = _increment_1_inbox(db, clock)
+
+    store = InboxStore(db)
+    try:
+        old_rows = "SELECT * FROM proposals WHERE task_id = 'old'"
+        assert store._conn.execute(old_rows).fetchall() == before  # 重建後舊列不變
+        _block_new_by_ratio(store, clock)
+        assert store._conn.execute(
+            "SELECT disposition, block_code FROM proposals WHERE task_id = 'new'").fetchall() == [
+            ("blocked", "budget_increase_too_large")]
+        assert store._conn.execute(old_rows).fetchall() == before  # 寫入新代碼之後仍不變
+    finally:
+        store.close()
 
 
 # ---- S405 ----

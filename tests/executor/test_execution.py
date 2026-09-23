@@ -24,6 +24,7 @@ from rtb.executor.execution import (
 from rtb.executor.inbox_store import BlockCode
 from tests.capability_samples import TEST_KEY
 from tests.executor.fakes import Harness, proposal
+from tests.executor.test_guardrails import HISTORICAL_CODES
 
 A = AttemptState
 C = OutcomeCode
@@ -173,9 +174,10 @@ BLOCK_TRIGGERS = {
 }
 
 
-@pytest.mark.parametrize("code", list(BlockCode))
+# 歷史相容代碼(規則已拿掉、只為讀舊資料而留)沒有觸發路徑,不在這張表(Phase 6 增量 2)
+@pytest.mark.parametrize("code", [c for c in BlockCode if c not in HISTORICAL_CODES])
 def test_each_failed_precheck_blocks_the_proposal_without_a_write(h, code):
-    assert set(BLOCK_TRIGGERS) == set(BlockCode)  # 從程式自己的清單列舉,每一種都有觸發條件
+    # 「表的鍵等於整個列舉」由護欄表的三份清單斷言取代(Phase 6 增量 2 [S404]);這張表仍逐一觸發
     if code is not BlockCode.OPERATION_PREVIOUSLY_FAILED:
         h.submit()
     BLOCK_TRIGGERS[code](h)

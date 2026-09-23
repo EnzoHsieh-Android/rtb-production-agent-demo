@@ -1,0 +1,247 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
+index a36a9e5..9580584 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
+@@ -126,21 +126,21 @@ REVISIT:2027-01-31 有真實的政策或模型改版推出流程時,評估要不
+ - [S342] 當總曝險擋下或表滿延後,執行端應在同一個交易裡寫一列停下紀錄(種類、任務、修訂、提案內容雜湊、冪等鍵、租戶、廣告、這筆金額、當時已用額度、當時門檻、是否封頂、時間),同一份提案同一種類只記一列;已用額度超過整數上限時應封頂寫入並標記、不丟例外;這張表只增不改、不被清理。[test:test_every_stop_leaves_one_durable_record_per_proposal]
+ - [S343] 當執行行程資料庫是 Phase 6 之前建的,開啟時應替嘗試紀錄補上租戶與預留金額兩欄、不回填;沒有租戶與金額的舊加預算鍵應以新預算全額算進每一個租戶的額度,已驗證的照驗證完成時間出窗,沒有終點的一直算到結案。[test:test_old_attempts_count_against_every_tenant_until_they_leave_the_window]
+ 
+ ### 回退(增量 1)
+ 
+ - 拿掉開始一筆時的總額檢查與預留欄位寫入,即回到只有單一廣告上限;嘗試紀錄多出的兩欄、新索引與擋下紀錄表留著無害。設定檔多出的欄位,舊版簽發器不讀(照既有解析,多的欄位不影響)。
+ - **擋下原因列舉裡的「總曝險已滿」不能拿掉**(增量 2 設計審第 1 輪指出):收件表已經記著這個值的舊列,重建表時會撞上允許值限制、資料庫開不起來。回退時這個成員留在列舉裡、標成「歷史相容代碼」(沒有觸發路徑),收件口回應的合併清單也照留。
+ 
+ ## 增量 2 設計:護欄表格
+ 
+-- **狀態(2026-09-23):設計審三輪收斂;不依賴增量 1 的部分已實作**(比例上限 [S400]–[S402]、護欄表邊界 [S403]、[S404] 的表那一半、[S405]、[S407]、[S408]、[S409];另一個工作區做)。**剩依賴增量 1 的部分**:[S406] 用增量 1 版列舉建舊庫、[S404] 的三份清單斷言(要列總曝險擋下原因,屆時拿掉既有觸發表「等於整個列舉」那句)。實作時定下的細節:比例上限三個常數放在執行迴圈模組(分子 1、分母 2、最小加額 1);[S408] 另有一支自我驗證,複製一份原始碼放進十六種不小心的寫法,掃描都要抓到(代碼審第 3 輪外家席再補一個洞:從允許的用戶端轉手匯入請求函式再改名;第 1 輪外家席補了兩個洞:沿途各層套件的初始化檔也要收進閉包;網路模組與動態匯入禁令套到整個閉包,擋領域層小函式繞過共用用戶端直接發請求);既有三支測試的資料或列舉跟著改(兩支並行測試的第二份提案從 160 改成 140,落在比例內;擋下原因封閉列舉多一個值)。
++- **狀態(2026-09-23):增量 2 全部實作完成**([S400]–[S409];不依賴增量 1 的部分先做,增量 1 合併後補上 [S406] 與 [S404] 的三份清單斷言,並拿掉既有觸發表「等於整個列舉」那句;另一個工作區做)。補的時候定下:[S406] 的舊列先擋下並記總曝險已滿,重建後與寫入新代碼後都核對它原封不動(只放一筆沒處置的舊列,重建把擋下原因弄丟也照樣綠);既有逐一觸發測試改成排除歷史相容代碼(回退時比例代碼搬進去就沒有觸發路徑)。實作時定下的細節:比例上限三個常數放在執行迴圈模組(分子 1、分母 2、最小加額 1);[S408] 另有一支自我驗證,複製一份原始碼放進十六種不小心的寫法,掃描都要抓到(代碼審第 3 輪外家席再補一個洞:從允許的用戶端轉手匯入請求函式再改名;第 1 輪外家席補了兩個洞:沿途各層套件的初始化檔也要收進閉包;網路模組與動態匯入禁令套到整個閉包,擋領域層小函式繞過共用用戶端直接發請求);既有三支測試的資料或列舉跟著改(兩支並行測試的第二份提案從 160 改成 140,落在比例內;擋下原因封閉列舉多一個值)。
+ 
+ PRIOR-ART(增量 2): 單筆變動比例上限是交易風控的標準「單筆限額」(券商的單筆下單上限、支付的單筆額度),以「現值的百分比」表示、另給一個絕對下限免得小額帳戶動彈不得;規則表加表格驅動測試是決策表測試(decision table testing)的常見做法。本專案的單筆檢查已經分成兩處(執行前檢查看 DSP 現況、簽發器看租戶設定),新規則放進其中一處,不另起第三處。
+ RETIRE-IF(增量 2): 比例上限連續三個月零觸發、而且總曝險預留(增量 1)已經擋住同類事故時,撤掉比例上限;或者 DSP 自己提供單筆變動上限時,改接 DSP 的機制。
+ 
+ - **實作前提:增量 1 已合併**(設計審第 2 輪規則表席:完整性清單要列增量 1 的總曝險擋下原因、[S406] 要用增量 1 版列舉建舊庫,兩者都要增量 1 先在)。
+ 
+ ### 現況(2026-09-23 開檔核對)
+ 
+ - 單筆檢查分兩處,依序跑,第一個不過就擋下、不寫嘗試紀錄、不呼叫 DSP 寫入:
+   - 執行前檢查(執行迴圈模組的 `precheck`,只看提案與 DSP 現況):廣告不存在 → 不在投放 → 版本已變。處理一筆、憑證過期後重讀、對帳查不到而重跑,三處都呼叫這同一支。
+diff --git a/tests/executor/test_execution.py b/tests/executor/test_execution.py
+index ba52f27..2c88cc5 100644
+--- a/tests/executor/test_execution.py
++++ b/tests/executor/test_execution.py
+@@ -17,20 +17,21 @@ from rtb.executor.execution import (
+     RESPONSE_TABLE,
+     CampaignView,
+     ExecutorHalted,
+     Result,
+     WriteAnswer,
+     react,
+ )
+ from rtb.executor.inbox_store import BlockCode
+ from tests.capability_samples import TEST_KEY
+ from tests.executor.fakes import Harness, proposal
++from tests.executor.test_guardrails import HISTORICAL_CODES
+ 
+ A = AttemptState
+ C = OutcomeCode
+ 
+ 
+ @pytest.fixture
+ def h(tmp_path, clock):
+     harness = Harness(tmp_path, clock)
+     yield harness
+     harness.close()
+@@ -166,23 +167,24 @@ BLOCK_TRIGGERS = {
+     BlockCode.VERSION_CHANGED: _version_changed,
+     BlockCode.CAMPAIGN_NOT_ALLOWED: _not_allowed,
+     BlockCode.OVER_BUDGET_CAP: _over_cap,
+     # 下面「等於整個列舉」的斷言之後由護欄表三份清單取代(Phase 6 增量 2)
+     BlockCode.BUDGET_INCREASE_TOO_LARGE: _over_ratio,
+     BlockCode.OPERATION_PREVIOUSLY_FAILED: _previously_failed,
+     BlockCode.AGGREGATE_LIMIT_REACHED: _aggregate_full,  # Phase 6:開始一筆時擋,不是執行前檢查
+ }
+ 
+ 
+-@pytest.mark.parametrize("code", list(BlockCode))
++# 歷史相容代碼(規則已拿掉、只為讀舊資料而留)沒有觸發路徑,不在這張表(Phase 6 增量 2)
++@pytest.mark.parametrize("code", [c for c in BlockCode if c not in HISTORICAL_CODES])
+ def test_each_failed_precheck_blocks_the_proposal_without_a_write(h, code):
+-    assert set(BLOCK_TRIGGERS) == set(BlockCode)  # 從程式自己的清單列舉,每一種都有觸發條件
++    # 「表的鍵等於整個列舉」由護欄表的三份清單斷言取代(Phase 6 增量 2 [S404]);這張表仍逐一觸發
+     if code is not BlockCode.OPERATION_PREVIOUSLY_FAILED:
+         h.submit()
+     BLOCK_TRIGGERS[code](h)
+     attempts_before, writes_before = h.attempts(), len(h.dsp.writes)
+ 
+     result = h.process()
+ 
+     if code is BlockCode.OPERATION_PREVIOUSLY_FAILED:  # 取件時讀到既有失敗:直接確認,不交出去
+         assert result.kind is Result.IDLE
+     else:
+diff --git a/tests/executor/test_guardrails.py b/tests/executor/test_guardrails.py
+index ba4dc50..0bb6959 100644
+--- a/tests/executor/test_guardrails.py
++++ b/tests/executor/test_guardrails.py
+@@ -1,34 +1,35 @@
+ """護欄表格:Phase 6 增量 2 的 S400 到 S405、S409。
+ 
+ 單筆規則只有兩處程式:執行前檢查(看 DSP 現況)與簽發器(看租戶設定)。這裡的護欄表把兩處的
+ 六條規則與順序寫在一起,當成測試資料跑邊界值;表不是第三套檢查。比例上限是使用者 2026-09-23
+ 裁定的值:加的量不得超過 max(現況的五成取下限, 1),全域一個值。
+-依賴增量 1 的部分(完整性三份清單、舊收件表寫入新代碼)等增量 1 合併後補。
++完整性三份清單與舊收件表寫入新代碼([S404]、[S406])依賴增量 1,增量 1 合併後補上。
+ """
+ 
++import sqlite3
+ from dataclasses import replace
+ from datetime import UTC, datetime, timedelta
+ from types import MappingProxyType
+ 
+ import pytest
+ 
+ from rtb.analyzer import policy
+ from rtb.analyzer.task_store import TaskRow
+ from rtb.domain.attempt import AttemptState as A
+ from rtb.domain.attempt import operation_key
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
+ from rtb.domain.proposal import MAX_INT
+ from rtb.domain.task_state import TaskState
+ from rtb.executor import attempt_store
+ from rtb.executor.execution import CampaignView, Result, WriteAnswer, precheck
+-from rtb.executor.inbox_store import BlockCode
++from rtb.executor.inbox_store import BlockCode, InboxStore
+ from tests.executor.fakes import Harness, proposal, write_config
+ 
+ LATER = "2026-09-22T12:40:00+00:00"
+ 
+ 
+ @pytest.fixture
+ def h(tmp_path, clock):
+     harness = Harness(tmp_path, clock)
+     yield harness
+     harness.close()
+@@ -93,24 +94,26 @@ def _policy_proposal(budget):
+             ("state", EvidenceKind.CAMPAIGN_STATE, 7,
+              {"id": "c1", "budget": budget, "status": "active", "version": 7}),
+             ("metrics", EvidenceKind.METRICS, None,
+              {"campaign_id": "c1", "window": "1h", "impressions": 500, "clicks": 12,
+               "conversions": 1, "spend": 0.0, "revenue": 5.0}),
+         ))
+     decision = policy.decide(task, evidence, _NOW)
+     return decision.proposal
+ 
+ 
+-@pytest.mark.parametrize("budget", [*range(1, 1001), 10**6, 10**9, 2**62, MAX_INT - 1, MAX_INT])
+-def test_the_analyzer_policy_never_trips_the_ratio_cap(budget):
+-    made = _policy_proposal(budget)
+-    assert precheck(made, _view(budget, version=7)) is None
++def test_the_analyzer_policy_never_trips_the_ratio_cap():
++    # 單一測試逐一檢查(不參數化成上千項,全套數字才看得出真實變化);失敗時指出第一個違反的預算
++    budgets = [*range(1, 1001), 10**6, 10**9, 2**62, MAX_INT - 1, MAX_INT]
++    tripped = next((b for b in budgets
++                    if precheck(_policy_proposal(b), _view(b, version=7)) is not None), None)
++    assert tripped is None, f"預算 {tripped} 時分析端的提案被執行前檢查擋下"
+ 
+ 
+ # ---- S403 ----
+ def _campaign(budget=100, version=3, status="active"):
+     return lambda h: h.dsp.campaigns.__setitem__("c1", _view(budget, version, status))
+ 
+ 
+ def _tenant(**kwargs):
+     return lambda h: write_config(h.config, **kwargs)
+ 
+@@ -166,30 +169,92 @@ def test_every_guardrail_holds_at_its_boundaries(h, rule, setup, new_budget, exp
+     result = _run(h, setup, new_budget)
+ 
+     if expected is None:
+         assert result.kind is Result.EXECUTED, rule
+         assert len(h.dsp.writes) == 1
+     else:
+         assert (result.kind, result.block_code) == (Result.BLOCKED, expected), rule
+         assert h.attempts() == [] and h.dsp.writes == []
+ 
+ 
+-# ---- S404(表的那一半;三份清單等增量 1 合併後補) ----
++# 三份明列清單:之後誰加新擋下原因都得先決定歸哪一份,忘了就紅
++NON_SINGLE_CODES = (  # 不是單筆規則:鍵已存在的分流、總曝險(增量 1)
++    BlockCode.OPERATION_PREVIOUSLY_FAILED, BlockCode.AGGREGATE_LIMIT_REACHED,
++)
++HISTORICAL_CODES = ()  # 規則已拿掉、只為讀舊資料而留在列舉裡的代碼(回退時比例代碼搬來這裡)
++
++
++# ---- S404 ----
+ def test_the_guardrail_table_covers_every_block_code():
++    lists = (set(SINGLE_RULE_CODES), set(NON_SINGLE_CODES), set(HISTORICAL_CODES))
++    assert set().union(*lists) == set(BlockCode)
++    assert all(not (a & b) for i, a in enumerate(lists) for b in lists[i + 1:])  # 兩兩不交集
+     assert {row[0] for row in GUARDRAILS} == {code.value for code in SINGLE_RULE_CODES}
+     for code in SINGLE_RULE_CODES:
+         rows = [row for row in GUARDRAILS if row[0] == code.value]
+         assert any(row[3] is code for row in rows), code  # 至少一列擋下
+         assert any(row[3] is None for row in rows), code  # 至少一列通過
+     assert all(row[3] in (None, BlockCode(row[0])) for row in GUARDRAILS)  # 擋下代碼就是那一列的
+ 
+ 
++# ---- S406 ----
++def _increment_1_inbox(db, clock):
++    """用增量 1 版的允許值清單(含總曝險已滿、不含比例上限)建舊收件表,照增量 1 [S338] 的手法;
++    舊列帶著增量 1 的擋下原因,重建時要原樣搬過去(代碼審外家席)。回傳舊列內容。"""
++    old = InboxStore(db)
++    old.accept(proposal(task_id="old"), clock)
++    with old.transaction() as tx:
++        delivery = old.receive(tx, clock(), "worker")
++        assert delivery is not None
++        assert old.ack_blocked(tx, delivery.receipt, clock(), BlockCode.AGGREGATE_LIMIT_REACHED)
++    old.close()
++    conn = sqlite3.connect(db)
++    try:
++        sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'proposals'").fetchone()[0]
++        old_sql = sql.replace(", 'budget_increase_too_large'", "").replace(
++            "'budget_increase_too_large', ", "")
++        assert old_sql != sql and "'aggregate_limit_reached'" in old_sql  # 真的是增量 1 版
++        conn.executescript(f"ALTER TABLE proposals RENAME TO p_old; {old_sql};"  # noqa: S608 - 測試模擬舊表
++                           "INSERT INTO proposals SELECT * FROM p_old; DROP TABLE p_old;")
++        assert conn.execute("SELECT disposition, block_code FROM proposals").fetchall() == [
++            ("blocked", "aggregate_limit_reached")]
++        return conn.execute("SELECT * FROM proposals").fetchall()
++    finally:
++        conn.close()
++
++
++def _block_new_by_ratio(store, clock):
++    store.accept(proposal(task_id="new"), clock)
++    with store.transaction() as tx:
++        delivery = store.receive(tx, clock(), "worker")
++        assert delivery is not None and delivery.message.proposal.task_id == "new"
++        assert store.ack_blocked(tx, delivery.receipt, clock(),
++                                 BlockCode.BUDGET_INCREASE_TOO_LARGE)
++
++
++def test_an_old_inbox_accepts_the_new_block_code_after_opening(tmp_path, clock):
++    db = tmp_path / "executor.db"
++    before = _increment_1_inbox(db, clock)
++
++    store = InboxStore(db)
++    try:
++        old_rows = "SELECT * FROM proposals WHERE task_id = 'old'"
++        assert store._conn.execute(old_rows).fetchall() == before  # 重建後舊列不變
++        _block_new_by_ratio(store, clock)
++        assert store._conn.execute(
++            "SELECT disposition, block_code FROM proposals WHERE task_id = 'new'").fetchall() == [
++            ("blocked", "budget_increase_too_large")]
++        assert store._conn.execute(old_rows).fetchall() == before  # 寫入新代碼之後仍不變
++    finally:
++        store.close()
++
++
+ # ---- S405 ----
+ @pytest.mark.parametrize(("setups", "new_budget", "expected"), [
+     ((_campaign(status="paused"),), 151, BlockCode.CAMPAIGN_NOT_ACTIVE),  # 不在投放 > 比例
+     ((_campaign(status="paused", version=4),), 150, BlockCode.CAMPAIGN_NOT_ACTIVE),  # > 版本已變
+     ((_campaign(version=4),), 151, BlockCode.VERSION_CHANGED),  # 版本已變 > 比例
+     ((_tenant(campaigns=("c2",)),), 151, BlockCode.BUDGET_INCREASE_TOO_LARGE),  # 比例 > 租戶
+     ((_tenant(campaigns=("c2",), max_budget=120),), 150, BlockCode.CAMPAIGN_NOT_ALLOWED),
+ ])
+ def test_the_first_failing_guardrail_wins(h, setups, new_budget, expected):
+     h.submit(requested_change={"new_budget": new_budget})
