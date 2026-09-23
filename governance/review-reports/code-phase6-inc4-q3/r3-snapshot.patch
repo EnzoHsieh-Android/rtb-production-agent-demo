@@ -1,0 +1,239 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
+index 0acd804..e636a97 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
+@@ -338,21 +338,21 @@ RETIRE-IF(增量 2): 比例上限連續三個月零觸發、而且總曝險預
+ - [S377] 當結果不明的鍵要同鍵重送,重送應重判比例:比例超過而沒有有效核可、或這把鍵當初用過的核可已過期時,應先作廢再判失敗、不重送;核可仍有效時照常重送,憑證封頂在核可到期。[test:test_a_resend_rechecks_the_ratio_and_the_approval_it_used]
+ - [S378] 當簽發器簽發,回傳應帶同一次讀檔得到的整個租戶物件;執行迴圈的總額上限、租戶名稱與範圍指紋都從這一個物件取。[test:test_the_grant_carries_one_tenant_snapshot]
+ - [S379] 當管理工具與執行迴圈對同一份提案、同一份設定檔算範圍指紋,兩邊應得到同一個值;比例常數或租戶任一欄改變時兩邊一起變。[test:test_admin_and_executor_agree_on_the_scope_fingerprint]
+ 
+ ### 回退(增量 3)
+ 
+ - 拿掉待核可分流與處理待核可那一步,即回到增量 1、2 的「擋下結案」;處置列舉的「待核可」成員與停下紀錄的「比例過大」種類不能拿掉(舊列記著它們,重建會撞限制),留成歷史相容值;核可表與核可使用表留著無害。回退前要先把還在待核可的提案轉成已擋下(撥時鐘不行,要用處理待核可那一步或手動確認)。
+ 
+ ## 增量 4 設計:可觀測
+ 
+-- **查詢三(2026-09-23,增量 3 合進 main 之後補,分支 phase6-inc4-q3)**:[S362] 已實作。偏離設計一處:查詢三不放增量 3 的核可模組,跟另外四支一樣放 [[Systems/可觀測查詢]],資料由收件口模組兩個只讀方法提供(先報主線同意位置)。只用核可使用表的租戶、任務、修訂、內容雜湊與關卡;核可表不讀,所以核可編號重複寫好幾列不影響。回傳待核可數、其中接不到停下紀錄的份數、已核可放行數。代碼審第 1 輪折入(8 席):已核可放行數依廣告篩改看這份提案第一列嘗試的廣告、不接停下紀錄——原本接停下紀錄會漏掉「核可先簽好就放行、沒有停下紀錄」的列,等待期間換了租戶時還會接上舊租戶那列(正確性席、外家兩席;外家認為換租戶時該回 0,不採:放行記的是新租戶、廣告仍是這份提案的廣告,只比對租戶的話這筆放行在任何依廣告篩的查詢裡都會消失,主線同意);核可使用表加「租戶、時間」與「時間」兩個索引(資安席:只依租戶或時間篩時握著寫入鎖掃全表),[S369] 一併釘住;測試跟模組放在可觀測查詢的測試檔,不放核可測試檔(規格席,改 [S362] 文字)。例:提案停在總曝險已滿、比例那一關核可先簽好,兩關都放行 → 依它的廣告篩,已核可放行數是 2 不是 1。
++- **查詢三(2026-09-23,增量 3 合進 main 之後補,分支 phase6-inc4-q3)**:[S362] 已實作。偏離設計一處:查詢三不放增量 3 的核可模組,跟另外四支一樣放 [[Systems/可觀測查詢]],資料由收件口模組兩個只讀方法提供(先報主線同意位置)。用核可使用表的租戶、任務、修訂、操作鍵與時間;核可表不讀,所以核可編號重複寫好幾列不影響。回傳待核可數、其中接不到停下紀錄的份數、已核可放行數。代碼審第 1 輪折入(8 席):已核可放行數依廣告篩改看這份提案第一列嘗試的廣告、不接停下紀錄——原本接停下紀錄會漏掉「核可先簽好就放行、沒有停下紀錄」的列,等待期間換了租戶時還會接上舊租戶那列(正確性席、外家兩席;外家認為換租戶時該回 0,不採:放行記的是新租戶、廣告仍是這份提案的廣告,只比對租戶的話這筆放行在任何依廣告篩的查詢裡都會消失,主線同意);核可使用表加「租戶、時間」與「時間」兩個索引(資安席:只依租戶或時間篩時握著寫入鎖掃全表),[S369] 一併釘住;測試跟模組放在可觀測查詢的測試檔,不放核可測試檔(規格席,改 [S362] 文字)。例:提案停在總曝險已滿、比例那一關核可先簽好,兩關都放行 → 依它的廣告篩,已核可放行數是 2 不是 1。代碼審第 2 輪折入(4 席):依廣告篩改用核可使用表的操作鍵接回開始那一列,多用操作鍵這一欄(主線核准;原本限定四欄是因為增量 3 那時設計還在變,操作鍵由增量 3 開始一筆時寫入、已穩定)——只比任務與修訂時,收件表清掉已結案任務後同一組任務與修訂再來一份內容不同的提案,舊內容的第一列還在,一筆放行會同時算進新舊兩個廣告(外家席);寫成連接而不是子查詢,只依廣告篩才不整張掃核可使用表,[S369] 的測試同時斷言外層沒有全表掃描(外家席、資安席:只看索引名會假綠,子查詢用上索引、外層照樣掃)。例:任務 a4 修訂 1 先以廣告 c10 開始、後來內容不同的同號提案以 c11 開始並用了核可 → c10 是 0、c11 是 1。
+ - **狀態(2026-09-23):設計審三輪收斂;查詢三以外已實作**(S360、S361、S363–S369、S380,分支 phase6-inc4;查詢三與 [S362] 等增量 3 合進 main 後補)。實作偏離設計一處(主線同意):查詢一、二、五不放收件口模組,四支查詢放一支新模組 [[Systems/可觀測查詢]]——增量 3 同時在大改收件口模組與執行迴圈,也讓依賴方向只有「新模組 → 嘗試紀錄模組」。收件口模組只動兩處:停下紀錄三個索引、補欄位流程的判斷與建索引(先報主線核准)。實作時抓到的一處:查詢計畫測試只看「有沒有用索引」會假綠(停下紀錄表的唯一限制以種類開頭),改成斷言用到指定的索引名。
+ 
+ PRIOR-ART(增量 4): 最小指標沿用 Phase 5 的做法——執行側的嘗試紀錄模組有 `version_conflict_count`(收交易、可依廣告篩、回一個整數),分析側的任務表模組有 `replan_counts`(回一個小型具名結果);資料一律從既有的耐久紀錄讀,不另存計數器。業界對應是「從事件紀錄算指標」(event-sourced metrics),計數器另存會跟紀錄對不上。
+ RETIRE-IF(增量 4): 換成外部的監控系統(Phase 9 的告警或儀表板)直接讀停下紀錄表與嘗試紀錄時,這幾支查詢改成那邊的查詢定義、撤掉這裡的函式;或者連續三個月沒有任何呼叫端(只有測試在用)時撤掉。
+ 
+ ### 要回答的問題(完成條件逐項對)
+ 
+ - 交接文件完成條件「總曝險擋下、人工審核與額度使用率可觀測」:
+   - 總曝險擋下 → 查詢一(總曝險停下次數)。
+   - 人工審核 → 查詢三(待核可數與已核可放行數)。
+@@ -370,21 +370,21 @@ RETIRE-IF(增量 4): 換成外部的監控系統(Phase 9 的告警或儀表板)
+ - 增量 3(設計第 1 版,還沒實作):新處置「待核可」;可核可的擋法(總曝險已滿、比例過大)進待核可時「照增量 1 寫一列停下紀錄」;核可生效時寫一列核可稽核。主線已說第 2 版會:停下紀錄加「比例過大」種類、核可使用表帶租戶欄,並改成執行迴圈每輪多一步專門處理待核可(2026-09-23 主線轉達,第 2 版推上來再對齊)。
+ 
+ ### 最小設計
+ 
+ 每支都是模組層函式、收交易、只讀不寫。放在**被讀的那張表所屬的模組**;跨兩張表的放在已經依賴另一邊的那個模組(收件口模組本來就依賴嘗試紀錄模組,反過來沒有),不新增反向依賴(設計審第 1 輪架構席)。時間範圍一律「包含起點、不包含終點」,比對的是寫入時的時間字串(兩邊的時間都用同一個函式寫成同一種格式,字串比較就是時間比較)。
+ 
+ - **查詢一 總曝險停下次數**(收件口模組):停下紀錄表裡種類是總曝險已滿的列數,可依租戶、廣告篩,可給時間範圍。這是「被停下的次數」;增量 3 之後其中有些會被核可放行,最後結果看查詢三與查詢五。
+ - **查詢二 表滿延後次數**(收件口模組):同一張表種類是表滿延後的列數,篩法同上。同一份提案同一種類只記一列,**數的是「被延後過的提案份數」,不是延後事件次數**。
+ - **查詢三 人工核可**(隨增量 3 實作交付,放在增量 3 的核可模組;這個增量只定介面與語意):回一個小型具名結果——
+   - 待核可數:收件表目前處置是待核可的份數(當下快照,不吃時間範圍)。依租戶、廣告篩時,用任務、修訂、內容雜湊接停下紀錄:同一份提案同一種類只有一列,而且同一份提案的租戶與廣告在每一列都一樣,所以按提案去重後計;接不到停下紀錄的待核可提案只算進不篩的總數、篩選時不算(寫進回傳結果的「未知租戶份數」,不悄悄丟掉;設計審第 1 輪資料席)。
+-  - 已核可放行數:核可使用表的列數,可給時間範圍與租戶篩;依廣告篩時用核可使用表的任務、修訂、內容雜湊接停下紀錄取廣告。只綁核可使用表的「租戶、任務、修訂、內容雜湊」四欄,其他欄位不假設(增量 3 設計審還在跑,欄位可能微調;主線 2026-09-23 提醒)。
++  - 已核可放行數:核可使用表的列數,可給時間範圍與租戶篩;依廣告篩時用核可使用表的任務、修訂、內容雜湊接停下紀錄取廣告。只綁核可使用表的「租戶、任務、修訂、內容雜湊」四欄,其他欄位不假設(增量 3 設計審還在跑,欄位可能微調;主線 2026-09-23 提醒)。(實作時改了:依廣告篩改用操作鍵接回開始那一列、不接停下紀錄,多用操作鍵一欄,見上方查詢三狀態行。)
+ - **查詢四 額度使用率**(嘗試紀錄模組):回已用、門檻、剩餘三個整數,剩餘是門檻減已用、小於 0 算 0。已用直接用 `aggregate_used`(開始一筆時也照舊呼叫這個入口:既有並行測試靠攔截它來造競態,拆出來的清單函式只在它內部與查詢五用,不取代它;設計審第 2 輪相依席)。**門檻由呼叫端傳進來**:嘗試紀錄模組不讀租戶設定檔,呼叫端用簽發模組既有的 `load_tenants` 取得(那裡帶著設定檔的安全檢查,不另寫一份讀法;設計審第 1 輪架構席)。額度本身是 24 小時滾動窗口,不吃時間範圍、不依廣告篩(額度是租戶層級)。「現在」由呼叫端傳進來(跟 `aggregate_used` 一樣),不自己讀時鐘。回整數不回比例,比例由呼叫端算;另回一個「這個租戶准不准加預算」的旗標(門檻大於 0 才准):設定檔缺門檻時解析成 0,是合法設定,這時比例沒有定義,呼叫端看旗標、不要去除以 0(設計審第 3 輪外家席)。
+ - **查詢五 總曝險稽核明細**(收件口模組,使用者 2026-09-23 裁定加):輸入租戶、門檻(呼叫端照查詢四的做法用 `load_tenants` 取得後傳入;設計審第 2 輪外家席)、「現在」與時間範圍(一定要給,不給就拒絕)。四樣輸出全部用傳入的同一個「現在」算,不自己讀時鐘;呼叫端要跟查詢四對帳時傳同一個「現在」(設計審第 3 輪外家席:各自讀時鐘的話,剛好在窗口邊界的那一筆會一邊算、一邊不算)。先分清兩件事(第 2 輪外家席、稽核席):
+   - **逐列計入規則**:一筆寫入算不算這個租戶、算多少——跟 `aggregate_used` 共用同一支判斷(`_counted`):有租戶的列看租戶與預留金額(減預算、暫停的預留是 0,不算);Phase 6 之前沒有租戶的舊列,改預算以新預算全額計、**算進每一個租戶**(舊資料分不出加減,舊的減預算也照新預算全額計;寧可多擋的既有規則)。
+   - **目前是否計入**:這筆現在在不在已用額度裡——已驗證而且驗證時間在 24 小時窗口內、或還沒結案,才算;失敗或已出窗口的不算。
+   回四樣東西,每一列都帶冪等鍵、任務、修訂,讓同一份提案的停下與後來的放行對得起來:
+   - 被停下的:停下紀錄表這個租戶、種類是總曝險已滿、時間在範圍內的每一列(冪等鍵、任務、修訂、內容雜湊、廣告、金額、當時已用、當時門檻、時間),依時間排序。表滿延後不是阻擋,不列;增量 3 之後的比例過大也不是總曝險,不列。
+   - 通過的:第一列開始時間在範圍內、照逐列計入規則金額大於 0 的每一把鍵(冪等鍵、任務、修訂、廣告、計入金額、開始時間、目前狀態、目前是否計入、是不是舊列),依時間排序。**不看 24 小時窗口**:已出窗口、歷史上確實通過的也列,「目前是否計入」標明它現在還佔不佔額度。舊列因為算進每一個租戶,每個租戶的清單都會列出它、並標明是舊列(這是既有額度規則的直接結果,不是別的租戶的寫入混進來)。
+   - 目前佔額度的:不分時間範圍(不吃呼叫端給的範圍),現在構成已用額度的每一把鍵(同上的欄位),加總剛好等於查詢四的已用。做法是把 `aggregate_used` 內部拆成「列出目前計入的每一筆」與「加總」,已用就是那份清單的加總。
+   - 剩餘額度:用傳入的門檻與上面的已用算,規則同查詢四;過去某一刻的剩餘由那時的停下紀錄帶的已用與門檻說明。
+   - 「目前狀態」要另外查每把鍵的最新一列(既有額度查詢只讀第一列與終點條件,拿不到最新狀態;第 2 輪稽核席)。
+@@ -434,21 +434,21 @@ RETIRE-IF(增量 4): 換成外部的監控系統(Phase 9 的告警或儀表板)
+ 
+ - r1(2026-09-23,7 席:語意與完成條件、資料來源與篩選、效能索引與鎖、相依與相容、可測性、架構對齊、外家 Codex):席位報 17 條,合併重複後約 12 件事(按處置分組),全數折入(blocking 7 件),沒有駁回。重點:查詢五的「通過」改用已用額度同一條計入規則(減預算、暫停不列,舊列要列),另加「目前佔額度的」清單、加總剛好等於已用;停下與通過兩組都帶冪等鍵與任務修訂,核可放行後對得起來;停下清單只列總曝險;查詢五移到收件口模組、查詢四的門檻由呼叫端傳入,不新增反向依賴也不另讀設定檔;停下紀錄三個索引加嘗試紀錄一個部分索引,[S369] 釘住查詢計畫;[S362] 隨增量 3 交付。例:同一租戶一筆加 100、一筆減 50、一筆暫停、一筆 Phase 6 之前改成 30 的舊列 → 通過清單列加 100 與舊列 30、不列減與暫停,「目前佔額度的」加總 130 等於已用 130。指標:governance/review-reports/rtb-phase6權限護欄與總曝險-增量4/。
+ 
+ - r2(2026-09-23,7 席:前輪修正驗收、稽核對帳、索引與查詢計畫、模組邊界相依、可測性、架構對齊、外家 Codex):席位報 12 條,合併重複後 10 件事全數折入(blocking 5 件),沒有駁回;另折入一條主線提醒(嘗試紀錄按租戶的索引要在補完欄位後才建,新增 [S380])。重點:分開「逐列計入規則」與「目前是否計入」,通過清單不看 24 小時窗口;舊列照既有規則出現在每個租戶並標明,舊的減預算以新預算全額列;查詢五也收傳入的門檻;開始一筆照舊呼叫 `aggregate_used`;沿用它的那段會掃全表,寫明不在 [S369];[S368] 對照情境直接算出的數字。例:加 100、舊改成 30、舊從 900 減到 500 → 目前佔額度 630,舊的兩筆標明是舊列。
+ 
+ - r3(2026-09-23,7 席,末輪只掃會擋的問題與前輪驗收):席位報 3 條(blocking 3 件)全數折入;修正驗收、稽核語意、相依、可測性、架構五席 clean。另折入主線的合約改號:原本的 S370 跟增量 3 撞號,改成 [S380]。重點:查詢四多回「准不准加預算」旗標,門檻 0 時不除以 0;查詢四、五都收傳入的「現在」,查詢五四樣輸出同一時刻算;補欄位流程進交易的條件加上「按租戶的索引不存在」,增量 1 開過的資料庫才補得到,[S380] 涵蓋兩種舊庫。例:門檻 0、舊列佔 500 → 已用 500、剩餘 0、不准加預算。第 3 輪是上限,這輪的修正沒有再經一輪審查。
+ 
+ ### 使用者裁定與相依(增量 4)
+ 
+ - 使用者 2026-09-23 裁定:加查詢五(總曝險稽核明細),設計同意送設計審。
+-- 相依增量 3 第 2 版(主線已答應折入):停下紀錄加「比例過大」種類、核可使用表帶租戶欄;另外請核可使用表帶任務、修訂、內容雜湊,查詢三才能接停下紀錄依廣告篩(設計審第 1 輪相依席;主線已在第 2 版帶上這四欄)。查詢三只綁「租戶、任務、修訂、內容雜湊」四欄。查詢三的細節等第 2 版推上來再對齊,並隨增量 3 實作交付。
++- 相依增量 3 第 2 版(主線已答應折入):停下紀錄加「比例過大」種類、核可使用表帶租戶欄;另外請核可使用表帶任務、修訂、內容雜湊,查詢三才能接停下紀錄依廣告篩(設計審第 1 輪相依席;主線已在第 2 版帶上這四欄)。查詢三只綁「租戶、任務、修訂、內容雜湊」四欄(實作時多用操作鍵一欄,主線核准,見查詢三狀態行)。查詢三的細節等第 2 版推上來再對齊,並隨增量 3 實作交付。
+ 
+ ## 實務隱患
+ 
+ - 未排除:金流:總曝險門檻就是在管錢,門檻設錯或預留漏算都直接影響花費。
+ - 未排除:對外送出:擋下的提案不會送 DSP;放行的照舊送。
+ - 未排除:不可逆:已寫進 DSP 的加預算收不回來,只能靠預留在寫之前擋。
+ - 未排除:守衛面:總曝險預留、護欄表格與人工核可都是守衛,改壞會放行不該放行的寫入。
+ - 未排除:(增量 3)核可金鑰執行端也讀得到:核可是用對稱簽章,執行端驗證要同一把金鑰,所以執行端也能自己簽核可;照「防忘記不防繞過」,防的是分析行程與一般流程誤用,不防有權限的人繞過。
+ REVISIT:2027-03-31 要防執行端自簽時,改成非對稱簽章(管理工具持私鑰、執行端只持公鑰)。
+ - 未排除:(增量 3)政策版本跟著部署走:目前政策版本是分析端與執行端共用的程式常數,不用人同步;但兩個行程是分開啟動的,只重啟分析端、執行端還跑舊版時,執行端仍以舊版本為準,舊版的提案與核可照樣有效,直到執行端也重啟。守法:改政策版本的那次部署兩個行程一起重啟(啟動說明寫明)。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+index f6aacce..973c654 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+@@ -77,21 +77,21 @@ REVISIT:2026-10-20 Phase 4 當機恢復測試時補上殺行程的版本。
+ - RULE: 延長租約、確認與嘗試寫入一律帶收據做條件寫入:處置是處理中、租約序號與擁有者相符、租約還沒到期,任何一項不符就更新 0 列。[since:2026-09-23] [retire:換成外部佇列軟體、由它負責租約時] 防回歸:[test:test_a_stale_or_expired_receipt_can_write_nothing]。
+ - RULE: 死信只打沒有任何嘗試紀錄的提案(結果不明的操作不計入重試上限、不得直接進死信,照 [[Projects/RTB_Agent_Phase0架構]] 的裁定)。[since:2026-09-23] [retire:同上] 防回歸:[test:test_an_unresolved_attempt_is_never_redelivered_or_dead_lettered]。
+ - PITFALL: 處置欄位的資料庫層限制(CHECK)加欄位改不了,要照 SQLite 官方步驟重建表;偵測時不能只看缺欄位,要看限制本身是不是舊的。防回歸:[test:test_an_old_inbox_database_migrates_to_four_dispositions_without_losing_data]。
+ - PITFALL: 同一個時間收到的提案依任務編號排序,測試要驗「先收到的先取」就得讓時鐘在兩次送件之間往前走,否則會被任務編號的字母順序蓋掉而假綠。出處:增量 1 實作時的變異檢查。
+ 
+ ## 總曝險已滿與停下紀錄表(Phase 6 增量 1,2026-09-23)
+ 
+ - 擋下原因多一個「總曝險已滿」;回給分析行程時併進「不允許」(比照權限類合併:分析行程不該能用重送試出剩餘額度)。
+ - 收件表要不要重建,改成逐一比對目前列舉的每一個處置與擋下原因是否都在資料庫層允許值清單裡;原本只看死信一個值,下次再加成員就看不出來(Phase 6 兩個增量的設計審各自指出)。列舉成員用過就不能拿掉:舊列記著它,重建時會撞允許值限制。
+ - 停下紀錄表由這個模組建表,記總曝險擋下與表滿延後;已用額度與門檻寫入時封頂在整數上限並標記,不然舊資料保守加總超過範圍會讓擋下交易整個回滾。
+-- 查詢三的兩個只讀方法 `awaiting_count`、`approval_use_count`(Phase 6 增量 4,增量 3 合進後補):待核可依租戶、廣告篩時用任務、修訂、內容雜湊加「停在哪一關」接停下紀錄(同一份提案同一種類只一列,不會重複數),接不到的另外回報;已核可放行數只讀核可使用表的租戶、任務、修訂與時間,不讀核可表(核可編號在核可表不唯一);依廣告篩時看這份提案第一列嘗試的廣告、不接停下紀錄(核可先簽好就放行時沒有停下紀錄,等待期間換租戶時停下紀錄留舊租戶;代碼審第 1 輪)。核可使用表有「租戶、時間」「時間」兩個索引,建表語句裡就建(兩欄建表時就有)。防回歸:[test:test_approval_counts_cover_waiting_and_applied]。
++- 查詢三的兩個只讀方法 `awaiting_count`、`approval_use_count`(Phase 6 增量 4,增量 3 合進後補):待核可依租戶、廣告篩時用任務、修訂、內容雜湊加「停在哪一關」接停下紀錄(同一份提案同一種類只一列,不會重複數),接不到的另外回報;已核可放行數只讀核可使用表的租戶、任務、修訂、操作鍵與時間,不讀核可表(核可編號在核可表不唯一);依廣告篩時用操作鍵接回這筆放行開始的那一列取廣告、不接停下紀錄(核可先簽好就放行時沒有停下紀錄,等待期間換租戶時停下紀錄留舊租戶;代碼審第 1 輪)。一定要比操作鍵:同一組任務與修訂可能在收件表清掉後再來一份內容不同的提案,舊內容的第一列還在(代碼審第 2 輪)。寫成連接不寫子查詢,只依廣告篩時才從第一列按廣告的索引出發、不整張掃核可使用表。核可使用表有「租戶、時間」「時間」兩個索引,建表語句裡就建(兩欄建表時就有)。防回歸:[test:test_approval_counts_cover_waiting_and_applied]。
+ - 停下紀錄表有兩個只讀方法 `stop_count`、`stops`(Phase 6 增量 4),給 [[Systems/可觀測查詢]] 用,開頭一樣先核對交易是這個收件表開的;別的模組不直接下 SQL 讀這張表(代碼審第 1 輪架構席)。停下紀錄表有三個索引(租戶/種類/時間、廣告/種類/時間、種類/時間,Phase 6 增量 4);參照的欄位建表時就有,放在建表語句裡。補欄位流程進交易的條件多一項「嘗試紀錄按租戶的索引不存在」,補完欄位後建它(那個索引參照後補的租戶欄,見 [[Systems/外部寫入嘗試紀錄]])。
+ 
+ ## 待核可處置與核可表(Phase 6 增量 3,2026-09-23)
+ 
+ - 處置多一個「待核可」:被總曝險已滿或比例過大擋下、還沒有有效核可的提案,擋下原因欄記是哪一關。跟處理中一樣是暫時狀態:「任務還沒結束」的共用條件擴成待處理、處理中或待核可,保留期不清它;取件條件不變,取件撿不到它。收件口回應讀擋下原因時已經只在已擋下才取,所以待核可回「待核可」、原因為空,收件口不用改。
+ - 待核可不佔待處理名額(跟處理中一樣是暫時狀態;佔了的話 8 份等人的提案就卡住整條流程),總量受全表列數上限,跟改版前「擋下結案的列留到保留期」同一個上限;每輪只讀有事可做的待核可(代碼審第 3 輪資安席)。
+ - 待核可的三種轉換(到期確認成已擋下、被更新修訂取代、放回待處理並把投遞次數歸零)由執行迴圈的處理待核可那一步呼叫;寫入條件都是「這一列仍是待核可」。這個模組只收、去重、記帳,不驗核可。
+ - 核可表與核可使用表在這裡建(只增不改);每次下達都寫一列、核可編號不設唯一,同一秒同樣參數重跑管理工具簽出的一模一樣那張照樣成為最新(依序簽 A、B、再簽 A,最新是 A;代碼審第 2 輪)。同一份提案同一關的「最新」照核可表的自動遞增列號,不照簽發時間(時間相同會並列)。核可使用紀錄同一份提案同一關只記一列,數字比照停下紀錄封頂並標記。停下紀錄多一個種類「比例過大」(已用額度與門檻為空)。
+ - 舊收件表加了待核可之後,開啟時照既有的逐一比對重建。回退時待核可與停下紀錄的比例過大種類不能拿掉(舊列記著它們)。
+ - 出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 3。防回歸:[test:test_an_approvable_block_waits_for_approval]、[test:test_two_workers_release_an_awaiting_proposal_once]、[test:test_an_old_inbox_accepts_the_awaiting_approval_disposition]、[test:test_the_latest_approval_wins_even_when_it_is_smaller]。
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 6978e23..c20b0de 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -1028,35 +1028,37 @@ def stop_count_query(
+         if value is not None:
+             where.append(clause)
+             params.append(value)
+     return f"SELECT count(*) FROM write_stops WHERE {' AND '.join(where)}", tuple(params)  # noqa: S608 - 只拼接固定條件
+ 
+ 
+ def approval_use_count_query(
+     *, tenant: str | None = None, campaign_id: str | None = None,
+     since: datetime | None = None, until: datetime | None = None,
+ ) -> tuple[str, tuple[object, ...]]:
+-    """已核可放行數的查詢語句(測試用它看查詢計畫)。只用核可使用表的租戶、任務、修訂與時間;
+-    依廣告篩時看這份提案第一列嘗試的廣告——核可使用紀錄跟開始一筆寫在同一個交易,第一列一定在,
+-    而且只增不改。不接停下紀錄:核可先簽好就放行時沒有停下紀錄,等待期間換了租戶時停下紀錄
+-    留的是舊租戶(代碼審第 1 輪正確性席、外家兩席)。"""
+-    where, params = ["1 = 1"], []
+-    for clause, value in (
+-            ("u.tenant = ?", tenant),
+-            ("EXISTS (SELECT 1 FROM attempts f WHERE f.seq = 1 AND f.task_id = u.task_id "
+-             "AND f.revision = u.revision AND f.campaign_id = ?)", campaign_id),
+-            ("u.at >= ?", None if since is None else attempt_store.iso(since)),
+-            ("u.at < ?", None if until is None else attempt_store.iso(until))):
++    """已核可放行數的查詢語句(測試用它看查詢計畫)。用核可使用表的租戶、任務、修訂、操作鍵與時間;
++    依廣告篩時用操作鍵接回這筆放行開始的那一列(第一列)取廣告——核可使用紀錄跟開始一筆寫在同一個
++    交易,那一列一定在,而且只增不改。不接停下紀錄:核可先簽好就放行時沒有停下紀錄,等待期間換了
++    租戶時停下紀錄留的是舊租戶(代碼審第 1 輪)。要比操作鍵、不能只比任務與修訂:收件表清掉已結案
++    任務後,同一組任務與修訂可能再來一份內容不同的提案,舊內容的第一列還在(代碼審第 2 輪外家席)。
++    寫成連接而不是子查詢:只依廣告篩時才能從「第一列按廣告」的索引出發,不整張掃核可使用表。"""
++    join, where, params = "", ["1 = 1"], []
++    if campaign_id is not None:
++        join = ("JOIN attempts f ON f.key = u.key AND f.seq = 1 AND f.task_id = u.task_id "
++                "AND f.revision = u.revision")
++    for clause, value in (("u.tenant = ?", tenant), ("f.campaign_id = ?", campaign_id),
++                          ("u.at >= ?", None if since is None else attempt_store.iso(since)),
++                          ("u.at < ?", None if until is None else attempt_store.iso(until))):
+         if value is not None:
+             where.append(clause)
+             params.append(value)
+-    return (f"SELECT count(*) FROM approval_uses u WHERE {' AND '.join(where)}",  # noqa: S608 - 只拼接固定條件
++    return (f"SELECT count(*) FROM approval_uses u {join} WHERE {' AND '.join(where)}",  # noqa: S608 - 只拼接固定條件
+             tuple(params))
+ 
+ 
+ def _parse_payload(payload: str) -> Proposal | None:
+     """存的內容讀不回提案就當沒有(不讓一列壞資料卡住全部)。"""
+     try:
+         return parse_proposal(json.loads(payload)).proposal
+     except ValueError:
+         return None
+ 
+diff --git a/tests/executor/test_observability.py b/tests/executor/test_observability.py
+index e3007f4..8fd3b3f 100644
+--- a/tests/executor/test_observability.py
++++ b/tests/executor/test_observability.py
+@@ -294,25 +294,37 @@ def test_observability_queries_use_their_indexes(store, filters, index):
+     sql, params = attempt_store.first_rows_started_query(TENANT, NOW, NOW + HOUR)
+     plan = _plan(store, sql, params)
+     assert plan.count("attempts_first_rows_by_tenant") == 2, plan  # 兩段都用上
+ 
+ 
+ # 已核可放行數(查詢三):依租戶、依時間走核可使用表的索引;依廣告走「第一列按廣告」的部分索引
+ @pytest.mark.parametrize(("filters", "index"), [
+     ({"tenant": TENANT}, "approval_uses_by_tenant"),
+     ({"tenant": TENANT, "since": NOW}, "approval_uses_by_tenant"),
+     ({"since": NOW, "until": NOW + HOUR}, "approval_uses_by_time"),
+-    ({"campaign_id": "c1"}, "attempts_first_rows"),
++    # 依廣告:先走第一列按廣告的索引,再用核可使用表唯一限制的前兩欄(任務、修訂)查;
++    # 操作鍵已決定任務與修訂,多比這兩欄就是為了這一步用得上索引
++    ({"campaign_id": "c1"},
++     r"attempts_first_rows\b.*approval_uses_1 \(task_id=\? AND revision=\?\)"),
+ ])
+ def test_applied_count_uses_its_index(store, filters, index):
+     sql, params = inbox_store.approval_use_count_query(**filters)
+-    assert re.search(rf"\b{index}\b", _plan(store, sql, params)), _plan(store, sql, params)
++    plan = _plan(store, sql, params)
++    assert re.search(rf"\b{index}", plan), plan
++    # 只看索引名會假綠:子查詢用上索引、外層照樣整張掃核可使用表(代碼審第 2 輪外家席、資安席)
++    assert not re.search(r"\bSCAN u\b", plan), plan
++
++
++def test_awaiting_condition_with_alias_matches_the_shared_one():
++    """帶別名的待核可條件是另寫一份字面:共用那句改了,這裡要跟著改。"""
++    aliased = " AND ".join(f"p.{part}" for part in inbox_store.AWAITING.split(" AND "))
++    assert aliased == inbox_store._AWAITING_P
+ 
+ 
+ # ---- [S366]、[S380] ----
+ def _indexes(conn):
+     return {name for (name,) in conn.execute(
+         "SELECT name FROM sqlite_master WHERE type = 'index' AND name IS NOT NULL")}
+ 
+ 
+ OBSERVABILITY_INDEXES = {"write_stops_by_tenant", "write_stops_by_campaign", "write_stops_by_time",
+                          "attempts_first_rows_by_tenant", "approval_uses_by_tenant",
+@@ -471,30 +483,37 @@ def test_approval_counts_cover_waiting_and_applied(store):
+     _awaiting(store, "w3", "c3", tenant=OTHER)
+     _awaiting(store, "w4", "c4", with_stop=False)  # 接不到停下紀錄:只進總數與未知租戶數
+     stop(store, RATIO, task="w1", campaign="c1")  # 同一份提案先前在另一關停過:不重複數
+     applied = proposal(task_id="a1", campaign_id="c5")
+     stop(store, AGG, task="a1", campaign="c5")  # 比例那一關沒有停下紀錄:依廣告篩也要算到
+     _applied(store, applied, [AGG, RATIO])  # 同一份提案兩關各一列
+     _applied(store, proposal(task_id="a2", campaign_id="c6"), [AGG], tenant=OTHER)
+     # 同任務的上一份修訂在別的廣告開過嘗試、沒用核可:放行只算到這一份修訂的廣告
+     _applied(store, proposal(task_id="a3", campaign_id="c9"), [])
+     _applied(store, proposal(task_id="a3", revision=2, campaign_id="c7"), [RATIO], at=NOW + HOUR)
++    # 同任務同修訂、內容不同(收件表清掉已結案任務後重用):舊內容的第一列不算這筆放行
++    _applied(store, proposal(task_id="a4", campaign_id="c10",
++                                    requested_change={"new_budget": 111}), [])
++    _applied(store, proposal(task_id="a4", campaign_id="c11",
++                                    requested_change={"new_budget": 222}), [AGG])
+ 
+     counts = observability.approval_counts
+-    assert read(store, counts) == Counts(4, 1, 4)  # 待核可、其中接不到停下紀錄的、已核可放行
+-    assert read(store, counts, tenant=TENANT) == Counts(2, 1, 3)
++    assert read(store, counts) == Counts(4, 1, 5)  # 待核可、其中接不到停下紀錄的、已核可放行
++    assert read(store, counts, tenant=TENANT) == Counts(2, 1, 4)
+     assert read(store, counts, campaign_id="c2") == Counts(1, 1, 0)
+     assert read(store, counts, campaign_id="c5") == Counts(0, 1, 2)
+     assert read(store, counts, since=NOW + HOUR) == Counts(4, 1, 1)  # 範圍只管已核可放行(含起點)
+-    assert read(store, counts, until=NOW + HOUR) == Counts(4, 1, 3)  # 不含終點
++    assert read(store, counts, until=NOW + HOUR) == Counts(4, 1, 4)  # 不含終點
+     assert read(store, counts, tenant="nobody") == Counts(0, 1, 0)
+     assert read(store, counts, campaign_id="c9") == Counts(0, 1, 0)
++    assert read(store, counts, campaign_id="c10") == Counts(0, 1, 0)
++    assert read(store, counts, campaign_id="c11") == Counts(0, 1, 1)
+ 
+ 
+ def test_applied_count_follows_the_tenant_recorded_when_the_approval_was_used(store):
+     """等待期間廣告換了租戶:停下紀錄留舊租戶,放行記新租戶。這筆放行屬於新租戶、還是這個廣告。"""
+     prop = proposal(task_id="m1", campaign_id="c8")
+     stop(store, AGG, tenant=OTHER, task="m1", campaign="c8")
+     _applied(store, prop, [AGG], tenant=TENANT)
+ 
+     counts = observability.approval_counts
+     assert read(store, counts, tenant=TENANT, campaign_id="c8").applied == 1

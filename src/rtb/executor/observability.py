@@ -1,10 +1,11 @@
-"""可觀測的唯讀查詢(Phase 6 增量 4):總曝險停下次數、表滿延後份數、額度使用率、總曝險稽核明細。
+"""可觀測的唯讀查詢(Phase 6 增量 4):總曝險停下次數、表滿延後份數、人工核可、額度使用率、
+總曝險稽核明細。
 
 資料一律從既有的耐久紀錄讀——停下紀錄表與嘗試紀錄——不另存計數器。一張表只透過擁有它的模組讀:
 停下紀錄走收件口模組的方法(先核對交易是它開的),嘗試紀錄走嘗試紀錄模組的函式;這裡不寫 SQL
 (代碼審第 1 輪架構席)。每支都收執行行程資料庫交易入口開的交易(會握寫入鎖,跟 Phase 5 的
 `version_conflict_count` 同一種做法),只讀不寫。依賴方向只有「這裡 → 收件口模組、嘗試紀錄模組」,
-那兩個模組都不依賴這裡。人工核可的查詢三隨增量 3 交付。
+那兩個模組都不依賴這裡。人工核可的查詢三(待核可數與已核可放行數)在增量 3 合進後補上。
 
 稽核明細的時間範圍不設上限:給極寬的範圍會掃大段歷史、握寫入鎖。目前只有人工與測試會呼叫;
 Phase 9 接告警或輪詢時要一併決定範圍上限與不握寫入鎖的讀法(代碼審第 1 輪資安席)。
@@ -86,6 +87,26 @@ def table_full_deferral_count(
     """表滿延後次數:同一份提案同一種類只記一列,數的是「被延後過的提案份數」,不是延後事件次數。"""
     return store.stop_count(tx, StopKind.TABLE_FULL, tenant=tenant, campaign_id=campaign_id,
                             since=since, until=until)
+
+
+@dataclass(frozen=True)
+class ApprovalCounts:
+    """人工核可(查詢三):待核可是當下快照,不吃時間範圍;已核可放行吃範圍。接不到停下紀錄的待核可
+    另外回報(依租戶、廣告篩時算不進去,不悄悄丟掉)。"""
+
+    awaiting: int
+    awaiting_unknown_tenant: int
+    applied: int
+
+
+def approval_counts(
+    store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
+    campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
+) -> ApprovalCounts:
+    awaiting, unknown = store.awaiting_count(tx, tenant=tenant, campaign_id=campaign_id)
+    applied = store.approval_use_count(tx, tenant=tenant, campaign_id=campaign_id, since=since,
+                                       until=until)
+    return ApprovalCounts(awaiting, unknown, applied)
 
 
 def utilization(tx: ExecutorTransaction, tenant: str, limit: int, now: datetime) -> Utilization:

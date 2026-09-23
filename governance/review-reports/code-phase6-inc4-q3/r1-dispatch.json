@@ -1,0 +1,9 @@
+{"round": "r1", "loop": "code-phase6-inc4-q3", "tier": "high", "base": "d07eeea", "snapshot": "r1-snapshot.patch", "reviewed_sha256": "3b546fd4a1e53c18e3b53aea68af71cbcaa720f7a348bbc3512882c4af12d0ee", "seats": [
+ {"seat": "correct-sonnet", "lens": "查詢語意與 SQL", "materials": ["r1-snapshot.patch"]},
+ {"seat": "tests-sonnet", "lens": "測試殺傷力", "materials": ["r1-snapshot.patch"]},
+ {"seat": "spec-sonnet", "lens": "規格符合", "materials": ["r1-snapshot.patch"]},
+ {"seat": "compat-sonnet", "lens": "跟增量 3 核可流程的相容", "materials": ["r1-snapshot.patch"]},
+ {"seat": "finder-codex", "lens": "外家 finder", "materials": ["r1-snapshot.patch"]},
+ {"seat": "veto-codex", "lens": "外家否決", "materials": ["r1-snapshot.patch"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.patch"]},
+ {"seat": "資安-sonnet", "lens": "資安", "materials": ["r1-snapshot.patch"]}]}

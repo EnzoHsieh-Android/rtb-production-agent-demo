@@ -1,0 +1,323 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
+index d98013a..bd37e3d 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
+@@ -338,20 +338,21 @@ RETIRE-IF(增量 2): 比例上限連續三個月零觸發、而且總曝險預
+ - [S377] 當結果不明的鍵要同鍵重送,重送應重判比例:比例超過而沒有有效核可、或這把鍵當初用過的核可已過期時,應先作廢再判失敗、不重送;核可仍有效時照常重送,憑證封頂在核可到期。[test:test_a_resend_rechecks_the_ratio_and_the_approval_it_used]
+ - [S378] 當簽發器簽發,回傳應帶同一次讀檔得到的整個租戶物件;執行迴圈的總額上限、租戶名稱與範圍指紋都從這一個物件取。[test:test_the_grant_carries_one_tenant_snapshot]
+ - [S379] 當管理工具與執行迴圈對同一份提案、同一份設定檔算範圍指紋,兩邊應得到同一個值;比例常數或租戶任一欄改變時兩邊一起變。[test:test_admin_and_executor_agree_on_the_scope_fingerprint]
+ 
+ ### 回退(增量 3)
+ 
+ - 拿掉待核可分流與處理待核可那一步,即回到增量 1、2 的「擋下結案」;處置列舉的「待核可」成員與停下紀錄的「比例過大」種類不能拿掉(舊列記著它們,重建會撞限制),留成歷史相容值;核可表與核可使用表留著無害。回退前要先把還在待核可的提案轉成已擋下(撥時鐘不行,要用處理待核可那一步或手動確認)。
+ 
+ ## 增量 4 設計:可觀測
+ 
++- **查詢三(2026-09-23,增量 3 合進 main 之後補,分支 phase6-inc4-q3)**:[S362] 已實作。偏離設計一處:查詢三不放增量 3 的核可模組,跟另外四支一樣放 [[Systems/可觀測查詢]],資料由收件口模組兩個只讀方法提供(先報主線同意位置)。只用核可使用表的租戶、任務、修訂、內容雜湊與關卡;核可表不讀,所以核可編號重複寫好幾列不影響。回傳待核可數、其中接不到停下紀錄的份數、已核可放行數。
+ - **狀態(2026-09-23):設計審三輪收斂;查詢三以外已實作**(S360、S361、S363–S369、S380,分支 phase6-inc4;查詢三與 [S362] 等增量 3 合進 main 後補)。實作偏離設計一處(主線同意):查詢一、二、五不放收件口模組,四支查詢放一支新模組 [[Systems/可觀測查詢]]——增量 3 同時在大改收件口模組與執行迴圈,也讓依賴方向只有「新模組 → 嘗試紀錄模組」。收件口模組只動兩處:停下紀錄三個索引、補欄位流程的判斷與建索引(先報主線核准)。實作時抓到的一處:查詢計畫測試只看「有沒有用索引」會假綠(停下紀錄表的唯一限制以種類開頭),改成斷言用到指定的索引名。
+ 
+ PRIOR-ART(增量 4): 最小指標沿用 Phase 5 的做法——執行側的嘗試紀錄模組有 `version_conflict_count`(收交易、可依廣告篩、回一個整數),分析側的任務表模組有 `replan_counts`(回一個小型具名結果);資料一律從既有的耐久紀錄讀,不另存計數器。業界對應是「從事件紀錄算指標」(event-sourced metrics),計數器另存會跟紀錄對不上。
+ RETIRE-IF(增量 4): 換成外部的監控系統(Phase 9 的告警或儀表板)直接讀停下紀錄表與嘗試紀錄時,這幾支查詢改成那邊的查詢定義、撤掉這裡的函式;或者連續三個月沒有任何呼叫端(只有測試在用)時撤掉。
+ 
+ ### 要回答的問題(完成條件逐項對)
+ 
+ - 交接文件完成條件「總曝險擋下、人工審核與額度使用率可觀測」:
+   - 總曝險擋下 → 查詢一(總曝險停下次數)。
+   - 人工審核 → 查詢三(待核可數與已核可放行數)。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/可觀測查詢.md b/docs/rtb-production-agent-demo-knowledge/Systems/可觀測查詢.md
+index 7936946..b5340d3 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/可觀測查詢.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/可觀測查詢.md
+@@ -13,16 +13,16 @@ tags:
+ summary: |-
+   WHY: [2026-09-23] 交接文件 Phase 6 完成條件「總曝險擋下、人工審核與額度使用率可觀測」與事故 F7「稽核可說明哪些通過、哪些被阻擋及剩餘額度」;資料一律從停下紀錄表與嘗試紀錄讀,不另存計數器(另存會跟紀錄對不上)。出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 4。
+   WHY: [2026-09-23] 放在獨立模組、不放收件口模組:增量 3 同時在大改收件口模組與執行迴圈(主線同意的偏離,設計原本寫收件口模組)。依賴方向是「這裡 → 收件口模組、嘗試紀錄模組」,那兩個模組都不依賴這裡。
+   RULE: 這裡不寫 SQL:停下紀錄走 [[Systems/提案收件口]] 的讀取方法(先核對交易是那個收件表開的),嘗試紀錄走 [[Systems/外部寫入嘗試紀錄]] 的函式。一張表只由擁有它的模組讀(代碼審第 1 輪架構席:第一版直接讀停下紀錄表,還在嘗試紀錄模組開了一支交出連線的函式)。[since:2026-09-23] [retire:改成統一的唯讀資料層時]
+   RULE: 稽核明細的「通過的」與已用額度共用同一條逐列計入規則(嘗試紀錄模組的 `_counted`);「目前佔額度的」就是已用額度那份逐筆清單,每一筆都帶任務、修訂等身分(代碼審第 1 輪兩席 Codex:第一版只帶鍵與金額),加總一定等於已用。不准在這裡另寫一份計入規則。[since:2026-09-23] [retire:額度改由外部帳本計算時]
+   RULE: 「現在」與門檻都由呼叫端傳入,不自己讀時鐘、不讀設定檔;兩支查詢要對帳就傳同一個「現在」。門檻 0 是合法設定,回「不准加預算」旗標,不讓呼叫端除以 0。[since:2026-09-23] [retire:額度窗口改成不依時間時]
+   PITFALL: [2026-09-23] 查詢計畫測試只看「有沒有用索引」會假綠:停下紀錄表的唯一限制以種類開頭,沒加本增量的索引時計畫照樣顯示用了索引,實際同種類全掃。測試改成斷言用到指定的索引名[test:test_observability_queries_use_their_indexes]。
+ ---
+ # 可觀測查詢
+ 
+-本篇管 `src/rtb/executor/observability.py`:Phase 6 增量 4 的唯讀查詢。設計、合約(S360、S361、S363–S369、S380)與設計審三輪見 [[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 4 節;人工核可的查詢三(S362)隨增量 3 交付。
++本篇管 `src/rtb/executor/observability.py`:Phase 6 增量 4 的唯讀查詢,含增量 3 合進 main 後補上的查詢三(人工核可:待核可數、接不到停下紀錄的待核可數、已核可放行數)。設計、合約(S360、S361、S363–S369、S380)與設計審三輪見 [[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 4 節;人工核可的查詢三(S362)隨增量 3 交付。
+ 
+ - 成本:停下次數、表滿延後、稽核明細的「被停下的」「通過的」有索引,成本跟範圍內筆數成正比;額度使用率與「目前佔額度的」沿用嘗試紀錄模組的已用額度查法,其中「還沒結案」那段會掃嘗試紀錄全表(100 萬列約 0.9 秒,握寫入鎖),是增量 1 既有的成本,這個增量不改(主線 2026-09-23 裁定,增量 3 之後另開一件處理)。
+ - 稽核明細每一筆的「目前狀態」跟清單同一次查詢帶出,不逐鍵回查(代碼審第 3 輪外家否決席:逐鍵回查時 30 萬筆要 6.6 秒)。改完實測:一小時內 30 萬筆已驗證寫入,整支稽核明細約 3.4 秒,仍在寫入鎖裡、接近資料庫忙碌等待上限 5 秒;剩下的成本主要是已用額度那段查法與建 60 萬筆明細。
+ REVISIT:2027-01-31 若正式資料一小時內的已驗證寫入超過 10 萬筆,或稽核明細要被自動呼叫,先改成不握寫入鎖的讀法再用。
+ - 鎖:收的是執行行程資料庫交易入口開的交易(寫入交易),跟 Phase 5 的版本衝突次數同一種做法。現在只有人工與測試會呼叫;Phase 9 要做定時輪詢或告警時,先改成不握寫入鎖的讀法,並一併決定稽核明細的時間範圍上限(現在不設上限,給極寬範圍會掃大段歷史;代碼審第 1 輪資安席)。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+index da27128..af6be37 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+@@ -77,20 +77,21 @@ REVISIT:2026-10-20 Phase 4 當機恢復測試時補上殺行程的版本。
+ - RULE: 延長租約、確認與嘗試寫入一律帶收據做條件寫入:處置是處理中、租約序號與擁有者相符、租約還沒到期,任何一項不符就更新 0 列。[since:2026-09-23] [retire:換成外部佇列軟體、由它負責租約時] 防回歸:[test:test_a_stale_or_expired_receipt_can_write_nothing]。
+ - RULE: 死信只打沒有任何嘗試紀錄的提案(結果不明的操作不計入重試上限、不得直接進死信,照 [[Projects/RTB_Agent_Phase0架構]] 的裁定)。[since:2026-09-23] [retire:同上] 防回歸:[test:test_an_unresolved_attempt_is_never_redelivered_or_dead_lettered]。
+ - PITFALL: 處置欄位的資料庫層限制(CHECK)加欄位改不了,要照 SQLite 官方步驟重建表;偵測時不能只看缺欄位,要看限制本身是不是舊的。防回歸:[test:test_an_old_inbox_database_migrates_to_four_dispositions_without_losing_data]。
+ - PITFALL: 同一個時間收到的提案依任務編號排序,測試要驗「先收到的先取」就得讓時鐘在兩次送件之間往前走,否則會被任務編號的字母順序蓋掉而假綠。出處:增量 1 實作時的變異檢查。
+ 
+ ## 總曝險已滿與停下紀錄表(Phase 6 增量 1,2026-09-23)
+ 
+ - 擋下原因多一個「總曝險已滿」;回給分析行程時併進「不允許」(比照權限類合併:分析行程不該能用重送試出剩餘額度)。
+ - 收件表要不要重建,改成逐一比對目前列舉的每一個處置與擋下原因是否都在資料庫層允許值清單裡;原本只看死信一個值,下次再加成員就看不出來(Phase 6 兩個增量的設計審各自指出)。列舉成員用過就不能拿掉:舊列記著它,重建時會撞允許值限制。
+ - 停下紀錄表由這個模組建表,記總曝險擋下與表滿延後;已用額度與門檻寫入時封頂在整數上限並標記,不然舊資料保守加總超過範圍會讓擋下交易整個回滾。
++- 查詢三的兩個只讀方法 `awaiting_count`、`approval_use_count`(Phase 6 增量 4,增量 3 合進後補):待核可依租戶、廣告篩時用任務、修訂、內容雜湊加「停在哪一關」接停下紀錄(同一份提案同一種類只一列,不會重複數),接不到的另外回報;已核可放行數只讀核可使用表的租戶、任務、修訂、內容雜湊與關卡,不讀核可表(核可編號在核可表不唯一)。防回歸:[test:test_approval_counts_cover_waiting_and_applied]。
+ - 停下紀錄表有兩個只讀方法 `stop_count`、`stops`(Phase 6 增量 4),給 [[Systems/可觀測查詢]] 用,開頭一樣先核對交易是這個收件表開的;別的模組不直接下 SQL 讀這張表(代碼審第 1 輪架構席)。停下紀錄表有三個索引(租戶/種類/時間、廣告/種類/時間、種類/時間,Phase 6 增量 4);參照的欄位建表時就有,放在建表語句裡。補欄位流程進交易的條件多一項「嘗試紀錄按租戶的索引不存在」,補完欄位後建它(那個索引參照後補的租戶欄,見 [[Systems/外部寫入嘗試紀錄]])。
+ 
+ ## 待核可處置與核可表(Phase 6 增量 3,2026-09-23)
+ 
+ - 處置多一個「待核可」:被總曝險已滿或比例過大擋下、還沒有有效核可的提案,擋下原因欄記是哪一關。跟處理中一樣是暫時狀態:「任務還沒結束」的共用條件擴成待處理、處理中或待核可,保留期不清它;取件條件不變,取件撿不到它。收件口回應讀擋下原因時已經只在已擋下才取,所以待核可回「待核可」、原因為空,收件口不用改。
+ - 待核可不佔待處理名額(跟處理中一樣是暫時狀態;佔了的話 8 份等人的提案就卡住整條流程),總量受全表列數上限,跟改版前「擋下結案的列留到保留期」同一個上限;每輪只讀有事可做的待核可(代碼審第 3 輪資安席)。
+ - 待核可的三種轉換(到期確認成已擋下、被更新修訂取代、放回待處理並把投遞次數歸零)由執行迴圈的處理待核可那一步呼叫;寫入條件都是「這一列仍是待核可」。這個模組只收、去重、記帳,不驗核可。
+ - 核可表與核可使用表在這裡建(只增不改);每次下達都寫一列、核可編號不設唯一,同一秒同樣參數重跑管理工具簽出的一模一樣那張照樣成為最新(依序簽 A、B、再簽 A,最新是 A;代碼審第 2 輪)。同一份提案同一關的「最新」照核可表的自動遞增列號,不照簽發時間(時間相同會並列)。核可使用紀錄同一份提案同一關只記一列,數字比照停下紀錄封頂並標記。停下紀錄多一個種類「比例過大」(已用額度與門檻為空)。
+ - 舊收件表加了待核可之後,開啟時照既有的逐一比對重建。回退時待核可與停下紀錄的比例過大種類不能拿掉(舊列記著它們)。
+ - 出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 3。防回歸:[test:test_an_approvable_block_waits_for_approval]、[test:test_two_workers_release_an_awaiting_proposal_once]、[test:test_an_old_inbox_accepts_the_awaiting_approval_disposition]、[test:test_the_latest_approval_wins_even_when_it_is_smaller]。
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 9daf488..8f86535 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -916,20 +916,65 @@ class InboxStore:
+             "AND (lease_until <= ? OR lease_owner = ?)",
+             (owner, _iso(now + VISIBILITY_TIMEOUT), message.task_id, message.revision,
+              message.content_hash, _iso(now), owner))
+         if cursor.rowcount != 1:
+             return None
+         seq = self._conn.execute(
+             "SELECT lease_seq FROM proposals WHERE task_id = ? AND revision = ?",
+             (message.task_id, message.revision)).fetchone()[0]
+         return Receipt(message.task_id, message.revision, message.content_hash, owner, int(seq))
+ 
++    def awaiting_count(
++        self, tx: attempt_store.ExecutorTransaction, *, tenant: str | None = None,
++        campaign_id: str | None = None,
++    ) -> tuple[int, int]:
++        """待核可份數(Phase 6 增量 4 查詢三),以及其中接不到停下紀錄的份數。依租戶、廣告篩時用
++        (任務、修訂、內容雜湊、停在哪一關)接停下紀錄;停下紀錄同一份提案同一種類只一列,所以
++        每份提案最多接到一列。接不到的只算進不篩的總數,另外回報,不悄悄丟掉。"""
++        self._own(tx)
++        join = ("LEFT JOIN write_stops w ON w.task_id = p.task_id AND w.revision = p.revision "
++                "AND w.content_hash = p.content_hash AND w.kind = p.block_code")
++        where, params = [f"p.{AWAITING.replace(' AND ', ' AND p.')}"], []
++        for clause, value in (("w.tenant = ?", tenant), ("w.campaign_id = ?", campaign_id)):
++            if value is not None:
++                where.append(clause)
++                params.append(value)
++        matched = self._conn.execute(
++            f"SELECT count(*) FROM proposals p {join} WHERE {' AND '.join(where)}",  # noqa: S608 - 只拼接固定條件
++            params).fetchone()[0]
++        unknown = self._conn.execute(
++            f"SELECT count(*) FROM proposals p {join} "  # noqa: S608 - 只拼接固定條件
++            f"WHERE p.{AWAITING.replace(' AND ', ' AND p.')} AND w.id IS NULL").fetchone()[0]
++        return int(matched), int(unknown)
++
++    def approval_use_count(
++        self, tx: attempt_store.ExecutorTransaction, *, tenant: str | None = None,
++        campaign_id: str | None = None, since: datetime | None = None,
++        until: datetime | None = None,
++    ) -> int:
++        """已核可放行數(查詢三):核可使用表的列數。只用它的租戶、任務、修訂、內容雜湊(與關卡);
++        依廣告篩時接停下紀錄。時間範圍包含起點、不包含終點。"""
++        self._own(tx)
++        where, params = ["1 = 1"], []
++        for clause, value in (("u.tenant = ?", tenant), ("w.campaign_id = ?", campaign_id),
++                              ("u.at >= ?", None if since is None else attempt_store.iso(since)),
++                              ("u.at < ?", None if until is None else attempt_store.iso(until))):
++            if value is not None:
++                where.append(clause)
++                params.append(value)
++        join = ("" if campaign_id is None else
++                "JOIN write_stops w ON w.task_id = u.task_id AND w.revision = u.revision "
++                "AND w.content_hash = u.content_hash AND w.kind = u.stage")
++        return int(self._conn.execute(
++            f"SELECT count(*) FROM approval_uses u {join} WHERE {' AND '.join(where)}",  # noqa: S608 - 只拼接固定條件
++            params).fetchone()[0])
++
+     def stop_count(
+         self, tx: attempt_store.ExecutorTransaction, kind: StopKind, *, tenant: str | None = None,
+         campaign_id: str | None = None, since: datetime | None = None,
+         until: datetime | None = None,
+     ) -> int:
+         """停下紀錄計數(Phase 6 增量 4 可觀測查詢用);時間範圍包含起點、不包含終點。"""
+         self._own(tx)
+         sql, params = stop_count_query(kind, tenant=tenant, campaign_id=campaign_id,
+                                        since=since, until=until)
+         return int(self._conn.execute(sql, params).fetchone()[0])
+diff --git a/src/rtb/executor/observability.py b/src/rtb/executor/observability.py
+index 8652b86..b3a8ef9 100644
+--- a/src/rtb/executor/observability.py
++++ b/src/rtb/executor/observability.py
+@@ -9,20 +9,21 @@
+ 稽核明細的時間範圍不設上限:給極寬的範圍會掃大段歷史、握寫入鎖。目前只有人工與測試會呼叫;
+ Phase 9 接告警或輪詢時要一併決定範圍上限與不握寫入鎖的讀法(代碼審第 1 輪資安席)。
+ 
+ 時間範圍一律包含起點、不包含終點;停下紀錄與嘗試紀錄的時間都寫成同一種固定格式的 UTC 字串,字串
+ 比較就是時間比較。「現在」與門檻都由呼叫端傳入:額度窗口依「現在」算,兩支查詢要對帳就傳同一個;
+ 門檻由呼叫端用簽發模組的 `load_tenants` 取得(那裡帶著設定檔的安全檢查)。
+ """
+ 
+ from dataclasses import dataclass
+ from datetime import datetime
++from typing import NamedTuple
+ 
+ from rtb.executor import attempt_store
+ from rtb.executor.attempt_store import CountedFirstRow, ExecutorTransaction
+ from rtb.executor.inbox_store import InboxStore, StopKind
+ 
+ 
+ @dataclass(frozen=True)
+ class Utilization:
+     """額度使用率:整數不回比例(整數到上限時浮點會失真)。門檻 0(設定檔缺這欄)是合法設定,
+     這時不准加預算、比例沒有定義,呼叫端看旗標,不要去除以 0。"""
+@@ -81,20 +82,39 @@ def aggregate_stop_count(
+ 
+ def table_full_deferral_count(
+     store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
+     campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
+ ) -> int:
+     """表滿延後次數:同一份提案同一種類只記一列,數的是「被延後過的提案份數」,不是延後事件次數。"""
+     return store.stop_count(tx, StopKind.TABLE_FULL, tenant=tenant, campaign_id=campaign_id,
+                             since=since, until=until)
+ 
+ 
++class ApprovalCounts(NamedTuple):
++    """人工核可(查詢三):待核可是當下快照,不吃時間範圍;已核可放行吃範圍。接不到停下紀錄的待核可
++    另外回報(依租戶、廣告篩時算不進去,不悄悄丟掉)。"""
++
++    awaiting: int
++    awaiting_unknown_tenant: int
++    applied: int
++
++
++def approval_counts(
++    store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
++    campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
++) -> ApprovalCounts:
++    awaiting, unknown = store.awaiting_count(tx, tenant=tenant, campaign_id=campaign_id)
++    applied = store.approval_use_count(tx, tenant=tenant, campaign_id=campaign_id, since=since,
++                                       until=until)
++    return ApprovalCounts(awaiting, unknown, applied)
++
++
+ def utilization(tx: ExecutorTransaction, tenant: str, limit: int, now: datetime) -> Utilization:
+     """只讀嘗試紀錄,所以不收收件表(另外三支讀停下紀錄,要收件表來核對交易歸屬)。"""
+     return _utilization(attempt_store.aggregate_used(tx, tenant, now), limit)
+ 
+ 
+ def _utilization(used: int, limit: int) -> Utilization:
+     return Utilization(used, limit, max(0, limit - used), limit > 0)
+ 
+ 
+ def aggregate_audit(  # noqa: PLR0913 - 收件表、交易、租戶、門檻、現在、範圍都是稽核必須的輸入
+diff --git a/tests/executor/test_observability.py b/tests/executor/test_observability.py
+index d7cbc8b..ddb89c5 100644
+--- a/tests/executor/test_observability.py
++++ b/tests/executor/test_observability.py
+@@ -51,21 +51,21 @@ def stop(store, kind, now=NOW, tenant=TENANT, task="s1", campaign="c1"):
+     prop = proposal(task_id=task, campaign_id=campaign)
+     with store.transaction() as tx:
+         store.record_stop(tx, Stop(kind, prop, operation_key(prop), tenant, 10, 90, 100), now)
+     return prop
+ 
+ 
+ def read(store, query, *args, **kwargs):
+     """停下紀錄表歸收件口模組管:讀它的查詢要帶收件表物件(由它的方法核對交易是它開的)。"""
+     with store.transaction() as tx:
+         if query in (observability.aggregate_stop_count, observability.table_full_deferral_count,
+-                     observability.aggregate_audit):
++                     observability.aggregate_audit, observability.approval_counts):
+             return query(store, tx, *args, **kwargs)
+         return query(tx, *args, **kwargs)
+ 
+ 
+ AGG, FULL = StopKind.AGGREGATE_LIMIT_REACHED, StopKind.TABLE_FULL
+ 
+ 
+ # ---- [S360] ----
+ def test_aggregate_stop_count_filters_by_tenant_campaign_and_time(store):
+     stop(store, AGG, NOW, task="a1")
+@@ -351,20 +351,24 @@ def test_an_old_database_gains_the_observability_indexes(tmp_path):
+ 
+ def test_stop_queries_only_accept_a_transaction_opened_by_the_same_inbox(tmp_path, store):
+     """停下紀錄表歸收件口模組管:別的收件表開的交易讀不到(代碼審第 1 輪架構席)。"""
+     other = InboxStore(tmp_path / "other.db")
+     try:
+         with other.transaction() as tx:
+             with pytest.raises(attempt_store.NotInTransaction):
+                 store.stop_count(tx, AGG)
+             with pytest.raises(attempt_store.NotInTransaction):
+                 store.stops(tx, AGG, TENANT, NOW, NOW + HOUR)
++            with pytest.raises(attempt_store.NotInTransaction):
++                store.awaiting_count(tx)
++            with pytest.raises(attempt_store.NotInTransaction):
++                store.approval_use_count(tx)
+     finally:
+         other.close()
+ 
+ 
+ def test_the_audit_handles_more_holdings_than_sqlite_bind_parameters(store):
+     """目前佔額度的筆數沒有上限:不能把每把鍵當成一個查詢參數(代碼審第 2 輪兩席 Codex)。
+     參數上限依 SQLite 編譯版本不同(舊版 999、新版可到 25 萬),這裡把這條連線的上限調低到 100。"""
+     store._conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 100)
+     many = 110
+     at = attempt_store._iso(NOW)
+@@ -405,10 +409,60 @@ def test_the_audit_does_not_look_up_each_key_one_by_one(store, monkeypatch):
+ 
+     def refuse(*_args):
+         raise AssertionError("稽核明細不該逐鍵查最新一列")
+ 
+     monkeypatch.setattr(attempt_store, "latest", refuse)
+     audit = read(store, observability.aggregate_audit, TENANT, 100, NOW, NOW - HOUR, NOW + HOUR)
+ 
+     assert sorted((e.task_id, e.state) for e in audit.passed) == [("p2", "in_flight"),
+                                                                   ("t1", "failed")]
+     assert [(e.task_id, e.state) for e in audit.holding] == [("p2", "in_flight")]
++
++
++# ---- [S362] 查詢三 人工核可 ----
++RATIO = StopKind.BUDGET_INCREASE_TOO_LARGE
++
++
++def _awaiting(store, task, campaign, stage=AGG, tenant=TENANT, with_stop=True):
++    """讓一份提案停在待核可(照執行迴圈的做法:處置寫待核可、同一個交易寫停下紀錄)。"""
++    from rtb.executor.inbox_store import BlockCode
++
++    prop = proposal(task_id=task, campaign_id=campaign)
++    store.accept(prop, lambda: NOW)
++    with store.transaction() as tx:
++        delivery = store.receive(tx, NOW, "worker")
++        assert delivery is not None and delivery.message.task_id == task
++        assert store.await_approval(tx, delivery.receipt, NOW, BlockCode(stage.value))
++        if with_stop:
++            store.record_stop(tx, Stop(stage, prop, operation_key(prop), tenant, 10, None, None),
++                              NOW)
++    return prop
++
++
++def _approval_use(store, prop, stage, tenant=TENANT, at=NOW, approval="ap-1"):
++    from rtb.executor.inbox_store import ApprovalUse, BlockCode
++
++    with store.transaction() as tx:
++        store.record_approval_use(tx, ApprovalUse(approval, prop, operation_key(prop), tenant,
++                                                  BlockCode(stage.value), 10, None, None), at)
++
++
++def test_approval_counts_cover_waiting_and_applied(store):
++    _awaiting(store, "w1", "c1")  # 總曝險已滿那一關
++    _awaiting(store, "w2", "c2", stage=RATIO)  # 比例過大那一關
++    _awaiting(store, "w3", "c3", tenant=OTHER)
++    _awaiting(store, "w4", "c4", with_stop=False)  # 接不到停下紀錄:只進總數與未知租戶數
++    stop(store, RATIO, task="w1", campaign="c1")  # 同一份提案先前在另一關停過:不重複數
++    applied = proposal(task_id="a1", campaign_id="c5")
++    stop(store, AGG, task="a1", campaign="c5")
++    _approval_use(store, applied, AGG, at=NOW)
++    _approval_use(store, applied, RATIO, at=NOW + HOUR)  # 同一份提案兩關各一列
++    _approval_use(store, proposal(task_id="a2", campaign_id="c6"), AGG, tenant=OTHER)
++
++    counts = observability.approval_counts
++    assert read(store, counts) == (4, 1, 3)  # 待核可、其中接不到停下紀錄的、已核可放行
++    assert read(store, counts, tenant=TENANT) == (2, 1, 2)
++    assert read(store, counts, campaign_id="c2") == (1, 1, 0)
++    assert read(store, counts, campaign_id="c5") == (0, 1, 1)  # 只接得到總曝險那一關的停下紀錄
++    assert read(store, counts, since=NOW + HOUR) == (4, 1, 1)  # 範圍只管已核可放行(含起點)
++    assert read(store, counts, until=NOW + HOUR) == (4, 1, 2)  # 不含終點
++    assert read(store, counts, tenant="nobody") == (0, 1, 0)
