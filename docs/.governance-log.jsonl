@@ -3125,3 +3125,6 @@
 {"ts": "2026-09-24T04:48:13+08:00", "commit": "ebe5db4", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "ebe5db47683267b856143a2cc07bbe18e9ec3ffd"}
 {"ts": "2026-09-24T04:48:23+08:00", "commit": "d9cb9e9", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase9可觀測與slo-增量4"], "note": "disposal gate PASS"}
 {"ts": "2026-09-24T04:58:45+08:00", "commit": "d9cb9e9", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase9可觀測與SLO_計劃.md"], "note": "door=high clauses=71 bound=0 red=0 green=0 weak=0 regress=80 no-run"}
+{"ts": "2026-09-24T04:59:02+08:00", "commit": "d9cb9e9", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T04:59:03+08:00", "commit": "d9cb9e9", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d9cb9e9bf0d0938b404cfe4c8c80cf5f9ec36b36"}
+{"ts": "2026-09-24T04:59:12+08:00", "commit": "526e93b", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase9可觀測與slo-增量4"], "note": "disposal gate PASS"}
