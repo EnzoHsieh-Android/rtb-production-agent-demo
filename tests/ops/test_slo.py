@@ -5,12 +5,18 @@
 指標怎麼分好壞,用 rows.py 直接寫紀錄、交給真的計數函式算。
 """
 
+import io
+import json
 import sqlite3
+import threading
 from datetime import timedelta
 from fractions import Fraction
 
 import pytest
 
+from rtb.capabilitykit import AUDIT_KEY_ENV
+from rtb.dsp.server import DspServer
+from rtb.dsp.store import CampaignStore
 from rtb.ops import sli, slo
 from rtb.ops.sli import Tally
 from tests.ops.rows import Rows, at
@@ -111,6 +117,9 @@ def test_deadline_based_slis_are_fixed_once_the_window_has_passed(rows):
                          ("escalated", t + timedelta(minutes=3))])  # 期限前轉人工:排除
     rows.attempts("kD", [("in_flight", t), ("unknown", t + timedelta(seconds=1)),
                          ("escalated", t + timedelta(minutes=12))])  # 期限後才轉人工:壞
+    rows.attempts("kE", [("in_flight", t), ("unknown", t),
+                         ("escalated", t + timedelta(minutes=10)),  # 期限當刻轉人工:壞
+                         ("verified", t + timedelta(minutes=10))])  # 同刻人工結案也不覆寫
     for n, delay in enumerate((30, 45)):  # 剛好第 30 秒取件是好;45 秒是壞(記在第 30 秒)
         rows.event(at(minutes=2), f"q{n}", "received", tenant=None)
         rows.event(at(minutes=2, seconds=delay), f"q{n}", "delivered", deliveries=1)
@@ -122,8 +131,9 @@ def test_deadline_based_slis_are_fixed_once_the_window_has_passed(rows):
     unknown = sli.count("unknown_reconciled_in_time", *window, src)
     queue = sli.count("queue_wait", at(minutes=2), at(minutes=3), src)
 
-    assert (unknown.good, unknown.valid) == (1, 3)
+    assert (unknown.good, unknown.valid) == (1, 4)
     assert sorted(unknown.bad_at) == sorted([slo_iso(t + timedelta(minutes=10)),
+                                             slo_iso(t + timedelta(minutes=10)),
                                              slo_iso(t + timedelta(minutes=10, seconds=1))])
     assert (queue.good, queue.valid) == (1, 4)
     assert set(queue.bad_at) == {slo_iso(at(minutes=2, seconds=30))}
@@ -153,9 +163,11 @@ def test_end_to_end_handoff_sli_is_event_based(rows):
     rows.event(at(seconds=150), "u1", "handed_off")  # 接不上
     rows.task("n1", at(seconds=400))
     rows.event(at(seconds=300), "n1", "handed_off")  # 時鐘異常
+    rows.task("e1", at(seconds=30))
+    rows.event(at(seconds=150), "e1", "handed_off")  # 剛好 120 秒:不超過上限,算好
     tally = sli.count("end_to_end_handoff", at(0), at(minutes=10), sources(rows))
 
-    assert (tally.good, tally.valid) == (2, 3)
+    assert (tally.good, tally.valid) == (3, 4)
     assert (tally.unlinked, tally.clock_anomaly) == (1, 1)
 
 
@@ -235,6 +247,13 @@ def test_a_single_zero_target_violation_fires_for_the_whole_period():
     later = status(slo.evaluate(NOW, counter=Planned({(name, period): Tally(100, 100)})), name)
     assert later.violating is False  # 壞事件滑出週期之後
 
+    # 代碼審第 1 輪:已證實的違規優先;只有沒看到壞事件、又有子窗缺資料才回空
+    partly = Planned({(name, period): Tally(99, 100, bad_at=(bad_at,), missing=True)})
+    result = status(slo.evaluate(NOW, counter=partly), name)
+    assert result.violating is True and result.missing is True
+    blind = Planned({(name, period): Tally(100, 100, missing=True)})
+    assert status(slo.evaluate(NOW, counter=blind), name).violating is None
+
 
 # ---- [S662] ----
 def test_the_burn_evaluator_reads_only(rows):
@@ -292,3 +311,100 @@ def test_the_period_is_summed_from_day_sized_windows():
 
     assert slo.period_tally("safe_completion", end, slo.PERIOD, counter).valid == 3
     assert len(slo.period_windows(end, slo.scaled(slo.PERIOD))) == 1
+
+
+# ---- 代碼審第 1 輪 ----
+def test_an_unstable_cross_database_read_is_reported(rows, monkeypatch):
+    """端到端交給執行三輪讀到的都不同:照樣回最後一輪,但標明不穩定;評估器與命令列入口對外揭露。"""
+    rounds = iter([((("a", True),), 0, 0), ((("b", True),), 0, 0), ((("c", False),), 0, 0)])
+    monkeypatch.setattr(sli, "_handoff_round", lambda *_args: next(rounds))
+    tally = sli.count("end_to_end_handoff", at(0), at(minutes=10), sources(rows))
+    assert tally.stable is False and (tally.good, tally.valid) == (0, 1)  # 最後一輪
+
+    same = iter([((("a", True),), 0, 0)] * 2)
+    monkeypatch.setattr(sli, "_handoff_round", lambda *_args: next(same))
+    assert sli.count("end_to_end_handoff", at(0), at(minutes=10), sources(rows)).stable is True
+
+    shaky = Planned({("end_to_end_handoff", lengths()["period"]): Tally(1, 1, stable=False)})
+    result = slo.evaluate(NOW, counter=shaky)
+    assert status(result, "end_to_end_handoff").stable is False
+    assert all(s.stable for s in result if s.name != "end_to_end_handoff")
+
+    endless = iter(range(10**6))
+    monkeypatch.setattr(sli, "_handoff_round", lambda *_args: ((), next(endless), 0))
+    code = slo.run(_cli_args(rows, "http://127.0.0.1:9"), out=io.StringIO(),
+                   err=io.StringIO(), environ={})
+    assert code == slo.EXIT_UNSTABLE
+
+
+def test_one_unreadable_slo_does_not_hide_the_others():
+    """一條指標算不出來(例:讀不到),只有那一條標資料來源缺,另外五條照算。"""
+    def counter(name, _since, _until):
+        if name == "queue_wait":
+            raise RuntimeError("boom")
+        return Tally(10, 10)
+
+    result = slo.evaluate(NOW, counter=counter)
+    assert len(result) == len(slo.SLOS)
+    broken = status(result, "queue_wait")
+    assert broken.missing is True and "RuntimeError" in (broken.error or "")
+    assert all(not s.missing and s.period_valid == 10 for s in result if s.name != "queue_wait")
+
+    def no_database(_name, _since, _until):
+        raise FileNotFoundError("nope.db")
+
+    with pytest.raises(FileNotFoundError):  # 整份評估的設定錯誤照樣往外丟,給命令列回結束代碼
+        slo.evaluate(NOW, counter=no_database)
+
+
+def _cli_args(rows, dsp_url, executor_db=None):
+    return ["--executor-db", str(executor_db or rows.executor_db),
+            "--analyzer-db", str(rows.analyzer_db), "--dsp-url", dsp_url,
+            "--dsp-timeout-seconds", "0.5", "--now", NOW.isoformat()]
+
+
+CLI_KEY = "audit-" + "k" * 32
+
+
+@pytest.fixture
+def dsp_url(tmp_path):
+    """帶唯讀稽核金鑰 CLI_KEY 的真 DSP(空的操作紀錄)。"""
+    dsp_db = tmp_path / "dsp.db"
+    CampaignStore(dsp_db).close()
+    server = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
+                       audit_key=CLI_KEY.encode())
+    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
+
+
+def _printed(rows, url, environ):
+    """跑一次命令列入口(應該成功),回每條指標印出來的狀態。"""
+    out = io.StringIO()
+    assert slo.run(_cli_args(rows, url), out=out, err=io.StringIO(), environ=environ) == slo.EXIT_OK
+    return {s["name"]: s for s in json.loads(out.getvalue())["slos"]}
+
+
+def test_the_command_line_reports_fixed_exit_codes(rows, tmp_path, dsp_url):
+    """命令列入口用真資料庫、真的計數函式與真 DSP 走一次;稽核金鑰從環境讀。"""
+    rows.event(NOW - timedelta(minutes=5), "h1", "handed_off")
+    rows.event(NOW - timedelta(minutes=4), "b1", "expired")
+    rows.event(NOW - timedelta(hours=13), "old", "handed_off")  # 週期外
+    printed = _printed(rows, dsp_url, {AUDIT_KEY_ENV: CLI_KEY})
+    safe = printed["safe_completion"]
+    assert (safe["period_good"], safe["period_valid"], safe["period_bad"]) == (1, 2, 1)
+    assert printed["unauthorized_side_effects"]["missing"] is False  # 金鑰帶到了
+    assert printed["unauthorized_side_effects"]["violating"] is False
+    printed = _printed(rows, dsp_url, {})  # 沒金鑰:DSP 拒讀,照實標資料來源缺
+    assert printed["unauthorized_side_effects"]["missing"] is True
+
+    err = io.StringIO()
+    assert slo.run(_cli_args(rows, dsp_url, tmp_path / "nope.db"), out=io.StringIO(), err=err,
+                   environ={}) == slo.EXIT_NO_DATABASE
+    assert "找不到資料庫檔" in err.getvalue()
+    rows.executor.execute("DROP TABLE lifecycle_events")
+    err = io.StringIO()
+    assert slo.run(_cli_args(rows, dsp_url), out=io.StringIO(), err=err,
+                   environ={}) == slo.EXIT_NOT_UPGRADED
+    assert "請先啟動一次執行迴圈" in err.getvalue()

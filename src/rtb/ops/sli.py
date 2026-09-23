@@ -7,9 +7,10 @@
 - 安全完成率:窗內的終點事件;已交給執行與業務上該擋的擋下是好,死信、已過期、同一操作先前已失敗
   是壞。死信後重放再到終點,兩個終點事件各算一次。
 - 結果不明在期限內對帳完成:每把進過結果不明的鍵,事件時間 = min(結案, 第一次進結果不明 + 期限);
-  期限前轉人工的排除。
+  期限前轉人工的排除;期限當刻或之後轉人工是壞,之後的人工結案不覆寫。
 - 端到端交給執行:窗內每一個已交給執行的事件,從根任務在分析端建立算起,扣掉鏈上的人工核可等待與
-  死信等待,不超過上限是好;接不上根任務、算出負值的不計入、另報。跨兩個資料庫讀到兩輪相同為止。
+  死信等待,不超過上限是好;接不上根任務、算出負值的不計入、另報。跨兩個資料庫讀到兩輪相同為止,
+  三輪都不同回最後一輪並標不穩定。
 - 佇列等待:每份收件的提案,事件時間 = min(第一次取件, 收件 + 期限)。
 - 未授權或違反護欄的副作用、重複有害副作用:見副作用核對模組。
 """
@@ -51,18 +52,20 @@ class Sources:
     analyzer_db: Path
     dsp_url: str
     dsp_timeout_seconds: float = 2.0
+    dsp_audit_key: str | None = None  # DSP 列操作端點的唯讀稽核金鑰;沒有就讀不到、照實標資料來源缺
 
 
 def _time(text: str) -> datetime:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
-def _tally(events: Iterable[tuple[str, bool]], unlinked: int = 0, clock_anomaly: int = 0) -> Tally:
+def _tally(events: Iterable[tuple[str, bool]], unlinked: int = 0, clock_anomaly: int = 0,
+           stable: bool = True) -> Tally:
     """(事件時間, 是不是好事件) -> 計數;壞事件留下時間(目標為零的一條要報最近一個)。"""
     found = list(events)
     return Tally(sum(good for _, good in found), len(found),
                  tuple(at for at, good in found if not good), unlinked=unlinked,
-                 clock_anomaly=clock_anomaly)
+                 clock_anomaly=clock_anomaly, stable=stable)
 
 
 # ---- 安全完成率 ----
@@ -86,7 +89,9 @@ def safe_completion(since: datetime, until: datetime, sources: Sources) -> Tally
 
 # ---- 結果不明在期限內對帳完成 ----
 def _reconciled(history: Sequence[AttemptRow]) -> tuple[datetime, bool] | None:
-    """一把鍵的事件:(事件時間, 好不好);期限前轉人工的排除回空。"""
+    """一把鍵的事件:(事件時間, 好不好);期限前轉人工的排除回空。期限當刻轉人工是壞事件(記在期限
+    那一刻),之後同刻或更晚的人工結案不覆寫(代碼審第 1 輪:原本只判「小於期限」,期限當刻轉人工再
+    同刻結案會被算成好)。"""
     unknown = next((r for r in history if r.state == AttemptState.UNKNOWN), None)
     if unknown is None:
         return None
@@ -94,8 +99,10 @@ def _reconciled(history: Sequence[AttemptRow]) -> tuple[datetime, bool] | None:
     for row in history:
         if row.written_at > deadline:
             break
-        if row.state == AttemptState.ESCALATED and row.written_at < deadline:
-            return None  # 期限前已交給人,不是對帳慢
+        if row.state == AttemptState.ESCALATED:
+            if row.written_at < deadline:
+                return None  # 期限前已交給人,不是對帳慢
+            return deadline, False  # 期限當刻才交給人:期限已到還沒結案
         if row.state in (AttemptState.VERIFIED, AttemptState.FAILED):
             return row.written_at, True  # 剛好在期限那一刻結案也算好
     return deadline, False  # 期限那一刻還沒結案:壞事件記在期限那一刻,之後結案也不改
@@ -224,27 +231,29 @@ def _handoff_round(
 
 
 def end_to_end_handoff(since: datetime, until: datetime, sources: Sources) -> Tally:
-    """跨兩個資料庫:每輪重開快照,兩輪相同才回;三輪都不同回最後一輪(計數照實,不另外標)。"""
-    previous = None
+    """跨兩個資料庫:每輪重開快照,兩輪相同才回;三輪都不同回最後一輪並標不穩定(比照追蹤檢視與
+    指標;代碼審第 1 輪)。"""
+    previous, stable = None, False
     for _ in range(MAX_ROUNDS):
         current = _handoff_round(since, until, sources)
         if current == previous:
+            stable = True
             break
         previous = current
     assert previous is not None  # noqa: S101 - 至少讀過一輪
     events, unlinked, anomalies = previous
-    return _tally(events, unlinked=unlinked, clock_anomaly=anomalies)
+    return _tally(events, unlinked=unlinked, clock_anomaly=anomalies, stable=stable)
 
 
 # ---- 目標為零的兩條 ----
 def unauthorized_side_effects(since: datetime, until: datetime, sources: Sources) -> Tally:
     return side_effects.unauthorized(since, until, sources.executor_db, sources.dsp_url,
-                                     sources.dsp_timeout_seconds)
+                                     sources.dsp_timeout_seconds, sources.dsp_audit_key)
 
 
 def harmful_duplicates(since: datetime, until: datetime, sources: Sources) -> Tally:
     return side_effects.duplicates(since, until, sources.executor_db, sources.dsp_url,
-                                   sources.dsp_timeout_seconds)
+                                   sources.dsp_timeout_seconds, sources.dsp_audit_key)
 
 
 COUNTERS: Mapping[str, Callable[[datetime, datetime, Sources], Tally]] = {

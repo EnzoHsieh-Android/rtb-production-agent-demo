@@ -8,6 +8,7 @@
 """
 
 import argparse
+import hmac
 import os
 import re
 import time
@@ -18,8 +19,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from rtb.capabilitykit import AUDIT_KEY_ENV, is_usable_key, read_key
 from rtb.capabilitykit import HEADER as CAPABILITY_HEADER
-from rtb.capabilitykit import read_key
 from rtb.dsp.capability import (
     WriteRequest,
     check_body_fields,
@@ -43,7 +44,13 @@ from rtb.dsp.errors import (
     ValidationRejected,
     VersionConflict,
 )
-from rtb.dsp.store import CampaignStore, Operation, validate, validate_key_and_version
+from rtb.dsp.store import (
+    SQLITE_INTEGER_MAX,
+    CampaignStore,
+    Operation,
+    validate,
+    validate_key_and_version,
+)
 from rtb.httpkit import (
     SOCKET_TIMEOUT_SECONDS,
     JsonHandler,
@@ -78,7 +85,7 @@ ERROR_TABLE = {
     CapabilityExpired: (401, "capability_expired", False),
     CapabilityScopeMismatch: (403, "capability_scope_mismatch", False),
 }
-MAX_CURSOR_DIGITS = 19  # 游標是 SQLite 整數(最大 19 位數);更長的不收
+MAX_CURSOR_DIGITS = 19  # 游標是 SQLite 整數(最大 19 位數);更長的不收,轉整數後再比上限
 ROUTES = [
     ("GET", re.compile(r"^/campaigns/([^/]+)$"), "get_campaign"),
     ("GET", re.compile(r"^/campaigns/([^/]+)/history$"), "get_history"),
@@ -156,10 +163,28 @@ class DspHandler(JsonHandler):
             raise RequestRejected(404, "operation_not_found")
         return asdict(result)
 
+    def _require_audit_key(self) -> None:
+        """列操作兩支端點回全租戶的明細(含租戶、預算、冪等鍵),只給帶唯讀稽核金鑰的讀(Phase 9
+        增量 3 代碼審,代使用者裁定)。金鑰放在能力憑證那個標頭,原樣比對、固定時間。
+
+        不沿用寫入憑證的驗證:那套聲明綁一個廣告、一把冪等鍵、一個寫入動作,又是用簽發金鑰簽的;
+        維運套件要能簽,就得拿到能簽寫入憑證的那一把。所以另給一把只開這兩支端點的金鑰。
+        DSP 沒設這把金鑰就一律拒收(比照寫入沒設簽發金鑰);既有依鍵、依廣告的唯讀端點不變。"""
+        expected = self.server.audit_key
+        if not is_usable_key(expected):
+            raise RequestRejected(503, "audit_not_configured")
+        assert expected is not None  # is_usable_key 已確認  # noqa: S101
+        presented = self.single_header(CAPABILITY_HEADER)
+        if presented is None:
+            raise RequestRejected(401, "audit_key_missing")
+        if not hmac.compare_digest(presented.encode("utf-8", "surrogateescape"), expected):
+            raise RequestRejected(403, "audit_key_invalid")
+
     def _get_operation_cursor(
         self, store: CampaignStore, since: str, _fault: str | None
     ) -> dict[str, Any]:
         """提交時間大於等於這個時間的第一筆之前的最後一個操作編號(時間要帶時區)。"""
+        self._require_audit_key()
         try:
             moment = datetime.fromisoformat(unquote(since))
         except ValueError as exc:
@@ -171,10 +196,16 @@ class DspHandler(JsonHandler):
     def _get_operations_after(
         self, store: CampaignStore, cursor: str, _fault: str | None
     ) -> dict[str, Any]:
-        """操作編號大於游標的操作,一次最多一頁,回下一頁的游標(沒有下一頁為空)。"""
-        if not cursor.isdigit() or len(cursor) > MAX_CURSOR_DIGITS:
+        """操作編號大於游標的操作,一次最多一頁,回下一頁的游標(沒有下一頁為空)。游標只收十進位
+        數字(isdecimal:上標、圈碼數字 isdigit 會收、int 不收),轉整數後不得超過 SQLite 整數上限
+        (19 位數可以超過),都回 400 invalid_cursor,不讓它變成 500(代碼審第 1 輪)。"""
+        self._require_audit_key()
+        if not cursor.isdecimal() or len(cursor) > MAX_CURSOR_DIGITS:
             raise RequestRejected(400, "invalid_cursor")
-        operations, following = store.operations_after(int(cursor))
+        value = int(cursor)
+        if value > SQLITE_INTEGER_MAX:
+            raise RequestRejected(400, "invalid_cursor")
+        operations, following = store.operations_after(value)
         return {"operations": operations, "next": following}
 
     # ---- 寫入介面 ----
@@ -273,11 +304,13 @@ class DspServer(KitServer):
                  delay_seconds: float, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
                  socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS,
                  capability_key: bytes | None = None,
-                 clock: Callable[[], float] = time.time):
-        """capability_key 由啟動程式讀好傳進來;伺服器物件本身不讀環境變數。沒給就拒收所有寫入。"""
+                 clock: Callable[[], float] = time.time, audit_key: bytes | None = None):
+        """capability_key 與 audit_key 由啟動程式讀好傳進來;伺服器物件本身不讀環境變數。
+        capability_key 沒給就拒收所有寫入;audit_key 沒給就拒收列操作兩支端點。"""
         super().__init__(DspHandler, socket_timeout_seconds, fault_injection=fault_injection)
         self.db_path = db_path
         self.capability_key, self.clock = capability_key, clock
+        self.audit_key = audit_key
         self.hang_seconds, self.delay_seconds = hang_seconds, delay_seconds
         self.busy_timeout_seconds = busy_timeout_seconds
 
@@ -294,7 +327,8 @@ def main(argv: list[str] | None = None) -> None:
     CampaignStore(args.db).close()  # 確保資料庫與表已建立
     server = DspServer(args.db, args.fault_injection, args.hang_seconds, args.delay_seconds,
                        args.busy_timeout_seconds, args.socket_timeout_seconds,
-                       capability_key=read_key(os.environ))  # 只有啟動程式讀環境變數
+                       capability_key=read_key(os.environ),  # 只有啟動程式讀環境變數
+                       audit_key=read_key(os.environ, AUDIT_KEY_ENV))
     print(f"PORT={server.server_address[1]}", flush=True)
     try:
         server.serve_forever()

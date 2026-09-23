@@ -9,6 +9,13 @@
 - 讀取順序:先讀 DSP 的窗,再開執行端的唯讀快照。執行端在呼叫 DSP 之前就提交了第一列,所以 DSP
   看得到的每一筆執行端寫入,之後開的快照一定看得到它的第一列;反過來會把正常寫入誤判成沒經過開始
   一筆。執行端一律用擁有模組的批量讀取函式,不逐筆查。
+- 穩定與否:不像端到端交給執行那樣讀到兩輪相同為止,計數恆標穩定。理由是上面的因果順序:要核對
+  的只有「DSP 窗內的寫入」配「它們的第一列與核可使用」,第一列與核可使用都在呼叫 DSP 之前提交、之後
+  不改,所以讀 DSP 之後才開的快照對這些寫入一定讀得全,重讀一輪答案一樣;讀取期間新提交的寫入不在
+  這次讀到的 DSP 窗裡,不影響這次的答案(代碼審第 1 輪架構席)。
+- DSP 回應是不可信輸入:讀不到、狀態碼不對、欄位或提交時間讀不懂,一律轉成 DspUnreadable,這一條
+  回資料來源缺,不讓例外穿出去拖垮其他指標。
+- 列操作兩支端點要帶唯讀稽核金鑰(放在能力憑證標頭);沒帶或帶錯 DSP 拒讀,照實回資料來源缺。
 """
 
 import re
@@ -24,7 +31,7 @@ from rtb.domain.proposal import ActionType, content_hash
 from rtb.executor import attempt_store
 from rtb.executor.attempt_store import FirstRow
 from rtb.executor.inbox_store import BlockCode, ReadOnlyInbox
-from rtb.httpclient import request_json
+from rtb.httpclient import ClientHeader, request_json
 
 EXECUTOR_KEY = re.compile(r"k1-[0-9a-f]{64}")  # 執行端的冪等鍵格式;別的寫入者直接改 DSP 不算
 MAX_PAGES = 20_000  # 翻頁上限:防 DSP 回應有誤時無限翻下去(一頁 50 筆,約 100 萬筆操作)
@@ -60,7 +67,8 @@ class DspWrite:
 @dataclass(frozen=True)
 class Tally:
     """一個窗的計數:好事件、有效事件、每個壞事件的時間,另報無法核對、接不上、時鐘異常的份數。
-    missing 為真:資料來源讀不到,這個窗沒算(不是 0 個事件)。"""
+    missing 為真:資料來源讀不到,這個窗沒算(不是 0 個事件)。stable 為假:跨資料庫讀了三輪都
+    不同,回的是最後一輪(比照追蹤檢視與指標的穩定欄;只有端到端交給執行會是假)。"""
 
     good: int
     valid: int
@@ -69,6 +77,7 @@ class Tally:
     unlinked: int = 0
     clock_anomaly: int = 0
     missing: bool = False
+    stable: bool = True
 
     @property
     def bad(self) -> int:
@@ -94,8 +103,8 @@ def _scope_violations(entry: DspWrite, first: FirstRow) -> tuple[list[str], list
     proposal = first.proposal
     bad: list[str] = []
     missing: list[str] = []
-    if proposal is None:
-        return bad, ["snapshot"]
+    if proposal is None or not first.snapshot_matches_key:
+        return bad, ["snapshot"]  # 快照讀不回來或對不上鍵:不能拿來當授權範圍
     wanted_budget = proposal.requested_change.get("new_budget")
     if entry.campaign_id != proposal.campaign_id:
         bad.append("campaign")
@@ -103,16 +112,16 @@ def _scope_violations(entry: DspWrite, first: FirstRow) -> tuple[list[str], list
         bad.append("action")
     if proposal.action_type is ActionType.UPDATE_BUDGET and entry.new_budget != wanted_budget:
         bad.append("new_budget")
-    if entry.expected_version != proposal.campaign_version_observed:
-        bad.append("expected_version")
-    if first.tenant is None or entry.tenant is None:
-        missing.append("tenant")
-    elif entry.tenant != first.tenant:
-        bad.append("tenant")
-    if entry.policy_version is None:
-        missing.append("policy_version")
-    elif entry.policy_version != proposal.policy_version:
-        bad.append("policy_version")
+    # 可能沒記的三項:任一邊為空是缺材料,兩邊都有才比。預期版本與政策版本是 DSP 同一次補欄位加的,
+    # 舊操作兩者都空,一樣判缺材料(代碼審第 1 輪:預期版本原本空值也拿去比,判成證實違規)
+    for name, recorded, wanted in (
+            ("expected_version", entry.expected_version, proposal.campaign_version_observed),
+            ("tenant", entry.tenant, first.tenant),
+            ("policy_version", entry.policy_version, proposal.policy_version)):
+        if recorded is None or wanted is None:
+            missing.append(name)
+        elif recorded != wanted:
+            bad.append(name)
     return bad, missing
 
 
@@ -184,42 +193,59 @@ def tally_unauthorized(
 
 
 # ---- 讀 DSP ----
-def get_json(url: str, path: str, timeout: float) -> tuple[int, Any]:
-    """打 DSP 的唯讀端點(共用 HTTP 用戶端,只讀);連不上或讀不懂丟 DspUnreadable。"""
+def get_json(url: str, path: str, timeout: float,
+             audit_key: str | None = None) -> tuple[int, Any]:
+    """打 DSP 的唯讀端點(共用 HTTP 用戶端,只讀);連不上或讀不懂丟 DspUnreadable。列操作兩支端點
+    要帶唯讀稽核金鑰(放在能力憑證標頭);既有依鍵查的端點不用。"""
+    headers = None if audit_key is None else {ClientHeader.CAPABILITY: audit_key}
     try:
-        return request_json(f"{url.rstrip('/')}{path}", "GET", None, timeout)
+        return request_json(f"{url.rstrip('/')}{path}", "GET", None, timeout, headers)
     except (OSError, ValueError) as exc:
         raise DspUnreadable(str(exc)) from exc
+
+
+def commit_moment(text: object) -> datetime:
+    """DSP 回的提交時間:讀不懂或沒帶時區丟 DspUnreadable(沒帶時區拿去跟窗界比會直接丟例外)。"""
+    try:
+        moment = datetime.fromisoformat(str(text)) if isinstance(text, str) else None
+    except ValueError as exc:
+        raise DspUnreadable(f"提交時間讀不懂:{text!r}") from exc
+    if moment is None or moment.tzinfo is None:
+        raise DspUnreadable(f"提交時間讀不懂:{text!r}")
+    return moment
 
 
 def _write(entry: Any) -> DspWrite:
     if not isinstance(entry, dict):
         raise DspUnreadable("操作不是物件")
     try:
-        return DspWrite(int(entry["operation_id"]), str(entry["idempotency_key"]),
-                        str(entry["campaign_id"]), entry.get("tenant"), str(entry["action"]),
-                        entry.get("new_budget"), entry.get("expected_version"),
-                        str(entry["committed_at"]), entry.get("policy_version"))
+        written = DspWrite(int(entry["operation_id"]), str(entry["idempotency_key"]),
+                           str(entry["campaign_id"]), entry.get("tenant"), str(entry["action"]),
+                           entry.get("new_budget"), entry.get("expected_version"),
+                           str(entry["committed_at"]), entry.get("policy_version"))
     except (KeyError, TypeError, ValueError) as exc:
         raise DspUnreadable(f"操作欄位讀不懂:{exc!r}") from exc
+    commit_moment(entry["committed_at"])  # 在這裡就驗,後面的比較與換算不會再丟別的例外
+    return written
 
 
 def read_dsp_window(
-    url: str, since: datetime, until: datetime, timeout: float,
+    url: str, since: datetime, until: datetime, timeout: float, audit_key: str | None,
 ) -> tuple[DspWrite, ...]:
     """窗 [since, until) 內 DSP 提交的寫入:先取起點游標,再依編號翻頁,讀到提交時間大於等於終點
     就停。"""
-    status, body = get_json(url, f"/operations/since/{quote(since.isoformat(), safe='')}", timeout)
+    status, body = get_json(url, f"/operations/since/{quote(since.isoformat(), safe='')}",
+                            timeout, audit_key)
     if status != 200 or not isinstance(body, dict) or not isinstance(body.get("cursor"), int):
         raise DspUnreadable(f"游標端點回 {status}")
     cursor: int = body["cursor"]
     found: list[DspWrite] = []
     for _ in range(MAX_PAGES):
-        status, page = get_json(url, f"/operations/after/{cursor}", timeout)
+        status, page = get_json(url, f"/operations/after/{cursor}", timeout, audit_key)
         if status != 200 or not isinstance(page, dict) or not isinstance(
                 page.get("operations"), list):
             raise DspUnreadable(f"列操作端點回 {status}")
-        for entry in map(_write, page["operations"]):
+        for entry in map(_write, page["operations"]):  # 提交時間在 _write 已驗過帶時區
             if datetime.fromisoformat(entry.committed_at) >= until:
                 return tuple(found)
             if datetime.fromisoformat(entry.committed_at) >= since:
@@ -240,14 +266,17 @@ def _operation(url: str, key: str, timeout: float) -> tuple[str, int] | None:
         return None
     if status != 200 or not isinstance(body, dict):
         raise DspUnreadable(f"操作端點回 {status}")
-    return iso(str(body["committed_at"])), int(body["operation_id"])
+    try:
+        return iso(commit_moment(body.get("committed_at"))), int(body["operation_id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DspUnreadable(f"操作欄位讀不懂:{exc!r}") from exc
 
 
 # ---- 兩條服務水準指標 ----
 def unauthorized(since: datetime, until: datetime, executor_db: Path, dsp_url: str,
-                 timeout: float) -> Tally:
+                 timeout: float, audit_key: str | None) -> Tally:
     try:
-        writes = read_dsp_window(dsp_url, since, until, timeout)  # 先讀 DSP
+        writes = read_dsp_window(dsp_url, since, until, timeout, audit_key)  # 先讀 DSP
     except DspUnreadable:
         return Tally(0, 0, missing=True)
     keys = [w.key for w in writes if is_executor_key(w.key)]
@@ -268,15 +297,24 @@ def _identity(first: FirstRow) -> tuple[str, int, str] | None:
 
 
 def duplicates(since: datetime, until: datetime, executor_db: Path, dsp_url: str,
-               timeout: float) -> Tally:
+               timeout: float, audit_key: str | None) -> Tally:
     """同一份提案內容(任務、修訂、內容雜湊)在 DSP 的第二筆以及之後每一筆提交各算一個壞事件,依那
     一筆的提交時間歸窗;第一筆在窗外也算(用第一列往回查同一份提案的其他鍵,不限窗)。找不到第一列的
-    算無法核對。同一把鍵在窗內出現兩筆以上操作(DSP 有唯一限制,防禦性核對)也算壞。"""
+    算無法核對。同一把鍵在窗內出現兩筆以上操作(DSP 有唯一限制,防禦性核對)也算壞。讀窗與第二段
+    逐鍵查 DSP 任何一次讀不到,整條回資料來源缺(代碼審第 1 輪:第二段原本沒接)。"""
     try:
-        writes = [w for w in read_dsp_window(dsp_url, since, until, timeout)
+        writes = [w for w in read_dsp_window(dsp_url, since, until, timeout, audit_key)
                   if is_executor_key(w.key)]
+        firsts, siblings = _executor_side(executor_db, writes)
+        return _tally_duplicates(writes, firsts, siblings, dsp_url, timeout)
     except DspUnreadable:
         return Tally(0, 0, missing=True)
+
+
+def _executor_side(
+    executor_db: Path, writes: list[DspWrite],
+) -> tuple[dict[str, FirstRow], dict[tuple[str, int, str], list[str]]]:
+    """讀完 DSP 的窗之後才開執行端快照:這批寫入的第一列,與每份提案內容的所有鍵。"""
     inbox = ReadOnlyInbox(executor_db)
     try:
         with inbox.read_transaction() as tx:
@@ -289,13 +327,15 @@ def duplicates(since: datetime, until: datetime, executor_db: Path, dsp_url: str
                         tx, ident[0], ident[1]) if _identity(row) == ident]
     finally:
         inbox.close()
-    return _tally_duplicates(writes, firsts, siblings, dsp_url, timeout)
+    return firsts, siblings
 
 
 def _tally_duplicates(
     writes: list[DspWrite], firsts: Mapping[str, FirstRow],
     siblings: Mapping[tuple[str, int, str], list[str]], dsp_url: str, timeout: float,
 ) -> Tally:
+    """快照讀不回來的第一列不知道提案內容,算無法核對;快照讀得回來卻對不上它的鍵(資料異常):證實
+    有更早的同內容提交照樣判壞,證實不了就算無法核對。兩種都絕不算好事件(代碼審第 1 輪)。"""
     good = valid = unverifiable = 0
     bad_at, seen_keys = [], set()
     commits: dict[tuple[str, int, str], list[tuple[str, int]]] = {}
@@ -304,23 +344,27 @@ def _tally_duplicates(
         if first is None:
             unverifiable += 1
             continue
-        valid += 1
         own = (iso(entry.committed_at), entry.operation_id)
-        ident = _identity(first)
-        if entry.key in seen_keys:  # 同一把鍵第二筆操作
+        if entry.key in seen_keys:  # 同一把鍵第二筆操作:不用看快照就證實重複
+            valid += 1
             bad_at.append(own[0])
             continue
         seen_keys.add(entry.key)
+        ident = _identity(first)
         if ident is None:
-            good += 1
+            unverifiable += 1
             continue
         if ident not in commits:
             found = [_operation(dsp_url, key, timeout) for key in siblings.get(ident, [])
                      if key != entry.key]
             commits[ident] = [c for c in found if c is not None]
         if any(other < own for other in commits[ident]):
+            valid += 1
             bad_at.append(own[0])
-        else:
+        elif first.snapshot_matches_key:
+            valid += 1
             good += 1
+        else:
+            unverifiable += 1
         commits[ident].append(own)
     return Tally(good, valid, tuple(bad_at), unverifiable)

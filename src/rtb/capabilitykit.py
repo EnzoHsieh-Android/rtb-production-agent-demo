@@ -22,6 +22,9 @@ from typing import Any
 KEY_ENV = "RTB_CAPABILITY_KEY"  # 程式裡唯一出現這個名稱的地方(有測試擋)
 # 人工核可金鑰(Phase 6 增量 3):跟簽發金鑰分開,管理工具簽核可、執行迴圈驗核可;格式機制共用
 APPROVAL_KEY_ENV = "RTB_APPROVAL_KEY"  # 同上,程式裡唯一出現這個名稱的地方
+# 唯讀稽核金鑰(Phase 9 增量 3 代碼審,代使用者裁定):DSP 列操作兩支端點回全租戶明細,只給持有它的
+# 維運套件讀。跟簽發金鑰分開:維運套件拿不到能簽寫入憑證的那一把。不走簽章,DSP 用固定時間比對
+AUDIT_KEY_ENV = "RTB_DSP_AUDIT_KEY"  # 同上,程式裡唯一出現這個名稱的地方
 MIN_KEY_BYTES = 32  # 空字串或很短的金鑰也算得出簽章,但等於沒有防線
 MAX_TOKEN_CHARS = 2048
 HEADER = "X-Capability"

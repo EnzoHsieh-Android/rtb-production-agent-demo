@@ -75,12 +75,21 @@ def _moment(text: str) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
+def commit_text(moment: datetime) -> str:
+    """提交時間的固定寫法:換算成 UTC 的 isoformat(+00:00;微秒是 0 時省略)。寫入操作紀錄與依時間
+    找起點都用這一支,字串比較才等於時間比較(代碼審第 1 輪:時鐘可注入 -05:00 這種偏移,原樣存下
+    會讓字串順序跟時間順序對不上)。同一秒內省略微秒的那種寫法排在帶微秒的前面('+' 小於 '.'),
+    剛好也是時間順序;預設時鐘一直是這種寫法,所以既有資料不用搬。沒帶時區的當 UTC。"""
+    value = moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat()
+
+
 def operation_cursor_query(since: datetime) -> tuple[str, tuple[str]]:
     """依時間找起點的查詢語句(測試用它看查詢計畫):提交時間大於等於 since 的第一筆。提交時間跟
-    寫入時同一種寫法(UTC 的 isoformat),字串比較就是時間比較。"""
+    寫入時同一種寫法(commit_text),字串比較就是時間比較。"""
     return ("SELECT operation_id FROM operations WHERE committed_at >= ? "
             "ORDER BY committed_at, operation_id LIMIT 1",
-            (since.astimezone(UTC).isoformat(),))
+            (commit_text(since),))
 
 
 @dataclass(frozen=True)
@@ -407,12 +416,14 @@ class CampaignStore:
 
     def _not_before_last(self, reading: str) -> str:
         """提交時間取時鐘讀數與上一筆提交時間較大的那個(Phase 9 增量 3):依操作編號翻頁才等於依
-        時間翻頁。時鐘倒退時提交時間會被墊高到上一筆。在寫入交易裡讀,上一筆不會被別人插隊。"""
+        時間翻頁。時鐘倒退時提交時間會被墊高到上一筆。在寫入交易裡讀,上一筆不會被別人插隊。
+        回傳前統一成固定寫法(commit_text)。"""
+        moment = _moment(reading)
         row = self._conn.execute(
             "SELECT committed_at FROM operations ORDER BY operation_id DESC LIMIT 1").fetchone()
-        if row is None or _moment(row[0]) <= _moment(reading):
-            return reading
-        return str(row[0])
+        if row is not None and _moment(row[0]) > moment:
+            moment = _moment(row[0])
+        return commit_text(moment)
 
     def operation_cursor(self, since: datetime) -> int:
         """提交時間大於等於 since 的第一筆之前的最後一個操作編號;沒有更早的回 0,沒有任何一筆
