@@ -1,0 +1,699 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/可觀測查詢.md b/docs/rtb-production-agent-demo-knowledge/Systems/可觀測查詢.md
+index 6507746..a49f186 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/可觀測查詢.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/可觀測查詢.md
+@@ -5,21 +5,22 @@ created: 2026-09-23
+ updated: 2026-09-23
+ responsibility: 執行行程資料庫的唯讀可觀測查詢:總曝險停下次數、表滿延後份數、額度使用率、總曝險稽核明細(Phase 6 增量 4)。只讀不寫、不存計數器;不負責人工核可的查詢(增量 3 的核可模組)、告警與儀表板(Phase 9)
+ aliases: []
+ about_code:
+   - src/rtb/executor/observability.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: [2026-09-23] 交接文件 Phase 6 完成條件「總曝險擋下、人工審核與額度使用率可觀測」與事故 F7「稽核可說明哪些通過、哪些被阻擋及剩餘額度」;資料一律從停下紀錄表與嘗試紀錄讀,不另存計數器(另存會跟紀錄對不上)。出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 4。
+-  WHY: [2026-09-23] 放在獨立模組、不放收件口模組:增量 3 同時在大改收件口模組與執行迴圈,也讓依賴方向只有「這裡 → 嘗試紀錄模組」(主線同意的偏離,設計原本寫收件口模組)。
+-  RULE: 稽核明細的「通過的」與已用額度共用同一條逐列計入規則(嘗試紀錄模組的 `counted_amount`/`_counted`);「目前佔額度的」就是已用額度那份逐筆清單,加總一定等於已用。不准在這裡另寫一份計入規則。[since:2026-09-23] [retire:額度改由外部帳本計算時]
++  WHY: [2026-09-23] 放在獨立模組、不放收件口模組:增量 3 同時在大改收件口模組與執行迴圈(主線同意的偏離,設計原本寫收件口模組)。依賴方向是「這裡 → 收件口模組、嘗試紀錄模組」,那兩個模組都不依賴這裡。
++  RULE: 這裡不寫 SQL:停下紀錄走 [[Systems/提案收件口]] 的讀取方法(先核對交易是那個收件表開的),嘗試紀錄走 [[Systems/外部寫入嘗試紀錄]] 的函式。一張表只由擁有它的模組讀(代碼審第 1 輪架構席:第一版直接讀停下紀錄表,還在嘗試紀錄模組開了一支交出連線的函式)。[since:2026-09-23] [retire:改成統一的唯讀資料層時]
++  RULE: 稽核明細的「通過的」與已用額度共用同一條逐列計入規則(嘗試紀錄模組的 `_counted`);「目前佔額度的」就是已用額度那份逐筆清單,每一筆都帶任務、修訂等身分(代碼審第 1 輪兩席 Codex:第一版只帶鍵與金額),加總一定等於已用。不准在這裡另寫一份計入規則。[since:2026-09-23] [retire:額度改由外部帳本計算時]
+   RULE: 「現在」與門檻都由呼叫端傳入,不自己讀時鐘、不讀設定檔;兩支查詢要對帳就傳同一個「現在」。門檻 0 是合法設定,回「不准加預算」旗標,不讓呼叫端除以 0。[since:2026-09-23] [retire:額度窗口改成不依時間時]
+   PITFALL: [2026-09-23] 查詢計畫測試只看「有沒有用索引」會假綠:停下紀錄表的唯一限制以種類開頭,沒加本增量的索引時計畫照樣顯示用了索引,實際同種類全掃。測試改成斷言用到指定的索引名[test:test_observability_queries_use_their_indexes]。
+ ---
+ # 可觀測查詢
+ 
+ 本篇管 `src/rtb/executor/observability.py`:Phase 6 增量 4 的唯讀查詢。設計、合約(S360、S361、S363–S369、S380)與設計審三輪見 [[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 4 節;人工核可的查詢三(S362)隨增量 3 交付。
+ 
+ - 成本:停下次數、表滿延後、稽核明細的「被停下的」「通過的」有索引,成本跟範圍內筆數成正比;額度使用率與「目前佔額度的」沿用嘗試紀錄模組的已用額度查法,其中「還沒結案」那段會掃嘗試紀錄全表(100 萬列約 0.9 秒,握寫入鎖),是增量 1 既有的成本,這個增量不改(主線 2026-09-23 裁定,增量 3 之後另開一件處理)。
+-- 鎖:收的是執行行程資料庫交易入口開的交易(寫入交易),跟 Phase 5 的版本衝突次數同一種做法。現在只有人工與測試會呼叫;Phase 9 要做定時輪詢或告警時,先改成不握寫入鎖的讀法。
++- 鎖:收的是執行行程資料庫交易入口開的交易(寫入交易),跟 Phase 5 的版本衝突次數同一種做法。現在只有人工與測試會呼叫;Phase 9 要做定時輪詢或告警時,先改成不握寫入鎖的讀法,並一併決定稽核明細的時間範圍上限(現在不設上限,給極寬範圍會掃大段歷史;代碼審第 1 輪資安席)。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md b/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
+index 2e6e3e9..96e1455 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
+@@ -45,17 +45,17 @@ verified_by:
+ - 重啟恢復另一個必填參數「寫在這之前」:不在持有鍵裡的舊鍵,只轉最新一列寫在這個時間之前的(呼叫端傳現在減一個租約時間)。舊鍵對帳時也會先寫嘗試中再呼叫 DSP,剛寫下的可能有人正在做(代碼審第 2 輪外家席)。防回歸:[test:test_restart_recovery_leaves_a_freshly_written_legacy_attempt_alone]。
+ - 重啟恢復多一個必填的「持有鍵」參數:收件表有處理中訊息的鍵不轉(別的工作者正在做,或租約到期後由對帳原子接手),由呼叫端在同一個交易裡查好傳進來——這個模組不反過來依賴收件表模組。必填、沒有預設值,漏傳時不能悄悄退回「全部轉」的舊語意。防回歸:[test:test_restart_recovery_leaves_held_keys_alone_even_next_to_an_unreadable_key]、[test:test_restart_recovery_requires_the_held_keys]。出處:[[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3a。
+ 
+ ## 總曝險預留(Phase 6 增量 1,2026-09-23)
+ 
+ 設計與三輪設計審在 [[Projects/RTB_Phase6權限護欄與總曝險_計劃]]。這裡只記程式看不出的脈絡。
+ 
+ - 預留記在第一列的兩個補欄位(租戶、預留金額),不另開帳表;額度只從嘗試紀錄推:沒有終點的一直算(不論多久)、已驗證的看**驗證完成時間**在 24 小時內、失敗的不算。用預留時間當窗口會讓「開始一筆超過 24 小時才驗證成功」的寫入在驗證當下就出窗(設計審第 2 輪外家席)。
+ - Phase 6 之前的舊列不回填租戶與金額:回填租戶只能照現在的設定檔,廣告換過租戶就記錯帳。額度查詢遇到空值時,改預算以新預算全額算進每一個租戶(分不出加減,寧可多擋),暫停算 0。
+ - 額度查詢的新部分索引只用既有欄位(已驗證列、寫入時間):既有開庫順序是先跑整份建表建索引、後補欄位,索引參照新補的欄位會讓舊資料庫一開就失敗(設計審第 2 輪架構對齊席實測)。
+-- 已用額度拆成兩步(Phase 6 增量 4,2026-09-23):`aggregate_holdings` 列出目前計入的每一把鍵,`aggregate_used` 是它的加總;開始一筆照舊呼叫 `aggregate_used` 這個入口(既有並行測試靠攔截它造競態)。逐列計入規則還是 `_counted`,另給公開名字 `counted_amount` 讓 [[Systems/可觀測查詢]] 的稽核明細用同一條規則,不另寫一份。
++- 已用額度拆成兩步(Phase 6 增量 4,2026-09-23):`aggregate_holdings` 列出目前計入的每一把鍵,`aggregate_used` 是它的加總;開始一筆照舊呼叫 `aggregate_used` 這個入口(既有並行測試靠攔截它造競態)。逐列計入規則還是 `_counted`;[[Systems/可觀測查詢]] 要的第一列明細由這個模組的 `counted_first_rows_started`(範圍內開始)與 `counted_first_rows`(指定鍵)給,內部用同一條 `_counted`,不另寫一份,也不交出資料庫連線(代碼審第 1 輪架構席)。
+ - 可觀測查詢要的「第一列按租戶與開始時間」部分索引參照後補的租戶欄,所以**不放進建表語句**,由收件口模組的補欄位流程在補完欄位後建(建立語句與「缺不缺」的判斷在這個模組)。增量 1 開過的資料庫欄位已齊,補欄位流程原本只在缺欄位時才進交易,永遠補不到;判斷多了「這個索引不存在」才補得到(設計審第 3 輪補欄位席實測)。防回歸:[test:test_an_old_attempts_table_gains_the_tenant_index_after_the_column]。
+ - 測試要模擬 Phase 6 之前的資料庫(拿掉租戶欄)時,要先拿掉這個索引,否則拿不掉它參照的欄位。
+ - 加總在程式裡用整數累加:門檻與金額都能到整數上限,資料庫的整數加總會溢位。
+ - 租戶要在資料庫裡就過濾(這個租戶的列與沒有租戶的舊列),不把全系統的列撈進程式再篩:查詢在全域寫入鎖裡,多撈的列都是握鎖時間(代碼審第 2 輪資安席實測 30 萬列別家已驗證時,程式內過濾 405 毫秒、資料庫內 198 毫秒;後者仍要 JOIN 才知道租戶,是附回頭條件的已知成本)。
+ - 沒有終點那段要掃第一列找沒有終點的鍵,跟取件時「有未結案嘗試的廣告」查詢同形狀同成本;先用未結案計數判斷是不是 0。量測合約守住「不比取件查詢慢兩倍加 5 毫秒」。
+ REVISIT:2027-01-31 若量測顯示額度查詢或取件查詢隨歷史量明顯變慢,改成在開始一筆與結案的同一個交易裡維護一份未結案預留小表,換掉掃第一列。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+index dd7e51a..70634e4 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+@@ -77,11 +77,11 @@ REVISIT:2026-10-20 Phase 4 當機恢復測試時補上殺行程的版本。
+ - RULE: 延長租約、確認與嘗試寫入一律帶收據做條件寫入:處置是處理中、租約序號與擁有者相符、租約還沒到期,任何一項不符就更新 0 列。[since:2026-09-23] [retire:換成外部佇列軟體、由它負責租約時] 防回歸:[test:test_a_stale_or_expired_receipt_can_write_nothing]。
+ - RULE: 死信只打沒有任何嘗試紀錄的提案(結果不明的操作不計入重試上限、不得直接進死信,照 [[Projects/RTB_Agent_Phase0架構]] 的裁定)。[since:2026-09-23] [retire:同上] 防回歸:[test:test_an_unresolved_attempt_is_never_redelivered_or_dead_lettered]。
+ - PITFALL: 處置欄位的資料庫層限制(CHECK)加欄位改不了,要照 SQLite 官方步驟重建表;偵測時不能只看缺欄位,要看限制本身是不是舊的。防回歸:[test:test_an_old_inbox_database_migrates_to_four_dispositions_without_losing_data]。
+ - PITFALL: 同一個時間收到的提案依任務編號排序,測試要驗「先收到的先取」就得讓時鐘在兩次送件之間往前走,否則會被任務編號的字母順序蓋掉而假綠。出處:增量 1 實作時的變異檢查。
+ 
+ ## 總曝險已滿與停下紀錄表(Phase 6 增量 1,2026-09-23)
+ 
+ - 擋下原因多一個「總曝險已滿」;回給分析行程時併進「不允許」(比照權限類合併:分析行程不該能用重送試出剩餘額度)。
+ - 收件表要不要重建,改成逐一比對目前列舉的每一個處置與擋下原因是否都在資料庫層允許值清單裡;原本只看死信一個值,下次再加成員就看不出來(Phase 6 兩個增量的設計審各自指出)。列舉成員用過就不能拿掉:舊列記著它,重建時會撞允許值限制。
+ - 停下紀錄表由這個模組建表,記總曝險擋下與表滿延後;已用額度與門檻寫入時封頂在整數上限並標記,不然舊資料保守加總超過範圍會讓擋下交易整個回滾。
+-- 停下紀錄表有三個索引(租戶/種類/時間、廣告/種類/時間、種類/時間,Phase 6 增量 4),給 [[Systems/可觀測查詢]] 用;參照的欄位建表時就有,放在建表語句裡。補欄位流程進交易的條件多一項「嘗試紀錄按租戶的索引不存在」,補完欄位後建它(那個索引參照後補的租戶欄,見 [[Systems/外部寫入嘗試紀錄]])。
++- 停下紀錄表有兩個只讀方法 `stop_count`、`stops`(Phase 6 增量 4),給 [[Systems/可觀測查詢]] 用,開頭一樣先核對交易是這個收件表開的;別的模組不直接下 SQL 讀這張表(代碼審第 1 輪架構席)。停下紀錄表有三個索引(租戶/種類/時間、廣告/種類/時間、種類/時間,Phase 6 增量 4);參照的欄位建表時就有,放在建表語句裡。補欄位流程進交易的條件多一項「嘗試紀錄按租戶的索引不存在」,補完欄位後建它(那個索引參照後補的租戶欄,見 [[Systems/外部寫入嘗試紀錄]])。
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index defabd1..cc754b5 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -10,21 +10,21 @@
+ 之後開了別的交易,舊物件也不會復活。自己開的連線、自己開的延遲交易(不排隊搶寫入鎖)都不收。
+ 威脅模型是「防忘記、不防刻意繞過」:憑證擋的是善意重構時不小心繞過入口。這樣「取件與開始一筆」能放在同一個交易裡,並行檢查也一定在寫入鎖之內。
+ 
+ 未結案計數不逐把鍵回頭讀最新列:每把鍵恰好有一列序號 1(主鍵保證),結案的鍵恰好有一列終點列
+ (終點沒有出路,而且資料庫的唯一限制不准同一把鍵寫第二列終點列),所以「未結案數 = 第 1 列數 -
+ 終點列數」,兩個數都走部分索引。只看相減結果的正負擋不住毀損:會被另一把還沒結案的鍵抵銷。
+ """
+ 
+ import json
+ import sqlite3
+-from collections.abc import Collection, Sequence
++from collections.abc import Collection, Iterable, Sequence
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
+ from typing import Any
+ 
+ from rtb.domain._checks import is_aware, is_plain_int
+ from rtb.domain.attempt import (
+     RESOLUTION_OUTCOMES,
+     TERMINAL_STATES,
+     TIMEOUT_STATES,
+     AttemptState,
+@@ -189,30 +189,20 @@ class Begun:
+ def _require_aware(now: datetime) -> None:
+     if not is_aware(now):
+         raise ValueError("時間必須帶時區")
+ 
+ 
+ def _iso(moment: datetime) -> str:
+     _require_aware(moment)
+     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+ 
+ 
+-def iso(moment: datetime) -> str:
+-    """寫進嘗試紀錄與停下紀錄的時間格式(可觀測查詢拿來比範圍)。"""
+-    return _iso(moment)
+-
+-
+-def connection(tx: ExecutorTransaction) -> sqlite3.Connection:
+-    """同一個執行行程資料庫交易的連線,先核對交易仍開著(可觀測查詢讀停下紀錄表用)。"""
+-    return _conn(tx)
+-
+-
+ def _conn(tx: ExecutorTransaction) -> sqlite3.Connection:
+     if type(tx) is not ExecutorTransaction or not tx.is_open:
+         raise NotInTransaction("嘗試紀錄只能在執行行程資料庫交易入口開的交易裡讀寫")
+     return tx.conn
+ 
+ 
+ def _parse_time(text: str) -> datetime:
+     return datetime.fromisoformat(text.replace("Z", "+00:00"))
+ 
+ 
+@@ -409,24 +399,79 @@ def aggregate_holdings(tx: ExecutorTransaction, tenant: str, now: datetime) -> t
+         rows += conn.execute(
+             "SELECT f.key, f.tenant, f.reserved_amount, f.action, f.proposal_json FROM attempts f "  # noqa: S608 - 只拼接固定條件
+             "WHERE f.seq = 1 AND (f.tenant = ? OR f.tenant IS NULL) AND NOT EXISTS "
+             f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))",
+             (tenant,),
+         ).fetchall()
+     holdings = (Holding(key, _counted(rest, tenant), rest[0] is None) for key, *rest in rows)
+     return tuple(holding for holding in holdings if holding.amount > 0)
+ 
+ 
+-def counted_amount(row: Sequence[Any], tenant: str) -> int:
+-    """逐列計入規則:(租戶, 預留金額, 動作, 提案快照) 這一列算這個租戶多少。可觀測查詢的
+-    「通過的」用這個公開名字;已用額度內部呼叫 `_counted`,兩邊是同一支。"""
+-    return _counted(row, tenant)
++@dataclass(frozen=True)
++class CountedFirstRow:
++    """照逐列計入規則算進這個租戶的一把鍵的第一列(Phase 6 增量 4 可觀測查詢用)。"""
++
++    key: str
++    task_id: str | None
++    revision: int | None
++    campaign_id: str
++    started_at: str
++    amount: int
++    legacy: bool  # Phase 6 之前沒有租戶的舊列:照既有規則算進每一個租戶
++
++
++_FIRST_ROW_COLUMNS = ("key, task_id, revision, campaign_id, written_at, tenant, reserved_amount, "
++                      "action, proposal_json")
++
++
++def first_rows_started_query(
++    tenant: str, since: datetime, until: datetime,
++) -> tuple[str, tuple[Any, ...]]:
++    """範圍內開始、這個租戶或沒有租戶的舊列的第一列。拆成兩段合起來,兩段都用得上按租戶的索引
++    (寫成「租戶相符或租戶是空值」會讓索引用不上)。"""
++    start, end = _iso(since), _iso(until)
++    part = (f"SELECT {_FIRST_ROW_COLUMNS} FROM attempts WHERE seq = 1 AND {{}} "  # noqa: S608 - 只拼接固定條件
++            "AND written_at >= ? AND written_at < ?")
++    return (f"{part.format('tenant = ?')} UNION ALL {part.format('tenant IS NULL')}",
++            (tenant, start, end, start, end))
++
++
++def counted_first_rows_started(
++    tx: ExecutorTransaction, tenant: str, since: datetime, until: datetime,
++) -> tuple[CountedFirstRow, ...]:
++    """範圍內開始、照逐列計入規則金額大於 0 的鍵(不看 24 小時窗口),依開始時間排序。"""
++    sql, params = first_rows_started_query(tenant, since, until)
++    return _counted_rows(_conn(tx).execute(sql, params), tenant)
++
++
++def counted_first_rows(
++    tx: ExecutorTransaction, tenant: str, keys: Collection[str],
++) -> tuple[CountedFirstRow, ...]:
++    """指定鍵的第一列(目前佔額度的那幾把),依開始時間排序。"""
++    wanted = sorted(keys)
++    if not wanted:
++        return ()
++    marks = ", ".join("?" for _ in wanted)
++    rows = _conn(tx).execute(
++        f"SELECT {_FIRST_ROW_COLUMNS} FROM attempts WHERE seq = 1 AND key IN ({marks})",  # noqa: S608 - 只拼接佔位符
++        wanted)
++    return _counted_rows(rows, tenant)
++
++
++def _counted_rows(rows: Iterable[tuple[Any, ...]], tenant: str) -> tuple[CountedFirstRow, ...]:
++    counted = []
++    for key, task_id, revision, campaign_id, started_at, *rest in rows:
++        amount = _counted(rest, tenant)  # 跟已用額度同一條逐列計入規則,不另寫一份
++        if amount > 0:  # 減預算、暫停、別的租戶
++            counted.append(CountedFirstRow(key, task_id, revision, campaign_id, started_at,
++                                           amount, rest[0] is None))
++    return tuple(sorted(counted, key=lambda row: (row.started_at, row.key)))
+ 
+ 
+ def _counted(row: Sequence[Any], tenant: str) -> int:
+     owner, amount, action, snapshot = row
+     if owner is not None:
+         return int(amount) if owner == tenant and amount is not None else 0
+     if action != "update_budget":  # 舊列:暫停不佔額度
+         return 0
+     try:
+         budget = json.loads(snapshot)["requested_change"]["new_budget"]
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 6e13eaf..95b6989 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -705,20 +705,43 @@ class InboxStore:
+             "AND (lease_until <= ? OR lease_owner = ?)",
+             (owner, _iso(now + VISIBILITY_TIMEOUT), message.task_id, message.revision,
+              message.content_hash, _iso(now), owner))
+         if cursor.rowcount != 1:
+             return None
+         seq = self._conn.execute(
+             "SELECT lease_seq FROM proposals WHERE task_id = ? AND revision = ?",
+             (message.task_id, message.revision)).fetchone()[0]
+         return Receipt(message.task_id, message.revision, message.content_hash, owner, int(seq))
+ 
++    def stop_count(
++        self, tx: attempt_store.ExecutorTransaction, kind: StopKind, *, tenant: str | None = None,
++        campaign_id: str | None = None, since: datetime | None = None,
++        until: datetime | None = None,
++    ) -> int:
++        """停下紀錄計數(Phase 6 增量 4 可觀測查詢用);時間範圍包含起點、不包含終點。"""
++        self._own(tx)
++        sql, params = stop_count_query(kind, tenant=tenant, campaign_id=campaign_id,
++                                       since=since, until=until)
++        return int(self._conn.execute(sql, params).fetchone()[0])
++
++    def stops(
++        self, tx: attempt_store.ExecutorTransaction, kind: StopKind, tenant: str,
++        since: datetime, until: datetime,
++    ) -> tuple[tuple[object, ...], ...]:
++        """某租戶在時間範圍內的停下紀錄,依時間排序:(冪等鍵, 任務, 修訂, 內容雜湊, 廣告, 金額,
++        當時已用, 當時門檻, 時間)。已用與門檻在沒有額度快照的種類是空值。"""
++        self._own(tx)
++        return tuple(self._conn.execute(
++            "SELECT key, task_id, revision, content_hash, campaign_id, amount, used, cap, at "
++            "FROM write_stops WHERE kind = ? AND tenant = ? AND at >= ? AND at < ? "
++            "ORDER BY at, id", (kind.value, tenant, _iso(since), _iso(until))))
++
+     def record_event(self, code: str, proposal: Proposal, now: datetime) -> None:
+         """盡力而為:寫不進去(忙碌、磁碟滿)就放棄,不影響對呼叫者的回應。
+ 
+         只記「格式合法的提案被拒收」:格式不合法的請求不記,不然任何人都能用垃圾請求沖掉紀錄。
+         跟最近一筆完全相同的事件不重複記,同一個拒收重複很多次只留一筆。
+         """
+         if code not in EVENT_CODES:
+             raise ValueError("事件代碼必須是封閉列舉的成員")
+         try:
+             self._write_event(_iso(now), proposal.task_id, proposal.revision, code,
+@@ -737,20 +760,35 @@ class InboxStore:
+                 return
+             self._conn.execute(
+                 "INSERT INTO inbox_events (at, task_id, revision, code, content_hash) "
+                 "VALUES (?, ?, ?, ?, ?)", (at, task_id, revision, code, digest))
+             self._conn.execute(  # 每種代碼只留最新的幾筆,在同一個交易內刪除更舊的
+                 "DELETE FROM inbox_events WHERE code = ? AND id NOT IN "
+                 "(SELECT id FROM inbox_events WHERE code = ? ORDER BY id DESC LIMIT ?)",
+                 (code, code, MAX_EVENTS_PER_CODE))
+ 
+ 
++def stop_count_query(
++    kind: StopKind, *, tenant: str | None = None, campaign_id: str | None = None,
++    since: datetime | None = None, until: datetime | None = None,
++) -> tuple[str, tuple[object, ...]]:
++    """停下紀錄計數的查詢語句(測試用它看查詢計畫);篩選值一律走參數,只拼接固定條件。"""
++    where, params = ["kind = ?"], [kind.value]
++    for clause, value in (("tenant = ?", tenant), ("campaign_id = ?", campaign_id),
++                          ("at >= ?", None if since is None else _iso(since)),
++                          ("at < ?", None if until is None else _iso(until))):
++        if value is not None:
++            where.append(clause)
++            params.append(value)
++    return f"SELECT count(*) FROM write_stops WHERE {' AND '.join(where)}", tuple(params)  # noqa: S608 - 只拼接固定條件
++
++
+ def _parse_payload(payload: str) -> Proposal | None:
+     """存的內容讀不回提案就當沒有(不讓一列壞資料卡住全部)。"""
+     try:
+         return parse_proposal(json.loads(payload)).proposal
+     except ValueError:
+         return None
+ 
+ 
+ def _payload(proposal: Proposal) -> str:
+     return json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True)
+diff --git a/src/rtb/executor/observability.py b/src/rtb/executor/observability.py
+index d5697a6..37305ff 100644
+--- a/src/rtb/executor/observability.py
++++ b/src/rtb/executor/observability.py
+@@ -1,33 +1,32 @@
+ """可觀測的唯讀查詢(Phase 6 增量 4):總曝險停下次數、表滿延後份數、額度使用率、總曝險稽核明細。
+ 
+-資料一律從既有的耐久紀錄讀——停下紀錄表(收件口模組建表)與嘗試紀錄——不另存計數器。每支都收
+-執行行程資料庫交易入口開的交易(會握寫入鎖,跟 Phase 5 的 `version_conflict_count` 同一種做法),
+-只讀不寫。放在獨立模組而不是收件口模組:依賴方向只有「這裡 → 嘗試紀錄模組」,不碰執行迴圈與收件口
+-模組(Phase 6 增量 3 同時在改那兩支)。人工核可的查詢三隨增量 3 交付。
++資料一律從既有的耐久紀錄讀——停下紀錄表與嘗試紀錄——不另存計數器。一張表只透過擁有它的模組讀:
++停下紀錄走收件口模組的方法(先核對交易是它開的),嘗試紀錄走嘗試紀錄模組的函式;這裡不寫 SQL
++(代碼審第 1 輪架構席)。每支都收執行行程資料庫交易入口開的交易(會握寫入鎖,跟 Phase 5 的
++`version_conflict_count` 同一種做法),只讀不寫。依賴方向只有「這裡 → 收件口模組、嘗試紀錄模組」,
++那兩個模組都不依賴這裡。人工核可的查詢三隨增量 3 交付。
++
++稽核明細的時間範圍不設上限:給極寬的範圍會掃大段歷史、握寫入鎖。目前只有人工與測試會呼叫;
++Phase 9 接告警或輪詢時要一併決定範圍上限與不握寫入鎖的讀法(代碼審第 1 輪資安席)。
+ 
+ 時間範圍一律包含起點、不包含終點;停下紀錄與嘗試紀錄的時間都寫成同一種固定格式的 UTC 字串,字串
+ 比較就是時間比較。「現在」與門檻都由呼叫端傳入:額度窗口依「現在」算,兩支查詢要對帳就傳同一個;
+ 門檻由呼叫端用簽發模組的 `load_tenants` 取得(那裡帶著設定檔的安全檢查)。
+ """
+ 
+ from dataclasses import dataclass
+ from datetime import datetime
+-from typing import Any
+ 
+ from rtb.executor import attempt_store
+-from rtb.executor.attempt_store import ExecutorTransaction, Holding
+-from rtb.executor.inbox_store import StopKind
+-
+-_STOP_COLUMNS = "key, task_id, revision, content_hash, campaign_id, amount, used, cap, at"
+-_FIRST_ROW_COLUMNS = ("key, task_id, revision, campaign_id, written_at, tenant, reserved_amount, "
+-                      "action, proposal_json")
++from rtb.executor.attempt_store import CountedFirstRow, ExecutorTransaction
++from rtb.executor.inbox_store import InboxStore, StopKind
+ 
+ 
+ @dataclass(frozen=True)
+ class Utilization:
+     """額度使用率:整數不回比例(整數到上限時浮點會失真)。門檻 0(設定檔缺這欄)是合法設定,
+     這時不准加預算、比例沒有定義,呼叫端看旗標,不要去除以 0。"""
+ 
+     used: int
+     limit: int
+     remaining: int
+@@ -41,112 +40,87 @@ class Stopped:
+     revision: int
+     content_hash: str
+     campaign_id: str
+     amount: int
+     used: int | None
+     limit: int | None
+     at: str
+ 
+ 
+ @dataclass(frozen=True)
+-class Passed:
+-    """照逐列計入規則算進這個租戶的一筆寫入。不看 24 小時窗口:counted_now 標明它現在還佔不佔
+-    額度;legacy 是 Phase 6 之前沒有租戶的舊列(照既有規則算進每一個租戶)。"""
++class Entry:
++    """一筆照逐列計入規則算進這個租戶的寫入:身分、計入金額、目前狀態、現在還佔不佔額度、是不是
++    Phase 6 之前沒有租戶的舊列(照既有規則算進每一個租戶)。"""
+ 
+     key: str
+     task_id: str | None
+     revision: int | None
+     campaign_id: str
+     amount: int
+     started_at: str
+     state: str
+     counted_now: bool
+     legacy: bool
+ 
+ 
+ @dataclass(frozen=True)
+ class AggregateAudit:
+-    stopped: tuple[Stopped, ...]
+-    passed: tuple[Passed, ...]
+-    holding: tuple[Holding, ...]  # 目前佔額度的每一把鍵,不受範圍限制;加總就是已用額度
++    stopped: tuple[Stopped, ...]  # 範圍內的總曝險停下(不含表滿延後、比例過大)
++    passed: tuple[Entry, ...]  # 範圍內開始、照計入規則算進的寫入,不看 24 小時窗口
++    holding: tuple[Entry, ...]  # 目前佔額度的每一筆,不受範圍限制;加總就是已用額度
+     utilization: Utilization
+ 
+ 
+-def stop_count_query(
+-    kind: StopKind, *, tenant: str | None = None, campaign_id: str | None = None,
+-    since: datetime | None = None, until: datetime | None = None,
+-) -> tuple[str, tuple[Any, ...]]:
+-    """停下紀錄計數的查詢語句(測試用它看查詢計畫)。"""
+-    where, params = ["kind = ?"], [kind.value]
+-    for clause, value in (("tenant = ?", tenant), ("campaign_id = ?", campaign_id),
+-                          ("at >= ?", _iso_or_none(since)), ("at < ?", _iso_or_none(until))):
+-        if value is not None:
+-            where.append(clause)
+-            params.append(value)
+-    return f"SELECT count(*) FROM write_stops WHERE {' AND '.join(where)}", tuple(params)  # noqa: S608 - 只拼接固定條件
+-
+-
+-def aggregate_stop_count(tx: ExecutorTransaction, **filters: Any) -> int:
++def aggregate_stop_count(
++    store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
++    campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
++) -> int:
+     """總曝險停下次數:被停下的次數,不是最後結果(增量 3 之後其中有些會被核可放行)。"""
+-    return _count(tx, StopKind.AGGREGATE_LIMIT_REACHED, filters)
++    return store.stop_count(tx, StopKind.AGGREGATE_LIMIT_REACHED, tenant=tenant,
++                            campaign_id=campaign_id, since=since, until=until)
+ 
+ 
+-def table_full_deferral_count(tx: ExecutorTransaction, **filters: Any) -> int:
++def table_full_deferral_count(
++    store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
++    campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
++) -> int:
+     """表滿延後次數:同一份提案同一種類只記一列,數的是「被延後過的提案份數」,不是延後事件次數。"""
+-    return _count(tx, StopKind.TABLE_FULL, filters)
+-
+-
+-def _count(tx: ExecutorTransaction, kind: StopKind, filters: dict[str, Any]) -> int:
+-    sql, params = stop_count_query(kind, **filters)
+-    return int(attempt_store.connection(tx).execute(sql, params).fetchone()[0])
++    return store.stop_count(tx, StopKind.TABLE_FULL, tenant=tenant, campaign_id=campaign_id,
++                            since=since, until=until)
+ 
+ 
+ def utilization(tx: ExecutorTransaction, tenant: str, limit: int, now: datetime) -> Utilization:
+     return _utilization(attempt_store.aggregate_used(tx, tenant, now), limit)
+ 
+ 
+ def _utilization(used: int, limit: int) -> Utilization:
+     return Utilization(used, limit, max(0, limit - used), limit > 0)
+ 
+ 
+-def passed_query(tenant: str, since: datetime, until: datetime) -> tuple[str, tuple[Any, ...]]:
+-    """範圍內開始、這個租戶或沒有租戶的舊列的第一列。拆成兩段合起來,兩段都用得上按租戶的索引
+-    (寫成「租戶相符或租戶是空值」會讓索引用不上)。"""
+-    start, end = _iso_or_none(since), _iso_or_none(until)
+-    part = (f"SELECT {_FIRST_ROW_COLUMNS} FROM attempts WHERE seq = 1 AND {{}} "  # noqa: S608 - 只拼接固定條件
+-            "AND written_at >= ? AND written_at < ?")
+-    sql = f"{part.format('tenant = ?')} UNION ALL {part.format('tenant IS NULL')}"
+-    return sql, (tenant, start, end, start, end)
+-
+-
+-def aggregate_audit(
+-    tx: ExecutorTransaction, tenant: str, limit: int, now: datetime,
++def aggregate_audit(  # noqa: PLR0913 - 收件表、交易、租戶、門檻、現在、範圍都是稽核必須的輸入
++    store: InboxStore, tx: ExecutorTransaction, tenant: str, limit: int, now: datetime,
+     since: datetime | None, until: datetime | None,
+ ) -> AggregateAudit:
+     """總曝險稽核明細(事故 F7「哪些通過、哪些被阻擋、剩餘多少」):四樣都用同一個傳入的「現在」。"""
+     if since is None or until is None:
+         raise ValueError("稽核明細一定要給時間範圍:停下紀錄表只增不改,不給範圍會整張撈出來")
+-    conn = attempt_store.connection(tx)
+-    stopped = tuple(Stopped(*row) for row in conn.execute(
+-        f"SELECT {_STOP_COLUMNS} FROM write_stops WHERE kind = ? AND tenant = ? "  # noqa: S608 - 只拼接固定欄位
+-        "AND at >= ? AND at < ? ORDER BY at, id",
+-        (StopKind.AGGREGATE_LIMIT_REACHED.value, tenant, _iso_or_none(since),
+-         _iso_or_none(until))))
+-    holding = attempt_store.aggregate_holdings(tx, tenant, now)
+-    counted = {entry.key for entry in holding}
+-    passed = []
+-    sql, params = passed_query(tenant, since, until)
+-    for key, task_id, revision, campaign_id, started_at, owner, *rest in conn.execute(sql, params):
+-        amount = attempt_store.counted_amount((owner, *rest), tenant)
+-        if amount <= 0:  # 減預算、暫停、別的租戶
+-            continue
+-        latest = attempt_store.latest(tx, key)
+-        state = "" if latest is None else latest.state.value
+-        passed.append(Passed(key, task_id, revision, campaign_id, amount, started_at, state,
+-                             key in counted, owner is None))
+-    passed.sort(key=lambda entry: (entry.started_at, entry.key))
+-    used = sum(entry.amount for entry in holding)
+-    return AggregateAudit(stopped, tuple(passed), holding, _utilization(used, limit))
+-
+-
+-def _iso_or_none(moment: datetime | None) -> str | None:
+-    return None if moment is None else attempt_store.iso(moment)
++    stopped = tuple(Stopped(*row) for row in store.stops(  # type: ignore[arg-type]
++        tx, StopKind.AGGREGATE_LIMIT_REACHED, tenant, since, until))
++    holdings = attempt_store.aggregate_holdings(tx, tenant, now)
++    counted = {holding.key for holding in holdings}
++    passed = attempt_store.counted_first_rows_started(tx, tenant, since, until)
++    holding = attempt_store.counted_first_rows(tx, tenant, counted)
++    used = sum(row.amount for row in holding)
++    return AggregateAudit(stopped, _entries(tx, passed, counted), _entries(tx, holding, counted),
++                          _utilization(used, limit))
++
++
++def _entries(
++    tx: ExecutorTransaction, rows: tuple[CountedFirstRow, ...], counted: set[str],
++) -> tuple[Entry, ...]:
++    entries = []
++    for row in rows:
++        latest = attempt_store.latest(tx, row.key)  # 目前狀態要另查最新一列
++        entries.append(Entry(row.key, row.task_id, row.revision, row.campaign_id, row.amount,
++                             row.started_at, "" if latest is None else latest.state.value,
++                             row.key in counted, row.legacy))
++    return tuple(entries)
+diff --git a/tests/executor/test_observability.py b/tests/executor/test_observability.py
+index be64fa6..df7fbf5 100644
+--- a/tests/executor/test_observability.py
++++ b/tests/executor/test_observability.py
+@@ -4,21 +4,21 @@
+ (停下紀錄表、嘗試紀錄),不另存計數器。人工核可的查詢三隨增量 3 交付,不在這裡。
+ """
+ 
+ import json
+ import sqlite3
+ from datetime import timedelta
+ 
+ import pytest
+ 
+ from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
+-from rtb.executor import attempt_store, observability
++from rtb.executor import attempt_store, inbox_store, observability
+ from rtb.executor.attempt_store import AGGREGATE_WINDOW, Reservation
+ from rtb.executor.execution import CampaignView
+ from rtb.executor.inbox_store import InboxStore, Stop, StopKind
+ from tests.executor.conftest import NOW
+ from tests.executor.fakes import Harness, proposal
+ 
+ A = AttemptState
+ C = OutcomeCode
+ TENANT, OTHER = "t-default", "someone-else"
+ EXPIRES = NOW + timedelta(minutes=2)
+@@ -48,21 +48,25 @@ def drive(store, row, path, now=NOW):
+ 
+ 
+ def stop(store, kind, now=NOW, tenant=TENANT, task="s1", campaign="c1"):
+     prop = proposal(task_id=task, campaign_id=campaign)
+     with store.transaction() as tx:
+         store.record_stop(tx, Stop(kind, prop, operation_key(prop), tenant, 10, 90, 100), now)
+     return prop
+ 
+ 
+ def read(store, query, *args, **kwargs):
++    """停下紀錄表歸收件口模組管:讀它的查詢要帶收件表物件(由它的方法核對交易是它開的)。"""
+     with store.transaction() as tx:
++        if query in (observability.aggregate_stop_count, observability.table_full_deferral_count,
++                     observability.aggregate_audit):
++            return query(store, tx, *args, **kwargs)
+         return query(tx, *args, **kwargs)
+ 
+ 
+ AGG, FULL = StopKind.AGGREGATE_LIMIT_REACHED, StopKind.TABLE_FULL
+ 
+ 
+ # ---- [S360] ----
+ def test_aggregate_stop_count_filters_by_tenant_campaign_and_time(store):
+     stop(store, AGG, NOW, task="a1")
+     stop(store, AGG, NOW + HOUR, task="a2", campaign="c2")
+@@ -98,21 +102,20 @@ def test_table_full_deferrals_count_proposals_not_events(store):
+     (50, 30, (50, 30, 0, True)),  # 剩餘小於 0 回 0
+     (50, 0, (50, 0, 0, False)),  # 門檻 0:不准加預算、不除以 0
+     (0, 0, (0, 0, 0, False)),
+ ])
+ def test_utilization_matches_the_reservation_ledger(store, reserved, limit, expected):
+     if reserved:
+         begin(store, proposal(), reservation=Reservation(TENANT, reserved, 10**9))
+     got = read(store, observability.utilization, TENANT, limit, NOW)
+ 
+     assert (got.used, got.limit, got.remaining, got.increases_allowed) == expected
+-    assert got.used == read(store, attempt_store.aggregate_used, TENANT, NOW)
+ 
+ 
+ def test_utilization_uses_the_given_now_for_the_window(store):
+     row = begin(store, proposal(), reservation=Reservation(TENANT, 50, 10**9))
+     drive(store, row, VERIFY)
+ 
+     edge = NOW + AGGREGATE_WINDOW
+     assert read(store, observability.utilization, TENANT, 100, edge).used == 50
+     assert read(store, observability.utilization, TENANT, 100,
+                 edge + timedelta(seconds=1)).used == 0
+@@ -152,23 +155,24 @@ def test_f7_is_explainable_with_the_observability_queries(tmp_path, clock):
+             "campaigns": ids, "max_budget": 1000, "aggregate_limit": 105}}}), encoding="utf-8")
+         for i, campaign in enumerate(ids):
+             h.store.accept(proposal(task_id=f"t{i}", campaign_id=campaign,
+                                     requested_change={"new_budget": 110}), h.clock)
+         while h.process().kind.value != "idle":
+             pass
+         now = h.clock()
+         started = {row[0] for row in h.query("SELECT key FROM attempts WHERE seq = 1")}
+ 
+         with h.store.transaction() as tx:
+-            stopped = observability.aggregate_stop_count(tx, tenant="acct")
++            stopped = observability.aggregate_stop_count(h.store, tx, tenant="acct")
+             use = observability.utilization(tx, "acct", 105, now)
+-            audit = observability.aggregate_audit(tx, "acct", 105, now, now - HOUR, now + HOUR)
++            audit = observability.aggregate_audit(h.store, tx, "acct", 105, now, now - HOUR,
++                                                  now + HOUR)
+ 
+         assert (stopped, use.used, use.remaining) == (20, 100, 5)
+         assert len(h.dsp.writes) == 10
+         assert {entry.key for entry in audit.passed} == started
+         assert len(audit.stopped) == 20 and not {e.key for e in audit.stopped} & started
+         assert sum(entry.amount for entry in audit.holding) == 100
+     finally:
+         h.close()
+ 
+ 
+@@ -181,21 +185,23 @@ def test_the_aggregate_audit_lists_what_passed_and_what_was_stopped(store):
+     stopped = stop(store, AGG, NOW + timedelta(minutes=5), task="a1", campaign="c4")
+     stop(store, FULL, NOW, task="f1", campaign="c5")  # 表滿延後不是阻擋
+     stop(store, AGG, NOW, task="a2", tenant=OTHER, campaign="c6")
+ 
+     audit = read(store, observability.aggregate_audit, TENANT, 100, NOW + 3 * HOUR,
+                  NOW, NOW + HOUR)
+ 
+     assert [(e.key, e.task_id, e.revision, e.amount, e.counted_now, e.legacy)
+             for e in audit.passed] == [(passed.key, "p1", 1, 50, True, False)]
+     assert [(e.key, e.task_id) for e in audit.stopped] == [(operation_key(stopped), "a1")]
+-    assert sorted(e.amount for e in audit.holding) == [20, 50]  # 不受範圍限制
++    # 不受範圍限制,而且每一筆都帶身分(代碼審第 1 輪兩席 Codex:原本只帶鍵與金額)
++    assert sorted((e.task_id, e.revision, e.amount, e.counted_now) for e in audit.holding) == [
++        ("late", 1, 20, True), ("p1", 1, 50, True)]
+     assert (audit.utilization.used, audit.utilization.remaining) == (70, 30)
+     with pytest.raises(ValueError, match="範圍"):
+         read(store, observability.aggregate_audit, TENANT, 100, NOW, None, NOW)
+ 
+ 
+ def test_the_audit_uses_one_now_for_the_window_edge(store):
+     row = begin(store, proposal(), NOW, Reservation(TENANT, 50, 10**9))
+     drive(store, row, VERIFY)
+     for moment, counted in ((NOW + AGGREGATE_WINDOW, True),
+                             (NOW + AGGREGATE_WINDOW + timedelta(seconds=1), False)):
+@@ -237,20 +243,22 @@ def _legacy_database(tmp_path):
+ 
+ 
+ def test_the_audit_reconciles_with_used_across_every_kind_of_row(tmp_path):
+     store = _legacy_database(tmp_path)
+     try:
+         audit = read(store, observability.aggregate_audit, TENANT, 10**6, NOW,
+                      NOW - 3 * AGGREGATE_WINDOW, NOW + HOUR)
+         passed = {e.task_id: (e.amount, e.counted_now, e.legacy) for e in audit.passed}
+ 
+         assert sum(e.amount for e in audit.holding) == 630  # 100 + 舊 30 + 舊 500
++        assert {e.task_id: e.legacy for e in audit.holding} == {
++            "up": False, "old-up": True, "old-down": True}
+         assert audit.utilization.used == 630
+         assert passed == {"up": (100, True, False), "old-up": (30, True, True),
+                           "old-down": (500, True, True), "gone": (40, False, False)}
+         assert audit.stopped == ()  # 表滿延後不列
+         # 舊列算進每一個租戶:別的租戶的清單也看得到它們、並標明是舊列
+         other = read(store, observability.aggregate_audit, OTHER, 10**6, NOW,
+                      NOW - 3 * AGGREGATE_WINDOW, NOW + HOUR)
+         assert {e.task_id for e in other.passed} == {"old-up", "old-down"}
+         assert all(e.legacy for e in other.passed)
+     finally:
+@@ -272,24 +280,24 @@ def _plan(store, sql, params):
+ 
+ 
+ # 只說「用了索引」不夠:停下紀錄表的唯一限制本來就以種類開頭,查詢計畫會顯示用了它,實際上只篩掉
+ # 種類、同種類的列全部掃過。所以斷言用到的是本節指定的那一個索引。
+ @pytest.mark.parametrize(("filters", "index"), [
+     ({"tenant": TENANT}, "write_stops_by_tenant"),
+     ({"campaign_id": "c1"}, "write_stops_by_campaign"),
+     ({"since": NOW, "until": NOW + HOUR}, "write_stops_by_time"),
+ ])
+ def test_observability_queries_use_their_indexes(store, filters, index):
+-    sql, params = observability.stop_count_query(AGG, **filters)
++    sql, params = inbox_store.stop_count_query(AGG, **filters)
+     assert index in _plan(store, sql, params)
+ 
+-    sql, params = observability.passed_query(TENANT, NOW, NOW + HOUR)
++    sql, params = attempt_store.first_rows_started_query(TENANT, NOW, NOW + HOUR)
+     plan = _plan(store, sql, params)
+     assert plan.count("attempts_first_rows_by_tenant") == 2, plan  # 兩段都用上
+ 
+ 
+ # ---- [S366]、[S380] ----
+ def _indexes(conn):
+     return {name for (name,) in conn.execute(
+         "SELECT name FROM sqlite_master WHERE type = 'index' AND name IS NOT NULL")}
+ 
+ 
+@@ -332,10 +340,23 @@ def test_an_old_database_gains_the_observability_indexes(tmp_path):
+     conn.commit()
+     before = conn.execute("SELECT * FROM write_stops").fetchall()
+     conn.close()
+ 
+     reopened = InboxStore(db)
+     try:
+         assert _indexes(reopened._conn) >= OBSERVABILITY_INDEXES
+         assert reopened._conn.execute("SELECT * FROM write_stops").fetchall() == before
+     finally:
+         reopened.close()
++
++
++def test_stop_queries_only_accept_a_transaction_opened_by_the_same_inbox(tmp_path, store):
++    """停下紀錄表歸收件口模組管:別的收件表開的交易讀不到(代碼審第 1 輪架構席)。"""
++    other = InboxStore(tmp_path / "other.db")
++    try:
++        with other.transaction() as tx:
++            with pytest.raises(attempt_store.NotInTransaction):
++                store.stop_count(tx, AGG)
++            with pytest.raises(attempt_store.NotInTransaction):
++                store.stops(tx, AGG, TENANT, NOW, NOW + HOUR)
++    finally:
++        other.close()

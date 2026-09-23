@@ -415,6 +415,8 @@ def test_old_attempts_count_against_every_tenant_until_they_leave_the_window(tmp
                                                    requested_change={"new_budget": 70})), VERIFY)
     store.close()
     conn = sqlite3.connect(db)  # 模擬 Phase 6 之前的資料庫:拿掉兩個新欄位
+    # Phase 6 之前的資料庫沒有按租戶的索引(增量 4 加的),先拿掉才拿得掉它參照的租戶欄
+    conn.execute("DROP INDEX IF EXISTS attempts_first_rows_by_tenant")
     conn.execute("ALTER TABLE attempts DROP COLUMN tenant")
     conn.execute("ALTER TABLE attempts DROP COLUMN reserved_amount")
     conn.commit()

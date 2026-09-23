@@ -156,6 +156,9 @@ CREATE TABLE IF NOT EXISTS write_stops (
     campaign_id TEXT NOT NULL, amount INTEGER NOT NULL, used INTEGER, cap INTEGER,
     capped INTEGER NOT NULL, at TEXT NOT NULL,
     UNIQUE (kind, task_id, revision, content_hash));
+CREATE INDEX IF NOT EXISTS write_stops_by_tenant ON write_stops (tenant, kind, at);
+CREATE INDEX IF NOT EXISTS write_stops_by_campaign ON write_stops (campaign_id, kind, at);
+CREATE INDEX IF NOT EXISTS write_stops_by_time ON write_stops (kind, at);
 """
 _PROPOSALS_COLUMNS = {
     "DISPOSITION_COLUMN": _DISPOSITION_COLUMN, "BLOCK_CODE_COLUMN": _BLOCK_CODE_COLUMN,
@@ -343,11 +346,14 @@ class InboxStore:
         換名),整段在同一個立即取得寫入鎖的交易裡。這段只寫在這裡,不放進共用資料庫工具:
         專案裡只有這一處需要。
         """
-        if not self._missing_columns() and not self._proposals_outdated():
+        if (not self._missing_columns() and not self._proposals_outdated()
+                and not attempt_store.tenant_index_missing(self._conn)):
             return
         with immediate_transaction(self._conn):
             for table, ddl in self._missing_columns():
                 self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+            # 參照後補的租戶欄:補完欄位才建(欄位已齊、只缺這個索引的舊庫也從上面的判斷進來)
+            self._conn.execute(attempt_store.TENANT_INDEX)
             if self._proposals_outdated():
                 self._rebuild_proposals()
 
@@ -706,6 +712,30 @@ class InboxStore:
             (message.task_id, message.revision)).fetchone()[0]
         return Receipt(message.task_id, message.revision, message.content_hash, owner, int(seq))
 
+    def stop_count(
+        self, tx: attempt_store.ExecutorTransaction, kind: StopKind, *, tenant: str | None = None,
+        campaign_id: str | None = None, since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
+        """停下紀錄計數(Phase 6 增量 4 可觀測查詢用);時間範圍包含起點、不包含終點。"""
+        self._own(tx)
+        sql, params = stop_count_query(kind, tenant=tenant, campaign_id=campaign_id,
+                                       since=since, until=until)
+        return int(self._conn.execute(sql, params).fetchone()[0])
+
+    def stops(
+        self, tx: attempt_store.ExecutorTransaction, kind: StopKind, tenant: str,
+        since: datetime, until: datetime,
+    ) -> tuple[tuple[object, ...], ...]:
+        """某租戶在時間範圍內的停下紀錄,依時間排序:(冪等鍵, 任務, 修訂, 內容雜湊, 廣告, 金額,
+        當時已用, 當時門檻, 時間)。已用與門檻在沒有額度快照的種類是空值。"""
+        self._own(tx)
+        return tuple(self._conn.execute(
+            "SELECT key, task_id, revision, content_hash, campaign_id, amount, used, cap, at "
+            "FROM write_stops WHERE kind = ? AND tenant = ? AND at >= ? AND at < ? "
+            "ORDER BY at, id",
+            (kind.value, tenant, attempt_store.iso(since), attempt_store.iso(until))))
+
     def record_event(self, code: str, proposal: Proposal, now: datetime) -> None:
         """盡力而為:寫不進去(忙碌、磁碟滿)就放棄,不影響對呼叫者的回應。
 
@@ -736,6 +766,21 @@ class InboxStore:
                 "DELETE FROM inbox_events WHERE code = ? AND id NOT IN "
                 "(SELECT id FROM inbox_events WHERE code = ? ORDER BY id DESC LIMIT ?)",
                 (code, code, MAX_EVENTS_PER_CODE))
+
+
+def stop_count_query(
+    kind: StopKind, *, tenant: str | None = None, campaign_id: str | None = None,
+    since: datetime | None = None, until: datetime | None = None,
+) -> tuple[str, tuple[object, ...]]:
+    """停下紀錄計數的查詢語句(測試用它看查詢計畫);篩選值一律走參數,只拼接固定條件。"""
+    where, params = ["kind = ?"], [kind.value]
+    for clause, value in (("tenant = ?", tenant), ("campaign_id = ?", campaign_id),
+                          ("at >= ?", None if since is None else attempt_store.iso(since)),
+                          ("at < ?", None if until is None else attempt_store.iso(until))):
+        if value is not None:
+            where.append(clause)
+            params.append(value)
+    return f"SELECT count(*) FROM write_stops WHERE {' AND '.join(where)}", tuple(params)  # noqa: S608 - 只拼接固定條件
 
 
 def _parse_payload(payload: str) -> Proposal | None:

@@ -1,0 +1,9 @@
+{"round": "r2", "loop": "code-phase6-inc4", "tier": "high", "base": "8616c96", "delta_base": "8de1054", "snapshot": "r2-snapshot.patch", "delta": "r2-delta.patch", "reviewed_sha256": "daa124a11368ca59f6fa0b6beee70d89a4cc27dc5fe10103a3a6eb5ed560f6ad", "seats": [
+ {"seat": "correct-sonnet", "lens": "第 1 輪修正的正確性與回歸", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "tests-sonnet", "lens": "測試殺傷力", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "compat-sonnet", "lens": "收件口與嘗試紀錄模組的新介面相容", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "spec-sonnet", "lens": "規格符合度", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "finder-codex", "lens": "外家 finder", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "veto-codex", "lens": "外家否決", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r2-snapshot.patch", "r2-delta.patch"]},
+ {"seat": "資安-sonnet", "lens": "資安", "materials": ["r2-snapshot.patch", "r2-delta.patch"]}]}
