@@ -38,12 +38,12 @@ preflight-4: ran
 | s4-3 | 讀 /Users/enzo/harness/lumos-toolchain/scripts/lumos:3721 PLANNED_RE 只認 ★INVARIANT-PLANNED★,:10962 _guard_planned_line 用它找行,:11147 cmd_guard_abandon 呼叫同一支 | HIT,採信,折入 |
 | s5-1 | 讀 src/rtb/domain/proposal.py:41-56 為沒有覆寫字串化的 frozen dataclass | HIT,採信;判準另想:使用者裁定管的是「拿來判斷」,字串化進日誌不是判斷,所以折入方式是把 S212 措辭縮到它真正守得住的範圍、日誌風險寫進實務隱患,不是加掃描 |
 | s5-3 | 讀 src/rtb/analyzer/policy.py:84 證據引用列入全部證據編號、src/rtb/domain/proposal.py:294-306 雜湊含證據引用 | HIT,採信,折入(與 s2-2 同一件事) |
+| s4-1 | 席位宣稱「3b 連設計都還沒寫,不可能有人正在改」;重現:git worktree list 有 /Users/enzo/rtb-3b 在 phase4-3b 分支,git diff --stat main...phase4-3b 顯示改了 src/rtb/analyzer/task_store.py(100 行)與 src/rtb/analyzer/flow.py(63 行) | MISS,不採信,列入駁回:歷史表那支檔確實正被 3b 修改 |
 | x1-1 | 讀 src/rtb/httpclient.py:106 超過 64 KB 丟 ValueError、src/rtb/analyzer/flow.py:157 蒐證例外一律留原地重試 | HIT,採信;判準另想:不放寬回應上限,改由模擬 DSP 設名稱上限 4096 字元(真實 DSP 都有),超過歸「DSP 壞了」 |
 
 ## 處置
-- 折入 16:s1-1、s1-2、s1-3、s2-1、s2-2、s3-1、s3-2、s4-2、s4-3、s4-4、s5-1、s5-2、s5-3、s5-5、s5-6、x1-1。
-- 放行 3(都是 minor):
-  - s4-1「3b 正在改」用錯時態:編排者告知 Phase 4 增量 3b 正由另一個會談進行中,「正在改」屬實。
-  - s5-4:席位自註「此條只為跟 finding 1 區隔,不另計問題」,不是缺陷。
-  - sarch-1「已截斷」旗標是新做法:截斷的是之後要給人或模型讀的不可信文字,讀者必須知道它不完整;既有的靜默截斷(錯誤細節、解析錯誤鍵名)是內部診斷字串,情境不同,不構成第二套做法。
-- 重現不到而列入駁回的:無。
+- 折入 17:s1-1、s1-2、s1-3、s2-1、s2-2、s3-1、s3-2、s4-2、s4-3、s4-4、s5-1、s5-2、s5-3、s5-4、s5-5、s5-6、x1-1。s5-4 是席位自註「只為跟 finding 1 區隔,不另計問題」的同一件事,隨 s5-1 一起折。
+- 放行 1(minor):sarch-1「已截斷」旗標是新做法:截斷的是之後要給人或模型讀的不可信文字,讀者必須知道它不完整;既有的靜默截斷(錯誤細節、解析錯誤鍵名)是內部診斷字串,情境不同,不構成第二套做法。
+- 駁回 1:s4-1(見重現表,MISS)。
+- 閘的預期:本輪 s4 席報 blocker,輪級規則要求放行集合為空;sarch-1 放行會讓本輪處置閘不過。本輪折入後計劃檔的指紋已記進各席帳,不能再改計劃來把 sarch-1 改成折入,所以照實記帳、讓閘不過,sarch-1 在第 2 輪折入計劃,並由第 2 輪席位覆核。
+- 另記:phase4-3b 分支已改了歷史表與流程驅動兩支檔(分析側任務租約),本計劃增量 1 的「舊列相容」與查軌跡那段描述,要在 3b 合併後重新對一次現況;第 2 輪派工時把 phase4-3b 的改動列為參考材料。
