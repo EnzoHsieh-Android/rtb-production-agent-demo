@@ -106,8 +106,34 @@ def states(h, key):
 def test_two_live_workers_process_a_message_once(h, monkeypatch):
     h.submit()
     meet_before(monkeypatch, "process_one")  # 兩邊在取件之前一起放行
+    # 先取到的那一方停在「取件之後、開始嘗試之前」,等另一方取件有結論才放行。「租約未到期不交出」
+    # 只在這段空檔起作用:先取到的一旦開始嘗試,廣告就被鎖、取件本來就跳過它;若一路寫完結案,
+    # 另一方也取不到。停在別處的話拿掉這道防線照樣綠(2026-09-23 殺傷力驗證抓到靠時序過的情況)
+    other_done = threading.Event()
+    first = threading.Lock()
+    paused = threading.local()
+    original_take = Executor._take
 
-    results = run_all(worker(h, "A", process), worker(h, "B", process))
+    def take(self, *args, **kwargs):
+        if first.acquire(blocking=False):  # 第一個走到開始嘗試的停住
+            paused.me = True
+            assert other_done.wait(WAIT)
+        return original_take(self, *args, **kwargs)
+
+    monkeypatch.setattr(Executor, "_take", take)
+    results = [None, None]
+
+    def run(i, owner):
+        results[i] = worker(h, owner, process)()
+        if not getattr(paused, "me", False):  # 沒被停住的那一方一結束就放行
+            other_done.set()
+
+    threads = [threading.Thread(target=run, args=(i, o)) for i, o in enumerate("AB")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(WAIT)
+        assert not thread.is_alive()
 
     kinds = sorted(r.kind.value for r in results)
     assert kinds == sorted([Result.EXECUTED.value, Result.IDLE.value])  # 一個處理,另一個沒拿到
