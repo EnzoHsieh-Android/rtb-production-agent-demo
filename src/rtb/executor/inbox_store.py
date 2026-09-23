@@ -27,7 +27,13 @@ from enum import StrEnum
 from pathlib import Path
 
 from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
-from rtb.domain.proposal import MAX_DECISION_LIFETIME, Proposal, content_hash, parse_proposal
+from rtb.domain.proposal import (
+    MAX_DECISION_LIFETIME,
+    MAX_INT,
+    Proposal,
+    content_hash,
+    parse_proposal,
+)
 from rtb.executor import attempt_store
 from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, connect, immediate_transaction
 
@@ -71,7 +77,10 @@ class LastFailure(StrEnum):
 
 
 class BlockCode(StrEnum):
-    """擋下原因(封閉列舉):每一種都有真實觸發路徑,見執行迴圈的執行前檢查。"""
+    """擋下原因(封閉列舉):每一種都有真實觸發路徑,見執行迴圈的執行前檢查、簽發與開始一筆。
+
+    加成員之後,舊收件表會在開啟時照允許值清單逐一比對、缺哪個就重建;成員一旦用過就不能拿掉
+    (舊列記著它,重建時會撞允許值限制)。"""
 
     CAMPAIGN_NOT_FOUND = "campaign_not_found"
     CAMPAIGN_NOT_ACTIVE = "campaign_not_active"
@@ -81,6 +90,27 @@ class BlockCode(StrEnum):
     # 單筆加預算超過比例上限(Phase 6 增量 2)
     BUDGET_INCREASE_TOO_LARGE = "budget_increase_too_large"
     OPERATION_PREVIOUSLY_FAILED = "operation_previously_failed"  # 同一把鍵先前已判定失敗
+    AGGREGATE_LIMIT_REACHED = "aggregate_limit_reached"  # 開始一筆時總曝險額度不夠(Phase 6)
+
+
+class StopKind(StrEnum):
+    """新寫入被停下的種類(Phase 6 停下紀錄表)。"""
+
+    AGGREGATE_LIMIT_REACHED = "aggregate_limit_reached"  # 總曝險已滿:擋下結案
+    TABLE_FULL = "table_full"  # 全表未結案已滿:延後重投
+
+
+@dataclass(frozen=True)
+class Stop:
+    """一筆停下紀錄的內容;兩種停法都記當時已用額度與門檻(沒有簽發到租戶的舊路徑才是空值)。"""
+
+    kind: StopKind
+    proposal: Proposal
+    key: str
+    tenant: str | None
+    amount: int
+    used: int | None
+    limit: int | None
 
 
 def block_code_for_failure(code: OutcomeCode | None) -> BlockCode:
@@ -122,6 +152,12 @@ CREATE TABLE IF NOT EXISTS proposals (
 CREATE TABLE IF NOT EXISTS inbox_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT, revision INTEGER,
     code TEXT NOT NULL, content_hash TEXT);
+CREATE TABLE IF NOT EXISTS write_stops (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, task_id TEXT NOT NULL,
+    revision INTEGER NOT NULL, content_hash TEXT NOT NULL, key TEXT NOT NULL, tenant TEXT,
+    campaign_id TEXT NOT NULL, amount INTEGER NOT NULL, used INTEGER, cap INTEGER,
+    capped INTEGER NOT NULL, at TEXT NOT NULL,
+    UNIQUE (kind, task_id, revision, content_hash));
 """
 _PROPOSALS_COLUMNS = {
     "DISPOSITION_COLUMN": _DISPOSITION_COLUMN, "BLOCK_CODE_COLUMN": _BLOCK_CODE_COLUMN,
@@ -295,7 +331,11 @@ class InboxStore:
             return True
         sql = self._conn.execute(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'proposals'").fetchone()
-        return sql is None or f"'{Disposition.DEAD_LETTER.value}'" not in sql[0]
+        if sql is None:
+            return True
+        # 逐一比對目前列舉的每一個值:只看某個特定值,下次再加成員就又看不出來(Phase 6 設計審)
+        wanted = [f"'{member.value}'" for member in (*Disposition, *BlockCode)]
+        return any(value not in sql[0] for value in wanted)
 
     def _migrate_columns(self) -> None:
         """沿用 DSP 與分析行程的補欄位做法:每次連線檢查,缺才在交易內補,拿到鎖後再查一次
@@ -576,6 +616,25 @@ class InboxStore:
             raise ValueError("擋下原因代碼必須是封閉列舉 BlockCode 的成員")
         return self._finish(receipt, now, "disposition = ?, block_code = ?",
                             (Disposition.BLOCKED.value, code.value))
+
+    def record_stop(
+        self, tx: attempt_store.ExecutorTransaction, stop: Stop, now: datetime,
+    ) -> None:
+        """寫一列停下紀錄(只增不改、不清理):同一份提案同一種類只記一列,重投時再記一次就略過。
+
+        已用額度與門檻寫入時封頂在資料庫整數上限並標記(舊資料保守加總可能超過,寫不進去會讓
+        整個擋下交易回滾、提案反覆重試又沒留證據)。"""
+        self._own(tx)
+        capped = any(v is not None and v > MAX_INT for v in (stop.used, stop.limit))
+        used, cap = (None if v is None else min(v, MAX_INT) for v in (stop.used, stop.limit))
+        prop = stop.proposal
+        self._conn.execute(
+            "INSERT OR IGNORE INTO write_stops (kind, task_id, revision, content_hash, key, "
+            "tenant, campaign_id, amount, used, cap, capped, at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (stop.kind.value, prop.task_id, prop.revision, content_hash(prop), stop.key,
+             stop.tenant, prop.campaign_id, min(stop.amount, MAX_INT), used, cap, int(capped),
+             _iso(now)))
 
     def ack_expired(
         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,

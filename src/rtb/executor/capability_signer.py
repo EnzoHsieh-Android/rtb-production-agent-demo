@@ -18,7 +18,7 @@ from typing import Any
 
 from rtb.capabilitykit import encode, is_usable_key
 from rtb.domain._checks import is_id, is_plain_int
-from rtb.domain.proposal import ActionType, Proposal
+from rtb.domain.proposal import MAX_INT, ActionType, Proposal
 
 FORMAT_VERSION = "c1"
 LIFETIME_SECONDS = 120  # 簽發端用的有效期;DSP 端的上限是 300 秒
@@ -40,6 +40,17 @@ class Tenant:
     name: str
     campaigns: frozenset[str]
     max_budget: int
+    # 24 小時內加預算總額上限(Phase 6);設定檔缺這欄當 0:這個租戶不准加預算,其他租戶照常
+    aggregate_limit: int = 0
+
+
+@dataclass(frozen=True)
+class Grant:
+    """簽發結果:憑證,加上同一次讀設定檔得到的租戶與總額上限(開始一筆時比對額度用)。"""
+
+    token: str
+    tenant: str
+    aggregate_limit: int
 
 
 def _check_owner_and_mode(fd: int, what: str) -> None:
@@ -89,7 +100,11 @@ def _parse_tenants(data: bytes) -> tuple[Tenant, ...]:
         if (not is_id(name) or not isinstance(campaigns, list)
                 or not all(is_id(c) for c in campaigns) or not is_plain_int(cap) or cap < 1):
             raise SigningRefused("config_invalid")
-        result.append(Tenant(name, frozenset(campaigns), cap))
+        # 缺欄當 0(只擋這個租戶,不讓整份設定檔停機);有寫但值不對是打錯字,不猜,整份不合法
+        limit = spec.get("aggregate_limit", 0)
+        if not is_plain_int(limit) or not 0 <= limit <= MAX_INT:
+            raise SigningRefused("config_invalid")
+        result.append(Tenant(name, frozenset(campaigns), cap, limit))
     owners = [c for t in result for c in t.campaigns]
     if len(owners) != len(set(owners)):  # 一個廣告只能屬於一個租戶
         raise SigningRefused("config_invalid")
@@ -109,14 +124,22 @@ class CapabilitySigner:
 
     def sign(self, proposal: Proposal, operation_key: str, config_path: Path, now: int) -> str:
         """proposal 是嘗試紀錄存下的提案快照;預期版本取快照裡觀察到的版本,不取 DSP 現況。"""
+        return self.grant(proposal, operation_key, config_path, now).token
+
+    def grant(
+        self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
+    ) -> Grant:
+        """同 sign,另外帶回這次讀到的租戶與總額上限:門檻跟單一廣告上限同一個生效語意(簽發時讀,
+        改設定從下一次簽發起生效),開始一筆時不在寫入鎖裡再讀設定檔。"""
         tenant = self._tenant_of(proposal, config_path)
         new_budget = None
         if proposal.action_type is ActionType.UPDATE_BUDGET:
             new_budget = proposal.requested_change["new_budget"]
             if new_budget > tenant.max_budget:
                 raise SigningRefused("over_budget_cap")
-        return self._encode(proposal, operation_key, tenant, proposal.action_type.value,
-                            new_budget, now)
+        token = self._encode(proposal, operation_key, tenant, proposal.action_type.value,
+                             new_budget, now)
+        return Grant(token, tenant.name, tenant.aggregate_limit)
 
     def sign_void(
         self, proposal: Proposal, operation_key: str, config_path: Path, now: int,

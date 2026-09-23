@@ -1,0 +1,150 @@
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index 2eb7fba..b308f11 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -361,17 +361,21 @@ def aggregate_used(tx: ExecutorTransaction, tenant: str, now: datetime) -> int:
+     舊列(Phase 6 之前)沒有租戶與金額:改預算以新預算全額計、算進每一個租戶(分不出加減,寧可多擋)。
+     加總在程式裡用整數累加:門檻與金額都可以到整數上限,資料庫的整數加總會溢位。"""
+     conn = _conn(tx)
++    # 租戶在資料庫裡就過濾(這個租戶的列與沒有租戶的舊列),不把全系統的列撈進程式:查詢在全域
++    # 寫入鎖裡,多撈的列都是握鎖時間(代碼審第 2 輪資安席實測 30 萬列時一次 0.3 秒)
+     rows = conn.execute(
+         "SELECT f.tenant, f.reserved_amount, f.action, f.proposal_json FROM attempts v "
+         "JOIN attempts f ON f.key = v.key AND f.seq = 1 "
+-        "WHERE v.state = ? AND v.written_at >= ?",  # 剛好滿 24 小時還不算「超過」
+-        (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW)),
++        "WHERE v.state = ? AND v.written_at >= ? "  # 剛好滿 24 小時還不算「超過」
++        "AND (f.tenant = ? OR f.tenant IS NULL)",
++        (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW), tenant),
+     ).fetchall()
+     if unresolved_count(tx):
+         rows += conn.execute(
+             "SELECT f.tenant, f.reserved_amount, f.action, f.proposal_json FROM attempts f "  # noqa: S608 - 只拼接固定條件
+-            "WHERE f.seq = 1 AND NOT EXISTS "
+-            f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))"
++            "WHERE f.seq = 1 AND (f.tenant = ? OR f.tenant IS NULL) AND NOT EXISTS "
++            f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))",
++            (tenant,),
+         ).fetchall()
+     return sum(_counted(row, tenant) for row in rows)
+ 
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index b3dbc27..addce76 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -100,7 +100,7 @@ class StopKind(StrEnum):
+ 
+ @dataclass(frozen=True)
+ class Stop:
+-    """一筆停下紀錄的內容;已用額度與門檻在表滿延後時沒有算,是空值。"""
++    """一筆停下紀錄的內容;兩種停法都記當時已用額度與門檻(沒有簽發到租戶的舊路徑才是空值)。"""
+ 
+     kind: StopKind
+     proposal: Proposal
+diff --git a/tests/executor/test_aggregate_limit.py b/tests/executor/test_aggregate_limit.py
+index 8151b8e..0e4c96c 100644
+--- a/tests/executor/test_aggregate_limit.py
++++ b/tests/executor/test_aggregate_limit.py
+@@ -14,7 +14,7 @@ from datetime import timedelta
+ import pytest
+ 
+ from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
+-from rtb.domain.proposal import MAX_INT
++from rtb.domain.proposal import MAX_INT, content_hash
+ from rtb.executor import attempt_store, inbox_server
+ from rtb.executor.attempt_store import AGGREGATE_WINDOW, Reservation
+ from rtb.executor.execution import CampaignView, Executor, ExecutorHalted, Result, WriteAnswer
+@@ -49,6 +49,10 @@ def stops(h):
+                    "capped FROM write_stops ORDER BY id")
+ 
+ 
++def stop_identity(h):
++    return h.query("SELECT content_hash, at FROM write_stops ORDER BY id")
++
++
+ def used(store, now, tenant=TENANT):
+     with store.transaction() as tx:
+         return attempt_store.aggregate_used(tx, tenant, now)
+@@ -368,6 +372,7 @@ def test_every_stop_leaves_one_durable_record_per_proposal(h):
+     assert h.process().kind is Result.BLOCKED
+     assert stops(h) == [("aggregate_limit_reached", "t1", 1, operation_key(prop), TENANT, "c1",
+                          50, 0, 10, 0)]
++    assert stop_identity(h) == [(content_hash(prop), attempt_store._iso(h.clock()))]
+ 
+     with h.store.transaction() as tx:  # 同一份提案再記一次:略過
+         h.store.record_stop(tx, inbox_store_stop(prop, 50, 0, 10), h.clock())
+@@ -477,3 +482,20 @@ def test_an_unreadable_old_snapshot_halts_when_the_table_is_full_too(h, monkeypa
+ 
+     with pytest.raises(ExecutorHalted):
+         h.process()
++
++
++def test_other_tenants_rows_are_filtered_in_the_database(store_only, monkeypatch):
++    """額度查詢在全域寫入鎖裡:別的租戶的列要在資料庫裡就濾掉,不撈進程式逐列判斷(握鎖時間)。"""
++    monkeypatch.setattr(attempt_store, "MAX_UNRESOLVED", 10**6)  # 這支要大量沒有終點的別家列
++    for i in range(1000):
++        row = begin(store_only, proposal(task_id=f"x{i}", campaign_id=f"cx{i}"),
++                    reservation=Reservation("someone-else", 5, 10**9))
++        if i % 2:
++            drive(store_only, row, VERIFY)
++    seen = []
++    real = attempt_store._counted
++    monkeypatch.setattr(attempt_store, "_counted",
++                        lambda row, tenant: seen.append(row) or real(row, tenant))
++
++    assert used(store_only, NOW) == 0
++    assert seen == []
+diff --git a/tests/executor/test_f7_end_to_end.py b/tests/executor/test_f7_end_to_end.py
+index be22ba6..d27d1a8 100644
+--- a/tests/executor/test_f7_end_to_end.py
++++ b/tests/executor/test_f7_end_to_end.py
+@@ -2,7 +2,8 @@
+ 8 個工作者執行緒並行,總曝險到門檻就停,DSP 收到的加預算總額不超過門檻。
+ 
+ 行程內假 DSP(寫入立刻成功、驗證也成功),每個工作者各開自己的收件表連線(SQLite 連線只能在建立它
+-的執行緒用);工作者一直處理到沒有待處理的提案為止。
++的執行緒用);工作者一直處理到沒有待處理的提案為止。比照啟動程式:資料庫忙碌休息一下再來;取件後
++碰到忙碌的那筆留在處理中,時鐘撥過租約後再跑一輪,讓它照正式的重新投遞被接手。
+ """
+ 
+ import json
+@@ -10,7 +11,7 @@ import threading
+ import time
+ 
+ from rtb.executor.execution import CampaignView, Executor, Result
+-from rtb.executor.inbox_store import InboxStore
++from rtb.executor.inbox_store import InboxBusy, InboxStore
+ from tests.executor.fakes import Harness, proposal
+ 
+ CAMPAIGNS = 3000
+@@ -40,7 +41,17 @@ def _run_workers(h):
+         store = InboxStore(h.db)
+         try:
+             executor = Executor(store, h.dsp, h.signer, h.config, h.clock, owner)
+-            while (kind := executor.process_one().kind) is not Result.IDLE:
++            busy = 0
++            while True:
++                try:  # 比照啟動程式:資料庫忙碌是正常競爭,休息一下再來,不是讓工作者死掉
++                    kind = executor.process_one().kind
++                except InboxBusy:
++                    busy += 1
++                    assert busy < 50, "資料庫一直忙碌"
++                    time.sleep(0.05)
++                    continue
++                if kind is Result.IDLE:
++                    break
+                 with lock:
+                     outcomes.append(kind)
+         finally:
+@@ -62,6 +73,11 @@ def test_f7_many_small_increases_stop_at_the_aggregate_limit(tmp_path, clock):
+         _seed(h)
+ 
+         outcomes = _run_workers(h)
++        for _ in range(5):  # 取件後碰到資料庫忙碌的那筆會留在處理中,要等租約到期才重投
++            if not h.query("SELECT 1 FROM proposals WHERE disposition = 'in_progress'"):
++                break
++            h.clock.advance(seconds=61)
++            outcomes += _run_workers(h)
+ 
+         assert len(h.dsp.writes) == EXPECTED_PASSES
+         assert (NEW_BUDGET - BUDGET) * len(h.dsp.writes) <= AGGREGATE_LIMIT

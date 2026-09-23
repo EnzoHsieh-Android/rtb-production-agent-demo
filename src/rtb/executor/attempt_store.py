@@ -19,7 +19,7 @@ import json
 import sqlite3
 from collections.abc import Collection
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from rtb.domain._checks import is_aware, is_plain_int
@@ -55,6 +55,8 @@ CREATE INDEX IF NOT EXISTS attempts_terminal_rows ON attempts (campaign_id)
     WHERE state IN (TERMINAL_LIST);
 CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_terminal_per_key ON attempts (key)
     WHERE state IN (TERMINAL_LIST);
+CREATE INDEX IF NOT EXISTS attempts_verified_by_time ON attempts (written_at)
+    WHERE state = 'verified';
 """
 _COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verification_timeouts, "
             "written_at, written_version, capability_expires_at")
@@ -62,7 +64,12 @@ _COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verificatio
 ADDED_COLUMNS = (
     ("written_version", "written_version INTEGER"),  # DSP 回報的寫入後版本
     ("capability_expires_at", "capability_expires_at TEXT"),  # 最近一次送出所帶憑證的到期時間
+    # 總曝險預留(Phase 6):只寫在第一列,開始一筆時算出之後不變;舊列不回填,空值由額度查詢保守計入
+    ("tenant", "tenant TEXT"),
+    ("reserved_amount", "reserved_amount INTEGER"),
 )
+# 已驗證的預留在驗證完成後多久內仍佔額度(暫用值,沒有真實花費數據校準,見 Phase 6 計劃)
+AGGREGATE_WINDOW = timedelta(hours=24)
 # 終點狀態是固定的列舉值,寫成字面值,查詢條件才對得上部分索引的條件
 _TERMINAL_LIST = ", ".join(f"'{state.value}'" for state in sorted(TERMINAL_STATES))
 SCHEMA = SCHEMA.replace("TERMINAL_LIST", _TERMINAL_LIST)
@@ -78,6 +85,23 @@ class NotInTransaction(AttemptRejected):
 
 class CampaignLocked(AttemptRejected):
     """同一個廣告已有另一把鍵的未結案嘗試。"""
+
+
+class AggregateLimitReached(AttemptRejected):
+    """這筆加預算加上租戶已用額度會超過總曝險門檻(Phase 6):不開嘗試。"""
+
+    def __init__(self, used: int, limit: int):
+        super().__init__(f"已用 {used},門檻 {limit}")
+        self.used, self.limit = used, limit
+
+
+@dataclass(frozen=True)
+class Reservation:
+    """開始一筆時要記的預留:租戶、這筆加預算的金額(減預算與暫停是 0)、簽發時讀到的門檻。"""
+
+    tenant: str
+    amount: int
+    limit: int
 
 
 class TooManyUnresolved(AttemptRejected):
@@ -289,8 +313,12 @@ def _expiry(value: object) -> str:
 def begin(
     tx: ExecutorTransaction, proposal: Proposal, now: datetime, *,
     capability_expires_at: datetime | None,
+    reservation: Reservation | None = None,
 ) -> Begun:
-    """開始一筆:鍵與第 1 列的欄位全由這份提案算出,呼叫端不能另外指定。"""
+    """開始一筆:鍵與第 1 列的欄位全由這份提案算出,呼叫端不能另外指定。
+
+    帶預留時,金額大於 0 就在同一個交易裡(立即取得寫入鎖)先算租戶已用額度,加上這筆超過門檻
+    丟 AggregateLimitReached、什麼都不寫;鍵已存在時不再預留也不再檢查(那把鍵第一次就扣過)。"""
     conn = _conn(tx)
     _require_aware(now)
     key = operation_key(proposal)
@@ -302,19 +330,69 @@ def begin(
         raise CampaignLocked(proposal.campaign_id)
     if unresolved_count(tx) >= MAX_UNRESOLVED:
         raise TooManyUnresolved()
+    if reservation is not None and reservation.amount > 0:
+        used = aggregate_used(tx, reservation.tenant, now)
+        if used + reservation.amount > reservation.limit:
+            raise AggregateLimitReached(used, reservation.limit)
     snapshot_json = json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True,
                                allow_nan=False)
     conn.execute(
         "INSERT INTO attempts (key, seq, campaign_id, state, send_count, verification_timeouts, "
         "written_at, task_id, revision, action, expected_version, proposal_json, "
-        "capability_expires_at) VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?)",
+        "capability_expires_at, tenant, reserved_amount) "
+        "VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (key, proposal.campaign_id, AttemptState.IN_FLIGHT.value, _iso(now),
          proposal.task_id, proposal.revision, proposal.action_type.value,
-         proposal.campaign_version_observed, snapshot_json, expires),
+         proposal.campaign_version_observed, snapshot_json, expires,
+         None if reservation is None else reservation.tenant,
+         None if reservation is None else reservation.amount),
     )
     row = latest(tx, key)
     assert row is not None  # 剛寫入的那一列  # noqa: S101
     return Begun(row, created=True)
+
+
+def aggregate_used(tx: ExecutorTransaction, tenant: str, now: datetime) -> int:
+    """租戶已用額度(Phase 6):從嘗試紀錄推,不另存狀態。
+
+    - 已驗證:驗證完成時間在窗口內的才算(從已驗證列的部分索引出發,只跟窗口內筆數成正比)。
+    - 沒有終點:不論多久都算(全表最多 MAX_UNRESOLVED 把;先用計數判斷是不是 0)。
+    - 失敗:不算,等於還回去。
+    舊列(Phase 6 之前)沒有租戶與金額:改預算以新預算全額計、算進每一個租戶(分不出加減,寧可多擋)。
+    加總在程式裡用整數累加:門檻與金額都可以到整數上限,資料庫的整數加總會溢位。"""
+    conn = _conn(tx)
+    # 租戶在資料庫裡就過濾(這個租戶的列與沒有租戶的舊列),不把全系統的列撈進程式:查詢在全域
+    # 寫入鎖裡,多撈的列都是握鎖時間(代碼審第 2 輪資安席實測 30 萬列時一次 0.3 秒)
+    rows = conn.execute(
+        "SELECT f.tenant, f.reserved_amount, f.action, f.proposal_json FROM attempts v "
+        "JOIN attempts f ON f.key = v.key AND f.seq = 1 "
+        "WHERE v.state = ? AND v.written_at >= ? "  # 剛好滿 24 小時還不算「超過」
+        "AND (f.tenant = ? OR f.tenant IS NULL)",
+        (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW), tenant),
+    ).fetchall()
+    if unresolved_count(tx):
+        rows += conn.execute(
+            "SELECT f.tenant, f.reserved_amount, f.action, f.proposal_json FROM attempts f "  # noqa: S608 - 只拼接固定條件
+            "WHERE f.seq = 1 AND (f.tenant = ? OR f.tenant IS NULL) AND NOT EXISTS "
+            f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))",
+            (tenant,),
+        ).fetchall()
+    return sum(_counted(row, tenant) for row in rows)
+
+
+def _counted(row: tuple[Any, ...], tenant: str) -> int:
+    owner, amount, action, snapshot = row
+    if owner is not None:
+        return int(amount) if owner == tenant and amount is not None else 0
+    if action != "update_budget":  # 舊列:暫停不佔額度
+        return 0
+    try:
+        budget = json.loads(snapshot)["requested_change"]["new_budget"]
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CorruptedAttemptRow("舊嘗試的提案快照讀不出新預算,無法保守計入額度") from exc
+    if not is_plain_int(budget):
+        raise CorruptedAttemptRow("舊嘗試的提案快照新預算不是整數")
+    return budget
 
 
 def _append(  # noqa: PLR0913 - 每個欄位都是新列的一部分

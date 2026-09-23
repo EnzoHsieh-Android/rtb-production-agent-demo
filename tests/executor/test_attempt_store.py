@@ -765,7 +765,8 @@ def _tamper_snapshot(store, key, text):
         tx.conn.execute("DELETE FROM attempts WHERE key = ?", (key,))  # 測試模擬毀損,只在測試裡
         tx.conn.execute(
             "INSERT INTO attempts VALUES (?, 1, 'c1', 'in_flight', NULL, NULL, 1, 0, "
-            "'2026-09-22T12:05:00.000000Z', 't1', 1, 'update_budget', 3, ?, NULL, NULL)",
+            "'2026-09-22T12:05:00.000000Z', 't1', 1, 'update_budget', 3, ?, "
+            "NULL, NULL, NULL, NULL)",
             (key, text))
 
 
