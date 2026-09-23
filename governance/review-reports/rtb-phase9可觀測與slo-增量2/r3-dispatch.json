@@ -1,0 +1,41 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "前輪修正驗收",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r3-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r2-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/analyzer/task_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "s2",
+  "lens": "指標公式與可測性",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r3-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r2-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/analyzer/task_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r3-snapshot.md",
+   "governance/review-reports/rtb-phase9可觀測與slo-增量2/r2-intake.md",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/analyzer/task_store.py"
+  ],
+  "auditor": "codex"
+ }
+]
