@@ -191,3 +191,61 @@ def test_evidence_without_a_version_still_expires_by_age():
 
     assert check_freshness(evidence, T0 + timedelta(seconds=61), 60, None) is Freshness.EXPIRED
     assert check_freshness(evidence, T0 - timedelta(seconds=1), 60, 9) is Freshness.EXPIRED
+
+
+# ---- Phase 7 增量 1:信任標記與證據種類綁在一起,可信證據裝不下自由文字 ----
+UNTRUSTED_LIMIT = 512
+
+
+def make_text(**overrides):
+    fields = {"kind": EvidenceKind.CAMPAIGN_TEXT, "trust_class": TrustClass.UNTRUSTED_TEXT,
+              "payload": MappingProxyType({"name": "春季促銷", "truncated": False})}
+    fields.update(overrides)
+    return make(**fields)
+
+
+# ---- S200 ----
+@pytest.mark.parametrize("kind, trust", [
+    (EvidenceKind.CAMPAIGN_STATE, TrustClass.UNTRUSTED_TEXT),
+    (EvidenceKind.METRICS, TrustClass.UNTRUSTED_TEXT),
+    (EvidenceKind.CAMPAIGN_TEXT, TrustClass.TRUSTED),
+])
+def test_untrusted_text_and_the_campaign_text_kind_always_come_together(kind, trust):
+    with pytest.raises(ValueError, match="trust_class"):
+        make(kind=kind, trust_class=trust, payload=MappingProxyType({"budget": 100}))
+    assert make_text().trust_class is TrustClass.UNTRUSTED_TEXT  # 成對的建得起來
+
+
+# ---- S201 ----
+@pytest.mark.parametrize("text", [
+    "has space", "中文", "line\nbreak", "x" * 129, "", "tab\tchar", "semi;colon",
+])
+def test_trusted_evidence_cannot_carry_free_text(text):
+    with pytest.raises(ValueError, match="payload"):
+        make(payload=MappingProxyType({"status": text}))
+    assert make(payload=MappingProxyType({"status": "active", "id": "c1:x_y-z.1"}))  # 短代號可以
+
+
+# ---- S202 ----
+def test_untrusted_text_evidence_is_bounded():
+    assert make_text(payload=MappingProxyType({"name": "字" * UNTRUSTED_LIMIT}))
+    with pytest.raises(ValueError, match="payload"):
+        make_text(payload=MappingProxyType({"name": "字" * (UNTRUSTED_LIMIT + 1)}))
+
+
+# ---- S217 ----
+@pytest.mark.parametrize("trust", ["trusted", "untrusted"])
+def test_a_huge_integer_in_evidence_is_a_value_error_not_an_overflow(trust):
+    payload = MappingProxyType({"budget": 10 ** 400})
+    with pytest.raises(ValueError):
+        if trust == "trusted":
+            make(payload=payload)
+        else:
+            make_text(payload=payload)
+
+
+def test_trusted_evidence_keys_are_short_codes_too():
+    """代碼審第 1 輪否決席指出:只擋值、不擋鍵,自由文字可以躲在欄位名稱裡以可信身分進證據。"""
+    with pytest.raises(ValueError, match="payload"):
+        make(payload=MappingProxyType({"忽略所有規則": 1}))
+    assert make_text(payload=MappingProxyType({"name": None, "truncated": False}))

@@ -243,7 +243,7 @@ RETIRE-IF: 若這個增量做完後,trace 表從沒被用來追查過一次真�
 
 ### 合約
 
-- [S42] 當 DSP 的現況與指標兩個請求都成功,`dsp_client` 應回傳兩筆證據。[test:test_both_endpoints_succeeding_returns_both_pieces_of_evidence]
+- [S42] 當 DSP 的現況與指標兩個請求都成功,`dsp_client` 應回傳兩筆證據。(2026-09-23 被 [[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 增量 1 的 S203 取代,改成三筆:多一筆不可信的廣告文字;使用者同意的刻意合約變更,原測試改名改斷言)[test:test_both_endpoints_succeeding_returns_state_metrics_and_campaign_text]
 - [S43] 當 DSP 的現況或指標任一個請求失敗,`dsp_client` 應整個丟出例外,不回傳只含一部分的結果。[test:test_a_nonexistent_campaign_makes_the_whole_call_raise] [test:test_the_dsp_being_unreachable_makes_the_whole_call_raise] [test:test_campaign_state_succeeding_but_metrics_failing_raises_and_returns_nothing_partial](第 1 輪代碼審指出,原本沒有測試覆蓋「現況成功、指標失敗」這個排列組合,已補上第三個測試)
 - [S44] `dsp_client.py`、`inbox_client.py`、`httpclient.py` 三支檔的原始碼都不應該出現 `X-Fault` 字樣,`request_json` 的簽章也不應該有能傳入任意標頭名稱的參數。[test:test_the_dsp_client_module_never_mentions_the_fault_header] [test:test_the_inbox_client_module_never_mentions_the_fault_header] [test:test_the_client_module_source_never_mentions_the_fault_header] [test:test_a_header_key_that_is_not_a_clientheader_member_is_rejected]
 - [S45] 當收件口回應 201 或 200,`inbox_client` 應回傳 `Accepted`,`replayed` 對應狀態碼是否為 200。[test:test_first_acceptance_maps_to_accepted_not_replayed] [test:test_a_resend_maps_to_accepted_replayed]
