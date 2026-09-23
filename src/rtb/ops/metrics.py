@@ -6,8 +6,8 @@
 
 讀法跟追蹤檢視一樣只經唯讀開法(唯讀連線、不取寫入鎖、不補表)。執行端只讀一個快照,除端到端以外的
 指標都出自它(單一快照本來就自洽)。端到端要把執行端的終點跟分析端的接續鏈拼起來,兩個資料庫不可能同一
-個快照:只有它每一輪重開兩邊的快照重算,兩輪端到端樣本相同才回傳;最多三輪,仍不同就回最後一輪並標明
-不穩定。現況快照只讀執行端一個快照。
+個快照:報告的數字(含端到端)一律用第一輪,之後再重開兩邊的快照重讀兩輪,每一輪端到端的完整樣本都
+跟第一輪相同才標穩定;任何一輪不同就停、標不穩定,照樣是第一輪的數字。現況快照只讀執行端一個快照。
 
 每個樣本:名稱、標籤、數值、樣本數、狀態、分子(比率與計數才有)、範例(最多 3 個任務編號)、租戶靠
 查詢當下設定反查的份數、附註。任何比率分母為 0、延遲沒有樣本,都回「無樣本」,不是 0、不丟例外。
@@ -74,7 +74,7 @@ EXIT_OK = 0
 EXIT_NO_DATABASE = 2
 EXIT_NOT_UPGRADED = 3
 EXIT_WINDOW_TOO_LONG = 4
-EXIT_UNSTABLE = 5  # 三輪都讀到不同結果:照樣印出最後一輪,結束代碼標明不穩定
+EXIT_UNSTABLE = 5  # 重讀時端到端跟第一輪不同:照樣印出第一輪的數字,結束代碼標明不穩定
 EXIT_BAD_CONFIG = 6
 EVENT_COUNT_NOTE = ("事件次數:同一份提案每擋一次、每進一次待核可都算一次(重投再擋算兩次);"
                     "可觀測查詢的停下紀錄是同提案同種類只記一次的提案數,定義不同,數字不必相等")
@@ -663,8 +663,18 @@ def _reconciliation(w: _Window) -> None:
     w.samples += _rates("reconciliation_success_rate", Stage.RECONCILIATION, population, hits)
 
 
-def _end_to_end(since: str, until: str, part: _ExecutorPart,
-                chains: Mapping[str, _Chain]) -> tuple[Sample, ...]:
+@dataclass(frozen=True)
+class _EndToEnd:
+    """端到端的完整樣本(每筆的任務、結束時間與數值)。穩定判定逐輪比它,不比樣本數、分位數、前三個
+    範例這種有損的摘要:不同任務可能剛好摘要相同(代碼審第 3 輪)。"""
+
+    samples: tuple[_Member, ...]
+    anomalies: tuple[_Member, ...]
+    unlinked: tuple[_Member, ...]
+
+
+def _end_to_end_members(since: str, until: str, part: _ExecutorPart,
+                        chains: Mapping[str, _Chain]) -> _EndToEnd:
     """端到端(依查詢當下最終結果):沿接續關係回溯到根任務,從根任務在分析端建立 → 鏈上最後一個
     任務最新修訂的最終終點;每條鏈在窗內只算一次,被取代的修訂與非鏈尾的任務不另成樣本。分析端
     沒有這個任務的另報接不上;算出負值(兩邊時鐘不同步)不計入、另報時鐘異常。只看這兩份輸入,
@@ -689,11 +699,20 @@ def _end_to_end(since: str, until: str, part: _ExecutorPart,
         assert chain.created is not None  # noqa: S101 - 上面已把沒有建立時間的歸成接不上
         spent = _seconds(chain.created, final.at)
         (anomalies if spent < 0 else samples).append(_Member(final.at, final.task_id, False, spent))
+    return _EndToEnd(_in_order(samples), _in_order(anomalies),
+                     _in_order(_Member(e.at, e.task_id) for e in unlinked.values()))
+
+
+def _in_order(members: Iterable[_Member]) -> tuple[_Member, ...]:
+    return tuple(sorted(members, key=lambda x: (x.at, x.task or "")))
+
+
+def _end_to_end_samples(ends: _EndToEnd) -> tuple[Sample, ...]:
     stage = _labels(Stage.ANALYSIS)
-    found = _latencies("end_to_end_seconds", Stage.ANALYSIS, {stage: samples} if samples else {})
-    for name, members in (("end_to_end_unlinked", [_Member(e.at, e.task_id)
-                                                   for e in unlinked.values()]),
-                          ("end_to_end_clock_anomaly", anomalies)):
+    found = _latencies("end_to_end_seconds", Stage.ANALYSIS,
+                       {stage: ends.samples} if ends.samples else {})
+    for name, members in (("end_to_end_unlinked", ends.unlinked),
+                          ("end_to_end_clock_anomaly", ends.anomalies)):
         found.append(Sample(name, stage, len(members), len(members), numerator=len(members),
                             exemplars=_exemplars(members)))
     return tuple(found)
@@ -783,24 +802,25 @@ def collect_window(
     tenants: Sequence[Tenant],
 ) -> Report:
     """窗內統計。報告的每一個數字(含端到端)都出自第一輪讀到的執行端與分析端輸入。端到端跨兩個資料庫,
-    之後最多再重讀兩輪,只用來確認端到端跟第一輪一致:有一輪一致就標穩定;都不一致就標不穩定,照樣回
-    第一輪的結果——不改採較新的快照,後兩輪彼此相等也不算(代碼審第 2 輪:改採較新的會讓同一份報告
-    端到端有、終點事件率沒有)。時間沒帶時區丟 ValueError;資料庫檔不存在丟 FileNotFoundError;還沒
-    升級丟 DatabaseNotUpgraded(都不寫任何東西)。"""
+    之後再重讀兩輪,只用來確認端到端的完整樣本跟第一輪一致:每一輪都一致才標穩定;任何一輪不同就停、
+    標不穩定,照樣回第一輪的結果——不改採較新的快照(代碼審第 2 輪:改採較新的會讓同一份報告端到端
+    有、終點事件率沒有);第二輪不同、第三輪又回到第一輪也不算(第 3 輪:讀取期間資料已經動過)。
+    時間沒帶時區丟 ValueError(訊息不含範例,範例只在命令列那層);資料庫檔不存在丟
+    FileNotFoundError;還沒升級丟 DatabaseNotUpgraded(都不寫任何東西)。"""
     _check_window(since, until)
     start, end = _iso(since), _iso(until)
     part = _read_executor(Path(executor_db), since, until)
     analyzer = _read_analyzer(Path(analyzer_db), since, until,
                               (task for task, _, _ in part.finals))
-    first = _end_to_end(start, end, part, analyzer.chains)
-    samples = _compute_window(since, until, part, analyzer, tenants, first)
+    first = _end_to_end_members(start, end, part, analyzer.chains)
+    samples = _compute_window(since, until, part, analyzer, tenants, _end_to_end_samples(first))
     for rounds in range(2, MAX_ROUNDS + 1):
         ends = _read_executor(Path(executor_db), since, until, full=False)
         chains = _read_analyzer(Path(analyzer_db), since, until,
                                 (task for task, _, _ in ends.finals), calls=False).chains
-        if _end_to_end(start, end, ends, chains) == first:
-            return Report(samples, True, rounds)
-    return Report(samples, False, MAX_ROUNDS)
+        if _end_to_end_members(start, end, ends, chains) != first:
+            return Report(samples, False, rounds)
+    return Report(samples, True, MAX_ROUNDS)
 
 
 # ---- 算:現況快照 ----
@@ -816,7 +836,7 @@ def _entered(history: Sequence[AttemptRow]) -> datetime:
 
 def collect_snapshot(now: datetime, *, executor_db: Path, tenants: Sequence[Tenant]) -> Report:
     """現況快照:佇列現況、四種沒有終點的嘗試狀態、被未結案鍵鎖住的廣告數、總曝險使用率。不套時間窗。
-    「現在」沒帶時區丟 ValueError。"""
+    「現在」沒帶時區丟 ValueError(訊息不含範例,範例只在命令列那層)。"""
     require_aware(now)
     inbox = ReadOnlyInbox(Path(executor_db))
     try:
@@ -916,7 +936,7 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
         return EXIT_NOT_UPGRADED
     print(json.dumps(to_primitives(result), ensure_ascii=False, indent=2), file=out or sys.stdout)
     if not result.stable:
-        print("讀取期間有新提交:三輪讀到的結果都不同,印出的是最後一輪", file=errors)
+        print("讀取期間有新提交:重讀的端到端跟第一輪不同,印出的照樣是第一輪的數字", file=errors)
         return EXIT_UNSTABLE
     return EXIT_OK
 

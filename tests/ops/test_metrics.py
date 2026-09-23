@@ -676,13 +676,13 @@ def test_only_end_to_end_is_reread_until_stable(rows, monkeypatch):
 
     monkeypatch.setattr(m, "_read_analyzer", busy)
     calm = window(rows)
-    assert (calm.stable, calm.rounds) == (True, 2)  # 新寫入不影響端到端:不標不穩定
+    assert (calm.stable, calm.rounds) == (True, 3)  # 新寫入不影響端到端:兩次重讀都一致,不標不穩定
     assert len(full_reads) == 1  # 非端到端指標只讀一次
     assert one(calm, "end_to_end_seconds.max").count == 1
 
     touch_end_to_end = True
     busy_report = window(rows)
-    assert (busy_report.stable, busy_report.rounds) == (False, 3)
+    assert (busy_report.stable, busy_report.rounds) == (False, 2)  # 一不同就停
 
 
 # ---- [S641] 代碼審第 2 輪:整份報告都用第一輪;重讀只確認端到端跟第一輪一致 ----
@@ -702,8 +702,8 @@ def test_a_terminal_written_after_the_first_read_marks_the_report_unstable(rows,
     monkeypatch.setattr(m, "_read_analyzer", racing)
     report = window(rows)
 
-    # 後兩輪彼此相等也不算穩定:它們跟第一輪不同
-    assert (report.stable, report.rounds) == (False, 3)
+    # 後兩輪彼此相等也不算穩定:第二輪跟第一輪不同就停、標不穩定
+    assert (report.stable, report.rounds) == (False, 2)
     ends = one(report, "end_to_end_seconds.max")
     terminal = {task for s in pick(report, "terminal_event_rate") for task in s.exemplars}
     assert ends.exemplars == ("r1",) and ends.count == 1  # 報告的數字全部出自第一輪
@@ -728,3 +728,49 @@ def test_missing_or_mismatched_flags_exit_with_the_bad_arguments_code(rows, caps
             m.run(argv, out=io.StringIO(), err=io.StringIO())
         assert exited.value.code == m.EXIT_BAD_ARGUMENTS != m.EXIT_NO_DATABASE, argv
         assert "參數錯誤" in capsys.readouterr().err
+
+
+# ---- [S641] 代碼審第 3 輪:每次重讀都要跟第一輪完全一致才算穩定,比的是完整樣本不是摘要 ----
+def _scripted_end_to_end(monkeypatch, *rounds):
+    """端到端每一輪算出的完整樣本照劇本給(第一輪是報告用的那一份)。"""
+    script = iter(rounds)
+    monkeypatch.setattr(m, "_end_to_end_members", lambda *_args: next(script))
+
+
+def _ends(*pairs):
+    return m._EndToEnd(tuple(m._Member(at(minutes=10 + n).isoformat(), task, False, value)
+                             for n, (task, value) in enumerate(pairs)), (), ())
+
+
+@pytest.mark.parametrize("story", ["A-B-A", "A-A-B", "same-summary"])
+def test_any_reread_that_differs_from_the_first_marks_the_report_unstable(
+        rows, tmp_path, monkeypatch, story):
+    first = _ends(("a", 100), ("b", 200), ("c", 300), ("d", 400))
+    moved = _ends(("b", 200), ("c", 300), ("d", 400))
+    # 換掉的任務不在前三個範例裡、耗時也一樣:摘要(樣本數、分位數、範例)完全相同,任務卻不同
+    lookalike = _ends(("z", 100), ("b", 200), ("c", 300), ("d", 400))
+    rounds = {"A-B-A": (first, moved, first), "A-A-B": (first, first, moved),
+              "same-summary": (first, lookalike, lookalike)}[story]
+    assert (m._end_to_end_samples(lookalike) == m._end_to_end_samples(first)) and lookalike != first
+    _scripted_end_to_end(monkeypatch, *rounds)
+    report = window(rows)
+    assert report.stable is False
+    assert one(report, "end_to_end_seconds.max").exemplars == ("d", "c", "b")  # 仍是第一輪
+
+    config = tmp_path / "tenants.json"
+    config.write_text('{"tenants": {"acme": {"campaigns": ["c1"], "max_budget": 100}}}')
+    config.chmod(0o600)
+    _scripted_end_to_end(monkeypatch, *rounds)
+    err = io.StringIO()
+    code = m.run(["--executor-db", str(rows.executor_db), "--analyzer-db", str(rows.analyzer_db),
+                  "--tenants-config", str(config), "--since", at(0).isoformat(),
+                  "--until", at(minutes=60).isoformat()], out=io.StringIO(), err=err)
+    assert code == m.EXIT_UNSTABLE
+    assert "第一輪" in err.getvalue() and "最後一輪" not in err.getvalue()
+
+
+def test_a_report_is_stable_only_when_every_reread_matches_the_first(rows, monkeypatch):
+    same = _ends(("a", 100))
+    _scripted_end_to_end(monkeypatch, same, same, same)
+    report = window(rows)
+    assert (report.stable, report.rounds) == (True, m.MAX_ROUNDS)
