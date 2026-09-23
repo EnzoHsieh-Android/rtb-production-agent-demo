@@ -1,0 +1,77 @@
+[
+ {
+  "round": "r2",
+  "seat": "s1",
+  "lens": "四個當機點逐格重走與前輪修正驗收",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_execution_e2e.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s2",
+  "lens": "撥時鐘與子行程測試可行性",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_execution_e2e.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s3",
+  "lens": "F3 轉正範圍與重做分析情境",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_execution_e2e.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_execution_e2e.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "x1",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/rtb-phase4佇列與重新投遞-增量2/r2-snapshot.md",
+   "src/rtb/executor/runner.py",
+   "src/rtb/executor/execution.py",
+   "src/rtb/executor/inbox_store.py",
+   "tests/executor/test_runner.py",
+   "tests/executor/test_execution_e2e.py",
+   "tests/dsp/test_store.py"
+  ],
+  "auditor": "codex"
+ }
+]
