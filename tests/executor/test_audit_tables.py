@@ -1,10 +1,11 @@
 """稽核表只增不改的機械守衛(Phase 9 增量 4):[S675]。
 
 七張稽核表(停下紀錄、核可、核可使用、生命週期事件、DSP 呼叫紀錄、DSP 操作紀錄、嘗試紀錄)只准新增;
-Phase 8 死信兩張表跟它們共用同一套判定(代碼審第 1 輪),判定本身在共用掃描模組。
-比照 Phase 8 死信兩張表那支結構檢查:全庫掃原始碼,把相鄰字串、用 + 串起來、f-string 的固定片段拼回
-完整語句再比對。跟 Phase 8 那支不同的是比法:只要同一段拼回來的文字裡出現任一張表的表名,又出現任一種
-改寫語句就算違規——SQLite 的「衝突時更新」把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。
+Phase 8 死信兩張表跟它們共用同一套判定(代碼審第 1 輪)。
+全庫掃原始碼,把相鄰字串、用 + 串起來、f-string、.format、% 組出的字串拼回完整語句再比對。比法是
+「同段共現」:只要同一段拼回來的文字裡出現任一張表的表名,又出現任一種改寫語句就算違規——SQLite 的
+「衝突時更新」把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。判定本身在同目錄的稽核守衛
+模組,Phase 8 死信那支也從那裡匯入。
 補欄位只准可為空、沒有預設值的新欄位(帶預設值會讓舊列讀出新值,等於回頭改寫稽核意義)。收件口的
 通用補欄位迴圈用 f-string 組表名、拼回來只剩占位,另外直接讀它的登記表核對。
 
@@ -18,14 +19,13 @@ import re
 import pytest
 
 from rtb.executor import inbox_store
-from tests.executor.write_scan import (
+from tests.executor.audit_guard import (
     AUDITED,
     audit_violations,
-    classify,
     dynamic_add_column_sites,
-    reconstructed_strings,
     registry_violations,
 )
+from tests.executor.write_scan import classify, reconstructed_strings
 
 SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "rtb"
 GUARDED = AUDITED  # 七張稽核表加 Phase 8 死信兩張表,共用同一套判定
@@ -86,6 +86,25 @@ def test_the_audit_guard_sees_through_format_and_percent(source):
     assert audit_violations(ast.parse(source)) != []
 
 
+@pytest.mark.parametrize("source", [
+    # 代碼審第 2 輪:在空白處切開再用 + 串起來,兩側各自壓空白會把字黏在一起、躲過比對
+    *[f'x = "{verb} " + "{table} WHERE 1"' for verb, table in (
+        ("UPDATE OR REPLACE", "write_stops"), ("DELETE FROM", "approvals"),
+        ("UPDATE", "approval_uses"), ("DELETE FROM", "lifecycle_events"),
+        ("UPDATE OR ROLLBACK", "dsp_calls"), ("DROP TABLE", "operations"),
+        ("REPLACE INTO", "attempts"), ("UPDATE OR REPLACE", "dead_letters"),
+        ("DELETE FROM", "dead_letter_ops"))],
+    'x = "ALTER TABLE operations ADD COLUMN " + "flag INTEGER DEFAULT 1"',
+    # 具名佔位:.format 的具名引數、% 右邊是字典
+    'x = "UPDATE {t} SET status = 1".format(t="operations")',
+    'x = "UPDATE %(t)s SET status = 1" % {"t": "operations"}',
+    'x = "UPDATE operations SET status = {v}".format(v=value)',
+    'x = "UPDATE operations SET status = %(v)s" % {"v": value}',
+])
+def test_the_audit_guard_sees_through_split_and_named_placeholders(source):
+    assert audit_violations(ast.parse(source)) != []
+
+
 def test_only_one_place_adds_columns_by_a_variable_table_name():
     """動態表名的補欄位只准一處(收件口的通用補欄位迴圈,守衛直接讀它的登記表);新開第二處就紅,
     逼人接進同一個登記表。"""
@@ -98,6 +117,14 @@ def test_only_one_place_adds_columns_by_a_variable_table_name():
         '        for _name, ddl in columns:\n'
         '            conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")\n')
     assert len(dynamic_add_column_sites({**_trees(), pathlib.Path("probe.py"): probe})) == 2
+    named = ast.parse(  # 代碼審第 2 輪:具名佔位的第二處也要數到
+        'def migrate(conn, t, d):\n'
+        '    conn.execute("ALTER TABLE {table} ADD COLUMN {ddl}".format(table=t, ddl=d))\n')
+    assert len(dynamic_add_column_sites({**_trees(), pathlib.Path("named.py"): named})) == 2
+    mapped = ast.parse(
+        'def migrate(conn, t, d):\n'
+        '    conn.execute("ALTER TABLE %(table)s ADD COLUMN %(ddl)s" % {"table": t, "ddl": d})\n')
+    assert len(dynamic_add_column_sites({**_trees(), pathlib.Path("mapped.py"): mapped})) == 2
 
 
 def test_the_audit_guard_allows_a_plain_new_column_and_other_tables():

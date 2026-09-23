@@ -29,8 +29,9 @@ from rtb.executor.inbox_store import (
     ReplayOutcome,
     failure_class,
 )
+from tests.executor.audit_guard import audit_violations
 from tests.executor.fakes import Harness, proposal, write_config
-from tests.executor.write_scan import audit_violations, reconstructed_strings
+from tests.executor.write_scan import reconstructed_strings
 
 OPERATOR = "ops-alice"
 
@@ -479,6 +480,9 @@ def test_the_dead_letter_tables_are_only_ever_inserted_into():
     # Phase 9 增量 4 代碼審第 1 輪:動詞不緊貼表名的兩種改寫,舊守衛抓不到
     'x = "UPDATE OR REPLACE dead_" + "letters SET a = 1"',
     'x = "INSERT INTO dead_letter_" "ops (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = 2"',
+    # 代碼審第 2 輪:在空白處切開的 + 串接(兩側各自壓空白會黏成一個字)
+    'x = "UPDATE OR REPLACE " + "dead_letters SET a = 1"',
+    'x = "DELETE FROM " + "dead_letter_ops WHERE 1"',
 ])
 def test_the_dead_letter_guard_catches_each_rewrite(source):
     assert _dead_letter_violations(ast.parse(source)) != []
