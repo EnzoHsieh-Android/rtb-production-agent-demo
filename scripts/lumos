@@ -2346,12 +2346,34 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
         if _gsoon:
             warn_soft(_gsoon, f"有 {len(_gsoon)} 條預告的合約七天內到期(先講,還不擋):",
                       "現在做完最省事:lumos guard settle <守衛節點> --test <測試方法>")
+        # ★舊規則截斷出來的檔名★(必要合約清單_計劃 S22,2026-09-23):以前 guard plan 拿合約原文前 40 字當檔名,
+        # 會斷在句子中間。判法是精確比對不是猜:每篇守衛節點都存著完整合約原文,檔名(去掉日期)等於
+        # 「原文被舊規則截斷的樣子」、而且原文確實比截斷長度長,才算。手取的名字不會被點到。
+        _gtrunc = []
+        for _grel, _gn in sorted(env.notes.items()):
+            if _gn.fields.get("type") != "verification" or not _gn.fields.get(GUARD_MARK_FIELD):
+                continue
+            _gm2 = re.search(r"^預告的合約:(.+)$", (env.vault / _grel).read_text(encoding="utf-8", errors="replace"), re.M)
+            if not _gm2:
+                continue
+            _gc = nfc(_gm2.group(1).strip())   # 檔名那邊載入時已經是 NFC;原文不先正規化,含組合字元的會漏抓(代碼審 r2 通才席)
+            _gfull = re.sub(f"[^{_GUARD_NAME_CHARS}]+", "-", _gc).strip("-")
+            _gstem = re.sub(r"^\d{4}-\d{2}-\d{2}_", "", Path(_grel).stem)
+            if _gstem == _guard_plan_slug(_gc) and _gstem != _gfull:
+                _gtrunc.append(_grel)
+        if _gtrunc:
+            warn_soft(_gtrunc, f"有 {len(_gtrunc)} 篇守衛節點的檔名是舊規則從合約原文截斷出來的(斷在句子中間):",
+                      "改成短名(日期前綴可留可拿掉),連同引用一起改:scripts/graph-rename.sh <舊名> <新名>")
         if not _gover and not _gsoon and not _gover_other:
-            ok("沒有逾期或快到期的預告合約")
+            # ★有檔名提醒時不准印得像全都乾淨★(代碼審 r1 架構席):這一行是會被當成「沒事」掃過去的訊號,
+            # 同一段先前就因為同樣形狀被擋過一次(逾期但沒碰到那一堆)
+            ok("沒有逾期或快到期的預告合約" + (f"(但上面有 {len(_gtrunc)} 篇檔名要改)" if _gtrunc else ""))
         elif not _gover and not _gsoon:
-            # ★這一行是唯一會被當成「全都乾淨」掃過去的訊號★(代碼審 r1 通才席):
-            # 上面剛列完「還有 N 條逾期」,這裡再印「沒有逾期」會讓人誤信沒事。
-            ok(f"這次改動沒碰到任何逾期的預告合約(上面那 {len(_gover_other)} 條還在,只是不擋這次推送)")
+            # ★收尾有兩條打勾的分支,兩條都會被當成「全都乾淨」掃過去★(代碼審 r1 通才席;
+            # 2026-09-23 代碼審 r2 兩席:檔名提醒第一版只補了上面那條,這條漏了)。
+            # 上面剛列完「還有 N 條逾期」或「幾篇檔名要改」,這裡再印得像沒事,人會誤信。
+            ok(f"這次改動沒碰到任何逾期的預告合約(上面那 {len(_gover_other)} 條還在,只是不擋這次推送)"
+               + (f"(另外上面有 {len(_gtrunc)} 篇檔名要改)" if _gtrunc else ""))
     except Exception as _e:
         warn_soft([], f"這一段算不出來({_e.__class__.__name__}: {_e}),先跳過")
     print()
@@ -7703,6 +7725,28 @@ def cmd_canary(env, kind, auditor=None, token=None, note=None, loop=None, severi
             _stored = str(_pr)
         rec[_k + "_path"], rec[_k + "_sha256"] = _stored, _h
     path = env.vault.parent / ".canary-log.jsonl"
+    # ── 代碼審從第一筆就要留痕(2026-09-22 rtb-production-agent-demo 回報)──
+    # 下面那道「定錨後才強制」對代碼審太晚:代碼審的慣例是先記非載體席、再記載體席,
+    # 第一席記帳時還沒有任何一筆帶發現清單(沒定錨),漏帶 --snapshot 會安靜通過,
+    # 要到問處置閘才以「資安席留痕對不上」這種看不出原因的訊息爆出來——而帳本不能撤銷,只能整輪換編號重記。
+    # 代碼審的手冊本來就要求每一席都帶這兩個,所以這裡寫側當場擋、直接講缺哪個。
+    # ★設計審(散文)不動★:仍照原本的定錨規則,相容鐵則。判法走全檔唯一那支 _roster_kind(代碼審 r1 兩席 blocker:
+    # 第一版自己寫 startswith("code"),把「code 開頭沒連字號」的也講成代碼審)。
+    # ★「看不出是哪一種」照最嚴的處理★(代碼審 r2 架構席 blocker):同檔三處既有呼叫點對 None 都是從嚴,
+    # 就是為了擋「取個 codeX 的編號就繞過」(r2 外家席實跑抓到過);第二版這裡從寬,codeXreview 就能漏帶快照。
+    # 從嚴的代價:走新處置閘(--disposal)的設計審本來也要帶這兩個,所以對它們沒差;★舊的 panel 型設計審從沒要求過★
+    # (代碼審 r3 通才席:codestage 那九筆就是),目前打不到只是因為更早那條「審查席一定要附 --report」先擋了——
+    # 以後動那條規則或開「補記舊帳」的旁路時,這裡要重新想。訊息照既有那幾處的說法講,不硬說它是代碼審。
+    # ★只記結局的帳排除★(r1 通才席):帶 --outcome 的那種結構上就不帶報告與快照(上面有互斥規則)。
+    _rk = _roster_kind(str(loop)) if loop else "design"
+    if loop and _rk != "design" and outcome is None and not (report and snapshot):
+        _miss = [f for f, v in (("--report", report), ("--snapshot", snapshot)) if not v]
+        _what = (f"代碼審({loop})" if _rk == "code"
+                 else f"迴圈 {loop}(編號 code 開頭卻不是 code-,看不出是哪一種審查,照最嚴的當代碼審)")
+        print(f"擋下:{_what}的每一筆記帳都要帶 {' 與 '.join(_miss)}——"
+              "現在不擋的話,要到問處置閘才會發現,而那時帳本已經不能撤銷,只能整輪換編號重記", file=sys.stderr)
+        print("  --report <這一席的報告>  --snapshot <這一輪凍結的 patch>", file=sys.stderr)
+        return 2
     # ── T6 收緊(design-loop重設計 實作計畫):disposal 定錨後留痕轉強制 ──
     # 定錨=該 loop 帳面已有任一筆帶 findings_set(同 M2 cluster「首個有效輪定錨」前例)。
     # 定錨後每筆 record 必帶 report+snapshot;未定錨/舊 loop 完全不受影響(相容鐵則)。
@@ -10709,11 +10753,33 @@ GUARD_MARK_FIELD = "guards"
 
 def _guard_plan_slug(text):
     """守衛節點檔名:取合約前段做 slug,保留中文,砍掉檔名不能用的字。"""
-    s = re.sub(r"[^\w\u4e00-\u9fff-]+", "-", text.strip())[:40].strip("-")
+    s = re.sub(f"[^{_GUARD_NAME_CHARS}]+", "-", text.strip())[:40].strip("-")
     return s or "guard"
 
 
-def _guard_plan_check(env, node, claim, plan, phase, due, why, owner):
+_GUARD_NAME_MAX = 24
+# ↑ 短名那段(不含日期)的上限。依據:本 repo 驗證紀錄含日期的長度中位數 24、90 分位 32,
+#   扣掉 11 字的日期前綴,短名那段中位數約 13、90 分位約 21;24 留了餘裕又逼得出短名字。
+# ★檔名能用的字只有這一份★(代碼審 r1 架構席:原本自動檔名與短名驗證各寫一份字面,容易悄悄不同步)。
+# \w 在 Python 預設收所有語言的字母與數字(韓文、全形也算),不是只有中英數字——說明要照實講(代碼審 r1 通才席)。
+_GUARD_NAME_CHARS = r"\w\u4e00-\u9fff-"
+_GUARD_NAME_OK_RE = re.compile(f"[{_GUARD_NAME_CHARS}]")
+
+
+def _guard_name_problem(name):
+    """守衛節點短名哪裡不合格;合格回 None。"""
+    n = nfc((name or "").strip())
+    if not n:
+        return "預告合約要給一個短名(--name)——不給的話,檔名只能拿合約原文截斷,會斷在句子中間"
+    if len(n) > _GUARD_NAME_MAX:
+        return f"短名太長({len(n)} 字,上限 {_GUARD_NAME_MAX} 字)"
+    bad = sorted({c for c in n if not _GUARD_NAME_OK_RE.match(c)})
+    if bad:
+        return f"短名裡有檔名不能用的字:{' '.join(repr(c) for c in bad)}(只收字母、數字、中文、底線、連字號;不收空白與標點)"
+    return None
+
+
+def _guard_plan_check(env, node, claim, plan, phase, due, why, owner, name=None):
     """預告指令的入口檢查,全部擋下的理由集中在這裡。
 
     回 (rel, prel, phases, gname, gpath) 或 None(已經印過為什麼擋)。
@@ -10732,13 +10798,15 @@ def _guard_plan_check(env, node, claim, plan, phase, due, why, owner):
         print("擋下:合約那句話不能換行(摘要是一行一條,換行會把整個摘要區塊打斷,"
               "連同這篇既有的合約一起從圖譜消失)", file=sys.stderr)
         return None
+    # ★短名也進這張清單★(代碼審 r1 架構席):分開檢查的話,同時漏 --plan 跟 --name 要補兩次才看得到兩個問題
     missing = [(v, lbl) for v, lbl in ((plan, "計劃參照"), (phase, "階段"), (due, "最遲日期"),
-                                       (why, "理由"), (owner, "負責人")) if not (v or "").strip()]
+                                       (why, "理由"), (owner, "負責人"), (name, "短名")) if not (v or "").strip()]
     if missing:
         names = "、".join(lbl for _v, lbl in missing)
         print(f"擋下:預告合約要寫清楚才追得動,還缺:{names}", file=sys.stderr)
         print("  缺什麼就補什麼:--plan <計劃節點> --phase <階段,可多個逗號分隔> "
-              "--due YYYY-MM-DD --why <為什麼還不做> --owner <誰負責>", file=sys.stderr)
+              "--due YYYY-MM-DD --why <為什麼還不做> --owner <誰負責> "
+              f"--name <短名,當檔名,{_GUARD_NAME_MAX} 字內,例:事故F2_確認前當機不重複副作用>", file=sys.stderr)
         return None
     try:
         datetime.date.fromisoformat(due.strip())
@@ -10754,7 +10822,17 @@ def _guard_plan_check(env, node, claim, plan, phase, due, why, owner):
         print(f"擋下:圖譜裡找不到計劃節點 {plan}", file=sys.stderr)
         return None
     phases = [x.strip() for x in str(phase).split(",") if x.strip()]
-    gname = f"{datetime.date.today().isoformat()}_{_guard_plan_slug(claim)}"
+    # ★檔名用人給的短名,不再截合約原文★(必要合約清單_計劃 S19 到 S21,2026-09-23 rtb-production-agent-demo 回報):
+    # 原本拿合約前 40 字當檔名,產生斷在句子中間的名字。日期前綴保留——本 repo 驗證紀錄全是「日期_短名」。
+    _nerr = _guard_name_problem(name)
+    if _nerr:
+        print(f"擋下:{_nerr}", file=sys.stderr)
+        print(f"  守衛節點的檔名要一個短名(會自動加日期前綴,{_GUARD_NAME_MAX} 字以內),例如:", file=sys.stderr)
+        print("    --name 事故F2_確認前當機不重複副作用", file=sys.stderr)
+        return None
+    # ★用正規化過的寫法★(代碼審 r1 通才席):同一個字的組合寫法與預組合寫法位元組不同,
+    # macOS 會摺成同一個檔,Linux 不會——撞名保護就會在 CI 那種機器上失效。載入圖譜時本來就用 nfc。
+    gname = f"{datetime.date.today().isoformat()}_{nfc(name.strip())}"
     gpath = env.vault / "Verification" / f"{gname}.md"
     if gpath.exists():
         print(f"擋下:守衛節點 {gname} 已經存在,換一句話或改名再試"
@@ -10799,10 +10877,10 @@ def _guard_plan_write_node(gpath, gname, rel, prel, phases, today, claim, due, w
     return True
 
 
-def cmd_guard_plan(env, node, claim, plan, phase, due, why, owner):
+def cmd_guard_plan(env, node, claim, plan, phase, due, why, owner, name=None):
     """預告一條之後要有的合約:寫標記 + 建待完成守衛節點,雙向連好。"""
     import datetime
-    checked = _guard_plan_check(env, node, claim, plan, phase, due, why, owner)
+    checked = _guard_plan_check(env, node, claim, plan, phase, due, why, owner, name)
     if checked is None:
         return 2
     rel, prel, phases, gname, gpath = checked
@@ -28692,8 +28770,18 @@ def _codeloop_record_valid(repo_root, rec_sha, marker_sha):
     try:
         anc = _sp.run(["git", "merge-base", "--is-ancestor", rec_sha, marker_sha],
                       capture_output=True, text=True, errors="replace", cwd=str(repo_root), timeout=_disp_git_timeout())
+        if anc.returncode not in (0, 1):
+            # ★git 回 1 才是「不是祖先」;其他非零是那個提交在這份 repo 裡根本找不到★(代碼審 r1 通才席):
+            # 寫錯的 sha、淺 clone、或物件被清掉。第一版把這種也講成「多半是壓過提交」,給了文不對題的重來指令。
+            return False, (f"記錄 sha {rec_sha[:8]} 在這份 repo 裡找不到(寫錯、淺 clone、或已被清掉),"
+                           "判不了是不是祖先——先確認那個提交還在,不在就照重來的步驟重記")
         if anc.returncode != 0:
-            return False, f"記錄 sha {rec_sha[:8]} 不是目標 {marker_sha[:8]} 的祖先"
+            # ★講出最常見的原因與怎麼重來★(2026-09-22 rtb-production-agent-demo 回報):
+            # 把本機提交壓成一個、或 rebase 之後,內容可以一模一樣,原本記的那個提交卻不再是祖先。
+            # 只丟兩個 sha 的話,人看不出是自己剛做的壓提交造成的,也不知道要重跑哪兩個指令。
+            return False, (f"記錄 sha {rec_sha[:8]} 不是目標 {marker_sha[:8]} 的祖先——多半是壓過提交或 rebase 改寫過歷史"
+                           "(內容沒變也一樣失效)。重來:表態 `lumos pitfalls --diff <範圍> --dispositions-template --carry`"
+                           " 再 `lumos code-loop dispositions <檔>`;審查留痕重跑 `lumos code-loop pass --note \"…\"`")
         df = _sp.run(["git", "diff", "--name-only", rec_sha, marker_sha],
                      capture_output=True, text=True, errors="replace", cwd=str(repo_root), timeout=_disp_git_timeout())
     except _sp.TimeoutExpired:
@@ -29114,6 +29202,7 @@ def _codeloop_guard_verdict(repo_root, diff_range=None, at_sha=None, branch=None
         # HEAD 前進 → pass 自失效 → 追尾。豁免=留痕 sha 之後的 commit ★只動簿記檔★
         # 且留痕 sha 是目標 sha 的★祖先★(改寫史拒認)→ 留痕仍有效。
         # 「HEAD 移動→作廢」的原意=pass 不得蓋到新★代碼★——任何非白名單檔一動照樣失效。
+        _vwhy = None
         if rec_sha and rec_sha != marker_sha and rec_status in ("passed", "skipped"):
             # 祖先+簿記豁免走跟表態同一支 _codeloop_record_valid(r1 架構對齊席 f1:原本兩段逐字相同各自維護)
             _vok, _vwhy = _codeloop_record_valid(repo_root, rec_sha, marker_sha)
@@ -29124,7 +29213,10 @@ def _codeloop_guard_verdict(repo_root, diff_range=None, at_sha=None, branch=None
                         "tier": tier}
         # 留痕存在但 sha 不符或狀態不對
         if rec_sha != marker_sha:
-            reason = f"tier=high 且留痕 sha 過時(留痕={rec_sha[:8]} 目標={marker_sha[:8]};非純簿記增量)"
+            # ★把判有效性那支講的原因接過來★(2026-09-22 代碼審 r1 架構席):這條是推送前真正會擋的路,
+            # 原本只印固定的「非純簿記增量」——壓過提交的時候那句話根本是錯的,而重來的指令也沒印出來。
+            reason = (f"tier=high 且留痕過時:{_vwhy}" if _vwhy else
+                      f"tier=high 且留痕 sha 過時(留痕={rec_sha[:8]} 目標={marker_sha[:8]};非純簿記增量)")
         else:
             reason = f"tier=high 且留痕狀態無效({rec_status!r})"
         if _codeloop_marker_skipped(repo_root, reason, marker_sha):
@@ -30342,6 +30434,8 @@ def main():
     gp.add_argument("--due", dest="gp_due", help="最遲日期 YYYY-MM-DD(逾期就擋,不准延期)")
     gp.add_argument("--why", dest="gp_why", help="為什麼現在還不做")
     gp.add_argument("--owner", dest="gp_owner", help="誰負責")
+    gp.add_argument("--name", dest="gp_name",
+                    help=f"守衛節點的短名(當檔名,前面自動加日期;{_GUARD_NAME_MAX} 字以內),例:事故F2_確認前當機不重複副作用")
     gst = gsub.add_parser("settle", help="轉正:預告行換成正式合約行並綁測試,守衛節點轉已通過")
     gst.add_argument("ref", help="守衛節點")
     gst.add_argument("--test", dest="gs_test", required=True, help="測試方法名")
@@ -31147,7 +31241,7 @@ def main():
                                       platform=args.platform)
         if args.gcmd == "plan":
             return cmd_guard_plan(env, args.node, args.claim, args.gp_plan, args.gp_phase,
-                                  args.gp_due, args.gp_why, args.gp_owner)
+                                  args.gp_due, args.gp_why, args.gp_owner, args.gp_name)
         if args.gcmd == "settle":
             return cmd_guard_settle(env, args.ref, args.gs_test)
         if args.gcmd == "abandon":
