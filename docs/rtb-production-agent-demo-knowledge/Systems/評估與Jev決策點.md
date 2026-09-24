@@ -106,3 +106,4 @@ verified_by:
 - `src/rtb/eval/adoption.py` 的門檻型別加 `cost_exempt`(預設假;為真時成本門檻必須是 None);採用判定抽成 `operational_problems`,Phase 10 的逐格採用與調查評估的模型那一列共用,`cost_exempt` 為真就不比成本、延遲與失敗率照查。`src/rtb/eval/model_candidate.py` 的逐欄判定在 `cost_exempt` 為真時成本那一欄寫「不設門檻(假設正式環境用自研模型、成本另計)」;Phase 11B 模型候選那組門檻常數不動。防回歸:[test:test_an_explicit_no_cost_gate_skips_only_the_cost_check]、[test:test_the_report_writes_no_cost_gate_for_an_exempt_limit]。
 - 匯入邊界([S918] 照 Phase 13 改寫):評估套件閉包的准許名單加模型閘道、AI 決策模組(ai_judge 與它的詞彙模組)與這四支;匯入 AI 決策模組、經它開閘道送出的,評估套件裡只准評估執行器。
 - 決定紀錄 `governance/eval/phase13-investigation-adoption.md`(命令列產生)。2026-09-25 入庫時還沒有評估錄製:72 筆全部「找不到錄製」、退回現行規則,模型那一列沒量,結論不採用。現行規則實測:暫停、資料異常、裁定 12 三格與沒價值格全錯(有投放就提案),較長窗有轉換、沒投放、有價值三格全對。
+- `tests/eval/test_investigation_eval.py`:上面各條的合約測試([S1117]–[S1119]、[S1133]、[S1140]、[S1141]、[S1146]、[S1155]、[S1159]、[S1163]、[S1165]),以及 [S1162] 標準答案那半的檢查函式(由 tests/domain/test_metrics.py 綁 [S1162] 的那支呼叫)。全部用假的模型呼叫或假 claude,不碰真模型。
