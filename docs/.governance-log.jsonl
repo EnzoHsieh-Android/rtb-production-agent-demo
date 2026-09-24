@@ -3550,3 +3550,5 @@
 {"ts": "2026-09-24T15:53:40+08:00", "commit": "a5eeedb", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "a5eeedbb73fa7d884a7eb28fbc1b0e2c6c9aea82"}
 {"ts": "2026-09-24T16:34:12+08:00", "commit": "56767a1", "gate": "delguard", "kind": "degraded", "hard": false, "nodes": [], "note": "reason=timeout tokens=40"}
 {"ts": "2026-09-24T16:34:13+08:00", "commit": "56767a1", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "56767a11d5caf0bad2ade5c4bdbd53230489372a"}
+{"ts": "2026-09-24T17:10:55+08:00", "commit": "3721489", "gate": "delguard", "kind": "degraded", "hard": false, "nodes": [], "note": "reason=timeout tokens=31"}
+{"ts": "2026-09-24T17:10:57+08:00", "commit": "3721489", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "3721489674e65359d05154e35a996e86b9859969"}
