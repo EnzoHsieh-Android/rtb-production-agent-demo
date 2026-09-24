@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS confirmation_windows (
     demo_id TEXT PRIMARY KEY, until TEXT NOT NULL, approved_at TEXT, closed_at TEXT,
     signing_at TEXT, sign_failed_at TEXT);
 CREATE TABLE IF NOT EXISTS demo_runs (demo_id TEXT PRIMARY KEY, full INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS comparison_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, demo_id TEXT NOT NULL, generated_at TEXT NOT NULL,
+    rows_json TEXT NOT NULL, note TEXT NOT NULL, seconds REAL);
 CREATE TABLE IF NOT EXISTS scenario_details (
     demo_id TEXT NOT NULL, code TEXT NOT NULL, details_json TEXT NOT NULL,
     PRIMARY KEY (demo_id, code));
@@ -179,6 +182,18 @@ class VerifierRun:
     passed: bool
     lines: tuple[str, ...]
     reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ComparisonRun:
+    """全部跑一次的最後一步(驗證器之後)產生的前後比較表(增量 3,[S1041]):每列(造假手法, 沒有驗證器
+    的結果, 有驗證器的結果)、說明、產生花了幾秒。沒產生成時列是空的,說明寫「這次沒產生:原因」。"""
+
+    demo_id: str
+    generated_at: datetime
+    rows: tuple[tuple[str, str, str], ...]
+    note: str
+    seconds: float | None
 
 
 @dataclass(frozen=True)
@@ -336,6 +351,15 @@ class StateWriter:
                 (run.demo_id, _iso(run.verified_at), int(run.passed),
                  json.dumps(list(run.lines), ensure_ascii=False),
                  json.dumps(list(run.reasons), ensure_ascii=False)))
+
+    def record_comparison(self, run: ComparisonRun) -> None:
+        with self._write() as conn:
+            conn.execute(
+                "INSERT INTO comparison_runs (demo_id, generated_at, rows_json, note, seconds) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (run.demo_id, _iso(run.generated_at),
+                 json.dumps([list(row) for row in run.rows], ensure_ascii=False), run.note,
+                 run.seconds))
 
     def set_confirmation(self, code: str, request: ConfirmationRequest,
                          until: datetime | None = None) -> None:
@@ -517,6 +541,18 @@ class StateReader:
             "SELECT demo_id, verified_at, passed, lines_json, reasons_json FROM verifier_runs "
             "WHERE demo_id = ? ORDER BY id DESC LIMIT 1", (demo_id,)).fetchone()
         return _verifier_run(row)
+
+    def comparison_run(self, demo_id: str) -> ComparisonRun | None:
+        """這一次展示的前後比較表(最後一次產生的);沒產生過是空的。"""
+        row = self._conn.execute(
+            "SELECT demo_id, generated_at, rows_json, note, seconds FROM comparison_runs "
+            "WHERE demo_id = ? ORDER BY id DESC LIMIT 1", (demo_id,)).fetchone()
+        if row is None:
+            return None
+        shown, at, rows, note, seconds = row
+        return ComparisonRun(str(shown), datetime.fromisoformat(str(at)),
+                             tuple((str(a), str(b), str(c)) for a, b, c in json.loads(str(rows))),
+                             str(note), None if seconds is None else float(seconds))
 
     def demo_full(self, demo_id: str) -> bool | None:
         """這一次展示是不是全部跑一次;沒記(驅動程式直接跑、或舊資料)是空的。"""

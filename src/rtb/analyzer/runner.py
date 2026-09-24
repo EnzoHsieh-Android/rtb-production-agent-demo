@@ -206,7 +206,7 @@ class _Backoff:
         self.due[task_id] = now + wait
 
 
-GateOpener = Callable[..., modelgate.Gate]
+GateOpener = ai_judge.GateOpener
 
 
 def _open_ai_gate(args: argparse.Namespace, environ: Mapping[str, str], open_gate: GateOpener,
@@ -214,8 +214,9 @@ def _open_ai_gate(args: argparse.Namespace, environ: Mapping[str, str], open_gat
     """啟動時經模型閘道判一次模式([S1137]);即時加錄製沒帶批次編號、或錄製目錄混了別批就拒絕
     ([S1142])。拒絕時印原因、回 None,什麼模型都沒呼叫。"""
     try:
-        gate = open_gate(environ, demo_id=args.demo_id, ledger=args.ledger,
-                         recordings=args.recordings_dir, batch_id=args.batch_id)
+        gate = ai_judge.open_investigation_gate(
+            environ, demo_id=args.demo_id, ledger=args.ledger, recordings=args.recordings_dir,
+            batch_id=args.batch_id, open_gate=open_gate)
     except (modelgate.UnknownModel, modelgate.GateRefused) as refused:
         errors.write(f"拒絕啟動:{refused}\n")
         return None
@@ -225,7 +226,7 @@ def _open_ai_gate(args: argparse.Namespace, environ: Mapping[str, str], open_gat
             return None
         try:
             gate.check_recordings()
-        except (modelgate.MixedRecordingsDir, ValueError) as mixed:
+        except modelgate.GateRefused as mixed:
             errors.write(f"拒絕啟動:錄製目錄不能開錄({mixed})\n")
             return None
     for notice in gate.notices:

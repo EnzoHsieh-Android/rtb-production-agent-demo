@@ -53,8 +53,9 @@ class FakeGate:
     def mode(self):
         return self.settings.mode
 
-    def complete(self, caller, system, user, *, max_output_tokens, timeout_seconds):
-        assert caller is modelgate.Caller.INVESTIGATION
+    caller = modelgate.Caller.INVESTIGATION
+
+    def complete(self, system, user, *, max_output_tokens, timeout_seconds):
         assert timeout_seconds == stepbudget.MODEL_TIMEOUT_SECONDS
         self.sent.append((system, user))
         self.events.append("model")
@@ -117,12 +118,17 @@ class AiWorld:
                 self.argv(f"http://127.0.0.1:{dsp.server_address[1]}",
                           f"http://127.0.0.1:{inbox.server_address[1]}"),
                 max_rounds=max_rounds, out=self.out, err=self.err,
-                open_gate=lambda _env, **_kw: self.gate, **kwargs)
+                open_gate=self._open, **kwargs)
         finally:
             for server in (dsp, inbox):
                 server.shutdown()
                 server.server_close()
         return self.code
+
+    def _open(self, _environ, **kwargs):
+        """開閘道時帶的呼叫者一定是分析端調查(綁在開閘道那一刻,送出時不收)。"""
+        assert kwargs["caller"] is modelgate.Caller.INVESTIGATION
+        return self.gate
 
     def reader(self):
         return TaskReader(self.root / "analyzer.db")
@@ -254,13 +260,13 @@ def test_a_stop_signal_during_a_model_call_ends_the_runner_cleanly(tmp_path):
 def test_the_runner_decides_the_model_mode_once_at_startup(tmp_path, monkeypatch):
     """[S1137] 模式只在啟動時判一次,之後每一輪沿用,不再執行 claude 版本檢查。"""
     calls = []
-    real = modelgate.mc.settings_from_env
+    real = modelgate.settings_from_env
 
     def counting(*args, **kwargs):
         calls.append(args)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(modelgate.mc, "settings_from_env", counting)
+    monkeypatch.setattr(modelgate, "settings_from_env", counting)
     world = AiWorld(tmp_path, [], tasks=(("t1", "c1"), ("t2", "c1")))
     world.gate = None
     opened = []
@@ -303,7 +309,8 @@ def test_the_runner_refuses_live_recording_without_a_batch_id_or_into_a_mixed_di
 
     def attempt(*extra, recordings=tmp_path / "rec"):
         def opener(_environ, **kwargs):
-            return modelgate.Gate(settings, "demo-1", tmp_path / "l.sqlite", recordings,
+            return modelgate.Gate(settings, kwargs["caller"], "demo-1", tmp_path / "l.sqlite",
+                                  recordings,
                                   kwargs["batch_id"])
 
         err = io.StringIO()
@@ -389,9 +396,12 @@ def test_the_runner_checks_the_login_once_before_taking_any_lease(tmp_path, monk
     assert world2.submitted() == ["t1", "t2"]  # 整趟照程式規則:有價值格照舊提案送件
     # 錄製模式:預檢回不適用,不呼叫任何東西
     touched = []
-    monkeypatch.setattr(modelgate.mc.cc.ClaudeCodeBackend, "preflight",
+    from rtb import modelclaude
+
+    monkeypatch.setattr(modelclaude.ClaudeCodeBackend, "preflight",
                         lambda _self: touched.append("backend"))
-    result = modelgate.Gate(recorded(), None, tmp_path / "l", tmp_path / "r").preflight_login()
+    result = modelgate.Gate(recorded(), modelgate.Caller.INVESTIGATION, None, tmp_path / "l",
+                            tmp_path / "r").preflight_login()
     assert result.outcome is modelgate.Preflight.NOT_APPLICABLE and touched == []
 
 

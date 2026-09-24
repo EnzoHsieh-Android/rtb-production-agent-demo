@@ -20,12 +20,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from rtb import modelclient as mc
+# 只轉手型別與函式,不綁模型用戶端的模組物件(代碼審 r1:公開模組物件就能經 modelgate.mc 繞過閘道)
+from rtb.modelclient import NUMERALS_RULE as NUMERALS_RULE
 from rtb.modelclient import Caller as Caller
 from rtb.modelclient import CallTerminated as CallTerminated
 from rtb.modelclient import LedgerBusy as LedgerBusy
 from rtb.modelclient import LoginPreflight as LoginPreflight
-from rtb.modelclient import MixedRecordingsDir as MixedRecordingsDir
+from rtb.modelclient import (
+    MixedRecordingsDir,
+    ModelRequest,
+    Settings,
+    call_deadline_seconds,
+    call_model,
+    check_recordings_dir,
+    default_recordings_dir,
+    live_ledger_path,
+    settings_from_env,
+)
 from rtb.modelclient import Mode as Mode
 from rtb.modelclient import ModelCallFailed as ModelCallFailed
 from rtb.modelclient import ModelResult as ModelResult
@@ -34,6 +45,8 @@ from rtb.modelclient import Placeholders as Placeholders
 from rtb.modelclient import Preflight as Preflight
 from rtb.modelclient import Source as Source
 from rtb.modelclient import UnknownModel as UnknownModel
+from rtb.modelclient import preflight_login as _preflight_login
+from rtb.modelclient import traceable_sentences as traceable_sentences
 
 
 class GateRefused(ValueError):
@@ -42,9 +55,12 @@ class GateRefused(ValueError):
 
 @dataclass(frozen=True)
 class Gate:
-    """一個入口行程判好的模型設定;之後每一次呼叫都沿用,不再重判模式。"""
+    """一個入口行程判好的模型設定;之後每一次呼叫都沿用,不再重判模式。呼叫者標籤在開閘道時綁死,
+    送出時不收(代碼審 r2:花費上限看呼叫者,標籤要綁在入口;邊界測試核對每支模組開閘道時帶的
+    是不是它准用的)。"""
 
-    settings: mc.Settings
+    settings: Settings
+    caller: Caller
     demo_id: str | None
     ledger: Path
     recordings: Path
@@ -58,42 +74,52 @@ class Gate:
     def notices(self) -> tuple[str, ...]:
         return self.settings.notices
 
-    def complete(self, caller: Caller, system: str, user: str, *, max_output_tokens: int,
+    def complete(self, system: str, user: str, *, max_output_tokens: int,
                  timeout_seconds: float) -> ModelResult:
         """送出一次模型呼叫(或讀錄製)。失敗丟 `ModelCallFailed` 的子類別;停止訊號丟
         `CallTerminated`。"""
-        request = mc.ModelRequest(caller=caller, system=system, user=user,
-                                  max_output_tokens=max_output_tokens,
-                                  timeout_seconds=timeout_seconds, demo_id=self.demo_id,
-                                  batch_id=self.batch_id)
-        return mc.call_model(request, self.settings, recordings_dir=self.recordings,
-                             ledger=self.ledger)
+        request = ModelRequest(caller=self.caller, system=system, user=user,
+                               max_output_tokens=max_output_tokens,
+                               timeout_seconds=timeout_seconds, demo_id=self.demo_id,
+                               batch_id=self.batch_id)
+        return call_model(request, self.settings, recordings_dir=self.recordings,
+                          ledger=self.ledger)
 
     def deadline_seconds(self, timeout_seconds: float) -> float:
         """一次呼叫從送出到回來最壞要多久(模型逾時加模型用戶端自己的清理與等鎖);入口拿來核對租約或
         領取期限。"""
-        return mc.call_deadline_seconds(timeout_seconds)
+        return call_deadline_seconds(timeout_seconds)
 
     def check_recordings(self) -> None:
         """開錄前的目錄檢查(即時加錄製模式,Phase 13 [S1142]):目錄要是空的或只有同一批的檔,不符丟
-        `MixedRecordingsDir`;沒帶批次編號丟 ValueError。"""
-        if not self.batch_id:
-            raise ValueError("即時加錄製模式要帶批次編號")
-        mc.check_recordings_dir(self.recordings, self.batch_id)
+        GateRefused(沒帶批次編號也是)。開閘道時已經檢查過一次;這支給入口在印就緒之前再核一次。"""
+        try:
+            check_recordings_dir(self.recordings, self.batch_id)
+        except MixedRecordingsDir as mixed:
+            raise GateRefused(f"錄製目錄不能開錄:{mixed}") from mixed
 
     def preflight_login(self) -> LoginPreflight:
         """啟動時的登入預檢(即時模式才真的檢查,錄製模式回不適用)。"""
-        return mc.preflight_login(self.settings)
+        return _preflight_login(self.settings)
 
 
-def open_gate(environ: Mapping[str, str], *, demo_id: str | None, ledger: Path | None,
-              recordings: Path | None, batch_id: str | None = None) -> Gate:
-    """在入口判一次模式。RTB_MODEL 指定的模型不在價目表丟 UnknownModel;即時模式給了帳檔路徑丟
-    GateRefused。"""
+def open_gate(environ: Mapping[str, str], *, caller: Caller, demo_id: str | None,
+              ledger: Path | None, recordings: Path | None, batch_id: str | None = None) -> Gate:
+    """在入口判一次模式。RTB_MODEL 指定的模型不在價目表丟 UnknownModel;即時模式給了帳檔路徑、
+    或即時加錄製卻沒帶批次、錄製目錄不是新的(空的或只有同一批的錄製檔),丟 GateRefused:
+    在入口拒絕,不等到第一次呼叫才失敗(代碼審 r1,比照 [S1142])。
+    預設的錄製目錄是專案根的入庫目錄,只供重播。"""
     claude = shutil.which("claude", path=environ.get("PATH", ""))
-    settings = mc.settings_from_env(environ, demo_id, claude)
+    settings = settings_from_env(environ, demo_id, claude)
+    folder = Path(recordings) if recordings is not None else default_recordings_dir()
     if settings.mode is Mode.LIVE and ledger is not None:
         raise GateRefused("即時模式的花費帳寫死在帳號家目錄那一本,不接受換帳檔路徑")
-    return Gate(settings, demo_id, Path(ledger) if ledger is not None else mc.live_ledger_path(),
-                Path(recordings) if recordings is not None else mc.default_recordings_dir(),
-                batch_id)
+    if settings.mode is Mode.LIVE and settings.record:
+        try:
+            check_recordings_dir(folder, batch_id)
+        except MixedRecordingsDir as mixed:
+            raise GateRefused(f"即時加錄製模式拒絕啟動:{mixed}") from mixed
+    if not isinstance(caller, Caller):
+        raise GateRefused("呼叫者必須是封閉列舉的成員")
+    return Gate(settings, caller, demo_id,
+                Path(ledger) if ledger is not None else live_ledger_path(), folder, batch_id)

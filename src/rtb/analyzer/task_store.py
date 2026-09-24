@@ -110,6 +110,16 @@ LEASE_DURATION = timedelta(seconds=60)
 # 說明命令列
 # 啟動時斷言「模型呼叫的總期限加 1 分鐘餘裕小於它」,所以接手時前一個持有者的呼叫一定已經結束
 NARRATIVE_CLAIM_WINDOW = timedelta(minutes=10)
+# 同一份提案最多領幾次(代碼審 r1):每次領取至多一次模型呼叫。說明不計花費上限(Phase 13 裁定 13),
+# 失敗又
+# 准立刻再領,不設上限的話被名稱誘導出讀不懂的回答時每一趟都再付一次;跟 Phase 13 調查一件工作最多 3
+# 輪
+# 同一個數,夠吸收一兩次暫時性失敗
+MAX_NARRATIVE_CLAIMS = 3
+# 確定沒送出模型呼叫、沒花錢的結果類別:不算進領取上限(代碼審 r2:花費帳忙碌三次就永遠不再產生說明)。
+# 還沒有結果的領取照算(持有者可能已經付了費才崩潰)
+UNSENT_NARRATIVE_OUTCOMES = frozenset({"ledger_busy", "local_cap_refused", "config_error",
+                                       "no_recording"})
 # 接續任務的保留命名空間:一般建任務入口拒收這個開頭的任務編號,只有建接續任務寫得進去
 FOLLOW_UP_PREFIX = "fu-"
 _FOLLOW_UP_HASH_LENGTH = 24
@@ -767,7 +777,8 @@ class TaskStore(TaskReads):
 
     def claim_narrative(self, task_id: str, revision: int, content_hash: str, *, owner: str,
                         now: datetime) -> NarrativeClaim | None:
-        """在一個寫入交易裡查與寫([S929]):已有成功結果不再領;最新一次領取有結果而且是失敗就立刻再領;
+        """在一個寫入交易裡查與寫([S929]):已有成功結果不再領;已領滿 MAX_NARRATIVE_CLAIMS 次不再領;
+        最新一次領取有結果而且是失敗就立刻再領;
         最新一次領取沒有結果、不到領取期限就跳過(回 None,不呼叫模型);超過期限才再領。"""
         with immediate_transaction(self._conn):
             rows = self._conn.execute(
@@ -777,6 +788,9 @@ class TaskStore(TaskReads):
                 "ORDER BY c.claim_seq", (task_id, revision, content_hash)).fetchall()
             if any(r[2] == NarrativeOutcome.OK.value for r in rows):
                 return None
+            sent = sum(1 for r in rows if r[2] not in UNSENT_NARRATIVE_OUTCOMES)
+            if sent >= MAX_NARRATIVE_CLAIMS:
+                return None
             if rows and rows[-1][2] is None and rows[-1][1] > _iso(now - NARRATIVE_CLAIM_WINDOW):
                 return None
             cursor = self._conn.execute(
@@ -785,6 +799,16 @@ class TaskStore(TaskReads):
             if cursor.lastrowid is None:
                 raise AssertionError("新增領取列沒有拿到序號")
             return NarrativeClaim(cursor.lastrowid, task_id, revision, content_hash)
+
+    def narrative_claim_count(self, task_id: str, revision: int, content_hash: str) -> int:
+        """這份提案算進領取上限的領取次數(確定沒送出的不算;領滿 MAX_NARRATIVE_CLAIMS 次就
+        不再領)。"""
+        rows = self._conn.execute(
+            "SELECT r.outcome FROM narrative_claims c "
+            "LEFT JOIN narrative_results r ON r.claim_seq = c.claim_seq "
+            "WHERE c.task_id = ? AND c.revision = ? AND c.content_hash = ?",
+            (task_id, revision, content_hash)).fetchall()
+        return sum(1 for (outcome,) in rows if outcome not in UNSENT_NARRATIVE_OUTCOMES)
 
     def has_narrative(self, task_id: str, revision: int, content_hash: str) -> bool:
         """這份提案已經有成功的說明。"""

@@ -35,7 +35,7 @@ from tests.ops.test_ops_boundaries import OPS, _ops_offenders
 
 NOW = at(minutes=600)
 CLI_KEY = "k" * 32
-VALID = {"hypotheses": ["任務甲那一批在收件後都過期了,可能是執行迴圈沒在跑"],
+VALID = {"hypotheses": ["任務甲那批在收件後都過期了,可能是執行迴圈沒在跑"],
          "next_step": "open_example_trace"}
 
 
@@ -309,3 +309,66 @@ def hypothesis_ignores_injected_names(tmp_path, name):
             outcomes.append(printed["hypothesis"]["status"])
         assert dump(data.executor_db, data.analyzer_db, dsp_db) == before
         return outcomes
+
+
+# ---- 代碼審 r1 ----
+def test_live_recording_hypotheses_need_a_batch_id_and_still_print_the_alert(rows, dsp_url,
+                                                                            tmp_path):
+    """即時加錄製沒帶批次:不呼叫模型,告警照常印,入口以參數錯結束;帶了批次與新目錄才照常錄。"""
+    fire_alert(rows)
+    script, environ = live_env(tmp_path, VALID)
+    environ = {**environ, "RTB_MODEL_RECORD": "1"}
+    code, printed, err = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1",
+                             "--recordings-dir", str(tmp_path / "fresh"))
+    assert code == hypothesis.EXIT_BAD_ARGUMENTS and "批次" in err
+    assert printed["hypothesis"]["status"] == "refused"
+    assert next(s for s in printed["slos"] if s["name"] == "safe_completion")["fast"]["fired"]
+    assert invocations(script) == []
+    code, printed, err = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1",
+                             "--batch-id", "b1")  # 預設的入庫目錄只供重播
+    assert code == hypothesis.EXIT_BAD_ARGUMENTS and "新的錄製目錄" in err
+    assert invocations(script) == []
+    code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1",
+                           "--batch-id", "b1", "--recordings-dir", str(tmp_path / "fresh"))
+    assert code == slo_code(rows, dsp_url) and printed["hypothesis"]["status"] == "ok"
+    [saved] = list((tmp_path / "fresh").glob("*.json"))
+    assert json.loads(saved.read_text(encoding="utf-8"))["batch_id"] == "b1"
+
+
+def test_hypotheses_with_untraceable_numbers_are_not_shown(rows, dsp_url, tmp_path):
+    """假說文字裡的數字要對回送出去的內容:對不上的那一條不顯示,全部對不上就整份作廢。"""
+    fire_alert(rows)
+    answer = {"hypotheses": ["12 件都過期了,執行迴圈可能沒在跑", "昨天花了 999999 美元"],
+              "next_step": "open_example_trace"}
+    _, environ = live_env(tmp_path / "a", answer)
+    code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1")
+    assert printed["hypothesis"]["status"] == "ok"
+    assert printed["hypothesis"]["hypotheses"] == ["12 件都過期了,執行迴圈可能沒在跑"]
+    _, environ = live_env(tmp_path / "b", {"hypotheses": ["昨天花了 999999 美元"],
+                                          "next_step": "open_example_trace"})
+    code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1")
+    assert printed["hypothesis"]["status"] == "failed"
+    assert printed["hypothesis"]["reason"] == "untraceable_numbers"
+    assert code == slo_code(rows, dsp_url)
+
+
+def test_the_recording_directory_is_checked_once_before_the_call(rows, dsp_url, tmp_path,
+                                                                 monkeypatch):
+    """代碼審 r2:目錄檢查只在呼叫模型之前做一次;呼叫之後目錄裡多出同批別的佔位,也不把已經成功的
+    假說改判成參數錯。"""
+    fire_alert(rows)
+    _, environ = live_env(tmp_path, VALID)
+    environ = {**environ, "RTB_MODEL_RECORD": "1"}
+    real, calls = mc.check_recordings_dir, []
+
+    def once_then_mixed(directory, batch_id):
+        calls.append(directory)
+        if len(calls) > 1:
+            raise mc.MixedRecordingsDir("別的行程留下的佔位")
+        return real(directory, batch_id)
+
+    monkeypatch.setattr(mc, "check_recordings_dir", once_then_mixed)
+    code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1",
+                           "--batch-id", "b1", "--recordings-dir", str(tmp_path / "fresh"))
+    assert printed["hypothesis"]["status"] == "ok"
+    assert code == slo_code(rows, dsp_url) and len(calls) == 1

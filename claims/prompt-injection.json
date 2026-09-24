@@ -1,11 +1,15 @@
 {
   "manifest_version": 1,
   "claim_id": "prompt-injection",
-  "policy": "廣告名稱等不可信文字不影響決策、不流進提案;提案只收白名單欄位;可信證據不帶自由文字;分析端讀不到簽發金鑰。",
+  "policy": "未開 AI 決策時,廣告名稱等不可信文字不影響決策、不流進提案;開了 AI 決策時,名稱只能翻動提不提案,翻不動金額、廣告與動作種類;提案只收白名單欄位;可信證據不帶自由文字;分析端讀不到簽發金鑰。",
   "scope": [
     {
       "path": "src/rtb/__init__.py",
       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+    },
+    {
+      "path": "src/rtb/analyzer/ai_judge.py",
+      "sha256": "087dc6d6432de411a13a902972946499f9eb515dc48e571c7483b1b76580b81f"
     },
     {
       "path": "src/rtb/analyzer/dsp_client.py",
@@ -28,12 +32,20 @@
       "sha256": "ea4015c1170f2a24ebbc99ef11b470f2173249251aa9154765e05d278fbf5ab9"
     },
     {
+      "path": "src/rtb/analyzer/modelgate.py",
+      "sha256": "3c528a9621d51f168c7aa148ca9e7c3dd85892afff5cda137cfbddd30ed5e696"
+    },
+    {
       "path": "src/rtb/analyzer/policy.py",
       "sha256": "f05977c5de7d783db669438668510024a9f4b03eff4f14c009e04fb804752d24"
     },
     {
+      "path": "src/rtb/analyzer/runner.py",
+      "sha256": "621974120adefe2782a7eeee1307d18fc619b494ab1e79d68201d81596945986"
+    },
+    {
       "path": "src/rtb/analyzer/task_store.py",
-      "sha256": "a1dee800678a16b6d2c6217550d38d3ae11b206eae0363ab928d83c5c527c77a"
+      "sha256": "24c8a7ad5276ccef8583f126038539bbf65e7989395d56887f766fdf02b9c6bf"
     },
     {
       "path": "src/rtb/capabilitykit.py",
@@ -74,6 +86,10 @@
     {
       "path": "src/rtb/dsp/errors.py",
       "sha256": "8a2da02e83240a71b3d279998a50fe36d19c7e484e58568e3f53af2dbdd85bbf"
+    },
+    {
+      "path": "src/rtb/dsp/seed.py",
+      "sha256": "26791019e686957dd8570e50ba780e95a140910906f8af25bb5b9d02eac197b7"
     },
     {
       "path": "src/rtb/dsp/server.py",
@@ -128,12 +144,24 @@
       "sha256": "2242e058db69843c5c8e306d8dcb4f63407d8601e1e9b247894647c627ae4f96"
     },
     {
+      "path": "src/rtb/modelclient.py",
+      "sha256": "b72831f5b72d4ebd39029dafc78719235e5c36eff583578728222f30140a14d8"
+    },
+    {
       "path": "src/rtb/modelcore.py",
       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
     },
     {
+      "path": "src/rtb/modelledger.py",
+      "sha256": "722663e03a97525e7ea7b0694a498a164741d7ad18de1bf9e57647bb952b3000"
+    },
+    {
       "path": "src/rtb/modelledger_view.py",
       "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+    },
+    {
+      "path": "src/rtb/modelrecording.py",
+      "sha256": "0ea81155b26296438f9dbfd29ff592fb68deb5f7174164b4e7bf1c8ad141c71f"
     },
     {
       "path": "src/rtb/sqlitekit.py",
@@ -166,6 +194,10 @@
       "sha256": "768e7f782442ab5fbd8e5666f4ba43cbe268a503de1d299089fd1c24e9c9237c"
     },
     {
+      "path": "tests/analyzer/test_ai_judge.py",
+      "sha256": "dd8931e030a65683c6f65b320661fe73be3a26999b8af36dd87398354ee80541"
+    },
+    {
       "path": "tests/analyzer/test_boundaries.py",
       "sha256": "214a6c6fbc04118f49a433460880c4783e9f0d7c5fbf7c7b9b60f1d227a416cc"
     },
@@ -176,6 +208,10 @@
     {
       "path": "tests/analyzer/test_f5_end_to_end.py",
       "sha256": "accdd58198b1249ae3e01b39eeb8ac05c47939d582757bf810667157d4c72fd9"
+    },
+    {
+      "path": "tests/analyzer/test_investigation_e2e.py",
+      "sha256": "18a8d02af1f73220f269e9e8cb80525f41855f6d6f04cd75bdd7d7f875a39786"
     },
     {
       "path": "tests/analyzer/test_trust_boundary.py",
@@ -212,6 +248,14 @@
     {
       "path": "tests/executor/fakes.py",
       "sha256": "581a7bef53efeaba0aa8eec33cfadf97ff74cc74ef87fd2c260caceac70a1add"
+    },
+    {
+      "path": "tests/model/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/model/fakes.py",
+      "sha256": "8b6534d70573cb78513e4784bd846f04d004c3f60edfe6d81c528c56ccf5d90a"
     }
   ],
   "enumerations": [],
@@ -273,6 +317,11 @@
     },
     {
       "node": "tests/analyzer/test_boundaries.py::test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/analyzer/test_ai_judge.py::test_an_injected_name_can_only_flip_propose_or_not",
       "covers": [],
       "kind": "unit"
     }

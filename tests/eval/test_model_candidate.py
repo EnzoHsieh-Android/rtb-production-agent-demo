@@ -220,7 +220,9 @@ MODEL_NET_ROOTS = frozenset({"urllib", "http", "socket", "ssl", "socketserver", 
                              "xmlrpc"})
 MODEL_NET_MODULES = frozenset({"rtb.httpkit", "rtb.httpclient"})
 # 送出呼叫或繞過花費帳直接拿後端的名字
-SEND_NAMES = frozenset({"call_model", "send", "backend", "BackendCall", "run_claude",
+# (代碼審 r1:模型閘道的 open_gate、complete 也是送出入口,名字一併算)
+SEND_NAMES = frozenset({"call_model", "complete", "open_gate", "send", "backend", "BackendCall",
+                        "run_claude",
                         "ClaudeCodeBackend"})
 
 
@@ -241,13 +243,13 @@ def _eval_roots():
     return [f"rtb.eval.{p.stem}" for p in sorted(EVAL.glob("*.py")) if p.stem != "__init__"]
 
 
-# Phase 13 改寫 [S918](計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉):
-# 評估套件的閉包
-# 只准多出寫死的准許名單。增量 1 起有模型閘道;增量 2 起小常數模組經模型用戶端閉包進來(上面那份名單);
-# AI 決策模組(與它的調查詞彙模組)在評估套件真的匯入它時才進閉包(增量 3 的評估執行器),先寫進名單;
-# Phase 13 的評估模組(評估集、生成器、執行器、報告)在增量 3 開檔時照同一條加
-PHASE13_ALLOWED = frozenset({"rtb.analyzer.modelgate", "rtb.analyzer.ai_judge",
-                             "rtb.analyzer.investigation"})
+# Phase 13 改寫 [S918](計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉):評估套件的
+# 閉包只准多出寫死的准許名單。名單上的模型閘道、AI 決策模組、小常數模組與 Phase 13
+# 的評估模組(評估集、
+# 生成器、執行器、報告)要等增量 3 的評估執行器真的需要時才加(代碼審 r1:
+# 先放閘道等於讓評估套件任何一支
+# 模組都能經閘道送出);小常數模組出現時也要加進模型用戶端閉包
+PHASE13_ALLOWED: frozenset[str] = frozenset()
 
 
 def test_the_eval_package_reaches_the_model_only_through_the_model_client():  # noqa: PLR0915
@@ -284,8 +286,20 @@ def test_the_eval_package_reaches_the_model_only_through_the_model_client():  # 
     assert bypass == set()  # 沒有人拿後端直接送出(繞過花費帳)
     for probe in ("def f(s):\n    return s.backend.send(1)\n",
                   "from rtb import modelclient as mc\nmc.BackendCall('m', 's', 'u', 1, 1.0, 1)\n",
-                  "def f(b):\n    g = b.send\n    return g\n"):
+                  "def f(b):\n    g = b.send\n    return g\n",
+                  # 代碼審 r1:經分析端模型閘道送出
+                  "from rtb.analyzer import modelgate as g\n"
+                  "g.open_gate({}, demo_id=None, ledger=None, recordings=None)\n",
+                  "def f(gate):\n    return gate.complete(1, 's', 'u', max_output_tokens=1, "
+                  "timeout_seconds=1.0)\n"):
         assert send_names(ast.parse(probe)) - {"call_model"}, probe
+    for banned in ("from rtb.analyzer import modelgate\n", "import rtb.analyzer.modelgate\n",
+                   "from rtb.analyzer.modelgate import open_gate\n"):
+        probe = subprocess.run(
+            [sys.executable, "-m", "ruff", "check", "--config", str(EVAL / "ruff.toml"),
+             "--stdin-filename", str(EVAL / "probe.py"), "-"],
+            input=banned, capture_output=True, text=True, timeout=60, check=False)
+        assert probe.returncode == 1 and "TID251" in probe.stdout, banned
     # 模型用戶端各模組(含它們的閉包)不准匯入網路模組
     net = []
     for module, tree in _closure(sorted(MODEL_CLIENT_CLOSURE)).items():

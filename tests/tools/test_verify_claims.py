@@ -17,14 +17,30 @@ import time
 from pathlib import Path
 
 import pytest
+from tools.forgery_demos import (
+    FILES,
+    FORGERIES,
+    HARNESS,
+    NODE_PAUSE,
+    NODE_UPDATE,
+    REQUIRED,
+    SCOPE,
+    TEST_FAULTS,
+    TEST_SERVER,
+    manifest,
+    rehashed_conftest_rewrite,
+    set_raw,
+    sha,
+    shadowed_pytest_internals,
+    write_files,
+    write_manifests,
+)
 
 from tests.test_static_wiring import ci_problems, parse_run_commands
 
 ROOT = Path(__file__).resolve().parents[2]
 VERIFIER = ROOT / "tools" / "verify_claims.py"
 HASH_HELPER = ROOT / "tools" / "claim_hashes.py"
-REQUIRED = ("aggregate-blast-radius", "concurrency", "idempotency-unknown-outcome",
-            "permission-guardrail", "prompt-injection")
 COMMAND = "python tools/verify_claims.py claims/"
 
 
@@ -40,246 +56,12 @@ def load_verifier():
 # src/rtb/dsp 沒有 __init__.py(命名空間套件,跟正式專案一樣),server 用
 # `from rtb.dsp import store` 匯入 store:只解析套件會漏掉 store.py。
 
-TEST_SERVER = """\
-import pytest
-
-from rtb.dsp.server import act
-from tests.dsp import samples
-
-
-def test_update():
-    assert act("update") == samples.EXPECTED
-
-
-def test_pause():
-    assert act("pause") == samples.EXPECTED
-"""
-
-TEST_FAULTS = """\
-import pytest
-
-from rtb.dsp.server import act
-
-
-@pytest.fixture
-def broken(monkeypatch):
-    monkeypatch.setenv("FAULT", "timeout_before_commit")
-    return True
-
-
-@pytest.fixture
-def layered(broken):
-    return broken
-
-
-def test_fault_via_fixture(broken):
-    assert act("update")
-
-
-def test_fault_via_nested_fixture(layered):
-    assert act("update")
-
-
-def test_fault_via_conftest(crash_after_commit):
-    assert act("update")
-
-
-def test_fault_inline():
-    fault = "DEATH"
-    assert fault and act("update")
-
-
-def test_fault_raises():
-    fault = "DEATH"
-    with pytest.raises(ZeroDivisionError):
-        1 / 0
-
-
-def test_fault_without_assert():
-    fault = "DEATH"
-    act(fault)
-
-
-def test_no_fault():
-    assert act("update")
-
-
-def test_redefined():
-    fault = "DEATH"
-    assert fault and act("update")
-
-
-def test_redefined():  # noqa: F811 - pytest 跑的是後面這支,它沒有注入
-    assert act("update")
-
-
-def not_a_fixture():
-    return "DEATH"
-
-
-def test_param_named_like_a_helper(not_a_fixture=None):
-    assert act("update")
-
-
-def test_requests_but_never_uses(monkeypatch):
-    assert act("update")
-
-
-class Modes:
-    CRASH = 1
-
-
-def test_fault_via_attribute():
-    mode = Modes.CRASH  # 只寫在 assert 條件裡不算引用(代碼審第 2 輪)
-    assert mode and act("update")
-
-
-def assert_ok(value):
-    assert value
-
-
-def test_fault_via_assert_helper():
-    fault = "DEATH"
-    assert_ok(fault and act("update"))
-
-
-def test_docstring_only():
-    'DEATH'
-    assert act("update")
-
-
-@pytest.mark.skipif(False, reason="DEATH")
-def test_decorator_only():
-    assert act("update")
-
-
-def test_default_only(fault="DEATH"):
-    assert act("update")
-
-
-def test_assert_message_only():
-    assert act("update"), "DEATH"
-
-
-def test_substring_only():
-    mode = "NO_DEATH_HERE"
-    assert mode and act("update")
-
-
-def test_uncalled_nested_assert():
-    fault = "DEATH"
-
-    def never_called():
-        assert fault
-
-    act(fault)
-
-
-def test_dead_branch_assert():
-    fault = "DEATH"
-    if False:
-        assert fault
-    act(fault)
-
-
-def test_assertion_named_helper():
-    fault = "DEATH"
-    assertion_free(fault)
-
-
-def assertion_free(value):
-    return value
-
-
-def test_mock_style_assert(monkeypatch):
-    fault = "DEATH"
-
-    class Probe:
-        def assert_called(self):
-            return True
-
-    Probe().assert_called()
-    act(fault)
-
-
-class TestFaults:
-    def test_in_class(self, monkeypatch):
-        monkeypatch.setenv("X", "1")
-        assert act("update")
-"""
-
-FILES = {
-    "pyproject.toml": '[tool.pytest.ini_options]\ntestpaths = ["tests"]\npythonpath = ["src"]\n',
-    "src/rtb/__init__.py": "",
-    "src/rtb/kit.py": "def ok():\n    return True\n",
-    "src/rtb/dsp/store.py": "from rtb import kit\n\n\ndef apply(action):\n    return kit.ok()\n",
-    "src/rtb/dsp/server.py": (
-        "from rtb.dsp import store\n\nWRITE_ACTIONS = (\"update\", \"pause\")\n\n\n"
-        "def act(action):\n    return store.apply(action)\n\n\n"
-        "class Handler:\n    def handle(self):\n        return act(\"update\")\n"
-    ),
-    "tests/__init__.py": "",
-    "tests/dsp/__init__.py": "",
-    "tests/dsp/conftest.py": (
-        "import pytest\n\n\n@pytest.fixture\ndef unused():\n    return 1\n\n\n"
-        "@pytest.fixture\ndef crash_after_commit():\n    return \"after_dsp_commit\"\n"),
-    "tests/dsp/test_faults.py": TEST_FAULTS,
-    "tests/dsp/samples.py": "EXPECTED = True\n",
-    "tests/dsp/test_server.py": TEST_SERVER,
-}
-SCOPE = ["src/rtb/__init__.py", "src/rtb/dsp/server.py", "src/rtb/dsp/store.py", "src/rtb/kit.py"]
-HARNESS = ["pyproject.toml", "tests/__init__.py", "tests/dsp/__init__.py",
-           "tests/dsp/conftest.py", "tests/dsp/samples.py", "tests/dsp/test_server.py"]
-NODE_UPDATE = "tests/dsp/test_server.py::test_update"
-NODE_PAUSE = "tests/dsp/test_server.py::test_pause"
-
-
-def sha(root, path):
-    return hashlib.sha256((root / path).read_bytes()).hexdigest()
-
-
-def manifest(root, claim_id, **changes):
-    data = {
-        "manifest_version": 1,
-        "claim_id": claim_id,
-        "policy": "每一種寫入動作都只套用一次。",
-        "scope": [{"path": p, "sha256": sha(root, p)} for p in changes.pop("scope", SCOPE)],
-        "harness": [{"path": p, "sha256": sha(root, p)}
-                    for p in changes.pop("harness", HARNESS)],
-        "enumerations": [{"source": "src/rtb/dsp/server.py:WRITE_ACTIONS"}],
-        "evidence": [
-            {"node": NODE_UPDATE, "covers": ["update"], "kind": "unit"},
-            {"node": NODE_PAUSE, "covers": ["pause"], "kind": "unit"},
-        ],
-        "symbols": ["src/rtb/dsp/server.py:act", "src/rtb/dsp/server.py:Handler.handle"],
-    }
-    data.update(changes)
-    return data
-
-
-def write_manifests(root, **changes):
-    claims = root / "claims"
-    claims.mkdir(exist_ok=True)
-    for claim_id in REQUIRED:
-        text = json.dumps(manifest(root, claim_id, **dict(changes)), ensure_ascii=False, indent=1)
-        (claims / f"{claim_id}.json").write_text(text, encoding="utf-8")
-
-
-def write_files(root, files):
-    for path, text in files.items():
-        (root / path).parent.mkdir(parents=True, exist_ok=True)
-        (root / path).write_text(text, encoding="utf-8")
-
 
 @pytest.fixture
 def repo(tmp_path):
     write_files(tmp_path, FILES)
     write_manifests(tmp_path)
     return tmp_path
-
-
-def set_raw(root, claim_id, text):
-    (root / "claims" / f"{claim_id}.json").write_text(text, encoding="utf-8")
 
 
 def verify(root, **kwargs):
@@ -1666,61 +1448,16 @@ def test_a_conftest_the_verifier_cannot_follow_blocks_failure_injection_evidence
 
 # ── 造假示範:計劃列的幾種「看起來完成、其實沒有」全部擋下 ─────────────────────────
 
-EVIL_CONFTEST_HOOK = (
-    "\n\n@pytest.hookimpl(hookwrapper=True)\n"
-    "def pytest_runtest_makereport(item, call):\n"
-    "    report = (yield).get_result()\n"
-    "    if report.when == \"call\":\n        report.outcome = \"passed\"\n"
-)
 
-
-def _only_says_done(repo):
-    set_raw(repo, "concurrency", json.dumps({"claim_id": "concurrency", "result": "已完成"},
-                                            ensure_ascii=False))
-
-
-def _code_changed_hash_not(repo):
-    (repo / "src/rtb/kit.py").write_text("def ok():\n    return 1\n", encoding="utf-8")
-
-
-def _claim_wider_than_evidence(repo):
-    # 就像 Mock-DSP 那條:登錄表多了作廢,宣稱說「每一種」,卻沒有作廢的證據
-    text = FILES["src/rtb/dsp/server.py"].replace('("update", "pause")',
-                                                  '("update", "pause", "void")')
-    write_files(repo, {"src/rtb/dsp/server.py": text})
-    write_manifests(repo)
-
-
-def _skipped_test(repo):
-    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
-        "def test_pause", "@pytest.mark.skip\ndef test_pause")})
-    write_manifests(repo)
-
-
-def _conftest_changed_without_rehash(repo):
-    # 測試先改成會失敗、清單照實重算;之後才在 conftest 偷偷加改結果的鉤子,沒重算雜湊
-    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
-        "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
-    write_manifests(repo)
-    conftest = repo / "tests/dsp/conftest.py"
-    conftest.write_text(conftest.read_text(encoding="utf-8") + EVIL_CONFTEST_HOOK,
-                        encoding="utf-8")
-
-
-@pytest.mark.parametrize(("forge", "expected"), [
-    (_only_says_done, "result"),
-    (_code_changed_hash_not, "src/rtb/kit.py"),
-    (_claim_wider_than_evidence, "void"),
-    (_skipped_test, NODE_PAUSE),
-    (_conftest_changed_without_rehash, "tests/dsp/conftest.py"),
-])
-def test_every_forgery_in_the_plan_is_blocked(repo, forge, expected):
-    forge(repo)
+@pytest.mark.parametrize("forgery", FORGERIES,
+                         ids=[f"_{f.forge.__name__}-{f.expected}" for f in FORGERIES])
+def test_every_forgery_in_the_plan_is_blocked(repo, forgery):
+    forgery.forge(repo)
 
     code, output = verify(repo)
 
     assert code == 1, output
-    assert expected in output
+    assert forgery.expected in output
 
 
 # ── [S817] 雜湊輔助:只印哪幾個檔的雜湊跟現況不一樣、正確值,不寫任何檔 ──────────────
@@ -1728,16 +1465,41 @@ def test_every_forgery_in_the_plan_is_blocked(repo, forge, expected):
 def test_a_conftest_that_rewrites_results_and_is_rehashed_passes_which_is_the_ceiling(repo):
     """天花板釘住:作者連 conftest 的雜湊一起重算,驗證器擋不住(機械上看不出重看過還是重貼),
     歸審查員;清單差異會進提交,審查員看得到。這支測試是紀錄,不是要驗證器擋。"""
-    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
-        "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
-    conftest = repo / "tests/dsp/conftest.py"
-    conftest.write_text(conftest.read_text(encoding="utf-8") + EVIL_CONFTEST_HOOK,
-                        encoding="utf-8")
-    write_manifests(repo)  # 重算雜湊
+    rehashed_conftest_rewrite(repo)  # 跟前後比較表天花板那一列同一份改法(Phase 12 增量 3)
 
     code, output = verify(repo)
 
     assert code == 0, output
+
+
+def test_a_shadowed_pytest_internal_package_at_the_repo_root_is_blocked(repo):
+    """[Phase 12 增量 3 代碼審 r2 s1] repo 根放一份改結果的 `_pytest/`、清單照實重算:證據測試的指令
+    加 -P(不把工作目錄放在匯入路徑最前面),pytest 內部匯入的還是裝好的那一份,失敗的測試照樣
+    擋下(原本 -E -s 擋不了,驗證器放行,比較表說明的天花板因此不成立)。"""
+    shadowed_pytest_internals(repo)
+
+    code, output = verify(repo)
+
+    assert code == 1, output
+    assert "test_pause" in output
+
+
+def test_a_non_ascii_failure_message_under_a_latin1_locale_is_still_a_block(repo, monkeypatch):
+    """[Phase 12 增量 3 代碼審 r3 s2] 語系是 latin-1、證據測試的失敗訊息含非 ASCII 字元:驗證器照樣
+    讀得完、擋下並寫原因(原本證據測試照 latin-1 印、驗證器照 UTF-8 嚴格讀,解碼時崩潰,
+    沒有擋下原因)。"""
+    monkeypatch.setenv("LANG", "en_US.ISO8859-1")
+    for name in ("LC_ALL", "LC_CTYPE"):
+        monkeypatch.delenv(name, raising=False)
+    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
+        "def test_pause():\n    assert act(\"pause\") == samples.EXPECTED",
+        "def test_pause():\n    assert not act(\"pause\"), \"caf\\u00e9\"")})
+    write_manifests(repo)
+
+    code, output = verify(repo)
+
+    assert code == 1, output
+    assert "test_pause" in output
 
 
 REMINDER = "重貼雜湊前先確認證據仍成立"

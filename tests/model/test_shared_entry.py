@@ -9,6 +9,8 @@
 """
 
 import ast
+import inspect
+import json
 import os
 import subprocess
 import sys
@@ -22,6 +24,7 @@ from rtb import modelclient as mc
 from rtb import modelcore as core
 from rtb import modelledger as ledger_db
 from rtb import modelledger_view as view
+from rtb import modelrecording as rec_module
 from rtb.analyzer import modelgate
 from rtb.ops import metrics
 from tests.conftest import child_prelude
@@ -207,11 +210,12 @@ def test_the_stop_exception_reaches_the_runner_without_touching_the_backend(tmp_
         "threading.Thread(target=later, daemon=True).start()\n"
         f"environ = {{'RTB_MODEL_LIVE': '1', 'PATH': {str(script.parent)!r}, "
         f"'HOME': {str(home)!r}}}\n"
-        "gate = modelgate.open_gate(environ, demo_id='demo-1', ledger=None, "
+        "gate = modelgate.open_gate(environ, caller=modelgate.Caller.NARRATIVE, demo_id='demo-1', "
+        "ledger=None, "
         f"recordings=Path({str(tmp_path / 'rec')!r}))\n"
         "assert gate.mode is modelgate.Mode.LIVE, gate.notices\n"
         "try:\n"
-        "    gate.complete(modelgate.Caller.NARRATIVE, 's', 'u', max_output_tokens=10, "
+        "    gate.complete('s', 'u', max_output_tokens=10, "
         "timeout_seconds=20.0)\n"
         "except modelgate.CallTerminated:\n"
         "    print('stopped')\n"
@@ -229,14 +233,19 @@ def test_the_gate_decides_mode_ledger_and_recordings_once(tmp_path, dirs):
     recordings, ledger = dirs
     call(live(FakeBackend(reply("錄好的")), record=True),
          request("問題", caller=mc.Caller.NARRATIVE, batch_id="b1"), dirs)
-    gate = modelgate.open_gate({}, demo_id="demo-1", ledger=ledger, recordings=recordings)
+    gate = modelgate.open_gate({}, caller=modelgate.Caller.NARRATIVE, demo_id="demo-1",
+                               ledger=ledger, recordings=recordings)
     assert gate.mode is modelgate.Mode.RECORDED and gate.ledger == ledger
-    result = gate.complete(modelgate.Caller.NARRATIVE, "固定系統提示", "問題", max_output_tokens=50,
+    # 呼叫者在開閘道時綁死,送出時不收(代碼審 r2)
+    assert "caller" not in inspect.signature(modelgate.Gate.complete).parameters
+    assert gate.caller is modelgate.Caller.NARRATIVE
+    result = gate.complete("固定系統提示", "問題", max_output_tokens=50,
                        timeout_seconds=5.0)
     assert (result.text, result.source) == ("錄好的", mc.Source.RECORDED)
     assert rows(ledger)[-1].demo_id == "demo-1"
     # 沒給錄製目錄就用專案根的預設;沒給帳檔就是帳號家目錄那一本
-    default = modelgate.open_gate({}, demo_id=None, ledger=None, recordings=None)
+    narrative = modelgate.Caller.NARRATIVE
+    default = modelgate.open_gate({}, caller=narrative, demo_id=None, ledger=None, recordings=None)
     assert default.recordings == mc.default_recordings_dir()
     assert default.ledger == mc.live_ledger_path()
     # 即時模式的帳寫死家目錄那一本:給了 --ledger 就拒絕
@@ -244,16 +253,21 @@ def test_the_gate_decides_mode_ledger_and_recordings_once(tmp_path, dirs):
     write_verification()
     environ = {"RTB_MODEL_LIVE": "1", "PATH": str(script.parent)}
     with pytest.raises(modelgate.GateRefused, match="家目錄"):
-        modelgate.open_gate(environ, demo_id="demo-1", ledger=ledger, recordings=recordings)
-    live_gate = modelgate.open_gate(environ, demo_id="demo-1", ledger=None,
+        modelgate.open_gate(environ, caller=narrative, demo_id="demo-1", ledger=ledger,
+                            recordings=recordings)
+    live_gate = modelgate.open_gate(environ, caller=narrative, demo_id="demo-1", ledger=None,
                                     recordings=recordings)
     assert live_gate.mode is modelgate.Mode.LIVE and live_gate.ledger == mc.live_ledger_path()
     # 沒有展示編號就錄製,原因照實帶出來
-    no_demo = modelgate.open_gate(environ, demo_id=None, ledger=ledger, recordings=recordings)
+    no_demo = modelgate.open_gate(environ, caller=narrative, demo_id=None, ledger=ledger,
+                                  recordings=recordings)
     assert no_demo.mode is modelgate.Mode.RECORDED
     assert any("展示編號" in note for note in no_demo.notices)
     with pytest.raises(mc.UnknownModel):
-        modelgate.open_gate({"RTB_MODEL": "gpt-x"}, demo_id=None, ledger=ledger,
+        modelgate.open_gate({"RTB_MODEL": "gpt-x"}, caller=narrative, demo_id=None, ledger=ledger,
+                            recordings=recordings)
+    with pytest.raises(modelgate.GateRefused, match="呼叫者"):
+        modelgate.open_gate({}, caller="analyzer_narrative", demo_id=None, ledger=ledger,
                             recordings=recordings)
 
 
@@ -319,7 +333,114 @@ def test_the_recording_directory_must_be_empty_or_one_batch(tmp_path):
     rec.claim(pending / f"{key}.json", "b9")  # 別的批次留下的佔位
     with pytest.raises(mc.MixedRecordingsDir):
         mc.check_recordings_dir(pending, "b1")
-    mc.check_recordings_dir(pending, "b9")
+    # 代碼審 r1:同一批中斷留下的佔位也拒絕(要先確認沒有行程還在錄、刪掉再錄)
+    with pytest.raises(mc.MixedRecordingsDir, match="佔位"):
+        mc.check_recordings_dir(pending, "b9")
     with pytest.raises(mc.MixedRecordingsDir):
         mc.check_recordings_dir(tmp_path / "same" / next(p.name for p in same.iterdir()), "b1")
 
+
+
+def test_the_recording_directory_check_has_no_gaps(tmp_path):  # noqa: PLR0915 - 逐個邊角
+    """代碼審 r1:開錄前目錄檢查的邊角——檔名跟檔內的鍵不符、沒帶批次、懸空的符號連結、列不出目錄、
+    預設的入庫目錄(只供重播)。"""
+    folder = tmp_path / "rec"
+    folder.mkdir()
+    mc.call_model(request("q", batch_id="b1"), live(FakeBackend(reply("a")), True),
+                  recordings_dir=folder, ledger=tmp_path / "l.sqlite")
+    [recorded_file] = list(folder.iterdir())
+    mc.check_recordings_dir(folder, "b1")
+    other = "f" * 64
+    recorded_file.rename(folder / f"{other}.json")  # 內容的鍵還是原本那個
+    with pytest.raises(mc.MixedRecordingsDir, match="鍵"):
+        mc.check_recordings_dir(folder, "b1")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(mc.MixedRecordingsDir, match="批次"):
+        mc.check_recordings_dir(empty, None)
+    with pytest.raises(mc.MixedRecordingsDir, match="批次"):
+        mc.check_recordings_dir(empty, "")
+    dangling = tmp_path / "dangling"
+    dangling.symlink_to(tmp_path / "nowhere")
+    with pytest.raises(mc.MixedRecordingsDir):
+        mc.check_recordings_dir(dangling, "b1")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        with pytest.raises(mc.MixedRecordingsDir):
+            mc.check_recordings_dir(locked, "b1")
+    finally:
+        locked.chmod(0o700)
+    with pytest.raises(mc.MixedRecordingsDir, match="新的錄製目錄"):
+        mc.check_recordings_dir(mc.default_recordings_dir(), "b1")
+    # 代碼審 r2:空白批次;上一層是檔案或讀不到;欄位值讀取時會拒絕的錄製檔
+    with pytest.raises(mc.MixedRecordingsDir, match="批次"):
+        mc.check_recordings_dir(empty, "  ")
+    afile = tmp_path / "afile"
+    afile.write_text("x", encoding="utf-8")
+    with pytest.raises(mc.MixedRecordingsDir):
+        mc.check_recordings_dir(afile / "rec", "b1")
+    closed = tmp_path / "closed"
+    (closed / "rec").mkdir(parents=True)
+    closed.chmod(0)
+    try:
+        with pytest.raises(mc.MixedRecordingsDir):
+            mc.check_recordings_dir(closed / "rec", "b1")
+    finally:
+        closed.chmod(0o700)
+    for field, value in (("outcome", "unknown"), ("settlement", "sort_of")):
+        bad = tmp_path / f"bad-{field}"
+        bad.mkdir()
+        mc.call_model(request(f"q-{field}", batch_id="b1"), live(FakeBackend(reply("a")), True),
+                      recordings_dir=bad, ledger=tmp_path / "l.sqlite")
+        [saved] = list(bad.iterdir())
+        data = json.loads(saved.read_text(encoding="utf-8"))
+        data[field] = value
+        if field == "outcome":
+            data["text"] = None
+        saved.write_text(json.dumps(data), encoding="utf-8")
+        with pytest.raises(mc.NoRecording):  # 讀的時候會拒絕
+            rec_module.load_recording(saved, key=data["key"], caller=mc.Caller.EVAL_CANDIDATE,
+                                      model=mc.DEFAULT_MODEL)
+        with pytest.raises(mc.MixedRecordingsDir):  # 開錄前就該拒絕,兩邊同一套規則
+            mc.check_recordings_dir(bad, "b1")
+
+
+def test_the_cap_message_says_it_counts_only_the_capped_callers(dirs, monkeypatch):
+    """代碼審 r1:「已達上限」訊息的已用只含計入上限的呼叫者,跟展示頁讀的 used_by_demo 分開講。"""
+    monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", 1)
+    with pytest.raises(mc.LocalCapRefused) as refused:
+        call(live(FakeBackend(reply("x"))), request("e"), dirs)
+    assert "計入上限的呼叫者在這次展示已用" in str(refused.value)
+    assert "計入上限的呼叫者在本月已用" in str(refused.value)
+
+
+def test_numbers_in_model_text_must_trace_back_to_the_evidence():
+    """代碼審 r1(Phase 13 計劃〈省掉不值得發生的模型工作〉④:11B 的說明與假說也照這條):文字裡提到的
+    數字要能對回送出去的證據,對不上的句子不顯示。"""
+    evidence = "預算=100、新預算=110、點擊=12、轉換=1、花費=0.5、風險說明:budget +10%"
+    kept, dropped = mc.traceable_sentences(
+        "預算從 100 加到 110,加了 10%。昨天花費999999美元,轉換率100%。點擊 12 次!", evidence)
+    assert kept == "預算從 100 加到 110,加了 10%。點擊 12 次!" and dropped == 1
+    assert mc.traceable_sentences("沒有任何數字的說明。", evidence) == ("沒有任何數字的說明。", 0)
+    assert mc.traceable_sentences("花費 0.50 元,新預算 110.0。", evidence)[1] == 0  # 同值不同寫法
+    assert mc.traceable_sentences("花費1,000元。", "花費=1000") == ("花費1,000元。", 0)
+    assert mc.traceable_sentences("全形數字１２次。", evidence) == ("全形數字１２次。", 0)
+    assert mc.traceable_sentences("只有 999。", evidence) == ("", 1)
+    # 代碼審 r2(協調者裁定):負號保留;中文或大寫數字、數字後接萬千億、認不出的數字記號一律當對不回
+    assert mc.traceable_sentences("剩餘預算 11.88。", "剩餘預算 -11.88") == ("", 1)
+    kept = "剩餘預算 -11.88。"
+    assert mc.traceable_sentences(kept, "剩餘預算 -11.88") == (kept, 0)
+    assert mc.traceable_sentences("變動為 -5。", "變動=5") == ("", 1)
+    for fabricated in ("建議預算九十九萬九千。", "預算從 100 萬加到 110 萬。", "花費壹佰元。",
+                       "排名第⑨。", "上看 10⁶ 美元。", "損失上看 1e5 美元。", "花掉 ½。",
+                       "第 Ⅻ 批。", "兩次都失敗。", "預算加一成。"):
+        assert mc.traceable_sentences(fabricated, evidence + "、100、110、10、5、1") == ("", 1), (
+            fabricated)
+    # 全形的句末標點也斷句
+    assert mc.traceable_sentences("預算從 100 加到 110\uff1b點擊率約 2.4%\u3002", evidence) == (
+        "預算從 100 加到 110\uff1b", 1)
+    shouted = "點擊 12 次\uff01真的\uff1f"
+    assert mc.traceable_sentences(shouted + "昨天 999 次\uff01", evidence) == (shouted, 1)
+    assert modelgate.traceable_sentences is mc.traceable_sentences

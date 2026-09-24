@@ -13,7 +13,7 @@
     },
     {
       "path": "src/rtb/analyzer/task_store.py",
-      "sha256": "a1dee800678a16b6d2c6217550d38d3ae11b206eae0363ab928d83c5c527c77a"
+      "sha256": "24c8a7ad5276ccef8583f126038539bbf65e7989395d56887f766fdf02b9c6bf"
     },
     {
       "path": "src/rtb/capabilitykit.py",

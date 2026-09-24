@@ -40,6 +40,7 @@ from rtb.demo.launcher import FaultRequest, Process, Role, StartFailed
 from rtb.demo.observe import Observer, PathBuilder, Timeline, all_pages, missing_from_path
 from rtb.demo.state_store import (
     ChangeRecord,
+    ComparisonRun,
     ConfirmationRequest,
     ScenarioDetails,
     StateWriter,
@@ -1111,8 +1112,10 @@ VERIFIER_TIMEOUT_SECONDS = 960.0
 
 
 def default_verifier_command() -> list[str]:
-    """專案內的驗證器,跟本機與 CI 同一條指令(Phase 11)。"""
-    return [sys.executable, str(PROJECT_ROOT / "tools" / "verify_claims.py"), "claims/"]
+    """專案內的驗證器,跟本機與 CI 同一條指令(Phase 11);-X utf8 不看伺服器的語系設定(增量 3 代碼審
+    r2 s2:環境白名單只照抄 LANG,跟伺服器的 LC_ALL 不一致時印中文會出錯)。"""
+    return [sys.executable, "-X", "utf8", str(PROJECT_ROOT / "tools" / "verify_claims.py"),
+            "claims/"]
 
 
 VERIFIER_STOP_SECONDS = 10.0  # 送 SIGTERM 後等驗證器收掉自己起的證據測試,再整組硬殺
@@ -1130,14 +1133,26 @@ def _end_group(popen: subprocess.Popen[str]) -> None:
             continue
 
 
+_TOOL_VARIABLES = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE")  # 語系變數不是秘密;少了 LC_ALL,
+# 驗證器再往下開的子行程只看到 LANG,LANG 是 latin-1 時印中文會崩(代碼審 r3 v2)
+
+
+def tool_environment() -> dict[str, str]:
+    """驅動程式起專案內工具(驗證器、前後比較表產生器)用的環境:只照抄 PATH、HOME、LANG([S1003]
+    白名單;代碼審 r1 s1/a2:兩處同一支,不各寫一套)。金鑰、PYTHON 與 PYTEST 開頭的變數一律帶
+    不進去。"""
+    return {name: os.environ[name] for name in _TOOL_VARIABLES if name in os.environ}
+
+
 def run_verifier(command: Sequence[str], demo_id: str, timeout_seconds: float,
                  stop: threading.Event | None = None) -> VerifierRun:
     """跑驗證器、原樣收下每一行;擋下原因是「擋下」那一行之後以「- 」開頭的各行。逾時、被取消或起
     不來都記成沒通過,原因寫明,不當成通過;已經印出來的輸出照樣留下(第 3 輪代碼審 s2/p1/x2)。
     驗證器跑在自己的行程群組;逾時或取消先 SIGTERM 整組,讓驗證器收掉它另開群組起的證據測試。"""
-    env = {name: os.environ[name] for name in ("PATH", "HOME", "LANG") if name in os.environ}
+    env = tool_environment()
     try:
-        popen = subprocess.Popen(list(command), cwd=PROJECT_ROOT, env=env, text=True,  # noqa: S603 - 指令是專案內固定的驗證器
+        popen = subprocess.Popen(list(command), cwd=PROJECT_ROOT, env=env,  # noqa: S603 - 指令是專案內固定的驗證器
+                                 encoding="utf-8", errors="replace",
                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
     except OSError as broken:
@@ -1171,6 +1186,95 @@ def run_verifier(command: Sequence[str], demo_id: str, timeout_seconds: float,
     if popen.returncode != 0 and not reasons:
         reasons = (f"驗證器結束代碼 {popen.returncode}",)
     return VerifierRun(demo_id, _now(), popen.returncode == 0, kept, reasons)
+
+
+COMPARISON_TIMEOUT_SECONDS = 600.0  # 前後比較表(六列,本機約 2.4 秒)的外層上限;每一步另有自己的上限
+NOT_GENERATED = "這次沒產生:"
+
+
+COMPARISON_OUTPUT_LIMIT = 1_000_000  # 產生器輸出的上限(字元);正常一張表約 2 千字
+
+
+def default_comparison_command(python: str = sys.executable) -> list[str]:
+    """專案內的前後比較表產生器,從 repo 根以套件方式跑:-E 不讀 PYTHON 開頭的變數(含 PYTHONPATH)、
+    -s 不開 user site、-X utf8 不看語系設定。tools 是正式套件、repo 根(工作目錄)是匯入路徑第一項,
+    別處另有同名的 tools 套件也頂替不了(增量 3 代碼審 r2 a1/s2)。"""
+    return [python, "-E", "-s", "-X", "utf8", "-m", "tools.forgery_comparison"]
+
+
+def run_comparison(command: Sequence[str], demo_id: str, timeout_seconds: float,
+                   stop: threading.Event | None = None) -> ComparisonRun:
+    """跑前後比較表產生器、讀它印的一行 JSON(增量 3,[S1041])。它跑在自己的行程群組、環境只有白名單
+    (跟驗證器同一支 tool_environment),逾時或整次展示被取消時先 SIGTERM 整組(產生器收到會收掉正在
+    跑的那一步)再硬殺;起不來、逾時、結束代碼不是 0、輸出超過上限或讀不懂,都記成「這次沒產生:原因」,
+    列是空的,不造結果,不拖垮整次展示。花了幾秒用驅動程式自己量的(代碼審 r1 s3)。"""
+    started = time.monotonic()
+    try:
+        popen = subprocess.Popen(list(command), cwd=PROJECT_ROOT, env=tool_environment(),  # noqa: S603 - 指令是專案內固定的產生器
+                                 encoding="utf-8", errors="replace",  # 讀不懂的位元組換成替代字元
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 start_new_session=True)
+    except OSError as broken:
+        return ComparisonRun(demo_id, _now(), (), f"{NOT_GENERATED}起不來({broken})", None)
+    output = _CappedOutput(popen)
+    ended = _wait_group(popen, timeout_seconds, stop)
+    output.reader.join(VERIFIER_STOP_SECONDS)
+    seconds = round(time.monotonic() - started, 1)
+    if ended is not None:
+        return ComparisonRun(demo_id, _now(), (), f"{NOT_GENERATED}{ended}", seconds)
+    if popen.returncode != 0:
+        return ComparisonRun(demo_id, _now(), (),
+                             f"{NOT_GENERATED}產生器結束代碼 {popen.returncode}", seconds)
+    if output.size > COMPARISON_OUTPUT_LIMIT:
+        return ComparisonRun(demo_id, _now(), (),
+                             f"{NOT_GENERATED}產生器的輸出超過上限({output.size} 字元)", seconds)
+    return _parse_comparison(demo_id, output.text(), seconds)
+
+
+class _CappedOutput:
+    """在另一條執行緒讀子行程輸出:只留上限內的,其餘照讀照丟(不讓子行程寫到一半卡住)。"""
+
+    def __init__(self, popen: subprocess.Popen[str]) -> None:
+        self._popen, self.size = popen, 0
+        self._kept: list[str] = []
+        self.reader = threading.Thread(target=self._read, daemon=True)
+        self.reader.start()
+
+    def _read(self) -> None:
+        stream = self._popen.stdout
+        while stream is not None and (chunk := stream.read(65536)):
+            if self.size <= COMPARISON_OUTPUT_LIMIT:
+                self._kept.append(chunk[:COMPARISON_OUTPUT_LIMIT + 1 - self.size])
+            self.size += len(chunk)
+
+    def text(self) -> str:
+        return "".join(self._kept)
+
+
+def _wait_group(popen: subprocess.Popen[str], timeout_seconds: float,
+                stop: threading.Event | None) -> str | None:
+    """等子行程結束;逾時或整次展示被取消就整組收掉,回原因(正常結束回空的)。"""
+    deadline = time.monotonic() + timeout_seconds
+    while popen.poll() is None:
+        ended = ("被取消(整次展示停止)" if stop is not None and stop.is_set()
+                 else f"逾時({timeout_seconds:.0f} 秒)" if time.monotonic() >= deadline else None)
+        if ended is not None:
+            _end_group(popen)
+            return ended
+        time.sleep(0.1)
+    return None
+
+
+def _parse_comparison(demo_id: str, text: str, seconds: float) -> ComparisonRun:
+    try:
+        body = json.loads(text)
+        rows = tuple((str(r["forgery"]), str(r["without_verifier"]), str(r["with_verifier"]))
+                     for r in body["rows"])
+        note = str(body["note"])
+    except Exception as broken:  # 任何讀不懂(含太深、數字太大)都照實記,不丟出去
+        return ComparisonRun(demo_id, _now(), (),
+                             f"{NOT_GENERATED}產生器的輸出讀不懂({type(broken).__name__})", seconds)
+    return ComparisonRun(demo_id, _now(), rows, note, seconds)
 
 
 _PACE_GOAL = f"讓花太慢的廣告跟上進度:加一成預算。限制:{_LIMITS}"
@@ -1216,6 +1320,8 @@ class Driver:
         self.demo_id = demo_id
         self.verifier_command = default_verifier_command()
         self.verifier_timeout_seconds = VERIFIER_TIMEOUT_SECONDS
+        self.comparison_command = default_comparison_command()
+        self.comparison_timeout_seconds = COMPARISON_TIMEOUT_SECONDS
 
     def cancel(self) -> None:
         """停掉整次展示:不再開下一個情境,正在跑的情境也收掉。"""
@@ -1227,14 +1333,19 @@ class Driver:
         return [self.run_one(code) for code in codes if not self.stop.is_set()]
 
     def run_all(self, codes: Sequence[str] = ALL_CODES) -> tuple[list[Verdict], VerifierRun | None]:
-        """全部跑一次:依序跑每個情境(一個沒跑完不影響下一個),最後跑一次驗證器並記進展示狀態。
-        驅動程式的情境斷言跟驗證器是兩件事,各自記。展示被取消就不跑驗證器。"""
+        """全部跑一次:依序跑每個情境(一個沒跑完不影響下一個),最後跑一次驗證器、再產生前後比較表,
+        各自記進展示狀態。驅動程式的情境斷言跟驗證器是兩件事,各自記。展示被取消就兩個都不跑。
+        比較表的產生時間算在全部跑一次裡(增量 3,[S1041])。"""
         verdicts = self.run(codes)
         if self.stop.is_set():
             return verdicts, None
         outcome = run_verifier(self.verifier_command, self.demo_id,
                                self.verifier_timeout_seconds, self.stop)
         self.state.record_verifier_run(outcome)
+        if not self.stop.is_set():
+            self.state.record_comparison(run_comparison(
+                self.comparison_command, self.demo_id, self.comparison_timeout_seconds,
+                self.stop))
         return verdicts, outcome
 
     def run_one(self, code: str) -> Verdict:

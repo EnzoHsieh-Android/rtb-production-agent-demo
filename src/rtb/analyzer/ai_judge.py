@@ -17,9 +17,10 @@
 模型只經模型閘道(分析端唯一准匯入模型用戶端的地方,[S1100]);提案不帶任何模型產生的欄位([S1114])。
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from rtb.analyzer import investigation as inv
@@ -42,12 +43,23 @@ HOURS_PER_BUDGET = round(1 / policy.ELAPSED_FRACTION_1H)  # 配速比的分母:�
 Complete = Callable[[str, str], modelgate.ModelResult]
 
 
+GateOpener = Callable[..., modelgate.Gate]
+
+
+def open_investigation_gate(environ: Mapping[str, str], *, demo_id: str | None,
+                            ledger: Path | None, recordings: Path | None, batch_id: str | None,
+                            open_gate: GateOpener = modelgate.open_gate) -> modelgate.Gate:
+    """開分析端調查的模型閘道:呼叫者標籤在這裡綁死成「分析端調查」(邊界測試的 CALLER_USERS 只准這支
+    模組用它)。拒絕照閘道的 GateRefused、UnknownModel 往外丟。"""
+    return open_gate(environ, caller=modelgate.Caller.INVESTIGATION, demo_id=demo_id,
+                     ledger=ledger, recordings=recordings, batch_id=batch_id)
+
+
 def gate_complete(gate: modelgate.Gate) -> Complete:
-    """把模型閘道包成「送出一次系統提示加使用者內容」的函式(呼叫者:分析端調查,逾時 15 秒)。"""
+    """把模型閘道包成「送出一次系統提示加使用者內容」的函式(逾時 15 秒;呼叫者已在開閘道時綁死)。"""
 
     def complete(system: str, user: str) -> modelgate.ModelResult:
-        return gate.complete(modelgate.Caller.INVESTIGATION, system, user,
-                             max_output_tokens=MAX_OUTPUT_TOKENS,
+        return gate.complete(system, user, max_output_tokens=MAX_OUTPUT_TOKENS,
                              timeout_seconds=MODEL_TIMEOUT_SECONDS)
 
     return complete
