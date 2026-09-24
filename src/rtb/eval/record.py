@@ -1,23 +1,38 @@
-"""比較表與人讀的決定紀錄(Phase 10 增量 2,[S709]、[S710])。
+"""比較表與人讀的決定紀錄(Phase 10 增量 2,[S709]、[S710];Phase 11B 增量 1 接上模型候選)。
 
 決定紀錄由純函式 `render` 從結構化的報告、比較表與採用決定產生,結論、理由與缺的證據全部從同一個
 採用結果衍生(採用時不印不採用理由),記下它依據的評估集雜湊。延遲量法照前掃:行程內先暖身,再用
-perf_counter_ns 量上萬次取中位與 p95,逐格量。現行程式規則實測;LLM 與 Jev 沒有候選,寫「沒量、原因:
+perf_counter_ns 量上萬次取中位與 p95,逐格量。現行程式規則實測;Jev 沒有候選,寫「沒量、原因:
 未導入」,不編數字、不做假呼叫。
+
+LLM 列(Phase 11B 增量 1):這支是三支模型入口之一,在入口讀模式(RTB_MODEL_LIVE=1、--demo-id、
+在 PATH 上找得到 claude 三樣都有才即時,否則重播錄製;找到的 claude 絕對路徑往下傳)。
+跑合成集的固定子集;即時跑產生批次紀錄(RTB_MODEL_RECORD=1 時連錄製檔一起寫進錄製目錄),
+重播讀錄製目錄裡唯一的一份批次紀錄。模型列的成本、延遲、各種比率一律從批次紀錄算、標「歷史觀測」;
+合成集照 Phase 10 規定一律不採用。即時模式的花費帳寫死家目錄那一本,--ledger 只在錄製模式能用;
+預留時花費帳忙碌以專用結束代碼 9 結束。
 
 命令列照專案的兩層形狀(`run` 回結束代碼、`main` 丟 SystemExit):`python -m rtb.eval.record`。評估套件
 不准匯入維運套件(兩邊互不依賴),所以比照執行端的命令列各自建解析器、同一種形狀。
 """
 
 import argparse
+import os
+import shutil
 import statistics
 import sys
 import time
+import uuid
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TextIO
 
+from rtb import modelclient as mc
 from rtb.analyzer.policy import ValidatedCells, route
 from rtb.domain.worth import WorthCell, WorthInput
-from rtb.eval import eval_set
+from rtb.eval import eval_set, model_candidate
 from rtb.eval.adoption import (
     Adoption,
     ComparisonRow,
@@ -35,6 +50,8 @@ from rtb.eval.scoring import (
 )
 
 EXIT_OK = 0
+EXIT_BAD_ARGUMENTS = 2  # 跟 argparse 的參數錯同一個代碼
+EXIT_LEDGER_BUSY = 9  # 花費帳忙碌:寫不進帳、沒有送出,由呼叫端看得到(計劃〈模型用戶端〉)
 SCOPE_LIMIT = ("這次只評「要不要提案調整」列裡的「值不值得加」子判斷,不回答 Phase 0 路由表標 Jev 的"
                "「證據夠不夠」「下一步查什麼」「繼續或停止」三列。")
 LEAKAGE = (
@@ -135,19 +152,137 @@ def render(report: SyntheticReport | ProductionReport, rows: tuple[ComparisonRow
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="用合成評估集評「值不值得加」判斷點,印出人讀的決定紀錄(只讀,不寫任何東西)")
+        description="用合成評估集評「值不值得加」判斷點,印出人讀的決定紀錄;LLM 列跑模型候選"
+                    "(預設重播錄製,只寫花費帳與即時錄製)")
+    parser.add_argument("--demo-id", help="展示編號;即時模式必填,同一個編號共用 1 美元")
+    parser.add_argument("--recordings-dir", type=Path,
+                        help="錄製目錄(預設專案根的 recordings/model)")
+    parser.add_argument("--ledger", type=Path, help="只在錄製模式能用:花費帳換到別的路徑")
     return parser.parse_args(argv)
 
 
-def run(argv: list[str] | None = None, *, out: TextIO | None = None) -> int:
-    _parse(argv)
+@dataclass(frozen=True)
+class ModelSection:
+    rows: Mapping[WorthCell, ComparisonRow] | None  # 有批次紀錄才有
+    flags: tuple[str, ...]  # 未跑完、錄製不全、批次不一致、沒有批次紀錄
+    lines: tuple[str, ...]
+    ledger_busy: bool
+
+
+def _replayed_batch(run: model_candidate.ModelRun, recordings: Path) -> tuple[
+        model_candidate.BatchRecord | None, list[str]]:
+    flags = []
+    found = sorted(model_candidate.batches_dir(recordings).glob("*.json"))
+    if not found:
+        return None, ["沒有批次紀錄"]
+    batch = model_candidate.load_batch(found[0])
+    if len(found) > 1 or not run.recording_batches <= {batch.batch_id}:
+        flags.append("批次不一致(錄製檔與批次紀錄的批次編號對不上,或不只一份批次紀錄)")
+    if run.missing_recordings:
+        flags.append(f"錄製不全({run.missing_recordings} 個情境沒有錄製)")
+    return batch, flags
+
+
+def _model_run(settings: mc.Settings, args: argparse.Namespace) -> tuple[
+        model_candidate.ModelRun, model_candidate.BatchRecord | None, list[str]]:
+    recordings = args.recordings_dir or mc.default_recordings_dir()
+    live = settings.mode is mc.Mode.LIVE
+    ledger = mc.live_ledger_path() if live else (args.ledger or mc.live_ledger_path())
+    batch_id = f"{datetime.now(UTC):%Y%m%d}-{uuid.uuid4().hex[:8]}" if live else None
+    candidate = model_candidate.ModelCandidate(settings, recordings_dir=recordings, ledger=ledger,
+                                               demo_id=args.demo_id, batch_id=batch_id)
+    run = model_candidate.run_subset(model_candidate.subset(from_rows(eval_set.ROWS)), candidate,
+                                     model_candidate.TIMEOUT_SECONDS)
+    if not live:
+        batch, flags = _replayed_batch(run, recordings)
+    else:
+        assert batch_id is not None  # noqa: S101 - 即時模式上面一定產生
+        batch, flags = model_candidate.new_batch(batch_id, settings.model, run.rows), []
+        if settings.record:
+            model_candidate.write_batch(recordings, batch)
+    if run.stopped is not None:
+        reason = _STOP_TEXT.get(run.stopped, run.stopped)
+        flags.insert(0, f"未跑完(停在第 {len(run.rows)} 個情境:{reason})")
+    return run, batch, flags
+
+
+_STOP_TEXT = {"local_cap_refused": "已達上限", "config_error": "設定錯誤",
+              "quota_exhausted": "訂閱額度用完", "ledger_busy": "花費帳忙碌",
+              "overrun": "超支", model_candidate.UNCLASSIFIED: "無法可靠分類的錯誤",
+              model_candidate.TOOL_USE: "偵測到工具使用"}
+
+
+def _cell_line(cell: WorthCell, row: ComparisonRow, means: Mapping[WorthCell, float]) -> str:
+    marks = model_candidate.threshold_marks(row, model_candidate.MODEL_LIMITS)
+    parts = [f"{label}:{marks[name]}" for name, label, _ in model_candidate.MARKED]
+    mean = means.get(cell)
+    reference = "" if mean is None else f";平均每次成本 {mean:.6f} 美元(只供參考)"
+    return f"- {cell.value}:{';'.join(parts)}{reference}"
+
+
+def model_section(settings: mc.Settings, args: argparse.Namespace) -> ModelSection:
+    run, batch, flags = _model_run(settings, args)
+    rows = None if batch is None else model_candidate.model_rows(batch, run.scored)
+    lines = ["", f"## 模型候選({settings.model})", "",
+             f"- 模式:{'即時' if settings.mode is mc.Mode.LIVE else '重播錄製回應(不是即時呼叫)'}",
+             f"- 跑了 {len(run.rows)} 個情境(子集每格 {model_candidate.GROUPS_PER_CELL} 組、"
+             "每組 3 個變體)"]
+    if batch is not None:
+        shared = sum(1 for r in batch.rows if r.shared)
+        sent = sum(1 for r in batch.rows if r.sent)
+        lines += [f"- 來源:歷史觀測(錄製日期 {batch.recorded_on},批次 {batch.batch_id},"
+                  f"價目表查核 {batch.price_checked_on})",
+                  f"- 批次紀錄 {len(batch.rows)} 列:真正送出 {sent} 次、"
+                  f"{model_candidate.SHARED_NOTE} {shared} 列、"
+                  f"沒送出 {model_candidate.unsent_counts(batch) or '無'}"]
+        lines += ["", "### 逐格門檻判定(每次成本 ≤ 0.002 美元、延遲 p95 ≤ 3 秒、失敗率 ≤ 1% "
+                  "是使用者裁定;延遲中位 ≤ 3 秒是協調者補的)", ""]
+        means = model_candidate.mean_costs(batch)
+        lines += [_cell_line(cell, row, means) for cell, row in (rows or {}).items()]
+    lines += ["", *[f"- 旗標:{flag}" for flag in flags],
+              "- 模型候選:不採用(合成集是有限的合約案例,照 Phase 10 規定一律不採用"
+              + ("" if not flags else ";另有上面的旗標") + ")"]
+    busy = run.stopped == mc.Outcome.LEDGER_BUSY.value
+    return ModelSection(None if flags else rows, tuple(flags), tuple(lines), busy)
+
+
+def with_model_rows(rows: tuple[ComparisonRow, ...],
+                    model: Mapping[WorthCell, ComparisonRow] | None) -> tuple[ComparisonRow, ...]:
+    """比較表的 LLM 列換成模型候選實測(沒有就照舊寫沒量)。"""
+    if model is None:
+        return rows
+    return tuple(model[row.cell] if row.approach == "LLM" else row for row in rows)
+
+
+def run(argv: list[str] | None = None, *, out: TextIO | None = None,
+        err: TextIO | None = None, environ: Mapping[str, str] | None = None) -> int:
+    args = _parse(argv)
+    errors = err or sys.stderr
+    try:
+        source = os.environ if environ is None else environ
+        claude = shutil.which("claude", path=source.get("PATH", ""))  # 只有入口查 PATH
+        settings = mc.settings_from_env(source, args.demo_id, claude)
+    except mc.UnknownModel as unknown:
+        print(f"參數錯誤:{unknown}", file=errors)
+        return EXIT_BAD_ARGUMENTS
+    if settings.mode is mc.Mode.LIVE and args.ledger is not None:
+        print("即時模式的花費帳寫死在家目錄那一本,不接受 --ledger", file=errors)
+        return EXIT_BAD_ARGUMENTS
+    for notice in settings.notices:
+        print(notice, file=errors)
     scenarios = from_rows(eval_set.ROWS)
     report = synthetic_report(score(scenarios, None, None), eval_set_sha256())
     latency = {cell: measure_latency(tuple(s.worth_input for s in scenarios if s.cell is cell))
                for cell in WorthCell}
-    rows = comparison_rows(latency, report)
-    adoption = decide_adoption(report, None, OperationalLimits(None, None, None, None))
-    print(render(report, rows, adoption), file=out or sys.stdout)
+    model = model_section(settings, args)
+    if model.ledger_busy:
+        print("花費帳忙碌:寫不進帳,已停止呼叫模型", file=errors)
+        return EXIT_LEDGER_BUSY
+    rows = with_model_rows(comparison_rows(latency, report), model.rows)
+    decided = (decide_adoption(report, None, OperationalLimits(None, None, None, None))
+               if model.rows is None else
+               decide_adoption(report, dict(model.rows), model_candidate.MODEL_LIMITS))
+    print(render(report, rows, decided) + "\n".join(model.lines), file=out or sys.stdout)
     return EXIT_OK
 
 

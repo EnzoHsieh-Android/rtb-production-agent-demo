@@ -193,9 +193,15 @@ def test_domain_layer_is_forbidden_from_importing_database_network_process_or_mo
     assert result.returncode != 0 and "TID251" in result.stdout, source
 
 
-@pytest.mark.parametrize("path", ["src/rtb/dsp/_probe.py", "tests/_probe.py"])
-def test_the_ban_applies_only_to_the_domain_layer_not_to_dsp_or_tests(path):
-    result = ruff_on("import sqlite3\nimport socket\nimport subprocess\n", path)
+@pytest.mark.parametrize(("path", "source"), [
+    # Phase 11B 增量 1 起 DSP 也禁 subprocess(只有模型用戶端能啟動子行程,計劃
+    # [[Projects/RTB_Phase11B大模型接入_計劃]]〈既有邊界怎麼改〉[S917]),
+    # DSP 這一格就不再放 subprocess
+    ("src/rtb/dsp/_probe.py", "import sqlite3\nimport socket\n"),
+    ("tests/_probe.py", "import sqlite3\nimport socket\nimport subprocess\n"),
+])
+def test_the_ban_applies_only_to_the_domain_layer_not_to_dsp_or_tests(path, source):
+    result = ruff_on(source, path)
 
     assert "TID251" not in result.stdout, result.stdout
 
