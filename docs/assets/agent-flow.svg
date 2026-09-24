@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc" font-family="Hiragino Sans GB, sans-serif">
 <title id="title">RTB Agent 流程靜態總覽</title>
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#9aa8ff"/></marker><marker id="human-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#f1c875"/></marker></defs>
-<desc id="desc">泳道由上到下為分析、收件、執行、廣告平台、人工；時間向右。主線由寫好建議直接送出；AI 說明規劃於送件後另行產生，給確認者參考。圖只畫 F7 核可與 F6 重放兩條人工回頭線。</desc>
+<desc id="desc">泳道由上到下為分析、收件、執行、廣告平台、人工；時間向右。主線由寫好建議直接送出；AI 說明規劃於送件後另行產生，供核可者參考。圖只畫 F7 核可與 F6 重放兩條人工回頭線。</desc>
 <rect width="1200" height="640" fill="#0b0d12"/>
 <rect x="24" y="20" width="1152" height="69" rx="16" fill="#11141b"/>
 <text x="600" y="64" fill="#f4f4f5" font-size="24" text-anchor="middle" font-weight="700">RTB Agent：從分析到確認寫入</text>
@@ -24,7 +24,7 @@
 <path d="M488 199V218H640V199" fill="none" stroke="#9aa8ff" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M640 199V259H747" fill="none" stroke="#9aa8ff" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M811 259H819" fill="none" stroke="#9aa8ff" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M881 259H885V346H889" fill="none" stroke="#9aa8ff" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M881 259H905V318" fill="none" stroke="#9aa8ff" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M951 346H959" fill="none" stroke="#9aa8ff" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M1021 346H1024" fill="none" stroke="#9aa8ff" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M1055 373V405" fill="none" stroke="#9aa8ff" stroke-width="2" marker-end="url(#arrow)"/>
@@ -32,8 +32,8 @@
 <path d="M1151 346H1153" fill="none" stroke="#9aa8ff" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M672 172H692" fill="none" stroke="#8c929f" stroke-width="2" stroke-dasharray="6 2"/>
 <path d="M990 371L990 475L966 475L966 520L985 520" fill="none" stroke="#f1c875" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#human-arrow)"/>
-<path d="M1018 545L1018 575L735 575L735 310L850 310L850 286" fill="none" stroke="#f1c875" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#human-arrow)"/>
-<path d="M850 286L850 299L790 299L790 346L817 346" fill="none" stroke="#f1c875" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#human-arrow)"/>
+<path d="M1018 545L1018 575L735 575L735 300L870 300L870 286" fill="none" stroke="#f1c875" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#human-arrow)"/>
+<path d="M835 286L835 321" fill="none" stroke="#f1c875" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#human-arrow)"/>
 <path d="M850 371L850 460L790 460L790 520L817 520" fill="none" stroke="#f1c875" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#human-arrow)"/>
 <path d="M850 545L850 558L800 558L800 286L817 286" fill="none" stroke="#f1c875" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#human-arrow)"/>
 <g fill="#193a50" stroke="#93ccee" stroke-width="2"><rect x="77" y="147" width="62" height="50" rx="10"/></g><g fill="#ecf8ff" font-weight="700"><text x="108" y="169" text-anchor="middle" font-size="14">收到</text><text x="108" y="188" text-anchor="middle" font-size="14">工作</text><rect x="104" y="133" width="35" height="16" rx="4" fill="#193a50" stroke="#93ccee"/><text x="121.5" y="145" text-anchor="middle" font-size="14">程式</text></g>
@@ -56,7 +56,7 @@
 <g fill="#193a50" stroke="#93ccee" stroke-width="2"><rect x="819" y="321" width="62" height="50" rx="10"/></g><g fill="#ecf8ff" font-weight="700"><text x="850" y="343" text-anchor="middle" font-size="14">多次</text><text x="850" y="362" text-anchor="middle" font-size="14">未啟動</text><rect x="846" y="307" width="35" height="16" rx="4" fill="#193a50" stroke="#93ccee"/><text x="863.5" y="319" text-anchor="middle" font-size="14">程式</text></g>
 <g fill="#493614" stroke="#f1c875" stroke-width="3"><path d="M827 495H873L881 503V537L873 545H827L819 537V503Z"/></g><g fill="#fff6df" font-weight="700"><text x="850" y="517" text-anchor="middle" font-size="14">人工</text><text x="850" y="536" text-anchor="middle" font-size="14">重放</text><rect x="846" y="481" width="35" height="16" rx="4" fill="#493614" stroke="#f1c875"/><text x="863.5" y="493" text-anchor="middle" font-size="14">人工</text></g>
 <text x="565" y="212" fill="#f4f4f5" font-size="13" text-anchor="middle">直接送出</text>
-<text x="800" y="222" fill="#e1e4e9" font-size="12" text-anchor="middle">送件後、給確認者參考（規劃中）</text>
+<text x="725" y="211" fill="#e1e4e9" font-size="12" text-anchor="middle">供核可者參考（規劃中）</text>
 <text x="1040" y="470" fill="#f1c875" font-size="14">F7 超額</text>
 <text x="872" y="470" fill="#f1c875" font-size="14">F6 重放</text>
 <text x="190" y="566" fill="#a8adb9" font-size="14">人工同意或重放後回佇列，重新檢查</text>

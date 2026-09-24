@@ -44,9 +44,9 @@ PALETTE = {
 LANES = ("分析", "收件", "執行", "廣告平台", "人工")
 Y = {lane: 172 + 87 * i for i, lane in enumerate(LANES)}
 APPROVAL_TO_HUMAN = ((990, 371), (990, 475), (966, 475), (966, 520), (985, 520))
-APPROVAL_RETURN = ((1018, 545), (1018, 575), (735, 575), (735, 310),
-                   (850, 310), (850, 286))
-QUEUE_TO_DEADLETTER = ((850, 286), (850, 299), (790, 299), (790, 346), (817, 346))
+APPROVAL_RETURN = ((1018, 545), (1018, 575), (735, 575), (735, 300),
+                   (870, 300), (870, 286))
+QUEUE_TO_DEADLETTER = ((835, 286), (835, 321))
 DEADLETTER_TO_REPLAY = ((850, 371), (850, 460), (790, 460), (790, 520),
                         (817, 520))
 REPLAY_RETURN = ((850, 545), (850, 558), (800, 558), (800, 286), (817, 286))
@@ -218,6 +218,9 @@ def main_edge(draw: ImageDraw.ImageDraw, first: Node, second: Node, color: str) 
         start = (first.x, a[3] + 2)
         end = (b[0] - 2, Y[second.lane])
         points = (start, (first.x, end[1]), end)
+    elif first.key == "x_pending":  # 從上方進寫前重查,不貼著「多次未啟動」的右緣走
+        end = (second.x - 15, b[1] - 3)
+        points = (start, (end[0], start[1]), end)
     elif first.lane == second.lane:
         points = (start, end)
     else:
@@ -296,7 +299,7 @@ def render_frame(index: int, font_path: Path) -> Image.Image:
             state = "future"
         draw_node(draw, font_path, node, state=state)
     center_text(draw, font_path, (565, 208), "直接送出", fill=TEXT, size=13)
-    center_text(draw, font_path, (800, 218), "送件後、給確認者參考（規劃中）",
+    center_text(draw, font_path, (725, 207), "供核可者參考（規劃中）",
                 fill=PLANNED[2], size=12)
     if key == "approval_return":
         draw_node(draw, font_path, BY_KEY["h_approve"], state="current")
@@ -342,7 +345,7 @@ def write_svg() -> None:  # noqa: PLR0915 - SVG 組件逐段加入, 對照圖面
         'font-family="Hiragino Sans GB, sans-serif">',
         '<title id="title">RTB Agent 流程靜態總覽</title>',
         '<desc id="desc">泳道由上到下為分析、收件、執行、廣告平台、人工；時間向右。'
-        '主線由寫好建議直接送出；AI 說明規劃於送件後另行產生，給確認者參考。'
+        '主線由寫好建議直接送出；AI 說明規劃於送件後另行產生，供核可者參考。'
         '圖只畫 F7 核可與 F6 重放兩條人工回頭線。</desc>',
         f'<rect width="1200" height="640" fill="{BG}"/>',
         f'<rect x="24" y="20" width="1152" height="69" rx="16" fill="{SURFACE}"/>',
@@ -368,6 +371,8 @@ def write_svg() -> None:  # noqa: PLR0915 - SVG 組件逐段加入, 對照圖面
             path = f'M{a.x} {ab[3] + 2}V{bb[1] - 3}'
         elif first_key == "p_reply":
             path = f'M{ab[2] + 1} {Y[a.lane]}H1104V380H{b.x}V{bb[3] + 2}'
+        elif first_key == "x_pending":
+            path = f'M{ab[2]} {Y[a.lane]}H{b.x - 15}V{bb[1] - 3}'
         elif a.lane == b.lane:
             path = f'M{ab[2]} {Y[a.lane]}H{bb[0]}'
         else:
@@ -395,8 +400,8 @@ def write_svg() -> None:  # noqa: PLR0915 - SVG 組件逐段加入, 對照圖面
     parts.extend((
         f'<text x="565" y="212" fill="{TEXT}" font-size="13" '
         'text-anchor="middle">直接送出</text>',
-        f'<text x="800" y="222" fill="{PLANNED[2]}" font-size="12" '
-        'text-anchor="middle">送件後、給確認者參考（規劃中）</text>',
+        f'<text x="725" y="211" fill="{PLANNED[2]}" font-size="12" '
+        'text-anchor="middle">供核可者參考（規劃中）</text>',
         f'<text x="1040" y="470" fill="{PALETTE["人工"][1]}" font-size="14">F7 超額</text>',
         f'<text x="872" y="470" fill="{PALETTE["人工"][1]}" font-size="14">F6 重放</text>',
         f'<text x="190" y="566" fill="{MUTED}" font-size="14">'
@@ -435,7 +440,11 @@ def main() -> None:
         parser.error(f"無法讀取字型：{font_path}（{exc}）")
     ASSETS.mkdir(parents=True, exist_ok=True)
     frames = [render_frame(i, font_path) for i in range(len(CAPTIONS))]
-    palette = frames[-1].quantize(colors=64)
+    # 調色盤要從全部影格一起取:只取最後一格(圖例)會漏掉「目前步驟」的亮色
+    sheet = Image.new("RGB", (SIZE[0], SIZE[1] * len(frames)))
+    for i, frame in enumerate(frames):
+        sheet.paste(frame, (0, SIZE[1] * i))
+    palette = sheet.quantize(colors=64)
     indexed = [frame.quantize(palette=palette) for frame in frames]
     indexed[0].save(ASSETS / "agent-flow.gif", save_all=True, append_images=indexed[1:],
                     duration=1000, loop=0, optimize=True, disposal=2)
