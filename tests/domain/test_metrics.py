@@ -3,10 +3,12 @@
 import math
 import subprocess
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
 
+from rtb.domain import metrics as m
 from rtb.domain.metrics import MetricResult, Reason, ctr, cvr, pacing, roas
 
 
@@ -283,3 +285,70 @@ def test_pacing_with_any_single_input_missing_is_missing_data(spend, budget, ela
     result = pacing(spend, budget, elapsed)
 
     assert result.value is None and result.reason == Reason.MISSING_DATA
+
+
+# ---- Phase 13 增量 2:收據的精確比率與固定字串([S1147] [S1162]) ----
+
+def test_receipt_values_are_fixed_strings_computed_in_the_domain():
+    """[S1147] 比率與百分比用百分比刻度、1 位小數、四捨五入到偶數;金額 2 位小數;計數整數;負零寫 0.0;
+    算不出寫 na;既有三態結果型別不變。"""
+    assert m.receipt_ratio(12, 500) == "2.4"
+    assert m.receipt_ratio(247, 2000) == "12.4"  # 浮點會算成 12.35 再捨成 12.3
+    assert m.receipt_ratio(245, 2000) == "12.2"  # 12.25 → 偶數 12.2
+    assert m.receipt_ratio(0, 500) == "0.0"
+    assert m.receipt_change(3, 2) == "-33.3"
+    assert m.receipt_change(10_000, 9_996) == "0.0"  # -0.04% 捨入後不寫負零
+    assert m.receipt_change(4, 6) == "50.0"
+    assert m.receipt_amount(0.5) == "0.50"
+    assert m.receipt_amount(5.0) == "5.00"
+    assert m.receipt_amount(-0.0) == "0.00"
+    assert m.receipt_amount(2.675) == "2.68"  # repr 是 2.675,銀行家捨入到 2.68(8 是偶數)
+    assert m.receipt_amount(0.125) == "0.12"
+    assert m.receipt_count(5) == "5"
+    for bad in (None, -1, True, 1.5, "5"):
+        assert m.receipt_count(bad) == m.NA, bad
+    for bad in (None, -1.0, float("nan"), float("inf"), True, "1"):
+        assert m.receipt_amount(bad) == m.NA, bad
+    # 算不出的三態都寫 na
+    assert m.receipt_ratio(3, 0) == m.NA
+    assert m.receipt_ratio(None, 5) == m.NA
+    assert m.receipt_ratio(-1, 5) == m.NA
+    assert m.receipt_change(0, 5) == m.NA
+    assert m.NA == "na"
+    # 既有三態結果型別不變:照舊只收整數與浮點
+    with pytest.raises(ValueError):
+        MetricResult(value=Fraction(1, 3))  # type: ignore[arg-type]
+    assert MetricResult.__dataclass_fields__.keys() == {"value", "reason"}
+
+
+def test_one_exact_ratio_function_feeds_receipts_and_the_answer_key(monkeypatch):
+    """[S1162] 精確比率函式回分數或三態原因代碼之一;收據格式化經它取得比率(標準答案產生函式在增量 3
+    開檔時同樣經它);金額量化溢位寫 na。"""
+    assert m.exact_ratio(12, 500) == Fraction(3, 125)
+    assert m.exact_ratio(0.5, 2) == Fraction(1, 4)
+    assert m.exact_ratio(3, 0) is Reason.NO_DENOMINATOR
+    assert m.exact_ratio(None, 3) is Reason.MISSING_DATA
+    assert m.exact_ratio(None, 0) is Reason.MISSING_DATA  # 缺漏優先於分母為零
+    assert m.exact_ratio(-1, None) is Reason.INVALID_DATA  # 不合理優先於缺漏
+    assert m.exact_ratio(True, 3) is Reason.INVALID_DATA
+    assert m.exact_ratio(float("inf"), 3) is Reason.INVALID_DATA
+    assert m.exact_ratio(Reason.MISSING_DATA, 3) is Reason.MISSING_DATA  # 巢狀比率照傳原因
+    assert m.exact_ratio(Fraction(1, 2), Fraction(1, 4)) == 2
+    assert m.exact_change(10_000, 9_996) == Fraction(-1, 2500)
+    assert m.exact_click_rate(13, 12) is Reason.INVALID_DATA  # 點擊不可能比曝光多(同既有 ctr)
+    seen = []
+    real = m.exact_ratio
+
+    def spy(numerator, denominator):
+        seen.append((numerator, denominator))
+        return real(numerator, denominator)
+
+    monkeypatch.setattr(m, "exact_ratio", spy)
+    assert m.receipt_ratio(12, 500) == "2.4"
+    assert m.receipt_change(3, 2) == "-33.3"
+    assert m.receipt_click_rate(12, 500) == "2.4"
+    assert len(seen) == 3
+    monkeypatch.undo()
+    assert m.receipt_amount(1e27) == m.NA  # Decimal 量化溢位歸資料不合理
+    assert m.receipt_amount(10**26) == m.NA
+    assert m.receipt_amount(10**20) == "100000000000000000000.00"

@@ -210,10 +210,11 @@ def _top_imports(tree):
     return names | {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
 
 
-# 模型用戶端的匯入閉包(寫死;改它要看是不是多了網路或子行程的路)
+# 模型用戶端的匯入閉包(寫死;改它要看是不是多了網路或子行程的路)。Phase 13 增量 2 照計劃改寫 [S918]:
+# 加小常數模組(模型後端與花費帳從它取等行程群組秒數與結算次數)
 MODEL_CLIENT_CLOSURE = frozenset({
     "rtb", "rtb.modelclaude", "rtb.modelclient", "rtb.modelcore", "rtb.modelledger",
-    "rtb.modelledger_view", "rtb.modelrecording", "rtb.sqlitekit"})
+    "rtb.modelledger_view", "rtb.modelrecording", "rtb.sqlitekit", "rtb.stepbudget"})
 MODEL_NET_ROOTS = frozenset({"urllib", "http", "socket", "ssl", "socketserver", "asyncio",
                              "requests", "httpx", "urllib3", "aiohttp", "ftplib", "smtplib",
                              "xmlrpc"})
@@ -242,9 +243,11 @@ def _eval_roots():
 
 # Phase 13 改寫 [S918](計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉):
 # 評估套件的閉包
-# 只准多出寫死的准許名單。增量 1 起有模型閘道;AI 決策模組、小常數模組與 Phase 13 的評估模組(評估集、
-# 生成器、執行器、報告)在增量 2、3 開檔時照同一條加進這份名單(小常數模組也要加進模型用戶端閉包)
-PHASE13_ALLOWED = frozenset({"rtb.analyzer.modelgate"})
+# 只准多出寫死的准許名單。增量 1 起有模型閘道;增量 2 起小常數模組經模型用戶端閉包進來(上面那份名單);
+# AI 決策模組(與它的調查詞彙模組)在評估套件真的匯入它時才進閉包(增量 3 的評估執行器),先寫進名單;
+# Phase 13 的評估模組(評估集、生成器、執行器、報告)在增量 3 開檔時照同一條加
+PHASE13_ALLOWED = frozenset({"rtb.analyzer.modelgate", "rtb.analyzer.ai_judge",
+                             "rtb.analyzer.investigation"})
 
 
 def test_the_eval_package_reaches_the_model_only_through_the_model_client():  # noqa: PLR0915

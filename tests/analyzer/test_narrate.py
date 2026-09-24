@@ -269,7 +269,7 @@ def narrate_placeholder(user):
 
 
 # ---- [S1102](說明命令列那半) ----
-def test_recorded_entries_book_into_the_given_ledger(handed_off, tmp_path):
+def test_recorded_entries_book_into_the_given_ledger(handed_off, tmp_path):  # noqa: PLR0915
     db = _copy(handed_off, tmp_path)
     ledger = tmp_path / "demo-ledger.sqlite"
     out, err = _Sink(), _Sink()
@@ -290,6 +290,19 @@ def test_recorded_entries_book_into_the_given_ledger(handed_off, tmp_path):
     assert not mc.live_ledger_path().exists()  # 家目錄(測試裡是暫存)的帳沒被建立
     assert not (Path(view.account_home()) / ".rtb").exists()
     recorded_hypotheses_book_into_the_given_ledger(tmp_path)  # 假說命令列那半
+    assert not mc.live_ledger_path().exists()
+    # 開了 AI 決策的分析端驅動命令列那半(Phase 13 增量 2)
+    from tests.analyzer.test_investigation_e2e import recorded_runner_books_into_the_given_ledger
+
+    runner_ledger = recorded_runner_books_into_the_given_ledger(tmp_path)
+    reader = view.ModelLedgerView(runner_ledger)
+    try:
+        with reader.read_transaction():
+            rows = reader.calls_between("0000", "9999")
+    finally:
+        reader.close()
+    assert rows and {(r.caller, r.demo_id, r.source, r.outcome) for r in rows} == {
+        ("analyzer_investigation", "demo-7", "recorded", "no_recording")}
     assert not mc.live_ledger_path().exists()
 
 

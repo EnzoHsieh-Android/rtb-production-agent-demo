@@ -13,7 +13,9 @@
 
 import math
 from dataclasses import dataclass
+from decimal import ROUND_HALF_EVEN, Context, Decimal, InvalidOperation
 from enum import StrEnum
+from fractions import Fraction
 from typing import TypeGuard
 
 from rtb.domain._checks import is_plain_number
@@ -150,3 +152,100 @@ def pacing(
     if expected == 0 and planned != 0 and elapsed != 0:
         return _unknown(Reason.INVALID_DATA)  # 兩者都不是 0 乘積卻下溢成 0,不是真的分母為零
     return _ratio(spent, expected)
+
+
+# ---- 收據的精確比率與固定字串(Phase 13 增量 2,[S1147] [S1162]) ----
+# 送給模型與展示頁的收據數值一律是字串;比率用分數精確算(不經浮點除法:247/2000 用浮點會算成 12.35
+# 再捨成 12.3,精確值加銀行家捨入是 12.4)。既有的 MetricResult 只收整數與浮點,不放分數進去(放寬它
+# 等於改所有既有呼叫者的保證),所以精確比率另回「分數或三態原因代碼之一」。收據格式化與標準答案產生
+# 函式都經 `exact_ratio` 取得比率,評估端不另算。
+NA = "na"  # 算不出(分母為零、缺資料、資料不合理)一律寫它;可信證據的字元集不收斜線,所以不寫 n/a
+Exact = Fraction | Reason
+_WORST_FIRST = (Reason.INVALID_DATA, Reason.MISSING_DATA, Reason.NO_DENOMINATOR)
+_CENTS = Decimal("0.01")
+
+
+def _exact_input(value: object) -> Fraction | Reason:
+    """一個比率輸入:缺值是缺資料;布林、負數、非有限數、不是數字是資料不合理;分數照收(巢狀比率)。"""
+    if isinstance(value, Reason):
+        return value
+    if value is None:
+        return Reason.MISSING_DATA
+    if isinstance(value, Fraction):
+        return value if value >= 0 else Reason.INVALID_DATA
+    if not _is_valid_amount(value):
+        return Reason.INVALID_DATA
+    try:
+        return Fraction(value)
+    except (OverflowError, ValueError):
+        return Reason.INVALID_DATA
+
+
+def exact_ratio(numerator: object, denominator: object) -> Exact:
+    """分子 ÷ 分母的精確分數,或三態原因代碼之一(不合理 > 缺漏 > 分母為零,同這支檔的既有順序)。
+    點擊率、轉換率、配速比、變化百分比都由它算;輸入可以是前一次比率的結果(原因照傳)。"""
+    top, bottom = _exact_input(numerator), _exact_input(denominator)
+    reasons = {item for item in (top, bottom) if isinstance(item, Reason)}
+    for reason in _WORST_FIRST:
+        if reason in reasons:
+            return reason
+    assert isinstance(top, Fraction) and isinstance(bottom, Fraction)  # noqa: S101 - 上面已排除
+    if bottom == 0:
+        return Reason.NO_DENOMINATOR
+    return top / bottom
+
+
+def exact_change(before: object, after: object) -> Exact:
+    """變化比例 =(後段減前段)除以前段,等於後段除以前段再減 1;前段為 0 是分母為零。
+    百分比刻度由格式化乘上。"""
+    ratio = exact_ratio(after, before)
+    return ratio if isinstance(ratio, Reason) else ratio - 1
+
+
+def exact_click_rate(clicks: object, impressions: object) -> Exact:
+    """點擊率;點擊多於曝光是資料不合理(跟既有 ctr 同一條)。"""
+    if (_is_valid_amount(clicks) and _is_valid_amount(impressions)
+            and not isinstance(clicks, bool) and clicks > impressions):
+        return Reason.INVALID_DATA
+    return exact_ratio(clicks, impressions)
+
+
+def percent_text(value: Exact) -> str:
+    """分數寫成百分比刻度、固定 1 位小數、四捨五入到偶數;負零寫 0.0;原因代碼寫 na。"""
+    if isinstance(value, Reason):
+        return NA
+    tenths = round(value * 1000)  # 分數的 round 是四捨五入到偶數
+    sign = "-" if tenths < 0 else ""
+    return f"{sign}{abs(tenths) // 10}.{abs(tenths) % 10}"
+
+
+def receipt_ratio(numerator: object, denominator: object) -> str:
+    return percent_text(exact_ratio(numerator, denominator))
+
+
+def receipt_click_rate(clicks: object, impressions: object) -> str:
+    return percent_text(exact_click_rate(clicks, impressions))
+
+
+def receipt_change(before: object, after: object) -> str:
+    return percent_text(exact_change(before, after))
+
+
+def receipt_amount(value: object) -> str:
+    """金額(花費、營收)固定 2 位小數:平台端存的是浮點,先 Decimal(repr(x)) 再量化(銀行家捨入)。
+    這是收據裡唯一經過浮點的一段;缺值、負數、非有限數、量化溢位(約 1e26 以上)都寫 na。"""
+    if not _is_valid_amount(value):
+        return NA
+    try:
+        exact = Decimal(repr(value)) if isinstance(value, float) else Decimal(value)
+        cents = exact.quantize(_CENTS, rounding=ROUND_HALF_EVEN, context=Context(prec=28))
+    except InvalidOperation:
+        return NA
+    return str(cents.copy_abs() if cents == 0 else cents)
+
+
+def receipt_count(value: object) -> str:
+    """計數(曝光、點擊、轉換、筆數、天數)照寫整數;缺值、負數、布林、小數都寫 na。"""
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return str(value)
+    return NA

@@ -36,12 +36,14 @@ from rtb.dsp.capability import (
     verified_claims,
 )
 from rtb.dsp.errors import (
+    AdjustmentsNotFound,
     CampaignNotFound,
     CapabilityExpired,
     CapabilityInvalid,
     CapabilityMissing,
     CapabilityNotConfigured,
     CapabilityScopeMismatch,
+    DailyNotFound,
     DspError,
     IdempotencyConflict,
     MetricsNotFound,
@@ -87,6 +89,8 @@ ERROR_TABLE = {
     UnknownAction: (400, "unknown_action", False),
     CampaignNotFound: (404, "campaign_not_found", False),
     MetricsNotFound: (404, "metrics_not_found", False),
+    DailyNotFound: (404, "daily_not_found", False),
+    AdjustmentsNotFound: (404, "adjustments_not_found", False),
     CapabilityNotConfigured: (503, "capability_not_configured", False),
     CapabilityMissing: (401, "capability_missing", False),
     CapabilityInvalid: (401, "capability_invalid", False),
@@ -98,6 +102,9 @@ ROUTES = [
     ("GET", re.compile(r"^/campaigns/([^/]+)$"), "get_campaign"),
     ("GET", re.compile(r"^/campaigns/([^/]+)/history$"), "get_history"),
     ("GET", re.compile(r"^/campaigns/([^/]+)/metrics$"), "get_metrics"),
+    # 逐日成效與過去調整(Phase 13 增量 2,[S1126] [S1148]):只准 GET、只讀,資料只由展示種子寫
+    ("GET", re.compile(r"^/campaigns/([^/]+)/daily$"), "get_daily"),
+    ("GET", re.compile(r"^/campaigns/([^/]+)/adjustments$"), "get_adjustments"),
     ("GET", re.compile(r"^/operations/([^/]+)$"), "get_operation"),
     # 副作用核對翻頁用(Phase 9 增量 3):照既有形狀,路徑裡恰好一個參數
     ("GET", re.compile(r"^/operations/since/([^/]+)$"), "get_operation_cursor"),
@@ -162,6 +169,24 @@ class DspHandler(JsonHandler):
         if len(windows) > 1:
             raise RequestRejected(400, "duplicate_query_parameter")
         return asdict(store.get_metrics(campaign_id, windows[0] if windows else None))
+
+    def _get_daily(
+        self, store: CampaignStore, campaign_id: str, _fault: str | None
+    ) -> dict[str, Any]:
+        """固定 7 列、由近到遠;缺資料那天五欄 null、no_data 為真。只有相對天數,不帶日期。"""
+        return {"campaign_id": campaign_id,
+                "rows": [asdict(row) for row in store.get_daily(campaign_id)]}
+
+    def _get_adjustments(
+        self, store: CampaignStore, campaign_id: str, _fault: str | None
+    ) -> dict[str, Any]:
+        """最多 5 列、由新到舊;沒調整過是空串列(種過、零筆),沒種是 404。"""
+        rows = [{"days_ago": item.days_ago, "budget_before": item.budget_before,
+                 "budget_after": item.budget_after,
+                 **{f"before_{name}": value for name, value in item.before.items()},
+                 **{f"after_{name}": value for name, value in item.after.items()}}
+                for item in store.get_past_adjustments(campaign_id)]
+        return {"campaign_id": campaign_id, "rows": rows}
 
     def _get_operation(
         self, store: CampaignStore, key: str, _fault: str | None

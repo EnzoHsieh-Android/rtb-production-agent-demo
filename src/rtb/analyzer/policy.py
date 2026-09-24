@@ -13,6 +13,7 @@
 不影響 S49 的合約(規則本身的判斷邏輯),留給接上真正決策邏輯的後面階段一併解決。
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -135,6 +136,10 @@ class NoActionReason(StrEnum):
     NOT_UNDERPACING = "not_underpacing"
     JUDGED_NOT_WORTH = "judged_not_worth"
     JUDGED_INSUFFICIENT = "judged_insufficient"
+    # 考題結束(Phase 13 增量 2,[S1156]):分析端驅動帶 --hold-submit 時,清單裡的廣告不論 AI 或規則判
+    # 提案都不送件、以不提案結案。現行規則永遠產不出它([S705] 照 Phase 13 改寫排除它);AI 的兩個結論
+    # 沿用上面的「判不值得加」「判證據不足」,來源記在調查紀錄
+    EXAM_HOLD = "exam_hold"
 
 
 def _has_delivery(impressions: object, clicks: object) -> bool:
@@ -249,7 +254,6 @@ def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
     if state is None or metrics is None:
         return NoAction(), NoActionReason.MISSING_STATE_OR_METRICS
 
-    budget = state.get("budget")
     if facts.underpacing is None:
         return NoAction(), NoActionReason.PACING_UNKNOWN
     if facts.underpacing is False:
@@ -260,6 +264,15 @@ def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
     if verdict is not WorthVerdict.WORTH:
         return NoAction(), NoActionReason.JUDGED_NOT_WORTH
 
+    return ProposalDecision(build_proposal(task, evidence, state, now)), None
+
+
+def build_proposal(task: TaskRow | None, evidence: tuple[Evidence, ...],
+                   state: Mapping[str, Any], now: datetime) -> Proposal:
+    """照公式建提案(Phase 13 增量 2 從 `explain` 抽出,[S1107]):現行規則判值得加與 AI 選 propose
+    都呼叫這一支,所以兩條路徑的提案(原因代碼、風險說明、政策版本、到期時間、證據參照)逐欄相同。
+    證據參照列的是傳進來的每一筆:呼叫端只傳現況、1 小時指標、廣告文字三種。"""
+    budget = state.get("budget")
     if task is None:
         raise AssertionError("有真的證據可以決策,task 不該是 None")
     if not is_plain_number(budget):  # underpacing 已經驗過,這裡只是給型別檢查看
@@ -269,7 +282,7 @@ def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
     # 提案,也不要讓 Proposal 建構式丟例外、被上層的廣義例外處理悶成 FAILED。
     new_budget = min(max(round(budget * (1 + BUDGET_INCREASE_FRACTION)), int(budget) + 1),
                      MAX_INT)
-    proposal = Proposal(
+    return Proposal(
         task_id=task.task_id, revision=1, campaign_id=task.campaign_id,
         action_type=ActionType.UPDATE_BUDGET,
         requested_change=MappingProxyType({"new_budget": new_budget}),
@@ -279,7 +292,6 @@ def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
         policy_version=POLICY_VERSION,
         risk_summary=f"budget +{int(BUDGET_INCREASE_FRACTION * 100)}%",
     )
-    return ProposalDecision(proposal), None
 
 
 def decide(task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime) -> Decision:

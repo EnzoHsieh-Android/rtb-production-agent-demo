@@ -30,11 +30,14 @@ ALLOWED = frozenset({"rtb.modelclaude"})  # 模型用戶端的 Claude Code 後�
 PROJECT_STARTERS = frozenset({"rtb.demo.launcher", "rtb.demo.driver"})
 MODEL_CLIENTS = frozenset({"rtb.modelclaude", "rtb.modelclient"})
 GATE = "rtb.analyzer.modelgate"  # 分析端唯一准匯入模型用戶端的模組(Phase 13)
-# 准匯入模型閘道的分析端模組(寫死,[S1100]):模型說明命令列、分析端驅動命令列;Phase 13 增量 2 的
-# AI 決策函式所在模組開檔時加在這裡
-GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.runner"})
-# 匯入閉包不准含模型用戶端任何一支模組的分析端模組([S1100])
-MODEL_FREE = ("rtb.analyzer.flow", "rtb.analyzer.policy", "rtb.analyzer.dsp_client")
+# 准匯入模型閘道的分析端模組(寫死,[S1100]):模型說明命令列、分析端驅動命令列、AI 決策函式所在模組
+# (Phase 13 增量 2 開檔)
+GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.runner", "rtb.analyzer.ai_judge"})
+# 匯入閉包不准含模型用戶端任何一支模組的分析端模組([S1100]);調查詞彙模組與證據來源包裝也不准
+# (展示流程圖與觀察器讀調查詞彙,展示伺服器行程不能因此載入模型用戶端)
+MODEL_FREE = ("rtb.analyzer.flow", "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
+              "rtb.analyzer.investigation", "rtb.analyzer.instrumented", "rtb.demo.flow",
+              "rtb.demo.observe", "rtb.demo.launcher")
 SPAWN_MODULES = frozenset({"subprocess", "multiprocessing", "pty", "webbrowser",
                            "_posixsubprocess"})
 OS_SPAWNERS = ("system", "popen", "exec", "spawn", "posix_spawn", "fork", "forkpty")

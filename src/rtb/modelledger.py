@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from rtb import modelcore as core
+from rtb import stepbudget
 from rtb.modelcore import (
     Backend,
     BackendReply,
@@ -24,7 +25,9 @@ from rtb.modelcore import (
 from rtb.modelledger_view import CALLS_SELECT, LedgerCall
 from rtb.sqlitekit import DatabaseBusy, connect, immediate_transaction, read_snapshot
 
-SETTLE_ATTEMPTS = 3  # 結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤
+# 結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤。數字住在小常數模組(Phase 13
+# 增量 2):分析端的租約守衛逐項加總要用它,不能從這支模型用戶端模組匯入
+SETTLE_ATTEMPTS = stepbudget.SETTLE_ATTEMPTS
 # 計入花費上限的呼叫者(Phase 13 裁定 13 與〈花費帳與採用判定〉,[S1134]):寫死在這裡、不是請求參數,
 # 誰都不能自稱不計入。Phase 13 的三個呼叫者(分析端調查、說明、假說)照記估算成本但不在清單裡,不會被
 # 上限拒絕,也不會把這兩個呼叫者的已用推過上限。舊帳的列全是這兩個呼叫者,依呼叫者過濾不必遷移。

@@ -9,8 +9,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from rtb.analyzer import dsp_client
-from rtb.analyzer.flow import Accepted, DspOperation
-from rtb.analyzer.task_store import TaskRow, TaskStore, ToolEndpoint
+from rtb.analyzer import investigation as inv
+from rtb.analyzer.flow import Accepted, DspOperation, EvidenceBatch
+from rtb.analyzer.task_store import RawQuery, TaskRow, TaskStore, ToolEndpoint
 from rtb.domain.evidence import Evidence
 from rtb.domain.proposal import Proposal
 
@@ -124,3 +125,36 @@ class InstrumentedOperationLookup:
         self._store.record_tool_call(
             self._task.task_id, self._task.seq, self._endpoint, outcome, latency_ms,
             datetime.now(UTC))
+
+
+def investigation_source(
+    store: TaskStore, base_url: str, timeout_seconds: float,
+) -> Callable[[TaskRow, datetime], EvidenceBatch]:
+    """開了 AI 決策時的證據來源(Phase 13 增量 2,計劃〈一件工作的一生〉第 1 步):照舊讀現況與 1 小時
+    指標,**加上重讀**這件工作先前 AI 選過的每一個查詢,每次讀取各記一筆呼叫紀錄。AI 已用過(退回過或
+    下過結論)就只讀基本兩樣([S1138])。追加查詢查不到、逾時、欄位不合格記成一筆沒有結果的收據,不讓
+    整步失敗([S1132]);原始回應跟證據同一個交易寫進調查原始資料表([S1151])。"""
+
+    def _on_call(task: TaskRow, endpoint: ToolEndpoint, outcome: str, latency_ms: float) -> None:
+        store.record_tool_call(task.task_id, task.seq, endpoint, outcome, latency_ms,
+                               datetime.now(UTC))
+
+    base_source = dsp_client.make_client(base_url, timeout_seconds, on_call=_on_call)
+    reader = dsp_client.make_query_reader(base_url, timeout_seconds, on_call=_on_call)
+
+    def fetch(task: TaskRow, now: datetime) -> EvidenceBatch:
+        evidence = base_source(task, now)
+        state = inv.progress(record for _seq, record in store.investigation_rounds(task.task_id))
+        if state.used:
+            return EvidenceBatch(evidence)
+        receipts, raws = [], []
+        for option in state.queried:
+            read = reader(task, option.value)
+            missing = None if read.reason is None else inv.NoResult(read.reason)
+            receipts.append(inv.receipt_evidence(task.task_id, task.seq, option, read.raw,
+                                                 missing, now))
+            if read.raw is not None:
+                raws.append(RawQuery(option.value, inv.canonical_json(read.raw)))
+        return EvidenceBatch(evidence + tuple(receipts), tuple(raws))
+
+    return fetch

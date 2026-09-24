@@ -19,10 +19,10 @@ from enum import StrEnum
 from pathlib import Path
 
 import rtb
-from rtb.analyzer.runner import CALLS_PER_STEP, DEFAULT_TIMEOUT_SECONDS
 from rtb.capabilitykit import APPROVAL_KEY_ENV, AUDIT_KEY_ENV, KEY_ENV
 from rtb.demo.faults.delivery import ROOT_MARKER, FaultPlan, prepare_root, write_plan
 from rtb.demo.keys import DemoKeys
+from rtb.stepbudget import CALLS_PER_STEP, DEFAULT_TIMEOUT_SECONDS, ai_stop_grace_seconds
 
 SRC = str(Path(rtb.__file__).resolve().parents[1])  # 專案沒有安裝成套件,子行程靠它找程式
 # 子行程一律 python -P:不把工作目錄(展示根目錄)放進 sys.path,根目錄裡的同名檔蓋不掉標準函式庫
@@ -109,13 +109,15 @@ def command_for(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,
 
 def stop_grace_seconds(role: Role, args: Sequence[str]) -> float:
     """收到 SIGTERM 之後等多久才硬殺。分析端會做完手上這一步(最多兩次呼叫,各自有逾時)才停,給它
-    兩倍逾時再加一秒,不在一步中途硬殺(代碼審 r2 n3);其他角色照固定時限。"""
+    兩倍逾時再加一秒,不在一步中途硬殺(代碼審 r2 n3);其他角色照固定時限。帶 --ai-judge 時(Phase 13
+    [S1136])至少再給「續租等鎖加上續租後 AI 那一步的最壞耗時」,用跟分析端守衛同一組常數算。"""
     if role is not Role.ANALYZER:
         return STOP_SECONDS
     timeout = DEFAULT_TIMEOUT_SECONDS
     if "--timeout-seconds" in args:
         timeout = float(args[list(args).index("--timeout-seconds") + 1])
-    return max(STOP_SECONDS, CALLS_PER_STEP * timeout + 1)
+    grace = max(STOP_SECONDS, CALLS_PER_STEP * timeout + 1)
+    return max(grace, ai_stop_grace_seconds()) if "--ai-judge" in args else grace
 
 
 class StartFailed(Exception):

@@ -49,6 +49,7 @@ from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
 from rtb.domain.evidence import Evidence, EvidenceKind
 from rtb.domain.proposal import Proposal, content_hash
 from rtb.domain.task_state import TaskState
+from rtb.dsp import seed
 from rtb.dsp.store import CampaignStore, Operation
 from rtb.executor import approval, attempt_store
 from rtb.executor.attempt_store import AttemptRow, ReadTransaction
@@ -98,6 +99,24 @@ class Campaign:
     budget: int
     spend: float  # 花費遠低於預算 = 花得比預期慢,分析端會建議加一成
     name: str | None = None
+
+
+def seed_platform(dsp_db: Path, campaigns: Sequence[Campaign]) -> None:
+    """造模擬平台的資料:每個廣告 1 小時窗(評分表的「有價值」格),加上 AI 追加查詢讀的 1 天與 7 天窗、
+    逐日成效與過去調整(Phase 13 增量 2,展示種子;一致性見模擬平台的種子模組)。"""
+    store = CampaignStore(dsp_db)
+    try:
+        for c in campaigns:
+            if c.name is None:
+                store.seed_campaign(c.campaign_id, budget=c.budget)
+            else:
+                store.seed_campaign(c.campaign_id, budget=c.budget, name=c.name)
+            store.seed_metrics(c.campaign_id, "1h", impressions=500, clicks=12,
+                               conversions=1, spend=c.spend, revenue=5.0)
+        seed.seed_platform_history(store, dict.fromkeys(
+            (c.campaign_id for c in campaigns), seed.DEMO_PROFILE), datetime.now(UTC))
+    finally:
+        store.close()
 
 
 class ScenarioFailed(Exception):
@@ -152,17 +171,7 @@ class World:
 
     def seed(self, campaigns: Sequence[Campaign], aggregate_limit: int | None = None) -> None:
         self.initial_budgets.update({c.campaign_id: c.budget for c in campaigns})
-        store = CampaignStore(self.dsp_db)
-        try:
-            for c in campaigns:
-                if c.name is None:
-                    store.seed_campaign(c.campaign_id, budget=c.budget)
-                else:
-                    store.seed_campaign(c.campaign_id, budget=c.budget, name=c.name)
-                store.seed_metrics(c.campaign_id, "1h", impressions=500, clicks=12,
-                                   conversions=1, spend=c.spend, revenue=5.0)
-        finally:
-            store.close()
+        seed_platform(self.dsp_db, campaigns)
         # 沒寫總上限的租戶一筆都放不出去(執行端當成額度 0):不是要展示總上限的情境給一個寬的;
         # 明確給 0 就是 0(第 2 輪代碼審 s4:原本用 or,0 會變成寬值)
         limit = LOOSE_AGGREGATE_LIMIT if aggregate_limit is None else aggregate_limit

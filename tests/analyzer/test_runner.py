@@ -94,11 +94,19 @@ def test_the_analyzer_runner_uses_only_production_collaborators():
     tree = ast.parse(RUNNER.read_text(encoding="utf-8"))
     modules = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module]
     modules += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
+    # 從套件匯入子模組(from rtb.analyzer import x)也算那支子模組(Phase 13 增量 2 變異測試補的洞:
+    # 原本只看 ImportFrom 的套件名,匯入分析端任何一支子模組都看不出來)
+    modules += [f"{n.module}.{a.name}" for n in ast.walk(tree)
+                if isinstance(n, ast.ImportFrom) and n.module == "rtb.analyzer" for a in n.names]
     rtb_modules = {m for m in modules if m.startswith("rtb")}
+    # Phase 13 增量 2 照計劃〈要改寫的既有合約〉加:模型閘道、AI 決策模組、小常數模組(與 AI 決策的
+    # 模型無關詞彙模組);[S1000] 的合約文字不改
     assert rtb_modules <= {"rtb.analyzer", "rtb.analyzer.task_store", "rtb.analyzer.flow",
                            "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
                            "rtb.analyzer.inbox_client", "rtb.analyzer.instrumented",
-                           "rtb.domain.evidence", "rtb.domain.task_state"}, rtb_modules
+                           "rtb.domain.evidence", "rtb.domain.task_state",
+                           "rtb.analyzer.modelgate", "rtb.analyzer.ai_judge",
+                           "rtb.analyzer.investigation", "rtb.stepbudget"}, rtb_modules
     text = RUNNER.read_text(encoding="utf-8")
     assert not re.search(r"\bfault|X-Fault|rtb\.demo", text, re.IGNORECASE)
 

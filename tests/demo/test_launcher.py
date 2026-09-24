@@ -594,3 +594,22 @@ def test_the_analyzer_gets_enough_time_to_finish_its_step(args, at_least):
     兩倍逾時加一秒,不在一步中途硬殺。"""
     assert launcher.stop_grace_seconds(Role.ANALYZER, args) >= at_least
     assert launcher.stop_grace_seconds(Role.DSP, args) == launcher.STOP_SECONDS
+
+
+def test_the_stop_grace_covers_one_ai_step_from_the_shared_constants(monkeypatch):
+    """[S1136] 帶 --ai-judge 時,停分析端的寬限時間用跟守衛同一組匯入的常數算,不小於續租等鎖加上
+    續租後AI 那一步的最壞耗時(5 + 50 = 55);沒帶照舊。啟動器不從分析端驅動命令列或模型後端匯入。"""
+    import ast
+
+    from rtb import stepbudget
+    from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS
+
+    grace = launcher.stop_grace_seconds(Role.ANALYZER, ["--ai-judge"])
+    assert grace >= BUSY_TIMEOUT_SECONDS + stepbudget.ai_step_worst_seconds() == 55.0
+    assert launcher.stop_grace_seconds(Role.ANALYZER, []) == 2 * 3.0 + 1
+    monkeypatch.setattr(stepbudget, "MODEL_TIMEOUT_SECONDS", 30.0)  # 用的是真常數,不是抄一份
+    assert launcher.stop_grace_seconds(Role.ANALYZER, ["--ai-judge"]) == 70.0
+    source = Path(launcher.__file__).read_text(encoding="utf-8")
+    imported = {n.module for n in ast.walk(ast.parse(source)) if isinstance(n, ast.ImportFrom)}
+    assert "rtb.stepbudget" in imported
+    assert not imported & {"rtb.analyzer.runner", "rtb.modelclaude", "rtb.analyzer.ai_judge"}
