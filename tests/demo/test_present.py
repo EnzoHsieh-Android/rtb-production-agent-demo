@@ -121,3 +121,21 @@ def test_the_path_keeps_only_real_edges_in_order_without_filling_gaps():
     path = (step(("x_write", "p_reply")), step(("x_write", "p_reply")), step(None),
             step(("x_unknown", "x_verify")))
     assert present._traversed(path) == (("x_write", "p_reply"), ("x_unknown", "x_verify"))
+
+
+def test_each_decision_says_whether_it_is_a_judgement_or_a_state_step():
+    """[協調者 2026-09-24] 有邊看起點節點的種類;沒有邊看節點本身的種類:判斷點就是「判斷」,缺了邊
+    也不改標成狀態前進(不能把缺口藏起來)。"""
+    from rtb.demo import present
+    from rtb.demo.state import DecisionKind
+    from rtb.demo.state_store import DecisionRow
+
+    at = datetime.now(UTC)
+    kinds = [d.kind for d in present._decisions([
+        DecisionRow("x_unknown", ("p_reply", "x_unknown"), "o", "r", at, "s"),  # 平台回覆:判斷點
+        DecisionRow("x_pick", ("x_pending", "x_pick"), "o", "r", at, "s"),  # 排隊 → 拿起:步驟
+        DecisionRow("x_pick", None, "o", "r", at, "s"),  # 沒有邊,節點是判斷點
+        DecisionRow("x_reclaimed", None, "o", "r", at, "s"),  # 沒有邊,節點不是判斷點
+    ])]
+    assert kinds == [DecisionKind.JUDGEMENT, DecisionKind.PROGRESS, DecisionKind.JUDGEMENT,
+                     DecisionKind.PROGRESS]

@@ -23,12 +23,14 @@ from rtb.demo.state import (
     CurrentStep,
     Decision,
     DecisionBasis,
+    DecisionKind,
     DemoState,
     Disposition,
     DspCampaign,
     DspState,
     InjectedFault,
     ModelMode,
+    NodeKind,
     Scenario,
     ScenarioCode,
     ScenarioStatus,
@@ -65,6 +67,13 @@ _STAGE = {
     "a_followup": Stage.FOLLOW_UP, "x_done": Stage.COMPLETE,
 }
 _EDGE_LABEL = {(e.source, e.target): e.label for e in FLOW_GRAPH.edges}
+_DECISION_NODES = frozenset(n.id for n in FLOW_GRAPH.nodes if n.kind is NodeKind.DECISION)
+
+
+def _kind(node: str) -> DecisionKind:
+    """判斷點上的那一步是「判斷」,其他是「狀態前進」;沒有邊的看節點本身(協調者 2026-09-24:缺了邊的
+    判斷照樣標判斷,不把缺口藏成狀態前進)。"""
+    return DecisionKind.JUDGEMENT if node in _DECISION_NODES else DecisionKind.PROGRESS
 
 
 def numbers_digest(demo_id: str, request: ConfirmationRequest) -> str:
@@ -82,7 +91,8 @@ def _basis(items: Sequence[Basis]) -> tuple[DecisionBasis, ...]:
 def _step(node: str, target: str, at: datetime, items: Sequence[Basis], reason: str,
           key: str | None) -> Decision:
     return Decision(node=node, taken_edge=(node, target), outcome=_EDGE_LABEL[(node, target)],
-                    reason=reason, at=at, basis=_basis(items), operation_key=key)
+                    reason=reason, at=at, basis=_basis(items), operation_key=key,
+                    kind=_kind(node))
 
 
 def _filled(row: DecisionRow) -> tuple[Decision, ...]:
@@ -96,7 +106,7 @@ def _filled(row: DecisionRow) -> tuple[Decision, ...]:
                        row.operation_key) for s in analysis]
         last = steps[-1]
         steps[-1] = Decision(last.node, last.taken_edge, last.outcome, row.reason, row.at,
-                             (*last.basis, *_basis(leftover)), row.operation_key)
+                             (*last.basis, *_basis(leftover)), row.operation_key, last.kind)
         return tuple(steps) if steps[-1].taken_edge == (analysis[-1].node, row.node) else ()
     if row.node == "x_write":
         route = basis_of.write_route(row.basis)
@@ -116,7 +126,7 @@ def _decisions(rows: Sequence[DecisionRow]) -> tuple[Decision, ...]:
         outcome = _EDGE_LABEL.get(row.edge, row.reason) if row.edge is not None else row.reason
         found.append(Decision(node=node, taken_edge=row.edge, outcome=outcome, reason=row.reason,
                               at=row.at, basis=_basis(row.basis),
-                              operation_key=row.operation_key))
+                              operation_key=row.operation_key, kind=_kind(node)))
     return tuple(found)
 
 
