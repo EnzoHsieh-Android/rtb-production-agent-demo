@@ -756,6 +756,18 @@ class InboxReads:
         sql, params = lifecycle_events_between_query(since, until)
         return tuple(_event(row) for row in self._conn.execute(sql, params))
 
+    def stop_capped(
+        self, tx: attempt_store.Readable, kind: StopKind, task_id: str, revision: int,
+        content_hash: str,
+    ) -> bool | None:
+        """一份提案某一種停下紀錄的已用或門檻有沒有被封頂(數字不是原值);沒有這筆回 None。走停下紀錄
+        的唯一鍵(Phase 12 代碼審 r1 d5:展示頁判斷要不要給那組數字)。"""
+        self._own_read(tx)
+        row = self._conn.execute(
+            "SELECT capped FROM write_stops WHERE kind = ? AND task_id = ? AND revision = ? "
+            "AND content_hash = ?", (kind.value, task_id, revision, content_hash)).fetchone()
+        return None if row is None else bool(row[0])
+
     def lifecycle_events_after(
         self, tx: attempt_store.Readable, after: int,
     ) -> tuple[LifecycleEvent, ...]:

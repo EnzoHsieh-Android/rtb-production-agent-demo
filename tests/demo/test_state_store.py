@@ -133,3 +133,164 @@ def test_a_confirmation_request_keeps_every_source_the_server_signs_from(tmp_pat
         assert reader.confirmation("demo-1") is None
     finally:
         reader.close()
+
+
+# ---- 增量 2b:判斷的根據、誰判的、操作鍵;情境的細節 ----
+def test_a_decision_keeps_its_basis_actor_and_operation_key(tmp_path, writer):
+    """每筆判斷可帶多組根據(量到的值、標準、結論、這組根據從哪來)、誰判的、關聯的操作鍵;沒有的留空。"""
+    from rtb.demo.state_store import Basis
+
+    basis = (Basis("花了預算的 0.2%", "預期至少花 2.1%(一天的 1/24 乘 0.5)", "花太慢",
+                   "依存下的證據重算"),)
+    writer.start_scenario("F1", T0)
+    writer.record_decision("F1", DecisionRow("a_pacing", None, "x", "y", T0, "o", basis=basis,
+                                             operation_key="k1", actor="程式"))
+    writer.record_decision("F1", DecisionRow("x_write", None, "x", "y", T0, "o2"))
+
+    reader = _reader(tmp_path)
+    try:
+        first, second = reader.decisions("demo-1", "F1")
+    finally:
+        reader.close()
+    assert first.basis == basis and first.operation_key == "k1" and first.actor == "程式"
+    assert second.basis == () and second.operation_key is None
+
+
+def test_scenario_details_are_kept_and_missing_ones_stay_empty(tmp_path, writer):
+    from rtb.demo.state_store import ChangeRecord, ScenarioDetails
+
+    details = ScenarioDetails(
+        trigger="展示驅動程式直接建立工作", goal="加一成", queue_wait_seconds=0,
+        injected_faults=(("x_write", "寫進平台後執行端當場倒下"),), operation_key="k1",
+        platform_apply_count=1,
+        change=ChangeRecord("c1", before=100, after=110, written=True, reason=None),
+        change_overview="放行 123 個、人工確認後寫入 1 個、沒寫入 176 個;加了 1240,總上限 1234",
+        platform=(("c1", 110, 2, "active"),), platform_operations=("#1 c1 加預算 → 110",),
+        audit=("demo-operator 重新送入",), dispositions=(("擋下原因", "version_changed", "x"),))
+    writer.start_scenario("F2", T0)
+    writer.set_scenario_details("F2", details)
+    writer.start_scenario("F3", T0)
+
+    reader = _reader(tmp_path)
+    try:
+        assert reader.scenario_details("demo-1", "F2") == details
+        assert reader.scenario_details("demo-1", "F3") is None
+    finally:
+        reader.close()
+
+
+# ---- 代碼審 r1(Phase 12 增量 2)----
+def _request():
+    from rtb.demo.state_store import ConfirmationRequest
+
+    return ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
+                               datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
+
+
+def test_a_failed_signing_leaves_the_confirmation_window_open(tmp_path, writer):
+    """[代碼審 r1 x3] 簽發跟確認窗在同一個交易:簽的過程出錯整個退回,窗照樣開著、可以再試;簽成功
+    之後同一個窗不能再簽,關窗時回報有人簽過。"""
+    from rtb.demo.state_store import ALREADY_CONFIRMED, ConfirmationClosed
+
+    writer.set_confirmation("F7", _request(), datetime.now(UTC) + timedelta(minutes=5))
+
+    def broken(_code, _request):
+        raise RuntimeError("收件口寫不進去")
+
+    with pytest.raises(RuntimeError):
+        writer.answer_confirmation(datetime.now(UTC), broken)
+    reader = _reader(tmp_path)
+    try:
+        assert reader.confirmation("demo-1") is not None
+    finally:
+        reader.close()
+    signed = []
+    writer.answer_confirmation(datetime.now(UTC), lambda code, _req: signed.append(code))
+    with pytest.raises(ConfirmationClosed) as again:
+        writer.answer_confirmation(datetime.now(UTC), lambda code, _req: signed.append(code))
+    assert again.value.code == ALREADY_CONFIRMED and signed == ["F7"]
+    assert writer.clear_confirmation() is True
+
+
+def test_a_confirmation_past_its_window_is_refused(writer):
+    from rtb.demo.state_store import CONFIRMATION_TIMED_OUT, ConfirmationClosed
+
+    writer.set_confirmation("F7", _request(), datetime.now(UTC) - timedelta(seconds=1))
+    with pytest.raises(ConfirmationClosed) as closed:
+        writer.answer_confirmation(datetime.now(UTC), lambda _code, _req: None)
+    assert closed.value.code == CONFIRMATION_TIMED_OUT
+    assert writer.clear_confirmation() is False
+
+
+def test_an_older_state_database_gets_the_task_column(tmp_path):
+    """[代碼審 r1 d9] 之前版本建的展示狀態庫沒有判斷紀錄的工作欄:打開時補上,舊列讀回來工作
+    是空的。"""
+    from rtb.demo.state_store import DecisionRow, StateWriter
+
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE decisions (id INTEGER PRIMARY KEY AUTOINCREMENT, demo_id TEXT NOT NULL, "
+        "code TEXT NOT NULL, node TEXT NOT NULL, edge_json TEXT, outcome TEXT NOT NULL, "
+        "reason TEXT NOT NULL, at TEXT NOT NULL, origin TEXT NOT NULL, "
+        "basis_json TEXT NOT NULL DEFAULT '[]', operation_key TEXT, "
+        "actor TEXT NOT NULL DEFAULT '程式')")
+    conn.execute("INSERT INTO decisions (demo_id, code, node, outcome, reason, at, origin) "
+                 "VALUES ('d', 'F1', 'a_collect', 'o', 'r', ?, 's')",
+                 (datetime.now(UTC).isoformat(),))
+    conn.commit()
+    conn.close()
+    writer = StateWriter(path, "d")
+    writer.record_decision("F1", DecisionRow("x_pick", None, "o", "r", datetime.now(UTC), "s",
+                                             task="t9"))
+    from rtb.demo.state_store import StateReader
+
+    reader = StateReader(path)
+    try:
+        assert [row.task for row in reader.decisions("d", "F1")] == [None, "t9"]
+    finally:
+        reader.close()
+
+
+# ---- 代碼審 r2(Phase 12 增量 2)----
+def test_signing_happens_outside_the_state_database_write(tmp_path, writer):
+    """[代碼審 r2 v3] 簽發時不握著展示狀態庫的寫鎖:先預留「簽發中」就提交,在交易外簽;這段時間
+    驅動程式關窗不會被卡住,而且把簽發中當成已經有人確認。"""
+    import threading
+    import time
+
+    from rtb.demo.state_store import StateWriter
+
+    writer.set_confirmation("F7", _request(), datetime.now(UTC) + timedelta(minutes=5))
+    closing = StateWriter(tmp_path / "state.db", "demo-1")
+    seen = {}
+
+    def sign(_code, _req):
+        def close():
+            started = time.monotonic()
+            seen["approved"] = closing.clear_confirmation()
+            seen["seconds"] = time.monotonic() - started
+
+        worker = threading.Thread(target=close)
+        worker.start()
+        worker.join(10)
+
+    writer.answer_confirmation(datetime.now(UTC), sign)
+    assert seen["approved"] is True and seen["seconds"] < 1.5
+
+
+# ---- 代碼審 r3(Phase 12 增量 2)----
+def test_a_failed_signing_leaves_a_mark_the_driver_can_see(writer):
+    """[代碼審 r3 v3] 簽發失敗退回簽發中時留下簽發失敗的標記(驅動程式看到就不再等);下一次預留
+    或簽成功就清掉。"""
+    writer.set_confirmation("F7", _request(), datetime.now(UTC) + timedelta(minutes=5))
+    assert writer.confirmation_failed() is False
+
+    def broken(_code, _req):
+        raise RuntimeError("收件口忙")
+
+    with pytest.raises(RuntimeError):
+        writer.answer_confirmation(datetime.now(UTC), broken)
+    assert writer.confirmation_failed() is True
+    writer.answer_confirmation(datetime.now(UTC), lambda _code, _req: None)
+    assert writer.confirmation_failed() is False

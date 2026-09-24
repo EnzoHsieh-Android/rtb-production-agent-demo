@@ -1,7 +1,8 @@
 """Phase 12 展示的正式流程圖:節點、判斷點、分支,每個系統結果列舉成員對到圖上的哪裡,以及白話顯示字。
 
-流程圖是有向無環圖:程式裡往回走的轉換(重新蒐集資料、重送、放回排隊、開新工作)各展開成一個「回頭」
-節點,標明回到哪一步,不畫回原節點。展示走了不只一次時,判斷紀錄表逐次列出,圖上只有一份。
+正式流程圖是有向無環圖:程式裡往回走的轉換(重新蒐集資料、重送、放回排隊、開新工作)
+各展開成一個「回頭」節點。頁面另畫虛線箭頭連回目標,不把回頭線加入正式圖的邊。
+展示走了不只一次時,判斷紀錄表逐次列出,圖上只有一份。
 
 對應表的鍵是(列舉類別, 成員名):不同列舉的同名成員(擋下原因與停下種類都有總上限已滿)不互相蓋掉。
 顯示字照使用者 2026-09-24 的白話裁定寫:禁用術語非用不可時要緊接括號白話解釋(`unexplained_terms`)。
@@ -13,7 +14,7 @@ from enum import StrEnum
 
 from rtb.analyzer.policy import NoActionReason, RoutePath
 from rtb.analyzer.task_store import ReplanReason
-from rtb.demo.state import FlowEdge, FlowGraph, FlowNode, NodeKind
+from rtb.demo.state import FlowEdge, FlowGraph, FlowNode, NodeKind, NodeOwner
 from rtb.domain.attempt import AttemptState, OutcomeCode
 from rtb.domain.evidence import Freshness
 from rtb.domain.task_state import TaskState
@@ -44,6 +45,7 @@ def unexplained_terms(text: str) -> list[str]:
 ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN = "分析", "收件", "執行", "廣告平台", "人工"
 LANES = (ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN)
 START = "a_receive"
+AI_NODES = frozenset({"a_candidate", "a_narrate"})
 
 S, D, T = NodeKind.STEP, NodeKind.DECISION, NodeKind.TERMINAL
 _NODES: tuple[tuple[str, str, NodeKind, str], ...] = (
@@ -131,16 +133,16 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
     ("a_complete", "a_pacing", "齊全"),
     ("a_pacing", "a_no_action", "不慢或算不出來"),
     ("a_pacing", "a_route", "偏慢"),
-    ("a_route", "a_rule", "沒有候選或不在允許範圍"),
-    ("a_route", "a_candidate", "交給模型候選"),
+    ("a_route", "a_rule", "用程式規則判斷(這次不交給 AI)"),
+    ("a_route", "a_candidate", "請 AI 提供參考判斷"),
     ("a_candidate", "a_worth", "候選給出答案"),
     ("a_candidate", "a_rule", "候選出狀況,改用程式規則"),
-    ("a_rule", "a_worth", "規則的結果"),
+    ("a_rule", "a_worth", "程式規則已算出結果"),
     ("a_worth", "a_no_action", "不值得或資料不夠判斷"),
     ("a_worth", "a_propose", "值得"),
     ("a_worth", "a_failed", "分析出錯"),
     ("a_propose", "a_narrate", "附上模型說明"),
-    ("a_propose", "a_submit", "直接送出"),
+    ("a_propose", "a_submit", "不需 AI 說明,送出"),
     ("a_narrate", "a_submit", "送出"),
     ("a_submit", "i_check", "送到收件"),
     ("i_check", "x_pending", "收下"),
@@ -201,9 +203,15 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
 def _graph() -> FlowGraph:
     labels = {node_id: label for node_id, label, _, _ in _NODES}
     back_nodes = tuple(
-        FlowNode(b.node, f"{b.what}(回到「{labels[b.returns_to]}」)", S, b.lane)
+        FlowNode(b.node, f"{b.what}(回到「{labels[b.returns_to]}」)", S, b.lane,
+                 NodeOwner.HUMAN if b.lane == HUMAN else NodeOwner.CODE)
         for b in BACK_TRANSITIONS)
-    nodes = tuple(FlowNode(*row) for row in _NODES) + back_nodes
+    nodes = tuple(
+        FlowNode(*row, NodeOwner.AI if row[0] in AI_NODES else
+                 NodeOwner.HUMAN if row[3] == HUMAN else
+                 NodeOwner.EXTERNAL if row[3] == PLATFORM else NodeOwner.CODE)
+        for row in _NODES
+    ) + back_nodes
     return FlowGraph(nodes, tuple(FlowEdge(*row) for row in _EDGES))
 
 
