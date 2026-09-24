@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from tools.forgery_demos import (
     FILES,
+    FORGERIES,
     HARNESS,
     NODE_PAUSE,
     NODE_UPDATE,
@@ -33,13 +34,6 @@ from tools.forgery_demos import (
     write_files,
     write_manifests,
 )
-from tools.forgery_demos import claim_wider_than_evidence as _claim_wider_than_evidence
-from tools.forgery_demos import code_changed_hash_not as _code_changed_hash_not
-from tools.forgery_demos import (
-    conftest_changed_without_rehash as _conftest_changed_without_rehash,
-)
-from tools.forgery_demos import only_says_done as _only_says_done
-from tools.forgery_demos import skipped_test as _skipped_test
 
 from tests.test_static_wiring import ci_problems, parse_run_commands
 
@@ -1454,20 +1448,15 @@ def test_a_conftest_the_verifier_cannot_follow_blocks_failure_injection_evidence
 # ── 造假示範:計劃列的幾種「看起來完成、其實沒有」全部擋下 ─────────────────────────
 
 
-@pytest.mark.parametrize(("forge", "expected"), [
-    (_only_says_done, "result"),
-    (_code_changed_hash_not, "src/rtb/kit.py"),
-    (_claim_wider_than_evidence, "void"),
-    (_skipped_test, NODE_PAUSE),
-    (_conftest_changed_without_rehash, "tests/dsp/conftest.py"),
-])
-def test_every_forgery_in_the_plan_is_blocked(repo, forge, expected):
-    forge(repo)
+@pytest.mark.parametrize("forgery", FORGERIES,
+                         ids=[f"_{f.forge.__name__}-{f.expected}" for f in FORGERIES])
+def test_every_forgery_in_the_plan_is_blocked(repo, forgery):
+    forgery.forge(repo)
 
     code, output = verify(repo)
 
     assert code == 1, output
-    assert expected in output
+    assert forgery.expected in output
 
 
 # ── [S817] 雜湊輔助:只印哪幾個檔的雜湊跟現況不一樣、正確值,不寫任何檔 ──────────────

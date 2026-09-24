@@ -1283,7 +1283,8 @@ def test_a_full_run_records_the_comparison_after_the_verifier(tmp_path, state):
     demo.run_all(("FX",))
     comparison, verifier = _comparison(tmp_path)
     assert comparison.rows == (("只填已完成", "pytest 結束代碼 0:2 passed", "擋下:缺 result"),)
-    assert comparison.note == "比的是有沒有機械驗證" and comparison.seconds == 1.5
+    # 花了幾秒用驅動程式自己量的,不採產生器自報的 1.5(代碼審 r1 s3)
+    assert comparison.note == "比的是有沒有機械驗證" and comparison.seconds < 1.5
     assert comparison.generated_at >= verifier.verified_at
 
 
@@ -1304,10 +1305,10 @@ def test_a_comparison_that_fails_or_hangs_does_not_break_the_demo(tmp_path, stat
     assert "逾時" in comparison.note
     time.sleep(0.5)
     assert not _alive(int(marker.read_text()))
-    failed = driver_module.run_comparison(["false"], "demo-2", os.environ, 5)
+    failed = driver_module.run_comparison(["false"], "demo-2", 5)
     assert failed.rows == () and failed.note.startswith("這次沒產生:")
     unreadable = driver_module.run_comparison([sys.executable, "-c", "print('不是 JSON')"],
-                                              "demo-2", os.environ, 5)
+                                              "demo-2", 5)
     assert unreadable.rows == () and "讀不懂" in unreadable.note
 
 
@@ -1317,3 +1318,50 @@ def test_a_cancelled_demo_generates_no_comparison(tmp_path, state):
     demo.cancel()
     demo.run_all(("FX",))
     assert _comparison(tmp_path)[0] is None
+
+
+# ---- 增量 3 代碼審 r1 ----
+def test_the_comparison_generator_gets_only_the_whitelisted_environment(monkeypatch):
+    """[S1003][代碼審 r1 s1/a2] 比較表產生器跟驗證器用同一套白名單環境(PATH、HOME、LANG),外面的
+    金鑰與 PYTEST_、PYTHON 開頭的變數都帶不進去。"""
+    monkeypatch.setenv("SOME_SECRET_TOKEN", "abc123")
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-p evil")
+    listing = [sys.executable, "-c", (
+        "import json, os\nprint(json.dumps({'rows': [], 'note': ','.join(sorted(os.environ)),"
+        " 'seconds': 0}))")]
+    keys = set(driver_module.run_comparison(listing, "d", 10).note.split(","))
+    assert keys <= {"PATH", "HOME", "LANG", "LC_CTYPE", "__CF_USER_TEXT_ENCODING"}, keys
+    assert driver_module.tool_environment() == {
+        k: os.environ[k] for k in ("PATH", "HOME", "LANG") if k in os.environ}
+
+
+def test_the_comparison_generator_is_run_by_its_file_path_and_cannot_be_swapped(monkeypatch,
+                                                                                tmp_path):
+    """[代碼審 r1 s1] 產生器用檔案路徑跑(-E -s 不讀 PYTHON 開頭的變數、不開 user site),外面
+    PYTHONPATH 上的同名 tools 套件頂替不了。"""
+    command = driver_module.default_comparison_command()
+    assert command[:3] == [sys.executable, "-E", "-s"]
+    assert command[3] == str(driver_module.PROJECT_ROOT / "tools" / "forgery_comparison.py")
+    evil = tmp_path / "evil" / "tools"
+    evil.mkdir(parents=True)
+    (evil / "__init__.py").write_text("", encoding="utf-8")
+    (evil / "forgery_comparison.py").write_text(
+        "print('{\"rows\": [], \"note\": \"hijacked\", \"seconds\": 0}')\n", encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "evil"))
+    result = driver_module.run_comparison(command, "d", 120)
+    assert result.note != "hijacked" and len(result.rows) == 6
+
+
+@pytest.mark.parametrize(("printed", "reason"), [
+    ("print('x' * 2_000_000)", "上限"),
+    ("print('{\"rows\": [], \"note\": \"n\", \"seconds\": ' + '9' * 400 + '}')", None),
+    ("print('[' * 200000)", "讀不懂"),
+])
+def test_an_oversized_or_odd_generator_output_is_recorded_not_raised(printed, reason):
+    """[代碼審 r1 s3] 產生器的輸出設上限、任何讀不懂都記「這次沒產生」,不丟出去;花幾秒用驅動程式
+    自己量的。"""
+    result = driver_module.run_comparison([sys.executable, "-c", printed], "d", 30)
+    if reason is None:
+        assert result.note == "n" and result.seconds is not None and result.seconds < 30
+    else:
+        assert result.rows == () and result.note.startswith("這次沒產生:") and reason in result.note

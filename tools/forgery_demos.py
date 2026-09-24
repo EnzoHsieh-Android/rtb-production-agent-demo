@@ -4,7 +4,8 @@
 宣稱驗證器的測試與展示頁的前後比較表(tools/forgery_comparison.py)用同一份定義:比較表的每一列就是
 驗證器測試擋下的那幾種造假,加一列驗證器擋不住的天花板。
 
-五個改法的函式名字照搬(驗證器測試展開後的測試項目名字帶著它們);給別的檔用的是底下的公開名字。
+五個改法是公開名字(代碼審 r1:不另造底線函式加別名);驗證器測試從 FORGERIES 展開、用明確的
+項目名字(帶原本的底線寫法),搬家前後展開的項目清單不變。
 """
 
 import hashlib
@@ -271,16 +272,16 @@ EVIL_CONFTEST_HOOK = (
 )
 
 
-def _only_says_done(repo: Path) -> None:
+def only_says_done(repo: Path) -> None:
     set_raw(repo, "concurrency", json.dumps({"claim_id": "concurrency", "result": "已完成"},
                                             ensure_ascii=False))
 
 
-def _code_changed_hash_not(repo: Path) -> None:
+def code_changed_hash_not(repo: Path) -> None:
     (repo / "src/rtb/kit.py").write_text("def ok():\n    return 1\n", encoding="utf-8")
 
 
-def _claim_wider_than_evidence(repo: Path) -> None:
+def claim_wider_than_evidence(repo: Path) -> None:
     # 就像 Mock-DSP 那條:登錄表多了作廢,宣稱說「每一種」,卻沒有作廢的證據
     text = FILES["src/rtb/dsp/server.py"].replace('("update", "pause")',
                                                   '("update", "pause", "void")')
@@ -288,13 +289,13 @@ def _claim_wider_than_evidence(repo: Path) -> None:
     write_manifests(repo)
 
 
-def _skipped_test(repo: Path) -> None:
+def skipped_test(repo: Path) -> None:
     write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
         "def test_pause", "@pytest.mark.skip\ndef test_pause")})
     write_manifests(repo)
 
 
-def _conftest_changed_without_rehash(repo: Path) -> None:
+def conftest_changed_without_rehash(repo: Path) -> None:
     # 測試先改成會失敗、清單照實重算;之後才在 conftest 偷偷加改結果的鉤子,沒重算雜湊
     write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
         "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
@@ -302,14 +303,6 @@ def _conftest_changed_without_rehash(repo: Path) -> None:
     conftest = repo / "tests/dsp/conftest.py"
     conftest.write_text(conftest.read_text(encoding="utf-8") + EVIL_CONFTEST_HOOK,
                         encoding="utf-8")
-
-
-# ── 公開名字(別的檔從這裡取;函式本身的名字照搬,驗證器測試的項目名字才不會變)──────────────
-only_says_done = _only_says_done
-code_changed_hash_not = _code_changed_hash_not
-claim_wider_than_evidence = _claim_wider_than_evidence
-skipped_test = _skipped_test
-conftest_changed_without_rehash = _conftest_changed_without_rehash
 
 
 # ── 前後比較表的六列(Phase 12 增量 3,[S1041])──────────────────────────────────
