@@ -89,11 +89,11 @@
     },
     {
       "path": "src/rtb/executor/attempt_store.py",
-      "sha256": "b3ac138a6af8d324bc472241e0cf8e6ee5af2e127f44183b61b7a6c1fde0200d"
+      "sha256": "d4c48e9a21f180da761037f80535dcfaa4bc6127c76ea5816243c8fb2cc8cab2"
     },
     {
       "path": "src/rtb/executor/capability_signer.py",
-      "sha256": "60b6b0de6acfe389060bd110c9d2df9b9bbfb8403f84c8b974740bef6a76cf59"
+      "sha256": "b1d21d0358b74308e144ad8e0221ec3ae0771bb02b1da2b9bb554f536f9cb5e8"
     },
     {
       "path": "src/rtb/executor/dsp_client.py",
@@ -101,7 +101,7 @@
     },
     {
       "path": "src/rtb/executor/execution.py",
-      "sha256": "0f83c2844ce6e7aaa904af9f13030e3650ff2439f12441459740f39a2332e844"
+      "sha256": "bffddcfc17d3b0a8e055df10567da8dd21be6898a2263a955d865178bdbe8f93"
     },
     {
       "path": "src/rtb/executor/guardrails.py",
@@ -145,7 +145,7 @@
     },
     {
       "path": "src/rtb/sqlitekit.py",
-      "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
+      "sha256": "b0bd708c50b66126033096564f89927c2d898ffddfbea0e8663587d49b0c07f1"
     }
   ],
   "harness": [
@@ -227,7 +227,7 @@
     },
     {
       "path": "tests/executor/test_approval.py",
-      "sha256": "285ad4c87cbd6a345f0eef99cd81a62ee5f1cad8cfa39213185ba1c0a34d8879"
+      "sha256": "455cfc7f6b438ffa88d229bb1294b23e286e53fc3ec0f2c42eb628f3f9199960"
     },
     {
       "path": "tests/executor/test_capability_signer.py",

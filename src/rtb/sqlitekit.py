@@ -29,6 +29,18 @@ def _is_lock_contention(exc: sqlite3.OperationalError) -> bool:
     return primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
 
 
+INTEGER_OVERFLOW_MESSAGE = "integer overflow"
+
+
+def is_integer_overflow(exc: BaseException) -> bool:
+    """資料庫的整數加總(SUM)溢位:一般錯誤碼、訊息是「integer overflow」(本機 3.53.3 實測)。
+    SQLite 對整數溢位只回一般錯誤碼,跟查詢寫錯同一個碼,只能再看訊息文字;這是專案唯一要看訊息的
+    判斷,集中在這裡跟「是不是鎖競爭」並排,SQLite 改了措辭只改一處(F7 效能計劃)。"""
+    return (isinstance(exc, sqlite3.OperationalError)
+            and exc.sqlite_errorcode & 0xFF == sqlite3.SQLITE_ERROR
+            and str(exc) == INTEGER_OVERFLOW_MESSAGE)
+
+
 def connect(
     path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS, schema: str = ""
 ) -> sqlite3.Connection:

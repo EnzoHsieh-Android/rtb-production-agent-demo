@@ -607,6 +607,9 @@ def test_the_normal_worst_case_path_stays_well_under_the_cap(store):
 
 
 # ---- [S19] ----
+SQLITEKIT_PURE_CHECKS = frozenset({"is_integer_overflow"})
+
+
 def test_the_attempt_store_neither_reaches_the_network_nor_opens_its_own_connection():
     source = Path(attempt_store.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -615,6 +618,11 @@ def test_the_attempt_store_neither_reaches_the_network_nor_opens_its_own_connect
         if isinstance(node, ast.Import):
             imported |= {alias.name for alias in node.names}
         elif isinstance(node, ast.ImportFrom):
+            # 共用資料庫模組只准取「是不是整數溢位」這一個純判斷(F7 效能計劃:判斷集中在那裡);
+            # 開連線、開交易的函式照舊不准碰
+            names = {alias.name for alias in node.names}
+            if node.module == "rtb.sqlitekit" and names <= SQLITEKIT_PURE_CHECKS:
+                continue
             imported.add(node.module or "")
     network = {"socket", "http", "urllib", "ssl", "requests", "httpx", "rtb.httpkit",
                "rtb.httpclient", "rtb.sqlitekit"}

@@ -50,7 +50,7 @@ from rtb.executor.attempt_store import (
     DspCallResult,
     Source,
 )
-from rtb.executor.capability_signer import Grant, SigningRefused, Tenant, load_tenants, tenant_for
+from rtb.executor.capability_signer import Grant, SigningRefused, Tenant, tenant_for
 from rtb.executor.inbox_store import (
     APPROVABLE,
     VISIBILITY_TIMEOUT,
@@ -160,6 +160,11 @@ class DspPort(Protocol):
 
 class Signer(Protocol):
     def sign(self, proposal: Proposal, operation_key: str, config_path: Path, now: int) -> str: ...
+
+    def read_tenants(self, config_path: Path) -> tuple[Tenant, ...]:
+        """讀租戶設定(簽發器帶內容快取,每次照舊做安全讀檔;F7 效能計劃)。處理待核可經它讀,
+        不直接呼叫模組層級的讀設定函式、也不伸手進簽發器的私有欄位。"""
+        ...
 
     def grant(
         self, proposal: Proposal, operation_key: str, config_path: Path, now: int,
@@ -663,8 +668,8 @@ class Executor:
             waiting = self.store.awaiting(tx, self.clock())
         if not waiting:
             return 0
-        try:  # 設定檔只在有待核可時讀一次;壞掉或不安全是系統故障
-            tenants = load_tenants(self.config_path)
+        try:  # 設定檔只在有待核可時讀一次(經簽發器,內容沒變就沿用);壞掉或不安全是系統故障
+            tenants = self.signer.read_tenants(self.config_path)
         except SigningRefused as refused:
             raise ExecutorHalted(refused.reason) from refused
         return sum(self._settle_awaiting(item, tenants) for item in waiting)

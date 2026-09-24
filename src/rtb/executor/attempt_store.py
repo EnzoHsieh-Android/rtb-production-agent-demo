@@ -46,6 +46,7 @@ from rtb.domain.attempt import (
     operation_key,
 )
 from rtb.domain.proposal import Proposal, content_hash, parse_proposal
+from rtb.sqlitekit import is_integer_overflow
 
 MAX_SENDS = 3  # 同一把鍵最多送出幾次(含第一次)
 MAX_VERIFICATION_TIMEOUTS = 5  # 對帳與執行後驗證的查詢逾時,每把鍵累計
@@ -611,9 +612,79 @@ def tenant_index_missing(conn: sqlite3.Connection) -> bool:
                         "AND name = 'attempts_first_rows_by_tenant'").fetchone() is None
 
 
+def _verified_candidates(tenant: str, now: datetime) -> tuple[str, tuple[Any, ...]]:
+    """已用額度「已驗證」那一段選哪些列(原算法的逐筆明細與快路徑共用這一份):驗證完成時間在 24 小時
+    窗內的已驗證列(剛好滿 24 小時還不算「超過」),接回的第一列屬於這個租戶或沒記租戶。從已驗證列的
+    時間部分索引出發,依主鍵接回第一列。"""
+    return ("FROM attempts v JOIN attempts f ON f.key = v.key AND f.seq = 1 "
+            "WHERE v.state = ? AND v.written_at >= ? AND (f.tenant = ? OR f.tenant IS NULL)",
+            (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW), tenant))
+
+
+def _open_candidates(tenant: str) -> tuple[str, tuple[Any, ...]]:
+    """已用額度「未結案」那一段選哪些列(兩種算法共用):這個租戶或沒記租戶、還沒有終點列的第一列。"""
+    return ("FROM attempts f WHERE f.seq = 1 AND (f.tenant = ? OR f.tenant IS NULL) AND NOT EXISTS "  # noqa: S608 - 只拼接固定條件
+            f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))",
+            (tenant,))
+
+
+# 快路徑每一段一支查詢、一次掃描回三個數:這個租戶、金額是整數而且大於 0 的列的加總(資料庫的 SUM
+# 溢位時丟「整數溢位」;不准用 TOTAL,它溢位時回失真的小數而不丟例外),候選裡沒記租戶的舊列數,
+# 候選裡屬於這個租戶、金額型別不是整數也不是空值的列數。偵測只看型別與租戶欄,不把候選列取回程式
+_FAST_SELECT = (
+    "SELECT SUM(CASE WHEN f.tenant = ? AND typeof(f.reserved_amount) = 'integer' "
+    "AND f.reserved_amount > 0 THEN f.reserved_amount END), "
+    "COUNT(CASE WHEN f.tenant IS NULL THEN 1 END), "
+    "COUNT(CASE WHEN f.tenant = ? AND typeof(f.reserved_amount) NOT IN ('integer', 'null') "
+    "THEN 1 END) ")
+
+
+def aggregate_used_queries(
+    tenant: str, now: datetime,
+) -> tuple[tuple[str, tuple[Any, ...]], tuple[str, tuple[Any, ...]]]:
+    """快路徑兩段的查詢語句與參數(只回、不執行;給測試看查詢計畫):(已驗證那一段, 未結案那一段)。"""
+    verified, verified_params = _verified_candidates(tenant, now)
+    unresolved, unresolved_params = _open_candidates(tenant)
+    return ((_FAST_SELECT + verified, (tenant, tenant, *verified_params)),
+            (_FAST_SELECT + unresolved, (tenant, tenant, *unresolved_params)))
+
+
+def _fast_part(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...]) -> int | None:
+    """一段的快路徑加總;候選裡有舊列或型別異常的金額就回 None(整次改走原算法)。"""
+    total, legacy, odd = conn.execute(sql, params).fetchone()
+    if legacy or odd:
+        return None
+    return 0 if total is None else int(total)  # 空集合的加總是空值,補成 0
+
+
 def aggregate_used(tx: Readable, tenant: str, now: datetime) -> int:
-    """租戶已用額度:目前計入的每一筆(`aggregate_holdings`)的加總。開始一筆與可觀測查詢都從這個
-    入口拿已用額度(既有並行測試靠攔截它造競態,Phase 6 增量 4 設計審第 2 輪)。"""
+    """租戶已用額度。開始一筆與可觀測查詢都從這個入口拿(既有並行測試靠攔截它造競態,Phase 6 增量 4
+    設計審第 2 輪;名稱與位置不能動)。
+
+    F7 效能計劃:常見情形在資料庫端加總(快路徑),只接「屬於這個租戶、金額是整數」那一種;候選裡有
+    Phase 6 之前沒記租戶的舊列、屬於這個租戶的金額型別不是整數或空值、或資料庫回報整數溢位,就退回
+    原算法(`aggregate_used_reference`),結果以它為準。其他資料庫錯誤照舊往外丟(查詢寫錯不能被當成
+    溢位悄悄吞掉)。兩段在程式裡相加:程式的整數沒有上限,兩段各自沒溢位、相加超過資料庫上限也照算。
+    這是翻案:Phase 6 增量 1 裁定「在程式裡用整數累加」,理由是資料庫加總會溢位停機;這裡加了退路。"""
+    conn = _read_conn(tx)
+    (verified_sql, verified_params), (open_sql, open_params) = aggregate_used_queries(tenant, now)
+    try:
+        total = _fast_part(conn, verified_sql, verified_params)
+        if total is not None and unresolved_count(tx):  # 原算法同一個條件:全表有未結案才查這段
+            part = _fast_part(conn, open_sql, open_params)
+            total = None if part is None else total + part
+    except sqlite3.OperationalError as exc:
+        if not is_integer_overflow(exc):
+            raise
+        total = None
+    if total is None:
+        return aggregate_used_reference(tx, tenant, now)
+    return total
+
+
+def aggregate_used_reference(tx: Readable, tenant: str, now: datetime) -> int:
+    """原算法:目前計入的每一筆(`aggregate_holdings`)在程式裡用整數累加。快路徑判不準時退回這裡,
+    測試也拿它當對照。"""
     return sum(holding.amount for holding in aggregate_holdings(tx, tenant, now))
 
 
@@ -626,24 +697,17 @@ def aggregate_holdings(
     - 沒有終點:不論多久都算(全表最多 MAX_UNRESOLVED 把;先用計數判斷是不是 0)。
     - 失敗:不算,等於還回去。
     舊列(Phase 6 之前)沒有租戶與金額:改預算以新預算全額計、算進每一個租戶(分不出加減,寧可多擋)。
-    加總在程式裡用整數累加:門檻與金額都可以到整數上限,資料庫的整數加總會溢位。"""
+    選哪些列跟快路徑共用同一份篩選片段;算多少只在逐列計入函式。"""
     conn = _read_conn(tx)
     # 租戶在資料庫裡就過濾(這個租戶的列與沒有租戶的舊列),不把全系統的列撈進程式:查詢在全域
     # 寫入鎖裡,多撈的列都是握鎖時間(代碼審第 2 輪資安席實測 30 萬列時一次 0.3 秒)
-    rows = conn.execute(
-        f"SELECT {_first_row_columns('f')} FROM attempts v "  # noqa: S608 - 只拼接固定欄位
-        "JOIN attempts f ON f.key = v.key AND f.seq = 1 "
-        "WHERE v.state = ? AND v.written_at >= ? "  # 剛好滿 24 小時還不算「超過」
-        "AND (f.tenant = ? OR f.tenant IS NULL)",
-        (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW), tenant),
-    ).fetchall()
+    verified, verified_params = _verified_candidates(tenant, now)
+    rows = conn.execute(f"SELECT {_first_row_columns('f')} {verified}",
+                        verified_params).fetchall()
     if unresolved_count(tx):
-        rows += conn.execute(
-            f"SELECT {_first_row_columns('f')} FROM attempts f "  # noqa: S608 - 只拼接固定條件
-            "WHERE f.seq = 1 AND (f.tenant = ? OR f.tenant IS NULL) AND NOT EXISTS "
-            f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))",
-            (tenant,),
-        ).fetchall()
+        unresolved, unresolved_params = _open_candidates(tenant)
+        rows += conn.execute(f"SELECT {_first_row_columns('f')} {unresolved}",
+                             unresolved_params).fetchall()
     # 同一次查詢順便帶出身分欄位:可觀測查詢的「目前佔額度的」直接用這份,不再依鍵回查(鍵的數量
     # 沒有上限,逐一當查詢參數會超過 SQLite 的參數上限;代碼審第 2 輪兩席 Codex)
     return _counted_rows(rows, tenant)
