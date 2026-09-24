@@ -4423,3 +4423,7 @@
 {"ts": "2026-09-24T23:09:19+08:00", "commit": "510b1ef", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase13AI參與決策_計劃.md"], "note": "door=high clauses=26 bound=0 red=0 green=0 weak=0 regress=54 no-run"}
 {"ts": "2026-09-24T23:10:16+08:00", "commit": "510b1ef", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-24T23:10:17+08:00", "commit": "510b1ef", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "510b1ef943c3723f1fe085a3780664695b957f40"}
+{"ts": "2026-09-24T23:11:05+08:00", "commit": "a56c6ac", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T23:11:07+08:00", "commit": "a56c6ac", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "a56c6ace1aa8292385cfaeb1d23decc3da8dcb9a"}
+{"ts": "2026-09-24T23:14:59+08:00", "commit": "a339252", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T23:15:00+08:00", "commit": "a339252", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "a3392528d856516b57ad9defa85b745c95caca0e"}
