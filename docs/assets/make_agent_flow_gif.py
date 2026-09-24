@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 from dataclasses import dataclass
 from html import escape
@@ -24,7 +25,6 @@ ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ROOT / "docs" / "assets"
 SIZE = (1200, 640)
 DEFAULT_FONT = Path("/System/Library/Fonts/Hiragino Sans GB.ttc")
-FONT_PATH = DEFAULT_FONT
 BG = "#0b0d12"
 SURFACE = "#11141b"
 MUTED = "#a8adb9"
@@ -32,7 +32,9 @@ FAINT = "#7d8492"
 PLANNED = ("#282c35", "#8c929f", "#e1e4e9")
 TEXT = "#f4f4f5"
 ACCENT = "#9aa8ff"
-CURRENT = "#ffd166"
+CURRENT = "#52e0ff"
+RETURN_DASH = (6, 4)
+PLANNED_DASH = (6, 2)
 PALETTE = {
     "程式": ("#193a50", "#93ccee", "#ecf8ff"),
     "AI": ("#39254b", "#d5a4f0", "#f8eeff"),
@@ -41,6 +43,15 @@ PALETTE = {
 }
 LANES = ("分析", "收件", "執行", "廣告平台", "人工")
 Y = {lane: 172 + 87 * i for i, lane in enumerate(LANES)}
+APPROVAL_TO_HUMAN = ((990, 371), (990, 475), (966, 475), (966, 520), (985, 520))
+APPROVAL_RETURN = ((1018, 545), (1018, 575), (735, 575), (735, 310),
+                   (850, 310), (850, 286))
+QUEUE_TO_DEADLETTER = ((850, 286), (850, 299), (790, 299), (790, 346), (817, 346))
+DEADLETTER_TO_REPLAY = ((850, 371), (850, 460), (790, 460), (790, 520),
+                        (817, 520))
+REPLAY_RETURN = ((850, 545), (850, 558), (800, 558), (800, 286), (817, 286))
+HUMAN_ROUTES = (APPROVAL_TO_HUMAN, APPROVAL_RETURN, QUEUE_TO_DEADLETTER,
+                DEADLETTER_TO_REPLAY, REPLAY_RETURN)
 
 
 @dataclass(frozen=True)
@@ -60,8 +71,8 @@ NODES = (
     Node("a_pacing", 336, "分析", ("花得", "偏慢？"), "程式", "decision"),
     Node("a_worth", 412, "分析", ("值得", "加？"), "程式", "decision"),
     Node("a_propose", 488, "分析", ("寫好", "建議"), "程式"),
-    Node("a_narrate", 564, "分析", ("AI 說明", "未接入"), "AI", "planned"),
     Node("a_submit", 640, "分析", ("送出", "建議"), "程式"),
+    Node("a_narrate", 725, "分析", ("AI 說明", "未接入"), "AI", "planned"),
     Node("i_check", 780, "收件", ("收件", "檢查"), "程式", "decision"),
     Node("x_pending", 850, "收件", ("待處理", "佇列"), "程式"),
     Node("x_precheck", 920, "執行", ("寫前", "重查"), "程式", "decision"),
@@ -100,13 +111,13 @@ CAPTIONS = (
 )
 
 
-def font(size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(str(FONT_PATH), size)
+def font(size: int, font_path: Path) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(str(font_path), size)
 
 
-def center_text(draw: ImageDraw.ImageDraw, xy: tuple[int, int], value: str,
-                *, fill: str, size: int, anchor: str = "mm") -> None:
-    draw.text(xy, value, fill=fill, font=font(size), anchor=anchor)
+def center_text(draw: ImageDraw.ImageDraw, font_path: Path, xy: tuple[int, int],  # noqa: PLR0913
+                value: str, *, fill: str, size: int, anchor: str = "mm") -> None:
+    draw.text(xy, value, fill=fill, font=font(size, font_path), anchor=anchor)
 
 
 def dashed_rect(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int],
@@ -126,7 +137,7 @@ def bounds(node: Node) -> tuple[int, int, int, int]:
     return (node.x - half, Y[node.lane] - 25, node.x + half, Y[node.lane] + 25)
 
 
-def draw_node(draw: ImageDraw.ImageDraw, node: Node, *, state: str) -> None:
+def draw_node(draw: ImageDraw.ImageDraw, font_path: Path, node: Node, *, state: str) -> None:
     fill, stroke, fg = PLANNED if node.kind == "planned" else PALETTE[node.owner]
     box = bounds(node)
     if node.kind == "decision":
@@ -143,25 +154,39 @@ def draw_node(draw: ImageDraw.ImageDraw, node: Node, *, state: str) -> None:
                                width=4 if state == "current" else 3 if node.owner == "人工" else 2)
     if state != "current":
         if node.kind == "planned":
-            dashed_rect(draw, box, stroke, (6, 3))
+            dashed_rect(draw, box, stroke, PLANNED_DASH)
         elif node.owner == "外部平台":
             dashed_rect(draw, box, stroke, (2, 3))
     label_y = Y[node.lane] - 8 if len(node.label) == 2 else Y[node.lane]
     for line in node.label:
-        center_text(draw, (node.x, label_y), line, fill=fg, size=14)
+        center_text(draw, font_path, (node.x, label_y), line, fill=fg, size=14)
         label_y += 20
     badge = "11B 增量 2" if node.kind == "planned" else node.owner
     badge_w = 76 if node.kind == "planned" else 64 if badge == "外部平台" else 35
     badge_top = box[1] - (28 if node.kind == "planned" else 14)
-    badge_box = (box[2] - badge_w, badge_top, box[2], badge_top + 16)
+    badge_left = box[2] + 4 if node.owner == "外部平台" else box[2] - badge_w
+    badge_box = (badge_left, badge_top, badge_left + badge_w, badge_top + 16)
     draw.rounded_rectangle(badge_box, radius=4, fill=fill, outline=stroke, width=1)
-    center_text(draw, ((badge_box[0] + badge_box[2]) // 2, badge_top + 8), badge,
+    center_text(draw, font_path, ((badge_box[0] + badge_box[2]) // 2, badge_top + 8), badge,
                 fill=fg, size=14)
 
 
 def line_arrow(draw: ImageDraw.ImageDraw, points: tuple[tuple[int, int], ...],
-               color: str, width: int = 2) -> None:
-    draw.line(points, fill=color, width=width, joint="curve")
+               color: str, width: int = 2, dash: tuple[int, int] | None = None) -> None:
+    if dash is None:
+        draw.line(points, fill=color, width=width, joint="curve")
+    else:
+        on, off = dash
+        for (x1, y1), (x2, y2) in pairwise(points):
+            length = math.hypot(x2 - x1, y2 - y1)
+            if not length:
+                continue
+            for offset in range(0, math.ceil(length), on + off):
+                finish = min(offset + on, length)
+                draw.line(((x1 + (x2 - x1) * offset / length,
+                            y1 + (y2 - y1) * offset / length),
+                           (x1 + (x2 - x1) * finish / length,
+                            y1 + (y2 - y1) * finish / length)), fill=color, width=width)
     x, y = points[-1]
     px, py = points[-2]
     if x > px:
@@ -183,11 +208,15 @@ def main_edge(draw: ImageDraw.ImageDraw, first: Node, second: Node, color: str) 
     middle = (start[0] + end[0]) // 2
     if second.key == "p_reply":
         start = (first.x, a[3] + 2)
-        end = (second.x, b[1] - 2)
-        points = (start, (second.x, start[1]), end)
+        end = (first.x, b[1] - 3)
+        points = (start, end)
     elif first.key == "p_reply":
-        start = (first.x, a[1] - 2)
+        start = (a[2] + 1, Y[first.lane])
         end = (second.x, b[3] + 2)
+        points = (start, (1104, start[1]), (1104, 380), (second.x, 380), end)
+    elif first.key == "a_submit":
+        start = (first.x, a[3] + 2)
+        end = (b[0] - 2, Y[second.lane])
         points = (start, (first.x, end[1]), end)
     elif first.lane == second.lane:
         points = (start, end)
@@ -196,22 +225,20 @@ def main_edge(draw: ImageDraw.ImageDraw, first: Node, second: Node, color: str) 
     line_arrow(draw, points, color)
 
 
-def branches(draw: ImageDraw.ImageDraw, *, stage: str) -> None:
+def branches(draw: ImageDraw.ImageDraw, font_path: Path, *, stage: str) -> None:
     approval_color = CURRENT if stage in {"h_approve", "approval_return"} else PALETTE["人工"][1]
     replay_color = CURRENT if stage in {"x_deadletter", "h_replay"} else PALETTE["人工"][1]
-    line_arrow(draw, ((990, 371), (990, 476), (1018, 476), (1018, 494)), approval_color)
-    line_arrow(draw, ((1018, 545), (1018, 575), (750, 575), (750, 235),
-                      (850, 235), (850, 232)), approval_color)
-    line_arrow(draw, ((850, 286), (850, 320)), replay_color)
-    line_arrow(draw, ((850, 371), (850, 494)), replay_color)
-    line_arrow(draw, ((850, 545), (850, 558), (800, 558), (800, 286), (819, 286)),
-               replay_color)
-    center_text(draw, (1064, 469), "F7 超額", fill=PALETTE["人工"][1], size=14)
-    center_text(draw, (898, 469), "F6 重放", fill=PALETTE["人工"][1], size=14)
-    center_text(draw, (410, 565), "人工同意或重放後回佇列，重新檢查", fill=MUTED, size=14)
+    for route in HUMAN_ROUTES[:2]:
+        line_arrow(draw, route, approval_color, dash=RETURN_DASH)
+    for route in HUMAN_ROUTES[2:]:
+        line_arrow(draw, route, replay_color, dash=RETURN_DASH)
+    center_text(draw, font_path, (1064, 469), "F7 超額", fill=PALETTE["人工"][1], size=14)
+    center_text(draw, font_path, (898, 469), "F6 重放", fill=PALETTE["人工"][1], size=14)
+    center_text(draw, font_path, (410, 565), "人工同意或重放後回佇列，重新檢查",
+                fill=MUTED, size=14)
 
 
-def legend(draw: ImageDraw.ImageDraw, *, final: bool) -> None:
+def legend(draw: ImageDraw.ImageDraw, font_path: Path, *, final: bool) -> None:
     draw.rounded_rectangle((84, 588, 1110, 628), radius=10, fill=SURFACE,
                            outline="#424958", width=1)
     x = 105
@@ -220,14 +247,15 @@ def legend(draw: ImageDraw.ImageDraw, *, final: bool) -> None:
         w = 130 if owner == "外部平台" else 95
         draw.rounded_rectangle((x, 595, x + w, 620), radius=5, fill=fill,
                                outline=stroke, width=2)
-        center_text(draw, (x + w // 2, 608), "AI（規劃）" if owner == "AI" else owner,
+        center_text(draw, font_path, (x + w // 2, 608), "AI（規劃）" if owner == "AI" else owner,
                     fill=fg, size=14)
         x += w + 14
     if final:
-        center_text(draw, (843, 608), "AI 說明未接入；改預算由程式把關，超過上限要人確認",
-                    fill=TEXT, size=14)
+        center_text(draw, font_path, (843, 608),
+                    "AI 說明未接入；改預算由程式把關，超過上限要人確認", fill=TEXT, size=14)
     else:
-        center_text(draw, (862, 608), "亮框＝目前步驟   ·   時間向右 →", fill=MUTED, size=14)
+        center_text(draw, font_path, (862, 608), "亮框＝目前步驟   ·   時間向右 →",
+                    fill=MUTED, size=14)
 
 
 def draw_main_edges(draw: ImageDraw.ImageDraw, key: str) -> None:
@@ -240,24 +268,23 @@ def draw_main_edges(draw: ImageDraw.ImageDraw, key: str) -> None:
             main_edge(draw, BY_KEY[first], BY_KEY[second], color)
 
 
-def render_frame(index: int) -> Image.Image:
+def render_frame(index: int, font_path: Path) -> Image.Image:
     key, caption = CAPTIONS[index]
     frame = Image.new("RGB", SIZE, BG)
     draw = ImageDraw.Draw(frame)
     draw.rounded_rectangle((24, 20, 1176, 89), radius=16, fill=SURFACE,
                            outline="#424958", width=1)
-    center_text(draw, (600, 51), caption, fill=TEXT, size=24)
-    center_text(draw, (66, 112), "RTB AGENT  ·  時間向右 →", fill=ACCENT, size=16,
+    center_text(draw, font_path, (600, 51), caption, fill=TEXT, size=24)
+    center_text(draw, font_path, (66, 112), "RTB AGENT  ·  時間向右 →", fill=ACCENT, size=16,
                 anchor="lm")
     for lane in LANES:
         y = Y[lane]
         draw.rounded_rectangle((72, y - 34, 1189, y + 34), radius=8,
                                fill="#171a22" if lane == "人工" else SURFACE)
-        center_text(draw, (20, y), lane, fill=TEXT, size=16, anchor="lm")
+        center_text(draw, font_path, (20, y), lane, fill=TEXT, size=16, anchor="lm")
     draw_main_edges(draw, key)
-    draw.line(((520, 172), (533, 172)), fill=PLANNED[1], width=2)
-    draw.line(((595, 172), (608, 172)), fill=PLANNED[1], width=2)
-    branches(draw, stage=key)
+    line_arrow(draw, ((672, 172), (692, 172)), PLANNED[1], dash=PLANNED_DASH)
+    branches(draw, font_path, stage=key)
     for node in NODES:
         if key == "legend":
             state = "visited"
@@ -267,19 +294,22 @@ def render_frame(index: int) -> Image.Image:
             state = "visited"
         else:
             state = "future"
-        draw_node(draw, node, state=state)
-    center_text(draw, (565, 207), "直接送出", fill=TEXT, size=13)
+        draw_node(draw, font_path, node, state=state)
+    center_text(draw, font_path, (565, 208), "直接送出", fill=TEXT, size=13)
+    center_text(draw, font_path, (800, 218), "送件後、給確認者參考（規劃中）",
+                fill=PLANNED[2], size=12)
     if key == "approval_return":
-        draw_node(draw, BY_KEY["h_approve"], state="current")
-    legend(draw, final=key == "legend")
+        draw_node(draw, font_path, BY_KEY["h_approve"], state="current")
+    legend(draw, font_path, final=key == "legend")
     return frame
 
 
 def svg_node(node: Node) -> str:
     fill, stroke, fg = PLANNED if node.kind == "planned" else PALETTE[node.owner]
     x1, y1, x2, y2 = bounds(node)
-    dash = ' stroke-dasharray="6 2"' if node.kind == "planned" else (
-        ' stroke-dasharray="2 3"' if node.owner == "外部平台" else "")
+    dash = (f' stroke-dasharray="{PLANNED_DASH[0]} {PLANNED_DASH[1]}"'
+            if node.kind == "planned" else
+            ' stroke-dasharray="2 3"' if node.owner == "外部平台" else "")
     if node.kind == "decision":
         shape = (f'<path d="M{x1 + 8} {y1}H{x2 - 8}L{x2} {y1 + 8}V{y2 - 8}'
                  f'L{x2 - 8} {y2}H{x1 + 8}L{x1} {y2 - 8}V{y1 + 8}Z"/>' )
@@ -291,23 +321,28 @@ def svg_node(node: Node) -> str:
     badge = "11B 增量 2" if node.kind == "planned" else node.owner
     badge_width = 76 if node.kind == "planned" else 64 if node.owner == "外部平台" else 35
     badge_top = y1 - (28 if node.kind == "planned" else 14)
+    badge_left = x2 + 4 if node.owner == "外部平台" else x2 - badge_width
     width = 3 if node.owner == "人工" else 2
     return (f'<g fill="{fill}" stroke="{stroke}" stroke-width="{width}"{dash}>{shape}</g>'
             f'<g fill="{fg}" font-weight="700">{label}'
-            f'<rect x="{x2 - badge_width}" y="{badge_top}" width="{badge_width}" '
+            f'<rect x="{badge_left}" y="{badge_top}" width="{badge_width}" '
             f'height="16" rx="4" fill="{fill}" stroke="{stroke}"/>'
-            f'<text x="{x2 - badge_width / 2}" y="{badge_top + 12}" text-anchor="middle" '
+            f'<text x="{badge_left + badge_width / 2}" y="{badge_top + 12}" text-anchor="middle" '
             f'font-size="14">{escape(badge)}</text></g>')
 
 
-def write_svg() -> None:
+def svg_path(points: tuple[tuple[int, int], ...]) -> str:
+    return "M" + "L".join(f"{x} {y}" for x, y in points)
+
+
+def write_svg() -> None:  # noqa: PLR0915 - SVG 組件逐段加入, 對照圖面較容易。
     parts = [
         '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" '
         'viewBox="0 0 1200 640" role="img" aria-labelledby="title desc" '
         'font-family="Hiragino Sans GB, sans-serif">',
         '<title id="title">RTB Agent 流程靜態總覽</title>',
         '<desc id="desc">泳道由上到下為分析、收件、執行、廣告平台、人工；時間向右。'
-        '主線由寫好建議直接送出，AI 說明尚未接入、規劃於 11B 增量 2。'
+        '主線由寫好建議直接送出；AI 說明規劃於送件後另行產生，給確認者參考。'
         '圖只畫 F7 核可與 F6 重放兩條人工回頭線。</desc>',
         f'<rect width="1200" height="640" fill="{BG}"/>',
         f'<rect x="24" y="20" width="1152" height="69" rx="16" fill="{SURFACE}"/>',
@@ -327,10 +362,12 @@ def write_svg() -> None:
         ab, bb = bounds(a), bounds(b)
         if (first_key, second_key) == ("a_propose", "a_submit"):
             path = 'M488 199V218H640V199'
+        elif first_key == "a_submit":
+            path = f'M{a.x} {ab[3] + 2}V{Y[b.lane]}H{bb[0] - 2}'
         elif second_key == "p_reply":
-            path = f'M{a.x} {ab[3]}V{bb[1]}'
+            path = f'M{a.x} {ab[3] + 2}V{bb[1] - 3}'
         elif first_key == "p_reply":
-            path = f'M{a.x} {ab[1]}V{bb[3]}H{bb[0]}'
+            path = f'M{ab[2] + 1} {Y[a.lane]}H1104V380H{b.x}V{bb[3] + 2}'
         elif a.lane == b.lane:
             path = f'M{ab[2]} {Y[a.lane]}H{bb[0]}'
         else:
@@ -345,26 +382,21 @@ def write_svg() -> None:
                     f'markerWidth="5" markerHeight="5" orient="auto-start-reverse">'
                     f'<path d="M0 0L10 5L0 10Z" fill="{PALETTE["人工"][1]}"/>'
                     '</marker></defs>')
-    parts.extend((
-        f'<path d="M520 172H533M595 172H608" fill="none" stroke="{PLANNED[1]}" '
-        'stroke-width="2" stroke-dasharray="6 4"/>',
-        f'<path d="M990 371V476H1018V494" fill="none" '
-        f'stroke="{PALETTE["人工"][1]}" stroke-width="2" stroke-dasharray="6 4" '
-        'marker-end="url(#human-arrow)"/>',
-        f'<path d="M1018 545V575H750V235H850V232" fill="none" '
-        f'stroke="{PALETTE["人工"][1]}" stroke-width="2" stroke-dasharray="6 4" '
-        'marker-end="url(#human-arrow)"/>',
-        f'<path d="M850 286V320" fill="none" stroke="{PALETTE["人工"][1]}" '
-        'stroke-width="2" stroke-dasharray="6 4" marker-end="url(#human-arrow)"/>',
-        f'<path d="M850 371V494" fill="none" stroke="{PALETTE["人工"][1]}" '
-        'stroke-width="2" stroke-dasharray="6 4" marker-end="url(#human-arrow)"/>',
-        f'<path d="M850 545V558H800V286H819" fill="none" '
-        f'stroke="{PALETTE["人工"][1]}" stroke-width="2" stroke-dasharray="6 4" '
-        'marker-end="url(#human-arrow)"/>',
-    ))
+    parts.append(f'<path d="M672 172H692" fill="none" stroke="{PLANNED[1]}" '
+                 f'stroke-width="2" stroke-dasharray="{PLANNED_DASH[0]} '
+                 f'{PLANNED_DASH[1]}"/>')
+    parts.extend(
+        f'<path d="{svg_path(route)}" fill="none" stroke="{PALETTE["人工"][1]}" '
+        f'stroke-width="2" stroke-dasharray="{RETURN_DASH[0]} {RETURN_DASH[1]}" '
+        'marker-end="url(#human-arrow)"/>'
+        for route in HUMAN_ROUTES
+    )
     parts.extend(svg_node(node) for node in NODES)
     parts.extend((
-        f'<text x="530" y="208" fill="{TEXT}" font-size="13">直接送出</text>',
+        f'<text x="565" y="212" fill="{TEXT}" font-size="13" '
+        'text-anchor="middle">直接送出</text>',
+        f'<text x="800" y="222" fill="{PLANNED[2]}" font-size="12" '
+        'text-anchor="middle">送件後、給確認者參考（規劃中）</text>',
         f'<text x="1040" y="470" fill="{PALETTE["人工"][1]}" font-size="14">F7 超額</text>',
         f'<text x="872" y="470" fill="{PALETTE["人工"][1]}" font-size="14">F6 重放</text>',
         f'<text x="190" y="566" fill="{MUTED}" font-size="14">'
@@ -393,17 +425,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="重畫 README 的 GIF 與 SVG 產物")
     parser.add_argument("--font", type=Path, help="可讀取的 TrueType 或 OpenType 字型檔")
     args = parser.parse_args()
-    global FONT_PATH
     font_choice = args.font or os.environ.get("RTB_FLOW_FONT")
-    FONT_PATH = Path(font_choice) if font_choice else DEFAULT_FONT
-    if not FONT_PATH.is_file():
-        parser.error(f"找不到字型：{FONT_PATH}（可用 --font 或 RTB_FLOW_FONT 指定）")
+    font_path = Path(font_choice) if font_choice else DEFAULT_FONT
+    if not font_path.is_file():
+        parser.error(f"找不到字型：{font_path}（可用 --font 或 RTB_FLOW_FONT 指定）")
     try:
-        font(14)
+        font(14, font_path)
     except OSError as exc:
-        parser.error(f"無法讀取字型：{FONT_PATH}（{exc}）")
+        parser.error(f"無法讀取字型：{font_path}（{exc}）")
     ASSETS.mkdir(parents=True, exist_ok=True)
-    frames = [render_frame(i) for i in range(len(CAPTIONS))]
+    frames = [render_frame(i, font_path) for i in range(len(CAPTIONS))]
     palette = frames[-1].quantize(colors=64)
     indexed = [frame.quantize(palette=palette) for frame in frames]
     indexed[0].save(ASSETS / "agent-flow.gif", save_all=True, append_images=indexed[1:],

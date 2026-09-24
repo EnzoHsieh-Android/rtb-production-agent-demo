@@ -8,9 +8,9 @@
 
 ## 系統怎麼運作
 
-![RTB agent 動圖：由上到下排列分析、收件、執行、廣告平台與人工五條泳道；主線由建議直接送出，AI 說明標為未接入；F6 與 F7 的人工分支回到待處理佇列。](docs/assets/agent-flow.gif)
+![RTB agent 動圖：由上到下排列分析、收件、執行、廣告平台與人工五條泳道；主線由建議直接送出，送件後的 AI 說明旁支標為規劃中；F6 與 F7 的人工分支回到待處理佇列。](docs/assets/agent-flow.gif)
 
-動圖逐步亮起主線；想一次看清主線加上 F6、F7 兩條人工回頭線，可開啟 [SVG 靜態總覽圖](docs/assets/agent-flow.svg)。圖中灰色的 AI 說明屬 [Phase 11B 增量 2 計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md)；目前 main 的正式分析流程尚未接入，模型候選仍只用於離線評估。[Phase 12 展示頁與伺服器](docs/rtb-production-agent-demo-knowledge/Verification/Phase12增量1驗收紀錄.md)也還沒上主線。
+動圖逐步亮起主線；想一次看清主線加上 F6、F7 兩條人工回頭線，可開啟 [SVG 靜態總覽圖](docs/assets/agent-flow.svg)。依 [Phase 11B 增量 2 計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md)，圖中灰色的 AI 說明會在送件後另行產生，供核可者參考；目前正式分析流程尚未接入，模型候選仍只用於離線評估。[Phase 12 展示頁與伺服器](docs/rtb-production-agent-demo-knowledge/Verification/Phase12增量1驗收紀錄.md)也還沒上主線。
 
 這裡的「佇列」是 SQLite 資料表中的待處理工作，提供重新投遞；SQLite 是把資料存在本機檔案的資料庫。分析端與執行端是分開的行程，以本機 HTTP 收件口交接提案；HTTP 收件口是程式間送提案的網路入口。[分析任務表](src/rtb/analyzer/task_store.py) · [收件表](src/rtb/executor/inbox_store.py) · [收件口](src/rtb/executor/inbox_server.py)
 
@@ -106,6 +106,7 @@ PYTHONPATH=src .venv/bin/python -m rtb.eval.record --ledger /tmp/rtb-model-ledge
 - [`src/rtb/ops/`](src/rtb/ops/)：唯讀追蹤、指標與服務水準查詢。
 - [`src/rtb/` 共用模組](src/rtb/)：HTTP、SQLite、模型用戶端與花費帳等共用基礎。
 - [`tests/`](tests/)：單元、並行、故障與端到端測試；[`claims/`](claims/)：五條安全宣稱的證據清單；[`tools/`](tools/)：宣稱驗證與輔助工具。
+- [`docs/assets/`](docs/assets/)：流程圖與重畫腳本；腳本是文件產出物，不算專案工具。
 - [`docs/rtb-production-agent-demo-knowledge/`](docs/rtb-production-agent-demo-knowledge/MOC/index.md)：知識圖譜，以互相連結的 Systems（系統邊界）、Projects（計劃）、Verification（驗收）、Issues（待處理問題）補充程式碼看不出的脈絡；可從索引進入。
 - [`governance/`](governance/)：設計與代碼審查留下的卷證。
 
@@ -141,4 +142,4 @@ PYTHONPATH=src .venv/bin/python -m rtb.eval.record --ledger /tmp/rtb-model-ledge
 - 人工核可採對稱金鑰，執行端也讀得到核可金鑰，擋不住有權限的人自行簽核可。[核可模組](src/rtb/executor/approval.py) · [Phase 6 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase6驗收紀錄.md)
 - 24 小時曝險窗、加額比例上限五成、決策新鮮度 15 分鐘、租約 60 秒與投遞上限 5 都是暫用值，尚未實測校準；調整門檻時須按各驗收紀錄重驗。[Phase 6 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase6驗收紀錄.md) · [Phase 8 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase8驗收紀錄.md) · [Phase 4 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase4驗收紀錄.md)
 - F5 目前只驗程式規則路徑不受不可信廣告名稱影響，尚未驗模型是否會受騙；模型接入時須延伸端到端測試。[Phase 7 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase7驗收紀錄.md) · [Phase 12 增量 1 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase12增量1驗收紀錄.md)
-- F7 端到端測試在 CI 偶爾超過 60 秒，已有尚未實作的效能改善計劃；若再因超時紅燈，依追蹤問題的條件重評。[Phase 9 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase9驗收紀錄.md) · [追蹤問題](docs/rtb-production-agent-demo-knowledge/Issues/F7端到端在CI上偶爾超過60秒.md)
+- F7 端到端測試在 CI 偶爾超過 60 秒；CI 因這支超時紅燈時照使用者裁定重跑一次；同一週超過兩次再依追蹤問題重評。F7 效能改善正在進行，見 [F7 效能計劃](docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md)。[Phase 9 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase9驗收紀錄.md) · [追蹤問題](docs/rtb-production-agent-demo-knowledge/Issues/F7端到端在CI上偶爾超過60秒.md)
