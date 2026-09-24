@@ -165,17 +165,23 @@ COMMON_WORDS: tuple[str, ...] = (
     "進一步", "进一步", "一律", "一致", "一直", "一起", "一些", "一下", "一定", "一般", "一旦",
     "一樣", "一样", "同一", "統一", "统一", "唯一", "萬一", "万一", "十分", "參考", "参考",
     "參與", "参与", "什麼", "什么", "陸續", "陆续")
-# 單位與量詞:數字字(中文或阿拉伯)後面緊接它們就是數詞(可以隔空白),當對不回
+# 單位與量詞:中文數字字後面緊接任何一個(可以隔空白)就是數詞,當對不回(「一筆」「十二次」)
 UNITS: tuple[str, ...] = (
     "美元", "小時", "小时", "分鐘", "分钟", "萬", "万", "千", "億", "亿", "百", "兆", "元", "塊",
     "块", "倍", "筆", "笔", "次", "個", "个", "件", "天", "日", "週", "周", "月", "年", "秒", "%",
     "\uff05", "成", "折", "條", "条", "位", "人", "輪", "轮", "趟", "批", "項", "项")
 _UNIT_AFTER_NUMERAL = re.compile(
-    rf"[\d{_CJK_NUMERALS}]\s*(?:{'|'.join(re.escape(unit) for unit in UNITS)})")
+    rf"[{_CJK_NUMERALS}]\s*(?:{'|'.join(re.escape(unit) for unit in UNITS)})")
+# 阿拉伯數字後面只有會改數量級的單位才算數詞(「100 萬」「5 千」);一般單位(次 % 元 倍 天…)照留,
+# 數字本身照樣要對得回證據(協調者代使用者再裁定:「點擊 12 次」「加了 10%」是正常寫法)
+MAGNITUDE_UNITS: tuple[str, ...] = ("百萬", "百万", "千萬", "千万", "萬", "万", "千", "億", "亿",
+                                    "兆")
+_MAGNITUDE_AFTER_DIGIT = re.compile(
+    rf"\d\s*(?:{'|'.join(re.escape(unit) for unit in MAGNITUDE_UNITS)})")
 _NUMERAL_RUN = re.compile(rf"[{_CJK_NUMERALS}]{{2,}}")  # 連續兩個以上中文或大寫數字字
 # 阿拉伯數字之間只隔分組字元(1 100 500、1'100'500、1_100_500、窄不斷行空白)
 _GROUPED = re.compile(r"\d[ \t'\u2019_\u00a0\u2007\u2009\u202f\u3000]+\d")
-_MAGNITUDE = re.compile(r"\d[kKMB]")  # 500k、5M 直接改了數量級
+_MAGNITUDE = re.compile(r"\d\s*[kKMB](?![A-Za-z])|\d[kKMB]")  # 500k、5M 直接改了數量級
 _EXPONENT = re.compile(r"\d[eE][-+]?\d")
 
 
@@ -189,6 +195,7 @@ def _numeral_phrase(sentence: str) -> bool:
     """句子裡有沒有數詞(規則寫在上面各常數;上標、圈數字、分數、羅馬數字這類數字符號也算)。"""
     text = _masked(sentence)
     return bool(_NUMERAL_RUN.search(text) or _UNIT_AFTER_NUMERAL.search(text)
+                or _MAGNITUDE_AFTER_DIGIT.search(text)
                 or _GROUPED.search(text) or _MAGNITUDE.search(text) or _EXPONENT.search(text)
                 or any(unicodedata.category(ch) in ("No", "Nl") for ch in text))
 
@@ -222,9 +229,8 @@ def traceable_sentences(text: str, evidence: str) -> tuple[str, int]:
     return "".join(kept).strip(), dropped
 
 
-# 說明與假說的系統提示都要附上(核對只認沒有單位的阿拉伯數字,自己推算的比率或時間對不回證據)
-NUMERALS_RULE = ("數字一律用阿拉伯數字照證據原樣寫,不要自己推算比率或時間。"
-                 "數字後面不要接單位或量詞(寫「點擊數 12」,不寫「12 次」)。")
+# 說明與假說的系統提示都要附上(核對只認阿拉伯數字,自己推算的比率或時間對不回證據)
+NUMERALS_RULE = "數字一律用阿拉伯數字照證據原樣寫,不要自己推算比率或時間。"
 
 
 class Preflight(StrEnum):

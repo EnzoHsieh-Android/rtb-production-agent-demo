@@ -401,7 +401,8 @@ def test_the_prompts_ask_for_arabic_numerals_copied_from_the_evidence():
 
     for prompt in (narrate.SYSTEM_PROMPT, hypothesis.SYSTEM_PROMPT):
         assert "數字一律用阿拉伯數字照證據原樣寫,不要自己推算比率或時間" in prompt
-        assert "數字後面不要接單位或量詞" in prompt  # 代碼審 r3:帶單位的數字是數詞,會被拿掉
+        # 協調者再裁定:阿拉伯數字接一般單位照留,提示不再叫模型別寫單位
+        assert "單位或量詞" not in prompt
 
 
 def test_only_calls_that_were_sent_count_toward_the_claim_limit(handed_off, tmp_path):
