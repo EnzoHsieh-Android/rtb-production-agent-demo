@@ -1,0 +1,38 @@
+[
+ {
+  "round": "r3",
+  "seat": "正確性-opus",
+  "lens": "末輪:修正與新漏判",
+  "materials": [
+   "governance/review-reports/code-phase11-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase11-inc1/r3-delta.patch",
+   "tools/verify_claims.py",
+   "claims/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "架構對齊-sonnet",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase11-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase11-inc1/r3-delta.patch",
+   "tools/verify_claims.py",
+   "claims/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "外家-codex",
+  "lens": "外家:漏判",
+  "materials": [
+   "governance/review-reports/code-phase11-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase11-inc1/r3-delta.patch",
+   "tools/verify_claims.py",
+   "claims/"
+  ],
+  "auditor": "codex"
+ }
+]

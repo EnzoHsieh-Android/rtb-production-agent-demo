@@ -80,6 +80,21 @@ def test_stale_expected_version_is_rejected_without_writing(store):
 WRITE_ACTION_PARAMS = {"update_budget": {"new_budget": 9999}, "pause_campaign": {}}
 
 
+@pytest.mark.parametrize("action", sorted(WRITE_ACTION_PARAMS))
+def test_every_write_action_with_the_same_key_applies_once_and_replays(store, action):
+    """每一種會改廣告狀態的寫入動作,同鍵同內容重送都只套用一次(Phase 11:冪等宣稱寫「每一種」,
+    原本只有改預算有同鍵測試)。新增動作沒補範例,下面守表的測試會擋。"""
+    op = Operation("c1", action, WRITE_ACTION_PARAMS[action], expected_version=1,
+                   idempotency_key="k1")
+
+    first, second = store.execute(op), store.execute(op)
+
+    assert (first.replayed, second.replayed) == (False, True)
+    assert second.operation_id == first.operation_id
+    assert store.get_campaign("c1").version == 2
+    assert len(store.history("c1")) == 1
+
+
 def test_every_write_action_on_the_http_routes_has_a_version_check_example():
     """寫入路由分兩類:改廣告的每一種都要有範例;作廢路由不改廣告、不經寫入入口,另有測試
     (tests/dsp/test_void.py)。新增路由兩類都沒歸就紅。"""

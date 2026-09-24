@@ -1,0 +1,295 @@
+{
+  "manifest_version": 1,
+  "claim_id": "idempotency-unknown-outcome",
+  "policy": "DSP 會改廣告狀態的每一種寫入動作,同一把冪等鍵最多套用一次、預期版本跟現況不符一律拒收;DSP 已提交但回應逾時時,執行端記成結果不明、用同一把鍵對帳,不換新鍵重送;提交後當機可從操作紀錄恢復;收件口同一個任務的同一個修訂只收一份。",
+  "scope": [
+    {
+      "path": "src/rtb/__init__.py",
+      "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+    },
+    {
+      "path": "src/rtb/capabilitykit.py",
+      "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+    },
+    {
+      "path": "src/rtb/domain/_checks.py",
+      "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
+    },
+    {
+      "path": "src/rtb/domain/attempt.py",
+      "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
+    },
+    {
+      "path": "src/rtb/domain/proposal.py",
+      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
+    },
+    {
+      "path": "src/rtb/dsp/capability.py",
+      "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
+    },
+    {
+      "path": "src/rtb/dsp/errors.py",
+      "sha256": "a0f5062db51ed48881b90031ea065dbaf817b59ab0bf251af38a39237f72dad0"
+    },
+    {
+      "path": "src/rtb/dsp/server.py",
+      "sha256": "c44f8cd9db07699bd2b7832462c7cf04052c7ca59938100470db6ab821d0f177"
+    },
+    {
+      "path": "src/rtb/dsp/store.py",
+      "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
+    },
+    {
+      "path": "src/rtb/executor/approval.py",
+      "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+    },
+    {
+      "path": "src/rtb/executor/attempt_store.py",
+      "sha256": "1e8a01fca0d9a650f11c2f7f88ba7df2c9490b10c5065d5f214100d0563596e9"
+    },
+    {
+      "path": "src/rtb/executor/capability_signer.py",
+      "sha256": "60b6b0de6acfe389060bd110c9d2df9b9bbfb8403f84c8b974740bef6a76cf59"
+    },
+    {
+      "path": "src/rtb/executor/dsp_client.py",
+      "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
+    },
+    {
+      "path": "src/rtb/executor/execution.py",
+      "sha256": "0f83c2844ce6e7aaa904af9f13030e3650ff2439f12441459740f39a2332e844"
+    },
+    {
+      "path": "src/rtb/executor/guardrails.py",
+      "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
+    },
+    {
+      "path": "src/rtb/executor/inbox_server.py",
+      "sha256": "f620b90b17391f951c901f8783ab48c5c3feca7713a47f50d2c7c2c62a3da042"
+    },
+    {
+      "path": "src/rtb/executor/inbox_store.py",
+      "sha256": "17d5904ebef6487a8e93235ae5ebcb60128d3da231552cc6e9bd6275bd6a2be8"
+    },
+    {
+      "path": "src/rtb/httpclient.py",
+      "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
+    },
+    {
+      "path": "src/rtb/httpkit.py",
+      "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
+    },
+    {
+      "path": "src/rtb/sqlitekit.py",
+      "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
+    }
+  ],
+  "harness": [
+    {
+      "path": "pyproject.toml",
+      "sha256": "60c902288d114de02c8a2fd2ed6b56ced039f404054d662c21dc705817448b76"
+    },
+    {
+      "path": "tests/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/capability_samples.py",
+      "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
+    },
+    {
+      "path": "tests/domain/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/domain/proposal_samples.py",
+      "sha256": "124a4be23ac35ff25f062a2627c51cafede9bb857aa145c14892548772003d96"
+    },
+    {
+      "path": "tests/dsp/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/dsp/conftest.py",
+      "sha256": "96d7e6329e2fe4e903d6c57e7d17b4e976818ac28f256173eb39171ef37608d1"
+    },
+    {
+      "path": "tests/dsp/test_server.py",
+      "sha256": "9b832528b311baa98740c69579f5add12f24b214eef89dfab585b0e5ab0cd395"
+    },
+    {
+      "path": "tests/dsp/test_store.py",
+      "sha256": "293f5009cccb96ebf209f4f0f89073c7ed3e4486101bd3174e0e5786bf0ebf0f"
+    },
+    {
+      "path": "tests/executor/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/executor/conftest.py",
+      "sha256": "4a6d9be706061f62d89fe85775ebb33539f96bb5cdf456898654f048c8fea269"
+    },
+    {
+      "path": "tests/executor/fakes.py",
+      "sha256": "581a7bef53efeaba0aa8eec33cfadf97ff74cc74ef87fd2c260caceac70a1add"
+    },
+    {
+      "path": "tests/executor/test_crash_recovery.py",
+      "sha256": "94d5d0f9cf68a033e2cc5ce6970638a085842aa51618ac18986ea89417676959"
+    },
+    {
+      "path": "tests/executor/test_execution_e2e.py",
+      "sha256": "2411e95b71761728dc3bd9d648542c3d3bf67d4b12ff0f507568eab15f2844c6"
+    },
+    {
+      "path": "tests/executor/test_inbox_server.py",
+      "sha256": "35a130247e32a2b1679ebc521b1f62438e38966f8a04fb3a1dcd05119b0a35bf"
+    },
+    {
+      "path": "tests/executor/test_reconcile.py",
+      "sha256": "2c3d76a862da02859540bd7c716f13c9078042810d18e9aa13fc84eaabcc5fbf"
+    }
+  ],
+  "enumerations": [
+    {
+      "source": "src/rtb/dsp/server.py:CAMPAIGN_WRITE_ACTIONS"
+    }
+  ],
+  "evidence": [
+    {
+      "node": "tests/dsp/test_store.py::test_every_write_action_rejects_a_stale_expected_version",
+      "covers": [
+        "update_budget",
+        "pause_campaign"
+      ],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/dsp/test_store.py::test_every_write_action_with_the_same_key_applies_once_and_replays",
+      "covers": [
+        "update_budget",
+        "pause_campaign"
+      ],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/dsp/test_store.py::test_every_write_action_on_the_http_routes_has_a_version_check_example",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/dsp/test_store.py::test_same_key_same_payload_applies_once_and_returns_original_result",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/dsp/test_store.py::test_same_key_different_payload_is_rejected_and_changes_nothing",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/dsp/test_store.py::test_concurrent_requests_with_the_same_key_apply_exactly_once",
+      "covers": [],
+      "kind": "concurrency"
+    },
+    {
+      "node": "tests/dsp/test_server.py::test_concurrent_same_key_requests_over_http_apply_exactly_once",
+      "covers": [],
+      "kind": "concurrency"
+    },
+    {
+      "node": "tests/dsp/test_store.py::test_failure_between_state_change_and_idempotency_record_rolls_everything_back",
+      "covers": [],
+      "kind": "failure_injection",
+      "injection": "monkeypatch"
+    },
+    {
+      "node": "tests/dsp/test_store.py::test_process_death_between_state_change_and_idempotency_record_leaves_no_half_state",
+      "covers": [],
+      "kind": "failure_injection",
+      "injection": "CRASH_CHILD"
+    },
+    {
+      "node": "tests/dsp/test_server.py::test_timeout_before_commit_client_sees_timeout_and_dsp_never_commits_later",
+      "covers": [],
+      "kind": "failure_injection",
+      "injection": "timeout_before_commit"
+    },
+    {
+      "node": "tests/dsp/test_server.py::test_timeout_after_commit_client_sees_timeout_but_dsp_applied_exactly_once",
+      "covers": [],
+      "kind": "failure_injection",
+      "injection": "timeout_after_commit"
+    },
+    {
+      "node": "tests/dsp/test_server.py::test_retry_with_same_key_after_commit_timeout_replays_and_does_not_apply_twice",
+      "covers": [],
+      "kind": "failure_injection",
+      "injection": "timeout_after_commit"
+    },
+    {
+      "node": "tests/executor/test_execution_e2e.py::test_f1_timeout_before_commit_is_reconciled_by_a_same_key_resend",
+      "covers": [],
+      "kind": "failure_injection",
+      "injection": "timeout_before_commit"
+    },
+    {
+      "node": "tests/executor/test_execution_e2e.py::test_f1_timeout_after_commit_is_reconciled_from_the_operation_record",
+      "covers": [],
+      "kind": "failure_injection",
+      "injection": "timeout_after_commit"
+    },
+    {
+      "node": "tests/executor/test_execution_e2e.py::test_f1_a_delayed_commit_and_a_resend_apply_once",
+      "covers": [],
+      "kind": "end_to_end"
+    },
+    {
+      "node": "tests/executor/test_reconcile.py::test_reconcile_finds_the_operation_by_key_and_verifies_it",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_reconcile.py::test_reconcile_escalates_a_mismatched_operation_record",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_crash_recovery.py::test_crash_after_the_dsp_commit_is_recovered_from_the_operation_record",
+      "covers": [],
+      "kind": "failure_injection",
+      "injection": "after_dsp_commit"
+    },
+    {
+      "node": "tests/executor/test_crash_recovery.py::test_crash_before_the_dsp_call_is_recovered_by_a_same_key_resend",
+      "covers": [],
+      "kind": "failure_injection",
+      "injection": "before_dsp_call"
+    },
+    {
+      "node": "tests/executor/test_inbox_server.py::test_a_resent_identical_proposal_returns_the_current_state_and_adds_nothing_even_when_full_or_superseded",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_inbox_server.py::test_a_different_proposal_for_the_same_key_is_rejected_and_the_original_is_untouched",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_inbox_server.py::test_concurrent_requests_for_the_same_key_accept_exactly_one",
+      "covers": [],
+      "kind": "concurrency"
+    },
+    {
+      "node": "tests/executor/test_inbox_server.py::test_a_revision_that_is_not_exactly_the_next_one_is_rejected_with_the_current_highest",
+      "covers": [],
+      "kind": "unit"
+    }
+  ],
+  "symbols": [
+    "src/rtb/dsp/store.py:CampaignStore.execute",
+    "src/rtb/executor/execution.py:Executor.reconcile_all",
+    "src/rtb/executor/execution.py:record_matches"
+  ]
+}

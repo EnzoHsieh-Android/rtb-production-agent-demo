@@ -1,0 +1,3506 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 3232592..5d121a8 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -16,10 +16,23 @@ jobs:
+         with:
+           python-version: "3.14"
+       - name: 安裝開發期工具
+         run: python -m pip install -r requirements-dev.txt
+       - name: 程式碼規則(ruff)
+         run: python -m ruff check .
+       - name: 型別檢查(mypy,嚴格模式)
+         run: python -m mypy
+       - name: 測試(pytest)
+         run: python -m pytest -q
++  # 宣稱驗證器(Phase 11):跟 checks 平行,不拉長 checks 那個工作的時間(F7 的 60 秒上限在那裡)。
++  # 本機同一條指令;接線合約見 tests/tools/test_verify_claims.py 的 [S813]。
++  claims:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: "3.14"
++      - name: 安裝開發期工具
++        run: python -m pip install -r requirements-dev.txt
++      - name: 宣稱驗證器
++        run: python tools/verify_claims.py claims/
+diff --git a/claims/aggregate-blast-radius.json b/claims/aggregate-blast-radius.json
+new file mode 100644
+index 0000000..1f67e76
+--- /dev/null
++++ b/claims/aggregate-blast-radius.json
+@@ -0,0 +1,215 @@
++{
++  "manifest_version": 1,
++  "claim_id": "aggregate-blast-radius",
++  "policy": "單筆變更都在單一廣告上限內時,租戶 24 小時內加預算的總曝險到門檻就停、剛好等於門檻仍放行;兩個工作者不能一起衝過門檻;超過的停在待核可,由人簽核可才放行,擋下的都有紀錄。",
++  "scope": [
++    {
++      "path": "src/rtb/__init__.py",
++      "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
++    },
++    {
++      "path": "src/rtb/analyzer/flow.py",
++      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
++    },
++    {
++      "path": "src/rtb/analyzer/task_store.py",
++      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
++    },
++    {
++      "path": "src/rtb/capabilitykit.py",
++      "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
++    },
++    {
++      "path": "src/rtb/domain/_checks.py",
++      "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
++    },
++    {
++      "path": "src/rtb/domain/attempt.py",
++      "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
++    },
++    {
++      "path": "src/rtb/domain/evidence.py",
++      "sha256": "71a7f4c2e3020d2663b093f8d57339db07176ea740f7b6997a9ad1be03fdc4d0"
++    },
++    {
++      "path": "src/rtb/domain/proposal.py",
++      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
++    },
++    {
++      "path": "src/rtb/domain/task_state.py",
++      "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
++    },
++    {
++      "path": "src/rtb/dsp/capability.py",
++      "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
++    },
++    {
++      "path": "src/rtb/dsp/errors.py",
++      "sha256": "a0f5062db51ed48881b90031ea065dbaf817b59ab0bf251af38a39237f72dad0"
++    },
++    {
++      "path": "src/rtb/dsp/store.py",
++      "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
++    },
++    {
++      "path": "src/rtb/executor/approval.py",
++      "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
++    },
++    {
++      "path": "src/rtb/executor/approve.py",
++      "sha256": "a9017181b6bc7bdad512efb423f1edd670c81f471d43378d88187f2e67554650"
++    },
++    {
++      "path": "src/rtb/executor/attempt_store.py",
++      "sha256": "1e8a01fca0d9a650f11c2f7f88ba7df2c9490b10c5065d5f214100d0563596e9"
++    },
++    {
++      "path": "src/rtb/executor/capability_signer.py",
++      "sha256": "60b6b0de6acfe389060bd110c9d2df9b9bbfb8403f84c8b974740bef6a76cf59"
++    },
++    {
++      "path": "src/rtb/executor/dsp_client.py",
++      "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
++    },
++    {
++      "path": "src/rtb/executor/execution.py",
++      "sha256": "0f83c2844ce6e7aaa904af9f13030e3650ff2439f12441459740f39a2332e844"
++    },
++    {
++      "path": "src/rtb/executor/guardrails.py",
++      "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
++    },
++    {
++      "path": "src/rtb/executor/inbox_server.py",
++      "sha256": "f620b90b17391f951c901f8783ab48c5c3feca7713a47f50d2c7c2c62a3da042"
++    },
++    {
++      "path": "src/rtb/executor/inbox_store.py",
++      "sha256": "17d5904ebef6487a8e93235ae5ebcb60128d3da231552cc6e9bd6275bd6a2be8"
++    },
++    {
++      "path": "src/rtb/executor/runner.py",
++      "sha256": "3a2892e3b67df713213fe7727aff3fb8bf44baa94d9f7d5b80a52da0f2631df8"
++    },
++    {
++      "path": "src/rtb/httpclient.py",
++      "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
++    },
++    {
++      "path": "src/rtb/httpkit.py",
++      "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
++    },
++    {
++      "path": "src/rtb/sqlitekit.py",
++      "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
++    }
++  ],
++  "harness": [
++    {
++      "path": "pyproject.toml",
++      "sha256": "60c902288d114de02c8a2fd2ed6b56ced039f404054d662c21dc705817448b76"
++    },
++    {
++      "path": "tests/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/capability_samples.py",
++      "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
++    },
++    {
++      "path": "tests/domain/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/domain/proposal_samples.py",
++      "sha256": "124a4be23ac35ff25f062a2627c51cafede9bb857aa145c14892548772003d96"
++    },
++    {
++      "path": "tests/executor/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/executor/conftest.py",
++      "sha256": "4a6d9be706061f62d89fe85775ebb33539f96bb5cdf456898654f048c8fea269"
++    },
++    {
++      "path": "tests/executor/fakes.py",
++      "sha256": "581a7bef53efeaba0aa8eec33cfadf97ff74cc74ef87fd2c260caceac70a1add"
++    },
++    {
++      "path": "tests/executor/test_aggregate_limit.py",
++      "sha256": "ad694aeb3f920acabb8605b0741c990fc76504e19230d7974d6b2689d7d5f3f0"
++    },
++    {
++      "path": "tests/executor/test_approval.py",
++      "sha256": "285ad4c87cbd6a345f0eef99cd81a62ee5f1cad8cfa39213185ba1c0a34d8879"
++    },
++    {
++      "path": "tests/executor/test_f7_end_to_end.py",
++      "sha256": "1d4d74049f18fcaf98190747a35c4e7e593c3c7d6c96810e0f33cb168f956766"
++    }
++  ],
++  "enumerations": [],
++  "evidence": [
++    {
++      "node": "tests/executor/test_f7_end_to_end.py::test_f7_many_small_increases_stop_at_the_aggregate_limit",
++      "covers": [],
++      "kind": "end_to_end"
++    },
++    {
++      "node": "tests/executor/test_aggregate_limit.py::test_the_aggregate_limit_blocks_at_the_threshold_and_allows_exactly_reaching_it",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_aggregate_limit.py::test_an_unresolved_reservation_counts_no_matter_how_old",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_aggregate_limit.py::test_a_verified_reservation_leaves_the_window_24_hours_after_verification",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_aggregate_limit.py::test_two_workers_cannot_race_past_the_aggregate_limit",
++      "covers": [],
++      "kind": "concurrency"
++    },
++    {
++      "node": "tests/executor/test_aggregate_limit.py::test_a_new_task_passes_once_the_budget_is_released",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_approval.py::test_an_approvable_block_waits_for_approval",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_approval.py::test_an_unapproved_proposal_expires_into_blocked",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_approval.py::test_a_valid_approval_lets_the_proposal_through_and_still_reserves",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_approval.py::test_an_approval_that_expires_mid_flight_lets_nothing_through",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_approval.py::test_the_capability_never_outlives_the_approval_it_used",
++      "covers": [],
++      "kind": "unit"
++    }
++  ],
++  "symbols": [
++    "src/rtb/executor/attempt_store.py:Reservation",
++    "src/rtb/executor/execution.py:Executor.process_awaiting"
++  ]
++}
+diff --git a/claims/concurrency.json b/claims/concurrency.json
+new file mode 100644
+index 0000000..58e225b
+--- /dev/null
++++ b/claims/concurrency.json
+@@ -0,0 +1,271 @@
++{
++  "manifest_version": 1,
++  "claim_id": "concurrency",
++  "policy": "同一份提案被多個工作者同時處理時只寫 DSP 一次;舊版本決策被擋、不寫進 DSP,改由後續任務照現況重排;分析端同一個任務併發推進只落地一次。",
++  "scope": [
++    {
++      "path": "src/rtb/__init__.py",
++      "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
++    },
++    {
++      "path": "src/rtb/analyzer/dsp_client.py",
++      "sha256": "d6991fc51304ac97efcc1906f877fc71c76abd26cc31234475cf367376b31cc2"
++    },
++    {
++      "path": "src/rtb/analyzer/flow.py",
++      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
++    },
++    {
++      "path": "src/rtb/analyzer/inbox_client.py",
++      "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
++    },
++    {
++      "path": "src/rtb/analyzer/instrumented.py",
++      "sha256": "cdb1244eb81c643a3c9a0c1b510c315351377bf095f15c7a7468d4b60a2e4dd4"
++    },
++    {
++      "path": "src/rtb/analyzer/policy.py",
++      "sha256": "f382a95dc7619dfb72d25a668ee69b3834a982333eaa62300e11d8057e52fd97"
++    },
++    {
++      "path": "src/rtb/analyzer/task_store.py",
++      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
++    },
++    {
++      "path": "src/rtb/capabilitykit.py",
++      "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
++    },
++    {
++      "path": "src/rtb/domain/_checks.py",
++      "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
++    },
++    {
++      "path": "src/rtb/domain/attempt.py",
++      "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
++    },
++    {
++      "path": "src/rtb/domain/evidence.py",
++      "sha256": "71a7f4c2e3020d2663b093f8d57339db07176ea740f7b6997a9ad1be03fdc4d0"
++    },
++    {
++      "path": "src/rtb/domain/metrics.py",
++      "sha256": "8e48c962fdc739b39f0e7d94296fbabf65db52b5d1bcc1db6341e2628ba89472"
++    },
++    {
++      "path": "src/rtb/domain/proposal.py",
++      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
++    },
++    {
++      "path": "src/rtb/domain/task_state.py",
++      "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
++    },
++    {
++      "path": "src/rtb/domain/worth.py",
++      "sha256": "1fe95609a329ab7c97966604c6ec3808dd1a9a4ea2504f55f76a8a10669bc55b"
++    },
++    {
++      "path": "src/rtb/dsp/capability.py",
++      "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
++    },
++    {
++      "path": "src/rtb/dsp/errors.py",
++      "sha256": "a0f5062db51ed48881b90031ea065dbaf817b59ab0bf251af38a39237f72dad0"
++    },
++    {
++      "path": "src/rtb/dsp/server.py",
++      "sha256": "c44f8cd9db07699bd2b7832462c7cf04052c7ca59938100470db6ab821d0f177"
++    },
++    {
++      "path": "src/rtb/dsp/store.py",
++      "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
++    },
++    {
++      "path": "src/rtb/executor/approval.py",
++      "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
++    },
++    {
++      "path": "src/rtb/executor/attempt_store.py",
++      "sha256": "1e8a01fca0d9a650f11c2f7f88ba7df2c9490b10c5065d5f214100d0563596e9"
++    },
++    {
++      "path": "src/rtb/executor/capability_signer.py",
++      "sha256": "60b6b0de6acfe389060bd110c9d2df9b9bbfb8403f84c8b974740bef6a76cf59"
++    },
++    {
++      "path": "src/rtb/executor/dsp_client.py",
++      "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
++    },
++    {
++      "path": "src/rtb/executor/execution.py",
++      "sha256": "0f83c2844ce6e7aaa904af9f13030e3650ff2439f12441459740f39a2332e844"
++    },
++    {
++      "path": "src/rtb/executor/guardrails.py",
++      "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
++    },
++    {
++      "path": "src/rtb/executor/inbox_server.py",
++      "sha256": "f620b90b17391f951c901f8783ab48c5c3feca7713a47f50d2c7c2c62a3da042"
++    },
++    {
++      "path": "src/rtb/executor/inbox_store.py",
++      "sha256": "17d5904ebef6487a8e93235ae5ebcb60128d3da231552cc6e9bd6275bd6a2be8"
++    },
++    {
++      "path": "src/rtb/executor/runner.py",
++      "sha256": "3a2892e3b67df713213fe7727aff3fb8bf44baa94d9f7d5b80a52da0f2631df8"
++    },
++    {
++      "path": "src/rtb/httpclient.py",
++      "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
++    },
++    {
++      "path": "src/rtb/httpkit.py",
++      "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
++    },
++    {
++      "path": "src/rtb/sqlitekit.py",
++      "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
++    }
++  ],
++  "harness": [
++    {
++      "path": "pyproject.toml",
++      "sha256": "60c902288d114de02c8a2fd2ed6b56ced039f404054d662c21dc705817448b76"
++    },
++    {
++      "path": "tests/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/analyzer/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/analyzer/conftest.py",
++      "sha256": "768e7f782442ab5fbd8e5666f4ba43cbe268a503de1d299089fd1c24e9c9237c"
++    },
++    {
++      "path": "tests/analyzer/test_f4_end_to_end.py",
++      "sha256": "caf57ffc0a656e9370c90c54009de7b9e5e92c0c2ed990c79840a6f36b4b21fa"
++    },
++    {
++      "path": "tests/analyzer/test_flow.py",
++      "sha256": "bbd3172536f386144c89e07e563cde318b34563e853b91a88fee1d24456d0af1"
++    },
++    {
++      "path": "tests/analyzer/test_replan.py",
++      "sha256": "db16aa8c437dadf583b3bd887f770c9fe24c598195a035926fdc8a73665b0a13"
++    },
++    {
++      "path": "tests/analyzer/test_task_lease.py",
++      "sha256": "31eadee8c263a5cef1ab297c84e5d4edd1d67378a56428add329dc12f9708c36"
++    },
++    {
++      "path": "tests/capability_samples.py",
++      "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
++    },
++    {
++      "path": "tests/domain/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/domain/proposal_samples.py",
++      "sha256": "124a4be23ac35ff25f062a2627c51cafede9bb857aa145c14892548772003d96"
++    },
++    {
++      "path": "tests/executor/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/executor/conftest.py",
++      "sha256": "4a6d9be706061f62d89fe85775ebb33539f96bb5cdf456898654f048c8fea269"
++    },
++    {
++      "path": "tests/executor/fakes.py",
++      "sha256": "581a7bef53efeaba0aa8eec33cfadf97ff74cc74ef87fd2c260caceac70a1add"
++    },
++    {
++      "path": "tests/executor/test_crash_recovery.py",
++      "sha256": "94d5d0f9cf68a033e2cc5ce6970638a085842aa51618ac18986ea89417676959"
++    },
++    {
++      "path": "tests/executor/test_multi_worker.py",
++      "sha256": "a519d97626d62e96025deac1ec0fb3e7f06c284abdbd87e50d4472f649d1e41a"
++    },
++    {
++      "path": "tests/executor/test_queue.py",
++      "sha256": "f4aecd5fa6b5c9de11d53a465947dc60ec8802c341252faa7cc377bfa3c9aa6f"
++    },
++    {
++      "path": "tests/executor/test_runner.py",
++      "sha256": "8cbbd4dd7618493e26f67492a109f1823ffb720a4b59d4a787ba70c91a2f888b"
++    },
++    {
++      "path": "tests/executor/test_version_conflict.py",
++      "sha256": "a6782716ec5253ae8c515737106026a588280208870a16c614aa74b6a3501a57"
++    }
++  ],
++  "enumerations": [],
++  "evidence": [
++    {
++      "node": "tests/executor/test_multi_worker.py::test_two_live_workers_process_a_message_once",
++      "covers": [],
++      "kind": "concurrency"
++    },
++    {
++      "node": "tests/executor/test_queue.py::test_two_receipts_for_the_same_key_still_write_the_dsp_once",
++      "covers": [],
++      "kind": "concurrency"
++    },
++    {
++      "node": "tests/executor/test_crash_recovery.py::test_f3_a_message_delivered_twice_applies_once",
++      "covers": [],
++      "kind": "failure_injection",
++      "injection": "DEATH"
++    },
++    {
++      "node": "tests/analyzer/test_task_lease.py::test_two_real_threads_advancing_the_same_task_pay_for_the_analysis_once",
++      "covers": [],
++      "kind": "concurrency"
++    },
++    {
++      "node": "tests/analyzer/test_task_lease.py::test_an_expired_holder_cannot_commit_after_a_takeover_even_when_the_sequence_still_matches",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/analyzer/test_flow.py::test_many_real_threads_racing_advance_on_the_same_task_commit_exactly_once",
++      "covers": [],
++      "kind": "concurrency"
++    },
++    {
++      "node": "tests/analyzer/test_flow.py::test_two_concurrent_advance_calls_on_the_same_task_never_both_commit_conflicting_outcomes",
++      "covers": [],
++      "kind": "concurrency"
++    },
++    {
++      "node": "tests/analyzer/test_f4_end_to_end.py::test_f4_a_stale_proposal_is_replanned_from_the_current_state",
++      "covers": [],
++      "kind": "end_to_end"
++    },
++    {
++      "node": "tests/executor/test_version_conflict.py::test_two_concurrent_writers_reproduce_a_version_conflict",
++      "covers": [],
++      "kind": "concurrency"
++    },
++    {
++      "node": "tests/executor/test_version_conflict.py::test_a_dsp_version_conflict_is_acknowledged_as_version_changed",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/analyzer/test_replan.py::test_a_version_conflict_hands_the_task_over_to_a_follow_up",
++      "covers": [],
++      "kind": "unit"
++    }
++  ],
++  "symbols": [
++    "src/rtb/analyzer/flow.py:advance"
++  ]
++}
+diff --git a/claims/idempotency-unknown-outcome.json b/claims/idempotency-unknown-outcome.json
+new file mode 100644
+index 0000000..6780006
+--- /dev/null
++++ b/claims/idempotency-unknown-outcome.json
+@@ -0,0 +1,282 @@
++{
++  "manifest_version": 1,
++  "claim_id": "idempotency-unknown-outcome",
++  "policy": "DSP 會改廣告狀態的每一種寫入動作,預期版本跟現況不符一律拒收;DSP 同一把冪等鍵最多套用一次;DSP 已提交但回應逾時時,執行端記成結果不明、用同一把鍵對帳,不換新鍵重送;提交後當機可從操作紀錄恢復;收件口同一個任務的同一個修訂只收一份。",
++  "scope": [
++    {
++      "path": "src/rtb/__init__.py",
++      "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
++    },
++    {
++      "path": "src/rtb/capabilitykit.py",
++      "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
++    },
++    {
++      "path": "src/rtb/domain/_checks.py",
++      "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
++    },
++    {
++      "path": "src/rtb/domain/attempt.py",
++      "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
++    },
++    {
++      "path": "src/rtb/domain/proposal.py",
++      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
++    },
++    {
++      "path": "src/rtb/dsp/capability.py",
++      "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
++    },
++    {
++      "path": "src/rtb/dsp/errors.py",
++      "sha256": "a0f5062db51ed48881b90031ea065dbaf817b59ab0bf251af38a39237f72dad0"
++    },
++    {
++      "path": "src/rtb/dsp/server.py",
++      "sha256": "c44f8cd9db07699bd2b7832462c7cf04052c7ca59938100470db6ab821d0f177"
++    },
++    {
++      "path": "src/rtb/dsp/store.py",
++      "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
++    },
++    {
++      "path": "src/rtb/executor/approval.py",
++      "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
++    },
++    {
++      "path": "src/rtb/executor/attempt_store.py",
++      "sha256": "1e8a01fca0d9a650f11c2f7f88ba7df2c9490b10c5065d5f214100d0563596e9"
++    },
++    {
++      "path": "src/rtb/executor/capability_signer.py",
++      "sha256": "60b6b0de6acfe389060bd110c9d2df9b9bbfb8403f84c8b974740bef6a76cf59"
++    },
++    {
++      "path": "src/rtb/executor/dsp_client.py",
++      "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
++    },
++    {
++      "path": "src/rtb/executor/execution.py",
++      "sha256": "0f83c2844ce6e7aaa904af9f13030e3650ff2439f12441459740f39a2332e844"
++    },
++    {
++      "path": "src/rtb/executor/guardrails.py",
++      "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
++    },
++    {
++      "path": "src/rtb/executor/inbox_server.py",
++      "sha256": "f620b90b17391f951c901f8783ab48c5c3feca7713a47f50d2c7c2c62a3da042"
++    },
++    {
++      "path": "src/rtb/executor/inbox_store.py",
++      "sha256": "17d5904ebef6487a8e93235ae5ebcb60128d3da231552cc6e9bd6275bd6a2be8"
++    },
++    {
++      "path": "src/rtb/httpclient.py",
++      "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
++    },
++    {
++      "path": "src/rtb/httpkit.py",
++      "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
++    },
++    {
++      "path": "src/rtb/sqlitekit.py",
++      "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
++    }
++  ],
++  "harness": [
++    {
++      "path": "pyproject.toml",
++      "sha256": "60c902288d114de02c8a2fd2ed6b56ced039f404054d662c21dc705817448b76"
++    },
++    {
++      "path": "tests/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/capability_samples.py",
++      "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
++    },
++    {
++      "path": "tests/domain/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/domain/proposal_samples.py",
++      "sha256": "124a4be23ac35ff25f062a2627c51cafede9bb857aa145c14892548772003d96"
++    },
++    {
++      "path": "tests/dsp/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/dsp/conftest.py",
++      "sha256": "96d7e6329e2fe4e903d6c57e7d17b4e976818ac28f256173eb39171ef37608d1"
++    },
++    {
++      "path": "tests/dsp/test_server.py",
++      "sha256": "9b832528b311baa98740c69579f5add12f24b214eef89dfab585b0e5ab0cd395"
++    },
++    {
++      "path": "tests/dsp/test_store.py",
++      "sha256": "76d12e8e2533c61e4dfcd45824e03d4f2f6cc1dc0166fbbe932ef97ca8b0745b"
++    },
++    {
++      "path": "tests/executor/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/executor/conftest.py",
++      "sha256": "4a6d9be706061f62d89fe85775ebb33539f96bb5cdf456898654f048c8fea269"
++    },
++    {
++      "path": "tests/executor/fakes.py",
++      "sha256": "581a7bef53efeaba0aa8eec33cfadf97ff74cc74ef87fd2c260caceac70a1add"
++    },
++    {
++      "path": "tests/executor/test_crash_recovery.py",
++      "sha256": "94d5d0f9cf68a033e2cc5ce6970638a085842aa51618ac18986ea89417676959"
++    },
++    {
++      "path": "tests/executor/test_execution_e2e.py",
++      "sha256": "2411e95b71761728dc3bd9d648542c3d3bf67d4b12ff0f507568eab15f2844c6"
++    },
++    {
++      "path": "tests/executor/test_inbox_server.py",
++      "sha256": "35a130247e32a2b1679ebc521b1f62438e38966f8a04fb3a1dcd05119b0a35bf"
++    },
++    {
++      "path": "tests/executor/test_reconcile.py",
++      "sha256": "2c3d76a862da02859540bd7c716f13c9078042810d18e9aa13fc84eaabcc5fbf"
++    }
++  ],
++  "enumerations": [
++    {
++      "source": "src/rtb/dsp/server.py:CAMPAIGN_WRITE_ACTIONS"
++    }
++  ],
++  "evidence": [
++    {
++      "node": "tests/dsp/test_store.py::test_every_write_action_rejects_a_stale_expected_version",
++      "covers": [
++        "update_budget",
++        "pause_campaign"
++      ],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/dsp/test_store.py::test_same_key_same_payload_applies_once_and_returns_original_result",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/dsp/test_store.py::test_same_key_different_payload_is_rejected_and_changes_nothing",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/dsp/test_store.py::test_concurrent_requests_with_the_same_key_apply_exactly_once",
++      "covers": [],
++      "kind": "concurrency"
++    },
++    {
++      "node": "tests/dsp/test_server.py::test_concurrent_same_key_requests_over_http_apply_exactly_once",
++      "covers": [],
++      "kind": "concurrency"
++    },
++    {
++      "node": "tests/dsp/test_store.py::test_failure_between_state_change_and_idempotency_record_rolls_everything_back",
++      "covers": [],
++      "kind": "failure_injection",
++      "injection": "monkeypatch"
++    },
++    {
++      "node": "tests/dsp/test_store.py::test_process_death_between_state_change_and_idempotency_record_leaves_no_half_state",
++      "covers": [],
++      "kind": "failure_injection",
++      "injection": "DEATH"
++    },
++    {
++      "node": "tests/dsp/test_server.py::test_timeout_before_commit_client_sees_timeout_and_dsp_never_commits_later",
++      "covers": [],
++      "kind": "failure_injection",
++      "injection": "timeout_before_commit"
++    },
++    {
++      "node": "tests/dsp/test_server.py::test_timeout_after_commit_client_sees_timeout_but_dsp_applied_exactly_once",
++      "covers": [],
++      "kind": "failure_injection",
++      "injection": "timeout_after_commit"
++    },
++    {
++      "node": "tests/dsp/test_server.py::test_retry_with_same_key_after_commit_timeout_replays_and_does_not_apply_twice",
++      "covers": [],
++      "kind": "failure_injection",
++      "injection": "timeout_after_commit"
++    },
++    {
++      "node": "tests/executor/test_execution_e2e.py::test_f1_timeout_before_commit_is_reconciled_by_a_same_key_resend",
++      "covers": [],
++      "kind": "failure_injection",
++      "injection": "timeout_before_commit"
++    },
++    {
++      "node": "tests/executor/test_execution_e2e.py::test_f1_timeout_after_commit_is_reconciled_from_the_operation_record",
++      "covers": [],
++      "kind": "failure_injection",
++      "injection": "timeout_after_commit"
++    },
++    {
++      "node": "tests/executor/test_execution_e2e.py::test_f1_a_delayed_commit_and_a_resend_apply_once",
++      "covers": [],
++      "kind": "end_to_end"
++    },
++    {
++      "node": "tests/executor/test_reconcile.py::test_reconcile_finds_the_operation_by_key_and_verifies_it",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_reconcile.py::test_reconcile_escalates_a_mismatched_operation_record",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_crash_recovery.py::test_crash_after_the_dsp_commit_is_recovered_from_the_operation_record",
++      "covers": [],
++      "kind": "failure_injection",
++      "injection": "DEATH"
++    },
++    {
++      "node": "tests/executor/test_crash_recovery.py::test_crash_before_the_dsp_call_is_recovered_by_a_same_key_resend",
++      "covers": [],
++      "kind": "failure_injection",
++      "injection": "DEATH"
++    },
++    {
++      "node": "tests/executor/test_inbox_server.py::test_a_resent_identical_proposal_returns_the_current_state_and_adds_nothing_even_when_full_or_superseded",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_inbox_server.py::test_a_different_proposal_for_the_same_key_is_rejected_and_the_original_is_untouched",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_inbox_server.py::test_concurrent_requests_for_the_same_key_accept_exactly_one",
++      "covers": [],
++      "kind": "concurrency"
++    },
++    {
++      "node": "tests/executor/test_inbox_server.py::test_a_revision_that_is_not_exactly_the_next_one_is_rejected_with_the_current_highest",
++      "covers": [],
++      "kind": "unit"
++    }
++  ],
++  "symbols": [
++    "src/rtb/dsp/store.py:CampaignStore.execute",
++    "src/rtb/executor/execution.py:Executor.reconcile_all",
++    "src/rtb/executor/execution.py:record_matches"
++  ]
++}
+diff --git a/claims/permission-guardrail.json b/claims/permission-guardrail.json
+new file mode 100644
+index 0000000..f914f48
+--- /dev/null
++++ b/claims/permission-guardrail.json
+@@ -0,0 +1,367 @@
++{
++  "manifest_version": 1,
++  "claim_id": "permission-guardrail",
++  "policy": "DSP 只接受帶有效能力憑證、而且廣告、動作、租戶範圍都對得上的寫入;單次加額超過比例上限、決策過時、廣告版本已變時,執行端在寫進 DSP 之前擋下;人工核可只對它簽的那一份內容有效;死信重放照樣重跑執行前的檢查;故障注入要啟動時開旗標才存在、伺服器只綁本機、分析端送不出故障標頭。",
++  "scope": [
++    {
++      "path": "src/rtb/__init__.py",
++      "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
++    },
++    {
++      "path": "src/rtb/analyzer/dsp_client.py",
++      "sha256": "d6991fc51304ac97efcc1906f877fc71c76abd26cc31234475cf367376b31cc2"
++    },
++    {
++      "path": "src/rtb/analyzer/flow.py",
++      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
++    },
++    {
++      "path": "src/rtb/analyzer/inbox_client.py",
++      "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
++    },
++    {
++      "path": "src/rtb/analyzer/instrumented.py",
++      "sha256": "cdb1244eb81c643a3c9a0c1b510c315351377bf095f15c7a7468d4b60a2e4dd4"
++    },
++    {
++      "path": "src/rtb/analyzer/policy.py",
++      "sha256": "f382a95dc7619dfb72d25a668ee69b3834a982333eaa62300e11d8057e52fd97"
++    },
++    {
++      "path": "src/rtb/analyzer/task_store.py",
++      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
++    },
++    {
++      "path": "src/rtb/capabilitykit.py",
++      "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
++    },
++    {
++      "path": "src/rtb/domain/_checks.py",
++      "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
++    },
++    {
++      "path": "src/rtb/domain/attempt.py",
++      "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
++    },
++    {
++      "path": "src/rtb/domain/evidence.py",
++      "sha256": "71a7f4c2e3020d2663b093f8d57339db07176ea740f7b6997a9ad1be03fdc4d0"
++    },
++    {
++      "path": "src/rtb/domain/metrics.py",
++      "sha256": "8e48c962fdc739b39f0e7d94296fbabf65db52b5d1bcc1db6341e2628ba89472"
++    },
++    {
++      "path": "src/rtb/domain/proposal.py",
++      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
++    },
++    {
++      "path": "src/rtb/domain/task_state.py",
++      "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
++    },
++    {
++      "path": "src/rtb/domain/worth.py",
++      "sha256": "1fe95609a329ab7c97966604c6ec3808dd1a9a4ea2504f55f76a8a10669bc55b"
++    },
++    {
++      "path": "src/rtb/dsp/capability.py",
++      "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
++    },
++    {
++      "path": "src/rtb/dsp/errors.py",
++      "sha256": "a0f5062db51ed48881b90031ea065dbaf817b59ab0bf251af38a39237f72dad0"
++    },
++    {
++      "path": "src/rtb/dsp/server.py",
++      "sha256": "c44f8cd9db07699bd2b7832462c7cf04052c7ca59938100470db6ab821d0f177"
++    },
++    {
++      "path": "src/rtb/dsp/store.py",
++      "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
++    },
++    {
++      "path": "src/rtb/executor/approval.py",
++      "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
++    },
++    {
++      "path": "src/rtb/executor/approve.py",
++      "sha256": "a9017181b6bc7bdad512efb423f1edd670c81f471d43378d88187f2e67554650"
++    },
++    {
++      "path": "src/rtb/executor/attempt_store.py",
++      "sha256": "1e8a01fca0d9a650f11c2f7f88ba7df2c9490b10c5065d5f214100d0563596e9"
++    },
++    {
++      "path": "src/rtb/executor/capability_signer.py",
++      "sha256": "60b6b0de6acfe389060bd110c9d2df9b9bbfb8403f84c8b974740bef6a76cf59"
++    },
++    {
++      "path": "src/rtb/executor/dsp_client.py",
++      "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
++    },
++    {
++      "path": "src/rtb/executor/execution.py",
++      "sha256": "0f83c2844ce6e7aaa904af9f13030e3650ff2439f12441459740f39a2332e844"
++    },
++    {
++      "path": "src/rtb/executor/guardrails.py",
++      "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
++    },
++    {
++      "path": "src/rtb/executor/inbox_server.py",
++      "sha256": "f620b90b17391f951c901f8783ab48c5c3feca7713a47f50d2c7c2c62a3da042"
++    },
++    {
++      "path": "src/rtb/executor/inbox_store.py",
++      "sha256": "17d5904ebef6487a8e93235ae5ebcb60128d3da231552cc6e9bd6275bd6a2be8"
++    },
++    {
++      "path": "src/rtb/executor/replay.py",
++      "sha256": "a57a3ecae7c335513ba6d5021f94d7ba0a8309fdca607844f4198252f5829b35"
++    },
++    {
++      "path": "src/rtb/executor/runner.py",
++      "sha256": "3a2892e3b67df713213fe7727aff3fb8bf44baa94d9f7d5b80a52da0f2631df8"
++    },
++    {
++      "path": "src/rtb/httpclient.py",
++      "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
++    },
++    {
++      "path": "src/rtb/httpkit.py",
++      "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
++    },
++    {
++      "path": "src/rtb/sqlitekit.py",
++      "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
++    }
++  ],
++  "harness": [
++    {
++      "path": "pyproject.toml",
++      "sha256": "60c902288d114de02c8a2fd2ed6b56ced039f404054d662c21dc705817448b76"
++    },
++    {
++      "path": "tests/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/analyzer/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/analyzer/conftest.py",
++      "sha256": "768e7f782442ab5fbd8e5666f4ba43cbe268a503de1d299089fd1c24e9c9237c"
++    },
++    {
++      "path": "tests/analyzer/test_boundaries.py",
++      "sha256": "214a6c6fbc04118f49a433460880c4783e9f0d7c5fbf7c7b9b60f1d227a416cc"
++    },
++    {
++      "path": "tests/analyzer/test_f4_end_to_end.py",
++      "sha256": "caf57ffc0a656e9370c90c54009de7b9e5e92c0c2ed990c79840a6f36b4b21fa"
++    },
++    {
++      "path": "tests/analyzer/test_f6_end_to_end.py",
++      "sha256": "22046108cca75f71740dd518c5691210ed36ef4353653d5cdce257c280cf2a16"
++    },
++    {
++      "path": "tests/capability_samples.py",
++      "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
++    },
++    {
++      "path": "tests/domain/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/domain/proposal_samples.py",
++      "sha256": "124a4be23ac35ff25f062a2627c51cafede9bb857aa145c14892548772003d96"
++    },
++    {
++      "path": "tests/dsp/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/dsp/conftest.py",
++      "sha256": "96d7e6329e2fe4e903d6c57e7d17b4e976818ac28f256173eb39171ef37608d1"
++    },
++    {
++      "path": "tests/dsp/test_capability.py",
++      "sha256": "5d57ffc1a38871b196fe3e071e0115cd5e1e75be1db2b9d3943c7472808c0fd0"
++    },
++    {
++      "path": "tests/dsp/test_server.py",
++      "sha256": "9b832528b311baa98740c69579f5add12f24b214eef89dfab585b0e5ab0cd395"
++    },
++    {
++      "path": "tests/executor/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/executor/audit_guard.py",
++      "sha256": "3d8b492903fb311bc98ceaeca3fb4a7d415409268772b68e3874323156346e9c"
++    },
++    {
++      "path": "tests/executor/conftest.py",
++      "sha256": "4a6d9be706061f62d89fe85775ebb33539f96bb5cdf456898654f048c8fea269"
++    },
++    {
++      "path": "tests/executor/fakes.py",
++      "sha256": "581a7bef53efeaba0aa8eec33cfadf97ff74cc74ef87fd2c260caceac70a1add"
++    },
++    {
++      "path": "tests/executor/test_approval.py",
++      "sha256": "285ad4c87cbd6a345f0eef99cd81a62ee5f1cad8cfa39213185ba1c0a34d8879"
++    },
++    {
++      "path": "tests/executor/test_capability_signer.py",
++      "sha256": "e8d039eee162b605e1366ec1c7245c3bf0a72d2a193e28f46257d477dfa1c251"
++    },
++    {
++      "path": "tests/executor/test_dead_letter.py",
++      "sha256": "959acb33dec5785f155add1e95815027b99117ad1fda377a4821435db28aa8f0"
++    },
++    {
++      "path": "tests/executor/test_execution.py",
++      "sha256": "34ea728aebb34f40beb3d82072aefbf46c5a63c5faf68e727ffc281097aab3f3"
++    },
++    {
++      "path": "tests/executor/test_guardrails.py",
++      "sha256": "abfafd8a1e5c90657c1af651100894c962967d605decd8831efbcd6658d27d3b"
++    },
++    {
++      "path": "tests/executor/test_stale_decision.py",
++      "sha256": "84b84eabd5d4c2064cce53a96cd1dbe95dca9bb222ccacb53ee5f96a18a45852"
++    },
++    {
++      "path": "tests/executor/write_scan.py",
++      "sha256": "7babc52bd343caa8265ebd6f5b1b1f8e28f44fc6031268d60e2c473eba5edd00"
++    },
++    {
++      "path": "tests/httpclient/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/httpclient/test_httpclient.py",
++      "sha256": "cc15feb70db4fd70e2d802709a38408e33396a8ffbdf1220b16b3051996a8c02"
++    },
++    {
++      "path": "tests/kit/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/kit/test_httpkit.py",
++      "sha256": "1f5fee43691d93fb2e844a81b90240f84b77d4548806fd16fb7267d1494ad659"
++    }
++  ],
++  "enumerations": [],
++  "evidence": [
++    {
++      "node": "tests/dsp/test_capability.py::test_a_write_without_a_valid_capability_is_refused_and_changes_nothing",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/dsp/test_capability.py::test_a_capability_signed_with_another_key_is_refused",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/dsp/test_capability.py::test_each_scope_field_alone_that_does_not_match_the_request_is_refused",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/dsp/test_capability.py::test_a_capability_outside_its_time_window_is_refused",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_capability_signer.py::test_the_executor_refuses_to_sign_outside_its_current_tenant_configuration",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_guardrails.py::test_a_budget_increase_is_bounded_by_the_ratio_cap",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_guardrails.py::test_a_ratio_block_writes_nothing",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_stale_decision.py::test_a_stale_decision_is_blocked",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_execution.py::test_each_failed_precheck_blocks_the_proposal_without_a_write",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_approval.py::test_an_approval_is_void_once_any_scope_field_changes",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_approval.py::test_an_approval_is_void_when_scope_expiry_hash_or_stage_changes",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_approval.py::test_an_approval_covers_only_its_own_stage",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/executor/test_dead_letter.py::test_a_replayed_proposal_goes_through_every_gate",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/analyzer/test_f6_end_to_end.py::test_f6_a_stale_dead_letter_is_revalidated_on_replay",
++      "covers": [],
++      "kind": "end_to_end"
++    },
++    {
++      "node": "tests/dsp/test_server.py::test_fault_header_is_rejected_with_400_and_changes_nothing_when_injection_is_off",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/kit/test_httpkit.py::test_every_fault_mode_is_refused_when_injection_is_off",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/kit/test_httpkit.py::test_the_server_refuses_to_bind_anything_but_loopback",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/httpclient/test_httpclient.py::test_a_header_key_that_is_not_a_clientheader_member_is_rejected",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/httpclient/test_httpclient.py::test_the_closed_header_enum_contains_exactly_the_documented_members",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/analyzer/test_boundaries.py::test_the_agent_cannot_reach_fault_injection_on_production_style_servers",
++      "covers": [],
++      "kind": "unit"
++    }
++  ],
++  "symbols": [
++    "src/rtb/dsp/capability.py:check_scope",
++    "src/rtb/executor/guardrails.py:increase_too_large",
++    "src/rtb/executor/guardrails.py:decision_stale",
++    "src/rtb/executor/approval.py:holds",
++    "src/rtb/executor/execution.py:precheck"
++  ]
++}
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+new file mode 100644
+index 0000000..c7389e8
+--- /dev/null
++++ b/claims/prompt-injection.json
+@@ -0,0 +1,260 @@
++{
++  "manifest_version": 1,
++  "claim_id": "prompt-injection",
++  "policy": "廣告名稱等不可信文字不影響決策、不流進提案;提案只收白名單欄位;可信證據不帶自由文字;分析端讀不到簽發金鑰。",
++  "scope": [
++    {
++      "path": "src/rtb/__init__.py",
++      "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
++    },
++    {
++      "path": "src/rtb/analyzer/dsp_client.py",
++      "sha256": "d6991fc51304ac97efcc1906f877fc71c76abd26cc31234475cf367376b31cc2"
++    },
++    {
++      "path": "src/rtb/analyzer/flow.py",
++      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
++    },
++    {
++      "path": "src/rtb/analyzer/inbox_client.py",
++      "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
++    },
++    {
++      "path": "src/rtb/analyzer/instrumented.py",
++      "sha256": "cdb1244eb81c643a3c9a0c1b510c315351377bf095f15c7a7468d4b60a2e4dd4"
++    },
++    {
++      "path": "src/rtb/analyzer/policy.py",
++      "sha256": "f382a95dc7619dfb72d25a668ee69b3834a982333eaa62300e11d8057e52fd97"
++    },
++    {
++      "path": "src/rtb/analyzer/task_store.py",
++      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
++    },
++    {
++      "path": "src/rtb/capabilitykit.py",
++      "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
++    },
++    {
++      "path": "src/rtb/domain/_checks.py",
++      "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
++    },
++    {
++      "path": "src/rtb/domain/attempt.py",
++      "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
++    },
++    {
++      "path": "src/rtb/domain/evidence.py",
++      "sha256": "71a7f4c2e3020d2663b093f8d57339db07176ea740f7b6997a9ad1be03fdc4d0"
++    },
++    {
++      "path": "src/rtb/domain/metrics.py",
++      "sha256": "8e48c962fdc739b39f0e7d94296fbabf65db52b5d1bcc1db6341e2628ba89472"
++    },
++    {
++      "path": "src/rtb/domain/proposal.py",
++      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
++    },
++    {
++      "path": "src/rtb/domain/task_state.py",
++      "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
++    },
++    {
++      "path": "src/rtb/domain/worth.py",
++      "sha256": "1fe95609a329ab7c97966604c6ec3808dd1a9a4ea2504f55f76a8a10669bc55b"
++    },
++    {
++      "path": "src/rtb/dsp/capability.py",
++      "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
++    },
++    {
++      "path": "src/rtb/dsp/errors.py",
++      "sha256": "a0f5062db51ed48881b90031ea065dbaf817b59ab0bf251af38a39237f72dad0"
++    },
++    {
++      "path": "src/rtb/dsp/server.py",
++      "sha256": "c44f8cd9db07699bd2b7832462c7cf04052c7ca59938100470db6ab821d0f177"
++    },
++    {
++      "path": "src/rtb/dsp/store.py",
++      "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
++    },
++    {
++      "path": "src/rtb/executor/approval.py",
++      "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
++    },
++    {
++      "path": "src/rtb/executor/attempt_store.py",
++      "sha256": "1e8a01fca0d9a650f11c2f7f88ba7df2c9490b10c5065d5f214100d0563596e9"
++    },
++    {
++      "path": "src/rtb/executor/capability_signer.py",
++      "sha256": "60b6b0de6acfe389060bd110c9d2df9b9bbfb8403f84c8b974740bef6a76cf59"
++    },
++    {
++      "path": "src/rtb/executor/dsp_client.py",
++      "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
++    },
++    {
++      "path": "src/rtb/executor/execution.py",
++      "sha256": "0f83c2844ce6e7aaa904af9f13030e3650ff2439f12441459740f39a2332e844"
++    },
++    {
++      "path": "src/rtb/executor/guardrails.py",
++      "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
++    },
++    {
++      "path": "src/rtb/executor/inbox_server.py",
++      "sha256": "f620b90b17391f951c901f8783ab48c5c3feca7713a47f50d2c7c2c62a3da042"
++    },
++    {
++      "path": "src/rtb/executor/inbox_store.py",
++      "sha256": "17d5904ebef6487a8e93235ae5ebcb60128d3da231552cc6e9bd6275bd6a2be8"
++    },
++    {
++      "path": "src/rtb/httpclient.py",
++      "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
++    },
++    {
++      "path": "src/rtb/httpkit.py",
++      "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
++    },
++    {
++      "path": "src/rtb/sqlitekit.py",
++      "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
++    }
++  ],
++  "harness": [
++    {
++      "path": "pyproject.toml",
++      "sha256": "60c902288d114de02c8a2fd2ed6b56ced039f404054d662c21dc705817448b76"
++    },
++    {
++      "path": "tests/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/adversarial_samples.py",
++      "sha256": "0bf3bdbac7edd45cfa7a7b074ae4b7dd795388af0bd45bd3cfb1c140bb9c5161"
++    },
++    {
++      "path": "tests/analyzer/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/analyzer/conftest.py",
++      "sha256": "768e7f782442ab5fbd8e5666f4ba43cbe268a503de1d299089fd1c24e9c9237c"
++    },
++    {
++      "path": "tests/analyzer/test_boundaries.py",
++      "sha256": "214a6c6fbc04118f49a433460880c4783e9f0d7c5fbf7c7b9b60f1d227a416cc"
++    },
++    {
++      "path": "tests/analyzer/test_dsp_client.py",
++      "sha256": "076c8ee1130f7c3657f1df43124e03668a0aa01c6fc34548b264bb933a7c202d"
++    },
++    {
++      "path": "tests/analyzer/test_f5_end_to_end.py",
++      "sha256": "accdd58198b1249ae3e01b39eeb8ac05c47939d582757bf810667157d4c72fd9"
++    },
++    {
++      "path": "tests/analyzer/test_trust_boundary.py",
++      "sha256": "ceff06bb56fe7adced5eaab5d0c5f668bd6eb5bba50e481f37dcfab9e0ceea8f"
++    },
++    {
++      "path": "tests/capability_samples.py",
++      "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
++    },
++    {
++      "path": "tests/domain/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/domain/proposal_samples.py",
++      "sha256": "124a4be23ac35ff25f062a2627c51cafede9bb857aa145c14892548772003d96"
++    },
++    {
++      "path": "tests/domain/test_evidence.py",
++      "sha256": "194e99d424f45427faa42f3aefdb765ca6859a1b55644a29fe7cc2e3c52f4ab2"
++    },
++    {
++      "path": "tests/domain/test_proposal.py",
++      "sha256": "d7fda6b191b7ed640840710b227f89f87b96d62a7c6141c867bb14d6ae0a8f66"
++    },
++    {
++      "path": "tests/executor/__init__.py",
++      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++    },
++    {
++      "path": "tests/executor/fakes.py",
++      "sha256": "581a7bef53efeaba0aa8eec33cfadf97ff74cc74ef87fd2c260caceac70a1add"
++    }
++  ],
++  "enumerations": [],
++  "evidence": [
++    {
++      "node": "tests/analyzer/test_f5_end_to_end.py::test_f5_an_injected_campaign_name_changes_nothing_end_to_end",
++      "covers": [],
++      "kind": "end_to_end"
++    },
++    {
++      "node": "tests/analyzer/test_f5_end_to_end.py::test_f5_an_injected_name_on_a_healthy_campaign_triggers_no_write",
++      "covers": [],
++      "kind": "end_to_end"
++    },
++    {
++      "node": "tests/analyzer/test_f5_end_to_end.py::test_f5_a_stuffed_campaign_name_does_not_fail_the_analysis",
++      "covers": [],
++      "kind": "end_to_end"
++    },
++    {
++      "node": "tests/analyzer/test_trust_boundary.py::test_no_adversarial_campaign_name_changes_the_decision",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/analyzer/test_trust_boundary.py::test_the_execution_side_never_reads_free_text",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/domain/test_evidence.py::test_untrusted_text_and_the_campaign_text_kind_always_come_together",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/domain/test_evidence.py::test_trusted_evidence_cannot_carry_free_text",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/analyzer/test_dsp_client.py::test_fields_outside_the_allowlist_never_reach_the_evidence",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/domain/test_proposal.py::test_unknown_fields_are_rejected_so_nothing_can_be_smuggled_in",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/domain/test_proposal.py::test_no_field_name_outside_the_documented_list_is_ever_accepted",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/domain/test_proposal.py::test_random_garbage_in_every_field_never_raises_and_the_result_is_always_consistent",
++      "covers": [],
++      "kind": "unit"
++    },
++    {
++      "node": "tests/analyzer/test_boundaries.py::test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer",
++      "covers": [],
++      "kind": "unit"
++    }
++  ],
++  "symbols": [
++    "src/rtb/domain/proposal.py:parse_proposal",
++    "src/rtb/domain/evidence.py:Evidence"
++  ]
++}
+diff --git a/docs/.governance-log.jsonl b/docs/.governance-log.jsonl
+index 7766623..46c0845 100644
+--- a/docs/.governance-log.jsonl
++++ b/docs/.governance-log.jsonl
+@@ -3373,10 +3373,26 @@
+ {"ts": "2026-09-24T12:09:24+08:00", "commit": "01235e4", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "Phase 10 增量 1 與增量 2 代碼審各三輪(standard,另加外家 Codex),評分表改動設計審一輪,全部過處置閘並凍結;兩個增量第 3 輪修正經編排者逐行自核,未經另一組獨立審查席", "branch": "main", "head_sha": "01235e42d0ca09ca65a6bb7d913765699b19674c"}
+ {"ts": "2026-09-24T12:44:10+08:00", "commit": "6f2482d", "gate": "canary", "kind": "blocked", "hard": true, "nodes": [], "note": "findings-over-reported:43>6 loop=rtb-phase11證據清單與驗證器 auditor=繞過-sonnet id=159376c6", "detail": "findings-over-reported:43>6 loop=rtb-phase11證據清單與驗證器 auditor=繞過-sonnet id=159376c6", "head_sha": "6f2482dcd716c61d7b9c5fc128a4cca2cb1cafac"}
+ {"ts": "2026-09-24T12:44:21+08:00", "commit": "6f2482d", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase11證據清單與驗證器"], "note": "disposal gate PASS"}
+ {"ts": "2026-09-24T12:44:41+08:00", "commit": "6f2482d", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T12:44:42+08:00", "commit": "6f2482d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "6f2482dcd716c61d7b9c5fc128a4cca2cb1cafac"}
+ {"ts": "2026-09-24T12:44:51+08:00", "commit": "0a5ea25", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T12:44:52+08:00", "commit": "0a5ea25", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "0a5ea25ca6c85041fff5d250175a9400a06d1c97"}
+ {"ts": "2026-09-24T12:59:36+08:00", "commit": "db3c3d0", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase11證據清單與驗證器"], "note": "disposal gate PASS"}
+ {"ts": "2026-09-24T12:59:45+08:00", "commit": "db3c3d0", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T12:59:46+08:00", "commit": "db3c3d0", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "db3c3d080d7563805d28bbc73256f97ce0d64b3b"}
++{"ts": "2026-09-24T12:59:48+08:00", "commit": "0ba3ed2", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T12:59:49+08:00", "commit": "0ba3ed2", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "0ba3ed2eb82c757afcafc3be6d0fcaa12dcc3ced"}
++{"ts": "2026-09-24T13:25:13+08:00", "commit": "01c2d23", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T13:25:14+08:00", "commit": "01c2d23", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "01c2d23edbbb014dd47d2a5fdd629b5c813b1a83"}
++{"ts": "2026-09-24T13:25:20+08:00", "commit": "ff4f151", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T13:25:21+08:00", "commit": "ff4f151", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "ff4f151fe83ac2510c107c640c63de341b0e529e"}
++{"ts": "2026-09-24T13:39:17+08:00", "commit": "18b2d95", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=1 hits=0 secs=0.1"}
++{"ts": "2026-09-24T13:39:18+08:00", "commit": "18b2d95", "gate": "nodehome-check", "kind": "blocked", "hard": true, "nodes": ["tools/claim_hashes.py", "tools/verify_claims.py"], "note": "這次提交:新違規 1 條", "detail": "這次提交:新違規 1 條", "head_sha": "18b2d95d9041c73dde594c1a877a17eb99eb1069", "pairs": [["tools/claim_hashes.py", "Systems/Mock-DSP.md"], ["tools/verify_claims.py", "Systems/Mock-DSP.md"]], "notes": ["Systems/Mock-DSP.md"]}
++{"ts": "2026-09-24T13:39:19+08:00", "commit": "18b2d95", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=1 hits=0 secs=0.0"}
++{"ts": "2026-09-24T13:39:20+08:00", "commit": "18b2d95", "gate": "nodehome-check", "kind": "blocked", "hard": true, "nodes": ["tools/claim_hashes.py", "tools/verify_claims.py"], "note": "這次提交:新違規 1 條", "detail": "這次提交:新違規 1 條", "head_sha": "18b2d95d9041c73dde594c1a877a17eb99eb1069", "pairs": [["tools/claim_hashes.py", "Systems/Mock-DSP.md"], ["tools/verify_claims.py", "Systems/Mock-DSP.md"]], "notes": ["Systems/Mock-DSP.md"]}
++{"ts": "2026-09-24T13:39:32+08:00", "commit": "18b2d95", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=1 hits=0 secs=0.0"}
++{"ts": "2026-09-24T13:39:33+08:00", "commit": "18b2d95", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "18b2d95d9041c73dde594c1a877a17eb99eb1069"}
++{"ts": "2026-09-24T13:39:34+08:00", "commit": "f82c2be", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T13:39:35+08:00", "commit": "f82c2be", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "f82c2beb84baf4e1ebfe2210aee2904494f8e380"}
++{"ts": "2026-09-24T13:57:45+08:00", "commit": "18b2d95", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Projects/RTB_Phase2任務流程_計劃.md", "Systems/Mock-DSP.md", "Systems/任務流程領域模型.md", "Systems/共用行程基礎.md", "Systems/分析行程流程與檢查點.md"], "note": "tokens=15 hits=5 secs=7.4"}
++{"ts": "2026-09-24T13:57:46+08:00", "commit": "18b2d95", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "18b2d95d9041c73dde594c1a877a17eb99eb1069"}
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md
+index d19ed2b..d166ed7 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md
+@@ -47,34 +47,34 @@ RETIRE-IF: 專案改用外部的證據平台(例如 CI 內建的出處證明與
+   - evidence:每一項是一個 pytest 函式層節點編號(檔案::函式,或檔案::類別::方法),帶 covers(它涵蓋列舉裡的哪幾項)與 kind(unit、concurrency、failure_injection、end_to_end);failure_injection 另帶注入手段(例如故障標頭模式、子行程死亡標記)。
+   - symbols:宣稱依賴的關鍵函式,寫成「檔:名稱」或「檔:類別.方法」。
+ - 清單不帶任何結果;結果一律由驗證器算。
+ - 讀檔規則(前掃與第 1 輪審查實跑確認 Python 標準 json 的行為):重複鍵一律擋(標準解析器會靜默留下後一個);NaN、Infinity 擋;整數欄位要真的是整數(JSON 的 true 在 Python 裡等於 1,不算整數);超長整數、編碼錯、語法錯都歸「清單讀不懂」。
+ - 路徑規則:scope、harness、symbols、enumerations 的路徑一律是相對 repo 根、用 / 分隔;不准絕對路徑、不准 ..、路徑上任何一段是符號連結也擋;每一段的大小寫要跟目錄實際列出的檔名完全一樣(macOS 預設不分大小寫、CI 的 Linux 分,只靠「檔案存在」會本機過、CI 擋)。做法固定:從 repo 根往下逐段走,每一段都拿上一層 os.listdir 列出的名字做完整字串比對(不做 Unicode 正規化),同一段再用 lstat 確認不是符號連結;不准用「先確認檔案存在、再只比檔名」的捷徑(中間目錄段的大小寫錯會漏掉)。同一個檔不能同時在 scope 與 harness。
+ 
+ ### 驗證器(tools/verify_claims.py,指令:python tools/verify_claims.py claims/)
+ 
+ 依序檢查,任一步不過就擋下並列出原因,全部通過才印通過。結束代碼:0 全通過;1 有擋下;2 無法判定(參數錯、清單讀不懂——這跟 argparse 參數錯的預設代碼一致,兩者都是「沒辦法開始判」)。
+ 1. 格式:讀檔規則、每層白名單、型別、claim_id 跟檔名一致;沒有任何清單、或少了五條必要宣稱之一也擋(必要宣稱是驗證器裡的一個常數,五個名字)。
+-2. 存在:路徑規則;scope、harness、symbols 的檔案都存在;symbols 只認模組最外層(不在 if、try、with 等區塊底下)的 def 或 class,「類別.方法」只認直接寫在類別本體的 def;同一個名字在最外層定義之後又被重新指派,也擋。
++2. 存在:路徑規則;scope、harness、symbols 的檔案都存在;symbols 只認模組最外層(不在 if、try、with 等區塊底下)的 def 或 class,「類別.方法」只認直接寫在類別本體的 def;那一層別處(含區塊裡)再綁定、del、或函式裡用 global 改它,也擋。證據測試只准放 tests/ 底下,到它為止的每層目錄都要有 __init__.py(代碼審第 1 輪:不是套件的目錄,pytest 會把同層 helper 當頂層模組匯入,閉包解析不到;要求每層是套件,比模擬 pytest 的匯入模式簡單)。
+ 3. 範圍閉包與新舊:
+    - 驗證器先機械算出「一定要列」的檔:scope 從宣告的正式檔、symbols 所在的檔與證據測試檔出發,沿靜態匯入在 src/rtb 內遞迴,得到依賴閉包;harness 一定要含每支證據測試檔本身、從 repo 根到它所在目錄路上的每個 conftest.py、pyproject.toml(pytest 設定在這裡),以及證據測試檔沿靜態匯入在 tests/ 內遞迴到的模組(假物件、樣本、共用夾具)。symbols 所在的檔一定要在 scope。
+-   - 匯入怎麼解析成檔(第 2 輪審查實測:專案的子套件多半沒有 __init__.py,是命名空間套件,`from rtb.dsp import store` 這種寫法很常見,只解析 `rtb.dsp` 會漏掉 store.py):檔案裡任何位置的 import 都算(含函式內、TYPE_CHECKING 區塊、相對匯入);`import a.b.c` 解析成 a/b/c.py 或 a/b/c/__init__.py;`from a.b import x` 除了 a/b.py 或 a/b/__init__.py,若 a/b/x.py 或 a/b/x/__init__.py 存在也算進去;閉包裡每個模組的每一層上層套件若有 __init__.py 也算進去(Python 匯入子模組時會隱式執行它們,例如 rtb/__init__.py)。
++   - 匯入怎麼解析成檔(第 2 輪審查實測:專案的子套件多半沒有 __init__.py,是命名空間套件,`from rtb.dsp import store` 這種寫法很常見,只解析 `rtb.dsp` 會漏掉 store.py):檔案裡任何位置的 import 都算(含函式內、TYPE_CHECKING 區塊、相對匯入);`import a.b.c` 解析成 a/b/c.py 或 a/b/c/__init__.py;`from a.b import x` 除了 a/b.py 或 a/b/__init__.py,若 a/b/x.py 或 a/b/x/__init__.py 存在也算進去;閉包裡每個模組的每一層上層套件若有 __init__.py 也算進去(Python 匯入子模組時會隱式執行它們,例如 rtb/__init__.py)。代碼審第 1 輪補:repo 根的 conftest.py 也在路上;最外層 pytest_plugins 的字面字串、pyproject addopts 的 -p 模組(-p no:xxx 除外)都會被 pytest 載入,一併算進閉包;讀不出字面值、或指到 repo 外的套件就擋(算不到雜湊)。
+    - 少列任何一個就擋並指出是哪一個;作者可以多列(例如子行程啟動、靜態匯入看不到的檔)。
+    - 然後每個檔重算 sha256,跟清單不一致就擋(「證據是舊版本的」)。不用 git 比較,因為 CI 只抓一層歷史。
+-4. 列舉覆蓋:policy 句子含範圍詞時(驗證器裡的一個常數:每一種、每種、每個、每支、每筆、每項、各種、所有、全部、全數、任何、一律、凡是、逐一;第 2 輪審查指出只列五個詞,換成「各種」就掃不到),至少要有一個 enumerations(沒有登錄表可列舉,就要改寫宣稱、不准用這些詞)。每個 enumerations 讀出的項目都要被至少一項證據的 covers 標到,少一項就擋並印出是哪一項;covers 寫了列舉裡沒有的項目也擋(多半是打錯字或舊名字)。登錄表只認最外層的普通或帶型別註記的賦值,值是 tuple、list、set 或 frozenset 字面、元素全是字串字面;讀不出來(動態組出來的、從別處匯入的)也擋,不放行。
++4. 列舉覆蓋:policy 句子含範圍詞時(驗證器裡的一個常數:每一種、每種、每一個、每個、每一支、每支、每一筆、每筆、每一項、每項、每一條、每條、每次、各種、所有、全部、全數、任何、一律、凡是、逐一;第 2 輪設計審指出只列五個詞,換成「各種」就掃不到;代碼審第 1 輪補「每一X」「每條」「每次」),至少要有一個 enumerations(沒有登錄表可列舉,就要改寫宣稱、不准用這些詞)。每個 enumerations 讀出的項目都要被至少一項證據的 covers 標到,少一項就擋並印出是哪一項;covers 寫了列舉裡沒有的項目也擋(多半是打錯字或舊名字)。登錄表只認最外層唯一一次的普通或帶型別註記的賦值,值是 tuple 字面或 frozenset(字面)、元素全是字串字面(代碼審第 1 輪:list、set 可以事後 append,改成只收不可變的);模組這一層(含 if、try 等區塊,不含 def、class 本體)別處再綁定、del、或函式裡用 global 改它,都擋;讀不出來(動態組出來的、從別處匯入的)也擋,不放行。
+ 5. 故障注入:kind 是 failure_injection 的證據,用語法樹確認那支測試(含它用到的 fixture 所在檔)真的引用了宣告的注入手段,而且測試本體有斷言。
+ 6. 真的跑:把所有證據的節點編號交給 pytest(子行程、sys.executable -m pytest、工作目錄是 repo 根、`-c pyproject.toml` 指定唯一設定檔、關掉快取、加 `-o xfail_strict=true`、輸出 JUnit XML 到暫存檔、總時限 900 秒),每個編號都要至少收集到一筆、全部通過;跳過、預期失敗、沒收集到、被取消選取都算擋;pytest 回「找不到測試」也擋;超過總時限也擋(印「逾時」,不是通過)。參數化的函式展開成全部參數,全部要過。擋下時附上 pytest 對那支測試的失敗訊息,讓讀的人分得出是斷言失敗還是時間上限(見 F7 那條)。
+    - JUnit 的限制(前掃實跑 pytest 9.1.1 確認):跳過與預期失敗都記成 skipped(type 分別是 pytest.skip、pytest.xfail);**預期失敗卻通過的測試在 JUnit 裡跟一般通過長得一樣**,所以要靠 `xfail_strict=true` 把它變成失敗;被取消選取的測試不出現在 JUnit 裡,靠「每個編號至少一筆」抓。
+    - 任一個編號找不到時,pytest 回結束代碼 4 而且整批一支都不跑;驗證器要從 pytest 的輸出指出是哪一個編號,不能只說「有錯」。
+    - JUnit 記的是 classname(路徑斜線換成點、去掉 .py,類別方法再接類別名)加 name(參數化帶方括號),驗證器照這個規則把節點編號對回 testcase。
+    - conftest 與 pytest 設定能改測試結果(第 1 輪審查實跑:一支 conftest 的報告鉤子能把失敗改成通過,JUnit 裡看不出來);第 3 步把它們強制算進 harness 雜湊,改了就擋、讓審查員看到差異。
+-   - 能改結果卻不在任何檔案裡的東西要清掉(第 2 輪審查實跑:PYTEST_DISABLE_PLUGIN_AUTOLOAD 只擋自動載入,擋不住 -p、conftest 的 pytest_plugins、設定檔 addopts 的 -p;環境變數 PYTEST_ADDOPTS 帶 -p 能載入改結果的外掛,不在任何雜湊裡):子行程的環境先拿掉所有 PYTEST_ 開頭的變數與 PYTHONPATH、PYTHONSTARTUP,再設 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1。conftest 的 pytest_plugins 與設定檔的 addopts 在 harness 雜湊裡,改了會擋。
++   - 能改結果卻不在任何檔案裡的東西要清掉(第 2 輪審查實跑:PYTEST_DISABLE_PLUGIN_AUTOLOAD 只擋自動載入,擋不住 -p、conftest 的 pytest_plugins、設定檔 addopts 的 -p;環境變數 PYTEST_ADDOPTS 帶 -p 能載入改結果的外掛,不在任何雜湊裡):子行程的環境先拿掉所有 PYTEST_ 開頭的變數與 PYTHONPATH、PYTHONSTARTUP,再設 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1;直譯器加 -E -s(代碼審第 1 輪:沒有 venv 的直譯器 user site 開著,usercustomize 能在清完環境後再設 PYTEST_ADDOPTS)。標記明寫 xfail(strict=False) 會蓋過 xfail_strict,驗證器另塞一個唯讀紀錄器進 pytest,記下預期失敗卻通過的節點;紀錄讀不到也擋。conftest 的 pytest_plugins 與設定檔的 addopts 在 harness 雜湊裡,改了會擋。
+    - pytest 設定來源只准一份:repo 根出現 pytest.ini、.pytest.ini、tox.ini 或 setup.cfg 就擋(實測 pytest.ini 一存在,pyproject.toml 裡的 pytest 設定整段失效);另外用 -c 指定 pyproject.toml。
+    - 子行程用新的行程群組啟動,逾時時整組結束,不留下測試另起的模擬 DSP 等孫行程。
+ - 輸出:不管通過或擋下,都印出驗證器檔本身的 sha256、每份清單的 sha256,以及讀得到時的目前提交編號(讀不到印「無」),讓一次結果對得回是哪一版驗證器對哪一版清單算的。結果只印在輸出裡,不寫回任何清單(使用者裁定:清單不帶結果)。
+ - 驗證器不匯入 rtb 的任何模組(讀程式一律用語法樹與文字、跑測試用子行程),也不呼叫 lumos(原始碼裡不出現 lumos 的指令路徑);rtb 的任何模組也不准匯入 tools。守法照專案既有兩種機制各用在該用的地方:新開 tools/ruff.toml 用 banned-api 禁 tools 匯入 rtb(比照各層 ruff.toml 的整模組禁令,只管得到 tools/ 底下);另用一支語法樹掃描測試同時擋三件事:rtb 匯入 tools(rtb 有不在任何分層目錄裡的最上層模組,各層 ruff.toml 蓋不到)、tests/tools/ 裡驗證器的測試匯入 rtb(第 2 輪審查實測 ruff 目錄設定管不到平行的 tests/tools/;驗證器的測試只用自己造的小 repo,不該碰產品碼)、以及 tools/ 用動態匯入字串帶 rtb(比照既有的邊界掃描測試)。
+ - 驗證器只做機械檢查。「這組測試夠不夠代表這條宣稱」這種語意判斷不在驗證器裡,也不讀任何審查結論。
+ - 驗證器的測試放 tests/tools/,只用 tmp_path 裡自己造的小 repo(幾支一瞬間跑完的小測試),不跑正式證據;正式五份清單的「前五步都過」由測試直接呼叫驗證器模組裡前五步的函式檢查,**不另開跳過第 6 步的命令列旗標**(命令列只有一種跑法,沒有能跳過真跑的開關)。理由:tests/ 底下的測試會被既有 checks 工作的 pytest 全套收集,若在那裡叫驗證器真跑正式證據,F7 會在同一個工作裡被巢狀多跑一次。
+ 
+ ### 語意審查入口(驗證器之外)
+ 
+ - claims/*.json 有改動的提交,照專案既有的代碼審走;審查員依交接文件第 15.4 節寫評分依據、輸入版本(清單的 sha256)與理由,卷證放 governance/review-reports/。驗證器不讀這些(使用者裁定);這條入口目前沒有機械守衛,只靠代碼審流程。
+@@ -86,27 +86,29 @@ REVISIT:2027-03-31 查一次這段期間 claims/*.json 的每次改動是否都
+ - 下面五段是每條宣稱涵蓋什麼的摘要,不是 policy 欄位的原文;policy 欄位是一句白話,用到範圍詞就要有列舉(第 4 步)。
+ - claims/permission-guardrail.json:寫入要帶有效能力憑證,範圍(廣告、動作、租戶)對得上才放行;單次加額超過比例上限、決策過時、廣告版本已變時擋下;人工核可只對它簽的那一份內容有效;死信重放照樣重跑每一關(F6);故障注入要開旗標、只綁本機、分析端送不出故障標頭。沒有既有 ★INVARIANT★,證據節點在增量 1 從前掃列的測試檔逐支選定。
+ - claims/concurrency.json:同一份提案多個工作者同時處理只寫 DSP 一次;舊版本決策被擋、不寫進 DSP;分析端同一個任務併發推進只落地一次。證據:F3、F4 端到端與多工作者、版本衝突、租約測試。
+ - claims/prompt-injection.json:廣告名稱等不可信文字不影響決策、不流進提案;提案只收白名單欄位;可信證據不帶自由文字。證據:F5 端到端與信任邊界、提案、證據、DSP 用戶端白名單測試。
+ - claims/aggregate-blast-radius.json:總曝險到門檻就停、剛好到門檻放行;兩個工作者不能一起衝過門檻;超過的停在待核可、每筆都有紀錄。證據:F7 端到端與總曝險、核可測試。
+ - 冪等那條另帶列舉:DSP 會改廣告狀態的寫入動作,從 DSP 伺服器模組(路由那一層,不是儲存層)的 CAMPAIGN_WRITE_ACTIONS 列舉(update_budget、pause_campaign),不是從全部路由列舉——作廢只看鍵、不改廣告狀態,不在「版本不符拒收」的範圍。圖譜那條合約的措辭照這個改窄(寫明不含作廢),並附一句理由。作廢自己的冪等目前有循序與「作廢對寫入」競態的測試,沒有「兩個作廢同時進來」的並行測試;五條宣稱都沒把它算進範圍,不在這個階段補。
+ 
+ ### CI 與本機
+ 
+ - CI 另開一個跟 checks 平行的工作:checkout、裝開發期工具、跑同一條指令;結束代碼不是 0 就紅。平行跑是為了不拉長 checks 那個工作的時間(F7 的 60 秒上限在那裡)。
+-- 接線要有合約:比照既有「防止 CI 步驟看起來有跑、其實不擋」的接線檢查,鎖住新工作的指令字串與不准 continue-on-error、|| true、if 條件;而且要看工作歸屬:驗證器指令只在一個不是 checks、沒有 needs 的工作裡,checks 工作裡不准出現它(既有接線檢查只找全域指令字串、不分工作,要另外寫)。
++- 接線要有合約:比照既有「防止 CI 步驟看起來有跑、其實不擋」的接線檢查,鎖住新工作的指令字串與不准 continue-on-error、|| true、if 條件;而且要看工作歸屬:驗證器指令只在一個不是 checks、沒有 needs 的工作裡,checks 工作裡不准出現它(既有接線檢查只找全域指令字串、不分工作,要另外寫)。代碼審第 1 輪補:那個工作不准有 shell:、整份不准有 defaults:(shell: bash {0} 不會在第一個指令失敗時停下),驗證器指令要是單行 run:。
+ - 已知風險:F7 在 CI 上偶爾超過 60 秒(見 [[Issues/F7端到端在CI上偶爾超過60秒]]),使用者裁定紅了就重跑。新工作會再跑一次 F7,等於每次推送多一次撞到的機會;驗證器擋下時印出 pytest 的失敗訊息,讀的人看得出是時間上限不是宣稱失敗,處理照〈使用者裁定〉(重跑);新工作因 F7 超時重跑也算進那篇 Issue 的回頭條件次數。
+ - 本機用同一條指令;Systems 家寫清楚。
+ 
+ ### 拆增量
+ 
+ - 增量 1:清單格式與驗證器第 1–4 步加第 6 步(真的跑)、**五份清單全部**(權限護欄那份的證據節點在這個增量選定)、tools/ruff.toml 與互不匯入的掃描測試、CI 平行工作與接線合約。五份一次到齊,是為了第 1 步「少一條就擋」從第一天就能開著,不做分期開關(分期開關容易開了忘記關)。
++- 增量 1 狀態(2026-09-24):實作完成、待代碼審。驗證器第 1–4、6 步、五份清單、tools/ruff.toml、互不匯入掃描、CI claims 工作;本機實跑正式清單通過(75 支證據測試、42.4 秒,單次量測)。現況與權限護欄證據的挑選理由見 [[Systems/宣稱驗證器]]。實作時的解讀:讀得懂但不合規則(重複鍵、NaN、布林當整數)算擋下(結束代碼 1),只有語法錯、編碼錯、超長整數算讀不懂(2);前四步有擋下就不跑測試;conftest 本身的匯入也算進依賴閉包;列舉來源檔也算進 scope。冪等清單的「每一種」只掛在版本不符拒收上:pause_campaign 沒有同鍵只套用一次的專屬測試。
++- 代碼審第 1 輪(2026-09-24,增量 1,正確性、架構對齊、外家三席;12 條)的修正先落在增量 1:根 conftest、pytest_plugins 與 addopts 外掛進閉包、證據測試位置與套件規則、-E -s、非嚴格 xfail 紀錄器、最外層完整走訪與登錄表只收不可變、CI 不准 shell 與 defaults、怪值與語法錯轉成擋下原因、合約綁定測試蓋全字面、範圍詞補「每一X」;Systems 家那句「寫成每一種會被擋」照實改成天花板。
+ - 增量 2:第 5 步(故障注入)、Mock-DSP 合約措辭改窄、刻意造假的示範(只填「已完成」、改過範圍沒更新雜湊、宣稱範圍大於證據、測試被跳過、conftest 改結果)全部被擋的測試。
+ 
+ ## 合約候選
+ 
+ - [S800] 清單任一層物件出現白名單以外的鍵(包括 result、passed、status、verdict、done)、有重複鍵、有 NaN 或 Infinity、或整數欄位不是真正的整數(含布林)時,驗證器應擋下。[test:test_a_manifest_with_any_unknown_key_is_blocked]
+ - [S801] 清單引用的 scope、harness、symbols、enumerations 有任一個檔案不存在、路徑不合規則(絕對路徑、..、符號連結、大小寫不符)、或名稱找不到最外層定義時,驗證器應擋下並指出是哪一個。[test:test_a_missing_file_or_symbol_is_blocked]
+ - [S802] scope 或 harness 任一檔的內容雜湊跟清單不一致時,驗證器應擋下。[test:test_a_stale_scope_hash_is_blocked]
+ - [S803] 列舉讀出的每一項沒有被任何證據 covers 標到時,驗證器應擋下並指出缺哪一項;covers 寫了列舉以外的項目、登錄表讀不出字面常數、或 policy 用了範圍詞卻沒有列舉時,也應擋下。[test:test_an_uncovered_enumerated_item_is_blocked]
+ - [S804] 證據的任一測試節點沒收集到、被跳過、預期失敗、預期失敗卻通過、沒通過或逾時時,驗證器應擋下。[test:test_a_skipped_or_failing_or_missing_test_is_blocked]
+ - [S805] repo 裡放了一份偽造的「全部通過」測試結果檔時,驗證器應照樣自己跑證據測試,以自己跑出的結果判定。[test:test_the_verifier_runs_the_tests_itself]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md b/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md
+new file mode 100644
+index 0000000..be5556b
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md
+@@ -0,0 +1,62 @@
++---
++type: system
++status: doing
++created: 2026-09-24
++updated: 2026-09-24
++responsibility: 負責依五條安全宣稱的 JSON 證據清單做機械檢查(格式、存在、依賴閉包與雜湊新舊、列舉覆蓋、自己跑證據測試),印出通過或擋下與原因;不負責判斷證據在語意上夠不夠(那是獨立審查員的事)、不讀審查結論、不依賴 lumos,也不改任何產品程式。
++aliases: []
++about_code:
++  - tools/verify_claims.py
++  - tests/tools/test_verify_claims.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: 交接文件 Phase 11 要把安全政策轉成可證明的閘:故意只寫「已完成」的自我宣稱不能通過、證據過期要擋、宣稱範圍大於證據要擋。使用者 2026-09-24 裁定:每條宣稱一份 JSON 清單、清單不准有結果欄、驗證器自己在目前版本跑測試不採信外部結果、只做機械檢查不讀審查結論、跟 lumos 互不依賴。出處:[[Projects/RTB_Phase11證據清單與驗證器_計劃]]〈使用者裁定〉。
++  WHY: 新舊判定用內容雜湊不用 git:CI 只抓一層歷史,看不到舊提交。代價是作者可以改程式後直接重算雜湊寫回,機器分不出重看過還是重貼,只逼清單在同一個提交出現差異讓審查員看到。出處:[[Projects/RTB_Phase11證據清單與驗證器_計劃]]〈實務隱患〉,2026-09-24。
++  WHY: scope 與 harness 的「一定要列」由驗證器沿靜態匯入算,不靠作者手列;設計審兩輪實測抓到手列會漏:證據測試檔本身、conftest、上層套件初始化檔、命名空間套件「from 套件 import 子模組」的寫法。出處:2026-09-24 設計審 r1、r2,卷證 governance/review-reports/rtb-phase11證據清單與驗證器/;[[Projects/RTB_Phase11證據清單與驗證器_計劃]]〈審計修正紀錄〉。
++  PITFALL: 一支 conftest 的報告鉤子能把失敗改成通過,JUnit 裡看不出來;所以證據測試路上的 conftest 強制進 harness 雜湊。防回歸:[test:test_a_file_missing_from_the_dependency_closure_is_blocked]。
++  PITFALL: 環境變數 PYTEST_ADDOPTS 帶 -p、或 PYTHONPATH 指到外面的 sitecustomize,都能載入改結果的外掛,而且不在任何雜湊裡;PYTEST_DISABLE_PLUGIN_AUTOLOAD 擋不住這兩條,子行程環境要先清掉。防回歸:[test:test_the_pytest_run_ignores_outside_config_and_environment]。
++  PITFALL: JUnit 裡「預期失敗卻通過」跟一般通過長得一樣,要加 xfail_strict=true;repo 根一出現 pytest.ini,pyproject 的 pytest 設定整段失效。防回歸:[test:test_a_skipped_or_failing_or_missing_test_is_blocked]、[test:test_a_second_pytest_config_file_is_blocked]。
++  PITFALL: [2026-09-24 代碼審 r1] 會改測試結果的不只證據測試路上的 conftest:repo 根的 conftest、conftest 或測試檔最外層 pytest_plugins 字串、pyproject addopts 的 -p 模組都會被 pytest 載入,匯入分析看不到。這些都算進閉包;字串讀不出字面值、或指到 repo 外的套件就擋(算不到雜湊)。證據測試只准放 tests/ 底下、每層都要有 __init__.py(不是套件的目錄,pytest 會把同層 helper 當頂層模組匯入,閉包解析不到)。防回歸:[test:test_a_file_missing_from_the_dependency_closure_is_blocked]、[test:test_a_plugin_the_verifier_cannot_hash_is_blocked]、[test:test_an_evidence_test_in_a_directory_without_init_is_blocked]。
++  PITFALL: [2026-09-24 代碼審 r1] 清掉 PYTEST_ 與 PYTHONPATH 還不夠:沒有 venv 的直譯器(CI 的 setup-python)user site 開著,裡面的 usercustomize 能在清完環境之後再設 PYTEST_ADDOPTS。子行程一律 python -E -s。本機 venv 的 user site 關著測不到,測試另造一個 user site 開著的直譯器。防回歸:[test:test_the_pytest_run_ignores_outside_config_and_environment]、[test:test_the_evidence_runs_with_the_environment_and_user_site_ignored]。
++  PITFALL: [2026-09-24 代碼審 r1] 標記明寫 xfail(strict=False)(含模組層 pytestmark、執行期才加的標記)會蓋過 xfail_strict,通過時 JUnit 看起來跟通過一樣。驗證器自己塞一個唯讀紀錄器進 pytest,記下 wasxfail 卻通過的節點;選它不選語法樹掃描,是因為執行期加的標記掃不到;紀錄檔讀不到也擋。防回歸:[test:test_a_skipped_or_failing_or_missing_test_is_blocked]、[test:test_a_run_that_leaves_no_xfail_record_is_blocked]。
++  PITFALL: [2026-09-24 代碼審 r1] 「最後一次綁定」只看最外層直接敘述,會漏 if、try 裡的重綁、del、函式裡用 global 改、以及對 list 登錄表 append。改成模組這一層完整走訪(不進 def、class 本體),唯一一次定義以外有任何綁定、del 或 global 就擋;登錄表只收 tuple 與 frozenset。防回歸:[test:test_a_missing_file_or_symbol_is_blocked]、[test:test_an_uncovered_enumerated_item_is_blocked]。
++  PITFALL: macOS 預設不分大小寫、CI 的 Linux 分,只查「檔案存在」會本機過、CI 擋;路徑一律從 repo 根逐段比對目錄實際列出的名字。防回歸:[test:test_a_missing_file_or_symbol_is_blocked]。
++  PITFALL: 標準 json 對超長整數丟的是 ValueError 不是 JSONDecodeError,只接後者會當掉。防回歸:[test:test_an_unreadable_manifest_is_undecidable_not_blocked]。
++  RULE: CI 的 claims 工作因 F7 超過 60 秒而紅,照舊重跑,重跑也算進 [[Issues/F7端到端在CI上偶爾超過60秒]] 的回頭條件次數。 [since:2026-09-24] [retire:F7 的 60 秒上限改掉、或 F7 不再是總曝險宣稱的證據時] [confirmed:2026-09-24]
++  FACT: 2026-09-24 本機實跑正式五份清單:通過,75 支證據測試,42.4 秒(單次量測,以程式碼為準;重跑:`python tools/verify_claims.py claims/`)。
++  REVISIT:2026-10-31 用 CI claims 工作前幾次的時間重估,超過 5 分鐘就回頭看要不要拆。
++  TEST: tests/tools/test_verify_claims.py 全用 tmp_path 造小 repo,不跑正式證據(否則 F7 在 checks 工作裡巢狀多跑一次);正式五份清單只在 [S809] 用函式檢查前四步,真跑交給 CI 的 claims 工作。
++---
++# 宣稱驗證器
++
++`tools/verify_claims.py` 讀 `claims/*.json` 五份證據清單,依序做格式、存在、依賴閉包與雜湊新舊、列舉覆蓋,都沒擋才自己跑一次證據測試;第 5 步故障注入檢查在增量 2。`tests/tools/test_verify_claims.py` 是它的測試。清單格式、每一步的規則與合約 [S800]–[S816] 以計劃為準,這裡只記程式看不出的脈絡。
++
++## 用法
++
++    python tools/verify_claims.py claims/
++
++本機與 CI 同一條;CI 的 claims 工作跟 checks 平行。結束代碼 0 通過、1 擋下、2 無法判定(參數錯、清單讀不懂)。輸出開頭印驗證器與每份清單的 sha256 和目前提交編號,結果只印不存。
++
++## 改了程式之後
++
++範圍內任何一支檔(每份清單 20 到 33 支正式碼,依賴閉包算的)改了,CI 的 claims 工作就會擋「雜湊跟清單不一致」,直到有人重算清單裡的雜湊。目前沒有重算的輔助工具:要嘛手動重算,要嘛照驗證器擋下的原因逐項補。重算前要自己確認證據在語意上還成立——驗證器分不出「重看過」與「重貼」(見〈實務隱患〉與 REVISIT)。
++
++## 權限護欄那份清單怎麼挑的(增量 1 逐支選定)
++
++這條沒有既有 ★INVARIANT★,從前掃列的測試檔逐支挑,每支對一個 policy 子句:
++- 能力憑證:`tests/dsp/test_capability.py` 的沒有有效憑證被拒、別把金鑰簽的被拒、範圍任一欄不符被拒、時間窗外被拒——四支分別對「有效」「範圍對得上」;不挑接受邊界的正向測試,那是另一個方向。
++- 簽發端:`test_the_executor_refuses_to_sign_outside_its_current_tenant_configuration`,租戶設定外不簽,對「租戶範圍」。
++- 比例上限:`test_a_budget_increase_is_bounded_by_the_ratio_cap` 與 `test_a_ratio_block_writes_nothing`,前者邊界、後者擋下時沒寫。
++- 決策過時:`test_a_stale_decision_is_blocked`。
++- 廣告版本已變:`test_each_failed_precheck_blocks_the_proposal_without_a_write`,每一種執行前檢查失敗都不寫。
++- 人工核可只對它簽的內容有效:核可範圍任一欄變了就失效、範圍到期雜湊階段變了就失效、只管自己那一階段,三支。
++- 死信重放照樣重跑檢查:`test_a_replayed_proposal_goes_through_every_gate` 加 F6 端到端一支。
++- 故障注入:旗標沒開帶故障標頭被拒、每一種故障模式旗標沒開都拒、只綁本機、分析端的標頭是封閉列舉(兩支)、分析端碰不到正式形態伺服器的故障注入。
++
++## 冪等那份清單的措辭
++
++「每一種寫入動作」只掛在「預期版本不符拒收」上(列舉 `CAMPAIGN_WRITE_ACTIONS`,證據是對兩種動作參數化的版本測試)。「同一把鍵最多套用一次」沒寫「每一種」:同鍵只套用一次的單元測試只用 update_budget,pause_campaign 沒有專屬的同鍵測試,照證據寫窄。
++
++**驗證器擋不住「每一種」寫在哪一句**(代碼審第 1 輪指出本篇原本寫錯):第 4 步只查整份清單的 covers 聯集涵蓋列舉的每一項,不知道範圍詞掛在 policy 的哪個子句。版本測試已經 covers 兩種動作,所以就算把「每一種」加到同鍵那句,驗證器照樣通過。範圍詞掛對句子只能靠審查員分辨。
+diff --git a/tests/tools/test_verify_claims.py b/tests/tools/test_verify_claims.py
+new file mode 100644
+index 0000000..751f78b
+--- /dev/null
++++ b/tests/tools/test_verify_claims.py
+@@ -0,0 +1,1111 @@
++"""宣稱驗證器(Phase 11 增量 1):依證據清單做機械檢查,自己跑證據測試,印出通過或擋下。
++
++驗證器的測試一律在 tmp_path 裡造一個小 repo(幾支一瞬間跑完的小測試),不跑正式證據:tests/ 底下的
++測試會被 checks 工作的全套收集,在這裡真跑正式證據會讓 F7 在同一個工作裡巢狀多跑一次。正式五份清單
++只檢查前幾步([S809]),真跑交給 CI 的平行工作。
++"""
++
++import ast
++import hashlib
++import importlib.util
++import io
++import json
++import os
++import subprocess
++import sys
++import time
++from pathlib import Path
++
++import pytest
++
++from tests.test_static_wiring import ci_problems, parse_run_commands
++
++ROOT = Path(__file__).resolve().parents[2]
++VERIFIER = ROOT / "tools" / "verify_claims.py"
++REQUIRED = ("aggregate-blast-radius", "concurrency", "idempotency-unknown-outcome",
++            "permission-guardrail", "prompt-injection")
++COMMAND = "python tools/verify_claims.py claims/"
++
++
++def load_verifier():
++    spec = importlib.util.spec_from_file_location("verify_claims", VERIFIER)
++    module = importlib.util.module_from_spec(spec)
++    sys.modules["verify_claims"] = module
++    spec.loader.exec_module(module)
++    return module
++
++
++# ── 小 repo ──────────────────────────────────────────────────────────────────
++# src/rtb/dsp 沒有 __init__.py(命名空間套件,跟正式專案一樣),server 用
++# `from rtb.dsp import store` 匯入 store:只解析套件會漏掉 store.py。
++
++TEST_SERVER = """\
++import pytest
++
++from rtb.dsp.server import act
++from tests.dsp import samples
++
++
++def test_update():
++    assert act("update") == samples.EXPECTED
++
++
++def test_pause():
++    assert act("pause") == samples.EXPECTED
++"""
++
++FILES = {
++    "pyproject.toml": '[tool.pytest.ini_options]\ntestpaths = ["tests"]\npythonpath = ["src"]\n',
++    "src/rtb/__init__.py": "",
++    "src/rtb/kit.py": "def ok():\n    return True\n",
++    "src/rtb/dsp/store.py": "from rtb import kit\n\n\ndef apply(action):\n    return kit.ok()\n",
++    "src/rtb/dsp/server.py": (
++        "from rtb.dsp import store\n\nWRITE_ACTIONS = (\"update\", \"pause\")\n\n\n"
++        "def act(action):\n    return store.apply(action)\n\n\n"
++        "class Handler:\n    def handle(self):\n        return act(\"update\")\n"
++    ),
++    "tests/__init__.py": "",
++    "tests/dsp/__init__.py": "",
++    "tests/dsp/conftest.py": "import pytest\n\n\n@pytest.fixture\ndef unused():\n    return 1\n",
++    "tests/dsp/samples.py": "EXPECTED = True\n",
++    "tests/dsp/test_server.py": TEST_SERVER,
++}
++SCOPE = ["src/rtb/__init__.py", "src/rtb/dsp/server.py", "src/rtb/dsp/store.py", "src/rtb/kit.py"]
++HARNESS = ["pyproject.toml", "tests/__init__.py", "tests/dsp/__init__.py",
++           "tests/dsp/conftest.py", "tests/dsp/samples.py", "tests/dsp/test_server.py"]
++NODE_UPDATE = "tests/dsp/test_server.py::test_update"
++NODE_PAUSE = "tests/dsp/test_server.py::test_pause"
++
++
++def sha(root, path):
++    return hashlib.sha256((root / path).read_bytes()).hexdigest()
++
++
++def manifest(root, claim_id, **changes):
++    data = {
++        "manifest_version": 1,
++        "claim_id": claim_id,
++        "policy": "每一種寫入動作都只套用一次。",
++        "scope": [{"path": p, "sha256": sha(root, p)} for p in changes.pop("scope", SCOPE)],
++        "harness": [{"path": p, "sha256": sha(root, p)}
++                    for p in changes.pop("harness", HARNESS)],
++        "enumerations": [{"source": "src/rtb/dsp/server.py:WRITE_ACTIONS"}],
++        "evidence": [
++            {"node": NODE_UPDATE, "covers": ["update"], "kind": "unit"},
++            {"node": NODE_PAUSE, "covers": ["pause"], "kind": "unit"},
++        ],
++        "symbols": ["src/rtb/dsp/server.py:act", "src/rtb/dsp/server.py:Handler.handle"],
++    }
++    data.update(changes)
++    return data
++
++
++def write_manifests(root, **changes):
++    claims = root / "claims"
++    claims.mkdir(exist_ok=True)
++    for claim_id in REQUIRED:
++        text = json.dumps(manifest(root, claim_id, **dict(changes)), ensure_ascii=False, indent=1)
++        (claims / f"{claim_id}.json").write_text(text, encoding="utf-8")
++
++
++def write_files(root, files):
++    for path, text in files.items():
++        (root / path).parent.mkdir(parents=True, exist_ok=True)
++        (root / path).write_text(text, encoding="utf-8")
++
++
++@pytest.fixture
++def repo(tmp_path):
++    write_files(tmp_path, FILES)
++    write_manifests(tmp_path)
++    return tmp_path
++
++
++def set_raw(root, claim_id, text):
++    (root / "claims" / f"{claim_id}.json").write_text(text, encoding="utf-8")
++
++
++def verify(root, **kwargs):
++    module = load_verifier()
++    out = io.StringIO()
++    code = module.run([str(root / "claims")], out=out, **kwargs)
++    return code, out.getvalue()
++
++
++def test_a_clean_repo_passes_and_actually_runs_the_evidence(repo):
++    code, output = verify(repo)
++
++    assert code == 0, output
++    assert "通過" in output
++    assert "2 支證據測試" in output  # 兩個節點都真的跑了
++
++
++# ── [S800] 格式:每一層白名單、重複鍵、NaN、布林不是整數 ──────────────────────
++
++def _with_key(root, where, key, value):
++    data = manifest(root, "concurrency")
++    target = data if where == "top" else data[where][0]
++    target[key] = value
++    return json.dumps(data, ensure_ascii=False)
++
++
++@pytest.mark.parametrize(("where", "key"), [
++    ("top", "result"), ("evidence", "passed"), ("scope", "status"),
++    ("harness", "verdict"), ("enumerations", "done"),
++])
++def test_a_manifest_with_any_unknown_key_is_blocked(repo, where, key):
++    set_raw(repo, "concurrency", _with_key(repo, where, key, "ok"))
++
++    code, output = verify(repo)
++
++    assert code == 1
++    assert key in output and "concurrency" in output
++
++
++@pytest.mark.parametrize(("label", "mangle", "expected"), [
++    ("重複鍵", lambda t: t.replace('"policy":', '"policy": "x", "policy":', 1), "重複"),
++    ("巢狀重複鍵", lambda t: t.replace('"kind": "unit"', '"kind": "unit", "kind": "unit"', 1),
++     "重複"),
++    ("NaN", lambda t: t.replace('"manifest_version": 1', '"manifest_version": NaN', 1), "NaN"),
++    ("布林", lambda t: t.replace('"manifest_version": 1', '"manifest_version": true', 1),
++     "manifest_version"),
++    ("缺鍵", lambda t: t.replace('"symbols":', '"symbolz":', 1), "symbols"),
++])
++def test_a_manifest_that_parses_but_breaks_the_reading_rules_is_blocked(
++        repo, label, mangle, expected):
++    text = json.dumps(manifest(repo, "concurrency"), ensure_ascii=False)
++    assert mangle(text) != text, label
++    set_raw(repo, "concurrency", mangle(text))
++
++    code, output = verify(repo)
++
++    assert code == 1, output
++    assert expected in output
++
++
++@pytest.mark.parametrize(("changes", "expected"), [
++    ({"manifest_version": 2}, "manifest_version"),
++    ({"policy": "  "}, "policy"),
++    ({"symbols": "src/rtb/dsp/server.py:act"}, "symbols"),
++    ({"evidence": []}, "evidence"),
++    ({"evidence": [{"node": NODE_UPDATE, "covers": ["update", "pause"], "kind": "unit",
++                    "injection": "DEATH"}]}, "injection"),  # 只有 failure_injection 能帶
++    ({"evidence": [{"node": NODE_UPDATE, "covers": ["update", "pause"],
++                    "kind": "failure_injection"}]}, "injection"),  # 故障注入一定要寫手段
++])
++def test_a_field_with_the_wrong_value_or_type_is_blocked(repo, changes, expected):
++    write_manifests(repo, **changes)
++
++    code, output = verify(repo)
++
++    assert code == 1, output
++    assert expected in output
++
++
++@pytest.mark.parametrize(("side", "mangle", "expected"), [
++    ("scope", lambda entry: dict(entry, sha256=entry["sha256"].upper()), "64 位"),
++    ("scope", lambda entry: entry, "重複列了"),  # 同一支列兩次,解析時不准默默留一份
++])
++def test_a_file_entry_with_a_bad_hash_or_listed_twice_is_blocked(repo, side, mangle, expected):
++    data = manifest(repo, "concurrency")
++    data[side].append(mangle(dict(data[side][0])))
++    if expected == "64 位":
++        data[side].pop(0)
++    set_raw(repo, "concurrency", json.dumps(data, ensure_ascii=False))
++
++    code, output = verify(repo)
++
++    assert code == 1, output
++    assert expected in output
++
++
++def test_a_block_before_the_run_says_the_evidence_was_not_run(repo):
++    write_manifests(repo, policy="")
++
++    code, output = verify(repo)
++
++    assert code == 1 and "沒跑證據測試" in output
++
++
++def test_the_same_evidence_node_twice_in_one_manifest_is_blocked(repo):
++    evidence = manifest(repo, "concurrency")["evidence"]
++    write_manifests(repo, evidence=[*evidence, dict(evidence[0], covers=[])])
++
++    code, output = verify(repo)
++
++    assert code == 1 and "重複" in output and NODE_UPDATE in output
++
++
++# ── [S801] 存在與路徑規則、symbols 只認最外層 ─────────────────────────────────
++
++def _add_scope(root, path):
++    """在 concurrency 那份的 scope 多列一項;雜湊照實際的 kit.py 算,只留下路徑本身的問題。"""
++    data = manifest(root, "concurrency")
++    data["scope"].append({"path": path, "sha256": sha(root, "src/rtb/kit.py")})
++    set_raw(root, "concurrency", json.dumps(data, ensure_ascii=False))
++
++
++def test_a_file_listed_in_both_scope_and_harness_is_blocked(repo):
++    write_manifests(repo, harness=[*HARNESS, "src/rtb/kit.py"])
++
++    code, output = verify(repo)
++
++    assert code == 1 and "同時" in output
++
++
++SYMBOL_EXTRAS = """
++
++if True:
++    def hidden():
++        return 1
++
++
++def shadowed():
++    return 1
++
++
++shadowed = None
++
++
++def reimported():
++    return 1
++
++
++from rtb.kit import ok as reimported  # noqa: E402
++
++
++def outer():
++    def inner():
++        return 1
++    return inner
++
++
++def in_try():
++    return 1
++
++
++try:
++    from rtb.kit import ok as in_try  # noqa: F811
++except ImportError:
++    pass
++
++
++def in_if():
++    return 1
++
++
++if True:
++    in_if = None
++
++
++def deleted():
++    return 1
++
++
++del deleted
++
++
++def via_global():
++    return 1
++
++
++def rebinder():
++    global via_global
++    via_global = None
++
++
++def uses_local():
++    act = 1  # 函式裡的區域變數跟 symbol 同名,不算重新綁定
++    WRITE_ACTIONS = ()
++    return act, WRITE_ACTIONS
++"""
++SERVER = "src/rtb/dsp/server.py"
++
++
++@pytest.mark.parametrize(("side", "value", "expected"), [
++    ("scope", "src/rtb/gone.py", "src/rtb/gone.py"),
++    ("scope", "{root}/src/rtb/kit.py", "絕對"),
++    ("scope", "src/rtb/../rtb/kit.py", "路徑不准有 .."),
++    ("scope", "src/rtb/link.py", "符號連結"),
++    ("scope", "src/RTB/kit.py", "src/RTB/kit.py"),  # 中間目錄大小寫錯:macOS 上檔案「存在」
++    ("scope", "src/rtb/Kit.py", "src/rtb/Kit.py"),
++    ("scope", "src/rtb", "不是檔案"),
++    ("symbols", f"{SERVER}:nope", "nope"),
++    ("symbols", f"{SERVER}:hidden", "hidden"),  # 在 if 底下,不算最外層
++    ("symbols", f"{SERVER}:shadowed", "shadowed"),  # 定義之後被重新指派
++    ("symbols", f"{SERVER}:Handler.nope", "Handler.nope"),
++    ("symbols", f"{SERVER}:store", "store"),  # 匯入進來的名字不是定義
++    ("symbols", f"{SERVER}:reimported", "reimported"),  # 定義之後被匯入蓋掉
++    ("symbols", f"{SERVER}:outer.inner", "outer.inner"),  # 函式裡的巢狀函式不是類別方法
++    ("symbols", f"{SERVER}:in_try", "in_try"),  # try 區塊裡被匯入蓋掉(代碼審第 1 輪)
++    ("symbols", f"{SERVER}:in_if", "in_if"),  # if 區塊裡被重新指派
++    ("symbols", f"{SERVER}:deleted", "deleted"),  # 被 del
++    ("symbols", f"{SERVER}:via_global", "via_global"),  # 函式裡用 global 改掉
++    ("symbols", SERVER, "寫法"),  # 沒寫名稱
++])
++def test_a_missing_file_or_symbol_is_blocked(repo, side, value, expected):
++    (repo / "src/rtb/link.py").symlink_to(repo / "src/rtb/kit.py")
++    write_files(repo, {SERVER: FILES[SERVER] + SYMBOL_EXTRAS})
++    if side == "scope":
++        write_manifests(repo)
++        _add_scope(repo, value.format(root=repo))
++    else:
++        write_manifests(repo, symbols=[f"{SERVER}:act", value])
++
++    code, output = verify(repo)
++
++    assert code == 1, output
++    assert expected in output
++
++
++def test_the_symbol_fixtures_do_not_break_a_clean_manifest(repo):
++    write_files(repo, {SERVER: FILES[SERVER] + SYMBOL_EXTRAS})
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 0, output
++
++
++@pytest.mark.parametrize(("changes", "expected"), [
++    ({"enumerations": [{"source": "src/rtb/dsp/Server.py:WRITE_ACTIONS"}]},
++     "src/rtb/dsp/Server.py"),
++    ({"evidence": [{"node": "tests/dsp/Test_server.py::test_update", "covers": ["update"],
++                    "kind": "unit"},
++                   {"node": NODE_PAUSE, "covers": ["pause"], "kind": "unit"}]},
++     "tests/dsp/Test_server.py"),
++])
++def test_an_evidence_node_or_enumeration_source_outside_the_path_rules_is_blocked(
++        repo, changes, expected):
++    write_manifests(repo, **changes)
++
++    code, output = verify(repo)
++
++    assert code == 1
++    assert any(expected in line and "大小寫" in line for line in output.splitlines()), output
++
++
++# ── [S802] 雜湊新舊 ──────────────────────────────────────────────────────────
++
++@pytest.mark.parametrize("path", ["src/rtb/kit.py", "tests/dsp/samples.py"])
++def test_a_stale_scope_hash_is_blocked(repo, path):
++    (repo / path).write_text((repo / path).read_text(encoding="utf-8") + "# 改過\n",
++                             encoding="utf-8")
++
++    code, output = verify(repo)
++
++    assert code == 1
++    assert path in output and "雜湊" in output
++
++
++# ── [S803] 列舉覆蓋 ──────────────────────────────────────────────────────────
++
++REGISTRY = 'WRITE_ACTIONS = ("update", "pause")'
++
++
++@pytest.mark.parametrize(("label", "changes", "registry", "expected"), [
++    ("少標一項", {"evidence": [{"node": NODE_UPDATE, "covers": ["update"], "kind": "unit"}]},
++     None, "pause"),
++    ("covers 打錯字", {"evidence": [
++        {"node": NODE_UPDATE, "covers": ["update"], "kind": "unit"},
++        {"node": NODE_PAUSE, "covers": ["pause", "paus"], "kind": "unit"}]}, None, "paus"),
++    ("範圍詞沒列舉", {"enumerations": [], "evidence": [
++        {"node": NODE_UPDATE, "covers": [], "kind": "unit"}]}, None, "範圍詞"),
++    ("同義詞也算範圍詞", {"policy": "各種寫入動作都只套用一次。", "enumerations": [], "evidence": [
++        {"node": NODE_UPDATE, "covers": [], "kind": "unit"}]}, None, "各種"),
++    ("動態組出來", {}, 'WRITE_ACTIONS = tuple(x for x in ("update", "pause"))', "WRITE_ACTIONS"),
++    ("接著被加長", {}, REGISTRY + '\nWRITE_ACTIONS = WRITE_ACTIONS + ("void",)', "WRITE_ACTIONS"),
++    ("從別處匯入", {}, "from rtb.kit import ok as WRITE_ACTIONS", "WRITE_ACTIONS"),
++    ("元素不是字串", {}, 'WRITE_ACTIONS = ("update", 1)', "WRITE_ACTIONS"),
++    # 代碼審第 1 輪:只看最外層直接敘述會讀成舊值
++    ("可變的 list", {}, 'WRITE_ACTIONS = ["update", "pause"]', "WRITE_ACTIONS"),
++    ("可變的 set", {}, 'WRITE_ACTIONS = {"update", "pause"}', "WRITE_ACTIONS"),
++    ("if 裡重綁", {}, REGISTRY + '\nif True:\n    WRITE_ACTIONS = ("update", "pause", "void")',
++     "WRITE_ACTIONS"),
++    ("try 裡被匯入蓋掉", {}, REGISTRY + "\ntry:\n    from rtb.kit import EXTRA as WRITE_ACTIONS"
++     "\nexcept ImportError:\n    pass", "WRITE_ACTIONS"),
++    ("+= 加長", {}, REGISTRY + '\nWRITE_ACTIONS += ("void",)', "WRITE_ACTIONS"),
++    ("函式裡 global 改掉", {}, REGISTRY + '\n\n\ndef widen():\n    global WRITE_ACTIONS\n'
++     '    WRITE_ACTIONS = ("void",)', "WRITE_ACTIONS"),
++    ("被 del", {}, REGISTRY + "\ndel WRITE_ACTIONS", "WRITE_ACTIONS"),
++])
++def test_an_uncovered_enumerated_item_is_blocked(repo, label, changes, registry, expected):
++    if registry is not None:
++        write_files(repo, {SERVER: FILES[SERVER].replace(REGISTRY, registry)})
++    write_manifests(repo, **changes)
++
++    code, output = verify(repo)
++
++    assert code == 1, (label, output)
++    assert expected in output
++
++
++@pytest.mark.parametrize("assignment", [
++    'WRITE_ACTIONS: tuple[str, ...] = ("update", "pause")',
++    'WRITE_ACTIONS = frozenset({"update", "pause"})',
++    'WRITE_ACTIONS = frozenset(("update", "pause"))',
++])
++def test_every_documented_literal_form_of_a_registry_is_read(repo, assignment):
++    write_files(repo, {SERVER: FILES[SERVER].replace(REGISTRY, assignment)})
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 0, output
++
++
++@pytest.mark.parametrize("word", ["每一個", "每一支", "每一筆", "每一項", "每條", "每一條", "每次"])
++def test_every_scope_word_in_the_plan_is_recognised(repo, word):
++    write_manifests(repo, policy=f"{word}寫入動作都只套用一次。", enumerations=[],
++                    evidence=[{"node": NODE_UPDATE, "covers": [], "kind": "unit"}])
++
++    code, output = verify(repo)
++
++    assert code == 1 and word in output
++
++
++# ── [S804] 真的跑:跳過、預期失敗、預期失敗卻通過、失敗、被取消選取、逾時 ───────
++
++DESELECT_CONFTEST = (
++    "def pytest_collection_modifyitems(config, items):\n"
++    "    items[:] = [i for i in items if i.name != \"test_pause\"]\n"
++)
++
++
++@pytest.mark.parametrize(("label", "files", "expected"), [
++    ("跳過", {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause", "@pytest.mark.skip\ndef test_pause")}, "跳過"),
++    ("預期失敗", {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause():\n    assert act",
++        "@pytest.mark.xfail\ndef test_pause():\n    assert not act")}, "跳過"),
++    ("預期失敗卻通過", {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause", "@pytest.mark.xfail\ndef test_pause")}, "沒通過"),
++    ("失敗", {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause():\n    assert act", "def test_pause():\n    assert not act")}, "沒通過"),
++    ("取消選取", {"tests/dsp/conftest.py": DESELECT_CONFTEST}, "沒收集到"),
++    # 代碼審第 1 輪:標記明寫 strict=False 會蓋過 xfail_strict,JUnit 裡長得跟通過一樣
++    ("非嚴格預期失敗卻通過", {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause", "@pytest.mark.xfail(strict=False, reason=\"flaky\")\ndef test_pause")},
++     "預期失敗卻通過"),
++    ("模組層非嚴格預期失敗", {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "from tests.dsp import samples\n",
++        "from tests.dsp import samples\n\npytestmark = pytest.mark.xfail(strict=False)\n")},
++     "預期失敗卻通過"),
++    ("執行期才加的非嚴格預期失敗", {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause():\n", "def test_pause(request):\n"
++        "    request.node.add_marker(pytest.mark.xfail(strict=False))\n")}, "預期失敗卻通過"),
++])
++def test_a_skipped_or_failing_or_missing_test_is_blocked(repo, label, files, expected):
++    write_files(repo, files)
++    write_manifests(repo)  # 雜湊照新內容算,只留下要測的那個原因
++
++    code, output = verify(repo)
++
++    assert code == 1, (label, output)
++    assert NODE_PAUSE in output and expected in output
++
++
++def test_a_run_that_leaves_no_xfail_record_is_blocked(repo):
++    """JUnit 寫完之後才硬結束(結束代碼 0),驗證器的紀錄器沒機會寫;讀不到紀錄就擋,不當成沒有。"""
++    write_files(repo, {
++        "tests/dsp/test_server.py": TEST_SERVER.replace(
++            "def test_pause", "@pytest.mark.xfail(strict=False)\ndef test_pause"),
++        "tests/dsp/conftest.py": FILES["tests/dsp/conftest.py"] + (
++            "\n\ndef pytest_unconfigure(config):\n    import os\n    os._exit(0)\n")})
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 1 and "預期失敗的紀錄" in output
++
++
++def test_a_failure_shows_what_pytest_said_so_a_time_limit_can_be_told_apart(repo):
++    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause():\n    assert act",
++        "def test_pause():\n    assert 70 < 60, \"超過 60 秒上限\"\n    assert act")})
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 1 and "超過 60 秒上限" in output
++
++
++def test_a_run_that_exceeds_the_time_limit_is_blocked_and_leaves_no_process_behind(repo):
++    marker = repo / "child.pid"
++    slow = TEST_SERVER.replace(
++        "def test_pause():\n    assert act",
++        "def test_pause():\n    import subprocess, sys, time\n"
++        "    child = subprocess.Popen([sys.executable, \"-c\", \"import time; time.sleep(60)\"])\n"
++        f"    open({str(marker)!r}, \"w\").write(str(child.pid))\n"
++        "    time.sleep(60)\n    assert act")
++    write_files(repo, {"tests/dsp/test_server.py": slow})
++    write_manifests(repo)
++
++    code, output = verify(repo, timeout=5)
++
++    assert code == 1 and "逾時" in output
++    child = int(marker.read_text())
++    with pytest.raises(ProcessLookupError):  # 測試另起的孫行程也跟著整組結束
++        for _ in range(50):
++            os.kill(child, 0)
++            time.sleep(0.1)
++
++
++# ── [S805] 自己跑,不讀外部結果檔 ─────────────────────────────────────────────
++
++FAKE_JUNIT = ('<?xml version="1.0"?><testsuites><testsuite tests="2" failures="0">'
++              '<testcase classname="tests.dsp.test_server" name="test_update"/>'
++              '<testcase classname="tests.dsp.test_server" name="test_pause"/>'
++              "</testsuite></testsuites>")
++
++
++def test_the_verifier_runs_the_tests_itself(repo):
++    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
++    write_manifests(repo)
++    for name in ("junit.xml", "report.xml", "results.xml", "claims/junit.xml"):
++        (repo / name).write_text(FAKE_JUNIT, encoding="utf-8")
++
++    code, output = verify(repo)
++
++    assert code == 1 and NODE_PAUSE in output
++
++
++# ── [S807] 五條必要宣稱 ──────────────────────────────────────────────────────
++
++def test_a_missing_required_claim_is_blocked(repo):
++    (repo / "claims" / "concurrency.json").unlink()
++
++    code, output = verify(repo)
++
++    assert code == 1 and "concurrency" in output
++
++
++def test_an_empty_claims_directory_is_blocked(repo):
++    for path in (repo / "claims").iterdir():
++        path.unlink()
++
++    code, output = verify(repo)
++
++    assert code == 1
++    assert all(claim_id in output for claim_id in REQUIRED)
++
++
++def test_the_required_claims_are_the_five_in_the_plan():
++    assert tuple(sorted(load_verifier().REQUIRED_CLAIMS)) == REQUIRED
++
++
++# ── [S810] 依賴閉包 ──────────────────────────────────────────────────────────
++
++def _omit(side, path):
++    listed = SCOPE if side == "scope" else HARNESS
++    return lambda _repo: {side: [p for p in listed if p != path]}
++
++
++def _symbol_file(repo):
++    write_files(repo, {"src/rtb/extra.py": "def spare():\n    return 1\n"})
++    return {"symbols": ["src/rtb/extra.py:spare"]}
++
++
++def _enumeration_file(repo):
++    write_files(repo, {"src/rtb/registry.py": 'REG = ("update", "pause")\n'})
++    return {"enumerations": [{"source": "src/rtb/registry.py:REG"}]}
++
++
++def _conftest_import(repo):
++    write_files(repo, {
++        "src/rtb/fixture_only.py": "VALUE = 1\n",
++        "tests/dsp/conftest.py": FILES["tests/dsp/conftest.py"] + (
++            "\n\ndef pytest_configure(config):\n    from rtb import fixture_only  # noqa: F401\n"),
++    })
++    return {}
++
++
++def _root_conftest(repo):
++    write_files(repo, {"conftest.py": "import pytest\n"})
++    return {}
++
++
++def _plugins_in_conftest(repo):
++    write_files(repo, {
++        "tests/dsp/plugin_helpers.py": "VALUE = 1\n",
++        "tests/dsp/conftest.py": FILES["tests/dsp/conftest.py"] + (
++            '\n\npytest_plugins = ["tests.dsp.plugin_helpers"]\n'),
++    })
++    return {}
++
++
++def _plugin_in_addopts(repo):
++    write_files(repo, {
++        "tests/dsp/addopts_plugin.py": "VALUE = 1\n",
++        "pyproject.toml": FILES["pyproject.toml"] + 'addopts = "-p tests.dsp.addopts_plugin"\n',
++    })
++    return {}
++
++
++@pytest.mark.parametrize(("prepare", "expected"), [
++    (_omit("scope", "src/rtb/dsp/store.py"), "src/rtb/dsp/store.py"),  # 套件屬性匯入
++    (_omit("scope", "src/rtb/kit.py"), "src/rtb/kit.py"),  # 遞迴第二層
++    (_omit("scope", "src/rtb/__init__.py"), "src/rtb/__init__.py"),  # 上層套件初始化檔
++    (_omit("harness", "tests/dsp/conftest.py"), "tests/dsp/conftest.py"),
++    (_omit("harness", "tests/dsp/samples.py"), "tests/dsp/samples.py"),
++    (_omit("harness", "tests/__init__.py"), "tests/__init__.py"),
++    (_omit("harness", "pyproject.toml"), "pyproject.toml"),
++    (_omit("harness", "tests/dsp/test_server.py"), "tests/dsp/test_server.py"),  # 證據測試檔本身
++    (_symbol_file, "src/rtb/extra.py"),
++    (_enumeration_file, "src/rtb/registry.py"),
++    (_conftest_import, "src/rtb/fixture_only.py"),
++    # 代碼審第 1 輪:根 conftest、pytest_plugins 字串、pyproject addopts 的 -p 都會被 pytest 載入
++    (_root_conftest, "harness 少列 conftest.py"),
++    (_plugins_in_conftest, "tests/dsp/plugin_helpers.py"),
++    (_plugin_in_addopts, "tests/dsp/addopts_plugin.py"),
++])
++def test_a_file_missing_from_the_dependency_closure_is_blocked(repo, prepare, expected):
++    changes = prepare(repo)
++    write_manifests(repo, **changes)
++
++    code, output = verify(repo)
++
++    assert code == 1, output
++    assert expected in output
++
++
++def test_imports_inside_functions_type_checking_and_relative_imports_are_followed(repo):
++    write_files(repo, {
++        "src/rtb/dsp/store.py": (
++            "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    from rtb import typed\n\n\n"
++            "def apply(action):\n    from . import local\n    from rtb import kit\n"
++            "    return kit.ok() and local.YES\n"),
++        "src/rtb/typed.py": "X = 1\n",
++        "src/rtb/dsp/local.py": "YES = True\n",
++    })
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 1
++    assert "src/rtb/typed.py" in output and "src/rtb/dsp/local.py" in output
++
++
++# ── [S811] 結束代碼 ──────────────────────────────────────────────────────────
++
++@pytest.mark.parametrize("raw", [
++    "{",  # 語法錯
++    '{"manifest_version": ' + "9" * 5000 + "}",  # 超長整數,標準 json 丟的是 ValueError
++    b"\xff\xfe not utf-8",  # 編碼錯
++])
++def test_an_unreadable_manifest_is_undecidable_not_blocked(repo, raw):
++    path = repo / "claims" / "concurrency.json"
++    if isinstance(raw, bytes):
++        path.write_bytes(raw)
++    else:
++        path.write_text(raw, encoding="utf-8")
++
++    code, output = verify(repo)
++
++    assert code == 2 and "concurrency" in output
++
++
++def test_the_exit_code_tells_pass_block_and_undecidable_apart(repo):
++    module = load_verifier()
++    assert verify(repo)[0] == 0
++    (repo / "src/rtb/kit.py").write_text("def ok():\n    return 1\n", encoding="utf-8")
++    assert verify(repo)[0] == 1
++    assert module.run([str(repo / "no-such-dir")], out=io.StringIO()) == 2
++    assert module.run(["--no-such-flag"], out=io.StringIO()) == 2
++    assert module.run([], out=io.StringIO()) == 2
++
++
++# ── [S812] 節點編號 ──────────────────────────────────────────────────────────
++
++@pytest.mark.parametrize("node", [
++    "tests/dsp/test_server.py::test_update[1]",  # 帶參數:只跑到部分參數
++    "tests/dsp/test_server.py::test_nope",  # pytest 找不到,整批一支都不跑
++    "tests/dsp/test_server.py",  # 沒寫函式
++])
++def test_a_parametrized_or_unknown_node_id_is_named_in_the_block(repo, node):
++    evidence = manifest(repo, "concurrency")["evidence"]
++    write_manifests(repo, evidence=[*evidence, {"node": node, "covers": [], "kind": "unit"}])
++
++    code, output = verify(repo)
++
++    assert code == 1, output
++    assert any(node in line and ("找不到" in line or "證據節點" in line)
++               for line in output.splitlines())
++
++
++def test_a_nonzero_pytest_exit_without_a_named_failure_is_still_blocked(repo):
++    write_files(repo, {"tests/dsp/conftest.py": FILES["tests/dsp/conftest.py"] + (
++        "\n\ndef pytest_sessionfinish(session):\n    session.exitstatus = 3\n")})
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 1 and "結束代碼 3" in output
++
++
++# ── [S814] claim_id 跟檔名 ───────────────────────────────────────────────────
++
++def test_a_claim_id_that_differs_from_the_file_name_is_blocked(repo):
++    set_raw(repo, "concurrency", json.dumps(manifest(repo, "Concurrency"), ensure_ascii=False))
++
++    code, output = verify(repo)
++
++    assert code == 1 and "Concurrency" in output
++
++
++# ── [S815] 不受外部 pytest 設定與環境影響 ────────────────────────────────────
++
++EVIL_PLUGIN = (
++    "import pytest\n\n\n@pytest.hookimpl(hookwrapper=True)\n"
++    "def pytest_runtest_makereport(item, call):\n"
++    "    report = (yield).get_result()\n"
++    "    if report.when == \"call\":\n        report.outcome = \"passed\"\n"
++)
++
++
++def _python_with_user_site(tmp_path_factory):
++    """造一個 user site 開著的直譯器(代碼審第 1 輪:CI 的 setup-python 沒有 venv,user site 開著;
++    本機的 venv 關著,直接跑測不到)。venv 帶系統套件時 user site 會開;再放一個 .pth 指回目前
++    的套件目錄,讓它匯入得到 pytest。建立只要幾十毫秒。"""
++    venv = tmp_path_factory.mktemp("usersite-python")
++    subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", "--without-pip",
++                    str(venv)], check=True, timeout=120)
++    python = venv / "bin" / "python"
++    purelib = subprocess.run([str(python), "-c", "import sysconfig;print(sysconfig.get_path("
++                              "'purelib'))"], capture_output=True, text=True, check=True,
++                             timeout=60).stdout.strip()
++    here = next(p for p in sys.path if p.endswith("site-packages") and Path(p, "pytest").exists())
++    Path(purelib, "rtb_test_packages.pth").write_text(here + "\n", encoding="utf-8")
++    enabled = subprocess.run([str(python), "-c", "import site;print(site.ENABLE_USER_SITE)"],
++                             capture_output=True, text=True, check=True, timeout=60).stdout
++    assert enabled.strip() == "True"  # 前提:這個直譯器的 user site 真的開著
++    return python
++
++
++def _user_site(python, base):
++    return Path(subprocess.run([str(python), "-c", "import site;print(site.getusersitepackages())"],
++                               env={**os.environ, "PYTHONUSERBASE": str(base)},
++                               capture_output=True, text=True, check=True,
++                               timeout=60).stdout.strip())
++
++
++@pytest.mark.parametrize("route", ["PYTEST_ADDOPTS", "PYTHONPATH", "PYTHONUSERBASE"])
++def test_the_pytest_run_ignores_outside_config_and_environment(repo, tmp_path_factory,
++                                                                monkeypatch, route):
++    """兩條路各自能把改結果的外掛帶進來:PYTEST_ADDOPTS 帶 -p(外掛放在 repo 根,python -m 會把
++    工作目錄放進搜尋路徑);PYTHONPATH 指到外面一個 sitecustomize,開機時自己設 PYTEST_ADDOPTS。"""
++    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
++    write_manifests(repo)
++    if route == "PYTEST_ADDOPTS":
++        (repo / "evil.py").write_text(EVIL_PLUGIN, encoding="utf-8")
++        monkeypatch.setenv("PYTEST_ADDOPTS", "-p evil")
++    elif route == "PYTHONPATH":
++        outside = tmp_path_factory.mktemp("outside")
++        (outside / "evil.py").write_text(EVIL_PLUGIN, encoding="utf-8")
++        (outside / "sitecustomize.py").write_text(
++            "import os\nos.environ[\"PYTEST_ADDOPTS\"] = \"-p evil\"\n", encoding="utf-8")
++        monkeypatch.setenv("PYTHONPATH", str(outside))
++    else:  # user site 裡的 usercustomize 在清完環境之後才自己設 PYTEST_ADDOPTS
++        python = _python_with_user_site(tmp_path_factory)
++        base = tmp_path_factory.mktemp("userbase")
++        site_dir = _user_site(python, base)
++        site_dir.mkdir(parents=True)
++        (site_dir / "evil.py").write_text(EVIL_PLUGIN, encoding="utf-8")
++        (site_dir / "usercustomize.py").write_text(
++            "import os\nos.environ[\"PYTEST_ADDOPTS\"] = \"-p evil\"\n", encoding="utf-8")
++        monkeypatch.setenv("PYTHONUSERBASE", str(base))
++        monkeypatch.setattr(sys, "executable", str(python))
++
++    code, output = verify(repo)
++
++    assert code == 1 and NODE_PAUSE in output  # 外掛若被載入,失敗會被改成通過
++
++
++def _failing_pause(repo):
++    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
++    write_manifests(repo)
++    # python -m 會把工作目錄放進搜尋路徑,repo 根的 evil.py 載得到
++    (repo / "evil.py").write_text(EVIL_PLUGIN, encoding="utf-8")
++
++
++def test_an_installed_plugin_is_not_loaded_automatically(repo):
++    _failing_pause(repo)
++    dist = repo / "evil_plugin-0.dist-info"
++    dist.mkdir()
++    (dist / "METADATA").write_text("Metadata-Version: 2.1\nName: evil-plugin\nVersion: 0\n",
++                                   encoding="utf-8")
++    (dist / "entry_points.txt").write_text("[pytest11]\nevil = evil\n", encoding="utf-8")
++
++    code, output = verify(repo)
++
++    assert code == 1 and NODE_PAUSE in output
++
++
++def test_a_pytest_config_below_the_repo_root_is_ignored(repo):
++    _failing_pause(repo)
++    # 比 pyproject 更靠近測試檔:沒有 -c 釘住的話 pytest 會改用它(設定照抄,只多了 -p evil)
++    (repo / "tests" / "pytest.ini").write_text(
++        "[pytest]\npythonpath = ../src\naddopts = -p evil\n", encoding="utf-8")
++
++    code, output = verify(repo)
++
++    assert code == 1 and NODE_PAUSE in output
++
++
++@pytest.mark.parametrize("name", ["pytest.ini", ".pytest.ini", "tox.ini", "setup.cfg"])
++def test_a_second_pytest_config_file_is_blocked(repo, name):
++    (repo / name).write_text("[pytest]\naddopts =\n", encoding="utf-8")
++
++    code, output = verify(repo)
++
++    assert code == 1 and name in output
++
++
++# ── [S816] 輸出帶版本指紋 ────────────────────────────────────────────────────
++
++def test_the_output_names_the_verifier_and_manifest_versions(repo):
++    code, output = verify(repo)
++
++    assert code == 0
++    assert hashlib.sha256(VERIFIER.read_bytes()).hexdigest() in output
++    for claim_id in REQUIRED:
++        assert sha(repo, f"claims/{claim_id}.json") in output
++    assert "提交編號" in output
++
++
++# ── [S808] 互不匯入 ──────────────────────────────────────────────────────────
++
++def _imported_modules(path, *, strings=False):
++    """靜態匯入的模組名;strings=True 時連字串裡出現的模組名也算(動態匯入要靠字串帶名字)。"""
++    tree = ast.parse(path.read_text(encoding="utf-8"))
++    names = set()
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import):
++            names |= {alias.name for alias in node.names}
++        elif isinstance(node, ast.ImportFrom) and node.module:
++            names.add(node.module)
++        elif strings and isinstance(node, ast.Constant) and isinstance(node.value, str):
++            names |= {word for word in node.value.replace(",", " ").split()
++                      if word == "rtb" or word.startswith("rtb.")}
++    return names
++
++
++def _touches(names, package):
++    return sorted(n for n in names if n == package or n.startswith(f"{package}."))
++
++
++def test_the_verifier_and_the_product_do_not_import_each_other():
++    # 驗證器連字串都不准帶產品模組名;這支測試檔的字串是小 repo 的樣本碼,只看靜態匯入
++    assert _touches(_imported_modules(VERIFIER, strings=True), "rtb") == []
++    assert _touches(_imported_modules(Path(__file__)), "rtb") == []
++    assert "lumos" not in VERIFIER.read_text(encoding="utf-8")
++    for path in sorted((ROOT / "src" / "rtb").rglob("*.py")):
++        assert _touches(_imported_modules(path), "tools") == [], path
++
++
++def test_the_import_scanner_sees_static_and_string_imports(tmp_path):
++    sample = tmp_path / "sample.py"
++    sample.write_text("import importlib\n\n\ndef f():\n    from rtb.dsp import store\n"
++                      "    importlib.import_module(\"rtb.x\")\n", encoding="utf-8")
++    assert _touches(_imported_modules(sample), "rtb") == ["rtb.dsp"]
++    assert _touches(_imported_modules(sample, strings=True), "rtb") == ["rtb.dsp", "rtb.x"]
++
++
++def test_the_tools_directory_bans_importing_the_product_through_ruff():
++    config = (ROOT / "tools" / "ruff.toml").read_text(encoding="utf-8")
++    assert 'extend = "../pyproject.toml"' in config
++    assert '"rtb".msg' in config
++
++
++# ── [S809] 正式五份清單 ──────────────────────────────────────────────────────
++
++def test_the_committed_claims_pass():
++    module = load_verifier()
++
++    manifests, problems = module.check_manifests(ROOT, ROOT / "claims")
++
++    assert problems == []
++    assert sorted(m.claim_id for m in manifests) == list(REQUIRED)
++
++
++# ── [S813] CI 接線 ───────────────────────────────────────────────────────────
++
++def jobs_of(text):
++    """把 CI 檔切成「工作名 → 那個工作的文字」;只認 jobs: 底下縮排兩格的鍵。"""
++    jobs, current, inside = {}, None, False
++    for line in text.splitlines():
++        if line.startswith("jobs:"):
++            inside = True
++            continue
++        if inside and line and not line.startswith(" "):
++            inside = False
++        if not inside:
++            continue
++        if line.startswith("  ") and not line.startswith("   ") and line.strip().endswith(":"):
++            current = line.strip()[:-1]
++            jobs[current] = []
++        elif current is not None:
++            jobs[current].append(line)
++    return {name: "\n".join(lines) for name, lines in jobs.items()}
++
++
++def claims_job_problems(text):
++    problems = list(ci_problems(text))
++    jobs = jobs_of(text)
++    owners = [name for name, body in jobs.items() if COMMAND in parse_run_commands(body)]
++    if len(owners) != 1:
++        problems.append(f"驗證器指令要剛好在一個工作裡,現在在:{owners}")
++    for name in owners:
++        if name == "checks":
++            problems.append("驗證器不准跑在 checks 工作裡")
++        if any(line.strip().startswith("needs:") for line in jobs[name].splitlines()):
++            problems.append(f"{name} 工作不准 needs 別的工作")
++    if any("verify_claims" in c for c in parse_run_commands(jobs.get("checks", ""))):
++        problems.append("checks 工作裡不准出現驗證器")
++    # 代碼審第 1 輪:shell: bash {0} 不會在第一個指令失敗時停下;defaults: 會改掉整份的 shell
++    if any(line.split("#", 1)[0].strip().startswith("defaults:") for line in text.splitlines()):
++        problems.append("CI 檔不准有 defaults:")
++    for name in owners:
++        lines = [line.split("#", 1)[0].strip().removeprefix("- ") for line in
++                 jobs[name].splitlines()]
++        if any(line.startswith("shell:") for line in lines):
++            problems.append(f"{name} 工作不准指定 shell:")
++        if f"run: {COMMAND}" not in lines:
++            problems.append(f"{name} 工作裡驗證器指令要是單行 run:")
++    return problems
++
++
++def test_the_ci_runs_the_claims_verifier_and_it_can_fail():
++    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
++
++    assert claims_job_problems(text) == []
++
++
++CI_OK = """\
++on:
++  push:
++jobs:
++  checks:
++    runs-on: ubuntu-latest
++    steps:
++      - run: python -m pytest -q
++  claims:
++    runs-on: ubuntu-latest
++    steps:
++      - run: python tools/verify_claims.py claims/
++"""
++
++
++@pytest.mark.parametrize("mangle", [
++    lambda t: t.replace("python tools/verify_claims.py claims/",
++                        "python tools/verify_claims.py claims/ || true"),
++    lambda t: t.replace("  claims:\n    runs-on", "  claims:\n    needs: checks\n    runs-on"),
++    lambda t: t.replace("  claims:\n    runs-on", "  claims:\n    if: false\n    runs-on"),
++    lambda t: t.replace("  claims:\n    runs-on",
++                        "  claims:\n    continue-on-error: true\n    runs-on"),
++    lambda t: t.replace("      - run: python -m pytest -q",
++                        "      - run: python -m pytest -q\n"
++                        "      - run: python tools/verify_claims.py claims/"),
++    lambda t: t.replace("python tools/verify_claims.py claims/", "echo skip"),
++    # 代碼審第 1 輪:shell: bash {0} 不會在第一個指令失敗時停下
++    lambda t: t.replace("      - run: python tools/verify_claims.py claims/",
++                        "      - shell: bash {0}\n        run: |\n"
++                        "          python tools/verify_claims.py claims/\n          echo done"),
++    lambda t: t.replace("jobs:", "defaults:\n  run:\n    shell: bash {0}\njobs:"),
++    lambda t: t.replace("      - run: python tools/verify_claims.py claims/",
++                        "      - run: |\n          python tools/verify_claims.py claims/"),
++    lambda t: t.replace("  claims:", "  checks2:").replace(
++        "      - run: python -m pytest -q\n",
++        "      - run: python -m pytest -q\n      - run: python tools/verify_claims.py claims/\n"),
++])
++def test_every_way_of_making_the_claims_job_toothless_is_flagged(mangle):
++    assert claims_job_problems(CI_OK) == []
++    assert claims_job_problems(mangle(CI_OK)) != []
++
++
++# ── 代碼審第 1 輪補的擋法 ─────────────────────────────────────────────────────
++
++def test_the_evidence_runs_with_the_environment_and_user_site_ignored(repo):
++    """直接看子行程的旗標:-E(不讀 PYTHON 開頭的變數)與 -s(不開 user site)各自都要在。"""
++    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
++        "def test_pause():\n", "def test_pause():\n    import sys\n"
++        "    assert sys.flags.ignore_environment and sys.flags.no_user_site\n")})
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 0, output
++
++
++def test_an_evidence_test_outside_the_tests_directory_is_blocked(repo):
++    write_files(repo, {"scripts/test_side.py": "def test_side():\n    assert True\n"})
++    evidence = manifest(repo, "concurrency")["evidence"]
++    write_manifests(repo, evidence=[*evidence, {"node": "scripts/test_side.py::test_side",
++                                                "covers": [], "kind": "unit"}],
++                    harness=[*HARNESS, "scripts/test_side.py"])
++
++    code, output = verify(repo)
++
++    assert code == 1
++    assert any("scripts/test_side.py" in line and "tests/" in line
++               for line in output.splitlines()), output
++
++
++def test_an_evidence_test_in_a_directory_without_init_is_blocked(repo):
++    """沒有 __init__.py 的測試目錄,pytest 會把同層的 helper 當頂層模組匯入,閉包解析不到;
++    與其模擬 pytest 的各種匯入模式,不如要求每層都是套件(本 repo 現在每層都有)。"""
++    (repo / "tests/dsp/__init__.py").unlink()
++    write_manifests(repo, harness=[p for p in HARNESS if p != "tests/dsp/__init__.py"])
++
++    code, output = verify(repo)
++
++    assert code == 1
++    assert any("tests/dsp" in line and "__init__.py" in line for line in output.splitlines())
++
++
++@pytest.mark.parametrize(("files", "expected"), [
++    ({"tests/dsp/conftest.py": FILES["tests/dsp/conftest.py"] + (
++        '\n\npytest_plugins = [name for name in ("tests.dsp.samples",)]\n')}, "pytest_plugins"),
++    ({"tests/dsp/conftest.py": FILES["tests/dsp/conftest.py"] + (
++        '\n\npytest_plugins = ["somewhere_else"]\n')}, "somewhere_else 不在 repo 裡"),
++    ({"pyproject.toml": FILES["pyproject.toml"] + 'addopts = "-p somewhere_else"\n'},
++     "somewhere_else 不在 repo 裡"),
++    ({"pyproject.toml": FILES["pyproject.toml"] + 'addopts = "-psomewhere_else"\n'},
++     "somewhere_else 不在 repo 裡"),
++])
++def test_a_plugin_the_verifier_cannot_hash_is_blocked(repo, files, expected):
++    """讀不出字面值、或指到 repo 外(已安裝套件)的外掛,驗證器算不到它的雜湊,一律擋。"""
++    write_files(repo, files)
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 1, output
++    assert expected in output
++
++
++def test_a_plugin_named_no_colon_is_allowed(repo):
++    write_files(repo, {"pyproject.toml": FILES["pyproject.toml"] + 'addopts = "-p no:randomly"\n'})
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 0, output
++
++
++@pytest.mark.parametrize(("label", "prepare", "expected"), [
++    ("kind 是陣列", lambda r: write_manifests(r, evidence=[
++        {"node": NODE_UPDATE, "covers": [], "kind": ["unit"]}]), "kind"),
++    ("範圍內程式語法錯", lambda r: (write_files(r, {"src/rtb/kit.py": "def ok(:\n"}),
++                             write_manifests(r)), "src/rtb/kit.py"),
++])
++def test_a_strange_value_or_broken_code_is_a_reason_not_a_crash(repo, label, prepare, expected):
++    prepare(repo)
++
++    code, output = verify(repo)
++
++    assert code == 1, (label, output)
++    assert expected in output and "Traceback" not in output
+diff --git a/tools/ruff.toml b/tools/ruff.toml
+new file mode 100644
+index 0000000..76c2f44
+--- /dev/null
++++ b/tools/ruff.toml
+@@ -0,0 +1,6 @@
++# 專案內的工具不是產品碼:宣稱驗證器讀程式一律用語法樹、跑測試用子行程,不准匯入產品程式
++# (Phase 11 [S808];反方向「產品不准匯入 tools」與 tests/tools 的測試由語法樹掃描測試擋)。
++extend = "../pyproject.toml"
++
++[lint.flake8-tidy-imports.banned-api]
++"rtb".msg = "工具不准匯入產品程式:讀程式用語法樹、跑測試用子行程(Phase 11 [S808])"
+diff --git a/tools/verify_claims.py b/tools/verify_claims.py
+new file mode 100644
+index 0000000..068b76a
+--- /dev/null
++++ b/tools/verify_claims.py
+@@ -0,0 +1,745 @@
++"""宣稱驗證器:依五條安全宣稱的 JSON 證據清單做機械檢查(Phase 11 增量 1)。
++
++用法:python tools/verify_claims.py claims/(本機與 CI 同一條指令)
++結束代碼:0 全通過;1 有擋下;2 無法判定(參數錯、清單讀不懂)。
++
++依序:①格式(每一層白名單、重複鍵、NaN、布林不是整數、claim_id 跟檔名、五條必要宣稱)②存在(路徑
++規則、symbols 只認最外層定義)③依賴閉包與雜湊新舊④列舉覆蓋⑥自己跑證據測試(第⑤步故障注入在增量 2)。
++前面幾步有擋下就不跑測試。清單不帶任何結果,結果只印在輸出裡;驗證器只做機械檢查,不判斷證據在語意
++上夠不夠,也不讀任何審查結論。
++
++驗證器不匯入產品程式:讀程式一律用語法樹,跑測試用子行程。
++"""
++
++import argparse
++import ast
++import hashlib
++import json
++import os
++import re
++import shlex
++import signal
++import subprocess
++import sys
++import tempfile
++import tomllib
++import xml.etree.ElementTree as ElementTree
++from collections.abc import Iterable, Iterator
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, TextIO, TypeGuard
++
++EXIT_PASS, EXIT_BLOCK, EXIT_UNDECIDABLE = 0, 1, 2
++MANIFEST_VERSION = 1
++REQUIRED_CLAIMS = ("aggregate-blast-radius", "concurrency", "idempotency-unknown-outcome",
++                   "permission-guardrail", "prompt-injection")
++# policy 用了這些詞就是在講「全部」,要有列舉(第 2 輪設計審:只列五個詞,換成「各種」就掃不到)
++# 代碼審第 1 輪補「每一X」「每條」「每次」:「每一個」不含「每個」,原清單掃不到
++SCOPE_WORDS = ("每一種", "每種", "每一個", "每個", "每一支", "每支", "每一筆", "每筆",
++               "每一項", "每項", "每一條", "每條", "每次", "各種", "所有", "全部", "全數",
++               "任何", "一律", "凡是", "逐一")
++KINDS = frozenset({"unit", "concurrency", "failure_injection", "end_to_end"})
++TOP_KEYS = frozenset({"manifest_version", "claim_id", "policy", "scope", "harness",
++                      "enumerations", "evidence", "symbols"})
++FILE_KEYS = frozenset({"path", "sha256"})
++ENUMERATION_KEYS = frozenset({"source"})
++EVIDENCE_KEYS = frozenset({"node", "covers", "kind"})
++INJECTION_KEY = "injection"  # 只有 failure_injection 的證據帶(檢查在增量 2)
++PYTEST_CONFIG = "pyproject.toml"
++OTHER_PYTEST_CONFIGS = ("pytest.ini", ".pytest.ini", "tox.ini", "setup.cfg")
++CLEARED_VARIABLES = ("PYTHONPATH", "PYTHONSTARTUP")
++TIMEOUT_SECONDS = 900
++SHA256 = re.compile(r"[0-9a-f]{64}")
++CODE_ROOTS = ("src", "tests")  # 依賴閉包只走專案自己的程式:src 算 scope、tests 算 harness
++ROOT_CONFTEST = "conftest.py"  # repo 根的 conftest 也會被 pytest 載入(代碼審第 1 輪)
++EVIDENCE_ROOT = "tests"  # 證據測試只准放這底下,每層都要是套件
++PLUGINS_NAME = "pytest_plugins"
++# 驗證器自己塞進 pytest 的唯讀紀錄器:非嚴格 xfail 的測試通過時,JUnit 裡跟一般通過長得一樣
++# (標記寫 strict=False 會蓋過 xfail_strict),所以從 pytest 的報告直接記下 wasxfail 的節點
++RUNNER = (
++    "import json, sys\n"
++    "import pytest\n"
++    "class Recorder:\n"
++    "    def __init__(self):\n"
++    "        self.xpassed = []\n"
++    "    def pytest_runtest_logreport(self, report):\n"
++    "        if report.passed and hasattr(report, 'wasxfail'):\n"
++    "            self.xpassed.append(report.nodeid)\n"
++    "recorder = Recorder()\n"
++    "code = pytest.main(sys.argv[2:], plugins=[recorder])\n"
++    "with open(sys.argv[1], 'w', encoding='utf-8') as out:\n"
++    "    json.dump(recorder.xpassed, out)\n"
++    "sys.exit(int(code))\n"
++)
++
++
++class Undecidable(Exception):
++    """清單讀不懂或參數錯:沒辦法開始判。"""
++
++
++class _CodeUnreadable(Exception):
++    """範圍內的程式讀不懂(語法錯、編碼錯):清單讀得懂,算擋下不算無法判定。"""
++
++
++def _parse_code(root: Path, rel: str) -> ast.Module:
++    try:
++        return ast.parse((root / rel).read_text(encoding="utf-8"))
++    except (SyntaxError, UnicodeDecodeError, ValueError) as exc:
++        raise _CodeUnreadable(f"{rel} 讀不懂(語法或編碼錯),沒辦法檢查:{exc}") from exc
++
++
++@dataclass(frozen=True)
++class Evidence:
++    node: str
++    covers: tuple[str, ...]
++    kind: str
++
++    @property
++    def file(self) -> str:
++        return self.node.split("::", 1)[0]
++
++
++@dataclass(frozen=True)
++class Manifest:
++    claim_id: str
++    policy: str
++    scope: dict[str, str]  # 路徑 → sha256
++    harness: dict[str, str]
++    enumerations: tuple[str, ...]  # 「來源檔:常數名」
++    evidence: tuple[Evidence, ...]
++    symbols: tuple[str, ...]  # 「檔:名稱」或「檔:類別.方法」
++
++
++# ── ① 格式 ───────────────────────────────────────────────────────────────────
++
++class _Reading:
++    """讀檔時記下「讀得懂但不合規則」的事:重複鍵、NaN 與 Infinity。"""
++
++    def __init__(self) -> None:
++        self.problems: list[str] = []
++
++    def pairs(self, pairs: list[tuple[str, Any]]) -> dict[str, Any]:
++        keys = [key for key, _ in pairs]
++        repeated = sorted({key for key in keys if keys.count(key) > 1})
++        if repeated:
++            self.problems.append(f"重複的鍵:{', '.join(repeated)}")
++        return dict(pairs)
++
++    def constant(self, name: str) -> None:
++        self.problems.append(f"不准 {name}")
++
++
++def read_json(path: Path) -> tuple[Any, list[str]]:
++    reading = _Reading()
++    try:
++        text = path.read_text(encoding="utf-8")
++        data = json.loads(text, object_pairs_hook=reading.pairs, parse_constant=reading.constant)
++    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
++        # 超長整數丟的是 ValueError 不是 JSONDecodeError(第 1 輪設計審實測),一併收
++        raise Undecidable(f"{path.name} 讀不懂:{exc}") from exc
++    return data, reading.problems
++
++
++def _objects(value: Any, allowed: frozenset[str], where: str) -> tuple[list[dict[str, Any]],
++                                                                        list[str]]:
++    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
++        return [], [f"{where} 要是物件陣列"]
++    problems = [f"{where}[{index}] {problem}" for index, item in enumerate(value)
++                for problem in _key_problems(item, allowed, allowed)]
++    return value, problems
++
++
++def _files(value: Any, where: str) -> tuple[dict[str, str], list[str]]:
++    items, problems = _objects(value, FILE_KEYS, where)
++    files: dict[str, str] = {}
++    for item in items:
++        path, digest = item.get("path"), item.get("sha256")
++        if not isinstance(path, str) or not isinstance(digest, str) or not SHA256.fullmatch(digest):
++            problems.append(f"{where} 的 path 要是字串、sha256 要是 64 位小寫十六進位:{path}")
++        elif path in files:
++            problems.append(f"{where} 重複列了 {path}")
++        else:
++            files[path] = digest
++    return files, problems
++
++
++def _evidence(value: Any) -> tuple[tuple[Evidence, ...], list[str]]:
++    if not isinstance(value, list) or not value:
++        return (), ["evidence 要是非空的物件陣列"]
++    found: list[Evidence] = []
++    problems: list[str] = []
++    for index, item in enumerate(value):
++        if not isinstance(item, dict):
++            problems.append(f"evidence[{index}] 要是物件")
++            continue
++        allowed = EVIDENCE_KEYS | ({INJECTION_KEY} if item.get("kind") == "failure_injection"
++                                   else set())
++        problems += [f"evidence[{index}] {p}" for p in _key_problems(item, allowed, allowed)]
++        node, covers, kind = item.get("node"), item.get("covers"), item.get("kind")
++        if not isinstance(node, str) or not _is_strings(covers) or not isinstance(
++                kind, str) or kind not in KINDS:  # kind 是陣列時不能拿去查集合
++            problems.append(f"evidence[{index}] 的 node、covers、kind 寫法不對:{node}")
++            continue
++        problems += _node_problems(node, [e.node for e in found])
++        found.append(Evidence(node, tuple(covers), str(kind)))
++    return tuple(found), problems
++
++
++def _key_problems(item: dict[str, Any], allowed: Iterable[str],
++                  required: Iterable[str]) -> list[str]:
++    extra = sorted(set(item) - set(allowed))
++    missing = sorted(set(required) - set(item))
++    return ([f"有不認得的鍵:{', '.join(extra)}"] if extra else []) + (
++        [f"缺鍵:{', '.join(missing)}"] if missing else [])
++
++
++def _node_problems(node: str, earlier: list[str]) -> list[str]:
++    if "::" not in node or not node.split("::")[-1]:
++        return [f"證據節點要寫到函式(檔案::函式):{node}"]
++    if "[" in node:
++        return [f"證據節點不准帶參數方括號(只會跑到部分參數):{node}"]
++    if node in earlier:
++        return [f"重複的證據節點:{node}"]
++    return []
++
++
++def _is_strings(value: object) -> TypeGuard[list[str]]:
++    return isinstance(value, list) and all(isinstance(item, str) for item in value)
++
++
++def parse_manifest(name: str, data: Any) -> tuple[Manifest | None, list[str]]:
++    if not isinstance(data, dict):
++        return None, ["最外層要是物件"]
++    problems = _key_problems(data, TOP_KEYS, TOP_KEYS)
++    version, claim_id, policy = (data.get("manifest_version"), data.get("claim_id"),
++                                 data.get("policy"))
++    if type(version) is not int or version != MANIFEST_VERSION:  # 布林在 Python 裡等於 1
++        problems.append(f"manifest_version 要是整數 {MANIFEST_VERSION}")
++    if claim_id != name:
++        problems.append(f"claim_id {claim_id} 跟檔名 {name} 不一致")
++    if not isinstance(policy, str) or not policy.strip():
++        problems.append("policy 要是一句白話")
++    scope, scope_problems = _files(data.get("scope"), "scope")
++    harness, harness_problems = _files(data.get("harness"), "harness")
++    enumerations, enumeration_problems = _objects(data.get("enumerations"), ENUMERATION_KEYS,
++                                                  "enumerations")
++    evidence, evidence_problems = _evidence(data.get("evidence"))
++    symbols = data.get("symbols")
++    if not _is_strings(symbols):
++        problems.append("symbols 要是字串陣列")
++    problems += scope_problems + harness_problems + enumeration_problems + evidence_problems
++    if problems:
++        return None, problems
++    return Manifest(name, str(policy), scope, harness,
++                    tuple(str(item.get("source")) for item in enumerations), evidence,
++                    tuple(symbols) if _is_strings(symbols) else ()), []
++
++
++def check_manifests(root: Path, claims_dir: Path) -> tuple[list[Manifest], list[str]]:
++    """第 1 到 4 步;讀不懂的清單丟 Undecidable。"""
++    paths = sorted(claims_dir.glob("*.json"))
++    manifests: list[Manifest] = []
++    problems: list[str] = []
++    for path in paths:
++        data, reading = read_json(path)
++        manifest, format_problems = parse_manifest(path.stem, data)
++        problems += [f"{path.stem}:{p}" for p in reading + format_problems]
++        if manifest is not None:
++            manifests.append(manifest)
++    present = {path.stem for path in paths}
++    problems += [f"少了必要宣稱:{claim}" for claim in REQUIRED_CLAIMS if claim not in present]
++    problems += repository_problems(root)
++    for manifest in manifests:
++        problems += [f"{manifest.claim_id}:{p}" for p in check_manifest(root, manifest)]
++    return manifests, problems
++
++
++def repository_problems(root: Path) -> list[str]:
++    # pyproject.toml 本身一定在 harness(第 3 步),缺了會在那裡擋,不另查
++    return [f"repo 根有 {name}:pytest 設定只准 {PYTEST_CONFIG} 一份"
++            for name in OTHER_PYTEST_CONFIGS if (root / name).exists()]
++
++
++def check_manifest(root: Path, manifest: Manifest) -> list[str]:
++    try:
++        problems = existence_problems(root, manifest)
++        if problems:  # 路徑本身有問題時,閉包與雜湊只會多出一串連帶的原因
++            return problems
++        return closure_problems(root, manifest) + enumeration_problems(root, manifest)
++    except _CodeUnreadable as exc:
++        return [str(exc)]
++
++
++# ── ② 存在 ───────────────────────────────────────────────────────────────────
++
++def path_problem(root: Path, rel: str) -> str | None:
++    """相對 repo 根、/ 分隔;從根逐段比對目錄實際列出的名字(大小寫完全一樣),每段不准是符號連結。"""
++    if not rel or rel.startswith("/") or "\\" in rel or Path(rel).is_absolute():
++        return f"{rel}:不准絕對路徑或反斜線"
++    parts = rel.split("/")
++    if any(part in ("", ".", "..") for part in parts):
++        return f"{rel}:路徑不准有 ..、. 或空段"
++    here = root
++    for part in parts:
++        try:
++            names = os.listdir(here)
++        except OSError:
++            return f"{rel}:不存在"
++        if part not in names:  # macOS 預設不分大小寫,只看「存在」會本機過、CI 擋
++            return f"{rel}:不存在(每一段的大小寫要跟實際檔名完全一樣)"
++        here = here / part
++        if here.is_symlink():
++            return f"{rel}:路徑上有符號連結"
++    return None if here.is_file() else f"{rel}:不是檔案"
++
++
++def existence_problems(root: Path, manifest: Manifest) -> list[str]:
++    paths = [*manifest.scope, *manifest.harness, *(e.file for e in manifest.evidence)]
++    problems = [p for p in (path_problem(root, rel) for rel in paths) if p]
++    problems += [f"{rel} 同時列在 scope 與 harness"
++                 for rel in sorted(set(manifest.scope) & set(manifest.harness))]
++    for test_file in sorted({e.file for e in manifest.evidence}):
++        problems += _evidence_location_problems(root, test_file)
++    for reference, kind in [*((s, "symbols") for s in manifest.symbols),
++                            *((e, "enumerations") for e in manifest.enumerations)]:
++        problem = _reference_problem(root, reference, kind)
++        if problem:
++            problems.append(problem)
++    return problems
++
++
++def _evidence_location_problems(root: Path, test_file: str) -> list[str]:
++    """證據測試只准在 tests/ 底下,而且到它為止的每層目錄都要有 __init__.py(代碼審第 1 輪:
++    不是套件的測試目錄,pytest 會把同層 helper 當頂層模組匯入,閉包解析不到;要求每層是套件,
++    比模擬 pytest 的各種匯入模式簡單而且不會猜錯)。"""
++    parts = test_file.split("/")
++    if parts[0] != EVIDENCE_ROOT or len(parts) < 2:
++        return [f"{test_file}:證據測試要放在 {EVIDENCE_ROOT}/ 底下"]
++    return [f"{'/'.join(parts[:depth])} 沒有 __init__.py:證據測試所在的每層目錄都要是套件"
++            for depth in range(1, len(parts))
++            if not (root / "/".join([*parts[:depth], "__init__.py"])).is_file()]
++
++
++def _reference_problem(root: Path, reference: str, kind: str) -> str | None:
++    rel, _, name = reference.partition(":")
++    if not name:
++        return f"{kind} 寫法要是「檔:名稱」:{reference}"
++    problem = path_problem(root, rel)
++    if problem:
++        return f"{kind} {problem}"
++    if kind == "enumerations":
++        return None  # 讀不讀得出字面常數在第 4 步
++    if not _defines(_parse_code(root, rel), name):
++        return (f"symbols {reference} 不是唯一一次的最外層定義(不在 if 等區塊底下,"
++                "模組裡也沒有別處再綁定、del 或用 global 改它)")
++    return None
++
++
++_OWN_SCOPE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
++
++
++def _this_level(body: list[ast.stmt]) -> Iterator[ast.AST]:
++    """這一層執行時會碰到的節點:進 if、try、for、with 等區塊,不進 def、class、lambda 的本體。"""
++    pending: list[ast.AST] = list(body)
++    while pending:
++        node = pending.pop()
++        yield node
++        if not isinstance(node, _OWN_SCOPE):
++            pending.extend(ast.iter_child_nodes(node))
++
++
++def _bindings(body: list[ast.stmt], name: str) -> list[ast.AST]:
++    """這一層所有會綁定或刪掉這個名字的地方:def、class、賦值(含 +=、for、with)、匯入、del。"""
++    return [node for node in _this_level(body) if _bound_name(node) == name]
++
++
++def _bound_name(node: ast.AST) -> str | None:
++    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.ExceptHandler):
++        return node.name
++    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
++        return node.id
++    if isinstance(node, ast.alias):
++        return (node.asname or node.name).split(".")[0]
++    return None
++
++
++def _globally_rebound(tree: ast.Module, name: str) -> bool:
++    return any(isinstance(node, ast.Global) and name in node.names for node in ast.walk(tree))
++
++
++def _sole_statement(body: list[ast.stmt], name: str) -> ast.stmt | None:
++    """這個名字在這一層只被綁定一次、而且就是直接寫在這一層的那一句時,回傳那一句。"""
++    bindings = _bindings(body, name)
++    if len(bindings) != 1:
++        return None
++    for statement in body:
++        if statement is bindings[0] or any(node is bindings[0] for node in ast.walk(statement)
++                                           if not isinstance(statement, _OWN_SCOPE)):
++            return statement
++    return None
++
++
++def _defines(tree: ast.Module, name: str) -> bool:
++    """最外層唯一一次定義(代碼審第 1 輪:只看最外層直接敘述會漏 try、if 裡的重綁、del 與 global)。"""
++    *owners, leaf = name.split(".")
++    if _globally_rebound(tree, (owners or [leaf])[0]):
++        return False
++    body: list[ast.stmt] = tree.body
++    for owner in owners:
++        node = _sole_statement(body, owner)
++        if not isinstance(node, ast.ClassDef):
++            return False
++        body = node.body
++    definition = _sole_statement(body, leaf)
++    return isinstance(definition, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
++
++
++# ── ③ 依賴閉包與雜湊新舊 ─────────────────────────────────────────────────────
++
++def _module_file(root: Path, dotted: str) -> str | None:
++    parts = dotted.split(".")
++    for base in (root / "src", root):
++        for candidate in (base.joinpath(*parts).with_suffix(".py"),
++                          base.joinpath(*parts, "__init__.py")):
++            if candidate.is_file():
++                return candidate.relative_to(root).as_posix()
++    return None
++
++
++def _package_parts(rel: str) -> list[str]:
++    parts = rel.split("/")[:-1]
++    return parts[1:] if parts[:1] == ["src"] else parts
++
++
++def imported_modules(tree: ast.AST, package: list[str]) -> set[str]:
++    """檔案裡任何位置的匯入(含函式內、TYPE_CHECKING 區塊、相對匯入)。`from a.b import x` 的 x
++    若是子模組也算(命名空間套件常這樣寫,只解析 a.b 會漏掉 x)。"""
++    names: set[str] = set()
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import):
++            names |= {alias.name for alias in node.names}
++        elif isinstance(node, ast.ImportFrom):
++            base = package[:len(package) - node.level + 1] if node.level else []
++            module = ".".join([*base, *(node.module.split(".") if node.module else [])])
++            names |= {module} | {f"{module}.{alias.name}".lstrip(".") for alias in node.names}
++    return {name for name in names if name}
++
++
++def _ancestor_inits(root: Path, rel: str) -> set[str]:
++    """上層套件的 __init__.py:匯入子模組時 Python 會隱式執行它們。"""
++    parts = rel.split("/")
++    start = 2 if parts[0] == "src" else 1
++    found = set()
++    for depth in range(start, len(parts)):
++        init = "/".join([*parts[:depth], "__init__.py"])
++        if init != rel and (root / init).is_file():
++            found.add(init)
++    return found
++
++
++def _in_code(rel: str) -> bool:
++    return rel.split("/")[0] in CODE_ROOTS or rel == ROOT_CONFTEST
++
++
++def _literal_names(value: ast.expr | None) -> list[str] | None:
++    if isinstance(value, ast.Constant) and isinstance(value.value, str):
++        return [value.value]
++    if isinstance(value, ast.Tuple | ast.List) and all(
++            isinstance(e, ast.Constant) and isinstance(e.value, str) for e in value.elts):
++        return [str(e.value) for e in value.elts if isinstance(e, ast.Constant)]
++    return None
++
++
++def plugin_modules(tree: ast.Module, rel: str) -> tuple[list[str], list[str]]:
++    """最外層 pytest_plugins 的字面字串(pytest 會照字串載入,匯入分析看不到);讀不出字面就擋。"""
++    names: list[str] = []
++    problems: list[str] = []
++    for binding in _bindings(tree.body, PLUGINS_NAME):
++        statement = next((s for s in tree.body if isinstance(s, ast.Assign | ast.AnnAssign)
++                          and any(node is binding for node in ast.walk(s))), None)
++        found = _literal_names(statement.value) if statement is not None else None
++        if found is None:
++            problems.append(f"{rel} 的 {PLUGINS_NAME} 讀不出字面值,驗證器算不到它載入的外掛")
++        else:
++            names += found
++    return names, problems
++
++
++def _plugin_files(root: Path, names: list[str], where: str) -> tuple[list[str], list[str]]:
++    files, problems = [], []
++    for name in names:
++        found = _module_file(root, name)
++        if found is None:
++            problems.append(f"{where} 載入的外掛 {name} 不在 repo 裡,驗證器算不到它的雜湊")
++        else:
++            files.append(found)
++    return files, problems
++
++
++def dependency_closure(root: Path, starts: Iterable[str]) -> tuple[set[str], list[str]]:
++    """從起點沿靜態匯入與 pytest_plugins 在 src、tests(與根 conftest)內遞迴;回傳 repo 根相對
++    路徑與讀不出來的原因。"""
++    pending, seen, problems = list(starts), set(), []
++    while pending:
++        rel = pending.pop()
++        if rel in seen or not _in_code(rel) or not (root / rel).is_file():
++            continue
++        seen.add(rel)
++        pending += sorted(_ancestor_inits(root, rel))
++        if not rel.endswith(".py"):
++            continue
++        tree = _parse_code(root, rel)
++        for module in imported_modules(tree, _package_parts(rel)):
++            found = _module_file(root, module)
++            if found is not None:
++                pending.append(found)
++        names, plugin_problems = plugin_modules(tree, rel)
++        files, missing = _plugin_files(root, names, rel)
++        pending += files
++        problems += plugin_problems + missing
++    return seen, problems
++
++
++def addopts_plugins(root: Path) -> tuple[list[str], list[str]]:
++    """pyproject 的 addopts 裡每個 -p 模組(-p no:xxx 是關掉外掛,不算)。"""
++    try:
++        config = tomllib.loads((root / PYTEST_CONFIG).read_text(encoding="utf-8"))
++    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
++        return [], [f"{PYTEST_CONFIG} 讀不懂:{exc}"]
++    options = config.get("tool", {}).get("pytest", {}).get("ini_options", {}).get("addopts", "")
++    words = shlex.split(options) if isinstance(options, str) else [str(o) for o in options]
++    names = []
++    for index, word in enumerate(words):
++        if word == "-p" and index + 1 < len(words):
++            names.append(words[index + 1])
++        elif word.startswith("-p") and len(word) > 2:
++            names.append(word[2:])
++    return _plugin_files(root, [n for n in names if not n.startswith("no:")],
++                         f"{PYTEST_CONFIG} 的 addopts")
++
++
++def _conftests(root: Path, test_file: str) -> set[str]:
++    parts = test_file.split("/")[:-1]
++    candidates = ["/".join([*parts[:depth], ROOT_CONFTEST]) for depth in range(len(parts) + 1)]
++    return {c for c in candidates if (root / c).is_file()}
++
++
++def closure_problems(root: Path, manifest: Manifest) -> list[str]:
++    tests = {e.file for e in manifest.evidence}
++    conftests = set().union(*(_conftests(root, t) for t in tests))
++    references = {r.partition(":")[0] for r in (*manifest.symbols, *manifest.enumerations)}
++    addopts, problems = addopts_plugins(root)
++    closure, closure_reasons = dependency_closure(
++        root, {*manifest.scope, *references, *tests, *conftests, *addopts})
++    problems += closure_reasons
++    need_scope = {rel for rel in closure if rel.startswith("src/")}  # 起點本身也在閉包裡
++    need_harness = {rel for rel in closure if not rel.startswith("src/")} | {PYTEST_CONFIG}
++    problems += [f"scope 少列 {rel}(依賴閉包)" for rel in sorted(need_scope - set(manifest.scope))]
++    problems += [f"harness 少列 {rel}(依賴閉包)"
++                 for rel in sorted(need_harness - set(manifest.harness))]
++    for rel, digest in sorted({**manifest.scope, **manifest.harness}.items()):
++        if hashlib.sha256((root / rel).read_bytes()).hexdigest() != digest:
++            problems.append(f"{rel} 的雜湊跟清單不一致(證據可能是舊版本的)")
++    return problems
++
++
++# ── ④ 列舉覆蓋 ───────────────────────────────────────────────────────────────
++
++def _literal_strings(value: ast.expr | None) -> set[str] | None:
++    """只收不可變的:tuple 字面,或 frozenset(字面)(代碼審第 1 輪:list、set 可以事後 append)。"""
++    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and (
++            value.func.id == "frozenset" and len(value.args) == 1 and not value.keywords):
++        value = value.args[0]
++        if not isinstance(value, ast.Tuple | ast.List | ast.Set):
++            return None
++    elif not isinstance(value, ast.Tuple):
++        return None
++    items = [e.value for e in value.elts if isinstance(e, ast.Constant)]
++    if len(items) != len(value.elts) or not all(isinstance(i, str) for i in items):
++        return None
++    return {str(item) for item in items}
++
++
++def read_registry(root: Path, source: str) -> set[str] | None:
++    """最外層唯一一次綁定是普通或帶型別註記的賦值,值是字串字面的 tuple 或 frozenset;模組裡別處
++    再綁定、del 或用 global 改它都不算(代碼審第 1 輪)。"""
++    rel, _, name = source.partition(":")
++    tree = _parse_code(root, rel)
++    if _globally_rebound(tree, name):
++        return None
++    statement = _sole_statement(tree.body, name)
++    if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(
++            statement.targets[0], ast.Name):
++        return _literal_strings(statement.value)
++    if isinstance(statement, ast.AnnAssign):
++        return _literal_strings(statement.value)
++    return None
++
++
++def enumeration_problems(root: Path, manifest: Manifest) -> list[str]:
++    words = [word for word in SCOPE_WORDS if word in manifest.policy]
++    problems = [f"policy 用了範圍詞「{words[0]}」卻沒有列舉(沒有登錄表可列舉就要改寫宣稱)"
++                ] if words and not manifest.enumerations else []
++    items: set[str] = set()
++    for source in manifest.enumerations:
++        found = read_registry(root, source)
++        if found is None:
++            problems.append(f"{source} 讀不出字面常數(動態組出來、從別處匯入或被重新指派)")
++        else:
++            items |= found
++    covered = {item for e in manifest.evidence for item in e.covers}
++    problems += [f"列舉項目 {item} 沒有任何證據 covers" for item in sorted(items - covered)]
++    problems += [f"covers 寫了列舉裡沒有的 {item}" for item in sorted(covered - items)]
++    return problems
++
++
++# ── ⑥ 真的跑 ─────────────────────────────────────────────────────────────────
++
++def clean_environment() -> dict[str, str]:
++    """能改測試結果卻不在任何檔案裡的東西先清掉(第 2 輪設計審實測 PYTEST_ADDOPTS 帶 -p 能載入
++    把失敗改成通過的外掛)。"""
++    env = {key: value for key, value in os.environ.items()
++           if not key.startswith("PYTEST_") and key not in CLEARED_VARIABLES}
++    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
++    return env
++
++
++def _classname(node: str) -> tuple[str, str]:
++    file, *classes, function = node.split("::")
++    return ".".join([file.removesuffix(".py").replace("/", "."), *classes]), function
++
++
++def judge_junit(nodes: list[str], cases: list[ElementTree.Element]) -> list[str]:
++    problems = []
++    for node in nodes:
++        classname, function = _classname(node)
++        mine = [c for c in cases if c.get("classname") == classname and (
++            c.get("name") == function or str(c.get("name")).startswith(f"{function}["))]
++        if not mine:
++            problems.append(f"{node} 沒收集到(可能被取消選取)")
++        for case in mine:
++            failed = case.find("failure") if case.find("failure") is not None else case.find(
++                "error")
++            if failed is not None:
++                problems.append(f"{node} 沒通過:{failed.get('message', '').strip()}")
++            elif (skipped := case.find("skipped")) is not None:
++                problems.append(f"{node} 被跳過或標成預期失敗:{skipped.get('message', '')}")
++    return problems
++
++
++def _xpassed(nodes: list[str], recorded: Path) -> list[str]:
++    try:
++        passed = json.loads(recorded.read_text(encoding="utf-8"))
++    except (OSError, ValueError):
++        return ["pytest 沒留下預期失敗的紀錄,判不出有沒有預期失敗卻通過的測試"]
++    return [f"{node} 預期失敗卻通過(非嚴格的 xfail,JUnit 裡看起來跟通過一樣)"
++            for node in nodes if any(p == node or str(p).startswith(f"{node}[") for p in passed)]
++
++
++def run_evidence(root: Path, nodes: list[str], timeout: float) -> list[str]:
++    with tempfile.TemporaryDirectory() as temporary:
++        junit, recorded = Path(temporary) / "junit.xml", Path(temporary) / "xpassed.json"
++        # -E 不讀 PYTHON 開頭的變數、-s 不開 user site(代碼審第 1 輪:CI 的 setup-python 沒有
++        # venv,user site 裡的 usercustomize 能在清完環境後再自己設 PYTEST_ADDOPTS)
++        command = [sys.executable, "-E", "-s", "-c", RUNNER, str(recorded),
++                   "-c", PYTEST_CONFIG, "--rootdir", ".",
++                   "-p", "no:cacheprovider", "-o", "xfail_strict=true", "-q",
++                   f"--junitxml={junit}", *nodes]
++        process = subprocess.Popen(  # noqa: S603 - 指令全由驗證器組,節點編號當參數傳
++            command, cwd=root, env=clean_environment(), stdout=subprocess.PIPE,
++            stderr=subprocess.STDOUT, text=True, start_new_session=True)
++        try:
++            output, _ = process.communicate(timeout=timeout)
++        except subprocess.TimeoutExpired:
++            os.killpg(process.pid, signal.SIGKILL)  # 整組結束,不留測試另起的孫行程
++            process.communicate()
++            return [f"證據測試超過總時限 {timeout:g} 秒,逾時(不是通過)"]
++        if process.returncode == 4:
++            return _not_found(nodes, output)
++        if not junit.is_file():
++            return [f"pytest 沒產出結果(結束代碼 {process.returncode}):{output[-2000:]}"]
++        cases = list(ElementTree.parse(junit).iter("testcase"))  # noqa: S314 - 驗證器自己叫 pytest 寫在自建暫存目錄的檔
++        problems = judge_junit(nodes, cases) + _xpassed(nodes, recorded)
++    if process.returncode != 0 and not problems:
++        problems.append(f"pytest 結束代碼 {process.returncode}:{output[-2000:]}")
++    return problems
++
++
++def _not_found(nodes: list[str], output: str) -> list[str]:
++    """任一個編號找不到,pytest 回 4 而且整批都不跑;從它的輸出指出是哪一個。"""
++    lines = [line.rstrip() for line in output.splitlines() if line.startswith("ERROR: not found:")]
++    missing = [node for node in nodes if any(line.endswith(f"/{node}") for line in lines)]
++    if missing:
++        return [f"pytest 找不到證據節點(整批都沒跑):{node}" for node in missing]
++    return [f"pytest 無法開始(結束代碼 4):{output[-2000:]}"]
++
++
++# ── 輸出與命令列 ─────────────────────────────────────────────────────────────
++
++def _sha256(path: Path) -> str:
++    return hashlib.sha256(path.read_bytes()).hexdigest()
++
++
++def _commit(root: Path) -> str:
++    try:
++        result = subprocess.run(  # 固定指令,只讀目前提交編號
++            ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True,  # noqa: S607
++            timeout=30, check=False)
++    except (OSError, subprocess.SubprocessError):
++        return "無"
++    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else "無"
++
++
++def _header(root: Path, claims_dir: Path, out: TextIO) -> None:
++    print("宣稱驗證器", file=out)
++    print(f"驗證器 sha256:{_sha256(Path(__file__))}", file=out)
++    print("清單 sha256:", file=out)
++    for path in sorted(claims_dir.glob("*.json")):
++        print(f"  {path.name} {_sha256(path)}", file=out)
++    print(f"提交編號:{_commit(root)}", file=out)
++
++
++def verify(root: Path, claims_dir: Path, out: TextIO, *,
++           timeout: float = TIMEOUT_SECONDS) -> int:
++    _header(root, claims_dir, out)
++    try:
++        manifests, problems = check_manifests(root, claims_dir)
++    except Undecidable as exc:
++        print(f"無法判定:{exc}", file=out)
++        return EXIT_UNDECIDABLE
++    nodes = list(dict.fromkeys(e.node for m in manifests for e in m.evidence))
++    if problems:
++        print("前四步有擋下,沒跑證據測試", file=out)
++    else:
++        problems = run_evidence(root, nodes, timeout)
++    if problems:
++        print(f"擋下({len(problems)} 條原因):", file=out)
++        for problem in problems:
++            print(f"- {problem}", file=out)
++        return EXIT_BLOCK
++    print(f"通過:{len(manifests)} 條宣稱,跑了 {len(nodes)} 支證據測試全部通過", file=out)
++    return EXIT_PASS
++
++
++def run(argv: list[str] | None = None, *, out: TextIO | None = None,
++        timeout: float = TIMEOUT_SECONDS) -> int:
++    parser = argparse.ArgumentParser(description="依證據清單做機械檢查,自己跑證據測試")
++    parser.add_argument("claims_dir", help="證據清單目錄(repo 根底下的 claims/)")
++    stream = out or sys.stdout
++    try:
++        args = parser.parse_args(argv)
++    except SystemExit as exc:  # argparse 參數錯也是「沒辦法開始判」
++        return exc.code if isinstance(exc.code, int) else EXIT_UNDECIDABLE
++    claims_dir = Path(args.claims_dir).resolve()
++    if not claims_dir.is_dir():
++        print(f"無法判定:找不到清單目錄 {args.claims_dir}", file=stream)
++        return EXIT_UNDECIDABLE
++    return verify(claims_dir.parent, claims_dir, stream, timeout=timeout)
++
++
++def main(argv: list[str] | None = None) -> None:
++    raise SystemExit(run(argv))
++
++
++if __name__ == "__main__":
++    main()

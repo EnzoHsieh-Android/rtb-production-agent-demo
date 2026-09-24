@@ -1,0 +1,6 @@
+# 專案內的工具不是產品碼:宣稱驗證器讀程式一律用語法樹、跑測試用子行程,不准匯入產品程式
+# (Phase 11 [S808];反方向「產品不准匯入 tools」與 tests/tools 的測試由語法樹掃描測試擋)。
+extend = "../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"rtb".msg = "工具不准匯入產品程式:讀程式用語法樹、跑測試用子行程(Phase 11 [S808])"

@@ -1,0 +1,5 @@
+[
+ {"round":"r1","seat":"正確性-opus","lens":"正確性與可繞過性","materials":["governance/review-reports/code-phase11-inc1/r1-snapshot.patch","tools/verify_claims.py","claims/","docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md"],"auditor":"claude-opus"},
+ {"round":"r1","seat":"架構對齊-sonnet","lens":"架構對齊","materials":["governance/review-reports/code-phase11-inc1/r1-snapshot.patch","tools/mypy_sarif.py","tests/test_static_wiring.py"],"auditor":"claude-sonnet"},
+ {"round":"r1","seat":"外家-codex","lens":"外家否決:繞過驗證器","materials":["governance/review-reports/code-phase11-inc1/r1-snapshot.patch","tools/verify_claims.py","claims/"],"auditor":"codex"}
+]

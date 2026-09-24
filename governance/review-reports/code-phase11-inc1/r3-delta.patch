@@ -1,0 +1,782 @@
+diff --git a/docs/.governance-log.jsonl b/docs/.governance-log.jsonl
+index 46c0845..1e2cc65 100644
+--- a/docs/.governance-log.jsonl
++++ b/docs/.governance-log.jsonl
+@@ -3389,10 +3389,16 @@
+ {"ts": "2026-09-24T13:39:17+08:00", "commit": "18b2d95", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=1 hits=0 secs=0.1"}
+ {"ts": "2026-09-24T13:39:18+08:00", "commit": "18b2d95", "gate": "nodehome-check", "kind": "blocked", "hard": true, "nodes": ["tools/claim_hashes.py", "tools/verify_claims.py"], "note": "這次提交:新違規 1 條", "detail": "這次提交:新違規 1 條", "head_sha": "18b2d95d9041c73dde594c1a877a17eb99eb1069", "pairs": [["tools/claim_hashes.py", "Systems/Mock-DSP.md"], ["tools/verify_claims.py", "Systems/Mock-DSP.md"]], "notes": ["Systems/Mock-DSP.md"]}
+ {"ts": "2026-09-24T13:39:19+08:00", "commit": "18b2d95", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=1 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T13:39:20+08:00", "commit": "18b2d95", "gate": "nodehome-check", "kind": "blocked", "hard": true, "nodes": ["tools/claim_hashes.py", "tools/verify_claims.py"], "note": "這次提交:新違規 1 條", "detail": "這次提交:新違規 1 條", "head_sha": "18b2d95d9041c73dde594c1a877a17eb99eb1069", "pairs": [["tools/claim_hashes.py", "Systems/Mock-DSP.md"], ["tools/verify_claims.py", "Systems/Mock-DSP.md"]], "notes": ["Systems/Mock-DSP.md"]}
+ {"ts": "2026-09-24T13:39:32+08:00", "commit": "18b2d95", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=1 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T13:39:33+08:00", "commit": "18b2d95", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "18b2d95d9041c73dde594c1a877a17eb99eb1069"}
+ {"ts": "2026-09-24T13:39:34+08:00", "commit": "f82c2be", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T13:39:35+08:00", "commit": "f82c2be", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "f82c2beb84baf4e1ebfe2210aee2904494f8e380"}
+ {"ts": "2026-09-24T13:57:45+08:00", "commit": "18b2d95", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Projects/RTB_Phase2任務流程_計劃.md", "Systems/Mock-DSP.md", "Systems/任務流程領域模型.md", "Systems/共用行程基礎.md", "Systems/分析行程流程與檢查點.md"], "note": "tokens=15 hits=5 secs=7.4"}
+ {"ts": "2026-09-24T13:57:46+08:00", "commit": "18b2d95", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "18b2d95d9041c73dde594c1a877a17eb99eb1069"}
++{"ts": "2026-09-24T14:11:41+08:00", "commit": "4f27b5e", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=1 hits=0 secs=0.1"}
++{"ts": "2026-09-24T14:11:42+08:00", "commit": "4f27b5e", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "4f27b5ef4109f8f470f1075ca94deff7db4490d1"}
++{"ts": "2026-09-24T14:11:43+08:00", "commit": "0e2bb86", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T14:11:44+08:00", "commit": "0e2bb86", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "0e2bb868dc74a43db8ca96d2bf52e72e3d7990d8"}
++{"ts": "2026-09-24T14:24:02+08:00", "commit": "4f27b5e", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T14:24:03+08:00", "commit": "4f27b5e", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "4f27b5ef4109f8f470f1075ca94deff7db4490d1"}
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md
+index d166ed7..a409c09 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md
+@@ -95,20 +95,21 @@ REVISIT:2027-03-31 查一次這段期間 claims/*.json 的每次改動是否都
+ - CI 另開一個跟 checks 平行的工作:checkout、裝開發期工具、跑同一條指令;結束代碼不是 0 就紅。平行跑是為了不拉長 checks 那個工作的時間(F7 的 60 秒上限在那裡)。
+ - 接線要有合約:比照既有「防止 CI 步驟看起來有跑、其實不擋」的接線檢查,鎖住新工作的指令字串與不准 continue-on-error、|| true、if 條件;而且要看工作歸屬:驗證器指令只在一個不是 checks、沒有 needs 的工作裡,checks 工作裡不准出現它(既有接線檢查只找全域指令字串、不分工作,要另外寫)。代碼審第 1 輪補:那個工作不准有 shell:、整份不准有 defaults:(shell: bash {0} 不會在第一個指令失敗時停下),驗證器指令要是單行 run:。
+ - 已知風險:F7 在 CI 上偶爾超過 60 秒(見 [[Issues/F7端到端在CI上偶爾超過60秒]]),使用者裁定紅了就重跑。新工作會再跑一次 F7,等於每次推送多一次撞到的機會;驗證器擋下時印出 pytest 的失敗訊息,讀的人看得出是時間上限不是宣稱失敗,處理照〈使用者裁定〉(重跑);新工作因 F7 超時重跑也算進那篇 Issue 的回頭條件次數。
+ - 本機用同一條指令;Systems 家寫清楚。
+ 
+ ### 拆增量
+ 
+ - 增量 1:清單格式與驗證器第 1–4 步加第 6 步(真的跑)、**五份清單全部**(權限護欄那份的證據節點在這個增量選定)、tools/ruff.toml 與互不匯入的掃描測試、CI 平行工作與接線合約。五份一次到齊,是為了第 1 步「少一條就擋」從第一天就能開著,不做分期開關(分期開關容易開了忘記關)。
+ - 增量 1 狀態(2026-09-24):實作完成、待代碼審。驗證器第 1–4、6 步、五份清單、tools/ruff.toml、互不匯入掃描、CI claims 工作;本機實跑正式清單通過(75 支證據測試、42.4 秒,單次量測)。現況與權限護欄證據的挑選理由見 [[Systems/宣稱驗證器]]。實作時的解讀:讀得懂但不合規則(重複鍵、NaN、布林當整數)算擋下(結束代碼 1),只有語法錯、編碼錯、超長整數算讀不懂(2);前四步有擋下就不跑測試;conftest 本身的匯入也算進依賴閉包;列舉來源檔也算進 scope。冪等清單的「每一種」只掛在版本不符拒收上:pause_campaign 沒有同鍵只套用一次的專屬測試。
+ - 代碼審第 1 輪(2026-09-24,增量 1,正確性、架構對齊、外家三席;12 條)的修正先落在增量 1:根 conftest、pytest_plugins 與 addopts 外掛進閉包、證據測試位置與套件規則、-E -s、非嚴格 xfail 紀錄器、最外層完整走訪與登錄表只收不可變、CI 不准 shell 與 defaults、怪值與語法錯轉成擋下原因、合約綁定測試蓋全字面、範圍詞補「每一X」;Systems 家那句「寫成每一種會被擋」照實改成天花板。
++- 代碼審第 2 輪(2026-09-24,增量 1,13 條)協調者裁定改走「看不懂就擋」:閉包解析到 src、tests 與根 conftest 以外的 repo 內檔一律擋,harness 宣告的 .py 也當閉包起點;pytest 設定只准 [tool.pytest.ini_options]、pythonpath 只准 ["src"]、addopts 只准字串或字串陣列;登錄表或 symbols 所在模組這一層有 import *、match、對 symbols 類別的屬性指派或 setattr 就擋。照 Python 語意放行推導式變數、無值型別註記、@overload 與 property setter;pytest 內建外掛放行;驗證器呼叫 pytest 時自己清掉 --junitprefix(選它不選「addopts 出現就擋」,因為那是合法設定,清掉我們自己解析的格式就好)。
+ - 增量 2:第 5 步(故障注入)、Mock-DSP 合約措辭改窄、刻意造假的示範(只填「已完成」、改過範圍沒更新雜湊、宣稱範圍大於證據、測試被跳過、conftest 改結果)全部被擋的測試。
+ 
+ ## 合約候選
+ 
+ - [S800] 清單任一層物件出現白名單以外的鍵(包括 result、passed、status、verdict、done)、有重複鍵、有 NaN 或 Infinity、或整數欄位不是真正的整數(含布林)時,驗證器應擋下。[test:test_a_manifest_with_any_unknown_key_is_blocked]
+ - [S801] 清單引用的 scope、harness、symbols、enumerations 有任一個檔案不存在、路徑不合規則(絕對路徑、..、符號連結、大小寫不符)、或名稱找不到最外層定義時,驗證器應擋下並指出是哪一個。[test:test_a_missing_file_or_symbol_is_blocked]
+ - [S802] scope 或 harness 任一檔的內容雜湊跟清單不一致時,驗證器應擋下。[test:test_a_stale_scope_hash_is_blocked]
+ - [S803] 列舉讀出的每一項沒有被任何證據 covers 標到時,驗證器應擋下並指出缺哪一項;covers 寫了列舉以外的項目、登錄表讀不出字面常數、或 policy 用了範圍詞卻沒有列舉時,也應擋下。[test:test_an_uncovered_enumerated_item_is_blocked]
+ - [S804] 證據的任一測試節點沒收集到、被跳過、預期失敗、預期失敗卻通過、沒通過或逾時時,驗證器應擋下。[test:test_a_skipped_or_failing_or_missing_test_is_blocked]
+ - [S805] repo 裡放了一份偽造的「全部通過」測試結果檔時,驗證器應照樣自己跑證據測試,以自己跑出的結果判定。[test:test_the_verifier_runs_the_tests_itself]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md b/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md
+index be5556b..33940f2 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md
+@@ -15,20 +15,22 @@ summary: |-
+   WHY: 交接文件 Phase 11 要把安全政策轉成可證明的閘:故意只寫「已完成」的自我宣稱不能通過、證據過期要擋、宣稱範圍大於證據要擋。使用者 2026-09-24 裁定:每條宣稱一份 JSON 清單、清單不准有結果欄、驗證器自己在目前版本跑測試不採信外部結果、只做機械檢查不讀審查結論、跟 lumos 互不依賴。出處:[[Projects/RTB_Phase11證據清單與驗證器_計劃]]〈使用者裁定〉。
+   WHY: 新舊判定用內容雜湊不用 git:CI 只抓一層歷史,看不到舊提交。代價是作者可以改程式後直接重算雜湊寫回,機器分不出重看過還是重貼,只逼清單在同一個提交出現差異讓審查員看到。出處:[[Projects/RTB_Phase11證據清單與驗證器_計劃]]〈實務隱患〉,2026-09-24。
+   WHY: scope 與 harness 的「一定要列」由驗證器沿靜態匯入算,不靠作者手列;設計審兩輪實測抓到手列會漏:證據測試檔本身、conftest、上層套件初始化檔、命名空間套件「from 套件 import 子模組」的寫法。出處:2026-09-24 設計審 r1、r2,卷證 governance/review-reports/rtb-phase11證據清單與驗證器/;[[Projects/RTB_Phase11證據清單與驗證器_計劃]]〈審計修正紀錄〉。
+   PITFALL: 一支 conftest 的報告鉤子能把失敗改成通過,JUnit 裡看不出來;所以證據測試路上的 conftest 強制進 harness 雜湊。防回歸:[test:test_a_file_missing_from_the_dependency_closure_is_blocked]。
+   PITFALL: 環境變數 PYTEST_ADDOPTS 帶 -p、或 PYTHONPATH 指到外面的 sitecustomize,都能載入改結果的外掛,而且不在任何雜湊裡;PYTEST_DISABLE_PLUGIN_AUTOLOAD 擋不住這兩條,子行程環境要先清掉。防回歸:[test:test_the_pytest_run_ignores_outside_config_and_environment]。
+   PITFALL: JUnit 裡「預期失敗卻通過」跟一般通過長得一樣,要加 xfail_strict=true;repo 根一出現 pytest.ini,pyproject 的 pytest 設定整段失效。防回歸:[test:test_a_skipped_or_failing_or_missing_test_is_blocked]、[test:test_a_second_pytest_config_file_is_blocked]。
+   PITFALL: [2026-09-24 代碼審 r1] 會改測試結果的不只證據測試路上的 conftest:repo 根的 conftest、conftest 或測試檔最外層 pytest_plugins 字串、pyproject addopts 的 -p 模組都會被 pytest 載入,匯入分析看不到。這些都算進閉包;字串讀不出字面值、或指到 repo 外的套件就擋(算不到雜湊)。證據測試只准放 tests/ 底下、每層都要有 __init__.py(不是套件的目錄,pytest 會把同層 helper 當頂層模組匯入,閉包解析不到)。防回歸:[test:test_a_file_missing_from_the_dependency_closure_is_blocked]、[test:test_a_plugin_the_verifier_cannot_hash_is_blocked]、[test:test_an_evidence_test_in_a_directory_without_init_is_blocked]。
+   PITFALL: [2026-09-24 代碼審 r1] 清掉 PYTEST_ 與 PYTHONPATH 還不夠:沒有 venv 的直譯器(CI 的 setup-python)user site 開著,裡面的 usercustomize 能在清完環境之後再設 PYTEST_ADDOPTS。子行程一律 python -E -s。本機 venv 的 user site 關著測不到,測試另造一個 user site 開著的直譯器。防回歸:[test:test_the_pytest_run_ignores_outside_config_and_environment]、[test:test_the_evidence_runs_with_the_environment_and_user_site_ignored]。
+   PITFALL: [2026-09-24 代碼審 r1] 標記明寫 xfail(strict=False)(含模組層 pytestmark、執行期才加的標記)會蓋過 xfail_strict,通過時 JUnit 看起來跟通過一樣。驗證器自己塞一個唯讀紀錄器進 pytest,記下 wasxfail 卻通過的節點;選它不選語法樹掃描,是因為執行期加的標記掃不到;紀錄檔讀不到也擋。防回歸:[test:test_a_skipped_or_failing_or_missing_test_is_blocked]、[test:test_a_run_that_leaves_no_xfail_record_is_blocked]。
+   PITFALL: [2026-09-24 代碼審 r1] 「最後一次綁定」只看最外層直接敘述,會漏 if、try 裡的重綁、del、函式裡用 global 改、以及對 list 登錄表 append。改成模組這一層完整走訪(不進 def、class 本體),唯一一次定義以外有任何綁定、del 或 global 就擋;登錄表只收 tuple 與 frozenset。防回歸:[test:test_a_missing_file_or_symbol_is_blocked]、[test:test_an_uncovered_enumerated_item_is_blocked]。
++  WHY: [2026-09-24 代碼審 r2] 第 2 輪抓到的漏判都是冷門 Python 寫法(星號匯入、match 捕獲、類別屬性指派、pytest 9 原生設定表、多列 pythonpath);協調者裁定改走「看不懂就擋」:能用限制擋的就不去模擬。所以登錄表或 symbols 所在模組這一層有 import *、match、對 symbols 類別的屬性指派或 setattr 就擋;pytest 設定只准 [tool.pytest.ini_options]、pythonpath 只准 ["src"]、addopts 只准字串或字串陣列;閉包解析到 src、tests 與根 conftest 以外的 repo 內檔一律擋。出處:[[Projects/RTB_Phase11證據清單與驗證器_計劃]]〈拆增量〉代碼審第 2 輪那行。防回歸:[test:test_a_missing_file_or_symbol_is_blocked]、[test:test_a_registry_module_the_verifier_cannot_follow_is_blocked]、[test:test_a_pytest_setting_the_verifier_cannot_follow_is_blocked]、[test:test_a_file_missing_from_the_dependency_closure_is_blocked]。
++  PITFALL: [2026-09-24 代碼審 r2] 「看不懂就擋」也會誤擋照 Python 語意本來就不重綁的寫法:推導式變數(自己的作用域,但裡面的 := 綁到外層)、只有型別註記沒有值的宣告、@overload、property 的 setter。這幾種照語意放行;pytest 內建外掛(例如 pytester)照一份抄自 pytest 的常數放行,--junitprefix 由驗證器自己清掉。防回歸:[test:test_the_symbol_fixtures_do_not_break_a_clean_manifest]、[test:test_every_documented_literal_form_of_a_registry_is_read]、[test:test_the_builtin_plugin_list_matches_the_installed_pytest]。
+   PITFALL: macOS 預設不分大小寫、CI 的 Linux 分,只查「檔案存在」會本機過、CI 擋;路徑一律從 repo 根逐段比對目錄實際列出的名字。防回歸:[test:test_a_missing_file_or_symbol_is_blocked]。
+   PITFALL: 標準 json 對超長整數丟的是 ValueError 不是 JSONDecodeError,只接後者會當掉。防回歸:[test:test_an_unreadable_manifest_is_undecidable_not_blocked]。
+   RULE: CI 的 claims 工作因 F7 超過 60 秒而紅,照舊重跑,重跑也算進 [[Issues/F7端到端在CI上偶爾超過60秒]] 的回頭條件次數。 [since:2026-09-24] [retire:F7 的 60 秒上限改掉、或 F7 不再是總曝險宣稱的證據時] [confirmed:2026-09-24]
+   FACT: 2026-09-24 本機實跑正式五份清單:通過,75 支證據測試,42.4 秒(單次量測,以程式碼為準;重跑:`python tools/verify_claims.py claims/`)。
+   REVISIT:2026-10-31 用 CI claims 工作前幾次的時間重估,超過 5 分鐘就回頭看要不要拆。
+   TEST: tests/tools/test_verify_claims.py 全用 tmp_path 造小 repo,不跑正式證據(否則 F7 在 checks 工作裡巢狀多跑一次);正式五份清單只在 [S809] 用函式檢查前四步,真跑交給 CI 的 claims 工作。
+ ---
+ # 宣稱驗證器
+ 
+ `tools/verify_claims.py` 讀 `claims/*.json` 五份證據清單,依序做格式、存在、依賴閉包與雜湊新舊、列舉覆蓋,都沒擋才自己跑一次證據測試;第 5 步故障注入檢查在增量 2。`tests/tools/test_verify_claims.py` 是它的測試。清單格式、每一步的規則與合約 [S800]–[S816] 以計劃為準,這裡只記程式看不出的脈絡。
+diff --git a/tests/tools/test_verify_claims.py b/tests/tools/test_verify_claims.py
+index 751f78b..fbfab7b 100644
+--- a/tests/tools/test_verify_claims.py
++++ b/tests/tools/test_verify_claims.py
+@@ -311,63 +311,113 @@ def via_global():
+ 
+ def rebinder():
+     global via_global
+     via_global = None
+ 
+ 
+ def uses_local():
+     act = 1  # 函式裡的區域變數跟 symbol 同名,不算重新綁定
+     WRITE_ACTIONS = ()
+     return act, WRITE_ACTIONS
++
++
++# 代碼審第 2 輪:照 Python 語意本來就不算重綁的幾種寫法,不能誤擋
++_names = [act for act in ()]  # 推導式有自己的作用域
++declared_only: object  # 只有型別註記、沒有值
++
++
++class Holder:
++    @property
++    def value(self):
++        return 1
++
++    @value.setter
++    def value(self, new):
++        pass
++"""
++OVERLOADED = """
++
++from typing import overload
++
++
++@overload
++def shaped(x: int) -> int: ...
++@overload
++def shaped(x: str) -> str: ...
++def shaped(x):
++    return x
++
++
++announced: object  # 先只宣告型別,後面才定義
++
++
++def announced():
++    return 1
+ """
+ SERVER = "src/rtb/dsp/server.py"
+ 
+ 
++OPAQUE = {
++    "star": "\ntry:\n    from rtb.kit import *  # noqa: F403\nexcept ImportError:\n    pass\n",
++    "match": "\nmatch 1:\n    case act:\n        pass\n",
++    "attribute": "\nHandler.handle = None\n",
++    "setattr": "\nsetattr(Handler, \"handle\", None)\n",
++}
++
++
+ @pytest.mark.parametrize(("side", "value", "expected"), [
+     ("scope", "src/rtb/gone.py", "src/rtb/gone.py"),
+     ("scope", "{root}/src/rtb/kit.py", "絕對"),
+     ("scope", "src/rtb/../rtb/kit.py", "路徑不准有 .."),
+     ("scope", "src/rtb/link.py", "符號連結"),
+     ("scope", "src/RTB/kit.py", "src/RTB/kit.py"),  # 中間目錄大小寫錯:macOS 上檔案「存在」
+     ("scope", "src/rtb/Kit.py", "src/rtb/Kit.py"),
+     ("scope", "src/rtb", "不是檔案"),
+     ("symbols", f"{SERVER}:nope", "nope"),
+     ("symbols", f"{SERVER}:hidden", "hidden"),  # 在 if 底下,不算最外層
+     ("symbols", f"{SERVER}:shadowed", "shadowed"),  # 定義之後被重新指派
+     ("symbols", f"{SERVER}:Handler.nope", "Handler.nope"),
+     ("symbols", f"{SERVER}:store", "store"),  # 匯入進來的名字不是定義
+     ("symbols", f"{SERVER}:reimported", "reimported"),  # 定義之後被匯入蓋掉
+     ("symbols", f"{SERVER}:outer.inner", "outer.inner"),  # 函式裡的巢狀函式不是類別方法
+     ("symbols", f"{SERVER}:in_try", "in_try"),  # try 區塊裡被匯入蓋掉(代碼審第 1 輪)
+     ("symbols", f"{SERVER}:in_if", "in_if"),  # if 區塊裡被重新指派
+     ("symbols", f"{SERVER}:deleted", "deleted"),  # 被 del
+     ("symbols", f"{SERVER}:via_global", "via_global"),  # 函式裡用 global 改掉
++    # 代碼審第 2 輪:看不懂的綁定方式一律擋,不去展開
++    ("symbols", f"{SERVER}:act|star", "import *"),
++    ("symbols", f"{SERVER}:act|match", "match"),
++    ("symbols", f"{SERVER}:Handler.handle|attribute", "Handler"),
++    ("symbols", f"{SERVER}:Handler.handle|setattr", "Handler"),
+     ("symbols", SERVER, "寫法"),  # 沒寫名稱
+ ])
+ def test_a_missing_file_or_symbol_is_blocked(repo, side, value, expected):
+     (repo / "src/rtb/link.py").symlink_to(repo / "src/rtb/kit.py")
+-    write_files(repo, {SERVER: FILES[SERVER] + SYMBOL_EXTRAS})
++    value, _, opaque = value.partition("|")
++    write_files(repo, {SERVER: FILES[SERVER] + SYMBOL_EXTRAS + OPAQUE.get(opaque, "")})
+     if side == "scope":
+         write_manifests(repo)
+         _add_scope(repo, value.format(root=repo))
+     else:
+         write_manifests(repo, symbols=[f"{SERVER}:act", value])
+ 
+     code, output = verify(repo)
+ 
+     assert code == 1, output
+     assert expected in output
+ 
+ 
+ def test_the_symbol_fixtures_do_not_break_a_clean_manifest(repo):
+-    write_files(repo, {SERVER: FILES[SERVER] + SYMBOL_EXTRAS})
+-    write_manifests(repo)
++    write_files(repo, {SERVER: FILES[SERVER] + SYMBOL_EXTRAS + OVERLOADED})
++    write_manifests(repo, symbols=[f"{SERVER}:act", f"{SERVER}:Holder.value",
++                                   f"{SERVER}:shaped", f"{SERVER}:announced",
++                                   f"{SERVER}:Handler.handle"])
+ 
+     code, output = verify(repo)
+ 
+     assert code == 0, output
+ 
+ 
+ @pytest.mark.parametrize(("changes", "expected"), [
+     ({"enumerations": [{"source": "src/rtb/dsp/Server.py:WRITE_ACTIONS"}]},
+      "src/rtb/dsp/Server.py"),
+     ({"evidence": [{"node": "tests/dsp/Test_server.py::test_update", "covers": ["update"],
+@@ -421,36 +471,58 @@ REGISTRY = 'WRITE_ACTIONS = ("update", "pause")'
+     ("可變的 list", {}, 'WRITE_ACTIONS = ["update", "pause"]', "WRITE_ACTIONS"),
+     ("可變的 set", {}, 'WRITE_ACTIONS = {"update", "pause"}', "WRITE_ACTIONS"),
+     ("if 裡重綁", {}, REGISTRY + '\nif True:\n    WRITE_ACTIONS = ("update", "pause", "void")',
+      "WRITE_ACTIONS"),
+     ("try 裡被匯入蓋掉", {}, REGISTRY + "\ntry:\n    from rtb.kit import EXTRA as WRITE_ACTIONS"
+      "\nexcept ImportError:\n    pass", "WRITE_ACTIONS"),
+     ("+= 加長", {}, REGISTRY + '\nWRITE_ACTIONS += ("void",)', "WRITE_ACTIONS"),
+     ("函式裡 global 改掉", {}, REGISTRY + '\n\n\ndef widen():\n    global WRITE_ACTIONS\n'
+      '    WRITE_ACTIONS = ("void",)', "WRITE_ACTIONS"),
+     ("被 del", {}, REGISTRY + "\ndel WRITE_ACTIONS", "WRITE_ACTIONS"),
++    # 代碼審第 2 輪
++    ("推導式裡的 := 會綁到外層", {}, REGISTRY + '\n_ = [(WRITE_ACTIONS := ("void",)) for _ in "a"]',
++     "WRITE_ACTIONS"),
+ ])
+ def test_an_uncovered_enumerated_item_is_blocked(repo, label, changes, registry, expected):
+     if registry is not None:
+         write_files(repo, {SERVER: FILES[SERVER].replace(REGISTRY, registry)})
+     write_manifests(repo, **changes)
+ 
+     code, output = verify(repo)
+ 
+     assert code == 1, (label, output)
+     assert expected in output
+ 
+ 
++@pytest.mark.parametrize(("tail", "expected"), [
++    ("\ntry:\n    from rtb.kit import *  # noqa: F403\nexcept ImportError:\n    pass\n",
++     "import *"),
++    ('\nmatch {"actions": 1}:\n    case {"actions": WRITE_ACTIONS}:\n        pass\n', "match"),
++])
++def test_a_registry_module_the_verifier_cannot_follow_is_blocked(repo, tail, expected):
++    """登錄表放在沒有 symbols 的模組,只靠登錄表那道檢查擋(代碼審第 2 輪:看不懂就擋)。"""
++    write_files(repo, {"src/rtb/registry.py": REGISTRY + "\n" + tail})
++    write_manifests(repo, enumerations=[{"source": "src/rtb/registry.py:WRITE_ACTIONS"}])
++
++    code, output = verify(repo)
++
++    assert code == 1, output
++    assert any("registry.py:WRITE_ACTIONS" in line and expected in line
++               for line in output.splitlines()), output
++
++
+ @pytest.mark.parametrize("assignment", [
+     'WRITE_ACTIONS: tuple[str, ...] = ("update", "pause")',
+     'WRITE_ACTIONS = frozenset({"update", "pause"})',
+     'WRITE_ACTIONS = frozenset(("update", "pause"))',
++    # 推導式變數有自己的作用域,不算重綁(代碼審第 2 輪:原本會誤擋)
++    REGISTRY + "\n_seen = [WRITE_ACTIONS for WRITE_ACTIONS in ()]",
+ ])
+ def test_every_documented_literal_form_of_a_registry_is_read(repo, assignment):
+     write_files(repo, {SERVER: FILES[SERVER].replace(REGISTRY, assignment)})
+     write_manifests(repo)
+ 
+     code, output = verify(repo)
+ 
+     assert code == 0, output
+ 
+ 
+@@ -636,36 +708,76 @@ def _plugins_in_conftest(repo):
+ 
+ 
+ def _plugin_in_addopts(repo):
+     write_files(repo, {
+         "tests/dsp/addopts_plugin.py": "VALUE = 1\n",
+         "pyproject.toml": FILES["pyproject.toml"] + 'addopts = "-p tests.dsp.addopts_plugin"\n',
+     })
+     return {}
+ 
+ 
++def _plugin_in_tools(repo):
++    write_files(repo, {
++        "tools/helpers.py": "VALUE = 1\n",
++        "tests/dsp/conftest.py": FILES["tests/dsp/conftest.py"] + (
++            '\n\npytest_plugins = ["tools.helpers"]\n'),
++    })
++    return {}
++
++
++def _plugin_at_root(repo):
++    write_files(repo, {"myplug.py": "VALUE = 1\n",
++                       "pyproject.toml": FILES["pyproject.toml"] + 'addopts = "-p myplug"\n'})
++    return {}
++
++
++def _test_imports_tools(repo):
++    write_files(repo, {"tools/fake.py": "def check():\n    return True\n",
++                       "tests/dsp/test_server.py": TEST_SERVER.replace(
++                           "from tests.dsp import samples\n",
++                           "from tests.dsp import samples\nfrom tools.fake import check\n")})
++    return {}
++
++
++def _declared_outside(repo):
++    write_files(repo, {"tools/launcher.py": "VALUE = 1\n"})
++    return {"harness": [*HARNESS, "tools/launcher.py"]}  # 手動列在 src、tests 以外
++
++
++def _declared_dynamic_entry(repo):
++    write_files(repo, {"tests/dsp/launcher.py": "from tests.dsp import hidden\n",
++                       "tests/dsp/hidden.py": "VALUE = 1\n"})
++    return {"harness": [*HARNESS, "tests/dsp/launcher.py"]}  # 作者手動列了動態入口
++
++
+ @pytest.mark.parametrize(("prepare", "expected"), [
+     (_omit("scope", "src/rtb/dsp/store.py"), "src/rtb/dsp/store.py"),  # 套件屬性匯入
+     (_omit("scope", "src/rtb/kit.py"), "src/rtb/kit.py"),  # 遞迴第二層
+     (_omit("scope", "src/rtb/__init__.py"), "src/rtb/__init__.py"),  # 上層套件初始化檔
+     (_omit("harness", "tests/dsp/conftest.py"), "tests/dsp/conftest.py"),
+     (_omit("harness", "tests/dsp/samples.py"), "tests/dsp/samples.py"),
+     (_omit("harness", "tests/__init__.py"), "tests/__init__.py"),
+     (_omit("harness", "pyproject.toml"), "pyproject.toml"),
+     (_omit("harness", "tests/dsp/test_server.py"), "tests/dsp/test_server.py"),  # 證據測試檔本身
+     (_symbol_file, "src/rtb/extra.py"),
+     (_enumeration_file, "src/rtb/registry.py"),
+     (_conftest_import, "src/rtb/fixture_only.py"),
+     # 代碼審第 1 輪:根 conftest、pytest_plugins 字串、pyproject addopts 的 -p 都會被 pytest 載入
+     (_root_conftest, "harness 少列 conftest.py"),
+     (_plugins_in_conftest, "tests/dsp/plugin_helpers.py"),
+     (_plugin_in_addopts, "tests/dsp/addopts_plugin.py"),
++    # 代碼審第 2 輪:解析到 src、tests 以外的 repo 內檔一律擋;harness 宣告的 .py 也當起點
++    (_plugin_in_tools, "tools/helpers.py"),
++    (_plugin_at_root, "myplug.py"),
++    (_test_imports_tools, "tools/fake.py"),
++    (_declared_dynamic_entry, "tests/dsp/hidden.py"),
++    (_declared_outside, "tools/launcher.py 在 src、tests 以外"),
+ ])
+ def test_a_file_missing_from_the_dependency_closure_is_blocked(repo, prepare, expected):
+     changes = prepare(repo)
+     write_manifests(repo, **changes)
+ 
+     code, output = verify(repo)
+ 
+     assert code == 1, output
+     assert expected in output
+ 
+@@ -760,21 +872,24 @@ EVIL_PLUGIN = (
+     "import pytest\n\n\n@pytest.hookimpl(hookwrapper=True)\n"
+     "def pytest_runtest_makereport(item, call):\n"
+     "    report = (yield).get_result()\n"
+     "    if report.when == \"call\":\n        report.outcome = \"passed\"\n"
+ )
+ 
+ 
+ def _python_with_user_site(tmp_path_factory):
+     """造一個 user site 開著的直譯器(代碼審第 1 輪:CI 的 setup-python 沒有 venv,user site 開著;
+     本機的 venv 關著,直接跑測不到)。venv 帶系統套件時 user site 會開;再放一個 .pth 指回目前
+-    的套件目錄,讓它匯入得到 pytest。建立只要幾十毫秒。"""
++    的套件目錄,讓它匯入得到 pytest。建立只要幾十毫秒。
++
++    這是本專案測試第一次造 venv,非造不可:venv 的 pyvenv.cfg 寫 include-system-site-packages =
++    false 時,CPython 的 site.venv() 會把 ENABLE_USER_SITE 直接設成 False,任何環境變數都改不動。"""
+     venv = tmp_path_factory.mktemp("usersite-python")
+     subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", "--without-pip",
+                     str(venv)], check=True, timeout=120)
+     python = venv / "bin" / "python"
+     purelib = subprocess.run([str(python), "-c", "import sysconfig;print(sysconfig.get_path("
+                               "'purelib'))"], capture_output=True, text=True, check=True,
+                              timeout=60).stdout.strip()
+     here = next(p for p in sys.path if p.endswith("site-packages") and Path(p, "pytest").exists())
+     Path(purelib, "rtb_test_packages.pth").write_text(here + "\n", encoding="utf-8")
+     enabled = subprocess.run([str(python), "-c", "import site;print(site.ENABLE_USER_SITE)"],
+@@ -1080,29 +1195,69 @@ def test_a_plugin_the_verifier_cannot_hash_is_blocked(repo, files, expected):
+     """讀不出字面值、或指到 repo 外(已安裝套件)的外掛,驗證器算不到它的雜湊,一律擋。"""
+     write_files(repo, files)
+     write_manifests(repo)
+ 
+     code, output = verify(repo)
+ 
+     assert code == 1, output
+     assert expected in output
+ 
+ 
+-def test_a_plugin_named_no_colon_is_allowed(repo):
+-    write_files(repo, {"pyproject.toml": FILES["pyproject.toml"] + 'addopts = "-p no:randomly"\n'})
++@pytest.mark.parametrize("addition", [
++    'addopts = "-p no:randomly"',
++    'addopts = "-p pytester"',  # pytest 內建外掛,版本由 requirements-dev 釘住
++    'addopts = "--junitprefix=ci"',  # 合法設定;驗證器自己把前綴清掉,不能誤判沒收集到
++])
++def test_a_plugin_named_no_colon_is_allowed(repo, addition):
++    write_files(repo, {"pyproject.toml": FILES["pyproject.toml"] + addition + "\n"})
+     write_manifests(repo)
+ 
+     code, output = verify(repo)
+ 
+     assert code == 0, output
+ 
+ 
++def test_a_builtin_plugin_in_pytest_plugins_is_allowed(repo):
++    write_files(repo, {"tests/dsp/conftest.py": FILES["tests/dsp/conftest.py"] + (
++        '\n\npytest_plugins = ["pytester"]\n')})
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 0, output
++
++
++def test_the_builtin_plugin_list_matches_the_installed_pytest():
++    from _pytest.config import builtin_plugins
++
++    assert frozenset(builtin_plugins) == load_verifier().PYTEST_BUILTIN_PLUGINS
++
++
++@pytest.mark.parametrize(("pyproject", "expected"), [
++    ('[tool.pytest]\ntestpaths = ["tests"]\npythonpath = ["src"]\naddopts = ["-p", "tests.plug"]\n',
++     "[tool.pytest]"),  # pytest 9 的原生表
++    ('[tool.pytest.ini_options]\ntestpaths = ["tests"]\npythonpath = ["src", "tests/helpers"]\n',
++     "pythonpath"),
++    ('[tool.pytest.ini_options]\ntestpaths = ["tests"]\npythonpath = ["src"]\naddopts = 3\n',
++     "addopts"),
++])
++def test_a_pytest_setting_the_verifier_cannot_follow_is_blocked(repo, pyproject, expected):
++    """代碼審第 2 輪:看不懂就擋,不去模擬 pytest 的每一種設定。"""
++    write_files(repo, {"pyproject.toml": pyproject})
++    write_manifests(repo)
++
++    code, output = verify(repo)
++
++    assert code == 1, output
++    assert expected in output
++
++
+ @pytest.mark.parametrize(("label", "prepare", "expected"), [
+     ("kind 是陣列", lambda r: write_manifests(r, evidence=[
+         {"node": NODE_UPDATE, "covers": [], "kind": ["unit"]}]), "kind"),
+     ("範圍內程式語法錯", lambda r: (write_files(r, {"src/rtb/kit.py": "def ok(:\n"}),
+                              write_manifests(r)), "src/rtb/kit.py"),
+ ])
+ def test_a_strange_value_or_broken_code_is_a_reason_not_a_crash(repo, label, prepare, expected):
+     prepare(repo)
+ 
+     code, output = verify(repo)
+diff --git a/tools/verify_claims.py b/tools/verify_claims.py
+index 068b76a..e3e5f45 100644
+--- a/tools/verify_claims.py
++++ b/tools/verify_claims.py
+@@ -47,20 +47,30 @@ EVIDENCE_KEYS = frozenset({"node", "covers", "kind"})
+ INJECTION_KEY = "injection"  # 只有 failure_injection 的證據帶(檢查在增量 2)
+ PYTEST_CONFIG = "pyproject.toml"
+ OTHER_PYTEST_CONFIGS = ("pytest.ini", ".pytest.ini", "tox.ini", "setup.cfg")
+ CLEARED_VARIABLES = ("PYTHONPATH", "PYTHONSTARTUP")
+ TIMEOUT_SECONDS = 900
+ SHA256 = re.compile(r"[0-9a-f]{64}")
+ CODE_ROOTS = ("src", "tests")  # 依賴閉包只走專案自己的程式:src 算 scope、tests 算 harness
+ ROOT_CONFTEST = "conftest.py"  # repo 根的 conftest 也會被 pytest 載入(代碼審第 1 輪)
+ EVIDENCE_ROOT = "tests"  # 證據測試只准放這底下,每層都要是套件
+ PLUGINS_NAME = "pytest_plugins"
++# pytest 內建外掛(抄自 _pytest.config.builtin_plugins,測試斷言跟安裝的 pytest 一致;版本由
++# requirements-dev 釘住,不是任意第三方程式),寫在 pytest_plugins 或 -p 都放行
++PYTEST_BUILTIN_PLUGINS = frozenset({
++    "assertion", "cacheprovider", "capture", "debugging", "doctest", "faulthandler", "fixtures",
++    "helpconfig", "junitxml", "legacypath", "logging", "main", "mark", "monkeypatch",
++    "pastebin", "pytester", "pytester_assertions", "python", "recwarn", "reports", "runner",
++    "setuponly", "setupplan", "skipping", "stepwise", "subtests", "terminal",
++    "terminalprogress", "threadexception", "tmpdir", "unittest", "unraisableexception",
++    "warnings"})
++PYTHONPATH_ALLOWED = ["src"]  # 多列目錄時頂層名稱的解析會跟著變,驗證器不模擬(代碼審第 2 輪)
+ # 驗證器自己塞進 pytest 的唯讀紀錄器:非嚴格 xfail 的測試通過時,JUnit 裡跟一般通過長得一樣
+ # (標記寫 strict=False 會蓋過 xfail_strict),所以從 pytest 的報告直接記下 wasxfail 的節點
+ RUNNER = (
+     "import json, sys\n"
+     "import pytest\n"
+     "class Recorder:\n"
+     "    def __init__(self):\n"
+     "        self.xpassed = []\n"
+     "    def pytest_runtest_logreport(self, report):\n"
+     "        if report.passed and hasattr(report, 'wasxfail'):\n"
+@@ -322,61 +332,120 @@ def _evidence_location_problems(root: Path, test_file: str) -> list[str]:
+ 
+ def _reference_problem(root: Path, reference: str, kind: str) -> str | None:
+     rel, _, name = reference.partition(":")
+     if not name:
+         return f"{kind} 寫法要是「檔:名稱」:{reference}"
+     problem = path_problem(root, rel)
+     if problem:
+         return f"{kind} {problem}"
+     if kind == "enumerations":
+         return None  # 讀不讀得出字面常數在第 4 步
+-    if not _defines(_parse_code(root, rel), name):
++    tree = _parse_code(root, rel)
++    opaque = _opaque_binding(tree.body, name.split(".")[0] if "." in name else None)
++    if opaque:
++        return f"symbols {reference} 所在的模組有{opaque},驗證器不展開、一律擋"
++    if not _defines(tree, name):
+         return (f"symbols {reference} 不是唯一一次的最外層定義(不在 if 等區塊底下,"
+                 "模組裡也沒有別處再綁定、del 或用 global 改它)")
+     return None
+ 
+ 
+ _OWN_SCOPE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
++_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+ 
+ 
+ def _this_level(body: list[ast.stmt]) -> Iterator[ast.AST]:
+-    """這一層執行時會碰到的節點:進 if、try、for、with 等區塊,不進 def、class、lambda 的本體。"""
++    """這一層執行時會碰到的節點:進 if、try、for、with 等區塊,不進 def、class、lambda 的本體。
++    推導式有自己的作用域,只取它裡面 := 的目標(那會綁到外層);只有型別註記、沒有值的宣告
++    不綁定任何東西(代碼審第 2 輪:原本這兩種會誤擋)。"""
+     pending: list[ast.AST] = list(body)
+     while pending:
+         node = pending.pop()
++        if isinstance(node, _COMPREHENSIONS):
++            yield from (n.target for n in ast.walk(node) if isinstance(n, ast.NamedExpr))
++            continue
+         yield node
++        if isinstance(node, ast.AnnAssign) and node.value is None:
++            continue
+         if not isinstance(node, _OWN_SCOPE):
+             pending.extend(ast.iter_child_nodes(node))
+ 
+ 
+ def _bindings(body: list[ast.stmt], name: str) -> list[ast.AST]:
+     """這一層所有會綁定或刪掉這個名字的地方:def、class、賦值(含 +=、for、with)、匯入、del。"""
+-    return [node for node in _this_level(body) if _bound_name(node) == name]
++    found = [node for node in _this_level(body) if _bound_name(node) == name]
++    return sorted(found, key=lambda n: (getattr(n, "lineno", 0), getattr(n, "col_offset", 0)))
+ 
+ 
+ def _bound_name(node: ast.AST) -> str | None:
+     if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.ExceptHandler):
+         return node.name
+     if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+         return node.id
+     if isinstance(node, ast.alias):
+         return (node.asname or node.name).split(".")[0]
+     return None
+ 
+ 
++def _decorators(node: ast.AST) -> set[str]:
++    if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
++        return set()
++    return {ast.unparse(d) for d in node.decorator_list}
++
++
++def _accessor_chain(bindings: list[ast.AST], name: str) -> list[ast.AST]:
++    """同名 def 只在兩種寫法放行,當成最後那一個:前面每個都帶 @overload,或後面每個都帶
++    @名字.setter/getter/deleter(property)。其他多次綁定照擋。"""
++    if len(bindings) < 2 or not all(
++            isinstance(b, ast.FunctionDef | ast.AsyncFunctionDef) for b in bindings):
++        return bindings
++    overloads = all(_decorators(b) & {"overload", "typing.overload"} for b in bindings[:-1])
++    accessors = {f"{name}.{kind}" for kind in ("setter", "getter", "deleter")}
++    chained = all(_decorators(b) & accessors for b in bindings[1:])
++    return [bindings[-1]] if overloads or chained else bindings
++
++
++def _opaque_binding(body: list[ast.stmt], owner: str | None) -> str | None:
++    """看不懂的綁定方式:import *、match、對類別的屬性指派或 setattr。一律擋,不去展開
++    (代碼審第 2 輪:再去理解更多語法會變打地鼠)。"""
++    for node in _this_level(body):
++        if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
++            return "import *(算不到它帶進哪些名字)"
++        if isinstance(node, ast.Match):
++            return "match 敘述(捕獲樣式會重綁名字)"
++        if owner is not None and _touches_attribute(node, owner):
++            return f"對 {owner} 的屬性指派或 setattr"
++    return None
++
++
++def _touches_attribute(node: ast.AST, owner: str) -> bool:
++    targets: list[ast.expr] = []
++    if isinstance(node, ast.Assign):
++        targets = node.targets
++    elif isinstance(node, ast.AnnAssign | ast.AugAssign):
++        targets = [node.target]
++    elif isinstance(node, ast.Delete):
++        targets = node.targets
++    elif isinstance(node, ast.Call) and ast.unparse(node.func) in ("setattr", "delattr"):
++        targets = node.args[:1]
++        return bool(targets) and isinstance(targets[0], ast.Name) and targets[0].id == owner
++    return any(isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name)
++               and t.value.id == owner for t in targets)
++
++
+ def _globally_rebound(tree: ast.Module, name: str) -> bool:
+     return any(isinstance(node, ast.Global) and name in node.names for node in ast.walk(tree))
+ 
+ 
+ def _sole_statement(body: list[ast.stmt], name: str) -> ast.stmt | None:
+     """這個名字在這一層只被綁定一次、而且就是直接寫在這一層的那一句時,回傳那一句。"""
+-    bindings = _bindings(body, name)
++    bindings = _accessor_chain(_bindings(body, name), name)
+     if len(bindings) != 1:
+         return None
+     for statement in body:
+         if statement is bindings[0] or any(node is bindings[0] for node in ast.walk(statement)
+                                            if not isinstance(statement, _OWN_SCOPE)):
+             return statement
+     return None
+ 
+ 
+ def _defines(tree: ast.Module, name: str) -> bool:
+@@ -461,20 +530,22 @@ def plugin_modules(tree: ast.Module, rel: str) -> tuple[list[str], list[str]]:
+         if found is None:
+             problems.append(f"{rel} 的 {PLUGINS_NAME} 讀不出字面值,驗證器算不到它載入的外掛")
+         else:
+             names += found
+     return names, problems
+ 
+ 
+ def _plugin_files(root: Path, names: list[str], where: str) -> tuple[list[str], list[str]]:
+     files, problems = [], []
+     for name in names:
++        if name in PYTEST_BUILTIN_PLUGINS:
++            continue
+         found = _module_file(root, name)
+         if found is None:
+             problems.append(f"{where} 載入的外掛 {name} 不在 repo 裡,驗證器算不到它的雜湊")
+         else:
+             files.append(found)
+     return files, problems
+ 
+ 
+ def dependency_closure(root: Path, starts: Iterable[str]) -> tuple[set[str], list[str]]:
+     """從起點沿靜態匯入與 pytest_plugins 在 src、tests(與根 conftest)內遞迴;回傳 repo 根相對
+@@ -482,62 +553,83 @@ def dependency_closure(root: Path, starts: Iterable[str]) -> tuple[set[str], lis
+     pending, seen, problems = list(starts), set(), []
+     while pending:
+         rel = pending.pop()
+         if rel in seen or not _in_code(rel) or not (root / rel).is_file():
+             continue
+         seen.add(rel)
+         pending += sorted(_ancestor_inits(root, rel))
+         if not rel.endswith(".py"):
+             continue
+         tree = _parse_code(root, rel)
+-        for module in imported_modules(tree, _package_parts(rel)):
+-            found = _module_file(root, module)
+-            if found is not None:
+-                pending.append(found)
++        found_files = [found for module in imported_modules(tree, _package_parts(rel))
++                       if (found := _module_file(root, module)) is not None]
+         names, plugin_problems = plugin_modules(tree, rel)
+         files, missing = _plugin_files(root, names, rel)
+-        pending += files
+-        problems += plugin_problems + missing
++        pending += found_files + files
++        problems += plugin_problems + missing + _outside_code(found_files + files, rel)
+     return seen, problems
+ 
+ 
++def _outside_code(files: list[str], importer: str) -> list[str]:
++    """解析得到、但不在 src、tests 或根 conftest 的 repo 內檔:pytest 照樣載入,驗證器不算它的
++    閉包,所以擋(代碼審第 2 輪:原本被靜默略過)。"""
++    return [f"{importer} 用到的 {rel} 在 src、tests 以外,驗證器不算它的閉包"
++            for rel in files if not _in_code(rel)]
++
++
+ def addopts_plugins(root: Path) -> tuple[list[str], list[str]]:
+     """pyproject 的 addopts 裡每個 -p 模組(-p no:xxx 是關掉外掛,不算)。"""
+     try:
+         config = tomllib.loads((root / PYTEST_CONFIG).read_text(encoding="utf-8"))
+     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+         return [], [f"{PYTEST_CONFIG} 讀不懂:{exc}"]
+-    options = config.get("tool", {}).get("pytest", {}).get("ini_options", {}).get("addopts", "")
+-    words = shlex.split(options) if isinstance(options, str) else [str(o) for o in options]
++    table = config.get("tool", {}).get("pytest", {})
++    problems = [f"{PYTEST_CONFIG} 有 [tool.pytest] 原生表的設定({key}):只准寫在 "
++                "[tool.pytest.ini_options]" for key in sorted(table) if key != "ini_options"]
++    options = table.get("ini_options", {})
++    pythonpath = options.get("pythonpath", PYTHONPATH_ALLOWED)
++    if (pythonpath if isinstance(pythonpath, list) else [pythonpath]) != PYTHONPATH_ALLOWED:
++        problems.append(f"{PYTEST_CONFIG} 的 pythonpath 只准 {PYTHONPATH_ALLOWED}:{pythonpath}")
++    addopts = options.get("addopts", "")
++    if isinstance(addopts, str):
++        words = shlex.split(addopts)
++    elif _is_strings(addopts):
++        words = list(addopts)
++    else:
++        return [], [*problems, f"{PYTEST_CONFIG} 的 addopts 要是字串或字串陣列:{addopts}"]
+     names = []
+     for index, word in enumerate(words):
+         if word == "-p" and index + 1 < len(words):
+             names.append(words[index + 1])
+         elif word.startswith("-p") and len(word) > 2:
+             names.append(word[2:])
+-    return _plugin_files(root, [n for n in names if not n.startswith("no:")],
+-                         f"{PYTEST_CONFIG} 的 addopts")
++    files, missing = _plugin_files(root, [n for n in names if not n.startswith("no:")],
++                                   f"{PYTEST_CONFIG} 的 addopts")
++    return files, problems + missing + _outside_code(files, f"{PYTEST_CONFIG} 的 addopts")
+ 
+ 
+ def _conftests(root: Path, test_file: str) -> set[str]:
+     parts = test_file.split("/")[:-1]
+     candidates = ["/".join([*parts[:depth], ROOT_CONFTEST]) for depth in range(len(parts) + 1)]
+     return {c for c in candidates if (root / c).is_file()}
+ 
+ 
+ def closure_problems(root: Path, manifest: Manifest) -> list[str]:
+     tests = {e.file for e in manifest.evidence}
+     conftests = set().union(*(_conftests(root, t) for t in tests))
+     references = {r.partition(":")[0] for r in (*manifest.symbols, *manifest.enumerations)}
+     addopts, problems = addopts_plugins(root)
++    declared = {*manifest.scope, *manifest.harness}  # 手動列的動態入口也要展開(代碼審第 2 輪)
++    problems += [f"{rel} 在 src、tests 以外,驗證器不算它的閉包" for rel in sorted(declared)
++                 if rel.endswith(".py") and not _in_code(rel)]
+     closure, closure_reasons = dependency_closure(
+-        root, {*manifest.scope, *references, *tests, *conftests, *addopts})
++        root, {*declared, *references, *tests, *conftests, *addopts})
+     problems += closure_reasons
+     need_scope = {rel for rel in closure if rel.startswith("src/")}  # 起點本身也在閉包裡
+     need_harness = {rel for rel in closure if not rel.startswith("src/")} | {PYTEST_CONFIG}
+     problems += [f"scope 少列 {rel}(依賴閉包)" for rel in sorted(need_scope - set(manifest.scope))]
+     problems += [f"harness 少列 {rel}(依賴閉包)"
+                  for rel in sorted(need_harness - set(manifest.harness))]
+     for rel, digest in sorted({**manifest.scope, **manifest.harness}.items()):
+         if hashlib.sha256((root / rel).read_bytes()).hexdigest() != digest:
+             problems.append(f"{rel} 的雜湊跟清單不一致(證據可能是舊版本的)")
+     return problems
+@@ -558,40 +650,43 @@ def _literal_strings(value: ast.expr | None) -> set[str] | None:
+     if len(items) != len(value.elts) or not all(isinstance(i, str) for i in items):
+         return None
+     return {str(item) for item in items}
+ 
+ 
+ def read_registry(root: Path, source: str) -> set[str] | None:
+     """最外層唯一一次綁定是普通或帶型別註記的賦值,值是字串字面的 tuple 或 frozenset;模組裡別處
+     再綁定、del 或用 global 改它都不算(代碼審第 1 輪)。"""
+     rel, _, name = source.partition(":")
+     tree = _parse_code(root, rel)
+-    if _globally_rebound(tree, name):
++    if _globally_rebound(tree, name) or _opaque_binding(tree.body, None):
+         return None
+     statement = _sole_statement(tree.body, name)
+     if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(
+             statement.targets[0], ast.Name):
+         return _literal_strings(statement.value)
+     if isinstance(statement, ast.AnnAssign):
+         return _literal_strings(statement.value)
+     return None
+ 
+ 
+ def enumeration_problems(root: Path, manifest: Manifest) -> list[str]:
+     words = [word for word in SCOPE_WORDS if word in manifest.policy]
+     problems = [f"policy 用了範圍詞「{words[0]}」卻沒有列舉(沒有登錄表可列舉就要改寫宣稱)"
+                 ] if words and not manifest.enumerations else []
+     items: set[str] = set()
+     for source in manifest.enumerations:
+         found = read_registry(root, source)
+         if found is None:
+-            problems.append(f"{source} 讀不出字面常數(動態組出來、從別處匯入或被重新指派)")
++            rel = source.partition(":")[0]
++            opaque = _opaque_binding(_parse_code(root, rel).body, None)
++            why = f"所在的模組有{opaque}" if opaque else "動態組出來、從別處匯入或被重新指派"
++            problems.append(f"{source} 讀不出字面常數({why})")
+         else:
+             items |= found
+     covered = {item for e in manifest.evidence for item in e.covers}
+     problems += [f"列舉項目 {item} 沒有任何證據 covers" for item in sorted(items - covered)]
+     problems += [f"covers 寫了列舉裡沒有的 {item}" for item in sorted(covered - items)]
+     return problems
+ 
+ 
+ # ── ⑥ 真的跑 ─────────────────────────────────────────────────────────────────
+ 
+@@ -634,24 +729,27 @@ def _xpassed(nodes: list[str], recorded: Path) -> list[str]:
+         return ["pytest 沒留下預期失敗的紀錄,判不出有沒有預期失敗卻通過的測試"]
+     return [f"{node} 預期失敗卻通過(非嚴格的 xfail,JUnit 裡看起來跟通過一樣)"
+             for node in nodes if any(p == node or str(p).startswith(f"{node}[") for p in passed)]
+ 
+ 
+ def run_evidence(root: Path, nodes: list[str], timeout: float) -> list[str]:
+     with tempfile.TemporaryDirectory() as temporary:
+         junit, recorded = Path(temporary) / "junit.xml", Path(temporary) / "xpassed.json"
+         # -E 不讀 PYTHON 開頭的變數、-s 不開 user site(代碼審第 1 輪:CI 的 setup-python 沒有
+         # venv,user site 裡的 usercustomize 能在清完環境後再自己設 PYTEST_ADDOPTS)
++        # 兩個 -c 不同義、順序不能動:第一個是直譯器的「執行這段碼」(RUNNER 讀 sys.argv[1] 當紀錄
++        # 檔、其餘原樣交給 pytest),第二個是交給 pytest 的設定檔旗標。--junitprefix= 清掉設定裡的
++        # 前綴,JUnit 的 classname 才對得回節點編號(代碼審第 2 輪)
+         command = [sys.executable, "-E", "-s", "-c", RUNNER, str(recorded),
+                    "-c", PYTEST_CONFIG, "--rootdir", ".",
+                    "-p", "no:cacheprovider", "-o", "xfail_strict=true", "-q",
+-                   f"--junitxml={junit}", *nodes]
++                   "--junitprefix=", f"--junitxml={junit}", *nodes]
+         process = subprocess.Popen(  # noqa: S603 - 指令全由驗證器組,節點編號當參數傳
+             command, cwd=root, env=clean_environment(), stdout=subprocess.PIPE,
+             stderr=subprocess.STDOUT, text=True, start_new_session=True)
+         try:
+             output, _ = process.communicate(timeout=timeout)
+         except subprocess.TimeoutExpired:
+             os.killpg(process.pid, signal.SIGKILL)  # 整組結束,不留測試另起的孫行程
+             process.communicate()
+             return [f"證據測試超過總時限 {timeout:g} 秒,逾時(不是通過)"]
+         if process.returncode == 4:

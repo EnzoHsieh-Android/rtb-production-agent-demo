@@ -1,0 +1,367 @@
+{
+  "manifest_version": 1,
+  "claim_id": "permission-guardrail",
+  "policy": "DSP 只接受帶有效能力憑證、而且廣告、動作、租戶範圍都對得上的寫入;單次加額超過比例上限、決策過時、廣告版本已變時,執行端在寫進 DSP 之前擋下;人工核可只對它簽的那一份內容有效;死信重放照樣重跑執行前的檢查;故障注入要啟動時開旗標才存在、伺服器只綁本機、分析端送不出故障標頭。",
+  "scope": [
+    {
+      "path": "src/rtb/__init__.py",
+      "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+    },
+    {
+      "path": "src/rtb/analyzer/dsp_client.py",
+      "sha256": "d6991fc51304ac97efcc1906f877fc71c76abd26cc31234475cf367376b31cc2"
+    },
+    {
+      "path": "src/rtb/analyzer/flow.py",
+      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
+    },
+    {
+      "path": "src/rtb/analyzer/inbox_client.py",
+      "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+    },
+    {
+      "path": "src/rtb/analyzer/instrumented.py",
+      "sha256": "cdb1244eb81c643a3c9a0c1b510c315351377bf095f15c7a7468d4b60a2e4dd4"
+    },
+    {
+      "path": "src/rtb/analyzer/policy.py",
+      "sha256": "f382a95dc7619dfb72d25a668ee69b3834a982333eaa62300e11d8057e52fd97"
+    },
+    {
+      "path": "src/rtb/analyzer/task_store.py",
+      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
+    },
+    {
+      "path": "src/rtb/capabilitykit.py",
+      "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+    },
+    {
+      "path": "src/rtb/domain/_checks.py",
+      "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
+    },
+    {
+      "path": "src/rtb/domain/attempt.py",
+      "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
+    },
+    {
+      "path": "src/rtb/domain/evidence.py",
+      "sha256": "71a7f4c2e3020d2663b093f8d57339db07176ea740f7b6997a9ad1be03fdc4d0"
+    },
+    {
+      "path": "src/rtb/domain/metrics.py",
+      "sha256": "8e48c962fdc739b39f0e7d94296fbabf65db52b5d1bcc1db6341e2628ba89472"
+    },
+    {
+      "path": "src/rtb/domain/proposal.py",
+      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
+    },
+    {
+      "path": "src/rtb/domain/task_state.py",
+      "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
+    },
+    {
+      "path": "src/rtb/domain/worth.py",
+      "sha256": "1fe95609a329ab7c97966604c6ec3808dd1a9a4ea2504f55f76a8a10669bc55b"
+    },
+    {
+      "path": "src/rtb/dsp/capability.py",
+      "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
+    },
+    {
+      "path": "src/rtb/dsp/errors.py",
+      "sha256": "a0f5062db51ed48881b90031ea065dbaf817b59ab0bf251af38a39237f72dad0"
+    },
+    {
+      "path": "src/rtb/dsp/server.py",
+      "sha256": "c44f8cd9db07699bd2b7832462c7cf04052c7ca59938100470db6ab821d0f177"
+    },
+    {
+      "path": "src/rtb/dsp/store.py",
+      "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
+    },
+    {
+      "path": "src/rtb/executor/approval.py",
+      "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+    },
+    {
+      "path": "src/rtb/executor/approve.py",
+      "sha256": "a9017181b6bc7bdad512efb423f1edd670c81f471d43378d88187f2e67554650"
+    },
+    {
+      "path": "src/rtb/executor/attempt_store.py",
+      "sha256": "1e8a01fca0d9a650f11c2f7f88ba7df2c9490b10c5065d5f214100d0563596e9"
+    },
+    {
+      "path": "src/rtb/executor/capability_signer.py",
+      "sha256": "60b6b0de6acfe389060bd110c9d2df9b9bbfb8403f84c8b974740bef6a76cf59"
+    },
+    {
+      "path": "src/rtb/executor/dsp_client.py",
+      "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
+    },
+    {
+      "path": "src/rtb/executor/execution.py",
+      "sha256": "0f83c2844ce6e7aaa904af9f13030e3650ff2439f12441459740f39a2332e844"
+    },
+    {
+      "path": "src/rtb/executor/guardrails.py",
+      "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
+    },
+    {
+      "path": "src/rtb/executor/inbox_server.py",
+      "sha256": "f620b90b17391f951c901f8783ab48c5c3feca7713a47f50d2c7c2c62a3da042"
+    },
+    {
+      "path": "src/rtb/executor/inbox_store.py",
+      "sha256": "17d5904ebef6487a8e93235ae5ebcb60128d3da231552cc6e9bd6275bd6a2be8"
+    },
+    {
+      "path": "src/rtb/executor/replay.py",
+      "sha256": "a57a3ecae7c335513ba6d5021f94d7ba0a8309fdca607844f4198252f5829b35"
+    },
+    {
+      "path": "src/rtb/executor/runner.py",
+      "sha256": "3a2892e3b67df713213fe7727aff3fb8bf44baa94d9f7d5b80a52da0f2631df8"
+    },
+    {
+      "path": "src/rtb/httpclient.py",
+      "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
+    },
+    {
+      "path": "src/rtb/httpkit.py",
+      "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
+    },
+    {
+      "path": "src/rtb/sqlitekit.py",
+      "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
+    }
+  ],
+  "harness": [
+    {
+      "path": "pyproject.toml",
+      "sha256": "60c902288d114de02c8a2fd2ed6b56ced039f404054d662c21dc705817448b76"
+    },
+    {
+      "path": "tests/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/analyzer/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/analyzer/conftest.py",
+      "sha256": "768e7f782442ab5fbd8e5666f4ba43cbe268a503de1d299089fd1c24e9c9237c"
+    },
+    {
+      "path": "tests/analyzer/test_boundaries.py",
+      "sha256": "214a6c6fbc04118f49a433460880c4783e9f0d7c5fbf7c7b9b60f1d227a416cc"
+    },
+    {
+      "path": "tests/analyzer/test_f4_end_to_end.py",
+      "sha256": "caf57ffc0a656e9370c90c54009de7b9e5e92c0c2ed990c79840a6f36b4b21fa"
+    },
+    {
+      "path": "tests/analyzer/test_f6_end_to_end.py",
+      "sha256": "22046108cca75f71740dd518c5691210ed36ef4353653d5cdce257c280cf2a16"
+    },
+    {
+      "path": "tests/capability_samples.py",
+      "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
+    },
+    {
+      "path": "tests/domain/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/domain/proposal_samples.py",
+      "sha256": "124a4be23ac35ff25f062a2627c51cafede9bb857aa145c14892548772003d96"
+    },
+    {
+      "path": "tests/dsp/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/dsp/conftest.py",
+      "sha256": "96d7e6329e2fe4e903d6c57e7d17b4e976818ac28f256173eb39171ef37608d1"
+    },
+    {
+      "path": "tests/dsp/test_capability.py",
+      "sha256": "5d57ffc1a38871b196fe3e071e0115cd5e1e75be1db2b9d3943c7472808c0fd0"
+    },
+    {
+      "path": "tests/dsp/test_server.py",
+      "sha256": "9b832528b311baa98740c69579f5add12f24b214eef89dfab585b0e5ab0cd395"
+    },
+    {
+      "path": "tests/executor/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/executor/audit_guard.py",
+      "sha256": "3d8b492903fb311bc98ceaeca3fb4a7d415409268772b68e3874323156346e9c"
+    },
+    {
+      "path": "tests/executor/conftest.py",
+      "sha256": "4a6d9be706061f62d89fe85775ebb33539f96bb5cdf456898654f048c8fea269"
+    },
+    {
+      "path": "tests/executor/fakes.py",
+      "sha256": "581a7bef53efeaba0aa8eec33cfadf97ff74cc74ef87fd2c260caceac70a1add"
+    },
+    {
+      "path": "tests/executor/test_approval.py",
+      "sha256": "285ad4c87cbd6a345f0eef99cd81a62ee5f1cad8cfa39213185ba1c0a34d8879"
+    },
+    {
+      "path": "tests/executor/test_capability_signer.py",
+      "sha256": "e8d039eee162b605e1366ec1c7245c3bf0a72d2a193e28f46257d477dfa1c251"
+    },
+    {
+      "path": "tests/executor/test_dead_letter.py",
+      "sha256": "959acb33dec5785f155add1e95815027b99117ad1fda377a4821435db28aa8f0"
+    },
+    {
+      "path": "tests/executor/test_execution.py",
+      "sha256": "34ea728aebb34f40beb3d82072aefbf46c5a63c5faf68e727ffc281097aab3f3"
+    },
+    {
+      "path": "tests/executor/test_guardrails.py",
+      "sha256": "abfafd8a1e5c90657c1af651100894c962967d605decd8831efbcd6658d27d3b"
+    },
+    {
+      "path": "tests/executor/test_stale_decision.py",
+      "sha256": "84b84eabd5d4c2064cce53a96cd1dbe95dca9bb222ccacb53ee5f96a18a45852"
+    },
+    {
+      "path": "tests/executor/write_scan.py",
+      "sha256": "7babc52bd343caa8265ebd6f5b1b1f8e28f44fc6031268d60e2c473eba5edd00"
+    },
+    {
+      "path": "tests/httpclient/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/httpclient/test_httpclient.py",
+      "sha256": "cc15feb70db4fd70e2d802709a38408e33396a8ffbdf1220b16b3051996a8c02"
+    },
+    {
+      "path": "tests/kit/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/kit/test_httpkit.py",
+      "sha256": "1f5fee43691d93fb2e844a81b90240f84b77d4548806fd16fb7267d1494ad659"
+    }
+  ],
+  "enumerations": [],
+  "evidence": [
+    {
+      "node": "tests/dsp/test_capability.py::test_a_write_without_a_valid_capability_is_refused_and_changes_nothing",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/dsp/test_capability.py::test_a_capability_signed_with_another_key_is_refused",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/dsp/test_capability.py::test_each_scope_field_alone_that_does_not_match_the_request_is_refused",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/dsp/test_capability.py::test_a_capability_outside_its_time_window_is_refused",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_capability_signer.py::test_the_executor_refuses_to_sign_outside_its_current_tenant_configuration",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_guardrails.py::test_a_budget_increase_is_bounded_by_the_ratio_cap",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_guardrails.py::test_a_ratio_block_writes_nothing",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_stale_decision.py::test_a_stale_decision_is_blocked",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_execution.py::test_each_failed_precheck_blocks_the_proposal_without_a_write",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_approval.py::test_an_approval_is_void_once_any_scope_field_changes",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_approval.py::test_an_approval_is_void_when_scope_expiry_hash_or_stage_changes",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_approval.py::test_an_approval_covers_only_its_own_stage",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_dead_letter.py::test_a_replayed_proposal_goes_through_every_gate",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/analyzer/test_f6_end_to_end.py::test_f6_a_stale_dead_letter_is_revalidated_on_replay",
+      "covers": [],
+      "kind": "end_to_end"
+    },
+    {
+      "node": "tests/dsp/test_server.py::test_fault_header_is_rejected_with_400_and_changes_nothing_when_injection_is_off",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/kit/test_httpkit.py::test_every_fault_mode_is_refused_when_injection_is_off",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/kit/test_httpkit.py::test_the_server_refuses_to_bind_anything_but_loopback",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/httpclient/test_httpclient.py::test_a_header_key_that_is_not_a_clientheader_member_is_rejected",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/httpclient/test_httpclient.py::test_the_closed_header_enum_contains_exactly_the_documented_members",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/analyzer/test_boundaries.py::test_the_agent_cannot_reach_fault_injection_on_production_style_servers",
+      "covers": [],
+      "kind": "unit"
+    }
+  ],
+  "symbols": [
+    "src/rtb/dsp/capability.py:check_scope",
+    "src/rtb/executor/guardrails.py:increase_too_large",
+    "src/rtb/executor/guardrails.py:decision_stale",
+    "src/rtb/executor/approval.py:holds",
+    "src/rtb/executor/execution.py:precheck"
+  ]
+}

@@ -1,0 +1,39 @@
+[
+ {
+  "round": "r1",
+  "seat": "正確性-opus",
+  "lens": "正確性與靜默放行",
+  "materials": [
+   "governance/review-reports/code-phase11-inc2/r1-snapshot.patch",
+   "tools/verify_claims.py",
+   "tools/claim_hashes.py",
+   "claims/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊-sonnet",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase11-inc2/r1-snapshot.patch",
+   "tools/verify_claims.py",
+   "tools/claim_hashes.py",
+   "claims/",
+   "tools/mypy_sarif.py"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家:漏判",
+  "materials": [
+   "governance/review-reports/code-phase11-inc2/r1-snapshot.patch",
+   "tools/verify_claims.py",
+   "tools/claim_hashes.py",
+   "claims/"
+  ],
+  "auditor": "codex"
+ }
+]

@@ -1,0 +1,215 @@
+{
+  "manifest_version": 1,
+  "claim_id": "aggregate-blast-radius",
+  "policy": "單筆變更都在單一廣告上限內時,租戶 24 小時內加預算的總曝險到門檻就停、剛好等於門檻仍放行;兩個工作者不能一起衝過門檻;超過的停在待核可,由人簽核可才放行,擋下的都有紀錄。",
+  "scope": [
+    {
+      "path": "src/rtb/__init__.py",
+      "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+    },
+    {
+      "path": "src/rtb/analyzer/flow.py",
+      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
+    },
+    {
+      "path": "src/rtb/analyzer/task_store.py",
+      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
+    },
+    {
+      "path": "src/rtb/capabilitykit.py",
+      "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+    },
+    {
+      "path": "src/rtb/domain/_checks.py",
+      "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
+    },
+    {
+      "path": "src/rtb/domain/attempt.py",
+      "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
+    },
+    {
+      "path": "src/rtb/domain/evidence.py",
+      "sha256": "71a7f4c2e3020d2663b093f8d57339db07176ea740f7b6997a9ad1be03fdc4d0"
+    },
+    {
+      "path": "src/rtb/domain/proposal.py",
+      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
+    },
+    {
+      "path": "src/rtb/domain/task_state.py",
+      "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
+    },
+    {
+      "path": "src/rtb/dsp/capability.py",
+      "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
+    },
+    {
+      "path": "src/rtb/dsp/errors.py",
+      "sha256": "a0f5062db51ed48881b90031ea065dbaf817b59ab0bf251af38a39237f72dad0"
+    },
+    {
+      "path": "src/rtb/dsp/store.py",
+      "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
+    },
+    {
+      "path": "src/rtb/executor/approval.py",
+      "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+    },
+    {
+      "path": "src/rtb/executor/approve.py",
+      "sha256": "a9017181b6bc7bdad512efb423f1edd670c81f471d43378d88187f2e67554650"
+    },
+    {
+      "path": "src/rtb/executor/attempt_store.py",
+      "sha256": "1e8a01fca0d9a650f11c2f7f88ba7df2c9490b10c5065d5f214100d0563596e9"
+    },
+    {
+      "path": "src/rtb/executor/capability_signer.py",
+      "sha256": "60b6b0de6acfe389060bd110c9d2df9b9bbfb8403f84c8b974740bef6a76cf59"
+    },
+    {
+      "path": "src/rtb/executor/dsp_client.py",
+      "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
+    },
+    {
+      "path": "src/rtb/executor/execution.py",
+      "sha256": "0f83c2844ce6e7aaa904af9f13030e3650ff2439f12441459740f39a2332e844"
+    },
+    {
+      "path": "src/rtb/executor/guardrails.py",
+      "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
+    },
+    {
+      "path": "src/rtb/executor/inbox_server.py",
+      "sha256": "f620b90b17391f951c901f8783ab48c5c3feca7713a47f50d2c7c2c62a3da042"
+    },
+    {
+      "path": "src/rtb/executor/inbox_store.py",
+      "sha256": "17d5904ebef6487a8e93235ae5ebcb60128d3da231552cc6e9bd6275bd6a2be8"
+    },
+    {
+      "path": "src/rtb/executor/runner.py",
+      "sha256": "3a2892e3b67df713213fe7727aff3fb8bf44baa94d9f7d5b80a52da0f2631df8"
+    },
+    {
+      "path": "src/rtb/httpclient.py",
+      "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
+    },
+    {
+      "path": "src/rtb/httpkit.py",
+      "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
+    },
+    {
+      "path": "src/rtb/sqlitekit.py",
+      "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
+    }
+  ],
+  "harness": [
+    {
+      "path": "pyproject.toml",
+      "sha256": "60c902288d114de02c8a2fd2ed6b56ced039f404054d662c21dc705817448b76"
+    },
+    {
+      "path": "tests/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/capability_samples.py",
+      "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
+    },
+    {
+      "path": "tests/domain/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/domain/proposal_samples.py",
+      "sha256": "124a4be23ac35ff25f062a2627c51cafede9bb857aa145c14892548772003d96"
+    },
+    {
+      "path": "tests/executor/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/executor/conftest.py",
+      "sha256": "4a6d9be706061f62d89fe85775ebb33539f96bb5cdf456898654f048c8fea269"
+    },
+    {
+      "path": "tests/executor/fakes.py",
+      "sha256": "581a7bef53efeaba0aa8eec33cfadf97ff74cc74ef87fd2c260caceac70a1add"
+    },
+    {
+      "path": "tests/executor/test_aggregate_limit.py",
+      "sha256": "ad694aeb3f920acabb8605b0741c990fc76504e19230d7974d6b2689d7d5f3f0"
+    },
+    {
+      "path": "tests/executor/test_approval.py",
+      "sha256": "285ad4c87cbd6a345f0eef99cd81a62ee5f1cad8cfa39213185ba1c0a34d8879"
+    },
+    {
+      "path": "tests/executor/test_f7_end_to_end.py",
+      "sha256": "1d4d74049f18fcaf98190747a35c4e7e593c3c7d6c96810e0f33cb168f956766"
+    }
+  ],
+  "enumerations": [],
+  "evidence": [
+    {
+      "node": "tests/executor/test_f7_end_to_end.py::test_f7_many_small_increases_stop_at_the_aggregate_limit",
+      "covers": [],
+      "kind": "end_to_end"
+    },
+    {
+      "node": "tests/executor/test_aggregate_limit.py::test_the_aggregate_limit_blocks_at_the_threshold_and_allows_exactly_reaching_it",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_aggregate_limit.py::test_an_unresolved_reservation_counts_no_matter_how_old",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_aggregate_limit.py::test_a_verified_reservation_leaves_the_window_24_hours_after_verification",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_aggregate_limit.py::test_two_workers_cannot_race_past_the_aggregate_limit",
+      "covers": [],
+      "kind": "concurrency"
+    },
+    {
+      "node": "tests/executor/test_aggregate_limit.py::test_a_new_task_passes_once_the_budget_is_released",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_approval.py::test_an_approvable_block_waits_for_approval",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_approval.py::test_an_unapproved_proposal_expires_into_blocked",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_approval.py::test_a_valid_approval_lets_the_proposal_through_and_still_reserves",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_approval.py::test_an_approval_that_expires_mid_flight_lets_nothing_through",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/executor/test_approval.py::test_the_capability_never_outlives_the_approval_it_used",
+      "covers": [],
+      "kind": "unit"
+    }
+  ],
+  "symbols": [
+    "src/rtb/executor/attempt_store.py:Reservation",
+    "src/rtb/executor/execution.py:Executor.process_awaiting"
+  ]
+}

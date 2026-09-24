@@ -1,0 +1,260 @@
+{
+  "manifest_version": 1,
+  "claim_id": "prompt-injection",
+  "policy": "廣告名稱等不可信文字不影響決策、不流進提案;提案只收白名單欄位;可信證據不帶自由文字;分析端讀不到簽發金鑰。",
+  "scope": [
+    {
+      "path": "src/rtb/__init__.py",
+      "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+    },
+    {
+      "path": "src/rtb/analyzer/dsp_client.py",
+      "sha256": "d6991fc51304ac97efcc1906f877fc71c76abd26cc31234475cf367376b31cc2"
+    },
+    {
+      "path": "src/rtb/analyzer/flow.py",
+      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
+    },
+    {
+      "path": "src/rtb/analyzer/inbox_client.py",
+      "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+    },
+    {
+      "path": "src/rtb/analyzer/instrumented.py",
+      "sha256": "cdb1244eb81c643a3c9a0c1b510c315351377bf095f15c7a7468d4b60a2e4dd4"
+    },
+    {
+      "path": "src/rtb/analyzer/policy.py",
+      "sha256": "f382a95dc7619dfb72d25a668ee69b3834a982333eaa62300e11d8057e52fd97"
+    },
+    {
+      "path": "src/rtb/analyzer/task_store.py",
+      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
+    },
+    {
+      "path": "src/rtb/capabilitykit.py",
+      "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+    },
+    {
+      "path": "src/rtb/domain/_checks.py",
+      "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
+    },
+    {
+      "path": "src/rtb/domain/attempt.py",
+      "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
+    },
+    {
+      "path": "src/rtb/domain/evidence.py",
+      "sha256": "71a7f4c2e3020d2663b093f8d57339db07176ea740f7b6997a9ad1be03fdc4d0"
+    },
+    {
+      "path": "src/rtb/domain/metrics.py",
+      "sha256": "8e48c962fdc739b39f0e7d94296fbabf65db52b5d1bcc1db6341e2628ba89472"
+    },
+    {
+      "path": "src/rtb/domain/proposal.py",
+      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
+    },
+    {
+      "path": "src/rtb/domain/task_state.py",
+      "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
+    },
+    {
+      "path": "src/rtb/domain/worth.py",
+      "sha256": "1fe95609a329ab7c97966604c6ec3808dd1a9a4ea2504f55f76a8a10669bc55b"
+    },
+    {
+      "path": "src/rtb/dsp/capability.py",
+      "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
+    },
+    {
+      "path": "src/rtb/dsp/errors.py",
+      "sha256": "a0f5062db51ed48881b90031ea065dbaf817b59ab0bf251af38a39237f72dad0"
+    },
+    {
+      "path": "src/rtb/dsp/server.py",
+      "sha256": "c44f8cd9db07699bd2b7832462c7cf04052c7ca59938100470db6ab821d0f177"
+    },
+    {
+      "path": "src/rtb/dsp/store.py",
+      "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
+    },
+    {
+      "path": "src/rtb/executor/approval.py",
+      "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+    },
+    {
+      "path": "src/rtb/executor/attempt_store.py",
+      "sha256": "1e8a01fca0d9a650f11c2f7f88ba7df2c9490b10c5065d5f214100d0563596e9"
+    },
+    {
+      "path": "src/rtb/executor/capability_signer.py",
+      "sha256": "60b6b0de6acfe389060bd110c9d2df9b9bbfb8403f84c8b974740bef6a76cf59"
+    },
+    {
+      "path": "src/rtb/executor/dsp_client.py",
+      "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
+    },
+    {
+      "path": "src/rtb/executor/execution.py",
+      "sha256": "0f83c2844ce6e7aaa904af9f13030e3650ff2439f12441459740f39a2332e844"
+    },
+    {
+      "path": "src/rtb/executor/guardrails.py",
+      "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
+    },
+    {
+      "path": "src/rtb/executor/inbox_server.py",
+      "sha256": "f620b90b17391f951c901f8783ab48c5c3feca7713a47f50d2c7c2c62a3da042"
+    },
+    {
+      "path": "src/rtb/executor/inbox_store.py",
+      "sha256": "17d5904ebef6487a8e93235ae5ebcb60128d3da231552cc6e9bd6275bd6a2be8"
+    },
+    {
+      "path": "src/rtb/httpclient.py",
+      "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
+    },
+    {
+      "path": "src/rtb/httpkit.py",
+      "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
+    },
+    {
+      "path": "src/rtb/sqlitekit.py",
+      "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
+    }
+  ],
+  "harness": [
+    {
+      "path": "pyproject.toml",
+      "sha256": "60c902288d114de02c8a2fd2ed6b56ced039f404054d662c21dc705817448b76"
+    },
+    {
+      "path": "tests/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/adversarial_samples.py",
+      "sha256": "0bf3bdbac7edd45cfa7a7b074ae4b7dd795388af0bd45bd3cfb1c140bb9c5161"
+    },
+    {
+      "path": "tests/analyzer/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/analyzer/conftest.py",
+      "sha256": "768e7f782442ab5fbd8e5666f4ba43cbe268a503de1d299089fd1c24e9c9237c"
+    },
+    {
+      "path": "tests/analyzer/test_boundaries.py",
+      "sha256": "214a6c6fbc04118f49a433460880c4783e9f0d7c5fbf7c7b9b60f1d227a416cc"
+    },
+    {
+      "path": "tests/analyzer/test_dsp_client.py",
+      "sha256": "076c8ee1130f7c3657f1df43124e03668a0aa01c6fc34548b264bb933a7c202d"
+    },
+    {
+      "path": "tests/analyzer/test_f5_end_to_end.py",
+      "sha256": "accdd58198b1249ae3e01b39eeb8ac05c47939d582757bf810667157d4c72fd9"
+    },
+    {
+      "path": "tests/analyzer/test_trust_boundary.py",
+      "sha256": "ceff06bb56fe7adced5eaab5d0c5f668bd6eb5bba50e481f37dcfab9e0ceea8f"
+    },
+    {
+      "path": "tests/capability_samples.py",
+      "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
+    },
+    {
+      "path": "tests/domain/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/domain/proposal_samples.py",
+      "sha256": "124a4be23ac35ff25f062a2627c51cafede9bb857aa145c14892548772003d96"
+    },
+    {
+      "path": "tests/domain/test_evidence.py",
+      "sha256": "194e99d424f45427faa42f3aefdb765ca6859a1b55644a29fe7cc2e3c52f4ab2"
+    },
+    {
+      "path": "tests/domain/test_proposal.py",
+      "sha256": "d7fda6b191b7ed640840710b227f89f87b96d62a7c6141c867bb14d6ae0a8f66"
+    },
+    {
+      "path": "tests/executor/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/executor/fakes.py",
+      "sha256": "581a7bef53efeaba0aa8eec33cfadf97ff74cc74ef87fd2c260caceac70a1add"
+    }
+  ],
+  "enumerations": [],
+  "evidence": [
+    {
+      "node": "tests/analyzer/test_f5_end_to_end.py::test_f5_an_injected_campaign_name_changes_nothing_end_to_end",
+      "covers": [],
+      "kind": "end_to_end"
+    },
+    {
+      "node": "tests/analyzer/test_f5_end_to_end.py::test_f5_an_injected_name_on_a_healthy_campaign_triggers_no_write",
+      "covers": [],
+      "kind": "end_to_end"
+    },
+    {
+      "node": "tests/analyzer/test_f5_end_to_end.py::test_f5_a_stuffed_campaign_name_does_not_fail_the_analysis",
+      "covers": [],
+      "kind": "end_to_end"
+    },
+    {
+      "node": "tests/analyzer/test_trust_boundary.py::test_no_adversarial_campaign_name_changes_the_decision",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/analyzer/test_trust_boundary.py::test_the_execution_side_never_reads_free_text",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/domain/test_evidence.py::test_untrusted_text_and_the_campaign_text_kind_always_come_together",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/domain/test_evidence.py::test_trusted_evidence_cannot_carry_free_text",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/analyzer/test_dsp_client.py::test_fields_outside_the_allowlist_never_reach_the_evidence",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/domain/test_proposal.py::test_unknown_fields_are_rejected_so_nothing_can_be_smuggled_in",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/domain/test_proposal.py::test_no_field_name_outside_the_documented_list_is_ever_accepted",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/domain/test_proposal.py::test_random_garbage_in_every_field_never_raises_and_the_result_is_always_consistent",
+      "covers": [],
+      "kind": "unit"
+    },
+    {
+      "node": "tests/analyzer/test_boundaries.py::test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer",
+      "covers": [],
+      "kind": "unit"
+    }
+  ],
+  "symbols": [
+    "src/rtb/domain/proposal.py:parse_proposal",
+    "src/rtb/domain/evidence.py:Evidence"
+  ]
+}
