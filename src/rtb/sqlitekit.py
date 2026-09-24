@@ -26,7 +26,10 @@ class DatabaseNotUpgraded(Exception):
 
 def is_lock_contention(exc: sqlite3.OperationalError) -> bool:
     """這個資料庫錯誤是不是鎖競爭(忙碌或被鎖):專案唯一的「忙碌對永久故障」分類,其他模組要分也用這支。"""
-    primary_code = exc.sqlite_errorcode & 0xFF  # 擴充碼的低 8 位才是主要錯誤碼
+    code = getattr(exc, "sqlite_errorcode", None)  # 程式自己建的錯誤、模組內部某些錯誤沒有錯誤碼
+    if not isinstance(code, int):
+        return False  # 沒有錯誤碼就判不出是鎖競爭:當永久故障,原樣往外丟(代碼審第 3 輪)
+    primary_code = code & 0xFF  # 擴充碼的低 8 位才是主要錯誤碼
     return primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
 
 

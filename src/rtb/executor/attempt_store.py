@@ -187,15 +187,32 @@ class CorruptedAttemptRow(Exception):
 _EXECUTOR_TRANSACTION_ISSUER = object()  # 只有收件口資料庫模組的交易入口拿它建交易物件(有測試擋)
 
 
+class LegacyMemo:
+    """「全表沒有未結案的舊鍵」查過一次就記住(F7 效能計劃代碼審第 3 輪):行程內、跟著收件表物件
+    (一條資料庫連線)走,重啟就忘。
+
+    只准從「不知道」變成「沒有」,不准反過來:舊鍵(沒記租戶的第一列)不會再增加——正式程式開始一筆
+    一定記租戶——而且一把鍵有了終點就不會再變回未結案(嘗試紀錄只增不改,一把鍵最多一列終點)。所以
+    「沒有未結案的舊鍵」一旦成立就一直成立。記錯的代價也只在效能:漏判的舊列照樣由加總那一趟的精確
+    偵測發現、退回原算法,答案不變。"""
+
+    __slots__ = ("no_open_legacy",)
+
+    def __init__(self) -> None:
+        self.no_open_legacy = False
+
+
 class ExecutorTransaction:
     """執行行程資料庫交易入口發出的一筆交易;交易結束時由入口作廢。"""
 
-    __slots__ = ("_open", "conn")
+    __slots__ = ("_open", "conn", "legacy_memo")
 
-    def __init__(self, conn: sqlite3.Connection, issuer: object) -> None:
+    def __init__(self, conn: sqlite3.Connection, issuer: object,
+                 legacy_memo: LegacyMemo | None = None) -> None:
         if issuer is not _EXECUTOR_TRANSACTION_ISSUER:
             raise NotInTransaction("交易物件只能由執行行程資料庫交易入口發出")
         self.conn = conn
+        self.legacy_memo = LegacyMemo() if legacy_memo is None else legacy_memo
         self._open = True
 
     def close(self) -> None:
@@ -212,12 +229,14 @@ _READ_TRANSACTION_ISSUER = object()  # 只有收件口模組的唯讀開法拿�
 class ReadTransaction:
     """唯讀開法發出的唯讀交易:只能給讀取函式用;寫入函式照舊只收 ExecutorTransaction。"""
 
-    __slots__ = ("_open", "conn")
+    __slots__ = ("_open", "conn", "legacy_memo")
 
-    def __init__(self, conn: sqlite3.Connection, issuer: object) -> None:
+    def __init__(self, conn: sqlite3.Connection, issuer: object,
+                 legacy_memo: LegacyMemo | None = None) -> None:
         if issuer is not _READ_TRANSACTION_ISSUER:
             raise NotInTransaction("唯讀交易只能由收件口模組的唯讀開法發出")
         self.conn = conn
+        self.legacy_memo = LegacyMemo() if legacy_memo is None else legacy_memo
         self._open = True
 
     def close(self) -> None:
@@ -574,12 +593,13 @@ def begin(
     expires = _expiry(capability_expires_at)
     if unresolved_count(tx, proposal.campaign_id):
         raise CampaignLocked(proposal.campaign_id)
-    if unresolved_count(tx) >= MAX_UNRESOLVED:
+    open_keys = unresolved_count(tx)
+    if open_keys >= MAX_UNRESOLVED:
         raise TooManyUnresolved()
     over_limit = None
     used: int | None = None  # 判門檻用的已用額度;加的量是 0 時不判門檻,不記
     if reservation is not None and reservation.amount > 0:
-        used = aggregate_used(tx, reservation.tenant, now)
+        used = aggregate_used(tx, reservation.tenant, now, open_keys=open_keys)
         if used + reservation.amount > reservation.limit:
             over_limit = AggregateLimitReached(used, reservation.limit)
             if not reservation.approved:
@@ -659,26 +679,66 @@ def legacy_recent_query(now: datetime) -> tuple[str, tuple[Any, ...]]:
             (LEGACY_RECENT_PEEK, AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW)))
 
 
-def legacy_open_query() -> tuple[str, tuple[Any, ...]]:
-    """便宜偵測第二步(只回、不執行):有沒有還沒有終點、沒記租戶的舊鍵(Phase 6 之前開的鍵卡在
-    轉人工之類,會長期留在未結案那段)。從沒記租戶的第一列出發(按租戶的第一列索引,由舊到新:卡住的
-    通常是最舊的),每一列用「一把鍵最多一列終點」的唯一索引查有沒有終點,碰到第一把沒終點的就停。
-
-    不設筆數上限,所以不會漏(代碼審第 2 輪資安席、鏡頭 1:第 1 版只看最新 64 筆,比它們更早的卡住
-    舊鍵永遠查不到,退回之前白掃一遍)。工作量的上限是舊鍵總數:新寫的第一列一定記租戶,舊鍵不會再
-    增加,已結案的也不會再變回未結案。最壞情形是卡住的舊鍵夾在大量已結案舊鍵中間,要讀過前面每一把
-    (殘餘風險,見驗收紀錄)。窗內已驗證、第一列又不在最新幾筆裡的舊鍵不在這兩步查,照舊由加總那一趟
-    的精確偵測發現再退回。"""
-    return ("SELECT 1 FROM attempts f WHERE f.seq = 1 AND f.tenant IS NULL AND NOT EXISTS "  # noqa: S608 - 只拼接固定條件
-            f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST})) "
-            "ORDER BY f.written_at LIMIT 1", ())
+def legacy_open_sides() -> tuple[tuple[str, tuple[Any, ...]], tuple[str, tuple[Any, ...]]]:
+    """便宜偵測第二步的兩支查詢(只回、不執行):(沒記租戶的第一列, 記了租戶的第一列),每一列回它
+    是不是還沒有終點(用「一把鍵最多一列終點」的唯一索引查)。舊的那一邊由舊到新讀(卡住的通常是
+    最舊的)。"""
+    open_flag = ("SELECT NOT EXISTS (SELECT 1 FROM attempts t WHERE t.key = f.key "  # noqa: S608 - 只拼接固定條件
+                 f"AND t.state IN ({_TERMINAL_LIST})) FROM attempts f WHERE f.seq = 1 ")
+    return ((open_flag + "AND f.tenant IS NULL ORDER BY f.written_at", ()),
+            (open_flag + "AND f.tenant IS NOT NULL", ()))
 
 
-def _legacy_candidate_seen(conn: sqlite3.Connection, now: datetime) -> bool:
-    """兩步便宜偵測:先瞄最新幾筆,沒有再從最舊的找卡住的舊鍵。"""
-    for sql, params in (legacy_recent_query(now), legacy_open_query()):
-        if conn.execute(sql, params).fetchone() is not None:
-            return True
+_SIDE_BATCH_LIMIT = 4096  # 兩邊交替讀,每輪讀的筆數從 1 加倍到這個上限
+
+
+def _open_legacy_seen(conn: sqlite3.Connection, open_keys: int) -> bool:
+    """便宜偵測第二步:全表有沒有還沒有終點的舊鍵(Phase 6 之前開的鍵卡在轉人工之類)。
+
+    嘗試表沒有索引能直接列出「沒有終點的鍵」,只有全表未結案數(第一列數減終點列數)。所以兩邊交替讀,
+    先有結論的那一邊說了算(代碼審第 3 輪資安席、鏡頭 1):
+    - 舊的那一邊讀到一把沒終點的:有。舊的那一邊讀完都沒有:沒有。
+    - 記了租戶的那一邊讀完,數出它有幾把沒終點(N):未結案的舊鍵數就是全表未結案數減 N。
+    每輪讀的筆數從 1 加倍,所以工作量最多約是兩邊較少那一邊的兩倍:舊鍵很多、新鍵很少(例如 [S341]
+    那份資料)時由新鍵那一邊定;升級很久之後新鍵遠多於舊鍵,由舊的那一邊定。不設上限,所以不會漏
+    (第 1 版只看最新 64 筆,比它們早的卡住舊鍵永遠查不到;代碼審第 2 輪)。"""
+    (legacy_sql, legacy_params), (other_sql, other_params) = legacy_open_sides()
+    legacy = conn.execute(legacy_sql, legacy_params)
+    other = conn.execute(other_sql, other_params)
+    try:
+        size, other_open = 1, 0
+        while True:
+            rows = legacy.fetchmany(size)
+            if any(flag for (flag,) in rows):
+                return True
+            if len(rows) < size:
+                return False
+            rows = other.fetchmany(size)
+            other_open += sum(1 for (flag,) in rows if flag)
+            if len(rows) < size:
+                return open_keys > other_open
+            size = min(size * 2, _SIDE_BATCH_LIMIT)
+    finally:
+        legacy.close()
+        other.close()
+
+
+def _legacy_candidate_seen(tx: Readable, conn: sqlite3.Connection, now: datetime,
+                           open_keys: int) -> bool:
+    """兩步便宜偵測:先瞄最新幾筆;沒有再查全表有沒有未結案的舊鍵。第二步只在全表有未結案、而且
+    還沒記下「沒有」時才跑(記憶見 LegacyMemo;全表未結案數是 0 也就是沒有)。
+
+    窗內已驗證、第一列又不在最新幾筆裡的舊鍵不在這兩步查,照舊由加總那一趟的精確偵測發現再退回
+    (殘餘風險,見驗收紀錄)。"""
+    sql, params = legacy_recent_query(now)
+    if conn.execute(sql, params).fetchone() is not None:
+        return True
+    memo = tx.legacy_memo
+    if memo.no_open_legacy:
+        return False
+    if open_keys and _open_legacy_seen(conn, open_keys):
+        return True
+    memo.no_open_legacy = True  # 只從「不知道」變成「沒有」,理由見 LegacyMemo
     return False
 
 
@@ -700,7 +760,8 @@ def _fast_part(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...]) -> i
     return 0 if total is None else int(total)  # 空集合的加總是空值,補成 0
 
 
-def aggregate_used(tx: Readable, tenant: str, now: datetime) -> int:
+def aggregate_used(tx: Readable, tenant: str, now: datetime, *,
+                   open_keys: int | None = None) -> int:
     """租戶已用額度。開始一筆與可觀測查詢都從這個入口拿(既有並行測試靠攔截它造競態,Phase 6 增量 4
     設計審第 2 輪;名稱與位置不能動)。
 
@@ -708,15 +769,18 @@ def aggregate_used(tx: Readable, tenant: str, now: datetime) -> int:
     Phase 6 之前沒記租戶的舊列、屬於這個租戶的金額型別不是整數或空值、或資料庫回報整數溢位,就退回
     原算法(`aggregate_used_reference`),結果以它為準。其他資料庫錯誤照舊往外丟(查詢寫錯不能被當成
     溢位悄悄吞掉)。兩段在程式裡相加:程式的整數沒有上限,兩段各自沒溢位、相加超過資料庫上限也照算。
-    這是翻案:Phase 6 增量 1 裁定「在程式裡用整數累加」,理由是資料庫加總會溢位停機;這裡加了退路。"""
+    這是翻案:Phase 6 增量 1 裁定「在程式裡用整數累加」,理由是資料庫加總會溢位停機;這裡加了退路。
+
+    open_keys 是同一個交易裡剛算過的全表未結案數(開始一筆已經算過,傳進來不重算);退回原算法時
+    也交給它,不重算。"""
     if type(tenant) is not str:  # 資料庫比租戶會把整數參數轉型(1 = '1'),程式不會:兩種算法才會一樣
         raise TypeError("租戶名稱要是字串")
     conn = _read_conn(tx)
-    # 先跑便宜偵測、不先算全表未結案數:退回時原算法自己會再算一次,先算就白算(未結案數要數全表的
-    # 第一列與終點列,比偵測貴得多)
-    if _legacy_candidate_seen(conn, now):
-        return aggregate_used_reference(tx, tenant, now)  # 有卡住的舊鍵:不先加總,直接走原算法
-    open_keys = unresolved_count(tx)  # 原算法同一個條件:全表有未結案才查未結案那段
+    if open_keys is None:
+        open_keys = unresolved_count(tx)  # 原算法同一個條件:全表有未結案才查未結案那段
+    if _legacy_candidate_seen(tx, conn, now, open_keys):
+        # 有候選舊列:不先加總,直接走原算法
+        return aggregate_used_reference(tx, tenant, now, open_keys=open_keys)
     (verified_sql, verified_params), (open_sql, open_params) = aggregate_used_queries(tenant, now)
     try:
         total = _fast_part(conn, verified_sql, verified_params)
@@ -728,18 +792,20 @@ def aggregate_used(tx: Readable, tenant: str, now: datetime) -> int:
             raise
         total = None
     if total is None:
-        return aggregate_used_reference(tx, tenant, now)
+        return aggregate_used_reference(tx, tenant, now, open_keys=open_keys)
     return total
 
 
-def aggregate_used_reference(tx: Readable, tenant: str, now: datetime) -> int:
+def aggregate_used_reference(tx: Readable, tenant: str, now: datetime, *,
+                             open_keys: int | None = None) -> int:
     """原算法:目前計入的每一筆(`aggregate_holdings`)在程式裡用整數累加。快路徑判不準時退回這裡,
-    測試也拿它當對照。"""
-    return sum(holding.amount for holding in aggregate_holdings(tx, tenant, now))
+    測試也拿它當對照。open_keys 是同一個交易裡已算過的全表未結案數(沒給就自己算)。"""
+    return sum(holding.amount for holding in aggregate_holdings(tx, tenant, now,
+                                                                open_keys=open_keys))
 
 
 def aggregate_holdings(
-    tx: Readable, tenant: str, now: datetime,
+    tx: Readable, tenant: str, now: datetime, *, open_keys: int | None = None,
 ) -> tuple[CountedFirstRow, ...]:
     """租戶已用額度的逐筆明細(Phase 6):從嘗試紀錄推,不另存狀態。
 
@@ -754,7 +820,7 @@ def aggregate_holdings(
     verified, verified_params = _verified_candidates(tenant, now)
     rows = conn.execute(f"SELECT {_first_row_columns('f')} {verified}",
                         verified_params).fetchall()
-    if unresolved_count(tx):
+    if unresolved_count(tx) if open_keys is None else open_keys:
         unresolved, unresolved_params = _open_candidates(tenant)
         rows += conn.execute(f"SELECT {_first_row_columns('f')} {unresolved}",
                              unresolved_params).fetchall()

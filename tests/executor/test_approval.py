@@ -866,8 +866,8 @@ def test_a_capability_shortened_by_an_unused_approval_recovers_with_a_full_lifet
     real_used = attempt_store.aggregate_used
     released = []
 
-    def release_meanwhile(tx, tenant, now):
-        value = real_used(tx, tenant, now)
+    def release_meanwhile(tx, tenant, now, **kw):
+        value = real_used(tx, tenant, now, **kw)
         if not released:  # 預判讀完之後,另一個工作者把佔額度那筆判成失敗
             released.append(True)
             key = operation_key(other)

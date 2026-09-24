@@ -829,6 +829,8 @@ class InboxStore(InboxReads):
         if max_pending < 1:
             raise ValueError("max_pending 必須至少是 1,否則收件口永遠不接受任何提案")
         self._max_pending = max_pending
+        # 已用額度查詢「全表沒有未結案舊鍵」的行程內記憶:跟著這條連線走(F7 效能計劃代碼審第 3 輪)
+        self._legacy_memo = attempt_store.LegacyMemo()
         try:
             self._conn = connect(path, busy_timeout_seconds, SCHEMA + attempt_store.SCHEMA)
         except DatabaseBusy as exc:
@@ -907,7 +909,7 @@ class InboxStore(InboxReads):
         (F7 效能計劃第 2 部分)。
         """
         issuer = attempt_store._EXECUTOR_TRANSACTION_ISSUER  # 私有憑證:只給這個交易入口用
-        tx = attempt_store.ExecutorTransaction(self._conn, issuer)
+        tx = attempt_store.ExecutorTransaction(self._conn, issuer, self._legacy_memo)
         began = False
         try:
             with immediate_transaction(self._conn):
@@ -1585,6 +1587,7 @@ class ReadOnlyInbox(InboxReads):
     唯讀交易裡的多次查詢讀同一個快照;執行迴圈佔著寫入鎖時照樣讀得到(WAL)。"""
 
     def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
+        self._legacy_memo = attempt_store.LegacyMemo()
         self._conn = connect_read_only(path, busy_timeout_seconds)
         try:
             missing = missing_schema(self._conn, _REQUIRED_SCHEMA, _REQUIRED_INDEXES)
@@ -1601,7 +1604,7 @@ class ReadOnlyInbox(InboxReads):
     @contextmanager
     def read_transaction(self) -> Iterator[attempt_store.ReadTransaction]:
         issuer = attempt_store._READ_TRANSACTION_ISSUER  # 私有憑證:只給這個唯讀交易入口用
-        tx = attempt_store.ReadTransaction(self._conn, issuer)
+        tx = attempt_store.ReadTransaction(self._conn, issuer, self._legacy_memo)
         try:
             with read_snapshot(self._conn):
                 yield tx

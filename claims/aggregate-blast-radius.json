@@ -61,7 +61,7 @@
     },
     {
       "path": "src/rtb/executor/attempt_store.py",
-      "sha256": "bf0f6ea7c18b5e3f3fdff4c876815cd664a783600307126be1978edfee42d529"
+      "sha256": "cc5e7ad1cde65a5933239ef0bb97c3f1294b07703957a893d1751c16e101f3d9"
     },
     {
       "path": "src/rtb/executor/capability_signer.py",
@@ -85,7 +85,7 @@
     },
     {
       "path": "src/rtb/executor/inbox_store.py",
-      "sha256": "125632b489cc72f42b6e53b0a9fa79ebc77086ab158db26d69c3a768a8c0c412"
+      "sha256": "df8527a79007a68e52ce5d2fb4e818e8590b157f1ac6a133706232b30a4be3ce"
     },
     {
       "path": "src/rtb/executor/runner.py",
@@ -113,7 +113,7 @@
     },
     {
       "path": "src/rtb/sqlitekit.py",
-      "sha256": "b2787f586e7e3586f895f6971b398bb1fc4540a46b3ebf156fd89282f4004dc4"
+      "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
     }
   ],
   "harness": [
@@ -155,11 +155,11 @@
     },
     {
       "path": "tests/executor/test_aggregate_limit.py",
-      "sha256": "ad694aeb3f920acabb8605b0741c990fc76504e19230d7974d6b2689d7d5f3f0"
+      "sha256": "cbb50351fe669193427e979f03c477d6b9659c69ece883b245a9503eaada2539"
     },
     {
       "path": "tests/executor/test_approval.py",
-      "sha256": "455cfc7f6b438ffa88d229bb1294b23e286e53fc3ec0f2c42eb628f3f9199960"
+      "sha256": "7949d31ce609690b1ec1b6ecfb9757596c85418e3e267c343fdd11c10e311c50"
     },
     {
       "path": "tests/executor/test_f7_end_to_end.py",

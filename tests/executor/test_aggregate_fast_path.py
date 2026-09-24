@@ -5,6 +5,7 @@
 流程寫不出來的舊列與型別異常),在同一份資料上比新舊兩種算法。
 """
 
+import inspect
 import json
 import random
 import sqlite3
@@ -172,8 +173,8 @@ def test_the_fast_aggregate_used_matches_the_reference_on_the_same_data(store, m
     real_reference = attempt_store.aggregate_used_reference
     fell_back = []
     monkeypatch.setattr(attempt_store, "aggregate_used_reference",
-                        lambda tx, tenant, now: fell_back.append(1) or real_reference(tx, tenant,
-                                                                                   now))
+                        lambda tx, tenant, now, **kw: fell_back.append(1) or real_reference(
+                            tx, tenant, now, **kw))
     for name, build in DETERMINISTIC.items():
         rows = Rows()
         build(rows)
@@ -203,9 +204,9 @@ def _spy_reference(monkeypatch):
     calls = []
     real = attempt_store.aggregate_used_reference
 
-    def spy(tx, tenant, now):
+    def spy(tx, tenant, now, **kw):
         calls.append(tenant)
-        return real(tx, tenant, now)
+        return real(tx, tenant, now, **kw)
 
     monkeypatch.setattr(attempt_store, "aggregate_used_reference", spy)
     return calls
@@ -344,6 +345,9 @@ def test_the_fast_aggregate_used_takes_the_fast_path_on_clean_data(store, monkey
         history.key(tenant="t-a", amount=index + 1, state=A.VERIFIED, at=old)
         history.key(tenant="t-b", amount=index + 1, state=A.FAILED, at=old)
     with written(store, history) as tx:
+        # 同一個收件表物件記得「沒有未結案的舊鍵」,第二次會少跑偵測第二步;這裡比的是同一條路徑的
+        # 計畫,所以先清掉記憶(記憶本身另有測試)
+        tx.legacy_memo.no_open_legacy = False
         again, statements_later, plans_later = _traced_plans(
             tx, lambda: attempt_store.aggregate_used(tx, "t-a", NOW))
     assert again == value
@@ -398,14 +402,15 @@ def test_a_stuck_legacy_key_older_than_many_closed_ones_is_still_found(store):
     rows.key(tenant=None, amount=None, state=A.ESCALATED,
              at=NOW - AGGREGATE_WINDOW - timedelta(days=800))
     old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
-    for _ in range(CLOSED_LEGACY):
+    for _ in range(CLOSED_LEGACY * 20):  # 比一輪讀的上限多:偵測要從 1 筆讀起,不能一口氣讀滿
         rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
     _fallback_costs_no_more_than_the_reference(store, rows)
 
 
 def _fallback_costs_no_more_than_the_reference(store, rows):
     with written(store, rows) as tx:
-        assert attempt_store._legacy_candidate_seen(tx.conn, NOW)  # 偵測查得到
+        assert attempt_store._legacy_candidate_seen(  # 偵測查得到
+            tx, tx.conn, NOW, attempt_store.unresolved_count(tx))
         fast, fast_steps = _vm_steps(tx.conn, lambda: attempt_store.aggregate_used(tx, "t-a", NOW))
         slow, slow_steps = _vm_steps(
             tx.conn, lambda: attempt_store.aggregate_used_reference(tx, "t-a", NOW))
@@ -414,29 +419,67 @@ def _fallback_costs_no_more_than_the_reference(store, rows):
 
 
 def test_many_closed_legacy_rows_still_take_the_fast_path(store, monkeypatch):
-    """窗外已結案的舊鍵很多也不觸發退回;偵測的工作量只跟舊鍵數有關(舊鍵不會再增加),
-    不跟窗內筆數有關。"""
-    def forbidden(*_args):
+    """舊鍵很多、全都結案了(升級之後最常見的狀態),有一把正在寫:不觸發退回,而且不比原算法慢
+    (代碼審第 3 輪資安席、鏡頭 1:第二步沒有閘門時,每次都把全部舊鍵讀一遍,比原算法慢 2 到 7 倍)。
+    查過一次「沒有未結案的舊鍵」就記住,之後不再查。"""
+    real_reference = attempt_store.aggregate_used_reference
+
+    def forbidden(*_args, **_kwargs):
         raise AssertionError("乾淨的候選不該呼叫原算法")
 
-    monkeypatch.setattr(attempt_store, "aggregate_used_reference", forbidden)
-    probe = []
-    for window_rows in (0, 4000):
-        rows = Rows()
-        _clean(rows)
-        for index in range(window_rows):
-            rows.key(tenant="t-a", amount=index % 90 + 1, state=A.VERIFIED)
-        old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
-        for _ in range(CLOSED_LEGACY * 5):
-            rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
-        with written(store, rows) as tx:
-            assert attempt_store.aggregate_used(tx, "t-a", NOW) > 0
-            sql, params = attempt_store.legacy_open_query()
-            _, steps = _vm_steps(tx.conn, lambda sql=sql, params=params: tx.conn.execute(
-                sql, params).fetchall())
-        probe.append(steps)
-    assert probe[0] == probe[1], probe  # 窗內多了 4000 筆,偵測一步都沒多
-    assert probe[0] <= CLOSED_LEGACY * 5 // 2, probe  # 每把舊鍵最多約 50 步(每 100 步記一次)
+    rows = Rows()
+    _clean(rows)  # 含一把正在寫的(沒有終點)
+    for index in range(4000):
+        rows.key(tenant="t-a", amount=index % 90 + 1, state=A.VERIFIED)
+    old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
+    for _ in range(CLOSED_LEGACY * 20):
+        rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
+    with written(store, rows) as tx:
+        slow, slow_steps = _vm_steps(
+            tx.conn, lambda: real_reference(tx, "t-a", NOW))
+        monkeypatch.setattr(attempt_store, "aggregate_used_reference", forbidden)
+        assert not tx.legacy_memo.no_open_legacy
+        fast, fast_steps = _vm_steps(tx.conn, lambda: attempt_store.aggregate_used(tx, "t-a", NOW))
+        assert tx.legacy_memo.no_open_legacy  # 查過沒有,記住
+        _, again_steps = _vm_steps(tx.conn, lambda: attempt_store.aggregate_used(tx, "t-a", NOW))
+    assert fast == slow
+    # 記住之後跟原算法同一個量級:未結案那一段兩邊都掃同一批第一列,快路徑每列多算三個聚合,
+    # 在「舊鍵與新鍵一樣多、窗內筆數又少」這種形狀上約多 7%;時間上的比較見 [S341] 旁的 30 萬把測試
+    assert again_steps <= slow_steps * 11 // 10, (again_steps, slow_steps)
+    # 第一次多付的是偵測第二步:兩邊交替讀,最多約較少那一邊筆數的兩倍(這裡兩邊差不多多,是最貴的
+    # 形狀;每把約 15 步,每 100 步記一次)
+    fewer = min(CLOSED_LEGACY * 20, 4000 + 5)
+    assert fast_steps - again_steps <= 2 * fewer * 20 // 100, (fast_steps, again_steps)
+
+
+def test_the_legacy_memo_only_moves_from_unknown_to_none(store):
+    """有未結案的舊鍵時不記;全表沒有未結案時直接記「沒有」。記憶只准從「不知道」變成「沒有」。"""
+    rows = Rows()
+    _clean(rows)
+    rows.key(tenant=None, amount=None, state=A.ESCALATED)  # 卡住的舊鍵
+    with written(store, rows) as tx:
+        attempt_store.aggregate_used(tx, "t-a", NOW)
+        assert not tx.legacy_memo.no_open_legacy
+    closed = Rows()
+    closed.key(tenant="t-a", amount=5, state=A.VERIFIED)
+    closed.key(tenant=None, amount=None, state=A.VERIFIED,
+               at=NOW - AGGREGATE_WINDOW - timedelta(days=1))
+    with written(store, closed) as tx:
+        assert attempt_store.unresolved_count(tx) == 0
+        tx.legacy_memo.no_open_legacy = False  # 上一份資料(有卡住的)留下的狀態不算
+        statements = []
+        tx.conn.set_trace_callback(statements.append)
+        try:
+            assert attempt_store.aggregate_used(tx, "t-a", NOW) == 5
+        finally:
+            tx.conn.set_trace_callback(None)
+        assert tx.legacy_memo.no_open_legacy
+        # 全表沒有未結案:第二步整個跳過,兩邊的第一列一筆都不讀
+        assert not any("tenant IS NOT NULL" in sql for sql in statements), statements
+    source = inspect.getsource(attempt_store)
+    assert source.count("no_open_legacy = True") == 1
+    assert "no_open_legacy = False" in source  # 只在建立時
+    assert source.count("no_open_legacy =") == 2
 
 
 # ---- 代碼審第 1 輪 e3 ----
