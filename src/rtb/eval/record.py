@@ -135,6 +135,7 @@ def render(report: SyntheticReport | ProductionReport, rows: tuple[ComparisonRow
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        allow_abbrev=False,
         description="用合成評估集評「值不值得加」判斷點,印出人讀的決定紀錄(只讀,不寫任何東西)")
     return parser.parse_args(argv)
 

@@ -25,7 +25,7 @@ EXIT_BUSY = 6  # 資料庫忙碌:稍後再試(跟執行迴圈同一個代碼)
 
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="人工核可一份待核可的提案")
+    parser = argparse.ArgumentParser(allow_abbrev=False, description="人工核可一份待核可的提案")
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--tenant-config", required=True, type=Path)
     parser.add_argument("--task-id", required=True)

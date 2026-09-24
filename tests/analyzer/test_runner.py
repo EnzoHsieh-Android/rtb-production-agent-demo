@@ -5,6 +5,7 @@ import ast
 import io
 import re
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,7 +13,7 @@ import pytest
 
 from rtb.analyzer import runner
 from rtb.analyzer.task_store import LEASE_DURATION, TaskReader, TaskStore
-from rtb.domain.task_state import TaskState
+from rtb.domain.task_state import TERMINAL_STATES, TaskState
 from rtb.dsp.server import DspServer
 from rtb.dsp.store import CampaignStore
 from rtb.executor.inbox_server import InboxServer
@@ -95,7 +96,7 @@ def test_the_analyzer_runner_uses_only_production_collaborators():
     assert rtb_modules <= {"rtb.analyzer", "rtb.analyzer.task_store", "rtb.analyzer.flow",
                            "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
                            "rtb.analyzer.inbox_client", "rtb.analyzer.instrumented",
-                           "rtb.domain.evidence"}, rtb_modules
+                           "rtb.domain.evidence", "rtb.domain.task_state"}, rtb_modules
     text = RUNNER.read_text(encoding="utf-8")
     assert not re.search(r"\bfault|X-Fault|rtb\.demo", text, re.IGNORECASE)
 
@@ -144,3 +145,239 @@ def test_open_tasks_are_the_ones_not_yet_at_an_end(tmp_path):
         assert store.open_task_ids() == ("a", "b")
     finally:
         store.close()
+
+
+# ---- 代碼審 r1 d4/t3/t5/t6/d1/d7/d8/a4 ----
+@pytest.mark.parametrize("timeout", ["nan", "inf", "0", "-1", "1e-9"])
+def test_the_analyzer_runner_refuses_a_timeout_that_is_not_a_sane_number(tmp_path, timeout):
+    """[S1001] 不是有限正數(或小到每次呼叫都失敗)的逾時也拒絕啟動,不印就緒。"""
+    _create(tmp_path, ("t1", "c1"))
+    out, err = io.StringIO(), io.StringIO()
+
+    code = runner.run(_argv(tmp_path, "http://127.0.0.1:9", "http://127.0.0.1:9", timeout),
+                      max_rounds=1, out=out, err=err)
+
+    assert code == runner.EXIT_UNSAFE_CONFIG and out.getvalue() == ""
+
+
+@pytest.mark.parametrize("interval", ["nan", "-5", "inf"])
+def test_the_analyzer_runner_refuses_a_bad_interval(tmp_path, interval):
+    argv = _argv(tmp_path, "http://127.0.0.1:9", "http://127.0.0.1:9")
+    argv[argv.index("--interval-seconds") + 1] = interval
+    assert runner.run(argv, max_rounds=1, err=io.StringIO()) == runner.EXIT_UNSAFE_CONFIG
+
+
+def test_the_unsafe_config_exit_code_is_not_the_argparse_one():
+    assert runner.EXIT_UNSAFE_CONFIG not in (0, 1, 2)
+
+
+def test_the_runner_really_submits_through_the_inbox_and_records_every_call(tmp_path, services):
+    """[S1000] 真的經收件口:收件口資料庫收到提案;呼叫紀錄有送件與兩個 DSP 端點。"""
+    import sqlite3
+
+    from rtb.analyzer.task_store import ToolEndpoint
+
+    _create(tmp_path, ("t1", "c1"))
+    runner.run(_argv(tmp_path, *services), max_rounds=6, out=io.StringIO())
+
+    with sqlite3.connect(tmp_path / "inbox.db") as conn:
+        assert conn.execute("SELECT task_id FROM proposals").fetchall() == [("t1",)]
+    reader = TaskReader(tmp_path / "analyzer.db")
+    try:
+        endpoints = {c.endpoint for c in reader.list_tool_calls("t1")}
+    finally:
+        reader.close()
+    assert {ToolEndpoint.INBOX_SUBMIT, ToolEndpoint.DSP_CAMPAIGN,
+            ToolEndpoint.DSP_METRICS} <= endpoints
+
+
+def test_the_timeout_reaches_the_clients(tmp_path):
+    """[S1000][S1001] 逾時參數真的傳到用戶端:對一個只收連線、永不回應的位址,一步在逾時左右
+    就結束。"""
+    import socket
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(8)
+    silent = f"http://127.0.0.1:{listener.getsockname()[1]}"
+    try:
+        _create(tmp_path, ("t1", "c1"))
+        argv = _argv(tmp_path, silent, silent, timeout="0.3")
+        runner.run(argv, max_rounds=1, out=io.StringIO(), err=io.StringIO())  # 收到工作 → 蒐集
+        began = time.monotonic()
+        runner.run(argv, max_rounds=1, out=io.StringIO(), err=io.StringIO())
+        elapsed = time.monotonic() - began
+    finally:
+        listener.close()
+    assert elapsed < 3, elapsed
+
+
+def test_the_analyzer_runner_exits_cleanly_on_sigterm(tmp_path):
+    import signal
+    import subprocess
+    import sys
+
+    _create(tmp_path, ("t1", "c1"))
+    child = subprocess.Popen(
+        [sys.executable, "-m", "rtb.analyzer.runner", *_argv(tmp_path, "http://127.0.0.1:9",
+                                                             "http://127.0.0.1:9")],
+        stdout=subprocess.PIPE, text=True, env={"PYTHONPATH": str(RUNNER.parents[2]),
+                                                "PATH": "/usr/bin:/bin"})
+    try:
+        assert child.stdout.readline().strip() == runner.READY
+        child.send_signal(signal.SIGTERM)
+        assert child.wait(5) == 0
+    finally:
+        child.kill()
+        child.stdout.close()
+
+
+def test_a_stop_request_is_honoured_before_the_next_task(tmp_path, monkeypatch):
+    """停止旗標每件任務之前都看:第一件推進時要求停止,同一輪其餘的任務不再推進。"""
+    _create(tmp_path, ("t1", "c1"), ("t2", "c1"), ("t3", "c1"))
+    stop = runner.StopFlag()
+    seen = []
+
+    def one(_store, task_id, _args, _now):
+        seen.append(task_id)
+        stop.request()
+
+    monkeypatch.setattr(runner, "_advance_one", one)
+    runner.run(_argv(tmp_path, "http://127.0.0.1:9", "http://127.0.0.1:9"), stop=stop,
+               max_rounds=3, out=io.StringIO())
+    assert seen == ["t1"]
+
+
+def test_one_broken_task_does_not_stop_the_others(tmp_path, monkeypatch):
+    _create(tmp_path, ("t1", "c1"), ("t2", "c1"))
+    seen = []
+
+    def one(_store, task_id, _args, _now):
+        seen.append(task_id)
+        if task_id == "t1":
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(runner, "_advance_one", one)
+    err = io.StringIO()
+    code = runner.run(_argv(tmp_path, "http://127.0.0.1:9", "http://127.0.0.1:9"),
+                      max_rounds=1, out=io.StringIO(), err=err)
+    assert code == 0 and seen == ["t1", "t2"] and "t1" in err.getvalue()
+
+
+@pytest.mark.parametrize("terminal", sorted(TERMINAL_STATES))
+def test_every_terminal_state_is_not_open_but_handed_off_is(tmp_path, terminal):
+    store = TaskStore(tmp_path / "analyzer.db")
+    try:
+        now = datetime.now(UTC)
+        store.create_task("a", "c1", now)
+        store.create_task("b", "c1", now)
+        _walk_to(store, "a", terminal, now)
+        _walk_to(store, "b", TaskState.HANDED_OFF, now)
+        assert store.open_task_ids() == ("b",)
+    finally:
+        store.close()
+
+
+_PATHS = {
+    TaskState.COMPLETED: [TaskState.COLLECTING_EVIDENCE, TaskState.ANALYZING, TaskState.PROPOSED,
+                          TaskState.HANDED_OFF, TaskState.COMPLETED],
+    TaskState.FAILED: [TaskState.FAILED],
+    TaskState.BLOCKED: [TaskState.COLLECTING_EVIDENCE, TaskState.ANALYZING, TaskState.PROPOSED,
+                        TaskState.HANDED_OFF, TaskState.BLOCKED],
+    TaskState.NO_ACTION: [TaskState.COLLECTING_EVIDENCE, TaskState.ANALYZING, TaskState.NO_ACTION],
+    TaskState.SUPERSEDED: [TaskState.COLLECTING_EVIDENCE, TaskState.ANALYZING,
+                           TaskState.PROPOSED, TaskState.HANDED_OFF, TaskState.SUPERSEDED],
+    TaskState.HANDED_OFF: [TaskState.COLLECTING_EVIDENCE, TaskState.ANALYZING,
+                           TaskState.PROPOSED, TaskState.HANDED_OFF],
+}
+
+
+def _walk_to(store, task_id, target, now):
+    from tests.analyzer.conftest import make_proposal
+
+    for state in _PATHS[target]:
+        extra = {}
+        if state in (TaskState.PROPOSED, TaskState.HANDED_OFF):
+            extra["proposal"] = make_proposal(task_id=task_id, campaign_id="c1")
+        if state in (TaskState.FAILED, TaskState.BLOCKED):
+            extra["error_detail"] = "x"
+        store.commit_step(task_id, store.latest(task_id).seq, state, now, **extra)
+
+
+def test_a_step_on_a_row_that_moved_on_does_nothing(tmp_path, services, monkeypatch):
+    """[代碼審 r1 d1] 驅動先讀列、推進函式再讀列,中間被別的驅動推進時,這一步什麼都不做:送件紀錄
+    不會記到舊列上。"""
+    from rtb.analyzer import flow, instrumented, policy
+
+    _create(tmp_path, ("t1", "c1"))
+    argv = _argv(tmp_path, *services)
+    runner.run(argv, max_rounds=3, out=io.StringIO())  # 收到 → 蒐集 → 分析 → 已提案
+    store = TaskStore(tmp_path / "analyzer.db")
+    assert store.latest("t1").state is TaskState.PROPOSED
+    real = instrumented.dsp_evidence_source
+
+    def meanwhile(own_store, url, timeout):
+        other = TaskStore(tmp_path / "analyzer.db")
+        try:  # 別的驅動在這兩次讀列之間把工作推到已交給執行
+            flow.advance(other, "t1", real(other, url, timeout), policy.decide,
+                         instrumented.InstrumentedSubmit(
+                             other, runner.inbox_client.make_client(services[1], 2),
+                             runner.ToolEndpoint.INBOX_SUBMIT, other.latest("t1")),
+                         datetime.now(UTC), owner="other")
+        finally:
+            other.close()
+        return real(own_store, url, timeout)
+
+    monkeypatch.setattr(runner.instrumented, "dsp_evidence_source", meanwhile)
+    args = runner._parse(argv)
+    runner._advance_one(store, "t1", args, datetime.now(UTC))
+    submits = [c for c in store.list_tool_calls("t1")
+               if c.endpoint is runner.ToolEndpoint.INBOX_SUBMIT]
+    store.close()
+    assert len(submits) == 1  # 只有別的驅動那一次;這一步沒有在舊列上重送
+
+
+def test_waiting_tasks_back_off_instead_of_writing_every_round(tmp_path, services):
+    """[代碼審 r1 d7] 已交給執行、收件口還在待處理的任務沒有進展時退避,不會每輪都寫兩列租約與一筆
+    送件紀錄。"""
+    import sqlite3
+
+    _create(tmp_path, ("t1", "c1"))
+    clock = {"now": 0.0}
+
+    def sleep(seconds):
+        clock["now"] += seconds
+
+    runner.run(_argv(tmp_path, *services), max_rounds=60, out=io.StringIO(), sleep=sleep,
+               monotonic=lambda: clock["now"])
+    with sqlite3.connect(tmp_path / "analyzer.db") as conn:
+        leases = conn.execute("SELECT count(*) FROM task_leases").fetchone()[0]
+    # 走到已交給執行約 5 步(10 列);之後 55 輪沒有退避會再多 110 列
+    assert leases < 40, leases
+
+
+def test_the_default_owner_is_unique_per_process():
+    args = runner._parse(["--db", "x", "--dsp-url", "u", "--inbox-url", "u"])
+    assert args.owner is None
+    assert runner.default_owner() != "analyzer-runner" and "-" in runner.default_owner()
+
+
+def test_the_timeout_reaches_the_inbox_client_too(tmp_path, services):
+    """[S1001] 送件那一步的逾時也照參數:收件口只收連線不回應,送件那一步在逾時左右結束。"""
+    import socket
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(8)
+    silent = f"http://127.0.0.1:{listener.getsockname()[1]}"
+    try:
+        _create(tmp_path, ("t1", "c1"))
+        argv = _argv(tmp_path, services[0], silent, timeout="0.3")
+        runner.run(argv, max_rounds=3, out=io.StringIO(), err=io.StringIO())  # 走到已提案
+        assert _latest(tmp_path, "t1").state is TaskState.PROPOSED
+        began = time.monotonic()
+        runner.run(argv, max_rounds=1, out=io.StringIO(), err=io.StringIO())  # 送件
+        elapsed = time.monotonic() - began
+    finally:
+        listener.close()
+    assert elapsed < 3, elapsed

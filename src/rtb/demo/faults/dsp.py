@@ -8,9 +8,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from rtb.capabilitykit import read_audit_key, read_key
 from rtb.demo.faults.delivery import FaultPlan
-from rtb.dsp.server import DspHandler, DspServer
+from rtb.dsp.server import DspHandler, DspServer, read_keys
 from rtb.dsp.store import CampaignStore
 
 
@@ -45,15 +44,14 @@ class PlannedDsp(DspServer):
             return fault or None
 
 
-def serve(argv: list[str], plan: FaultPlan) -> None:
-    parser = argparse.ArgumentParser(description="展示用模擬 DSP(帶故障排程)")
-    parser.add_argument("--db", required=True, type=Path)
-    parser.add_argument("--hang-seconds", type=float, default=2.0)
-    parser.add_argument("--delay-seconds", type=float, default=0.3)
-    args = parser.parse_args(argv)
+def serve(args: argparse.Namespace, plan: FaultPlan) -> None:
+    """帶故障排程的模擬 DSP:參數表與金鑰讀法跟正式入口同一份(代碼審 r1 a3),只換伺服器類別。"""
+    capability_key, audit_key = read_keys(os.environ)
     CampaignStore(args.db).close()
     server = PlannedDsp(args.db, plan, args.hang_seconds, args.delay_seconds,
-                        capability_key=read_key(os.environ), audit_key=read_audit_key(os.environ))
+                        busy_timeout_seconds=args.busy_timeout_seconds,
+                        socket_timeout_seconds=args.socket_timeout_seconds,
+                        capability_key=capability_key, audit_key=audit_key)
     print(f"PORT={server.server_address[1]}", flush=True)
     try:
         server.serve_forever()

@@ -370,3 +370,21 @@ def test_the_demo_f7_is_scaled_down_and_says_so():
     import inspect
     source = inspect.getsource(driver_module.make_f7)
     assert "world.start_platform()" in source
+
+
+@pytest.mark.parametrize(("writes", "limit", "confirmed", "ok"), [
+    ([110] * 12, 124, False, True),  # 120 ≤ 124 < 130
+    ([110] * 11, 124, False, False),  # 還放得下一個卻沒放
+    ([110] * 13, 124, False, False),  # 超過門檻
+    ([110] * 13, 124, True, True),  # 確認的那一筆刻意超過
+    ([110] * 12, 248, False, False),  # 門檻寫成兩倍:個數湊得到,總額抓得到
+])
+def test_the_total_let_through_fits_the_limit_and_one_more_would_not(writes, limit, confirmed,
+                                                                      ok):
+    stub = _Stub()
+    stub.all_platform_writes = lambda: [(f"k{i}", "update_budget", b) for i, b in enumerate(writes)]
+    if ok:
+        driver_module._check_total_against_limit(stub, limit, confirmed)
+    else:
+        with pytest.raises(ScenarioFailed, match="總額"):
+            driver_module._check_total_against_limit(stub, limit, confirmed)

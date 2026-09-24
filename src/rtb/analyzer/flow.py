@@ -178,6 +178,7 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、
     owner: str = "analyzer",  # 租約擁有者:比照執行側由啟動程式傳入工作者身分,這裡只當標籤
     operation_lookup: OperationLookup | None = None,  # 不給:已交給執行的任務停在原地
     no_action_reason: ExplainNoAction | None = None,  # 不給:不提案照舊結案,不存原因
+    expected_seq: int | None = None,  # 給了:目前那一列不是呼叫端讀到的那一列就什麼都不做
 ) -> TaskState:
     """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。
 
@@ -189,6 +190,10 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、
     row = store.latest(task_id)
     if row is None:
         raise TaskNotFound(task_id)
+    if expected_seq is not None and row.seq != expected_seq:
+        # 呼叫端(分析端驅動)用它讀到的那一列建了呼叫紀錄的包裝;中間被別人推進過就不拿舊包裝
+        # 做新的一步,不然送件紀錄會記到舊列上(Phase 12 代碼審 r1 d1)
+        return row.state
     if row.state in TERMINAL_STATES:
         return row.state
     if row.state is TaskState.HANDED_OFF and operation_lookup is None:

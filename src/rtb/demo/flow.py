@@ -144,17 +144,20 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
     ("a_narrate", "a_submit", "送出"),
     ("a_submit", "i_check", "送到收件"),
     ("i_check", "x_pending", "收下"),
-    ("i_check", "a_restale", "資料已過時"),
+    ("i_check", "a_restale", "資料已過時或送到時已過期"),
     ("i_check", "a_failed", "拒收(內容有衝突或格式不對)"),
     ("i_check", "i_superseded", "已有更新的建議"),
-    ("i_check", "x_expired", "送到時已過期"),
+    ("i_check", "a_blocked_end", "已交出去之後重送被拒收"),
     ("x_pending", "x_pick", "輪到它"),
     ("x_pending", "a_followup", "紀錄已清掉、平台也查不到"),
+    ("x_pending", "a_blocked_end", "紀錄已清掉、平台同編號卻是不同內容"),
+    ("x_pending", "x_expired", "排隊時已過期"),
     ("x_pick", "x_deadletter", "試太多次了"),
     ("x_pick", "x_precheck", "還能處理"),
     ("x_pick", "x_existing", "同一筆已經有人在寫"),
     ("x_pick", "x_lease_lost", "處理權被接手"),
     ("x_deadletter", "h_replay", "等人決定"),
+    ("x_deadletter", "a_blocked_end", "等的時候建議過期了"),
     ("h_replay", "r_requeued", "重新送入"),
     ("h_replay", "h_replay_refused", "不送入"),
     ("x_precheck", "x_blocked", "沒過"),
@@ -187,7 +190,8 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
     ("x_escalated", "h_resolve", "等人查明"),
     ("h_resolve", "x_done", "有寫進去"),
     ("h_resolve", "x_failed", "沒寫進去"),
-    ("x_failed", "a_failed", "記成失敗"),
+    ("x_failed", "a_blocked_end", "確定沒改到,這件工作結束"),
+    ("x_failed", "a_followup", "平台說版本不對,照現況重新分析"),
     ("x_blocked", "a_followup", "廣告或規則變了、建議放太久"),
     ("x_blocked", "a_blocked_end", "其他原因"),
     ("x_expired", "a_followup", "照現況重新分析"),
@@ -395,7 +399,8 @@ DECISION_ENUMS: dict[str, tuple[type[StrEnum], tuple[str, ...]]] = {
     "a_route": (RoutePath, ("a_candidate",)),  # 交給候選:路由結果在候選那一步才定
     "a_candidate": (RoutePath, ()),
     "a_worth": (WorthVerdict, ("a_failed",)),  # 分析出錯:任務狀態記成失敗
-    "i_check": (LifecycleKind, ("a_restale", "a_failed")),  # 送件時過時與拒收:任務狀態記
+    # 送件時過時、拒收、交出去之後重送被拒:任務狀態記
+    "i_check": (LifecycleKind, ("a_restale", "a_failed", "a_blocked_end")),
     "x_pick": (Result, ("x_deadletter", "x_precheck")),  # 試太多次:死信原因記;還能處理:往下走
     "x_precheck": (Result, ("x_guard",)),  # 通過:往下走
     "x_guard": (Result, ("x_total",)),  # 在範圍內:往下走

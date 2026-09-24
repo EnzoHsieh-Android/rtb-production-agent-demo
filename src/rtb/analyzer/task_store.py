@@ -76,7 +76,7 @@ _TASK_COLUMNS = ("task_id, seq, state, campaign_id, proposal_json, error_detail,
                  "operation_key")
 MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
 # 暫用,沒有實測校準:要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件,各自的逾時由建用戶端
-# 的呼叫端決定);分析行程還沒有正式啟動程式,這條不等式目前沒有機械守衛(計劃增量 3b)
+# 的呼叫端決定);分析端驅動命令列(rtb.analyzer.runner)啟動時斷言這條不等式([S1001])
 LEASE_DURATION = timedelta(seconds=60)
 # 接續任務的保留命名空間:一般建任務入口拒收這個開頭的任務編號,只有建接續任務寫得進去
 FOLLOW_UP_PREFIX = "fu-"
@@ -632,7 +632,9 @@ class TaskStore(TaskReads):
             return
 
 
-# 唯讀開法要求資料庫已經有的表與欄位
+# 唯讀開法要求資料庫已經有的表與欄位。不提案原因表 no_action_reasons 刻意不列:Phase 12 之前的資料庫
+# 沒有這張表,列進來舊庫就開不起來;讀原因的方法自己看表在不在、沒有就回空值(展示寫「無法還原」,
+# Phase 12 設計審 r2 p1、代碼審 r1 a2)
 _REQUIRED_SCHEMA: dict[str, tuple[str, ...]] = {
     "tasks": ("task_id", "seq", "state", "proposal_json", "operation_key"),
     "evidence": ("payload_json",), "tool_calls": ("latency_ms",), "task_leases": ("owner",),

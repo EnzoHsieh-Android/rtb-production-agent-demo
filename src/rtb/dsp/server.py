@@ -12,7 +12,7 @@ import hmac
 import os
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
@@ -328,24 +328,35 @@ class DspServer(KitServer):
         self.busy_timeout_seconds = busy_timeout_seconds
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Mock DSP")
+def build_parser() -> argparse.ArgumentParser:
+    """正式入口的參數表(不收縮寫:展示的故障 DSP 用同一份參數表,Phase 12)。"""
+    parser = argparse.ArgumentParser(allow_abbrev=False, description="Mock DSP")
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--fault-injection", action="store_true")
     parser.add_argument("--hang-seconds", type=float, default=2.0)
     parser.add_argument("--delay-seconds", type=float, default=0.3)
     parser.add_argument("--busy-timeout-seconds", type=float, default=BUSY_TIMEOUT_SECONDS)
     parser.add_argument("--socket-timeout-seconds", type=float, default=SOCKET_TIMEOUT_SECONDS)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def read_keys(environ: Mapping[str, str]) -> tuple[bytes | None, bytes | None]:
+    """啟動程式讀兩把金鑰(能力、稽核);稽核金鑰超過上限就以設定錯誤結束(啟動就報,不要啟動之後
+    永遠比對失敗)。展示的故障 DSP 也走這一支。"""
     try:
-        audit_key = read_audit_key(os.environ)  # 只有啟動程式讀環境變數
+        audit_key = read_audit_key(environ)
     except AuditKeyTooLong as bad:
-        raise SystemExit(f"設定錯誤:{bad}") from bad  # 啟動就報,不要啟動之後永遠比對失敗
+        raise SystemExit(f"設定錯誤:{bad}") from bad
+    return read_key(environ), audit_key
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+    capability_key, audit_key = read_keys(os.environ)  # 只有啟動程式讀環境變數
     CampaignStore(args.db).close()  # 確保資料庫與表已建立
     server = DspServer(args.db, args.fault_injection, args.hang_seconds, args.delay_seconds,
                        args.busy_timeout_seconds, args.socket_timeout_seconds,
-                       capability_key=read_key(os.environ),  # 只有啟動程式讀環境變數
-                       audit_key=audit_key)
+                       capability_key=capability_key, audit_key=audit_key)
     print(f"PORT={server.server_address[1]}", flush=True)
     try:
         server.serve_forever()

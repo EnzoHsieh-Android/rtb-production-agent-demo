@@ -263,7 +263,7 @@ def to_primitives(statuses: tuple[SloStatus, ...]) -> dict[str, Any]:
 
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = Parser(description="服務水準指標的狀態與燒損告警(只讀)")
+    parser = Parser(allow_abbrev=False, description="服務水準指標的狀態與燒損告警(只讀)")
     parser.add_argument("--executor-db", required=True, type=Path)
     parser.add_argument("--analyzer-db", required=True, type=Path)
     parser.add_argument("--dsp-url", required=True)

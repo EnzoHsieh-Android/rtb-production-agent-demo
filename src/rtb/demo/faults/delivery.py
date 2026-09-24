@@ -10,13 +10,19 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from rtb.dsp.server import FAULT_MODES
+
 ROOT_MARKER = ".rtb-demo-root"
+USED_SUFFIX = ".used"
 _NONCE_BYTES = 32
+_DEMO_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
 
 
 class FaultRefused(Exception):
@@ -35,8 +41,17 @@ class FaultPlan:
 
 
 def prepare_root(base: Path, demo_id: str) -> Path:
-    root = Path(base) / demo_id
-    root.mkdir(parents=True, mode=0o700)  # 已經存在就是別次展示的,丟例外不共用
+    """展示編號只收英數與連字號(擋 ../ 與非 ASCII);上層目錄要是自己的、別人不可寫(代碼審 r1 s3:
+    別人可寫的共用目錄能把整個根目錄換掉)。"""
+    if not _DEMO_ID.fullmatch(demo_id):
+        raise ValueError(f"展示編號只收英數與連字號:{demo_id!r}")
+    base = Path(base)
+    base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    info = base.stat()
+    if info.st_uid != os.getuid() or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise ValueError(f"展示根目錄的上層 {base} 不是自己的,或別人可寫")
+    root = base / demo_id
+    root.mkdir(mode=0o700)  # 已經存在就是別次展示的,丟例外不共用
     (root / ROOT_MARKER).write_text(demo_id, encoding="utf-8")
     return root
 
@@ -77,22 +92,54 @@ def _root_of(body: dict[str, Any], config: Path) -> Path:
         marker = (root / ROOT_MARKER).read_text(encoding="utf-8")
     except OSError as missing:
         raise FaultRefused("根目錄不是展示建的(沒有標記檔)") from missing
-    if not hmac.compare_digest(marker, str(body.get("demo_id", ""))):
+    expected = str(body.get("demo_id", "")).encode("utf-8")
+    if not hmac.compare_digest(marker.encode("utf-8"), expected):
         raise FaultRefused("根目錄不是這次展示建的(標記檔的展示編號不同)")
     return root
 
 
-def load_verified(config: Path, nonce: str | None, role: str, targets: list[Path]) -> FaultPlan:
-    body = _load(config)
-    root = _root_of(body, config)
-    if nonce is None or not hmac.compare_digest(_digest(nonce), str(body.get("nonce_sha256"))):
-        raise FaultRefused("一次性隨機值不相符")
-    if body.get("role") != role:
-        raise FaultRefused(f"故障設定檔是給 {body.get('role')!r} 的,不是 {role!r}")
-    outside = [str(t) for t in targets if not Path(t).resolve().is_relative_to(root)]
-    if outside:
-        raise FaultRefused(f"目標路徑不在展示根目錄內:{', '.join(outside)}")
-    return FaultPlan(role=role,
-                     dsp_plan=tuple((str(f), float(o)) for f, o in body.get("dsp_plan", [])),
+def _plan_of(body: dict[str, Any], role: str) -> FaultPlan:
+    """設定檔的欄位:型別不對、故障模式不認得、欄位給錯角色一律拒(代碼審 r1 s5/l3/l4:打錯字的
+    故障模式原本會靜默變成沒有故障)。"""
+    steps = body.get("dsp_plan", [])
+    if not isinstance(steps, list):
+        raise FaultRefused("故障排程不是清單")
+    plan = []
+    for step in steps:
+        fault, offset = step  # 不是兩項就丟,外層轉成拒絕
+        if fault not in FAULT_MODES and fault is not None:
+            raise FaultRefused(f"不認得的故障模式 {fault!r}")
+        plan.append((fault, float(offset)))
+    crash = body.get("crash_point")
+    if crash is not None and not isinstance(crash, str):
+        raise FaultRefused("猝死點不是字串")
+    if role == "dsp" and crash is not None:
+        raise FaultRefused("模擬 DSP 沒有猝死點")
+    if role == "executor" and plan:
+        raise FaultRefused("執行迴圈沒有故障排程")
+    return FaultPlan(role=role, dsp_plan=tuple(plan),
                      clock_offset_seconds=float(body.get("clock_offset_seconds", 0.0)),
-                     crash_point=body.get("crash_point"))
+                     crash_point=crash)
+
+
+def load_verified(config: Path, nonce: str | None, role: str, targets: list[Path]) -> FaultPlan:
+    """核對全部過了才回故障安排,並當場把設定檔改名作廢:同一份交付不能用第二次(代碼審 r1 s4)。"""
+    try:
+        body = _load(config)
+        root = _root_of(body, config)
+        if nonce is None or not hmac.compare_digest(
+                _digest(nonce).encode("utf-8"), str(body.get("nonce_sha256")).encode("utf-8")):
+            raise FaultRefused("一次性隨機值不相符")
+        if body.get("role") != role:
+            raise FaultRefused(f"故障設定檔是給 {body.get('role')!r} 的,不是 {role!r}")
+        outside = [str(t) for t in targets if not Path(t).resolve().is_relative_to(root)]
+        if outside:
+            raise FaultRefused(f"目標路徑不在展示根目錄內:{', '.join(outside)}")
+        plan = _plan_of(body, role)
+    except (TypeError, ValueError) as bad:
+        raise FaultRefused(f"故障設定檔內容看不懂:{bad}") from bad
+    try:
+        config.rename(config.with_name(config.name + USED_SUFFIX))
+    except OSError as used:
+        raise FaultRefused("故障設定檔已經用過") from used
+    return plan

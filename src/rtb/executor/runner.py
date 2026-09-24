@@ -45,14 +45,19 @@ READY = "READY"
 _IDLE_RESULTS = frozenset({Result.IDLE, Result.DEFERRED, Result.LEASE_LOST})
 
 
-def _parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="執行迴圈")
+def build_parser() -> argparse.ArgumentParser:
+    """正式入口的參數表(不收縮寫:展示的故障啟動器用同一份解析結果核對目標路徑,Phase 12)。"""
+    parser = argparse.ArgumentParser(allow_abbrev=False, description="執行迴圈")
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--dsp-url", required=True)
     parser.add_argument("--tenant-config", required=True, type=Path)
     parser.add_argument("--interval-seconds", type=float, default=1.0)
     parser.add_argument("--dsp-timeout-seconds", type=float, default=5.0)
-    return parser.parse_args(argv)
+    return parser
+
+
+def _parse(argv: list[str] | None) -> argparse.Namespace:
+    return build_parser().parse_args(argv)
 
 
 def _loop(

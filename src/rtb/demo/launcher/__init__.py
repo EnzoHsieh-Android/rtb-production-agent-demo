@@ -5,12 +5,14 @@
 這一條)。展示的其他模組經這裡的 `FaultRequest`、`write_fault_plan`、`start` 排故障。
 """
 
+import contextlib
 import os
 import queue
 import signal
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -22,6 +24,7 @@ from rtb.demo.faults.delivery import ROOT_MARKER, FaultPlan, prepare_root, write
 from rtb.demo.keys import DemoKeys
 
 SRC = str(Path(rtb.__file__).resolve().parents[1])  # 專案沒有安裝成套件,子行程靠它找程式
+# 子行程一律 python -P:不把工作目錄(展示根目錄)放進 sys.path,根目錄裡的同名檔蓋不掉標準函式庫
 FAULT_NONCE_ENV = "RTB_DEMO_FAULT_NONCE"
 EXIT_FAULT_REFUSED = 3
 STARTUP_SECONDS = 20.0
@@ -92,20 +95,26 @@ def command_for(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,
     if role not in _MODULES:
         raise ValueError(f"{role} 沒有固定的正式入口")
     if faults is None:
-        return ([sys.executable, "-m", _MODULES[role], *args],
+        return ([sys.executable, "-P", "-m", _MODULES[role], *args],
                 child_env(role, keys, user_env=user_env))
     if faults.role is not role:
         raise ValueError(f"故障是排給 {faults.role} 的,不是 {role}")
     config, nonce = write_fault_plan(root, faults)
-    return ([sys.executable, "-m", "rtb.demo.launcher.child", role.value, str(config), "--",
+    return ([sys.executable, "-P", "-m", "rtb.demo.launcher.child", role.value, str(config),
+             "--",
              *args], child_env(role, keys, user_env=user_env, fault_nonce=nonce))
+
+
+class StartFailed(Exception):
+    """子行程沒在時限內印出就緒那一行(起不來、拒絕啟動、第一行不對或太慢)。"""
 
 
 class Process:
     """一個已啟動的子行程:獨立的行程群組,stop 連同它開的孫行程一起結束。"""
 
-    def __init__(self, popen: subprocess.Popen[str], first_line: str) -> None:
-        self._popen = popen
+    def __init__(self, popen: subprocess.Popen[str], first_line: str,
+                 reader: threading.Thread | None = None) -> None:
+        self._popen, self._reader = popen, reader
         self.first_line = first_line
         self.pid = popen.pid
         port = first_line.removeprefix("PORT=") if first_line.startswith("PORT=") else None
@@ -117,58 +126,97 @@ class Process:
     def wait(self, timeout: float) -> int:
         return self._popen.wait(timeout)
 
-    def stop(self) -> None:
+    def _group_alive(self) -> bool:
+        self._popen.poll()  # 領頭已經結束就先收掉,不讓殭屍把群組看成還有人
+        try:
+            os.killpg(self._popen.pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _wait_group(self, seconds: float) -> bool:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if not self._group_alive():
+                return True
+            time.sleep(0.05)
+        return not self._group_alive()
+
+    def _signal_group(self, signum: int) -> None:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(self._popen.pid, signum)
+
+    def stop(self, grace_seconds: float = STOP_SECONDS) -> None:
+        """不論領頭死活都對整個群組送 SIGTERM;期限到了群組還有人就一律 SIGKILL,確認群組清空之後
+        才關標準輸出(孫行程握著管線寫端時先關會卡住,代碼審 r1 l1/x1)。"""
+        self._signal_group(signal.SIGTERM)
+        if not self._wait_group(grace_seconds):
+            self._signal_group(signal.SIGKILL)
+            self._wait_group(grace_seconds)
         if self._popen.poll() is None:
-            try:
-                os.killpg(self._popen.pid, signal.SIGTERM)
-                self._popen.wait(STOP_SECONDS)
-            except subprocess.TimeoutExpired:
-                os.killpg(self._popen.pid, signal.SIGKILL)
-                self._popen.wait(STOP_SECONDS)
-            except ProcessLookupError:
-                pass
-        if self._popen.stdout is not None:
+            self._popen.wait(grace_seconds)
+        if self._reader is not None:
+            self._reader.join(grace_seconds)  # 寫端都關了,讀取執行緒讀到結尾就結束
+        if self._popen.stdout is not None and (self._reader is None
+                                               or not self._reader.is_alive()):
             self._popen.stdout.close()
 
 
-class StartFailed(Exception):
-    """子行程沒在時限內印出就緒那一行(起不來、拒絕啟動或太慢)。"""
-
-
-def _first_line(popen: subprocess.Popen[str], prefix: str) -> str:
+def _reader_for(popen: subprocess.Popen[str]) -> tuple[threading.Thread, queue.Queue[str]]:
     lines: queue.Queue[str] = queue.Queue()
 
     def read() -> None:
-        if popen.stdout is None:
-            lines.put("")
-            return
-        for line in popen.stdout:
-            lines.put(line.strip())
-        lines.put("")
+        if popen.stdout is not None:
+            for line in popen.stdout:
+                lines.put(line.strip())
+        lines.put(_EOF)
 
-    threading.Thread(target=read, daemon=True).start()
-    while True:
+    thread = threading.Thread(target=read, daemon=True)
+    thread.start()
+    return thread, lines
+
+
+_EOF = "\x00EOF"
+
+
+def _first_line(popen: subprocess.Popen[str], lines: queue.Queue[str], prefix: str,
+                seconds: float) -> str:
+    """一個總期限(不是每一行重新計時);讀到結尾就取結束代碼;第一行不是預期的開頭直接判失敗
+    (代碼審 r1 l5)。"""
+    deadline = time.monotonic() + seconds
+    try:
+        line = lines.get(timeout=max(0.0, deadline - time.monotonic()))
+    except queue.Empty as slow:
+        raise StartFailed(f"{seconds:.0f} 秒內沒有就緒") from slow
+    if line == _EOF:
         try:
-            line = lines.get(timeout=STARTUP_SECONDS)
-        except queue.Empty as slow:
-            raise StartFailed(f"{STARTUP_SECONDS} 秒內沒有就緒") from slow
-        if line.startswith(prefix):
-            return line
-        if line == "" and popen.poll() is not None:
-            raise StartFailed(f"子行程結束了,結束代碼 {popen.returncode}")
+            code = popen.wait(max(0.1, min(1.0, deadline - time.monotonic())))
+        except subprocess.TimeoutExpired:
+            raise StartFailed("標準輸出關掉了,行程卻還沒結束") from None
+        raise StartFailed(f"子行程結束了,結束代碼 {code}")
+    if not line.startswith(prefix):
+        raise StartFailed(f"第一行不是就緒訊息:{line[:80]!r}")
+    return line
+
+
+def _spawn(command: Sequence[str], env: Mapping[str, str], cwd: Path, prefix: str,
+           log_path: Path, *, startup_seconds: float = STARTUP_SECONDS) -> Process:
+    with open(log_path, "a", encoding="utf-8") as log:  # 子行程拿到自己的一份描述子
+        popen = subprocess.Popen(list(command), env=dict(env), cwd=cwd, stdout=subprocess.PIPE,  # noqa: S603 - 指令是固定的 python 模組加參數
+                                 stderr=log, text=True, start_new_session=True)
+    reader, lines = _reader_for(popen)
+    try:
+        first = _first_line(popen, lines, prefix, startup_seconds)
+    except StartFailed:
+        Process(popen, "", reader).stop()
+        raise
+    return Process(popen, first, reader)
 
 
 def start(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,
           faults: FaultRequest | None, user_env: Mapping[str, str]) -> Process:
     command, env = command_for(role, args, keys, root=root, faults=faults, user_env=user_env)
-    log = open(root / f"{role.value}-{os.getpid()}-{threading.get_ident()}.log", "a",  # noqa: SIM115 - 交給子行程,父行程不再寫
-               encoding="utf-8")
-    popen = subprocess.Popen(command, env=env, cwd=root, stdout=subprocess.PIPE, stderr=log,  # noqa: S603 - 指令是固定的 python -m 模組加參數
-                             text=True, start_new_session=True)
-    log.close()
-    try:
-        first = _first_line(popen, _READY_PREFIX[role])
-    except StartFailed:
-        Process(popen, "").stop()
-        raise
-    return Process(popen, first)
+    log = root / f"{role.value}-{os.getpid()}-{threading.get_ident()}.log"
+    return _spawn(command, env, root, _READY_PREFIX[role], log)

@@ -494,6 +494,10 @@ def _run_f6(world: World) -> str:
                        "--operator", OPERATOR], out=io.StringIO(), err=io.StringIO())
     if code != 0:
         raise ScenarioFailed(f"人工重新送入被拒(結束代碼 {code})")
+    audited = world.query(world.inbox_db, "SELECT action FROM dead_letter_ops WHERE operator = ?",
+                          (OPERATOR,))
+    if ("replay_requeued",) not in audited:  # 協調者要求:稽核紀錄裡有 demo-operator 的重放
+        raise ScenarioFailed(f"稽核紀錄裡沒有 {OPERATOR} 的重新送入:{audited}")
     world.start_executor()
     if not world.watch(lambda: world.budget("c1") == 220, 60):
         raise ScenarioFailed(f"時限內新工作沒有照現況寫進去(預算 {world.budget('c1')})")
@@ -561,6 +565,16 @@ def _check_campaign_by_campaign(world: World, campaigns: Sequence[str], passes: 
         raise ScenarioFailed(f"放行 {len(written)} 個廣告,門檻算出來應該是 {passes} 個")
 
 
+def _check_total_against_limit(world: World, limit: int, confirmed: bool) -> None:
+    """協調者要求:放行那一批加上去的總額不超過門檻,而且再多放一個就會超過(門檻寫錯例如變兩倍,
+    個數可能照樣湊得到,總額這條才抓得到)。確認放行的那一筆是人核可的、刻意超過門檻,另外扣掉。"""
+    total = sum(budget - 100 for _, _, budget in world.all_platform_writes())
+    counted = total - (INCREASE if confirmed else 0)
+    if not counted <= limit < counted + INCREASE:
+        raise ScenarioFailed(f"放行總額 {counted} 跟門檻 {limit} 對不上:應該不超過門檻,"
+                             "而且再多放一個就會超過")
+
+
 def make_f7(campaigns: int = F7_CAMPAIGNS, limit: int = F7_LIMIT, workers: int = F7_WORKERS,
             confirm_cap_seconds: float = CONFIRM_CAP_SECONDS) -> Callable[[World], str]:
     def run(world: World) -> str:
@@ -583,9 +597,11 @@ def make_f7(campaigns: int = F7_CAMPAIGNS, limit: int = F7_LIMIT, workers: int =
             raise ScenarioFailed(f"時限內沒有全部走完:{world.dispositions()}")
         passes = limit // INCREASE
         _check_campaign_by_campaign(world, ids, passes)
+        _check_total_against_limit(world, limit, confirmed=False)
         confirmed = _wait_for_confirmation(world, confirm_cap_seconds)
         _node_counts(world)
         _check_campaign_by_campaign(world, ids, passes + (1 if confirmed else 0))
+        _check_total_against_limit(world, limit, confirmed)
         if not confirmed:
             raise ScenarioFailed("沒有人確認")
         return (f"{campaigns} 個廣告各加一成,全部加起來到總上限就停:放行 {passes} 個、"

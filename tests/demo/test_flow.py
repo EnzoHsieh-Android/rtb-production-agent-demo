@@ -206,3 +206,74 @@ def test_handed_off_means_different_things_on_the_two_sides():
     from rtb.executor.inbox_store import Disposition
 
     assert flow.OUTCOMES[(Disposition, "HANDED_OFF")].node == "x_done"
+
+
+# ---- 設計審之後的代碼審 r1 d2/d3:分析端每一種出口都要在圖上有對應的邊 ----
+def _answer(state, block_code=None):
+    from rtb.analyzer import flow as analyzer_flow
+    from tests.analyzer.conftest import make_proposal
+
+    proposal = make_proposal()
+    from rtb.domain.proposal import content_hash
+
+    return analyzer_flow.Accepted(replayed=True, task_id=proposal.task_id,
+                                  revision=proposal.revision,
+                                  content_hash=content_hash(proposal), state=state,
+                                  block_code=block_code), proposal
+
+
+# 收件口回應的每一種處置 → 分析端結果在圖上走的邊(手寫的對照表;下面的測試逐一窮舉程式的出口,
+# 表上少一種就紅)
+_INBOX_EXITS = {
+    ("handed_off", None): ("x_verify", "x_done"),
+    ("superseded", None): ("i_check", "i_superseded"),
+    ("expired", None): ("x_expired", "a_followup"),
+    ("blocked", "version_changed"): ("x_blocked", "a_followup"),
+    ("blocked", "policy_version_changed"): ("x_blocked", "a_followup"),
+    ("blocked", "decision_stale"): ("x_blocked", "a_followup"),
+    ("blocked", "not_permitted"): ("x_blocked", "a_blocked_end"),
+    ("blocked", "campaign_not_found"): ("x_blocked", "a_blocked_end"),
+    ("blocked", "campaign_not_active"): ("x_blocked", "a_blocked_end"),
+    ("blocked", "operation_previously_failed"): ("x_blocked", "a_blocked_end"),
+    ("dead_letter", None): ("x_deadletter", "a_blocked_end"),  # 過期之後才結案
+}
+
+
+def test_every_analyzer_exit_after_hand_off_has_an_edge():
+    """拿分析端「已交給執行之後」每一種出口(收件口的每種處置、收件紀錄已清掉後查平台、重送被拒)
+    比對圖上的邊:程式會走的路圖上都要有。"""
+    from datetime import timedelta
+
+    from rtb.analyzer import flow as analyzer_flow
+
+    exits = set()
+    for state in sorted(analyzer_flow._KNOWN_STATES - analyzer_flow._OPEN_STATES):
+        codes = sorted(analyzer_flow._BLOCK_CODES) if state == "blocked" else [None]
+        for code in codes:
+            answer, proposal = _answer(state, code)
+            late = proposal.decision_expires_at + timedelta(seconds=1)
+            if analyzer_flow._from_inbox_answer(answer, proposal, late) is not None:
+                exits.add((state, code))
+    assert exits == set(_INBOX_EXITS), "收件口處置跟對照表對不上"
+    for edge in _INBOX_EXITS.values():
+        assert edge in EDGES, f"程式會走 {edge},圖上沒有這條邊"
+    # 收件紀錄已清掉:平台查不到 → 開新工作;查到同編號不同內容 → 擋下結束;重送被拒 → 擋下結束
+    for edge in [("x_pending", "a_followup"), ("x_pending", "a_blocked_end"),
+                 ("i_check", "a_blocked_end")]:
+        assert edge in EDGES
+
+
+def test_a_failed_write_ends_as_blocked_or_a_new_task_never_as_analysis_failure():
+    """執行端寫入失敗,收件口確認的是擋下(版本衝突記成版本已變,其餘記成先前已失敗):分析端不會
+    轉成「這件工作出錯」。"""
+    assert ("x_failed", "a_failed") not in EDGES
+    assert ("x_failed", "a_blocked_end") in EDGES
+    assert ("x_failed", "a_followup") in EDGES
+
+
+def test_a_proposal_expired_at_intake_is_recollected_in_the_same_task():
+    """收件時已過期,收件口回 422,分析端在同一件工作裡重新蒐集(不是開新工作);排隊中被順手標成
+    已過期的,從排隊那一步走到過期。"""
+    assert ("i_check", "x_expired") not in EDGES
+    assert ("i_check", "a_restale") in EDGES
+    assert ("x_pending", "x_expired") in EDGES

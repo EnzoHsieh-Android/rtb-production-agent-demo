@@ -15,6 +15,7 @@ tags:
   - type/system
   - status/doing
 summary: |-
+  WHY:[2026-09-24 Phase 12 代碼審 r1 a3、s1] 參數表抽成 `build_parser()`、兩把金鑰的讀法抽成 `read_keys()`(稽核金鑰超過上限照舊以設定錯誤結束):展示的故障 DSP 用同一份,不再另寫一份少兩個參數的子集。命令列參數不收縮寫(allow_abbrev=False):一鍵展示的故障啟動器用正式入口同一支 parser 的解析結果核對目標路徑,縮寫與等號寫法都不能繞過(Phase 12 代碼審 r1 s1/l2/x2)。長選項一律寫全。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]。
   RULE: 所有寫入先驗寫入能力憑證,順序固定:金鑰已設定 → 標頭存在 → 格式與簽章 → 聲明欄位與型別 → 時間窗 → 讀本文(白名單外的欄位拒收)→ 驗操作內容(不合法的值照舊 422)→ 範圍(廣告、動作、冪等鍵、租戶、確切新預算、預期版本都要等於聲明,廣告不存在也算範圍不符)。每一步失敗都在任何寫入之前,三張表都不動;拒收代碼沿用錯誤對照表,都不可重試,只回固定代碼不回顯聲明。見 [[Systems/寫入能力憑證]]。[since:2026-09-22] [retire:換成真實 DSP 時撤除]
   PITFALL: 代碼審第 1 輪指出:驗證函式若把「讀憑證標頭」當參數傳入,Python 會在函式內檢查金鑰之前就先讀標頭,沒金鑰又重複帶標頭時回的是「標頭重複」而不是「沒有可用金鑰」;現在標頭改成金鑰檢查之後才讀。政策版本原本驗完就丟,「只記不驗」沒有落實,現在寫進操作紀錄(舊操作留空值)。第 2 輪再補:時鐘也改成金鑰檢查之後才讀(時鐘出錯也蓋不掉沒有金鑰);政策版本 DSP 自己再擋一次格式(1 到 64 個英數與 . _ : -)。同一把鍵重放時操作紀錄只留第一次套用時的政策版本,這是刻意的:紀錄的是「這筆變更實際在哪個政策版本下套用」,重放沒有再套用一次。防回歸:[test:test_without_a_key_duplicate_capability_headers_still_answer_not_configured]、[test:test_the_policy_version_of_an_applied_write_is_recorded]、[test:test_the_key_is_checked_before_the_clock_is_read]、[test:test_every_earlier_check_answers_before_the_clock_is_read](有金鑰時標頭、格式、聲明的問題都在讀時鐘前回報)、[test:test_a_policy_version_outside_the_dsp_format_is_invalid]。
   RULE: 廣告的租戶只在建檔時設定,沒有任何寫入端點能改(有測試從路由表列舉寫入端點);舊資料庫沿用補欄位做法,舊廣告屬於預設租戶,舊操作的政策版本留空值。只有啟動程式讀金鑰環境變數,伺服器物件收參數。[since:2026-09-22] [retire:需要支援改租戶時,改租戶必須推進廣告版本並重審]
