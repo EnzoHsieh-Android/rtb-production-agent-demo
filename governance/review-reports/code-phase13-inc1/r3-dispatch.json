@@ -1,0 +1,47 @@
+[
+ {
+  "round": "r3",
+  "seat": "修正驗收",
+  "lens": "修正驗收",
+  "materials": [
+   "governance/review-reports/code-phase13-inc1/r3-delta.patch",
+   "governance/review-reports/code-phase13-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase13-inc1/r2-修正驗收.md",
+   "governance/review-reports/code-phase13-inc1/r2-外家-codex.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "資安-opus",
+  "lens": "資安-opus",
+  "materials": [
+   "governance/review-reports/code-phase13-inc1/r3-delta.patch",
+   "governance/review-reports/code-phase13-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase13-inc1/r2-資安-opus.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase13-inc1/r3-delta.patch",
+   "governance/review-reports/code-phase13-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase13-inc1/r2-架構對齊.md"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "外家-codex",
+  "lens": "外家-codex",
+  "materials": [
+   "governance/review-reports/code-phase13-inc1/r3-delta.patch",
+   "governance/review-reports/code-phase13-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase13-inc1/r2-外家-codex.md"
+  ],
+  "auditor": "codex"
+ }
+]
