@@ -108,3 +108,25 @@ def test_an_immediate_transaction_reports_lock_contention_as_database_busy(tmp_p
     first.execute("ROLLBACK")
     first.close()
     second.close()
+
+
+# ---- F7 效能計劃代碼審第 3 輪:鎖競爭判斷碰到沒有錯誤碼的錯誤 ----
+def test_lock_contention_without_an_error_code_is_not_contention():
+    """程式自己建的、或模組內部某些資料庫錯誤沒有錯誤碼:判成「不是鎖競爭」(原樣往外丟),
+    不能自己丟 AttributeError 蓋掉原本的錯誤。"""
+    import sqlite3
+
+    from rtb import sqlitekit
+
+    bare = sqlite3.OperationalError("database is locked")
+    assert not hasattr(bare, "sqlite_errorcode")
+    assert sqlitekit.is_lock_contention(bare) is False
+    coded = sqlite3.OperationalError("database is locked")
+    coded.sqlite_errorcode = sqlite3.SQLITE_BUSY
+    assert sqlitekit.is_lock_contention(coded) is True
+    locked = sqlite3.OperationalError("database table is locked")
+    locked.sqlite_errorcode = sqlite3.SQLITE_LOCKED | (1 << 8)  # 擴充碼
+    assert sqlitekit.is_lock_contention(locked) is True
+    other = sqlite3.OperationalError("no such table: x")
+    other.sqlite_errorcode = sqlite3.SQLITE_ERROR
+    assert sqlitekit.is_lock_contention(other) is False

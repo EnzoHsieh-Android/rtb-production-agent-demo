@@ -1,0 +1,67 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1",
+  "lens": "併發與鎖語意",
+  "materials": [
+   "governance/review-reports/f7效能-重試/r1-snapshot.md",
+   "src/rtb/sqlitekit.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2",
+  "lens": "租約預算與既有合約",
+  "materials": [
+   "governance/review-reports/f7效能-重試/r1-snapshot.md",
+   "src/rtb/sqlitekit.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3",
+  "lens": "範圍、可測性與 F7 成效",
+  "materials": [
+   "governance/review-reports/f7效能-重試/r1-snapshot.md",
+   "src/rtb/sqlitekit.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "模組邊界與既有做法",
+  "materials": [
+   "governance/review-reports/f7效能-重試/r1-snapshot.md",
+   "src/rtb/sqlitekit.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/f7效能-重試/r1-snapshot.md",
+   "src/rtb/sqlitekit.py",
+   "src/rtb/executor/inbox_store.py",
+   "src/rtb/executor/attempt_store.py",
+   "src/rtb/executor/"
+  ],
+  "auditor": "codex"
+ }
+]

@@ -192,7 +192,8 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
                              f"{', '.join(opened.unreadable_messages)}\n")
         print(READY, file=out or sys.stdout, flush=True)
         executor = Executor(store, dsp or DspClient(args.dsp_url, args.dsp_timeout_seconds),
-                            signer, args.tenant_config, clock, owner, approval_key)
+                            signer, args.tenant_config, clock, owner, approval_key,
+                            sleep=sleep)  # 寫結果重試的退避:只有入口接真的睡眠
         return _serve(executor, args.interval_seconds, max_rounds, sleep)
     finally:
         store.close()

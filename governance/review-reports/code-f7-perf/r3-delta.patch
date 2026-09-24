@@ -1,0 +1,1320 @@
+diff --git a/claims/aggregate-blast-radius.json b/claims/aggregate-blast-radius.json
+index f6e437d..791ec8d 100644
+--- a/claims/aggregate-blast-radius.json
++++ b/claims/aggregate-blast-radius.json
+@@ -54,45 +54,45 @@
+     {
+       "path": "src/rtb/executor/approval.py",
+       "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+     },
+     {
+       "path": "src/rtb/executor/approve.py",
+       "sha256": "da75df4f19c64d568409e4de153bffb713d50251d0117ceeda9d9bb026cc0d4a"
+     },
+     {
+       "path": "src/rtb/executor/attempt_store.py",
+-      "sha256": "3b05ad24a619fce437cc86ace574052774abeff136a120e4df59d978413f0579"
++      "sha256": "bf0f6ea7c18b5e3f3fdff4c876815cd664a783600307126be1978edfee42d529"
+     },
+     {
+       "path": "src/rtb/executor/capability_signer.py",
+       "sha256": "b1d21d0358b74308e144ad8e0221ec3ae0771bb02b1da2b9bb554f536f9cb5e8"
+     },
+     {
+       "path": "src/rtb/executor/dsp_client.py",
+       "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
+     },
+     {
+       "path": "src/rtb/executor/execution.py",
+-      "sha256": "2fc7892514965e8a01ebd5cc6f8e3a1523e93eb91c3d5f83f2afcb5613675c4e"
++      "sha256": "f9a94d58ab1cb7eca8c403002ef432aaeb3012f42d88f7491a6b74bbac4b0615"
+     },
+     {
+       "path": "src/rtb/executor/guardrails.py",
+       "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
+     },
+     {
+       "path": "src/rtb/executor/inbox_server.py",
+-      "sha256": "ba9518d40ca41e31f26ee23fab2c7f6fa9c5e19acb164de2f2b3ff7b0bb8504a"
++      "sha256": "0de5f84d64d1857d0db8f37dbd72e967fca4c450037695b51d0fc837551bf35d"
+     },
+     {
+       "path": "src/rtb/executor/inbox_store.py",
+-      "sha256": "e0f40e4df72c0712ad840af5f74619549d37be74e1cc55fd727423b9484be980"
++      "sha256": "125632b489cc72f42b6e53b0a9fa79ebc77086ab158db26d69c3a768a8c0c412"
+     },
+     {
+       "path": "src/rtb/executor/runner.py",
+       "sha256": "8efda47b8e4f6f72a7e1f4e7906b3d7ae03517f5c0f98d7210a966ee37dbe902"
+     },
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "7cf2204a0219ad6ee0381f1692f4a03327099b226161470a0fd62e804d4bfbc6"
+     },
+     {
+@@ -106,21 +106,21 @@
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+-      "sha256": "b0bd708c50b66126033096564f89927c2d898ffddfbea0e8663587d49b0c07f1"
++      "sha256": "b2787f586e7e3586f895f6971b398bb1fc4540a46b3ebf156fd89282f4004dc4"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+       "sha256": "2daae40b8401da748207a5375c03da17b7b9cd686d7b6e88d4f287f291d48055"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+diff --git a/claims/concurrency.json b/claims/concurrency.json
+index 82ef3cd..a654d7d 100644
+--- a/claims/concurrency.json
++++ b/claims/concurrency.json
+@@ -78,45 +78,45 @@
+     {
+       "path": "src/rtb/dsp/store.py",
+       "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
+     },
+     {
+       "path": "src/rtb/executor/approval.py",
+       "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+     },
+     {
+       "path": "src/rtb/executor/attempt_store.py",
+-      "sha256": "3b05ad24a619fce437cc86ace574052774abeff136a120e4df59d978413f0579"
++      "sha256": "bf0f6ea7c18b5e3f3fdff4c876815cd664a783600307126be1978edfee42d529"
+     },
+     {
+       "path": "src/rtb/executor/capability_signer.py",
+       "sha256": "b1d21d0358b74308e144ad8e0221ec3ae0771bb02b1da2b9bb554f536f9cb5e8"
+     },
+     {
+       "path": "src/rtb/executor/dsp_client.py",
+       "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
+     },
+     {
+       "path": "src/rtb/executor/execution.py",
+-      "sha256": "2fc7892514965e8a01ebd5cc6f8e3a1523e93eb91c3d5f83f2afcb5613675c4e"
++      "sha256": "f9a94d58ab1cb7eca8c403002ef432aaeb3012f42d88f7491a6b74bbac4b0615"
+     },
+     {
+       "path": "src/rtb/executor/guardrails.py",
+       "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
+     },
+     {
+       "path": "src/rtb/executor/inbox_server.py",
+-      "sha256": "ba9518d40ca41e31f26ee23fab2c7f6fa9c5e19acb164de2f2b3ff7b0bb8504a"
++      "sha256": "0de5f84d64d1857d0db8f37dbd72e967fca4c450037695b51d0fc837551bf35d"
+     },
+     {
+       "path": "src/rtb/executor/inbox_store.py",
+-      "sha256": "e0f40e4df72c0712ad840af5f74619549d37be74e1cc55fd727423b9484be980"
++      "sha256": "125632b489cc72f42b6e53b0a9fa79ebc77086ab158db26d69c3a768a8c0c412"
+     },
+     {
+       "path": "src/rtb/executor/runner.py",
+       "sha256": "8efda47b8e4f6f72a7e1f4e7906b3d7ae03517f5c0f98d7210a966ee37dbe902"
+     },
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "7cf2204a0219ad6ee0381f1692f4a03327099b226161470a0fd62e804d4bfbc6"
+     },
+     {
+@@ -130,21 +130,21 @@
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+-      "sha256": "b0bd708c50b66126033096564f89927c2d898ffddfbea0e8663587d49b0c07f1"
++      "sha256": "b2787f586e7e3586f895f6971b398bb1fc4540a46b3ebf156fd89282f4004dc4"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+       "sha256": "2daae40b8401da748207a5375c03da17b7b9cd686d7b6e88d4f287f291d48055"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+diff --git a/claims/idempotency-unknown-outcome.json b/claims/idempotency-unknown-outcome.json
+index 4288b70..7857b1f 100644
+--- a/claims/idempotency-unknown-outcome.json
++++ b/claims/idempotency-unknown-outcome.json
+@@ -38,45 +38,45 @@
+     {
+       "path": "src/rtb/dsp/store.py",
+       "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
+     },
+     {
+       "path": "src/rtb/executor/approval.py",
+       "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+     },
+     {
+       "path": "src/rtb/executor/attempt_store.py",
+-      "sha256": "3b05ad24a619fce437cc86ace574052774abeff136a120e4df59d978413f0579"
++      "sha256": "bf0f6ea7c18b5e3f3fdff4c876815cd664a783600307126be1978edfee42d529"
+     },
+     {
+       "path": "src/rtb/executor/capability_signer.py",
+       "sha256": "b1d21d0358b74308e144ad8e0221ec3ae0771bb02b1da2b9bb554f536f9cb5e8"
+     },
+     {
+       "path": "src/rtb/executor/dsp_client.py",
+       "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
+     },
+     {
+       "path": "src/rtb/executor/execution.py",
+-      "sha256": "2fc7892514965e8a01ebd5cc6f8e3a1523e93eb91c3d5f83f2afcb5613675c4e"
++      "sha256": "f9a94d58ab1cb7eca8c403002ef432aaeb3012f42d88f7491a6b74bbac4b0615"
+     },
+     {
+       "path": "src/rtb/executor/guardrails.py",
+       "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
+     },
+     {
+       "path": "src/rtb/executor/inbox_server.py",
+-      "sha256": "ba9518d40ca41e31f26ee23fab2c7f6fa9c5e19acb164de2f2b3ff7b0bb8504a"
++      "sha256": "0de5f84d64d1857d0db8f37dbd72e967fca4c450037695b51d0fc837551bf35d"
+     },
+     {
+       "path": "src/rtb/executor/inbox_store.py",
+-      "sha256": "e0f40e4df72c0712ad840af5f74619549d37be74e1cc55fd727423b9484be980"
++      "sha256": "125632b489cc72f42b6e53b0a9fa79ebc77086ab158db26d69c3a768a8c0c412"
+     },
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "7cf2204a0219ad6ee0381f1692f4a03327099b226161470a0fd62e804d4bfbc6"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "3eddad1a06c141fe7be1babb1683f384e45e56445624abb9aae02bfcfc4da945"
+     },
+     {
+@@ -86,21 +86,21 @@
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+-      "sha256": "b0bd708c50b66126033096564f89927c2d898ffddfbea0e8663587d49b0c07f1"
++      "sha256": "b2787f586e7e3586f895f6971b398bb1fc4540a46b3ebf156fd89282f4004dc4"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+       "sha256": "2daae40b8401da748207a5375c03da17b7b9cd686d7b6e88d4f287f291d48055"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+@@ -152,21 +152,21 @@
+     {
+       "path": "tests/executor/test_crash_recovery.py",
+       "sha256": "4a22f994c1ae7412fe28a0fdb54e955e3d9be4b1f2e2b145ef2d0de0eb213c92"
+     },
+     {
+       "path": "tests/executor/test_execution_e2e.py",
+       "sha256": "2411e95b71761728dc3bd9d648542c3d3bf67d4b12ff0f507568eab15f2844c6"
+     },
+     {
+       "path": "tests/executor/test_inbox_server.py",
+-      "sha256": "35a130247e32a2b1679ebc521b1f62438e38966f8a04fb3a1dcd05119b0a35bf"
++      "sha256": "af947037e6f81fd8249ea0b941eaa0b4cf9eb587872a92a28fdadce0dc4392e1"
+     },
+     {
+       "path": "tests/executor/test_reconcile.py",
+       "sha256": "2c3d76a862da02859540bd7c716f13c9078042810d18e9aa13fc84eaabcc5fbf"
+     }
+   ],
+   "enumerations": [
+     {
+       "source": "src/rtb/dsp/server.py:CAMPAIGN_WRITE_ACTIONS"
+     }
+diff --git a/claims/permission-guardrail.json b/claims/permission-guardrail.json
+index f31e217..422880e 100644
+--- a/claims/permission-guardrail.json
++++ b/claims/permission-guardrail.json
+@@ -82,45 +82,45 @@
+     {
+       "path": "src/rtb/executor/approval.py",
+       "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+     },
+     {
+       "path": "src/rtb/executor/approve.py",
+       "sha256": "da75df4f19c64d568409e4de153bffb713d50251d0117ceeda9d9bb026cc0d4a"
+     },
+     {
+       "path": "src/rtb/executor/attempt_store.py",
+-      "sha256": "3b05ad24a619fce437cc86ace574052774abeff136a120e4df59d978413f0579"
++      "sha256": "bf0f6ea7c18b5e3f3fdff4c876815cd664a783600307126be1978edfee42d529"
+     },
+     {
+       "path": "src/rtb/executor/capability_signer.py",
+       "sha256": "b1d21d0358b74308e144ad8e0221ec3ae0771bb02b1da2b9bb554f536f9cb5e8"
+     },
+     {
+       "path": "src/rtb/executor/dsp_client.py",
+       "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
+     },
+     {
+       "path": "src/rtb/executor/execution.py",
+-      "sha256": "2fc7892514965e8a01ebd5cc6f8e3a1523e93eb91c3d5f83f2afcb5613675c4e"
++      "sha256": "f9a94d58ab1cb7eca8c403002ef432aaeb3012f42d88f7491a6b74bbac4b0615"
+     },
+     {
+       "path": "src/rtb/executor/guardrails.py",
+       "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
+     },
+     {
+       "path": "src/rtb/executor/inbox_server.py",
+-      "sha256": "ba9518d40ca41e31f26ee23fab2c7f6fa9c5e19acb164de2f2b3ff7b0bb8504a"
++      "sha256": "0de5f84d64d1857d0db8f37dbd72e967fca4c450037695b51d0fc837551bf35d"
+     },
+     {
+       "path": "src/rtb/executor/inbox_store.py",
+-      "sha256": "e0f40e4df72c0712ad840af5f74619549d37be74e1cc55fd727423b9484be980"
++      "sha256": "125632b489cc72f42b6e53b0a9fa79ebc77086ab158db26d69c3a768a8c0c412"
+     },
+     {
+       "path": "src/rtb/executor/replay.py",
+       "sha256": "538d515e20110c99e79a2edc078ec1442fad8eafdd68d61ca9f01278a5baabcd"
+     },
+     {
+       "path": "src/rtb/executor/runner.py",
+       "sha256": "8efda47b8e4f6f72a7e1f4e7906b3d7ae03517f5c0f98d7210a966ee37dbe902"
+     },
+     {
+@@ -138,21 +138,21 @@
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+-      "sha256": "b0bd708c50b66126033096564f89927c2d898ffddfbea0e8663587d49b0c07f1"
++      "sha256": "b2787f586e7e3586f895f6971b398bb1fc4540a46b3ebf156fd89282f4004dc4"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+       "sha256": "2daae40b8401da748207a5375c03da17b7b9cd686d7b6e88d4f287f291d48055"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+index 73d7cdd..0ef5b2e 100644
+--- a/claims/prompt-injection.json
++++ b/claims/prompt-injection.json
+@@ -78,45 +78,45 @@
+     {
+       "path": "src/rtb/dsp/store.py",
+       "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
+     },
+     {
+       "path": "src/rtb/executor/approval.py",
+       "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+     },
+     {
+       "path": "src/rtb/executor/attempt_store.py",
+-      "sha256": "3b05ad24a619fce437cc86ace574052774abeff136a120e4df59d978413f0579"
++      "sha256": "bf0f6ea7c18b5e3f3fdff4c876815cd664a783600307126be1978edfee42d529"
+     },
+     {
+       "path": "src/rtb/executor/capability_signer.py",
+       "sha256": "b1d21d0358b74308e144ad8e0221ec3ae0771bb02b1da2b9bb554f536f9cb5e8"
+     },
+     {
+       "path": "src/rtb/executor/dsp_client.py",
+       "sha256": "f528202ba8784edf01b119f3462fb9f49c9c8b42e717148695e3fba9a5620027"
+     },
+     {
+       "path": "src/rtb/executor/execution.py",
+-      "sha256": "2fc7892514965e8a01ebd5cc6f8e3a1523e93eb91c3d5f83f2afcb5613675c4e"
++      "sha256": "f9a94d58ab1cb7eca8c403002ef432aaeb3012f42d88f7491a6b74bbac4b0615"
+     },
+     {
+       "path": "src/rtb/executor/guardrails.py",
+       "sha256": "30e0cb7789d3c4d382b88855d9d5b394049eae23b9eb1044af99a103b8721ef8"
+     },
+     {
+       "path": "src/rtb/executor/inbox_server.py",
+-      "sha256": "ba9518d40ca41e31f26ee23fab2c7f6fa9c5e19acb164de2f2b3ff7b0bb8504a"
++      "sha256": "0de5f84d64d1857d0db8f37dbd72e967fca4c450037695b51d0fc837551bf35d"
+     },
+     {
+       "path": "src/rtb/executor/inbox_store.py",
+-      "sha256": "e0f40e4df72c0712ad840af5f74619549d37be74e1cc55fd727423b9484be980"
++      "sha256": "125632b489cc72f42b6e53b0a9fa79ebc77086ab158db26d69c3a768a8c0c412"
+     },
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "7cf2204a0219ad6ee0381f1692f4a03327099b226161470a0fd62e804d4bfbc6"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "3eddad1a06c141fe7be1babb1683f384e45e56445624abb9aae02bfcfc4da945"
+     },
+     {
+@@ -126,21 +126,21 @@
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+-      "sha256": "b0bd708c50b66126033096564f89927c2d898ffddfbea0e8663587d49b0c07f1"
++      "sha256": "b2787f586e7e3586f895f6971b398bb1fc4540a46b3ebf156fd89282f4004dc4"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+       "sha256": "2daae40b8401da748207a5375c03da17b7b9cd686d7b6e88d4f287f291d48055"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md
+index 4be2d85..feaaaf2 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md
+@@ -112,21 +112,21 @@ REVISIT:2026-12-31 做法 1 若被選、實作完成,在 CI 上量 F7 至少五
+ - **租約期限**:每次要再開交易之前,用那支唯讀小函式讀這張收據對應的租約到期時間(資料庫裡這一列的實際值,不是收據建立時的舊值;WAL 模式下讀不必拿寫入鎖),減掉注入時鐘的現在,得到「這筆租約還剩多少」。剩餘時間小於「下一次等鎖上限(5 秒)+ 退避 + 固定餘裕(5 秒)」就不再試,照舊往外丟忙碌。讀不到(租約已經被別人接手、或已經不是處理中)也不再試。
+   - 固定餘裕 5 秒的理由:拿到鎖之後交易本體還要跑到提交(核對收據續租、條件轉換、到終點再加一次確認寫入),平常是毫秒級,5 秒涵蓋磁碟同步變慢與時鐘讀取的誤差(鏡頭 2 發現 3)。
+   - 就算判斷之後才過期(機器被暫停、時鐘跳動),那次寫入的收據核對也會因租約到期寫不進 [S101],丟收據對不上、照舊放棄這把鍵,不會重複寫、不停機 [S116]、[S132]。
+ - **沒有收據的舊鍵**(收件表沒有對應處理中訊息的 Phase 3 鍵,對帳時收據是空值):沒有租約可以讀,只受次數上限限制;保護來自嘗試紀錄的序號條件(輸家寫 0 列、照舊當收據對不上處理),加上對帳看到「嘗試中」剛寫下不到一個租約時間就跳過 [S138](鏡頭 1 發現 6)。
+ - **次數**:最多重試 3 次(總共 4 次開交易),保證注入的時鐘不動(例如測試)時也會停。**退避**:第 1、2、3 次重試前各睡 0.05、0.1、0.2 秒(經注入的睡眠)。
+ - 取消第 1 版的「總時間 20 秒」:在真實時間下 4 次等鎖最多約 20.35 秒,次數上限一定先到,那條分支測不到(鏡頭 1 發現 5);時間面改由上面的租約期限負責。
+ 
+ ### 重試用完還是忙碌
+ 
+ - 維持現行行為:照舊丟忙碌往外,嘗試停在寫入前的狀態、廣告被未結案鎖住,租約到期後由對帳接手推進;執行迴圈的啟動程式照 [S135] 這一輪休息、連續 3 輪都忙才停機。
+-- 代價照實寫(實作時寫進 [[Systems/執行迴圈]]):一輪因忙碌而放棄的時間,從約 5 秒變成最長約 20 秒(4 次等鎖加退避),連續 3 輪才停機的時間也因此拉長到約 1 分鐘。
++- 代價照實寫(實作時寫進 [[Systems/執行迴圈]]):一輪因忙碌而放棄的時間,從約 5 秒變成最長約 20 秒(4 次等鎖加退避),連續 3 輪才停機的時間也因此拉長到約 1 分鐘。代碼審第 2 輪實測更正:補寫呼叫紀錄在記結果之前、之後各等一次鎖,一輪約 31 秒(改動前同情境約 15.6 秒),連 3 輪約 95 秒,數字以 [[Systems/執行迴圈]] 為準。
+ - 對帳路徑:對帳是逐鍵依序做,一把鍵的重試會延後後面的鍵;重試用完丟忙碌時,跟現在一樣是整輪放棄(同一輪的其他鍵、處理待核可、處理一筆都要等下一輪),不是只放棄那一把鍵(鏡頭 1 發現 6)。
+ 
+ ### 既有合約逐條
+ 
+ - 合約 S101(收據核對):每次重試都在新交易裡重新核對收據並續租,條件跟原本一樣;租約過期那次寫不進。不受影響。
+ - 合約 S107(停在未結案時延長租約不確認)、S109/S110(對帳接手與只接手過期或自己的租約):重試成功時續租照舊;用完時跟現在一樣留給對帳。對帳路徑呼叫那兩支函式時也會重試,判斷不變。不受影響。
+ - 合約 S116、S132(收據對不上就放棄這把鍵、不停機):收據對不上不重試、照舊往外丟;租約期限讀不到也不再試。不受影響。
+ - 合約 S117、S127、S138(接手或重啟時把過期的嘗試中轉成結果不明):這些轉換在對帳或重啟恢復自己的交易裡,不經寫結果函式,這次不重試,行為完全不變(見〈不改〉);第 1 版寫的「轉結果不明也是寫結果函式」是錯的機制描述,更正。S138 的「剛寫下不到一個租約時間就跳過」另外也是沒有收據舊鍵在重試時的保護之一。
+ - 合約 S11、S12(送出次數、查證逾時次數):次數只在交易真的提交時加;沒開起來的那幾次什麼都沒寫,重試不會多算。不受影響。
+ - 合約 S119、S120、S122、S123、S124(事故 F2:各個當機點的恢復):當機時重試跟著行程一起消失,留下的狀態跟現在一樣是「最後一次提交成功的狀態」;每一次重試都是完整交易,不會留下半套。不受影響。
+@@ -147,21 +147,21 @@ REVISIT:2026-12-31 做法 1 若被選、實作完成,在 CI 上量 F7 至少五
+ ### 否決的方案
+ 
+ - 加長全域的等鎖逾時(對照實驗 30 秒時 16 次 0 次紅):影響每一個寫入交易、包括取件與收件,忙碌時整個工作者卡更久;使用者沒選。
+ - 改 F7 測試(加長等鎖、結束前跑對帳):計劃〈不做〉寫明不改 F7 測試。
+ - 在寫結果交易開起來之後遇到錯誤也重試:那時可能已經寫了一半(靠回滾),重做前要重讀狀態,範圍變大;這次只接「交易沒開起來」這一種。
+ - 在執行迴圈記一個「交易內容開始了沒有」的旗標來分辨(第 1 版):型別已經表達得了,旗標是第二套分類機制(架構對齊發現 1)。
+ - 用靜態不等式證明重試落在租約內(第 1 版):路徑與等待算不完,改成每次重試前讀實際的租約剩餘時間。
+ 
+ ### 實作紀錄(2026-09-25,設計審第 1 輪過閘之後)
+ 
+-- 收件表交易入口的新類別叫「開交易前忙碌」(程式裡的名字不含 BEGIN 這個字:既有的結構測試禁止交易入口的原始碼出現它,防有人改成不排隊的普通開交易);唯讀的租約到期讀取回資料庫實際值,不是自己的租約或讀取出錯都回空值。見 [[Systems/提案收件口]]。
++- 收件表交易入口的新類別叫「開交易前忙碌」(程式裡的名字不含 BEGIN 這個字:既有的結構測試禁止交易入口的原始碼出現它,防有人改成不排隊的普通開交易);唯讀的租約到期讀取回資料庫實際值,不是自己的租約或讀的時候碰到鎖競爭回空值;其他資料庫錯誤原樣往外丟,租約時間不是帶時區的 ISO 時間丟「處理中那一列讀不懂」(代碼審第 2 輪:第一版把所有資料庫錯誤都吞成空值,永久故障會被改報成忙碌)。見 [[Systems/提案收件口]]。
+ - 執行迴圈:重試包裝只包兩支函式各自的那一個交易;常數是最多 3 次、退避 0.05/0.1/0.2 秒、餘裕 5 秒,等鎖上限直接取共用資料庫工具的常數,不另抄一份。注入的睡眠預設不睡,啟動程式把自己的睡眠傳進去。見 [[Systems/執行迴圈]]。
+ - 測試造忙碌的方式:替換共用資料庫工具的開寫入交易,讓它丟「等鎖逾時」(跟真的一樣什麼都沒寫),不真的等 5 秒;補寫呼叫紀錄的短交易不造忙(每次呼叫 DSP 當下就補寫,它撞忙本來就留待下次,不在這次範圍),忙碌只落在記結果的交易上。
+ - 先紅後綠與變異檢查、30 次 F7 的結果記在 [[Verification/F7效能驗收紀錄]]。
+ 
+ ### 回退
+ 
+ - 拿掉兩支函式外的重試包裝即可;收件表交易入口的新類別是「收件口忙碌」的子類別,留著也不影響既有抓法,回退時可以一起拿掉。其他程式與資料都不動。
+ 
+ ## 合約
+ 
+@@ -198,21 +198,21 @@ REVISIT:2026-12-31 做法 1 若被選、實作完成,在 CI 上量 F7 至少五
+   - 讀設定檔的呼叫者:簽發、作廢簽發經簽發器;處理待核可每一輪有「有事可做的待核可」時讀一次(`awaiting` 只回到期、被取代、有核可、同任務已開過嘗試的,不是所有待核可);核可管理工具與指標命令列各讀一次;另外只有測試(展示驅動、調查演練)直接呼叫模組層級函式。安全讀檔的檢查跟〈現況〉列的一致。
+   - 已用額度的逐筆明細只收金額大於 0 的列(減預算、暫停、金額 0 不算),快路徑的加總也照這條只加大於 0 的整數金額。
+ - 合約 [S19](嘗試紀錄模組不匯入網路模組、不自己開連線)的綁定測試原本連共用資料庫模組整個都不准匯入;設計要求嘗試紀錄模組呼叫共用資料庫模組的「是不是整數溢位」。合約文字不改,只把測試收窄成:共用資料庫模組只准取這一個純判斷,開連線、開交易的函式照舊不准碰。
+ - 內容快取那條合約(S684)的「處理待核可那條路徑」測試放在核可測試檔(要用那裡造待核可與核可的輔助函式);取件停在待核可那一步就已經經簽發器讀過一次,所以驗的是之後的處理待核可與簽發都不重解析、設定檔改了處理待核可下一次讀就重驗。
+ - Phase 6「一次核可只讀一份租戶設定」那條合約(S378)的測試照〈落點〉改成數簽發器底下的安全讀檔(1 次)、驗租戶來自那一份位元組、模組層級讀設定函式 0 次。
+ - 先紅後綠:S680–S682 與 S684–S685 的紅是新入口(原算法那支、快路徑語句、讀租戶設定方法、整數溢位判斷)還不存在;S683 在舊程式上已經綠(舊的查詢本來就沒有整表掃描、也沒有原算法可以禁),改由變異證明;核可測試裡兩條路徑共用快取那支在舊程式上是行為紅。
+ - 本機 F7(10 核 macOS,Python 3.14.6,pytest 只跑這一支,`--durations` 的 call 時間):改動前 35.13、34.20、34.52 秒;改動後 22.61、22.24、22.90 秒。CI 五次由協調者推上去後量([S686])。
+ 
+ - 代碼審第 1 輪修正的解讀(2026-09-24):
+   - 原算法對這個租戶的列會讀的欄位逐一核過:金額(整數轉型)、第一列時間與鍵(計入的列依這兩欄排序,型別混雜會丟 TypeError);其他身分欄只原樣帶出。快路徑把這三欄的型別異常都當成退回條件。
+-  - 退回路徑的成本:沒記租戶的舊列(會長期留在未結案那段)改成先用便宜的偵測查:倒著讀最近至多 64 筆沒記租戶的第一列、碰到候選就停,查到直接走原算法;測試用 SQLite 虛擬機步數量,退回路徑最多比原算法多一點點(偵測本身,工作量有上限)。舊列超過 64 筆而且最近的都不是候選時判不出來,照舊交給加總那一趟的精確偵測(第一版的做法:偵測只從舊列出發、不設上限,在 [S341] 那份 30 萬筆舊列的資料上反而比原算法慢,改成有上限)。型別異常(資料毀損)仍在加總那一趟發現,退回前多掃一遍,照實記進驗收紀錄的殘餘風險。
++  - 退回路徑的成本:沒記租戶的舊列(會長期留在未結案那段)改成先用便宜的偵測查:倒著讀最近至多 64 筆沒記租戶的第一列、碰到候選就停,查到直接走原算法;測試用 SQLite 虛擬機步數量,退回路徑最多比原算法多一點點(偵測本身,工作量有上限)。舊列超過 64 筆而且最近的都不是候選時判不出來,照舊交給加總那一趟的精確偵測(第一版的做法:偵測只從舊列出發、不設上限,在 [S341] 那份 30 萬筆舊列的資料上反而比原算法慢,改成有上限)。代碼審第 2 輪改成兩步(先瞄最新 8 筆,再從最舊的找沒有終點的舊鍵、不設上限),見 [[Systems/外部寫入嘗試紀錄]]:64 筆上限會永遠漏掉比它們更早的卡住舊鍵。型別異常(資料毀損)仍在加總那一趟發現,退回前多掃一遍,照實記進驗收紀錄的殘餘風險。
+   - 未結案那段的成本隨租戶歷史變長(原算法一樣,不是退步),記進 [[Verification/F7效能驗收紀錄]] 的殘餘風險並附回頭條件。
+   - 入口只收字串租戶:資料庫比較會把整數參數轉型,兩種算法才會一樣。
+   - 本機發現 F7 偶發少一筆「已執行」(寫入鎖搶不到、DSP 寫入後記結果那一步丟忙碌),改動前不會出現;原因與對照實驗記在 [[Verification/F7效能驗收紀錄]],修法超出這份計劃,交協調者裁定。本機 F7 三次(修正後):22.06、21.33、22.22 秒。
+ 
+ ## 審計修正紀錄
+ 
+ - 2026-09-24 開檔(第 1 版);前掃兩處修現況描述(第 2 版)。
+ - r1(2026-09-24,7 席:等價合約、設定檔快取、溢位、可測性、相容成本、架構對齊、外家 Codex):23 條(2 blocker、16 major、5 minor,blocking 18)全數折入,重點:資料庫空集合加總回空值(三席各自抓到);資料庫動態型別會把毀損金額算成 0 或小數,改成只有金額型別全是整數才走快路徑;溢位只認資料庫回報的整數溢位;照實寫出翻了 Phase 6 的決策;快取從模組層級改成簽發器自己持有、只記一份;安全讀檔不擴大承諾(父目錄符號連結照舊);未結案那一段也隨歷史變長,照實寫進不做;CI 最壞推估從約 36 秒更正成約 49 秒。例:空的嘗試表、租戶第一筆預留 50、門檻 50 → 已用額度 0、剛好達門檻放行,不是空值相加丟例外。卷證:governance/review-reports/f7效能/。
+ - r2(2026-09-24,4 席:前輪驗收與鏡像、快路徑條件、架構對齊、外家 Codex):8 條(7 major、1 minor,blocking 7)全數折入;第 1 輪 23 條驗收 21 條已修,另 2 條(兩套規則)第 3 版只是重申立場,這輪才真的改。重點:偵測跟加總併成每段一支查詢,不把候選列取回程式;選哪些列抽成共用篩選片段;退回只看候選集合,窗外歷史不觸發;簽發器加公開的讀租戶設定方法,處理待核可經協定呼叫它;翻案的記法寫進落點;CI 推估改稱粗估、五次任一超過 60 秒判未達標。例:租戶窗外有一筆兩年前沒記租戶的舊列、窗內 3000 筆乾淨整數列 → 走快路徑,不退回。卷證同上。
+ - r3(2026-09-24,3 席:前輪修復驗收、架構對齊、外家 Codex;最後一輪):2 條(2 major,blocking 2)全數折入;第 2 輪 8 條驗收全數已修。重點:認整數溢位的判斷集中到共用資料庫模組,跟認鎖競爭的並排;既有「一次核可只讀一份租戶設定」合約的測試實作時要改成數簽發器自己的讀取方法,不准靠二次讀檔讓舊測試綠。例:一次核可 → 簽發器的讀租戶設定方法被叫 1 次、核可裡的租戶跟這次讀到的位元組一致;模組層級讀設定函式被叫 0 次也不紅。卷證同上。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md b/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md
+index c49d3c5..44d5a36 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/共用行程基礎.md
+@@ -61,10 +61,12 @@ REVISIT:2026-11-15 Phase 3 開工、新增執行行程伺服器時,評估是否
+ - 共用行為的測試分兩處:tests/kit 測共用基礎本身,tests/dsp 測 DSP 的路由與業務;兩邊對同一種行為(例如逾時)都有覆蓋屬於有意的重疊,改共用行為時兩邊都要跑。
+ 
+ ## 唯讀連線與程式版本(Phase 9 增量 1,2026-09-24)
+ 
+ - 唯讀連線以 SQLite 官方 URI 的 mode=ro 開,並明講這是 URI;檔案不存在丟「找不到檔案」,不建新檔。PITFALL: 把「mode=ro」字串丟給一般的連線函式不會報錯,而是在磁碟上悄悄新建一個以那串文字為檔名的空資料庫(計劃前掃實測)。檔名轉 URI 用路徑的標準轉法,檔名帶井號、問號、空白也開到同一個檔。防回歸:[test:test_the_read_only_connection_really_is_read_only]。
+ - 唯讀快照:不取鎖的顯式交易開頭之後立刻讀一次。PITFALL: SQLite 的讀取快照從第一次讀取才定,不先讀的話,開頭與第一次查詢之間別人提交的寫入也會被看到(2026-09-24 實作時確認)。防回歸:[test:test_a_read_transaction_sees_one_snapshot]。
+ - 「資料庫還沒升級」例外與「缺哪些表與欄位」的判斷放在這裡,收件口與分析端兩個唯讀開法共用。Phase 9 增量 2 代碼審第 1 輪起也可以要求索引:唯讀連線不建索引,只被唯讀開過的舊庫缺了時間索引,窗口讀取會悄悄退化成全表掃描,所以缺指定索引也算還沒升級(各唯讀開法自己列要哪幾支)。防回歸:[test:test_a_read_only_open_without_the_time_indexes_counts_as_not_upgraded]。
+ - 程式版本常數放在套件頂層 `src/rtb/__init__.py`(行程載入時就定、執行期間不變),執行行程寫的生命週期事件、嘗試紀錄、DSP 呼叫紀錄每一列都記它,給之後依工作者版本切片(行程身分只有行程編號加啟動時間,反推不出跑的是哪一版)。RULE: 會改變寫入行為的改動合進主線時手動把版本往上加。[since:2026-09-24] [retire:改成從建置流程自動帶入版本時]
+ - 出處:[[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 1。
+ - [2026-09-24] 共用 HTTP 用戶端拿到狀態碼但本文不是 JSON 或太大時,丟帶狀態碼的「回應讀不懂」例外(ValueError 的子類別,既有只接 ValueError 的呼叫端不受影響);第一版丟一般 ValueError,狀態碼遺失,500 被記成沒有狀態碼的讀不懂(Phase 9 增量 1 代碼審第 1 輪外家席)。見 [[Systems/執行迴圈]]。
++
++- (F7 效能計劃代碼審第 2 輪,2026-09-25)`src/rtb/sqlitekit.py` 的鎖競爭判斷改成公開的 `is_lock_contention`(原本是模組私有):收件表讀租約到期時間時要照同一個分法分「忙碌」與「永久故障」,不另寫一套。判斷本身沒變。見 [[Systems/提案收件口]]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+index 4d08b2d..7fe582d 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+@@ -176,12 +176,12 @@ REVISIT:2026-10-31 推送後記下 CI 上事故 F7 端到端的時間(見 [[Issu
+ - 出處:[[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 1。
+ 
+ - 比例上限允許加的量抽成一支函式(判比例與開始一筆記下的核對材料共用,Phase 9 增量 3);處理一筆把它與簽發時讀到的單一廣告上限一起交給開始一筆,記進第一列給副作用核對。判斷本身不變。
+ 
+ ## 寫結果碰到資料庫忙碌時在限度內重試(F7 效能計劃第 2 部分,2026-09-25)
+ 
+ - 使用者 2026-09-25 裁定:平台寫入後記結果碰到資料庫忙碌時,在限度內重試記錄,不要馬上放手、留給 60 秒後的恢復處理。設計與逐條合約在 [[Projects/F7效能_計劃]] 第 2 部分。
+ - 範圍:寫結果函式(目標不是「嘗試中」的那些,也就是把平台回覆記下來的寫入)與記一次查證逾時那一支,各自只包自己那一個交易;開交易就鎖不到(收件表交易入口丟的「開交易前忙碌」子類別,見 [[Systems/提案收件口]])才整筆重做。交易開起來之後的錯誤、收據對不上、轉回嘗試中、同一條路上的重簽交易、對帳接手與重啟恢復時轉結果不明,都照舊不重試。防回歸:[test:test_only_a_busy_begin_on_a_result_write_is_retried]。
+ - 次數與退避:最多重試 3 次,重試前依序睡 0.05、0.1、0.2 秒,睡眠是注入的協作者(只有啟動程式接真的睡眠,其他建構點預設不睡);計數是那次呼叫的區域變數。防回歸:[test:test_the_runner_hands_its_sleep_to_the_result_write_retry](啟動程式的接線)、[test:test_a_busy_result_write_is_retried_within_its_budget]、[test:test_a_result_write_that_stays_busy_gives_up_as_before]。
+ - 租約期限(動態,不靠靜態不等式):每次再試之前讀這張收據對應的租約實際到期時間,減掉注入時鐘的現在;剩餘小於「一次等鎖上限(5 秒)+ 退避 + 5 秒餘裕」或讀不到自己的租約就不再試。沒有收據的舊鍵只受次數限制。防回歸:[test:test_a_result_write_stops_retrying_when_the_lease_is_about_to_expire]、[test:test_a_legacy_key_without_a_receipt_retries_on_count_alone]。
+-- 代價(照實寫):重試用完仍忙時照舊往外丟忙碌、這一輪休息([S135]),但一輪因忙碌而放棄的時間從約 5 秒變成最長約 20 秒(4 次等鎖加退避),連續 3 輪才停機的時間因此拉長到約 1 分鐘。對帳逐鍵做,一把鍵的重試會延後後面的鍵;重試用完是整輪放棄,不只放棄那一把鍵。
++- 代價(照實寫,代碼審第 2 輪鏡頭 2 實測):重試用完仍忙時照舊往外丟忙碌、這一輪休息([S135])。鎖一直被佔住時,一輪約 31 秒:DSP 回覆當下補寫呼叫紀錄等一次鎖(約 5.2 秒)、記結果 4 次等鎖加退避(約 20.8 秒)、處理一筆結束時再補寫一次(約 5.2 秒);正式環境真的睡退避約 31.5 秒。連續 3 輪才停機約 95 秒,再加上輪間休息。改動前同一情境是補寫、記結果、補寫各等一次,約 15.6 秒(不是先前寫的約 5 秒)。對帳逐鍵做,一把鍵的重試會延後後面的鍵;重試用完是整輪放棄,不只放棄那一把鍵。
+ - 成效以本機 F7 端到端至少 30 次 0 紅為準([S691]),量測記在 [[Verification/F7效能驗收紀錄]]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md b/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
+index afea288..0c7acb9 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
+@@ -62,21 +62,22 @@ decisions:
+ 設計與三輪設計審在 [[Projects/RTB_Phase6權限護欄與總曝險_計劃]]。這裡只記程式看不出的脈絡。
+ 
+ - 預留記在第一列的兩個補欄位(租戶、預留金額),不另開帳表;額度只從嘗試紀錄推:沒有終點的一直算(不論多久)、已驗證的看**驗證完成時間**在 24 小時內、失敗的不算。用預留時間當窗口會讓「開始一筆超過 24 小時才驗證成功」的寫入在驗證當下就出窗(設計審第 2 輪外家席)。
+ - Phase 6 之前的舊列不回填租戶與金額:回填租戶只能照現在的設定檔,廣告換過租戶就記錯帳。額度查詢遇到空值時,改預算以新預算全額算進每一個租戶(分不出加減,寧可多擋),暫停算 0。
+ - 額度查詢的新部分索引只用既有欄位(已驗證列、寫入時間):既有開庫順序是先跑整份建表建索引、後補欄位,索引參照新補的欄位會讓舊資料庫一開就失敗(設計審第 2 輪架構對齊席實測)。
+ - 已用額度拆成兩步(Phase 6 增量 4,2026-09-23):`aggregate_holdings` 列出目前計入的每一把鍵,`aggregate_used` 是它的加總;開始一筆照舊呼叫 `aggregate_used` 這個入口(既有並行測試靠攔截它造競態)。逐列計入規則還是 `_counted`;`aggregate_holdings` 同一次查詢就帶出每一把鍵的身分(任務、修訂、廣告、開始時間),[[Systems/可觀測查詢]] 的「目前佔額度的」直接用它,不再依鍵回查——鍵的數量沒有上限,逐一當查詢參數會超過 SQLite 的參數上限(舊版 999;代碼審第 2 輪兩席 Codex)。範圍內開始的第一列由 `counted_first_rows_started` 給;兩支都在同一次查詢裡沿主鍵帶出這把鍵目前的狀態,不讓呼叫端逐鍵回查(代碼審第 3 輪外家否決席);兩者都用同一條 `_counted`,不交出資料庫連線(代碼審第 1 輪架構席)。時間轉字串的公開函式 `iso` 沒帶時區就拒絕(判斷呼叫 [[Systems/任務流程領域模型]] 的共用檢查,Phase 9 增量 2 代碼審第 2 輪起不再自己寫一份),收件口模組的停下紀錄讀取方法也用它(代碼審第 2 輪:搬過去時一度漏掉這個檢查,沒帶時區的時間會被當成本機時間)。
+ - 可觀測查詢要的「第一列按租戶與開始時間」部分索引參照後補的租戶欄,所以**不放進建表語句**,由收件口模組的補欄位流程在補完欄位後建(建立語句與「缺不缺」的判斷在這個模組)。增量 1 開過的資料庫欄位已齊,補欄位流程原本只在缺欄位時才進交易,永遠補不到;判斷多了「這個索引不存在」才補得到(設計審第 3 輪補欄位席實測)。防回歸:[test:test_an_old_attempts_table_gains_the_tenant_index_after_the_column]。
+ - 測試要模擬 Phase 6 之前的資料庫(拿掉租戶欄)時,要先拿掉這個索引,否則拿不掉它參照的欄位。
+ - 別的模組依賴「第一列寫了就不再改」(2026-09-23):[[Systems/提案收件口]] 的已核可放行數依廣告篩時,用核可使用紀錄的操作鍵接回這裡的第一列取廣告,也用上「第一列按廣告」的部分索引。哪天要改第一列的廣告、或讓同一把鍵有兩個第一列,要先去改那支查詢(防回歸:[test:test_approval_counts_cover_waiting_and_applied])。
+ - 加總在程式裡用整數累加:門檻與金額都能到整數上限,資料庫的整數加總會溢位。〔2026-09-24 已被取代:見決策 d1 與 [[Projects/F7效能_計劃]]——常見情形改在資料庫端加總,溢位、舊列、型別異常退回這裡原本的算法〕
+-- (F7 效能計劃代碼審第 1 輪,2026-09-24)快路徑先跑一支便宜的偵測(`legacy_candidate_query`:從按租戶的第一列索引倒著讀最近至多 64 筆沒記租戶的第一列,逐一看是不是候選,碰到就停),有候選就直接走原算法,不先加總;看滿 64 筆都不是候選就判不出來,交給加總那一趟的精確偵測;加總那一趟另外把第一列時間與鍵不是文字的列當成型別異常(原算法依這兩欄排序,型別混雜會丟 TypeError)。入口只收字串租戶(資料庫比租戶會把整數參數轉型)。未結案那一段的成本隨租戶歷史變長,見 [[Verification/F7效能驗收紀錄]]。防回歸:[test:test_falling_back_on_a_legacy_row_does_no_more_work_than_the_reference]、[test:test_the_tenant_must_be_a_string]。
++- (F7 效能計劃代碼審第 1 輪,2026-09-24)快路徑先跑一支便宜的偵測,有候選就直接走原算法,不先加總(第 1 版的偵測只看最新 64 筆沒記租戶的第一列,已在代碼審第 2 輪撤掉、那支查詢已刪,現況見下一條);加總那一趟另外把第一列時間與鍵不是文字的列當成型別異常(原算法依這兩欄排序,型別混雜會丟 TypeError)。入口只收字串租戶(資料庫比租戶會把整數參數轉型)。未結案那一段的成本隨租戶歷史變長,見 [[Verification/F7效能驗收紀錄]]。防回歸:[test:test_falling_back_on_a_legacy_row_does_no_more_work_than_the_reference]、[test:test_the_tenant_must_be_a_string]。
++- (F7 效能計劃代碼審第 2 輪,2026-09-25)便宜偵測改成兩步:先瞄最新 8 筆沒記租戶的第一列(`legacy_recent_query`,候選 = 窗內已驗證或沒有終點),沒有再從最舊的讀起、找第一把沒有終點的舊鍵(`legacy_open_query`,不設筆數上限)。WHY: 第 1 版只看最新 64 筆,比它們更早的卡住舊鍵(卡住的通常是最舊的)永遠查不到,退回之前白掃一遍、步數是原算法的兩倍多(代碼審第 2 輪資安席、鏡頭 1)。第二步的工作量上限是舊鍵總數(新寫的第一列一定記租戶,舊鍵不會再增加);第一步保住 [S341] 那種窗內大量舊格式已驗證列的資料(只走第二步時實測比挑選慢一成以上,超出 [S341] 的兩倍預算)。偵測在全表未結案計數之前跑:退回時原算法自己會再算一次未結案數。防回歸:[test:test_a_stuck_legacy_key_older_than_many_closed_ones_is_still_found]、[test:test_many_closed_legacy_rows_still_take_the_fast_path]。
+ - (F7 效能計劃,2026-09-24)已用額度分成快路徑與原算法:入口 `aggregate_used` 名稱與位置不變(並行測試靠替換它造競態),先用兩段查詢(`aggregate_used_queries` 只回語句給測試看查詢計畫)在資料庫加總「屬於這個租戶、金額是整數而且大於 0」的列,同一次掃描數出候選裡沒記租戶的舊列與型別不是整數或空值的金額;有任何一種、或資料庫回報整數溢位,就改呼叫原算法 `aggregate_used_reference`(逐筆明細加總),結果以它為準;其他資料庫錯誤照舊往外丟。兩段在程式裡相加。選哪些列只寫一份(兩段的篩選片段,逐筆明細與快路徑共用),算多少只在逐列計入函式。防回歸:[test:test_the_fast_aggregate_used_matches_the_reference_on_the_same_data]、[test:test_the_fast_aggregate_used_falls_back_only_on_integer_overflow]、[test:test_legacy_rows_and_odd_amount_types_fall_back_to_the_reference]、[test:test_the_fast_aggregate_used_takes_the_fast_path_on_clean_data]。
+ - 租戶要在資料庫裡就過濾(這個租戶的列與沒有租戶的舊列),不把全系統的列撈進程式再篩:查詢在全域寫入鎖裡,多撈的列都是握鎖時間(代碼審第 2 輪資安席實測 30 萬列別家已驗證時,程式內過濾 405 毫秒、資料庫內 198 毫秒;後者仍要 JOIN 才知道租戶,是附回頭條件的已知成本)。
+ - 沒有終點那段要掃第一列找沒有終點的鍵,跟取件時「有未結案嘗試的廣告」查詢同形狀同成本;先用未結案計數判斷是不是 0。量測合約守住「不比取件查詢慢兩倍加 5 毫秒」。
+ REVISIT:2027-01-31 若量測顯示額度查詢或取件查詢隨歷史量明顯變慢,改成在開始一筆與結案的同一個交易裡維護一份未結案預留小表,換掉掃第一列。
+ 
+ ## 人工核可放行超過門檻(Phase 6 增量 3,2026-09-23)
+ 
+ - 預留多一個「有核可」旗標:呼叫端手上有「總曝險已滿」的有效核可時,開始一筆照樣算已用額度、照樣寫預留,只是超過門檻也放行,並回傳當時的已用額度與門檻給核可使用紀錄。金額不超過核可上限由呼叫端驗過,這支模組不驗核可。
+ - 出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 3。防回歸:[test:test_a_valid_approval_lets_the_proposal_through_and_still_reserves]、[test:test_an_applied_approval_is_audited]。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+index 8bd7b23..996f6a2 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+@@ -130,12 +130,13 @@ REVISIT:2027-03-31 若事件表超過 100 萬列或資料庫檔明顯變大,加
+ - 一批冪等鍵各自用過核可的關卡(Phase 9 增量 3,給 [[Systems/服務水準與燒損告警]] 的副作用核對用):每批 500 把,不逐筆查,走依鍵與關卡的索引(只讀索引就答得出來)。第一版沒加這支索引,理由是怕既有「已核可放行數」依廣告篩的查詢改走它;代碼審第 1 輪指出每批整表掃,用 EXPLAIN QUERY PLAN 實測:那支查詢在接續條件上比到任務與修訂,唯一限制的索引比得到兩欄,優先於只比到一欄的依鍵索引,查詢計畫不變,Phase 6 釘住查詢計畫的測試沒改照樣過。旁邊配一支回查詢語句的函式給測試看查詢計畫。防回歸:[test:test_approval_uses_for_a_batch_of_keys_uses_the_key_index]、[test:test_applied_count_uses_its_index]。
+ 
+ ## 寫入時間一律要帶時區(2026-09-24)
+ 
+ - WHY: 收件口每一個寫時間的地方(收件、停下紀錄、核可與核可使用、死信信封與稽核、租約與確認)都走同一支轉換,改用嘗試紀錄模組那一支:沒帶時區就拒絕。原本只有讀取停下紀錄的查詢會拒絕,寫入那一頭會把沒帶時區的時間當成伺服器本地時間寫錯,之後照時間篩、判過期、清保留期都跟著錯(Phase 6 增量 4 留下的不一致,Phase 6 驗收紀錄列為缺口)。防回歸:[test:test_a_stop_without_a_timezone_is_refused]、[test:test_a_proposal_received_at_a_time_without_a_timezone_is_refused]、[test:test_an_approval_or_its_use_without_a_timezone_is_refused]、[test:test_a_replay_at_a_time_without_a_timezone_is_refused]。
+ - 整合增量 2、3 修正後(2026-09-24):唯讀開法要求已有的索引多一支「結果不明」時間索引(增量 3 對帳服務水準的窗口讀取靠它);只被唯讀開過、缺這支索引的舊庫視同還沒升級,不退化成全表掃描。防回歸:[test:test_a_read_only_open_without_the_time_indexes_counts_as_not_upgraded]。
+ 
+ ## 開交易前忙碌的子類別與租約到期讀取(F7 效能計劃第 2 部分,2026-09-25)
+ 
+ - 執行行程資料庫的寫入交易入口:開交易(BEGIN IMMEDIATE)那一步就等鎖逾時時,丟「收件口忙碌」的子類別「開交易前忙碌」——交易沒開起來、什麼都沒寫;交易開起來之後才碰到的忙碌照舊丟「收件口忙碌」。只有交易入口知道「還沒開起來」,所以用型別表達,不讓呼叫端另記旗標;既有抓「收件口忙碌」的地方(啟動程式的每輪休息)因為是子類別照舊抓得到。執行迴圈只對這一種在限度內重試寫結果(見 [[Systems/執行迴圈]])。防回歸:[test:test_only_a_busy_begin_on_a_result_write_is_retried]。
+-- 新增唯讀的「租約到期時間」讀取:給一張收據,回這一列目前的租約到期時間(資料庫實際值);已經不是這張收據的(被接手、已結案、序號換了)或讀取出錯都回空值,呼叫端當作「不再試」。不開寫入交易(WAL 下讀不必等寫入鎖)。收據本身的欄位沒有變。
++- 新增唯讀的「租約到期時間」讀取:給一張收據,回這一列目前的租約到期時間(資料庫實際值);已經不是這張收據的(被接手、已結案、序號換了),或讀的時候碰到鎖競爭,回空值,呼叫端當作「不再試」;其他資料庫錯誤原樣往外丟(專案唯一的分法:只有鎖競爭算忙碌,用共用資料庫工具的鎖競爭判斷,見 [[Systems/共用行程基礎]]);租約時間讀得出來卻不是帶時區的 ISO 時間,丟「處理中那一列讀不懂」,處理一筆與對帳都照既有做法停下讓人看。WHY: [2026-09-25] 代碼審第 2 輪架構對齊、外家、資安三席:第一版把所有資料庫錯誤吞成空值,永久故障被改報成忙碌;時間解析失敗丟 ValueError/TypeError 讓行程崩潰。防回歸:[test:test_a_lease_read_error_is_classified_like_the_rest_of_the_project]、[test:test_an_unreadable_lease_time_halts_instead_of_crashing]、[test:test_lease_until_answers_only_for_the_same_lease]。
++- 收件口伺服器的拒收對應表按確切型別查,新的子類別也登記成 503;防回歸:[test:test_every_rejection_class_has_an_http_status](每個拒收子類別都查得到)。不開寫入交易(WAL 下讀不必等寫入鎖)。收據本身的欄位沒有變。
+ - 出處:[[Projects/F7效能_計劃]] 第 2 部分。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Verification/F7效能驗收紀錄.md b/docs/rtb-production-agent-demo-knowledge/Verification/F7效能驗收紀錄.md
+index e97ef6f..4d0a0ed 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Verification/F7效能驗收紀錄.md
++++ b/docs/rtb-production-agent-demo-knowledge/Verification/F7效能驗收紀錄.md
+@@ -34,19 +34,33 @@ plan_refs:
+ 
+ - 結果:**30 次 0 次紅**,達到「至少 30 次、0 紅」。
+ - 每次耗時(秒,依序):22.12 / 20.72 / 20.78 / 19.71 / 19.87 / 19.55 / 20.03 / 22.63 / 21.93 / 19.88 / 20.58 / 19.77 / 21.14 / 21.73 / 19.81 / 20.40 / 20.72 / 21.19 / 21.57 / 20.84 / 20.19 / 20.36 / 20.27 / 21.44 / 21.03 / 20.15 / 20.65 / 21.02 / 20.58 / 22.01。
+ - 最短 19.55、最長 22.63、平均 20.76、中位數 20.68 秒,都遠在 60 秒上限內。
+ - 干擾:第 1 到第 3 次期間同時在跑宣稱驗證器(77 支證據測試),那幾次時間可能偏高;不影響紅綠判斷。
+ - 統計解讀(照計劃寫好的理由):改動前約 20% 紅;若重試完全沒用,連續 30 次全綠的機率約 0.12%;30 次 0 紅時紅燈率的 95% 上界約 10%。這只證明紅燈率明顯低於 20%,不證明是 0。
+ - 同一天另跑:F1、F2 的端到端與當機恢復測試(`tests/executor/test_execution_e2e.py`、`tests/executor/test_crash_recovery.py`,以及除 F7 以外的全套測試)全綠;宣稱驗證器重貼雜湊後實跑通過。
+ - 先紅後綠與變異檢查:[S687] 到 [S690] 四支測試在只加了新類別與睡眠欄位、還沒有重試邏輯時全紅;實作後全綠。在暫存複本上做五種變異(拿掉重試、型別放寬成所有收件口忙碌都重試、拿掉期限檢查、改退避序列、寫到嘗試中也重試)各被至少一支測試抓到;另加兩種(收件表不分開交易前後、查證逾時不重試)也被抓到。
+ - 代碼審前補的兩個缺口(2026-09-25):啟動程式把睡眠交給執行迴圈的接線(`test_the_runner_hands_its_sleep_to_the_result_write_retry`),以及沒有收據的舊鍵只受次數限制(`test_a_legacy_key_without_a_receipt_retries_on_count_alone`)。實作已在,先紅用暫存複本的變異證明:拿掉接線、舊鍵也套租約期限、舊鍵不重試、舊鍵不受次數限制,各讓對應的測試變紅;還原後全綠。
+ 
++## 代碼審第 2 輪修正之後的 10 次(2026-09-25)
++
++合入主線(be19aad)並折完代碼審第 2 輪之後,本機依序連跑事故 F7 端到端 10 次(量法同上一節,pytest 回報的整支時間)。
++
++- 結果:10 次 0 次紅。
++- 每次耗時(秒,依序):23.82 / 24.47 / 24.04 / 23.17 / 23.40 / 23.40 / 23.47 / 21.82 / 22.82 / 20.45;平均 23.09,最長 24.47,都在 60 秒上限內。
++- 比上一節的 30 次(平均 20.76)慢約兩秒多。這次沒拆原因:同時含主線合入的改動與這輪修正(F7 的資料沒有沒記租戶的舊鍵,新的偵測在它上面只查兩次空的索引範圍)。
++REVISIT:2026-10-31 推上 CI 後記下 F7 的時間;若 CI 上也比 23 秒的基準慢兩成以上,拆開量主線合入與這輪修正各佔多少。
++
+ ## CI(五次,等協調者推上去後量)
+ 
+ - 還沒量。狀態先記待驗(pending),五次量完、都在 60 秒內才改成通過;任一次超過就判未達標。
+ 
+ ## 殘餘風險
+ 
+ - 未結案那一段的查詢是從按租戶的第一列索引掃過這個租戶(與沒記租戶)的每一把鍵的第一列,逐一查有沒有終點列,成本隨租戶的全部歷史變長;只在全表有未結案的鍵時才跑。原算法用的是同一支篩選,不是這次引入的退步,也不是「只跟窗內筆數成正比」(代碼審第 1 輪 e2 實測:15 萬把已結案的鍵時每次約 0.056 秒)。要真的解要有未結案鍵自己的索引,超出這次範圍。
+ REVISIT:2026-12-31 在「某租戶歷史鍵數多、未結案少」的資料上量一次未結案那段的查詢時間,超過 0.1 秒就另開計劃(候選改從未結案的鍵出發)。
+-- 快路徑遇到候選裡金額、第一列時間或鍵的型別異常時,是在加總那一趟掃描裡發現的,退回原算法之前已經掃過一遍;這是資料毀損的情形,不像沒記租戶的舊列會長期留著(那種有獨立的便宜偵測,先查、查到直接走原算法)。事件入口:執行端停機碼是讀不懂嘗試列、或總曝險查詢變慢時,先查嘗試表有沒有型別異常的列。
++- 快路徑遇到候選裡金額、第一列時間或鍵的型別異常時,是在加總那一趟掃描裡發現的,退回原算法之前已經掃過一遍;這是資料毀損的情形。事件入口:執行端停機碼是讀不懂嘗試列、或總曝險查詢變慢時,先查嘗試表有沒有型別異常的列。
++- 沒記租戶的舊鍵(代碼審第 2 輪改寫;第 1 版這裡寫「有獨立的便宜偵測、先查、查到直接走原算法」,但那個偵測只看最新 64 筆,比它們更早的卡住舊鍵永遠查不到,退回路徑步數是原算法的兩倍多):
++  - 現在的偵測先瞄最新 8 筆,再從最舊的找第一把沒有終點的舊鍵,不設筆數上限,不會漏。卡住的舊鍵在最新幾筆或最舊那一頭時,退回路徑最多比原算法多一點點(測試:卡住的舊鍵比 192 把已結案舊鍵還舊、或是最新的一把,步數都不超過原算法 + 5)。
++  - 最壞情形:卡住的舊鍵夾在大量已結案舊鍵中間(前後都有很多),第二步要讀過前面每一把,多出的工作量跟舊鍵數成正比(每把約 15 個虛擬機步數;30 萬把時約 0.16 秒,跟挑選待處理一次差不多)。舊鍵總數固定、不會增加,已結案的也不會變回未結案,所以這個上限不會變大。
++  - 舊鍵剛被人工結案成已驗證、第一列又不在最新 8 筆裡:24 小時內每次呼叫照舊先加總一遍再退回(第 1 版的成本);過了 24 小時就不再是候選。
++  - 事件入口:總曝險查詢變慢時,先數沒記租戶、沒有終點的舊鍵有幾把、夾在哪裡;把卡住的舊鍵人工結案就解除。
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index 63713fd..60ed6c0 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -635,41 +635,58 @@ def _open_candidates(tenant: str) -> tuple[str, tuple[Any, ...]]:
+ # (計入的列依這兩欄排序,型別混在一起會丟 TypeError);其他身分欄只是原樣帶出,不比較也不轉型。
+ # 所以金額型別不是整數或空值、第一列時間或鍵不是文字,都交回原算法
+ _FAST_SELECT = (
+     "SELECT SUM(CASE WHEN f.tenant = ? AND typeof(f.reserved_amount) = 'integer' "
+     "AND f.reserved_amount > 0 THEN f.reserved_amount END), "
+     "COUNT(CASE WHEN f.tenant IS NULL THEN 1 END), "
+     "COUNT(CASE WHEN f.tenant = ? AND (typeof(f.reserved_amount) NOT IN ('integer', 'null') "
+     "OR typeof(f.written_at) <> 'text' OR typeof(f.key) <> 'text') THEN 1 END) ")
+ 
+ 
+-# 便宜偵測最多看幾筆沒記租戶的第一列(依時間由新到舊):看完還判不出來,就交給加總那一趟的精確偵測
+-LEGACY_PROBE_LIMIT = 64
+-
+-
+-def legacy_candidate_query(now: datetime) -> tuple[str, tuple[Any, ...]]:
+-    """便宜偵測(只回、不執行):最近的至多 LEGACY_PROBE_LIMIT 筆沒記租戶的第一列
+-    (按租戶的第一列索引倒著讀,工作量有上限、不隨窗內筆數或舊列總數變大),每一列回它是不是候選。
+-    候選 = 窗內已驗證、或還沒有終點。快路徑先跑它:有候選就直接走原算法,不先把整段已驗證列加總
+-    一遍(代碼審第 1 輪 s1:退回之前白掃一遍,比原算法還慢);看滿上限都不是候選就判不出來,交給
+-    加總那一趟的精確偵測(結果照樣以原算法為準)。"""
+-    return ("SELECT (EXISTS (SELECT 1 FROM attempts v WHERE v.key = f.key AND v.state = ? "  # noqa: S608 - 只拼接固定條件
+-            "AND v.written_at >= ?) OR NOT EXISTS (SELECT 1 FROM attempts t WHERE t.key = f.key "
+-            f"AND t.state IN ({_TERMINAL_LIST}))) FROM attempts f "
+-            "WHERE f.seq = 1 AND f.tenant IS NULL ORDER BY f.written_at DESC LIMIT ?",
+-            (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW), LEGACY_PROBE_LIMIT))
++# 便宜偵測第一步只瞄最新幾筆沒記租戶的第一列:窗內剛驗證完的舊鍵、剛卡住的舊鍵通常在這裡
++LEGACY_RECENT_PEEK = 8
++
++
++def legacy_recent_query(now: datetime) -> tuple[str, tuple[Any, ...]]:
++    """便宜偵測第一步(只回、不執行):最新的至多 LEGACY_RECENT_PEEK 筆沒記租戶的第一列裡,有沒有候選
++    (窗內已驗證、或還沒有終點)。工作量固定幾筆;[S341] 那種窗內有大量舊格式已驗證列的資料,在這一步
++    就查到,不必走第二步從最舊的讀起。"""
++    return ("SELECT 1 FROM (SELECT f.key AS legacy_key FROM attempts f WHERE f.seq = 1 "  # noqa: S608 - 只拼接固定條件
++            "AND f.tenant IS NULL ORDER BY f.written_at DESC LIMIT ?) WHERE EXISTS (SELECT 1 "
++            "FROM attempts v WHERE v.key = legacy_key AND v.state = ? AND v.written_at >= ?) "
++            "OR NOT EXISTS (SELECT 1 FROM attempts t WHERE t.key = legacy_key "
++            f"AND t.state IN ({_TERMINAL_LIST})) "
++            "LIMIT 1",
++            (LEGACY_RECENT_PEEK, AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW)))
++
++
++def legacy_open_query() -> tuple[str, tuple[Any, ...]]:
++    """便宜偵測第二步(只回、不執行):有沒有還沒有終點、沒記租戶的舊鍵(Phase 6 之前開的鍵卡在
++    轉人工之類,會長期留在未結案那段)。從沒記租戶的第一列出發(按租戶的第一列索引,由舊到新:卡住的
++    通常是最舊的),每一列用「一把鍵最多一列終點」的唯一索引查有沒有終點,碰到第一把沒終點的就停。
++
++    不設筆數上限,所以不會漏(代碼審第 2 輪資安席、鏡頭 1:第 1 版只看最新 64 筆,比它們更早的卡住
++    舊鍵永遠查不到,退回之前白掃一遍)。工作量的上限是舊鍵總數:新寫的第一列一定記租戶,舊鍵不會再
++    增加,已結案的也不會再變回未結案。最壞情形是卡住的舊鍵夾在大量已結案舊鍵中間,要讀過前面每一把
++    (殘餘風險,見驗收紀錄)。窗內已驗證、第一列又不在最新幾筆裡的舊鍵不在這兩步查,照舊由加總那一趟
++    的精確偵測發現再退回。"""
++    return ("SELECT 1 FROM attempts f WHERE f.seq = 1 AND f.tenant IS NULL AND NOT EXISTS "  # noqa: S608 - 只拼接固定條件
++            f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST})) "
++            "ORDER BY f.written_at LIMIT 1", ())
+ 
+ 
+ def _legacy_candidate_seen(conn: sqlite3.Connection, now: datetime) -> bool:
+-    """跑便宜偵測,一碰到候選就停(游標逐列取,不把上限內的每一筆都算完)。"""
+-    sql, params = legacy_candidate_query(now)
+-    return any(candidate for (candidate,) in conn.execute(sql, params))
++    """兩步便宜偵測:先瞄最新幾筆,沒有再從最舊的找卡住的舊鍵。"""
++    for sql, params in (legacy_recent_query(now), legacy_open_query()):
++        if conn.execute(sql, params).fetchone() is not None:
++            return True
++    return False
+ 
+ 
+ def aggregate_used_queries(
+     tenant: str, now: datetime,
+ ) -> tuple[tuple[str, tuple[Any, ...]], tuple[str, tuple[Any, ...]]]:
+     """快路徑兩段的查詢語句與參數(只回、不執行;給測試看查詢計畫):(已驗證那一段, 未結案那一段)。"""
+     verified, verified_params = _verified_candidates(tenant, now)
+     unresolved, unresolved_params = _open_candidates(tenant)
+     return ((_FAST_SELECT + verified, (tenant, tenant, *verified_params)),
+             (_FAST_SELECT + unresolved, (tenant, tenant, *unresolved_params)))
+@@ -688,26 +705,29 @@ def aggregate_used(tx: Readable, tenant: str, now: datetime) -> int:
+     設計審第 2 輪;名稱與位置不能動)。
+ 
+     F7 效能計劃:常見情形在資料庫端加總(快路徑),只接「屬於這個租戶、金額是整數」那一種;候選裡有
+     Phase 6 之前沒記租戶的舊列、屬於這個租戶的金額型別不是整數或空值、或資料庫回報整數溢位,就退回
+     原算法(`aggregate_used_reference`),結果以它為準。其他資料庫錯誤照舊往外丟(查詢寫錯不能被當成
+     溢位悄悄吞掉)。兩段在程式裡相加:程式的整數沒有上限,兩段各自沒溢位、相加超過資料庫上限也照算。
+     這是翻案:Phase 6 增量 1 裁定「在程式裡用整數累加」,理由是資料庫加總會溢位停機;這裡加了退路。"""
+     if type(tenant) is not str:  # 資料庫比租戶會把整數參數轉型(1 = '1'),程式不會:兩種算法才會一樣
+         raise TypeError("租戶名稱要是字串")
+     conn = _read_conn(tx)
++    # 先跑便宜偵測、不先算全表未結案數:退回時原算法自己會再算一次,先算就白算(未結案數要數全表的
++    # 第一列與終點列,比偵測貴得多)
+     if _legacy_candidate_seen(conn, now):
+-        return aggregate_used_reference(tx, tenant, now)  # 最近的舊列裡有候選:不先加總,直接走原算法
++        return aggregate_used_reference(tx, tenant, now)  # 有卡住的舊鍵:不先加總,直接走原算法
++    open_keys = unresolved_count(tx)  # 原算法同一個條件:全表有未結案才查未結案那段
+     (verified_sql, verified_params), (open_sql, open_params) = aggregate_used_queries(tenant, now)
+     try:
+         total = _fast_part(conn, verified_sql, verified_params)
+-        if total is not None and unresolved_count(tx):  # 原算法同一個條件:全表有未結案才查這段
++        if total is not None and open_keys:
+             part = _fast_part(conn, open_sql, open_params)
+             total = None if part is None else total + part
+     except sqlite3.OperationalError as exc:
+         if not is_integer_overflow(exc):
+             raise
+         total = None
+     if total is None:
+         return aggregate_used_reference(tx, tenant, now)
+     return total
+ 
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index 20432e6..3e6b759 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -525,20 +525,22 @@ class Executor:
+         if self._backlogged():
+             return Processed(Result.DEFERRED)
+         with self.store.transaction() as tx:
+             delivery = self.store.receive(tx, self.clock(), self.owner)
+         if delivery is None:
+             return Processed(Result.IDLE)
+         try:
+             return self._process(delivery.message, delivery.receipt)
+         except LeaseLost:
+             return Processed(Result.LEASE_LOST)
++        except CorruptedInboxRow as exc:  # 處理中那一列讀不懂(例如租約時間):跟對帳一樣停下
++            raise ExecutorHalted("unreadable_message") from exc
+         finally:
+             self.flush_calls()
+ 
+     def _process(self, picked: PendingProposal, receipt: Receipt) -> Processed:
+         proposal = picked.proposal
+         if proposal.decision_expires_at <= self.clock():  # 過期先判,不必去讀 DSP
+             return self._settle(receipt, None, Result.EXPIRED)
+         try:
+             view = self.dsp.read_campaign(proposal.campaign_id,
+                                           on_call=self._calls(proposal, operation_key(proposal)))
+diff --git a/src/rtb/executor/inbox_server.py b/src/rtb/executor/inbox_server.py
+index 01cd959..e73acf7 100644
+--- a/src/rtb/executor/inbox_server.py
++++ b/src/rtb/executor/inbox_server.py
+@@ -16,20 +16,21 @@ from urllib.parse import urlsplit
+ 
+ from rtb.domain.proposal import Proposal, parse_proposal
+ from rtb.executor.inbox_store import (
+     DEFAULT_MAX_PENDING,
+     Accepted,
+     BlockCode,
+     ContentConflict,
+     CreatedInFuture,
+     ExpiryTooFar,
+     InboxBusy,
++    InboxBusyNotStarted,
+     InboxFull,
+     InboxRejected,
+     InboxStore,
+     ProposalExpired,
+     RevisionOutOfOrder,
+     TooManyRevisions,
+     utc_now,
+ )
+ from rtb.httpkit import (
+     LOOPBACK,
+@@ -45,20 +46,21 @@ PROPOSALS_PATH = "/proposals"
+ FAULT_MODES = frozenset({"crash_before_commit", "crash_after_commit"})
+ REJECTION_STATUS = {
+     ContentConflict: 409,
+     RevisionOutOfOrder: 409,
+     ProposalExpired: 422,
+     ExpiryTooFar: 422,
+     CreatedInFuture: 422,
+     TooManyRevisions: 409,
+     InboxFull: 503,
+     InboxBusy: 503,
++    InboxBusyNotStarted: 503,  # 按確切型別查表:子類別也要登記(代碼審第 2 輪)
+ }
+ 
+ 
+ # 解析錯誤裡帶攻擊者可控尾巴的三種:只留冒號前的類別(鍵名、位元組數、例外型別名都不記)
+ _TAILED_ERRORS = frozenset({"unknown_field", "too_large", "unexpected_failure"})
+ 
+ 
+ def _log_invalid_proposal(errors: Sequence[str]) -> None:
+     """格式不合法的提案被拒時,回應之前在標準錯誤寫一行固定格式紀錄:錯誤類別排序、去重、逗號分隔。
+     不碰資料庫、不拿鎖(收件口刻意不為無效請求記事件);持久化與告警留給 Phase 9 可觀測性。"""
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index c296fb6..576f272 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -47,20 +47,21 @@ from rtb.domain.proposal import (
+ )
+ from rtb.executor import attempt_store
+ from rtb.executor.attempt_store import Actor, Source
+ from rtb.sqlitekit import (
+     BUSY_TIMEOUT_SECONDS,
+     DatabaseBusy,
+     DatabaseNotUpgraded,
+     connect,
+     connect_read_only,
+     immediate_transaction,
++    is_lock_contention,
+     missing_schema,
+     read_snapshot,
+ )
+ 
+ __all__ = ["DatabaseNotUpgraded"]  # 唯讀開法丟的例外,呼叫端從這裡拿
+ 
+ DEFAULT_MAX_PENDING = 8
+ MAX_REVISIONS_PER_TASK = 50  # 一個任務最多修訂這麼多次;要更多就得換任務編號
+ MAX_ROWS = 5000  # 收件表總列數上限:取代鏈不佔名額,沒有這個上限就能無限寫入吃光磁碟
+ RETENTION = timedelta(hours=2)  # 沒有待處理的舊任務超過這個時間就整個清掉;必須比提案能活的時間長
+@@ -1293,34 +1294,40 @@ class InboxStore(InboxReads):
+         return cursor.rowcount == 1
+ 
+     def _finish(self, receipt: Receipt, now: datetime, assignment: str,
+                 values: tuple[object, ...]) -> bool:
+         return self._held(receipt, now, f"{assignment}, lease_until = NULL, lease_owner = NULL",
+                           values)
+ 
+     def lease_until(self, receipt: Receipt) -> datetime | None:
+         """這張收據對應的租約現在到什麼時候(資料庫裡這一列的實際值);已經不是自己的(被接手、已結案、
+         序號換了)就回 None。唯讀、不開寫入交易:寫結果撞到忙碌、要決定還能不能再試時讀(F7 效能計劃
+-        第 2 部分),WAL 模式下讀不必等寫入鎖。讀本身出錯也回 None——呼叫端當作「不再試」,不會更糟。"""
++        第 2 部分),WAL 模式下讀不必等寫入鎖。
++
++        錯誤照專案唯一的分法(代碼審第 2 輪):讀的時候碰到鎖競爭也回 None(呼叫端當作「不再試」);
++        其他資料庫錯誤原樣往外丟,不能被改報成忙碌。租約時間讀得出來卻不是帶時區的 ISO 時間,丟
++        CorruptedInboxRow(處理中那一列讀不懂,跟內容讀不回來同一種處理:停下讓人看)。"""
+         if type(receipt) is not Receipt:
+             raise TypeError("收據必須是取件或接手時拿到的 Receipt")
+         try:
+             row = self._conn.execute(
+                 f"SELECT lease_until FROM proposals WHERE task_id = ? AND revision = ? "  # noqa: S608 - 只拼接模組內固定的條件
+                 f"AND content_hash = ? AND {IN_PROGRESS} AND lease_seq = ? AND lease_owner = ?",
+                 (receipt.task_id, receipt.revision, receipt.content_hash, receipt.lease_seq,
+                  receipt.owner)).fetchone()
+-        except sqlite3.Error:
+-            return None
++        except sqlite3.OperationalError as exc:
++            if is_lock_contention(exc):
++                return None
++            raise
+         if row is None or row[0] is None:
+             return None
+-        return datetime.fromisoformat(row[0])
++        return _lease_time(row[0], f"{receipt.task_id}/{receipt.revision}")
+ 
+     def extend(
+         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
+     ) -> bool:
+         """帶收據續租;嘗試寫入前在同一個交易裡先做這一步,核對與續租是同一個條件寫入。"""
+         self._own(tx)
+         return self._held(receipt, now, "lease_until = ?", (_iso(now + VISIBILITY_TIMEOUT),))
+ 
+     def release(
+         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
+@@ -1688,20 +1695,31 @@ def approval_use_count_query(
+ 
+ 
+ def _event(row: tuple[object, ...]) -> LifecycleEvent:
+     """事件表一列(欄位順序同 _LIFECYCLE_FIELDS)轉成事件;依既有結果確認存成 0/1,讀回布林。"""
+     values = list(row)
+     values[_LIFECYCLE_FIELDS.index("from_existing")] = bool(
+         values[_LIFECYCLE_FIELDS.index("from_existing")])
+     return LifecycleEvent(*values)  # type: ignore[arg-type]
+ 
+ 
++def _lease_time(text: object, where: str) -> datetime:
++    """處理中那一列的租約到期時間:要是帶時區的 ISO 時間字串,否則當這一列讀不懂。"""
++    try:
++        moment = datetime.fromisoformat(text)  # type: ignore[arg-type]  # 型別不對也在這裡攔
++    except (TypeError, ValueError) as exc:
++        raise CorruptedInboxRow(where) from exc
++    if moment.tzinfo is None:
++        raise CorruptedInboxRow(where)
++    return moment
++
++
+ def _parse_payload(payload: str) -> Proposal | None:
+     """存的內容讀不回提案就當沒有(不讓一列壞資料卡住全部)。"""
+     try:
+         return parse_proposal(json.loads(payload)).proposal
+     except ValueError:
+         return None
+ 
+ 
+ def _payload(proposal: Proposal) -> str:
+     return json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True)
+diff --git a/src/rtb/sqlitekit.py b/src/rtb/sqlitekit.py
+index 6e6b976..7d685cd 100644
+--- a/src/rtb/sqlitekit.py
++++ b/src/rtb/sqlitekit.py
+@@ -17,21 +17,22 @@ BUSY_TIMEOUT_SECONDS = 5.0
+ 
+ 
+ class DatabaseBusy(Exception):
+     """資料庫正被別的寫入佔用,等待逾時。呼叫者決定要不要重試。"""
+ 
+ 
+ class DatabaseNotUpgraded(Exception):
+     """唯讀開法發現資料庫還沒升級到這一版(缺表或缺欄位):唯讀連線不能補,要先用寫入開法開一次。"""
+ 
+ 
+-def _is_lock_contention(exc: sqlite3.OperationalError) -> bool:
++def is_lock_contention(exc: sqlite3.OperationalError) -> bool:
++    """這個資料庫錯誤是不是鎖競爭(忙碌或被鎖):專案唯一的「忙碌對永久故障」分類,其他模組要分也用這支。"""
+     primary_code = exc.sqlite_errorcode & 0xFF  # 擴充碼的低 8 位才是主要錯誤碼
+     return primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+ 
+ 
+ INTEGER_OVERFLOW_MESSAGE = "integer overflow"
+ 
+ 
+ def is_integer_overflow(exc: BaseException) -> bool:
+     """資料庫的整數加總(SUM)溢位:一般錯誤碼、訊息是「integer overflow」(本機 3.53.3 實測)。
+     SQLite 對整數溢位只回一般錯誤碼,跟查詢寫錯同一個碼,只能再看訊息文字;這是專案唯一要看訊息的
+@@ -45,35 +46,35 @@ def connect(
+     path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS, schema: str = ""
+ ) -> sqlite3.Connection:
+     """開連線(isolation_level=None:交易一律手動控制,不會悄悄開啟)、啟用 WAL、建立表。"""
+     conn = sqlite3.connect(path, isolation_level=None, timeout=busy_timeout_seconds)
+     try:
+         conn.execute("PRAGMA journal_mode=WAL")
+         if schema:
+             conn.executescript(schema)
+     except sqlite3.OperationalError as exc:
+         conn.close()  # 設定失敗時不留下沒人關的連線
+-        if _is_lock_contention(exc):  # 剛建立資料庫時切換 WAL 要獨佔鎖,撞上別人也是「忙碌」
++        if is_lock_contention(exc):  # 剛建立資料庫時切換 WAL 要獨佔鎖,撞上別人也是「忙碌」
+             raise DatabaseBusy(str(exc)) from exc
+         raise
+     except BaseException:
+         conn.close()
+         raise
+     return conn
+ 
+ 
+ def begin_immediate(conn: sqlite3.Connection) -> None:
+     """開寫入交易;鎖不到就丟 DatabaseBusy。唯讀資料庫、磁碟錯誤等永久故障原樣往外丟。"""
+     try:
+         conn.execute("BEGIN IMMEDIATE")
+     except sqlite3.OperationalError as exc:
+-        if _is_lock_contention(exc):
++        if is_lock_contention(exc):
+             raise DatabaseBusy(str(exc)) from exc
+         raise
+ 
+ 
+ @contextmanager
+ def immediate_transaction(conn: sqlite3.Connection) -> Iterator[None]:
+     """寫入交易:進入時 BEGIN IMMEDIATE(鎖不到丟 DatabaseBusy),正常結束就提交,任何例外都回滾。"""
+     begin_immediate(conn)
+     try:
+         yield
+diff --git a/tests/executor/test_aggregate_fast_path.py b/tests/executor/test_aggregate_fast_path.py
+index da13e61..ca488ff 100644
+--- a/tests/executor/test_aggregate_fast_path.py
++++ b/tests/executor/test_aggregate_fast_path.py
+@@ -88,21 +88,23 @@ def outcome(function, tx, tenant, now=NOW):
+         return ("value", function(tx, tenant, now))
+     except Exception as exc:
+         return ("raised", type(exc).__name__, str(exc))
+ 
+ 
+ # ---- 隨機資料 ----
+ AMOUNTS = (0, 1, 7, 50, 1000, 123_456, None)
+ HUGE_AMOUNTS = (MAX_INT // 3, MAX_INT - 5, MAX_INT)  # 溢位級:少量出現,純快路徑才過半
+ ODD_AMOUNTS = ("abc", "x12", 1.5, 2.75, b"\x01", -3)
+ ODD_TENANTS = ("T-A", "t-a ", "", b"t-a", 1)  # 大小寫、尾端空白、空字串、二進位、整數
+-ODD_STARTED = (b"\x00", 12345, 1.5)  # 第一列時間欄型別異常(原算法排序時比不了)
++# 第一列時間欄型別異常(原算法排序時比不了):只能用二進位值造。時間欄是 TEXT 親和,整數、小數寫進去
++# 會被轉存成文字(12345 變 '12345'),不算異常;NOT NULL 讓空值也造不出來(代碼審第 2 輪鏡頭 1)
++ODD_STARTED = (b"\x00", b"z", b"2026-09-22T11:00:00.000000Z")
+ HISTORIES = ((), (A.UNKNOWN,), (A.UNKNOWN, A.COMMITTED_UNVERIFIED),
+              (A.ESCALATED,))  # 終點之前的中間狀態(多次嘗試、轉人工後再結案)
+ 
+ 
+ def random_rows(rng):
+     rows = Rows()
+     for _ in range(rng.randint(0, 25)):
+         roll = rng.random()
+         tenant = None if roll < 0.02 else rng.choice(TENANTS)
+         if rng.random() < 0.03:
+@@ -140,23 +142,24 @@ DETERMINISTIC = {
+                                         at=NOW - AGGREGATE_WINDOW),
+     "same_moment": lambda r: [r.key(tenant="t-a", amount=a, state=A.VERIFIED, at=NOW)
+                               for a in (1, 2, 3)],
+     "other_tenant": lambda r: [r.key(tenant="t-b", amount=99, state=A.IN_FLIGHT),
+                                r.key(tenant="t-a", amount=1, state=A.VERIFIED)],
+     "tenant_with_null_amount": lambda r: r.key(tenant="t-a", amount=None, state=A.VERIFIED),
+     # 代碼審第 1 輪 x1:第一列時間欄是二進位,原算法排序時比不了、丟 TypeError;快路徑要一樣
+     "odd_started_time": lambda r: [r.key(tenant="t-a", amount=5, state=A.VERIFIED,
+                                          started=b"\x00"),
+                                    r.key(tenant="t-a", amount=7, state=A.VERIFIED)],
+-    "odd_started_integer": lambda r: [r.key(tenant="t-a", amount=5, state=A.VERIFIED,
+-                                            started=12345),
+-                                      r.key(tenant="t-a", amount=6, state=A.VERIFIED)],
++    # 看起來像時間的二進位值:型別仍是二進位,原算法照樣比不了
++    "odd_started_time_like": lambda r: [r.key(tenant="t-a", amount=5, state=A.VERIFIED,
++                                              started=b"2026-09-22T11:00:00.000000Z"),
++                                        r.key(tenant="t-a", amount=6, state=A.VERIFIED)],
+     # 鍵是二進位、時間跟另一列一樣:原算法排序比到鍵時比不了
+     "odd_key_type": lambda r: [r.key(tenant="t-a", amount=5, state=A.VERIFIED, key=b"k-bin",
+                                      started="2026-09-22T11:00:00.000000Z"),
+                                r.key(tenant="t-a", amount=6, state=A.VERIFIED,
+                                      started="2026-09-22T11:00:00.000000Z")],
+     "history_rows": lambda r: r.key(tenant="t-a", amount=8, state=A.VERIFIED,
+                                     middle=(A.UNKNOWN, A.COMMITTED_UNVERIFIED)),
+     "odd_tenants": lambda r: [r.key(tenant=t, amount=9, state=A.VERIFIED)
+                               for t in ("T-A", "t-a ", "", b"t-a")],
+     "failed_and_paused": lambda r: [r.key(tenant="t-a", amount=30, state=A.FAILED),
+@@ -363,55 +366,84 @@ def _vm_steps(conn, function):
+         return 0
+ 
+     conn.set_progress_handler(tick, 100)
+     try:
+         value = function()
+     finally:
+         conn.set_progress_handler(None, 100)
+     return value, steps[0]
+ 
+ 
++CLOSED_LEGACY = 192  # 已結案的舊鍵數:比第 1 版便宜偵測只看的 64 筆多
++
++
+ def test_falling_back_on_a_legacy_row_does_no_more_work_than_the_reference(store):
+-    """候選裡有一筆沒記租戶的舊列(轉人工、沒終點,會一直留著):快路徑要先用便宜的偵測發現它、
+-    直接走原算法,不先把整段已驗證列加總一遍;退回路徑的虛擬機步數最多比原算法多一點點(偵測本身,
+-    只跟舊列數有關、不跟窗內筆數有關)。"""
++    """候選裡有一把沒記租戶的舊鍵(轉人工、沒終點,會一直留著):快路徑要先用便宜的偵測發現它、
++    直接走原算法,不先把整段已驗證列加總一遍;退回路徑的虛擬機步數最多比原算法多一點點。"""
++    rows = Rows()
++    for index in range(4000):
++        rows.key(tenant="t-a", amount=index % 90 + 1, state=A.VERIFIED)
++    old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
++    for _ in range(CLOSED_LEGACY):  # 很多窗外已結案的舊鍵(不是候選)
++        rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
++    rows.key(tenant=None, amount=None, state=A.ESCALATED)  # 舊鍵:沒終點,不受窗口限制(最新的一把)
++    _fallback_costs_no_more_than_the_reference(store, rows)
++
++
++def test_a_stuck_legacy_key_older_than_many_closed_ones_is_still_found(store):
++    """代碼審第 2 輪資安席、鏡頭 1:卡住的舊鍵比 64 把以上已結案的舊鍵還舊(卡住的通常是最舊的)。
++    第 1 版的偵測只看最新 64 筆,永遠查不到它,退回之前白掃一遍、步數是原算法的兩倍多。"""
+     rows = Rows()
+     for index in range(4000):
+         rows.key(tenant="t-a", amount=index % 90 + 1, state=A.VERIFIED)
++    rows.key(tenant=None, amount=None, state=A.ESCALATED,
++             at=NOW - AGGREGATE_WINDOW - timedelta(days=800))
+     old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
+-    for _ in range(attempt_store.LEGACY_PROBE_LIMIT * 3):  # 很多窗外已結案的舊列(不是候選)
++    for _ in range(CLOSED_LEGACY):
+         rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
+-    rows.key(tenant=None, amount=None, state=A.ESCALATED)  # 舊列:沒終點,不受窗口限制
++    _fallback_costs_no_more_than_the_reference(store, rows)
++
++
++def _fallback_costs_no_more_than_the_reference(store, rows):
+     with written(store, rows) as tx:
++        assert attempt_store._legacy_candidate_seen(tx.conn, NOW)  # 偵測查得到
+         fast, fast_steps = _vm_steps(tx.conn, lambda: attempt_store.aggregate_used(tx, "t-a", NOW))
+         slow, slow_steps = _vm_steps(
+             tx.conn, lambda: attempt_store.aggregate_used_reference(tx, "t-a", NOW))
+     assert fast == slow
+     assert fast_steps <= slow_steps + 5, (fast_steps, slow_steps)
+ 
+ 
+ def test_many_closed_legacy_rows_still_take_the_fast_path(store, monkeypatch):
+-    """窗外已結案的舊列很多(超過便宜偵測的上限)也不觸發退回,偵測本身的工作量有上限。"""
++    """窗外已結案的舊鍵很多也不觸發退回;偵測的工作量只跟舊鍵數有關(舊鍵不會再增加),
++    不跟窗內筆數有關。"""
+     def forbidden(*_args):
+         raise AssertionError("乾淨的候選不該呼叫原算法")
+ 
+     monkeypatch.setattr(attempt_store, "aggregate_used_reference", forbidden)
+-    rows = Rows()
+-    _clean(rows)
+-    old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
+-    for _ in range(attempt_store.LEGACY_PROBE_LIMIT * 20):
+-        rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
+-    with written(store, rows) as tx:
+-        assert attempt_store.aggregate_used(tx, "t-a", NOW) == 5 + 7 + 11 + 13
+-        sql, params = attempt_store.legacy_candidate_query(NOW)
+-        _, probe_steps = _vm_steps(tx.conn, lambda: tx.conn.execute(sql, params).fetchall())
+-    assert probe_steps <= attempt_store.LEGACY_PROBE_LIMIT  # 每 100 步記一次:偵測只看有上限的幾筆
++    probe = []
++    for window_rows in (0, 4000):
++        rows = Rows()
++        _clean(rows)
++        for index in range(window_rows):
++            rows.key(tenant="t-a", amount=index % 90 + 1, state=A.VERIFIED)
++        old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
++        for _ in range(CLOSED_LEGACY * 5):
++            rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
++        with written(store, rows) as tx:
++            assert attempt_store.aggregate_used(tx, "t-a", NOW) > 0
++            sql, params = attempt_store.legacy_open_query()
++            _, steps = _vm_steps(tx.conn, lambda sql=sql, params=params: tx.conn.execute(
++                sql, params).fetchall())
++        probe.append(steps)
++    assert probe[0] == probe[1], probe  # 窗內多了 4000 筆,偵測一步都沒多
++    assert probe[0] <= CLOSED_LEGACY * 5 // 2, probe  # 每把舊鍵最多約 50 步(每 100 步記一次)
+ 
+ 
+ # ---- 代碼審第 1 輪 e3 ----
+ def test_the_tenant_must_be_a_string(store):
+     """資料庫比較租戶時會把整數參數轉型(1 = '1' 成立),程式比較不會;等價的前提寫死在入口。"""
+     rows = Rows()
+     rows.key(tenant="1", amount=50, state=A.VERIFIED)
+     with written(store, rows) as tx:
+         for tenant in (1, True, b"1", None):
+             with pytest.raises(TypeError):
+diff --git a/tests/executor/test_inbox_server.py b/tests/executor/test_inbox_server.py
+index 7c0ead4..b50a6e3 100644
+--- a/tests/executor/test_inbox_server.py
++++ b/tests/executor/test_inbox_server.py
+@@ -716,10 +716,28 @@ def test_purging_never_deletes_a_task_that_still_has_a_pending_row(tmp_path):
+         "received_at) VALUES ('old', 1, 'h', 'pending', '{}', "
+         "'2099-01-01T00:00:00.000000Z', '2026-09-22T01:00:00.000000Z')")
+     proposal = inbox_server.parse_proposal(valid(task_id="new")).proposal
+ 
+     store.accept(proposal, lambda: inbox_store.utc_now().replace(
+         year=2026, month=9, day=22, hour=12, minute=5))
+ 
+     assert ("old",) in conn.execute("SELECT task_id FROM proposals").fetchall()
+     conn.close()
+     store.close()
++
++
++# ---- 代碼審第 2 輪(F7 效能計劃):拒收對應表按確切型別查,每個拒收子類別都要登記 ----
++def test_every_rejection_class_has_an_http_status():
++    from rtb.executor import inbox_server
++    from rtb.executor.inbox_store import InboxBusyNotStarted, InboxRejected
++
++    def descendants(cls):
++        for sub in cls.__subclasses__():
++            yield sub
++            yield from descendants(sub)
++
++    classes = set(descendants(InboxRejected))
++    assert InboxBusyNotStarted in classes  # 兩層的子類別也數到
++    missing = {cls.__name__ for cls in classes if cls not in inbox_server.REJECTION_STATUS}
++    assert missing == set()
++    status = inbox_server.InboxHandler.map_exception(None, InboxBusyNotStarted("x"))
++    assert status == (503, "busy", True)
+diff --git a/tests/executor/test_result_write_retry.py b/tests/executor/test_result_write_retry.py
+index 2bcfa1a..8a0ea57 100644
+--- a/tests/executor/test_result_write_retry.py
++++ b/tests/executor/test_result_write_retry.py
+@@ -1,27 +1,42 @@
+ """寫結果碰到資料庫忙碌時在限度內重試(F7 效能計劃第 2 部分,使用者 2026-09-25 裁定):
+ [S687] 到 [S690]。
+ 
+ 忙碌由替換 sqlitekit 的開寫入交易(BEGIN IMMEDIATE)造出:跟真的等鎖逾時一樣,交易沒開起來、什麼都
+ 沒寫;不真的等 5 秒。退避經注入的睡眠,測試記下序列、不真的睡。
+ """
+ 
+ import io
++import sqlite3
++from dataclasses import replace
++from datetime import timedelta
+ 
+ import pytest
+ 
+ from rtb import sqlitekit
+ from rtb.capabilitykit import KEY_ENV
+ from rtb.domain.attempt import AttemptState
+ from rtb.executor import attempt_store, runner
+-from rtb.executor.execution import Executor, Result, WriteAnswer
+-from rtb.executor.inbox_store import InboxBusy, InboxBusyNotStarted
++from rtb.executor.execution import (
++    RESULT_WRITE_BACKOFF_SECONDS,
++    RESULT_WRITE_LEASE_MARGIN,
++    Executor,
++    ExecutorHalted,
++    Result,
++    WriteAnswer,
++)
++from rtb.executor.inbox_store import (
++    VISIBILITY_TIMEOUT,
++    CorruptedInboxRow,
++    InboxBusy,
++    InboxBusyNotStarted,
++)
+ from rtb.sqlitekit import DatabaseBusy
+ from tests.capability_samples import TEST_APPROVAL_KEY, TEST_KEY
+ from tests.executor.conftest import Clock
+ from tests.executor.fakes import Harness, proposal
+ 
+ 
+ class BusyBegin:
+     """接下來 left 次開寫入交易都等鎖逾時(什麼都沒寫);hits 記撞了幾次。
+ 
+     補寫呼叫紀錄的短交易不算在內(每次 DSP 呼叫當下就補寫,撞忙本來就留待下次、不在這次範圍):
+@@ -253,10 +268,120 @@ def test_a_legacy_key_without_a_receipt_retries_on_count_alone(tmp_path, clock,
+         assert sleeps == [0.05, 0.1, 0.2]
+         assert _states(h) == ["in_flight", "committed_unverified"]  # 沒有多寫任何一列
+ 
+         sleeps.clear()
+         h.dsp.on_read = lambda _c: busy.arm(2)  # 鎖不到兩次之後拿到:照常寫完
+         _worker(h, sleeps).reconcile_all()
+         assert sleeps == [0.05, 0.1]
+         assert len(_states(h)) == 3
+     finally:
+         h.close()
++
++
++# ---- 代碼審第 2 輪:[S690] 期限的邊界,與讀租約的錯誤處理 ----
++def test_the_lease_deadline_boundary_is_pinned(tmp_path, monkeypatch):
++    """剩餘時間剛好等於「等鎖上限 + 退避 + 餘裕」要重試;少 1 微秒就停。"""
++    busy = BusyBegin(monkeypatch)
++    needed = (timedelta(seconds=sqlitekit.BUSY_TIMEOUT_SECONDS + RESULT_WRITE_BACKOFF_SECONDS[0])
++              + RESULT_WRITE_LEASE_MARGIN)
++    advance = VISIBILITY_TIMEOUT - needed  # 取件時的租約是一個租約時間;時鐘沒動過
++
++    def exactly(h):
++        h.clock.advance(seconds=advance.total_seconds())
++
++    def one_microsecond_short(h):
++        h.clock.advance(seconds=advance.total_seconds(), microseconds=1)
++
++    assert _one_busy_write(tmp_path / "exact", busy, exactly) == (True, [0.05])
++    assert _one_busy_write(tmp_path / "short", busy, one_microsecond_short) == (False, [])
++
++
++def _received(h):
++    h.submit()
++    with h.store.transaction() as tx:
++        return h.store.receive(tx, h.clock(), "executor").receipt
++
++
++def test_lease_until_answers_only_for_the_same_lease(tmp_path, clock):
++    """租約序號或擁有者對不上(同一個擁有者過期後自己又接手也一樣,序號換了)就回空值。"""
++    h = Harness(tmp_path, clock)
++    try:
++        receipt = _received(h)
++        assert h.store.lease_until(receipt) == clock() + VISIBILITY_TIMEOUT
++        assert h.store.lease_until(replace(receipt, lease_seq=receipt.lease_seq + 1)) is None
++        assert h.store.lease_until(replace(receipt, lease_seq=receipt.lease_seq - 1)) is None
++        assert h.store.lease_until(replace(receipt, owner="w2")) is None
++    finally:
++        h.close()
++
++
++class _LeaseReadFails:
++    """包住收件表的連線:讀租約那一句丟指定的資料庫錯誤,其他照常。"""
++
++    def __init__(self, conn, error):
++        self._real, self._error = conn, error
++
++    def execute(self, sql, *args):
++        if sql.startswith("SELECT lease_until"):
++            raise self._error
++        return self._real.execute(sql, *args)
++
++    def __getattr__(self, name):
++        return getattr(self._real, name)
++
++
++def test_a_lease_read_error_is_classified_like_the_rest_of_the_project(tmp_path, clock,
++                                                                         monkeypatch):
++    """讀租約碰到鎖競爭:當作讀不到、不再試;其他資料庫錯誤原樣往外丟,不能被改報成忙碌。"""
++    busy = BusyBegin(monkeypatch)
++    contention = sqlite3.OperationalError("database is locked")
++    contention.sqlite_errorcode = sqlite3.SQLITE_BUSY
++    permanent = sqlite3.OperationalError("no such table: proposals")
++    permanent.sqlite_errorcode = sqlite3.SQLITE_ERROR
++    for name, error, expected in (("busy", contention, InboxBusyNotStarted),
++                                  ("broken", permanent, sqlite3.OperationalError)):
++        directory = tmp_path / name
++        directory.mkdir()
++        h, sleeps = Harness(directory, clock), []
++        try:
++            h.submit()
++            h.dsp.on_write = lambda *_a, h=h, error=error: (
++                setattr(h.store, "_conn", _LeaseReadFails(h.store._conn, error)), busy.arm(1))
++            with pytest.raises(expected) as raised:
++                _worker(h, sleeps).process_one()
++            if expected is sqlite3.OperationalError:
++                assert raised.value is error  # 永久錯誤原樣往外丟,不換成忙碌
++            assert sleeps == []
++        finally:
++            h.store._conn = getattr(h.store._conn, "_real", h.store._conn)
++            h.close()
++
++
++@pytest.mark.parametrize("stored", ["garbage", "2026-09-25T10:00:00"])
++def test_an_unreadable_lease_time_halts_instead_of_crashing(tmp_path, clock, monkeypatch,
++                                                            stored):
++    """租約時間讀得出來卻不是帶時區的 ISO 時間:丟收件表既有的「處理中那一列讀不懂」,執行迴圈照既有
++    做法停下讓人看,不是丟 ValueError 或 TypeError 讓行程崩潰。"""
++    h = Harness(tmp_path, clock)
++    try:
++        receipt = _received(h)
++        h.query("UPDATE proposals SET lease_until = ?", (stored,))
++        with pytest.raises(CorruptedInboxRow):
++            h.store.lease_until(receipt)
++    finally:
++        h.close()
++
++    busy, sleeps = BusyBegin(monkeypatch), []
++    directory = tmp_path / "loop"
++    directory.mkdir()
++    h = Harness(directory, clock)
++    try:
++        h.submit()
++        h.dsp.on_write = lambda *_a: (
++            h.query("UPDATE proposals SET lease_until = ?", (stored,)), busy.arm(1))
++        with pytest.raises(ExecutorHalted) as raised:
++            _worker(h, sleeps).process_one()
++        assert str(raised.value) == "unreadable_message"
++        assert isinstance(raised.value.__cause__, CorruptedInboxRow)
++        assert sleeps == []
++    finally:
++        h.close()

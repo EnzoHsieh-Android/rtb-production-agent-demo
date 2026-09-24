@@ -104,6 +104,7 @@ def _read_samples(key):
         "campaigns_with_unresolved": ("a", ()),
         "unresolved_keys": ("a", ()),
         "aggregate_used": ("a", (TENANT, NOW)),
+        "aggregate_used_reference": ("a", (TENANT, NOW)),  # F7 效能計劃:原算法另立一支
         "aggregate_holdings": ("a", (TENANT, NOW)),
         "counted_first_rows_started": ("a", (TENANT, NOW - timedelta(hours=1), LATER)),
         "dsp_calls_for": ("a", ("r2",)),

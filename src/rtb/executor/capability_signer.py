@@ -4,6 +4,8 @@
 金鑰不可用就建立失敗——之後的執行迴圈必須在啟動時建立它,建立失敗就拒絕啟動。
 租戶設定每次簽發都重讀,調降上限立刻生效。設定檔先開目錄、再相對目錄以不跟隨符號連結
 的方式開檔,擁有者與寫入權限都對「已經開好的」目錄與檔案檢查,不留檢查後被換掉的空檔。
+簽發器帶一份自己的內容快取(F7 效能計劃):安全讀檔的每一道檢查每次照做,讀到的位元組跟上次驗過的完全
+相同才沿用上次的解析結果,任何一個位元組不同就重新解析、驗證(不用修改時間判斷)。
 這些檢查擋的是權限設錯這類疏忽,擋不住同一個作業系統使用者改檔(已知限制)。
 
 憑證只證明「這筆寫入的確切值在授權範圍內」,不證明這是好的業務決策(那是執行前檢查)。
@@ -12,6 +14,7 @@
 import json
 import os
 import stat
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -128,6 +131,24 @@ class CapabilitySigner:
             raise ValueError("金鑰不可用:沒有或短於最短長度")
         assert key is not None  # noqa: S101
         self._key = key
+        # 讀租戶設定的內容快取:只記一份(路徑, 上次驗過的位元組, 解析結果);在自己的鎖裡讀、比、換。
+        # 放在簽發器上、不放模組層級(狀態由持有者顯式持有;不同簽發器各有各的)
+        self._config_lock = threading.Lock()
+        self._config_cache: tuple[str, bytes, tuple[Tenant, ...]] | None = None
+
+    def read_tenants(self, config_path: Path) -> tuple[Tenant, ...]:
+        """讀租戶設定(簽發、作廢簽發、處理待核可都走這裡)。每次照舊做安全讀檔的每一道檢查;讀到的
+        位元組跟快取裡上次驗過的完全相同才回上次的解析結果,不同就解析、驗證,驗過才換進快取;驗不過
+        照舊拒絕、快取不動。解析結果不可變(凍結的資料類別與不可變集合),回給多個執行緒共用安全。"""
+        key = os.path.abspath(config_path)  # 鍵只是識別用:補成絕對路徑、不解析符號連結
+        with self._config_lock:
+            data = _read_config_securely(Path(config_path))
+            cached = self._config_cache
+            if cached is not None and cached[0] == key and cached[1] == data:
+                return cached[2]
+            tenants = _parse_tenants(data)
+            self._config_cache = (key, data, tenants)
+            return tenants
 
     def sign(self, proposal: Proposal, operation_key: str, config_path: Path, now: int) -> str:
         """proposal 是嘗試紀錄存下的提案快照;預期版本取快照裡觀察到的版本,不取 DSP 現況。"""
@@ -162,9 +183,8 @@ class CapabilitySigner:
         return self._encode(proposal, operation_key, tenant, VOID_ACTION, None, now,
                             now + LIFETIME_SECONDS)
 
-    @staticmethod
-    def _tenant_of(proposal: Proposal, config_path: Path) -> Tenant:
-        tenant = tenant_for(load_tenants(config_path), proposal.campaign_id)
+    def _tenant_of(self, proposal: Proposal, config_path: Path) -> Tenant:
+        tenant = tenant_for(self.read_tenants(config_path), proposal.campaign_id)
         if tenant is None:
             raise SigningRefused("campaign_not_allowed")
         return tenant

@@ -243,8 +243,8 @@ def _race_two_workers(h, monkeypatch):
     real_used, real_take = attempt_store.aggregate_used, Executor._take
     both_picked = threading.Barrier(2, timeout=10)
 
-    def slow_used(tx, tenant, now):
-        value = real_used(tx, tenant, now)
+    def slow_used(tx, tenant, now, **kw):
+        value = real_used(tx, tenant, now, **kw)
         if getattr(local, "first", False):
             assert second_started.wait(10)
             time.sleep(0.3)  # 讓第二個一定已經在等鎖(或在錯誤實作下已經讀完舊額度)
@@ -401,6 +401,75 @@ def test_the_aggregate_query_is_no_slower_than_picking_and_never_overflows(store
     pick_time, _ = timed(attempt_store.campaigns_with_unresolved)
     assert total == (3000 + 20) * 7  # 舊列算進每一個租戶
     assert agg_time <= 2 * pick_time + 0.005, (agg_time, pick_time)
+
+
+# ---- [S341] 旁:F7 效能計劃代碼審第 3 輪,舊鍵偵測在 30 萬把舊鍵上的兩種形狀 ----
+def _legacy_history(store, *, window_rows, window_tenant, stuck, writing):
+    """30 萬把的歷史(比照 [S341]):窗外已結案的舊格式鍵為主;window_rows 筆窗內已驗證(window_tenant
+    是空值時為舊格式);stuck 把沒有終點的舊鍵(跟已結案舊鍵同一個時間,排在它們後面);writing 把
+    這個租戶正在寫的鍵。"""
+    rows = []
+    old = NOW - timedelta(days=10)
+    for i in range(300_000 - window_rows - stuck - writing):
+        rows += [(f"h{i}", 1, "cx", "in_flight", old, None, None),
+                 (f"h{i}", 2, "cx", "verified", old, None, None)]
+    for i in range(window_rows):
+        amount = None if window_tenant is None else 7
+        rows += [(f"w{i}", 1, "cy", "in_flight", NOW, window_tenant, amount),
+                 (f"w{i}", 2, "cy", "verified", NOW, None, None)]
+    for i in range(stuck):
+        rows.append((f"u{i}", 1, f"cu{i}", "in_flight", old, None, None))
+    for i in range(writing):
+        rows.append((f"n{i}", 1, f"cn{i}", "in_flight", NOW, TENANT, 7))
+    snapshot = json.dumps({"requested_change": {"new_budget": 7}})
+    with store.transaction() as tx:
+        tx.conn.executemany(
+            "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
+            "verification_timeouts, written_at, action, proposal_json, tenant, reserved_amount) "
+            "VALUES (?, ?, ?, ?, 1, 0, ?, 'update_budget', ?, ?, ?)",
+            [(k, s, c, st, attempt_store._iso(t), snapshot, tenant, amount)
+             for k, s, c, st, t, tenant, amount in rows])
+
+
+def _best_of_five(store, fn, *, forget=False):
+    best = float("inf")
+    for _ in range(5):
+        with store.transaction() as tx:
+            if forget:  # 量第一次(還沒記住「沒有未結案舊鍵」)的成本
+                tx.legacy_memo.no_open_legacy = False
+            started = time.perf_counter()
+            result = fn(tx)
+            best = min(best, time.perf_counter() - started)
+    return best, result
+
+
+def test_all_legacy_keys_closed_with_one_write_in_flight_stays_fast(store_only):
+    """升級之後最常見的狀態:舊鍵很多、全都結案了,這個租戶有一把正在寫。第一次(還沒記住)也要在
+    [S341] 的預算內,而且不比原算法慢(代碼審第 3 輪:第二步沒閘門時是原算法的 1.8 倍、超出預算)。"""
+    _legacy_history(store_only, window_rows=3000, window_tenant=TENANT, stuck=0, writing=1)
+    pick, _ = _best_of_five(store_only, attempt_store.campaigns_with_unresolved)
+    ref, expected = _best_of_five(
+        store_only, lambda tx: attempt_store.aggregate_used_reference(tx, TENANT, NOW))
+    first, total = _best_of_five(
+        store_only, lambda tx: attempt_store.aggregate_used(tx, TENANT, NOW), forget=True)
+    steady, again = _best_of_five(
+        store_only, lambda tx: attempt_store.aggregate_used(tx, TENANT, NOW))
+    assert total == again == expected == 3001 * 7
+    assert first <= 2 * pick + 0.005, (first, pick)
+    assert first <= ref * 1.1 + 0.002, (first, ref)
+    assert steady <= ref * 1.1 + 0.002, (steady, ref)
+
+
+def test_the_s341_history_two_days_later_stays_within_budget(store_only):
+    """[S341] 同一份資料、現在往後挪 2 天(窗內那 3000 把舊格式已驗證鍵出了窗):20 把卡住的舊鍵跟
+    已結案舊鍵同一個時間、排在它們後面。第 3 輪前的偵測要讀完 29.7 萬把才停,超出預算。"""
+    _legacy_history(store_only, window_rows=3000, window_tenant=None, stuck=20, writing=0)
+    later = NOW + timedelta(days=2)
+    pick, _ = _best_of_five(store_only, attempt_store.campaigns_with_unresolved)
+    agg, total = _best_of_five(
+        store_only, lambda tx: attempt_store.aggregate_used(tx, TENANT, later), forget=True)
+    assert total == 20 * 7  # 窗外的舊格式已驗證不再計入,卡住的 20 把照算
+    assert agg <= 2 * pick + 0.005, (agg, pick)
 
 
 def test_the_aggregate_sum_does_not_overflow(store_only):

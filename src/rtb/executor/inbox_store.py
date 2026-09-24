@@ -54,6 +54,7 @@ from rtb.sqlitekit import (
     connect,
     connect_read_only,
     immediate_transaction,
+    is_lock_contention,
     missing_schema,
     read_snapshot,
 )
@@ -348,6 +349,13 @@ class InboxBusy(InboxRejected):
 
     code = "busy"
     retryable = True
+
+
+class InboxBusyNotStarted(InboxBusy):
+    """開寫入交易(BEGIN IMMEDIATE)就等鎖逾時:交易沒開起來、什麼都沒寫(F7 效能計劃第 2 部分)。
+
+    只有交易入口知道「還沒開起來」,所以用型別表達,不讓呼叫端另記旗標;是收件口忙碌的子類別,
+    既有抓收件口忙碌的地方照舊抓得到。執行迴圈只對這一種在限度內重試寫結果。"""
 
 
 @dataclass(frozen=True)
@@ -833,6 +841,8 @@ class InboxStore(InboxReads):
         if max_pending < 1:
             raise ValueError("max_pending 必須至少是 1,否則收件口永遠不接受任何提案")
         self._max_pending = max_pending
+        # 已用額度查詢「全表沒有未結案舊鍵」的行程內記憶:跟著這條連線走(F7 效能計劃代碼審第 3 輪)
+        self._legacy_memo = attempt_store.LegacyMemo()
         try:
             self._conn = connect(path, busy_timeout_seconds, SCHEMA + attempt_store.SCHEMA)
         except DatabaseBusy as exc:
@@ -906,14 +916,20 @@ class InboxStore(InboxReads):
     def transaction(self) -> Iterator[attempt_store.ExecutorTransaction]:
         """執行行程資料庫的寫入交易:給嘗試紀錄這類同一個檔裡的其他表用。
 
-        正常結束就提交,任何例外都回滾;鎖不到丟 InboxBusy(跟收件一樣可以重試)。
+        正常結束就提交,任何例外都回滾;鎖不到丟 InboxBusy(跟收件一樣可以重試)。開交易那一步就鎖不到
+        (交易沒開起來、什麼都沒寫)丟它的子類別 InboxBusyNotStarted,執行迴圈靠型別分辨能不能整筆重做
+        (F7 效能計劃第 2 部分)。
         """
         issuer = attempt_store._EXECUTOR_TRANSACTION_ISSUER  # 私有憑證:只給這個交易入口用
-        tx = attempt_store.ExecutorTransaction(self._conn, issuer)
+        tx = attempt_store.ExecutorTransaction(self._conn, issuer, self._legacy_memo)
+        began = False
         try:
             with immediate_transaction(self._conn):
+                began = True
                 yield tx
         except DatabaseBusy as exc:
+            if not began:
+                raise InboxBusyNotStarted(str(exc)) from exc
             raise InboxBusy(str(exc)) from exc
         finally:
             tx.close()  # 交易結束就作廢:同一條連線之後開別的交易,舊物件也不能再用
@@ -1296,6 +1312,30 @@ class InboxStore(InboxReads):
         return self._held(receipt, now, f"{assignment}, lease_until = NULL, lease_owner = NULL",
                           values)
 
+    def lease_until(self, receipt: Receipt) -> datetime | None:
+        """這張收據對應的租約現在到什麼時候(資料庫裡這一列的實際值);已經不是自己的(被接手、已結案、
+        序號換了)就回 None。唯讀、不開寫入交易:寫結果撞到忙碌、要決定還能不能再試時讀(F7 效能計劃
+        第 2 部分),WAL 模式下讀不必等寫入鎖。
+
+        錯誤照專案唯一的分法(代碼審第 2 輪):讀的時候碰到鎖競爭也回 None(呼叫端當作「不再試」);
+        其他資料庫錯誤原樣往外丟,不能被改報成忙碌。租約時間讀得出來卻不是帶時區的 ISO 時間,丟
+        CorruptedInboxRow(處理中那一列讀不懂,跟內容讀不回來同一種處理:停下讓人看)。"""
+        if type(receipt) is not Receipt:
+            raise TypeError("收據必須是取件或接手時拿到的 Receipt")
+        try:
+            row = self._conn.execute(
+                f"SELECT lease_until FROM proposals WHERE task_id = ? AND revision = ? "  # noqa: S608 - 只拼接模組內固定的條件
+                f"AND content_hash = ? AND {IN_PROGRESS} AND lease_seq = ? AND lease_owner = ?",
+                (receipt.task_id, receipt.revision, receipt.content_hash, receipt.lease_seq,
+                 receipt.owner)).fetchone()
+        except sqlite3.OperationalError as exc:
+            if is_lock_contention(exc):
+                return None
+            raise
+        if row is None or row[0] is None:
+            return None
+        return _lease_time(row[0], f"{receipt.task_id}/{receipt.revision}")
+
     def extend(
         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
     ) -> bool:
@@ -1559,6 +1599,7 @@ class ReadOnlyInbox(InboxReads):
     唯讀交易裡的多次查詢讀同一個快照;執行迴圈佔著寫入鎖時照樣讀得到(WAL)。"""
 
     def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
+        self._legacy_memo = attempt_store.LegacyMemo()
         self._conn = connect_read_only(path, busy_timeout_seconds)
         try:
             missing = missing_schema(self._conn, _REQUIRED_SCHEMA, _REQUIRED_INDEXES)
@@ -1575,7 +1616,7 @@ class ReadOnlyInbox(InboxReads):
     @contextmanager
     def read_transaction(self) -> Iterator[attempt_store.ReadTransaction]:
         issuer = attempt_store._READ_TRANSACTION_ISSUER  # 私有憑證:只給這個唯讀交易入口用
-        tx = attempt_store.ReadTransaction(self._conn, issuer)
+        tx = attempt_store.ReadTransaction(self._conn, issuer, self._legacy_memo)
         try:
             with read_snapshot(self._conn):
                 yield tx
@@ -1674,6 +1715,17 @@ def _event(row: tuple[object, ...]) -> LifecycleEvent:
     values[_LIFECYCLE_FIELDS.index("from_existing")] = bool(
         values[_LIFECYCLE_FIELDS.index("from_existing")])
     return LifecycleEvent(*values)  # type: ignore[arg-type]
+
+
+def _lease_time(text: object, where: str) -> datetime:
+    """處理中那一列的租約到期時間:要是帶時區的 ISO 時間字串,否則當這一列讀不懂。"""
+    try:
+        moment = datetime.fromisoformat(text)  # type: ignore[arg-type]  # 型別不對也在這裡攔
+    except (TypeError, ValueError) as exc:
+        raise CorruptedInboxRow(where) from exc
+    if moment.tzinfo is None:
+        raise CorruptedInboxRow(where)
+    return moment
 
 
 def _parse_payload(payload: str) -> Proposal | None:

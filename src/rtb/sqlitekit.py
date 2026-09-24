@@ -24,9 +24,25 @@ class DatabaseNotUpgraded(Exception):
     """唯讀開法發現資料庫還沒升級到這一版(缺表或缺欄位):唯讀連線不能補,要先用寫入開法開一次。"""
 
 
-def _is_lock_contention(exc: sqlite3.OperationalError) -> bool:
-    primary_code = exc.sqlite_errorcode & 0xFF  # 擴充碼的低 8 位才是主要錯誤碼
+def is_lock_contention(exc: sqlite3.OperationalError) -> bool:
+    """這個資料庫錯誤是不是鎖競爭(忙碌或被鎖):專案唯一的「忙碌對永久故障」分類,其他模組要分也用這支。"""
+    code = getattr(exc, "sqlite_errorcode", None)  # 程式自己建的錯誤、模組內部某些錯誤沒有錯誤碼
+    if not isinstance(code, int):
+        return False  # 沒有錯誤碼就判不出是鎖競爭:當永久故障,原樣往外丟(代碼審第 3 輪)
+    primary_code = code & 0xFF  # 擴充碼的低 8 位才是主要錯誤碼
     return primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+
+
+INTEGER_OVERFLOW_MESSAGE = "integer overflow"
+
+
+def is_integer_overflow(exc: BaseException) -> bool:
+    """資料庫的整數加總(SUM)溢位:一般錯誤碼、訊息是「integer overflow」(本機 3.53.3 實測)。
+    SQLite 對整數溢位只回一般錯誤碼,跟查詢寫錯同一個碼,只能再看訊息文字;這是專案唯一要看訊息的
+    判斷,集中在這裡跟「是不是鎖競爭」並排,SQLite 改了措辭只改一處(F7 效能計劃)。"""
+    return (isinstance(exc, sqlite3.OperationalError)
+            and exc.sqlite_errorcode & 0xFF == sqlite3.SQLITE_ERROR
+            and str(exc) == INTEGER_OVERFLOW_MESSAGE)
 
 
 def connect(
@@ -40,7 +56,7 @@ def connect(
             conn.executescript(schema)
     except sqlite3.OperationalError as exc:
         conn.close()  # 設定失敗時不留下沒人關的連線
-        if _is_lock_contention(exc):  # 剛建立資料庫時切換 WAL 要獨佔鎖,撞上別人也是「忙碌」
+        if is_lock_contention(exc):  # 剛建立資料庫時切換 WAL 要獨佔鎖,撞上別人也是「忙碌」
             raise DatabaseBusy(str(exc)) from exc
         raise
     except BaseException:
@@ -54,7 +70,7 @@ def begin_immediate(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("BEGIN IMMEDIATE")
     except sqlite3.OperationalError as exc:
-        if _is_lock_contention(exc):
+        if is_lock_contention(exc):
             raise DatabaseBusy(str(exc)) from exc
         raise
 
