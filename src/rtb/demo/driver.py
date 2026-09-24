@@ -10,6 +10,8 @@
 import io
 import json
 import os
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -23,7 +25,7 @@ from rtb.demo import launcher
 from rtb.demo.keys import DemoKeys
 from rtb.demo.launcher import FaultRequest, Process, Role, StartFailed
 from rtb.demo.observe import Observer, PathBuilder, missing_from_path
-from rtb.demo.state_store import ConfirmationRequest, StateWriter
+from rtb.demo.state_store import ConfirmationRequest, StateWriter, VerifierRun
 from rtb.domain.evidence import Evidence
 from rtb.domain.proposal import Proposal
 from rtb.dsp.store import CampaignStore, Operation
@@ -36,6 +38,7 @@ OPERATOR = "demo-operator"
 TENANT = "t-default"
 CRASH_EXIT = 9  # 故障套件的猝死點用 os._exit(9)
 RACE_WAIT_SECONDS = 10.0
+STOP_GRACE_SECONDS = 30.0  # 超過時限後等情境本體收手的上限(它手上一次外部呼叫最多幾秒)
 RESTART_SHIFT_SECONDS = 300.0  # 重啟時往後撥:大於租約 60 秒,舊租約已到期可以合法接手
 LOOSE_AGGREGATE_LIMIT = 1_000_000_000
 
@@ -64,6 +67,10 @@ class ScenarioFailed(Exception):
     """斷言沒過或交叉核對對不上:情境標「沒跑完」,訊息寫哪一條沒對上。"""
 
 
+class ScenarioStopped(Exception):
+    """情境已經被收掉(超過時限或整次展示取消):不准再起行程、不准再寫確認請求。"""
+
+
 @dataclass
 class World:
     """一個情境的暫存子目錄、資料庫與行程;離開時把它起的行程全部結束。"""
@@ -77,6 +84,8 @@ class World:
     processes: list[Process] = field(default_factory=list)
     observed: list[str] = field(default_factory=list)
     paused_seconds: float = 0.0  # 等人確認的時間:不算進情境總時限([S1008])
+    closed: bool = False
+    _lock: threading.Lock = field(default_factory=threading.Lock)
     pause_started: float | None = None
     dsp: Process = field(init=False)
     inbox: Process = field(init=False)
@@ -113,10 +122,15 @@ class World:
 
     def start(self, role: Role, args: Sequence[str],
               faults: FaultRequest | None = None) -> Process:
-        process = launcher.start(role, list(args), self.keys, root=self.root, faults=faults,
-                                 user_env=self.user_env)
-        self.processes.append(process)
-        return process
+        """情境已經被收掉就不准再起行程;檢查與登記在同一把鎖裡,收行程的 close 也拿這把鎖,
+        所以起到一半的行程一定會被收到(第 2 輪代碼審:超時之後情境本體還在起行程,變成孤兒)。"""
+        with self._lock:
+            if self.closed or self.stop.is_set():
+                raise ScenarioStopped(f"{self.code} 已經收掉,不再起新的行程")
+            process = launcher.start(role, list(args), self.keys, root=self.root,
+                                     faults=faults, user_env=self.user_env)
+            self.processes.append(process)
+            return process
 
     def start_platform(self, faults: FaultRequest | None = None) -> Process:
         self.dsp = self.start(Role.DSP, ["--db", str(self.dsp_db), "--hang-seconds", "1.5",
@@ -267,9 +281,11 @@ class World:
             raise ScenarioFailed(f"觀察到的路徑沒有照順序經過必經的一步:{missing}")
 
     def close(self) -> None:
-        for process in reversed(self.processes):
-            process.stop()
-        self.processes.clear()
+        with self._lock:
+            self.closed = True
+            for process in reversed(self.processes):
+                process.stop()
+            self.processes.clear()
 
 
 # ---- 情境 ----
@@ -612,6 +628,8 @@ def make_f7(campaigns: int = F7_CAMPAIGNS, limit: int = F7_LIMIT, workers: int =
 def _wait_for_confirmation(world: World, cap_seconds: float) -> bool:
     """驅動程式指定最早停下的那一筆做確認展示,情境進「等你確認」;上限是 min(那筆的決策到期減
     一分鐘, 固定上限)。到期就清掉確認表單、繼續跑自動查核(鎖照樣握著)。"""
+    if world.stop.is_set():
+        raise ScenarioStopped(f"{world.code} 已經收掉,不再請人確認")
     request = _earliest_waiting(world)
     left = (request.decision_expires_at - _now()).total_seconds() - CONFIRM_MARGIN_SECONDS
     world.state.set_confirmation(world.code, request)
@@ -622,7 +640,38 @@ def _wait_for_confirmation(world: World, cap_seconds: float) -> bool:
                                  max(0.0, min(left, cap_seconds)), lambda: _node_counts(world))
     finally:
         world.state.clear_confirmation()
-        world.state.mark_status(world.code, "running")
+        if not world.stop.is_set():  # 已經被收掉的情境不能把「沒跑完」改寫回進行中
+            world.state.mark_status(world.code, "running")
+
+
+ALL_CODES = ("F1", "F2", "F3", "F4", "F5", "F6", "F7")
+PROJECT_ROOT = Path(launcher.SRC).parent
+VERIFIER_TIMEOUT_SECONDS = 600.0  # 驗證器自己跑 77 支證據測試,本機約 45 秒
+
+
+def default_verifier_command() -> list[str]:
+    """專案內的驗證器,跟本機與 CI 同一條指令(Phase 11)。"""
+    return [sys.executable, str(PROJECT_ROOT / "tools" / "verify_claims.py"), "claims/"]
+
+
+def run_verifier(command: Sequence[str], demo_id: str, timeout_seconds: float) -> VerifierRun:
+    """跑驗證器、原樣收下每一行;擋下原因是「擋下」那一行之後以「- 」開頭的各行。逾時或起不來也
+    記成沒通過,原因寫明,不當成通過。"""
+    env = {name: os.environ[name] for name in ("PATH", "HOME", "LANG") if name in os.environ}
+    try:
+        done = subprocess.run(list(command), cwd=PROJECT_ROOT, env=env, capture_output=True,  # noqa: S603 - 指令是專案內固定的驗證器
+                              text=True, timeout=timeout_seconds, check=False)
+    except subprocess.TimeoutExpired:
+        return VerifierRun(demo_id, _now(), False, (), (f"驗證器逾時({timeout_seconds:.0f} 秒)",))
+    except OSError as broken:
+        return VerifierRun(demo_id, _now(), False, (), (f"驗證器起不來:{broken}",))
+    lines = tuple(done.stdout.splitlines())
+    blocked = next((i for i, line in enumerate(lines) if line.startswith("擋下")), None)
+    reasons = () if blocked is None else tuple(
+        line[2:] for line in lines[blocked + 1:] if line.startswith("- "))
+    if done.returncode != 0 and not reasons:
+        reasons = (f"驗證器結束代碼 {done.returncode}",)
+    return VerifierRun(demo_id, _now(), done.returncode == 0, lines, reasons)
 
 
 SCENARIOS: dict[str, Scenario] = {
@@ -650,6 +699,9 @@ class Driver:
         self.scenarios = dict(SCENARIOS if scenarios is None else scenarios)
         self.stop = stop or threading.Event()
         self._current: World | None = None
+        self.demo_id = demo_id
+        self.verifier_command = default_verifier_command()
+        self.verifier_timeout_seconds = VERIFIER_TIMEOUT_SECONDS
 
     def cancel(self) -> None:
         """停掉整次展示:不再開下一個情境,正在跑的情境也收掉。"""
@@ -659,6 +711,17 @@ class Driver:
 
     def run(self, codes: Sequence[str]) -> list[Verdict]:
         return [self.run_one(code) for code in codes if not self.stop.is_set()]
+
+    def run_all(self, codes: Sequence[str] = ALL_CODES) -> tuple[list[Verdict], VerifierRun | None]:
+        """全部跑一次:依序跑每個情境(一個沒跑完不影響下一個),最後跑一次驗證器並記進展示狀態。
+        驅動程式的情境斷言跟驗證器是兩件事,各自記。展示被取消就不跑驗證器。"""
+        verdicts = self.run(codes)
+        if self.stop.is_set():
+            return verdicts, None
+        outcome = run_verifier(self.verifier_command, self.demo_id,
+                               self.verifier_timeout_seconds)
+        self.state.record_verifier_run(outcome)
+        return verdicts, outcome
 
     def run_one(self, code: str) -> Verdict:
         scenario = self.scenarios[code]
@@ -676,6 +739,8 @@ class Driver:
         def body() -> None:
             try:
                 result.append(Verdict(scenario.code, DONE, None, scenario.run(world)))
+            except ScenarioStopped as stopped:
+                result.append(Verdict(scenario.code, INCOMPLETE, f"展示故障:{stopped}", None))
             except ScenarioFailed as failed:
                 result.append(Verdict(scenario.code, INCOMPLETE, str(failed), None))
             except StartFailed as broken:
@@ -693,7 +758,8 @@ class Driver:
                                          < scenario.time_limit_seconds):
                 worker.join(0.2)
             if worker.is_alive():
-                world.stop.set()  # 只停這個情境的觀察迴圈,不影響整次展示
+                world.stop.set()  # 只停這個情境,不影響整次展示
+                worker.join(STOP_GRACE_SECONDS)  # 先等情境本體收手,再收行程、寫結果
                 limit = f"{scenario.time_limit_seconds:.0f}"
                 return Verdict(scenario.code, INCOMPLETE, f"展示故障:超過情境總時限 {limit} 秒",
                                None)

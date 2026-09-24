@@ -33,6 +33,9 @@ CREATE INDEX IF NOT EXISTS decisions_by_scenario ON decisions (demo_id, code, id
 CREATE TABLE IF NOT EXISTS current_node (
     demo_id TEXT PRIMARY KEY, code TEXT NOT NULL, node TEXT NOT NULL, entered_at TEXT NOT NULL,
     decision_id INTEGER);
+CREATE TABLE IF NOT EXISTS verifier_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, demo_id TEXT NOT NULL, verified_at TEXT NOT NULL,
+    passed INTEGER NOT NULL, lines_json TEXT NOT NULL, reasons_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS confirmations (
     demo_id TEXT PRIMARY KEY, code TEXT NOT NULL, request_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS node_counts (
@@ -61,6 +64,18 @@ class DecisionRow:
     reason: str
     at: datetime
     origin: str  # 哪一顆資料庫的哪個事件編號或哪一列
+
+
+@dataclass(frozen=True)
+class VerifierRun:
+    """全部跑一次的最後一步跑的驗證器:原樣每一行、通過或擋下、擋下原因、時間、哪一次展示。
+    單一情境重跑不跑驗證器,頁面顯示最近一次這一筆並標明取自哪一次(設計審 r1 x7)。"""
+
+    demo_id: str
+    verified_at: datetime
+    passed: bool
+    lines: tuple[str, ...]
+    reasons: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -159,6 +174,15 @@ class StateWriter:
             conn.execute("INSERT OR REPLACE INTO current_node VALUES (?, ?, ?, ?, ?)",
                          (self.demo_id, code, row.node, _iso(row.at), cursor.lastrowid))
 
+    def record_verifier_run(self, run: VerifierRun) -> None:
+        with self._write() as conn:
+            conn.execute(
+                "INSERT INTO verifier_runs (demo_id, verified_at, passed, lines_json, "
+                "reasons_json) VALUES (?, ?, ?, ?, ?)",
+                (run.demo_id, _iso(run.verified_at), int(run.passed),
+                 json.dumps(list(run.lines), ensure_ascii=False),
+                 json.dumps(list(run.reasons), ensure_ascii=False)))
+
     def set_confirmation(self, code: str, request: ConfirmationRequest) -> None:
         with self._write() as conn:
             conn.execute("INSERT OR REPLACE INTO confirmations VALUES (?, ?, ?)",
@@ -227,6 +251,17 @@ class StateReader:
             (decision_id,)).fetchone()
         return CurrentNode(code, node, datetime.fromisoformat(entered),
                            None if last is None else _decision(last))
+
+    def latest_verifier_run(self) -> VerifierRun | None:
+        """最近一次全部跑一次的驗證器結果(不限展示編號:單一情境重跑沿用上一次完整執行的)。"""
+        row = self._conn.execute(
+            "SELECT demo_id, verified_at, passed, lines_json, reasons_json FROM verifier_runs "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+        if row is None:
+            return None
+        demo_id, at, passed, lines, reasons = row
+        return VerifierRun(str(demo_id), datetime.fromisoformat(str(at)), bool(passed),
+                           tuple(json.loads(str(lines))), tuple(json.loads(str(reasons))))
 
     def confirmation(self, demo_id: str) -> tuple[str, ConfirmationRequest] | None:
         row = self._conn.execute("SELECT code, request_json FROM confirmations WHERE demo_id = ?",

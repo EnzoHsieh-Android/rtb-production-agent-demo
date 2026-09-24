@@ -1,9 +1,10 @@
 """一鍵展示驅動程式(Phase 12 增量 1):真的起行程跑情境,觀察系統紀錄、斷言預期處置。"""
 
 import os
+import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -388,3 +389,230 @@ def test_the_total_let_through_fits_the_limit_and_one_more_would_not(writes, lim
     else:
         with pytest.raises(ScenarioFailed, match="總額"):
             driver_module._check_total_against_limit(stub, limit, confirmed)
+
+
+# ---- 全部跑一次:依序跑完、行程收乾淨、最後跑驗證器 ----
+def test_the_driver_runs_every_scenario_and_leaves_no_process_behind(tmp_path, state):
+    """[S1005] 依序跑完每個情境;每個情境結束時它起的行程全部結束(下一個情境開始時查)。"""
+    from rtb.demo.launcher import Role
+
+    order, leftovers, pids = [], [], []
+
+    def make(code):
+        def run(world):
+            leftovers.extend(p for p in pids if _alive(p))
+            order.append(code)
+            process = world.start(Role.INBOX, ["--db", str(world.dir / "inbox.db")])
+            pids.append(process.pid)
+            return f"{code} ok"
+        return run
+
+    codes = ("F1", "F2", "F3")
+    scenarios = {c: Scenario(c, c, 20, make(c)) for c in codes}
+    demo = _driver(tmp_path, state, scenarios)
+    demo.verifier_command = [sys.executable, "-c", "print('通過:假的驗證器')"]
+
+    verdicts, _ = demo.run_all(codes)
+
+    assert order == list(codes) and [v.code for v in verdicts] == list(codes)
+    assert leftovers == []
+    assert not any(_alive(p) for p in pids)
+
+
+def test_the_default_full_run_is_f1_to_f7_in_order():
+    assert driver_module.ALL_CODES == ("F1", "F2", "F3", "F4", "F5", "F6", "F7")
+    assert tuple(driver_module.SCENARIOS) == driver_module.ALL_CODES
+
+
+def _quick(tmp_path, state):
+    return _driver(tmp_path, state, {"F1": Scenario("F1", "F1", 20, lambda _w: "ok")})
+
+
+@pytest.mark.parametrize(("script", "passed", "reasons"), [
+    ("print('宣稱驗證器'); print('通過:5 條宣稱,跑了 77 支證據測試全部通過')", True, ()),
+    ("import sys; print('宣稱驗證器'); print('擋下(2 條原因):'); print('- a:缺檔'); "
+     "print('- b:雜湊不一致'); sys.exit(1)", False, ("a:缺檔", "b:雜湊不一致")),
+])
+def test_a_full_run_ends_with_the_verifier_output_kept_verbatim(tmp_path, state, script,
+                                                                passed, reasons):
+    """全部跑一次的最後一步跑驗證器,原樣記下每一行、通過或擋下、擋下原因、時間與展示編號。"""
+    demo = _quick(tmp_path, state)
+    demo.verifier_command = [sys.executable, "-c", script]
+
+    _, outcome = demo.run_all(("F1",))
+
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        stored = reader.latest_verifier_run()
+    finally:
+        reader.close()
+    assert outcome is not None and stored == outcome
+    assert stored.passed is passed and stored.reasons == reasons
+    assert stored.lines[0] == "宣稱驗證器" and stored.demo_id == "demo-1"
+
+
+def test_a_verifier_that_hangs_is_recorded_as_not_passed(tmp_path, state):
+    demo = _quick(tmp_path, state)
+    demo.verifier_command = [sys.executable, "-c", "import time; time.sleep(30)"]
+    demo.verifier_timeout_seconds = 1
+
+    _, outcome = demo.run_all(("F1",))
+
+    assert outcome is not None and not outcome.passed and "逾時" in outcome.reasons[0]
+
+
+def test_a_single_scenario_rerun_does_not_run_the_verifier(tmp_path, state):
+    """[S1021 的驅動程式那一半] 單一情境重跑不啟動驗證器。"""
+    demo = _quick(tmp_path, state)
+    demo.verifier_command = [sys.executable, "-c", "raise SystemExit('不該跑')"]
+
+    demo.run_one("F1")
+
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        assert reader.latest_verifier_run() is None
+    finally:
+        reader.close()
+
+
+def test_the_default_verifier_is_the_project_one():
+    command = driver_module.default_verifier_command()
+    assert command[-2:] == [str(driver_module.PROJECT_ROOT / "tools" / "verify_claims.py"),
+                            "claims/"]
+    assert (driver_module.PROJECT_ROOT / "tools" / "verify_claims.py").is_file()
+
+
+def test_an_incomplete_scenario_does_not_stop_the_full_run(tmp_path, state):
+    """全部跑一次時一個情境沒跑完,後面的照樣跑,最後照樣跑驗證器。"""
+    seen = []
+
+    def ok(code):
+        def run(_world):
+            seen.append(code)
+            return "ok"
+        return run
+
+    def broken(_world):
+        seen.append("F2")
+        raise ScenarioFailed("故意沒跑完")
+
+    scenarios = {"F1": Scenario("F1", "F1", 20, ok("F1")), "F2": Scenario("F2", "F2", 20, broken),
+                 "F3": Scenario("F3", "F3", 20, ok("F3"))}
+    demo = _driver(tmp_path, state, scenarios)
+    demo.verifier_command = [sys.executable, "-c", "print('通過')"]
+
+    verdicts, outcome = demo.run_all(("F1", "F2", "F3"))
+
+    assert seen == ["F1", "F2", "F3"]
+    assert [v.status for v in verdicts] == [DONE, INCOMPLETE, DONE]
+    assert outcome is not None and outcome.passed
+
+
+# ---- 第 2 輪代碼審(資安席先報):超時之後情境本體還在跑 ----
+def test_a_scenario_past_its_time_limit_cannot_start_new_processes(tmp_path, state):
+    """時限到了,驅動程式先等情境本體收手再收行程;收手之後情境本體起的新行程一律被拒,
+    不會留下沒人收、帶著金鑰的孤兒。"""
+    from rtb.demo.launcher import Role
+
+    started = []
+
+    def slow(world):
+        time.sleep(1.5)  # 不看停止旗標:模擬一段跑很久的外部呼叫
+        started.append(world.start(Role.INBOX, ["--db", str(world.dir / "inbox.db")]).pid)
+        return "不該到這裡"
+
+    verdict = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 1, slow)}).run_one("FX")
+
+    assert verdict.status == INCOMPLETE and "時限" in verdict.reason
+    time.sleep(1.0)
+    assert started == []
+
+
+def test_a_timed_out_scenario_cannot_rewrite_its_status(tmp_path, state, monkeypatch):
+    """時限到了之後情境本體走到等人確認:不能再寫確認請求,也不能把「沒跑完」改寫回進行中。"""
+    from datetime import UTC, datetime
+
+    from rtb.demo.state_store import ConfirmationRequest
+
+    request = ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
+                                  datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
+    monkeypatch.setattr(driver_module, "_earliest_waiting", lambda _world: request)
+
+    def slow(world):
+        time.sleep(1.5)
+        driver_module._wait_for_confirmation(world, 5)
+        return "不該到這裡"
+
+    verdict = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 1, slow)}).run_one("FX")
+
+    time.sleep(1.0)
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        assert reader.scenario_runs("demo-1")[0].status == INCOMPLETE
+        assert reader.confirmation("demo-1") is None
+    finally:
+        reader.close()
+    assert verdict.status == INCOMPLETE
+
+
+def test_the_driver_reports_a_timeout_only_after_the_scenario_has_wound_down(tmp_path, state):
+    """超過時限後先等情境本體收手(有上限)才回報:回報的時候本體已經結束,不會之後才冒出寫入。"""
+    ended = threading.Event()
+
+    def slow(_world):
+        time.sleep(1.5)
+        ended.set()
+        return "不該到這裡"
+
+    _driver(tmp_path, state, {"FX": Scenario("FX", "假", 1, slow)}).run_one("FX")
+
+    assert ended.is_set()
+
+
+class _ConfirmStub:
+    def __init__(self, stop_during_wait):
+        self.code, self.stop = "F7", threading.Event()
+        self.marks, self.cleared = [], []
+        self._stop_during_wait = stop_during_wait
+        stub = self
+
+        class _State:
+            def set_confirmation(self, *_a):
+                stub.marks.append("request")
+
+            def mark_status(self, _code, status):
+                stub.marks.append(status)
+
+            def clear_confirmation(self):
+                stub.cleared.append(True)
+
+        self.state = _State()
+
+    def wait_paused(self, _done, _limit, _on_poll=None):
+        if self._stop_during_wait:
+            self.stop.set()
+        return False
+
+
+def test_a_stopped_scenario_does_not_ask_for_confirmation(monkeypatch):
+    world = _ConfirmStub(stop_during_wait=False)
+    world.stop.set()
+    monkeypatch.setattr(driver_module, "_earliest_waiting", lambda _w: pytest.fail("不該查"))
+    with pytest.raises(driver_module.ScenarioStopped):
+        driver_module._wait_for_confirmation(world, 5)
+    assert world.marks == []
+
+
+def test_a_stop_during_the_confirmation_wait_does_not_mark_running_again(monkeypatch):
+    from datetime import UTC
+
+    from rtb.demo.state_store import ConfirmationRequest
+
+    request = ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
+                                  datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
+    monkeypatch.setattr(driver_module, "_earliest_waiting", lambda _w: request)
+    world = _ConfirmStub(stop_during_wait=True)
+
+    assert driver_module._wait_for_confirmation(world, 5) is False
+    assert world.marks == ["request", driver_module.AWAITING_CONFIRMATION]
+    assert world.cleared == [True]
