@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS verifier_runs (
 CREATE TABLE IF NOT EXISTS confirmations (
     demo_id TEXT PRIMARY KEY, code TEXT NOT NULL, request_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS confirmation_windows (
-    demo_id TEXT PRIMARY KEY, until TEXT NOT NULL, approved_at TEXT, closed_at TEXT);
+    demo_id TEXT PRIMARY KEY, until TEXT NOT NULL, approved_at TEXT, closed_at TEXT,
+    signing_at TEXT);
+CREATE TABLE IF NOT EXISTS demo_runs (demo_id TEXT PRIMARY KEY, full INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS scenario_details (
     demo_id TEXT NOT NULL, code TEXT NOT NULL, details_json TEXT NOT NULL,
     PRIMARY KEY (demo_id, code));
@@ -216,6 +218,7 @@ class ConfirmationClosed(Exception):
 
 
 NO_CONFIRMATION = "no_confirmation"
+CONFIRMATION_IN_PROGRESS = "confirmation_in_progress"
 ALREADY_CONFIRMED = "already_confirmed"
 CONFIRMATION_TIMED_OUT = "confirmation_timed_out"
 
@@ -236,6 +239,10 @@ def _time(text: str | None) -> datetime | None:
     return None if text is None else datetime.fromisoformat(text)
 
 
+def _columns(conn: sqlite3.Connection, pragma: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(pragma)}
+
+
 class StateWriter:
     """每一次寫入開一條短連線:驅動程式跑在展示伺服器的執行緒裡,情境本體又在自己的執行緒裡,
     SQLite 連線不能跨執行緒共用;一次展示只寫幾百列,短連線的成本可以忽略。"""
@@ -244,10 +251,11 @@ class StateWriter:
         self.path, self.demo_id = Path(path), demo_id
         conn = connect(self.path, schema=SCHEMA)  # 先建表
         try:
-            with immediate_transaction(conn):  # 之前版本建的展示狀態庫:補判斷紀錄的工作欄
-                columns = {row[1] for row in conn.execute("PRAGMA table_info(decisions)")}
-                if "task" not in columns:
+            with immediate_transaction(conn):  # 之前版本建的展示狀態庫:補後來加的欄位(逐欄寫死)
+                if "task" not in _columns(conn, "PRAGMA table_info(decisions)"):
                     conn.execute("ALTER TABLE decisions ADD COLUMN task TEXT")
+                if "signing_at" not in _columns(conn, "PRAGMA table_info(confirmation_windows)"):
+                    conn.execute("ALTER TABLE confirmation_windows ADD COLUMN signing_at TEXT")
         finally:
             conn.close()
 
@@ -332,44 +340,67 @@ class StateWriter:
         with self._write() as conn:
             conn.execute("INSERT OR REPLACE INTO confirmations VALUES (?, ?, ?)",
                          (self.demo_id, code, _request_json(request)))
-            conn.execute("INSERT OR REPLACE INTO confirmation_windows VALUES (?, ?, NULL, NULL)",
+            conn.execute("INSERT OR REPLACE INTO confirmation_windows (demo_id, until) "
+                         "VALUES (?, ?)",
                          (self.demo_id, _iso(until or request.decision_expires_at)))
+
+    def record_demo(self, *, full: bool) -> None:
+        """記下這一次展示是全部跑一次還是單一情境重跑(頁面的逐情境出處照它寫,不靠比對展示編號猜;
+        代碼審 r2 g2/x1)。"""
+        with self._write() as conn:
+            conn.execute("INSERT OR REPLACE INTO demo_runs VALUES (?, ?)",
+                         (self.demo_id, int(full)))
 
     def answer_confirmation(self, now: datetime,
                             sign: Callable[[str, ConfirmationRequest], None]) -> None:
-        """[S1056] 簽發跟驅動程式關確認窗互斥(代碼審 r1 x3/s5/v5):同一個寫入交易裡再確認一次「那一筆
-        還在等、還沒確認過、確認期限沒過」,才呼叫 sign;sign 成功就把這個窗標成已確認,同一張表單再
-        送一次一律拒。sign 丟例外時整個交易退回,窗照樣開著。"""
+        """[S1056] 簽發跟驅動程式關確認窗互斥(代碼審 r1 x3/s5/v5),但不握著展示狀態庫的寫鎖簽
+        (代碼審 r2 v3:簽發要等收件口的鎖,收件口一忙,驅動程式關窗也跟著被卡):
+        1. 一個寫入交易裡確認「那一筆還在等、沒人在簽、還沒確認過、確認期限沒過」,標成簽發中就提交;
+        2. 交易外呼叫 sign;
+        3. 成功標成已確認,失敗退回簽發中、窗照樣開著(例外照丟)。
+        驅動程式關窗時把簽發中當成已經有人確認。同一張表單再送一次一律拒。"""
         with self._write() as conn:
             window = conn.execute(
-                "SELECT until, approved_at, closed_at FROM confirmation_windows WHERE demo_id = ?",
-                (self.demo_id,)).fetchone()
+                "SELECT until, approved_at, closed_at, signing_at FROM confirmation_windows "
+                "WHERE demo_id = ?", (self.demo_id,)).fetchone()
             pending = conn.execute(
                 "SELECT code, request_json FROM confirmations WHERE demo_id = ?",
                 (self.demo_id,)).fetchone()
             if window is None:
                 raise ConfirmationClosed(NO_CONFIRMATION)
-            until, approved, closed = window
+            until, approved, closed, signing = window
             if approved is not None:
                 raise ConfirmationClosed(ALREADY_CONFIRMED)
+            if signing is not None:
+                raise ConfirmationClosed(CONFIRMATION_IN_PROGRESS)
             if closed is not None or pending is None or now >= datetime.fromisoformat(until):
                 raise ConfirmationClosed(CONFIRMATION_TIMED_OUT)
-            sign(str(pending[0]), _request_from(str(pending[1])))
-            conn.execute("DELETE FROM confirmations WHERE demo_id = ?", (self.demo_id,))
-            conn.execute("UPDATE confirmation_windows SET approved_at = ? WHERE demo_id = ?",
+            conn.execute("UPDATE confirmation_windows SET signing_at = ? WHERE demo_id = ?",
                          (_iso(now), self.demo_id))
+        try:
+            sign(str(pending[0]), _request_from(str(pending[1])))
+        except BaseException:
+            with self._write() as conn:
+                conn.execute("UPDATE confirmation_windows SET signing_at = NULL WHERE demo_id = ?",
+                             (self.demo_id,))
+            raise
+        with self._write() as conn:
+            conn.execute("DELETE FROM confirmations WHERE demo_id = ?", (self.demo_id,))
+            conn.execute("UPDATE confirmation_windows SET approved_at = ?, signing_at = NULL "
+                         "WHERE demo_id = ?", (_iso(now), self.demo_id))
 
     def clear_confirmation(self, now: datetime | None = None) -> bool:
         """確認逾時或已確認:關掉確認窗、清掉確認表單(設計審 r3 m4),確認頁與送出確認之後一律拒。
-        回傳關窗之前有沒有人確認過(跟簽發互斥:兩者在同一顆資料庫的寫入交易裡排隊)。"""
+        回傳關窗之前有沒有人確認過或正在簽(簽發中也算:那張核可可能已經寫進收件口)。"""
         with self._write() as conn:
             conn.execute("DELETE FROM confirmations WHERE demo_id = ?", (self.demo_id,))
-            row = conn.execute("SELECT approved_at FROM confirmation_windows WHERE demo_id = ?",
-                               (self.demo_id,)).fetchone()
+            row = conn.execute(
+                "SELECT approved_at, signing_at FROM confirmation_windows WHERE demo_id = ?",
+                (self.demo_id,)).fetchone()
             conn.execute("UPDATE confirmation_windows SET closed_at = ? "
                          "WHERE demo_id = ? AND closed_at IS NULL",
                          (_iso(now or datetime.now().astimezone()), self.demo_id))
-        return row is not None and row[0] is not None
+        return row is not None and (row[0] is not None or row[1] is not None)
 
     def set_node_counts(self, code: str, counts: dict[str, int]) -> None:
         with self._write() as conn:
@@ -471,14 +502,22 @@ class StateReader:
             "WHERE demo_id = ? ORDER BY id DESC LIMIT 1", (demo_id,)).fetchone()
         return _verifier_run(row)
 
+    def demo_full(self, demo_id: str) -> bool | None:
+        """這一次展示是不是全部跑一次;沒記(驅動程式直接跑、或舊資料)是空的。"""
+        row = self._conn.execute("SELECT full FROM demo_runs WHERE demo_id = ?",
+                                 (demo_id,)).fetchone()
+        return None if row is None else bool(row[0])
+
     def confirmation_refusal(self, demo_id: str) -> str:
-        """現在沒有可以確認的那一筆時,說明是哪一種:從沒開過、已經確認過、確認期限已過。"""
+        """現在沒有可以確認的那一筆時,說明是哪一種:從沒開過、已經確認過(或正在簽)、確認期限已過。"""
         row = self._conn.execute(
-            "SELECT approved_at, closed_at FROM confirmation_windows WHERE demo_id = ?",
+            "SELECT approved_at, signing_at FROM confirmation_windows WHERE demo_id = ?",
             (demo_id,)).fetchone()
         if row is None:
             return NO_CONFIRMATION
-        return ALREADY_CONFIRMED if row[0] is not None else CONFIRMATION_TIMED_OUT
+        if row[0] is not None:
+            return ALREADY_CONFIRMED
+        return CONFIRMATION_IN_PROGRESS if row[1] is not None else CONFIRMATION_TIMED_OUT
 
     def confirmation(self, demo_id: str) -> tuple[str, ConfirmationRequest] | None:
         row = self._conn.execute("SELECT code, request_json FROM confirmations WHERE demo_id = ?",

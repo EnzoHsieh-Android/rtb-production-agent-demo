@@ -46,6 +46,8 @@ from rtb.demo.page import (
 )
 from rtb.demo.state import CurrentStep, DemoState, ScenarioCode
 from rtb.demo.state_store import (
+    ALREADY_CONFIRMED,
+    CONFIRMATION_IN_PROGRESS,
     NO_CONFIRMATION,
     ConfirmationClosed,
     ConfirmationRequest,
@@ -66,9 +68,11 @@ KEEP_REPORTS = 20  # 全部跑一次、單一情境重跑的報告各留最近�
 STOP_JOIN_SECONDS = 60.0  # 伺服器結束時等驅動執行緒收完行程的上限
 _CODES = frozenset(code.value for code in ScenarioCode)
 _REPORT_NAME = re.compile(r"demo-(full|rerun)-\d{8}-\d{6}-[0-9a-f]{8}\.html")
-# 每個回應都帶:不快取(主頁與確認頁帶表單隨機值)、不猜內容型別、不送來源網址(代碼審 r1 s6)
+# 每個回應都帶:不快取(主頁與確認頁帶表單隨機值)、不猜內容型別、不把來源網址送到別的網站
+# (代碼審 r1 s6)。來源網址政策用 same-origin 不用 no-referrer:no-referrer 會讓瀏覽器送表單時帶
+# Origin: null,同源檢查全擋,頁面上三個按鈕全部 403(代碼審 r2 g1,用 Chromium 重現)
 _SAFE_HEADERS = (("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
-                 ("Referrer-Policy", "no-referrer"))
+                 ("Referrer-Policy", "same-origin"))
 
 
 def default_reports() -> Path:
@@ -126,6 +130,9 @@ class DemoService:
     current: Run | None = None
     full_demo_id: str | None = None  # 最近一次跑完的全部跑一次
     reruns: dict[str, str] = field(default_factory=dict)  # 之後重跑過的情境 → 那次的展示編號
+    tighten_reports: bool = False  # 只收緊預設的報告目錄;使用者用 --reports 指定的不動權限
+    report_note: str | None = None  # 上一次另存報告失敗的原因(頁面看得到;成功就清掉)
+    closing: bool = False  # 伺服器在收尾:之後到的觸發一律拒
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _ticks: int = 0
     thread: threading.Thread | None = None
@@ -137,6 +144,8 @@ class DemoService:
     def start(self, codes: Sequence[str], *, full: bool) -> Run:
         """[S1013][S1014] 檢查有沒有在跑與標記開始在同一把鎖裡;在跑時一律拒。"""
         with self._lock:
+            if self.closing:  # 收尾開始之後才處理到的 POST /run(代碼審 r2 v2)
+                raise RequestRejected(503, "shutting_down")
             if self.running:
                 raise DemoBusy("已有展示在跑")
             self.running = True
@@ -144,6 +153,7 @@ class DemoService:
             keys = DemoKeys.generate()
             demo_id = new_demo_id(datetime.now(UTC))
             writer = StateWriter(self.state_db, demo_id)
+            writer.record_demo(full=full)
             run = Run(demo_id, keys, self.driver_factory(self.base, demo_id, keys, writer),
                       tuple(codes), full)
             with self._lock:
@@ -168,6 +178,8 @@ class DemoService:
                 print(f"展示中止:{type(broken).__name__}: {broken}", file=sys.stderr)
                 writer.abandon(run.codes, f"展示故障:驅動程式出錯({type(broken).__name__})",
                                datetime.now(UTC))
+            if run.driver.stop.is_set():  # 伺服器收尾取消的:不換成最新一次、不另存(代碼審 r2 v1)
+                return
             self._finished(run)
             self._save_report(run)
         except Exception as broken:  # 連記錄與另存都出事:印出來,旗標照樣放
@@ -184,8 +196,11 @@ class DemoService:
                 self.reruns.update(dict.fromkeys(run.codes, run.demo_id))
 
     def stop(self, timeout: float = STOP_JOIN_SECONDS) -> None:
-        """停掉正在跑的展示,等驅動執行緒收完行程(伺服器結束的收尾路徑)。"""
-        run, thread = self.current, self.thread
+        """停掉正在跑的展示,等驅動執行緒收完行程(伺服器結束的收尾路徑)。先在鎖裡標成收尾中,
+        之後到的觸發一律拒,不會在這裡讀完目前那一次之後才又開一次新的。"""
+        with self._lock:
+            self.closing = True
+            run, thread = self.current, self.thread
         if run is not None and self.running:
             run.driver.cancel()
         if thread is not None:
@@ -216,9 +231,10 @@ class DemoService:
         try:
             live = view.running
             if live is not None and live.full:
-                return present.build_demo_state(
+                return replace(present.build_demo_state(
                     reader, live.demo_id, running=True, now=now, verifier_demo_id=live.demo_id,
-                    full_demo_id=view.full_demo_id, running_full=True)
+                    full_demo_id=view.full_demo_id, running_full=True),
+                    report_note=self.report_note)
             base_id = view.full_demo_id or (view.last.demo_id if view.last else None)
             shown = present.build_demo_state(
                 reader, base_id, running=False, now=now, verifier_demo_id=view.full_demo_id,
@@ -238,18 +254,35 @@ class DemoService:
                     approval=other.approval or shown.approval)
                 if is_live:
                     current = other.current
-            return replace(shown, running=live is not None, current=current)
+            return replace(shown, running=live is not None, current=current,
+                           report_note=self.report_note)
         finally:
             reader.close()
 
     # ---- 報告 ----
-    def _save_report(self, run: Run) -> Path:
+    def _save_report(self, run: Run) -> Path | None:
         """[S1039] 展示結束另存一份靜態報告(樣式內嵌);全部跑一次與單一情境重跑各留最近 20 份。
         先寫暫存檔再換名、檔案只給自己讀寫;清理只刪檔名完全符合報告格式、而且不是符號連結的檔
-        (代碼審 r1 v7/s4)。"""
+        (代碼審 r1 v7/s4)。只收緊預設的報告目錄,而且不跟著符號連結;使用者指定的目錄權限太寬只
+        警告。另存失敗記下原因,頁面看得到(代碼審 r2 s3)。"""
+        try:
+            path = self._write_report(run)
+        except OSError as broken:
+            self.report_note = f"報告沒存成:{type(broken).__name__}: {broken}"
+            print(self.report_note, file=sys.stderr)
+            return None
+        self.report_note = None
+        return path
+
+    def _write_report(self, run: Run) -> Path:
         self.reports.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if stat.S_IMODE(self.reports.stat().st_mode) & 0o077:
-            self.reports.chmod(0o700)  # 已經存在、權限比只給自己寬:收緊
+        info = self.reports.lstat()
+        if stat.S_IMODE(info.st_mode) & 0o077:
+            if self.tighten_reports and not stat.S_ISLNK(info.st_mode):
+                self.reports.chmod(0o700)  # 預設目錄、權限比只給自己寬:收緊
+            else:
+                print(f"注意:報告目錄 {self.reports} 別人也讀得到(報告檔本身只給自己讀寫)",
+                      file=sys.stderr)
         kind = "full" if run.full else "rerun"
         path = self.reports / f"demo-{kind}-{run.demo_id}.html"
         temporary = self.reports / f".{path.name}.{secrets.token_hex(4)}.tmp"
@@ -351,6 +384,9 @@ def _page(service: DemoService, query: str) -> Response:
         selected=None if state.running else _selected(query)))
 
 
+_DONE_HERE = frozenset({ALREADY_CONFIRMED, CONFIRMATION_IN_PROGRESS})
+
+
 def _approval_page(service: DemoService, _query: str) -> Response:
     state = service.state()
     if state.approval is None:
@@ -362,6 +398,8 @@ def _approval_page(service: DemoService, _query: str) -> Response:
                 reason = reader.confirmation_refusal(run.demo_id)
             finally:
                 reader.close()
+        if reason in _DONE_HERE:
+            return Response.redirect(CURRENT)  # 已經確認過:回到展示
         raise RequestRejected(409, reason)
     return Response.html(200, render_approval(state, form_token=service.token))
 
@@ -393,7 +431,12 @@ def _post(service: DemoService, path: str, form: dict[str, str]) -> Response:
                 raise RequestRejected(400, "unknown_scenario")
             service.start((code,), full=False)
         else:
-            service.approve(form)
+            try:
+                service.approve(form)
+            except ConfirmationClosed as closed:
+                if closed.code not in _DONE_HERE:
+                    raise
+                # 連按兩次:這一筆已經由這次展示確認(或正在簽),回到展示,不停在錯誤頁(代碼審 r2 v4)
     except DemoBusy:
         pass  # [S1013] 已有展示在跑:不再啟動,回到那一次的進度
     return Response.redirect(CURRENT)
@@ -404,6 +447,9 @@ class DemoHandler(JsonHandler):
 
     server: DemoServer
     require_host = True  # [S1017] 連 HTTP/1.0 也要帶本機的主機標頭
+    # 請求行壞掉時基底類別把版本當成 HTTP/0.9,錯誤回應就不寫狀態行與任何標頭;當成 HTTP/1.0,
+    # 壞請求的錯誤頁也帶齊安全標頭(代碼審 r2 s2)
+    default_request_version = "HTTP/1.0"
     content_security_policy = CONTENT_SECURITY_POLICY  # [S1023] 每個回應都帶
     extra_headers = _SAFE_HEADERS
 
@@ -440,8 +486,14 @@ def serve(service: DemoService) -> DemoServer:
     return DemoServer(service)
 
 
-def _terminate(_signum: int, _frame: FrameType | None) -> None:
-    raise SystemExit(128 + signal.SIGTERM)  # 跟 Ctrl-C 走同一條收尾路徑
+def _terminate(signum: int, _frame: FrameType | None) -> None:
+    raise SystemExit(128 + signum)  # SIGTERM、SIGHUP 跟 Ctrl-C 走同一條收尾路徑
+
+
+def _cleaning_up(_signum: int, _frame: FrameType | None) -> None:
+    """收尾中再來的 Ctrl-C、SIGTERM、SIGHUP:只說正在收尾,不打斷(打斷等待驅動執行緒,子行程就
+    變孤兒;代碼審 r2 v2/s1)。"""
+    print("正在收尾:停掉展示、收掉它起的行程,請稍候", file=sys.stderr, flush=True)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -453,13 +505,17 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     args.work_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     service = DemoService(args.work_dir / "demos", args.work_dir / "state.db",
-                          args.reports or default_reports())
+                          args.reports or default_reports(),
+                          tighten_reports=args.reports is None)
     server = serve(service)
-    signal.signal(signal.SIGTERM, _terminate)
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, _terminate)
     print(f"PORT={server.server_address[1]}", flush=True)
     try:
         server.serve_forever()
     finally:
+        for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(signum, _cleaning_up)
         server.server_close()
         service.stop()  # [代碼審 r1 v2] 停掉正在跑的展示,等驅動執行緒收完它起的行程
 

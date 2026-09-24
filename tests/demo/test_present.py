@@ -189,3 +189,58 @@ def test_nothing_is_current_when_the_demo_is_not_running(ran):
     tmp_path, _ = ran
     assert _state(tmp_path, running=False).current is None
     assert _state(tmp_path, running=True).current is not None
+
+
+# ---- 代碼審 r2(Phase 12 增量 2)----
+def test_a_write_let_through_by_a_person_shows_its_failed_check_on_the_page():
+    """[代碼審 r2 d1] 人確認後放行的那一筆照「判斷」顯示,頁面上看得到「超過總上限,人確認後放行」
+    那一組根據(原本歸成狀態前進,根據整組藏掉)。"""
+    from dataclasses import replace
+
+    from rtb.demo import present
+    from rtb.demo.page import render_page
+    from rtb.demo.state import DecisionKind
+    from rtb.demo.state_store import Basis, BasisCode, DecisionRow
+    from tests.demo.sample_data import make_demo_state
+
+    over = Basis("已經加出去 120,加上這次共 130", "全部廣告加起來的總上限 124",
+                 "超過總上限,人確認後放行", "執行端當下記下", BasisCode.TOTAL_OVER)
+    (decision,) = present._decisions([DecisionRow(
+        "x_write", ("x_total", "x_write"), "o", "r", datetime.now(UTC), "s", (over,), "k1",
+        "程式", "t1")])
+    assert decision.kind is DecisionKind.JUDGEMENT
+    state = make_demo_state()
+    first = replace(state.scenarios[0], path=(decision,), traversed_edges=())
+    html = render_page(replace(state, scenarios=(first, *state.scenarios[1:])),
+                       form_token="t", refresh_tick=1,  # noqa: S106 - 測試值
+                       selected=ScenarioCode.F1)
+    assert "人確認後放行" in html
+
+
+def test_the_known_limits_follow_the_demo_f7_size(monkeypatch):
+    """[代碼審 r2 d2] 已知限制裡的 F7 規模取自驅動程式的常數,不寫死。"""
+    from rtb.demo import driver, present
+
+    monkeypatch.setattr(driver, "F7_CAMPAIGNS", 40)
+    monkeypatch.setattr(driver, "F7_WORKERS", 3)
+    assert any("40 個廣告、3 個工作者" in line for line in present.known_limits())
+
+
+def test_where_a_result_came_from_is_what_that_demo_was(tmp_path):
+    """[代碼審 r2 g2/x1] 出處照結果所屬那一次展示記下的種類判定,不靠比對展示編號猜:第二次完整
+    展示在跑時標完整執行;從沒跑過完整展示時的單一重跑標單一情境重跑。"""
+    writer = StateWriter(tmp_path / "state.db", "rerun-1")
+    writer.record_demo(full=False)
+    writer.start_scenario("F1", datetime.now(UTC))
+    full = StateWriter(tmp_path / "state.db", "full-2")
+    full.record_demo(full=True)
+    full.start_scenario("F2", datetime.now(UTC))
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        rerun = build_demo_state(reader, "rerun-1", running=True, now=datetime.now(UTC))
+        second = build_demo_state(reader, "full-2", running=True, now=datetime.now(UTC),
+                                  full_demo_id="full-1", running_full=True)
+    finally:
+        reader.close()
+    assert rerun.scenarios[0].source_full is False
+    assert second.scenarios[1].source_full is True

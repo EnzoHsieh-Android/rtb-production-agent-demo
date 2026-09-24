@@ -49,12 +49,20 @@ from rtb.demo.state_store import (
 )
 
 MODEL_MODE_REASON = "目前分析程式還沒有接上 AI,這次沒有呼叫 AI"
-KNOWN_LIMITS = (
-    "這次只用本機模擬的廣告平台,沒有連到正式平台。",
-    "F7 是等比例縮小的規模(300 個廣告、8 個工作者);完整規模由自動查核跑的 F7 測試證明。",
-    "分析程式目前還沒有接上 AI:藏在廣告名稱裡的指令只驗了程式規則那一段,AI 那一段等之後接上再驗。",
-    "判斷的根據裡,分析程式那幾組是用存下的資料重算的,不是當時記下的。",
-)
+def known_limits() -> tuple[str, ...]:
+    """這次示範的範圍與限制;F7 的規模取自驅動程式當下的常數(代碼審 r2 d2:不寫死)。"""
+    from rtb.demo import driver
+
+    return (
+        "這次只用本機模擬的廣告平台,沒有連到正式平台。",
+        f"F7 是等比例縮小的規模({driver.F7_CAMPAIGNS} 個廣告、{driver.F7_WORKERS} 個工作者);"
+        "完整規模由自動查核跑的 F7 測試證明。",
+        "分析程式目前還沒有接上 AI:藏在廣告名稱裡的指令只驗了程式規則那一段,AI 那一段等之後接上"
+        "再驗。",
+        "判斷的根據裡,分析程式那幾組是用存下的資料重算的,不是當時記下的。",
+    )
+
+
 _STATUS = {"running": ScenarioStatus.RUNNING, "done": ScenarioStatus.DONE,
            "incomplete": ScenarioStatus.INCOMPLETE,
            "awaiting_confirmation": ScenarioStatus.AWAITING_APPROVAL}
@@ -129,10 +137,11 @@ def _decisions(rows: Sequence[DecisionRow]) -> tuple[Decision, ...]:
             edge = None
         node = edge[0] if edge is not None else row.node
         outcome = _EDGE_LABEL.get(edge, row.reason) if edge is not None else row.reason
+        # 帶沒通過的核對材料的那一步是真的判斷(人確認後放行),照判斷顯示根據(代碼審 r2 d1)
+        kind = (DecisionKind.JUDGEMENT if basis_of.failed_checks(row.basis) else _kind(node))
         found.append(Decision(node=node, taken_edge=edge, outcome=outcome, reason=row.reason,
                               at=row.at, basis=_basis(row.basis),
-                              operation_key=row.operation_key, kind=_kind(node),
-                              task_id=row.task))
+                              operation_key=row.operation_key, kind=kind, task_id=row.task))
     return tuple(found)
 
 
@@ -159,9 +168,9 @@ def _explains(code: str) -> str:
         scenario.goal or "")
 
 
-def _scenario(code: ScenarioCode, run: ScenarioRun | None, rows: Sequence[DecisionRow],
+def _scenario(code: ScenarioCode, run: ScenarioRun | None, rows: Sequence[DecisionRow],  # noqa: PLR0913 - 出處多帶一個展示種類
               details: ScenarioDetails | None, demo_id: str,
-              current_node: str | None) -> Scenario:
+              current_node: str | None, full: bool | None) -> Scenario:
     definition = SCENARIOS[code.value]
     path = _decisions(rows)
     details = details or ScenarioDetails()
@@ -177,6 +186,7 @@ def _scenario(code: ScenarioCode, run: ScenarioRun | None, rows: Sequence[Decisi
         audit=details.audit, model_step=None, hypothesis=None, path=path,
         current_node=current_node, result_summary=(run.summary or "") if run else "",
         traversed_edges=_traversed(path), source_demo_id=demo_id,
+        source_full=None if run is None else full,
         ran_at=None if run is None else run.started_at,
         model_mode=None if run is None else ModelMode.NOT_CALLED,
         change_summary=None if change is None else ChangeSummary(
@@ -203,11 +213,12 @@ def build_demo_state(  # noqa: PLR0913 - 伺服器依在跑的是哪一種展示
     shown_id = demo_id or ""
     runs = {run.code: run for run in reader.scenario_runs(shown_id)}
     current = reader.current(shown_id) if running else None
+    full = reader.demo_full(shown_id)
     scenarios = tuple(
         _scenario(code, runs.get(code.value), reader.decisions(shown_id, code.value),
                   reader.scenario_details(shown_id, code.value), shown_id,
                   current.node if current is not None
-                  and current.scenario == code.value else None)
+                  and current.scenario == code.value else None, full)
         for code in ScenarioCode)
     verifier = None if verifier_demo_id is None else reader.verifier_run(verifier_demo_id)
     lines = verifier.lines if verifier is not None else ()
@@ -228,7 +239,7 @@ def build_demo_state(  # noqa: PLR0913 - 伺服器依在跑的是哪一種展示
         verifier=None if verifier is None else VerifierResult(
             verifier.passed, verifier.lines, verifier.reasons, verifier.verified_at,
             verifier.demo_id),
-        known_limits=KNOWN_LIMITS, comparison=None, approval=approval, flow=FLOW_GRAPH,
+        known_limits=known_limits(), comparison=None, approval=approval, flow=FLOW_GRAPH,
         current=step, observed_at=now, model_mode_reason=MODEL_MODE_REASON, is_sample=False,
         full_demo_id=full_demo_id, verifier_pending=running_full and verifier is None,
     )

@@ -244,6 +244,8 @@ class Scenario:
     # (代碼審 r1 d9)
     traversed_edges: tuple[tuple[str, str], ...] = ()
     source_demo_id: str | None = None
+    # 出處那一次是全部跑一次(True)還是單一情境重跑(False);沒記是空的
+    source_full: bool | None = None
     ran_at: datetime | None = None
     model_mode: ModelMode | None = None
     change_summary: ChangeSummary | None = None
@@ -286,3 +288,4 @@ class DemoState:
     is_sample: bool = False
     full_demo_id: str | None = None  # 最近一次跑完的全部跑一次;空的就是還沒有完整執行過
     verifier_pending: bool = False  # 完整展示在跑、這次的自動查核還沒跑到
+    report_note: str | None = None  # 上一次另存報告失敗的原因(伺服器記下,頁面照實顯示)

@@ -250,3 +250,30 @@ def test_an_older_state_database_gets_the_task_column(tmp_path):
         assert [row.task for row in reader.decisions("d", "F1")] == [None, "t9"]
     finally:
         reader.close()
+
+
+# ---- 代碼審 r2(Phase 12 增量 2)----
+def test_signing_happens_outside_the_state_database_write(tmp_path, writer):
+    """[代碼審 r2 v3] 簽發時不握著展示狀態庫的寫鎖:先預留「簽發中」就提交,在交易外簽;這段時間
+    驅動程式關窗不會被卡住,而且把簽發中當成已經有人確認。"""
+    import threading
+    import time
+
+    from rtb.demo.state_store import StateWriter
+
+    writer.set_confirmation("F7", _request(), datetime.now(UTC) + timedelta(minutes=5))
+    closing = StateWriter(tmp_path / "state.db", "demo-1")
+    seen = {}
+
+    def sign(_code, _req):
+        def close():
+            started = time.monotonic()
+            seen["approved"] = closing.clear_confirmation()
+            seen["seconds"] = time.monotonic() - started
+
+        worker = threading.Thread(target=close)
+        worker.start()
+        worker.join(10)
+
+    writer.answer_confirmation(datetime.now(UTC), sign)
+    assert seen["approved"] is True and seen["seconds"] < 1.5

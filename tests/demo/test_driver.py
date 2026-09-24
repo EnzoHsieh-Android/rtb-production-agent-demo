@@ -1203,3 +1203,24 @@ def test_scenario_details_are_written_after_the_processes_are_closed(tmp_path):
     finally:
         reader.close()
     assert row.status == INCOMPLETE and row.finished_at is not None
+
+
+# ---- 代碼審 r2(Phase 12 增量 2)----
+def test_a_cancel_that_lands_before_the_scenario_starts_still_stops_it(tmp_path):
+    """[代碼審 r2 v2/s1] 取消落在「檢查 stop」與「記下正在跑的情境」之間:情境照樣收到停止,不會
+    跑到時限;記成展示被停止。"""
+    class Racing(StateWriter):
+        def start_scenario(self, code, at):
+            demo.cancel()  # 取消剛好落在這裡:驅動程式還沒記下正在跑的情境
+            super().start_scenario(code, at)
+
+    def waits(world):
+        world.stop.wait(20)
+        raise ScenarioFailed("情境自己的失敗")
+
+    writer = Racing(tmp_path / "state.db", "demo-1")
+    demo = _driver(tmp_path, writer, {"FX": Scenario("FX", "假", 30, waits)})
+    started = time.monotonic()
+    verdict = demo.run_one("FX")
+    assert time.monotonic() - started < 10
+    assert verdict.status == INCOMPLETE and "展示被停止" in verdict.reason

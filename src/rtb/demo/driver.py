@@ -1089,6 +1089,7 @@ def _before(world: World, campaign: str, writes: Sequence[DspWrite], key: str | 
 
 
 ALL_CODES = ("F1", "F2", "F3", "F4", "F5", "F6", "F7")
+CANCELLED = "展示故障:伺服器結束,展示被停止"
 PROJECT_ROOT = Path(launcher.SRC).parent
 # 驗證器自己跑 77 支證據測試(本機約 45 秒),它自己的期限 900 秒;外層比它長,正常逾時由驗證器自己
 # 收掉證據測試並印出原因,外層只是最後一道
@@ -1227,6 +1228,8 @@ class Driver:
         self.state.start_scenario(code, _now())
         world = World(self.root, code, self.keys, self.state, self.user_env, threading.Event())
         self._current = world
+        if self.stop.is_set():  # 取消剛好落在開跑前:cancel 那時還讀不到這個情境(代碼審 r2 v2/s1)
+            world.stop.set()
         try:
             verdict = self._attempt(scenario, world)
         finally:
@@ -1273,9 +1276,15 @@ class Driver:
             if worker.is_alive():
                 world.stop.set()  # 只停這個情境,不影響整次展示
                 worker.join(STOP_GRACE_SECONDS)  # 先等情境本體收手,再收行程、寫結果
+                if self.stop.is_set():
+                    return Verdict(scenario.code, INCOMPLETE, CANCELLED, None)
                 limit = f"{scenario.time_limit_seconds:.0f}"
                 return Verdict(scenario.code, INCOMPLETE, f"展示故障:超過情境總時限 {limit} 秒",
                                None)
+            if self.stop.is_set() and result[0].status != DONE:
+                # 整次展示被取消(伺服器結束):情境看到停止時丟的是它自己的失敗(例如「沒有人確認」),
+                # 那不是系統行為的結果,改寫成展示被停止(代碼審 r2 v1)
+                return Verdict(scenario.code, INCOMPLETE, CANCELLED, None)
             return result[0]
         finally:
             world.stop.set()  # 行程由 run_one 收(收尾出錯要改寫判定)

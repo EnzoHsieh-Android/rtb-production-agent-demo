@@ -602,7 +602,7 @@ def test_every_scenario_flow_moves_right_and_decision_numbers_match_cards() -> N
                 first, last = map(int, range_match.groups())
                 covered.extend(range(first, last + 1))
             else:
-                covered.append(int(badge.removeprefix("判斷 ")))
+                covered.append(int(re.match(r"判斷 (\d+)", badge).group(1)))  # 可能帶「・經 N」
         assert covered == list(range(1, len(scenario.path) + 1))
         for group in nodes:
             lines = group.findall('text[@class="node-label"]/tspan')
@@ -738,7 +738,7 @@ def test_back_arrows_return_to_formal_target_outside_the_lanes() -> None:
 
 def test_owner_palette_has_labels_shapes_and_aa_text_contrast() -> None:
     from rtb.demo.flow import FLOW_GRAPH
-    from rtb.demo.page import _SHORT_LABELS
+    from rtb.demo.flow_svg import _SHORT_LABELS
 
     css = DEMO_CSS  # 樣式表跟頁面同一份(不靠工作目錄的相對路徑;代碼審 r1 t9)
     assert {node.id for node in FLOW_GRAPH.nodes} <= set(_SHORT_LABELS)
@@ -1025,7 +1025,7 @@ def test_every_scenario_shows_where_its_result_came_from() -> None:
     F7 註明規模縮小;沒跑過的照實寫;自動查核那一格沒有完整執行過時照實寫。"""
     state = replace(make_demo_state(), is_sample=False, full_demo_id="2026-09-24-001")
     f3 = state.scenarios[2]
-    rerun = replace(f3, source_demo_id="2026-09-25-rerun")
+    rerun = replace(f3, source_demo_id="2026-09-25-rerun", source_full=False)
     unrun = replace(state.scenarios[3], source_demo_id=None, ran_at=None,
                     status=ScenarioStatus.PENDING)
     shown = replace(state, scenarios=(*state.scenarios[:2], rerun, unrun,
@@ -1239,3 +1239,83 @@ def test_many_decisions_are_summarised_and_each_edge_is_drawn_once() -> None:
     assert len(big) < 2 * len(page(20))
     routes = re.findall(r'<div class="branch-route">.*?</div>', big)
     assert len(routes) == len(set(routes))
+
+
+# ---- 代碼審 r2(Phase 12 增量 2)----
+def test_the_origin_label_follows_the_kind_of_demo_it_came_from() -> None:
+    """[代碼審 r2 g2/x1] 出處照結果所屬展示記下的種類寫:完整執行、單一情境重跑;不知道種類的不寫成
+    完整執行。"""
+    state = replace(make_demo_state(), is_sample=False, full_demo_id=None)
+    first = state.scenarios[0]
+    for full, text in ((True, "取自完整執行"), (False, "取自單一情境重跑"), (None, "取自展示")):
+        shown = replace(state, scenarios=(replace(first, source_full=full), *state.scenarios[1:]))
+        markup = render_page(shown, form_token="t", selected=ScenarioCode.F1)
+        origin = markup.split('class="source-note">', 1)[1].split("</p>", 1)[0]
+        assert origin.startswith(text), origin
+        if full is None:
+            assert "取自完整執行" not in origin
+
+
+def test_a_skip_line_passes_above_the_node_numbers_and_says_how_many_it_skips() -> None:
+    """[代碼審 r2 g3] 跨過同一泳道的虛線走在「判斷 N」編號字的上方,不劃過編號;跳過幾個節點在
+    畫面上看得到。"""
+    path = (_step("x_pick", ("x_pick", "x_precheck")),
+            _step("x_precheck", ("x_precheck", "x_guard")),
+            _step("x_guard", ("x_guard", "x_total")), _step("x_pick", ("x_pick", "x_deadletter")))
+    state = make_demo_state()
+    first = replace(state.scenarios[0], path=path,
+                    traversed_edges=tuple(d.taken_edge for d in path if d.taken_edge))
+    svg = _svg(render_page(replace(state, scenarios=(first, *state.scenarios[1:])),
+                           form_token="t", selected=ScenarioCode.F1))
+    gap = int(re.findall(r"-?\d+", re.findall(
+        r'<g class="flow-edge is-taken is-skip">.*?<path d="([^"]+)"', svg)[0])[3])
+    badge_tops = [int(y) - 12 for y in re.findall(r'class="decision-badge" x="\d+" y="(\d+)"', svg)]
+    assert badge_tops and gap < min(badge_tops)
+    assert re.search(r'<text class="skip-note"[^>]*>跳過 3 個</text>', svg)
+
+
+def test_node_numbers_that_jump_ahead_say_how_the_flow_got_there() -> None:
+    """[代碼審 r2 g4] 節點照第一次走到的時間排;它自己的第一張判斷卡比較晚時,編號旁標出是經哪一張
+    卡走到的,讀起來不會以為後面的步驟先發生。"""
+    path = (_step("x_pick", ("x_pick", "x_precheck")),
+            _step("x_precheck", ("x_precheck", "x_guard")),
+            _step("x_guard", ("x_guard", "x_total")),
+            _step("x_pick", ("x_pick", "x_precheck")),
+            _step("x_total", ("x_total", "x_write")))
+    state = make_demo_state()
+    first = replace(state.scenarios[0], path=path,
+                    traversed_edges=tuple(d.taken_edge for d in path if d.taken_edge))
+    svg = _svg(render_page(replace(state, scenarios=(first, *state.scenarios[1:])),
+                           form_token="t", selected=ScenarioCode.F1))
+    badges = re.findall(r'class="decision-badge"[^>]*>([^<]+)<', svg)
+    assert badges == ["判斷 1", "判斷 2", "判斷 3", "判斷 5・經 3"]
+
+
+def test_the_fifth_summary_cell_has_its_own_border_on_narrow_screens() -> None:
+    """[代碼審 r2 g5] 窄螢幕摘要列兩欄時,第 5 格(開始時間)有上框線、沒有左框線。"""
+    narrow = "".join(block.split("}\n", 1)[0]
+                     for block in DEMO_CSS.split("@media(max-width:760px)")[1:])
+    assert re.search(r"\.summary-strip>div:nth-child\(5\)\s*\{[^}]*border-top:1px solid[^}]*"
+                     r"border-left:0", narrow)
+
+
+def test_a_step_back_in_the_middle_of_a_path_still_shows_where_it_returns() -> None:
+    """[代碼審 r2 g6] 回頭轉換落在路徑中段(換人接手之後還有下一步)也畫回頭線、標「回到:…」。"""
+    path = (_step("x_pick", ("x_pick", "x_precheck")),
+            _step("x_precheck", ("x_precheck", "x_guard")),
+            _step("x_reclaimed", None),
+            _step("x_guard", ("x_guard", "x_total")))
+    state = make_demo_state()
+    first = replace(state.scenarios[0], path=path,
+                    traversed_edges=tuple(d.taken_edge for d in path if d.taken_edge))
+    svg = _svg(render_page(replace(state, scenarios=(first, *state.scenarios[1:])),
+                           form_token="t", selected=ScenarioCode.F1))
+    assert re.search(r'<g class="flow-return">.*?回到：領取建議', svg, re.DOTALL)
+
+
+def test_the_cost_line_says_no_ai_was_called_instead_of_no_run() -> None:
+    """[代碼審 r2 g7] 這次沒有呼叫 AI:技術資訊的費用照實寫,不寫「尚無完整執行紀錄」。"""
+    state = replace(make_demo_state(), is_sample=False, model_mode=ModelMode.NOT_CALLED,
+                    model_cost_usd=None, last_full_run_cost_usd=None, full_demo_id="d")
+    markup = render_page(state, form_token="t")
+    assert "尚無完整執行紀錄" not in markup and "沒有呼叫 AI，沒有費用" in markup

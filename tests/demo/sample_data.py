@@ -253,6 +253,7 @@ def _scenario(
         traversed_edges=trace,
         source_demo_id="2026-09-24-001",
         ran_at=NOW,
+        source_full=True,  # 範例的七個情境都取自同一次完整執行
         model_mode=ModelMode.RECORDED,
         change_summary=_CHANGES[code],
         trigger="排程每 15 分鐘檢查一次廣告花費",

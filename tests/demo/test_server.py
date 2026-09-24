@@ -305,6 +305,7 @@ def test_a_finished_demo_saves_a_static_report_and_keeps_twenty(service):
     符號連結;報告只給自己讀寫、目錄權限收緊(代碼審 r1 v7/s4)。"""
     import stat
 
+    service.tighten_reports = True  # 預設的報告目錄才收緊(代碼審 r2 s3)
     service.reports.mkdir(parents=True, mode=0o755)
     service.reports.chmod(0o755)
     for i in range(25):
@@ -509,12 +510,17 @@ def test_an_approval_without_a_valid_token_or_from_another_site_signs_nothing(ru
 
 
 def test_the_same_confirmation_cannot_be_signed_twice(running, f7):
-    """[代碼審 r1 x3/s5/v5] 同一張確認只簽一次:再送一次同一張表單拒絕、說明已確認過。"""
+    """[代碼審 r1 x3/s5/v5] 同一張確認只簽一次:再送一次同一張表單不再簽;確認窗記成已確認過
+    (第二次送出轉回展示,見代碼審 r2 v4)。"""
     fields, _ = _approval_fields(f7)
     assert _post(running, "/approve", fields)[0] == 303
-    status, _, body = _post(running, "/approve", fields)
-    assert status == 409 and "already_confirmed" in body
+    _post(running, "/approve", fields)
     assert _signed(f7) == 1
+    reader = StateReader(f7.state_db)
+    try:
+        assert reader.confirmation_refusal(f7.current.demo_id) == "already_confirmed"
+    finally:
+        reader.close()
 
 
 def test_a_signed_approval_expires_within_five_minutes(running, f7):
@@ -676,13 +682,15 @@ def test_the_report_from_the_server_links_the_stylesheet_its_policy_allows(runni
 
 
 def test_every_response_is_not_cached_sniffed_or_referred(running):
-    """[代碼審 r1 s6] 每個回應(含錯誤頁)都帶不快取、不猜內容型別、不送來源網址的標頭。"""
+    """[代碼審 r1 s6] 每個回應(含錯誤頁)都帶不快取、不猜內容型別、不把來源網址送到別的網站的
+    標頭。"""
     for method, path in (("GET", "/"), ("GET", "/approve"), ("GET", "/nothing"),
                          ("POST", "/run")):
         _, headers, _ = _request(running, method, path)
         assert headers["Cache-Control"] == "no-store", path
         assert headers["X-Content-Type-Options"] == "nosniff", path
-        assert headers["Referrer-Policy"] == "no-referrer", path
+        # same-origin:不把來源網址送到別的網站,同源表單照常帶 Origin(代碼審 r2 g1)
+        assert headers["Referrer-Policy"] == "same-origin", path
 
 
 @pytest.mark.parametrize(("error", "status", "code"), [
@@ -815,3 +823,129 @@ def _children(work):
                              text=True, check=False).stdout
     return [int(line.split(None, 1)[0]) for line in listing.splitlines()
             if str(work) in line and "rtb.demo.server" not in line]
+
+
+# ---- 代碼審 r2(Phase 12 增量 2)----
+def test_a_form_sent_the_way_a_browser_sends_it_under_the_page_policy_is_accepted(running,
+                                                                                 service):
+    """[代碼審 r2 g1] 頁面回應的來源網址政策不能讓瀏覽器把表單的 Origin 送成 null(no-referrer 會):
+    政策是 same-origin,同源表單照常帶真的 Origin,同源檢查放行;Origin: null 照樣拒。"""
+    _, headers, _ = _request(running, "GET", "/")
+    assert headers["Referrer-Policy"] == "same-origin"
+    service.driver_factory = _factory(gate := Gate())
+    try:
+        browser = {"Content-Type": FORM["Content-Type"], "Sec-Fetch-Site": "same-origin",
+                   "Origin": f"http://127.0.0.1:{running}"}
+        assert _post(running, "/run", {"token": service.token}, browser)[0] == 303
+        assert service.running
+    finally:
+        _finish(service, gate)
+    nulled = {**FORM, "Origin": "null"}
+    assert _post(running, "/run", {"token": service.token}, nulled)[0] == 403
+
+
+def test_a_stop_while_f7_waits_for_confirmation_is_not_recorded_as_nobody_confirming(f7):
+    """[代碼審 r2 v1] 伺服器收尾取消展示:被取消的情境寫「展示被停止」,不寫成情境自己的失敗(原本
+    F7 記成「沒有人確認」);被取消的展示不換成最新一次、不另存報告。"""
+    before = (f7.full_demo_id, dict(f7.reruns))
+    f7.stop()
+    assert _wait(lambda: not f7.running, 60)
+    verdict = _f7_verdict(f7)
+    assert verdict.status == "incomplete" and verdict.reason != "沒有人確認"
+    assert "展示被停止" in verdict.reason
+    assert (f7.full_demo_id, dict(f7.reruns)) == before
+    assert not list(f7.reports.glob("demo-*.html"))
+
+
+def test_no_demo_starts_once_the_server_is_shutting_down(service):
+    """[代碼審 r2 v2] 收尾開始之後才到的觸發(處理中的 POST /run)不再啟動展示。"""
+    service.stop()
+    with pytest.raises(server_module.RequestRejected) as refused:
+        service.start(driver_module.ALL_CODES, full=True)
+    assert refused.value.status == 503 and not service.running
+
+
+@pytest.mark.parametrize("signals", [("SIGHUP",), ("SIGINT", "SIGINT"), ("SIGTERM", "SIGINT")])
+def test_hanging_up_or_signalling_twice_still_leaves_no_child_processes(tmp_path, signals):
+    """[代碼審 r2 v2/s1] 關掉終端機(SIGHUP)、收尾中再按一次 Ctrl-C 或再送 SIGTERM:收尾照樣做完,
+    子行程一個都不留。"""
+    import signal
+    import subprocess
+    import sys
+
+    work = tmp_path / "work"
+    popen = subprocess.Popen(
+        [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
+         "--reports", str(work / "reports")],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    try:
+        port = int(popen.stdout.readline().strip().removeprefix("PORT="))
+        page = _request(port, "GET", "/")[2]
+        token = re.search(r'name="token" value="([^"]+)"', page).group(1)
+        _post(port, "/run/scenario", {"token": token, "scenario": "F7"})  # 行程最多、收得最久
+        assert _wait(lambda: len(_children(work)) >= 8, 60), "子行程沒起來"
+        for index, name in enumerate(signals):
+            if index:
+                time.sleep(0.1)
+            popen.send_signal(getattr(signal, name))
+        popen.wait(90)
+        assert _wait(lambda: not _children(work), 10), _children(work)
+    finally:
+        if popen.poll() is None:
+            popen.kill()
+        for pid in _children(work):
+            os.kill(pid, signal.SIGKILL)
+
+
+def test_confirming_twice_takes_you_back_to_the_demo(running, f7):
+    """[代碼審 r2 v4] 確認頁連按兩次:第二次不停在英文錯誤頁,轉回展示(這次展示已經確認過);只簽
+    一張。"""
+    fields, _ = _approval_fields(f7)
+    assert _post(running, "/approve", fields)[0] == 303
+    status, headers, _ = _post(running, "/approve", fields)
+    assert (status, headers.get("Location")) == (303, "/#current")
+    assert _signed(f7) == 1
+
+
+@pytest.mark.parametrize("line", [b"GARBAGE\r\n\r\n", b"GET / HTTP/9.9\r\n\r\n"])
+def test_a_broken_request_line_still_gets_the_safety_headers(running, line):
+    """[代碼審 r2 s2] 請求行壞掉(會被當成 HTTP/0.9)的錯誤回應也帶狀態行與安全標頭。"""
+    import socket
+
+    with socket.create_connection(("127.0.0.1", running), timeout=5) as conn:
+        conn.sendall(line)
+        data = b""
+        while chunk := conn.recv(4096):
+            data += chunk
+    head = data.split(b"\r\n\r\n", 1)[0]
+    assert head.startswith(b"HTTP/1.")
+    for name in (b"Content-Security-Policy", b"Cache-Control: no-store",
+                 b"X-Content-Type-Options: nosniff"):
+        assert name in head, name
+
+
+def test_a_reports_directory_the_user_named_is_left_as_it_is(service, tmp_path):
+    """[代碼審 r2 s3] 使用者用 --reports 指定的目錄不擅自改權限;只收緊預設目錄,而且不跟著符號連結;
+    另存失敗讓頁面看得到。"""
+    import stat
+
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    shared.chmod(0o755)
+    service.reports, service.tighten_reports = shared, False
+    _full_then_rerun(service, "F1")
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+    assert list(shared.glob("demo-full-*.html"))
+    real = tmp_path / "real"
+    real.mkdir(mode=0o755)
+    real.chmod(0o755)
+    link = tmp_path / "linked"
+    link.symlink_to(real)
+    service.reports, service.tighten_reports = link, True
+    _full_then_rerun(service, "F2")
+    assert stat.S_IMODE(real.stat().st_mode) == 0o755  # 符號連結不跟著收緊
+    blocked = tmp_path / "blocked"
+    blocked.write_text("檔案佔住目錄的位置", encoding="utf-8")
+    service.reports = blocked
+    _full_then_rerun(service, "F3")
+    assert "報告沒存成" in service.state().report_note

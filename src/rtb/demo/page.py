@@ -1,28 +1,32 @@
 # ruff: noqa: RUF001, RUF002
 """把展示狀態安全地轉成無腳本 HTML。"""
 
-import html
-import unicodedata
-from collections import defaultdict
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Final
 
+from rtb.demo.flow_svg import (
+    _LANE_ORDER,
+    _cards,
+    _edge_label,
+    _flow_label,
+    _node_map,
+    _render_flow,
+    _validate_flow,
+    escape_text,
+)
 from rtb.demo.state import (
     ApprovalForm,
     ChangeSummary,
     Decision,
     DecisionKind,
     DemoState,
-    FlowEdge,
     FlowGraph,
     FlowNode,
     ModelMode,
     ModelSource,
     NodeKind,
-    NodeOwner,
     Scenario,
     ScenarioCode,
     ScenarioStatus,
@@ -129,71 +133,6 @@ _STATUS_ICON: Final = {
     ScenarioStatus.INCOMPLETE: "!",
 }
 
-_NODE_WIDTH: Final = 144
-_AI_WIDTH: Final = 144
-_GROUP_WIDTH: Final = 190
-_NODE_HEIGHT: Final = 80
-_STEP_SPACING: Final = 97
-_LANE_HEIGHT: Final = 140
-_LANE_ORDER: Final = ("分析", "收件", "執行", "廣告平台", "人工")
-_FLOW_HEIGHT: Final = len(_LANE_ORDER) * _LANE_HEIGHT + 100
-_GROUP_ID: Final = "analysis_group"
-_SECOND_GROUP_ID: Final = "analysis_after_ai"
-_GROUP_IDS: Final = frozenset({_GROUP_ID, _SECOND_GROUP_ID})
-
-_SHORT_LABELS: Final[dict[str, str]] = {
-    "a_receive": "收到工作", "a_collect": "蒐集資料", "a_fresh": "資料夠新？",
-    "a_complete": "資料齊全？", "a_pacing": "花費偏慢？", "a_route": "選擇判法",
-    "a_candidate": "候選判斷", "a_rule": "規則判斷", "a_worth": "值得加？",
-    "a_no_action": "不調整", "a_failed": "工作失敗", "a_propose": "寫好建議",
-    "a_narrate": "撰寫說明", "a_submit": "送出建議",
-    "i_check": "收件檢查", "i_superseded": "舊建議停下", "x_pending": "等待執行",
-    "x_pick": "領取建議", "x_precheck": "寫入前檢查", "x_guard": "權限與加幅",
-    "x_total": "帳戶總上限", "x_write": "送去寫入", "p_reply": "平台回覆",
-    "x_unknown": "查明結果", "x_verify": "核對預算", "x_done": "完成",
-    "x_reclaimed": "換人接手", "x_blocked": "擋下寫入", "a_followup": "開新工作",
-    "x_deadletter": "停下等人", "h_replay": "人工決定", "r_requeued": "重新排隊",
-    "a_blocked_end": "工作結束", "x_wait_approval": "等待確認",
-    "h_approve": "人工確認", "x_approved": "重新排隊", "x_deferred": "放回排隊",
-    "x_lease_lost": "放回排隊", "x_expired": "建議過期", "a_recollect": "重新蒐集",
-    "a_restale": "重新蒐集", "x_resend": "同筆重送", "x_recheck": "稍後再查",
-    "x_existing": "已有寫入", "x_failed": "寫入失敗", "x_escalated": "交給人工",
-    "h_replay_refused": "不重新送入", "h_resolve": "人工查明",
-    "ai_hypothesis": "推測原因",
-}
-
-
-@dataclass(frozen=True, slots=True)
-class _FlowView:
-    nodes: tuple[FlowNode, ...]
-    active_edges: tuple[FlowEdge, ...]
-    visited: frozenset[str]
-    groups: tuple[tuple[str, tuple[FlowNode, ...]], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class _LaneBand:
-    name: str
-    top: int
-    height: int
-
-
-def escape_text(s: str) -> str:
-    """逸出 HTML，並把不可見控制字元改成可辨識的 Unicode 代碼。"""
-    visible = "".join(_visible_character(character) for character in s)
-    return html.escape(visible, quote=True)
-
-
-def _visible_character(character: str) -> str:
-    if unicodedata.category(character).startswith("C"):
-        return f"〔U+{ord(character):04X}〕"
-    return character
-
-
-def _flow_label(label: str) -> str:
-    """正式圖的內部稱呼在展示層換成讀者熟悉的字。"""
-    return label.replace("模型", "AI")
-
 
 def disposition_text(category: str, code: str) -> str:
     """取得處置代碼的白話說明。"""
@@ -224,8 +163,7 @@ def render_report(state: DemoState, *, inline_styles: bool = True) -> str:
     _validate_flow(state.flow)
     scenarios = "".join(
         '<article class="report-scenario">'
-        f"{_render_focus(scenario, state.flow, id_suffix=scenario.code.value, compact=True,
-                         full_demo_id=state.full_demo_id)}"
+        f"{_render_focus(scenario, state.flow, id_suffix=scenario.code.value, compact=True)}"
         "</article>"
         for scenario in state.scenarios
     )
@@ -307,7 +245,7 @@ def _render_document(
         f"</div>{_render_summary(state)}{actions}</header>"
         f"{_render_system_map(state.flow)}"
         f"{_render_scenario_index(state, focus, interactive, form_token)}"
-        f"{_render_focus(focus, state.flow, full_demo_id=state.full_demo_id)}"
+        f"{_render_focus(focus, state.flow)}"
         '</main>'
     )
     return f'<!doctype html><html lang="zh-Hant">{head}<body>{body}</body></html>'
@@ -377,9 +315,11 @@ def _render_summary(state: DemoState) -> str:
         for label, value, detail in primary
     )
     last_cost = (
-        "尚無完整執行紀錄"
-        if state.last_full_run_cost_usd is None
-        else f"{_decimal(state.last_full_run_cost_usd)} 美元"
+        f"{_decimal(state.last_full_run_cost_usd)} 美元"
+        if state.last_full_run_cost_usd is not None
+        else "沒有呼叫 AI，沒有費用"  # 代碼審 r2 g7:沒有費用不是沒有完整執行紀錄
+        if state.model_mode is ModelMode.NOT_CALLED
+        else "尚無完整執行紀錄"
     )
     technical = (
         ("本次展示編號", state.demo_id or "—"),
@@ -393,6 +333,7 @@ def _render_summary(state: DemoState) -> str:
     )
     return (
         f'{notice}<dl class="summary-strip">{cards}</dl>{_render_verifier_detail(state.verifier)}'
+        f"{_render_report_note(state.report_note)}"
         '<details class="meta-details">'
         f"<summary>技術資訊（追查時再看）</summary><dl>{rows}</dl></details>"
     )
@@ -418,6 +359,13 @@ def _verifier_summary(state: DemoState) -> tuple[str, str | None]:
     verdict = "✓ 通過" if verifier.passed else "! 發現問題"
     return verdict, (f"取自 {_format_time(verifier.verified_at)} 那次完整執行"
                      f"（展示編號 {verifier.demo_id}）")
+
+
+def _render_report_note(note: str | None) -> str:
+    """上一次另存報告沒存成:照實顯示原因(代碼審 r2 s3)。"""
+    if not note:
+        return ""
+    return f'<p class="report-note"><strong>注意：</strong>{escape_text(note)}</p>'
 
 
 def _render_verifier_detail(verifier: VerifierResult | None) -> str:
@@ -594,7 +542,7 @@ def _render_scenario_row(
     status_class = _STATUS_CLASS[scenario.status]
     status = f"{_STATUS_ICON[scenario.status]} {scenario.status.value}"
     result = scenario.result_summary or _fallback_result(scenario)
-    origin = _origin_kind(scenario, state.full_demo_id)
+    origin = _origin_kind(scenario)
     content = (
         f'<span class="scenario-code">{escape_text(scenario.code.value)}</span>'
         f'<span class="scenario-name">{escape_text(scenario.title)}</span>'
@@ -640,7 +588,6 @@ def _render_focus(
     *,
     id_suffix: str | None = None,
     compact: bool = False,
-    full_demo_id: str | None = None,
 ) -> str:
     status_class = _STATUS_CLASS[scenario.status]
     status = f"{_STATUS_ICON[scenario.status]} {scenario.status.value}"
@@ -660,7 +607,7 @@ def _render_focus(
         f'<h2 id="{escape_text(title_id)}"><span>{escape_text(scenario.code.value)}</span> '
         f"{escape_text(scenario.title)}</h2>"
         f"<p>{escape_text(scenario.what_it_tests)}</p>"
-        f"{_render_scenario_origin(scenario, full_demo_id)}{reason}</div>"
+        f"{_render_scenario_origin(scenario)}{reason}</div>"
         f'<span class="status {status_class}">{escape_text(status)}</span></div>'
         f"{_render_change_summary(scenario.change_summary, scenario.change_overview)}"
         f"{_render_result_evidence(scenario)}"
@@ -677,16 +624,17 @@ def _render_focus(
 _SCALED_DOWN: Final = "規模縮小：這是等比例縮小的展示；完整規模由自動查核跑的 F7 測試證明。"
 
 
-def _origin_kind(scenario: Scenario, full_demo_id: str | None) -> str:
-    """[S1054] 這個情境的結果取自哪一種執行:完整執行、單一情境重跑,或還沒有執行紀錄。"""
+def _origin_kind(scenario: Scenario) -> str:
+    """[S1054] 這個情境的結果取自哪一種執行:照結果所屬那一次展示記下的種類寫(完整執行、單一情境
+    重跑);沒記種類的只寫取自哪一次,不猜成完整執行(代碼審 r2 g2/x1)。"""
     if scenario.source_demo_id is None or scenario.ran_at is None:
         return "還沒有執行紀錄"
-    if full_demo_id is not None and scenario.source_demo_id != full_demo_id:
-        return "取自單一情境重跑"
-    return "取自完整執行"
+    if scenario.source_full is None:
+        return "取自展示"
+    return "取自完整執行" if scenario.source_full else "取自單一情境重跑"
 
 
-def _scenario_origin_text(scenario: Scenario, full_demo_id: str | None = None) -> str:
+def _scenario_origin_text(scenario: Scenario) -> str:
     """[S1054] 逐情境出處:展示編號、時間、AI 模式;F7 另註明規模縮小([S1012])。"""
     if scenario.source_demo_id is None or scenario.ran_at is None:
         return "這個情境還沒有執行紀錄"
@@ -698,9 +646,9 @@ def _scenario_origin_text(scenario: Scenario, full_demo_id: str | None = None) -
         else f"AI 採{scenario.model_mode.value}方式"
     )
     scale = f"；{_SCALED_DOWN}" if scenario.code is ScenarioCode.F7 else ""
-    kind = _origin_kind(scenario, full_demo_id)
-    place = ("" if kind == "取自單一情境重跑"
-             else f"的第 {list(ScenarioCode).index(scenario.code) + 1} 個情境")
+    kind = _origin_kind(scenario)
+    place = (f"的第 {list(ScenarioCode).index(scenario.code) + 1} 個情境"
+             if scenario.source_full else "")
     return (
         f"{kind}（展示編號 {scenario.source_demo_id}）{place}，"
         f"情境執行編號 {scenario.source_demo_id}-{scenario.code.value}；"
@@ -708,9 +656,8 @@ def _scenario_origin_text(scenario: Scenario, full_demo_id: str | None = None) -
     )
 
 
-def _render_scenario_origin(scenario: Scenario, full_demo_id: str | None = None) -> str:
-    return (f'<p class="source-note">'
-            f"{escape_text(_scenario_origin_text(scenario, full_demo_id))}</p>")
+def _render_scenario_origin(scenario: Scenario) -> str:
+    return f'<p class="source-note">{escape_text(_scenario_origin_text(scenario))}</p>'
 
 
 def _render_change_summary(change: ChangeSummary | None, overview: str | None = None) -> str:
@@ -747,499 +694,6 @@ def _render_result_evidence(scenario: Scenario) -> str:
         f'操作鍵 {escape_text(scenario.operation_key or "(這次沒有記錄)")}；'
         f'平台套用次數 {escape_text(apply_count)}</p></details></div>'
     )
-
-
-def _render_flow(flow: FlowGraph, scenario: Scenario) -> str:
-    view = _flow_view(flow, scenario)
-    if not view.nodes:
-        return '<p class="empty flow-empty">這個情境還沒有走過的路徑紀錄。</p>'
-    if scenario.hypothesis is not None:
-        advisory = FlowNode("ai_hypothesis", "AI 推測可能原因(只供參考)",
-                            NodeKind.STEP, "分析", NodeOwner.AI)
-        view = _FlowView((*view.nodes, advisory), view.active_edges,
-                         view.visited | {advisory.id}, view.groups)
-    positions, lanes, width = _flow_layout(view.nodes)
-    lane_bands = _render_lane_bands(lanes, width)
-    lane_labels = "".join(
-        f'<div class="flow-lane">{escape_text(lane.name)}</div>' for lane in lanes
-    )
-    marker_id = f"arrow-{scenario.code.value}"
-    lanes_of = {node.id: node.lane for node in view.nodes}
-    active_edges = "".join(
-        _render_active_edge(edge, positions, marker_id, lanes_of)
-        for edge in view.active_edges
-        if edge.target in positions
-    )
-    sequence: dict[str, int] = {}  # 節點 → 第一次出現在哪一張判斷卡(代碼審 r1 p5)
-    for index, (item, _count) in enumerate(_cards(scenario.path), start=1):
-        sequence.setdefault(item.node, index)
-    groups = dict(view.groups)
-    nodes = "".join(
-        _render_node(
-            node,
-            positions[node.id],
-            node.id in view.visited,
-            node.id == scenario.current_node or scenario.current_node in {
-                item.id for item in groups.get(node.id, ())
-            },
-            sequence.get(node.id),
-            tuple(sequence[item.id] for item in groups.get(node.id, ()) if item.id in sequence),
-            groups.get(node.id, ()),
-            tuple(fault.description for fault in scenario.injected_faults
-                  if fault.node == node.id or fault.node in {
-                      item.id for item in groups.get(node.id, ())
-                  }),
-        )
-        for node in view.nodes
-    )
-    back = _render_back_edge(view.nodes, positions, width, marker_id)
-    queued = "x_pending" in {node.id for node in view.nodes}
-    handoff = _render_handoff(positions, queued=queued)
-    wait = ("(這次沒有記錄)" if scenario.queue_wait_seconds is None else
-            f"{scenario.queue_wait_seconds} 秒")
-    faults = "".join(
-        f'<p class="fault-note">展示故意製造：{escape_text(fault.description)}'
-        f'（位置：{escape_text(_SHORT_LABELS.get(fault.node, fault.node))}）</p>'
-        for fault in scenario.injected_faults
-    ) or '<p class="fault-note is-empty">這個情境沒有安排故障</p>'
-    queue_note = (
-        f"交給另一段程式；在排隊等了 {wait}"
-        if queued else "交給另一段程式；收件後沒有進入執行佇列"
-    )
-    return (
-        '<div class="flow-toolbar"><p><strong>實線</strong>是這次走過的路徑；'
-        '淡色虛線是沒走的分支；回頭箭頭表示回到前一步。</p>'
-        '<p class="flow-legend"><span class="legend-code">程式（Code）</span>'
-        '<span class="legend-ai">AI（只供參考）</span><span class="legend-human">人工</span>'
-        '<span class="legend-external">外部平台</span>'
-        '<span>✓ 已經過</span><span>▶ 正在處理</span></p>'
-        '<p class="ai-boundary">目前正式預算決策由程式規則執行；'
-        'AI 候選另行評估，AI 說明與推測供參考。</p></div>'
-        f'<p class="queue-note">{escape_text(queue_note)}</p>'
-        '<div class="diagram-view">'
-        f'<input class="diagram-zoom" type="checkbox" id="zoom-{scenario.code.value}">'
-        '<div class="diagram-actions"><span>處理流程 · 可左右捲動閱讀</span>'
-        f'<label for="zoom-{scenario.code.value}"><span class="zoom-out">完整總覽</span>'
-        '<span class="zoom-in">清楚閱讀</span></label></div>'
-        '<div class="diagram-frame"><div class="flow-lanes" aria-label="處理角色">'
-        f'{lane_labels}</div><div class="flow-scroll" tabindex="0" '
-        'role="region" aria-label="處理流程，可使用左右方向鍵捲動"><div class="flow-canvas">'
-        f'<svg class="flow-graph" role="img" aria-label="{escape_text(scenario.code.value)} '
-        f'處理流程圖" viewBox="0 0 {width} {_FLOW_HEIGHT}" '
-        f'width="{width}" height="{_FLOW_HEIGHT}"><defs>'
-        f'<marker id="{marker_id}" markerWidth="8" '
-        'markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" '
-        'class="arrow-head"></path></marker></defs>'
-        f"{lane_bands}{active_edges}{handoff}{back}{nodes}</svg></div></div></div></div>"
-        f"{faults}{_render_untaken_branches(flow, scenario)}"
-    )
-
-
-def _render_handoff(positions: dict[str, tuple[int, int]], *, queued: bool) -> str:
-    if "i_check" not in positions:
-        return ""
-    source = next((node for node in ("a_submit", _SECOND_GROUP_ID, _GROUP_ID)
-                   if node in positions), None)
-    if source is None:
-        return ""
-    x = (positions[source][0] + (_GROUP_WIDTH if source in _GROUP_IDS else _NODE_WIDTH)
-         + positions["i_check"][0]) // 2
-    y = positions[source][1] + 110
-    return (
-        '<g class="flow-handoff"><title>交給另一段程式</title>'
-        f'<rect x="{x - 25}" y="{y - 22}" width="50" height="44" rx="4"></rect>'
-        f'<text x="{x}" y="{y - 2}">∕∕</text>'
-        f'<text x="{x}" y="{y + 14}">{"佇列" if queued else "收件"}</text></g>'
-    )
-
-
-def _render_untaken_branches(flow: FlowGraph, scenario: Scenario) -> str:
-    """每條未走分支只畫到最近的結束點或這次已走過的節點。"""
-    nodes = _node_map(flow)
-    outgoing: dict[str, list[FlowEdge]] = defaultdict(list)
-    for edge in flow.edges:
-        outgoing[edge.source].append(edge)
-    visited = {item for pair in scenario.traversed_edges for item in pair}
-    rows: list[str] = []
-    taken = {decision.taken_edge for decision in scenario.path}
-    seen: set[tuple[str, str]] = set()
-    for decision in scenario.path:
-        for edge in outgoing[decision.node]:
-            pair = (edge.source, edge.target)
-            if pair == decision.taken_edge or pair in taken or pair in seen:
-                continue  # 同一條沒走的分支只列一次;別的工作真的走過的不算沒走(代碼審 r1 p8)
-            seen.add(pair)
-            chain = _branch_to_endpoint(edge.target, outgoing, nodes, visited)
-            steps = "".join(
-                '<span class="branch-connector" aria-hidden="true">→</span>'
-                '<span class="branch-step">'
-                f'{escape_text(_SHORT_LABELS.get(node_id, _flow_label(nodes[node_id].label)))}'
-                '</span>'
-                for node_id in chain
-            )
-            source = _SHORT_LABELS.get(decision.node, decision.node)
-            rows.append(
-                '<div class="branch-route">'
-                f'<span class="branch-source">{escape_text(source)}</span>'
-                f'<span class="branch-connector" aria-hidden="true">→</span>'
-                f'<span class="branch-step">{escape_text(_flow_label(edge.label))}</span>'
-                f'{steps}</div>'
-            )
-    if not rows:
-        return ""
-    return (
-        '<details class="report-disclosure"><summary>這次沒走的分支'
-        f'<span class="disclosure-count">{len(rows)} 條分支</span></summary>'
-        '<div class="alternate-map">'
-        '<p>淡色虛線只畫到下一個結束點，或接回這次走過的節點。</p>'
-        f'{"".join(rows)}</div></details>'
-    )
-
-
-def _branch_to_endpoint(
-    start: str,
-    outgoing: dict[str, list[FlowEdge]],
-    nodes: dict[str, FlowNode],
-    visited: set[str],
-) -> tuple[str, ...]:
-    pending: list[tuple[str, ...]] = [(start,)]
-    while pending:
-        path = pending.pop(0)
-        last = path[-1]
-        if last in visited or nodes[last].kind is NodeKind.TERMINAL or not outgoing[last]:
-            return path
-        pending.extend((*path, edge.target) for edge in outgoing[last] if edge.target not in path)
-    return (start,)
-
-
-def _flow_layout(
-    nodes: tuple[FlowNode, ...],
-) -> tuple[dict[str, tuple[int, int]], tuple[_LaneBand, ...], int]:
-    """五列各佔 140px；群組加寬，其餘節點保持可讀間距。"""
-    positions: dict[str, tuple[int, int]] = {}
-    x = 24
-    for node in nodes:
-        positions[node.id] = (x, 50 + _LANE_ORDER.index(node.lane) * _LANE_HEIGHT + 30)
-        x += _node_width(node) + 64
-    lanes = tuple(_LaneBand(lane, 50 + index * _LANE_HEIGHT, _LANE_HEIGHT - 4)
-                  for index, lane in enumerate(_LANE_ORDER))
-    last = nodes[-1]
-    return positions, lanes, positions[last.id][0] + _node_width(last) + 12
-
-
-def _flow_view(flow: FlowGraph, scenario: Scenario) -> _FlowView:
-    nodes = _node_map(flow)
-    edge_map = {(edge.source, edge.target): edge for edge in flow.edges}
-    # 只畫真的走過的邊:可以斷開、可以分好幾段(不同工作、回頭之後),同一條邊只畫一次;
-    # 沒有紀錄的地方照實斷開,不從圖上替沒看到的判斷補路(代碼審第 3 輪 g2)
-    trace_pairs = tuple(dict.fromkeys(scenario.traversed_edges))
-    if any(pair not in edge_map for pair in trace_pairs):
-        raise ValueError("情境路徑含有正式圖不存在的分支")
-    trace = tuple(edge_map[pair] for pair in trace_pairs)
-    # 節點照第一次出現的時間排:判斷紀錄本身就照時間排;沒有進來那條邊的判斷點插在它自己的時間位置,
-    # 不追加到最後(代碼審 r1 p5)
-    ordered_ids: list[str] = []
-
-    def add(*node_ids: str) -> None:
-        ordered_ids.extend(n for n in node_ids if n in nodes and n not in ordered_ids)
-
-    consumed = 0  # 走過的邊照時間排:走到某一筆判斷帶的那條邊之前,先把之前的邊都放上去
-    for decision in scenario.path:
-        pair = decision.taken_edge
-        if pair is not None and pair in trace_pairs[consumed:]:
-            until = trace_pairs.index(pair, consumed) + 1
-            for edge in trace[consumed:until]:
-                add(edge.source, edge.target)
-            consumed = until
-        else:
-            add(*(pair or (decision.node,)))
-    for edge in trace[consumed:]:
-        add(edge.source, edge.target)
-    ordered_ids, trace, groups = _group_analysis(nodes, ordered_ids, trace)
-    visited = frozenset(ordered_ids)
-    return _FlowView(
-        tuple(nodes[node_id] for node_id in ordered_ids),
-        trace,
-        visited,
-        groups,
-    )
-
-
-def _group_analysis(
-    nodes: dict[str, FlowNode], ordered_ids: list[str], trace: tuple[FlowEdge, ...],
-) -> tuple[list[str], tuple[FlowEdge, ...], tuple[tuple[str, tuple[FlowNode, ...]], ...]]:
-    groups: list[tuple[str, tuple[FlowNode, ...]]] = []
-    if "a_submit" in ordered_ids:
-        last = ordered_ids.index("a_submit")
-        analysis = ordered_ids[:last + 1]
-        replacement: dict[str, str] = {}
-        code_run: list[str] = []
-
-        def flush_code_run() -> None:
-            if len(code_run) < 2:
-                code_run.clear()
-                return
-            group_id = _GROUP_ID if not groups else _SECOND_GROUP_ID
-            grouped = tuple(nodes[item] for item in code_run)
-            groups.append((group_id, grouped))
-            replacement.update(dict.fromkeys(code_run, group_id))
-            nodes[group_id] = FlowNode(group_id, "程式分析步驟", NodeKind.STEP,
-                                       "分析", NodeOwner.CODE)
-            code_run.clear()
-
-        for node_id in analysis:
-            if nodes[node_id].owner is NodeOwner.CODE:
-                code_run.append(node_id)
-            else:
-                flush_code_run()
-        flush_code_run()
-        mapped = [replacement.get(node_id, node_id) for node_id in ordered_ids]
-        ordered_ids = [node_id for index, node_id in enumerate(mapped)
-                       if index == 0 or node_id != mapped[index - 1]]
-        trace = tuple(
-            FlowEdge(replacement.get(edge.source, edge.source),
-                     replacement.get(edge.target, edge.target), edge.label)
-            for edge in trace
-            if replacement.get(edge.source, edge.source) != replacement.get(
-                edge.target, edge.target
-            )
-        )
-    return ordered_ids, trace, tuple(groups)
-
-
-def _render_lane_bands(lanes: tuple[_LaneBand, ...], width: int) -> str:
-    return "".join(
-        f'<g class="lane-band"><rect x="8" y="{lane.top}" '
-        f'width="{width - 16}" height="{lane.height}" rx="10"></rect></g>'
-        for lane in lanes
-    )
-
-
-def _render_active_edge(
-    edge: FlowEdge, positions: dict[str, tuple[int, int]], marker_id: str,
-    lanes_of: dict[str, str],
-) -> str:
-    source_x, source_y = positions[edge.source]
-    target_x, target_y = positions[edge.target]
-    start_x = source_x + _edge_start_offset(edge.source)
-    end_x = target_x
-    start_y = source_y + (100 if edge.source in _GROUP_IDS else _NODE_HEIGHT) // 2
-    end_y = target_y + _NODE_HEIGHT // 2
-    skipped = [
-        node_id for node_id, (x, _y) in positions.items()
-        if node_id not in (edge.source, edge.target)
-        and min(source_x, target_x) < x < max(source_x, target_x)
-        and lanes_of.get(node_id) in (lanes_of.get(edge.source), lanes_of.get(edge.target))
-    ]
-    if not skipped and end_x > start_x:
-        middle_x = (start_x + end_x) // 2
-        path = (
-            f"M {start_x} {start_y} L {middle_x} {start_y} "
-            f"L {middle_x} {end_y} L {end_x} {end_y}"
-        )
-        return (
-            '<g class="flow-edge is-taken">'
-            f'<title>{escape_text(_flow_label(edge.label))}</title>'
-            f'<path d="{path}" marker-end="url(#{marker_id})"></path></g>'
-        )
-    # 要跨過同一泳道的其他節點(或往回接):走節點列上方的空隙、畫成虛線,不從節點底下穿過(代碼審 r1 p5)
-    gap_y = source_y - 14
-    rise_x = source_x + _edge_start_offset(edge.source) // 2
-    drop_x = target_x + _NODE_WIDTH // 2
-    attach_y = target_y if target_y >= source_y else target_y + _NODE_HEIGHT
-    path = (
-        f"M {rise_x} {source_y} L {rise_x} {gap_y} L {drop_x} {gap_y} "
-        f"L {drop_x} {attach_y}"
-    )
-    note = f"（跳過中間 {len(skipped)} 個節點）" if skipped else "（往回接）"
-    return (
-        '<g class="flow-edge is-taken is-skip">'
-        f'<title>{escape_text(_flow_label(edge.label) + note)}</title>'
-        f'<path d="{path}" marker-end="url(#{marker_id})"></path></g>'
-    )
-
-
-def _edge_start_offset(node_id: str) -> int:
-    return (_GROUP_WIDTH if node_id in _GROUP_IDS else
-            _AI_WIDTH if node_id in {"a_candidate", "a_narrate"} else _NODE_WIDTH)
-
-
-def _node_width(node: FlowNode) -> int:
-    return (_GROUP_WIDTH if node.id in _GROUP_IDS else
-            _AI_WIDTH if node.owner is NodeOwner.AI else _NODE_WIDTH)
-
-
-def _render_back_edge(
-    nodes: tuple[FlowNode, ...], positions: dict[str, tuple[int, int]],
-    width: int, marker_id: str,
-) -> str:
-    from rtb.demo.flow import BACK_TRANSITIONS
-
-    if not nodes:
-        return ""
-    back = next((item for item in BACK_TRANSITIONS if item.node == nodes[-1].id), None)
-    if back is None:
-        return ""
-    target = back.returns_to if back.returns_to in positions else _GROUP_ID
-    if target not in positions:
-        return ""
-    source_x, source_y = positions[back.node]
-    target_x, target_y = positions[target]
-    top = back.lane == "分析"
-    rail_y = 24 if top else _FLOW_HEIGHT - 25
-    source_end = source_y if top else source_y + _NODE_HEIGHT
-    target_end = target_y if top else target_y + (100 if target in _GROUP_IDS else _NODE_HEIGHT)
-    start_x = source_x + _NODE_WIDTH // 2
-    end_x = target_x + _node_width(next(node for node in nodes if node.id == target)) // 2
-    path = (f"M {start_x} {source_end} L {start_x} {rail_y} "
-            f"L {end_x} {rail_y} L {end_x} {target_end}")
-    destination = "分析群組中的「" + _SHORT_LABELS.get(back.returns_to, "收到工作") + "」" if (
-        target == _GROUP_ID
-    ) else _SHORT_LABELS.get(back.returns_to, back.returns_to)
-    label = "回到：" + destination
-    label_x = max(88, min(width - 90, (start_x + end_x) // 2))
-    label_y = rail_y - 5 if top else rail_y + 17
-    return (
-        '<g class="flow-return">'
-        f'<title>{escape_text(label)}</title>'
-        f'<path d="{path}" marker-end="url(#{marker_id})"></path>'
-        f'<text x="{label_x}" y="{label_y}">{escape_text(label)}</text></g>'
-    )
-
-
-def _render_node(  # noqa: PLR0913 - 節點要帶狀態、編號、群組與故障標記
-    node: FlowNode,
-    position: tuple[int, int],
-    visited: bool,
-    current: bool,
-    decision_number: int | None,
-    group_numbers: tuple[int, ...],
-    grouped: tuple[FlowNode, ...],
-    faults: tuple[str, ...],
-) -> str:
-    x, y = position
-    state_class = "is-current" if current else "is-visited" if visited else "is-future"
-    shape = _node_shape(node.kind, x, y, _node_width(node), 100 if grouped else _NODE_HEIGHT)
-    short = ("確認資料與建議" if grouped else
-             _SHORT_LABELS.get(node.id, _flow_label(node.label)))
-    lines = _svg_lines(short, 24 if grouped else 20)
-    first_y = y + 34 - (len(lines) - 1) * 9
-    label = "".join(
-        f'<tspan x="{x + _node_width(node) // 2}" y="{first_y + index * 15}">'
-        f'{escape_text(line)}</tspan>'
-        for index, line in enumerate(lines)
-    )
-    state = "▶ 進行中" if current else "✓ 已經過" if visited else "○ 未進行"
-    badge = (
-        f'<text class="decision-badge" x="{x + 4}" y="{y - 7}">判斷 {decision_number}</text>'
-        if decision_number is not None
-        else ""
-    )
-    if group_numbers:
-        covered = (f"判斷 {group_numbers[0]}" if len(group_numbers) == 1 else
-                   f"含判斷 {group_numbers[0]}–{group_numbers[-1]}")
-        badge = (f'<text class="decision-badge" x="{x + 4}" y="{y - 7}">'
-                 f'{covered}</text>')
-    details = (
-        f'<text class="group-detail" x="{x + _GROUP_WIDTH // 2}" y="{y + 61}">'
-        f'{len(grouped)} 步・細節見下方卡片</text>'
-        if grouped else ""
-    )
-    title = (
-        "；".join(_flow_label(item.label) for item in grouped)
-        if grouped else _flow_label(node.label)
-    )
-    marker = (
-        f'<text class="fault-marker" x="{x + _node_width(node) - 13}" y="{y + 20}">!</text>'
-        if faults else ""
-    )
-    return (
-        f'<g class="flow-node {state_class} kind-{node.kind.name.lower()} '
-        f'owner-{node.owner.name.lower()}{" is-group" if grouped else ""}">'
-        f"<title>{escape_text(title)}</title>{shape}{badge}{marker}"
-        f'<text class="node-label">{label}</text>'
-        f'{details}<text class="node-state" x="{x + _node_width(node) // 2}" '
-        f'y="{y + (82 if grouped else 62)}">{state}</text></g>'
-    )
-
-
-def _svg_lines(text: str, limit: int) -> tuple[str, ...]:
-    lines: list[str] = []
-    current = ""
-    units = 0
-    for character in text:
-        character_units = 2 if unicodedata.east_asian_width(character) in {"F", "W"} else 1
-        if current and units + character_units > limit:
-            lines.append(current)
-            current, units = "", 0
-        current += character
-        units += character_units
-    if current:
-        lines.append(current)
-    return tuple(lines) or ("",)
-
-
-def _node_shape(kind: NodeKind, x: int, y: int, width: int, height: int) -> str:
-    radius = height // 2 if kind is NodeKind.TERMINAL else (
-        16 if kind is NodeKind.DECISION else 12
-    )
-    return (
-        f'<rect x="{x}" y="{y}" width="{width}" height="{height}" rx="{radius}"></rect>'
-    )
-
-
-def _validate_flow(flow: FlowGraph) -> None:
-    nodes = _node_map(flow)
-    if len(nodes) != len(flow.nodes):
-        raise ValueError("流程圖節點 id 不可重複")
-    successors: dict[str, list[str]] = defaultdict(list)
-    indegree = dict.fromkeys(nodes, 0)
-    for edge in flow.edges:
-        if edge.source not in nodes or edge.target not in nodes:
-            raise ValueError("流程圖邊指向不存在的節點")
-        successors[edge.source].append(edge.target)
-        indegree[edge.target] += 1
-    ready = [node.id for node in flow.nodes if indegree[node.id] == 0]
-    visited = 0
-    while ready:
-        current = ready.pop(0)
-        visited += 1
-        for target in successors[current]:
-            indegree[target] -= 1
-            if indegree[target] == 0:
-                ready.append(target)
-    if visited != len(flow.nodes):
-        raise ValueError("流程圖含有環，無法畫成 DAG")
-
-
-def _node_map(flow: FlowGraph) -> dict[str, FlowNode]:
-    return {node.id: node for node in flow.nodes}
-
-
-def _edge_label(flow: FlowGraph, pair: tuple[str, str] | None) -> str:
-    if pair is None:
-        return "這一步對不到圖上的分支"
-    return next(
-        (_flow_label(edge.label) for edge in flow.edges if (edge.source, edge.target) == pair),
-        f"{pair[0]} → {pair[1]}",
-    )
-
-
-_CARD_LIMIT: Final = 60  # 判斷超過這麼多筆(F7 那種幾千筆)就依節點與分支彙總成一張卡,標筆數
-
-
-def _cards(path: tuple[Decision, ...]) -> tuple[tuple[Decision, int], ...]:
-    """要畫的判斷卡:筆數不多就逐筆;很多就依(節點, 分支)彙總,留第一筆的根據、照第一次出現排
-    (代碼審 r1 p8:F7 單頁原本 4.7MB)。"""
-    if len(path) <= _CARD_LIMIT:
-        return tuple((decision, 1) for decision in path)
-    first: dict[tuple[str, tuple[str, str] | None], Decision] = {}
-    counts: dict[tuple[str, tuple[str, str] | None], int] = {}
-    for decision in path:
-        key = (decision.node, decision.taken_edge)
-        first.setdefault(key, decision)
-        counts[key] = counts.get(key, 0) + 1
-    return tuple((decision, counts[key]) for key, decision in first.items())
 
 
 def _render_decisions(scenario: Scenario, flow: FlowGraph) -> str:
