@@ -1,0 +1,37 @@
+[
+ {
+  "round": "r3",
+  "seat": "鏡頭1-修正驗收",
+  "lens": "末輪:第 2 輪 9 條驗收與回歸",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r3-delta.patch",
+   "governance/review-reports/code-f7-perf/r3-snapshot.patch",
+   "governance/review-reports/code-f7-perf/r2-鏡頭1-等價與退回.md",
+   "governance/review-reports/code-f7-perf/r2-鏡頭2-重試與併發.md",
+   "governance/review-reports/code-f7-perf/r2-外家-codex.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "資安-opus",
+  "lens": "末輪:攻擊者視角,涵蓋最後凍結 patch",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r3-delta.patch",
+   "governance/review-reports/code-f7-perf/r3-snapshot.patch",
+   "governance/review-reports/code-f7-perf/r2-資安-opus.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "架構對齊",
+  "lens": "末輪:新寫法一致性",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r3-delta.patch",
+   "governance/review-reports/code-f7-perf/r3-snapshot.patch",
+   "governance/review-reports/code-f7-perf/r2-架構對齊.md"
+  ],
+  "auditor": "claude-opus"
+ }
+]

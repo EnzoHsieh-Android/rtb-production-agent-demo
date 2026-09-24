@@ -1,0 +1,52 @@
+{
+ "loop": "f7效能-重試",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-25T01:10:53+08:00",
+ "spec_path": "docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md",
+ "spec_sha": "71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa",
+ "rows": [
+  "{\"ts\": \"2026-09-25T01:10:42+08:00\", \"kind\": \"none\", \"auditor\": \"鏡頭1\", \"token\": \"CANARY-ea303a9e\", \"note\": \"\", \"loop\": \"f7效能-重試\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 6, \"result_sha256\": \"71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa\", \"reviewed_sha256\": \"71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md\", \"scope_lines\": 192, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 6, \"report_path\": \"governance/review-reports/f7效能-重試/r1-鏡頭1.md\", \"report_sha256\": \"50c0090d3db0202cf437a7284559b8b2be7d87e0d21a0eb4bf435375f9815452\", \"snapshot_path\": \"governance/review-reports/f7效能-重試/r1-snapshot.md\", \"snapshot_sha256\": \"98d5a96732e7eb5c79d9de2809f685ce76242ef7c06a71c9c315aac78c0a030d\"}",
+  "{\"ts\": \"2026-09-25T01:10:42+08:00\", \"kind\": \"none\", \"auditor\": \"鏡頭2\", \"token\": \"CANARY-73cbeb1f\", \"note\": \"\", \"loop\": \"f7效能-重試\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 3, \"result_sha256\": \"71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa\", \"reviewed_sha256\": \"71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md\", \"scope_lines\": 192, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 3, \"report_path\": \"governance/review-reports/f7效能-重試/r1-鏡頭2.md\", \"report_sha256\": \"a8667b63949f781839fc845d99e3ac86453d2e719889ed4b1d0d2829c366d20f\", \"snapshot_path\": \"governance/review-reports/f7效能-重試/r1-snapshot.md\", \"snapshot_sha256\": \"98d5a96732e7eb5c79d9de2809f685ce76242ef7c06a71c9c315aac78c0a030d\"}",
+  "{\"ts\": \"2026-09-25T01:10:43+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-274ae206\", \"note\": \"\", \"loop\": \"f7效能-重試\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa\", \"reviewed_sha256\": \"71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md\", \"scope_lines\": 192, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 2, \"report_path\": \"governance/review-reports/f7效能-重試/r1-架構對齊.md\", \"report_sha256\": \"c8aaf90d8c98d2ec82ce5908fa08018d7988aa1e474a7d92c0c1fdd6a7d1e393\", \"snapshot_path\": \"governance/review-reports/f7效能-重試/r1-snapshot.md\", \"snapshot_sha256\": \"98d5a96732e7eb5c79d9de2809f685ce76242ef7c06a71c9c315aac78c0a030d\"}",
+  "{\"ts\": \"2026-09-25T01:10:43+08:00\", \"kind\": \"none\", \"auditor\": \"外家-codex\", \"token\": \"CANARY-fed1b530\", \"note\": \"\", \"loop\": \"f7效能-重試\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa\", \"reviewed_sha256\": \"71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md\", \"scope_lines\": 192, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 2, \"report_path\": \"governance/review-reports/f7效能-重試/r1-外家-codex.md\", \"report_sha256\": \"456498abf69e762c20c2ef61e531b94b059fff265ad19012d569516519e46d61\", \"snapshot_path\": \"governance/review-reports/f7效能-重試/r1-snapshot.md\", \"snapshot_sha256\": \"98d5a96732e7eb5c79d9de2809f685ce76242ef7c06a71c9c315aac78c0a030d\"}",
+  "{\"ts\": \"2026-09-25T01:10:43+08:00\", \"kind\": \"none\", \"auditor\": \"鏡頭3\", \"token\": \"CANARY-992224a3\", \"note\": \"\", \"loop\": \"f7效能-重試\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 5, \"result_sha256\": \"71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa\", \"reviewed_sha256\": \"71242ddbc11af69fd48afaece3f798c11e7bfddd6a7bd3b62911c16c4eac7afa\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/F7效能_計劃.md\", \"scope_lines\": 192, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"c1\", \"c2\", \"a1\", \"a2\", \"m1a\", \"m1b\", \"m1c\", \"m1d\", \"m1e\", \"m1f\", \"m2a\", \"m2b\", \"m2c\", \"m3a\", \"m3b\", \"m3c\", \"m3d\", \"m3e\"], \"folded_set\": [\"c1\", \"c2\", \"a1\", \"a2\", \"m1a\", \"m1b\", \"m1c\", \"m1d\", \"m1e\", \"m1f\", \"m2a\", \"m2b\", \"m2c\", \"m3a\", \"m3b\", \"m3c\", \"m3d\", \"m3e\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"c1\": \"spec\", \"c2\": \"spec\", \"a1\": \"spec\", \"a2\": \"spec\", \"m1a\": \"spec\", \"m1b\": \"spec\", \"m1c\": \"spec\", \"m1d\": \"spec\", \"m1e\": \"spec\", \"m1f\": \"spec\", \"m2a\": \"spec\", \"m2b\": \"spec\", \"m2c\": \"spec\", \"m3a\": \"spec\", \"m3b\": \"spec\", \"m3c\": \"spec\", \"m3d\": \"spec\", \"m3e\": \"spec\"}, \"reported\": 5, \"report_path\": \"governance/review-reports/f7效能-重試/r1-鏡頭3.md\", \"report_sha256\": \"8cd26d23db2e3fdc5840dc1917b2b6ba0aa677694ad60ebd6c0f1f9719994f54\", \"snapshot_path\": \"governance/review-reports/f7效能-重試/r1-snapshot.md\", \"snapshot_sha256\": \"98d5a96732e7eb5c79d9de2809f685ce76242ef7c06a71c9c315aac78c0a030d\", \"intake_path\": \"governance/review-reports/f7效能-重試/r1-intake.md\", \"intake_sha256\": \"6af8293a7495d11e07afe054120b93b2b3067dbc134c2b3b9db39b780c81dbe0\"}"
+ ],
+ "all_row_shas": [
+  "047d8bb3ee2031e7e460ac5660671fd09c10761eb689311c9fa62822aaa9d439",
+  "53a738988631f2b065fea3aa86ed3fc94a51040e694d7335556f57a31c62f2ff",
+  "93f18ae66e25d159b2b4b0a82569ff958d765fd30ddea642557f1ce7d3a8ac96",
+  "ef0698113efe3563a707aa457f5d131c5649a4d9efc7f54157f47802ecf70c5d",
+  "f467fc87dc8fd75d43e32b72c20fa95a91eb71eee2af359605053e98a2fe1264"
+ ],
+ "files": {
+  "governance/review-reports/f7效能-重試/r1-鏡頭1.md": {
+   "sha256": "50c0090d3db0202cf437a7284559b8b2be7d87e0d21a0eb4bf435375f9815452",
+   "git_blob": "4ef94deec368b2938bc191f55b16444a6509733c"
+  },
+  "governance/review-reports/f7效能-重試/r1-snapshot.md": {
+   "sha256": "98d5a96732e7eb5c79d9de2809f685ce76242ef7c06a71c9c315aac78c0a030d",
+   "git_blob": "06d4b0d4cfd4afc406bc3ce8e70f4ef889adffdf"
+  },
+  "governance/review-reports/f7效能-重試/r1-鏡頭2.md": {
+   "sha256": "a8667b63949f781839fc845d99e3ac86453d2e719889ed4b1d0d2829c366d20f",
+   "git_blob": "109ff75b680180fb5bc8afd295eafac93f80477d"
+  },
+  "governance/review-reports/f7效能-重試/r1-架構對齊.md": {
+   "sha256": "c8aaf90d8c98d2ec82ce5908fa08018d7988aa1e474a7d92c0c1fdd6a7d1e393",
+   "git_blob": "34d9bd61864e4b0a9a9c3fcbd521aa32835d9c99"
+  },
+  "governance/review-reports/f7效能-重試/r1-外家-codex.md": {
+   "sha256": "456498abf69e762c20c2ef61e531b94b059fff265ad19012d569516519e46d61",
+   "git_blob": "6f43b57d8a80e6aadaac40a1f0c57dfea6b5ae8b"
+  },
+  "governance/review-reports/f7效能-重試/r1-鏡頭3.md": {
+   "sha256": "8cd26d23db2e3fdc5840dc1917b2b6ba0aa677694ad60ebd6c0f1f9719994f54",
+   "git_blob": "9fafdc2120b084866de287185772b582c1fa20f7"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

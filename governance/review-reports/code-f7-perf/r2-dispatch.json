@@ -1,0 +1,57 @@
+[
+ {
+  "round": "r2",
+  "seat": "鏡頭1-等價與退回",
+  "lens": "驗收 r1 修正、已用額度快路徑",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r2-snapshot.patch",
+   "governance/review-reports/code-f7-perf/r2-delta.patch",
+   "governance/review-reports/code-f7-perf/r1-鏡頭1-等價與退回.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "鏡頭2-重試與併發",
+  "lens": "寫結果忙碌重試、鎖與租約",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r2-snapshot.patch",
+   "governance/review-reports/code-f7-perf/r2-delta.patch",
+   "governance/review-reports/code-f7-perf/r1-鏡頭2-快取與併發.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "資安-opus",
+  "lens": "攻擊者視角全量",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r2-snapshot.patch",
+   "governance/review-reports/code-f7-perf/r2-delta.patch",
+   "governance/review-reports/code-f7-perf/r1-資安-opus.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "既有做法一致",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r2-snapshot.patch",
+   "governance/review-reports/code-f7-perf/r2-delta.patch",
+   "governance/review-reports/code-f7-perf/r1-架構對齊.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "外家-codex",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r2-snapshot.patch",
+   "governance/review-reports/code-f7-perf/r2-delta.patch",
+   "governance/review-reports/code-f7-perf/r1-外家-codex.md"
+  ],
+  "auditor": "codex"
+ }
+]

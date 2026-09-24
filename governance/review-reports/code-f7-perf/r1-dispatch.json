@@ -1,0 +1,57 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1-等價與退回",
+  "lens": "新舊算法等價、退回條件",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2-快取與併發",
+  "lens": "設定快取、安全讀檔、併發",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "資安-opus",
+  "lens": "能被利用的洞",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "跟既有寫法一致、S19 收窄",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家獨立找 bug",
+  "materials": [
+   "governance/review-reports/code-f7-perf/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex-gpt-6-sol"
+ }
+]

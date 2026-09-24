@@ -23,6 +23,7 @@ from rtb.executor.inbox_store import (
     CreatedInFuture,
     ExpiryTooFar,
     InboxBusy,
+    InboxBusyNotStarted,
     InboxFull,
     InboxRejected,
     InboxStore,
@@ -52,6 +53,7 @@ REJECTION_STATUS = {
     TooManyRevisions: 409,
     InboxFull: 503,
     InboxBusy: 503,
+    InboxBusyNotStarted: 503,  # 按確切型別查表:子類別也要登記(代碼審第 2 輪)
 }
 
 

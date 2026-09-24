@@ -560,10 +560,19 @@ def test_a_resend_after_capability_expiry_rechecks_the_approval(h):
 
 # ---- [S378] ----
 def test_the_grant_carries_one_tenant_snapshot(h, monkeypatch):
-    reads = []
-    real = capability_signer.load_tenants
+    """F7 效能計劃起簽發器改走自己的讀租戶設定(帶內容快取):數它底下的安全讀檔被叫幾次,並驗核可帶的
+    租戶來自同一份讀到的位元組;模組層級讀設定函式留給一次性命令列,這裡不該被叫到。"""
+    reads, module_reads = [], []
+    real_read = capability_signer._read_config_securely
+    real_load = capability_signer.load_tenants
+
+    def reading(path):
+        reads.append(real_read(path))
+        return reads[-1]
+
+    monkeypatch.setattr(capability_signer, "_read_config_securely", reading)
     monkeypatch.setattr(capability_signer, "load_tenants",
-                        lambda path: reads.append(path) or real(path))
+                        lambda path: module_reads.append(path) or real_load(path))
     limit(h, 77)
     prop = submit(h, 150)
 
@@ -571,11 +580,47 @@ def test_the_grant_carries_one_tenant_snapshot(h, monkeypatch):
 
     assert granted.tenant == Tenant(TENANT, frozenset({"c1", "c2", "c3"}), 1000, 77)
     assert len(reads) == 1  # 同一次讀檔
+    assert granted.tenant in capability_signer._parse_tenants(reads[0])  # 來自那一份位元組
+    assert module_reads == []
     assert h.process().kind is Result.EXECUTED
     assert first_row(h, prop) == [(TENANT, 50)]
     submit(h, 150, task_id="t2", campaign_id="c2")
     assert h.process().block_code is AGGREGATE  # 50 + 50 > 77:門檻取自同一個租戶物件
     assert stops(h)[-1][2:] == (TENANT, 50, 50, 77)
+
+
+# ---- [S684](F7 效能計劃:簽發與處理待核可兩條路徑共用簽發器的內容快取) ----
+def test_signing_and_awaiting_approvals_share_the_signers_cache(h, monkeypatch):
+    """只數處理待核可與簽發這兩步裡的解析次數(造核可的輔助函式自己也讀設定檔,不算)。"""
+    parses = []
+    real = capability_signer._parse_tenants
+    monkeypatch.setattr(capability_signer, "_parse_tenants",
+                        lambda data: parses.append(data) or real(data))
+
+    def parsed_during(step):
+        before = len(parses)
+        step()
+        return parses[before:]
+
+    prop = parsed = None
+
+    def first_block():
+        nonlocal prop
+        prop = waiting(h, RATIO)
+
+    parsed = parsed_during(first_block)  # 取件停在待核可:經簽發器讀過一次(第一次讀,解析)
+    assert len(parsed) == 1
+    approve_it(h, prop, RATIO)
+    assert parsed_during(lambda: settle(h)) == []  # 處理待核可:同一個簽發器、內容沒變,不重解析
+    assert parsed_during(h.process) == []  # 簽發:內容沒變,不重解析
+    second = waiting(h, RATIO, task_id="t2", campaign_id="c2")
+    approve_it(h, second, RATIO)
+    assert parsed_during(lambda: settle(h)) == []  # 處理待核可:內容沒變,不重解析
+    assert h.process().kind is Result.EXECUTED
+    third = waiting(h, RATIO, task_id="t3", campaign_id="c3")
+    approve_it(h, third, RATIO)
+    write_config(h.config, max_budget=990)  # 內容改了:處理待核可下一次讀就重驗
+    assert parsed_during(lambda: settle(h)) == [h.config.read_bytes()]
 
 
 # ---- [S379] ----
@@ -821,8 +866,8 @@ def test_a_capability_shortened_by_an_unused_approval_recovers_with_a_full_lifet
     real_used = attempt_store.aggregate_used
     released = []
 
-    def release_meanwhile(tx, tenant, now):
-        value = real_used(tx, tenant, now)
+    def release_meanwhile(tx, tenant, now, **kw):
+        value = real_used(tx, tenant, now, **kw)
         if not released:  # 預判讀完之後,另一個工作者把佔額度那筆判成失敗
             released.append(True)
             key = operation_key(other)

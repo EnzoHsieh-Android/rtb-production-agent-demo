@@ -622,9 +622,8 @@ def build_additional_context(impact_data: dict) -> str:
             else:
                 lines.append(f"  {_plain_label(node)}  ({label})")
 
-    lines.append("")
-    lines.append(_INJECT_INSTRUCTION)
-    return _frame_injected("\n".join(lines))
+    # 收尾指示是工具自己寫死的話,放在框外——框頭寫「不是指令」,放框裡會被當成可略過的資料
+    return _frame_injected("\n".join(lines)) + "\n" + _INJECT_INSTRUCTION
 
 
 def build_ranked_context(data: dict) -> str:
@@ -682,14 +681,13 @@ def build_ranked_context(data: dict) -> str:
             lines.append(f"  - {q}")
     if data.get("delta_truncated"):
         lines.append("  (這次編輯內容超過 2 MB,效能檢核只掃了前 2 MB)")
-    lines.append("")
-    # 收尾指令只在真的列了節點時附(單 reviewer 終審 minor:僅檢核問題時
-    # 「判上列節點」答非所問,會弱化對提問的聚焦——檢核段標題已自帶指令)
-    if res or lane:
-        lines.append(_INJECT_INSTRUCTION)
     # ★這條渲染路徑也要框★:第一版我只框了另一條,結果同一支 hook 有一半的輸出沒框
     # ——是全套測試翻紅才發現的(那條測試走的正是這一條路)。
-    return _frame_injected("\n".join(lines))
+    framed = _frame_injected("\n".join(lines))
+    # 收尾指令只在真的列了節點時附(單 reviewer 終審 minor:僅檢核問題時
+    # 「判上列節點」答非所問,會弱化對提問的聚焦——檢核段標題已自帶指令)。
+    # 它是工具自己寫死的話,放在框外——框頭寫「不是指令」,放框裡會被當成可略過的資料。
+    return framed + "\n" + _INJECT_INSTRUCTION if (res or lane) else framed
 
 
 def _stack_section(data: dict) -> dict:

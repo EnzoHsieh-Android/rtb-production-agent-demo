@@ -723,3 +723,21 @@ def test_purging_never_deletes_a_task_that_still_has_a_pending_row(tmp_path):
     assert ("old",) in conn.execute("SELECT task_id FROM proposals").fetchall()
     conn.close()
     store.close()
+
+
+# ---- 代碼審第 2 輪(F7 效能計劃):拒收對應表按確切型別查,每個拒收子類別都要登記 ----
+def test_every_rejection_class_has_an_http_status():
+    from rtb.executor import inbox_server
+    from rtb.executor.inbox_store import InboxBusyNotStarted, InboxRejected
+
+    def descendants(cls):
+        for sub in cls.__subclasses__():
+            yield sub
+            yield from descendants(sub)
+
+    classes = set(descendants(InboxRejected))
+    assert InboxBusyNotStarted in classes  # 兩層的子類別也數到
+    missing = {cls.__name__ for cls in classes if cls not in inbox_server.REJECTION_STATUS}
+    assert missing == set()
+    status = inbox_server.InboxHandler.map_exception(None, InboxBusyNotStarted("x"))
+    assert status == (503, "busy", True)

@@ -317,7 +317,7 @@ def _usage(monkeypatch, *values):
     """總曝險已用額度:第一次讀(開始一筆前的預判)給第一個值,之後(開始一筆的交易裡)給第二個。"""
     reads = iter(values)
     monkeypatch.setattr(attempt_store, "aggregate_used",
-                        lambda _tx, _tenant, _now: next(reads, values[-1]))
+                        lambda _tx, _tenant, _now, **_kw: next(reads, values[-1]))
 
 
 def test_an_aggregate_approval_freed_up_before_the_write_does_not_exempt_a_stale_decision(
