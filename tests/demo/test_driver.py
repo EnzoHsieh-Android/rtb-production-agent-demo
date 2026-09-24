@@ -1130,3 +1130,18 @@ def test_f7_records_an_overview_and_the_confirmed_one(tmp_path, state):
     assert "人工確認後寫入 1 個" in details.change_overview
     assert "沒寫入 17 個" in details.change_overview and "總上限 124" in details.change_overview
     assert details.change.written and (details.change.before, details.change.after) == (100, 110)
+
+
+def test_a_mismatch_between_live_decisions_and_the_trace_marks_the_scenario_incomplete(
+        tmp_path, state):
+    """[S1010] 情境結束後觀察到的紀錄跟必經節點對不上(多一步、少一步、順序不對),或平台真實狀態跟
+    預期寫入對不上:驅動程式把情境標「沒跑完」並寫哪一步對不上。"""
+    def mismatched(world):
+        world._path.streams.extend(("t1", "key", n) for n in ["x_write", "x_resend", "x_done"])
+        world.require_streams({("t1", "key"): (("x_write", "x_verify", "x_done"), ())})
+        return "不該到這裡"
+
+    verdict = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 20, mismatched)}).run_one("FX")
+
+    assert verdict.status == INCOMPLETE and "對不上" in verdict.reason
+    assert "x_resend" in verdict.reason
