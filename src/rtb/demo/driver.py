@@ -25,6 +25,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -32,6 +33,7 @@ from urllib.parse import quote
 from rtb.analyzer import flow, instrumented, policy
 from rtb.analyzer.task_store import FollowUpRow, ReplanReason, TaskReader, TaskRow, TaskStore
 from rtb.capabilitykit import APPROVAL_KEY_ENV, AUDIT_KEY_ENV
+from rtb.demo import flow as demo_flow
 from rtb.demo import launcher
 from rtb.demo.keys import DemoKeys
 from rtb.demo.launcher import FaultRequest, Process, Role, StartFailed
@@ -54,6 +56,7 @@ from rtb.executor.inbox_store import (
     BlockCode,
     DeadLetterAction,
     DeadLetterOp,
+    DeadLetterReason,
     LifecycleEvent,
     LifecycleKind,
     ReadOnlyInbox,
@@ -980,6 +983,66 @@ def _queue_wait(world: World, task_id: str) -> int | None:
     return max(0, round(wait))
 
 
+_SHOWN_CAMPAIGNS = 5  # 廣告不多就全列;F7 那種幾百個只列追蹤的那一個(彙總另給)
+_ACTION_TEXT = {"update_budget": "改預算", "pause_campaign": "暫停"}
+
+
+def _platform(world: World, tracked: str) -> dict[str, Any]:
+    """平台唯讀端點讀回的最後樣子與操作紀錄。"""
+    shown = (list(world.initial_budgets) if len(world.initial_budgets) <= _SHOWN_CAMPAIGNS
+             else [tracked])
+    campaigns = []
+    for campaign in shown:
+        found = world.campaign(campaign)
+        if found is not None:
+            campaigns.append((campaign, int(found["budget"]), int(found["version"]),
+                              str(found["status"])))
+    operations = tuple(
+        f"#{w.operation_id} {w.campaign_id} {_ACTION_TEXT.get(w.action, w.action)} → "
+        f"{w.new_budget}(操作鍵 {w.key})"
+        for w in world.platform_writes() if w.campaign_id in shown)
+    return {"platform": tuple(campaigns), "platform_operations": operations}
+
+
+_AUDIT_TEXT = {DeadLetterAction.DEAD_LETTERED: "停下等人處理",
+               DeadLetterAction.REPLAY_REQUESTED: "要求重新送入",
+               DeadLetterAction.REPLAY_REFUSED: "重新送入被拒",
+               DeadLetterAction.REPLAY_REQUEUED: "重新送入,放回排隊"}
+
+
+def _audit(world: World) -> tuple[str, ...]:
+    """死信操作稽核(收件口唯讀開法):誰、對哪件工作、做了什麼。"""
+    tasks = dict.fromkeys(e.task_id for e in world.lifecycle())
+    return tuple(f"{op.operator} 對 {op.task_id} 第 {op.revision} 版:"
+                 f"{_AUDIT_TEXT.get(DeadLetterAction(op.action), op.action)}"
+                 for task in tasks for op in world.audit(task))
+
+
+_STOP_KINDS: dict[str, tuple[str, type[StrEnum]]] = {
+    LifecycleKind.BLOCKED.value: ("擋下原因", BlockCode),
+    LifecycleKind.DEAD_LETTERED.value: ("死信原因", DeadLetterReason),
+    LifecycleKind.AWAITING_APPROVAL.value: ("停下等人確認", BlockCode),
+}
+
+
+def _dispositions(world: World) -> tuple[tuple[str, str, str], ...]:
+    """收件口的擋下、死信、停下等人確認,照原因彙總(幾份),白話取自流程圖對應表。"""
+    counts: dict[tuple[str, str], int] = {}
+    enums: dict[tuple[str, str], type[StrEnum]] = {}
+    for event in world.lifecycle():
+        if event.kind in _STOP_KINDS and event.reason:
+            category, enum = _STOP_KINDS[event.kind]
+            counts[(category, event.reason)] = counts.get((category, event.reason), 0) + 1
+            enums[(category, event.reason)] = enum
+    found = []
+    for (category, code), n in counts.items():
+        member = next((m.name for m in enums[(category, code)] if m.value == code), code)
+        place = demo_flow.OUTCOMES.get((enums[(category, code)], member))
+        text = place.text if place is not None else "無法還原(系統沒有保存原因)"
+        found.append((category, code, text if n == 1 else f"{text}(共 {n} 份)"))
+    return tuple(found)
+
+
 def _details(scenario: Scenario, world: World, verdict: Verdict) -> ScenarioDetails:
     """情境細節:讀得到的照實放,讀不到的留空值,不造數字;讀的時候出錯也只留固定的那幾樣。"""
     static = ScenarioDetails(trigger=TRIGGER, goal=scenario.goal, injected_faults=scenario.faults)
@@ -999,7 +1062,8 @@ def _details(scenario: Scenario, world: World, verdict: Verdict) -> ScenarioDeta
                               None if written else (blocked[-1] if blocked else verdict.reason))
         return replace(static, queue_wait_seconds=_queue_wait(world, task_id),
                        operation_key=key, platform_apply_count=applied, change=change,
-                       change_overview=world.overview)
+                       change_overview=world.overview, **_platform(world, campaign),
+                       audit=_audit(world), dispositions=_dispositions(world))
     except Exception:  # 讀不到(行程已經停了、資料庫沒建好):只留固定的,不猜
         return static
 

@@ -1071,6 +1071,19 @@ def test_a_scenario_records_what_changed_and_how_it_was_set_up(tmp_path, state):
     assert isinstance(details.queue_wait_seconds, int) and details.queue_wait_seconds >= 0
     change = details.change
     assert (change.campaign, change.before, change.after, change.written) == ("c1", 100, 110, True)
+    # 平台最後的樣子與操作紀錄(平台唯讀端點)、收件口的處置,給頁面的平台與處置兩欄
+    assert details.platform == (("c1", 110, 2, "active"),)
+    assert len(details.platform_operations) == 1 and "110" in details.platform_operations[0]
+    assert details.dispositions == ()  # 照預期寫進去,沒有擋下或停下
+
+
+def test_a_replayed_scenario_keeps_its_audit_and_dispositions(tmp_path, state):
+    """F6:死信操作稽核(誰、做了什麼)與收件口的擋下、停下原因照實記下。"""
+    assert _driver(tmp_path, state).run_one("F6").status == DONE
+    details = _details(tmp_path, "F6")
+    assert any("demo-operator" in line and "重新送入" in line for line in details.audit)
+    codes = {code for _, code, _ in details.dispositions}
+    assert {"delivery_limit", "version_changed"} <= codes
 
 
 def test_a_blocked_then_replanned_scenario_shows_the_final_write(tmp_path, state):

@@ -164,7 +164,9 @@ def test_scenario_details_are_kept_and_missing_ones_stay_empty(tmp_path, writer)
         injected_faults=(("x_write", "寫進平台後執行端當場倒下"),), operation_key="k1",
         platform_apply_count=1,
         change=ChangeRecord("c1", before=100, after=110, written=True, reason=None),
-        change_overview="放行 123 個、人工確認後寫入 1 個、沒寫入 176 個;加了 1240,總上限 1234")
+        change_overview="放行 123 個、人工確認後寫入 1 個、沒寫入 176 個;加了 1240,總上限 1234",
+        platform=(("c1", 110, 2, "active"),), platform_operations=("#1 c1 加預算 → 110",),
+        audit=("demo-operator 重新送入",), dispositions=(("擋下原因", "version_changed", "x"),))
     writer.start_scenario("F2", T0)
     writer.set_scenario_details("F2", details)
     writer.start_scenario("F3", T0)

@@ -111,11 +111,18 @@ class ScenarioDetails:
     platform_apply_count: int | None = None
     change: ChangeRecord | None = None
     change_overview: str | None = None
+    # 平台最後的樣子:(廣告, 預算, 版本, 狀態);平台上的操作紀錄(一行一筆,白話)
+    platform: tuple[tuple[str, int, int, str], ...] = ()
+    platform_operations: tuple[str, ...] = ()
+    audit: tuple[str, ...] = ()  # 人工操作的稽核(死信重新送入等)
+    dispositions: tuple[tuple[str, str, str], ...] = ()  # 收件口的擋下與停下:(類別, 代碼, 說明)
 
 
 def _details_json(details: ScenarioDetails) -> str:
     body = dict(details.__dict__)
     body["injected_faults"] = [list(pair) for pair in details.injected_faults]
+    body["platform"] = [list(row) for row in details.platform]
+    body["dispositions"] = [list(row) for row in details.dispositions]
     body["change"] = None if details.change is None else dict(details.change.__dict__)
     return json.dumps(body, ensure_ascii=False)
 
@@ -124,6 +131,10 @@ def _details_from(text: str) -> ScenarioDetails:
     body = json.loads(text)
     body["injected_faults"] = tuple((str(a), str(b)) for a, b in body["injected_faults"])
     body["change"] = None if body["change"] is None else ChangeRecord(**body["change"])
+    body["platform"] = tuple((str(c), int(b), int(v), str(s)) for c, b, v, s in body["platform"])
+    for name in ("platform_operations", "audit"):
+        body[name] = tuple(str(line) for line in body[name])
+    body["dispositions"] = tuple((str(a), str(b), str(c)) for a, b, c in body["dispositions"])
     return ScenarioDetails(**body)
 
 
