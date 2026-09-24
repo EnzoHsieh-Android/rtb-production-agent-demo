@@ -31,6 +31,7 @@ from tools.forgery_demos import (
     rehashed_conftest_rewrite,
     set_raw,
     sha,
+    shadowed_pytest_internals,
     write_files,
     write_manifests,
 )
@@ -1469,6 +1470,18 @@ def test_a_conftest_that_rewrites_results_and_is_rehashed_passes_which_is_the_ce
     code, output = verify(repo)
 
     assert code == 0, output
+
+
+def test_a_shadowed_pytest_internal_package_at_the_repo_root_is_blocked(repo):
+    """[Phase 12 增量 3 代碼審 r2 s1] repo 根放一份改結果的 `_pytest/`、清單照實重算:證據測試的指令
+    加 -P(不把工作目錄放在匯入路徑最前面),pytest 內部匯入的還是裝好的那一份,失敗的測試照樣
+    擋下(原本 -E -s 擋不了,驗證器放行,比較表說明的天花板因此不成立)。"""
+    shadowed_pytest_internals(repo)
+
+    code, output = verify(repo)
+
+    assert code == 1, output
+    assert "test_pause" in output
 
 
 REMINDER = "重貼雜湊前先確認證據仍成立"

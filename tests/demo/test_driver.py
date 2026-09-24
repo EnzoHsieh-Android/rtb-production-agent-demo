@@ -1335,21 +1335,31 @@ def test_the_comparison_generator_gets_only_the_whitelisted_environment(monkeypa
         k: os.environ[k] for k in ("PATH", "HOME", "LANG") if k in os.environ}
 
 
-def test_the_comparison_generator_is_run_by_its_file_path_and_cannot_be_swapped(monkeypatch,
-                                                                                tmp_path):
-    """[代碼審 r1 s1] 產生器用檔案路徑跑(-E -s 不讀 PYTHON 開頭的變數、不開 user site),外面
-    PYTHONPATH 上的同名 tools 套件頂替不了。"""
+def test_the_comparison_generator_is_the_repos_own_even_if_another_tools_package_exists(tmp_path):
+    """[代碼審 r1 s1、r2 a1] 產生器從 repo 根以套件方式跑(-E -s -m tools.forgery_comparison,cwd 是
+    repo 根);tools 是正式套件、repo 根排在匯入路徑第一項,別處(site-packages 形態的路徑)另有一個正式
+    的 tools 套件也頂替不了。"""
+    import subprocess
+
     command = driver_module.default_comparison_command()
-    assert command[:3] == [sys.executable, "-E", "-s"]
-    assert command[3] == str(driver_module.PROJECT_ROOT / "tools" / "forgery_comparison.py")
-    evil = tmp_path / "evil" / "tools"
+    assert command[1:] == ["-E", "-s", "-X", "utf8", "-m", "tools.forgery_comparison"]
+    venv = tmp_path / "venv"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True,
+                   capture_output=True)
+    python = venv / "bin" / "python"
+    site = Path(subprocess.run([str(python), "-c", "import sysconfig; print(sysconfig.get_paths()"
+                                "['purelib'])"], check=True, capture_output=True,
+                               text=True).stdout.strip())
+    evil = site / "tools"
     evil.mkdir(parents=True)
     (evil / "__init__.py").write_text("", encoding="utf-8")
     (evil / "forgery_comparison.py").write_text(
         "print('{\"rows\": [], \"note\": \"hijacked\", \"seconds\": 0}')\n", encoding="utf-8")
-    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "evil"))
-    result = driver_module.run_comparison(command, "d", 120)
-    assert result.note != "hijacked" and len(result.rows) == 6
+    result = driver_module.run_comparison(driver_module.default_comparison_command(str(python)),
+                                          "d", 120)
+    assert result.note != "hijacked", result
+    # 這個 venv 沒有 pytest:跑到的是 repo 那一份產生器,照實寫缺 pytest
+    assert "環境缺 pytest" in result.note, result
 
 
 @pytest.mark.parametrize(("printed", "reason"), [
@@ -1365,3 +1375,27 @@ def test_an_oversized_or_odd_generator_output_is_recorded_not_raised(printed, re
         assert result.note == "n" and result.seconds is not None and result.seconds < 30
     else:
         assert result.rows == () and result.note.startswith("這次沒產生:") and reason in result.note
+
+
+# ---- 增量 3 代碼審 r2 ----
+def test_the_tools_run_in_utf8_whatever_the_locale_says(monkeypatch):
+    """[代碼審 r2 s2] 伺服器的語系設定彼此不一致(LANG 是 latin-1、LC_ALL 是 UTF-8):產生器照樣產出、
+    中文不亂碼(子行程 -X utf8、驅動程式照 UTF-8 讀)。"""
+    monkeypatch.setenv("LANG", "en_US.ISO8859-1")
+    monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
+    result = driver_module.run_comparison(driver_module.default_comparison_command(), "d", 120)
+    assert len(result.rows) == 6, result.note
+    assert result.rows[-1][0].startswith("conftest 偷改測試結果")
+    assert "-X" in driver_module.default_verifier_command()
+    assert driver_module.default_verifier_command()[1:3] == ["-X", "utf8"]
+
+
+def test_bytes_that_are_not_utf8_do_not_stall_the_reader():
+    """[代碼審 r2 s2] 輸出含不合法的位元組:讀的那一邊照樣讀完(換成替代字元),不會死在解碼、讓子行程
+    寫到一半卡到逾時。"""
+    started = time.monotonic()
+    result = driver_module.run_comparison(
+        [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\xff' + b'a' * 300000)"],
+        "d", 20)
+    assert time.monotonic() - started < 10
+    assert result.rows == () and "讀不懂" in result.note

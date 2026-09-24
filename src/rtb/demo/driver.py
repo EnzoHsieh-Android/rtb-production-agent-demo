@@ -1103,8 +1103,10 @@ VERIFIER_TIMEOUT_SECONDS = 960.0
 
 
 def default_verifier_command() -> list[str]:
-    """專案內的驗證器,跟本機與 CI 同一條指令(Phase 11)。"""
-    return [sys.executable, str(PROJECT_ROOT / "tools" / "verify_claims.py"), "claims/"]
+    """專案內的驗證器,跟本機與 CI 同一條指令(Phase 11);-X utf8 不看伺服器的語系設定(增量 3 代碼審
+    r2 s2:環境白名單只照抄 LANG,跟伺服器的 LC_ALL 不一致時印中文會出錯)。"""
+    return [sys.executable, "-X", "utf8", str(PROJECT_ROOT / "tools" / "verify_claims.py"),
+            "claims/"]
 
 
 VERIFIER_STOP_SECONDS = 10.0  # 送 SIGTERM 後等驗證器收掉自己起的證據測試,再整組硬殺
@@ -1139,7 +1141,8 @@ def run_verifier(command: Sequence[str], demo_id: str, timeout_seconds: float,
     驗證器跑在自己的行程群組;逾時或取消先 SIGTERM 整組,讓驗證器收掉它另開群組起的證據測試。"""
     env = tool_environment()
     try:
-        popen = subprocess.Popen(list(command), cwd=PROJECT_ROOT, env=env, text=True,  # noqa: S603 - 指令是專案內固定的驗證器
+        popen = subprocess.Popen(list(command), cwd=PROJECT_ROOT, env=env,  # noqa: S603 - 指令是專案內固定的驗證器
+                                 encoding="utf-8", errors="replace",
                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
     except OSError as broken:
@@ -1182,10 +1185,11 @@ NOT_GENERATED = "這次沒產生:"
 COMPARISON_OUTPUT_LIMIT = 1_000_000  # 產生器輸出的上限(字元);正常一張表約 2 千字
 
 
-def default_comparison_command() -> list[str]:
-    """專案內的前後比較表產生器,用檔案路徑跑:-E 不讀 PYTHON 開頭的變數、-s 不開 user site(代碼審
-    r1 s1:原本用 -m tools.forgery_comparison,tools 是命名空間套件,外面同名的套件頂替得了)。"""
-    return [sys.executable, "-E", "-s", str(PROJECT_ROOT / "tools" / "forgery_comparison.py")]
+def default_comparison_command(python: str = sys.executable) -> list[str]:
+    """專案內的前後比較表產生器,從 repo 根以套件方式跑:-E 不讀 PYTHON 開頭的變數(含 PYTHONPATH)、
+    -s 不開 user site、-X utf8 不看語系設定。tools 是正式套件、repo 根(工作目錄)是匯入路徑第一項,
+    別處另有同名的 tools 套件也頂替不了(增量 3 代碼審 r2 a1/s2)。"""
+    return [python, "-E", "-s", "-X", "utf8", "-m", "tools.forgery_comparison"]
 
 
 def run_comparison(command: Sequence[str], demo_id: str, timeout_seconds: float,
@@ -1197,7 +1201,8 @@ def run_comparison(command: Sequence[str], demo_id: str, timeout_seconds: float,
     started = time.monotonic()
     try:
         popen = subprocess.Popen(list(command), cwd=PROJECT_ROOT, env=tool_environment(),  # noqa: S603 - 指令是專案內固定的產生器
-                                 text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 encoding="utf-8", errors="replace",  # 讀不懂的位元組換成替代字元
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
     except OSError as broken:
         return ComparisonRun(demo_id, _now(), (), f"{NOT_GENERATED}起不來({broken})", None)

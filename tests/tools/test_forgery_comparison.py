@@ -182,3 +182,35 @@ fc.generate([Forgery("卡住", forge, None)], step_timeout=2)
         return
     os.kill(pid, signal.SIGKILL)
     raise AssertionError("逾時那一步還活著")
+
+
+# ---- 代碼審 r2(增量 3)----
+def test_a_shadowed_pytest_package_does_not_change_either_column():
+    """[代碼審 r2 s1] repo 根放一份改結果的 `_pytest/`:兩欄的證據測試都加 -P,失敗的測試照實是失敗;
+    有驗證器那欄擋下。"""
+    shadowed = forgery_demos.Forgery("repo 根藏一份改結果的 pytest 內部套件",
+                                     forgery_demos.shadowed_pytest_internals, "test_pause")
+    (row,) = forgery_comparison.generate([shadowed])["rows"]
+    assert row["without_verifier"] == "pytest 結束代碼 1:1 failed, 1 passed", row
+    assert row["with_verifier"].startswith("擋下:") and "test_pause" in row["with_verifier"], row
+
+
+def test_an_evidence_test_with_a_syntax_error_is_not_a_result():
+    """[代碼審 r2 修正驗收 1] 證據測試檔語法錯:pytest 結束代碼不是 0 或 1(最後一行卻像總結,例如
+    「1 error」),那一列算沒產生。"""
+    def broken_syntax(repo):
+        write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER + "\ndef oops(:\n"})
+
+    (row,) = forgery_comparison.generate([forgery_demos.Forgery("語法錯", broken_syntax, None)])[
+        "rows"]
+    assert row["without_verifier"].startswith("這次沒產生:") and "結束代碼" in row[
+        "without_verifier"], row
+
+
+def test_the_generator_commands_run_in_utf8_without_the_working_directory_first():
+    """[代碼審 r2 s1/s2] 產生器起的證據測試與驗證器:-P 不把工作目錄放在匯入路徑最前面、-X utf8 不看
+    伺服器的語系設定。"""
+    command = forgery_comparison._pytest_command("py")
+    assert command[:6] == ["py", "-E", "-s", "-P", "-X", "utf8"]
+    assert forgery_comparison._verifier_command("py", "claims")[:6] == [
+        "py", "-E", "-s", "-P", "-X", "utf8"]

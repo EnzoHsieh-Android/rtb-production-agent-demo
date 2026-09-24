@@ -1189,10 +1189,12 @@ def run_evidence(root: Path, nodes: list[str], timeout: float) -> list[str]:
     with tempfile.TemporaryDirectory() as temporary:
         junit, recorded = Path(temporary) / "junit.xml", Path(temporary) / "xpassed.json"
         # -E 不讀 PYTHON 開頭的變數、-s 不開 user site(代碼審第 1 輪:CI 的 setup-python 沒有
-        # venv,user site 裡的 usercustomize 能在清完環境後再自己設 PYTEST_ADDOPTS)
+        # venv,user site 裡的 usercustomize 能在清完環境後再自己設 PYTEST_ADDOPTS)。-P 不把工作
+        # 目錄(repo 根)放在匯入路徑最前面:不然 repo 根放一份 `_pytest/`,pytest 內部匯入的就是它,
+        # 不用重算雜湊就能把失敗改成通過(Phase 12 增量 3 代碼審 r2 s1)
         # 兩個 -c 不同義、順序不能動:第一個是直譯器的「執行這段碼」(RUNNER 讀 sys.argv[1] 當紀錄
         # 檔、其餘原樣交給 pytest),第二個是交給 pytest 的設定檔旗標
-        command = [sys.executable, "-E", "-s", "-c", RUNNER, str(recorded),
+        command = [sys.executable, "-E", "-s", "-P", "-c", RUNNER, str(recorded),
                    "-c", PYTEST_CONFIG, "--rootdir", ".",
                    "-p", "no:cacheprovider", "-o", "xfail_strict=true", "-q",
                    f"--junitxml={junit}", *nodes]

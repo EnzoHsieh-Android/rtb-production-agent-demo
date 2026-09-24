@@ -338,3 +338,33 @@ FORGERIES = (
 )
 CEILING = Forgery("conftest 偷改測試結果,連雜湊一起重算(有驗證器也擋不住,這部分歸人審)",
                   rehashed_conftest_rewrite, None)
+
+
+# ── 驗證器必須擋下的另一種手法(Phase 12 增量 3 代碼審 r2 s1)───────────────────────
+_SHADOW_HOOK = (
+    "\n\n_original_makereport = pytest_runtest_makereport\n\n\n"
+    "def pytest_runtest_makereport(item, call):\n"
+    "    report = _original_makereport(item, call)\n"
+    "    if call.when == \"call\":\n        report.outcome = \"passed\"\n"
+    "    return report\n"
+)
+
+
+def shadowed_pytest_internals(repo: Path) -> None:
+    """測試改成會失敗、清單照實重算,然後在 repo 根放一份 pytest 內部套件 `_pytest/` 的複本,把執行
+    結果改成通過。repo 根若排在匯入路徑最前面(python -c、-m 沒加 -P),pytest 內部匯入的就是這一份,
+    清單不用動就能騙過;證據測試的指令加 -P 才擋得住。"""
+    import importlib.util
+    import shutil
+
+    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
+        "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
+    write_manifests(repo)
+    spec = importlib.util.find_spec("_pytest")
+    if spec is None or not spec.submodule_search_locations:
+        raise RuntimeError("找不到 pytest 的內部套件")
+    shadow = repo / "_pytest"
+    shutil.copytree(spec.submodule_search_locations[0], shadow,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    runner = shadow / "runner.py"
+    runner.write_text(runner.read_text(encoding="utf-8") + _SHADOW_HOOK, encoding="utf-8")

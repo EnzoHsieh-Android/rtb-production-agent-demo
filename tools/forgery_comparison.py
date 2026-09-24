@@ -10,12 +10,12 @@ clean_environment,加 -E -s),外面的 PYTEST_ 變數與自動載入的外掛改
 孫行程也收掉);任一列失敗或逾時,那一列照實寫「這次沒產生:原因」,其他列照常。暫存 repo 產完就刪。
 收到 SIGTERM 只記下「要停」:正在跑的那一步整組收掉,暫存 repo 照常刪完,不再跑下一列。
 
-用法:python -E -s tools/forgery_comparison.py(用檔案路徑跑;同目錄的定義與驗證器也用檔案路徑載入,
-不靠 tools 這個命名空間套件,外面同名的套件頂替不了);印一行 JSON:rows、note、seconds。
+用法:在 repo 根跑 python -E -s -X utf8 -m tools.forgery_comparison;印一行 JSON:rows、note、seconds。
+tools 是正式套件(有 __init__.py)、-E 不讀 PYTHONPATH、repo 根(工作目錄)是匯入路徑第一項,所以別處
+另有同名的 tools 套件也頂替不了(代碼審 r2 a1:改回一般的套件匯入,不另用檔案路徑載入)。
 """
 
 import contextlib
-import importlib.util
 import json
 import os
 import re
@@ -27,26 +27,14 @@ import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from types import FrameType, ModuleType
+from types import FrameType
 from typing import Any
+
+from tools import forgery_demos as _demos
+from tools import verify_claims as _verifier
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-
-
-def _load(name: str) -> ModuleType:
-    """用檔案路徑載入同目錄的模組(不經 tools 套件的匯入路徑)。"""
-    spec = importlib.util.spec_from_file_location(f"forgery_comparison_{name}",
-                                                  HERE / f"{name}.py")
-    if spec is None or spec.loader is None:
-        raise ImportError(f"載入不了 {name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-_demos = _load("forgery_demos")
-_verifier = _load("verify_claims")
 VERIFIER = HERE / "verify_claims.py"
 STEP_TIMEOUT_SECONDS = 120.0  # 一列裡每一步(證據測試、驗證器)的上限;小 repo 平常一兩秒跑完
 STOP_SECONDS = 5.0  # 送 SIGTERM 後等整組收手,再硬殺
@@ -89,7 +77,8 @@ def reset_stop() -> None:
 def _run(command: Sequence[str], cwd: Path, env: dict[str, str],
          timeout: float) -> tuple[int, str]:
     """在自己的行程群組跑一步,回 (結束代碼, 輸出);逾時或收到停止,整組收掉再丟例外。"""
-    popen = subprocess.Popen(list(command), cwd=cwd, env=env, text=True,  # noqa: S603 - 指令是固定的 pytest 與專案內驗證器
+    popen = subprocess.Popen(list(command), cwd=cwd, env=env,  # noqa: S603 - 指令是固定的 pytest 與專案內驗證器
+                             encoding="utf-8", errors="replace",
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              start_new_session=True)
     deadline = time.monotonic() + timeout
@@ -152,14 +141,24 @@ def _verifier_summary(code: int, out: str) -> str:
     return f"判不出(結束代碼 {code}){head}"
 
 
+# 起子行程的旗標:-E 不讀 PYTHON 開頭的變數、-s 不開 user site、-P 不把工作目錄(小 repo 根)放在匯入
+# 路徑最前面(代碼審 r2 s1:不然小 repo 根藏一份 `_pytest/` 就能改結果)、-X utf8 不看語系設定
+# (代碼審 r2 s2)
+_FLAGS = ("-E", "-s", "-P", "-X", "utf8")
+
+
 def _pytest_command(python: str) -> list[str]:
-    """跟驗證器跑證據測試同一套旗標:-E 不讀 PYTHON 開頭的變數、-s 不開 user site、設定檔與根目錄
-    寫死(tools/verify_claims.py 的 run_evidence)。"""
-    return [python, "-E", "-s", "-m", "pytest", "-c", _verifier.PYTEST_CONFIG, "--rootdir", ".",
+    """跟驗證器跑證據測試同一套旗標與設定(tools/verify_claims.py 的 run_evidence)。"""
+    return [python, *_FLAGS, "-m", "pytest", "-c", _verifier.PYTEST_CONFIG, "--rootdir", ".",
             "-p", "no:cacheprovider", "-q", _demos.NODE_UPDATE, _demos.NODE_PAUSE]
 
 
-def run_row(forgery: Any, step_timeout: float, python: str = sys.executable) -> dict[str, str]:
+def _verifier_command(python: str, claims: str) -> list[str]:
+    return [python, *_FLAGS, str(VERIFIER), claims]
+
+
+def run_row(forgery: _demos.Forgery, step_timeout: float,
+            python: str = sys.executable) -> dict[str, str]:
     """一列:造小 repo、套上造假、跑證據測試與驗證器。失敗或逾時照實寫這次沒產生。"""
     try:
         with tempfile.TemporaryDirectory(prefix="forgery-") as temporary:
@@ -170,7 +169,7 @@ def run_row(forgery: Any, step_timeout: float, python: str = sys.executable) -> 
             env = _verifier.clean_environment()  # 兩欄同一套:驗證器跑證據測試用的就是這一份
             code, out = _run(_pytest_command(python), repo, env, step_timeout)
             without = _pytest_summary(code, out)
-            code, out = _run([python, "-E", "-s", str(VERIFIER), str(repo / "claims")], repo, env,
+            code, out = _run(_verifier_command(python, str(repo / "claims")), repo, env,
                              step_timeout)
             with_verifier = _verifier_summary(code, out)
     except Exception as broken:  # 任一列出事只影響那一列
@@ -181,7 +180,7 @@ def run_row(forgery: Any, step_timeout: float, python: str = sys.executable) -> 
 
 def _has_pytest(python: str) -> bool:
     try:
-        checked = subprocess.run([python, "-E", "-s", "-c", "import pytest"],  # noqa: S603 - 固定指令
+        checked = subprocess.run([python, *_FLAGS, "-c", "import pytest"],  # noqa: S603 - 固定指令
                                  env=_verifier.clean_environment(), capture_output=True,
                                  timeout=60, check=False)
     except (OSError, subprocess.TimeoutExpired):
@@ -189,7 +188,7 @@ def _has_pytest(python: str) -> bool:
     return checked.returncode == 0
 
 
-def generate(forgeries: Sequence[Any] | None = None, *,
+def generate(forgeries: Sequence[_demos.Forgery] | None = None, *,
              step_timeout: float = STEP_TIMEOUT_SECONDS,
              python: str = sys.executable) -> dict[str, Any]:
     """產生整張表:五種造假加一列天花板(給了 forgeries 就只跑那幾列,測試用)。產生器用的直譯器沒有
