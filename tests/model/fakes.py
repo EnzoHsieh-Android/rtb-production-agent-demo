@@ -162,3 +162,21 @@ def invocations(script: Path) -> list[dict]:
                       "cwd_listing": Path(f"{stem}.ls").read_text(encoding="utf-8").split(),
                       "stdin": Path(f"{stem}.stdin").read_text(encoding="utf-8")})
     return found
+
+
+def alive(pid: int, *, proc_root: Path = Path("/proc")) -> bool:
+    """測試共用的存活判斷,跟產品碼同一套:讀得到 <proc_root>/<pid>/stat 就看狀態是不是殭屍(Z);
+    讀不到才送 0 號訊號(macOS:還沒領回的殭屍回 EPERM,不存在回 ESRCH,都算不在)。Linux 上對殭屍送
+    訊號照樣成功,只看訊號會把它當活的(例如容器裡 pytest 是 1 號行程、孤兒沒人領回)。"""
+    try:
+        stat = (proc_root / str(pid) / "stat").read_text(encoding="ascii", errors="replace")
+    except OSError:
+        stat = None
+    if stat is not None:
+        fields = stat[stat.rfind(")") + 2:].split()
+        return bool(fields) and fields[0] != "Z"
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True

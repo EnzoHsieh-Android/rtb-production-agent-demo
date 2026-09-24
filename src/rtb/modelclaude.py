@@ -219,25 +219,37 @@ def _count(value: object) -> int | None:
 PROC_ROOT = Path("/proc")
 
 
+def _stat_fields(entry: Path) -> tuple[str, int] | None:
+    """一個行程的(狀態, 行程群組);讀不到或格式不對回 None。行程名可能含空白與括號:從最後一個「)」
+    之後切。"""
+    try:
+        stat = (entry / "stat").read_text(encoding="ascii", errors="replace")
+    except OSError:
+        return None
+    fields = stat[stat.rfind(")") + 2:].split()
+    if len(fields) < 3 or not fields[2].lstrip("-").isdigit():
+        return None
+    return fields[0], int(fields[2])
+
+
 def _proc_group_members(group: int) -> bool | None:
-    """從行程表找同一個行程群組、狀態不是殭屍(Z)的行程;讀不到行程表回 None(交給送訊號判斷)。
+    """從行程表找同一個行程群組、狀態不是殭屍(Z)的行程;判不出來回 None(交給送訊號判斷)。
     Linux 上群組只剩還沒領回的主行程(殭屍)時,對群組送 0 號訊號照樣成功,不能用它判;而主行程刻意
-    不先領回(領回之後行程編號與群組編號可能被重用),所以要看行程表裡的狀態。"""
+    不先領回(領回之後行程編號與群組編號可能被重用),所以要看行程表裡的狀態。
+    先自我檢查這份行程表是不是本機、同一個 PID 命名空間的 Linux 格式:讀不到自己那一筆、或自己的群組
+    對不上(空的 /proc、沒有 stat 的其他系統、另一個命名空間),就回 None;判成「沒有活的」會漏殺。"""
     try:
         entries = list(PROC_ROOT.iterdir())
     except OSError:
         return None
+    mine = _stat_fields(PROC_ROOT / str(os.getpid()))
+    if mine is None or mine[1] != os.getpgrp():
+        return None
     for entry in entries:
         if not entry.name.isdigit():
             continue
-        try:
-            stat = (entry / "stat").read_text(encoding="ascii", errors="replace")
-        except OSError:
-            continue  # 讀的當下剛結束:不算
-        fields = stat[stat.rfind(")") + 2:].split()  # 行程名可能含空白與括號:從最後一個「)」之後切
-        if len(fields) < 3 or not fields[2].lstrip("-").isdigit():
-            continue
-        if int(fields[2]) == group and fields[0] != "Z":
+        found = _stat_fields(entry)  # 讀的當下剛結束(None):不算
+        if found is not None and found[1] == group and found[0] != "Z":
             return True
     return False
 

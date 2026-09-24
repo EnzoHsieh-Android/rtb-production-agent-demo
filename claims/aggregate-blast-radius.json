@@ -101,7 +101,7 @@
     },
     {
       "path": "src/rtb/modelclaude.py",
-      "sha256": "1222de7b9247d56f3b8cbe96247fa6b2f03921ed6ceab3653d59672619e2d061"
+      "sha256": "85efb0fee565719a64f68ffb8f6cfe408ad45ea149b12573ed34ce9594d5e68f"
     },
     {
       "path": "src/rtb/modelcore.py",

@@ -21,19 +21,11 @@ import pytest
 
 from rtb import modelclaude as cc
 from rtb import modelclient as mc
-from tests.model.fakes import claude_json, fake_claude, live, request
+from tests.model.fakes import alive, claude_json, fake_claude, live, request
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 
 
-def _alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:  # macOS:還沒領回的殭屍
-        return False
-    return True
 
 
 def _wait_started(script, limit=10.0):
@@ -49,9 +41,9 @@ def _wait_started(script, limit=10.0):
 
 def _gone(pid, limit=5.0):
     deadline = time.monotonic() + limit
-    while _alive(pid) and time.monotonic() < deadline:
+    while alive(pid) and time.monotonic() < deadline:
         time.sleep(0.05)
-    return not _alive(pid)
+    return not alive(pid)
 
 
 @pytest.fixture
@@ -178,9 +170,12 @@ def _child_prelude():
 
 
 # ---- Linux 上的行程群組判斷(CI 在 Linux 每次呼叫白等 5 秒) ----
-def _fake_proc(root, entries):
+def _fake_proc(root, entries, *, with_self=True):
     """假的 /proc:每筆 (pid, 狀態, pgrp) 寫一個 <pid>/stat
-    (格式同 Linux:pid (comm) 狀態 ppid pgrp …;comm 故意含空白與括號)。"""
+    (格式同 Linux:pid (comm) 狀態 ppid pgrp …;comm 故意含空白與括號)。預設也放本行程自己那一筆
+    (產品碼先用它自我檢查這份行程表是不是本機、同一個命名空間的)。"""
+    if with_self:
+        entries = [*entries, (os.getpid(), "R", os.getpgrp())]
     for pid, state, pgrp in entries:
         (root / str(pid)).mkdir(parents=True, exist_ok=True)
         (root / str(pid) / "stat").write_text(
@@ -200,6 +195,51 @@ def test_linux_group_check_ignores_the_unreaped_leader(tmp_path, monkeypatch):
     assert cc._has_live_members(4242) is True  # 同群組有睡著的孫行程
     monkeypatch.setattr(cc, "PROC_ROOT", tmp_path / "no-proc", raising=False)
     assert cc._has_live_members(4242) is True  # 讀不到 /proc:退回送訊號判斷
+
+
+@pytest.mark.parametrize("shape", ["empty", "no_stat", "other_namespace", "self_wrong_group"])
+def test_a_proc_that_does_not_look_like_ours_falls_back_to_signals(tmp_path, monkeypatch, shape):
+    """/proc 讀得到但不像本機的 Linux 行程表(空的、沒有 stat、另一個 PID 命名空間、
+    自己的群組對不上):不能判成「沒有活的」,要退回送訊號判斷(代碼審:判錯的方向會漏殺)。"""
+    monkeypatch.setattr(cc.os, "killpg", lambda _group, _sig: None)  # 送訊號說:群組還有活的
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    if shape == "no_stat":
+        for pid in (os.getpid(), 4242):
+            (proc / str(pid)).mkdir()
+            (proc / str(pid) / "status").write_text("State: S\n", encoding="ascii")
+    elif shape == "other_namespace":
+        _fake_proc(proc, [(1, "S", 1)], with_self=False)
+    elif shape == "self_wrong_group":
+        _fake_proc(proc, [(os.getpid(), "R", os.getpgrp() + 12345)], with_self=False)
+    monkeypatch.setattr(cc, "PROC_ROOT", proc)
+    assert cc._proc_group_members(4242) is None
+    assert cc._has_live_members(4242) is True
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="只有 Linux 有這種格式的 /proc")
+def test_the_real_proc_is_parsed():
+    """真的 /proc:自己的群組有活的;一個已結束、還沒領回的新工作階段子行程,它的群組沒有活的。"""
+    assert cc._proc_group_members(os.getpgrp()) is True
+    process = subprocess.Popen(["/bin/sh", "-c", "exit 0"], start_new_session=True)
+    try:
+        assert cc._exited_unreaped(process.pid, time.monotonic() + 10)
+        assert cc._proc_group_members(process.pid) is False
+        assert cc._has_live_members(process.pid) is False
+    finally:
+        process.wait()
+
+
+def test_the_liveness_helper_treats_a_zombie_as_gone(tmp_path):
+    """測試共用的存活判斷跟產品碼同一套:讀得到 /proc/<pid>/stat 就看是不是殭屍,讀不到才送訊號。"""
+    from tests.model.fakes import alive
+
+    proc = tmp_path / "proc"
+    _fake_proc(proc, [(4242, "Z", 4242), (4300, "S", 4242)])
+    assert alive(4242, proc_root=proc) is False
+    assert alive(4300, proc_root=proc) is True
+    assert alive(os.getpid(), proc_root=tmp_path / "no-proc") is True
+    assert alive(2**22 + 12345, proc_root=tmp_path / "no-proc") is False
 
 
 def test_linux_like_group_check_does_not_wait_out_the_limit(tmp_path, monkeypatch):
