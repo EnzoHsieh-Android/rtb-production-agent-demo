@@ -2,6 +2,7 @@
 同一批函式與常數重算(協調者 2026-09-24 裁定),重算的結論要跟當時實際的判定一致,對不上的就
 不顯示;執行端的根據用它當下記下的核對材料。"""
 
+import itertools
 from dataclasses import replace
 from datetime import timedelta
 
@@ -141,3 +142,60 @@ def test_recomputed_basis_says_so_in_the_agreed_words():
     """[條件三] 顯示時標明是依存下的證據重算(協調者指定的字樣),跟執行端當下記下的分得開。"""
     assert basis.RECOMPUTED == "依存下的證據重算"
     assert basis.RECORDED != basis.RECOMPUTED
+
+
+# ---- 協調者 2026-09-24 裁定:分析端的中間判斷點用重算補上 ----
+_END = {TaskState.PROPOSED: "a_propose", TaskState.NO_ACTION: "a_no_action",
+        TaskState.COLLECTING_EVIDENCE: "a_recollect"}
+
+
+def test_the_filled_in_route_is_real_edges_and_ends_where_the_rule_ended():
+    """[裁定條件二] 全部樣本:補上的中間判斷點每一步都是正式圖的邊、一步接一步從新鮮度判斷出發,
+    終點跟當時實際結果一樣;每一步都標重算。"""
+    from rtb.demo.flow import FLOW_GRAPH
+
+    edges = {(e.source, e.target) for e in FLOW_GRAPH.edges}
+    checked = 0
+    for case, row, reason in _decidable():
+        route = basis.analysis_route(basis.analysis(case.task, case.evidence, row, reason))
+        pairs = [(step.node, step.target) for step in route]
+        assert pairs[0][0] == "a_fresh" and pairs[-1][1] == _END[row.state], pairs
+        assert all(pair in edges for pair in pairs), pairs
+        assert all(a[1] == b[0] for a, b in itertools.pairwise(pairs))
+        assert all(step.basis.source == basis.RECOMPUTED for step in route)
+        checked += 1
+    assert checked > 100
+
+
+def test_the_routing_step_says_there_is_no_model_entry():
+    """[裁定條件三] 「交給誰判斷」那一步標程式規則,理由寫分析端目前沒有模型入口,
+    不寫得像 AI 判過。"""
+    evidence = (_state(100, "active"), _metrics(1.0, 500, 12, 1, 5.0))
+    decision, _ = policy.explain(_task(), evidence, NOW, candidate=None,
+                                 allowed=policy.ValidatedCells.NONE)
+    row = TaskRow(task_id="t1", seq=4, state=TaskState.PROPOSED, campaign_id="c1",
+                  proposal=decision.proposal, error_detail=None, written_at=NOW)
+    route = basis.analysis_route(basis.analysis(_task(), evidence, row, None))
+    step = next(s for s in route if s.node == "a_route")
+    assert step.target == "a_rule" and "沒有模型入口" in step.basis.observed
+    assert "AI" not in step.basis.conclusion
+
+
+def test_no_route_is_filled_in_when_the_basis_was_withheld():
+    assert basis.analysis_route(()) == ()
+
+
+def test_the_write_checks_are_filled_in_only_when_recorded_and_passed():
+    """[裁定條件四] 執行端的判斷點:開始一筆那一列有記錄、而且都通過的才補(範圍 → 總上限 → 寫入)。"""
+    from rtb.executor.attempt_store import FirstRow
+    from tests.analyzer.conftest import make_proposal
+
+    first = FirstRow(key="k", task_id="t1", revision=1, campaign_id="c1", tenant="t",
+                     reserved_amount=10, ratio_allowance=50, max_budget=10**6,
+                     aggregate_limit=124, used_before=110, proposal=make_proposal(),
+                     snapshot_matches_key=True, written_at="2026-09-24T00:00:00Z")
+    route = basis.write_route(basis.write_start(first))
+    assert [(s.node, s.target) for s in route] == [("x_guard", "x_total"), ("x_total", "x_write")]
+    assert len(route[0].more) == 1
+    assert basis.write_route(basis.write_start(replace(first, used_before=None))) == ()
+    assert basis.write_route(basis.write_start(replace(first, used_before=120))) == ()

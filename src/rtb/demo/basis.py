@@ -7,6 +7,7 @@
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
 from rtb.analyzer import policy
@@ -115,6 +116,10 @@ def analysis(before: TaskRow, evidence: Sequence[Evidence], decided: TaskRow,
     return tuple(found)
 
 
+# 三組核對材料的標準開頭:補執行端判斷點時靠它認出是哪一組
+_RATIO, _CAP, _TOTAL = "單次最多加", "單一廣告上限", "全部廣告加起來的總上限"
+
+
 def write_start(first: FirstRow) -> tuple[Basis, ...]:
     """開始一筆時執行端自己記下的核對材料:這次要加多少、單次最多加多少、單一廣告上限、總上限與已用。
     舊列沒記的那一組不給。"""
@@ -123,16 +128,16 @@ def write_start(first: FirstRow) -> tuple[Basis, ...]:
     new = None if first.proposal is None else first.proposal.requested_change.get("new_budget")
     if amount is not None and first.ratio_allowance is not None:
         found.append(Basis(f"這次要加 {amount}",
-                           f"單次最多加 {first.ratio_allowance}(現有預算的一半)",
+                           f"{_RATIO} {first.ratio_allowance}(現有預算的一半)",
                            "沒超過" if amount <= first.ratio_allowance else "超過,要人確認",
                            RECORDED))
     if new is not None and first.max_budget is not None:
-        found.append(Basis(f"加完是 {new}", f"單一廣告上限 {first.max_budget}",
+        found.append(Basis(f"加完是 {new}", f"{_CAP} {first.max_budget}",
                            "沒超過" if int(new) <= first.max_budget else "超過,擋下", RECORDED))
     if amount is not None and first.aggregate_limit is not None and first.used_before is not None:
         total = first.used_before + amount
         found.append(Basis(f"已經加出去 {first.used_before},加上這次共 {total}",
-                           f"全部廣告加起來的總上限 {first.aggregate_limit}",
+                           f"{_TOTAL} {first.aggregate_limit}",
                            "放得下" if total <= first.aggregate_limit
                            else "超過總上限,人確認後放行",
                            RECORDED))
@@ -168,3 +173,61 @@ def platform_call(calls: Sequence[DspCallRow], state: str, written_at: str) -> t
         return (Basis(what, "平台說收到了或查到這個編號,才算寫進去",
                       "寫進去了,接著比對平台實際狀態", RECORDED),)
     return ()
+
+
+@dataclass(frozen=True)
+class RouteStep:
+    """分析端補上的一個中間判斷點:從哪個判斷點、走到哪、憑哪一組根據(協調者 2026-09-24 裁定)。"""
+
+    node: str
+    target: str
+    basis: Basis
+    more: tuple[Basis, ...] = ()  # 同一個判斷點的其他根據(範圍檢查也看單一廣告上限)
+
+
+NO_MODEL = Basis("分析端目前沒有模型入口", "有模型入口、而且這件工作在允許範圍內,才交給 AI 參考",
+                 "用程式規則判斷", RECOMPUTED)
+
+
+def analysis_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:  # noqa: PLR0911 - 每個判斷點一個出口
+    """把分析那一步重算出的根據,換成它依序走過的判斷點:新鮮度 → 資料齊不齊 → 花得慢不慢 → 交給誰
+    判斷 → 值不值得加。根據是 analysis() 在跟當時結果一致時才給的(不一致就是空的,這裡也就不補);
+    每一步都照正式規則的判定走,停在做出決定的那一步。"""
+    items = list(found)
+    if not items:
+        return ()
+    steps: list[RouteStep] = []
+    fresh = items.pop(0)
+    if fresh.conclusion != "夠新":
+        return (RouteStep("a_fresh", "a_recollect", fresh),)
+    steps.append(RouteStep("a_fresh", "a_complete", fresh))
+    if not items:
+        return ()  # 夠新卻沒有下一組:不是 analysis() 給得出的形狀,不補
+    second = items.pop(0)
+    if second.conclusion == _NO_ACTION["missing_state_or_metrics"]:
+        return (*steps, RouteStep("a_complete", "a_no_action", second))
+    steps.append(RouteStep("a_complete", "a_pacing",
+                           Basis("廣告狀態與成效資料都有", "兩樣都要有才判斷", "齊全", RECOMPUTED)))
+    if second.conclusion != "花太慢":
+        return (*steps, RouteStep("a_pacing", "a_no_action", second))
+    steps.append(RouteStep("a_pacing", "a_route", second))
+    steps.append(RouteStep("a_route", "a_rule", NO_MODEL))
+    if not items:
+        return ()
+    worth = items.pop(0)
+    steps.append(RouteStep("a_rule", "a_worth", worth))
+    target = "a_propose" if worth.conclusion == "值得加" else "a_no_action"
+    return (*steps, RouteStep("a_worth", target, worth))
+
+
+def write_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:
+    """執行端開始一筆那一列記下的核對材料(write_start 的結果)換成判斷點:範圍檢查(單次上限、單一
+    廣告上限)→ 總上限 → 寫入。只補那一列有記錄、而且都通過的那幾步(協調者 2026-09-24 裁定);寫入前
+    再確認的版本那一列沒記,不補。"""
+    by_standard = {b.standard.split(" ")[0]: b for b in found}
+    ratio, cap, total = by_standard.get(_RATIO), by_standard.get(_CAP), by_standard.get(_TOTAL)
+    if ratio is None or cap is None or total is None:
+        return ()
+    if ratio.conclusion != "沒超過" or cap.conclusion != "沒超過" or total.conclusion != "放得下":
+        return ()
+    return (RouteStep("x_guard", "x_total", ratio, (cap,)), RouteStep("x_total", "x_write", total))
