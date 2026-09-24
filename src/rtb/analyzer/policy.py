@@ -200,28 +200,61 @@ def _judge(
     return route(worth_input, candidate, allowed).verdict
 
 
+@dataclass(frozen=True)
+class PolicySteps:
+    """決策規則每一步的中間事實,照規則的順序,停在做出決定的那一步(後面的是空的)。給 `explain`
+    自己用,也給展示頁重算判斷的根據(Phase 12 代碼審 r1 a1:外面不再直接呼叫這裡的私有函式、
+    也不再自己另算一次配速)。唯讀:不寫任何東西、不讀時鐘。"""
+
+    fresh: bool  # 每一筆證據都夠新
+    state: MappingProxyType[str, Any] | None  # 可信的廣告現況(沒有就是空的)
+    metrics: MappingProxyType[str, Any] | None  # 可信的成效資料
+    pacing_ratio: float | None  # 到現在該花的進度(算不出來是空的)
+    underpacing: bool | None  # 花太慢嗎;算不出來是空的
+    worth: WorthVerdict | None  # 值不值得加(只在花太慢時判)
+
+
+def steps(
+    evidence: tuple[Evidence, ...], now: datetime, *,
+    candidate: CandidateCall | None = None, allowed: ValidatedCells = ValidatedCells.NONE,
+) -> PolicySteps:
+    """照規則的順序一步一步算,停在做出決定的那一步;候選只在花太慢時才會被呼叫(跟原本一樣)。"""
+    if not _all_fresh(evidence, now):
+        return PolicySteps(False, None, None, None, None, None)
+    state = _payload(evidence, EvidenceKind.CAMPAIGN_STATE)
+    metrics = _payload(evidence, EvidenceKind.METRICS)
+    frozen = (None if state is None else MappingProxyType(state),
+              None if metrics is None else MappingProxyType(metrics))
+    if state is None or metrics is None:
+        return PolicySteps(True, *frozen, None, None, None)
+    ratio = pacing(metrics.get("spend"), state.get("budget"), ELAPSED_FRACTION_1H)
+    underpacing = ratio.below(UNDERPACING_THRESHOLD)
+    if not underpacing:
+        return PolicySteps(True, *frozen, ratio.value, underpacing, None)
+    return PolicySteps(True, *frozen, ratio.value, True,
+                       _judge(state, metrics, candidate, allowed))
+
+
 def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
     task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime, *,
     candidate: CandidateCall | None, allowed: ValidatedCells,
 ) -> tuple[Decision, NoActionReason | None]:
     """決策結果加「為什麼沒提案」(評估用,[S705]);決策結果那一半就是 `decide` 的回傳值,
     `decide` 對某筆輸入丟例外時這裡丟同一種。候選與允許清單都要明寫(`decide` 傳沒有候選、空清單),
-    非空的只給評估入口用。"""
-    if not _all_fresh(evidence, now):
+    非空的只給評估入口用。每一步的中間事實由 `steps` 算(同一份邏輯)。"""
+    facts = steps(evidence, now, candidate=candidate, allowed=allowed)
+    if not facts.fresh:
         return NeedsFreshEvidence(), NoActionReason.STALE_EVIDENCE
-    state = _payload(evidence, EvidenceKind.CAMPAIGN_STATE)
-    metrics = _payload(evidence, EvidenceKind.METRICS)
+    state, metrics = facts.state, facts.metrics
     if state is None or metrics is None:
         return NoAction(), NoActionReason.MISSING_STATE_OR_METRICS
 
     budget = state.get("budget")
-    spend = metrics.get("spend")
-    underpacing = pacing(spend, budget, ELAPSED_FRACTION_1H).below(UNDERPACING_THRESHOLD)
-    if underpacing is None:
+    if facts.underpacing is None:
         return NoAction(), NoActionReason.PACING_UNKNOWN
-    if underpacing is False:
+    if facts.underpacing is False:
         return NoAction(), NoActionReason.NOT_UNDERPACING
-    verdict = _judge(state, metrics, candidate, allowed)
+    verdict = facts.worth
     if verdict is WorthVerdict.INSUFFICIENT:
         return NoAction(), NoActionReason.JUDGED_INSUFFICIENT
     if verdict is not WorthVerdict.WORTH:

@@ -1,8 +1,6 @@
 # ruff: noqa: RUF002
 """展示頁與後續展示伺服器共用的不可變狀態介面。"""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -14,6 +12,7 @@ class ModelMode(Enum):
 
     RECORDED = "錄製"
     LIVE = "即時"
+    NOT_CALLED = "這次沒有呼叫 AI"  # 目前分析端沒有模型入口(代碼審 r1 p6:不預設成錄製)
 
 
 class ModelSource(Enum):
@@ -40,6 +39,7 @@ class ScenarioStatus(Enum):
 
     PENDING = "尚未開始"
     RUNNING = "正在執行"
+    AWAITING_APPROVAL = "等你確認"
     DONE = "結果符合預期"
     INCOMPLETE = "未完成"
 
@@ -70,12 +70,20 @@ class NodeKind(Enum):
     TERMINAL = "結束點"
 
 
+class NodeOwner(Enum):
+    CODE = "程式"
+    AI = "AI"
+    HUMAN = "人工"
+    EXTERNAL = "外部平台"
+
+
 @dataclass(frozen=True, slots=True)
 class FlowNode:
     id: str
     label: str
     kind: NodeKind
     lane: str
+    owner: NodeOwner = NodeOwner.CODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,13 +99,34 @@ class FlowGraph:
     edges: tuple[FlowEdge, ...]
 
 
+class DecisionKind(Enum):
+    """這一步是真的判斷,還是只是狀態往前走(後者不需要數字根據)。"""
+
+    JUDGEMENT = "判斷"
+    PROGRESS = "狀態前進"
+
+
+@dataclass(frozen=True, slots=True)
+class DecisionBasis:
+    """一次判斷所用的實測值、標準與比較結論。"""
+
+    observed: str
+    standard: str
+    conclusion: str
+    source: str | None = None  # 這組根據從哪來,例如「依存下的證據重算」「執行端當下記下」
+
+
 @dataclass(frozen=True, slots=True)
 class Decision:
     node: str
-    taken_edge: tuple[str, str]
+    taken_edge: tuple[str, str] | None  # 對不到圖上的邊時留空,不猜一條(代碼審第 3 輪)
     outcome: str
     reason: str
     at: datetime | None
+    basis: tuple[DecisionBasis, ...] = ()
+    operation_key: str | None = None
+    kind: DecisionKind | None = None  # None:舊資料與範例資料,照判斷顯示
+    task_id: str | None = None  # 哪一件工作(同一個情境有好幾件工作時分得開)
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +138,7 @@ class TimelineStep:
 
 @dataclass(frozen=True, slots=True)
 class Disposition:
+    category: str
     code: str
     explanation: str
 
@@ -125,6 +155,25 @@ class DspCampaign:
 class DspState:
     campaigns: tuple[DspCampaign, ...]
     operations: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeSummary:
+    """情境結束時，廣告平台上的預算是否真的變動。金額是平台上的預算原樣整數，沒有幣別。"""
+
+    campaign: str
+    before: int | None
+    after: int | None
+    written: bool
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InjectedFault:
+    """展示刻意製造的故障及其在正式流程圖上的位置。"""
+
+    node: str
+    description: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +197,8 @@ class VerifierResult:
     passed: bool
     lines: tuple[str, ...]
     reasons: tuple[str, ...]
+    verified_at: datetime
+    demo_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +220,8 @@ class ApprovalForm:
     numbers: tuple[tuple[str, str], ...]
     narrative: str | None
     source: ModelSource | None
+    demo_id: str
+    numbers_digest: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,7 +240,22 @@ class Scenario:
     path: tuple[Decision, ...]
     current_node: str | None
     result_summary: str = ""
+    # 這次走過的邊的集合(照第一次出現排、每條一次);好幾件工作時不是一條路徑,路徑看 path
+    # (代碼審 r1 d9)
     traversed_edges: tuple[tuple[str, str], ...] = ()
+    source_demo_id: str | None = None
+    # 出處那一次是全部跑一次(True)還是單一情境重跑(False);沒記是空的
+    source_full: bool | None = None
+    ran_at: datetime | None = None
+    model_mode: ModelMode | None = None
+    change_summary: ChangeSummary | None = None
+    change_overview: str | None = None  # 多個廣告的情境(F7)一行彙總:放行、人工寫入、沒寫入與總額
+    trigger: str | None = None
+    goal: str | None = None
+    queue_wait_seconds: int | None = None
+    injected_faults: tuple[InjectedFault, ...] = ()
+    operation_key: str | None = None
+    platform_apply_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,7 +269,7 @@ class CurrentStep:
 @dataclass(frozen=True, slots=True)
 class DemoState:
     demo_id: str
-    started_at: datetime
+    started_at: datetime | None  # 還沒有任何展示時是空的
     model_mode: ModelMode
     model_cost_usd: Decimal | None
     verifier_digest: str | None
@@ -215,3 +283,9 @@ class DemoState:
     flow: FlowGraph
     current: CurrentStep | None
     observed_at: datetime | None = None
+    last_full_run_cost_usd: Decimal | None = None
+    model_mode_reason: str | None = None
+    is_sample: bool = False
+    full_demo_id: str | None = None  # 最近一次跑完的全部跑一次;空的就是還沒有完整執行過
+    verifier_pending: bool = False  # 完整展示在跑、這次的自動查核還沒跑到
+    report_note: str | None = None  # 上一次另存報告失敗的原因(伺服器記下,頁面照實顯示)

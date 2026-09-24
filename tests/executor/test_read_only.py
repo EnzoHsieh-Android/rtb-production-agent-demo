@@ -90,6 +90,9 @@ def _read_samples(key):
         "InboxReads.pending_snapshot": ("s", ()),
         "InboxReads.approval_uses_for": ("s", ([KEY],)),
         "InboxReads.lifecycle_events_after": ("s", (0,)),  # Phase 12 代碼審 r2 a1
+        # Phase 12 代碼審 r1 d5
+        "InboxReads.stop_capped": ("s", (StopKind.AGGREGATE_LIMIT_REACHED, "r1", 1,
+                                          inbox_store.content_hash(PROP))),
         "latest": ("a", (key,)),
         "history": ("a", (key,)),
         "snapshot": ("a", (key,)),

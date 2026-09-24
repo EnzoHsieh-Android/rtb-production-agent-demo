@@ -156,6 +156,8 @@ class JsonHandler(BaseHTTPRequestHandler):
     max_body_bytes = MAX_BODY_BYTES
     require_host = False  # 子類別可改成 True:連 HTTP/1.0 也必須帶合法的 Host
     content_security_policy: str | None = None  # 有值就是 HTML 伺服器:錯誤頁也回 HTML 並帶這個標頭
+    # 每個回應都多帶的固定標頭(Phase 12 代碼審 r1 s6:展示伺服器帶不快取、不猜型別、不送來源網址)
+    extra_headers: tuple[tuple[str, str], ...] = ()
     _body_read = False  # 每個請求一個處理程式實例,所以這個旗標只屬於這一個請求
 
     def setup(self) -> None:
@@ -254,7 +256,10 @@ class JsonHandler(BaseHTTPRequestHandler):
             raise RequestRejected(400, "invalid_host")
 
     def single_header(self, name: str) -> str | None:
-        values = self.headers.get_all(name) or []
+        # HTTP/0.9 式的請求行(只有「GET /」兩段)基底類別把標頭設成空的 dict:當成沒有標頭,
+        # 照一般缺標頭的路徑拒,不撞 AttributeError 回 500(Phase 12 代碼審 r3 s2)
+        get_all = getattr(self.headers, "get_all", None)
+        values = (get_all(name) if get_all is not None else None) or []
         if len(values) > 1:
             raise RequestRejected(400, "duplicate_header")
         return values[0] if values else None
@@ -352,7 +357,7 @@ class JsonHandler(BaseHTTPRequestHandler):
         """唯一的送出路徑(JSON 的 reply 也走這裡,第 3 輪代碼審 a4)。宣告了內容安全政策的伺服器,
         每個回應都帶政策標頭,不看內容類型(r3 h2:原本只認 text/html 開頭,Text/HTML、xhtml、svg
         都漏掉)。全部標頭在送出狀態行之前驗完,驗不過就還沒寫出任何一個位元組。"""
-        extra = list(response.headers)
+        extra = [*self.extra_headers, *response.headers]
         if self.content_security_policy is not None:
             extra.insert(0, ("Content-Security-Policy", self.content_security_policy))
         for name, value in extra:

@@ -640,10 +640,13 @@ def test_the_driver_reports_a_timeout_only_after_the_scenario_has_wound_down(tmp
 
 
 class _ConfirmStub:
-    def __init__(self, stop_during_wait):
+    def __init__(self, stop_during_wait, approved_at_close=False, written_after=False,
+                 sign_failed=False):
         self.code, self.stop = "F7", threading.Event()
-        self.marks, self.cleared = [], []
+        self.marks, self.cleared, self.waits = [], [], []
         self._stop_during_wait = stop_during_wait
+        self._approved, self._written_after = approved_at_close, written_after
+        self._failed = sign_failed
         stub = self
 
         class _State:
@@ -653,15 +656,20 @@ class _ConfirmStub:
             def mark_status(self, _code, status):
                 stub.marks.append(status)
 
-            def clear_confirmation(self):
+            def clear_confirmation(self, _now=None):
                 stub.cleared.append(True)
+                return stub._approved
+
+            def confirmation_failed(self):
+                return stub._failed
 
         self.state = _State()
 
-    def wait_paused(self, _done, _limit, _on_poll=None):
+    def wait_paused(self, _done, limit, _on_poll=None):
+        self.waits.append(limit)
         if self._stop_during_wait:
             self.stop.set()
-        return False
+        return len(self.waits) > 1 and (self._written_after or self._failed)
 
 
 def test_a_stopped_scenario_does_not_ask_for_confirmation():
@@ -1053,3 +1061,186 @@ def test_a_cancel_stops_a_running_verifier(tmp_path):
     assert time.monotonic() - began < 15
     assert not run.passed and "取消" in run.reasons[0]
     assert _gone(int(marker.read_text()))
+
+
+# ---- 增量 2b:判斷的根據、誰判的、操作鍵(真的跑) ----
+def test_real_decisions_carry_their_basis(tmp_path, state):
+    """F5 兩件工作:提案那一步與不調整那一步都帶重算的根據、最後一組結論跟實際判定一致;寫入平台
+    那一步帶執行端記下的核對材料與操作鍵。"""
+    from rtb.demo import basis
+
+    assert _driver(tmp_path, state).run_one("F5").status == DONE
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        decisions = reader.decisions("demo-1", "F5")
+    finally:
+        reader.close()
+    by_node = {d.node: d for d in decisions}
+    assert by_node["a_propose"].basis[-1].conclusion == basis.PROPOSE
+    assert by_node["a_no_action"].basis[-1].conclusion == "沒有花太慢,不調整"
+    assert {b.source for b in by_node["a_propose"].basis} == {basis.RECOMPUTED}
+    write = by_node["x_write"]
+    assert write.basis and {b.source for b in write.basis} == {basis.RECORDED}
+    assert write.operation_key and write.actor == "程式"
+    assert by_node["a_receive"].operation_key is None
+
+
+def _details(tmp_path, code):
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        return reader.scenario_details("demo-1", code)
+    finally:
+        reader.close()
+
+
+def test_a_scenario_records_what_changed_and_how_it_was_set_up(tmp_path, state):
+    """情境細節:為什麼開始(照實寫驅動程式直接建工作)、目標、刻意製造的故障與位置、排隊等了幾秒、
+    追蹤的操作鍵與平台上套用幾次、最後改了什麼(平台預算原樣整數,沒有幣別)。"""
+    assert _driver(tmp_path, state).run_one("F2").status == DONE
+    details = _details(tmp_path, "F2")
+    assert details.trigger == driver_module.TRIGGER and "代替排程" in details.trigger
+    assert details.goal
+    assert [node for node, _ in details.injected_faults] == ["x_write"]
+    assert details.operation_key and details.platform_apply_count == 1
+    assert isinstance(details.queue_wait_seconds, int) and details.queue_wait_seconds >= 0
+    change = details.change
+    assert (change.campaign, change.before, change.after, change.written) == ("c1", 100, 110, True)
+    # 平台最後的樣子與操作紀錄(平台唯讀端點)、收件口的處置,給頁面的平台與處置兩欄
+    assert details.platform == (("c1", 110, 2, "active"),)
+    assert len(details.platform_operations) == 1 and "110" in details.platform_operations[0]
+    assert details.dispositions == ()  # 照預期寫進去,沒有擋下或停下
+
+
+def test_a_replayed_scenario_keeps_its_audit_and_dispositions(tmp_path, state):
+    """F6:死信操作稽核(誰、做了什麼)與收件口的擋下、停下原因照實記下。"""
+    assert _driver(tmp_path, state).run_one("F6").status == DONE
+    details = _details(tmp_path, "F6")
+    assert any("demo-operator" in line and "重新送入" in line for line in details.audit)
+    codes = {code for _, code, _ in details.dispositions}
+    assert {"delivery_limit", "version_changed"} <= codes
+
+
+def test_a_blocked_then_replanned_scenario_shows_the_final_write(tmp_path, state):
+    assert _driver(tmp_path, state).run_one("F4").status == DONE
+    details = _details(tmp_path, "F4")
+    change = details.change
+    # 「之前」是被追蹤那把鍵寫入前的平台值:別的寫入者先把 100 改成 200,本系統只把 200 改成 220
+    # (代碼審 r1 d3:原本取造資料時的 100,看起來像一次加了 120%)
+    assert (change.before, change.after, change.written) == (200, 220, True)
+    assert details.platform_apply_count == 1  # 另一個寫入者那一筆不是這把鍵,不算
+
+
+def test_f7_records_an_overview_and_the_confirmed_one(tmp_path, state):
+    """F7 兩樣都放(協調者裁定):一行彙總(放行幾個、人工確認後寫入幾個、沒寫入幾個、加了多少與總上限),
+    加上人工確認那一筆的明細。"""
+    verdict, _ = _small_f7(tmp_path, state, cap=60, approve=_approve_when_asked)
+    assert verdict.status == DONE, verdict.reason
+    details = _details(tmp_path, "F7")
+    assert "放行 12 個" in details.change_overview
+    assert "人工確認後寫入 1 個" in details.change_overview
+    assert "沒寫入 17 個" in details.change_overview and "總上限 124" in details.change_overview
+    assert details.change.written and (details.change.before, details.change.after) == (100, 110)
+
+
+def test_a_mismatch_between_live_decisions_and_the_trace_marks_the_scenario_incomplete(
+        tmp_path, state):
+    """[S1010] 情境結束後觀察到的紀錄跟必經節點對不上(多一步、少一步、順序不對),或平台真實狀態跟
+    預期寫入對不上:驅動程式把情境標「沒跑完」並寫哪一步對不上。"""
+    def mismatched(world):
+        world._path.streams.extend(("t1", "key", n) for n in ["x_write", "x_resend", "x_done"])
+        world.require_streams({("t1", "key"): (("x_write", "x_verify", "x_done"), ())})
+        return "不該到這裡"
+
+    verdict = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 20, mismatched)}).run_one("FX")
+
+    assert verdict.status == INCOMPLETE and "對不上" in verdict.reason
+    assert "x_resend" in verdict.reason
+
+
+def test_an_approval_signed_just_before_the_window_closes_is_still_waited_for():
+    """[代碼審 r1 x3/s5/v5] 關確認窗跟簽發互斥:關窗前一刻已經簽了,就再等它寫進平台,不直接判成
+    沒有人確認;沒簽就不多等。"""
+    from datetime import UTC
+
+    from rtb.demo.state_store import ConfirmationRequest
+
+    request = ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
+                                  datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
+    signed = _ConfirmStub(stop_during_wait=False, approved_at_close=True, written_after=True)
+    assert driver_module._wait_for_confirmation(signed, request, 5) is True
+    assert signed.waits[1] == driver_module.APPROVED_WRITE_SECONDS
+    unsigned = _ConfirmStub(stop_during_wait=False)
+    assert driver_module._wait_for_confirmation(unsigned, request, 5) is False
+    assert len(unsigned.waits) == 1
+
+
+# ---- 代碼審 r1(Phase 12 增量 2)----
+def test_f7_without_a_confirmation_still_names_its_key_and_counts_zero_writes(tmp_path, state):
+    """[代碼審 r1 d7] 沒人確認的那一筆從沒開始寫入,嘗試紀錄沒有鍵:改從生命週期事件取鍵,平台上
+    確定套用 0 次(不寫成「沒有記錄」)。"""
+    verdict, _ = _small_f7(tmp_path, state, cap=2)
+    assert verdict.reason == "沒有人確認"
+    details = _details(tmp_path, "F7")
+    assert details.operation_key and details.platform_apply_count == 0
+    assert details.change is not None and details.change.written is False
+
+
+def test_scenario_details_are_written_after_the_processes_are_closed(tmp_path):
+    """[代碼審 r1 d6] 情境細節寫不進展示狀態庫:子行程照樣先收掉,情境照樣結案(標沒跑完、寫原因),
+    不停在執行中。"""
+    class Broken(StateWriter):
+        def set_scenario_details(self, code, details):
+            raise RuntimeError("磁碟滿了")
+
+    writer = Broken(tmp_path / "state.db", "demo-1")
+    pids = []
+
+    def run(world):
+        pids.append(world.start_platform().pid)
+        return "跑完"
+
+    verdict = _driver(tmp_path, writer, {"FX": Scenario("FX", "假", 30, run)}).run_one("FX")
+    assert verdict.status == INCOMPLETE and "情境細節寫不進" in verdict.reason
+    assert pids and not _alive(pids[0])
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        (row,) = reader.scenario_runs("demo-1")
+    finally:
+        reader.close()
+    assert row.status == INCOMPLETE and row.finished_at is not None
+
+
+# ---- 代碼審 r2(Phase 12 增量 2)----
+def test_a_cancel_that_lands_before_the_scenario_starts_still_stops_it(tmp_path):
+    """[代碼審 r2 v2/s1] 取消落在「檢查 stop」與「記下正在跑的情境」之間:情境照樣收到停止,不會
+    跑到時限;記成展示被停止。"""
+    class Racing(StateWriter):
+        def start_scenario(self, code, at):
+            demo.cancel()  # 取消剛好落在這裡:驅動程式還沒記下正在跑的情境
+            super().start_scenario(code, at)
+
+    def waits(world):
+        world.stop.wait(20)
+        raise ScenarioFailed("情境自己的失敗")
+
+    writer = Racing(tmp_path / "state.db", "demo-1")
+    demo = _driver(tmp_path, writer, {"FX": Scenario("FX", "假", 30, waits)})
+    started = time.monotonic()
+    verdict = demo.run_one("FX")
+    assert time.monotonic() - started < 10
+    assert verdict.status == INCOMPLETE and "展示被停止" in verdict.reason
+
+
+# ---- 代碼審 r3(Phase 12 增量 2)----
+def test_a_confirmation_whose_signing_failed_is_not_waited_for_or_called_unconfirmed():
+    """[代碼審 r3 v3] 關窗時有人正在簽、後來簽失敗:驅動程式看到簽發失敗就不再等,原因照實寫
+    「有人確認但簽發失敗」,不寫成沒有人確認。"""
+    from datetime import UTC
+
+    from rtb.demo.state_store import ConfirmationRequest
+
+    request = ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
+                                  datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
+    failed = _ConfirmStub(stop_during_wait=False, approved_at_close=True, sign_failed=True)
+    with pytest.raises(ScenarioFailed, match="有人確認但簽發失敗"):
+        driver_module._wait_for_confirmation(failed, request, 5)

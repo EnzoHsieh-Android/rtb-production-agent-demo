@@ -157,8 +157,8 @@ def tasks_after_query(after: int) -> tuple[str, tuple[int, ...]]:
 
 def follow_ups_after_query(after: int) -> tuple[str, tuple[int, ...]]:
     """列號大於 after 的接續關係(同上)。"""
-    return ("SELECT rowid, original_task_id, follow_up_task_id, reason, written_at FROM follow_ups "
-            "WHERE rowid > ? ORDER BY rowid LIMIT ?", (after, CURSOR_PAGE))
+    return ("SELECT rowid, original_task_id, follow_up_task_id, reason, written_at, generation "
+            "FROM follow_ups WHERE rowid > ? ORDER BY rowid LIMIT ?", (after, CURSOR_PAGE))
 
 
 @dataclass(frozen=True)
@@ -170,6 +170,7 @@ class FollowUpRow:
     follow_up_task_id: str | None
     reason: ReplanReason
     written_at: datetime
+    generation: int | None = None  # 接續任務是第幾代(代數用完那一列記的是超過上限的那一代)
 
 
 class _FollowUpOutcome(StrEnum):
@@ -376,7 +377,7 @@ class TaskReads:
         """列號大於 after 的接續關係,依寫入順序,最多一頁。"""
         sql, params = follow_ups_after_query(after)
         return tuple(FollowUpRow(int(r[0]), r[1], r[2], ReplanReason(r[3]),
-                                 datetime.fromisoformat(r[4].replace("Z", "+00:00")))
+                                 datetime.fromisoformat(r[4].replace("Z", "+00:00")), int(r[5]))
                      for r in self._conn.execute(sql, params))
 
     def history(self, task_id: str) -> tuple[TaskRow, ...]:
