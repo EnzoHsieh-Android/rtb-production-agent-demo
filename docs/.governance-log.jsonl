@@ -3800,3 +3800,9 @@
 {"ts": "2026-09-24T21:46:29+08:00", "commit": "9949a69", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "9949a69bbfd04de5e76ff13129f5589bf8d69458"}
 {"ts": "2026-09-24T21:55:52+08:00", "commit": "c6e7eaa", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-24T21:55:53+08:00", "commit": "c6e7eaa", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "c6e7eaa0dffa210ff7256d36eabbeb458da835f9"}
+{"ts": "2026-09-24T21:15:58+08:00", "commit": "daa5dc8", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T21:15:59+08:00", "commit": "daa5dc8", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "daa5dc8ec9e93f8e2e71a9c17a95003d7f19ddbb"}
+{"ts": "2026-09-24T21:36:20+08:00", "commit": "dfdf8b2", "gate": "delguard", "kind": "degraded", "hard": false, "nodes": [], "note": "reason=timeout tokens=40"}
+{"ts": "2026-09-24T21:36:21+08:00", "commit": "dfdf8b2", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "dfdf8b2f67e6aa2af0410501a96998dbfb0c5cd7"}
+{"ts": "2026-09-24T22:05:36+08:00", "commit": "2249c98", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Projects/RTB_Phase11證據清單與驗證器_計劃.md", "Projects/RTB_Phase4佇列與重新投遞_計劃.md", "Systems/宣稱驗證器.md"], "note": "tokens=2 hits=3 secs=0.6"}
+{"ts": "2026-09-24T22:05:37+08:00", "commit": "2249c98", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "2249c98c419fd3a6c4075d3c82cd4a172c4bda4b"}

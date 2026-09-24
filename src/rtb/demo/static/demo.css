@@ -790,3 +790,7 @@ h2 { font-size:21px; line-height:1.5; }
   .diagram-frame { display:block; }
   details::details-content { content-visibility:visible; }
 }
+
+/* 狀態往前走的步驟:不是判斷,不列根據欄,卡片收小一點 */
+.decision-card.is-progress { opacity: 0.78; }
+.decision-card.is-progress .decision-kind { font-size: 0.8rem; color: var(--muted, inherit); margin: 0.2rem 0; }

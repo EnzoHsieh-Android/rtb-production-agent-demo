@@ -28,6 +28,7 @@ from rtb.demo.state import (
     CurrentStep,
     Decision,
     DecisionBasis,
+    DecisionKind,
     DemoState,
     Disposition,
     ModelMode,
@@ -960,3 +961,18 @@ def test_no_recorded_path_means_no_guessed_route() -> None:
     report = render_report(_with_first(make_demo_state(), traversed_edges=(), path=(),
                                        current_node=None))
     assert "這個情境還沒有走過的路徑紀錄" in report
+
+
+def test_a_progress_step_does_not_show_an_empty_basis() -> None:
+    """狀態往前走的步驟不列根據欄,不再顯示「沒有留下數字根據」;真的判斷照舊顯示。"""
+    state = make_demo_state()
+    first = state.scenarios[0]
+    steps = tuple(replace(item, basis=(), kind=DecisionKind.PROGRESS) for item in first.path)
+    report = render_report(_with_first(state, path=steps))
+    section = report.split(first.title, 1)[1].split("</article>", 1)[0]
+    assert "這一步沒有留下數字根據" not in section
+    assert "狀態前進" in section
+    judged = tuple(replace(item, basis=(), kind=DecisionKind.JUDGEMENT) for item in first.path)
+    report = render_report(_with_first(state, path=judged))
+    section = report.split(first.title, 1)[1].split("</article>", 1)[0]
+    assert "這一步沒有留下數字根據" in section

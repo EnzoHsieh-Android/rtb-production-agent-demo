@@ -17,6 +17,7 @@ from rtb.demo.state import (
     ChangeSummary,
     Comparison,
     Decision,
+    DecisionKind,
     DemoState,
     Disposition,
     DspState,
@@ -1184,11 +1185,18 @@ def _decision_card(
         f'<p class="decision-operation">操作鍵：{escape_text(decision.operation_key)}</p>'
         if decision.operation_key else ""
     )
+    progress = decision.kind is DecisionKind.PROGRESS
+    basis_block = (  # 狀態往前走不是判斷,不列根據欄,免得看起來像缺資料
+        '<p class="decision-kind">狀態前進</p>' if progress
+        else f'<div class="decision-basis"><strong>根據</strong><ul>{basis}</ul></div>'
+    )
+    kind_class = " is-progress" if progress else ""
     return (
-        f'<li class="decision-card{latest}"><div class="decision-number">{index:02d}</div>'
+        f'<li class="decision-card{latest}{kind_class}">'
+        f'<div class="decision-number">{index:02d}</div>'
         f'<div><p class="decision-node">{escape_text(_flow_label(node.label))}</p>'
         f'<p class="decision-outcome">{escape_text(decision.outcome)}</p>'
-        f'<div class="decision-basis"><strong>根據</strong><ul>{basis}</ul></div>'
+        f'{basis_block}'
         f'{operation}'
         f"<time>{escape_text(at)}</time></div></li>"
     )

@@ -100,6 +100,13 @@ class FlowGraph:
     edges: tuple[FlowEdge, ...]
 
 
+class DecisionKind(Enum):
+    """這一步是真的判斷,還是只是狀態往前走(後者不需要數字根據)。"""
+
+    JUDGEMENT = "判斷"
+    PROGRESS = "狀態前進"
+
+
 @dataclass(frozen=True, slots=True)
 class DecisionBasis:
     """一次判斷所用的實測值、標準與比較結論。"""
@@ -119,6 +126,7 @@ class Decision:
     at: datetime | None
     basis: tuple[DecisionBasis, ...] = ()
     operation_key: str | None = None
+    kind: DecisionKind | None = None  # None:舊資料與範例資料,照判斷顯示
 
 
 @dataclass(frozen=True, slots=True)
