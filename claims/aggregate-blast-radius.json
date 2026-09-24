@@ -97,7 +97,7 @@
     },
     {
       "path": "src/rtb/httpkit.py",
-      "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
+      "sha256": "7728b365179df2d8efc5476a13f75ca11f7f72eae5310ecd2958c1f0f687df0e"
     },
     {
       "path": "src/rtb/sqlitekit.py",
