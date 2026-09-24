@@ -244,3 +244,29 @@ def test_where_a_result_came_from_is_what_that_demo_was(tmp_path):
         reader.close()
     assert rerun.scenarios[0].source_full is False
     assert second.scenarios[1].source_full is True
+
+
+# ---- 增量 3:前後比較表 ----
+def test_the_comparison_comes_from_the_same_full_run_as_the_verifier(tmp_path):
+    """[S1041] 頁面的前後比較取自跟自動查核同一次完整執行,說明後面標明取自哪一次、產生花了幾秒;完整
+    展示在跑、還沒產生時是空的。"""
+    from rtb.demo.state_store import ComparisonRun
+
+    writer = StateWriter(tmp_path / "state.db", "full-1")
+    writer.record_comparison(ComparisonRun(
+        "full-1", datetime.now(UTC),
+        (("只填已完成", "pytest 結束代碼 0:2 passed", "擋下:缺 result"),),
+        "比的是有沒有機械驗證", 12.3))
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        shown = build_demo_state(reader, "rerun-2", running=False, now=datetime.now(UTC),
+                                 verifier_demo_id="full-1", full_demo_id="full-1")
+        running = build_demo_state(reader, "full-3", running=True, now=datetime.now(UTC),
+                                   verifier_demo_id="full-3", running_full=True)
+    finally:
+        reader.close()
+    assert [(r.forgery, r.without_verifier, r.with_verifier) for r in shown.comparison.rows] == [
+        ("只填已完成", "pytest 結束代碼 0:2 passed", "擋下:缺 result")]
+    assert shown.comparison.note.startswith("比的是有沒有機械驗證")
+    assert "展示編號 full-1" in shown.comparison.note and "12 秒" in shown.comparison.note
+    assert running.comparison is None

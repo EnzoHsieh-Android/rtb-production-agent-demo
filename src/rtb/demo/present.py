@@ -13,7 +13,7 @@ import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime
 
 from rtb.demo import basis as basis_of
 from rtb.demo.driver import SCENARIOS
@@ -21,6 +21,8 @@ from rtb.demo.flow import FLOW_GRAPH
 from rtb.demo.state import (
     ApprovalForm,
     ChangeSummary,
+    Comparison,
+    ComparisonRow,
     CurrentStep,
     Decision,
     DecisionBasis,
@@ -41,6 +43,7 @@ from rtb.demo.state import (
 )
 from rtb.demo.state_store import (
     Basis,
+    ComparisonRun,
     ConfirmationRequest,
     DecisionRow,
     ScenarioDetails,
@@ -198,6 +201,16 @@ def _scenario(code: ScenarioCode, run: ScenarioRun | None, rows: Sequence[Decisi
     )
 
 
+def _comparison(run: ComparisonRun | None) -> Comparison | None:
+    """[S1041] 前後比較表取自跟自動查核同一次完整執行;說明後面標明取自哪一次、產生花了幾秒。"""
+    if run is None:
+        return None
+    took = "" if run.seconds is None else f",產生花了 {run.seconds:.0f} 秒"
+    source = (f"(取自 {run.generated_at.astimezone(UTC):%Y-%m-%d %H:%M:%S} UTC 那次完整執行,"
+              f"展示編號 {run.demo_id}{took})")
+    return Comparison(tuple(ComparisonRow(*row) for row in run.rows), f"{run.note}{source}")
+
+
 def _line_value(lines: Sequence[str], prefix: str) -> str | None:
     return next((line.removeprefix(prefix).strip() for line in lines if line.startswith(prefix)),
                 None)
@@ -221,6 +234,7 @@ def build_demo_state(  # noqa: PLR0913 - 伺服器依在跑的是哪一種展示
                   and current.scenario == code.value else None, full)
         for code in ScenarioCode)
     verifier = None if verifier_demo_id is None else reader.verifier_run(verifier_demo_id)
+    compared = None if verifier_demo_id is None else reader.comparison_run(verifier_demo_id)
     lines = verifier.lines if verifier is not None else ()
     pending = reader.confirmation(shown_id)
     approval = None if pending is None else ApprovalForm(
@@ -239,7 +253,8 @@ def build_demo_state(  # noqa: PLR0913 - 伺服器依在跑的是哪一種展示
         verifier=None if verifier is None else VerifierResult(
             verifier.passed, verifier.lines, verifier.reasons, verifier.verified_at,
             verifier.demo_id),
-        known_limits=known_limits(), comparison=None, approval=approval, flow=FLOW_GRAPH,
+        known_limits=known_limits(), comparison=_comparison(compared), approval=approval,
+        flow=FLOW_GRAPH,
         current=step, observed_at=now, model_mode_reason=MODEL_MODE_REASON, is_sample=False,
         full_demo_id=full_demo_id, verifier_pending=running_full and verifier is None,
     )

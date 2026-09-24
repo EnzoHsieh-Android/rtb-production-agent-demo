@@ -294,3 +294,18 @@ def test_a_failed_signing_leaves_a_mark_the_driver_can_see(writer):
     assert writer.confirmation_failed() is True
     writer.answer_confirmation(datetime.now(UTC), lambda _code, _req: None)
     assert writer.confirmation_failed() is False
+
+
+# ---- 增量 3:前後比較表 ----
+def test_a_comparison_run_is_kept_per_demo(tmp_path, writer):
+    from rtb.demo.state_store import ComparisonRun
+
+    at = datetime.now(UTC)
+    run = ComparisonRun("demo-1", at, (("a", "b", "c"),), "說明", 2.5)
+    writer.record_comparison(run)
+    reader = _reader(tmp_path)
+    try:
+        assert reader.comparison_run("demo-1") == run
+        assert reader.comparison_run("other") is None
+    finally:
+        reader.close()

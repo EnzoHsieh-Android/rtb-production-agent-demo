@@ -19,6 +19,7 @@ from rtb.demo.flow_svg import (
 from rtb.demo.state import (
     ApprovalForm,
     ChangeSummary,
+    Comparison,
     Decision,
     DecisionKind,
     DemoState,
@@ -193,6 +194,7 @@ def _render_report_details(state: DemoState) -> str:
         '<section class="secondary" id="report-details" aria-label="報告補充資訊">'
         '<div class="detail-grid">'
         f"{_detail('自動查核結果', _render_verifier(verdict, source, state.verifier))}"
+        f"{_detail('有無自動查核的差別', _render_comparison(state.comparison))}"
         f"{_detail('這次示範的範圍與限制', _render_limits(state.known_limits))}"
         f"{_detail('名詞小辭典', _render_glossary())}</div></section>"
     )
@@ -838,6 +840,25 @@ def _render_verifier(verdict: str, source: str | None, verifier: VerifierResult 
         f'<p class="status {css_class}">自動查核{escape_text(verdict)}</p>{note}'
         f"{f'<ul>{reasons}</ul>' if reasons else ''}{_plain_lines(verifier.lines)}"
     )
+
+
+def _render_comparison(comparison: Comparison | None) -> str:
+    """[S1041] 前後比較表:每一列造假手法、沒有自動查核、有自動查核並排,加說明(比的是有沒有機械
+    驗證)。還沒產生就照實寫。"""
+    if comparison is None:
+        return '<p class="empty">前後比較這次還沒有產生(完整執行跑完自動查核之後才產生)。</p>'
+    rows = "".join(
+        f"<tr><td>{escape_text(row.forgery)}</td><td>{escape_text(row.without_verifier)}</td>"
+        f"<td>{escape_text(row.with_verifier)}</td></tr>"
+        for row in comparison.rows
+    )
+    table = (
+        '<div class="table-scroll"><table><thead><tr><th>造假手法</th>'
+        "<th>沒有自動查核</th><th>有自動查核</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table></div>"
+        if comparison.rows else ""
+    )
+    return f'<p class="comparison-note">{escape_text(comparison.note)}</p>{table}'
 
 
 def _render_limits(items: tuple[str, ...]) -> str:

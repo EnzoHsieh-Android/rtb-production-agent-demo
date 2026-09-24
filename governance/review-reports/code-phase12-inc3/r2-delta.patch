@@ -1,0 +1,1005 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase12一鍵展示與HTML報告_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase12一鍵展示與HTML報告_計劃.md
+index 94340ee..2887603 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase12一鍵展示與HTML報告_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase12一鍵展示與HTML報告_計劃.md
+@@ -380,29 +380,35 @@ REVISIT:2027-03-31 「AI 參與決策」階段改成分析端每一步自己存
+     - 2026-09-25 實測(真跑 F1–F7 之後,Playwright 1440×900 開 /?scenario=F7):情境清單位置照一般排版(不釘住)、清單與情境詳情不重疊、F7 標題那一點取到的是情境詳情;/report 套上同源樣式表(規則 403 條),報告兩欄版面裡清單仍釘住,底部有自動查核、限制與小辭典。這次真跑 70 秒跑完(F7 經網頁確認頁逐格勾選送出),驗證器通過,F7 主頁 45,697 位元組(修正前 4.7MB)。
+ - (2026-09-25 實作者解讀,增量 2 代碼審 r2 修正)幾條條款怎麼讀:
+   - 關於 [S1039]:「展示結束時另存」指展示自己跑完(含驅動程式出事、標成沒跑完的);伺服器收尾把展示取消的不另存、也不換成最新一次,沒跑完的情境寫「展示故障:伺服器結束,展示被停止」(代碼審 r2 v1)。
+   - 關於 [S1063]、[S1032]:同一筆確認連按兩次、或確認之後再開確認頁,這一筆已經由這次展示確認過(或正在簽),照處理完成 303 轉回 /#current,不當成核對不過;只簽一張。
+   - 代碼審 r3 c2/v4 修訂上一條:第一次還在簽時的第二次確認,等第一次的結果再回應——簽成功才 303 轉回展示,沒簽成回 409 previous_confirmation_failed;已經確認過的才直接 303。
+   - 關於 [S1054]:逐情境出處照結果所屬那一次展示記下的種類(全部跑一次或單一情境重跑)寫,沒記種類的只寫取自哪一次,不寫成完整執行。
+ - (2026-09-24 協調者裁定,增量 3 實作計劃,等 2a+2b 代碼審修正做完才開工)前後比較([S1041]):
+   - 資料來源:Phase 11 驗證器測試既有的五個造假示範(只填已完成、改程式沒重算雜湊、宣稱範圍大於證據、證據測試被跳過、conftest 偷改結果沒重算雜湊),加第六列「天花板」(conftest 偷改結果而且連雜湊一起重算):照實寫「有驗證器也擋不住,這部分歸人審」。
+   - 兩欄都是真的跑出來的:同一份造假改動、同一份清單、同一組證據測試,差別只在有沒有跑驗證器。「沒有驗證器」欄原樣取那份暫存專案裡 pytest 的結束代碼與總結行;「有驗證器」欄原樣取驗證器的判定與第一條原因(多條附共幾條)。說明:「比的是有沒有機械驗證:同一份改動、同一份清單、同一組測試,差別只在有沒有跑驗證器;不是比模型寫程式的品質」,加天花板那句限制。
+   - 搬家:造假示範的定義(暫存專案的檔案、清單寫法、每一種造假改法)從 tests/tools/test_verify_claims.py 搬到 tools/forgery_demos.py,驗證器測試改成從那裡匯入(比較表跟驗證器測試同一份定義)。只搬不改:搬之前跑一次那支測試記下展開後的測試項目清單,搬完再跑一次,兩份要一模一樣;新檔過 ruff 與 mypy;搬到的檔在證據清單範圍內就重算雜湊、實跑驗證器。增量 3 的代碼審把 Phase 11 驗證器測試列進範圍。
+-  - 產生:tools/forgery_comparison.py 在暫存目錄建六份暫存專案、各跑 pytest 與驗證器,輸出 JSON;全部跑一次的最後一步(驗證器之後)由驅動程式用子行程呼叫。每一列的 pytest 與驗證器都在自己的行程群組,逾時先 SIGTERM 整組再 SIGKILL(同第 3 輪 s2 的教訓);任一列失敗或逾時不拖垮整次展示,那一列照實寫「這次沒產生:原因」。子行程環境從 os.environ 起頭,暫存專案產完就刪。產生時間算進全部跑一次的總時間,實作時實際量出來寫在這一條後面。
++  - 產生:tools/forgery_comparison.py 在暫存目錄建六份暫存專案、各跑 pytest 與驗證器,輸出 JSON;全部跑一次的最後一步(驗證器之後)由驅動程式用子行程呼叫。每一列的 pytest 與驗證器都在自己的行程群組,逾時先 SIGTERM 整組再 SIGKILL(同第 3 輪 s2 的教訓);任一列失敗或逾時不拖垮整次展示,那一列照實寫「這次沒產生:原因」。子行程環境從 os.environ 起頭(已由增量 3 代碼審 r1 訂正:照 [S1003] 白名單,見下方實作小節),暫存專案產完就刪。產生時間算進全部跑一次的總時間,實作時實際量出來寫在這一條後面。
+   - 存放與顯示:展示狀態庫加一張比較表(展示編號、各列、說明、產生時間);對應到頁面 Comparison(rows, note)。單一情境重跑沿用上一次全部跑一次的那一份並標明取自哪一次(同驗證器)。
+   - 測試:比較表的列跟驗證器測試的造假清單取自同一個模組;五個造假「沒有驗證器」都不是擋下、「有驗證器」都擋下而且原因對得上;天花板兩欄都是通過;說明含「有沒有機械驗證」、不做品質比較;某一列產生失敗時寫原因不寫假結果、其他列照常;逾時時暫存專案裡的子行程(含孫行程)不留。[S1041] 綁到「每一種造假都並排列出兩欄」那支。
+   - 回退:刪 tools/forgery_comparison.py、展示狀態庫的比較表與對應;tools/forgery_demos.py 搬回測試檔(或保留,測試照樣匯入)。
+   - 實作(2026-09-25):
+-    - 產生時間實測:本機整張表 2.4 秒(連跑三次都是 2.4 秒),算在全部跑一次裡;外層上限 600 秒,每一步 120 秒。
++    - 產生時間實測:本機整張表 2.4 秒(連跑三次都是 2.4 秒),算在全部跑一次裡;外層上限 600 秒,每一步 120 秒。代碼審 r1 修正後(先檢查 pytest、兩欄同一套清環境規則)實測 2.5 到 2.6 秒。
+     - 搬家照條件做:搬前搬後各收一次驗證器測試展開後的項目清單,都是 278 項、一模一樣;新檔只多型別標註(工具目錄的 mypy 要求)。五個改法的函式名字照搬(項目名字帶著它們),給別的檔用的是公開別名,不跨檔匯入底線名字(代碼審 r3 a1 的慣例)。兩支檔都不在證據清單範圍內,不用重算雜湊;驗證器照樣實跑、通過。天花板測試改成呼叫共用的 `rehashed_conftest_rewrite`,項目清單不變。
+     - 顯示位置:比較表只放在報告底部(使用者 2026-09-24 裁定補充資訊只留在報告),主頁不放。
+     - README 這次不做(使用者要求 Phase 13 全部做完後由 Codex 全盤重寫)。
++    - 代碼審 r1 修正(協調者 2026-09-25 裁定):
++      - 子行程環境照 [S1003] 白名單:驅動程式起驗證器與產生器共用一支 `tool_environment`(PATH、HOME、LANG);上面「從 os.environ 起頭」那句作廢。產生器用檔案路徑跑(-E -s),同目錄的定義與驗證器也用檔案路徑載入,外面同名的 tools 套件頂替不了。
++      - 「沒有驗證器」那一欄用驗證器的 `clean_environment()` 與同一套 pytest 旗標,兩欄跑的是同一組測試;外面帶 PYTEST_ADDOPTS 兩欄結果不變。
++      - 五個改法直接用公開名字,驗證器測試從 FORGERIES 展開、用明確的項目名字,展開後仍是原本那 278 項;原本那支比對「同一份定義」的測試擋不住另抄一份,刪掉,改成直接核對參數化用的就是 FORGERIES。
++      - 產生器:每一步逾時或被要求停止,最後一律整組 SIGKILL;SIGTERM 只記下要停(不在刪暫存目錄途中丟例外);先檢查 pytest 能匯入,不行整張表記「這次沒產生:環境缺 pytest」;pytest 結束代碼不是 0 或 1、或總結行不是測試總結,那一列算沒產生。
++      - 驅動程式:讀產生器輸出設 1MB 上限、任何讀不懂都記「這次沒產生」,花了幾秒用自己量的。
+ - (2026-09-24 實作者解讀,代碼審 r1 t2)[S1004] 後半句(展示狀態資料庫、報告與收據檔裡找不到金鑰)歸增量 2b:報告與收據檔在 2b 才產生。增量 1 驗前半句(每把都是 token_urlsafe 的文字、夠長、每次展示都不同),並驗展示狀態資料庫的寫入端不收金鑰(資料結構沒有金鑰欄位)。
+ 
+ ## 審計修正紀錄
+ 
+ - 第 2 版(2026-09-24,尚未設計審):使用者本人對第 1 版列的待裁定全部拍板,寫進〈使用者裁定〉並刪掉待裁定一節;增量 2 拆成 2a(Codex 做頁面)與 2b(我們串接);新增〈流程圖與判斷路徑〉〈版面與視覺〉〈2a 與 2b 的介面〉;合約加 S1017–S1025。
+ - 設計審首輪前掃(2026-09-24):語意類 3 條、未定義詞 1 條,逐條見 governance/review-reports/rtb-phase12一鍵展示與html報告/r1-intake.md。
+ - 設計審 r1(2026-09-24,七席加協調者補充 4 條,共 36 條,全部折入;席報告在 governance/review-reports/rtb-phase12一鍵展示與html報告/):
+   - x1 每個情境由驅動程式斷言預期處置,過了才標照預期跑完,驗證器結果另外顯示。
+   - x2 同時一次改用一把鎖包住「檢查加標記」,補真並行測試。
+   - x3 核可綁展示編號與驅動程式記下的數字快照。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+index 9b06abc..5c2505d 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+@@ -145,10 +145,12 @@ PITFALL: 展示開始時放鎖建驅動的那 2 毫秒內收尾,收尾讀不到
+ WHY: 第一次確認還在簽時又按一次:第二次等第一次的結果再回應(協調者給的兩個做法擇一,選這個)。第一次簽成功,第二次轉回展示;第一次沒簽成,第二次回 409 previous_confirmation_failed,不再回成功讓人以為確認了(原本簽發中一律 303)。等候上限 30 秒。簽發失敗時確認窗留下「簽發失敗」,驅動程式關窗後看到就不再白等 60 秒,原因寫「有人確認但簽發失敗」,不寫成沒有人確認。出處:代碼審 r3 c2/v4/v3。防回歸:`test_a_second_confirmation_while_the_first_is_signing_gets_the_first_ones_result`、`test_a_failed_signing_leaves_a_mark_the_driver_can_see`、`test_a_confirmation_whose_signing_failed_is_not_waited_for_or_called_unconfirmed`。
+ 
+ PITFALL: 起展示伺服器子行程的測試要把 src 放進子行程的 PYTHONPATH(env 照套件隔離守衛的規定寫成 `{**os.environ, ...}` 字面 dict):CI 沒安裝這個套件,pytest 的 pythonpath 設定只影響測試行程自己,本機裝過套件的環境會看不出來。出處:Phase 12 增量 2 代碼審第 3 輪後,協調者在乾淨複本驗收時發現。重現:`env -u PYTHONPATH` 在沒安裝套件的環境跑 tests/demo/test_server.py。
+ 
+ ## 前後比較表(Phase 12 增量 3,2026-09-25)
+ 
+ WHY: 全部跑一次的最後一步(驗證器之後)用子行程跑前後比較表產生器(它的家是 [[Systems/宣稱驗證器]]),讀它印的一行 JSON 記進展示狀態庫的比較表(每列造假手法、沒有驗證器、有驗證器;說明;產生花了幾秒)。產生器跑在自己的行程群組,逾時(外層 600 秒)或整次展示被取消先 SIGTERM 整組再硬殺;起不來、逾時、結束代碼不是 0、輸出讀不懂都記「這次沒產生:原因」、列是空的,整次展示照樣跑完。產生時間算在全部跑一次裡(本機約 2.4 秒)。頁面的比較表取自跟自動查核同一次完整執行,說明後面標明取自哪一次、花了幾秒;單一情境重跑沿用上一次完整執行的那一份。只放在報告(使用者裁定補充資訊只留在報告)。設計出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]] 增量 3 實作計劃。防回歸:`test_a_full_run_records_the_comparison_after_the_verifier`、`test_a_comparison_that_fails_or_hangs_does_not_break_the_demo`、`test_a_cancelled_demo_generates_no_comparison`、`test_the_comparison_comes_from_the_same_full_run_as_the_verifier`、`test_a_rerun_keeps_the_comparison_from_the_last_full_run`、`test_the_report_shows_the_comparison_side_by_side`。
+ 
+ PITFALL: 測試裡的全部跑一次會真的跑比較表產生器(每次約 2.4 秒、再起一串子行程);驅動程式與伺服器的全部跑一次測試換上一瞬間跑完的假產生器(`QUICK_COMPARISON`),真的產生器只由它自己的測試跑。
+ PITFALL: 測試用 `ps` 找子行程時要加 `ww`:Linux(procps)的 ps 輸出不是終端機時預設截在 80 欄,命令列裡的工作目錄路徑被截掉,測試找不到子行程、也收不掉它們(macOS 不截,本機看不出來)。2026-09-25 主線 CI 因此 6 支展示伺服器測試失敗,留下的子行程拖慢機器,連帶 4 支執行端時序測試紅。重現:在 Linux 上 `ps -axo pid=,command= | cat` 看長命令列被截斷。
++
++PITFALL: 增量 3 第一版把整份使用者環境交給比較表產生器(金鑰會帶進去,違反 [S1003]),又用 `-m` 跑命名空間套件裡的產生器(外面同名套件頂替得了)。現在驗證器與產生器共用一支白名單環境 `tool_environment`,產生器用檔案路徑加 -E -s 跑;產生器的輸出設 1MB 上限、任何讀不懂都照實記、花了幾秒用驅動程式自己量的。出處:增量 3 代碼審 r1 s1/a2/s3。防回歸:`test_the_comparison_generator_gets_only_the_whitelisted_environment`、`test_the_comparison_generator_is_run_by_its_file_path_and_cannot_be_swapped`、`test_an_oversized_or_odd_generator_output_is_recorded_not_raised`。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md b/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md
+index 1de3689..57f39aa 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/宣稱驗證器.md
+@@ -77,10 +77,16 @@ verified_by:
+ 
+ ## 冪等那份清單的措辭
+ 
+ 「每一種寫入動作」同時掛在「同一把冪等鍵最多套用一次」與「預期版本不符拒收」上,列舉 `CAMPAIGN_WRITE_ACTIONS`(改預算、暫停,不含作廢)。增量 1 時同鍵只套用一次的單元測試只用 update_budget,照證據寫窄;增量 2 補了一支對兩種動作逐一跑的同鍵測試(在 [[Systems/Mock-DSP]] 管的儲存層測試裡),才把宣稱放寬回來,covers 也標到那支測試。
+ 
+ **驗證器擋不住「每一種」寫在哪一句**(代碼審第 1 輪指出本篇原本寫錯):第 4 步只查整份清單的 covers 聯集涵蓋列舉的每一項,不知道範圍詞掛在 policy 的哪個子句。增量 1 時版本測試已經 covers 兩種動作,就算當時把「每一種」加到同鍵那句,驗證器也照樣通過;這次放寬是先補了證據才改措辭,不是靠驗證器擋。範圍詞掛對句子只能靠審查員分辨。
+ 
+ - Phase 12 增量 3(2026-09-25):造假示範的定義(小 repo 的檔案、清單寫法、五種造假改法)從 `tests/tools/test_verify_claims.py` 原樣搬到 `tools/forgery_demos.py`,驗證器測試與展示頁的前後比較表用同一份定義。只搬不改:搬前搬後各收一次那支測試展開後的項目清單(278 項),兩份一模一樣;只多了型別標註(工具目錄的 mypy 要求)。五個改法的函式名字照搬(項目名字帶著它們),給別的檔用的是公開別名,不跨檔匯入底線名字。
+ 
+ - Phase 12 增量 3(2026-09-25):`tools/forgery_comparison.py` 產生一鍵展示的前後比較表([S1041]):五種造假加一列天花板,每一列在暫存目錄造小 repo、套上改法,「沒有驗證器」只跑證據測試(原樣取 pytest 結束代碼與總結行)、「有驗證器」跑驗證器(原樣取判定與第一條原因,多條附共幾條)。每一步在自己的行程群組跑,逾時整組收掉;自己收到 SIGTERM 也先收掉正在跑的那一步。任一列出事那一列寫「這次沒產生:原因」。本機實測整張表 2.4 秒(連跑三次都是 2.4)。天花板那一列與驗證器測試的天花板測試共用 `rehashed_conftest_rewrite`。防回歸在 `tests/tools/test_forgery_comparison.py`(真的跑整張表、某一列失敗、某一列逾時不留孫行程、列跟驗證器測試共用定義):`test_the_comparison_shows_every_forgery_with_and_without_the_verifier`、`test_a_row_that_fails_to_generate_says_why_and_the_others_still_run`、`test_a_row_that_times_out_leaves_no_process_behind`。
++
++- 增量 3 代碼審 r1(2026-09-25):
++  - 五個造假改法改成公開名字、拿掉底線函式加別名的寫法;驗證器測試從 `FORGERIES` 展開、用明確的項目名字,展開後的 278 項不變。
++  - 比較表「沒有驗證器」那一欄用驗證器的 `clean_environment()` 與同一套 pytest 旗標(-E -s、設定檔與根目錄寫死),外面的 PYTEST_ 變數與自動載入的外掛改不了任何一欄。
++  - 產生器:逾時或被要求停止,最後一律對那一步整組 SIGKILL(不理 SIGTERM 的孫行程也收掉);SIGTERM 只記下要停;先檢查 pytest 能匯入;pytest 沒跑成的那一列算沒產生。
++  - 防回歸在 `tests/tools/test_forgery_comparison.py`:`test_the_verifier_tests_expand_their_forgeries_from_the_shared_list`、`test_both_columns_run_the_same_tests_whatever_pytest_options_are_set`、`test_a_missing_pytest_marks_the_whole_table_not_generated`、`test_a_pytest_run_that_did_not_run_the_tests_is_not_a_result`、`test_the_stop_signal_only_records_a_request`、`test_a_stop_during_a_step_timeout_still_kills_the_step`。
+diff --git a/src/rtb/demo/driver.py b/src/rtb/demo/driver.py
+index d118ab2..e2bd1be 100644
+--- a/src/rtb/demo/driver.py
++++ b/src/rtb/demo/driver.py
+@@ -1115,26 +1115,36 @@ def _end_group(popen: subprocess.Popen[str]) -> None:
+     for signum in (signal.SIGTERM, signal.SIGKILL):
+         with contextlib.suppress(ProcessLookupError, PermissionError):
+             os.killpg(popen.pid, signum)
+         try:
+             popen.wait(VERIFIER_STOP_SECONDS)
+             return
+         except subprocess.TimeoutExpired:
+             continue
+ 
+ 
++_TOOL_VARIABLES = ("PATH", "HOME", "LANG")
++
++
++def tool_environment() -> dict[str, str]:
++    """驅動程式起專案內工具(驗證器、前後比較表產生器)用的環境:只照抄 PATH、HOME、LANG([S1003]
++    白名單;代碼審 r1 s1/a2:兩處同一支,不各寫一套)。金鑰、PYTHON 與 PYTEST 開頭的變數一律帶
++    不進去。"""
++    return {name: os.environ[name] for name in _TOOL_VARIABLES if name in os.environ}
++
++
+ def run_verifier(command: Sequence[str], demo_id: str, timeout_seconds: float,
+                  stop: threading.Event | None = None) -> VerifierRun:
+     """跑驗證器、原樣收下每一行;擋下原因是「擋下」那一行之後以「- 」開頭的各行。逾時、被取消或起
+     不來都記成沒通過,原因寫明,不當成通過;已經印出來的輸出照樣留下(第 3 輪代碼審 s2/p1/x2)。
+     驗證器跑在自己的行程群組;逾時或取消先 SIGTERM 整組,讓驗證器收掉它另開群組起的證據測試。"""
+-    env = {name: os.environ[name] for name in ("PATH", "HOME", "LANG") if name in os.environ}
++    env = tool_environment()
+     try:
+         popen = subprocess.Popen(list(command), cwd=PROJECT_ROOT, env=env, text=True,  # noqa: S603 - 指令是專案內固定的驗證器
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                  start_new_session=True)
+     except OSError as broken:
+         return VerifierRun(demo_id, _now(), False, (), (f"驗證器起不來:{broken}",))
+     lines: list[str] = []
+ 
+     def read() -> None:
+         if popen.stdout is not None:
+@@ -1162,65 +1172,98 @@ def run_verifier(command: Sequence[str], demo_id: str, timeout_seconds: float,
+         line[2:] for line in kept[blocked + 1:] if line.startswith("- "))
+     if popen.returncode != 0 and not reasons:
+         reasons = (f"驗證器結束代碼 {popen.returncode}",)
+     return VerifierRun(demo_id, _now(), popen.returncode == 0, kept, reasons)
+ 
+ 
+ COMPARISON_TIMEOUT_SECONDS = 600.0  # 前後比較表(六列,本機約 2.4 秒)的外層上限;每一步另有自己的上限
+ NOT_GENERATED = "這次沒產生:"
+ 
+ 
++COMPARISON_OUTPUT_LIMIT = 1_000_000  # 產生器輸出的上限(字元);正常一張表約 2 千字
++
++
+ def default_comparison_command() -> list[str]:
+-    """專案內的前後比較表產生器(tools/forgery_comparison.py;在 repo 根以模組方式跑)。"""
+-    return [sys.executable, "-m", "tools.forgery_comparison"]
++    """專案內的前後比較表產生器,用檔案路徑跑:-E 不讀 PYTHON 開頭的變數、-s 不開 user site(代碼審
++    r1 s1:原本用 -m tools.forgery_comparison,tools 是命名空間套件,外面同名的套件頂替得了)。"""
++    return [sys.executable, "-E", "-s", str(PROJECT_ROOT / "tools" / "forgery_comparison.py")]
+ 
+ 
+-def run_comparison(command: Sequence[str], demo_id: str, env: Mapping[str, str],
+-                   timeout_seconds: float, stop: threading.Event | None = None) -> ComparisonRun:
+-    """跑前後比較表產生器、讀它印的一行 JSON(增量 3,[S1041])。它跑在自己的行程群組,逾時或整次展示
+-    被取消時先 SIGTERM 整組(產生器收到會先收掉正在跑的那一步)再硬殺;起不來、逾時、結束代碼不是 0、
+-    輸出讀不懂,都記成「這次沒產生:原因」,列是空的,不造結果,不拖垮整次展示。"""
++def run_comparison(command: Sequence[str], demo_id: str, timeout_seconds: float,
++                   stop: threading.Event | None = None) -> ComparisonRun:
++    """跑前後比較表產生器、讀它印的一行 JSON(增量 3,[S1041])。它跑在自己的行程群組、環境只有白名單
++    (跟驗證器同一支 tool_environment),逾時或整次展示被取消時先 SIGTERM 整組(產生器收到會收掉正在
++    跑的那一步)再硬殺;起不來、逾時、結束代碼不是 0、輸出超過上限或讀不懂,都記成「這次沒產生:原因」,
++    列是空的,不造結果,不拖垮整次展示。花了幾秒用驅動程式自己量的(代碼審 r1 s3)。"""
+     started = time.monotonic()
+     try:
+-        popen = subprocess.Popen(list(command), cwd=PROJECT_ROOT, env=dict(env), text=True,  # noqa: S603 - 指令是專案內固定的產生器
+-                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
++        popen = subprocess.Popen(list(command), cwd=PROJECT_ROOT, env=tool_environment(),  # noqa: S603 - 指令是專案內固定的產生器
++                                 text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                  start_new_session=True)
+     except OSError as broken:
+         return ComparisonRun(demo_id, _now(), (), f"{NOT_GENERATED}起不來({broken})", None)
+-    chunks: list[str] = []
+-    reader = threading.Thread(target=lambda: chunks.extend(popen.stdout or ()), daemon=True)
+-    reader.start()
+-    deadline = time.monotonic() + timeout_seconds
+-    ended: str | None = None
+-    while popen.poll() is None:
+-        if stop is not None and stop.is_set():
+-            ended = "被取消(整次展示停止)"
+-        elif time.monotonic() >= deadline:
+-            ended = f"逾時({timeout_seconds:.0f} 秒)"
+-        if ended is not None:
+-            _end_group(popen)
+-            break
+-        time.sleep(0.1)
+-    reader.join(VERIFIER_STOP_SECONDS)
++    output = _CappedOutput(popen)
++    ended = _wait_group(popen, timeout_seconds, stop)
++    output.reader.join(VERIFIER_STOP_SECONDS)
+     seconds = round(time.monotonic() - started, 1)
+     if ended is not None:
+         return ComparisonRun(demo_id, _now(), (), f"{NOT_GENERATED}{ended}", seconds)
+     if popen.returncode != 0:
+         return ComparisonRun(demo_id, _now(), (),
+                              f"{NOT_GENERATED}產生器結束代碼 {popen.returncode}", seconds)
++    if output.size > COMPARISON_OUTPUT_LIMIT:
++        return ComparisonRun(demo_id, _now(), (),
++                             f"{NOT_GENERATED}產生器的輸出超過上限({output.size} 字元)", seconds)
++    return _parse_comparison(demo_id, output.text(), seconds)
++
++
++class _CappedOutput:
++    """在另一條執行緒讀子行程輸出:只留上限內的,其餘照讀照丟(不讓子行程寫到一半卡住)。"""
++
++    def __init__(self, popen: subprocess.Popen[str]) -> None:
++        self._popen, self.size = popen, 0
++        self._kept: list[str] = []
++        self.reader = threading.Thread(target=self._read, daemon=True)
++        self.reader.start()
++
++    def _read(self) -> None:
++        stream = self._popen.stdout
++        while stream is not None and (chunk := stream.read(65536)):
++            if self.size <= COMPARISON_OUTPUT_LIMIT:
++                self._kept.append(chunk[:COMPARISON_OUTPUT_LIMIT + 1 - self.size])
++            self.size += len(chunk)
++
++    def text(self) -> str:
++        return "".join(self._kept)
++
++
++def _wait_group(popen: subprocess.Popen[str], timeout_seconds: float,
++                stop: threading.Event | None) -> str | None:
++    """等子行程結束;逾時或整次展示被取消就整組收掉,回原因(正常結束回空的)。"""
++    deadline = time.monotonic() + timeout_seconds
++    while popen.poll() is None:
++        ended = ("被取消(整次展示停止)" if stop is not None and stop.is_set()
++                 else f"逾時({timeout_seconds:.0f} 秒)" if time.monotonic() >= deadline else None)
++        if ended is not None:
++            _end_group(popen)
++            return ended
++        time.sleep(0.1)
++    return None
++
++
++def _parse_comparison(demo_id: str, text: str, seconds: float) -> ComparisonRun:
+     try:
+-        body = json.loads("".join(chunks))
++        body = json.loads(text)
+         rows = tuple((str(r["forgery"]), str(r["without_verifier"]), str(r["with_verifier"]))
+                      for r in body["rows"])
+         note = str(body["note"])
+-        seconds = float(body.get("seconds", seconds))
+-    except (ValueError, KeyError, TypeError) as broken:
++    except Exception as broken:  # 任何讀不懂(含太深、數字太大)都照實記,不丟出去
+         return ComparisonRun(demo_id, _now(), (),
+                              f"{NOT_GENERATED}產生器的輸出讀不懂({type(broken).__name__})", seconds)
+     return ComparisonRun(demo_id, _now(), rows, note, seconds)
+ 
+ 
+ _PACE_GOAL = f"讓花太慢的廣告跟上進度:加一成預算。限制:{_LIMITS}"
+ SCENARIOS: dict[str, Scenario] = {
+     "F1": Scenario("F1", "送出去沒有回音,平台到底改了沒?", 90, _run_f1,
+                    f"{_PACE_GOAL};平台上同一筆只能改一次",
+                    (("p_reply", "平台第一次收到寫入時還沒提交就逾時,不回覆"),)),
+@@ -1279,22 +1322,22 @@ class Driver:
+         各自記進展示狀態。驅動程式的情境斷言跟驗證器是兩件事,各自記。展示被取消就兩個都不跑。
+         比較表的產生時間算在全部跑一次裡(增量 3,[S1041])。"""
+         verdicts = self.run(codes)
+         if self.stop.is_set():
+             return verdicts, None
+         outcome = run_verifier(self.verifier_command, self.demo_id,
+                                self.verifier_timeout_seconds, self.stop)
+         self.state.record_verifier_run(outcome)
+         if not self.stop.is_set():
+             self.state.record_comparison(run_comparison(
+-                self.comparison_command, self.demo_id, self.user_env,
+-                self.comparison_timeout_seconds, self.stop))
++                self.comparison_command, self.demo_id, self.comparison_timeout_seconds,
++                self.stop))
+         return verdicts, outcome
+ 
+     def run_one(self, code: str) -> Verdict:
+         scenario = self.scenarios[code]
+         self.state.start_scenario(code, _now())
+         world = World(self.root, code, self.keys, self.state, self.user_env, threading.Event())
+         self._current = world
+         if self.stop.is_set():  # 取消剛好落在開跑前:cancel 那時還讀不到這個情境(代碼審 r2 v2/s1)
+             world.stop.set()
+         try:
+diff --git a/tests/demo/test_driver.py b/tests/demo/test_driver.py
+index df122de..2e07d20 100644
+--- a/tests/demo/test_driver.py
++++ b/tests/demo/test_driver.py
+@@ -1276,44 +1276,92 @@ def _comparison(tmp_path):
+ 
+ def test_a_full_run_records_the_comparison_after_the_verifier(tmp_path, state):
+     """[S1041] 全部跑一次的最後一步(驗證器之後)產生前後比較表,記進展示狀態(每列兩欄、說明、
+     花了幾秒)。"""
+     demo = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 5, lambda _w: "好")})
+     demo.verifier_command = ["true"]
+     demo.comparison_command = _fake_comparison()
+     demo.run_all(("FX",))
+     comparison, verifier = _comparison(tmp_path)
+     assert comparison.rows == (("只填已完成", "pytest 結束代碼 0:2 passed", "擋下:缺 result"),)
+-    assert comparison.note == "比的是有沒有機械驗證" and comparison.seconds == 1.5
++    # 花了幾秒用驅動程式自己量的,不採產生器自報的 1.5(代碼審 r1 s3)
++    assert comparison.note == "比的是有沒有機械驗證" and comparison.seconds < 1.5
+     assert comparison.generated_at >= verifier.verified_at
+ 
+ 
+ def test_a_comparison_that_fails_or_hangs_does_not_break_the_demo(tmp_path, state):
+     """比較表產生失敗或逾時:照實寫「這次沒產生:原因」,整次展示照樣跑完;逾時連它起的孫行程一起收掉。"""
+     marker = tmp_path / "grandchild.pid"
+     demo = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 5, lambda _w: "好")})
+     demo.verifier_command = ["true"]
+     demo.comparison_command = [sys.executable, "-c", (
+         "import subprocess, time\nchild = subprocess.Popen(['sleep', '60'])\n"
+         f"open({str(marker)!r}, 'w').write(str(child.pid))\ntime.sleep(60)\n")]
+     demo.comparison_timeout_seconds = 2
+     started = time.monotonic()
+     verdicts, _ = demo.run_all(("FX",))
+     assert time.monotonic() - started < 30 and verdicts[0].status == DONE
+     comparison, _ = _comparison(tmp_path)
+     assert comparison.rows == () and comparison.note.startswith("這次沒產生:")
+     assert "逾時" in comparison.note
+     time.sleep(0.5)
+     assert not _alive(int(marker.read_text()))
+-    failed = driver_module.run_comparison(["false"], "demo-2", os.environ, 5)
++    failed = driver_module.run_comparison(["false"], "demo-2", 5)
+     assert failed.rows == () and failed.note.startswith("這次沒產生:")
+     unreadable = driver_module.run_comparison([sys.executable, "-c", "print('不是 JSON')"],
+-                                              "demo-2", os.environ, 5)
++                                              "demo-2", 5)
+     assert unreadable.rows == () and "讀不懂" in unreadable.note
+ 
+ 
+ def test_a_cancelled_demo_generates_no_comparison(tmp_path, state):
+     demo = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 5, lambda _w: "好")})
+     demo.comparison_command = _fake_comparison()
+     demo.cancel()
+     demo.run_all(("FX",))
+     assert _comparison(tmp_path)[0] is None
++
++
++# ---- 增量 3 代碼審 r1 ----
++def test_the_comparison_generator_gets_only_the_whitelisted_environment(monkeypatch):
++    """[S1003][代碼審 r1 s1/a2] 比較表產生器跟驗證器用同一套白名單環境(PATH、HOME、LANG),外面的
++    金鑰與 PYTEST_、PYTHON 開頭的變數都帶不進去。"""
++    monkeypatch.setenv("SOME_SECRET_TOKEN", "abc123")
++    monkeypatch.setenv("PYTEST_ADDOPTS", "-p evil")
++    listing = [sys.executable, "-c", (
++        "import json, os\nprint(json.dumps({'rows': [], 'note': ','.join(sorted(os.environ)),"
++        " 'seconds': 0}))")]
++    keys = set(driver_module.run_comparison(listing, "d", 10).note.split(","))
++    assert keys <= {"PATH", "HOME", "LANG", "LC_CTYPE", "__CF_USER_TEXT_ENCODING"}, keys
++    assert driver_module.tool_environment() == {
++        k: os.environ[k] for k in ("PATH", "HOME", "LANG") if k in os.environ}
++
++
++def test_the_comparison_generator_is_run_by_its_file_path_and_cannot_be_swapped(monkeypatch,
++                                                                                tmp_path):
++    """[代碼審 r1 s1] 產生器用檔案路徑跑(-E -s 不讀 PYTHON 開頭的變數、不開 user site),外面
++    PYTHONPATH 上的同名 tools 套件頂替不了。"""
++    command = driver_module.default_comparison_command()
++    assert command[:3] == [sys.executable, "-E", "-s"]
++    assert command[3] == str(driver_module.PROJECT_ROOT / "tools" / "forgery_comparison.py")
++    evil = tmp_path / "evil" / "tools"
++    evil.mkdir(parents=True)
++    (evil / "__init__.py").write_text("", encoding="utf-8")
++    (evil / "forgery_comparison.py").write_text(
++        "print('{\"rows\": [], \"note\": \"hijacked\", \"seconds\": 0}')\n", encoding="utf-8")
++    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "evil"))
++    result = driver_module.run_comparison(command, "d", 120)
++    assert result.note != "hijacked" and len(result.rows) == 6
++
++
++@pytest.mark.parametrize(("printed", "reason"), [
++    ("print('x' * 2_000_000)", "上限"),
++    ("print('{\"rows\": [], \"note\": \"n\", \"seconds\": ' + '9' * 400 + '}')", None),
++    ("print('[' * 200000)", "讀不懂"),
++])
++def test_an_oversized_or_odd_generator_output_is_recorded_not_raised(printed, reason):
++    """[代碼審 r1 s3] 產生器的輸出設上限、任何讀不懂都記「這次沒產生」,不丟出去;花幾秒用驅動程式
++    自己量的。"""
++    result = driver_module.run_comparison([sys.executable, "-c", printed], "d", 30)
++    if reason is None:
++        assert result.note == "n" and result.seconds is not None and result.seconds < 30
++    else:
++        assert result.rows == () and result.note.startswith("這次沒產生:") and reason in result.note
+diff --git a/tests/tools/test_forgery_comparison.py b/tests/tools/test_forgery_comparison.py
+index a858b1b..274644b 100644
+--- a/tests/tools/test_forgery_comparison.py
++++ b/tests/tools/test_forgery_comparison.py
+@@ -29,51 +29,43 @@ def test_the_comparison_shows_every_forgery_with_and_without_the_verifier():
+             assert row["with_verifier"].startswith("通過"), row
+         else:
+             assert row["with_verifier"].startswith("擋下:"), row
+             assert forgery.expected in row["with_verifier"], row
+     assert "有驗證器也擋不住,這部分歸人審" in rows[-1]["forgery"]
+     assert "有沒有機械驗證" in result["note"] and "不是比模型寫程式的品質" in result["note"]
+     assert "有驗證器也擋不住" in result["note"]
+     assert result["seconds"] > 0
+ 
+ 
+-def test_the_rows_come_from_the_same_definitions_the_verifier_tests_use():
+-    """比較表的列跟驗證器測試的造假清單取自同一個模組(同一批函式),不是另抄一份。"""
+-    from tests.tools import test_verify_claims as verifier_tests
+-
+-    used = {verifier_tests._only_says_done, verifier_tests._code_changed_hash_not,
+-            verifier_tests._claim_wider_than_evidence, verifier_tests._skipped_test,
+-            verifier_tests._conftest_changed_without_rehash}
+-    assert {f.forge for f in forgery_demos.FORGERIES} == used
+-
+-
+ def _broken(_repo):
+     raise RuntimeError("這一列造不出來")
+ 
+ 
+ def test_a_row_that_fails_to_generate_says_why_and_the_others_still_run():
+     """某一列產生失敗:那一列照實寫「這次沒產生:原因」,不寫假結果;其他列照常。"""
+     rows = forgery_comparison.generate(
+         [forgery_demos.Forgery("造不出來", _broken, None), forgery_demos.FORGERIES[0]])["rows"]
+ 
+     assert rows[0]["without_verifier"].startswith("這次沒產生:")
+     assert "這一列造不出來" in rows[0]["with_verifier"]
+     assert rows[1]["with_verifier"].startswith("擋下:")
+ 
+ 
+ def test_a_row_that_times_out_leaves_no_process_behind(tmp_path):
+     """某一列逾時:整個行程群組(含證據測試再起的孫行程)一起收掉,那一列寫逾時,不留行程。"""
+     marker = tmp_path / "grandchild.pid"
+     hanging = TEST_SERVER.replace(
+         "def test_update():\n",
+         "def test_update():\n    import subprocess, time\n"
+-        f"    child = subprocess.Popen(['sleep', '60'])\n"
++        # 孫行程不理 SIGTERM、也不接輸出管線(代碼審 r1 x1:原本 pytest 一結束就不再送 SIGKILL)
++        "    child = subprocess.Popen(['sh', '-c', 'trap \"\" TERM; sleep 60'],\n"
++        "                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+         f"    open({str(marker)!r}, 'w').write(str(child.pid))\n    time.sleep(60)\n")
+ 
+     def hang(repo):
+         write_files(repo, {**FILES, "tests/dsp/test_server.py": hanging})
+         write_manifests(repo)
+ 
+     started = time.monotonic()
+     rows = forgery_comparison.generate([forgery_demos.Forgery("卡住", hang, None)],
+                                        step_timeout=3)["rows"]
+ 
+@@ -81,10 +73,112 @@ def test_a_row_that_times_out_leaves_no_process_behind(tmp_path):
+     assert rows[0]["without_verifier"].startswith("這次沒產生:") and "逾時" in rows[0][
+         "without_verifier"]
+     pid = int(marker.read_text())
+     time.sleep(0.5)
+     try:
+         os.kill(pid, 0)
+     except ProcessLookupError:
+         return
+     os.kill(pid, signal.SIGKILL)
+     raise AssertionError("證據測試起的孫行程還活著")
++
++
++# ---- 代碼審 r1(增量 3)----
++def test_the_verifier_tests_expand_their_forgeries_from_the_shared_list():
++    """[代碼審 r1 a1/l2] 驗證器測試的造假清單直接從共用的 FORGERIES 展開(不是另抄一份)。"""
++    import tests.tools.test_verify_claims as verifier_tests
++
++    (mark,) = [m for m in verifier_tests.test_every_forgery_in_the_plan_is_blocked.pytestmark
++               if m.name == "parametrize"]
++    assert mark.args[1] is forgery_demos.FORGERIES
++    assert all(not f.forge.__name__.startswith("_") for f in forgery_demos.FORGERIES)
++
++
++def test_both_columns_run_the_same_tests_whatever_pytest_options_are_set(monkeypatch):
++    """[代碼審 r1 s2/x2/a3/l1-2] 「沒有驗證器」那一欄跟驗證器用同一套清環境規則:外面帶
++    PYTEST_ADDOPTS(例如取消選取一支證據測試)兩欄結果不變。"""
++    # 旗標跟驗證器跑證據測試同一套(-E 不讀 PYTHON 開頭的變數、-s 不開 user site;這個 venv 沒開
++    # user site,行為上量不出差別,這裡直接核對旗標)
++    assert forgery_comparison._pytest_command("py")[:3] == ["py", "-E", "-s"]
++    baseline = forgery_comparison.generate()["rows"]
++    monkeypatch.setenv("PYTEST_ADDOPTS", "--deselect tests/dsp/test_server.py::test_pause")
++    monkeypatch.setenv("PYTHONPATH", "/nonexistent")
++    assert forgery_comparison.generate()["rows"] == baseline
++
++
++def test_a_missing_pytest_marks_the_whole_table_not_generated(tmp_path):
++    """[代碼審 r1 s5/l3-1] 產生器用的直譯器沒有 pytest:整張表寫「這次沒產生:環境缺 pytest」,不把
++    「找不到 pytest」寫成測試結果(原本天花板那列還會顯示擋下)。"""
++    fake = tmp_path / "python-without-pytest"
++    fake.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
++    fake.chmod(0o755)
++    result = forgery_comparison.generate(python=str(fake))
++    assert result["rows"] == []
++    assert result["note"].startswith("這次沒產生:") and "pytest" in result["note"]
++
++
++def test_a_pytest_run_that_did_not_run_the_tests_is_not_a_result():
++    """[代碼審 r1 s5] pytest 結束代碼不是 0 或 1、或總結行不是測試總結(例如找不到證據測試):那一列算
++    沒產生,不寫成「沒有驗證器」的結果。"""
++    def vanish(repo):
++        (repo / "tests/dsp/test_server.py").unlink()
++
++    vanished = forgery_demos.Forgery("測試檔不見", vanish, None)
++    (row,) = forgery_comparison.generate([vanished])["rows"]
++    assert row["without_verifier"].startswith("這次沒產生:")
++    assert "沒有跑成" in row["without_verifier"]
++
++
++def test_the_stop_signal_only_records_a_request():
++    """[代碼審 r1 s4] 產生器收到 SIGTERM 只記下「要停」,不在任何一行丟例外(原本在刪暫存 repo 的途中
++    丟 SystemExit,暫存目錄殘留一半);兩列之間與等待時檢查。"""
++    previous = signal.getsignal(signal.SIGTERM)
++    try:
++        forgery_comparison.install_stop_handler()
++        os.kill(os.getpid(), signal.SIGTERM)
++        time.sleep(0.1)
++        assert forgery_comparison.stop_requested()
++    finally:
++        signal.signal(signal.SIGTERM, previous)
++        forgery_comparison.reset_stop()
++
++
++def test_a_stop_during_a_step_timeout_still_kills_the_step(tmp_path):
++    """[代碼審 r1 x1/l1-1] 某一步逾時、正在等 SIGTERM 生效時又收到外層的停止:那一步的整組照樣硬殺,
++    不留孤兒(原本 SIGKILL 不送)。"""
++    import subprocess
++    import sys
++
++    marker = tmp_path / "pytest.pid"
++    script = f"""
++import os, signal, sys
++sys.path.insert(0, {str(forgery_comparison.ROOT)!r})
++from tools import forgery_comparison as fc
++from tools.forgery_demos import FILES, TEST_SERVER, Forgery, write_files, write_manifests
++hang = TEST_SERVER.replace("def test_update():\\n", "def test_update():\\n"
++    "    import os, signal, time\\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\\n"
++    "    open({str(marker)!r}, 'w').write(str(os.getpid()))\\n    time.sleep(60)\\n")
++def forge(repo):
++    write_files(repo, {{**FILES, "tests/dsp/test_server.py": hang}})
++    write_manifests(repo)
++fc.install_stop_handler()
++fc.generate([Forgery("卡住", forge, None)], step_timeout=2)
++"""
++    popen = subprocess.Popen([sys.executable, "-c", script], start_new_session=True)
++    try:
++        deadline = time.monotonic() + 30
++        while not marker.exists() and time.monotonic() < deadline:
++            time.sleep(0.1)
++        time.sleep(2.5)  # 步驟已逾時、正在等 SIGTERM 生效
++        os.kill(popen.pid, signal.SIGTERM)
++        popen.wait(30)
++    finally:
++        if popen.poll() is None:
++            os.killpg(popen.pid, signal.SIGKILL)
++    pid = int(marker.read_text())
++    time.sleep(0.5)
++    try:
++        os.kill(pid, 0)
++    except ProcessLookupError:
++        return
++    os.kill(pid, signal.SIGKILL)
++    raise AssertionError("逾時那一步還活著")
+diff --git a/tests/tools/test_verify_claims.py b/tests/tools/test_verify_claims.py
+index 8af0893..7c7375c 100644
+--- a/tests/tools/test_verify_claims.py
++++ b/tests/tools/test_verify_claims.py
+@@ -12,41 +12,35 @@ import io
+ import json
+ import os
+ import subprocess
+ import sys
+ import time
+ from pathlib import Path
+ 
+ import pytest
+ from tools.forgery_demos import (
+     FILES,
++    FORGERIES,
+     HARNESS,
+     NODE_PAUSE,
+     NODE_UPDATE,
+     REQUIRED,
+     SCOPE,
+     TEST_FAULTS,
+     TEST_SERVER,
+     manifest,
+     rehashed_conftest_rewrite,
+     set_raw,
+     sha,
+     write_files,
+     write_manifests,
+ )
+-from tools.forgery_demos import claim_wider_than_evidence as _claim_wider_than_evidence
+-from tools.forgery_demos import code_changed_hash_not as _code_changed_hash_not
+-from tools.forgery_demos import (
+-    conftest_changed_without_rehash as _conftest_changed_without_rehash,
+-)
+-from tools.forgery_demos import only_says_done as _only_says_done
+-from tools.forgery_demos import skipped_test as _skipped_test
+ 
+ from tests.test_static_wiring import ci_problems, parse_run_commands
+ 
+ ROOT = Path(__file__).resolve().parents[2]
+ VERIFIER = ROOT / "tools" / "verify_claims.py"
+ HASH_HELPER = ROOT / "tools" / "claim_hashes.py"
+ COMMAND = "python tools/verify_claims.py claims/"
+ 
+ 
+ def load_verifier():
+@@ -1447,34 +1441,29 @@ def test_a_conftest_the_verifier_cannot_follow_blocks_failure_injection_evidence
+ 
+     code, output = verify(repo)
+ 
+     assert code == 1
+     assert any("conftest.py" in line and "import *" in line for line in output.splitlines()), output
+ 
+ 
+ # ── 造假示範:計劃列的幾種「看起來完成、其實沒有」全部擋下 ─────────────────────────
+ 
+ 
+-@pytest.mark.parametrize(("forge", "expected"), [
+-    (_only_says_done, "result"),
+-    (_code_changed_hash_not, "src/rtb/kit.py"),
+-    (_claim_wider_than_evidence, "void"),
+-    (_skipped_test, NODE_PAUSE),
+-    (_conftest_changed_without_rehash, "tests/dsp/conftest.py"),
+-])
+-def test_every_forgery_in_the_plan_is_blocked(repo, forge, expected):
+-    forge(repo)
++@pytest.mark.parametrize("forgery", FORGERIES,
++                         ids=[f"_{f.forge.__name__}-{f.expected}" for f in FORGERIES])
++def test_every_forgery_in_the_plan_is_blocked(repo, forgery):
++    forgery.forge(repo)
+ 
+     code, output = verify(repo)
+ 
+     assert code == 1, output
+-    assert expected in output
++    assert forgery.expected in output
+ 
+ 
+ # ── [S817] 雜湊輔助:只印哪幾個檔的雜湊跟現況不一樣、正確值,不寫任何檔 ──────────────
+ 
+ def test_a_conftest_that_rewrites_results_and_is_rehashed_passes_which_is_the_ceiling(repo):
+     """天花板釘住:作者連 conftest 的雜湊一起重算,驗證器擋不住(機械上看不出重看過還是重貼),
+     歸審查員;清單差異會進提交,審查員看得到。這支測試是紀錄,不是要驗證器擋。"""
+     rehashed_conftest_rewrite(repo)  # 跟前後比較表天花板那一列同一份改法(Phase 12 增量 3)
+ 
+     code, output = verify(repo)
+diff --git a/tools/forgery_comparison.py b/tools/forgery_comparison.py
+index 397b480..b5314a7 100644
+--- a/tools/forgery_comparison.py
++++ b/tools/forgery_comparison.py
+@@ -1,146 +1,219 @@
+ """前後比較表(Phase 12 增量 3,[S1041]):有沒有機械驗證,同一份造假擋不擋得下。
+ 
+ 每一列:在暫存目錄造一個小 repo(tools/forgery_demos.py 的定義)、套上一種造假改法,然後
+ - 「沒有驗證器」:只跑證據測試,原樣取 pytest 的結束代碼與總結行;
+ - 「有驗證器」:跑宣稱驗證器,原樣取判定與第一條原因(多條附共幾條)。
+-同一份改動、同一份清單、同一組證據測試,差別只在有沒有跑驗證器。
++同一份改動、同一份清單、同一組證據測試,差別只在有沒有跑驗證器:兩欄用同一套清環境規則(驗證器的
++clean_environment,加 -E -s),外面的 PYTEST_ 變數與自動載入的外掛改不了任何一欄(代碼審 r1)。
+ 
+-每一步都在自己的行程群組跑,逾時先 SIGTERM 整組、等一下再 SIGKILL(證據測試再起的孫行程一起收掉);
+-任一列失敗或逾時,那一列照實寫「這次沒產生:原因」,其他列照常。暫存 repo 產完就刪。
++每一步都在自己的行程群組跑,逾時先 SIGTERM 整組、等一下,最後一律對整組送 SIGKILL(不理 SIGTERM 的
++孫行程也收掉);任一列失敗或逾時,那一列照實寫「這次沒產生:原因」,其他列照常。暫存 repo 產完就刪。
++收到 SIGTERM 只記下「要停」:正在跑的那一步整組收掉,暫存 repo 照常刪完,不再跑下一列。
+ 
+-用法:python -m tools.forgery_comparison(在 repo 根);印一行 JSON:rows、note、seconds。
++用法:python -E -s tools/forgery_comparison.py(用檔案路徑跑;同目錄的定義與驗證器也用檔案路徑載入,
++不靠 tools 這個命名空間套件,外面同名的套件頂替不了);印一行 JSON:rows、note、seconds。
+ """
+ 
+ import contextlib
++import importlib.util
+ import json
+ import os
++import re
+ import signal
+ import subprocess
+ import sys
+ import tempfile
++import threading
+ import time
+ from collections.abc import Sequence
+ from pathlib import Path
++from types import FrameType, ModuleType
+ from typing import Any
+ 
+-from tools.forgery_demos import (
+-    CEILING,
+-    FILES,
+-    FORGERIES,
+-    NODE_PAUSE,
+-    NODE_UPDATE,
+-    Forgery,
+-    write_files,
+-    write_manifests,
+-)
+-
+-ROOT = Path(__file__).resolve().parents[1]
+-VERIFIER = ROOT / "tools" / "verify_claims.py"
++HERE = Path(__file__).resolve().parent
++ROOT = HERE.parent
++
++
++def _load(name: str) -> ModuleType:
++    """用檔案路徑載入同目錄的模組(不經 tools 套件的匯入路徑)。"""
++    spec = importlib.util.spec_from_file_location(f"forgery_comparison_{name}",
++                                                  HERE / f"{name}.py")
++    if spec is None or spec.loader is None:
++        raise ImportError(f"載入不了 {name}.py")
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++_demos = _load("forgery_demos")
++_verifier = _load("verify_claims")
++VERIFIER = HERE / "verify_claims.py"
+ STEP_TIMEOUT_SECONDS = 120.0  # 一列裡每一步(證據測試、驗證器)的上限;小 repo 平常一兩秒跑完
+ STOP_SECONDS = 5.0  # 送 SIGTERM 後等整組收手,再硬殺
++POLL_SECONDS = 0.2
+ NOTE = ("比的是有沒有機械驗證:同一份改動、同一份清單、同一組測試,差別只在有沒有跑驗證器;"
+         "不是比模型寫程式的品質。最後一列是天花板:改結果的鉤子連雜湊一起重算,有驗證器也擋不住,"
+         "這部分歸人審(清單的差異會進提交,審查員看得到)。")
+ NOT_GENERATED = "這次沒產生:"
++# pytest 的總結行(「2 passed」「1 passed, 1 skipped」「1 failed, 1 passed」…)
++_SUMMARY = re.compile(r"\d+ (passed|failed|skipped|errors?|deselected|xfailed|xpassed)\b.*")
++_stop = threading.Event()
+ 
+ 
+ class StepTimeout(Exception):
+     """一步超過時限(整組已經收掉)。"""
+ 
+ 
++class Stopped(Exception):
++    """收到停止要求(整組已經收掉)。"""
++
++
++def install_stop_handler() -> None:
++    """SIGTERM 只記下「要停」,不在任何一行丟例外(代碼審 r1 s4:原本在刪暫存 repo 途中丟
++    SystemExit,暫存目錄殘留一半)。等待時與兩列之間檢查。"""
++    signal.signal(signal.SIGTERM, _request_stop)
++
++
++def _request_stop(_signum: int, _frame: FrameType | None) -> None:
++    _stop.set()
++
++
++def stop_requested() -> bool:
++    return _stop.is_set()
++
++
++def reset_stop() -> None:
++    _stop.clear()
++
++
+ def _run(command: Sequence[str], cwd: Path, env: dict[str, str],
+          timeout: float) -> tuple[int, str]:
+-    """在自己的行程群組跑一步,回 (結束代碼, 標準輸出);逾時整組收掉並丟 StepTimeout。"""
++    """在自己的行程群組跑一步,回 (結束代碼, 輸出);逾時或收到停止,整組收掉再丟例外。"""
+     popen = subprocess.Popen(list(command), cwd=cwd, env=env, text=True,  # noqa: S603 - 指令是固定的 pytest 與專案內驗證器
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              start_new_session=True)
++    deadline = time.monotonic() + timeout
+     try:
+-        out, _ = popen.communicate(timeout=timeout)
+-    except subprocess.TimeoutExpired:
+-        _end_group(popen)
+-        raise StepTimeout(f"逾時({timeout:.0f} 秒)") from None
+-    except BaseException:  # 自己被收掉(SIGTERM 轉成的結束)也先收掉這一步的整組,不留孤兒
++        while True:
++            try:
++                out, _ = popen.communicate(timeout=POLL_SECONDS)
++                return popen.returncode, out
++            except subprocess.TimeoutExpired:
++                if _stop.is_set():
++                    raise Stopped("收到停止要求") from None
++                if time.monotonic() >= deadline:
++                    raise StepTimeout(f"逾時({timeout:.0f} 秒)") from None
++    except BaseException:
+         _end_group(popen)
+         raise
+-    return popen.returncode, out
++    finally:
++        _kill_group(popen)  # 正常結束也對整組補一次:測試自己起、還沒結束的孫行程不留
+ 
+ 
+ def _end_group(popen: subprocess.Popen[str]) -> None:
+-    for signum in (signal.SIGTERM, signal.SIGKILL):
++    """先 SIGTERM 整組、等一下;不管等不等得到,最後一律整組 SIGKILL(代碼審 r1 x1/l1-1:原本直屬
++    子行程一結束就不再送,不理 SIGTERM 的孫行程留下;等待途中被打斷也照樣送)。"""
++    try:
+         with contextlib.suppress(ProcessLookupError, PermissionError):
+-            os.killpg(popen.pid, signum)
+-        try:
+-            popen.communicate(timeout=STOP_SECONDS)
+-            return
+-        except subprocess.TimeoutExpired:
+-            continue
++            os.killpg(popen.pid, signal.SIGTERM)
++        with contextlib.suppress(subprocess.TimeoutExpired):
++            popen.wait(STOP_SECONDS)
++    finally:
++        _kill_group(popen)
++
++
++def _kill_group(popen: subprocess.Popen[str]) -> None:
++    with contextlib.suppress(ProcessLookupError, PermissionError):
++        os.killpg(popen.pid, signal.SIGKILL)
++    with contextlib.suppress(subprocess.TimeoutExpired):
++        popen.wait(STOP_SECONDS)
+ 
+ 
+ def _pytest_summary(code: int, out: str) -> str:
++    """結束代碼 0 或 1、而且最後一行是測試總結,才是「沒有驗證器」的結果;其他(找不到測試、用法錯、
++    內部錯誤)是這一列沒產生(代碼審 r1 s5)。"""
+     lines = [line.strip("= ").strip() for line in out.splitlines() if line.strip()]
+-    last = lines[-1] if lines else "(沒有輸出)"
+-    if any(word in last for word in (" passed", " failed", " skipped", " error")):
+-        last = last.split(" in ", 1)[0]  # 拿掉會變的秒數
+-    return f"pytest 結束代碼 {code}:{last}"
++    last = lines[-1] if lines else ""
++    summary = _SUMMARY.fullmatch(last.split(" in ", 1)[0]) if last else None
++    if code not in (0, 1) or summary is None:
++        raise RuntimeError(f"證據測試沒有跑成(pytest 結束代碼 {code}:{last or '沒有輸出'})")
++    return f"pytest 結束代碼 {code}:{summary.group(0)}"
+ 
+ 
+ def _verifier_summary(code: int, out: str) -> str:
+     lines = out.splitlines()
+     if code == 0:
+         return next((line for line in lines if line.startswith("通過")), "通過")
+     reasons = [line[2:] for line in lines if line.startswith("- ")]
+     if code == 1 and reasons:
+         more = f"(共 {len(reasons)} 條)" if len(reasons) > 1 else ""
+         return f"擋下:{reasons[0]}{more}"
+     head = next((line for line in lines if line.startswith(("擋下", "判不出"))), "")
+     return f"判不出(結束代碼 {code}){head}"
+ 
+ 
+-def _environment() -> dict[str, str]:
+-    """從目前的環境起頭;拿掉外面的 PYTHONPATH,小 repo 的程式才不會被 repo 本身的同名套件蓋掉。"""
+-    env = dict(os.environ)
+-    env.pop("PYTHONPATH", None)
+-    return env
++def _pytest_command(python: str) -> list[str]:
++    """跟驗證器跑證據測試同一套旗標:-E 不讀 PYTHON 開頭的變數、-s 不開 user site、設定檔與根目錄
++    寫死(tools/verify_claims.py 的 run_evidence)。"""
++    return [python, "-E", "-s", "-m", "pytest", "-c", _verifier.PYTEST_CONFIG, "--rootdir", ".",
++            "-p", "no:cacheprovider", "-q", _demos.NODE_UPDATE, _demos.NODE_PAUSE]
+ 
+ 
+-def run_row(forgery: Forgery, step_timeout: float) -> dict[str, str]:
++def run_row(forgery: Any, step_timeout: float, python: str = sys.executable) -> dict[str, str]:
+     """一列:造小 repo、套上造假、跑證據測試與驗證器。失敗或逾時照實寫這次沒產生。"""
+     try:
+         with tempfile.TemporaryDirectory(prefix="forgery-") as temporary:
+             repo = Path(temporary)
+-            write_files(repo, FILES)
+-            write_manifests(repo)
++            _demos.write_files(repo, _demos.FILES)
++            _demos.write_manifests(repo)
+             forgery.forge(repo)
+-            env = _environment()
+-            code, out = _run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+-                              NODE_UPDATE, NODE_PAUSE], repo, env, step_timeout)
++            env = _verifier.clean_environment()  # 兩欄同一套:驗證器跑證據測試用的就是這一份
++            code, out = _run(_pytest_command(python), repo, env, step_timeout)
+             without = _pytest_summary(code, out)
+-            code, out = _run([sys.executable, str(VERIFIER), str(repo / "claims")], repo, env,
++            code, out = _run([python, "-E", "-s", str(VERIFIER), str(repo / "claims")], repo, env,
+                              step_timeout)
+             with_verifier = _verifier_summary(code, out)
+     except Exception as broken:  # 任一列出事只影響那一列
+         reason = f"{NOT_GENERATED}{type(broken).__name__}: {broken}"
+         return {"forgery": forgery.label, "without_verifier": reason, "with_verifier": reason}
+     return {"forgery": forgery.label, "without_verifier": without, "with_verifier": with_verifier}
+ 
+ 
+-def generate(forgeries: Sequence[Forgery] | None = None, *,
+-             step_timeout: float = STEP_TIMEOUT_SECONDS) -> dict[str, Any]:
+-    """產生整張表:五種造假加一列天花板(給了 forgeries 就只跑那幾列,測試用)。"""
++def _has_pytest(python: str) -> bool:
++    try:
++        checked = subprocess.run([python, "-E", "-s", "-c", "import pytest"],  # noqa: S603 - 固定指令
++                                 env=_verifier.clean_environment(), capture_output=True,
++                                 timeout=60, check=False)
++    except (OSError, subprocess.TimeoutExpired):
++        return False
++    return checked.returncode == 0
++
++
++def generate(forgeries: Sequence[Any] | None = None, *,
++             step_timeout: float = STEP_TIMEOUT_SECONDS,
++             python: str = sys.executable) -> dict[str, Any]:
++    """產生整張表:五種造假加一列天花板(給了 forgeries 就只跑那幾列,測試用)。產生器用的直譯器沒有
++    pytest 就整張表不產生(代碼審 r1 s5)。收到停止要求就不再跑下一列。"""
+     started = time.monotonic()
+-    chosen = (*FORGERIES, CEILING) if forgeries is None else tuple(forgeries)
+-    rows = [run_row(forgery, step_timeout) for forgery in chosen]
++    if not _has_pytest(python):
++        return {"rows": [], "note": f"{NOT_GENERATED}環境缺 pytest(跑證據測試要用)",
++                "seconds": round(time.monotonic() - started, 1)}
++    chosen = (*_demos.FORGERIES, _demos.CEILING) if forgeries is None else tuple(forgeries)
++    rows = []
++    for forgery in chosen:
++        if _stop.is_set():
++            break
++        rows.append(run_row(forgery, step_timeout, python))
+     return {"rows": rows, "note": NOTE, "seconds": round(time.monotonic() - started, 1)}
+ 
+ 
+-def _terminate(signum: int, _frame: object) -> None:
+-    raise SystemExit(128 + signum)  # 一鍵展示逾時或取消時整組送 SIGTERM:收掉正在跑的那一步再走
+-
+-
+ def main() -> None:
+-    signal.signal(signal.SIGTERM, _terminate)
+-    print(json.dumps(generate(), ensure_ascii=False), flush=True)
++    install_stop_handler()
++    result = generate()
++    if _stop.is_set():
++        raise SystemExit(128 + signal.SIGTERM)  # 被要求停下:不印半張表
++    print(json.dumps(result, ensure_ascii=False), flush=True)
+ 
+ 
+ if __name__ == "__main__":
+     main()
+diff --git a/tools/forgery_demos.py b/tools/forgery_demos.py
+index c2ac850..8d9106c 100644
+--- a/tools/forgery_demos.py
++++ b/tools/forgery_demos.py
+@@ -1,17 +1,18 @@
+ """造假示範的定義(Phase 12 增量 3 從 tests/tools/test_verify_claims.py 原樣搬來,只搬家、內容不改)。
+ 
+ 一個一瞬間跑完的小 repo(幾支小測試、五份證據清單)與計劃列的幾種「看起來完成、其實沒有」的改法。
+ 宣稱驗證器的測試與展示頁的前後比較表(tools/forgery_comparison.py)用同一份定義:比較表的每一列就是
+ 驗證器測試擋下的那幾種造假,加一列驗證器擋不住的天花板。
+ 
+-五個改法的函式名字照搬(驗證器測試展開後的測試項目名字帶著它們);給別的檔用的是底下的公開名字。
++五個改法是公開名字(代碼審 r1:不另造底線函式加別名);驗證器測試從 FORGERIES 展開、用明確的
++項目名字(帶原本的底線寫法),搬家前後展開的項目清單不變。
+ """
+ 
+ import hashlib
+ import json
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any
+ 
+ REQUIRED = ("aggregate-blast-radius", "concurrency", "idempotency-unknown-outcome",
+@@ -264,61 +265,53 @@ def set_raw(root: Path, claim_id: str, text: str) -> None:
+ 
+ 
+ EVIL_CONFTEST_HOOK = (
+     "\n\n@pytest.hookimpl(hookwrapper=True)\n"
+     "def pytest_runtest_makereport(item, call):\n"
+     "    report = (yield).get_result()\n"
+     "    if report.when == \"call\":\n        report.outcome = \"passed\"\n"
+ )
+ 
+ 
+-def _only_says_done(repo: Path) -> None:
++def only_says_done(repo: Path) -> None:
+     set_raw(repo, "concurrency", json.dumps({"claim_id": "concurrency", "result": "已完成"},
+                                             ensure_ascii=False))
+ 
+ 
+-def _code_changed_hash_not(repo: Path) -> None:
++def code_changed_hash_not(repo: Path) -> None:
+     (repo / "src/rtb/kit.py").write_text("def ok():\n    return 1\n", encoding="utf-8")
+ 
+ 
+-def _claim_wider_than_evidence(repo: Path) -> None:
++def claim_wider_than_evidence(repo: Path) -> None:
+     # 就像 Mock-DSP 那條:登錄表多了作廢,宣稱說「每一種」,卻沒有作廢的證據
+     text = FILES["src/rtb/dsp/server.py"].replace('("update", "pause")',
+                                                   '("update", "pause", "void")')
+     write_files(repo, {"src/rtb/dsp/server.py": text})
+     write_manifests(repo)
+ 
+ 
+-def _skipped_test(repo: Path) -> None:
++def skipped_test(repo: Path) -> None:
+     write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
+         "def test_pause", "@pytest.mark.skip\ndef test_pause")})
+     write_manifests(repo)
+ 
+ 
+-def _conftest_changed_without_rehash(repo: Path) -> None:
++def conftest_changed_without_rehash(repo: Path) -> None:
+     # 測試先改成會失敗、清單照實重算;之後才在 conftest 偷偷加改結果的鉤子,沒重算雜湊
+     write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
+         "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
+     write_manifests(repo)
+     conftest = repo / "tests/dsp/conftest.py"
+     conftest.write_text(conftest.read_text(encoding="utf-8") + EVIL_CONFTEST_HOOK,
+                         encoding="utf-8")
+ 
+ 
+-# ── 公開名字(別的檔從這裡取;函式本身的名字照搬,驗證器測試的項目名字才不會變)──────────────
+-only_says_done = _only_says_done
+-code_changed_hash_not = _code_changed_hash_not
+-claim_wider_than_evidence = _claim_wider_than_evidence
+-skipped_test = _skipped_test
+-conftest_changed_without_rehash = _conftest_changed_without_rehash
+-
+-
+ # ── 前後比較表的六列(Phase 12 增量 3,[S1041])──────────────────────────────────
+ def rehashed_conftest_rewrite(repo: Path) -> None:
+     """天花板:測試先改成會失敗,conftest 加改結果的鉤子,而且連雜湊一起重算。驗證器擋不住(機械上看不出
+     重看過還是重貼),歸審查員;清單差異會進提交,審查員看得到。"""
+     write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
+         "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
+     conftest = repo / "tests/dsp/conftest.py"
+     conftest.write_text(conftest.read_text(encoding="utf-8") + EVIL_CONFTEST_HOOK,
+                         encoding="utf-8")
+     write_manifests(repo)  # 重算雜湊

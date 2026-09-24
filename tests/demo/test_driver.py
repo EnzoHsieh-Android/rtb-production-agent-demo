@@ -23,6 +23,12 @@ def state(tmp_path):
     writer.close()
 
 
+# 全部跑一次的測試換上一瞬間跑完的比較表產生器
+# (真的產生器由 tests/tools/test_forgery_comparison.py 測)
+QUICK_COMPARISON = [sys.executable, "-c",
+                    "print('{\"rows\": [], \"note\": \"測試\", \"seconds\": 0}')"]
+
+
 def _driver(tmp_path, state, scenarios=None):
     return Driver(tmp_path / "demos", "demo-1", DemoKeys.generate(), state,
                   user_env=os.environ, scenarios=scenarios)
@@ -482,6 +488,7 @@ def test_the_driver_runs_every_scenario_and_leaves_no_process_behind(tmp_path, s
     scenarios = {c: Scenario(c, c, 20, make(c)) for c in codes}
     demo = _driver(tmp_path, state, scenarios)
     demo.verifier_command = [sys.executable, "-c", "print('通過:假的驗證器')"]
+    demo.comparison_command = QUICK_COMPARISON  # 比較表另有測試;這裡不真跑
 
     verdicts, _ = demo.run_all(codes)
 
@@ -509,6 +516,7 @@ def test_a_full_run_ends_with_the_verifier_output_kept_verbatim(tmp_path, state,
     """全部跑一次的最後一步跑驗證器,原樣記下每一行、通過或擋下、擋下原因、時間與展示編號。"""
     demo = _quick(tmp_path, state)
     demo.verifier_command = [sys.executable, "-c", script]
+    demo.comparison_command = QUICK_COMPARISON  # 比較表另有測試;這裡不真跑
 
     _, outcome = demo.run_all(("F1",))
 
@@ -525,6 +533,7 @@ def test_a_full_run_ends_with_the_verifier_output_kept_verbatim(tmp_path, state,
 def test_a_verifier_that_hangs_is_recorded_as_not_passed(tmp_path, state):
     demo = _quick(tmp_path, state)
     demo.verifier_command = [sys.executable, "-c", "import time; time.sleep(30)"]
+    demo.comparison_command = QUICK_COMPARISON  # 比較表另有測試;這裡不真跑
     demo.verifier_timeout_seconds = 1
 
     _, outcome = demo.run_all(("F1",))
@@ -571,6 +580,7 @@ def test_an_incomplete_scenario_does_not_stop_the_full_run(tmp_path, state):
                  "F3": Scenario("F3", "F3", 20, ok("F3"))}
     demo = _driver(tmp_path, state, scenarios)
     demo.verifier_command = [sys.executable, "-c", "print('通過')"]
+    demo.comparison_command = QUICK_COMPARISON  # 比較表另有測試;這裡不真跑
 
     verdicts, outcome = demo.run_all(("F1", "F2", "F3"))
 
@@ -1244,3 +1254,181 @@ def test_a_confirmation_whose_signing_failed_is_not_waited_for_or_called_unconfi
     failed = _ConfirmStub(stop_during_wait=False, approved_at_close=True, sign_failed=True)
     with pytest.raises(ScenarioFailed, match="有人確認但簽發失敗"):
         driver_module._wait_for_confirmation(failed, request, 5)
+
+
+# ---- 增量 3:前後比較表 ----
+def _fake_comparison(rows=(("只填已完成", "pytest 結束代碼 0:2 passed", "擋下:缺 result"),)):
+    import json
+
+    payload = json.dumps({"rows": [dict(zip(("forgery", "without_verifier", "with_verifier"),
+                                            row, strict=True)) for row in rows],
+                          "note": "比的是有沒有機械驗證", "seconds": 1.5}, ensure_ascii=False)
+    return [sys.executable, "-c", f"print({payload!r})"]
+
+
+def _comparison(tmp_path):
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        return reader.comparison_run("demo-1"), reader.latest_verifier_run()
+    finally:
+        reader.close()
+
+
+def test_a_full_run_records_the_comparison_after_the_verifier(tmp_path, state):
+    """[S1041] 全部跑一次的最後一步(驗證器之後)產生前後比較表,記進展示狀態(每列兩欄、說明、
+    花了幾秒)。"""
+    demo = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 5, lambda _w: "好")})
+    demo.verifier_command = ["true"]
+    demo.comparison_command = _fake_comparison()
+    demo.run_all(("FX",))
+    comparison, verifier = _comparison(tmp_path)
+    assert comparison.rows == (("只填已完成", "pytest 結束代碼 0:2 passed", "擋下:缺 result"),)
+    # 花了幾秒用驅動程式自己量的,不採產生器自報的 1.5(代碼審 r1 s3)
+    assert comparison.note == "比的是有沒有機械驗證" and comparison.seconds < 1.5
+    assert comparison.generated_at >= verifier.verified_at
+
+
+def test_a_comparison_that_fails_or_hangs_does_not_break_the_demo(tmp_path, state):
+    """比較表產生失敗或逾時:照實寫「這次沒產生:原因」,整次展示照樣跑完;逾時連它起的孫行程一起收掉。"""
+    marker = tmp_path / "grandchild.pid"
+    demo = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 5, lambda _w: "好")})
+    demo.verifier_command = ["true"]
+    demo.comparison_command = [sys.executable, "-c", (
+        "import subprocess, time\nchild = subprocess.Popen(['sleep', '60'])\n"
+        f"open({str(marker)!r}, 'w').write(str(child.pid))\ntime.sleep(60)\n")]
+    demo.comparison_timeout_seconds = 2
+    started = time.monotonic()
+    verdicts, _ = demo.run_all(("FX",))
+    assert time.monotonic() - started < 30 and verdicts[0].status == DONE
+    comparison, _ = _comparison(tmp_path)
+    assert comparison.rows == () and comparison.note.startswith("這次沒產生:")
+    assert "逾時" in comparison.note
+    time.sleep(0.5)
+    assert not _alive(int(marker.read_text()))
+    failed = driver_module.run_comparison(["false"], "demo-2", 5)
+    assert failed.rows == () and failed.note.startswith("這次沒產生:")
+    unreadable = driver_module.run_comparison([sys.executable, "-c", "print('不是 JSON')"],
+                                              "demo-2", 5)
+    assert unreadable.rows == () and "讀不懂" in unreadable.note
+
+
+def test_a_cancelled_demo_generates_no_comparison(tmp_path, state):
+    demo = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 5, lambda _w: "好")})
+    demo.comparison_command = _fake_comparison()
+    demo.cancel()
+    demo.run_all(("FX",))
+    assert _comparison(tmp_path)[0] is None
+
+
+# ---- 增量 3 代碼審 r1 ----
+def test_the_comparison_generator_gets_only_the_whitelisted_environment(monkeypatch):
+    """[S1003][代碼審 r1 s1/a2、r3 v2] 比較表產生器跟驗證器用同一套白名單環境(PATH、HOME、LANG、
+    LC_ALL、LC_CTYPE),外面的金鑰與 PYTEST_、PYTHON 開頭的變數都帶不進去。"""
+    monkeypatch.setenv("SOME_SECRET_TOKEN", "abc123")
+    monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-p evil")
+    listing = [sys.executable, "-c", (
+        "import json, os\nprint(json.dumps({'rows': [], 'note': ','.join(sorted(os.environ)),"
+        " 'seconds': 0}))")]
+    keys = set(driver_module.run_comparison(listing, "d", 10).note.split(","))
+    assert "LC_ALL" in keys
+    assert keys <= {"PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "__CF_USER_TEXT_ENCODING"}, keys
+    assert driver_module.tool_environment() == {
+        k: os.environ[k] for k in ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE") if k in os.environ}
+
+
+def test_the_comparison_generator_is_the_repos_own_even_if_another_tools_package_exists(tmp_path):
+    """[代碼審 r1 s1、r2 a1] 產生器從 repo 根以套件方式跑(-E -s -m tools.forgery_comparison,cwd 是
+    repo 根);tools 是正式套件、repo 根排在匯入路徑第一項,別處(site-packages 形態的路徑)另有一個正式
+    的 tools 套件也頂替不了。"""
+    import subprocess
+
+    command = driver_module.default_comparison_command()
+    assert command[1:] == ["-E", "-s", "-X", "utf8", "-m", "tools.forgery_comparison"]
+    venv = tmp_path / "venv"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True,
+                   capture_output=True)
+    python = venv / "bin" / "python"
+    site = Path(subprocess.run([str(python), "-c", "import sysconfig; print(sysconfig.get_paths()"
+                                "['purelib'])"], check=True, capture_output=True,
+                               text=True).stdout.strip())
+    evil = site / "tools"
+    evil.mkdir(parents=True)
+    (evil / "__init__.py").write_text("", encoding="utf-8")
+    (evil / "forgery_comparison.py").write_text(
+        "print('{\"rows\": [], \"note\": \"hijacked\", \"seconds\": 0}')\n", encoding="utf-8")
+    result = driver_module.run_comparison(driver_module.default_comparison_command(str(python)),
+                                          "d", 120)
+    assert result.note != "hijacked", result
+    # 這個 venv 沒有 pytest:跑到的是 repo 那一份產生器,照實寫缺 pytest
+    assert "環境缺 pytest" in result.note, result
+
+
+@pytest.mark.parametrize(("printed", "reason"), [
+    ("print('x' * 2_000_000)", "上限"),
+    ("print('{\"rows\": [], \"note\": \"n\", \"seconds\": ' + '9' * 400 + '}')", None),
+    ("print('[' * 200000)", "讀不懂"),
+])
+def test_an_oversized_or_odd_generator_output_is_recorded_not_raised(printed, reason):
+    """[代碼審 r1 s3] 產生器的輸出設上限、任何讀不懂都記「這次沒產生」,不丟出去;花幾秒用驅動程式
+    自己量的。"""
+    result = driver_module.run_comparison([sys.executable, "-c", printed], "d", 30)
+    if reason is None:
+        assert result.note == "n" and result.seconds is not None and result.seconds < 30
+    else:
+        assert result.rows == () and result.note.startswith("這次沒產生:") and reason in result.note
+
+
+# ---- 增量 3 代碼審 r2 ----
+def test_the_tools_run_in_utf8_whatever_the_locale_says(monkeypatch):
+    """[代碼審 r2 s2] 伺服器的語系設定彼此不一致(LANG 是 latin-1、LC_ALL 是 UTF-8):產生器照樣產出、
+    中文不亂碼(子行程 -X utf8、驅動程式照 UTF-8 讀)。"""
+    monkeypatch.setenv("LANG", "en_US.ISO8859-1")
+    monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
+    result = driver_module.run_comparison(driver_module.default_comparison_command(), "d", 120)
+    assert len(result.rows) == 6, result.note
+    assert result.rows[-1][0].startswith("conftest 偷改測試結果")
+    assert all(row[2].startswith("擋下:") for row in result.rows[:5]), result.rows  # r3 v3
+    assert "-X" in driver_module.default_verifier_command()
+    assert driver_module.default_verifier_command()[1:3] == ["-X", "utf8"]
+
+
+def test_bytes_that_are_not_utf8_do_not_stall_the_reader():
+    """[代碼審 r2 s2] 輸出含不合法的位元組:讀的那一邊照樣讀完(換成替代字元),不會死在解碼、讓子行程
+    寫到一半卡到逾時。"""
+    started = time.monotonic()
+    result = driver_module.run_comparison(
+        [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\xff' + b'a' * 300000)"],
+        "d", 20)
+    assert time.monotonic() - started < 10
+    assert result.rows == () and "讀不懂" in result.note
+
+
+# ---- 增量 3 代碼審 r3 ----
+_CHILD_PRINTS_CHINESE = (
+    "import subprocess, sys\n"
+    "out = subprocess.run([sys.executable, '-c', 'print(\"無\")'],\n"
+    "                     capture_output=True).stdout\n"
+    "ok = out.strip() == '無'.encode('utf-8')\n"
+    "print('通過' if ok else '擋下')\nprint('- 子行程印出 ' + repr(out))\n"
+    "sys.exit(0 if ok else 1)\n")
+
+
+def test_the_verifiers_own_children_see_a_consistent_locale(monkeypatch):
+    """[代碼審 r3 v2] 伺服器的 LANG 是 latin-1、LC_ALL 是 UTF-8:驗證器再往下開的子行程也要拿到一致的
+    語系(白名單照抄 LC_ALL、LC_CTYPE),印中文不變成跳脫字元、驗證器不誤判沒過。"""
+    monkeypatch.setenv("LANG", "en_US.ISO8859-1")
+    monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
+    outcome = driver_module.run_verifier([sys.executable, "-c", _CHILD_PRINTS_CHINESE], "d", 60)
+    assert outcome.passed, outcome.lines
+    assert {"LC_ALL", "LC_CTYPE"} & set(driver_module._TOOL_VARIABLES) == {"LC_ALL", "LC_CTYPE"}
+
+
+def test_a_verifier_that_prints_bytes_that_are_not_utf8_is_read_to_the_end():
+    """[代碼審 r3 v3] 驗證器印出不合法的位元組:照樣讀完(換成替代字元),判定照結束代碼,不卡住。"""
+    started = time.monotonic()
+    outcome = driver_module.run_verifier(
+        [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\xff\\n' + b'a' * 300000"
+         " + b'\\n'); sys.stdout.flush(); print('通過')"], "d", 20)
+    assert time.monotonic() - started < 10
+    assert outcome.passed and "\ufffd" in outcome.lines[0]
