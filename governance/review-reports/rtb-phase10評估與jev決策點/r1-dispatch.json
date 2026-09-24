@@ -1,0 +1,84 @@
+[
+ {
+  "round": "r1",
+  "seat": "s1",
+  "lens": "設計正確性:抽判斷點、路由閘、退回、原因回報",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "src/rtb/analyzer/policy.py",
+   "src/rtb/analyzer/flow.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s2",
+  "lens": "評估方法學:外洩、切片、門檻、樣本數、代理標註偏誤",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "/Users/enzo/Downloads/RTB_PRODUCTION_AGENT_DEMO_HANDOFF.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s3",
+  "lens": "可測性:每條合約寫不寫得出會紅的測試",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "tests/analyzer/test_policy.py",
+   "tests/analyzer/test_trust_boundary.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s4",
+  "lens": "評分標準與切片:互斥、完整、看不出屬於哪片的定義",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "src/rtb/analyzer/dsp_client.py",
+   "src/rtb/domain/metrics.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "s5",
+  "lens": "相容與既有合約、圖譜決策(Phase 0 路由表、[S49]、[S210])",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase7提示注入與信任邊界_計劃.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "sarch",
+  "lens": "架構對齊:評估模組放哪、分層、零依賴",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "src/rtb/analyzer",
+   "src/rtb/domain",
+   "src/rtb/ops"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "x1",
+  "lens": "外家:全份 blocking 級",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md"
+  ],
+  "auditor": "codex"
+ }
+]
