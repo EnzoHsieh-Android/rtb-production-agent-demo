@@ -13,9 +13,11 @@
 不影響 S49 的合約(規則本身的判斷邏輯),留給接上真正決策邏輯的後面階段一併解決。
 """
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 from types import MappingProxyType
-from typing import Any
+from typing import Any, ClassVar, Protocol
 
 from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
 from rtb.analyzer.task_store import TaskRow
@@ -23,6 +25,14 @@ from rtb.domain._checks import is_plain_number
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass, check_freshness
 from rtb.domain.metrics import pacing
 from rtb.domain.proposal import MAX_INT, POLICY_VERSION, ActionType, Proposal
+from rtb.domain.worth import (
+    CampaignStatus,
+    WorthCell,
+    WorthInput,
+    WorthInputInvalid,
+    WorthVerdict,
+    cell_of,
+)
 
 UNDERPACING_THRESHOLD = 0.5  # 暫用值:配速低於這個比例才算「明顯偏低」
 BUDGET_INCREASE_FRACTION = 0.1  # 暫用值:提案調高一成
@@ -52,23 +62,138 @@ def _all_fresh(evidence: tuple[Evidence, ...], now: datetime) -> bool:
     )
 
 
-def decide(task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime) -> Decision:
-    """`now` 由流程層傳進來(`advance()` 手上、也寫進歷史列的同一個時間),這裡不自己讀系統時鐘。"""
+class WorthCandidate(Protocol):
+    """「值不值得加」的候選判斷(Phase 10)。比照決策函式的介面用型別協定;逾時用專案既有的合作式
+    做法:實作必須經共用 HTTP 用戶端呼叫、把 `timeout_seconds` 當它的逾時(逾時丟 TimeoutError)。"""
+
+    def __call__(self, worth_input: WorthInput, timeout_seconds: float) -> WorthVerdict: ...
+
+
+@dataclass(frozen=True)
+class ValidatedCells:
+    """已驗證、允許呼叫候選的評分格。只有採用函式產生得出來(Phase 10 增量 2);正式路徑是空的。"""
+
+    cells: frozenset[WorthCell]
+
+    NONE: ClassVar[ValidatedCells]
+
+
+ValidatedCells.NONE = ValidatedCells(frozenset())
+
+
+class RoutePath(StrEnum):
+    CODE_RULE = "code_rule"
+    CANDIDATE = "candidate"
+    FALLBACK_EXCEPTION = "fallback_exception"
+    FALLBACK_TIMEOUT = "fallback_timeout"
+    FALLBACK_INVALID = "fallback_invalid"
+    FALLBACK_UNSURE = "fallback_unsure"
+
+
+@dataclass(frozen=True)
+class RouteResult:
+    verdict: WorthVerdict
+    path: RoutePath
+
+
+class NoActionReason(StrEnum):
+    """評估用的「為什麼沒提案」;不放進決策結果(不做那個型別不加欄位,相等比較照舊)。"""
+
+    STALE_EVIDENCE = "stale_evidence"
+    MISSING_STATE_OR_METRICS = "missing_state_or_metrics"
+    PACING_UNKNOWN = "pacing_unknown"
+    NOT_UNDERPACING = "not_underpacing"
+    JUDGED_NOT_WORTH = "judged_not_worth"
+    JUDGED_INSUFFICIENT = "judged_insufficient"
+
+
+def _has_delivery(impressions: object, clicks: object) -> bool:
+    """現行程式規則:曝光與點擊都是正數就值得加(Phase 2 起的示範規則,抽出來之前原樣的判斷式)。"""
+    return is_plain_number(impressions) and is_plain_number(clicks) \
+        and impressions > 0 and clicks > 0
+
+
+def code_rule(worth_input: WorthInput) -> WorthVerdict:
+    """現行程式規則:只產出值得加或不值得加,不看狀態與轉換營收(Phase 10 的評估記成程式缺陷)。"""
+    if _has_delivery(worth_input.impressions, worth_input.clicks):
+        return WorthVerdict.WORTH
+    return WorthVerdict.NOT_WORTH
+
+
+def _candidate_answer(
+    candidate: WorthCandidate, worth_input: WorthInput, timeout_seconds: float
+) -> RouteResult:
+    try:
+        answer = candidate(worth_input, timeout_seconds)
+    except TimeoutError:
+        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_TIMEOUT)
+    except Exception:  # 候選是可替換的外部判斷:任何失敗都退回現行規則,不讓它改變流程狀態
+        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_EXCEPTION)
+    if not isinstance(answer, WorthVerdict):
+        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_INVALID)
+    if answer is WorthVerdict.UNSURE:
+        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_UNSURE)
+    return RouteResult(answer, RoutePath.CANDIDATE)
+
+
+def route(
+    worth_input: WorthInput, candidate: WorthCandidate | None, allowed: ValidatedCells,
+    timeout_seconds: float,
+) -> RouteResult:
+    """只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選,其餘走現行程式規則([S701])。"""
+    if candidate is None or cell_of(worth_input) not in allowed.cells:
+        return RouteResult(code_rule(worth_input), RoutePath.CODE_RULE)
+    return _candidate_answer(candidate, worth_input, timeout_seconds)
+
+
+def _worth_input(state: dict[str, Any], metrics: dict[str, Any]) -> WorthInput:
+    status = state.get("status")
+    if not isinstance(status, str) or status not in {s.value for s in CampaignStatus}:
+        raise WorthInputInvalid(f"狀態不是啟用或暫停:{status!r}")
+    return WorthInput(
+        status=CampaignStatus(status), budget=state.get("budget"), spend=metrics.get("spend"),
+        impressions=metrics.get("impressions"), clicks=metrics.get("clicks"),
+        conversions=metrics.get("conversions"), revenue=metrics.get("revenue"))
+
+
+def _judge(
+    state: dict[str, Any], metrics: dict[str, Any], candidate: WorthCandidate | None,
+    allowed: ValidatedCells, timeout_seconds: float,
+) -> WorthVerdict:
+    try:
+        worth_input = _worth_input(state, metrics)
+    except WorthInputInvalid:  # 歸不了格:照原樣的判斷式走現行規則(正式路徑上白名單已擋掉同樣的值)
+        has_delivery = _has_delivery(metrics.get("impressions"), metrics.get("clicks"))
+        return WorthVerdict.WORTH if has_delivery else WorthVerdict.NOT_WORTH
+    return route(worth_input, candidate, allowed, timeout_seconds=timeout_seconds).verdict
+
+
+def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
+    task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime, *,
+    candidate: WorthCandidate | None = None, allowed: ValidatedCells = ValidatedCells.NONE,
+    timeout_seconds: float = 0.0,
+) -> tuple[Decision, NoActionReason | None]:
+    """決策結果加「為什麼沒提案」(評估用,[S705]);決策結果那一半就是 `decide` 的回傳值,
+    `decide` 對某筆輸入丟例外時這裡丟同一種。候選與允許清單只給評估入口用。"""
     if not _all_fresh(evidence, now):
-        return NeedsFreshEvidence()
+        return NeedsFreshEvidence(), NoActionReason.STALE_EVIDENCE
     state = _payload(evidence, EvidenceKind.CAMPAIGN_STATE)
     metrics = _payload(evidence, EvidenceKind.METRICS)
     if state is None or metrics is None:
-        return NoAction()
+        return NoAction(), NoActionReason.MISSING_STATE_OR_METRICS
 
     budget = state.get("budget")
     spend = metrics.get("spend")
-    impressions, clicks = metrics.get("impressions"), metrics.get("clicks")
     underpacing = pacing(spend, budget, ELAPSED_FRACTION_1H).below(UNDERPACING_THRESHOLD)
-    has_delivery = is_plain_number(impressions) and is_plain_number(clicks) \
-        and impressions > 0 and clicks > 0
-    if underpacing is not True or not has_delivery:
-        return NoAction()
+    if underpacing is None:
+        return NoAction(), NoActionReason.PACING_UNKNOWN
+    if underpacing is False:
+        return NoAction(), NoActionReason.NOT_UNDERPACING
+    verdict = _judge(state, metrics, candidate, allowed, timeout_seconds)
+    if verdict is WorthVerdict.INSUFFICIENT:
+        return NoAction(), NoActionReason.JUDGED_INSUFFICIENT
+    if verdict is not WorthVerdict.WORTH:
+        return NoAction(), NoActionReason.JUDGED_NOT_WORTH
 
     if task is None:
         raise AssertionError("有真的證據可以決策,task 不該是 None")
@@ -89,4 +214,10 @@ def decide(task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime) 
         policy_version=POLICY_VERSION,
         risk_summary=f"budget +{int(BUDGET_INCREASE_FRACTION * 100)}%",
     )
-    return ProposalDecision(proposal)
+    return ProposalDecision(proposal), None
+
+
+def decide(task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime) -> Decision:
+    """`now` 由流程層傳進來(`advance()` 手上、也寫進歷史列的同一個時間),這裡不自己讀系統時鐘。
+    正式路徑沒有候選、允許清單是空的,所以「值不值得加」永遠走現行程式規則([S704])。"""
+    return explain(task, evidence, now)[0]
