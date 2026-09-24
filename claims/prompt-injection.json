@@ -85,7 +85,7 @@
     },
     {
       "path": "src/rtb/executor/attempt_store.py",
-      "sha256": "d4c48e9a21f180da761037f80535dcfaa4bc6127c76ea5816243c8fb2cc8cab2"
+      "sha256": "3b05ad24a619fce437cc86ace574052774abeff136a120e4df59d978413f0579"
     },
     {
       "path": "src/rtb/executor/capability_signer.py",

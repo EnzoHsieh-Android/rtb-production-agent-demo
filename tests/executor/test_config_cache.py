@@ -102,26 +102,64 @@ def test_concurrent_reads_always_match_the_bytes_they_read(config, monkeypatch):
 
 
 # ---- [S685] ----
-@pytest.mark.parametrize("change", ["file_group_writable", "dir_other_writable", "symlink"])
-def test_the_config_cache_never_skips_the_ownership_and_mode_checks(config, change):
+def _owner_mismatch(_config, monkeypatch):
+    real_uid = os.getuid()  # 換掉「目前使用者」:目錄與檔案的擁有者都對不上
+    monkeypatch.setattr(capability_signer.os, "getuid", lambda: real_uid + 1)
+    return "config_directory_insecure"
+
+
+def _file_mode(mode, reason):
+    def change(config, _monkeypatch):
+        os.chmod(config, mode)
+        return reason
+    return change
+
+
+def _dir_other_writable(config, _monkeypatch):
+    os.chmod(config.parent, 0o702)  # noqa: S103 - 故意設成別人可寫,驗拒絕
+    return "config_directory_insecure"
+
+
+def _symlink(config, _monkeypatch):  # 換成指向同樣內容的符號連結
+    target = config.with_name("real.json")
+    target.write_bytes(config.read_bytes())
+    os.chmod(target, 0o600)
+    config.unlink()
+    config.symlink_to(target)
+    return "config_unreadable"
+
+
+def _named_pipe(config, _monkeypatch):
+    config.unlink()
+    os.mkfifo(config, 0o600)
+    return "config_unreadable"
+
+
+CHANGES = {
+    "file_group_writable": _file_mode(0o620, "config_file_insecure"),
+    "file_other_writable": _file_mode(0o602, "config_file_insecure"),
+    "dir_other_writable": _dir_other_writable,
+    "symlink": _symlink,
+    "owner_mismatch": _owner_mismatch,
+    "named_pipe": _named_pipe,
+}
+
+
+@pytest.mark.parametrize("change", sorted(CHANGES))
+def test_the_config_cache_never_skips_the_ownership_and_mode_checks(config, change, monkeypatch):
     signer = CapabilitySigner(TEST_KEY)
+    calls = []
+    real_read = capability_signer._read_config_securely
+    monkeypatch.setattr(capability_signer, "_read_config_securely",
+                        lambda path: calls.append(path) or real_read(path))
     signer.read_tenants(config)
     signer.read_tenants(config)  # 快取命中
-    if change == "file_group_writable":
-        os.chmod(config, 0o620)
-        reason = "config_file_insecure"
-    elif change == "dir_other_writable":
-        os.chmod(config.parent, 0o702)  # noqa: S103 - 故意設成別人可寫,驗拒絕
-        reason = "config_directory_insecure"
-    else:  # 換成指向同樣內容的符號連結
-        target = config.with_name("real.json")
-        target.write_bytes(config.read_bytes())
-        os.chmod(target, 0o600)
-        config.unlink()
-        config.symlink_to(target)
-        reason = "config_unreadable"
+    assert len(calls) == 2  # 命中時安全讀檔照樣每次呼叫
+    reason = CHANGES[change](config, monkeypatch)
     try:
         with pytest.raises(SigningRefused, match=reason):
             signer.read_tenants(config)
     finally:
+        monkeypatch.undo()
         os.chmod(config.parent, 0o700)
+    assert len(calls) == 3

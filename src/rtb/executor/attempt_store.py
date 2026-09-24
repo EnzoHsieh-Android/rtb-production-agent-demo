@@ -630,13 +630,39 @@ def _open_candidates(tenant: str) -> tuple[str, tuple[Any, ...]]:
 
 # 快路徑每一段一支查詢、一次掃描回三個數:這個租戶、金額是整數而且大於 0 的列的加總(資料庫的 SUM
 # 溢位時丟「整數溢位」;不准用 TOTAL,它溢位時回失真的小數而不丟例外),候選裡沒記租戶的舊列數,
-# 候選裡屬於這個租戶、金額型別不是整數也不是空值的列數。偵測只看型別與租戶欄,不把候選列取回程式
+# 候選裡屬於這個租戶、原算法可能處理不了的列數。偵測只看型別與租戶欄,不把候選列取回程式。
+# 原算法對這個租戶的列會讀的欄位只有三個(代碼審第 1 輪 x1 逐一核過):金額(整數轉型)、第一列時間與鍵
+# (計入的列依這兩欄排序,型別混在一起會丟 TypeError);其他身分欄只是原樣帶出,不比較也不轉型。
+# 所以金額型別不是整數或空值、第一列時間或鍵不是文字,都交回原算法
 _FAST_SELECT = (
     "SELECT SUM(CASE WHEN f.tenant = ? AND typeof(f.reserved_amount) = 'integer' "
     "AND f.reserved_amount > 0 THEN f.reserved_amount END), "
     "COUNT(CASE WHEN f.tenant IS NULL THEN 1 END), "
-    "COUNT(CASE WHEN f.tenant = ? AND typeof(f.reserved_amount) NOT IN ('integer', 'null') "
-    "THEN 1 END) ")
+    "COUNT(CASE WHEN f.tenant = ? AND (typeof(f.reserved_amount) NOT IN ('integer', 'null') "
+    "OR typeof(f.written_at) <> 'text' OR typeof(f.key) <> 'text') THEN 1 END) ")
+
+
+# 便宜偵測最多看幾筆沒記租戶的第一列(依時間由新到舊):看完還判不出來,就交給加總那一趟的精確偵測
+LEGACY_PROBE_LIMIT = 64
+
+
+def legacy_candidate_query(now: datetime) -> tuple[str, tuple[Any, ...]]:
+    """便宜偵測(只回、不執行):最近的至多 LEGACY_PROBE_LIMIT 筆沒記租戶的第一列
+    (按租戶的第一列索引倒著讀,工作量有上限、不隨窗內筆數或舊列總數變大),每一列回它是不是候選。
+    候選 = 窗內已驗證、或還沒有終點。快路徑先跑它:有候選就直接走原算法,不先把整段已驗證列加總
+    一遍(代碼審第 1 輪 s1:退回之前白掃一遍,比原算法還慢);看滿上限都不是候選就判不出來,交給
+    加總那一趟的精確偵測(結果照樣以原算法為準)。"""
+    return ("SELECT (EXISTS (SELECT 1 FROM attempts v WHERE v.key = f.key AND v.state = ? "  # noqa: S608 - 只拼接固定條件
+            "AND v.written_at >= ?) OR NOT EXISTS (SELECT 1 FROM attempts t WHERE t.key = f.key "
+            f"AND t.state IN ({_TERMINAL_LIST}))) FROM attempts f "
+            "WHERE f.seq = 1 AND f.tenant IS NULL ORDER BY f.written_at DESC LIMIT ?",
+            (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW), LEGACY_PROBE_LIMIT))
+
+
+def _legacy_candidate_seen(conn: sqlite3.Connection, now: datetime) -> bool:
+    """跑便宜偵測,一碰到候選就停(游標逐列取,不把上限內的每一筆都算完)。"""
+    sql, params = legacy_candidate_query(now)
+    return any(candidate for (candidate,) in conn.execute(sql, params))
 
 
 def aggregate_used_queries(
@@ -666,7 +692,11 @@ def aggregate_used(tx: Readable, tenant: str, now: datetime) -> int:
     原算法(`aggregate_used_reference`),結果以它為準。其他資料庫錯誤照舊往外丟(查詢寫錯不能被當成
     溢位悄悄吞掉)。兩段在程式裡相加:程式的整數沒有上限,兩段各自沒溢位、相加超過資料庫上限也照算。
     這是翻案:Phase 6 增量 1 裁定「在程式裡用整數累加」,理由是資料庫加總會溢位停機;這裡加了退路。"""
+    if type(tenant) is not str:  # 資料庫比租戶會把整數參數轉型(1 = '1'),程式不會:兩種算法才會一樣
+        raise TypeError("租戶名稱要是字串")
     conn = _read_conn(tx)
+    if _legacy_candidate_seen(conn, now):
+        return aggregate_used_reference(tx, tenant, now)  # 最近的舊列裡有候選:不先加總,直接走原算法
     (verified_sql, verified_params), (open_sql, open_params) = aggregate_used_queries(tenant, now)
     try:
         total = _fast_part(conn, verified_sql, verified_params)

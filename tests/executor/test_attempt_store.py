@@ -607,29 +607,63 @@ def test_the_normal_worst_case_path_stays_well_under_the_cap(store):
 
 
 # ---- [S19] ----
+SQLITEKIT = "rtb.sqlitekit"
 SQLITEKIT_PURE_CHECKS = frozenset({"is_integer_overflow"})
+NETWORK = {"socket", "http", "urllib", "ssl", "requests", "httpx", "rtb.httpkit",
+           "rtb.httpclient"}
+CONNECTION_NAMES = {"connect", "connect_read_only", "begin_immediate", "immediate_transaction",
+                    "begin_snapshot", "end_snapshot", "read_snapshot"}
+
+
+def _absolute(node, package):
+    """from 匯入的來源換算成絕對模組名(相對匯入依這支檔所在的套件往上數)。"""
+    if not node.level:
+        return node.module or ""
+    base = package.split(".")[:len(package.split(".")) - node.level + 1]
+    return ".".join([*base, *([node.module] if node.module else [])])
+
+
+def connection_offenders(tree, package="rtb.executor"):
+    """嘗試紀錄模組的匯入:不准網路模組;共用資料庫模組只准用 from 取「是不是整數溢位」這一個純判斷
+    (F7 效能計劃:判斷集中在那裡),整個模組、別的名字(含改名)一律不准;程式裡也不准出現開連線、
+    開交易的名字(代碼審第 1 輪:相對匯入、from rtb import sqlitekit、改名都曾漏掉)。"""
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found += [a.name for a in node.names
+                      if a.name == SQLITEKIT or a.name.split(".")[0] in NETWORK
+                      or a.name in NETWORK]
+        elif isinstance(node, ast.ImportFrom):
+            module = _absolute(node, package)
+            for alias in node.names:
+                full = f"{module}.{alias.name}"
+                impure_kit = module == SQLITEKIT and alias.name not in SQLITEKIT_PURE_CHECKS
+                network = module.split(".")[0] in NETWORK or NETWORK & {module, full}
+                if impure_kit or network or full == SQLITEKIT or alias.name in CONNECTION_NAMES:
+                    found.append(full)
+        elif isinstance(node, ast.Attribute) and node.attr in CONNECTION_NAMES:
+            found.append(node.attr)
+        elif isinstance(node, ast.Name) and node.id in CONNECTION_NAMES:
+            found.append(node.id)
+    return found
 
 
 def test_the_attempt_store_neither_reaches_the_network_nor_opens_its_own_connection():
     source = Path(attempt_store.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
-    imported = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported |= {alias.name for alias in node.names}
-        elif isinstance(node, ast.ImportFrom):
-            # 共用資料庫模組只准取「是不是整數溢位」這一個純判斷(F7 效能計劃:判斷集中在那裡);
-            # 開連線、開交易的函式照舊不准碰
-            names = {alias.name for alias in node.names}
-            if node.module == "rtb.sqlitekit" and names <= SQLITEKIT_PURE_CHECKS:
-                continue
-            imported.add(node.module or "")
-    network = {"socket", "http", "urllib", "ssl", "requests", "httpx", "rtb.httpkit",
-               "rtb.httpclient", "rtb.sqlitekit"}
-    assert {m for m in imported if m.split(".")[0] in network or m in network} == set()
-    names = {node.attr if isinstance(node, ast.Attribute) else node.id
-             for node in ast.walk(tree) if isinstance(node, (ast.Attribute, ast.Name))}
-    assert not names & {"connect", "begin_immediate", "immediate_transaction"}
+    assert connection_offenders(tree) == []
+    for probe in ("from rtb import sqlitekit", "from .. import sqlitekit",
+                  "from ..sqlitekit import begin_immediate as _b",
+                  "from rtb.sqlitekit import is_integer_overflow, connect",
+                  "from rtb.sqlitekit import connect_read_only as _c",
+                  "import rtb.sqlitekit", "import rtb.sqlitekit as _k",
+                  "from rtb import sqlitekit as _k\n_OPEN = _k.connect_read_only",
+                  "import socket", "from http import client", "from rtb import httpkit",
+                  "def f(c):\n    return c.read_snapshot()",
+                  "from rtb.executor.inbox_store import connect as _c"):
+        assert connection_offenders(ast.parse(probe)), probe
+    assert connection_offenders(ast.parse(
+        "from rtb.sqlitekit import is_integer_overflow")) == []
     strings = " ".join(node.value for node in ast.walk(tree)
                        if isinstance(node, ast.Constant) and isinstance(node.value, str)).upper()
     assert "BEGIN" not in strings and "COMMIT" not in strings and "ROLLBACK" not in strings
