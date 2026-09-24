@@ -77,6 +77,9 @@ def test_both_write_off_deadlines_hold_until_they_pass(tmp_path, monkeypatch, cl
     assert edge == 420
     far = 10 * edge
     for seconds, allowed in ((120, False), (edge, False), (edge + 1, True)):
+        # 預留時的開機以來秒數釘成整數:不然吃到當下真實值,(r + 420) - r 的浮點進位偶爾是
+        # 420.0000000000001,剛好期限那格被判過期而放行(CI 剛開機幾百秒時約一成機率)
+        monkeypatch.setattr(core, "monotonic_now", lambda: 1000.0)
         row = _unsettled(tmp_path, monkeypatch, f"{clock}-{seconds}")
         wall = seconds if clock == "wall" else far
         mono = seconds if clock == "monotonic" else far
