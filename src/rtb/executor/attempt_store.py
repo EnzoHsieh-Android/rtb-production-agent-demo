@@ -642,27 +642,44 @@ _FAST_SELECT = (
     "OR typeof(f.written_at) <> 'text' OR typeof(f.key) <> 'text') THEN 1 END) ")
 
 
-# 便宜偵測最多看幾筆沒記租戶的第一列(依時間由新到舊):看完還判不出來,就交給加總那一趟的精確偵測
-LEGACY_PROBE_LIMIT = 64
+# 便宜偵測第一步只瞄最新幾筆沒記租戶的第一列:窗內剛驗證完的舊鍵、剛卡住的舊鍵通常在這裡
+LEGACY_RECENT_PEEK = 8
 
 
-def legacy_candidate_query(now: datetime) -> tuple[str, tuple[Any, ...]]:
-    """便宜偵測(只回、不執行):最近的至多 LEGACY_PROBE_LIMIT 筆沒記租戶的第一列
-    (按租戶的第一列索引倒著讀,工作量有上限、不隨窗內筆數或舊列總數變大),每一列回它是不是候選。
-    候選 = 窗內已驗證、或還沒有終點。快路徑先跑它:有候選就直接走原算法,不先把整段已驗證列加總
-    一遍(代碼審第 1 輪 s1:退回之前白掃一遍,比原算法還慢);看滿上限都不是候選就判不出來,交給
-    加總那一趟的精確偵測(結果照樣以原算法為準)。"""
-    return ("SELECT (EXISTS (SELECT 1 FROM attempts v WHERE v.key = f.key AND v.state = ? "  # noqa: S608 - 只拼接固定條件
-            "AND v.written_at >= ?) OR NOT EXISTS (SELECT 1 FROM attempts t WHERE t.key = f.key "
-            f"AND t.state IN ({_TERMINAL_LIST}))) FROM attempts f "
-            "WHERE f.seq = 1 AND f.tenant IS NULL ORDER BY f.written_at DESC LIMIT ?",
-            (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW), LEGACY_PROBE_LIMIT))
+def legacy_recent_query(now: datetime) -> tuple[str, tuple[Any, ...]]:
+    """便宜偵測第一步(只回、不執行):最新的至多 LEGACY_RECENT_PEEK 筆沒記租戶的第一列裡,有沒有候選
+    (窗內已驗證、或還沒有終點)。工作量固定幾筆;[S341] 那種窗內有大量舊格式已驗證列的資料,在這一步
+    就查到,不必走第二步從最舊的讀起。"""
+    return ("SELECT 1 FROM (SELECT f.key AS legacy_key FROM attempts f WHERE f.seq = 1 "  # noqa: S608 - 只拼接固定條件
+            "AND f.tenant IS NULL ORDER BY f.written_at DESC LIMIT ?) WHERE EXISTS (SELECT 1 "
+            "FROM attempts v WHERE v.key = legacy_key AND v.state = ? AND v.written_at >= ?) "
+            "OR NOT EXISTS (SELECT 1 FROM attempts t WHERE t.key = legacy_key "
+            f"AND t.state IN ({_TERMINAL_LIST})) "
+            "LIMIT 1",
+            (LEGACY_RECENT_PEEK, AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW)))
+
+
+def legacy_open_query() -> tuple[str, tuple[Any, ...]]:
+    """便宜偵測第二步(只回、不執行):有沒有還沒有終點、沒記租戶的舊鍵(Phase 6 之前開的鍵卡在
+    轉人工之類,會長期留在未結案那段)。從沒記租戶的第一列出發(按租戶的第一列索引,由舊到新:卡住的
+    通常是最舊的),每一列用「一把鍵最多一列終點」的唯一索引查有沒有終點,碰到第一把沒終點的就停。
+
+    不設筆數上限,所以不會漏(代碼審第 2 輪資安席、鏡頭 1:第 1 版只看最新 64 筆,比它們更早的卡住
+    舊鍵永遠查不到,退回之前白掃一遍)。工作量的上限是舊鍵總數:新寫的第一列一定記租戶,舊鍵不會再
+    增加,已結案的也不會再變回未結案。最壞情形是卡住的舊鍵夾在大量已結案舊鍵中間,要讀過前面每一把
+    (殘餘風險,見驗收紀錄)。窗內已驗證、第一列又不在最新幾筆裡的舊鍵不在這兩步查,照舊由加總那一趟
+    的精確偵測發現再退回。"""
+    return ("SELECT 1 FROM attempts f WHERE f.seq = 1 AND f.tenant IS NULL AND NOT EXISTS "  # noqa: S608 - 只拼接固定條件
+            f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST})) "
+            "ORDER BY f.written_at LIMIT 1", ())
 
 
 def _legacy_candidate_seen(conn: sqlite3.Connection, now: datetime) -> bool:
-    """跑便宜偵測,一碰到候選就停(游標逐列取,不把上限內的每一筆都算完)。"""
-    sql, params = legacy_candidate_query(now)
-    return any(candidate for (candidate,) in conn.execute(sql, params))
+    """兩步便宜偵測:先瞄最新幾筆,沒有再從最舊的找卡住的舊鍵。"""
+    for sql, params in (legacy_recent_query(now), legacy_open_query()):
+        if conn.execute(sql, params).fetchone() is not None:
+            return True
+    return False
 
 
 def aggregate_used_queries(
@@ -695,12 +712,15 @@ def aggregate_used(tx: Readable, tenant: str, now: datetime) -> int:
     if type(tenant) is not str:  # 資料庫比租戶會把整數參數轉型(1 = '1'),程式不會:兩種算法才會一樣
         raise TypeError("租戶名稱要是字串")
     conn = _read_conn(tx)
+    # 先跑便宜偵測、不先算全表未結案數:退回時原算法自己會再算一次,先算就白算(未結案數要數全表的
+    # 第一列與終點列,比偵測貴得多)
     if _legacy_candidate_seen(conn, now):
-        return aggregate_used_reference(tx, tenant, now)  # 最近的舊列裡有候選:不先加總,直接走原算法
+        return aggregate_used_reference(tx, tenant, now)  # 有卡住的舊鍵:不先加總,直接走原算法
+    open_keys = unresolved_count(tx)  # 原算法同一個條件:全表有未結案才查未結案那段
     (verified_sql, verified_params), (open_sql, open_params) = aggregate_used_queries(tenant, now)
     try:
         total = _fast_part(conn, verified_sql, verified_params)
-        if total is not None and unresolved_count(tx):  # 原算法同一個條件:全表有未結案才查這段
+        if total is not None and open_keys:
             part = _fast_part(conn, open_sql, open_params)
             total = None if part is None else total + part
     except sqlite3.OperationalError as exc:

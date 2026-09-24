@@ -532,6 +532,8 @@ class Executor:
             return self._process(delivery.message, delivery.receipt)
         except LeaseLost:
             return Processed(Result.LEASE_LOST)
+        except CorruptedInboxRow as exc:  # 處理中那一列讀不懂(例如租約時間):跟對帳一樣停下
+            raise ExecutorHalted("unreadable_message") from exc
         finally:
             self.flush_calls()
 

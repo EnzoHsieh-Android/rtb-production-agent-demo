@@ -95,7 +95,9 @@ AMOUNTS = (0, 1, 7, 50, 1000, 123_456, None)
 HUGE_AMOUNTS = (MAX_INT // 3, MAX_INT - 5, MAX_INT)  # 溢位級:少量出現,純快路徑才過半
 ODD_AMOUNTS = ("abc", "x12", 1.5, 2.75, b"\x01", -3)
 ODD_TENANTS = ("T-A", "t-a ", "", b"t-a", 1)  # 大小寫、尾端空白、空字串、二進位、整數
-ODD_STARTED = (b"\x00", 12345, 1.5)  # 第一列時間欄型別異常(原算法排序時比不了)
+# 第一列時間欄型別異常(原算法排序時比不了):只能用二進位值造。時間欄是 TEXT 親和,整數、小數寫進去
+# 會被轉存成文字(12345 變 '12345'),不算異常;NOT NULL 讓空值也造不出來(代碼審第 2 輪鏡頭 1)
+ODD_STARTED = (b"\x00", b"z", b"2026-09-22T11:00:00.000000Z")
 HISTORIES = ((), (A.UNKNOWN,), (A.UNKNOWN, A.COMMITTED_UNVERIFIED),
              (A.ESCALATED,))  # 終點之前的中間狀態(多次嘗試、轉人工後再結案)
 
@@ -147,9 +149,10 @@ DETERMINISTIC = {
     "odd_started_time": lambda r: [r.key(tenant="t-a", amount=5, state=A.VERIFIED,
                                          started=b"\x00"),
                                    r.key(tenant="t-a", amount=7, state=A.VERIFIED)],
-    "odd_started_integer": lambda r: [r.key(tenant="t-a", amount=5, state=A.VERIFIED,
-                                            started=12345),
-                                      r.key(tenant="t-a", amount=6, state=A.VERIFIED)],
+    # 看起來像時間的二進位值:型別仍是二進位,原算法照樣比不了
+    "odd_started_time_like": lambda r: [r.key(tenant="t-a", amount=5, state=A.VERIFIED,
+                                              started=b"2026-09-22T11:00:00.000000Z"),
+                                        r.key(tenant="t-a", amount=6, state=A.VERIFIED)],
     # 鍵是二進位、時間跟另一列一樣:原算法排序比到鍵時比不了
     "odd_key_type": lambda r: [r.key(tenant="t-a", amount=5, state=A.VERIFIED, key=b"k-bin",
                                      started="2026-09-22T11:00:00.000000Z"),
@@ -370,18 +373,39 @@ def _vm_steps(conn, function):
     return value, steps[0]
 
 
+CLOSED_LEGACY = 192  # 已結案的舊鍵數:比第 1 版便宜偵測只看的 64 筆多
+
+
 def test_falling_back_on_a_legacy_row_does_no_more_work_than_the_reference(store):
-    """候選裡有一筆沒記租戶的舊列(轉人工、沒終點,會一直留著):快路徑要先用便宜的偵測發現它、
-    直接走原算法,不先把整段已驗證列加總一遍;退回路徑的虛擬機步數最多比原算法多一點點(偵測本身,
-    只跟舊列數有關、不跟窗內筆數有關)。"""
+    """候選裡有一把沒記租戶的舊鍵(轉人工、沒終點,會一直留著):快路徑要先用便宜的偵測發現它、
+    直接走原算法,不先把整段已驗證列加總一遍;退回路徑的虛擬機步數最多比原算法多一點點。"""
     rows = Rows()
     for index in range(4000):
         rows.key(tenant="t-a", amount=index % 90 + 1, state=A.VERIFIED)
     old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
-    for _ in range(attempt_store.LEGACY_PROBE_LIMIT * 3):  # 很多窗外已結案的舊列(不是候選)
+    for _ in range(CLOSED_LEGACY):  # 很多窗外已結案的舊鍵(不是候選)
         rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
-    rows.key(tenant=None, amount=None, state=A.ESCALATED)  # 舊列:沒終點,不受窗口限制
+    rows.key(tenant=None, amount=None, state=A.ESCALATED)  # 舊鍵:沒終點,不受窗口限制(最新的一把)
+    _fallback_costs_no_more_than_the_reference(store, rows)
+
+
+def test_a_stuck_legacy_key_older_than_many_closed_ones_is_still_found(store):
+    """代碼審第 2 輪資安席、鏡頭 1:卡住的舊鍵比 64 把以上已結案的舊鍵還舊(卡住的通常是最舊的)。
+    第 1 版的偵測只看最新 64 筆,永遠查不到它,退回之前白掃一遍、步數是原算法的兩倍多。"""
+    rows = Rows()
+    for index in range(4000):
+        rows.key(tenant="t-a", amount=index % 90 + 1, state=A.VERIFIED)
+    rows.key(tenant=None, amount=None, state=A.ESCALATED,
+             at=NOW - AGGREGATE_WINDOW - timedelta(days=800))
+    old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
+    for _ in range(CLOSED_LEGACY):
+        rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
+    _fallback_costs_no_more_than_the_reference(store, rows)
+
+
+def _fallback_costs_no_more_than_the_reference(store, rows):
     with written(store, rows) as tx:
+        assert attempt_store._legacy_candidate_seen(tx.conn, NOW)  # 偵測查得到
         fast, fast_steps = _vm_steps(tx.conn, lambda: attempt_store.aggregate_used(tx, "t-a", NOW))
         slow, slow_steps = _vm_steps(
             tx.conn, lambda: attempt_store.aggregate_used_reference(tx, "t-a", NOW))
@@ -390,21 +414,29 @@ def test_falling_back_on_a_legacy_row_does_no_more_work_than_the_reference(store
 
 
 def test_many_closed_legacy_rows_still_take_the_fast_path(store, monkeypatch):
-    """窗外已結案的舊列很多(超過便宜偵測的上限)也不觸發退回,偵測本身的工作量有上限。"""
+    """窗外已結案的舊鍵很多也不觸發退回;偵測的工作量只跟舊鍵數有關(舊鍵不會再增加),
+    不跟窗內筆數有關。"""
     def forbidden(*_args):
         raise AssertionError("乾淨的候選不該呼叫原算法")
 
     monkeypatch.setattr(attempt_store, "aggregate_used_reference", forbidden)
-    rows = Rows()
-    _clean(rows)
-    old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
-    for _ in range(attempt_store.LEGACY_PROBE_LIMIT * 20):
-        rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
-    with written(store, rows) as tx:
-        assert attempt_store.aggregate_used(tx, "t-a", NOW) == 5 + 7 + 11 + 13
-        sql, params = attempt_store.legacy_candidate_query(NOW)
-        _, probe_steps = _vm_steps(tx.conn, lambda: tx.conn.execute(sql, params).fetchall())
-    assert probe_steps <= attempt_store.LEGACY_PROBE_LIMIT  # 每 100 步記一次:偵測只看有上限的幾筆
+    probe = []
+    for window_rows in (0, 4000):
+        rows = Rows()
+        _clean(rows)
+        for index in range(window_rows):
+            rows.key(tenant="t-a", amount=index % 90 + 1, state=A.VERIFIED)
+        old = NOW - AGGREGATE_WINDOW - timedelta(days=400)
+        for _ in range(CLOSED_LEGACY * 5):
+            rows.key(tenant=None, amount=None, state=A.VERIFIED, at=old)
+        with written(store, rows) as tx:
+            assert attempt_store.aggregate_used(tx, "t-a", NOW) > 0
+            sql, params = attempt_store.legacy_open_query()
+            _, steps = _vm_steps(tx.conn, lambda sql=sql, params=params: tx.conn.execute(
+                sql, params).fetchall())
+        probe.append(steps)
+    assert probe[0] == probe[1], probe  # 窗內多了 4000 筆,偵測一步都沒多
+    assert probe[0] <= CLOSED_LEGACY * 5 // 2, probe  # 每把舊鍵最多約 50 步(每 100 步記一次)
 
 
 # ---- 代碼審第 1 輪 e3 ----

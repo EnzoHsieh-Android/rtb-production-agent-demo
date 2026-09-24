@@ -24,7 +24,8 @@ class DatabaseNotUpgraded(Exception):
     """唯讀開法發現資料庫還沒升級到這一版(缺表或缺欄位):唯讀連線不能補,要先用寫入開法開一次。"""
 
 
-def _is_lock_contention(exc: sqlite3.OperationalError) -> bool:
+def is_lock_contention(exc: sqlite3.OperationalError) -> bool:
+    """這個資料庫錯誤是不是鎖競爭(忙碌或被鎖):專案唯一的「忙碌對永久故障」分類,其他模組要分也用這支。"""
     primary_code = exc.sqlite_errorcode & 0xFF  # 擴充碼的低 8 位才是主要錯誤碼
     return primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
 
@@ -52,7 +53,7 @@ def connect(
             conn.executescript(schema)
     except sqlite3.OperationalError as exc:
         conn.close()  # 設定失敗時不留下沒人關的連線
-        if _is_lock_contention(exc):  # 剛建立資料庫時切換 WAL 要獨佔鎖,撞上別人也是「忙碌」
+        if is_lock_contention(exc):  # 剛建立資料庫時切換 WAL 要獨佔鎖,撞上別人也是「忙碌」
             raise DatabaseBusy(str(exc)) from exc
         raise
     except BaseException:
@@ -66,7 +67,7 @@ def begin_immediate(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("BEGIN IMMEDIATE")
     except sqlite3.OperationalError as exc:
-        if _is_lock_contention(exc):
+        if is_lock_contention(exc):
             raise DatabaseBusy(str(exc)) from exc
         raise
 

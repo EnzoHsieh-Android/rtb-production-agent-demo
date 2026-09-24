@@ -54,6 +54,7 @@ from rtb.sqlitekit import (
     connect,
     connect_read_only,
     immediate_transaction,
+    is_lock_contention,
     missing_schema,
     read_snapshot,
 )
@@ -1300,7 +1301,11 @@ class InboxStore(InboxReads):
     def lease_until(self, receipt: Receipt) -> datetime | None:
         """這張收據對應的租約現在到什麼時候(資料庫裡這一列的實際值);已經不是自己的(被接手、已結案、
         序號換了)就回 None。唯讀、不開寫入交易:寫結果撞到忙碌、要決定還能不能再試時讀(F7 效能計劃
-        第 2 部分),WAL 模式下讀不必等寫入鎖。讀本身出錯也回 None——呼叫端當作「不再試」,不會更糟。"""
+        第 2 部分),WAL 模式下讀不必等寫入鎖。
+
+        錯誤照專案唯一的分法(代碼審第 2 輪):讀的時候碰到鎖競爭也回 None(呼叫端當作「不再試」);
+        其他資料庫錯誤原樣往外丟,不能被改報成忙碌。租約時間讀得出來卻不是帶時區的 ISO 時間,丟
+        CorruptedInboxRow(處理中那一列讀不懂,跟內容讀不回來同一種處理:停下讓人看)。"""
         if type(receipt) is not Receipt:
             raise TypeError("收據必須是取件或接手時拿到的 Receipt")
         try:
@@ -1309,11 +1314,13 @@ class InboxStore(InboxReads):
                 f"AND content_hash = ? AND {IN_PROGRESS} AND lease_seq = ? AND lease_owner = ?",
                 (receipt.task_id, receipt.revision, receipt.content_hash, receipt.lease_seq,
                  receipt.owner)).fetchone()
-        except sqlite3.Error:
-            return None
+        except sqlite3.OperationalError as exc:
+            if is_lock_contention(exc):
+                return None
+            raise
         if row is None or row[0] is None:
             return None
-        return datetime.fromisoformat(row[0])
+        return _lease_time(row[0], f"{receipt.task_id}/{receipt.revision}")
 
     def extend(
         self, tx: attempt_store.ExecutorTransaction, receipt: Receipt, now: datetime,
@@ -1693,6 +1700,17 @@ def _event(row: tuple[object, ...]) -> LifecycleEvent:
     values[_LIFECYCLE_FIELDS.index("from_existing")] = bool(
         values[_LIFECYCLE_FIELDS.index("from_existing")])
     return LifecycleEvent(*values)  # type: ignore[arg-type]
+
+
+def _lease_time(text: object, where: str) -> datetime:
+    """處理中那一列的租約到期時間:要是帶時區的 ISO 時間字串,否則當這一列讀不懂。"""
+    try:
+        moment = datetime.fromisoformat(text)  # type: ignore[arg-type]  # 型別不對也在這裡攔
+    except (TypeError, ValueError) as exc:
+        raise CorruptedInboxRow(where) from exc
+    if moment.tzinfo is None:
+        raise CorruptedInboxRow(where)
+    return moment
 
 
 def _parse_payload(payload: str) -> Proposal | None:

@@ -6,6 +6,9 @@
 """
 
 import io
+import sqlite3
+from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 
@@ -13,8 +16,20 @@ from rtb import sqlitekit
 from rtb.capabilitykit import KEY_ENV
 from rtb.domain.attempt import AttemptState
 from rtb.executor import attempt_store, runner
-from rtb.executor.execution import Executor, Result, WriteAnswer
-from rtb.executor.inbox_store import InboxBusy, InboxBusyNotStarted
+from rtb.executor.execution import (
+    RESULT_WRITE_BACKOFF_SECONDS,
+    RESULT_WRITE_LEASE_MARGIN,
+    Executor,
+    ExecutorHalted,
+    Result,
+    WriteAnswer,
+)
+from rtb.executor.inbox_store import (
+    VISIBILITY_TIMEOUT,
+    CorruptedInboxRow,
+    InboxBusy,
+    InboxBusyNotStarted,
+)
 from rtb.sqlitekit import DatabaseBusy
 from tests.capability_samples import TEST_APPROVAL_KEY, TEST_KEY
 from tests.executor.conftest import Clock
@@ -258,5 +273,115 @@ def test_a_legacy_key_without_a_receipt_retries_on_count_alone(tmp_path, clock, 
         _worker(h, sleeps).reconcile_all()
         assert sleeps == [0.05, 0.1]
         assert len(_states(h)) == 3
+    finally:
+        h.close()
+
+
+# ---- 代碼審第 2 輪:[S690] 期限的邊界,與讀租約的錯誤處理 ----
+def test_the_lease_deadline_boundary_is_pinned(tmp_path, monkeypatch):
+    """剩餘時間剛好等於「等鎖上限 + 退避 + 餘裕」要重試;少 1 微秒就停。"""
+    busy = BusyBegin(monkeypatch)
+    needed = (timedelta(seconds=sqlitekit.BUSY_TIMEOUT_SECONDS + RESULT_WRITE_BACKOFF_SECONDS[0])
+              + RESULT_WRITE_LEASE_MARGIN)
+    advance = VISIBILITY_TIMEOUT - needed  # 取件時的租約是一個租約時間;時鐘沒動過
+
+    def exactly(h):
+        h.clock.advance(seconds=advance.total_seconds())
+
+    def one_microsecond_short(h):
+        h.clock.advance(seconds=advance.total_seconds(), microseconds=1)
+
+    assert _one_busy_write(tmp_path / "exact", busy, exactly) == (True, [0.05])
+    assert _one_busy_write(tmp_path / "short", busy, one_microsecond_short) == (False, [])
+
+
+def _received(h):
+    h.submit()
+    with h.store.transaction() as tx:
+        return h.store.receive(tx, h.clock(), "executor").receipt
+
+
+def test_lease_until_answers_only_for_the_same_lease(tmp_path, clock):
+    """租約序號或擁有者對不上(同一個擁有者過期後自己又接手也一樣,序號換了)就回空值。"""
+    h = Harness(tmp_path, clock)
+    try:
+        receipt = _received(h)
+        assert h.store.lease_until(receipt) == clock() + VISIBILITY_TIMEOUT
+        assert h.store.lease_until(replace(receipt, lease_seq=receipt.lease_seq + 1)) is None
+        assert h.store.lease_until(replace(receipt, lease_seq=receipt.lease_seq - 1)) is None
+        assert h.store.lease_until(replace(receipt, owner="w2")) is None
+    finally:
+        h.close()
+
+
+class _LeaseReadFails:
+    """包住收件表的連線:讀租約那一句丟指定的資料庫錯誤,其他照常。"""
+
+    def __init__(self, conn, error):
+        self._real, self._error = conn, error
+
+    def execute(self, sql, *args):
+        if sql.startswith("SELECT lease_until"):
+            raise self._error
+        return self._real.execute(sql, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def test_a_lease_read_error_is_classified_like_the_rest_of_the_project(tmp_path, clock,
+                                                                         monkeypatch):
+    """讀租約碰到鎖競爭:當作讀不到、不再試;其他資料庫錯誤原樣往外丟,不能被改報成忙碌。"""
+    busy = BusyBegin(monkeypatch)
+    contention = sqlite3.OperationalError("database is locked")
+    contention.sqlite_errorcode = sqlite3.SQLITE_BUSY
+    permanent = sqlite3.OperationalError("no such table: proposals")
+    permanent.sqlite_errorcode = sqlite3.SQLITE_ERROR
+    for name, error, expected in (("busy", contention, InboxBusyNotStarted),
+                                  ("broken", permanent, sqlite3.OperationalError)):
+        directory = tmp_path / name
+        directory.mkdir()
+        h, sleeps = Harness(directory, clock), []
+        try:
+            h.submit()
+            h.dsp.on_write = lambda *_a, h=h, error=error: (
+                setattr(h.store, "_conn", _LeaseReadFails(h.store._conn, error)), busy.arm(1))
+            with pytest.raises(expected) as raised:
+                _worker(h, sleeps).process_one()
+            if expected is sqlite3.OperationalError:
+                assert raised.value is error  # 永久錯誤原樣往外丟,不換成忙碌
+            assert sleeps == []
+        finally:
+            h.store._conn = getattr(h.store._conn, "_real", h.store._conn)
+            h.close()
+
+
+@pytest.mark.parametrize("stored", ["garbage", "2026-09-25T10:00:00"])
+def test_an_unreadable_lease_time_halts_instead_of_crashing(tmp_path, clock, monkeypatch,
+                                                            stored):
+    """租約時間讀得出來卻不是帶時區的 ISO 時間:丟收件表既有的「處理中那一列讀不懂」,執行迴圈照既有
+    做法停下讓人看,不是丟 ValueError 或 TypeError 讓行程崩潰。"""
+    h = Harness(tmp_path, clock)
+    try:
+        receipt = _received(h)
+        h.query("UPDATE proposals SET lease_until = ?", (stored,))
+        with pytest.raises(CorruptedInboxRow):
+            h.store.lease_until(receipt)
+    finally:
+        h.close()
+
+    busy, sleeps = BusyBegin(monkeypatch), []
+    directory = tmp_path / "loop"
+    directory.mkdir()
+    h = Harness(directory, clock)
+    try:
+        h.submit()
+        h.dsp.on_write = lambda *_a: (
+            h.query("UPDATE proposals SET lease_until = ?", (stored,)), busy.arm(1))
+        with pytest.raises(ExecutorHalted) as raised:
+            _worker(h, sleeps).process_one()
+        assert str(raised.value) == "unreadable_message"
+        assert isinstance(raised.value.__cause__, CorruptedInboxRow)
+        assert sleeps == []
     finally:
         h.close()
