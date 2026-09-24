@@ -16,7 +16,6 @@ EvidenceSource 丟例外時,advance() 不寫入任何東西,狀態留在原地�
 
 import hashlib
 import json
-import math
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -25,9 +24,14 @@ from typing import Any
 
 from rtb.analyzer.flow import DspOperation
 from rtb.analyzer.task_store import TaskRow, ToolEndpoint
-from rtb.domain._checks import is_id, is_plain_int, is_plain_number
+from rtb.domain._checks import (
+    is_count_or_none,
+    is_finite_or_none,
+    is_id,
+    is_int_between,
+)
 from rtb.domain.evidence import MAX_UNTRUSTED_TEXT_LENGTH, Evidence, EvidenceKind, TrustClass
-from rtb.domain.proposal import MAX_INT, ActionType
+from rtb.domain.proposal import ActionType
 from rtb.httpclient import request_json
 
 OnDspCall = Callable[[TaskRow, ToolEndpoint, str, float], None]
@@ -47,37 +51,20 @@ REQUESTED_WINDOW = "1h"
 Check = Callable[[Any], bool]  # 比照提案白名單 CHECKS:每個欄位一支只看值的檢查
 
 
-def _is_int_between(low: int, value: Any) -> bool:
-    return is_plain_int(value) and low <= value <= MAX_INT  # 跟提案、模擬 DSP 同一個資料庫整數上限
-
-
-def _is_count_or_none(value: Any) -> bool:
-    return value is None or (is_plain_int(value) and abs(value) <= MAX_INT)
-
-
-def _is_finite_or_none(value: Any) -> bool:
-    if value is None:
-        return True
-    try:
-        return is_plain_number(value) and math.isfinite(value)
-    except OverflowError:  # 大到超出浮點範圍的整數
-        return False
-
-
 STATE_FIELDS: dict[str, Check] = {
     "id": is_id,
-    "budget": lambda value: _is_int_between(0, value),
+    "budget": lambda value: is_int_between(0, value),
     "status": lambda value: isinstance(value, str) and value in CAMPAIGN_STATUSES,
-    "version": lambda value: _is_int_between(1, value),
+    "version": lambda value: is_int_between(1, value),
 }
 METRICS_FIELDS: dict[str, Check] = {
     "campaign_id": is_id,
     "window": lambda value: value == REQUESTED_WINDOW,
-    "impressions": _is_count_or_none,
-    "clicks": _is_count_or_none,
-    "conversions": _is_count_or_none,
-    "spend": _is_finite_or_none,
-    "revenue": _is_finite_or_none,
+    "impressions": is_count_or_none,
+    "clicks": is_count_or_none,
+    "conversions": is_count_or_none,
+    "spend": is_finite_or_none,
+    "revenue": is_finite_or_none,
 }
 
 
@@ -175,7 +162,7 @@ def make_client(
 
 def _positive_or_none(value: Any) -> bool:
     """預算與版本都從 1 起算(同提案與執行端的核對);0 讀不懂,不拿來判內容不符。"""
-    return value is None or _is_int_between(1, value)
+    return value is None or is_int_between(1, value)
 
 
 def make_operation_lookup(

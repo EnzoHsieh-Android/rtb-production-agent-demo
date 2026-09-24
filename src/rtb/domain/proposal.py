@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import Any, TypeGuard
 
 from rtb.domain._checks import ID_PATTERN, is_aware, is_plain_int
+from rtb.domain._checks import MAX_INT as MAX_INT  # 定義搬到共用小檢查,這裡照舊匯出
 
 # 分析端目前的決策政策版本:分析端產生提案時用它,執行端判人工核可是否還算數也看它(Phase 6
 # 增量 3)。兩邊從這裡匯入,只有一個來源,不靠人同步設定檔
@@ -33,7 +34,6 @@ MAX_PAYLOAD_BYTES = 16 * 1024
 MAX_DEPTH = 6
 MAX_LIST_ITEMS = 20
 MAX_RISK_SUMMARY = 500
-MAX_INT = 2**63 - 1
 MIN_TIME = datetime(2000, 1, 1, tzinfo=UTC)  # 時間欄位的合理範圍:換成 UTC 不會溢位,也不會離現實太遠
 MAX_TIME = datetime(2100, 1, 1, tzinfo=UTC)
 MAX_DECISION_LIFETIME = timedelta(hours=1)  # 決策從建立到到期最多一小時:壓低一份提案佔住名額的時間
