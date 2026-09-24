@@ -437,10 +437,11 @@ BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverif
 # 命令列與維運的假說命令列(Phase 11B [S912])。送出的名字除了 call_model,還有閘道的 open_gate 與
 # complete(代碼審 r1:閘道是第二個送出入口)
 # Phase 13 增量 2 加:AI 決策模組(開閘道、送出)與開了 AI 決策的分析端驅動命令列(把開閘道函式交給它)
+# Phase 13 增量 3 加:調查評估執行器(呼叫同一支 AI 決策函式,[S1146];[S918] 照計劃改寫)
 CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate",
                               "rtb.analyzer.modelgate", "rtb.analyzer.narrate",
                               "rtb.ops.hypothesis", "rtb.analyzer.ai_judge",
-                              "rtb.analyzer.runner"})
+                              "rtb.analyzer.runner", "rtb.eval.investigation_eval"})
 SEND_CALLS = frozenset({"call_model", "open_gate", "complete"})
 # 會送出模型呼叫的命令列模組:匯入它就能經它的 run 轉手送出,匯入本身就算送出點(代碼審 r2)
 SENDING_ENTRIES = frozenset({"rtb.analyzer.narrate", "rtb.ops.hypothesis",

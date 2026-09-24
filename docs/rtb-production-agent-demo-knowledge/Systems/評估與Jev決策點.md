@@ -2,8 +2,8 @@
 type: system
 status: doing
 created: 2026-09-24
-updated: 2026-09-24
-responsibility: 負責「值不值得加」判斷點的離線評估:評分表、合成評估集與生成器、逐格計分與報告、比較表、逐格採用決定與人讀的決定紀錄,以及接入點 3 的模型候選(旁路紀錄、整批停下、子集、批次紀錄、比較表模型列);不負責判斷點本身與路由(在分析端的決策規則);除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、不啟動子行程;不被任何其他套件匯入
+updated: 2026-09-25
+responsibility: 負責「值不值得加」判斷點的離線評估:評分表、合成評估集與生成器、逐格計分與報告、比較表、逐格採用決定與人讀的決定紀錄,接入點 3 的模型候選(旁路紀錄、整批停下、子集、批次紀錄、比較表模型列),以及 Phase 13 AI 調查的評估(九格評分與標準答案、72 筆含誘導雙胞胎的評估集與生成器、呼叫正式路徑同一支 AI 決策函式的評估執行器、逐格報告與不採用的決定、錄製批次驗收);不負責判斷點本身、路由與 AI 決策函式(在分析端);除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、不啟動子行程;不被任何其他套件匯入
 aliases: []
 about_code:
   - src/rtb/eval/__init__.py
@@ -15,6 +15,11 @@ about_code:
   - src/rtb/eval/record.py
   - src/rtb/eval/model_candidate.py
   - tests/eval/test_model_candidate.py
+  - src/rtb/eval/investigation_cases.py
+  - src/rtb/eval/investigation_set.py
+  - src/rtb/eval/investigation_eval.py
+  - src/rtb/eval/investigation_report.py
+  - tests/eval/test_investigation_eval.py
 tags:
   - type/system
   - status/doing
@@ -89,3 +94,15 @@ verified_by:
   不印門檻判定;被中斷的那一次也進批次紀錄(interrupted,附沒結算的預留編號);別批擋住時旗標寫明先清哪一批。
   防回歸:[test:test_a_faster_batch_record_cannot_pass_the_latency_bar]。
 
+
+## AI 調查的評估(Phase 13 增量 3)
+
+計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈評估案例〉〈花費帳與採用判定〉〈錄製批次與入庫〉。評估對象是「配速偏低之後,整段調查的最後結論」。
+
+- `src/rtb/eval/investigation_cases.py`:九格評分(= 標準答案的九條規則,順序寫死在 `ANSWER_ORDER`,系統提示的九條照同一個順序)、標準答案產生函式、生成器。標準答案的比率只經領域層的精確比率函式取得、用分數判門檻,不讀捨入後的收據字串;資料異常直接用 Phase 10 的 `is_anomalous` 看原始 1 小時指標。生成器每格 4 組,每組一筆正常名稱配一份名稱藏誘導文字的雙胞胎(數字完全相同),共 72 筆;任何百分比門檻(轉換率變化 -50%、最近一次加預算的轉換變化 0%、前置過濾的配速 50%)的精確值離門檻不到 0.05 個百分點就重抽,每筆也要落在它要的格,不然生成器自己丟錯。比照 Phase 10 生成器,不匯入分析端(選項代碼另寫一份,測試核對一致)。防回歸:[test:test_the_answer_key_applies_the_history_rules_in_order]、[test:test_no_generated_case_sits_on_a_rounding_boundary]、[test:test_one_exact_ratio_function_feeds_the_answer_key]。
+- `src/rtb/eval/investigation_set.py`:生成器的產出(不要手改);改題目、名稱或查詢結果會讓錄製鍵對不上,要重錄一批。
+- `src/rtb/eval/investigation_eval.py`:評估執行器與命令列 `python -m rtb.eval.investigation_eval`。逐筆呼叫正式路徑同一支 AI 決策函式(見 [[Systems/分析行程流程與檢查點]]),只把查詢來源換成案例存的原始結果(收據用正式路徑同一支收據函式算)、續租回呼永遠成功、先前各輪紀錄放在記憶體;沒有自己的驗證或輪數邏輯。預設重播入庫目錄 recordings/model/phase13-investigation-eval/;即時加錄製要帶 `phase13-eval-YYYYMMDD` 批次,開閘道時先跑模型用戶端的開錄前目錄檢查(見 [[Systems/模型用戶端]]);`--verify` 只准重播,照〈錄製批次與入庫〉的驗過條件核(失敗類錄製 0 份、同一批、沒有佔位、重播找不到錄製 0 筆),驗不過以 1 結束。評估批次不另存批次紀錄檔:模型那一列從重播帶回的錄製當時延遲與原價算,錄製日期與批次讀錄製檔。防回歸:[test:test_the_investigation_eval_runs_the_same_ai_judge]、[test:test_the_batch_check_goes_red_on_missing_failed_or_mixed_recordings]、[test:test_the_eval_runner_refuses_to_record_into_a_mixed_directory]。
+- `src/rtb/eval/investigation_report.py`:逐格報告只算名稱正常的 4 筆(誤提案、類別正確、值得加格召回、平均與最多輪數、每個決策的原價、退回原因分布);對抗切片另列誘導雙胞胎結論翻轉的筆數與差異;比較表是現行程式規則(實測)對模型(歷史觀測、錄製日期);採用一律不採用、不建任何已驗證清單。模型那一列用本計劃自己的門檻常數 `INVESTIGATION_LIMITS`:成本不設門檻(`cost_exempt`),延遲 p95 3 秒、失敗率 1%。防回歸:[test:test_the_investigation_report_is_per_slice_and_never_adopts_synthetic]、[test:test_the_report_counts_decisions_flipped_by_injected_names]、[test:test_the_investigation_evaluation_never_validates_a_slice]。
+- `src/rtb/eval/adoption.py` 的門檻型別加 `cost_exempt`(預設假;為真時成本門檻必須是 None);採用判定抽成 `operational_problems`,Phase 10 的逐格採用與調查評估的模型那一列共用,`cost_exempt` 為真就不比成本、延遲與失敗率照查。`src/rtb/eval/model_candidate.py` 的逐欄判定在 `cost_exempt` 為真時成本那一欄寫「不設門檻(假設正式環境用自研模型、成本另計)」;Phase 11B 模型候選那組門檻常數不動。防回歸:[test:test_an_explicit_no_cost_gate_skips_only_the_cost_check]、[test:test_the_report_writes_no_cost_gate_for_an_exempt_limit]。
+- 匯入邊界([S918] 照 Phase 13 改寫):評估套件閉包的准許名單加模型閘道、AI 決策模組(ai_judge 與它的詞彙模組)與這四支;匯入 AI 決策模組、經它開閘道送出的,評估套件裡只准評估執行器。
+- 決定紀錄 `governance/eval/phase13-investigation-adoption.md`(命令列產生)。2026-09-25 入庫時還沒有評估錄製:72 筆全部「找不到錄製」、退回現行規則,模型那一列沒量,結論不採用。現行規則實測:暫停、資料異常、裁定 12 三格與沒價值格全錯(有投放就提案),較長窗有轉換、沒投放、有價值三格全對。

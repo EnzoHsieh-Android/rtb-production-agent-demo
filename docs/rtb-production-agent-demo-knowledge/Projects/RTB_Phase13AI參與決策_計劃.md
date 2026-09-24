@@ -831,6 +831,35 @@ REVISIT:2026-12-31 看展示紀錄裡開 AI 的情境實際耗時;超過時限�
 - 協調者代使用者裁定(2026-09-25):`claims/prompt-injection.json` 的 policy 範圍改成「未開 AI 決策時」不可信文字不影響決策;開了之後的保證改由 [S1112] 守(名稱可以翻動提不提案,翻不動金額、廣告、動作),[S1112] 的測試列進這份宣稱的證據。
 - 實作者解讀(2026-09-25,合入主線上的增量 1 代碼審 r3 之後):根 `pyproject.toml` 的禁令表(最上層共用模組吃的那一份)也加 `rtb.analyzer.ai_judge` 與 `rtb.analyzer.runner`,跟各層 ruff.toml 同一條理由:匯入就是送出點;小常數模組 `stepbudget` 只匯入資料庫基礎,不受影響。AI 決策模組開閘道照字面寫 `Caller.INVESTIGATION`,過得了變嚴的呼叫者換標檢查。
 
+增量 3(評估案例)實作時的解讀,同樣照「最保守、最貼近既有做法」取:
+
+- 實作者解讀(2026-09-25):評估模組定名四支,都在 src/rtb/eval/:`investigation_cases`(九格、標準答案產生函式、生成器;比照 Phase 10 生成器不匯入分析端,選項代碼另寫一份由測試核對)、`investigation_set`(生成器的產出)、`investigation_eval`(評估執行器、錄製批次驗收、命令列)、`investigation_report`(逐格報告、比較表、採用決定)。改寫後 [S918] 的准許名單寫全:模型用戶端閉包(含小常數模組)、模型閘道、AI 決策模組(增量 2 拆成 `ai_judge` 與詞彙模組 `investigation` 兩支,兩支都算)、這四支。
+- 實作者解讀(2026-09-25):評估執行器匯入 AI 決策模組、經它開閘道(`open_investigation_gate`、`gate_complete`),所以列進 tests/test_spawn_boundary.py 的 `CALL_MODEL_USERS`;[S918] 的測試另加一條:評估套件裡匯入 AI 決策模組、用這兩個名字的只准評估執行器。呼叫者標籤照舊綁在 AI 決策模組(分析端調查),評估不另開呼叫者。
+- 實作者解讀(2026-09-25):九格就是標準答案的九條規則(暫停、資料異常、最近 3 天有調整、加了沒用、轉換率掉一半、較長窗有轉換、沒投放、有價值、沒價值),「有點擊但轉換營收都是零」那格依較長窗切成「較長窗有轉換」(裁定 8 命中)與「沒價值」兩片。
+- 實作者解讀(2026-09-25):裁定 12 第二條的「上次加預算」取過去調整(由新到舊)裡幅度為正的最新一筆,轉換變化經精確比率函式算;調整前轉換為 0 時算不出、那一條不適用(跟系統提示「na 不適用」一致);「不多於」含相等。第一條的「最近 3 天內」以操作歷史的提交時間嚴格晚於「現在減 3 天」算,跟收據函式同一個切點。
+- 實作者解讀(2026-09-25):生成器避開的門檻除了計劃列的轉換率變化 -50%、調整前後轉換變化 0%,另加前置過濾的配速 50%(模型看不到它,但案例若落在它上面會被程式過濾擋掉、評估不到);三者都離門檻超過 0.05 個百分點,落在邊界就重抽,每筆也要落在它要的格,生成器自己核。
+- 實作者解讀(2026-09-25):逐格指標、輪數、原價、退回原因分布與模型那一列的延遲、失敗率都只算名稱正常的 36 筆;「找不到錄製」的筆數算全部 72 筆(CI 要求 0 筆要涵蓋雙胞胎)。逐格結果依最後有效答案計分(含退回);沒有錄製時退回現行規則的結果照算並列退回原因,但模型那一列與比較表的模型欄寫沒量(沒送出的呼叫不算進模型量測,同 Phase 11B)。對抗切片只比最後結論,報告列雙方的選項序列。
+- 實作者解讀(2026-09-25):比較表的「現行程式規則(實測)」用 Phase 10 的現行規則函式對同一個判斷點輸入算(正式路徑沒有候選、允許清單是空的,結果相同),不經帶允許清單參數的說明函式,評估模組因此不碰已驗證清單型別([S1119] 用語法樹掃這四支)。
+- 實作者解讀(2026-09-25):採用決定由報告自己的決定函式固定回「不採用」,不呼叫 Phase 10 的採用函式(它只收正式報告、而且會建已驗證清單);模型那一列照本計劃的門檻常數 `INVESTIGATION_LIMITS` 判逐欄(成本不設門檻、延遲中位與 p95 3 秒、失敗率 1%;延遲中位沿用 Phase 11B 協調者補的值),判過也只是給人看的量測。成本照量(最高一次原價),欄位標「不設門檻」。Phase 10 採用函式的成本、延遲、失敗率比對抽成 `operational_problems`,兩邊共用,`cost_exempt` 在那裡讀。
+- 實作者解讀(2026-09-25):評估批次不另存批次紀錄檔,開錄前目錄檢查的共用函式不開例外(它只收錄製檔);模型那一列從重播帶回的錄製當時延遲與原價算,錄製日期與批次讀錄製檔。批次編號格式 `phase13-eval-YYYYMMDD` 在命令列入口就核,不符拒絕;`--verify` 只准重播。
+- 實作者解讀(2026-09-25):[S1141] 的 CI 測試(`test_the_investigation_eval_in_ci_replays_only_and_misses_nothing`)標「評估批次入庫後才啟用」,開關是入庫目錄 recordings/model/phase13-investigation-eval/ 存在與否:不存在就跳過,一存在就照四條驗過條件檢查,缺錄製就紅。同一支驗收函式另由 `test_the_batch_check_goes_red_on_missing_failed_or_mixed_recordings` 在不看入庫目錄的情況下守住(行程內假後端錄一小批,缺錄製、設定錯誤、無法可靠分類、別批、佔位、空目錄都驗不過;命令列重播空目錄照實報 72 筆找不到、驗不過、沒啟動 claude)。
+- 實作者解讀(2026-09-25):系統提示的九條評分規則增量 2 已寫進,這一增量只綁 [S1159] 的測試(九條、編號、順序與結論都跟 `ANSWER_ORDER` 一致),提示本身沒改。
+- 實作者解讀(2026-09-25):**真實錄製批次要協調者用真 claude 產生**,實作者沒有錄(不准呼叫真的模型);入庫目錄目前不存在,決定紀錄 governance/eval/phase13-investigation-adoption.md 照實寫 72 筆找不到錄製、模型沒量、不採用。錄製與入庫指令(要先照 recordings/model/README.md 寫好即時模式啟用紀錄;最多 72 筆 × 3 輪 = 216 次呼叫,分析端調查不設花費上限、吃訂閱額度):
+
+```sh
+# 1. 即時加錄製一批,寫進全新目錄(不能指向入庫目錄)
+RTB_MODEL_LIVE=1 RTB_MODEL_RECORD=1 PYTHONPATH=src .venv/bin/python -m rtb.eval.investigation_eval \
+  --demo-id eval-YYYYMMDD --batch-id phase13-eval-YYYYMMDD --recordings-dir /tmp/phase13-eval-YYYYMMDD
+# 2. 用錄製模式驗收:失敗類錄製 0 份、同一批、沒有佔位、找不到錄製 0 筆;沒過以結束代碼 1 結束
+PYTHONPATH=src .venv/bin/python -m rtb.eval.investigation_eval --verify \
+  --recordings-dir /tmp/phase13-eval-YYYYMMDD --ledger /tmp/rtb-eval-ledger.sqlite
+# 3. 驗過才整個目錄搬進入庫位置(重錄時整個替換),重產決定紀錄,再跑 [S1141] 的測試
+mv /tmp/phase13-eval-YYYYMMDD recordings/model/phase13-investigation-eval
+PYTHONPATH=src .venv/bin/python -m rtb.eval.investigation_eval --ledger /tmp/rtb-eval-ledger.sqlite \
+  > governance/eval/phase13-investigation-adoption.md
+.venv/bin/python -m pytest -q tests/eval/test_investigation_eval.py
+```
+
 ## 審計修正紀錄
 
 - r1(2026-09-25,7 席:鏡頭 1–5、架構對齊、外家 Codex):42 條/blocking 35(各席總結句加總:Codex 7、架構 2、鏡頭1 5、鏡頭2 8、鏡頭3 4、鏡頭4 5、鏡頭5 4)/結論:骨架(每輪一步、列舉選項、退回規則)站得住,但照字面實作會在五處出錯——原始回應塞不進證據型別、追加收據會經新鮮度與證據參照改變規則路徑、租約漏算模型用戶端自己的等待、輪數與紀錄交易沒定義、F3/F5/F7 與故障情境的斷言跟 AI 判斷打架;42 條歸成 A–R 十八件全數折入,每件是代使用者裁定(2026-09-25),逐件見〈使用者裁定〉的第 1 輪折入表。新增合約 S1135–S1148;本計劃 S1100、S1104–S1107、S1109–S1111、S1113、S1115、S1116、S1120、S1121、S1124、S1127、S1129–S1131、S1133、S1134 改寫;既有 S902、S903、S917、S1003 列進要改寫的清單。卷證 governance/review-reports/rtb-phase13ai參與決策/r1-*。

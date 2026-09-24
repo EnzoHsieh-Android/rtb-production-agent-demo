@@ -244,12 +244,16 @@ def _eval_roots():
 
 
 # Phase 13 改寫 [S918](計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉):評估套件的
-# 閉包只准多出寫死的准許名單。名單上的模型閘道、AI 決策模組、小常數模組與 Phase 13
-# 的評估模組(評估集、
-# 生成器、執行器、報告)要等增量 3 的評估執行器真的需要時才加(代碼審 r1:
-# 先放閘道等於讓評估套件任何一支
-# 模組都能經閘道送出);小常數模組出現時也要加進模型用戶端閉包
-PHASE13_ALLOWED: frozenset[str] = frozenset()
+# 閉包只准多出寫死的准許名單——模型用戶端閉包(含小常數模組,見上)、模型閘道、AI 決策模組
+# (AI 決策函式所在的 ai_judge 與它的詞彙模組 investigation,增量 2 拆成兩支)、Phase 13 增量 3
+# 新增的評估模組(評估集、生成器與標準答案、執行器、報告)。增量 3 的評估執行器匯入 AI 決策模組,
+# 名單在這一增量補齊
+PHASE13_ALLOWED: frozenset[str] = frozenset({
+    "rtb.analyzer.modelgate", "rtb.analyzer.ai_judge", "rtb.analyzer.investigation",
+    "rtb.eval.investigation_cases", "rtb.eval.investigation_set", "rtb.eval.investigation_eval",
+    "rtb.eval.investigation_report"})
+# 經 AI 決策模組送出的名字(開閘道、把閘道包成送出函式):評估套件裡只准評估執行器用
+AI_JUDGE_SENDS = frozenset({"open_investigation_gate", "gate_complete"})
 
 
 def test_the_eval_package_reaches_the_model_only_through_the_model_client():  # noqa: PLR0915
@@ -284,6 +288,18 @@ def test_the_eval_package_reaches_the_model_only_through_the_model_client():  # 
     assert importers == {"model_candidate", "record"}
     assert senders == {"model_candidate"}
     assert bypass == set()  # 沒有人拿後端直接送出(繞過花費帳)
+    # Phase 13 增量 3:匯入 AI 決策模組、經它開閘道送出的,只有評估執行器
+    judge_importers, judge_senders = set(), set()
+    for path in sorted(EVAL.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if "rtb.analyzer.ai_judge" in _imported_modules(SRC, f"rtb.eval.{path.stem}", tree):
+            judge_importers.add(path.stem)
+        used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {
+            n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
+            a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
+        judge_senders |= {path.stem} if used & AI_JUDGE_SENDS else set()
+    assert judge_importers == {"investigation_eval"}
+    assert judge_senders == {"investigation_eval"}
     for probe in ("def f(s):\n    return s.backend.send(1)\n",
                   "from rtb import modelclient as mc\nmc.BackendCall('m', 's', 'u', 1, 1.0, 1)\n",
                   "def f(b):\n    g = b.send\n    return g\n",

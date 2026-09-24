@@ -32,7 +32,13 @@ from pathlib import Path
 from rtb import modelclient as mc
 from rtb.analyzer.policy import CandidateCall, TrialCells, route
 from rtb.domain.worth import WorthCell, WorthInput, WorthVerdict
-from rtb.eval.adoption import ComparisonRow, Measure, OperationalLimits
+from rtb.eval.adoption import (
+    NO_COST_GATE,
+    ComparisonRow,
+    Measure,
+    MeasuredRow,
+    OperationalLimits,
+)
 from rtb.eval.generator import Scenario
 from rtb.eval.scoring import ScoredCase
 
@@ -441,15 +447,18 @@ MARKED = (("cost_per_call_usd", "每次成本", "cost"), ("latency_median_us", "
           ("fallback_rate", "退回率", "rate"))
 
 
-def threshold_marks(row: ComparisonRow, limits: OperationalLimits) -> Mapping[str, str]:
-    """逐欄標過或沒過(門檻是使用者裁定的常數,不依結果調整)。"""
+def threshold_marks(row: MeasuredRow, limits: OperationalLimits) -> Mapping[str, str]:
+    """逐欄標過或沒過(門檻是使用者裁定的常數,不依結果調整)。門檻的 cost_exempt 為真時,成本那一欄
+    寫「不設門檻」、不比大小(Phase 13 [S1155])。"""
     bars = {"cost": limits.cost_per_call_usd, "median": limits.latency_median_us,
             "p95": limits.latency_p95_us, "rate": limits.failure_rate}
     marks = {}
     for name, _label, bar_kind in MARKED:
         measure: Measure = getattr(row, name)
         bar = bars[bar_kind]
-        if not measure.measured or measure.value is None:
+        if bar_kind == "cost" and limits.cost_exempt:
+            marks[name] = NO_COST_GATE
+        elif not measure.measured or measure.value is None:
             marks[name] = "沒量"
         elif bar is None:
             marks[name] = "門檻未定"
