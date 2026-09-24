@@ -40,6 +40,7 @@ class ScenarioStatus(Enum):
 
     PENDING = "尚未開始"
     RUNNING = "正在執行"
+    AWAITING_APPROVAL = "等你確認"
     DONE = "結果符合預期"
     INCOMPLETE = "未完成"
 
@@ -70,12 +71,20 @@ class NodeKind(Enum):
     TERMINAL = "結束點"
 
 
+class NodeOwner(Enum):
+    CODE = "程式"
+    AI = "AI"
+    HUMAN = "人工"
+    EXTERNAL = "外部平台"
+
+
 @dataclass(frozen=True, slots=True)
 class FlowNode:
     id: str
     label: str
     kind: NodeKind
     lane: str
+    owner: NodeOwner = NodeOwner.CODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,12 +101,24 @@ class FlowGraph:
 
 
 @dataclass(frozen=True, slots=True)
+class DecisionBasis:
+    """一次判斷所用的實測值、標準與比較結論。"""
+
+    observed: str
+    standard: str
+    conclusion: str
+    source: str | None = None  # 這組根據從哪來,例如「依存下的證據重算」「執行端當下記下」
+
+
+@dataclass(frozen=True, slots=True)
 class Decision:
     node: str
-    taken_edge: tuple[str, str]
+    taken_edge: tuple[str, str] | None  # 對不到圖上的邊時留空,不猜一條(代碼審第 3 輪)
     outcome: str
     reason: str
     at: datetime | None
+    basis: tuple[DecisionBasis, ...] = ()
+    operation_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +130,7 @@ class TimelineStep:
 
 @dataclass(frozen=True, slots=True)
 class Disposition:
+    category: str
     code: str
     explanation: str
 
@@ -125,6 +147,25 @@ class DspCampaign:
 class DspState:
     campaigns: tuple[DspCampaign, ...]
     operations: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeSummary:
+    """情境結束時，廣告平台上的預算是否真的變動。金額是平台上的預算原樣整數，沒有幣別。"""
+
+    campaign: str
+    before: int | None
+    after: int | None
+    written: bool
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InjectedFault:
+    """展示刻意製造的故障及其在正式流程圖上的位置。"""
+
+    node: str
+    description: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +189,8 @@ class VerifierResult:
     passed: bool
     lines: tuple[str, ...]
     reasons: tuple[str, ...]
+    verified_at: datetime
+    demo_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +212,8 @@ class ApprovalForm:
     numbers: tuple[tuple[str, str], ...]
     narrative: str | None
     source: ModelSource | None
+    demo_id: str
+    numbers_digest: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +233,17 @@ class Scenario:
     current_node: str | None
     result_summary: str = ""
     traversed_edges: tuple[tuple[str, str], ...] = ()
+    source_demo_id: str | None = None
+    ran_at: datetime | None = None
+    model_mode: ModelMode | None = None
+    change_summary: ChangeSummary | None = None
+    change_overview: str | None = None  # 多個廣告的情境(F7)一行彙總:放行、人工寫入、沒寫入與總額
+    trigger: str | None = None
+    goal: str | None = None
+    queue_wait_seconds: int | None = None
+    injected_faults: tuple[InjectedFault, ...] = ()
+    operation_key: str | None = None
+    platform_apply_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,3 +271,6 @@ class DemoState:
     flow: FlowGraph
     current: CurrentStep | None
     observed_at: datetime | None = None
+    last_full_run_cost_usd: Decimal | None = None
+    model_mode_reason: str | None = None
+    is_sample: bool = False
