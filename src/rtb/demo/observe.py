@@ -11,7 +11,7 @@
 """
 
 from collections.abc import Callable, Collection, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -34,6 +34,7 @@ from rtb.executor.inbox_store import (
     ReadOnlyInbox,
     StopKind,
 )
+from rtb.executor.observability import Stopped
 
 UNRECOVERABLE = "無法還原(系統沒有保存原因)"
 GENERATIONS_USED_UP = "需要重新分析,但接續的代數已經用完,不再開新工作"
@@ -179,8 +180,9 @@ class PathBuilder:
                 return self._row(event, "x_recheck", _edge_into("x_recheck", self.last_node),
                                  _BACK_TEXT["x_recheck"])
             if reclaimed and name == AttemptState.UNKNOWN.name:
-                # 同一個交易的接手已經畫了「處理到一半中斷」:不套「平台沒有明確回覆」那條邊
-                return self._row(event, "x_unknown", None, RECLAIMED_UNKNOWN)
+                # 同一個交易的接手已經畫了「處理到一半中斷」:不套「平台沒有明確回覆」那條邊,也不掛
+                # 平台呼叫的根據(轉成不明的原因是換人接手,不是平台沒回;代碼審 r1 d2)
+                return replace(self._row(event, "x_unknown", None, RECLAIMED_UNKNOWN), basis=())
         if enum is LifecycleKind and event.key is not None:
             if name == LifecycleKind.RECLAIMED.name:
                 self._reclaimed_keys.add(event.key)
@@ -199,7 +201,7 @@ class PathBuilder:
         member = event.detail or event.primary
         return DecisionRow(node=node, edge=edge, outcome=f"{member[0].__name__}.{member[1]}",
                            reason=reason, at=event.at, origin=event.origin, basis=event.basis,
-                           operation_key=event.key, actor=event.actor)
+                           operation_key=event.key, actor=event.actor, task=event.task)
 
     def _one(self, event: SourceEvent) -> DecisionRow | None:
         special = self._special(event)
@@ -225,7 +227,7 @@ class PathBuilder:
         reason = event.note or (UNRECOVERABLE if unrecoverable else chosen.text)
         return DecisionRow(node=node, edge=edge, outcome=f"{member[0].__name__}.{member[1]}",
                            reason=reason, at=event.at, origin=event.origin, basis=event.basis,
-                           operation_key=event.key, actor=event.actor)
+                           operation_key=event.key, actor=event.actor, task=event.task)
 
 
 class Timeline:
@@ -365,16 +367,19 @@ class Observer:
 
     @staticmethod
     def _stops(inbox: ReadOnlyInbox, tx: attempt_store.ReadTransaction,
-               lifecycle: Sequence[LifecycleEvent]) -> dict[str, dict[str, int | None]]:
-        """停下等人確認的那幾筆,收件口停下紀錄當時記的金額、已用、總上限(依冪等鍵)。"""
-        wanted = {(e.tenant, e.reason) for e in lifecycle
-                  if e.kind == LifecycleKind.AWAITING_APPROVAL.value and e.tenant
-                  and e.reason in _STOP_KINDS}
-        found: dict[str, dict[str, int | None]] = {}
-        for tenant, reason in wanted:
-            for row in inbox.stops(tx, StopKind(reason), str(tenant), *_EVER):
-                key, amount, used, cap = row[0], row[5], row[6], row[7]
-                found[str(key)] = {"amount": _int(amount), "used": _int(used), "cap": _int(cap)}
+               lifecycle: Sequence[LifecycleEvent]) -> dict[tuple[str, str], tuple[Stopped, bool]]:
+        """停下等人確認的那幾筆,收件口停下紀錄當時記的金額、已用、總上限與有沒有封頂,依(冪等鍵, 停下
+        種類):同一把鍵先因比例過大、核可後又因總上限停下時兩筆各自保留(代碼審 r1 d5)。"""
+        waiting = [e for e in lifecycle if e.kind == LifecycleKind.AWAITING_APPROVAL.value
+                   and e.tenant and e.reason in _STOP_KINDS and e.key and e.content_hash]
+        found: dict[tuple[str, str], tuple[Stopped, bool]] = {}
+        for tenant, reason in {(str(e.tenant), str(e.reason)) for e in waiting}:
+            kind = StopKind(reason)
+            for row in inbox.stops(tx, kind, tenant, *_EVER):
+                stop = Stopped(*row)  # type: ignore[arg-type]  # 欄位順序同 stops() 的說明
+                capped = inbox.stop_capped(tx, kind, stop.task_id, stop.revision,
+                                           stop.content_hash)
+                found[(str(stop.key), str(reason))] = (stop, capped is not False)
         return found
 
     @staticmethod
@@ -397,7 +402,7 @@ class Observer:
         return moment - self.executor_offset if source in _EXECUTOR_SOURCES else moment
 
     def _lifecycle_event(self, event: LifecycleEvent,
-                         stops: dict[str, dict[str, int | None]]) -> SourceEvent:
+                         stops: dict[tuple[str, str], tuple[Stopped, bool]]) -> SourceEvent:
         detail: Member | None = None
         if event.kind in (LifecycleKind.BLOCKED.value, LifecycleKind.AWAITING_APPROVAL.value):
             detail = _member(BlockCode, event.reason)  # 等人確認也帶著停在哪一關
@@ -409,8 +414,11 @@ class Observer:
             note = flow.OUTCOMES[(BlockCode, "VERSION_CHANGED")].text + _NO_VERSION
         found = basis_of.lifecycle(event.kind, deliveries=event.deliveries, reason=event.reason,
                                    actor=event.actor)
-        if event.kind == LifecycleKind.AWAITING_APPROVAL.value and event.key in stops:
-            found = basis_of.stopped(**stops[event.key])
+        recorded = stops.get((event.key or "", event.reason or ""))
+        if event.kind == LifecycleKind.AWAITING_APPROVAL.value and recorded is not None:
+            stop, capped = recorded  # 封頂的數字不是原值:不給這組根據
+            found = basis_of.stopped(amount=_int(stop.amount), used=_int(stop.used),
+                                     cap=_int(stop.limit), capped=capped)
         # 同一時間:開始類的事件排在嘗試之前,結案類的排在嘗試之後
         rank = 2 if event.kind in _TERMINAL else 0
         return SourceEvent(
@@ -418,7 +426,9 @@ class Observer:
             _member(LifecycleKind, event.kind) or (LifecycleKind, ""), detail,
             f"proposal:{event.task_id}/{event.revision}", order=("inbox", rank, event.id),
             key=event.key, task=event.task_id, note=note, basis=found,
-            actor="人工" if event.source == _ADMIN else "程式")
+            # 核可放回排隊是人確認之後才發生的(代碼審 r1 d10)
+            actor="人工" if event.source == _ADMIN
+            or event.kind == LifecycleKind.APPROVAL_RELEASED.value else "程式")
 
     def _inbox(self) -> list[SourceEvent]:
         if not self._inbox_db.is_file():

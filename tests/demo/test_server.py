@@ -19,7 +19,7 @@ from rtb.demo import server as server_module
 from rtb.demo.driver import Driver, Scenario
 from rtb.demo.present import numbers_digest
 from rtb.demo.server import DemoService, serve
-from rtb.demo.state_store import ConfirmationRequest, StateReader
+from rtb.demo.state_store import ConfirmationRequest, DecisionRow, StateReader
 
 FORM = {"Content-Type": "application/x-www-form-urlencoded", "Sec-Fetch-Site": "same-origin"}
 
@@ -31,7 +31,9 @@ class Gate:
         self.opened = threading.Event()
 
     def scenario(self, code):
-        def run(_world):
+        def run(world):
+            world.state.record_decision(code, DecisionRow(  # 真驅動會留下目前節點
+                "a_collect", ("a_receive", "a_collect"), "o", "r", datetime.now(UTC), "fake"))
             self.opened.wait(30)
             return f"{code} 假情境"
         return Scenario(code, f"{code} 假", 60, run, "目標")
@@ -58,7 +60,13 @@ def _factory(gate=None, crash=False, verifier=("true",)):
 
 @pytest.fixture
 def service(tmp_path):
-    return DemoService(tmp_path / "demos", tmp_path / "state.db", tmp_path / "reports")
+    """預設用假驅動(代碼審 r1 t3:原本預設真驅動、沒有收尾,防線退化時會留下子行程);收尾時停掉
+    正在跑的展示、等到不在跑。"""
+    made = DemoService(tmp_path / "demos", tmp_path / "state.db", tmp_path / "reports",
+                       driver_factory=_factory())
+    yield made
+    made.stop()
+    assert _wait(lambda: not made.running)
 
 
 @pytest.fixture
@@ -293,16 +301,31 @@ def test_a_single_scenario_rerun_does_not_run_the_verifier_and_labels_the_old_re
 
 def test_a_finished_demo_saves_a_static_report_and_keeps_twenty(service):
     """[S1039] 展示結束另存一份靜態報告(沒有表單、沒有自動重讀、樣式內嵌);全部跑一次只留最近 20 份,
-    單一情境重跑的另外標記、不佔那 20 份。"""
-    service.reports.mkdir(parents=True)
+    單一情境重跑的另外標記、不佔那 20 份。清理只刪檔名完全符合報告格式的檔,不碰使用者放的檔與
+    符號連結;報告只給自己讀寫、目錄權限收緊(代碼審 r1 v7/s4)。"""
+    import stat
+
+    service.reports.mkdir(parents=True, mode=0o755)
+    service.reports.chmod(0o755)
     for i in range(25):
-        (service.reports / f"demo-full-2000{i:02d}-old.html").write_text("舊", encoding="utf-8")
+        (service.reports / f"demo-full-20000101-{i:06d}-abcdef01.html").write_text(
+            "舊", encoding="utf-8")
+    notes = service.reports / "demo-full-1999-notes.html"  # 名字像、格式不符:不刪
+    notes.write_text("使用者的筆記", encoding="utf-8")
+    target = service.reports.parent / "elsewhere.html"
+    target.write_text("別處", encoding="utf-8")
+    link = service.reports / "demo-full-19990101-000000-abcdef01.html"  # 最舊、但是符號連結
+    link.symlink_to(target)
     _full_then_rerun(service, "F1")
-    full = sorted(service.reports.glob("demo-full-*.html"))
+    full = sorted(p for p in service.reports.glob("demo-full-2*.html"))
     reruns = sorted(service.reports.glob("demo-rerun-*.html"))
     assert len(full) == 20 and len(reruns) == 1
+    assert notes.exists() and link.is_symlink() and target.exists()
     newest = full[-1].read_text(encoding="utf-8")
     assert "<form" not in newest and 'http-equiv="refresh"' not in newest and "<style>" in newest
+    assert stat.S_IMODE(full[-1].stat().st_mode) == 0o600
+    assert stat.S_IMODE(service.reports.stat().st_mode) == 0o700
+    assert not list(service.reports.glob(".*.tmp"))  # 先寫暫存檔再換名,沒留下半成品
 
 
 # ---- 確認:真跑縮小版 F7 ----
@@ -400,16 +423,119 @@ def test_the_approval_signature_takes_its_fields_from_the_demo_state_not_the_for
     assert signed.expires_at <= int(request.decision_expires_at.timestamp())
 
 
-def test_the_server_rereads_the_proposal_before_signing(running, f7, monkeypatch):
-    """[S1056] 簽之前重讀那筆建議:已經不在等人確認(例如到期結案)就拒,不簽。"""
-    from rtb.executor.inbox_store import LifecycleKind
+def _signed(service):
+    """F7 暫存資料庫裡有沒有這次展示簽的核可。"""
+    from rtb.executor.inbox_store import ReadOnlyInbox
 
-    monkeypatch.setattr(server_module, "_AWAITING", LifecycleKind.HANDED_OFF.value)
-    fields, _ = _approval_fields(f7)
-    status, _, body = _post(running, "/approve", fields)
-    assert status == 409 and "no_longer_waiting" in body
+    inbox = ReadOnlyInbox(service.current.driver.root / "F7" / "inbox.db")
+    try:
+        with inbox.read_transaction() as tx:
+            return tx.conn.execute("SELECT COUNT(*) FROM approvals").fetchone()[0]
+    finally:
+        inbox.close()
+
+
+def test_the_server_rereads_the_proposal_before_signing(running, f7, monkeypatch):
+    """[S1056] 簽之前從收件口重讀那筆建議(跟管理工具同一支 find_proposal):已經不在等人核可、停的
+    不是記下的那一關、內容雜湊不同、已經過期,都拒絕、說明原因、不簽。"""
+    from dataclasses import replace
+
+    from rtb.executor.inbox_store import BlockCode, InboxStore
+
+    real = InboxStore.find_proposal
+    for change, code in (("gone", "no_longer_waiting"), ("hash", "proposal_changed"),
+                         ("stage", "stage_changed")):
+        def fake(store, task_id, revision, change=change):
+            waiting = real(store, task_id, revision)
+            if change == "gone" or waiting is None:
+                return None
+            if change == "hash":
+                return replace(waiting, message=replace(waiting.message,
+                                                        content_hash="0" * 64))
+            other = next(b for b in (BlockCode.AGGREGATE_LIMIT_REACHED,
+                                     BlockCode.BUDGET_INCREASE_TOO_LARGE)
+                         if b is not waiting.stage)
+            return replace(waiting, stage=other)
+
+        monkeypatch.setattr(InboxStore, "find_proposal", fake)
+        status, _, body = _post(running, "/approve", _approval_fields(f7)[0])
+        assert (status, code in body) == (409, True), (change, body)
+        assert _signed(f7) == 0
     monkeypatch.undo()
     _post(running, "/approve", _approval_fields(f7)[0])
+
+
+def test_an_expired_proposal_is_not_signed(running, f7):
+    """[S1056] 那筆建議已經過了決策到期:拒絕、說明過期、不簽(M17:原本拿掉這道檢查測不出來)。"""
+    from dataclasses import replace
+
+    from rtb.demo.state_store import StateWriter
+
+    fields, request = _approval_fields(f7)
+    reader = StateReader(f7.state_db)
+    try:
+        code, _ = reader.confirmation(f7.current.demo_id)
+    finally:
+        reader.close()
+    past = replace(request, decision_expires_at=datetime.now(UTC) - timedelta(seconds=1))
+    StateWriter(f7.state_db, f7.current.demo_id).set_confirmation(
+        code, past, datetime.now(UTC) + timedelta(minutes=5))
+    status, _, body = _post(running, "/approve", _approval_fields(f7)[0])
+    assert status == 409 and "proposal_expired" in body and _signed(f7) == 0
+    StateWriter(f7.state_db, f7.current.demo_id).set_confirmation(
+        code, request, datetime.now(UTC) + timedelta(minutes=5))
+    assert _post(running, "/approve", fields)[0] == 303
+
+
+def test_every_confirmation_box_must_be_ticked(running, f7):
+    """[S1032] 每一格確認框都要勾:少勾任何一格(含最後一格)都回 403、不簽(M18:原本只試第 0 格)。"""
+    _, request = _approval_fields(f7)
+    for index in range(len(request.numbers)):
+        fields, _ = _approval_fields(f7, **{f"confirm_{index}": None})
+        assert _post(running, "/approve", fields)[0] == 403, index
+        assert _signed(f7) == 0
+    _post(running, "/approve", _approval_fields(f7)[0])
+
+
+def test_an_approval_without_a_valid_token_or_from_another_site_signs_nothing(running, f7):
+    """[S1015] POST /approve 也驗表單隨機值與同源:沒帶、帶錯、別的網站送的,都回 403、不簽(M08)。"""
+    fields, _ = _approval_fields(f7)
+    no_token = {k: v for k, v in fields.items() if k != "token"}
+    for body, headers in ((no_token, FORM), ({**fields, "token": "wrong"}, FORM),
+                          (fields, {**FORM, "Sec-Fetch-Site": "cross-site"})):
+        assert _post(running, "/approve", body, headers)[0] == 403
+        assert _signed(f7) == 0
+    _post(running, "/approve", fields)
+
+
+def test_the_same_confirmation_cannot_be_signed_twice(running, f7):
+    """[代碼審 r1 x3/s5/v5] 同一張確認只簽一次:再送一次同一張表單拒絕、說明已確認過。"""
+    fields, _ = _approval_fields(f7)
+    assert _post(running, "/approve", fields)[0] == 303
+    status, _, body = _post(running, "/approve", fields)
+    assert status == 409 and "already_confirmed" in body
+    assert _signed(f7) == 1
+
+
+def test_a_signed_approval_expires_within_five_minutes(running, f7):
+    """[S1033] 核可到期取 min(提案決策到期, 現在 + 300 秒):提案還有很久才到期時,核可最多五分鐘
+    (M21:原本只驗不超過提案到期)。"""
+    from rtb.capabilitykit import APPROVAL_KEY_ENV
+    from rtb.executor import approval
+    from rtb.executor.inbox_store import ReadOnlyInbox
+
+    fields, request = _approval_fields(f7)
+    assert request.decision_expires_at > datetime.now(UTC) + timedelta(minutes=6)
+    before = int(datetime.now(UTC).timestamp())
+    assert _post(running, "/approve", fields)[0] == 303
+    inbox = ReadOnlyInbox(f7.current.driver.root / "F7" / "inbox.db")
+    try:
+        with inbox.read_transaction() as tx:
+            token = tx.conn.execute("SELECT token FROM approvals").fetchone()[0]
+    finally:
+        inbox.close()
+    signed = approval.read(token, f7.current.keys.signing_bytes(APPROVAL_KEY_ENV))
+    assert signed.expires_at <= before + server_module.APPROVAL_SECONDS + 1
 
 
 def test_a_trigger_after_a_confirmation_timeout_is_refused_until_the_demo_ends(running, service):
@@ -453,3 +579,239 @@ def test_a_request_without_a_host_header_is_refused_even_on_http_1_0(running):
         while chunk := conn.recv(4096):
             data += chunk
     assert data.startswith(b"HTTP/1.0 400") and b"script-src 'none'" in data
+
+
+# ---- 代碼審 r1(Phase 12 增量 2)----
+def test_a_full_run_in_progress_shows_none_of_the_earlier_reruns(service):
+    """[代碼審 r1 v1/s1/x1] 先全部跑一次、再重跑 F3 與 F5,然後開新的全部跑一次:新的在跑時整頁只看
+    這一次,不把舊的重跑結果換上來(原本 F3、F5 顯示「結果符合預期」)。"""
+    service.driver_factory = _factory(gate := Gate())
+    gate.opened.set()
+    service.start(driver_module.ALL_CODES, full=True)
+    assert _wait(lambda: not service.running)
+    for code in ("F3", "F5"):
+        service.start((code,), full=False)
+        assert _wait(lambda: not service.running)
+    gate.opened.clear()
+    try:
+        service.start(driver_module.ALL_CODES, full=True)
+        now = service.current.demo_id
+        assert _wait(lambda: service.state().current is not None)
+        shown = service.state()
+        assert {s.source_demo_id for s in shown.scenarios} <= {now, None}
+        assert shown.current.scenario.value == "F1"
+    finally:
+        _finish(service, gate)
+
+
+def test_progress_during_a_rerun_points_at_the_running_one(service):
+    """[代碼審 r1 v1] 已經重跑過 F3、F5,再重跑 F3:「現在進度」指向正在跑的這一次 F3,不被舊的
+    F5 蓋掉。"""
+    service.driver_factory = _factory(gate := Gate())
+    gate.opened.set()
+    service.start(driver_module.ALL_CODES, full=True)
+    assert _wait(lambda: not service.running)
+    for code in ("F3", "F5"):
+        service.start((code,), full=False)
+        assert _wait(lambda: not service.running)
+    gate.opened.clear()
+    try:
+        service.start(("F3",), full=False)
+        assert _wait(lambda: service.state().current is not None)
+        assert service.state().current.scenario.value == "F3"
+    finally:
+        _finish(service, gate)
+
+
+def test_a_full_run_in_progress_shows_only_its_own_verifier(running, service):
+    """[代碼審 r1 x2][S1021] 完整展示在跑:驗證器只顯示這一次的,還沒跑到寫「這次還沒查核」;單一情境
+    重跑沿用上一次完整展示的結果。"""
+    full, _ = _full_then_rerun(service, "F2")
+    assert service.state().verifier.demo_id == full
+    service.driver_factory = _factory(gate := Gate())
+    try:
+        service.start(driver_module.ALL_CODES, full=True)
+        shown = service.state()
+        assert shown.verifier is None and shown.verifier_pending
+        assert "這次還沒查核" in _request(running, "GET", "/")[2]
+    finally:
+        _finish(service, gate)
+
+
+def test_nothing_is_current_once_the_demo_has_ended(running, service):
+    """[代碼審 r1 s2/p7] 跑完就沒有「現在進度」:狀態裡是空的,頁面也不畫。"""
+    _full_then_rerun(service, "F1")
+    assert service.state().current is None
+    assert 'class="current-progress"' not in _request(running, "GET", "/")[2]
+
+
+def test_a_crashed_driver_marks_this_demo_incomplete_and_saves_a_report(service):
+    """[代碼審 r1 v4] 驅動程式自己出例外:這一次的情境標成沒跑完、寫明原因、另存報告,頁面顯示這一次,
+    不默默退回上一次。"""
+    service.driver_factory = _factory(crash=True)
+    run = service.start(driver_module.ALL_CODES, full=True)
+    assert _wait(lambda: not service.running)
+    shown = service.state()
+    assert all(s.source_demo_id == run.demo_id for s in shown.scenarios)
+    assert all("驅動程式出錯" in (s.incomplete_reason or "") for s in shown.scenarios)
+    assert list(service.reports.glob(f"demo-full-{run.demo_id}.html"))
+
+
+def test_the_running_flag_is_released_even_when_saving_the_report_fails(service, tmp_path):
+    """[S1052] 在跑旗標在 finally 放:收尾(另存報告)出事也照樣放掉,下一次觸發可以啟動(M14)。"""
+    service.reports = tmp_path / "not-a-directory"
+    service.reports.write_text("檔案佔住了報告目錄的位置", encoding="utf-8")
+    service.start(driver_module.ALL_CODES, full=True)
+    assert _wait(lambda: not service.running)
+    service.start(("F1",), full=False)
+    assert _wait(lambda: not service.running)
+
+
+def test_the_report_from_the_server_links_the_stylesheet_its_policy_allows(running):
+    """[代碼審 r1 p2/v3/s3/t7] 經伺服器送的報告連同源樣式表(內容安全政策 style-src 'self' 擋內嵌
+    樣式);另存的檔案才內嵌。"""
+    _, headers, body = _request(running, "GET", "/report")
+    assert "style-src 'self'" in headers["Content-Security-Policy"]
+    assert "<style>" not in body and 'rel="stylesheet" href="/static/demo.css"' in body
+
+
+def test_every_response_is_not_cached_sniffed_or_referred(running):
+    """[代碼審 r1 s6] 每個回應(含錯誤頁)都帶不快取、不猜內容型別、不送來源網址的標頭。"""
+    for method, path in (("GET", "/"), ("GET", "/approve"), ("GET", "/nothing"),
+                         ("POST", "/run")):
+        _, headers, _ = _request(running, method, path)
+        assert headers["Cache-Control"] == "no-store", path
+        assert headers["X-Content-Type-Options"] == "nosniff", path
+        assert headers["Referrer-Policy"] == "no-referrer", path
+
+
+@pytest.mark.parametrize(("error", "status", "code"), [
+    ("busy", 503, "busy"), ("approval", 409, "expiry_invalid"), ("signing", 409, "unreadable"),
+])
+def test_approval_errors_are_answered_with_their_reason(running, service, monkeypatch,
+                                                        error, status, code):
+    """[代碼審 r1 a3] 核可路上的領域例外照既有管理工具的分法回:收件口忙碌 503 可重試,拒簽帶原因
+    代碼 409,不變成 500。"""
+    from rtb.executor.approval import ApprovalRefused
+    from rtb.executor.capability_signer import SigningRefused
+    from rtb.executor.inbox_store import InboxBusy
+
+    raised = {"busy": InboxBusy("忙"), "approval": ApprovalRefused("expiry_invalid"),
+              "signing": SigningRefused("unreadable")}[error]
+
+    def refuse(_form):
+        raise raised
+
+    monkeypatch.setattr(service, "approve", refuse)
+    got, _, body = _post(running, "/approve", {"token": service.token})
+    assert got == status and code in body
+
+
+def test_reports_go_under_the_account_home_computed_when_used(monkeypatch, tmp_path):
+    """[代碼審 r1 a4] 報告目錄跟花費帳同一個「家」(帳號家目錄,不看 HOME),用到時才算。"""
+    from rtb import modelledger_view
+
+    monkeypatch.setattr(modelledger_view, "account_home", lambda: tmp_path / "account")
+    assert server_module.default_reports() == tmp_path / "account" / ".rtb" / "demo-reports"
+    assert not hasattr(server_module, "DEFAULT_REPORTS")
+
+
+def test_two_triggers_racing_between_the_check_and_the_mark_start_only_one(tmp_path):
+    """[S1014] 讀「在跑」時讓出執行權(競態一定發生):檢查與標記在同一把鎖裡,八個同時到的觸發只有
+    一個啟動(M13:原本拿掉鎖也測不出來)。"""
+    class Yielding(DemoService):
+        @property
+        def running(self):
+            seen = self.__dict__.get("_flag", False)
+            time.sleep(0.01)  # 讀到之後、用到之前讓出執行權:沒有鎖時別的觸發一定也讀到舊值
+            return seen
+
+        @running.setter
+        def running(self, value):
+            self.__dict__["_flag"] = value
+
+    service = Yielding(tmp_path / "demos", tmp_path / "state.db", tmp_path / "reports",
+                       driver_factory=_factory(gate := Gate()))
+    barrier, started, refused = threading.Barrier(8), [], []
+
+    def trigger():
+        barrier.wait(5)
+        try:
+            started.append(service.start(driver_module.ALL_CODES, full=True))
+        except server_module.DemoBusy:
+            refused.append(1)
+
+    threads = [threading.Thread(target=trigger) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+    try:
+        assert len(started) == 1 and len(refused) == 7
+    finally:
+        _finish(service, gate)
+
+
+def test_an_unknown_scenario_query_leaves_no_trace_of_its_value(running):
+    """[S1019] 查詢參數不是七個代碼之一:值不以任何形式出現在頁面上(原樣或跳脫後都沒有;M40)。"""
+    body = _request(running, "GET", "/?scenario=%3Cb%3Ezqx7marker")[2]
+    assert "zqx7marker" not in body
+
+
+def test_a_confirmation_after_the_timeout_says_it_timed_out(running, service):
+    """[S1061] 確認逾時之後,確認頁與送出確認都說明「已逾時」(原因代碼分得出逾時與沒有確認)。"""
+    from rtb.demo.state_store import StateWriter
+
+    service.driver_factory = _factory(gate := Gate())
+    try:
+        _post(running, "/run", {"token": service.token})
+        writer = StateWriter(service.state_db, service.current.demo_id)
+        writer.set_confirmation("F7", ConfirmationRequest(
+            "t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
+            datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),)))
+        writer.clear_confirmation()
+        for method, fields in (("GET", None), ("POST", {"token": service.token})):
+            status, _, body = (_request(running, "GET", "/approve") if method == "GET"
+                               else _post(running, "/approve", fields))
+            assert status == 409 and "confirmation_timed_out" in body, method
+    finally:
+        _finish(service, gate)
+
+
+def test_stopping_the_server_mid_demo_leaves_no_child_processes(tmp_path):
+    """[代碼審 r1 v2/t3] 伺服器在展示途中被 SIGTERM 或 Ctrl-C 結束:先停掉展示、等驅動執行緒收完,
+    它起的子行程(平台、收件口、執行端、分析端)一個都不留。"""
+    import signal
+    import subprocess
+    import sys
+
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        work = tmp_path / signum.name
+        popen = subprocess.Popen(
+            [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
+             "--reports", str(work / "reports")],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        try:
+            port = int(popen.stdout.readline().strip().removeprefix("PORT="))
+            page = _request(port, "GET", "/")[2]
+            token = re.search(r'name="token" value="([^"]+)"', page).group(1)
+            _post(port, "/run/scenario", {"token": token, "scenario": "F1"})
+            assert _wait(lambda work=work: len(_children(work)) >= 2, 60), "子行程沒起來"
+            popen.send_signal(signum)
+            popen.wait(90)
+            assert _wait(lambda work=work: not _children(work), 10), _children(work)
+        finally:
+            if popen.poll() is None:
+                popen.kill()
+            for pid in _children(work):
+                os.kill(pid, signal.SIGKILL)
+
+
+def _children(work):
+    """命令列裡帶這個工作目錄的行程(伺服器起的子行程都把資料庫放在這底下)。"""
+    import subprocess
+
+    listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True,  # noqa: S607
+                             text=True, check=False).stdout
+    return [int(line.split(None, 1)[0]) for line in listing.splitlines()
+            if str(work) in line and "rtb.demo.server" not in line]

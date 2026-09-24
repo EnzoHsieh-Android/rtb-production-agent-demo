@@ -123,7 +123,7 @@ p { margin-bottom: var(--space-3); }
 
 .summary-strip {
   display: grid;
-  grid-template-columns: 0.65fr 1.45fr 0.7fr 1.55fr;
+  grid-template-columns: 0.65fr 1fr 1.4fr 0.7fr 1.3fr;
   margin: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -654,7 +654,7 @@ h2 { font-size:21px; line-height:1.5; }
 .hero>div:first-child { position:relative; padding-left:19px; border-left:3px solid var(--accent); }
 .eyebrow,.section-kicker { font-size:11px; letter-spacing:.16em; font-weight:650; }
 .lede { font-size:14px; margin:0; max-width:none; }
-.summary-strip { grid-template-columns:.7fr 1.5fr .8fr 1.3fr; border-color:var(--border); background:var(--surface); }
+.summary-strip { grid-template-columns:.7fr 1fr 1.4fr .8fr 1.2fr; border-color:var(--border); background:var(--surface); }
 .summary-strip>div { padding:20px 24px; }
 .summary-strip dt { margin-bottom:7px; }
 .summary-strip dd { font-size:16px; font-weight:560; }
@@ -675,7 +675,8 @@ h2 { font-size:21px; line-height:1.5; }
 .role-card::after { display:none; }
 .map-note { font-size:12px; background:transparent; color:var(--muted); border-left:2px solid var(--border-strong); padding:0 12px; margin-top:14px; }
 .report-workspace { display:grid; grid-template-columns:270px minmax(0,1fr); align-items:start; gap:24px; }
-.scenario-section { position:sticky; top:24px; margin:0; }
+.scenario-section { margin:0; }
+.report-workspace .scenario-section { position:sticky; top:24px; } /* 只在報告的左右兩欄版面釘住;互動頁是單欄,釘住會蓋住詳情 */
 .scenario-section .section-heading { display:block; }
 .scenario-section h2 { font-size:18px; }
 .scenario-section .section-heading p:last-child { margin-top:8px; }
@@ -688,7 +689,7 @@ h2 { font-size:21px; line-height:1.5; }
 .scenario-code { font-size:12px; padding-top:3px; }
 .scenario-pivot { display:none; }
 .scenario-result { grid-column:2; grid-row:auto; font-size:11px; color:var(--muted); }
-.scenario-result small { display:none; }
+.scenario-result small { display:block; color:var(--faint); font-size:10px; }
 .scenario-link .status { grid-column:2; grid-row:auto; font-size:10px; border:0; padding:0; justify-content:flex-start; background:transparent; min-width:0; }
 .status { border:0; font-size:11px; font-weight:550; padding:5px 10px; }
 .report-scenarios { display:block; min-width:0; }
@@ -697,7 +698,7 @@ h2 { font-size:21px; line-height:1.5; }
 .focus-heading { gap:12px; padding-bottom:20px; border-bottom:1px solid var(--border); }
 .focus-heading h2 { font-size:23px; margin:8px 0 12px; }
 .focus-heading p { font-size:13px; line-height:1.9; }
-.focus-heading .source-note { display:none; }
+.focus-heading .source-note { font-size:12px; color:var(--muted); }
 .change-summary { border:1px solid #386958 !important; background:linear-gradient(100deg,#19372d,#172820) !important; padding:18px 20px !important; margin:22px 0 12px !important; }
 .change-summary>strong { color:var(--accent); font-size:11px; font-weight:600; }
 .change-summary p { font-size:15px; line-height:1.9; }
@@ -745,7 +746,7 @@ h2 { font-size:21px; line-height:1.5; }
 .detail-card:nth-last-child(-n+3) { grid-column:auto; }
 .detail-card>summary { font-size:12px; font-weight:500; }
 @media(max-width:1150px) { main { width:calc(100% - 48px); padding-top:32px; } .report-workspace { grid-template-columns:1fr; } .scenario-section { position:static; } .scenario-index { grid-template-columns:repeat(2,minmax(0,1fr)); } .scenario-row:last-child { grid-column:1 / -1; } .scenario-link { height:100%; } .role-card { padding:14px 12px; } .summary-strip>div { padding:16px; } }
-@media(max-width:760px) { main { width:calc(100% - 32px); padding-top:24px; } .summary-strip { grid-template-columns:1fr 1fr; } .summary-strip>div:nth-child(3) { border-left:0; border-top:1px solid var(--border); } .summary-strip>div:nth-child(4) { border-top:1px solid var(--border); } .summary-strip dd { font-size:13px; } .role-map { grid-template-columns:repeat(2,minmax(0,1fr)); } .role-card:last-child { grid-column:1 / -1; } .role-card p,.role-card strong { min-height:0; } .section-heading { display:block; } .section-heading p:last-child { margin-top:8px; } .report .focus-panel { padding:18px; } .focus-heading h2 { font-size:20px; } .flow-toolbar { align-items:flex-start; } .report .decision-trail { grid-template-columns:1fr; } }
+@media(max-width:760px) { .current-progress { position:static; } main { width:calc(100% - 32px); padding-top:24px; } .summary-strip { grid-template-columns:1fr 1fr; } .summary-strip>div:nth-child(3) { border-left:0; border-top:1px solid var(--border); } .summary-strip>div:nth-child(4) { border-top:1px solid var(--border); } .summary-strip dd { font-size:13px; } .role-map { grid-template-columns:repeat(2,minmax(0,1fr)); } .role-card:last-child { grid-column:1 / -1; } .role-card p,.role-card strong { min-height:0; } .section-heading { display:block; } .section-heading p:last-child { margin-top:8px; } .report .focus-panel { padding:18px; } .focus-heading h2 { font-size:20px; } .flow-toolbar { align-items:flex-start; } .report .decision-trail { grid-template-columns:1fr; } }
 @media(max-width:480px) { .scenario-index { grid-template-columns:1fr; } .hero { gap:20px; } .summary-strip>div { padding:14px; } .detail-grid { grid-template-columns:1fr; } .diagram-actions { align-items:flex-start; } }
 @media print { .report-workspace { display:block; } .scenario-section { position:static; } .report-scenario[hidden] { display:block; } .diagram-actions { display:none; } .report-scenario { break-before:page; } }
 
@@ -794,3 +795,9 @@ h2 { font-size:21px; line-height:1.5; }
 /* 狀態往前走的步驟:不是判斷,不列根據欄,卡片收小一點 */
 .decision-card.is-progress { opacity: 0.78; }
 .decision-card.is-progress .decision-kind { font-size: 0.8rem; color: var(--muted, inherit); margin: 0.2rem 0; }
+
+/* 自動查核:擋下原因常駐、原樣輸出可展開(代碼審 r1 使用者裁定) */
+.verifier-blocked { margin-top:12px; padding:12px 14px; border:1px solid var(--danger); border-radius:10px; font-size:12px; }
+.verifier-blocked ul { margin:6px 0 0; padding-left:18px; }
+.verifier-output .raw-line { font-size:11px; margin:2px 0; overflow-wrap:anywhere; }
+.flow-edge.is-skip path { stroke-dasharray: 6 4; } /* 跨過同一泳道其他節點的線走上方空隙、畫虛線 */

@@ -12,6 +12,7 @@
 import hashlib
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime
 
 from rtb.demo import basis as basis_of
@@ -47,12 +48,12 @@ from rtb.demo.state_store import (
     StateReader,
 )
 
-MODEL_MODE_REASON = "目前分析端沒有模型入口,這次沒有呼叫模型"
+MODEL_MODE_REASON = "目前分析程式還沒有接上 AI,這次沒有呼叫 AI"
 KNOWN_LIMITS = (
     "這次只用本機模擬的廣告平台,沒有連到正式平台。",
-    "F7 是等比例縮小的規模(300 個廣告、8 個工作者);完整規模由驗證器跑的 F7 測試證明。",
-    "分析端目前沒有模型入口:對抗文字只驗了程式規則那一段,模型那一段等之後接上再驗。",
-    "判斷的根據裡,分析端那幾組是用存下的證據重算的,不是分析端當下記下的。",
+    "F7 是等比例縮小的規模(300 個廣告、8 個工作者);完整規模由自動查核跑的 F7 測試證明。",
+    "分析程式目前還沒有接上 AI:藏在廣告名稱裡的指令只驗了程式規則那一段,AI 那一段等之後接上再驗。",
+    "判斷的根據裡,分析程式那幾組是用存下的資料重算的,不是當時記下的。",
 )
 _STATUS = {"running": ScenarioStatus.RUNNING, "done": ScenarioStatus.DONE,
            "incomplete": ScenarioStatus.INCOMPLETE,
@@ -88,11 +89,11 @@ def _basis(items: Sequence[Basis]) -> tuple[DecisionBasis, ...]:
     return tuple(DecisionBasis(b.observed, b.standard, b.conclusion, b.source) for b in items)
 
 
-def _step(node: str, target: str, at: datetime, items: Sequence[Basis], reason: str,
-          key: str | None) -> Decision:
+def _step(node: str, target: str, row: DecisionRow, items: Sequence[Basis],
+          reason: str) -> Decision:
     return Decision(node=node, taken_edge=(node, target), outcome=_EDGE_LABEL[(node, target)],
-                    reason=reason, at=at, basis=_basis(items), operation_key=key,
-                    kind=_kind(node))
+                    reason=reason, at=row.at, basis=_basis(items), operation_key=row.operation_key,
+                    kind=_kind(node), task_id=row.task)
 
 
 def _filled(row: DecisionRow) -> tuple[Decision, ...]:
@@ -102,16 +103,15 @@ def _filled(row: DecisionRow) -> tuple[Decision, ...]:
     if analysis:
         used = {id(s.basis) for s in analysis}
         leftover = [b for b in row.basis if id(b) not in used]  # 建議金額那一組掛在最後一步
-        steps = [_step(s.node, s.target, row.at, (s.basis, *s.more), s.basis.conclusion,
-                       row.operation_key) for s in analysis]
+        steps = [_step(s.node, s.target, row, (s.basis, *s.more), s.basis.conclusion)
+                 for s in analysis]
         last = steps[-1]
-        steps[-1] = Decision(last.node, last.taken_edge, last.outcome, row.reason, row.at,
-                             (*last.basis, *_basis(leftover)), row.operation_key, last.kind)
+        steps[-1] = replace(last, reason=row.reason, basis=(*last.basis, *_basis(leftover)))
         return tuple(steps) if steps[-1].taken_edge == (analysis[-1].node, row.node) else ()
     if row.node == "x_write":
         route = basis_of.write_route(row.basis)
-        return tuple(_step(s.node, s.target, row.at, (s.basis, *s.more), row.reason,
-                           row.operation_key) for s in route)
+        return tuple(_step(s.node, s.target, row, (s.basis, *s.more), row.reason)
+                     for s in route)
     return ()
 
 
@@ -122,21 +122,24 @@ def _decisions(rows: Sequence[DecisionRow]) -> tuple[Decision, ...]:
         if filled:
             found.extend(filled)
             continue
-        node = row.edge[0] if row.edge is not None else row.node
-        outcome = _EDGE_LABEL.get(row.edge, row.reason) if row.edge is not None else row.reason
-        found.append(Decision(node=node, taken_edge=row.edge, outcome=outcome, reason=row.reason,
+        edge = row.edge
+        if row.node == "x_write" and basis_of.failed_checks(row.basis):
+            # 核對材料有沒通過的(人確認後放行):觀察器推出來的那條「都通過」的邊跟根據矛盾,
+            # 清空,不替沒看到的判斷補路(代碼審 r1 d4)
+            edge = None
+        node = edge[0] if edge is not None else row.node
+        outcome = _EDGE_LABEL.get(edge, row.reason) if edge is not None else row.reason
+        found.append(Decision(node=node, taken_edge=edge, outcome=outcome, reason=row.reason,
                               at=row.at, basis=_basis(row.basis),
-                              operation_key=row.operation_key, kind=_kind(node)))
+                              operation_key=row.operation_key, kind=_kind(node),
+                              task_id=row.task))
     return tuple(found)
 
 
 def _traversed(path: Sequence[Decision]) -> tuple[tuple[str, str], ...]:
-    """真的走過的邊,照時間排;連續重複的只留一次,不補中間沒看到的邊。"""
-    edges: list[tuple[str, str]] = []
-    for decision in path:
-        if decision.taken_edge is not None and (not edges or edges[-1] != decision.taken_edge):
-            edges.append(decision.taken_edge)
-    return tuple(edges)
+    """真的走過的邊的集合,照第一次出現排、每條一次;不補中間沒看到的邊。好幾件工作時它不是一條
+    路徑(路徑看判斷紀錄,每筆帶工作編號;代碼審 r1 d9)。"""
+    return tuple(dict.fromkeys(d.taken_edge for d in path if d.taken_edge is not None))
 
 
 def _timeline(rows: Sequence[DecisionRow]) -> tuple[TimelineStep, ...]:
@@ -175,7 +178,7 @@ def _scenario(code: ScenarioCode, run: ScenarioRun | None, rows: Sequence[Decisi
         current_node=current_node, result_summary=(run.summary or "") if run else "",
         traversed_edges=_traversed(path), source_demo_id=demo_id,
         ran_at=None if run is None else run.started_at,
-        model_mode=None if run is None else ModelMode.RECORDED,
+        model_mode=None if run is None else ModelMode.NOT_CALLED,
         change_summary=None if change is None else ChangeSummary(
             change.campaign, change.before, change.after, change.written, change.reason),
         change_overview=details.change_overview, trigger=details.trigger, goal=details.goal,
@@ -190,31 +193,36 @@ def _line_value(lines: Sequence[str], prefix: str) -> str | None:
                 None)
 
 
-def build_demo_state(reader: StateReader, demo_id: str, *, running: bool,
-                     now: datetime) -> DemoState:
-    """讀一次展示狀態庫(同一個快照),組成頁面要的 DemoState。"""
-    runs = {run.code: run for run in reader.scenario_runs(demo_id)}
-    current = reader.current(demo_id)
+def build_demo_state(  # noqa: PLR0913 - 伺服器依在跑的是哪一種展示分別指定驗證器與出處
+        reader: StateReader, demo_id: str | None, *, running: bool, now: datetime,
+                     verifier_demo_id: str | None = None, full_demo_id: str | None = None,
+                     running_full: bool = False) -> DemoState:
+    """讀一次展示狀態庫(同一個快照),組成頁面要的 DemoState。demo_id 空的是還沒有任何展示。
+    驗證器只取 verifier_demo_id 那一次的(完整展示在跑時就是這一次、還沒跑到就是空的;代碼審 r1 x2);
+    「現在進度」只在在跑時給(代碼審 r1 s2/p7)。"""
+    shown_id = demo_id or ""
+    runs = {run.code: run for run in reader.scenario_runs(shown_id)}
+    current = reader.current(shown_id) if running else None
     scenarios = tuple(
-        _scenario(code, runs.get(code.value), reader.decisions(demo_id, code.value),
-                  reader.scenario_details(demo_id, code.value), demo_id,
-                  current.node if running and current is not None
+        _scenario(code, runs.get(code.value), reader.decisions(shown_id, code.value),
+                  reader.scenario_details(shown_id, code.value), shown_id,
+                  current.node if current is not None
                   and current.scenario == code.value else None)
         for code in ScenarioCode)
-    verifier = reader.latest_verifier_run()
+    verifier = None if verifier_demo_id is None else reader.verifier_run(verifier_demo_id)
     lines = verifier.lines if verifier is not None else ()
-    pending = reader.confirmation(demo_id)
+    pending = reader.confirmation(shown_id)
     approval = None if pending is None else ApprovalForm(
         proposal_hash=pending[1].proposal_hash, numbers=pending[1].numbers, narrative=None,
-        source=None, demo_id=demo_id, numbers_digest=numbers_digest(demo_id, pending[1]))
+        source=None, demo_id=shown_id, numbers_digest=numbers_digest(shown_id, pending[1]))
     step = None
     if current is not None and current.scenario in {c.value for c in ScenarioCode}:
         last = current.last_decision
         step = CurrentStep(ScenarioCode(current.scenario), current.node, current.entered_at,
                            None if last is None else _decisions([last])[-1])
-    started = min((run.started_at for run in runs.values()), default=now)
+    started = min((run.started_at for run in runs.values()), default=None)
     return DemoState(
-        demo_id=demo_id, started_at=started, model_mode=ModelMode.RECORDED,
+        demo_id=shown_id, started_at=started, model_mode=ModelMode.NOT_CALLED,
         model_cost_usd=None, verifier_digest=_line_value(lines, "驗證器 sha256:"),
         commit=_line_value(lines, "提交編號:"), running=running, scenarios=scenarios,
         verifier=None if verifier is None else VerifierResult(
@@ -222,4 +230,5 @@ def build_demo_state(reader: StateReader, demo_id: str, *, running: bool,
             verifier.demo_id),
         known_limits=KNOWN_LIMITS, comparison=None, approval=approval, flow=FLOW_GRAPH,
         current=step, observed_at=now, model_mode_reason=MODEL_MODE_REASON, is_sample=False,
+        full_demo_id=full_demo_id, verifier_pending=running_full and verifier is None,
     )

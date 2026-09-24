@@ -9,12 +9,12 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
-from pathlib import Path
 
 import pytest
 
 from rtb.demo.page import (
     CONTENT_SECURITY_POLICY,
+    DEMO_CSS,
     JARGON_TERMS,
     STYLESHEET_PATH,
     disposition_text,
@@ -194,22 +194,46 @@ def test_ai_narrative_is_in_its_step_card_and_missing_ai_is_explained() -> None:
     assert "用程式規則判斷(這次不交給 AI)" in report
 
 
-def test_every_status_and_verifier_outcome_has_text() -> None:
+def _verifier_cell(markup: str) -> str:
+    match = re.search(r"<dt>自動查核[^<]*</dt><dd>(.*?)</dd>", markup)
+    assert match is not None, "主頁摘要列要有一格常駐的自動查核"
+    return html_lib.unescape(re.sub(r"<[^>]+>", " ", match.group(1)))
+
+
+def test_every_status_has_a_text_label() -> None:
+    """[S1035] 每一種情境狀態、自動查核通過或擋下都有文字標示,不只靠顏色(使用者 2026-09-24 裁定:
+    主頁摘要列常駐一格自動查核)。"""
     for status in ScenarioStatus:
         state = make_demo_state()
         scenarios = (replace(state.scenarios[0], status=status), *state.scenarios[1:])
         assert status.value in render_page(replace(state, scenarios=scenarios), form_token="token")
-    html = render_page(make_demo_state(), form_token="token")
-    assert "自動查核通過" not in html
-    verifier = make_demo_state().verifier
+    real = replace(make_demo_state(), is_sample=False, full_demo_id="2026-09-24-001")
+    assert "✓ 通過" in _verifier_cell(render_page(real, form_token="token"))
+    verifier = real.verifier
     assert verifier is not None
-    blocked = replace(
-        make_demo_state(),
-        verifier=replace(verifier, passed=False),
-    )
-    assert "自動查核發現問題" not in render_page(blocked, form_token="token")
-    assert "範例時間" in html
-    assert "2026-09-24-001" in html
+    blocked = replace(real, verifier=replace(verifier, passed=False))
+    assert "! 發現問題" in _verifier_cell(render_page(blocked, form_token="token"))
+    pending = replace(real, verifier=None, verifier_pending=True, running=True)
+    assert "這次還沒查核" in _verifier_cell(render_page(pending, form_token="token"))
+    never = replace(real, verifier=None, full_demo_id=None)
+    assert "還沒有完整執行過" in _verifier_cell(render_page(never, form_token="token"))
+
+
+def test_the_page_shows_the_verifier_output_verbatim() -> None:
+    """[S1031][S1021] 主頁原樣顯示驗證器的每一行,擋下時逐條列出原因,並標明取自哪一次完整執行。"""
+    state = replace(make_demo_state(), is_sample=False, full_demo_id="2026-09-24-001")
+    verifier = state.verifier
+    assert verifier is not None
+    blocked = replace(state, verifier=replace(
+        verifier, passed=False, lines=("宣稱驗證器", "擋下", "- 缺證據 A", "- 雜湊不符 B"),
+        reasons=("缺證據 A", "雜湊不符 B")))
+    for markup in (render_page(blocked, form_token="token"), render_report(blocked)):
+        assert all(f'<p class="raw-line">{escape_text(line)}</p>' in markup
+                   for line in ("宣稱驗證器", "擋下", "- 缺證據 A", "- 雜湊不符 B"))
+        assert "<li>缺證據 A</li>" in markup and "<li>雜湊不符 B</li>" in markup
+        assert f"展示編號 {verifier.demo_id}" in markup
+    main = render_page(blocked, form_token="token")
+    assert main.index("自動查核擋下的原因") < main.index('class="meta-details"')  # 常駐,不收起來
 
 
 def test_approval_has_one_required_checkbox_per_number_without_number_in_attributes() -> None:
@@ -278,8 +302,9 @@ def _contrast(first: str, second: str) -> float:
     return (light + 0.05) / (dark + 0.05)
 
 
-def test_stylesheet_is_local_responsive_and_has_accessible_light_and_dark_colours() -> None:
-    css = Path("src/rtb/demo/static/demo.css").read_text(encoding="utf-8")
+def test_both_colour_schemes_have_enough_contrast() -> None:
+    """[S1037] 深色與淺色兩組配色的文字與背景對比至少 4.5 比 1;另外核對樣式表是本機、會縮放的。"""
+    css = DEMO_CSS  # 樣式表跟頁面同一份(不靠工作目錄的相對路徑;代碼審 r1 t9)
 
     assert "prefers-color-scheme: dark" in css
     assert "prefers-reduced-motion: reduce" in css
@@ -350,8 +375,11 @@ def test_report_navigation_and_sample_provenance_are_explicit() -> None:
     assert 'class="sample-notice"' in report
     assert 'class="sample-notice"' not in render_report(replace(state, is_sample=False))
     body = report.split('<body>', 1)[1]
-    assert 'class="secondary"' not in body
-    assert '名詞小辭典' not in body
+    # 使用者 2026-09-24 裁定:名詞小辭典與已知限制只放在另存的報告裡,主頁不放
+    assert 'href="#report-details"' in body and 'id="report-details"' in body
+    assert '名詞小辭典' in body and '這次示範的範圍與限制' in body
+    main = render_page(state, form_token="token")
+    assert '名詞小辭典' not in main and '這次示範的範圍與限制' not in main
     assert '<script' not in report
     for scenario in state.scenarios:
         code = scenario.code.value
@@ -712,7 +740,7 @@ def test_owner_palette_has_labels_shapes_and_aa_text_contrast() -> None:
     from rtb.demo.flow import FLOW_GRAPH
     from rtb.demo.page import _SHORT_LABELS
 
-    css = Path("src/rtb/demo/static/demo.css").read_text(encoding="utf-8")
+    css = DEMO_CSS  # 樣式表跟頁面同一份(不靠工作目錄的相對路徑;代碼審 r1 t9)
     assert {node.id for node in FLOW_GRAPH.nodes} <= set(_SHORT_LABELS)
     fills_by_mode: list[dict[str, str]] = [{}, {}]
     for owner in ("code", "ai", "human", "external"):
@@ -854,26 +882,39 @@ def _visible_text_without_glossary(markup: str) -> str:
     return re.sub(r"\s+", " ", html_lib.unescape(without_tags)).strip()
 
 
-def test_example_pages_explain_or_confine_internal_jargon_to_the_glossary() -> None:
-    state = make_demo_state(running=False)
-    pages = (
-        render_page(make_demo_state(running=True), form_token="token"),
-        render_page(state, form_token="token", selected=ScenarioCode.F3),
-        render_report(state),
-    )
+def _visible_text_outside_verbatim(markup: str) -> str:
+    """去掉驗證器原樣輸出那幾行(機器輸出照原樣顯示,不改寫)之後看得到的文字。"""
+    return _visible_text_without_glossary(
+        re.sub(r'<p class="raw-line">.*?</p>', "", markup, flags=re.DOTALL))
 
-    for markup in pages:
+
+def _unexplained(text: str, term: str) -> bool:
+    return term in re.sub(rf"{re.escape(term)}（[^（）]+）", "", text)
+
+
+def test_example_pages_explain_or_confine_internal_jargon_to_the_glossary() -> None:
+    """主頁沒有名詞小辭典,專有名詞要緊接括號白話解釋;報告裡留下的專有名詞都在小辭典裡。"""
+    state = make_demo_state(running=False)
+    for markup in (render_page(make_demo_state(running=True), form_token="token"),
+                   render_page(state, form_token="token", selected=ScenarioCode.F3)):
         assert '<dl class="glossary">' not in markup
-        visible_text = _visible_text_without_glossary(markup)
+        text = _visible_text_outside_verbatim(markup)
         for term in JARGON_TERMS:
-            without_explanations = re.sub(
-                rf"{re.escape(term)}（[^（）]+）",
-                "",
-                visible_text,
-            )
-            assert term not in without_explanations, (
-                f"{term!r} 必須放在名詞小辭典，或緊接一段括號白話解釋"
-            )
+            assert not _unexplained(text, term), f"{term!r} 在主頁要緊接一段括號白話解釋"
+
+
+def test_the_glossary_explains_every_kept_term() -> None:
+    """[S1043] 報告底部有名詞小辭典;報告上留下來(沒有緊接括號解釋)的每一個專有名詞,小辭典都有一句
+    白話解釋。"""
+    report = render_report(make_demo_state(running=False))
+    glossary = re.search(r'<dl class="glossary">(.*?)</dl>', report, re.DOTALL)
+    assert glossary is not None
+    explained = {html_lib.unescape(term) for term in re.findall(r"<dt>(.*?)</dt>",
+                                                                  glossary.group(1))}
+    text = _visible_text_without_glossary(report)
+    kept = {term for term in JARGON_TERMS if _unexplained(text, term)}
+    assert kept <= explained, kept - explained
+    assert set(JARGON_TERMS) <= explained  # 禁用清單上的詞一律有解釋,之後新出現在頁面上也不會漏
 
 
 def test_formal_flow_map_and_every_sample_route_match() -> None:
@@ -976,3 +1017,225 @@ def test_a_progress_step_does_not_show_an_empty_basis() -> None:
     report = render_report(_with_first(state, path=judged))
     section = report.split(first.title, 1)[1].split("</article>", 1)[0]
     assert "這一步沒有留下數字根據" in section
+
+
+# ---- 代碼審 r1(Phase 12 增量 2)----
+def test_every_scenario_shows_where_its_result_came_from() -> None:
+    """[S1054][S1012] 主頁與報告逐情境顯示出處:展示編號、時間、AI 模式,重跑的標明取自單一情境重跑;
+    F7 註明規模縮小;沒跑過的照實寫;自動查核那一格沒有完整執行過時照實寫。"""
+    state = replace(make_demo_state(), is_sample=False, full_demo_id="2026-09-24-001")
+    f3 = state.scenarios[2]
+    rerun = replace(f3, source_demo_id="2026-09-25-rerun")
+    unrun = replace(state.scenarios[3], source_demo_id=None, ran_at=None,
+                    status=ScenarioStatus.PENDING)
+    shown = replace(state, scenarios=(*state.scenarios[:2], rerun, unrun,
+                                      *state.scenarios[4:]))
+    report = render_report(shown)
+    for scenario in shown.scenarios[:3] + shown.scenarios[4:]:
+        assert f"情境執行編號 {scenario.source_demo_id}-{scenario.code.value}" in report
+        assert "執行時間" in report
+    assert "取自單一情境重跑（展示編號 2026-09-25-rerun）" in report
+    assert "這個情境還沒有執行紀錄" in report
+    f7 = render_page(shown, form_token="token", selected=ScenarioCode.F7)
+    assert "規模縮小" in f7 and "完整規模由自動查核跑的 F7 測試證明" in f7
+    assert "取自單一情境重跑" in render_page(shown, form_token="token")  # 清單列上也標
+    never = replace(shown, verifier=None, full_demo_id=None)
+    assert "還沒有完整執行過" in _verifier_cell(render_page(never, form_token="token"))
+
+
+def test_the_page_and_stylesheet_load_nothing_external() -> None:
+    """[S1036] 頁面、報告與樣式表都不請求外部資源:沒有外部網址、@import、外部字型、url()。"""
+    state = make_demo_state()
+    for markup in (render_page(state, form_token="token"), render_report(state),
+                   render_report(state, inline_styles=False)):
+        tags = "\n".join(re.findall(r"<[^>]+>", markup))
+        assert re.search(r'(?:href|src|action)="(?:[a-z]+:)?//', tags, re.IGNORECASE) is None
+        assert "@import" not in markup
+        assert re.search(r"url\((?!#)", markup) is None  # 只准指到頁面自己的箭頭標記
+    assert "@import" not in DEMO_CSS and "url(" not in DEMO_CSS and "@font-face" not in DEMO_CSS
+
+
+def test_the_report_shows_every_scenario_path_and_decisions() -> None:
+    """[S1040] 報告有七個情境代碼,每個情境各自一張路徑圖與一份判斷紀錄(卡片數等於判斷數)。"""
+    state = make_demo_state()
+    report = render_report(state)
+    for scenario in state.scenarios:
+        code = scenario.code.value
+        section = report.split(f'id="flow-{code}"', 1)[1].split('class="report-scenario"', 1)[0]
+        assert f'aria-label="{code} 處理流程圖"' in section
+        assert section.count('class="decision-card') == len(scenario.path)
+
+
+HOSTILE = '"><script>alert(1)</script><img src=x onerror=boom>&amp;‮'
+
+
+def test_untrusted_text_never_becomes_markup() -> None:
+    """[S1022] 廣告名稱、判斷結果、確認頁數字、驗證器輸出與原因裡的腳本標籤、事件屬性、實體編碼
+    與雙向控制字元,都以看得見的文字出現,不形成標籤或屬性。"""
+    state = replace(make_demo_state(), is_sample=False, full_demo_id="x")
+    first = state.scenarios[0]
+    change = first.change_summary
+    assert change is not None and state.verifier is not None
+    path = (replace(first.path[0], outcome=HOSTILE), *first.path[1:])
+    hostile = replace(
+        state,
+        scenarios=(replace(first, change_summary=replace(change, campaign=HOSTILE), path=path),
+                   *state.scenarios[1:]),
+        verifier=replace(state.verifier, passed=False, lines=(HOSTILE,), reasons=(HOSTILE,)),
+        approval=ApprovalForm("h" * 64, ((HOSTILE, HOSTILE),), None, None, "d", "n" * 64),
+    )
+    pages = (render_page(hostile, form_token="token", selected=ScenarioCode.F1),
+             render_report(hostile), render_approval(hostile, form_token="token"))
+    for markup in pages:
+        assert "<script>" not in markup and "<img" not in markup
+        assert "〔U+202E〕" in markup and "&amp;amp;" in markup
+        assert escape_text(HOSTILE) in markup
+
+
+def test_the_scenario_list_is_pinned_only_in_the_two_column_report() -> None:
+    """[代碼審 r1 p1] 情境清單只在報告的左右兩欄版面釘住;互動頁(單欄)釘住會在桌面寬度蓋住詳情。
+    頁面測試跑不了瀏覽器,量版面幾何的那一步用瀏覽器實測另外留證(見〈實作解讀〉)。"""
+    rules = re.findall(r"([^{}]+)\{[^}]*position:\s*sticky[^}]*\}", DEMO_CSS)
+    pinned = [selector.strip() for selector in rules if "scenario-section" in selector]
+    assert pinned == [".report-workspace .scenario-section"]
+    assert 'class="report-workspace"' not in render_page(make_demo_state(), form_token="t")
+
+
+def test_results_are_not_invented_for_scenarios_that_have_not_finished() -> None:
+    """[代碼審 r1 p4] 還沒跑的寫尚未執行、跑到一半的寫執行中,不拿情境說明或最後一步頂替成結果。"""
+    state = make_demo_state()
+    first = state.scenarios[0]
+    for status, text in ((ScenarioStatus.PENDING, "尚未執行"),
+                         (ScenarioStatus.RUNNING, "執行中，還沒有結果"),
+                         (ScenarioStatus.AWAITING_APPROVAL, "執行中，還沒有結果")):
+        shown = replace(state, scenarios=(replace(first, status=status, result_summary=""),
+                                          *state.scenarios[1:]))
+        markup = render_page(shown, form_token="t", selected=ScenarioCode.F1)
+        assert f"這次結果：</strong><span>{text}</span>" in markup
+        assert escape_text(first.path[-1].outcome) not in markup.split("這次結果：", 1)[1][:200]
+
+
+def test_progress_is_shown_only_while_running_and_carries_the_current_anchor() -> None:
+    """[代碼審 r1 p7/s2/v6] 沒在跑就沒有「現在進度」;在跑時那一塊帶 id="current"(POST 轉址
+    對到它)。"""
+    running = make_demo_state(running=True)
+    assert 'id="current"' in render_page(running, form_token="t")
+    idle = replace(running, running=False)
+    assert 'class="current-progress"' not in render_page(idle, form_token="t")
+
+
+def test_plain_wording_for_normal_situations() -> None:
+    """[代碼審 r1 p9/p6] 沒安排故障、結束點、還沒有展示、沒有呼叫 AI:照實寫,不像缺資料或出錯。"""
+    state = replace(make_demo_state(), is_sample=False, model_mode=ModelMode.NOT_CALLED,
+                    started_at=None, demo_id="")
+    first = replace(state.scenarios[0], injected_faults=())
+    others = tuple(replace(item, model_mode=ModelMode.NOT_CALLED) for item in state.scenarios[1:])
+    first = replace(first, model_mode=ModelMode.NOT_CALLED)
+    markup = render_page(replace(state, scenarios=(first, *others)),
+                         form_token="t", selected=ScenarioCode.F1)
+    assert "這個情境沒有安排故障" in markup and "(這次沒有記錄)</p>" not in markup.split(
+        "fault-note", 1)[1][:80]
+    assert "<dt>開始時間</dt><dd>—</dd>" in markup and "<dd>none</dd>" not in markup
+    assert "<dt>AI 說明方式</dt><dd>這次沒有呼叫 AI" in markup and "錄製" not in markup
+    running = make_demo_state(running=True)
+    assert running.current is not None
+    ended = replace(running, current=replace(running.current, last_decision=Decision(
+        node="x_done", taken_edge=None, outcome="完成", reason="", at=None)))
+    assert "（已結束）" in render_page(ended, form_token="t")
+
+
+def _node_boxes(svg: str) -> dict[str, tuple[int, int]]:
+    """流程圖上每個節點的標題 → (x, y)。"""
+    root = ET.fromstring(svg)  # noqa: S314 - 渲染器自己的輸出
+    found = {}
+    for group in root.findall(".//g[@class]"):
+        if "flow-node" in group.get("class", ""):
+            title = group.find("title")
+            found[(title.text or "") if title is not None else ""] = (
+                _rect_coordinate(group, "x"), _rect_coordinate(group, "y"))
+    return found
+
+
+def _svg(markup: str) -> str:
+    match = re.search(r'<svg class="flow-graph".*?</svg>', markup, re.DOTALL)
+    assert match is not None
+    return match.group(0)
+
+
+def _step(node: str, edge: tuple[str, str] | None) -> Decision:
+    return Decision(node=node, taken_edge=edge, outcome="o", reason="r", at=None)
+
+
+def test_a_node_without_its_incoming_edge_is_drawn_at_its_time_position() -> None:
+    """[代碼審 r1 p5] 節點照第一次出現的時間排:沒記到進來那條邊的判斷點插在它自己的時間位置,
+    不追加到最右邊。"""
+    from rtb.demo.flow import FLOW_GRAPH
+
+    labels = {node.id: node.label for node in FLOW_GRAPH.nodes}
+    path = (_step("x_pick", ("x_pick", "x_precheck")), _step("x_reclaimed", None),
+            _step("x_precheck", ("x_precheck", "x_guard")),
+            _step("x_guard", ("x_guard", "x_total")))
+    state = make_demo_state()
+    first = replace(state.scenarios[0], path=path,
+                    traversed_edges=tuple(d.taken_edge for d in path if d.taken_edge))
+    boxes = _node_boxes(_svg(render_page(replace(state, scenarios=(first, *state.scenarios[1:])),
+                                         form_token="t", selected=ScenarioCode.F1)))
+    xs = {node: boxes[labels[node]][0] for node in ("x_precheck", "x_reclaimed", "x_guard")}
+    assert xs["x_precheck"] < xs["x_reclaimed"] < xs["x_guard"]
+
+
+def test_node_numbers_point_at_the_first_card_for_that_node() -> None:
+    """[代碼審 r1 p5] 同一個節點走過好幾次:節點上的「判斷 N」是它第一次出現的那張卡。"""
+    path = (_step("x_pick", ("x_pick", "x_precheck")),
+            _step("x_precheck", ("x_precheck", "x_guard")),
+            _step("x_guard", ("x_guard", "x_total")), _step("x_pick", ("x_pick", "x_precheck")))
+    state = make_demo_state()
+    first = replace(state.scenarios[0], path=path,
+                    traversed_edges=tuple(d.taken_edge for d in path if d.taken_edge))
+    svg = _svg(render_page(replace(state, scenarios=(first, *state.scenarios[1:])),
+                           form_token="t", selected=ScenarioCode.F1))
+    badges = re.findall(r'class="decision-badge"[^>]*>判斷 (\d+)<', svg)
+    assert badges == ["1", "2", "3"]
+
+
+def test_a_line_that_skips_nodes_in_its_lane_goes_above_them() -> None:
+    """[代碼審 r1 p5] 同一泳道要跨過其他節點的線,走節點列上方的空隙、畫成虛線,不從節點底下穿過。"""
+    path = (_step("x_pick", ("x_pick", "x_precheck")),
+            _step("x_precheck", ("x_precheck", "x_guard")),
+            _step("x_guard", ("x_guard", "x_total")), _step("x_pick", ("x_pick", "x_deadletter")))
+    state = make_demo_state()
+    first = replace(state.scenarios[0], path=path,
+                    traversed_edges=tuple(d.taken_edge for d in path if d.taken_edge))
+    svg = _svg(render_page(replace(state, scenarios=(first, *state.scenarios[1:])),
+                           form_token="t", selected=ScenarioCode.F1))
+    skips = re.findall(r'<g class="flow-edge is-taken is-skip"><title>([^<]*)</title>'
+                       r'<path d="([^"]+)"', svg)
+    assert skips and "跳過中間" in skips[0][0]
+    from rtb.demo.flow import FLOW_GRAPH
+
+    lane_top = _node_boxes(svg)[next(n.label for n in FLOW_GRAPH.nodes if n.id == "x_pick")][1]
+    gap = int(re.findall(r"-?\d+", skips[0][1])[3])  # 第二個點的 y:上方空隙那一段
+    assert lane_top - 30 < gap < lane_top  # 在這一列節點的上緣之上、泳道之內
+
+
+def test_many_decisions_are_summarised_and_each_edge_is_drawn_once() -> None:
+    """[代碼審 r1 p8] 幾千筆判斷(F7):走過的邊依(起點, 終點)只畫一次,沒走的分支只列一次,判斷卡依
+    節點與分支彙總並標筆數;頁面不會隨筆數長大。"""
+    loop = (_step("x_pick", ("x_pick", "x_precheck")),
+            _step("x_precheck", ("x_precheck", "x_guard")),
+            _step("x_guard", ("x_guard", "x_total")), _step("x_total", ("x_total", "x_write")))
+    state = make_demo_state()
+
+    def page(times: int) -> str:
+        path = loop * times
+        first = replace(state.scenarios[0], path=path,
+                        traversed_edges=tuple(d.taken_edge for d in path if d.taken_edge))
+        return render_page(replace(state, scenarios=(first, *state.scenarios[1:])),
+                           form_token="t", selected=ScenarioCode.F1)
+
+    big = page(1000)
+    assert big.count('class="flow-edge is-taken') == 4
+    assert big.count('class="decision-card') == 4 and "（共 1000 筆）" in big
+    assert len(big) < 2 * len(page(20))
+    routes = re.findall(r'<div class="branch-route">.*?</div>', big)
+    assert len(routes) == len(set(routes))

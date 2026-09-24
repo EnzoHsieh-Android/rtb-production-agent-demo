@@ -385,7 +385,7 @@ def test_inbox_events_carry_what_the_inbox_recorded(tmp_path):
         built.executor.execute(
             "INSERT INTO write_stops (kind, task_id, revision, content_hash, key, tenant, "
             "campaign_id, amount, used, cap, capped, at) VALUES ('aggregate_limit_reached', 't3', "
-            "1, 'h-t3-1', 'k3', 'acme', 'c1', 10, 120, 124, 1, ?)",
+            "1, 'h-t3-1', 'k3', 'acme', 'c1', 10, 120, 124, 0, ?)",
             (iso(T0 + timedelta(seconds=3)),))
     finally:
         built.close()
@@ -395,3 +395,75 @@ def test_inbox_events_carry_what_the_inbox_recorded(tmp_path):
     assert "demo-operator" in rows["r_requeued"].basis[0].observed
     assert rows["x_blocked"].basis == () and "沒有記下讀到的平台版本" in rows["x_blocked"].reason
     assert "120" in rows["x_wait_approval"].basis[0].observed
+
+
+# ---- 代碼審 r1(Phase 12 增量 2)----
+def _two_stops(tmp_path, capped):
+    from rtb.demo.observe import Observer
+    from tests.ops.rows import Rows, iso
+
+    built = Rows(tmp_path)
+    try:
+        built.event(T0, "t3", "awaiting_approval", key="k3",
+                    reason="budget_increase_too_large")
+        built.event(T0 + timedelta(seconds=2), "t3", "awaiting_approval", key="k3",
+                    reason="aggregate_limit_reached")
+        for second, kind, used in ((0, "budget_increase_too_large", 50),
+                                   (2, "aggregate_limit_reached", 120)):
+            built.executor.execute(
+                "INSERT INTO write_stops (kind, task_id, revision, content_hash, key, tenant, "
+                "campaign_id, amount, used, cap, capped, at) VALUES (?, 't3', 1, 'h-t3-1', 'k3', "
+                "'acme', 'c1', 10, ?, 124, ?, ?)",
+                (kind, used, int(capped), iso(T0 + timedelta(seconds=second))))
+    finally:
+        built.close()
+    return [r for r in PathBuilder().add(
+        Observer(tmp_path / "analyzer.db", tmp_path / "executor.db").poll())
+        if r.node == "x_wait_approval"]
+
+
+def test_two_kinds_of_stop_on_one_key_keep_their_own_numbers(tmp_path):
+    """[代碼審 r1 d5] 同一把鍵先因比例過大、後因總上限停下:兩筆各自帶自己那一種停下紀錄的數字,
+    不互相蓋掉。"""
+    first, second = _two_stops(tmp_path, capped=False)
+    assert "已經加出去 50" in first.basis[0].observed
+    assert "已經加出去 120" in second.basis[0].observed
+
+
+def test_a_capped_stop_record_shows_no_numbers(tmp_path):
+    """[代碼審 r1 d5] 停下紀錄標了封頂(數字不是原值):不給這組根據。"""
+    assert all(row.basis == () for row in _two_stops(tmp_path, capped=True))
+
+
+def test_an_unknown_after_a_takeover_has_no_platform_basis():
+    """[代碼審 r1 d2] 換人接手之後轉成不明:原因是接手不是平台沒回,不掛平台呼叫的根據(F2 原本出現
+    「回覆成功(200)卻判不知道」)。"""
+    from dataclasses import replace
+
+    from rtb.demo.state_store import Basis
+
+    platform = (Basis("送出寫入:平台回覆成功(狀態 200)", "s", "c", "執行端當下記下"),)
+    unknown = replace(_attempt(5, "UNKNOWN", origin_id=2), basis=platform)
+    rows = PathBuilder().add([_attempt(0, "IN_FLIGHT"), unknown,
+                              _lifecycle(5, "RECLAIMED", origin_id=3)])
+    assert rows[-1].node == "x_unknown" and rows[-1].basis == ()
+
+
+def test_each_decision_row_carries_its_task():
+    """[代碼審 r1 d9] 判斷紀錄帶工作編號:同一個情境有好幾件工作時分得開。"""
+    rows = PathBuilder().add([_attempt(0, "IN_FLIGHT")])
+    assert rows[0].task == "t1"
+
+
+def test_releasing_an_approved_proposal_is_a_human_step(tmp_path):
+    """[代碼審 r1 d10] 核可放回排隊是人確認之後才發生的:記成人工,不是程式。"""
+    from rtb.demo.observe import Observer
+    from tests.ops.rows import Rows
+
+    built = Rows(tmp_path)
+    try:
+        built.event(T0, "t1", "approval_released", key="k1", source="executor_loop")
+    finally:
+        built.close()
+    events = Observer(tmp_path / "analyzer.db", tmp_path / "executor.db").poll()
+    assert [e.actor for e in events if e.primary[1] == "APPROVAL_RELEASED"] == ["人工"]

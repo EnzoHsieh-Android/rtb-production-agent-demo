@@ -38,7 +38,8 @@ def ran(tmp_path):
 def _state(tmp_path, running=False):
     reader = StateReader(tmp_path / "state.db")
     try:
-        return build_demo_state(reader, "demo-1", running=running, now=datetime.now(UTC))
+        return build_demo_state(reader, "demo-1", running=running, now=datetime.now(UTC),
+                                verifier_demo_id="demo-1", full_demo_id="demo-1")
     finally:
         reader.close()
 
@@ -74,7 +75,9 @@ def test_the_analysis_checks_are_filled_in_from_the_recomputed_basis(ran):
     filled = {d.node: d for d in f2.path if d.node in {
         "a_fresh", "a_complete", "a_pacing", "a_route", "a_worth"}}
     assert set(filled) == {"a_fresh", "a_complete", "a_pacing", "a_route", "a_worth"}
-    assert all(b.source == "依存下的證據重算" for d in filled.values() for b in d.basis)
+    assert all(b.source == "依存下的證據重算" for n, d in filled.items() if n != "a_route"
+               for b in d.basis)
+    assert filled["a_route"].basis[0].source.startswith("固定說明")  # 代碼審 r1 d10
     assert filled["a_route"].taken_edge == ("a_route", "a_rule")
     assert "沒有模型入口" in filled["a_route"].basis[0].observed
     write_checks = [d for d in f2.path if d.node in {"x_guard", "x_total"}]
@@ -139,3 +142,50 @@ def test_each_decision_says_whether_it_is_a_judgement_or_a_state_step():
     ])]
     assert kinds == [DecisionKind.JUDGEMENT, DecisionKind.PROGRESS, DecisionKind.JUDGEMENT,
                      DecisionKind.PROGRESS]
+
+
+# ---- 代碼審 r1(Phase 12 增量 2)----
+def test_a_write_let_through_by_a_person_is_not_drawn_as_passing_the_checks():
+    """[代碼審 r1 d4] 開始寫入那一列的核對材料有沒通過的(人確認後放行):觀察器推出來的「總上限:
+    不會超過」那條邊跟根據矛盾,清空;根據照樣留著。"""
+    from rtb.demo import present
+    from rtb.demo.state_store import Basis, BasisCode, DecisionRow
+
+    over = Basis("已經加出去 120,加上這次共 130", "全部廣告加起來的總上限 124",
+                 "超過總上限,人確認後放行", "執行端當下記下", BasisCode.TOTAL_OVER)
+    row = DecisionRow("x_write", ("x_total", "x_write"), "o", "r", datetime.now(UTC), "s",
+                      (over,), "k1", "程式", "t1")
+    (decision,) = present._decisions([row])
+    assert decision.taken_edge is None and decision.node == "x_write"
+    assert decision.basis[0].conclusion == over.conclusion
+
+
+def test_decisions_carry_their_task_and_edges_are_a_set():
+    """[代碼審 r1 d9] 判斷紀錄帶工作編號;走過的邊是集合(每條一次、照第一次出現排),好幾件工作時
+    不把它當成一條路徑。"""
+    from rtb.demo import present
+    from rtb.demo.state_store import DecisionRow
+
+    at = datetime.now(UTC)
+    rows = [DecisionRow("a_collect", ("a_receive", "a_collect"), "o", "r", at, "s", task="t1"),
+            DecisionRow("a_collect", ("a_receive", "a_collect"), "o", "r", at, "s", task="t2"),
+            DecisionRow("x_pick", ("x_pending", "x_pick"), "o", "r", at, "s", task="t1")]
+    path = present._decisions(rows)
+    assert [d.task_id for d in path] == ["t1", "t2", "t1"]
+    assert present._traversed(path) == (("a_receive", "a_collect"), ("x_pending", "x_pick"))
+
+
+def test_the_proposal_step_shows_the_amount_before_and_after(ran):
+    """[代碼審 r1 t6] 寫好建議那一步帶「原預算 → 建議預算」那一組根據(M34:原本丟掉也測不出來)。"""
+    tmp_path, _ = ran
+    f2 = next(s for s in _state(tmp_path).scenarios if s.code is ScenarioCode.F2)
+    step = next(d for d in f2.path if d.taken_edge == ("a_worth", "a_propose"))
+    assert any(b.observed == "100 → 110" for b in step.basis)
+
+
+def test_nothing_is_current_when_the_demo_is_not_running(ran):
+    """[代碼審 r1 s2/p7] 沒在跑就不給「現在進度」(展示狀態庫裡的目前節點是上一次留下的);
+    在跑才給。"""
+    tmp_path, _ = ran
+    assert _state(tmp_path, running=False).current is None
+    assert _state(tmp_path, running=True).current is not None

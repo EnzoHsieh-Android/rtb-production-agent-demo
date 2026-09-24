@@ -1,8 +1,6 @@
 # ruff: noqa: RUF002
 """展示頁與後續展示伺服器共用的不可變狀態介面。"""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -14,6 +12,7 @@ class ModelMode(Enum):
 
     RECORDED = "錄製"
     LIVE = "即時"
+    NOT_CALLED = "這次沒有呼叫 AI"  # 目前分析端沒有模型入口(代碼審 r1 p6:不預設成錄製)
 
 
 class ModelSource(Enum):
@@ -127,6 +126,7 @@ class Decision:
     basis: tuple[DecisionBasis, ...] = ()
     operation_key: str | None = None
     kind: DecisionKind | None = None  # None:舊資料與範例資料,照判斷顯示
+    task_id: str | None = None  # 哪一件工作(同一個情境有好幾件工作時分得開)
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +240,8 @@ class Scenario:
     path: tuple[Decision, ...]
     current_node: str | None
     result_summary: str = ""
+    # 這次走過的邊的集合(照第一次出現排、每條一次);好幾件工作時不是一條路徑,路徑看 path
+    # (代碼審 r1 d9)
     traversed_edges: tuple[tuple[str, str], ...] = ()
     source_demo_id: str | None = None
     ran_at: datetime | None = None
@@ -265,7 +267,7 @@ class CurrentStep:
 @dataclass(frozen=True, slots=True)
 class DemoState:
     demo_id: str
-    started_at: datetime
+    started_at: datetime | None  # 還沒有任何展示時是空的
     model_mode: ModelMode
     model_cost_usd: Decimal | None
     verifier_digest: str | None
@@ -282,3 +284,5 @@ class DemoState:
     last_full_run_cost_usd: Decimal | None = None
     model_mode_reason: str | None = None
     is_sample: bool = False
+    full_demo_id: str | None = None  # 最近一次跑完的全部跑一次;空的就是還沒有完整執行過
+    verifier_pending: bool = False  # 完整展示在跑、這次的自動查核還沒跑到

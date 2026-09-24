@@ -177,3 +177,76 @@ def test_scenario_details_are_kept_and_missing_ones_stay_empty(tmp_path, writer)
         assert reader.scenario_details("demo-1", "F3") is None
     finally:
         reader.close()
+
+
+# ---- 代碼審 r1(Phase 12 增量 2)----
+def _request():
+    from rtb.demo.state_store import ConfirmationRequest
+
+    return ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
+                               datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
+
+
+def test_a_failed_signing_leaves_the_confirmation_window_open(tmp_path, writer):
+    """[代碼審 r1 x3] 簽發跟確認窗在同一個交易:簽的過程出錯整個退回,窗照樣開著、可以再試;簽成功
+    之後同一個窗不能再簽,關窗時回報有人簽過。"""
+    from rtb.demo.state_store import ALREADY_CONFIRMED, ConfirmationClosed
+
+    writer.set_confirmation("F7", _request(), datetime.now(UTC) + timedelta(minutes=5))
+
+    def broken(_code, _request):
+        raise RuntimeError("收件口寫不進去")
+
+    with pytest.raises(RuntimeError):
+        writer.answer_confirmation(datetime.now(UTC), broken)
+    reader = _reader(tmp_path)
+    try:
+        assert reader.confirmation("demo-1") is not None
+    finally:
+        reader.close()
+    signed = []
+    writer.answer_confirmation(datetime.now(UTC), lambda code, _req: signed.append(code))
+    with pytest.raises(ConfirmationClosed) as again:
+        writer.answer_confirmation(datetime.now(UTC), lambda code, _req: signed.append(code))
+    assert again.value.code == ALREADY_CONFIRMED and signed == ["F7"]
+    assert writer.clear_confirmation() is True
+
+
+def test_a_confirmation_past_its_window_is_refused(writer):
+    from rtb.demo.state_store import CONFIRMATION_TIMED_OUT, ConfirmationClosed
+
+    writer.set_confirmation("F7", _request(), datetime.now(UTC) - timedelta(seconds=1))
+    with pytest.raises(ConfirmationClosed) as closed:
+        writer.answer_confirmation(datetime.now(UTC), lambda _code, _req: None)
+    assert closed.value.code == CONFIRMATION_TIMED_OUT
+    assert writer.clear_confirmation() is False
+
+
+def test_an_older_state_database_gets_the_task_column(tmp_path):
+    """[代碼審 r1 d9] 之前版本建的展示狀態庫沒有判斷紀錄的工作欄:打開時補上,舊列讀回來工作
+    是空的。"""
+    from rtb.demo.state_store import DecisionRow, StateWriter
+
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE decisions (id INTEGER PRIMARY KEY AUTOINCREMENT, demo_id TEXT NOT NULL, "
+        "code TEXT NOT NULL, node TEXT NOT NULL, edge_json TEXT, outcome TEXT NOT NULL, "
+        "reason TEXT NOT NULL, at TEXT NOT NULL, origin TEXT NOT NULL, "
+        "basis_json TEXT NOT NULL DEFAULT '[]', operation_key TEXT, "
+        "actor TEXT NOT NULL DEFAULT '程式')")
+    conn.execute("INSERT INTO decisions (demo_id, code, node, outcome, reason, at, origin) "
+                 "VALUES ('d', 'F1', 'a_collect', 'o', 'r', ?, 's')",
+                 (datetime.now(UTC).isoformat(),))
+    conn.commit()
+    conn.close()
+    writer = StateWriter(path, "d")
+    writer.record_decision("F1", DecisionRow("x_pick", None, "o", "r", datetime.now(UTC), "s",
+                                             task="t9"))
+    from rtb.demo.state_store import StateReader
+
+    reader = StateReader(path)
+    try:
+        assert [row.task for row in reader.decisions("d", "F1")] == [None, "t9"]
+    finally:
+        reader.close()

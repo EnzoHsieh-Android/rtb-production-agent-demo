@@ -640,10 +640,11 @@ def test_the_driver_reports_a_timeout_only_after_the_scenario_has_wound_down(tmp
 
 
 class _ConfirmStub:
-    def __init__(self, stop_during_wait):
+    def __init__(self, stop_during_wait, approved_at_close=False, written_after=False):
         self.code, self.stop = "F7", threading.Event()
-        self.marks, self.cleared = [], []
+        self.marks, self.cleared, self.waits = [], [], []
         self._stop_during_wait = stop_during_wait
+        self._approved, self._written_after = approved_at_close, written_after
         stub = self
 
         class _State:
@@ -653,15 +654,17 @@ class _ConfirmStub:
             def mark_status(self, _code, status):
                 stub.marks.append(status)
 
-            def clear_confirmation(self):
+            def clear_confirmation(self, _now=None):
                 stub.cleared.append(True)
+                return stub._approved
 
         self.state = _State()
 
-    def wait_paused(self, _done, _limit, _on_poll=None):
+    def wait_paused(self, _done, limit, _on_poll=None):
+        self.waits.append(limit)
         if self._stop_during_wait:
             self.stop.set()
-        return False
+        return len(self.waits) > 1 and self._written_after
 
 
 def test_a_stopped_scenario_does_not_ask_for_confirmation():
@@ -1116,7 +1119,9 @@ def test_a_blocked_then_replanned_scenario_shows_the_final_write(tmp_path, state
     assert _driver(tmp_path, state).run_one("F4").status == DONE
     details = _details(tmp_path, "F4")
     change = details.change
-    assert (change.before, change.after, change.written) == (100, 220, True)
+    # 「之前」是被追蹤那把鍵寫入前的平台值:別的寫入者先把 100 改成 200,本系統只把 200 改成 220
+    # (代碼審 r1 d3:原本取造資料時的 100,看起來像一次加了 120%)
+    assert (change.before, change.after, change.written) == (200, 220, True)
     assert details.platform_apply_count == 1  # 另一個寫入者那一筆不是這把鍵,不算
 
 
@@ -1145,3 +1150,56 @@ def test_a_mismatch_between_live_decisions_and_the_trace_marks_the_scenario_inco
 
     assert verdict.status == INCOMPLETE and "對不上" in verdict.reason
     assert "x_resend" in verdict.reason
+
+
+def test_an_approval_signed_just_before_the_window_closes_is_still_waited_for():
+    """[代碼審 r1 x3/s5/v5] 關確認窗跟簽發互斥:關窗前一刻已經簽了,就再等它寫進平台,不直接判成
+    沒有人確認;沒簽就不多等。"""
+    from datetime import UTC
+
+    from rtb.demo.state_store import ConfirmationRequest
+
+    request = ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
+                                  datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
+    signed = _ConfirmStub(stop_during_wait=False, approved_at_close=True, written_after=True)
+    assert driver_module._wait_for_confirmation(signed, request, 5) is True
+    assert signed.waits[1] == driver_module.APPROVED_WRITE_SECONDS
+    unsigned = _ConfirmStub(stop_during_wait=False)
+    assert driver_module._wait_for_confirmation(unsigned, request, 5) is False
+    assert len(unsigned.waits) == 1
+
+
+# ---- 代碼審 r1(Phase 12 增量 2)----
+def test_f7_without_a_confirmation_still_names_its_key_and_counts_zero_writes(tmp_path, state):
+    """[代碼審 r1 d7] 沒人確認的那一筆從沒開始寫入,嘗試紀錄沒有鍵:改從生命週期事件取鍵,平台上
+    確定套用 0 次(不寫成「沒有記錄」)。"""
+    verdict, _ = _small_f7(tmp_path, state, cap=2)
+    assert verdict.reason == "沒有人確認"
+    details = _details(tmp_path, "F7")
+    assert details.operation_key and details.platform_apply_count == 0
+    assert details.change is not None and details.change.written is False
+
+
+def test_scenario_details_are_written_after_the_processes_are_closed(tmp_path):
+    """[代碼審 r1 d6] 情境細節寫不進展示狀態庫:子行程照樣先收掉,情境照樣結案(標沒跑完、寫原因),
+    不停在執行中。"""
+    class Broken(StateWriter):
+        def set_scenario_details(self, code, details):
+            raise RuntimeError("磁碟滿了")
+
+    writer = Broken(tmp_path / "state.db", "demo-1")
+    pids = []
+
+    def run(world):
+        pids.append(world.start_platform().pid)
+        return "跑完"
+
+    verdict = _driver(tmp_path, writer, {"FX": Scenario("FX", "假", 30, run)}).run_one("FX")
+    assert verdict.status == INCOMPLETE and "情境細節寫不進" in verdict.reason
+    assert pids and not _alive(pids[0])
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        (row,) = reader.scenario_runs("demo-1")
+    finally:
+        reader.close()
+    assert row.status == INCOMPLETE and row.finished_at is not None

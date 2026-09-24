@@ -162,7 +162,10 @@ def test_the_filled_in_route_is_real_edges_and_ends_where_the_rule_ended():
         assert pairs[0][0] == "a_fresh" and pairs[-1][1] == _END[row.state], pairs
         assert all(pair in edges for pair in pairs), pairs
         assert all(a[1] == b[0] for a, b in itertools.pairwise(pairs))
-        assert all(step.basis.source == basis.RECOMPUTED for step in route)
+        # 「交給誰判斷」那一步是固定說明,不是重算的(代碼審 r1 d10);其他每一步都標重算
+        assert all(step.basis.source
+                   == (basis.FIXED if step.node == "a_route" else basis.RECOMPUTED)
+                   for step in route)
         checked += 1
     assert checked > 100
 
@@ -211,7 +214,8 @@ def test_delivery_counts_come_from_the_inbox_and_its_own_limit():
     assert f"最多 {inbox_store.MAX_DELIVERIES} 次" in dead.standard
     assert dead.source == basis.RECORDED_INBOX
     (again,) = basis.lifecycle("reclaimed", deliveries=2, reason=None, actor="w2")
-    assert "第 2 次" in again.observed
+    assert "換人接手" in again.observed and "交出去 2 次" in again.observed
+    assert "這是第" not in again.observed  # 接手不會多算一次投遞(代碼審 r1 d10)
     (put_back,) = basis.lifecycle("lease_released", deliveries=1, reason="dsp_unavailable",
                                   actor="w1")
     assert "讀不到平台" in put_back.observed
@@ -241,3 +245,101 @@ def test_a_resend_shows_the_lookup_that_found_nothing():
     (found,) = basis.platform_call(calls, "in_flight", "2026-09-24T00:00:06Z")
     assert "依編號查平台" in found.observed and "404" in found.observed
     assert "同編號" in found.conclusion
+
+
+# ---- 代碼審 r1(Phase 12 增量 2)----
+def _proposed(evidence):
+    decision, _ = policy.explain(_task(), evidence, NOW, candidate=None,
+                                 allowed=policy.ValidatedCells.NONE)
+    return TaskRow(task_id="t1", seq=4, state=TaskState.PROPOSED, campaign_id="c1",
+                   proposal=decision.proposal, error_detail=None, written_at=NOW)
+
+
+def test_the_basis_uses_only_the_rules_public_steps():
+    """[代碼審 r1 a1] 展示端不呼叫分析端規則的私有函式,也不自己另算一次配速:中間事實全部取自正式
+    規則公開的 steps。"""
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(basis))
+    private = [node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+               and isinstance(node.value, ast.Name) and node.value.id == "policy"
+               and node.attr.startswith("_")]
+    assert private == []
+    imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+                for alias in node.names}
+    assert "pacing" not in imported
+
+
+def test_every_intermediate_conclusion_matches_the_rules_own_steps():
+    """[代碼審 r1 d8] 全部樣本逐組核對:新鮮度、配速、值不值得加的結論代碼,等於正式規則 steps 的
+    中間判定(不只比最後一組)。"""
+    from rtb.demo.state_store import BasisCode
+    from rtb.domain.worth import WorthVerdict
+
+    checked = 0
+    for case, row, reason in _decidable():
+        found = {b.code: b for b in basis.analysis(case.task, case.evidence, row, reason)}
+        facts = policy.steps(case.evidence, row.written_at)
+        assert (BasisCode.FRESH in found) is facts.fresh
+        assert (BasisCode.STALE in found) is (not facts.fresh)
+        if facts.underpacing is not None and facts.fresh and facts.metrics is not None:
+            assert (BasisCode.UNDERPACING in found) is facts.underpacing
+        if facts.worth is not None:
+            assert (BasisCode.WORTH in found) is (facts.worth is WorthVerdict.WORTH)
+        checked += 1
+    assert checked > 100
+
+
+def test_campaign_status_plays_no_part_and_the_standard_does_not_claim_it():
+    """[代碼審 r1 d1] 現行規則不看廣告狀態:暫停中的廣告只要有曝光和點擊照樣提案;標準文字只寫規則
+    真的做的事,不寫「廣告啟用」、不寫跟平台比版本。"""
+    metrics = _metrics(1.0, 500, 12, 1, 5.0)
+    active = basis.analysis(_task(), (_state(100, "active"), metrics),
+                            _proposed((_state(100, "active"), metrics)), None)
+    paused = basis.analysis(_task(), (_state(100, "paused"), metrics),
+                            _proposed((_state(100, "paused"), metrics)), None)
+    assert paused and [b.conclusion for b in paused] == [b.conclusion for b in active]
+    assert all("啟用" not in b.standard for b in paused)
+    assert "版本沒變" not in paused[0].standard and "同一批資料" in paused[0].standard
+    assert "不看廣告狀態" in paused[2].standard
+
+
+def test_the_standards_follow_the_live_constants(monkeypatch):
+    """[代碼審 r1 t6] 根據的標準讀正式規則當下的常數:改了常數,文字跟著變(不是抄死的數字)。"""
+    from datetime import timedelta as delta
+
+    from rtb.executor import guardrails, inbox_store
+    from rtb.executor.attempt_store import FirstRow
+    from tests.analyzer.conftest import make_proposal
+
+    evidence = (_state(100, "active", timedelta(minutes=3)), _metrics(1.0, 500, 12, 1, 5.0))
+    monkeypatch.setattr(policy, "MAX_EVIDENCE_AGE", delta(minutes=17))
+    monkeypatch.setattr(policy, "BUDGET_INCREASE_FRACTION", 0.2)
+    row = _proposed(evidence)  # 當時的決策也照改過的常數(重算要跟它一致才給根據)
+    found = basis.analysis(_task(), evidence, row, None)
+    assert "17 分鐘" in found[0].standard and "加 20%" in found[-1].standard
+    monkeypatch.setattr(inbox_store, "MAX_DELIVERIES", 9)
+    (dead,) = basis.lifecycle("dead_lettered", deliveries=9, reason=None, actor=None)
+    assert "最多 9 次" in dead.standard
+    monkeypatch.setattr(guardrails, "MAX_INCREASE_DENOMINATOR", 3)
+    first = FirstRow(key="k", task_id="t1", revision=1, campaign_id="c1", tenant="t",
+                     reserved_amount=10, ratio_allowance=33, max_budget=10**6,
+                     aggregate_limit=124, used_before=0, proposal=make_proposal(),
+                     snapshot_matches_key=True, written_at="2026-09-24T00:00:00Z")
+    assert "1/3" in basis.write_start(first)[0].standard
+
+
+def test_wording_matches_what_actually_happened():
+    """[代碼審 r1 d10] 依編號查平台回 404 是「查不到這一筆」不是拒絕;單次上限寫「至少 1」;
+    「交給誰判斷」是固定說明,不標重算。"""
+    lookup = [_call("lookup_operation", "client_error", 404, "2026-09-24T00:00:05Z")]
+    (found,) = basis.platform_call(lookup, "in_flight", "2026-09-24T00:00:06Z")
+    assert "查不到這一筆" in found.observed and "拒絕" not in found.observed
+    assert basis.NO_MODEL.source == basis.FIXED != basis.RECOMPUTED
+
+
+def test_a_capped_stop_record_gives_no_numbers():
+    """[代碼審 r1 d5] 停下紀錄的已用或門檻被封頂(不是原值):不給這組根據。"""
+    assert basis.stopped(amount=10, used=120, cap=124, capped=True) == ()
+    assert basis.stopped(amount=10, used=120, cap=124)

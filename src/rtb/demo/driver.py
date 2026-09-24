@@ -773,6 +773,7 @@ def _run_f6(world: World) -> str:
 F7_CAMPAIGNS, F7_LIMIT, F7_WORKERS = 300, 1234, 8
 CONFIRM_CAP_SECONDS = 600.0
 CONFIRM_MARGIN_SECONDS = 60.0
+APPROVED_WRITE_SECONDS = 60.0  # 關窗前一刻才簽的核可:再等它寫進平台這麼久(核可本身最多 300 秒)
 INCREASE = 10  # 每個廣告 100 加一成
 # 每份提案最後一個生命週期事件 → 它現在停在流程圖的哪個節點(F7 的各節點筆數)
 _WHERE_NOW = {
@@ -961,15 +962,22 @@ def _wait_for_confirmation(world: World, request: ConfirmationRequest, cap_secon
     (鎖照樣握著)。"""
     if world.stop.is_set():
         raise ScenarioStopped(f"{world.code} 已經收掉,不再請人確認")
-    world.state.set_confirmation(world.code, request)
+    limit = _confirm_limit(request, cap_seconds)
+    world.state.set_confirmation(world.code, request, _now() + timedelta(seconds=limit))
     world.state.mark_status(world.code, AWAITING_CONFIRMATION)
+    approved = False
     try:
-        return world.wait_paused(lambda: _confirmed_one_written(world, request),
-                                 _confirm_limit(request, cap_seconds), lambda: _node_counts(world))
+        written = world.wait_paused(lambda: _confirmed_one_written(world, request), limit,
+                                    lambda: _node_counts(world))
     finally:
-        world.state.clear_confirmation()
+        # 關窗跟伺服器簽發互斥(代碼審 r1 x3):關窗之前已經簽了,就算等到期限也還在等它寫進去
+        approved = world.state.clear_confirmation(_now())
         if not world.stop.is_set():  # 已經被收掉的情境不能把「沒跑完」改寫回進行中
             world.state.mark_status(world.code, "running")
+    if not written and approved:
+        written = world.wait_paused(lambda: _confirmed_one_written(world, request),
+                                    APPROVED_WRITE_SECONDS, lambda: _node_counts(world))
+    return written
 
 
 def _queue_wait(world: World, task_id: str) -> int | None:
@@ -1050,14 +1058,15 @@ def _details(scenario: Scenario, world: World, verdict: Verdict) -> ScenarioDeta
         return static
     task_id, campaign = world.tracked
     try:
-        keys = [row.key for row in world.attempts(task_id)]
+        events = world.lifecycle(task_id)
+        # 沒開始寫的那一筆(F7 沒人確認)嘗試紀錄沒有鍵:改從生命週期事件取(代碼審 r1 d7)
+        keys = [row.key for row in world.attempts(task_id)] or [e.key for e in events if e.key]
         key = keys[0] if keys else None
         writes = world.platform_writes(campaign)
         applied = None if key is None else sum(1 for w in writes if w.key == key)
         written = bool(applied)
-        blocked = [e.reason for e in world.lifecycle(task_id)
-                   if e.kind == LifecycleKind.BLOCKED.value]
-        change = ChangeRecord(campaign, world.initial_budgets.get(campaign),
+        blocked = [e.reason for e in events if e.kind == LifecycleKind.BLOCKED.value]
+        change = ChangeRecord(campaign, _before(world, campaign, writes, key),
                               world.budget(campaign), written,
                               None if written else (blocked[-1] if blocked else verdict.reason))
         return replace(static, queue_wait_seconds=_queue_wait(world, task_id),
@@ -1066,6 +1075,17 @@ def _details(scenario: Scenario, world: World, verdict: Verdict) -> ScenarioDeta
                        audit=_audit(world), dispositions=_dispositions(world))
     except Exception:  # 讀不到(行程已經停了、資料庫沒建好):只留固定的,不猜
         return static
+
+
+def _before(world: World, campaign: str, writes: Sequence[DspWrite], key: str | None) -> int | None:
+    """「之前」是被追蹤那一把鍵寫入前的平台預算:那筆寫入的前一筆寫入的新預算,沒有前一筆就是造資料時
+    的初始值(F4、F6 的別的寫入者先改的那一步不算進本系統的改動;代碼審 r1 d3)。那把鍵沒寫進平台就
+    是平台現在的值(沒改過)。"""
+    mine = next((i for i, w in enumerate(writes) if w.key == key), None)
+    if mine is None:
+        return world.budget(campaign)
+    earlier = [w.new_budget for w in writes[:mine] if w.new_budget is not None]
+    return earlier[-1] if earlier else world.initial_budgets.get(campaign)
 
 
 ALL_CODES = ("F1", "F2", "F3", "F4", "F5", "F6", "F7")
@@ -1211,13 +1231,18 @@ class Driver:
             verdict = self._attempt(scenario, world)
         finally:
             self._current = None
-        self.state.set_scenario_details(code, _details(scenario, world, verdict))
+        details = _details(scenario, world, verdict)  # 行程還在時讀(平台現況要問 DSP)
         try:
             world.close()
         except Exception as broken:  # 收尾出錯也要結案,不停在執行中、不中斷整次展示
             verdict = Verdict(code, INCOMPLETE,
                               f"展示故障:收尾時收不掉行程({type(broken).__name__}: {broken})",
                               None)
+        try:  # 行程收完才寫:寫不進去也不會讓子行程留著(代碼審 r1 d6)
+            self.state.set_scenario_details(code, details)
+        except Exception as broken:
+            verdict = Verdict(code, INCOMPLETE,
+                              f"展示故障:情境細節寫不進展示狀態庫({type(broken).__name__})", None)
         self.state.finish_scenario(code, verdict.status, verdict.reason, verdict.summary, _now())
         return verdict
 
