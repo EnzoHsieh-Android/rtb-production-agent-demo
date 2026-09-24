@@ -1,0 +1,37 @@
+[
+ {
+  "round": "r3",
+  "seat": "前輪驗收",
+  "lens": "r2 27 條是否折對",
+  "materials": [
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r3-snapshot.md",
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r3-delta.diff",
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "末輪掃描",
+  "lens": "只掃 blocking 級",
+  "materials": [
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r3-snapshot.md",
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r3-delta.diff",
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "外家-codex",
+  "lens": "外家",
+  "materials": [
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r3-snapshot.md",
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r3-delta.diff",
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/",
+   "src/rtb/"
+  ],
+  "auditor": "codex-gpt-6-sol"
+ }
+]
