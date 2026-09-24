@@ -1,0 +1,82 @@
+[
+ {
+  "round": "r3",
+  "seat": "鏡頭1",
+  "lens": "末輪:流程、租約、收據、資料驗收",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r3-snapshot.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r3-fold.diff",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-外家-codex.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-架構對齊.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭1.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭2.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭3.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "鏡頭2",
+  "lens": "末輪:模型邊界、花費帳、錄製驗收",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r3-snapshot.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r3-fold.diff",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-外家-codex.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-架構對齊.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭1.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭2.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭3.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "鏡頭3",
+  "lens": "末輪:展示情境、評估驗收",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r3-snapshot.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r3-fold.diff",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-外家-codex.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-架構對齊.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭1.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭2.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭3.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "架構對齊",
+  "lens": "末輪",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r3-snapshot.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r3-fold.diff",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-外家-codex.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-架構對齊.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭1.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭2.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭3.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "外家-codex",
+  "lens": "末輪外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r3-snapshot.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r3-fold.diff",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-外家-codex.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-架構對齊.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭1.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭2.md",
+   "governance/review-reports/rtb-phase13ai參與決策/r2-鏡頭3.md",
+   "src/rtb/"
+  ],
+  "auditor": "codex"
+ }
+]
