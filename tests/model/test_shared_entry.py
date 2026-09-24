@@ -319,7 +319,68 @@ def test_the_recording_directory_must_be_empty_or_one_batch(tmp_path):
     rec.claim(pending / f"{key}.json", "b9")  # 別的批次留下的佔位
     with pytest.raises(mc.MixedRecordingsDir):
         mc.check_recordings_dir(pending, "b1")
-    mc.check_recordings_dir(pending, "b9")
+    # 代碼審 r1:同一批中斷留下的佔位也拒絕(要先確認沒有行程還在錄、刪掉再錄)
+    with pytest.raises(mc.MixedRecordingsDir, match="佔位"):
+        mc.check_recordings_dir(pending, "b9")
     with pytest.raises(mc.MixedRecordingsDir):
         mc.check_recordings_dir(tmp_path / "same" / next(p.name for p in same.iterdir()), "b1")
 
+
+
+def test_the_recording_directory_check_has_no_gaps(tmp_path):  # noqa: PLR0915 - 逐個邊角
+    """代碼審 r1:開錄前目錄檢查的邊角——檔名跟檔內的鍵不符、沒帶批次、懸空的符號連結、列不出目錄、
+    預設的入庫目錄(只供重播)。"""
+    folder = tmp_path / "rec"
+    folder.mkdir()
+    mc.call_model(request("q", batch_id="b1"), live(FakeBackend(reply("a")), True),
+                  recordings_dir=folder, ledger=tmp_path / "l.sqlite")
+    [recorded_file] = list(folder.iterdir())
+    mc.check_recordings_dir(folder, "b1")
+    other = "f" * 64
+    recorded_file.rename(folder / f"{other}.json")  # 內容的鍵還是原本那個
+    with pytest.raises(mc.MixedRecordingsDir, match="鍵"):
+        mc.check_recordings_dir(folder, "b1")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(mc.MixedRecordingsDir, match="批次"):
+        mc.check_recordings_dir(empty, None)
+    with pytest.raises(mc.MixedRecordingsDir, match="批次"):
+        mc.check_recordings_dir(empty, "")
+    dangling = tmp_path / "dangling"
+    dangling.symlink_to(tmp_path / "nowhere")
+    with pytest.raises(mc.MixedRecordingsDir):
+        mc.check_recordings_dir(dangling, "b1")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        with pytest.raises(mc.MixedRecordingsDir):
+            mc.check_recordings_dir(locked, "b1")
+    finally:
+        locked.chmod(0o700)
+    with pytest.raises(mc.MixedRecordingsDir, match="新的錄製目錄"):
+        mc.check_recordings_dir(mc.default_recordings_dir(), "b1")
+
+
+def test_the_cap_message_says_it_counts_only_the_capped_callers(dirs, monkeypatch):
+    """代碼審 r1:「已達上限」訊息的已用只含計入上限的呼叫者,跟展示頁讀的 used_by_demo 分開講。"""
+    monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", 1)
+    with pytest.raises(mc.LocalCapRefused) as refused:
+        call(live(FakeBackend(reply("x"))), request("e"), dirs)
+    assert "計入上限的呼叫者在這次展示已用" in str(refused.value)
+    assert "計入上限的呼叫者在本月已用" in str(refused.value)
+
+
+def test_numbers_in_model_text_must_trace_back_to_the_evidence():
+    """代碼審 r1(Phase 13 計劃〈省掉不值得發生的模型工作〉④:11B 的說明與假說也照這條):文字裡提到的
+    數字要能對回送出去的證據,對不上的句子不顯示。"""
+    evidence = "預算=100、新預算=110、點擊=12、轉換=1、花費=0.5、風險說明:budget +10%"
+    kept, dropped = mc.traceable_sentences(
+        "預算從 100 加到 110,加了 10%。昨天花費999999美元,轉換率100%。點擊 12 次!", evidence)
+    assert kept == "預算從 100 加到 110,加了 10%。點擊 12 次!" and dropped == 1
+    assert mc.traceable_sentences("沒有任何數字的說明。", evidence) == ("沒有任何數字的說明。", 0)
+    assert mc.traceable_sentences("花費 0.50 元,新預算 110.0。", evidence)[1] == 0  # 同值不同寫法
+    assert mc.traceable_sentences("花費1,000元。", "花費=1000") == ("花費1,000元。", 0)
+    assert mc.traceable_sentences("全形數字１２次。", evidence) == ("全形數字１２次。", 0)
+    assert mc.traceable_sentences("只有 999。", evidence) == ("", 1)
+    assert modelgate.traceable_sentences is mc.traceable_sentences

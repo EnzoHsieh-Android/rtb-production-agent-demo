@@ -32,11 +32,13 @@ claude 絕對路徑)經 `settings_from_env` 組成設定往下傳。時間一律
 """
 
 import logging
+import re
 import sqlite3
 import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 
@@ -143,6 +145,36 @@ def call_deadline_seconds(timeout_seconds: float) -> float:
     ledger_waits = (1 + ledger_db.SETTLE_ATTEMPTS) * BUSY_TIMEOUT_SECONDS
     return (timeout_seconds + cc.LOGIN_CHECK_TIMEOUT_SECONDS + 2 * cc.GROUP_EXIT_WAIT_SECONDS
             + ledger_waits)
+
+
+_NUMBER = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
+_SENTENCE = re.compile(r"[^。!?;!?;]*[。!?;!?;]?")
+
+
+def _numbers(text: str) -> set[Decimal]:
+    """文字裡的每一個數字(全形數字照認:正規式的 \\d 與 Decimal 都認 Unicode 數字;千分位逗號拿掉;同值
+    不同寫法算同一個:0.50 等於 0.5)。"""
+    found = set()
+    for match in _NUMBER.finditer(text):
+        found.add(Decimal(match.group(0).replace(",", "")).normalize())
+    return found
+
+
+def traceable_sentences(text: str, evidence: str) -> tuple[str, int]:
+    """模型文字裡提到的數字要能對回送出去的證據(Phase 13 計劃〈省掉不值得發生的模型工作〉④:11B 的
+    說明與假說也照這條):照句末標點切句,句子裡有任何一個數字不在證據文字裡就整句拿掉。回(留下的
+    文字, 拿掉幾句)。只比數值、不比單位與語意——核對只證明數字出自證據,不證明用對了地方。要在佔位符
+    換回真實編號之前比(真實編號裡的數字不在送出的內容裡)。"""
+    allowed = _numbers(evidence)
+    kept, dropped = [], 0
+    for sentence in _SENTENCE.findall(text):
+        if not sentence:
+            continue
+        if _numbers(sentence) <= allowed:
+            kept.append(sentence)
+        else:
+            dropped += 1
+    return "".join(kept).strip(), dropped
 
 
 class Preflight(StrEnum):

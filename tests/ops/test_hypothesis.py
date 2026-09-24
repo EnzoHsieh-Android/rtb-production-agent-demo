@@ -309,3 +309,44 @@ def hypothesis_ignores_injected_names(tmp_path, name):
             outcomes.append(printed["hypothesis"]["status"])
         assert dump(data.executor_db, data.analyzer_db, dsp_db) == before
         return outcomes
+
+
+# ---- 代碼審 r1 ----
+def test_live_recording_hypotheses_need_a_batch_id_and_still_print_the_alert(rows, dsp_url,
+                                                                            tmp_path):
+    """即時加錄製沒帶批次:不呼叫模型,告警照常印,入口以參數錯結束;帶了批次與新目錄才照常錄。"""
+    fire_alert(rows)
+    script, environ = live_env(tmp_path, VALID)
+    environ = {**environ, "RTB_MODEL_RECORD": "1"}
+    code, printed, err = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1",
+                             "--recordings-dir", str(tmp_path / "fresh"))
+    assert code == hypothesis.EXIT_BAD_ARGUMENTS and "批次" in err
+    assert printed["hypothesis"]["status"] == "refused"
+    assert next(s for s in printed["slos"] if s["name"] == "safe_completion")["fast"]["fired"]
+    assert invocations(script) == []
+    code, printed, err = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1",
+                             "--batch-id", "b1")  # 預設的入庫目錄只供重播
+    assert code == hypothesis.EXIT_BAD_ARGUMENTS and "新的錄製目錄" in err
+    assert invocations(script) == []
+    code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1",
+                           "--batch-id", "b1", "--recordings-dir", str(tmp_path / "fresh"))
+    assert code == slo_code(rows, dsp_url) and printed["hypothesis"]["status"] == "ok"
+    [saved] = list((tmp_path / "fresh").glob("*.json"))
+    assert json.loads(saved.read_text(encoding="utf-8"))["batch_id"] == "b1"
+
+
+def test_hypotheses_with_untraceable_numbers_are_not_shown(rows, dsp_url, tmp_path):
+    """假說文字裡的數字要對回送出去的內容:對不上的那一條不顯示,全部對不上就整份作廢。"""
+    fire_alert(rows)
+    answer = {"hypotheses": ["12 件都過期了,執行迴圈可能沒在跑", "昨天花了 999999 美元"],
+              "next_step": "open_example_trace"}
+    _, environ = live_env(tmp_path / "a", answer)
+    code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1")
+    assert printed["hypothesis"]["status"] == "ok"
+    assert printed["hypothesis"]["hypotheses"] == ["12 件都過期了,執行迴圈可能沒在跑"]
+    _, environ = live_env(tmp_path / "b", {"hypotheses": ["昨天花了 999999 美元"],
+                                          "next_step": "open_example_trace"})
+    code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1")
+    assert printed["hypothesis"]["status"] == "failed"
+    assert printed["hypothesis"]["reason"] == "untraceable_numbers"
+    assert code == slo_code(rows, dsp_url)

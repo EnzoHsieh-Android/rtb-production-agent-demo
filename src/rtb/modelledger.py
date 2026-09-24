@@ -215,7 +215,8 @@ def reserve(ledger: Path, request: ModelRequest, model: str, backend: Backend) -
         conn.close()
     if reservation_id is None:
         raise LocalCapRefused(
-            f"已達上限:這次展示已用 {for_demo / core.NANOUSD_PER_USD:.4f} 美元、本月已用 "
+            f"已達上限:計入上限的呼叫者在這次展示已用 {for_demo / core.NANOUSD_PER_USD:.4f} 美元、"
+            "計入上限的呼叫者在本月已用 "
             f"{in_month / core.NANOUSD_PER_USD:.4f} 美元,加上這次預留 "
             f"{amount / core.NANOUSD_PER_USD:.4f} "
             "美元會超過每次展示 1 美元或每月 20 美元,沒有呼叫")

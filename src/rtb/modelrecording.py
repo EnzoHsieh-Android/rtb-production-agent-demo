@@ -124,41 +124,58 @@ class MixedRecordingsDir(ValueError):
 _RECORDING_NAME = re.compile(r"[0-9a-f]{64}\.json")
 
 
-def _batch_of(path: Path) -> str | None:
-    """一個錄製檔或佔位檔記的批次;讀不懂丟 MixedRecordingsDir。"""
+_FRESH = "即時加錄製要給一個新的錄製目錄(專案根的 recordings/model/ 是入庫目錄,只供重播)"
+
+
+def _batch_of(path: Path, batch_id: str) -> str | None:
+    """一個錄製檔記的批次;讀不懂、檔名跟檔內的鍵不符、或是佔位檔(不論哪一批)丟 MixedRecordingsDir。
+    """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError) as bad:
         raise MixedRecordingsDir(f"{path.name} 讀不懂({type(bad).__name__})") from bad
     pending, batch = _pending_batch(data)
-    if pending:
-        return batch
+    if pending:  # 別批的佔位是混批;同一批的是中斷留下的,續錄會在那個鍵上撞錄製衝突
+        where = "同一批" if batch == batch_id else f"別的批次({batch})"
+        raise MixedRecordingsDir(
+            f"錄製目錄裡有{where}留下的佔位 {path.name}:確認沒有行程還在錄之後刪掉再錄")
     try:
         recording = Recording(**data)
     except TypeError as bad:
         raise MixedRecordingsDir(f"{path.name} 不是錄製檔") from bad
     if not _well_typed(data):
         raise MixedRecordingsDir(f"{path.name} 不是錄製檔")
+    if path.name != f"{recording.key}.json":
+        raise MixedRecordingsDir(f"{path.name} 的檔名跟檔內的錄製鍵不符,讀的時候會被當成沒有錄製")
     return recording.batch_id
 
 
-def check_recordings_dir(directory: Path, batch_id: str) -> None:
-    """開錄前的目錄檢查(runner 與評估執行器共用):目錄不存在或是空的就放行;裡面只准有錄製檔或佔位檔,
-    而且每一份的批次都等於這一批。其他檔、子目錄、讀不懂的檔、別的批次(含別批留下的佔位)一律拒絕,
-    不要把兩批混在同一個目錄、也不要讓舊鍵以錄製衝突被拒卻看起來像設定錯誤(Phase 13〈錄製批次與
-    入庫〉)。"""
+def check_recordings_dir(directory: Path, batch_id: str | None) -> None:
+    """開錄前的目錄檢查(runner、評估執行器與兩支模型入口共用):目錄不存在或是空的就放行;裡面只准有
+    檔名等於檔內錄製鍵、批次等於這一批的錄製檔。沒帶批次、目錄是懸空的符號連結或不是目錄、列不出來、
+    有其他檔或子目錄、讀不懂的檔、別的批次、任何佔位(含同一批中斷留下的)一律拒絕:不要把兩批混在
+    同一個目錄,也不要讓錄製在第一次呼叫才以錄製衝突或設定錯誤失敗(Phase 13〈錄製批次與入庫〉、
+    代碼審 r1)。專案根的入庫目錄有說明檔,所以即時加錄製一定要給新目錄。"""
+    if not batch_id:
+        raise MixedRecordingsDir("即時加錄製要帶批次編號")
     folder = Path(directory)
-    if not folder.exists():
+    if folder.is_symlink():
+        raise MixedRecordingsDir(f"{folder} 是符號連結,不收;{_FRESH}")
+    if not os.path.lexists(folder):
         return
     if not folder.is_dir():
         raise MixedRecordingsDir(f"{folder} 不是目錄")
-    for entry in sorted(folder.iterdir()):
+    try:
+        entries = sorted(folder.iterdir())
+    except OSError as denied:
+        raise MixedRecordingsDir(f"錄製目錄列不出來({type(denied).__name__})") from denied
+    for entry in entries:
         if not entry.is_file() or entry.is_symlink() or not _RECORDING_NAME.fullmatch(entry.name):
-            raise MixedRecordingsDir(f"錄製目錄裡有不是錄製檔的東西:{entry.name}")
-        found = _batch_of(entry)
+            raise MixedRecordingsDir(f"錄製目錄裡有不是錄製檔的東西:{entry.name};{_FRESH}")
+        found = _batch_of(entry, batch_id)
         if found != batch_id:
             raise MixedRecordingsDir(
-                f"錄製目錄裡有別的批次({found}),這一批是 {batch_id};換一個全新的目錄再錄")
+                f"錄製目錄裡有別的批次({found}),這一批是 {batch_id};{_FRESH}")
 
 
 class PendingRecording(Exception):

@@ -13,6 +13,7 @@ os.fork、os.forkpty、os.exec*、os.spawn*、os.posix_spawn*、asyncio.create_s
 """
 
 import ast
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -193,9 +194,35 @@ def gate_offenders(analyzer=RTB / "analyzer"):
     return offenders
 
 
+def closure_offenders(src=SRC):
+    """分析端每一支不在准許名單的模組(閘道本身除外),匯入閉包都不准含閘道或模型用戶端的任何一支模組
+    (代碼審 r1:原本只查三支,別的模組經說明命令列轉手就拿得到閘道)。"""
+    clients = frozenset(f"rtb.{path.stem}" for path in (src / "rtb").glob("model*.py"))
+    offenders = []
+    for path in sorted((src / "rtb" / "analyzer").glob("*.py")):
+        module = _module_name(path, src)
+        if module in GATE_USERS or module == GATE:
+            continue
+        reached = closure_of([module], src) & (clients | {GATE})
+        if reached:
+            offenders.append(f"{module}: 閉包含 {sorted(reached)}")
+    return offenders
+
+
+def gate_module_objects(tree):
+    """閘道綁定的模型用戶端模組物件(import rtb.modelX、from rtb import modelX):
+    閘道只准轉手型別與函式,
+    不准把模組物件公開(代碼審 r1:modelgate.mc.ledger_db 就能繞過閘道直接寫帳)。"""
+    found = [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names
+             if a.name.startswith("rtb.model")]
+    found += [a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module == "rtb"
+              for a in n.names if a.name.startswith("model")]
+    return found
+
+
 def test_the_analyzer_reaches_the_model_only_through_the_gateway(tmp_path):
-    """[S1100] 分析端只經模型閘道碰模型用戶端;准匯入閘道的分析端模組寫死;流程推進、決策規則與 DSP
-    用戶端的匯入閉包不含模型用戶端的任何一支模組。"""
+    """[S1100] 分析端只經模型閘道碰模型用戶端;准匯入閘道的分析端模組寫死;其他每一支分析端模組的
+    匯入閉包都不含閘道或模型用戶端的任何一支模組;閘道不公開模型用戶端的模組物件。"""
     clients = model_client_modules()
     assert {"rtb.modelclient", "rtb.modelclaude", "rtb.modelcore", "rtb.modelledger",
             "rtb.modelledger_view", "rtb.modelrecording", "rtb.modelverify",
@@ -203,10 +230,14 @@ def test_the_analyzer_reaches_the_model_only_through_the_gateway(tmp_path):
     assert analyzer_model_offenders() == []
     assert gate_offenders() == []
     assert (RTB / "analyzer" / "modelgate.py").is_file()
+    assert closure_offenders() == []
     for root in MODEL_FREE:
         reached = closure_of([root])
         assert not reached & (clients | {GATE}), (root, sorted(reached & (clients | {GATE})))
     assert "rtb.modelclient" in closure_of([GATE])
+    gate_tree = ast.parse((RTB / "analyzer" / "modelgate.py").read_text(encoding="utf-8"))
+    assert gate_module_objects(gate_tree) == []
+    assert gate_module_objects(ast.parse("from rtb import modelclient as mc\n"))
     # 殺傷力:分析端副本裡任何一支檔直接碰模型用戶端的任何模組、或白名單外的檔匯入閘道,都抓得到
     for probe in ("from rtb import modelclient\n", "import rtb.modelcore\n",
                   "from rtb.modelledger_view import Caller\n", "from rtb import modelrecording\n",
@@ -219,6 +250,52 @@ def test_the_analyzer_reaches_the_model_only_through_the_gateway(tmp_path):
     copy.mkdir()
     (copy / "flow.py").write_text("from rtb.analyzer import modelgate\n", encoding="utf-8")
     assert gate_offenders(copy)
+    # 經說明命令列轉手:別支分析端模組匯入它,閉包就含閘道
+    shadow = tmp_path / "src"
+    shutil.copytree(SRC, shadow)
+    with (shadow / "rtb" / "analyzer" / "instrumented.py").open("a", encoding="utf-8") as file:
+        file.write("\nfrom rtb.analyzer.narrate import modelgate as _mg  # noqa: E402,F401\n")
+    assert closure_offenders(shadow)
+
+
+def caller_offenders(tree, module):
+    """用了不屬於自己的呼叫者標籤:Caller.成員(不論接在誰後面)、Caller("值")、Caller["成員"]。"""
+    values = {"eval_candidate": "EVAL_CANDIDATE", "ops_hypothesis": "HYPOTHESIS",
+              "analyzer_narrative": "NARRATIVE", "live_verification": "VERIFICATION",
+              "analyzer_investigation": "INVESTIGATION"}
+    used = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in CALLER_USERS and (
+                isinstance(node.value, ast.Name | ast.Attribute)
+                and (getattr(node.value, "id", None) or getattr(node.value, "attr", None))
+                == "Caller"):
+            used.add(node.attr)
+        elif isinstance(node, ast.Call) and getattr(node.func, "id", getattr(
+                node.func, "attr", None)) == "Caller" and node.args and isinstance(
+                node.args[0], ast.Constant) and node.args[0].value in values:
+            used.add(values[node.args[0].value])
+        elif isinstance(node, ast.Subscript) and getattr(node.value, "id", getattr(
+                node.value, "attr", None)) == "Caller" and isinstance(
+                node.slice, ast.Constant) and node.slice.value in CALLER_USERS:
+            used.add(node.slice.value)
+    return sorted(f"{module}: 用了 {name}" for name in used if module not in CALLER_USERS[name])
+
+
+def test_each_caller_label_is_used_only_by_its_own_module():
+    """代碼審 r1:花費上限依請求自報的呼叫者判,每個呼叫者標籤只准它自己的那支模組用。"""
+    from rtb.modelledger_view import Caller
+
+    assert set(CALLER_USERS) == {member.name for member in Caller}
+    offenders = []
+    for path in sorted(RTB.rglob("*.py")):
+        module = _module_name(path)
+        if module not in CALLER_EXEMPT:
+            offenders += caller_offenders(ast.parse(path.read_text(encoding="utf-8")), module)
+    assert offenders == []
+    for probe in ("from rtb import modelclient as mc\nx = mc.Caller.NARRATIVE\n",
+                  "from rtb.modelclient import Caller\nx = Caller('ops_hypothesis')\n",
+                  "from rtb.modelclient import Caller\nx = Caller['INVESTIGATION']\n"):
+        assert caller_offenders(ast.parse(probe), "rtb.eval.model_candidate"), probe
 
 
 @pytest.mark.parametrize("layer", ["ops", "eval", "dsp", "executor"])
@@ -238,10 +315,24 @@ BACKEND_NAMES = frozenset({"run_claude", "ClaudeCodeBackend", "check_login", "cl
 BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverify"})
 
 
-# 送出呼叫的地方:模型用戶端本身、評估的模型候選、分析端模型閘道(Phase 13 改寫)與維運的假說命令列
-# (Phase 11B [S912];分析端的模型說明命令列經閘道送出,不直接碰 call_model)
+# 送出呼叫的地方:模型用戶端本身、評估的模型候選、分析端模型閘道(Phase 13 改寫)、經閘道送出的模型說明
+# 命令列與維運的假說命令列(Phase 11B [S912])。送出的名字除了 call_model,還有閘道的 open_gate 與
+# complete(代碼審 r1:閘道是第二個送出入口)
 CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate",
-                              "rtb.analyzer.modelgate", "rtb.ops.hypothesis"})
+                              "rtb.analyzer.modelgate", "rtb.analyzer.narrate",
+                              "rtb.ops.hypothesis"})
+SEND_CALLS = frozenset({"call_model", "open_gate", "complete"})
+# 每個呼叫者標籤只准哪幾支模組用(代碼審 r1:花費上限看請求自報的呼叫者,標籤要綁住模組才守得住
+# 「誰都不能自稱不計入」)。定義它的唯讀開法與只拿來列上限清單的花費帳寫入不算使用;Phase 13 增量 2 的
+# AI 決策模組開檔時把它加進「分析端調查」那一格
+CALLER_USERS: dict[str, frozenset[str]] = {
+    "EVAL_CANDIDATE": frozenset({"rtb.eval.model_candidate"}),
+    "HYPOTHESIS": frozenset({"rtb.ops.hypothesis"}),
+    "NARRATIVE": frozenset({"rtb.analyzer.narrate"}),
+    "VERIFICATION": frozenset({"rtb.modelverify"}),
+    "INVESTIGATION": frozenset(),
+}
+CALLER_EXEMPT = frozenset({"rtb.modelledger_view", "rtb.modelledger"})
 
 
 def backend_offenders(tree, label, module=None):
@@ -259,13 +350,11 @@ def backend_offenders(tree, label, module=None):
                     module_name == "rtb" and names & {"modelclaude", "modelverify"}):
                 found.append(f"{label}: 從 {module_name} 匯入 {sorted(names)}")
             found += [f"{label}: 匯入 {n}" for n in names & BACKEND_NAMES]
-            if "call_model" in names and module not in CALL_MODEL_USERS:
-                found.append(f"{label}: 匯入 call_model")
-        elif isinstance(node, ast.Attribute) and node.attr in BACKEND_NAMES:
+            if names & SEND_CALLS and module not in CALL_MODEL_USERS:
+                found.append(f"{label}: 匯入 {sorted(names & SEND_CALLS)}")
+        elif isinstance(node, ast.Attribute) and (node.attr in BACKEND_NAMES or (
+                node.attr in SEND_CALLS and module not in CALL_MODEL_USERS)):
             found.append(f"{label}:{node.lineno} 取用 {node.attr}")
-        elif isinstance(node, ast.Attribute) and node.attr == "call_model" and (
-                module not in CALL_MODEL_USERS):
-            found.append(f"{label}:{node.lineno} 取用 call_model")
         elif isinstance(node, ast.Attribute) and node.attr == "modelclient" and not (
                 isinstance(node.value, ast.Name) and node.value.id == "rtb"):
             found.append(f"{label}:{node.lineno} 經別的模組轉手模型用戶端")
@@ -290,8 +379,23 @@ def test_only_the_model_client_modules_touch_the_claude_backend():
                   "from rtb import modelledger_writeoff as w\nw.modelclient.call_model(1)",
                   "from rtb import modelledger_writeoff as w\nclient = w.modelclient",
                   "from rtb.modelclient import call_model",
-                  "import rtb.modelclient\nrtb.modelclient.call_model(1)"):
+                  "import rtb.modelclient\nrtb.modelclient.call_model(1)",
+                  # 代碼審 r1:經分析端模型閘道送出
+                  "from rtb.analyzer import modelgate as g\ng.open_gate({}, demo_id=None, "
+                  "ledger=None, recordings=None)",
+                  "def f(gate):\n    return gate.complete(1, 's', 'u')",
+                  "from rtb.analyzer.modelgate import open_gate"):
         assert backend_offenders(ast.parse(probe), "probe"), probe
+    # 代碼審 r1:分析端與維運以外的各層(含展示與它的啟動器)也禁匯入模型閘道
+    for config in (RTB / "dsp" / "ruff.toml", RTB / "eval" / "ruff.toml",
+                   RTB / "demo" / "ruff.toml", RTB / "demo" / "launcher" / "ruff.toml",
+                   RTB / "executor" / "ruff.toml", RTB / "domain" / "ruff.toml"):
+        for banned in ("from rtb.analyzer import modelgate", "import rtb.analyzer.modelgate"):
+            result = subprocess.run(
+                [sys.executable, "-m", "ruff", "check", "--config", str(config),
+                 "--stdin-filename", str(config.parent / "probe.py"), "-"],
+                input=f"{banned}\n", capture_output=True, text=True, timeout=60, check=False)
+            assert result.returncode == 1 and "TID251" in result.stdout, (config, banned)
     # 四個目錄的靜態檢查規則也擋模型用戶端各模組與實測命令列(維運的假說命令列在增量 2 另開例外)
     for layer in ("dsp", "executor", "domain", "ops"):
         config = RTB / layer / "ruff.toml"
