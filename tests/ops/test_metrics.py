@@ -110,8 +110,10 @@ def test_metrics_cover_the_handoff_list_without_writing(rows):
     assert set(WINDOW_LIST) <= {s.name for s in report.samples}
     assert set(SNAPSHOT_LIST) <= {s.name for s in now.samples}
     jev = one(report, "model_and_jev")
-    assert jev.status is m.Status.NOT_APPLICABLE and jev.value is None
-    assert "確定性" in jev.note  # 附理由:分析是確定性計算,沒有呼叫模型
+    # Phase 11B 增量 1 起模型與 Jev 指標改從花費帳算(計劃 [[Projects/RTB_Phase11B大模型接入_計劃]]
+    # 〈花費帳與上限〉,[S907] 另測有帳的情況);沒給花費帳就是無樣本、附原因,不再標不適用
+    assert jev.status is m.Status.NO_SAMPLES and jev.value is None
+    assert "花費帳" in jev.note
     for name in ("blocked", "awaiting_approval", "approval_released", "stale_rejections"):
         # 事件次數,跟可觀測查詢停下紀錄的提案數定義不同(代碼審第 1 輪),樣本上寫明
         assert "事件次數" in one(report, name).note, name
@@ -774,3 +776,20 @@ def test_a_report_is_stable_only_when_every_reread_matches_the_first(rows, monke
     _scripted_end_to_end(monkeypatch, same, same, same)
     report = window(rows)
     assert (report.stable, report.rounds) == (True, m.MAX_ROUNDS)
+
+
+def test_a_broken_model_ledger_only_empties_the_model_metric(rows, tmp_path):
+    """花費帳還沒建表或讀取出錯:只有「模型與 Jev」變成無樣本並寫原因,其他指標照常
+    (代碼審第 1 輪)。"""
+    a_little_of_everything(rows)
+    half_built = tmp_path / "ledger.sqlite"
+    sqlite3.connect(half_built).close()  # 檔案在、表還沒建
+    not_a_db = tmp_path / "garbage.sqlite"
+    not_a_db.write_bytes(b"this is not a database at all" * 100)
+    for ledger in (half_built, not_a_db):
+        report = m.collect_window(W_START, W_END, executor_db=rows.executor_db,
+                                  analyzer_db=rows.analyzer_db, tenants=TENANTS,
+                                  model_ledger=ledger)
+        jev = one(report, "model_and_jev")
+        assert jev.status is m.Status.NO_SAMPLES and "花費帳" in jev.note, ledger
+        assert pick(report, "terminal_event_rate"), ledger

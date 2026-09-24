@@ -1,0 +1,38 @@
+{
+ "loop": "code-linux-group-wait",
+ "round": "r2",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-24T21:49:14+08:00",
+ "spec_path": "governance/review-reports/code-linux-group-wait/r2-snapshot.patch",
+ "spec_sha": "f4953bc42bd3454ef8be68e1fc530d1daba7b7074eb82f342beedf8a8baef427",
+ "rows": [
+  "{\"ts\": \"2026-09-24T21:14:13+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-3d3a85a5\", \"note\": \"\", \"loop\": \"code-linux-group-wait\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 2, \"result_sha256\": \"9dc0bcc260bdfc2bcee20ecc78186559df12ef9f68f855de7e1543d0f3168f9d\", \"reviewed_sha256\": \"9dc0bcc260bdfc2bcee20ecc78186559df12ef9f68f855de7e1543d0f3168f9d\", \"spec_path\": \"governance/review-reports/code-linux-group-wait/r1-snapshot.patch\", \"scope_lines\": 403, \"reported\": 2, \"report_path\": \"governance/review-reports/code-linux-group-wait/r1-架構對齊.md\", \"report_sha256\": \"d5a1da2cddb17aa7ded9629f0cd658f111a70d83695efa71b413e748c0b5be6b\", \"snapshot_path\": \"governance/review-reports/code-linux-group-wait/r1-snapshot.patch\", \"snapshot_sha256\": \"9dc0bcc260bdfc2bcee20ecc78186559df12ef9f68f855de7e1543d0f3168f9d\"}",
+  "{\"ts\": \"2026-09-24T21:14:14+08:00\", \"kind\": \"none\", \"auditor\": \"鏡頭1-正確性\", \"token\": \"CANARY-b80d973a\", \"note\": \"\", \"loop\": \"code-linux-group-wait\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 3, \"result_sha256\": \"9dc0bcc260bdfc2bcee20ecc78186559df12ef9f68f855de7e1543d0f3168f9d\", \"reviewed_sha256\": \"9dc0bcc260bdfc2bcee20ecc78186559df12ef9f68f855de7e1543d0f3168f9d\", \"spec_path\": \"governance/review-reports/code-linux-group-wait/r1-snapshot.patch\", \"scope_lines\": 403, \"findings_set\": [\"c1\", \"c2\", \"c3\", \"a1\", \"a2\"], \"folded_set\": [\"c1\", \"c2\", \"c3\", \"a1\", \"a2\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 3, \"report_path\": \"governance/review-reports/code-linux-group-wait/r1-鏡頭1-正確性.md\", \"report_sha256\": \"5f1b1ed3fecf143ae80a02d8d62924ae5682b8918f628b85b97826aeafd3031a\", \"snapshot_path\": \"governance/review-reports/code-linux-group-wait/r1-snapshot.patch\", \"snapshot_sha256\": \"9dc0bcc260bdfc2bcee20ecc78186559df12ef9f68f855de7e1543d0f3168f9d\"}",
+  "{\"ts\": \"2026-09-24T21:39:15+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-39634c24\", \"note\": \"\", \"loop\": \"code-linux-group-wait\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 2, \"result_sha256\": \"f4953bc42bd3454ef8be68e1fc530d1daba7b7074eb82f342beedf8a8baef427\", \"reviewed_sha256\": \"f4953bc42bd3454ef8be68e1fc530d1daba7b7074eb82f342beedf8a8baef427\", \"spec_path\": \"governance/review-reports/code-linux-group-wait/r2-snapshot.patch\", \"scope_lines\": 800, \"reported\": 2, \"report_path\": \"governance/review-reports/code-linux-group-wait/r2-架構對齊.md\", \"report_sha256\": \"fcc614aa1abbbeda184a58df95ebfd72b5d81fe0fc568a37225539b4a23778d0\", \"snapshot_path\": \"governance/review-reports/code-linux-group-wait/r2-snapshot.patch\", \"snapshot_sha256\": \"f4953bc42bd3454ef8be68e1fc530d1daba7b7074eb82f342beedf8a8baef427\"}",
+  "{\"ts\": \"2026-09-24T21:39:16+08:00\", \"kind\": \"none\", \"auditor\": \"鏡頭1-正確性\", \"token\": \"CANARY-0fda8655\", \"note\": \"\", \"loop\": \"code-linux-group-wait\", \"round\": \"r2\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"f4953bc42bd3454ef8be68e1fc530d1daba7b7074eb82f342beedf8a8baef427\", \"reviewed_sha256\": \"f4953bc42bd3454ef8be68e1fc530d1daba7b7074eb82f342beedf8a8baef427\", \"spec_path\": \"governance/review-reports/code-linux-group-wait/r2-snapshot.patch\", \"scope_lines\": 800, \"findings_set\": [\"c1\", \"c2\", \"a1\", \"a2\"], \"folded_set\": [\"c1\", \"c2\", \"a1\", \"a2\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 2, \"report_path\": \"governance/review-reports/code-linux-group-wait/r2-鏡頭1-正確性.md\", \"report_sha256\": \"d12635615fcc471b8a7289dfa7cf2e89fa6c44bdd5a909d4ee8ef4a469d3eceb\", \"snapshot_path\": \"governance/review-reports/code-linux-group-wait/r2-snapshot.patch\", \"snapshot_sha256\": \"f4953bc42bd3454ef8be68e1fc530d1daba7b7074eb82f342beedf8a8baef427\"}"
+ ],
+ "all_row_shas": [
+  "04ca0b947e819e3ca5f45a2a78f9c890a1ba5bd5156b20987bf50ea2c8118746",
+  "218a4b130c248919180e537df6ac4bdb91060ab509156de30ec61e8cdcdeab55",
+  "30ecd9c422a0cf562d5be9eb659356d40040f9fd0ff7c9517e410ff981c68160",
+  "e12c7edb00f01120f448fb18c82520efcdf72305e21015a467dfb1a964cd0656"
+ ],
+ "files": {
+  "governance/review-reports/code-linux-group-wait/r2-架構對齊.md": {
+   "sha256": "fcc614aa1abbbeda184a58df95ebfd72b5d81fe0fc568a37225539b4a23778d0",
+   "git_blob": "f911d026aecaafba2244f5bdbcfcfa3c5c9bd08b"
+  },
+  "governance/review-reports/code-linux-group-wait/r2-snapshot.patch": {
+   "sha256": "f4953bc42bd3454ef8be68e1fc530d1daba7b7074eb82f342beedf8a8baef427",
+   "git_blob": "4befb0c7991fbe85d0ce0c89424efc1797da9d7f"
+  },
+  "governance/review-reports/code-linux-group-wait/r2-鏡頭1-正確性.md": {
+   "sha256": "d12635615fcc471b8a7289dfa7cf2e89fa6c44bdd5a909d4ee8ef4a469d3eceb",
+   "git_blob": "c9445c93959cc20974bb2de0df3ed9f8d6351112"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

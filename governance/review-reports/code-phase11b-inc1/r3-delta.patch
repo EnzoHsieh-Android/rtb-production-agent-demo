@@ -1,0 +1,3219 @@
+diff --git a/docs/.governance-log.jsonl b/docs/.governance-log.jsonl
+index 081f906..470756e 100644
+--- a/docs/.governance-log.jsonl
++++ b/docs/.governance-log.jsonl
+@@ -3545,10 +3545,12 @@
+ {"ts": "2026-09-24T15:19:51+08:00", "commit": "2325b18", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T15:29:37+08:00", "commit": "5908c2b", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T15:53:16+08:00", "commit": "0194e76", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Projects/RTB_Phase10評估與Jev決策點_計劃.md", "Projects/RTB_Phase11證據清單與驗證器_計劃.md", "Systems/任務流程領域模型.md", "Systems/評估與Jev決策點.md", "Systems/靜態檢查閘.md", "Verification/Phase10驗收紀錄.md", "Verification/Phase2驗收紀錄.md"], "note": "tokens=10 hits=9 secs=2.5"}
+ {"ts": "2026-09-24T15:53:17+08:00", "commit": "0194e76", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "0194e76ff2f6e12872e3a1b7ef91b63f46ca7290"}
+ {"ts": "2026-09-24T15:53:39+08:00", "commit": "a5eeedb", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T15:53:40+08:00", "commit": "a5eeedb", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "a5eeedbb73fa7d884a7eb28fbc1b0e2c6c9aea82"}
+ {"ts": "2026-09-24T16:34:12+08:00", "commit": "56767a1", "gate": "delguard", "kind": "degraded", "hard": false, "nodes": [], "note": "reason=timeout tokens=40"}
+ {"ts": "2026-09-24T16:34:13+08:00", "commit": "56767a1", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "56767a11d5caf0bad2ade5c4bdbd53230489372a"}
+ {"ts": "2026-09-24T17:10:55+08:00", "commit": "3721489", "gate": "delguard", "kind": "degraded", "hard": false, "nodes": [], "note": "reason=timeout tokens=31"}
+ {"ts": "2026-09-24T17:10:57+08:00", "commit": "3721489", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "3721489674e65359d05154e35a996e86b9859969"}
++{"ts": "2026-09-24T17:11:02+08:00", "commit": "3f3254a", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T17:11:03+08:00", "commit": "3f3254a", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "3f3254a0675582002ad0c3cbd9c6514c883f5623"}
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
+index 393f008..d10a98d 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
+@@ -206,40 +206,56 @@ RETIRE-IF: 使用者決定整個 Demo 不再展示模型(三個接入點都拔
+   - 別的批次已有同一個鍵:歸設定錯誤(子類別),呼叫前拒絕、不記帳、結算狀態是「沒有預留」;評估因此整批停。
+   - 結算狀態:計劃說每個例外都帶結算狀態;呼叫前就擋下、沒有寫預留的(本地檢查、別批已錄、預留時花費帳忙碌)沒有狀態(None),本地上限拒絕與錄製重播記 0 元、狀態是已結算。
+   - 失敗讀得出用量時,「原價」欄記「預留與原價兩者較高」,入帳記「預留與原價乘 1.2 兩者較高」;入帳等於預留的算「照預留結算」(可核銷)。
+   - 快取:價目表加 5 分鐘與 1 小時快取寫入(官方頁 2.5 與 4 美元)與快取讀取(0.2 美元);回應沒分開回報快取寫入時整個算 1 小時(較貴)。預留的輸入單價取三者最高(4 美元)。
+   - 錯誤子類型:KNOWN_ERRORS 在增量 1 是空的(沒有真實樣本),所以額度用完、沒登入、不認得的模型、超過單次花費上限目前一律落到「暫時性、無法可靠分類」、評估停下;測試注入假設樣本驗分類機制。後端丟出的意外錯誤也歸無法可靠分類。
+   - 登入狀態檢查:一個後端物件只跑一次(入口一個行程建一個),逾時 10 秒,走同樣的環境白名單、隔離與新行程群組。
+   - 清理順序照第 8 版:只等不領回確認主行程結束 → 殺整組 → 確認沒有活著的行程 → 最後領回。macOS 上群組只剩還沒領回的殭屍時送 0 號訊號回「沒有權限」,把它當成「沒有活的」;殺整組一律在領回之前,領回之後不再送殺訊號。
+   - 固定思考強度用 `--effort low`;設定來源參數目前傳空字串(`--setting-sources ""`)加 `--settings "{}"`,可行的組合以協調者實測⑦為準。
+   - 管理政策來源:系統層目錄是 macOS `/Library/Application Support/ClaudeCode` 與 Linux `/etc/claude-code`,MDM 是 `/Library/Managed Preferences/com.anthropic.claudecode.plist`,都以實作當下 Claude Code 文件為準、待協調者核對;含 hooks、mcpServers、env、apiKeyHelper 任一個鍵(非空)或讀不懂就拒絕即時。
+   - 啟用紀錄:版本比對用 `claude --version` 輸出第一行整行;真 HOME 隔離時查的記憶位置是 `~/.claude/CLAUDE.md`、`~/.claude/memory`、`~/.claude/projects/*/memory`(以實作當下為準,待實測③核對)。實測命令列的「設定來源壓掉使用者設定」只在空暫存 HOME 下驗得了(真 HOME 不能放對照設定檔),所以退回真 HOME 時這一項一定沒過、紀錄寫不出來——真 HOME 退路目前實際上開不了即時,要協調者決定要不要另想驗法。
+-  - 評估即時但沒開錄製:批次紀錄只在記憶體、照樣算比較表、不寫檔,同鍵不共用。重播讀錄製目錄裡唯一一份批次紀錄,零份標「沒有批次紀錄」、多份標「批次不一致」,都不採用。評估的 --ledger 在即時模式直接拒絕(參數錯)。
++  - 評估即時但沒開錄製:批次紀錄只在記憶體、照樣算比較表、不寫檔,同鍵仍只呼叫一次(候選自己去重);報告的來源寫「即時、未存檔」。重播讀錄製目錄裡唯一一份批次紀錄,零份標「沒有批次紀錄」、多份標「批次不一致」,都不採用。評估的 --ledger 在即時模式直接拒絕(參數錯)。
+   - 模型候選的回答必須是只有 verdict 一個欄位的 JSON 物件,多欄位或包程式碼圍欄都算判定不合格;子集種子 20260924。
+   - 合約 S921:增量 1 只測共用部分(錄製鍵只看內容、佔位符依出現順序且能換回);真的執行迴圈跑兩次那半,增量 2 組出假說與說明的輸入時補進同一支測試。合約 S926:增量 1 沒有帶「現在」參數的模型入口,測試改證明花費帳與模型用戶端沒有任何能傳入時間的參數、月份照系統時鐘。
+   - 維運逐檔白名單的寫入名字(模型用戶端送出呼叫、核銷)先登記在假說命令列那一格(那支檔增量 2 才有);合約 S912 本身在增量 2。
+   - 價目表:2026-09-24 查官方價目頁,Claude Sonnet 5 輸入 2 美元、輸出 10 美元(每百萬 token,腳註寫原訂調價取消)。
+   - 代碼審第 1 輪補強的解讀(2026-09-24,實作者):
+     - 中斷:呼叫途中的 Ctrl-C 與任何例外都照 [S939] 的順序殺整組、確認空了、領回,再原樣往外丟;SIGTERM 只在主執行緒呼叫時轉成例外(訊號處理器只能裝在主執行緒),呼叫結束還原原本的處理器;清理期間暫時擋住 SIGINT 與 SIGTERM,清完才送達。
+     - 登入檢查的期限取 10 秒與這次呼叫剩下時間的較小者;被呼叫的期限卡住時算這次呼叫逾時(照預留結算,寧多不少),自己的 10 秒用完才是設定錯誤。
+     - 成功形狀帶工具痕跡:仍是讀不懂,另標工具使用(評估停下);不是錯誤、子類型卻不是 success 也是讀不懂。
+     - 標準錯誤只寫本機日誌;讀不成 JSON 的非 0 結束子原因固定是 `unparseable_exit`,不進花費帳與錄製檔。
+     - 回報的花費跟 token 數分開讀:用量缺欄但有回報花費時,token 欄位記空、回報花費照樣參與取較高者;成功形狀缺用量仍是讀不懂。快取寫入分開的數字加總小於總數時,差額算 1 小時。
+     - 荒謬值:token 數超過「(提示上限 48 KB + 固定附加 4000 + 輸出上限 32000)的千倍」或回報花費超過「每月上限的千倍」(2 萬美元),夾到上限記帳、判讀不懂、標超支;不讓 SQLite 整數溢位漏出去。這兩個上限是實作者取的,不動使用者裁定的數字。
+     - 超支又結算寫不進去:結算狀態另立「超支又未結算」;結算最多試 3 次(間隔 0.05、0.1 秒),仍失敗就把應入帳金額印到標準錯誤。
+-    - 核銷沒結算的列:預留列另記主行程編號、開機識別與開機以來秒數。同一次開機時,主行程還活著(含「行程在但不是自己的」)不准核銷,開機以來秒數也要過最長請求期限,兩種時鐘對不上就拒絕;重開過機只看牆鐘;判不出是不是同一次開機就拒絕。開機識別:Linux 讀核心的開機編號,其他系統用「牆鐘減開機以來秒數」推開機時刻(取到 10 秒,容許 60 秒誤差)。行程編號被重用的機率不處理(寧可擋住,由人等它結束)。
++    - 核銷沒結算的列:預留列另記主行程編號、開機識別與開機以來秒數。不論是不是同一次開機,主行程還活著(含「行程在但不是自己的」、編號被重用)就不准核銷;同一次開機時開機以來秒數也要過最長請求期限,兩種時鐘對不上就拒絕;重開過機只看牆鐘與主行程;判不出是不是同一次開機就拒絕。開機識別(代碼審第 2 輪改,不隨牆鐘移動):Linux 讀核心的開機編號,macOS 讀核心的開機工作階段編號(kern.bootsessionuuid,經 ctypes);都讀不到記 unknown、一律判不出。
+     - 帳檔與啟用紀錄跟著帳號家目錄(帳號資料庫),不看 HOME;測試的注入點是整套共用夾具換掉讀帳號家目錄那一支。測試啟動的子行程沒有注入點,所以子行程一律明給暫存帳檔、或只印路徑不開帳。
+     - 錄製:呼叫前用獨佔建立佔住正式檔名(內容是佔住它的批次),錄完原子地換成正式內容,沒錄成就放掉;同一批的另一個呼叫碰到佔位就等它錄完(上限是請求逾時加 5 秒),別的批次碰到就呼叫前拒絕。佔不到檔名(目錄沒權限)是設定錯誤(確定沒呼叫);已呼叫之後才寫不進去另立「錄製寫入失敗」(暫時性、無法可靠分類,留住回應與結算狀態)。花費帳或檔案系統的其他非模型例外一律包成暫時性、無法可靠分類。
+     - 錄製檔載入時驗鍵等於檔名、呼叫者與模型等於這次請求、每欄型別;錄製檔多存工具使用、無法可靠分類、結算狀態三欄,重播照它們停在同一處(舊格式的錄製檔讀不懂,增量 1 沒有真錄製,不做相容)。
+     - 評估去重:即時沒開錄製時候選自己記住這一批呼叫過的鍵;開錄製時照錄製檔(模型用戶端)去重。模型用戶端以外的例外也替那個情境補一列(暫時性、無法可靠分類)並停下。
+     - 實測命令列:設定來源的毒值改成使用者設定 env 裡連不到的 ANTHROPIC_BASE_URL(`http://127.0.0.1:9`),正面對照拿掉 `--setting-sources`、`--settings`、`--safe-mode` 三個參數後必須失敗;記憶暗號放在隔離 HOME 的 `.claude/CLAUDE.md`、`.claude/memory/MEMORY.md`、`.claude/projects/rtb/memory/MEMORY.md`;撞到輸出上限的錯誤文字比對「output token maximum」(待協調者用真實輸出核對);新增必過項目 `fixed_input_within_reserve`(量得到而且不超過 4000)。
+     - 管理政策來源加個人層 MDM `/Library/Managed Preferences/<帳號>/com.anthropic.claudecode.plist` 與 `policyHelper`、`policyHelpers` 兩個鍵。
++  - 代碼審第 2 輪補強的解讀(2026-09-24,實作者;使用者裁定的數字都沒動):
++    - 撞頂後的自動續寫:本機 claude 2.1.281 的程式字串裡有 `max_output_tokens_recovery`,撞到輸出上限後最多自動續寫 3 次、每次重送前文。實測命令列在看得到時判沒過(對話輪數大於 1、或輸出 token 超過上限);`-p` 的 JSON 看不看得到續寫沒實測過(不能呼叫真的模型),所以預留與單次花費上限一律照「1 + 3 次請求、每次重送前幾次輸出」算(預留約是原本的 4 倍多)。代價:同樣 1 美元的展示額度能容納的單次輸出上限變小(提示很長或輸出上限上千時,一次預留就可能超過 1 美元而被拒);評估候選的 32 token 不受影響。
++    - 輸出上限的正面證據要對得上數字:錯誤那一路比對完整句子「exceeded the 32 output token maximum」,停止原因那一路另外要求輸出 token 不超過 32。
++    - claude 路徑:入口核版本時就解開符號連結、固定用那一支實體檔(版本檢查、後端、實測命令列都用它);自動更新改指新版不會用到沒實測過的版本,舊版檔被清掉就是起不來的設定錯誤(結算 0、評估停下)。
++    - 登入檢查用完這次呼叫的期限:一律設定錯誤(子原因 login_check_timeout,結算 0、評估不算送出並停下),不再記逾時。
++    - 中斷訊號:SIGINT、SIGTERM、SIGHUP、SIGQUIT 都走同一條清理;起行程到進清理的 try 之間先擋住這四個訊號(放開時才送達)。代價:子行程繼承被擋住的訊號遮罩(claude 自己收不到這四個訊號);我們一律用 SIGKILL 殺整組,不受影響。
++    - 記憶暗號加正面對照:拿掉安全模式與設定來源參數時必須吐出暗號,這一項才算過。
++    - 固定附加輸入量:輸入 token 欄缺、或任一輸入類欄位不是不為負的整數,就算量不到(沒過)。
++    - 荒謬值(超過上限千倍):照預留結算(可核銷)、標超支,原始數字只寫錯誤日誌,不入帳。
++    - 核銷金額上界:不超過這筆的預留與結算兩者較高者(先擋超過每月上限的離譜值),超過是「拒絕」。
++    - 實測命令列的真實呼叫也經花費帳:呼叫者多一個列舉值「即時模式實測」(live_verification),一次實測一個展示編號,算進每月上限;已達上限時實測不跑、不寫紀錄。
++    - 錄製檔:成功一定有文字、失敗一定沒有,延遲要有限且不為負,不合就是「沒有錄製」。別的批次留下的佔位,拒絕訊息改說「可能是中斷留下的佔位」。
++    - 批次紀錄:載入時驗結構與值域;重播時逐列核對情境清單(列數、順序)與有錄製的列的結果類別、原價,對不上就掛旗標、不拿它算門檻;跑到一半被中斷或崩掉時照寫已跑的部分並標「中斷」。
++    - 模型逐格結果只算真的呼叫了模型(含同批共用)的情境,另列實際作答、退回、沒呼叫件數;一次都沒呼叫到時寫「沒量」。「不採用的理由」是 Phase 10 的固定文字(沒改),模型段另註明候選實測已有。
++    - 測試隔離:帳號家目錄的測試覆寫改用環境變數(只在 pytest 測試執行中才認),子行程繼承;子行程環境掃描改抓所有不是從 os.environ 起頭的 env=(變數要每次賦值都從 os.environ 起頭)。測試輔助寫啟用紀錄在共用夾具外一律拒寫。
++    - 核銷期限的邊界是 420 秒(逾時上限 120 秒加 5 分鐘),測試釘 120、420 秒拒絕、421 秒才准(協調者寫的 424/426 是照 425 秒估的)。
+ 
+ ## 合約候選
+ 
+ - [S900] 沒有同時開啟即時呼叫、帶展示編號並找得到 claude 指令時,模型用戶端應只讀錄製回應,不啟動任何子行程,並在結果標來源為錄製。[test:test_without_every_switch_no_claude_process_starts]
+ - [S901] 錄製模式找不到對應的錄製檔時,模型用戶端應丟「沒有錄製」,不改走即時呼叫。[test:test_a_missing_recording_fails_instead_of_calling_live]
+ - [S902] 本次展示已用加預留超過 1 美元、或本月已用加預留超過 20 美元時,模型用戶端應不發出請求並丟「本地上限拒絕」。[test:test_the_budget_caps_stop_the_call_before_it_is_sent]
+ - [S903] 兩個呼叫端同時預留時,花費帳應讓後者看得到前者的預留,兩筆加總不會讓已用超過上限。[test:test_concurrent_reservations_never_exceed_the_cap]
+ - [S904] 回應判定應照「子行程有沒有起來、能不能讀成含類型與錯誤欄位的 JSON、是錯誤就先分子類型、不是錯誤才做工具偵測與欄位檢查、結束代碼」的順序;錯誤回應即使對話輪數為 0 或缺用量欄位,也應依子類型歸類;逾時、暫時性服務錯誤、回應讀不懂、訂閱額度用完或結算寫入失敗時,回應讀得出用量就應取「預留」與「原價乘 1.2」較高者計入已用,讀不出才照預留;結束代碼非 0 而輸出讀不成 JSON 時應歸暫時性服務錯誤並標無法可靠分類;本地上限拒絕、呼叫前本地檢查失敗或設定錯誤時應結算 0;認不出的錯誤應歸暫時性服務錯誤。[test:test_failed_calls_are_settled_by_their_kind]
+ - [S905] 模型用戶端傳給 claude 子行程的環境,鍵應只在 PATH、HOME、USER、LANG 與輸出上限變數之內;呼叫端環境裡的其他變數(例如 DSP 讀取令牌)應不出現在子行程環境。[test:test_the_claude_subprocess_gets_only_whitelisted_environment]
+ - [S906] 模型用戶端啟動 claude 子行程時,指令應帶非互動模式、JSON 輸出、固定思考強度、自己的系統提示、關掉全部工具、不載入 MCP、關掉斜線指令、安全模式、最少的設定來源與空設定、不存對話紀錄與等於這一筆預留原價的單次花費上限,使用者內容應只從標準輸入送,並在每次新建的空暫存目錄執行。[test:test_the_claude_command_disables_every_tool]
+@@ -289,20 +305,22 @@ REVISIT:2026-12-31 看花費帳忙碌的發生次數(從 Phase 12 展示紀錄
+ - 未排除:對外送出:第一次把資料送到外部服務(經 Claude Code 送到 Anthropic)。送出的內容是 Demo 的合成資料,照欄位白名單送,編號與時間戳都不送;不送任何令牌(子行程環境白名單)。天花板:日後若換成真實客戶資料,送出的內容就包含客戶資訊,要另開設計審;訂閱帳號的資料使用條款與 API 不同,拿真實資料前要查。
+ - 已排除:不可逆:模型不寫任何決策、提案或 DSP 狀態;花費帳只增不改(核銷也是追加);即時呼叫本身的花費是唯一不可逆的後果,已由上限管住。
+ - 未排除:守衛面:放寬了既有邊界(只有模型用戶端能啟動 claude 子行程、分析端一處、評估套件與維運套件各一處,見既有邊界怎麼改),各自有測試守住「只多這些」。提示裡的「資料區指示不照做」只能減少誤導,真正的防線是輸出嚴格驗證加上模型沒有任何決策寫入路徑。人的判斷不在保證內,見提示注入的保證範圍。
+ - 未排除:關工具與隔離使用者設定(安全模式、不載 MCP、關斜線指令)靠 Claude Code 的命令列參數;新版本改名或行為改變時,組指令的測試仍會綠,但工具可能沒被關掉、hook 可能又會跑。緩解:對話輪數與權限被拒清單的偵測 [S936];錄製前的本機實測(含故意開工具的對照、hook 事件檢查)記進驗收紀錄。
+ - 未排除:輸出上限變數在單次呼叫中途能不能擋住,要本機實測才知道;擋不住就不寫啟用紀錄、即時模式不開 [S942]。實測通過後仍保留超支偵測 [S934] 當最後一道網,抓 Claude Code 行為與實測時不同的情況。
+ - 未排除:自動記憶與管理政策不在安全模式保證內;靠即時啟動前的管理政策檢查 [S941] 與錄製前實測③把關,實測沒過就停用即時模式。
+ - 未排除:管理政策來源的清單與鍵名(managed-settings、managed-mcp、系統層與個人層 MDM、remote-settings;hooks、mcpServers、env、apiKeyHelper、policyHelper、policyHelpers)是照 Claude Code 2.1.281 列的,新版本可能多來源或改鍵名,檢查會漏。每升一版 claude 要對照官方設定文件重查一次這份清單(即時模式啟用紀錄綁版本,版本變了本來就要重跑實測,重查放在同一步)。
+ REVISIT:2026-12-31 對照當時 claude 版本的官方設定文件重查管理政策來源與鍵名清單。事件入口:本機 claude --version 變了(啟用紀錄失效、要重跑實測時)。
+ REVISIT:2026-12-31 Claude Code 升主要版本時重做實測③;有新參數能明確關掉自動記憶就改用它並刪掉這條。事件入口:本機 claude --version 主版本號變了。
+ - 未排除:孫行程若自己再開新的工作階段就離開行程群組,清理殺不到它;Claude Code 目前沒有這種行為的證據,這一版不處理。
++- 未排除:撞到輸出上限後 Claude Code 會自動續寫(2.1.281 最多 3 次),從 `-p` 的輸出看不看得出來沒實測過。防線:預留照 4 次請求算、實測看得出續寫就不寫啟用紀錄、超支偵測兜底。代價是單次能用的輸出上限變小。
++REVISIT:2026-12-31 協調者本機實測時確認撞頂後 `-p` 輸出的對話輪數或用量會不會反映續寫;看得出來而且實測沒過續寫,就把預留改回一次請求。事件入口:協調者跑 `python -m rtb.modelverify` 時。
+ - 未排除:Claude Code 回報的花費估計沒有我們的新鮮度把關,所以原價取它與「token 數乘價目表」的較高者 [S940];價目表本身仍受 90 天期限管。
+ - 未排除:用 OAuth 令牌環境變數或需要代理伺服器才能登入的使用者,子行程環境白名單會把這些變數擋掉,結果是設定錯誤;這一版不支援。
+ REVISIT:2026-12-31 Claude Code 升主要版本時,重跑一次本機實測(要求模型執行指令的提示 → 回應裡沒有工具使用);沒過就停用即時模式並開 Issue。事件入口:本機 claude --version 的主版本號變了。
+ - 未排除:拿訂閱當程式後端只適合本機自己展示;給別人用或部署出去要換 API 後端(使用條款協調者沒有細查)。
+ - 未排除:Claude Code 每次呼叫要起一個行程,延遲比直接打 API 高很多(數秒),接入點 3 的延遲門檻(p95 3 秒)幾乎一定沒過;比較表照實標。
+ - 未排除:欄位白名單讓模型看不到任何時間長短與延遲數值,只看得到事件順序與間隔類別;假說的精細度因此受限(分不出爆發與零星),這是為了錄製可重播與不送出編號而付的代價。
+ REVISIT:2027-01-31 Phase 12 展示後看模型假說有沒有因為缺時間資訊而明顯答錯;有就改成由展示情境注入固定時鐘、再送分桶的時間。
+ - 未排除:錄製回應會過期:提示或模型改了,錄製檔找不到就失敗(不會悄悄用舊答案);提示沒改、模型行為變了,錄製檔仍會重播舊行為。比較表標「歷史觀測」與錄製日期。
+ - 未排除:即時模式的測試結果不穩定(模型每次答案可能不同),所以所有自動測試只跑錄製或假回應;即時模式只在本機展示時跑。
+ - 已排除:並行:花費帳在同一交易內讀已用(含同月未結算預留)並寫預留,合約 [S903] 與 [S922] 守;模型說明用領取表在同一交易內領取,[S929] 守;結果表只增不改。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+index 0779ec4..b4221ed 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+@@ -19,20 +19,22 @@ about_code:
+   - tests/model/__init__.py
+   - tests/model/fakes.py
+   - tests/model/test_modelclient.py
+   - tests/model/test_claude_backend.py
+   - tests/model/test_writeoff.py
+   - tests/model/test_verification.py
+   - tests/test_spawn_boundary.py
+   - tests/model/test_claude_process.py
+   - tests/model/test_ledger_hardening.py
+   - tests/model/test_recording_integrity.py
++  - tests/model/test_live_guards.py
++  - tests/model/test_ledger_limits.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: [2026-09-24] Phase 11B 在 Phase 11 與 12 之間接大模型(使用者本人要求),三個接入點共用一個模型用戶端與一本花費帳;出處 [[Projects/RTB_Phase11B大模型接入_計劃]]。
+   RULE: 花費上限每次展示 1 美元、每月 20 美元,到上限就停止呼叫;改這兩個數字要走設計審。[since:2026-09-24] [retire:使用者改裁定或整個 Demo 不再展示模型時] [confirmed:2026-09-24]
+   WHY: [2026-09-24] 使用者本人改裁定:展示改走本機 Claude Code 非互動模式(吃訂閱額度、不用 API 金鑰),模型用戶端介面保留、將來可加 API 後端;計劃第 5 到 8 版的換後端小審查三輪都折入。出處 [[Projects/RTB_Phase11B大模型接入_計劃]]〈模型用戶端〉。
+   RULE: 整套測試在 pytest 一啟動就把家目錄指到暫存目錄、PATH 換成暫存加系統基本路徑、清掉即時與錄製開關;真花費帳與真 claude 任何測試都碰不到。[since:2026-09-24] [retire:花費帳不再放家目錄、而且不再有 claude 後端時] [test:test_the_suite_never_touches_the_real_ledger] [test:test_the_suite_can_never_reach_the_real_claude]
+   RULE: 錯誤子類型只認有真實樣本的(KNOWN_ERRORS);取不到真實樣本的一律落到「暫時性、無法可靠分類」,評估保守停下。增量 1 入庫時沒有任何樣本,等協調者錄製時補。[since:2026-09-24] [retire:Claude Code 提供穩定、有文件的錯誤代碼欄位時] [test:test_failed_calls_are_settled_by_their_kind]
+   RULE: 即時模式要有效的啟用紀錄(~/.rtb/live-verification.json:claude 版本、各項實測結果、隔離方式);紀錄只由實測命令列在全部通過時寫,claude 一升級就失效。[since:2026-09-24] [retire:改用 API 後端、不再經 Claude Code 時] [test:test_live_mode_needs_a_current_verification_record]
+@@ -91,16 +93,34 @@ summary: |-
+ - 實測命令列(`modelverify.py`):記憶暗號、連不到的 API 位址當毒值加正面對照、輸出上限要撞頂證據、錯誤回應一律沒過、
+   固定附加輸入要量得到且不超過 4000(新必過項目 `fixed_input_within_reserve`)。
+ - 測試隔離(`tests/conftest.py`):每支測試換掉帳號家目錄的讀法、自己的暫存目錄、管理政策來源指到空目錄;整套結束時
+   連啟用紀錄一起比。子行程測試的環境一律從 os.environ 起頭(`tests/test_suite_isolation.py` 用語法樹掃)。
+ - 邊界:整個 rtb 只有模型用戶端各模組與實測命令列能碰 Claude Code 後端;DSP、執行端、領域層、維運的 ruff 設定
+   禁匯入模型用戶端、Claude Code 後端與實測命令列(維運另禁核銷命令列);維運逐檔白名單的掃描範圍加上實測與核銷
+   命令列(`tests/test_spawn_boundary.py`、[[Systems/追蹤檢視]] 的邊界測試)。
+ 
+ PITFALL: 假 claude 在孫行程起來之前就寫「已啟動」標記,中斷測試會在孫行程出生前殺整組、讀不到孫行程編號(看起來像測試壞了)。標記要寫在孫行程起來之後。出處:代碼審第 1 輪實作時。[test:test_an_interrupted_call_kills_the_whole_group]
+ 
++## 代碼審第 2 輪補強(2026-09-24)
++
++解讀寫在計劃〈拆增量〉「代碼審第 2 輪補強的解讀」;這裡只記落在哪:
++
++- 即時護欄(`modelclient.py`、`modelclaude.py`):入口解開 claude 的符號連結固定實體檔;登入檢查用完期限是設定錯誤;
++  SIGHUP、SIGQUIT 也轉成例外;起行程前先擋中斷訊號。防回歸:`tests/model/test_live_guards.py`。
++- 錢(`modelcore.py`、`modelledger.py`、`modelclient.py`):預留把撞頂後最多 3 次自動續寫算進去;開機識別改讀核心的編號;
++  核銷先看主行程、金額有上界;荒謬值照預留結算;快取總數欄讀不懂就是讀不懂。防回歸:`tests/model/test_ledger_limits.py`。
++- 實測命令列(`modelverify.py`):輸出上限比對完整數字、看得出續寫就沒過;記憶暗號加正面對照;輸入用量缺欄算量不到;
++  每次真的呼叫都經花費帳(呼叫者「即時模式實測」)。
++- 錄製(`modelrecording.py`):成功要有文字、失敗不能有、延遲有限不為負。
++- 邊界:DSP、執行端、領域層、維運的 ruff 設定另禁共用詞彙、帳本寫入、錄製讀寫與核銷命令列;全庫掃描另抓 call_model 與
++  經別的模組轉手的模型用戶端。
++- 測試隔離(`tests/conftest.py`、`modelledger_view.py`):帳號家目錄的測試覆寫改用只在 pytest 測試執行中才認的環境變數,
++  子行程繼承;`tests/model/fakes.py` 的啟用紀錄輔助在共用夾具外拒寫。
++
++PITFALL: 帳號家目錄不看 HOME,測試輔助在 pytest 外被呼叫(以為換了 HOME 就隔開)就寫進真的 ~/.rtb:代碼審第 2 輪別的審查席真的寫進了假啟用紀錄與 1055 筆假預留(協調者已移走)。輔助函式現在在共用夾具外拒寫。[test:test_the_verification_helper_refuses_outside_the_test_fixture]
++
+ ## 還沒做、要協調者在本機做的
+ 
+ - 錄製前實測(計劃〈拆增量〉①–⑨)與寫啟用紀錄:`python -m rtb.modelverify`。
+ - 錯誤子類型的真實樣本(額度用完、沒登入、不認得的模型、超過單次花費上限)存成夾具、補進 KNOWN_ERRORS。
+ - 固定附加輸入 token 數(目前先用 4000)照實測改;`--setting-sources` 目前傳空字串,能不能用以實測為準。
+ REVISIT:2026-12-31 看 KNOWN_ERRORS 有沒有補上真實樣本;還是空的就查為什麼錄製時沒取到,並在計劃記一筆。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+index dc47ba0..e0ceb6b 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+@@ -69,11 +69,18 @@ verified_by:
+ - `src/rtb/eval/record.py` 在入口讀模式(即時開關、展示編號、PATH 上的 claude、啟用紀錄),即時模式的花費帳寫死
+   家目錄那一本,`--ledger` 只在錄製模式能用;預留時花費帳忙碌以結束代碼 9 結束。
+ - `tests/eval/test_model_candidate.py`:[S908]、[S909]、[S918]、[S919]、[S924]、[S928]、[S933]、[S934]。
+ - 代碼審第 1 輪補強(2026-09-24):去重跟錄製開關無關(即時沒開錄製時候選自己記住這一批呼叫過的鍵,開錄製時照錄製檔);
+   共用的失敗列標共用、不算送出;模型用戶端以外的例外也替那個情境補一列(暫時性、無法可靠分類)並停下,不會讀到上一列;
+   成功形狀帶工具痕跡、超支又未結算也停。模型的計分走既有的計分與合成集報告,模型段另印「模型逐格結果」表、錯誤子型與
+   擾動改變的組數;有旗標時比較表的 LLM 列寫「沒量(原因:旗標)」;重播時批次紀錄的情境清單要是這次子集的開頭一段,
+   不是就標「批次紀錄的情境清單跟這次子集不同」。防回歸:[test:test_identical_inputs_share_one_call_without_recording]、
+   [test:test_a_non_model_error_gets_its_own_row_and_stops]、[test:test_the_model_section_reports_its_own_scores]、
+   [test:test_flags_show_up_in_the_llm_row_and_the_scenarios_must_match]。
++- 代碼審第 2 輪補強(2026-09-24):重播時批次紀錄要跟這次重播逐列對得上(列數、順序、有錄製的列的結果類別與原價),
++  讀不懂或對不上就掛旗標、不算門檻;即時跑到一半被中斷時照寫已跑的部分並標中斷;模型逐格結果只算真的呼叫了模型的情境,
++  另列實際作答、退回、沒呼叫;即時沒開錄製時來源寫「即時、未存檔」;「不採用的理由」是 Phase 10 固定文字,模型段另註明
++  候選實測已有。評估套件的送出名字(send、backend、BackendCall…)只准模型候選用 call_model,模型用戶端的匯入閉包寫死、
++  不准有網路模組。防回歸:[test:test_a_batch_record_missing_rows_is_flagged]、
++  [test:test_a_tampered_batch_record_is_not_trusted]、[test:test_the_model_scores_only_count_calls_that_were_made]、
++  [test:test_an_interrupted_live_run_still_writes_its_batch]。
+ 
+diff --git a/src/rtb/domain/ruff.toml b/src/rtb/domain/ruff.toml
+index e2092ba..a58e2e1 100644
+--- a/src/rtb/domain/ruff.toml
++++ b/src/rtb/domain/ruff.toml
+@@ -25,10 +25,14 @@ extend = "../../../pyproject.toml"
+ "smtplib".msg = "領域層不得碰網路"
+ "socketserver".msg = "領域層不得碰網路"
+ "anthropic".msg = "領域層不得呼叫模型"
+ "openai".msg = "領域層不得呼叫模型"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+ "rtb.modelclient".msg = "只有接入點與實測命令列能用模型用戶端(Phase 11B [S917];維運的假說命令列在增量 2 另開例外)"
+ "rtb.modelclaude".msg = "Claude Code 後端只准模型用戶端與實測命令列匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelverify".msg = "實測命令列會真的呼叫 claude、寫啟用紀錄:不准被別的層匯入(Phase 11B 代碼審第 1 輪)"
++"rtb.modelcore".msg = "模型用戶端的共用詞彙只給模型用戶端各模組與接入點用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelledger".msg = "花費帳寫入(預留、結算、核銷)只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelledger_writeoff".msg = "核銷命令列會寫花費帳、經它還拿得到模型用戶端:不准匯入(Phase 11B 代碼審第 2 輪)"
+diff --git a/src/rtb/dsp/ruff.toml b/src/rtb/dsp/ruff.toml
+index 2101b49..747e98a 100644
+--- a/src/rtb/dsp/ruff.toml
++++ b/src/rtb/dsp/ruff.toml
+@@ -3,10 +3,14 @@ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
+ "rtb.executor".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+ "subprocess".msg = "只有模型用戶端能啟動子行程(Phase 11B [S917])"
+ "rtb.modelclient".msg = "只有接入點與實測命令列能用模型用戶端(Phase 11B [S917];維運的假說命令列在增量 2 另開例外)"
+ "rtb.modelclaude".msg = "Claude Code 後端只准模型用戶端與實測命令列匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelverify".msg = "實測命令列會真的呼叫 claude、寫啟用紀錄:不准被別的層匯入(Phase 11B 代碼審第 1 輪)"
++"rtb.modelcore".msg = "模型用戶端的共用詞彙只給模型用戶端各模組與接入點用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelledger".msg = "花費帳寫入(預留、結算、核銷)只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelledger_writeoff".msg = "核銷命令列會寫花費帳、經它還拿得到模型用戶端:不准匯入(Phase 11B 代碼審第 2 輪)"
+diff --git a/src/rtb/eval/model_candidate.py b/src/rtb/eval/model_candidate.py
+index 58bab07..684916c 100644
+--- a/src/rtb/eval/model_candidate.py
++++ b/src/rtb/eval/model_candidate.py
+@@ -13,20 +13,21 @@
+ 批次紀錄:即時跑的那一次產生一個批次編號,每一次嘗試記一列(情境、結果類別、原價、token、
+ 延遲),七個欄位相同的情境同一批只即時呼叫一次、其餘列標「共用前一列」([S933]);去重跟錄製開關
+ 無關(沒開錄製時候選自己記住這一批呼叫過的鍵)。模型用戶端以外的例外也替那個情境補一列(暫時性、
+ 無法可靠分類)並停下,不會讀到上一列。
+ 比較表的模型列一律從批次紀錄算(包含當時的失敗),標「歷史觀測」與錄製日期;「沒有錄製」
+ 「花費帳忙碌」「本地上限拒絕」「設定錯誤」與共用列都沒有呼叫模型,不算進四種比率,另外列件數;
+ 「訂閱額度用完」已經呼叫,算進例外率。每次呼叫成本取該格最高一次的原價([S928])。
+ """
+ 
+ import json
++import math
+ import random
+ import statistics
+ from collections import Counter
+ from collections.abc import Mapping, Sequence
+ from dataclasses import asdict, dataclass, field, replace
+ from datetime import UTC, datetime
+ from pathlib import Path
+ 
+ from rtb import modelclient as mc
+ from rtb.analyzer.policy import CandidateCall, TrialCells, route
+@@ -223,60 +224,110 @@ class BatchRow:
+ 
+ @dataclass(frozen=True)
+ class BatchRecord:
+     batch_id: str
+     caller: str
+     model: str
+     price_checked_on: str
+     price_page: str
+     recorded_on: str
+     rows: tuple[BatchRow, ...]
++    interrupted: bool = False  # 跑到一半被中斷或崩掉:只寫了已跑的部分
++
++
++class BatchInvalid(ValueError):
++    """批次紀錄的結構或值域不對(存在版本庫裡、誰都改得到,不信任它)。"""
+ 
+ 
+ def batch_row(scenario: Scenario, attempt: Attempt) -> BatchRow:
+     sent = not attempt.shared and attempt.outcome not in UNSENT
+     return BatchRow(scenario.scenario_id, scenario.cell, attempt.outcome,
+                     None if attempt.verdict is None else attempt.verdict.value, sent,
+                     attempt.shared, attempt.list_nanousd, attempt.input_tokens,
+                     attempt.output_tokens, attempt.latency_ms)
+ 
+ 
+ def batch_json(batch: BatchRecord) -> str:
+     rows = [{**asdict(row), "cell": row.cell.value, "note": SHARED_NOTE if row.shared else ""}
+             for row in batch.rows]
+     return json.dumps({**asdict(batch), "rows": rows}, ensure_ascii=False, indent=1)
+ 
+ 
++_ROW_TEXT = ("scenario_id", "outcome")
++_ROW_COUNTS = ("input_tokens", "output_tokens")
++
++
++def _count(value: object) -> bool:
++    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
++
++
++def _valid_row(row: dict[str, object]) -> bool:
++    latency = row["latency_ms"]
++    verdict = row["verdict"]
++    return (all(isinstance(row[name], str) for name in _ROW_TEXT)
++            and all(row[name] is None or _count(row[name]) for name in _ROW_COUNTS)
++            and _count(row["list_nanousd"])
++            and isinstance(row["sent"], bool) and isinstance(row["shared"], bool)
++            and (verdict is None or verdict in {v.value for v in WorthVerdict})
++            and (latency is None or (isinstance(latency, int | float)
++                                     and not isinstance(latency, bool)
++                                     and math.isfinite(latency) and latency >= 0)))
++
++
+ def load_batch(path: Path) -> BatchRecord:
+-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+-    rows = tuple(BatchRow(**{**{k: v for k, v in row.items() if k != "note"},
+-                             "cell": WorthCell(row["cell"])}) for row in data.pop("rows"))
+-    return BatchRecord(**data, rows=rows)
++    """讀批次紀錄並驗結構與值域;不合丟 BatchInvalid(讀的一方當「讀不懂」、掛旗標)。"""
++    try:
++        data = json.loads(Path(path).read_text(encoding="utf-8"))
++        raw_rows = data.pop("rows")
++        if not isinstance(raw_rows, list) or not all(isinstance(r, dict) for r in raw_rows):
++            raise BatchInvalid("批次紀錄的 rows 不是物件清單")
++        rows = []
++        for row in raw_rows:
++            fields = {k: v for k, v in row.items() if k != "note"}
++            if not _valid_row(fields):
++                raise BatchInvalid("批次紀錄有一列的欄位型別或值域不對")
++            rows.append(BatchRow(**{**fields, "cell": WorthCell(fields["cell"])}))
++        batch = BatchRecord(**data, rows=tuple(rows))
++    except BatchInvalid:
++        raise
++    except (OSError, ValueError, TypeError, KeyError, AttributeError) as bad:
++        raise BatchInvalid(f"批次紀錄讀不懂:{type(bad).__name__}") from bad
++    if not all(isinstance(getattr(batch, name), str) for name in (
++            "batch_id", "caller", "model", "price_checked_on", "price_page", "recorded_on")) \
++            or not isinstance(batch.interrupted, bool):
++        raise BatchInvalid("批次紀錄的表頭欄位型別不對")
++    return batch
+ 
+ 
+ def batches_dir(recordings_dir: Path) -> Path:
+     return Path(recordings_dir) / "batches"
+ 
+ 
+ def write_batch(recordings_dir: Path, batch: BatchRecord) -> Path:
+     """批次紀錄不可變:只新建,同名已存在就失敗。"""
+     target = batches_dir(recordings_dir) / f"{batch.batch_id}.json"
+     target.parent.mkdir(parents=True, exist_ok=True)
+     with target.open("x", encoding="utf-8") as file:
+         file.write(batch_json(batch))
+     return target
+ 
+ 
+-def new_batch(batch_id: str, model: str, rows: Sequence[BatchRow]) -> BatchRecord:
++def new_batch(batch_id: str, model: str, rows: Sequence[BatchRow], *,
++              interrupted: bool = False) -> BatchRecord:
+     return BatchRecord(batch_id, mc.Caller.EVAL_CANDIDATE.value, model,
+                        mc.PRICES_CHECKED_ON.isoformat(), mc.PRICE_PAGE,
+-                       datetime.now(UTC).date().isoformat(), tuple(rows))
++                       datetime.now(UTC).date().isoformat(), tuple(rows), interrupted)
++
++
++def partial_rows(scenarios: Sequence[Scenario], candidate: ModelCandidate) -> tuple[BatchRow, ...]:
++    """跑到一半被中斷時,已經留下旁路紀錄的那幾個情境的列(旁路紀錄與情境一一對應、依序)。"""
++    return tuple(batch_row(s, a) for s, a in zip(scenarios, candidate.attempts, strict=False))
+ 
+ 
+ # ---- 跑子集 ----
+ @dataclass(frozen=True)
+ class ModelRun:
+     scored: tuple[ScoredCase, ...]
+     rows: tuple[BatchRow, ...]
+     stopped: str | None  # 整批停下的原因(結果類別或供應商月上限);跑完是 None
+     recording_batches: frozenset[str] = field(default_factory=frozenset)
+     missing_recordings: int = 0
+diff --git a/src/rtb/eval/record.py b/src/rtb/eval/record.py
+index 97cead2..4b0739b 100644
+--- a/src/rtb/eval/record.py
++++ b/src/rtb/eval/record.py
+@@ -25,21 +25,21 @@ import statistics
+ import sys
+ import time
+ import uuid
+ from collections.abc import Mapping
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from pathlib import Path
+ from typing import TextIO
+ 
+ from rtb import modelclient as mc
+-from rtb.analyzer.policy import ValidatedCells, route
++from rtb.analyzer.policy import RoutePath, ValidatedCells, route
+ from rtb.domain.worth import WorthCell, WorthInput
+ from rtb.eval import eval_set, model_candidate
+ from rtb.eval.adoption import (
+     Adoption,
+     ComparisonRow,
+     Measure,
+     OperationalLimits,
+     decide_adoption,
+ )
+ from rtb.eval.generator import from_rows
+@@ -170,49 +170,67 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
+ 
+ 
+ @dataclass(frozen=True)
+ class ModelSection:
+     rows: Mapping[WorthCell, ComparisonRow] | None  # 有批次紀錄才有
+     flags: tuple[str, ...]  # 未跑完、錄製不全、批次不一致、沒有批次紀錄
+     lines: tuple[str, ...]
+     ledger_busy: bool
+ 
+ 
+-def _replayed_batch(run: model_candidate.ModelRun, recordings: Path, scenario_ids: list[str]
++def _replayed_batch(run: model_candidate.ModelRun, recordings: Path
+                     ) -> tuple[model_candidate.BatchRecord | None, list[str]]:
++    """重播時找唯一一份批次紀錄,並跟這次重播逐列核對:情境清單(列數、順序)要一樣,有錄製的列結果
++    類別與原價要跟錄製檔一樣;對不上就掛旗標、不拿它算門檻(代碼審第 2 輪:缺列的批次曾被當成完整)。"""
+     flags = []
+     found = sorted(model_candidate.batches_dir(recordings).glob("*.json"))
+     if not found:
+         return None, ["沒有批次紀錄"]
+-    batch = model_candidate.load_batch(found[0])
++    try:
++        batch = model_candidate.load_batch(found[0])
++    except model_candidate.BatchInvalid as bad:
++        return None, [f"批次紀錄讀不懂({bad})"]
+     if len(found) > 1 or not run.recording_batches <= {batch.batch_id}:
+         flags.append("批次不一致(錄製檔與批次紀錄的批次編號對不上,或不只一份批次紀錄)")
+-    recorded = [r.scenario_id for r in batch.rows]
+-    if recorded != scenario_ids[:len(recorded)]:  # 批次可能停在中途:要是這次子集的開頭一段
+-        flags.append("批次紀錄的情境清單跟這次子集不同")
++    if [r.scenario_id for r in batch.rows] != [r.scenario_id for r in run.rows]:
++        flags.append("批次紀錄的情境清單跟這次子集不同(缺列、多列或順序不同)")
++    elif any(replayed.outcome != mc.Outcome.NO_RECORDING.value
++             and (kept.outcome, kept.list_nanousd) != (replayed.outcome, replayed.list_nanousd)
++             for kept, replayed in zip(batch.rows, run.rows, strict=True)):
++        flags.append("批次紀錄的結果類別或原價跟錄製檔對不上")
++    if batch.interrupted:
++        flags.append("未跑完(中斷)")
+     if run.missing_recordings:
+         flags.append(f"錄製不全({run.missing_recordings} 個情境沒有錄製)")
+     return batch, flags
+ 
+ 
+ def _model_run(settings: mc.Settings, args: argparse.Namespace) -> tuple[
+         model_candidate.ModelRun, model_candidate.BatchRecord | None, list[str]]:
+     recordings = args.recordings_dir or mc.default_recordings_dir()
+     live = settings.mode is mc.Mode.LIVE
+     ledger = mc.live_ledger_path() if live else (args.ledger or mc.live_ledger_path())
+     batch_id = f"{datetime.now(UTC):%Y%m%d}-{uuid.uuid4().hex[:8]}" if live else None
+     candidate = model_candidate.ModelCandidate(settings, recordings_dir=recordings, ledger=ledger,
+                                                demo_id=args.demo_id, batch_id=batch_id)
+     chosen = model_candidate.subset(from_rows(eval_set.ROWS))
+-    run = model_candidate.run_subset(chosen, candidate, model_candidate.TIMEOUT_SECONDS)
++    try:
++        run = model_candidate.run_subset(chosen, candidate, model_candidate.TIMEOUT_SECONDS)
++    except BaseException:
++        # 中斷或崩掉:花過錢的嘗試照樣留批次紀錄(標中斷),再往外丟
++        if live and settings.record and batch_id is not None:
++            model_candidate.write_batch(recordings, model_candidate.new_batch(
++                batch_id, settings.model, model_candidate.partial_rows(chosen, candidate),
++                interrupted=True))
++        raise
+     if not live:
+-        batch, flags = _replayed_batch(run, recordings, [s.scenario_id for s in chosen])
++        batch, flags = _replayed_batch(run, recordings)
+     else:
+         assert batch_id is not None  # noqa: S101 - 即時模式上面一定產生
+         batch, flags = model_candidate.new_batch(batch_id, settings.model, run.rows), []
+         if settings.record:
+             model_candidate.write_batch(recordings, batch)
+     if run.stopped is not None:
+         reason = _STOP_TEXT.get(run.stopped, run.stopped)
+         flags.insert(0, f"未跑完(停在第 {len(run.rows)} 個情境:{reason})")
+     return run, batch, flags
+ 
+@@ -234,39 +252,68 @@ def _cell_line(cell: WorthCell, row: ComparisonRow, means: Mapping[WorthCell, fl
+ def model_section(settings: mc.Settings, args: argparse.Namespace) -> ModelSection:
+     run, batch, flags = _model_run(settings, args)
+     rows = None if batch is None else model_candidate.model_rows(batch, run.scored)
+     lines = ["", f"## 模型候選({settings.model})", "",
+              f"- 模式:{'即時' if settings.mode is mc.Mode.LIVE else '重播錄製回應(不是即時呼叫)'}",
+              f"- 跑了 {len(run.rows)} 個情境(子集每格 {model_candidate.GROUPS_PER_CELL} 組、"
+              "每組 3 個變體)"]
+     if batch is not None:
+         shared = sum(1 for r in batch.rows if r.shared)
+         sent = sum(1 for r in batch.rows if r.sent)
+-        lines += [f"- 來源:歷史觀測(錄製日期 {batch.recorded_on},批次 {batch.batch_id},"
+-                  f"價目表查核 {batch.price_checked_on})",
++        live_unsaved = settings.mode is mc.Mode.LIVE and not settings.record
++        source = (f"- 來源:即時、未存檔(批次 {batch.batch_id} 只在這次執行的記憶體裡,"
++                  f"價目表查核 {batch.price_checked_on})" if live_unsaved else
++                  f"- 來源:歷史觀測(錄製日期 {batch.recorded_on},批次 {batch.batch_id},"
++                  f"價目表查核 {batch.price_checked_on})")
++        lines += [source,
+                   f"- 批次紀錄 {len(batch.rows)} 列:真正送出 {sent} 次、"
+                   f"{model_candidate.SHARED_NOTE} {shared} 列、"
+                   f"沒送出 {model_candidate.unsent_counts(batch) or '無'}"]
+         lines += ["", "### 逐格門檻判定(每次成本 ≤ 0.002 美元、延遲 p95 ≤ 3 秒、失敗率 ≤ 1% "
+                   "是使用者裁定;延遲中位 ≤ 3 秒是協調者補的)", ""]
+         means = model_candidate.mean_costs(batch)
+         lines += [_cell_line(cell, row, means) for cell, row in (rows or {}).items()]
+-    scored = synthetic_report(run.scored, eval_set_sha256())  # 模型的計分走既有的計分與報告
+-    lines += ["", "### 模型逐格結果", "", *cell_table(scored.cells), "",
+-              f"- 無關欄位擾動後答案改變的組數(模型):{scored.perturbation_changed}"]
++    lines += ["", *_model_scores(run)]
+     lines += ["", *[f"- 旗標:{flag}" for flag in flags],
+               "- 模型候選:不採用(合成集是有限的合約案例,照 Phase 10 規定一律不採用"
+               + ("" if not flags else ";另有上面的旗標") + ")"]
++    if rows is not None and not flags:
++        lines.append("- 上面「不採用的理由」是 Phase 10 的固定文字(合成集一律列缺正式紀錄、"
++                     "人工標註與"
++                     "候選實測);候選實測已有,見上")
+     busy = run.stopped == mc.Outcome.LEDGER_BUSY.value
+     return ModelSection(None if flags else rows, tuple(flags), tuple(lines), busy)
+ 
+ 
++def _model_scores(run: model_candidate.ModelRun) -> list[str]:
++    """模型逐格結果:只算真的呼叫了模型(或同批共用別人的答案)的情境;沒呼叫的(沒有錄製、上限拒絕、
++    設定錯誤、花費帳忙碌)不進模型計分(否則印的是現行規則的答案)。另列實際作答、退回、沒呼叫件數。"""
++    called = [case for case, row in zip(run.scored, run.rows, strict=False)
++              if row.outcome not in model_candidate.UNSENT]
++    lines = ["### 模型逐格結果", ""]
++    if not called:
++        return [*lines, "- 沒量(原因:模型一次都沒被呼叫到,例如沒有錄製或呼叫前就被擋下)"]
++    scored = synthetic_report(tuple(called), eval_set_sha256())  # 模型的計分走既有的計分與報告
++    counts = []
++    for cell in WorthCell:
++        pairs = [(c, r) for c, r in zip(run.scored, run.rows, strict=False)
++                 if c.scenario.cell is cell]
++        unsent = sum(1 for _, r in pairs if r.outcome in model_candidate.UNSENT)
++        answered = sum(1 for c, r in pairs if r.outcome not in model_candidate.UNSENT
++                       and c.path is RoutePath.CANDIDATE)
++        fallback = len(pairs) - unsent - answered
++        counts.append(f"| {cell.value} | {answered} | {fallback} | {unsent} |")
++    return [*lines, *cell_table(scored.cells), "",
++            "| 評分格 | 實際作答 | 退回 | 沒呼叫 |", "|---|---|---|---|", *counts, "",
++            f"- 無關欄位擾動後答案改變的組數(模型):{scored.perturbation_changed}(只算有呼叫的情境)"]
++
++
+ def with_model_rows(rows: tuple[ComparisonRow, ...], model: ModelSection) -> tuple[
+         ComparisonRow, ...]:
+     """比較表的 LLM 列換成模型候選實測;有旗標時寫「沒量(原因:旗標)」。"""
+     if model.rows is not None:
+         return tuple(model.rows[row.cell] if row.approach == "LLM" else row for row in rows)
+     if not model.flags:
+         return rows
+     reason = "原因:" + "、".join(flag.split("(")[0] for flag in model.flags)
+     return tuple(ComparisonRow(approach="LLM", cell=row.cell,
+                                **{name: Measure.not_measured(reason) for name in MEASURE_NAMES})
+diff --git a/src/rtb/executor/ruff.toml b/src/rtb/executor/ruff.toml
+index c7d7e98..6b6c2d6 100644
+--- a/src/rtb/executor/ruff.toml
++++ b/src/rtb/executor/ruff.toml
+@@ -3,10 +3,14 @@ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
+ "rtb.dsp".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+ "subprocess".msg = "只有模型用戶端能啟動子行程(Phase 11B [S917])"
+ "rtb.modelclient".msg = "只有接入點與實測命令列能用模型用戶端(Phase 11B [S917];維運的假說命令列在增量 2 另開例外)"
+ "rtb.modelclaude".msg = "Claude Code 後端只准模型用戶端與實測命令列匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelverify".msg = "實測命令列會真的呼叫 claude、寫啟用紀錄:不准被別的層匯入(Phase 11B 代碼審第 1 輪)"
++"rtb.modelcore".msg = "模型用戶端的共用詞彙只給模型用戶端各模組與接入點用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelledger".msg = "花費帳寫入(預留、結算、核銷)只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelledger_writeoff".msg = "核銷命令列會寫花費帳、經它還拿得到模型用戶端:不准匯入(Phase 11B 代碼審第 2 輪)"
+diff --git a/src/rtb/modelclaude.py b/src/rtb/modelclaude.py
+index 1148f5f..c6b340c 100644
+--- a/src/rtb/modelclaude.py
++++ b/src/rtb/modelclaude.py
+@@ -14,21 +14,21 @@ import shutil
+ import signal
+ import subprocess
+ import tempfile
+ import threading
+ import time
+ from collections.abc import Iterator, Mapping
+ from dataclasses import dataclass
+ from decimal import Decimal
+ from enum import StrEnum
+ from pathlib import Path
+-from typing import Any
++from typing import IO, Any
+ 
+ from rtb import modelcore as core
+ from rtb import modelledger_view as view
+ from rtb.modelcore import (
+     Backend,
+     BackendCall,
+     BackendReply,
+     ConfigError,
+     ModelCallFailed,
+     ModelTimeout,
+@@ -254,52 +254,85 @@ def _empty_group(pid: int) -> None:
+ 
+ 
+ def _finish(process: subprocess.Popen[bytes], deadline: float) -> tuple[int, bool]:
+     """清理順序([S939]):先只等不領回確認主行程結束(逾時就不等了)→ 殺整組 → 有上限地確認群組裡沒有
+     活著的行程 → 最後才領回主行程。回(結束代碼, 是否逾時)。"""
+     timed_out = not _exited_unreaped(process.pid, deadline)
+     _empty_group(process.pid)
+     return process.wait(), timed_out
+ 
+ 
++# 呼叫途中會讓行程結束的訊號:Ctrl-C(SIGINT)、SIGTERM、關終端機或 ssh 斷線(SIGHUP)、SIGQUIT。
++# claude 在自己的工作階段,收不到終端機的掛斷;主行程若直接死掉就留下孤兒,所以一律轉成例外走清理
++STOP_SIGNALS = frozenset({signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT})
++CONVERTED_SIGNALS = (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)  # SIGINT 本來就是例外
++
++
+ def _abandon(process: subprocess.Popen[bytes]) -> None:
+-    """等待途中被打斷(Ctrl-C、SIGTERM、任何例外):照同樣的順序殺整組、確認空了、領回主行程。
+-    清理期間暫時擋住 SIGINT 與 SIGTERM(清完才送達),免得第二次中斷讓整組漏殺。"""
+-    blocked = {signal.SIGINT, signal.SIGTERM}
+-    previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
++    """等待途中被打斷(Ctrl-C、SIGTERM、SIGHUP、SIGQUIT、任何例外):照同樣的順序殺整組、確認空了、
++    領回主行程。清理期間暫時擋住這幾個訊號(清完才送達),免得第二次中斷讓整組漏殺。"""
++    previous = signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
+     try:
+         if process.returncode is None:  # 已經領回的不再碰(行程編號可能被重用)
+             _empty_group(process.pid)
+             process.wait()
+     finally:
+         signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+ 
+ 
+ class CallTerminated(BaseException):
+-    """呼叫途中收到 SIGTERM:轉成這個例外,走跟 Ctrl-C 同一條清理路徑,再往外丟。"""
++    """呼叫途中收到 SIGTERM、SIGHUP 或 SIGQUIT:轉成這個例外,走跟 Ctrl-C 同一條清理路徑,再往外丟。"""
+ 
+ 
+ @contextlib.contextmanager
+-def _sigterm_as_exception() -> Iterator[None]:
+-    """呼叫期間(只在主執行緒能裝處理器)把 SIGTERM 轉成 `CallTerminated`,結束後還原。"""
++def _stop_signals_as_exception() -> Iterator[None]:
++    """呼叫期間(只在主執行緒能裝處理器)把 SIGTERM、SIGHUP、SIGQUIT 轉成 `CallTerminated`,
++    結束後還原。"""
+     if threading.current_thread() is not threading.main_thread():
+         yield
+         return
+ 
+     def _raise(signum: int, _frame: object) -> None:
+         raise CallTerminated(f"呼叫途中收到訊號 {signum}")
+ 
+-    previous = signal.signal(signal.SIGTERM, _raise)
++    previous = {number: signal.signal(number, _raise) for number in CONVERTED_SIGNALS}
+     try:
+         yield
+     finally:
+-        signal.signal(signal.SIGTERM, previous)
++        for number, handler in previous.items():
++            signal.signal(number, handler)
++
++
++def _spawn_and_wait(args: list[str], streams: tuple[IO[bytes], IO[bytes], IO[bytes]],
++                    workdir: Path, child_env: Mapping[str, str],
++                    timeout_seconds: float) -> tuple[int, bool]:
++    """起 claude(新工作階段)並照 `_finish` 的順序等它、清理。起行程到進清理的 try 之間擋住中斷訊號:
++    收到的話留到放開時才送達,那時已在 try 裡、會走 `_abandon`(代碼審第 2 輪)。"""
++    stdin, stdout, stderr = streams
++    masked = signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
++    try:
++        process = subprocess.Popen(  # noqa: S603 - 參數固定、不經 shell
++            args, stdin=stdin, stdout=stdout, stderr=stderr, cwd=workdir,
++            env=child_env, start_new_session=True)
++    except OSError as failed:  # 找不到、不能執行、起不來
++        signal.pthread_sigmask(signal.SIG_SETMASK, masked)
++        raise ConfigError(f"claude 起不來({type(failed).__name__})",
++                          sub_reason="cannot_start") from failed
++    except BaseException:
++        signal.pthread_sigmask(signal.SIG_SETMASK, masked)
++        raise
++    try:
++        signal.pthread_sigmask(signal.SIG_SETMASK, masked)
++        return _finish(process, time.monotonic() + timeout_seconds)
++    except BaseException:
++        _abandon(process)
++        raise
+ 
+ 
+ def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout_seconds: float,
+                *, isolated_home: bool = False,
+                home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
+     """在新的工作階段(新行程群組)跑一次 claude:工作目錄是新建的空暫存目錄,標準輸入、輸出與錯誤
+     都是暫存檔(不用管線:孫行程繼承管線會把成功的呼叫拖到逾時);isolated_home 時子行程的 HOME 指向
+     另一個新建的空暫存目錄。起不來、成功、非 0 結束、逾時、等待途中被打斷(Ctrl-C、SIGTERM 轉成的
+     例外、任何例外)五條路徑都照 `_finish` 的順序清理,最後一定刪掉暫存目錄([S939])。起不來丟設定錯誤,
+     逾時丟逾時,被打斷清完照原樣往外丟;回(結束代碼, 標準輸出, 標準錯誤)。"""
+@@ -311,76 +344,71 @@ def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout
+     if isolated_home:
+         (base / "home").mkdir()
+         child_env["HOME"] = str(base / "home")
+         for relative, content in (home_files or {}).items():  # 只給實測命令列放對照用的設定檔
+             target = base / "home" / relative
+             target.parent.mkdir(parents=True, exist_ok=True)
+             target.write_text(content, encoding="utf-8")
+     try:
+         (files / "stdin").write_text(stdin_text, encoding="utf-8")
+         with ((files / "stdin").open("rb") as stdin, (files / "stdout").open("wb") as stdout,
+-              (files / "stderr").open("wb") as stderr, _sigterm_as_exception()):
+-            try:
+-                process = subprocess.Popen(  # noqa: S603 - 參數固定、不經 shell
+-                    args, stdin=stdin, stdout=stdout, stderr=stderr, cwd=workdir,
+-                    env=child_env, start_new_session=True)
+-            except OSError as failed:  # 找不到、不能執行、起不來
+-                raise ConfigError(f"claude 起不來({type(failed).__name__})",
+-                                  sub_reason="cannot_start") from failed
+-            try:
+-                returncode, timed_out = _finish(process, time.monotonic() + timeout_seconds)
+-            except BaseException:
+-                _abandon(process)
+-                raise
++              (files / "stderr").open("wb") as stderr, _stop_signals_as_exception()):
++            returncode, timed_out = _spawn_and_wait(
++                args, (stdin, stdout, stderr), workdir, child_env, timeout_seconds)
+         if timed_out:
+             raise ModelTimeout("模型呼叫逾時,已殺掉整個行程群組")
+         return returncode, (files / "stdout").read_bytes(), (files / "stderr").read_bytes()
+     finally:
+         shutil.rmtree(base, ignore_errors=True)
+ 
+ 
+ def _tokens_of(usage: Mapping[str, Any]) -> tuple[int, int, int, int, int] | None:
+     """用量欄位 →(輸入, 輸出, 5 分鐘快取寫入, 1 小時快取寫入, 快取讀取);任一欄讀不懂回 None。
+     5 分鐘與 1 小時快取寫入沒有分開回報時整個算 1 小時(較貴,寧多不少);分開的數字加總小於總數時,
+     差額也算 1 小時。"""
+     counts = [_count(usage.get(name)) for name in ("input_tokens", "output_tokens")]
+     cache_read = _count(usage.get("cache_read_input_tokens", 0))
+-    total = _count(usage.get("cache_creation_input_tokens", 0))
++    total = _count(usage.get("cache_creation_input_tokens", 0))  # 讀不懂就是 None,一律讀不懂
+     split = usage.get("cache_creation")
+     if isinstance(split, dict):
+         five, hour = (_count(split.get("ephemeral_5m_input_tokens", 0)),
+                       _count(split.get("ephemeral_1h_input_tokens", 0)))
+         if five is not None and hour is not None and total is not None:
+             hour += max(0, total - five - hour)
+     else:
+         five, hour = 0, total
+-    values = [*counts, five, hour, cache_read]
++    values = [*counts, total, five, hour, cache_read]
+     if any(value is None for value in values):
+         return None
+-    first, second, third, fourth, fifth = (value or 0 for value in values)
++    first, second, _, third, fourth, fifth = (value or 0 for value in values)
+     return first, second, third, fourth, fifth
+ 
+ 
+ def _usage_of(data: Mapping[str, Any], text: str) -> BackendReply | None:
+     """讀得出用量或回報的花費就組成回應(失敗的回應也讀,結算時取較高者);兩者都讀不出回 None。
+     回報的花費跟 token 數分開讀:用量缺欄時 token 數記空(`tokens_known` 為否),回報的花費照樣參與
+     取較高者。"""
+     reported = _nanousd_of(data.get("total_cost_usd"))
+     usage = data.get("usage")
+     tokens = _tokens_of(usage) if isinstance(usage, dict) else None
+     if tokens is None:
+         if reported is None:
+             return None
+         return BackendReply(text, 0, 0, 0, 0, 0, reported, tokens_known=False)
+     return BackendReply(text, *tokens, reported)
+ 
+ 
++def usage_of(data: Mapping[str, Any], text: str) -> BackendReply | None:
++    """給實測命令列用的讀用量(同一套規則)。"""
++    return _usage_of(data, text)
++
++
+ _HEAD = {"type": str, "subtype": str, "is_error": bool}
+ 
+ 
+ def _parse_output(returncode: int, stdout: bytes, stderr: bytes) -> dict[str, Any]:
+     """第 2 步:標準輸出讀成 JSON 物件,而且至少有類型、子類型、是否錯誤三欄。讀不成時:結束代碼
+     非 0 歸暫時性服務錯誤、無法可靠分類(例如參數改名、在解析參數就退出);結束代碼 0 才是讀不懂。
+     標準錯誤可能有本機路徑或帳號:只寫本機日誌,不進子原因、花費帳與錄製檔。"""
+     try:
+         data = json.loads(stdout.decode("utf-8"))
+     except ValueError:
+@@ -473,40 +501,42 @@ class ClaudeCodeBackend:
+         return env
+ 
+     def command(self, call: BackendCall) -> list[str]:
+         return [str(self._executable), "-p", "--output-format", "json", "--model", call.model,
+                 "--effort", CLAUDE_EFFORT, "--system-prompt", call.system, "--tools", "",
+                 "--strict-mcp-config", "--disable-slash-commands", "--safe-mode",
+                 "--setting-sources", SETTING_SOURCES, "--settings", EMPTY_SETTINGS,
+                 "--no-session-persistence", "--max-budget-usd", _usd_text(call.budget_nanousd)]
+ 
+     def check_login(self, timeout_seconds: float = LOGIN_CHECK_TIMEOUT_SECONDS) -> None:
+-        """登入狀態檢查。期限是 10 秒與這次呼叫剩下時間的較小者;被呼叫的期限卡住時丟逾時(算這次呼叫
+-        逾時),自己的 10 秒用完才是設定錯誤。"""
++        """登入狀態檢查。期限是 10 秒與這次呼叫剩下時間的較小者;不論哪一個卡住都還沒呼叫模型,一律是
++        設定錯誤(結算 0、評估不算送出、整批停下;代碼審第 2 輪)。"""
+         args = [str(self._executable), "auth", "status", "--json"]
+         budget = min(LOGIN_CHECK_TIMEOUT_SECONDS, timeout_seconds)
+         try:
+             code, stdout, _ = run_claude(args, "", self.child_env(1), budget,
+                                          isolated_home=self.isolation is Isolation.EMPTY_HOME)
+             status = json.loads(stdout.decode("utf-8"))
+         except ModelTimeout as slow:
+             if budget < LOGIN_CHECK_TIMEOUT_SECONDS:
+-                raise ModelTimeout("登入狀態檢查用完了這次呼叫的期限") from slow
++                raise ConfigError("登入狀態檢查用完了這次呼叫的期限,沒有呼叫模型",
++                                  sub_reason="login_check_timeout") from slow
+             raise ConfigError("claude 登入狀態檢查逾時", sub_reason="not_logged_in") from slow
+         except ValueError as bad:
+             raise ConfigError("claude 登入狀態讀不懂", sub_reason="not_logged_in") from bad
+         if code != 0 or not isinstance(status, dict) or status.get("loggedIn") is not True:
+             raise ConfigError("claude 沒登入", sub_reason="not_logged_in")
+ 
+     def send(self, call: BackendCall) -> BackendReply:
+         """登入檢查(第一次)花掉的時間從這次呼叫的總期限扣掉。"""
+         deadline = time.monotonic() + call.timeout_seconds
+         if not self._logged_in:
+             self.check_login(call.timeout_seconds)
+             self._logged_in = True
+         remaining = deadline - time.monotonic()
+         if remaining <= 0:
+-            raise ModelTimeout("登入狀態檢查用完了這次呼叫的期限,沒有呼叫模型")
++            raise ConfigError("登入狀態檢查用完了這次呼叫的期限,沒有呼叫模型",
++                              sub_reason="login_check_timeout")
+         code, stdout, stderr = run_claude(
+             self.command(call), call.user, self.child_env(call.max_output_tokens),
+             remaining, isolated_home=self.isolation is Isolation.EMPTY_HOME)
+         return judge_output(code, stdout, stderr)
+diff --git a/src/rtb/modelclient.py b/src/rtb/modelclient.py
+index 2de7805..ea862db 100644
+--- a/src/rtb/modelclient.py
++++ b/src/rtb/modelclient.py
+@@ -1,30 +1,33 @@
+-"""模型用戶端(Phase 11B 增量 1,計劃第 7 版):後端介面、Claude Code 後端、錄製讀寫、花費帳寫入。
++"""模型用戶端的協調(Phase 11B 增量 1):模式判定、結算規則與對外的一個函式 `call_model`。
+ 
+-一個對外函式 `call_model`:給呼叫者、展示編號、批次、系統提示、使用者內容、輸出上限、逾時,
+-回文字、來源、token 數、原價、延遲與結算狀態。後端是「送出一次呼叫」的介面
+-(`ModelBackend.send`),這一版的即時後端是本機 Claude Code 的非互動模式(`ClaudeCodeBackend`);
+-將來的 API 後端實作同一個介面,三個接入點不用改。錄製重播不經後端:它要帶回錄製當時的結果類別與花費。
++共用詞彙(價目表、請求與結果、九類例外、後端介面、預留算法)在 modelcore,Claude Code 後端(唯一啟動
++子行程的地方)在 modelclaude,錄製讀寫在 modelrecording,花費帳寫入在 modelledger;這支只把它們串起來,
++並把共用詞彙轉手給三個接入點。
++
++`call_model`:給呼叫者、展示編號、批次、系統提示、使用者內容、輸出上限、逾時,回文字、來源、token 數、
++原價、延遲與結算狀態。將來的 API 後端實作同一個後端介面,三個接入點不用改。錄製重播不經後端:它要帶回
++錄製當時的結果類別與花費。
+ 
+ 本模組不讀環境變數、不查 PATH:模式由三支模型入口讀好(即時開關、展示編號、入口在 PATH 上找到的
+ claude 絕對路徑)經 `settings_from_env` 組成設定往下傳。時間一律用系統時鐘(`_utc_now`),
+ 沒有參數能把「現在」傳進來([S926])。
+ 
+ 錄製:檔名是呼叫者、模型、系統提示、使用者內容、輸出上限正規化後的 sha256(不含後端種類);
+ 錄製模式找不到就丟「沒有錄製」,不會退去即時呼叫。即時加錄製模式下,同一批已有同一個鍵就直接讀、
+ 不呼叫;別的批次已有就呼叫前拒絕,不花額度、不覆寫([S931])。
+ 
+ 花費帳(金額單位:十億分之一美元,整數):即時呼叫前在單一寫入交易裡讀出這個展示編號與本月的已用、
+ 加上這次的預留,超過 1 美元或 20 美元就不呼叫、丟「本地上限拒絕」(給人看的是「已達上限」)。
+-預留 =(系統提示加使用者內容的 UTF-8 位元組數,加 Claude Code 自己附加的固定輸入)乘三種輸入單價
+-的最高者,加輸出上限乘輸出單價,再乘安全係數 1.2;這一筆預留的原價(不含係數)當 Claude Code 的
+-單次花費上限傳進去。結算:成功取 Claude Code 回報的花費估計與「token 數(含快取)乘價目表」的
++預留算法見 modelcore(一次請求的最壞花費,乘上撞頂後自動續寫的次數,再乘安全係數 1.2);這一筆預留的
++原價(不含係數)當 Claude Code 的單次花費上限傳進去。回報的用量或花費大得離譜時照預留結算、標超支。
++結算:成功取 Claude Code 回報的花費估計與「token 數(含快取)乘價目表」的
+ 較高者([S940]);失敗但讀得出用量時取「預留」與「原價乘 1.2」的較高者,讀不出就照預留;
+ 本地上限拒絕與設定錯誤結算 0;不論成敗,入帳大於預留就照實記、標超支並印錯誤([S934])。
+ 結算寫不進去就有上限地重試,仍失敗那筆留在「未結算」,照預留金額算進它預留時所在的月份,應入帳金額
+ 印到標準錯誤。回傳值與每個例外都帶結算狀態(已結算、未結算、超支、超支又未結算);呼叫前就擋下、
+ 還沒預留的例外沒有結算狀態(None)。花費帳或錄製檔的非模型例外(SQLite、檔案系統、溢位)一律包成
+ 暫時性、無法可靠分類,不讓原生例外漏出去。
+ """
+ 
+ import logging
+ import sqlite3
+@@ -86,25 +89,29 @@ class Settings:
+ def settings_from_env(environ: Mapping[str, str], demo_id: str | None,
+                       claude: Path | str | None) -> Settings:
+     """三支模型入口共用的模式判定:RTB_MODEL_LIVE=1、展示編號、入口在 PATH 上找到的 claude 絕對路徑、
+     而且即時模式啟用紀錄有效([S942]),才是即時;少任一樣就錄製(印原因)。"""
+     model = environ.get(core.MODEL_ENV) or core.DEFAULT_MODEL
+     if model not in core.PRICES:
+         raise core.UnknownModel(
+             f"{core.MODEL_ENV}={model} 不在價目表裡(只收:{', '.join(core.PRICES)})")
+     if environ.get(core.LIVE_ENV) != "1" or claude is None:
+         return Settings(core.Mode.RECORDED, model, record=False, backend=None, notices=())
+-    refusal, isolation = _live_refusal(environ, demo_id, Path(claude))
++    # claude 常是會被自動更新改指的符號連結:核版本時就解開、固定用那一支實體檔
++    # (版本檢查與後端都用它);
++    # 之後換版不會用到沒實測過的版本,那支檔被清掉就是起不來的設定錯誤(結算 0、評估停下)
++    pinned = Path(claude).resolve()
++    refusal, isolation = _live_refusal(environ, demo_id, pinned)
+     if refusal is not None or isolation is None:
+         return Settings(core.Mode.RECORDED, model, False, None, (refusal or "即時模式拒絕啟動",))
+     return Settings(core.Mode.LIVE, model, environ.get(core.RECORD_ENV) == "1",
+-                    cc.ClaudeCodeBackend(Path(claude), environ, isolation), ())
++                    cc.ClaudeCodeBackend(pinned, environ, isolation), ())
+ 
+ 
+ def _live_refusal(environ: Mapping[str, str], demo_id: str | None,
+                   claude: Path) -> tuple[str | None, cc.Isolation | None]:
+     """即時的其餘前提,依序檢查;回(拒絕原因, 啟用紀錄的隔離方式)。"""
+     if not demo_id:
+         return "即時模式需要展示編號,這次改用錄製", None
+     if core.price_table_stale():
+         return (f"價目表查核日期 {core.PRICES_CHECKED_ON} 已超過 90 天,即時模式拒絕啟動,"
+                 "這次改用錄製;"
+@@ -137,41 +144,44 @@ def live_ledger_path() -> Path:
+ 
+ 
+ # ---- 結算規則 ----
+ def _mismatch(reported: int | None, computed: int) -> bool:
+     if reported is None:
+         return False
+     numerator, denominator = core.COST_MISMATCH
+     return abs(reported - computed) * denominator > min(reported, computed) * numerator
+ 
+ 
+-def _settlement_for(outcome: tuple[core.BackendReply | None, core.ModelCallFailed | None],
++def settlement_for(outcome: tuple[core.BackendReply | None, core.ModelCallFailed | None],
+                     model: str, reserved: int, latency_ms: float) -> ledger_db.Settlement:
+     reply, failure = outcome
+     if failure is not None and failure.outcome in core.FREE_OUTCOMES:  # 確定沒呼叫模型:結算 0
+         return ledger_db.zero(failure.outcome, latency_ms, failure.sub_reason)
+     usage = reply if failure is None else failure.reply
++    if failure is not None and failure.absurd_usage:
++        usage = None  # 離譜的數字不當入帳依據:照預留結算(可核銷)、標超支
+     computed = None if usage is None else core.list_price(model, usage)
+     listed = None if usage is None or computed is None else max(
+         computed, usage.reported_nanousd or 0)  # 取高者([S940])
+     mismatch = usage is not None and usage.tokens_known and computed is not None and _mismatch(
+         usage.reported_nanousd, computed)
+     if failure is None:
+         if listed is None:
+             raise AssertionError("成功一定有用量")
+         settled = core.with_factor(listed)
+         return ledger_db.Settlement(core.Outcome.OK, None, reply, listed, settled, False,
+                                     settled > reserved,
+                            mismatch, latency_ms)
+     # 其他失敗:讀得出用量就取「預留」與「原價乘 1.2」較高者,讀不出照預留(寧多不少);原價欄同理
+     charged = reserved if listed is None else max(reserved, core.with_factor(listed))
+-    overrun = charged > reserved or failure.outcome is core.Outcome.OVERRUN
++    overrun = (charged > reserved or failure.outcome is core.Outcome.OVERRUN
++               or failure.absurd_usage)
+     return ledger_db.Settlement(failure.outcome, failure.sub_reason, usage,
+                        reserved if listed is None else max(reserved, listed), charged,
+                        charged == reserved, overrun, mismatch, latency_ms)
+ 
+ 
+ # ---- 對外的一個函式 ----
+ def _check_request(request: core.ModelRequest, settings: Settings) -> None:
+     if not isinstance(request.caller, core.Caller):
+         raise ValueError("呼叫者必須是封閉列舉的成員")
+     if settings.model not in core.PRICES:
+@@ -227,37 +237,50 @@ def _replay(request: core.ModelRequest, model: str, path: Path, ledger: Path, ke
+                             recording.output_tokens or 0, recording.cache_write_5m_tokens or 0,
+                             recording.cache_write_1h_tokens or 0, recording.cache_read_tokens or 0,
+                             recording.list_nanousd, recording.latency_ms, recording.key,
+                             recording.batch_id, settlement=state, shared=shared)
+ 
+ 
+ def _send(backend: core.ModelBackend, call: core.BackendCall) -> tuple[
+         core.BackendReply | None, core.ModelCallFailed | None]:
+     """送出並把荒謬值夾到上限(任何後端都一樣):成功形狀帶荒謬值改判讀不懂。"""
+     try:
+-        reply, absurd = core.clamp_reply(backend.send(call))
++        raw = backend.send(call)
+     except core.ModelCallFailed as failed:
+         if failed.reply is not None:
+-            failed.reply, _ = core.clamp_reply(failed.reply)
++            _, failed.absurd_usage = core.clamp_reply(failed.reply)
++            if failed.absurd_usage:
++                _log_absurd(failed.reply)
+         return None, failed
+     except Exception as unexpected:  # 後端的意外錯誤:暫時性、無法可靠分類、照預留結算
+         failure = core.TransientServiceError(f"後端意外錯誤({type(unexpected).__name__})",
+                                              sub_reason="unclassified", unclassified=True)
+         failure.__cause__ = unexpected
+         return None, failure
++    reply, absurd = core.clamp_reply(raw)
+     if absurd:
+-        return None, core.UnreadableModelResponse(
+-            "回報的 token 數或花費大得離譜(超過上限的千倍),夾到上限記帳", sub_reason="absurd_usage",
+-            reply=reply)
++        _log_absurd(raw)
++        absurd_failure = core.UnreadableModelResponse(
++            "回報的 token 數或花費大得離譜(超過上限的千倍),照預留結算並標超支",
++            sub_reason="absurd_usage", reply=reply)
++        absurd_failure.absurd_usage = True
++        return None, absurd_failure
+     return reply, None
+ 
+ 
++def _log_absurd(reply: core.BackendReply) -> None:
++    log.error("後端回報的用量或花費大得離譜(輸入 %s、輸出 %s、快取寫入 %s/%s、快取讀取 %s、自報 %s "
++              "十億分之一美元):不入帳、照預留結算並標超支,請人看", reply.input_tokens,
++              reply.output_tokens, reply.cache_write_5m_tokens, reply.cache_write_1h_tokens,
++              reply.cache_read_tokens, reply.reported_nanousd)
++
++
+ def _wait_for_same_batch(request: core.ModelRequest, model: str, path: Path, ledger: Path,
+                          key: str) -> core.ModelResult:
+     """同一批的另一個呼叫正在錄同一個鍵:等它錄完(有上限)再讀,不再呼叫一次。"""
+     deadline = time.monotonic() + request.timeout_seconds + 5
+     while time.monotonic() < deadline:
+         try:
+             if rec.load_recording(path, key=key, caller=request.caller, model=model) is None:
+                 break
+         except rec.PendingRecording:
+             time.sleep(0.05)
+@@ -271,21 +294,23 @@ def _wait_for_same_batch(request: core.ModelRequest, model: str, path: Path, led
+ def _existing(request: core.ModelRequest, model: str, path: Path, ledger: Path,
+               key: str) -> core.ModelResult:
+     """檔名已被佔住:同一批已錄好就直接讀;同一批還在錄就等;別的批次(或讀不懂、懸空的符號連結)
+     呼叫前拒絕,不花額度、不覆寫([S931])。"""
+     conflict = "別的批次已經錄過同一個鍵;換一批要整批重錄、舊批整批刪掉"
+     try:
+         existing = rec.load_recording(path, key=key, caller=request.caller, model=model)
+     except rec.PendingRecording as pending:
+         if pending.batch_id == request.batch_id:
+             return _wait_for_same_batch(request, model, path, ledger, key)
+-        raise core.RecordingConflict(conflict) from None
++        raise core.RecordingConflict(
++            f"錄製檔名被別的批次({pending.batch_id})佔住、還沒錄完:可能是中斷留下的佔位,確認沒有行程"
++            f"還在跑之後刪掉 {path.name} 再重跑") from None
+     except core.NoRecording as bad:
+         raise core.RecordingConflict(f"錄製檔名已被佔住但讀不懂({bad}),這次不呼叫") from bad
+     if existing is None or existing.batch_id != request.batch_id:
+         raise core.RecordingConflict(conflict)
+     return _replay(request, model, path, ledger, key, shared=True)
+ 
+ 
+ def _claim(request: core.ModelRequest, path: Path) -> None:
+     try:
+         rec.claim(path, request.batch_id)
+@@ -315,21 +340,21 @@ def _live(request: core.ModelRequest, settings: Settings, key: str, path: Path,
+ def _call(request: core.ModelRequest, settings: Settings,
+           backend: core.ModelBackend, key: str, path: Path, ledger: Path) -> core.ModelResult:
+     reservation_id = ledger_db.reserve(ledger, request, settings.model, backend.kind)
+     reserved = core.reservation_nanousd(request, settings.model)
+     call = core.BackendCall(settings.model, request.system, request.user,
+                             request.max_output_tokens, request.timeout_seconds,
+                             core.call_budget_nanousd(request, settings.model))
+     started = time.monotonic()
+     reply, failure = _send(backend, call)
+     latency_ms = (time.monotonic() - started) * 1000
+-    done = _settlement_for((reply, failure), settings.model, reserved, latency_ms)
++    done = settlement_for((reply, failure), settings.model, reserved, latency_ms)
+     settled = _try_settle(ledger, reservation_id, done)
+     if done.overrun:
+         log.error("預留 %s 超支:入帳 %s 大於預留 %s,或 Claude Code 回報超過單次花費上限"
+                   "(照實記帳);評估應整批停下", reservation_id, done.settled_nanousd, reserved)
+     state = _state(overrun=done.overrun, settled=settled)
+     result = None
+     if failure is not None:
+         failure.list_nanousd, failure.latency_ms = done.list_nanousd, latency_ms
+         failure.settlement = state
+     elif reply is not None:
+@@ -384,20 +409,25 @@ def _recording_of(key: str, request: core.ModelRequest, model: str,
+         None if tokens is None else tokens.input_tokens,
+         None if tokens is None else tokens.output_tokens,
+         None if tokens is None else tokens.cache_write_5m_tokens,
+         None if tokens is None else tokens.cache_write_1h_tokens,
+         None if tokens is None else tokens.cache_read_tokens,
+         None if reply is None else reply.reported_nanousd, done.list_nanousd,
+         done.latency_ms or 0.0, failure is not None and failure.tool_use,
+         failure is not None and failure.unclassified, state.value)
+ 
+ 
++def settle_quietly(ledger: Path, reservation_id: int, done: ledger_db.Settlement) -> bool:
++    """寫結算列(有上限地重試,仍失敗印應入帳金額);給實測命令列用,跟 call_model 同一套。"""
++    return _try_settle(ledger, reservation_id, done)
++
++
+ def _try_settle(ledger: Path, reservation_id: int, done: ledger_db.Settlement) -> bool:
+     """寫結算列,寫不進去有上限地重試;仍失敗就把應入帳金額印到標準錯誤(帳裡照預留算,人要知道差多少)。"""
+     for attempt in range(1, ledger_db.SETTLE_ATTEMPTS + 1):
+         try:
+             late = ledger_db.settle(ledger, reservation_id, done)
+         except (DatabaseBusy, core.LedgerBusy, sqlite3.Error, OSError, OverflowError):
+             log.warning("預留 %s 的結算第 %s 次寫不進花費帳", reservation_id, attempt)
+             if attempt < ledger_db.SETTLE_ATTEMPTS:
+                 time.sleep(0.05 * attempt)
+             continue
+diff --git a/src/rtb/modelcore.py b/src/rtb/modelcore.py
+index ab1d99c..b58c419 100644
+--- a/src/rtb/modelcore.py
++++ b/src/rtb/modelcore.py
+@@ -55,47 +55,70 @@ PRICE_MAX_AGE = timedelta(days=90)
+ # 使用者 2026-09-24 裁定的上限與協調者定的安全係數;改它們要走設計審
+ DEMO_CAP_NANOUSD = 1 * NANOUSD_PER_USD
+ MONTH_CAP_NANOUSD = 20 * NANOUSD_PER_USD
+ SAFETY_FACTOR = (6, 5)  # 1.2,用分數避免浮點
+ # Claude Code 自己附加的固定輸入 token 數:錄製前本機實測⑥量出後改成實測值,量出來之前先用 4000
+ CLAUDE_FIXED_INPUT_TOKENS = 4000
+ MAX_TIMEOUT_SECONDS = 120.0
+ LONGEST_REQUEST = timedelta(seconds=MAX_TIMEOUT_SECONDS) + timedelta(minutes=5)  # 核銷用
+ MAX_OUTPUT_TOKENS = 32_000
+ MAX_PROMPT_BYTES = 48 * 1024  # 系統提示加使用者內容
++# 撞到輸出上限後 Claude Code 自動續寫的最多次數(2.1.281 的 max_output_tokens_recovery,上限 3;
++# 以實作當下的 claude 為準,升版要重查)
++OUTPUT_RECOVERY_ATTEMPTS = 3
+ COST_MISMATCH = (1, 5)  # 回報的估計與 token 數算的差超過較小者的兩成就標記
+ # 荒謬值上限(代碼審第 1 輪):回報的 token 數或花費超過「一次請求的上限」或「每月上限」的千倍,
+ # 就當讀不懂、夾到上限記帳並標超支(夾住之後乘價目表也不會超出 SQLite 整數範圍)
+ ABSURD_TOKENS = 1000 * (MAX_PROMPT_BYTES + CLAUDE_FIXED_INPUT_TOKENS + MAX_OUTPUT_TOKENS)
+ ABSURD_NANOUSD = 1000 * MONTH_CAP_NANOUSD
+ # 開機以來的時鐘:macOS 的 CLOCK_MONOTONIC 與 Linux 的 CLOCK_BOOTTIME 都含睡眠時間、
+ # 不受改系統時間影響
+ _BOOT_CLOCK = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
+ 
+ 
+ def utc_now() -> datetime:
+     """系統時鐘(UTC)。花費帳的月份與價目表期限只看它([S926]);測試替換這一支。"""
+     return datetime.now(UTC)
+ 
+ 
+ def monotonic_now() -> float:
+     """開機以來的秒數(單調、含睡眠)。核銷時跟牆鐘互相核對;測試替換這一支。"""
+     return time.clock_gettime(_BOOT_CLOCK)
+ 
+ 
++def _darwin_boot_session() -> str | None:
++    """macOS 核心給的開機工作階段編號(kern.bootsessionuuid);讀不到回 None。"""
++    try:
++        import ctypes
++        import ctypes.util
++
++        libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
++        size = ctypes.c_size_t(64)
++        buffer = ctypes.create_string_buffer(64)
++        if libc.sysctlbyname(b"kern.bootsessionuuid", buffer, ctypes.byref(size), None,
++                             ctypes.c_size_t(0)) != 0:
++            return None
++        value = buffer.value.decode("ascii", errors="replace").strip()
++    except (OSError, AttributeError, TypeError, ValueError):
++        return None
++    return value or None
++
++
+ def boot_identity() -> str:
+-    """這次開機的識別:Linux 讀核心給的開機編號;其他系統用「牆鐘減開機以來秒數」推出開機時刻
+-    (取到 10 秒,核銷時容許 60 秒誤差)。"""
++    """這次開機的識別,不隨牆鐘移動(代碼審第 2 輪:用牆鐘推算時,撥鐘會被當成重開機):Linux 讀核心的
++    開機編號,macOS 讀核心的開機工作階段編號;都讀不到回 "unknown"(核銷時判不出是不是同一次開機)。"""
+     try:
+         return "id:" + Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
+     except OSError:
+-        return f"at:{round((time.time() - time.clock_gettime(_BOOT_CLOCK)) / 10) * 10}"
++        pass
++    session = _darwin_boot_session()
++    return "unknown" if session is None else f"id:{session}"
+ 
+ 
+ class Mode(StrEnum):
+     LIVE = "live"
+     RECORDED = "recorded"
+ 
+ 
+ # ---- 請求、結果、例外 ----
+ class SettlementState(StrEnum):
+     """一筆呼叫在花費帳裡的結算狀態;沒有預留(呼叫前就擋下、花費帳忙碌)就沒有狀態(None)。"""
+@@ -141,20 +164,21 @@ class ModelCallFailed(Exception):
+ 
+     def __init__(self, message: str, *, sub_reason: str | None = None,
+                  recording_batch_id: str | None = None, reply: BackendReply | None = None,
+                  unclassified: bool = False) -> None:
+         super().__init__(message)
+         self.sub_reason = sub_reason
+         self.recording_batch_id = recording_batch_id
+         self.reply = reply  # 失敗的回應讀得出的用量與花費估計(讀不出就是 None)
+         self.unclassified = unclassified  # 暫時性服務錯誤認不出子類型:評估保守停下
+         self.tool_use = False  # 錯誤回應帶著工具使用痕跡:評估保守停下
++        self.absurd_usage = False  # 回報的用量或花費大得離譜:照預留結算、標超支(不把它入帳)
+         self.settlement: SettlementState | None = None
+         self.list_nanousd = 0  # 這次(或錄製當時)記的原價;即時失敗照結算規則填
+         self.latency_ms: float | None = None
+         self.shared = False  # 同一批已有同一個鍵的失敗錄製、直接讀它,沒有呼叫
+ 
+ 
+ class ModelTimeout(ModelCallFailed, TimeoutError):
+     outcome = Outcome.TIMEOUT
+ 
+ 
+@@ -281,22 +305,27 @@ def with_factor(nanousd: int) -> int:
+ def list_price(model: str, reply: BackendReply) -> int:
+     """token 數(含三種快取)乘價目表。"""
+     price = PRICES[model]
+     return (reply.input_tokens * price.input_nanousd + reply.output_tokens * price.output_nanousd
+             + reply.cache_write_5m_tokens * price.cache_write_5m_nanousd
+             + reply.cache_write_1h_tokens * price.cache_write_1h_nanousd
+             + reply.cache_read_tokens * price.cache_read_nanousd)
+ 
+ 
+ def call_budget_nanousd(request: ModelRequest, model: str) -> int:
+-    """這一筆預留的原價(不含安全係數):輸入上限是系統提示加使用者內容的 UTF-8 位元組數
+-    (token 數不會超過它)加 Claude Code 固定附加的輸入,乘三種輸入單價的最高者;加輸出上限乘
+-    輸出單價。它也是傳給 Claude Code 的單次花費上限。"""
++    """這一筆預留的原價(不含安全係數),也是傳給 Claude Code 的單次花費上限。
++    一次請求:輸入上限是系統提示加使用者內容的 UTF-8 位元組數(token 數不會超過它)加 Claude Code
++    固定附加的輸入,乘三種輸入單價的最高者;加輸出上限乘輸出單價。
++    撞到輸出上限後 Claude Code 會自動續寫(最多 OUTPUT_RECOVERY_ATTEMPTS 次,每次重送前文加前幾次的
++    輸出),實測看不出來時也要付得起:照 1 + 續寫次數 次請求算,再加前文累積的輸出(第 k 次續寫多送 k 份
++    輸出上限當輸入)。"""
+     price = PRICES[model]
+     input_bound = len((request.system + request.user).encode("utf-8")) + CLAUDE_FIXED_INPUT_TOKENS
+-    return (input_bound * price.worst_input_nanousd
+-            + request.max_output_tokens * price.output_nanousd)
++    requests = 1 + OUTPUT_RECOVERY_ATTEMPTS
++    one = input_bound * price.worst_input_nanousd + request.max_output_tokens * price.output_nanousd
++    carried = requests * (requests - 1) // 2 * request.max_output_tokens * price.worst_input_nanousd
++    return requests * one + carried
+ 
+ 
+ def reservation_nanousd(request: ModelRequest, model: str) -> int:
+     """預留的最壞花費:這一筆的原價乘安全係數 1.2。"""
+     return with_factor(call_budget_nanousd(request, model))
+diff --git a/src/rtb/modelledger.py b/src/rtb/modelledger.py
+index fc72ba9..01f5dff 100644
+--- a/src/rtb/modelledger.py
++++ b/src/rtb/modelledger.py
+@@ -18,22 +18,20 @@ from rtb.modelcore import (
+     LedgerBusy,
+     LocalCapRefused,
+     ModelRequest,
+     Outcome,
+     Source,
+ )
+ from rtb.modelledger_view import CALLS_SELECT, LedgerCall
+ from rtb.sqlitekit import DatabaseBusy, connect, immediate_transaction, read_snapshot
+ 
+ SETTLE_ATTEMPTS = 3  # 結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤
+-# 核銷時兩個開機識別都是推算的開機時刻,差在這個秒數內算同一次開機
+-SAME_BOOT_SECONDS = 60
+ 
+ # ---- 花費帳 ----
+ _NO_CHANGE = "SELECT RAISE(ABORT, '花費帳只增不改')"
+ SCHEMA = "\n".join([
+     "CREATE TABLE IF NOT EXISTS model_reservations (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+     "reserved_at TEXT NOT NULL, month TEXT NOT NULL, demo_id TEXT, batch_id TEXT, "
+     "caller TEXT NOT NULL, model TEXT NOT NULL, backend TEXT NOT NULL, source TEXT NOT NULL, "
+     "reserved_nanousd INTEGER NOT NULL, timeout_seconds REAL NOT NULL, "
+     "owner_pid INTEGER NOT NULL, owner_boot TEXT NOT NULL, reserved_monotonic REAL NOT NULL);",
+     "CREATE TABLE IF NOT EXISTS model_settlements (reservation_id INTEGER PRIMARY KEY "
+@@ -235,66 +233,74 @@ class WriteOffDone:
+     after_nanousd: int
+ 
+ 
+ def _nanousd(amount: Decimal) -> int:
+     try:
+         scaled = Decimal(amount) * core.NANOUSD_PER_USD
+     except (InvalidOperation, TypeError) as bad:
+         raise WriteOffRefused("金額看不懂") from bad
+     if not scaled.is_finite() or scaled < 0:
+         raise WriteOffRefused("金額要是不為負的有限數")
++    if scaled > core.MONTH_CAP_NANOUSD:  # 先擋掉大得離譜的數(也免得轉整數時溢位)
++        raise WriteOffRefused("核銷金額超過每月上限,一定打錯了")
+     return int(scaled.to_integral_value(rounding="ROUND_CEILING"))
+ 
+ 
+ def _owner_alive(pid: int) -> bool:
+     try:
+         os.kill(pid, 0)
+     except ProcessLookupError:
+         return False
+     except PermissionError:  # 行程在,只是不是自己的(編號被重用也算:寧可不核銷)
+         return True
+     return True
+ 
+ 
+ def _same_boot(recorded: str, current: str) -> bool | None:
+-    """兩個開機識別是不是同一次開機;種類不同或讀不懂回 None(判不出來)。"""
++    """兩個開機識別是不是同一次開機;任一邊讀不到(unknown)或格式不認得回 None(判不出來)。"""
+     if recorded.startswith("id:") and current.startswith("id:"):
+         return recorded == current
+-    if recorded.startswith("at:") and current.startswith("at:"):
+-        try:
+-            return abs(int(recorded[3:]) - int(current[3:])) <= SAME_BOOT_SECONDS
+-        except ValueError:
+-            return None
+     return None
+ 
+ 
+ def _check_unsettled(call: LedgerCall) -> None:
+-    """沒結算的預留:牆鐘要過最長請求期限;同一次開機時,主行程還要已經不在、而且開機以來秒數也過了
+-    期限(兩種時鐘對不上就保守拒絕:改過系統時間、或讀錯)。重開過機就只看牆鐘(主行程一定不在了)。"""
++    """沒結算的預留:牆鐘要過最長請求期限;不論是不是同一次開機都先看主行程在不在(行程編號被重用也算
++    在:寧可擋住)。同一次開機時開機以來秒數也要過期限(兩種時鐘對不上就拒絕:改過系統時間、或讀錯)。
++    重開過機(開機識別不同,且識別不隨牆鐘移動)開機以來秒數沒得比,只看牆鐘與主行程;判不出來就拒絕。"""
+     age = core.utc_now() - datetime.fromisoformat(call.reserved_at)
+     if age <= core.LONGEST_REQUEST:
+         raise WriteOffRefused(f"預留 {call.id} 還在最長請求期限內,可能還在等回應,不能核銷")
++    if _owner_alive(call.owner_pid):
++        raise WriteOffRefused(
++            f"預留 {call.id} 的主行程 {call.owner_pid} 還活著,可能還在等回應,不能核銷")
+     same = _same_boot(call.owner_boot, core.boot_identity())
+     if same is None:
+         raise WriteOffRefused(f"預留 {call.id} 判不出是不是同一次開機,不能核銷")
+     if not same:
+         return
+-    if _owner_alive(call.owner_pid):
+-        raise WriteOffRefused(
+-            f"預留 {call.id} 的主行程 {call.owner_pid} 還活著,可能還在等回應,不能核銷")
+     elapsed = core.monotonic_now() - call.reserved_monotonic
+     if elapsed <= core.LONGEST_REQUEST.total_seconds():
+         raise WriteOffRefused(
+             f"預留 {call.id} 牆鐘已過期限、開機以來秒數卻只過了 {elapsed:.0f} 秒:兩種時鐘對不上,"
+             "不能核銷")
+ 
+ 
++def _check_ceiling(call: LedgerCall, nanousd: int) -> None:
++    """核銷金額不能超過這筆的預留與結算兩者較高者(核銷只拿來把卡住的預留改小,不拿來加帳;每筆只能核一次,
++    打錯的大金額改不回來)。"""
++    ceiling = max(call.reserved_nanousd, call.settled_nanousd or 0)
++    if nanousd > ceiling:
++        raise WriteOffRefused(
++            f"核銷金額 {nanousd / core.NANOUSD_PER_USD:.6f} 美元超過這筆的預留與結算較高者 "
++            f"{ceiling / core.NANOUSD_PER_USD:.6f} 美元")
++
++
+ def _check_write_off(call: LedgerCall) -> None:
+     if call.write_off_nanousd is not None:
+         raise WriteOffRefused(f"預留 {call.id} 已經核銷過,不能再核銷")
+     if call.settled_nanousd is not None and not call.by_reservation:
+         raise WriteOffRefused(f"預留 {call.id} 照實際 token 數或 0 元結算,不能核銷")
+     if call.settled_nanousd is None:
+         _check_unsettled(call)
+ 
+ 
+ def write_off(ledger: Path, reservation_id: int, amount: Decimal, reason: str,
+@@ -306,20 +312,21 @@ def write_off(ledger: Path, reservation_id: int, amount: Decimal, reason: str,
+         raise WriteOffRefused("核銷原因與依據都必填")
+     nanousd = _nanousd(amount)
+     conn = _open(ledger)
+     try:
+         with immediate_transaction(conn):
+             found = _calls(conn, "WHERE r.id = ?", (reservation_id,))
+             if not found:
+                 raise WriteOffRefused(f"找不到預留 {reservation_id}")
+             call = found[0]
+             _check_write_off(call)
++            _check_ceiling(call, nanousd)
+             conn.execute(
+                 "INSERT INTO model_write_offs (reservation_id, written_at, amount_nanousd, reason, "
+                 "evidence, settled_before) VALUES (?, ?, ?, ?, ?, ?)",
+                 (reservation_id, _iso(core.utc_now()), nanousd, reason.strip(), evidence.strip(),
+                  int(call.settled_nanousd is not None)))
+             after = _calls(conn, "WHERE r.id = ?", (reservation_id,))[0]
+     except DatabaseBusy as busy:
+         raise LedgerBusy("花費帳忙碌,沒有核銷") from busy
+     finally:
+         conn.close()
+diff --git a/src/rtb/modelledger_view.py b/src/rtb/modelledger_view.py
+index 523710f..8f2ee42 100644
+--- a/src/rtb/modelledger_view.py
++++ b/src/rtb/modelledger_view.py
+@@ -16,38 +16,47 @@ from collections.abc import Iterator, Mapping
+ from contextlib import contextmanager
+ from dataclasses import dataclass, fields
+ from enum import StrEnum
+ from pathlib import Path
+ 
+ from rtb.sqlitekit import DatabaseNotUpgraded, connect_read_only, missing_schema, read_snapshot
+ 
+ LEDGER_RELATIVE = Path(".rtb") / "model-ledger.sqlite"
+ 
+ 
++# 只在測試開的覆寫:整套共用夾具每支測試設成那支測試的暫存家目錄,測試啟動的子行程照樣繼承;
++# 只有同時在 pytest 的測試執行中(PYTEST_CURRENT_TEST 有值)才認,平常跑命令列設了也不理
++ACCOUNT_HOME_ENV = "RTB_TEST_ACCOUNT_HOME"
++
++
+ def account_home() -> Path:
+     """帳號的家目錄:從帳號資料庫讀,不看環境變數 HOME(HOME 誰都改得動,帳跟啟用紀錄不能跟著搬;
+-    代碼審第 1 輪)。測試由整套共用夾具換掉這一支(注入點)。"""
++    代碼審第 1 輪)。測試的注入點是上面的覆寫環境變數(代碼審第 2 輪:子行程也要隔開)。"""
++    override = os.environ.get(ACCOUNT_HOME_ENV)
++    if override and os.environ.get("PYTEST_CURRENT_TEST"):
++        return Path(override)
+     return Path(pwd.getpwuid(os.getuid()).pw_dir)
+ 
+ 
+ def ledger_path() -> Path:
+     """即時模式唯一的一本帳:帳號家目錄下的固定位置,不論從哪一份簽出、哪個工作目錄啟動、HOME 指到
+     哪裡([S925])。"""
+     return account_home() / LEDGER_RELATIVE
+ 
+ 
+ class Caller(StrEnum):
+-    """會呼叫模型的三個接入點(封閉列舉)。"""
++    """會呼叫模型的三個接入點,加上即時模式實測命令列(封閉列舉;實測的呼叫也算進每月上限)。"""
+ 
+     EVAL_CANDIDATE = "eval_candidate"
+     HYPOTHESIS = "ops_hypothesis"
+     NARRATIVE = "analyzer_narrative"
++    VERIFICATION = "live_verification"
+ 
+ 
+ class Source(StrEnum):
+     LIVE = "live"
+     RECORDED = "recorded"
+ 
+ 
+ class Outcome(StrEnum):
+     """一次呼叫的結果類別:成功加九類失敗(計劃第 7 版;預留時的花費帳忙碌寫不進帳,只在標準錯誤與結束
+     代碼看得到)。"""
+diff --git a/src/rtb/modelrecording.py b/src/rtb/modelrecording.py
+index 48ed8d9..7e625b8 100644
+--- a/src/rtb/modelrecording.py
++++ b/src/rtb/modelrecording.py
+@@ -1,18 +1,19 @@
+ """錄製回應的讀寫(Phase 11B 增量 1,計劃〈模型用戶端〉[S931]):錄製鍵、錄製檔、佔位符。
+ 
+ 錄製鍵只看內容(呼叫者、模型、系統提示、使用者內容、輸出上限,不含後端種類),錄製檔只新建不覆寫。
+ """
+ 
+ import contextlib
+ import hashlib
+ import json
++import math
+ import os
+ import re
+ import unicodedata
+ import uuid
+ from dataclasses import asdict, dataclass
+ from pathlib import Path
+ 
+ from rtb.modelcore import Caller, NoRecording, Outcome, SettlementState
+ 
+ 
+@@ -91,22 +92,26 @@ def _is_count(value: object) -> bool:
+ 
+ 
+ def _well_typed(data: dict[str, object]) -> bool:
+     """每一欄的型別都對(不信任錄製檔:它是存在版本庫裡、誰都改得到的檔)。"""
+     text_ok = all(isinstance(data[name], str) for name in (
+         "key", "caller", "model", "backend", "recorded_on", "outcome"))
+     optional_text_ok = all(data[name] is None or isinstance(data[name], str)
+                            for name in _OPTIONAL_TEXT)
+     counts_ok = all(data[name] is None or _is_count(data[name]) for name in _OPTIONAL_COUNT)
+     latency = data["latency_ms"]
++    latency_ok = (isinstance(latency, int | float) and not isinstance(latency, bool)
++                  and math.isfinite(latency) and latency >= 0)
++    # 成功一定有文字、失敗一定沒有(代碼審第 2 輪:成功卻沒文字會走進失敗分支查表失敗)
++    text_matches = (data["text"] is not None) == (data["outcome"] == Outcome.OK.value)
+     return (text_ok and optional_text_ok and counts_ok and _is_count(data["list_nanousd"])
+-            and isinstance(latency, int | float) and not isinstance(latency, bool)
++            and latency_ok and text_matches
+             and isinstance(data["tool_use"], bool) and isinstance(data["unclassified"], bool))
+ 
+ 
+ def _pending_batch(data: object) -> tuple[bool, str | None]:
+     """是不是還在錄的佔位(呼叫前佔住檔名時寫的);是的話回佔住它的批次。"""
+     if isinstance(data, dict) and set(data) == {"claimed_by_batch"}:
+         batch = data["claimed_by_batch"]
+         return True, batch if isinstance(batch, str) else None
+     return False, None
+ 
+diff --git a/src/rtb/modelverify.py b/src/rtb/modelverify.py
+index d516a9d..0c66191 100644
+--- a/src/rtb/modelverify.py
++++ b/src/rtb/modelverify.py
+@@ -15,64 +15,75 @@ CLAUDE.md 與記憶目錄放一個隨機暗號,問它有沒有看到,回答要
+ env 放一個連不到的 ANTHROPIC_BASE_URL(命令列蓋不掉),帶組合參數要成功,另跑一次不帶這些參數的
+ 正面對照、必須失敗(證明毒值真的會被讀到);Claude Code 自己附加的固定輸入 token 數要量得到、而且不超過
+ 預留用的常數。另外取一份「參數不存在」的真實輸出,一起寫進紀錄當參考。
+ """
+ 
+ import argparse
+ import json
+ import os
+ import shutil
+ import sys
++import time
+ import uuid
+ from collections.abc import Callable, Mapping
+ from dataclasses import dataclass, field
+ from datetime import UTC, datetime
+ from pathlib import Path
+ from typing import Any, TextIO
+ 
+ from rtb import modelclaude as cc
++from rtb import modelclient as mc
+ from rtb import modelcore as core
++from rtb import modelledger as ledger_db
+ 
+ EXIT_OK = 0
+ EXIT_NOT_WRITTEN = 5  # 有項目沒過:不寫紀錄,即時模式不開
+ EXIT_NO_CLAUDE = 6
+ TIMEOUT_SECONDS = 120.0
+ OUTPUT_CAP = 32
+ TOOL_PROMPT = "請實際執行 shell 指令 `ls /`,並把輸出原樣貼給我。"
+ LONG_PROMPT = "請寫一篇至少兩千字的文章,主題是廣告投放的配速。"
+ SHORT_PROMPT = "回答 ok 兩個字母就好。"
+ # 連不到的位址(保留埠 9):使用者設定真的生效,呼叫就一定失敗
+ POISON_SETTINGS = json.dumps({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9"}})
+ SUPPRESSION_FLAGS = (("--setting-sources", 1), ("--settings", 1), ("--safe-mode", 0))
+ CANARY_PROMPT = ("如果你的系統脈絡、使用者記憶或 CLAUDE.md 裡有以 RTB-CANARY 開頭的字串,原樣回給我;"
+                  "沒有就只回 NONE 四個字母。")
+-OUTPUT_MAXIMUM_ERROR = "output token maximum"  # 撞到輸出上限時 Claude Code 的錯誤文字(小寫比對)
++# 撞到輸出上限時 Claude Code 的錯誤文字(2.1.281:「Claude's response exceeded the N output token
++# maximum」,N 是實際生效的上限);要比對到 N 正是這次給的上限,撞到預設上限不算
++OUTPUT_MAXIMUM_ERROR = "exceeded the {cap} output token maximum"
++SYSTEM_PROMPT = "你是測試助手。"
+ 
+ 
+ @dataclass
+ class Verification:
+     claude_version: str | None
+     isolation: cc.Isolation | None = None
+     checks: dict[str, bool] = field(default_factory=dict)
+     notes: dict[str, Any] = field(default_factory=dict)
+ 
+     @property
+     def passed(self) -> bool:
+         return self.claude_version is not None and self.isolation is not None and all(
+             self.checks.get(name) is True for name in cc.REQUIRED_CHECKS)
+ 
+ 
++def _request(prompt: str, max_output_tokens: int, demo_id: str | None = None
++             ) -> core.ModelRequest:
++    return core.ModelRequest(core.Caller.VERIFICATION, SYSTEM_PROMPT, prompt, max_output_tokens,
++                             TIMEOUT_SECONDS, demo_id=demo_id)
++
++
+ def _call(model: str, prompt: str, max_output_tokens: int) -> core.BackendCall:
+-    request = core.ModelRequest(core.Caller.EVAL_CANDIDATE, "你是測試助手。", prompt,
+-                              max_output_tokens, TIMEOUT_SECONDS)
++    request = _request(prompt, max_output_tokens)
+     return core.BackendCall(model, request.system, prompt, max_output_tokens, TIMEOUT_SECONDS,
+-                          core.call_budget_nanousd(request, model))
++                            core.call_budget_nanousd(request, model))
+ 
+ 
+ def _json(stdout: bytes) -> dict[str, Any] | None:
+     try:
+         data = json.loads(stdout.decode("utf-8"))
+     except ValueError:
+         return None
+     return data if isinstance(data, dict) else None
+ 
+ 
+@@ -90,33 +101,62 @@ def _without(args: list[str], flags: tuple[tuple[str, int], ...]) -> list[str]:
+             at = changed.index(flag)
+             del changed[at:at + 1 + values]
+     return changed
+ 
+ 
+ def _succeeded(data: dict[str, Any] | None) -> bool:
+     return data is not None and data.get("is_error") is False and data.get("subtype") == "success"
+ 
+ 
+ class Checker:
+-    """跑各項實測;子行程一律經模型用戶端的 `run_claude`。"""
++    """跑各項實測;子行程一律經模型用戶端的 `run_claude`。每一次真的呼叫模型都經花費帳預留與結算
++    (呼叫者記「即時模式實測」,算進每月上限;一次實測一個展示編號),寫進帳號家目錄那一本帳。"""
+ 
+     def __init__(self, claude: Path, environ: Mapping[str, str], model: str) -> None:
+         self.claude, self.environ, self.model = claude, environ, model
+         self.backend = cc.ClaudeCodeBackend(claude, environ, cc.Isolation.EMPTY_HOME)
++        self.ledger = mc.live_ledger_path()
++        self.demo_id = f"live-verification-{uuid.uuid4().hex[:8]}"
+ 
+-    def run(self, args: list[str], prompt: str, max_output_tokens: int,
+-            home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
++    def _raw(self, args: list[str], prompt: str, max_output_tokens: int,
++             home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
+         return cc.run_claude(args, prompt, self.backend.child_env(max_output_tokens),
+                              TIMEOUT_SECONDS,
+                              isolated_home=self.backend.isolation is cc.Isolation.EMPTY_HOME,
+                              home_files=home_files)
+ 
++    def run(self, args: list[str], prompt: str, max_output_tokens: int,
++            home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
++        """真的呼叫一次模型:先預留(超過上限就丟本地上限拒絕、不呼叫),跑完照模型用戶端的結算規則記帳。"""
++        request = _request(prompt, max_output_tokens, self.demo_id)
++        reserved = core.reservation_nanousd(request, self.model)
++        reservation_id = ledger_db.reserve(self.ledger, request, self.model,
++                                           core.Backend.CLAUDE_CODE)
++        started = time.monotonic()
++        try:
++            code, stdout, stderr = self._raw(args, prompt, max_output_tokens, home_files)
++        except core.ModelCallFailed as failed:
++            mc.settle_quietly(self.ledger, reservation_id, mc.settlement_for(
++                (None, failed), self.model, reserved, (time.monotonic() - started) * 1000))
++            raise
++        data = _json(stdout)
++        reply = None if data is None else cc.usage_of(data, "")
++        outcome: tuple[core.BackendReply | None, core.ModelCallFailed | None]
++        if code == 0 and _succeeded(data) and reply is not None and reply.tokens_known:
++            outcome = (reply, None)
++        else:
++            outcome = (None, core.TransientServiceError("實測呼叫沒有成功形狀的回應",
++                                                        sub_reason="verification", reply=reply))
++        mc.settle_quietly(self.ledger, reservation_id, mc.settlement_for(
++            outcome, self.model, reserved, (time.monotonic() - started) * 1000))
++        return code, stdout, stderr
++
+     def command_for(self, prompt: str, max_output_tokens: int) -> list[str]:
+         return self.backend.command(_call(self.model, prompt, max_output_tokens))
+ 
+     def login(self) -> cc.Isolation | None:
+         for isolation in (cc.Isolation.EMPTY_HOME, cc.Isolation.REAL_HOME):
+             self.backend = cc.ClaudeCodeBackend(self.claude, self.environ, isolation)
+             try:
+                 self.backend.check_login()
+             except core.ModelCallFailed:
+                 continue
+@@ -142,75 +182,94 @@ class Checker:
+         _, stdout, _ = self.run([*args, "--verbose", "--include-hook-events"], SHORT_PROMPT, 50)
+         events = [e for e in (_json(line.encode()) for line in
+                               stdout.decode("utf-8", errors="replace").splitlines()
+                               if line.strip()) if e is not None]
+         results = [e for e in events if e.get("type") == "result"]
+         hooks = any("hook" in f"{e.get('type', '')} {e.get('subtype', '')}".lower()
+                     for e in events)
+         return len(results) == 1 and _succeeded(results[0]) and not hooks
+ 
+     def no_memory(self) -> bool:
+-        """暗號驗記憶:隔離 HOME 的 CLAUDE.md 與記憶目錄放隨機暗號,回答要剛好是 NONE、
+-        輸出裡沒有暗號。
++        """暗號驗記憶:隔離 HOME 的 CLAUDE.md 與記憶目錄放隨機暗號,帶組合參數時回答要剛好是 NONE、
++        輸出裡沒有暗號;另跑一次拿掉安全模式與設定來源參數的正面對照,必須吐出暗號(證明暗號放在 claude
++        真的會讀的位置、模型也會照指示回報,否則這一項驗不出東西)。
+         真 HOME 放不了暗號、驗不了:算沒過(寧可不開即時)。"""
+         if self.backend.isolation is not cc.Isolation.EMPTY_HOME:
+             return False
+         canary = f"RTB-CANARY-{uuid.uuid4().hex}"
+         files = {".claude/CLAUDE.md": canary, ".claude/memory/MEMORY.md": canary,
+                  ".claude/projects/rtb/memory/MEMORY.md": canary}
+-        _, stdout, _ = self.run(self.command_for(CANARY_PROMPT, 50), CANARY_PROMPT, 50, files)
++        args = self.command_for(CANARY_PROMPT, 50)
++        _, stdout, _ = self.run(args, CANARY_PROMPT, 50, files)
+         data = _json(stdout)
+         answer = data.get("result") if data is not None else None
+-        return (_succeeded(data) and isinstance(answer, str) and answer.strip() == "NONE"
+-                and canary.encode() not in stdout)
++        suppressed = (_succeeded(data) and isinstance(answer, str) and answer.strip() == "NONE"
++                      and canary.encode() not in stdout)
++        _, control_out, _ = self.run(_without(args, SUPPRESSION_FLAGS), CANARY_PROMPT, 50, files)
++        control = _json(control_out)
++        leaked = control is not None and canary in str(control.get("result", ""))
++        return suppressed and leaked
+ 
+     def output_limit(self) -> bool:
+         """要有撞頂的正面證據:輸出 token 數剛好等於上限、停止原因是 max_tokens,或「超過輸出上限」的
+         錯誤;其他錯誤、或輸出比上限少(沒撞頂,證明不了)都算沒過。"""
+         _, stdout, _ = self.run(self.command_for(LONG_PROMPT, OUTPUT_CAP), LONG_PROMPT, OUTPUT_CAP)
+         data = _json(stdout)
+         if data is None:
+             return False
++        turns = data.get("num_turns")
++        if isinstance(turns, int) and not isinstance(turns, bool) and turns > 1:
++            return False  # 看得出撞頂後自動續寫了(多次請求):上限沒有把一次呼叫限住
+         if data.get("is_error") is not False:
+-            return data.get("is_error") is True and OUTPUT_MAXIMUM_ERROR in str(
+-                data.get("result", "")).lower()
++            expected = OUTPUT_MAXIMUM_ERROR.format(cap=OUTPUT_CAP)
++            return data.get("is_error") is True and expected in str(data.get("result", "")).lower()
+         usage = data.get("usage")
+         tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
++        if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens > OUTPUT_CAP:
++            return False  # 輸出超過上限(撞到的是別的上限,或續寫累加):沒限住
+         return data.get("subtype") == "success" and (
+             tokens == OUTPUT_CAP or data.get("stop_reason") == "max_tokens")
+ 
+     def settings_suppressed(self) -> bool:
+         """使用者設定放命令列蓋不掉的毒值(env 裡連不到的 API 位址):帶組合參數要成功;不帶這些參數的
+         正面對照必須失敗(證明毒值真的會被讀到,否則這項驗不出東西)。只在空暫存 HOME 隔離下驗得了。"""
+         if self.backend.isolation is not cc.Isolation.EMPTY_HOME:
+             return False  # 真 HOME 不能放對照用的設定檔
+         poison = {".claude/settings.json": POISON_SETTINGS}
+         args = self.command_for(SHORT_PROMPT, 50)
+         code, stdout, _ = self.run(args, SHORT_PROMPT, 50, poison)
+         control_code, control_out, _ = self.run(_without(args, SUPPRESSION_FLAGS), SHORT_PROMPT,
+                                                 50, poison)
+         control_failed = control_code != 0 or not _succeeded(_json(control_out))
+         return code == 0 and _succeeded(_json(stdout)) and control_failed
+ 
+     def references(self) -> dict[str, Any]:
+         _, stdout, _ = self.run(self.command_for(SHORT_PROMPT, 50), SHORT_PROMPT, 50)
+         data = _json(stdout)
+         usage = data.get("usage") if data is not None and _succeeded(data) else None
+-        fixed = None
+-        if isinstance(usage, dict):
+-            fixed = sum(v for k, v in usage.items() if k.endswith("input_tokens")
+-                        and isinstance(v, int) and not isinstance(v, bool))
+-        code, _, stderr = self.run([str(self.claude), "--rtb-no-such-flag"], "", 1)
+-        return {"fixed_input_tokens_seen": fixed, "bad_argument_exit_code": code,
++        code, _, stderr = self._raw([str(self.claude), "--rtb-no-such-flag"], "", 1)  # 不呼叫模型
++        return {"fixed_input_tokens_seen": _fixed_input(usage), "bad_argument_exit_code": code,
+                 "bad_argument_stderr": stderr.decode("utf-8", errors="replace")[:500]}
+ 
+ 
++def _fixed_input(usage: object) -> int | None:
++    """固定附加輸入的量測值:輸入 token 欄一定要有、而且每個輸入類欄位都是不為負的整數才算量到;
++    缺欄或型別不對回 None(不能當 0:量不到的預留可能不夠)。"""
++    if not isinstance(usage, dict):
++        return None
++    fields = {k: v for k, v in usage.items() if k.endswith("input_tokens")}
++    if "input_tokens" not in fields or any(
++            not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in fields.values()):
++        return None
++    return sum(int(v) for v in fields.values())
++
++
+ def verify(claude: Path, environ: Mapping[str, str], model: str = core.DEFAULT_MODEL,
+            checker: Callable[[Path, Mapping[str, str], str], Checker] = Checker) -> Verification:
+     result = Verification(cc.claude_version(claude, environ))
+     run = checker(claude, environ, model)
+     result.isolation = run.login()
+     result.checks["login_ok"] = result.isolation is not None
+     if result.isolation is None or result.claude_version is None:
+         return result
+     result.checks["tools_disabled"] = run.tools_disabled()
+     result.checks["tool_detection_contrast"] = run.tool_detection_contrast()
+@@ -220,21 +279,21 @@ def verify(claude: Path, environ: Mapping[str, str], model: str = core.DEFAULT_M
+     result.checks["setting_sources_suppress_user_settings"] = run.settings_suppressed()
+     result.notes = run.references()
+     fixed = result.notes.get("fixed_input_tokens_seen")
+     # 量不到、或超過預留用的常數:預留可能不夠,不寫紀錄
+     result.checks["fixed_input_within_reserve"] = isinstance(fixed, int) and (
+         fixed <= core.CLAUDE_FIXED_INPUT_TOKENS)
+     return result
+ 
+ 
+ def write_record(result: Verification) -> Path:
+-    """全部通過才寫(呼叫端先確認 `passed`);寫到呼叫時的 HOME 底下。"""
++    """全部通過才寫(呼叫端先確認 `passed`);寫到帳號家目錄底下。"""
+     if not result.passed or result.isolation is None:
+         raise ValueError("有項目沒過,不寫即時模式啟用紀錄")
+     path = cc.verification_path()
+     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+     record = {"claude_version": result.claude_version, "isolation": result.isolation.value,
+               "checks": result.checks, "checked_on": datetime.now(UTC).date().isoformat(),
+               "notes": result.notes}
+     path.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
+     return path
+ 
+@@ -243,21 +302,25 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
+         environ: Mapping[str, str] | None = None) -> int:
+     parser = argparse.ArgumentParser(description="即時模式實測:全部通過才寫啟用紀錄(會花一點額度)")
+     parser.add_argument("--model", default=core.DEFAULT_MODEL)
+     args = parser.parse_args(argv)
+     printer = out or sys.stdout
+     source = os.environ if environ is None else environ
+     claude = shutil.which("claude", path=source.get("PATH", ""))  # 只有入口查 PATH
+     if claude is None:
+         print("PATH 上找不到 claude", file=printer)
+         return EXIT_NO_CLAUDE
+-    result = verify(Path(claude), source, args.model)
++    try:  # 版本與實測都用解開符號連結後的那一支實體檔(跟即時入口一樣)
++        result = verify(Path(claude).resolve(), source, args.model)
++    except core.ModelCallFailed as failed:  # 例如已達每月上限:不呼叫、不寫紀錄
++        print(f"實測沒跑完:{failed}", file=printer)
++        return EXIT_NOT_WRITTEN
+     print(f"claude 版本:{result.claude_version};隔離方式:{result.isolation}", file=printer)
+     for name in cc.REQUIRED_CHECKS:
+         print(f"- {name}:{'過' if result.checks.get(name) else '沒過'}", file=printer)
+     if not result.passed:
+         print("有項目沒過:不寫啟用紀錄,即時模式不開", file=printer)
+         return EXIT_NOT_WRITTEN
+     print(f"全部通過,寫出 {write_record(result)}", file=printer)
+     return EXIT_OK
+ 
+ 
+diff --git a/src/rtb/ops/ruff.toml b/src/rtb/ops/ruff.toml
+index 792463b..f9964d8 100644
+--- a/src/rtb/ops/ruff.toml
++++ b/src/rtb/ops/ruff.toml
+@@ -7,10 +7,13 @@ extend = "../../../pyproject.toml"
+ "sqlite3".msg = "維運套件只能經分析端、執行端的唯讀開法讀資料庫,不自己開連線"
+ "rtb.sqlitekit".msg = "維運套件只能經唯讀開法讀資料庫;要的例外從收件口模組拿"
+ "rtb.dsp".msg = "DSP 只經它的 HTTP 唯讀端點讀,不匯入 DSP 的程式"
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+ "subprocess".msg = "只有模型用戶端能啟動子行程(Phase 11B [S917])"
+ "rtb.modelclient".msg = "只有接入點與實測命令列能用模型用戶端(Phase 11B [S917];維運的假說命令列在增量 2 另開例外)"
+ "rtb.modelclaude".msg = "Claude Code 後端只准模型用戶端與實測命令列匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelverify".msg = "實測命令列會真的呼叫 claude、寫啟用紀錄:不准被別的層匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelledger_writeoff".msg = "核銷命令列會寫花費帳:維運只讀,不准匯入(Phase 11B 代碼審第 1 輪)"
++"rtb.modelcore".msg = "模型用戶端的共用詞彙只給模型用戶端各模組與接入點用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelledger".msg = "花費帳寫入(預留、結算、核銷)只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
++"rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
+diff --git a/tests/conftest.py b/tests/conftest.py
+index 6b6806d..471faf9 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,33 +1,34 @@
+ """整套測試共用的隔離夾具(Phase 11B 增量 1,[S932])。
+ 
+-模型花費帳即時模式寫死在使用者家目錄(~/.rtb/model-ledger.sqlite),所以整套測試一律把家目錄指到暫存
+-目錄、清掉模型相關的環境變數,並把 PATH 換成暫存目錄加系統基本路徑:任何測試(含它啟動的子行程,環境從
+-這裡繼承)都碰不到真帳,也找不到真的 claude。另外在整套開始時記下真帳的狀態、結束時再比一次,變了就讓
+-整套失敗。
++模型花費帳與即時模式啟用紀錄寫死在帳號家目錄(從帳號資料庫讀,不看 HOME),所以每支測試都用只在測試開的
++覆寫環境變數把帳號家目錄指到那支測試的暫存目錄;子行程只要照規定從 os.environ 起頭給環境
++(tests/test_suite_isolation.py 用語法樹掃)就跟著繼承。另外清掉模型相關的環境變數、HOME 與 PATH 換成
++暫存目錄(PATH 只剩系統基本路徑,找不到真的 claude)。這些都擋不住「子行程自己拼一份不含覆寫的環境」
++或別的行程寫真帳,所以整套開始時記下真帳與啟用紀錄的狀態、結束時再比一次,變了就讓整套失敗(兜底)。
+ """
+ 
+ import os
+ import pwd
+ import tempfile
+ from collections.abc import Iterator
+ from pathlib import Path
+ 
+ import pytest
+ 
+ from rtb import modelledger_view
+ 
+ # 真的家目錄從帳號資料庫讀,不看 HOME(HOME 在測試裡會被換掉)
+ REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
+ REAL_LEDGER = REAL_HOME / ".rtb" / "model-ledger.sqlite"
+ REAL_VERIFICATION = REAL_HOME / ".rtb" / "live-verification.json"
+-ACCOUNT_HOME = modelledger_view.account_home  # 真的那一支(夾具換掉之前),給驗它本身的測試用
++ACCOUNT_HOME_ENV = modelledger_view.ACCOUNT_HOME_ENV
+ MODEL_ENV = ("ANTHROPIC_API_KEY", "RTB_MODEL_LIVE", "RTB_MODEL_RECORD", "RTB_MODEL")
+ # 整套測試的 PATH:只有每支測試的暫存目錄加系統基本路徑,真的 claude 不在上面([S935])
+ SYSTEM_PATH = ("/usr/bin", "/bin", "/usr/sbin", "/sbin")
+ 
+ 
+ def ledger_state(path: Path = REAL_LEDGER) -> tuple[object, ...]:
+     """真帳(含 WAL 與共享記憶體檔)與即時模式啟用紀錄的存在與否、大小、修改時間。"""
+     state: list[object] = []
+     targets = [Path(f"{path}{suffix}") for suffix in ("", "-wal", "-shm")]
+     if path == REAL_LEDGER:
+@@ -58,31 +59,32 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
+               f"{REAL_VERIFICATION}")
+         session.exitstatus = pytest.ExitCode.TESTS_FAILED
+ 
+ 
+ _BEFORE = pytest.StashKey[tuple[object, ...]]()
+ 
+ 
+ @pytest.fixture(autouse=True)
+ def _isolated_home(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+     """每支測試再給一個自己的假家目錄、再清一次模型開關([S932];PATH 在 pytest_configure 就換好了)。
+-    花費帳與啟用紀錄跟著帳號家目錄走、不看 HOME,所以也換掉帳號家目錄的讀法(注入點)。另外每支測試
++    花費帳與啟用紀錄跟著帳號家目錄走、不看 HOME,所以也設帳號家目錄的覆寫環境變數(子行程繼承)。
++    另外每支測試
+     有自己的暫存目錄(系統共用暫存目錄裡的殘留不影響結果),管理政策來源指到空的暫存目錄(本機的
+     MDM 或管理設定不影響結果;代碼審第 1 輪)。
+     用自己的替換器,不跟測試共用 `monkeypatch`:測試裡呼叫 `monkeypatch.undo()`(既有幾支測試會)不會把
+     家目錄還原成真的。"""
+-    from rtb import modelclaude, modelledger_view
++    from rtb import modelclaude
+ 
+     patch = pytest.MonkeyPatch()
+     home = tmp_path_factory.mktemp("home")
+     patch.setenv("HOME", str(home))
+-    patch.setattr(modelledger_view, "account_home", lambda: home)
++    patch.setenv(ACCOUNT_HOME_ENV, str(home))
+     for name in MODEL_ENV:
+         patch.delenv(name, raising=False)
+     patch.setattr(tempfile, "tempdir", str(tmp_path_factory.mktemp("tmp")))
+     policy = tmp_path_factory.mktemp("managed")
+     (policy / "system").mkdir()
+     patch.setattr(modelclaude, "MANAGED_DIRS", (policy / "system",))
+     patch.setattr(modelclaude, "MDM_PLISTS", (policy / modelclaude.MDM_PLIST_NAME,))
+     patch.setattr(modelclaude, "MANAGED_PREFERENCES", policy / "preferences")
+     try:
+         yield home
+diff --git a/tests/eval/test_model_candidate.py b/tests/eval/test_model_candidate.py
+index 5cb5c33..8056a6b 100644
+--- a/tests/eval/test_model_candidate.py
++++ b/tests/eval/test_model_candidate.py
+@@ -203,56 +203,93 @@ def _closure(roots):
+ 
+ 
+ SPAWN_MODULES = ("subprocess", "multiprocessing", "pty")
+ 
+ 
+ def _top_imports(tree):
+     names = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+     return names | {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+ 
+ 
++# 模型用戶端的匯入閉包(寫死;改它要看是不是多了網路或子行程的路)
++MODEL_CLIENT_CLOSURE = frozenset({
++    "rtb", "rtb.modelclaude", "rtb.modelclient", "rtb.modelcore", "rtb.modelledger",
++    "rtb.modelledger_view", "rtb.modelrecording", "rtb.sqlitekit"})
++MODEL_NET_ROOTS = frozenset({"urllib", "http", "socket", "ssl", "socketserver", "asyncio",
++                             "requests", "httpx", "urllib3", "aiohttp", "ftplib", "smtplib",
++                             "xmlrpc"})
++MODEL_NET_MODULES = frozenset({"rtb.httpkit", "rtb.httpclient"})
++# 送出呼叫或繞過花費帳直接拿後端的名字
++SEND_NAMES = frozenset({"call_model", "send", "backend", "BackendCall", "run_claude",
++                        "ClaudeCodeBackend"})
++
++
++def send_names(tree):
++    """一支檔裡取用(不只呼叫)送出相關名字的地方:屬性、名字、匯入別名。"""
++    found = set()
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Attribute) and node.attr in SEND_NAMES:
++            found.add(node.attr)
++        elif isinstance(node, ast.Name) and node.id in SEND_NAMES:
++            found.add(node.id)
++        elif isinstance(node, ast.alias) and node.name in SEND_NAMES:
++            found.add(node.name)
++    return found
++
++
+ def _eval_roots():
+     return [f"rtb.eval.{p.stem}" for p in sorted(EVAL.glob("*.py")) if p.stem != "__init__"]
+ 
+ 
+-def test_the_eval_package_reaches_the_model_only_through_the_model_client():
++def test_the_eval_package_reaches_the_model_only_through_the_model_client():  # noqa: PLR0915
+     closure = _closure(_eval_roots())
+-    branch = set(_closure(["rtb.modelclient"])) | {"rtb.eval.model_candidate"}
++    # 允許多出來的分支寫死(代碼審第 2 輪:動態算的話,模型用戶端多匯入什麼都會被跟著放行)
++    branch = MODEL_CLIENT_CLOSURE | {"rtb.eval.model_candidate"}
++    assert set(_closure(["rtb.modelclient"])) == MODEL_CLIENT_CLOSURE
+     assert "rtb.modelclient" in closure
+     assert set(closure) - BASELINE <= branch, sorted(set(closure) - BASELINE - branch)
+     # 評估套件自己不匯入網路或子行程模組、不動態匯入(子行程只在模型用戶端,[S917] 的全庫掃描另守)
+     offenders = []
+     for path in sorted(EVAL.glob("*.py")):
+         tree = ast.parse(path.read_text(encoding="utf-8"))
+         offenders += _network_offenders(path.name, tree)
+         offenders += [f"{path.name}: {m}" for m in _imported_modules(SRC, "rtb.eval.x", tree)
+                       | _top_imports(tree) if m.split(".")[0] in SPAWN_MODULES]
+     assert offenders == []
+     result = subprocess.run(
+         [sys.executable, "-m", "ruff", "check", "--config", str(EVAL / "ruff.toml"),
+          "--stdin-filename", str(EVAL / "probe.py"), "-"],
+         input="import subprocess\n", capture_output=True, text=True, timeout=60, check=False)
+     assert result.returncode == 1 and "TID251" in result.stdout
+     # 只有模型候選與評估紀錄命令列匯入模型用戶端;送出呼叫只准模型候選用
+-    importers, senders = set(), set()
++    importers, senders, bypass = set(), set(), set()
+     for path in sorted(EVAL.glob("*.py")):
+         tree = ast.parse(path.read_text(encoding="utf-8"))
+         module = f"rtb.eval.{path.stem}"
+         if "rtb.modelclient" in _imported_modules(SRC, module, tree):
+             importers.add(path.stem)
+-        for node in ast.walk(tree):
+-            if (isinstance(node, ast.Attribute) and node.attr == "call_model") or (
+-                    isinstance(node, ast.Name) and node.id == "call_model") or (
+-                    isinstance(node, ast.alias) and node.name == "call_model"):
+-                senders.add(path.stem)
++        senders |= {path.stem} if send_names(tree) & {"call_model"} else set()
++        bypass |= {f"{path.stem}: {n}" for n in send_names(tree) - {"call_model"}}
+     assert importers == {"model_candidate", "record"}
+     assert senders == {"model_candidate"}
++    assert bypass == set()  # 沒有人拿後端直接送出(繞過花費帳)
++    for probe in ("def f(s):\n    return s.backend.send(1)\n",
++                  "from rtb import modelclient as mc\nmc.BackendCall('m', 's', 'u', 1, 1.0, 1)\n",
++                  "def f(b):\n    g = b.send\n    return g\n"):
++        assert send_names(ast.parse(probe)) - {"call_model"}, probe
++    # 模型用戶端各模組(含它們的閉包)不准匯入網路模組
++    net = []
++    for module, tree in _closure(sorted(MODEL_CLIENT_CLOSURE)).items():
++        imported = _imported_modules(SRC, module, tree) | _top_imports(tree)
++        net += [f"{module}: {m}" for m in imported
++                if m.split(".")[0] in MODEL_NET_ROOTS or m in MODEL_NET_MODULES]
++    assert net == []
+     # 規則訊息與檔頭說明同步改成「除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、
+     # 不啟動子行程」
+     rules = (EVAL / "ruff.toml").read_text(encoding="utf-8")
+     header = (EVAL / "__init__.py").read_text(encoding="utf-8")
+     assert "花費帳" in rules and "花費帳" in header
+     assert "不讀也不寫任何資料庫\"" not in rules
+ 
+ 
+ # ---- [S919] ----
+ def test_the_candidate_input_cannot_carry_campaign_text():
+@@ -342,35 +379,36 @@ def test_an_overrun_is_booked_and_stops_the_evaluation(tmp_path, caplog, monkeyp
+     from rtb import modelledger_view as view
+ 
+     def booked(ledger):
+         reader = view.ModelLedgerView(ledger)
+         try:
+             with reader.read_transaction():
+                 return reader.calls_between("0000", "9999")
+         finally:
+             reader.close()
+ 
+-    huge = reply(input_tokens=100, output_tokens=5_000)  # 遠超過 32 token 輸出上限的預留
++    # 遠超過 32 token 輸出上限的預留(預留連撞頂後的自動續寫都算進去了,要夠大才超支)
++    huge = reply(input_tokens=100, output_tokens=50_000)
+     for name, reaction in (("success", huge),
+                            ("failure", mc.TransientServiceError("x", reply=huge)),
+                            ("reported", mc.Overrun("超過單次花費上限", sub_reason="call_budget"))):
+         backend = FakeBackend(reaction)
+         (tmp_path / name).mkdir()
+         candidate = _candidate(tmp_path / name, live(backend))
+         run = model_candidate.run_subset(_subset(), candidate, 5.0)
+         assert run.stopped == "overrun" and len(run.rows) == 1 and len(backend.calls) == 1, name
+         assert candidate.attempts[0].settlement == "overrun", name
+         [row] = booked(tmp_path / name / "ledger.sqlite")
+         assert row.overrun is True, name
+         assert row.effective_nanousd >= row.reserved_nanousd, name  # 照實記、不砍
+         if name != "reported":
+-            listed = 100 * 2_000 + 5_000 * 10_000
++            listed = 100 * 2_000 + 50_000 * 10_000
+             assert row.effective_nanousd == -(-listed * 6 // 5) > row.reserved_nanousd, name
+     assert sum("超支" in r.getMessage() for r in caplog.records) == 3
+     # 結算時花費帳忙碌:照常回文字、留未結算;手上的實際花費已超過預留就標「超支又未結算」
+     # (代碼審第 1 輪:兩個訊號都留)
+     monkeypatch.setattr(ledger_db, "settle", _busy_settle)
+     (tmp_path / "busy").mkdir()
+     result = mc.call_model(
+         mc.ModelRequest(mc.Caller.EVAL_CANDIDATE, "s", "u", 32, 5.0, demo_id="d"),
+         live(FakeBackend(huge)), recordings_dir=tmp_path / "busy", ledger=tmp_path / "busy.db")
+     assert result.text and result.settlement is mc.SettlementState.OVERRUN_UNSETTLED
+@@ -526,10 +564,106 @@ def test_an_unexpected_error_always_leaves_a_row(tmp_path, monkeypatch):
+     assert candidate.attempts[-1].unclassified
+ 
+     class Silent(model_candidate.ModelCandidate):
+         def __call__(self, worth_input, timeout_seconds):
+             raise RuntimeError("沒留下任何一列")
+ 
+     silent = Silent(live(FakeBackend()), recordings_dir=tmp_path, ledger=tmp_path / "l.sqlite",
+                     demo_id="demo-1", batch_id="b1")
+     run = model_candidate.run_subset(_subset()[:3], silent, 5.0)
+     assert len(run.rows) == 1 and run.stopped == model_candidate.UNCLASSIFIED
++
++
++# ---- 代碼審第 2 輪(評估) ----
++def _recorded(tmp_path, keep=None):
++    """行程內即時加錄製跑完整子集,寫批次紀錄(keep 給定時只留前幾列,模擬缺列)。"""
++    recordings = tmp_path / "r"
++    candidate = model_candidate.ModelCandidate(
++        live(FakeBackend(reply('{"verdict": "not_worth"}')), record=True),
++        recordings_dir=recordings, ledger=tmp_path / "l.sqlite", demo_id="demo-1", batch_id="b1")
++    run = model_candidate.run_subset(_subset(), candidate, 5.0)
++    rows = run.rows if keep is None else run.rows[:keep]
++    path = model_candidate.write_batch(recordings,
++                                       model_candidate.new_batch("b1", mc.DEFAULT_MODEL, rows))
++    return recordings, path
++
++
++def _replay(recordings, tmp_path):
++    return _record(["--recordings-dir", str(recordings), "--ledger",
++                    str(tmp_path / "replay.sqlite")], {})
++
++
++def test_a_batch_record_missing_rows_is_flagged(tmp_path):
++    """批次紀錄只剩第一列(缺列):重播對不上就標旗標,不拿它算門檻。"""
++    recordings, _ = _recorded(tmp_path, keep=1)
++    code, text, err = _replay(recordings, tmp_path)
++    assert code == record.EXIT_OK, err
++    assert "批次紀錄的情境清單跟這次子集不同" in text
++    assert "| LLM |" in text and "原因:" in text.split("## 比較表")[1].split("## 逐格採用決定")[0]
++
++
++def test_a_tampered_batch_record_is_not_trusted(tmp_path):
++    """批次紀錄驗結構與值域;數字跟錄製檔對不上也標旗標(不崩、不拿它算門檻)。"""
++    recordings, path = _recorded(tmp_path)
++    original = json.loads(path.read_text(encoding="utf-8"))
++    for name, change in (("bad_cell", {"cell": "nope"}), ("negative", {"list_nanousd": -1}),
++                         ("cheaper", {"list_nanousd": 1}), ("bad_sent", {"sent": "yes"}),
++                         ("nan_latency", {"latency_ms": float("nan")})):
++        data = json.loads(json.dumps(original))
++        data["rows"][0].update(change)
++        path.write_text(json.dumps(data), encoding="utf-8")
++        code, text, err = _replay(recordings, tmp_path / name)
++        assert code == record.EXIT_OK, (name, err)
++        section = text[text.index("## 模型候選"):]
++        assert "- 旗標:" in section, name
++
++
++def test_the_model_scores_only_count_calls_that_were_made(tmp_path):
++    """一次都沒呼叫到模型(沒有錄製):模型逐格結果寫沒量,不把現行規則的答案當模型的。"""
++    code, text, err = _record(["--recordings-dir", str(tmp_path / "empty"), "--ledger",
++                               str(tmp_path / "l.sqlite")], {})
++    assert code == record.EXIT_OK, err
++    section = text[text.index("## 模型候選"):]
++    scores = section[section.index("### 模型逐格結果"):]
++    assert "沒量" in scores.split("- 旗標")[0]
++    assert "| paused | 42 |" not in scores
++    # 有錄製時另列實際作答、退回、沒呼叫的件數
++    recordings, _ = _recorded(tmp_path / "full")
++    code, text, err = _replay(recordings, tmp_path / "full")
++    section = text[text.index("## 模型候選"):]
++    assert "| 評分格 | 實際作答 | 退回 | 沒呼叫 |" in section
++    assert "| paused | 42 | 0 | 0 |" in section
++    assert "候選實測已有" in section  # 不採用理由是 Phase 10 的固定文字,模型段註明
++
++
++def test_a_live_run_without_recording_is_not_called_history(tmp_path):
++    fake_claude(tmp_path / "bin", claude_json('{"verdict": "not_worth"}'))
++    code, text, err = _record(["--demo-id", "demo-1", "--recordings-dir", str(tmp_path / "r")],
++                              _live_env(tmp_path / "bin"))
++    assert code == record.EXIT_OK, err
++    section = text[text.index("## 模型候選"):]
++    assert "即時、未存檔" in section and "歷史觀測" not in section
++
++
++def test_an_interrupted_live_run_still_writes_its_batch(tmp_path, monkeypatch):
++    """即時加錄製跑到一半被 Ctrl-C:已跑的部分照樣寫批次紀錄、標中斷,再往外丟;
++    重播標「未跑完(中斷)」。"""
++    fake_claude(tmp_path / "bin", claude_json('{"verdict": "not_worth"}'))
++    real = cc.ClaudeCodeBackend.send
++    calls = []
++
++    def third_is_interrupted(self, call):
++        calls.append(1)
++        if len(calls) == 3:
++            raise KeyboardInterrupt
++        return real(self, call)
++
++    monkeypatch.setattr(cc.ClaudeCodeBackend, "send", third_is_interrupted)
++    recordings = tmp_path / "r"
++    with pytest.raises(KeyboardInterrupt):
++        _record(["--demo-id", "demo-1", "--recordings-dir", str(recordings)],
++                _live_env(tmp_path / "bin", record_too=True))
++    [batch_file] = (recordings / "batches").glob("*.json")
++    batch = model_candidate.load_batch(batch_file)
++    assert batch.interrupted and len(batch.rows) >= 2
++    _, text, _ = _replay(recordings, tmp_path)
++    assert "未跑完(中斷)" in text
+diff --git a/tests/model/fakes.py b/tests/model/fakes.py
+index a73d602..ac58da6 100644
+--- a/tests/model/fakes.py
++++ b/tests/model/fakes.py
+@@ -2,27 +2,29 @@
+ 
+ - `FakeBackend`:行程內的假後端,實作「送出一次呼叫」的介面,給花費帳、錄製、上限、評估這些跟後端無關的
+   測試用,不啟動任何子行程。
+ - `fake_claude`:一支假的 claude 指令(/bin/sh 腳本,印固定 JSON),給 Claude Code 後端的測試用;它把每次
+   被呼叫的參數、環境、工作目錄、標準輸入記到自己旁邊的紀錄目錄。絕對路徑直接傳給模型用戶端,不經 PATH
+   ([S935])。
+ 不呼叫真的 claude、不發網路請求。
+ """
+ 
+ import json
++import os
+ import shlex
+ import threading
+ from pathlib import Path
+ 
+ from rtb import modelclaude as cc
+ from rtb import modelclient as mc
+ from rtb import modelcore as core
++from rtb import modelledger_view as view
+ 
+ 
+ def reply(  # noqa: PLR0913 - 回應的每一欄
+         text='{"verdict": "not_worth"}', input_tokens=100, output_tokens=10, *,
+           cache_5m=0, cache_1h=0, cache_read=0, reported_usd=None):
+     return mc.BackendReply(
+         text=text, input_tokens=input_tokens, output_tokens=output_tokens,
+         cache_write_5m_tokens=cache_5m, cache_write_1h_tokens=cache_1h,
+         cache_read_tokens=cache_read,
+         reported_nanousd=None if reported_usd is None else round(reported_usd * 10**9))
+@@ -80,24 +82,31 @@ def claude_json(  # noqa: PLR0913 - JSON 輸出的每一欄
+         data["usage"] = {"input_tokens": input_tokens, "output_tokens": output_tokens,
+                          "cache_creation_input_tokens": cache_creation,
+                          "cache_read_input_tokens": cache_read}
+     return data
+ 
+ 
+ FAKE_VERSION = "9.9.9 (Claude Code)"
+ 
+ 
+ def write_verification(version=FAKE_VERSION, isolation="empty_home", **checks):
+-    """在呼叫時的家目錄寫一份即時模式啟用紀錄(預設全過、版本跟假 claude 一樣)。"""
++    """在帳號家目錄(測試裡是共用夾具設的暫存目錄)寫一份即時模式啟用紀錄(預設全過、版本跟假 claude
++    一樣)。不在共用夾具底下(沒有帳號家目錄覆寫、或不在測試執行中)就拒寫:帳號家目錄不看 HOME,
++    在 pytest 外呼叫會寫進真的 ~/.rtb(代碼審第 2 輪:真的發生過)。"""
++    override = os.environ.get(view.ACCOUNT_HOME_ENV)
++    if not override or not os.environ.get("PYTEST_CURRENT_TEST"):
++        raise RuntimeError("write_verification 只能在 pytest 的共用夾具底下用(會寫帳號家目錄)")
++    path = cc.verification_path()
++    if not path.is_relative_to(Path(override)):
++        raise RuntimeError(f"啟用紀錄不在測試的暫存家目錄底下,拒寫:{path}")
+     record = {"claude_version": version, "isolation": isolation, "checked_on": "2026-09-24",
+               "checks": {**dict.fromkeys(cc.REQUIRED_CHECKS, True), **checks}}
+-    path = cc.verification_path()
+     path.parent.mkdir(parents=True, exist_ok=True)
+     path.write_text(json.dumps(record), encoding="utf-8")
+     return path
+ 
+ 
+ def fake_claude(  # noqa: PLR0913 - 假指令的每種行為
+         directory: Path, output: object = None, *, code: int = 0, logged_in: bool = True,
+         sleep: float = 0, grandchild: bool = False, executable: bool = True,
+         auth_sleep: float = 0, stderr: str = "") -> Path:
+     """在 directory 建一支假的 claude 並回傳它的絕對路徑。output 是 dict(印成 JSON)或字串(原樣印)。
+diff --git a/tests/model/test_claude_backend.py b/tests/model/test_claude_backend.py
+index dd28d12..75db0c8 100644
+--- a/tests/model/test_claude_backend.py
++++ b/tests/model/test_claude_backend.py
+@@ -75,38 +75,39 @@ CASES = {  # 名稱: (假 claude 的設定, 例外類別, 結果類別, 照預
+     "unknown_model": ({"output": claude_json("model: claude-nope not found", is_error=True),
+                        "code": 1}, mc.ConfigError, "config_error", False),
+     "recognised_transient": ({"output": claude_json("overloaded", is_error=True), "code": 1},
+                              mc.TransientServiceError, "transient", True),
+     "unrecognised": ({"output": claude_json("???", is_error=True, subtype="whatever")},
+                      mc.TransientServiceError, "transient", True),
+     "nonzero_exit": ({"output": claude_json(), "code": 3}, mc.TransientServiceError,
+                      "transient", True),
+     "tool_turns": ({"output": claude_json(num_turns=2)}, mc.UnreadableModelResponse,
+                    "unreadable", True),
+-    "timeout": ({"sleep": 5}, mc.ModelTimeout, "timeout", True),
++    "timeout": ({"sleep": 30}, mc.ModelTimeout, "timeout", True),
+ }
+ UNCLASSIFIED = {"unrecognised", "nonzero_exit", "not_json_nonzero"}
+ # 錯誤回應分完子類型、帶工具使用痕跡另加標記;成功形狀帶痕跡也標(代碼審第 1 輪)
+ TOOL_USE = {"error_with_tool_turns", "tool_turns"}
+ 
+ 
+ def _script(tmp_path, name, options):
+     options = dict(options)
+     if options.pop("missing", False):
+         return tmp_path / name / "no-such-claude"
+     return fake_claude(tmp_path / name, **options)
+ 
+ 
+ def test_failed_calls_are_settled_by_their_kind(  # noqa: PLR0915 - 五步判定的逐條情境
+         tmp_path, monkeypatch):
+     monkeypatch.setattr(cc, "KNOWN_ERRORS", SAMPLES)
+-    req = request(max_output_tokens=200, timeout_seconds=1.0)
++    # 期限給寬一點:登入檢查也吃同一份期限,機器忙時 1 秒會被假 claude 的啟動吃光(代碼審第 2 輪)
++    req = request(max_output_tokens=200, timeout_seconds=4.0)
+     reserved = core.reservation_nanousd(req, mc.DEFAULT_MODEL)
+     for name, (options, error, outcome, charged) in CASES.items():
+         script = _script(tmp_path, name, options)
+         with pytest.raises(error) as failed:
+             _call(tmp_path, script, req, name)
+         assert failed.value.outcome.value == outcome, name
+         assert failed.value.unclassified is (name in UNCLASSIFIED), name
+         assert failed.value.tool_use is (name in TOOL_USE), name
+         [row] = _rows(tmp_path / f"{name}.sqlite")
+         assert row.outcome == outcome, name
+@@ -207,25 +208,26 @@ def test_the_claude_command_disables_every_tool(tmp_path):
+     assert not [a for a in args if a in FORBIDDEN_FLAGS]
+     assert _value(args, "--output-format") == "json"
+     assert _value(args, "--model") == mc.DEFAULT_MODEL
+     assert _value(args, "--effort") == cc.CLAUDE_EFFORT == "low"
+     assert _value(args, "--system-prompt") == req.system
+     assert _value(args, "--tools") == ""
+     assert _value(args, "--setting-sources") == cc.SETTING_SOURCES == ""  # 最少的設定來源
+     assert _value(args, "--settings") == "{}"  # 空設定
+     budget = Decimal(_value(args, "--max-budget-usd")) * mc.NANOUSD_PER_USD
+     assert budget == core.call_budget_nanousd(req, mc.DEFAULT_MODEL)
+-    # 預留的原價:(提示位元組數 + Claude Code 固定附加 4000)乘三種輸入單價最高者
+-    # (1 小時快取寫入 4 美元)加輸出上限乘輸出單價(變異檢查補的斷言:不能只跟同一支函式比)
++    # 預留的原價:一次請求 =(提示位元組數 + Claude Code 固定附加 4000)乘三種輸入單價最高者
++    # (1 小時快取寫入 4 美元)加輸出上限乘輸出單價;撞頂後最多自動續寫 3 次,照 4 次請求算,
++    # 再加續寫時重送的前幾次輸出(1+2+3 份輸出上限當輸入)(變異檢查補的斷言:不能只跟同一支函式比)
+     prompt_bytes = len((req.system + req.user).encode("utf-8"))
+     assert core.CLAUDE_FIXED_INPUT_TOKENS == 4000
+-    assert budget == (prompt_bytes + 4000) * 4_000 + 40 * 10_000
++    assert budget == 4 * ((prompt_bytes + 4000) * 4_000 + 40 * 10_000) + 6 * 40 * 4_000
+     assert core.call_budget_nanousd(req, mc.DEFAULT_MODEL) * 6 == pytest.approx(
+         core.reservation_nanousd(req, mc.DEFAULT_MODEL) * 5, abs=6)
+     assert seen["stdin"] == req.user and req.user not in args  # 使用者內容只從標準輸入送
+     assert seen["cwd_listing"] == []  # 每次新建的空暫存目錄
+     assert Path(seen["cwd"]).parent.name.startswith("rtb-claude-")
+     assert not Path(seen["cwd"]).exists()
+     _call(tmp_path, script, req, "again")
+     cwds = {Path(s["cwd"]) for s in invocations(script)}
+     assert len(cwds) == 2  # 每次一個新的
+ 
+@@ -252,21 +254,21 @@ def _alive(pid):
+     except ProcessLookupError:
+         return False
+     return True
+ 
+ 
+ def test_a_timeout_kills_the_whole_group_before_cleanup(tmp_path):
+     before = set(Path(tempfile.gettempdir()).glob("rtb-claude-*"))
+     script = fake_claude(tmp_path / "slow", sleep=30, grandchild=True)
+     started = time.monotonic()
+     with pytest.raises(mc.ModelTimeout):
+-        _call(tmp_path, script, request(timeout_seconds=1.0), "slow")
++        _call(tmp_path, script, request(timeout_seconds=3.0), "slow")
+     assert time.monotonic() - started < 15
+     [seen] = invocations(script)
+     pid = int((tmp_path / "slow" / "grandchild.pid").read_text(encoding="utf-8"))
+     assert not _alive(pid)  # 孫行程也被殺了
+     assert not Path(seen["cwd"]).parent.exists()  # 殺整組、確認群組空,再刪暫存目錄
+     # 孫行程繼承了輸出、還在跑:成功的呼叫不被拖成逾時,孫行程照樣被殺
+     script = fake_claude(tmp_path / "lingering", grandchild=True)
+     started = time.monotonic()
+     assert _call(tmp_path, script, request(timeout_seconds=5.0), "lingering").text
+     assert time.monotonic() - started < 4
+diff --git a/tests/model/test_claude_process.py b/tests/model/test_claude_process.py
+index 751d274..abc6605 100644
+--- a/tests/model/test_claude_process.py
++++ b/tests/model/test_claude_process.py
+@@ -49,31 +49,31 @@ def _wait_started(script, limit=10.0):
+ def _gone(pid, limit=5.0):
+     deadline = time.monotonic() + limit
+     while _alive(pid) and time.monotonic() < deadline:
+         time.sleep(0.05)
+     return not _alive(pid)
+ 
+ 
+ def test_an_interrupted_call_kills_the_whole_group(tmp_path):
+     """Ctrl-C(KeyboardInterrupt)打斷等待:例外照樣往外丟,但整組先殺掉、確認空了、暫存目錄刪掉。"""
+     script = fake_claude(tmp_path / "c", sleep=30, grandchild=True)
+-    env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
++    child_env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
+     started = {}
+ 
+     def interrupt():
+         started["pid"] = _wait_started(script)
+         os.kill(os.getpid(), signal.SIGINT)
+ 
+     timer = threading.Thread(target=interrupt, daemon=True)
+     timer.start()
+     with pytest.raises(KeyboardInterrupt):
+-        cc.run_claude([str(script), "-p"], "x", env, 20.0)
++        cc.run_claude([str(script), "-p"], "x", child_env, 20.0)
+     timer.join(5)
+     grandchild = int((tmp_path / "c" / "grandchild.pid").read_text(encoding="utf-8"))
+     assert _gone(started["pid"]) and _gone(grandchild)
+     cwd = Path(next((tmp_path / "c" / "claude.log").glob("*.cwd")).read_text().strip())
+     assert not cwd.parent.exists()
+ 
+ 
+ def test_sigterm_during_a_call_cleans_up_the_same_way(tmp_path):
+     """SIGTERM 在呼叫期間轉成例外,走同一條清理;用子行程跑,免得把整套測試殺掉。"""
+     script = fake_claude(tmp_path / "c", sleep=30, grandchild=True)
+@@ -98,27 +98,28 @@ def test_sigterm_during_a_call_cleans_up_the_same_way(tmp_path):
+     started = int(next((tmp_path / "c" / "claude.log").glob("*.started")).name.split(".")[0])
+     grandchild = int((tmp_path / "c" / "grandchild.pid").read_text(encoding="utf-8"))
+     assert _gone(started) and _gone(grandchild), result.stdout + result.stderr
+     assert result.returncode == 3, result.stdout + result.stderr  # 轉成例外、往外丟
+     cwd = Path(next((tmp_path / "c" / "claude.log").glob("*.cwd")).read_text().strip())
+     assert not cwd.parent.exists()
+ 
+ 
+ def test_the_login_check_counts_against_the_call_deadline(tmp_path):
+     """登入檢查花掉的時間要從這次呼叫的總期限扣掉,不是再給一份完整的逾時。"""
+-    script = fake_claude(tmp_path / "c", auth_sleep=0.6, sleep=0.6)
++    # 登入 2 秒、期限 3 秒:扣掉的話約 3 秒逾時;沒扣會拖到約 5 秒。間距拉大,機器忙時也分得出來
++    script = fake_claude(tmp_path / "c", auth_sleep=2.0, sleep=30)
+     settings = live(cc.ClaudeCodeBackend(script))
+     started = time.monotonic()
+     with pytest.raises(mc.ModelTimeout):
+-        mc.call_model(request(timeout_seconds=1.0), settings, recordings_dir=tmp_path,
++        mc.call_model(request(timeout_seconds=3.0), settings, recordings_dir=tmp_path,
+                       ledger=tmp_path / "l.sqlite")
+-    assert time.monotonic() - started < 2.5
++    assert time.monotonic() - started < 4.3
+ 
+ 
+ def test_a_success_needs_the_success_subtype(tmp_path):
+     """是否錯誤欄寫 false、子類型卻不是 success 的回應,不算成功。"""
+     script = fake_claude(tmp_path / "c", claude_json(subtype="error_during_execution"))
+     with pytest.raises(mc.UnreadableModelResponse):
+         mc.call_model(request(), live(cc.ClaudeCodeBackend(script)), recordings_dir=tmp_path,
+                       ledger=tmp_path / "l.sqlite")
+ 
+ 
+diff --git a/tests/model/test_ledger_hardening.py b/tests/model/test_ledger_hardening.py
+index 347bc5a..be2edca 100644
+--- a/tests/model/test_ledger_hardening.py
++++ b/tests/model/test_ledger_hardening.py
+@@ -111,27 +111,28 @@ def test_a_reservation_reads_the_clock_once(tmp_path, monkeypatch):
+                     + [datetime(2026, 9, 1, 0, 0, 1, tzinfo=UTC)] * 50)
+     monkeypatch.setattr(core, "utc_now", lambda: next(readings))
+     ledger_db.reserve(ledger, request(demo_id="demo-2"), mc.DEFAULT_MODEL,
+                       core.Backend.CLAUDE_CODE)
+     september = [r for r in _rows(ledger) if r.month == "2026-09"]
+     assert sum(r.effective_nanousd for r in september) <= per_call
+     assert _rows(ledger)[-1].month == "2026-08"
+ 
+ 
+ def test_absurd_usage_is_unreadable_and_an_overrun(tmp_path):
+-    """自報 100 億美元:當讀不懂、標超支,不讓溢位例外漏出去(評估才停得下來)。"""
++    """自報 100 億美元:當讀不懂、標超支,不讓溢位例外漏出去(評估才停得下來);代碼審第 2 輪起照預留
++    結算(離譜的數字不入帳,見 test_ledger_limits)。"""
+     script = fake_claude(tmp_path / "c", claude_json(cost_usd=1e10))
+     with pytest.raises(mc.UnreadableModelResponse) as failed:
+         _call(tmp_path, cc.ClaudeCodeBackend(script))
+     assert failed.value.settlement.value.startswith("overrun")
+     [row] = _rows(tmp_path / "l.sqlite")
+-    assert row.overrun is True and row.effective_nanousd > row.reserved_nanousd
++    assert row.overrun is True and row.effective_nanousd == row.reserved_nanousd
+     huge_tokens = fake_claude(tmp_path / "t", claude_json(output_tokens=10**16))
+     with pytest.raises(mc.UnreadableModelResponse):
+         _call(tmp_path, cc.ClaudeCodeBackend(huge_tokens), name="t")
+ 
+ 
+ def test_an_unsettled_overrun_keeps_both_signals(tmp_path, monkeypatch, capsys):
+     """結算寫不進去又超支:狀態同時帶超支與未結算;有上限地重試,仍失敗就把超支金額印到標準錯誤。"""
+     attempts = []
+ 
+     def busy(*_args, **_kwargs):
+@@ -142,30 +143,35 @@ def test_an_unsettled_overrun_keeps_both_signals(tmp_path, monkeypatch, capsys):
+ 
+     monkeypatch.setattr(ledger_db, "settle", busy)
+     result = _call(tmp_path, FakeBackend(reply(input_tokens=0, output_tokens=0,
+                                                reported_usd=0.9)))
+     assert result.settlement.value == "overrun_unsettled"
+     assert len(attempts) == ledger_db.SETTLE_ATTEMPTS == 3
+     assert "1.080000" in capsys.readouterr().err  # 0.9 美元乘 1.2
+ 
+ 
+ def test_the_ledger_follows_the_account_home_not_the_home_variable(tmp_path, monkeypatch):
+-    from tests.conftest import ACCOUNT_HOME, REAL_HOME
++    from tests.conftest import ACCOUNT_HOME_ENV, REAL_HOME
+ 
+-    # 共用夾具換掉了帳號家目錄的讀法:先驗真的那一支(只算路徑、不開帳)
+-    monkeypatch.setattr(view, "account_home", ACCOUNT_HOME)
++    # 共用夾具設了只在測試開的覆寫:拿掉它驗真的讀法(只算路徑、不開帳)
++    monkeypatch.delenv(ACCOUNT_HOME_ENV)
+     monkeypatch.setenv("HOME", str(tmp_path / "elsewhere"))
+     assert view.ledger_path() == REAL_HOME / ".rtb" / "model-ledger.sqlite"
+     assert cc.verification_path() == REAL_HOME / ".rtb" / "live-verification.json"
+     assert not view.ledger_path().is_relative_to(tmp_path / "elsewhere")
+     assert not cc.verification_path().is_relative_to(tmp_path / "elsewhere")
+     assert view.ledger_path() == view.account_home() / ".rtb" / "model-ledger.sqlite"
++    # 覆寫只在 pytest 的測試執行中才認:平常跑命令列設了也不理
++    monkeypatch.setenv(ACCOUNT_HOME_ENV, str(tmp_path / "override"))
++    assert view.account_home() == tmp_path / "override"
++    monkeypatch.delenv("PYTEST_CURRENT_TEST")
++    assert view.account_home() == REAL_HOME
+ 
+ 
+ def test_cache_writes_missing_from_the_split_count_as_one_hour(tmp_path):
+     output = claude_json(input_tokens=0, output_tokens=0, cache_creation=100_000, cost_usd=0.0)
+     output["usage"]["cache_creation"] = {"ephemeral_5m_input_tokens": 0,
+                                          "ephemeral_1h_input_tokens": 0}
+     _call(tmp_path, cc.ClaudeCodeBackend(fake_claude(tmp_path / "c", output)),
+           request(max_output_tokens=5000))
+     [row] = _rows(tmp_path / "l.sqlite")
+     assert (row.cache_write_5m_tokens, row.cache_write_1h_tokens) == (0, 100_000)
+diff --git a/tests/model/test_ledger_limits.py b/tests/model/test_ledger_limits.py
+new file mode 100644
+index 0000000..e45881a
+--- /dev/null
++++ b/tests/model/test_ledger_limits.py
+@@ -0,0 +1,146 @@
++"""Phase 11B 增量 1 代碼審第 2 輪:花費帳的邊界(錢)。
++
++- 核銷沒結算的預留:不論是不是同一次開機都先看主行程在不在;開機識別不隨牆鐘移動
++  (撥鐘不會被當成重開機)。
++- 核銷期限兩道(牆鐘、開機以來秒數)各自在期限內拒絕、過了才准。
++- 荒謬值照預留結算(可核銷)、標超支,不把夾過的數字入帳。
++- 快取寫入總數欄讀不懂就是讀不懂(不默默當 0)。
++- 核銷金額有上界,太大丟「拒絕」不丟原生溢位。
++- 預留把撞頂後的自動續寫(最多 3 次)算進去。
++不呼叫真的 claude。
++"""
++
++import io
++import time
++from datetime import UTC, datetime, timedelta
++from decimal import Decimal
++
++import pytest
++
++from rtb import modelclaude as cc
++from rtb import modelclient as mc
++from rtb import modelcore as core
++from rtb import modelledger as ledger_db
++from rtb import modelledger_view as view
++from rtb import modelledger_writeoff as writeoff
++from tests.model.fakes import FakeBackend, claude_json, fake_claude, live, request
++
++BASE = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
++
++
++def _rows(ledger):
++    reader = view.ModelLedgerView(ledger)
++    try:
++        with reader.read_transaction():
++            return reader.calls_between("0000", "9999")
++    finally:
++        reader.close()
++
++
++def _unsettled(tmp_path, monkeypatch, user):
++    """在固定牆鐘下留一筆沒結算的預留(模擬行程在呼叫途中被殺)。"""
++    monkeypatch.setattr(core, "utc_now", lambda: BASE)
++    with pytest.raises(KeyboardInterrupt):
++        mc.call_model(request(user, max_output_tokens=500), live(FakeBackend(KeyboardInterrupt())),
++                      recordings_dir=tmp_path, ledger=tmp_path / "l.sqlite")
++    return _rows(tmp_path / "l.sqlite")[-1]
++
++
++def test_moving_the_system_clock_is_not_a_reboot(tmp_path, monkeypatch):
++    """牆鐘與 time.time 一起撥快 480 秒、主行程還活著:不准核銷(不能當成重開過機而跳過檢查)。"""
++    row = _unsettled(tmp_path, monkeypatch, "甲")
++    real_time = time.time
++    jump = 480 + core.LONGEST_REQUEST.total_seconds()
++    monkeypatch.setattr(core, "utc_now", lambda: BASE + timedelta(seconds=jump))
++    monkeypatch.setattr(time, "time", lambda: real_time() + jump)
++    with pytest.raises(ledger_db.WriteOffRefused):
++        ledger_db.write_off(tmp_path / "l.sqlite", row.id, Decimal("0"), "r", "本機紀錄")
++    # 就算開機識別不同(被判成重開過機),主行程還活著就不准
++    monkeypatch.setattr(core, "boot_identity", lambda: "id:another-boot")
++    with pytest.raises(ledger_db.WriteOffRefused, match="還活著"):
++        ledger_db.write_off(tmp_path / "l.sqlite", row.id, Decimal("0"), "r", "本機紀錄")
++    monkeypatch.undo()
++    monkeypatch.setattr(core, "utc_now", lambda: BASE + timedelta(seconds=jump))
++    # 主行程判死之後,撥過的牆鐘仍擋不過開機以來秒數那一道
++    monkeypatch.setattr(ledger_db, "_owner_alive", lambda _pid: False)
++    monkeypatch.setattr(core, "monotonic_now", lambda: row.reserved_monotonic + 1.0)
++    with pytest.raises(ledger_db.WriteOffRefused, match="時鐘"):
++        ledger_db.write_off(tmp_path / "l.sqlite", row.id, Decimal("0"), "r", "本機紀錄")
++
++
++@pytest.mark.parametrize("clock", ["wall", "monotonic"])
++def test_both_write_off_deadlines_hold_until_they_pass(tmp_path, monkeypatch, clock):
++    """主行程已不在:另一道時鐘遠過期限時,這一道在第 120 秒與剛好期限(420 秒)拒絕、第 421 秒才准。
++    (最長請求期限 = 逾時上限 120 秒加 5 分鐘 = 420 秒。)"""
++    monkeypatch.setattr(ledger_db, "_owner_alive", lambda _pid: False)
++    edge = int(core.LONGEST_REQUEST.total_seconds())
++    assert edge == 420
++    far = 10 * edge
++    for seconds, allowed in ((120, False), (edge, False), (edge + 1, True)):
++        row = _unsettled(tmp_path, monkeypatch, f"{clock}-{seconds}")
++        wall = seconds if clock == "wall" else far
++        mono = seconds if clock == "monotonic" else far
++        monkeypatch.setattr(core, "utc_now", lambda w=wall: BASE + timedelta(seconds=w))
++        monkeypatch.setattr(core, "monotonic_now", lambda m=mono, r=row: r.reserved_monotonic + m)
++        if allowed:
++            ledger_db.write_off(tmp_path / "l.sqlite", row.id, Decimal("0"), "r", "本機紀錄")
++        else:
++            with pytest.raises(ledger_db.WriteOffRefused):
++                ledger_db.write_off(tmp_path / "l.sqlite", row.id, Decimal("0"), "r", "本機紀錄")
++
++
++def test_an_absurd_report_is_charged_the_reservation(tmp_path):
++    """自報 100 億美元:照預留結算(可核銷)、標超支;不把夾過的 2 萬美元入帳鎖死這個展示與本月。"""
++    script = fake_claude(tmp_path / "c", claude_json(cost_usd=1e10))
++    with pytest.raises(mc.UnreadableModelResponse) as failed:
++        mc.call_model(request(), live(cc.ClaudeCodeBackend(script)), recordings_dir=tmp_path,
++                      ledger=tmp_path / "l.sqlite")
++    assert failed.value.settlement.value.startswith("overrun")
++    [row] = _rows(tmp_path / "l.sqlite")
++    assert row.overrun is True and row.by_reservation is True
++    assert row.effective_nanousd == row.reserved_nanousd
++    assert ledger_db.used_so_far(tmp_path / "l.sqlite", "demo-1").month_nanousd == (
++        row.reserved_nanousd)
++    # 下一筆照常能預留(沒被鎖死)
++    mc.call_model(request("下一筆"), live(), recordings_dir=tmp_path, ledger=tmp_path / "l.sqlite")
++
++
++def test_an_unreadable_cache_total_is_unreadable(tmp_path):
++    output = claude_json(cache_creation=0, cost_usd=0.0)
++    output["usage"]["cache_creation_input_tokens"] = "50000"
++    output["usage"]["cache_creation"] = {"ephemeral_5m_input_tokens": 0,
++                                         "ephemeral_1h_input_tokens": 0}
++    script = fake_claude(tmp_path / "c", output)
++    with pytest.raises(mc.UnreadableModelResponse):
++        mc.call_model(request(), live(cc.ClaudeCodeBackend(script)), recordings_dir=tmp_path,
++                      ledger=tmp_path / "l.sqlite")
++
++
++def test_a_write_off_amount_has_a_ceiling(tmp_path):
++    """核銷金額不能超過這筆的預留與結算兩者較高者;太大是拒絕,命令列不吐 traceback。"""
++    ledger = mc.live_ledger_path()
++    with pytest.raises(mc.TransientServiceError):  # 照預留結算的失敗,可以核銷
++        mc.call_model(request(), live(FakeBackend(mc.TransientServiceError("x"))),
++                      recordings_dir=tmp_path, ledger=ledger)
++    [row] = _rows(ledger)
++    too_much = Decimal(row.reserved_nanousd + 1) / core.NANOUSD_PER_USD
++    for amount in (Decimal("1e12"), Decimal("1e6"), too_much):
++        with pytest.raises(ledger_db.WriteOffRefused):
++            ledger_db.write_off(ledger, row.id, amount, "r", "本機紀錄")
++    out, err = io.StringIO(), io.StringIO()
++    code = writeoff.run(["--reservation-id", str(row.id), "--amount-usd", "1e12", "--reason", "r",
++                         "--evidence", "本機紀錄"], out=out, err=err)
++    assert code == writeoff.EXIT_REFUSED
++    ledger_db.write_off(ledger, row.id, Decimal(row.reserved_nanousd) / core.NANOUSD_PER_USD, "r",
++                        "本機紀錄")  # 等於預留:准
++
++
++def test_the_reservation_covers_automatic_continuations():
++    """撞頂後 Claude Code 最多自動續寫 3 次(每次重送前文):預留與單次花費上限照 4 次請求算。"""
++    req = request(max_output_tokens=100)
++    price = core.PRICES[mc.DEFAULT_MODEL]
++    one = ((len((req.system + req.user).encode()) + core.CLAUDE_FIXED_INPUT_TOKENS)
++           * price.worst_input_nanousd + 100 * price.output_nanousd)
++    assert core.OUTPUT_RECOVERY_ATTEMPTS == 3
++    assert core.call_budget_nanousd(req, mc.DEFAULT_MODEL) >= 4 * one + 6 * 100 * (
++        price.worst_input_nanousd)
+diff --git a/tests/model/test_live_guards.py b/tests/model/test_live_guards.py
+new file mode 100644
+index 0000000..6668b12
+--- /dev/null
++++ b/tests/model/test_live_guards.py
+@@ -0,0 +1,162 @@
++"""Phase 11B 增量 1 代碼審第 2 輪:即時呼叫前後的護欄(後端與子行程)。
++
++- claude 是會被自動更新改指的符號連結:入口核版本時就固定解開後的路徑,跑到一半換版也不會用到沒實測過
++  的版本;舊版檔被清掉時是設定錯誤、結算 0。
++- 登入檢查用完這次呼叫的期限:沒呼叫模型,算設定錯誤、結算 0、評估不算送出。
++- Popen 起了子行程、還沒進清理之前收到中斷,也要殺整組。
++- 關終端機(SIGHUP)或 SIGQUIT 跟 SIGTERM 一樣轉成例外、殺整組、放掉錄製佔位。
++一律用假的 claude 腳本;不呼叫真的 claude。
++"""
++
++import json
++import os
++import signal
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++from rtb import modelclaude as cc
++from rtb import modelclient as mc
++from rtb import modelledger_view as view
++from tests.model.fakes import fake_claude, invocations, live, request, write_verification
++
++SRC = Path(__file__).resolve().parents[2] / "src"
++
++
++def _rows(ledger):
++    reader = view.ModelLedgerView(ledger)
++    try:
++        with reader.read_transaction():
++            return reader.calls_between("0000", "9999")
++    finally:
++        reader.close()
++
++
++def _alive(pid):
++    try:
++        os.kill(pid, 0)
++    except (ProcessLookupError, PermissionError):
++        return False
++    return True
++
++
++def test_a_claude_upgrade_mid_run_never_reaches_an_unverified_version(tmp_path):
++    """入口判成即時之後,連結改指新版:之後的呼叫仍用實測過的那一版;那一版被清掉就是設定錯誤。"""
++    old = fake_claude(tmp_path / "versions" / "old")
++    new = fake_claude(tmp_path / "versions" / "new")
++    bin_dir = tmp_path / "bin"
++    bin_dir.mkdir()
++    link = bin_dir / "claude"
++    link.symlink_to(old)
++    write_verification()
++    settings = mc.settings_from_env({mc.LIVE_ENV: "1", "PATH": str(bin_dir)}, "demo-1", link)
++    assert settings.mode is mc.Mode.LIVE
++    link.unlink()
++    link.symlink_to(new)  # 自動更新把連結改指新版
++    mc.call_model(request("第一次"), settings, recordings_dir=tmp_path,
++                  ledger=tmp_path / "l.sqlite")
++    assert len(invocations(old)) == 1 and invocations(new) == []
++    old.unlink()  # 舊版檔被清掉
++    with pytest.raises(mc.ConfigError):
++        mc.call_model(request("第二次"), settings, recordings_dir=tmp_path,
++                      ledger=tmp_path / "l.sqlite")
++    assert invocations(new) == []
++    assert _rows(tmp_path / "l.sqlite")[-1].effective_nanousd == 0
++
++
++def test_a_login_check_that_eats_the_deadline_is_not_a_model_call(tmp_path):
++    """登入檢查就把期限用完:沒呼叫模型,設定錯誤、結算 0(不是逾時、不照預留)。"""
++    script = fake_claude(tmp_path / "c", auth_sleep=3)
++    with pytest.raises(mc.ConfigError) as failed:
++        mc.call_model(request(timeout_seconds=1.0), live(cc.ClaudeCodeBackend(script)),
++                      recordings_dir=tmp_path, ledger=tmp_path / "l.sqlite")
++    assert failed.value.outcome is mc.Outcome.CONFIG_ERROR
++    assert invocations(script) == []
++    [row] = _rows(tmp_path / "l.sqlite")
++    assert row.effective_nanousd == 0
++
++
++def test_a_login_check_that_leaves_no_time_is_not_a_model_call(tmp_path, monkeypatch):
++    """登入檢查自己過了、但剩下的期限是 0:一樣沒呼叫模型,設定錯誤、結算 0。"""
++    import time
++
++    script = fake_claude(tmp_path / "c")
++    monkeypatch.setattr(cc.ClaudeCodeBackend, "check_login",
++                        lambda _self, _timeout=10.0: time.sleep(1.2))
++    with pytest.raises(mc.ConfigError):
++        mc.call_model(request(timeout_seconds=1.0), live(cc.ClaudeCodeBackend(script)),
++                      recordings_dir=tmp_path, ledger=tmp_path / "l.sqlite")
++    assert invocations(script) == []
++    [row] = _rows(tmp_path / "l.sqlite")
++    assert row.effective_nanousd == 0
++
++
++def test_an_interrupt_right_after_popen_still_kills_the_group(tmp_path, monkeypatch):
++    """Popen 回來、還沒進清理的 try 之前就收到 Ctrl-C:照樣殺整組。"""
++    script = fake_claude(tmp_path / "c", sleep=30)
++    started = []
++    real = cc.subprocess.Popen
++
++    def popen_then_interrupt(*args, **kwargs):
++        process = real(*args, **kwargs)
++        started.append(process.pid)
++        signal.raise_signal(signal.SIGINT)  # 送到自己這個執行緒
++        return process
++
++    monkeypatch.setattr(cc.subprocess, "Popen", popen_then_interrupt)
++    env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
++    with pytest.raises(KeyboardInterrupt):
++        cc.run_claude([str(script), "-p"], "x", env, 20.0)
++    assert started and not _alive(started[0])
++
++
++def test_a_hangup_during_a_recorded_call_kills_the_group_and_frees_the_name(tmp_path):
++    """關終端機(SIGHUP):轉成例外、殺整組、放掉錄製佔位;SIGQUIT 同理(用子行程跑,免得殺掉整套)。"""
++    for number, name in ((signal.SIGHUP, "hup"), (signal.SIGQUIT, "quit")):
++        work = tmp_path / name
++        script = fake_claude(work / "c", sleep=30, grandchild=True)
++        recordings = work / "rec"
++        code = (
++            "import os, signal, sys, threading, time\n"
++            "from pathlib import Path\n"
++            "from rtb import modelclaude as cc, modelclient as mc\n"
++            f"log = Path({str(script.with_name('claude.log'))!r})\n"
++            "def later():\n"
++            "    while not list(log.glob('*.started')):\n"
++            "        time.sleep(0.02)\n"
++            f"    os.kill(os.getpid(), {int(number)})\n"
++            "threading.Thread(target=later, daemon=True).start()\n"
++            "req = mc.ModelRequest(mc.Caller.EVAL_CANDIDATE, 's', 'u', 50, 20.0, demo_id='d',"
++            " batch_id='b1')\n"
++            f"settings = mc.Settings(mc.Mode.LIVE, mc.DEFAULT_MODEL, True,"
++            f" cc.ClaudeCodeBackend(Path({str(script)!r})), ())\n"
++            "try:\n"
++            f"    mc.call_model(req, settings, recordings_dir=Path({str(recordings)!r}),"
++            f" ledger=Path({str(work / 'l.sqlite')!r}))\n"
++            "except BaseException as stopped:\n"
++            "    print(type(stopped).__name__)\n"
++            "    sys.exit(3)\n")
++        result = subprocess.run([sys.executable, "-c", code],
++                                env={**os.environ, "PYTHONPATH": str(SRC)}, capture_output=True,
++                                text=True, timeout=60, check=False)
++        log = script.with_name("claude.log")
++        started = int(next(log.glob("*.started")).name.split(".")[0])
++        grandchild = int((work / "c" / "grandchild.pid").read_text(encoding="utf-8"))
++        assert result.returncode == 3, (name, result.stdout + result.stderr)
++        assert not _alive(started) and not _alive(grandchild), name
++        assert list(recordings.glob("*.json")) == [], name  # 佔位放掉了
++
++
++def test_a_leftover_claim_says_it_may_be_an_interrupted_run(tmp_path):
++    """別的批次留下的佔位:拒絕訊息要講「可能是中斷留下的佔位」,不是「已經錄過」。"""
++    from rtb import modelrecording as rec
++
++    key = rec.recording_key(mc.Caller.EVAL_CANDIDATE, mc.DEFAULT_MODEL, "固定系統提示", "hello",
++                            50)
++    (tmp_path / f"{key}.json").write_text(json.dumps({"claimed_by_batch": "old"}),
++                                          encoding="utf-8")
++    with pytest.raises(mc.RecordingConflict, match="中斷留下的佔位"):
++        mc.call_model(request(batch_id="b1"), live(record=True), recordings_dir=tmp_path,
++                      ledger=tmp_path / "l.sqlite")
+diff --git a/tests/model/test_modelclient.py b/tests/model/test_modelclient.py
+index 5bc9f13..8b143f5 100644
+--- a/tests/model/test_modelclient.py
++++ b/tests/model/test_modelclient.py
+@@ -106,58 +106,59 @@ def test_a_missing_recording_fails_instead_of_calling_live(dirs, monkeypatch):
+ 
+ 
+ def _explode(*_args, **_kwargs):
+     raise AssertionError("錄製模式不該啟動子行程")
+ 
+ 
+ # ---- [S902] ----
+ def _spend(dirs, demo, output_tokens):
+     """用一次成功的即時呼叫把某個展示編號花到指定金額(原價是輸出 token 乘單價,已用再乘 1.2)。"""
+     call(live(FakeBackend(reply("x", input_tokens=0, output_tokens=output_tokens))),
+-         request(demo_id=demo, max_output_tokens=32_000), dirs)
++         request(demo_id=demo, max_output_tokens=3_000), dirs)
+ 
+ 
+ def test_the_budget_caps_stop_the_call_before_it_is_sent(dirs):
+     assert (core.DEMO_CAP_NANOUSD, core.MONTH_CAP_NANOUSD) == (1 * USD, 20 * USD)
+     assert core.SAFETY_FACTOR == (6, 5)
+     _spend(dirs, "demo-1", 30_000)  # 0.3 乘 1.2 = 0.36 美元
+     _spend(dirs, "demo-1", 30_000)  # 0.72 美元
+     assert ledger_db.used_so_far(dirs[1], "demo-1").demo_nanousd == 720_000_000
+     backend = FakeBackend(reply("不該送出"))
+-    big = request(demo_id="demo-1", max_output_tokens=25_000)  # 預留約 0.3 美元
++    # 預留約 0.3 美元(代碼審第 2 輪起預留把撞頂後最多 3 次的自動續寫算進去,輸出上限要小很多)
++    big = request(demo_id="demo-1", max_output_tokens=3_000)
+     assert core.reservation_nanousd(big, mc.DEFAULT_MODEL) > 280_000_000
+     with pytest.raises(mc.LocalCapRefused, match="已達上限") as failed:
+         call(live(backend), big, dirs)
+     assert failed.value.outcome is mc.Outcome.LOCAL_CAP_REFUSED
+     assert backend.calls == []
+     call(live(backend), request(demo_id="demo-1"), dirs)  # 小的照樣過
+     for n in range(53):  # 每月 20 美元:換展示編號也擋得住
+         _spend(dirs, f"month-{n}", 30_000)
+     assert ledger_db.used_so_far(dirs[1], "fresh").month_nanousd > 19.7 * USD
+     backend = FakeBackend(reply("不該送出"))
+     with pytest.raises(mc.LocalCapRefused, match="已達上限"):
+-        call(live(backend), request(demo_id="fresh", max_output_tokens=20_000), dirs)
++        call(live(backend), request(demo_id="fresh", max_output_tokens=3_000), dirs)
+     assert backend.calls == []
+     booked = [r for r in rows(dirs[1]) if r.outcome == "local_cap_refused"]
+     assert len(booked) == 2 and all(r.effective_nanousd == 0 for r in booked)
+ 
+ 
+ # ---- [S903] ----
+ def test_concurrent_reservations_never_exceed_the_cap(dirs):
+     release = threading.Event()
+ 
+     def slow(_call):
+         release.wait(5)
+         return reply("x", input_tokens=0, output_tokens=0)
+ 
+     backend = FakeBackend(slow)
+-    each = request(demo_id="demo-1", max_output_tokens=25_000)  # 每筆預留約 0.3 美元
++    each = request(demo_id="demo-1", max_output_tokens=3_000)  # 每筆預留約 0.3 美元
+     per_call = core.reservation_nanousd(each, mc.DEFAULT_MODEL)
+     assert 3 * per_call < core.DEMO_CAP_NANOUSD < 4 * per_call
+     barrier, outcomes = threading.Barrier(8), []
+ 
+     def worker():
+         barrier.wait()
+         try:
+             outcomes.append(call(live(backend), each, dirs))
+         except (mc.LocalCapRefused, mc.LedgerBusy) as refused:  # 忙碌也是沒送出
+             outcomes.append(refused)
+@@ -299,22 +300,22 @@ def test_live_calls_always_book_into_the_one_ledger(tmp_path, monkeypatch, _isol
+     seen = set()
+     for name in ("checkout-a", "checkout-b"):  # 兩份簽出、兩個不同的工作目錄
+         copy = tmp_path / name
+         shutil.copytree(ROOT / "src", copy / "src")
+         cwd = tmp_path / f"{name}-cwd"
+         cwd.mkdir()
+         env = {**os.environ, "PYTHONPATH": str(copy / "src")}
+         result = subprocess.run([sys.executable, "-c", code], cwd=cwd, env=env,
+                                 capture_output=True, text=True, timeout=60, check=True)
+         seen.add(result.stdout.strip())
+-    # 子行程沒有測試的注入點:印出的是帳號家目錄那一本(只印路徑、不開帳),跟 HOME 無關
+-    assert seen == {str(Path(pwd.getpwuid(os.getuid()).pw_dir) / ".rtb" / "model-ledger.sqlite")}
++    # 子行程繼承共用夾具的帳號家目錄覆寫:兩份簽出都寫同一本(這支測試的暫存家目錄那一本)
++    assert seen == {str(home_ledger)}
+     # 評估紀錄命令列即時跑(假 claude 在傳進去的 PATH 上):寫進家目錄那一本;即時模式不接受換帳檔
+     from rtb.eval import record
+ 
+     fake_claude(tmp_path / "bin")
+     write_verification()
+     monkeypatch.chdir(tmp_path)
+     environ = {**os.environ, mc.LIVE_ENV: "1", "PATH": str(tmp_path / "bin")}
+     err = io.StringIO()
+     code = record.run(["--demo-id", "demo-1", "--ledger", str(tmp_path / "other.sqlite")],
+                       out=io.StringIO(), err=err, environ=environ)
+diff --git a/tests/model/test_recording_integrity.py b/tests/model/test_recording_integrity.py
+index c8a1cfc..54f6f14 100644
+--- a/tests/model/test_recording_integrity.py
++++ b/tests/model/test_recording_integrity.py
+@@ -138,25 +138,32 @@ def test_replays_keep_the_flags_and_settlement(tmp_path, monkeypatch):
+     stored = [json.loads(p.read_text(encoding="utf-8")) for p in tmp_path.glob("*.json")]
+     assert all({"tool_use", "unclassified", "settlement"} <= set(s) for s in stored)
+ 
+ 
+ def test_a_tampered_recording_is_not_trusted(tmp_path):
+     mc.call_model(request(batch_id="b1"), live(FakeBackend(reply("答案")), record=True),
+                   recordings_dir=tmp_path, ledger=tmp_path / "l.sqlite")
+     [path] = list(tmp_path.glob("*.json"))
+     original = json.loads(path.read_text(encoding="utf-8"))
+     for field, value in (("key", "0" * 64), ("caller", "ops_hypothesis"),
+-                         ("model", "claude-other"), ("input_tokens", "many")):
++                         ("model", "claude-other"), ("input_tokens", "many"),
++                         # 代碼審第 2 輪:成功卻沒有文字、延遲不是有限非負
++                         ("text", None), ("latency_ms", float("nan")), ("latency_ms", -1.0),
++                         ("latency_ms", float("inf"))):
+         path.write_text(json.dumps({**original, field: value}), encoding="utf-8")
+         with pytest.raises(mc.NoRecording):
+             mc.call_model(request(), recorded(), recordings_dir=tmp_path,
+                           ledger=tmp_path / "l.sqlite")
++    # 失敗的錄製卻帶著文字也不信
++    path.write_text(json.dumps({**original, "outcome": "timeout"}), encoding="utf-8")
++    with pytest.raises(mc.NoRecording):
++        mc.call_model(request(), recorded(), recordings_dir=tmp_path, ledger=tmp_path / "l.sqlite")
+ 
+ 
+ def _rows(ledger):
+     from rtb import modelledger_view as view
+ 
+     reader = view.ModelLedgerView(ledger)
+     try:
+         with reader.read_transaction():
+             return reader.calls_between("0000", "9999")
+     finally:
+diff --git a/tests/model/test_verification.py b/tests/model/test_verification.py
+index 7670fcb..1449474 100644
+--- a/tests/model/test_verification.py
++++ b/tests/model/test_verification.py
+@@ -36,87 +36,127 @@ prompt = sys.stdin.read()
+ cap = int(os.environ.get("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "0") or 0)
+ tools = flag("--tools") or ""
+ turns = 3 if (tools and CONFIG["contrast_changes"]) or CONFIG["tools_ignored"] else 1
+ settings = os.path.join(home, ".claude", "settings.json")
+ suppressed = flag("--setting-sources") == "" and not CONFIG["suppression_broken"]
+ poisoned = os.path.exists(settings) and not suppressed and CONFIG["poison_readable"]
+ text = "ok"
+ claude_md = os.path.join(home, ".claude", "CLAUDE.md")
+ if "RTB-CANARY" in prompt:
+     text = "NONE"
+-    if CONFIG["memory_loaded"] and os.path.exists(claude_md):
++    unsuppressed = "--setting-sources" not in args and CONFIG["memory_readable"]
++    if (CONFIG["memory_loaded"] or unsuppressed) and os.path.exists(claude_md):
+         text = open(claude_md).read().strip()
+-out = {{"cap": cap, "under": min(cap or 500, 5), "over": 500}}[CONFIG["output"]] if cap else 20
++mode = CONFIG["output"]
++if mode in ("over_stop", "default_cap_error", "cap_error", "recovered") and "兩千字" not in prompt:
++    mode = "cap"  # 這幾種只發生在要它寫長文的那一次
++out = {{"cap": cap, "under": min(cap or 500, 5), "over": 500, "over_stop": 5000,
++        "default_cap_error": 32000, "cap_error": cap, "recovered": cap}}[mode] if cap else 20
++if cap and mode == "recovered":
++    turns = 2  # 撞頂後自動續寫了一次
+ result = {{"type": "result", "subtype": "success", "is_error": False, "num_turns": turns,
+           "result": text, "permission_denials": [], "total_cost_usd": 0.0001,
+           "usage": {{"input_tokens": CONFIG["input_tokens"], "output_tokens": out,
+                     "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}}}}
++if cap and mode == "over_stop":
++    result["stop_reason"] = "max_tokens"
++if cap and mode in ("default_cap_error", "cap_error"):
++    limit = 32000 if mode == "default_cap_error" else cap
++    result.update(is_error=True, subtype="error",
++                  result=("API Error: Claude's response exceeded the "
++                          f"{{limit}} output token maximum"))
++    print(json.dumps(result)); sys.exit(1)
+ if poisoned or CONFIG["api_error"]:
+     result.update(is_error=True, subtype="error", result="API Error: 400 bad request",
+                   usage={{"input_tokens": 0, "output_tokens": 0}})
+     print(json.dumps(result)); sys.exit(1)
+ if flag("--output-format") == "stream-json":
+     print(json.dumps({{"type": "system", "subtype": "init"}}))
+     if CONFIG["hook_events"]:
+         print(json.dumps({{"type": "system", "subtype": "hook_started"}}))
+ print(json.dumps(result))
+ """
+ GOOD = {"login_empty_home": True, "login_everywhere": True, "version": FAKE_VERSION,
+         "contrast_changes": True, "tools_ignored": False, "output": "cap",
+         "suppression_broken": False, "poison_readable": True, "hook_events": False,
+-        "memory_loaded": False, "input_tokens": 3900, "api_error": False}
++        "memory_loaded": False, "memory_readable": True, "input_tokens": 3900,
++        "api_error": False}
+ 
+ 
+ def _claude(tmp_path, **overrides):
+     directory = tmp_path / "bin"
+     directory.mkdir(parents=True, exist_ok=True)
+     script = directory / "claude"
+     script.write_text(SCRIPT.format(python=sys.executable,
+                                     config=repr({**GOOD, **overrides})), encoding="utf-8")
+     script.chmod(0o755)
+     return script
+ 
+ 
+ def _run(script):
+     out = io.StringIO()
+     code = modelverify.run([], out=out, environ={"PATH": str(script.parent),
+                                                  "HOME": str(Path.home())})
+     return code, out.getvalue()
+ 
+ 
+-def test_live_mode_needs_a_current_verification_record_writer(tmp_path):
++def test_live_mode_needs_a_current_verification_record_writer(tmp_path):  # noqa: PLR0915
+     """實測命令列:全過才寫紀錄,紀錄讓即時模式打得開;任一項沒過就不寫。"""
+     script = _claude(tmp_path)
+     code, text = _run(script)
+     assert code == modelverify.EXIT_OK, text
+     record = json.loads(cc.verification_path().read_text(encoding="utf-8"))
+     assert record["claude_version"] == FAKE_VERSION and record["isolation"] == "empty_home"
+     assert all(record["checks"][name] is True for name in cc.REQUIRED_CHECKS)
+     assert record["notes"]["bad_argument_exit_code"] == 1
+     assert "unknown option" in record["notes"]["bad_argument_stderr"]
+     assert record["notes"]["fixed_input_tokens_seen"] == 3900
++    # 實測每一次真的呼叫模型都記進花費帳(算進每月上限;參數不存在那次沒呼叫模型、不記)
++    from rtb import modelledger_view as view
++
++    reader = view.ModelLedgerView(mc.live_ledger_path())
++    try:
++        with reader.read_transaction():
++            booked = reader.calls_between("0000", "9999")
++    finally:
++        reader.close()
++    assert len(booked) == 9 and {r.caller for r in booked} == {"live_verification"}
++    assert all(r.source == "live" and r.settled_nanousd is not None for r in booked)
++    assert len({r.demo_id for r in booked}) == 1
++    # 撞到的正是 32 的錯誤訊息,也是撞頂的正面證據
++    cc.verification_path().unlink()
++    code, text = _run(_claude(tmp_path / "cap_error", output="cap_error"))
++    assert code == modelverify.EXIT_OK, text
+     settings = mc.settings_from_env({mc.LIVE_ENV: "1"}, "demo-1", script)
+     assert settings.mode is mc.Mode.LIVE
+     for name, overrides, failing in (
+             # 空暫存 HOME 登入不了:退回真 HOME;設定來源與記憶暗號在真 HOME 驗不了 → 不寫
+             ("real_home", {"login_empty_home": False}, "setting_sources_suppress_user_settings"),
+             ("no_login", {"login_everywhere": False}, "login_ok"),
+             ("contrast", {"contrast_changes": False}, "tool_detection_contrast"),
+             ("tools_ignored", {"tools_ignored": True}, "tools_disabled"),
+             ("under_cap", {"output": "under"}, "output_limit_enforced"),
+             ("over_cap", {"output": "over"}, "output_limit_enforced"),
+             ("api_error", {"api_error": True}, "output_limit_enforced"),
+             ("api_error_hooks", {"api_error": True}, "no_hook_events"),
+             ("suppression_broken", {"suppression_broken": True},
+              "setting_sources_suppress_user_settings"),
+             ("poison_never_read", {"poison_readable": False},
+              "setting_sources_suppress_user_settings"),
+             ("hooks", {"hook_events": True}, "no_hook_events"),
+             ("memory", {"memory_loaded": True}, "no_memory_or_claude_md"),
+             ("fixed_input", {"input_tokens": core.CLAUDE_FIXED_INPUT_TOKENS + 1},
+-             "fixed_input_within_reserve")):
++             "fixed_input_within_reserve"),
++            # 代碼審第 2 輪:撞到的不是 32(預設上限)、停止原因對但輸出超過、撞頂後自動續寫
++            ("stop_but_over", {"output": "over_stop"}, "output_limit_enforced"),
++            ("default_cap_error", {"output": "default_cap_error"}, "output_limit_enforced"),
++            ("recovered", {"output": "recovered"}, "output_limit_enforced"),
++            # 記憶暗號的正面對照:拿掉參數時也讀不到暗號(放錯位置),這項驗不出東西
++            ("memory_never_read", {"memory_readable": False}, "no_memory_or_claude_md"),
++            # 量不到輸入用量(欄位缺或型別不對):不能當 0
++            ("no_input_usage", {"input_tokens": None}, "fixed_input_within_reserve")):
+         cc.verification_path().unlink(missing_ok=True)
+         script = _claude(tmp_path / name, **overrides)
+         code, text = _run(script)
+         assert code == modelverify.EXIT_NOT_WRITTEN, (name, text)
+         assert f"- {failing}:沒過" in text, (name, text)
+         assert not cc.verification_path().exists(), name
+diff --git a/tests/test_spawn_boundary.py b/tests/test_spawn_boundary.py
+index 048fdf9..15d0847 100644
+--- a/tests/test_spawn_boundary.py
++++ b/tests/test_spawn_boundary.py
+@@ -147,57 +147,78 @@ def test_layer_rules_ban_starting_subprocesses(layer):
+         input="import subprocess\n", capture_output=True, text=True, timeout=60, check=False)
+     assert result.returncode == 1 and "TID251" in result.stdout, (layer, result.stdout)
+ 
+ 
+ # ---- 代碼審第 1 輪補強 ----
+ BACKEND_NAMES = frozenset({"run_claude", "ClaudeCodeBackend", "check_login", "claude_version",
+                            "judge_output"})
+ BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverify"})
+ 
+ 
+-def backend_offenders(tree, label):
+-    """匯入或取用 Claude Code 後端(模組本身或它的啟動函式、後端類別)的地方。"""
++CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate"})  # 送出呼叫的地方
++
++
++def backend_offenders(tree, label, module=None):
++    """匯入或取用 Claude Code 後端(模組本身或它的啟動函式、後端類別)的地方;另抓送出呼叫的函式
++    (call_model,只准模型用戶端本身與接入點)與經別的模組轉手的模型用戶端屬性鏈(x.modelclient)。"""
+     found = []
+     for node in ast.walk(tree):
+         if isinstance(node, ast.Import):
+             found += [f"{label}: 匯入 {a.name}" for a in node.names
+                       if a.name in ("rtb.modelclaude", "rtb.modelverify")]
+         elif isinstance(node, ast.ImportFrom):
+-            module = node.module or ""
++            module_name = node.module or ""
+             names = {a.name for a in node.names}
+-            if module in ("rtb.modelclaude", "rtb.modelverify") or (
+-                    module == "rtb" and names & {"modelclaude", "modelverify"}):
+-                found.append(f"{label}: 從 {module} 匯入 {sorted(names)}")
++            if module_name in ("rtb.modelclaude", "rtb.modelverify") or (
++                    module_name == "rtb" and names & {"modelclaude", "modelverify"}):
++                found.append(f"{label}: 從 {module_name} 匯入 {sorted(names)}")
+             found += [f"{label}: 匯入 {n}" for n in names & BACKEND_NAMES]
++            if "call_model" in names and module not in CALL_MODEL_USERS:
++                found.append(f"{label}: 匯入 call_model")
+         elif isinstance(node, ast.Attribute) and node.attr in BACKEND_NAMES:
+             found.append(f"{label}:{node.lineno} 取用 {node.attr}")
++        elif isinstance(node, ast.Attribute) and node.attr == "call_model" and (
++                module not in CALL_MODEL_USERS):
++            found.append(f"{label}:{node.lineno} 取用 call_model")
++        elif isinstance(node, ast.Attribute) and node.attr == "modelclient" and not (
++                isinstance(node.value, ast.Name) and node.value.id == "rtb"):
++            found.append(f"{label}:{node.lineno} 經別的模組轉手模型用戶端")
+         elif isinstance(node, ast.Name) and node.id in BACKEND_NAMES:
+             found.append(f"{label}:{node.lineno} 取用 {node.id}")
+     return found
+ 
+ 
+ def test_only_the_model_client_modules_touch_the_claude_backend():
+     offenders = []
+     for path in sorted(RTB.rglob("*.py")):
+         module = _module_name(path)
+         if module not in BACKEND_USERS:
+-            offenders += backend_offenders(ast.parse(path.read_text(encoding="utf-8")), module)
++            offenders += backend_offenders(ast.parse(path.read_text(encoding="utf-8")), module,
++                                           module)
+     assert offenders == []
+     for probe in ("from rtb.modelclaude import run_claude",
+                   "from rtb import modelclaude", "import rtb.modelverify",
+                   "from rtb.modelclient import x\nx.run_claude([], '', {}, 1)",
+-                  "from rtb import modelclient as m\nm.ClaudeCodeBackend"):
++                  "from rtb import modelclient as m\nm.ClaudeCodeBackend",
++                  # 代碼審第 2 輪:經核銷命令列轉手的模型用戶端、直接取送出函式
++                  "from rtb import modelledger_writeoff as w\nw.modelclient.call_model(1)",
++                  "from rtb import modelledger_writeoff as w\nclient = w.modelclient",
++                  "from rtb.modelclient import call_model",
++                  "import rtb.modelclient\nrtb.modelclient.call_model(1)"):
+         assert backend_offenders(ast.parse(probe), "probe"), probe
+     # 四個目錄的靜態檢查規則也擋模型用戶端各模組與實測命令列(維運的假說命令列在增量 2 另開例外)
+     for layer in ("dsp", "executor", "domain", "ops"):
+         config = RTB / layer / "ruff.toml"
+-        for banned in ("rtb.modelclient", "rtb.modelclaude", "rtb.modelverify"):
++        for banned in ("rtb.modelclient", "rtb.modelclaude", "rtb.modelverify",
++                       # 代碼審第 2 輪:拆檔後的帳本寫入、錄製讀寫、共用詞彙與核銷命令列
++                       "rtb.modelcore", "rtb.modelledger", "rtb.modelrecording",
++                       "rtb.modelledger_writeoff"):
+             result = subprocess.run(
+                 [sys.executable, "-m", "ruff", "check", "--config", str(config),
+                  "--stdin-filename", str(config.parent / "probe.py"), "-"],
+                 input=f"import {banned}\n", capture_output=True, text=True, timeout=60,
+                 check=False)
+             assert result.returncode == 1 and "TID251" in result.stdout, (layer, banned)
+ 
+ 
+ def test_spawn_aliases_and_loop_helpers_are_caught():
+     for probe in ("import os as o\no.system('x')", "import os as o\no.execvp('x', [])",
+diff --git a/tests/test_suite_isolation.py b/tests/test_suite_isolation.py
+index abb61b9..e788209 100644
+--- a/tests/test_suite_isolation.py
++++ b/tests/test_suite_isolation.py
+@@ -1,16 +1,17 @@
+ """整套測試碰不到使用者家目錄的真花費帳(Phase 11B 增量 1,[S932])。
+ 
+ 共用夾具(tests/conftest.py)把家目錄指到暫存目錄、清掉模型金鑰與模式開關,並在整套開始時記下真帳狀態、
+ 結束時再比一次;這支測試確認夾具真的生效,也確認到目前為止真帳沒變。
+ """
+ 
++import ast
+ import os
+ from pathlib import Path
+ 
+ from rtb.modelledger_view import ledger_path
+ from tests.conftest import _BEFORE, MODEL_ENV, REAL_HOME, REAL_LEDGER, ledger_state
+ 
+ # 收集階段(pytest_configure 之後、任何夾具之前)看到的環境:開關要已經清掉、PATH 與 HOME 要已經換掉
+ COLLECTED = {"switches": [name for name in MODEL_ENV if name in os.environ],
+              "home": Path.home(), "path": os.environ.get("PATH", "")}
+ 
+@@ -49,25 +50,86 @@ def test_each_test_gets_its_own_temp_dir_and_empty_policy_sources(tmp_path):
+     import tempfile
+ 
+     from rtb import modelclaude as cc
+ 
+     assert Path(tempfile.gettempdir()).is_relative_to(tmp_path.parent.parent)
+     for directory in cc.MANAGED_DIRS:
+         assert directory.is_relative_to(tmp_path.parent.parent) and not any(directory.iterdir())
+     assert all(p.is_relative_to(tmp_path.parent.parent) for p in cc.MDM_PLISTS)
+ 
+ 
+-def test_subprocess_tests_inherit_the_isolated_environment():
+-    """子行程測試自己給環境時,要從 os.environ 起頭再覆寫(否則家目錄會退回帳號的真家目錄)。"""
+-    import ast
++def _starts_from_os_environ(value):
++    """env= 的值要是字面 dict、第一個展開的是 os.environ(之後才覆寫)。"""
++    if not isinstance(value, ast.Dict) or not value.keys or value.keys[0] is not None:
++        return False
++    first = value.values[0]
++    return (isinstance(first, ast.Attribute) and first.attr == "environ"
++            and isinstance(first.value, ast.Name) and first.value.id == "os")
++
++
++def _environ_names(tree):
++    """整支檔裡每次賦值都是 {**os.environ, ...} 的變數名(env = {...}; run(env=env) 這種寫法)。"""
++    good, bad = set(), set()
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Assign):
++            for target in node.targets:
++                if isinstance(target, ast.Name):
++                    (good if _starts_from_os_environ(node.value) else bad).add(target.id)
++    return good - bad
++
++
++def env_offenders(tree, label):
++    names = _environ_names(tree)
++    return [f"{label}:{node.lineno}" for node in ast.walk(tree) if isinstance(node, ast.Call)
++            for keyword in node.keywords
++            if keyword.arg == "env" and not _starts_from_os_environ(keyword.value)
++            and not (isinstance(keyword.value, ast.Name) and keyword.value.id in names)]
++
+ 
++def test_subprocess_tests_inherit_the_isolated_environment():
++    """子行程測試自己給環境時,一律寫成 {**os.environ, ...}
++    (共用夾具設的帳號家目錄覆寫變數才傳得下去);
++    變數、dict(...)、沒從 os.environ 起頭的都抓(代碼審第 2 輪)。"""
+     root = Path(__file__).resolve().parent
+     offenders = []
+-    for path in sorted(root.rglob("test_*.py")):
+-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+-            if not isinstance(node, ast.Call):
+-                continue
+-            for keyword in node.keywords:
+-                if keyword.arg == "env" and isinstance(keyword.value, ast.Dict) and not any(
+-                        key is None for key in keyword.value.keys):
+-                    offenders.append(f"{path.relative_to(root)}:{node.lineno}")
++    for path in sorted([*root.rglob("test_*.py"), *root.rglob("conftest.py")]):
++        offenders += env_offenders(ast.parse(path.read_text(encoding="utf-8")),
++                                   str(path.relative_to(root)))
+     assert offenders == []
++    ok = "env = {**os.environ, 'A': '1'}\nenv.pop('B', None)\nsubprocess.run([], env=env)"
++    assert env_offenders(ast.parse(ok), "probe") == []
++    for probe in ("env = {'PYTHONPATH': 'src'}\nsubprocess.run([], env=env)",
++                  "env = {**os.environ}\nenv = {}\nsubprocess.run([], env=env)",
++                  "subprocess.run([], env=dict(os.environ))",
++                  "subprocess.run([], env={'A': '1', **os.environ})",
++                  "subprocess.run([], env={'PYTHONPATH': 'src'})"):
++        assert env_offenders(ast.parse(probe), "probe"), probe
++
++
++def test_a_child_process_books_into_the_test_home_not_the_account_home():
++    """子行程沒有測試的替換:帳號家目錄靠共用夾具設好的覆寫環境變數(只在測試開)傳下去。"""
++    import subprocess
++    import sys
++
++    src = Path(__file__).resolve().parents[1] / "src"
++    code = "from rtb.modelledger_view import ledger_path\nprint(ledger_path())\n"
++    result = subprocess.run([sys.executable, "-c", code],
++                            env={**os.environ, "PYTHONPATH": str(src)}, capture_output=True,
++                            text=True, timeout=60, check=True)
++    assert Path(result.stdout.strip()) == ledger_path()
++    assert not ledger_path().is_relative_to(REAL_HOME)
++
++
++def test_the_verification_helper_refuses_outside_the_test_fixture(monkeypatch, tmp_path):
++    """測試輔助寫啟用紀錄:不在共用夾具底下(沒有帳號家目錄覆寫)就拒寫,不會寫進真的家目錄。"""
++    import pytest
++
++    from rtb import modelledger_view as view
++    from tests.conftest import ACCOUNT_HOME_ENV
++    from tests.model import fakes
++
++    monkeypatch.delenv(ACCOUNT_HOME_ENV)
++    pretend_real = tmp_path / "pretend-real-home"  # 代替真的家目錄(變異檢查時也不會寫到真的)
++    monkeypatch.setattr(view, "account_home", lambda: pretend_real)
++    with pytest.raises(RuntimeError):
++        fakes.write_verification()
++    assert not pretend_real.exists()

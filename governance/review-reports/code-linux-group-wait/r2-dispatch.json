@@ -1,0 +1,26 @@
+[
+ {
+  "round": "r2",
+  "seat": "鏡頭1-正確性",
+  "lens": "驗收 r1 五條與新問題",
+  "materials": [
+   "governance/review-reports/code-linux-group-wait/r2-snapshot.patch",
+   "governance/review-reports/code-linux-group-wait/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "驗收 a1 a2",
+  "materials": [
+   "governance/review-reports/code-linux-group-wait/r2-snapshot.patch",
+   "governance/review-reports/code-linux-group-wait/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ }
+]

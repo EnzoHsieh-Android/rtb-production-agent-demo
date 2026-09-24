@@ -1,0 +1,37 @@
+[
+ {
+  "round": "r2",
+  "seat": "前輪驗收",
+  "lens": "r1 23 條是否折對",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r2-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r2-delta.diff",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "新段落",
+  "lens": "第 6 版新段落",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r2-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r2-delta.diff",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "外家-codex",
+  "lens": "外家",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r2-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r2-delta.diff",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/",
+   "src/rtb/"
+  ],
+  "auditor": "codex"
+ }
+]
