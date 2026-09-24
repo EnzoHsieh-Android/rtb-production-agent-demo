@@ -145,11 +145,18 @@ def test_a_tampered_recording_is_not_trusted(tmp_path):
     [path] = list(tmp_path.glob("*.json"))
     original = json.loads(path.read_text(encoding="utf-8"))
     for field, value in (("key", "0" * 64), ("caller", "ops_hypothesis"),
-                         ("model", "claude-other"), ("input_tokens", "many")):
+                         ("model", "claude-other"), ("input_tokens", "many"),
+                         # 代碼審第 2 輪:成功卻沒有文字、延遲不是有限非負
+                         ("text", None), ("latency_ms", float("nan")), ("latency_ms", -1.0),
+                         ("latency_ms", float("inf"))):
         path.write_text(json.dumps({**original, field: value}), encoding="utf-8")
         with pytest.raises(mc.NoRecording):
             mc.call_model(request(), recorded(), recordings_dir=tmp_path,
                           ledger=tmp_path / "l.sqlite")
+    # 失敗的錄製卻帶著文字也不信
+    path.write_text(json.dumps({**original, "outcome": "timeout"}), encoding="utf-8")
+    with pytest.raises(mc.NoRecording):
+        mc.call_model(request(), recorded(), recordings_dir=tmp_path, ledger=tmp_path / "l.sqlite")
 
 
 def _rows(ledger):

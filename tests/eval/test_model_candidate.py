@@ -210,13 +210,41 @@ def _top_imports(tree):
     return names | {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
 
 
+# 模型用戶端的匯入閉包(寫死;改它要看是不是多了網路或子行程的路)
+MODEL_CLIENT_CLOSURE = frozenset({
+    "rtb", "rtb.modelclaude", "rtb.modelclient", "rtb.modelcore", "rtb.modelledger",
+    "rtb.modelledger_view", "rtb.modelrecording", "rtb.sqlitekit"})
+MODEL_NET_ROOTS = frozenset({"urllib", "http", "socket", "ssl", "socketserver", "asyncio",
+                             "requests", "httpx", "urllib3", "aiohttp", "ftplib", "smtplib",
+                             "xmlrpc"})
+MODEL_NET_MODULES = frozenset({"rtb.httpkit", "rtb.httpclient"})
+# 送出呼叫或繞過花費帳直接拿後端的名字
+SEND_NAMES = frozenset({"call_model", "send", "backend", "BackendCall", "run_claude",
+                        "ClaudeCodeBackend"})
+
+
+def send_names(tree):
+    """一支檔裡取用(不只呼叫)送出相關名字的地方:屬性、名字、匯入別名。"""
+    found = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in SEND_NAMES:
+            found.add(node.attr)
+        elif isinstance(node, ast.Name) and node.id in SEND_NAMES:
+            found.add(node.id)
+        elif isinstance(node, ast.alias) and node.name in SEND_NAMES:
+            found.add(node.name)
+    return found
+
+
 def _eval_roots():
     return [f"rtb.eval.{p.stem}" for p in sorted(EVAL.glob("*.py")) if p.stem != "__init__"]
 
 
-def test_the_eval_package_reaches_the_model_only_through_the_model_client():
+def test_the_eval_package_reaches_the_model_only_through_the_model_client():  # noqa: PLR0915
     closure = _closure(_eval_roots())
-    branch = set(_closure(["rtb.modelclient"])) | {"rtb.eval.model_candidate"}
+    # 允許多出來的分支寫死(代碼審第 2 輪:動態算的話,模型用戶端多匯入什麼都會被跟著放行)
+    branch = MODEL_CLIENT_CLOSURE | {"rtb.eval.model_candidate"}
+    assert set(_closure(["rtb.modelclient"])) == MODEL_CLIENT_CLOSURE
     assert "rtb.modelclient" in closure
     assert set(closure) - BASELINE <= branch, sorted(set(closure) - BASELINE - branch)
     # 評估套件自己不匯入網路或子行程模組、不動態匯入(子行程只在模型用戶端,[S917] 的全庫掃描另守)
@@ -233,19 +261,28 @@ def test_the_eval_package_reaches_the_model_only_through_the_model_client():
         input="import subprocess\n", capture_output=True, text=True, timeout=60, check=False)
     assert result.returncode == 1 and "TID251" in result.stdout
     # 只有模型候選與評估紀錄命令列匯入模型用戶端;送出呼叫只准模型候選用
-    importers, senders = set(), set()
+    importers, senders, bypass = set(), set(), set()
     for path in sorted(EVAL.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         module = f"rtb.eval.{path.stem}"
         if "rtb.modelclient" in _imported_modules(SRC, module, tree):
             importers.add(path.stem)
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.Attribute) and node.attr == "call_model") or (
-                    isinstance(node, ast.Name) and node.id == "call_model") or (
-                    isinstance(node, ast.alias) and node.name == "call_model"):
-                senders.add(path.stem)
+        senders |= {path.stem} if send_names(tree) & {"call_model"} else set()
+        bypass |= {f"{path.stem}: {n}" for n in send_names(tree) - {"call_model"}}
     assert importers == {"model_candidate", "record"}
     assert senders == {"model_candidate"}
+    assert bypass == set()  # 沒有人拿後端直接送出(繞過花費帳)
+    for probe in ("def f(s):\n    return s.backend.send(1)\n",
+                  "from rtb import modelclient as mc\nmc.BackendCall('m', 's', 'u', 1, 1.0, 1)\n",
+                  "def f(b):\n    g = b.send\n    return g\n"):
+        assert send_names(ast.parse(probe)) - {"call_model"}, probe
+    # 模型用戶端各模組(含它們的閉包)不准匯入網路模組
+    net = []
+    for module, tree in _closure(sorted(MODEL_CLIENT_CLOSURE)).items():
+        imported = _imported_modules(SRC, module, tree) | _top_imports(tree)
+        net += [f"{module}: {m}" for m in imported
+                if m.split(".")[0] in MODEL_NET_ROOTS or m in MODEL_NET_MODULES]
+    assert net == []
     # 規則訊息與檔頭說明同步改成「除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、
     # 不啟動子行程」
     rules = (EVAL / "ruff.toml").read_text(encoding="utf-8")
@@ -349,7 +386,8 @@ def test_an_overrun_is_booked_and_stops_the_evaluation(tmp_path, caplog, monkeyp
         finally:
             reader.close()
 
-    huge = reply(input_tokens=100, output_tokens=5_000)  # 遠超過 32 token 輸出上限的預留
+    # 遠超過 32 token 輸出上限的預留(預留連撞頂後的自動續寫都算進去了,要夠大才超支)
+    huge = reply(input_tokens=100, output_tokens=50_000)
     for name, reaction in (("success", huge),
                            ("failure", mc.TransientServiceError("x", reply=huge)),
                            ("reported", mc.Overrun("超過單次花費上限", sub_reason="call_budget"))):
@@ -363,7 +401,7 @@ def test_an_overrun_is_booked_and_stops_the_evaluation(tmp_path, caplog, monkeyp
         assert row.overrun is True, name
         assert row.effective_nanousd >= row.reserved_nanousd, name  # 照實記、不砍
         if name != "reported":
-            listed = 100 * 2_000 + 5_000 * 10_000
+            listed = 100 * 2_000 + 50_000 * 10_000
             assert row.effective_nanousd == -(-listed * 6 // 5) > row.reserved_nanousd, name
     assert sum("超支" in r.getMessage() for r in caplog.records) == 3
     # 結算時花費帳忙碌:照常回文字、留未結算;手上的實際花費已超過預留就標「超支又未結算」
@@ -533,3 +571,99 @@ def test_an_unexpected_error_always_leaves_a_row(tmp_path, monkeypatch):
                     demo_id="demo-1", batch_id="b1")
     run = model_candidate.run_subset(_subset()[:3], silent, 5.0)
     assert len(run.rows) == 1 and run.stopped == model_candidate.UNCLASSIFIED
+
+
+# ---- 代碼審第 2 輪(評估) ----
+def _recorded(tmp_path, keep=None):
+    """行程內即時加錄製跑完整子集,寫批次紀錄(keep 給定時只留前幾列,模擬缺列)。"""
+    recordings = tmp_path / "r"
+    candidate = model_candidate.ModelCandidate(
+        live(FakeBackend(reply('{"verdict": "not_worth"}')), record=True),
+        recordings_dir=recordings, ledger=tmp_path / "l.sqlite", demo_id="demo-1", batch_id="b1")
+    run = model_candidate.run_subset(_subset(), candidate, 5.0)
+    rows = run.rows if keep is None else run.rows[:keep]
+    path = model_candidate.write_batch(recordings,
+                                       model_candidate.new_batch("b1", mc.DEFAULT_MODEL, rows))
+    return recordings, path
+
+
+def _replay(recordings, tmp_path):
+    return _record(["--recordings-dir", str(recordings), "--ledger",
+                    str(tmp_path / "replay.sqlite")], {})
+
+
+def test_a_batch_record_missing_rows_is_flagged(tmp_path):
+    """批次紀錄只剩第一列(缺列):重播對不上就標旗標,不拿它算門檻。"""
+    recordings, _ = _recorded(tmp_path, keep=1)
+    code, text, err = _replay(recordings, tmp_path)
+    assert code == record.EXIT_OK, err
+    assert "批次紀錄的情境清單跟這次子集不同" in text
+    assert "| LLM |" in text and "原因:" in text.split("## 比較表")[1].split("## 逐格採用決定")[0]
+
+
+def test_a_tampered_batch_record_is_not_trusted(tmp_path):
+    """批次紀錄驗結構與值域;數字跟錄製檔對不上也標旗標(不崩、不拿它算門檻)。"""
+    recordings, path = _recorded(tmp_path)
+    original = json.loads(path.read_text(encoding="utf-8"))
+    for name, change in (("bad_cell", {"cell": "nope"}), ("negative", {"list_nanousd": -1}),
+                         ("cheaper", {"list_nanousd": 1}), ("bad_sent", {"sent": "yes"}),
+                         ("nan_latency", {"latency_ms": float("nan")})):
+        data = json.loads(json.dumps(original))
+        data["rows"][0].update(change)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        code, text, err = _replay(recordings, tmp_path / name)
+        assert code == record.EXIT_OK, (name, err)
+        section = text[text.index("## 模型候選"):]
+        assert "- 旗標:" in section, name
+
+
+def test_the_model_scores_only_count_calls_that_were_made(tmp_path):
+    """一次都沒呼叫到模型(沒有錄製):模型逐格結果寫沒量,不把現行規則的答案當模型的。"""
+    code, text, err = _record(["--recordings-dir", str(tmp_path / "empty"), "--ledger",
+                               str(tmp_path / "l.sqlite")], {})
+    assert code == record.EXIT_OK, err
+    section = text[text.index("## 模型候選"):]
+    scores = section[section.index("### 模型逐格結果"):]
+    assert "沒量" in scores.split("- 旗標")[0]
+    assert "| paused | 42 |" not in scores
+    # 有錄製時另列實際作答、退回、沒呼叫的件數
+    recordings, _ = _recorded(tmp_path / "full")
+    code, text, err = _replay(recordings, tmp_path / "full")
+    section = text[text.index("## 模型候選"):]
+    assert "| 評分格 | 實際作答 | 退回 | 沒呼叫 |" in section
+    assert "| paused | 42 | 0 | 0 |" in section
+    assert "候選實測已有" in section  # 不採用理由是 Phase 10 的固定文字,模型段註明
+
+
+def test_a_live_run_without_recording_is_not_called_history(tmp_path):
+    fake_claude(tmp_path / "bin", claude_json('{"verdict": "not_worth"}'))
+    code, text, err = _record(["--demo-id", "demo-1", "--recordings-dir", str(tmp_path / "r")],
+                              _live_env(tmp_path / "bin"))
+    assert code == record.EXIT_OK, err
+    section = text[text.index("## 模型候選"):]
+    assert "即時、未存檔" in section and "歷史觀測" not in section
+
+
+def test_an_interrupted_live_run_still_writes_its_batch(tmp_path, monkeypatch):
+    """即時加錄製跑到一半被 Ctrl-C:已跑的部分照樣寫批次紀錄、標中斷,再往外丟;
+    重播標「未跑完(中斷)」。"""
+    fake_claude(tmp_path / "bin", claude_json('{"verdict": "not_worth"}'))
+    real = cc.ClaudeCodeBackend.send
+    calls = []
+
+    def third_is_interrupted(self, call):
+        calls.append(1)
+        if len(calls) == 3:
+            raise KeyboardInterrupt
+        return real(self, call)
+
+    monkeypatch.setattr(cc.ClaudeCodeBackend, "send", third_is_interrupted)
+    recordings = tmp_path / "r"
+    with pytest.raises(KeyboardInterrupt):
+        _record(["--demo-id", "demo-1", "--recordings-dir", str(recordings)],
+                _live_env(tmp_path / "bin", record_too=True))
+    [batch_file] = (recordings / "batches").glob("*.json")
+    batch = model_candidate.load_batch(batch_file)
+    assert batch.interrupted and len(batch.rows) >= 2
+    _, text, _ = _replay(recordings, tmp_path)
+    assert "未跑完(中斷)" in text

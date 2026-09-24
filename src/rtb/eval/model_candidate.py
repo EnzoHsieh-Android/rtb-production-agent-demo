@@ -20,6 +20,7 @@
 """
 
 import json
+import math
 import random
 import statistics
 from collections import Counter
@@ -230,6 +231,11 @@ class BatchRecord:
     price_page: str
     recorded_on: str
     rows: tuple[BatchRow, ...]
+    interrupted: bool = False  # 跑到一半被中斷或崩掉:只寫了已跑的部分
+
+
+class BatchInvalid(ValueError):
+    """批次紀錄的結構或值域不對(存在版本庫裡、誰都改得到,不信任它)。"""
 
 
 def batch_row(scenario: Scenario, attempt: Attempt) -> BatchRow:
@@ -246,11 +252,50 @@ def batch_json(batch: BatchRecord) -> str:
     return json.dumps({**asdict(batch), "rows": rows}, ensure_ascii=False, indent=1)
 
 
+_ROW_TEXT = ("scenario_id", "outcome")
+_ROW_COUNTS = ("input_tokens", "output_tokens")
+
+
+def _count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _valid_row(row: dict[str, object]) -> bool:
+    latency = row["latency_ms"]
+    verdict = row["verdict"]
+    return (all(isinstance(row[name], str) for name in _ROW_TEXT)
+            and all(row[name] is None or _count(row[name]) for name in _ROW_COUNTS)
+            and _count(row["list_nanousd"])
+            and isinstance(row["sent"], bool) and isinstance(row["shared"], bool)
+            and (verdict is None or verdict in {v.value for v in WorthVerdict})
+            and (latency is None or (isinstance(latency, int | float)
+                                     and not isinstance(latency, bool)
+                                     and math.isfinite(latency) and latency >= 0)))
+
+
 def load_batch(path: Path) -> BatchRecord:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    rows = tuple(BatchRow(**{**{k: v for k, v in row.items() if k != "note"},
-                             "cell": WorthCell(row["cell"])}) for row in data.pop("rows"))
-    return BatchRecord(**data, rows=rows)
+    """讀批次紀錄並驗結構與值域;不合丟 BatchInvalid(讀的一方當「讀不懂」、掛旗標)。"""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        raw_rows = data.pop("rows")
+        if not isinstance(raw_rows, list) or not all(isinstance(r, dict) for r in raw_rows):
+            raise BatchInvalid("批次紀錄的 rows 不是物件清單")
+        rows = []
+        for row in raw_rows:
+            fields = {k: v for k, v in row.items() if k != "note"}
+            if not _valid_row(fields):
+                raise BatchInvalid("批次紀錄有一列的欄位型別或值域不對")
+            rows.append(BatchRow(**{**fields, "cell": WorthCell(fields["cell"])}))
+        batch = BatchRecord(**data, rows=tuple(rows))
+    except BatchInvalid:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as bad:
+        raise BatchInvalid(f"批次紀錄讀不懂:{type(bad).__name__}") from bad
+    if not all(isinstance(getattr(batch, name), str) for name in (
+            "batch_id", "caller", "model", "price_checked_on", "price_page", "recorded_on")) \
+            or not isinstance(batch.interrupted, bool):
+        raise BatchInvalid("批次紀錄的表頭欄位型別不對")
+    return batch
 
 
 def batches_dir(recordings_dir: Path) -> Path:
@@ -266,10 +311,16 @@ def write_batch(recordings_dir: Path, batch: BatchRecord) -> Path:
     return target
 
 
-def new_batch(batch_id: str, model: str, rows: Sequence[BatchRow]) -> BatchRecord:
+def new_batch(batch_id: str, model: str, rows: Sequence[BatchRow], *,
+              interrupted: bool = False) -> BatchRecord:
     return BatchRecord(batch_id, mc.Caller.EVAL_CANDIDATE.value, model,
                        mc.PRICES_CHECKED_ON.isoformat(), mc.PRICE_PAGE,
-                       datetime.now(UTC).date().isoformat(), tuple(rows))
+                       datetime.now(UTC).date().isoformat(), tuple(rows), interrupted)
+
+
+def partial_rows(scenarios: Sequence[Scenario], candidate: ModelCandidate) -> tuple[BatchRow, ...]:
+    """跑到一半被中斷時,已經留下旁路紀錄的那幾個情境的列(旁路紀錄與情境一一對應、依序)。"""
+    return tuple(batch_row(s, a) for s, a in zip(scenarios, candidate.attempts, strict=False))
 
 
 # ---- 跑子集 ----

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from rtb import modelcore as core
 from rtb import modelledger_view as view
@@ -261,11 +261,16 @@ def _finish(process: subprocess.Popen[bytes], deadline: float) -> tuple[int, boo
     return process.wait(), timed_out
 
 
+# 呼叫途中會讓行程結束的訊號:Ctrl-C(SIGINT)、SIGTERM、關終端機或 ssh 斷線(SIGHUP)、SIGQUIT。
+# claude 在自己的工作階段,收不到終端機的掛斷;主行程若直接死掉就留下孤兒,所以一律轉成例外走清理
+STOP_SIGNALS = frozenset({signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT})
+CONVERTED_SIGNALS = (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)  # SIGINT 本來就是例外
+
+
 def _abandon(process: subprocess.Popen[bytes]) -> None:
-    """等待途中被打斷(Ctrl-C、SIGTERM、任何例外):照同樣的順序殺整組、確認空了、領回主行程。
-    清理期間暫時擋住 SIGINT 與 SIGTERM(清完才送達),免得第二次中斷讓整組漏殺。"""
-    blocked = {signal.SIGINT, signal.SIGTERM}
-    previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
+    """等待途中被打斷(Ctrl-C、SIGTERM、SIGHUP、SIGQUIT、任何例外):照同樣的順序殺整組、確認空了、
+    領回主行程。清理期間暫時擋住這幾個訊號(清完才送達),免得第二次中斷讓整組漏殺。"""
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
     try:
         if process.returncode is None:  # 已經領回的不再碰(行程編號可能被重用)
             _empty_group(process.pid)
@@ -275,12 +280,13 @@ def _abandon(process: subprocess.Popen[bytes]) -> None:
 
 
 class CallTerminated(BaseException):
-    """呼叫途中收到 SIGTERM:轉成這個例外,走跟 Ctrl-C 同一條清理路徑,再往外丟。"""
+    """呼叫途中收到 SIGTERM、SIGHUP 或 SIGQUIT:轉成這個例外,走跟 Ctrl-C 同一條清理路徑,再往外丟。"""
 
 
 @contextlib.contextmanager
-def _sigterm_as_exception() -> Iterator[None]:
-    """呼叫期間(只在主執行緒能裝處理器)把 SIGTERM 轉成 `CallTerminated`,結束後還原。"""
+def _stop_signals_as_exception() -> Iterator[None]:
+    """呼叫期間(只在主執行緒能裝處理器)把 SIGTERM、SIGHUP、SIGQUIT 轉成 `CallTerminated`,
+    結束後還原。"""
     if threading.current_thread() is not threading.main_thread():
         yield
         return
@@ -288,11 +294,38 @@ def _sigterm_as_exception() -> Iterator[None]:
     def _raise(signum: int, _frame: object) -> None:
         raise CallTerminated(f"呼叫途中收到訊號 {signum}")
 
-    previous = signal.signal(signal.SIGTERM, _raise)
+    previous = {number: signal.signal(number, _raise) for number in CONVERTED_SIGNALS}
     try:
         yield
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+
+
+def _spawn_and_wait(args: list[str], streams: tuple[IO[bytes], IO[bytes], IO[bytes]],
+                    workdir: Path, child_env: Mapping[str, str],
+                    timeout_seconds: float) -> tuple[int, bool]:
+    """起 claude(新工作階段)並照 `_finish` 的順序等它、清理。起行程到進清理的 try 之間擋住中斷訊號:
+    收到的話留到放開時才送達,那時已在 try 裡、會走 `_abandon`(代碼審第 2 輪)。"""
+    stdin, stdout, stderr = streams
+    masked = signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
+    try:
+        process = subprocess.Popen(  # noqa: S603 - 參數固定、不經 shell
+            args, stdin=stdin, stdout=stdout, stderr=stderr, cwd=workdir,
+            env=child_env, start_new_session=True)
+    except OSError as failed:  # 找不到、不能執行、起不來
+        signal.pthread_sigmask(signal.SIG_SETMASK, masked)
+        raise ConfigError(f"claude 起不來({type(failed).__name__})",
+                          sub_reason="cannot_start") from failed
+    except BaseException:
+        signal.pthread_sigmask(signal.SIG_SETMASK, masked)
+        raise
+    try:
+        signal.pthread_sigmask(signal.SIG_SETMASK, masked)
+        return _finish(process, time.monotonic() + timeout_seconds)
+    except BaseException:
+        _abandon(process)
+        raise
 
 
 def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout_seconds: float,
@@ -318,19 +351,9 @@ def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout
     try:
         (files / "stdin").write_text(stdin_text, encoding="utf-8")
         with ((files / "stdin").open("rb") as stdin, (files / "stdout").open("wb") as stdout,
-              (files / "stderr").open("wb") as stderr, _sigterm_as_exception()):
-            try:
-                process = subprocess.Popen(  # noqa: S603 - 參數固定、不經 shell
-                    args, stdin=stdin, stdout=stdout, stderr=stderr, cwd=workdir,
-                    env=child_env, start_new_session=True)
-            except OSError as failed:  # 找不到、不能執行、起不來
-                raise ConfigError(f"claude 起不來({type(failed).__name__})",
-                                  sub_reason="cannot_start") from failed
-            try:
-                returncode, timed_out = _finish(process, time.monotonic() + timeout_seconds)
-            except BaseException:
-                _abandon(process)
-                raise
+              (files / "stderr").open("wb") as stderr, _stop_signals_as_exception()):
+            returncode, timed_out = _spawn_and_wait(
+                args, (stdin, stdout, stderr), workdir, child_env, timeout_seconds)
         if timed_out:
             raise ModelTimeout("模型呼叫逾時,已殺掉整個行程群組")
         return returncode, (files / "stdout").read_bytes(), (files / "stderr").read_bytes()
@@ -344,7 +367,7 @@ def _tokens_of(usage: Mapping[str, Any]) -> tuple[int, int, int, int, int] | Non
     差額也算 1 小時。"""
     counts = [_count(usage.get(name)) for name in ("input_tokens", "output_tokens")]
     cache_read = _count(usage.get("cache_read_input_tokens", 0))
-    total = _count(usage.get("cache_creation_input_tokens", 0))
+    total = _count(usage.get("cache_creation_input_tokens", 0))  # 讀不懂就是 None,一律讀不懂
     split = usage.get("cache_creation")
     if isinstance(split, dict):
         five, hour = (_count(split.get("ephemeral_5m_input_tokens", 0)),
@@ -353,10 +376,10 @@ def _tokens_of(usage: Mapping[str, Any]) -> tuple[int, int, int, int, int] | Non
             hour += max(0, total - five - hour)
     else:
         five, hour = 0, total
-    values = [*counts, five, hour, cache_read]
+    values = [*counts, total, five, hour, cache_read]
     if any(value is None for value in values):
         return None
-    first, second, third, fourth, fifth = (value or 0 for value in values)
+    first, second, _, third, fourth, fifth = (value or 0 for value in values)
     return first, second, third, fourth, fifth
 
 
@@ -372,6 +395,11 @@ def _usage_of(data: Mapping[str, Any], text: str) -> BackendReply | None:
             return None
         return BackendReply(text, 0, 0, 0, 0, 0, reported, tokens_known=False)
     return BackendReply(text, *tokens, reported)
+
+
+def usage_of(data: Mapping[str, Any], text: str) -> BackendReply | None:
+    """給實測命令列用的讀用量(同一套規則)。"""
+    return _usage_of(data, text)
 
 
 _HEAD = {"type": str, "subtype": str, "is_error": bool}
@@ -480,8 +508,8 @@ class ClaudeCodeBackend:
                 "--no-session-persistence", "--max-budget-usd", _usd_text(call.budget_nanousd)]
 
     def check_login(self, timeout_seconds: float = LOGIN_CHECK_TIMEOUT_SECONDS) -> None:
-        """登入狀態檢查。期限是 10 秒與這次呼叫剩下時間的較小者;被呼叫的期限卡住時丟逾時(算這次呼叫
-        逾時),自己的 10 秒用完才是設定錯誤。"""
+        """登入狀態檢查。期限是 10 秒與這次呼叫剩下時間的較小者;不論哪一個卡住都還沒呼叫模型,一律是
+        設定錯誤(結算 0、評估不算送出、整批停下;代碼審第 2 輪)。"""
         args = [str(self._executable), "auth", "status", "--json"]
         budget = min(LOGIN_CHECK_TIMEOUT_SECONDS, timeout_seconds)
         try:
@@ -490,7 +518,8 @@ class ClaudeCodeBackend:
             status = json.loads(stdout.decode("utf-8"))
         except ModelTimeout as slow:
             if budget < LOGIN_CHECK_TIMEOUT_SECONDS:
-                raise ModelTimeout("登入狀態檢查用完了這次呼叫的期限") from slow
+                raise ConfigError("登入狀態檢查用完了這次呼叫的期限,沒有呼叫模型",
+                                  sub_reason="login_check_timeout") from slow
             raise ConfigError("claude 登入狀態檢查逾時", sub_reason="not_logged_in") from slow
         except ValueError as bad:
             raise ConfigError("claude 登入狀態讀不懂", sub_reason="not_logged_in") from bad
@@ -505,7 +534,8 @@ class ClaudeCodeBackend:
             self._logged_in = True
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise ModelTimeout("登入狀態檢查用完了這次呼叫的期限,沒有呼叫模型")
+            raise ConfigError("登入狀態檢查用完了這次呼叫的期限,沒有呼叫模型",
+                              sub_reason="login_check_timeout")
         code, stdout, stderr = run_claude(
             self.command(call), call.user, self.child_env(call.max_output_tokens),
             remaining, isolated_home=self.isolation is Isolation.EMPTY_HOME)

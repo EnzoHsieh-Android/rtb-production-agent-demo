@@ -1,9 +1,12 @@
-"""模型用戶端(Phase 11B 增量 1,計劃第 7 版):後端介面、Claude Code 後端、錄製讀寫、花費帳寫入。
+"""模型用戶端的協調(Phase 11B 增量 1):模式判定、結算規則與對外的一個函式 `call_model`。
 
-一個對外函式 `call_model`:給呼叫者、展示編號、批次、系統提示、使用者內容、輸出上限、逾時,
-回文字、來源、token 數、原價、延遲與結算狀態。後端是「送出一次呼叫」的介面
-(`ModelBackend.send`),這一版的即時後端是本機 Claude Code 的非互動模式(`ClaudeCodeBackend`);
-將來的 API 後端實作同一個介面,三個接入點不用改。錄製重播不經後端:它要帶回錄製當時的結果類別與花費。
+共用詞彙(價目表、請求與結果、九類例外、後端介面、預留算法)在 modelcore,Claude Code 後端(唯一啟動
+子行程的地方)在 modelclaude,錄製讀寫在 modelrecording,花費帳寫入在 modelledger;這支只把它們串起來,
+並把共用詞彙轉手給三個接入點。
+
+`call_model`:給呼叫者、展示編號、批次、系統提示、使用者內容、輸出上限、逾時,回文字、來源、token 數、
+原價、延遲與結算狀態。將來的 API 後端實作同一個後端介面,三個接入點不用改。錄製重播不經後端:它要帶回
+錄製當時的結果類別與花費。
 
 本模組不讀環境變數、不查 PATH:模式由三支模型入口讀好(即時開關、展示編號、入口在 PATH 上找到的
 claude 絕對路徑)經 `settings_from_env` 組成設定往下傳。時間一律用系統時鐘(`_utc_now`),
@@ -15,9 +18,9 @@ claude 絕對路徑)經 `settings_from_env` 組成設定往下傳。時間一律
 
 花費帳(金額單位:十億分之一美元,整數):即時呼叫前在單一寫入交易裡讀出這個展示編號與本月的已用、
 加上這次的預留,超過 1 美元或 20 美元就不呼叫、丟「本地上限拒絕」(給人看的是「已達上限」)。
-預留 =(系統提示加使用者內容的 UTF-8 位元組數,加 Claude Code 自己附加的固定輸入)乘三種輸入單價
-的最高者,加輸出上限乘輸出單價,再乘安全係數 1.2;這一筆預留的原價(不含係數)當 Claude Code 的
-單次花費上限傳進去。結算:成功取 Claude Code 回報的花費估計與「token 數(含快取)乘價目表」的
+預留算法見 modelcore(一次請求的最壞花費,乘上撞頂後自動續寫的次數,再乘安全係數 1.2);這一筆預留的
+原價(不含係數)當 Claude Code 的單次花費上限傳進去。回報的用量或花費大得離譜時照預留結算、標超支。
+結算:成功取 Claude Code 回報的花費估計與「token 數(含快取)乘價目表」的
 較高者([S940]);失敗但讀得出用量時取「預留」與「原價乘 1.2」的較高者,讀不出就照預留;
 本地上限拒絕與設定錯誤結算 0;不論成敗,入帳大於預留就照實記、標超支並印錯誤([S934])。
 結算寫不進去就有上限地重試,仍失敗那筆留在「未結算」,照預留金額算進它預留時所在的月份,應入帳金額
@@ -93,11 +96,15 @@ def settings_from_env(environ: Mapping[str, str], demo_id: str | None,
             f"{core.MODEL_ENV}={model} 不在價目表裡(只收:{', '.join(core.PRICES)})")
     if environ.get(core.LIVE_ENV) != "1" or claude is None:
         return Settings(core.Mode.RECORDED, model, record=False, backend=None, notices=())
-    refusal, isolation = _live_refusal(environ, demo_id, Path(claude))
+    # claude 常是會被自動更新改指的符號連結:核版本時就解開、固定用那一支實體檔
+    # (版本檢查與後端都用它);
+    # 之後換版不會用到沒實測過的版本,那支檔被清掉就是起不來的設定錯誤(結算 0、評估停下)
+    pinned = Path(claude).resolve()
+    refusal, isolation = _live_refusal(environ, demo_id, pinned)
     if refusal is not None or isolation is None:
         return Settings(core.Mode.RECORDED, model, False, None, (refusal or "即時模式拒絕啟動",))
     return Settings(core.Mode.LIVE, model, environ.get(core.RECORD_ENV) == "1",
-                    cc.ClaudeCodeBackend(Path(claude), environ, isolation), ())
+                    cc.ClaudeCodeBackend(pinned, environ, isolation), ())
 
 
 def _live_refusal(environ: Mapping[str, str], demo_id: str | None,
@@ -144,12 +151,14 @@ def _mismatch(reported: int | None, computed: int) -> bool:
     return abs(reported - computed) * denominator > min(reported, computed) * numerator
 
 
-def _settlement_for(outcome: tuple[core.BackendReply | None, core.ModelCallFailed | None],
+def settlement_for(outcome: tuple[core.BackendReply | None, core.ModelCallFailed | None],
                     model: str, reserved: int, latency_ms: float) -> ledger_db.Settlement:
     reply, failure = outcome
     if failure is not None and failure.outcome in core.FREE_OUTCOMES:  # 確定沒呼叫模型:結算 0
         return ledger_db.zero(failure.outcome, latency_ms, failure.sub_reason)
     usage = reply if failure is None else failure.reply
+    if failure is not None and failure.absurd_usage:
+        usage = None  # 離譜的數字不當入帳依據:照預留結算(可核銷)、標超支
     computed = None if usage is None else core.list_price(model, usage)
     listed = None if usage is None or computed is None else max(
         computed, usage.reported_nanousd or 0)  # 取高者([S940])
@@ -164,7 +173,8 @@ def _settlement_for(outcome: tuple[core.BackendReply | None, core.ModelCallFaile
                            mismatch, latency_ms)
     # 其他失敗:讀得出用量就取「預留」與「原價乘 1.2」較高者,讀不出照預留(寧多不少);原價欄同理
     charged = reserved if listed is None else max(reserved, core.with_factor(listed))
-    overrun = charged > reserved or failure.outcome is core.Outcome.OVERRUN
+    overrun = (charged > reserved or failure.outcome is core.Outcome.OVERRUN
+               or failure.absurd_usage)
     return ledger_db.Settlement(failure.outcome, failure.sub_reason, usage,
                        reserved if listed is None else max(reserved, listed), charged,
                        charged == reserved, overrun, mismatch, latency_ms)
@@ -234,21 +244,34 @@ def _send(backend: core.ModelBackend, call: core.BackendCall) -> tuple[
         core.BackendReply | None, core.ModelCallFailed | None]:
     """送出並把荒謬值夾到上限(任何後端都一樣):成功形狀帶荒謬值改判讀不懂。"""
     try:
-        reply, absurd = core.clamp_reply(backend.send(call))
+        raw = backend.send(call)
     except core.ModelCallFailed as failed:
         if failed.reply is not None:
-            failed.reply, _ = core.clamp_reply(failed.reply)
+            _, failed.absurd_usage = core.clamp_reply(failed.reply)
+            if failed.absurd_usage:
+                _log_absurd(failed.reply)
         return None, failed
     except Exception as unexpected:  # 後端的意外錯誤:暫時性、無法可靠分類、照預留結算
         failure = core.TransientServiceError(f"後端意外錯誤({type(unexpected).__name__})",
                                              sub_reason="unclassified", unclassified=True)
         failure.__cause__ = unexpected
         return None, failure
+    reply, absurd = core.clamp_reply(raw)
     if absurd:
-        return None, core.UnreadableModelResponse(
-            "回報的 token 數或花費大得離譜(超過上限的千倍),夾到上限記帳", sub_reason="absurd_usage",
-            reply=reply)
+        _log_absurd(raw)
+        absurd_failure = core.UnreadableModelResponse(
+            "回報的 token 數或花費大得離譜(超過上限的千倍),照預留結算並標超支",
+            sub_reason="absurd_usage", reply=reply)
+        absurd_failure.absurd_usage = True
+        return None, absurd_failure
     return reply, None
+
+
+def _log_absurd(reply: core.BackendReply) -> None:
+    log.error("後端回報的用量或花費大得離譜(輸入 %s、輸出 %s、快取寫入 %s/%s、快取讀取 %s、自報 %s "
+              "十億分之一美元):不入帳、照預留結算並標超支,請人看", reply.input_tokens,
+              reply.output_tokens, reply.cache_write_5m_tokens, reply.cache_write_1h_tokens,
+              reply.cache_read_tokens, reply.reported_nanousd)
 
 
 def _wait_for_same_batch(request: core.ModelRequest, model: str, path: Path, ledger: Path,
@@ -278,7 +301,9 @@ def _existing(request: core.ModelRequest, model: str, path: Path, ledger: Path,
     except rec.PendingRecording as pending:
         if pending.batch_id == request.batch_id:
             return _wait_for_same_batch(request, model, path, ledger, key)
-        raise core.RecordingConflict(conflict) from None
+        raise core.RecordingConflict(
+            f"錄製檔名被別的批次({pending.batch_id})佔住、還沒錄完:可能是中斷留下的佔位,確認沒有行程"
+            f"還在跑之後刪掉 {path.name} 再重跑") from None
     except core.NoRecording as bad:
         raise core.RecordingConflict(f"錄製檔名已被佔住但讀不懂({bad}),這次不呼叫") from bad
     if existing is None or existing.batch_id != request.batch_id:
@@ -322,7 +347,7 @@ def _call(request: core.ModelRequest, settings: Settings,
     started = time.monotonic()
     reply, failure = _send(backend, call)
     latency_ms = (time.monotonic() - started) * 1000
-    done = _settlement_for((reply, failure), settings.model, reserved, latency_ms)
+    done = settlement_for((reply, failure), settings.model, reserved, latency_ms)
     settled = _try_settle(ledger, reservation_id, done)
     if done.overrun:
         log.error("預留 %s 超支:入帳 %s 大於預留 %s,或 Claude Code 回報超過單次花費上限"
@@ -389,6 +414,11 @@ def _recording_of(key: str, request: core.ModelRequest, model: str,
         None if reply is None else reply.reported_nanousd, done.list_nanousd,
         done.latency_ms or 0.0, failure is not None and failure.tool_use,
         failure is not None and failure.unclassified, state.value)
+
+
+def settle_quietly(ledger: Path, reservation_id: int, done: ledger_db.Settlement) -> bool:
+    """寫結算列(有上限地重試,仍失敗印應入帳金額);給實測命令列用,跟 call_model 同一套。"""
+    return _try_settle(ledger, reservation_id, done)
 
 
 def _try_settle(ledger: Path, reservation_id: int, done: ledger_db.Settlement) -> bool:

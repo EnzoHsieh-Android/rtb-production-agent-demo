@@ -23,9 +23,17 @@ from rtb.sqlitekit import DatabaseNotUpgraded, connect_read_only, missing_schema
 LEDGER_RELATIVE = Path(".rtb") / "model-ledger.sqlite"
 
 
+# 只在測試開的覆寫:整套共用夾具每支測試設成那支測試的暫存家目錄,測試啟動的子行程照樣繼承;
+# 只有同時在 pytest 的測試執行中(PYTEST_CURRENT_TEST 有值)才認,平常跑命令列設了也不理
+ACCOUNT_HOME_ENV = "RTB_TEST_ACCOUNT_HOME"
+
+
 def account_home() -> Path:
     """帳號的家目錄:從帳號資料庫讀,不看環境變數 HOME(HOME 誰都改得動,帳跟啟用紀錄不能跟著搬;
-    代碼審第 1 輪)。測試由整套共用夾具換掉這一支(注入點)。"""
+    代碼審第 1 輪)。測試的注入點是上面的覆寫環境變數(代碼審第 2 輪:子行程也要隔開)。"""
+    override = os.environ.get(ACCOUNT_HOME_ENV)
+    if override and os.environ.get("PYTEST_CURRENT_TEST"):
+        return Path(override)
     return Path(pwd.getpwuid(os.getuid()).pw_dir)
 
 
@@ -36,11 +44,12 @@ def ledger_path() -> Path:
 
 
 class Caller(StrEnum):
-    """會呼叫模型的三個接入點(封閉列舉)。"""
+    """會呼叫模型的三個接入點,加上即時模式實測命令列(封閉列舉;實測的呼叫也算進每月上限)。"""
 
     EVAL_CANDIDATE = "eval_candidate"
     HYPOTHESIS = "ops_hypothesis"
     NARRATIVE = "analyzer_narrative"
+    VERIFICATION = "live_verification"
 
 
 class Source(StrEnum):

@@ -4,6 +4,7 @@
 結束時再比一次;這支測試確認夾具真的生效,也確認到目前為止真帳沒變。
 """
 
+import ast
 import os
 from pathlib import Path
 
@@ -56,18 +57,79 @@ def test_each_test_gets_its_own_temp_dir_and_empty_policy_sources(tmp_path):
     assert all(p.is_relative_to(tmp_path.parent.parent) for p in cc.MDM_PLISTS)
 
 
-def test_subprocess_tests_inherit_the_isolated_environment():
-    """子行程測試自己給環境時,要從 os.environ 起頭再覆寫(否則家目錄會退回帳號的真家目錄)。"""
-    import ast
+def _starts_from_os_environ(value):
+    """env= 的值要是字面 dict、第一個展開的是 os.environ(之後才覆寫)。"""
+    if not isinstance(value, ast.Dict) or not value.keys or value.keys[0] is not None:
+        return False
+    first = value.values[0]
+    return (isinstance(first, ast.Attribute) and first.attr == "environ"
+            and isinstance(first.value, ast.Name) and first.value.id == "os")
 
+
+def _environ_names(tree):
+    """整支檔裡每次賦值都是 {**os.environ, ...} 的變數名(env = {...}; run(env=env) 這種寫法)。"""
+    good, bad = set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    (good if _starts_from_os_environ(node.value) else bad).add(target.id)
+    return good - bad
+
+
+def env_offenders(tree, label):
+    names = _environ_names(tree)
+    return [f"{label}:{node.lineno}" for node in ast.walk(tree) if isinstance(node, ast.Call)
+            for keyword in node.keywords
+            if keyword.arg == "env" and not _starts_from_os_environ(keyword.value)
+            and not (isinstance(keyword.value, ast.Name) and keyword.value.id in names)]
+
+
+def test_subprocess_tests_inherit_the_isolated_environment():
+    """子行程測試自己給環境時,一律寫成 {**os.environ, ...}
+    (共用夾具設的帳號家目錄覆寫變數才傳得下去);
+    變數、dict(...)、沒從 os.environ 起頭的都抓(代碼審第 2 輪)。"""
     root = Path(__file__).resolve().parent
     offenders = []
-    for path in sorted(root.rglob("test_*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if not isinstance(node, ast.Call):
-                continue
-            for keyword in node.keywords:
-                if keyword.arg == "env" and isinstance(keyword.value, ast.Dict) and not any(
-                        key is None for key in keyword.value.keys):
-                    offenders.append(f"{path.relative_to(root)}:{node.lineno}")
+    for path in sorted([*root.rglob("test_*.py"), *root.rglob("conftest.py")]):
+        offenders += env_offenders(ast.parse(path.read_text(encoding="utf-8")),
+                                   str(path.relative_to(root)))
     assert offenders == []
+    ok = "env = {**os.environ, 'A': '1'}\nenv.pop('B', None)\nsubprocess.run([], env=env)"
+    assert env_offenders(ast.parse(ok), "probe") == []
+    for probe in ("env = {'PYTHONPATH': 'src'}\nsubprocess.run([], env=env)",
+                  "env = {**os.environ}\nenv = {}\nsubprocess.run([], env=env)",
+                  "subprocess.run([], env=dict(os.environ))",
+                  "subprocess.run([], env={'A': '1', **os.environ})",
+                  "subprocess.run([], env={'PYTHONPATH': 'src'})"):
+        assert env_offenders(ast.parse(probe), "probe"), probe
+
+
+def test_a_child_process_books_into_the_test_home_not_the_account_home():
+    """子行程沒有測試的替換:帳號家目錄靠共用夾具設好的覆寫環境變數(只在測試開)傳下去。"""
+    import subprocess
+    import sys
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    code = "from rtb.modelledger_view import ledger_path\nprint(ledger_path())\n"
+    result = subprocess.run([sys.executable, "-c", code],
+                            env={**os.environ, "PYTHONPATH": str(src)}, capture_output=True,
+                            text=True, timeout=60, check=True)
+    assert Path(result.stdout.strip()) == ledger_path()
+    assert not ledger_path().is_relative_to(REAL_HOME)
+
+
+def test_the_verification_helper_refuses_outside_the_test_fixture(monkeypatch, tmp_path):
+    """測試輔助寫啟用紀錄:不在共用夾具底下(沒有帳號家目錄覆寫)就拒寫,不會寫進真的家目錄。"""
+    import pytest
+
+    from rtb import modelledger_view as view
+    from tests.conftest import ACCOUNT_HOME_ENV
+    from tests.model import fakes
+
+    monkeypatch.delenv(ACCOUNT_HOME_ENV)
+    pretend_real = tmp_path / "pretend-real-home"  # 代替真的家目錄(變異檢查時也不會寫到真的)
+    monkeypatch.setattr(view, "account_home", lambda: pretend_real)
+    with pytest.raises(RuntimeError):
+        fakes.write_verification()
+    assert not pretend_real.exists()

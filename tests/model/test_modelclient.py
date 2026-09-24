@@ -113,7 +113,7 @@ def _explode(*_args, **_kwargs):
 def _spend(dirs, demo, output_tokens):
     """用一次成功的即時呼叫把某個展示編號花到指定金額(原價是輸出 token 乘單價,已用再乘 1.2)。"""
     call(live(FakeBackend(reply("x", input_tokens=0, output_tokens=output_tokens))),
-         request(demo_id=demo, max_output_tokens=32_000), dirs)
+         request(demo_id=demo, max_output_tokens=3_000), dirs)
 
 
 def test_the_budget_caps_stop_the_call_before_it_is_sent(dirs):
@@ -123,7 +123,8 @@ def test_the_budget_caps_stop_the_call_before_it_is_sent(dirs):
     _spend(dirs, "demo-1", 30_000)  # 0.72 美元
     assert ledger_db.used_so_far(dirs[1], "demo-1").demo_nanousd == 720_000_000
     backend = FakeBackend(reply("不該送出"))
-    big = request(demo_id="demo-1", max_output_tokens=25_000)  # 預留約 0.3 美元
+    # 預留約 0.3 美元(代碼審第 2 輪起預留把撞頂後最多 3 次的自動續寫算進去,輸出上限要小很多)
+    big = request(demo_id="demo-1", max_output_tokens=3_000)
     assert core.reservation_nanousd(big, mc.DEFAULT_MODEL) > 280_000_000
     with pytest.raises(mc.LocalCapRefused, match="已達上限") as failed:
         call(live(backend), big, dirs)
@@ -135,7 +136,7 @@ def test_the_budget_caps_stop_the_call_before_it_is_sent(dirs):
     assert ledger_db.used_so_far(dirs[1], "fresh").month_nanousd > 19.7 * USD
     backend = FakeBackend(reply("不該送出"))
     with pytest.raises(mc.LocalCapRefused, match="已達上限"):
-        call(live(backend), request(demo_id="fresh", max_output_tokens=20_000), dirs)
+        call(live(backend), request(demo_id="fresh", max_output_tokens=3_000), dirs)
     assert backend.calls == []
     booked = [r for r in rows(dirs[1]) if r.outcome == "local_cap_refused"]
     assert len(booked) == 2 and all(r.effective_nanousd == 0 for r in booked)
@@ -150,7 +151,7 @@ def test_concurrent_reservations_never_exceed_the_cap(dirs):
         return reply("x", input_tokens=0, output_tokens=0)
 
     backend = FakeBackend(slow)
-    each = request(demo_id="demo-1", max_output_tokens=25_000)  # 每筆預留約 0.3 美元
+    each = request(demo_id="demo-1", max_output_tokens=3_000)  # 每筆預留約 0.3 美元
     per_call = core.reservation_nanousd(each, mc.DEFAULT_MODEL)
     assert 3 * per_call < core.DEMO_CAP_NANOUSD < 4 * per_call
     barrier, outcomes = threading.Barrier(8), []
@@ -306,8 +307,8 @@ def test_live_calls_always_book_into_the_one_ledger(tmp_path, monkeypatch, _isol
         result = subprocess.run([sys.executable, "-c", code], cwd=cwd, env=env,
                                 capture_output=True, text=True, timeout=60, check=True)
         seen.add(result.stdout.strip())
-    # 子行程沒有測試的注入點:印出的是帳號家目錄那一本(只印路徑、不開帳),跟 HOME 無關
-    assert seen == {str(Path(pwd.getpwuid(os.getuid()).pw_dir) / ".rtb" / "model-ledger.sqlite")}
+    # 子行程繼承共用夾具的帳號家目錄覆寫:兩份簽出都寫同一本(這支測試的暫存家目錄那一本)
+    assert seen == {str(home_ledger)}
     # 評估紀錄命令列即時跑(假 claude 在傳進去的 PATH 上):寫進家目錄那一本;即時模式不接受換帳檔
     from rtb.eval import record
 

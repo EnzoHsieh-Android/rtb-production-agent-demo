@@ -56,7 +56,7 @@ def _gone(pid, limit=5.0):
 def test_an_interrupted_call_kills_the_whole_group(tmp_path):
     """Ctrl-C(KeyboardInterrupt)打斷等待:例外照樣往外丟,但整組先殺掉、確認空了、暫存目錄刪掉。"""
     script = fake_claude(tmp_path / "c", sleep=30, grandchild=True)
-    env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
+    child_env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
     started = {}
 
     def interrupt():
@@ -66,7 +66,7 @@ def test_an_interrupted_call_kills_the_whole_group(tmp_path):
     timer = threading.Thread(target=interrupt, daemon=True)
     timer.start()
     with pytest.raises(KeyboardInterrupt):
-        cc.run_claude([str(script), "-p"], "x", env, 20.0)
+        cc.run_claude([str(script), "-p"], "x", child_env, 20.0)
     timer.join(5)
     grandchild = int((tmp_path / "c" / "grandchild.pid").read_text(encoding="utf-8"))
     assert _gone(started["pid"]) and _gone(grandchild)
@@ -105,13 +105,14 @@ def test_sigterm_during_a_call_cleans_up_the_same_way(tmp_path):
 
 def test_the_login_check_counts_against_the_call_deadline(tmp_path):
     """登入檢查花掉的時間要從這次呼叫的總期限扣掉,不是再給一份完整的逾時。"""
-    script = fake_claude(tmp_path / "c", auth_sleep=0.6, sleep=0.6)
+    # 登入 2 秒、期限 3 秒:扣掉的話約 3 秒逾時;沒扣會拖到約 5 秒。間距拉大,機器忙時也分得出來
+    script = fake_claude(tmp_path / "c", auth_sleep=2.0, sleep=30)
     settings = live(cc.ClaudeCodeBackend(script))
     started = time.monotonic()
     with pytest.raises(mc.ModelTimeout):
-        mc.call_model(request(timeout_seconds=1.0), settings, recordings_dir=tmp_path,
+        mc.call_model(request(timeout_seconds=3.0), settings, recordings_dir=tmp_path,
                       ledger=tmp_path / "l.sqlite")
-    assert time.monotonic() - started < 2.5
+    assert time.monotonic() - started < 4.3
 
 
 def test_a_success_needs_the_success_subtype(tmp_path):

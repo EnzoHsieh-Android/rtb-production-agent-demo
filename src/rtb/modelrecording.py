@@ -6,6 +6,7 @@
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import unicodedata
@@ -98,8 +99,12 @@ def _well_typed(data: dict[str, object]) -> bool:
                            for name in _OPTIONAL_TEXT)
     counts_ok = all(data[name] is None or _is_count(data[name]) for name in _OPTIONAL_COUNT)
     latency = data["latency_ms"]
+    latency_ok = (isinstance(latency, int | float) and not isinstance(latency, bool)
+                  and math.isfinite(latency) and latency >= 0)
+    # 成功一定有文字、失敗一定沒有(代碼審第 2 輪:成功卻沒文字會走進失敗分支查表失敗)
+    text_matches = (data["text"] is not None) == (data["outcome"] == Outcome.OK.value)
     return (text_ok and optional_text_ok and counts_ok and _is_count(data["list_nanousd"])
-            and isinstance(latency, int | float) and not isinstance(latency, bool)
+            and latency_ok and text_matches
             and isinstance(data["tool_use"], bool) and isinstance(data["unclassified"], bool))
 
 

@@ -25,8 +25,6 @@ from rtb.modelledger_view import CALLS_SELECT, LedgerCall
 from rtb.sqlitekit import DatabaseBusy, connect, immediate_transaction, read_snapshot
 
 SETTLE_ATTEMPTS = 3  # 結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤
-# 核銷時兩個開機識別都是推算的開機時刻,差在這個秒數內算同一次開機
-SAME_BOOT_SECONDS = 60
 
 # ---- 花費帳 ----
 _NO_CHANGE = "SELECT RAISE(ABORT, '花費帳只增不改')"
@@ -242,6 +240,8 @@ def _nanousd(amount: Decimal) -> int:
         raise WriteOffRefused("金額看不懂") from bad
     if not scaled.is_finite() or scaled < 0:
         raise WriteOffRefused("金額要是不為負的有限數")
+    if scaled > core.MONTH_CAP_NANOUSD:  # 先擋掉大得離譜的數(也免得轉整數時溢位)
+        raise WriteOffRefused("核銷金額超過每月上限,一定打錯了")
     return int(scaled.to_integral_value(rounding="ROUND_CEILING"))
 
 
@@ -256,36 +256,42 @@ def _owner_alive(pid: int) -> bool:
 
 
 def _same_boot(recorded: str, current: str) -> bool | None:
-    """兩個開機識別是不是同一次開機;種類不同或讀不懂回 None(判不出來)。"""
+    """兩個開機識別是不是同一次開機;任一邊讀不到(unknown)或格式不認得回 None(判不出來)。"""
     if recorded.startswith("id:") and current.startswith("id:"):
         return recorded == current
-    if recorded.startswith("at:") and current.startswith("at:"):
-        try:
-            return abs(int(recorded[3:]) - int(current[3:])) <= SAME_BOOT_SECONDS
-        except ValueError:
-            return None
     return None
 
 
 def _check_unsettled(call: LedgerCall) -> None:
-    """沒結算的預留:牆鐘要過最長請求期限;同一次開機時,主行程還要已經不在、而且開機以來秒數也過了
-    期限(兩種時鐘對不上就保守拒絕:改過系統時間、或讀錯)。重開過機就只看牆鐘(主行程一定不在了)。"""
+    """沒結算的預留:牆鐘要過最長請求期限;不論是不是同一次開機都先看主行程在不在(行程編號被重用也算
+    在:寧可擋住)。同一次開機時開機以來秒數也要過期限(兩種時鐘對不上就拒絕:改過系統時間、或讀錯)。
+    重開過機(開機識別不同,且識別不隨牆鐘移動)開機以來秒數沒得比,只看牆鐘與主行程;判不出來就拒絕。"""
     age = core.utc_now() - datetime.fromisoformat(call.reserved_at)
     if age <= core.LONGEST_REQUEST:
         raise WriteOffRefused(f"預留 {call.id} 還在最長請求期限內,可能還在等回應,不能核銷")
+    if _owner_alive(call.owner_pid):
+        raise WriteOffRefused(
+            f"預留 {call.id} 的主行程 {call.owner_pid} 還活著,可能還在等回應,不能核銷")
     same = _same_boot(call.owner_boot, core.boot_identity())
     if same is None:
         raise WriteOffRefused(f"預留 {call.id} 判不出是不是同一次開機,不能核銷")
     if not same:
         return
-    if _owner_alive(call.owner_pid):
-        raise WriteOffRefused(
-            f"預留 {call.id} 的主行程 {call.owner_pid} 還活著,可能還在等回應,不能核銷")
     elapsed = core.monotonic_now() - call.reserved_monotonic
     if elapsed <= core.LONGEST_REQUEST.total_seconds():
         raise WriteOffRefused(
             f"預留 {call.id} 牆鐘已過期限、開機以來秒數卻只過了 {elapsed:.0f} 秒:兩種時鐘對不上,"
             "不能核銷")
+
+
+def _check_ceiling(call: LedgerCall, nanousd: int) -> None:
+    """核銷金額不能超過這筆的預留與結算兩者較高者(核銷只拿來把卡住的預留改小,不拿來加帳;每筆只能核一次,
+    打錯的大金額改不回來)。"""
+    ceiling = max(call.reserved_nanousd, call.settled_nanousd or 0)
+    if nanousd > ceiling:
+        raise WriteOffRefused(
+            f"核銷金額 {nanousd / core.NANOUSD_PER_USD:.6f} 美元超過這筆的預留與結算較高者 "
+            f"{ceiling / core.NANOUSD_PER_USD:.6f} 美元")
 
 
 def _check_write_off(call: LedgerCall) -> None:
@@ -313,6 +319,7 @@ def write_off(ledger: Path, reservation_id: int, amount: Decimal, reason: str,
                 raise WriteOffRefused(f"找不到預留 {reservation_id}")
             call = found[0]
             _check_write_off(call)
+            _check_ceiling(call, nanousd)
             conn.execute(
                 "INSERT INTO model_write_offs (reservation_id, written_at, amount_nanousd, reason, "
                 "evidence, settled_before) VALUES (?, ?, ?, ?, ?, ?)",

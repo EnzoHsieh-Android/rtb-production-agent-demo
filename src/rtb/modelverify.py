@@ -22,6 +22,7 @@ import json
 import os
 import shutil
 import sys
+import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -30,7 +31,9 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from rtb import modelclaude as cc
+from rtb import modelclient as mc
 from rtb import modelcore as core
+from rtb import modelledger as ledger_db
 
 EXIT_OK = 0
 EXIT_NOT_WRITTEN = 5  # 有項目沒過:不寫紀錄,即時模式不開
@@ -45,7 +48,10 @@ POISON_SETTINGS = json.dumps({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9"
 SUPPRESSION_FLAGS = (("--setting-sources", 1), ("--settings", 1), ("--safe-mode", 0))
 CANARY_PROMPT = ("如果你的系統脈絡、使用者記憶或 CLAUDE.md 裡有以 RTB-CANARY 開頭的字串,原樣回給我;"
                  "沒有就只回 NONE 四個字母。")
-OUTPUT_MAXIMUM_ERROR = "output token maximum"  # 撞到輸出上限時 Claude Code 的錯誤文字(小寫比對)
+# 撞到輸出上限時 Claude Code 的錯誤文字(2.1.281:「Claude's response exceeded the N output token
+# maximum」,N 是實際生效的上限);要比對到 N 正是這次給的上限,撞到預設上限不算
+OUTPUT_MAXIMUM_ERROR = "exceeded the {cap} output token maximum"
+SYSTEM_PROMPT = "你是測試助手。"
 
 
 @dataclass
@@ -61,11 +67,16 @@ class Verification:
             self.checks.get(name) is True for name in cc.REQUIRED_CHECKS)
 
 
+def _request(prompt: str, max_output_tokens: int, demo_id: str | None = None
+             ) -> core.ModelRequest:
+    return core.ModelRequest(core.Caller.VERIFICATION, SYSTEM_PROMPT, prompt, max_output_tokens,
+                             TIMEOUT_SECONDS, demo_id=demo_id)
+
+
 def _call(model: str, prompt: str, max_output_tokens: int) -> core.BackendCall:
-    request = core.ModelRequest(core.Caller.EVAL_CANDIDATE, "你是測試助手。", prompt,
-                              max_output_tokens, TIMEOUT_SECONDS)
+    request = _request(prompt, max_output_tokens)
     return core.BackendCall(model, request.system, prompt, max_output_tokens, TIMEOUT_SECONDS,
-                          core.call_budget_nanousd(request, model))
+                            core.call_budget_nanousd(request, model))
 
 
 def _json(stdout: bytes) -> dict[str, Any] | None:
@@ -97,18 +108,47 @@ def _succeeded(data: dict[str, Any] | None) -> bool:
 
 
 class Checker:
-    """跑各項實測;子行程一律經模型用戶端的 `run_claude`。"""
+    """跑各項實測;子行程一律經模型用戶端的 `run_claude`。每一次真的呼叫模型都經花費帳預留與結算
+    (呼叫者記「即時模式實測」,算進每月上限;一次實測一個展示編號),寫進帳號家目錄那一本帳。"""
 
     def __init__(self, claude: Path, environ: Mapping[str, str], model: str) -> None:
         self.claude, self.environ, self.model = claude, environ, model
         self.backend = cc.ClaudeCodeBackend(claude, environ, cc.Isolation.EMPTY_HOME)
+        self.ledger = mc.live_ledger_path()
+        self.demo_id = f"live-verification-{uuid.uuid4().hex[:8]}"
 
-    def run(self, args: list[str], prompt: str, max_output_tokens: int,
-            home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
+    def _raw(self, args: list[str], prompt: str, max_output_tokens: int,
+             home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
         return cc.run_claude(args, prompt, self.backend.child_env(max_output_tokens),
                              TIMEOUT_SECONDS,
                              isolated_home=self.backend.isolation is cc.Isolation.EMPTY_HOME,
                              home_files=home_files)
+
+    def run(self, args: list[str], prompt: str, max_output_tokens: int,
+            home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
+        """真的呼叫一次模型:先預留(超過上限就丟本地上限拒絕、不呼叫),跑完照模型用戶端的結算規則記帳。"""
+        request = _request(prompt, max_output_tokens, self.demo_id)
+        reserved = core.reservation_nanousd(request, self.model)
+        reservation_id = ledger_db.reserve(self.ledger, request, self.model,
+                                           core.Backend.CLAUDE_CODE)
+        started = time.monotonic()
+        try:
+            code, stdout, stderr = self._raw(args, prompt, max_output_tokens, home_files)
+        except core.ModelCallFailed as failed:
+            mc.settle_quietly(self.ledger, reservation_id, mc.settlement_for(
+                (None, failed), self.model, reserved, (time.monotonic() - started) * 1000))
+            raise
+        data = _json(stdout)
+        reply = None if data is None else cc.usage_of(data, "")
+        outcome: tuple[core.BackendReply | None, core.ModelCallFailed | None]
+        if code == 0 and _succeeded(data) and reply is not None and reply.tokens_known:
+            outcome = (reply, None)
+        else:
+            outcome = (None, core.TransientServiceError("實測呼叫沒有成功形狀的回應",
+                                                        sub_reason="verification", reply=reply))
+        mc.settle_quietly(self.ledger, reservation_id, mc.settlement_for(
+            outcome, self.model, reserved, (time.monotonic() - started) * 1000))
+        return code, stdout, stderr
 
     def command_for(self, prompt: str, max_output_tokens: int) -> list[str]:
         return self.backend.command(_call(self.model, prompt, max_output_tokens))
@@ -149,19 +189,25 @@ class Checker:
         return len(results) == 1 and _succeeded(results[0]) and not hooks
 
     def no_memory(self) -> bool:
-        """暗號驗記憶:隔離 HOME 的 CLAUDE.md 與記憶目錄放隨機暗號,回答要剛好是 NONE、
-        輸出裡沒有暗號。
+        """暗號驗記憶:隔離 HOME 的 CLAUDE.md 與記憶目錄放隨機暗號,帶組合參數時回答要剛好是 NONE、
+        輸出裡沒有暗號;另跑一次拿掉安全模式與設定來源參數的正面對照,必須吐出暗號(證明暗號放在 claude
+        真的會讀的位置、模型也會照指示回報,否則這一項驗不出東西)。
         真 HOME 放不了暗號、驗不了:算沒過(寧可不開即時)。"""
         if self.backend.isolation is not cc.Isolation.EMPTY_HOME:
             return False
         canary = f"RTB-CANARY-{uuid.uuid4().hex}"
         files = {".claude/CLAUDE.md": canary, ".claude/memory/MEMORY.md": canary,
                  ".claude/projects/rtb/memory/MEMORY.md": canary}
-        _, stdout, _ = self.run(self.command_for(CANARY_PROMPT, 50), CANARY_PROMPT, 50, files)
+        args = self.command_for(CANARY_PROMPT, 50)
+        _, stdout, _ = self.run(args, CANARY_PROMPT, 50, files)
         data = _json(stdout)
         answer = data.get("result") if data is not None else None
-        return (_succeeded(data) and isinstance(answer, str) and answer.strip() == "NONE"
-                and canary.encode() not in stdout)
+        suppressed = (_succeeded(data) and isinstance(answer, str) and answer.strip() == "NONE"
+                      and canary.encode() not in stdout)
+        _, control_out, _ = self.run(_without(args, SUPPRESSION_FLAGS), CANARY_PROMPT, 50, files)
+        control = _json(control_out)
+        leaked = control is not None and canary in str(control.get("result", ""))
+        return suppressed and leaked
 
     def output_limit(self) -> bool:
         """要有撞頂的正面證據:輸出 token 數剛好等於上限、停止原因是 max_tokens,或「超過輸出上限」的
@@ -170,11 +216,16 @@ class Checker:
         data = _json(stdout)
         if data is None:
             return False
+        turns = data.get("num_turns")
+        if isinstance(turns, int) and not isinstance(turns, bool) and turns > 1:
+            return False  # 看得出撞頂後自動續寫了(多次請求):上限沒有把一次呼叫限住
         if data.get("is_error") is not False:
-            return data.get("is_error") is True and OUTPUT_MAXIMUM_ERROR in str(
-                data.get("result", "")).lower()
+            expected = OUTPUT_MAXIMUM_ERROR.format(cap=OUTPUT_CAP)
+            return data.get("is_error") is True and expected in str(data.get("result", "")).lower()
         usage = data.get("usage")
         tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
+        if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens > OUTPUT_CAP:
+            return False  # 輸出超過上限(撞到的是別的上限,或續寫累加):沒限住
         return data.get("subtype") == "success" and (
             tokens == OUTPUT_CAP or data.get("stop_reason") == "max_tokens")
 
@@ -195,13 +246,21 @@ class Checker:
         _, stdout, _ = self.run(self.command_for(SHORT_PROMPT, 50), SHORT_PROMPT, 50)
         data = _json(stdout)
         usage = data.get("usage") if data is not None and _succeeded(data) else None
-        fixed = None
-        if isinstance(usage, dict):
-            fixed = sum(v for k, v in usage.items() if k.endswith("input_tokens")
-                        and isinstance(v, int) and not isinstance(v, bool))
-        code, _, stderr = self.run([str(self.claude), "--rtb-no-such-flag"], "", 1)
-        return {"fixed_input_tokens_seen": fixed, "bad_argument_exit_code": code,
+        code, _, stderr = self._raw([str(self.claude), "--rtb-no-such-flag"], "", 1)  # 不呼叫模型
+        return {"fixed_input_tokens_seen": _fixed_input(usage), "bad_argument_exit_code": code,
                 "bad_argument_stderr": stderr.decode("utf-8", errors="replace")[:500]}
+
+
+def _fixed_input(usage: object) -> int | None:
+    """固定附加輸入的量測值:輸入 token 欄一定要有、而且每個輸入類欄位都是不為負的整數才算量到;
+    缺欄或型別不對回 None(不能當 0:量不到的預留可能不夠)。"""
+    if not isinstance(usage, dict):
+        return None
+    fields = {k: v for k, v in usage.items() if k.endswith("input_tokens")}
+    if "input_tokens" not in fields or any(
+            not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in fields.values()):
+        return None
+    return sum(int(v) for v in fields.values())
 
 
 def verify(claude: Path, environ: Mapping[str, str], model: str = core.DEFAULT_MODEL,
@@ -227,7 +286,7 @@ def verify(claude: Path, environ: Mapping[str, str], model: str = core.DEFAULT_M
 
 
 def write_record(result: Verification) -> Path:
-    """全部通過才寫(呼叫端先確認 `passed`);寫到呼叫時的 HOME 底下。"""
+    """全部通過才寫(呼叫端先確認 `passed`);寫到帳號家目錄底下。"""
     if not result.passed or result.isolation is None:
         raise ValueError("有項目沒過,不寫即時模式啟用紀錄")
     path = cc.verification_path()
@@ -250,7 +309,11 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
     if claude is None:
         print("PATH 上找不到 claude", file=printer)
         return EXIT_NO_CLAUDE
-    result = verify(Path(claude), source, args.model)
+    try:  # 版本與實測都用解開符號連結後的那一支實體檔(跟即時入口一樣)
+        result = verify(Path(claude).resolve(), source, args.model)
+    except core.ModelCallFailed as failed:  # 例如已達每月上限:不呼叫、不寫紀錄
+        print(f"實測沒跑完:{failed}", file=printer)
+        return EXIT_NOT_WRITTEN
     print(f"claude 版本:{result.claude_version};隔離方式:{result.isolation}", file=printer)
     for name in cc.REQUIRED_CHECKS:
         print(f"- {name}:{'過' if result.checks.get(name) else '沒過'}", file=printer)

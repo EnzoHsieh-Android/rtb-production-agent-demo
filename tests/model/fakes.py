@@ -9,6 +9,7 @@
 """
 
 import json
+import os
 import shlex
 import threading
 from pathlib import Path
@@ -16,6 +17,7 @@ from pathlib import Path
 from rtb import modelclaude as cc
 from rtb import modelclient as mc
 from rtb import modelcore as core
+from rtb import modelledger_view as view
 
 
 def reply(  # noqa: PLR0913 - 回應的每一欄
@@ -87,10 +89,17 @@ FAKE_VERSION = "9.9.9 (Claude Code)"
 
 
 def write_verification(version=FAKE_VERSION, isolation="empty_home", **checks):
-    """在呼叫時的家目錄寫一份即時模式啟用紀錄(預設全過、版本跟假 claude 一樣)。"""
+    """在帳號家目錄(測試裡是共用夾具設的暫存目錄)寫一份即時模式啟用紀錄(預設全過、版本跟假 claude
+    一樣)。不在共用夾具底下(沒有帳號家目錄覆寫、或不在測試執行中)就拒寫:帳號家目錄不看 HOME,
+    在 pytest 外呼叫會寫進真的 ~/.rtb(代碼審第 2 輪:真的發生過)。"""
+    override = os.environ.get(view.ACCOUNT_HOME_ENV)
+    if not override or not os.environ.get("PYTEST_CURRENT_TEST"):
+        raise RuntimeError("write_verification 只能在 pytest 的共用夾具底下用(會寫帳號家目錄)")
+    path = cc.verification_path()
+    if not path.is_relative_to(Path(override)):
+        raise RuntimeError(f"啟用紀錄不在測試的暫存家目錄底下,拒寫:{path}")
     record = {"claude_version": version, "isolation": isolation, "checked_on": "2026-09-24",
               "checks": {**dict.fromkeys(cc.REQUIRED_CHECKS, True), **checks}}
-    path = cc.verification_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(record), encoding="utf-8")
     return path

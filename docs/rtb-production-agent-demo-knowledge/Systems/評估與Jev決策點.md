@@ -76,4 +76,11 @@ verified_by:
   不是就標「批次紀錄的情境清單跟這次子集不同」。防回歸:[test:test_identical_inputs_share_one_call_without_recording]、
   [test:test_a_non_model_error_gets_its_own_row_and_stops]、[test:test_the_model_section_reports_its_own_scores]、
   [test:test_flags_show_up_in_the_llm_row_and_the_scenarios_must_match]。
+- 代碼審第 2 輪補強(2026-09-24):重播時批次紀錄要跟這次重播逐列對得上(列數、順序、有錄製的列的結果類別與原價),
+  讀不懂或對不上就掛旗標、不算門檻;即時跑到一半被中斷時照寫已跑的部分並標中斷;模型逐格結果只算真的呼叫了模型的情境,
+  另列實際作答、退回、沒呼叫;即時沒開錄製時來源寫「即時、未存檔」;「不採用的理由」是 Phase 10 固定文字,模型段另註明
+  候選實測已有。評估套件的送出名字(send、backend、BackendCall…)只准模型候選用 call_model,模型用戶端的匯入閉包寫死、
+  不准有網路模組。防回歸:[test:test_a_batch_record_missing_rows_is_flagged]、
+  [test:test_a_tampered_batch_record_is_not_trusted]、[test:test_the_model_scores_only_count_calls_that_were_made]、
+  [test:test_an_interrupted_live_run_still_writes_its_batch]。
 

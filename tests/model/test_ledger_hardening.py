@@ -118,13 +118,14 @@ def test_a_reservation_reads_the_clock_once(tmp_path, monkeypatch):
 
 
 def test_absurd_usage_is_unreadable_and_an_overrun(tmp_path):
-    """自報 100 億美元:當讀不懂、標超支,不讓溢位例外漏出去(評估才停得下來)。"""
+    """自報 100 億美元:當讀不懂、標超支,不讓溢位例外漏出去(評估才停得下來);代碼審第 2 輪起照預留
+    結算(離譜的數字不入帳,見 test_ledger_limits)。"""
     script = fake_claude(tmp_path / "c", claude_json(cost_usd=1e10))
     with pytest.raises(mc.UnreadableModelResponse) as failed:
         _call(tmp_path, cc.ClaudeCodeBackend(script))
     assert failed.value.settlement.value.startswith("overrun")
     [row] = _rows(tmp_path / "l.sqlite")
-    assert row.overrun is True and row.effective_nanousd > row.reserved_nanousd
+    assert row.overrun is True and row.effective_nanousd == row.reserved_nanousd
     huge_tokens = fake_claude(tmp_path / "t", claude_json(output_tokens=10**16))
     with pytest.raises(mc.UnreadableModelResponse):
         _call(tmp_path, cc.ClaudeCodeBackend(huge_tokens), name="t")
@@ -149,16 +150,21 @@ def test_an_unsettled_overrun_keeps_both_signals(tmp_path, monkeypatch, capsys):
 
 
 def test_the_ledger_follows_the_account_home_not_the_home_variable(tmp_path, monkeypatch):
-    from tests.conftest import ACCOUNT_HOME, REAL_HOME
+    from tests.conftest import ACCOUNT_HOME_ENV, REAL_HOME
 
-    # 共用夾具換掉了帳號家目錄的讀法:先驗真的那一支(只算路徑、不開帳)
-    monkeypatch.setattr(view, "account_home", ACCOUNT_HOME)
+    # 共用夾具設了只在測試開的覆寫:拿掉它驗真的讀法(只算路徑、不開帳)
+    monkeypatch.delenv(ACCOUNT_HOME_ENV)
     monkeypatch.setenv("HOME", str(tmp_path / "elsewhere"))
     assert view.ledger_path() == REAL_HOME / ".rtb" / "model-ledger.sqlite"
     assert cc.verification_path() == REAL_HOME / ".rtb" / "live-verification.json"
     assert not view.ledger_path().is_relative_to(tmp_path / "elsewhere")
     assert not cc.verification_path().is_relative_to(tmp_path / "elsewhere")
     assert view.ledger_path() == view.account_home() / ".rtb" / "model-ledger.sqlite"
+    # 覆寫只在 pytest 的測試執行中才認:平常跑命令列設了也不理
+    monkeypatch.setenv(ACCOUNT_HOME_ENV, str(tmp_path / "override"))
+    assert view.account_home() == tmp_path / "override"
+    monkeypatch.delenv("PYTEST_CURRENT_TEST")
+    assert view.account_home() == REAL_HOME
 
 
 def test_cache_writes_missing_from_the_split_count_as_one_hour(tmp_path):

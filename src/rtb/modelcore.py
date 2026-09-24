@@ -62,6 +62,9 @@ MAX_TIMEOUT_SECONDS = 120.0
 LONGEST_REQUEST = timedelta(seconds=MAX_TIMEOUT_SECONDS) + timedelta(minutes=5)  # 核銷用
 MAX_OUTPUT_TOKENS = 32_000
 MAX_PROMPT_BYTES = 48 * 1024  # 系統提示加使用者內容
+# 撞到輸出上限後 Claude Code 自動續寫的最多次數(2.1.281 的 max_output_tokens_recovery,上限 3;
+# 以實作當下的 claude 為準,升版要重查)
+OUTPUT_RECOVERY_ATTEMPTS = 3
 COST_MISMATCH = (1, 5)  # 回報的估計與 token 數算的差超過較小者的兩成就標記
 # 荒謬值上限(代碼審第 1 輪):回報的 token 數或花費超過「一次請求的上限」或「每月上限」的千倍,
 # 就當讀不懂、夾到上限記帳並標超支(夾住之後乘價目表也不會超出 SQLite 整數範圍)
@@ -82,13 +85,33 @@ def monotonic_now() -> float:
     return time.clock_gettime(_BOOT_CLOCK)
 
 
+def _darwin_boot_session() -> str | None:
+    """macOS 核心給的開機工作階段編號(kern.bootsessionuuid);讀不到回 None。"""
+    try:
+        import ctypes
+        import ctypes.util
+
+        libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+        size = ctypes.c_size_t(64)
+        buffer = ctypes.create_string_buffer(64)
+        if libc.sysctlbyname(b"kern.bootsessionuuid", buffer, ctypes.byref(size), None,
+                             ctypes.c_size_t(0)) != 0:
+            return None
+        value = buffer.value.decode("ascii", errors="replace").strip()
+    except (OSError, AttributeError, TypeError, ValueError):
+        return None
+    return value or None
+
+
 def boot_identity() -> str:
-    """這次開機的識別:Linux 讀核心給的開機編號;其他系統用「牆鐘減開機以來秒數」推出開機時刻
-    (取到 10 秒,核銷時容許 60 秒誤差)。"""
+    """這次開機的識別,不隨牆鐘移動(代碼審第 2 輪:用牆鐘推算時,撥鐘會被當成重開機):Linux 讀核心的
+    開機編號,macOS 讀核心的開機工作階段編號;都讀不到回 "unknown"(核銷時判不出是不是同一次開機)。"""
     try:
         return "id:" + Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
     except OSError:
-        return f"at:{round((time.time() - time.clock_gettime(_BOOT_CLOCK)) / 10) * 10}"
+        pass
+    session = _darwin_boot_session()
+    return "unknown" if session is None else f"id:{session}"
 
 
 class Mode(StrEnum):
@@ -148,6 +171,7 @@ class ModelCallFailed(Exception):
         self.reply = reply  # 失敗的回應讀得出的用量與花費估計(讀不出就是 None)
         self.unclassified = unclassified  # 暫時性服務錯誤認不出子類型:評估保守停下
         self.tool_use = False  # 錯誤回應帶著工具使用痕跡:評估保守停下
+        self.absurd_usage = False  # 回報的用量或花費大得離譜:照預留結算、標超支(不把它入帳)
         self.settlement: SettlementState | None = None
         self.list_nanousd = 0  # 這次(或錄製當時)記的原價;即時失敗照結算規則填
         self.latency_ms: float | None = None
@@ -288,13 +312,18 @@ def list_price(model: str, reply: BackendReply) -> int:
 
 
 def call_budget_nanousd(request: ModelRequest, model: str) -> int:
-    """這一筆預留的原價(不含安全係數):輸入上限是系統提示加使用者內容的 UTF-8 位元組數
-    (token 數不會超過它)加 Claude Code 固定附加的輸入,乘三種輸入單價的最高者;加輸出上限乘
-    輸出單價。它也是傳給 Claude Code 的單次花費上限。"""
+    """這一筆預留的原價(不含安全係數),也是傳給 Claude Code 的單次花費上限。
+    一次請求:輸入上限是系統提示加使用者內容的 UTF-8 位元組數(token 數不會超過它)加 Claude Code
+    固定附加的輸入,乘三種輸入單價的最高者;加輸出上限乘輸出單價。
+    撞到輸出上限後 Claude Code 會自動續寫(最多 OUTPUT_RECOVERY_ATTEMPTS 次,每次重送前文加前幾次的
+    輸出),實測看不出來時也要付得起:照 1 + 續寫次數 次請求算,再加前文累積的輸出(第 k 次續寫多送 k 份
+    輸出上限當輸入)。"""
     price = PRICES[model]
     input_bound = len((request.system + request.user).encode("utf-8")) + CLAUDE_FIXED_INPUT_TOKENS
-    return (input_bound * price.worst_input_nanousd
-            + request.max_output_tokens * price.output_nanousd)
+    requests = 1 + OUTPUT_RECOVERY_ATTEMPTS
+    one = input_bound * price.worst_input_nanousd + request.max_output_tokens * price.output_nanousd
+    carried = requests * (requests - 1) // 2 * request.max_output_tokens * price.worst_input_nanousd
+    return requests * one + carried
 
 
 def reservation_nanousd(request: ModelRequest, model: str) -> int:

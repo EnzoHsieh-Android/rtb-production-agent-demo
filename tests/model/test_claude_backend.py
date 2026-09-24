@@ -82,7 +82,7 @@ CASES = {  # 名稱: (假 claude 的設定, 例外類別, 結果類別, 照預�
                      "transient", True),
     "tool_turns": ({"output": claude_json(num_turns=2)}, mc.UnreadableModelResponse,
                    "unreadable", True),
-    "timeout": ({"sleep": 5}, mc.ModelTimeout, "timeout", True),
+    "timeout": ({"sleep": 30}, mc.ModelTimeout, "timeout", True),
 }
 UNCLASSIFIED = {"unrecognised", "nonzero_exit", "not_json_nonzero"}
 # 錯誤回應分完子類型、帶工具使用痕跡另加標記;成功形狀帶痕跡也標(代碼審第 1 輪)
@@ -99,7 +99,8 @@ def _script(tmp_path, name, options):
 def test_failed_calls_are_settled_by_their_kind(  # noqa: PLR0915 - 五步判定的逐條情境
         tmp_path, monkeypatch):
     monkeypatch.setattr(cc, "KNOWN_ERRORS", SAMPLES)
-    req = request(max_output_tokens=200, timeout_seconds=1.0)
+    # 期限給寬一點:登入檢查也吃同一份期限,機器忙時 1 秒會被假 claude 的啟動吃光(代碼審第 2 輪)
+    req = request(max_output_tokens=200, timeout_seconds=4.0)
     reserved = core.reservation_nanousd(req, mc.DEFAULT_MODEL)
     for name, (options, error, outcome, charged) in CASES.items():
         script = _script(tmp_path, name, options)
@@ -214,11 +215,12 @@ def test_the_claude_command_disables_every_tool(tmp_path):
     assert _value(args, "--settings") == "{}"  # 空設定
     budget = Decimal(_value(args, "--max-budget-usd")) * mc.NANOUSD_PER_USD
     assert budget == core.call_budget_nanousd(req, mc.DEFAULT_MODEL)
-    # 預留的原價:(提示位元組數 + Claude Code 固定附加 4000)乘三種輸入單價最高者
-    # (1 小時快取寫入 4 美元)加輸出上限乘輸出單價(變異檢查補的斷言:不能只跟同一支函式比)
+    # 預留的原價:一次請求 =(提示位元組數 + Claude Code 固定附加 4000)乘三種輸入單價最高者
+    # (1 小時快取寫入 4 美元)加輸出上限乘輸出單價;撞頂後最多自動續寫 3 次,照 4 次請求算,
+    # 再加續寫時重送的前幾次輸出(1+2+3 份輸出上限當輸入)(變異檢查補的斷言:不能只跟同一支函式比)
     prompt_bytes = len((req.system + req.user).encode("utf-8"))
     assert core.CLAUDE_FIXED_INPUT_TOKENS == 4000
-    assert budget == (prompt_bytes + 4000) * 4_000 + 40 * 10_000
+    assert budget == 4 * ((prompt_bytes + 4000) * 4_000 + 40 * 10_000) + 6 * 40 * 4_000
     assert core.call_budget_nanousd(req, mc.DEFAULT_MODEL) * 6 == pytest.approx(
         core.reservation_nanousd(req, mc.DEFAULT_MODEL) * 5, abs=6)
     assert seen["stdin"] == req.user and req.user not in args  # 使用者內容只從標準輸入送
@@ -259,7 +261,7 @@ def test_a_timeout_kills_the_whole_group_before_cleanup(tmp_path):
     script = fake_claude(tmp_path / "slow", sleep=30, grandchild=True)
     started = time.monotonic()
     with pytest.raises(mc.ModelTimeout):
-        _call(tmp_path, script, request(timeout_seconds=1.0), "slow")
+        _call(tmp_path, script, request(timeout_seconds=3.0), "slow")
     assert time.monotonic() - started < 15
     [seen] = invocations(script)
     pid = int((tmp_path / "slow" / "grandchild.pid").read_text(encoding="utf-8"))

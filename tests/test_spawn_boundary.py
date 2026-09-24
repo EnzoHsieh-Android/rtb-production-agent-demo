@@ -154,22 +154,34 @@ BACKEND_NAMES = frozenset({"run_claude", "ClaudeCodeBackend", "check_login", "cl
 BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverify"})
 
 
-def backend_offenders(tree, label):
-    """匯入或取用 Claude Code 後端(模組本身或它的啟動函式、後端類別)的地方。"""
+CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate"})  # 送出呼叫的地方
+
+
+def backend_offenders(tree, label, module=None):
+    """匯入或取用 Claude Code 後端(模組本身或它的啟動函式、後端類別)的地方;另抓送出呼叫的函式
+    (call_model,只准模型用戶端本身與接入點)與經別的模組轉手的模型用戶端屬性鏈(x.modelclient)。"""
     found = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             found += [f"{label}: 匯入 {a.name}" for a in node.names
                       if a.name in ("rtb.modelclaude", "rtb.modelverify")]
         elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
+            module_name = node.module or ""
             names = {a.name for a in node.names}
-            if module in ("rtb.modelclaude", "rtb.modelverify") or (
-                    module == "rtb" and names & {"modelclaude", "modelverify"}):
-                found.append(f"{label}: 從 {module} 匯入 {sorted(names)}")
+            if module_name in ("rtb.modelclaude", "rtb.modelverify") or (
+                    module_name == "rtb" and names & {"modelclaude", "modelverify"}):
+                found.append(f"{label}: 從 {module_name} 匯入 {sorted(names)}")
             found += [f"{label}: 匯入 {n}" for n in names & BACKEND_NAMES]
+            if "call_model" in names and module not in CALL_MODEL_USERS:
+                found.append(f"{label}: 匯入 call_model")
         elif isinstance(node, ast.Attribute) and node.attr in BACKEND_NAMES:
             found.append(f"{label}:{node.lineno} 取用 {node.attr}")
+        elif isinstance(node, ast.Attribute) and node.attr == "call_model" and (
+                module not in CALL_MODEL_USERS):
+            found.append(f"{label}:{node.lineno} 取用 call_model")
+        elif isinstance(node, ast.Attribute) and node.attr == "modelclient" and not (
+                isinstance(node.value, ast.Name) and node.value.id == "rtb"):
+            found.append(f"{label}:{node.lineno} 經別的模組轉手模型用戶端")
         elif isinstance(node, ast.Name) and node.id in BACKEND_NAMES:
             found.append(f"{label}:{node.lineno} 取用 {node.id}")
     return found
@@ -180,17 +192,26 @@ def test_only_the_model_client_modules_touch_the_claude_backend():
     for path in sorted(RTB.rglob("*.py")):
         module = _module_name(path)
         if module not in BACKEND_USERS:
-            offenders += backend_offenders(ast.parse(path.read_text(encoding="utf-8")), module)
+            offenders += backend_offenders(ast.parse(path.read_text(encoding="utf-8")), module,
+                                           module)
     assert offenders == []
     for probe in ("from rtb.modelclaude import run_claude",
                   "from rtb import modelclaude", "import rtb.modelverify",
                   "from rtb.modelclient import x\nx.run_claude([], '', {}, 1)",
-                  "from rtb import modelclient as m\nm.ClaudeCodeBackend"):
+                  "from rtb import modelclient as m\nm.ClaudeCodeBackend",
+                  # 代碼審第 2 輪:經核銷命令列轉手的模型用戶端、直接取送出函式
+                  "from rtb import modelledger_writeoff as w\nw.modelclient.call_model(1)",
+                  "from rtb import modelledger_writeoff as w\nclient = w.modelclient",
+                  "from rtb.modelclient import call_model",
+                  "import rtb.modelclient\nrtb.modelclient.call_model(1)"):
         assert backend_offenders(ast.parse(probe), "probe"), probe
     # 四個目錄的靜態檢查規則也擋模型用戶端各模組與實測命令列(維運的假說命令列在增量 2 另開例外)
     for layer in ("dsp", "executor", "domain", "ops"):
         config = RTB / layer / "ruff.toml"
-        for banned in ("rtb.modelclient", "rtb.modelclaude", "rtb.modelverify"):
+        for banned in ("rtb.modelclient", "rtb.modelclaude", "rtb.modelverify",
+                       # 代碼審第 2 輪:拆檔後的帳本寫入、錄製讀寫、共用詞彙與核銷命令列
+                       "rtb.modelcore", "rtb.modelledger", "rtb.modelrecording",
+                       "rtb.modelledger_writeoff"):
             result = subprocess.run(
                 [sys.executable, "-m", "ruff", "check", "--config", str(config),
                  "--stdin-filename", str(config.parent / "probe.py"), "-"],

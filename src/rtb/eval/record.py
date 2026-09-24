@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TextIO
 
 from rtb import modelclient as mc
-from rtb.analyzer.policy import ValidatedCells, route
+from rtb.analyzer.policy import RoutePath, ValidatedCells, route
 from rtb.domain.worth import WorthCell, WorthInput
 from rtb.eval import eval_set, model_candidate
 from rtb.eval.adoption import (
@@ -177,18 +177,28 @@ class ModelSection:
     ledger_busy: bool
 
 
-def _replayed_batch(run: model_candidate.ModelRun, recordings: Path, scenario_ids: list[str]
+def _replayed_batch(run: model_candidate.ModelRun, recordings: Path
                     ) -> tuple[model_candidate.BatchRecord | None, list[str]]:
+    """重播時找唯一一份批次紀錄,並跟這次重播逐列核對:情境清單(列數、順序)要一樣,有錄製的列結果
+    類別與原價要跟錄製檔一樣;對不上就掛旗標、不拿它算門檻(代碼審第 2 輪:缺列的批次曾被當成完整)。"""
     flags = []
     found = sorted(model_candidate.batches_dir(recordings).glob("*.json"))
     if not found:
         return None, ["沒有批次紀錄"]
-    batch = model_candidate.load_batch(found[0])
+    try:
+        batch = model_candidate.load_batch(found[0])
+    except model_candidate.BatchInvalid as bad:
+        return None, [f"批次紀錄讀不懂({bad})"]
     if len(found) > 1 or not run.recording_batches <= {batch.batch_id}:
         flags.append("批次不一致(錄製檔與批次紀錄的批次編號對不上,或不只一份批次紀錄)")
-    recorded = [r.scenario_id for r in batch.rows]
-    if recorded != scenario_ids[:len(recorded)]:  # 批次可能停在中途:要是這次子集的開頭一段
-        flags.append("批次紀錄的情境清單跟這次子集不同")
+    if [r.scenario_id for r in batch.rows] != [r.scenario_id for r in run.rows]:
+        flags.append("批次紀錄的情境清單跟這次子集不同(缺列、多列或順序不同)")
+    elif any(replayed.outcome != mc.Outcome.NO_RECORDING.value
+             and (kept.outcome, kept.list_nanousd) != (replayed.outcome, replayed.list_nanousd)
+             for kept, replayed in zip(batch.rows, run.rows, strict=True)):
+        flags.append("批次紀錄的結果類別或原價跟錄製檔對不上")
+    if batch.interrupted:
+        flags.append("未跑完(中斷)")
     if run.missing_recordings:
         flags.append(f"錄製不全({run.missing_recordings} 個情境沒有錄製)")
     return batch, flags
@@ -203,9 +213,17 @@ def _model_run(settings: mc.Settings, args: argparse.Namespace) -> tuple[
     candidate = model_candidate.ModelCandidate(settings, recordings_dir=recordings, ledger=ledger,
                                                demo_id=args.demo_id, batch_id=batch_id)
     chosen = model_candidate.subset(from_rows(eval_set.ROWS))
-    run = model_candidate.run_subset(chosen, candidate, model_candidate.TIMEOUT_SECONDS)
+    try:
+        run = model_candidate.run_subset(chosen, candidate, model_candidate.TIMEOUT_SECONDS)
+    except BaseException:
+        # 中斷或崩掉:花過錢的嘗試照樣留批次紀錄(標中斷),再往外丟
+        if live and settings.record and batch_id is not None:
+            model_candidate.write_batch(recordings, model_candidate.new_batch(
+                batch_id, settings.model, model_candidate.partial_rows(chosen, candidate),
+                interrupted=True))
+        raise
     if not live:
-        batch, flags = _replayed_batch(run, recordings, [s.scenario_id for s in chosen])
+        batch, flags = _replayed_batch(run, recordings)
     else:
         assert batch_id is not None  # noqa: S101 - 即時模式上面一定產生
         batch, flags = model_candidate.new_batch(batch_id, settings.model, run.rows), []
@@ -241,8 +259,12 @@ def model_section(settings: mc.Settings, args: argparse.Namespace) -> ModelSecti
     if batch is not None:
         shared = sum(1 for r in batch.rows if r.shared)
         sent = sum(1 for r in batch.rows if r.sent)
-        lines += [f"- 來源:歷史觀測(錄製日期 {batch.recorded_on},批次 {batch.batch_id},"
-                  f"價目表查核 {batch.price_checked_on})",
+        live_unsaved = settings.mode is mc.Mode.LIVE and not settings.record
+        source = (f"- 來源:即時、未存檔(批次 {batch.batch_id} 只在這次執行的記憶體裡,"
+                  f"價目表查核 {batch.price_checked_on})" if live_unsaved else
+                  f"- 來源:歷史觀測(錄製日期 {batch.recorded_on},批次 {batch.batch_id},"
+                  f"價目表查核 {batch.price_checked_on})")
+        lines += [source,
                   f"- 批次紀錄 {len(batch.rows)} 列:真正送出 {sent} 次、"
                   f"{model_candidate.SHARED_NOTE} {shared} 列、"
                   f"沒送出 {model_candidate.unsent_counts(batch) or '無'}"]
@@ -250,14 +272,39 @@ def model_section(settings: mc.Settings, args: argparse.Namespace) -> ModelSecti
                   "是使用者裁定;延遲中位 ≤ 3 秒是協調者補的)", ""]
         means = model_candidate.mean_costs(batch)
         lines += [_cell_line(cell, row, means) for cell, row in (rows or {}).items()]
-    scored = synthetic_report(run.scored, eval_set_sha256())  # 模型的計分走既有的計分與報告
-    lines += ["", "### 模型逐格結果", "", *cell_table(scored.cells), "",
-              f"- 無關欄位擾動後答案改變的組數(模型):{scored.perturbation_changed}"]
+    lines += ["", *_model_scores(run)]
     lines += ["", *[f"- 旗標:{flag}" for flag in flags],
               "- 模型候選:不採用(合成集是有限的合約案例,照 Phase 10 規定一律不採用"
               + ("" if not flags else ";另有上面的旗標") + ")"]
+    if rows is not None and not flags:
+        lines.append("- 上面「不採用的理由」是 Phase 10 的固定文字(合成集一律列缺正式紀錄、"
+                     "人工標註與"
+                     "候選實測);候選實測已有,見上")
     busy = run.stopped == mc.Outcome.LEDGER_BUSY.value
     return ModelSection(None if flags else rows, tuple(flags), tuple(lines), busy)
+
+
+def _model_scores(run: model_candidate.ModelRun) -> list[str]:
+    """模型逐格結果:只算真的呼叫了模型(或同批共用別人的答案)的情境;沒呼叫的(沒有錄製、上限拒絕、
+    設定錯誤、花費帳忙碌)不進模型計分(否則印的是現行規則的答案)。另列實際作答、退回、沒呼叫件數。"""
+    called = [case for case, row in zip(run.scored, run.rows, strict=False)
+              if row.outcome not in model_candidate.UNSENT]
+    lines = ["### 模型逐格結果", ""]
+    if not called:
+        return [*lines, "- 沒量(原因:模型一次都沒被呼叫到,例如沒有錄製或呼叫前就被擋下)"]
+    scored = synthetic_report(tuple(called), eval_set_sha256())  # 模型的計分走既有的計分與報告
+    counts = []
+    for cell in WorthCell:
+        pairs = [(c, r) for c, r in zip(run.scored, run.rows, strict=False)
+                 if c.scenario.cell is cell]
+        unsent = sum(1 for _, r in pairs if r.outcome in model_candidate.UNSENT)
+        answered = sum(1 for c, r in pairs if r.outcome not in model_candidate.UNSENT
+                       and c.path is RoutePath.CANDIDATE)
+        fallback = len(pairs) - unsent - answered
+        counts.append(f"| {cell.value} | {answered} | {fallback} | {unsent} |")
+    return [*lines, *cell_table(scored.cells), "",
+            "| 評分格 | 實際作答 | 退回 | 沒呼叫 |", "|---|---|---|---|", *counts, "",
+            f"- 無關欄位擾動後答案改變的組數(模型):{scored.perturbation_changed}(只算有呼叫的情境)"]
 
 
 def with_model_rows(rows: tuple[ComparisonRow, ...], model: ModelSection) -> tuple[
