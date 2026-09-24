@@ -4,10 +4,12 @@
 測試要換掉時鐘或上限時,替換這個模組上的名字(其他模組一律在呼叫時用 `core.名字` 讀)。
 """
 
+import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
+from pathlib import Path
 from typing import ClassVar, Protocol
 
 from rtb.modelledger_view import Backend as Backend  # 封閉列舉住在唯讀開法,這裡轉手給呼叫端
@@ -61,10 +63,32 @@ LONGEST_REQUEST = timedelta(seconds=MAX_TIMEOUT_SECONDS) + timedelta(minutes=5) 
 MAX_OUTPUT_TOKENS = 32_000
 MAX_PROMPT_BYTES = 48 * 1024  # 系統提示加使用者內容
 COST_MISMATCH = (1, 5)  # 回報的估計與 token 數算的差超過較小者的兩成就標記
+# 荒謬值上限(代碼審第 1 輪):回報的 token 數或花費超過「一次請求的上限」或「每月上限」的千倍,
+# 就當讀不懂、夾到上限記帳並標超支(夾住之後乘價目表也不會超出 SQLite 整數範圍)
+ABSURD_TOKENS = 1000 * (MAX_PROMPT_BYTES + CLAUDE_FIXED_INPUT_TOKENS + MAX_OUTPUT_TOKENS)
+ABSURD_NANOUSD = 1000 * MONTH_CAP_NANOUSD
+# 開機以來的時鐘:macOS 的 CLOCK_MONOTONIC 與 Linux 的 CLOCK_BOOTTIME 都含睡眠時間、
+# 不受改系統時間影響
+_BOOT_CLOCK = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
+
 
 def utc_now() -> datetime:
     """系統時鐘(UTC)。花費帳的月份與價目表期限只看它([S926]);測試替換這一支。"""
     return datetime.now(UTC)
+
+
+def monotonic_now() -> float:
+    """開機以來的秒數(單調、含睡眠)。核銷時跟牆鐘互相核對;測試替換這一支。"""
+    return time.clock_gettime(_BOOT_CLOCK)
+
+
+def boot_identity() -> str:
+    """這次開機的識別:Linux 讀核心給的開機編號;其他系統用「牆鐘減開機以來秒數」推出開機時刻
+    (取到 10 秒,核銷時容許 60 秒誤差)。"""
+    try:
+        return "id:" + Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
+    except OSError:
+        return f"at:{round((time.time() - time.clock_gettime(_BOOT_CLOCK)) / 10) * 10}"
 
 
 class Mode(StrEnum):
@@ -79,6 +103,7 @@ class SettlementState(StrEnum):
     SETTLED = "settled"
     UNSETTLED = "unsettled"  # 結算寫不進去:照預留金額算進已用
     OVERRUN = "overrun"  # 入帳大於預留,或 Claude Code 回報超過單次花費上限([S934])
+    OVERRUN_UNSETTLED = "overrun_unsettled"  # 超支,而且結算寫不進去(兩個訊號都要留)
 
 
 @dataclass(frozen=True)
@@ -126,6 +151,7 @@ class ModelCallFailed(Exception):
         self.settlement: SettlementState | None = None
         self.list_nanousd = 0  # 這次(或錄製當時)記的原價;即時失敗照結算規則填
         self.latency_ms: float | None = None
+        self.shared = False  # 同一批已有同一個鍵的失敗錄製、直接讀它,沒有呼叫
 
 
 class ModelTimeout(ModelCallFailed, TimeoutError):
@@ -168,6 +194,18 @@ class TransientServiceError(ModelCallFailed):
     outcome = Outcome.TRANSIENT
 
 
+class RecordingWriteFailed(TransientServiceError):
+    """已經呼叫、也結算了,但錄製檔寫不進去(權限、磁碟滿…)。算暫時性、無法可靠分類(評估停下);
+    成功拿到的回應留在 `result`(呼叫本身失敗時是 None,原本的失敗在 `__cause__` 之外另存 `failure`)。
+    不是設定錯誤:設定錯誤保證「確定沒呼叫」,這裡已經呼叫了。"""
+
+    def __init__(self, message: str, result: ModelResult | None = None,
+                 failure: ModelCallFailed | None = None) -> None:
+        super().__init__(message, sub_reason="recording_write_failed", unclassified=True)
+        self.result = result
+        self.failure = failure
+
+
 class LedgerBusy(ModelCallFailed):
     """預留時花費帳忙碌:沒有呼叫、寫不進帳。結算時忙碌不丟這個(照常回文字、留未結算)。"""
 
@@ -202,6 +240,7 @@ class BackendReply:
     cache_write_1h_tokens: int
     cache_read_tokens: int
     reported_nanousd: int | None  # 後端自己回報的花費估計(沒有就是 None)
+    tokens_known: bool = True  # False:只讀得到回報的花費,token 數欄位不可信(記帳記空)
 
 
 class ModelBackend(Protocol):
@@ -214,6 +253,20 @@ class ModelBackend(Protocol):
 
 class UnknownModel(ValueError):
     """RTB_MODEL 指定的模型不在價目表裡。"""
+
+
+def clamp_reply(reply: BackendReply) -> tuple[BackendReply, bool]:
+    """荒謬值夾到上限;回(夾過的回應, 有沒有夾)。"""
+    counts = {name: getattr(reply, name) for name in (
+        "input_tokens", "output_tokens", "cache_write_5m_tokens", "cache_write_1h_tokens",
+        "cache_read_tokens")}
+    clamped = {name: min(value, ABSURD_TOKENS) for name, value in counts.items()}
+    reported = reply.reported_nanousd
+    if reported is not None:
+        clamped["reported_nanousd"] = min(reported, ABSURD_NANOUSD)
+    absurd = any(value > ABSURD_TOKENS for value in counts.values()) or (
+        reported is not None and reported > ABSURD_NANOUSD)
+    return (replace(reply, **clamped) if absurd else reply), absurd
 
 
 def price_table_stale() -> bool:

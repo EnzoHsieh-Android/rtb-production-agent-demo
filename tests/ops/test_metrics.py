@@ -776,3 +776,20 @@ def test_a_report_is_stable_only_when_every_reread_matches_the_first(rows, monke
     _scripted_end_to_end(monkeypatch, same, same, same)
     report = window(rows)
     assert (report.stable, report.rounds) == (True, m.MAX_ROUNDS)
+
+
+def test_a_broken_model_ledger_only_empties_the_model_metric(rows, tmp_path):
+    """花費帳還沒建表或讀取出錯:只有「模型與 Jev」變成無樣本並寫原因,其他指標照常
+    (代碼審第 1 輪)。"""
+    a_little_of_everything(rows)
+    half_built = tmp_path / "ledger.sqlite"
+    sqlite3.connect(half_built).close()  # 檔案在、表還沒建
+    not_a_db = tmp_path / "garbage.sqlite"
+    not_a_db.write_bytes(b"this is not a database at all" * 100)
+    for ledger in (half_built, not_a_db):
+        report = m.collect_window(W_START, W_END, executor_db=rows.executor_db,
+                                  analyzer_db=rows.analyzer_db, tenants=TENANTS,
+                                  model_ledger=ledger)
+        jev = one(report, "model_and_jev")
+        assert jev.status is m.Status.NO_SAMPLES and "花費帳" in jev.note, ledger
+        assert pick(report, "terminal_event_rate"), ledger

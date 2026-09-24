@@ -59,9 +59,10 @@ WRITE_WHITELIST: dict[str, frozenset[str]] = {
 SCANNED = (SRC / "executor" / "inbox_store.py", SRC / "executor" / "attempt_store.py",
            SRC / "analyzer" / "task_store.py", SRC / "executor" / "observability.py",
            SRC / "executor" / "capability_signer.py", SRC / "modelledger_view.py")
-# 掃描範圍:分析端、執行端兩個目錄,加上模型用戶端各模組與花費帳唯讀開法(Phase 11B 增量 1)
+# 掃描範圍:分析端、執行端兩個目錄,加上模型用戶端各模組與花費帳唯讀開法(Phase 11B 增量 1),
+# 以及實測命令列與核銷命令列(代碼審第 1 輪:維運檔不准直接跑即時實測、改寫啟用紀錄或核銷)
 MODEL_FILES = ("modelclient", "modelcore", "modelclaude", "modelrecording", "modelledger",
-               "modelledger_view")
+               "modelledger_view", "modelverify", "modelledger_writeoff")
 SCAN_FILES = tuple(SRC / f"{name}.py" for name in MODEL_FILES)
 _SCAN_MODULES = ("rtb.analyzer", "rtb.executor", *(f"rtb.{name}" for name in MODEL_FILES))
 
@@ -194,7 +195,8 @@ def test_the_ops_package_is_read_only_and_imported_by_nobody():
         assert result.returncode == 1 and "TID251" in result.stdout, (layer, result.stdout)
     config = OPS / "ruff.toml"  # 維運套件自己不准開資料庫連線、不准碰 DSP 內部
     for banned in ("import sqlite3", "from rtb.sqlitekit import connect", "import rtb.dsp.store",
-                   "import subprocess"):  # 子行程禁令:Phase 11B 增量 1([S917])
+                   "import subprocess",  # 子行程禁令:Phase 11B 增量 1([S917])
+                   "import rtb.modelverify", "import rtb.modelledger_writeoff"):
         result = subprocess.run(
             [sys.executable, "-m", "ruff", "check", "--config", str(config),
              "--stdin-filename", str(OPS / "probe.py"), "-"],
@@ -254,6 +256,10 @@ def test_the_ops_package_is_read_only_and_imported_by_nobody():
     "\nfrom . import hypothesis\n",
     "\nfrom .hypothesis import ask\n",
     "\nimport rtb.ops.hypothesis\n",
+    # 實測命令列與核銷命令列也在掃描範圍(代碼審第 1 輪:維運檔能直接跑即時實測、改寫啟用紀錄)
+    "\ndef _w(p):\n    return write_record(verify(p, {}))\n",
+    "\nfrom rtb.modelverify import verify as _v\n",
+    "\ndef _w(p):\n    return write_off(p, 1, 0, 'r', 'e')\n",
     # 花費帳的讀法只准指標用(白名單逐檔):追蹤檢視用了也要抓
     "\ndef _w(v):\n    return v.calls_between('a', 'b')\n",
     "\ndef _w(p):\n    return ModelLedgerView(p)\n",

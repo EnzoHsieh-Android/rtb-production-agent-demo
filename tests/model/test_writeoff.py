@@ -94,6 +94,12 @@ def test_a_write_off_is_appended_and_changes_the_used_amount(  # noqa: PLR0915 -
     assert ledger_db.used_so_far(ledger, "demo-1").demo_nanousd == (
         rows[2].settled_nanousd + reserved_3)
     clock[0] += core.LONGEST_REQUEST + timedelta(seconds=1)  # 超過最長請求期限
+    code, text = _write_off(3, amount="0.0001")  # 主行程(這個測試行程)還活著:仍不准
+    assert code == writeoff.EXIT_REFUSED and "還活著" in text
+    # 主行程已不在(模擬被殺)、開機以來秒數也過了期限:才准
+    monkeypatch.setattr(ledger_db, "_owner_alive", lambda _pid: False)
+    monkeypatch.setattr(core, "monotonic_now", lambda: rows[3].reserved_monotonic
+                        + core.LONGEST_REQUEST.total_seconds() + 1)
     code, _ = _write_off(3, amount="0.0001")
     assert code == writeoff.EXIT_OK
     assert ledger_db.used_so_far(ledger, "demo-1").demo_nanousd == rows[2].settled_nanousd + 100_000
@@ -124,6 +130,9 @@ def test_a_write_off_is_appended_and_changes_the_used_amount(  # noqa: PLR0915 -
     while 4 not in _rows(ledger) and time.monotonic() < deadline:
         time.sleep(0.01)
     clock[0] += core.LONGEST_REQUEST + timedelta(seconds=1)
+    # 模擬主行程已判定不在、開機以來秒數也過了期限(上面已換掉主行程存活判斷),才核銷得了
+    monkeypatch.setattr(core, "monotonic_now", lambda: _rows(ledger)[4].reserved_monotonic
+                        + core.LONGEST_REQUEST.total_seconds() + 1)
     code, _ = _write_off(4, amount="0")
     assert code == writeoff.EXIT_OK
     assert ledger_db.used_so_far(ledger, "demo-1").demo_nanousd == rows[2].settled_nanousd + 100_000

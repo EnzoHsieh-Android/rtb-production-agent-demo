@@ -9,6 +9,8 @@
 (遲到的回應)改算兩者中較高的(計劃〈花費帳與上限〉)。
 """
 
+import os
+import pwd
 import sqlite3
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -21,9 +23,16 @@ from rtb.sqlitekit import DatabaseNotUpgraded, connect_read_only, missing_schema
 LEDGER_RELATIVE = Path(".rtb") / "model-ledger.sqlite"
 
 
+def account_home() -> Path:
+    """帳號的家目錄:從帳號資料庫讀,不看環境變數 HOME(HOME 誰都改得動,帳跟啟用紀錄不能跟著搬;
+    代碼審第 1 輪)。測試由整套共用夾具換掉這一支(注入點)。"""
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+
 def ledger_path() -> Path:
-    """即時模式唯一的一本帳:使用者家目錄下的固定位置,不論從哪一份簽出、哪個工作目錄啟動([S925])。"""
-    return Path.home() / LEDGER_RELATIVE
+    """即時模式唯一的一本帳:帳號家目錄下的固定位置,不論從哪一份簽出、哪個工作目錄啟動、HOME 指到
+    哪裡([S925])。"""
+    return account_home() / LEDGER_RELATIVE
 
 
 class Caller(StrEnum):
@@ -63,7 +72,8 @@ class Backend(StrEnum):
 
 
 RESERVATION_COLUMNS = ("id", "reserved_at", "month", "demo_id", "batch_id", "caller", "model",
-                       "backend", "source", "reserved_nanousd", "timeout_seconds")
+                       "backend", "source", "reserved_nanousd", "timeout_seconds", "owner_pid",
+                       "owner_boot", "reserved_monotonic")
 SETTLEMENT_COLUMNS = ("reservation_id", "settled_at", "outcome", "sub_reason", "input_tokens",
                       "output_tokens", "cache_write_5m_tokens", "cache_write_1h_tokens",
                       "cache_read_tokens",
@@ -81,7 +91,8 @@ INDEXES = ("model_reservations_by_month", "model_reservations_by_demo")
 # 一筆預留連同它的結算與核銷;WHERE 由呼叫端接上(欄位固定,參數用佔位)
 CALLS_SELECT = (
     "SELECT r.id, r.reserved_at, r.month, r.demo_id, r.batch_id, r.caller, r.model, r.backend, "
-    "r.source, r.reserved_nanousd, r.timeout_seconds, s.settled_at, s.outcome, s.sub_reason, "
+    "r.source, r.reserved_nanousd, r.timeout_seconds, r.owner_pid, r.owner_boot, "
+    "r.reserved_monotonic, s.settled_at, s.outcome, s.sub_reason, "
     "s.input_tokens, s.output_tokens, s.cache_write_5m_tokens, s.cache_write_1h_tokens, "
     "s.cache_read_tokens, "
     "s.reported_nanousd, s.list_nanousd, s.settled_nanousd, s.by_reservation, s.overrun, "
@@ -106,6 +117,9 @@ class LedgerCall:
     source: str
     reserved_nanousd: int
     timeout_seconds: float
+    owner_pid: int  # 預留的主行程編號:它還活著就可能還在等回應,不准核銷
+    owner_boot: str  # 預留時的開機識別(見 modelcore.boot_identity)
+    reserved_monotonic: float  # 預留時的開機以來秒數:核銷時跟牆鐘互相核對
     settled_at: str | None
     outcome: str | None
     sub_reason: str | None
@@ -144,14 +158,21 @@ class LedgerCall:
 _BOOLEANS = ("by_reservation", "overrun", "cost_mismatch", "write_off_settled_before")
 
 
+class LedgerUnreadable(Exception):
+    """花費帳讀取出錯(不是資料庫、壞檔、SQLite 錯誤):讀的一方只把「模型與 Jev」當無樣本。"""
+
+
 class ModelLedgerView:
     """花費帳的唯讀開法:唯讀連線、不取寫入鎖、不建表;檔案不存在丟 FileNotFoundError,還沒建齊表丟
-    DatabaseNotUpgraded。"""
+    DatabaseNotUpgraded,其他 SQLite 錯誤丟 LedgerUnreadable(維運不准碰 sqlite3,例外從這裡拿)。"""
 
     def __init__(self, path: Path) -> None:
         self._conn = connect_read_only(Path(path))
         try:
             missing = missing_schema(self._conn, TABLES, INDEXES)
+        except sqlite3.DatabaseError as broken:
+            self._conn.close()
+            raise LedgerUnreadable(f"花費帳讀不了:{type(broken).__name__}") from broken
         except BaseException:
             self._conn.close()
             raise
@@ -166,9 +187,12 @@ class ModelLedgerView:
 
     def calls_between(self, start: str, end: str) -> tuple[LedgerCall, ...]:
         """預留時間在 [start, end) 的呼叫(ISO 字串比較;時間一律存成 UTC),依預留順序。"""
-        rows = self._conn.execute(
-            CALLS_SELECT + "WHERE r.reserved_at >= ? AND r.reserved_at < ? ORDER BY r.id",
-            (start, end)).fetchall()
+        try:
+            rows = self._conn.execute(
+                CALLS_SELECT + "WHERE r.reserved_at >= ? AND r.reserved_at < ? ORDER BY r.id",
+                (start, end)).fetchall()
+        except sqlite3.DatabaseError as broken:
+            raise LedgerUnreadable(f"花費帳讀不了:{type(broken).__name__}") from broken
         return tuple(LedgerCall.from_row(row) for row in rows)
 
     def close(self) -> None:

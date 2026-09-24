@@ -9,8 +9,10 @@ LLM 列(Phase 11B 增量 1):這支是三支模型入口之一,在入口讀模式
 在 PATH 上找得到 claude 三樣都有才即時,否則重播錄製;找到的 claude 絕對路徑往下傳)。
 跑合成集的固定子集;即時跑產生批次紀錄(RTB_MODEL_RECORD=1 時連錄製檔一起寫進錄製目錄),
 重播讀錄製目錄裡唯一的一份批次紀錄。模型列的成本、延遲、各種比率一律從批次紀錄算、標「歷史觀測」;
-合成集照 Phase 10 規定一律不採用。即時模式的花費帳寫死家目錄那一本,--ledger 只在錄製模式能用;
-預留時花費帳忙碌以專用結束代碼 9 結束。
+合成集照 Phase 10 規定一律不採用。模型的計分也走既有的計分與合成集報告,模型段另印逐格指標、錯誤
+子型與擾動改變的組數;有旗標(未跑完、錄製不全、批次不一致、情境清單不同、沒有批次紀錄)時比較表的
+LLM 列寫「沒量(原因:旗標)」。重播時批次紀錄的情境清單要跟這次子集一致。即時模式的花費帳寫死
+帳號家目錄那一本,--ledger 只在錄製模式能用;預留時花費帳忙碌以專用結束代碼 9 結束。
 
 命令列照專案的兩層形狀(`run` 回結束代碼、`main` 丟 SystemExit):`python -m rtb.eval.record`。評估套件
 不准匯入維運套件(兩邊互不依賴),所以比照執行端的命令列各自建解析器、同一種形狀。
@@ -42,6 +44,7 @@ from rtb.eval.adoption import (
 )
 from rtb.eval.generator import from_rows
 from rtb.eval.scoring import (
+    CellReport,
     ProductionReport,
     SyntheticReport,
     eval_set_sha256,
@@ -111,6 +114,18 @@ def _metric(metric_name: str, numerator: int, denominator: int, low: float | Non
     return f"{metric_name} {numerator}/{denominator}{bound}"
 
 
+def cell_table(cells: tuple[CellReport, ...]) -> list[str]:
+    """逐格結果表(現行規則與模型候選共用):筆數、指標、錯誤子型。"""
+    lines = ["| 評分格 | 筆數 | 指標(分子/分母) | 錯誤子型(標準答案 → 最後答案:筆數) |",
+             "|---|---|---|---|"]
+    for cell in cells:
+        metrics = ";".join(_metric(m.name, m.numerator, m.denominator, m.lower_bound)
+                           for m in cell.metrics)
+        errors = "、".join(f"{g.value} → {f.value}:{c}" for g, f, c in cell.errors) or "無"
+        lines.append(f"| {cell.cell.value} | {cell.n} | {metrics} | {errors} |")
+    return lines
+
+
 def render(report: SyntheticReport | ProductionReport, rows: tuple[ComparisonRow, ...],
            adoption: Adoption) -> str:
     kind = "正式環境抽樣集" if isinstance(report, ProductionReport) else "合成集"
@@ -127,14 +142,7 @@ def render(report: SyntheticReport | ProductionReport, rows: tuple[ComparisonRow
         lines.append(f"- 已驗證的格:{'、'.join(sorted(c.value for c in adoption.validated.cells))}")
     else:
         lines += ["", "## 不採用的理由", "", *[f"- {reason}" for reason in adoption.reasons]]
-    lines += ["", f"適用範圍:{SCOPE_LIMIT}", "", "## 逐格結果", "",
-              "| 評分格 | 筆數 | 指標(分子/分母) | 錯誤子型(標準答案 → 最後答案:筆數) |",
-              "|---|---|---|---|"]
-    for cell in report.cells:
-        metrics = ";".join(_metric(m.name, m.numerator, m.denominator, m.lower_bound)
-                           for m in cell.metrics)
-        errors = "、".join(f"{g.value} → {f.value}:{c}" for g, f, c in cell.errors) or "無"
-        lines.append(f"| {cell.cell.value} | {cell.n} | {metrics} | {errors} |")
+    lines += ["", f"適用範圍:{SCOPE_LIMIT}", "", "## 逐格結果", "", *cell_table(report.cells)]
     lines += ["", f"無關欄位擾動後答案改變的組數:{report.perturbation_changed}", "",
               "## 比較表", "",
               "| 做法 | 評分格 | 品質 | 每次成本(美元) | 延遲中位(微秒) | 延遲 p95(微秒) | "
@@ -169,8 +177,8 @@ class ModelSection:
     ledger_busy: bool
 
 
-def _replayed_batch(run: model_candidate.ModelRun, recordings: Path) -> tuple[
-        model_candidate.BatchRecord | None, list[str]]:
+def _replayed_batch(run: model_candidate.ModelRun, recordings: Path, scenario_ids: list[str]
+                    ) -> tuple[model_candidate.BatchRecord | None, list[str]]:
     flags = []
     found = sorted(model_candidate.batches_dir(recordings).glob("*.json"))
     if not found:
@@ -178,6 +186,9 @@ def _replayed_batch(run: model_candidate.ModelRun, recordings: Path) -> tuple[
     batch = model_candidate.load_batch(found[0])
     if len(found) > 1 or not run.recording_batches <= {batch.batch_id}:
         flags.append("批次不一致(錄製檔與批次紀錄的批次編號對不上,或不只一份批次紀錄)")
+    recorded = [r.scenario_id for r in batch.rows]
+    if recorded != scenario_ids[:len(recorded)]:  # 批次可能停在中途:要是這次子集的開頭一段
+        flags.append("批次紀錄的情境清單跟這次子集不同")
     if run.missing_recordings:
         flags.append(f"錄製不全({run.missing_recordings} 個情境沒有錄製)")
     return batch, flags
@@ -191,10 +202,10 @@ def _model_run(settings: mc.Settings, args: argparse.Namespace) -> tuple[
     batch_id = f"{datetime.now(UTC):%Y%m%d}-{uuid.uuid4().hex[:8]}" if live else None
     candidate = model_candidate.ModelCandidate(settings, recordings_dir=recordings, ledger=ledger,
                                                demo_id=args.demo_id, batch_id=batch_id)
-    run = model_candidate.run_subset(model_candidate.subset(from_rows(eval_set.ROWS)), candidate,
-                                     model_candidate.TIMEOUT_SECONDS)
+    chosen = model_candidate.subset(from_rows(eval_set.ROWS))
+    run = model_candidate.run_subset(chosen, candidate, model_candidate.TIMEOUT_SECONDS)
     if not live:
-        batch, flags = _replayed_batch(run, recordings)
+        batch, flags = _replayed_batch(run, recordings, [s.scenario_id for s in chosen])
     else:
         assert batch_id is not None  # noqa: S101 - 即時模式上面一定產生
         batch, flags = model_candidate.new_batch(batch_id, settings.model, run.rows), []
@@ -239,6 +250,9 @@ def model_section(settings: mc.Settings, args: argparse.Namespace) -> ModelSecti
                   "是使用者裁定;延遲中位 ≤ 3 秒是協調者補的)", ""]
         means = model_candidate.mean_costs(batch)
         lines += [_cell_line(cell, row, means) for cell, row in (rows or {}).items()]
+    scored = synthetic_report(run.scored, eval_set_sha256())  # 模型的計分走既有的計分與報告
+    lines += ["", "### 模型逐格結果", "", *cell_table(scored.cells), "",
+              f"- 無關欄位擾動後答案改變的組數(模型):{scored.perturbation_changed}"]
     lines += ["", *[f"- 旗標:{flag}" for flag in flags],
               "- 模型候選:不採用(合成集是有限的合約案例,照 Phase 10 規定一律不採用"
               + ("" if not flags else ";另有上面的旗標") + ")"]
@@ -246,12 +260,17 @@ def model_section(settings: mc.Settings, args: argparse.Namespace) -> ModelSecti
     return ModelSection(None if flags else rows, tuple(flags), tuple(lines), busy)
 
 
-def with_model_rows(rows: tuple[ComparisonRow, ...],
-                    model: Mapping[WorthCell, ComparisonRow] | None) -> tuple[ComparisonRow, ...]:
-    """比較表的 LLM 列換成模型候選實測(沒有就照舊寫沒量)。"""
-    if model is None:
+def with_model_rows(rows: tuple[ComparisonRow, ...], model: ModelSection) -> tuple[
+        ComparisonRow, ...]:
+    """比較表的 LLM 列換成模型候選實測;有旗標時寫「沒量(原因:旗標)」。"""
+    if model.rows is not None:
+        return tuple(model.rows[row.cell] if row.approach == "LLM" else row for row in rows)
+    if not model.flags:
         return rows
-    return tuple(model[row.cell] if row.approach == "LLM" else row for row in rows)
+    reason = "原因:" + "、".join(flag.split("(")[0] for flag in model.flags)
+    return tuple(ComparisonRow(approach="LLM", cell=row.cell,
+                               **{name: Measure.not_measured(reason) for name in MEASURE_NAMES})
+                 if row.approach == "LLM" else row for row in rows)
 
 
 def run(argv: list[str] | None = None, *, out: TextIO | None = None,
@@ -278,7 +297,7 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
     if model.ledger_busy:
         print("花費帳忙碌:寫不進帳,已停止呼叫模型", file=errors)
         return EXIT_LEDGER_BUSY
-    rows = with_model_rows(comparison_rows(latency, report), model.rows)
+    rows = with_model_rows(comparison_rows(latency, report), model)
     decided = (decide_adoption(report, None, OperationalLimits(None, None, None, None))
                if model.rows is None else
                decide_adoption(report, dict(model.rows), model_candidate.MODEL_LIMITS))

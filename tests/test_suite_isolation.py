@@ -42,3 +42,32 @@ def test_the_suite_can_never_reach_the_real_claude():
     live_env = {**os.environ, mc.LIVE_ENV: "1"}
     claude = shutil.which("claude", path=live_env["PATH"])
     assert mc.settings_from_env(live_env, "demo-1", claude).mode is mc.Mode.RECORDED
+
+
+def test_each_test_gets_its_own_temp_dir_and_empty_policy_sources(tmp_path):
+    """代碼審第 1 輪:系統共用暫存目錄與本機的管理政策來源都不該影響測試結果。"""
+    import tempfile
+
+    from rtb import modelclaude as cc
+
+    assert Path(tempfile.gettempdir()).is_relative_to(tmp_path.parent.parent)
+    for directory in cc.MANAGED_DIRS:
+        assert directory.is_relative_to(tmp_path.parent.parent) and not any(directory.iterdir())
+    assert all(p.is_relative_to(tmp_path.parent.parent) for p in cc.MDM_PLISTS)
+
+
+def test_subprocess_tests_inherit_the_isolated_environment():
+    """子行程測試自己給環境時,要從 os.environ 起頭再覆寫(否則家目錄會退回帳號的真家目錄)。"""
+    import ast
+
+    root = Path(__file__).resolve().parent
+    offenders = []
+    for path in sorted(root.rglob("test_*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg == "env" and isinstance(keyword.value, ast.Dict) and not any(
+                        key is None for key in keyword.value.keys):
+                    offenders.append(f"{path.relative_to(root)}:{node.lineno}")
+    assert offenders == []

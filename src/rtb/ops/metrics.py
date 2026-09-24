@@ -60,7 +60,14 @@ from rtb.executor.inbox_store import (
     LifecycleKind,
     ReadOnlyInbox,
 )
-from rtb.modelledger_view import Caller, ModelLedgerView, Outcome, Source, ledger_path
+from rtb.modelledger_view import (
+    Caller,
+    LedgerUnreadable,
+    ModelLedgerView,
+    Outcome,
+    Source,
+    ledger_path,
+)
 from rtb.ops.cli import EXIT_BAD_ARGUMENTS as EXIT_BAD_ARGUMENTS  # 參數錯(7,維運套件共用)
 from rtb.ops.cli import Parser, aware_time
 
@@ -84,6 +91,7 @@ MODEL_NOTE = ("模型呼叫次數(依預留時間歸窗),依呼叫者、結果�
               "結果類別記 unsettled;花費與延遲在花費帳")
 NO_LEDGER_NOTE = "無樣本:沒有指定模型花費帳"
 MISSING_LEDGER_NOTE = "無樣本:模型花費帳不存在(還沒有任何模型呼叫)"
+BROKEN_LEDGER_NOTE = "無樣本:模型花費帳還沒建齊表或讀取出錯(其他指標照常)"
 UNSETTLED = "unsettled"
 
 
@@ -805,15 +813,20 @@ def _model_samples(model_ledger: Path | None, since: datetime,
     ([S907])。"""
     if model_ledger is None:
         return [Sample("model_and_jev", (), None, 0, Status.NO_SAMPLES, note=NO_LEDGER_NOTE)]
+    broken = [Sample("model_and_jev", (), None, 0, Status.NO_SAMPLES, note=BROKEN_LEDGER_NOTE)]
     try:
         reader = ModelLedgerView(model_ledger)
     except FileNotFoundError:
         return [Sample("model_and_jev", (), None, 0, Status.NO_SAMPLES, note=MISSING_LEDGER_NOTE)]
+    except (DatabaseNotUpgraded, LedgerUnreadable):  # 只讓這一項變無樣本,不拖垮整份報告
+        return broken
     try:
         with reader.read_transaction():
             calls = reader.calls_between(
                 since.astimezone(UTC).isoformat(timespec="microseconds"),
                 until.astimezone(UTC).isoformat(timespec="microseconds"))
+    except LedgerUnreadable:
+        return broken
     finally:
         reader.close()
     counts: dict[tuple[Label, ...], int] = defaultdict(int)

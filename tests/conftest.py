@@ -14,19 +14,25 @@ from pathlib import Path
 
 import pytest
 
+from rtb import modelledger_view
+
 # 真的家目錄從帳號資料庫讀,不看 HOME(HOME 在測試裡會被換掉)
 REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
 REAL_LEDGER = REAL_HOME / ".rtb" / "model-ledger.sqlite"
+REAL_VERIFICATION = REAL_HOME / ".rtb" / "live-verification.json"
+ACCOUNT_HOME = modelledger_view.account_home  # 真的那一支(夾具換掉之前),給驗它本身的測試用
 MODEL_ENV = ("ANTHROPIC_API_KEY", "RTB_MODEL_LIVE", "RTB_MODEL_RECORD", "RTB_MODEL")
 # 整套測試的 PATH:只有每支測試的暫存目錄加系統基本路徑,真的 claude 不在上面([S935])
 SYSTEM_PATH = ("/usr/bin", "/bin", "/usr/sbin", "/sbin")
 
 
 def ledger_state(path: Path = REAL_LEDGER) -> tuple[object, ...]:
-    """真帳(含 WAL 與共享記憶體檔)的存在與否、大小、修改時間。"""
+    """真帳(含 WAL 與共享記憶體檔)與即時模式啟用紀錄的存在與否、大小、修改時間。"""
     state: list[object] = []
-    for suffix in ("", "-wal", "-shm"):
-        target = Path(f"{path}{suffix}")
+    targets = [Path(f"{path}{suffix}") for suffix in ("", "-wal", "-shm")]
+    if path == REAL_LEDGER:
+        targets.append(REAL_VERIFICATION)
+    for suffix, target in zip(("", "-wal", "-shm", "verification"), targets, strict=False):
         if target.exists():
             stat = target.stat()
             state.append((suffix, stat.st_size, stat.st_mtime_ns))
@@ -48,7 +54,8 @@ def pytest_configure(config: pytest.Config) -> None:
 def pytest_sessionfinish(session: pytest.Session) -> None:
     before = session.config.stash.get(_BEFORE, None)
     if before is not None and ledger_state() != before:
-        print(f"\n[S932] 整套測試改動了使用者家目錄的真花費帳:{REAL_LEDGER}")
+        print(f"\n[S932] 整套測試改動了帳號家目錄的真花費帳或即時模式啟用紀錄:{REAL_LEDGER}、"
+              f"{REAL_VERIFICATION}")
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
@@ -58,13 +65,25 @@ _BEFORE = pytest.StashKey[tuple[object, ...]]()
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """每支測試再給一個自己的假家目錄、再清一次模型開關([S932];PATH 在 pytest_configure 就換好了)。
+    花費帳與啟用紀錄跟著帳號家目錄走、不看 HOME,所以也換掉帳號家目錄的讀法(注入點)。另外每支測試
+    有自己的暫存目錄(系統共用暫存目錄裡的殘留不影響結果),管理政策來源指到空的暫存目錄(本機的
+    MDM 或管理設定不影響結果;代碼審第 1 輪)。
     用自己的替換器,不跟測試共用 `monkeypatch`:測試裡呼叫 `monkeypatch.undo()`(既有幾支測試會)不會把
     家目錄還原成真的。"""
+    from rtb import modelclaude, modelledger_view
+
     patch = pytest.MonkeyPatch()
     home = tmp_path_factory.mktemp("home")
     patch.setenv("HOME", str(home))
+    patch.setattr(modelledger_view, "account_home", lambda: home)
     for name in MODEL_ENV:
         patch.delenv(name, raising=False)
+    patch.setattr(tempfile, "tempdir", str(tmp_path_factory.mktemp("tmp")))
+    policy = tmp_path_factory.mktemp("managed")
+    (policy / "system").mkdir()
+    patch.setattr(modelclaude, "MANAGED_DIRS", (policy / "system",))
+    patch.setattr(modelclaude, "MDM_PLISTS", (policy / modelclaude.MDM_PLIST_NAME,))
+    patch.setattr(modelclaude, "MANAGED_PREFERENCES", policy / "preferences")
     try:
         yield home
     finally:

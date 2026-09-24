@@ -9,12 +9,14 @@ import json
 import logging
 import os
 import plistlib
+import pwd
 import shutil
 import signal
 import subprocess
 import tempfile
+import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
@@ -22,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from rtb import modelcore as core
+from rtb import modelledger_view as view
 from rtb.modelcore import (
     Backend,
     BackendCall,
@@ -47,13 +50,17 @@ LOGIN_CHECK_TIMEOUT_SECONDS = 10.0
 GROUP_EXIT_WAIT_SECONDS = 5.0
 VERSION_CHECK_TIMEOUT_SECONDS = 10.0
 # 管理政策來源(系統管理員層級,安全模式不保證會略過,[S941]):系統層目錄下的 managed-settings.json、
-# managed-settings.d 底下每一支、managed-mcp.json,macOS 的 MDM 設定,加上家目錄的
-# remote-settings.json(呼叫時才用 HOME 算)。任一來源含這些鍵就拒絕即時。常數可在測試裡換成暫存目錄。
+# managed-settings.d 底下每一支、managed-mcp.json,macOS 的 MDM 設定(系統層與個人層
+# `<MANAGED_PREFERENCES>/<帳號>/`),加上家目錄的 remote-settings.json(呼叫時才用 HOME 算)。
+# 任一來源含這些鍵就拒絕即時。常數可在測試裡換成暫存目錄。來源清單與鍵名以 2.1.281 為準,每升一版
+# claude 要重查一次(計劃〈風險〉)。
 MANAGED_DIRS: tuple[Path, ...] = (Path("/Library/Application Support/ClaudeCode"),
                                   Path("/etc/claude-code"))
-MDM_PLISTS: tuple[Path, ...] = (
-    Path("/Library/Managed Preferences/com.anthropic.claudecode.plist"),)
-POLICY_KEYS = ("hooks", "mcpServers", "env", "apiKeyHelper")
+MDM_PLIST_NAME = "com.anthropic.claudecode.plist"
+MDM_PLISTS: tuple[Path, ...] = (Path("/Library/Managed Preferences") / MDM_PLIST_NAME,)
+MANAGED_PREFERENCES = Path("/Library/Managed Preferences")  # 個人層:底下的 <帳號>/ 目錄
+# policyHelper / policyHelpers:啟動時跑一支程式動態算管理設定,內容事先看不到,出現就拒絕
+POLICY_KEYS = ("hooks", "mcpServers", "env", "apiKeyHelper", "policyHelper", "policyHelpers")
 
 
 class Isolation(StrEnum):
@@ -66,7 +73,7 @@ class Isolation(StrEnum):
 # 即時模式啟用紀錄必須通過的項目(計劃第 8 版〈模型用戶端〉;實測命令列逐項跑,全過才寫紀錄)
 REQUIRED_CHECKS = ("login_ok", "tools_disabled", "tool_detection_contrast", "no_hook_events",
                    "no_memory_or_claude_md", "output_limit_enforced",
-                   "setting_sources_suppress_user_settings")
+                   "setting_sources_suppress_user_settings", "fixed_input_within_reserve")
 
 
 @dataclass(frozen=True)
@@ -116,7 +123,8 @@ def managed_policy_problem() -> str | None:
         hit = _policy_hits(path, data)
         if hit is not None:
             return hit
-    for path in MDM_PLISTS:
+    user = pwd.getpwuid(os.getuid()).pw_name
+    for path in (*MDM_PLISTS, MANAGED_PREFERENCES / user / MDM_PLIST_NAME):
         if not path.is_file():
             continue
         try:
@@ -131,8 +139,8 @@ def managed_policy_problem() -> str | None:
 
 
 def verification_path() -> Path:
-    """即時模式啟用紀錄(呼叫時才用 HOME 算,不做成模組層常數)。"""
-    return Path.home() / ".rtb" / "live-verification.json"
+    """即時模式啟用紀錄:帳號家目錄下(呼叫時才算,不看環境變數 HOME,跟花費帳一樣)。"""
+    return view.account_home() / ".rtb" / "live-verification.json"
 
 
 def memory_paths() -> list[Path]:
@@ -232,20 +240,59 @@ def _exited_unreaped(pid: int, deadline: float) -> bool:
         time.sleep(0.01)
 
 
+def _empty_group(pid: int) -> None:
+    """殺整組 → 有上限地確認群組裡沒有活著的行程(主行程還沒領回,群組編號不會被重用)。"""
+    _kill_group(pid)
+    _exited_unreaped(pid, time.monotonic() + GROUP_EXIT_WAIT_SECONDS)
+    limit = time.monotonic() + GROUP_EXIT_WAIT_SECONDS
+    while _has_live_members(pid):
+        if time.monotonic() > limit:
+            log.error("claude 行程群組在 %s 秒內沒有全部結束", GROUP_EXIT_WAIT_SECONDS)
+            break
+        _kill_group(pid)
+        time.sleep(0.02)
+
+
 def _finish(process: subprocess.Popen[bytes], deadline: float) -> tuple[int, bool]:
     """清理順序([S939]):先只等不領回確認主行程結束(逾時就不等了)→ 殺整組 → 有上限地確認群組裡沒有
     活著的行程 → 最後才領回主行程。回(結束代碼, 是否逾時)。"""
     timed_out = not _exited_unreaped(process.pid, deadline)
-    _kill_group(process.pid)
-    _exited_unreaped(process.pid, time.monotonic() + GROUP_EXIT_WAIT_SECONDS)
-    limit = time.monotonic() + GROUP_EXIT_WAIT_SECONDS
-    while _has_live_members(process.pid):
-        if time.monotonic() > limit:
-            log.error("claude 行程群組在 %s 秒內沒有全部結束", GROUP_EXIT_WAIT_SECONDS)
-            break
-        _kill_group(process.pid)
-        time.sleep(0.02)
+    _empty_group(process.pid)
     return process.wait(), timed_out
+
+
+def _abandon(process: subprocess.Popen[bytes]) -> None:
+    """等待途中被打斷(Ctrl-C、SIGTERM、任何例外):照同樣的順序殺整組、確認空了、領回主行程。
+    清理期間暫時擋住 SIGINT 與 SIGTERM(清完才送達),免得第二次中斷讓整組漏殺。"""
+    blocked = {signal.SIGINT, signal.SIGTERM}
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
+    try:
+        if process.returncode is None:  # 已經領回的不再碰(行程編號可能被重用)
+            _empty_group(process.pid)
+            process.wait()
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
+class CallTerminated(BaseException):
+    """呼叫途中收到 SIGTERM:轉成這個例外,走跟 Ctrl-C 同一條清理路徑,再往外丟。"""
+
+
+@contextlib.contextmanager
+def _sigterm_as_exception() -> Iterator[None]:
+    """呼叫期間(只在主執行緒能裝處理器)把 SIGTERM 轉成 `CallTerminated`,結束後還原。"""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def _raise(signum: int, _frame: object) -> None:
+        raise CallTerminated(f"呼叫途中收到訊號 {signum}")
+
+    previous = signal.signal(signal.SIGTERM, _raise)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout_seconds: float,
@@ -253,8 +300,9 @@ def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout
                home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
     """在新的工作階段(新行程群組)跑一次 claude:工作目錄是新建的空暫存目錄,標準輸入、輸出與錯誤
     都是暫存檔(不用管線:孫行程繼承管線會把成功的呼叫拖到逾時);isolated_home 時子行程的 HOME 指向
-    另一個新建的空暫存目錄。起不來、成功、非 0 結束、逾時四條路徑都照 `_finish` 的順序清理,最後一定
-    刪掉暫存目錄([S939])。起不來丟設定錯誤,逾時丟逾時;回(結束代碼, 標準輸出, 標準錯誤)。"""
+    另一個新建的空暫存目錄。起不來、成功、非 0 結束、逾時、等待途中被打斷(Ctrl-C、SIGTERM 轉成的
+    例外、任何例外)五條路徑都照 `_finish` 的順序清理,最後一定刪掉暫存目錄([S939])。起不來丟設定錯誤,
+    逾時丟逾時,被打斷清完照原樣往外丟;回(結束代碼, 標準輸出, 標準錯誤)。"""
     base = Path(tempfile.mkdtemp(prefix="rtb-claude-"))
     workdir, files = base / "work", base / "io"
     workdir.mkdir()
@@ -270,7 +318,7 @@ def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout
     try:
         (files / "stdin").write_text(stdin_text, encoding="utf-8")
         with ((files / "stdin").open("rb") as stdin, (files / "stdout").open("wb") as stdout,
-              (files / "stderr").open("wb") as stderr):
+              (files / "stderr").open("wb") as stderr, _sigterm_as_exception()):
             try:
                 process = subprocess.Popen(  # noqa: S603 - 參數固定、不經 shell
                     args, stdin=stdin, stdout=stdout, stderr=stderr, cwd=workdir,
@@ -278,7 +326,11 @@ def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout
             except OSError as failed:  # 找不到、不能執行、起不來
                 raise ConfigError(f"claude 起不來({type(failed).__name__})",
                                   sub_reason="cannot_start") from failed
-            returncode, timed_out = _finish(process, time.monotonic() + timeout_seconds)
+            try:
+                returncode, timed_out = _finish(process, time.monotonic() + timeout_seconds)
+            except BaseException:
+                _abandon(process)
+                raise
         if timed_out:
             raise ModelTimeout("模型呼叫逾時,已殺掉整個行程群組")
         return returncode, (files / "stdout").read_bytes(), (files / "stderr").read_bytes()
@@ -286,49 +338,61 @@ def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout
         shutil.rmtree(base, ignore_errors=True)
 
 
-def _usage_of(data: Mapping[str, Any], text: str) -> BackendReply | None:
-    """讀得出用量就組成回應(失敗的回應也讀,結算時取較高者);讀不出回 None。
-    5 分鐘與 1 小時快取寫入沒有分開回報時,整個算 1 小時(較貴,寧多不少)。"""
-    usage = data.get("usage")
-    if not isinstance(usage, dict):
-        return None
+def _tokens_of(usage: Mapping[str, Any]) -> tuple[int, int, int, int, int] | None:
+    """用量欄位 →(輸入, 輸出, 5 分鐘快取寫入, 1 小時快取寫入, 快取讀取);任一欄讀不懂回 None。
+    5 分鐘與 1 小時快取寫入沒有分開回報時整個算 1 小時(較貴,寧多不少);分開的數字加總小於總數時,
+    差額也算 1 小時。"""
     counts = [_count(usage.get(name)) for name in ("input_tokens", "output_tokens")]
     cache_read = _count(usage.get("cache_read_input_tokens", 0))
+    total = _count(usage.get("cache_creation_input_tokens", 0))
     split = usage.get("cache_creation")
     if isinstance(split, dict):
-        writes = [_count(split.get("ephemeral_5m_input_tokens", 0)),
-                  _count(split.get("ephemeral_1h_input_tokens", 0))]
+        five, hour = (_count(split.get("ephemeral_5m_input_tokens", 0)),
+                      _count(split.get("ephemeral_1h_input_tokens", 0)))
+        if five is not None and hour is not None and total is not None:
+            hour += max(0, total - five - hour)
     else:
-        writes = [0, _count(usage.get("cache_creation_input_tokens", 0))]
-    values = [*counts, *writes, cache_read]
+        five, hour = 0, total
+    values = [*counts, five, hour, cache_read]
     if any(value is None for value in values):
         return None
-    numbers = [value or 0 for value in values]
-    return BackendReply(text, numbers[0], numbers[1], numbers[2], numbers[3], numbers[4],
-                        _nanousd_of(data.get("total_cost_usd")))
+    first, second, third, fourth, fifth = (value or 0 for value in values)
+    return first, second, third, fourth, fifth
+
+
+def _usage_of(data: Mapping[str, Any], text: str) -> BackendReply | None:
+    """讀得出用量或回報的花費就組成回應(失敗的回應也讀,結算時取較高者);兩者都讀不出回 None。
+    回報的花費跟 token 數分開讀:用量缺欄時 token 數記空(`tokens_known` 為否),回報的花費照樣參與
+    取較高者。"""
+    reported = _nanousd_of(data.get("total_cost_usd"))
+    usage = data.get("usage")
+    tokens = _tokens_of(usage) if isinstance(usage, dict) else None
+    if tokens is None:
+        if reported is None:
+            return None
+        return BackendReply(text, 0, 0, 0, 0, 0, reported, tokens_known=False)
+    return BackendReply(text, *tokens, reported)
 
 
 _HEAD = {"type": str, "subtype": str, "is_error": bool}
 
 
-def _stderr_head(stderr: bytes) -> str:
-    lines = stderr.decode("utf-8", errors="replace").strip().splitlines()[:3]
-    return ("stderr: " + " | ".join(lines))[:200] if lines else "stderr: (空)"
-
-
 def _parse_output(returncode: int, stdout: bytes, stderr: bytes) -> dict[str, Any]:
     """第 2 步:標準輸出讀成 JSON 物件,而且至少有類型、子類型、是否錯誤三欄。讀不成時:結束代碼
-    非 0 歸暫時性服務錯誤、無法可靠分類(例如參數改名、在解析參數就退出),標準錯誤前幾行進子原因;
-    結束代碼 0 才是讀不懂。"""
+    非 0 歸暫時性服務錯誤、無法可靠分類(例如參數改名、在解析參數就退出);結束代碼 0 才是讀不懂。
+    標準錯誤可能有本機路徑或帳號:只寫本機日誌,不進子原因、花費帳與錄製檔。"""
     try:
         data = json.loads(stdout.decode("utf-8"))
     except ValueError:
         data = None
     if not isinstance(data, dict) or any(not isinstance(data.get(name), kind)
                                          for name, kind in _HEAD.items()):
+        if stderr.strip():
+            log.warning("claude 的標準錯誤(只留本機日誌):%s",
+                        stderr.decode("utf-8", errors="replace").strip()[:2000])
         if returncode != 0:
             raise TransientServiceError(f"claude 結束代碼 {returncode},輸出讀不成 JSON",
-                                        sub_reason=_stderr_head(stderr), unclassified=True)
+                                        sub_reason="unparseable_exit", unclassified=True)
         raise UnreadableModelResponse("claude 的輸出讀不成含類型、子類型、是否錯誤的 JSON")
     return data
 
@@ -362,16 +426,24 @@ def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
 def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"") -> BackendReply:
     """回應判定五步(前一步不過就不看後面,[S904]):①起不起得來(在 `run_claude`)②讀成 JSON、有類型、
     子類型、是否錯誤三欄 ③是錯誤就先分子類型(再看有沒有工具使用痕跡)④不是錯誤才做工具使用偵測
-    (對話輪數 1、權限被拒清單空,[S936])與欄位齊全 ⑤結束代碼非 0 → 暫時性、無法可靠分類。"""
+    (對話輪數 1、權限被拒清單空,[S936];不過就標工具使用)、子類型要是 success、欄位齊全
+    ⑤結束代碼非 0 → 暫時性、無法可靠分類。"""
     data = _parse_output(returncode, stdout, stderr)
     if data["is_error"]:
         raise _reported_error(data)
-    turns, denials = data.get("num_turns"), data.get("permission_denials")
-    if isinstance(turns, bool) or turns != 1 or denials != []:
-        raise UnreadableModelResponse("回應有工具使用的痕跡", sub_reason="tool_use")
     result = data.get("result")
     reply = _usage_of(data, result if isinstance(result, str) else "")
-    if not isinstance(result, str) or reply is None:
+    turns, denials = data.get("num_turns"), data.get("permission_denials")
+    if isinstance(turns, bool) or turns != 1 or denials != []:
+        failure = UnreadableModelResponse("回應有工具使用的痕跡", sub_reason="tool_use",
+                                          reply=reply)
+        failure.tool_use = True
+        log.error("claude 成功形狀的回應帶著工具使用的痕跡:評估應整批停下")
+        raise failure
+    if data["subtype"] != "success":
+        raise UnreadableModelResponse("不是錯誤的回應,子類型卻不是 success",
+                                      sub_reason="not_success", reply=reply)
+    if not isinstance(result, str) or reply is None or not reply.tokens_known:
         raise UnreadableModelResponse("成功的回應缺結果文字或用量", reply=reply)
     if returncode != 0:
         raise TransientServiceError(f"claude 結束代碼 {returncode}", sub_reason="exit_code",
@@ -407,13 +479,18 @@ class ClaudeCodeBackend:
                 "--setting-sources", SETTING_SOURCES, "--settings", EMPTY_SETTINGS,
                 "--no-session-persistence", "--max-budget-usd", _usd_text(call.budget_nanousd)]
 
-    def check_login(self) -> None:
+    def check_login(self, timeout_seconds: float = LOGIN_CHECK_TIMEOUT_SECONDS) -> None:
+        """登入狀態檢查。期限是 10 秒與這次呼叫剩下時間的較小者;被呼叫的期限卡住時丟逾時(算這次呼叫
+        逾時),自己的 10 秒用完才是設定錯誤。"""
         args = [str(self._executable), "auth", "status", "--json"]
+        budget = min(LOGIN_CHECK_TIMEOUT_SECONDS, timeout_seconds)
         try:
-            code, stdout, _ = run_claude(args, "", self.child_env(1), LOGIN_CHECK_TIMEOUT_SECONDS,
+            code, stdout, _ = run_claude(args, "", self.child_env(1), budget,
                                          isolated_home=self.isolation is Isolation.EMPTY_HOME)
             status = json.loads(stdout.decode("utf-8"))
         except ModelTimeout as slow:
+            if budget < LOGIN_CHECK_TIMEOUT_SECONDS:
+                raise ModelTimeout("登入狀態檢查用完了這次呼叫的期限") from slow
             raise ConfigError("claude 登入狀態檢查逾時", sub_reason="not_logged_in") from slow
         except ValueError as bad:
             raise ConfigError("claude 登入狀態讀不懂", sub_reason="not_logged_in") from bad
@@ -421,10 +498,15 @@ class ClaudeCodeBackend:
             raise ConfigError("claude 沒登入", sub_reason="not_logged_in")
 
     def send(self, call: BackendCall) -> BackendReply:
+        """登入檢查(第一次)花掉的時間從這次呼叫的總期限扣掉。"""
+        deadline = time.monotonic() + call.timeout_seconds
         if not self._logged_in:
-            self.check_login()
+            self.check_login(call.timeout_seconds)
             self._logged_in = True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ModelTimeout("登入狀態檢查用完了這次呼叫的期限,沒有呼叫模型")
         code, stdout, stderr = run_claude(
             self.command(call), call.user, self.child_env(call.max_output_tokens),
-            call.timeout_seconds, isolated_home=self.isolation is Isolation.EMPTY_HOME)
+            remaining, isolated_home=self.isolation is Isolation.EMPTY_HOME)
         return judge_output(code, stdout, stderr)

@@ -22,6 +22,7 @@ from rtb import modelclaude as cc
 from rtb import modelclient as mc
 from rtb import modelcore as core
 from rtb import modelledger as ledger_db
+from rtb import modelrecording as rec_module
 from rtb.analyzer import policy
 from rtb.domain.worth import CampaignStatus, WorthCell, WorthInput, WorthInputInvalid, WorthVerdict
 from rtb.eval import adoption, eval_set, generator, model_candidate, record
@@ -365,13 +366,14 @@ def test_an_overrun_is_booked_and_stops_the_evaluation(tmp_path, caplog, monkeyp
             listed = 100 * 2_000 + 5_000 * 10_000
             assert row.effective_nanousd == -(-listed * 6 // 5) > row.reserved_nanousd, name
     assert sum("超支" in r.getMessage() for r in caplog.records) == 3
-    # 結算時花費帳忙碌:照常回文字、留未結算;手上的實際花費已超過預留就標超支
+    # 結算時花費帳忙碌:照常回文字、留未結算;手上的實際花費已超過預留就標「超支又未結算」
+    # (代碼審第 1 輪:兩個訊號都留)
     monkeypatch.setattr(ledger_db, "settle", _busy_settle)
     (tmp_path / "busy").mkdir()
     result = mc.call_model(
         mc.ModelRequest(mc.Caller.EVAL_CANDIDATE, "s", "u", 32, 5.0, demo_id="d"),
         live(FakeBackend(huge)), recordings_dir=tmp_path / "busy", ledger=tmp_path / "busy.db")
-    assert result.text and result.settlement is mc.SettlementState.OVERRUN
+    assert result.text and result.settlement is mc.SettlementState.OVERRUN_UNSETTLED
     [row] = booked(tmp_path / "busy.db")
     assert row.outcome is None and row.effective_nanousd == row.reserved_nanousd  # 未結算
 
@@ -420,3 +422,114 @@ def test_identical_inputs_share_one_live_call(tmp_path):
     assert len(shared) == 210 - len(distinct)
     assert all(not r.sent for r in shared)
     assert "共用前一列" in batch_file.read_text(encoding="utf-8")
+
+
+# ---- 代碼審第 1 輪補強(評估) ----
+def test_identical_inputs_share_one_call_without_recording(tmp_path):
+    """[S933] 的去重跟錄製開關無關:沒開錄製時,七欄相同的情境同一批也只呼叫一次。"""
+    backend = FakeBackend(reply('{"verdict": "not_worth"}'))
+    candidate = _candidate(tmp_path, live(backend), batch_id="b1")
+    scenarios = _subset()
+    run = model_candidate.run_subset(scenarios, candidate, 5.0)
+    distinct = {model_candidate.prompt_for(s.worth_input) for s in scenarios}
+    assert len(backend.calls) == len(distinct) < len(scenarios)
+    shared = [r for r in run.rows if r.shared]
+    assert len(shared) == len(scenarios) - len(distinct) and not any(r.sent for r in shared)
+
+
+def test_a_shared_failure_is_not_counted_as_sent(tmp_path):
+    """同一批同鍵、第一次失敗(逾時):之後共用的那幾列標共用、不算送出,成本延遲只算一次。"""
+    backend = FakeBackend(mc.ModelTimeout("slow"))
+    candidate = _candidate(tmp_path, live(backend, record=True), batch_id="b1")
+    scenarios = _subset()
+    prompts = [model_candidate.prompt_for(s.worth_input) for s in scenarios]
+    twins = [s for s in scenarios if prompts.count(model_candidate.prompt_for(s.worth_input)) > 1]
+    run = model_candidate.run_subset(twins[:2], candidate, 5.0)
+    assert len(backend.calls) == 1
+    assert [(r.outcome, r.sent, r.shared) for r in run.rows] == [
+        ("timeout", True, False), ("timeout", False, True)]
+
+
+def test_success_shaped_tool_use_stops_the_evaluation(tmp_path):
+    script = fake_claude(tmp_path / "bin", claude_json('{"verdict": "worth"}', num_turns=3))
+    candidate = _candidate(tmp_path, live(cc.ClaudeCodeBackend(script)))
+    run = model_candidate.run_subset(_subset()[:4], candidate, 5.0)
+    assert run.stopped == "tool_use" and len(run.rows) == 1
+    assert len(invocations(script)) == 1
+
+
+def test_a_non_model_error_gets_its_own_row_and_stops(tmp_path, monkeypatch):
+    """模型用戶端以外的例外(這裡是寫錄製檔失敗)也要替這個情境補一列並停下,不能讀到上一列。"""
+    real = mc_recording_save = rec_module.save_recording
+    count = []
+
+    def flaky(path, recording):
+        count.append(1)
+        if len(count) >= 2:
+            raise PermissionError("寫不進去")
+        return real(path, recording)
+
+    monkeypatch.setattr(rec_module, "save_recording", flaky)
+    backend = FakeBackend(reply('{"verdict": "worth"}'))
+    scenarios = [s for s in _subset() if s.variant == "base"][:3]
+    candidate = _candidate(tmp_path, live(backend, record=True), batch_id="b1")
+    run = model_candidate.run_subset(scenarios, candidate, 5.0)
+    assert mc_recording_save is real
+    assert [r.scenario_id for r in run.rows] == [s.scenario_id for s in scenarios[:2]]
+    assert run.rows[1].outcome == "transient" and run.stopped == "unclassified"
+    assert len(candidate.attempts) == 2
+
+
+def test_the_model_section_reports_its_own_scores(tmp_path):
+    """模型的計分送進既有計分與合成集報告:模型段另印逐格指標、錯誤子型與擾動改變的組數。"""
+    fake_claude(tmp_path / "bin", claude_json('{"verdict": "not_worth"}'))
+    code, text, err = _record(["--demo-id", "demo-1", "--recordings-dir", str(tmp_path / "r")],
+                              _live_env(tmp_path / "bin"))
+    assert code == record.EXIT_OK, err
+    section = text[text.index("## 模型候選"):]
+    assert "### 模型逐格結果" in section
+    assert "無關欄位擾動後答案改變的組數(模型)" in section
+    for cell in WorthCell:
+        assert f"| {cell.value} | 42 |" in section, cell
+
+
+def test_flags_show_up_in_the_llm_row_and_the_scenarios_must_match(tmp_path):
+    fake_claude(tmp_path / "bin", logged_in=False)
+    code, text, _ = _record(["--demo-id", "demo-1", "--recordings-dir", str(tmp_path / "r")],
+                            _live_env(tmp_path / "bin"))
+    assert code == record.EXIT_OK
+    llm = [line for line in text.splitlines() if line.startswith("| LLM |")]
+    assert llm and all("未跑完" in line and "未導入" not in line for line in llm)
+    # 重播:批次紀錄的情境清單跟這次子集不同 → 標不一致
+    recordings = tmp_path / "r2"
+    fake_claude(tmp_path / "bin2")
+    _record(["--demo-id", "demo-2", "--recordings-dir", str(recordings)],
+            _live_env(tmp_path / "bin2", record_too=True))
+    [batch_file] = (recordings / "batches").glob("*.json")
+    data = json.loads(batch_file.read_text(encoding="utf-8"))
+    data["rows"][0]["scenario_id"] = "not-in-this-subset"
+    batch_file.write_text(json.dumps(data), encoding="utf-8")
+    _, text, _ = _record(["--recordings-dir", str(recordings)], {})
+    assert "批次紀錄的情境清單跟這次子集不同" in text and "模型候選:不採用" in text
+
+
+def test_an_unexpected_error_always_leaves_a_row(tmp_path, monkeypatch):
+    """模型用戶端以外的例外(不是九類之一)候選自己補一列;候選沒補時跑子集那層再補,都停在那個情境。"""
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("意外")
+
+    monkeypatch.setattr(mc, "call_model", broken)
+    candidate = _candidate(tmp_path, live(FakeBackend()), batch_id="b1")
+    with pytest.raises(RuntimeError):
+        candidate(_worth_input(), 5.0)
+    assert candidate.attempts[-1].sub_reason == model_candidate.UNEXPECTED
+    assert candidate.attempts[-1].unclassified
+
+    class Silent(model_candidate.ModelCandidate):
+        def __call__(self, worth_input, timeout_seconds):
+            raise RuntimeError("沒留下任何一列")
+
+    silent = Silent(live(FakeBackend()), recordings_dir=tmp_path, ledger=tmp_path / "l.sqlite",
+                    demo_id="demo-1", batch_id="b1")
+    run = model_candidate.run_subset(_subset()[:3], silent, 5.0)
+    assert len(run.rows) == 1 and run.stopped == model_candidate.UNCLASSIFIED

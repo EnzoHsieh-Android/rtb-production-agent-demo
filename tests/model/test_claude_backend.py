@@ -85,7 +85,8 @@ CASES = {  # 名稱: (假 claude 的設定, 例外類別, 結果類別, 照預�
     "timeout": ({"sleep": 5}, mc.ModelTimeout, "timeout", True),
 }
 UNCLASSIFIED = {"unrecognised", "nonzero_exit", "not_json_nonzero"}
-TOOL_USE = {"error_with_tool_turns"}  # 錯誤回應分完子類型,帶工具使用痕跡另加標記
+# 錯誤回應分完子類型、帶工具使用痕跡另加標記;成功形狀帶痕跡也標(代碼審第 1 輪)
+TOOL_USE = {"error_with_tool_turns", "tool_turns"}
 
 
 def _script(tmp_path, name, options):
@@ -111,7 +112,8 @@ def test_failed_calls_are_settled_by_their_kind(  # noqa: PLR0915 - 五步判定
         assert row.outcome == outcome, name
         assert row.effective_nanousd == (reserved if charged else 0), name
         assert failed.value.settlement is mc.SettlementState.SETTLED, name
-    assert "stderr" in _rows(tmp_path / "not_json_nonzero.sqlite")[0].sub_reason
+    # 標準錯誤只留本機日誌,子原因是固定的字(代碼審第 1 輪)
+    assert _rows(tmp_path / "not_json_nonzero.sqlite")[0].sub_reason == "unparseable_exit"
     # 沒登入:呼叫前的本地檢查就擋下,模型那一條指令根本沒跑
     assert invocations(tmp_path / "not_logged_in" / "claude") == []
     # 沒有真實樣本時(KNOWN_ERRORS 是空的),額度用完這類也認不出:暫時性、無法可靠分類
@@ -155,6 +157,12 @@ def _busy(*_args, **_kwargs):
 
 # ---- [S905] ----
 def test_the_claude_subprocess_gets_only_whitelisted_environment(tmp_path, monkeypatch):
+    # 白名單本身釘死五個鍵(代碼審第 1 輪:只看父行程裡剛好有的變數,白名單放寬看不出來)
+    assert (*cc.CHILD_ENV, cc.OUTPUT_LIMIT_ENV) == (
+        "PATH", "HOME", "USER", "LANG", "CLAUDE_CODE_MAX_OUTPUT_TOKENS")
+    for decoy in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                  "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_OAUTH_TOKEN", "HTTPS_PROXY"):
+        monkeypatch.setenv(decoy, "secret-decoy-" + decoy)
     monkeypatch.setenv("RTB_DSP_AUDIT_KEY", "secret-audit-token-0123456789")
     monkeypatch.setenv("RTB_CAPABILITY_KEY", "secret-signing-key-0123456789")
     monkeypatch.setenv("LANG", "zh_TW.UTF-8")

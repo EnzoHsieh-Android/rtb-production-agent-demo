@@ -98,7 +98,8 @@ def write_verification(version=FAKE_VERSION, isolation="empty_home", **checks):
 
 def fake_claude(  # noqa: PLR0913 - 假指令的每種行為
         directory: Path, output: object = None, *, code: int = 0, logged_in: bool = True,
-                sleep: float = 0, grandchild: bool = False, executable: bool = True) -> Path:
+        sleep: float = 0, grandchild: bool = False, executable: bool = True,
+        auth_sleep: float = 0, stderr: str = "") -> Path:
     """在 directory 建一支假的 claude 並回傳它的絕對路徑。output 是 dict(印成 JSON)或字串(原樣印)。
     每次被呼叫(登入狀態檢查以外)都在 `<腳本>.log/` 底下記一組 args、env、cwd、stdin 檔。"""
     directory.mkdir(parents=True, exist_ok=True)
@@ -112,7 +113,7 @@ def fake_claude(  # noqa: PLR0913 - 假指令的每種行為
     q = shlex.quote
     lines = [
         "#!/bin/sh",
-        f'if [ "$1" = "auth" ]; then /bin/echo {q(auth)}; exit 0; fi',
+        f'if [ "$1" = "auth" ]; then /bin/sleep {auth_sleep}; /bin/echo {q(auth)}; exit 0; fi',
         f'if [ "$1" = "--version" ]; then /bin/echo {q(FAKE_VERSION)}; exit 0; fi',
         f"n={q(str(log))}/$$",
         'for a in "$@"; do printf "%s\\n" "$a"; done > "$n.args"',
@@ -124,8 +125,11 @@ def fake_claude(  # noqa: PLR0913 - 假指令的每種行為
     if grandchild:
         lines.append(f"(/bin/sleep 30; /usr/bin/touch {q(str(directory / 'grandchild.alive'))}) & "
                      f"echo $! > {q(str(directory / 'grandchild.pid'))}")
+    lines.append('/bin/pwd > "$n.started"')  # 讀完標準輸入、孫行程也起了:給中斷測試等
     if sleep:
         lines.append(f"/bin/sleep {sleep}")
+    if stderr:
+        lines.append(f"/bin/echo {q(stderr)} >&2")
     lines += [f"/bin/cat {q(str(payload))}", f"exit {code}"]
     script.write_text("\n".join(lines) + "\n", encoding="utf-8")
     script.chmod(0o755 if executable else 0o644)

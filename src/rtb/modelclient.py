@@ -20,12 +20,15 @@ claude 絕對路徑)經 `settings_from_env` 組成設定往下傳。時間一律
 單次花費上限傳進去。結算:成功取 Claude Code 回報的花費估計與「token 數(含快取)乘價目表」的
 較高者([S940]);失敗但讀得出用量時取「預留」與「原價乘 1.2」的較高者,讀不出就照預留;
 本地上限拒絕與設定錯誤結算 0;不論成敗,入帳大於預留就照實記、標超支並印錯誤([S934])。
-結算寫不進去,那筆留在「未結算」,照預留金額算進它預留時所在的月份。回傳值與每個例外都帶結算狀態
-(已結算、未結算、超支;沒有預留就沒有結算狀態)。
+結算寫不進去就有上限地重試,仍失敗那筆留在「未結算」,照預留金額算進它預留時所在的月份,應入帳金額
+印到標準錯誤。回傳值與每個例外都帶結算狀態(已結算、未結算、超支、超支又未結算);呼叫前就擋下、
+還沒預留的例外沒有結算狀態(None)。花費帳或錄製檔的非模型例外(SQLite、檔案系統、溢位)一律包成
+暫時性、無法可靠分類,不讓原生例外漏出去。
 """
 
 import logging
 import sqlite3
+import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -58,6 +61,7 @@ from rtb.modelcore import Outcome as Outcome
 from rtb.modelcore import Overrun as Overrun
 from rtb.modelcore import QuotaExhausted as QuotaExhausted
 from rtb.modelcore import RecordingConflict as RecordingConflict
+from rtb.modelcore import RecordingWriteFailed as RecordingWriteFailed
 from rtb.modelcore import SettlementState as SettlementState
 from rtb.modelcore import Source as Source
 from rtb.modelcore import TransientServiceError as TransientServiceError
@@ -149,7 +153,7 @@ def _settlement_for(outcome: tuple[core.BackendReply | None, core.ModelCallFaile
     computed = None if usage is None else core.list_price(model, usage)
     listed = None if usage is None or computed is None else max(
         computed, usage.reported_nanousd or 0)  # 取高者([S940])
-    mismatch = usage is not None and computed is not None and _mismatch(
+    mismatch = usage is not None and usage.tokens_known and computed is not None and _mismatch(
         usage.reported_nanousd, computed)
     if failure is None:
         if listed is None:
@@ -193,60 +197,128 @@ def _check_live(request: core.ModelRequest, settings: Settings) -> core.ModelBac
     return settings.backend
 
 
-def _replay(request: core.ModelRequest, model: str, path: Path, ledger: Path,
-            shared: bool) -> core.ModelResult:
+def _replay(request: core.ModelRequest, model: str, path: Path, ledger: Path, key: str,
+            *, shared: bool) -> core.ModelResult:
     try:
-        recording = rec.load_recording(path)
+        recording = rec.load_recording(path, key=key, caller=request.caller, model=model)
     except core.NoRecording:
         ledger_db.book(ledger, request, model, ledger_db.zero(core.Outcome.NO_RECORDING))
         raise
+    except rec.PendingRecording:
+        recording = None  # 還在錄:對重播來說就是還沒有
     if recording is None:
         ledger_db.book(ledger, request, model, ledger_db.zero(core.Outcome.NO_RECORDING))
         raise core.NoRecording("找不到對應的錄製回應(不會改走即時呼叫)")
     outcome = core.Outcome(recording.outcome)
     ledger_db.book(ledger, request, model,
                    ledger_db.zero(outcome, recording.latency_ms, recording.sub_reason))
+    state = (core.SettlementState.SETTLED if recording.settlement is None
+             else core.SettlementState(recording.settlement))  # 錄製當時的狀態:重播停在同一處
     if outcome is not core.Outcome.OK or recording.text is None:
         failure = core.BY_OUTCOME[outcome](f"錄製的結果:{outcome.value}",
-                                       sub_reason=recording.sub_reason,
-                                       recording_batch_id=recording.batch_id)
+                                           sub_reason=recording.sub_reason,
+                                           recording_batch_id=recording.batch_id)
         failure.list_nanousd, failure.latency_ms = recording.list_nanousd, recording.latency_ms
-        failure.settlement = core.SettlementState.SETTLED  # 重播記 0 元,當場結算
-        failure.unclassified = recording.sub_reason == "unclassified"
+        failure.settlement = state
+        failure.unclassified, failure.tool_use = recording.unclassified, recording.tool_use
+        failure.shared = shared
         raise failure
     return core.ModelResult(recording.text, core.Source.RECORDED, recording.input_tokens or 0,
-                       recording.output_tokens or 0, recording.cache_write_5m_tokens or 0,
-                       recording.cache_write_1h_tokens or 0, recording.cache_read_tokens or 0,
-                       recording.list_nanousd, recording.latency_ms, recording.key,
-                       recording.batch_id, shared=shared)
+                            recording.output_tokens or 0, recording.cache_write_5m_tokens or 0,
+                            recording.cache_write_1h_tokens or 0, recording.cache_read_tokens or 0,
+                            recording.list_nanousd, recording.latency_ms, recording.key,
+                            recording.batch_id, settlement=state, shared=shared)
 
 
 def _send(backend: core.ModelBackend, call: core.BackendCall) -> tuple[
         core.BackendReply | None, core.ModelCallFailed | None]:
+    """送出並把荒謬值夾到上限(任何後端都一樣):成功形狀帶荒謬值改判讀不懂。"""
     try:
-        return backend.send(call), None
+        reply, absurd = core.clamp_reply(backend.send(call))
     except core.ModelCallFailed as failed:
+        if failed.reply is not None:
+            failed.reply, _ = core.clamp_reply(failed.reply)
         return None, failed
     except Exception as unexpected:  # 後端的意外錯誤:暫時性、無法可靠分類、照預留結算
         failure = core.TransientServiceError(f"後端意外錯誤({type(unexpected).__name__})",
-                                        sub_reason="unclassified", unclassified=True)
+                                             sub_reason="unclassified", unclassified=True)
         failure.__cause__ = unexpected
         return None, failure
+    if absurd:
+        return None, core.UnreadableModelResponse(
+            "回報的 token 數或花費大得離譜(超過上限的千倍),夾到上限記帳", sub_reason="absurd_usage",
+            reply=reply)
+    return reply, None
+
+
+def _wait_for_same_batch(request: core.ModelRequest, model: str, path: Path, ledger: Path,
+                         key: str) -> core.ModelResult:
+    """同一批的另一個呼叫正在錄同一個鍵:等它錄完(有上限)再讀,不再呼叫一次。"""
+    deadline = time.monotonic() + request.timeout_seconds + 5
+    while time.monotonic() < deadline:
+        try:
+            if rec.load_recording(path, key=key, caller=request.caller, model=model) is None:
+                break
+        except rec.PendingRecording:
+            time.sleep(0.05)
+            continue
+        except core.NoRecording:
+            break
+        return _replay(request, model, path, ledger, key, shared=True)
+    raise core.RecordingConflict("同一批的同一個鍵正在錄、等不到錄完(或已被刪),這次不呼叫")
+
+
+def _existing(request: core.ModelRequest, model: str, path: Path, ledger: Path,
+              key: str) -> core.ModelResult:
+    """檔名已被佔住:同一批已錄好就直接讀;同一批還在錄就等;別的批次(或讀不懂、懸空的符號連結)
+    呼叫前拒絕,不花額度、不覆寫([S931])。"""
+    conflict = "別的批次已經錄過同一個鍵;換一批要整批重錄、舊批整批刪掉"
+    try:
+        existing = rec.load_recording(path, key=key, caller=request.caller, model=model)
+    except rec.PendingRecording as pending:
+        if pending.batch_id == request.batch_id:
+            return _wait_for_same_batch(request, model, path, ledger, key)
+        raise core.RecordingConflict(conflict) from None
+    except core.NoRecording as bad:
+        raise core.RecordingConflict(f"錄製檔名已被佔住但讀不懂({bad}),這次不呼叫") from bad
+    if existing is None or existing.batch_id != request.batch_id:
+        raise core.RecordingConflict(conflict)
+    return _replay(request, model, path, ledger, key, shared=True)
+
+
+def _claim(request: core.ModelRequest, path: Path) -> None:
+    try:
+        rec.claim(path, request.batch_id)
+    except FileExistsError:
+        raise
+    except OSError as failed:
+        raise core.ConfigError(f"錄製檔名佔不到({type(failed).__name__}),沒有呼叫",
+                               sub_reason="recording_unwritable") from failed
 
 
 def _live(request: core.ModelRequest, settings: Settings, key: str, path: Path,
           ledger: Path) -> core.ModelResult:
     backend = _check_live(request, settings)
     if settings.record:
-        existing = rec.load_recording(path)
-        if existing is not None:
-            if existing.batch_id == request.batch_id:
-                return _replay(request, settings.model, path, ledger, shared=True)
-            raise core.RecordingConflict("別的批次已經錄過同一個鍵;換一批要整批重錄、舊批整批刪掉")
+        try:
+            _claim(request, path)  # 呼叫前就佔住檔名:兩個批次同時錄同一個鍵,只有一個會呼叫
+        except FileExistsError:
+            return _existing(request, settings.model, path, ledger, key)
+        try:
+            return _call(request, settings, backend, key, path, ledger)
+        except BaseException:
+            rec.release(path)  # 沒錄成(預留被拒、被打斷…):放掉佔位;已錄成的不會動
+            raise
+    return _call(request, settings, backend, key, path, ledger)
+
+
+def _call(request: core.ModelRequest, settings: Settings,
+          backend: core.ModelBackend, key: str, path: Path, ledger: Path) -> core.ModelResult:
     reservation_id = ledger_db.reserve(ledger, request, settings.model, backend.kind)
     reserved = core.reservation_nanousd(request, settings.model)
-    call = core.BackendCall(settings.model, request.system, request.user, request.max_output_tokens,
-                       request.timeout_seconds, core.call_budget_nanousd(request, settings.model))
+    call = core.BackendCall(settings.model, request.system, request.user,
+                            request.max_output_tokens, request.timeout_seconds,
+                            core.call_budget_nanousd(request, settings.model))
     started = time.monotonic()
     reply, failure = _send(backend, call)
     latency_ms = (time.monotonic() - started) * 1000
@@ -255,47 +327,90 @@ def _live(request: core.ModelRequest, settings: Settings, key: str, path: Path,
     if done.overrun:
         log.error("預留 %s 超支:入帳 %s 大於預留 %s,或 Claude Code 回報超過單次花費上限"
                   "(照實記帳);評估應整批停下", reservation_id, done.settled_nanousd, reserved)
-    state = (core.SettlementState.OVERRUN if done.overrun else
-             core.SettlementState.SETTLED if settled else core.SettlementState.UNSETTLED)
-    if settings.record:
-        rec.save_recording(path, _recording_of(key, request, settings.model, backend.kind, done))
+    state = _state(overrun=done.overrun, settled=settled)
+    result = None
     if failure is not None:
         failure.list_nanousd, failure.latency_ms = done.list_nanousd, latency_ms
         failure.settlement = state
+    elif reply is not None:
+        result = core.ModelResult(reply.text, core.Source.LIVE, reply.input_tokens,
+                                  reply.output_tokens, reply.cache_write_5m_tokens,
+                                  reply.cache_write_1h_tokens, reply.cache_read_tokens,
+                                  done.list_nanousd, latency_ms, key, request.batch_id,
+                                  settlement=state)
+    if settings.record:
+        _save(path, _recording_of(key, request, settings.model, backend.kind, done,
+                                  (state, failure)), result, failure)
+    if failure is not None:
         raise failure
-    if reply is None:
+    if result is None:
         raise AssertionError("沒有失敗就一定有回應")
-    return core.ModelResult(reply.text, core.Source.LIVE, reply.input_tokens, reply.output_tokens,
-                       reply.cache_write_5m_tokens, reply.cache_write_1h_tokens,
-                       reply.cache_read_tokens, done.list_nanousd, latency_ms, key,
-                       request.batch_id, settlement=state)
+    return result
 
 
-def _recording_of(key: str, request: core.ModelRequest, model: str, backend: core.Backend,
-                  done: ledger_db.Settlement) -> rec.Recording:
+def _state(*, overrun: bool, settled: bool) -> core.SettlementState:
+    if overrun:
+        return core.SettlementState.OVERRUN if settled else core.SettlementState.OVERRUN_UNSETTLED
+    return core.SettlementState.SETTLED if settled else core.SettlementState.UNSETTLED
+
+
+def _save(path: Path, recording: rec.Recording, result: core.ModelResult | None,
+          failure: core.ModelCallFailed | None) -> None:
+    """錄製檔寫不進去:另立一類(不是設定錯誤:已經呼叫了),帶上結算狀態與原價,成功的回應留著。"""
+    try:
+        rec.save_recording(path, recording)
+    except OSError as broken:
+        wrapped = core.RecordingWriteFailed(
+            f"錄製檔寫不進去({type(broken).__name__});回應已拿到、帳已結算", result, failure)
+        source = result if result is not None else failure
+        if source is not None:
+            wrapped.settlement, wrapped.list_nanousd = source.settlement, source.list_nanousd
+            wrapped.latency_ms = source.latency_ms
+            wrapped.tool_use = failure is not None and failure.tool_use
+        raise wrapped from broken
+
+
+def _recording_of(key: str, request: core.ModelRequest, model: str,
+                  backend: core.Backend, done: ledger_db.Settlement,
+                  outcome: tuple[core.SettlementState, core.ModelCallFailed | None]
+                  ) -> rec.Recording:
+    state, failure = outcome
     reply = done.reply
+    tokens = None if reply is None or not reply.tokens_known else reply
     return rec.Recording(
         key, core.Caller(request.caller).value, model, backend.value, request.batch_id,
         core.utc_now().date().isoformat(), done.outcome.value, done.sub_reason,
-        None if reply is None else reply.text, None if reply is None else reply.input_tokens,
-        None if reply is None else reply.output_tokens,
-        None if reply is None else reply.cache_write_5m_tokens,
-        None if reply is None else reply.cache_write_1h_tokens,
-        None if reply is None else reply.cache_read_tokens,
+        None if failure is not None or reply is None else reply.text,
+        None if tokens is None else tokens.input_tokens,
+        None if tokens is None else tokens.output_tokens,
+        None if tokens is None else tokens.cache_write_5m_tokens,
+        None if tokens is None else tokens.cache_write_1h_tokens,
+        None if tokens is None else tokens.cache_read_tokens,
         None if reply is None else reply.reported_nanousd, done.list_nanousd,
-        done.latency_ms or 0.0)
+        done.latency_ms or 0.0, failure is not None and failure.tool_use,
+        failure is not None and failure.unclassified, state.value)
 
 
 def _try_settle(ledger: Path, reservation_id: int, done: ledger_db.Settlement) -> bool:
-    try:
-        late = ledger_db.settle(ledger, reservation_id, done)
-    except (DatabaseBusy, core.LedgerBusy, sqlite3.Error):
-        log.warning("預留 %s 的結算寫不進花費帳,照預留金額算", reservation_id)
-        return False
-    if late:
-        log.error("預留 %s 已被人工核銷,之後才來了結算(遲到的回應):已用改算兩者中較高的金額,"
-                  "請對照本機紀錄", reservation_id)
-    return True
+    """寫結算列,寫不進去有上限地重試;仍失敗就把應入帳金額印到標準錯誤(帳裡照預留算,人要知道差多少)。"""
+    for attempt in range(1, ledger_db.SETTLE_ATTEMPTS + 1):
+        try:
+            late = ledger_db.settle(ledger, reservation_id, done)
+        except (DatabaseBusy, core.LedgerBusy, sqlite3.Error, OSError, OverflowError):
+            log.warning("預留 %s 的結算第 %s 次寫不進花費帳", reservation_id, attempt)
+            if attempt < ledger_db.SETTLE_ATTEMPTS:
+                time.sleep(0.05 * attempt)
+            continue
+        if late:
+            log.error("預留 %s 已被人工核銷,之後才來了結算(遲到的回應):已用改算兩者中較高的金額,"
+                      "請對照本機紀錄", reservation_id)
+        return True
+    sys.stderr.write(
+        f"預留 {reservation_id} 的結算寫不進花費帳({ledger_db.SETTLE_ATTEMPTS} 次):"
+        "帳裡照預留金額算;"
+        f"應入帳 {done.settled_nanousd / core.NANOUSD_PER_USD:.6f} 美元"
+        f"{'(超支)' if done.overrun else ''},請人工對帳\n")
+    return False
 
 
 def call_model(request: core.ModelRequest, settings: Settings, *, recordings_dir: Path,
@@ -304,8 +419,16 @@ def call_model(request: core.ModelRequest, settings: Settings, *, recordings_dir
     ([S907]);沒呼叫也沒讀到的(別的批次已錄、花費帳忙碌、呼叫前的本地檢查)不記。"""
     _check_request(request, settings)
     key = rec.recording_key(request.caller, settings.model, request.system, request.user,
-                        request.max_output_tokens)
+                            request.max_output_tokens)
     path = Path(recordings_dir) / f"{key}.json"
-    if settings.mode is core.Mode.RECORDED:
-        return _replay(request, settings.model, path, ledger, shared=False)
-    return _live(request, settings, key, path, ledger)
+    try:
+        if settings.mode is core.Mode.RECORDED:
+            return _replay(request, settings.model, path, ledger, key, shared=False)
+        return _live(request, settings, key, path, ledger)
+    except core.ModelCallFailed:  # 逾時也是 OSError 的子類別:模型用戶端自己的例外照原樣丟
+        raise
+    except (sqlite3.Error, OSError, OverflowError) as broken:  # 花費帳或檔案系統的非模型例外
+        failure = core.TransientServiceError(
+            f"花費帳或錄製檔出錯({type(broken).__name__}),沒有呼叫或結果不明",
+            sub_reason="unclassified", unclassified=True)
+        raise failure from broken  # 結算狀態 None:出錯在預留之前(預留之後的步驟各自接住)

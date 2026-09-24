@@ -12,6 +12,7 @@ import itertools
 import json
 import os
 import plistlib
+import pwd
 import shutil
 import subprocess
 import sys
@@ -233,13 +234,13 @@ def test_recordings_are_found_from_any_working_directory(tmp_path, monkeypatch):
                   recordings_dir=recordings, ledger=tmp_path / "l.sqlite")
     elsewhere = tmp_path / "somewhere" / "else"
     elsewhere.mkdir(parents=True)
-    code = ("from rtb import modelclient as mc\n"
+    code = ("from pathlib import Path\nfrom rtb import modelclient as mc\n"
             "req = mc.ModelRequest(caller=mc.Caller.EVAL_CANDIDATE, system='固定系統提示', "
             "user='問題', max_output_tokens=50, timeout_seconds=5.0)\n"
             "settings = mc.settings_from_env({}, None, None)\n"
             "print(mc.default_recordings_dir())\n"
             "print(mc.call_model(req, settings, recordings_dir=mc.default_recordings_dir(), "
-            "ledger=mc.live_ledger_path()).text)\n")
+            f"ledger=Path({str(tmp_path / 'child.sqlite')!r})).text)\n")  # 子行程不碰帳號的真帳
     env = {**os.environ, "PYTHONPATH": str(checkout / "src")}
     result = subprocess.run([sys.executable, "-c", code], cwd=elsewhere, env=env,
                             capture_output=True, text=True, timeout=60, check=True)
@@ -305,7 +306,8 @@ def test_live_calls_always_book_into_the_one_ledger(tmp_path, monkeypatch, _isol
         result = subprocess.run([sys.executable, "-c", code], cwd=cwd, env=env,
                                 capture_output=True, text=True, timeout=60, check=True)
         seen.add(result.stdout.strip())
-    assert seen == {str(home_ledger)}
+    # 子行程沒有測試的注入點:印出的是帳號家目錄那一本(只印路徑、不開帳),跟 HOME 無關
+    assert seen == {str(Path(pwd.getpwuid(os.getuid()).pw_dir) / ".rtb" / "model-ledger.sqlite")}
     # 評估紀錄命令列即時跑(假 claude 在傳進去的 PATH 上):寫進家目錄那一本;即時模式不接受換帳檔
     from rtb.eval import record
 
@@ -391,7 +393,8 @@ def test_recording_never_overwrites_an_existing_file(dirs):
 HOOKS = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo hi"}]}]}}
 
 
-def test_managed_hooks_refuse_live_mode(tmp_path, monkeypatch):
+def test_managed_hooks_refuse_live_mode(  # noqa: PLR0915 - 每個管理政策來源一個情境
+        tmp_path, monkeypatch):
     """每一種管理政策來源各一個案例;路徑常數換成暫存目錄(家目錄那一個照呼叫時的 HOME 算)。"""
     script = fake_claude(tmp_path / "bin")
     write_verification()
@@ -399,8 +402,12 @@ def test_managed_hooks_refuse_live_mode(tmp_path, monkeypatch):
     system = tmp_path / "system"
     system.mkdir()
     plist = tmp_path / "com.anthropic.claudecode.plist"
+    managed_prefs = tmp_path / "Managed Preferences"
+    user = pwd.getpwuid(os.getuid()).pw_name
+    user_plist = managed_prefs / user / "com.anthropic.claudecode.plist"
     monkeypatch.setattr(cc, "MANAGED_DIRS", (system,))
     monkeypatch.setattr(cc, "MDM_PLISTS", (plist,))
+    monkeypatch.setattr(cc, "MANAGED_PREFERENCES", managed_prefs, raising=False)
     remote = Path.home() / ".claude" / "remote-settings.json"
     assert mc.settings_from_env(environ, "demo-1", script).mode is mc.Mode.LIVE  # 沒有任何來源
     cases = [  # (來源檔, 內容)
@@ -409,6 +416,11 @@ def test_managed_hooks_refuse_live_mode(tmp_path, monkeypatch):
         (system / "managed-settings.d" / "20-more.json", {"apiKeyHelper": "/bin/echo k"}),
         (system / "managed-mcp.json", {"mcpServers": {"x": {"command": "y"}}}),
         (plist, HOOKS),
+        (user_plist, {"env": {"X": "1"}}),  # 個人層的 MDM 設定檔
+        (system / "managed-settings.d" / "30-helper.json",
+         {"policyHelper": {"path": "/usr/local/bin/corp-policy"}}),  # 啟動時動態算管理設定
+        (system / "managed-settings.d" / "40-helpers.json",
+         {"policyHelpers": {"darwin": {"path": "/x"}}}),
         (remote, {"mcpServers": {"x": {"command": "y"}}}),
     ]
     for path, content in cases:

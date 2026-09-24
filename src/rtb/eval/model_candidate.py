@@ -11,7 +11,9 @@
 無法可靠分類的錯誤或偵測到工具使用,就在那個情境之後停([S924]、[S934])。
 
 批次紀錄:即時跑的那一次產生一個批次編號,每一次嘗試記一列(情境、結果類別、原價、token、
-延遲),七個欄位相同的情境同一批只即時呼叫一次、其餘列標「共用前一列」([S933])。
+延遲),七個欄位相同的情境同一批只即時呼叫一次、其餘列標「共用前一列」([S933]);去重跟錄製開關
+無關(沒開錄製時候選自己記住這一批呼叫過的鍵)。模型用戶端以外的例外也替那個情境補一列(暫時性、
+無法可靠分類)並停下,不會讀到上一列。
 比較表的模型列一律從批次紀錄算(包含當時的失敗),標「歷史觀測」與錄製日期;「沒有錄製」
 「花費帳忙碌」「本地上限拒絕」「設定錯誤」與共用列都沒有呼叫模型,不算進四種比率,另外列件數;
 「訂閱額度用完」已經呼叫,算進例外率。每次呼叫成本取該格最高一次的原價([S928])。
@@ -22,7 +24,7 @@ import random
 import statistics
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -56,7 +58,10 @@ STOP_OUTCOMES = frozenset({mc.Outcome.LOCAL_CAP_REFUSED.value, mc.Outcome.QUOTA_
                            mc.Outcome.CONFIG_ERROR.value, mc.Outcome.LEDGER_BUSY.value,
                            mc.Outcome.OVERRUN.value})
 OVERRUN = "overrun"
+OVERRUN_STATES = frozenset({mc.SettlementState.OVERRUN.value,
+                            mc.SettlementState.OVERRUN_UNSETTLED.value})
 UNCLASSIFIED = "unclassified"
+UNEXPECTED = "unexpected_error"  # 模型用戶端以外的例外(子原因)
 TOOL_USE = "tool_use"
 SHARED_NOTE = "共用前一列"
 # 使用者 2026-09-24 裁定:每次呼叫成本不超過 0.002 美元、延遲 p95 不超過 3 秒、失敗率不超過 1%;
@@ -113,32 +118,67 @@ class Attempt:
     sub_reason: str | None = None
     settlement: str | None = None  # 已結算、未結算、超支;沒有預留就是 None
     unclassified: bool = False  # 暫時性服務錯誤認不出子類型
-    tool_use: bool = False  # 錯誤回應帶著工具使用痕跡
+    tool_use: bool = False  # 回應帶著工具使用痕跡
+
+
+def _failed_attempt(failed: mc.ModelCallFailed, *, shared: bool) -> Attempt:
+    return Attempt(failed.outcome.value, None, shared, failed.list_nanousd, None, None,
+                   failed.latency_ms, failed.recording_batch_id, failed.sub_reason,
+                   None if failed.settlement is None else failed.settlement.value,
+                   failed.unclassified, failed.tool_use)
+
+
+UNEXPECTED_ATTEMPT = Attempt(mc.Outcome.TRANSIENT.value, None, False, 0, None, None, None, None,
+                             UNEXPECTED, None, unclassified=True)
 
 
 class ModelCandidate:
-    """候選介面的模型實作;每次呼叫都在 `attempts` 追加一列旁路紀錄。"""
+    """候選介面的模型實作;每次呼叫都在 `attempts` 追加一列旁路紀錄(模型用戶端以外的例外也追加)。"""
 
     def __init__(self, settings: mc.Settings, *, recordings_dir: Path, ledger: Path,
                  demo_id: str | None, batch_id: str | None) -> None:
         self._settings, self._recordings, self._ledger = settings, recordings_dir, ledger
         self._demo_id, self._batch_id = demo_id, batch_id
         self.attempts: list[Attempt] = []
+        # 即時、沒開錄製時自己去重:這一批呼叫過的鍵 → 那次的結果或失敗
+        # (開錄製時模型用戶端照錄製檔去重)
+        self._seen: dict[str, mc.ModelResult | mc.ModelCallFailed] = {}
+
+    def _call(self, request: mc.ModelRequest) -> mc.ModelResult:
+        dedupe = self._settings.mode is mc.Mode.LIVE and not self._settings.record
+        key = mc.recording_key(request.caller, self._settings.model, request.system,
+                               request.user, request.max_output_tokens)
+        seen = self._seen.get(key) if dedupe else None
+        if isinstance(seen, mc.ModelResult):
+            return replace(seen, shared=True)
+        if isinstance(seen, mc.ModelCallFailed):
+            self.attempts.append(_failed_attempt(seen, shared=True))
+            raise seen
+        try:
+            result = mc.call_model(request, self._settings, recordings_dir=self._recordings,
+                                   ledger=self._ledger)
+        except mc.ModelCallFailed as failed:
+            if dedupe:
+                self._seen[key] = failed
+            raise
+        if dedupe:
+            self._seen[key] = result
+        return result
 
     def __call__(self, worth_input: WorthInput, timeout_seconds: float) -> WorthVerdict:
         request = mc.ModelRequest(
             caller=mc.Caller.EVAL_CANDIDATE, system=SYSTEM_PROMPT, user=prompt_for(worth_input),
             max_output_tokens=MAX_OUTPUT_TOKENS, timeout_seconds=timeout_seconds,
             demo_id=self._demo_id, batch_id=self._batch_id)
+        before = len(self.attempts)
         try:
-            result = mc.call_model(request, self._settings, recordings_dir=self._recordings,
-                                   ledger=self._ledger)
+            result = self._call(request)
         except mc.ModelCallFailed as failed:
-            self.attempts.append(Attempt(
-                failed.outcome.value, None, False, failed.list_nanousd, None, None,
-                failed.latency_ms, failed.recording_batch_id, failed.sub_reason,
-                None if failed.settlement is None else failed.settlement.value,
-                failed.unclassified, failed.tool_use))
+            if len(self.attempts) == before:
+                self.attempts.append(_failed_attempt(failed, shared=failed.shared))
+            raise
+        except Exception:
+            self.attempts.append(UNEXPECTED_ATTEMPT)
             raise
         try:
             verdict = parse_verdict(result.text)
@@ -245,7 +285,7 @@ class ModelRun:
 def _stop_reason(attempt: Attempt) -> str | None:
     if attempt.outcome in STOP_OUTCOMES:
         return attempt.outcome
-    if attempt.settlement == mc.SettlementState.OVERRUN.value:
+    if attempt.settlement in OVERRUN_STATES:
         return OVERRUN
     if attempt.unclassified:
         return UNCLASSIFIED
@@ -260,8 +300,11 @@ def run_subset(scenarios: Sequence[Scenario], candidate: ModelCandidate,
     scored, rows, stopped = [], [], None
     trial = TrialCells(frozenset(WorthCell))
     for scenario in scenarios:
+        before = len(candidate.attempts)
         result = route(scenario.worth_input, CandidateCall(candidate, timeout_seconds), trial)
         scored.append(ScoredCase(scenario, result.verdict, result.path))
+        if len(candidate.attempts) == before:  # 候選沒留下這次的列(不該發生):補一列、停下
+            candidate.attempts.append(UNEXPECTED_ATTEMPT)
         attempt = candidate.attempts[-1]
         rows.append(batch_row(scenario, attempt))
         stopped = _stop_reason(attempt)

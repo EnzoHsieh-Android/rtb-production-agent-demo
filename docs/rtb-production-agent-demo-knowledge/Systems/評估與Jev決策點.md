@@ -69,4 +69,11 @@ verified_by:
 - `src/rtb/eval/record.py` 在入口讀模式(即時開關、展示編號、PATH 上的 claude、啟用紀錄),即時模式的花費帳寫死
   家目錄那一本,`--ledger` 只在錄製模式能用;預留時花費帳忙碌以結束代碼 9 結束。
 - `tests/eval/test_model_candidate.py`:[S908]、[S909]、[S918]、[S919]、[S924]、[S928]、[S933]、[S934]。
+- 代碼審第 1 輪補強(2026-09-24):去重跟錄製開關無關(即時沒開錄製時候選自己記住這一批呼叫過的鍵,開錄製時照錄製檔);
+  共用的失敗列標共用、不算送出;模型用戶端以外的例外也替那個情境補一列(暫時性、無法可靠分類)並停下,不會讀到上一列;
+  成功形狀帶工具痕跡、超支又未結算也停。模型的計分走既有的計分與合成集報告,模型段另印「模型逐格結果」表、錯誤子型與
+  擾動改變的組數;有旗標時比較表的 LLM 列寫「沒量(原因:旗標)」;重播時批次紀錄的情境清單要是這次子集的開頭一段,
+  不是就標「批次紀錄的情境清單跟這次子集不同」。防回歸:[test:test_identical_inputs_share_one_call_without_recording]、
+  [test:test_a_non_model_error_gets_its_own_row_and_stops]、[test:test_the_model_section_reports_its_own_scores]、
+  [test:test_flags_show_up_in_the_llm_row_and_the_scenarios_must_match]。
 

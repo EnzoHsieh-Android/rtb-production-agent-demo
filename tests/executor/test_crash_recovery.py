@@ -17,6 +17,7 @@ test_multi_worker.py 守。
 """
 
 import itertools
+import os
 import sqlite3
 import subprocess
 import sys
@@ -152,7 +153,7 @@ class World:
         return subprocess.run(
             [sys.executable, "-c", CHILD, point, str(shift), str(rounds), str(self.db),
              *self.watched, *argv],
-            env={"PYTHONPATH": SRC, KEY_ENV: TEST_KEY.decode()},  # 只給這一次子行程
+            env={**os.environ, "PYTHONPATH": SRC, KEY_ENV: TEST_KEY.decode()},  # 金鑰只給這一次
             timeout=60, capture_output=True, text=True)
 
     def recover_only(self, expected):

@@ -1,6 +1,7 @@
 """Mock DSP 儲存層的事故測試:每條測試名稱描述一個失敗情境與它要守住的不變量。"""
 
 import ast
+import os
 import sqlite3
 import subprocess
 import sys
@@ -408,7 +409,8 @@ def test_process_death_between_state_change_and_idempotency_record_leaves_no_hal
     src = str(Path(__file__).resolve().parents[2] / "src")
 
     child = subprocess.run([sys.executable, "-c", CRASH_CHILD, str(path)],
-                           env={"PYTHONPATH": src}, timeout=20, capture_output=True, text=True)
+                           env={**os.environ, "PYTHONPATH": src}, timeout=20, capture_output=True,
+                           text=True)
 
     assert child.returncode == 9  # 確實是猝死,不是正常結束
     # 死點必須正好在「狀態與歷史已寫入、冪等紀錄還沒寫」之間,交易仍開著
