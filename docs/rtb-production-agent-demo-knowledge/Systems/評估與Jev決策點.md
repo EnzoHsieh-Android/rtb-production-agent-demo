@@ -83,4 +83,7 @@ verified_by:
   不准有網路模組。防回歸:[test:test_a_batch_record_missing_rows_is_flagged]、
   [test:test_a_tampered_batch_record_is_not_trusted]、[test:test_the_model_scores_only_count_calls_that_were_made]、
   [test:test_an_interrupted_live_run_still_writes_its_batch]。
+- 代碼審第 3 輪補強(2026-09-24):重播核對擴大到延遲、判定與共用/送出標記(共用照子集的提示重算),有旗標的批次
+  不印門檻判定;被中斷的那一次也進批次紀錄(interrupted,附沒結算的預留編號);別批擋住時旗標寫明先清哪一批。
+  防回歸:[test:test_a_faster_batch_record_cannot_pass_the_latency_bar]。
 

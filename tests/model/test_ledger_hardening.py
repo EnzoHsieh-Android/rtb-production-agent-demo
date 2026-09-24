@@ -73,7 +73,8 @@ def test_a_live_owner_blocks_writing_off_its_reservation(tmp_path, monkeypatch):
     with pytest.raises(ledger_db.WriteOffRefused, match="還活著"):
         ledger_db.write_off(ledger, mine.id, Decimal("0"), "理由", "本機紀錄")
     # 另一個行程預留後死掉(模擬被殺):主行程不在了、兩種時鐘都過了期限 → 准核銷
-    code = ("import os\nfrom pathlib import Path\nfrom rtb import modelclient as mc\n"
+    code = _child_prelude() + (
+            "import os\nfrom pathlib import Path\nfrom rtb import modelclient as mc\n"
             "from rtb import modelcore as core\n"
             "class Die:\n    kind = core.Backend.CLAUDE_CODE\n"
             "    def send(self, call):\n        os._exit(0)\n"
@@ -150,20 +151,18 @@ def test_an_unsettled_overrun_keeps_both_signals(tmp_path, monkeypatch, capsys):
 
 
 def test_the_ledger_follows_the_account_home_not_the_home_variable(tmp_path, monkeypatch):
-    from tests.conftest import ACCOUNT_HOME_ENV, REAL_HOME
+    from tests.conftest import PRODUCT_ACCOUNT_HOME, REAL_HOME
 
-    # 共用夾具設了只在測試開的覆寫:拿掉它驗真的讀法(只算路徑、不開帳)
-    monkeypatch.delenv(ACCOUNT_HOME_ENV)
+    # 共用夾具換掉了帳號家目錄的讀法:換回產品那一支驗真的讀法(只算路徑、不開帳)
+    monkeypatch.setattr(view, "account_home", PRODUCT_ACCOUNT_HOME)
     monkeypatch.setenv("HOME", str(tmp_path / "elsewhere"))
     assert view.ledger_path() == REAL_HOME / ".rtb" / "model-ledger.sqlite"
     assert cc.verification_path() == REAL_HOME / ".rtb" / "live-verification.json"
     assert not view.ledger_path().is_relative_to(tmp_path / "elsewhere")
     assert not cc.verification_path().is_relative_to(tmp_path / "elsewhere")
     assert view.ledger_path() == view.account_home() / ".rtb" / "model-ledger.sqlite"
-    # 覆寫只在 pytest 的測試執行中才認:平常跑命令列設了也不理
-    monkeypatch.setenv(ACCOUNT_HOME_ENV, str(tmp_path / "override"))
-    assert view.account_home() == tmp_path / "override"
-    monkeypatch.delenv("PYTEST_CURRENT_TEST")
+    # 任何環境變數都搬不走(代碼審第 3 輪:曾有過只在測試開的覆寫變數)
+    monkeypatch.setenv("RTB_TEST_ACCOUNT_HOME", str(tmp_path / "override"))
     assert view.account_home() == REAL_HOME
 
 
@@ -188,3 +187,11 @@ def test_the_longest_request_and_mismatch_thresholds_are_pinned(tmp_path):
                                           reported_usd=reported)), name=name)
         [row] = _rows(tmp_path / f"{name}.sqlite")
         assert row.cost_mismatch is flagged, name
+
+
+def _child_prelude():
+    """子行程的程式碼開頭:換掉帳號家目錄的讀法(指到這支測試的暫存家目錄;子行程沒有共用夾具)。"""
+    from rtb import modelledger_view
+    from tests.conftest import child_prelude
+
+    return child_prelude(modelledger_view.account_home())

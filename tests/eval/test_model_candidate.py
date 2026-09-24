@@ -607,7 +607,11 @@ def test_a_tampered_batch_record_is_not_trusted(tmp_path):
     original = json.loads(path.read_text(encoding="utf-8"))
     for name, change in (("bad_cell", {"cell": "nope"}), ("negative", {"list_nanousd": -1}),
                          ("cheaper", {"list_nanousd": 1}), ("bad_sent", {"sent": "yes"}),
-                         ("nan_latency", {"latency_ms": float("nan")})):
+                         ("nan_latency", {"latency_ms": float("nan")}),
+                         # 代碼審第 3 輪:延遲、判定、共用與送出標記也要跟錄製對得上
+                         ("faster", {"latency_ms": 100.0}), ("other_verdict", {"verdict": "worth"}),
+                         ("hidden", {"shared": True, "sent": False}),
+                         ("shared_only", {"shared": True})):
         data = json.loads(json.dumps(original))
         data["rows"][0].update(change)
         path.write_text(json.dumps(data), encoding="utf-8")
@@ -664,6 +668,50 @@ def test_an_interrupted_live_run_still_writes_its_batch(tmp_path, monkeypatch):
                 _live_env(tmp_path / "bin", record_too=True))
     [batch_file] = (recordings / "batches").glob("*.json")
     batch = model_candidate.load_batch(batch_file)
-    assert batch.interrupted and len(batch.rows) >= 2
+    assert batch.interrupted and len(batch.rows) == 3
+    # 被中斷的那一次已經預留(花錢)了:也留一列,結果類別寫中斷,附那筆沒結算的預留編號
+    last = batch.rows[-1]
+    assert last.outcome == model_candidate.INTERRUPTED and last.sent
+    unsettled = [r for r in _ledger_rows(mc.live_ledger_path()) if r.outcome is None]
+    assert [r.id for r in unsettled] == [last.reservation_id]
+    # 重播(這時只有這一份批次紀錄)標「未跑完(中斷)」
     _, text, _ = _replay(recordings, tmp_path)
     assert "未跑完(中斷)" in text
+    # 再跑一次即時加錄製:撞到上一批的錄製,報告寫明要先清哪一批
+    code, text, _ = _record(["--demo-id", "demo-2", "--recordings-dir", str(recordings)],
+                            _live_env(tmp_path / "bin", record_too=True))
+    assert code == record.EXIT_OK
+    assert f"先整批刪掉批次 {batch.batch_id}" in text
+
+
+def test_a_faster_batch_record_cannot_pass_the_latency_bar(tmp_path, monkeypatch):
+    """延遲 4000 毫秒的錄製,批次紀錄改成 100 毫秒:核對要發現、掛旗標,p95 不能因此變成「過」。"""
+    import itertools
+    import time
+    import types
+
+    ticks = itertools.count(step=4.0)  # 每次呼叫量到 4 秒(只換模型用戶端看到的時鐘)
+    monkeypatch.setattr(mc, "time", types.SimpleNamespace(monotonic=lambda: next(ticks),
+                                                          sleep=time.sleep))
+    recordings, path = _recorded(tmp_path)
+    monkeypatch.undo()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for row in data["rows"]:
+        if row["latency_ms"] is not None:
+            row["latency_ms"] = 100.0
+    path.write_text(json.dumps(data), encoding="utf-8")
+    code, text, err = _replay(recordings, tmp_path / "replay")
+    assert code == record.EXIT_OK, err
+    section = text[text.index("## 模型候選"):]
+    assert "- 旗標:" in section and "延遲 p95:過" not in section
+
+
+def _ledger_rows(ledger):
+    from rtb import modelledger_view as view
+
+    reader = view.ModelLedgerView(ledger)
+    try:
+        with reader.read_transaction():
+            return reader.calls_between("0000", "9999")
+    finally:
+        reader.close()

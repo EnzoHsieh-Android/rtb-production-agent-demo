@@ -95,6 +95,15 @@ def test_a_login_check_that_leaves_no_time_is_not_a_model_call(tmp_path, monkeyp
 
 def test_an_interrupt_right_after_popen_still_kills_the_group(tmp_path, monkeypatch):
     """Popen 回來、還沒進清理的 try 之前就收到 Ctrl-C:照樣殺整組。"""
+    # 非互動 shell 的背景工作會把 SIGINT 設成忽略:先裝回預設處理器,結束還原(代碼審第 3 輪)
+    previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+    try:
+        _interrupt_right_after_popen(tmp_path, monkeypatch)
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
+def _interrupt_right_after_popen(tmp_path, monkeypatch):
     script = fake_claude(tmp_path / "c", sleep=30)
     started = []
     real = cc.subprocess.Popen
@@ -118,7 +127,7 @@ def test_a_hangup_during_a_recorded_call_kills_the_group_and_frees_the_name(tmp_
         work = tmp_path / name
         script = fake_claude(work / "c", sleep=30, grandchild=True)
         recordings = work / "rec"
-        code = (
+        code = _child_prelude() + (
             "import os, signal, sys, threading, time\n"
             "from pathlib import Path\n"
             "from rtb import modelclaude as cc, modelclient as mc\n"
@@ -160,3 +169,63 @@ def test_a_leftover_claim_says_it_may_be_an_interrupted_run(tmp_path):
     with pytest.raises(mc.RecordingConflict, match="中斷留下的佔位"):
         mc.call_model(request(batch_id="b1"), live(record=True), recordings_dir=tmp_path,
                       ledger=tmp_path / "l.sqlite")
+
+
+def test_the_claude_backend_refuses_to_run_off_the_main_thread(tmp_path):
+    """背景執行緒裝不了訊號處理器(斷線時會留下 claude):直接拒絕,設定錯誤、結算 0、沒起行程。"""
+    import threading
+
+    script = fake_claude(tmp_path / "c")
+    outcome = {}
+
+    def worker():
+        try:
+            cc.run_claude([str(script), "-p"], "x", {"PATH": os.environ["PATH"]}, 5.0)
+        except BaseException as stopped:
+            outcome["direct"] = stopped
+        try:
+            mc.call_model(request(), live(cc.ClaudeCodeBackend(script)), recordings_dir=tmp_path,
+                          ledger=tmp_path / "l.sqlite")
+        except BaseException as stopped:
+            outcome["call"] = stopped
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join(30)
+    assert isinstance(outcome.get("direct"), mc.ConfigError)
+    assert isinstance(outcome.get("call"), mc.ConfigError)
+    assert invocations(script) == []
+    [row] = _rows(tmp_path / "l.sqlite")
+    assert row.effective_nanousd == 0
+
+
+def test_an_ignored_hangup_stays_ignored(tmp_path):
+    """用 nohup(SIGHUP 原本是忽略)跑的即時評估:斷線時呼叫照常完成,不被轉成例外中止。"""
+    script = fake_claude(tmp_path / "c", sleep=1.5)
+    code = _child_prelude() + (
+        "import os, signal, sys, threading, time\n"
+        "from pathlib import Path\n"
+        "from rtb import modelclaude as cc\n"
+        "signal.signal(signal.SIGHUP, signal.SIG_IGN)\n"
+        f"log = Path({str(script.with_name('claude.log'))!r})\n"
+        "def later():\n"
+        "    while not list(log.glob('*.started')):\n"
+        "        time.sleep(0.02)\n"
+        "    os.kill(os.getpid(), signal.SIGHUP)\n"
+        "threading.Thread(target=later, daemon=True).start()\n"
+        f"code, out, _ = cc.run_claude([{str(script)!r}, '-p'], 'x', dict(os.environ), 20.0)\n"
+        "print('done', code)\n"
+        "print('still ignored', signal.getsignal(signal.SIGHUP) is signal.SIG_IGN)\n")
+    result = subprocess.run([sys.executable, "-c", code],
+                            env={**os.environ, "PYTHONPATH": str(SRC)}, capture_output=True,
+                            text=True, timeout=60, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "done 0" in result.stdout and "still ignored True" in result.stdout
+
+
+def _child_prelude():
+    """子行程的程式碼開頭:換掉帳號家目錄的讀法(指到這支測試的暫存家目錄;子行程沒有共用夾具)。"""
+    from rtb import modelledger_view
+    from tests.conftest import child_prelude
+
+    return child_prelude(modelledger_view.account_home())

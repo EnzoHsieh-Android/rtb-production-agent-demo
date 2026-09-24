@@ -19,6 +19,7 @@ LLM 列寫「沒量(原因:旗標)」。重播時批次紀錄的情境清單要�
 """
 
 import argparse
+import math
 import os
 import shutil
 import statistics
@@ -193,15 +194,43 @@ def _replayed_batch(run: model_candidate.ModelRun, recordings: Path
         flags.append("批次不一致(錄製檔與批次紀錄的批次編號對不上,或不只一份批次紀錄)")
     if [r.scenario_id for r in batch.rows] != [r.scenario_id for r in run.rows]:
         flags.append("批次紀錄的情境清單跟這次子集不同(缺列、多列或順序不同)")
-    elif any(replayed.outcome != mc.Outcome.NO_RECORDING.value
-             and (kept.outcome, kept.list_nanousd) != (replayed.outcome, replayed.list_nanousd)
-             for kept, replayed in zip(batch.rows, run.rows, strict=True)):
-        flags.append("批次紀錄的結果類別或原價跟錄製檔對不上")
+    elif any(_disagrees(kept, replayed, shared)
+             for kept, replayed, shared in zip(batch.rows, run.rows, _expected_shared(run),
+                                               strict=True)):
+        flags.append("批次紀錄的數字跟錄製檔對不上(結果類別、判定、原價、延遲或共用標記)")
     if batch.interrupted:
         flags.append("未跑完(中斷)")
     if run.missing_recordings:
         flags.append(f"錄製不全({run.missing_recordings} 個情境沒有錄製)")
     return batch, flags
+
+
+def _expected_shared(run: model_candidate.ModelRun) -> list[bool]:
+    """同一批七個欄位相同的情境,第一次之後的都該標共用(照這次子集的提示算,不信批次紀錄自己寫的)。"""
+    seen: set[str] = set()
+    shared = []
+    for case in run.scored:
+        prompt = model_candidate.prompt_for(case.scenario.worth_input)
+        shared.append(prompt in seen)
+        seen.add(prompt)
+    return shared
+
+
+def _disagrees(kept: model_candidate.BatchRow, replayed: model_candidate.BatchRow,
+               shared: bool) -> bool:
+    """批次紀錄的一列跟重播的同一列,凡是會進門檻計算的欄位(結果類別、判定、原價、延遲、共用與送出)
+    有一個對不上就是 True;重播沒有錄製的列(沒得比)只比共用標記(代碼審第 3 輪:只改延遲曾騙過)。"""
+    if kept.shared != shared:
+        return True
+    if replayed.outcome == mc.Outcome.NO_RECORDING.value:
+        return False
+    expected_sent = not shared and kept.outcome not in model_candidate.UNSENT
+    same_latency = (kept.latency_ms is None) == (replayed.latency_ms is None) and (
+        kept.latency_ms is None or replayed.latency_ms is None
+        or math.isclose(kept.latency_ms, replayed.latency_ms, rel_tol=1e-9, abs_tol=1e-6))
+    return not (kept.outcome == replayed.outcome and kept.verdict == replayed.verdict
+                and kept.list_nanousd == replayed.list_nanousd and same_latency
+                and kept.sent == expected_sent)
 
 
 def _model_run(settings: mc.Settings, args: argparse.Namespace) -> tuple[
@@ -231,6 +260,12 @@ def _model_run(settings: mc.Settings, args: argparse.Namespace) -> tuple[
             model_candidate.write_batch(recordings, batch)
     if run.stopped is not None:
         reason = _STOP_TEXT.get(run.stopped, run.stopped)
+        last = candidate.attempts[-1] if candidate.attempts else None
+        if last is not None and last.sub_reason == "recording_conflict" and (
+                last.recording_batch_id is not None):
+            other = last.recording_batch_id
+            reason += (f";錄製目錄裡已有批次 {other} 的錄製或佔位,要重錄就先整批刪掉批次 {other} 的"
+                       "錄製檔與批次紀錄")
         flags.insert(0, f"未跑完(停在第 {len(run.rows)} 個情境:{reason})")
     return run, batch, flags
 
@@ -270,8 +305,11 @@ def model_section(settings: mc.Settings, args: argparse.Namespace) -> ModelSecti
                   f"沒送出 {model_candidate.unsent_counts(batch) or '無'}"]
         lines += ["", "### 逐格門檻判定(每次成本 ≤ 0.002 美元、延遲 p95 ≤ 3 秒、失敗率 ≤ 1% "
                   "是使用者裁定;延遲中位 ≤ 3 秒是協調者補的)", ""]
-        means = model_candidate.mean_costs(batch)
-        lines += [_cell_line(cell, row, means) for cell, row in (rows or {}).items()]
+        if flags:  # 有旗標的批次不拿來判門檻(代碼審第 3 輪:改過的延遲曾讓 p95 變成「過」)
+            lines.append("- 不判:這一批有旗標(見下),門檻不用它算")
+        else:
+            means = model_candidate.mean_costs(batch)
+            lines += [_cell_line(cell, row, means) for cell, row in (rows or {}).items()]
     lines += ["", *_model_scores(run)]
     lines += ["", *[f"- 旗標:{flag}" for flag in flags],
               "- 模型候選:不採用(合成集是有限的合約案例,照 Phase 10 規定一律不採用"

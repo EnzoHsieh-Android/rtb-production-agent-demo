@@ -142,10 +142,10 @@ class Checker:
         reply = None if data is None else cc.usage_of(data, "")
         outcome: tuple[core.BackendReply | None, core.ModelCallFailed | None]
         if code == 0 and _succeeded(data) and reply is not None and reply.tokens_known:
-            outcome = (reply, None)
+            outcome = mc.screen_outcome(reply, None)  # 荒謬值跟送出呼叫同一套檢查
         else:
-            outcome = (None, core.TransientServiceError("實測呼叫沒有成功形狀的回應",
-                                                        sub_reason="verification", reply=reply))
+            outcome = mc.screen_outcome(None, core.TransientServiceError(
+                "實測呼叫沒有成功形狀的回應", sub_reason="verification", reply=reply))
         mc.settle_quietly(self.ledger, reservation_id, mc.settlement_for(
             outcome, self.model, reserved, (time.monotonic() - started) * 1000))
         return code, stdout, stderr

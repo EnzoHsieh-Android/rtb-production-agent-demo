@@ -144,3 +144,15 @@ def test_the_reservation_covers_automatic_continuations():
     assert core.OUTPUT_RECOVERY_ATTEMPTS == 3
     assert core.call_budget_nanousd(req, mc.DEFAULT_MODEL) >= 4 * one + 6 * 100 * (
         price.worst_input_nanousd)
+
+
+def test_the_live_check_also_charges_an_absurd_report_its_reservation(tmp_path):
+    """實測命令列的呼叫也走同一套荒謬值檢查:自報 100 萬美元照預留結算(可核銷)、標超支。"""
+    from rtb import modelverify
+
+    script = fake_claude(tmp_path / "c", claude_json(cost_usd=1e6))
+    checker = modelverify.Checker(script, {"PATH": str(script.parent)}, mc.DEFAULT_MODEL)
+    checker.run(checker.command_for(modelverify.SHORT_PROMPT, 50), modelverify.SHORT_PROMPT, 50)
+    [row] = _rows(mc.live_ledger_path())
+    assert row.overrun is True and row.by_reservation is True
+    assert row.effective_nanousd == row.reserved_nanousd

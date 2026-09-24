@@ -246,25 +246,36 @@ def _send(backend: core.ModelBackend, call: core.BackendCall) -> tuple[
     try:
         raw = backend.send(call)
     except core.ModelCallFailed as failed:
-        if failed.reply is not None:
-            _, failed.absurd_usage = core.clamp_reply(failed.reply)
-            if failed.absurd_usage:
-                _log_absurd(failed.reply)
-        return None, failed
+        return screen_outcome(None, failed)
     except Exception as unexpected:  # 後端的意外錯誤:暫時性、無法可靠分類、照預留結算
         failure = core.TransientServiceError(f"後端意外錯誤({type(unexpected).__name__})",
                                              sub_reason="unclassified", unclassified=True)
         failure.__cause__ = unexpected
         return None, failure
-    reply, absurd = core.clamp_reply(raw)
+    return screen_outcome(raw, None)
+
+
+def screen_outcome(reply: core.BackendReply | None, failure: core.ModelCallFailed | None) -> tuple[
+        core.BackendReply | None, core.ModelCallFailed | None]:
+    """荒謬值檢查(送出呼叫與實測命令列共用,代碼審第 3 輪):成功形狀帶荒謬值改判讀不懂;失敗帶荒謬值
+    就標記。兩種都照預留結算(可核銷)、標超支,原始數字只寫錯誤日誌、不入帳。"""
+    if failure is not None:
+        if failure.reply is not None:
+            _, failure.absurd_usage = core.clamp_reply(failure.reply)
+            if failure.absurd_usage:
+                _log_absurd(failure.reply)
+        return None, failure
+    if reply is None:
+        raise AssertionError("沒有失敗就一定有回應")
+    clamped, absurd = core.clamp_reply(reply)
     if absurd:
-        _log_absurd(raw)
+        _log_absurd(reply)
         absurd_failure = core.UnreadableModelResponse(
             "回報的 token 數或花費大得離譜(超過上限的千倍),照預留結算並標超支",
-            sub_reason="absurd_usage", reply=reply)
+            sub_reason="absurd_usage", reply=clamped)
         absurd_failure.absurd_usage = True
         return None, absurd_failure
-    return reply, None
+    return clamped, None
 
 
 def _log_absurd(reply: core.BackendReply) -> None:
@@ -303,11 +314,14 @@ def _existing(request: core.ModelRequest, model: str, path: Path, ledger: Path,
             return _wait_for_same_batch(request, model, path, ledger, key)
         raise core.RecordingConflict(
             f"錄製檔名被別的批次({pending.batch_id})佔住、還沒錄完:可能是中斷留下的佔位,確認沒有行程"
-            f"還在跑之後刪掉 {path.name} 再重跑") from None
+            f"還在跑之後刪掉 {path.name} 再重跑", sub_reason="recording_conflict",
+            recording_batch_id=pending.batch_id) from None
     except core.NoRecording as bad:
         raise core.RecordingConflict(f"錄製檔名已被佔住但讀不懂({bad}),這次不呼叫") from bad
     if existing is None or existing.batch_id != request.batch_id:
-        raise core.RecordingConflict(conflict)
+        raise core.RecordingConflict(conflict, sub_reason="recording_conflict",
+                                     recording_batch_id=None if existing is None
+                                     else existing.batch_id)
     return _replay(request, model, path, ledger, key, shared=True)
 
 
@@ -345,7 +359,12 @@ def _call(request: core.ModelRequest, settings: Settings,
                             request.max_output_tokens, request.timeout_seconds,
                             core.call_budget_nanousd(request, settings.model))
     started = time.monotonic()
-    reply, failure = _send(backend, call)
+    try:
+        reply, failure = _send(backend, call)
+    except BaseException as stopped:  # Ctrl-C、SIGTERM 等:已經預留(可能已經花錢),留下預留編號
+        stopped.add_note(f"預留 {reservation_id} 沒結算(呼叫途中被中斷)")
+        stopped.rtb_reservation_id = reservation_id  # type: ignore[attr-defined]
+        raise
     latency_ms = (time.monotonic() - started) * 1000
     done = settlement_for((reply, failure), settings.model, reserved, latency_ms)
     settled = _try_settle(ledger, reservation_id, done)

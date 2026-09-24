@@ -10,6 +10,7 @@
 
 import json
 import os
+import pwd
 import shlex
 import threading
 from pathlib import Path
@@ -86,18 +87,21 @@ def claude_json(  # noqa: PLR0913 - JSON 輸出的每一欄
 
 
 FAKE_VERSION = "9.9.9 (Claude Code)"
+# 產品那一支讀帳號家目錄的函式(匯入時記下;pytest 裡此時已被換成丟錯的那支,pytest 外就是產品的)與
+# 帳號資料庫的真家目錄:寫啟用紀錄前拿來比
+PRODUCT_ACCOUNT_HOME = view.account_home
+REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
 
 
 def write_verification(version=FAKE_VERSION, isolation="empty_home", **checks):
-    """在帳號家目錄(測試裡是共用夾具設的暫存目錄)寫一份即時模式啟用紀錄(預設全過、版本跟假 claude
-    一樣)。不在共用夾具底下(沒有帳號家目錄覆寫、或不在測試執行中)就拒寫:帳號家目錄不看 HOME,
-    在 pytest 外呼叫會寫進真的 ~/.rtb(代碼審第 2 輪:真的發生過)。"""
-    override = os.environ.get(view.ACCOUNT_HOME_ENV)
-    if not override or not os.environ.get("PYTEST_CURRENT_TEST"):
+    """在帳號家目錄(測試裡是共用夾具換上的暫存目錄)寫一份即時模式啟用紀錄(預設全過、版本跟假 claude
+    一樣)。帳號家目錄還是產品那一支(沒被夾具換掉,例如在 pytest 外呼叫),或算出來的路徑在真的家目錄
+    底下,就拒寫:帳號家目錄不看 HOME,在 pytest 外呼叫會寫進真的 ~/.rtb(代碼審第 2 輪:真的發生過)。"""
+    if view.account_home is PRODUCT_ACCOUNT_HOME:
         raise RuntimeError("write_verification 只能在 pytest 的共用夾具底下用(會寫帳號家目錄)")
     path = cc.verification_path()
-    if not path.is_relative_to(Path(override)):
-        raise RuntimeError(f"啟用紀錄不在測試的暫存家目錄底下,拒寫:{path}")
+    if path.is_relative_to(REAL_HOME):
+        raise RuntimeError(f"啟用紀錄會寫進真的家目錄,拒寫:{path}")
     record = {"claude_version": version, "isolation": isolation, "checked_on": "2026-09-24",
               "checks": {**dict.fromkeys(cc.REQUIRED_CHECKS, True), **checks}}
     path.parent.mkdir(parents=True, exist_ok=True)

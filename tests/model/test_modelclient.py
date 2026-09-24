@@ -235,7 +235,7 @@ def test_recordings_are_found_from_any_working_directory(tmp_path, monkeypatch):
                   recordings_dir=recordings, ledger=tmp_path / "l.sqlite")
     elsewhere = tmp_path / "somewhere" / "else"
     elsewhere.mkdir(parents=True)
-    code = ("from pathlib import Path\nfrom rtb import modelclient as mc\n"
+    code = _child_prelude() + ("from pathlib import Path\nfrom rtb import modelclient as mc\n"
             "req = mc.ModelRequest(caller=mc.Caller.EVAL_CANDIDATE, system='固定系統提示', "
             "user='問題', max_output_tokens=50, timeout_seconds=5.0)\n"
             "settings = mc.settings_from_env({}, None, None)\n"
@@ -296,7 +296,7 @@ def test_an_unsettled_reservation_counts_in_its_own_month(dirs, monkeypatch):
 def test_live_calls_always_book_into_the_one_ledger(tmp_path, monkeypatch, _isolated_home):
     home_ledger = _isolated_home / ".rtb" / "model-ledger.sqlite"
     assert mc.live_ledger_path() == home_ledger
-    code = "from rtb import modelclient as mc\nprint(mc.live_ledger_path())\n"
+    code = _child_prelude() + "from rtb import modelclient as mc\nprint(mc.live_ledger_path())\n"
     seen = set()
     for name in ("checkout-a", "checkout-b"):  # 兩份簽出、兩個不同的工作目錄
         copy = tmp_path / name
@@ -307,7 +307,8 @@ def test_live_calls_always_book_into_the_one_ledger(tmp_path, monkeypatch, _isol
         result = subprocess.run([sys.executable, "-c", code], cwd=cwd, env=env,
                                 capture_output=True, text=True, timeout=60, check=True)
         seen.add(result.stdout.strip())
-    # 子行程繼承共用夾具的帳號家目錄覆寫:兩份簽出都寫同一本(這支測試的暫存家目錄那一本)
+    # 帳號家目錄不看環境變數,子行程在自己的開頭換成這支測試的暫存家目錄:兩份簽出、兩個工作目錄都算出
+    # 同一本(路徑只跟帳號家目錄有關)
     assert seen == {str(home_ledger)}
     # 評估紀錄命令列即時跑(假 claude 在傳進去的 PATH 上):寫進家目錄那一本;即時模式不接受換帳檔
     from rtb.eval import record
@@ -475,3 +476,11 @@ def test_live_mode_needs_a_current_verification_record(tmp_path):
     (memory / "MEMORY.md").write_text("- 使用者的記憶", encoding="utf-8")
     refused = mode()
     assert refused.mode is mc.Mode.RECORDED and any("記憶" in n for n in refused.notices)
+
+
+def _child_prelude():
+    """子行程的程式碼開頭:換掉帳號家目錄的讀法(指到這支測試的暫存家目錄;子行程沒有共用夾具)。"""
+    from rtb import modelledger_view
+    from tests.conftest import child_prelude
+
+    return child_prelude(modelledger_view.account_home())

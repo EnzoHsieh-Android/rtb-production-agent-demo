@@ -53,6 +53,18 @@ def _gone(pid, limit=5.0):
     return not _alive(pid)
 
 
+@pytest.fixture
+def default_sigint():
+    """非互動 shell 的背景工作會把 SIGINT 設成忽略:測試期間裝回預設處理器,結束還原
+    (代碼審第 3 輪)。"""
+    previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
+@pytest.mark.usefixtures("default_sigint")
 def test_an_interrupted_call_kills_the_whole_group(tmp_path):
     """Ctrl-C(KeyboardInterrupt)打斷等待:例外照樣往外丟,但整組先殺掉、確認空了、暫存目錄刪掉。"""
     script = fake_claude(tmp_path / "c", sleep=30, grandchild=True)
@@ -77,7 +89,7 @@ def test_an_interrupted_call_kills_the_whole_group(tmp_path):
 def test_sigterm_during_a_call_cleans_up_the_same_way(tmp_path):
     """SIGTERM 在呼叫期間轉成例外,走同一條清理;用子行程跑,免得把整套測試殺掉。"""
     script = fake_claude(tmp_path / "c", sleep=30, grandchild=True)
-    code = (
+    code = _child_prelude() + (
         "import os, signal, sys, threading, time\n"
         "from pathlib import Path\n"
         "from rtb import modelclaude as cc\n"
@@ -103,16 +115,25 @@ def test_sigterm_during_a_call_cleans_up_the_same_way(tmp_path):
     assert not cwd.parent.exists()
 
 
-def test_the_login_check_counts_against_the_call_deadline(tmp_path):
-    """登入檢查花掉的時間要從這次呼叫的總期限扣掉,不是再給一份完整的逾時。"""
-    # 登入 2 秒、期限 3 秒:扣掉的話約 3 秒逾時;沒扣會拖到約 5 秒。間距拉大,機器忙時也分得出來
-    script = fake_claude(tmp_path / "c", auth_sleep=2.0, sleep=30)
-    settings = live(cc.ClaudeCodeBackend(script))
+def test_the_login_check_counts_against_the_call_deadline(tmp_path, monkeypatch):
+    """登入檢查花掉的時間要從這次呼叫的總期限扣掉,不是再給一份完整的逾時。直接看傳給本體呼叫的期限
+    (不比牆鐘時間:機器忙時假 claude 的啟動時間會蓋過差距,代碼審第 3 輪)。"""
+    script = fake_claude(tmp_path / "c", auth_sleep=0.5)
+    budgets = []
+    real = cc.run_claude
+
+    def recording(args, stdin_text, env, timeout_seconds, **kwargs):
+        budgets.append((args[1] if len(args) > 1 else "", timeout_seconds))
+        return real(args, stdin_text, env, timeout_seconds, **kwargs)
+
+    monkeypatch.setattr(cc, "run_claude", recording)
     started = time.monotonic()
-    with pytest.raises(mc.ModelTimeout):
-        mc.call_model(request(timeout_seconds=3.0), settings, recordings_dir=tmp_path,
-                      ledger=tmp_path / "l.sqlite")
-    assert time.monotonic() - started < 4.3
+    mc.call_model(request(timeout_seconds=8.0), live(cc.ClaudeCodeBackend(script)),
+                  recordings_dir=tmp_path, ledger=tmp_path / "l.sqlite")
+    (login, login_budget), (_, call_budget) = budgets
+    assert login == "auth" and login_budget == 8.0
+    assert call_budget <= 8.0 - 0.5  # 至少扣掉登入等待的 0.5 秒
+    assert call_budget >= 8.0 - (time.monotonic() - started) - 0.01
 
 
 def test_a_success_needs_the_success_subtype(tmp_path):
@@ -145,3 +166,11 @@ def test_stderr_stays_out_of_the_ledger_and_recordings(tmp_path, caplog):
     assert all(secret not in p.read_text(encoding="utf-8") for p in recordings.glob("*.json"))
     assert secret.encode() not in (tmp_path / "l.sqlite").read_bytes()
     assert any(secret in r.getMessage() for r in caplog.records)  # 本機日誌留得到
+
+
+def _child_prelude():
+    """子行程的程式碼開頭:換掉帳號家目錄的讀法(指到這支測試的暫存家目錄;子行程沒有共用夾具)。"""
+    from rtb import modelledger_view
+    from tests.conftest import child_prelude
+
+    return child_prelude(modelledger_view.account_home())

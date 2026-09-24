@@ -63,6 +63,7 @@ OVERRUN_STATES = frozenset({mc.SettlementState.OVERRUN.value,
                             mc.SettlementState.OVERRUN_UNSETTLED.value})
 UNCLASSIFIED = "unclassified"
 UNEXPECTED = "unexpected_error"  # 模型用戶端以外的例外(子原因)
+INTERRUPTED = "interrupted"  # 呼叫途中被中斷(Ctrl-C 等):已經預留、可能已經花錢,預留沒結算
 TOOL_USE = "tool_use"
 SHARED_NOTE = "共用前一列"
 # 使用者 2026-09-24 裁定:每次呼叫成本不超過 0.002 美元、延遲 p95 不超過 3 秒、失敗率不超過 1%;
@@ -120,6 +121,7 @@ class Attempt:
     settlement: str | None = None  # 已結算、未結算、超支;沒有預留就是 None
     unclassified: bool = False  # 暫時性服務錯誤認不出子類型
     tool_use: bool = False  # 回應帶著工具使用痕跡
+    reservation_id: int | None = None  # 被中斷時那筆沒結算的預留(要人核銷時對照)
 
 
 def _failed_attempt(failed: mc.ModelCallFailed, *, shared: bool) -> Attempt:
@@ -181,6 +183,12 @@ class ModelCandidate:
         except Exception:
             self.attempts.append(UNEXPECTED_ATTEMPT)
             raise
+        except BaseException as stopped:  # 被中斷:這一次已經預留,批次紀錄也要有它(代碼審第 3 輪)
+            self.attempts.append(Attempt(INTERRUPTED, None, False, 0, None, None, None, None,
+                                         INTERRUPTED, None,
+                                         reservation_id=getattr(stopped, "rtb_reservation_id",
+                                                                None)))
+            raise
         try:
             verdict = parse_verdict(result.text)
         except InvalidVerdict:
@@ -220,6 +228,7 @@ class BatchRow:
     input_tokens: int | None
     output_tokens: int | None
     latency_ms: float | None
+    reservation_id: int | None = None  # 被中斷那一列:沒結算的預留編號
 
 
 @dataclass(frozen=True)
@@ -243,7 +252,7 @@ def batch_row(scenario: Scenario, attempt: Attempt) -> BatchRow:
     return BatchRow(scenario.scenario_id, scenario.cell, attempt.outcome,
                     None if attempt.verdict is None else attempt.verdict.value, sent,
                     attempt.shared, attempt.list_nanousd, attempt.input_tokens,
-                    attempt.output_tokens, attempt.latency_ms)
+                    attempt.output_tokens, attempt.latency_ms, attempt.reservation_id)
 
 
 def batch_json(batch: BatchRecord) -> str:
@@ -263,7 +272,9 @@ def _count(value: object) -> bool:
 def _valid_row(row: dict[str, object]) -> bool:
     latency = row["latency_ms"]
     verdict = row["verdict"]
-    return (all(isinstance(row[name], str) for name in _ROW_TEXT)
+    reservation = row.get("reservation_id")
+    return ((reservation is None or _count(reservation))
+            and all(isinstance(row[name], str) for name in _ROW_TEXT)
             and all(row[name] is None or _count(row[name]) for name in _ROW_COUNTS)
             and _count(row["list_nanousd"])
             and isinstance(row["sent"], bool) and isinstance(row["shared"], bool)

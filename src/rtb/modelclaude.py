@@ -285,16 +285,15 @@ class CallTerminated(BaseException):
 
 @contextlib.contextmanager
 def _stop_signals_as_exception() -> Iterator[None]:
-    """呼叫期間(只在主執行緒能裝處理器)把 SIGTERM、SIGHUP、SIGQUIT 轉成 `CallTerminated`,
-    結束後還原。"""
-    if threading.current_thread() is not threading.main_thread():
-        yield
-        return
+    """呼叫期間把 SIGTERM、SIGHUP、SIGQUIT 轉成 `CallTerminated`,結束後還原(只在主執行緒呼叫,
+    見 `run_claude`)。原本就是忽略(SIG_IGN,例如 nohup 跑的即時評估)的訊號不動:使用者就是要撐過
+    斷線,照常跑完(代碼審第 3 輪)。"""
 
     def _raise(signum: int, _frame: object) -> None:
         raise CallTerminated(f"呼叫途中收到訊號 {signum}")
 
-    previous = {number: signal.signal(number, _raise) for number in CONVERTED_SIGNALS}
+    previous = {number: signal.signal(number, _raise) for number in CONVERTED_SIGNALS
+                if signal.getsignal(number) is not signal.SIG_IGN}
     try:
         yield
     finally:
@@ -333,9 +332,15 @@ def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout
                home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
     """在新的工作階段(新行程群組)跑一次 claude:工作目錄是新建的空暫存目錄,標準輸入、輸出與錯誤
     都是暫存檔(不用管線:孫行程繼承管線會把成功的呼叫拖到逾時);isolated_home 時子行程的 HOME 指向
-    另一個新建的空暫存目錄。起不來、成功、非 0 結束、逾時、等待途中被打斷(Ctrl-C、SIGTERM 轉成的
+    另一個新建的空暫存目錄。只准在主執行緒呼叫(背景執行緒是設定錯誤)。起不來、成功、非 0 結束、
+    逾時、等待途中被打斷(Ctrl-C、SIGTERM 轉成的
     例外、任何例外)五條路徑都照 `_finish` 的順序清理,最後一定刪掉暫存目錄([S939])。起不來丟設定錯誤,
     逾時丟逾時,被打斷清完照原樣往外丟;回(結束代碼, 標準輸出, 標準錯誤)。"""
+    if threading.current_thread() is not threading.main_thread():
+        # 背景執行緒裝不了訊號處理器:主行程收到 SIGHUP 等就直接結束、留下 claude 子行程。直接拒絕
+        # (確定沒起行程:設定錯誤、結算 0);要在背景跑模型呼叫就另起一個行程(代碼審第 3 輪)
+        raise ConfigError("Claude Code 後端只能在主執行緒呼叫(背景執行緒請另起行程)",
+                          sub_reason="not_main_thread")
     base = Path(tempfile.mkdtemp(prefix="rtb-claude-"))
     workdir, files = base / "work", base / "io"
     workdir.mkdir()
