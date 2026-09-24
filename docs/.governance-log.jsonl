@@ -3520,3 +3520,26 @@
 {"ts": "2026-09-24T14:57:23+08:00", "commit": "0aede51", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "0aede51922376cfe4d43422a4f586a2ce2f9cdbe"}
 {"ts": "2026-09-24T15:06:49+08:00", "commit": "782407e", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-24T15:06:50+08:00", "commit": "782407e", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "782407ecbc26141f155415497390b9561de304c7"}
+{"ts": "2026-09-24T14:20:28+08:00", "commit": "829d3de", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T14:20:29+08:00", "commit": "829d3de", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "829d3de5e12ad6b804be171f0170fdc3cb675871"}
+{"ts": "2026-09-24T14:46:05+08:00", "commit": "016d166", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase11B大模型接入_計劃.md"], "note": "door=high clauses=34 bound=0 red=0 green=0 weak=0 regress=0 no-run"}
+{"ts": "2026-09-24T14:46:21+08:00", "commit": "016d166", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T14:46:22+08:00", "commit": "016d166", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "016d166adff91ba5dd0b95fd930c9258a21146a7"}
+{"ts": "2026-09-24T15:04:09+08:00", "commit": "5eea278", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase11B大模型接入_計劃.md"], "note": "door=high clauses=39 bound=0 red=0 green=0 weak=0 regress=0 no-run"}
+{"ts": "2026-09-24T15:04:40+08:00", "commit": "5eea278", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase11B大模型接入_計劃.md"], "note": "door=high clauses=39 bound=0 red=0 green=0 weak=0 regress=0 no-run"}
+{"ts": "2026-09-24T15:04:52+08:00", "commit": "5eea278", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T15:04:53+08:00", "commit": "5eea278", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "5eea278642bf0afc4d0406da582d177e5d55711a"}
+{"ts": "2026-09-24T15:05:03+08:00", "commit": "5963b6b", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase11b大模型接入-cc"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T15:17:38+08:00", "commit": "5963b6b", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase11B大模型接入_計劃.md"], "note": "door=high clauses=39 bound=0 red=0 green=0 weak=0 regress=0 no-run"}
+{"ts": "2026-09-24T15:18:44+08:00", "commit": "5963b6b", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase11B大模型接入_計劃.md"], "note": "door=high clauses=40 bound=0 red=0 green=0 weak=0 regress=0 no-run"}
+{"ts": "2026-09-24T15:18:56+08:00", "commit": "5963b6b", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T15:18:57+08:00", "commit": "5963b6b", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "5963b6b82c6365ffbcf69e0b640fc398478d493b"}
+{"ts": "2026-09-24T15:19:07+08:00", "commit": "ef9980e", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase11b大模型接入-cc"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T15:28:03+08:00", "commit": "ef9980e", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase11B大模型接入_計劃.md"], "note": "door=high clauses=41 bound=0 red=0 green=0 weak=0 regress=0 no-run"}
+{"ts": "2026-09-24T15:28:17+08:00", "commit": "ef9980e", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T15:28:18+08:00", "commit": "ef9980e", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "ef9980e258a376ad78b392efd1ead7582a8fbf70"}
+{"ts": "2026-09-24T15:28:28+08:00", "commit": "47ecb0f", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["rtb-phase11b大模型接入-cc"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T15:28:29+08:00", "commit": "47ecb0f", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T15:28:30+08:00", "commit": "47ecb0f", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "47ecb0fd42fbdabcc4a27e44100abe408a49a81a"}
+{"ts": "2026-09-24T15:06:57+08:00", "commit": "008f028", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T15:19:51+08:00", "commit": "2325b18", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
