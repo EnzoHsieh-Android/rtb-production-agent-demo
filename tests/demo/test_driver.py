@@ -23,6 +23,12 @@ def state(tmp_path):
     writer.close()
 
 
+# 全部跑一次的測試換上一瞬間跑完的比較表產生器
+# (真的產生器由 tests/tools/test_forgery_comparison.py 測)
+QUICK_COMPARISON = [sys.executable, "-c",
+                    "print('{\"rows\": [], \"note\": \"測試\", \"seconds\": 0}')"]
+
+
 def _driver(tmp_path, state, scenarios=None):
     return Driver(tmp_path / "demos", "demo-1", DemoKeys.generate(), state,
                   user_env=os.environ, scenarios=scenarios)
@@ -482,6 +488,7 @@ def test_the_driver_runs_every_scenario_and_leaves_no_process_behind(tmp_path, s
     scenarios = {c: Scenario(c, c, 20, make(c)) for c in codes}
     demo = _driver(tmp_path, state, scenarios)
     demo.verifier_command = [sys.executable, "-c", "print('通過:假的驗證器')"]
+    demo.comparison_command = QUICK_COMPARISON  # 比較表另有測試;這裡不真跑
 
     verdicts, _ = demo.run_all(codes)
 
@@ -509,6 +516,7 @@ def test_a_full_run_ends_with_the_verifier_output_kept_verbatim(tmp_path, state,
     """全部跑一次的最後一步跑驗證器,原樣記下每一行、通過或擋下、擋下原因、時間與展示編號。"""
     demo = _quick(tmp_path, state)
     demo.verifier_command = [sys.executable, "-c", script]
+    demo.comparison_command = QUICK_COMPARISON  # 比較表另有測試;這裡不真跑
 
     _, outcome = demo.run_all(("F1",))
 
@@ -525,6 +533,7 @@ def test_a_full_run_ends_with_the_verifier_output_kept_verbatim(tmp_path, state,
 def test_a_verifier_that_hangs_is_recorded_as_not_passed(tmp_path, state):
     demo = _quick(tmp_path, state)
     demo.verifier_command = [sys.executable, "-c", "import time; time.sleep(30)"]
+    demo.comparison_command = QUICK_COMPARISON  # 比較表另有測試;這裡不真跑
     demo.verifier_timeout_seconds = 1
 
     _, outcome = demo.run_all(("F1",))
@@ -571,6 +580,7 @@ def test_an_incomplete_scenario_does_not_stop_the_full_run(tmp_path, state):
                  "F3": Scenario("F3", "F3", 20, ok("F3"))}
     demo = _driver(tmp_path, state, scenarios)
     demo.verifier_command = [sys.executable, "-c", "print('通過')"]
+    demo.comparison_command = QUICK_COMPARISON  # 比較表另有測試;這裡不真跑
 
     verdicts, outcome = demo.run_all(("F1", "F2", "F3"))
 
@@ -1244,3 +1254,66 @@ def test_a_confirmation_whose_signing_failed_is_not_waited_for_or_called_unconfi
     failed = _ConfirmStub(stop_during_wait=False, approved_at_close=True, sign_failed=True)
     with pytest.raises(ScenarioFailed, match="有人確認但簽發失敗"):
         driver_module._wait_for_confirmation(failed, request, 5)
+
+
+# ---- 增量 3:前後比較表 ----
+def _fake_comparison(rows=(("只填已完成", "pytest 結束代碼 0:2 passed", "擋下:缺 result"),)):
+    import json
+
+    payload = json.dumps({"rows": [dict(zip(("forgery", "without_verifier", "with_verifier"),
+                                            row, strict=True)) for row in rows],
+                          "note": "比的是有沒有機械驗證", "seconds": 1.5}, ensure_ascii=False)
+    return [sys.executable, "-c", f"print({payload!r})"]
+
+
+def _comparison(tmp_path):
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        return reader.comparison_run("demo-1"), reader.latest_verifier_run()
+    finally:
+        reader.close()
+
+
+def test_a_full_run_records_the_comparison_after_the_verifier(tmp_path, state):
+    """[S1041] 全部跑一次的最後一步(驗證器之後)產生前後比較表,記進展示狀態(每列兩欄、說明、
+    花了幾秒)。"""
+    demo = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 5, lambda _w: "好")})
+    demo.verifier_command = ["true"]
+    demo.comparison_command = _fake_comparison()
+    demo.run_all(("FX",))
+    comparison, verifier = _comparison(tmp_path)
+    assert comparison.rows == (("只填已完成", "pytest 結束代碼 0:2 passed", "擋下:缺 result"),)
+    assert comparison.note == "比的是有沒有機械驗證" and comparison.seconds == 1.5
+    assert comparison.generated_at >= verifier.verified_at
+
+
+def test_a_comparison_that_fails_or_hangs_does_not_break_the_demo(tmp_path, state):
+    """比較表產生失敗或逾時:照實寫「這次沒產生:原因」,整次展示照樣跑完;逾時連它起的孫行程一起收掉。"""
+    marker = tmp_path / "grandchild.pid"
+    demo = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 5, lambda _w: "好")})
+    demo.verifier_command = ["true"]
+    demo.comparison_command = [sys.executable, "-c", (
+        "import subprocess, time\nchild = subprocess.Popen(['sleep', '60'])\n"
+        f"open({str(marker)!r}, 'w').write(str(child.pid))\ntime.sleep(60)\n")]
+    demo.comparison_timeout_seconds = 2
+    started = time.monotonic()
+    verdicts, _ = demo.run_all(("FX",))
+    assert time.monotonic() - started < 30 and verdicts[0].status == DONE
+    comparison, _ = _comparison(tmp_path)
+    assert comparison.rows == () and comparison.note.startswith("這次沒產生:")
+    assert "逾時" in comparison.note
+    time.sleep(0.5)
+    assert not _alive(int(marker.read_text()))
+    failed = driver_module.run_comparison(["false"], "demo-2", os.environ, 5)
+    assert failed.rows == () and failed.note.startswith("這次沒產生:")
+    unreadable = driver_module.run_comparison([sys.executable, "-c", "print('不是 JSON')"],
+                                              "demo-2", os.environ, 5)
+    assert unreadable.rows == () and "讀不懂" in unreadable.note
+
+
+def test_a_cancelled_demo_generates_no_comparison(tmp_path, state):
+    demo = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 5, lambda _w: "好")})
+    demo.comparison_command = _fake_comparison()
+    demo.cancel()
+    demo.run_all(("FX",))
+    assert _comparison(tmp_path)[0] is None

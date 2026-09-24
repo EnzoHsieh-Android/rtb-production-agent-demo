@@ -40,6 +40,7 @@ from rtb.demo.launcher import FaultRequest, Process, Role, StartFailed
 from rtb.demo.observe import Observer, PathBuilder, Timeline, all_pages, missing_from_path
 from rtb.demo.state_store import (
     ChangeRecord,
+    ComparisonRun,
     ConfirmationRequest,
     ScenarioDetails,
     StateWriter,
@@ -1164,6 +1165,60 @@ def run_verifier(command: Sequence[str], demo_id: str, timeout_seconds: float,
     return VerifierRun(demo_id, _now(), popen.returncode == 0, kept, reasons)
 
 
+COMPARISON_TIMEOUT_SECONDS = 600.0  # 前後比較表(六列,本機約 2.4 秒)的外層上限;每一步另有自己的上限
+NOT_GENERATED = "這次沒產生:"
+
+
+def default_comparison_command() -> list[str]:
+    """專案內的前後比較表產生器(tools/forgery_comparison.py;在 repo 根以模組方式跑)。"""
+    return [sys.executable, "-m", "tools.forgery_comparison"]
+
+
+def run_comparison(command: Sequence[str], demo_id: str, env: Mapping[str, str],
+                   timeout_seconds: float, stop: threading.Event | None = None) -> ComparisonRun:
+    """跑前後比較表產生器、讀它印的一行 JSON(增量 3,[S1041])。它跑在自己的行程群組,逾時或整次展示
+    被取消時先 SIGTERM 整組(產生器收到會先收掉正在跑的那一步)再硬殺;起不來、逾時、結束代碼不是 0、
+    輸出讀不懂,都記成「這次沒產生:原因」,列是空的,不造結果,不拖垮整次展示。"""
+    started = time.monotonic()
+    try:
+        popen = subprocess.Popen(list(command), cwd=PROJECT_ROOT, env=dict(env), text=True,  # noqa: S603 - 指令是專案內固定的產生器
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 start_new_session=True)
+    except OSError as broken:
+        return ComparisonRun(demo_id, _now(), (), f"{NOT_GENERATED}起不來({broken})", None)
+    chunks: list[str] = []
+    reader = threading.Thread(target=lambda: chunks.extend(popen.stdout or ()), daemon=True)
+    reader.start()
+    deadline = time.monotonic() + timeout_seconds
+    ended: str | None = None
+    while popen.poll() is None:
+        if stop is not None and stop.is_set():
+            ended = "被取消(整次展示停止)"
+        elif time.monotonic() >= deadline:
+            ended = f"逾時({timeout_seconds:.0f} 秒)"
+        if ended is not None:
+            _end_group(popen)
+            break
+        time.sleep(0.1)
+    reader.join(VERIFIER_STOP_SECONDS)
+    seconds = round(time.monotonic() - started, 1)
+    if ended is not None:
+        return ComparisonRun(demo_id, _now(), (), f"{NOT_GENERATED}{ended}", seconds)
+    if popen.returncode != 0:
+        return ComparisonRun(demo_id, _now(), (),
+                             f"{NOT_GENERATED}產生器結束代碼 {popen.returncode}", seconds)
+    try:
+        body = json.loads("".join(chunks))
+        rows = tuple((str(r["forgery"]), str(r["without_verifier"]), str(r["with_verifier"]))
+                     for r in body["rows"])
+        note = str(body["note"])
+        seconds = float(body.get("seconds", seconds))
+    except (ValueError, KeyError, TypeError) as broken:
+        return ComparisonRun(demo_id, _now(), (),
+                             f"{NOT_GENERATED}產生器的輸出讀不懂({type(broken).__name__})", seconds)
+    return ComparisonRun(demo_id, _now(), rows, note, seconds)
+
+
 _PACE_GOAL = f"讓花太慢的廣告跟上進度:加一成預算。限制:{_LIMITS}"
 SCENARIOS: dict[str, Scenario] = {
     "F1": Scenario("F1", "送出去沒有回音,平台到底改了沒?", 90, _run_f1,
@@ -1207,6 +1262,8 @@ class Driver:
         self.demo_id = demo_id
         self.verifier_command = default_verifier_command()
         self.verifier_timeout_seconds = VERIFIER_TIMEOUT_SECONDS
+        self.comparison_command = default_comparison_command()
+        self.comparison_timeout_seconds = COMPARISON_TIMEOUT_SECONDS
 
     def cancel(self) -> None:
         """停掉整次展示:不再開下一個情境,正在跑的情境也收掉。"""
@@ -1218,14 +1275,19 @@ class Driver:
         return [self.run_one(code) for code in codes if not self.stop.is_set()]
 
     def run_all(self, codes: Sequence[str] = ALL_CODES) -> tuple[list[Verdict], VerifierRun | None]:
-        """全部跑一次:依序跑每個情境(一個沒跑完不影響下一個),最後跑一次驗證器並記進展示狀態。
-        驅動程式的情境斷言跟驗證器是兩件事,各自記。展示被取消就不跑驗證器。"""
+        """全部跑一次:依序跑每個情境(一個沒跑完不影響下一個),最後跑一次驗證器、再產生前後比較表,
+        各自記進展示狀態。驅動程式的情境斷言跟驗證器是兩件事,各自記。展示被取消就兩個都不跑。
+        比較表的產生時間算在全部跑一次裡(增量 3,[S1041])。"""
         verdicts = self.run(codes)
         if self.stop.is_set():
             return verdicts, None
         outcome = run_verifier(self.verifier_command, self.demo_id,
                                self.verifier_timeout_seconds, self.stop)
         self.state.record_verifier_run(outcome)
+        if not self.stop.is_set():
+            self.state.record_comparison(run_comparison(
+                self.comparison_command, self.demo_id, self.user_env,
+                self.comparison_timeout_seconds, self.stop))
         return verdicts, outcome
 
     def run_one(self, code: str) -> Verdict:

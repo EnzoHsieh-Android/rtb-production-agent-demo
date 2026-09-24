@@ -18,7 +18,6 @@ from pathlib import Path
 
 import pytest
 from tools.forgery_demos import (
-    EVIL_CONFTEST_HOOK,
     FILES,
     HARNESS,
     NODE_PAUSE,
@@ -28,6 +27,7 @@ from tools.forgery_demos import (
     TEST_FAULTS,
     TEST_SERVER,
     manifest,
+    rehashed_conftest_rewrite,
     set_raw,
     sha,
     write_files,
@@ -1475,12 +1475,7 @@ def test_every_forgery_in_the_plan_is_blocked(repo, forge, expected):
 def test_a_conftest_that_rewrites_results_and_is_rehashed_passes_which_is_the_ceiling(repo):
     """天花板釘住:作者連 conftest 的雜湊一起重算,驗證器擋不住(機械上看不出重看過還是重貼),
     歸審查員;清單差異會進提交,審查員看得到。這支測試是紀錄,不是要驗證器擋。"""
-    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
-        "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
-    conftest = repo / "tests/dsp/conftest.py"
-    conftest.write_text(conftest.read_text(encoding="utf-8") + EVIL_CONFTEST_HOOK,
-                        encoding="utf-8")
-    write_manifests(repo)  # 重算雜湊
+    rehashed_conftest_rewrite(repo)  # 跟前後比較表天花板那一列同一份改法(Phase 12 增量 3)
 
     code, output = verify(repo)
 

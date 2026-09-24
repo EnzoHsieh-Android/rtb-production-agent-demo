@@ -8,6 +8,7 @@ import hashlib
 import http.client
 import os
 import re
+import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -60,6 +61,8 @@ def _factory(gate=None, crash=False, verifier=("true",)):
         scenarios = {code: opened.scenario(code) for code in driver_module.ALL_CODES}
         made = cls(base, demo_id, keys, state, user_env=os.environ, scenarios=scenarios)
         made.verifier_command = list(verifier)
+        made.comparison_command = [sys.executable, "-c",  # 比較表另有測試;這裡不真跑
+                                   "print('{\"rows\": [], \"note\": \"測試\", \"seconds\": 0}')"]
         return made
     return make
 
@@ -1135,3 +1138,13 @@ def test_an_interrupted_wait_during_shutdown_keeps_waiting(service, monkeypatch)
     service.stop(timeout=20)
     monkeypatch.undo()
     assert len(calls) >= 2 and not thread.is_alive()
+
+
+# ---- 增量 3:前後比較表 ----
+def test_a_rerun_keeps_the_comparison_from_the_last_full_run(service):
+    """[S1041] 單一情境重跑不重新產生比較表,沿用上一次全部跑一次的那一份並標明取自哪一次
+    (同驗證器)。"""
+    full, _ = _full_then_rerun(service, "F3")
+    comparison = service.state().comparison
+    assert comparison is not None and comparison.note.startswith("測試")
+    assert f"展示編號 {full}" in comparison.note

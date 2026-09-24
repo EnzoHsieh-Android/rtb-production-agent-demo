@@ -1357,3 +1357,25 @@ def test_the_page_uses_only_public_names_from_the_flow_drawing() -> None:
                 if isinstance(node, ast.ImportFrom) and node.module
                 and node.module.startswith("rtb.demo") for alias in node.names]
     assert imported and not [name for name in imported if name.startswith("_")]
+
+
+# ---- 增量 3:前後比較表 ----
+def test_the_report_shows_the_comparison_side_by_side() -> None:
+    """[S1041] 報告裡的前後比較表:每一列造假手法、沒有自動查核、有自動查核並排,加說明;外來文字跳脫。
+    主頁不放(使用者裁定補充資訊只留在報告)。"""
+    from rtb.demo.state import Comparison, ComparisonRow
+
+    comparison = Comparison((ComparisonRow("只填已完成", "pytest 結束代碼 0:2 passed",
+                                           "擋下:缺 result"),
+                             ComparisonRow(HOSTILE, "pytest 結束代碼 0:2 passed", "通過")),
+                            "比的是有沒有機械驗證")
+    state = replace(make_demo_state(), comparison=comparison)
+    report = render_report(state)
+    table = report.split("有無自動查核的差別", 1)[1]
+    assert "<th>沒有自動查核</th><th>有自動查核</th>" in table
+    assert ("<tr><td>只填已完成</td><td>pytest 結束代碼 0:2 passed</td><td>擋下:缺 result</td></tr>"
+            in table)
+    assert "比的是有沒有機械驗證" in table and "<script>" not in report
+    assert "有無自動查核的差別" not in render_page(state, form_token="t")
+    empty = render_report(replace(state, comparison=None))
+    assert "前後比較這次還沒有產生" in empty

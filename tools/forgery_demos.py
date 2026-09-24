@@ -9,6 +9,8 @@
 
 import hashlib
 import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -308,3 +310,38 @@ code_changed_hash_not = _code_changed_hash_not
 claim_wider_than_evidence = _claim_wider_than_evidence
 skipped_test = _skipped_test
 conftest_changed_without_rehash = _conftest_changed_without_rehash
+
+
+# ── 前後比較表的六列(Phase 12 增量 3,[S1041])──────────────────────────────────
+def rehashed_conftest_rewrite(repo: Path) -> None:
+    """天花板:測試先改成會失敗,conftest 加改結果的鉤子,而且連雜湊一起重算。驗證器擋不住(機械上看不出
+    重看過還是重貼),歸審查員;清單差異會進提交,審查員看得到。"""
+    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
+        "def test_pause():\n    assert act", "def test_pause():\n    assert not act")})
+    conftest = repo / "tests/dsp/conftest.py"
+    conftest.write_text(conftest.read_text(encoding="utf-8") + EVIL_CONFTEST_HOOK,
+                        encoding="utf-8")
+    write_manifests(repo)  # 重算雜湊
+
+
+@dataclass(frozen=True)
+class Forgery:
+    """一種造假:給人看的說法、在小 repo 上的改法、驗證器擋下時原因裡一定會出現的字(天花板是
+    空的)。"""
+
+    label: str
+    forge: Callable[[Path], None]
+    expected: str | None
+
+
+FORGERIES = (
+    Forgery("只寫「已完成」,沒有附任何證據", only_says_done, "result"),
+    Forgery("改了程式,沒重算雜湊", code_changed_hash_not, "src/rtb/kit.py"),
+    Forgery("宣稱範圍比證據大(登錄表多了作廢,卻沒有作廢的證據)", claim_wider_than_evidence,
+            "void"),
+    Forgery("證據測試被跳過", skipped_test, NODE_PAUSE),
+    Forgery("conftest 偷改測試結果,沒重算雜湊", conftest_changed_without_rehash,
+            "tests/dsp/conftest.py"),
+)
+CEILING = Forgery("conftest 偷改測試結果,連雜湊一起重算(有驗證器也擋不住,這部分歸人審)",
+                  rehashed_conftest_rewrite, None)
