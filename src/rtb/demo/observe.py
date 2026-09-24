@@ -14,6 +14,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from rtb.analyzer.policy import NoActionReason
+from rtb.analyzer.task_store import ReplanReason
 from rtb.demo import flow
 from rtb.demo.state_store import DecisionRow
 from rtb.domain.attempt import AttemptState, OutcomeCode
@@ -140,7 +141,7 @@ class Observer:
         self._after: dict[str, int] = {}
 
     def poll(self) -> list[SourceEvent]:
-        return [*self._analyzer(), *self._inbox_events(), *self._attempts()]
+        return [*self._analyzer(), *self._follow_ups(), *self._inbox_events(), *self._attempts()]
 
     def _rows(self, path: Path, table: str, columns: str) -> list[tuple[object, ...]]:
         """這張表 rowid 大於上次讀到的那些列;第一個欄位是 rowid。"""
@@ -173,10 +174,31 @@ class Observer:
             conn.close()
         return None if row is None else str(row[0])
 
+    def _replanned(self, task_id: str) -> bool:
+        conn = connect_read_only(self._analyzer_db)
+        try:
+            return conn.execute("SELECT 1 FROM follow_ups WHERE original_task_id = ?",
+                                (task_id,)).fetchone() is not None
+        except sqlite3.OperationalError:
+            return False
+        finally:
+            conn.close()
+
+    def _follow_ups(self) -> list[SourceEvent]:
+        """擋下或過期後開新工作:接續關係跟原任務結案那一列同一個交易寫。"""
+        return [SourceEvent(_time(str(at)), f"analyzer.follow_ups#{original}",
+                            _member(ReplanReason, str(reason)) or (ReplanReason, ""), None,
+                            f"task:{original}")
+                for _, original, reason, at in self._rows(
+                    self._analyzer_db, "follow_ups", "original_task_id, reason, written_at")]
+
     def _analyzer(self) -> list[SourceEvent]:
         events = []
         for _, task_id, seq, state, at in self._rows(self._analyzer_db, "tasks",
                                                     "task_id, seq, state, written_at"):
+            # 擋下之後另開新工作:由「開新工作」那筆事件表示,不另外記一個「這件工作結束」
+            if state == TaskState.BLOCKED.value and self._replanned(str(task_id)):
+                continue
             detail, missing = None, False
             # 原因跟這一列同一個交易寫:看得到這列就看得到原因
             if state == TaskState.NO_ACTION.value:

@@ -109,3 +109,27 @@ def test_a_second_demo_in_the_same_file_is_kept_apart(tmp_path, writer):
         assert reader.scenario_runs("demo-2")[0].reason == "行程起不來"
     finally:
         reader.close()
+
+
+def test_a_confirmation_request_keeps_every_source_the_server_signs_from(tmp_path, writer):
+    """[S1033] 簽一張確認要的全部來源由驅動程式記進展示狀態,伺服器從這裡讀,不經表單。"""
+    from rtb.demo.state_store import ConfirmationRequest
+
+    request = ConfirmationRequest(
+        task_id="t007", revision=1, proposal_hash="h" * 64, tenant_config="/root/F7/tenants.json",
+        stage="aggregate_limit_reached", max_increase=10, decision_expires_at=T0,
+        numbers=(("金額", "100 → 110"), ("關卡", "全部加起來超過總上限"), ("租戶", "t-default")))
+    writer.start_scenario("F7", T0)
+    writer.set_confirmation("F7", request)
+
+    reader = _reader(tmp_path)
+    try:
+        assert reader.confirmation("demo-1") == ("F7", request)
+    finally:
+        reader.close()
+    writer.clear_confirmation()
+    reader = _reader(tmp_path)
+    try:
+        assert reader.confirmation("demo-1") is None
+    finally:
+        reader.close()

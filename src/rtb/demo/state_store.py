@@ -33,6 +33,8 @@ CREATE INDEX IF NOT EXISTS decisions_by_scenario ON decisions (demo_id, code, id
 CREATE TABLE IF NOT EXISTS current_node (
     demo_id TEXT PRIMARY KEY, code TEXT NOT NULL, node TEXT NOT NULL, entered_at TEXT NOT NULL,
     decision_id INTEGER);
+CREATE TABLE IF NOT EXISTS confirmations (
+    demo_id TEXT PRIMARY KEY, code TEXT NOT NULL, request_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS node_counts (
     demo_id TEXT NOT NULL, code TEXT NOT NULL, node TEXT NOT NULL, count INTEGER NOT NULL,
     PRIMARY KEY (demo_id, code, node));
@@ -59,6 +61,34 @@ class DecisionRow:
     reason: str
     at: datetime
     origin: str  # 哪一顆資料庫的哪個事件編號或哪一列
+
+
+@dataclass(frozen=True)
+class ConfirmationRequest:
+    """等人確認的那一筆:簽一張確認要的全部來源(設計審 r2 n5)與給人逐項勾的數字快照。
+    伺服器從這裡讀,不經表單;金鑰不在這裡(只在伺服器記憶體)。"""
+
+    task_id: str
+    revision: int
+    proposal_hash: str
+    tenant_config: str
+    stage: str
+    max_increase: int
+    decision_expires_at: datetime
+    numbers: tuple[tuple[str, str], ...]
+
+
+def _request_json(request: ConfirmationRequest) -> str:
+    return json.dumps({**request.__dict__,
+                       "decision_expires_at": _iso(request.decision_expires_at),
+                       "numbers": [list(pair) for pair in request.numbers]})
+
+
+def _request_from(text: str) -> ConfirmationRequest:
+    body = json.loads(text)
+    body["decision_expires_at"] = datetime.fromisoformat(body["decision_expires_at"])
+    body["numbers"] = tuple((str(a), str(b)) for a, b in body["numbers"])
+    return ConfirmationRequest(**body)
 
 
 @dataclass(frozen=True)
@@ -129,6 +159,16 @@ class StateWriter:
             conn.execute("INSERT OR REPLACE INTO current_node VALUES (?, ?, ?, ?, ?)",
                          (self.demo_id, code, row.node, _iso(row.at), cursor.lastrowid))
 
+    def set_confirmation(self, code: str, request: ConfirmationRequest) -> None:
+        with self._write() as conn:
+            conn.execute("INSERT OR REPLACE INTO confirmations VALUES (?, ?, ?)",
+                         (self.demo_id, code, _request_json(request)))
+
+    def clear_confirmation(self) -> None:
+        """確認逾時或已確認:清掉確認表單(設計審 r3 m4),確認頁與送出確認之後一律拒。"""
+        with self._write() as conn:
+            conn.execute("DELETE FROM confirmations WHERE demo_id = ?", (self.demo_id,))
+
     def set_node_counts(self, code: str, counts: dict[str, int]) -> None:
         with self._write() as conn:
             conn.execute("DELETE FROM node_counts WHERE demo_id = ? AND code = ?",
@@ -187,6 +227,11 @@ class StateReader:
             (decision_id,)).fetchone()
         return CurrentNode(code, node, datetime.fromisoformat(entered),
                            None if last is None else _decision(last))
+
+    def confirmation(self, demo_id: str) -> tuple[str, ConfirmationRequest] | None:
+        row = self._conn.execute("SELECT code, request_json FROM confirmations WHERE demo_id = ?",
+                                 (demo_id,)).fetchone()
+        return None if row is None else (str(row[0]), _request_from(str(row[1])))
 
     def node_counts(self, demo_id: str, code: str) -> tuple[tuple[str, int], ...]:
         return tuple((node, int(n)) for node, n in self._conn.execute(

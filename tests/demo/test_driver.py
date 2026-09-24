@@ -4,6 +4,7 @@ import os
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -235,3 +236,137 @@ def test_an_executor_that_exits_normally_is_not_taken_for_a_crash():
     stub = _Stub(exit_code=0)
     with pytest.raises(ScenarioFailed, match="不是猝死"):
         driver_module.World.crash_executor(stub, 1)
+
+
+@pytest.mark.parametrize("code", ["F4", "F5", "F6"])
+def test_f4_to_f6_run_to_the_expected_dispositions(tmp_path, state, code):
+    """F4 搶先改廣告、F5 對抗性名稱、F6 停下等人處理後重新送入:真的跑,照預期處置跑完。"""
+    verdict = _driver(tmp_path, state).run_one(code)
+
+    assert verdict.status == DONE, verdict.reason
+
+
+def test_a_real_f4_path_matches_the_recorded_dispositions(tmp_path, state):
+    """[S1009] F4 的判斷紀錄經過擋下與開新工作,每筆帶來源。"""
+    assert _driver(tmp_path, state).run_one("F4").status == DONE
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        decisions = reader.decisions("demo-1", "F4")
+    finally:
+        reader.close()
+    blocked = next(d for d in decisions if d.node == "x_blocked")
+    assert blocked.outcome == "BlockCode.VERSION_CHANGED"
+    assert any(d.node == "a_followup" and d.origin.startswith("analyzer.follow_ups#")
+               for d in decisions)
+
+
+def _small_f7(tmp_path, state, cap, approve=None):
+    """F7 縮成 30 個廣告、門檻 124(放行 12 個)跑行為;正式情境的規模另外驗。"""
+    run = driver_module.make_f7(campaigns=30, limit=124, workers=3, confirm_cap_seconds=cap)
+    demo = _driver(tmp_path, state, {"F7": Scenario("F7", "F7", 3, run)})
+    stop = threading.Event()
+    if approve is not None:
+        threading.Thread(target=approve, args=(tmp_path, demo, stop), daemon=True).start()
+    try:
+        return demo.run_one("F7"), demo
+    finally:
+        stop.set()
+
+
+def _approve_when_asked(tmp_path, demo, stop):
+    """扮伺服器:讀展示狀態裡的確認請求,在伺服器行程內簽發並寫進 F7 的執行端暫存資料庫。"""
+    from rtb.capabilitykit import APPROVAL_KEY_ENV
+    from rtb.executor import approval
+    from rtb.executor.capability_signer import load_tenants, tenant_for
+    from rtb.executor.inbox_store import BlockCode, InboxStore
+
+    while not stop.is_set():
+        reader = StateReader(tmp_path / "state.db")
+        try:
+            pending = reader.confirmation("demo-1")
+        finally:
+            reader.close()
+        if pending is not None:
+            _, request = pending
+            store = InboxStore(demo.root / "F7" / "inbox.db")
+            try:
+                proposal = store.find_proposal(request.task_id, request.revision).message.proposal
+                tenant = tenant_for(load_tenants(Path(request.tenant_config)),
+                                    proposal.campaign_id)
+                now = datetime.now().astimezone()
+                issued = int(now.timestamp())
+                token = approval.issue(
+                    demo.keys.signing_bytes(APPROVAL_KEY_ENV), proposal, BlockCode(request.stage),
+                    tenant, approver="demo-operator", max_increase=request.max_increase,
+                    issued_at=issued, expires_at=issued + 300)
+                store.add_approval(proposal, BlockCode(request.stage), approval.approval_id(token),
+                                   token, now)
+            finally:
+                store.close()
+            return
+        stop.wait(0.2)
+
+
+def test_f7_is_done_when_the_confirmed_one_is_written(tmp_path, state):
+    """[S1047] 確認的那一筆寫進平台、其餘維持等人確認,F7 照預期跑完;逐廣告核對放行 12 + 1 個。"""
+    verdict, _ = _small_f7(tmp_path, state, cap=60, approve=_approve_when_asked)
+
+    assert verdict.status == DONE, verdict.reason
+
+
+def test_waiting_for_approval_does_not_count_against_the_f7_time_limit(tmp_path, state):
+    """[S1008] 情境總時限 3 秒,等人確認 5 秒:等待不算進總時限;沒人確認就標「沒有人確認」、
+    清掉確認表單。"""
+    verdict, _ = _small_f7(tmp_path, state, cap=5)
+
+    assert verdict.status == INCOMPLETE
+    assert verdict.reason == "沒有人確認"
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        assert reader.confirmation("demo-1") is None
+    finally:
+        reader.close()
+
+
+def test_f7_shows_how_many_are_at_each_node(tmp_path, state):
+    """[S1057] F7 帶各節點筆數:放行的在完成、其餘在等人確認。"""
+    _small_f7(tmp_path, state, cap=1)
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        counts = dict(reader.node_counts("demo-1", "F7"))
+    finally:
+        reader.close()
+    assert counts == {"x_done": 12, "x_wait_approval": 18}
+
+
+def test_f7_is_checked_campaign_by_campaign():
+    """[S1058] 平台上的放行要跟收件口記為完成的那一批一一對上、每個恰好加一成、數量等於門檻
+    算出的。"""
+    def world(writes, done):
+        stub = _Stub()
+        stub.all_platform_writes = lambda: writes
+        stub.query = lambda _db, _sql, _params=(): [(c,) for c in done]
+        return stub
+
+    ok = world([("a", "update_budget", 110), ("b", "update_budget", 110)], ["a", "b"])
+    driver_module._check_campaign_by_campaign(ok, ["a", "b", "c"], 2)
+    for writes, done, passes in [
+        ([("a", "update_budget", 110)], ["a", "b"], 1),  # 收件口說完成、平台沒寫
+        ([("a", "update_budget", 120)], ["a"], 1),  # 加額不對
+        ([("a", "update_budget", 110), ("a", "update_budget", 110)], ["a"], 1),  # 寫兩次
+        ([("a", "update_budget", 110), ("c", "update_budget", 110)], ["a", "c"], 1),  # 數量不對
+    ]:
+        with pytest.raises(ScenarioFailed):
+            driver_module._check_campaign_by_campaign(world(writes, done), ["a", "b", "c"],
+                                                      passes)
+
+
+def test_the_demo_f7_is_scaled_down_and_says_so():
+    """[S1012] 展示的 F7 是 300 個廣告、門檻 1234(3000 個、12345 的等比例縮小)、8 個工作者,
+    打真的模擬 DSP 子行程。"""
+    assert (driver_module.F7_CAMPAIGNS, driver_module.F7_LIMIT, driver_module.F7_WORKERS) == (
+        300, 1234, 8)
+    assert driver_module.F7_LIMIT * 10 + 5 == 12_345
+    import inspect
+    source = inspect.getsource(driver_module.make_f7)
+    assert "world.start_platform()" in source

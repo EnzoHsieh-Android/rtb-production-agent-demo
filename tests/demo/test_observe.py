@@ -91,3 +91,34 @@ def test_an_extra_allowed_loop_still_counts_as_done(observed, missing):
     """[S1064] 必經節點要照順序出現;允許的回頭(稍後再查)多出現不算對不上。"""
     required = ["x_write", "x_unknown", "x_resend", "x_verify", "x_done"]
     assert missing_from_path(observed, required) == missing
+
+
+def test_a_follow_up_shows_the_new_task_not_a_dead_end(tmp_path):
+    """擋下後開新工作:觀察到的是「開一件新工作」那條邊,不是「被擋下,這件工作結束」。"""
+    from rtb.analyzer.task_store import FollowUp, ReplanReason, TaskStore
+    from rtb.demo.observe import Observer
+
+    store = TaskStore(tmp_path / "analyzer.db")
+    try:
+        now = datetime.now(UTC)
+        store.create_task("t1", "c1", now)
+        for state in (TaskState.COLLECTING_EVIDENCE, TaskState.ANALYZING):
+            store.commit_step("t1", store.latest("t1").seq, state, now)
+        from tests.analyzer.conftest import make_proposal
+        store.commit_step("t1", store.latest("t1").seq, TaskState.PROPOSED, now,
+                          proposal=make_proposal(task_id="t1", campaign_id="c1"))
+        store.commit_step("t1", store.latest("t1").seq, TaskState.HANDED_OFF, now,
+                          proposal=make_proposal(task_id="t1", campaign_id="c1"))
+        store.commit_step("t1", store.latest("t1").seq, TaskState.BLOCKED, now,
+                          error_detail="blocked=version_changed",
+                          follow_up=FollowUp(ReplanReason.VERSION_CHANGED))
+    finally:
+        store.close()
+
+    rows = PathBuilder().add(Observer(tmp_path / "analyzer.db", tmp_path / "none.db").poll())
+
+    nodes = [r.node for r in rows]
+    assert "a_followup" in nodes and "a_blocked_end" not in nodes
+    follow = next(r for r in rows if r.node == "a_followup")
+    assert follow.edge == ("x_blocked", "a_followup")
+    assert follow.origin.startswith("analyzer.follow_ups#")
