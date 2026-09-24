@@ -1,0 +1,19 @@
+{
+ "round": "r2",
+ "seat": "驗收-sonnet",
+ "lens": "前輪驗收:第 1 輪 43 條是否真的折對、有沒有折出新矛盾",
+ "materials": [
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r2-snapshot.md",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r2-delta.patch",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-intake.md",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-繞過-sonnet.md",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-外家-codex.md",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-宣稱證據-sonnet.md",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-可測重現-sonnet.md",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-邊界-sonnet.md",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-接手-sonnet.md",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-架構對齊-sonnet.md"
+ ],
+ "auditor": "sonnet",
+ "snapshot_sha256": "7fa390df6fea0de62515c64f029d6161d8a79f611d3b7a5f2715cd2232c7fceb"
+}
