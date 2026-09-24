@@ -1,0 +1,68 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1-啟動與故障",
+  "lens": "啟動器、金鑰、故障交付與子行程生命週期",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2-分析端驅動",
+  "lens": "分析端驅動命令列、任務存放、不提案原因、流程圖",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3-測試",
+  "lens": "測試足不足、變異能不能被抓、合約綁定",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "資安-opus",
+  "lens": "能被利用的洞:金鑰、故障設定、環境白名單、路徑",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "跟既有寫法一不一樣、有沒有第二種做法",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家獨立找 bug",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex-gpt-6-sol"
+ }
+]
