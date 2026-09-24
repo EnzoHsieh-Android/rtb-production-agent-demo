@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from rtb.analyzer import policy
+from rtb.domain import _checks
 from rtb.domain.worth import CampaignStatus, WorthCell, WorthInput, WorthVerdict, cell_of
 from rtb.eval import adoption, eval_set, generator, record, rubric, scoring
 
@@ -278,7 +279,7 @@ def test_the_hidden_set_hash_must_be_64_hex_digits(digest):
 
 
 def test_a_production_report_needs_the_candidate_in_every_cell():
-    """全部走現行規則(沒經過候選)的計分結果簽不成正式報告;每一格至少一筆經過候選或候選退回。"""
+    """正式報告每一筆都要交給候選(候選答的或候選退回的都算候選的結果),有任何一筆走現行規則就拒。"""
     code_only = [scoring.ScoredCase(c.scenario, c.final, policy.RoutePath.CODE_RULE)
                  for g in ALL_GOOD for c in g]
     with pytest.raises(ValueError):
@@ -288,9 +289,15 @@ def test_a_production_report_needs_the_candidate_in_every_cell():
                      for g in ALL_GOOD for c in g]
     with pytest.raises(ValueError):
         scoring.production_report(tuple(one_cell_code), PROVENANCE)
+    # 代碼審第 3 輪:1 筆候選加 72 筆現行規則也不行——正式報告任何一筆都不得走現行規則
+    mostly_code = [c if i == 0 else scoring.ScoredCase(c.scenario, c.final,
+                                                       policy.RoutePath.CODE_RULE)
+                   for g in ALL_GOOD for i, c in enumerate(g)]
+    with pytest.raises(ValueError):
+        scoring.production_report(tuple(mostly_code), PROVENANCE)
     fallback = [scoring.ScoredCase(c.scenario, c.final, policy.RoutePath.FALLBACK_UNSURE)
                 for g in ALL_GOOD for c in g]
-    scoring.production_report(tuple(fallback), PROVENANCE)  # 候選退回也算經過候選
+    scoring.production_report(tuple(fallback), PROVENANCE)  # 候選退回算候選的結果
 
 
 def test_a_comparison_row_counts_only_for_its_own_cell():
@@ -385,6 +392,8 @@ OTHER_LAYERS = ("analyzer", "executor", "dsp", "domain", "ops")
 PROBES = {
     "direct": "import rtb.eval.eval_set\n",
     "dunder_variable": "name = 'rtb.' + 'eval'\nx = __import__(name)\n",
+    "dunder_alias": "loader = __import__\nx = loader('rtb.eval')\n",
+    "builtins_alias": "from builtins import __import__ as load\nx = load('rtb.eval')\n",
     "import_module_variable": ("import importlib\nname = 'rtb.eval'\n"
                                "x = importlib.import_module(name)\n"),
     "relative": "from ..eval import eval_set\n",
@@ -394,9 +403,39 @@ PROBES = {
 }
 
 
+def _imported_names(node, package):
+    if isinstance(node, ast.Import):
+        return [a.name for a in node.names]
+    if isinstance(node, ast.ImportFrom):
+        base = node.module or ""
+        if node.level:
+            parts = package.split(".")[: len(package.split(".")) - node.level + 1]
+            base = ".".join([*parts, *([node.module] if node.module else [])])
+        return [base, *(f"{base}.{a.name}" for a in node.names)]
+    return []
+
+
+def _dynamic_uses(node, dynamic):
+    """任何 __import__ 或 import_module(含別名)的呼叫都算(代碼審第 2 輪);對 __import__ 的任何引用、
+    從 builtins 匯入也算(代碼審第 3 輪)。"""
+    found = []
+    if isinstance(node, ast.Call):
+        func = node.func
+        called = (func.id if isinstance(func, ast.Name)
+                  else func.attr if isinstance(func, ast.Attribute) else None)
+        if called in dynamic:
+            found.append(f"動態匯入 {called}")
+    if (isinstance(node, ast.Name) and node.id == "__import__") or (
+            isinstance(node, ast.Attribute) and node.attr == "__import__"):
+        found.append("引用 __import__")
+    if isinstance(node, ast.ImportFrom) and node.module == "builtins":
+        found.append("從 builtins 匯入")
+    return found
+
+
 def _eval_imports(path, tree):
-    """一支檔對評估套件的匯入:直接、相對(依檔案所在套件換算);任何 __import__ 或
-    import_module(含別名)的呼叫也算,受保護五層不准動態匯入。"""
+    """一支檔對評估套件的匯入(直接、相對依檔案所在套件換算),加上任何動態匯入的寫法——受保護五層
+    不准動態匯入。"""
     package = ".".join(path.relative_to(SRC.parent).with_suffix("").parts[:-1])
     dynamic = {"__import__", "import_module"}
     for node in ast.walk(tree):
@@ -404,22 +443,9 @@ def _eval_imports(path, tree):
             dynamic |= {a.asname or a.name for a in node.names if a.name == "import_module"}
     found = []
     for node in ast.walk(tree):
-        names = []
-        if isinstance(node, ast.Import):
-            names = [a.name for a in node.names]
-        elif isinstance(node, ast.ImportFrom):
-            base = node.module or ""
-            if node.level:
-                parts = package.split(".")[: len(package.split(".")) - node.level + 1]
-                base = ".".join([*parts, *([node.module] if node.module else [])])
-            names = [base, *(f"{base}.{a.name}" for a in node.names)]
-        elif isinstance(node, ast.Call):
-            func = node.func
-            called = (func.id if isinstance(func, ast.Name)
-                      else func.attr if isinstance(func, ast.Attribute) else None)
-            if called in dynamic:  # 代碼審第 2 輪:任何動態匯入呼叫都算,不只認字面常數
-                found.append(f"動態匯入 {called}")
-        found += [n for n in names if n == "rtb.eval" or n.startswith("rtb.eval.")]
+        found += [n for n in _imported_names(node, package)
+                  if n == "rtb.eval" or n.startswith("rtb.eval.")]
+        found += _dynamic_uses(node, dynamic)
     return found
 
 
@@ -440,6 +466,11 @@ def test_nothing_outside_the_eval_package_imports_it():
         for kind, source in PROBES.items():  # 掃描認得五種寫法(代碼審第 1 輪補動態匯入)
             probe = SRC / layer / "probe.py"
             assert _eval_imports(probe, ast.parse(source)), (layer, kind)
+    # 代碼審第 3 輪:領域層舊的 importlib.import_module 條目刪掉(新的 importlib 已涵蓋)
+    assert "importlib.import_module" not in (SRC / "domain" / "ruff.toml").read_text("utf-8")
+    # 雜湊格式只有一份判準(證據與正式報告共用)
+    assert not hasattr(scoring, "_SHA256")
+    assert scoring.is_sha256 is _checks.is_sha256
     importers = [f"{path.name}: {name}" for path in SRC.rglob("*.py") if EVAL not in path.parents
                  for name in _eval_imports(path, ast.parse(path.read_text("utf-8")))]
     assert importers == []

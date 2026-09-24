@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import TypeGuard
 
 ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+# SHA-256 的小寫十六進位寫法:證據內容雜湊與評估的隱藏集雜湊共用
+HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 MAX_INT = 2**63 - 1  # 資料庫整數上限:提案、分析端 DSP 用戶端白名單、判斷點輸入共用這一個
 
 
@@ -46,6 +48,10 @@ def is_finite_or_none(value: object) -> TypeGuard[int | float | None]:
 
 def is_id(value: object) -> TypeGuard[str]:
     return isinstance(value, str) and ID_PATTERN.fullmatch(value) is not None
+
+
+def is_sha256(value: object) -> TypeGuard[str]:
+    return isinstance(value, str) and HASH_PATTERN.fullmatch(value) is not None
 
 
 def is_aware(value: object) -> TypeGuard[datetime]:

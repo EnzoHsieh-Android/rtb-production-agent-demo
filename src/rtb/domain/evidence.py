@@ -9,16 +9,14 @@
 """
 
 import math
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 from typing import TypeGuard
 
-from rtb.domain._checks import is_aware, is_id, is_plain_int, is_plain_number
+from rtb.domain._checks import is_aware, is_id, is_plain_int, is_plain_number, is_sha256
 
-HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 MAX_SOURCE_LENGTH = 64
 MAX_PAYLOAD_ITEMS = 32  # 證據的原始欄位數;DSP 的現況、指標回應都是固定的小字典,遠低於這個上限
 MAX_UNTRUSTED_TEXT_LENGTH = 512  # 不可信文字證據裡每個字串的字元上限(2026-09-23 使用者裁定)
@@ -71,17 +69,13 @@ class Evidence:
             ("trust_class", isinstance(self.trust_class, TrustClass)),
             ("observed_at", is_aware(self.observed_at)),
             ("campaign_version_observed", _is_version_or_none(self.campaign_version_observed)),
-            ("content_hash", _is_hash(self.content_hash)),
+            ("content_hash", is_sha256(self.content_hash)),
             ("trust_class", _trust_matches_kind(self.kind, self.trust_class)),
             ("payload", _strings_fit_trust(self.payload, self.trust_class)),
         ]
         bad = list(dict.fromkeys(name for name, ok in problems if not ok))  # 同名只報一次
         if bad:
             raise ValueError(f"證據欄位不合法:{', '.join(bad)}")
-
-
-def _is_hash(value: object) -> TypeGuard[str]:
-    return isinstance(value, str) and HASH_PATTERN.fullmatch(value) is not None
 
 
 def _is_payload_value(item: object) -> bool:
