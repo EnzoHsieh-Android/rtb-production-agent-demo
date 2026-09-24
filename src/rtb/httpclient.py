@@ -16,7 +16,7 @@ import time
 from enum import StrEnum
 from typing import Any
 from urllib.error import HTTPError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 MAX_RESPONSE_BYTES = 64 * 1024  # 跟 httpkit.py 的 MAX_BODY_BYTES 對稱:回應本文也不能無界讀入記憶體
 
@@ -42,7 +42,9 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
-_opener = build_opener(_NoRedirect)
+# 不走任何代理(Phase 12 代碼審 r3 s1):預設的代理處理會讀環境裡的 HTTP_PROXY,帶著稽核金鑰的請求會
+# 送去代理、代理的回應也會被當成對方的回應;本專案只連本機回送位址,一律直連
+_opener = build_opener(ProxyHandler({}), _NoRedirect)
 
 
 def request_json(

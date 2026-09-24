@@ -17,7 +17,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from rtb.analyzer.policy import NoActionReason
-from rtb.analyzer.task_store import CURSOR_PAGE, FollowUpRow, ReplanReason, TaskReader, TaskRow
+from rtb.analyzer.task_store import FollowUpRow, ReplanReason, TaskReader, TaskRow
 from rtb.demo import flow
 from rtb.demo.state_store import DecisionRow
 from rtb.domain.attempt import AttemptState, OutcomeCode
@@ -73,17 +73,43 @@ _INCOMING: dict[str, list[tuple[str, str]]] = {}
 for _edge in _EDGES:
     _INCOMING.setdefault(_edge[1], []).append(_edge)
 _BACKS = {back.transition: back for back in flow.BACK_TRANSITIONS if back.transition}
+_BACK_TEXT = {back.node: back.what for back in flow.BACK_TRANSITIONS}
 
 
 def _place(member: Member) -> flow.Place | None:
     return flow.OUTCOMES.get(member)
 
 
+# 系統紀錄對不到的判斷點(平台回覆、寫入前再確認…):判斷紀錄裡不會有這些節點,邊可以經過它們
+_OBSERVABLE = ({p.node for p in flow.OUTCOMES.values() if p.node}
+               | {p.edge[1] for p in flow.OUTCOMES.values() if p.edge}
+               | {b.node for b in flow.BACK_TRANSITIONS})
+_OUTGOING: dict[str, list[str]] = {}
+for _source, _target in _EDGES:
+    _OUTGOING.setdefault(_source, []).append(_target)
+
+
 def _edge_into(node: str, previous: str | None) -> tuple[str, str] | None:
-    if previous is not None and (previous, node) in _EDGES:
+    """走進這個節點的邊:上一個節點直接連過來就是那條;不然從上一個節點經過紀錄對不到的判斷點找得到
+    的那條(寫入 → 平台回覆 → 不明);都沒有就留空,不猜(第 3 輪代碼審 g2:原本退回唯一的進入邊,
+    剛拿起就猝死被畫成「寫入 → 中途中斷」)。還沒有上一個節點時,唯一的進入邊從紀錄對不到的判斷點
+    出發才用(從看得到的節點出發就等於猜了一步沒看到的事)。"""
+    if previous is None:
+        incoming = _INCOMING.get(node, [])
+        return incoming[0] if len(incoming) == 1 and incoming[0][0] not in _OBSERVABLE else None
+    if (previous, node) in _EDGES:
         return (previous, node)
-    incoming = _INCOMING.get(node, [])
-    return incoming[0] if len(incoming) == 1 else None
+    seen, frontier = {previous}, [previous]
+    while frontier:
+        step = frontier.pop(0)
+        for target in _OUTGOING.get(step, []):
+            if target in _OBSERVABLE or target in seen:
+                continue
+            if (target, node) in _EDGES:
+                return (target, node)
+            seen.add(target)
+            frontier.append(target)
+    return None
 
 
 class PathBuilder:
@@ -91,7 +117,9 @@ class PathBuilder:
     寫入失敗、被接手這兩種要跨事件才看得出來的情況。"""
 
     def __init__(self) -> None:
-        self.last_node: str | None = None
+        self.last_node: str | None = None  # 正在處理的事件那件工作的上一個節點
+        self._last: dict[str, str] = {}  # 每件工作上一個節點(第 3 輪代碼審 g2:原本全情境共用一個)
+        self.streams: list[tuple[str, str, str]] = []  # (工作, 哪一條紀錄, 節點):逐條核對用
         self._previous: dict[tuple[str, type[StrEnum]], str] = {}
         self._failed_keys: set[str] = set()  # 嘗試轉成失敗的鍵
         self._failed_tasks: set[str] = set()  # 寫入被平台拒絕、收件口確認成擋下的任務
@@ -100,10 +128,12 @@ class PathBuilder:
     def add(self, events: Sequence[SourceEvent]) -> list[DecisionRow]:
         rows = []
         for event in sorted(events, key=_sort_key):
+            self.last_node = self._last.get(event.task or "")
             row = self._one(event)
             if row is not None:
                 rows.append(row)
-                self.last_node = row.node
+                self._last[event.task or ""] = row.node
+                self.streams.append((event.task or "", event.entity.split(":", 1)[0], row.node))
         return rows
 
     def _back_node(self, event: SourceEvent) -> str | None:
@@ -126,6 +156,11 @@ class PathBuilder:
             self._reclaimed_keys.discard(event.key)
             if name == AttemptState.FAILED.name:
                 self._failed_keys.add(event.key)
+            if name == AttemptState.UNKNOWN.name and self._previous.get(
+                    (event.entity, AttemptState)) == name:
+                # 查證逾時記一列同樣的不明:稍後再查(第 3 輪代碼審 g1),不是又進一次不明
+                return self._row(event, "x_recheck", _edge_into("x_recheck", self.last_node),
+                                 _BACK_TEXT["x_recheck"])
             if reclaimed and name == AttemptState.UNKNOWN.name:
                 # 同一個交易的接手已經畫了「處理到一半中斷」:不套「平台沒有明確回覆」那條邊
                 return self._row(event, "x_unknown", None, RECLAIMED_UNKNOWN)
@@ -196,16 +231,16 @@ class Timeline:
 
 def missing_from_path(observed: Sequence[str], required: Sequence[str],
                       allowed: Collection[str] = ()) -> str | None:
-    """交叉核對([S1010]):必經節點要照順序出現在觀察到的路徑裡;扣掉必經與允許的回頭之後,
-    剩下的任何節點都算對不上。回第一個對不上的節點(缺的必經節點,或多出來的節點),都對上回空值。"""
+    """交叉核對([S1010]):照順序逐一消耗必經節點——看到的節點是下一個必經的就消耗掉,是允許的回頭
+    就略過,其他一律算對不上(第 3 輪代碼審 g1/x1:原本只找得到就好,必經節點重複出現、多繞一圈照樣
+    過)。回第一個對不上的節點(多出來的,或最後還沒消耗到的必經節點),都對上回空值。"""
     position = 0
-    for node in required:
-        try:
-            position = list(observed).index(node, position) + 1
-        except ValueError:
+    for node in observed:
+        if position < len(required) and node == required[position]:
+            position += 1
+        elif node not in allowed:
             return node
-    expected = set(required) | set(allowed)
-    return next((node for node in observed if node not in expected), None)
+    return None if position == len(required) else required[position]
 
 
 def _time(text: str) -> datetime:
@@ -221,16 +256,17 @@ def _member(enum: type[StrEnum], value: str | None) -> Member | None:
     return (enum, value)  # 不認得的值照原樣留著:對應表查不到,判斷紀錄會寫無法還原
 
 
-def _all_pages[T](read: Callable[[int], Sequence[T]], after: int,
-                  position: Callable[[T], int]) -> tuple[list[T], int]:
-    """游標式讀取讀到不滿一頁為止;回(全部新列, 新的游標)。"""
+def all_pages[T](read: Callable[[int], Sequence[T]], after: int,
+                 position: Callable[[T], int]) -> tuple[list[T], int]:
+    """游標式讀取一路讀到空頁為止;回(全部新列, 新的游標)。不看每頁上限是多少(第 3 輪代碼審 a1:
+    每頁上限各模組各有一份,這裡再抄一份會對不上),多讀一次空頁換不必同步。"""
     found: list[T] = []
     while True:
         page = read(after)
         found.extend(page)
         if page:
             after = position(page[-1])
-        if len(page) < CURSOR_PAGE:
+        if not page:
             return found, after
 
 
@@ -256,9 +292,9 @@ class Observer:
         except DatabaseNotUpgraded:
             return []
         try:  # 同一個快照:看得到原任務結案那一列,就看得到同一個交易寫的接續關係與原因
-            follow_ups, self._follow_ups_after = _all_pages(
+            follow_ups, self._follow_ups_after = all_pages(
                 reader.follow_ups_after, self._follow_ups_after, lambda f: f.rowid)
-            tasks, self._tasks_after = _all_pages(
+            tasks, self._tasks_after = all_pages(
                 reader.tasks_after, self._tasks_after, lambda pair: pair[0])
             self._follow_ups.update({f.original_task_id: f for f in follow_ups})
             events = [self._follow_up(f) for f in follow_ups if f.follow_up_task_id is not None]
@@ -305,10 +341,10 @@ class Observer:
             return []
         try:
             with inbox.read_transaction() as tx:
-                lifecycle, self._events_after = _all_pages(
+                lifecycle, self._events_after = all_pages(
                     lambda after: inbox.lifecycle_events_after(tx, after), self._events_after,
                     lambda e: e.id)
-                attempts, self._attempts_after = _all_pages(
+                attempts, self._attempts_after = all_pages(
                     lambda after: attempt_store.trace_rows_after(tx, after), self._attempts_after,
                     lambda pair: pair[0])
         finally:

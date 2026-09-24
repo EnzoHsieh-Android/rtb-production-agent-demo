@@ -551,19 +551,24 @@ def test_a_wrong_first_line_then_an_exit_is_a_start_failure(tmp_path):
                           script="import os\nprint('Traceback', flush=True)\nos._exit(1)\n")
 
 
-def test_a_config_already_marked_used_is_refused(tmp_path):
-    """[v2] 改名作廢後的設定檔拿來當設定檔,配同一個隨機值照樣要被拒。"""
+@pytest.mark.parametrize("copy_as", ["copy.json", "faults.json.USED"])
+def test_a_config_already_marked_used_is_refused(tmp_path, copy_as):
+    """[v2、第 3 輪代碼審 p2] 同一份交付只能用一次:用之前先複製一份(或取成大寫字尾的名字,APFS 不分
+    大小寫),配同一個隨機值再用照樣被拒;用過的設定檔不留在根目錄。"""
+    import shutil
+
     root = _root(tmp_path)
     request = _plan()
     command, env = launcher.command_for(Role.DSP, ["--db", str(root / "dsp.db")],
                                         keys.DemoKeys.generate(), root=root, faults=request,
                                         user_env=os.environ)
+    config_at = command.index("rtb.demo.launcher.child") + 2
+    copy = root / copy_as
+    shutil.copy(command[config_at], copy)
     first = launcher._spawn(command, env, root, "PORT=", root / "a.log")
     try:
-        used = [p for p in root.iterdir() if p.name.endswith(".used")]
-        assert len(used) == 1
-        config_at = command.index("rtb.demo.launcher.child") + 2
-        again = [*command[:config_at], str(used[0]), *command[config_at + 1:]]
+        assert not Path(command[config_at]).exists()
+        again = [*command[:config_at], str(copy), *command[config_at + 1:]]
         second = subprocess.run(again, env=env, capture_output=True, text=True, timeout=20,
                                 check=False)
     finally:

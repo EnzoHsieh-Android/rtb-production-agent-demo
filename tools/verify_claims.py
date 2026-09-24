@@ -13,6 +13,7 @@
 
 import argparse
 import ast
+import contextlib
 import functools
 import hashlib
 import importlib.metadata
@@ -1204,6 +1205,12 @@ def run_evidence(root: Path, nodes: list[str], timeout: float) -> list[str]:
             os.killpg(process.pid, signal.SIGKILL)  # 整組結束,不留測試另起的孫行程
             process.communicate()
             return [f"證據測試超過總時限 {timeout:g} 秒,逾時(不是通過)"]
+        except BaseException:
+            # 被要求停止(SIGTERM 轉成的例外、Ctrl-C):證據測試在另一個行程群組,不跟著收到訊號,
+            # 先整組結束再往外丟(Phase 12 代碼審 r3 s2:一鍵展示逾時只殺到驗證器,pytest 變孤兒)
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            raise
         if process.returncode == 4:
             return _not_found(nodes, output)
         if not junit.is_file():
@@ -1287,7 +1294,12 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
     return verify(claims_dir.parent, claims_dir, stream, timeout=timeout)
 
 
+def _stop_requested(_signum: int, _frame: object) -> None:
+    raise SystemExit(EXIT_UNDECIDABLE)  # 跑到一半被停下:沒判完
+
+
 def main(argv: list[str] | None = None) -> None:
+    signal.signal(signal.SIGTERM, _stop_requested)
     raise SystemExit(run(argv))
 
 

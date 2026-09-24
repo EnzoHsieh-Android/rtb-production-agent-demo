@@ -16,6 +16,7 @@ import contextlib
 import html
 import json
 import math
+import re
 import socket
 import sys
 import threading
@@ -51,12 +52,24 @@ FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
 
 @dataclass(frozen=True)
 class Response:
-    """處理器可以回的回應物件(新增;回 (狀態碼, 內容) 的既有處理器照舊送 JSON)。"""
+    """處理器可以回的回應物件(新增;回 (狀態碼, 內容) 的既有處理器照舊送 JSON)。建立時就驗:標頭名稱
+    要是合法的記號、值只能是 Latin-1 而且沒有控制字元(擋 CR/LF 注入標頭;非 Latin-1 會讓基底類別寫到
+    一半丟例外、兩個狀態行疊在一起)、本文要是位元組(Phase 12 代碼審 r3 s3/h1)。"""
 
     status: int
     content_type: str
     body: bytes
     headers: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        if isinstance(self.status, bool) or not isinstance(self.status, int) or not (
+                100 <= self.status <= 599):  # HTTP 狀態碼的範圍
+            raise ValueError(f"狀態碼不對:{self.status!r}")
+        if not isinstance(self.body, bytes):
+            raise TypeError("本文要是位元組")
+        _check_header("Content-Type", self.content_type)
+        for name, value in self.headers:
+            _check_header(name, value)
 
     @classmethod
     def html(cls, status: int, text: str) -> Response:
@@ -68,8 +81,24 @@ class Response:
 
     @classmethod
     def redirect(cls, location: str) -> Response:
-        """303:表單送出後一律轉到 GET,瀏覽器重讀時不會重送表單。"""
+        """303:表單送出後一律轉到 GET,瀏覽器重讀時不會重送表單。只轉到本站的路徑:單一斜線開頭、
+        可見的 ASCII、沒有反斜線(瀏覽器把兩個斜線、斜線加反斜線開頭都當成別的網站)。"""
+        if not isinstance(location, str) or not _SITE_PATH.fullmatch(location):
+            raise ValueError(f"只能轉址到本站的路徑:{location!r}")
         return cls(303, "text/plain; charset=utf-8", b"", (("Location", location),))
+
+
+_TOKEN = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")  # 標頭名稱(RFC 9110 的記號)
+_SITE_PATH = re.compile(r"/(?![/\\])[!-\[\]-~]*")  # 單一 / 開頭、可見 ASCII、不含反斜線
+
+
+def _check_header(name: str, value: str) -> None:
+    if not isinstance(name, str) or not _TOKEN.fullmatch(name):
+        raise ValueError(f"標頭名稱不對:{name!r}")
+    if not isinstance(value, str) or any(
+            ord(c) > 0xFF or ord(c) == 0x7F or (ord(c) < 0x20 and c != "\t")  # 控制字元
+            for c in value):
+        raise ValueError(f"{name} 標頭的值有控制字元或不是 Latin-1")
 
 
 class KitServer(ThreadingHTTPServer):
@@ -241,6 +270,20 @@ class JsonHandler(BaseHTTPRequestHandler):
             raise RequestRejected(400, "unknown_fault_mode")
         return mode
 
+    def _require_same_site(self) -> None:
+        """表單要是本站頁面送的(第 3 輪代碼審 s3):主機標頭檢查擋得住 DNS rebinding,擋不住別的網站
+        送來的表單。瀏覽器送表單會帶 Origin 或 Sec-Fetch-Site;帶了的每一個都要指向本站,兩個都沒有
+        就不當成本站頁面送的。"""
+        site, origin = self.single_header("Sec-Fetch-Site"), self.single_header("Origin")
+        host = self.single_header("Host")
+        if site is None and origin is None:
+            raise RequestRejected(403, "cross_site_form")
+        if site is not None and site.strip().lower() != "same-origin":
+            raise RequestRejected(403, "cross_site_form")
+        if origin is not None and (
+                host is None or origin.strip().lower() != f"http://{host.strip()}".lower()):
+            raise RequestRejected(403, "cross_site_form")
+
     def _read_body(self, reader: str) -> bytes:
         """請求本文:只能讀一次、不收分塊、長度合法且不超過上限(讀 JSON 與讀表單共用)。"""
         if self._body_read:
@@ -256,8 +299,12 @@ class JsonHandler(BaseHTTPRequestHandler):
         return self.read_exactly(int(raw_length))
 
     def read_form(self) -> dict[str, str]:
-        """讀 urlencoded 表單(瀏覽器的表單送出):同一個欄位出現兩次一律拒(哪一個算數說不清),
-        不是 UTF-8 也拒。"""
+        """讀 urlencoded 表單(瀏覽器的表單送出):先確認是本站送的表單,同一個欄位出現兩次一律拒
+        (哪一個算數說不清),不是 UTF-8 也拒。
+
+        媒體類型的分層:讀表單在這裡擋非表單格式(415),因為瀏覽器跨站送得出表單格式;讀 JSON 不擋
+        媒體類型(既有行為,收件口與 DSP 的用戶端都是本專案的程式,各自的處理器不收瀏覽器表單)。"""
+        self._require_same_site()
         kind = (self.single_header("Content-Type") or "").split(";")[0].strip().lower()
         if kind != FORM_CONTENT_TYPE:
             raise RequestRejected(415, "unsupported_media_type")
@@ -302,15 +349,19 @@ class JsonHandler(BaseHTTPRequestHandler):
         self.reply(status, {"error": code, "retryable": retryable})
 
     def send(self, response: Response) -> None:
-        """送回應物件;HTML 伺服器送 HTML 時一律帶內容安全政策標頭。"""
+        """唯一的送出路徑(JSON 的 reply 也走這裡,第 3 輪代碼審 a4)。宣告了內容安全政策的伺服器,
+        每個回應都帶政策標頭,不看內容類型(r3 h2:原本只認 text/html 開頭,Text/HTML、xhtml、svg
+        都漏掉)。全部標頭在送出狀態行之前驗完,驗不過就還沒寫出任何一個位元組。"""
+        extra = list(response.headers)
+        if self.content_security_policy is not None:
+            extra.insert(0, ("Content-Security-Policy", self.content_security_policy))
+        for name, value in extra:
+            _check_header(name, value)
         try:
             self.send_response(response.status)
             self.send_header("Content-Type", response.content_type)
             self.send_header("Content-Length", str(len(response.body)))
-            if (self.content_security_policy is not None
-                    and response.content_type.startswith("text/html")):
-                self.send_header("Content-Security-Policy", self.content_security_policy)
-            for name, value in response.headers:
+            for name, value in extra:
                 self.send_header(name, value)
             self.end_headers()
             self.wfile.write(response.body)
@@ -318,12 +369,4 @@ class JsonHandler(BaseHTTPRequestHandler):
             pass  # 客戶端已逾時離開,回應寫不出去是正常情況
 
     def reply(self, status: int, payload: dict[str, Any]) -> None:
-        raw = json.dumps(payload).encode()
-        try:
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(raw)))
-            self.end_headers()
-            self.wfile.write(raw)
-        except OSError:
-            pass  # 客戶端已逾時離開,回應寫不出去是正常情況
+        self.send(Response(status, "application/json", json.dumps(payload).encode()))

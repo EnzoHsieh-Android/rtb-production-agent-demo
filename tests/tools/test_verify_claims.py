@@ -2058,3 +2058,36 @@ def test_a_conftest_pytest_generate_tests_on_the_way_blocks_failure_injection(re
     assert code == 1, output
     assert any("test_trick" in line and "pytest_generate_tests" in line
                for line in output.splitlines()), output
+
+
+def test_a_stop_signal_ends_the_evidence_run_it_started(repo):
+    """[Phase 12 代碼審 r3 s2/p1/x2] 驗證器收到 SIGTERM:它另開行程群組起的證據測試(連同測試再起的孫
+    行程)一起結束,不變孤兒。一鍵展示逾時或取消時先送 SIGTERM,靠的就是這一條。"""
+    import signal
+
+    marker = repo / "child.pid"
+    slow = TEST_SERVER.replace(
+        "def test_pause():\n    assert act",
+        "def test_pause():\n    import subprocess, sys, time\n"
+        "    child = subprocess.Popen([sys.executable, \"-c\", \"import time; time.sleep(60)\"])\n"
+        f"    open({str(marker)!r}, \"w\").write(str(child.pid))\n"
+        "    time.sleep(60)\n    assert act")
+    write_files(repo, {"tests/dsp/test_server.py": slow})
+    write_manifests(repo)
+    verifier = subprocess.Popen([sys.executable, str(VERIFIER), str(repo / "claims")],
+                                cwd=repo, stdout=subprocess.PIPE, text=True)
+    try:
+        for _ in range(300):
+            if marker.is_file() and marker.read_text():
+                break
+            time.sleep(0.1)
+        child = int(marker.read_text())
+        verifier.send_signal(signal.SIGTERM)
+        assert verifier.wait(10) != 0
+    finally:
+        verifier.kill()
+        verifier.stdout.close()
+    with pytest.raises(ProcessLookupError):
+        for _ in range(50):
+            os.kill(child, 0)
+            time.sleep(0.1)

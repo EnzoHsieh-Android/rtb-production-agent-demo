@@ -83,10 +83,13 @@ def test_back_transitions_are_tracked_per_entity():
 
 @pytest.mark.parametrize(("observed", "missing"), [
     (["x_write", "x_unknown", "x_resend", "x_verify", "x_done"], None),
-    (["x_write", "x_unknown", "x_recheck", "x_unknown", "x_resend", "x_verify", "x_done"], None),
-    (["x_write", "x_verify", "x_done"], "x_unknown"),
-    (["x_write", "x_unknown", "x_done", "x_resend"], "x_verify"),
-    (["x_done", "x_verify", "x_resend", "x_unknown", "x_write"], "x_unknown"),  # 都有、順序倒
+    (["x_write", "x_unknown", "x_recheck", "x_recheck", "x_resend", "x_verify", "x_done"], None),
+    # 第 3 輪代碼審 g1/x1:必經節點照順序逐一消耗,重複出現(多繞一圈不明、重送)就是多出來的
+    (["x_write", "x_unknown", "x_resend", "x_unknown", "x_resend", "x_verify", "x_done"],
+     "x_unknown"),
+    (["x_write", "x_verify", "x_done"], "x_verify"),  # 跳過了不明:在確認那一步對不上
+    (["x_write", "x_unknown", "x_done", "x_resend"], "x_done"),
+    (["x_done", "x_verify", "x_resend", "x_unknown", "x_write"], "x_done"),  # 都有、順序倒
     # 第 2 輪代碼審 o1/c3:扣掉必經與允許的回頭之後,多出來的節點一律算對不上
     (["x_write", "x_unknown", "x_escalated", "h_resolve", "x_resend", "x_verify", "x_done"],
      "x_escalated"),
@@ -95,6 +98,7 @@ def test_an_extra_allowed_loop_still_counts_as_done(observed, missing):
     """[S1064] 必經節點要照順序出現;允許的回頭(稍後再查)多出現不算對不上,清單外的節點算。"""
     required = ["x_write", "x_unknown", "x_resend", "x_verify", "x_done"]
     assert missing_from_path(observed, required, allowed={"x_recheck"}) == missing
+    assert missing_from_path(required[:3], required) == "x_verify"  # 走到一半停了:缺下一步
 
 
 def test_a_follow_up_shows_the_new_task_not_a_dead_end(tmp_path):
@@ -278,3 +282,54 @@ def test_a_close_event_written_with_an_attempt_result_comes_after_it(tmp_path):
     rows = PathBuilder().add(Observer(tmp_path / "analyzer.db", tmp_path / "executor.db").poll())
 
     assert [r.node for r in rows] == ["x_pick", "x_write", "x_failed"]
+
+
+def test_a_verification_timeout_on_an_unknown_write_is_a_recheck_not_a_second_unknown():
+    """[g1] 查證逾時在嘗試紀錄記一列同樣的「不明」:那是「稍後再查」,不是又進一次不知道有沒有寫進去
+    (必經節點逐一消耗之後,畫成第二次不明會把正常的系統判成沒跑完)。"""
+    rows = PathBuilder().add([_attempt(0, "IN_FLIGHT"), _attempt(1, "UNKNOWN"),
+                              _attempt(2, "UNKNOWN"), _attempt(3, "IN_FLIGHT")])
+
+    assert [(r.node, r.edge) for r in rows][1:] == [
+        ("x_unknown", ("p_reply", "x_unknown")), ("x_recheck", ("x_unknown", "x_recheck")),
+        ("x_resend", None)]
+
+
+def test_each_row_is_kept_with_its_task_and_stream():
+    """[g1] 多件工作的情境要按工作、按來源分開核對:每一筆判斷記下屬於哪件工作、哪一條紀錄。"""
+    builder = PathBuilder()
+    builder.add([_analyzer_event(0, (TaskState, "RECEIVED")), _lifecycle(1, "RECEIVED"),
+                 _attempt(2, "IN_FLIGHT")])
+
+    assert builder.streams == [("t1", "task", "a_receive"), ("t1", "proposal", "x_pending"),
+                               ("t1", "key", "x_write")]
+
+
+def test_a_crash_right_after_pickup_is_not_drawn_as_an_interrupted_write():
+    """[第 3 輪代碼審 g2] F3 剛拿起就猝死、重啟後被接手:上一步是「拿起」,圖上沒有「拿起 → 中途中斷」
+    這條邊,邊留空;不退回唯一的進入邊畫成「寫入 → 中途中斷」(那時根本還沒寫)。"""
+    rows = PathBuilder().add([_lifecycle(0, "RECEIVED"), _lifecycle(1, "DELIVERED"),
+                              _lifecycle(2, "RECLAIMED")])
+
+    assert rows[-1].node == "x_reclaimed" and rows[-1].edge is None
+
+
+def test_the_previous_step_is_kept_per_task():
+    """[g2] 上一個節點按工作分開記:另一件工作剛走到的節點,不會被拿來當這件工作的上一步。"""
+    other = SourceEvent(T0 + timedelta(seconds=1), "inbox.attempts#k9/1",
+                        (AttemptState, "IN_FLIGHT"), None, "key:k9", order=("inbox", 1, 9),
+                        key="k9", task="t9")
+    rows = PathBuilder().add([_attempt(0, "IN_FLIGHT"), other, _attempt(2, "UNKNOWN")])
+
+    assert rows[-1].edge == ("p_reply", "x_unknown")  # 從這件工作自己的寫入經平台回覆
+    assert PathBuilder().add([other, _lifecycle(3, "RECLAIMED")])[-1].edge is None
+
+
+def test_cursor_reads_go_on_until_an_empty_page():
+    """[第 3 輪代碼審 a1] 游標式讀取讀到空頁才停,不看每頁上限是多少(上限各模組各有一份,這裡不再抄):
+    一頁沒滿也照樣再讀一次。"""
+    from rtb.demo.observe import all_pages
+
+    pages = {0: [1, 2], 2: [3], 3: []}
+    found, after = all_pages(lambda cursor: pages[cursor], 0, lambda row: row)
+    assert (found, after) == ([1, 2, 3], 3)

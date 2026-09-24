@@ -62,8 +62,8 @@ def test_a_real_scenario_path_matches_the_recorded_dispositions(tmp_path, state)
     finally:
         reader.close()
     nodes = [d.node for d in decisions]
-    for node in driver_module.F1_REQUIRED:
-        assert node in nodes
+    for stream in driver_module.F1_STREAMS.values():
+        assert set(stream[0]) <= set(nodes)
     assert all(d.origin.startswith(("analyzer.", "inbox.")) for d in decisions)
     assert run.status == DONE and run.summary
     deadline = time.monotonic() + 5
@@ -111,14 +111,14 @@ def test_the_state_file_is_updated_at_every_node(tmp_path, state):
 def test_a_scenario_is_done_only_when_its_expected_dispositions_are_seen(tmp_path, state):
     """[S1006] 斷言沒過就標「沒跑完」並寫哪一條沒對上,不標照預期跑完。"""
     def failing(world):
-        world.observed.extend(["x_write", "x_verify", "x_done"])
-        world.require_path(["x_write", "x_unknown", "x_done"])
+        world._path.streams.extend(("t1", "key", n) for n in ["x_write", "x_verify", "x_done"])
+        world.require_streams({("t1", "key"): (("x_write", "x_unknown", "x_done"), ())})
         return "不該到這裡"
 
     verdict = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 20, failing)}).run_one("FX")
 
     assert verdict.status == INCOMPLETE
-    assert "x_unknown" in verdict.reason
+    assert "x_verify" in verdict.reason and "寫入平台" in verdict.reason
     reader = StateReader(tmp_path / "state.db")
     try:
         assert reader.scenario_runs("demo-1")[0].status == INCOMPLETE
@@ -713,20 +713,103 @@ def _request(expires_in=timedelta(hours=1), stage="aggregate_limit_reached"):
 
 
 # ---- 第 2 輪代碼審:假綠(展示說照預期,實際上沒驗到該驗的東西) ----
+def _streams_world(tmp_path, state, code):
+    world = driver_module.World(tmp_path, code, DemoKeys.generate(), state, {},
+                                threading.Event())
+    world.record = lambda **_kw: None
+    return world
+
+
+def _fill(world, streams):
+    world._path.streams[:] = [(task, kind, node) for (task, kind), nodes in streams.items()
+                              for node in nodes]
+
+
+def _normal(expected):
+    return {stream: list(required) for stream, (required, _) in expected.items()}
+
+
 @pytest.mark.parametrize("extra", ["x_resend", "x_escalated"])
 def test_a_resend_or_hand_off_in_f2_is_not_done(tmp_path, state, extra):
-    """[o1/c3] F2 要證明的是不重送:路徑裡多一次同編號重送或轉人工,就算必經節點都照順序出現
-    也判沒跑完。"""
-    world = driver_module.World(tmp_path, "F2", DemoKeys.generate(), state, {}, threading.Event())
-    path = list(driver_module.F2_REQUIRED)
-    path.insert(path.index("x_verify"), extra)
-    world.observed.extend(path)
-    world.record = lambda **_kw: None
-
+    """[o1/c3] F2 要證明的是不重送:寫入平台那條紀錄多一次同編號重送或轉人工,就算必經節點都照順序
+    出現也判沒跑完。"""
+    world = _streams_world(tmp_path, state, "F2")
+    streams = _normal(driver_module.F2_STREAMS)
+    _fill(world, streams)
+    world.require_streams(driver_module.F2_STREAMS)
+    key = streams[("t1", "key")]
+    key.insert(key.index("x_verify"), extra)
+    _fill(world, streams)
     with pytest.raises(ScenarioFailed, match=extra):
-        world.require_path(driver_module.F2_REQUIRED, driver_module.F2_ALLOWED)
-    world.observed[:] = [n for n in path if n != extra]
-    world.require_path(driver_module.F2_REQUIRED, driver_module.F2_ALLOWED)
+        world.require_streams(driver_module.F2_STREAMS)
+
+
+def _follow():
+    from rtb.analyzer.task_store import follow_up_id
+
+    return follow_up_id("t1")
+
+
+@pytest.mark.parametrize(("code", "stream", "repeat"), [
+    ("F1", ("t1", "key"), ["x_unknown", "x_resend"]),  # 多繞一圈不明、重送
+    ("F2", ("t1", "proposal"), ["x_reclaimed"]),  # 被接手兩次
+    ("F2", ("t1", "key"), ["x_unknown"]),  # 兩次不明
+    ("F4", ("t1", "proposal"), ["x_pick", "x_blocked"]),  # 多擋一次
+    ("F4", ("t1", "task"), ["a_followup"]),  # 開兩次新工作
+])
+def test_a_required_step_seen_again_is_not_done(tmp_path, state, code, stream, repeat):
+    """[第 3 輪代碼審 g1/x1] 必經節點照順序逐一消耗:重複出現(多繞一圈)不能因為「找得到」就算過。"""
+    expected = {"F1": driver_module.F1_STREAMS, "F2": driver_module.F2_STREAMS,
+                "F4": {**driver_module._blocked_then_replanned("t1", ("x_pending", "x_pick")),
+                       **driver_module._written(_follow(), ("x_write", "x_verify", "x_done"))},
+                }[code]
+    world = _streams_world(tmp_path, state, code)
+    streams = _normal(expected)
+    _fill(world, streams)
+    world.require_streams(expected)
+    nodes = streams[stream]
+    at = nodes.index(repeat[-1]) + 1
+    nodes[at:at] = repeat
+    _fill(world, streams)
+    with pytest.raises(ScenarioFailed, match="對不上"):
+        world.require_streams(expected)
+
+
+def test_each_task_is_checked_on_its_own(tmp_path, state):
+    """[g1] 多件工作(F5 的兩個廣告、F4 的新舊工作)按工作分開核對:另一件工作的節點不會拿來湊數,
+    沒預期到的紀錄也算對不上。"""
+    world = _streams_world(tmp_path, state, "F5")
+    streams = _normal(driver_module.F5_STREAMS)
+    _fill(world, streams)
+    world.require_streams(driver_module.F5_STREAMS)
+    streams[("t2", "key")] = ["x_write"]  # 不該調整的那件工作寫了平台
+    _fill(world, streams)
+    with pytest.raises(ScenarioFailed, match="沒預期"):
+        world.require_streams(driver_module.F5_STREAMS)
+    del streams[("t2", "key")]
+    streams[("t1", "task")].remove("x_done")
+    streams[("t2", "task")].append("x_done")  # 完成記在別件工作上
+    _fill(world, streams)
+    with pytest.raises(ScenarioFailed, match="t1"):
+        world.require_streams(driver_module.F5_STREAMS)
+
+
+@pytest.mark.parametrize(("state_", "handed_off", "verified", "ok"), [
+    ("completed", True, True, True),
+    ("handed_off", True, True, False),  # 分析端還沒結案(晚幾毫秒)
+    ("completed", False, True, False),
+    ("completed", True, False, False),
+])
+def test_a_task_is_finished_only_when_all_three_sides_say_so(state_, handed_off, verified, ok):
+    """[第 3 輪代碼審 g1 真跑時抓到的] 分析端問過收件口才結案,比收件口晚:只等平台與收件口就核對,
+    分析端那條紀錄會偶發少一步。"""
+    from rtb.domain.task_state import TaskState
+
+    stub = _Stub()
+    stub.task_history = lambda _t: (type("R", (), {"state": TaskState(state_)})(),)
+    stub.handed_off = lambda _t: handed_off
+    stub.verified = lambda _t: verified
+    assert driver_module.World.finished(stub, "t1") is ok
 
 
 @pytest.mark.parametrize(("blocked", "replan", "ok"), [
@@ -756,9 +839,9 @@ def test_the_new_task_counts_as_written_only_once_the_inbox_says_so():
     stub.budget = lambda _c: 220
     stub.follow_ups = lambda: [FollowUpRow(1, "t1", "t1-next", ReplanReason.VERSION_CHANGED,
                                            datetime.now().astimezone())]
-    stub.handed_off = lambda _t: False
+    stub.finished = lambda _t: False  # 平台已是新值,收件口或分析端還沒記下完成
     assert driver_module._follow_up_written(stub, "t1", "c1", 220) is False
-    stub.handed_off = lambda task: task == "t1-next"
+    stub.finished = lambda task: task == "t1-next"
     assert driver_module._follow_up_written(stub, "t1", "c1", 220) is True
 
 
@@ -894,3 +977,53 @@ def test_the_confirmed_one_counts_as_written_only_once_the_inbox_says_so():
     assert driver_module._confirmed_one_written(stub, _request()) is False
     stub.handed_off = lambda task: task == "t1"
     assert driver_module._confirmed_one_written(stub, _request()) is True
+
+
+# ---- 第 3 輪代碼審 s2/p1/x2:驗證器逾時或取消,不留孤兒、保留已印的輸出 ----
+FAKE_VERIFIER = """
+import os, signal, subprocess, sys, time
+grand = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                         start_new_session=True)
+open(sys.argv[1], "w").write(str(grand.pid))
+def stop(*_):
+    os.killpg(grand.pid, signal.SIGKILL)  # 跟真的驗證器一樣:收到 SIGTERM 收掉自己起的群組
+    raise SystemExit(1)
+signal.signal(signal.SIGTERM, stop)
+print("宣稱驗證器", flush=True)
+print("提交編號:abc", flush=True)
+time.sleep(60)
+"""
+
+
+def _gone(pid, within=5.0):
+    deadline = time.monotonic() + within
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_a_verifier_that_times_out_leaves_no_process_and_keeps_its_output(tmp_path):
+    """逾時:驗證器另開行程群組起的孫行程也要結束;已經印出來的每一行照樣留下。"""
+    marker = tmp_path / "grand.pid"
+    run = driver_module.run_verifier([sys.executable, "-c", FAKE_VERIFIER, str(marker)],
+                                     "demo-1", 2)
+    assert not run.passed and "逾時" in run.reasons[0]
+    assert run.lines[:2] == ("宣稱驗證器", "提交編號:abc")
+    assert _gone(int(marker.read_text()))
+
+
+def test_a_cancel_stops_a_running_verifier(tmp_path):
+    """整次展示被取消:跑到一半的驗證器也收掉,不等它跑完。"""
+    marker = tmp_path / "grand.pid"
+    stop = threading.Event()
+    threading.Timer(1.0, stop.set).start()
+    began = time.monotonic()
+    run = driver_module.run_verifier([sys.executable, "-c", FAKE_VERIFIER, str(marker)],
+                                     "demo-1", 60, stop=stop)
+    assert time.monotonic() - began < 15
+    assert not run.passed and "取消" in run.reasons[0]
+    assert _gone(int(marker.read_text()))

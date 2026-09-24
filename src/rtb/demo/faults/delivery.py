@@ -6,6 +6,7 @@
 同一個使用者的其他本機程式讀得到環境與暫存目錄,這裡不防本機惡意程式(計劃〈實務隱患〉)。
 """
 
+import contextlib
 import hashlib
 import hmac
 import json
@@ -20,7 +21,7 @@ from typing import Any
 from rtb.dsp.server import FAULT_MODES
 
 ROOT_MARKER = ".rtb-demo-root"
-USED_SUFFIX = ".used"
+USED_PREFIX = "used-nonce-"  # 用過的一次性隨機值:根目錄裡以它的雜湊命名的標記
 _NONCE_BYTES = 32
 _DEMO_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
 
@@ -126,9 +127,9 @@ def _plan_of(body: dict[str, Any], role: str) -> FaultPlan:
 
 
 def load_verified(config: Path, nonce: str | None, role: str, targets: list[Path]) -> FaultPlan:
-    """核對全部過了才回故障安排,並當場把設定檔改名作廢:同一份交付不能用第二次(代碼審 r1 s4)。"""
-    if config.name.endswith(USED_SUFFIX):  # 作廢過的那份改名後拿來再用(代碼審 r2 v2)
-        raise FaultRefused("故障設定檔已經用過")
+    """核對全部過了才回故障安排:同一份交付不能用第二次(代碼審 r1 s4)。用過的是一次性隨機值本身:
+    在根目錄以「不准已存在」的方式建一個以它的雜湊命名的標記,建不起來就是用過了;設定檔隨即刪掉。
+    只看檔名擋不住(第 3 輪代碼審 p2:大寫字尾在不分大小寫的檔案系統、或先複製一份,都能再用一次)。"""
     try:
         body = _load(config)
         root = _root_of(body, config)
@@ -144,7 +145,10 @@ def load_verified(config: Path, nonce: str | None, role: str, targets: list[Path
     except (TypeError, ValueError) as bad:
         raise FaultRefused(f"故障設定檔內容看不懂:{bad}") from bad
     try:
-        config.rename(config.with_name(config.name + USED_SUFFIX))
+        os.close(os.open(root / f"{USED_PREFIX}{_digest(nonce)}",
+                         os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
     except OSError as used:
-        raise FaultRefused("故障設定檔已經用過") from used
+        raise FaultRefused("這一份交付已經用過") from used
+    with contextlib.suppress(FileNotFoundError):
+        config.unlink()
     return plan

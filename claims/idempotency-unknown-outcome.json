@@ -73,11 +73,11 @@
     },
     {
       "path": "src/rtb/httpclient.py",
-      "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
+      "sha256": "7cf2204a0219ad6ee0381f1692f4a03327099b226161470a0fd62e804d4bfbc6"
     },
     {
       "path": "src/rtb/httpkit.py",
-      "sha256": "7728b365179df2d8efc5476a13f75ca11f7f72eae5310ecd2958c1f0f687df0e"
+      "sha256": "3eddad1a06c141fe7be1babb1683f384e45e56445624abb9aae02bfcfc4da945"
     },
     {
       "path": "src/rtb/sqlitekit.py",
