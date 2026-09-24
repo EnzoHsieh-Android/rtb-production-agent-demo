@@ -10,7 +10,7 @@ from rtb.domain.attempt import TRANSITIONS as ATTEMPT_TRANSITIONS
 from rtb.domain.attempt import AttemptState
 from rtb.domain.task_state import TRANSITIONS as TASK_TRANSITIONS
 from rtb.domain.task_state import TaskState
-from rtb.executor.inbox_store import BlockCode, StopKind
+from rtb.executor.inbox_store import BlockCode, LifecycleKind, StopKind
 
 GRAPH = flow.FLOW_GRAPH
 NODES = {node.id: node for node in GRAPH.nodes}
@@ -77,8 +77,9 @@ def test_every_system_outcome_maps_onto_the_flow_graph(enum: type[StrEnum]):
             assert place.node in NODES, f"{enum.__name__}.{member.name} 對到不存在的節點"
 
 
-def test_the_mapped_enums_are_the_fourteen_in_the_plan():
-    """計劃第 3 版的十二個,加設計審 r2 補的分析端路由與不提案原因(真正決定分析分支的兩個)。"""
+def test_the_mapped_enums_are_the_eighteen_in_the_plan():
+    """計劃第 4 版的十八個:第 3 版的十二個,加設計審 r2 補的處理待確認的結果、最後失敗原因、
+    證據新鮮度、值不值得加的判定、沒提案原因、路由路徑。"""
     assert {f"{e.__module__}.{e.__name__}" for e in flow.MAPPED_ENUMS} == {
         "rtb.executor.inbox_store.Disposition", "rtb.executor.inbox_store.BlockCode",
         "rtb.executor.inbox_store.DeadLetterReason", "rtb.executor.inbox_store.StopKind",
@@ -87,6 +88,8 @@ def test_the_mapped_enums_are_the_fourteen_in_the_plan():
         "rtb.executor.execution.VoidOutcome", "rtb.executor.execution.Result",
         "rtb.domain.task_state.TaskState", "rtb.analyzer.task_store.ReplanReason",
         "rtb.analyzer.policy.RoutePath", "rtb.analyzer.policy.NoActionReason",
+        "rtb.executor.inbox_store.AwaitingOutcome", "rtb.executor.inbox_store.LastFailure",
+        "rtb.domain.evidence.Freshness", "rtb.domain.worth.WorthVerdict",
     }
     mapped = {key[0] for key in flow.OUTCOMES}
     assert mapped == set(flow.MAPPED_ENUMS), "對應表裡有清單外的列舉"
@@ -113,6 +116,19 @@ def test_every_known_back_transition_is_unrolled(transitions, enum):
     listed = {back.transition for back in flow.BACK_TRANSITIONS if back.transition}
     for source, target in _backward(transitions, enum):
         assert (source, target) in listed, f"{enum.__name__} {source}→{target} 沒列進回頭轉換清單"
+
+
+# 執行端代表「放回待處理」的生命週期事件種類(設計審 r2 n8):確認後放回、重放放回、被接手、放掉處理權
+PUT_BACK_KINDS = (LifecycleKind.APPROVAL_RELEASED, LifecycleKind.REPLAY_REQUEUED,
+                  LifecycleKind.RECLAIMED, LifecycleKind.LEASE_RELEASED)
+
+
+@pytest.mark.parametrize("kind", PUT_BACK_KINDS, ids=lambda k: k.name)
+def test_every_put_back_event_is_an_unrolled_back_node(kind):
+    """[S1025] 執行端放回待處理的事件種類,各自是一個展開的回頭節點,對應表也指到那個節點。"""
+    backs = {back.lifecycle: back.node for back in flow.BACK_TRANSITIONS if back.lifecycle}
+    assert kind in backs, f"{kind.name} 沒列進回頭轉換清單"
+    assert flow.OUTCOMES[(LifecycleKind, kind.name)].node == backs[kind]
 
 
 def test_every_back_transition_is_a_new_node_that_names_where_it_returns():
@@ -161,3 +177,22 @@ def test_the_banned_term_check_needs_a_bracket_right_after(text, expected):
 def test_the_banned_terms_cover_the_ruling():
     assert set(flow.BANNED_TERMS) >= {"死信", "猝死", "總曝險", "冪等", "租約", "對帳", "護欄",
                                       "接續任務", "修訂", "結果不明"}
+
+
+def _covered(node: str, target: str, enum: type[StrEnum]) -> bool:
+    return any(place.edge == (node, target) or place.node == target
+               for (e, _), place in flow.OUTCOMES.items() if e is enum)
+
+
+def test_every_decision_node_is_bound_to_an_enum():
+    """[S1055] 每個判斷點綁一個對應清單上的列舉;除了明列的例外分支(通過、或由別的紀錄決定),
+    每條分支都有那個列舉的成員對到這條邊或它通往的節點。"""
+    decisions = {node.id for node in GRAPH.nodes if node.kind is NodeKind.DECISION}
+    assert set(flow.DECISION_ENUMS) == decisions
+    for node, (enum, unbound) in flow.DECISION_ENUMS.items():
+        assert enum in flow.MAPPED_ENUMS
+        targets = [t for s, t in EDGES if s == node]
+        assert set(unbound) < set(targets), f"{node} 的例外分支不在它的分支裡,或全部都是例外"
+        for target in targets:
+            if target not in unbound:
+                assert _covered(node, target, enum), f"{node}→{target} 沒有 {enum.__name__}"

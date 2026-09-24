@@ -15,12 +15,16 @@ from rtb.analyzer.policy import NoActionReason, RoutePath
 from rtb.analyzer.task_store import ReplanReason
 from rtb.demo.state import FlowEdge, FlowGraph, FlowNode, NodeKind
 from rtb.domain.attempt import AttemptState, OutcomeCode
+from rtb.domain.evidence import Freshness
 from rtb.domain.task_state import TaskState
+from rtb.domain.worth import WorthVerdict
 from rtb.executor.execution import Result, VoidOutcome
 from rtb.executor.inbox_store import (
+    AwaitingOutcome,
     BlockCode,
     DeadLetterReason,
     Disposition,
+    LastFailure,
     LifecycleKind,
     ReplayOutcome,
     StopKind,
@@ -87,13 +91,15 @@ _NODES: tuple[tuple[str, str, NodeKind, str], ...] = (
 @dataclass(frozen=True, slots=True)
 class BackTransition:
     """一條往回走的轉換展開成的節點:`node` 沒有出去的邊,標籤寫明回到 `returns_to` 那一步。
-    `transition` 是它在程式狀態轉換表裡對應的那一條(沒有狀態表的回頭,例如放回排隊,就是空)。"""
+    `transition` 是它在程式狀態轉換表裡對應的那一條,`lifecycle` 是執行端記下它的那種生命週期事件
+    (放回待處理的四種);兩者都沒有的(例如開新工作)就是空。"""
 
     node: str
     what: str
     lane: str
     returns_to: str
     transition: tuple[StrEnum, StrEnum] | None = None
+    lifecycle: LifecycleKind | None = None
 
 
 BACK_TRANSITIONS = (
@@ -102,10 +108,15 @@ BACK_TRANSITIONS = (
     BackTransition("a_restale", "送出時資料已經過時,重新蒐集", ANALYZE, "a_collect",
                    (TaskState.PROPOSED, TaskState.COLLECTING_EVIDENCE)),
     BackTransition("a_followup", "開一件新工作,照廣告現在的樣子重新分析", ANALYZE, "a_receive"),
-    BackTransition("x_deferred", "這一輪先不處理,放回排隊", EXECUTE, "x_pending"),
+    BackTransition("x_deferred", "這一輪先不處理,放回排隊", EXECUTE, "x_pending",
+                   lifecycle=LifecycleKind.LEASE_RELEASED),
     BackTransition("x_lease_lost", "處理權被別人接手,這一輪放手", EXECUTE, "x_pending"),
-    BackTransition("x_approved", "人已同意,放回排隊", EXECUTE, "x_pending"),
-    BackTransition("r_requeued", "重新放回排隊", HUMAN, "x_pending"),
+    BackTransition("x_reclaimed", "處理的人中途沒回報,換人重新拿起", EXECUTE, "x_pick",
+                   lifecycle=LifecycleKind.RECLAIMED),
+    BackTransition("x_approved", "人已同意,放回排隊", EXECUTE, "x_pending",
+                   lifecycle=LifecycleKind.APPROVAL_RELEASED),
+    BackTransition("r_requeued", "同一份建議重新放回排隊", HUMAN, "x_pending",
+                   lifecycle=LifecycleKind.REPLAY_REQUEUED),
     BackTransition("x_resend", "用同一個編號再送一次", EXECUTE, "x_write",
                    (AttemptState.UNKNOWN, AttemptState.IN_FLIGHT)),
     BackTransition("x_recheck", "這次查不出結論,稍後再查", EXECUTE, "x_unknown"),
@@ -161,6 +172,7 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
     ("h_approve", "x_blocked", "放太久沒人確認"),
     ("h_approve", "i_superseded", "等的時候有了更新的建議"),
     ("x_write", "p_reply", "送出"),
+    ("x_write", "x_reclaimed", "處理到一半中斷"),
     ("p_reply", "x_verify", "說收到了"),
     ("p_reply", "x_failed", "拒絕"),
     ("p_reply", "x_unknown", "沒有明確回覆(逾時或斷線)"),
@@ -214,7 +226,7 @@ def _on(source: str, target: str, text: str) -> Place:
 MAPPED_ENUMS: tuple[type[StrEnum], ...] = (
     Disposition, BlockCode, DeadLetterReason, StopKind, LifecycleKind, ReplayOutcome,
     AttemptState, OutcomeCode, VoidOutcome, Result, TaskState, ReplanReason, RoutePath,
-    NoActionReason,
+    NoActionReason, AwaitingOutcome, LastFailure, Freshness, WorthVerdict,
 )
 
 _PLACES: dict[type[StrEnum], dict[str, Place]] = {
@@ -251,7 +263,7 @@ _PLACES: dict[type[StrEnum], dict[str, Place]] = {
         "SUPERSEDED": _at("i_superseded", "已經有更新的建議,舊的不處理"),
         "EXPIRED": _at("x_expired", "建議已經過期"),
         "DELIVERED": _on("x_pending", "x_pick", "輪到它,被拿起"),
-        "RECLAIMED": _on("x_pending", "x_pick", "前一個處理的人沒回報,換人接手"),
+        "RECLAIMED": _at("x_reclaimed", "前一個處理的人沒回報,換人接手"),
         "LEASE_RELEASED": _at("x_deferred", "這一輪沒能開始,放回排隊"),
         "HANDED_OFF": _at("x_write", "交給寫入這一步"),
         "BLOCKED": _at("x_blocked", "擋下"),
@@ -346,5 +358,52 @@ _PLACES: dict[type[StrEnum], dict[str, Place]] = {
     },
 }
 
+_PLACES.update({
+    AwaitingOutcome: {
+        "EXPIRED": _on("h_approve", "x_blocked", "放太久沒人確認,擋下"),
+        "SUPERSEDED": _on("h_approve", "i_superseded", "等的時候有了更新的建議"),
+        "RELEASED": _on("h_approve", "x_approved", "人已同意,放回排隊"),
+    },
+    LastFailure: {
+        "DSP_UNAVAILABLE": _on("x_precheck", "x_deferred", "讀不到廣告平台的現況,這一輪先放回"),
+        "TABLE_FULL": _on("x_precheck", "x_deferred", "待處理的太多,這一輪先放回"),
+        "NO_REPORT": _at("x_reclaimed", "處理的人中途沒回報"),
+    },
+    Freshness: {
+        "FRESH": _on("a_fresh", "a_complete", "資料夠新"),
+        "EXPIRED": _on("a_fresh", "a_recollect", "資料超過有效時間"),
+        "VERSION_CHANGED": _on("a_fresh", "a_recollect", "讀到資料之後廣告又被改過"),
+        "UNVERIFIED": _on("a_fresh", "a_recollect", "沒讀到廣告現在的版本,不能算新"),
+    },
+    WorthVerdict: {
+        "WORTH": _on("a_worth", "a_propose", "值得加"),
+        "NOT_WORTH": _on("a_worth", "a_no_action", "不值得加"),
+        "INSUFFICIENT": _on("a_worth", "a_no_action", "資料不夠判斷"),
+        "UNSURE": _on("a_candidate", "a_rule", "模型候選沒把握,改用程式規則"),
+    },
+})
+
 OUTCOMES: dict[tuple[type[StrEnum], str], Place] = {
     (enum, name): place for enum, places in _PLACES.items() for name, place in places.items()}
+
+# 每個判斷點綁一個列舉(設計審 r2 n9):除了列在後面的例外分支,每條分支都有那個列舉的成員對到這條邊或
+# 它通往的節點。例外分支是「檢查通過、往下走」或由別的紀錄決定的那一條,旁邊寫明。
+DECISION_ENUMS: dict[str, tuple[type[StrEnum], tuple[str, ...]]] = {
+    "a_fresh": (Freshness, ()),
+    "a_complete": (NoActionReason, ("a_pacing",)),  # 齊全:往下走
+    "a_pacing": (NoActionReason, ("a_route",)),  # 偏慢:往下走
+    "a_route": (RoutePath, ("a_candidate",)),  # 交給候選:路由結果在候選那一步才定
+    "a_candidate": (RoutePath, ()),
+    "a_worth": (WorthVerdict, ("a_failed",)),  # 分析出錯:任務狀態記成失敗
+    "i_check": (LifecycleKind, ("a_restale", "a_failed")),  # 送件時過時與拒收:任務狀態記
+    "x_pick": (Result, ("x_deadletter", "x_precheck")),  # 試太多次:死信原因記;還能處理:往下走
+    "x_precheck": (Result, ("x_guard",)),  # 通過:往下走
+    "x_guard": (Result, ("x_total",)),  # 在範圍內:往下走
+    "x_total": (Result, ()),
+    "p_reply": (AttemptState, ()),
+    "x_unknown": (VoidOutcome, ("x_resend",)),  # 確定沒寫進去:嘗試狀態從不明回到送出中
+    "x_verify": (AttemptState, ()),
+    "h_approve": (AwaitingOutcome, ()),
+    "h_replay": (ReplayOutcome, ()),
+    "h_resolve": (AttemptState, ()),
+}
