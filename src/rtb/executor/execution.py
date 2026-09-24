@@ -32,11 +32,12 @@ DSP 呼叫紀錄——結果寫入回滾時呼叫紀錄照樣留著;同一個 DS
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal, NoReturn, Protocol
+from typing import Any, Literal, NoReturn, Protocol, TypeVar
 
+from rtb import sqlitekit
 from rtb.domain._checks import is_plain_int
 from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
 from rtb.domain.proposal import POLICY_VERSION, ActionType, Proposal, content_hash
@@ -60,6 +61,7 @@ from rtb.executor.inbox_store import (
     BlockCode,
     CorruptedInboxRow,
     InboxBusy,
+    InboxBusyNotStarted,
     InboxStore,
     LastFailure,
     PendingProposal,
@@ -420,6 +422,16 @@ def _no_progress(key: str, receipt: Receipt | None) -> NoReturn:
     raise ExecutorHalted("no_progress")
 
 
+# 寫結果碰到開交易鎖不到時的重試(F7 效能計劃第 2 部分,使用者 2026-09-25 裁定):
+# - 最多重試 3 次,每次重試前依序退避這幾秒
+# - 每次再開交易之前,這張收據的租約剩餘時間要夠等一次鎖(sqlitekit 的等鎖上限)加退避加固定餘裕,
+#   不夠就不再試
+# - 餘裕涵蓋拿到鎖之後交易本體跑到提交的時間(平常毫秒級),以及磁碟同步變慢與時鐘讀取的誤差
+RESULT_WRITE_RETRIES = 3
+RESULT_WRITE_BACKOFF_SECONDS = (0.05, 0.1, 0.2)
+RESULT_WRITE_LEASE_MARGIN = timedelta(seconds=5)
+_T = TypeVar("_T")
+
 # 待寫呼叫紀錄的硬上限(暫用,代使用者裁定,代碼審第 2 輪):到上限就不開始新的一筆處理或對帳(不送新的
 # DSP 呼叫),只做補寫,補寫成功才恢復。一筆處理最多幾次 DSP 呼叫,所以上限可能多出那幾列。
 MAX_PENDING_CALLS = 50
@@ -443,6 +455,10 @@ class Executor:
     clock: Callable[[], datetime]  # 單一動作的簡單回呼:照專案慣例用 Callable,不另開 Protocol
     owner: str = "executor"  # 租約擁有者:啟動程式傳行程編號加啟動時間
     approval_key: bytes | None = None  # 人工核可金鑰(啟動程式讀);沒有就一張核可都不算數
+    # 寫結果重試的退避(F7 效能計劃第 2 部分):只有啟動程式接真的睡眠,其他建構點預設不睡——退避只是
+    # 禮讓,不影響正確性;測試傳假的睡眠記下序列
+    sleep: Callable[[float], None] = field(default=lambda _seconds: None, repr=False,
+                                           compare=False)
     # 撞到資料庫忙碌、還沒寫進去的呼叫紀錄(代使用者裁定,代碼審第 1 輪):只在這個行程的記憶體裡
     _pending: list[_PendingCall] = field(default_factory=list, init=False, repr=False,
                                          compare=False)
@@ -943,6 +959,35 @@ class Executor:
             raise LeaseLost(row.key)
 
     # ---- 第 6 步:寫結果 ----
+    def _retry_busy_begin(self, receipt: Receipt | None, attempt: Callable[[], _T]) -> _T:
+        """記下平台回覆的那一個交易,開交易就鎖不到(什麼都沒寫)時在限度內整筆重做(F7 效能計劃第 2
+        部分):最多重試 RESULT_WRITE_RETRIES 次,退避經注入的睡眠;每次再試之前讀這張收據的租約實際
+        到期時間,剩餘不夠等一次鎖加退避加餘裕、或已經不是自己的租約,就不再試、照舊往外丟忙碌。
+        沒有收據的舊鍵沒有租約可讀,只受次數限制(輸家靠嘗試紀錄的序號條件寫 0 列)。只接開交易鎖不到
+        這一種;其他錯誤(含交易開起來之後的忙碌)一律照舊往外丟。計數是這次呼叫的區域變數。"""
+        retries = 0
+        while True:
+            try:
+                return attempt()
+            except InboxBusyNotStarted:
+                if retries >= RESULT_WRITE_RETRIES:
+                    raise
+                pause = RESULT_WRITE_BACKOFF_SECONDS[retries]
+                if receipt is not None and not self._lease_allows(receipt, pause):
+                    raise
+                retries += 1
+                self.sleep(pause)
+
+    def _lease_allows(self, receipt: Receipt, pause: float) -> bool:
+        """租約還夠不夠再試一次:剩餘時間(資料庫裡的到期時間減注入時鐘的現在)至少要等一次鎖加退避
+        加餘裕。讀不到租約就不夠。"""
+        until = self.store.lease_until(receipt)
+        if until is None:
+            return False
+        needed = (timedelta(seconds=sqlitekit.BUSY_TIMEOUT_SECONDS + pause)
+                  + RESULT_WRITE_LEASE_MARGIN)
+        return until - self.clock() >= needed
+
     def _write(  # noqa: PLR0913 - 關鍵字參數都是這次寫入要記的欄位,各有預設值
         self, row: AttemptRow, target: AttemptState, receipt: Receipt | None, *,
         code: OutcomeCode | None = None, written_version: int | None = None,
@@ -953,7 +998,24 @@ class Executor:
 
         續租就是 Phase 0 要的續期機制:活著的工作者每寫一筆就把租約往後推,慢的 DSP 呼叫不會
         讓它被當成當機;真的當機就不再續,租約到期後別人才能接手。
-        receipt 是 None 只給 Phase 3 時代留下、收件表沒有處理中那一列的鍵用(沒有訊息可確認)。"""
+        receipt 是 None 只給 Phase 3 時代留下、收件表沒有處理中那一列的鍵用(沒有訊息可確認)。
+        記下平台回覆的寫入(目標不是嘗試中)開交易鎖不到時在限度內重試;轉回嘗試中不在範圍(F7 效能
+        計劃第 2 部分〈不改〉),鎖不到照舊往外丟。"""
+        def once() -> AttemptRow:
+            return self._write_once(row, target, receipt, code=code,
+                                    written_version=written_version,
+                                    capability_expires_at=capability_expires_at,
+                                    block_code=block_code, guard=guard)
+        if target is A.IN_FLIGHT:
+            return once()
+        return self._retry_busy_begin(receipt, once)
+
+    def _write_once(  # noqa: PLR0913 - 同 _write
+        self, row: AttemptRow, target: AttemptState, receipt: Receipt | None, *,
+        code: OutcomeCode | None, written_version: int | None,
+        capability_expires_at: datetime | None, block_code: BlockCode | None,
+        guard: Callable[[attempt_store.ExecutorTransaction], None] | None,
+    ) -> AttemptRow:
         with self.store.transaction() as tx:
             now = self.clock()
             if receipt is not None and not self.store.extend(tx, receipt, now):
@@ -1057,13 +1119,17 @@ class Executor:
         return False
 
     def _verification_timeout(self, row: AttemptRow, receipt: Receipt | None) -> None:
-        try:
+        """記一次查證逾時;開交易鎖不到時跟寫結果一樣在限度內重試(次數用完轉人工的那一筆寫入是
+        寫結果函式,自己另外重試、另外判期限)。"""
+        def once() -> AttemptRow | None:
             with self.store.transaction() as tx:
                 now = self.clock()
                 if receipt is not None and not self.store.extend(tx, receipt, now):
                     raise LeaseLost(row.key)
-                recorded = attempt_store.record_verification_timeout(tx, row.key, row.seq, now,
-                                                                     by=self._by)
+                return attempt_store.record_verification_timeout(tx, row.key, row.seq, now,
+                                                                 by=self._by)
+        try:
+            recorded = self._retry_busy_begin(receipt, once)
         except attempt_store.VerificationTimeoutLimitReached:
             self._write(row, A.ESCALATED, receipt, code=C.VERIFICATION_TIMEOUTS_EXHAUSTED)
             return

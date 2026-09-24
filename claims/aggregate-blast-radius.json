@@ -73,7 +73,7 @@
     },
     {
       "path": "src/rtb/executor/execution.py",
-      "sha256": "bffddcfc17d3b0a8e055df10567da8dd21be6898a2263a955d865178bdbe8f93"
+      "sha256": "2fc7892514965e8a01ebd5cc6f8e3a1523e93eb91c3d5f83f2afcb5613675c4e"
     },
     {
       "path": "src/rtb/executor/guardrails.py",
@@ -85,11 +85,11 @@
     },
     {
       "path": "src/rtb/executor/inbox_store.py",
-      "sha256": "ab95d61931752e955c5b661680ab58d7b85479286f60a419543559ce91821672"
+      "sha256": "e0f40e4df72c0712ad840af5f74619549d37be74e1cc55fd727423b9484be980"
     },
     {
       "path": "src/rtb/executor/runner.py",
-      "sha256": "d2dc981ac599ef4d1ad9ee33a96b9704b170f2d8c2cfcfabab0e7e3c6613b47b"
+      "sha256": "8efda47b8e4f6f72a7e1f4e7906b3d7ae03517f5c0f98d7210a966ee37dbe902"
     },
     {
       "path": "src/rtb/httpclient.py",
