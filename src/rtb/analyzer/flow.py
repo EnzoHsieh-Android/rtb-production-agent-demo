@@ -26,6 +26,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Protocol
 
 from rtb.analyzer.task_store import (
@@ -75,6 +76,17 @@ class Decide(Protocol):
         self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime
     ) -> Decision:
         """`now` 是 `advance()` 手上、也會寫進歷史列的同一個時間;決策層不自己讀系統時鐘。"""
+        ...
+
+
+class ExplainNoAction(Protocol):
+    def __call__(
+        self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime
+    ) -> StrEnum | None:
+        """決策是不提案時問「為什麼」(Phase 12 設計審 r2 p1):輸入跟 `Decide` 相同,
+        回不提案原因列舉的成員。
+        原因不放進決策結果(Phase 10 裁定,決策型別的相等比較照舊),所以另開這個可省略的介面;
+        流程層不匯入決策規則(規則匯入流程層的決策型別),型別只約束成列舉成員。"""
         ...
 
 
@@ -136,6 +148,7 @@ class _Collaborators:
     decide: Decide
     submit: Submit
     operation_lookup: OperationLookup | None = None  # 只有已交給執行那一步讀
+    no_action_reason: ExplainNoAction | None = None  # 只有分析中、決策是不提案時問
 
 
 @dataclass(frozen=True)
@@ -148,6 +161,7 @@ class _Step:
     error_detail: str | None = None
     operation_key: str | None = None
     follow_up: FollowUp | None = None
+    no_action_reason: StrEnum | None = None
 
 
 _StepOutcome = _Step | None
@@ -163,6 +177,7 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、
     before_commit: Callable[[], None] | None = None,
     owner: str = "analyzer",  # 租約擁有者:比照執行側由啟動程式傳入工作者身分,這裡只當標籤
     operation_lookup: OperationLookup | None = None,  # 不給:已交給執行的任務停在原地
+    no_action_reason: ExplainNoAction | None = None,  # 不給:不提案照舊結案,不存原因
 ) -> TaskState:
     """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。
 
@@ -184,8 +199,9 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、
         return row.state
     try:
         return _advance_holding(
-            store, row, _Collaborators(evidence_source, decide, submit, operation_lookup), now,
-            before_commit, lease)
+            store, row,
+            _Collaborators(evidence_source, decide, submit, operation_lookup, no_action_reason),
+            now, before_commit, lease)
     except BaseException:
         store.release_lease_quietly(lease, now)  # 放掉失敗也不蓋掉原本的例外
         raise
@@ -214,6 +230,7 @@ def _advance_holding(
         row.task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
         evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
         lease=lease, operation_key=outcome.operation_key, follow_up=outcome.follow_up,
+        no_action_reason=outcome.no_action_reason,
     )
     if not committed:  # 輸了序號或租約:還是自己的才放掉(條件寫在 release_lease 裡)
         store.release_lease(lease, now)
@@ -252,12 +269,26 @@ def _from_analyzing(
     except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
         return _Step(TaskState.FAILED, error_detail=repr(exc))
     if isinstance(decision, NoAction):
-        return _Step(TaskState.NO_ACTION)
+        return _Step(TaskState.NO_ACTION, no_action_reason=_why_not(c, row, evidence, now))
     if isinstance(decision, ProposalDecision):
         return _Step(TaskState.PROPOSED, proposal=decision.proposal)
     if isinstance(decision, NeedsFreshEvidence):
         return _Step(TaskState.COLLECTING_EVIDENCE)
     raise _BrokenCollaborator(f"Decide 回傳了合約之外的型別:{type(decision)!r}")
+
+
+def _why_not(
+    c: _Collaborators, row: TaskRow, evidence: tuple[Evidence, ...], now: datetime
+) -> StrEnum | None:
+    """不提案的原因只是給人看的附帶資料:問不到、出錯或答非列舉成員都當作沒有原因,不改變「不提案」
+    這個結果(原因表不會刪,任意字串寫進去等於開一條注入管道)。"""
+    if c.no_action_reason is None:
+        return None
+    try:
+        answer = c.no_action_reason(row, evidence, now)
+    except Exception:  # 附帶資料查不出來不影響流程,跟證據來源失敗一樣不轉 FAILED
+        return None
+    return answer if isinstance(answer, StrEnum) else None
 
 
 def _from_proposed(

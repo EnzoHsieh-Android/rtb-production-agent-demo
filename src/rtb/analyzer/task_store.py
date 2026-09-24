@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS follow_ups (
     original_task_id TEXT PRIMARY KEY, follow_up_task_id TEXT UNIQUE,
     generation INTEGER NOT NULL, campaign_id TEXT NOT NULL, reason TEXT NOT NULL,
     outcome TEXT NOT NULL, written_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS no_action_reasons (
+    task_id TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL,
+    PRIMARY KEY (task_id, seq));
 CREATE INDEX IF NOT EXISTS follow_ups_by_campaign ON follow_ups (campaign_id);
 CREATE INDEX IF NOT EXISTS tool_calls_by_time ON tool_calls (at);
 """
@@ -327,6 +330,17 @@ class TaskReads:
         sql, params = tool_calls_between_query(since, until)
         return tuple(_tool_call(row) for row in self._conn.execute(sql, params))
 
+    def no_action_reason(self, task_id: str, seq: int) -> str | None:
+        """不提案那一列存下的原因(Phase 12 設計審 r2 p1);沒存、或資料庫還沒有原因表都回空值。
+        唯讀開法不建表,所以先看表在不在:Phase 12 之前的資料庫照樣開得起來。"""
+        if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                              "AND name = 'no_action_reasons'").fetchone() is None:
+            return None
+        record = self._conn.execute(
+            "SELECT reason FROM no_action_reasons WHERE task_id = ? AND seq = ?", (task_id, seq),
+        ).fetchone()
+        return None if record is None else str(record[0])
+
     def history(self, task_id: str) -> tuple[TaskRow, ...]:
         records = self._conn.execute(
             f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ? ORDER BY seq",  # noqa: S608 - 固定欄位清單
@@ -423,6 +437,7 @@ class TaskStore(TaskReads):
         lease: LeaseReceipt | None = None,
         operation_key: str | None = None,
         follow_up: FollowUp | None = None,
+        no_action_reason: StrEnum | None = None,
     ) -> bool:
         """核對租約與 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
 
@@ -434,7 +449,11 @@ class TaskStore(TaskReads):
 
         帶 follow_up:原任務這一列(結案)跟接續任務、接續關係在同一個交易裡寫,同一道圍籬;
         錯誤說明後面補上接續任務編號、代數用完、或接續編號衝突(防線,不建立)。
+
+        帶 no_action_reason:只准跟不提案那一列一起寫,同一個交易寫進只增的原因表(Phase 12)。
         """
+        if no_action_reason is not None and new_state is not TaskState.NO_ACTION:
+            raise ValueError(f"原因只能跟不提案那一列一起寫,這一步是 {new_state}")
         mismatched = [item.task_id for item in evidence if item.task_id != task_id]
         if mismatched:
             raise EvidenceTaskMismatch(
@@ -463,20 +482,28 @@ class TaskStore(TaskReads):
                  None if proposal is None else _proposal_to_json(proposal),
                  capped_detail, _iso(now), operation_key),
             )
-            for item in evidence:
-                self._conn.execute(
-                    "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (task_id, next_seq, item.evidence_id, item.kind.value, item.source,
-                     _iso(item.observed_at), item.campaign_version_observed,
-                     item.content_hash, item.trust_class.value,
-                     json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True,
-                                allow_nan=False)),
-                )
+            self._insert_attachments(task_id, next_seq, evidence, no_action_reason)
             if lease is not None:
                 self._append_release(lease, now)
             if before_commit is not None:
                 before_commit()
         return True
+
+    def _insert_attachments(self, task_id: str, seq: int, evidence: Sequence[Evidence],
+                            no_action_reason: StrEnum | None) -> None:
+        """跟新的一列同一個交易寫的附帶資料:證據列,與不提案的原因。"""
+        if no_action_reason is not None:
+            self._conn.execute("INSERT INTO no_action_reasons VALUES (?, ?, ?)",
+                               (task_id, seq, no_action_reason.value))
+        for item in evidence:
+            self._conn.execute(
+                "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, seq, item.evidence_id, item.kind.value, item.source,
+                 _iso(item.observed_at), item.campaign_version_observed,
+                 item.content_hash, item.trust_class.value,
+                 json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True,
+                            allow_nan=False)),
+            )
 
     def _write_follow_up(
         self, task_id: str, campaign_id: str, reason: ReplanReason, now: datetime,

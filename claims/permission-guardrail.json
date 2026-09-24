@@ -13,7 +13,7 @@
     },
     {
       "path": "src/rtb/analyzer/flow.py",
-      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
+      "sha256": "d85984ece3a2e43c76fafeaa10d002614a2c1f9ee2b9e88891f8fcadd98cb7f4"
     },
     {
       "path": "src/rtb/analyzer/inbox_client.py",
@@ -29,7 +29,7 @@
     },
     {
       "path": "src/rtb/analyzer/task_store.py",
-      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
+      "sha256": "eea90666647ae0aab80333f54883490418d891808ffde02a394b920a990b08a5"
     },
     {
       "path": "src/rtb/capabilitykit.py",
