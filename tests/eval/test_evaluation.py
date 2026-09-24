@@ -264,6 +264,51 @@ def test_a_synthetic_report_can_never_be_adopted():
         dataclasses.replace(PROVENANCE, labeling_source=" ")
 
 
+# ---- 代碼審第 2 輪 ----
+@pytest.mark.parametrize("flag", ["false", "true", 0, 1, None])
+def test_the_disclosure_flag_must_be_a_real_bool(flag):
+    with pytest.raises(ValueError):
+        dataclasses.replace(PROVENANCE, candidate_predates_disclosure=flag)
+
+
+@pytest.mark.parametrize("digest", ["a" * 63, "g" * 64, "A" * 64 + "0", "x"])
+def test_the_hidden_set_hash_must_be_64_hex_digits(digest):
+    with pytest.raises(ValueError):
+        dataclasses.replace(PROVENANCE, sha256=digest)
+
+
+def test_a_production_report_needs_the_candidate_in_every_cell():
+    """全部走現行規則(沒經過候選)的計分結果簽不成正式報告;每一格至少一筆經過候選或候選退回。"""
+    code_only = [scoring.ScoredCase(c.scenario, c.final, policy.RoutePath.CODE_RULE)
+                 for g in ALL_GOOD for c in g]
+    with pytest.raises(ValueError):
+        scoring.production_report(tuple(code_only), PROVENANCE)
+    one_cell_code = [c if c.scenario.cell is not WorthCell.PAUSED
+                     else scoring.ScoredCase(c.scenario, c.final, policy.RoutePath.CODE_RULE)
+                     for g in ALL_GOOD for c in g]
+    with pytest.raises(ValueError):
+        scoring.production_report(tuple(one_cell_code), PROVENANCE)
+    fallback = [scoring.ScoredCase(c.scenario, c.final, policy.RoutePath.FALLBACK_UNSURE)
+                for g in ALL_GOOD for c in g]
+    scoring.production_report(tuple(fallback), PROVENANCE)  # 候選退回也算經過候選
+
+
+def test_a_comparison_row_counts_only_for_its_own_cell():
+    """同一列掛在五格的鍵下,不能冒充五格都量過。"""
+    good = _production(*ALL_GOOD)
+    paused_row = _row(WorthCell.PAUSED)
+    rows = dict.fromkeys(WorthCell, paused_row)
+    result = adoption.decide_adoption(good, rows, LIMITS)
+    assert result.validated.cells == frozenset({WorthCell.PAUSED})
+
+
+def test_huge_integers_are_rejected_without_crashing():
+    with pytest.raises(ValueError):
+        adoption.Measure.of(10**400)
+    with pytest.raises(ValueError):
+        adoption.OperationalLimits(10**400, 1.0, 1.0, 0.1)
+
+
 @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf, -0.01, True])
 def test_measures_and_limits_reject_non_finite_and_negative_values(bad):
     with pytest.raises(ValueError):
@@ -339,6 +384,9 @@ def test_the_record_command_line_has_the_project_shape():
 OTHER_LAYERS = ("analyzer", "executor", "dsp", "domain", "ops")
 PROBES = {
     "direct": "import rtb.eval.eval_set\n",
+    "dunder_variable": "name = 'rtb.' + 'eval'\nx = __import__(name)\n",
+    "import_module_variable": ("import importlib\nname = 'rtb.eval'\n"
+                               "x = importlib.import_module(name)\n"),
     "relative": "from ..eval import eval_set\n",
     "dunder": "x = __import__('rtb.eval.eval_set')\n",
     "import_module": "import importlib\nx = importlib.import_module('rtb.eval.eval_set')\n",
@@ -347,8 +395,8 @@ PROBES = {
 
 
 def _eval_imports(path, tree):
-    """一支檔對評估套件的匯入:直接、相對(依檔案所在套件換算)、__import__ 與
-    import_module(含別名)。"""
+    """一支檔對評估套件的匯入:直接、相對(依檔案所在套件換算);任何 __import__ 或
+    import_module(含別名)的呼叫也算,受保護五層不准動態匯入。"""
     package = ".".join(path.relative_to(SRC.parent).with_suffix("").parts[:-1])
     dynamic = {"__import__", "import_module"}
     for node in ast.walk(tree):
@@ -369,8 +417,8 @@ def _eval_imports(path, tree):
             func = node.func
             called = (func.id if isinstance(func, ast.Name)
                       else func.attr if isinstance(func, ast.Attribute) else None)
-            if called in dynamic and node.args and isinstance(node.args[0], ast.Constant):
-                names = [str(node.args[0].value)]
+            if called in dynamic:  # 代碼審第 2 輪:任何動態匯入呼叫都算,不只認字面常數
+                found.append(f"動態匯入 {called}")
         found += [n for n in names if n == "rtb.eval" or n.startswith("rtb.eval.")]
     return found
 
@@ -382,6 +430,12 @@ def test_nothing_outside_the_eval_package_imports_it():
             [sys.executable, "-m", "ruff", "check", "--config", str(config),
              "--stdin-filename", str(config.parent / "probe.py"), "-"],
             input=PROBES["direct"], capture_output=True, text=True, timeout=60, check=False)
+        assert result.returncode == 1 and "TID251" in result.stdout, (layer, result.stdout)
+        # 代碼審第 2 輪:受保護五層直接禁止動態匯入模組
+        result = subprocess.run(
+            [sys.executable, "-m", "ruff", "check", "--config", str(config),
+             "--stdin-filename", str(config.parent / "probe.py"), "-"],
+            input="import importlib\n", capture_output=True, text=True, timeout=60, check=False)
         assert result.returncode == 1 and "TID251" in result.stdout, (layer, result.stdout)
         for kind, source in PROBES.items():  # 掃描認得五種寫法(代碼審第 1 輪補動態匯入)
             probe = SRC / layer / "probe.py"

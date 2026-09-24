@@ -12,6 +12,7 @@
 
 import hashlib
 import math
+import re
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -26,6 +27,9 @@ NO_FALSE_PROPOSAL = "no_false_proposal"  # 其他格:1 減誤提案率(不該加
 CLASS_ACCURACY = "class_accuracy"  # 其他格:最後有效答案等於標準答案的比例
 EVAL_SET = Path(__file__).with_name("eval_set.py")
 Z_95 = 1.959963984540054
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+# 經過候選的路徑(候選答的,或候選失敗、逾時、答不知道後退回現行規則的)
+_THROUGH_CANDIDATE = frozenset(RoutePath) - {RoutePath.CODE_RULE}
 
 
 def eval_set_sha256() -> str:
@@ -114,6 +118,10 @@ class HiddenSetProvenance:
                  self.candidate_version)
         if not all(isinstance(t, str) and t.strip() for t in texts):
             raise ValueError("正式報告的隱藏集出處每一欄都要寫")
+        if not (isinstance(self.sha256, str) and _SHA256.fullmatch(self.sha256)):
+            raise ValueError("隱藏集雜湊要是 64 位小寫十六進位")
+        if type(self.candidate_predates_disclosure) is not bool:
+            raise ValueError("候選是否早於揭露要是真的布林值")
 
 
 _PRODUCTION_ISSUER = object()  # 只有 production_report 建得出正式報告
@@ -195,5 +203,10 @@ def synthetic_report(scored: tuple[ScoredCase, ...], sha256: str) -> SyntheticRe
 def production_report(
     scored: tuple[ScoredCase, ...], provenance: HiddenSetProvenance
 ) -> ProductionReport:
+    """正式計分入口:每一格至少要有一筆經過候選(或候選退回)的案例,全走現行規則的簽不成正式報告
+    (代碼審第 2 輪)。"""
     cells, confusion, changed = _parts(scored, with_bounds=True)
+    untouched = [c.cell.value for c in cells if not set(c.paths) & _THROUGH_CANDIDATE]
+    if not cells or untouched:
+        raise ValueError(f"這些格沒有任何一筆經過候選:{', '.join(untouched) or '全部'}")
     return ProductionReport(provenance, cells, confusion, changed, _PRODUCTION_ISSUER)

@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, fields
 
 from rtb.analyzer.policy import _VALIDATED_CELLS_ISSUER, ValidatedCells
+from rtb.domain._checks import is_finite_or_none
 from rtb.domain.worth import WorthCell
 from rtb.eval.scoring import (
     CLASS_ACCURACY,
@@ -22,8 +23,8 @@ from rtb.eval.scoring import (
     ProductionReport,
 )
 
-# 暫用、待使用者覆核(計劃〈設計〉)。最少樣本是「全對時下界剛好過門檻」的筆數,由下界本身就擋住
-# 樣本不夠的格(少一筆、全對也過不了),所以不另寫樣本數檢查
+# 使用者 2026-09-24 裁定定案(計劃〈使用者裁定〉)。最少樣本是「全對時下界剛好過門檻」的筆數,
+# 由下界本身就擋住樣本不夠的格(少一筆、全對也過不了),所以不另寫樣本數檢查
 WORTH_RECALL_BAR = 0.80
 OTHER_BAR = 0.95
 WORTH_MIN_SAMPLES = 16
@@ -42,9 +43,9 @@ NOT_ADOPTED_REASONS = (
 NO_MONITORING = "上線後逐格監測的機制"
 
 
-def _finite_nonnegative(value: float) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool) \
-        and math.isfinite(value) and value >= 0
+def _finite_nonnegative(value: object) -> bool:
+    """領域層共用的有限數判準(含超出浮點範圍的整數),再加不為負。"""
+    return is_finite_or_none(value) and value is not None and value >= 0
 
 
 @dataclass(frozen=True)
@@ -188,7 +189,10 @@ def decide_adoption(
             reasons.append("報告沒有這一格")
         else:
             reasons += _quality_problems(cells[cell])
-        reasons += _row_problems(None if candidate is None else candidate.get(cell), limits)
+        row = None if candidate is None else candidate.get(cell)
+        if row is not None and row.cell is not cell:  # 同一列掛在別格的鍵下,視同這一格沒量
+            row = None
+        reasons += _row_problems(row, limits)
         decisions.append(CellDecision(cell, not reasons, tuple(dict.fromkeys(reasons))))
     # 採用函式是已驗證清單唯一的信任呼叫端:帶分析端的簽發者哨兵建
     validated = ValidatedCells(frozenset(d.cell for d in decisions if d.validated),
