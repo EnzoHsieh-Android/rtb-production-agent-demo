@@ -1,0 +1,825 @@
+diff --git a/src/rtb/capabilitykit.py b/src/rtb/capabilitykit.py
+index 9e22604..2932311 100644
+--- a/src/rtb/capabilitykit.py
++++ b/src/rtb/capabilitykit.py
+@@ -18,20 +18,22 @@ import json
+ import re
+ from collections.abc import Mapping
+ from typing import Any
+ 
+ KEY_ENV = "RTB_CAPABILITY_KEY"  # 程式裡唯一出現這個名稱的地方(有測試擋)
+ # 人工核可金鑰(Phase 6 增量 3):跟簽發金鑰分開,管理工具簽核可、執行迴圈驗核可;格式機制共用
+ APPROVAL_KEY_ENV = "RTB_APPROVAL_KEY"  # 同上,程式裡唯一出現這個名稱的地方
+ # 唯讀稽核金鑰(Phase 9 增量 3 代碼審,代使用者裁定):DSP 列操作兩支端點回全租戶明細,只給持有它的
+ # 維運套件讀。跟簽發金鑰分開:維運套件拿不到能簽寫入憑證的那一把。不走簽章,DSP 用固定時間比對
+ AUDIT_KEY_ENV = "RTB_DSP_AUDIT_KEY"  # 同上,程式裡唯一出現這個名稱的地方
++# 稽核金鑰的專用標頭(代碼審第 2 輪:不借用能力憑證的標頭,那個標頭裝的一定是簽出來的憑證)
++AUDIT_HEADER = "X-Dsp-Audit-Key"
+ MIN_KEY_BYTES = 32  # 空字串或很短的金鑰也算得出簽章,但等於沒有防線
+ MAX_TOKEN_CHARS = 2048
+ HEADER = "X-Capability"
+ _SEGMENT = re.compile(r"[A-Za-z0-9_-]+")
+ 
+ ClaimValue = str | int | None
+ 
+ 
+ class TokenRejected(Exception):
+     """憑證拆不開或簽章不對;具體原因只給本地判斷用,不回給呼叫端。"""
+@@ -51,20 +53,31 @@ def is_usable_key(key: object) -> bool:
+ 
+ def read_key(environ: Mapping[str, str], name: str = KEY_ENV) -> bytes | None:
+     """從環境讀金鑰(預設讀簽發金鑰);沒有或太短一律回 None(代表沒有可用金鑰)。只給啟動程式呼叫。"""
+     raw = environ.get(name)
+     if raw is None:
+         return None
+     key = raw.encode("utf-8")
+     return key if is_usable_key(key) else None
+ 
+ 
++def encode_audit_key(key: bytes) -> str:
++    """稽核金鑰放進標頭的寫法:金鑰位元組的 base64url、不帶補位。HTTP 標頭只送得出 Latin-1,
++    共用讀法認可的中文金鑰原文放不進去(代碼審第 2 輪)。"""
++    return _b64encode(key)
++
++
++def decode_audit_key(text: str) -> bytes:
++    """標頭裡的稽核金鑰解回位元組;字元或補位不對丟 TokenMalformed(DSP 當成帶錯)。"""
++    return _b64decode(text)
++
++
+ def _is_claim_value(value: object) -> bool:
+     if value is None or isinstance(value, str):
+         return True
+     return isinstance(value, int) and not isinstance(value, bool)
+ 
+ 
+ def _b64encode(raw: bytes) -> str:
+     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+ 
+ 
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index f584ca5..9943f90 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -12,21 +12,28 @@ import hmac
+ import os
+ import re
+ import time
+ from collections.abc import Callable
+ from dataclasses import asdict, replace
+ from datetime import datetime
+ from pathlib import Path
+ from typing import Any
+ from urllib.parse import parse_qs, unquote, urlsplit
+ 
+-from rtb.capabilitykit import AUDIT_KEY_ENV, is_usable_key, read_key
++from rtb.capabilitykit import (
++    AUDIT_HEADER,
++    AUDIT_KEY_ENV,
++    TokenRejected,
++    decode_audit_key,
++    is_usable_key,
++    read_key,
++)
+ from rtb.capabilitykit import HEADER as CAPABILITY_HEADER
+ from rtb.dsp.capability import (
+     WriteRequest,
+     check_body_fields,
+     check_scope,
+     verified_claims,
+ )
+ from rtb.dsp.errors import (
+     CampaignNotFound,
+     CapabilityExpired,
+@@ -158,33 +165,38 @@ class DspHandler(JsonHandler):
+     def _get_operation(
+         self, store: CampaignStore, key: str, _fault: str | None
+     ) -> dict[str, Any]:
+         result = store.get_operation_by_key(key)
+         if result is None:
+             raise RequestRejected(404, "operation_not_found")
+         return asdict(result)
+ 
+     def _require_audit_key(self) -> None:
+         """列操作兩支端點回全租戶的明細(含租戶、預算、冪等鍵),只給帶唯讀稽核金鑰的讀(Phase 9
+-        增量 3 代碼審,代使用者裁定)。金鑰放在能力憑證那個標頭,原樣比對、固定時間。
++        增量 3 代碼審,代使用者裁定)。金鑰放在專用標頭(不借用能力憑證的標頭),寫法是金鑰位元組的
++        base64url;解回位元組後固定時間比對,解不開當帶錯(代碼審第 2 輪)。
+ 
+         不沿用寫入憑證的驗證:那套聲明綁一個廣告、一把冪等鍵、一個寫入動作,又是用簽發金鑰簽的;
+         維運套件要能簽,就得拿到能簽寫入憑證的那一把。所以另給一把只開這兩支端點的金鑰。
+         DSP 沒設這把金鑰就一律拒收(比照寫入沒設簽發金鑰);既有依鍵、依廣告的唯讀端點不變。"""
+         expected = self.server.audit_key
+         if not is_usable_key(expected):
+             raise RequestRejected(503, "audit_not_configured")
+         assert expected is not None  # is_usable_key 已確認  # noqa: S101
+-        presented = self.single_header(CAPABILITY_HEADER)
++        presented = self.single_header(AUDIT_HEADER)
+         if presented is None:
+             raise RequestRejected(401, "audit_key_missing")
+-        if not hmac.compare_digest(presented.encode("utf-8", "surrogateescape"), expected):
++        try:
++            candidate = decode_audit_key(presented)
++        except TokenRejected as exc:
++            raise RequestRejected(403, "audit_key_invalid") from exc
++        if not hmac.compare_digest(candidate, expected):
+             raise RequestRejected(403, "audit_key_invalid")
+ 
+     def _get_operation_cursor(
+         self, store: CampaignStore, since: str, _fault: str | None
+     ) -> dict[str, Any]:
+         """提交時間大於等於這個時間的第一筆之前的最後一個操作編號(時間要帶時區)。"""
+         self._require_audit_key()
+         try:
+             moment = datetime.fromisoformat(unquote(since))
+         except ValueError as exc:
+diff --git a/src/rtb/httpclient.py b/src/rtb/httpclient.py
+index 51ffbfa..48ad37b 100644
+--- a/src/rtb/httpclient.py
++++ b/src/rtb/httpclient.py
+@@ -21,20 +21,23 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
+ MAX_RESPONSE_BYTES = 64 * 1024  # 跟 httpkit.py 的 MAX_BODY_BYTES 對稱:回應本文也不能無界讀入記憶體
+ 
+ 
+ class ClientHeader(StrEnum):
+     """本專案的用戶端允許送出的標頭,封閉列舉;要加新的就在這裡加一個成員,不開放任意字串。"""
+ 
+     IDEMPOTENCY_KEY = "Idempotency-Key"
+     # 寫入能力憑證。字串照抄共用格式模組的標頭名稱,由測試比對兩邊一致;不匯入那個模組,
+     # 免得分析行程經共用用戶端間接載入憑證模組
+     CAPABILITY = "X-Capability"
++    # DSP 唯讀稽核金鑰(Phase 9 增量 3 代碼審第 2 輪):只給維運套件讀 DSP 列操作端點,不是故障注入
++    # 標頭;字串同樣照抄共用格式模組、由測試比對
++    AUDIT_KEY = "X-Dsp-Audit-Key"
+ 
+ 
+ class _NoRedirect(HTTPRedirectHandler):
+     """回 None 讓 urllib 把 3xx 當成一般的錯誤狀態碼丟 HTTPError,不建新請求去跟。"""
+ 
+     def redirect_request(
+         self, _req: Request, _fp: Any, _code: int, _msg: str, _headers: Any, _newurl: str,
+     ) -> Request | None:
+         return None
+ 
+diff --git a/src/rtb/ops/side_effects.py b/src/rtb/ops/side_effects.py
+index 2c6c944..0a62a3e 100644
+--- a/src/rtb/ops/side_effects.py
++++ b/src/rtb/ops/side_effects.py
+@@ -8,32 +8,34 @@
+   (DSP 保證提交時間不小於上一筆,依編號翻頁等於依時間翻頁)。窗含起點、不含終點。
+ - 讀取順序:先讀 DSP 的窗,再開執行端的唯讀快照。執行端在呼叫 DSP 之前就提交了第一列,所以 DSP
+   看得到的每一筆執行端寫入,之後開的快照一定看得到它的第一列;反過來會把正常寫入誤判成沒經過開始
+   一筆。執行端一律用擁有模組的批量讀取函式,不逐筆查。
+ - 穩定與否:不像端到端交給執行那樣讀到兩輪相同為止,計數恆標穩定。理由是上面的因果順序:要核對
+   的只有「DSP 窗內的寫入」配「它們的第一列與核可使用」,第一列與核可使用都在呼叫 DSP 之前提交、之後
+   不改,所以讀 DSP 之後才開的快照對這些寫入一定讀得全,重讀一輪答案一樣;讀取期間新提交的寫入不在
+   這次讀到的 DSP 窗裡,不影響這次的答案(代碼審第 1 輪架構席)。
+ - DSP 回應是不可信輸入:讀不到、狀態碼不對、欄位或提交時間讀不懂,一律轉成 DspUnreadable,這一條
+   回資料來源缺,不讓例外穿出去拖垮其他指標。
+-- 列操作兩支端點要帶唯讀稽核金鑰(放在能力憑證標頭);沒帶或帶錯 DSP 拒讀,照實回資料來源缺。
++- 列操作兩支端點要帶唯讀稽核金鑰(專用標頭,金鑰位元組的 base64url);沒帶或帶錯 DSP 拒讀,照實回
++  資料來源缺。
+ """
+ 
+ import re
+ from collections.abc import Iterable, Mapping
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from enum import StrEnum
+ from pathlib import Path
+ from typing import Any
+ from urllib.parse import quote
+ 
++from rtb.capabilitykit import encode_audit_key
+ from rtb.domain.proposal import ActionType, content_hash
+ from rtb.executor import attempt_store
+ from rtb.executor.attempt_store import FirstRow
+ from rtb.executor.inbox_store import BlockCode, ReadOnlyInbox
+ from rtb.httpclient import ClientHeader, request_json
+ 
+ EXECUTOR_KEY = re.compile(r"k1-[0-9a-f]{64}")  # 執行端的冪等鍵格式;別的寫入者直接改 DSP 不算
+ MAX_PAGES = 20_000  # 翻頁上限:防 DSP 回應有誤時無限翻下去(一頁 50 筆,約 100 萬筆操作)
+ RATIO = BlockCode.BUDGET_INCREASE_TOO_LARGE.value
+ AGGREGATE = BlockCode.AGGREGATE_LIMIT_REACHED.value
+@@ -187,24 +189,24 @@ def tally_unauthorized(
+         valid += 1
+         if found is Verdict.GOOD:
+             good += 1
+         else:
+             bad_at.append(iso(entry.committed_at))
+     return Tally(good, valid, tuple(bad_at), unverifiable)
+ 
+ 
+ # ---- 讀 DSP ----
+ def get_json(url: str, path: str, timeout: float,
+-             audit_key: str | None = None) -> tuple[int, Any]:
++             audit_key: bytes | None = None) -> tuple[int, Any]:
+     """打 DSP 的唯讀端點(共用 HTTP 用戶端,只讀);連不上或讀不懂丟 DspUnreadable。列操作兩支端點
+-    要帶唯讀稽核金鑰(放在能力憑證標頭);既有依鍵查的端點不用。"""
+-    headers = None if audit_key is None else {ClientHeader.CAPABILITY: audit_key}
++    要帶唯讀稽核金鑰(專用標頭,金鑰位元組的 base64url);既有依鍵查的端點不用。"""
++    headers = None if audit_key is None else {ClientHeader.AUDIT_KEY: encode_audit_key(audit_key)}
+     try:
+         return request_json(f"{url.rstrip('/')}{path}", "GET", None, timeout, headers)
+     except (OSError, ValueError) as exc:
+         raise DspUnreadable(str(exc)) from exc
+ 
+ 
+ def commit_moment(text: object) -> datetime:
+     """DSP 回的提交時間:讀不懂或沒帶時區丟 DspUnreadable(沒帶時區拿去跟窗界比會直接丟例外)。"""
+     try:
+         moment = datetime.fromisoformat(str(text)) if isinstance(text, str) else None
+@@ -223,21 +225,21 @@ def _write(entry: Any) -> DspWrite:
+                            str(entry["campaign_id"]), entry.get("tenant"), str(entry["action"]),
+                            entry.get("new_budget"), entry.get("expected_version"),
+                            str(entry["committed_at"]), entry.get("policy_version"))
+     except (KeyError, TypeError, ValueError) as exc:
+         raise DspUnreadable(f"操作欄位讀不懂:{exc!r}") from exc
+     commit_moment(entry["committed_at"])  # 在這裡就驗,後面的比較與換算不會再丟別的例外
+     return written
+ 
+ 
+ def read_dsp_window(
+-    url: str, since: datetime, until: datetime, timeout: float, audit_key: str | None,
++    url: str, since: datetime, until: datetime, timeout: float, audit_key: bytes | None,
+ ) -> tuple[DspWrite, ...]:
+     """窗 [since, until) 內 DSP 提交的寫入:先取起點游標,再依編號翻頁,讀到提交時間大於等於終點
+     就停。"""
+     status, body = get_json(url, f"/operations/since/{quote(since.isoformat(), safe='')}",
+                             timeout, audit_key)
+     if status != 200 or not isinstance(body, dict) or not isinstance(body.get("cursor"), int):
+         raise DspUnreadable(f"游標端點回 {status}")
+     cursor: int = body["cursor"]
+     found: list[DspWrite] = []
+     for _ in range(MAX_PAGES):
+@@ -267,21 +269,21 @@ def _operation(url: str, key: str, timeout: float) -> tuple[str, int] | None:
+     if status != 200 or not isinstance(body, dict):
+         raise DspUnreadable(f"操作端點回 {status}")
+     try:
+         return iso(commit_moment(body.get("committed_at"))), int(body["operation_id"])
+     except (KeyError, TypeError, ValueError) as exc:
+         raise DspUnreadable(f"操作欄位讀不懂:{exc!r}") from exc
+ 
+ 
+ # ---- 兩條服務水準指標 ----
+ def unauthorized(since: datetime, until: datetime, executor_db: Path, dsp_url: str,
+-                 timeout: float, audit_key: str | None) -> Tally:
++                 timeout: float, audit_key: bytes | None) -> Tally:
+     try:
+         writes = read_dsp_window(dsp_url, since, until, timeout, audit_key)  # 先讀 DSP
+     except DspUnreadable:
+         return Tally(0, 0, missing=True)
+     keys = [w.key for w in writes if is_executor_key(w.key)]
+     inbox = ReadOnlyInbox(executor_db)  # 再開執行端快照
+     try:
+         with inbox.read_transaction() as tx:
+             firsts = attempt_store.first_rows_for(tx, keys)
+             approvals = inbox.approval_uses_for(tx, keys)
+@@ -290,21 +292,21 @@ def unauthorized(since: datetime, until: datetime, executor_db: Path, dsp_url: s
+     return tally_unauthorized(writes, firsts, approvals)
+ 
+ 
+ def _identity(first: FirstRow) -> tuple[str, int, str] | None:
+     if first.proposal is None:
+         return None
+     return first.proposal.task_id, first.proposal.revision, content_hash(first.proposal)
+ 
+ 
+ def duplicates(since: datetime, until: datetime, executor_db: Path, dsp_url: str,
+-               timeout: float, audit_key: str | None) -> Tally:
++               timeout: float, audit_key: bytes | None) -> Tally:
+     """同一份提案內容(任務、修訂、內容雜湊)在 DSP 的第二筆以及之後每一筆提交各算一個壞事件,依那
+     一筆的提交時間歸窗;第一筆在窗外也算(用第一列往回查同一份提案的其他鍵,不限窗)。找不到第一列的
+     算無法核對。同一把鍵在窗內出現兩筆以上操作(DSP 有唯一限制,防禦性核對)也算壞。讀窗與第二段
+     逐鍵查 DSP 任何一次讀不到,整條回資料來源缺(代碼審第 1 輪:第二段原本沒接)。"""
+     try:
+         writes = [w for w in read_dsp_window(dsp_url, since, until, timeout, audit_key)
+                   if is_executor_key(w.key)]
+         firsts, siblings = _executor_side(executor_db, writes)
+         return _tally_duplicates(writes, firsts, siblings, dsp_url, timeout)
+     except DspUnreadable:
+diff --git a/src/rtb/ops/sli.py b/src/rtb/ops/sli.py
+index ad5997a..59756f4 100644
+--- a/src/rtb/ops/sli.py
++++ b/src/rtb/ops/sli.py
+@@ -45,21 +45,21 @@ BUSINESS_BLOCKS = frozenset(code.value for code in BlockCode) - {
+ _DELIVERIES = frozenset({LifecycleKind.DELIVERED, LifecycleKind.RECLAIMED})
+ _APPROVAL_ENDS = frozenset({LifecycleKind.APPROVAL_RELEASED, *TERMINAL_KINDS})
+ 
+ 
+ @dataclass(frozen=True)
+ class Sources:
+     executor_db: Path
+     analyzer_db: Path
+     dsp_url: str
+     dsp_timeout_seconds: float = 2.0
+-    dsp_audit_key: str | None = None  # DSP 列操作端點的唯讀稽核金鑰;沒有就讀不到、照實標資料來源缺
++    dsp_audit_key: bytes | None = None  # DSP 列操作端點的唯讀稽核金鑰;沒有就讀不到、標資料來源缺
+ 
+ 
+ def _time(text: str) -> datetime:
+     return datetime.fromisoformat(text.replace("Z", "+00:00"))
+ 
+ 
+ def _tally(events: Iterable[tuple[str, bool]], unlinked: int = 0, clock_anomaly: int = 0,
+            stable: bool = True) -> Tally:
+     """(事件時間, 是不是好事件) -> 計數;壞事件留下時間(目標為零的一條要報最近一個)。"""
+     found = list(events)
+diff --git a/src/rtb/ops/slo.py b/src/rtb/ops/slo.py
+index 34c1ee9..06f5668 100644
+--- a/src/rtb/ops/slo.py
++++ b/src/rtb/ops/slo.py
+@@ -8,49 +8,53 @@
+   就是違規,直到它滑出週期。
+ 
+ 燒損照 Google SRE Workbook〈Alerting on SLOs〉的多窗口多燒損率:長窗與短窗的燒損率都大於等於門檻才
+ 告警(短窗讓事故停止後很快解除,長窗避免短暫突波);長窗有效事件少於最少樣本回樣本不足、不判告警;
+ 短窗沒有有效事件時燒損率當 0。示範時所有時間窗(週期與燒損窗)等比縮短 60 倍,期限不縮短。全部是
+ 示範值(代使用者裁定、待使用者覆核),不代表系統的真實能力。
+ 
+ 評估器不存告警狀態、不自己讀時鐘:每個窗的時間從傳入的「現在」與設定表算出,交給計數函式。數字用
+ 分數算,剛好等於門檻就是等於(不被浮點誤差推到門檻下)。
+ 
+-每條各自算:一條讀不到(例外)只把那一條標資料來源缺並記下例外,另外五條照算;只有找不到資料庫檔、
+-資料庫還沒升級這兩種整份評估的設定錯誤往外丟,給命令列入口回固定結束代碼。目標為零的兩條:已證實的
++每條各自算:一條的資料來源讀不到(DSP 讀不到那一類)只把那一條標資料來源缺並記下原因,另外五條照算;
++程式錯誤、資料庫毀損、找不到資料庫檔、資料庫還沒升級一律往外丟,不吞(代碼審第 2 輪)。命令列入口
++在任何一條缺資料或出錯時回「不完整」的結束代碼,優先於不穩定。目標為零的兩條:已證實的
+ 違規優先,只有週期內沒看到壞事件、又有子窗缺資料才回「不知道」(代碼審第 1 輪)。
+ """
+ 
+ import argparse
+ import json
+ import os
+ import sys
+ from collections.abc import Callable, Mapping
+ from dataclasses import asdict, dataclass
+ from datetime import datetime, timedelta
+ from fractions import Fraction
+ from pathlib import Path
+ from typing import Any, TextIO
+ 
+ from rtb.capabilitykit import AUDIT_KEY_ENV, read_key
+ from rtb.executor.inbox_store import DatabaseNotUpgraded
+ from rtb.ops import sli
+-from rtb.ops.side_effects import Tally
++from rtb.ops.side_effects import DspUnreadable, Tally
+ 
+ SCALE = 60  # 示範縮短倍數;正式環境改成 1
+ PERIOD = timedelta(days=30)
+ MIN_SAMPLES = 10
+ DAY = timedelta(hours=24)  # 週期統計切子窗的上限(跟窗內統計的窗長上限一致)
+ EXIT_OK = 0
+ EXIT_NO_DATABASE = 2
+ EXIT_NOT_UPGRADED = 3
+ EXIT_UNSTABLE = 5  # 沿用指標的固定結束代碼:有一條跨資料庫讀了三輪都不同,照樣印出最後一輪
++# 有指標缺資料或出錯(代使用者裁定,代碼審第 2 輪):照樣印出每一條,哪幾條、為什麼印在標準錯誤;
++# 跟不穩定同時成立時回這個。8 沒被任何命令列用掉(維運套件 0/2/3/4/5/6,執行端 2/3/4/5/6/7)
++EXIT_INCOMPLETE = 8
+ 
+ Counter = Callable[[str, datetime, datetime], Tally]
+ 
+ 
+ @dataclass(frozen=True)
+ class Slo:
+     """一條服務水準指標的定義(設定表的一筆)。target 是好事件比例的目標;目標為零的兩條記成 1
+     (壞事件目標為零)。deadline 只有期限型兩條有。"""
+ 
+     name: str
+@@ -220,28 +224,26 @@ def _status(spec: Slo, now: datetime, counter: Counter) -> SloStatus:
+         spec.name, fast, slow, period.good, period.valid, period.bad,
+         error_budget(period.valid, spec.target),
+         remaining_budget(period.valid, period.bad, spec.target),
+         _violating(period) if spec.zero_target else None,
+         max(period.bad_at) if period.bad_at else None, period.unverifiable,
+         period.unlinked, period.clock_anomaly, period.missing, period.stable)
+ 
+ 
+ def evaluate(now: datetime, *, counter: Counter) -> tuple[SloStatus, ...]:
+     """每條一份狀態。查詢次數固定:有目標的四條各查快燒、慢燒兩組各兩個窗(共 16 次)加週期統計,
+-    目標為零的兩條各查週期統計。每條各自隔離例外(見模組說明)。"""
++    目標為零的兩條各查週期統計。只隔離資料來源讀不到(見模組說明),其餘例外往外丟。"""
+     statuses = []
+     for spec in SLOS:
+         try:
+             statuses.append(_status(spec, now, counter))
+-        except (FileNotFoundError, DatabaseNotUpgraded):
+-            raise  # 整份評估的設定錯誤:交給命令列入口回固定結束代碼
+-        except Exception as exc:  # 一條讀不到不拖垮另外五條;例外記在這一條的狀態裡
++        except DspUnreadable as exc:  # 一條讀不到不拖垮另外五條;原因記在這一條的狀態裡
+             statuses.append(SloStatus(spec.name, None, None, 0, 0, 0, Fraction(0), Fraction(0),
+                                       None, None, 0, 0, 0, True,
+                                       error=f"{type(exc).__name__}: {exc}"))
+     return tuple(statuses)
+ 
+ 
+ # ---- 輸出與命令列入口 ----
+ def _plain(value: Any) -> Any:
+     if isinstance(value, Fraction):
+         return float(value)
+@@ -265,34 +267,39 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
+ 
+ 
+ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
+         err: TextIO | None = None, environ: Mapping[str, str] | None = None) -> int:
+     """命令列入口。DSP 列操作端點的唯讀稽核金鑰從環境讀(只有入口讀環境;測試傳 environ);沒有就
+     讀不到 DSP 的窗,兩條目標為零的指標照實標資料來源缺。"""
+     args = _parse(argv)
+     errors = err or sys.stderr
+     audit_key = read_key(os.environ if environ is None else environ, AUDIT_KEY_ENV)
+     sources = sli.Sources(args.executor_db, args.analyzer_db, args.dsp_url,
+-                          args.dsp_timeout_seconds,
+-                          None if audit_key is None else audit_key.decode("utf-8"))
++                          args.dsp_timeout_seconds, audit_key)
+     try:
+         statuses = evaluate(args.now, counter=lambda name, since, until: sli.count(
+             name, since, until, sources))
+     except FileNotFoundError as missing:
+         print(f"找不到資料庫檔:{missing}", file=errors)
+         return EXIT_NO_DATABASE
+     except DatabaseNotUpgraded as old:
+         print(f"{old}。請先啟動一次執行迴圈(分析端資料庫則先跑一次分析行程);評估器只讀,不替它補",
+               file=errors)
+         return EXIT_NOT_UPGRADED
+     print(json.dumps(to_primitives(statuses), ensure_ascii=False, indent=2),
+           file=out or sys.stdout)
++    incomplete = [s for s in statuses if s.missing or s.error is not None]
++    if incomplete:
++        for s in incomplete:
++            print(f"{s.name}:{s.error or '資料來源讀不到(例:DSP 連不上或拒讀、稽核金鑰沒設)'},"
++                  "這一條沒算完整", file=errors)
++        return EXIT_INCOMPLETE  # 缺資料優先於不穩定:缺了的那一條本來就不能拿來判告警
+     if not all(s.stable for s in statuses):
+         print("讀取期間有新提交:有指標跨資料庫讀了三輪都不同,印出的是最後一輪", file=errors)
+         return EXIT_UNSTABLE
+     return EXIT_OK
+ 
+ 
+ def main(argv: list[str] | None = None) -> None:
+     raise SystemExit(run(argv))
+ 
+ 
+diff --git a/tests/httpclient/test_httpclient.py b/tests/httpclient/test_httpclient.py
+index 1a5a924..9df7e86 100644
+--- a/tests/httpclient/test_httpclient.py
++++ b/tests/httpclient/test_httpclient.py
+@@ -125,33 +125,38 @@ def test_the_client_module_source_never_mentions_the_fault_header(module_name):
+ 
+     module = importlib.import_module(module_name)
+     source = inspect.getsource(module)
+ 
+     assert "X-Fault" not in source
+ 
+ 
+ def test_the_closed_header_enum_contains_exactly_the_documented_members():
+     """2026-09-22 第四輪合約審計指出:直接在封閉列舉加一個值是故障注入標頭的成員,驗證照樣
+     通過。這裡把成員整份寫死:要新增任何標頭,必須同時改這支測試,留下有意識的決定。
+-    2026-09-23 執行一筆(Phase 3 增量 3)有意識地加了能力憑證。"""
++    2026-09-23 執行一筆(Phase 3 增量 3)有意識地加了能力憑證。
++    2026-09-24 Phase 9 增量 3 代碼審第 2 輪有意識地加了 DSP 唯讀稽核金鑰:它不是故障注入標頭,
++    只給維運套件讀 DSP 列操作端點用,不再借用能力憑證的標頭。"""
+     assert {member.value for member in httpclient.ClientHeader} == {
+-        "Idempotency-Key", "X-Capability"}
++        "Idempotency-Key", "X-Capability", "X-Dsp-Audit-Key"}
+ 
+ 
+ def test_client_headers_are_exactly_idempotency_key_and_capability():
+     """執行一筆 S63:執行行程要經共用用戶端送出能力憑證。
+ 
+-    名稱跟共用格式模組的一致:兩邊不互相匯入,由這裡比對。"""
+-    from rtb.capabilitykit import HEADER
++    名稱跟共用格式模組的一致:兩邊不互相匯入,由這裡比對。第三個成員是 DSP 唯讀稽核金鑰
++    (Phase 9 增量 3 代碼審第 2 輪),不是故障注入標頭,名稱同樣跟共用格式模組比對。"""
++    from rtb.capabilitykit import AUDIT_HEADER, HEADER
+ 
+-    assert {member.value for member in httpclient.ClientHeader} == {"Idempotency-Key", HEADER}
++    assert {member.value for member in httpclient.ClientHeader} == {
++        "Idempotency-Key", HEADER, AUDIT_HEADER}
+     assert httpclient.ClientHeader.CAPABILITY.value == HEADER  # 兩份字串必須一致
++    assert httpclient.ClientHeader.AUDIT_KEY.value == AUDIT_HEADER
+     with pytest.raises(TypeError):
+         httpclient.request_json("http://127.0.0.1:9/x", "GET", None, 1,
+                                 headers={"X-Fault": "transient_5xx"})
+ 
+ 
+ # ---- headers 只驗證一次:自訂物件不能在驗證跟送出之間變臉 ----
+ class _ShiftingHeaders(Mapping):
+     """`.keys()` 第一次回傳合法鍵、之後改回不合法的鍵——模擬「驗證讀一次、送出又讀一次」
+     的兩段式走訪可以被繞過;只走訪一次(`dict(headers)` 具現化)的寫法不會被這招影響。"""
+ 
+diff --git a/tests/ops/test_side_effects.py b/tests/ops/test_side_effects.py
+index c484175..42bc7ee 100644
+--- a/tests/ops/test_side_effects.py
++++ b/tests/ops/test_side_effects.py
+@@ -7,34 +7,35 @@
+ 
+ import json
+ import socket
+ import sqlite3
+ import threading
+ from dataclasses import replace
+ from datetime import timedelta
+ 
+ import pytest
+ 
++from rtb.capabilitykit import encode_audit_key
+ from rtb.domain.attempt import operation_key
+ from rtb.dsp.server import DspServer
+ from rtb.dsp.store import OPERATION_PAGE, CampaignStore, operation_cursor_query
+ from rtb.executor import attempt_store, guardrails, inbox_store
+ from rtb.executor.attempt_store import FirstRow, first_rows_for_proposal_query
+ from rtb.executor.inbox_store import InboxReads, ReadOnlyInbox
+ from rtb.httpclient import MAX_RESPONSE_BYTES, ClientHeader, request_json
+ from rtb.ops import side_effects as se
+ from rtb.ops import sli, slo
+ from tests.executor.fakes import proposal
+ from tests.ops.rows import Rows, at
+ 
+ K = "k1-" + "0" * 64
+-AUDIT = "audit-" + "a" * 32  # 唯讀稽核金鑰(測試用,長度過最短金鑰)
++AUDIT = ("audit-" + "a" * 32).encode()  # 唯讀稽核金鑰(測試用,長度過最短金鑰)
+ PROP = proposal(requested_change={"new_budget": 140})  # 觀察到的版本 3、現況 100:加 40
+ 
+ 
+ def first_row(**overrides):
+     base = FirstRow(key=K, task_id="t1", revision=1, campaign_id="c1", tenant="acme",
+                     reserved_amount=40, ratio_allowance=50, max_budget=900,
+                     aggregate_limit=5000, used_before=100, proposal=PROP,
+                     snapshot_matches_key=True, written_at="2026-09-22T12:00:00.000000Z")
+     return replace(base, **overrides)
+ 
+@@ -119,21 +120,21 @@ def test_unverifiable_writes_are_reported_apart_from_the_denominator():
+ 
+ # ---- DSP 與執行端的場景 ----
+ class World:
+     def __init__(self, tmp_path):
+         self.rows = Rows(tmp_path)
+         self.dsp_db = tmp_path / "dsp.db"
+         store = CampaignStore(self.dsp_db)
+         store.seed_campaign("c1", budget=100, tenant="acme")
+         store.close()
+         self.server = DspServer(self.dsp_db, fault_injection=False, hang_seconds=0.2,
+-                                delay_seconds=0.0, audit_key=AUDIT.encode())
++                                delay_seconds=0.0, audit_key=AUDIT)
+         threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
+         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+         self.version = 1
+ 
+     def commit(self, key, when, budget=140, policy="demo-pacing-v1"):
+         conn = sqlite3.connect(self.dsp_db)
+         conn.execute(
+             "INSERT INTO operations (campaign_id, action, params_json, version_after, "
+             "received_at, committed_at, idempotency_key, policy_version, expected_version) "
+             "VALUES ('c1', 'update_budget', ?, ?, ?, ?, ?, ?, ?)",
+@@ -394,63 +395,87 @@ def test_a_page_boundary_between_equal_commit_times_reads_each_operation_once(wo
+ 
+     def keys(since, until):
+         return [w.key for w in se.read_dsp_window(world.url, since, until, 2.0, AUDIT)]
+ 
+     everything = keys(base, base + timedelta(seconds=300))
+     assert everything == [f"op-{n}" for n in range(1, len(times) + 1)]  # 不漏不重
+     assert keys(base, tied) == [f"op-{n}" for n in range(1, OPERATION_PAGE)]  # 終點不含
+     assert keys(tied, base + timedelta(seconds=300)) == ["op-50", "op-51", "op-52"]
+ 
+ 
+-def _call(world, path, token=None):
+-    headers = None if token is None else {ClientHeader.CAPABILITY: token}
++def _call(world, path, value=None, header=ClientHeader.AUDIT_KEY):
++    """value 是標頭裡原樣送的字串(稽核金鑰要先 base64url)。"""
++    headers = None if value is None else {header: value}
+     return request_json(f"{world.url}{path}", "GET", None, 2.0, headers)
+ 
+ 
+ def test_the_operation_list_endpoints_require_the_audit_key(world):
+     """兩支列操作端點回全租戶的明細,只給帶唯讀稽核金鑰的讀(代使用者裁定);既有依鍵、依廣告
+     的唯讀端點不變。"""
+     for path in ("/operations/after/0", f"/operations/since/{at(0).isoformat()}"):
+         assert _call(world, path)[0] == 401
+-        assert _call(world, path, "x" * len(AUDIT))[0] == 403
+-        assert _call(world, path, AUDIT + "x")[0] == 403
+-        assert _call(world, path, AUDIT)[0] == 200
++        assert _call(world, path, encode_audit_key(b"x" * len(AUDIT)))[0] == 403
++        assert _call(world, path, encode_audit_key(AUDIT + b"x"))[0] == 403
++        assert _call(world, path, "not base64!")[0] == 403  # 解不開當帶錯
++        assert _call(world, path, AUDIT.decode())[0] == 403  # 沒編碼的原文不收
++        # 放在能力憑證標頭不算:稽核金鑰只認自己的專用標頭(代碼審第 2 輪)
++        assert _call(world, path, encode_audit_key(AUDIT), ClientHeader.CAPABILITY)[0] == 401
++        assert _call(world, path, encode_audit_key(AUDIT))[0] == 200
+     assert _call(world, "/operations/" + K)[0] == 404  # 既有端點不要金鑰(查不到回 404)
+ 
+     bare = DspServer(world.dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0)
+     threading.Thread(target=bare.serve_forever, args=(0.02,), daemon=True).start()
+     try:
+         url = f"http://127.0.0.1:{bare.server_address[1]}"
+         status, body = request_json(f"{url}/operations/after/0", "GET", None, 2.0,
+-                                    {ClientHeader.CAPABILITY: AUDIT})
++                                    {ClientHeader.AUDIT_KEY: encode_audit_key(AUDIT)})
+         assert status == 503 and body["error"] == "audit_not_configured"  # 沒設金鑰一律拒收
+     finally:
+         bare.shutdown()
+         bare.server_close()
+ 
+ 
+ def _raw_response(world, path: bytes) -> bytes:
+     """用原始位元組送請求(路徑裡的非 ASCII 位元組照伺服器的 latin-1 解碼進去),回整個回應。"""
+     port = world.server.server_address[1]
+     with socket.create_connection(("127.0.0.1", port), timeout=2.0) as conn:
+         conn.sendall(b"GET " + path + b" HTTP/1.1\r\nHost: 127.0.0.1:" + str(port).encode()
+-                     + b"\r\nX-Capability: " + AUDIT.encode()
++                     + b"\r\nX-Dsp-Audit-Key: " + encode_audit_key(AUDIT).encode()
+                      + b"\r\nConnection: close\r\n\r\n")
+         return conn.makefile("rb").read()
+ 
+ 
+ def test_a_cursor_must_be_a_plain_decimal_within_the_integer_range(world):
+     """上標數字(isdigit 收、int 不收)、超過 SQLite 整數上限的游標回 400 invalid_cursor,不是 500。"""
+     superscript = _raw_response(world, b"/operations/after/\xb2")  # 上標 2
+     assert b" 400 " in superscript and b"invalid_cursor" in superscript, superscript
+     for cursor in ("9999999999999999999", "9223372036854775808", "-1", "1e3"):
+-        status, body = _call(world, "/operations/after/" + cursor, AUDIT)
++        status, body = _call(world, "/operations/after/" + cursor, encode_audit_key(AUDIT))
+         assert (status, body.get("error")) == (400, "invalid_cursor"), cursor
+-    assert _call(world, "/operations/after/9223372036854775807", AUDIT)[0] == 200
++    assert _call(world, "/operations/after/9223372036854775807",
++                 encode_audit_key(AUDIT))[0] == 200
+ 
+ 
+ def test_approval_uses_for_a_batch_of_keys_uses_the_key_index(world):
+     """核可使用批量查詢走依鍵的索引,不每批整表掃(Phase 6 已核可放行數的查詢計畫另有測試釘住)。"""
+     sql, params = inbox_store.approval_uses_for_query(["k1-a", "k1-b"])
+     steps = _plan(world.rows.executor_db, sql, params)
+     assert any("approval_uses_by_key" in s for s in steps), steps
+     assert not [s for s in steps if s.startswith("SCAN")], steps
++
++
++def test_a_non_latin1_audit_key_goes_through(world):
++    """代碼審第 2 輪:共用讀法認可的非 Latin-1 金鑰(例:"密" 重複 32 次)也要送得出去:標頭裡放
++    金鑰位元組的 base64url,DSP 解碼後比對。"""
++    key = ("密" * 32).encode()
++    server = DspServer(world.dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
++                       audit_key=key)
++    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
++    try:
++        url = f"http://127.0.0.1:{server.server_address[1]}"
++        assert se.read_dsp_window(url, at(0), at(minutes=60), 2.0, key) == ()
++        sources = replace(world.sources(), dsp_url=url, dsp_audit_key=key)
++        tally = sli.count("unauthorized_side_effects", at(0), at(minutes=60), sources)
++        assert tally.missing is False
++    finally:
++        server.shutdown()
++        server.server_close()
+diff --git a/tests/ops/test_slo.py b/tests/ops/test_slo.py
+index 7850579..e9701e1 100644
+--- a/tests/ops/test_slo.py
++++ b/tests/ops/test_slo.py
+@@ -10,21 +10,22 @@ import json
+ import sqlite3
+ import threading
+ from datetime import timedelta
+ from fractions import Fraction
+ 
+ import pytest
+ 
+ from rtb.capabilitykit import AUDIT_KEY_ENV
+ from rtb.dsp.server import DspServer
+ from rtb.dsp.store import CampaignStore
+-from rtb.ops import sli, slo
++from rtb.ops import side_effects, sli, slo
++from rtb.ops.side_effects import DspUnreadable
+ from rtb.ops.sli import Tally
+ from tests.ops.rows import Rows, at
+ 
+ 
+ @pytest.fixture
+ def rows(tmp_path):
+     built = Rows(tmp_path)
+     yield built
+     built.close()
+ 
+@@ -325,86 +326,117 @@ def test_an_unstable_cross_database_read_is_reported(rows, monkeypatch):
+     monkeypatch.setattr(sli, "_handoff_round", lambda *_args: next(same))
+     assert sli.count("end_to_end_handoff", at(0), at(minutes=10), sources(rows)).stable is True
+ 
+     shaky = Planned({("end_to_end_handoff", lengths()["period"]): Tally(1, 1, stable=False)})
+     result = slo.evaluate(NOW, counter=shaky)
+     assert status(result, "end_to_end_handoff").stable is False
+     assert all(s.stable for s in result if s.name != "end_to_end_handoff")
+ 
+     endless = iter(range(10**6))
+     monkeypatch.setattr(sli, "_handoff_round", lambda *_args: ((), next(endless), 0))
++    code = slo.run(_cli_args(rows, "http://127.0.0.1:9"), out=io.StringIO(),
++                   err=io.StringIO(), environ={})
++    assert code == slo.EXIT_INCOMPLETE  # DSP 讀不到:缺資料優先於不穩定
++
++    monkeypatch.setattr(side_effects, "unauthorized", lambda *_args: Tally(0, 0))
++    monkeypatch.setattr(side_effects, "duplicates", lambda *_args: Tally(0, 0))
+     code = slo.run(_cli_args(rows, "http://127.0.0.1:9"), out=io.StringIO(),
+                    err=io.StringIO(), environ={})
+     assert code == slo.EXIT_UNSTABLE
+ 
+ 
+ def test_one_unreadable_slo_does_not_hide_the_others():
+-    """一條指標算不出來(例:讀不到),只有那一條標資料來源缺,另外五條照算。"""
++    """一條指標的資料來源讀不到,只有那一條標資料來源缺,另外五條照算。"""
+     def counter(name, _since, _until):
+         if name == "queue_wait":
+-            raise RuntimeError("boom")
++            raise DspUnreadable("boom")
+         return Tally(10, 10)
+ 
+     result = slo.evaluate(NOW, counter=counter)
+     assert len(result) == len(slo.SLOS)
+     broken = status(result, "queue_wait")
+-    assert broken.missing is True and "RuntimeError" in (broken.error or "")
++    assert broken.missing is True and "DspUnreadable" in (broken.error or "")
+     assert all(not s.missing and s.period_valid == 10 for s in result if s.name != "queue_wait")
+ 
+     def no_database(_name, _since, _until):
+         raise FileNotFoundError("nope.db")
+ 
+     with pytest.raises(FileNotFoundError):  # 整份評估的設定錯誤照樣往外丟,給命令列回結束代碼
+         slo.evaluate(NOW, counter=no_database)
+ 
+ 
++@pytest.mark.parametrize("bug", [AssertionError("bug"), TypeError("bug"), AttributeError("bug"),
++                                 KeyError("bug"), sqlite3.DatabaseError("malformed")])
++def test_a_programming_error_or_a_broken_database_is_not_swallowed(bug, rows, monkeypatch):
++    """代碼審第 2 輪:只隔離資料來源讀不到;程式錯誤與資料庫毀損照樣往外丟,命令列不回 0。"""
++    def counter(name, _since, _until):
++        if name == "queue_wait":
++            raise bug
++        return Tally(10, 10)
++
++    with pytest.raises(type(bug)):
++        slo.evaluate(NOW, counter=counter)
++
++    def broken_count(*_args):
++        raise bug
++
++    monkeypatch.setattr(sli, "count", broken_count)
++    with pytest.raises(type(bug)):
++        slo.run(_cli_args(rows, "http://127.0.0.1:9"), out=io.StringIO(), err=io.StringIO(),
++                environ={})
++
++
+ def _cli_args(rows, dsp_url, executor_db=None):
+     return ["--executor-db", str(executor_db or rows.executor_db),
+             "--analyzer-db", str(rows.analyzer_db), "--dsp-url", dsp_url,
+             "--dsp-timeout-seconds", "0.5", "--now", NOW.isoformat()]
+ 
+ 
+-CLI_KEY = "audit-" + "k" * 32
++CLI_KEY = "密" * 32  # 非 Latin-1 的金鑰也要送得出去(代碼審第 2 輪)
+ 
+ 
+ @pytest.fixture
+ def dsp_url(tmp_path):
+     """帶唯讀稽核金鑰 CLI_KEY 的真 DSP(空的操作紀錄)。"""
+     dsp_db = tmp_path / "dsp.db"
+     CampaignStore(dsp_db).close()
+     server = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
+                        audit_key=CLI_KEY.encode())
+     threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+     yield f"http://127.0.0.1:{server.server_address[1]}"
+     server.shutdown()
+     server.server_close()
+ 
+ 
+-def _printed(rows, url, environ):
+-    """跑一次命令列入口(應該成功),回每條指標印出來的狀態。"""
++def _printed(rows, url, environ, expected, err=None):
++    """跑一次命令列入口,斷言結束代碼是 expected,回每條指標印出來的狀態。"""
+     out = io.StringIO()
+-    assert slo.run(_cli_args(rows, url), out=out, err=io.StringIO(), environ=environ) == slo.EXIT_OK
++    code = slo.run(_cli_args(rows, url), out=out, err=err or io.StringIO(), environ=environ)
++    assert code == expected
+     return {s["name"]: s for s in json.loads(out.getvalue())["slos"]}
+ 
+ 
+ def test_the_command_line_reports_fixed_exit_codes(rows, tmp_path, dsp_url):
+     """命令列入口用真資料庫、真的計數函式與真 DSP 走一次;稽核金鑰從環境讀。"""
+     rows.event(NOW - timedelta(minutes=5), "h1", "handed_off")
+     rows.event(NOW - timedelta(minutes=4), "b1", "expired")
+     rows.event(NOW - timedelta(hours=13), "old", "handed_off")  # 週期外
+-    printed = _printed(rows, dsp_url, {AUDIT_KEY_ENV: CLI_KEY})
++    printed = _printed(rows, dsp_url, {AUDIT_KEY_ENV: CLI_KEY}, slo.EXIT_OK)
+     safe = printed["safe_completion"]
+     assert (safe["period_good"], safe["period_valid"], safe["period_bad"]) == (1, 2, 1)
+     assert printed["unauthorized_side_effects"]["missing"] is False  # 金鑰帶到了
+     assert printed["unauthorized_side_effects"]["violating"] is False
+-    printed = _printed(rows, dsp_url, {})  # 沒金鑰:DSP 拒讀,照實標資料來源缺
++    err = io.StringIO()  # 沒金鑰:DSP 拒讀,照實標資料來源缺,結束代碼標明不完整
++    printed = _printed(rows, dsp_url, {}, slo.EXIT_INCOMPLETE, err)
+     assert printed["unauthorized_side_effects"]["missing"] is True
++    assert "unauthorized_side_effects" in err.getvalue() and "harmful_duplicates" in err.getvalue()
++    assert "safe_completion" not in err.getvalue()
+ 
+     err = io.StringIO()
+     assert slo.run(_cli_args(rows, dsp_url, tmp_path / "nope.db"), out=io.StringIO(), err=err,
+                    environ={}) == slo.EXIT_NO_DATABASE
+     assert "找不到資料庫檔" in err.getvalue()
+     rows.executor.execute("DROP TABLE lifecycle_events")
+     err = io.StringIO()
+     assert slo.run(_cli_args(rows, dsp_url), out=io.StringIO(), err=err,
+                    environ={}) == slo.EXIT_NOT_UPGRADED
+     assert "請先啟動一次執行迴圈" in err.getvalue()

@@ -1,0 +1,320 @@
+=== 540ef0a chore: 預演合入增量 3 代碼審修正
+
+diff --git a/tests/ops/test_investigation_drill.py b/tests/ops/test_investigation_drill.py
+index 77b596a..b1bb3c8 100644
+--- a/tests/ops/test_investigation_drill.py
++++ b/tests/ops/test_investigation_drill.py
+@@ -39,6 +39,7 @@ B_OK = [f"b{n:02d}" for n in range(1, 5)]  # 租戶乙:正常
+ INCIDENT = timedelta(minutes=12)
+ HANG, CLIENT_TIMEOUT = 0.6, 0.3  # 提交後逾時:DSP 掛住比用戶端逾時久,用戶端才會真的逾時
+ VERSIONS = ("0.9.1-a", "0.9.1-b")  # 兩個工作者掛的程式版本
++AUDIT = ("audit-" + "d" * 32).encode()  # DSP 列操作端點的唯讀稽核金鑰(增量 3 代碼審起必帶)
+ 
+ 
+ class KeyedHandler(DspHandler):
+@@ -74,7 +75,7 @@ class Drill:
+         self.config.chmod(0o600)
+         self.tenants = load_tenants(self.config)
+         self.server = DspServer(self.dsp_db, fault_injection=True, hang_seconds=HANG,
+-                                delay_seconds=0.0, capability_key=TEST_KEY,
++                                delay_seconds=0.0, capability_key=TEST_KEY, audit_key=AUDIT,
+                                 clock=lambda: self.clock().timestamp())
+         self.server.RequestHandlerClass = KeyedHandler
+         self.server.plan, self.server.plan_lock = {}, threading.Lock()
+@@ -123,7 +124,7 @@ class Drill:
+         return None if row is None else (row.state.value, row.send_count)
+ 
+     def sources(self):
+-        return sli.Sources(self.executor_db, self.analyzer_db, self.url, 2.0)
++        return sli.Sources(self.executor_db, self.analyzer_db, self.url, 2.0, AUDIT)
+ 
+     def window(self, since, until):
+         return metrics.collect_window(since, until, executor_db=self.executor_db,
+=== 6742fb9 chore: 預演合入增量 2 代碼審修正
+
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 102921c..8f88e1a 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -285,9 +285,10 @@ _REQUIRED_SCHEMA: dict[str, tuple[str, ...]] = {
+     "dead_letter_ops": ("operator",),
+ }
+ # 唯讀開法要求已經有的索引(指標的窗口讀取與最後終點查法靠它們):唯讀連線不建索引,只被唯讀開過的舊庫
+-# 缺了會退化成全表掃描,視同還沒升級(Phase 9 增量 2 代碼審第 1 輪)
++# 缺了會退化成全表掃描,視同還沒升級(Phase 9 增量 2 代碼審第 1 輪);增量 3 對帳服務水準的結果不明窗口
++# 讀取同一套
+ _REQUIRED_INDEXES = ("lifecycle_events_by_time", "lifecycle_events_terminal", "dsp_calls_by_time",
+-                     "attempts_terminal_by_time")
++                     "attempts_terminal_by_time", "attempts_unknown_by_time")
+ _INBOX = Actor(Source.INBOX)  # 收件口觸發的事件:沒有執行者
+ 
+ 
+diff --git a/src/rtb/ops/cli.py b/src/rtb/ops/cli.py
+index 2c92652..c0a2bd8 100644
+--- a/src/rtb/ops/cli.py
++++ b/src/rtb/ops/cli.py
+@@ -1,14 +1,17 @@
+-"""維運套件命令列共用的參數解析:參數錯一律以 EXIT_BAD_ARGUMENTS 結束。
++"""維運套件命令列共用的參數解析:參數錯一律以 EXIT_BAD_ARGUMENTS 結束,時間參數一律要帶時區。
+ 
+-argparse 預設用 2 結束,跟追蹤檢視與指標的「資料庫檔不存在」撞號,呼叫端(監控、手冊)分不出是忘了
+-傳參數還是資料庫不在(Phase 9 增量 2 代碼審第 1、2 輪)。維運套件的每支命令列都用這裡的解析器,
+-結束代碼表一致。
++argparse 預設用 2 結束,跟追蹤檢視、指標、服務水準的「資料庫檔不存在」撞號,呼叫端(監控、手冊)
++分不出是忘了傳參數還是資料庫不在(Phase 9 增量 2 代碼審第 1、2 輪)。維運套件的每支命令列都用
++這裡的解析器,結束代碼表一致。
+ """
+ 
+ import argparse
+ import sys
++from datetime import datetime
+ from typing import NoReturn
+ 
++from rtb.domain._checks import require_aware
++
+ EXIT_BAD_ARGUMENTS = 7  # 參數錯(缺參數、參數組合不對、時間沒帶時區)
+ 
+ 
+@@ -18,3 +21,17 @@ class Parser(argparse.ArgumentParser):
+     def error(self, message: str) -> NoReturn:
+         self.print_usage(sys.stderr)
+         self.exit(EXIT_BAD_ARGUMENTS, f"{self.prog}: 參數錯誤:{message}\n")
++
++
++def aware_time(text: str) -> datetime:
++    """時間參數共用的型別(指標的 --since、--until、--now,服務水準的 --now):ISO 8601,一定要帶時區
++    (Z 或 +08:00 這類偏移);沒帶或看不懂都算參數錯。"""
++    try:
++        value = datetime.fromisoformat(text)
++    except ValueError as bad:
++        raise argparse.ArgumentTypeError(f"看不懂的時間:{text}") from bad
++    try:
++        require_aware(value)
++    except ValueError as naive:
++        raise argparse.ArgumentTypeError(f"{naive}(例:{text}Z 或 {text}+08:00)") from naive
++    return value
+diff --git a/src/rtb/ops/metrics.py b/src/rtb/ops/metrics.py
+index 028b133..ea81d0a 100644
+--- a/src/rtb/ops/metrics.py
++++ b/src/rtb/ops/metrics.py
+@@ -61,7 +61,7 @@ from rtb.executor.inbox_store import (
+     ReadOnlyInbox,
+ )
+ from rtb.ops.cli import EXIT_BAD_ARGUMENTS as EXIT_BAD_ARGUMENTS  # 參數錯(7,維運套件共用)
+-from rtb.ops.cli import Parser
++from rtb.ops.cli import Parser, aware_time
+ 
+ MAX_WINDOW = timedelta(hours=24)
+ MAX_PROGRAM_VERSIONS = 20
+@@ -882,27 +882,15 @@ def to_primitives(result: Report) -> dict[str, Any]:
+                          "note": s.note} for s in result.samples]}
+ 
+ 
+-def _aware_time(text: str) -> datetime:
+-    """--since、--until、--now 共用:ISO 8601,一定要帶時區(Z 或 +08:00 這類偏移)。"""
+-    try:
+-        value = datetime.fromisoformat(text)
+-    except ValueError as bad:
+-        raise argparse.ArgumentTypeError(f"看不懂的時間:{text}") from bad
+-    try:
+-        require_aware(value)
+-    except ValueError as naive:
+-        raise argparse.ArgumentTypeError(f"{naive}(例:{text}Z 或 {text}+08:00)") from naive
+-    return value
+-
+ 
+ def _parse(argv: list[str] | None) -> argparse.Namespace:
+     parser = Parser(description="有界標籤的指標(只讀)")
+     parser.add_argument("--executor-db", required=True, type=Path)
+     parser.add_argument("--analyzer-db", type=Path, help="窗內統計才要")
+     parser.add_argument("--tenants-config", required=True, type=Path)
+-    parser.add_argument("--since", type=_aware_time)
+-    parser.add_argument("--until", type=_aware_time)
+-    parser.add_argument("--now", type=_aware_time, help="給了就是現況快照")
++    parser.add_argument("--since", type=aware_time)
++    parser.add_argument("--until", type=aware_time)
++    parser.add_argument("--now", type=aware_time, help="給了就是現況快照")
+     args = parser.parse_args(argv)
+     if args.now is None and (args.since is None or args.until is None or args.analyzer_db is None):
+         parser.error("窗內統計要 --since、--until 與 --analyzer-db;現況快照要 --now")
+diff --git a/src/rtb/ops/slo.py b/src/rtb/ops/slo.py
+index 07735f9..e5b6763 100644
+--- a/src/rtb/ops/slo.py
++++ b/src/rtb/ops/slo.py
+@@ -35,6 +35,8 @@ from typing import Any, TextIO
+ from rtb.capabilitykit import AuditKeyTooLong, read_audit_key
+ from rtb.executor.inbox_store import DatabaseNotUpgraded
+ from rtb.ops import sli
++from rtb.ops.cli import EXIT_BAD_ARGUMENTS as EXIT_BAD_ARGUMENTS  # 參數錯(7,維運套件共用)
++from rtb.ops.cli import Parser, aware_time
+ from rtb.ops.side_effects import DspUnreadable, Tally, reason
+ 
+ SCALE = 60  # 示範縮短倍數;正式環境改成 1
+@@ -46,7 +48,7 @@ EXIT_NO_DATABASE = 2
+ EXIT_NOT_UPGRADED = 3
+ EXIT_UNSTABLE = 5  # 沿用指標的固定結束代碼:有一條跨資料庫讀了三輪都不同,照樣印出最後一輪
+ # 有指標缺資料或出錯(代使用者裁定,代碼審第 2 輪):照樣印出每一條,哪幾條、為什麼印在標準錯誤;
+-# 跟不穩定同時成立時回這個。8 沒被任何命令列用掉(維運套件 0/2/3/4/5/6,執行端 2/3/4/5/6/7)
++# 跟不穩定同時成立時回這個。8 沒被任何命令列用掉(維運套件 0/2/3/4/5/6/7,執行端 2/3/4/5/6/7)
+ EXIT_INCOMPLETE = 8
+ EXIT_BAD_CONFIG = 6  # 沿用指標的代碼:設定錯誤(稽核金鑰超過長度上限)
+ 
+@@ -261,12 +263,12 @@ def to_primitives(statuses: tuple[SloStatus, ...]) -> dict[str, Any]:
+ 
+ 
+ def _parse(argv: list[str] | None) -> argparse.Namespace:
+-    parser = argparse.ArgumentParser(description="服務水準指標的狀態與燒損告警(只讀)")
++    parser = Parser(description="服務水準指標的狀態與燒損告警(只讀)")
+     parser.add_argument("--executor-db", required=True, type=Path)
+     parser.add_argument("--analyzer-db", required=True, type=Path)
+     parser.add_argument("--dsp-url", required=True)
+     parser.add_argument("--dsp-timeout-seconds", type=float, default=2.0)
+-    parser.add_argument("--now", required=True, type=datetime.fromisoformat)
++    parser.add_argument("--now", required=True, type=aware_time)
+     return parser.parse_args(argv)
+ 
+ 
+diff --git a/tests/ops/test_slo.py b/tests/ops/test_slo.py
+index d414d6d..6e60184 100644
+--- a/tests/ops/test_slo.py
++++ b/tests/ops/test_slo.py
+@@ -467,3 +467,20 @@ def test_the_command_line_says_why_a_source_was_missing(rows, dsp_url):
+     assert "401" in reasons["no_key"] and "audit_key_missing" in reasons["no_key"]
+     assert "403" in reasons["wrong_key"] and "audit_key_invalid" in reasons["wrong_key"]
+     assert len(set(reasons.values())) == 3, reasons
++
++
++# 整合增量 2 代碼審修正:服務水準命令列跟指標、追蹤共用參數解析與結束代碼表
++def test_the_slo_command_line_reports_bad_arguments_apart_from_a_missing_database(tmp_path,
++                                                                                 capsys):
++    full = ["--executor-db", str(tmp_path / "e.db"), "--analyzer-db", str(tmp_path / "a.db"),
++            "--dsp-url", "http://127.0.0.1:9", "--now", NOW.isoformat()]
++    naive = [*full[:-1], NOW.replace(tzinfo=None).isoformat()]
++    dropped = [full[:at_flag] + full[at_flag + 2:] for at_flag in range(0, len(full), 2)]
++    for argv in [*dropped, naive]:
++        with pytest.raises(SystemExit) as exited:
++            slo.run(argv, out=io.StringIO(), err=io.StringIO(), environ={})
++        assert exited.value.code == slo.EXIT_BAD_ARGUMENTS != slo.EXIT_NO_DATABASE, argv
++        assert "參數錯誤" in capsys.readouterr().err
++    assert slo.run(full, out=io.StringIO(), err=io.StringIO(), environ={}) == slo.EXIT_NO_DATABASE
++    assert len({slo.EXIT_OK, slo.EXIT_NO_DATABASE, slo.EXIT_NOT_UPGRADED, slo.EXIT_UNSTABLE,
++                slo.EXIT_BAD_CONFIG, slo.EXIT_BAD_ARGUMENTS, slo.EXIT_INCOMPLETE}) == 7
+diff --git a/tests/ops/test_window_readers.py b/tests/ops/test_window_readers.py
+index d9ad9f4..31b9d56 100644
+--- a/tests/ops/test_window_readers.py
++++ b/tests/ops/test_window_readers.py
+@@ -71,6 +71,8 @@ def test_window_readers_include_the_start_and_exclude_the_end(rows):
+         rows.attempts(f"k-{task}", [("in_flight", when - timedelta(seconds=1)), ("verified", when)],
+                       task=task)
+         rows.tool_call(when, "dsp:campaign", task=task)
++        rows.attempts(f"u-{task}", [("in_flight", when - timedelta(seconds=1)), ("unknown", when)],
++                      task=task)
+     inbox = ReadOnlyInbox(rows.executor_db)
+     try:
+         with inbox.read_transaction() as tx:
+@@ -82,6 +84,9 @@ def test_window_readers_include_the_start_and_exclude_the_end(rows):
+                 "terminal_rows_between": [r.key.removeprefix("k-") for r in
+                                           attempt_store.terminal_rows_between(
+                                               tx, at(0), at(minutes=60))],
++                "unknown_rows_between": [k.removeprefix("u-") for k in
++                                         attempt_store.unknown_rows_between(
++                                             tx, at(0), at(minutes=60))],
+             }
+     finally:
+         inbox.close()
+=== 96415b1 chore: 正式整合合入增量 1 代碼審最終版
+
+diff --git a/tests/executor/test_audit_tables.py b/tests/executor/test_audit_tables.py
+index 5d91be8..ddca21e 100644
+--- a/tests/executor/test_audit_tables.py
++++ b/tests/executor/test_audit_tables.py
+@@ -42,7 +42,9 @@ def test_audit_tables_are_only_ever_inserted_into():
+                  for text in audit_violations(tree)]
+     assert offenders == []
+     assert registry_violations(inbox_store._ADDED_COLUMNS) == []
+-    assert set(inbox_store._ADDED_COLUMNS) & set(GUARDED) == {"attempts"}  # 登記表今天只有嘗試紀錄
++    # 登記表今天有嘗試紀錄與 DSP 呼叫紀錄(增量 1 代碼審第 2 輪補內容雜湊欄);兩張都受守護,
++    # 上一行逐欄驗過
++    assert set(inbox_store._ADDED_COLUMNS) & set(GUARDED) == {"attempts", "dsp_calls"}
+     created = [m.group(1) for tree in trees.values()
+                for text in reconstructed_strings(tree, skip_docstrings=True)
+                for m in re.finditer(r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)", text)]
+diff --git a/tests/ops/test_ops_boundaries.py b/tests/ops/test_ops_boundaries.py
+index b7e5c8e..4a84478 100644
+--- a/tests/ops/test_ops_boundaries.py
++++ b/tests/ops/test_ops_boundaries.py
+@@ -96,6 +96,9 @@ def _ops_offenders(ops_dir):
+ DYNAMIC_LOOKUPS = frozenset({"getattr", "attrgetter", "methodcaller", "__getattribute__", "vars",
+                              "__dict__", "eval", "exec", "compile", "__import__", "importlib",
+                              "import_module"})
++# 內建的執行函式:直接呼叫、經 builtins 取用、從 builtins 匯入都算;別的物件上同名的方法不算
++# (副作用核對用正規式模組的 compile,整合增量 3 時撞到)
++BUILTIN_RUNNERS = frozenset({"eval", "exec", "compile", "__import__"})
+ 
+ 
+ def _dynamic_lookups(label, tree):
+@@ -104,7 +107,9 @@ def _dynamic_lookups(label, tree):
+         if isinstance(node, ast.Name):
+             names = [node.id]
+         elif isinstance(node, ast.Attribute):
+-            names = [node.attr]
++            on_builtins = (isinstance(node.value, ast.Name)
++                           and node.value.id in ("builtins", "__builtins__"))
++            names = [] if node.attr in BUILTIN_RUNNERS and not on_builtins else [node.attr]
+         elif isinstance(node, ast.alias):
+             names = [node.name, node.name.split(".")[0]]
+         elif isinstance(node, ast.ImportFrom):
+@@ -185,6 +190,9 @@ def test_the_ops_package_is_read_only_and_imported_by_nobody():
+     "\ndef _w():\n    import importlib.util\n    return importlib.util\n",
+     "\nimport importlib.util as _iu\n",  # 只有子模組的名字
+     "\nfrom importlib.util import find_spec as _fs\n",  # 從子模組匯入別的名字
++    # 整合增量 3 後:內建的執行函式經 builtins 模組取用也算
++    "\nimport builtins\n\ndef _w():\n    return builtins.compile('x', 'y', 'eval')\n",
++    "\nfrom builtins import eval as _e\n",
+ ])
+ def test_the_ops_scan_catches_a_write_call(tmp_path, extra):
+     """[S617] 的殺傷力:在維運套件的副本放一個寫入呼叫,掃描就要找到。"""
+@@ -195,3 +203,15 @@ def test_the_ops_scan_catches_a_write_call(tmp_path, extra):
+     with (copy / "trace.py").open("a", encoding="utf-8") as file:
+         file.write(extra)
+     assert _ops_offenders(copy) != []
++
++
++def test_the_ops_scan_allows_methods_that_share_a_builtin_name(tmp_path):
++    """整合增量 3 後:副作用核對用正規式模組的 compile 編譯固定樣式,不是內建的 compile;禁用的是
++    內建執行函式本身(直接呼叫或經 builtins 取用),物件上同名的方法不算。"""
++    copy = tmp_path / "ops"
++    copy.mkdir()
++    for path in OPS.glob("*.py"):
++        (copy / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
++    with (copy / "trace.py").open("a", encoding="utf-8") as file:
++        file.write("\nimport re\n\n_P = re.compile('x')\n")
++    assert _ops_offenders(copy) == []
+diff --git a/tests/ops/test_trace.py b/tests/ops/test_trace.py
+remerge CONFLICT (content): Merge conflict in tests/ops/test_trace.py
+index eda43e4..37f2b62 100644
+--- a/tests/ops/test_trace.py
++++ b/tests/ops/test_trace.py
+@@ -282,7 +282,6 @@ def test_a_reused_task_and_revision_with_new_content_is_traced_separately(world)
+             assert {s.field("content_hash") for s in owned} == {digest}, table
+ 
+ 
+-<<<<<<< 0372545 (docs: Phase 9 驗收紀錄草稿,增量 1 收尾與 CI 結果待補)
+ # ---- [S619] 代碼審第 2 輪:追蹤檢視的參數錯也跟資料庫檔不存在分開 ----
+ def test_the_trace_command_line_reports_bad_arguments_apart_from_a_missing_database(tmp_path,
+                                                                                    capsys):
+@@ -296,7 +295,8 @@ def test_the_trace_command_line_reports_bad_arguments_apart_from_a_missing_datab
+         assert exited.value.code == trace.EXIT_BAD_ARGUMENTS != trace.EXIT_NO_DATABASE, drop
+         assert "參數錯誤" in capsys.readouterr().err
+     assert trace.run(full, out=io.StringIO(), err=io.StringIO()) == trace.EXIT_NO_DATABASE
+-=======
++
++
+ # ---- [S614] 代碼審第 2 輪:同一把冪等鍵、內容雜湊不同的兩份提案,呼叫紀錄各帶自己的雜湊 ----
+ def test_calls_for_two_proposals_sharing_a_key_keep_their_own_content_hash(world):
+     world.h.dsp.campaigns["c1"] = CampaignView(budget=100, status="paused", version=3)
+@@ -326,4 +326,3 @@ def test_calls_for_two_proposals_sharing_a_key_keep_their_own_content_hash(world
+     conn.close()
+     calls = [s for s in build(world, "sk").segments if s.table is Table.DSP_CALLS]
+     assert {s.field("content_hash") for s in calls} == {trace.UNKNOWN}
+->>>>>>> 8cac31f (fix: 呼叫紀錄補寫先拿出清單再開交易,中斷後收尾不重寫;啟動程式不重複補寫)

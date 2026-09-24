@@ -1,0 +1,654 @@
+diff --git a/docs/.governance-log.jsonl b/docs/.governance-log.jsonl
+index 2bd0628..fc570ff 100644
+--- a/docs/.governance-log.jsonl
++++ b/docs/.governance-log.jsonl
+@@ -3168,10 +3168,14 @@
+ {"ts": "2026-09-24T02:55:57+08:00", "commit": "c1ca557", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T02:55:58+08:00", "commit": "c1ca557", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "c1ca5574ab51614c5b7d95d5156b73324774bf44"}
+ {"ts": "2026-09-24T02:56:06+08:00", "commit": "a31e5ec", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T02:56:06+08:00", "commit": "a31e5ec", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "a31e5ec425005c6256b08ff68b023e45b1aa8d09"}
+ {"ts": "2026-09-24T02:56:06+08:00", "commit": "023c6d8", "gate": "code-loop", "kind": "dispositions", "hard": false, "nodes": [], "detail": "表態 5 題", "branch": "phase8", "head_sha": "023c6d892bc2dd01c3255639ca545e2520443440", "dispositions": {"py-eventloop": {"status": "na", "question": "事件迴圈:async def 裡有沒有同步阻塞(time.sleep/requests/同步 open 讀寫/subprocess.run/大 JSON 解析/CPU 重活)?該換 asyncio.sleep、非同步 client,或用 asyncio.to_thread 丟出去?有沒有「while True + sleep」輪詢該改成等事件或佇列?", "evidence": "", "reason": "這批改動沒有任何非同步函式,全是同步的資料庫交易與既有的同步用戶端", "issue": "", "carried": true}, "py-parallel": {"status": "na", "question": "並行與上限:互不依賴的 await 有沒有 asyncio.gather/TaskGroup 並行?gather 的集合有沒有上限(無界並行會打爆下游連線池或對方的速率限制,該用 Semaphore 有界)?create_task 的回傳值有沒有存起來並接住例外(沒存=可能被回收、例外無聲蒸發)?", "evidence": "", "reason": "新增程式碼沒有並行;測試裡用兩條執行緒只為驗證兩人同時重放只會放回一次", "issue": "", "carried": true}, "py-external": {"status": "satisfied", "question": "外呼與重試:每個 HTTP/WebSocket/DB 外呼有沒有逾時(requests 預設不逾時=對方掛了你永遠卡住)?重試有沒有退避與上限,而且不會對不可逆操作(下單/付款/寄信)盲目重送?session/client/連線有沒有重用而不是每次新建?斷線重連後本地狀態有沒有重新對齊?", "evidence": "src/rtb/executor/inbox_store.py:425", "reason": "", "issue": "", "carried": true}, "py-memory": {"status": "na", "question": "記憶體與資料量:大檔/大回應/大查詢有沒有一次讀進記憶體(read()/readlines()/json.load 大檔/fetchall()/read_csv 不分塊)而不是逐行、分塊或 generator?長活的 dict/list/cache 有沒有上限(lru_cache(maxsize=None)、以請求或時間為鍵的快取只增不減)?迴圈裡有沒有逐筆查 DB 或逐筆打 API(N+1)?", "evidence": "", "reason": "新查詢都只讀單列(最新信封編號、單一收件列),不把大量資料讀進記憶體;信封與稽核表只增不清是稽核表既有取捨,查詢有索引", "issue": "", "carried": true}, "py-hotpath": {"status": "na", "question": "熱路徑:這段會跑大量資料或高頻迴圈嗎?pandas 有沒有 iterrows/itertuples/apply(axis=1)/迴圈裡 concat(該向量化,或先收成 list 最後一次建 DataFrame)?索引式迴圈 range(len(x)) 該不該改成直接迭代或向量運算?list 當佇列 pop(0)、在 list 裡做成員查找,該不該換 deque/set?迴圈裡有沒有重複做不變的工作(每圈重新解析設定、重建物件)?", "evidence": "", "reason": "進死信與重放都是低頻的管理路徑;執行前檢查只多兩個常數時間的比較,新鮮度查核可只在決策已過時才發生", "issue": "", "carried": true}}, "candidates": 0, "written_at": "2026-09-24T02:56:08.215228+08:00"}
+ {"ts": "2026-09-24T02:56:06+08:00", "commit": "023c6d8", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "Phase 8 全分支:功能 5fb9a5b 經 high 三輪代碼審(code-phase8,19 條折 17 駁 2);之後的事故 F6 轉正、補測試、收件口寫入時間統一、Phase 8 驗收紀錄經 standard 補審一輪(code-phase8-f6tz,兩席各 1 條,折 1 駁 1:結構檢查先把拆開的 SQL 拼回來、配方改成不循環;架構席以既有先例駁回);F6 獨立審計第 2 次同意,26 條配方全紅", "branch": "phase8", "head_sha": "023c6d892bc2dd01c3255639ca545e2520443440"}
+ {"ts": "2026-09-24T03:00:21+08:00", "commit": "0b4923a", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=2 hits=0 secs=0.1"}
+ {"ts": "2026-09-24T03:00:19+08:00", "commit": "56b2db1", "gate": "code-loop", "kind": "dispositions", "hard": false, "nodes": [], "detail": "表態 0 題", "branch": "main", "head_sha": "56b2db115b6c4946bd932f2402a8295116e48911", "dispositions": {}, "candidates": 0, "written_at": "2026-09-24T03:00:24.405129+08:00"}
+ {"ts": "2026-09-24T03:00:19+08:00", "commit": "56b2db1", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "合併 Phase 8 收尾(時區統一、驗收紀錄、F6 轉正;另一工作區代碼審 high 三輪加 standard 補審);合併後全套 1552 條通過", "branch": "main", "head_sha": "56b2db115b6c4946bd932f2402a8295116e48911"}
+ {"ts": "2026-09-24T05:44:03+08:00", "commit": "26e4f2b", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=2 hits=0 secs=0.1"}
++{"ts": "2026-09-24T05:54:37+08:00", "commit": "6982c3b", "gate": "delguard", "kind": "degraded", "hard": false, "nodes": [], "note": "reason=timeout tokens=25"}
++{"ts": "2026-09-24T05:54:39+08:00", "commit": "6982c3b", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "6982c3b9d6e16480bf3b1c628f3237ba25ee91f9"}
++{"ts": "2026-09-24T06:03:23+08:00", "commit": "19b0c11", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-24T06:03:24+08:00", "commit": "19b0c11", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "19b0c110e0414d01475c8940d4f6ee2e8b5ea626"}
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md b/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md
+index 1507b23..1fff5dc 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md
+@@ -20,10 +20,11 @@ summary: |-
+ 
+ # 稽核表只增不改守衛
+ 
+ 本篇管 `tests/executor/test_audit_tables.py`(守衛本身與殺傷力配方)與 `tests/executor/write_scan.py`(共用的原始碼掃描工具:判寫入函式、拼回拆開的字串;Phase 8 死信守衛、維運套件邊界測試、本守衛共用)。七張表的家:[[Systems/提案收件口]](停下紀錄、核可、核可使用、生命週期事件)、[[Systems/外部寫入嘗試紀錄]](嘗試紀錄、DSP 呼叫紀錄)、[[Systems/Mock-DSP]](操作紀錄)。
+ 
+ - 全庫掃 src/rtb 每一支,拼回字串時不算文件字串(說明裡提到改寫語句不是改寫)。
+ - 收件口的通用補欄位迴圈用 f-string 組表名,拼回來只剩占位;另外直接讀它的登記表,斷言登記在七張表之下的欄位定義都可為空、無預設值(今天只有嘗試紀錄的欄位在裡面)。
+ - 七個表名各要在某個建表語句裡出現剛好一次,拼錯守衛就守空了。
+ - 殺傷力配方:每張表至少一條,另外逐一涵蓋 UPDATE OR REPLACE、衝突時更新、DROP TABLE IF EXISTS、帶「資料庫名.」前綴、改名、刪欄、帶預設值或不可為空的補欄位;配方用拆開字串的寫法,不跟檢查用同一種字面。
+ - 防忘記,不防刻意繞過:用變數組表名、把關鍵字拆到兩個變數再串起來都繞得過;直接開資料庫改也擋不住。
++- 代碼審第 1 輪(2026-09-24)四處補強:Phase 8 死信兩張表併進同一套判定(九張表共用;死信兩張表照原本一起掃文件字串、連可為空的補欄位都不准,只變嚴),防回歸 [test:test_the_dead_letter_guard_catches_each_rewrite];拼回字串認得字面模板 .format(參數) 與 字面 % 參數,參數全是常數就代入,含變數時保守回模板本身(模板有改寫語句與表名就算,寧可誤報),防回歸 [test:test_the_audit_guard_sees_through_format_and_percent];用變數組表名補欄位全庫只准一處(收件口的通用補欄位迴圈),新開第二處就紅、逼人接進同一個登記表,防回歸 [test:test_only_one_place_adds_columns_by_a_variable_table_name]。判定本身搬進共用掃描模組,兩支守衛測試都從那裡匯入。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/調查實演.md b/docs/rtb-production-agent-demo-knowledge/Systems/調查實演.md
+index 0a561f5..6a57984 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/調查實演.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/調查實演.md
+@@ -20,10 +20,11 @@ summary: |-
+ # 調查實演
+ 
+ 本篇管 `tests/ops/test_investigation_drill.py`:一支測試函式、五個依序的斷言區塊。用到的查詢:[[Systems/有界標籤的指標]](窗內統計、現況快照)、[[Systems/服務水準與燒損告警]](燒損評估器、副作用核對)、[[Systems/追蹤檢視]](時間線與 DSP 段)。
+ 
+ - 組法照執行端的真 DSP 端到端測試:真的模擬 DSP 伺服器(故障在伺服器端依冪等鍵排定;驗憑證的時鐘接虛擬時鐘)、收件口(待處理上限開到 20)、兩個執行迴圈物件、未修改的執行端 DSP 用戶端;不帶分析行程(分析端沒有時鐘注入點)。
+ - 虛擬時鐘從系統時間起跳、每讀一次前進 1 毫秒:DSP 提交時間是系統時間,副作用核對依它歸窗;起點差太遠,DSP 的寫入會整批落在評估窗外。
+ - 兩個程式版本用換常數的測試手法(比照事故 F6 端到端換政策版本),輪到哪個工作者前把執行端匯入的版本常數換成它的版本;真的多版本並存要多行程,實演不做。
+ - 排程:事故前 5 分鐘正常寫入;T0 只取件(甲 12 把鍵 5xx、1 把提交後逾時、乙 4 把正常);T0+5 分只對帳;T0+10 分 1 秒評估快燒告警;T0+12 分 1 秒事故結束、只對帳。每一刻斷言送出次數(5xx 鍵依序 1、2、3,提交後逾時那把一直是 1)。
+ - 本機實演本身約 0.7 秒(虛擬時鐘一步跳過去,不真等)。
+ - 追蹤裡「查操作紀錄查不到」記成 4xx(用戶端錯誤),不是設計文字寫的「有回應」;子序列比對只比呼叫類別。
++- 代碼審第 1 輪(2026-09-24):實演的時鐘改用執行端測試共用的 Clock(加了起點與「每讀一次自動前進」兩個選項與執行緒鎖,預設行為不變),不另起一類。防回歸:[test:test_the_drill_clock_is_the_shared_test_clock]。
+diff --git a/tests/executor/conftest.py b/tests/executor/conftest.py
+index 72c3ab8..58b3529 100644
+--- a/tests/executor/conftest.py
++++ b/tests/executor/conftest.py
+@@ -8,28 +8,36 @@ import threading
+ from datetime import UTC, datetime, timedelta
+ 
+ import pytest
+ 
+ from rtb.executor.inbox_server import InboxServer
+ 
+ NOW = datetime(2026, 9, 22, 12, 5, tzinfo=UTC)
+ 
+ 
+ class Clock:
+-    def __init__(self):
+-        self.now = NOW
++    """測試控制的時鐘。tick:每讀一次自動往前走這麼多(預設不走,只靠 advance);讀與走都在鎖裡,
++    多個執行緒同時讀也不會拿到同一刻(Phase 9 增量 4 調查實演用)。"""
++
++    def __init__(self, start=NOW, tick=None):
++        self.now, self.tick, self.lock = start, tick, threading.Lock()
+ 
+     def __call__(self):
+-        return self.now
++        with self.lock:
++            moment = self.now
++            if self.tick is not None:
++                self.now += self.tick
++            return moment
+ 
+     def advance(self, **kwargs):
+-        self.now += timedelta(**kwargs)
++        with self.lock:
++            self.now += timedelta(**kwargs)
+ 
+ 
+ class Inbox:
+     def __init__(self, db, clock, **kwargs):
+         self.db, self.clock = db, clock
+         self.server = InboxServer(db, clock=clock, **kwargs)
+         threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
+         self.port = self.server.server_address[1]
+ 
+     def stop(self):
+diff --git a/tests/executor/test_audit_tables.py b/tests/executor/test_audit_tables.py
+index 75d3385..3a6ba17 100644
+--- a/tests/executor/test_audit_tables.py
++++ b/tests/executor/test_audit_tables.py
+@@ -1,79 +1,62 @@
+ """稽核表只增不改的機械守衛(Phase 9 增量 4):[S675]。
+ 
+-七張稽核表(停下紀錄、核可、核可使用、生命週期事件、DSP 呼叫紀錄、DSP 操作紀錄、嘗試紀錄)只准新增,
++七張稽核表(停下紀錄、核可、核可使用、生命週期事件、DSP 呼叫紀錄、DSP 操作紀錄、嘗試紀錄)只准新增;
++Phase 8 死信兩張表跟它們共用同一套判定(代碼審第 1 輪),判定本身在共用掃描模組。
+ 比照 Phase 8 死信兩張表那支結構檢查:全庫掃原始碼,把相鄰字串、用 + 串起來、f-string 的固定片段拼回
+ 完整語句再比對。跟 Phase 8 那支不同的是比法:只要同一段拼回來的文字裡出現任一張表的表名,又出現任一種
+ 改寫語句就算違規——SQLite 的「衝突時更新」把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。
+ 補欄位只准可為空、沒有預設值的新欄位(帶預設值會讓舊列讀出新值,等於回頭改寫稽核意義)。收件口的
+ 通用補欄位迴圈用 f-string 組表名、拼回來只剩占位,另外直接讀它的登記表核對。
+ 
+ 防忘記,不防刻意繞過:用變數組表名、把關鍵字拆到兩個變數再串起來,都繞得過;直接開資料庫改也擋不住。
+ """
+ 
+ import ast
+ import pathlib
+ import re
+ 
+ import pytest
+ 
+ from rtb.executor import inbox_store
+-from tests.executor.write_scan import classify, reconstructed_strings
++from tests.executor.write_scan import (
++    AUDITED,
++    audit_violations,
++    classify,
++    dynamic_add_column_sites,
++    reconstructed_strings,
++    registry_violations,
++)
+ 
+ SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "rtb"
+-GUARDED = ("write_stops", "approvals", "approval_uses", "lifecycle_events", "dsp_calls",
+-           "operations", "attempts")
+-_TABLE = re.compile(r"(?<![\w.])(?:\w+\.)?(" + "|".join(GUARDED) + r")\b")
+-# 同一段裡出現任一個 UPDATE 就算:衝突時更新(ON CONFLICT … DO UPDATE)與 UPDATE OR 某動作都含這個字,
+-# 不必另列(變異檢查時另列的那一條拿掉照樣抓得到,是多餘的)
+-REWRITES = re.compile(
+-    r"\bUPDATE\b|\bDELETE\b|\bREPLACE\s+INTO\b|\bINSERT\s+OR\s+REPLACE\b|\bDROP\s+TABLE\b|"
+-    r"\bALTER\s+TABLE\s+\S+\s+(?:RENAME|DROP)\b", re.IGNORECASE)
+-ADD_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(\S+)\s+ADD\s+COLUMN\s+([^;]*)", re.IGNORECASE)
+-LOOSENING = re.compile(r"\bNOT\s+NULL\b|\bDEFAULT\b", re.IGNORECASE)
+-
+-
+-def audit_violations(tree):
+-    """一棵語法樹裡違規的每一段文字(不含文件字串:說明裡提到改寫語句不是改寫)。"""
+-    found = []
+-    for text in reconstructed_strings(tree, skip_docstrings=True):
+-        if not _TABLE.search(text):
+-            continue
+-        if REWRITES.search(text):
+-            found.append(text)
+-        for table, definition in ADD_COLUMN.findall(text):
+-            if _TABLE.fullmatch(table) and LOOSENING.search(definition):
+-                found.append(text)
+-    return found
+-
+-
+-def registry_violations(registry):
+-    """通用補欄位迴圈的登記表:登記在七張表之下的欄位定義都要可為空、沒有預設值。"""
+-    return [(table, ddl) for table, columns in registry.items() if table in GUARDED
+-            for _name, ddl in columns if LOOSENING.search(ddl)]
++GUARDED = AUDITED  # 七張稽核表加 Phase 8 死信兩張表,共用同一套判定
+ 
+ 
+ def _trees():
+     return {path: ast.parse(path.read_text(encoding="utf-8")) for path in SRC.rglob("*.py")}
+ 
+ 
+ # ---- [S675] ----
+ def test_audit_tables_are_only_ever_inserted_into():
+     trees = _trees()
+     offenders = [(path.name, text) for path, tree in trees.items()
+                  for text in audit_violations(tree)]
+     assert offenders == []
+     assert registry_violations(inbox_store._ADDED_COLUMNS) == []
+     assert set(inbox_store._ADDED_COLUMNS) & set(GUARDED) == {"attempts"}  # 登記表今天只有嘗試紀錄
+     created = [m.group(1) for tree in trees.values()
+                for text in reconstructed_strings(tree, skip_docstrings=True)
+                for m in re.finditer(r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)", text)]
++    # 九張表共用一套(代碼審第 1 輪):清單少一張就等於那張沒人守
++    assert set(GUARDED) == {"write_stops", "approvals", "approval_uses", "lifecycle_events",
++                            "dsp_calls", "operations", "attempts", "dead_letters",
++                            "dead_letter_ops"}
+     for table in GUARDED:  # 表名拼錯守衛就守空了:每張都要在某個建表語句裡出現一次
+         assert created.count(table) == 1, (table, created)
+ 
+ 
+ @pytest.mark.parametrize("source", [
+     'x = "UPDATE write_" + "stops SET amount = 0"',
+     'x = ("DELETE FROM app" "rovals WHERE 1")',
+     'x = f"UPDATE approval_{kind} SET stage = ?"'.replace("{kind}", "uses"),
+     'x = "INSERT INTO lifecycle_" "events (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = 2"',
+     'x = "UPDATE OR REPLACE dsp_" + "calls SET status = 1"',
+@@ -83,20 +66,47 @@ def test_audit_tables_are_only_ever_inserted_into():
+     'x = "ALTER TABLE approvals RENAME TO " "old_approvals"',
+     'x = "ALTER TABLE attempts DROP " "COLUMN tenant"',
+     'x = "ALTER TABLE approvals ADD COLUMN revoked INTEGER NOT NULL " "DEFAULT 1"',
+     'x = "ALTER TABLE lifecycle_events ADD COLUMN flag TEXT DEF" "AULT \'y\'"',
+ ])
+ def test_the_audit_guard_catches_each_rewrite(source):
+     """殺傷力配方:每張表至少一條,另外逐一涵蓋各種改寫寫法;拆開字串的寫法,不跟檢查用同一種字面。"""
+     assert audit_violations(ast.parse(source)) != []
+ 
+ 
++@pytest.mark.parametrize("source", [
++    # 代碼審第 1 輪:字面模板 .format(字面參數) 與 字面 % 字面 也要拼得回來
++    'x = "UPDATE {} SET status = 1".format("oper" "ations")',
++    'x = "UPDATE %s SET status = 1" % "operations"',
++    'x = "UPDATE %s SET status = %d" % ("operations", 1)',
++    # 參數含變數時保守判定:模板本身有改寫語句與受守護表名就算
++    'x = "UPDATE operations SET status = {}".format(value)',
++    'x = "DELETE FROM operations WHERE id = %s" % value',
++])
++def test_the_audit_guard_sees_through_format_and_percent(source):
++    assert audit_violations(ast.parse(source)) != []
++
++
++def test_only_one_place_adds_columns_by_a_variable_table_name():
++    """動態表名的補欄位只准一處(收件口的通用補欄位迴圈,守衛直接讀它的登記表);新開第二處就紅,
++    逼人接進同一個登記表。"""
++    sites = dynamic_add_column_sites(_trees())
++    assert [name for name, _ in sites] == ["inbox_store.py"], sites
++    probe = ast.parse(  # 殺傷力配方:另開登記表給操作紀錄補不可為空、帶預設值的欄位
++        'EXTRA = {"operations": [("x", "x INTEGER NOT NULL DEFAULT 1")]}\n'
++        'def migrate(conn):\n'
++        '    for table, columns in EXTRA.items():\n'
++        '        for _name, ddl in columns:\n'
++        '            conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")\n')
++    assert len(dynamic_add_column_sites({**_trees(), pathlib.Path("probe.py"): probe})) == 2
++
++
+ def test_the_audit_guard_allows_a_plain_new_column_and_other_tables():
+     allowed = ('a = "ALTER TABLE operations ADD COLUMN policy_version TEXT"\n'
+                'b = "UPDATE proposals SET disposition = NULL"\n'
+                'c = "INSERT INTO attempts (key) VALUES (?)"\n'
+                'd = "UPDATE campaigns SET budget = ?"\n')
+     assert audit_violations(ast.parse(allowed)) == []
+ 
+ 
+ def test_the_column_registry_is_checked_for_defaults():
+     assert registry_violations({"attempts": [("x", "x INTEGER NOT NULL DEFAULT 1")]}) != []
+diff --git a/tests/executor/test_dead_letter.py b/tests/executor/test_dead_letter.py
+index 364272f..645323a 100644
+--- a/tests/executor/test_dead_letter.py
++++ b/tests/executor/test_dead_letter.py
+@@ -1,20 +1,19 @@
+ """死信信封、失敗分類、重放與死信操作稽核(Phase 8):S500、S501、S502、S508、S510。
+ 
+ 進死信在同一個交易裡寫一列死信信封(只增不改、不被清理);重放是管理指令把還活著的死信放回
+ 待處理,每一個死信操作(進死信、要求重放、重放被拒、重放已放回佇列)都寫一列稽核。
+ """
+ 
+ import ast
+ import io
+ import pathlib
+-import re
+ import sqlite3
+ import threading
+ 
+ import pytest
+ 
+ from rtb.domain.attempt import operation_key
+ from rtb.domain.proposal import content_hash
+ from rtb.executor import inbox_store
+ from rtb.executor import replay as replay_tool
+ from rtb.executor.execution import CampaignView, Result
+@@ -24,21 +23,21 @@ from rtb.executor.inbox_store import (
+     BlockCode,
+     DeadLetterAction,
+     FailureClass,
+     InboxRejected,
+     InboxStore,
+     LastFailure,
+     ReplayOutcome,
+     failure_class,
+ )
+ from tests.executor.fakes import Harness, proposal, write_config
+-from tests.executor.write_scan import reconstructed_strings
++from tests.executor.write_scan import audit_violations, reconstructed_strings
+ 
+ OPERATOR = "ops-alice"
+ 
+ 
+ @pytest.fixture
+ def h(tmp_path, clock):
+     harness = Harness(tmp_path, clock)
+     yield harness
+     harness.close()
+ 
+@@ -437,46 +436,61 @@ def test_a_blocked_proposal_cannot_be_replayed(h):
+     h.submit(policy_version="demo-pacing-v0")
+     assert h.process().kind is Result.BLOCKED
+ 
+     assert replay(h) is ReplayOutcome.NOT_DEAD_LETTER
+     assert disposition(h) == ("pending", "blocked")
+ 
+ 
+ # ---- 事故 F6 轉正第 1 次審計:三句排他性的宣稱要有機械守衛 ----
+ SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "rtb"
+ REVIVE = "dead_letter_reason = NULL"  # 把死信改回來的那一句(處置與死信原因一起清)
+-TABLE_WRITE = re.compile(r"\b(UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+REPLACE\s+INTO|"
+-                         r"DROP\s+TABLE|ALTER\s+TABLE)\s+(dead_letters|dead_letter_ops)\b",
+-                         re.IGNORECASE)
++DEAD_LETTER_TABLES = ("dead_letters", "dead_letter_ops")
+ 
+ 
+ def _functions_containing(text):
+     """原始碼裡含這段字的每一個函式(檔名, 函式名)。"""
+     return [(path.name, node.name) for path in SRC.rglob("*.py")
+             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+             and any(text in found for found in reconstructed_strings(node))]
+ 
+ 
+ def test_only_the_replay_method_revives_a_dead_letter():
+     """死信只能由管理指令逐筆重放:把死信改回待處理的寫法全庫只有重放方法一處。"""
+     assert _functions_containing(REVIVE) == [("inbox_store.py", "_replay")]
+ 
+ 
++def _dead_letter_violations(tree):
++    """跟七張稽核表共用同一套判定(Phase 9 增量 4 代碼審第 1 輪:原本要求動詞緊貼表名,抓不到
++    UPDATE OR REPLACE 與衝突時更新)。只能變嚴:文件字串照原本一起掃、死信兩張表連補欄位都不准。"""
++    return audit_violations(tree, DEAD_LETTER_TABLES, skip_docstrings=False)
++
++
+ def test_the_dead_letter_tables_are_only_ever_inserted_into():
+     """死信信封與稽核只增不改:全庫沒有任何語句修改、刪除或覆寫這兩張表。"""
+-    offenders = [(path.name, match.group(0)) for path in SRC.rglob("*.py")
+-                 for text in reconstructed_strings(ast.parse(path.read_text(encoding="utf-8")))
+-                 for match in TABLE_WRITE.finditer(text)]
++    offenders = [(path.name, found) for path in SRC.rglob("*.py")
++                 for found in _dead_letter_violations(ast.parse(path.read_text(encoding="utf-8")))]
+     assert offenders == []
+ 
+ 
++@pytest.mark.parametrize("source", [
++    'x = "UPDATE dead_" + "letters SET a = 1"',
++    'x = ("DELETE FROM dead_letter_" "ops WHERE 1")',
++    'x = "ALTER TABLE dead_" "letters ADD COLUMN note TEXT"',  # 死信兩張表連可為空的補欄位都不准
++    # Phase 9 增量 4 代碼審第 1 輪:動詞不緊貼表名的兩種改寫,舊守衛抓不到
++    'x = "UPDATE OR REPLACE dead_" + "letters SET a = 1"',
++    'x = "INSERT INTO dead_letter_" "ops (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = 2"',
++])
++def test_the_dead_letter_guard_catches_each_rewrite(source):
++    assert _dead_letter_violations(ast.parse(source)) != []
++
++
+ def test_the_source_checks_see_through_split_strings():
+     """結構檢查本身:照一般寫法拆開的 SQL(相鄰字串、+、f-string)拼得回來。"""
+     tree = ast.parse('x = "UPDATE dead_" + "letters SET a = 1"\n'
+                      'y = f"DELETE   FROM {t} WHERE 1"\n'
+                      'z = ("SET disposition = NULL, dead_letter_" "reason = NULL")\n')
+     found = reconstructed_strings(tree)
+     assert "UPDATE dead_letters SET a = 1" in found
+     assert "DELETE FROM {} WHERE 1" in found
+     assert any(REVIVE in text for text in found)
+ 
+diff --git a/tests/executor/write_scan.py b/tests/executor/write_scan.py
+index 8f041c5..887e666 100644
+--- a/tests/executor/write_scan.py
++++ b/tests/executor/write_scan.py
+@@ -118,45 +118,130 @@ def writes_matching(path: Path, pattern: str) -> set[str]:
+ 
+ 
+ def write_functions(path: Path) -> set[str]:
+     return writes_matching(path, WRITE_SQL)
+ 
+ 
+ def read_functions(path: Path) -> set[str]:
+     return {name for name, writes in classify(path).items() if not writes}
+ 
+ 
++def _constant(node):
++    """字面常數(字串或數字)的值;不是字面常數回 None。"""
++    if isinstance(node, ast.Constant) and isinstance(node.value, str | int | float):
++        return node.value
++    return None
++
++
++def _formatted(template, args, apply):
++    """模板代入參數:參數全是字面常數就代入拼回;含變數時保守回模板本身(模板裡有改寫語句與受守護
++    表名照樣抓得到,寧可誤報)。"""
++    values = [_constant(arg) for arg in args]
++    if any(value is None for value in values):
++        return template
++    try:
++        return apply(template, values)
++    except (IndexError, KeyError, TypeError, ValueError):
++        return template
++
++
+ def text_of(node):
+-    """把一段字串拼回來:相鄰字串、用 + 串起來的字串、f-string 的固定片段(代入的值記成 {}),
+-    空白壓成一格。照專案一般寫法拆開的 SQL 也還原得回來;刻意用變數組表名之類的寫法還原不了,
+-    那是刻意繞過,不在「防忘記」的範圍(Phase 8 代碼審第 1 輪審查席實測兩種繞法)。"""
++    """把一段字串拼回來:相鄰字串、用 + 串起來的字串、f-string 的固定片段(代入的值記成 {})、
++    字面模板 .format(參數)、字面模板 % 參數,空白壓成一格。照專案一般寫法拆開的 SQL 也還原得回來;
++    刻意用變數組表名之類的寫法還原不了,那是刻意繞過,不在「防忘記」的範圍(Phase 8 代碼審第 1 輪
++    審查席實測兩種繞法;.format 與 % 是 Phase 9 增量 4 代碼審第 1 輪補的)。"""
+     if isinstance(node, ast.Constant) and isinstance(node.value, str):
+         text = node.value
+     elif isinstance(node, ast.JoinedStr):
+         text = "".join(part.value if isinstance(part, ast.Constant) else "{}"
+                        for part in node.values)
+     elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+         left, right = text_of(node.left), text_of(node.right)
+         if left is None or right is None:  # 不是字串相加(例如數字)
+             return None
+         text = left + right
++    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
++        template = text_of(node.left)
++        if template is None:
++            return None
++        args = node.right.elts if isinstance(node.right, ast.Tuple) else [node.right]
++        text = _formatted(template, args, lambda t, v: t % tuple(v))
++    elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
++          and node.func.attr == "format" and not node.keywords):
++        template = text_of(node.func.value)
++        if template is None:
++            return None
++        text = _formatted(template, node.args, lambda t, v: t.format(*v))
+     else:
+         return None
+     return " ".join(text.split())
+ 
+ 
+ def reconstructed_strings(tree, skip_docstrings=False):
+     """一棵語法樹裡拼得回來的每一段字串(最外層的那段,不重複算它的組成片段)。skip_docstrings:
+     不算模組、類別、函式的文件字串(說明裡提到 SQL 字樣不是語句)。"""
+     inside = set()
+     for node in ast.walk(tree):
+-        if isinstance(node, ast.BinOp | ast.JoinedStr) and text_of(node) is not None:
++        if isinstance(node, ast.BinOp | ast.JoinedStr | ast.Call) and text_of(node) is not None:
+             inside.update(id(sub) for sub in ast.walk(node) if sub is not node)
+     if skip_docstrings:
+         for node in ast.walk(tree):
+             if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+                 body = node.body
+                 if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value,
+                                                                          ast.Constant):
+                     inside.add(id(body[0].value))
+     return [text for node in ast.walk(tree)
+             if id(node) not in inside and (text := text_of(node)) is not None]
++
++
++# ---- 稽核表只增不改(Phase 8 死信兩張表與 Phase 9 增量 4 七張表共用一套) ----
++AUDITED = ("write_stops", "approvals", "approval_uses", "lifecycle_events", "dsp_calls",
++           "operations", "attempts", "dead_letters", "dead_letter_ops")
++NO_ALTER = frozenset({"dead_letters", "dead_letter_ops"})  # Phase 8:連可為空的補欄位都不准
++_REWRITES = re.compile(
++    # 同一段裡出現任一個 UPDATE 就算:衝突時更新(ON CONFLICT … DO UPDATE)與 UPDATE OR 某動作
++    # 都含這個字,不必另列(Phase 9 增量 4 變異檢查:另列的那一條拿掉照樣抓得到)
++    r"\bUPDATE\b|\bDELETE\b|\bREPLACE\s+INTO\b|\bINSERT\s+OR\s+REPLACE\b|\bDROP\s+TABLE\b|"
++    r"\bALTER\s+TABLE\s+\S+\s+(?:RENAME|DROP)\b", re.IGNORECASE)
++_ADD_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(\S+)\s+ADD\s+COLUMN\s+([^;]*)", re.IGNORECASE)
++_LOOSENING = re.compile(r"\bNOT\s+NULL\b|\bDEFAULT\b", re.IGNORECASE)
++_DYNAMIC_ADD_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(?:\{\}|%s)\s+ADD\s+COLUMN\b",
++                                 re.IGNORECASE)
++
++
++def _table_pattern(tables):
++    return re.compile(r"(?<![\w.])(?:\w+\.)?(" + "|".join(tables) + r")\b")
++
++
++def audit_violations(tree, tables=AUDITED, skip_docstrings=True):
++    """違規的每一段文字:同一段拼回來的文字裡出現任一張表名,又出現任一種改寫語句;或對這些表補
++    不可為空、帶預設值的欄位(死信兩張表連補欄位都不准)。比法是「同段共現」,不是動詞緊接表名:
++    SQLite 的衝突時更新把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。"""
++    table = _table_pattern(tables)
++    found = []
++    for text in reconstructed_strings(tree, skip_docstrings=skip_docstrings):
++        if not table.search(text):
++            continue
++        if _REWRITES.search(text):
++            found.append(text)
++            continue
++        for target, definition in _ADD_COLUMN.findall(text):
++            named = table.fullmatch(target)
++            if named and (named.group(1) in NO_ALTER or _LOOSENING.search(definition)):
++                found.append(text)
++    return found
++
++
++def registry_violations(registry, tables=AUDITED):
++    """通用補欄位迴圈的登記表:登記在受守護表之下的欄位定義都要可為空、沒有預設值;死信兩張表
++    根本不准登記。"""
++    return [(name, ddl) for name, columns in registry.items() if name in tables
++            for _column, ddl in columns if name in NO_ALTER or _LOOSENING.search(ddl)]
++
++
++def dynamic_add_column_sites(trees):
++    """用變數組表名補欄位的每一處(檔名, 那段文字):表名拼回來只剩占位,守衛看不出是哪張表,
++    所以只准一處、而且守衛直接讀它的登記表。"""
++    return [(path.name, text) for path, tree in trees.items()
++            for text in reconstructed_strings(tree, skip_docstrings=True)
++            if _DYNAMIC_ADD_COLUMN.search(text)]
+diff --git a/tests/ops/test_investigation_drill.py b/tests/ops/test_investigation_drill.py
+index 3ba243a..77b596a 100644
+--- a/tests/ops/test_investigation_drill.py
++++ b/tests/ops/test_investigation_drill.py
+@@ -23,62 +23,47 @@ from rtb.domain.attempt import operation_key
+ from rtb.dsp.server import DspHandler, DspServer
+ from rtb.dsp.store import CampaignStore
+ from rtb.executor import attempt_store, inbox_store
+ from rtb.executor.attempt_store import MAX_SENDS
+ from rtb.executor.capability_signer import CapabilitySigner, load_tenants
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import Executor, Result
+ from rtb.executor.inbox_store import InboxStore, ReadOnlyInbox
+ from rtb.ops import metrics, side_effects, sli, slo, trace
+ from tests.capability_samples import TEST_KEY
++from tests.executor.conftest import Clock
+ from tests.executor.fakes import proposal
+ 
+ A_BAD = [f"a{n:02d}" for n in range(1, 13)]  # 租戶甲:吃兩次 5xx 的 12 個廣告
+ A_TIMEOUT = "a13"  # 租戶甲:提交後逾時的那一個
+ B_OK = [f"b{n:02d}" for n in range(1, 5)]  # 租戶乙:正常
+ INCIDENT = timedelta(minutes=12)
+ HANG, CLIENT_TIMEOUT = 0.6, 0.3  # 提交後逾時:DSP 掛住比用戶端逾時久,用戶端才會真的逾時
+ VERSIONS = ("0.9.1-a", "0.9.1-b")  # 兩個工作者掛的程式版本
+ 
+ 
+-class VirtualClock:
+-    """執行緒安全;每讀一次前進 1 毫秒,讓同一輪裡依序發生的事時間都不同;測試另外可以一步跳過去。"""
+-
+-    def __init__(self, start):
+-        self.now, self.lock = start, threading.Lock()
+-
+-    def __call__(self):
+-        with self.lock:
+-            moment = self.now
+-            self.now += timedelta(milliseconds=1)
+-            return moment
+-
+-    def jump_to(self, moment):
+-        with self.lock:
+-            assert moment >= self.now
+-            self.now = moment
+-
+-
+ class KeyedHandler(DspHandler):
+     """比照執行端真 DSP 端到端測試替換「讀故障」那一步;改成依冪等鍵取排定(每把鍵自己一串)。"""
+ 
+     def read_fault(self, modes):
+         if self.command != "POST":
+             return None
+         with self.server.plan_lock:
+             planned = self.server.plan.get(self.headers.get("Idempotency-Key"), [])
+             return planned.pop(0) if planned else None
+ 
+ 
+ class Drill:
+     def __init__(self, tmp_path):
+-        self.clock = VirtualClock(datetime.now(UTC))
++        # 從系統時間起跳:DSP 提交時間是系統時間,副作用核對依它歸窗;每讀一次前進 1 毫秒,
++        # 同一輪裡依序發生的事時間都不同
++        self.clock = Clock(start=datetime.now(UTC), tick=timedelta(milliseconds=1))
+         self.t0 = self.clock.now + timedelta(minutes=5)
+         self.dsp_db, self.executor_db = tmp_path / "dsp.db", tmp_path / "executor.db"
+         self.analyzer_db = tmp_path / "analyzer.db"
+         TaskStore(self.analyzer_db).close()  # 實演不帶分析行程:空的分析端資料庫
+         seed = CampaignStore(self.dsp_db)
+         tenants = {"tenant-a": ["a00", *A_BAD, A_TIMEOUT], "tenant-b": ["b00", *B_OK]}
+         for tenant, campaigns in tenants.items():
+             for campaign in campaigns:
+                 seed.seed_campaign(campaign, budget=100, tenant=tenant)
+         seed.close()
+@@ -138,67 +123,80 @@ class Drill:
+         return None if row is None else (row.state.value, row.send_count)
+ 
+     def sources(self):
+         return sli.Sources(self.executor_db, self.analyzer_db, self.url, 2.0)
+ 
+     def window(self, since, until):
+         return metrics.collect_window(since, until, executor_db=self.executor_db,
+                                       analyzer_db=self.analyzer_db, tenants=self.tenants)
+ 
+ 
++def jump_to(clock, moment):
++    """把虛擬時鐘一步推到某一刻(只能往前)。"""
++    assert moment >= clock.now
++    clock.advance(seconds=(moment - clock.now).total_seconds())
++
++
+ @contextmanager
+ def as_version(monkeypatch, version):
+     """程式版本是行程載入時定的常數:比照事故 F6 端到端換政策版本,輪到哪個工作者前換成它的版本。"""
+     with monkeypatch.context() as patch:
+         for module in (attempt_store, inbox_store):
+             patch.setattr(module, "PROGRAM_VERSION", version)
+         yield
+ 
+ 
+ @pytest.fixture
+ def drill(tmp_path):
+     built = Drill(tmp_path)
+     yield built
+     built.close()
+ 
+ 
++def test_the_drill_clock_is_the_shared_test_clock(drill):
++    """代碼審第 1 輪:實演的時鐘沿用執行端測試共用的 Clock,只多「每讀一次前進 1 毫秒」與執行緒鎖。"""
++    assert isinstance(drill.clock, Clock)
++    first, second = drill.clock(), drill.clock()
++    assert second - first == timedelta(milliseconds=1)
++
++
+ def pick(report, name, **labels):
+     return [s for s in report.samples
+             if s.name == name and all(s.label_map().get(k) == v for k, v in labels.items())]
+ 
+ 
+ def run_incident(d, monkeypatch):
+     """排程(虛擬時間,T0 是事故開始);每一刻結束時斷言送出次數。"""
+     for campaign in ("a00", "b00"):  # T0 前 5 分鐘:事故前的正常寫入
+         d.submit(campaign, d.clock.now)
+     d.process(monkeypatch)
+     for campaign in A_BAD:
+         d.server.plan[operation_key(d.submit(campaign, d.t0))] = ["transient_5xx"] * 2
+     d.server.plan[operation_key(d.submit(A_TIMEOUT, d.t0))] = ["timeout_after_commit"]
+     for campaign in B_OK:
+         d.submit(campaign, d.t0)
+-    d.clock.jump_to(d.t0)
++    jump_to(d.clock, d.t0)
+     d.process(monkeypatch)  # T0:只取件
+     assert {d.sends(c) for c in A_BAD} == {("unknown", 1)}
+     assert d.sends(A_TIMEOUT) == ("unknown", 1)
+     assert {d.sends(c) for c in B_OK} == {("verified", 1)}
+ 
+-    d.clock.jump_to(d.t0 + timedelta(minutes=5))
++    jump_to(d.clock, d.t0 + timedelta(minutes=5))
+     d.reconcile(monkeypatch)  # T0 + 5 分鐘:只對帳
+     assert {d.sends(c) for c in A_BAD} == {("unknown", 2)}
+     assert d.sends(A_TIMEOUT) == ("verified", 1)  # 查到就結案,不重送
+ 
+-    d.clock.jump_to(d.t0 + timedelta(minutes=10, seconds=1))
++    jump_to(d.clock, d.t0 + timedelta(minutes=10, seconds=1))
+     now = d.clock.now
+     alert = slo.evaluate(now, counter=lambda n, s, u: sli.count(n, s, u, d.sources()))
+ 
+-    d.clock.jump_to(d.t0 + INCIDENT + timedelta(seconds=1))
++    jump_to(d.clock, d.t0 + INCIDENT + timedelta(seconds=1))
+     d.reconcile(monkeypatch)  # 事故結束:只對帳
+     assert {d.sends(c) for c in A_BAD} == {("verified", 3)}
+     return alert
+ 
+ 
+ # ---- [S670] 到 [S674] ----
+ def test_investigation_drill_walks_from_alert_to_dsp_history(drill, monkeypatch):
+     d = drill
+     # 前提:任一不成立是劇本要重排,不是被測程式壞
+     assert len(A_BAD) >= slo.MIN_SAMPLES and MAX_SENDS == 3 and CLIENT_TIMEOUT < HANG

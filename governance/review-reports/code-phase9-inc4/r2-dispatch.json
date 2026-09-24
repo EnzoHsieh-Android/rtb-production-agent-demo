@@ -1,0 +1,1 @@
+{"round": "r2", "loop": "code-phase9-inc4-std", "tier": "standard", "base": "6982c3b", "snapshot": "r2-snapshot.patch", "reviewed_sha256": "419255d87e8e8c4f4504ad966f142e674767146feb3589e336b687d1f6fcbc5e", "seats": [{"seat": "regress-sonnet", "lens": "第 1 輪修復驗收與回歸", "materials": ["r2-delta.patch"]}, {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r2-delta.patch"]}]}

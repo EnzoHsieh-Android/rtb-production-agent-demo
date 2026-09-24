@@ -1,0 +1,642 @@
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index d13423b..299f9b1 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -22,21 +22,21 @@ import hashlib
+ import json
+ import sqlite3
+ from collections.abc import Callable, Sequence
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from pathlib import Path
+ from types import MappingProxyType
+ from typing import Any
+ 
+-from rtb.domain._checks import is_aware, is_id
++from rtb.domain._checks import is_id, require_aware
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
+ from rtb.domain.proposal import ActionType, Proposal
+ from rtb.domain.task_state import IllegalTransition, TaskState, can_transition
+ from rtb.sqlitekit import (
+     BUSY_TIMEOUT_SECONDS,
+     DatabaseBusy,
+     DatabaseNotUpgraded,
+     begin_snapshot,
+     connect,
+     connect_read_only,
+@@ -208,24 +208,23 @@ class TaskRow:
+     error_detail: str | None
+     written_at: datetime
+ 
+ 
+ def _tool_call(row: tuple[Any, ...]) -> ToolCall:
+     return ToolCall(task_id=row[0], task_seq=row[1], endpoint=_endpoint(row[2]), outcome=row[3],
+                     latency_ms=row[4], at=datetime.fromisoformat(row[5].replace("Z", "+00:00")))
+ 
+ 
+ def _iso(moment: datetime) -> str:
+-    """沒帶時區就拒絕(比照嘗試紀錄的同名函式):不然會被當成本機時間換算,窗界整段位移、悄悄漏資料
++    """沒帶時區就拒絕(領域層共用的檢查):不然會被當成本機時間換算,窗界整段位移、悄悄漏資料
+     (Phase 9 增量 2 代碼審第 1 輪)。"""
+-    if not is_aware(moment):
+-        raise ValueError("時間必須帶時區")
++    require_aware(moment)
+     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+ 
+ 
+ def _is_live(lease: tuple[int, str | None, str], now: datetime) -> bool:
+     """有擁有者而且還沒到期;到期時間與現在都是同一種固定格式的 UTC 字串,可以直接比大小。"""
+     return lease[1] is not None and lease[2] > _iso(now)
+ 
+ 
+ def _proposal_to_json(proposal: Proposal) -> str:
+     return json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True)
+diff --git a/src/rtb/domain/_checks.py b/src/rtb/domain/_checks.py
+index fbaf6a9..e234f84 100644
+--- a/src/rtb/domain/_checks.py
++++ b/src/rtb/domain/_checks.py
+@@ -25,10 +25,21 @@ def is_plain_number(value: object) -> TypeGuard[int | float]:
+ def is_id(value: object) -> TypeGuard[str]:
+     return isinstance(value, str) and ID_PATTERN.fullmatch(value) is not None
+ 
+ 
+ def is_aware(value: object) -> TypeGuard[datetime]:
+     """是帶時區的時間,而且時區真的給得出偏移(有些 tzinfo 的 utcoffset 回 None,等於沒有時區)。
+ 
+     沒有時區的時間換算 UTC 時會被當成伺服器本地時間,悄悄寫錯。證據、提案、嘗試紀錄共用這一份。
+     """
+     return isinstance(value, datetime) and value.utcoffset() is not None
++
++
++AWARE_REQUIRED = "時間必須帶時區"
++
++
++def require_aware(*moments: object) -> None:
++    """每一個都要是帶時區的時間,否則丟 ValueError(訊息固定)。沒帶會被當成本機時間換算,時間範圍整段
++    位移;有帶沒帶混用則比較時丟 TypeError。嘗試紀錄、分析端任務歷史、指標共用這一支(Phase 9
++    增量 2 代碼審第 2 輪:原本三處各寫一份,判準與訊息各自漂移)。"""
++    if not all(is_aware(moment) for moment in moments):
++        raise ValueError(AWARE_REQUIRED)
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index 2943316..542f2e4 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -25,21 +25,21 @@ Phase 9 增量 1:
+ 
+ import json
+ import sqlite3
+ from collections.abc import Collection, Iterable, Sequence
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from typing import Any
+ 
+ from rtb import PROGRAM_VERSION
+-from rtb.domain._checks import is_aware, is_plain_int
++from rtb.domain._checks import is_plain_int, require_aware
+ from rtb.domain.attempt import (
+     RESOLUTION_OUTCOMES,
+     TERMINAL_STATES,
+     TIMEOUT_STATES,
+     AttemptState,
+     IllegalAttemptTransition,
+     OutcomeCode,
+     can_transition,
+     code_fits,
+     is_clean_detail,
+@@ -368,27 +368,22 @@ class AttemptRow:
+ 
+ 
+ @dataclass(frozen=True)
+ class Begun:
+     row: AttemptRow
+     created: bool  # False:鍵已存在,原樣回傳目前那一列——呼叫端依狀態分支,絕不因此直接再送
+     # 靠人工核可超過門檻放行時,當時的已用額度與門檻(寫核可使用紀錄用);沒超過是空值
+     over_limit: AggregateLimitReached | None = None
+ 
+ 
+-def _require_aware(now: datetime) -> None:
+-    if not is_aware(now):
+-        raise ValueError("時間必須帶時區")
+-
+-
+ def _iso(moment: datetime) -> str:
+-    _require_aware(moment)
++    require_aware(moment)
+     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+ 
+ 
+ def iso(moment: datetime) -> str:
+     """寫進嘗試紀錄與停下紀錄的時間格式;沒帶時區就拒絕(不然會被當成本機時間,範圍篩錯)。
+     收件口模組的停下紀錄讀取方法也用這支,兩張表的比較規則一致(Phase 6 增量 4 代碼審第 2 輪)。"""
+     return _iso(moment)
+ 
+ 
+ def _conn(tx: ExecutorTransaction) -> sqlite3.Connection:
+@@ -532,21 +527,21 @@ def begin(
+     tx: ExecutorTransaction, proposal: Proposal, now: datetime, *,
+     capability_expires_at: datetime | None,
+     reservation: Reservation | None = None,
+     by: Actor | None = None,
+ ) -> Begun:
+     """開始一筆:鍵與第 1 列的欄位全由這份提案算出,呼叫端不能另外指定。
+ 
+     帶預留時,金額大於 0 就在同一個交易裡(立即取得寫入鎖)先算租戶已用額度,加上這筆超過門檻
+     丟 AggregateLimitReached、什麼都不寫;鍵已存在時不再預留也不再檢查(那把鍵第一次就扣過)。"""
+     conn = _conn(tx)
+-    _require_aware(now)
++    require_aware(now)
+     source, actor = _by(by)
+     key = operation_key(proposal)
+     current = latest(tx, key)
+     if current is not None:
+         return Begun(current, created=False)
+     expires = _expiry(capability_expires_at)
+     if unresolved_count(tx, proposal.campaign_id):
+         raise CampaignLocked(proposal.campaign_id)
+     if unresolved_count(tx) >= MAX_UNRESOLVED:
+         raise TooManyUnresolved()
+@@ -718,21 +713,21 @@ def _append(  # noqa: PLR0913 - 每個欄位都是新列的一部分
+     row = latest(tx, previous.key)
+     assert row is not None  # noqa: S101
+     return row
+ 
+ 
+ def _current(
+     tx: ExecutorTransaction, key: str, expected_seq: int, now: datetime,
+ ) -> AttemptRow | None:
+     """呼叫端帶的預期序號仍是最新一列才回傳;不是就回 None(沒有進展,不寫入)。"""
+     _conn(tx)
+-    _require_aware(now)
++    require_aware(now)
+     if not is_plain_int(expected_seq):  # True == 1 在 Python 成立,不能靠 == 比對
+         raise TypeError("預期序號必須是整數")
+     row = latest(tx, key)
+     return row if row is not None and row.seq == expected_seq else None
+ 
+ 
+ def _send_fields(
+     destination: AttemptState, written_version: object, capability_expires_at: object,
+ ) -> tuple[int | None, str | None]:
+     """轉進嘗試中必帶憑證到期時間、轉進已提交待驗證必帶寫入後版本;其他轉換不准夾帶。"""
+@@ -822,28 +817,28 @@ def recover_in_flight(
+     收件表):那些是別的工作者正在做的、或租約到期後由對帳原子接手的,重啟恢復不碰。
+     不在 held 裡的是舊鍵(沒有收件表訊息),但它不一定沒人在做:對帳舊鍵時也會先寫嘗試中再呼叫
+     DSP。沒有租約可看,改看這一列寫下多久:呼叫端傳「現在減一個租約時間」,活著的工作者一次
+     DSP 呼叫一定在那之前寫完結果。兩個參數都必填、沒有預設值:漏傳時不能悄悄退回舊語意。
+ 
+     不受歷史列上限:一把鍵撞上限若讓整批回滾,同一次重啟裡健康的鍵也會留在嘗試中。每次進入
+     嘗試中最多被恢復一次(恢復後就不是嘗試中了),所以豁免不會讓表無限長。
+     歷史列讀不回來的鍵跳過並回報:不然一把壞鍵會讓每次重啟都在同一點整批失敗。
+     """
+     conn = _conn(tx)
+-    _require_aware(now)
++    require_aware(now)
+     keys = [record[0] for record in conn.execute(
+         "SELECT a.key FROM attempts a WHERE a.state = ? AND a.seq = "
+         "(SELECT MAX(b.seq) FROM attempts b WHERE b.key = a.key) ORDER BY a.key",
+         (AttemptState.IN_FLIGHT.value,),
+     ).fetchall()]
+     moved, unreadable = [], []
+-    _require_aware(written_before)
++    require_aware(written_before)
+     for key in keys:
+         if key in held:
+             continue
+         try:
+             row = latest(tx, key)
+         except CorruptedAttemptRow:
+             unreadable.append(key)
+             continue
+         assert row is not None  # noqa: S101
+         if row.written_at > written_before:  # 剛寫下的:可能有工作者正在對帳這把舊鍵
+diff --git a/src/rtb/ops/cli.py b/src/rtb/ops/cli.py
+new file mode 100644
+index 0000000..2c92652
+--- /dev/null
++++ b/src/rtb/ops/cli.py
+@@ -0,0 +1,20 @@
++"""維運套件命令列共用的參數解析:參數錯一律以 EXIT_BAD_ARGUMENTS 結束。
++
++argparse 預設用 2 結束,跟追蹤檢視與指標的「資料庫檔不存在」撞號,呼叫端(監控、手冊)分不出是忘了
++傳參數還是資料庫不在(Phase 9 增量 2 代碼審第 1、2 輪)。維運套件的每支命令列都用這裡的解析器,
++結束代碼表一致。
++"""
++
++import argparse
++import sys
++from typing import NoReturn
++
++EXIT_BAD_ARGUMENTS = 7  # 參數錯(缺參數、參數組合不對、時間沒帶時區)
++
++
++class Parser(argparse.ArgumentParser):
++    """參數錯一律以 EXIT_BAD_ARGUMENTS 結束,訊息印到標準錯誤。"""
++
++    def error(self, message: str) -> NoReturn:
++        self.print_usage(sys.stderr)
++        self.exit(EXIT_BAD_ARGUMENTS, f"{self.prog}: 參數錯誤:{message}\n")
+diff --git a/src/rtb/ops/metrics.py b/src/rtb/ops/metrics.py
+index a8549d1..05300e9 100644
+--- a/src/rtb/ops/metrics.py
++++ b/src/rtb/ops/metrics.py
+@@ -28,24 +28,24 @@
+ import argparse
+ import json
+ import math
+ import sys
+ from collections import defaultdict
+ from collections.abc import Callable, Iterable, Mapping, Sequence
+ from dataclasses import dataclass, field
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from pathlib import Path
+-from typing import Any, NoReturn, TextIO
++from typing import Any, TextIO
+ 
+ from rtb.analyzer.task_store import TaskReader, ToolCall, ToolEndpoint
+-from rtb.domain._checks import is_aware
++from rtb.domain._checks import require_aware
+ from rtb.domain.attempt import AttemptState
+ from rtb.domain.proposal import KNOWN_POLICY_VERSIONS
+ from rtb.executor import attempt_store, observability
+ from rtb.executor.attempt_store import (
+     AttemptRow,
+     AttemptTraceRow,
+     DspCallKind,
+     DspCallResult,
+     DspCallRow,
+     DspErrorCode,
+@@ -53,52 +53,46 @@ from rtb.executor.attempt_store import (
+ )
+ from rtb.executor.capability_signer import SigningRefused, Tenant, load_tenants
+ from rtb.executor.inbox_store import (
+     TERMINAL_KINDS,
+     BlockCode,
+     DatabaseNotUpgraded,
+     LifecycleEvent,
+     LifecycleKind,
+     ReadOnlyInbox,
+ )
++from rtb.ops.cli import EXIT_BAD_ARGUMENTS as EXIT_BAD_ARGUMENTS  # 參數錯(7,維運套件共用)
++from rtb.ops.cli import Parser
+ 
+ MAX_WINDOW = timedelta(hours=24)
+ MAX_PROGRAM_VERSIONS = 20
+ MAX_EXEMPLARS = 3
+ MAX_ROUNDS = 3
+ MAX_CHAIN = 8  # 接續鏈最長幾代(分析端上限 3 代;這裡只防資料毀損造成的迴圈)
+ UNKNOWN_TENANT = "unknown"
+ OTHER = "other"
+ EXIT_OK = 0
+ EXIT_NO_DATABASE = 2
+ EXIT_NOT_UPGRADED = 3
+ EXIT_WINDOW_TOO_LONG = 4
+ EXIT_UNSTABLE = 5  # 三輪都讀到不同結果:照樣印出最後一輪,結束代碼標明不穩定
+ EXIT_BAD_CONFIG = 6
+-EXIT_BAD_ARGUMENTS = 7  # 參數錯(缺參數、時間沒帶時區);argparse 預設的 2 跟資料庫檔不存在撞號
+ EVENT_COUNT_NOTE = ("事件次數:同一份提案每擋一次、每進一次待核可都算一次(重投再擋算兩次);"
+                     "可觀測查詢的停下紀錄是同提案同種類只記一次的提案數,定義不同,數字不必相等")
+ JEV_NOTE = ("不適用:本系統的分析是確定性計算,沒有呼叫模型,沒有模型與 Jev 的延遲、成本、格式失敗或"
+             "退回率可量;Phase 10 若接模型再補")
+ 
+ 
+ class WindowTooLong(ValueError):
+     """窗超過 24 小時,或迄不在起之後。"""
+ 
+ 
+-def _require_aware(*moments: datetime) -> None:
+-    """時間一律要帶時區:沒帶會被當成本機時間換算,窗界整段位移、悄悄漏資料;有帶沒帶混用則比較時丟
+-    TypeError(代碼審第 1 輪)。"""
+-    if not all(is_aware(moment) for moment in moments):
+-        raise ValueError("時間必須帶時區(例:2026-09-24T01:00:00Z 或 2026-09-24T09:00:00+08:00)")
+-
+-
+ class LabelKind(StrEnum):
+     TENANT = "tenant"
+     STAGE = "stage"
+     BLOCK_REASON = "block_reason"  # 擋下原因與關卡(可核可的關卡也是擋下原因的成員)
+     TERMINAL_KIND = "terminal_kind"
+     DSP_CALL_KIND = "dsp_call_kind"
+     DSP_CALL_RESULT = "dsp_call_result"
+     PROGRAM_VERSION = "program_version"
+     POLICY_VERSION = "policy_version"
+     ANALYZER_ENDPOINT = "analyzer_endpoint"
+@@ -770,69 +764,67 @@ def _compute_window(
+     w = _Window(start, end, part, analyzer, _resolver(tenants, seen), executions, end_to_end)
+     for step in (_terminal_event_rate, _final_outcome_rate, _redelivery_and_dead_letter_rates,
+                  _waits, _execution, _reconciliation, _add_end_to_end, _dsp, _analyzer_calls,
+                  _event_counts):
+         step(w)
+     w.samples.append(Sample("model_and_jev", (), None, 0, Status.NOT_APPLICABLE, note=JEV_NOTE))
+     return tuple(w.samples)
+ 
+ 
+ def _check_window(since: datetime, until: datetime) -> None:
+-    _require_aware(since, until)
++    require_aware(since, until)  # 時間一律要帶時區(領域層共用的檢查)
+     if until <= since:
+         raise WindowTooLong("窗的迄必須在起之後")
+     if until - since > MAX_WINDOW:
+         raise WindowTooLong("窗不得超過 24 小時")
+ 
+ 
+ def collect_window(
+     since: datetime, until: datetime, *, executor_db: Path, analyzer_db: Path,
+     tenants: Sequence[Tenant],
+ ) -> Report:
+-    """窗內統計。執行端讀一個快照,除端到端以外的指標都出自它;端到端每一輪重開兩邊的快照重算,兩輪
+-    端到端樣本相同才回傳,最多三輪,仍不同回最後一輪並標明不穩定(照規格只給跨資料庫的端到端,代碼審
+-    第 1 輪)。時間沒帶時區丟 ValueError;資料庫檔不存在丟 FileNotFoundError;還沒升級丟
+-    DatabaseNotUpgraded(都不寫任何東西)。"""
++    """窗內統計。報告的每一個數字(含端到端)都出自第一輪讀到的執行端與分析端輸入。端到端跨兩個資料庫,
++    之後最多再重讀兩輪,只用來確認端到端跟第一輪一致:有一輪一致就標穩定;都不一致就標不穩定,照樣回
++    第一輪的結果——不改採較新的快照,後兩輪彼此相等也不算(代碼審第 2 輪:改採較新的會讓同一份報告
++    端到端有、終點事件率沒有)。時間沒帶時區丟 ValueError;資料庫檔不存在丟 FileNotFoundError;還沒
++    升級丟 DatabaseNotUpgraded(都不寫任何東西)。"""
+     _check_window(since, until)
+     start, end = _iso(since), _iso(until)
+     part = _read_executor(Path(executor_db), since, until)
+     analyzer = _read_analyzer(Path(analyzer_db), since, until,
+                               (task for task, _, _ in part.finals))
+-    previous = _end_to_end(start, end, part, analyzer.chains)
++    first = _end_to_end(start, end, part, analyzer.chains)
++    samples = _compute_window(since, until, part, analyzer, tenants, first)
+     for rounds in range(2, MAX_ROUNDS + 1):
+         ends = _read_executor(Path(executor_db), since, until, full=False)
+         chains = _read_analyzer(Path(analyzer_db), since, until,
+                                 (task for task, _, _ in ends.finals), calls=False).chains
+-        current = _end_to_end(start, end, ends, chains)
+-        if current == previous:
+-            return Report(_compute_window(since, until, part, analyzer, tenants, current), True,
+-                          rounds)
+-        previous = current
+-    return Report(_compute_window(since, until, part, analyzer, tenants, previous), False,
+-                  MAX_ROUNDS)
++        if _end_to_end(start, end, ends, chains) == first:
++            return Report(samples, True, rounds)
++    return Report(samples, False, MAX_ROUNDS)
+ 
+ 
+ # ---- 算:現況快照 ----
+ def _entered(history: Sequence[AttemptRow]) -> datetime:
+     """這把鍵進入目前狀態的時間:最後一段同狀態連續列的第一列。"""
+     state, entered = history[-1].state, history[-1].written_at
+     for row in reversed(history):
+         if row.state != state:
+             break
+         entered = row.written_at
+     return entered
+ 
+ 
+ def collect_snapshot(now: datetime, *, executor_db: Path, tenants: Sequence[Tenant]) -> Report:
+     """現況快照:佇列現況、四種沒有終點的嘗試狀態、被未結案鍵鎖住的廣告數、總曝險使用率。不套時間窗。
+     「現在」沒帶時區丟 ValueError。"""
+-    _require_aware(now)
++    require_aware(now)
+     inbox = ReadOnlyInbox(Path(executor_db))
+     try:
+         with inbox.read_transaction() as tx:
+             pending, oldest = inbox.pending_snapshot(tx)
+             histories = [attempt_store.history(tx, key)
+                          for key in attempt_store.unresolved_keys(tx)]
+             locked = attempt_store.campaigns_with_unresolved(tx)
+             usage = [(t, observability.utilization(tx, t.name, t.aggregate_limit, now))
+                      for t in tenants]
+     finally:
+@@ -863,41 +855,35 @@ def collect_snapshot(now: datetime, *, executor_db: Path, tenants: Sequence[Tena
+ # ---- 輸出與命令列入口 ----
+ def to_primitives(result: Report) -> dict[str, Any]:
+     return {"stable": result.stable, "rounds": result.rounds,
+             "note": None if result.stable else "讀取期間有新提交,數字可能不一致",
+             "samples": [{"name": s.name, "labels": s.label_map(), "value": s.value,
+                          "count": s.count, "status": s.status.value, "numerator": s.numerator,
+                          "exemplars": list(s.exemplars), "tenant_by_lookup": s.tenant_by_lookup,
+                          "note": s.note} for s in result.samples]}
+ 
+ 
+-class _Parser(argparse.ArgumentParser):
+-    """參數錯一律以 EXIT_BAD_ARGUMENTS 結束(argparse 預設的 2 跟資料庫檔不存在撞號)。"""
+-
+-    def error(self, message: str) -> NoReturn:
+-        self.print_usage(sys.stderr)
+-        self.exit(EXIT_BAD_ARGUMENTS, f"{self.prog}: 參數錯誤:{message}\n")
+-
+-
+ def _aware_time(text: str) -> datetime:
+     """--since、--until、--now 共用:ISO 8601,一定要帶時區(Z 或 +08:00 這類偏移)。"""
+     try:
+         value = datetime.fromisoformat(text)
+     except ValueError as bad:
+         raise argparse.ArgumentTypeError(f"看不懂的時間:{text}") from bad
+-    if not is_aware(value):
+-        raise argparse.ArgumentTypeError(f"時間必須帶時區(例:{text}Z 或 {text}+08:00)")
++    try:
++        require_aware(value)
++    except ValueError as naive:
++        raise argparse.ArgumentTypeError(f"{naive}(例:{text}Z 或 {text}+08:00)") from naive
+     return value
+ 
+ 
+ def _parse(argv: list[str] | None) -> argparse.Namespace:
+-    parser = _Parser(description="有界標籤的指標(只讀)")
++    parser = Parser(description="有界標籤的指標(只讀)")
+     parser.add_argument("--executor-db", required=True, type=Path)
+     parser.add_argument("--analyzer-db", type=Path, help="窗內統計才要")
+     parser.add_argument("--tenants-config", required=True, type=Path)
+     parser.add_argument("--since", type=_aware_time)
+     parser.add_argument("--until", type=_aware_time)
+     parser.add_argument("--now", type=_aware_time, help="給了就是現況快照")
+     args = parser.parse_args(argv)
+     if args.now is None and (args.since is None or args.until is None or args.analyzer_db is None):
+         parser.error("窗內統計要 --since、--until 與 --analyzer-db;現況快照要 --now")
+     return args
+diff --git a/src/rtb/ops/trace.py b/src/rtb/ops/trace.py
+index f743e89..d3e88a5 100644
+--- a/src/rtb/ops/trace.py
++++ b/src/rtb/ops/trace.py
+@@ -32,20 +32,22 @@ from rtb.domain.proposal import content_hash
+ from rtb.executor import attempt_store
+ from rtb.executor.attempt_store import AttemptTraceRow, DspCallRow
+ from rtb.executor.inbox_store import (
+     DatabaseNotUpgraded,
+     DeadLetterOp,
+     DeadLetterRow,
+     LifecycleEvent,
+     ReadOnlyInbox,
+ )
+ from rtb.httpclient import request_json
++from rtb.ops.cli import EXIT_BAD_ARGUMENTS as EXIT_BAD_ARGUMENTS  # 參數錯(7,維運套件共用)
++from rtb.ops.cli import Parser
+ 
+ EXIT_OK = 0
+ EXIT_NO_DATABASE = 2  # 資料庫檔不存在
+ EXIT_NOT_UPGRADED = 3  # 資料庫還沒升級到這一版:先啟動一次執行迴圈(或分析行程)
+ MAX_ROUNDS = 3
+ MAX_CHAIN = 8  # 接續鏈最長幾代(分析端上限 3 代;這裡只防資料毀損造成的迴圈)
+ DEFAULT_DSP_TIMEOUT_SECONDS = 2.0
+ 
+ 
+ class Origin(StrEnum):
+@@ -457,21 +459,21 @@ def to_primitives(trace: Trace) -> dict[str, Any]:
+         "segments": [{"at": s.at, "origin": s.origin.value, "table": s.table.value,
+                       "order": list(s.order), "what": s.what, "fields": dict(s.fields),
+                       "detail": {k: list(v) if isinstance(v, tuple) else v
+                                  for k, v in s.detail}}
+                      for s in trace.segments],
+     }
+ 
+ 
+ # ---- 命令列入口 ----
+ def _parse(argv: list[str] | None) -> argparse.Namespace:
+-    parser = argparse.ArgumentParser(description="一個任務的跨元件追蹤(只讀)")
++    parser = Parser(description="一個任務的跨元件追蹤(只讀)")
+     parser.add_argument("--task-id", required=True)
+     parser.add_argument("--analyzer-db", required=True, type=Path)
+     parser.add_argument("--executor-db", required=True, type=Path)
+     parser.add_argument("--dsp-url", required=True)
+     parser.add_argument("--dsp-timeout-seconds", type=float,
+                         default=DEFAULT_DSP_TIMEOUT_SECONDS)
+     return parser.parse_args(argv)
+ 
+ 
+ def run(
+diff --git a/tests/domain/test_checks.py b/tests/domain/test_checks.py
+new file mode 100644
+index 0000000..92dda0f
+--- /dev/null
++++ b/tests/domain/test_checks.py
+@@ -0,0 +1,42 @@
++"""領域層共用的小檢查:時間必須帶時區只有一份定義(Phase 9 增量 2 代碼審第 2 輪)。
++
++嘗試紀錄、分析端任務歷史、指標三處原本各寫一份「沒帶時區就拒絕」,判準與訊息各自漂移。現在都呼叫
++領域層這一支;這裡驗它的行為,並掃原始碼確認三處沒有自己再寫一份判斷式。
++"""
++
++import ast
++from datetime import UTC, datetime, timedelta, timezone
++from pathlib import Path
++
++import pytest
++
++from rtb.domain._checks import AWARE_REQUIRED, require_aware
++
++SRC = Path(__file__).resolve().parents[2] / "src" / "rtb"
++USERS = (SRC / "executor" / "attempt_store.py", SRC / "analyzer" / "task_store.py",
++         SRC / "ops" / "metrics.py")
++
++
++def test_require_aware_checks_every_moment_with_one_fixed_message():
++    aware = datetime(2026, 9, 24, 1, 0, tzinfo=UTC)
++    require_aware()
++    require_aware(aware, aware.astimezone(timezone(timedelta(hours=8))))
++    for moments in ((aware.replace(tzinfo=None),), (aware, aware.replace(tzinfo=None)),
++                    ("2026-09-24T01:00:00Z",), (None,)):
++        with pytest.raises(ValueError) as refused:
++            require_aware(*moments)
++        assert str(refused.value) == AWARE_REQUIRED
++
++
++def test_time_zone_checks_are_not_written_again_elsewhere():
++    """三處只准呼叫共用的那一支:不准自己用 is_aware 判斷,也不准另定義同名的私有檢查。"""
++    for path in USERS:
++        tree = ast.parse(path.read_text(encoding="utf-8"))
++        own = [node.name for node in ast.walk(tree)
++               if isinstance(node, ast.FunctionDef) and "aware" in node.name
++               and node.name != "_aware_time"]
++        uses = [node.lineno for node in ast.walk(tree)
++                if isinstance(node, ast.Name) and node.id == "is_aware"]
++        assert (own, uses) == ([], []), path.name
++        assert any(isinstance(node, ast.Name) and node.id == "require_aware"
++                   for node in ast.walk(tree)), path.name
+diff --git a/tests/ops/test_metrics.py b/tests/ops/test_metrics.py
+index 081dcc7..faf248c 100644
+--- a/tests/ops/test_metrics.py
++++ b/tests/ops/test_metrics.py
+@@ -676,10 +676,55 @@ def test_only_end_to_end_is_reread_until_stable(rows, monkeypatch):
+ 
+     monkeypatch.setattr(m, "_read_analyzer", busy)
+     calm = window(rows)
+     assert (calm.stable, calm.rounds) == (True, 2)  # 新寫入不影響端到端:不標不穩定
+     assert len(full_reads) == 1  # 非端到端指標只讀一次
+     assert one(calm, "end_to_end_seconds.max").count == 1
+ 
+     touch_end_to_end = True
+     busy_report = window(rows)
+     assert (busy_report.stable, busy_report.rounds) == (False, 3)
++
++
++# ---- [S641] 代碼審第 2 輪:整份報告都用第一輪;重讀只確認端到端跟第一輪一致 ----
++def test_a_terminal_written_after_the_first_read_marks_the_report_unstable(rows, monkeypatch):
++    rows.task("r1", at(0))
++    rows.event(at(minutes=12), "r1", "handed_off")
++    original_read = m._read_analyzer
++    calls = []
++
++    def racing(*args, **kwargs):  # 第一輪執行端讀完之後,才寫進一筆窗內、接得上的終點;之後不再變
++        calls.append(1)
++        if len(calls) == 1:
++            rows.task("e1", at(0))
++            rows.event(at(minutes=20), "e1", "handed_off")
++        return original_read(*args, **kwargs)
++
++    monkeypatch.setattr(m, "_read_analyzer", racing)
++    report = window(rows)
++
++    # 後兩輪彼此相等也不算穩定:它們跟第一輪不同
++    assert (report.stable, report.rounds) == (False, 3)
++    ends = one(report, "end_to_end_seconds.max")
++    terminal = {task for s in pick(report, "terminal_event_rate") for task in s.exemplars}
++    assert ends.exemplars == ("r1",) and ends.count == 1  # 報告的數字全部出自第一輪
++    assert set(ends.exemplars) <= terminal
++    assert terminal == {"r1"}
++
++
++# ---- [S635] 代碼審第 2 輪:命令列參數錯一律是參數錯那一號,不跟資料庫檔不存在撞號 ----
++def test_missing_or_mismatched_flags_exit_with_the_bad_arguments_code(rows, capsys):
++    since, until = at(0).isoformat(), at(minutes=60).isoformat()
++    for argv in (
++        ["--analyzer-db", str(rows.analyzer_db), "--tenants-config", "t.json",
++         "--since", since, "--until", until],  # 漏 --executor-db
++        ["--executor-db", str(rows.executor_db), "--analyzer-db", str(rows.analyzer_db),
++         "--since", since, "--until", until],  # 漏 --tenants-config
++        ["--executor-db", str(rows.executor_db), "--tenants-config", "t.json",
++         "--since", since, "--until", until],  # 窗內統計沒給 --analyzer-db
++        ["--executor-db", str(rows.executor_db), "--analyzer-db", str(rows.analyzer_db),
++         "--tenants-config", "t.json", "--since", since],  # 只給 --since
++    ):
++        with pytest.raises(SystemExit) as exited:
++            m.run(argv, out=io.StringIO(), err=io.StringIO())
++        assert exited.value.code == m.EXIT_BAD_ARGUMENTS != m.EXIT_NO_DATABASE, argv
++        assert "參數錯誤" in capsys.readouterr().err
+diff --git a/tests/ops/test_trace.py b/tests/ops/test_trace.py
+index c6f37b3..afe4428 100644
+--- a/tests/ops/test_trace.py
++++ b/tests/ops/test_trace.py
+@@ -273,10 +273,25 @@ def test_a_reused_task_and_revision_with_new_content_is_traced_separately(world)
+     for prop in (first, second):
+         digest = content_hash(prop)
+         mine = revisions["re", 1, digest]
+         assert mine.key == operation_key(prop) and not mine.settled_by_existing_key
+         assert mine.attempts_owner == ("re", 1, digest)
+         for table in (Table.ATTEMPTS, Table.DSP_CALLS, Table.DSP_OPERATIONS):
+             owned = [s for s in traced.segments
+                      if s.table is table and s.field("key") == operation_key(prop)]
+             assert owned, (table, prop.campaign_id)
+             assert {s.field("content_hash") for s in owned} == {digest}, table
++
++
++# ---- [S619] 代碼審第 2 輪:追蹤檢視的參數錯也跟資料庫檔不存在分開 ----
++def test_the_trace_command_line_reports_bad_arguments_apart_from_a_missing_database(tmp_path,
++                                                                                   capsys):
++    full = ["--task-id", "t1", "--analyzer-db", str(tmp_path / "a.db"),
++            "--executor-db", str(tmp_path / "e.db"), "--dsp-url", "http://127.0.0.1:9"]
++    for drop in ("--task-id", "--executor-db", "--dsp-url"):
++        at_flag = full.index(drop)
++        argv = full[:at_flag] + full[at_flag + 2:]
++        with pytest.raises(SystemExit) as exited:
++            trace.run(argv, out=io.StringIO(), err=io.StringIO())
++        assert exited.value.code == trace.EXIT_BAD_ARGUMENTS != trace.EXIT_NO_DATABASE, drop
++        assert "參數錯誤" in capsys.readouterr().err
++    assert trace.run(full, out=io.StringIO(), err=io.StringIO()) == trace.EXIT_NO_DATABASE

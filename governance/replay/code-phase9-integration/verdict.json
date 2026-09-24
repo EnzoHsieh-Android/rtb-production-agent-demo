@@ -1,0 +1,34 @@
+{
+ "loop": "code-phase9-integration",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-24T08:06:24+08:00",
+ "spec_path": "governance/review-reports/code-phase9-integration/r1-snapshot.patch",
+ "spec_sha": "ce1abd9df3ba06cbc8d98d5997b26d422b06856780d3a7ce48543ff46afa97ad",
+ "rows": [
+  "{\"ts\": \"2026-09-24T08:00:49+08:00\", \"kind\": \"none\", \"auditor\": \"arch-sonnet\", \"token\": \"CANARY-7fb1e6e6\", \"note\": \"\", \"loop\": \"code-phase9-integration\", \"round\": \"r1\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"ce1abd9df3ba06cbc8d98d5997b26d422b06856780d3a7ce48543ff46afa97ad\", \"reviewed_sha256\": \"ce1abd9df3ba06cbc8d98d5997b26d422b06856780d3a7ce48543ff46afa97ad\", \"spec_path\": \"governance/review-reports/code-phase9-integration/r1-snapshot.patch\", \"scope_lines\": 320, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 0, \"report_path\": \"governance/review-reports/code-phase9-integration/r1-arch-sonnet.md\", \"report_sha256\": \"27d1d99a0bfe265fe83f93b36f5413bb391de179bfa7f49c9304d80208b99565\", \"snapshot_path\": \"governance/review-reports/code-phase9-integration/r1-snapshot.patch\", \"snapshot_sha256\": \"ce1abd9df3ba06cbc8d98d5997b26d422b06856780d3a7ce48543ff46afa97ad\"}",
+  "{\"ts\": \"2026-09-24T08:00:49+08:00\", \"kind\": \"none\", \"auditor\": \"merge-sonnet\", \"token\": \"CANARY-2ddf6281\", \"note\": \"\", \"loop\": \"code-phase9-integration\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"ce1abd9df3ba06cbc8d98d5997b26d422b06856780d3a7ce48543ff46afa97ad\", \"reviewed_sha256\": \"ce1abd9df3ba06cbc8d98d5997b26d422b06856780d3a7ce48543ff46afa97ad\", \"spec_path\": \"governance/review-reports/code-phase9-integration/r1-snapshot.patch\", \"scope_lines\": 320, \"findings_set\": [\"merge-1\"], \"folded_set\": [\"merge-1\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 2, \"report_path\": \"governance/review-reports/code-phase9-integration/r1-merge-sonnet.md\", \"report_sha256\": \"171e7d2c8d5e7bd70af31cb8242750f9f5a69415642f566143817ff3d4cf00d4\", \"snapshot_path\": \"governance/review-reports/code-phase9-integration/r1-snapshot.patch\", \"snapshot_sha256\": \"ce1abd9df3ba06cbc8d98d5997b26d422b06856780d3a7ce48543ff46afa97ad\", \"intake_path\": \"governance/review-reports/code-phase9-integration/r1-intake.md\", \"intake_sha256\": \"e23f257febf29e346b4f2d718ed64b77008a16aac30d20f194722488e3d03797\"}"
+ ],
+ "all_row_shas": [
+  "1e71e8c4066b3b37b1919184b2e77532b54833d9263b859f60797d6d0e7b6af3",
+  "3e5e1c66e95182229ab9cf00f362f382c60a6984e10c7b78b5e1f08fc1494417"
+ ],
+ "files": {
+  "governance/review-reports/code-phase9-integration/r1-arch-sonnet.md": {
+   "sha256": "27d1d99a0bfe265fe83f93b36f5413bb391de179bfa7f49c9304d80208b99565",
+   "git_blob": "e779ebb3bcf8beebac8becb655fc5f12796b82ba"
+  },
+  "governance/review-reports/code-phase9-integration/r1-snapshot.patch": {
+   "sha256": "ce1abd9df3ba06cbc8d98d5997b26d422b06856780d3a7ce48543ff46afa97ad",
+   "git_blob": "3d00e09d3dab3c8425a7bc4989e0e2a9071381b7"
+  },
+  "governance/review-reports/code-phase9-integration/r1-merge-sonnet.md": {
+   "sha256": "171e7d2c8d5e7bd70af31cb8242750f9f5a69415642f566143817ff3d4cf00d4",
+   "git_blob": "05b2444983553433f806ce1320dad0df4a789297"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

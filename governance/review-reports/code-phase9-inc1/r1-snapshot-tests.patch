@@ -1,0 +1,1835 @@
+diff --git a/tests/executor/fakes.py b/tests/executor/fakes.py
+index 8b7de8c..b5a3969 100644
+--- a/tests/executor/fakes.py
++++ b/tests/executor/fakes.py
+@@ -7,20 +7,21 @@
+ 要在呼叫當下插一腳(例如趁讀取時送新修訂)就設 `on_read`/`on_write`。
+ """
+ 
+ import json
+ import os
+ import threading
+ from dataclasses import replace
+ from pathlib import Path
+ 
+ from rtb.domain.proposal import POLICY_VERSION, ActionType, parse_proposal
++from rtb.executor.attempt_store import DspCall, DspCallKind, DspCallResult, dsp_error_code
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.execution import (
+     CampaignView,
+     DspUnavailable,
+     Executor,
+     OperationRecord,
+     VoidAnswer,
+     WriteAnswer,
+ )
+ from rtb.executor.inbox_store import InboxStore
+@@ -59,41 +60,73 @@ class FakeDsp:
+         self.read_failures = 0  # 接下來幾次讀取要失敗
+         self.lookup_failures = 0
+         self.operations: dict[str, OperationRecord] = {}  # 冪等鍵 -> 完整操作紀錄
+         self.voided: set[str] = set()
+         self.void_answers: list[VoidAnswer] = []  # 排好的作廢回應;空了就照真 DSP 的語意
+         self.voids: list[str] = []
+         self.writes: list[tuple] = []
+         self.reads: list[str] = []
+         self.lookups: list[str] = []
+         self.on_read = self.on_write = self.on_call = None
++        self.listener = None  # 執行迴圈掛上的呼叫回呼(Phase 9):每次呼叫照真用戶端觸發一次
+         # 多個執行緒(並行測試裡的多個工作者)同時呼叫時,狀態的讀改寫要一段做完。攔截點
+         # (on_write)在鎖外面先跑:等在攔截點的工作者不能握著鎖,否則接手的另一個永遠寫不進來
+         self._lock = threading.RLock()
+ 
+     def _called(self, kind):
+         if self.on_call is not None:
+             self.on_call(kind)
+ 
++    def listen(self, on_call):
++        self.listener = on_call
++
++    def _notify(self, kind, status, error=None, failure=None):
++        """照真用戶端的分類回報一次呼叫;假的沒有網路,耗時記 0。"""
++        if self.listener is None:
++            return
++        if status is None:
++            result = failure or DspCallResult.TIMEOUT
++        elif 200 <= status < 300:
++            result = DspCallResult.RESPONDED
++        else:
++            result = DspCallResult.CLIENT_ERROR if status < 500 else DspCallResult.SERVER_ERROR
++        code = None if status is None or error is None else dsp_error_code({"error": error})
++        self.listener(DspCall(kind, result, status, 0.0, code))
++
+     def read_campaign(self, campaign_id):
++        try:
++            found = self._read_campaign(campaign_id)
++        except DspUnavailable:
++            self._notify(DspCallKind.READ_CAMPAIGN, None, failure=DspCallResult.SERVER_ERROR)
++            raise
++        self._notify(DspCallKind.READ_CAMPAIGN, 200 if found is not None else 404,
++                     None if found is not None else "campaign_not_found")
++        return found
++
++    def _read_campaign(self, campaign_id):
+         self._called("read")
+         with self._lock:
+             self.reads.append(campaign_id)
+         if self.on_read is not None:
+             self.on_read(campaign_id)
+         with self._lock:
+             if self.read_failures:
+                 self.read_failures -= 1
+                 raise DspUnavailable("讀取失敗")
+             return self.campaigns.get(campaign_id)
+ 
+     def write(self, prop, key, token):
++        answer = self._write(prop, key, token)
++        self._notify(DspCallKind.WRITE, answer.status, answer.error, answer.failure)
++        return answer
++
++    def _write(self, prop, key, token):
+         self._called("write")
+         with self._lock:
+             self.writes.append((prop, key, token))
+         if self.on_write is not None:
+             self.on_write(prop, key, token)
+         with self._lock:
+             if self.answers:
+                 return self.answers.pop(0)
+             if key in self.voided:
+                 return WriteAnswer(409, "operation_voided")
+@@ -127,33 +160,44 @@ class FakeDsp:
+             "campaign_id": prop.campaign_id, "action": prop.action_type.value,
+             "new_budget": prop.requested_change.get("new_budget"),
+             "expected_version": prop.campaign_version_observed, "version_after": version_after,
+         }
+         return OperationRecord(**{**fields, **overrides})
+ 
+     def _lookup(self, key):
+         self._called("lookup")
+         with self._lock:
+             self.lookups.append(key)
+-            if self.lookup_failures:
++            failed = bool(self.lookup_failures)
++            if failed:
+                 self.lookup_failures -= 1
+-                raise DspUnavailable("查詢失敗")
+-            return self.operations.get(key)
++            found = None if failed else self.operations.get(key)
++        if failed:
++            self._notify(DspCallKind.LOOKUP_OPERATION, None, failure=DspCallResult.SERVER_ERROR)
++            raise DspUnavailable("查詢失敗")
++        self._notify(DspCallKind.LOOKUP_OPERATION, 200 if found is not None else 404,
++                     None if found is not None else "operation_not_found")
++        return found
+ 
+     def operation_version(self, key):
+         record = self._lookup(key)
+         return None if record is None else record.version_after
+ 
+     def operation_record(self, key):
+         return self._lookup(key)
+ 
+     def void(self, prop, key, token):
++        answer = self._void(prop, key, token)
++        self._notify(DspCallKind.VOID, answer.status, answer.error, answer.failure)
++        return answer
++
++    def _void(self, prop, key, token):
+         self._called("void")
+         with self._lock:
+             self.voids.append(key)
+             if self.void_answers:
+                 return self.void_answers.pop(0)
+             if key in self.operations:
+                 return VoidAnswer(200, None, "committed", self.operations[key])
+             self.voided.add(key)
+             return VoidAnswer(200, None, "voided")
+ 
+diff --git a/tests/executor/test_attempt_store.py b/tests/executor/test_attempt_store.py
+index d441c51..8a45bdd 100644
+--- a/tests/executor/test_attempt_store.py
++++ b/tests/executor/test_attempt_store.py
+@@ -759,21 +759,21 @@ def test_an_expected_sequence_that_is_not_a_plain_integer_is_refused(store, seq)
+ 
+     assert all_rows(store) == before
+ 
+ 
+ def _tamper_snapshot(store, key, text):
+     with store.transaction() as tx:
+         tx.conn.execute("DELETE FROM attempts WHERE key = ?", (key,))  # 測試模擬毀損,只在測試裡
+         tx.conn.execute(
+             "INSERT INTO attempts VALUES (?, 1, 'c1', 'in_flight', NULL, NULL, 1, 0, "
+             "'2026-09-22T12:05:00.000000Z', 't1', 1, 'update_budget', 3, ?, "
+-            "NULL, NULL, NULL, NULL)",
++            "NULL, NULL, NULL, NULL, NULL, NULL, NULL)",  # Phase 9 補的來源、執行者、程式版本
+             (key, text))
+ 
+ 
+ def test_a_snapshot_that_is_not_json_reads_back_as_a_corrupted_row(store):
+     key = begin(store, proposal()).row.key
+     _tamper_snapshot(store, key, "{not valid json!!")
+ 
+     with pytest.raises(CorruptedAttemptRow), store.transaction() as tx:
+         attempt_store.snapshot(tx, key)
+ 
+diff --git a/tests/executor/test_dsp_calls.py b/tests/executor/test_dsp_calls.py
+new file mode 100644
+index 0000000..4f3060e
+--- /dev/null
++++ b/tests/executor/test_dsp_calls.py
+@@ -0,0 +1,202 @@
++"""執行端每一次呼叫 DSP 都留一列分類過的呼叫紀錄(Phase 9 增量 1):[S618]、[S625]。
++
++DSP 用戶端的每一支公開方法都經同一個底層送出點,每一次 HTTP 呼叫觸發一次回呼;執行迴圈掛上回呼、
++在獨立的短交易裡寫呼叫紀錄,所以結果寫入回滾時呼叫紀錄照樣留著。
++"""
++
++import json
++import threading
++import time
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++
++import pytest
++
++from rtb.domain.attempt import operation_key
++from rtb.executor.attempt_store import DspCall, DspCallKind, DspCallResult, DspErrorCode
++from rtb.executor.dsp_client import DspClient
++from rtb.executor.execution import DspUnavailable, Result, WriteAnswer
++from tests.executor.fakes import Harness, proposal
++
++R = DspCallResult
++GOOD_CAMPAIGN = {"budget": 100, "version": 3, "status": "active"}
++GOOD_OPERATION = {"operation_id": 7, "campaign_id": "c1", "action": "update_budget",
++                  "params": {"new_budget": 150}, "expected_version": 3, "version_after": 4,
++                  "committed_at": "2026-09-22T12:05:00+00:00"}
++
++
++class Scripted:
++    """每一個請求照排好的回應回:(狀態碼, 本文位元組, 延遲秒數)。"""
++
++    def __init__(self):
++        self.replies = []
++        handler = self._handler()
++        self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
++        threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
++        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
++
++    def _handler(self):
++        replies = self.replies
++
++        class Handler(BaseHTTPRequestHandler):
++            def _answer(self):
++                length = int(self.headers.get("Content-Length") or 0)
++                self.rfile.read(length)
++                status, body, delay = replies.pop(0)
++                time.sleep(delay)
++                try:
++                    self.send_response(status)
++                    self.send_header("Content-Length", str(len(body)))
++                    self.end_headers()
++                    self.wfile.write(body)
++                except OSError:
++                    pass  # 用戶端逾時先斷線
++
++            do_GET = do_POST = _answer
++
++            def log_message(self, *_args):
++                pass
++
++        return Handler
++
++    def reply(self, status, body, delay=0.0):
++        raw = body if isinstance(body, bytes) else json.dumps(body).encode()
++        self.replies.append((status, raw, delay))
++
++    def close(self):
++        self.server.shutdown()
++        self.server.server_close()
++
++
++@pytest.fixture
++def dsp():
++    server = Scripted()
++    yield server
++    server.close()
++
++
++def _calls(url, timeout=0.3):
++    seen: list[DspCall] = []
++    client = DspClient(url, timeout)
++    client.listen(seen.append)
++    return client, seen
++
++
++PROP = proposal()
++KEY = operation_key(PROP)
++METHODS = {
++    DspCallKind.READ_CAMPAIGN: lambda c: c.read_campaign("c1"),
++    DspCallKind.WRITE: lambda c: c.write(PROP, KEY, "token"),
++    DspCallKind.LOOKUP_OPERATION: lambda c: c.operation_record(KEY),
++    DspCallKind.VOID: lambda c: c.void(PROP, KEY, "token"),
++}
++
++
++def _call(fn, client):
++    try:
++        return fn(client)
++    except DspUnavailable as exc:
++        return exc
++
++
++# ---- [S618] ----
++def test_every_dsp_call_leaves_one_classified_call_record(dsp, tmp_path, clock):
++    _each_public_method_fires_once(dsp)
++    _failures_are_classified(dsp)
++    _the_loop_records_every_call(tmp_path, clock)
++
++
++def _each_public_method_fires_once(dsp):
++    """每一支公開方法各呼叫一次:回呼剛好一次,類別對得上。"""
++    client, seen = _calls(dsp.url)
++    public = {name for name in dir(DspClient) if not name.startswith("_")} - {"listen"}
++    assert public == {"read_campaign", "write", "operation_record", "operation_version", "void"}
++    for name in sorted(public):
++        dsp.reply(200, GOOD_OPERATION | GOOD_CAMPAIGN | {"state": "voided"})
++        seen.clear()
++        getattr(client, name)(*{"read_campaign": ("c1",), "write": (PROP, KEY, "t"),
++                                 "void": (PROP, KEY, "t")}.get(name, (KEY,)))
++        assert len(seen) == 1, name
++        assert seen[0].result is R.RESPONDED and seen[0].status == 200, name
++        assert seen[0].latency_ms >= 0
++
++
++def _failures_are_classified(dsp):
++    """逾時、連線失敗、5xx、4xx、回應讀不懂(不是 JSON、200 但欄位讀不懂)各自一類,四種呼叫都一樣。"""
++    client, seen = _calls(dsp.url)
++    for kind, fn in METHODS.items():
++        cases = [
++            ((500, {"error": "internal_error"}, 0.0), R.SERVER_ERROR, 500),
++            ((404, {"error": "not_found"}, 0.0), R.CLIENT_ERROR, 404),
++            ((200, b"not json", 0.0), R.UNREADABLE, None),
++            ((200, {"unexpected": True}, 0.0), R.UNREADABLE, 200),
++            ((200, GOOD_OPERATION, 1.0), R.TIMEOUT, None),
++        ]
++        for reply, expected, status in cases:
++            dsp.reply(*reply)
++            seen.clear()
++            answer = _call(fn, client)
++            assert [(c.kind, c.result, c.status) for c in seen] == [(kind, expected, status)], (
++                kind, reply)
++            if expected is not R.RESPONDED and status is None:  # 沒拿到回應:回應或例外帶同一個分類
++                assert getattr(answer, "failure", None) is expected, (kind, reply)
++        dead, lost = _calls("http://127.0.0.1:9")
++        _call(fn, dead)
++        assert [(c.kind, c.result) for c in lost] == [(kind, R.CONNECTION_FAILED)]
++
++
++def _the_loop_records_every_call(tmp_path, clock):
++    """執行迴圈掛上回呼、每次呼叫寫一列;結果寫入回滾時呼叫紀錄照樣留著。"""
++    h = Harness(tmp_path, clock)
++    try:
++        h.submit()
++        assert h.process().kind is Result.EXECUTED
++        rows = h.query("SELECT call_kind, result, task_id, revision, key, source, actor "
++                       "FROM dsp_calls ORDER BY id")
++        assert rows == [("read_campaign", "responded", "t1", 1, KEY, "executor_loop", "executor"),
++                        ("write", "responded", "t1", 1, KEY, "executor_loop", "executor"),
++                        ("read_campaign", "responded", "t1", 1, KEY, "executor_loop",
++                         "executor")]
++
++        h.submit(task_id="t2", campaign_id="c2")
++        h.dsp.on_write = lambda *_a: h.clock.advance(seconds=61)  # 回應回來時租約已過期
++        before = h.query("SELECT count(*) FROM dsp_calls")[0][0]
++        assert h.process().kind is Result.LEASE_LOST
++        after = h.query("SELECT call_kind FROM dsp_calls ORDER BY id")[before:]
++        assert [row[0] for row in after] == ["read_campaign", "write"]
++        assert h.query("SELECT state FROM attempts WHERE task_id = 't2' OR key IN "
++                       "(SELECT key FROM attempts WHERE task_id = 't2')") == [("in_flight",)]
++    finally:
++        h.close()
++
++
++# ---- [S625] ----
++def test_dsp_call_records_keep_the_dsp_error_code(dsp, tmp_path, clock):
++    client, seen = _calls(dsp.url)
++    for body, expected in (({"error": "version_conflict"}, DspErrorCode.VERSION_CONFLICT),
++                           ({"error": "made_up_code"}, DspErrorCode.OTHER),
++                           ({"error": 5}, DspErrorCode.OTHER),
++                           ({"version_after": 4}, None)):
++        dsp.reply(409 if "error" in body else 200, body)
++        seen.clear()
++        client.write(PROP, KEY, "token")
++        assert [c.error for c in seen] == [expected], body
++    dsp.reply(200, GOOD_OPERATION, delay=1.0)  # 沒回應:沒有錯誤代碼
++    seen.clear()
++    client.write(PROP, KEY, "token")
++    assert [(c.result, c.error) for c in seen] == [(R.TIMEOUT, None)]
++
++    h = Harness(tmp_path, clock)
++    try:
++        h.dsp.answers += [WriteAnswer(409, "version_conflict")]
++        h.submit()
++        h.process()
++        h.dsp.answers += [WriteAnswer(409, "something_new")]
++        h.submit(task_id="t2", campaign_id="c2")
++        h.process()
++        rows = h.query("SELECT task_id, error_code FROM dsp_calls WHERE call_kind = 'write' "
++                       "ORDER BY id")
++        assert rows == [("t1", "version_conflict"), ("t2", "other")]
++        assert h.query("SELECT DISTINCT error_code FROM dsp_calls WHERE call_kind != 'write'") == [
++            (None,)]
++    finally:
++        h.close()
+diff --git a/tests/executor/test_lifecycle_events.py b/tests/executor/test_lifecycle_events.py
+new file mode 100644
+index 0000000..fe6e4f6
+--- /dev/null
++++ b/tests/executor/test_lifecycle_events.py
+@@ -0,0 +1,445 @@
++"""提案生命週期事件與嘗試紀錄的來源欄(Phase 9 增量 1):[S600]~[S603]、[S607]、[S612]、[S620]、
++[S623]、[S624]。
++
++事件表跟收件表同一個交易寫、不隨收件表清除;每一支會寫收件表那一列的方法寫一列(續租除外)。
++"""
++
++import ast
++import sqlite3
++from datetime import timedelta
++from pathlib import Path
++
++import pytest
++
++from rtb import PROGRAM_VERSION
++from rtb.domain.attempt import operation_key
++from rtb.executor import attempt_store, inbox_store, runner
++from rtb.executor.attempt_store import Actor, Source
++from rtb.executor.execution import CampaignView, Result
++from rtb.executor.inbox_store import (
++    MAX_DELIVERIES,
++    RETENTION,
++    VISIBILITY_TIMEOUT,
++    AwaitingOutcome,
++    BlockCode,
++    InboxStore,
++    LastFailure,
++    LifecycleKind,
++)
++from tests.executor.fakes import Harness, proposal
++from tests.executor.write_scan import writes_matching
++
++SRC = Path(__file__).resolve().parents[2] / "src" / "rtb"
++RATIO = BlockCode.BUDGET_INCREASE_TOO_LARGE
++EVENT_COLUMNS = ("kind, task_id, revision, reason, source, actor, deliveries, from_existing, "
++                 "tenant, campaign_id, key, policy_version, content_hash, program_version")
++
++
++@pytest.fixture
++def h(tmp_path, clock):
++    harness = Harness(tmp_path, clock)
++    yield harness
++    harness.close()
++
++
++def events(h, since=0):
++    rows = h.query(f"SELECT id, {EVENT_COLUMNS} FROM lifecycle_events WHERE id > ? "  # noqa: S608
++                   "ORDER BY id", (since,))
++    names = ["id", *EVENT_COLUMNS.split(", ")]
++    return [dict(zip(names, row, strict=True)) for row in rows]
++
++
++def last_id(h):
++    return h.query("SELECT coalesce(max(id), 0) FROM lifecycle_events")[0][0]
++
++
++def kinds(h, since):
++    return [event["kind"] for event in events(h, since)]
++
++
++def fresh(h, **overrides):
++    """以現在的時鐘為準的提案(時鐘撥過保留期之後還要能收)。"""
++    now = h.clock()
++    overrides.setdefault("decision_created_at", now.isoformat())
++    overrides.setdefault("decision_expires_at", (now + timedelta(minutes=30)).isoformat())
++    return proposal(**overrides)
++
++
++def receive(h, owner="w1"):
++    with h.store.transaction() as tx:
++        return h.store.receive(tx, h.clock(), owner)
++
++
++def awaiting(h, task_id, owner="w1"):
++    """取件後停在比例那一關的待核可,回傳待核可那一份(給處理待核可的三種轉換用)。"""
++    delivery = receive(h, owner)
++    assert delivery.message.task_id == task_id
++    with h.store.transaction() as tx:
++        assert h.store.await_approval(tx, delivery.receipt, h.clock(), RATIO)
++    with h.store.transaction() as tx:
++        return next(item for item in h.store.awaiting(tx, h.clock() + timedelta(hours=2))
++                    if item.message.task_id == task_id)
++
++
++def _write(h, fn):
++    before = last_id(h)
++    with h.store.transaction() as tx:
++        fn(tx)
++    return kinds(h, before)
++
++
++def every_write_path(h):
++    """逐一觸發收件口模組每一支寫收件表那一列的方法;回傳 {路徑: 這一次新增的事件種類}。"""
++    added, now = {}, h.clock
++
++    before = last_id(h)
++    h.store.accept(fresh(h, task_id="a"), now)
++    added["accept"] = kinds(h, before)
++
++    before = last_id(h)
++    h.store.accept(fresh(h, task_id="a", revision=2, requested_change={"new_budget": 170}), now)
++    added["accept_supersede"] = kinds(h, before)
++
++    h.store.accept(fresh(h, task_id="short", decision_expires_at=(
++        now() + timedelta(minutes=1)).isoformat()), now)
++    h.clock.advance(minutes=2)
++    before = last_id(h)
++    h.store.accept(fresh(h, task_id="b"), now)
++    added["accept_sweep"] = kinds(h, before)[:1]  # 到期標記那一列;之後是 b 自己的收件
++
++    return added | _lease_paths(h) | _awaiting_paths(h) | _existing_key_paths(h) | (
++        _dead_letter_paths(h))
++
++
++def _lease_paths(h):
++    added, s, now = {}, h.store, h.clock
++    before = last_id(h)
++    first = receive(h)
++    added["receive"] = kinds(h, before)
++
++    added["release"] = _write(h, lambda tx: s.release(tx, first.receipt, now(),
++                                                       LastFailure.DSP_UNAVAILABLE))
++    again = receive(h)
++    added["extend"] = _write(h, lambda tx: s.extend(tx, again.receipt, now()))
++    h.clock.advance(seconds=VISIBILITY_TIMEOUT.total_seconds() + 1)
++    before = last_id(h)
++    reclaimed = receive(h, "w2")
++    added["receive_reclaimed"] = kinds(h, before)
++    added["ack_handed_off"] = _write(h, lambda tx: s.ack_handed_off(tx, reclaimed.receipt, now()))
++
++    third = receive(h)
++    added["ack_blocked"] = _write(h, lambda tx: s.ack_blocked(
++        tx, third.receipt, now(), BlockCode.VERSION_CHANGED))
++    h.store.accept(fresh(h, task_id="c"), now)
++    fourth = receive(h)
++    added["ack_expired"] = _write(h, lambda tx: s.ack_expired(tx, fourth.receipt, now()))
++    h.store.accept(fresh(h, task_id="d"), now)
++    fifth = receive(h)
++    added["await_approval"] = _write(h, lambda tx: s.await_approval(
++        tx, fifth.receipt, now(), RATIO))
++    return added
++
++
++def drain(h):
++    """把還在待處理的都取出來結案,下一段路徑從乾淨的佇列開始(這些事件不計)。"""
++    while (delivery := receive(h, "drain")) is not None:
++        with h.store.transaction() as tx:
++            h.store.ack_expired(tx, delivery.receipt, h.clock())
++
++
++def _awaiting_paths(h):
++    added, s, now = {}, h.store, h.clock
++    for outcome in AwaitingOutcome:
++        drain(h)
++        task = f"aw-{outcome.value}"
++        h.store.accept(fresh(h, task_id=task), now)
++        item = awaiting(h, task)
++        if outcome is AwaitingOutcome.SUPERSEDED:
++            h.store.accept(fresh(h, task_id=task, revision=2), now)
++        added[f"settle_awaiting_{outcome.value}"] = _write(h, lambda tx, i=item, o=outcome: (
++            s.settle_awaiting(tx, i.message, o, now(), owner="w1")))
++    return added
++
++
++def _existing_key_paths(h):
++    """取件撞到既有鍵直接確認;對帳原子接手租約。"""
++    added, now = {}, h.clock
++    drain(h)
++    h.store.accept(fresh(h, task_id="k"), now)
++    assert h.executor("w1").process_one().kind is Result.EXECUTED
++    h.store.accept(fresh(h, task_id="k", revision=2), now)  # 同一把鍵的下一份修訂
++    before = last_id(h)
++    assert receive(h) is None
++    added["receive_existing_key"] = kinds(h, before)
++
++    h.store.accept(fresh(h, task_id="r"), now)
++    delivery = receive(h, "w1")
++    h.clock.advance(seconds=VISIBILITY_TIMEOUT.total_seconds() + 1)
++    added["take_over"] = _write(h, lambda tx: h.store.take_over(tx, delivery.message, now(), "w2"))
++    return added
++
++
++def _dead_letter_paths(h):
++    added, now = {}, h.clock
++    drain(h)
++    h.store.accept(fresh(h, task_id="dl"), now)
++    for _ in range(MAX_DELIVERIES):
++        delivery = receive(h)
++        with h.store.transaction() as tx:
++            h.store.release(tx, delivery.receipt, now(), LastFailure.DSP_UNAVAILABLE)
++    before = last_id(h)
++    assert receive(h) is None
++    added["receive_dead_letter"] = kinds(h, before)
++    before = last_id(h)
++    assert h.store.replay("dl", 1, "ops-alice", now).value == "requeued"
++    added["replay"] = kinds(h, before)
++    return added
++
++
++K = LifecycleKind
++EXPECTED = {
++    "accept": [K.RECEIVED],
++    "accept_supersede": [K.SUPERSEDED, K.RECEIVED],
++    "accept_sweep": [K.EXPIRED],
++    "receive": [K.DELIVERED],
++    "release": [K.LEASE_RELEASED],
++    "extend": [],  # 續租不寫事件(計劃明寫排除)
++    "receive_reclaimed": [K.RECLAIMED],
++    "ack_handed_off": [K.HANDED_OFF],
++    "ack_blocked": [K.BLOCKED],
++    "ack_expired": [K.EXPIRED],
++    "await_approval": [K.AWAITING_APPROVAL],
++    "settle_awaiting_expired": [K.BLOCKED],
++    "settle_awaiting_superseded": [K.SUPERSEDED],
++    "settle_awaiting_released": [K.APPROVAL_RELEASED],
++    "receive_existing_key": [K.DELIVERED, K.HANDED_OFF],
++    "take_over": [K.RECLAIMED],
++    "receive_dead_letter": [K.DELIVERED, K.DEAD_LETTERED],
++    "replay": [K.REPLAY_REQUEUED],
++}
++# 觸發清單涵蓋的方法(收件口模組裡寫收件表那一列的每一支;續租照計劃排除)
++COVERED_METHODS = {"accept", "receive", "release", "extend", "ack_handed_off", "ack_blocked",
++                   "ack_expired", "await_approval", "settle_awaiting", "take_over", "replay"}
++
++
++# ---- [S600] ----
++def test_every_inbox_write_path_writes_one_lifecycle_event(h):
++    added = every_write_path(h)
++    assert added == EXPECTED
++
++    # 清單要跟程式對得上:機械找出每一支(本體或它呼叫的同類方法)寫收件表的公開方法
++    writers = writes_matching(SRC / "executor" / "inbox_store.py",
++                              r"\b(UPDATE proposals|INSERT INTO proposals)\b")
++    assert {name.split(".")[-1] for name in writers} == COVERED_METHODS
++
++    # 那次寫入回滾時事件也不在
++    drain(h)
++    h.store.accept(fresh(h, task_id="rb"), h.clock)
++    delivery = receive(h)
++    before = last_id(h)
++    with pytest.raises(RuntimeError), h.store.transaction() as tx:
++        assert h.store.ack_blocked(tx, delivery.receipt, h.clock(), BlockCode.VERSION_CHANGED)
++        raise RuntimeError("故障注入:確認之後、提交之前")
++    assert events(h, before) == []
++    assert h.query("SELECT disposition FROM proposals WHERE task_id = 'rb'") == [("in_progress",)]
++
++
++# ---- [S601] ----
++def test_every_lifecycle_event_kind_has_a_real_trigger(h):
++    every_write_path(h)
++    seen = events(h)
++    assert {event["kind"] for event in seen} == {kind.value for kind in LifecycleKind}
++    assert {event["source"] for event in seen} <= {source.value for source in Source}
++    reasons = {member.value for enum in (BlockCode, LastFailure, inbox_store.DeadLetterReason)
++               for member in enum}
++    assert {event["reason"] for event in seen} - {None} <= reasons
++
++    h.store.accept(fresh(h, task_id="x"), h.clock)
++    delivery = receive(h)
++    with h.store.transaction():  # 寫事件的函式只收列舉成員
++        for bad in ({"kind": "handed_off"}, {"reason": "version_changed"},
++                    {"by": ("executor_loop", "w1")}):
++            args = {"kind": LifecycleKind.HANDED_OFF, "reason": None,
++                    "by": Actor(Source.EXECUTOR_LOOP, "w1"), **bad}
++            with pytest.raises(ValueError):
++                h.store._log(h.clock(), delivery.message.task_id, 1, args["kind"], args["by"],
++                             reason=args["reason"])
++    with pytest.raises(ValueError):
++        Actor("executor_loop", "w1")  # type: ignore[arg-type]
++
++
++# ---- [S602] ----
++def test_lifecycle_events_survive_the_inbox_retention_purge(h):
++    h.submit(task_id="p1")
++    assert h.process().kind is Result.EXECUTED
++    before = events(h)
++    assert [event["kind"] for event in before] == ["received", "delivered", "handed_off"]
++
++    h.clock.advance(seconds=RETENTION.total_seconds() + 60)
++    h.store.accept(fresh(h, task_id="p2"), h.clock)  # 收件時順手整批清掉已結案的舊任務
++    assert h.query("SELECT count(*) FROM proposals WHERE task_id = 'p1'") == [(0,)]
++    assert events(h)[:len(before)] == before  # 一列不少、一欄不改
++
++    source = (SRC / "executor" / "inbox_store.py").read_text(encoding="utf-8")
++    assert "UPDATE lifecycle_events" not in source
++    assert "DELETE FROM lifecycle_events" not in source
++
++
++# ---- [S603] ----
++def test_attempt_rows_record_their_source_and_actor(h):
++    h.submit(task_id="s1")
++    assert h.executor("worker-9").process_one().kind is Result.EXECUTED
++    rows = h.query("SELECT source, actor FROM attempts ORDER BY seq")
++    assert rows and set(rows) == {("executor_loop", "worker-9")}
++
++    # 啟動恢復記行程身分;人工處置記操作人
++    with h.store.transaction() as tx:
++        begun = attempt_store.begin(tx, proposal(task_id="s2", campaign_id="c2"), h.clock(),
++                                    capability_expires_at=h.clock() + timedelta(minutes=1))
++    key = begun.row.key
++    h.clock.advance(minutes=5)
++    opened = runner._recover(h.store, h.clock, "boot-1234")
++    assert key in opened.recovery.moved
++    with h.store.transaction() as tx:
++        row = attempt_store.latest(tx, key)
++        row = attempt_store.transition(tx, key, row.seq, attempt_store.AttemptState.ESCALATED,
++                                       h.clock(), code=attempt_store.OutcomeCode.SEND_LIMIT_REACHED,
++                                       by=Actor(Source.EXECUTOR_LOOP, "w1"))
++        attempt_store.resolve(tx, key, row.seq, attempt_store.AttemptState.FAILED, "checked dsp",
++                              h.clock(), by=Actor(Source.ADMIN_COMMAND, "ops-alice"))
++    rows = h.query("SELECT state, source, actor FROM attempts WHERE key = ? ORDER BY seq", (key,))
++    assert rows[1:] == [("unknown", "startup_recovery", "boot-1234"),
++                        ("escalated", "executor_loop", "w1"),
++                        ("failed", "admin_command", "ops-alice")]
++
++    # 機械守衛:正式程式每一處寫嘗試紀錄都明傳來源與執行者
++    assert _calls_missing_keyword(
++        {"begin", "transition", "record_verification_timeout", "resolve", "recover_in_flight"},
++        "by", receiver="attempt_store") == []
++
++
++def _calls_missing_keyword(names, keyword, receiver=None):
++    missing = []
++    for path in sorted((SRC / "executor").glob("*.py")):
++        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
++            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
++                    and node.func.attr in names):
++                continue
++            if receiver is not None and not (isinstance(node.func.value, ast.Name)
++                                             and node.func.value.id == receiver):
++                continue
++            if keyword not in {k.arg for k in node.keywords}:
++                missing.append(f"{path.name}:{node.lineno} {node.func.attr}")
++    return missing
++
++
++# ---- [S607] ----
++def test_an_old_executor_database_gains_the_lifecycle_table_and_columns(tmp_path):
++    db = tmp_path / "old.db"
++    InboxStore(db).close()
++    conn = sqlite3.connect(db)
++    conn.executescript(
++        "DROP TABLE lifecycle_events; DROP TABLE dsp_calls;"
++        "ALTER TABLE attempts DROP COLUMN source; ALTER TABLE attempts DROP COLUMN actor;"
++        "ALTER TABLE attempts DROP COLUMN program_version;"
++        "INSERT INTO attempts (key, seq, campaign_id, state, send_count, verification_timeouts,"
++        " written_at) VALUES ('k-old', 1, 'c1', 'verified', 1, 0, '2026-09-01T00:00:00.000000Z');")
++    conn.close()
++
++    store = InboxStore(db)
++    try:
++        with store.transaction() as tx:
++            tables = {r[0] for r in tx.conn.execute(
++                "SELECT name FROM sqlite_master WHERE type = 'table'")}
++            old = tx.conn.execute("SELECT source, actor, program_version FROM attempts "
++                                  "WHERE key = 'k-old'").fetchall()
++            indexes = {r[0] for r in tx.conn.execute(
++                "SELECT name FROM sqlite_master WHERE type = 'index'")}
++    finally:
++        store.close()
++    assert {"lifecycle_events", "dsp_calls"} <= tables
++    assert old == [(None, None, None)]
++    assert {"lifecycle_events_by_time", "dsp_calls_by_time"} <= indexes
++
++
++# ---- [S612] ----
++def test_inbox_side_events_record_no_worker_and_cover_every_swept_row(h):
++    soon = (h.clock() + timedelta(minutes=1)).isoformat()
++    h.store.accept(fresh(h, task_id="old-1", decision_expires_at=soon), h.clock)
++    h.store.accept(fresh(h, task_id="old-2", decision_expires_at=soon), h.clock)
++    h.clock.advance(minutes=2)
++    before = last_id(h)
++    h.store.accept(fresh(h, task_id="new"), h.clock)  # 不是那兩個任務的收件,也要逐列寫
++    added = events(h, before)
++    assert [(e["kind"], e["task_id"]) for e in added] == [
++        ("expired", "old-1"), ("expired", "old-2"), ("received", "new")]
++    assert {(e["source"], e["actor"]) for e in added} == {("inbox", None)}
++
++    before = last_id(h)
++    delivery = receive(h, "worker-7")
++    with h.store.transaction() as tx:
++        h.store.ack_blocked(tx, delivery.receipt, h.clock(), BlockCode.CAMPAIGN_NOT_ACTIVE)
++    loop = events(h, before)
++    assert {(e["source"], e["actor"]) for e in loop} == {("executor_loop", "worker-7")}
++
++    # 處理待核可由執行迴圈呼叫,傳自己的擁有者(機械守衛:正式程式都明傳)
++    assert _calls_missing_keyword({"settle_awaiting"}, "owner") == []
++
++
++# ---- [S620] ----
++def test_a_superseded_event_carries_the_old_revisions_own_fields(h):
++    old = fresh(h, task_id="sp", requested_change={"new_budget": 120}, policy_version="p-old",
++                campaign_id="c1")
++    new = fresh(h, task_id="sp", revision=2, requested_change={"new_budget": 180},
++                campaign_id="c2")
++    h.store.accept(old, h.clock)
++    before = last_id(h)
++    h.store.accept(new, h.clock)
++    superseded, received = events(h, before)
++    assert superseded["kind"] == "superseded" and superseded["revision"] == 1
++    assert (superseded["campaign_id"], superseded["key"], superseded["policy_version"]) == (
++        "c1", operation_key(old), "p-old")
++    assert (received["campaign_id"], received["key"], received["policy_version"]) == (
++        "c2", operation_key(new), new.policy_version)
++
++
++# ---- [S623] ----
++def test_every_new_record_carries_the_program_version(h):
++    h.submit(task_id="v1")
++    assert h.process().kind is Result.EXECUTED
++    for table in ("lifecycle_events", "attempts", "dsp_calls"):
++        versions = h.query(f"SELECT DISTINCT program_version FROM {table}")  # noqa: S608
++        assert versions == [(PROGRAM_VERSION,)], table
++    assert isinstance(PROGRAM_VERSION, str) and PROGRAM_VERSION
++
++
++# ---- [S624] ----
++def test_settlements_from_an_existing_key_are_flagged(h):
++    # 一般第一次確認:否
++    h.submit(task_id="e1")
++    assert h.process().kind is Result.EXECUTED
++    first = [e for e in events(h) if e["kind"] == "handed_off"]
++    assert [e["from_existing"] for e in first] == [0]
++
++    # 取件時撞到既有鍵直接確認:是
++    h.submit(task_id="e1", revision=2)
++    before = last_id(h)
++    assert receive(h) is None
++    settled = [e for e in events(h, before) if e["kind"] == "handed_off"]
++    assert [(e["revision"], e["from_existing"]) for e in settled] == [(2, 1)]
++
++    # 開始一筆時鍵已存在,依既有結果確認:是(兩份修訂都已取件、還沒開過嘗試)
++    h.submit(task_id="e2", campaign_id="c2")
++    one = receive(h, "w1")
++    h.submit(task_id="e2", revision=2, campaign_id="c2")
++    two = receive(h, "w2")
++    assert h.executor("w1")._process(one.message, one.receipt).kind is Result.EXECUTED
++    # 讓第二份照樣過執行前檢查,走到開始一筆才發現鍵已存在
++    h.dsp.campaigns["c2"] = CampaignView(budget=100, status="active", version=3)
++    before = last_id(h)
++    result = h.executor("w2")._process(two.message, two.receipt)
++    assert result.kind is Result.HANDED_OFF_TO_EXISTING
++    settled = [e for e in events(h, before) if e["kind"] == "handed_off"]
++    assert [(e["revision"], e["from_existing"], e["actor"]) for e in settled] == [(2, 1, "w2")]
++    assert h.query("SELECT count(*) FROM lifecycle_events WHERE from_existing NOT IN (0, 1)") == [
++        (0,)]
+diff --git a/tests/executor/test_read_only.py b/tests/executor/test_read_only.py
+new file mode 100644
+index 0000000..c149c83
+--- /dev/null
++++ b/tests/executor/test_read_only.py
+@@ -0,0 +1,248 @@
++"""執行行程資料庫的唯讀讀法(Phase 9 增量 1):[S610]、[S611]、[S616]、[S621]。
++
++唯讀開法開出來的物件只有唯讀連線、只發唯讀交易(另一個類別、另一個私有發行憑證);讀取函式收寫入
++交易或唯讀交易,寫入函式只收寫入交易。哪些是寫入函式由原始碼機械算出,不靠名字。
++"""
++
++import inspect
++import sqlite3
++from datetime import timedelta
++from pathlib import Path
++
++import pytest
++
++from rtb.domain.attempt import operation_key
++from rtb.executor import attempt_store, inbox_store, observability
++from rtb.executor.attempt_store import NotInTransaction, Reservation
++from rtb.executor.inbox_store import (
++    BlockCode,
++    InboxStore,
++    PendingProposal,
++    ReadOnlyInbox,
++    Stop,
++    StopKind,
++)
++from tests.executor.conftest import NOW
++from tests.executor.fakes import proposal
++from tests.executor.write_scan import read_functions, write_functions
++
++EXECUTOR = Path(__file__).resolve().parents[2] / "src" / "rtb" / "executor"
++TENANT = "t-default"
++PROP = proposal(task_id="r1")
++KEY = operation_key(PROP)
++LATER = NOW + timedelta(hours=1)
++
++
++@pytest.fixture
++def store(tmp_path):
++    opened = InboxStore(tmp_path / "executor.db")
++    yield opened
++    opened.close()
++
++
++@pytest.fixture
++def reader(store, tmp_path):  # noqa: ARG001 - 要先有寫入開法建好的資料庫
++    opened = ReadOnlyInbox(tmp_path / "executor.db", busy_timeout_seconds=0.1)
++    yield opened
++    opened.close()
++
++
++def _populate(store):
++    """每一張讀取函式會讀的表都放一點資料:收件、停下、核可使用、嘗試、呼叫紀錄、事件。"""
++    store.accept(PROP, lambda: NOW)
++    with store.transaction() as tx:
++        delivery = store.receive(tx, NOW, "w1")
++        store.record_stop(tx, Stop(StopKind.AGGREGATE_LIMIT_REACHED, PROP, KEY, TENANT, 10, 95,
++                                   100), NOW)
++        store.await_approval(tx, delivery.receipt, NOW, BlockCode.AGGREGATE_LIMIT_REACHED)
++    other = proposal(task_id="r2", campaign_id="c2", requested_change={"new_budget": 110})
++    with store.transaction() as tx:
++        begun = attempt_store.begin(tx, other, NOW, capability_expires_at=NOW + timedelta(
++            minutes=5), reservation=Reservation(TENANT, 10, 100))
++        attempt_store.record_dsp_call(
++            tx, attempt_store.DspCall(attempt_store.DspCallKind.WRITE,
++                                      attempt_store.DspCallResult.RESPONDED, 200, 1.5, None),
++            attempt_store.CallSubject("r2", 1, "c2", begun.row.key),
++            attempt_store.Actor(attempt_store.Source.EXECUTOR_LOOP, "w1"), NOW)
++    return begun.row.key
++
++
++def _read_samples(key):
++    """每一支讀取函式的一組參數(第一個參數交易由測試填)。"""
++    message = PendingProposal("r1", 1, inbox_store.content_hash(PROP), PROP)
++    return {
++        "InboxReads.awaiting": ("s", (LATER,)),
++        "InboxReads.has_newer_revision": ("s", ("r1", 1)),
++        "InboxReads.stop_amount": ("s", (message, BlockCode.AGGREGATE_LIMIT_REACHED)),
++        "InboxReads.latest_approval": ("s", (PROP, BlockCode.AGGREGATE_LIMIT_REACHED)),
++        "InboxReads.used_approvals": ("s", (PROP,)),
++        "InboxReads.in_progress_for": ("s", ("r1", KEY)),
++        "InboxReads.in_progress_keys": ("s", ()),
++        "InboxReads.awaiting_count": ("s", ()),
++        "InboxReads.approval_use_count": ("s", ()),
++        "InboxReads.stop_count": ("s", (StopKind.AGGREGATE_LIMIT_REACHED,)),
++        "InboxReads.stops": ("s", (StopKind.AGGREGATE_LIMIT_REACHED, TENANT, NOW, LATER)),
++        "InboxReads.lifecycle_events": ("s", ("r1",)),
++        "InboxReads.last_terminal_event": ("s", ("r1", 1, inbox_store.content_hash(PROP))),
++        "InboxReads.dead_letters_for": ("s", ("r1",)),
++        "InboxReads.dead_letter_ops_for": ("s", ("r1",)),
++        "latest": ("a", (key,)),
++        "history": ("a", (key,)),
++        "snapshot": ("a", (key,)),
++        "trace_rows": ("a", (key,)),
++        "first_row_tenant": ("a", (key,)),
++        "unresolved_count": ("a", ()),
++        "version_conflict_count": ("a", ()),
++        "campaigns_with_unresolved": ("a", ()),
++        "unresolved_keys": ("a", ()),
++        "aggregate_used": ("a", (TENANT, NOW)),
++        "aggregate_holdings": ("a", (TENANT, NOW)),
++        "counted_first_rows_started": ("a", (TENANT, NOW - timedelta(hours=1), LATER)),
++        "dsp_calls_for": ("a", ("r2",)),
++    }
++
++
++def _takes_transaction(module, qualname):
++    owner = module
++    for part in qualname.split("."):
++        owner = getattr(owner, part)
++    params = list(inspect.signature(owner).parameters)
++    return "tx" in params[:2]
++
++
++def _nones(fn):
++    """只為了走到守衛:必填的位置參數與關鍵字參數都填空值(交易之外)。"""
++    params = list(inspect.signature(fn).parameters.values())[1:]
++    positional = [None for p in params
++                  if p.kind is p.POSITIONAL_OR_KEYWORD and p.default is p.empty]
++    keywords = {p.name: None for p in params if p.kind is p.KEYWORD_ONLY and p.default is p.empty}
++    return positional, keywords
++
++
++def _callable(store, qualname):
++    if "." in qualname:
++        return getattr(store, qualname.split(".")[1])
++    return getattr(attempt_store, qualname)
++
++
++def _tables(path):
++    conn = sqlite3.connect(path)
++    try:
++        return {table: conn.execute(f"SELECT * FROM {table}").fetchall()  # noqa: S608
++                for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
++    finally:
++        conn.close()
++
++
++# ---- [S610] ----
++def test_a_read_transaction_is_refused_by_every_write_function(store, reader, tmp_path):
++    key = _populate(store)
++    before = _tables(tmp_path / "executor.db")
++    writers = [("inbox", name) for name in sorted(inbox_store.WRITE_FUNCTIONS)
++               if _takes_transaction(inbox_store, name)]
++    writers += [("attempt", name) for name in sorted(attempt_store.WRITE_FUNCTIONS)
++                if _takes_transaction(attempt_store, name)]
++    assert len(writers) >= 15
++    with reader.read_transaction() as rtx:
++        for where, name in writers:
++            fn = _callable(store, name) if where == "inbox" else getattr(attempt_store, name)
++            positional, keywords = _nones(fn)
++            with pytest.raises(NotInTransaction):
++                fn(rtx, *positional, **keywords)
++    assert _tables(tmp_path / "executor.db") == before  # 什麼都沒寫
++
++    # 讀取函式同時收兩種交易,結果一樣;清單要跟機械算出的讀取函式一致(新加的讀取函式要補進來)
++    samples = _read_samples(key)
++    mechanical = {name for module, prefix in ((inbox_store, "InboxReads."), (attempt_store, ""))
++                  for name in read_functions(EXECUTOR / f"{module.__name__.rsplit('.', 1)[1]}.py")
++                  if name.startswith(prefix) and (prefix or "." not in name)
++                  and _takes_transaction(module, name)}
++    assert mechanical == set(samples)
++    for name, (where, args) in samples.items():
++        fn = _callable(store, name) if where == "s" else getattr(attempt_store, name)
++        rfn = _callable(reader, name) if where == "s" else fn
++        with store.transaction() as tx:
++            expected = fn(tx, *args)
++        with reader.read_transaction() as rtx:
++            assert rfn(rtx, *args) == expected, name
++
++    # 關掉的唯讀交易、別的收件表物件開的唯讀交易都不收
++    with reader.read_transaction() as rtx:
++        closed = rtx
++    with pytest.raises(NotInTransaction):
++        reader.lifecycle_events(closed, "r1")
++    with pytest.raises(NotInTransaction):
++        attempt_store.latest(closed, key)
++    with reader.read_transaction() as rtx, pytest.raises(NotInTransaction):
++        store.lifecycle_events(rtx, "r1")
++    with pytest.raises(NotInTransaction):  # 私有發行憑證:自己造不出唯讀交易
++        attempt_store.ReadTransaction(reader._conn, object())
++
++
++# ---- [S611] ----
++def test_a_read_transaction_sees_one_snapshot(store, reader):
++    store.accept(PROP, lambda: NOW)
++    with reader.read_transaction() as rtx:
++        store.accept(proposal(task_id="r9"), lambda: NOW)  # 開始之後、第一次查詢之前別人提交
++        first = reader.lifecycle_events(rtx, "r9")
++        store.accept(proposal(task_id="r8"), lambda: NOW)
++        assert reader.lifecycle_events(rtx, "r8") == first == ()
++        assert reader.in_progress_keys(rtx) == ((), ())
++        assert len(reader.lifecycle_events(rtx, "r1")) == 1
++    with reader.read_transaction() as rtx:
++        assert len(reader.lifecycle_events(rtx, "r9")) == 1  # 下一個唯讀交易看得到
++
++
++# ---- [S616] ----
++def test_the_phase6_queries_run_under_a_read_transaction(store, reader, tmp_path):
++    _populate(store)
++    queries = [
++        lambda s, tx: observability.aggregate_stop_count(s, tx, tenant=TENANT),
++        lambda s, tx: observability.table_full_deferral_count(s, tx),
++        lambda s, tx: observability.approval_counts(s, tx, tenant=TENANT, since=NOW, until=LATER),
++        lambda _s, tx: observability.utilization(tx, TENANT, 100, NOW),
++        lambda s, tx: observability.aggregate_audit(s, tx, TENANT, 100, NOW, NOW, LATER),
++    ]
++    with store.transaction() as tx:
++        expected = [query(store, tx) for query in queries]
++    holder = sqlite3.connect(tmp_path / "executor.db", isolation_level=None)
++    holder.execute("BEGIN IMMEDIATE")  # 別人佔著寫入鎖:唯讀交易不排隊、照樣讀
++    try:
++        with reader.read_transaction() as rtx:
++            assert [query(reader, rtx) for query in queries] == expected
++    finally:
++        holder.execute("ROLLBACK")
++        holder.close()
++    assert expected[4].holding and expected[0] == 1
++
++
++# ---- [S621] ----
++def test_the_write_function_list_is_derived_not_declared():
++    assert write_functions(EXECUTOR / "inbox_store.py") == inbox_store.WRITE_FUNCTIONS
++    assert write_functions(EXECUTOR / "attempt_store.py") == attempt_store.WRITE_FUNCTIONS
++    # 名字像讀、其實會寫的幾支一定在寫入清單裡
++    assert {"InboxStore.receive", "InboxStore.settle_awaiting", "InboxStore.take_over"} <= (
++        inbox_store.WRITE_FUNCTIONS)
++    assert "recover_in_flight" in attempt_store.WRITE_FUNCTIONS
++
++
++# ---- [S626] ----
++def test_the_last_terminal_event_of_a_proposal_uses_the_terminal_index(store, reader):
++    store.accept(PROP, lambda: NOW)
++    digest = inbox_store.content_hash(PROP)
++    with store.transaction() as tx:
++        delivery = store.receive(tx, NOW, "w1")
++        store.ack_blocked(tx, delivery.receipt, NOW, BlockCode.VERSION_CHANGED)
++    with reader.read_transaction() as rtx:
++        found = reader.last_terminal_event(rtx, "r1", 1, digest)
++        assert (found.kind, found.reason) == ("blocked", "version_changed")
++        assert reader.last_terminal_event(rtx, "r1", 1, "other-hash") is None
++    terminal = {inbox_store.LifecycleKind.HANDED_OFF, inbox_store.LifecycleKind.BLOCKED,
++                inbox_store.LifecycleKind.EXPIRED, inbox_store.LifecycleKind.DEAD_LETTERED}
++    assert terminal == inbox_store.TERMINAL_KINDS
++
++    sql, params = inbox_store.last_terminal_event_query("r1", 1, digest)
++    with store.transaction() as tx:
++        plan = " ".join(row[-1] for row in tx.conn.execute(f"EXPLAIN QUERY PLAN {sql}", params))
++    assert "lifecycle_events_terminal" in plan, plan
++    assert "SCAN lifecycle_events" not in plan.replace("USING", ""), plan
+diff --git a/tests/executor/test_runner.py b/tests/executor/test_runner.py
+index 735a02f..c67dff2 100644
+--- a/tests/executor/test_runner.py
++++ b/tests/executor/test_runner.py
+@@ -370,27 +370,27 @@ def test_a_busy_database_at_startup_retries_before_giving_up(h, monkeypatch):
+ 
+ 
+ def test_a_busy_restart_recovery_at_startup_retries_before_giving_up(h, monkeypatch):
+     """開庫成功、但重啟恢復那個交易撞到忙碌:關掉這次開的連線、休息再試,連續 3 次才結束。"""
+     from rtb.executor.inbox_store import InboxBusy
+ 
+     real = runner._recover
+     tries, closed = [], []
+ 
+     def busy_then(fail_times):
+-        def recover(store, clock):
++        def recover(store, clock, owner):  # Phase 9:重啟恢復多收行程身分,原樣轉交
+             tries.append(1)
+             if len(tries) <= fail_times:
+                 real_close = store.close
+                 store.close = lambda: (closed.append(1), real_close())[1]
+                 raise InboxBusy("database is locked")
+-            return real(store, clock)
++            return real(store, clock, owner)
+         return recover
+ 
+     orphan = in_flight_row(h.db, h.clock)
+     h.clock.advance(seconds=3600)
+     monkeypatch.setattr(runner, "_recover", busy_then(2))
+     out = io.StringIO()
+     assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp, out=out,
+                       sleep=lambda _s: None, max_rounds=0) == 0
+     assert out.getvalue().strip() == runner.READY and len(tries) == 3
+     assert len(closed) == 2  # 失敗的那兩次都把連線關掉了
+diff --git a/tests/executor/write_scan.py b/tests/executor/write_scan.py
+new file mode 100644
+index 0000000..0b1a712
+--- /dev/null
++++ b/tests/executor/write_scan.py
+@@ -0,0 +1,123 @@
++"""機械判定「哪些函式會寫資料庫」(Phase 9 增量 1 [S621]、[S617]、[S600] 共用)。
++
++不靠名字判斷(取件、處理待核可、接手名字像讀、其實會寫):解析原始碼,一支函式的本體、它用到的
++模組內字串常數、以及它呼叫的模組內函式(同一個類別與基底類別的方法、模組層函式,遞移)裡,只要有
++寫入語句就算寫入函式。寫入語句是字串裡的 INSERT、UPDATE、DELETE、REPLACE、ALTER、CREATE、DROP
++(專案的 SQL 一律大寫;文件字串不算)。跨模組的呼叫不追:各模組各自判定。
++"""
++
++import ast
++import re
++from pathlib import Path
++
++WRITE_SQL = r"\b(INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP)\b"
++
++
++def _strings(node):
++    """節點裡的字串常數(含 f 字串的固定片段),不含函式與類別的文件字串。"""
++    docstrings = set()
++    for inner in ast.walk(node):
++        if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
++            body = inner.body
++            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
++                docstrings.add(id(body[0].value))
++    return [inner.value for inner in ast.walk(node)
++            if isinstance(inner, ast.Constant) and isinstance(inner.value, str)
++            and id(inner) not in docstrings]
++
++
++class _Module:
++    def __init__(self, path: Path):
++        self.tree = ast.parse(path.read_text(encoding="utf-8"))
++        self.functions = {}  # 限定名 -> 函式節點
++        self.classes = {}  # 類別名 -> (基底類別名清單, {方法名: 限定名})
++        self.constants = {}  # 模組層名稱 -> 它的字串內容
++        for node in self.tree.body:
++            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
++                self.functions[node.name] = node
++            elif isinstance(node, ast.ClassDef):
++                bases = [b.id for b in node.bases if isinstance(b, ast.Name)]
++                methods = {}
++                for item in node.body:
++                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
++                        methods[item.name] = f"{node.name}.{item.name}"
++                        self.functions[f"{node.name}.{item.name}"] = item
++                self.classes[node.name] = (bases, methods)
++            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
++                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
++                for target in targets:
++                    if isinstance(target, ast.Name) and node.value is not None:
++                        self.constants.setdefault(target.id, []).extend(_strings(node.value))
++
++    def method(self, cls, name):
++        """沿基底類別找方法(只找同一個模組裡定義的類別)。"""
++        if cls not in self.classes:
++            return None
++        bases, methods = self.classes[cls]
++        if name in methods:
++            return methods[name]
++        for base in bases:
++            found = self.method(base, name)
++            if found:
++                return found
++        return None
++
++    def callees(self, qualname):
++        node, cls = self.functions[qualname], qualname.rpartition(".")[0] or None
++        found = set()
++        for inner in ast.walk(node):
++            if not isinstance(inner, ast.Call):
++                continue
++            func = inner.func
++            if (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
++                    and func.value.id in ("self", "cls") and cls):
++                target = self.method(cls, func.attr)
++                if target:
++                    found.add(target)
++            elif isinstance(func, ast.Name) and func.id in self.functions:
++                found.add(func.id)
++        return found
++
++    def own_writes(self, qualname, pattern):
++        node = self.functions[qualname]
++        texts = _strings(node)
++        for inner in ast.walk(node):  # 用到的模組層字串常數(例如建表語句)
++            if isinstance(inner, ast.Name) and inner.id in self.constants:
++                texts += self.constants[inner.id]
++        return any(re.search(pattern, text) for text in texts)
++
++
++def classify(path: Path, pattern: str = WRITE_SQL) -> dict[str, bool]:
++    """每一支公開函式(模組層函式與公開類別的公開方法)是不是寫入函式:{限定名: 會寫}。"""
++    module = _Module(path)
++    memo: dict[str, bool] = {}
++
++    def writes(qualname, seen):
++        if qualname in memo:
++            return memo[qualname]
++        if qualname in seen:
++            return False
++        seen = seen | {qualname}
++        result = module.own_writes(qualname, pattern) or any(
++            writes(callee, seen) for callee in module.callees(qualname))
++        memo[qualname] = result
++        return result
++
++    public = {}
++    for qualname in module.functions:
++        parts = qualname.split(".")
++        if all(not part.startswith("_") for part in parts):
++            public[qualname] = writes(qualname, frozenset())
++    return public
++
++
++def writes_matching(path: Path, pattern: str) -> set[str]:
++    return {name for name, writes in classify(path, pattern).items() if writes}
++
++
++def write_functions(path: Path) -> set[str]:
++    return writes_matching(path, WRITE_SQL)
++
++
++def read_functions(path: Path) -> set[str]:
++    return {name for name, writes in classify(path).items() if not writes}
+diff --git a/tests/kit/test_read_only_connection.py b/tests/kit/test_read_only_connection.py
+new file mode 100644
+index 0000000..a9a5cdb
+--- /dev/null
++++ b/tests/kit/test_read_only_connection.py
+@@ -0,0 +1,39 @@
++"""共用資料庫工具的唯讀連線(Phase 9 增量 1):[S609]。
++
++以 SQLite 官方 URI 的 mode=ro 開;前掃實測過把「mode=ro」字串丟給一般的連線函式不會報錯,而是在
++磁碟上悄悄新建一個以那串文字為檔名的空資料庫,所以要另寫一支、明講這是 URI。
++"""
++
++import sqlite3
++
++import pytest
++
++from rtb.sqlitekit import connect, connect_read_only, read_snapshot
++
++
++# ---- [S609] ----
++def test_the_read_only_connection_really_is_read_only(tmp_path, monkeypatch):
++    path = tmp_path / "a b#?.db"  # 檔名帶 URI 的保留字元,也要開到同一個檔
++    writer = connect(path, schema="CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('x');")
++    writer.close()
++
++    reader = connect_read_only(path)
++    try:
++        assert reader.execute("SELECT v FROM t").fetchall() == [("x",)]
++        for statement in ("INSERT INTO t VALUES ('y')", "CREATE TABLE u (v)", "DELETE FROM t",
++                          "PRAGMA user_version = 3"):
++            with pytest.raises(sqlite3.OperationalError, match="readonly"):
++                reader.execute(statement)
++        with read_snapshot(reader):
++            assert reader.in_transaction
++            assert reader.execute("SELECT count(*) FROM t").fetchone() == (1,)
++        assert not reader.in_transaction
++    finally:
++        reader.close()
++
++    monkeypatch.chdir(tmp_path)
++    before = sorted(p.name for p in tmp_path.iterdir())
++    for missing in (tmp_path / "nope.db", tmp_path / "sub" / "nope.db"):
++        with pytest.raises(FileNotFoundError):
++            connect_read_only(missing)
++    assert sorted(p.name for p in tmp_path.iterdir()) == before  # 不存在時不建新檔
+diff --git a/tests/ops/__init__.py b/tests/ops/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/ops/conftest.py b/tests/ops/conftest.py
+new file mode 100644
+index 0000000..a721955
+--- /dev/null
++++ b/tests/ops/conftest.py
+@@ -0,0 +1,123 @@
++"""追蹤檢視測試的共用場景:分析端資料庫、執行端資料庫(假 DSP 跑執行迴圈)、只回操作紀錄的
++DSP 替身。"""
++
++import json
++import sqlite3
++import threading
++from datetime import timedelta
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++
++import pytest
++
++from rtb.analyzer.task_store import TaskStore
++from rtb.domain.attempt import operation_key
++from rtb.domain.task_state import TaskState
++from tests.executor.conftest import NOW, Clock
++from tests.executor.fakes import Harness, proposal
++
++ANALYZER_START = NOW - timedelta(minutes=3)
++
++
++class OperationsDsp:
++    """DSP 的唯讀操作紀錄端點替身:operations 裡有的鍵回 200,沒有的回 404 operation_not_found。"""
++
++    def __init__(self):
++        self.operations: dict[str, dict] = {}
++        self.requests: list[str] = []
++        operations, requests = self.operations, self.requests
++
++        class Handler(BaseHTTPRequestHandler):
++            def do_GET(self):
++                key = self.path.rsplit("/", 1)[-1]
++                requests.append(key)
++                found = operations.get(key)
++                status, body = (200, found) if found else (404, {"error": "operation_not_found"})
++                raw = json.dumps(body).encode()
++                self.send_response(status)
++                self.send_header("Content-Length", str(len(raw)))
++                self.end_headers()
++                self.wfile.write(raw)
++
++            def log_message(self, *_args):
++                pass
++
++        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
++        threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
++        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
++
++    def commit(self, key, committed_at, operation_id=1, campaign_id="c1"):
++        self.operations[key] = {"operation_id": operation_id, "campaign_id": campaign_id,
++                                "action": "update_budget", "version_after": 4,
++                                "committed_at": committed_at, "replayed": False}
++
++    def close(self):
++        self.server.shutdown()
++        self.server.server_close()
++
++
++class World:
++    """一個任務走過分析端、執行端與 DSP 的三份資料。"""
++
++    def __init__(self, tmp_path):
++        self.clock = Clock()
++        self.analyzer_db = tmp_path / "analyzer.db"
++        self.analyzer = TaskStore(self.analyzer_db)
++        self.h = Harness(tmp_path, self.clock)
++        self.executor_db = self.h.db
++        self.dsp = OperationsDsp()
++
++    def analyze(self, task_id="t1", revisions=(1,), key_stored=True, at=ANALYZER_START):
++        """分析端:建任務、每個修訂提一次案,最後一個修訂交給執行(依參數決定有沒有存下冪等鍵)。
++        回傳最新一列的序號。"""
++        s = self.analyzer
++        s.create_task(task_id, "c1", at)
++        seq = 1
++        for index, revision in enumerate(revisions):
++            prop = proposal(task_id=task_id, revision=revision)
++            for state in (TaskState.COLLECTING_EVIDENCE, TaskState.ANALYZING):
++                assert s.commit_step(task_id, seq, state, at + timedelta(seconds=seq))
++                seq += 1
++            assert s.commit_step(task_id, seq, TaskState.PROPOSED, at + timedelta(seconds=seq),
++                                 proposal=prop)
++            seq += 1
++            if index == len(revisions) - 1:
++                assert s.commit_step(task_id, seq, TaskState.HANDED_OFF,
++                                     at + timedelta(seconds=seq), proposal=prop,
++                                     operation_key=operation_key(prop) if key_stored else None)
++                seq += 1
++        s.record_tool_call(task_id, 2, "dsp:campaign", "ok", 3.5, at + timedelta(seconds=2))
++        return seq
++
++    def execute(self, **overrides):
++        prop = self.h.submit(**overrides)
++        result = self.h.process()
++        return prop, result
++
++    def paths(self):
++        return {"analyzer_db": self.analyzer_db, "executor_db": self.executor_db,
++                "dsp_url": self.dsp.url}
++
++    def dump(self):
++        """兩個資料庫的全部內容(判斷有沒有被寫過)。"""
++        out = {}
++        for path in (self.analyzer_db, self.executor_db):
++            conn = sqlite3.connect(path)
++            try:
++                out[path.name] = {t: conn.execute(f"SELECT * FROM {t}").fetchall()  # noqa: S608
++                                  for (t,) in conn.execute(
++                                      "SELECT name FROM sqlite_master WHERE type = 'table'")}
++            finally:
++                conn.close()
++        return out
++
++    def close(self):
++        self.analyzer.close()
++        self.h.close()
++        self.dsp.close()
++
++
++@pytest.fixture
++def world(tmp_path):
++    built = World(tmp_path)
++    yield built
++    built.close()
+diff --git a/tests/ops/test_ops_boundaries.py b/tests/ops/test_ops_boundaries.py
+new file mode 100644
+index 0000000..f220d03
+--- /dev/null
++++ b/tests/ops/test_ops_boundaries.py
+@@ -0,0 +1,146 @@
++"""維運套件的邊界(Phase 9 增量 1):[S617]。
++
++維運套件可以匯入分析端與執行端的讀取介面,反過來分析端、執行端、DSP 都不准匯入它(各目錄的匯入禁令
++加一支直接解析原始碼的掃描,不看 noqa)。匯入禁令只能整個模組一起禁,讀寫函式又在同一個模組,所以
++另外掃維運套件的語法樹:凡是呼叫分析端、執行端模組裡定義的函式或類別,都要在讀取白名單裡;白名單
++裡每一支都要是機械判定的非寫入函式。唯讀連線本身也寫不進去,是最後一道。
++"""
++
++import ast
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++from tests.executor.write_scan import classify
++
++SRC = Path(__file__).resolve().parents[2] / "src" / "rtb"
++OPS = SRC / "ops"
++# 維運套件准呼叫的分析端、執行端名稱:兩個唯讀開法,加上它們開出來的物件的讀取方法與嘗試紀錄的讀取函式
++READ_WHITELIST = frozenset({
++    "ReadOnlyInbox", "TaskReader",  # 唯讀開法
++    "read_transaction", "close",
++    "history", "evidence_for", "list_tool_calls", "follow_up_of", "follow_up_to",
++    "handed_off_keys",  # 分析端
++    "lifecycle_events", "dead_letters_for", "dead_letter_ops_for",  # 收件口
++    "trace_rows", "dsp_calls_for",  # 嘗試紀錄
++    "failure_class",  # 死信信封的欄位名;同名的是收件口的分類函式,也是機械判定的非寫入函式
++})
++SCANNED = (SRC / "executor" / "inbox_store.py", SRC / "executor" / "attempt_store.py",
++           SRC / "analyzer" / "task_store.py")
++
++
++def _defined_names(classes=True):
++    """分析端、執行端每支模組定義的函式、方法(與類別)名稱。"""
++    kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef) if classes else (
++        ast.FunctionDef, ast.AsyncFunctionDef)
++    names = set()
++    for directory in (SRC / "analyzer", SRC / "executor"):
++        for path in directory.glob("*.py"):
++            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
++                if isinstance(node, kinds):
++                    names.add(node.name)
++    return names
++
++
++def _called_names(tree):
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Call):
++            func = node.func
++            if isinstance(func, ast.Attribute):
++                yield node.lineno, func.attr, False
++            elif isinstance(func, ast.Name):
++                yield node.lineno, func.id, True
++
++
++def _ops_offenders(ops_dir):
++    """從嚴:屬性不論是不是當場呼叫(先取方法再呼叫也算)、直接呼叫的名字(維運套件自己定義的除外)、
++    直接引用的函式名,只要是分析端、執行端定義的名字,都要在白名單裡。"""
++    defined, functions = _defined_names(), _defined_names(classes=False)
++    trees = {path: ast.parse(path.read_text(encoding="utf-8"))
++             for path in sorted(ops_dir.rglob("*.py"))}
++    local = {node.name for tree in trees.values() for node in ast.walk(tree)
++             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
++    offenders = []
++    for path, tree in trees.items():
++        offenders += [f"{path.name}:{line} {name}" for line, name, bare in _called_names(tree)
++                      if name in defined and name not in READ_WHITELIST
++                      and not (bare and name in local)]
++        for node in ast.walk(tree):
++            if isinstance(node, ast.Attribute) and node.attr in defined - READ_WHITELIST:
++                offenders.append(f"{path.name}:{node.lineno} .{node.attr}")
++            elif (isinstance(node, ast.Name) and node.id in functions - READ_WHITELIST
++                  and node.id not in local):
++                offenders.append(f"{path.name}:{node.lineno} {node.id}")
++            elif isinstance(node, ast.ImportFrom):  # 寫入開法、白名單外的函式連匯入都不准
++                offenders += [f"{path.name}: 匯入 {a.name}" for a in node.names
++                              if a.name in ("InboxStore", "TaskStore", "connect")
++                              or (a.name in functions - READ_WHITELIST
++                                  and (node.module or "").startswith(("rtb.analyzer",
++                                                                      "rtb.executor")))]
++    return offenders
++
++
++def _importers_of_ops():
++    found = []
++    for layer in ("analyzer", "executor", "dsp", "domain"):
++        for path in sorted((SRC / layer).rglob("*.py")):
++            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
++                modules = []
++                if isinstance(node, ast.Import):
++                    modules = [a.name for a in node.names]
++                elif isinstance(node, ast.ImportFrom):
++                    modules = [node.module or ""] + [f"{node.module}.{a.name}" for a in node.names]
++                found += [f"{layer}/{path.name}: {m}" for m in modules
++                          if m == "rtb.ops" or m.startswith("rtb.ops.")]
++    return found
++
++
++# ---- [S617] ----
++def test_the_ops_package_is_read_only_and_imported_by_nobody():
++    assert list(OPS.glob("*.py")), "維運套件不見了"
++    assert _importers_of_ops() == []
++    for layer in ("analyzer", "executor", "dsp"):  # 各目錄的匯入禁令真的擋得住
++        config = SRC / layer / "ruff.toml"
++        result = subprocess.run(
++            [sys.executable, "-m", "ruff", "check", "--config", str(config),
++             "--stdin-filename", str(config.parent / "probe.py"), "-"],
++            input="import rtb.ops.trace\n", capture_output=True, text=True, timeout=60,
++            check=False)
++        assert result.returncode == 1 and "TID251" in result.stdout, (layer, result.stdout)
++    config = OPS / "ruff.toml"  # 維運套件自己不准開資料庫連線、不准碰 DSP 內部
++    for banned in ("import sqlite3", "from rtb.sqlitekit import connect", "import rtb.dsp.store"):
++        result = subprocess.run(
++            [sys.executable, "-m", "ruff", "check", "--config", str(config),
++             "--stdin-filename", str(OPS / "probe.py"), "-"],
++            input=f"{banned}\n", capture_output=True, text=True, timeout=60, check=False)
++        assert result.returncode == 1 and "TID251" in result.stdout, (banned, result.stdout)
++
++    assert _ops_offenders(OPS) == []
++    # 白名單裡每一支都是機械判定的非寫入函式(同名的函式只要有一支會寫就不行)
++    classified = {}
++    for path in SCANNED:
++        for qualname, writes in classify(path).items():
++            classified.setdefault(qualname.split(".")[-1], set()).add(writes)
++    for name in READ_WHITELIST - {"ReadOnlyInbox", "TaskReader"}:
++        assert classified.get(name) == {False}, name
++
++
++@pytest.mark.parametrize("extra", [
++    "\ndef _w(s, tx):\n    s.release(tx, None, None, None)\n",
++    "\ndef _w(p):\n    return InboxStore(p)\n",
++    "\ndef _w(tx):\n    attempt_store.begin(tx, None, None, capability_expires_at=None)\n",
++    "\nfrom rtb.executor.inbox_store import InboxStore as _S\n",
++    "\ndef _w(s):\n    later = s.release\n    return later\n",  # 先取方法、之後再呼叫
++    "\ndef _w():\n    from rtb.executor.attempt_store import begin as _b\n    return _b\n",
++])
++def test_the_ops_scan_catches_a_write_call(tmp_path, extra):
++    """[S617] 的殺傷力:在維運套件的副本放一個寫入呼叫,掃描就要找到。"""
++    copy = tmp_path / "ops"
++    copy.mkdir()
++    for path in OPS.glob("*.py"):
++        (copy / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
++    with (copy / "trace.py").open("a", encoding="utf-8") as file:
++        file.write(extra)
++    assert _ops_offenders(copy) != []
+diff --git a/tests/ops/test_trace.py b/tests/ops/test_trace.py
+new file mode 100644
+index 0000000..7d15948
+--- /dev/null
++++ b/tests/ops/test_trace.py
+@@ -0,0 +1,249 @@
++"""跨元件追蹤檢視(Phase 9 增量 1):[S604]~[S606]、[S608]、[S613]~[S615]、[S619]。
++
++給任務編號,把分析端(含接續任務)、執行端(生命週期事件、嘗試紀錄、呼叫紀錄、死信)與 DSP 操作紀錄
++組成一條時間線:依 UTC 時間、來源固定順序、來源內寫入順序排;三個來源各讀一個快照,讀到兩輪相同
++才回傳。只讀。
++"""
++
++import io
++import json
++import sqlite3
++from datetime import UTC, datetime, timedelta
++
++import pytest
++
++from rtb.analyzer.task_store import FollowUp, ReplanReason, TaskReader
++from rtb.domain.attempt import operation_key
++from rtb.domain.task_state import TaskState
++from rtb.executor.execution import Result
++from rtb.executor.inbox_store import RETENTION, ReadOnlyInbox
++from rtb.ops import trace
++from rtb.ops.trace import MISSING, KeyOrigin, Origin, Table
++from rtb.sqlitekit import DatabaseNotUpgraded
++from tests.executor.conftest import NOW
++from tests.executor.fakes import proposal
++
++
++def build(world, task_id="t1", **kwargs):
++    return trace.build_trace(task_id, **world.paths(), dsp_timeout_seconds=1.0, **kwargs)
++
++
++def _utc(text):
++    return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
++
++
++def _sort_key(segment):
++    return (_utc(segment.at), trace.ORIGIN_ORDER.index(segment.origin),
++            trace.TABLE_ORDER.index(segment.table), segment.order)
++
++
++# ---- [S604] ----
++def test_a_trace_joins_the_analyzer_the_executor_and_the_dsp_in_time_order(world):
++    seq = world.analyze()
++    prop, result = world.execute()
++    assert result.kind is Result.EXECUTED
++    key = operation_key(prop)
++    world.dsp.commit(key, (NOW + timedelta(milliseconds=1)).isoformat(), operation_id=42)
++    # 接續任務:原任務因版本已變結案、同一個交易開接續任務,接續任務的歷史也串進來
++    assert world.analyzer.commit_step("t1", seq, TaskState.BLOCKED, NOW + timedelta(minutes=1),
++                                      follow_up=FollowUp(ReplanReason.VERSION_CHANGED))
++
++    result = build(world)
++    origins = {segment.origin for segment in result.segments}
++    assert origins == set(Origin)
++    assert list(result.segments) == sorted(result.segments, key=_sort_key)
++    assert len(result.tasks) == 2 and result.tasks[0] == "t1"
++    tables = {segment.table for segment in result.segments}
++    assert {Table.TASK_HISTORY, Table.TOOL_CALLS, Table.LIFECYCLE_EVENTS, Table.ATTEMPTS,
++            Table.DSP_CALLS, Table.DSP_OPERATIONS} <= tables
++    assert any(s.table is Table.TASK_HISTORY and s.field("task_id") == result.tasks[1]
++               for s in result.segments)
++    for segment in result.segments:  # 每一段都帶齊關聯欄位,缺的標明缺
++        assert tuple(name for name, _ in segment.fields) == trace.FIELDS
++        assert all(value is not None for _, value in segment.fields)
++        assert segment.at.endswith("Z")
++    op = next(s for s in result.segments if s.table is Table.DSP_OPERATIONS)
++    assert (op.field("dsp_operation_id"), op.field("key"), op.field("revision")) == (42, key, 1)
++    attempt = next(s for s in result.segments if s.table is Table.ATTEMPTS)
++    assert (attempt.field("attempt"), attempt.field("worker"), attempt.field("tenant")) == (
++        1, "executor", "t-default")
++    history = next(s for s in result.segments if s.table is Table.TASK_HISTORY)
++    assert history.field("tenant") is MISSING and history.field("worker") is MISSING
++    assert result.stable and dict(result.read_at).keys() == set(Origin)
++    json.loads(json.dumps(trace.to_primitives(result)))  # 命令列輸出用的結構化結果
++
++
++# ---- [S605] ----
++def test_the_trace_view_reads_while_the_executor_holds_the_write_lock(world, monkeypatch):
++    world.analyze()
++    world.execute()
++    before = world.dump()
++    refused = []
++
++    def spy(opener):
++        class Spied(opener):
++            def close(self):  # 關掉之前試寫一次:唯讀連線要拒絕
++                try:
++                    self._conn.execute("CREATE TABLE probe (x)")
++                except sqlite3.OperationalError as exc:
++                    refused.append((opener.__name__, "readonly" in str(exc)))
++                super().close()
++        return Spied
++
++    monkeypatch.setattr(trace, "ReadOnlyInbox", spy(trace.ReadOnlyInbox))
++    monkeypatch.setattr(trace, "TaskReader", spy(trace.TaskReader))
++    with world.h.store.transaction():  # 執行迴圈佔著寫入鎖(BEGIN IMMEDIATE)
++        holder = sqlite3.connect(world.analyzer_db, isolation_level=None)
++        holder.execute("BEGIN IMMEDIATE")  # 分析端也被佔著
++        try:
++            result = build(world)
++        finally:
++            holder.execute("ROLLBACK")
++            holder.close()
++    assert result.stable and any(s.origin is Origin.EXECUTOR for s in result.segments)
++    assert world.dump() == before  # 什麼都沒寫
++    assert set(refused) == {("ReadOnlyInbox", True), ("TaskReader", True)}  # 用的是唯讀連線
++    assert len(refused) == 2 * result.rounds
++
++
++# ---- [S606] ----
++def test_a_trace_marks_the_missing_dsp_segment(world):
++    world.analyze()
++    world.execute()
++    result = trace.build_trace("t1", analyzer_db=world.analyzer_db,
++                               executor_db=world.executor_db, dsp_url="http://127.0.0.1:9",
++                               dsp_timeout_seconds=0.5)
++    assert result.missing == (Origin.DSP,)
++    origins = {segment.origin for segment in result.segments}
++    assert origins == {Origin.ANALYZER, Origin.EXECUTOR}
++    assert trace.to_primitives(result)["missing"] == ["dsp"]
++
++
++# ---- [S608] ----
++def test_trace_order_uses_utc_then_source_then_write_order(world):
++    world.analyze(at=NOW)  # 分析端的時間跟執行端同一刻(都是 Z 格式)
++    prop, _ = world.execute()
++    key = operation_key(prop)
++    # DSP 用 +08:00 寫、字串排序會排到最後;實際時間比執行端早一秒
++    world.dsp.commit(key, "2026-09-22T20:04:59.000000+08:00")
++
++    result = build(world)
++    at = [s.at for s in result.segments]
++    assert at == sorted(at, key=_utc)
++    op = next(s for s in result.segments if s.table is Table.DSP_OPERATIONS)
++    assert op.at == "2026-09-22T12:04:59.000000Z"
++    same = [s for s in result.segments if _utc(s.at) == NOW]
++    ranks = [(trace.ORIGIN_ORDER.index(s.origin), trace.TABLE_ORDER.index(s.table), s.order)
++             for s in same]
++    assert ranks == sorted(ranks)
++    assert same[0].origin is Origin.ANALYZER  # 同一刻:分析端在前
++    events = [s.what for s in same if s.table is Table.LIFECYCLE_EVENTS]
++    assert events == ["received", "delivered", "handed_off"]  # 同一刻照寫入順序,不是字母序
++    # 排序不能靠讀進來的先後:反過來餵進排序,結果要一模一樣(同一刻由來源、表、寫入順序定)
++    backwards = list(result.segments)
++    backwards.reverse()
++    assert sorted(backwards, key=trace._sort_key) == list(result.segments)
++
++
++# ---- [S613] ----
++def test_a_proposal_blocked_before_any_attempt_is_still_traceable_after_the_purge(world):
++    prop, result = world.execute(task_id="gone", campaign_id="c-missing", policy_version="p-9")
++    assert result.kind is Result.BLOCKED
++    world.clock.advance(seconds=RETENTION.total_seconds() + 60)
++    now = world.clock()
++    world.h.store.accept(proposal(task_id="other", decision_created_at=now.isoformat(),
++                                  decision_expires_at=(now + timedelta(minutes=5)).isoformat()),
++                         world.clock)
++    assert world.h.query("SELECT count(*) FROM proposals WHERE task_id = 'gone'") == [(0,)]
++
++    result = build(world, "gone")
++    blocked = [s for s in result.segments if s.what == "blocked"]
++    assert len(blocked) == 1
++    assert (blocked[0].field("campaign_id"), blocked[0].field("key"),
++            blocked[0].field("policy_version")) == ("c-missing", operation_key(prop), "p-9")
++    assert dict(blocked[0].detail)["reason"] == "campaign_not_found"
++    assert not any(s.table is Table.ATTEMPTS for s in result.segments)
++
++
++# ---- [S614] ----
++def test_a_shared_operation_key_is_attributed_to_the_revision_that_created_it(world):
++    world.analyze(revisions=(1, 2))  # 修訂 1 沒交給執行(只能重算),修訂 2 交給執行時存了鍵
++    first, _ = world.execute()
++    world.h.submit(revision=2)  # 同一把鍵:取件時依既有結果確認
++    with world.h.store.transaction() as tx:
++        assert world.h.store.receive(tx, world.clock(), "w2") is None
++
++    result = build(world)
++    key = operation_key(first)
++    attempts = [s for s in result.segments if s.table is Table.ATTEMPTS]
++    assert attempts and {(s.field("task_id"), s.field("revision")) for s in attempts} == {("t1", 1)}
++    seqs = [s.field("attempt") for s in attempts]
++    assert seqs == sorted(set(seqs))  # 嘗試不重複列
++    revisions = {(r.task_id, r.revision): r for r in result.revisions}
++    assert revisions["t1", 1].key == revisions["t1", 2].key == key
++    assert revisions["t1", 1].key_origin is KeyOrigin.RECOMPUTED
++    assert revisions["t1", 2].key_origin is KeyOrigin.ANALYZER_STORED
++    assert revisions["t1", 1].attempts_owner == revisions["t1", 2].attempts_owner == ("t1", 1)
++    assert (revisions["t1", 1].settled_by_existing_key,
++            revisions["t1", 2].settled_by_existing_key) == (False, True)
++
++
++# ---- [S615] ----
++def test_the_trace_rereads_until_stable_and_flags_a_moving_target(world, monkeypatch):
++    world.analyze()
++    world.execute()
++    opened = []
++    real = trace._read_executor
++
++    def counting(*args, **kwargs):
++        opened.append(1)
++        return real(*args, **kwargs)
++
++    monkeypatch.setattr(trace, "_read_executor", counting)
++    calm = build(world)
++    assert (calm.stable, calm.rounds, len(opened)) == (True, 2, 2)  # 沒有新提交:第二輪就判穩定
++    assert dict(calm.read_at).keys() == set(Origin)
++
++    revision = iter(range(2, 10))
++
++    def moving(*args, **kwargs):
++        read = real(*args, **kwargs)
++        world.h.submit(revision=next(revision))  # 每讀完一輪,執行端就多一筆提交
++        return read
++
++    monkeypatch.setattr(trace, "_read_executor", moving)
++    busy = build(world)
++    assert (busy.stable, busy.rounds) == (False, 3)
++    assert trace.to_primitives(busy)["stable"] is False
++    seen = {s.field("revision") for s in busy.segments if s.table is Table.LIFECYCLE_EVENTS}
++    assert seen == {1, 2, 3}  # 每一輪都重開新快照:最後一輪看得到前兩輪之後的提交,看不到第三次
++
++
++# ---- [S619] ----
++def test_a_read_only_open_of_an_old_database_fails_cleanly(world):
++    world.analyze()
++    world.execute()
++    world.h.close()
++    conn = sqlite3.connect(world.executor_db)
++    conn.execute("DROP TABLE lifecycle_events")
++    conn.close()
++    before = world.dump()
++
++    with pytest.raises(DatabaseNotUpgraded):
++        ReadOnlyInbox(world.executor_db)
++    err = io.StringIO()
++    code = trace.run(["--task-id", "t1", "--analyzer-db", str(world.analyzer_db),
++                      "--executor-db", str(world.executor_db), "--dsp-url", world.dsp.url],
++                     out=io.StringIO(), err=err)
++    assert code == trace.EXIT_NOT_UPGRADED
++    assert "請先啟動一次執行迴圈" in err.getvalue()
++    assert world.dump() == before  # 不補表、不寫任何東西
++
++    world.analyzer.close()
++    conn = sqlite3.connect(world.analyzer_db)
++    conn.execute("DROP TABLE follow_ups")
++    conn.close()
++    before = world.dump()
++    with pytest.raises(DatabaseNotUpgraded):
++        TaskReader(world.analyzer_db)
++    assert world.dump() == before

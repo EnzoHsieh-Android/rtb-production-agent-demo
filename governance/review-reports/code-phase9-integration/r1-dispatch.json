@@ -1,0 +1,1 @@
+{"round": "r1", "loop": "code-phase9-integration", "tier": "standard", "base": "0372545", "snapshot": "r1-snapshot.patch", "reviewed_sha256": "ce1abd9df3ba06cbc8d98d5997b26d422b06856780d3a7ce48543ff46afa97ad", "seats": [{"seat": "merge-sonnet", "lens": "合併衝突處置正確性", "materials": ["r1-snapshot.patch"]}, {"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.patch"]}]}

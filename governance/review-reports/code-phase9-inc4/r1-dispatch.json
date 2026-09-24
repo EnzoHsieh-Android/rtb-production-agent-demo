@@ -1,0 +1,1 @@
+{"round": "r1", "loop": "code-phase9-inc4", "tier": "light", "base": "6982c3b", "snapshot": "r1-snapshot.patch", "reviewed_sha256": "6f99285f22f1c23fe0b080bd251f616c1ef76280ad15affac55d3d3518d25b2e", "seats": [{"seat": "arch-sonnet", "lens": "架構對齊", "materials": ["r1-snapshot.patch"]}, {"seat": "tests-sonnet", "lens": "守衛與實演的殺傷力", "materials": ["r1-snapshot.patch"]}]}

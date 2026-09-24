@@ -1,0 +1,849 @@
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index 583b09b..94874db 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -64,20 +64,21 @@ CREATE INDEX IF NOT EXISTS attempts_first_rows ON attempts (campaign_id) WHERE s
+ CREATE INDEX IF NOT EXISTS attempts_terminal_rows ON attempts (campaign_id)
+     WHERE state IN (TERMINAL_LIST);
+ CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_terminal_per_key ON attempts (key)
+     WHERE state IN (TERMINAL_LIST);
+ CREATE INDEX IF NOT EXISTS attempts_verified_by_time ON attempts (written_at)
+     WHERE state = 'verified';
+ CREATE TABLE IF NOT EXISTS dsp_calls (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, call_kind TEXT NOT NULL,
+     result TEXT NOT NULL, status INTEGER, error_code TEXT, latency_ms REAL NOT NULL,
+     task_id TEXT, revision INTEGER, campaign_id TEXT, key TEXT, source TEXT, actor TEXT,
++    content_hash TEXT,
+     program_version TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS dsp_calls_by_time ON dsp_calls (at);
+ CREATE INDEX IF NOT EXISTS dsp_calls_by_task ON dsp_calls (task_id, id);
+ """
+ _COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verification_timeouts, "
+             "written_at, written_version, capability_expires_at")
+ # 執行一筆(Phase 3 增量 3)新增的欄位;舊資料庫由執行行程資料庫模組照補欄位做法補上
+ ADDED_COLUMNS = (
+     ("written_version", "written_version INTEGER"),  # DSP 回報的寫入後版本
+     ("capability_expires_at", "capability_expires_at TEXT"),  # 最近一次送出所帶憑證的到期時間
+@@ -85,21 +86,23 @@ ADDED_COLUMNS = (
+     ("tenant", "tenant TEXT"),
+     ("reserved_amount", "reserved_amount INTEGER"),
+     # 誰寫的(Phase 9 增量 1):來源、執行者、程式版本;舊列為空值
+     ("source", "source TEXT"),
+     ("actor", "actor TEXT"),
+     ("program_version", "program_version TEXT"),
+ )
+ # DSP 呼叫紀錄表的欄位(唯讀開法用它判斷資料庫升級了沒有)
+ DSP_CALL_FIELDS = ("id", "at", "call_kind", "result", "status", "error_code", "latency_ms",
+                    "task_id", "revision", "campaign_id", "key", "source", "actor",
+-                   "program_version")
++                   "program_version", "content_hash")
++# 呼叫紀錄表在同一個增量裡後補的欄位(代碼審第 2 輪):這個分支早先開過的資料庫開啟時補上
++DSP_CALL_ADDED_COLUMNS = (("content_hash", "content_hash TEXT"),)
+ # 可觀測查詢(Phase 6 增量 4)用的第一列按租戶與開始時間索引。參照後補的租戶欄,不能放進 SCHEMA:
+ # 開庫是先跑整份建表建索引、後補欄位,舊資料庫一開就會找不到欄位;由補欄位流程補完欄位之後才建
+ TENANT_INDEX = ("CREATE INDEX IF NOT EXISTS attempts_first_rows_by_tenant "
+                 "ON attempts (tenant, written_at) WHERE seq = 1")
+ # 已驗證的預留在驗證完成後多久內仍佔額度(暫用值,沒有真實花費數據校準,見 Phase 6 計劃)
+ AGGREGATE_WINDOW = timedelta(hours=24)
+ # 終點狀態是固定的列舉值,寫成字面值,查詢條件才對得上部分索引的條件
+ _TERMINAL_LIST = ", ".join(f"'{state.value}'" for state in sorted(TERMINAL_STATES))
+ SCHEMA = SCHEMA.replace("TERMINAL_LIST", _TERMINAL_LIST)
+ 
+@@ -290,44 +293,47 @@ class DspCall:
+ 
+     kind: DspCallKind
+     result: DspCallResult
+     status: int | None
+     latency_ms: float
+     error: DspErrorCode | None = None
+ 
+ 
+ @dataclass(frozen=True)
+ class CallSubject:
+-    """呼叫紀錄的關聯欄位:這次呼叫是為了哪一份提案。"""
++    """呼叫紀錄的關聯欄位:這次呼叫是為了哪一份提案。內容雜湊在呼叫當下記下:冪等鍵不含決策時間與
++    說明文字、內容雜湊含,兩份提案可以同鍵不同雜湊,事後從鍵回推會撞(代碼審第 2 輪兩席)。"""
+ 
+     task_id: str | None
+     revision: int | None
+     campaign_id: str | None
+     key: str | None
++    content_hash: str | None
+ 
+ 
+ @dataclass(frozen=True)
+ class DspCallRow:
+     id: int
+     at: str
+     kind: str
+     result: str
+     status: int | None
+     error: str | None
+     latency_ms: float
+     task_id: str | None
+     revision: int | None
+     campaign_id: str | None
+     key: str | None
+     source: str | None
+     actor: str | None
+     program_version: str
++    content_hash: str | None
+ 
+ 
+ @dataclass(frozen=True)
+ class AttemptTraceRow:
+     """追蹤檢視用的一列嘗試紀錄:第一列的任務、修訂與租戶跟著每一列帶出來(同一把鍵只列一次)。"""
+ 
+     key: str
+     seq: int
+     state: str
+     code: str | None
+@@ -857,26 +863,26 @@ def record_dsp_call(
+ ) -> None:
+     """寫一列 DSP 呼叫紀錄(只增不改)。呼叫端在呼叫之後用一個獨立的短交易寫,不跟結果寫入綁在
+     一起:結果寫入可能因收據失效回滾,呼叫本身確實發生了,不能跟著消失。"""
+     conn = _conn(tx)
+     if type(call.kind) is not DspCallKind or type(call.result) is not DspCallResult or (
+             call.error is not None and type(call.error) is not DspErrorCode):
+         raise ValueError("呼叫類別、結果類別與錯誤代碼都必須是封閉列舉的成員")
+     source, actor = _by(by)
+     conn.execute(
+         "INSERT INTO dsp_calls (at, call_kind, result, status, error_code, latency_ms, task_id, "
+-        "revision, campaign_id, key, source, actor, program_version) "
+-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
++        "revision, campaign_id, key, source, actor, program_version, content_hash) "
++        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (_iso(now), call.kind.value, call.result.value, call.status,
+          None if call.error is None else call.error.value, float(call.latency_ms),
+          subject.task_id, subject.revision, subject.campaign_id, subject.key, source, actor,
+-         PROGRAM_VERSION))
++         PROGRAM_VERSION, subject.content_hash))
+ 
+ 
+ def dsp_calls_for(tx: Readable, task_id: str) -> tuple[DspCallRow, ...]:
+     """一個任務的 DSP 呼叫紀錄,依寫入順序。"""
+     return tuple(DspCallRow(*row) for row in _read_conn(tx).execute(
+         f"SELECT {', '.join(DSP_CALL_FIELDS)} FROM dsp_calls WHERE task_id = ? ORDER BY id",  # noqa: S608 - 固定欄位清單
+         (task_id,)))
+ 
+ 
+ def trace_rows(tx: Readable, key: str) -> tuple[AttemptTraceRow, ...]:
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index b1c9373..7749897 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -32,21 +32,21 @@ DSP 呼叫紀錄——結果寫入回滾時呼叫紀錄照樣留著;同一個 DS
+ 
+ from collections.abc import Callable, Iterable
+ from dataclasses import dataclass, field, replace
+ from datetime import UTC, datetime
+ from enum import StrEnum
+ from pathlib import Path
+ from typing import Any, Literal, NoReturn, Protocol
+ 
+ from rtb.domain._checks import is_plain_int
+ from rtb.domain.attempt import TERMINAL_STATES, AttemptState, OutcomeCode, operation_key
+-from rtb.domain.proposal import POLICY_VERSION, ActionType, Proposal
++from rtb.domain.proposal import POLICY_VERSION, ActionType, Proposal, content_hash
+ from rtb.executor import approval, attempt_store, guardrails
+ from rtb.executor.approval import Approval
+ from rtb.executor.attempt_store import (
+     Actor,
+     AttemptRow,
+     CallSubject,
+     DspCall,
+     DspCallResult,
+     Source,
+ )
+@@ -408,20 +408,25 @@ def _no_progress(key: str, receipt: Receipt | None) -> NoReturn:
+     有收據:收據剛核對過還有效,序號卻被改過,代表有人繞過租約寫了嘗試紀錄——系統錯誤,停機。
+     沒有收據(收件表沒有對應處理中訊息的舊鍵,沒有租約可搶):多個工作者會同時對帳它,序號輸家是
+     正常競爭,放棄這把鍵、不停機。每一次呼叫 DSP 寫入之前都先有一筆成功的轉嘗試中寫入,所以兩邊
+     最多一個能走到 DSP 寫入。
+     """
+     if receipt is None:
+         raise LeaseLost(key)
+     raise ExecutorHalted("no_progress")
+ 
+ 
++# 待寫呼叫紀錄的硬上限(暫用,代使用者裁定,代碼審第 2 輪):到上限就不開始新的一筆處理或對帳(不送新的
++# DSP 呼叫),只做補寫,補寫成功才恢復。一筆處理最多幾次 DSP 呼叫,所以上限可能多出那幾列。
++MAX_PENDING_CALLS = 50
++
++
+ @dataclass(frozen=True)
+ class _PendingCall:
+     """還沒寫進去的一列呼叫紀錄:時間是呼叫當下的,不是補寫時的。"""
+ 
+     call: DspCall
+     subject: CallSubject
+     at: datetime
+ 
+ 
+ @dataclass(frozen=True)
+@@ -436,45 +441,57 @@ class Executor:
+     # 撞到資料庫忙碌、還沒寫進去的呼叫紀錄(代使用者裁定,代碼審第 1 輪):只在這個行程的記憶體裡
+     _pending: list[_PendingCall] = field(default_factory=list, init=False, repr=False,
+                                          compare=False)
+ 
+     @property
+     def _by(self) -> Actor:
+         return Actor(Source.EXECUTOR_LOOP, self.owner)
+ 
+     def _calls(self, proposal: Proposal, key: str) -> OnDspCall:
+         """給 DSP 用戶端的回呼,綁好這次呼叫是為了哪份提案(每個呼叫點顯式傳)。"""
+-        subject = CallSubject(proposal.task_id, proposal.revision, proposal.campaign_id, key)
++        subject = CallSubject(proposal.task_id, proposal.revision, proposal.campaign_id, key,
++                              content_hash(proposal))
+ 
+         def on_call(call: DspCall) -> None:
+             self._pending.append(_PendingCall(call, subject, self.clock()))
+             self.flush_calls()
+ 
+         return on_call
+ 
+-    def flush_calls(self) -> None:
+-        """把欠著的呼叫紀錄用一個新的短交易寫進去;資料庫忙碌就留著下次再補,永遠不丟忙碌例外
+-        (丟出去會蓋掉已經發生的 DSP 結果、對帳整輪被放棄;代碼審第 1 輪三席)。所以只有行程當機才會
+-        少記。其他資料庫錯誤照舊往外丟。每一份工作開始前與結束時也各補一次。"""
++    def flush_calls(self) -> bool:
++        """把欠著的呼叫紀錄用一個新的短交易寫進去,回傳是否排空;資料庫忙碌就留著下次再補,永遠不丟
++        忙碌例外(丟出去會蓋掉已經發生的 DSP 結果、對帳整輪被放棄;代碼審第 1 輪三席)。補寫仍忙由
++        啟動程式跟主交易忙碌一樣計數(代碼審第 2 輪)。其他資料庫錯誤照舊往外丟。提交成功之後才從
++        清單拿掉,中間被打斷只可能是行程當機。"""
+         if not self._pending:
+-            return
++            return True
+         waiting = list(self._pending)
+         try:
+             with self.store.transaction() as tx:
+                 for item in waiting:
+                     attempt_store.record_dsp_call(tx, item.call, item.subject, self._by, item.at)
+         except InboxBusy:
+-            return
++            return False
+         del self._pending[:len(waiting)]
++        return not self._pending
++
++    def _backlogged(self) -> bool:
++        """先補寫一次;待寫清單仍到上限就不開始新的工作(背壓)。"""
++        return not self.flush_calls() and len(self._pending) >= MAX_PENDING_CALLS
++
++    def unrecorded(self) -> tuple[str | None, ...]:
++        """還沒寫進去的呼叫紀錄的冪等鍵(一列一個;啟動程式收尾時印出少記哪些)。"""
++        return tuple(item.subject.key for item in self._pending)
+ 
+     def process_one(self) -> Processed:
+-        self.flush_calls()
++        if self._backlogged():
++            return Processed(Result.DEFERRED)
+         with self.store.transaction() as tx:
+             delivery = self.store.receive(tx, self.clock(), self.owner)
+         if delivery is None:
+             return Processed(Result.IDLE)
+         try:
+             return self._process(delivery.message, delivery.receipt)
+         except LeaseLost:
+             return Processed(Result.LEASE_LOST)
+         finally:
+             self.flush_calls()
+@@ -1024,32 +1041,36 @@ class Executor:
+             return
+         if recorded is None:
+             _no_progress(row.key, receipt)
+ 
+     # ---- 對帳(Phase 3 增量 4;Phase 4 增量 1 接上收件表) ----
+     def reconcile_all(self) -> bool:
+         """每一輪處理兩種鍵:未結案的嘗試(含嘗試中與轉人工),以及嘗試已到終點、收件表卻還是
+         處理中的(人工處置只寫嘗試紀錄,或中途當機留下的漏網)。依最新一列寫入時間由舊到新。
+ 
+         回傳這一輪有沒有 DSP 呼叫失敗:有就讓啟動程式這輪結束後休息,DSP 變慢時不連續全速打它。
++        對帳之前先補寫欠著的呼叫紀錄;每一把鍵開始前看待寫清單,到上限就不再對帳(不送新的 DSP 呼叫),
++        所以一開始就滿或對帳到一半滿了都會停。每一把鍵結束時也補寫一次。
+         """
+         self.flush_calls()
+         with self.store.transaction() as tx:
+             keys = list(attempt_store.unresolved_keys(tx))
+             in_progress, unreadable = self.store.in_progress_keys(tx)
+             for key in in_progress:
+                 row = attempt_store.latest(tx, key)
+                 if row is not None and row.state in TERMINAL_STATES and key not in keys:
+                     keys.append(key)
+         troubled = False
+         corrupted = list(unreadable)
+         for key in keys:
++            if len(self._pending) >= MAX_PENDING_CALLS:  # 開始前或上一把鍵結束時剛補寫過
++                break
+             try:
+                 troubled = self._reconcile(key) or troubled
+             except LeaseLost:
+                 continue  # 租約被接手:這把鍵這一輪放棄
+             except CorruptedInboxRow as exc:  # 這把鍵找不到、同任務又有壞列:先記下,別拖累其他鍵
+                 corrupted.append(str(exc))
+             finally:
+                 self.flush_calls()  # 這一把鍵結束時補寫欠著的呼叫紀錄
+         if corrupted:  # 健康的都處理完了,才因為讀不回來的處理中列停下讓人看(不能默默跳過)
+             raise ExecutorHalted("unreadable_message")
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 83c6672..c6187a0 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -263,21 +263,22 @@ _PROPOSALS_COLUMNS = {
+ for _name, _ddl in _PROPOSALS_COLUMNS.items():
+     SCHEMA = SCHEMA.replace(_name, _ddl)
+ SCHEMA = SCHEMA.replace("APPROVABLE_LIST", ", ".join(sorted(f"'{c.value}'" for c in APPROVABLE)))
+ SCHEMA = SCHEMA.replace("TERMINAL_KIND_LIST", _TERMINAL_KIND_LIST)
+ # 收件表現在該有的全部欄位;舊資料庫少了哪幾欄、或處置的資料庫層限制還是舊的,就重建這張表
+ _PROPOSAL_FIELDS = ("task_id", "revision", "content_hash", "state", "payload", "expires_at",
+                     "received_at", "disposition", "block_code", "dead_letter_reason",
+                     "last_failure", "lease_until", "lease_seq", "lease_owner", "deliveries")
+ _FIELD_DEFAULTS = {"lease_seq": "0", "deliveries": "0"}
+ # 舊資料庫缺的欄位(嘗試表):表 -> [(欄位名, 補欄位定義)]
+-_ADDED_COLUMNS = {"attempts": list(attempt_store.ADDED_COLUMNS)}
++_ADDED_COLUMNS = {"attempts": list(attempt_store.ADDED_COLUMNS),
++                  "dsp_calls": list(attempt_store.DSP_CALL_ADDED_COLUMNS)}
+ _LIFECYCLE_FIELDS = ("id", "at", "task_id", "revision", "content_hash", "campaign_id", "key",
+                      "policy_version", "tenant", "kind", "reason", "source", "actor", "deliveries",
+                      "from_existing", "program_version")
+ # 唯讀開法要求資料庫已經有的表與欄位(缺了就是還沒升級,唯讀連線不能補)
+ _REQUIRED_SCHEMA: dict[str, tuple[str, ...]] = {
+     "proposals": _PROPOSAL_FIELDS, "lifecycle_events": _LIFECYCLE_FIELDS,
+     "attempts": tuple(name for name, _ in attempt_store.ADDED_COLUMNS),
+     "dsp_calls": attempt_store.DSP_CALL_FIELDS, "write_stops": ("tenant",),
+     "approvals": ("token",), "approval_uses": ("tenant",), "dead_letters": ("key",),
+     "dead_letter_ops": ("operator",),
+diff --git a/src/rtb/executor/runner.py b/src/rtb/executor/runner.py
+index c596bb8..edf49ea 100644
+--- a/src/rtb/executor/runner.py
++++ b/src/rtb/executor/runner.py
+@@ -59,46 +59,55 @@ def _loop(
+     executor: Executor, interval: float, max_rounds: int | None,
+     sleep: Callable[[float], None],
+ ) -> int:
+     rounds = busy_streak = 0
+     while max_rounds is None or rounds < max_rounds:
+         rounds += 1
+         try:
+             troubled = executor.reconcile_all()  # 先對帳,再處理待核可,再處理新提案
+             executor.process_awaiting()
+             result = executor.process_one()
++            behind = not executor.flush_calls()  # 呼叫紀錄補寫仍忙:跟主交易忙碌一樣計數
+         except InboxBusy as busy:  # 多工作者下等鎖逾時是正常競爭:這一輪休息,連續幾次才停
+             busy_streak += 1
+             if busy_streak >= BUSY_LIMIT:
+                 sys.stderr.write(f"停機:資料庫連續 {busy_streak} 輪忙碌:{busy}\n")
+                 return EXIT_BUSY
+             sleep(interval)
+             continue
+         except ExecutorHalted as halted:  # 出事就停,讓人注意到;重啟時會做恢復
+             sys.stderr.write(f"停機:{halted}\n")
+             return EXIT_HALTED
+-        busy_streak = 0
+-        # 對帳有 DSP 呼叫失敗就照樣休息:DSP 變慢時不連續全速打它
+-        if troubled or result.kind in _IDLE_RESULTS:
++        busy_streak = busy_streak + 1 if behind else 0
++        if busy_streak >= BUSY_LIMIT:
++            sys.stderr.write(f"停機:DSP 呼叫紀錄連續 {busy_streak} 輪補寫不進去(資料庫忙碌),"
++                             f"欠 {len(executor.unrecorded())} 列\n")
++            return EXIT_BUSY
++        # 對帳有 DSP 呼叫失敗、或呼叫紀錄還欠著,就照樣休息:DSP 變慢或資料庫忙時不連續全速打
++        if behind or troubled or result.kind in _IDLE_RESULTS:
+             sleep(interval)
+     return 0
+ 
+ 
+ def _serve(
+     executor: Executor, interval: float, max_rounds: int | None,
+     sleep: Callable[[float], None],
+ ) -> int:
+-    """跑迴圈;結束前補寫欠著的呼叫紀錄,還是忙就只能放掉(跟當機一樣少記那幾列)。"""
++    """跑迴圈;結束前補寫欠著的呼叫紀錄。還是忙就只能放掉,但照實印出少記幾列、哪些冪等鍵,不無聲
++    (代碼審第 2 輪,代使用者裁定);退出碼照舊。"""
+     try:
+         return _loop(executor, interval, max_rounds, sleep)
+     finally:
+-        executor.flush_calls()
++        if not executor.flush_calls():
++            keys = executor.unrecorded()
++            sys.stderr.write(f"少記 {len(keys)} 列 DSP 呼叫紀錄(結束時資料庫仍忙):"
++                             f"{', '.join(sorted({str(key) for key in keys}))}\n")
+ 
+ 
+ @dataclass(frozen=True)
+ class _Opened:
+     store: InboxStore
+     recovery: attempt_store.Recovery
+     unreadable_messages: tuple[str, ...]  # 讀不回來的處理中列:算不出鍵,這次重啟恢復一把都不轉
+ 
+ 
+ def _recover(store: InboxStore, clock: Callable[[], datetime], owner: str) -> _Opened:
+diff --git a/src/rtb/ops/trace.py b/src/rtb/ops/trace.py
+index f743e89..0b9aae4 100644
+--- a/src/rtb/ops/trace.py
++++ b/src/rtb/ops/trace.py
+@@ -62,29 +62,31 @@ class Table(StrEnum):
+     LIFECYCLE_EVENTS = "lifecycle_events"
+     ATTEMPTS = "attempts"
+     DSP_CALLS = "dsp_calls"
+     DEAD_LETTERS = "dead_letters"
+     DEAD_LETTER_OPS = "dead_letter_ops"
+     DSP_OPERATIONS = "dsp_operations"
+ 
+ 
+ class Absent(StrEnum):
+     MISSING = "missing"  # 這一欄缺:來源沒有記、或這一段本來就不知道
++    UNKNOWN = "unknown"  # 呼叫紀錄沒記內容雜湊:同一把鍵可能對應好幾份內容,不任選一個
+ 
+ 
+ class KeyOrigin(StrEnum):
+     ANALYZER_STORED = "analyzer_stored"  # 分析端交給執行時存下的鍵
+     RECOMPUTED = "recomputed"  # 分析端沒存,從分析端的提案用目前的算法重算
+     EXECUTOR_RECORDED = "executor_recorded"  # 分析端沒有這份修訂,用執行端事件寫下時算的鍵
+ 
+ 
+ MISSING = Absent.MISSING
++UNKNOWN = Absent.UNKNOWN
+ ORIGIN_ORDER = tuple(Origin)
+ TABLE_ORDER = tuple(Table)
+ FIELDS = ("task_id", "revision", "content_hash", "key", "tenant", "campaign_id", "worker",
+           "policy_version", "attempt", "dsp_operation_id")
+ 
+ 
+ @dataclass(frozen=True)
+ class Segment:
+     """時間線上的一段:時間(UTC)、來源、表、表內寫入順序、發生了什麼、關聯欄位與細節。"""
+ 
+@@ -267,25 +269,25 @@ def _attempt_segment(row: AttemptTraceRow) -> Segment:
+     fields = {"task_id": row.task_id, "revision": row.revision, "key": row.key,
+               "content_hash": row.content_hash,
+               "tenant": row.tenant, "campaign_id": row.campaign_id, "worker": row.actor,
+               "attempt": row.seq}
+     return _segment((Origin.EXECUTOR, Table.ATTEMPTS), row.written_at, (row.key, row.seq),
+                     row.state, fields, {"code": row.code, "send_count": row.send_count,
+                                         "source": row.source,
+                                         "program_version": row.program_version})
+ 
+ 
+-def _call_segment(call: DspCallRow, hashes: Mapping[tuple[str, int, str], str | None]) -> Segment:
+-    """呼叫紀錄沒存內容雜湊;同一個任務與修訂下,冪等鍵分得開內容不同的兩份提案,用它接回雜湊。"""
+-    ident = (call.task_id or "", call.revision or 0, call.key or "")
++def _call_segment(call: DspCallRow) -> Segment:
++    """內容雜湊讀那一列自己在呼叫當下記的;沒記的標「不明」,不從冪等鍵回推(同鍵可以不同雜湊,
++    代碼審第 2 輪)。"""
+     fields = {"task_id": call.task_id, "revision": call.revision, "key": call.key,
+-              "content_hash": hashes.get(ident),
++              "content_hash": UNKNOWN if call.content_hash is None else call.content_hash,
+               "campaign_id": call.campaign_id, "worker": call.actor}
+     return _segment((Origin.EXECUTOR, Table.DSP_CALLS), call.at, (call.id,), call.kind, fields,
+                     {"result": call.result, "status": call.status, "error": call.error,
+                      "latency_ms": call.latency_ms, "source": call.source,
+                      "program_version": call.program_version})
+ 
+ 
+ def _letter_segments(
+     letters: Iterable[DeadLetterRow], ops: Iterable[DeadLetterOp],
+ ) -> list[Segment]:
+@@ -338,24 +340,23 @@ def _read_executor(path: Path, analyzer: _AnalyzerPart) -> _ExecutorPart:
+             attempts = {key: attempt_store.trace_rows(tx, key)
+                         for key in sorted({key for key, _ in keys.values()})}
+             calls = [c for task in analyzer.tasks for c in attempt_store.dsp_calls_for(tx, task)]
+             letters = [x for task in analyzer.tasks for x in inbox.dead_letters_for(tx, task)]
+             ops = [x for task in analyzer.tasks for x in inbox.dead_letter_ops_for(tx, task)]
+     finally:
+         inbox.close()
+     owners: dict[str, Ident] = {
+         key: (rows[0].task_id or "", rows[0].revision or 0, rows[0].content_hash)
+         for key, rows in attempts.items() if rows}
+-    hashes = {(task, revision, key): digest for (task, revision, digest), (key, _) in keys.items()}
+     segments = [_event_segment(e) for e in events]
+     segments += [_attempt_segment(row) for rows in attempts.values() for row in rows]
+-    segments += [_call_segment(c, hashes) for c in calls] + _letter_segments(letters, ops)
++    segments += [_call_segment(c) for c in calls] + _letter_segments(letters, ops)
+     return _ExecutorPart(tuple(segments), _revisions(keys, owners), tuple(sorted(owners.items())))
+ 
+ 
+ # ---- DSP ----
+ def _read_dsp(
+     url: str, timeout: float, owned: Iterable[tuple[str, Ident]],
+ ) -> tuple[Segment, ...] | None:
+     """用冪等鍵讀 DSP 的唯讀操作紀錄端點;查不到(404)的鍵沒有這一段;逾時、斷線、其他狀態碼或
+     讀不懂回 None(整個 DSP 來源標缺)。"""
+     segments = []
+diff --git a/tests/executor/test_dsp_calls.py b/tests/executor/test_dsp_calls.py
+index b160c26..41a6078 100644
+--- a/tests/executor/test_dsp_calls.py
++++ b/tests/executor/test_dsp_calls.py
+@@ -7,20 +7,21 @@ DSP 用戶端的每一支公開方法都經同一個底層送出點,每一次 HT
+ import inspect
+ import json
+ import sqlite3
+ import threading
+ import time
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ 
+ import pytest
+ 
+ from rtb.domain.attempt import operation_key
++from rtb.domain.proposal import content_hash
+ from rtb.executor.attempt_store import DspCallKind, DspCallResult, DspErrorCode
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import DspUnavailable, Result, WriteAnswer
+ from tests.executor.fakes import Harness, proposal
+ 
+ R = DspCallResult
+ GOOD_CAMPAIGN = {"budget": 100, "version": 3, "status": "active"}
+ GOOD_OPERATION = {"operation_id": 7, "campaign_id": "c1", "action": "update_budget",
+                   "params": {"new_budget": 150}, "expected_version": 3, "version_after": 4,
+                   "committed_at": "2026-09-22T12:05:00+00:00"}
+@@ -275,20 +276,55 @@ def _other_database_errors_still_propagate(h, worker, monkeypatch):
+     def broken(*_args, **_kwargs):
+         raise sqlite3.OperationalError("disk I/O error")
+ 
+     monkeypatch.setattr(attempt_store, "record_dsp_call", broken)
+     h.submit(task_id="t3", campaign_id="c3")
+     with pytest.raises(sqlite3.OperationalError):
+         worker.process_one()
+ 
+ 
+ # ---- [S618] 代碼審第 1 輪:顯式傳回呼,共用一個 DSP 用戶端的工作者各記各的 ----
++def test_calls_owed_during_a_job_are_written_when_the_job_ends(tmp_path, clock, monkeypatch):
++    """每一份工作(處理一筆、對帳一把鍵)結束時補寫:工作中每次呼叫都撞忙,結束時鎖放開就補上。"""
++    from rtb.executor import attempt_store
++    from rtb.sqlitekit import DatabaseBusy
++
++    real, misses = attempt_store.record_dsp_call, {"left": 0}
++
++    def busy_during_the_job(*args, **kwargs):
++        if misses["left"]:
++            misses["left"] -= 1  # 每次撞忙的補寫只碰到第一列就丟,所以一次補寫扣一次
++            raise DatabaseBusy("database is locked")
++        return real(*args, **kwargs)
++
++    monkeypatch.setattr(attempt_store, "record_dsp_call", busy_during_the_job)
++    h = Harness(tmp_path, clock)
++    try:
++        worker = h.executor()
++        h.submit()
++        misses["left"] = 3  # 讀、寫、查證讀:三次呼叫當下都補寫不進去
++        assert worker.process_one().kind is Result.EXECUTED
++        assert h.query("SELECT count(*) FROM dsp_calls") == [(3,)]
++        assert worker.unrecorded() == ()
++
++        h.submit(task_id="t2", campaign_id="c2")
++        h.dsp.answers.append(WriteAnswer(None))  # 結果不明:留一把要對帳的鍵
++        assert worker.process_one().kind is Result.EXECUTED
++        before = h.query("SELECT count(*) FROM dsp_calls")[0][0]
++        misses["left"] = 4  # 對帳這把鍵:查操作紀錄、讀、重送、查證讀,當下都補寫不進去
++        worker.reconcile_all()
++        assert h.query("SELECT count(*) FROM dsp_calls")[0][0] == before + 4
++        assert worker.unrecorded() == ()
++    finally:
++        h.close()
++
++
+ def test_two_workers_sharing_one_dsp_client_record_their_own_calls(tmp_path, clock):
+     from rtb.executor.execution import DspPort
+ 
+     for name in ("read_campaign", "write", "operation_version", "operation_record", "void"):
+         parameter = inspect.signature(getattr(DspPort, name)).parameters["on_call"]
+         assert parameter.kind is parameter.KEYWORD_ONLY and parameter.default is parameter.empty
+     assert not hasattr(DspPort, "listen") and not hasattr(DspClient, "listen")
+     h = Harness(tmp_path, clock)
+     try:
+         h.submit(task_id="a1", campaign_id="c1")
+@@ -307,10 +343,27 @@ def test_an_error_status_with_an_unreadable_body_keeps_its_status(dsp):
+     client, seen = _calls(dsp.url)
+     for kind, fn in METHODS.items():
+         for status, expected in ((500, R.SERVER_ERROR), (503, R.SERVER_ERROR),
+                                  (404, R.CLIENT_ERROR), (200, R.UNREADABLE)):
+             dsp.reply(status, b"<html>oops</html>")
+             seen.clear()
+             answer = _call(fn, client)
+             assert [(c.kind, c.result, c.status) for c in seen] == [(kind, expected, status)], (
+                 kind, status)
+             assert getattr(answer, "failure", None) is expected  # 回應或例外帶同一個分類
++
++
++def test_a_call_record_table_opened_earlier_on_this_branch_gains_the_content_hash_column(
++        tmp_path, clock):
++    """內容雜湊欄在同一個增量後補(代碼審第 2 輪):早先開過的資料庫開啟時補上,之後照常寫。"""
++    Harness(tmp_path, clock).close()
++    conn = sqlite3.connect(tmp_path / "executor.db")
++    conn.execute("ALTER TABLE dsp_calls DROP COLUMN content_hash")
++    conn.commit()
++    conn.close()
++    h = Harness(tmp_path, clock)
++    try:
++        prop = h.submit()
++        assert h.process().kind is Result.EXECUTED
++        assert set(h.query("SELECT content_hash FROM dsp_calls")) == {(content_hash(prop),)}
++    finally:
++        h.close()
+diff --git a/tests/executor/test_read_only.py b/tests/executor/test_read_only.py
+index 7bf73e7..b58823d 100644
+--- a/tests/executor/test_read_only.py
++++ b/tests/executor/test_read_only.py
+@@ -55,21 +55,21 @@ def _populate(store):
+         store.record_stop(tx, Stop(StopKind.AGGREGATE_LIMIT_REACHED, PROP, KEY, TENANT, 10, 95,
+                                    100), NOW)
+         store.await_approval(tx, delivery.receipt, NOW, BlockCode.AGGREGATE_LIMIT_REACHED)
+     other = proposal(task_id="r2", campaign_id="c2", requested_change={"new_budget": 110})
+     with store.transaction() as tx:
+         begun = attempt_store.begin(tx, other, NOW, capability_expires_at=NOW + timedelta(
+             minutes=5), reservation=Reservation(TENANT, 10, 100))
+         attempt_store.record_dsp_call(
+             tx, attempt_store.DspCall(attempt_store.DspCallKind.WRITE,
+                                       attempt_store.DspCallResult.RESPONDED, 200, 1.5, None),
+-            attempt_store.CallSubject("r2", 1, "c2", begun.row.key),
++            attempt_store.CallSubject("r2", 1, "c2", begun.row.key, "h-r2"),
+             attempt_store.Actor(attempt_store.Source.EXECUTOR_LOOP, "w1"), NOW)
+     return begun.row.key
+ 
+ 
+ def _read_samples(key):
+     """每一支讀取函式的一組參數(第一個參數交易由測試填)。"""
+     message = PendingProposal("r1", 1, inbox_store.content_hash(PROP), PROP)
+     return {
+         "InboxReads.awaiting": ("s", (LATER,)),
+         "InboxReads.has_newer_revision": ("s", ("r1", 1)),
+diff --git a/tests/executor/test_runner.py b/tests/executor/test_runner.py
+index 1eaba25..b707847 100644
+--- a/tests/executor/test_runner.py
++++ b/tests/executor/test_runner.py
+@@ -394,10 +394,82 @@ def test_a_busy_restart_recovery_at_startup_retries_before_giving_up(h, monkeypa
+     assert runner.run(argv(h.db, h.config), environ=ENV, clock=h.clock, dsp=h.dsp, out=out,
+                       sleep=lambda _s: None, max_rounds=0) == 0
+     assert out.getvalue().strip() == runner.READY and len(tries) == 3
+     assert len(closed) == 2  # 失敗的那兩次都把連線關掉了
+     assert state_of(h.db, orphan) == "unknown"  # 第三次真的做完重啟恢復
+ 
+     tries.clear()
+     monkeypatch.setattr(runner, "_recover", busy_then(3))
+     assert run_in_process(h) == runner.EXIT_BUSY
+     assert len(tries) == 3
++
++
++# ---- [S618] 代碼審第 2 輪:呼叫紀錄的待寫清單要有信號、有上限、停機時不無聲丟掉 ----
++def _always_busy(monkeypatch):
++    from rtb.sqlitekit import DatabaseBusy
++
++    def busy(*_args, **_kwargs):
++        raise DatabaseBusy("database is locked")
++
++    monkeypatch.setattr(attempt_store, "record_dsp_call", busy)
++
++
++def test_a_call_record_backlog_that_stays_busy_counts_toward_the_busy_limit(
++        h, monkeypatch, capsys):
++    _always_busy(monkeypatch)  # 主交易都成功,只有補寫呼叫紀錄一直忙
++    for task, campaign in (("b1", "c1"), ("b2", "c2"), ("b3", "c3")):
++        h.submit(task_id=task, campaign_id=campaign)
++    assert run_in_process(h, max_rounds=10) == runner.EXIT_BUSY
++    assert len(h.dsp.writes) == runner.BUSY_LIMIT  # 每輪處理一筆,第 BUSY_LIMIT 輪之後就停
++    latest = {row[0]: row[2] for row in h.attempts()}  # 依序號排,最後一列就是現況
++    assert set(latest.values()) == {"verified"}  # 業務交易照常成功
++    assert "補寫" in capsys.readouterr().err
++
++
++def test_a_full_call_record_backlog_stops_new_dsp_calls(h, monkeypatch):
++    from rtb.executor import execution
++    from rtb.executor.execution import Result
++
++    assert execution.MAX_PENDING_CALLS == 50  # 上限 50 列(暫用,代使用者裁定)
++    monkeypatch.setattr(execution, "MAX_PENDING_CALLS", 2)
++    _always_busy(monkeypatch)
++    for task, campaign in (("p1", "c1"), ("p2", "c2")):
++        h.submit(task_id=task, campaign_id=campaign)
++    h.dsp.answers.append(WriteAnswer(None))  # 第一筆結果不明:留一把要對帳的鍵
++    worker = h.executor()
++    assert worker.process_one().kind is Result.EXECUTED  # 讀、寫兩次呼叫,清單到上限
++    calls = len(h.dsp.reads) + len(h.dsp.writes) + len(h.dsp.lookups)
++    assert worker.process_one().kind is Result.DEFERRED  # 到上限:不開始新的一筆
++    assert worker.reconcile_all() is False  # 也不對帳(那把結果不明的鍵這輪不查)
++    assert len(h.dsp.reads) + len(h.dsp.writes) + len(h.dsp.lookups) == calls  # 沒有新的 DSP 呼叫
++    assert h.query("SELECT count(*) FROM proposals WHERE disposition IS NULL") == [(1,)]
++
++    monkeypatch.undo()  # 補寫成功才恢復
++    monkeypatch.setattr(execution, "MAX_PENDING_CALLS", 2)
++    worker.reconcile_all()
++    assert len(h.dsp.lookups) == 1
++    assert h.query("SELECT count(*) FROM dsp_calls")[0][0] >= 3
++
++
++def test_calls_still_unrecorded_at_shutdown_are_reported(h, monkeypatch, capsys):
++    _always_busy(monkeypatch)
++    prop = h.submit()
++    assert run_in_process(h, max_rounds=1) == 0  # 退出碼照舊
++    err = capsys.readouterr().err
++    assert "少記 3 列" in err and operation_key(prop) in err
++
++
++def test_a_call_record_backlog_that_fills_mid_reconcile_stops_before_the_next_key(
++        h, monkeypatch):
++    from rtb.executor import execution
++
++    _always_busy(monkeypatch)
++    worker = h.executor()
++    for task, campaign in (("m1", "c1"), ("m2", "c2")):  # 兩筆結果不明:留兩把要對帳的鍵
++        h.submit(task_id=task, campaign_id=campaign)
++        h.dsp.answers.append(WriteAnswer(None))
++        worker.process_one()
++    owed = len(worker.unrecorded())
++    monkeypatch.setattr(execution, "MAX_PENDING_CALLS", owed + 1)  # 對帳開始時還沒到上限
++    worker.reconcile_all()
++    assert len(h.dsp.lookups) == 1  # 第一把鍵查一次就到上限:第二把鍵不查
++    assert len(worker.unrecorded()) > owed  # 第一把鍵的呼叫也欠著(補寫仍忙)
+diff --git a/tests/ops/test_ops_boundaries.py b/tests/ops/test_ops_boundaries.py
+index eb93d8b..51a11a2 100644
+--- a/tests/ops/test_ops_boundaries.py
++++ b/tests/ops/test_ops_boundaries.py
+@@ -76,33 +76,42 @@ def _ops_offenders(ops_dir):
+                 offenders.append(f"{path.name}:{node.lineno} {node.id}")
+             elif isinstance(node, ast.ImportFrom):  # 寫入開法、白名單外的函式連匯入都不准
+                 offenders += [f"{path.name}: 匯入 {a.name}" for a in node.names
+                               if a.name in ("InboxStore", "TaskStore", "connect")
+                               or (a.name in functions - READ_WHITELIST
+                                   and (node.module or "").startswith(("rtb.analyzer",
+                                                                       "rtb.executor")))]
+     return offenders
+ 
+ 
+-# 用字串動態取屬性的寫法(代碼審第 1 輪):名字掃描看不到字串裡的方法名,維運套件本身也用不到,一律不准
++# 用字串動態取屬性、用字串執行程式、動態匯入(代碼審第 1、2 輪):名字掃描看不到字串裡的方法名,
++# 維運套件本身也用不到,一律不准
+ DYNAMIC_LOOKUPS = frozenset({"getattr", "attrgetter", "methodcaller", "__getattribute__", "vars",
+-                             "__dict__"})
++                             "__dict__", "eval", "exec", "compile", "__import__", "importlib",
++                             "import_module"})
+ 
+ 
+ def _dynamic_lookups(label, tree):
+     found = []
+     for node in ast.walk(tree):
+-        name = (node.id if isinstance(node, ast.Name) else node.attr
+-                if isinstance(node, ast.Attribute) else node.name
+-                if isinstance(node, ast.alias) else None)
+-        if name in DYNAMIC_LOOKUPS:
+-            found.append(f"{label}:{getattr(node, 'lineno', 0)} 動態取屬性 {name}")
++        if isinstance(node, ast.Name):
++            names = [node.id]
++        elif isinstance(node, ast.Attribute):
++            names = [node.attr]
++        elif isinstance(node, ast.alias):
++            names = [node.name, node.name.split(".")[0]]
++        elif isinstance(node, ast.ImportFrom):
++            names = [(node.module or "").split(".")[0]]
++        else:
++            continue
++        found += [f"{label}:{getattr(node, 'lineno', 0)} 動態取屬性或執行 {name}"
++                  for name in names if name in DYNAMIC_LOOKUPS]
+     return found
+ 
+ 
+ def _importers_of_ops():
+     found = []
+     for layer in ("analyzer", "executor", "dsp", "domain"):
+         for path in sorted((SRC / layer).rglob("*.py")):
+             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                 modules = []
+                 if isinstance(node, ast.Import):
+@@ -151,20 +160,30 @@ def test_the_ops_package_is_read_only_and_imported_by_nobody():
+     "\nfrom rtb.executor.inbox_store import InboxStore as _S\n",
+     "\ndef _w(s):\n    later = s.release\n    return later\n",  # 先取方法、之後再呼叫
+     "\ndef _w():\n    from rtb.executor.attempt_store import begin as _b\n    return _b\n",
+     # 用字串動態取屬性(代碼審第 1 輪):維運套件本身用不到,一律不准
+     "\ndef _w(s, tx):\n    getattr(s, 'release')(tx, None, None, None)\n",
+     "\ndef _w(s):\n    return getattr(s, 'rel' + 'ease')\n",
+     "\nimport operator\n\ndef _w(s):\n    return operator.attrgetter('release')(s)\n",
+     "\nfrom operator import methodcaller\n\n_w = methodcaller('release', None, None)\n",
+     "\ndef _w(s):\n    return s.__getattribute__('release')\n",
+     "\ndef _w(s):\n    return vars(type(s))['release']\n",
++    # 用字串執行程式或動態匯入(代碼審第 2 輪)
++    "\ndef _w(s):\n    return eval('s.rel' + 'ease')\n",
++    "\ndef _w(s):\n    exec('s.release()')\n",
++    "\ndef _w():\n    return compile('x', 'y', 'eval')\n",
++    "\ndef _w():\n    return __import__('rtb.executor.inbox_store')\n",
++    "\nimport importlib\n",
++    "\nfrom importlib import import_module\n",
++    "\ndef _w():\n    import importlib.util\n    return importlib.util\n",
++    "\nimport importlib.util as _iu\n",  # 只有子模組的名字
++    "\nfrom importlib.util import find_spec as _fs\n",  # 從子模組匯入別的名字
+ ])
+ def test_the_ops_scan_catches_a_write_call(tmp_path, extra):
+     """[S617] 的殺傷力:在維運套件的副本放一個寫入呼叫,掃描就要找到。"""
+     copy = tmp_path / "ops"
+     copy.mkdir()
+     for path in OPS.glob("*.py"):
+         (copy / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+     with (copy / "trace.py").open("a", encoding="utf-8") as file:
+         file.write(extra)
+     assert _ops_offenders(copy) != []
+diff --git a/tests/ops/test_trace.py b/tests/ops/test_trace.py
+index c6f37b3..ab66707 100644
+--- a/tests/ops/test_trace.py
++++ b/tests/ops/test_trace.py
+@@ -9,21 +9,21 @@ import io
+ import json
+ import sqlite3
+ from datetime import UTC, datetime, timedelta
+ 
+ import pytest
+ 
+ from rtb.analyzer.task_store import FollowUp, ReplanReason, TaskReader
+ from rtb.domain.attempt import operation_key
+ from rtb.domain.proposal import content_hash
+ from rtb.domain.task_state import TaskState
+-from rtb.executor.execution import Result
++from rtb.executor.execution import CampaignView, Result
+ from rtb.executor.inbox_store import RETENTION, ReadOnlyInbox
+ from rtb.ops import trace
+ from rtb.ops.trace import MISSING, KeyOrigin, Origin, Table
+ from rtb.sqlitekit import DatabaseNotUpgraded
+ from tests.executor.conftest import NOW
+ from tests.executor.fakes import proposal
+ 
+ 
+ def build(world, task_id="t1", **kwargs):
+     return trace.build_trace(task_id, **world.paths(), dsp_timeout_seconds=1.0, **kwargs)
+@@ -273,10 +273,41 @@ def test_a_reused_task_and_revision_with_new_content_is_traced_separately(world)
+     for prop in (first, second):
+         digest = content_hash(prop)
+         mine = revisions["re", 1, digest]
+         assert mine.key == operation_key(prop) and not mine.settled_by_existing_key
+         assert mine.attempts_owner == ("re", 1, digest)
+         for table in (Table.ATTEMPTS, Table.DSP_CALLS, Table.DSP_OPERATIONS):
+             owned = [s for s in traced.segments
+                      if s.table is table and s.field("key") == operation_key(prop)]
+             assert owned, (table, prop.campaign_id)
+             assert {s.field("content_hash") for s in owned} == {digest}, table
++
++
++# ---- [S614] 代碼審第 2 輪:同一把冪等鍵、內容雜湊不同的兩份提案,呼叫紀錄各帶自己的雜湊 ----
++def test_calls_for_two_proposals_sharing_a_key_keep_their_own_content_hash(world):
++    world.h.dsp.campaigns["c1"] = CampaignView(budget=100, status="paused", version=3)
++    first, result = world.execute(task_id="sk")  # 廣告暫停:執行前擋下,只讀過一次 DSP
++    assert result.kind is Result.BLOCKED
++    world.clock.advance(seconds=RETENTION.total_seconds() + 60)
++    now = world.clock()
++    fresh = {"decision_created_at": now.isoformat(),
++             "decision_expires_at": (now + timedelta(minutes=5)).isoformat()}
++    world.h.store.accept(proposal(task_id="other", campaign_id="c3", **fresh), world.clock)
++    world.h.process()
++    world.h.dsp.campaigns["c1"] = CampaignView(budget=100, status="active", version=3)
++    second, result = world.execute(task_id="sk", **fresh)  # 只改決策時間:同一把冪等鍵
++    assert result.kind is Result.EXECUTED
++    assert operation_key(first) == operation_key(second)
++    assert content_hash(first) != content_hash(second)
++
++    rows = world.h.query("SELECT content_hash FROM dsp_calls WHERE task_id = 'sk' ORDER BY id")
++    assert [r[0] for r in rows] == [content_hash(first)] + [content_hash(second)] * 3
++    calls = [s for s in build(world, "sk").segments if s.table is Table.DSP_CALLS]
++    assert [s.field("content_hash") for s in calls] == [r[0] for r in rows]
++
++    # 呼叫紀錄沒記雜湊時標「不明」,不從別處任選一個
++    conn = sqlite3.connect(world.executor_db)
++    conn.execute("UPDATE dsp_calls SET content_hash = NULL WHERE task_id = 'sk'")
++    conn.commit()
++    conn.close()
++    calls = [s for s in build(world, "sk").segments if s.table is Table.DSP_CALLS]
++    assert {s.field("content_hash") for s in calls} == {trace.UNKNOWN}

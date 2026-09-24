@@ -1,0 +1,1269 @@
+diff --git a/src/rtb/capabilitykit.py b/src/rtb/capabilitykit.py
+index 2da3a67..9e22604 100644
+--- a/src/rtb/capabilitykit.py
++++ b/src/rtb/capabilitykit.py
+@@ -15,20 +15,23 @@ import binascii
+ import hashlib
+ import hmac
+ import json
+ import re
+ from collections.abc import Mapping
+ from typing import Any
+ 
+ KEY_ENV = "RTB_CAPABILITY_KEY"  # 程式裡唯一出現這個名稱的地方(有測試擋)
+ # 人工核可金鑰(Phase 6 增量 3):跟簽發金鑰分開,管理工具簽核可、執行迴圈驗核可;格式機制共用
+ APPROVAL_KEY_ENV = "RTB_APPROVAL_KEY"  # 同上,程式裡唯一出現這個名稱的地方
++# 唯讀稽核金鑰(Phase 9 增量 3 代碼審,代使用者裁定):DSP 列操作兩支端點回全租戶明細,只給持有它的
++# 維運套件讀。跟簽發金鑰分開:維運套件拿不到能簽寫入憑證的那一把。不走簽章,DSP 用固定時間比對
++AUDIT_KEY_ENV = "RTB_DSP_AUDIT_KEY"  # 同上,程式裡唯一出現這個名稱的地方
+ MIN_KEY_BYTES = 32  # 空字串或很短的金鑰也算得出簽章,但等於沒有防線
+ MAX_TOKEN_CHARS = 2048
+ HEADER = "X-Capability"
+ _SEGMENT = re.compile(r"[A-Za-z0-9_-]+")
+ 
+ ClaimValue = str | int | None
+ 
+ 
+ class TokenRejected(Exception):
+     """憑證拆不開或簽章不對;具體原因只給本地判斷用,不回給呼叫端。"""
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index ee49277..f584ca5 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -1,32 +1,33 @@
+ """Mock DSP 的 HTTP 介面(獨立行程)。
+ 
+ 故障注入只在啟動時帶 --fault-injection 才接受 X-Fault 標頭;旗標關閉時收到標頭一律回 400,
+ 且不改任何狀態。每種故障都由處理程式「決定」提交或不提交,不靠睡眠長短與逾時賽跑。
+ 只綁定本機回送位址,且只接受 Host 標頭指向回送位址的請求(防 DNS rebinding)。
+ 任何沒預期到的例外都回 500 JSON,絕不無聲切斷連線:呼叫端看到斷線,就分不出
+ 「永久錯誤」與「提交前逾時」。
+ """
+ 
+ import argparse
++import hmac
+ import os
+ import re
+ import time
+ from collections.abc import Callable
+ from dataclasses import asdict, replace
+ from datetime import datetime
+ from pathlib import Path
+ from typing import Any
+ from urllib.parse import parse_qs, unquote, urlsplit
+ 
++from rtb.capabilitykit import AUDIT_KEY_ENV, is_usable_key, read_key
+ from rtb.capabilitykit import HEADER as CAPABILITY_HEADER
+-from rtb.capabilitykit import read_key
+ from rtb.dsp.capability import (
+     WriteRequest,
+     check_body_fields,
+     check_scope,
+     verified_claims,
+ )
+ from rtb.dsp.errors import (
+     CampaignNotFound,
+     CapabilityExpired,
+     CapabilityInvalid,
+@@ -36,21 +37,27 @@ from rtb.dsp.errors import (
+     DspError,
+     IdempotencyConflict,
+     MetricsNotFound,
+     OperationVoided,
+     StoreBusy,
+     TransientError,
+     UnknownAction,
+     ValidationRejected,
+     VersionConflict,
+ )
+-from rtb.dsp.store import CampaignStore, Operation, validate, validate_key_and_version
++from rtb.dsp.store import (
++    SQLITE_INTEGER_MAX,
++    CampaignStore,
++    Operation,
++    validate,
++    validate_key_and_version,
++)
+ from rtb.httpkit import (
+     SOCKET_TIMEOUT_SECONDS,
+     JsonHandler,
+     KitServer,
+     NoResponse,
+     RequestRejected,
+ )
+ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS
+ 
+ FAULT_MODES = frozenset(
+@@ -71,21 +78,21 @@ ERROR_TABLE = {
+     ValidationRejected: (422, "validation_rejected", False),
+     UnknownAction: (400, "unknown_action", False),
+     CampaignNotFound: (404, "campaign_not_found", False),
+     MetricsNotFound: (404, "metrics_not_found", False),
+     CapabilityNotConfigured: (503, "capability_not_configured", False),
+     CapabilityMissing: (401, "capability_missing", False),
+     CapabilityInvalid: (401, "capability_invalid", False),
+     CapabilityExpired: (401, "capability_expired", False),
+     CapabilityScopeMismatch: (403, "capability_scope_mismatch", False),
+ }
+-MAX_CURSOR_DIGITS = 19  # 游標是 SQLite 整數(最大 19 位數);更長的不收
++MAX_CURSOR_DIGITS = 19  # 游標是 SQLite 整數(最大 19 位數);更長的不收,轉整數後再比上限
+ ROUTES = [
+     ("GET", re.compile(r"^/campaigns/([^/]+)$"), "get_campaign"),
+     ("GET", re.compile(r"^/campaigns/([^/]+)/history$"), "get_history"),
+     ("GET", re.compile(r"^/campaigns/([^/]+)/metrics$"), "get_metrics"),
+     ("GET", re.compile(r"^/operations/([^/]+)$"), "get_operation"),
+     # 副作用核對翻頁用(Phase 9 增量 3):照既有形狀,路徑裡恰好一個參數
+     ("GET", re.compile(r"^/operations/since/([^/]+)$"), "get_operation_cursor"),
+     ("GET", re.compile(r"^/operations/after/([^/]+)$"), "get_operations_after"),
+     ("POST", re.compile(r"^/campaigns/([^/]+)/budget$"), "update_budget"),
+     ("POST", re.compile(r"^/campaigns/([^/]+)/pause$"), "pause_campaign"),
+@@ -149,39 +156,63 @@ class DspHandler(JsonHandler):
+         return asdict(store.get_metrics(campaign_id, windows[0] if windows else None))
+ 
+     def _get_operation(
+         self, store: CampaignStore, key: str, _fault: str | None
+     ) -> dict[str, Any]:
+         result = store.get_operation_by_key(key)
+         if result is None:
+             raise RequestRejected(404, "operation_not_found")
+         return asdict(result)
+ 
++    def _require_audit_key(self) -> None:
++        """列操作兩支端點回全租戶的明細(含租戶、預算、冪等鍵),只給帶唯讀稽核金鑰的讀(Phase 9
++        增量 3 代碼審,代使用者裁定)。金鑰放在能力憑證那個標頭,原樣比對、固定時間。
++
++        不沿用寫入憑證的驗證:那套聲明綁一個廣告、一把冪等鍵、一個寫入動作,又是用簽發金鑰簽的;
++        維運套件要能簽,就得拿到能簽寫入憑證的那一把。所以另給一把只開這兩支端點的金鑰。
++        DSP 沒設這把金鑰就一律拒收(比照寫入沒設簽發金鑰);既有依鍵、依廣告的唯讀端點不變。"""
++        expected = self.server.audit_key
++        if not is_usable_key(expected):
++            raise RequestRejected(503, "audit_not_configured")
++        assert expected is not None  # is_usable_key 已確認  # noqa: S101
++        presented = self.single_header(CAPABILITY_HEADER)
++        if presented is None:
++            raise RequestRejected(401, "audit_key_missing")
++        if not hmac.compare_digest(presented.encode("utf-8", "surrogateescape"), expected):
++            raise RequestRejected(403, "audit_key_invalid")
++
+     def _get_operation_cursor(
+         self, store: CampaignStore, since: str, _fault: str | None
+     ) -> dict[str, Any]:
+         """提交時間大於等於這個時間的第一筆之前的最後一個操作編號(時間要帶時區)。"""
++        self._require_audit_key()
+         try:
+             moment = datetime.fromisoformat(unquote(since))
+         except ValueError as exc:
+             raise RequestRejected(400, "invalid_time") from exc
+         if moment.tzinfo is None:
+             raise RequestRejected(400, "invalid_time")
+         return {"cursor": store.operation_cursor(moment)}
+ 
+     def _get_operations_after(
+         self, store: CampaignStore, cursor: str, _fault: str | None
+     ) -> dict[str, Any]:
+-        """操作編號大於游標的操作,一次最多一頁,回下一頁的游標(沒有下一頁為空)。"""
+-        if not cursor.isdigit() or len(cursor) > MAX_CURSOR_DIGITS:
++        """操作編號大於游標的操作,一次最多一頁,回下一頁的游標(沒有下一頁為空)。游標只收十進位
++        數字(isdecimal:上標、圈碼數字 isdigit 會收、int 不收),轉整數後不得超過 SQLite 整數上限
++        (19 位數可以超過),都回 400 invalid_cursor,不讓它變成 500(代碼審第 1 輪)。"""
++        self._require_audit_key()
++        if not cursor.isdecimal() or len(cursor) > MAX_CURSOR_DIGITS:
++            raise RequestRejected(400, "invalid_cursor")
++        value = int(cursor)
++        if value > SQLITE_INTEGER_MAX:
+             raise RequestRejected(400, "invalid_cursor")
+-        operations, following = store.operations_after(int(cursor))
++        operations, following = store.operations_after(value)
+         return {"operations": operations, "next": following}
+ 
+     # ---- 寫入介面 ----
+     def _update_budget(
+         self, store: CampaignStore, campaign_id: str, fault: str | None
+     ) -> dict[str, Any]:
+         return self._authorized_write(store, campaign_id, "update_budget", fault)
+ 
+     def _pause_campaign(
+         self, store: CampaignStore, campaign_id: str, fault: str | None
+@@ -266,41 +297,44 @@ class DspHandler(JsonHandler):
+         elif fault == "timeout_before_commit":
+             time.sleep(self.server.hang_seconds)  # 不論客戶端是否還在,都不提交
+             raise NoResponse
+ 
+ 
+ class DspServer(KitServer):
+     def __init__(self, db_path: Path, fault_injection: bool, hang_seconds: float,  # noqa: PLR0913 - 啟動參數逐一對應命令列
+                  delay_seconds: float, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
+                  socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS,
+                  capability_key: bytes | None = None,
+-                 clock: Callable[[], float] = time.time):
+-        """capability_key 由啟動程式讀好傳進來;伺服器物件本身不讀環境變數。沒給就拒收所有寫入。"""
++                 clock: Callable[[], float] = time.time, audit_key: bytes | None = None):
++        """capability_key 與 audit_key 由啟動程式讀好傳進來;伺服器物件本身不讀環境變數。
++        capability_key 沒給就拒收所有寫入;audit_key 沒給就拒收列操作兩支端點。"""
+         super().__init__(DspHandler, socket_timeout_seconds, fault_injection=fault_injection)
+         self.db_path = db_path
+         self.capability_key, self.clock = capability_key, clock
++        self.audit_key = audit_key
+         self.hang_seconds, self.delay_seconds = hang_seconds, delay_seconds
+         self.busy_timeout_seconds = busy_timeout_seconds
+ 
+ 
+ def main(argv: list[str] | None = None) -> None:
+     parser = argparse.ArgumentParser(description="Mock DSP")
+     parser.add_argument("--db", required=True, type=Path)
+     parser.add_argument("--fault-injection", action="store_true")
+     parser.add_argument("--hang-seconds", type=float, default=2.0)
+     parser.add_argument("--delay-seconds", type=float, default=0.3)
+     parser.add_argument("--busy-timeout-seconds", type=float, default=BUSY_TIMEOUT_SECONDS)
+     parser.add_argument("--socket-timeout-seconds", type=float, default=SOCKET_TIMEOUT_SECONDS)
+     args = parser.parse_args(argv)
+     CampaignStore(args.db).close()  # 確保資料庫與表已建立
+     server = DspServer(args.db, args.fault_injection, args.hang_seconds, args.delay_seconds,
+                        args.busy_timeout_seconds, args.socket_timeout_seconds,
+-                       capability_key=read_key(os.environ))  # 只有啟動程式讀環境變數
++                       capability_key=read_key(os.environ),  # 只有啟動程式讀環境變數
++                       audit_key=read_key(os.environ, AUDIT_KEY_ENV))
+     print(f"PORT={server.server_address[1]}", flush=True)
+     try:
+         server.serve_forever()
+     finally:
+         server.server_close()
+ 
+ 
+ if __name__ == "__main__":
+     main()
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index 2b474a1..03fe43d 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -68,26 +68,35 @@ IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")  # 用 fullmatch
+ 
+ def _utc_now() -> str:
+     return datetime.now(UTC).isoformat()
+ 
+ 
+ def _moment(text: str) -> datetime:
+     value = datetime.fromisoformat(text)
+     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+ 
+ 
++def commit_text(moment: datetime) -> str:
++    """提交時間的固定寫法:換算成 UTC 的 isoformat(+00:00;微秒是 0 時省略)。寫入操作紀錄與依時間
++    找起點都用這一支,字串比較才等於時間比較(代碼審第 1 輪:時鐘可注入 -05:00 這種偏移,原樣存下
++    會讓字串順序跟時間順序對不上)。同一秒內省略微秒的那種寫法排在帶微秒的前面('+' 小於 '.'),
++    剛好也是時間順序;預設時鐘一直是這種寫法,所以既有資料不用搬。沒帶時區的當 UTC。"""
++    value = moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
++    return value.astimezone(UTC).isoformat()
++
++
+ def operation_cursor_query(since: datetime) -> tuple[str, tuple[str]]:
+     """依時間找起點的查詢語句(測試用它看查詢計畫):提交時間大於等於 since 的第一筆。提交時間跟
+-    寫入時同一種寫法(UTC 的 isoformat),字串比較就是時間比較。"""
++    寫入時同一種寫法(commit_text),字串比較就是時間比較。"""
+     return ("SELECT operation_id FROM operations WHERE committed_at >= ? "
+             "ORDER BY committed_at, operation_id LIMIT 1",
+-            (since.astimezone(UTC).isoformat(),))
++            (commit_text(since),))
+ 
+ 
+ @dataclass(frozen=True)
+ class Campaign:
+     id: str
+     budget: int
+     status: str
+     version: int
+     name: str  # 不可信文字:只在建檔時設定,沒有寫入端點能改(比照租戶);不給預設值,改狀態時必須沿用
+ 
+@@ -400,26 +409,28 @@ class CampaignStore:
+         operation_id = self._apply(op, updated, received_at, committed_at)
+         self._record_idempotency(op, operation_id)
+         return OperationResult(
+             operation_id, op.campaign_id, op.action, updated.version, committed_at, False,
+             op.idempotency_key, dict(op.params),
+             op.expected_version if is_plain_int(op.expected_version) else None,
+         )
+ 
+     def _not_before_last(self, reading: str) -> str:
+         """提交時間取時鐘讀數與上一筆提交時間較大的那個(Phase 9 增量 3):依操作編號翻頁才等於依
+-        時間翻頁。時鐘倒退時提交時間會被墊高到上一筆。在寫入交易裡讀,上一筆不會被別人插隊。"""
++        時間翻頁。時鐘倒退時提交時間會被墊高到上一筆。在寫入交易裡讀,上一筆不會被別人插隊。
++        回傳前統一成固定寫法(commit_text)。"""
++        moment = _moment(reading)
+         row = self._conn.execute(
+             "SELECT committed_at FROM operations ORDER BY operation_id DESC LIMIT 1").fetchone()
+-        if row is None or _moment(row[0]) <= _moment(reading):
+-            return reading
+-        return str(row[0])
++        if row is not None and _moment(row[0]) > moment:
++            moment = _moment(row[0])
++        return commit_text(moment)
+ 
+     def operation_cursor(self, since: datetime) -> int:
+         """提交時間大於等於 since 的第一筆之前的最後一個操作編號;沒有更早的回 0,沒有任何一筆
+         大於等於 since 回目前最大的編號(之後列操作就從這裡往下)。走提交時間索引。"""
+         sql, params = operation_cursor_query(since)
+         first = self._conn.execute(sql, params).fetchone()
+         if first is None:
+             row = self._conn.execute("SELECT max(operation_id) FROM operations").fetchone()
+         else:
+             row = self._conn.execute("SELECT max(operation_id) FROM operations "
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index bb009d3..ac5f640 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -459,38 +459,49 @@ def latest(tx: Readable, key: str) -> AttemptRow | None:
+     return None if record is None else _row(record)
+ 
+ 
+ def history(tx: Readable, key: str) -> tuple[AttemptRow, ...]:
+     records = _read_conn(tx).execute(
+         f"SELECT {_COLUMNS} FROM attempts WHERE key = ? ORDER BY seq",  # noqa: S608 - 只拼接模組內固定的欄位清單
+         (key,)).fetchall()
+     return tuple(_row(record) for record in records)
+ 
+ 
+-def snapshot(tx: Readable, key: str) -> Proposal:
+-    """讀回第 1 列存的完整提案,經同一個解析器還原成領域層的提案物件,並核對它仍算得出這把鍵。"""
+-    record = _read_conn(tx).execute(
+-        "SELECT proposal_json FROM attempts WHERE key = ? AND seq = 1", (key,)).fetchone()
+-    if record is None or record[0] is None:
++def _parsed_snapshot(key: str, text: str | None) -> Proposal:
++    """第 1 列存的提案快照經同一個解析器還原;沒有、不是 JSON、解析不回來都丟毀損例外。"""
++    if text is None:
+         raise CorruptedAttemptRow(f"{key} 沒有提案快照")
+     try:
+-        raw = json.loads(record[0])
++        raw = json.loads(text)
+     except json.JSONDecodeError as exc:
+         raise CorruptedAttemptRow(f"{key} 的提案快照不是 JSON") from exc
+     parsed = parse_proposal(raw)
+     if parsed.proposal is None:
+         raise CorruptedAttemptRow(f"{key} 的提案快照解析不回來:{parsed.errors}")
+-    if operation_key(parsed.proposal) != key:
+-        raise CorruptedAttemptRow(f"{key} 的提案快照已對不上它的鍵")
+     return parsed.proposal
+ 
+ 
++def _snapshot_matches_key(key: str, proposal: Proposal) -> bool:
++    """快照的鍵一致性:這份提案仍算得出這把鍵(snapshot 與批量讀第一列共用這一條)。"""
++    return operation_key(proposal) == key
++
++
++def snapshot(tx: Readable, key: str) -> Proposal:
++    """讀回第 1 列存的完整提案,經同一個解析器還原成領域層的提案物件,並核對它仍算得出這把鍵。"""
++    record = _read_conn(tx).execute(
++        "SELECT proposal_json FROM attempts WHERE key = ? AND seq = 1", (key,)).fetchone()
++    proposal = _parsed_snapshot(key, None if record is None else record[0])
++    if not _snapshot_matches_key(key, proposal):
++        raise CorruptedAttemptRow(f"{key} 的提案快照已對不上它的鍵")
++    return proposal
++
++
+ def unresolved_count_query(campaign_id: str | None = None) -> tuple[str, tuple[str, ...]]:
+     """未結案數 = 第 1 列數 - 終點列數(可限定一個廣告);兩邊都走部分索引。"""
+     where = "" if campaign_id is None else " AND campaign_id = ?"
+     params = () if campaign_id is None else (campaign_id, campaign_id)
+     query = (
+         f"SELECT (SELECT COUNT(*) FROM attempts WHERE seq = 1{where}) - "  # noqa: S608 - 只拼接固定條件
+         f"(SELECT COUNT(*) FROM attempts WHERE state IN ({_TERMINAL_LIST}){where})"
+     )
+     return query, params
+ 
+@@ -942,51 +953,57 @@ def unknown_rows_between_query(
+ def unknown_rows_between(tx: Readable, since: datetime, until: datetime) -> tuple[str, ...]:
+     """時間窗內寫過結果不明列的鍵(Phase 9 增量 3 對帳服務水準的候選);走結果不明的部分索引。
+     呼叫端再用鍵讀整串,判第一次進結果不明是不是落在它要的範圍。"""
+     sql, params = unknown_rows_between_query(since, until)
+     return tuple(row[0] for row in _read_conn(tx).execute(sql, params))
+ 
+ 
+ @dataclass(frozen=True)
+ class FirstRow:
+     """一把鍵的第一列:開始一筆時記下的提案快照、租戶、預留金額與四樣核對材料(副作用核對用)。
+-    快照讀不回來時 proposal 為空;舊列沒有的欄位為空。"""
++    快照讀不回來時 proposal 為空;舊列沒有的欄位為空。snapshot_matches_key 沿用 snapshot 的鍵一致性
++    檢查:快照讀不回來、或讀得回來卻算不出這把鍵,都是假(代碼審第 1 輪:批量讀原本沒核對,毀損
++    的快照會被當成可信的提案內容)。"""
+ 
+     key: str
+     task_id: str | None
+     revision: int | None
+     campaign_id: str
+     tenant: str | None
+     reserved_amount: int | None
+     ratio_allowance: int | None
+     max_budget: int | None
+     aggregate_limit: int | None
+     used_before: int | None  # 表上的欄位名是 aggregate_used(判門檻用的已用額度)
+     proposal: Proposal | None
++    snapshot_matches_key: bool
+     written_at: str
+ 
+ 
+ _FIRST_ROW_READ = ("key, task_id, revision, campaign_id, tenant, reserved_amount, "
+                    "ratio_allowance, max_budget, aggregate_limit, aggregate_used, proposal_json, "
+                    "written_at")
+ BATCH = 500  # 一批最多幾把鍵:遠低於 SQLite 參數上限
+ 
+ 
+ def _first_row(row: Sequence[Any]) -> FirstRow:
+     try:
+-        parsed = parse_proposal(json.loads(row[10] or "null")).proposal
+-    except (ValueError, TypeError):
++        parsed: Proposal | None = _parsed_snapshot(row[0], row[10])
++    except CorruptedAttemptRow:
+         parsed = None
+     return FirstRow(key=row[0], task_id=row[1], revision=row[2], campaign_id=row[3],
+                     tenant=row[4], reserved_amount=row[5], ratio_allowance=row[6],
+                     max_budget=row[7], aggregate_limit=row[8], used_before=row[9],
+-                    proposal=parsed, written_at=row[11])
++                    proposal=parsed,
++                    snapshot_matches_key=parsed is not None and _snapshot_matches_key(
++                        row[0], parsed),
++                    written_at=row[11])
+ 
+ 
+ def first_rows_for(tx: Readable, keys: Iterable[str]) -> dict[str, FirstRow]:
+     """一批冪等鍵各自的第一列(Phase 9 增量 3 副作用核對用);每批不超過 BATCH 把,不逐筆查。
+     找不到第一列的鍵不在結果裡。"""
+     conn, wanted, found = _read_conn(tx), sorted(set(keys)), {}
+     for start in range(0, len(wanted), BATCH):
+         chunk = wanted[start:start + BATCH]
+         marks = ", ".join("?" * len(chunk))
+         for row in conn.execute(
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 7688a35..e276cc3 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -22,21 +22,21 @@
+ 
+ 生命週期事件(Phase 9 增量 1):每一支會寫收件表那一列的方法,都在同一個交易裡由同一支內部函式
+ `_log` 寫一列事件(續租除外,保留期整批刪除也不寫);事件表只增不改、不隨收件表清除,廣告、冪等鍵、
+ 政策版本在寫事件時從那一列的提案內容算出存下。唯讀開法 `ReadOnlyInbox` 只有唯讀連線、只發唯讀
+ 交易,開啟時不建表、不補欄位,資料庫還沒升級就丟 DatabaseNotUpgraded。
+ """
+ 
+ import json
+ import sqlite3
+ from collections import defaultdict
+-from collections.abc import Callable, Iterable, Iterator
++from collections.abc import Callable, Iterable, Iterator, Sequence
+ from contextlib import contextmanager
+ from dataclasses import dataclass, replace
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from pathlib import Path
+ 
+ from rtb import PROGRAM_VERSION
+ from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
+ from rtb.domain.proposal import (
+     MAX_DECISION_LIFETIME,
+@@ -239,20 +239,21 @@ CREATE TABLE IF NOT EXISTS dead_letters (
+     deliveries INTEGER NOT NULL, at TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS dead_letters_by_proposal ON dead_letters (task_id, revision);
+ CREATE TABLE IF NOT EXISTS dead_letter_ops (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, envelope INTEGER REFERENCES dead_letters (id),
+     task_id TEXT NOT NULL, revision INTEGER NOT NULL,
+     action TEXT NOT NULL CHECK (action IN (DEAD_LETTER_ACTION_LIST)), operator TEXT NOT NULL,
+     reason TEXT, at TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS dead_letter_ops_by_envelope ON dead_letter_ops (envelope);
+ CREATE INDEX IF NOT EXISTS approval_uses_by_tenant ON approval_uses (tenant, at);
+ CREATE INDEX IF NOT EXISTS approval_uses_by_time ON approval_uses (at);
++CREATE INDEX IF NOT EXISTS approval_uses_by_key ON approval_uses (key, stage);
+ CREATE TABLE IF NOT EXISTS lifecycle_events (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT NOT NULL,
+     revision INTEGER NOT NULL, content_hash TEXT, campaign_id TEXT, key TEXT, policy_version TEXT,
+     tenant TEXT, kind TEXT NOT NULL, reason TEXT, source TEXT NOT NULL, actor TEXT,
+     deliveries INTEGER, from_existing INTEGER NOT NULL, program_version TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS lifecycle_events_by_time ON lifecycle_events (at);
+ CREATE INDEX IF NOT EXISTS lifecycle_events_by_task ON lifecycle_events (task_id, id);
+ CREATE INDEX IF NOT EXISTS lifecycle_events_terminal
+     ON lifecycle_events (task_id, revision, content_hash, id) WHERE kind IN (TERMINAL_KIND_LIST);
+ """
+@@ -736,30 +737,27 @@ class InboxReads:
+         """時間窗內的生命週期事件(含起點、不含終點),依時間、再依寫入順序;走時間索引(Phase 9
+         增量 2 的指標用)。"""
+         self._own_read(tx)
+         sql, params = lifecycle_events_between_query(since, until)
+         return tuple(_event(row) for row in self._conn.execute(sql, params))
+ 
+     def approval_uses_for(
+         self, tx: attempt_store.Readable, keys: Iterable[str],
+     ) -> dict[str, frozenset[str]]:
+         """一批冪等鍵各自用過核可的關卡(Phase 9 增量 3 副作用核對用);每批不超過嘗試紀錄模組的
+-        批量上限,不逐筆查。沒用過核可的鍵不在結果裡。不另加依鍵的索引:核可使用表每筆人工核可才
+-        一列,整表很小;加了會讓既有「已核可放行數」依廣告篩的查詢改走它、偏離那支查詢寫定的
+-        索引路徑(有測試守)。"""
++        批量上限,不逐筆查。沒用過核可的鍵不在結果裡。走依鍵與關卡的索引(只讀這個索引就答得出來),
++        不每批整表掃(代碼審第 1 輪)。"""
+         self._own_read(tx)
+         wanted, found = sorted(set(keys)), defaultdict(set)
+         for start in range(0, len(wanted), attempt_store.BATCH):
+-            chunk = wanted[start:start + attempt_store.BATCH]
+-            marks = ", ".join("?" * len(chunk))
+             for key, stage in self._conn.execute(
+-                    f"SELECT key, stage FROM approval_uses WHERE key IN ({marks})", chunk):  # noqa: S608 - 只拼佔位符
++                    *approval_uses_for_query(wanted[start:start + attempt_store.BATCH])):
+                 found[key].add(stage)
+         return {key: frozenset(stages) for key, stages in found.items()}
+ 
+     def pending_snapshot(self, tx: attempt_store.Readable) -> tuple[int, str | None]:
+         """現在的待處理份數(還沒被取件、也還沒處置)與其中最早的收件時間;收件表有總列數上限,
+         查詢成本有上限(Phase 9 增量 2 的佇列現況)。"""
+         self._own_read(tx)
+         count, oldest = self._conn.execute(
+             f"SELECT count(*), min(received_at) FROM proposals WHERE {PENDING}").fetchone()  # noqa: S608 - 固定條件
+         return int(count), oldest
+@@ -1594,20 +1592,30 @@ def lifecycle_events_between_query(
+ def last_terminal_event_query(
+     task_id: str, revision: int, digest: str,
+ ) -> tuple[str, tuple[object, ...]]:
+     """找一份提案最後一個終點事件的查詢語句(測試用它看查詢計畫);種類條件照抄部分索引的清單。"""
+     return (f"SELECT {', '.join(_LIFECYCLE_FIELDS)} FROM lifecycle_events "  # noqa: S608 - 固定欄位與列舉值
+             "WHERE task_id = ? AND revision = ? AND content_hash = ? "
+             f"AND kind IN ({_TERMINAL_KIND_LIST}) ORDER BY id DESC LIMIT 1",
+             (task_id, revision, digest))
+ 
+ 
++def approval_uses_for_query(keys: Sequence[str]) -> tuple[str, tuple[str, ...]]:
++    """一批冪等鍵的核可使用查詢語句(測試用它看查詢計畫)。依鍵與關卡的索引是代碼審第 1 輪加的:
++    設計時怕它讓「已核可放行數」依廣告篩的查詢改走它,實測查詢計畫不變(那支查詢在接續條件上比到
++    任務與修訂,唯一限制的索引比得到兩欄,優先於只比得到一欄的依鍵索引),Phase 6 釘住查詢計畫的
++    測試照舊守著。"""
++    marks = ", ".join("?" * len(keys))
++    return (f"SELECT key, stage FROM approval_uses WHERE key IN ({marks})",  # noqa: S608 - 只拼佔位符
++            tuple(keys))
++
++
+ def approval_use_count_query(
+     *, tenant: str | None = None, campaign_id: str | None = None,
+     since: datetime | None = None, until: datetime | None = None,
+ ) -> tuple[str, tuple[object, ...]]:
+     """已核可放行數的查詢語句(測試用它看查詢計畫)。用核可使用表的租戶、任務、修訂、操作鍵與時間;
+     依廣告篩時用操作鍵接回這筆放行開始的那一列(第一列)取廣告——核可使用紀錄跟開始一筆寫在同一個
+     交易,那一列一定在,而且只增不改。不接停下紀錄:核可先簽好就放行時沒有停下紀錄,等待期間換了
+     租戶時停下紀錄留的是舊租戶(代碼審第 1 輪)。要比操作鍵、不能只比任務與修訂:收件表清掉已結案
+     任務後,同一組任務與修訂可能再來一份內容不同的提案,舊內容的第一列還在(代碼審第 2 輪外家席)。
+     寫成連接而不是子查詢:只依廣告篩時才能從「第一列按廣告」的索引出發,不整張掃核可使用表。"""
+diff --git a/src/rtb/ops/side_effects.py b/src/rtb/ops/side_effects.py
+index 3dc6329..2c6c944 100644
+--- a/src/rtb/ops/side_effects.py
++++ b/src/rtb/ops/side_effects.py
+@@ -2,36 +2,43 @@
+ 
+ - 核對函式逐項重看 DSP 的一筆寫入,判法只用寫入當時記下、之後不變的資料:嘗試第一列的提案快照、
+   租戶、預留金額與四樣核對材料(比例允許加的量、單一廣告上限、總額上限、已用額度),DSP 記下的廣告
+   建檔租戶與政策版本,以及核可使用紀錄。任何一項證實違規就判壞;沒有任何一項違規、但缺了需要的
+   材料判無法核對(不算有效事件、另報份數)。
+ - DSP 的窗用兩支唯讀端點讀:先取窗起點的游標,再依操作編號往下翻頁,讀到提交時間大於等於窗終點就停
+   (DSP 保證提交時間不小於上一筆,依編號翻頁等於依時間翻頁)。窗含起點、不含終點。
+ - 讀取順序:先讀 DSP 的窗,再開執行端的唯讀快照。執行端在呼叫 DSP 之前就提交了第一列,所以 DSP
+   看得到的每一筆執行端寫入,之後開的快照一定看得到它的第一列;反過來會把正常寫入誤判成沒經過開始
+   一筆。執行端一律用擁有模組的批量讀取函式,不逐筆查。
++- 穩定與否:不像端到端交給執行那樣讀到兩輪相同為止,計數恆標穩定。理由是上面的因果順序:要核對
++  的只有「DSP 窗內的寫入」配「它們的第一列與核可使用」,第一列與核可使用都在呼叫 DSP 之前提交、之後
++  不改,所以讀 DSP 之後才開的快照對這些寫入一定讀得全,重讀一輪答案一樣;讀取期間新提交的寫入不在
++  這次讀到的 DSP 窗裡,不影響這次的答案(代碼審第 1 輪架構席)。
++- DSP 回應是不可信輸入:讀不到、狀態碼不對、欄位或提交時間讀不懂,一律轉成 DspUnreadable,這一條
++  回資料來源缺,不讓例外穿出去拖垮其他指標。
++- 列操作兩支端點要帶唯讀稽核金鑰(放在能力憑證標頭);沒帶或帶錯 DSP 拒讀,照實回資料來源缺。
+ """
+ 
+ import re
+ from collections.abc import Iterable, Mapping
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from enum import StrEnum
+ from pathlib import Path
+ from typing import Any
+ from urllib.parse import quote
+ 
+ from rtb.domain.proposal import ActionType, content_hash
+ from rtb.executor import attempt_store
+ from rtb.executor.attempt_store import FirstRow
+ from rtb.executor.inbox_store import BlockCode, ReadOnlyInbox
+-from rtb.httpclient import request_json
++from rtb.httpclient import ClientHeader, request_json
+ 
+ EXECUTOR_KEY = re.compile(r"k1-[0-9a-f]{64}")  # 執行端的冪等鍵格式;別的寫入者直接改 DSP 不算
+ MAX_PAGES = 20_000  # 翻頁上限:防 DSP 回應有誤時無限翻下去(一頁 50 筆,約 100 萬筆操作)
+ RATIO = BlockCode.BUDGET_INCREASE_TOO_LARGE.value
+ AGGREGATE = BlockCode.AGGREGATE_LIMIT_REACHED.value
+ 
+ 
+ class DspUnreadable(Exception):
+     """DSP 的唯讀端點讀不到或讀不懂:這個窗的副作用核對做不了(呼叫端照實標資料來源缺)。"""
+ 
+@@ -53,29 +60,31 @@ class DspWrite:
+     action: str
+     new_budget: int | None
+     expected_version: int | None
+     committed_at: str
+     policy_version: str | None
+ 
+ 
+ @dataclass(frozen=True)
+ class Tally:
+     """一個窗的計數:好事件、有效事件、每個壞事件的時間,另報無法核對、接不上、時鐘異常的份數。
+-    missing 為真:資料來源讀不到,這個窗沒算(不是 0 個事件)。"""
++    missing 為真:資料來源讀不到,這個窗沒算(不是 0 個事件)。stable 為假:跨資料庫讀了三輪都
++    不同,回的是最後一輪(比照追蹤檢視與指標的穩定欄;只有端到端交給執行會是假)。"""
+ 
+     good: int
+     valid: int
+     bad_at: tuple[str, ...] = ()
+     unverifiable: int = 0
+     unlinked: int = 0
+     clock_anomaly: int = 0
+     missing: bool = False
++    stable: bool = True
+ 
+     @property
+     def bad(self) -> int:
+         return self.valid - self.good
+ 
+ 
+ def iso(moment: str | datetime) -> str:
+     """固定格式的 UTC 字串(同執行端的寫法);DSP 寫的 +00:00 一律換算。"""
+     value = moment if isinstance(moment, datetime) else datetime.fromisoformat(moment)
+     if value.tzinfo is None:
+@@ -87,39 +96,39 @@ def is_executor_key(key: str) -> bool:
+     return EXECUTOR_KEY.fullmatch(key) is not None
+ 
+ 
+ # ---- 核對函式 ----
+ def _scope_violations(entry: DspWrite, first: FirstRow) -> tuple[list[str], list[str]]:
+     """授權範圍:廣告、動作、新預算、預期版本跟第一列的提案比;DSP 廣告建檔租戶跟第一列簽發租戶比。
+     回(違規, 缺的材料)。"""
+     proposal = first.proposal
+     bad: list[str] = []
+     missing: list[str] = []
+-    if proposal is None:
+-        return bad, ["snapshot"]
++    if proposal is None or not first.snapshot_matches_key:
++        return bad, ["snapshot"]  # 快照讀不回來或對不上鍵:不能拿來當授權範圍
+     wanted_budget = proposal.requested_change.get("new_budget")
+     if entry.campaign_id != proposal.campaign_id:
+         bad.append("campaign")
+     if entry.action != proposal.action_type.value:
+         bad.append("action")
+     if proposal.action_type is ActionType.UPDATE_BUDGET and entry.new_budget != wanted_budget:
+         bad.append("new_budget")
+-    if entry.expected_version != proposal.campaign_version_observed:
+-        bad.append("expected_version")
+-    if first.tenant is None or entry.tenant is None:
+-        missing.append("tenant")
+-    elif entry.tenant != first.tenant:
+-        bad.append("tenant")
+-    if entry.policy_version is None:
+-        missing.append("policy_version")
+-    elif entry.policy_version != proposal.policy_version:
+-        bad.append("policy_version")
++    # 可能沒記的三項:任一邊為空是缺材料,兩邊都有才比。預期版本與政策版本是 DSP 同一次補欄位加的,
++    # 舊操作兩者都空,一樣判缺材料(代碼審第 1 輪:預期版本原本空值也拿去比,判成證實違規)
++    for name, recorded, wanted in (
++            ("expected_version", entry.expected_version, proposal.campaign_version_observed),
++            ("tenant", entry.tenant, first.tenant),
++            ("policy_version", entry.policy_version, proposal.policy_version)):
++        if recorded is None or wanted is None:
++            missing.append(name)
++        elif recorded != wanted:
++            bad.append(name)
+     return bad, missing
+ 
+ 
+ def _limit_violations(
+     entry: DspWrite, first: FirstRow, stages: frozenset[str],
+ ) -> tuple[list[str], list[str]]:
+     """數值護欄(暫停跳過):單一廣告上限不論加減都核對;加的量大於 0 才核對比例與總曝險。剛好等於
+     上限、允許量或門檻算合法。"""
+     bad: list[str] = []
+     missing: list[str] = []
+@@ -177,150 +186,185 @@ def tally_unauthorized(
+             continue
+         valid += 1
+         if found is Verdict.GOOD:
+             good += 1
+         else:
+             bad_at.append(iso(entry.committed_at))
+     return Tally(good, valid, tuple(bad_at), unverifiable)
+ 
+ 
+ # ---- 讀 DSP ----
+-def get_json(url: str, path: str, timeout: float) -> tuple[int, Any]:
+-    """打 DSP 的唯讀端點(共用 HTTP 用戶端,只讀);連不上或讀不懂丟 DspUnreadable。"""
++def get_json(url: str, path: str, timeout: float,
++             audit_key: str | None = None) -> tuple[int, Any]:
++    """打 DSP 的唯讀端點(共用 HTTP 用戶端,只讀);連不上或讀不懂丟 DspUnreadable。列操作兩支端點
++    要帶唯讀稽核金鑰(放在能力憑證標頭);既有依鍵查的端點不用。"""
++    headers = None if audit_key is None else {ClientHeader.CAPABILITY: audit_key}
+     try:
+-        return request_json(f"{url.rstrip('/')}{path}", "GET", None, timeout)
++        return request_json(f"{url.rstrip('/')}{path}", "GET", None, timeout, headers)
+     except (OSError, ValueError) as exc:
+         raise DspUnreadable(str(exc)) from exc
+ 
+ 
++def commit_moment(text: object) -> datetime:
++    """DSP 回的提交時間:讀不懂或沒帶時區丟 DspUnreadable(沒帶時區拿去跟窗界比會直接丟例外)。"""
++    try:
++        moment = datetime.fromisoformat(str(text)) if isinstance(text, str) else None
++    except ValueError as exc:
++        raise DspUnreadable(f"提交時間讀不懂:{text!r}") from exc
++    if moment is None or moment.tzinfo is None:
++        raise DspUnreadable(f"提交時間讀不懂:{text!r}")
++    return moment
++
++
+ def _write(entry: Any) -> DspWrite:
+     if not isinstance(entry, dict):
+         raise DspUnreadable("操作不是物件")
+     try:
+-        return DspWrite(int(entry["operation_id"]), str(entry["idempotency_key"]),
+-                        str(entry["campaign_id"]), entry.get("tenant"), str(entry["action"]),
+-                        entry.get("new_budget"), entry.get("expected_version"),
+-                        str(entry["committed_at"]), entry.get("policy_version"))
++        written = DspWrite(int(entry["operation_id"]), str(entry["idempotency_key"]),
++                           str(entry["campaign_id"]), entry.get("tenant"), str(entry["action"]),
++                           entry.get("new_budget"), entry.get("expected_version"),
++                           str(entry["committed_at"]), entry.get("policy_version"))
+     except (KeyError, TypeError, ValueError) as exc:
+         raise DspUnreadable(f"操作欄位讀不懂:{exc!r}") from exc
++    commit_moment(entry["committed_at"])  # 在這裡就驗,後面的比較與換算不會再丟別的例外
++    return written
+ 
+ 
+ def read_dsp_window(
+-    url: str, since: datetime, until: datetime, timeout: float,
++    url: str, since: datetime, until: datetime, timeout: float, audit_key: str | None,
+ ) -> tuple[DspWrite, ...]:
+     """窗 [since, until) 內 DSP 提交的寫入:先取起點游標,再依編號翻頁,讀到提交時間大於等於終點
+     就停。"""
+-    status, body = get_json(url, f"/operations/since/{quote(since.isoformat(), safe='')}", timeout)
++    status, body = get_json(url, f"/operations/since/{quote(since.isoformat(), safe='')}",
++                            timeout, audit_key)
+     if status != 200 or not isinstance(body, dict) or not isinstance(body.get("cursor"), int):
+         raise DspUnreadable(f"游標端點回 {status}")
+     cursor: int = body["cursor"]
+     found: list[DspWrite] = []
+     for _ in range(MAX_PAGES):
+-        status, page = get_json(url, f"/operations/after/{cursor}", timeout)
++        status, page = get_json(url, f"/operations/after/{cursor}", timeout, audit_key)
+         if status != 200 or not isinstance(page, dict) or not isinstance(
+                 page.get("operations"), list):
+             raise DspUnreadable(f"列操作端點回 {status}")
+-        for entry in map(_write, page["operations"]):
++        for entry in map(_write, page["operations"]):  # 提交時間在 _write 已驗過帶時區
+             if datetime.fromisoformat(entry.committed_at) >= until:
+                 return tuple(found)
+             if datetime.fromisoformat(entry.committed_at) >= since:
+                 found.append(entry)
+         following = page.get("next")
+         if not isinstance(following, int):
+             return tuple(found)
+         if following <= cursor:  # 游標沒往前:DSP 回應有誤,不能一直翻
+             raise DspUnreadable("下一頁的游標沒有往前")
+         cursor = following
+     raise DspUnreadable("翻頁超過上限")
+ 
+ 
+ def _operation(url: str, key: str, timeout: float) -> tuple[str, int] | None:
+     """依冪等鍵讀 DSP 的一筆操作(既有的唯讀端點):回(提交時間, 操作編號),查不到回空。"""
+     status, body = get_json(url, f"/operations/{quote(key, safe='')}", timeout)
+     if status == 404:
+         return None
+     if status != 200 or not isinstance(body, dict):
+         raise DspUnreadable(f"操作端點回 {status}")
+-    return iso(str(body["committed_at"])), int(body["operation_id"])
++    try:
++        return iso(commit_moment(body.get("committed_at"))), int(body["operation_id"])
++    except (KeyError, TypeError, ValueError) as exc:
++        raise DspUnreadable(f"操作欄位讀不懂:{exc!r}") from exc
+ 
+ 
+ # ---- 兩條服務水準指標 ----
+ def unauthorized(since: datetime, until: datetime, executor_db: Path, dsp_url: str,
+-                 timeout: float) -> Tally:
++                 timeout: float, audit_key: str | None) -> Tally:
+     try:
+-        writes = read_dsp_window(dsp_url, since, until, timeout)  # 先讀 DSP
++        writes = read_dsp_window(dsp_url, since, until, timeout, audit_key)  # 先讀 DSP
+     except DspUnreadable:
+         return Tally(0, 0, missing=True)
+     keys = [w.key for w in writes if is_executor_key(w.key)]
+     inbox = ReadOnlyInbox(executor_db)  # 再開執行端快照
+     try:
+         with inbox.read_transaction() as tx:
+             firsts = attempt_store.first_rows_for(tx, keys)
+             approvals = inbox.approval_uses_for(tx, keys)
+     finally:
+         inbox.close()
+     return tally_unauthorized(writes, firsts, approvals)
+ 
+ 
+ def _identity(first: FirstRow) -> tuple[str, int, str] | None:
+     if first.proposal is None:
+         return None
+     return first.proposal.task_id, first.proposal.revision, content_hash(first.proposal)
+ 
+ 
+ def duplicates(since: datetime, until: datetime, executor_db: Path, dsp_url: str,
+-               timeout: float) -> Tally:
++               timeout: float, audit_key: str | None) -> Tally:
+     """同一份提案內容(任務、修訂、內容雜湊)在 DSP 的第二筆以及之後每一筆提交各算一個壞事件,依那
+     一筆的提交時間歸窗;第一筆在窗外也算(用第一列往回查同一份提案的其他鍵,不限窗)。找不到第一列的
+-    算無法核對。同一把鍵在窗內出現兩筆以上操作(DSP 有唯一限制,防禦性核對)也算壞。"""
++    算無法核對。同一把鍵在窗內出現兩筆以上操作(DSP 有唯一限制,防禦性核對)也算壞。讀窗與第二段
++    逐鍵查 DSP 任何一次讀不到,整條回資料來源缺(代碼審第 1 輪:第二段原本沒接)。"""
+     try:
+-        writes = [w for w in read_dsp_window(dsp_url, since, until, timeout)
++        writes = [w for w in read_dsp_window(dsp_url, since, until, timeout, audit_key)
+                   if is_executor_key(w.key)]
++        firsts, siblings = _executor_side(executor_db, writes)
++        return _tally_duplicates(writes, firsts, siblings, dsp_url, timeout)
+     except DspUnreadable:
+         return Tally(0, 0, missing=True)
++
++
++def _executor_side(
++    executor_db: Path, writes: list[DspWrite],
++) -> tuple[dict[str, FirstRow], dict[tuple[str, int, str], list[str]]]:
++    """讀完 DSP 的窗之後才開執行端快照:這批寫入的第一列,與每份提案內容的所有鍵。"""
+     inbox = ReadOnlyInbox(executor_db)
+     try:
+         with inbox.read_transaction() as tx:
+             firsts = attempt_store.first_rows_for(tx, [w.key for w in writes])
+             siblings = {}
+             for first in firsts.values():
+                 ident = _identity(first)
+                 if ident is not None and ident not in siblings:
+                     siblings[ident] = [row.key for row in attempt_store.first_rows_for_proposal(
+                         tx, ident[0], ident[1]) if _identity(row) == ident]
+     finally:
+         inbox.close()
+-    return _tally_duplicates(writes, firsts, siblings, dsp_url, timeout)
++    return firsts, siblings
+ 
+ 
+ def _tally_duplicates(
+     writes: list[DspWrite], firsts: Mapping[str, FirstRow],
+     siblings: Mapping[tuple[str, int, str], list[str]], dsp_url: str, timeout: float,
+ ) -> Tally:
++    """快照讀不回來的第一列不知道提案內容,算無法核對;快照讀得回來卻對不上它的鍵(資料異常):證實
++    有更早的同內容提交照樣判壞,證實不了就算無法核對。兩種都絕不算好事件(代碼審第 1 輪)。"""
+     good = valid = unverifiable = 0
+     bad_at, seen_keys = [], set()
+     commits: dict[tuple[str, int, str], list[tuple[str, int]]] = {}
+     for entry in writes:
+         first = firsts.get(entry.key)
+         if first is None:
+             unverifiable += 1
+             continue
+-        valid += 1
+         own = (iso(entry.committed_at), entry.operation_id)
+-        ident = _identity(first)
+-        if entry.key in seen_keys:  # 同一把鍵第二筆操作
++        if entry.key in seen_keys:  # 同一把鍵第二筆操作:不用看快照就證實重複
++            valid += 1
+             bad_at.append(own[0])
+             continue
+         seen_keys.add(entry.key)
++        ident = _identity(first)
+         if ident is None:
+-            good += 1
++            unverifiable += 1
+             continue
+         if ident not in commits:
+             found = [_operation(dsp_url, key, timeout) for key in siblings.get(ident, [])
+                      if key != entry.key]
+             commits[ident] = [c for c in found if c is not None]
+         if any(other < own for other in commits[ident]):
++            valid += 1
+             bad_at.append(own[0])
+-        else:
++        elif first.snapshot_matches_key:
++            valid += 1
+             good += 1
++        else:
++            unverifiable += 1
+         commits[ident].append(own)
+     return Tally(good, valid, tuple(bad_at), unverifiable)
+diff --git a/src/rtb/ops/sli.py b/src/rtb/ops/sli.py
+index 1adc283..ad5997a 100644
+--- a/src/rtb/ops/sli.py
++++ b/src/rtb/ops/sli.py
+@@ -1,22 +1,23 @@
+ """六條服務水準指標在一個時間窗裡的好事件與有效事件(Phase 9 增量 3)。只讀。
+ 
+ 全部是事件型、依事件時間歸窗:同一個已經過去的窗,之後再查答案不變。判好壞只用事件發生當下就
+ 寫下、之後不變的資料,不用查詢當下的設定。每條的公式、好事件、有效事件、排除項寫在設定表
+ (服務水準模組)與各計算函式旁。
+ 
+ - 安全完成率:窗內的終點事件;已交給執行與業務上該擋的擋下是好,死信、已過期、同一操作先前已失敗
+   是壞。死信後重放再到終點,兩個終點事件各算一次。
+ - 結果不明在期限內對帳完成:每把進過結果不明的鍵,事件時間 = min(結案, 第一次進結果不明 + 期限);
+-  期限前轉人工的排除。
++  期限前轉人工的排除;期限當刻或之後轉人工是壞,之後的人工結案不覆寫。
+ - 端到端交給執行:窗內每一個已交給執行的事件,從根任務在分析端建立算起,扣掉鏈上的人工核可等待與
+-  死信等待,不超過上限是好;接不上根任務、算出負值的不計入、另報。跨兩個資料庫讀到兩輪相同為止。
++  死信等待,不超過上限是好;接不上根任務、算出負值的不計入、另報。跨兩個資料庫讀到兩輪相同為止,
++  三輪都不同回最後一輪並標不穩定。
+ - 佇列等待:每份收件的提案,事件時間 = min(第一次取件, 收件 + 期限)。
+ - 未授權或違反護欄的副作用、重複有害副作用:見副作用核對模組。
+ """
+ 
+ from collections.abc import Callable, Iterable, Mapping, Sequence
+ from dataclasses import dataclass
+ from datetime import datetime, timedelta
+ from pathlib import Path
+ 
+ from rtb.analyzer.task_store import TaskReader
+@@ -44,32 +45,34 @@ BUSINESS_BLOCKS = frozenset(code.value for code in BlockCode) - {
+ _DELIVERIES = frozenset({LifecycleKind.DELIVERED, LifecycleKind.RECLAIMED})
+ _APPROVAL_ENDS = frozenset({LifecycleKind.APPROVAL_RELEASED, *TERMINAL_KINDS})
+ 
+ 
+ @dataclass(frozen=True)
+ class Sources:
+     executor_db: Path
+     analyzer_db: Path
+     dsp_url: str
+     dsp_timeout_seconds: float = 2.0
++    dsp_audit_key: str | None = None  # DSP 列操作端點的唯讀稽核金鑰;沒有就讀不到、照實標資料來源缺
+ 
+ 
+ def _time(text: str) -> datetime:
+     return datetime.fromisoformat(text.replace("Z", "+00:00"))
+ 
+ 
+-def _tally(events: Iterable[tuple[str, bool]], unlinked: int = 0, clock_anomaly: int = 0) -> Tally:
++def _tally(events: Iterable[tuple[str, bool]], unlinked: int = 0, clock_anomaly: int = 0,
++           stable: bool = True) -> Tally:
+     """(事件時間, 是不是好事件) -> 計數;壞事件留下時間(目標為零的一條要報最近一個)。"""
+     found = list(events)
+     return Tally(sum(good for _, good in found), len(found),
+                  tuple(at for at, good in found if not good), unlinked=unlinked,
+-                 clock_anomaly=clock_anomaly)
++                 clock_anomaly=clock_anomaly, stable=stable)
+ 
+ 
+ # ---- 安全完成率 ----
+ def _safe(event: LifecycleEvent) -> bool:
+     if event.kind == LifecycleKind.HANDED_OFF:
+         return True
+     return event.kind == LifecycleKind.BLOCKED and event.reason in BUSINESS_BLOCKS
+ 
+ 
+ def safe_completion(since: datetime, until: datetime, sources: Sources) -> Tally:
+@@ -79,30 +82,34 @@ def safe_completion(since: datetime, until: datetime, sources: Sources) -> Tally
+     try:
+         with inbox.read_transaction() as tx:
+             events = inbox.lifecycle_events_between(tx, since, until)
+     finally:
+         inbox.close()
+     return _tally((e.at, _safe(e)) for e in events if e.kind in TERMINAL_KINDS)
+ 
+ 
+ # ---- 結果不明在期限內對帳完成 ----
+ def _reconciled(history: Sequence[AttemptRow]) -> tuple[datetime, bool] | None:
+-    """一把鍵的事件:(事件時間, 好不好);期限前轉人工的排除回空。"""
++    """一把鍵的事件:(事件時間, 好不好);期限前轉人工的排除回空。期限當刻轉人工是壞事件(記在期限
++    那一刻),之後同刻或更晚的人工結案不覆寫(代碼審第 1 輪:原本只判「小於期限」,期限當刻轉人工再
++    同刻結案會被算成好)。"""
+     unknown = next((r for r in history if r.state == AttemptState.UNKNOWN), None)
+     if unknown is None:
+         return None
+     deadline = unknown.written_at + RECONCILE_DEADLINE
+     for row in history:
+         if row.written_at > deadline:
+             break
+-        if row.state == AttemptState.ESCALATED and row.written_at < deadline:
+-            return None  # 期限前已交給人,不是對帳慢
++        if row.state == AttemptState.ESCALATED:
++            if row.written_at < deadline:
++                return None  # 期限前已交給人,不是對帳慢
++            return deadline, False  # 期限當刻才交給人:期限已到還沒結案
+         if row.state in (AttemptState.VERIFIED, AttemptState.FAILED):
+             return row.written_at, True  # 剛好在期限那一刻結案也算好
+     return deadline, False  # 期限那一刻還沒結案:壞事件記在期限那一刻,之後結案也不改
+ 
+ 
+ def unknown_reconciled_in_time(since: datetime, until: datetime, sources: Sources) -> Tally:
+     """候選是第一次進結果不明落在 [起 - 期限, 迄) 的鍵(用結果不明的時間索引找),再用鍵讀整串;
+     工作量跟候選數成正比。"""
+     inbox = ReadOnlyInbox(sources.executor_db)
+     try:
+@@ -217,41 +224,43 @@ def _handoff_round(
+         waited = _waits((e for task in chain.tasks for e in chain_events[task]), handoff.at)
+         spent = (_time(handoff.at) - _time(chain.created)).total_seconds() - waited
+         if spent < 0:
+             anomalies += 1
+             continue
+         events.append((handoff.at, spent <= END_TO_END_LIMIT.total_seconds()))
+     return tuple(events), unlinked, anomalies
+ 
+ 
+ def end_to_end_handoff(since: datetime, until: datetime, sources: Sources) -> Tally:
+-    """跨兩個資料庫:每輪重開快照,兩輪相同才回;三輪都不同回最後一輪(計數照實,不另外標)。"""
+-    previous = None
++    """跨兩個資料庫:每輪重開快照,兩輪相同才回;三輪都不同回最後一輪並標不穩定(比照追蹤檢視與
++    指標;代碼審第 1 輪)。"""
++    previous, stable = None, False
+     for _ in range(MAX_ROUNDS):
+         current = _handoff_round(since, until, sources)
+         if current == previous:
++            stable = True
+             break
+         previous = current
+     assert previous is not None  # noqa: S101 - 至少讀過一輪
+     events, unlinked, anomalies = previous
+-    return _tally(events, unlinked=unlinked, clock_anomaly=anomalies)
++    return _tally(events, unlinked=unlinked, clock_anomaly=anomalies, stable=stable)
+ 
+ 
+ # ---- 目標為零的兩條 ----
+ def unauthorized_side_effects(since: datetime, until: datetime, sources: Sources) -> Tally:
+     return side_effects.unauthorized(since, until, sources.executor_db, sources.dsp_url,
+-                                     sources.dsp_timeout_seconds)
++                                     sources.dsp_timeout_seconds, sources.dsp_audit_key)
+ 
+ 
+ def harmful_duplicates(since: datetime, until: datetime, sources: Sources) -> Tally:
+     return side_effects.duplicates(since, until, sources.executor_db, sources.dsp_url,
+-                                   sources.dsp_timeout_seconds)
++                                   sources.dsp_timeout_seconds, sources.dsp_audit_key)
+ 
+ 
+ COUNTERS: Mapping[str, Callable[[datetime, datetime, Sources], Tally]] = {
+     "safe_completion": safe_completion,
+     "unknown_reconciled_in_time": unknown_reconciled_in_time,
+     "end_to_end_handoff": end_to_end_handoff,
+     "queue_wait": queue_wait,
+     "unauthorized_side_effects": unauthorized_side_effects,
+     "harmful_duplicates": harmful_duplicates,
+ }
+diff --git a/src/rtb/ops/slo.py b/src/rtb/ops/slo.py
+index 5d14e77..34c1ee9 100644
+--- a/src/rtb/ops/slo.py
++++ b/src/rtb/ops/slo.py
+@@ -7,43 +7,50 @@
+ - 目標為零的兩條(未授權副作用、重複有害副作用):錯誤預算固定 0,不算燒損率;週期內出現一個壞事件
+   就是違規,直到它滑出週期。
+ 
+ 燒損照 Google SRE Workbook〈Alerting on SLOs〉的多窗口多燒損率:長窗與短窗的燒損率都大於等於門檻才
+ 告警(短窗讓事故停止後很快解除,長窗避免短暫突波);長窗有效事件少於最少樣本回樣本不足、不判告警;
+ 短窗沒有有效事件時燒損率當 0。示範時所有時間窗(週期與燒損窗)等比縮短 60 倍,期限不縮短。全部是
+ 示範值(代使用者裁定、待使用者覆核),不代表系統的真實能力。
+ 
+ 評估器不存告警狀態、不自己讀時鐘:每個窗的時間從傳入的「現在」與設定表算出,交給計數函式。數字用
+ 分數算,剛好等於門檻就是等於(不被浮點誤差推到門檻下)。
++
++每條各自算:一條讀不到(例外)只把那一條標資料來源缺並記下例外,另外五條照算;只有找不到資料庫檔、
++資料庫還沒升級這兩種整份評估的設定錯誤往外丟,給命令列入口回固定結束代碼。目標為零的兩條:已證實的
++違規優先,只有週期內沒看到壞事件、又有子窗缺資料才回「不知道」(代碼審第 1 輪)。
+ """
+ 
+ import argparse
+ import json
++import os
+ import sys
+-from collections.abc import Callable
++from collections.abc import Callable, Mapping
+ from dataclasses import asdict, dataclass
+ from datetime import datetime, timedelta
+ from fractions import Fraction
+ from pathlib import Path
+ from typing import Any, TextIO
+ 
++from rtb.capabilitykit import AUDIT_KEY_ENV, read_key
+ from rtb.executor.inbox_store import DatabaseNotUpgraded
+ from rtb.ops import sli
+ from rtb.ops.side_effects import Tally
+ 
+ SCALE = 60  # 示範縮短倍數;正式環境改成 1
+ PERIOD = timedelta(days=30)
+ MIN_SAMPLES = 10
+ DAY = timedelta(hours=24)  # 週期統計切子窗的上限(跟窗內統計的窗長上限一致)
+ EXIT_OK = 0
+ EXIT_NO_DATABASE = 2
+ EXIT_NOT_UPGRADED = 3
++EXIT_UNSTABLE = 5  # 沿用指標的固定結束代碼:有一條跨資料庫讀了三輪都不同,照樣印出最後一輪
+ 
+ Counter = Callable[[str, datetime, datetime], Tally]
+ 
+ 
+ @dataclass(frozen=True)
+ class Slo:
+     """一條服務水準指標的定義(設定表的一筆)。target 是好事件比例的目標;目標為零的兩條記成 1
+     (壞事件目標為零)。deadline 只有期限型兩條有。"""
+ 
+     name: str
+@@ -136,86 +143,108 @@ def period_windows(end: datetime, period: timedelta) -> tuple[tuple[datetime, da
+         start = piece_end
+     return tuple(pieces)
+ 
+ 
+ def period_tally(name: str, end: datetime, period: timedelta, counter: Counter) -> Tally:
+     """週期統計:逐段查子窗再相加(事件型計數可加,子窗互不重疊)。"""
+     parts = [counter(name, since, until) for since, until in period_windows(end, period)]
+     return Tally(sum(p.good for p in parts), sum(p.valid for p in parts),
+                  tuple(at for p in parts for at in p.bad_at), sum(p.unverifiable for p in parts),
+                  sum(p.unlinked for p in parts), sum(p.clock_anomaly for p in parts),
+-                 any(p.missing for p in parts))
++                 any(p.missing for p in parts), all(p.stable for p in parts))
+ 
+ 
+ @dataclass(frozen=True)
+ class WindowBurn:
+     good: int
+     valid: int
+     burn: Fraction
+ 
+ 
+ @dataclass(frozen=True)
+ class Alerting:
+     fired: bool
+     insufficient: bool
+     long: WindowBurn
+     short: WindowBurn
+ 
+ 
+ @dataclass(frozen=True)
+ class SloStatus:
+     """一條的狀態。有目標的四條:快燒、慢燒、週期的錯誤預算與剩餘預算;目標為零的兩條:違規、週期內
+-    壞事件數、最近一個壞事件時間(燒損為空)。missing:資料來源讀不到,這一條沒評估。"""
++    壞事件數、最近一個壞事件時間(燒損為空)。missing:資料來源讀不到(至少一個窗沒算);error:這一
++    條算到一半丟了例外(此時其他數字都是 0,沒有意義)。stable 為假:有窗跨資料庫讀了三輪都不同。"""
+ 
+     name: str
+     fast: Alerting | None
+     slow: Alerting | None
+     period_good: int
+     period_valid: int
+     period_bad: int
+     budget: Fraction
+     remaining: Fraction
+     violating: bool | None
+     last_bad: str | None
+     unverifiable: int
+     unlinked: int
+     clock_anomaly: int
+     missing: bool
++    stable: bool = True
++    error: str | None = None
+ 
+ 
+ def _alerting(spec: Slo, burn: Burn, now: datetime, counter: Counter) -> Alerting:
+     long = counter(spec.name, now - scaled(burn.long), now)
+     short = counter(spec.name, now - scaled(burn.short), now)
+     windows = (WindowBurn(long.good, long.valid, burn_rate(long.good, long.valid, spec.target)),
+                WindowBurn(short.good, short.valid,
+                           burn_rate(short.good, short.valid, spec.target)))
+     insufficient = long.valid < MIN_SAMPLES
+     fired = not insufficient and all(w.burn >= burn.threshold for w in windows)
+     return Alerting(fired, insufficient, *windows)
+ 
+ 
++def _violating(period: Tally) -> bool | None:
++    """目標為零:週期內有壞事件就是違規(已證實,不因別的子窗缺資料而改判);沒有壞事件又有子窗缺
++    資料才是不知道。"""
++    if period.bad > 0:
++        return True
++    return None if period.missing else False
++
++
++def _status(spec: Slo, now: datetime, counter: Counter) -> SloStatus:
++    fast = slow = None
++    if not spec.zero_target:
++        fast, slow = (_alerting(spec, burn, now, counter) for burn in BURNS)
++    period = period_tally(spec.name, now, scaled(PERIOD), counter)
++    return SloStatus(
++        spec.name, fast, slow, period.good, period.valid, period.bad,
++        error_budget(period.valid, spec.target),
++        remaining_budget(period.valid, period.bad, spec.target),
++        _violating(period) if spec.zero_target else None,
++        max(period.bad_at) if period.bad_at else None, period.unverifiable,
++        period.unlinked, period.clock_anomaly, period.missing, period.stable)
++
++
+ def evaluate(now: datetime, *, counter: Counter) -> tuple[SloStatus, ...]:
+     """每條一份狀態。查詢次數固定:有目標的四條各查快燒、慢燒兩組各兩個窗(共 16 次)加週期統計,
+-    目標為零的兩條各查週期統計。"""
++    目標為零的兩條各查週期統計。每條各自隔離例外(見模組說明)。"""
+     statuses = []
+     for spec in SLOS:
+-        fast = slow = None
+-        if not spec.zero_target:
+-            fast, slow = (_alerting(spec, burn, now, counter) for burn in BURNS)
+-        period = period_tally(spec.name, now, scaled(PERIOD), counter)
+-        statuses.append(SloStatus(
+-            spec.name, fast, slow, period.good, period.valid, period.bad,
+-            error_budget(period.valid, spec.target),
+-            remaining_budget(period.valid, period.bad, spec.target),
+-            (period.bad > 0 if not period.missing else None) if spec.zero_target else None,
+-            max(period.bad_at) if period.bad_at else None, period.unverifiable,
+-            period.unlinked, period.clock_anomaly, period.missing))
++        try:
++            statuses.append(_status(spec, now, counter))
++        except (FileNotFoundError, DatabaseNotUpgraded):
++            raise  # 整份評估的設定錯誤:交給命令列入口回固定結束代碼
++        except Exception as exc:  # 一條讀不到不拖垮另外五條;例外記在這一條的狀態裡
++            statuses.append(SloStatus(spec.name, None, None, 0, 0, 0, Fraction(0), Fraction(0),
++                                      None, None, 0, 0, 0, True,
++                                      error=f"{type(exc).__name__}: {exc}"))
+     return tuple(statuses)
+ 
+ 
+ # ---- 輸出與命令列入口 ----
+ def _plain(value: Any) -> Any:
+     if isinstance(value, Fraction):
+         return float(value)
+     if isinstance(value, dict):
+         return {k: _plain(v) for k, v in value.items()}
+     return value
+@@ -229,36 +258,43 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
+     parser = argparse.ArgumentParser(description="服務水準指標的狀態與燒損告警(只讀)")
+     parser.add_argument("--executor-db", required=True, type=Path)
+     parser.add_argument("--analyzer-db", required=True, type=Path)
+     parser.add_argument("--dsp-url", required=True)
+     parser.add_argument("--dsp-timeout-seconds", type=float, default=2.0)
+     parser.add_argument("--now", required=True, type=datetime.fromisoformat)
+     return parser.parse_args(argv)
+ 
+ 
+ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
+-        err: TextIO | None = None) -> int:
++        err: TextIO | None = None, environ: Mapping[str, str] | None = None) -> int:
++    """命令列入口。DSP 列操作端點的唯讀稽核金鑰從環境讀(只有入口讀環境;測試傳 environ);沒有就
++    讀不到 DSP 的窗,兩條目標為零的指標照實標資料來源缺。"""
+     args = _parse(argv)
+     errors = err or sys.stderr
++    audit_key = read_key(os.environ if environ is None else environ, AUDIT_KEY_ENV)
+     sources = sli.Sources(args.executor_db, args.analyzer_db, args.dsp_url,
+-                          args.dsp_timeout_seconds)
++                          args.dsp_timeout_seconds,
++                          None if audit_key is None else audit_key.decode("utf-8"))
+     try:
+         statuses = evaluate(args.now, counter=lambda name, since, until: sli.count(
+             name, since, until, sources))
+     except FileNotFoundError as missing:
+         print(f"找不到資料庫檔:{missing}", file=errors)
+         return EXIT_NO_DATABASE
+     except DatabaseNotUpgraded as old:
+         print(f"{old}。請先啟動一次執行迴圈(分析端資料庫則先跑一次分析行程);評估器只讀,不替它補",
+               file=errors)
+         return EXIT_NOT_UPGRADED
+     print(json.dumps(to_primitives(statuses), ensure_ascii=False, indent=2),
+           file=out or sys.stdout)
++    if not all(s.stable for s in statuses):
++        print("讀取期間有新提交:有指標跨資料庫讀了三輪都不同,印出的是最後一輪", file=errors)
++        return EXIT_UNSTABLE
+     return EXIT_OK
+ 
+ 
+ def main(argv: list[str] | None = None) -> None:
+     raise SystemExit(run(argv))
+ 
+ 
+ if __name__ == "__main__":
+     main()

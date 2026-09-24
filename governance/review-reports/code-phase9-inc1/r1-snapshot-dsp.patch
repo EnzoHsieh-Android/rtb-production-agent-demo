@@ -1,0 +1,1246 @@
+diff --git a/src/rtb/__init__.py b/src/rtb/__init__.py
+new file mode 100644
+index 0000000..4e43d92
+--- /dev/null
++++ b/src/rtb/__init__.py
+@@ -0,0 +1,8 @@
++"""RTB 生產代理示範的頂層套件。
++
++PROGRAM_VERSION 是這一份程式的版本(Phase 9 增量 1):執行行程寫的生命週期事件、嘗試紀錄與 DSP 呼叫
++紀錄每一列都記它,給之後依工作者版本切片(行程身分只有行程編號加啟動時間,反推不出跑的是哪一版)。
++行程載入時就定、執行期間不變。會改變寫入行為的改動合進主線時手動往上加。
++"""
++
++PROGRAM_VERSION = "0.9.1"
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index edbeb16..d43140c 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -6,29 +6,39 @@
+ 
+ 這支模組不開連線、不開交易:每個函式只接受執行行程資料庫模組(收件口資料庫模組)的交易入口
+ 發出的交易物件,而且那一筆交易還開著。交易物件建立時要出示入口專用的憑證(執行期檢查,
+ 不只靠掃原始碼),型別必須完全相同(子類別不收),交易結束時入口會把它作廢,所以同一條連線
+ 之後開了別的交易,舊物件也不會復活。自己開的連線、自己開的延遲交易(不排隊搶寫入鎖)都不收。
+ 威脅模型是「防忘記、不防刻意繞過」:憑證擋的是善意重構時不小心繞過入口。這樣「取件與開始一筆」能放在同一個交易裡,並行檢查也一定在寫入鎖之內。
+ 
+ 未結案計數不逐把鍵回頭讀最新列:每把鍵恰好有一列序號 1(主鍵保證),結案的鍵恰好有一列終點列
+ (終點沒有出路,而且資料庫的唯一限制不准同一把鍵寫第二列終點列),所以「未結案數 = 第 1 列數 -
+ 終點列數」,兩個數都走部分索引。只看相減結果的正負擋不住毀損:會被另一把還沒結案的鍵抵銷。
++
++Phase 9 增量 1:
++- 每一列記來源、執行者與程式版本(執行迴圈記工作者、啟動恢復記行程身分、人工處置記操作人);寫入
++  函式由呼叫端明傳 `by`,舊列與沒傳的列為空值。
++- 唯讀交易:收件口模組的唯讀開法發出的另一個類別(另一個私有發行憑證)。讀取函式收寫入交易或唯讀
++  交易,寫入函式只收寫入交易;哪些是寫入函式由測試從原始碼機械算出,跟 WRITE_FUNCTIONS 比對。
++- DSP 呼叫紀錄表(只增不改):執行迴圈每一次呼叫 DSP 都在獨立的短交易裡寫一列(呼叫類別、結果類別、
++  狀態碼、DSP 回的錯誤代碼、耗時與關聯欄位),不跟結果寫入綁在一起。
+ """
+ 
+ import json
+ import sqlite3
+ from collections.abc import Collection, Iterable, Sequence
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
++from enum import StrEnum
+ from typing import Any
+ 
++from rtb import PROGRAM_VERSION
+ from rtb.domain._checks import is_aware, is_plain_int
+ from rtb.domain.attempt import (
+     RESOLUTION_OUTCOMES,
+     TERMINAL_STATES,
+     TIMEOUT_STATES,
+     AttemptState,
+     IllegalAttemptTransition,
+     OutcomeCode,
+     can_transition,
+     code_fits,
+@@ -50,31 +60,46 @@ CREATE TABLE IF NOT EXISTS attempts (
+     task_id TEXT, revision INTEGER, action TEXT, expected_version INTEGER, proposal_json TEXT,
+     written_version INTEGER, capability_expires_at TEXT,
+     PRIMARY KEY (key, seq));
+ CREATE INDEX IF NOT EXISTS attempts_first_rows ON attempts (campaign_id) WHERE seq = 1;
+ CREATE INDEX IF NOT EXISTS attempts_terminal_rows ON attempts (campaign_id)
+     WHERE state IN (TERMINAL_LIST);
+ CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_terminal_per_key ON attempts (key)
+     WHERE state IN (TERMINAL_LIST);
+ CREATE INDEX IF NOT EXISTS attempts_verified_by_time ON attempts (written_at)
+     WHERE state = 'verified';
++CREATE TABLE IF NOT EXISTS dsp_calls (
++    id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, call_kind TEXT NOT NULL,
++    result TEXT NOT NULL, status INTEGER, error_code TEXT, latency_ms REAL NOT NULL,
++    task_id TEXT, revision INTEGER, campaign_id TEXT, key TEXT, source TEXT, actor TEXT,
++    program_version TEXT NOT NULL);
++CREATE INDEX IF NOT EXISTS dsp_calls_by_time ON dsp_calls (at);
++CREATE INDEX IF NOT EXISTS dsp_calls_by_task ON dsp_calls (task_id, id);
+ """
+ _COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verification_timeouts, "
+             "written_at, written_version, capability_expires_at")
+ # 執行一筆(Phase 3 增量 3)新增的欄位;舊資料庫由執行行程資料庫模組照補欄位做法補上
+ ADDED_COLUMNS = (
+     ("written_version", "written_version INTEGER"),  # DSP 回報的寫入後版本
+     ("capability_expires_at", "capability_expires_at TEXT"),  # 最近一次送出所帶憑證的到期時間
+     # 總曝險預留(Phase 6):只寫在第一列,開始一筆時算出之後不變;舊列不回填,空值由額度查詢保守計入
+     ("tenant", "tenant TEXT"),
+     ("reserved_amount", "reserved_amount INTEGER"),
++    # 誰寫的(Phase 9 增量 1):來源、執行者、程式版本;舊列為空值
++    ("source", "source TEXT"),
++    ("actor", "actor TEXT"),
++    ("program_version", "program_version TEXT"),
+ )
++# DSP 呼叫紀錄表的欄位(唯讀開法用它判斷資料庫升級了沒有)
++DSP_CALL_FIELDS = ("id", "at", "call_kind", "result", "status", "error_code", "latency_ms",
++                   "task_id", "revision", "campaign_id", "key", "source", "actor",
++                   "program_version")
+ # 可觀測查詢(Phase 6 增量 4)用的第一列按租戶與開始時間索引。參照後補的租戶欄,不能放進 SCHEMA:
+ # 開庫是先跑整份建表建索引、後補欄位,舊資料庫一開就會找不到欄位;由補欄位流程補完欄位之後才建
+ TENANT_INDEX = ("CREATE INDEX IF NOT EXISTS attempts_first_rows_by_tenant "
+                 "ON attempts (tenant, written_at) WHERE seq = 1")
+ # 已驗證的預留在驗證完成後多久內仍佔額度(暫用值,沒有真實花費數據校準,見 Phase 6 計劃)
+ AGGREGATE_WINDOW = timedelta(hours=24)
+ # 終點狀態是固定的列舉值,寫成字面值,查詢條件才對得上部分索引的條件
+ _TERMINAL_LIST = ", ".join(f"'{state.value}'" for state in sorted(TERMINAL_STATES))
+ SCHEMA = SCHEMA.replace("TERMINAL_LIST", _TERMINAL_LIST)
+ 
+@@ -155,20 +180,175 @@ class ExecutorTransaction:
+         self._open = True
+ 
+     def close(self) -> None:
+         self._open = False
+ 
+     @property
+     def is_open(self) -> bool:
+         return self._open and self.conn.in_transaction
+ 
+ 
++_READ_TRANSACTION_ISSUER = object()  # 只有收件口模組的唯讀開法拿它建唯讀交易(另一個私有憑證)
++
++
++class ReadTransaction:
++    """唯讀開法發出的唯讀交易:只能給讀取函式用;寫入函式照舊只收 ExecutorTransaction。"""
++
++    __slots__ = ("_open", "conn")
++
++    def __init__(self, conn: sqlite3.Connection, issuer: object) -> None:
++        if issuer is not _READ_TRANSACTION_ISSUER:
++            raise NotInTransaction("唯讀交易只能由收件口模組的唯讀開法發出")
++        self.conn = conn
++        self._open = True
++
++    def close(self) -> None:
++        self._open = False
++
++    @property
++    def is_open(self) -> bool:
++        return self._open and self.conn.in_transaction
++
++
++class Source(StrEnum):
++    """一列紀錄是誰寫的(Phase 9 增量 1,生命週期事件與嘗試紀錄共用):封閉列舉。"""
++
++    INBOX = "inbox"  # 收件口:收件、收件時的取代與到期標記,執行者為空
++    EXECUTOR_LOOP = "executor_loop"  # 執行迴圈:執行者是它的擁有者(行程編號加啟動時間)
++    STARTUP_RECOVERY = "startup_recovery"  # 啟動恢復:執行者是啟動中的行程身分
++    ADMIN_COMMAND = "admin_command"  # 管理指令(重放、人工處置):執行者是命令列傳入的操作人
++
++
++@dataclass(frozen=True)
++class Actor:
++    """來源加執行者;來源只收封閉列舉的成員(寫錯成字串在建立時就擋下)。"""
++
++    source: Source
++    name: str | None = None
++
++    def __post_init__(self) -> None:
++        if type(self.source) is not Source:
++            raise ValueError("來源必須是封閉列舉 Source 的成員")
++        if self.name is not None and not isinstance(self.name, str):
++            raise ValueError("執行者必須是字串或空值")
++
++
++class DspCallKind(StrEnum):
++    """執行端呼叫 DSP 的類別。"""
++
++    READ_CAMPAIGN = "read_campaign"
++    WRITE = "write"
++    VOID = "void"
++    LOOKUP_OPERATION = "lookup_operation"
++
++
++class DspCallResult(StrEnum):
++    """一次 DSP 呼叫的結果類別:傳輸層的例外依型別分逾時、連線失敗、回應讀不懂;有回應時依狀態碼
++    分 4xx、5xx;狀態 2xx 但欄位讀不懂算回應讀不懂;其他狀態碼(例如沒跟的轉址)也算讀不懂。"""
++
++    RESPONDED = "responded"
++    TIMEOUT = "timeout"
++    CONNECTION_FAILED = "connection_failed"
++    SERVER_ERROR = "server_error"  # 5xx
++    CLIENT_ERROR = "client_error"  # 4xx
++    UNREADABLE = "unreadable"
++
++
++class DspErrorCode(StrEnum):
++    """DSP 回應本文的錯誤代碼(Phase 9 增量 1 [S625]):封閉列舉,不認得的記「其他」,不原樣存外來
++    字串。清單照模擬 DSP 與共用 HTTP 伺服器會回的代碼;執行端不匯入 DSP 的程式,所以另列一份。"""
++
++    VERSION_CONFLICT = "version_conflict"
++    OPERATION_VOIDED = "operation_voided"
++    IDEMPOTENCY_CONFLICT = "idempotency_conflict"
++    VALIDATION_REJECTED = "validation_rejected"
++    CAPABILITY_EXPIRED = "capability_expired"
++    CAPABILITY_INVALID = "capability_invalid"
++    CAPABILITY_MISSING = "capability_missing"
++    CAPABILITY_SCOPE_MISMATCH = "capability_scope_mismatch"
++    CAPABILITY_NOT_CONFIGURED = "capability_not_configured"
++    CAMPAIGN_NOT_FOUND = "campaign_not_found"
++    OPERATION_NOT_FOUND = "operation_not_found"
++    MISSING_IDEMPOTENCY_KEY = "missing_idempotency_key"
++    STORE_BUSY = "store_busy"
++    INTERNAL_ERROR = "internal_error"
++    OTHER = "other"
++
++
++def dsp_error_code(reply: object) -> DspErrorCode | None:
++    """回應本文沒有 error 欄(或不是物件)回空值;有但不在列舉裡(含不是字串)回「其他」。"""
++    if not isinstance(reply, dict) or "error" not in reply:
++        return None
++    error = reply["error"]
++    known = {code.value for code in DspErrorCode} - {DspErrorCode.OTHER.value}
++    return DspErrorCode(error) if isinstance(error, str) and error in known else DspErrorCode.OTHER
++
++
++@dataclass(frozen=True)
++class DspCall:
++    """DSP 用戶端對每一次 HTTP 呼叫回報的一筆:類別、結果、狀態碼(沒拿到回應為空)、耗時、
++    錯誤代碼。"""
++
++    kind: DspCallKind
++    result: DspCallResult
++    status: int | None
++    latency_ms: float
++    error: DspErrorCode | None = None
++
++
++@dataclass(frozen=True)
++class CallSubject:
++    """呼叫紀錄的關聯欄位:這次呼叫是為了哪一份提案。"""
++
++    task_id: str | None
++    revision: int | None
++    campaign_id: str | None
++    key: str | None
++
++
++@dataclass(frozen=True)
++class DspCallRow:
++    id: int
++    at: str
++    kind: str
++    result: str
++    status: int | None
++    error: str | None
++    latency_ms: float
++    task_id: str | None
++    revision: int | None
++    campaign_id: str | None
++    key: str | None
++    source: str | None
++    actor: str | None
++    program_version: str
++
++
++@dataclass(frozen=True)
++class AttemptTraceRow:
++    """追蹤檢視用的一列嘗試紀錄:第一列的任務、修訂與租戶跟著每一列帶出來(同一把鍵只列一次)。"""
++
++    key: str
++    seq: int
++    state: str
++    code: str | None
++    send_count: int
++    written_at: str
++    task_id: str | None
++    revision: int | None
++    campaign_id: str
++    tenant: str | None
++    source: str | None
++    actor: str | None
++    program_version: str | None
++
++
+ @dataclass(frozen=True)
+ class Recovery:
+     moved: tuple[str, ...]  # 轉成結果不明的鍵
+     unreadable: tuple[str, ...]  # 歷史列讀不回來而跳過的鍵:要人處理,但不拖垮其他鍵
+ 
+ 
+ @dataclass(frozen=True)
+ class AttemptRow:
+     key: str
+     seq: int
+@@ -202,25 +382,44 @@ def _iso(moment: datetime) -> str:
+     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+ 
+ 
+ def iso(moment: datetime) -> str:
+     """寫進嘗試紀錄與停下紀錄的時間格式;沒帶時區就拒絕(不然會被當成本機時間,範圍篩錯)。
+     收件口模組的停下紀錄讀取方法也用這支,兩張表的比較規則一致(Phase 6 增量 4 代碼審第 2 輪)。"""
+     return _iso(moment)
+ 
+ 
+ def _conn(tx: ExecutorTransaction) -> sqlite3.Connection:
++    """寫入函式的守衛:只收寫入交易(唯讀交易傳進來丟 NotInTransaction,不會跑到資料庫層才炸)。"""
+     if type(tx) is not ExecutorTransaction or not tx.is_open:
+         raise NotInTransaction("嘗試紀錄只能在執行行程資料庫交易入口開的交易裡讀寫")
+     return tx.conn
+ 
+ 
++Readable = ExecutorTransaction | ReadTransaction
++
++
++def _read_conn(tx: Readable) -> sqlite3.Connection:
++    """讀取函式的守衛:寫入交易或唯讀交易,型別完全相同、而且還開著。"""
++    if type(tx) not in (ExecutorTransaction, ReadTransaction) or not tx.is_open:
++        raise NotInTransaction("嘗試紀錄只能在執行行程資料庫交易入口或唯讀開法開的交易裡讀")
++    return tx.conn
++
++
++def _by(by: Actor | None) -> tuple[str | None, str | None]:
++    if by is None:
++        return None, None
++    if type(by) is not Actor:
++        raise ValueError("寫入者必須是 Actor")
++    return by.source.value, by.name
++
++
+ def _parse_time(text: str) -> datetime:
+     return datetime.fromisoformat(text.replace("Z", "+00:00"))
+ 
+ 
+ def _row(record: tuple[Any, ...]) -> AttemptRow:
+     key, seq, campaign_id, state, code, detail, sends, timeouts, written_at, written, expires = (
+         record)
+     try:
+         if written is not None and not is_plain_int(written):
+             raise TypeError("寫入後版本不是整數")
+@@ -229,38 +428,38 @@ def _row(record: tuple[Any, ...]) -> AttemptRow:
+             code=None if code is None else OutcomeCode(code), detail=detail,
+             send_count=sends, verification_timeouts=timeouts,
+             written_at=_parse_time(written_at), written_version=written,
+             capability_expires_at=None if expires is None else _parse_time(expires),
+         )
+     # SQLite 不強制欄位型別:壞值可能是任何型別,讀不回來一律當成毀損
+     except (ValueError, TypeError, AttributeError) as exc:
+         raise CorruptedAttemptRow(f"{key} 第 {seq} 列讀不回來:{exc!r}") from exc
+ 
+ 
+-def latest(tx: ExecutorTransaction, key: str) -> AttemptRow | None:
+-    record = _conn(tx).execute(
++def latest(tx: Readable, key: str) -> AttemptRow | None:
++    record = _read_conn(tx).execute(
+         f"SELECT {_COLUMNS} FROM attempts WHERE key = ? ORDER BY seq DESC LIMIT 1",  # noqa: S608 - 只拼接模組內固定的欄位清單
+         (key,),
+     ).fetchone()
+     return None if record is None else _row(record)
+ 
+ 
+-def history(tx: ExecutorTransaction, key: str) -> tuple[AttemptRow, ...]:
+-    records = _conn(tx).execute(
++def history(tx: Readable, key: str) -> tuple[AttemptRow, ...]:
++    records = _read_conn(tx).execute(
+         f"SELECT {_COLUMNS} FROM attempts WHERE key = ? ORDER BY seq",  # noqa: S608 - 只拼接模組內固定的欄位清單
+         (key,)).fetchall()
+     return tuple(_row(record) for record in records)
+ 
+ 
+-def snapshot(tx: ExecutorTransaction, key: str) -> Proposal:
++def snapshot(tx: Readable, key: str) -> Proposal:
+     """讀回第 1 列存的完整提案,經同一個解析器還原成領域層的提案物件,並核對它仍算得出這把鍵。"""
+-    record = _conn(tx).execute(
++    record = _read_conn(tx).execute(
+         "SELECT proposal_json FROM attempts WHERE key = ? AND seq = 1", (key,)).fetchone()
+     if record is None or record[0] is None:
+         raise CorruptedAttemptRow(f"{key} 沒有提案快照")
+     try:
+         raw = json.loads(record[0])
+     except json.JSONDecodeError as exc:
+         raise CorruptedAttemptRow(f"{key} 的提案快照不是 JSON") from exc
+     parsed = parse_proposal(raw)
+     if parsed.proposal is None:
+         raise CorruptedAttemptRow(f"{key} 的提案快照解析不回來:{parsed.errors}")
+@@ -273,77 +472,79 @@ def unresolved_count_query(campaign_id: str | None = None) -> tuple[str, tuple[s
+     """未結案數 = 第 1 列數 - 終點列數(可限定一個廣告);兩邊都走部分索引。"""
+     where = "" if campaign_id is None else " AND campaign_id = ?"
+     params = () if campaign_id is None else (campaign_id, campaign_id)
+     query = (
+         f"SELECT (SELECT COUNT(*) FROM attempts WHERE seq = 1{where}) - "  # noqa: S608 - 只拼接固定條件
+         f"(SELECT COUNT(*) FROM attempts WHERE state IN ({_TERMINAL_LIST}){where})"
+     )
+     return query, params
+ 
+ 
+-def unresolved_count(tx: ExecutorTransaction, campaign_id: str | None = None) -> int:
++def unresolved_count(tx: Readable, campaign_id: str | None = None) -> int:
+     query, params = unresolved_count_query(campaign_id)
+-    count = int(_conn(tx).execute(query, params).fetchone()[0])
++    count = int(_read_conn(tx).execute(query, params).fetchone()[0])
+     if count < 0:  # 唯一限制之外的最後一道:算法前提不成立就當毀損,不放行
+         raise CorruptedAttemptRow("未結案計數為負,歷史表有鍵出現多列終點列")
+     return count
+ 
+ 
+-def version_conflict_count(tx: ExecutorTransaction, campaign_id: str | None = None) -> int:
++def version_conflict_count(tx: Readable, campaign_id: str | None = None) -> int:
+     """DSP 回版本衝突的嘗試次數(唯讀、可依廣告篩):嘗試紀錄只增不改、不會被清,是執行側衝突
+     的稽核來源。執行前檢查擋下的「版本已變」只記在收件表、會被清,長期計數等 Phase 9。"""
+     where = "" if campaign_id is None else " AND campaign_id = ?"
+     params: tuple[str, ...] = (OutcomeCode.VERSION_CONFLICT.value,) + (
+         () if campaign_id is None else (campaign_id,))
+-    return int(_conn(tx).execute(
++    return int(_read_conn(tx).execute(
+         f"SELECT COUNT(*) FROM attempts WHERE code = ?{where}",  # noqa: S608 - 只拼接固定條件
+         params).fetchone()[0])
+ 
+ 
+-def campaigns_with_unresolved(tx: ExecutorTransaction) -> frozenset[str]:
++def campaigns_with_unresolved(tx: Readable) -> frozenset[str]:
+     """已有未結案嘗試的廣告(取件要排除它們);未結案 = 第 1 列在、終點列不在。"""
+-    records = _conn(tx).execute(
++    records = _read_conn(tx).execute(
+         "SELECT DISTINCT f.campaign_id FROM attempts f WHERE f.seq = 1 AND NOT EXISTS "  # noqa: S608 - 只拼接固定條件
+         f"(SELECT 1 FROM attempts t WHERE t.key = f.key AND t.state IN ({_TERMINAL_LIST}))"
+     ).fetchall()
+     return frozenset(record[0] for record in records)
+ 
+ 
+-def unresolved_keys(tx: ExecutorTransaction) -> tuple[str, ...]:
++def unresolved_keys(tx: Readable) -> tuple[str, ...]:
+     """所有未結案的鍵(含嘗試中與轉人工),依最新一列寫入時間由舊到新:對帳每輪都要接手它們。"""
+-    records = _conn(tx).execute(
++    records = _read_conn(tx).execute(
+         "SELECT a.key FROM attempts a WHERE a.state NOT IN "  # noqa: S608 - 只拼接固定條件
+         f"({_TERMINAL_LIST}) AND a.seq = "
+         "(SELECT MAX(b.seq) FROM attempts b WHERE b.key = a.key) ORDER BY a.written_at, a.key"
+     ).fetchall()
+     return tuple(record[0] for record in records)
+ 
+ 
+ def _expiry(value: object) -> str:
+     """轉進嘗試中必帶:這次送出所帶憑證的到期時間。對帳不再拿它當證明(改用 DSP 端作廢,
+     見 Phase 3 計劃增量 4),保留給人工處置時參考。"""
+     if not isinstance(value, datetime):
+         raise IncompleteRow("轉進嘗試中要帶這次送出所帶憑證的到期時間")
+     return _iso(value)
+ 
+ 
+ def begin(
+     tx: ExecutorTransaction, proposal: Proposal, now: datetime, *,
+     capability_expires_at: datetime | None,
+     reservation: Reservation | None = None,
++    by: Actor | None = None,
+ ) -> Begun:
+     """開始一筆:鍵與第 1 列的欄位全由這份提案算出,呼叫端不能另外指定。
+ 
+     帶預留時,金額大於 0 就在同一個交易裡(立即取得寫入鎖)先算租戶已用額度,加上這筆超過門檻
+     丟 AggregateLimitReached、什麼都不寫;鍵已存在時不再預留也不再檢查(那把鍵第一次就扣過)。"""
+     conn = _conn(tx)
+     _require_aware(now)
++    source, actor = _by(by)
+     key = operation_key(proposal)
+     current = latest(tx, key)
+     if current is not None:
+         return Begun(current, created=False)
+     expires = _expiry(capability_expires_at)
+     if unresolved_count(tx, proposal.campaign_id):
+         raise CampaignLocked(proposal.campaign_id)
+     if unresolved_count(tx) >= MAX_UNRESOLVED:
+         raise TooManyUnresolved()
+     over_limit = None
+@@ -351,56 +552,56 @@ def begin(
+         used = aggregate_used(tx, reservation.tenant, now)
+         if used + reservation.amount > reservation.limit:
+             over_limit = AggregateLimitReached(used, reservation.limit)
+             if not reservation.approved:
+                 raise over_limit
+     snapshot_json = json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True,
+                                allow_nan=False)
+     conn.execute(
+         "INSERT INTO attempts (key, seq, campaign_id, state, send_count, verification_timeouts, "
+         "written_at, task_id, revision, action, expected_version, proposal_json, "
+-        "capability_expires_at, tenant, reserved_amount) "
+-        "VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
++        "capability_expires_at, tenant, reserved_amount, source, actor, program_version) "
++        "VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (key, proposal.campaign_id, AttemptState.IN_FLIGHT.value, _iso(now),
+          proposal.task_id, proposal.revision, proposal.action_type.value,
+          proposal.campaign_version_observed, snapshot_json, expires,
+          None if reservation is None else reservation.tenant,
+-         None if reservation is None else reservation.amount),
++         None if reservation is None else reservation.amount, source, actor, PROGRAM_VERSION),
+     )
+     row = latest(tx, key)
+     assert row is not None  # 剛寫入的那一列  # noqa: S101
+     return Begun(row, created=True, over_limit=over_limit)
+ 
+ 
+ def tenant_index_missing(conn: sqlite3.Connection) -> bool:
+     """補欄位流程的判斷之一:欄位已補齊的舊資料庫(增量 1 開過的)也要能補到這個索引。"""
+     return conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'index' "
+                         "AND name = 'attempts_first_rows_by_tenant'").fetchone() is None
+ 
+ 
+-def aggregate_used(tx: ExecutorTransaction, tenant: str, now: datetime) -> int:
++def aggregate_used(tx: Readable, tenant: str, now: datetime) -> int:
+     """租戶已用額度:目前計入的每一筆(`aggregate_holdings`)的加總。開始一筆與可觀測查詢都從這個
+     入口拿已用額度(既有並行測試靠攔截它造競態,Phase 6 增量 4 設計審第 2 輪)。"""
+     return sum(holding.amount for holding in aggregate_holdings(tx, tenant, now))
+ 
+ 
+ def aggregate_holdings(
+-    tx: ExecutorTransaction, tenant: str, now: datetime,
++    tx: Readable, tenant: str, now: datetime,
+ ) -> tuple[CountedFirstRow, ...]:
+     """租戶已用額度的逐筆明細(Phase 6):從嘗試紀錄推,不另存狀態。
+ 
+     - 已驗證:驗證完成時間在窗口內的才算(從已驗證列的部分索引出發,只跟窗口內筆數成正比)。
+     - 沒有終點:不論多久都算(全表最多 MAX_UNRESOLVED 把;先用計數判斷是不是 0)。
+     - 失敗:不算,等於還回去。
+     舊列(Phase 6 之前)沒有租戶與金額:改預算以新預算全額計、算進每一個租戶(分不出加減,寧可多擋)。
+     加總在程式裡用整數累加:門檻與金額都可以到整數上限,資料庫的整數加總會溢位。"""
+-    conn = _conn(tx)
++    conn = _read_conn(tx)
+     # 租戶在資料庫裡就過濾(這個租戶的列與沒有租戶的舊列),不把全系統的列撈進程式:查詢在全域
+     # 寫入鎖裡,多撈的列都是握鎖時間(代碼審第 2 輪資安席實測 30 萬列時一次 0.3 秒)
+     rows = conn.execute(
+         f"SELECT {_first_row_columns('f')} FROM attempts v "  # noqa: S608 - 只拼接固定欄位
+         "JOIN attempts f ON f.key = v.key AND f.seq = 1 "
+         "WHERE v.state = ? AND v.written_at >= ? "  # 剛好滿 24 小時還不算「超過」
+         "AND (f.tenant = ? OR f.tenant IS NULL)",
+         (AttemptState.VERIFIED.value, _iso(now - AGGREGATE_WINDOW), tenant),
+     ).fetchall()
+     if unresolved_count(tx):
+@@ -448,25 +649,25 @@ def first_rows_started_query(
+     """範圍內開始、這個租戶或沒有租戶的舊列的第一列。拆成兩段合起來,兩段都用得上按租戶的索引
+     (寫成「租戶相符或租戶是空值」會讓索引用不上)。"""
+     start, end = _iso(since), _iso(until)
+     part = (f"SELECT {_first_row_columns('f')} FROM attempts f WHERE f.seq = 1 AND {{}} "  # noqa: S608 - 只拼接固定條件
+             "AND f.written_at >= ? AND f.written_at < ?")
+     return (f"{part.format('f.tenant = ?')} UNION ALL {part.format('f.tenant IS NULL')}",
+             (tenant, start, end, start, end))
+ 
+ 
+ def counted_first_rows_started(
+-    tx: ExecutorTransaction, tenant: str, since: datetime, until: datetime,
++    tx: Readable, tenant: str, since: datetime, until: datetime,
+ ) -> tuple[CountedFirstRow, ...]:
+     """範圍內開始、照逐列計入規則金額大於 0 的鍵(不看 24 小時窗口),依開始時間排序。"""
+     sql, params = first_rows_started_query(tenant, since, until)
+-    return _counted_rows(_conn(tx).execute(sql, params), tenant)
++    return _counted_rows(_read_conn(tx).execute(sql, params), tenant)
+ 
+ 
+ def _counted_rows(rows: Iterable[tuple[Any, ...]], tenant: str) -> tuple[CountedFirstRow, ...]:
+     counted = []
+     for key, task_id, revision, campaign_id, started_at, state, *rest in rows:
+         amount = _counted(rest, tenant)  # 跟已用額度同一條逐列計入規則,不另寫一份
+         if amount > 0:  # 減預算、暫停、別的租戶
+             counted.append(CountedFirstRow(key, task_id, revision, campaign_id, started_at,
+                                            state, amount, rest[0] is None))
+     return tuple(sorted(counted, key=lambda row: (row.started_at, row.key)))
+@@ -485,35 +686,38 @@ def _counted(row: Sequence[Any], tenant: str) -> int:
+     if not is_plain_int(budget):
+         raise CorruptedAttemptRow("舊嘗試的提案快照新預算不是整數")
+     return budget
+ 
+ 
+ def _append(  # noqa: PLR0913 - 每個欄位都是新列的一部分
+     tx: ExecutorTransaction, previous: AttemptRow, state: AttemptState, now: datetime, *,
+     code: OutcomeCode | None = None, detail: str | None = None,
+     send_count: int | None = None, verification_timeouts: int | None = None,
+     capped: bool = True, written_version: int | None = None, expires: str | None = None,
++    by: Actor | None = None,
+ ) -> AttemptRow:
+     if capped and previous.seq >= MAX_ROWS_PER_KEY:
+         raise HistoryFull(previous.key)
+     carried_expiry = (None if previous.capability_expires_at is None
+                       else _iso(previous.capability_expires_at))
++    source, actor = _by(by)
+     _conn(tx).execute(
+-        f"INSERT INTO attempts ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608 - 只拼接模組內固定的欄位清單
++        f"INSERT INTO attempts ({_COLUMNS}, source, actor, program_version) "  # noqa: S608 - 只拼接模組內固定的欄位清單
++        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (previous.key, previous.seq + 1, previous.campaign_id, state.value,
+          None if code is None else OutcomeCode(code).value, detail,
+          previous.send_count if send_count is None else send_count,
+          previous.verification_timeouts if verification_timeouts is None
+          else verification_timeouts,
+          _iso(now),
+          previous.written_version if written_version is None else written_version,
+-         carried_expiry if expires is None else expires),
++         carried_expiry if expires is None else expires, source, actor, PROGRAM_VERSION),
+     )
+     row = latest(tx, previous.key)
+     assert row is not None  # noqa: S101
+     return row
+ 
+ 
+ def _current(
+     tx: ExecutorTransaction, key: str, expected_seq: int, now: datetime,
+ ) -> AttemptRow | None:
+     """呼叫端帶的預期序號仍是最新一列才回傳;不是就回 None(沒有進展,不寫入)。"""
+@@ -540,77 +744,80 @@ def _send_fields(
+         return written_version, expires
+     if written_version is not None:
+         raise InvalidOutcome("只有轉進已提交待驗證才帶寫入後版本")
+     return None, expires
+ 
+ 
+ def transition(  # noqa: PLR0913 - 代碼、細節與送出欄位是轉換本身要記的內容
+     tx: ExecutorTransaction, key: str, expected_seq: int, target: AttemptState, now: datetime,
+     *, code: OutcomeCode | None = None, detail: str | None = None,
+     written_version: int | None = None, capability_expires_at: datetime | None = None,
++    by: Actor | None = None,
+ ) -> AttemptRow | None:
+     """一般轉換:照唯讀轉換表;回傳新列,預期序號已不是最新就回 None。"""
+     row = _current(tx, key, expected_seq, now)
+     if row is None:
+         return None
+     if not can_transition(row.state, target):
+         raise IllegalAttemptTransition(f"不合法的轉換:{row.state} -> {target}")
+     if not code_fits(target, code, by_resolution=False):
+         raise InvalidOutcome(f"結果代碼 {code!r} 不配目標狀態 {target}")
+     if detail is not None and not is_clean_detail(detail):
+         raise InvalidOutcome("細節文字只收有長度上限的 ASCII 可列印字元")
+     destination = AttemptState(target)
+     written, expires = _send_fields(destination, written_version, capability_expires_at)
+     sends = row.send_count
+     if row.state is AttemptState.UNKNOWN and destination is AttemptState.IN_FLIGHT:
+         if sends >= MAX_SENDS:
+             raise SendLimitReached(key)
+         sends += 1
+     return _append(tx, row, destination, now, code=code, detail=detail, send_count=sends,
+                    capped=destination is not AttemptState.ESCALATED,
+-                   written_version=written, expires=expires)
++                   written_version=written, expires=expires, by=by)
+ 
+ 
+ def record_verification_timeout(
+-    tx: ExecutorTransaction, key: str, expected_seq: int, now: datetime,
++    tx: ExecutorTransaction, key: str, expected_seq: int, now: datetime, *,
++    by: Actor | None = None,
+ ) -> AttemptRow | None:
+     """記一次查證逾時:狀態不變、次數加 1,兩件事是同一次寫入。"""
+     row = _current(tx, key, expected_seq, now)
+     if row is None:
+         return None
+     if row.state not in TIMEOUT_STATES:
+         raise IllegalAttemptTransition(f"{row.state} 不能記查證逾時")
+     if row.verification_timeouts >= MAX_VERIFICATION_TIMEOUTS:
+         raise VerificationTimeoutLimitReached(key)
+     return _append(tx, row, row.state, now,
+-                   verification_timeouts=row.verification_timeouts + 1)
++                   verification_timeouts=row.verification_timeouts + 1, by=by)
+ 
+ 
+-def resolve(
++def resolve(  # noqa: PLR0913 - 人工處置要記的每一樣,含操作人
+     tx: ExecutorTransaction, key: str, expected_seq: int, outcome: AttemptState, reason: str,
+-    now: datetime,
++    now: datetime, *, by: Actor | None = None,
+ ) -> AttemptRow | None:
+-    """人工處置:只對轉人工有效,結果只能是已驗證或失敗,理由必填;不受歷史列上限。"""
++    """人工處置:只對轉人工有效,結果只能是已驗證或失敗,理由必填;不受歷史列上限。by 記操作人。"""
+     row = _current(tx, key, expected_seq, now)
+     if row is None:
+         return None
+     if row.state is not AttemptState.ESCALATED or outcome not in RESOLUTION_OUTCOMES:
+         raise IllegalAttemptTransition(f"人工處置不能把 {row.state} 處置成 {outcome}")
+     if not is_clean_detail(reason) or not reason.strip():
+         raise InvalidOutcome("處置理由必填,只收有長度上限的 ASCII 可列印字元")
+     destination = AttemptState(outcome)
+     code = OutcomeCode.MANUAL_FAILURE if destination is AttemptState.FAILED else None
+-    return _append(tx, row, destination, now, code=code, detail=reason, capped=False)
++    return _append(tx, row, destination, now, code=code, detail=reason, capped=False, by=by)
+ 
+ 
+ def recover_in_flight(
+     tx: ExecutorTransaction, now: datetime, *, held: Collection[str], written_before: datetime,
++    by: Actor | None = None,
+ ) -> Recovery:
+     """重啟恢復:目前是嘗試中、不在 held 裡、而且最新一列寫在 written_before 之前的鍵轉成結果
+     不明,其他鍵完全不動。
+ 
+     held 是收件表裡有處理中訊息的鍵(由呼叫端在同一個交易裡查好傳進來,這個模組不反過來依賴
+     收件表):那些是別的工作者正在做的、或租約到期後由對帳原子接手的,重啟恢復不碰。
+     不在 held 裡的是舊鍵(沒有收件表訊息),但它不一定沒人在做:對帳舊鍵時也會先寫嘗試中再呼叫
+     DSP。沒有租約可看,改看這一列寫下多久:呼叫端傳「現在減一個租約時間」,活著的工作者一次
+     DSP 呼叫一定在那之前寫完結果。兩個參數都必填、沒有預設值:漏傳時不能悄悄退回舊語意。
+ 
+@@ -631,13 +838,63 @@ def recover_in_flight(
+         if key in held:
+             continue
+         try:
+             row = latest(tx, key)
+         except CorruptedAttemptRow:
+             unreadable.append(key)
+             continue
+         assert row is not None  # noqa: S101
+         if row.written_at > written_before:  # 剛寫下的:可能有工作者正在對帳這把舊鍵
+             continue
+-        _append(tx, row, AttemptState.UNKNOWN, now, capped=False)
++        _append(tx, row, AttemptState.UNKNOWN, now, capped=False, by=by)
+         moved.append(key)
+     return Recovery(tuple(moved), tuple(unreadable))
++
++
++# ---- DSP 呼叫紀錄與追蹤檢視用的讀取(Phase 9 增量 1) ----
++def record_dsp_call(
++    tx: ExecutorTransaction, call: DspCall, subject: CallSubject, by: Actor, now: datetime,
++) -> None:
++    """寫一列 DSP 呼叫紀錄(只增不改)。呼叫端在呼叫之後用一個獨立的短交易寫,不跟結果寫入綁在
++    一起:結果寫入可能因收據失效回滾,呼叫本身確實發生了,不能跟著消失。"""
++    conn = _conn(tx)
++    if type(call.kind) is not DspCallKind or type(call.result) is not DspCallResult or (
++            call.error is not None and type(call.error) is not DspErrorCode):
++        raise ValueError("呼叫類別、結果類別與錯誤代碼都必須是封閉列舉的成員")
++    source, actor = _by(by)
++    conn.execute(
++        "INSERT INTO dsp_calls (at, call_kind, result, status, error_code, latency_ms, task_id, "
++        "revision, campaign_id, key, source, actor, program_version) "
++        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
++        (_iso(now), call.kind.value, call.result.value, call.status,
++         None if call.error is None else call.error.value, float(call.latency_ms),
++         subject.task_id, subject.revision, subject.campaign_id, subject.key, source, actor,
++         PROGRAM_VERSION))
++
++
++def dsp_calls_for(tx: Readable, task_id: str) -> tuple[DspCallRow, ...]:
++    """一個任務的 DSP 呼叫紀錄,依寫入順序。"""
++    return tuple(DspCallRow(*row) for row in _read_conn(tx).execute(
++        f"SELECT {', '.join(DSP_CALL_FIELDS)} FROM dsp_calls WHERE task_id = ? ORDER BY id",  # noqa: S608 - 固定欄位清單
++        (task_id,)))
++
++
++def trace_rows(tx: Readable, key: str) -> tuple[AttemptTraceRow, ...]:
++    """一把鍵的每一列嘗試,連同第一列記的任務、修訂與租戶(那把鍵歸建立它的修訂)。"""
++    return tuple(AttemptTraceRow(*row) for row in _read_conn(tx).execute(
++        "SELECT a.key, a.seq, a.state, a.code, a.send_count, a.written_at, f.task_id, "
++        "f.revision, a.campaign_id, f.tenant, a.source, a.actor, a.program_version "
++        "FROM attempts a JOIN attempts f ON f.key = a.key AND f.seq = 1 "
++        "WHERE a.key = ? ORDER BY a.seq", (key,)))
++
++
++def first_row_tenant(tx: Readable, key: str) -> str | None:
++    """這把鍵開始一筆時記的租戶(簽發當時的);沒有這把鍵或舊列回空值。"""
++    row = _read_conn(tx).execute(
++        "SELECT tenant FROM attempts WHERE key = ? AND seq = 1", (key,)).fetchone()
++    return None if row is None else row[0]
++
++
++# 寫入函式的宣告清單:測試從原始碼機械算出寫入函式,必須跟這份完全相同(不靠名字判斷)。用函式物件
++# 取名字、不寫字串:這支模組的字串裡不准出現交易指令的字樣(既有測試守「不自己開交易」)
++WRITE_FUNCTIONS = frozenset(fn.__name__ for fn in (
++    begin, transition, record_verification_timeout, resolve, recover_in_flight, record_dsp_call))
+diff --git a/src/rtb/executor/dsp_client.py b/src/rtb/executor/dsp_client.py
+index 6accd17..44b4d93 100644
+--- a/src/rtb/executor/dsp_client.py
++++ b/src/rtb/executor/dsp_client.py
+@@ -1,129 +1,214 @@
+ """執行行程的 DSP 讀寫用戶端:比照分析行程的 DSP 用戶端,只做「打 HTTP、轉成結果」,不碰儲存。
+ 
+ 經共用 HTTP 用戶端送出(只送得出封閉列舉裡的標頭:冪等鍵與能力憑證)。
+ - 讀取:廣告不存在(404 campaign_not_found)回 None,讓執行前檢查擋下;其他失敗一律 DspUnavailable。
+ - 寫入:不丟例外;逾時、斷線、回應讀不懂一律回「沒拿到回應」,交給回應對照表判成結果不明。
+ - 查操作紀錄:查不到(404 operation_not_found)回 None;其他失敗一律 DspUnavailable。
+   查寫入後版本(增量 3 的介面)原樣保留;對帳用的「查完整操作紀錄」另開一支。
+ - 作廢:不丟例外;回應原樣交給作廢回應對照表判。
++
++呼叫回呼(Phase 9 增量 1,比照分析端 DSP 用戶端的 on_call):每一支公開方法都經同一個底層送出點
++`_send`,每一次 HTTP 呼叫在那裡觸發剛好一次回呼(呼叫類別、結果類別、狀態碼、耗時、DSP 回的錯誤
++代碼)。結果類別:傳輸層的例外依型別分逾時、連線失敗、回應讀不懂;有回應時依狀態碼分 4xx、5xx;
++狀態 2xx 但欄位讀不懂算回應讀不懂。沒拿到回應時,寫入與作廢的回應、讀取丟的例外也帶同一個分類。
++這支檔仍不碰儲存:寫呼叫紀錄的是掛上回呼的執行迴圈。
+ """
+ 
++import time
++from collections.abc import Callable
+ from typing import Any
+ 
+ from rtb.domain._checks import is_plain_int
+ from rtb.domain.proposal import ActionType, Proposal
++from rtb.executor.attempt_store import DspCall, DspCallKind, DspCallResult, dsp_error_code
+ from rtb.executor.execution import (
+     CampaignView,
+     DspUnavailable,
++    OnDspCall,
+     OperationRecord,
+     VoidAnswer,
+     WriteAnswer,
+ )
+ from rtb.httpclient import ClientHeader, request_json
+ 
+ _WRITE_PATHS = {ActionType.UPDATE_BUDGET: "budget", ActionType.PAUSE_CAMPAIGN: "pause"}
+ 
+ 
+ _SQLITE_INTEGER_MAX = 2**63 - 1  # 版本會寫進資料庫的整數欄位;超過就當成讀不懂,不讓寫入時崩潰
++R = DspCallResult
+ 
+ 
+ def _positive_int(value: object) -> int | None:
+     return value if is_plain_int(value) and 0 < value <= _SQLITE_INTEGER_MAX else None
+ 
+ 
++def _transport_failure(exc: BaseException) -> DspCallResult:
++    """沒拿到回應的是哪一種:逾時(讀取逾時直接丟;連線逾時被 urllib 包在 reason 裡)、回應讀不懂
++    (不是 JSON、太大)、其他 OSError 算連線失敗。只看型別與屬性,不匯入網路模組。"""
++    if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
++        return R.TIMEOUT
++    if isinstance(exc, ValueError):
++        return R.UNREADABLE
++    return R.CONNECTION_FAILED
++
++
++def _by_status(status: int, readable: bool) -> DspCallResult:
++    """有回應時:2xx 看讀不讀得懂,4xx、5xx 照狀態碼;其他(沒跟的轉址等)也算讀不懂。"""
++    if 200 <= status < 300:
++        return R.RESPONDED if readable else R.UNREADABLE
++    if 400 <= status < 500:
++        return R.CLIENT_ERROR
++    if 500 <= status < 600:
++        return R.SERVER_ERROR
++    return R.UNREADABLE
++
++
+ class DspClient:
+-    def __init__(self, base_url: str, timeout_seconds: float):
++    def __init__(self, base_url: str, timeout_seconds: float, on_call: OnDspCall | None = None):
+         self._base, self._timeout = base_url.rstrip("/"), timeout_seconds
+-
+-    def _get(self, path: str) -> tuple[int, dict[str, Any]]:
++        self._on_call = on_call
++
++    def listen(self, on_call: OnDspCall) -> None:
++        self._on_call = on_call
++
++    def _send[T](  # noqa: PLR0913 - 一次呼叫要的全部:類別、方法、路徑、本文、標頭、兩個解讀
++        self, kind: DspCallKind, method: str, path: str, body: dict[str, Any] | None,
++        headers: dict[ClientHeader, str] | None,
++        read: Callable[[int, dict[str, Any] | None], tuple[T, bool]],
++        no_reply: Callable[[DspCallResult], T],
++    ) -> T:
++        """唯一的送出點:送一次、量耗時(單調時鐘)、分類,觸發一次回呼,再把結果交回。
++
++        read 解讀有回應的情況,回 (結果, 讀不讀得懂);丟 DspUnavailable 時照樣先觸發回呼。
++        no_reply 處理沒拿到回應(回一個「沒拿到回應」的結果,或丟 DspUnavailable)。"""
++        started = time.monotonic()
+         try:
+-            status, body = request_json(self._base + path, "GET", None, self._timeout)
++            status, reply = request_json(self._base + path, method, body, self._timeout, headers)
+         except (OSError, ValueError) as exc:  # 逾時、斷線、回應不是 JSON 或太大
+-            raise DspUnavailable(type(exc).__name__) from exc
+-        if not isinstance(body, dict):
+-            raise DspUnavailable("回應不是 JSON 物件")
+-        return status, body
++            failure = _transport_failure(exc)
++            self._report(kind, failure, None, started, None)
++            return no_reply(failure)
++        parsed = reply if isinstance(reply, dict) else None
++        try:
++            result, readable = read(status, parsed)
++        except DspUnavailable:
++            self._report(kind, _by_status(status, False), status, started, parsed)
++            raise
++        self._report(kind, _by_status(status, readable), status, started, parsed)
++        return result
++
++    def _report(
++        self, kind: DspCallKind, result: DspCallResult, status: int | None, started: float,
++        reply: dict[str, Any] | None,
++    ) -> None:
++        if self._on_call is not None:
++            self._on_call(DspCall(kind, result, status, (time.monotonic() - started) * 1000,
++                                  dsp_error_code(reply)))
++
++    def _get[T](
++        self, kind: DspCallKind, path: str,
++        read: Callable[[int, dict[str, Any]], T],
++    ) -> T:
++        """讀取類(讀廣告、查操作紀錄):沒拿到回應、回應不是 JSON 物件一律丟 DspUnavailable。"""
++        def interpret(status: int, reply: dict[str, Any] | None) -> tuple[T, bool]:
++            if reply is None:
++                raise DspUnavailable("回應不是 JSON 物件", _by_status(status, False))
++            return read(status, reply), True
++
++        def unavailable(failure: DspCallResult) -> T:
++            raise DspUnavailable(failure.value, failure)
++
++        return self._send(kind, "GET", path, None, None, interpret, unavailable)
+ 
+     def read_campaign(self, campaign_id: str) -> CampaignView | None:
+-        status, body = self._get(f"/campaigns/{campaign_id}")
+-        if status == 404 and body.get("error") == "campaign_not_found":
+-            return None
+-        budget, version = _positive_int(body.get("budget")), _positive_int(body.get("version"))
+-        state = body.get("status")
+-        if status != 200 or budget is None or version is None or not isinstance(state, str):
+-            raise DspUnavailable(f"讀取回 {status}")
+-        return CampaignView(budget=budget, status=state, version=version)
++        def read(status: int, body: dict[str, Any]) -> CampaignView | None:
++            if status == 404 and body.get("error") == "campaign_not_found":
++                return None
++            budget, version = _positive_int(body.get("budget")), _positive_int(body.get("version"))
++            state = body.get("status")
++            if status != 200 or budget is None or version is None or not isinstance(state, str):
++                raise DspUnavailable(f"讀取回 {status}", _by_status(status, False))
++            return CampaignView(budget=budget, status=state, version=version)
++
++        return self._get(DspCallKind.READ_CAMPAIGN, f"/campaigns/{campaign_id}", read)
+ 
+     def write(self, proposal: Proposal, key: str, token: str) -> WriteAnswer:
+         body: dict[str, Any] = {"expected_version": proposal.campaign_version_observed}
+         if proposal.action_type is ActionType.UPDATE_BUDGET:
+             body["new_budget"] = proposal.requested_change["new_budget"]
+         path = f"/campaigns/{proposal.campaign_id}/{_WRITE_PATHS[proposal.action_type]}"
+         headers = {ClientHeader.IDEMPOTENCY_KEY: key, ClientHeader.CAPABILITY: token}
+-        try:
+-            status, reply = request_json(self._base + path, "POST", body, self._timeout, headers)
+-        except (OSError, ValueError):
+-            return WriteAnswer(None)
+-        if not isinstance(reply, dict):  # 回應讀不懂:當成沒拿到回應
+-            return WriteAnswer(None)
+-        error = reply.get("error")
+-        return WriteAnswer(status, error if isinstance(error, str) else None,
+-                           _positive_int(reply.get("version_after")))
++
++        def read(status: int, reply: dict[str, Any] | None) -> tuple[WriteAnswer, bool]:
++            if reply is None:  # 回應讀不懂:當成沒拿到回應
++                return WriteAnswer(None, failure=R.UNREADABLE), False
++            error = reply.get("error")
++            version = _positive_int(reply.get("version_after"))
++            return (WriteAnswer(status, error if isinstance(error, str) else None, version),
++                    version is not None)
++
++        return self._send(DspCallKind.WRITE, "POST", path, body, headers, read,
++                          lambda failure: WriteAnswer(None, failure=failure))
+ 
+     def operation_version(self, key: str) -> int | None:
+         """增量 3 的介面,行為照舊:只要寫入後版本讀得懂就回它。
+ 
+         刻意不轉呼叫 operation_record:那支要求廣告、動作、參數都在,舊版 DSP 的成功回應沒有參數,
+         會被誤判成讀不懂。兩支共用的是查詢與「查不到」的判斷(_lookup),不是欄位解析。
+         """
+-        body = self._lookup(key)
+-        if body is None:
+-            return None
+-        version = _positive_int(body.get("version_after"))
+-        if version is None:
+-            raise DspUnavailable("查詢回的寫入後版本讀不懂")
+-        return version
+-
+-    def _lookup(self, key: str) -> dict[str, Any] | None:
+-        """查一把鍵的操作紀錄:查不到回 None,非 200 一律 DspUnavailable;欄位解析由呼叫端做。"""
+-        status, body = self._get(f"/operations/{key}")
+-        if status == 404 and body.get("error") == "operation_not_found":
+-            return None
+-        if status != 200:
+-            raise DspUnavailable(f"查詢回 {status}")
+-        return body
++        def parse(body: dict[str, Any]) -> int:
++            version = _positive_int(body.get("version_after"))
++            if version is None:
++                raise DspUnavailable("查詢回的寫入後版本讀不懂", R.UNREADABLE)
++            return version
++
++        return self._lookup(key, parse)
++
++    def _lookup[T](self, key: str, parse: Callable[[dict[str, Any]], T]) -> T | None:
++        """查一把鍵的操作紀錄:查不到回 None,非 200 一律 DspUnavailable;欄位解析由呼叫端給。"""
++        def read(status: int, body: dict[str, Any]) -> T | None:
++            if status == 404 and body.get("error") == "operation_not_found":
++                return None
++            if status != 200:
++                raise DspUnavailable(f"查詢回 {status}", _by_status(status, False))
++            return parse(body)
++
++        return self._get(DspCallKind.LOOKUP_OPERATION, f"/operations/{key}", read)
+ 
+     def operation_record(self, key: str) -> OperationRecord | None:
+-        body = self._lookup(key)
+-        if body is None:
+-            return None
+-        record = _record(body)
+-        if record is None:  # 對帳要核對完整內容:少一個欄位就不能拿來下判斷
+-            raise DspUnavailable("查詢回的操作紀錄讀不懂")
+-        return record
++        def parse(body: dict[str, Any]) -> OperationRecord:
++            record = _record(body)
++            if record is None:  # 對帳要核對完整內容:少一個欄位就不能拿來下判斷
++                raise DspUnavailable("查詢回的操作紀錄讀不懂", R.UNREADABLE)
++            return record
++
++        return self._lookup(key, parse)
+ 
+     def void(self, proposal: Proposal, key: str, token: str) -> VoidAnswer:
+         body = {"expected_version": proposal.campaign_version_observed}
+         headers = {ClientHeader.IDEMPOTENCY_KEY: key, ClientHeader.CAPABILITY: token}
+         path = f"/campaigns/{proposal.campaign_id}/void"
+-        try:
+-            status, reply = request_json(self._base + path, "POST", body, self._timeout, headers)
+-        except (OSError, ValueError):
+-            return VoidAnswer(None)
+-        if not isinstance(reply, dict):
+-            return VoidAnswer(None)
+-        error, state = reply.get("error"), reply.get("state")
+-        operation = reply.get("operation")
+-        return VoidAnswer(status, error if isinstance(error, str) else None,
+-                          state if state in ("voided", "committed") else None,
+-                          _record(operation) if isinstance(operation, dict) else None)
++
++        def read(status: int, reply: dict[str, Any] | None) -> tuple[VoidAnswer, bool]:
++            if reply is None:
++                return VoidAnswer(None, failure=R.UNREADABLE), False
++            error, state = reply.get("error"), reply.get("state")
++            operation = reply.get("operation")
++            record = _record(operation) if isinstance(operation, dict) else None
++            answer = VoidAnswer(status, error if isinstance(error, str) else None,
++                                state if state in ("voided", "committed") else None, record)
++            return answer, answer.state == "voided" or (
++                answer.state == "committed" and record is not None)
++
++        return self._send(DspCallKind.VOID, "POST", path, body, headers, read,
++                          lambda failure: VoidAnswer(None, failure=failure))
+ 
+ 
+ def _record(body: dict[str, Any]) -> OperationRecord | None:
+     """讀不懂就回 None;預期版本缺(DSP 補欄位之前的舊列)照實留空值,由核對當成對不上。"""
+     campaign, action, params = body.get("campaign_id"), body.get("action"), body.get("params")
+     version = _positive_int(body.get("version_after"))
+     if (not isinstance(campaign, str) or not isinstance(action, str)
+             or not isinstance(params, dict) or version is None):
+         return None
+     budget = params.get("new_budget")
+diff --git a/src/rtb/executor/observability.py b/src/rtb/executor/observability.py
+index f908324..aed47a3 100644
+--- a/src/rtb/executor/observability.py
++++ b/src/rtb/executor/observability.py
+@@ -1,33 +1,40 @@
+ """可觀測的唯讀查詢(Phase 6 增量 4):總曝險停下次數、表滿延後份數、人工核可、額度使用率、
+ 總曝險稽核明細。
+ 
+ 資料一律從既有的耐久紀錄讀——停下紀錄表與嘗試紀錄——不另存計數器。一張表只透過擁有它的模組讀:
+ 停下紀錄走收件口模組的方法(先核對交易是它開的),嘗試紀錄走嘗試紀錄模組的函式;這裡不寫 SQL
+ (代碼審第 1 輪架構席)。每支都收執行行程資料庫交易入口開的交易(會握寫入鎖,跟 Phase 5 的
+-`version_conflict_count` 同一種做法),只讀不寫。依賴方向只有「這裡 → 收件口模組、嘗試紀錄模組」,
+-那兩個模組都不依賴這裡。人工核可的查詢三(待核可數與已核可放行數)在增量 3 合進後補上。
++`version_conflict_count` 同一種做法)或唯讀開法開的唯讀交易(不握鎖),只讀不寫。依賴方向只有
++「這裡 → 收件口模組、嘗試紀錄模組」,那兩個模組都不依賴這裡。人工核可的查詢三(待核可數與已核可
++放行數)在增量 3 合進後補上。
+ 
+-稽核明細的時間範圍不設上限:給極寬的範圍會掃大段歷史、握寫入鎖。目前只有人工與測試會呼叫;
+-Phase 9 接告警或輪詢時要一併決定範圍上限與不握寫入鎖的讀法(代碼審第 1 輪資安席)。
++稽核明細的時間範圍不設上限:給極寬的範圍會掃大段歷史。目前只有人工與測試會呼叫;Phase 9 增量 2
++接上指標時要一併決定範圍上限(代碼審第 1 輪資安席)。
++
++不握寫入鎖的讀法(Phase 9 增量 1):每支都也收唯讀交易,收件表參數收寫入開法或唯讀開法;唯讀交易下
++結果跟寫入交易下相同,別人佔著寫入鎖時照樣讀。呼叫方式:
++    reader = ReadOnlyInbox(資料庫路徑)
++    with reader.read_transaction() as tx:
++        aggregate_stop_count(reader, tx, tenant=...)
+ 
+ 時間範圍一律包含起點、不包含終點;停下紀錄與嘗試紀錄的時間都寫成同一種固定格式的 UTC 字串,字串
+ 比較就是時間比較。「現在」與門檻都由呼叫端傳入:額度窗口依「現在」算,兩支查詢要對帳就傳同一個;
+ 門檻由呼叫端用簽發模組的 `load_tenants` 取得(那裡帶著設定檔的安全檢查)。
+ """
+ 
+ from dataclasses import dataclass
+ from datetime import datetime
+ 
+ from rtb.executor import attempt_store
+-from rtb.executor.attempt_store import CountedFirstRow, ExecutorTransaction
+-from rtb.executor.inbox_store import InboxStore, StopKind
++from rtb.executor.attempt_store import CountedFirstRow, Readable
++from rtb.executor.inbox_store import InboxReads, StopKind
+ 
+ 
+ @dataclass(frozen=True)
+ class Utilization:
+     """額度使用率:整數不回比例(整數到上限時浮點會失真)。門檻 0(設定檔缺這欄)是合法設定,
+     這時不准加預算、比例沒有定義,呼叫端看旗標,不要去除以 0。"""
+ 
+     used: int
+     limit: int
+     remaining: int
+@@ -65,68 +72,68 @@ class Entry:
+ 
+ @dataclass(frozen=True)
+ class AggregateAudit:
+     stopped: tuple[Stopped, ...]  # 範圍內的總曝險停下(不含表滿延後、比例過大)
+     passed: tuple[Entry, ...]  # 範圍內開始、照計入規則算進的寫入,不看 24 小時窗口
+     holding: tuple[Entry, ...]  # 目前佔額度的每一筆,不受範圍限制;加總就是已用額度
+     utilization: Utilization
+ 
+ 
+ def aggregate_stop_count(
+-    store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
++    store: InboxReads, tx: Readable, *, tenant: str | None = None,
+     campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
+ ) -> int:
+     """總曝險停下次數:被停下的次數,不是最後結果(增量 3 之後其中有些會被核可放行)。"""
+     return store.stop_count(tx, StopKind.AGGREGATE_LIMIT_REACHED, tenant=tenant,
+                             campaign_id=campaign_id, since=since, until=until)
+ 
+ 
+ def table_full_deferral_count(
+-    store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
++    store: InboxReads, tx: Readable, *, tenant: str | None = None,
+     campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
+ ) -> int:
+     """表滿延後次數:同一份提案同一種類只記一列,數的是「被延後過的提案份數」,不是延後事件次數。"""
+     return store.stop_count(tx, StopKind.TABLE_FULL, tenant=tenant, campaign_id=campaign_id,
+                             since=since, until=until)
+ 
+ 
+ @dataclass(frozen=True)
+ class ApprovalCounts:
+     """人工核可(查詢三):待核可是當下快照,不吃時間範圍;已核可放行吃範圍。接不到停下紀錄的待核可
+     另外回報(依租戶、廣告篩時算不進去,不悄悄丟掉)。"""
+ 
+     awaiting: int
+     awaiting_unknown_tenant: int
+     applied: int
+ 
+ 
+ def approval_counts(
+-    store: InboxStore, tx: ExecutorTransaction, *, tenant: str | None = None,
++    store: InboxReads, tx: Readable, *, tenant: str | None = None,
+     campaign_id: str | None = None, since: datetime | None = None, until: datetime | None = None,
+ ) -> ApprovalCounts:
+     awaiting, unknown = store.awaiting_count(tx, tenant=tenant, campaign_id=campaign_id)
+     applied = store.approval_use_count(tx, tenant=tenant, campaign_id=campaign_id, since=since,
+                                        until=until)
+     return ApprovalCounts(awaiting, unknown, applied)
+ 
+ 
+-def utilization(tx: ExecutorTransaction, tenant: str, limit: int, now: datetime) -> Utilization:
++def utilization(tx: Readable, tenant: str, limit: int, now: datetime) -> Utilization:
+     """只讀嘗試紀錄,所以不收收件表(另外三支讀停下紀錄,要收件表來核對交易歸屬)。"""
+     return _utilization(attempt_store.aggregate_used(tx, tenant, now), limit)
+ 
+ 
+ def _utilization(used: int, limit: int) -> Utilization:
+     return Utilization(used, limit, max(0, limit - used), limit > 0)
+ 
+ 
+ def aggregate_audit(  # noqa: PLR0913 - 收件表、交易、租戶、門檻、現在、範圍都是稽核必須的輸入
+-    store: InboxStore, tx: ExecutorTransaction, tenant: str, limit: int, now: datetime,
++    store: InboxReads, tx: Readable, tenant: str, limit: int, now: datetime,
+     since: datetime | None, until: datetime | None,
+ ) -> AggregateAudit:
+     """總曝險稽核明細(事故 F7「哪些通過、哪些被阻擋、剩餘多少」):四樣都用同一個傳入的「現在」。"""
+     if since is None or until is None:
+         raise ValueError("稽核明細一定要給時間範圍:停下紀錄表只增不改,不給範圍會整張撈出來")
+     stopped = tuple(Stopped(*row) for row in store.stops(  # type: ignore[arg-type]
+         tx, StopKind.AGGREGATE_LIMIT_REACHED, tenant, since, until))
+     holding = attempt_store.aggregate_holdings(tx, tenant, now)  # 同一次查詢帶出身分,加總就是已用
+     counted = {row.key for row in holding}
+     passed = attempt_store.counted_first_rows_started(tx, tenant, since, until)
+diff --git a/src/rtb/sqlitekit.py b/src/rtb/sqlitekit.py
+index d33ecc2..6a81558 100644
+--- a/src/rtb/sqlitekit.py
++++ b/src/rtb/sqlitekit.py
+@@ -1,27 +1,36 @@
+ """SQLite 的共用做法:WAL、忙碌逾時、手動交易(BEGIN IMMEDIATE),忙碌與永久故障分得開。
+ 
+ DSP 與提案收件口都用它,不各寫一套。每個執行緒或請求自己開一條連線,不共用。
++
++唯讀連線(Phase 9 增量 1):以 SQLite 官方 URI 的 mode=ro 開,並明講這是 URI——把「mode=ro」字串
++丟給一般的連線函式不會報錯,而是在磁碟上悄悄新建一個以那串文字為檔名的空資料庫(前掃實測)。唯讀
++快照用不取鎖的顯式交易開頭,開頭之後立刻讀一次:SQLite 的讀取快照從第一次讀取才定,不先讀的話,
++開頭與第一次查詢之間別人提交的寫入也會被看到。
+ """
+ 
+ import sqlite3
+-from collections.abc import Iterator
++from collections.abc import Iterable, Iterator, Mapping
+ from contextlib import contextmanager
+ from pathlib import Path
+ 
+ BUSY_TIMEOUT_SECONDS = 5.0
+ 
+ 
+ class DatabaseBusy(Exception):
+     """資料庫正被別的寫入佔用,等待逾時。呼叫者決定要不要重試。"""
+ 
+ 
++class DatabaseNotUpgraded(Exception):
++    """唯讀開法發現資料庫還沒升級到這一版(缺表或缺欄位):唯讀連線不能補,要先用寫入開法開一次。"""
++
++
+ def _is_lock_contention(exc: sqlite3.OperationalError) -> bool:
+     primary_code = exc.sqlite_errorcode & 0xFF  # 擴充碼的低 8 位才是主要錯誤碼
+     return primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+ 
+ 
+ def connect(
+     path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS, schema: str = ""
+ ) -> sqlite3.Connection:
+     """開連線(isolation_level=None:交易一律手動控制,不會悄悄開啟)、啟用 WAL、建立表。"""
+     conn = sqlite3.connect(path, isolation_level=None, timeout=busy_timeout_seconds)
+@@ -54,10 +63,56 @@ def begin_immediate(conn: sqlite3.Connection) -> None:
+ def immediate_transaction(conn: sqlite3.Connection) -> Iterator[None]:
+     """寫入交易:進入時 BEGIN IMMEDIATE(鎖不到丟 DatabaseBusy),正常結束就提交,任何例外都回滾。"""
+     begin_immediate(conn)
+     try:
+         yield
+         conn.execute("COMMIT")
+     except BaseException:
+         if conn.in_transaction:  # SQLite 有時已自行回滾;再回滾會蓋掉真正的原因
+             conn.execute("ROLLBACK")
+         raise
++
++
++def connect_read_only(
++    path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
++) -> sqlite3.Connection:
++    """唯讀連線:任何寫入都失敗;檔案不存在丟 FileNotFoundError,不建新檔。不建表、不切日誌模式。"""
++    target = Path(path)
++    if not target.is_file():
++        raise FileNotFoundError(str(target))
++    uri = target.resolve().as_uri() + "?mode=ro"  # as_uri 會把檔名裡的 # ? 空白編碼掉
++    return sqlite3.connect(uri, uri=True, isolation_level=None, timeout=busy_timeout_seconds)
++
++
++def begin_snapshot(conn: sqlite3.Connection) -> None:
++    """不取鎖的顯式交易開頭,並立刻讀一次把快照定下來(之後同一個交易裡的查詢都讀這個快照)。"""
++    conn.execute("BEGIN")
++    conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
++
++
++def end_snapshot(conn: sqlite3.Connection) -> None:
++    if conn.in_transaction:
++        conn.execute("ROLLBACK")  # 唯讀交易沒有東西要提交;回滾同樣結束快照
++
++
++@contextmanager
++def read_snapshot(conn: sqlite3.Connection) -> Iterator[None]:
++    """唯讀交易:進入時定下快照,離開時結束(不論有沒有例外)。"""
++    begin_snapshot(conn)
++    try:
++        yield
++    finally:
++        end_snapshot(conn)
++
++
++def missing_schema(
++    conn: sqlite3.Connection, required: Mapping[str, Iterable[str]],
++) -> list[str]:
++    """required 是 {表: 欄位};回傳缺的表與「表.欄位」(唯讀開法判斷資料庫升級了沒有)。"""
++    missing = []
++    for table, columns in required.items():
++        present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
++        if not present:
++            missing.append(table)
++            continue
++        missing += [f"{table}.{column}" for column in columns if column not in present]
++    return missing

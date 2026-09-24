@@ -3199,3 +3199,20 @@
 {"ts": "2026-09-24T06:59:29+08:00", "commit": "2916e57", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-24T06:59:30+08:00", "commit": "2916e57", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "2916e575a84ab36299922adf79f86288cc2fc078"}
 {"ts": "2026-09-24T06:59:37+08:00", "commit": "492b436", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["f7效能"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T07:49:13+08:00", "commit": "96415b1", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T07:53:25+08:00", "commit": "239c5ab", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T07:53:26+08:00", "commit": "239c5ab", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "239c5ab2c5b4a5272298d53f49ea60e3d1e74243"}
+{"ts": "2026-09-24T07:53:27+08:00", "commit": "7242abd", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T07:53:32+08:00", "commit": "7242abd", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "7242abdcba3d68de055b46bf20a6285a99276073"}
+{"ts": "2026-09-24T08:00:49+08:00", "commit": "5bc4114", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase9-integration"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T08:03:33+08:00", "commit": "5bc4114", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Projects/RTB_Phase2任務流程_計劃.md", "Projects/RTB_Phase5樂觀鎖與重新規劃_計劃.md", "Systems/Mock-DSP.md", "Systems/任務流程領域模型.md", "Systems/共用行程基礎.md", "Systems/執行迴圈.md", "Systems/提案收件口.md", "Systems/確定性指標計算.md"], "note": "tokens=7 hits=9 secs=8.7"}
+{"ts": "2026-09-24T08:03:34+08:00", "commit": "5bc4114", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "5bc4114b08051f19ac7137d88883a6f4f565f8dd"}
+{"ts": "2026-09-24T08:03:53+08:00", "commit": "7164dcf", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T08:03:53+08:00", "commit": "7164dcf", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "7164dcf20ded72a6ba31e119b76c506a170849cd"}
+{"ts": "2026-09-24T08:04:25+08:00", "commit": "79e17c9", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase9-inc1"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T08:04:25+08:00", "commit": "79e17c9", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase9-inc2"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T08:04:25+08:00", "commit": "79e17c9", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase9-inc3"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T08:04:26+08:00", "commit": "79e17c9", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase9-inc4-std"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T08:04:26+08:00", "commit": "79e17c9", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase9-integration"], "note": "disposal gate PASS"}
+{"ts": "2026-09-24T08:06:20+08:00", "commit": "79e17c9", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.1"}
+{"ts": "2026-09-24T08:06:21+08:00", "commit": "79e17c9", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "79e17c9336d49e4644d1d4152c58526b59563265"}

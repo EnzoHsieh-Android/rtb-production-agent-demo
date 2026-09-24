@@ -1,0 +1,505 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md b/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md
+index 1fff5dc..f8f3d16 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md
+@@ -1,30 +1,32 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-24
+ updated: 2026-09-24
+ responsibility: 七張稽核表只增不改的原始碼結構檢查,以及它與 Phase 8 死信守衛、維運套件邊界共用的原始碼掃描工具(判寫入函式、拼回拆開的字串);只防忘記,不防刻意繞過、不管資料庫層權限
+ aliases: []
+ about_code:
+   - tests/executor/test_audit_tables.py
+   - tests/executor/write_scan.py
++  - tests/executor/audit_guard.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: [2026-09-24] 停下紀錄、核可、核可使用、生命週期事件、DSP 呼叫紀錄、DSP 操作紀錄、嘗試紀錄七張表是稽核與服務水準的依據,只准新增;照 Phase 8 死信守衛的做法掃原始碼(不加資料庫觸發器)。出處:[[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 4。
+   RULE: 比法是「同一段拼回來的文字裡出現任一張表名,又出現任一種改寫語句」就算違規,不是「動詞緊接表名」:SQLite 的衝突時更新把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。補欄位只准可為空、沒有預設值的(帶預設值會讓舊列讀出新值)。[since:2026-09-24] [retire:稽核表改由資料庫層權限或觸發器守、原始碼掃描不再是唯一防線時] [test:test_audit_tables_are_only_ever_inserted_into]
+   PITFALL: [2026-09-24] 共用掃描模組原本就有一支同名的取字串函式(只取常數、排除文件字串,判寫入函式用);Phase 8 那支拼字串函式搬進來換了名字,不然後定義的會蓋掉前一支、寫入函式的判定悄悄跑偏。兩種讀法都有測試守。[test:test_the_shared_scanner_keeps_both_string_readings]
+ ---
+ # 稽核表只增不改守衛
+ 
+ # 稽核表只增不改守衛
+ 
+-本篇管 `tests/executor/test_audit_tables.py`(守衛本身與殺傷力配方)與 `tests/executor/write_scan.py`(共用的原始碼掃描工具:判寫入函式、拼回拆開的字串;Phase 8 死信守衛、維運套件邊界測試、本守衛共用)。七張表的家:[[Systems/提案收件口]](停下紀錄、核可、核可使用、生命週期事件)、[[Systems/外部寫入嘗試紀錄]](嘗試紀錄、DSP 呼叫紀錄)、[[Systems/Mock-DSP]](操作紀錄)。
++本篇管 `tests/executor/test_audit_tables.py`(守衛測試與殺傷力配方)、`tests/executor/audit_guard.py`(稽核判定:哪幾張表受守護、哪些語句算改寫、補欄位規則、動態補欄位處數;Phase 8 死信守衛也從這裡匯入)與 `tests/executor/write_scan.py`(共用的原始碼掃描工具,只放兩種通用讀法:判寫入函式、拼回拆開的字串;維運套件邊界測試也用)。七張表的家:[[Systems/提案收件口]](停下紀錄、核可、核可使用、生命週期事件)、[[Systems/外部寫入嘗試紀錄]](嘗試紀錄、DSP 呼叫紀錄)、[[Systems/Mock-DSP]](操作紀錄)。
+ 
+ - 全庫掃 src/rtb 每一支,拼回字串時不算文件字串(說明裡提到改寫語句不是改寫)。
+ - 收件口的通用補欄位迴圈用 f-string 組表名,拼回來只剩占位;另外直接讀它的登記表,斷言登記在七張表之下的欄位定義都可為空、無預設值(今天只有嘗試紀錄的欄位在裡面)。
+ - 七個表名各要在某個建表語句裡出現剛好一次,拼錯守衛就守空了。
+ - 殺傷力配方:每張表至少一條,另外逐一涵蓋 UPDATE OR REPLACE、衝突時更新、DROP TABLE IF EXISTS、帶「資料庫名.」前綴、改名、刪欄、帶預設值或不可為空的補欄位;配方用拆開字串的寫法,不跟檢查用同一種字面。
+ - 防忘記,不防刻意繞過:用變數組表名、把關鍵字拆到兩個變數再串起來都繞得過;直接開資料庫改也擋不住。
+-- 代碼審第 1 輪(2026-09-24)四處補強:Phase 8 死信兩張表併進同一套判定(九張表共用;死信兩張表照原本一起掃文件字串、連可為空的補欄位都不准,只變嚴),防回歸 [test:test_the_dead_letter_guard_catches_each_rewrite];拼回字串認得字面模板 .format(參數) 與 字面 % 參數,參數全是常數就代入,含變數時保守回模板本身(模板有改寫語句與表名就算,寧可誤報),防回歸 [test:test_the_audit_guard_sees_through_format_and_percent];用變數組表名補欄位全庫只准一處(收件口的通用補欄位迴圈),新開第二處就紅、逼人接進同一個登記表,防回歸 [test:test_only_one_place_adds_columns_by_a_variable_table_name]。判定本身搬進共用掃描模組,兩支守衛測試都從那裡匯入。
++- 代碼審第 1 輪(2026-09-24)四處補強:Phase 8 死信兩張表併進同一套判定(九張表共用;死信兩張表照原本一起掃文件字串、連可為空的補欄位都不准,只變嚴),防回歸 [test:test_the_dead_letter_guard_catches_each_rewrite];拼回字串認得字面模板 .format(參數) 與 字面 % 參數,參數全是常數就代入,含變數時保守回模板本身(模板有改寫語句與表名就算,寧可誤報),防回歸 [test:test_the_audit_guard_sees_through_format_and_percent];用變數組表名補欄位全庫只准一處(收件口的通用補欄位迴圈),新開第二處就紅、逼人接進同一個登記表,防回歸 [test:test_only_one_place_adds_columns_by_a_variable_table_name]。判定本身放在同目錄的稽核守衛模組(`tests/executor/audit_guard.py`),兩支守衛測試都從那裡匯入。
++- 代碼審第 2 輪(2026-09-24):拼回字串改成遞迴時不壓空白、最外層整段壓一次(在空白處切開再用 + 串接,兩側各自壓空白會黏成一個字躲過比對,Phase 8 舊版也中招);.format 的具名引數與 % 右邊的字典都認,對不上常數或是變數就把佔位正規化成裸 {} 或 %s 再回模板。防回歸:[test:test_the_audit_guard_sees_through_split_and_named_placeholders]。稽核判定從共用掃描模組搬到稽核守衛模組,共用掃描模組只留通用讀法。
+diff --git a/tests/executor/audit_guard.py b/tests/executor/audit_guard.py
+new file mode 100644
+index 0000000..2abb820
+--- /dev/null
++++ b/tests/executor/audit_guard.py
+@@ -0,0 +1,63 @@
++"""稽核表只增不改的判定(Phase 8 死信兩張表與 Phase 9 增量 4 七張表共用一套):哪幾張表受守護、
++哪些語句算改寫、補欄位的規則、通用補欄位登記表的核對、動態表名補欄位的處數。兩支守衛測試
++(稽核表、死信)都從這裡匯入;把拆開的字串拼回來用共用掃描模組。
++
++比法是「同段共現」:同一段拼回來的文字裡出現任一張受守護表名,又出現任一種改寫語句就算違規。
++防忘記,不防刻意繞過(用變數組表名、把關鍵字拆到兩個變數再串起來都繞得過)。
++"""
++
++import re
++
++from tests.executor.write_scan import reconstructed_strings
++
++AUDITED = ("write_stops", "approvals", "approval_uses", "lifecycle_events", "dsp_calls",
++           "operations", "attempts", "dead_letters", "dead_letter_ops")
++NO_ALTER = frozenset({"dead_letters", "dead_letter_ops"})  # Phase 8:連可為空的補欄位都不准
++_REWRITES = re.compile(
++    # 同一段裡出現任一個 UPDATE 就算:衝突時更新(ON CONFLICT … DO UPDATE)與 UPDATE OR 某動作
++    # 都含這個字,不必另列(Phase 9 增量 4 變異檢查:另列的那一條拿掉照樣抓得到)
++    r"\bUPDATE\b|\bDELETE\b|\bREPLACE\s+INTO\b|\bINSERT\s+OR\s+REPLACE\b|\bDROP\s+TABLE\b|"
++    r"\bALTER\s+TABLE\s+\S+\s+(?:RENAME|DROP)\b", re.IGNORECASE)
++_ADD_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(\S+)\s+ADD\s+COLUMN\s+([^;]*)", re.IGNORECASE)
++_LOOSENING = re.compile(r"\bNOT\s+NULL\b|\bDEFAULT\b", re.IGNORECASE)
++# 表名是占位:拼回字串時具名佔位已正規化成裸 {} 或 %s(代碼審第 2 輪)
++_DYNAMIC_ADD_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(?:\{\}|%s)\s+ADD\s+COLUMN\b",
++                                 re.IGNORECASE)
++
++
++def _table_pattern(tables):
++    return re.compile(r"(?<![\w.])(?:\w+\.)?(" + "|".join(tables) + r")\b")
++
++
++def audit_violations(tree, tables=AUDITED, skip_docstrings=True):
++    """違規的每一段文字:同一段拼回來的文字裡出現任一張表名,又出現任一種改寫語句;或對這些表補
++    不可為空、帶預設值的欄位(死信兩張表連補欄位都不准)。比法是「同段共現」,不是動詞緊接表名:
++    SQLite 的衝突時更新把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。"""
++    table = _table_pattern(tables)
++    found = []
++    for text in reconstructed_strings(tree, skip_docstrings=skip_docstrings):
++        if not table.search(text):
++            continue
++        if _REWRITES.search(text):
++            found.append(text)
++            continue
++        for target, definition in _ADD_COLUMN.findall(text):
++            named = table.fullmatch(target)
++            if named and (named.group(1) in NO_ALTER or _LOOSENING.search(definition)):
++                found.append(text)
++    return found
++
++
++def registry_violations(registry, tables=AUDITED):
++    """通用補欄位迴圈的登記表:登記在受守護表之下的欄位定義都要可為空、沒有預設值;死信兩張表
++    根本不准登記。"""
++    return [(name, ddl) for name, columns in registry.items() if name in tables
++            for _column, ddl in columns if name in NO_ALTER or _LOOSENING.search(ddl)]
++
++
++def dynamic_add_column_sites(trees):
++    """用變數組表名補欄位的每一處(檔名, 那段文字):表名拼回來只剩占位,守衛看不出是哪張表,
++    所以只准一處、而且守衛直接讀它的登記表。"""
++    return [(path.name, text) for path, tree in trees.items()
++            for text in reconstructed_strings(tree, skip_docstrings=True)
++            if _DYNAMIC_ADD_COLUMN.search(text)]
+diff --git a/tests/executor/test_audit_tables.py b/tests/executor/test_audit_tables.py
+index 3a6ba17..1a52027 100644
+--- a/tests/executor/test_audit_tables.py
++++ b/tests/executor/test_audit_tables.py
+@@ -1,38 +1,38 @@
+ """稽核表只增不改的機械守衛(Phase 9 增量 4):[S675]。
+ 
+ 七張稽核表(停下紀錄、核可、核可使用、生命週期事件、DSP 呼叫紀錄、DSP 操作紀錄、嘗試紀錄)只准新增;
+-Phase 8 死信兩張表跟它們共用同一套判定(代碼審第 1 輪),判定本身在共用掃描模組。
+-比照 Phase 8 死信兩張表那支結構檢查:全庫掃原始碼,把相鄰字串、用 + 串起來、f-string 的固定片段拼回
+-完整語句再比對。跟 Phase 8 那支不同的是比法:只要同一段拼回來的文字裡出現任一張表的表名,又出現任一種
+-改寫語句就算違規——SQLite 的「衝突時更新」把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。
++Phase 8 死信兩張表跟它們共用同一套判定(代碼審第 1 輪)。
++全庫掃原始碼,把相鄰字串、用 + 串起來、f-string、.format、% 組出的字串拼回完整語句再比對。比法是
++「同段共現」:只要同一段拼回來的文字裡出現任一張表的表名,又出現任一種改寫語句就算違規——SQLite 的
++「衝突時更新」把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。判定本身在同目錄的稽核守衛
++模組,Phase 8 死信那支也從那裡匯入。
+ 補欄位只准可為空、沒有預設值的新欄位(帶預設值會讓舊列讀出新值,等於回頭改寫稽核意義)。收件口的
+ 通用補欄位迴圈用 f-string 組表名、拼回來只剩占位,另外直接讀它的登記表核對。
+ 
+ 防忘記,不防刻意繞過:用變數組表名、把關鍵字拆到兩個變數再串起來,都繞得過;直接開資料庫改也擋不住。
+ """
+ 
+ import ast
+ import pathlib
+ import re
+ 
+ import pytest
+ 
+ from rtb.executor import inbox_store
+-from tests.executor.write_scan import (
++from tests.executor.audit_guard import (
+     AUDITED,
+     audit_violations,
+-    classify,
+     dynamic_add_column_sites,
+-    reconstructed_strings,
+     registry_violations,
+ )
++from tests.executor.write_scan import classify, reconstructed_strings
+ 
+ SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "rtb"
+ GUARDED = AUDITED  # 七張稽核表加 Phase 8 死信兩張表,共用同一套判定
+ 
+ 
+ def _trees():
+     return {path: ast.parse(path.read_text(encoding="utf-8")) for path in SRC.rglob("*.py")}
+ 
+ 
+ # ---- [S675] ----
+@@ -79,32 +79,59 @@ def test_the_audit_guard_catches_each_rewrite(source):
+     'x = "UPDATE %s SET status = 1" % "operations"',
+     'x = "UPDATE %s SET status = %d" % ("operations", 1)',
+     # 參數含變數時保守判定:模板本身有改寫語句與受守護表名就算
+     'x = "UPDATE operations SET status = {}".format(value)',
+     'x = "DELETE FROM operations WHERE id = %s" % value',
+ ])
+ def test_the_audit_guard_sees_through_format_and_percent(source):
+     assert audit_violations(ast.parse(source)) != []
+ 
+ 
++@pytest.mark.parametrize("source", [
++    # 代碼審第 2 輪:在空白處切開再用 + 串起來,兩側各自壓空白會把字黏在一起、躲過比對
++    *[f'x = "{verb} " + "{table} WHERE 1"' for verb, table in (
++        ("UPDATE OR REPLACE", "write_stops"), ("DELETE FROM", "approvals"),
++        ("UPDATE", "approval_uses"), ("DELETE FROM", "lifecycle_events"),
++        ("UPDATE OR ROLLBACK", "dsp_calls"), ("DROP TABLE", "operations"),
++        ("REPLACE INTO", "attempts"), ("UPDATE OR REPLACE", "dead_letters"),
++        ("DELETE FROM", "dead_letter_ops"))],
++    'x = "ALTER TABLE operations ADD COLUMN " + "flag INTEGER DEFAULT 1"',
++    # 具名佔位:.format 的具名引數、% 右邊是字典
++    'x = "UPDATE {t} SET status = 1".format(t="operations")',
++    'x = "UPDATE %(t)s SET status = 1" % {"t": "operations"}',
++    'x = "UPDATE operations SET status = {v}".format(v=value)',
++    'x = "UPDATE operations SET status = %(v)s" % {"v": value}',
++])
++def test_the_audit_guard_sees_through_split_and_named_placeholders(source):
++    assert audit_violations(ast.parse(source)) != []
++
++
+ def test_only_one_place_adds_columns_by_a_variable_table_name():
+     """動態表名的補欄位只准一處(收件口的通用補欄位迴圈,守衛直接讀它的登記表);新開第二處就紅,
+     逼人接進同一個登記表。"""
+     sites = dynamic_add_column_sites(_trees())
+     assert [name for name, _ in sites] == ["inbox_store.py"], sites
+     probe = ast.parse(  # 殺傷力配方:另開登記表給操作紀錄補不可為空、帶預設值的欄位
+         'EXTRA = {"operations": [("x", "x INTEGER NOT NULL DEFAULT 1")]}\n'
+         'def migrate(conn):\n'
+         '    for table, columns in EXTRA.items():\n'
+         '        for _name, ddl in columns:\n'
+         '            conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")\n')
+     assert len(dynamic_add_column_sites({**_trees(), pathlib.Path("probe.py"): probe})) == 2
++    named = ast.parse(  # 代碼審第 2 輪:具名佔位的第二處也要數到
++        'def migrate(conn, t, d):\n'
++        '    conn.execute("ALTER TABLE {table} ADD COLUMN {ddl}".format(table=t, ddl=d))\n')
++    assert len(dynamic_add_column_sites({**_trees(), pathlib.Path("named.py"): named})) == 2
++    mapped = ast.parse(
++        'def migrate(conn, t, d):\n'
++        '    conn.execute("ALTER TABLE %(table)s ADD COLUMN %(ddl)s" % {"table": t, "ddl": d})\n')
++    assert len(dynamic_add_column_sites({**_trees(), pathlib.Path("mapped.py"): mapped})) == 2
+ 
+ 
+ def test_the_audit_guard_allows_a_plain_new_column_and_other_tables():
+     allowed = ('a = "ALTER TABLE operations ADD COLUMN policy_version TEXT"\n'
+                'b = "UPDATE proposals SET disposition = NULL"\n'
+                'c = "INSERT INTO attempts (key) VALUES (?)"\n'
+                'd = "UPDATE campaigns SET budget = ?"\n')
+     assert audit_violations(ast.parse(allowed)) == []
+ 
+ 
+diff --git a/tests/executor/test_dead_letter.py b/tests/executor/test_dead_letter.py
+index 645323a..8aaf7f6 100644
+--- a/tests/executor/test_dead_letter.py
++++ b/tests/executor/test_dead_letter.py
+@@ -22,22 +22,23 @@ from rtb.executor.inbox_store import (
+     RETENTION,
+     BlockCode,
+     DeadLetterAction,
+     FailureClass,
+     InboxRejected,
+     InboxStore,
+     LastFailure,
+     ReplayOutcome,
+     failure_class,
+ )
++from tests.executor.audit_guard import audit_violations
+ from tests.executor.fakes import Harness, proposal, write_config
+-from tests.executor.write_scan import audit_violations, reconstructed_strings
++from tests.executor.write_scan import reconstructed_strings
+ 
+ OPERATOR = "ops-alice"
+ 
+ 
+ @pytest.fixture
+ def h(tmp_path, clock):
+     harness = Harness(tmp_path, clock)
+     yield harness
+     harness.close()
+ 
+@@ -472,20 +473,23 @@ def test_the_dead_letter_tables_are_only_ever_inserted_into():
+     assert offenders == []
+ 
+ 
+ @pytest.mark.parametrize("source", [
+     'x = "UPDATE dead_" + "letters SET a = 1"',
+     'x = ("DELETE FROM dead_letter_" "ops WHERE 1")',
+     'x = "ALTER TABLE dead_" "letters ADD COLUMN note TEXT"',  # 死信兩張表連可為空的補欄位都不准
+     # Phase 9 增量 4 代碼審第 1 輪:動詞不緊貼表名的兩種改寫,舊守衛抓不到
+     'x = "UPDATE OR REPLACE dead_" + "letters SET a = 1"',
+     'x = "INSERT INTO dead_letter_" "ops (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = 2"',
++    # 代碼審第 2 輪:在空白處切開的 + 串接(兩側各自壓空白會黏成一個字)
++    'x = "UPDATE OR REPLACE " + "dead_letters SET a = 1"',
++    'x = "DELETE FROM " + "dead_letter_ops WHERE 1"',
+ ])
+ def test_the_dead_letter_guard_catches_each_rewrite(source):
+     assert _dead_letter_violations(ast.parse(source)) != []
+ 
+ 
+ def test_the_source_checks_see_through_split_strings():
+     """結構檢查本身:照一般寫法拆開的 SQL(相鄰字串、+、f-string)拼得回來。"""
+     tree = ast.parse('x = "UPDATE dead_" + "letters SET a = 1"\n'
+                      'y = f"DELETE   FROM {t} WHERE 1"\n'
+                      'z = ("SET disposition = NULL, dead_letter_" "reason = NULL")\n')
+diff --git a/tests/executor/write_scan.py b/tests/executor/write_scan.py
+index 887e666..464ecbc 100644
+--- a/tests/executor/write_scan.py
++++ b/tests/executor/write_scan.py
+@@ -1,22 +1,24 @@
+-"""掃原始碼的共用工具:機械判定「哪些函式會寫資料庫」(Phase 9 增量 1 [S621]、[S617]、[S600] 共用),
+-以及把拆開的字串拼回來(Phase 8 死信守衛與 Phase 9 增量 4 稽核表守衛共用)。兩種讀法並存、名字分開:
+-判寫入函式用的只取字串常數、不含文件字串;拼回字串的那支把相鄰字串、+、f-string 拼成完整語句。
++"""掃原始碼的共用工具,只放兩種通用讀法:機械判定「哪些函式會寫資料庫」(Phase 9 增量 1 [S621]、
++[S617]、[S600] 共用),以及把拆開的字串拼回來(稽核表守衛共用)。兩種讀法並存、名字分開:判寫入函式
++用的只取字串常數、不含文件字串;拼回字串的那支把相鄰字串、+、f-string、.format、% 拼成完整語句。
++稽核表只增不改的判定(哪幾張表、哪些語句算改寫)不在這裡,在同目錄的稽核守衛模組。
+ 
+ 不靠名字判斷(取件、處理待核可、接手名字像讀、其實會寫):解析原始碼,一支函式的本體、它用到的
+ 模組內字串常數、以及它呼叫的模組內函式(同一個類別與基底類別的方法、模組層函式,遞移)裡,只要有
+ 寫入語句就算寫入函式。寫入語句是字串裡的 INSERT、UPDATE、DELETE、REPLACE、ALTER、CREATE、DROP
+ (專案的 SQL 一律大寫;文件字串不算)。跨模組的呼叫不追:各模組各自判定。
+ """
+ 
+ import ast
+ import re
++import string
+ from pathlib import Path
+ 
+ WRITE_SQL = r"\b(INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP)\b"
+ 
+ 
+ def _strings(node):
+     """節點裡的字串常數(含 f 字串的固定片段),不含函式與類別的文件字串。"""
+     docstrings = set()
+     for inner in ast.walk(node):
+         if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
+@@ -125,123 +127,113 @@ def read_functions(path: Path) -> set[str]:
+     return {name for name, writes in classify(path).items() if not writes}
+ 
+ 
+ def _constant(node):
+     """字面常數(字串或數字)的值;不是字面常數回 None。"""
+     if isinstance(node, ast.Constant) and isinstance(node.value, str | int | float):
+         return node.value
+     return None
+ 
+ 
+-def _formatted(template, args, apply):
+-    """模板代入參數:參數全是字面常數就代入拼回;含變數時保守回模板本身(模板裡有改寫語句與受守護
+-    表名照樣抓得到,寧可誤報)。"""
+-    values = [_constant(arg) for arg in args]
+-    if any(value is None for value in values):
+-        return template
++_PERCENT_FIELD = re.compile(r"%(?:\((\w+)\))?[-#0 +]*\d*(?:\.\d+)?[sdifrxXeEgGc]")
++
++
++def _format_call(template, node):
++    """字面模板 .format(...):位置與具名佔位都認;對得上字面常數就代入,對不上或是變數就把那個佔位
++    正規化成裸 {}(模板裡的改寫語句與表名照樣抓得到,寧可誤報)。"""
++    positional = [_constant(arg) for arg in node.args]
++    named = {kw.arg: _constant(kw.value) for kw in node.keywords if kw.arg is not None}
++    out, auto = [], 0
+     try:
+-        return apply(template, values)
+-    except (IndexError, KeyError, TypeError, ValueError):
++        pieces = list(string.Formatter().parse(template))
++    except ValueError:
+         return template
++    for literal, field, spec, _conversion in pieces:
++        out.append(literal)
++        if field is None:
++            continue
++        value = None
++        if field == "":
++            value = positional[auto] if auto < len(positional) else None
++            auto += 1
++        elif field.isdigit():
++            index = int(field)
++            value = positional[index] if index < len(positional) else None
++        elif field.isidentifier():
++            value = named.get(field)
++        try:
++            out.append("{}" if value is None else format(value, spec or ""))
++        except (TypeError, ValueError):
++            out.append("{}")
++    return "".join(out)
++
++
++def _percent(template, right):
++    """字面模板 % 參數:參數是常數(單一、元組或字典)就代入;含變數時把佔位正規化成裸 %s 回模板。"""
++    if isinstance(right, ast.Dict):
++        keys = [_constant(k) if k is not None else None for k in right.keys]
++        values = [_constant(v) for v in right.values]
++        mapping = {k: v for k, v in zip(keys, values, strict=True) if k is not None}
++        complete = None not in keys and None not in values
++        return _substitute(template, lambda t: t % mapping if complete else None)
++    args = right.elts if isinstance(right, ast.Tuple) else [right]
++    values = [_constant(arg) for arg in args]
++    return _substitute(template, lambda t: t % tuple(values) if None not in values else None)
+ 
+ 
+-def text_of(node):
+-    """把一段字串拼回來:相鄰字串、用 + 串起來的字串、f-string 的固定片段(代入的值記成 {})、
+-    字面模板 .format(參數)、字面模板 % 參數,空白壓成一格。照專案一般寫法拆開的 SQL 也還原得回來;
+-    刻意用變數組表名之類的寫法還原不了,那是刻意繞過,不在「防忘記」的範圍(Phase 8 代碼審第 1 輪
+-    審查席實測兩種繞法;.format 與 % 是 Phase 9 增量 4 代碼審第 1 輪補的)。"""
++def _substitute(template, apply):
++    try:
++        done = apply(template)
++    except (KeyError, TypeError, ValueError):
++        done = None
++    return done if done is not None else _PERCENT_FIELD.sub("%s", template)
++
++
++def _raw_text(node):  # noqa: PLR0911 - 每一種拼法一個出口
++    """拼回來的原始字串(不壓空白):壓空白只在最外層做一次,不然 "UPDATE OR REPLACE " + "表 ..."
++    兩側各自壓掉邊界空白會黏成一個字、躲過比對(Phase 9 增量 4 代碼審第 2 輪)。"""
+     if isinstance(node, ast.Constant) and isinstance(node.value, str):
+-        text = node.value
+-    elif isinstance(node, ast.JoinedStr):
+-        text = "".join(part.value if isinstance(part, ast.Constant) else "{}"
++        return node.value
++    if isinstance(node, ast.JoinedStr):
++        return "".join(part.value if isinstance(part, ast.Constant) else "{}"
+                        for part in node.values)
+-    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+-        left, right = text_of(node.left), text_of(node.right)
++    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
++        left, right = _raw_text(node.left), _raw_text(node.right)
+         if left is None or right is None:  # 不是字串相加(例如數字)
+             return None
+-        text = left + right
+-    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+-        template = text_of(node.left)
+-        if template is None:
+-            return None
+-        args = node.right.elts if isinstance(node.right, ast.Tuple) else [node.right]
+-        text = _formatted(template, args, lambda t, v: t % tuple(v))
+-    elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+-          and node.func.attr == "format" and not node.keywords):
+-        template = text_of(node.func.value)
+-        if template is None:
+-            return None
+-        text = _formatted(template, node.args, lambda t, v: t.format(*v))
+-    else:
+-        return None
+-    return " ".join(text.split())
++        return left + right
++    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
++        template = _raw_text(node.left)
++        return None if template is None else _percent(template, node.right)
++    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
++            and node.func.attr == "format"):
++        template = _raw_text(node.func.value)
++        return None if template is None else _format_call(template, node)
++    return None
++
++
++def text_of(node):
++    """把一段字串拼回來:相鄰字串、用 + 串起來的字串、f-string 的固定片段(代入的值記成 {})、
++    字面模板 .format(位置或具名參數)、字面模板 % 參數(單一、元組或字典),最後整段壓一次空白。
++    照專案一般寫法拆開的 SQL 也還原得回來;刻意用變數組表名之類的寫法還原不了,那是刻意繞過,
++    不在「防忘記」的範圍(Phase 8 代碼審第 1 輪審查席實測兩種繞法;.format 與 % 是 Phase 9 增量 4
++    代碼審第 1、2 輪補的)。"""
++    raw = _raw_text(node)
++    return None if raw is None else " ".join(raw.split())
+ 
+ 
+ def reconstructed_strings(tree, skip_docstrings=False):
+     """一棵語法樹裡拼得回來的每一段字串(最外層的那段,不重複算它的組成片段)。skip_docstrings:
+     不算模組、類別、函式的文件字串(說明裡提到 SQL 字樣不是語句)。"""
+     inside = set()
+     for node in ast.walk(tree):
+-        if isinstance(node, ast.BinOp | ast.JoinedStr | ast.Call) and text_of(node) is not None:
++        if isinstance(node, ast.BinOp | ast.JoinedStr | ast.Call) and _raw_text(node) is not None:
+             inside.update(id(sub) for sub in ast.walk(node) if sub is not node)
+     if skip_docstrings:
+         for node in ast.walk(tree):
+             if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+                 body = node.body
+                 if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value,
+                                                                          ast.Constant):
+                     inside.add(id(body[0].value))
+     return [text for node in ast.walk(tree)
+             if id(node) not in inside and (text := text_of(node)) is not None]
+-
+-
+-# ---- 稽核表只增不改(Phase 8 死信兩張表與 Phase 9 增量 4 七張表共用一套) ----
+-AUDITED = ("write_stops", "approvals", "approval_uses", "lifecycle_events", "dsp_calls",
+-           "operations", "attempts", "dead_letters", "dead_letter_ops")
+-NO_ALTER = frozenset({"dead_letters", "dead_letter_ops"})  # Phase 8:連可為空的補欄位都不准
+-_REWRITES = re.compile(
+-    # 同一段裡出現任一個 UPDATE 就算:衝突時更新(ON CONFLICT … DO UPDATE)與 UPDATE OR 某動作
+-    # 都含這個字,不必另列(Phase 9 增量 4 變異檢查:另列的那一條拿掉照樣抓得到)
+-    r"\bUPDATE\b|\bDELETE\b|\bREPLACE\s+INTO\b|\bINSERT\s+OR\s+REPLACE\b|\bDROP\s+TABLE\b|"
+-    r"\bALTER\s+TABLE\s+\S+\s+(?:RENAME|DROP)\b", re.IGNORECASE)
+-_ADD_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(\S+)\s+ADD\s+COLUMN\s+([^;]*)", re.IGNORECASE)
+-_LOOSENING = re.compile(r"\bNOT\s+NULL\b|\bDEFAULT\b", re.IGNORECASE)
+-_DYNAMIC_ADD_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(?:\{\}|%s)\s+ADD\s+COLUMN\b",
+-                                 re.IGNORECASE)
+-
+-
+-def _table_pattern(tables):
+-    return re.compile(r"(?<![\w.])(?:\w+\.)?(" + "|".join(tables) + r")\b")
+-
+-
+-def audit_violations(tree, tables=AUDITED, skip_docstrings=True):
+-    """違規的每一段文字:同一段拼回來的文字裡出現任一張表名,又出現任一種改寫語句;或對這些表補
+-    不可為空、帶預設值的欄位(死信兩張表連補欄位都不准)。比法是「同段共現」,不是動詞緊接表名:
+-    SQLite 的衝突時更新把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。"""
+-    table = _table_pattern(tables)
+-    found = []
+-    for text in reconstructed_strings(tree, skip_docstrings=skip_docstrings):
+-        if not table.search(text):
+-            continue
+-        if _REWRITES.search(text):
+-            found.append(text)
+-            continue
+-        for target, definition in _ADD_COLUMN.findall(text):
+-            named = table.fullmatch(target)
+-            if named and (named.group(1) in NO_ALTER or _LOOSENING.search(definition)):
+-                found.append(text)
+-    return found
+-
+-
+-def registry_violations(registry, tables=AUDITED):
+-    """通用補欄位迴圈的登記表:登記在受守護表之下的欄位定義都要可為空、沒有預設值;死信兩張表
+-    根本不准登記。"""
+-    return [(name, ddl) for name, columns in registry.items() if name in tables
+-            for _column, ddl in columns if name in NO_ALTER or _LOOSENING.search(ddl)]
+-
+-
+-def dynamic_add_column_sites(trees):
+-    """用變數組表名補欄位的每一處(檔名, 那段文字):表名拼回來只剩占位,守衛看不出是哪張表,
+-    所以只准一處、而且守衛直接讀它的登記表。"""
+-    return [(path.name, text) for path, tree in trees.items()
+-            for text in reconstructed_strings(tree, skip_docstrings=True)
+-            if _DYNAMIC_ADD_COLUMN.search(text)]

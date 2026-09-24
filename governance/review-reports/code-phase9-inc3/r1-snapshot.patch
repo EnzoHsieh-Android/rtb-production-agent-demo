@@ -1,0 +1,2527 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md
+index fdb7ec2..e7bb9b5 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md
+@@ -7,20 +7,21 @@ tags:
+   - type/project
+   - status/doing
+ lands_in:
+   - Systems/提案收件口
+   - Systems/外部寫入嘗試紀錄
+   - Systems/執行迴圈
+   - Systems/共用行程基礎
+   - Systems/可觀測查詢
+   - Systems/分析行程流程與檢查點
+   - Systems/有界標籤的指標
++  - Systems/服務水準與燒損告警
+ ---
+ # RTB_Phase9可觀測與SLO_計劃
+ 
+ PRIOR-ART: 事件溯源(event sourcing)與「指標從事件算、不另存計數器」;OpenTelemetry 的追蹤語意(一個邏輯工作一條追蹤、各段帶關聯欄位)只借概念,不引入套件(零依賴家規);服務水準的錯誤預算與多窗口燒損告警照 Google SRE Workbook〈Alerting on SLOs〉的做法(快燒 1 小時窗配 5 分鐘窗、慢燒 6 小時窗配 30 分鐘窗,示範時等比例縮短)。SQLite 唯讀連線用官方 URI 的 mode=ro。
+ RETIRE-IF: 換成外部可觀測平台(集中式追蹤、時間序列資料庫、告警系統)並接上本系統的事件時,撤掉這裡的追蹤檢視與即時計算的指標,只留事件表當來源;或者生命週期事件表連續三個月沒有任何人查過,重新評估要不要留。
+ 
+ ## 這份計劃在解決什麼
+ 
+ 交接文件 Phase 9:能從系統訊號定位單一事故並衡量可靠度。完成條件五項:關鍵欄位與跨元件追蹤完整;指標不用無界的高基數標籤;至少一個事故能走完「指標 → 切片 → 追蹤 → 稽核與 DSP 歷史」;服務水準指標的公式、好事件與有效事件、窗口與排除項有定義;快燒與慢燒模擬能觸發合理訊號。
+ 
+@@ -320,20 +321,33 @@ RETIRE-IF: 換成外部可觀測平台(集中式追蹤、時間序列資料庫
+ - **週期統計(第 1 輪兩席:30 天週期撞增量 2 窗內統計「窗長不得超過 24 小時」[S635];示範的 12 小時剛好躲過):** 週期內的好事件、有效事件、壞事件,由評估器把週期切成每段不超過 24 小時的子窗逐段查、相加(事件型計數可加,子窗互不重疊、首尾相接);縮短倍數是 1 時一條指標要查 30 段。
+ - **燒損評估器(維運套件,只讀):**
+   - 輸入「現在」,查詢次數固定:有目標的四條各算快燒兩個窗、慢燒兩個窗(共 16 次窗內統計)加週期統計;目標為零的兩條各算週期統計。每個窗的時間由評估器從「現在」與設定表算出、交給增量 2 的窗內統計,不自己讀時鐘。
+   - 每條回一份狀態:快燒告警(是或否)、慢燒告警(是或否)、樣本不足(是或否),以及四個窗各自的好事件數、有效事件數、燒損率,週期的錯誤預算與剩餘預算;兩種告警可以同時為是(第 1 輪外家席:不用單一狀態硬排優先)。目標為零的兩條回違規(是或否)、週期內壞事件數、最近一個壞事件時間、無法核對份數。
+   - 告警條件:長窗與短窗的燒損率都大於等於門檻(短窗讓事故停止後告警很快解除;長窗避免短暫突波就告警)。
+   - 最少樣本:長窗的有效事件少於 10 個時,這一組(快燒或慢燒)回樣本不足,不判告警(低流量時一個壞事件就能讓燒損率衝很高);短窗的有效事件是 0 時短窗燒損率當 0(沒有證據顯示還在燒),不判樣本不足(第 1 輪外家席)。
+   - 不存告警狀態:每次呼叫即時算;要不要去重、多久通知一次留給之後接告警系統時決定。
+   - 設定表:每條服務水準指標一筆紀錄,欄位是名稱、公式、好事件、有效事件、窗口、排除項(文字)、目標、期限(只有結果不明對帳與佇列等待兩條期限型有,其餘為空)、是否示範值(代使用者裁定);燒損門檻、窗長、縮短倍數、最少樣本也在同一張表。程式常數,測試從表讀,不在各處各寫一份(第 1 輪可測性席:第 1 版沒交代承載的資料結構)。
+ - **命令列入口:** 比照增量 2 的命令列入口,印每條服務水準指標的狀態與數字;資料庫還沒升級、讀取不穩定沿用增量 2 的固定結束代碼。
+ 
++### 實作時的解讀(2026-09-24,規格沒寫死或寫不通的地方;由增量 3 代碼審覆核)
++
++- DSP 列操作一頁 50 筆,不是設計寫的 5000 筆:讀它的共用 HTTP 用戶端回應上限 64 KB,每筆最長約 700 位元組,5000 筆整頁會讀不回來;50 筆仍符合「單次最多 5000 筆」。窗內寫入多時要多翻幾頁(一個 24 小時窗 1 萬筆寫入約 200 次請求)。沒有放寬用戶端的回應上限(那是共用的安全上限)。
++- 目標為零的兩條在設定表記成目標 1(好事件比例 100%、壞事件目標為零),錯誤預算用通用公式也剛好是 0;燒損率不算。
++- 安全完成率:擋下原因不在清單裡的(讀到不認得的值)算壞,從嚴。
++- 結果不明對帳:剛好在期限那一刻轉人工的算壞(只有期限之前轉人工的才排除),跟「剛好在期限那一刻結案算好」各自取保守的一邊。
++- 第一列的已用額度只在加的量大於 0 時記(那才判門檻);比例允許加的量暫停為空。核對函式在加的量是 0 時本來就不看這兩欄,所以不會因此判無法核對。
++- DSP 讀不到時,兩條目標為零的指標回「資料來源缺」、違規欄為空,不當成 0 個事件(當成 0 會把看不到說成沒違規)。
++- 核可使用表不加依冪等鍵的索引(理由見 [[Systems/提案收件口]]);批量讀每批 500 把。
++- 重複有害副作用往回查:同一份提案只有一把鍵時(正常路徑)不多打 DSP;多把鍵時才依鍵逐一讀 DSP 那幾把的提交時間。
++- 端到端交給執行扣的等待:鏈上每個任務每份提案的人工核可等待與死信等待,只算到那一個交給執行的時間為止。三輪讀到的都不同時回最後一輪,計數裡沒有另標不穩定(計數結構沒有這一欄);回頭條件:燒損評估器接告警系統、需要區分時再補。
++- 佇列等待的「第一次取件」取同一份提案(修訂與內容雜湊相同)在收件事件之後的第一個取件或接手事件。
++
+ ### 不做(增量 3)
+ 
+ - 不送通知、不接外部告警系統、不存告警歷史。
+ - 不做依租戶的服務水準目標(全系統一組)。
+ - 不調整任何放行、擋下判斷;只讀(例外:第一列多記四欄,只是把開始一筆已經算出的數存下;DSP 操作表多一個提交時間索引、提交時間不小於上一筆;嘗試紀錄第一列多一個依任務與修訂的部分索引;第 2、3 輪)。
+ 
+ ### 合約(增量 3)
+ 
+ - [S650] 設定表的每一條服務水準指標應有名稱、公式、好事件、有效事件、窗口、排除項六個欄位且都不是空的,目標應是數值,期限型兩條的期限應是數值、其餘為空,是否示範值應為是;交接文件 14.5 列的六條都應在表裡。[test:test_every_slo_has_a_complete_definition]
+ - [S651] 安全完成率應把被取代排除在有效事件外,死信、已過期、同一操作先前已失敗算壞事件,業務上該擋的擋下算好事件;死信後重放成功應在兩個窗各貢獻一個事件。[test:test_safe_completion_classifies_every_terminal_kind]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+index e230976..4420f1c 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+@@ -91,10 +91,11 @@ REVISIT:2026-11-30 盤點作廢表的筆數成長,決定要不要設保留期與
+ - RULE: 模擬 DSP 沒有建立或刪除廣告的介面(只有測試的種子資料):廣告現在不存在就代表從來不存在,執行行程對帳時因此可以不作廢、直接判失敗(廣告不存在)。[since:2026-09-23] [retire:模擬 DSP 加了建立或刪除廣告的介面時,要回頭改對帳那一格] 防回歸:[test:test_reconcile_fails_a_missing_campaign_without_voiding]
+ - 作廢端點:路徑掛在廣告底下、帶冪等鍵標頭與能力憑證,本文帶預期版本;驗證順序與範圍檢查照寫入端點(同一個函式),端點把自己的動作常數「void_operation」交給範圍檢查,所以一般寫入憑證拿來作廢會因動作不符被拒。防回歸:[test:test_voiding_needs_a_void_capability_scoped_to_the_key]
+ - 操作紀錄補存預期版本(照補欄位做法;舊列留空值),用鍵查詢的端點多回參數、預期版本與冪等鍵。防回歸:[test:test_the_operation_lookup_returns_params_and_expected_version]、[test:test_an_old_dsp_database_gains_the_expected_version_column]
+ - 寫入路由分兩類:改廣告的(改預算、暫停,`CAMPAIGN_WRITE_ACTIONS`)與作廢;兩支既有窮舉測試改成分兩類明列。
+ 
+ ## 執行行程測試用的假 DSP(2026-09-23)
+ 
+ - RULE: tests/executor/fakes.py 的假 DSP 的冪等語意要跟真 DSP 對齊:同一把鍵再寫一次,內容相同回第一次的結果、內容不同回冪等衝突,已作廢的鍵回操作已作廢。改真 DSP 的冪等判斷時回頭改假 DSP。[since:2026-09-23] [retire:執行行程測試改用真 DSP 時]
+ - WHY: Phase 4 增量 3a 設計審第 2 輪指出假 DSP 同鍵第二次寫入會再套用一次:失去租約的工作者醒來補送的舊請求本來就會晚到,不去重就變成假的「套用兩次」。攔截點(on_write)在狀態鎖外面先跑:等在攔截點的工作者若握著鎖,接手的另一個永遠寫不進來(第 3 輪外家席)。出處:[[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3a。
+ 
++- Phase 9 增量 3:提交時間取「時鐘讀數」與「上一筆提交時間」較大的那個(在寫入交易裡讀上一筆),依操作編號翻頁才等於依時間翻頁;時鐘倒退時提交時間會被墊高。防回歸:[test:test_dsp_commit_times_never_go_backwards]。另加提交時間索引與兩支唯讀端點(路徑恰好一個參數,照既有路由形狀):依時間找起點回「提交時間大於等於它的第一筆」之前的最後一個操作編號;依游標列之後的操作(連同廣告建檔時的租戶),一頁最多 50 筆並回下一頁游標。一頁 50 筆而不是設計寫的 5000 筆:讀它的是 [[Systems/服務水準與燒損告警]],經共用 HTTP 用戶端,回應上限 64 KB。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+index 7fae92f..44fb8f9 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+@@ -163,10 +163,12 @@ kill_recipes: |-
+ - DSP 用戶端(`src/rtb/executor/dsp_client.py`)的每一支公開方法都經同一個底層送出點,每一次 HTTP 呼叫在那裡觸發剛好一次回呼(比照分析端 DSP 用戶端的呼叫回呼);用戶端仍不碰儲存。結果類別:傳輸層的例外依型別分逾時(讀取逾時直接丟、連線逾時被包在例外的原因裡)、連線失敗、回應讀不懂;有回應時依狀態碼分 4xx、5xx;狀態 2xx 但欄位讀不懂算讀不懂,其他狀態碼(沒跟的轉址)也算讀不懂;有狀態碼但本文不是 JSON(例如 500 加 HTML)照狀態碼分類、記下狀態碼,不算沒有狀態碼的讀不懂(代碼審第 1 輪外家席,防回歸:[test:test_an_error_status_with_an_unreadable_body_keeps_its_status])。寫入、作廢沒拿到回應時回應多帶一個失敗類別,讀取丟的例外也帶;既有的回應對照表照舊只看狀態碼。錯誤代碼取回應本文的 error 欄,不認得的記「其他」。防回歸:[test:test_every_dsp_call_leaves_one_classified_call_record]、[test:test_dsp_call_records_keep_the_error_code]。
+ - 每一個 DSP 呼叫點都顯式傳一支綁好這份提案身分(任務、修訂、廣告、冪等鍵)的回呼:DSP 埠每支方法的 on_call 是必填關鍵字參數,漏傳在型別層就擋下;同一個 DSP 用戶端給好幾個工作者共用時各記各的。回呼在獨立的短交易裡寫一列呼叫紀錄,所以結果寫入因收據失效回滾時呼叫紀錄照樣留著。WHY: [2026-09-24] 代碼審第 1 輪架構席:第一版用模組層級的上下文變數加掛在用戶端上的共用回呼,範圍外漏記只能靠慣例擋,改成顯式傳(代使用者裁定)。防回歸:[test:test_two_workers_sharing_one_dsp_client_record_their_own_calls]。
+ - 寫呼叫紀錄撞到資料庫忙碌:回呼永遠不丟忙碌例外,那一列先留在這個執行器記憶體裡的待寫清單,呼叫時、每一份工作(處理一筆、對帳一把鍵)結束時、下一次處理一筆或對帳之前、啟動程式結束前,各用新的短交易補寫;補寫也忙就留著下次。其他資料庫錯誤照舊往外丟。PITFALL: [2026-09-24] 第一版「不吞、往外丟」:忙碌例外會蓋掉已經發生的 DSP 結果、違反「寫入、作廢不丟例外」、對帳整輪被放棄(代碼審第 1 輪三席;代使用者裁定改成待寫清單)。這樣只有行程當機(或結束時還忙)才少記。防回歸:[test:test_a_busy_database_defers_the_call_record_without_losing_the_dsp_result]。
+ - PITFALL: 行程在 DSP 回應之後、寫紀錄之前當機,這一次會少記(遠端呼叫與本地紀錄不可能原子);呼叫率、錯誤率會少算當機次數那幾筆。出處:[[Projects/RTB_Phase9可觀測與SLO_計劃]] 第 3 輪外家席。重現:在寫紀錄的短交易前注入例外,呼叫紀錄少一列、DSP 那邊有操作紀錄。
+ REVISIT:2027-03-31 若增量 2 的 DSP 錯誤率要拿來告警,量一次當機次數跟少記筆數的比例,決定要不要在對帳時從 DSP 操作紀錄補記。
+ - 嘗試紀錄的每一次寫入明傳來源「執行迴圈」與擁有者;重啟恢復記「啟動恢復」與啟動中的行程身分(行程身分在重啟恢復之前就定,之後的租約擁有者用同一個)。處理待核可傳自己的擁有者給收件口,記進事件。
+ - 租戶:簽發之後把租戶放進收據,之後用這張收據寫的生命週期事件記簽發當時的租戶;對帳接手時取那把鍵開始一筆時記的租戶。開始一筆時鍵已存在、依既有結果確認的,事件標「依既有結果確認」。
+ - 熱路徑成本:每次呼叫 DSP 多一個短交易;事故 F7 端到端本機量測見計劃增量 1 的狀態行(合約 [S622])。
+ REVISIT:2026-10-31 推送後記下 CI 上事故 F7 端到端的時間(見 [[Issues/F7端到端在CI上偶爾超過60秒]]),超過改動前兩成就回頭看短交易的成本。
+ - 出處:[[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 1。
++
++- 比例上限允許加的量抽成一支函式(判比例與開始一筆記下的核對材料共用,Phase 9 增量 3);處理一筆把它與簽發時讀到的單一廣告上限一起交給開始一筆,記進第一列給副作用核對。判斷本身不變。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md b/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
+index 81fadf2..c41a24b 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/外部寫入嘗試紀錄.md
+@@ -69,10 +69,12 @@ REVISIT:2027-01-31 若量測顯示額度查詢或取件查詢隨歷史量明顯
+ 
+ ## 來源欄、唯讀交易與 DSP 呼叫紀錄(Phase 9 增量 1,2026-09-24)
+ 
+ - 每一列多記來源、執行者與程式版本(寫入函式由呼叫端明傳 `by`):執行迴圈記它的擁有者、啟動恢復記啟動中的行程身分、人工處置記操作人。舊列與沒傳的列為空值;有一支測試掃執行端原始碼,每一處呼叫寫入函式都必須明傳。防回歸:[test:test_attempt_rows_record_their_source_and_actor]、[test:test_every_new_record_carries_the_program_version]。
+ - 唯讀交易(ReadTransaction)是另一個類別、另一個私有發行憑證,只由 [[Systems/提案收件口]] 的唯讀開法發出。讀取函式收寫入交易或唯讀交易;寫入函式照舊只收寫入交易。WRITE_FUNCTIONS 用函式物件取名字、不寫成字串:這支模組的字串裡不准出現交易指令的字樣,既有測試會把寫入函式清單裡的「begin」讀成開交易(2026-09-24 實作時撞到)。防回歸:[test:test_the_attempt_store_neither_reaches_the_network_nor_opens_its_own_connection]、[test:test_the_write_function_list_is_derived_not_declared]。
+ - DSP 呼叫紀錄表(這裡建表與寫入,只增不改):時間、呼叫類別、結果類別、狀態碼、DSP 回的錯誤代碼、耗時毫秒數、任務、修訂、廣告、冪等鍵、來源、執行者、程式版本;以時間開頭建索引,另有按任務的索引。呼叫類別、結果類別、錯誤代碼都是封閉列舉,錯誤代碼不認得的記「其他」,不原樣存外來字串。防回歸:[test:test_every_dsp_call_leaves_one_classified_call_record]、[test:test_dsp_call_records_keep_the_error_code]。
+ - 追蹤檢視用的兩支讀取:一把鍵的每一列連同第一列的任務、修訂與租戶(那把鍵歸建立它的修訂),一個任務的 DSP 呼叫紀錄。
+ - 出處:[[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 1。
+ 
+ - 給 [[Systems/有界標籤的指標]] 的兩支窗口讀取函式(Phase 9 增量 2):時間窗內的 DSP 呼叫紀錄(走呼叫時間索引);時間窗內到了終點的鍵(走新加的終點列寫入時間部分索引,狀態條件照抄索引的清單才用得到)。每把鍵最多一列終點列(既有唯一索引守),指標再讀那把鍵的整串算對帳耗時。防回歸:[test:test_every_window_reader_uses_its_time_index]。
++
++- 第一列多四欄開始時的核對材料(Phase 9 增量 3,只寫在第一列、只增不改,舊列為空):比例允許加的量(暫停為空)、單一廣告上限、總額上限、判門檻用的已用額度(加的量是 0 時不判門檻,為空)。給 [[Systems/服務水準與燒損告警]] 的副作用核對用,別處不讀。防回歸:[test:test_the_first_attempt_row_records_what_it_was_checked_against]。另加結果不明的時間部分索引與窗口讀取、一批鍵的第一列批量讀取(每批 500 把)、同一個任務與修訂的所有第一列(走第一列依任務與修訂的部分索引)。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+index 309b9d6..d38819b 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/提案收件口.md
+@@ -114,10 +114,12 @@ REVISIT:2026-10-20 Phase 4 當機恢復測試時補上殺行程的版本。
+ - 事件表只增不改、不隨收件表清除;以時間開頭建索引(增量 2 的窗口查詢用),另有按任務的索引(追蹤檢視用)與只收終點種類(已交給執行、已擋下、已過期、死信)的部分索引「lifecycle_events_terminal」,讓「找某份提案最後一個終點事件」不掃全表。防回歸:[test:test_lifecycle_events_survive_the_inbox_retention_purge]、[test:test_the_last_terminal_event_lookup_uses_the_terminal_index]。
+ - 讀取方法搬到共用基底類別 InboxReads,寫入開法(InboxStore)與唯讀開法(ReadOnlyInbox)共用;讀取方法的守衛收寫入交易或唯讀交易(型別完全相同、還開著、而且是這個物件自己的連線),寫入方法的守衛照舊只收寫入交易,唯讀交易傳進來丟既有的「不在交易裡」例外。哪些是寫入方法不靠名字判斷(取件、處理待核可、接手名字像讀、其實會寫):WRITE_FUNCTIONS 由測試從原始碼機械算出後比對。防回歸:[test:test_a_read_transaction_is_refused_by_every_write_function]、[test:test_the_write_function_list_is_derived_not_declared]。
+ - 唯讀開法:只開唯讀連線、不建表不補欄位,缺事件表、呼叫紀錄表或新欄位就丟「資料庫還沒升級」例外(唯讀連線上補表會丟未分類的資料庫例外,第 2 輪兩席實測)。唯讀交易開頭下不取鎖的顯式交易並立刻讀一次,同一個唯讀交易裡的多次查詢讀同一個快照。防回歸:[test:test_a_read_transaction_sees_one_snapshot]、[test:test_a_read_only_open_of_an_old_database_fails_cleanly]。
+ - 舊資料庫用寫入開法開啟時照既有做法補上事件表與索引(建表語句「不存在才建」)。防回歸:[test:test_an_old_executor_database_gains_the_lifecycle_table_and_columns]。
+ - 成本:每寫一列收件表多一次讀回那一列、解析提案內容與一次插入;事件表一直長,成長上界見計劃實務隱患。
+ REVISIT:2027-03-31 若事件表超過 100 萬列或資料庫檔明顯變大,加維運用的封存指令(搬到歸檔檔,不是刪除)。
+ - 出處:[[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 1。追蹤時間線怎麼讀這些紀錄見 [[Systems/追蹤檢視]]。
+ - [2026-09-24] 代碼審第 1 輪兩處修正:放掉租約事件的原因記表上實際留下的最後一次失敗原因(這次沒帶原因時沿用舊的),不是這次傳進來的參數(規格字面),防回歸:[test:test_a_lease_release_event_records_the_last_failure_left_on_the_row];對帳接手時同一個交易先讀舊租約,只有舊租約真的已到期或換了擁有者才寫「租約過期被接手」,自己續做不寫(比照續租不寫;第一版每輪對帳都重記),防回歸:[test:test_the_same_owner_taking_over_its_live_lease_writes_no_reclaim_event]。
+ 
+ - 給 [[Systems/有界標籤的指標]] 的兩支讀取方法(Phase 9 增量 2,寫入開法與唯讀開法共用):時間窗內的生命週期事件(含起點不含終點,走事件時間索引,旁邊配一支回查詢語句的函式給測試看查詢計畫);待處理現況(還沒取件、也還沒處置的份數與最早收件時間,收件表有總列數上限、查詢成本有上限)。讀取函式清單由唯讀開法的測試機械核對,新加一支要補進那裡的樣本。
++
++- 一批冪等鍵各自用過核可的關卡(Phase 9 增量 3,給 [[Systems/服務水準與燒損告警]] 的副作用核對用):每批 500 把,不逐筆查。不另加依鍵的索引:核可使用表每筆人工核可才一列,整表小;加了會讓既有「已核可放行數」依廣告篩的查詢改走新索引,偏離那支查詢寫定、有測試守的索引路徑。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/服務水準與燒損告警.md b/docs/rtb-production-agent-demo-knowledge/Systems/服務水準與燒損告警.md
+new file mode 100644
+index 0000000..05f2d9c
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/服務水準與燒損告警.md
+@@ -0,0 +1,30 @@
++---
++type: system
++status: doing
++created: 2026-09-24
++updated: 2026-09-24
++responsibility: 服務水準指標的設定表、六條指標在一個窗裡的好事件與有效事件、副作用核對(含讀 DSP 的窗)、週期統計、錯誤預算與多窗口燒損告警的評估(命令列入口);只讀,不送通知、不存告警歷史、不做依租戶的目標
++aliases: []
++about_code:
++  - src/rtb/ops/slo.py
++  - src/rtb/ops/sli.py
++  - src/rtb/ops/side_effects.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: [2026-09-24] 交接文件 Phase 9 服務水準、錯誤預算與燒損告警;全部建在事件型的計數上(窗過去就不變),判好壞只用事件當下寫下、之後不變的資料,不用查詢當下的設定(設定一改,過去的窗會翻案)。出處:[[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 3。
++  WHY: [2026-09-24] 燒損照 Google SRE Workbook〈Alerting on SLOs〉的多窗口多燒損率(快燒 1 小時配 5 分鐘、燒損率 14.4;慢燒 6 小時配 30 分鐘、燒損率 6),示範時所有時間窗等比縮短 60 倍、期限不縮短;數字全是示範值,代使用者裁定、待使用者覆核。
++  RULE: 副作用核對先讀 DSP 的窗、再開執行端快照:執行端在呼叫 DSP 之前就提交了第一列,反過來的順序會把正常寫入誤判成沒經過開始一筆。[since:2026-09-24] [retire:第一列改在 DSP 回應之後才寫、或副作用改由別的來源核對時] [test:test_the_dsp_operation_window_reader_is_bounded_and_read_first]
++  RULE: 告警判斷用分數算,不用浮點:剛好等於門檻就是等於(14.4% 的壞事件比例除以 1% 用浮點會算成 14.399…,剛好在門檻的會漏報)。[since:2026-09-24] [retire:門檻與目標改成不會產生循環小數的表示法、且有測試守邊界時] [test:test_a_fast_burn_fires_exactly_at_its_threshold]
++  PITFALL: [2026-09-24] 設計寫 DSP 列操作一頁最多 5000 筆,但讀它的共用 HTTP 用戶端回應上限 64 KB,5000 筆(每筆最長約 700 位元組)會超過上限整頁讀不回來;實作取一頁 50 筆(仍符合「最多 5000」),另有一支測試用每欄都塞滿的一整頁驗讀得回來。[test:test_a_full_operations_page_fits_the_client_response_limit]
++---
++# 服務水準與燒損告警
++
++本篇管三支檔:`src/rtb/ops/slo.py`(設定表、週期統計、錯誤預算、燒損評估器、命令列 `python -m rtb.ops.slo --executor-db … --analyzer-db … --dsp-url … --now …`)、`src/rtb/ops/sli.py`(六條服務水準指標在一個窗裡的計數)、`src/rtb/ops/side_effects.py`(副作用核對與讀 DSP 的窗)。設計與合約 [S650]–[S667] 見 [[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 3。
++
++- 資料來源:[[Systems/提案收件口]] 的窗內事件、各任務事件與核可使用紀錄(批量);[[Systems/外部寫入嘗試紀錄]] 的結果不明窗口讀取、一批鍵的第一列、同一份提案的第一列;[[Systems/分析行程流程與檢查點]] 的接續關係與根任務;[[Systems/Mock-DSP]] 的兩支列操作唯讀端點與依冪等鍵讀操作。跟 [[Systems/有界標籤的指標]] 共用維運套件的讀取白名單與唯讀開法。
++- 評估器不自己讀時鐘,每個窗從傳入的「現在」與設定表算出,交給計數函式;查詢次數固定(有目標的四條各 4 個窗加週期統計,目標為零的兩條各週期統計)。防回歸:[test:test_the_burn_evaluator_reads_only]。
++- 週期統計把週期切成每段不超過 24 小時、首尾相接的子窗逐段相加;縮短倍數是 1 時一條指標要查 30 段。防回歸:[test:test_the_period_is_summed_from_day_sized_windows]。
++- DSP 讀不到時,兩條目標為零的指標回「資料來源缺」(違規欄為空),不當成 0 個事件;其餘四條照常。
++- 結束代碼:0 成功;2 資料庫檔不存在;3 資料庫還沒升級。
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index 381d376..ee49277 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -6,23 +6,24 @@
+ 任何沒預期到的例外都回 500 JSON,絕不無聲切斷連線:呼叫端看到斷線,就分不出
+ 「永久錯誤」與「提交前逾時」。
+ """
+ 
+ import argparse
+ import os
+ import re
+ import time
+ from collections.abc import Callable
+ from dataclasses import asdict, replace
++from datetime import datetime
+ from pathlib import Path
+ from typing import Any
+-from urllib.parse import parse_qs, urlsplit
++from urllib.parse import parse_qs, unquote, urlsplit
+ 
+ from rtb.capabilitykit import HEADER as CAPABILITY_HEADER
+ from rtb.capabilitykit import read_key
+ from rtb.dsp.capability import (
+     WriteRequest,
+     check_body_fields,
+     check_scope,
+     verified_claims,
+ )
+ from rtb.dsp.errors import (
+@@ -70,25 +71,29 @@ ERROR_TABLE = {
+     ValidationRejected: (422, "validation_rejected", False),
+     UnknownAction: (400, "unknown_action", False),
+     CampaignNotFound: (404, "campaign_not_found", False),
+     MetricsNotFound: (404, "metrics_not_found", False),
+     CapabilityNotConfigured: (503, "capability_not_configured", False),
+     CapabilityMissing: (401, "capability_missing", False),
+     CapabilityInvalid: (401, "capability_invalid", False),
+     CapabilityExpired: (401, "capability_expired", False),
+     CapabilityScopeMismatch: (403, "capability_scope_mismatch", False),
+ }
++MAX_CURSOR_DIGITS = 19  # 游標是 SQLite 整數(最大 19 位數);更長的不收
+ ROUTES = [
+     ("GET", re.compile(r"^/campaigns/([^/]+)$"), "get_campaign"),
+     ("GET", re.compile(r"^/campaigns/([^/]+)/history$"), "get_history"),
+     ("GET", re.compile(r"^/campaigns/([^/]+)/metrics$"), "get_metrics"),
+     ("GET", re.compile(r"^/operations/([^/]+)$"), "get_operation"),
++    # 副作用核對翻頁用(Phase 9 增量 3):照既有形狀,路徑裡恰好一個參數
++    ("GET", re.compile(r"^/operations/since/([^/]+)$"), "get_operation_cursor"),
++    ("GET", re.compile(r"^/operations/after/([^/]+)$"), "get_operations_after"),
+     ("POST", re.compile(r"^/campaigns/([^/]+)/budget$"), "update_budget"),
+     ("POST", re.compile(r"^/campaigns/([^/]+)/pause$"), "pause_campaign"),
+     ("POST", re.compile(r"^/campaigns/([^/]+)/void$"), "void_operation"),
+ ]
+ # 改廣告的寫入路由;作廢路由不改廣告,另成一類(既有窮舉測試分兩類明列)
+ CAMPAIGN_WRITE_ACTIONS = ("update_budget", "pause_campaign")
+ 
+ 
+ def error_entry(exc: DspError) -> tuple[int, str, bool]:
+     for cls in type(exc).__mro__:
+@@ -144,20 +149,41 @@ class DspHandler(JsonHandler):
+         return asdict(store.get_metrics(campaign_id, windows[0] if windows else None))
+ 
+     def _get_operation(
+         self, store: CampaignStore, key: str, _fault: str | None
+     ) -> dict[str, Any]:
+         result = store.get_operation_by_key(key)
+         if result is None:
+             raise RequestRejected(404, "operation_not_found")
+         return asdict(result)
+ 
++    def _get_operation_cursor(
++        self, store: CampaignStore, since: str, _fault: str | None
++    ) -> dict[str, Any]:
++        """提交時間大於等於這個時間的第一筆之前的最後一個操作編號(時間要帶時區)。"""
++        try:
++            moment = datetime.fromisoformat(unquote(since))
++        except ValueError as exc:
++            raise RequestRejected(400, "invalid_time") from exc
++        if moment.tzinfo is None:
++            raise RequestRejected(400, "invalid_time")
++        return {"cursor": store.operation_cursor(moment)}
++
++    def _get_operations_after(
++        self, store: CampaignStore, cursor: str, _fault: str | None
++    ) -> dict[str, Any]:
++        """操作編號大於游標的操作,一次最多一頁,回下一頁的游標(沒有下一頁為空)。"""
++        if not cursor.isdigit() or len(cursor) > MAX_CURSOR_DIGITS:
++            raise RequestRejected(400, "invalid_cursor")
++        operations, following = store.operations_after(int(cursor))
++        return {"operations": operations, "next": following}
++
+     # ---- 寫入介面 ----
+     def _update_budget(
+         self, store: CampaignStore, campaign_id: str, fault: str | None
+     ) -> dict[str, Any]:
+         return self._authorized_write(store, campaign_id, "update_budget", fault)
+ 
+     def _pause_campaign(
+         self, store: CampaignStore, campaign_id: str, fault: str | None
+     ) -> dict[str, Any]:
+         return self._authorized_write(store, campaign_id, "pause_campaign", fault)
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index 06c0e86..2b474a1 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -10,21 +10,21 @@
+ """
+ 
+ import hashlib
+ import json
+ import math
+ import re
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from pathlib import Path
+-from typing import TypeGuard
++from typing import Any, TypeGuard
+ 
+ from rtb.dsp.errors import (
+     CampaignNotFound,
+     IdempotencyConflict,
+     MetricsNotFound,
+     OperationVoided,
+     StoreBusy,
+     UnknownAction,
+     ValidationRejected,
+     VersionConflict,
+@@ -33,46 +33,63 @@ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, begin_immediate, c
+ 
+ SCHEMA = """
+ CREATE TABLE IF NOT EXISTS campaigns (
+     id TEXT PRIMARY KEY, budget INTEGER NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL,
+     tenant TEXT NOT NULL DEFAULT 't-default', name TEXT NOT NULL DEFAULT '');
+ CREATE TABLE IF NOT EXISTS operations (
+     operation_id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL,
+     action TEXT NOT NULL, params_json TEXT NOT NULL, version_after INTEGER NOT NULL,
+     received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+     policy_version TEXT, expected_version INTEGER);
++CREATE INDEX IF NOT EXISTS operations_by_commit ON operations (committed_at);
+ CREATE TABLE IF NOT EXISTS idempotency_keys (
+     key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, operation_id INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS voided_keys (key TEXT PRIMARY KEY, voided_at TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS metrics (
+     campaign_id TEXT NOT NULL, window_name TEXT NOT NULL, impressions INTEGER, clicks INTEGER,
+     conversions INTEGER, spend REAL, revenue REAL, PRIMARY KEY (campaign_id, window_name));
+ """
+ 
+ SQLITE_INTEGER_MAX = 2**63 - 1
++# 列操作端點一次最多回幾筆(Phase 9 增量 3 副作用核對翻頁用)。設計寫「最多 5000 筆」;實際取 50:
++# 讀它的共用 HTTP 用戶端回應上限是 64 KB,每筆最長約 700 位元組,5000 筆會超過上限整頁讀不回來
++OPERATION_PAGE = 50
+ DEFAULT_TENANT = "t-default"  # 沒指定租戶的廣告(含補欄位前的舊資料)都屬於它
+ # 廣告名稱的字元上限:真實 DSP 的名稱都有上限。最壞情況(每字都要代理對、回應用 ASCII 逃脫時
+ # 每字 12 位元組)4096 字約 48 KB,仍低於分析端 64 KB 的回應上限,名稱塞不爆回應
+ MAX_CAMPAIGN_NAME_LENGTH = 4096
+ DEFAULT_CAMPAIGN_NAME = ""  # 沒給名稱的廣告(含補欄位前的舊資料)名稱是空字串
+ METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
+ COUNT_FIELDS = ("impressions", "clicks", "conversions")  # METRIC_FIELDS 的子集:存成整數
+ AMOUNT_FIELDS = ("spend", "revenue")  # 存成 REAL
+ METRIC_FIELDS = COUNT_FIELDS + AMOUNT_FIELDS
+ EXACT_FLOAT_INT_MAX = 2**53  # 超過這個大小的整數放進浮點數會失真
+ IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")  # 用 fullmatch,避免 $ 放行結尾換行
+ 
+ 
+ def _utc_now() -> str:
+     return datetime.now(UTC).isoformat()
+ 
+ 
++def _moment(text: str) -> datetime:
++    value = datetime.fromisoformat(text)
++    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
++
++
++def operation_cursor_query(since: datetime) -> tuple[str, tuple[str]]:
++    """依時間找起點的查詢語句(測試用它看查詢計畫):提交時間大於等於 since 的第一筆。提交時間跟
++    寫入時同一種寫法(UTC 的 isoformat),字串比較就是時間比較。"""
++    return ("SELECT operation_id FROM operations WHERE committed_at >= ? "
++            "ORDER BY committed_at, operation_id LIMIT 1",
++            (since.astimezone(UTC).isoformat(),))
++
++
+ @dataclass(frozen=True)
+ class Campaign:
+     id: str
+     budget: int
+     status: str
+     version: int
+     name: str  # 不可信文字:只在建檔時設定,沒有寫入端點能改(比照租戶);不給預設值,改狀態時必須沿用
+ 
+ 
+ @dataclass(frozen=True)
+@@ -372,29 +389,66 @@ class CampaignStore:
+             return existing
+         # 這段查詢必須留在寫入交易內(已經拿到寫入鎖):搬到交易外的話,舊請求會先查到「沒作廢」、
+         # 等作廢完成之後才提交,就繞過了作廢
+         if self._conn.execute(
+                 "SELECT 1 FROM voided_keys WHERE key = ?", (op.idempotency_key,)).fetchone():
+             raise OperationVoided(op.idempotency_key)
+         current = self.get_campaign(op.campaign_id)
+         if current.version != op.expected_version:
+             raise VersionConflict(f"預期 {op.expected_version},目前 {current.version}")
+         updated = _next_state(current, op)
+-        committed_at = self._clock()
++        committed_at = self._not_before_last(self._clock())
+         operation_id = self._apply(op, updated, received_at, committed_at)
+         self._record_idempotency(op, operation_id)
+         return OperationResult(
+             operation_id, op.campaign_id, op.action, updated.version, committed_at, False,
+             op.idempotency_key, dict(op.params),
+             op.expected_version if is_plain_int(op.expected_version) else None,
+         )
+ 
++    def _not_before_last(self, reading: str) -> str:
++        """提交時間取時鐘讀數與上一筆提交時間較大的那個(Phase 9 增量 3):依操作編號翻頁才等於依
++        時間翻頁。時鐘倒退時提交時間會被墊高到上一筆。在寫入交易裡讀,上一筆不會被別人插隊。"""
++        row = self._conn.execute(
++            "SELECT committed_at FROM operations ORDER BY operation_id DESC LIMIT 1").fetchone()
++        if row is None or _moment(row[0]) <= _moment(reading):
++            return reading
++        return str(row[0])
++
++    def operation_cursor(self, since: datetime) -> int:
++        """提交時間大於等於 since 的第一筆之前的最後一個操作編號;沒有更早的回 0,沒有任何一筆
++        大於等於 since 回目前最大的編號(之後列操作就從這裡往下)。走提交時間索引。"""
++        sql, params = operation_cursor_query(since)
++        first = self._conn.execute(sql, params).fetchone()
++        if first is None:
++            row = self._conn.execute("SELECT max(operation_id) FROM operations").fetchone()
++        else:
++            row = self._conn.execute("SELECT max(operation_id) FROM operations "
++                                     "WHERE operation_id < ?", (first[0],)).fetchone()
++        return int(row[0] or 0)
++
++    def operations_after(self, cursor: int) -> tuple[list[dict[str, Any]], int | None]:
++        """操作編號大於 cursor 的操作,依編號由小到大最多 OPERATION_PAGE 筆,連同廣告建檔時的租戶;
++        第二個值是下一頁的游標(這一頁最後一筆的編號),沒有下一頁為空。"""
++        rows = self._conn.execute(
++            "SELECT o.operation_id, o.idempotency_key, o.campaign_id, c.tenant, o.action, "
++            "o.params_json, o.expected_version, o.committed_at, o.policy_version "
++            "FROM operations o LEFT JOIN campaigns c ON c.id = o.campaign_id "
++            "WHERE o.operation_id > ? ORDER BY o.operation_id LIMIT ?",
++            (cursor, OPERATION_PAGE)).fetchall()
++        found = [{"operation_id": r[0], "idempotency_key": r[1], "campaign_id": r[2],
++                  "tenant": r[3], "action": r[4],
++                  "new_budget": json.loads(r[5]).get("new_budget"),
++                  "expected_version": r[6], "committed_at": r[7], "policy_version": r[8]}
++                 for r in rows]
++        return found, (found[-1]["operation_id"] if len(found) == OPERATION_PAGE else None)
++
+     def _existing_operation(self, op: Operation) -> OperationResult | None:
+         row = self._conn.execute(
+             "SELECT fingerprint FROM idempotency_keys WHERE key = ?", (op.idempotency_key,)
+         ).fetchone()
+         if row is None:
+             return None
+         if row[0] != op.fingerprint():
+             raise IdempotencyConflict(op.idempotency_key)
+         return self._recorded_result(op.idempotency_key, replayed=True)
+ 
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index 2943316..bb009d3 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -62,20 +62,24 @@ CREATE TABLE IF NOT EXISTS attempts (
+     PRIMARY KEY (key, seq));
+ CREATE INDEX IF NOT EXISTS attempts_first_rows ON attempts (campaign_id) WHERE seq = 1;
+ CREATE INDEX IF NOT EXISTS attempts_terminal_rows ON attempts (campaign_id)
+     WHERE state IN (TERMINAL_LIST);
+ CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_terminal_per_key ON attempts (key)
+     WHERE state IN (TERMINAL_LIST);
+ CREATE INDEX IF NOT EXISTS attempts_verified_by_time ON attempts (written_at)
+     WHERE state = 'verified';
+ CREATE INDEX IF NOT EXISTS attempts_terminal_by_time ON attempts (written_at)
+     WHERE state IN (TERMINAL_LIST);
++CREATE INDEX IF NOT EXISTS attempts_unknown_by_time ON attempts (written_at)
++    WHERE state = 'unknown';
++CREATE INDEX IF NOT EXISTS attempts_first_rows_by_task ON attempts (task_id, revision)
++    WHERE seq = 1;
+ CREATE TABLE IF NOT EXISTS dsp_calls (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, call_kind TEXT NOT NULL,
+     result TEXT NOT NULL, status INTEGER, error_code TEXT, latency_ms REAL NOT NULL,
+     task_id TEXT, revision INTEGER, campaign_id TEXT, key TEXT, source TEXT, actor TEXT,
+     program_version TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS dsp_calls_by_time ON dsp_calls (at);
+ CREATE INDEX IF NOT EXISTS dsp_calls_by_task ON dsp_calls (task_id, id);
+ """
+ _COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verification_timeouts, "
+             "written_at, written_version, capability_expires_at")
+@@ -83,20 +87,26 @@ _COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verificatio
+ ADDED_COLUMNS = (
+     ("written_version", "written_version INTEGER"),  # DSP 回報的寫入後版本
+     ("capability_expires_at", "capability_expires_at TEXT"),  # 最近一次送出所帶憑證的到期時間
+     # 總曝險預留(Phase 6):只寫在第一列,開始一筆時算出之後不變;舊列不回填,空值由額度查詢保守計入
+     ("tenant", "tenant TEXT"),
+     ("reserved_amount", "reserved_amount INTEGER"),
+     # 誰寫的(Phase 9 增量 1):來源、執行者、程式版本;舊列為空值
+     ("source", "source TEXT"),
+     ("actor", "actor TEXT"),
+     ("program_version", "program_version TEXT"),
++    # 開始時的核對材料(Phase 9 增量 3,只寫在第一列、只增不改;副作用核對用,別處不讀):
++    # 比例允許加的量、單一廣告上限、總額上限、判門檻用的已用額度。舊列為空
++    ("ratio_allowance", "ratio_allowance INTEGER"),
++    ("max_budget", "max_budget INTEGER"),
++    ("aggregate_limit", "aggregate_limit INTEGER"),
++    ("aggregate_used", "aggregate_used INTEGER"),
+ )
+ # DSP 呼叫紀錄表的欄位(唯讀開法用它判斷資料庫升級了沒有)
+ DSP_CALL_FIELDS = ("id", "at", "call_kind", "result", "status", "error_code", "latency_ms",
+                    "task_id", "revision", "campaign_id", "key", "source", "actor",
+                    "program_version")
+ # 可觀測查詢(Phase 6 增量 4)用的第一列按租戶與開始時間索引。參照後補的租戶欄,不能放進 SCHEMA:
+ # 開庫是先跑整份建表建索引、後補欄位,舊資料庫一開就會找不到欄位;由補欄位流程補完欄位之後才建
+ TENANT_INDEX = ("CREATE INDEX IF NOT EXISTS attempts_first_rows_by_tenant "
+                 "ON attempts (tenant, written_at) WHERE seq = 1")
+ # 已驗證的預留在驗證完成後多久內仍佔額度(暫用值,沒有真實花費數據校準,見 Phase 6 計劃)
+@@ -130,20 +140,23 @@ class AggregateLimitReached(AttemptRejected):
+ class Reservation:
+     """開始一筆時要記的預留:租戶、這筆加預算的金額(減預算與暫停是 0)、簽發時讀到的門檻。
+ 
+     approved:呼叫端手上有這一筆「總曝險已滿」的有效人工核可(Phase 6 增量 3;金額不超過核可
+     上限由呼叫端驗過)。有核可時照樣算已用額度、照樣寫預留,只是超過門檻也放行。"""
+ 
+     tenant: str
+     amount: int
+     limit: int
+     approved: bool = False
++    # 開始時的核對材料(Phase 9 增量 3):比例允許加的量(暫停為空)與簽發時讀到的單一廣告上限
++    ratio_allowance: int | None = None
++    max_budget: int | None = None
+ 
+ 
+ class TooManyUnresolved(AttemptRejected):
+     """全表未結案的鍵數已達上限。"""
+ 
+ 
+ class InvalidOutcome(AttemptRejected):
+     """結果代碼與目標狀態不配、代碼不認得、細節文字或處置理由不乾淨。"""
+ 
+ 
+@@ -544,38 +557,43 @@ def begin(
+     key = operation_key(proposal)
+     current = latest(tx, key)
+     if current is not None:
+         return Begun(current, created=False)
+     expires = _expiry(capability_expires_at)
+     if unresolved_count(tx, proposal.campaign_id):
+         raise CampaignLocked(proposal.campaign_id)
+     if unresolved_count(tx) >= MAX_UNRESOLVED:
+         raise TooManyUnresolved()
+     over_limit = None
++    used: int | None = None  # 判門檻用的已用額度;加的量是 0 時不判門檻,不記
+     if reservation is not None and reservation.amount > 0:
+         used = aggregate_used(tx, reservation.tenant, now)
+         if used + reservation.amount > reservation.limit:
+             over_limit = AggregateLimitReached(used, reservation.limit)
+             if not reservation.approved:
+                 raise over_limit
+     snapshot_json = json.dumps(proposal.to_primitives(), sort_keys=True, ensure_ascii=True,
+                                allow_nan=False)
+     conn.execute(
+         "INSERT INTO attempts (key, seq, campaign_id, state, send_count, verification_timeouts, "
+         "written_at, task_id, revision, action, expected_version, proposal_json, "
+-        "capability_expires_at, tenant, reserved_amount, source, actor, program_version) "
+-        "VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
++        "capability_expires_at, tenant, reserved_amount, source, actor, program_version, "
++        "ratio_allowance, max_budget, aggregate_limit, aggregate_used) "
++        "VALUES (?, 1, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (key, proposal.campaign_id, AttemptState.IN_FLIGHT.value, _iso(now),
+          proposal.task_id, proposal.revision, proposal.action_type.value,
+          proposal.campaign_version_observed, snapshot_json, expires,
+          None if reservation is None else reservation.tenant,
+-         None if reservation is None else reservation.amount, source, actor, PROGRAM_VERSION),
++         None if reservation is None else reservation.amount, source, actor, PROGRAM_VERSION,
++         None if reservation is None else reservation.ratio_allowance,
++         None if reservation is None else reservation.max_budget,
++         None if reservation is None else reservation.limit, used),
+     )
+     row = latest(tx, key)
+     assert row is not None  # 剛寫入的那一列  # noqa: S101
+     return Begun(row, created=True, over_limit=over_limit)
+ 
+ 
+ def tenant_index_missing(conn: sqlite3.Connection) -> bool:
+     """補欄位流程的判斷之一:欄位已補齊的舊資料庫(增量 1 開過的)也要能補到這個索引。"""
+     return conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'index' "
+                         "AND name = 'attempts_first_rows_by_tenant'").fetchone() is None
+@@ -906,20 +924,99 @@ def terminal_rows_between_query(
+ 
+ 
+ def terminal_rows_between(
+     tx: Readable, since: datetime, until: datetime,
+ ) -> tuple[TerminalRow, ...]:
+     """時間窗內到了終點的鍵(每把鍵最多一列終點列,有唯一索引守);走終點時間的部分索引。"""
+     sql, params = terminal_rows_between_query(since, until)
+     return tuple(TerminalRow(*row) for row in _read_conn(tx).execute(sql, params))
+ 
+ 
++def unknown_rows_between_query(
++    since: datetime, until: datetime,
++) -> tuple[str, tuple[str, ...]]:
++    """時間窗內進結果不明的列的查詢語句(測試用它看查詢計畫)。"""
++    return ("SELECT DISTINCT key FROM attempts WHERE state = 'unknown' "
++            "AND written_at >= ? AND written_at < ? ORDER BY key", (_iso(since), _iso(until)))
++
++
++def unknown_rows_between(tx: Readable, since: datetime, until: datetime) -> tuple[str, ...]:
++    """時間窗內寫過結果不明列的鍵(Phase 9 增量 3 對帳服務水準的候選);走結果不明的部分索引。
++    呼叫端再用鍵讀整串,判第一次進結果不明是不是落在它要的範圍。"""
++    sql, params = unknown_rows_between_query(since, until)
++    return tuple(row[0] for row in _read_conn(tx).execute(sql, params))
++
++
++@dataclass(frozen=True)
++class FirstRow:
++    """一把鍵的第一列:開始一筆時記下的提案快照、租戶、預留金額與四樣核對材料(副作用核對用)。
++    快照讀不回來時 proposal 為空;舊列沒有的欄位為空。"""
++
++    key: str
++    task_id: str | None
++    revision: int | None
++    campaign_id: str
++    tenant: str | None
++    reserved_amount: int | None
++    ratio_allowance: int | None
++    max_budget: int | None
++    aggregate_limit: int | None
++    used_before: int | None  # 表上的欄位名是 aggregate_used(判門檻用的已用額度)
++    proposal: Proposal | None
++    written_at: str
++
++
++_FIRST_ROW_READ = ("key, task_id, revision, campaign_id, tenant, reserved_amount, "
++                   "ratio_allowance, max_budget, aggregate_limit, aggregate_used, proposal_json, "
++                   "written_at")
++BATCH = 500  # 一批最多幾把鍵:遠低於 SQLite 參數上限
++
++
++def _first_row(row: Sequence[Any]) -> FirstRow:
++    try:
++        parsed = parse_proposal(json.loads(row[10] or "null")).proposal
++    except (ValueError, TypeError):
++        parsed = None
++    return FirstRow(key=row[0], task_id=row[1], revision=row[2], campaign_id=row[3],
++                    tenant=row[4], reserved_amount=row[5], ratio_allowance=row[6],
++                    max_budget=row[7], aggregate_limit=row[8], used_before=row[9],
++                    proposal=parsed, written_at=row[11])
++
++
++def first_rows_for(tx: Readable, keys: Iterable[str]) -> dict[str, FirstRow]:
++    """一批冪等鍵各自的第一列(Phase 9 增量 3 副作用核對用);每批不超過 BATCH 把,不逐筆查。
++    找不到第一列的鍵不在結果裡。"""
++    conn, wanted, found = _read_conn(tx), sorted(set(keys)), {}
++    for start in range(0, len(wanted), BATCH):
++        chunk = wanted[start:start + BATCH]
++        marks = ", ".join("?" * len(chunk))
++        for row in conn.execute(
++                f"SELECT {_FIRST_ROW_READ} FROM attempts WHERE seq = 1 AND key IN ({marks})",  # noqa: S608 - 固定欄位與佔位符
++                chunk):
++            found[row[0]] = _first_row(row)
++    return found
++
++
++def first_rows_for_proposal_query(task_id: str, revision: int) -> tuple[str, tuple[object, ...]]:
++    """同一份提案(任務與修訂)的所有第一列的查詢語句(測試用它看查詢計畫)。"""
++    return (f"SELECT {_FIRST_ROW_READ} FROM attempts "  # noqa: S608 - 固定欄位
++            "WHERE seq = 1 AND task_id = ? AND revision = ? ORDER BY written_at, key",
++            (task_id, revision))
++
++
++def first_rows_for_proposal(tx: Readable, task_id: str, revision: int) -> tuple[FirstRow, ...]:
++    """同一個任務與修訂的每一把鍵的第一列(重複有害副作用往回查同一份提案);走第一列依任務與修訂
++    的部分索引。內容雜湊由呼叫端從快照比。"""
++    sql, params = first_rows_for_proposal_query(task_id, revision)
++    return tuple(_first_row(row) for row in _read_conn(tx).execute(sql, params))
++
++
+ def dsp_calls_for(tx: Readable, task_id: str) -> tuple[DspCallRow, ...]:
+     """一個任務的 DSP 呼叫紀錄,依寫入順序。"""
+     return tuple(DspCallRow(*row) for row in _read_conn(tx).execute(
+         f"SELECT {', '.join(DSP_CALL_FIELDS)} FROM dsp_calls WHERE task_id = ? ORDER BY id",  # noqa: S608 - 固定欄位清單
+         (task_id,)))
+ 
+ 
+ def trace_rows(tx: Readable, key: str) -> tuple[AttemptTraceRow, ...]:
+     """一把鍵的每一列嘗試,連同第一列記的任務、修訂、租戶與提案內容雜湊(那把鍵歸建立它的那份提案;
+     任務編號重用時靠內容雜湊分開,代碼審第 1 輪)。"""
+diff --git a/src/rtb/executor/execution.py b/src/rtb/executor/execution.py
+index b1c9373..f536d11 100644
+--- a/src/rtb/executor/execution.py
++++ b/src/rtb/executor/execution.py
+@@ -500,21 +500,23 @@ class Executor:
+     def _run(
+         self, picked: PendingProposal, receipt: Receipt, signed: _Signed, view: CampaignView,
+     ) -> Processed:
+         """硬規則都過了:判可核可的兩關、開始一筆、送出。"""
+         proposal = picked.proposal
+         amount = guardrails.increase(proposal, view.budget)
+         gated = self._gate(receipt, proposal, signed, view, amount)
+         if isinstance(gated, Processed):
+             return gated
+         signed, held = gated
+-        taken = self._take(picked, receipt, signed, amount, held)
++        allowance = (guardrails.increase_allowance(view.budget)  # 開始一筆記下判比例用的量
++                     if proposal.action_type is ActionType.UPDATE_BUDGET else None)
++        taken = self._take(picked, receipt, signed, (amount, allowance), held)
+         if isinstance(taken, Processed):
+             return taken
+         # 停在未結案就不確認:每一筆嘗試寫入都順手續租,所以租約已經延長,交給對帳
+         answer = self.dsp.write(proposal, taken.key, signed.token,
+                                 on_call=self._calls(proposal, taken.key))
+         self._record(proposal, taken, answer, receipt)
+         return Processed(Result.EXECUTED, taken.key)
+ 
+     def _sign(
+         self, proposal: Proposal, key: str | None = None, not_after: int | None = None,
+@@ -719,49 +721,52 @@ class Executor:
+                     else self.store.ack_blocked(tx, receipt, now, code))
+         return Processed(kind, block_code=code) if done else Processed(Result.LEASE_LOST)
+ 
+     def _release(self, receipt: Receipt, failure: LastFailure | None) -> Processed:
+         """沒能開始嘗試:記下原因、放掉租約,下一輪能再取(每取一次算一次投遞,用完進死信)。"""
+         with self.store.transaction() as tx:
+             done = self.store.release(tx, receipt, self.clock(), failure)
+         return Processed(Result.DEFERRED) if done else Processed(Result.LEASE_LOST)
+ 
+     def _take(  # noqa: PLR0911 - 每個出口對應開始一筆的一種結果
+-        self, picked: PendingProposal, receipt: Receipt, signed: _Signed, amount: int,
+-        held: dict[BlockCode, Approval],
++        self, picked: PendingProposal, receipt: Receipt, signed: _Signed,
++        increase: tuple[int, int | None], held: dict[BlockCode, Approval],
+     ) -> AttemptRow | Processed:
+         """開始一筆:在核對收據仍有效的同一個交易裡做;鍵已存在就依既有那把鍵的狀態分流。
+ 
+         總曝險(Phase 6):預留金額 = 新預算減處理一筆開頭讀到的目前預算(版本已變排在前面,走到
+         這裡的目前預算一定是提案觀察到的那一版),小於 0 算 0;額度不夠又沒有有效核可就停在
+-        待核可並寫停下紀錄。held 是開始前查好的核可:在這個交易裡用當下時間再判一次到期。"""
++        待核可並寫停下紀錄。held 是開始前查好的核可:在這個交易裡用當下時間再判一次到期。
++        increase 是(加的量, 比例允許加的量;暫停為空),後者只記進第一列給副作用核對(增量 3)。"""
++        amount, allowance = increase
+         with self.store.transaction() as tx:
+             now = self.clock()
+             if not self.store.extend(tx, receipt, now):  # 已被取代、內容不同、或租約已不是我的
+                 return Processed(Result.LEASE_LOST)
+             # 讀 DSP、讀設定檔簽發都可能剛好跨過到期時間:在開始一筆的同一個交易裡再判一次
+             if picked.proposal.decision_expires_at <= now:
+                 self.store.ack_expired(tx, receipt, now)
+                 return Processed(Result.EXPIRED)
+             if any(self._superseded(tx, picked.proposal, stage, found)
+                    for stage, found in held.items()):  # 查好之後又有人簽了更新的核可:下一輪重判
+                 self.store.release(tx, receipt, now, None)
+                 return Processed(Result.DEFERRED)
+             live = {stage: found for stage, found in held.items()
+                     if now.timestamp() < found.expires_at}
+             stopped = self._stop_before_begin(tx, receipt, picked.proposal, signed, amount, held,
+                                               live, now)
+             if stopped is not None:
+                 return stopped
+             reservation = attempt_store.Reservation(
+                 signed.tenant.name, amount, signed.tenant.aggregate_limit,
+-                approved=AGGREGATE in live)
++                approved=AGGREGATE in live, ratio_allowance=allowance,
++                max_budget=signed.tenant.max_budget)
+             try:
+                 begun = attempt_store.begin(tx, picked.proposal, now,
+                                             capability_expires_at=signed.expires_at,
+                                             reservation=reservation, by=self._by)
+             except attempt_store.TooManyUnresolved:  # 正常觸發:等未結案數降下來
+                 snapshot = attempt_store.AggregateLimitReached(
+                     _aggregate_used(tx, reservation.tenant, now), reservation.limit)
+                 self.store.record_stop(tx, self._stop(
+                     StopKind.TABLE_FULL, picked.proposal, reservation, snapshot), now)
+                 self.store.release(tx, receipt, now, LastFailure.TABLE_FULL)
+diff --git a/src/rtb/executor/guardrails.py b/src/rtb/executor/guardrails.py
+index 69796ac..a8f149e 100644
+--- a/src/rtb/executor/guardrails.py
++++ b/src/rtb/executor/guardrails.py
+@@ -19,20 +19,25 @@ MIN_INCREASE_STEP = 1
+ DECISION_FRESHNESS = timedelta(minutes=15)
+ 
+ 
+ def increase(proposal: Proposal, budget: int) -> int:
+     """這筆提案加的量(也是它佔的總曝險):新預算減目前預算,小於 0 算 0;暫停是 0。"""
+     if proposal.action_type is not ActionType.UPDATE_BUDGET:
+         return 0
+     return max(0, int(proposal.requested_change["new_budget"]) - budget)
+ 
+ 
++def increase_allowance(budget: int) -> int:
++    """比例上限允許加的量:max(現況乘分子除以分母取整數下限, 最小加額)。判比例與開始一筆記下的
++    核對材料(Phase 9 增量 3)共用這一支,記的是算出的量、不是常數。"""
++    return max(budget * MAX_INCREASE_NUMERATOR // MAX_INCREASE_DENOMINATOR, MIN_INCREASE_STEP)
++
++
+ def increase_too_large(proposal: Proposal, budget: int) -> bool:
+     """加的量超過比例上限;減預算、暫停是 0,不受影響。budget 是處理一筆開頭讀到的現況。"""
+-    allowed = max(budget * MAX_INCREASE_NUMERATOR // MAX_INCREASE_DENOMINATOR, MIN_INCREASE_STEP)
+-    return increase(proposal, budget) > allowed
++    return increase(proposal, budget) > increase_allowance(budget)
+ 
+ 
+ def decision_stale(proposal: Proposal, now: datetime) -> bool:
+     """現在比決策建立晚超過新鮮度上限;剛好等於上限不算過時。執行端看不到證據本身,用決策建立
+     時間代替(分析端決策時證據最多 15 分鐘舊)。有這一關有效核可的提案不判,由呼叫端決定。"""
+     return now - proposal.decision_created_at > DECISION_FRESHNESS
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index c77ed23..7688a35 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -21,21 +21,22 @@
+ 確認成已擋下或被取代。核可表與核可使用表也在這裡建(只增不改);驗核可在執行行程,不在這裡。
+ 
+ 生命週期事件(Phase 9 增量 1):每一支會寫收件表那一列的方法,都在同一個交易裡由同一支內部函式
+ `_log` 寫一列事件(續租除外,保留期整批刪除也不寫);事件表只增不改、不隨收件表清除,廣告、冪等鍵、
+ 政策版本在寫事件時從那一列的提案內容算出存下。唯讀開法 `ReadOnlyInbox` 只有唯讀連線、只發唯讀
+ 交易,開啟時不建表、不補欄位,資料庫還沒升級就丟 DatabaseNotUpgraded。
+ """
+ 
+ import json
+ import sqlite3
+-from collections.abc import Callable, Iterator
++from collections import defaultdict
++from collections.abc import Callable, Iterable, Iterator
+ from contextlib import contextmanager
+ from dataclasses import dataclass, replace
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from pathlib import Path
+ 
+ from rtb import PROGRAM_VERSION
+ from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
+ from rtb.domain.proposal import (
+     MAX_DECISION_LIFETIME,
+@@ -731,20 +732,37 @@ class InboxReads:
+ 
+     def lifecycle_events_between(
+         self, tx: attempt_store.Readable, since: datetime, until: datetime,
+     ) -> tuple[LifecycleEvent, ...]:
+         """時間窗內的生命週期事件(含起點、不含終點),依時間、再依寫入順序;走時間索引(Phase 9
+         增量 2 的指標用)。"""
+         self._own_read(tx)
+         sql, params = lifecycle_events_between_query(since, until)
+         return tuple(_event(row) for row in self._conn.execute(sql, params))
+ 
++    def approval_uses_for(
++        self, tx: attempt_store.Readable, keys: Iterable[str],
++    ) -> dict[str, frozenset[str]]:
++        """一批冪等鍵各自用過核可的關卡(Phase 9 增量 3 副作用核對用);每批不超過嘗試紀錄模組的
++        批量上限,不逐筆查。沒用過核可的鍵不在結果裡。不另加依鍵的索引:核可使用表每筆人工核可才
++        一列,整表很小;加了會讓既有「已核可放行數」依廣告篩的查詢改走它、偏離那支查詢寫定的
++        索引路徑(有測試守)。"""
++        self._own_read(tx)
++        wanted, found = sorted(set(keys)), defaultdict(set)
++        for start in range(0, len(wanted), attempt_store.BATCH):
++            chunk = wanted[start:start + attempt_store.BATCH]
++            marks = ", ".join("?" * len(chunk))
++            for key, stage in self._conn.execute(
++                    f"SELECT key, stage FROM approval_uses WHERE key IN ({marks})", chunk):  # noqa: S608 - 只拼佔位符
++                found[key].add(stage)
++        return {key: frozenset(stages) for key, stages in found.items()}
++
+     def pending_snapshot(self, tx: attempt_store.Readable) -> tuple[int, str | None]:
+         """現在的待處理份數(還沒被取件、也還沒處置)與其中最早的收件時間;收件表有總列數上限,
+         查詢成本有上限(Phase 9 增量 2 的佇列現況)。"""
+         self._own_read(tx)
+         count, oldest = self._conn.execute(
+             f"SELECT count(*), min(received_at) FROM proposals WHERE {PENDING}").fetchone()  # noqa: S608 - 固定條件
+         return int(count), oldest
+ 
+     def last_terminal_event(
+         self, tx: attempt_store.Readable, task_id: str, revision: int, digest: str,
+diff --git a/src/rtb/ops/side_effects.py b/src/rtb/ops/side_effects.py
+new file mode 100644
+index 0000000..3dc6329
+--- /dev/null
++++ b/src/rtb/ops/side_effects.py
+@@ -0,0 +1,326 @@
++"""副作用核對(Phase 9 增量 3):未授權或違反護欄的副作用、重複有害副作用。只讀。
++
++- 核對函式逐項重看 DSP 的一筆寫入,判法只用寫入當時記下、之後不變的資料:嘗試第一列的提案快照、
++  租戶、預留金額與四樣核對材料(比例允許加的量、單一廣告上限、總額上限、已用額度),DSP 記下的廣告
++  建檔租戶與政策版本,以及核可使用紀錄。任何一項證實違規就判壞;沒有任何一項違規、但缺了需要的
++  材料判無法核對(不算有效事件、另報份數)。
++- DSP 的窗用兩支唯讀端點讀:先取窗起點的游標,再依操作編號往下翻頁,讀到提交時間大於等於窗終點就停
++  (DSP 保證提交時間不小於上一筆,依編號翻頁等於依時間翻頁)。窗含起點、不含終點。
++- 讀取順序:先讀 DSP 的窗,再開執行端的唯讀快照。執行端在呼叫 DSP 之前就提交了第一列,所以 DSP
++  看得到的每一筆執行端寫入,之後開的快照一定看得到它的第一列;反過來會把正常寫入誤判成沒經過開始
++  一筆。執行端一律用擁有模組的批量讀取函式,不逐筆查。
++"""
++
++import re
++from collections.abc import Iterable, Mapping
++from dataclasses import dataclass
++from datetime import UTC, datetime
++from enum import StrEnum
++from pathlib import Path
++from typing import Any
++from urllib.parse import quote
++
++from rtb.domain.proposal import ActionType, content_hash
++from rtb.executor import attempt_store
++from rtb.executor.attempt_store import FirstRow
++from rtb.executor.inbox_store import BlockCode, ReadOnlyInbox
++from rtb.httpclient import request_json
++
++EXECUTOR_KEY = re.compile(r"k1-[0-9a-f]{64}")  # 執行端的冪等鍵格式;別的寫入者直接改 DSP 不算
++MAX_PAGES = 20_000  # 翻頁上限:防 DSP 回應有誤時無限翻下去(一頁 50 筆,約 100 萬筆操作)
++RATIO = BlockCode.BUDGET_INCREASE_TOO_LARGE.value
++AGGREGATE = BlockCode.AGGREGATE_LIMIT_REACHED.value
++
++
++class DspUnreadable(Exception):
++    """DSP 的唯讀端點讀不到或讀不懂:這個窗的副作用核對做不了(呼叫端照實標資料來源缺)。"""
++
++
++class Verdict(StrEnum):
++    GOOD = "good"
++    BAD = "bad"
++    UNVERIFIABLE = "unverifiable"
++
++
++@dataclass(frozen=True)
++class DspWrite:
++    """DSP 一筆提交的寫入(列操作端點回的欄位)。"""
++
++    operation_id: int
++    key: str
++    campaign_id: str
++    tenant: str | None  # 廣告建檔時的租戶(之後不變)
++    action: str
++    new_budget: int | None
++    expected_version: int | None
++    committed_at: str
++    policy_version: str | None
++
++
++@dataclass(frozen=True)
++class Tally:
++    """一個窗的計數:好事件、有效事件、每個壞事件的時間,另報無法核對、接不上、時鐘異常的份數。
++    missing 為真:資料來源讀不到,這個窗沒算(不是 0 個事件)。"""
++
++    good: int
++    valid: int
++    bad_at: tuple[str, ...] = ()
++    unverifiable: int = 0
++    unlinked: int = 0
++    clock_anomaly: int = 0
++    missing: bool = False
++
++    @property
++    def bad(self) -> int:
++        return self.valid - self.good
++
++
++def iso(moment: str | datetime) -> str:
++    """固定格式的 UTC 字串(同執行端的寫法);DSP 寫的 +00:00 一律換算。"""
++    value = moment if isinstance(moment, datetime) else datetime.fromisoformat(moment)
++    if value.tzinfo is None:
++        value = value.replace(tzinfo=UTC)
++    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
++
++
++def is_executor_key(key: str) -> bool:
++    return EXECUTOR_KEY.fullmatch(key) is not None
++
++
++# ---- 核對函式 ----
++def _scope_violations(entry: DspWrite, first: FirstRow) -> tuple[list[str], list[str]]:
++    """授權範圍:廣告、動作、新預算、預期版本跟第一列的提案比;DSP 廣告建檔租戶跟第一列簽發租戶比。
++    回(違規, 缺的材料)。"""
++    proposal = first.proposal
++    bad: list[str] = []
++    missing: list[str] = []
++    if proposal is None:
++        return bad, ["snapshot"]
++    wanted_budget = proposal.requested_change.get("new_budget")
++    if entry.campaign_id != proposal.campaign_id:
++        bad.append("campaign")
++    if entry.action != proposal.action_type.value:
++        bad.append("action")
++    if proposal.action_type is ActionType.UPDATE_BUDGET and entry.new_budget != wanted_budget:
++        bad.append("new_budget")
++    if entry.expected_version != proposal.campaign_version_observed:
++        bad.append("expected_version")
++    if first.tenant is None or entry.tenant is None:
++        missing.append("tenant")
++    elif entry.tenant != first.tenant:
++        bad.append("tenant")
++    if entry.policy_version is None:
++        missing.append("policy_version")
++    elif entry.policy_version != proposal.policy_version:
++        bad.append("policy_version")
++    return bad, missing
++
++
++def _limit_violations(
++    entry: DspWrite, first: FirstRow, stages: frozenset[str],
++) -> tuple[list[str], list[str]]:
++    """數值護欄(暫停跳過):單一廣告上限不論加減都核對;加的量大於 0 才核對比例與總曝險。剛好等於
++    上限、允許量或門檻算合法。"""
++    bad: list[str] = []
++    missing: list[str] = []
++    if entry.action != ActionType.UPDATE_BUDGET.value:
++        return bad, missing
++    if first.max_budget is None or entry.new_budget is None:
++        missing.append("max_budget")
++    elif entry.new_budget > first.max_budget:
++        bad.append("max_budget")
++    amount = first.reserved_amount
++    if amount is None:
++        return bad, [*missing, "reserved_amount"]
++    if amount <= 0:
++        return bad, missing
++    if first.ratio_allowance is None:
++        missing.append("ratio_allowance")
++    elif amount > first.ratio_allowance and RATIO not in stages:
++        bad.append("ratio")
++    if first.used_before is None or first.aggregate_limit is None:
++        missing.append("aggregate")
++    elif first.used_before + amount > first.aggregate_limit and AGGREGATE not in stages:
++        bad.append("aggregate")
++    return bad, missing
++
++
++def check_write(
++    entry: DspWrite, first: FirstRow | None, stages: frozenset[str],
++) -> tuple[Verdict, tuple[str, ...]]:
++    """一筆 DSP 寫入的核對結果與理由。first 為空:執行端找不到這把鍵的第一列(沒經過開始一筆)。
++    stages 是這把鍵用過核可的關卡。任何一項證實違規就判壞,不因為別項缺材料而放過。"""
++    if first is None:
++        return Verdict.BAD, ("not_begun",)
++    scope_bad, scope_missing = _scope_violations(entry, first)
++    limit_bad, limit_missing = _limit_violations(entry, first, stages)
++    if scope_bad or limit_bad:
++        return Verdict.BAD, tuple(scope_bad + limit_bad)
++    if scope_missing or limit_missing:
++        return Verdict.UNVERIFIABLE, tuple(scope_missing + limit_missing)
++    return Verdict.GOOD, ()
++
++
++def tally_unauthorized(
++    writes: Iterable[DspWrite], firsts: Mapping[str, FirstRow],
++    approvals: Mapping[str, frozenset[str]],
++) -> Tally:
++    """有效事件:執行端鍵格式的寫入扣掉無法核對的;壞事件記在那一筆自己的提交時間。"""
++    good = valid = unverifiable = 0
++    bad_at = []
++    for entry in writes:
++        if not is_executor_key(entry.key):
++            continue
++        found, _ = check_write(entry, firsts.get(entry.key), approvals.get(entry.key, frozenset()))
++        if found is Verdict.UNVERIFIABLE:
++            unverifiable += 1
++            continue
++        valid += 1
++        if found is Verdict.GOOD:
++            good += 1
++        else:
++            bad_at.append(iso(entry.committed_at))
++    return Tally(good, valid, tuple(bad_at), unverifiable)
++
++
++# ---- 讀 DSP ----
++def get_json(url: str, path: str, timeout: float) -> tuple[int, Any]:
++    """打 DSP 的唯讀端點(共用 HTTP 用戶端,只讀);連不上或讀不懂丟 DspUnreadable。"""
++    try:
++        return request_json(f"{url.rstrip('/')}{path}", "GET", None, timeout)
++    except (OSError, ValueError) as exc:
++        raise DspUnreadable(str(exc)) from exc
++
++
++def _write(entry: Any) -> DspWrite:
++    if not isinstance(entry, dict):
++        raise DspUnreadable("操作不是物件")
++    try:
++        return DspWrite(int(entry["operation_id"]), str(entry["idempotency_key"]),
++                        str(entry["campaign_id"]), entry.get("tenant"), str(entry["action"]),
++                        entry.get("new_budget"), entry.get("expected_version"),
++                        str(entry["committed_at"]), entry.get("policy_version"))
++    except (KeyError, TypeError, ValueError) as exc:
++        raise DspUnreadable(f"操作欄位讀不懂:{exc!r}") from exc
++
++
++def read_dsp_window(
++    url: str, since: datetime, until: datetime, timeout: float,
++) -> tuple[DspWrite, ...]:
++    """窗 [since, until) 內 DSP 提交的寫入:先取起點游標,再依編號翻頁,讀到提交時間大於等於終點
++    就停。"""
++    status, body = get_json(url, f"/operations/since/{quote(since.isoformat(), safe='')}", timeout)
++    if status != 200 or not isinstance(body, dict) or not isinstance(body.get("cursor"), int):
++        raise DspUnreadable(f"游標端點回 {status}")
++    cursor: int = body["cursor"]
++    found: list[DspWrite] = []
++    for _ in range(MAX_PAGES):
++        status, page = get_json(url, f"/operations/after/{cursor}", timeout)
++        if status != 200 or not isinstance(page, dict) or not isinstance(
++                page.get("operations"), list):
++            raise DspUnreadable(f"列操作端點回 {status}")
++        for entry in map(_write, page["operations"]):
++            if datetime.fromisoformat(entry.committed_at) >= until:
++                return tuple(found)
++            if datetime.fromisoformat(entry.committed_at) >= since:
++                found.append(entry)
++        following = page.get("next")
++        if not isinstance(following, int):
++            return tuple(found)
++        if following <= cursor:  # 游標沒往前:DSP 回應有誤,不能一直翻
++            raise DspUnreadable("下一頁的游標沒有往前")
++        cursor = following
++    raise DspUnreadable("翻頁超過上限")
++
++
++def _operation(url: str, key: str, timeout: float) -> tuple[str, int] | None:
++    """依冪等鍵讀 DSP 的一筆操作(既有的唯讀端點):回(提交時間, 操作編號),查不到回空。"""
++    status, body = get_json(url, f"/operations/{quote(key, safe='')}", timeout)
++    if status == 404:
++        return None
++    if status != 200 or not isinstance(body, dict):
++        raise DspUnreadable(f"操作端點回 {status}")
++    return iso(str(body["committed_at"])), int(body["operation_id"])
++
++
++# ---- 兩條服務水準指標 ----
++def unauthorized(since: datetime, until: datetime, executor_db: Path, dsp_url: str,
++                 timeout: float) -> Tally:
++    try:
++        writes = read_dsp_window(dsp_url, since, until, timeout)  # 先讀 DSP
++    except DspUnreadable:
++        return Tally(0, 0, missing=True)
++    keys = [w.key for w in writes if is_executor_key(w.key)]
++    inbox = ReadOnlyInbox(executor_db)  # 再開執行端快照
++    try:
++        with inbox.read_transaction() as tx:
++            firsts = attempt_store.first_rows_for(tx, keys)
++            approvals = inbox.approval_uses_for(tx, keys)
++    finally:
++        inbox.close()
++    return tally_unauthorized(writes, firsts, approvals)
++
++
++def _identity(first: FirstRow) -> tuple[str, int, str] | None:
++    if first.proposal is None:
++        return None
++    return first.proposal.task_id, first.proposal.revision, content_hash(first.proposal)
++
++
++def duplicates(since: datetime, until: datetime, executor_db: Path, dsp_url: str,
++               timeout: float) -> Tally:
++    """同一份提案內容(任務、修訂、內容雜湊)在 DSP 的第二筆以及之後每一筆提交各算一個壞事件,依那
++    一筆的提交時間歸窗;第一筆在窗外也算(用第一列往回查同一份提案的其他鍵,不限窗)。找不到第一列的
++    算無法核對。同一把鍵在窗內出現兩筆以上操作(DSP 有唯一限制,防禦性核對)也算壞。"""
++    try:
++        writes = [w for w in read_dsp_window(dsp_url, since, until, timeout)
++                  if is_executor_key(w.key)]
++    except DspUnreadable:
++        return Tally(0, 0, missing=True)
++    inbox = ReadOnlyInbox(executor_db)
++    try:
++        with inbox.read_transaction() as tx:
++            firsts = attempt_store.first_rows_for(tx, [w.key for w in writes])
++            siblings = {}
++            for first in firsts.values():
++                ident = _identity(first)
++                if ident is not None and ident not in siblings:
++                    siblings[ident] = [row.key for row in attempt_store.first_rows_for_proposal(
++                        tx, ident[0], ident[1]) if _identity(row) == ident]
++    finally:
++        inbox.close()
++    return _tally_duplicates(writes, firsts, siblings, dsp_url, timeout)
++
++
++def _tally_duplicates(
++    writes: list[DspWrite], firsts: Mapping[str, FirstRow],
++    siblings: Mapping[tuple[str, int, str], list[str]], dsp_url: str, timeout: float,
++) -> Tally:
++    good = valid = unverifiable = 0
++    bad_at, seen_keys = [], set()
++    commits: dict[tuple[str, int, str], list[tuple[str, int]]] = {}
++    for entry in writes:
++        first = firsts.get(entry.key)
++        if first is None:
++            unverifiable += 1
++            continue
++        valid += 1
++        own = (iso(entry.committed_at), entry.operation_id)
++        ident = _identity(first)
++        if entry.key in seen_keys:  # 同一把鍵第二筆操作
++            bad_at.append(own[0])
++            continue
++        seen_keys.add(entry.key)
++        if ident is None:
++            good += 1
++            continue
++        if ident not in commits:
++            found = [_operation(dsp_url, key, timeout) for key in siblings.get(ident, [])
++                     if key != entry.key]
++            commits[ident] = [c for c in found if c is not None]
++        if any(other < own for other in commits[ident]):
++            bad_at.append(own[0])
++        else:
++            good += 1
++        commits[ident].append(own)
++    return Tally(good, valid, tuple(bad_at), unverifiable)
+diff --git a/src/rtb/ops/sli.py b/src/rtb/ops/sli.py
+new file mode 100644
+index 0000000..1adc283
+--- /dev/null
++++ b/src/rtb/ops/sli.py
+@@ -0,0 +1,262 @@
++"""六條服務水準指標在一個時間窗裡的好事件與有效事件(Phase 9 增量 3)。只讀。
++
++全部是事件型、依事件時間歸窗:同一個已經過去的窗,之後再查答案不變。判好壞只用事件發生當下就
++寫下、之後不變的資料,不用查詢當下的設定。每條的公式、好事件、有效事件、排除項寫在設定表
++(服務水準模組)與各計算函式旁。
++
++- 安全完成率:窗內的終點事件;已交給執行與業務上該擋的擋下是好,死信、已過期、同一操作先前已失敗
++  是壞。死信後重放再到終點,兩個終點事件各算一次。
++- 結果不明在期限內對帳完成:每把進過結果不明的鍵,事件時間 = min(結案, 第一次進結果不明 + 期限);
++  期限前轉人工的排除。
++- 端到端交給執行:窗內每一個已交給執行的事件,從根任務在分析端建立算起,扣掉鏈上的人工核可等待與
++  死信等待,不超過上限是好;接不上根任務、算出負值的不計入、另報。跨兩個資料庫讀到兩輪相同為止。
++- 佇列等待:每份收件的提案,事件時間 = min(第一次取件, 收件 + 期限)。
++- 未授權或違反護欄的副作用、重複有害副作用:見副作用核對模組。
++"""
++
++from collections.abc import Callable, Iterable, Mapping, Sequence
++from dataclasses import dataclass
++from datetime import datetime, timedelta
++from pathlib import Path
++
++from rtb.analyzer.task_store import TaskReader
++from rtb.domain.attempt import AttemptState
++from rtb.executor import attempt_store
++from rtb.executor.attempt_store import AttemptRow
++from rtb.executor.inbox_store import (
++    TERMINAL_KINDS,
++    BlockCode,
++    LifecycleEvent,
++    LifecycleKind,
++    ReadOnlyInbox,
++)
++from rtb.ops import side_effects
++from rtb.ops.side_effects import Tally, iso
++
++RECONCILE_DEADLINE = timedelta(minutes=10)  # 結果不明對帳的期限(業務承諾,示範不縮短)
++QUEUE_DEADLINE = timedelta(seconds=30)  # 佇列等待的期限(業務承諾,示範不縮短)
++END_TO_END_LIMIT = timedelta(minutes=2)  # 端到端交給執行的上限
++MAX_ROUNDS = 3
++MAX_CHAIN = 8  # 接續鏈最長幾代(分析端上限 3 代;這裡只防資料毀損造成的迴圈)
++# 業務上該擋的擋下:除了「同一操作先前已失敗」(寫入失敗)以外的每一種擋下原因
++BUSINESS_BLOCKS = frozenset(code.value for code in BlockCode) - {
++    BlockCode.OPERATION_PREVIOUSLY_FAILED.value}
++_DELIVERIES = frozenset({LifecycleKind.DELIVERED, LifecycleKind.RECLAIMED})
++_APPROVAL_ENDS = frozenset({LifecycleKind.APPROVAL_RELEASED, *TERMINAL_KINDS})
++
++
++@dataclass(frozen=True)
++class Sources:
++    executor_db: Path
++    analyzer_db: Path
++    dsp_url: str
++    dsp_timeout_seconds: float = 2.0
++
++
++def _time(text: str) -> datetime:
++    return datetime.fromisoformat(text.replace("Z", "+00:00"))
++
++
++def _tally(events: Iterable[tuple[str, bool]], unlinked: int = 0, clock_anomaly: int = 0) -> Tally:
++    """(事件時間, 是不是好事件) -> 計數;壞事件留下時間(目標為零的一條要報最近一個)。"""
++    found = list(events)
++    return Tally(sum(good for _, good in found), len(found),
++                 tuple(at for at, good in found if not good), unlinked=unlinked,
++                 clock_anomaly=clock_anomaly)
++
++
++# ---- 安全完成率 ----
++def _safe(event: LifecycleEvent) -> bool:
++    if event.kind == LifecycleKind.HANDED_OFF:
++        return True
++    return event.kind == LifecycleKind.BLOCKED and event.reason in BUSINESS_BLOCKS
++
++
++def safe_completion(since: datetime, until: datetime, sources: Sources) -> Tally:
++    """有效事件是窗內的終點事件(被取代、待核可、放回、重放放回都不是終點,不算)。擋下原因不認得的
++    不在「業務上該擋」的清單裡,算壞(從嚴)。"""
++    inbox = ReadOnlyInbox(sources.executor_db)
++    try:
++        with inbox.read_transaction() as tx:
++            events = inbox.lifecycle_events_between(tx, since, until)
++    finally:
++        inbox.close()
++    return _tally((e.at, _safe(e)) for e in events if e.kind in TERMINAL_KINDS)
++
++
++# ---- 結果不明在期限內對帳完成 ----
++def _reconciled(history: Sequence[AttemptRow]) -> tuple[datetime, bool] | None:
++    """一把鍵的事件:(事件時間, 好不好);期限前轉人工的排除回空。"""
++    unknown = next((r for r in history if r.state == AttemptState.UNKNOWN), None)
++    if unknown is None:
++        return None
++    deadline = unknown.written_at + RECONCILE_DEADLINE
++    for row in history:
++        if row.written_at > deadline:
++            break
++        if row.state == AttemptState.ESCALATED and row.written_at < deadline:
++            return None  # 期限前已交給人,不是對帳慢
++        if row.state in (AttemptState.VERIFIED, AttemptState.FAILED):
++            return row.written_at, True  # 剛好在期限那一刻結案也算好
++    return deadline, False  # 期限那一刻還沒結案:壞事件記在期限那一刻,之後結案也不改
++
++
++def unknown_reconciled_in_time(since: datetime, until: datetime, sources: Sources) -> Tally:
++    """候選是第一次進結果不明落在 [起 - 期限, 迄) 的鍵(用結果不明的時間索引找),再用鍵讀整串;
++    工作量跟候選數成正比。"""
++    inbox = ReadOnlyInbox(sources.executor_db)
++    try:
++        with inbox.read_transaction() as tx:
++            keys = attempt_store.unknown_rows_between(tx, since - RECONCILE_DEADLINE, until)
++            histories = [attempt_store.history(tx, key) for key in keys]
++    finally:
++        inbox.close()
++    events = []
++    for history in histories:
++        found = _reconciled(history)
++        if found is not None and since <= found[0] < until:
++            events.append((iso(found[0]), found[1]))
++    return _tally(events)
++
++
++# ---- 佇列等待 ----
++def queue_wait(since: datetime, until: datetime, sources: Sources) -> Tally:
++    """候選是收件落在 [起 - 期限, 迄) 的提案(用事件的時間索引找),再查各自的第一次取件。之後才
++    被標成已過期或被取代都不改:期限那一刻還沒取件就是壞事件。"""
++    inbox = ReadOnlyInbox(sources.executor_db)
++    try:
++        with inbox.read_transaction() as tx:
++            window = inbox.lifecycle_events_between(tx, since - QUEUE_DEADLINE, until)
++            received = [e for e in window if e.kind == LifecycleKind.RECEIVED]
++            histories = {task: inbox.lifecycle_events(tx, task)
++                         for task in sorted({e.task_id for e in received})}
++    finally:
++        inbox.close()
++    events = []
++    for arrival in received:
++        ident = (arrival.revision, arrival.content_hash)
++        deadline = _time(arrival.at) + QUEUE_DEADLINE
++        first = next((e for e in histories[arrival.task_id] if e.kind in _DELIVERIES
++                      and (e.revision, e.content_hash) == ident and e.id > arrival.id), None)
++        taken = None if first is None else _time(first.at)
++        good = taken is not None and taken <= deadline
++        moment = taken if good and taken is not None else deadline
++        if since <= moment < until:
++            events.append((iso(moment), good))
++    return _tally(events)
++
++
++# ---- 端到端交給執行 ----
++@dataclass(frozen=True)
++class _Chain:
++    tasks: tuple[str, ...]  # 由根到尾
++    created: str | None  # 根任務在分析端建立的時間;分析端沒有這個任務為空
++
++
++def _chain(reader: TaskReader, task: str) -> _Chain:
++    root = task
++    for _ in range(MAX_CHAIN):
++        parent = reader.follow_up_of(root)
++        if parent is None:
++            break
++        root = parent
++    tasks = [root]
++    for _ in range(MAX_CHAIN):
++        child = reader.follow_up_to(tasks[-1])
++        if child is None or child in tasks:
++            break
++        tasks.append(child)
++    history = reader.history(root)
++    return _Chain(tuple(tasks), iso(history[0].written_at) if history else None)
++
++
++def _waits(events: Iterable[LifecycleEvent], until: str) -> float:
++    """人工核可等待(進待核可 → 放回或終點)與死信等待(進死信 → 重放放回)的秒數,只算到 until。"""
++    total = 0.0
++    opened: dict[tuple[str, int, str | None], LifecycleEvent] = {}
++    for event in sorted(events, key=lambda e: (e.at, e.id)):
++        if event.at > until:
++            break
++        ident = (event.task_id, event.revision, event.content_hash)
++        start = opened.get(ident)
++        if start is not None and event.kind in (
++                _APPROVAL_ENDS if start.kind == LifecycleKind.AWAITING_APPROVAL
++                else frozenset({LifecycleKind.REPLAY_REQUEUED})):
++            total += (_time(event.at) - _time(start.at)).total_seconds()
++            del opened[ident]
++        if event.kind in (LifecycleKind.AWAITING_APPROVAL, LifecycleKind.DEAD_LETTERED):
++            opened.setdefault(ident, event)  # 死信同時結束待核可、開始死信等待
++    return total
++
++
++def _handoff_round(
++    since: datetime, until: datetime, sources: Sources,
++) -> tuple[tuple[tuple[str, bool], ...], int, int]:
++    """一輪:執行端快照讀窗內已交給執行的事件,分析端快照讀接續鏈,再在同一個執行端快照裡讀鏈上
++    每個任務的事件算等待。"""
++    inbox = ReadOnlyInbox(sources.executor_db)
++    try:
++        with inbox.read_transaction() as tx:
++            handoffs = [e for e in inbox.lifecycle_events_between(tx, since, until)
++                        if e.kind == LifecycleKind.HANDED_OFF]
++            reader = TaskReader(sources.analyzer_db)
++            try:
++                chains = {task: _chain(reader, task) for task in {e.task_id for e in handoffs}}
++            finally:
++                reader.close()
++            chain_events = {task: inbox.lifecycle_events(tx, task)
++                            for chain in chains.values() for task in chain.tasks}
++    finally:
++        inbox.close()
++    events, unlinked, anomalies = [], 0, 0
++    for handoff in handoffs:
++        chain = chains[handoff.task_id]
++        if chain.created is None:
++            unlinked += 1
++            continue
++        waited = _waits((e for task in chain.tasks for e in chain_events[task]), handoff.at)
++        spent = (_time(handoff.at) - _time(chain.created)).total_seconds() - waited
++        if spent < 0:
++            anomalies += 1
++            continue
++        events.append((handoff.at, spent <= END_TO_END_LIMIT.total_seconds()))
++    return tuple(events), unlinked, anomalies
++
++
++def end_to_end_handoff(since: datetime, until: datetime, sources: Sources) -> Tally:
++    """跨兩個資料庫:每輪重開快照,兩輪相同才回;三輪都不同回最後一輪(計數照實,不另外標)。"""
++    previous = None
++    for _ in range(MAX_ROUNDS):
++        current = _handoff_round(since, until, sources)
++        if current == previous:
++            break
++        previous = current
++    assert previous is not None  # noqa: S101 - 至少讀過一輪
++    events, unlinked, anomalies = previous
++    return _tally(events, unlinked=unlinked, clock_anomaly=anomalies)
++
++
++# ---- 目標為零的兩條 ----
++def unauthorized_side_effects(since: datetime, until: datetime, sources: Sources) -> Tally:
++    return side_effects.unauthorized(since, until, sources.executor_db, sources.dsp_url,
++                                     sources.dsp_timeout_seconds)
++
++
++def harmful_duplicates(since: datetime, until: datetime, sources: Sources) -> Tally:
++    return side_effects.duplicates(since, until, sources.executor_db, sources.dsp_url,
++                                   sources.dsp_timeout_seconds)
++
++
++COUNTERS: Mapping[str, Callable[[datetime, datetime, Sources], Tally]] = {
++    "safe_completion": safe_completion,
++    "unknown_reconciled_in_time": unknown_reconciled_in_time,
++    "end_to_end_handoff": end_to_end_handoff,
++    "queue_wait": queue_wait,
++    "unauthorized_side_effects": unauthorized_side_effects,
++    "harmful_duplicates": harmful_duplicates,
++}
++
++
++def count(name: str, since: datetime, until: datetime, sources: Sources) -> Tally:
++    """一條服務水準指標在窗 [since, until) 的計數。"""
++    return COUNTERS[name](since, until, sources)
+diff --git a/src/rtb/ops/slo.py b/src/rtb/ops/slo.py
+new file mode 100644
+index 0000000..5d14e77
+--- /dev/null
++++ b/src/rtb/ops/slo.py
+@@ -0,0 +1,264 @@
++"""服務水準指標的設定表、錯誤預算與多窗口燒損告警(Phase 9 增量 3)。只讀。
++
++名詞(交接文件 14.5):
++- 服務水準指標 = 好事件數 ÷ 有效事件數,在一個時間窗內算;有效事件數為 0 是無樣本。
++- 錯誤預算 = (1 - 目標)乘 週期內有效事件數;剩餘預算 = 錯誤預算 - 週期內壞事件數,可以是負數(超支)。
++- 燒損率 = 窗內壞事件比例 ÷(1 - 目標):消耗錯誤預算的速度,1 表示照這個速度剛好在週期結束時用完。
++- 目標為零的兩條(未授權副作用、重複有害副作用):錯誤預算固定 0,不算燒損率;週期內出現一個壞事件
++  就是違規,直到它滑出週期。
++
++燒損照 Google SRE Workbook〈Alerting on SLOs〉的多窗口多燒損率:長窗與短窗的燒損率都大於等於門檻才
++告警(短窗讓事故停止後很快解除,長窗避免短暫突波);長窗有效事件少於最少樣本回樣本不足、不判告警;
++短窗沒有有效事件時燒損率當 0。示範時所有時間窗(週期與燒損窗)等比縮短 60 倍,期限不縮短。全部是
++示範值(代使用者裁定、待使用者覆核),不代表系統的真實能力。
++
++評估器不存告警狀態、不自己讀時鐘:每個窗的時間從傳入的「現在」與設定表算出,交給計數函式。數字用
++分數算,剛好等於門檻就是等於(不被浮點誤差推到門檻下)。
++"""
++
++import argparse
++import json
++import sys
++from collections.abc import Callable
++from dataclasses import asdict, dataclass
++from datetime import datetime, timedelta
++from fractions import Fraction
++from pathlib import Path
++from typing import Any, TextIO
++
++from rtb.executor.inbox_store import DatabaseNotUpgraded
++from rtb.ops import sli
++from rtb.ops.side_effects import Tally
++
++SCALE = 60  # 示範縮短倍數;正式環境改成 1
++PERIOD = timedelta(days=30)
++MIN_SAMPLES = 10
++DAY = timedelta(hours=24)  # 週期統計切子窗的上限(跟窗內統計的窗長上限一致)
++EXIT_OK = 0
++EXIT_NO_DATABASE = 2
++EXIT_NOT_UPGRADED = 3
++
++Counter = Callable[[str, datetime, datetime], Tally]
++
++
++@dataclass(frozen=True)
++class Slo:
++    """一條服務水準指標的定義(設定表的一筆)。target 是好事件比例的目標;目標為零的兩條記成 1
++    (壞事件目標為零)。deadline 只有期限型兩條有。"""
++
++    name: str
++    formula: str
++    good: str
++    valid: str
++    window: str
++    exclusions: str
++    target: Fraction
++    deadline: timedelta | None
++    demo: bool = True
++
++    @property
++    def zero_target(self) -> bool:
++        return self.target == 1
++
++
++@dataclass(frozen=True)
++class Burn:
++    name: str
++    long: timedelta
++    short: timedelta
++    threshold: Fraction
++
++
++_EVENT_WINDOW = "依事件時間歸窗;窗含起點、不含終點"
++SLOS: tuple[Slo, ...] = (
++    Slo("safe_completion", "好事件 ÷ 窗內終點事件",
++        "已交給執行;已擋下且原因是業務上該擋的(同一操作先前已失敗以外的每一種)",
++        "窗內的終點事件(已交給執行、已擋下、死信、已過期)", _EVENT_WINDOW,
++        "被取代;不是終點的事件(待核可、放回、重放放回)。死信後重放再到終點,兩個終點事件各算一次",
++        Fraction(99, 100), None),
++    Slo("unknown_reconciled_in_time", "期限內結案的鍵 ÷ 進過結果不明的鍵",
++        "第一次進結果不明後 10 分鐘內結案(剛好第 10 分鐘也算)",
++        "每把進過結果不明的鍵,事件時間 = min(結案, 第一次進結果不明 + 10 分鐘)", _EVENT_WINDOW,
++        "期限前已轉人工的鍵(已交給人);期限後才轉人工的照算壞",
++        Fraction(99, 100), timedelta(minutes=10)),
++    Slo("end_to_end_handoff", "2 分鐘內交給執行的 ÷ 窗內已交給執行的",
++        "從根任務在分析端建立到已交給執行,扣掉鏈上的人工核可與死信等待,不超過 2 分鐘",
++        "窗內每一個已交給執行的終點事件", _EVENT_WINDOW,
++        "沒交給執行的鏈;接不上根任務的另報、不計入;兩邊時鐘算出負值的另報時鐘異常、不計入",
++        Fraction(95, 100), None),
++    Slo("queue_wait", "期限內被取件的 ÷ 收件的提案",
++        "收件後 30 秒內第一次被取件(剛好第 30 秒也算)",
++        "每份收件的提案,事件時間 = min(第一次取件, 收件 + 30 秒)", _EVENT_WINDOW,
++        "無(之後被取件、被標成已過期或被取代都不改已定的壞事件)",
++        Fraction(99, 100), timedelta(seconds=30)),
++    Slo("unauthorized_side_effects", "合法的寫入 ÷ 可核對的執行端寫入(目標為零:壞事件為零)",
++        "逐項核對都合法:經過開始一筆、授權範圍、單一廣告上限、比例與總曝險(或有核可)、政策版本",
++        "窗內 DSP 提交、冪等鍵是執行端格式的寫入,扣掉無法核對的",
++        "依 DSP 提交時間歸窗;窗含起點、不含終點",
++        "別的寫入者直接改 DSP;無法核對的(另報份數)", Fraction(1), None),
++    Slo("harmful_duplicates", "不重複的寫入 ÷ 找得到第一列的執行端寫入(目標為零:壞事件為零)",
++        "同一份提案內容在 DSP 的第一筆提交",
++        "窗內 DSP 提交、冪等鍵是執行端格式的寫入,扣掉找不到第一列的", "依那一筆自己的提交時間歸窗",
++        "找不到第一列的(無法核對,另報份數)", Fraction(1), None),
++)
++BURNS: tuple[Burn, ...] = (
++    Burn("fast", timedelta(hours=1), timedelta(minutes=5), Fraction("14.4")),
++    Burn("slow", timedelta(hours=6), timedelta(minutes=30), Fraction(6)),
++)
++
++
++def scaled(length: timedelta) -> timedelta:
++    return length / SCALE
++
++
++def burn_rate(good: int, valid: int, target: Fraction) -> Fraction:
++    """窗內壞事件比例 ÷(1 - 目標);沒有有效事件當 0(沒有證據顯示還在燒)。"""
++    if valid == 0:
++        return Fraction(0)
++    return Fraction(valid - good, valid) / (1 - target)
++
++
++def error_budget(valid: int, target: Fraction) -> Fraction:
++    return (1 - target) * valid
++
++
++def remaining_budget(valid: int, bad: int, target: Fraction) -> Fraction:
++    return error_budget(valid, target) - bad
++
++
++def period_windows(end: datetime, period: timedelta) -> tuple[tuple[datetime, datetime], ...]:
++    """把週期 [end - period, end) 切成每段不超過 24 小時、首尾相接的子窗(由舊到新)。"""
++    start = end - period
++    pieces: list[tuple[datetime, datetime]] = []
++    while start < end:
++        piece_end = min(start + DAY, end)
++        pieces.append((start, piece_end))
++        start = piece_end
++    return tuple(pieces)
++
++
++def period_tally(name: str, end: datetime, period: timedelta, counter: Counter) -> Tally:
++    """週期統計:逐段查子窗再相加(事件型計數可加,子窗互不重疊)。"""
++    parts = [counter(name, since, until) for since, until in period_windows(end, period)]
++    return Tally(sum(p.good for p in parts), sum(p.valid for p in parts),
++                 tuple(at for p in parts for at in p.bad_at), sum(p.unverifiable for p in parts),
++                 sum(p.unlinked for p in parts), sum(p.clock_anomaly for p in parts),
++                 any(p.missing for p in parts))
++
++
++@dataclass(frozen=True)
++class WindowBurn:
++    good: int
++    valid: int
++    burn: Fraction
++
++
++@dataclass(frozen=True)
++class Alerting:
++    fired: bool
++    insufficient: bool
++    long: WindowBurn
++    short: WindowBurn
++
++
++@dataclass(frozen=True)
++class SloStatus:
++    """一條的狀態。有目標的四條:快燒、慢燒、週期的錯誤預算與剩餘預算;目標為零的兩條:違規、週期內
++    壞事件數、最近一個壞事件時間(燒損為空)。missing:資料來源讀不到,這一條沒評估。"""
++
++    name: str
++    fast: Alerting | None
++    slow: Alerting | None
++    period_good: int
++    period_valid: int
++    period_bad: int
++    budget: Fraction
++    remaining: Fraction
++    violating: bool | None
++    last_bad: str | None
++    unverifiable: int
++    unlinked: int
++    clock_anomaly: int
++    missing: bool
++
++
++def _alerting(spec: Slo, burn: Burn, now: datetime, counter: Counter) -> Alerting:
++    long = counter(spec.name, now - scaled(burn.long), now)
++    short = counter(spec.name, now - scaled(burn.short), now)
++    windows = (WindowBurn(long.good, long.valid, burn_rate(long.good, long.valid, spec.target)),
++               WindowBurn(short.good, short.valid,
++                          burn_rate(short.good, short.valid, spec.target)))
++    insufficient = long.valid < MIN_SAMPLES
++    fired = not insufficient and all(w.burn >= burn.threshold for w in windows)
++    return Alerting(fired, insufficient, *windows)
++
++
++def evaluate(now: datetime, *, counter: Counter) -> tuple[SloStatus, ...]:
++    """每條一份狀態。查詢次數固定:有目標的四條各查快燒、慢燒兩組各兩個窗(共 16 次)加週期統計,
++    目標為零的兩條各查週期統計。"""
++    statuses = []
++    for spec in SLOS:
++        fast = slow = None
++        if not spec.zero_target:
++            fast, slow = (_alerting(spec, burn, now, counter) for burn in BURNS)
++        period = period_tally(spec.name, now, scaled(PERIOD), counter)
++        statuses.append(SloStatus(
++            spec.name, fast, slow, period.good, period.valid, period.bad,
++            error_budget(period.valid, spec.target),
++            remaining_budget(period.valid, period.bad, spec.target),
++            (period.bad > 0 if not period.missing else None) if spec.zero_target else None,
++            max(period.bad_at) if period.bad_at else None, period.unverifiable,
++            period.unlinked, period.clock_anomaly, period.missing))
++    return tuple(statuses)
++
++
++# ---- 輸出與命令列入口 ----
++def _plain(value: Any) -> Any:
++    if isinstance(value, Fraction):
++        return float(value)
++    if isinstance(value, dict):
++        return {k: _plain(v) for k, v in value.items()}
++    return value
++
++
++def to_primitives(statuses: tuple[SloStatus, ...]) -> dict[str, Any]:
++    return {"slos": [_plain(asdict(s)) for s in statuses]}
++
++
++def _parse(argv: list[str] | None) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="服務水準指標的狀態與燒損告警(只讀)")
++    parser.add_argument("--executor-db", required=True, type=Path)
++    parser.add_argument("--analyzer-db", required=True, type=Path)
++    parser.add_argument("--dsp-url", required=True)
++    parser.add_argument("--dsp-timeout-seconds", type=float, default=2.0)
++    parser.add_argument("--now", required=True, type=datetime.fromisoformat)
++    return parser.parse_args(argv)
++
++
++def run(argv: list[str] | None = None, *, out: TextIO | None = None,
++        err: TextIO | None = None) -> int:
++    args = _parse(argv)
++    errors = err or sys.stderr
++    sources = sli.Sources(args.executor_db, args.analyzer_db, args.dsp_url,
++                          args.dsp_timeout_seconds)
++    try:
++        statuses = evaluate(args.now, counter=lambda name, since, until: sli.count(
++            name, since, until, sources))
++    except FileNotFoundError as missing:
++        print(f"找不到資料庫檔:{missing}", file=errors)
++        return EXIT_NO_DATABASE
++    except DatabaseNotUpgraded as old:
++        print(f"{old}。請先啟動一次執行迴圈(分析端資料庫則先跑一次分析行程);評估器只讀,不替它補",
++              file=errors)
++        return EXIT_NOT_UPGRADED
++    print(json.dumps(to_primitives(statuses), ensure_ascii=False, indent=2),
++          file=out or sys.stdout)
++    return EXIT_OK
++
++
++def main(argv: list[str] | None = None) -> None:
++    raise SystemExit(run(argv))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tests/dsp/test_commit_order.py b/tests/dsp/test_commit_order.py
+new file mode 100644
+index 0000000..0b65e39
+--- /dev/null
++++ b/tests/dsp/test_commit_order.py
+@@ -0,0 +1,47 @@
++"""DSP 提交時間不倒退(Phase 9 增量 3):[S667]。
++
++副作用核對依操作編號往下翻頁、讀到提交時間超過窗終點就停;依編號翻頁要等於依時間翻頁,提交時間就
++得不小於上一筆。DSP 的時鐘可以注入、也可能倒退:提交時把時間取成時鐘讀數與上一筆提交時間較大的那個。
++"""
++
++import sqlite3
++
++from rtb.dsp.store import CampaignStore, Operation
++
++
++def _op(key, budget, version):
++    return Operation(campaign_id="c1", action="update_budget", params={"new_budget": budget},
++                     expected_version=version, idempotency_key=key)
++
++
++# ---- [S667] ----
++def test_dsp_commit_times_never_go_backwards(tmp_path):
++    readings = iter([
++        "2026-09-22T12:00:05+00:00", "2026-09-22T12:00:05+00:00",  # 第一筆:收到、提交
++        "2026-09-22T12:00:01+00:00", "2026-09-22T12:00:01+00:00",  # 第二筆:時鐘倒退 4 秒
++        "2026-09-22T12:00:09+00:00", "2026-09-22T12:00:09+00:00",  # 第三筆:恢復正常
++    ])
++    store = CampaignStore(tmp_path / "dsp.db", clock=lambda: next(readings))
++    try:
++        store.seed_campaign("c1", budget=100)
++        results = [store.execute(_op("k-a", 110, 1)), store.execute(_op("k-b", 120, 2)),
++                   store.execute(_op("k-c", 130, 3))]
++    finally:
++        store.close()
++
++    times = [r.committed_at for r in results]
++    assert times == ["2026-09-22T12:00:05+00:00", "2026-09-22T12:00:05+00:00",
++                     "2026-09-22T12:00:09+00:00"]  # 倒退的那一筆墊高到上一筆
++    ids = [r.operation_id for r in results]
++    assert ids == sorted(ids)
++    stored = store_rows(tmp_path / "dsp.db")
++    assert [t for _, t in stored] == sorted(t for _, t in stored)  # 依編號的順序就是依時間的順序
++
++
++def store_rows(path):
++    conn = sqlite3.connect(path)
++    try:
++        return conn.execute(
++            "SELECT operation_id, committed_at FROM operations ORDER BY operation_id").fetchall()
++    finally:
++        conn.close()
+diff --git a/tests/executor/test_attempt_store.py b/tests/executor/test_attempt_store.py
+index 8a45bdd..73d99cf 100644
+--- a/tests/executor/test_attempt_store.py
++++ b/tests/executor/test_attempt_store.py
+@@ -759,21 +759,22 @@ def test_an_expected_sequence_that_is_not_a_plain_integer_is_refused(store, seq)
+ 
+     assert all_rows(store) == before
+ 
+ 
+ def _tamper_snapshot(store, key, text):
+     with store.transaction() as tx:
+         tx.conn.execute("DELETE FROM attempts WHERE key = ?", (key,))  # 測試模擬毀損,只在測試裡
+         tx.conn.execute(
+             "INSERT INTO attempts VALUES (?, 1, 'c1', 'in_flight', NULL, NULL, 1, 0, "
+             "'2026-09-22T12:05:00.000000Z', 't1', 1, 'update_budget', 3, ?, "
+-            "NULL, NULL, NULL, NULL, NULL, NULL, NULL)",  # Phase 9 補的來源、執行者、程式版本
++            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",  # Phase 9 補的
++            # 來源、執行者、程式版本(增量 1)與開始時的四樣核對材料(增量 3)
+             (key, text))
+ 
+ 
+ def test_a_snapshot_that_is_not_json_reads_back_as_a_corrupted_row(store):
+     key = begin(store, proposal()).row.key
+     _tamper_snapshot(store, key, "{not valid json!!")
+ 
+     with pytest.raises(CorruptedAttemptRow), store.transaction() as tx:
+         attempt_store.snapshot(tx, key)
+ 
+diff --git a/tests/executor/test_first_row_materials.py b/tests/executor/test_first_row_materials.py
+new file mode 100644
+index 0000000..b798741
+--- /dev/null
++++ b/tests/executor/test_first_row_materials.py
+@@ -0,0 +1,63 @@
++"""開始一筆記下核對材料(Phase 9 增量 3):[S663]。
++
++副作用核對只能用寫入當時就記下、之後不變的資料判(之後改租戶設定或比例常數,過去的窗不能翻案)。
++開始一筆在第一列多記四欄:比例允許加的量(依處理一筆開頭讀到的目前預算算出,不記常數)、單一廣告
++上限與總額上限(簽發時讀到的租戶設定)、已用額度(判門檻用的那個數)。舊資料庫開啟時補上,舊列為空。
++"""
++
++import sqlite3
++
++import pytest
++
++from rtb.domain.attempt import operation_key
++from rtb.executor import guardrails
++from rtb.executor.inbox_store import InboxStore
++from tests.executor.fakes import Harness, write_config
++
++MATERIALS = "ratio_allowance, max_budget, aggregate_limit, aggregate_used"
++
++
++@pytest.fixture
++def h(tmp_path, clock):
++    harness = Harness(tmp_path, clock)
++    yield harness
++    harness.close()
++
++
++def materials(h, prop):
++    return h.query(f"SELECT {MATERIALS} FROM attempts WHERE key = ? AND seq = 1",  # noqa: S608 - 固定欄位
++                   (operation_key(prop),))[0]
++
++
++# ---- [S663] ----
++def test_the_first_attempt_row_records_what_it_was_checked_against(h):
++    write_config(h.config, max_budget=900, aggregate_limit=5000)
++    first = h.submit(task_id="t1", campaign_id="c1", requested_change={"new_budget": 140})
++    h.process()
++    second = h.submit(task_id="t2", campaign_id="c2", requested_change={"new_budget": 130})
++    h.process()
++    h.dsp.campaigns["c3"] = h.dsp.campaigns["c3"].__class__(budget=80, status="active", version=3)
++    lower = h.submit(task_id="t3", campaign_id="c3", requested_change={"new_budget": 60})
++    h.process()
++    pause = h.submit(task_id="t4", campaign_id="c1", action_type="pause_campaign",
++                     requested_change={}, campaign_version_observed=4)
++    h.dsp.campaigns["c1"] = h.dsp.campaigns["c1"].__class__(budget=140, status="active",
++                                                             version=4)
++    h.process()
++
++    allowance = guardrails.increase_allowance(100)  # 判比例用的同一支:現況 100 允許加 50
++    assert allowance == 50
++    assert materials(h, first) == (allowance, 900, 5000, 0)
++    assert materials(h, second) == (allowance, 900, 5000, 40)  # 已用額度含第一筆加的 40
++    # 減預算不判門檻,已用額度不記
++    assert materials(h, lower) == (guardrails.increase_allowance(80), 900, 5000, None)
++    assert materials(h, pause) == (None, 900, 5000, None)  # 暫停不判比例與門檻
++
++    h.store.close()
++    conn = sqlite3.connect(h.db)  # 模擬增量 3 之前的資料庫:拿掉四欄
++    for column in MATERIALS.split(", "):
++        conn.execute(f"ALTER TABLE attempts DROP COLUMN {column}")
++    conn.commit()
++    conn.close()
++    h.store = InboxStore(h.db)  # 開啟時補欄位、不回填
++    assert h.query(f"SELECT {MATERIALS} FROM attempts WHERE seq = 1") == [(None,) * 4] * 4  # noqa: S608 - 固定欄位
+diff --git a/tests/executor/test_read_only.py b/tests/executor/test_read_only.py
+index edeb1f4..810cddc 100644
+--- a/tests/executor/test_read_only.py
++++ b/tests/executor/test_read_only.py
+@@ -81,35 +81,39 @@ def _read_samples(key):
+         "InboxReads.awaiting_count": ("s", ()),
+         "InboxReads.approval_use_count": ("s", ()),
+         "InboxReads.stop_count": ("s", (StopKind.AGGREGATE_LIMIT_REACHED,)),
+         "InboxReads.stops": ("s", (StopKind.AGGREGATE_LIMIT_REACHED, TENANT, NOW, LATER)),
+         "InboxReads.lifecycle_events": ("s", ("r1",)),
+         "InboxReads.last_terminal_event": ("s", ("r1", 1, inbox_store.content_hash(PROP))),
+         "InboxReads.dead_letters_for": ("s", ("r1",)),
+         "InboxReads.dead_letter_ops_for": ("s", ("r1",)),
+         "InboxReads.lifecycle_events_between": ("s", (NOW - timedelta(hours=1), LATER)),
+         "InboxReads.pending_snapshot": ("s", ()),
++        "InboxReads.approval_uses_for": ("s", ([KEY],)),
+         "latest": ("a", (key,)),
+         "history": ("a", (key,)),
+         "snapshot": ("a", (key,)),
+         "trace_rows": ("a", (key,)),
+         "first_row_tenant": ("a", (key,)),
+         "unresolved_count": ("a", ()),
+         "version_conflict_count": ("a", ()),
+         "campaigns_with_unresolved": ("a", ()),
+         "unresolved_keys": ("a", ()),
+         "aggregate_used": ("a", (TENANT, NOW)),
+         "aggregate_holdings": ("a", (TENANT, NOW)),
+         "counted_first_rows_started": ("a", (TENANT, NOW - timedelta(hours=1), LATER)),
+         "dsp_calls_for": ("a", ("r2",)),
+         "dsp_calls_between": ("a", (NOW - timedelta(hours=1), LATER)),
+         "terminal_rows_between": ("a", (NOW - timedelta(hours=1), LATER)),
++        "unknown_rows_between": ("a", (NOW - timedelta(hours=1), LATER)),
++        "first_rows_for": ("a", ([key],)),
++        "first_rows_for_proposal": ("a", ("r1", 1)),
+     }
+ 
+ 
+ def _takes_transaction(module, qualname):
+     owner = module
+     for part in qualname.split("."):
+         owner = getattr(owner, part)
+     params = list(inspect.signature(owner).parameters)
+     return "tx" in params[:2]
+ 
+diff --git a/tests/ops/test_ops_boundaries.py b/tests/ops/test_ops_boundaries.py
+index c9f2697..f5e1b54 100644
+--- a/tests/ops/test_ops_boundaries.py
++++ b/tests/ops/test_ops_boundaries.py
+@@ -23,20 +23,22 @@ READ_WHITELIST = frozenset({
+     "read_transaction", "close",
+     "history", "evidence_for", "list_tool_calls", "follow_up_of", "follow_up_to",
+     "handed_off_keys",  # 分析端
+     "lifecycle_events", "dead_letters_for", "dead_letter_ops_for",  # 收件口
+     "trace_rows", "dsp_calls_for",  # 嘗試紀錄
+     # 指標(增量 2):窗口讀取函式、現況快照的讀法、總曝險使用率與租戶設定檔的讀取
+     "lifecycle_events_between", "last_terminal_event", "pending_snapshot",  # 收件口
+     "dsp_calls_between", "terminal_rows_between", "unresolved_keys", "campaigns_with_unresolved",
+     "tool_calls_between",  # 分析端
+     "utilization", "load_tenants",
++    # 服務水準與副作用核對(增量 3):結果不明的窗口讀取、一批鍵的第一列與核可使用、同一份提案的第一列
++    "unknown_rows_between", "first_rows_for", "approval_uses_for", "first_rows_for_proposal",
+     "failure_class",  # 死信信封的欄位名;同名的是收件口的分類函式,也是機械判定的非寫入函式
+ })
+ SCANNED = (SRC / "executor" / "inbox_store.py", SRC / "executor" / "attempt_store.py",
+            SRC / "analyzer" / "task_store.py", SRC / "executor" / "observability.py",
+            SRC / "executor" / "capability_signer.py")
+ 
+ 
+ def _defined_names(classes=True):
+     """分析端、執行端每支模組定義的函式、方法(與類別)名稱。"""
+     kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef) if classes else (
+diff --git a/tests/ops/test_side_effects.py b/tests/ops/test_side_effects.py
+new file mode 100644
+index 0000000..ed24f04
+--- /dev/null
++++ b/tests/ops/test_side_effects.py
+@@ -0,0 +1,269 @@
++"""副作用核對(Phase 9 增量 3):[S652] [S653] [S664] [S665]。
++
++未授權或違反護欄的副作用、重複有害副作用兩條目標為零的服務水準指標。核對函式逐項重看 DSP 的每一筆
++寫入,只用寫入當時記下、之後不變的資料(嘗試第一列的提案快照與四樣核對材料、DSP 記下的租戶與政策
++版本)。DSP 的窗用兩支唯讀端點翻頁讀,先讀 DSP、再開執行端快照。
++"""
++
++import json
++import sqlite3
++import threading
++from dataclasses import replace
++from datetime import timedelta
++
++import pytest
++
++from rtb.dsp.server import DspServer
++from rtb.dsp.store import OPERATION_PAGE, CampaignStore, operation_cursor_query
++from rtb.executor import attempt_store, guardrails
++from rtb.executor.attempt_store import FirstRow, first_rows_for_proposal_query
++from rtb.executor.inbox_store import InboxReads
++from rtb.httpclient import MAX_RESPONSE_BYTES
++from rtb.ops import side_effects as se
++from rtb.ops import sli
++from tests.executor.fakes import proposal
++from tests.ops.rows import Rows, at
++
++K = "k1-" + "0" * 64
++PROP = proposal(requested_change={"new_budget": 140})  # 觀察到的版本 3、現況 100:加 40
++
++
++def first_row(**overrides):
++    base = FirstRow(key=K, task_id="t1", revision=1, campaign_id="c1", tenant="acme",
++                    reserved_amount=40, ratio_allowance=50, max_budget=900,
++                    aggregate_limit=5000, used_before=100, proposal=PROP,
++                    written_at="2026-09-22T12:00:00.000000Z")
++    return replace(base, **overrides)
++
++
++def write(**overrides):
++    base = se.DspWrite(operation_id=1, key=K, campaign_id="c1", tenant="acme",
++                       action="update_budget", new_budget=140, expected_version=3,
++                       committed_at="2026-09-22T12:00:01+00:00",
++                       policy_version=PROP.policy_version)
++    return replace(base, **overrides)
++
++
++def verdict(w=None, f="default", stages=frozenset()):
++    return se.check_write(w or write(), first_row() if f == "default" else f, stages)[0]
++
++
++G, B, U = se.Verdict.GOOD, se.Verdict.BAD, se.Verdict.UNVERIFIABLE
++RATIO, AGGREGATE = "budget_increase_too_large", "aggregate_limit_reached"
++PAUSE = proposal(action_type="pause_campaign", requested_change={})
++LOWER = proposal(requested_change={"new_budget": 60})
++
++
++# ---- [S652] ----
++def test_the_side_effect_checker_flags_each_kind_of_violation(monkeypatch):
++    assert verdict() is G
++    assert verdict(f=None) is B  # 沒經過開始一筆
++    for changed in ({"campaign_id": "c2"}, {"action": "pause_campaign"}, {"new_budget": 150},
++                    {"expected_version": 4}, {"tenant": "beta"},
++                    {"policy_version": "demo-pacing-v0"}):
++        assert verdict(write(**changed)) is B, changed  # 超出授權範圍、政策版本不同
++    assert verdict(f=first_row(max_budget=139)) is B  # 超過單一廣告上限
++    assert verdict(f=first_row(max_budget=140)) is G  # 剛好等於上限合法
++    assert verdict(f=first_row(ratio_allowance=39)) is B  # 加 40 超過允許量又沒有比例核可
++    assert verdict(f=first_row(ratio_allowance=39), stages=frozenset({RATIO})) is G
++    assert verdict(f=first_row(ratio_allowance=40)) is G  # 剛好等於允許量合法
++    assert verdict(f=first_row(used_before=4961)) is B  # 4961 + 40 超過 5000
++    assert verdict(f=first_row(used_before=4961), stages=frozenset({AGGREGATE})) is G
++    assert verdict(f=first_row(used_before=4960)) is G  # 剛好等於門檻合法
++
++    lower = first_row(proposal=LOWER, reserved_amount=0, ratio_allowance=0, used_before=None)
++    assert verdict(write(new_budget=60), lower) is G  # 加的量 0:不核對比例與總曝險
++    assert verdict(write(new_budget=60), replace(lower, max_budget=59)) is B  # 單一上限照樣核對
++    paused = first_row(proposal=PAUSE, reserved_amount=0, ratio_allowance=None,
++                       max_budget=None, used_before=None)
++    pause_write = write(action="pause_campaign", new_budget=None)
++    assert verdict(pause_write, paused) is G  # 暫停跳過數值護欄
++    assert verdict(replace(pause_write, tenant="beta"), paused) is B  # 授權範圍照樣核對
++    assert verdict(replace(pause_write, expected_version=9), paused) is B
++    assert verdict(replace(pause_write, policy_version="demo-pacing-v0"), paused) is B
++
++    # 判法只用寫入當時記下的資料:之後改比例常數不改變結果
++    before = [verdict(f=first_row(ratio_allowance=n)) for n in (39, 40, 50)]
++    monkeypatch.setattr(guardrails, "MAX_INCREASE_NUMERATOR", 0)
++    assert [verdict(f=first_row(ratio_allowance=n)) for n in (39, 40, 50)] == before
++
++
++# ---- [S664] ----
++def test_unverifiable_writes_are_reported_apart_from_the_denominator():
++    legacy = first_row(ratio_allowance=None, max_budget=None, aggregate_limit=None,
++                       used_before=None)
++    assert verdict(f=legacy) is U  # 沒有任何一項違規、但缺材料
++    assert verdict(write(policy_version="demo-pacing-v0"), legacy) is B  # 有一項證實違規就判壞
++    assert verdict(write(policy_version=None)) is U  # DSP 那一筆沒記政策版本
++    assert verdict(write(policy_version=None, campaign_id="c2")) is B
++    assert verdict(f=first_row(tenant=None)) is U
++
++    other = "k1-" + "9" * 64
++    writes = [write(), write(key="k1-" + "1" * 64, policy_version="x"),
++              write(key="k1-" + "2" * 64), write(key="someone-else", new_budget=1)]
++    firsts = {K: first_row(), "k1-" + "1" * 64: first_row(key="k1-" + "1" * 64),
++              "k1-" + "2" * 64: legacy}
++    tally = se.tally_unauthorized(writes, firsts, {})
++    assert (tally.good, tally.valid, tally.unverifiable) == (1, 2, 1)  # 別的寫入者不算
++    assert tally.bad_at == ("2026-09-22T12:00:01.000000Z",)
++    assert other not in firsts
++
++
++# ---- DSP 與執行端的場景 ----
++class World:
++    def __init__(self, tmp_path):
++        self.rows = Rows(tmp_path)
++        self.dsp_db = tmp_path / "dsp.db"
++        store = CampaignStore(self.dsp_db)
++        store.seed_campaign("c1", budget=100, tenant="acme")
++        store.close()
++        self.server = DspServer(self.dsp_db, fault_injection=False, hang_seconds=0.2,
++                                delay_seconds=0.0)
++        threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
++        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
++        self.version = 1
++
++    def commit(self, key, when, budget=140, policy="demo-pacing-v1"):
++        conn = sqlite3.connect(self.dsp_db)
++        conn.execute(
++            "INSERT INTO operations (campaign_id, action, params_json, version_after, "
++            "received_at, committed_at, idempotency_key, policy_version, expected_version) "
++            "VALUES ('c1', 'update_budget', ?, ?, ?, ?, ?, ?, ?)",
++            (json.dumps({"new_budget": budget}), self.version + 1, when.isoformat(),
++             when.isoformat(), key, policy, self.version))
++        conn.commit()
++        conn.close()
++        self.version += 1
++
++    def first(self, key, prop, when):
++        self.rows.executor.execute(
++            "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
++            "verification_timeouts, written_at, task_id, revision, action, expected_version, "
++            "proposal_json, tenant, reserved_amount) "
++            "VALUES (?, 1, ?, 'in_flight', 1, 0, ?, ?, ?, ?, ?, ?, 'acme', 40)",
++            (key, prop.campaign_id, attempt_store.iso(when), prop.task_id, prop.revision,
++             prop.action_type.value, prop.campaign_version_observed,
++             json.dumps(prop.to_primitives(), sort_keys=True)))
++
++    def sources(self):
++        return sli.Sources(self.rows.executor_db, self.rows.analyzer_db, self.url, 2.0)
++
++    def close(self):
++        self.server.shutdown()
++        self.server.server_close()
++        self.rows.close()
++
++
++@pytest.fixture
++def world(tmp_path):
++    built = World(tmp_path)
++    yield built
++    built.close()
++
++
++def _plan(path, sql, params):
++    conn = sqlite3.connect(path)
++    try:
++        return [row[-1] for row in conn.execute(f"EXPLAIN QUERY PLAN {sql}", params)]
++    finally:
++        conn.close()
++
++
++# ---- [S653] ----
++def test_a_second_commit_of_the_same_proposal_is_a_harmful_duplicate(world):
++    keys = ["k1-" + c * 64 for c in "abc"]  # 同一份提案內容卻有三把鍵(例:鍵算法改過版)
++    for n, key in enumerate(keys):
++        world.first(key, PROP, at(minutes=-20 + n))
++    world.commit(keys[0], at(minutes=-10))  # 第一筆在窗外
++    world.commit(keys[1], at(minutes=10))
++    world.commit(keys[2], at(minutes=20))
++    world.commit("k1-" + "d" * 64, at(minutes=30))  # 找不到第一列:無法核對
++    alone = proposal(task_id="t9", requested_change={"new_budget": 120})
++    world.first("k1-" + "e" * 64, alone, at(minutes=35))
++    world.commit("k1-" + "e" * 64, at(minutes=40), budget=120)
++    tally = sli.count("harmful_duplicates", at(0), at(minutes=60), world.sources())
++
++    assert (tally.good, tally.valid, tally.unverifiable) == (1, 3, 1)
++    assert sorted(tally.bad_at) == [attempt_store.iso(at(minutes=10)),
++                                    attempt_store.iso(at(minutes=20))]
++    sql, params = first_rows_for_proposal_query("t1", 1)
++    steps = _plan(world.rows.executor_db, sql, params)
++    assert any("attempts_first_rows_by_task" in s for s in steps), steps
++
++
++# ---- [S665] ----
++def test_the_dsp_operation_window_reader_is_bounded_and_read_first(world, monkeypatch):
++    conn = sqlite3.connect(world.dsp_db)
++    base = at(minutes=-600)
++    conn.executemany(  # 一頁以上的舊操作(直接寫列,快)
++        "INSERT INTO operations (campaign_id, action, params_json, version_after, received_at, "
++        "committed_at, idempotency_key, policy_version, expected_version) "
++        "VALUES ('c1', 'update_budget', '{\"new_budget\": 1}', 1, ?, ?, ?, 'p', 1)",
++        [((base + timedelta(seconds=n)).isoformat(), (base + timedelta(seconds=n)).isoformat(),
++          f"old-{n}") for n in range(OPERATION_PAGE + 3)])
++    conn.commit()
++    conn.close()
++    world.commit("k1-" + "1" * 64, at(0))  # 剛好在窗起點:在這個窗
++    world.commit("k1-" + "2" * 64, at(minutes=30))
++    world.commit("k1-" + "3" * 64, at(minutes=60))  # 剛好在窗終點:在下一個窗
++
++    status, first_page = se.get_json(world.url, "/operations/after/0", 2.0)
++    assert status == 200 and len(first_page["operations"]) == OPERATION_PAGE
++    assert first_page["next"] == first_page["operations"][-1]["operation_id"]
++    _, last_page = se.get_json(world.url, f"/operations/after/{first_page['next']}", 2.0)
++    assert len(last_page["operations"]) == 6 and last_page["next"] is None
++    _, cursor = se.get_json(world.url, f"/operations/since/{at(0).isoformat()}", 2.0)
++    assert cursor["cursor"] == OPERATION_PAGE + 3  # 窗起點那一筆之前的最後一個編號
++    steps = _plan(world.dsp_db, *operation_cursor_query(at(0)))
++    assert any("operations_by_commit" in s for s in steps), steps
++
++    inside = se.read_dsp_window(world.url, at(0), at(minutes=60), 2.0)
++    assert [w.key[-1] for w in inside] == ["1", "2"]
++    after = se.read_dsp_window(world.url, at(minutes=60), at(minutes=120), 2.0)
++    assert [w.key[-1] for w in after] == ["3"]
++
++    order, batches = _read_order(world, monkeypatch)
++    assert order[0] == "dsp" and "executor" in order
++    assert order.index("executor") > max(i for i, o in enumerate(order) if o == "dsp")
++    assert batches == ["firsts", "uses"]  # 兩筆寫入各一批,不逐筆查
++
++
++def _read_order(world, monkeypatch):
++    """跑一次未授權副作用的計數,記下讀 DSP 與開執行端快照的順序、批量讀取函式各被叫幾次。"""
++    order, batches = [], []
++    real_get, real_open = se.get_json, se.ReadOnlyInbox
++
++    def logged_get(*args):
++        order.append("dsp")
++        return real_get(*args)
++
++    def logged_open(*args, **kwargs):
++        order.append("executor")
++        return real_open(*args, **kwargs)
++
++    real_firsts, real_uses = attempt_store.first_rows_for, InboxReads.approval_uses_for
++    monkeypatch.setattr(se, "get_json", logged_get)
++    monkeypatch.setattr(se, "ReadOnlyInbox", logged_open)
++    monkeypatch.setattr(attempt_store, "first_rows_for",
++                        lambda tx, keys: batches.append("firsts") or real_firsts(tx, keys))
++    monkeypatch.setattr(InboxReads, "approval_uses_for",
++                        lambda self, tx, keys: batches.append("uses") or real_uses(self, tx, keys))
++    sli.count("unauthorized_side_effects", at(0), at(minutes=60), world.sources())
++    return order, batches
++
++
++def test_a_full_operations_page_fits_the_client_response_limit(world):
++    """每一欄都塞到上限的一整頁,共用用戶端照樣讀得回來(回應上限 64 KB)。"""
++    conn = sqlite3.connect(world.dsp_db)
++    conn.execute("UPDATE campaigns SET tenant = ? WHERE id = 'c1'", ("t" * 64,))
++    conn.executemany(
++        "INSERT INTO operations (campaign_id, action, params_json, version_after, received_at, "
++        "committed_at, idempotency_key, policy_version, expected_version) "
++        "VALUES ('c1', 'update_budget', ?, 1, ?, ?, ?, ?, ?)",
++        [(json.dumps({"new_budget": 2**63 - 1}), at(n).isoformat(), at(n).isoformat(),
++          f"{n:0128d}", "p" * 64, 2**63 - 1) for n in range(OPERATION_PAGE)])
++    conn.commit()
++    conn.close()
++    status, page = se.get_json(world.url, "/operations/after/0", 2.0)
++    assert status == 200 and len(page["operations"]) == OPERATION_PAGE
++    assert len(json.dumps(page)) < MAX_RESPONSE_BYTES
+diff --git a/tests/ops/test_slo.py b/tests/ops/test_slo.py
+new file mode 100644
+index 0000000..b8e55c6
+--- /dev/null
++++ b/tests/ops/test_slo.py
+@@ -0,0 +1,294 @@
++"""服務水準指標、目標、錯誤預算與燒損告警(Phase 9 增量 3):[S650] [S651] [S654] [S655] [S656]
++到 [S662] [S666]。
++
++燒損的數學與告警邊界用假的計數函式餵(每個窗要多少好事件、有效事件由測試決定);各條服務水準
++指標怎麼分好壞,用 rows.py 直接寫紀錄、交給真的計數函式算。
++"""
++
++import sqlite3
++from datetime import timedelta
++from fractions import Fraction
++
++import pytest
++
++from rtb.ops import sli, slo
++from rtb.ops.sli import Tally
++from tests.ops.rows import Rows, at
++
++
++@pytest.fixture
++def rows(tmp_path):
++    built = Rows(tmp_path)
++    yield built
++    built.close()
++
++
++def sources(rows, dsp_url="http://127.0.0.1:9"):
++    return sli.Sources(rows.executor_db, rows.analyzer_db, dsp_url, 0.2)
++
++
++NOW = at(minutes=600)
++HANDOFF_LIST = {"safe_completion", "unauthorized_side_effects", "harmful_duplicates",
++                "unknown_reconciled_in_time", "end_to_end_handoff", "queue_wait"}
++
++
++def spec(name):
++    return next(s for s in slo.SLOS if s.name == name)
++
++
++def lengths():
++    fast, slow = (next(b for b in slo.BURNS if b.name == n) for n in ("fast", "slow"))
++    return {"fast_long": slo.scaled(fast.long), "fast_short": slo.scaled(fast.short),
++            "slow_long": slo.scaled(slow.long), "slow_short": slo.scaled(slow.short),
++            "period": slo.scaled(slo.PERIOD)}
++
++
++class Planned:
++    """假的計數函式:依窗長回預先排好的計數,並記下被問了哪些窗。"""
++
++    def __init__(self, by_length=None, default=None):
++        self.by_length, self.asked = by_length or {}, []
++        self.default = default or Tally(0, 0)
++
++    def __call__(self, name, since, until):
++        self.asked.append((name, since, until))
++        return self.by_length.get((name, until - since), self.by_length.get(until - since,
++                                                                          self.default))
++
++
++def status(result, name):
++    return next(s for s in result if s.name == name)
++
++
++# ---- [S650] ----
++def test_every_slo_has_a_complete_definition():
++    assert {s.name for s in slo.SLOS} == HANDOFF_LIST
++    for s in slo.SLOS:
++        for text in (s.name, s.formula, s.good, s.valid, s.window, s.exclusions):
++            assert isinstance(text, str) and text.strip(), (s.name, text)
++        assert isinstance(s.target, Fraction) and 0 < s.target <= 1, s.name
++        assert s.demo is True
++        if s.name in {"unknown_reconciled_in_time", "queue_wait"}:
++            assert isinstance(s.deadline, timedelta) and s.deadline > timedelta(0)
++        else:
++            assert s.deadline is None, s.name
++    assert spec("unknown_reconciled_in_time").deadline == timedelta(minutes=10)
++    assert spec("queue_wait").deadline == timedelta(seconds=30)  # 期限不縮短(增量 4 回頭補)
++    assert spec("unauthorized_side_effects").zero_target and spec("harmful_duplicates").zero_target
++    assert slo.SCALE == 60 and slo.MIN_SAMPLES == 10
++    assert slo.scaled(slo.PERIOD) == timedelta(hours=12)
++
++
++# ---- [S651] ----
++def test_safe_completion_classifies_every_terminal_kind(rows):
++    good = ("campaign_not_found", "campaign_not_active", "version_changed",
++            "policy_version_changed", "decision_stale", "campaign_not_allowed", "over_budget_cap",
++            "aggregate_limit_reached", "budget_increase_too_large")
++    for n, reason in enumerate(good):
++        rows.event(at(minutes=1, seconds=n), f"g{n}", "blocked", reason=reason)
++    rows.event(at(minutes=2), "h1", "handed_off")
++    rows.event(at(minutes=3), "b1", "blocked", reason="operation_previously_failed")
++    rows.event(at(minutes=3), "b2", "expired")
++    rows.event(at(minutes=4), "s1", "superseded")  # 排除:分析端送了新修訂
++    rows.event(at(minutes=4), "s2", "awaiting_approval", reason="budget_increase_too_large")
++    rows.event(at(minutes=10), "d1", "dead_lettered", reason="delivery_limit")  # 窗一
++    rows.event(at(minutes=70), "d1", "replay_requeued", source="admin_command")
++    rows.event(at(minutes=75), "d1", "handed_off")  # 窗二
++    first = sli.count("safe_completion", at(0), at(minutes=60), sources(rows))
++    second = sli.count("safe_completion", at(minutes=60), at(minutes=120), sources(rows))
++
++    assert (first.good, first.valid) == (len(good) + 1, len(good) + 4)
++    assert (second.good, second.valid) == (1, 1)  # 死信後重放成功:兩個窗各一個事件
++
++
++# ---- [S654] ----
++def test_deadline_based_slis_are_fixed_once_the_window_has_passed(rows):
++    t = at(minutes=0)
++    rows.attempts("kA", [("in_flight", t), ("unknown", t),
++                         ("verified", t + timedelta(minutes=10))])  # 剛好第 10 分鐘:好
++    rows.attempts("kB", [("in_flight", t), ("unknown", t)])  # 還沒結案
++    rows.attempts("kC", [("in_flight", t), ("unknown", t),
++                         ("escalated", t + timedelta(minutes=3))])  # 期限前轉人工:排除
++    rows.attempts("kD", [("in_flight", t), ("unknown", t + timedelta(seconds=1)),
++                         ("escalated", t + timedelta(minutes=12))])  # 期限後才轉人工:壞
++    for n, delay in enumerate((30, 45)):  # 剛好第 30 秒取件是好;45 秒是壞(記在第 30 秒)
++        rows.event(at(minutes=2), f"q{n}", "received", tenant=None)
++        rows.event(at(minutes=2, seconds=delay), f"q{n}", "delivered", deliveries=1)
++    rows.event(at(minutes=2), "q2", "received", tenant=None)  # 一直沒被取件
++    rows.event(at(minutes=2), "q3", "received", tenant=None)
++    rows.event(at(minutes=2, seconds=40), "q3", "expired")  # 過了期限才被標成已過期
++    src = sources(rows)
++    window = (at(minutes=5), at(minutes=11))
++    unknown = sli.count("unknown_reconciled_in_time", *window, src)
++    queue = sli.count("queue_wait", at(minutes=2), at(minutes=3), src)
++
++    assert (unknown.good, unknown.valid) == (1, 3)
++    assert sorted(unknown.bad_at) == sorted([slo_iso(t + timedelta(minutes=10)),
++                                             slo_iso(t + timedelta(minutes=10, seconds=1))])
++    assert (queue.good, queue.valid) == (1, 4)
++    assert set(queue.bad_at) == {slo_iso(at(minutes=2, seconds=30))}
++
++    rows.attempt("kB", 3, "verified", t + timedelta(minutes=15))  # 之後才結案
++    rows.event(at(minutes=4), "q2", "delivered", deliveries=1)  # 之後才取件
++    assert sli.count("unknown_reconciled_in_time", *window, src) == unknown
++    assert sli.count("queue_wait", at(minutes=2), at(minutes=3), src) == queue
++
++
++def slo_iso(moment):
++    return moment.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
++
++
++# ---- [S655] ----
++def test_end_to_end_handoff_sli_is_event_based(rows):
++    rows.task("r1", at(0))
++    rows.event(at(seconds=100), "r1", "handed_off")  # 100 秒:好
++    rows.task("r2", at(0))
++    rows.event(at(seconds=10), "r2", "awaiting_approval", reason="budget_increase_too_large")
++    rows.event(at(seconds=310), "r2", "approval_released", reason="budget_increase_too_large")
++    rows.event(at(seconds=350), "r2", "handed_off")  # 350 秒扣掉 300 秒核可等待:好
++    rows.task("r3", at(0))
++    rows.follow_up("r3", "f3", at(seconds=60))
++    rows.event(at(seconds=60), "r3", "blocked", reason="version_changed")  # 擋下不是有效事件
++    rows.event(at(seconds=200), "f3", "handed_off")  # 從根任務算 200 秒:壞
++    rows.event(at(seconds=150), "u1", "handed_off")  # 接不上
++    rows.task("n1", at(seconds=400))
++    rows.event(at(seconds=300), "n1", "handed_off")  # 時鐘異常
++    tally = sli.count("end_to_end_handoff", at(0), at(minutes=10), sources(rows))
++
++    assert (tally.good, tally.valid) == (2, 3)
++    assert (tally.unlinked, tally.clock_anomaly) == (1, 1)
++
++
++# ---- [S656] ----
++def test_burn_rate_is_the_budget_consumption_speed():
++    assert slo.burn_rate(990, 1000, Fraction(99, 100)) == 1  # 錯誤率 1%、目標 99%
++    assert slo.burn_rate(990, 1000, Fraction(999, 1000)) == 10  # 同樣 1%、目標 99.9%:十倍
++    assert slo.burn_rate(0, 0, Fraction(99, 100)) == 0
++    assert slo.error_budget(1000, Fraction(99, 100)) == 10
++    assert slo.remaining_budget(1000, 12, Fraction(99, 100)) == -2  # 超支
++
++    counter = Planned({lengths()["period"]: Tally(988, 1000)})
++    result = status(slo.evaluate(NOW, counter=counter), "safe_completion")
++    assert (result.budget, result.remaining) == (10, -2)
++
++
++def _fast(counter_long, counter_short, name="safe_completion"):
++    counter = Planned({(name, lengths()["fast_long"]): counter_long,
++                       (name, lengths()["fast_short"]): counter_short})
++    return status(slo.evaluate(NOW, counter=counter), name).fast
++
++
++# ---- [S657] ----
++def test_a_fast_burn_fires_exactly_at_its_threshold():
++    # 目標 99%、門檻 14.4:壞事件比例剛好 14.4% 就是門檻
++    at_threshold = Tally(1000 - 144, 1000)
++    below = Tally(1000 - 143, 1000)
++    assert _fast(at_threshold, at_threshold).fired is True
++    assert _fast(below, at_threshold).fired is False  # 長窗差一個壞事件
++    assert _fast(at_threshold, below).fired is False  # 短窗差一個壞事件
++    fired = _fast(Tally(500, 1000), Tally(10, 20))
++    assert fired.fired and fired.long.burn == 50 and fired.short.burn == 50
++
++
++# ---- [S658] ----
++def test_a_slow_burn_fires_only_the_slow_alert():
++    name = "queue_wait"
++    slow_only = Planned({(name, lengths()["slow_long"]): Tally(930, 1000),  # 燒損率 7
++                         (name, lengths()["slow_short"]): Tally(93, 100),
++                         (name, lengths()["fast_long"]): Tally(93, 100),
++                         (name, lengths()["fast_short"]): Tally(93, 100)})
++    result = status(slo.evaluate(NOW, counter=slow_only), name)
++    assert result.slow.fired is True and result.fast.fired is False
++
++    both = Planned({(name, length): Tally(0, 100) for length in lengths().values()})
++    result = status(slo.evaluate(NOW, counter=both), name)
++    assert result.slow.fired is True and result.fast.fired is True  # 兩種告警同時為是
++
++
++# ---- [S659] ----
++def test_an_alert_clears_once_the_short_window_recovers():
++    recovered = _fast(Tally(500, 1000), Tally(20, 20))
++    assert recovered.fired is False and recovered.long.burn == 50
++    quiet = _fast(Tally(500, 1000), Tally(0, 0))  # 短窗沒有有效事件:燒損率當 0
++    assert quiet.short.burn == 0 and quiet.fired is False and quiet.insufficient is False
++
++
++# ---- [S660] ----
++def test_too_few_events_reports_insufficient_samples():
++    sparse = _fast(Tally(0, 9), Tally(0, 9))  # 長窗 9 個有效事件,少於最少樣本 10
++    assert sparse.insufficient is True and sparse.fired is False
++    enough = _fast(Tally(0, 10), Tally(0, 9))
++    assert enough.insufficient is False and enough.fired is True
++
++
++# ---- [S661] ----
++def test_a_single_zero_target_violation_fires_for_the_whole_period():
++    name = "unauthorized_side_effects"
++    period = lengths()["period"]
++    bad_at = slo_iso(NOW - timedelta(hours=11))
++    counter = Planned({(name, period): Tally(99, 100, bad_at=(bad_at,), unverifiable=2)})
++    result = status(slo.evaluate(NOW, counter=counter), name)
++    assert result.violating is True and result.period_bad == 1
++    assert result.last_bad == bad_at and result.unverifiable == 2
++    assert result.budget == 0 and result.fast is None and result.slow is None  # 不計算燒損率
++
++    later = status(slo.evaluate(NOW, counter=Planned({(name, period): Tally(100, 100)})), name)
++    assert later.violating is False  # 壞事件滑出週期之後
++
++
++# ---- [S662] ----
++def test_the_burn_evaluator_reads_only(rows):
++    rows.event(at(minutes=599), "t1", "handed_off")
++    rows.task("t1", at(minutes=598))
++    before = [_dump(p) for p in (rows.executor_db, rows.analyzer_db)]
++    holders = [sqlite3.connect(p, isolation_level=None)
++               for p in (rows.executor_db, rows.analyzer_db)]
++    for holder in holders:
++        holder.execute("BEGIN IMMEDIATE")
++    asked = []
++
++    def counter(name, since, until):
++        asked.append((name, since, until))
++        return sli.count(name, since, until, sources(rows))
++
++    try:
++        slo.evaluate(NOW, counter=counter)
++    finally:
++        for holder in holders:
++            holder.execute("ROLLBACK")
++            holder.close()
++    assert [_dump(p) for p in (rows.executor_db, rows.analyzer_db)] == before
++    targeted = [s.name for s in slo.SLOS if not s.zero_target]
++    expected = {(name, NOW - length, NOW) for name in targeted
++                for length in list(lengths().values())[:4]}
++    expected |= {(s.name, NOW - lengths()["period"], NOW) for s in slo.SLOS}
++    assert set(asked) == expected and len(asked) == len(expected) == 4 * 4 + 6
++
++
++def _dump(path):
++    conn = sqlite3.connect(path)
++    try:
++        return {t: conn.execute(f"SELECT * FROM {t}").fetchall()  # noqa: S608 - 表名來自 sqlite_master
++                for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
++    finally:
++        conn.close()
++
++
++# ---- [S666] ----
++def test_the_period_is_summed_from_day_sized_windows():
++    end = at(minutes=600)
++    pieces = slo.period_windows(end, slo.PERIOD)  # 縮短倍數是 1 時的 30 天週期
++    assert len(pieces) == 30
++    assert pieces[0][0] == end - slo.PERIOD and pieces[-1][1] == end
++    assert all(b - a <= timedelta(hours=24) for a, b in pieces)
++    assert all(pieces[i][1] == pieces[i + 1][0] for i in range(len(pieces) - 1))  # 首尾相接
++
++    seam = pieces[3][1]  # 剛好落在接縫上的事件
++    events = [seam, seam - timedelta(microseconds=1), end - timedelta(days=29, hours=23)]
++
++    def counter(_name, since, until):
++        inside = [e for e in events if since <= e < until]
++        return Tally(0, len(inside))
++
++    assert slo.period_tally("safe_completion", end, slo.PERIOD, counter).valid == 3
++    assert len(slo.period_windows(end, slo.scaled(slo.PERIOD))) == 1
+diff --git a/tests/ops/test_window_readers.py b/tests/ops/test_window_readers.py
+index e462304..da69b91 100644
+--- a/tests/ops/test_window_readers.py
++++ b/tests/ops/test_window_readers.py
+@@ -11,20 +11,21 @@ import sqlite3
+ import pytest
+ 
+ from rtb.analyzer import task_store
+ from rtb.executor import attempt_store, inbox_store
+ from tests.ops.rows import Rows, at
+ 
+ EXPECTED_INDEX = {
+     (inbox_store, "lifecycle_events_between"): "lifecycle_events_by_time",
+     (attempt_store, "dsp_calls_between"): "dsp_calls_by_time",
+     (attempt_store, "terminal_rows_between"): "attempts_terminal_by_time",
++    (attempt_store, "unknown_rows_between"): "attempts_unknown_by_time",
+     (task_store, "tool_calls_between"): "tool_calls_by_time",
+ }
+ 
+ 
+ def _readers():
+     found = set()
+     for module in (inbox_store, attempt_store, task_store):
+         for name, member in inspect.getmembers(module):
+             if name.endswith("_between") and inspect.isfunction(member):
+                 found.add((module, name))

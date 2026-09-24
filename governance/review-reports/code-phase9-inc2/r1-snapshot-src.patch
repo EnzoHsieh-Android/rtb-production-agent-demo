@@ -1,0 +1,1429 @@
+diff --git a/src/rtb/analyzer/dsp_client.py b/src/rtb/analyzer/dsp_client.py
+index 40f2c62..0d693fc 100644
+--- a/src/rtb/analyzer/dsp_client.py
++++ b/src/rtb/analyzer/dsp_client.py
+@@ -17,27 +17,27 @@ EvidenceSource 丟例外時,advance() 不寫入任何東西,狀態留在原地
+ import hashlib
+ import json
+ import math
+ import time
+ from collections.abc import Callable
+ from datetime import datetime
+ from types import MappingProxyType
+ from typing import Any
+ 
+ from rtb.analyzer.flow import DspOperation
+-from rtb.analyzer.task_store import TaskRow
++from rtb.analyzer.task_store import TaskRow, ToolEndpoint
+ from rtb.domain._checks import is_id, is_plain_int, is_plain_number
+ from rtb.domain.evidence import MAX_UNTRUSTED_TEXT_LENGTH, Evidence, EvidenceKind, TrustClass
+ from rtb.domain.proposal import MAX_INT, ActionType
+ from rtb.httpclient import request_json
+ 
+-OnDspCall = Callable[[TaskRow, str, str, float], None]
++OnDspCall = Callable[[TaskRow, ToolEndpoint, str, float], None]
+ """(task, endpoint, outcome, latency_ms) -> None;兩個端點各自成功/失敗都各呼叫一次,不是整個
+ fetch() 完成才呼叫一次——代碼審第 1 輪指出,包一整個 fetch() 只記一筆會讓「現況成功、指標
+ 失敗」這種情況遺失第一個成功呼叫的紀錄。"""
+ 
+ 
+ class DspRequestFailed(Exception):
+     """DSP 的其中一個端點沒有成功回應(非 2xx、逾時、連線失敗),或回應裡的可信欄位壞掉。"""
+ 
+ 
+ CAMPAIGN_STATUSES = frozenset({"active", "paused"})  # DSP 實際回傳的狀態字串
+@@ -104,21 +104,21 @@ def _campaign_text(body: dict[str, Any]) -> dict[str, Any]:
+ 
+ def _content_hash(payload: dict[str, Any]) -> str:
+     """跟增量 2 收件口的提案內容雜湊同一套規則:鍵排序、無多餘空白、不允許 NaN 的 JSON。"""
+     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=True, allow_nan=False)
+     return hashlib.sha256(encoded.encode("ascii")).hexdigest()
+ 
+ 
+ def _get(
+     base_url: str, path: str, timeout_seconds: float,
+-    task: TaskRow, on_call: OnDspCall | None, endpoint_name: str,
++    task: TaskRow, on_call: OnDspCall | None, endpoint_name: ToolEndpoint,
+ ) -> dict[str, Any]:
+     started = time.monotonic()
+     try:
+         status, body = request_json(f"{base_url}{path}", "GET", None, timeout_seconds)
+         if status != 200:
+             raise DspRequestFailed(f"{path} 回 {status}:{body.get('error', '未知錯誤')}")
+     except Exception as exc:
+         if on_call is not None:
+             on_call(task, endpoint_name, type(exc).__name__, (time.monotonic() - started) * 1000)
+         raise
+@@ -132,23 +132,24 @@ def make_client(
+ ) -> Callable[[TaskRow, datetime], tuple[Evidence, ...]]:
+     """回傳一個符合 EvidenceSource 協定的函式,綁定 DSP 的位址與逾時。
+ 
+     `on_call` 不填就是原本的行為(不記錄任何東西);要記 tool_calls 的呼叫端(見
+     `instrumented.dsp_evidence_source`)傳一個綁定 TaskStore 的鉤子進來。
+     """
+ 
+     def fetch(task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
+         # 證據的讀取時間用呼叫端(流程層)傳來的時間,不自己讀系統時鐘,見 flow.EvidenceSource
+         state_body = _get(base_url, f"/campaigns/{task.campaign_id}", timeout_seconds,
+-                          task, on_call, "dsp:campaign")
++                          task, on_call, ToolEndpoint.DSP_CAMPAIGN)
+         metrics_path = f"/campaigns/{task.campaign_id}/metrics?window={REQUESTED_WINDOW}"
+-        metrics_body = _get(base_url, metrics_path, timeout_seconds, task, on_call, "dsp:metrics")
++        metrics_body = _get(base_url, metrics_path, timeout_seconds, task, on_call,
++                            ToolEndpoint.DSP_METRICS)
+         state = _trusted(state_body, STATE_FIELDS, "id", task, "dsp:campaign")
+         metrics = _trusted(metrics_body, METRICS_FIELDS, "campaign_id", task, "dsp:metrics")
+         text = _campaign_text(state_body)
+         return (
+             Evidence(
+                 evidence_id=f"{task.task_id}-{task.seq}-state", task_id=task.task_id,
+                 kind=EvidenceKind.CAMPAIGN_STATE, source="dsp", observed_at=now,
+                 campaign_version_observed=state["version"],
+                 content_hash=_content_hash(state), trust_class=TrustClass.TRUSTED,
+                 payload=MappingProxyType(state),
+diff --git a/src/rtb/analyzer/instrumented.py b/src/rtb/analyzer/instrumented.py
+index d609de4..18102ac 100644
+--- a/src/rtb/analyzer/instrumented.py
++++ b/src/rtb/analyzer/instrumented.py
+@@ -3,38 +3,38 @@
+ `flow.py` 不知道、也不需要知道 tool_calls 這件事——這支檔是唯一知道「証據來源/送出提案」
+ 跟「TaskStore」都存在的地方,保持 dsp_client.py、inbox_client.py 兩支檔繼續不碰 TaskStore。
+ """
+ 
+ import time
+ from collections.abc import Callable
+ from datetime import UTC, datetime
+ 
+ from rtb.analyzer import dsp_client
+ from rtb.analyzer.flow import Accepted, DspOperation
+-from rtb.analyzer.task_store import TaskRow, TaskStore
++from rtb.analyzer.task_store import TaskRow, TaskStore, ToolEndpoint
+ from rtb.domain.evidence import Evidence
+ from rtb.domain.proposal import Proposal
+ 
+ 
+ class InstrumentedEvidenceSource:
+     """包裝一個原始的 EvidenceSource,呼叫的同時記一筆 tool_calls。
+ 
+     給「內部只有一次 HTTP 呼叫」的 EvidenceSource 用;`dsp_client` 內部有兩個端點,各自成功
+     /失敗要分開記錄,不能只包整個 `__call__` 記一筆(否則「現況成功、指標失敗」會遺失第一筆
+     成功紀錄,見下面 `dsp_evidence_source` 的做法)。
+     """
+ 
+     def __init__(
+         self,
+         store: TaskStore,
+         inner: Callable[[TaskRow, datetime], tuple[Evidence, ...]],
+-        endpoint: str,
++        endpoint: ToolEndpoint,
+     ):
+         self._store, self._inner, self._endpoint = store, inner, endpoint
+ 
+     def __call__(self, task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
+         started = time.monotonic()
+         try:
+             result = self._inner(task, now)
+         except Exception as exc:
+             self._record(task, type(exc).__name__, started)
+             raise
+@@ -48,39 +48,41 @@ class InstrumentedEvidenceSource:
+ 
+ 
+ def dsp_evidence_source(
+     store: TaskStore, base_url: str, timeout_seconds: float,
+ ) -> Callable[[TaskRow, datetime], tuple[Evidence, ...]]:
+     """建真的 DSP 用戶端,兩個內部端點(現況、指標)各自成功/失敗都各記一筆 tool_calls——
+     不是像 `InstrumentedEvidenceSource` 那樣整個呼叫包一層才記一筆。呼叫端(`flow.advance()`
+     要用的 EvidenceSource)拿到的就是這個函式本身,不用再另外包一層。
+     """
+ 
+-    def _on_call(task: TaskRow, endpoint: str, outcome: str, latency_ms: float) -> None:
++    def _on_call(
++        task: TaskRow, endpoint: ToolEndpoint, outcome: str, latency_ms: float,
++    ) -> None:
+         store.record_tool_call(task.task_id, task.seq, endpoint, outcome, latency_ms,
+                                datetime.now(UTC))
+ 
+     return dsp_client.make_client(base_url, timeout_seconds, on_call=_on_call)
+ 
+ 
+ class InstrumentedSubmit:
+     """包裝一個原始的 Submit,呼叫的同時記一筆 tool_calls。
+ 
+     `task_seq` 綁定在建構當下傳入的 `task`(呼叫發生時讀到的那一列快照),不是呼叫完成後
+     才回頭查 `store.latest()`——`Submit` 協定的簽章只有 proposal,沒有 task,若靠事後查詢,
+     並行的另一次 `advance()` 可能已經把同一個任務推進到下一列,查到的就是錯的序號(2026-09-22
+     代碼審第 1 輪指出)。呼叫端要在每次呼叫前用當下讀到的 `TaskRow` 建一個新的
+     `InstrumentedSubmit`,不能是長壽命、重複給不同任務列共用的單一實例。
+     """
+ 
+     def __init__(
+-        self, store: TaskStore, inner: Callable[[Proposal], Accepted], endpoint: str,
++        self, store: TaskStore, inner: Callable[[Proposal], Accepted], endpoint: ToolEndpoint,
+         task: TaskRow,
+     ):
+         self._store, self._inner, self._endpoint, self._task = store, inner, endpoint, task
+ 
+     def __call__(self, proposal: Proposal) -> Accepted:
+         started = time.monotonic()
+         try:
+             result = self._inner(proposal)
+         except Exception as exc:
+             self._record(type(exc).__name__, started)
+@@ -95,21 +97,21 @@ class InstrumentedSubmit:
+             datetime.now(UTC))
+ 
+ 
+ class InstrumentedOperationLookup:
+     """包裝依冪等鍵查 DSP 的操作查詢,呼叫的同時記一筆 tool_calls(Phase 5)。
+ 
+     跟 `InstrumentedSubmit` 一樣綁定建構當下讀到的那一列:協定簽章只有冪等鍵、沒有任務,
+     呼叫端每次推進前用當下的 `TaskRow` 建一個新的。"""
+ 
+     def __init__(
+-        self, store: TaskStore, inner: Callable[[str], DspOperation | None], endpoint: str,
++        self, store: TaskStore, inner: Callable[[str], DspOperation | None], endpoint: ToolEndpoint,
+         task: TaskRow,
+     ):
+         self._store, self._inner, self._endpoint, self._task = store, inner, endpoint, task
+ 
+     def __call__(self, key: str) -> DspOperation | None:
+         started = time.monotonic()
+         try:
+             result = self._inner(key)
+         except Exception as exc:
+             self._record(type(exc).__name__, started)
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index ad27bd8..6ef5f66 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -20,20 +20,21 @@
+ 
+ import hashlib
+ import json
+ import sqlite3
+ from collections.abc import Callable, Sequence
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from pathlib import Path
+ from types import MappingProxyType
++from typing import Any
+ 
+ from rtb.domain._checks import is_id
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
+ from rtb.domain.proposal import ActionType, Proposal
+ from rtb.domain.task_state import IllegalTransition, TaskState, can_transition
+ from rtb.sqlitekit import (
+     BUSY_TIMEOUT_SECONDS,
+     DatabaseBusy,
+     DatabaseNotUpgraded,
+     begin_snapshot,
+@@ -59,20 +60,21 @@ CREATE TABLE IF NOT EXISTS tool_calls (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, task_seq INTEGER NOT NULL,
+     endpoint TEXT NOT NULL, outcome TEXT NOT NULL, latency_ms REAL NOT NULL, at TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS task_leases (
+     task_id TEXT NOT NULL, lease_seq INTEGER NOT NULL, owner TEXT, expires_at TEXT NOT NULL,
+     PRIMARY KEY (task_id, lease_seq));
+ CREATE TABLE IF NOT EXISTS follow_ups (
+     original_task_id TEXT PRIMARY KEY, follow_up_task_id TEXT UNIQUE,
+     generation INTEGER NOT NULL, campaign_id TEXT NOT NULL, reason TEXT NOT NULL,
+     outcome TEXT NOT NULL, written_at TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS follow_ups_by_campaign ON follow_ups (campaign_id);
++CREATE INDEX IF NOT EXISTS tool_calls_by_time ON tool_calls (at);
+ """
+ _TASK_COLUMNS = ("task_id, seq, state, campaign_id, proposal_json, error_detail, written_at, "
+                  "operation_key")
+ MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
+ # 暫用,沒有實測校準:要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件,各自的逾時由建用戶端
+ # 的呼叫端決定);分析行程還沒有正式啟動程式,這條不等式目前沒有機械守衛(計劃增量 3b)
+ LEASE_DURATION = timedelta(seconds=60)
+ # 接續任務的保留命名空間:一般建任務入口拒收這個開頭的任務編號,只有建接續任務寫得進去
+ FOLLOW_UP_PREFIX = "fu-"
+ _FOLLOW_UP_HASH_LENGTH = 24
+@@ -107,20 +109,47 @@ class TaskNotFound(Exception):
+ class ReplanReason(StrEnum):
+     """為什麼要重新規劃;記進接續關係表,給衝突次數查詢分類。"""
+ 
+     VERSION_CHANGED = "version_changed"  # 收件口回已擋下、原因是版本已變
+     EXPIRED = "expired"  # 收件口回決策已過期(收件表還留著)
+     AFTER_RETENTION = "after_retention"  # 收件表已清掉、DSP 用存下的鍵查不到寫入
+     POLICY_VERSION_CHANGED = "policy_version_changed"  # 收件口回已擋下、原因是政策已變(Phase 8)
+     DECISION_STALE = "decision_stale"  # 收件口回已擋下、原因是決策已過時(Phase 8)
+ 
+ 
++class ToolEndpoint(StrEnum):
++    """分析端對外呼叫的端點(Phase 9 增量 2,封閉列舉):會變成指標的標籤,不能收任意字串。
++
++    記呼叫紀錄只收「其他」以外的成員;「其他」只給讀舊列用:改成列舉之前寫進去的舊列,值不在列舉裡
++    的一律讀成它(只封住新寫入,舊列照樣會帶任意值進標籤)。"""
++
++    DSP_CAMPAIGN = "dsp:campaign"  # 讀廣告現況
++    DSP_METRICS = "dsp:metrics"  # 讀成效指標
++    DSP_EVIDENCE = "dsp:evidence"  # 整包證據來源(包一層只記一筆的那種)
++    DSP_OPERATION = "dsp:operation"  # 依冪等鍵查 DSP 操作
++    INBOX_SUBMIT = "inbox:submit"  # 送出提案到收件口
++    OTHER = "other"
++
++
++def _endpoint(raw: str) -> ToolEndpoint:
++    try:
++        return ToolEndpoint(raw)
++    except ValueError:
++        return ToolEndpoint.OTHER
++
++
++def tool_calls_between_query(since: datetime, until: datetime) -> tuple[str, tuple[str, ...]]:
++    """時間窗內對外呼叫的查詢語句(測試用它看查詢計畫)。"""
++    return ("SELECT task_id, task_seq, endpoint, outcome, latency_ms, at FROM tool_calls "
++            "WHERE at >= ? AND at < ? ORDER BY at, id", (_iso(since), _iso(until)))
++
++
+ class _FollowUpOutcome(StrEnum):
+     CREATED = "created"
+     LIMIT_REACHED = "limit_reached"
+ 
+ 
+ @dataclass(frozen=True)
+ class FollowUp:
+     """commit_step 帶這個:原任務結案的同一個交易裡建接續任務(或記下代數用完)。"""
+ 
+     reason: ReplanReason
+@@ -136,21 +165,21 @@ class ReplanCounts:
+ def follow_up_id(task_id: str) -> str:
+     """接續任務編號:由原任務編號算出、固定長度,不管原編號多長都不會超過識別碼上限。"""
+     digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
+     return FOLLOW_UP_PREFIX + digest[:_FOLLOW_UP_HASH_LENGTH]
+ 
+ 
+ @dataclass(frozen=True)
+ class ToolCall:
+     task_id: str
+     task_seq: int
+-    endpoint: str
++    endpoint: ToolEndpoint
+     outcome: str
+     latency_ms: float
+     at: datetime
+ 
+ 
+ @dataclass(frozen=True)
+ class TraceRecord:
+     """給定一個任務編號的完整軌跡:狀態史、每一步的證據、每一次對外呼叫。"""
+ 
+     tasks: tuple[TaskRow, ...]
+@@ -173,20 +202,25 @@ class LeaseReceipt:
+ class TaskRow:
+     task_id: str
+     seq: int
+     state: TaskState
+     campaign_id: str
+     proposal: Proposal | None
+     error_detail: str | None
+     written_at: datetime
+ 
+ 
++def _tool_call(row: tuple[Any, ...]) -> ToolCall:
++    return ToolCall(task_id=row[0], task_seq=row[1], endpoint=_endpoint(row[2]), outcome=row[3],
++                    latency_ms=row[4], at=datetime.fromisoformat(row[5].replace("Z", "+00:00")))
++
++
+ def _iso(moment: datetime) -> str:
+     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+ 
+ 
+ def _is_live(lease: tuple[int, str | None, str], now: datetime) -> bool:
+     """有擁有者而且還沒到期;到期時間與現在都是同一種固定格式的 UTC 字串,可以直接比大小。"""
+     return lease[1] is not None and lease[2] > _iso(now)
+ 
+ 
+ def _proposal_to_json(proposal: Proposal) -> str:
+@@ -276,25 +310,26 @@ class TaskReads:
+                 for r in rows
+             )
+         except (ValueError, KeyError) as exc:
+             raise CorruptedHistoryRow(f"{task_id} 第 {task_seq} 步的證據讀不回來:{exc!r}") from exc
+ 
+     def list_tool_calls(self, task_id: str) -> tuple[ToolCall, ...]:
+         rows = self._conn.execute(
+             "SELECT task_id, task_seq, endpoint, outcome, latency_ms, at FROM tool_calls "
+             "WHERE task_id = ? ORDER BY id", (task_id,),
+         ).fetchall()
+-        return tuple(
+-            ToolCall(task_id=r[0], task_seq=r[1], endpoint=r[2], outcome=r[3],
+-                     latency_ms=r[4], at=datetime.fromisoformat(r[5].replace("Z", "+00:00")))
+-            for r in rows
+-        )
++        return tuple(_tool_call(r) for r in rows)
++
++    def tool_calls_between(self, since: datetime, until: datetime) -> tuple[ToolCall, ...]:
++        """時間窗內的對外呼叫(含起點、不含終點),依時間;走時間索引(Phase 9 增量 2 的指標用)。"""
++        sql, params = tool_calls_between_query(since, until)
++        return tuple(_tool_call(row) for row in self._conn.execute(sql, params))
+ 
+     def history(self, task_id: str) -> tuple[TaskRow, ...]:
+         records = self._conn.execute(
+             f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ? ORDER BY seq",  # noqa: S608 - 固定欄位清單
+             (task_id,),
+         ).fetchall()
+         return tuple(_row_from_record(r) for r in records)
+ 
+     def handed_off_keys(self, task_id: str) -> tuple[tuple[int, str | None], ...]:
+         """交給執行那幾列的(序號, 存下的冪等鍵);Phase 5 之前寫的列沒有存鍵,是空值。"""
+@@ -528,28 +563,33 @@ class TaskStore(TaskReads):
+         current = self._current_lease(task_id)
+         return current is None or not _is_live(current, now)
+ 
+     def _append_release(self, lease: LeaseReceipt, now: datetime) -> None:
+         self._conn.execute(
+             "INSERT INTO task_leases VALUES (?, ?, NULL, ?)",
+             (lease.task_id, lease.lease_seq + 1, _iso(now)),
+         )
+ 
+     def record_tool_call(
+-        self, task_id: str, task_seq: int, endpoint: str, outcome: str, latency_ms: float,
+-        now: datetime,
++        self, task_id: str, task_seq: int, endpoint: ToolEndpoint, outcome: str,
++        latency_ms: float, now: datetime,
+     ) -> None:
+         """記一筆對外呼叫;這筆寫入自己絕不讓「資料庫層面」的例外往外傳(比照收件口事件表
+         `inbox_store._write_event` 的既有做法,只吞 `sqlite3.Error`/`DatabaseBusy`):寫入本身
+         失敗(資料庫忙碌、連線已關閉等)就放棄這筆記錄,不能因為記錄失敗而讓包住的那次呼叫
+         跟著失敗;但呼叫端自己傳錯參數型別這類程式錯誤要老實丟出來,不能被這裡靜默吞掉。
++        端點只收列舉成員(一般字串連長得一樣的也拒,Phase 9 增量 2),「其他」只給讀舊列用。
+         """
++        if type(endpoint) is not ToolEndpoint:
++            raise TypeError("端點必須是 ToolEndpoint 的成員")
++        if endpoint is ToolEndpoint.OTHER:
++            raise ValueError("「其他」只給讀舊列用,不能寫")
+         try:
+             self._conn.execute(
+                 "INSERT INTO tool_calls (task_id, task_seq, endpoint, outcome, latency_ms, at) "
+                 "VALUES (?, ?, ?, ?, ?, ?)",
+                 (task_id, task_seq, endpoint, outcome, latency_ms, _iso(now)),
+             )
+         except (sqlite3.Error, DatabaseBusy):
+             return
+ 
+ 
+diff --git a/src/rtb/executor/attempt_store.py b/src/rtb/executor/attempt_store.py
+index 583b09b..2943316 100644
+--- a/src/rtb/executor/attempt_store.py
++++ b/src/rtb/executor/attempt_store.py
+@@ -60,20 +60,22 @@ CREATE TABLE IF NOT EXISTS attempts (
+     task_id TEXT, revision INTEGER, action TEXT, expected_version INTEGER, proposal_json TEXT,
+     written_version INTEGER, capability_expires_at TEXT,
+     PRIMARY KEY (key, seq));
+ CREATE INDEX IF NOT EXISTS attempts_first_rows ON attempts (campaign_id) WHERE seq = 1;
+ CREATE INDEX IF NOT EXISTS attempts_terminal_rows ON attempts (campaign_id)
+     WHERE state IN (TERMINAL_LIST);
+ CREATE UNIQUE INDEX IF NOT EXISTS attempts_one_terminal_per_key ON attempts (key)
+     WHERE state IN (TERMINAL_LIST);
+ CREATE INDEX IF NOT EXISTS attempts_verified_by_time ON attempts (written_at)
+     WHERE state = 'verified';
++CREATE INDEX IF NOT EXISTS attempts_terminal_by_time ON attempts (written_at)
++    WHERE state IN (TERMINAL_LIST);
+ CREATE TABLE IF NOT EXISTS dsp_calls (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, call_kind TEXT NOT NULL,
+     result TEXT NOT NULL, status INTEGER, error_code TEXT, latency_ms REAL NOT NULL,
+     task_id TEXT, revision INTEGER, campaign_id TEXT, key TEXT, source TEXT, actor TEXT,
+     program_version TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS dsp_calls_by_time ON dsp_calls (at);
+ CREATE INDEX IF NOT EXISTS dsp_calls_by_task ON dsp_calls (task_id, id);
+ """
+ _COLUMNS = ("key, seq, campaign_id, state, code, detail, send_count, verification_timeouts, "
+             "written_at, written_version, capability_expires_at")
+@@ -865,20 +867,59 @@ def record_dsp_call(
+     conn.execute(
+         "INSERT INTO dsp_calls (at, call_kind, result, status, error_code, latency_ms, task_id, "
+         "revision, campaign_id, key, source, actor, program_version) "
+         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (_iso(now), call.kind.value, call.result.value, call.status,
+          None if call.error is None else call.error.value, float(call.latency_ms),
+          subject.task_id, subject.revision, subject.campaign_id, subject.key, source, actor,
+          PROGRAM_VERSION))
+ 
+ 
++def dsp_calls_between_query(since: datetime, until: datetime) -> tuple[str, tuple[str, ...]]:
++    """時間窗內 DSP 呼叫紀錄的查詢語句(測試用它看查詢計畫);含起點、不含終點。"""
++    return (f"SELECT {', '.join(DSP_CALL_FIELDS)} FROM dsp_calls "  # noqa: S608 - 固定欄位清單
++            "WHERE at >= ? AND at < ? ORDER BY at, id", (_iso(since), _iso(until)))
++
++
++def dsp_calls_between(tx: Readable, since: datetime, until: datetime) -> tuple[DspCallRow, ...]:
++    """時間窗內的 DSP 呼叫紀錄,依呼叫時間;走時間索引(Phase 9 增量 2 的指標用)。"""
++    sql, params = dsp_calls_between_query(since, until)
++    return tuple(DspCallRow(*row) for row in _read_conn(tx).execute(sql, params))
++
++
++@dataclass(frozen=True)
++class TerminalRow:
++    """一把鍵的終點列(已驗證或失敗):指標依它的寫入時間歸窗,再回頭讀那把鍵的整串。"""
++
++    key: str
++    state: str
++    written_at: str
++    program_version: str | None
++
++
++def terminal_rows_between_query(
++    since: datetime, until: datetime,
++) -> tuple[str, tuple[str, ...]]:
++    """時間窗內終點列的查詢語句(測試用它看查詢計畫);狀態條件照抄部分索引的清單。"""
++    return ("SELECT key, state, written_at, program_version FROM attempts "  # noqa: S608 - 只拼接固定的狀態清單
++            f"WHERE state IN ({_TERMINAL_LIST}) AND written_at >= ? AND written_at < ? "
++            "ORDER BY written_at, key", (_iso(since), _iso(until)))
++
++
++def terminal_rows_between(
++    tx: Readable, since: datetime, until: datetime,
++) -> tuple[TerminalRow, ...]:
++    """時間窗內到了終點的鍵(每把鍵最多一列終點列,有唯一索引守);走終點時間的部分索引。"""
++    sql, params = terminal_rows_between_query(since, until)
++    return tuple(TerminalRow(*row) for row in _read_conn(tx).execute(sql, params))
++
++
+ def dsp_calls_for(tx: Readable, task_id: str) -> tuple[DspCallRow, ...]:
+     """一個任務的 DSP 呼叫紀錄,依寫入順序。"""
+     return tuple(DspCallRow(*row) for row in _read_conn(tx).execute(
+         f"SELECT {', '.join(DSP_CALL_FIELDS)} FROM dsp_calls WHERE task_id = ? ORDER BY id",  # noqa: S608 - 固定欄位清單
+         (task_id,)))
+ 
+ 
+ def trace_rows(tx: Readable, key: str) -> tuple[AttemptTraceRow, ...]:
+     """一把鍵的每一列嘗試,連同第一列記的任務、修訂、租戶與提案內容雜湊(那把鍵歸建立它的那份提案;
+     任務編號重用時靠內容雜湊分開,代碼審第 1 輪)。"""
+diff --git a/src/rtb/executor/inbox_store.py b/src/rtb/executor/inbox_store.py
+index 83c6672..c77ed23 100644
+--- a/src/rtb/executor/inbox_store.py
++++ b/src/rtb/executor/inbox_store.py
+@@ -722,20 +722,37 @@ class InboxReads:
+     def lifecycle_events(
+         self, tx: attempt_store.Readable, task_id: str,
+     ) -> tuple[LifecycleEvent, ...]:
+         """一個任務的生命週期事件,依寫入順序(自動遞增序號)。"""
+         self._own_read(tx)
+         rows = self._conn.execute(
+             f"SELECT {', '.join(_LIFECYCLE_FIELDS)} FROM lifecycle_events "  # noqa: S608 - 固定欄位清單
+             "WHERE task_id = ? ORDER BY id", (task_id,)).fetchall()
+         return tuple(_event(row) for row in rows)
+ 
++    def lifecycle_events_between(
++        self, tx: attempt_store.Readable, since: datetime, until: datetime,
++    ) -> tuple[LifecycleEvent, ...]:
++        """時間窗內的生命週期事件(含起點、不含終點),依時間、再依寫入順序;走時間索引(Phase 9
++        增量 2 的指標用)。"""
++        self._own_read(tx)
++        sql, params = lifecycle_events_between_query(since, until)
++        return tuple(_event(row) for row in self._conn.execute(sql, params))
++
++    def pending_snapshot(self, tx: attempt_store.Readable) -> tuple[int, str | None]:
++        """現在的待處理份數(還沒被取件、也還沒處置)與其中最早的收件時間;收件表有總列數上限,
++        查詢成本有上限(Phase 9 增量 2 的佇列現況)。"""
++        self._own_read(tx)
++        count, oldest = self._conn.execute(
++            f"SELECT count(*), min(received_at) FROM proposals WHERE {PENDING}").fetchone()  # noqa: S608 - 固定條件
++        return int(count), oldest
++
+     def last_terminal_event(
+         self, tx: attempt_store.Readable, task_id: str, revision: int, digest: str,
+     ) -> LifecycleEvent | None:
+         """一份提案(任務、修訂、內容雜湊)最後一個終點事件;走終點部分索引,不掃全表。"""
+         self._own_read(tx)
+         sql, params = last_terminal_event_query(task_id, revision, digest)
+         row = self._conn.execute(sql, params).fetchone()
+         return None if row is None else _event(row)
+ 
+     def dead_letters_for(
+@@ -1540,20 +1557,29 @@ def stop_count_query(
+     where, params = ["kind = ?"], [kind.value]
+     for clause, value in (("tenant = ?", tenant), ("campaign_id = ?", campaign_id),
+                           ("at >= ?", None if since is None else attempt_store.iso(since)),
+                           ("at < ?", None if until is None else attempt_store.iso(until))):
+         if value is not None:
+             where.append(clause)
+             params.append(value)
+     return f"SELECT count(*) FROM write_stops WHERE {' AND '.join(where)}", tuple(params)  # noqa: S608 - 只拼接固定條件
+ 
+ 
++def lifecycle_events_between_query(
++    since: datetime, until: datetime,
++) -> tuple[str, tuple[object, ...]]:
++    """時間窗內生命週期事件的查詢語句(測試用它看查詢計畫)。"""
++    return (f"SELECT {', '.join(_LIFECYCLE_FIELDS)} FROM lifecycle_events "  # noqa: S608 - 固定欄位清單
++            "WHERE at >= ? AND at < ? ORDER BY at, id",
++            (attempt_store.iso(since), attempt_store.iso(until)))
++
++
+ def last_terminal_event_query(
+     task_id: str, revision: int, digest: str,
+ ) -> tuple[str, tuple[object, ...]]:
+     """找一份提案最後一個終點事件的查詢語句(測試用它看查詢計畫);種類條件照抄部分索引的清單。"""
+     return (f"SELECT {', '.join(_LIFECYCLE_FIELDS)} FROM lifecycle_events "  # noqa: S608 - 固定欄位與列舉值
+             "WHERE task_id = ? AND revision = ? AND content_hash = ? "
+             f"AND kind IN ({_TERMINAL_KIND_LIST}) ORDER BY id DESC LIMIT 1",
+             (task_id, revision, digest))
+ 
+ 
+diff --git a/src/rtb/ops/metrics.py b/src/rtb/ops/metrics.py
+new file mode 100644
+index 0000000..ab092fe
+--- /dev/null
++++ b/src/rtb/ops/metrics.py
+@@ -0,0 +1,855 @@
++"""有界標籤的指標(Phase 9 增量 2):從只增不改的紀錄即時算,不另存計數器。只讀。
++
++兩種查詢,時間一律由呼叫端傳入,不自己讀時鐘:
++- 窗內統計:起、迄(含起點、不含終點),迄減起不得超過 24 小時。
++- 現況快照:「現在」;不套時間窗,窗外開始、至今還卡著的也算。
++
++讀法跟追蹤檢視一樣只經唯讀開法(唯讀連線、不取寫入鎖、不補表)。窗內統計跨分析端與執行端兩個資料庫,
++不可能同一個快照:每一輪重開兩邊的快照、整份算完,兩輪結果相同才回傳;最多三輪,仍不同就回最後一輪並
++標明不穩定。現況快照只讀執行端一個快照。
++
++每個樣本:名稱、標籤、數值、樣本數、狀態、分子(比率與計數才有)、範例(最多 3 個任務編號)、租戶靠
++查詢當下設定反查的份數、附註。任何比率分母為 0、延遲沒有樣本,都回「無樣本」,不是 0、不丟例外。
++- 比率的分母是跟它「分組標籤」相同的母體;「類別標籤」切分子(例:DSP 呼叫比率依呼叫類別分組、
++  依結果類別切分子)。每一項的分組與類別寫在各自的計算函式旁。
++- 延遲依那一段的結束時間歸窗,還沒結束的不算;分位數用「排序後取最近排名」。事件型計數依事件時間歸窗。
++- 最終結果率與端到端依「查詢當下的最終結果」,重放之後同一個過去的窗會變;其餘是事件型,窗過去就不變。
++
++標籤只准用宣告的種類(每個指標宣告哪幾種見 DECLARED,跟計劃的對照表一致),值域也有界:租戶是設定檔的
++名稱加「未知」;政策版本只有目前與其他;程式版本窗內超過 20 種時,依窗內最後出現時間排,較早的併成其他;
++其餘是封閉列舉,讀到列舉外的值歸成其他。
++"""
++
++import argparse
++import json
++import math
++import sys
++from collections import defaultdict
++from collections.abc import Callable, Iterable, Mapping, Sequence
++from dataclasses import dataclass, field
++from datetime import UTC, datetime, timedelta
++from enum import StrEnum
++from pathlib import Path
++from typing import Any, TextIO
++
++from rtb.analyzer.task_store import TaskReader, ToolCall, ToolEndpoint
++from rtb.domain.attempt import AttemptState
++from rtb.domain.proposal import POLICY_VERSION
++from rtb.executor import attempt_store, observability
++from rtb.executor.attempt_store import (
++    AttemptRow,
++    AttemptTraceRow,
++    DspCallKind,
++    DspCallResult,
++    DspCallRow,
++    DspErrorCode,
++    TerminalRow,
++)
++from rtb.executor.capability_signer import SigningRefused, Tenant, load_tenants
++from rtb.executor.inbox_store import (
++    TERMINAL_KINDS,
++    BlockCode,
++    DatabaseNotUpgraded,
++    LifecycleEvent,
++    LifecycleKind,
++    ReadOnlyInbox,
++)
++
++MAX_WINDOW = timedelta(hours=24)
++MAX_PROGRAM_VERSIONS = 20
++MAX_EXEMPLARS = 3
++MAX_ROUNDS = 3
++MAX_CHAIN = 8  # 接續鏈最長幾代(分析端上限 3 代;這裡只防資料毀損造成的迴圈)
++UNKNOWN_TENANT = "unknown"
++OTHER = "other"
++CURRENT = "current"
++EXIT_OK = 0
++EXIT_NO_DATABASE = 2
++EXIT_NOT_UPGRADED = 3
++EXIT_WINDOW_TOO_LONG = 4
++EXIT_UNSTABLE = 5  # 三輪都讀到不同結果:照樣印出最後一輪,結束代碼標明不穩定
++EXIT_BAD_CONFIG = 6
++JEV_NOTE = ("不適用:本系統的分析是確定性計算,沒有呼叫模型,沒有模型與 Jev 的延遲、成本、格式失敗或"
++            "退回率可量;Phase 10 若接模型再補")
++
++
++class WindowTooLong(ValueError):
++    """窗超過 24 小時,或迄不在起之後。"""
++
++
++class LabelKind(StrEnum):
++    TENANT = "tenant"
++    STAGE = "stage"
++    BLOCK_REASON = "block_reason"  # 擋下原因與關卡(可核可的關卡也是擋下原因的成員)
++    TERMINAL_KIND = "terminal_kind"
++    DSP_CALL_KIND = "dsp_call_kind"
++    DSP_CALL_RESULT = "dsp_call_result"
++    PROGRAM_VERSION = "program_version"
++    POLICY_VERSION = "policy_version"
++    ANALYZER_ENDPOINT = "analyzer_endpoint"
++
++
++class Stage(StrEnum):
++    """交接文件 14.4 的 task phase(封閉列舉)。"""
++
++    ANALYSIS = "analysis"
++    INTAKE = "intake"
++    QUEUE = "queue"
++    APPROVAL = "approval"
++    EXECUTION = "execution"
++    RECONCILIATION = "reconciliation"
++
++
++class Status(StrEnum):
++    OK = "ok"
++    NO_SAMPLES = "no_samples"
++    NOT_APPLICABLE = "not_applicable"
++
++
++K = LabelKind
++Label = tuple[LabelKind, str]
++Ident = tuple[str, int, str]  # 一份提案:任務、修訂、內容雜湊(沒記雜湊為空字串)
++
++# 每個指標宣告的標籤種類(跟計劃〈每個指標帶哪些標籤〉的對照表一致)
++_TENANT_STAGE = frozenset({K.TENANT, K.STAGE})
++_REASONED = frozenset({K.TENANT, K.BLOCK_REASON, K.STAGE})
++_VERSIONED = frozenset({K.TENANT, K.PROGRAM_VERSION, K.STAGE})
++_STAGE_ONLY = frozenset({K.STAGE})
++DECLARED: Mapping[str, frozenset[LabelKind]] = {
++    "terminal_event_rate": frozenset({K.TENANT, K.TERMINAL_KIND, K.BLOCK_REASON,
++                                      K.POLICY_VERSION, K.STAGE}),
++    "final_outcome_rate": frozenset({K.TENANT, K.TERMINAL_KIND, K.BLOCK_REASON, K.STAGE}),
++    "redelivery_rate": _TENANT_STAGE, "dead_letter_rate": _TENANT_STAGE,
++    "queue_wait_seconds": _TENANT_STAGE, "approval_wait_seconds": _REASONED,
++    "dead_letter_wait_seconds": _TENANT_STAGE, "execution_seconds": _VERSIONED,
++    "reconciliation_seconds": _VERSIONED, "reconciliation_success_rate": _VERSIONED,
++    "end_to_end_seconds": _STAGE_ONLY, "end_to_end_unlinked": _STAGE_ONLY,
++    "end_to_end_clock_anomaly": _STAGE_ONLY,
++    "dsp_calls": frozenset({K.TENANT, K.DSP_CALL_KIND, K.DSP_CALL_RESULT, K.PROGRAM_VERSION,
++                            K.STAGE}),
++    "dsp_call_rate": frozenset({K.DSP_CALL_KIND, K.DSP_CALL_RESULT, K.STAGE}),
++    "dsp_call_latency_ms": frozenset({K.DSP_CALL_KIND, K.PROGRAM_VERSION, K.STAGE}),
++    "version_conflict_rate": _VERSIONED,
++    "analyzer_calls": frozenset({K.ANALYZER_ENDPOINT, K.STAGE}),
++    "analyzer_call_latency_ms": frozenset({K.ANALYZER_ENDPOINT, K.STAGE}),
++    "blocked": _REASONED, "awaiting_approval": _REASONED, "approval_released": _REASONED,
++    "stale_rejections": _REASONED, "duplicates_prevented": _TENANT_STAGE,
++    "queue_pending": _STAGE_ONLY, "queue_oldest_wait_seconds": _STAGE_ONLY,
++    **{f"{name}{suffix}": _STAGE_ONLY
++       for name in ("unresolved_unknown", "unresolved_committed_unverified",
++                    "unresolved_escalated", "in_flight")
++       for suffix in ("", "_max_age_seconds")},
++    "locked_campaigns": _STAGE_ONLY, "aggregate_utilization": _TENANT_STAGE,
++    "model_and_jev": frozenset(),
++}
++STALE_REASONS = frozenset({BlockCode.VERSION_CHANGED, BlockCode.POLICY_VERSION_CHANGED,
++                           BlockCode.DECISION_STALE})
++_DELIVERIES = frozenset({LifecycleKind.DELIVERED, LifecycleKind.RECLAIMED})
++_UNRESOLVED_NAMES = {AttemptState.UNKNOWN: "unresolved_unknown",
++                     AttemptState.COMMITTED_UNVERIFIED: "unresolved_committed_unverified",
++                     AttemptState.ESCALATED: "unresolved_escalated",
++                     AttemptState.IN_FLIGHT: "in_flight"}
++_STATS = (("p50", 50), ("p95", 95), ("p99", 99), ("max", 100))
++
++
++@dataclass(frozen=True)
++class Sample:
++    name: str
++    labels: tuple[Label, ...]
++    value: float | None
++    count: int
++    status: Status = Status.OK
++    numerator: int | None = None
++    exemplars: tuple[str, ...] = ()
++    tenant_by_lookup: int = 0  # 其中幾份的租戶是用查詢當下的租戶設定反查的
++    note: str | None = None
++
++    @property
++    def base(self) -> str:
++        """延遲的四個統計量(名稱後綴 .p50 等)共用同一組宣告。"""
++        return self.name.split(".", 1)[0]
++
++    def label_map(self) -> dict[str, str]:
++        return {kind.value: value for kind, value in self.labels}
++
++
++@dataclass(frozen=True)
++class Report:
++    samples: tuple[Sample, ...]
++    stable: bool
++    rounds: int
++
++
++@dataclass(frozen=True)
++class _Member:
++    """指標裡的一份:它的時間(歸窗與挑範例用)、任務、租戶是不是反查的、數值(延遲才有)。"""
++
++    at: str
++    task: str | None
++    by_lookup: bool = False
++    value: float = 0.0
++
++
++def _iso(moment: datetime) -> str:
++    """跟執行端、分析端寫進紀錄的同一種固定格式 UTC 字串:字串比較就是時間比較。"""
++    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
++
++
++def _time(text: str) -> datetime:
++    return datetime.fromisoformat(text.replace("Z", "+00:00"))
++
++
++def _ident(event: LifecycleEvent) -> Ident:
++    return event.task_id, event.revision, event.content_hash or ""
++
++
++def _labels(stage: Stage, *pairs: tuple[LabelKind, str | None]) -> tuple[Label, ...]:
++    """標籤依種類的宣告順序排,值為空的那一種不帶;階段每個樣本都帶。"""
++    found = dict(pairs)
++    found[K.STAGE] = stage.value
++    return tuple((kind, value) for kind in LabelKind
++                 if (value := found.get(kind)) is not None)
++
++
++def _closed(value: str | None, members: frozenset[str]) -> str:
++    return value if value is not None and value in members else OTHER
++
++
++_BLOCK_CODES = frozenset(code.value for code in BlockCode)
++_CALL_KINDS = frozenset(kind.value for kind in DspCallKind)
++_CALL_RESULTS = frozenset(result.value for result in DspCallResult)
++_ENDPOINTS = frozenset(endpoint.value for endpoint in ToolEndpoint)
++
++
++def _reason(value: str | None) -> str:
++    return _closed(value, _BLOCK_CODES)
++
++
++# ---- 標籤值 ----
++@dataclass(frozen=True)
++class _Resolver:
++    tenants: frozenset[str]
++    owners: Mapping[str, str]  # 廣告 -> 租戶(查詢當下的設定)
++    versions: frozenset[str]  # 留下來的程式版本;其他併成其他
++
++    def tenant(self, recorded: str | None, campaign: str | None) -> tuple[str, bool]:
++        """紀錄上有租戶就用它(不在現在的設定裡歸未知);沒記的用廣告反查,並標明是反查的。"""
++        if recorded is not None:
++            return (recorded if recorded in self.tenants else UNKNOWN_TENANT), False
++        return self.owners.get(campaign or "", UNKNOWN_TENANT), True
++
++    def version(self, value: str | None) -> str:
++        return value if value in self.versions else OTHER
++
++    @staticmethod
++    def policy(value: str | None) -> str:
++        return CURRENT if value == POLICY_VERSION else OTHER
++
++
++def _resolver(tenants: Sequence[Tenant], seen: Iterable[tuple[str | None, str]]) -> _Resolver:
++    """程式版本依窗內最後出現的時間排(版本字串不保證可排序),留最新的 20 種。"""
++    last: dict[str, str] = {}
++    for version, at in seen:
++        if version is not None and at > last.get(version, ""):
++            last[version] = at
++    kept = sorted(last, key=lambda v: (last[v], v), reverse=True)[:MAX_PROGRAM_VERSIONS]
++    return _Resolver(frozenset(t.name for t in tenants),
++                     {c: t.name for t in tenants for c in t.campaigns}, frozenset(kept))
++
++
++# ---- 樣本組裝 ----
++def _exemplars(members: Iterable[_Member], slowest: bool = False) -> tuple[str, ...]:
++    """比率與計數取分子裡時間最新的;延遲取最慢的(耗時相同取結束時間最新的)。同一任務只列一次。"""
++    order = sorted(members, key=(lambda x: (x.value, x.at)) if slowest else (lambda x: x.at),
++                   reverse=True)
++    found: list[str] = []
++    for member in order:
++        if member.task is not None and member.task not in found:
++            found.append(member.task)
++    return tuple(found[:MAX_EXEMPLARS])
++
++
++def _counts(
++    name: str, stage: Stage, groups: Mapping[tuple[Label, ...], list[_Member]],
++) -> list[Sample]:
++    if not groups:
++        return [Sample(name, _labels(stage), 0, 0, numerator=0)]
++    return [Sample(name, labels, len(members), len(members), numerator=len(members),
++                   exemplars=_exemplars(members),
++                   tenant_by_lookup=sum(x.by_lookup for x in members))
++            for labels, members in sorted(groups.items())]
++
++
++def _rates(
++    name: str, stage: Stage,
++    population: Mapping[tuple[Label, ...], Sequence[_Member]],
++    hits: Mapping[tuple[tuple[Label, ...], tuple[Label, ...]], Sequence[_Member]],
++) -> list[Sample]:
++    """population:分組標籤 -> 母體;hits:(分組標籤, 類別標籤) -> 分子。分組有母體但某類別沒有分子的
++    不出樣本(只報出現過的類別);沒有任何母體回一個無樣本。"""
++    if not population:
++        return [Sample(name, _labels(stage), None, 0, Status.NO_SAMPLES)]
++    samples = []
++    for (group, category), members in sorted(hits.items()):
++        total = population[group]
++        labels = tuple(sorted((*group, *category), key=lambda pair: list(LabelKind).index(pair[0])))
++        samples.append(Sample(name, labels, len(members) / len(total), len(total),
++                              numerator=len(members), exemplars=_exemplars(members),
++                              tenant_by_lookup=sum(x.by_lookup for x in total)))
++    for group, total in sorted(population.items()):
++        if not any(g == group for g, _ in hits):  # 有母體、分子為 0
++            samples.append(Sample(name, group, 0.0, len(total), numerator=0,
++                                  tenant_by_lookup=sum(x.by_lookup for x in total)))
++    return samples
++
++
++def _nearest_rank(ordered: Sequence[float], percentile: int) -> float:
++    return ordered[max(1, math.ceil(percentile / 100 * len(ordered))) - 1]
++
++
++def _latencies(
++    name: str, stage: Stage, groups: Mapping[tuple[Label, ...], Sequence[_Member]],
++) -> list[Sample]:
++    if not groups:
++        return [Sample(f"{name}.{stat}", _labels(stage), None, 0, Status.NO_SAMPLES)
++                for stat, _ in _STATS]
++    samples = []
++    for labels, members in sorted(groups.items()):
++        ordered = sorted(member.value for member in members)
++        exemplars = _exemplars(members, slowest=True)
++        lookups = sum(x.by_lookup for x in members)
++        samples += [Sample(f"{name}.{stat}", labels, _nearest_rank(ordered, percentile),
++                           len(ordered), exemplars=exemplars, tenant_by_lookup=lookups)
++                    for stat, percentile in _STATS]
++    return samples
++
++
++def _seconds(start: str, end: str) -> float:
++    return (_time(end) - _time(start)).total_seconds()
++
++
++# ---- 讀:執行端一個快照 ----
++@dataclass(frozen=True)
++class _ExecutorPart:
++    events: tuple[LifecycleEvent, ...]  # 窗內事件
++    histories: Mapping[Ident, tuple[LifecycleEvent, ...]]  # 窗內事件涉及的提案的全部事件
++    task_revisions: Mapping[str, int]  # 窗內事件涉及的任務,事件裡出現過的最新修訂
++    finals: Mapping[Ident, LifecycleEvent]  # 窗內有終點事件的提案,全域最後一個終點事件
++    calls: tuple[DspCallRow, ...]
++    reconciled: tuple[tuple[TerminalRow, tuple[AttemptTraceRow, ...]], ...]
++
++
++def _read_executor(path: Path, since: datetime, until: datetime) -> _ExecutorPart:
++    inbox = ReadOnlyInbox(path)
++    try:
++        with inbox.read_transaction() as tx:
++            events = inbox.lifecycle_events_between(tx, since, until)
++            by_task = {task: inbox.lifecycle_events(tx, task)
++                       for task in sorted({e.task_id for e in events})}
++            finals = {}
++            for ident in sorted({_ident(e) for e in events if e.kind in TERMINAL_KINDS}):
++                # 查法:窗內的候選逐一用終點部分索引取全域最後一個,工作量跟候選數成正比
++                last = inbox.last_terminal_event(tx, *ident)
++                if last is not None:
++                    finals[ident] = last
++            calls = attempt_store.dsp_calls_between(tx, since, until)
++            reconciled = tuple((row, attempt_store.trace_rows(tx, row.key))
++                               for row in attempt_store.terminal_rows_between(tx, since, until))
++    finally:
++        inbox.close()
++    histories: dict[Ident, list[LifecycleEvent]] = defaultdict(list)
++    revisions: dict[str, int] = {}
++    for task, found in by_task.items():
++        for event in found:
++            histories[_ident(event)].append(event)
++            revisions[task] = max(revisions.get(task, event.revision), event.revision)
++    return _ExecutorPart(events, {k: tuple(v) for k, v in histories.items()}, revisions, finals,
++                         calls, reconciled)
++
++
++# ---- 讀:分析端一個快照 ----
++@dataclass(frozen=True)
++class _Chain:
++    root: str
++    last: str
++    created: str | None  # 根任務在分析端建立的時間;分析端沒有這個任務為空(接不上)
++
++
++@dataclass(frozen=True)
++class _AnalyzerPart:
++    tool_calls: tuple[ToolCall, ...]
++    chains: Mapping[str, _Chain]
++
++
++def _chain(reader: TaskReader, task: str) -> _Chain:
++    root = task
++    for _ in range(MAX_CHAIN):
++        parent = reader.follow_up_of(root)
++        if parent is None:
++            break
++        root = parent
++    last = root
++    for _ in range(MAX_CHAIN):
++        child = reader.follow_up_to(last)
++        if child is None or child == root:
++            break
++        last = child
++    history = reader.history(root)
++    created = _iso(history[0].written_at) if history else None
++    return _Chain(root, last, created)
++
++
++def _read_analyzer(path: Path, since: datetime, until: datetime,
++                   tasks: Iterable[str]) -> _AnalyzerPart:
++    reader = TaskReader(path)
++    try:
++        return _AnalyzerPart(reader.tool_calls_between(since, until),
++                             {task: _chain(reader, task) for task in sorted(set(tasks))})
++    finally:
++        reader.close()
++
++
++# ---- 算:窗內統計 ----
++@dataclass
++class _Window:
++    since: str
++    until: str
++    part: _ExecutorPart
++    analyzer: _AnalyzerPart
++    labeler: _Resolver
++    samples: list[Sample] = field(default_factory=list)
++
++    def inside(self, at: str) -> bool:
++        return self.since <= at < self.until
++
++    def tenant_of(self, event: LifecycleEvent) -> tuple[str, bool]:
++        return self.labeler.tenant(event.tenant, event.campaign_id)
++
++    def member(self, event: LifecycleEvent, value: float = 0.0) -> _Member:
++        return _Member(event.at, event.task_id, self.tenant_of(event)[1], value)
++
++
++def _event_counts(w: _Window) -> None:
++    """擋下(依原因)、進待核可、核可放回、過時決策拒絕(版本已變、政策已變、決策已過時三種執行前
++    擋下)、擋掉的重複(依既有結果確認為是):依事件時間歸窗。"""
++    groups: dict[str, dict[tuple[Label, ...], list[_Member]]] = defaultdict(
++        lambda: defaultdict(list))
++    for event in w.part.events:
++        tenant = (K.TENANT, w.tenant_of(event)[0])
++        reason = (K.BLOCK_REASON, _reason(event.reason))
++        if event.kind == LifecycleKind.BLOCKED:
++            groups["blocked"][_labels(Stage.EXECUTION, tenant, reason)].append(w.member(event))
++            if event.reason in STALE_REASONS:
++                groups["stale_rejections"][_labels(Stage.EXECUTION, tenant, reason)].append(
++                    w.member(event))
++        elif event.kind == LifecycleKind.AWAITING_APPROVAL:
++            groups["awaiting_approval"][_labels(Stage.APPROVAL, tenant, reason)].append(
++                w.member(event))
++        elif event.kind == LifecycleKind.APPROVAL_RELEASED:
++            groups["approval_released"][_labels(Stage.APPROVAL, tenant, reason)].append(
++                w.member(event))
++        if event.from_existing:
++            groups["duplicates_prevented"][_labels(Stage.EXECUTION, tenant)].append(
++                w.member(event))
++    for name, stage in (("blocked", Stage.EXECUTION), ("awaiting_approval", Stage.APPROVAL),
++                        ("approval_released", Stage.APPROVAL),
++                        ("stale_rejections", Stage.EXECUTION),
++                        ("duplicates_prevented", Stage.EXECUTION)):
++        w.samples += _counts(name, stage, groups[name])
++
++
++def _terminal_event_rate(w: _Window) -> None:
++    """事件型:母體是窗內的終點事件,依租戶分組;類別是終點種類、擋下原因(擋下才有)與政策版本。"""
++    population: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    hits: dict[tuple[tuple[Label, ...], tuple[Label, ...]], list[_Member]] = defaultdict(list)
++    for event in w.part.events:
++        if event.kind not in TERMINAL_KINDS:
++            continue
++        group = _labels(Stage.EXECUTION, (K.TENANT, w.tenant_of(event)[0]))
++        category = ((K.TERMINAL_KIND, event.kind),
++                    *(((K.BLOCK_REASON, _reason(event.reason)),)
++                      if event.kind == LifecycleKind.BLOCKED else ()),
++                    (K.POLICY_VERSION, w.labeler.policy(event.policy_version)))
++        population[group].append(w.member(event))
++        hits[group, category].append(w.member(event))
++    w.samples += _rates("terminal_event_rate", Stage.EXECUTION, population, hits)
++
++
++def _final_outcome_rate(w: _Window) -> None:
++    """依查詢當下最終結果:每份提案只算一次,先取它全域最後一個終點事件,再看落不落在窗內(重放之後
++    會變)。依租戶分組;類別是終點種類與擋下原因。"""
++    population: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    hits: dict[tuple[tuple[Label, ...], tuple[Label, ...]], list[_Member]] = defaultdict(list)
++    for final in w.part.finals.values():
++        if not w.inside(final.at):
++            continue
++        group = _labels(Stage.EXECUTION, (K.TENANT, w.tenant_of(final)[0]))
++        category = ((K.TERMINAL_KIND, final.kind),
++                    *(((K.BLOCK_REASON, _reason(final.reason)),)
++                      if final.kind == LifecycleKind.BLOCKED else ()))
++        population[group].append(w.member(final))
++        hits[group, category].append(w.member(final))
++    w.samples += _rates("final_outcome_rate", Stage.EXECUTION, population, hits)
++
++
++def _per_proposal_rate(
++    w: _Window, name: str, stage: Stage, in_population: frozenset[str],
++    counts: Callable[[LifecycleEvent], bool],
++) -> None:
++    """母體是窗內有 in_population 種類事件的提案(依租戶分組);counts(事件) 為真的算進分子。"""
++    first: dict[Ident, LifecycleEvent] = {}
++    hit: dict[Ident, LifecycleEvent] = {}
++    for event in w.part.events:
++        if event.kind in in_population:
++            first.setdefault(_ident(event), event)
++        if counts(event):
++            hit[_ident(event)] = event
++    population: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    hits: dict[tuple[tuple[Label, ...], tuple[Label, ...]], list[_Member]] = defaultdict(list)
++    for ident, event in first.items():
++        group = _labels(stage, (K.TENANT, w.tenant_of(event)[0]))
++        population[group].append(w.member(event))
++        if ident in hit:
++            hits[group, ()].append(w.member(hit[ident]))
++    w.samples += _rates(name, stage, population, hits)
++
++
++def _redelivery_and_dead_letter_rates(w: _Window) -> None:
++    # 重投率:母體是窗內有取件或租約過期被接手事件的提案;窗內這類事件的投遞次數大於 1 就算重投
++    _per_proposal_rate(w, "redelivery_rate", Stage.QUEUE, _DELIVERIES,
++                       lambda e: e.kind in _DELIVERIES and (e.deliveries or 0) > 1)
++    # 死信率:母體是窗內有終點事件的提案;窗內真的發生過死信就算(重放後成功照樣算)
++    _per_proposal_rate(w, "dead_letter_rate", Stage.QUEUE, TERMINAL_KINDS,
++                       lambda e: e.kind == LifecycleKind.DEAD_LETTERED)
++
++
++def _intervals(
++    history: Sequence[LifecycleEvent], opens: str, closes: frozenset[str],
++) -> list[tuple[LifecycleEvent, LifecycleEvent]]:
++    """一份提案的事件裡,從 opens 種類到下一個 closes 種類的每一段(沒結束的不算)。"""
++    found, start = [], None
++    for event in history:
++        if event.kind == opens and start is None:
++            start = event
++        elif event.kind in closes and start is not None:
++            found.append((start, event))
++            start = None
++    return found
++
++
++_APPROVAL_ENDS = frozenset({LifecycleKind.APPROVAL_RELEASED, *TERMINAL_KINDS})
++_DEAD_LETTER_ENDS = frozenset({LifecycleKind.REPLAY_REQUEUED})
++
++
++def _waits(w: _Window) -> None:
++    """佇列等待(收件 → 第一次取件)、人工核可等待(進待核可 → 核可放回或到期)、死信等待(進死信 →
++    重放放回):依結束時間歸窗。"""
++    queue: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    approval: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    dead: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    for history in w.part.histories.values():
++        received = next((e for e in history if e.kind == LifecycleKind.RECEIVED), None)
++        delivered = next((e for e in history if e.kind in _DELIVERIES), None)
++        if received is not None and delivered is not None and w.inside(delivered.at):
++            tenant = (K.TENANT, w.tenant_of(delivered)[0])
++            queue[_labels(Stage.QUEUE, tenant)].append(
++                w.member(delivered, _seconds(received.at, delivered.at)))
++        for start, end in _intervals(history, LifecycleKind.AWAITING_APPROVAL, _APPROVAL_ENDS):
++            if w.inside(end.at):
++                labels = _labels(Stage.APPROVAL, (K.TENANT, w.tenant_of(end)[0]),
++                                 (K.BLOCK_REASON, _reason(start.reason)))
++                approval[labels].append(w.member(end, _seconds(start.at, end.at)))
++        for start, end in _intervals(history, LifecycleKind.DEAD_LETTERED, _DEAD_LETTER_ENDS):
++            if w.inside(end.at):
++                dead[_labels(Stage.QUEUE, (K.TENANT, w.tenant_of(end)[0]))].append(
++                    w.member(end, _seconds(start.at, end.at)))
++    w.samples += _latencies("queue_wait_seconds", Stage.QUEUE, queue)
++    w.samples += _latencies("approval_wait_seconds", Stage.APPROVAL, approval)
++    w.samples += _latencies("dead_letter_wait_seconds", Stage.QUEUE, dead)
++
++
++def _overlap(start: str, end: str, spans: Iterable[tuple[str, str]]) -> float:
++    total = 0.0
++    for left, right in spans:
++        low, high = max(start, left), min(end, right)
++        if low < high:
++            total += _seconds(low, high)
++    return total
++
++
++def _execution(w: _Window) -> None:
++    """執行端處理:第一次取件 → 最終終點,扣掉其間的人工核可等待與死信等待;依最終終點歸窗。"""
++    groups: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    for ident, final in w.part.finals.items():
++        if not w.inside(final.at):
++            continue
++        history = w.part.histories.get(ident, ())
++        first = next((e for e in history if e.kind in _DELIVERIES and e.at <= final.at), None)
++        if first is None:
++            continue
++        waits = [(s.at, e.at) for s, e in
++                 _intervals(history, LifecycleKind.AWAITING_APPROVAL, _APPROVAL_ENDS)
++                 + _intervals(history, LifecycleKind.DEAD_LETTERED, _DEAD_LETTER_ENDS)]
++        spent = _seconds(first.at, final.at) - _overlap(first.at, final.at, waits)
++        labels = _labels(Stage.EXECUTION, (K.TENANT, w.tenant_of(final)[0]),
++                         (K.PROGRAM_VERSION, w.labeler.version(final.program_version)))
++        groups[labels].append(w.member(final, spent))
++    w.samples += _latencies("execution_seconds", Stage.EXECUTION, groups)
++
++
++def _reconciliation(w: _Window) -> None:
++    """對帳:一把鍵第一次進結果不明 → 那把鍵結案(依結案時間歸窗);報耗時與成功比率(結案為已驗證)。
++    分組是租戶與結案那一列的程式版本。"""
++    times: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    population: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    hits: dict[tuple[tuple[Label, ...], tuple[Label, ...]], list[_Member]] = defaultdict(list)
++    for terminal, history in w.part.reconciled:
++        unknown = next((r for r in history if r.state == AttemptState.UNKNOWN), None)
++        if unknown is None or not history:
++            continue
++        tenant, by_lookup = w.labeler.tenant(history[0].tenant, history[0].campaign_id)
++        labels = _labels(Stage.RECONCILIATION, (K.TENANT, tenant),
++                         (K.PROGRAM_VERSION, w.labeler.version(terminal.program_version)))
++        member = _Member(terminal.written_at, history[0].task_id, by_lookup,
++                         _seconds(unknown.written_at, terminal.written_at))
++        times[labels].append(member)
++        population[labels].append(member)
++        if terminal.state == AttemptState.VERIFIED:
++            hits[labels, ()].append(member)
++    w.samples += _latencies("reconciliation_seconds", Stage.RECONCILIATION, times)
++    w.samples += _rates("reconciliation_success_rate", Stage.RECONCILIATION, population, hits)
++
++
++def _end_to_end(w: _Window) -> None:
++    """端到端(依查詢當下最終結果):沿接續關係回溯到根任務,從根任務在分析端建立 → 鏈上最後一個
++    任務最新修訂的最終終點;每條鏈在窗內只算一次,被取代的修訂與非鏈尾的任務不另成樣本。分析端
++    沒有這個任務的另報接不上;算出負值(兩邊時鐘不同步)不計入、另報時鐘異常。"""
++    ends: dict[str, tuple[_Chain, LifecycleEvent]] = {}
++    unlinked: dict[str, LifecycleEvent] = {}
++    for (task, revision, _), final in sorted(w.part.finals.items()):
++        if not w.inside(final.at):
++            continue
++        chain = w.analyzer.chains.get(task)
++        if chain is None or chain.created is None:
++            unlinked[task] = final
++            continue
++        if task != chain.last or revision != w.part.task_revisions.get(task, revision):
++            continue
++        seen = ends.get(chain.root)
++        if seen is None or final.at > seen[1].at:
++            ends[chain.root] = (chain, final)
++    samples: list[_Member] = []
++    anomalies: list[_Member] = []
++    for chain, final in ends.values():
++        assert chain.created is not None  # noqa: S101 - 上面已把沒有建立時間的歸成接不上
++        spent = _seconds(chain.created, final.at)
++        (anomalies if spent < 0 else samples).append(_Member(final.at, final.task_id, False, spent))
++    stage = _labels(Stage.ANALYSIS)
++    w.samples += _latencies("end_to_end_seconds", Stage.ANALYSIS,
++                            {stage: samples} if samples else {})
++    for name, members in (("end_to_end_unlinked", [w.member(e) for e in unlinked.values()]),
++                          ("end_to_end_clock_anomaly", anomalies)):
++        w.samples.append(Sample(name, stage, len(members), len(members), numerator=len(members),
++                                exemplars=_exemplars(members)))
++
++
++def _dsp(w: _Window) -> None:
++    """DSP 呼叫(依呼叫時間歸窗;租戶一律用廣告以查詢當下的設定反查,呼叫紀錄沒有租戶欄)。
++    - 次數:依租戶、呼叫類別、結果類別、程式版本。
++    - 比率:依呼叫類別分組(分母是同一呼叫類別的窗內呼叫數),依結果類別切分子。
++    - 耗時:依呼叫類別與程式版本。
++    - 版本衝突率:窗內寫入呼叫(依租戶與程式版本分組)中,錯誤代碼是版本衝突的比率;分子分母同一批。"""
++    counts: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    kinds: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    results: dict[tuple[tuple[Label, ...], tuple[Label, ...]], list[_Member]] = defaultdict(list)
++    latency: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    writes: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    conflicts: dict[tuple[tuple[Label, ...], tuple[Label, ...]], list[_Member]] = defaultdict(list)
++    for call in w.part.calls:
++        tenant, by_lookup = w.labeler.tenant(None, call.campaign_id)
++        kind = (K.DSP_CALL_KIND, _closed(call.kind, _CALL_KINDS))
++        result = (K.DSP_CALL_RESULT, _closed(call.result, _CALL_RESULTS))
++        version = (K.PROGRAM_VERSION, w.labeler.version(call.program_version))
++        member = _Member(call.at, call.task_id, by_lookup, call.latency_ms)
++        counts[_labels(Stage.EXECUTION, (K.TENANT, tenant), kind, result, version)].append(member)
++        group = _labels(Stage.EXECUTION, kind)
++        kinds[group].append(member)
++        results[group, (result,)].append(member)
++        latency[_labels(Stage.EXECUTION, kind, version)].append(member)
++        if call.kind == DspCallKind.WRITE:
++            write_group = _labels(Stage.EXECUTION, (K.TENANT, tenant), version)
++            writes[write_group].append(member)
++            if call.error == DspErrorCode.VERSION_CONFLICT:
++                conflicts[write_group, ()].append(member)
++    w.samples += _counts("dsp_calls", Stage.EXECUTION, counts)
++    w.samples += _rates("dsp_call_rate", Stage.EXECUTION, kinds, results)
++    w.samples += _latencies("dsp_call_latency_ms", Stage.EXECUTION, latency)
++    w.samples += _rates("version_conflict_rate", Stage.EXECUTION, writes, conflicts)
++
++
++def _analyzer_calls(w: _Window) -> None:
++    """分析端對外呼叫:依端點的次數與耗時(毫秒),依呼叫時間歸窗。"""
++    groups: dict[tuple[Label, ...], list[_Member]] = defaultdict(list)
++    for call in w.analyzer.tool_calls:
++        at = _iso(call.at)
++        endpoint = _closed(call.endpoint.value, _ENDPOINTS)
++        groups[_labels(Stage.ANALYSIS, (K.ANALYZER_ENDPOINT, endpoint))].append(
++            _Member(at, call.task_id, False, call.latency_ms))
++    w.samples += _counts("analyzer_calls", Stage.ANALYSIS, groups)
++    w.samples += _latencies("analyzer_call_latency_ms", Stage.ANALYSIS, groups)
++
++
++def _compute_window(
++    since: datetime, until: datetime, part: _ExecutorPart, analyzer: _AnalyzerPart,
++    tenants: Sequence[Tenant],
++) -> tuple[Sample, ...]:
++    seen: list[tuple[str | None, str]] = [(e.program_version, e.at) for e in part.events]
++    seen += [(f.program_version, f.at) for f in part.finals.values()]
++    seen += [(c.program_version, c.at) for c in part.calls]
++    seen += [(row.program_version, row.written_at) for row, _ in part.reconciled]
++    w = _Window(_iso(since), _iso(until), part, analyzer,
++                _resolver(tenants, seen))
++    for step in (_terminal_event_rate, _final_outcome_rate, _redelivery_and_dead_letter_rates,
++                 _waits, _execution, _reconciliation, _end_to_end, _dsp, _analyzer_calls,
++                 _event_counts):
++        step(w)
++    w.samples.append(Sample("model_and_jev", (), None, 0, Status.NOT_APPLICABLE, note=JEV_NOTE))
++    return tuple(w.samples)
++
++
++def _check_window(since: datetime, until: datetime) -> None:
++    if until <= since:
++        raise WindowTooLong("窗的迄必須在起之後")
++    if until - since > MAX_WINDOW:
++        raise WindowTooLong("窗不得超過 24 小時")
++
++
++def collect_window(
++    since: datetime, until: datetime, *, executor_db: Path, analyzer_db: Path,
++    tenants: Sequence[Tenant],
++) -> Report:
++    """窗內統計。每一輪重開兩邊的快照整份重算,兩輪結果相同才回傳;最多三輪,仍不同回最後一輪並標明
++    不穩定。資料庫檔不存在丟 FileNotFoundError;還沒升級丟 DatabaseNotUpgraded(都不寫任何東西)。"""
++    _check_window(since, until)
++    previous: tuple[Sample, ...] | None = None
++    for rounds in range(1, MAX_ROUNDS + 1):
++        part = _read_executor(Path(executor_db), since, until)
++        analyzer = _read_analyzer(Path(analyzer_db), since, until,
++                                  (task for task, _, _ in part.finals))
++        current = _compute_window(since, until, part, analyzer, tenants)
++        if current == previous:
++            return Report(current, True, rounds)
++        previous = current
++    assert previous is not None  # noqa: S101 - 至少算過一輪
++    return Report(previous, False, MAX_ROUNDS)
++
++
++# ---- 算:現況快照 ----
++def _entered(history: Sequence[AttemptRow]) -> datetime:
++    """這把鍵進入目前狀態的時間:最後一段同狀態連續列的第一列。"""
++    state, entered = history[-1].state, history[-1].written_at
++    for row in reversed(history):
++        if row.state != state:
++            break
++        entered = row.written_at
++    return entered
++
++
++def collect_snapshot(now: datetime, *, executor_db: Path, tenants: Sequence[Tenant]) -> Report:
++    """現況快照:佇列現況、四種沒有終點的嘗試狀態、被未結案鍵鎖住的廣告數、總曝險使用率。不套時間窗。"""
++    inbox = ReadOnlyInbox(Path(executor_db))
++    try:
++        with inbox.read_transaction() as tx:
++            pending, oldest = inbox.pending_snapshot(tx)
++            histories = [attempt_store.history(tx, key)
++                         for key in attempt_store.unresolved_keys(tx)]
++            locked = attempt_store.campaigns_with_unresolved(tx)
++            usage = [(t, observability.utilization(tx, t.name, t.aggregate_limit, now))
++                     for t in tenants]
++    finally:
++        inbox.close()
++    queue = _labels(Stage.QUEUE)
++    samples = [Sample("queue_pending", queue, pending, pending),
++               Sample("queue_oldest_wait_seconds", queue, None, 0, Status.NO_SAMPLES)
++               if oldest is None else
++               Sample("queue_oldest_wait_seconds", queue, (now - _time(oldest)).total_seconds(),
++                      pending)]
++    reconciling = _labels(Stage.RECONCILIATION)
++    for state, name in _UNRESOLVED_NAMES.items():
++        ages = [(now - _entered(h)).total_seconds()
++                for h in histories if h and h[-1].state == state]
++        samples.append(Sample(name, reconciling, len(ages), len(ages)))
++        samples.append(Sample(f"{name}_max_age_seconds", reconciling, max(ages), len(ages))
++                       if ages else Sample(f"{name}_max_age_seconds", reconciling, None, 0,
++                                           Status.NO_SAMPLES))
++    samples.append(Sample("locked_campaigns", reconciling, len(locked), len(locked)))
++    for tenant, used in usage:
++        labels = _labels(Stage.EXECUTION, (K.TENANT, tenant.name))
++        samples.append(Sample("aggregate_utilization", labels, used.used / used.limit, used.limit,
++                              numerator=used.used) if used.limit > 0 else
++                       Sample("aggregate_utilization", labels, None, 0, Status.NO_SAMPLES))
++    return Report(tuple(samples), True, 1)
++
++
++# ---- 輸出與命令列入口 ----
++def to_primitives(result: Report) -> dict[str, Any]:
++    return {"stable": result.stable, "rounds": result.rounds,
++            "note": None if result.stable else "讀取期間有新提交,數字可能不一致",
++            "samples": [{"name": s.name, "labels": s.label_map(), "value": s.value,
++                         "count": s.count, "status": s.status.value, "numerator": s.numerator,
++                         "exemplars": list(s.exemplars), "tenant_by_lookup": s.tenant_by_lookup,
++                         "note": s.note} for s in result.samples]}
++
++
++def _parse(argv: list[str] | None) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="有界標籤的指標(只讀)")
++    parser.add_argument("--executor-db", required=True, type=Path)
++    parser.add_argument("--analyzer-db", type=Path, help="窗內統計才要")
++    parser.add_argument("--tenants-config", required=True, type=Path)
++    parser.add_argument("--since", type=datetime.fromisoformat)
++    parser.add_argument("--until", type=datetime.fromisoformat)
++    parser.add_argument("--now", type=datetime.fromisoformat, help="給了就是現況快照")
++    args = parser.parse_args(argv)
++    if args.now is None and (args.since is None or args.until is None or args.analyzer_db is None):
++        parser.error("窗內統計要 --since、--until 與 --analyzer-db;現況快照要 --now")
++    return args
++
++
++def run(argv: list[str] | None = None, *, out: TextIO | None = None,
++        err: TextIO | None = None) -> int:
++    args = _parse(argv)
++    errors = err or sys.stderr
++    try:
++        if args.now is None:
++            _check_window(args.since, args.until)  # 先驗窗,不必先讀設定檔
++        tenants = load_tenants(args.tenants_config)
++        result = (collect_snapshot(args.now, executor_db=args.executor_db, tenants=tenants)
++                  if args.now is not None else
++                  collect_window(args.since, args.until, executor_db=args.executor_db,
++                                 analyzer_db=args.analyzer_db, tenants=tenants))
++    except WindowTooLong as refused:
++        print(f"拒絕:{refused}(窗內統計最長 24 小時)", file=errors)
++        return EXIT_WINDOW_TOO_LONG
++    except SigningRefused as bad:
++        print(f"租戶設定檔讀不了:{bad}", file=errors)
++        return EXIT_BAD_CONFIG
++    except FileNotFoundError as missing:
++        print(f"找不到資料庫檔:{missing}", file=errors)
++        return EXIT_NO_DATABASE
++    except DatabaseNotUpgraded as old:
++        print(f"{old}。請先啟動一次執行迴圈(分析端資料庫則先跑一次分析行程),讓它補上新表與"
++              "新欄位;指標只讀,不替它補", file=errors)
++        return EXIT_NOT_UPGRADED
++    print(json.dumps(to_primitives(result), ensure_ascii=False, indent=2), file=out or sys.stdout)
++    if not result.stable:
++        print("讀取期間有新提交:三輪讀到的結果都不同,印出的是最後一輪", file=errors)
++        return EXIT_UNSTABLE
++    return EXIT_OK
++
++
++def main(argv: list[str] | None = None) -> None:
++    raise SystemExit(run(argv))
++
++
++if __name__ == "__main__":
++    main()

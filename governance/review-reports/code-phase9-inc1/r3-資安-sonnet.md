@@ -1,0 +1,18 @@
+severity: clean
+All relevant tests pass and code inspection found no exploitable gap. Full report below (verbatim, as required).
+
+---
+
+severity: clean
+
+本輪材料 `governance/review-reports/code-phase9-inc1/r3-delta.patch`(第 2 輪修正,回應第 2 輪資安席發現的「追蹤檢視內容雜湊接回錯提案」問題),針對指定的四個重點面向逐一查證,未發現可被外部不可信輸入(提案內容、DSP 回應、命令列參數、LLM 產出文字)利用的漏洞。
+
+**1. 待寫清單卡上限、執行迴圈停擺(DoS)**:`src/rtb/executor/execution.py` 新增 `MAX_PENDING_CALLS = 50` 與 `_backlogged()`,`process_one` 到上限就回 `Result.DEFERRED`、`reconcile_all` 每把鍵開始前檢查到上限就 `break`。`flush_calls()` 只有在 `record_dsp_call` 拋出 `InboxBusy`(本機 SQLite 寫入鎖逾時)時才會回傳 `False` 讓清單留著,這個忙碌狀態不是 DSP 回應內容或提案內容能直接操控的外部輸入(此判斷與 r2 資安席報告一致,交叉核對確認未變)。`runner.py` 新增 `behind = not executor.flush_calls()` 併入既有的 `busy_streak` 計數,連續 `BUSY_LIMIT=3` 輪仍卡住就印訊息、乾淨結束(`EXIT_BUSY`),不會無限空轉;`_serve` 結束前再補寫一次,仍卡住就照實印出少記幾列。跑過 `tests/executor/test_runner.py` 裡新增的四個回歸測試(卡上限即擋新工作、對帳中途到上限即停在當把鍵之前、啟動程式清楚回報忙碌與少記),全數通過,行為與程式碼一致。單一提案能造出的呼叫紀錄數已被既有 `MAX_UNRESOLVED=20`(未結案筆數上限)與單輪呼叫數上限（`MAX_SENDS=3`）卡住,大量提案本身不能讓清單無界成長。
+
+**2. stderr 印少記冪等鍵洩密**:`runner.py` 的 `unrecorded()` 回傳的 `key` 全部來自 `attempt_store.begin()` 內的 `key = operation_key(proposal)`(`src/rtb/executor/attempt_store.py:548`),而 `operation_key` 本身是 `KEY_PREFIX + sha256(...)`(`src/rtb/domain/attempt.py:20-34`),只對 `task_id`/`campaign_id`/`action_type`/`requested_change`/`campaign_version_observed` 取單向雜湊,不含憑證、簽章金鑰或請求標頭(此點與 r1 資安席報告的結論一致)。全域搜尋確認 `CallSubject`/`Begun.row.key` 等所有傳進 `_pending` 的 `key` 都是這個雜湊值,沒有任何路徑把 `X-Capability` 之類的憑證或提案原文塞進 `unrecorded()`。停機與少記兩處 stderr 訊息(`src/rtb/executor/runner.py:82-84`、`:100-102`)只印雜湊鍵與計數,無機密外洩路徑。
+
+**3. 內容雜湊欄與追蹤讀取的偽造歸屬路徑**:這正是本輪修正的目標——`content_hash` 改成呼叫當下由 `Executor._calls()` 直接算好存進 `CallSubject`(`src/rtb/executor/execution.py:449-452`),`record_dsp_call` 原樣寫進 `dsp_calls.content_hash`(`src/rtb/executor/attempt_store.py:914-920`),`ops/trace.py` 的 `_call_segment` 改成直接讀那一列自己的 `content_hash`,沒記到就標 `Absent.UNKNOWN`(不猜),完全移除了第 2 輪報告指出的、用 `(task_id, revision, operation_key)` 三元組回推、字典推導式靜默覆蓋碰撞的 `hashes` 邏輯(舊碼裡的 `hashes = {(task, revision, key): digest ...}` 整段已刪除,交叉核對 `src/rtb/ops/trace.py` 全文確認無殘留)。這個雜湊是從執行端自己驗證過、記憶體內的 `proposal` 物件當場算出,不是從 DSP 回應或任何外部輸入回推,無法被惡意 DSP 回應或提案內容偽造歸屬(SHA-256 找碰撞不可行)。核對欄位順序:`DSP_CALL_FIELDS`、`DspCallRow` 欄位定義與 `INSERT`/`VALUES` 的順序完全對齊,無位移造成欄位錯位的問題。新增回歸測試 `test_calls_for_two_proposals_sharing_a_key_keep_their_own_content_hash`(同鍵不同內容雜湊各自對應正確一列)、`test_a_call_record_table_opened_earlier_on_this_branch_gains_the_content_hash_column`(舊庫後補欄位)、`test_ops_boundaries.py` 全套跑過均通過。
+
+**4. 維運掃描禁用清單**:`tests/ops/test_ops_boundaries.py` 的 `DYNAMIC_LOOKUPS` 新增 `eval`/`exec`/`compile`/`__import__`/`importlib`/`import_module`,`_dynamic_lookups` 改成同時掃 `ast.Name`/`ast.Attribute`/`ast.alias`(含點號取第一段)/`ast.ImportFrom`(依 `module` 第一段),涵蓋 `import importlib.util as _iu`、`from importlib.util import find_spec` 這類子模組匯入的變形寫法。這支掃描的威脅模型本來就是「防忘記不防繞過」(维护者在 `ops/` 套件裡不小心寫出動態取屬性或動態執行的程式碼,不是防禦被授權的貢獻者刻意繞過靜態掃描),用 `globals()[...]` 或屬性鏈拼字串等手法繞過屬本來就承認的既有限制,不是本輪新增的退化。附帶新增的 12 個測試案例(含子模組匯入/別名/從子模組匯入的邊界情形)全數通過。
+
+Files inspected(全文 diff `r3-delta.patch` 及交叉核對的實際原始碼):`src/rtb/executor/execution.py`、`src/rtb/executor/runner.py`、`src/rtb/executor/attempt_store.py`、`src/rtb/executor/inbox_store.py`、`src/rtb/ops/trace.py`、`src/rtb/domain/attempt.py`、`src/rtb/domain/proposal.py`、`tests/executor/test_dsp_calls.py`、`tests/executor/test_runner.py`、`tests/executor/test_read_only.py`、`tests/ops/test_trace.py`、`tests/ops/test_ops_boundaries.py`;另跑過 `tests/executor/test_dsp_calls.py`、`tests/executor/test_runner.py`、`tests/ops/test_trace.py`、`tests/ops/test_ops_boundaries.py`、`tests/executor/test_read_only.py`、`tests/executor/test_multi_worker.py`、`tests/executor/test_f7_end_to_end.py`(共 73 個測試)全數通過,驗證行為與程式碼一致。

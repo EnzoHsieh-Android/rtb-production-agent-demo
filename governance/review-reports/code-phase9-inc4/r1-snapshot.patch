@@ -1,0 +1,782 @@
+diff --git a/docs/.governance-log.jsonl b/docs/.governance-log.jsonl
+index e8a9e81..2bd0628 100644
+--- a/docs/.governance-log.jsonl
++++ b/docs/.governance-log.jsonl
+@@ -3167,10 +3167,11 @@
+ {"ts": "2026-09-24T02:55:56+08:00", "commit": "a6eb677", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "a6eb677e2251da1e255e54be89bd71124ff21d90"}
+ {"ts": "2026-09-24T02:55:57+08:00", "commit": "c1ca557", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T02:55:58+08:00", "commit": "c1ca557", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "c1ca5574ab51614c5b7d95d5156b73324774bf44"}
+ {"ts": "2026-09-24T02:56:06+08:00", "commit": "a31e5ec", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+ {"ts": "2026-09-24T02:56:06+08:00", "commit": "a31e5ec", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "a31e5ec425005c6256b08ff68b023e45b1aa8d09"}
+ {"ts": "2026-09-24T02:56:06+08:00", "commit": "023c6d8", "gate": "code-loop", "kind": "dispositions", "hard": false, "nodes": [], "detail": "表態 5 題", "branch": "phase8", "head_sha": "023c6d892bc2dd01c3255639ca545e2520443440", "dispositions": {"py-eventloop": {"status": "na", "question": "事件迴圈:async def 裡有沒有同步阻塞(time.sleep/requests/同步 open 讀寫/subprocess.run/大 JSON 解析/CPU 重活)?該換 asyncio.sleep、非同步 client,或用 asyncio.to_thread 丟出去?有沒有「while True + sleep」輪詢該改成等事件或佇列?", "evidence": "", "reason": "這批改動沒有任何非同步函式,全是同步的資料庫交易與既有的同步用戶端", "issue": "", "carried": true}, "py-parallel": {"status": "na", "question": "並行與上限:互不依賴的 await 有沒有 asyncio.gather/TaskGroup 並行?gather 的集合有沒有上限(無界並行會打爆下游連線池或對方的速率限制,該用 Semaphore 有界)?create_task 的回傳值有沒有存起來並接住例外(沒存=可能被回收、例外無聲蒸發)?", "evidence": "", "reason": "新增程式碼沒有並行;測試裡用兩條執行緒只為驗證兩人同時重放只會放回一次", "issue": "", "carried": true}, "py-external": {"status": "satisfied", "question": "外呼與重試:每個 HTTP/WebSocket/DB 外呼有沒有逾時(requests 預設不逾時=對方掛了你永遠卡住)?重試有沒有退避與上限,而且不會對不可逆操作(下單/付款/寄信)盲目重送?session/client/連線有沒有重用而不是每次新建?斷線重連後本地狀態有沒有重新對齊?", "evidence": "src/rtb/executor/inbox_store.py:425", "reason": "", "issue": "", "carried": true}, "py-memory": {"status": "na", "question": "記憶體與資料量:大檔/大回應/大查詢有沒有一次讀進記憶體(read()/readlines()/json.load 大檔/fetchall()/read_csv 不分塊)而不是逐行、分塊或 generator?長活的 dict/list/cache 有沒有上限(lru_cache(maxsize=None)、以請求或時間為鍵的快取只增不減)?迴圈裡有沒有逐筆查 DB 或逐筆打 API(N+1)?", "evidence": "", "reason": "新查詢都只讀單列(最新信封編號、單一收件列),不把大量資料讀進記憶體;信封與稽核表只增不清是稽核表既有取捨,查詢有索引", "issue": "", "carried": true}, "py-hotpath": {"status": "na", "question": "熱路徑:這段會跑大量資料或高頻迴圈嗎?pandas 有沒有 iterrows/itertuples/apply(axis=1)/迴圈裡 concat(該向量化,或先收成 list 最後一次建 DataFrame)?索引式迴圈 range(len(x)) 該不該改成直接迭代或向量運算?list 當佇列 pop(0)、在 list 裡做成員查找,該不該換 deque/set?迴圈裡有沒有重複做不變的工作(每圈重新解析設定、重建物件)?", "evidence": "", "reason": "進死信與重放都是低頻的管理路徑;執行前檢查只多兩個常數時間的比較,新鮮度查核可只在決策已過時才發生", "issue": "", "carried": true}}, "candidates": 0, "written_at": "2026-09-24T02:56:08.215228+08:00"}
+ {"ts": "2026-09-24T02:56:06+08:00", "commit": "023c6d8", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "Phase 8 全分支:功能 5fb9a5b 經 high 三輪代碼審(code-phase8,19 條折 17 駁 2);之後的事故 F6 轉正、補測試、收件口寫入時間統一、Phase 8 驗收紀錄經 standard 補審一輪(code-phase8-f6tz,兩席各 1 條,折 1 駁 1:結構檢查先把拆開的 SQL 拼回來、配方改成不循環;架構席以既有先例駁回);F6 獨立審計第 2 次同意,26 條配方全紅", "branch": "phase8", "head_sha": "023c6d892bc2dd01c3255639ca545e2520443440"}
+ {"ts": "2026-09-24T03:00:21+08:00", "commit": "0b4923a", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=2 hits=0 secs=0.1"}
+ {"ts": "2026-09-24T03:00:19+08:00", "commit": "56b2db1", "gate": "code-loop", "kind": "dispositions", "hard": false, "nodes": [], "detail": "表態 0 題", "branch": "main", "head_sha": "56b2db115b6c4946bd932f2402a8295116e48911", "dispositions": {}, "candidates": 0, "written_at": "2026-09-24T03:00:24.405129+08:00"}
+ {"ts": "2026-09-24T03:00:19+08:00", "commit": "56b2db1", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "合併 Phase 8 收尾(時區統一、驗收紀錄、F6 轉正;另一工作區代碼審 high 三輪加 standard 補審);合併後全套 1552 條通過", "branch": "main", "head_sha": "56b2db115b6c4946bd932f2402a8295116e48911"}
++{"ts": "2026-09-24T05:44:03+08:00", "commit": "26e4f2b", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=2 hits=0 secs=0.1"}
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md
+index e7bb9b5..119d463 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md
+@@ -8,20 +8,22 @@ tags:
+   - status/doing
+ lands_in:
+   - Systems/提案收件口
+   - Systems/外部寫入嘗試紀錄
+   - Systems/執行迴圈
+   - Systems/共用行程基礎
+   - Systems/可觀測查詢
+   - Systems/分析行程流程與檢查點
+   - Systems/有界標籤的指標
+   - Systems/服務水準與燒損告警
++  - Systems/稽核表只增不改守衛
++  - Systems/調查實演
+ ---
+ # RTB_Phase9可觀測與SLO_計劃
+ 
+ PRIOR-ART: 事件溯源(event sourcing)與「指標從事件算、不另存計數器」;OpenTelemetry 的追蹤語意(一個邏輯工作一條追蹤、各段帶關聯欄位)只借概念,不引入套件(零依賴家規);服務水準的錯誤預算與多窗口燒損告警照 Google SRE Workbook〈Alerting on SLOs〉的做法(快燒 1 小時窗配 5 分鐘窗、慢燒 6 小時窗配 30 分鐘窗,示範時等比例縮短)。SQLite 唯讀連線用官方 URI 的 mode=ro。
+ RETIRE-IF: 換成外部可觀測平台(集中式追蹤、時間序列資料庫、告警系統)並接上本系統的事件時,撤掉這裡的追蹤檢視與即時計算的指標,只留事件表當來源;或者生命週期事件表連續三個月沒有任何人查過,重新評估要不要留。
+ 
+ ## 這份計劃在解決什麼
+ 
+ 交接文件 Phase 9:能從系統訊號定位單一事故並衡量可靠度。完成條件五項:關鍵欄位與跨元件追蹤完整;指標不用無界的高基數標籤;至少一個事故能走完「指標 → 切片 → 追蹤 → 稽核與 DSP 歷史」;服務水準指標的公式、好事件與有效事件、窗口與排除項有定義;快燒與慢燒模擬能觸發合理訊號。
+ 
+@@ -406,30 +408,39 @@ RETIRE-IF: 換成外部可觀測平台(集中式追蹤、時間序列資料庫
+   - 第 2 步 切片:同一批指標依標籤拆開。斷言:依租戶拆,寫入 5xx 與逾時全部落在甲、乙為 0;依結果類別拆,逾時是 1、5xx 是 24;依程式版本拆,兩個版本的寫入 5xx 次數都大於 0(輪流取件讓兩個工作者都分到受影響的鍵)。
+   - 第 3 步 下鑽:取對帳耗時樣本附的範例任務編號(增量 2 [S636],最多 3 個),挑一個。斷言:它屬於租戶甲、經歷過結果不明;範例取最慢的幾筆(見下方「回頭補」),所以挑到的是吃過兩次 5xx 的那種,不是提交後逾時那個。
+   - 第 4 步 時間線:對那個任務開增量 1 的追蹤檢視。斷言時間線「依序含」下列各段(子序列比對:這些段照這個先後出現,中間可以夾清單沒列的段):收件、取件、讀廣告、開始一筆、DSP 寫入呼叫(5xx)、結果不明、DSP 查操作紀錄呼叫(有回應、查不到)、讀廣告、同鍵重送的寫入呼叫(5xx)、結果不明、DSP 查操作紀錄呼叫(查不到)、讀廣告、第三次寫入呼叫(有回應、成功)、已提交待驗證、已驗證、收件口結案。每一段帶工作者與程式版本;時間不倒退;讀取穩定(增量 1 的讀到兩次相同)。重送前那一段讀廣告是執行端對帳查不到時一定會先做的(第 1 輪時間線席)。
+   - 第 5 步 查 DSP 歷史確認真相:追蹤檢視的 DSP 段(依冪等鍵讀唯讀端點)。斷言:這把鍵在 DSP 剛好一筆操作,新預算等於提案;而時間線上這把鍵有三次寫入呼叫、前兩次 5xx——三次送出只落地一次,證明前兩次在提交前就被拒、重送沒有重複扣。提交後逾時那把鍵另斷言:DSP 有一筆操作、時間線上只有一次寫入呼叫(結果類別逾時)、對帳查操作紀錄查到就結案——沒重送卻有操作,證明 DSP 早就寫進去了,執行端只是沒拿到回應。這一步把「執行端看到的不明」跟「DSP 的真相」對起來,都不拿 DSP 提交時間跟執行端時間比。
+   - 每一步的斷言用的都是維運套件的讀取函式與命令列入口回的結構化結果,不直接查資料庫。
+ - **走不通時要回頭補的地方(先寫在這裡,實作時照做,不在增量 4 加新指標):**
+   - 對帳耗時要能依租戶拆:增量 2 的對帳耗時樣本要帶租戶標籤(增量 2 的標籤清單有租戶,但沒逐項寫哪個指標帶哪些標籤)——回頭在增量 2 補「每個指標帶哪些標籤」的表。
+   - DSP 呼叫依租戶拆:增量 1 的 DSP 呼叫紀錄沒有租戶欄;依租戶切片時用廣告以查詢當下的租戶設定反查(增量 1 對簽發前事件的既有做法),結果標明是查詢當下的歸屬。示範情境租戶不換廣告,反查結果正確;不另加欄位。
+   - 範例任務要能連到對帳耗時:增量 2 [S636] 規定範例是分子裡確實存在的任務;對帳耗時是延遲指標、沒有分子,要在增量 2 補一句「延遲指標的範例取樣本裡最慢的幾筆」。
+   - 期限縮不縮短:增量 3 補一句「示範縮短只套時間窗,期限型指標的期限不縮短」(第 1 輪指標席:增量 3 只寫了窗)。
+-  - 同一時刻的排序:增量 1 的追蹤檢視在時間相同時依固定表序排,還原不了同一張嘗試表裡呼叫前、呼叫後兩列的因果;正式環境時間精度到微秒,撞時間的機率低但不為零。實演用自動前進的時鐘避開;要不要在增量 1 加全域因果序號,回頭在增量 1 的代碼審決定(第 1 輪外家席)。
++  - 同一時刻的排序:增量 1 的追蹤檢視在時間相同時依固定表序排,還原不了同一張嘗試表裡呼叫前、呼叫後兩列的因果;正式環境時間精度到微秒,撞時間的機率低但不為零。實演用自動前進的時鐘避開。代使用者裁定(2026-09-24,主線):增量 1 不加全域因果序號;增量 4 的斷言不准依賴「同一時刻跨表的排序」,時序還原一律用因果事實(第 5 步「三次送出只落地一次」「沒重送卻有操作」這類),時間線的子序列比對只比不同時刻的段。回頭條件:實演或之後的調查真的需要同一時刻跨表排序才能下結論時,回增量 1 加全域因果序號(事件入口:[[Systems/追蹤檢視]] 的排序規則改動)。
+ - **稽核守衛(只增不改的機械守衛):**
+   - 對象:停下紀錄、核可、核可使用、生命週期事件(增量 1)、DSP 呼叫紀錄(增量 1)、DSP 操作紀錄,加上嘗試紀錄,七張表。嘗試紀錄是主線沒點名、第 2 輪外家席補的:它也是只增不改的歷史表,增量 3 的對帳期限與副作用核對直接讀它,今天只有它自己模組的原始碼掃描守著,別的模組寫一句字面的修改它就抓不到。表名以程式為準:前三張、操作紀錄與嘗試紀錄已在程式裡;增量 1 的兩張在增量 1 實作分支目前叫生命週期事件表與 DSP 呼叫表(英文名以增量 1 合進後的建表語句為準),守衛的表名清單從建表語句核對,測試另斷言七個名字各在 src 的某個建表語句裡出現一次,拼錯就翻紅(第 1 輪稽核席)。
+   - 共用掃描函式:增量 1 實作分支已經有一支判定「哪些函式會寫資料庫」的原始碼掃描共用模組(放在執行端測試目錄,維運套件的測試跨目錄匯入它)。把主線 Phase 8 那支的「拼回字串」兩支函式搬進那一支,Phase 8 那支與這支守衛都從那裡匯入。那支模組已經有一支同名的取字串函式(只取字串常數、排除文件字串,判定寫入函式用),搬進來要換成不同的名字,不然後定義的會蓋掉前一支,寫入函式的判定悄悄跑偏(第 3 輪架構對齊席、外家席):原有的保留原名與原語意,搬進來的叫「拼回後的字串」;共用模組補一支測試,同時驗「文件字串裡的 SQL 字樣不算寫入」與「相鄰字串、加號、f-string 三種拆法都拼得回來」;不另開第二支掃描模組,也不複製(第 1 輪稽核席:複製後會悄悄分岔;第 2 輪架構對齊席:另開新模組就是第二套掃描)。所以增量 4 的守衛要等這條分支合進主線與增量 1 之後才實作。
+   - 比對:全庫掃 src/rtb 每一支,拼回字串後,凡是同一段文字裡出現七張表任一個表名(含「某資料庫名.表名」),而且出現下列任一種,就算違規:UPDATE(含 UPDATE OR 某動作)、DELETE、REPLACE INTO、INSERT OR REPLACE、ON CONFLICT … DO UPDATE、DROP TABLE(含 IF EXISTS)、ALTER TABLE 的改名與刪欄。不再只找「動詞緊接表名」:SQLite 的衝突時更新把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名(第 1 輪兩席)。
+   - 補欄位例外:只准「ALTER TABLE 表名 ADD COLUMN 欄位 型別」,可為空、沒有預設值、表名是字面寫死的。帶預設值的新欄位會讓舊列讀出新值,等於回頭改寫稽核意義(例:核可表補一個「已撤銷」欄預設 1,所有舊核可讀起來都已撤銷),不准(第 1 輪外家席)。DSP 今天對操作表補的兩欄都可為空、無預設,合規。這是跟 Phase 8 那支的差別之一:死信兩張表沒有補欄位,那支連 ALTER 整個擋。
+   - 動態表名的補欄位:收件口有一支通用補欄位迴圈,表名從一個登記表來、語句用 f-string 組,拼回來表名只剩占位,守衛看不出是哪張表(第 1 輪兩席)。處理:守衛另外直接讀那個登記表,斷言登記在七張表之下的每個欄位定義都可為空、沒有預設值;今天登記的只有嘗試紀錄的四欄,都合規。其餘改法(改名、刪欄)這個迴圈做不到,拼回字串那一道照樣會看到它的 ADD COLUMN 字樣。
+   - 收件口保留期清理只刪收件表,不碰這七張;守衛會抓到任何人哪天把它們加進清理。
+   - 殺傷力配方:每張表至少一條,另外對 UPDATE OR REPLACE、衝突時更新、DROP TABLE IF EXISTS、帶預設值的補欄位、在通用補欄位迴圈的登記表裡替七張表之一登記一個帶預設值的欄位各一條;配方用拆開字串的寫法(不跟檢查用同一種字面,避免 Phase 8 補審抓到的循環配方)。
+ 
++### 實作時的解讀(2026-09-24,規格沒寫死或寫不通的地方;由增量 4 代碼審覆核)
++
++- 這個增量只有測試,沒有產品程式改動;稽核守衛第一次跑就綠(今天的程式本來就只新增),咬得到的證據是殺傷力配方與變異檢查。
++- 稽核守衛的比法:同一段裡出現任一個 UPDATE 就算,衝突時更新與 UPDATE OR 某動作都含這個字,不另列(變異檢查抓到另列那一條是多餘的,拿掉)。
++- 時間線裡「查操作紀錄查不到」記成 4xx(用戶端錯誤),不是設計寫的「有回應」;子序列比對只比呼叫類別。已驗證與收件口結案同一個交易同一個時間,不比先後(主線裁定)。
++- 「每一段帶工作者與程式版本」只對執行迴圈寫的段斷言:收件事件由收件口寫,本來就沒有工作者。
++- 第 5 步的「新預算等於提案」經 DSP 依冪等鍵的唯讀端點讀(維運套件的共用讀法):追蹤檢視的 DSP 段沒有帶新預算。
++- 實演的分析端資料庫是空的,端到端交給執行那一條會把所有交給執行算成接不上;實演不斷言它。
++
+ ### 不做(增量 4)
+ 
+ - 不加任何新指標、不改增量 1 到 3 的定義;需要的補強寫在上面「回頭補」,回到那個增量做。
+ - 不做資料庫觸發器、不做權限隔離;守衛是防忘記。
+ - 不擴大 DSP 故障注入到讀取端點;對帳查詢失敗的情境(查證逾時累計轉人工)已有執行端對帳測試覆蓋,實演不重演。
+ - 不讓 DSP 儲存的提交時間接虛擬時鐘;實演不做跨 DSP 與執行端的時間比較。
+ - 實演不帶分析行程(分析端沒有時鐘注入點)。
+ - 不做調查的自動化工具(自動挑範例、自動下結論);實演是一支測試照步驟走。
+ 
+ ### 合約(增量 4)
+@@ -472,21 +483,21 @@ REVISIT:2027-03-31 若要長期看趨勢或接外部監控,改成定時把窗結
+ - 未排除:(增量 2)結果不明現況沿用增量 1 既有的「還沒結案」查法,成本隨嘗試歷史長(100 萬列約 0.9 秒);在唯讀交易下跑不取寫入鎖,但事故期間反覆查會佔讀取資源(第 2 輪外家席)。
+ REVISIT:2027-03-31 若嘗試紀錄超過 100 萬列,或增量 3 的告警要每分鐘查一次以上,改成在開始一筆與結案的同一個交易裡維護一份未結案小表(可觀測查詢筆記記過同一個回頭條件)。
+ REVISIT:2027-03-31 若單一延遲指標在 24 小時窗內樣本超過 50 萬筆,改成固定分桶直方圖或取樣。
+ 
+ ## 回退
+ 
+ - 各增量的回退見各節。整體倒著退:增量 4 → 3 → 2 → 1。增量 1 拿掉寫事件的呼叫、嘗試紀錄兩欄的寫入與追蹤檢視,就回到 Phase 8 合進後的現況;事件表、兩個新欄位與唯讀交易入口留著無害,既有合約都不受影響。
+ 
+ ## 落點
+ 
+-- lands_in(增量 1):生命週期事件表、唯讀開法與唯讀交易寫進 [[Systems/提案收件口]];嘗試紀錄新欄位與讀取函式收唯讀交易寫進 [[Systems/外部寫入嘗試紀錄]];工作者與 DSP 呼叫類別、結果、耗時的記法寫進 [[Systems/執行迴圈]];唯讀連線寫進 [[Systems/共用行程基礎]];可觀測查詢收唯讀交易寫進 [[Systems/可觀測查詢]];分析端唯讀開法寫進 [[Systems/分析行程流程與檢查點]];追蹤檢視是新的維運套件,開一篇 Systems 家。lands_in(增量 4):調查實演與稽核守衛都是測試,守衛的說明寫進 [[Systems/提案收件口]](停下紀錄、核可兩張表、生命週期事件)、[[Systems/外部寫入嘗試紀錄]](DSP 呼叫紀錄)、[[Systems/Mock-DSP]](操作紀錄);實演的走法寫進維運套件那一篇 Systems 家。lands_in(增量 3):服務水準設定表、燒損評估器與副作用核對放維運套件,寫進增量 1 為維運套件開的那一篇 Systems 家;DSP 的兩支列操作端點、提交時間索引與提交時間不倒退寫進 [[Systems/Mock-DSP]];嘗試紀錄第一列新四欄、依任務與修訂的部分索引與批量讀取寫進 [[Systems/外部寫入嘗試紀錄]];核可使用紀錄的批量讀取寫進 [[Systems/提案收件口]];開始一筆記下核對材料寫進 [[Systems/執行迴圈]]。
++- lands_in(增量 1):生命週期事件表、唯讀開法與唯讀交易寫進 [[Systems/提案收件口]];嘗試紀錄新欄位與讀取函式收唯讀交易寫進 [[Systems/外部寫入嘗試紀錄]];工作者與 DSP 呼叫類別、結果、耗時的記法寫進 [[Systems/執行迴圈]];唯讀連線寫進 [[Systems/共用行程基礎]];可觀測查詢收唯讀交易寫進 [[Systems/可觀測查詢]];分析端唯讀開法寫進 [[Systems/分析行程流程與檢查點]];追蹤檢視是新的維運套件,開一篇 Systems 家。lands_in(增量 4):調查實演與稽核守衛都是測試,各開一篇家:[[Systems/稽核表只增不改守衛]](守衛與共用掃描工具)、[[Systems/調查實演]](實演的走法)。原本寫的「守衛說明寫進三張表各自的家」沒照做:這個增量只改測試,提交檢查不准把說明寫進不是改動檔之家的節點(2026-09-24 實作時更正)。lands_in(增量 3):服務水準設定表、燒損評估器與副作用核對放維運套件,寫進增量 1 為維運套件開的那一篇 Systems 家;DSP 的兩支列操作端點、提交時間索引與提交時間不倒退寫進 [[Systems/Mock-DSP]];嘗試紀錄第一列新四欄、依任務與修訂的部分索引與批量讀取寫進 [[Systems/外部寫入嘗試紀錄]];核可使用紀錄的批量讀取寫進 [[Systems/提案收件口]];開始一筆記下核對材料寫進 [[Systems/執行迴圈]]。
+ 
+ ## 審計修正紀錄
+ - r1(2026-09-24,7 席:事件完整性、追蹤組裝、唯讀並行、相容遷移效能、完成條件可測性、架構對齊、外家 Codex):全部 major,全數折入;前掃一條語意命中已先修。重點:事件觸發點逐一列出(只改狀態或租約欄的也算)、收件口觸發的事件沒有工作者、到期標記逐列寫;事件存廣告、冪等鍵、政策版本;唯讀交易另一個類別、顯式交易開頭讀單一快照、寫入函式拒收;三個來源照果到因讀並附讀取時間;同一時刻依寫入順序排;共用冪等鍵歸建立它的修訂、優先用分析端存下的鍵;DSP 呼叫記類別與結果分得出逾時與 5xx;事件種類資料庫層不設允許值限制;追蹤檢視放新的維運套件;Phase 6 可觀測查詢改收唯讀交易。卷證:governance/review-reports/rtb-phase9可觀測與slo/。
+ - r2(2026-09-24,5 席:前輪驗收、唯讀交易、欄位寫入、架構對齊、外家 Codex):全部 major(另一條 minor),全數折入。重點:第 2 版「果到因」讀取順序論證不成立(因果方向中途反轉),改成讀到兩次相同為止並照實標示;DSP 呼叫改成獨立的呼叫紀錄表,每次呼叫都記,寫入與作廢也分得出逾時、斷線、讀不懂;事件與嘗試列的來源擴成收件口、執行迴圈、啟動恢復、管理指令;簽發前的事件用查詢當下的租戶設定反查;被取代事件用舊列自己的內容;唯讀開法不補表、還沒升級時乾淨報錯;分析端唯讀開法整段一個快照;讀寫函式清單由測試機械算出,維運套件只准呼叫讀取白名單。卷證同上。
+ - r3(2026-09-24,3 席:前輪驗收、DSP 呼叫紀錄與熱路徑、外家 Codex):8 條(7 major、1 minor)全數折入。重點:續租明寫不寫事件、觸發點清單就是全部;重讀每輪換新快照、只比資料內容不比讀取時間;DSP 呼叫紀錄改由用戶端底層送出點的回呼觸發(比照分析端),失敗類別逐一列出分法;記程式版本給工作者版本切片;當機窗口少記一筆照實寫;F7 端到端時間加一條手動驗收合約。設計審跑滿三輪,第 3 輪的折入沒有再審,由代碼審覆核。
+ - 增量 1 代碼審 r1(2026-09-24,8 條全部修):(1)寫呼叫紀錄撞資料庫忙不再往外丟,先放執行器的待寫清單,每份工作結束與下一次處理前補寫(代使用者裁定);(2)拿掉模組層級範圍變數與共用回呼,DSP 埠每支方法改收必填的 on_call,每個呼叫點顯式傳綁好提案身分的回呼(代使用者裁定);(3)維運套件邊界掃描禁用 getattr、attrgetter、methodcaller 等字串動態取屬性;(4)[S625]、[S626] 測試函式改成規格標的名字;(5)放掉租約事件的原因記表上實際留下的最後一次失敗原因;(6)對帳接手只在舊租約真的到期或換擁有者時寫「租約過期被接手」;(7)追蹤檢視的提案關聯改用任務、修訂、內容雜湊三件組;(8)共用 HTTP 用戶端本文讀不懂時帶狀態碼,4xx、5xx 照狀態碼分類。卷證:governance/review-reports/code-phase9-inc1/。
+ - 增量 2 r1(2026-09-24,7 席:指標定義、標籤有界、延遲跨元件、成本唯讀、完成條件、架構對齊、外家 Codex):27 條(23 major、4 minor)全數折入,前掃兩條先修。重點:依既有結果確認補進增量 1 欄位與合約 [S624];每張窗口查詢的表由擁有模組提供窗口讀取函式並建時間索引、測試斷言查詢計畫;現況快照不套時間窗;每個指標寫明分子、分母、時間歸屬與零樣本;任務結果率每個任務只算最終結果;重投率看投遞次數;人工核可等待單獨一項;端到端沿接續鏈只算一次、負值另報;結果不明不含嘗試中;標籤連值域一起驗,政策版本只分目前與其他,補上階段;跨資料庫指標沿用讀到穩定為止。卷證:governance/review-reports/rtb-phase9可觀測與slo-增量2/。
+ - 增量 2 r2(2026-09-24,3 席:前輪驗收、公式可測、外家 Codex):12 條全部 major,全數折入。重點:結果率拆成事件型(窗固定後不變,增量 3 用)與最終結果型(會隨重放改變,先取全域最後終點再看落窗);重投率母體含被接手;死信率改數真的發生的死信事件;延遲一律依結束時間歸窗;版本衝突率完全從呼叫紀錄算(增量 1 補錯誤代碼欄與 [S625]);分母為 0 一律無樣本;舊端點值讀成其他;結果不明現況的掃描成本照實寫、附回頭條件。卷證同上。
+ - 增量 2 r3(2026-09-24,3 席:前輪驗收、公式可測、外家 Codex):9 條(8 major、1 minor)全數折入。重點:最終結果率改以提案內容區分、先用時間索引找候選再用增量 1 補的終點部分索引 [S626] 取最後終點,工作量有界;端到端延遲歸入會隨重放改變的那一類;死信等待單獨一項;過時決策拒絕數含版本已變;未結案現況四種狀態分開報、另報被鎖廣告數;增量 1 補重放放回事件種類。設計審跑滿三輪,第 3 輪折入沒有再審,由代碼審覆核。
+ - 增量 3 r1(2026-09-24,7 席:指標定義與事件型、燒損數學、副作用核對資料來源、可測性、相容成本、架構對齊、外家 Codex):22 條(18 major、4 minor)全數折入;前掃三條語意命中先修。重點:副作用核對只用寫入當時記下的資料(第一列多記開始時預算、兩個上限、已用額度),舊資料判無法核對另報;DSP 加依提交時間列操作的唯讀端點、先讀 DSP 再讀執行端、執行端批量查;目標為零兩條錯誤預算固定 0、看整個週期;週期切成不超過 24 小時的子窗相加;剩餘預算寫公式可為負;佇列等待拿掉會回頭改判的排除項;期限型寫查法;兩種告警可同時成立;短窗零樣本當 0。例:目標 99%、週期 1000 個有效事件、12 個壞事件 → 錯誤預算 10、剩餘 −2。卷證:governance/review-reports/rtb-phase9可觀測與slo-增量3/。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md b/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md
+new file mode 100644
+index 0000000..1507b23
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/稽核表只增不改守衛.md
+@@ -0,0 +1,29 @@
++---
++type: system
++status: doing
++created: 2026-09-24
++updated: 2026-09-24
++responsibility: 七張稽核表只增不改的原始碼結構檢查,以及它與 Phase 8 死信守衛、維運套件邊界共用的原始碼掃描工具(判寫入函式、拼回拆開的字串);只防忘記,不防刻意繞過、不管資料庫層權限
++aliases: []
++about_code:
++  - tests/executor/test_audit_tables.py
++  - tests/executor/write_scan.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: [2026-09-24] 停下紀錄、核可、核可使用、生命週期事件、DSP 呼叫紀錄、DSP 操作紀錄、嘗試紀錄七張表是稽核與服務水準的依據,只准新增;照 Phase 8 死信守衛的做法掃原始碼(不加資料庫觸發器)。出處:[[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 4。
++  RULE: 比法是「同一段拼回來的文字裡出現任一張表名,又出現任一種改寫語句」就算違規,不是「動詞緊接表名」:SQLite 的衝突時更新把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。補欄位只准可為空、沒有預設值的(帶預設值會讓舊列讀出新值)。[since:2026-09-24] [retire:稽核表改由資料庫層權限或觸發器守、原始碼掃描不再是唯一防線時] [test:test_audit_tables_are_only_ever_inserted_into]
++  PITFALL: [2026-09-24] 共用掃描模組原本就有一支同名的取字串函式(只取常數、排除文件字串,判寫入函式用);Phase 8 那支拼字串函式搬進來換了名字,不然後定義的會蓋掉前一支、寫入函式的判定悄悄跑偏。兩種讀法都有測試守。[test:test_the_shared_scanner_keeps_both_string_readings]
++---
++# 稽核表只增不改守衛
++
++# 稽核表只增不改守衛
++
++本篇管 `tests/executor/test_audit_tables.py`(守衛本身與殺傷力配方)與 `tests/executor/write_scan.py`(共用的原始碼掃描工具:判寫入函式、拼回拆開的字串;Phase 8 死信守衛、維運套件邊界測試、本守衛共用)。七張表的家:[[Systems/提案收件口]](停下紀錄、核可、核可使用、生命週期事件)、[[Systems/外部寫入嘗試紀錄]](嘗試紀錄、DSP 呼叫紀錄)、[[Systems/Mock-DSP]](操作紀錄)。
++
++- 全庫掃 src/rtb 每一支,拼回字串時不算文件字串(說明裡提到改寫語句不是改寫)。
++- 收件口的通用補欄位迴圈用 f-string 組表名,拼回來只剩占位;另外直接讀它的登記表,斷言登記在七張表之下的欄位定義都可為空、無預設值(今天只有嘗試紀錄的欄位在裡面)。
++- 七個表名各要在某個建表語句裡出現剛好一次,拼錯守衛就守空了。
++- 殺傷力配方:每張表至少一條,另外逐一涵蓋 UPDATE OR REPLACE、衝突時更新、DROP TABLE IF EXISTS、帶「資料庫名.」前綴、改名、刪欄、帶預設值或不可為空的補欄位;配方用拆開字串的寫法,不跟檢查用同一種字面。
++- 防忘記,不防刻意繞過:用變數組表名、把關鍵字拆到兩個變數再串起來都繞得過;直接開資料庫改也擋不住。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/調查實演.md b/docs/rtb-production-agent-demo-knowledge/Systems/調查實演.md
+new file mode 100644
+index 0000000..0a561f5
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/調查實演.md
+@@ -0,0 +1,29 @@
++---
++type: system
++status: doing
++created: 2026-09-24
++updated: 2026-09-24
++responsibility: 一支端到端測試照「指標異常、切片、下鑽、時間線、查 DSP 歷史」走完一個注入的事故,只用增量 1 到 3 的指標、追蹤與查詢;不加新指標、不是調查自動化工具
++aliases: []
++about_code:
++  - tests/ops/test_investigation_drill.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: [2026-09-24] 交接文件 Phase 9 完成條件「能用指標與追蹤查出事故」:注入一個事故,照指標異常、切片、下鑽、時間線、查 DSP 歷史走一遍,每一步只用增量 1 到 3 的指標、追蹤與查詢。出處:[[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 4。
++  RULE: 斷言不依賴「同一時刻跨表的排序」,時序還原一律用因果事實(三次送出只落地一次、沒重送卻有操作);已驗證與收件口結案寫在同一個交易同一個時間,只斷言兩者都在已提交待驗證之後。代使用者裁定(主線,2026-09-24)。[since:2026-09-24] [retire:追蹤檢視加上全域因果序號、同一時刻也排得出因果時] [test:test_investigation_drill_walks_from_alert_to_dsp_history]
++  PITFALL: [2026-09-24] 事故長度要夾在對帳期限 10 分鐘與決策新鮮度 15 分鐘之間:超過 15 分鐘,第三次送出前就以決策已過時作廢,劇本走到別條路。測試開頭斷言這兩條不等式與送出上限 3、用戶端逾時短於 DSP 掛住秒數;任一不成立是劇本要重排。[test:test_investigation_drill_walks_from_alert_to_dsp_history]
++---
++# 調查實演
++
++# 調查實演
++
++本篇管 `tests/ops/test_investigation_drill.py`:一支測試函式、五個依序的斷言區塊。用到的查詢:[[Systems/有界標籤的指標]](窗內統計、現況快照)、[[Systems/服務水準與燒損告警]](燒損評估器、副作用核對)、[[Systems/追蹤檢視]](時間線與 DSP 段)。
++
++- 組法照執行端的真 DSP 端到端測試:真的模擬 DSP 伺服器(故障在伺服器端依冪等鍵排定;驗憑證的時鐘接虛擬時鐘)、收件口(待處理上限開到 20)、兩個執行迴圈物件、未修改的執行端 DSP 用戶端;不帶分析行程(分析端沒有時鐘注入點)。
++- 虛擬時鐘從系統時間起跳、每讀一次前進 1 毫秒:DSP 提交時間是系統時間,副作用核對依它歸窗;起點差太遠,DSP 的寫入會整批落在評估窗外。
++- 兩個程式版本用換常數的測試手法(比照事故 F6 端到端換政策版本),輪到哪個工作者前把執行端匯入的版本常數換成它的版本;真的多版本並存要多行程,實演不做。
++- 排程:事故前 5 分鐘正常寫入;T0 只取件(甲 12 把鍵 5xx、1 把提交後逾時、乙 4 把正常);T0+5 分只對帳;T0+10 分 1 秒評估快燒告警;T0+12 分 1 秒事故結束、只對帳。每一刻斷言送出次數(5xx 鍵依序 1、2、3,提交後逾時那把一直是 1)。
++- 本機實演本身約 0.7 秒(虛擬時鐘一步跳過去,不真等)。
++- 追蹤裡「查操作紀錄查不到」記成 4xx(用戶端錯誤),不是設計文字寫的「有回應」;子序列比對只比呼叫類別。
+diff --git a/tests/executor/test_audit_tables.py b/tests/executor/test_audit_tables.py
+new file mode 100644
+index 0000000..75d3385
+--- /dev/null
++++ b/tests/executor/test_audit_tables.py
+@@ -0,0 +1,122 @@
++"""稽核表只增不改的機械守衛(Phase 9 增量 4):[S675]。
++
++七張稽核表(停下紀錄、核可、核可使用、生命週期事件、DSP 呼叫紀錄、DSP 操作紀錄、嘗試紀錄)只准新增,
++比照 Phase 8 死信兩張表那支結構檢查:全庫掃原始碼,把相鄰字串、用 + 串起來、f-string 的固定片段拼回
++完整語句再比對。跟 Phase 8 那支不同的是比法:只要同一段拼回來的文字裡出現任一張表的表名,又出現任一種
++改寫語句就算違規——SQLite 的「衝突時更新」把 UPDATE 跟表名隔開,UPDATE OR REPLACE 也不是動詞緊接表名。
++補欄位只准可為空、沒有預設值的新欄位(帶預設值會讓舊列讀出新值,等於回頭改寫稽核意義)。收件口的
++通用補欄位迴圈用 f-string 組表名、拼回來只剩占位,另外直接讀它的登記表核對。
++
++防忘記,不防刻意繞過:用變數組表名、把關鍵字拆到兩個變數再串起來,都繞得過;直接開資料庫改也擋不住。
++"""
++
++import ast
++import pathlib
++import re
++
++import pytest
++
++from rtb.executor import inbox_store
++from tests.executor.write_scan import classify, reconstructed_strings
++
++SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "rtb"
++GUARDED = ("write_stops", "approvals", "approval_uses", "lifecycle_events", "dsp_calls",
++           "operations", "attempts")
++_TABLE = re.compile(r"(?<![\w.])(?:\w+\.)?(" + "|".join(GUARDED) + r")\b")
++# 同一段裡出現任一個 UPDATE 就算:衝突時更新(ON CONFLICT … DO UPDATE)與 UPDATE OR 某動作都含這個字,
++# 不必另列(變異檢查時另列的那一條拿掉照樣抓得到,是多餘的)
++REWRITES = re.compile(
++    r"\bUPDATE\b|\bDELETE\b|\bREPLACE\s+INTO\b|\bINSERT\s+OR\s+REPLACE\b|\bDROP\s+TABLE\b|"
++    r"\bALTER\s+TABLE\s+\S+\s+(?:RENAME|DROP)\b", re.IGNORECASE)
++ADD_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(\S+)\s+ADD\s+COLUMN\s+([^;]*)", re.IGNORECASE)
++LOOSENING = re.compile(r"\bNOT\s+NULL\b|\bDEFAULT\b", re.IGNORECASE)
++
++
++def audit_violations(tree):
++    """一棵語法樹裡違規的每一段文字(不含文件字串:說明裡提到改寫語句不是改寫)。"""
++    found = []
++    for text in reconstructed_strings(tree, skip_docstrings=True):
++        if not _TABLE.search(text):
++            continue
++        if REWRITES.search(text):
++            found.append(text)
++        for table, definition in ADD_COLUMN.findall(text):
++            if _TABLE.fullmatch(table) and LOOSENING.search(definition):
++                found.append(text)
++    return found
++
++
++def registry_violations(registry):
++    """通用補欄位迴圈的登記表:登記在七張表之下的欄位定義都要可為空、沒有預設值。"""
++    return [(table, ddl) for table, columns in registry.items() if table in GUARDED
++            for _name, ddl in columns if LOOSENING.search(ddl)]
++
++
++def _trees():
++    return {path: ast.parse(path.read_text(encoding="utf-8")) for path in SRC.rglob("*.py")}
++
++
++# ---- [S675] ----
++def test_audit_tables_are_only_ever_inserted_into():
++    trees = _trees()
++    offenders = [(path.name, text) for path, tree in trees.items()
++                 for text in audit_violations(tree)]
++    assert offenders == []
++    assert registry_violations(inbox_store._ADDED_COLUMNS) == []
++    assert set(inbox_store._ADDED_COLUMNS) & set(GUARDED) == {"attempts"}  # 登記表今天只有嘗試紀錄
++    created = [m.group(1) for tree in trees.values()
++               for text in reconstructed_strings(tree, skip_docstrings=True)
++               for m in re.finditer(r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)", text)]
++    for table in GUARDED:  # 表名拼錯守衛就守空了:每張都要在某個建表語句裡出現一次
++        assert created.count(table) == 1, (table, created)
++
++
++@pytest.mark.parametrize("source", [
++    'x = "UPDATE write_" + "stops SET amount = 0"',
++    'x = ("DELETE FROM app" "rovals WHERE 1")',
++    'x = f"UPDATE approval_{kind} SET stage = ?"'.replace("{kind}", "uses"),
++    'x = "INSERT INTO lifecycle_" "events (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = 2"',
++    'x = "UPDATE OR REPLACE dsp_" + "calls SET status = 1"',
++    'x = "DROP TABLE IF EXISTS oper" "ations"',
++    'x = "REPLACE INTO main.att" "empts VALUES (1)"',
++    'x = "INSERT OR REPLACE INTO att" + "empts VALUES (1)"',
++    'x = "ALTER TABLE approvals RENAME TO " "old_approvals"',
++    'x = "ALTER TABLE attempts DROP " "COLUMN tenant"',
++    'x = "ALTER TABLE approvals ADD COLUMN revoked INTEGER NOT NULL " "DEFAULT 1"',
++    'x = "ALTER TABLE lifecycle_events ADD COLUMN flag TEXT DEF" "AULT \'y\'"',
++])
++def test_the_audit_guard_catches_each_rewrite(source):
++    """殺傷力配方:每張表至少一條,另外逐一涵蓋各種改寫寫法;拆開字串的寫法,不跟檢查用同一種字面。"""
++    assert audit_violations(ast.parse(source)) != []
++
++
++def test_the_audit_guard_allows_a_plain_new_column_and_other_tables():
++    allowed = ('a = "ALTER TABLE operations ADD COLUMN policy_version TEXT"\n'
++               'b = "UPDATE proposals SET disposition = NULL"\n'
++               'c = "INSERT INTO attempts (key) VALUES (?)"\n'
++               'd = "UPDATE campaigns SET budget = ?"\n')
++    assert audit_violations(ast.parse(allowed)) == []
++
++
++def test_the_column_registry_is_checked_for_defaults():
++    assert registry_violations({"attempts": [("x", "x INTEGER NOT NULL DEFAULT 1")]}) != []
++    assert registry_violations({"approvals": [("y", "y TEXT DEFAULT 'n'")]}) != []
++    others = {"attempts": [("z", "z TEXT")], "other": [("w", "w TEXT DEFAULT 1")]}
++    assert registry_violations(others) == []
++
++
++def test_the_shared_scanner_keeps_both_string_readings(tmp_path):
++    """共用掃描模組兩種讀法並存:判寫入函式的那支不把文件字串裡的 SQL 字樣當寫入;拼回字串的那支
++    把相鄰字串、+、f-string 三種拆法都拼得回來。"""
++    module = tmp_path / "probe.py"
++    module.write_text('def reads():\n    """這裡提到 UPDATE attempts 只是說明。"""\n'
++                      '    return 1\n\n\n'
++                      'def writes(conn):\n    conn.execute("DELETE FROM x")\n', encoding="utf-8")
++    assert classify(module) == {"reads": False, "writes": True}
++    tree = ast.parse('x = "UPDATE dead_" + "letters SET a = 1"\n'
++                     'y = f"DELETE   FROM {t} WHERE 1"\n'
++                     'z = ("SET disposition = NULL, dead_letter_" "reason = NULL")\n')
++    found = reconstructed_strings(tree)
++    assert "UPDATE dead_letters SET a = 1" in found
++    assert "DELETE FROM {} WHERE 1" in found
++    assert any("dead_letter_reason = NULL" in text for text in found)
+diff --git a/tests/executor/test_dead_letter.py b/tests/executor/test_dead_letter.py
+index e1cde61..364272f 100644
+--- a/tests/executor/test_dead_letter.py
++++ b/tests/executor/test_dead_letter.py
+@@ -24,20 +24,21 @@ from rtb.executor.inbox_store import (
+     BlockCode,
+     DeadLetterAction,
+     FailureClass,
+     InboxRejected,
+     InboxStore,
+     LastFailure,
+     ReplayOutcome,
+     failure_class,
+ )
+ from tests.executor.fakes import Harness, proposal, write_config
++from tests.executor.write_scan import reconstructed_strings
+ 
+ OPERATOR = "ops-alice"
+ 
+ 
+ @pytest.fixture
+ def h(tmp_path, clock):
+     harness = Harness(tmp_path, clock)
+     yield harness
+     harness.close()
+ 
+@@ -441,76 +442,47 @@ def test_a_blocked_proposal_cannot_be_replayed(h):
+ 
+ 
+ # ---- 事故 F6 轉正第 1 次審計:三句排他性的宣稱要有機械守衛 ----
+ SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "rtb"
+ REVIVE = "dead_letter_reason = NULL"  # 把死信改回來的那一句(處置與死信原因一起清)
+ TABLE_WRITE = re.compile(r"\b(UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+REPLACE\s+INTO|"
+                          r"DROP\s+TABLE|ALTER\s+TABLE)\s+(dead_letters|dead_letter_ops)\b",
+                          re.IGNORECASE)
+ 
+ 
+-def _text_of(node):
+-    """把一段字串拼回來:相鄰字串、用 + 串起來的字串、f-string 的固定片段(代入的值記成 {}),
+-    空白壓成一格。照專案一般寫法拆開的 SQL 也還原得回來;刻意用變數組表名之類的寫法還原不了,
+-    那是刻意繞過,不在「防忘記」的範圍(代碼審第 1 輪審查席實測兩種繞法)。"""
+-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+-        text = node.value
+-    elif isinstance(node, ast.JoinedStr):
+-        text = "".join(part.value if isinstance(part, ast.Constant) else "{}"
+-                       for part in node.values)
+-    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+-        left, right = _text_of(node.left), _text_of(node.right)
+-        if left is None or right is None:  # 不是字串相加(例如數字)
+-            return None
+-        text = left + right
+-    else:
+-        return None
+-    return " ".join(text.split())
+-
+-
+-def _strings(tree):
+-    """一棵語法樹裡拼得回來的每一段字串(最外層的那段,不重複算它的組成片段)。"""
+-    inside = set()
+-    for node in ast.walk(tree):
+-        if isinstance(node, ast.BinOp | ast.JoinedStr) and _text_of(node) is not None:
+-            inside.update(id(sub) for sub in ast.walk(node) if sub is not node)
+-    return [text for node in ast.walk(tree)
+-            if id(node) not in inside and (text := _text_of(node)) is not None]
+-
+-
+ def _functions_containing(text):
+     """原始碼裡含這段字的每一個函式(檔名, 函式名)。"""
+     return [(path.name, node.name) for path in SRC.rglob("*.py")
+             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+-            and any(text in found for found in _strings(node))]
++            and any(text in found for found in reconstructed_strings(node))]
+ 
+ 
+ def test_only_the_replay_method_revives_a_dead_letter():
+     """死信只能由管理指令逐筆重放:把死信改回待處理的寫法全庫只有重放方法一處。"""
+     assert _functions_containing(REVIVE) == [("inbox_store.py", "_replay")]
+ 
+ 
+ def test_the_dead_letter_tables_are_only_ever_inserted_into():
+     """死信信封與稽核只增不改:全庫沒有任何語句修改、刪除或覆寫這兩張表。"""
+     offenders = [(path.name, match.group(0)) for path in SRC.rglob("*.py")
+-                 for text in _strings(ast.parse(path.read_text(encoding="utf-8")))
++                 for text in reconstructed_strings(ast.parse(path.read_text(encoding="utf-8")))
+                  for match in TABLE_WRITE.finditer(text)]
+     assert offenders == []
+ 
+ 
+ def test_the_source_checks_see_through_split_strings():
+     """結構檢查本身:照一般寫法拆開的 SQL(相鄰字串、+、f-string)拼得回來。"""
+     tree = ast.parse('x = "UPDATE dead_" + "letters SET a = 1"\n'
+                      'y = f"DELETE   FROM {t} WHERE 1"\n'
+                      'z = ("SET disposition = NULL, dead_letter_" "reason = NULL")\n')
+-    found = _strings(tree)
++    found = reconstructed_strings(tree)
+     assert "UPDATE dead_letters SET a = 1" in found
+     assert "DELETE FROM {} WHERE 1" in found
+     assert any(REVIVE in text for text in found)
+ 
+ 
+ def test_no_periodic_work_or_resend_revives_a_dead_letter(h):
+     """執行迴圈每一個會定期跑的入口與分析端重送同一份提案,都不會把死信改回來、也不會多寫信封。"""
+     prop = dead_letter(h)
+     before = (envelopes(h), audit(h))
+     executor = h.executor()
+diff --git a/tests/executor/write_scan.py b/tests/executor/write_scan.py
+index 0b1a712..8f041c5 100644
+--- a/tests/executor/write_scan.py
++++ b/tests/executor/write_scan.py
+@@ -1,11 +1,13 @@
+-"""機械判定「哪些函式會寫資料庫」(Phase 9 增量 1 [S621]、[S617]、[S600] 共用)。
++"""掃原始碼的共用工具:機械判定「哪些函式會寫資料庫」(Phase 9 增量 1 [S621]、[S617]、[S600] 共用),
++以及把拆開的字串拼回來(Phase 8 死信守衛與 Phase 9 增量 4 稽核表守衛共用)。兩種讀法並存、名字分開:
++判寫入函式用的只取字串常數、不含文件字串;拼回字串的那支把相鄰字串、+、f-string 拼成完整語句。
+ 
+ 不靠名字判斷(取件、處理待核可、接手名字像讀、其實會寫):解析原始碼,一支函式的本體、它用到的
+ 模組內字串常數、以及它呼叫的模組內函式(同一個類別與基底類別的方法、模組層函式,遞移)裡,只要有
+ 寫入語句就算寫入函式。寫入語句是字串裡的 INSERT、UPDATE、DELETE、REPLACE、ALTER、CREATE、DROP
+ (專案的 SQL 一律大寫;文件字串不算)。跨模組的呼叫不追:各模組各自判定。
+ """
+ 
+ import ast
+ import re
+ from pathlib import Path
+@@ -114,10 +116,47 @@ def classify(path: Path, pattern: str = WRITE_SQL) -> dict[str, bool]:
+ def writes_matching(path: Path, pattern: str) -> set[str]:
+     return {name for name, writes in classify(path, pattern).items() if writes}
+ 
+ 
+ def write_functions(path: Path) -> set[str]:
+     return writes_matching(path, WRITE_SQL)
+ 
+ 
+ def read_functions(path: Path) -> set[str]:
+     return {name for name, writes in classify(path).items() if not writes}
++
++
++def text_of(node):
++    """把一段字串拼回來:相鄰字串、用 + 串起來的字串、f-string 的固定片段(代入的值記成 {}),
++    空白壓成一格。照專案一般寫法拆開的 SQL 也還原得回來;刻意用變數組表名之類的寫法還原不了,
++    那是刻意繞過,不在「防忘記」的範圍(Phase 8 代碼審第 1 輪審查席實測兩種繞法)。"""
++    if isinstance(node, ast.Constant) and isinstance(node.value, str):
++        text = node.value
++    elif isinstance(node, ast.JoinedStr):
++        text = "".join(part.value if isinstance(part, ast.Constant) else "{}"
++                       for part in node.values)
++    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
++        left, right = text_of(node.left), text_of(node.right)
++        if left is None or right is None:  # 不是字串相加(例如數字)
++            return None
++        text = left + right
++    else:
++        return None
++    return " ".join(text.split())
++
++
++def reconstructed_strings(tree, skip_docstrings=False):
++    """一棵語法樹裡拼得回來的每一段字串(最外層的那段,不重複算它的組成片段)。skip_docstrings:
++    不算模組、類別、函式的文件字串(說明裡提到 SQL 字樣不是語句)。"""
++    inside = set()
++    for node in ast.walk(tree):
++        if isinstance(node, ast.BinOp | ast.JoinedStr) and text_of(node) is not None:
++            inside.update(id(sub) for sub in ast.walk(node) if sub is not node)
++    if skip_docstrings:
++        for node in ast.walk(tree):
++            if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
++                body = node.body
++                if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value,
++                                                                         ast.Constant):
++                    inside.add(id(body[0].value))
++    return [text for node in ast.walk(tree)
++            if id(node) not in inside and (text := text_of(node)) is not None]
+diff --git a/tests/ops/test_investigation_drill.py b/tests/ops/test_investigation_drill.py
+new file mode 100644
+index 0000000..3ba243a
+--- /dev/null
++++ b/tests/ops/test_investigation_drill.py
+@@ -0,0 +1,298 @@
++"""調查實演(Phase 9 增量 4):[S670] 到 [S674]。
++
++注入一個事故,照「指標異常 → 切片 → 下鑽 → 時間線 → 查 DSP 歷史」走一遍,每一步只用增量 1 到 3 的
++指標、追蹤與查詢,不直接查資料庫。一支測試函式、五個依序的斷言區塊(前一步失敗後面不跑)。
++
++事故:租戶甲 12 個廣告的 DSP 寫入連續 12 分鐘回 5xx(每把鍵前兩次寫入提交前 503、事故後第三次成功),
++另一個廣告第一次寫入走「提交後逾時」;租戶乙 4 個廣告同時正常運作。12 分鐘夾在對帳期限 10 分鐘與
++決策新鮮度 15 分鐘之間。組法照執行端的真 DSP 端到端測試:真的模擬 DSP 伺服器(故障在伺服器端依冪等鍵
++排定,驗憑證的時鐘接虛擬時鐘)、收件口、兩個執行迴圈物件、未修改的執行端 DSP 用戶端;不帶分析行程。
++虛擬時鐘從系統時間起跳(DSP 提交時間是系統時間,副作用核對依它歸窗),每讀一次前進 1 毫秒。
++"""
++
++import json
++import threading
++import time
++from contextlib import contextmanager
++from datetime import UTC, datetime, timedelta
++
++import pytest
++
++from rtb.analyzer.task_store import TaskStore
++from rtb.domain.attempt import operation_key
++from rtb.dsp.server import DspHandler, DspServer
++from rtb.dsp.store import CampaignStore
++from rtb.executor import attempt_store, inbox_store
++from rtb.executor.attempt_store import MAX_SENDS
++from rtb.executor.capability_signer import CapabilitySigner, load_tenants
++from rtb.executor.dsp_client import DspClient
++from rtb.executor.execution import Executor, Result
++from rtb.executor.inbox_store import InboxStore, ReadOnlyInbox
++from rtb.ops import metrics, side_effects, sli, slo, trace
++from tests.capability_samples import TEST_KEY
++from tests.executor.fakes import proposal
++
++A_BAD = [f"a{n:02d}" for n in range(1, 13)]  # 租戶甲:吃兩次 5xx 的 12 個廣告
++A_TIMEOUT = "a13"  # 租戶甲:提交後逾時的那一個
++B_OK = [f"b{n:02d}" for n in range(1, 5)]  # 租戶乙:正常
++INCIDENT = timedelta(minutes=12)
++HANG, CLIENT_TIMEOUT = 0.6, 0.3  # 提交後逾時:DSP 掛住比用戶端逾時久,用戶端才會真的逾時
++VERSIONS = ("0.9.1-a", "0.9.1-b")  # 兩個工作者掛的程式版本
++
++
++class VirtualClock:
++    """執行緒安全;每讀一次前進 1 毫秒,讓同一輪裡依序發生的事時間都不同;測試另外可以一步跳過去。"""
++
++    def __init__(self, start):
++        self.now, self.lock = start, threading.Lock()
++
++    def __call__(self):
++        with self.lock:
++            moment = self.now
++            self.now += timedelta(milliseconds=1)
++            return moment
++
++    def jump_to(self, moment):
++        with self.lock:
++            assert moment >= self.now
++            self.now = moment
++
++
++class KeyedHandler(DspHandler):
++    """比照執行端真 DSP 端到端測試替換「讀故障」那一步;改成依冪等鍵取排定(每把鍵自己一串)。"""
++
++    def read_fault(self, modes):
++        if self.command != "POST":
++            return None
++        with self.server.plan_lock:
++            planned = self.server.plan.get(self.headers.get("Idempotency-Key"), [])
++            return planned.pop(0) if planned else None
++
++
++class Drill:
++    def __init__(self, tmp_path):
++        self.clock = VirtualClock(datetime.now(UTC))
++        self.t0 = self.clock.now + timedelta(minutes=5)
++        self.dsp_db, self.executor_db = tmp_path / "dsp.db", tmp_path / "executor.db"
++        self.analyzer_db = tmp_path / "analyzer.db"
++        TaskStore(self.analyzer_db).close()  # 實演不帶分析行程:空的分析端資料庫
++        seed = CampaignStore(self.dsp_db)
++        tenants = {"tenant-a": ["a00", *A_BAD, A_TIMEOUT], "tenant-b": ["b00", *B_OK]}
++        for tenant, campaigns in tenants.items():
++            for campaign in campaigns:
++                seed.seed_campaign(campaign, budget=100, tenant=tenant)
++        seed.close()
++        self.config = tmp_path / "tenants.json"
++        self.config.write_text(json.dumps({"tenants": {
++            name: {"campaigns": ids, "max_budget": 1000, "aggregate_limit": 10**9}
++            for name, ids in tenants.items()}}), encoding="utf-8")
++        self.config.chmod(0o600)
++        self.tenants = load_tenants(self.config)
++        self.server = DspServer(self.dsp_db, fault_injection=True, hang_seconds=HANG,
++                                delay_seconds=0.0, capability_key=TEST_KEY,
++                                clock=lambda: self.clock().timestamp())
++        self.server.RequestHandlerClass = KeyedHandler
++        self.server.plan, self.server.plan_lock = {}, threading.Lock()
++        threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
++        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
++        self.store = InboxStore(self.executor_db, max_pending=20)  # 預設 8,T0 一次送 17 筆
++        client = DspClient(self.url, CLIENT_TIMEOUT)
++        self.workers = [Executor(self.store, client, CapabilitySigner(TEST_KEY), self.config,
++                                 self.clock, f"worker-{v}") for v in VERSIONS]
++        self.props = {}
++
++    def close(self):
++        self.store.close()
++        self.server.shutdown()
++        self.server.server_close()
++
++    def submit(self, campaign, created):
++        prop = proposal(task_id=f"t-{campaign}", campaign_id=campaign,
++                        requested_change={"new_budget": 140}, campaign_version_observed=1,
++                        decision_created_at=created.isoformat(),
++                        decision_expires_at=(created + timedelta(minutes=30)).isoformat())
++        self.store.accept(prop, self.clock)
++        self.props[campaign] = prop
++        return prop
++
++    def process(self, monkeypatch):
++        """兩個工作者在同一個執行緒輪流各取一筆,直到都沒有待處理(誰拿到哪一筆由輪流順序決定)。"""
++        idle = [False, False]
++        while not all(idle):
++            for n, worker in enumerate(self.workers):
++                with as_version(monkeypatch, VERSIONS[n]):
++                    idle[n] = worker.process_one().kind is Result.IDLE
++
++    def reconcile(self, monkeypatch):
++        for n, worker in enumerate(self.workers):
++            with as_version(monkeypatch, VERSIONS[n]):
++                worker.reconcile_all()
++
++    def sends(self, campaign):
++        reader = ReadOnlyInbox(self.executor_db)
++        try:
++            with reader.read_transaction() as tx:
++                row = attempt_store.latest(tx, operation_key(self.props[campaign]))
++        finally:
++            reader.close()
++        return None if row is None else (row.state.value, row.send_count)
++
++    def sources(self):
++        return sli.Sources(self.executor_db, self.analyzer_db, self.url, 2.0)
++
++    def window(self, since, until):
++        return metrics.collect_window(since, until, executor_db=self.executor_db,
++                                      analyzer_db=self.analyzer_db, tenants=self.tenants)
++
++
++@contextmanager
++def as_version(monkeypatch, version):
++    """程式版本是行程載入時定的常數:比照事故 F6 端到端換政策版本,輪到哪個工作者前換成它的版本。"""
++    with monkeypatch.context() as patch:
++        for module in (attempt_store, inbox_store):
++            patch.setattr(module, "PROGRAM_VERSION", version)
++        yield
++
++
++@pytest.fixture
++def drill(tmp_path):
++    built = Drill(tmp_path)
++    yield built
++    built.close()
++
++
++def pick(report, name, **labels):
++    return [s for s in report.samples
++            if s.name == name and all(s.label_map().get(k) == v for k, v in labels.items())]
++
++
++def run_incident(d, monkeypatch):
++    """排程(虛擬時間,T0 是事故開始);每一刻結束時斷言送出次數。"""
++    for campaign in ("a00", "b00"):  # T0 前 5 分鐘:事故前的正常寫入
++        d.submit(campaign, d.clock.now)
++    d.process(monkeypatch)
++    for campaign in A_BAD:
++        d.server.plan[operation_key(d.submit(campaign, d.t0))] = ["transient_5xx"] * 2
++    d.server.plan[operation_key(d.submit(A_TIMEOUT, d.t0))] = ["timeout_after_commit"]
++    for campaign in B_OK:
++        d.submit(campaign, d.t0)
++    d.clock.jump_to(d.t0)
++    d.process(monkeypatch)  # T0:只取件
++    assert {d.sends(c) for c in A_BAD} == {("unknown", 1)}
++    assert d.sends(A_TIMEOUT) == ("unknown", 1)
++    assert {d.sends(c) for c in B_OK} == {("verified", 1)}
++
++    d.clock.jump_to(d.t0 + timedelta(minutes=5))
++    d.reconcile(monkeypatch)  # T0 + 5 分鐘:只對帳
++    assert {d.sends(c) for c in A_BAD} == {("unknown", 2)}
++    assert d.sends(A_TIMEOUT) == ("verified", 1)  # 查到就結案,不重送
++
++    d.clock.jump_to(d.t0 + timedelta(minutes=10, seconds=1))
++    now = d.clock.now
++    alert = slo.evaluate(now, counter=lambda n, s, u: sli.count(n, s, u, d.sources()))
++
++    d.clock.jump_to(d.t0 + INCIDENT + timedelta(seconds=1))
++    d.reconcile(monkeypatch)  # 事故結束:只對帳
++    assert {d.sends(c) for c in A_BAD} == {("verified", 3)}
++    return alert
++
++
++# ---- [S670] 到 [S674] ----
++def test_investigation_drill_walks_from_alert_to_dsp_history(drill, monkeypatch):
++    d = drill
++    # 前提:任一不成立是劇本要重排,不是被測程式壞
++    assert len(A_BAD) >= slo.MIN_SAMPLES and MAX_SENDS == 3 and CLIENT_TIMEOUT < HANG
++    assert sli.RECONCILE_DEADLINE < INCIDENT < timedelta(minutes=15)
++    started = time.monotonic()
++    alert = run_incident(d, monkeypatch)
++    step1_metrics_show_the_incident(d, alert)
++    task = step2_and_3_slices_and_exemplar(d)
++    step4_and_5_timeline_and_dsp_history(d, task)
++    print(f"實演耗時 {time.monotonic() - started:.1f} 秒")  # 量實演本身跑多久
++
++
++def step1_metrics_show_the_incident(d, alert):
++    status = {s.name: s for s in alert}
++    assert status["unknown_reconciled_in_time"].fast.fired, "第 1 步:快燒告警"
++    for name in ("unauthorized_side_effects", "harmful_duplicates"):
++        assert status[name].violating is False and status[name].period_valid > 0, name
++    pre = d.window(d.t0 - timedelta(minutes=5), d.t0)
++    incident = d.window(d.t0, d.t0 + INCIDENT + timedelta(minutes=1))
++    bad = ("server_error", "timeout")
++    assert not [s for s in pick(pre, "dsp_calls") if s.label_map()["dsp_call_result"] in bad]
++    assert sum(s.value for s in pick(incident, "dsp_calls", dsp_call_kind="write",
++                                     dsp_call_result="server_error")) == 24
++    assert sum(s.value for s in pick(incident, "dsp_calls", dsp_call_kind="write",
++                                     dsp_call_result="timeout")) == 1
++    assert pick(pre, "reconciliation_seconds.p95")[0].status is metrics.Status.NO_SAMPLES
++    p95 = pick(incident, "reconciliation_seconds.p95", tenant="tenant-a")
++    assert sum(s.count for s in p95) == 13 and max(s.value for s in p95) > 600
++    snapshot = metrics.collect_snapshot(d.clock.now, executor_db=d.executor_db,
++                                        tenants=d.tenants)
++    assert pick(snapshot, "unresolved_escalated")[0].value == 0  # 沒有任何一把鍵轉人工
++
++
++def step2_and_3_slices_and_exemplar(d):
++    incident = d.window(d.t0, d.t0 + INCIDENT + timedelta(minutes=1))
++    failures = [s for s in pick(incident, "dsp_calls", dsp_call_kind="write")
++                if s.label_map()["dsp_call_result"] in ("server_error", "timeout")]
++    assert {s.label_map()["tenant"] for s in failures} == {"tenant-a"}, "第 2 步:依租戶"
++    per_version = {v: sum(s.value for s in failures if s.label_map()["program_version"] == v
++                          and s.label_map()["dsp_call_result"] == "server_error")
++                   for v in VERSIONS}
++    assert all(count > 0 for count in per_version.values()), per_version
++    slowest = max(pick(incident, "reconciliation_seconds.p95", tenant="tenant-a"),
++                  key=lambda s: s.value)
++    task = slowest.exemplars[0]
++    assert task in {f"t-{c}" for c in A_BAD}, "第 3 步:範例是吃過兩次 5xx 的任務"
++    return task
++
++
++def _token(segment):
++    detail = dict(segment.detail)
++    if segment.table is trace.Table.DSP_CALLS:
++        return f"call:{segment.what}:{detail['result']}"
++    return f"{segment.table.value}:{segment.what}"
++
++
++def _contains_in_order(tokens, expected):
++    position = 0
++    for token in tokens:
++        if position < len(expected) and token.startswith(expected[position]):
++            position += 1
++    return position == len(expected)
++
++
++def step4_and_5_timeline_and_dsp_history(d, task):
++    seen = trace.build_trace(task, analyzer_db=d.analyzer_db, executor_db=d.executor_db,
++                             dsp_url=d.url, clock=d.clock)
++    tokens = [_token(s) for s in seen.segments]
++    expected = ["lifecycle_events:received", "lifecycle_events:delivered", "call:read_campaign",
++                "attempts:in_flight", "call:write:server_error", "attempts:unknown",
++                "call:lookup_operation", "call:read_campaign", "call:write:server_error",
++                "attempts:unknown", "call:lookup_operation", "call:read_campaign",
++                "call:write:responded", "attempts:committed_unverified"]
++    assert _contains_in_order(tokens, expected), ("第 4 步:時間線", tokens)
++    # 已驗證與收件口結案寫在同一個交易、同一個時間:兩者誰先只是追蹤檢視的固定表序,不代表因果,
++    # 只斷言兩個都在「已提交待驗證」之後(主線裁定:斷言不依賴同一時刻跨表的排序)
++    after = tokens[tokens.index("attempts:committed_unverified"):]
++    assert {"attempts:verified", "lifecycle_events:handed_off"} <= set(after), tokens
++    assert seen.stable and [s.at for s in seen.segments] == sorted(s.at for s in seen.segments)
++    for segment in seen.segments:
++        detail = dict(segment.detail)
++        if segment.origin is trace.Origin.EXECUTOR and detail.get("source") == "executor_loop":
++            assert segment.field("worker") != trace.MISSING, segment
++            assert detail["program_version"] in VERSIONS, segment
++
++    key = operation_key(next(p for c, p in d.props.items() if f"t-{c}" == task))
++    writes = [t for t in tokens if t.startswith("call:write")]
++    assert writes == ["call:write:server_error"] * 2 + ["call:write:responded"], "第 5 步"
++    assert [s.table for s in seen.segments].count(trace.Table.DSP_OPERATIONS) == 1
++    _, operation = side_effects.get_json(d.url, f"/operations/{key}", 2.0)
++    assert operation["params"]["new_budget"] == 140  # 三次送出只落地一次,新預算等於提案
++
++    late = trace.build_trace(f"t-{A_TIMEOUT}", analyzer_db=d.analyzer_db,
++                             executor_db=d.executor_db, dsp_url=d.url, clock=d.clock)
++    late_tokens = [_token(s) for s in late.segments]
++    assert [t for t in late_tokens if t.startswith("call:write")] == ["call:write:timeout"]
++    assert [s.table for s in late.segments].count(trace.Table.DSP_OPERATIONS) == 1  # 沒重送卻有操作

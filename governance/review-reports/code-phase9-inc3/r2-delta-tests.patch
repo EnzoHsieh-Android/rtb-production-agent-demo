@@ -1,0 +1,695 @@
+diff --git a/tests/dsp/test_commit_order.py b/tests/dsp/test_commit_order.py
+index 0b65e39..1d66324 100644
+--- a/tests/dsp/test_commit_order.py
++++ b/tests/dsp/test_commit_order.py
+@@ -1,17 +1,18 @@
+ """DSP 提交時間不倒退(Phase 9 增量 3):[S667]。
+ 
+ 副作用核對依操作編號往下翻頁、讀到提交時間超過窗終點就停;依編號翻頁要等於依時間翻頁,提交時間就
+ 得不小於上一筆。DSP 的時鐘可以注入、也可能倒退:提交時把時間取成時鐘讀數與上一筆提交時間較大的那個。
+ """
+ 
+ import sqlite3
++from datetime import UTC, datetime
+ 
+ from rtb.dsp.store import CampaignStore, Operation
+ 
+ 
+ def _op(key, budget, version):
+     return Operation(campaign_id="c1", action="update_budget", params={"new_budget": budget},
+                      expected_version=version, idempotency_key=key)
+ 
+ 
+ # ---- [S667] ----
+@@ -31,17 +32,36 @@ def test_dsp_commit_times_never_go_backwards(tmp_path):
+ 
+     times = [r.committed_at for r in results]
+     assert times == ["2026-09-22T12:00:05+00:00", "2026-09-22T12:00:05+00:00",
+                      "2026-09-22T12:00:09+00:00"]  # 倒退的那一筆墊高到上一筆
+     ids = [r.operation_id for r in results]
+     assert ids == sorted(ids)
+     stored = store_rows(tmp_path / "dsp.db")
+     assert [t for _, t in stored] == sorted(t for _, t in stored)  # 依編號的順序就是依時間的順序
+ 
+ 
++def test_dsp_commit_times_are_stored_in_one_utc_form(tmp_path):
++    """代碼審第 1 輪:時鐘可注入非 UTC 的偏移;提交時間寫入前統一成固定 UTC 格式,游標查詢用同一種
++    表示,字串比較才等於時間比較。第二筆 07:30-05:00 就是 12:30Z,晚於第一筆。"""
++    readings = iter(["2026-09-22T12:00:00+00:00", "2026-09-22T12:00:00+00:00",
++                     "2026-09-22T07:30:00-05:00", "2026-09-22T07:30:00-05:00"])
++    store = CampaignStore(tmp_path / "dsp.db", clock=lambda: next(readings))
++    try:
++        store.seed_campaign("c1", budget=100)
++        results = [store.execute(_op("k-a", 110, 1)), store.execute(_op("k-b", 120, 2))]
++        assert [r.committed_at for r in results] == ["2026-09-22T12:00:00+00:00",
++                                                     "2026-09-22T12:30:00+00:00"]
++        assert [t for _, t in store_rows(tmp_path / "dsp.db")] == [
++            "2026-09-22T12:00:00+00:00", "2026-09-22T12:30:00+00:00"]
++        # 窗起點 12:15Z:第一筆 12:00 在窗外,游標停在它(編號 1),翻頁從 12:30 那筆開始
++        assert store.operation_cursor(datetime(2026, 9, 22, 12, 15, tzinfo=UTC)) == 1
++    finally:
++        store.close()
++
++
+ def store_rows(path):
+     conn = sqlite3.connect(path)
+     try:
+         return conn.execute(
+             "SELECT operation_id, committed_at FROM operations ORDER BY operation_id").fetchall()
+     finally:
+         conn.close()
+diff --git a/tests/ops/test_side_effects.py b/tests/ops/test_side_effects.py
+index ed24f04..c484175 100644
+--- a/tests/ops/test_side_effects.py
++++ b/tests/ops/test_side_effects.py
+@@ -1,45 +1,48 @@
+ """副作用核對(Phase 9 增量 3):[S652] [S653] [S664] [S665]。
+ 
+ 未授權或違反護欄的副作用、重複有害副作用兩條目標為零的服務水準指標。核對函式逐項重看 DSP 的每一筆
+ 寫入,只用寫入當時記下、之後不變的資料(嘗試第一列的提案快照與四樣核對材料、DSP 記下的租戶與政策
+ 版本)。DSP 的窗用兩支唯讀端點翻頁讀,先讀 DSP、再開執行端快照。
+ """
+ 
+ import json
++import socket
+ import sqlite3
+ import threading
+ from dataclasses import replace
+ from datetime import timedelta
+ 
+ import pytest
+ 
++from rtb.domain.attempt import operation_key
+ from rtb.dsp.server import DspServer
+ from rtb.dsp.store import OPERATION_PAGE, CampaignStore, operation_cursor_query
+-from rtb.executor import attempt_store, guardrails
++from rtb.executor import attempt_store, guardrails, inbox_store
+ from rtb.executor.attempt_store import FirstRow, first_rows_for_proposal_query
+-from rtb.executor.inbox_store import InboxReads
+-from rtb.httpclient import MAX_RESPONSE_BYTES
++from rtb.executor.inbox_store import InboxReads, ReadOnlyInbox
++from rtb.httpclient import MAX_RESPONSE_BYTES, ClientHeader, request_json
+ from rtb.ops import side_effects as se
+-from rtb.ops import sli
++from rtb.ops import sli, slo
+ from tests.executor.fakes import proposal
+ from tests.ops.rows import Rows, at
+ 
+ K = "k1-" + "0" * 64
++AUDIT = "audit-" + "a" * 32  # 唯讀稽核金鑰(測試用,長度過最短金鑰)
+ PROP = proposal(requested_change={"new_budget": 140})  # 觀察到的版本 3、現況 100:加 40
+ 
+ 
+ def first_row(**overrides):
+     base = FirstRow(key=K, task_id="t1", revision=1, campaign_id="c1", tenant="acme",
+                     reserved_amount=40, ratio_allowance=50, max_budget=900,
+                     aggregate_limit=5000, used_before=100, proposal=PROP,
+-                    written_at="2026-09-22T12:00:00.000000Z")
++                    snapshot_matches_key=True, written_at="2026-09-22T12:00:00.000000Z")
+     return replace(base, **overrides)
+ 
+ 
+ def write(**overrides):
+     base = se.DspWrite(operation_id=1, key=K, campaign_id="c1", tenant="acme",
+                        action="update_budget", new_budget=140, expected_version=3,
+                        committed_at="2026-09-22T12:00:01+00:00",
+                        policy_version=PROP.policy_version)
+     return replace(base, **overrides)
+ 
+@@ -90,20 +93,25 @@ def test_the_side_effect_checker_flags_each_kind_of_violation(monkeypatch):
+ 
+ # ---- [S664] ----
+ def test_unverifiable_writes_are_reported_apart_from_the_denominator():
+     legacy = first_row(ratio_allowance=None, max_budget=None, aggregate_limit=None,
+                        used_before=None)
+     assert verdict(f=legacy) is U  # 沒有任何一項違規、但缺材料
+     assert verdict(write(policy_version="demo-pacing-v0"), legacy) is B  # 有一項證實違規就判壞
+     assert verdict(write(policy_version=None)) is U  # DSP 那一筆沒記政策版本
+     assert verdict(write(policy_version=None, campaign_id="c2")) is B
+     assert verdict(f=first_row(tenant=None)) is U
++    # 代碼審第 1 輪:DSP 舊操作沒記預期版本,比照政策版本判無法核對,不是證實違規
++    assert verdict(write(expected_version=None)) is U
++    assert verdict(write(expected_version=None, campaign_id="c2")) is B
++    # 代碼審第 1 輪:快照對不上它的鍵,不能拿來核授權範圍
++    assert verdict(f=first_row(snapshot_matches_key=False)) is U
+ 
+     other = "k1-" + "9" * 64
+     writes = [write(), write(key="k1-" + "1" * 64, policy_version="x"),
+               write(key="k1-" + "2" * 64), write(key="someone-else", new_budget=1)]
+     firsts = {K: first_row(), "k1-" + "1" * 64: first_row(key="k1-" + "1" * 64),
+               "k1-" + "2" * 64: legacy}
+     tally = se.tally_unauthorized(writes, firsts, {})
+     assert (tally.good, tally.valid, tally.unverifiable) == (1, 2, 1)  # 別的寫入者不算
+     assert tally.bad_at == ("2026-09-22T12:00:01.000000Z",)
+     assert other not in firsts
+@@ -111,49 +119,50 @@ def test_unverifiable_writes_are_reported_apart_from_the_denominator():
+ 
+ # ---- DSP 與執行端的場景 ----
+ class World:
+     def __init__(self, tmp_path):
+         self.rows = Rows(tmp_path)
+         self.dsp_db = tmp_path / "dsp.db"
+         store = CampaignStore(self.dsp_db)
+         store.seed_campaign("c1", budget=100, tenant="acme")
+         store.close()
+         self.server = DspServer(self.dsp_db, fault_injection=False, hang_seconds=0.2,
+-                                delay_seconds=0.0)
++                                delay_seconds=0.0, audit_key=AUDIT.encode())
+         threading.Thread(target=self.server.serve_forever, args=(0.02,), daemon=True).start()
+         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+         self.version = 1
+ 
+     def commit(self, key, when, budget=140, policy="demo-pacing-v1"):
+         conn = sqlite3.connect(self.dsp_db)
+         conn.execute(
+             "INSERT INTO operations (campaign_id, action, params_json, version_after, "
+             "received_at, committed_at, idempotency_key, policy_version, expected_version) "
+             "VALUES ('c1', 'update_budget', ?, ?, ?, ?, ?, ?, ?)",
+             (json.dumps({"new_budget": budget}), self.version + 1, when.isoformat(),
+              when.isoformat(), key, policy, self.version))
+         conn.commit()
+         conn.close()
+         self.version += 1
+ 
+-    def first(self, key, prop, when):
++    def first(self, key, prop, when, raw=None):
++        """寫一把鍵的第一列;raw 給了就原樣存成提案快照(造毀損的快照)。"""
+         self.rows.executor.execute(
+             "INSERT INTO attempts (key, seq, campaign_id, state, send_count, "
+             "verification_timeouts, written_at, task_id, revision, action, expected_version, "
+             "proposal_json, tenant, reserved_amount) "
+             "VALUES (?, 1, ?, 'in_flight', 1, 0, ?, ?, ?, ?, ?, ?, 'acme', 40)",
+             (key, prop.campaign_id, attempt_store.iso(when), prop.task_id, prop.revision,
+              prop.action_type.value, prop.campaign_version_observed,
+-             json.dumps(prop.to_primitives(), sort_keys=True)))
++             json.dumps(prop.to_primitives(), sort_keys=True) if raw is None else raw))
+ 
+     def sources(self):
+-        return sli.Sources(self.rows.executor_db, self.rows.analyzer_db, self.url, 2.0)
++        return sli.Sources(self.rows.executor_db, self.rows.analyzer_db, self.url, 2.0, AUDIT)
+ 
+     def close(self):
+         self.server.shutdown()
+         self.server.server_close()
+         self.rows.close()
+ 
+ 
+ @pytest.fixture
+ def world(tmp_path):
+     built = World(tmp_path)
+@@ -172,25 +181,26 @@ def _plan(path, sql, params):
+ # ---- [S653] ----
+ def test_a_second_commit_of_the_same_proposal_is_a_harmful_duplicate(world):
+     keys = ["k1-" + c * 64 for c in "abc"]  # 同一份提案內容卻有三把鍵(例:鍵算法改過版)
+     for n, key in enumerate(keys):
+         world.first(key, PROP, at(minutes=-20 + n))
+     world.commit(keys[0], at(minutes=-10))  # 第一筆在窗外
+     world.commit(keys[1], at(minutes=10))
+     world.commit(keys[2], at(minutes=20))
+     world.commit("k1-" + "d" * 64, at(minutes=30))  # 找不到第一列:無法核對
+     alone = proposal(task_id="t9", requested_change={"new_budget": 120})
+-    world.first("k1-" + "e" * 64, alone, at(minutes=35))
+-    world.commit("k1-" + "e" * 64, at(minutes=40), budget=120)
++    world.first(operation_key(alone), alone, at(minutes=35))  # 快照對得上鍵的正常第一列
++    world.commit(operation_key(alone), at(minutes=40), budget=120)
+     tally = sli.count("harmful_duplicates", at(0), at(minutes=60), world.sources())
+ 
+     assert (tally.good, tally.valid, tally.unverifiable) == (1, 3, 1)
++    assert tally.stable is True  # 副作用核對依因果順序讀,恆為穩定
+     assert sorted(tally.bad_at) == [attempt_store.iso(at(minutes=10)),
+                                     attempt_store.iso(at(minutes=20))]
+     sql, params = first_rows_for_proposal_query("t1", 1)
+     steps = _plan(world.rows.executor_db, sql, params)
+     assert any("attempts_first_rows_by_task" in s for s in steps), steps
+ 
+ 
+ # ---- [S665] ----
+ def test_the_dsp_operation_window_reader_is_bounded_and_read_first(world, monkeypatch):
+     conn = sqlite3.connect(world.dsp_db)
+@@ -200,33 +210,33 @@ def test_the_dsp_operation_window_reader_is_bounded_and_read_first(world, monkey
+         "committed_at, idempotency_key, policy_version, expected_version) "
+         "VALUES ('c1', 'update_budget', '{\"new_budget\": 1}', 1, ?, ?, ?, 'p', 1)",
+         [((base + timedelta(seconds=n)).isoformat(), (base + timedelta(seconds=n)).isoformat(),
+           f"old-{n}") for n in range(OPERATION_PAGE + 3)])
+     conn.commit()
+     conn.close()
+     world.commit("k1-" + "1" * 64, at(0))  # 剛好在窗起點:在這個窗
+     world.commit("k1-" + "2" * 64, at(minutes=30))
+     world.commit("k1-" + "3" * 64, at(minutes=60))  # 剛好在窗終點:在下一個窗
+ 
+-    status, first_page = se.get_json(world.url, "/operations/after/0", 2.0)
++    status, first_page = se.get_json(world.url, "/operations/after/0", 2.0, AUDIT)
+     assert status == 200 and len(first_page["operations"]) == OPERATION_PAGE
+     assert first_page["next"] == first_page["operations"][-1]["operation_id"]
+-    _, last_page = se.get_json(world.url, f"/operations/after/{first_page['next']}", 2.0)
++    _, last_page = se.get_json(world.url, f"/operations/after/{first_page['next']}", 2.0, AUDIT)
+     assert len(last_page["operations"]) == 6 and last_page["next"] is None
+-    _, cursor = se.get_json(world.url, f"/operations/since/{at(0).isoformat()}", 2.0)
++    _, cursor = se.get_json(world.url, f"/operations/since/{at(0).isoformat()}", 2.0, AUDIT)
+     assert cursor["cursor"] == OPERATION_PAGE + 3  # 窗起點那一筆之前的最後一個編號
+     steps = _plan(world.dsp_db, *operation_cursor_query(at(0)))
+     assert any("operations_by_commit" in s for s in steps), steps
+ 
+-    inside = se.read_dsp_window(world.url, at(0), at(minutes=60), 2.0)
++    inside = se.read_dsp_window(world.url, at(0), at(minutes=60), 2.0, AUDIT)
+     assert [w.key[-1] for w in inside] == ["1", "2"]
+-    after = se.read_dsp_window(world.url, at(minutes=60), at(minutes=120), 2.0)
++    after = se.read_dsp_window(world.url, at(minutes=60), at(minutes=120), 2.0, AUDIT)
+     assert [w.key[-1] for w in after] == ["3"]
+ 
+     order, batches = _read_order(world, monkeypatch)
+     assert order[0] == "dsp" and "executor" in order
+     assert order.index("executor") > max(i for i, o in enumerate(order) if o == "dsp")
+     assert batches == ["firsts", "uses"]  # 兩筆寫入各一批,不逐筆查
+ 
+ 
+ def _read_order(world, monkeypatch):
+     """跑一次未授權副作用的計數,記下讀 DSP 與開執行端快照的順序、批量讀取函式各被叫幾次。"""
+@@ -257,13 +267,190 @@ def test_a_full_operations_page_fits_the_client_response_limit(world):
+     conn = sqlite3.connect(world.dsp_db)
+     conn.execute("UPDATE campaigns SET tenant = ? WHERE id = 'c1'", ("t" * 64,))
+     conn.executemany(
+         "INSERT INTO operations (campaign_id, action, params_json, version_after, received_at, "
+         "committed_at, idempotency_key, policy_version, expected_version) "
+         "VALUES ('c1', 'update_budget', ?, 1, ?, ?, ?, ?, ?)",
+         [(json.dumps({"new_budget": 2**63 - 1}), at(n).isoformat(), at(n).isoformat(),
+           f"{n:0128d}", "p" * 64, 2**63 - 1) for n in range(OPERATION_PAGE)])
+     conn.commit()
+     conn.close()
+-    status, page = se.get_json(world.url, "/operations/after/0", 2.0)
++    status, page = se.get_json(world.url, "/operations/after/0", 2.0, AUDIT)
+     assert status == 200 and len(page["operations"]) == OPERATION_PAGE
+     assert len(json.dumps(page)) < MAX_RESPONSE_BYTES
++
++
++# ---- 代碼審第 1 輪 ----
++def _pages(monkeypatch, operations, lookups=None):
++    """把 DSP 的回應換成固定內容:游標 0、一頁 operations;依鍵查的回 lookups[鍵](沒有回 404)。"""
++    def fake_get(_url, path, _timeout, _audit_key=None):
++        if path.startswith("/operations/since/"):
++            return 200, {"cursor": 0}
++        if path.startswith("/operations/after/"):
++            return 200, {"operations": operations, "next": None}
++        found = (lookups or {}).get(path.rsplit("/", 1)[-1])
++        return (404, {"error": "operation_not_found"}) if found is None else found
++    monkeypatch.setattr(se, "get_json", fake_get)
++
++
++def _operation(key, committed_at, operation_id=1):
++    return {"operation_id": operation_id, "idempotency_key": key, "campaign_id": "c1",
++            "tenant": "acme", "action": "update_budget", "new_budget": 140,
++            "expected_version": 3, "committed_at": committed_at, "policy_version": "p"}
++
++
++def test_a_malformed_commit_time_from_the_dsp_is_unreadable_not_a_crash(world, monkeypatch):
++    """DSP 回應是不可信輸入:提交時間讀不懂或沒帶時區,要轉成讀不到,不能讓整支評估器當掉。"""
++    for bad in ("yesterday", "2026-09-22T12:00:00", 12):
++        _pages(monkeypatch, [_operation(K, bad)])
++        with pytest.raises(se.DspUnreadable):
++            se.read_dsp_window(world.url, at(0), at(minutes=60), 2.0, AUDIT)
++        for name in ("unauthorized_side_effects", "harmful_duplicates"):
++            tally = sli.count(name, at(0), at(minutes=60), world.sources())
++            assert tally.missing is True and tally.valid == 0, (bad, name)
++
++
++def test_a_failed_lookup_of_a_sibling_key_makes_duplicates_missing(world, monkeypatch):
++    """重複核對第二段逐鍵查 DSP 失敗(回錯誤、提交時間讀不懂),整條回資料來源缺。"""
++    keys = ["k1-" + c * 64 for c in "ab"]  # 同一份提案內容兩把鍵
++    for n, key in enumerate(keys):
++        world.first(key, PROP, at(minutes=n))
++    window = [_operation(keys[1], at(minutes=10).isoformat(), 2)]
++    for answer in ((503, {"error": "busy"}), (200, _operation(keys[0], "garbage"))):
++        _pages(monkeypatch, window, {keys[0]: answer})
++        tally = sli.count("harmful_duplicates", at(0), at(minutes=60), world.sources())
++        assert tally.missing is True and tally.valid == 0, answer
++
++
++def test_the_same_key_committed_twice_is_a_harmful_duplicate(world, monkeypatch):
++    """防禦性核對:DSP 的冪等鍵有唯一限制,正常路徑不會一鍵兩筆;讀到了第二筆算壞事件。"""
++    key = operation_key(PROP)
++    world.first(key, PROP, at(0))
++    _pages(monkeypatch, [_operation(key, at(minutes=5).isoformat(), 1),
++                         _operation(key, at(minutes=6).isoformat(), 2)])
++    tally = sli.count("harmful_duplicates", at(0), at(minutes=60), world.sources())
++    assert (tally.good, tally.valid) == (1, 2)
++    assert tally.bad_at == (attempt_store.iso(at(minutes=6)),)
++
++    # 快照讀不回來(不知道提案內容)也照樣抓得到:一鍵兩筆不用看快照就證實重複
++    broken = "k1-" + "6" * 64
++    world.first(broken, PROP, at(0), raw="{not json")
++    _pages(monkeypatch, [_operation(broken, at(minutes=5).isoformat(), 1),
++                         _operation(broken, at(minutes=6).isoformat(), 2)])
++    tally = sli.count("harmful_duplicates", at(0), at(minutes=60), world.sources())
++    assert (tally.good, tally.valid, tally.unverifiable) == (0, 1, 1)
++    assert tally.bad_at == (attempt_store.iso(at(minutes=6)),)
++
++
++def test_a_first_row_whose_snapshot_does_not_match_its_key_is_never_good(world):
++    """批量讀取沿用快照的鍵一致性檢查:快照讀不回來或算不回它的鍵,不能拿來證明「沒重複」。"""
++    mismatched, corrupted, fine = "k1-" + "7" * 64, "k1-" + "8" * 64, operation_key(PROP)
++    world.first(mismatched, PROP, at(0))  # 快照解析得回來,但算出的鍵不是它
++    world.first(corrupted, PROP, at(0), raw="{not json")
++    world.first(fine, PROP, at(0))
++    with ReadOnlyInbox(world.rows.executor_db).read_transaction() as tx:
++        firsts = attempt_store.first_rows_for(tx, [mismatched, corrupted, fine])
++    assert firsts[mismatched].proposal == PROP and not firsts[mismatched].snapshot_matches_key
++    assert firsts[corrupted].proposal is None and not firsts[corrupted].snapshot_matches_key
++    assert firsts[fine].snapshot_matches_key
++
++    for key, minute in ((mismatched, 10), (corrupted, 20)):
++        world.commit(key, at(minutes=minute))
++    for name in ("harmful_duplicates", "unauthorized_side_effects"):
++        tally = sli.count(name, at(0), at(minutes=60), world.sources())
++        assert tally.good == 0 and tally.unverifiable == 2, (name, tally)
++
++
++def test_the_dsp_being_unreachable_is_missing_not_zero(world):
++    """DSP 讀不到:兩條目標為零的指標回資料來源缺,違規欄為空(不是「沒違規」)。"""
++    with socket.socket() as probe:  # 拿一個剛釋放、沒人在聽的埠
++        probe.bind(("127.0.0.1", 0))
++        port = probe.getsockname()[1]
++    sources = replace(world.sources(), dsp_url=f"http://127.0.0.1:{port}",
++                      dsp_timeout_seconds=0.5)
++    for name in ("unauthorized_side_effects", "harmful_duplicates"):
++        tally = sli.count(name, at(0), at(minutes=60), sources)
++        assert tally.missing is True and (tally.good, tally.valid) == (0, 0), name
++    statuses = slo.evaluate(at(minutes=60), counter=lambda name, since, until: sli.count(
++        name, since, until, sources))
++    for status in statuses:
++        if status.name in ("unauthorized_side_effects", "harmful_duplicates"):
++            assert status.missing is True and status.violating is None, status
++
++
++def test_a_page_boundary_between_equal_commit_times_reads_each_operation_once(world):
++    """翻頁剛好切在第 50、51 筆,兩筆又是同一個提交時間:每一筆只讀一次,落在該落的窗。"""
++    base = at(minutes=-30)
++    tied = base + timedelta(seconds=100)
++    times = [base + timedelta(seconds=n) for n in range(OPERATION_PAGE - 1)]
++    times += [tied, tied, base + timedelta(seconds=200)]  # 第 50、51 筆同時間
++    conn = sqlite3.connect(world.dsp_db)
++    conn.executemany(
++        "INSERT INTO operations (campaign_id, action, params_json, version_after, received_at, "
++        "committed_at, idempotency_key, policy_version, expected_version) "
++        "VALUES ('c1', 'update_budget', '{\"new_budget\": 1}', 1, ?, ?, ?, 'p', 1)",
++        [(t.isoformat(), t.isoformat(), f"op-{n + 1}") for n, t in enumerate(times)])
++    conn.commit()
++    conn.close()
++
++    def keys(since, until):
++        return [w.key for w in se.read_dsp_window(world.url, since, until, 2.0, AUDIT)]
++
++    everything = keys(base, base + timedelta(seconds=300))
++    assert everything == [f"op-{n}" for n in range(1, len(times) + 1)]  # 不漏不重
++    assert keys(base, tied) == [f"op-{n}" for n in range(1, OPERATION_PAGE)]  # 終點不含
++    assert keys(tied, base + timedelta(seconds=300)) == ["op-50", "op-51", "op-52"]
++
++
++def _call(world, path, token=None):
++    headers = None if token is None else {ClientHeader.CAPABILITY: token}
++    return request_json(f"{world.url}{path}", "GET", None, 2.0, headers)
++
++
++def test_the_operation_list_endpoints_require_the_audit_key(world):
++    """兩支列操作端點回全租戶的明細,只給帶唯讀稽核金鑰的讀(代使用者裁定);既有依鍵、依廣告
++    的唯讀端點不變。"""
++    for path in ("/operations/after/0", f"/operations/since/{at(0).isoformat()}"):
++        assert _call(world, path)[0] == 401
++        assert _call(world, path, "x" * len(AUDIT))[0] == 403
++        assert _call(world, path, AUDIT + "x")[0] == 403
++        assert _call(world, path, AUDIT)[0] == 200
++    assert _call(world, "/operations/" + K)[0] == 404  # 既有端點不要金鑰(查不到回 404)
++
++    bare = DspServer(world.dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0)
++    threading.Thread(target=bare.serve_forever, args=(0.02,), daemon=True).start()
++    try:
++        url = f"http://127.0.0.1:{bare.server_address[1]}"
++        status, body = request_json(f"{url}/operations/after/0", "GET", None, 2.0,
++                                    {ClientHeader.CAPABILITY: AUDIT})
++        assert status == 503 and body["error"] == "audit_not_configured"  # 沒設金鑰一律拒收
++    finally:
++        bare.shutdown()
++        bare.server_close()
++
++
++def _raw_response(world, path: bytes) -> bytes:
++    """用原始位元組送請求(路徑裡的非 ASCII 位元組照伺服器的 latin-1 解碼進去),回整個回應。"""
++    port = world.server.server_address[1]
++    with socket.create_connection(("127.0.0.1", port), timeout=2.0) as conn:
++        conn.sendall(b"GET " + path + b" HTTP/1.1\r\nHost: 127.0.0.1:" + str(port).encode()
++                     + b"\r\nX-Capability: " + AUDIT.encode()
++                     + b"\r\nConnection: close\r\n\r\n")
++        return conn.makefile("rb").read()
++
++
++def test_a_cursor_must_be_a_plain_decimal_within_the_integer_range(world):
++    """上標數字(isdigit 收、int 不收)、超過 SQLite 整數上限的游標回 400 invalid_cursor,不是 500。"""
++    superscript = _raw_response(world, b"/operations/after/\xb2")  # 上標 2
++    assert b" 400 " in superscript and b"invalid_cursor" in superscript, superscript
++    for cursor in ("9999999999999999999", "9223372036854775808", "-1", "1e3"):
++        status, body = _call(world, "/operations/after/" + cursor, AUDIT)
++        assert (status, body.get("error")) == (400, "invalid_cursor"), cursor
++    assert _call(world, "/operations/after/9223372036854775807", AUDIT)[0] == 200
++
++
++def test_approval_uses_for_a_batch_of_keys_uses_the_key_index(world):
++    """核可使用批量查詢走依鍵的索引,不每批整表掃(Phase 6 已核可放行數的查詢計畫另有測試釘住)。"""
++    sql, params = inbox_store.approval_uses_for_query(["k1-a", "k1-b"])
++    steps = _plan(world.rows.executor_db, sql, params)
++    assert any("approval_uses_by_key" in s for s in steps), steps
++    assert not [s for s in steps if s.startswith("SCAN")], steps
+diff --git a/tests/ops/test_slo.py b/tests/ops/test_slo.py
+index b8e55c6..7850579 100644
+--- a/tests/ops/test_slo.py
++++ b/tests/ops/test_slo.py
+@@ -1,23 +1,29 @@
+ """服務水準指標、目標、錯誤預算與燒損告警(Phase 9 增量 3):[S650] [S651] [S654] [S655] [S656]
+ 到 [S662] [S666]。
+ 
+ 燒損的數學與告警邊界用假的計數函式餵(每個窗要多少好事件、有效事件由測試決定);各條服務水準
+ 指標怎麼分好壞,用 rows.py 直接寫紀錄、交給真的計數函式算。
+ """
+ 
++import io
++import json
+ import sqlite3
++import threading
+ from datetime import timedelta
+ from fractions import Fraction
+ 
+ import pytest
+ 
++from rtb.capabilitykit import AUDIT_KEY_ENV
++from rtb.dsp.server import DspServer
++from rtb.dsp.store import CampaignStore
+ from rtb.ops import sli, slo
+ from rtb.ops.sli import Tally
+ from tests.ops.rows import Rows, at
+ 
+ 
+ @pytest.fixture
+ def rows(tmp_path):
+     built = Rows(tmp_path)
+     yield built
+     built.close()
+@@ -104,33 +110,37 @@ def test_safe_completion_classifies_every_terminal_kind(rows):
+ # ---- [S654] ----
+ def test_deadline_based_slis_are_fixed_once_the_window_has_passed(rows):
+     t = at(minutes=0)
+     rows.attempts("kA", [("in_flight", t), ("unknown", t),
+                          ("verified", t + timedelta(minutes=10))])  # 剛好第 10 分鐘:好
+     rows.attempts("kB", [("in_flight", t), ("unknown", t)])  # 還沒結案
+     rows.attempts("kC", [("in_flight", t), ("unknown", t),
+                          ("escalated", t + timedelta(minutes=3))])  # 期限前轉人工:排除
+     rows.attempts("kD", [("in_flight", t), ("unknown", t + timedelta(seconds=1)),
+                          ("escalated", t + timedelta(minutes=12))])  # 期限後才轉人工:壞
++    rows.attempts("kE", [("in_flight", t), ("unknown", t),
++                         ("escalated", t + timedelta(minutes=10)),  # 期限當刻轉人工:壞
++                         ("verified", t + timedelta(minutes=10))])  # 同刻人工結案也不覆寫
+     for n, delay in enumerate((30, 45)):  # 剛好第 30 秒取件是好;45 秒是壞(記在第 30 秒)
+         rows.event(at(minutes=2), f"q{n}", "received", tenant=None)
+         rows.event(at(minutes=2, seconds=delay), f"q{n}", "delivered", deliveries=1)
+     rows.event(at(minutes=2), "q2", "received", tenant=None)  # 一直沒被取件
+     rows.event(at(minutes=2), "q3", "received", tenant=None)
+     rows.event(at(minutes=2, seconds=40), "q3", "expired")  # 過了期限才被標成已過期
+     src = sources(rows)
+     window = (at(minutes=5), at(minutes=11))
+     unknown = sli.count("unknown_reconciled_in_time", *window, src)
+     queue = sli.count("queue_wait", at(minutes=2), at(minutes=3), src)
+ 
+-    assert (unknown.good, unknown.valid) == (1, 3)
++    assert (unknown.good, unknown.valid) == (1, 4)
+     assert sorted(unknown.bad_at) == sorted([slo_iso(t + timedelta(minutes=10)),
++                                             slo_iso(t + timedelta(minutes=10)),
+                                              slo_iso(t + timedelta(minutes=10, seconds=1))])
+     assert (queue.good, queue.valid) == (1, 4)
+     assert set(queue.bad_at) == {slo_iso(at(minutes=2, seconds=30))}
+ 
+     rows.attempt("kB", 3, "verified", t + timedelta(minutes=15))  # 之後才結案
+     rows.event(at(minutes=4), "q2", "delivered", deliveries=1)  # 之後才取件
+     assert sli.count("unknown_reconciled_in_time", *window, src) == unknown
+     assert sli.count("queue_wait", at(minutes=2), at(minutes=3), src) == queue
+ 
+ 
+@@ -146,23 +156,25 @@ def test_end_to_end_handoff_sli_is_event_based(rows):
+     rows.event(at(seconds=10), "r2", "awaiting_approval", reason="budget_increase_too_large")
+     rows.event(at(seconds=310), "r2", "approval_released", reason="budget_increase_too_large")
+     rows.event(at(seconds=350), "r2", "handed_off")  # 350 秒扣掉 300 秒核可等待:好
+     rows.task("r3", at(0))
+     rows.follow_up("r3", "f3", at(seconds=60))
+     rows.event(at(seconds=60), "r3", "blocked", reason="version_changed")  # 擋下不是有效事件
+     rows.event(at(seconds=200), "f3", "handed_off")  # 從根任務算 200 秒:壞
+     rows.event(at(seconds=150), "u1", "handed_off")  # 接不上
+     rows.task("n1", at(seconds=400))
+     rows.event(at(seconds=300), "n1", "handed_off")  # 時鐘異常
++    rows.task("e1", at(seconds=30))
++    rows.event(at(seconds=150), "e1", "handed_off")  # 剛好 120 秒:不超過上限,算好
+     tally = sli.count("end_to_end_handoff", at(0), at(minutes=10), sources(rows))
+ 
+-    assert (tally.good, tally.valid) == (2, 3)
++    assert (tally.good, tally.valid) == (3, 4)
+     assert (tally.unlinked, tally.clock_anomaly) == (1, 1)
+ 
+ 
+ # ---- [S656] ----
+ def test_burn_rate_is_the_budget_consumption_speed():
+     assert slo.burn_rate(990, 1000, Fraction(99, 100)) == 1  # 錯誤率 1%、目標 99%
+     assert slo.burn_rate(990, 1000, Fraction(999, 1000)) == 10  # 同樣 1%、目標 99.9%:十倍
+     assert slo.burn_rate(0, 0, Fraction(99, 100)) == 0
+     assert slo.error_budget(1000, Fraction(99, 100)) == 10
+     assert slo.remaining_budget(1000, 12, Fraction(99, 100)) == -2  # 超支
+@@ -228,20 +240,27 @@ def test_a_single_zero_target_violation_fires_for_the_whole_period():
+     bad_at = slo_iso(NOW - timedelta(hours=11))
+     counter = Planned({(name, period): Tally(99, 100, bad_at=(bad_at,), unverifiable=2)})
+     result = status(slo.evaluate(NOW, counter=counter), name)
+     assert result.violating is True and result.period_bad == 1
+     assert result.last_bad == bad_at and result.unverifiable == 2
+     assert result.budget == 0 and result.fast is None and result.slow is None  # 不計算燒損率
+ 
+     later = status(slo.evaluate(NOW, counter=Planned({(name, period): Tally(100, 100)})), name)
+     assert later.violating is False  # 壞事件滑出週期之後
+ 
++    # 代碼審第 1 輪:已證實的違規優先;只有沒看到壞事件、又有子窗缺資料才回空
++    partly = Planned({(name, period): Tally(99, 100, bad_at=(bad_at,), missing=True)})
++    result = status(slo.evaluate(NOW, counter=partly), name)
++    assert result.violating is True and result.missing is True
++    blind = Planned({(name, period): Tally(100, 100, missing=True)})
++    assert status(slo.evaluate(NOW, counter=blind), name).violating is None
++
+ 
+ # ---- [S662] ----
+ def test_the_burn_evaluator_reads_only(rows):
+     rows.event(at(minutes=599), "t1", "handed_off")
+     rows.task("t1", at(minutes=598))
+     before = [_dump(p) for p in (rows.executor_db, rows.analyzer_db)]
+     holders = [sqlite3.connect(p, isolation_level=None)
+                for p in (rows.executor_db, rows.analyzer_db)]
+     for holder in holders:
+         holder.execute("BEGIN IMMEDIATE")
+@@ -285,10 +304,107 @@ def test_the_period_is_summed_from_day_sized_windows():
+ 
+     seam = pieces[3][1]  # 剛好落在接縫上的事件
+     events = [seam, seam - timedelta(microseconds=1), end - timedelta(days=29, hours=23)]
+ 
+     def counter(_name, since, until):
+         inside = [e for e in events if since <= e < until]
+         return Tally(0, len(inside))
+ 
+     assert slo.period_tally("safe_completion", end, slo.PERIOD, counter).valid == 3
+     assert len(slo.period_windows(end, slo.scaled(slo.PERIOD))) == 1
++
++
++# ---- 代碼審第 1 輪 ----
++def test_an_unstable_cross_database_read_is_reported(rows, monkeypatch):
++    """端到端交給執行三輪讀到的都不同:照樣回最後一輪,但標明不穩定;評估器與命令列入口對外揭露。"""
++    rounds = iter([((("a", True),), 0, 0), ((("b", True),), 0, 0), ((("c", False),), 0, 0)])
++    monkeypatch.setattr(sli, "_handoff_round", lambda *_args: next(rounds))
++    tally = sli.count("end_to_end_handoff", at(0), at(minutes=10), sources(rows))
++    assert tally.stable is False and (tally.good, tally.valid) == (0, 1)  # 最後一輪
++
++    same = iter([((("a", True),), 0, 0)] * 2)
++    monkeypatch.setattr(sli, "_handoff_round", lambda *_args: next(same))
++    assert sli.count("end_to_end_handoff", at(0), at(minutes=10), sources(rows)).stable is True
++
++    shaky = Planned({("end_to_end_handoff", lengths()["period"]): Tally(1, 1, stable=False)})
++    result = slo.evaluate(NOW, counter=shaky)
++    assert status(result, "end_to_end_handoff").stable is False
++    assert all(s.stable for s in result if s.name != "end_to_end_handoff")
++
++    endless = iter(range(10**6))
++    monkeypatch.setattr(sli, "_handoff_round", lambda *_args: ((), next(endless), 0))
++    code = slo.run(_cli_args(rows, "http://127.0.0.1:9"), out=io.StringIO(),
++                   err=io.StringIO(), environ={})
++    assert code == slo.EXIT_UNSTABLE
++
++
++def test_one_unreadable_slo_does_not_hide_the_others():
++    """一條指標算不出來(例:讀不到),只有那一條標資料來源缺,另外五條照算。"""
++    def counter(name, _since, _until):
++        if name == "queue_wait":
++            raise RuntimeError("boom")
++        return Tally(10, 10)
++
++    result = slo.evaluate(NOW, counter=counter)
++    assert len(result) == len(slo.SLOS)
++    broken = status(result, "queue_wait")
++    assert broken.missing is True and "RuntimeError" in (broken.error or "")
++    assert all(not s.missing and s.period_valid == 10 for s in result if s.name != "queue_wait")
++
++    def no_database(_name, _since, _until):
++        raise FileNotFoundError("nope.db")
++
++    with pytest.raises(FileNotFoundError):  # 整份評估的設定錯誤照樣往外丟,給命令列回結束代碼
++        slo.evaluate(NOW, counter=no_database)
++
++
++def _cli_args(rows, dsp_url, executor_db=None):
++    return ["--executor-db", str(executor_db or rows.executor_db),
++            "--analyzer-db", str(rows.analyzer_db), "--dsp-url", dsp_url,
++            "--dsp-timeout-seconds", "0.5", "--now", NOW.isoformat()]
++
++
++CLI_KEY = "audit-" + "k" * 32
++
++
++@pytest.fixture
++def dsp_url(tmp_path):
++    """帶唯讀稽核金鑰 CLI_KEY 的真 DSP(空的操作紀錄)。"""
++    dsp_db = tmp_path / "dsp.db"
++    CampaignStore(dsp_db).close()
++    server = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
++                       audit_key=CLI_KEY.encode())
++    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
++    yield f"http://127.0.0.1:{server.server_address[1]}"
++    server.shutdown()
++    server.server_close()
++
++
++def _printed(rows, url, environ):
++    """跑一次命令列入口(應該成功),回每條指標印出來的狀態。"""
++    out = io.StringIO()
++    assert slo.run(_cli_args(rows, url), out=out, err=io.StringIO(), environ=environ) == slo.EXIT_OK
++    return {s["name"]: s for s in json.loads(out.getvalue())["slos"]}
++
++
++def test_the_command_line_reports_fixed_exit_codes(rows, tmp_path, dsp_url):
++    """命令列入口用真資料庫、真的計數函式與真 DSP 走一次;稽核金鑰從環境讀。"""
++    rows.event(NOW - timedelta(minutes=5), "h1", "handed_off")
++    rows.event(NOW - timedelta(minutes=4), "b1", "expired")
++    rows.event(NOW - timedelta(hours=13), "old", "handed_off")  # 週期外
++    printed = _printed(rows, dsp_url, {AUDIT_KEY_ENV: CLI_KEY})
++    safe = printed["safe_completion"]
++    assert (safe["period_good"], safe["period_valid"], safe["period_bad"]) == (1, 2, 1)
++    assert printed["unauthorized_side_effects"]["missing"] is False  # 金鑰帶到了
++    assert printed["unauthorized_side_effects"]["violating"] is False
++    printed = _printed(rows, dsp_url, {})  # 沒金鑰:DSP 拒讀,照實標資料來源缺
++    assert printed["unauthorized_side_effects"]["missing"] is True
++
++    err = io.StringIO()
++    assert slo.run(_cli_args(rows, dsp_url, tmp_path / "nope.db"), out=io.StringIO(), err=err,
++                   environ={}) == slo.EXIT_NO_DATABASE
++    assert "找不到資料庫檔" in err.getvalue()
++    rows.executor.execute("DROP TABLE lifecycle_events")
++    err = io.StringIO()
++    assert slo.run(_cli_args(rows, dsp_url), out=io.StringIO(), err=err,
++                   environ={}) == slo.EXIT_NOT_UPGRADED
++    assert "請先啟動一次執行迴圈" in err.getvalue()
