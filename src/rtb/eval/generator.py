@@ -1,8 +1,8 @@
 """合成評估集的生成器(Phase 10 增量 2)。
 
 只依評分格的定義與欄位型別造數字,不讀決策規則與它的測試(測試掃這支檔的匯入守)。每個評分格造
-`BASES_PER_CELL` 組基準情境,每組三個變體:基準、只改花費(仍在偏低範圍)、只改預算——後兩個是無關欄位
-擾動檢查([S713]),答案應跟基準一樣。正常的格照漏斗順序造(點擊不多於曝光、轉換不多於點擊,沒有負數與
+`BASES_PER_CELL` 組基準情境,每組三個變體:基準原值、只改花費(仍在偏低範圍)、只改預算(花費不變)——後
+兩個是無關欄位擾動檢查([S713]),答案應跟基準一樣。正常的格照漏斗順序造(點擊不多於曝光、轉換不多於點擊,沒有負數與
 缺值);資料異常格輪流造單一故障:五個欄位各一次缺值、各一次負數,以及只違反「點擊多於曝光」、只違反
 「轉換多於點擊」([S717])。計劃釘住的邊界案例放在各格前幾組。種子固定;`render` 產出 `eval_set.py`
 的全文,雜湊由測試釘住([S706]),測試另外重跑生成器逐值比對。這是有限的合約案例,不給任何統計保證。
@@ -84,9 +84,8 @@ def _normal(rng: random.Random, cell: WorthCell, index: int) -> Fields:
 def _inject(rng: random.Random, fields: Fields, fault: str) -> Fields:
     """在正常資料上只打一個故障(花費欄的故障在 `generate` 打)。"""
     fields = dict(fields)
-    if fault == "clicks>impressions":
+    if fault == "clicks>impressions":  # 只動點擊;轉換照舊不多於原本的點擊,所以仍不多於新的點擊
         fields["clicks"] = int(fields["impressions"] or 0) + rng.randint(1, 50)
-        fields["conversions"] = 0
     elif fault == "conversions>clicks":
         fields["conversions"] = int(fields["clicks"] or 0) + rng.randint(1, 50)
     elif ":" in fault:
@@ -118,11 +117,12 @@ def generate(seed: int) -> tuple[Scenario, ...]:
             budget = rng.choice((1, 24, 100, 10_000, MAX_INT // 2, MAX_INT))
             perturbed_budget = rng.choice((48, 5_000, 10**9))
             spend = _spend(rng, budget, fault)
+            # 三個變體:基準原值;「花費」只改花費(花費缺值的故障沒有別的值可換,照舊;花費負數換另一個
+            # 負數);「預算」只改預算、不重抽花費(代碼審第 1 輪)
+            perturbed_spend = spend if fault == "spend:missing" else _spend(rng, budget, fault)
             for variant in VARIANTS:
                 use_budget = perturbed_budget if variant == "budget" else budget
-                use_spend = spend
-                if variant != "base" and not fault.startswith("spend:"):
-                    use_spend = _spend(rng, use_budget, fault)  # 花費的故障不擾動,留著那個故障
+                use_spend = perturbed_spend if variant == "spend" else spend
                 worth_input = WorthInput(status=status, budget=use_budget, spend=use_spend,
                                          **fields)  # type: ignore[arg-type]
                 if cell_of(worth_input) is not cell:
