@@ -4445,3 +4445,5 @@
 {"ts": "2026-09-25T00:49:19+08:00", "commit": "6a36964", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/F7效能_計劃.md"], "note": "door=high clauses=12 bound=6 red=0 green=6 weak=0 regress=10 S680=green S681=green S682=green S683=green S684=green S685=green"}
 {"ts": "2026-09-25T01:05:56+08:00", "commit": "6a36964", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-25T01:05:57+08:00", "commit": "6a36964", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "6a36964d7d9ed56eda0260098096c592d332ae74"}
+{"ts": "2026-09-25T01:05:58+08:00", "commit": "e026375", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-25T01:05:58+08:00", "commit": "e026375", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "e026375527fb04ce6e5e120d4645f232129b2780"}
