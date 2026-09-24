@@ -45,6 +45,7 @@ decisions:
     valid: true
 verified_by:
   - "[[Verification/Phase10驗收紀錄]]"
+  - "[[Verification/Phase11B增量1驗收紀錄]]"
 ---
 # 評估與Jev決策點
 
