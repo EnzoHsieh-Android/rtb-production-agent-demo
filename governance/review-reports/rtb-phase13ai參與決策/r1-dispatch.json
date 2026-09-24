@@ -1,0 +1,107 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1",
+  "lens": "調查迴圈與流程狀態機",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r1-snapshot.md",
+   "src/rtb/analyzer/",
+   "src/rtb/dsp/",
+   "src/rtb/modelclient.py",
+   "src/rtb/modelclaude.py",
+   "src/rtb/demo/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2",
+  "lens": "模型邊界、提示注入與舉證驗證",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r1-snapshot.md",
+   "src/rtb/analyzer/",
+   "src/rtb/dsp/",
+   "src/rtb/modelclient.py",
+   "src/rtb/modelclaude.py",
+   "src/rtb/demo/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3",
+  "lens": "新資料端點、種子與收據",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r1-snapshot.md",
+   "src/rtb/analyzer/",
+   "src/rtb/dsp/",
+   "src/rtb/modelclient.py",
+   "src/rtb/modelclaude.py",
+   "src/rtb/demo/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭4",
+  "lens": "評估與標準答案",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r1-snapshot.md",
+   "src/rtb/analyzer/",
+   "src/rtb/dsp/",
+   "src/rtb/modelclient.py",
+   "src/rtb/modelclaude.py",
+   "src/rtb/demo/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭5",
+  "lens": "展示串接與 Phase 12 相容",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r1-snapshot.md",
+   "src/rtb/analyzer/",
+   "src/rtb/dsp/",
+   "src/rtb/modelclient.py",
+   "src/rtb/modelclaude.py",
+   "src/rtb/demo/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "模組邊界與既有做法",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r1-snapshot.md",
+   "src/rtb/analyzer/",
+   "src/rtb/dsp/",
+   "src/rtb/modelclient.py",
+   "src/rtb/modelclaude.py",
+   "src/rtb/demo/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase13ai參與決策/r1-snapshot.md",
+   "src/rtb/analyzer/",
+   "src/rtb/dsp/",
+   "src/rtb/modelclient.py",
+   "src/rtb/modelclaude.py",
+   "src/rtb/demo/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md"
+  ],
+  "auditor": "codex"
+ }
+]
