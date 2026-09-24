@@ -16,7 +16,18 @@ EXIT_BAD_ARGUMENTS = 7  # 參數錯(缺參數、參數組合不對、時間沒�
 
 
 class Parser(argparse.ArgumentParser):
-    """參數錯一律以 EXIT_BAD_ARGUMENTS 結束,訊息印到標準錯誤。"""
+    """參數錯一律以 EXIT_BAD_ARGUMENTS 結束,訊息印到標準錯誤;一律不收縮寫(縮寫會把打錯字的選項
+    悄悄當成別的選項;代碼審 r2 a3 移到這裡,之後新增的命令列不會漏掉)。
+
+    寫成唯讀屬性、不覆寫建構子:維運套件的邊界掃描照名字分類,建構子跟分析端、執行端的同名。"""
+
+    @property
+    def allow_abbrev(self) -> bool:
+        return False
+
+    @allow_abbrev.setter
+    def allow_abbrev(self, _value: bool) -> None:
+        pass  # 基底類別建構時會設;一律不收縮寫,設什麼都不改
 
     def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)

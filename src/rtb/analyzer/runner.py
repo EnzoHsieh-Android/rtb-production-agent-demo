@@ -30,6 +30,8 @@ CALLS_PER_STEP = 2  # 一步最多兩次讀 DSP(廣告現況、成效指標)或�
 MIN_TIMEOUT_SECONDS = 0.1  # 比這小的逾時每次呼叫都失敗,等於永遠不推進
 EXIT_UNSAFE_CONFIG = 7  # 跟執行端同一個代碼;2 是 argparse 參數錯誤的代碼,不能共用
 BACKOFF_CAP_SECONDS = 10.0  # 沒有進展的任務最久隔這麼久再問一次
+DEFAULT_TIMEOUT_SECONDS = 3.0
+REST_SLICE_SECONDS = 0.1  # 每輪之間的休息切成小段,每段之間看停止旗標
 
 
 class StopFlag:
@@ -61,21 +63,22 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--dsp-url", required=True)
     parser.add_argument("--inbox-url", required=True)
-    parser.add_argument("--timeout-seconds", type=float, default=3.0)
+    parser.add_argument("--timeout-seconds", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--interval-seconds", type=float, default=0.5)
     parser.add_argument("--owner", default=None)
     return parser.parse_args(argv)
 
 
 def _unsafe(args: argparse.Namespace) -> str | None:
-    """[S1001] 逾時要是有限、夠大的正數,而且呼叫次數乘逾時乘 2 小於租約;間隔要是有限的非負數。
-    NaN 跟任何數比都不成立,所以一律用「符合才放行」的寫法(代碼審 r1 d4)。"""
+    """[S1001] 逾時要是有限、夠大的正數,而且呼叫次數乘逾時乘 2 小於租約;間隔要是非負數、不超過
+    租約(代碼審 r2 v3:1e308 原本過了守衛、印了就緒才在休息時崩掉)。NaN 跟任何數比都不成立,所以
+    一律用「符合才放行」的寫法(代碼審 r1 d4)。"""
     t, lease = args.timeout_seconds, LEASE_DURATION.total_seconds()
     if not (math.isfinite(t) and t >= MIN_TIMEOUT_SECONDS and CALLS_PER_STEP * t * 2 < lease):
         return (f"拒絕啟動:逾時 {t} 秒不是 {MIN_TIMEOUT_SECONDS} 秒以上的有限數,或 "
                 f"{CALLS_PER_STEP} 次呼叫乘逾時乘 2 不小於租約 {lease:.0f} 秒")
-    if not (math.isfinite(args.interval_seconds) and args.interval_seconds >= 0):
-        return f"拒絕啟動:間隔 {args.interval_seconds} 秒不是有限的非負數"
+    if not 0 <= args.interval_seconds <= lease:
+        return f"拒絕啟動:間隔 {args.interval_seconds} 秒不是 0 到租約 {lease:.0f} 秒之間的數"
     return None
 
 
@@ -129,6 +132,10 @@ class _Backoff:
             self.seen[task_id] = result if result is not None else (TaskState.RECEIVED, 0)
             self.misses[task_id], self.due[task_id] = 0, now
             return
+        self.failed(task_id, now, interval)
+
+    def failed(self, task_id: str, now: float, interval: float) -> None:
+        """沒有進展:這一步出例外也算(代碼審 r2 n4:例外原本讓退避歸零,出錯的任務每輪都推)。"""
         self.misses[task_id] = self.misses.get(task_id, 0) + 1
         wait = min(max(interval, 0.05) * 2 ** self.misses[task_id], BACKOFF_CAP_SECONDS)
         self.due[task_id] = now + wait
@@ -161,16 +168,28 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
                     continue
                 try:
                     result = _advance_one(store, task_id, args, clock())
-                except Exception as problem_:  # 一件任務出事不停掉整個驅動;下一輪再試
+                except Exception as problem_:  # 一件任務出事不停掉整個驅動;照樣退避,之後再試
                     errors.write(f"{task_id} 這一步沒有進展:{problem_!r}\n")
-                    result = None
+                    backoff.failed(task_id, monotonic(), args.interval_seconds)
+                    continue
                 backoff.update(task_id, result, monotonic(), args.interval_seconds)
             rounds += 1
-            if not stop.is_set():
-                sleep(args.interval_seconds)
+            _rest(stop, args.interval_seconds, sleep, monotonic)
         return 0
     finally:
         store.close()
+
+
+def _rest(stop: _Stop, seconds: float, sleep: Callable[[float], None],
+          monotonic: Callable[[], float]) -> None:
+    """每輪之間的休息:切成小段、每段之間看停止旗標。time.sleep 被訊號打斷後會把剩下的睡完
+    (PEP 475),整段睡的話 SIGTERM 要等滿一個間隔(代碼審 r2 v3)。"""
+    deadline = monotonic() + seconds
+    while not stop.is_set():
+        left = deadline - monotonic()
+        if left <= 0:
+            return
+        sleep(min(REST_SLICE_SECONDS, left))
 
 
 def main(argv: list[str] | None = None) -> None:

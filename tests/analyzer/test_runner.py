@@ -3,6 +3,7 @@
 
 import ast
 import io
+import itertools
 import re
 import threading
 import time
@@ -380,4 +381,125 @@ def test_the_timeout_reaches_the_inbox_client_too(tmp_path, services):
         elapsed = time.monotonic() - began
     finally:
         listener.close()
+    assert elapsed < 3, elapsed
+
+
+# ---- 代碼審 r2 v3/n3/n4:休息可被打斷、間隔有上限、出錯也退避、退避有上限、查操作也照逾時 ----
+@pytest.mark.parametrize("interval", ["1e308", "61"])
+def test_the_analyzer_runner_refuses_an_interval_longer_than_the_lease(tmp_path, interval):
+    """[v3] 間隔要有上限(不超過租約):1e308 原本過了守衛、印了就緒才在休息時崩掉。"""
+    argv = _argv(tmp_path, "http://127.0.0.1:9", "http://127.0.0.1:9")
+    argv[argv.index("--interval-seconds") + 1] = interval
+    out = io.StringIO()
+
+    def rest(_seconds):  # 放行了就會進休息:當場失敗,不等 1e308 秒
+        pytest.fail("不該啟動")
+
+    code = runner.run(argv, max_rounds=1, out=out, err=io.StringIO(), sleep=rest)
+    assert code == runner.EXIT_UNSAFE_CONFIG and out.getvalue() == ""
+
+
+def test_a_stop_signal_cuts_the_rest_between_rounds_short(tmp_path):
+    """[v3] 每輪之間的休息收到 SIGTERM 要馬上醒:time.sleep 被訊號打斷後會睡滿(PEP 475)。"""
+    import signal
+    import subprocess
+    import sys
+
+    argv = _argv(tmp_path, "http://127.0.0.1:9", "http://127.0.0.1:9")
+    argv[argv.index("--interval-seconds") + 1] = "20"
+    child = subprocess.Popen(
+        [sys.executable, "-m", "rtb.analyzer.runner", *argv], stdout=subprocess.PIPE, text=True,
+        env={"PYTHONPATH": str(RUNNER.parents[2]), "PATH": "/usr/bin:/bin"})
+    try:
+        assert child.stdout.readline().strip() == runner.READY
+        time.sleep(1.0)  # 沒有任務:第一輪馬上進休息
+        began = time.monotonic()
+        child.send_signal(signal.SIGTERM)
+        assert child.wait(5) == 0
+        assert time.monotonic() - began < 2
+    finally:
+        child.kill()
+        child.stdout.close()
+
+
+def _fake_time():
+    clock = {"now": 0.0}
+
+    def sleep(seconds):
+        clock["now"] += seconds
+
+    return clock, sleep
+
+
+def test_a_task_that_keeps_failing_backs_off_too(tmp_path, monkeypatch):
+    """[n4] 例外也算一次沒進展:一件每次都出錯的任務不會每輪都被推(每輪寫一行錯誤、多寫租約)。"""
+    _create(tmp_path, ("t1", "c1"))
+    clock, sleep = _fake_time()
+    calls = []
+
+    def broken(_store, _task_id, _args, _now):
+        calls.append(clock["now"])
+        raise RuntimeError("資料毀損")
+
+    monkeypatch.setattr(runner, "_advance_one", broken)
+    argv = _argv(tmp_path, "http://127.0.0.1:9", "http://127.0.0.1:9")
+    argv[argv.index("--interval-seconds") + 1] = "0.1"
+    runner.run(argv, max_rounds=600, out=io.StringIO(), err=io.StringIO(), sleep=sleep,
+               monotonic=lambda: clock["now"])
+    assert len(calls) < 30, len(calls)
+
+
+def test_backoff_never_waits_longer_than_its_cap(tmp_path, monkeypatch):
+    """[n4] 沒有進展時等待加倍,但兩次推進的間隔不超過上限(否則等待中的任務第 20 次要等約 6 天,
+    F4、F6 等不到新工作)。"""
+    _create(tmp_path, ("t1", "c1"))
+    clock, sleep = _fake_time()
+    calls = []
+
+    def stuck(_store, _task_id, _args, _now):
+        calls.append(clock["now"])
+        return TaskState.HANDED_OFF, 5
+
+    monkeypatch.setattr(runner, "_advance_one", stuck)
+    argv = _argv(tmp_path, "http://127.0.0.1:9", "http://127.0.0.1:9")
+    argv[argv.index("--interval-seconds") + 1] = "0.1"
+    runner.run(argv, max_rounds=1200, out=io.StringIO(), sleep=sleep,
+               monotonic=lambda: clock["now"])
+    gaps = [b - a for a, b in itertools.pairwise(calls)]
+    # 寫死 10 秒(計劃的上限值),不引用程式裡的常數:常數被改大時這條才會翻紅
+    assert len(calls) > 5 and max(gaps) <= 10.0 + 0.2, gaps
+
+
+def test_the_timeout_reaches_the_operation_lookup_too(tmp_path, services):
+    """[n4/M37lookup] 收件紀錄清掉之後改查平台的那一次呼叫也照逾時參數:平台只收連線不回應,
+    那一步在逾時左右結束。"""
+    import socket
+
+    from rtb.httpkit import JsonHandler, KitServer
+
+    class Purged(JsonHandler):
+        def handle_request(self, _method):
+            self.read_json(allow_empty=True)
+            return 422, {"error": "expired_proposal", "retryable": False}
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(8)
+    silent = f"http://127.0.0.1:{listener.getsockname()[1]}"
+    inbox = KitServer(Purged)
+    threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
+    try:
+        _create(tmp_path, ("t1", "c1"))
+        runner.run(_argv(tmp_path, *services), max_rounds=4, out=io.StringIO(),
+                   err=io.StringIO())
+        assert _latest(tmp_path, "t1").state is TaskState.HANDED_OFF
+        argv = _argv(tmp_path, silent, f"http://127.0.0.1:{inbox.server_address[1]}",
+                     timeout="0.3")
+        began = time.monotonic()
+        runner.run(argv, max_rounds=1, out=io.StringIO(), err=io.StringIO())
+        elapsed = time.monotonic() - began
+    finally:
+        listener.close()
+        inbox.shutdown()
+        inbox.server_close()
     assert elapsed < 3, elapsed

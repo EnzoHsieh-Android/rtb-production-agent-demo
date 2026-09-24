@@ -467,7 +467,7 @@ def to_primitives(trace: Trace) -> dict[str, Any]:
 
 # ---- 命令列入口 ----
 def _parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = Parser(allow_abbrev=False, description="一個任務的跨元件追蹤(只讀)")
+    parser = Parser(description="一個任務的跨元件追蹤(只讀)")
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--analyzer-db", required=True, type=Path)
     parser.add_argument("--executor-db", required=True, type=Path)

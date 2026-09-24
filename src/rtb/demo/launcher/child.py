@@ -49,7 +49,8 @@ def _verified(argv: list[str]) -> tuple[Role, FaultPlan, list[str], argparse.Nam
         raise FaultRefused(f"{role} 沒有故障手段")
     args = argv[3:]
     parsed = _parsed(role, args)
-    nonce = os.environ.pop(FAULT_NONCE_ENV, None)  # 核對完就不留在子行程環境裡(代碼審 r1 s4)
+    # 核對前就拿掉:不傳給孫行程。啟動時的環境區塊改不到,ps eww 仍看得到;設定檔用過就作廢,重放不了
+    nonce = os.environ.pop(FAULT_NONCE_ENV, None)
     plan = load_verified(Path(argv[1]), nonce, role.value, _targets(parsed))
     if plan.crash_point is not None and plan.crash_point not in executor_faults.CRASH_POINTS:
         raise FaultRefused(f"不認得的猝死點 {plan.crash_point!r}")

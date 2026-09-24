@@ -144,3 +144,11 @@ def test_importing_every_production_entry_never_loads_the_demo_package():
                                                           "PATH": os.environ["PATH"]})
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "[]"
+
+
+@pytest.mark.parametrize("config", [DEMO / "ruff.toml", LAUNCHER / "ruff.toml"])
+@pytest.mark.parametrize("source", ["import sqlite3\n", "from rtb.sqlitekit import connect\n"])
+def test_the_demo_package_cannot_open_database_connections_itself(config, source):
+    """[代碼審 r2 a1] 展示套件讀別的系統的資料庫只准經唯讀出口(同維運套件);展示狀態庫是展示自己的,
+    在那支檔逐行放行。"""
+    assert _ruff_flags(config, source)

@@ -146,6 +146,32 @@ def tool_calls_between_query(since: datetime, until: datetime) -> tuple[str, tup
             "WHERE at >= ? AND at < ? ORDER BY at, id", (_iso(since), _iso(until)))
 
 
+CURSOR_PAGE = 1000  # 游標式讀取一次最多回幾列;呼叫端讀到不滿一頁才算讀完
+
+
+def tasks_after_query(after: int) -> tuple[str, tuple[int, ...]]:
+    """列號大於 after 的任務歷史列(Phase 12 代碼審 r2 a1:展示觀察器照列號往後讀,不自己下查詢)。"""
+    return (f"SELECT rowid, {_TASK_COLUMNS} FROM tasks WHERE rowid > ? "  # noqa: S608 - 固定欄位清單
+            "ORDER BY rowid LIMIT ?", (after, CURSOR_PAGE))
+
+
+def follow_ups_after_query(after: int) -> tuple[str, tuple[int, ...]]:
+    """列號大於 after 的接續關係(同上)。"""
+    return ("SELECT rowid, original_task_id, follow_up_task_id, reason, written_at FROM follow_ups "
+            "WHERE rowid > ? ORDER BY rowid LIMIT ?", (after, CURSOR_PAGE))
+
+
+@dataclass(frozen=True)
+class FollowUpRow:
+    """一列接續關係:原任務結案時寫;代數用完時沒有開新工作,接續任務是空值。"""
+
+    rowid: int
+    original_task_id: str
+    follow_up_task_id: str | None
+    reason: ReplanReason
+    written_at: datetime
+
+
 class _FollowUpOutcome(StrEnum):
     CREATED = "created"
     LIMIT_REACHED = "limit_reached"
@@ -340,6 +366,18 @@ class TaskReads:
             "SELECT reason FROM no_action_reasons WHERE task_id = ? AND seq = ?", (task_id, seq),
         ).fetchone()
         return None if record is None else str(record[0])
+
+    def tasks_after(self, after: int) -> tuple[tuple[int, TaskRow], ...]:
+        """列號大於 after 的任務歷史列,依寫入順序,最多一頁:(列號, 那一列)。"""
+        sql, params = tasks_after_query(after)
+        return tuple((int(r[0]), _row_from_record(r[1:])) for r in self._conn.execute(sql, params))
+
+    def follow_ups_after(self, after: int) -> tuple[FollowUpRow, ...]:
+        """列號大於 after 的接續關係,依寫入順序,最多一頁。"""
+        sql, params = follow_ups_after_query(after)
+        return tuple(FollowUpRow(int(r[0]), r[1], r[2], ReplanReason(r[3]),
+                                 datetime.fromisoformat(r[4].replace("Z", "+00:00")))
+                     for r in self._conn.execute(sql, params))
 
     def history(self, task_id: str) -> tuple[TaskRow, ...]:
         records = self._conn.execute(

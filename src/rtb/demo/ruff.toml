@@ -7,4 +7,6 @@ extend = "../../../pyproject.toml"
 [lint.flake8-tidy-imports.banned-api]
 "rtb.demo.faults".msg = "故障手段只准展示啟動器匯入(Phase 12 [S1050]);其他展示模組經啟動器排故障"
 "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+"sqlite3".msg = "展示套件讀別的系統的資料庫只准經唯讀出口(同維運套件,Phase 12 代碼審 r2 a1);展示狀態庫在那支檔逐行放行"
+"rtb.sqlitekit".msg = "展示套件讀別的系統的資料庫只准經唯讀出口(同維運套件,Phase 12 代碼審 r2 a1);展示狀態庫在那支檔逐行放行"
 "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"

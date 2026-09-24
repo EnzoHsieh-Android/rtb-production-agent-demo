@@ -277,3 +277,44 @@ def test_a_proposal_expired_at_intake_is_recollected_in_the_same_task():
     assert ("i_check", "x_expired") not in EDGES
     assert ("i_check", "a_restale") in EDGES
     assert ("x_pending", "x_expired") in EDGES
+
+
+# ---- 第 2 輪代碼審 n2:分析端出口跟圖上的邊雙向對照 ----
+_TARGET_OF_STEP = {"COMPLETED": "x_done", "SUPERSEDED": "i_superseded"}
+# 進入分析端出口節點、但不是收件口處置的邊:各自由哪一段程式走到
+_OTHER_EXITS = {
+    ("i_check", "a_restale"): "送件被收件口以過期拒收,同一件工作重新蒐集",
+    ("i_check", "a_blocked_end"): "已交出去之後重送被拒收(永久拒絕)",
+    ("x_pending", "a_followup"): "收件紀錄已清掉、平台也查不到:開新工作",
+    ("x_pending", "a_blocked_end"): "收件紀錄已清掉、平台同編號卻是不同內容",
+    ("x_failed", "a_followup"): "寫入被平台以版本不對拒絕,收件口確認成版本已變",
+    ("x_failed", "a_blocked_end"): "寫入被平台拒絕,收件口確認成先前已失敗",
+}
+
+
+def test_each_inbox_answer_leads_where_the_table_says():
+    """[n2] 正向:分析端對每一種收件口處置實際的下一步(開新工作、結案、完成、被取代),要跟對照表的
+    終點一致;改成開新工作的處置(例如把權限不足改成重新規劃)在這裡翻紅。"""
+    from datetime import timedelta
+
+    from rtb.analyzer import flow as analyzer_flow
+
+    for (state, code), (_, target) in _INBOX_EXITS.items():
+        answer, proposal = _answer(state, code)
+        step = analyzer_flow._from_inbox_answer(
+            answer, proposal, proposal.decision_expires_at + timedelta(seconds=1))
+        assert step is not None, (state, code)
+        if step.follow_up is not None:
+            actual = "a_followup"
+        else:
+            actual = _TARGET_OF_STEP.get(step.new_state.name, "a_blocked_end")
+        assert actual == target, (state, code, step)
+
+
+def test_every_edge_into_an_analyzer_exit_is_one_the_program_takes():
+    """[n2] 反向:圖上每一條進入開新工作、擋下結束、重新蒐集的邊,都要是收件口處置對照表或已知的程式
+    出口;圖上多畫一條程式不會走的邊在這裡翻紅。"""
+    exits = {"a_followup", "a_blocked_end", "a_restale"}
+    known = {e for e in _INBOX_EXITS.values() if e[1] in exits} | set(_OTHER_EXITS)
+    into = {e for e in EDGES if e[1] in exits}
+    assert into == known

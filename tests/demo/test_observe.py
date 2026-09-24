@@ -6,9 +6,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from rtb.analyzer.policy import NoActionReason
+from rtb.analyzer.task_store import ReplanReason
 from rtb.demo import flow
 from rtb.demo.observe import UNRECOVERABLE, PathBuilder, SourceEvent, missing_from_path
-from rtb.domain.attempt import AttemptState
+from rtb.domain.attempt import AttemptState, OutcomeCode
 from rtb.domain.task_state import TaskState
 from rtb.executor.inbox_store import BlockCode, LifecycleKind
 
@@ -86,11 +87,14 @@ def test_back_transitions_are_tracked_per_entity():
     (["x_write", "x_verify", "x_done"], "x_unknown"),
     (["x_write", "x_unknown", "x_done", "x_resend"], "x_verify"),
     (["x_done", "x_verify", "x_resend", "x_unknown", "x_write"], "x_unknown"),  # 都有、順序倒
+    # 第 2 輪代碼審 o1/c3:扣掉必經與允許的回頭之後,多出來的節點一律算對不上
+    (["x_write", "x_unknown", "x_escalated", "h_resolve", "x_resend", "x_verify", "x_done"],
+     "x_escalated"),
 ])
 def test_an_extra_allowed_loop_still_counts_as_done(observed, missing):
-    """[S1064] 必經節點要照順序出現;允許的回頭(稍後再查)多出現不算對不上。"""
+    """[S1064] 必經節點要照順序出現;允許的回頭(稍後再查)多出現不算對不上,清單外的節點算。"""
     required = ["x_write", "x_unknown", "x_resend", "x_verify", "x_done"]
-    assert missing_from_path(observed, required) == missing
+    assert missing_from_path(observed, required, allowed={"x_recheck"}) == missing
 
 
 def test_a_follow_up_shows_the_new_task_not_a_dead_end(tmp_path):
@@ -122,3 +126,155 @@ def test_a_follow_up_shows_the_new_task_not_a_dead_end(tmp_path):
     follow = next(r for r in rows if r.node == "a_followup")
     assert follow.edge == ("x_blocked", "a_followup")
     assert follow.origin.startswith("analyzer.follow_ups#")
+
+
+# ---- 第 2 輪代碼審 n1/o4/f5/a1 ----
+def _attempt(i, state, code=None, key="k1", origin_id=None):
+    return SourceEvent(T0 + timedelta(seconds=i), f"inbox.attempts#{key}/{i}",
+                       (AttemptState, state), None if code is None else (OutcomeCode, code),
+                       f"key:{key}", order=("inbox", 1, origin_id or i), key=key, task="t1")
+
+
+def _lifecycle(i, kind, reason=None, key="k1", origin_id=None):
+    detail = None if reason is None else (BlockCode, reason)
+    return SourceEvent(T0 + timedelta(seconds=i), f"inbox.lifecycle_events#{origin_id or i}",
+                       (LifecycleKind, kind), detail, "proposal:t1/1",
+                       order=("inbox", 2 if kind in {"BLOCKED", "HANDED_OFF"} else 0,
+                              origin_id or i), key=key, task="t1")
+
+
+def _analyzer_event(i, primary, entity="task:t1"):
+    return SourceEvent(T0 + timedelta(seconds=i), f"analyzer.x#{i}", primary, None, entity,
+                       order=("analyzer", 0, i), task="t1")
+
+
+@pytest.mark.parametrize(("code", "block", "ending", "node"), [
+    ("VERSION_CONFLICT", "VERSION_CHANGED", (ReplanReason, "VERSION_CHANGED"), "a_followup"),
+    ("VALIDATION_REJECTED", "OPERATION_PREVIOUSLY_FAILED", (TaskState, "BLOCKED"),
+     "a_blocked_end"),
+])
+def test_a_rejected_write_goes_from_the_failure_to_the_analyzer_not_through_the_precheck(
+        code, block, ending, node):
+    """[n1] 執行端寫了、平台拒絕:同一個交易寫嘗試失敗與生命週期擋下。判斷紀錄走「寫入失敗 → 開新
+    工作/結束」,不套「寫入前再確認就擋下」那條邊。"""
+    rows = PathBuilder().add([_attempt(0, "IN_FLIGHT"), _attempt(1, "FAILED", code),
+                              _lifecycle(1, "BLOCKED", block, origin_id=5),
+                              _analyzer_event(2, ending)])
+
+    assert [(r.node, r.edge) for r in rows] == [
+        ("x_write", ("x_total", "x_write")), ("x_failed", ("p_reply", "x_failed")),
+        (node, ("x_failed", node))]
+
+
+def test_same_time_rows_keep_their_write_order_by_number():
+    """[o4] 同一個時間的兩列照列號數字排(第 9 列在第 10 列之前),不照來源字串排。"""
+    ninth = SourceEvent(T0, "inbox.attempts#k1/9", (AttemptState, "UNKNOWN"), None, "key:k1",
+                        order=("inbox", 1, 9), key="k1")
+    tenth = SourceEvent(T0, "inbox.attempts#k1/10", (AttemptState, "IN_FLIGHT"), None, "key:k1",
+                        order=("inbox", 1, 10), key="k1")
+
+    rows = PathBuilder().add([tenth, ninth])
+
+    assert [r.node for r in rows] == ["x_unknown", "x_resend"]
+
+
+def test_a_reclaim_explains_the_unknown_that_follows_it():
+    """[o4] 重啟後接手(生命週期「被接手」)與嘗試轉成不知道有沒有寫進去同一個交易:先畫中斷換人接手
+    (寫入 → 中途中斷),再畫不知道有沒有寫進去;不套「平台沒有明確回覆」那條邊。"""
+    rows = PathBuilder().add([_attempt(0, "IN_FLIGHT"), _attempt(5, "UNKNOWN", origin_id=2),
+                              _lifecycle(5, "RECLAIMED", origin_id=3)])
+
+    assert [(r.node, r.edge) for r in rows] == [
+        ("x_write", ("x_total", "x_write")), ("x_reclaimed", ("x_write", "x_reclaimed")),
+        ("x_unknown", None)]
+    assert rows[2].reason != flow.OUTCOMES[(AttemptState, "UNKNOWN")].text
+
+
+def test_events_are_held_back_briefly_so_a_late_earlier_one_is_still_in_order():
+    """[o4] 跨輪排序:各資料庫提交的先後不等於時間先後,晚一輪才讀到的較早事件照樣排在前面。"""
+    from rtb.demo.observe import Timeline
+
+    timeline = Timeline(hold_seconds=1.0)
+    later = _attempt(10, "IN_FLIGHT")
+    earlier = _analyzer_event(9, (TaskState, "HANDED_OFF"))
+
+    assert timeline.push([later], now=T0 + timedelta(seconds=10.5)) == []
+    released = timeline.push([earlier], now=T0 + timedelta(seconds=11.5))
+    assert [e.origin for e in released] == [earlier.origin, later.origin]
+    assert timeline.flush() == []
+
+
+def test_the_executor_clock_offset_is_taken_off_what_it_wrote(tmp_path):
+    """[o4] 重啟時執行端帶時鐘偏移:它寫的列顯示時扣掉偏移,不會看起來像等了 5 分鐘。"""
+    from rtb.demo.observe import Observer
+    from tests.ops.rows import Rows
+
+    built = Rows(tmp_path)
+    try:
+        built.event(T0 + timedelta(seconds=300), "t1", "reclaimed")  # 執行迴圈寫的,帶偏移
+        built.event(T0 + timedelta(seconds=1), "t1", "received", source="inbox", actor=None)
+    finally:
+        built.close()
+    observer = Observer(tmp_path / "analyzer.db", tmp_path / "executor.db")
+    observer.executor_offset = timedelta(seconds=300)
+
+    at = {e.primary[1]: e.at for e in observer.poll()}
+
+    assert at == {"RECLAIMED": T0, "RECEIVED": T0 + timedelta(seconds=1)}
+
+
+def test_a_follow_up_that_ran_out_of_generations_ends_the_work(tmp_path):
+    """[f5] 接續關係記的是代數用完(沒有開新工作):判斷紀錄記「被擋下,結束」並寫原因,不記開新工作。"""
+    from rtb.demo.observe import GENERATIONS_USED_UP, Observer
+    from tests.ops.rows import Rows, iso
+
+    built = Rows(tmp_path)
+    try:
+        built.task("fu-x", T0)
+        built.analyzer.execute("INSERT INTO tasks (task_id, seq, state, campaign_id, written_at) "
+                               "VALUES ('fu-x', 2, 'blocked', 'c1', ?)", (iso(T0),))
+        built.analyzer.execute(
+            "INSERT INTO follow_ups (original_task_id, follow_up_task_id, generation, "
+            "campaign_id, reason, outcome, written_at) VALUES ('fu-x', NULL, 4, 'c1', "
+            "'version_changed', 'limit_reached', ?)", (iso(T0),))
+    finally:
+        built.close()
+
+    rows = PathBuilder().add(Observer(tmp_path / "analyzer.db", tmp_path / "executor.db").poll())
+
+    assert [r.node for r in rows] == ["a_receive", "a_blocked_end"]
+    assert rows[-1].reason == GENERATIONS_USED_UP
+
+
+def test_the_observer_reads_only_through_the_read_only_exits():
+    """[a1] 觀察器經分析端與收件口的唯讀開法讀,不自己開連線、不對別人的表下查詢。"""
+    import ast
+    from pathlib import Path
+
+    from rtb.demo import observe
+
+    tree = ast.parse(Path(observe.__file__).read_text(encoding="utf-8"))
+    imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    imported |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    assert not imported & {"sqlite3", "rtb.sqlitekit"}
+    assert "TaskReader" in observe.__dict__ and "ReadOnlyInbox" in observe.__dict__
+
+
+def test_a_close_event_written_with_an_attempt_result_comes_after_it(tmp_path):
+    """[o4/n1] 收件口的結案事件與嘗試結果同一個交易、同一個時間:結案排在嘗試之後(寫入失敗先記下,
+    收件口的擋下才認得出是「寫了、平台拒絕」)。"""
+    from rtb.demo.observe import Observer
+    from tests.ops.rows import Rows
+
+    built = Rows(tmp_path)
+    try:
+        built.event(T0, "t1", "delivered", key="k1")
+        built.attempt("k1", 1, "in_flight", T0 + timedelta(seconds=1), task="t1")
+        built.event(T0 + timedelta(seconds=2), "t1", "blocked", key="k1", reason="version_changed")
+        built.attempt("k1", 2, "failed", T0 + timedelta(seconds=2), code="version_conflict")
+    finally:
+        built.close()
+
+    rows = PathBuilder().add(Observer(tmp_path / "analyzer.db", tmp_path / "executor.db").poll())
+
+    assert [r.node for r in rows] == ["x_pick", "x_write", "x_failed"]

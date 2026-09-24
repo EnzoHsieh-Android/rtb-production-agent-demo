@@ -190,47 +190,92 @@ def test_the_demo_f3_checks_the_work_is_analyzed_once(tmp_path, state):
 
 
 class _Stub:
-    """只有交叉核對會讀的那幾樣:平台寫入、預算、查詢、執行迴圈。"""
+    """只有交叉核對會讀的那幾樣:平台寫入與廣告現況、收件口事件、嘗試紀錄、執行迴圈。"""
 
-    def __init__(self, writes=(), budget=110, rows=(), exit_code=9):
-        self._writes, self._budget, self._rows = list(writes), budget, list(rows)
-        self.inbox_db = "inbox.db"
+    def __init__(self, writes=(), budget=110, status="active", events=(), attempts=(),
+                 exit_code=9):
+        self._writes, self._events, self._attempts = list(writes), list(events), list(attempts)
+        self._campaign = {"budget": budget, "status": status}
         self.executor = type("P", (), {"poll": lambda _self: exit_code})()
 
-    def platform_writes(self, _campaign):
-        return self._writes
+    def platform_writes(self, campaign=None):
+        return [w for w in self._writes if campaign is None or w.campaign_id == campaign]
 
-    def budget(self, _campaign):
-        return self._budget
+    def campaign(self, _campaign):
+        return self._campaign
 
-    def query(self, _db, _sql, _params=()):
-        return self._rows
+    def lifecycle(self, _task=None):
+        return self._events
+
+    def attempts(self, _task):
+        return self._attempts
 
     def watch(self, done, _limit):
         return done()
 
 
-@pytest.mark.parametrize(("writes", "budget"), [
-    ([("k", 110), ("k2", 110)], 110), ([("k", 110)], 121), ([], 100)])
-def test_the_platform_truth_must_show_exactly_one_write(writes, budget):
+def _write(campaign="c1", budget=110, action="update_budget", key="k"):
+    from rtb.ops.side_effects import DspWrite
+
+    return DspWrite(1, key, campaign, "t", action, budget, 1, "2026-09-24T00:00:00+00:00", None)
+
+
+def _event(kind, deliveries=None, reason=None, campaign="c1", task="t1", event_id=1):
+    from rtb.executor.inbox_store import LifecycleEvent
+
+    return LifecycleEvent(event_id, "2026-09-24T00:00:00Z", task, 1, "h", campaign, "k", None,
+                          None, kind, reason, "executor_loop", None, deliveries, False, "v")
+
+
+def _row(send_count=1, code=None, state="verified"):
+    from rtb.domain.attempt import AttemptState, OutcomeCode
+    from rtb.executor.attempt_store import AttemptRow
+
+    outcome = None if code is None else OutcomeCode(code)
+    return AttemptRow("k", 1, "c1", AttemptState(state), outcome,
+                      None, send_count, 0, datetime.now().astimezone())
+
+
+@pytest.mark.parametrize(("writes", "budget", "status"), [
+    ([_write(key="k"), _write(key="k2")], 110, "active"),  # 寫兩次
+    ([_write()], 121, "active"),  # 讀回來的預算不對
+    ([], 100, "active"),  # 沒寫
+    ([_write(action="pause_campaign")], 110, "active"),  # 第 2 輪代碼審 c1:操作種類不對
+])
+def test_the_platform_truth_must_show_exactly_one_write(writes, budget, status):
     with pytest.raises(ScenarioFailed, match="平台真實狀態"):
-        driver_module._applied_once(_Stub(writes, budget), "c1", 110)
-    driver_module._applied_once(_Stub([("k", 110)], 110), "c1", 110)
+        driver_module._applied_once(_Stub(writes, budget, status), "c1", 110)
+    driver_module._applied_once(_Stub([_write()], 110), "c1", 110)
 
 
 def test_a_rejected_write_permission_marks_the_restart_incomplete():
     with pytest.raises(ScenarioFailed, match="寫入許可"):
-        driver_module._no_rejected_permission(_Stub(rows=[(None,), ("capability_rejected",)]))
-    driver_module._no_rejected_permission(_Stub(rows=[(None,)]))
+        driver_module._no_rejected_permission(
+            _Stub(attempts=[_row(), _row(code="capability_rejected", state="escalated")]), "t1")
+    driver_module._no_rejected_permission(_Stub(attempts=[_row()]), "t1")
 
 
-@pytest.mark.parametrize(("rows", "ok"), [([(2,)], True), ([(1,)], False), ([(2,), (2,)], False)])
-def test_the_message_must_have_been_delivered_twice(rows, ok):
+@pytest.mark.parametrize(("deliveries", "ok"), [([1, 2], True), ([1], False), ([], False)])
+def test_the_message_must_have_been_delivered_twice(deliveries, ok):
+    stub = _Stub(events=[_event("delivered", d) for d in deliveries])
     if ok:
-        driver_module._delivered(_Stub(rows=rows), 2)
+        driver_module._delivered(stub, "t1", 2)
     else:
         with pytest.raises(ScenarioFailed, match="投遞次數"):
-            driver_module._delivered(_Stub(rows=rows), 2)
+            driver_module._delivered(stub, "t1", 2)
+
+
+@pytest.mark.parametrize(("counts", "times", "ok"), [
+    ([1], 1, True), ([2], 1, False), ([1, 2], 2, True), ([], 1, False)])
+def test_the_number_of_sends_to_the_platform_is_checked(counts, times, ok):
+    """[第 2 輪代碼審 o1/c3] F2 不重送(只送一次)、F1 要同編號補送一次:看嘗試紀錄的送出次數,不只
+    看平台上改了幾次(平台對同編號本來就只套用一次)。"""
+    stub = _Stub(attempts=[_row(send_count=c) for c in counts])
+    if ok:
+        driver_module._sent(stub, "t1", times)
+    else:
+        with pytest.raises(ScenarioFailed, match="次數"):
+            driver_module._sent(stub, "t1", times)
 
 
 def test_an_executor_that_exits_normally_is_not_taken_for_a_crash():
@@ -341,25 +386,26 @@ def test_f7_shows_how_many_are_at_each_node(tmp_path, state):
 
 
 def test_f7_is_checked_campaign_by_campaign():
-    """[S1058] 平台上的放行要跟收件口記為完成的那一批一一對上、每個恰好加一成、數量等於門檻
-    算出的。"""
-    def world(writes, done):
-        stub = _Stub()
-        stub.all_platform_writes = lambda: writes
-        stub.query = lambda _db, _sql, _params=(): [(c,) for c in done]
+    """[S1058] 平台上的放行要跟收件口記為完成的那一批一一對上、每個恰好一筆加預算、加額恰好一成、
+    數量等於門檻算出的;逐廣告讀回預算與狀態(第 2 輪代碼審 c1)。"""
+    def world(writes, done, final=None):
+        stub = _Stub(writes=writes, events=[_event("handed_off", campaign=c) for c in done])
+        budgets = final or {w.campaign_id: w.new_budget for w in writes}
+        stub.campaign = lambda c: {"budget": budgets.get(c, 100), "status": "active"}
         return stub
 
-    ok = world([("a", "update_budget", 110), ("b", "update_budget", 110)], ["a", "b"])
+    ok = world([_write("a"), _write("b")], ["a", "b"])
     driver_module._check_campaign_by_campaign(ok, ["a", "b", "c"], 2)
-    for writes, done, passes in [
-        ([("a", "update_budget", 110)], ["a", "b"], 1),  # 收件口說完成、平台沒寫
-        ([("a", "update_budget", 120)], ["a"], 1),  # 加額不對
-        ([("a", "update_budget", 110), ("a", "update_budget", 110)], ["a"], 1),  # 寫兩次
-        ([("a", "update_budget", 110), ("c", "update_budget", 110)], ["a", "c"], 1),  # 數量不對
+    for stub, passes in [
+        (world([_write("a")], ["a", "b"]), 1),  # 收件口說完成、平台沒寫
+        (world([_write("a", 120)], ["a"]), 1),  # 加額不對
+        (world([_write("a"), _write("a")], ["a"]), 1),  # 寫兩次
+        (world([_write("a"), _write("c")], ["a", "c"]), 1),  # 數量不對
+        (world([_write("a", action="pause_campaign")], ["a"]), 1),  # 操作種類不對(c1)
+        (world([_write("a")], ["a"], final={"a": 100}), 1),  # 平台上最後的預算不對(c1)
     ]:
         with pytest.raises(ScenarioFailed):
-            driver_module._check_campaign_by_campaign(world(writes, done), ["a", "b", "c"],
-                                                      passes)
+            driver_module._check_campaign_by_campaign(stub, ["a", "b", "c"], passes)
 
 
 def test_the_demo_f7_is_scaled_down_and_says_so():
@@ -382,8 +428,7 @@ def test_the_demo_f7_is_scaled_down_and_says_so():
 ])
 def test_the_total_let_through_fits_the_limit_and_one_more_would_not(writes, limit, confirmed,
                                                                       ok):
-    stub = _Stub()
-    stub.all_platform_writes = lambda: [(f"k{i}", "update_budget", b) for i, b in enumerate(writes)]
+    stub = _Stub(writes=[_write(f"k{i}", b) for i, b in enumerate(writes)])
     if ok:
         driver_module._check_total_against_limit(stub, limit, confirmed)
     else:
@@ -528,7 +573,7 @@ def test_a_scenario_past_its_time_limit_cannot_start_new_processes(tmp_path, sta
     assert started == []
 
 
-def test_a_timed_out_scenario_cannot_rewrite_its_status(tmp_path, state, monkeypatch):
+def test_a_timed_out_scenario_cannot_rewrite_its_status(tmp_path, state):
     """時限到了之後情境本體走到等人確認:不能再寫確認請求,也不能把「沒跑完」改寫回進行中。"""
     from datetime import UTC, datetime
 
@@ -536,11 +581,10 @@ def test_a_timed_out_scenario_cannot_rewrite_its_status(tmp_path, state, monkeyp
 
     request = ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
                                   datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
-    monkeypatch.setattr(driver_module, "_earliest_waiting", lambda _world: request)
 
     def slow(world):
         time.sleep(1.5)
-        driver_module._wait_for_confirmation(world, 5)
+        driver_module._wait_for_confirmation(world, request, 5)
         return "不該到這裡"
 
     verdict = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 1, slow)}).run_one("FX")
@@ -594,25 +638,259 @@ class _ConfirmStub:
         return False
 
 
-def test_a_stopped_scenario_does_not_ask_for_confirmation(monkeypatch):
+def test_a_stopped_scenario_does_not_ask_for_confirmation():
     world = _ConfirmStub(stop_during_wait=False)
     world.stop.set()
-    monkeypatch.setattr(driver_module, "_earliest_waiting", lambda _w: pytest.fail("不該查"))
     with pytest.raises(driver_module.ScenarioStopped):
-        driver_module._wait_for_confirmation(world, 5)
+        driver_module._wait_for_confirmation(world, _request(), 5)
     assert world.marks == []
 
 
-def test_a_stop_during_the_confirmation_wait_does_not_mark_running_again(monkeypatch):
+def test_a_stop_during_the_confirmation_wait_does_not_mark_running_again():
     from datetime import UTC
 
     from rtb.demo.state_store import ConfirmationRequest
 
     request = ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
                                   datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
-    monkeypatch.setattr(driver_module, "_earliest_waiting", lambda _w: request)
     world = _ConfirmStub(stop_during_wait=True)
 
-    assert driver_module._wait_for_confirmation(world, 5) is False
+    assert driver_module._wait_for_confirmation(world, request, 5) is False
     assert world.marks == ["request", driver_module.AWAITING_CONFIRMATION]
     assert world.cleared == [True]
+
+
+# ---- 第 2 輪代碼審 o2/v1:一支行程收不掉不能讓其他行程變孤兒 ----
+class _Broken:
+    def __init__(self, log, name, fails=False):
+        self.log, self.name, self.fails = log, name, fails
+
+    def stop(self):
+        self.log.append(self.name)
+        if self.fails:
+            raise PermissionError(1, "Operation not permitted")
+
+
+def test_closing_a_world_stops_every_process_even_if_one_fails(tmp_path, state):
+    world = driver_module.World(tmp_path, "FX", DemoKeys.generate(), state, {}, threading.Event())
+    log = []
+    world.processes = [_Broken(log, "dsp"), _Broken(log, "inbox", fails=True),
+                       _Broken(log, "executor")]
+
+    with pytest.raises(PermissionError):
+        world.close()
+
+    assert sorted(log) == ["dsp", "executor", "inbox"]
+    assert world.processes == []
+
+
+def test_a_scenario_whose_cleanup_fails_is_still_finished(tmp_path, state):
+    """收尾出錯:情境照樣結案(沒跑完、寫原因),不停在執行中,也不中斷整次展示。"""
+    def run(world):
+        world.processes.append(_Broken([], "inbox", fails=True))
+        return "照預期"
+
+    demo = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 30, run),
+                                     "FY": Scenario("FY", "假", 30, lambda _w: "照預期")})
+    verdicts = demo.run(["FX", "FY"])
+
+    assert [v.status for v in verdicts] == [INCOMPLETE, DONE]
+    assert "收尾" in verdicts[0].reason
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        assert [r.status for r in reader.scenario_runs("demo-1")] == [INCOMPLETE, DONE]
+    finally:
+        reader.close()
+
+
+def _request(expires_in=timedelta(hours=1), stage="aggregate_limit_reached"):
+    from datetime import UTC
+
+    from rtb.demo.state_store import ConfirmationRequest
+
+    return ConfirmationRequest("t1", 1, "h" * 64, "/x", stage, 10,
+                               datetime.now(UTC) + expires_in, (("廣告", "c1"),))
+
+
+# ---- 第 2 輪代碼審:假綠(展示說照預期,實際上沒驗到該驗的東西) ----
+@pytest.mark.parametrize("extra", ["x_resend", "x_escalated"])
+def test_a_resend_or_hand_off_in_f2_is_not_done(tmp_path, state, extra):
+    """[o1/c3] F2 要證明的是不重送:路徑裡多一次同編號重送或轉人工,就算必經節點都照順序出現
+    也判沒跑完。"""
+    world = driver_module.World(tmp_path, "F2", DemoKeys.generate(), state, {}, threading.Event())
+    path = list(driver_module.F2_REQUIRED)
+    path.insert(path.index("x_verify"), extra)
+    world.observed.extend(path)
+    world.record = lambda **_kw: None
+
+    with pytest.raises(ScenarioFailed, match=extra):
+        world.require_path(driver_module.F2_REQUIRED, driver_module.F2_ALLOWED)
+    world.observed[:] = [n for n in path if n != extra]
+    world.require_path(driver_module.F2_REQUIRED, driver_module.F2_ALLOWED)
+
+
+@pytest.mark.parametrize(("blocked", "replan", "ok"), [
+    ("version_changed", "VERSION_CHANGED", True),
+    ("policy_version_changed", "VERSION_CHANGED", False),  # 擋下原因換成規則改了
+    ("version_changed", "POLICY_VERSION_CHANGED", False),  # 開新工作的原因不對
+])
+def test_f4_and_f6_check_the_block_reason_not_just_the_block(blocked, replan, ok):
+    """[f1] F4、F6 要以版本已變擋下、接續關係的原因也是版本已變:換成別的原因擋下不能判照預期。"""
+    from rtb.analyzer.task_store import FollowUpRow, ReplanReason
+
+    stub = _Stub(events=[_event("received"), _event("blocked", reason=blocked)])
+    stub.follow_ups = lambda: [FollowUpRow(1, "t1", "t1-next", ReplanReason[replan],
+                                           datetime.now().astimezone())]
+    if ok:
+        assert driver_module._blocked_as_version_changed(stub, "t1") == "t1-next"
+    else:
+        with pytest.raises(ScenarioFailed, match="版本已變"):
+            driver_module._blocked_as_version_changed(stub, "t1")
+
+
+def test_the_new_task_counts_as_written_only_once_the_inbox_says_so():
+    """[f2] 平台上已經是新值、收件口還沒記下完成(晚幾毫秒):還不算,不拿收件口的紀錄去斷言。"""
+    from rtb.analyzer.task_store import FollowUpRow, ReplanReason
+
+    stub = _Stub(budget=220)
+    stub.budget = lambda _c: 220
+    stub.follow_ups = lambda: [FollowUpRow(1, "t1", "t1-next", ReplanReason.VERSION_CHANGED,
+                                           datetime.now().astimezone())]
+    stub.handed_off = lambda _t: False
+    assert driver_module._follow_up_written(stub, "t1", "c1", 220) is False
+    stub.handed_off = lambda task: task == "t1-next"
+    assert driver_module._follow_up_written(stub, "t1", "c1", 220) is True
+
+
+def test_the_confirmation_wait_is_capped_by_the_decision_expiry_too(monkeypatch):
+    """[f3] 等人確認的上限是 min(決策到期減一分鐘, 固定上限):決策 5 分鐘後到期、固定上限 10 分鐘,
+    上限是 4 分鐘。"""
+    frozen = datetime(2026, 9, 24, 12, 0, tzinfo=driver_module.UTC)
+    monkeypatch.setattr(driver_module, "_now", lambda: frozen)
+    request = _request()
+    request = type(request)(**{**request.__dict__,
+                               "decision_expires_at": frozen + timedelta(minutes=5)})
+    assert driver_module._confirm_limit(request, 600) == 240
+    assert driver_module._confirm_limit(request, 60) == 60
+
+
+def test_a_zero_aggregate_limit_stays_zero(tmp_path, state):
+    """[s4] 明確給總上限 0 就是 0(原本用 or,0 會變成寬值十億)。"""
+    import json
+
+    world = driver_module.World(tmp_path, "F7", DemoKeys.generate(), state, {}, threading.Event())
+    world.seed([], aggregate_limit=0)
+    spec = json.loads(world.tenants.read_text(encoding="utf-8"))["tenants"]["t-default"]
+    assert spec["aggregate_limit"] == 0
+
+
+def test_f5_checks_the_name_really_reached_the_analyzer():
+    """[f4] F5 要驗對抗文字真的進了分析端的證據,不只驗平台上的名稱沒被改。"""
+    from rtb.domain.evidence import EvidenceKind
+
+    item = type("E", (), {"kind": EvidenceKind.CAMPAIGN_TEXT,
+                          "payload": {"name": driver_module.ADVERSARIAL_NAME}})()
+    stub = _Stub()
+    stub.evidence = lambda _t: [item]
+    assert driver_module._names_seen_by_the_analyzer(stub, "t1") == [
+        driver_module.ADVERSARIAL_NAME]
+    item.payload = {"name": None}
+    assert driver_module._names_seen_by_the_analyzer(stub, "t1") == [None]
+
+
+def test_f5_says_only_what_it_checked():
+    """[c5] 分析端目前只走程式規則:F5 不宣稱擋住了提示注入,註明模型那一段待 11B 接上後補驗。"""
+    import inspect
+
+    source = inspect.getsource(driver_module._run_f5)
+    assert "11B" in source and "擋住" not in source
+
+
+def test_the_driver_reads_other_systems_only_through_their_exits():
+    """[a2] 萬用的查詢讀法拿掉了:斷言走唯讀出口。"""
+    assert not hasattr(driver_module.World, "query")
+
+
+def _waiting_stub(stage="budget_increase_too_large", budget=100):
+    from rtb.domain.proposal import content_hash
+    from tests.analyzer.conftest import make_proposal
+
+    proposal = make_proposal(task_id="t1", campaign_id="c1")
+    row = type("R", (), {"proposal": proposal})()
+    event = _event("awaiting_approval", reason=stage)
+    event = type(event)(**{**event.__dict__, "content_hash": content_hash(proposal)})
+    stub = _Stub()
+    stub.latest_by_proposal = lambda: {("t1", 1, event.content_hash): event}
+    stub.task_history = lambda _t: (row,)
+    stub.budget = lambda _c: budget
+    stub.tenants = Path("/x/tenants.json")
+    return stub, proposal
+
+
+def test_the_confirmation_shows_the_stage_it_really_stopped_at():
+    """[s2] 給人看的「關卡」由收件口記的那一關產生,跟簽章用的是同一個;查不到廣告就算沒跑完,
+    不補 0。"""
+    stub, _ = _waiting_stub("budget_increase_too_large")
+    waiting = driver_module._earliest_waiting(stub)
+    assert dict(waiting.request.numbers)["關卡"] == driver_module.STAGE_TEXT[
+        driver_module.BlockCode.BUDGET_INCREASE_TOO_LARGE]
+    assert waiting.request.stage == "budget_increase_too_large"
+    stub, _ = _waiting_stub(budget=None)
+    with pytest.raises(ScenarioFailed, match="找不到"):
+        driver_module._earliest_waiting(stub)
+
+
+@pytest.mark.parametrize(("signer", "used", "ok"), [
+    ("demo", True, True),
+    ("other", True, False),  # 不是這次展示簽的
+    ("demo", False, False),  # 寫進平台時沒用到這一關的核可
+    (None, True, False),  # 沒有核可
+])
+def test_the_confirmed_one_must_carry_this_demos_approval(signer, used, ok):
+    """[c2] 確認的那一筆要有這次展示簽發、內容相符的核可,而且真的用它寫進去;只看平台出現寫入
+    不算。"""
+    from contextlib import contextmanager
+
+    from rtb.capabilitykit import APPROVAL_KEY_ENV
+    from rtb.domain.attempt import operation_key
+    from rtb.executor import approval
+    from rtb.executor.capability_signer import Tenant
+    from rtb.executor.inbox_store import BlockCode
+
+    stub, proposal = _waiting_stub("aggregate_limit_reached")
+    waiting = driver_module._earliest_waiting(stub)
+    keys = DemoKeys.generate()
+    stub.keys = keys
+    issued = int(proposal.decision_expires_at.timestamp()) - 120
+    token = None if signer is None else approval.issue(
+        (keys if signer == "demo" else DemoKeys.generate()).signing_bytes(APPROVAL_KEY_ENV),
+        proposal, BlockCode.AGGREGATE_LIMIT_REACHED, Tenant("t", frozenset({"c1"}), 1000, 500),
+        approver="demo-operator", max_increase=10, issued_at=issued, expires_at=issued + 60)
+
+    class Inbox:
+        def latest_approval(self, _tx, _proposal, _stage):
+            return token
+
+        def approval_uses_for(self, _tx, keys_):
+            return {k: frozenset({"aggregate_limit_reached"}) for k in keys_} if used else {}
+
+    @contextmanager
+    def inbox_tx():
+        yield Inbox(), None
+
+    stub._inbox_tx = inbox_tx
+    assert operation_key(proposal)
+    if ok:
+        driver_module._approved_by_this_demo(stub, waiting)
+    else:
+        with pytest.raises(ScenarioFailed, match="核可"):
+            driver_module._approved_by_this_demo(stub, waiting)
+
+
+def test_the_confirmed_one_counts_as_written_only_once_the_inbox_says_so():
+    """[f2] F7 確認的那一筆:平台上出現寫入、收件口還沒記下完成時還不算。"""
+    stub = _Stub(writes=[_write("c1")])
+    stub.handed_off = lambda _t: False
+    assert driver_module._confirmed_one_written(stub, _request()) is False
+    stub.handed_off = lambda task: task == "t1"
+    assert driver_module._confirmed_one_written(stub, _request()) is True

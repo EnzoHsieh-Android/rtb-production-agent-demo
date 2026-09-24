@@ -6,14 +6,14 @@
 """
 
 import json
-import sqlite3
+import sqlite3  # noqa: TID251 - 展示狀態庫是展示自己的資料庫(不是讀別的系統)
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from rtb.sqlitekit import (
+from rtb.sqlitekit import (  # noqa: TID251 - 同上:展示狀態庫
     begin_snapshot,
     connect,
     connect_read_only,

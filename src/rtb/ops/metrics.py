@@ -884,7 +884,7 @@ def to_primitives(result: Report) -> dict[str, Any]:
 
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = Parser(allow_abbrev=False, description="有界標籤的指標(只讀)")
+    parser = Parser(description="有界標籤的指標(只讀)")
     parser.add_argument("--executor-db", required=True, type=Path)
     parser.add_argument("--analyzer-db", type=Path, help="窗內統計才要")
     parser.add_argument("--tenants-config", required=True, type=Path)

@@ -748,6 +748,15 @@ class InboxReads:
         sql, params = lifecycle_events_between_query(since, until)
         return tuple(_event(row) for row in self._conn.execute(sql, params))
 
+    def lifecycle_events_after(
+        self, tx: attempt_store.Readable, after: int,
+    ) -> tuple[LifecycleEvent, ...]:
+        """事件編號大於 after 的生命週期事件,依寫入順序,最多一頁(Phase 12 代碼審 r2 a1:展示觀察器
+        照編號往後讀,不自己下查詢)。"""
+        self._own_read(tx)
+        sql, params = lifecycle_events_after_query(after)
+        return tuple(_event(row) for row in self._conn.execute(sql, params))
+
     def approval_uses_for(
         self, tx: attempt_store.Readable, keys: Iterable[str],
     ) -> dict[str, frozenset[str]]:
@@ -1595,6 +1604,12 @@ def lifecycle_events_between_query(
     return (f"SELECT {', '.join(_LIFECYCLE_FIELDS)} FROM lifecycle_events "  # noqa: S608 - 固定欄位清單
             "WHERE at >= ? AND at < ? ORDER BY at, id",
             (attempt_store.iso(since), attempt_store.iso(until)))
+
+
+def lifecycle_events_after_query(after: int) -> tuple[str, tuple[object, ...]]:
+    """事件編號大於 after 的生命週期事件查詢語句(測試用它看查詢計畫)。"""
+    return (f"SELECT {', '.join(_LIFECYCLE_FIELDS)} FROM lifecycle_events "  # noqa: S608 - 固定欄位清單
+            "WHERE id > ? ORDER BY id LIMIT ?", (after, attempt_store.CURSOR_PAGE))
 
 
 def last_terminal_event_query(

@@ -19,6 +19,7 @@ from enum import StrEnum
 from pathlib import Path
 
 import rtb
+from rtb.analyzer.runner import CALLS_PER_STEP, DEFAULT_TIMEOUT_SECONDS
 from rtb.capabilitykit import APPROVAL_KEY_ENV, AUDIT_KEY_ENV, KEY_ENV
 from rtb.demo.faults.delivery import ROOT_MARKER, FaultPlan, prepare_root, write_plan
 from rtb.demo.keys import DemoKeys
@@ -33,7 +34,8 @@ _BASICS = ("PATH", "HOME", "LANG", "USER")
 _MODEL_VARIABLES = ("RTB_MODEL_LIVE", "RTB_MODEL", "RTB_MODEL_RECORD")
 
 __all__ = ["EXIT_FAULT_REFUSED", "FAULT_NONCE_ENV", "ROOT_MARKER", "FaultRequest", "Role",
-           "child_env", "command_for", "prepare_root", "start", "write_fault_plan"]
+           "child_env", "command_for", "prepare_root", "start", "stop_grace_seconds",
+           "write_fault_plan"]
 
 
 class Role(StrEnum):
@@ -105,6 +107,17 @@ def command_for(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,
              *args], child_env(role, keys, user_env=user_env, fault_nonce=nonce))
 
 
+def stop_grace_seconds(role: Role, args: Sequence[str]) -> float:
+    """收到 SIGTERM 之後等多久才硬殺。分析端會做完手上這一步(最多兩次呼叫,各自有逾時)才停,給它
+    兩倍逾時再加一秒,不在一步中途硬殺(代碼審 r2 n3);其他角色照固定時限。"""
+    if role is not Role.ANALYZER:
+        return STOP_SECONDS
+    timeout = DEFAULT_TIMEOUT_SECONDS
+    if "--timeout-seconds" in args:
+        timeout = float(args[list(args).index("--timeout-seconds") + 1])
+    return max(STOP_SECONDS, CALLS_PER_STEP * timeout + 1)
+
+
 class StartFailed(Exception):
     """子行程沒在時限內印出就緒那一行(起不來、拒絕啟動、第一行不對或太慢)。"""
 
@@ -113,8 +126,10 @@ class Process:
     """一個已啟動的子行程:獨立的行程群組,stop 連同它開的孫行程一起結束。"""
 
     def __init__(self, popen: subprocess.Popen[str], first_line: str,
-                 reader: threading.Thread | None = None) -> None:
+                 reader: threading.Thread | None = None,
+                 grace_seconds: float = STOP_SECONDS) -> None:
         self._popen, self._reader = popen, reader
+        self.grace_seconds = grace_seconds
         self.first_line = first_line
         self.pid = popen.pid
         port = first_line.removeprefix("PORT=") if first_line.startswith("PORT=") else None
@@ -145,12 +160,16 @@ class Process:
         return not self._group_alive()
 
     def _signal_group(self, signum: int) -> None:
-        with contextlib.suppress(ProcessLookupError):
+        # macOS 對「只剩沒被收屍的領頭」的群組回 EPERM 而不是 ESRCH(代碼審 r2 o2/v1):兩種都不丟,
+        # 群組清空沒有由 _group_alive 判
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(self._popen.pid, signum)
 
-    def stop(self, grace_seconds: float = STOP_SECONDS) -> None:
+    def stop(self, grace_seconds: float | None = None) -> None:
         """不論領頭死活都對整個群組送 SIGTERM;期限到了群組還有人就一律 SIGKILL,確認群組清空之後
-        才關標準輸出(孫行程握著管線寫端時先關會卡住,代碼審 r1 l1/x1)。"""
+        才關標準輸出(孫行程握著管線寫端時先關會卡住,代碼審 r1 l1/x1)。領頭已經結束就先收屍。"""
+        grace_seconds = self.grace_seconds if grace_seconds is None else grace_seconds
+        self._popen.poll()
         self._signal_group(signal.SIGTERM)
         if not self._wait_group(grace_seconds):
             self._signal_group(signal.SIGKILL)
@@ -201,8 +220,9 @@ def _first_line(popen: subprocess.Popen[str], lines: queue.Queue[str], prefix: s
     return line
 
 
-def _spawn(command: Sequence[str], env: Mapping[str, str], cwd: Path, prefix: str,
-           log_path: Path, *, startup_seconds: float = STARTUP_SECONDS) -> Process:
+def _spawn(command: Sequence[str], env: Mapping[str, str], cwd: Path, prefix: str,  # noqa: PLR0913 - 起行程要的每一樣
+           log_path: Path, *, startup_seconds: float = STARTUP_SECONDS,
+           grace_seconds: float = STOP_SECONDS) -> Process:
     with open(log_path, "a", encoding="utf-8") as log:  # 子行程拿到自己的一份描述子
         popen = subprocess.Popen(list(command), env=dict(env), cwd=cwd, stdout=subprocess.PIPE,  # noqa: S603 - 指令是固定的 python 模組加參數
                                  stderr=log, text=True, start_new_session=True)
@@ -212,11 +232,12 @@ def _spawn(command: Sequence[str], env: Mapping[str, str], cwd: Path, prefix: st
     except StartFailed:
         Process(popen, "", reader).stop()
         raise
-    return Process(popen, first, reader)
+    return Process(popen, first, reader, grace_seconds)
 
 
 def start(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,
           faults: FaultRequest | None, user_env: Mapping[str, str]) -> Process:
     command, env = command_for(role, args, keys, root=root, faults=faults, user_env=user_env)
     log = root / f"{role.value}-{os.getpid()}-{threading.get_ident()}.log"
-    return _spawn(command, env, root, _READY_PREFIX[role], log)
+    return _spawn(command, env, root, _READY_PREFIX[role], log,
+                  grace_seconds=stop_grace_seconds(role, args))

@@ -525,3 +525,68 @@ def test_every_key_changes_between_demos_and_none_is_printed():
     assert len({first.text(n) for n in (KEY_ENV, AUDIT_KEY_ENV, APPROVAL_KEY_ENV)}) == 3
     for text in (first.capability, first.audit, first.approval):
         assert text not in repr(first) and text not in str(first)
+
+
+# ---- 代碼審 r2 o2/v1/v2/s3:領頭單獨先死、一次性交付、上層目錄是符號連結 ----
+LONE_LEADER = "import os\nprint('READY', flush=True)\nos._exit(9)\n"
+
+
+@pytest.mark.parametrize("wait", [0.0, 0.5])
+def test_stop_after_the_leader_died_alone_does_not_raise(tmp_path, wait):
+    """[o2/v1] 領頭自己結束、沒被收屍、群組裡沒有別人:macOS 對這種群組送訊號回 EPERM,
+    stop 不能因此丟例外(驅動程式收尾會中斷、其他行程變孤兒)。"""
+    process = _spawn_script(tmp_path, script=LONE_LEADER)
+    time.sleep(wait)
+
+    process.stop(grace_seconds=1.0)
+
+    assert process.poll() == 9
+
+
+def test_a_wrong_first_line_then_an_exit_is_a_start_failure(tmp_path):
+    """[o2/v1] 印一行不是就緒的訊息後立刻結束:要判成起不來(StartFailed),不是權限錯誤。"""
+    for _ in range(5):
+        with pytest.raises(launcher.StartFailed):
+            _spawn_script(tmp_path, startup=5.0,
+                          script="import os\nprint('Traceback', flush=True)\nos._exit(1)\n")
+
+
+def test_a_config_already_marked_used_is_refused(tmp_path):
+    """[v2] 改名作廢後的設定檔拿來當設定檔,配同一個隨機值照樣要被拒。"""
+    root = _root(tmp_path)
+    request = _plan()
+    command, env = launcher.command_for(Role.DSP, ["--db", str(root / "dsp.db")],
+                                        keys.DemoKeys.generate(), root=root, faults=request,
+                                        user_env=os.environ)
+    first = launcher._spawn(command, env, root, "PORT=", root / "a.log")
+    try:
+        used = [p for p in root.iterdir() if p.name.endswith(".used")]
+        assert len(used) == 1
+        config_at = command.index("rtb.demo.launcher.child") + 2
+        again = [*command[:config_at], str(used[0]), *command[config_at + 1:]]
+        second = subprocess.run(again, env=env, capture_output=True, text=True, timeout=20,
+                                check=False)
+    finally:
+        first.stop()
+    assert second.returncode == launcher.EXIT_FAULT_REFUSED, second.stdout
+
+
+def test_prepare_root_refuses_a_symlinked_base(tmp_path):
+    """[s3] 上層目錄是符號連結:核對的會是連結指向的目錄,連結的擁有者之後可以改指向。"""
+    real = tmp_path / "real"
+    real.mkdir(mode=0o700)
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    with pytest.raises(ValueError, match="符號連結"):
+        launcher.prepare_root(link, "demo-1")
+
+
+@pytest.mark.parametrize(("args", "at_least"), [
+    ([], 2 * 3.0 + 1),  # 分析端預設逾時 3 秒
+    (["--timeout-seconds", "10"], 2 * 10.0 + 1),
+])
+def test_the_analyzer_gets_enough_time_to_finish_its_step(args, at_least):
+    """[n3] 分析端收到 SIGTERM 會做完這一步(最多兩次呼叫)才停:啟動器給的停止時限至少
+    兩倍逾時加一秒,不在一步中途硬殺。"""
+    assert launcher.stop_grace_seconds(Role.ANALYZER, args) >= at_least
+    assert launcher.stop_grace_seconds(Role.DSP, args) == launcher.STOP_SECONDS

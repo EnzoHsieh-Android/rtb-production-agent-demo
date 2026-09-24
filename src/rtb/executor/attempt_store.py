@@ -1050,6 +1050,28 @@ def trace_rows(tx: Readable, key: str) -> tuple[AttemptTraceRow, ...]:
         for row in rows)
 
 
+CURSOR_PAGE = 1000  # 游標式讀取一次最多回幾列;呼叫端讀到不滿一頁才算讀完
+
+
+def trace_rows_after_query(after: int) -> tuple[str, tuple[int, ...]]:
+    """列號大於 after 的嘗試列查詢語句(測試用它看查詢計畫)。"""
+    return ("SELECT a.rowid, a.key, a.seq, a.state, a.code, a.send_count, a.written_at, f.task_id, "
+            "f.revision, a.campaign_id, f.tenant, a.source, a.actor, a.program_version, "
+            "f.proposal_json FROM attempts a LEFT JOIN attempts f ON f.key = a.key AND f.seq = 1 "
+            "WHERE a.rowid > ? ORDER BY a.rowid LIMIT ?", (after, CURSOR_PAGE))
+
+
+def trace_rows_after(tx: Readable, after: int) -> tuple[tuple[int, AttemptTraceRow], ...]:
+    """列號大於 after 的嘗試列,依寫入順序,最多一頁:(列號, 追蹤檢視同一形狀的一列,含誰寫的)
+    (Phase 12 代碼審 r2 a1:展示觀察器照列號往後讀,不自己下查詢)。"""
+    sql, params = trace_rows_after_query(after)
+    return tuple((int(row[0]), AttemptTraceRow(
+        key=row[1], seq=row[2], state=row[3], code=row[4], send_count=row[5], written_at=row[6],
+        task_id=row[7], revision=row[8], campaign_id=row[9], tenant=row[10], source=row[11],
+        actor=row[12], program_version=row[13], content_hash=_snapshot_hash(row[14])))
+        for row in _read_conn(tx).execute(sql, params))
+
+
 def _snapshot_hash(snapshot: str | None) -> str | None:
     try:
         parsed = parse_proposal(json.loads(snapshot or "null")).proposal

@@ -89,10 +89,12 @@ def _read_samples(key):
         "InboxReads.lifecycle_events_between": ("s", (NOW - timedelta(hours=1), LATER)),
         "InboxReads.pending_snapshot": ("s", ()),
         "InboxReads.approval_uses_for": ("s", ([KEY],)),
+        "InboxReads.lifecycle_events_after": ("s", (0,)),  # Phase 12 代碼審 r2 a1
         "latest": ("a", (key,)),
         "history": ("a", (key,)),
         "snapshot": ("a", (key,)),
         "trace_rows": ("a", (key,)),
+        "trace_rows_after": ("a", (0,)),  # Phase 12 代碼審 r2 a1
         "first_row_tenant": ("a", (key,)),
         "unresolved_count": ("a", ()),
         "version_conflict_count": ("a", ()),

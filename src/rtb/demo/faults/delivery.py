@@ -47,7 +47,10 @@ def prepare_root(base: Path, demo_id: str) -> Path:
         raise ValueError(f"展示編號只收英數與連字號:{demo_id!r}")
     base = Path(base)
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
-    info = base.stat()
+    info = base.lstat()
+    # 跟著連結走核對的是別的目錄,連結的擁有者之後能改指向(代碼審 r2 s3)
+    if stat.S_ISLNK(info.st_mode):
+        raise ValueError(f"展示根目錄的上層 {base} 是符號連結")
     if info.st_uid != os.getuid() or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise ValueError(f"展示根目錄的上層 {base} 不是自己的,或別人可寫")
     root = base / demo_id
@@ -124,6 +127,8 @@ def _plan_of(body: dict[str, Any], role: str) -> FaultPlan:
 
 def load_verified(config: Path, nonce: str | None, role: str, targets: list[Path]) -> FaultPlan:
     """核對全部過了才回故障安排,並當場把設定檔改名作廢:同一份交付不能用第二次(代碼審 r1 s4)。"""
+    if config.name.endswith(USED_SUFFIX):  # 作廢過的那份改名後拿來再用(代碼審 r2 v2)
+        raise FaultRefused("故障設定檔已經用過")
     try:
         body = _load(config)
         root = _root_of(body, config)
