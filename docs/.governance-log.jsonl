@@ -4431,3 +4431,8 @@
 {"ts": "2026-09-24T23:09:19+08:00", "commit": "510b1ef", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase13AI參與決策_計劃.md"], "note": "door=high clauses=26 bound=0 red=0 green=0 weak=0 regress=54 no-run"}
 {"ts": "2026-09-24T23:10:16+08:00", "commit": "510b1ef", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-24T23:10:17+08:00", "commit": "510b1ef", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "510b1ef943c3723f1fe085a3780664695b957f40"}
+{"ts": "2026-09-24T23:36:30+08:00", "commit": "697af6b", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T23:25:22+08:00", "commit": "6de4027", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T23:25:22+08:00", "commit": "6de4027", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "6de4027092ca8847fd5a1ae66370a4064f1e833e"}
+{"ts": "2026-09-25T00:28:16+08:00", "commit": "7218959", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Projects/RTB_Phase11證據清單與驗證器_計劃.md", "Systems/執行迴圈.md", "Systems/宣稱驗證器.md", "Systems/靜態檢查閘.md", "Verification/Phase11驗收紀錄.md"], "note": "tokens=8 hits=8 secs=5.0"}
+{"ts": "2026-09-25T00:28:18+08:00", "commit": "7218959", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "7218959c51317ff09d11c0caf010200b5dde9d4c"}
