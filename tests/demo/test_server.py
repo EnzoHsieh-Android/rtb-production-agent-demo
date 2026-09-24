@@ -11,6 +11,7 @@ import re
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from urllib.parse import urlencode
 
 import pytest
@@ -21,6 +22,10 @@ from rtb.demo.driver import Driver, Scenario
 from rtb.demo.present import numbers_digest
 from rtb.demo.server import DemoService, serve
 from rtb.demo.state_store import ConfirmationRequest, DecisionRow, StateReader
+
+# 起伺服器子行程要把 src 放進 PYTHONPATH:CI 沒有安裝這個套件,pytest 的 pythonpath 設定只影響測試
+# 行程自己
+SRC = str(Path(server_module.__file__).resolve().parents[2])
 
 FORM = {"Content-Type": "application/x-www-form-urlencoded", "Sec-Fetch-Site": "same-origin"}
 
@@ -799,7 +804,8 @@ def test_stopping_the_server_mid_demo_leaves_no_child_processes(tmp_path):
         popen = subprocess.Popen(
             [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
              "--reports", str(work / "reports")],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+            env={**os.environ, "PYTHONPATH": SRC})
         try:
             port = int(popen.stdout.readline().strip().removeprefix("PORT="))
             page = _request(port, "GET", "/")[2]
@@ -878,7 +884,8 @@ def test_hanging_up_or_signalling_twice_still_leaves_no_child_processes(tmp_path
     popen = subprocess.Popen(
         [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
          "--reports", str(work / "reports")],
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        env={**os.environ, "PYTHONPATH": SRC})
     try:
         port = int(popen.stdout.readline().strip().removeprefix("PORT="))
         page = _request(port, "GET", "/")[2]
@@ -962,8 +969,9 @@ def _server_on_a_terminal(work):
 
     pid, master = pty.fork()
     if pid == 0:
-        os.execv(sys.executable, [sys.executable, "-m", "rtb.demo.server",  # noqa: S606 - 測試起專案內的伺服器
-                                  "--work-dir", str(work), "--reports", str(work / "reports")])
+        os.execve(sys.executable, [sys.executable, "-m", "rtb.demo.server",  # noqa: S606 - 測試起專案內的伺服器
+                                   "--work-dir", str(work), "--reports", str(work / "reports")],
+                  {**os.environ, "PYTHONPATH": SRC})
     seen = b""
     while b"\n" not in seen:
         seen += os.read(master, 1024)
@@ -1016,7 +1024,8 @@ def test_two_signals_arriving_together_still_leave_no_child_processes(tmp_path):
     popen = subprocess.Popen(
         [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
          "--reports", str(work / "reports")],
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        env={**os.environ, "PYTHONPATH": SRC})
     try:
         port = int(popen.stdout.readline().strip().removeprefix("PORT="))
         page = _request(port, "GET", "/")[2]
