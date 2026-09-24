@@ -199,3 +199,45 @@ def test_the_write_checks_are_filled_in_only_when_recorded_and_passed():
     assert len(route[0].more) == 1
     assert basis.write_route(basis.write_start(replace(first, used_before=None))) == ()
     assert basis.write_route(basis.write_start(replace(first, used_before=120))) == ()
+
+
+# ---- 協調者 2026-09-24 裁定:系統當下記下的資料能補的根據都補,依實際來源標 ----
+def test_delivery_counts_come_from_the_inbox_and_its_own_limit():
+    """投遞次數是收件口當下記下的;上限讀收件口的常數,不寫死。"""
+    from rtb.executor import inbox_store
+
+    (dead,) = basis.lifecycle("dead_lettered", deliveries=inbox_store.MAX_DELIVERIES,
+                              reason="delivery_limit", actor=None)
+    assert f"最多 {inbox_store.MAX_DELIVERIES} 次" in dead.standard
+    assert dead.source == basis.RECORDED_INBOX
+    (again,) = basis.lifecycle("reclaimed", deliveries=2, reason=None, actor="w2")
+    assert "第 2 次" in again.observed
+    (put_back,) = basis.lifecycle("lease_released", deliveries=1, reason="dsp_unavailable",
+                                  actor="w1")
+    assert "讀不到平台" in put_back.observed
+    (replayed,) = basis.lifecycle("replay_requeued", deliveries=None, reason=None,
+                                  actor="demo-operator")
+    assert "demo-operator" in replayed.observed
+    assert basis.lifecycle("delivered", deliveries=1, reason=None, actor="w1") == ()
+
+
+def test_a_stop_for_confirmation_shows_the_recorded_totals():
+    (found,) = basis.stopped(amount=10, used=120, cap=124)
+    assert "120" in found.observed and "10" in found.observed and "124" in found.standard
+    assert found.source == basis.RECORDED_INBOX
+    assert basis.stopped(amount=10, used=None, cap=124) == ()  # 沒記的不補 0
+
+
+def test_a_follow_up_shows_its_reason_and_generation_against_the_limit():
+    from rtb.analyzer.task_store import MAX_GENERATION, ReplanReason
+
+    (found,) = basis.follow_up(ReplanReason.VERSION_CHANGED, generation=2)
+    assert "第 2 代" in found.observed and f"最多 {MAX_GENERATION} 代" in found.standard
+    assert found.source == basis.RECORDED_ANALYZER
+
+
+def test_a_resend_shows_the_lookup_that_found_nothing():
+    calls = [_call("lookup_operation", "client_error", 404, "2026-09-24T00:00:05Z")]
+    (found,) = basis.platform_call(calls, "in_flight", "2026-09-24T00:00:06Z")
+    assert "依編號查平台" in found.observed and "404" in found.observed
+    assert "同編號" in found.conclusion

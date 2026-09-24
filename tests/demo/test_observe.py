@@ -365,3 +365,33 @@ def test_the_observer_passes_on_which_check_stopped_it(tmp_path):
         built.close()
     rows = PathBuilder().add(Observer(tmp_path / "analyzer.db", tmp_path / "executor.db").poll())
     assert rows[-1].edge == ("x_total", "x_wait_approval")
+
+
+def test_inbox_events_carry_what_the_inbox_recorded(tmp_path):
+    """死信帶投遞次數、重新送入帶操作人、停下等人確認帶當時的已用與總上限;寫入前再確認的版本
+    執行端沒記,原因裡照實說,不給根據。"""
+    from rtb.demo.observe import Observer
+    from tests.ops.rows import Rows, iso
+
+    built = Rows(tmp_path)
+    try:
+        built.event(T0, "t1", "dead_lettered", key="k1", reason="delivery_limit", deliveries=5)
+        built.event(T0 + timedelta(seconds=1), "t1", "replay_requeued", key="k1",
+                    source="admin_command", actor="demo-operator")
+        built.event(T0 + timedelta(seconds=2), "t2", "blocked", key="k2",
+                    reason="version_changed")
+        built.event(T0 + timedelta(seconds=3), "t3", "awaiting_approval", key="k3",
+                    reason="aggregate_limit_reached")
+        built.executor.execute(
+            "INSERT INTO write_stops (kind, task_id, revision, content_hash, key, tenant, "
+            "campaign_id, amount, used, cap, capped, at) VALUES ('aggregate_limit_reached', 't3', "
+            "1, 'h-t3-1', 'k3', 'acme', 'c1', 10, 120, 124, 1, ?)",
+            (iso(T0 + timedelta(seconds=3)),))
+    finally:
+        built.close()
+    rows = {r.node: r for r in PathBuilder().add(
+        Observer(tmp_path / "analyzer.db", tmp_path / "executor.db").poll())}
+    assert "5" in rows["x_deadletter"].basis[0].observed
+    assert "demo-operator" in rows["r_requeued"].basis[0].observed
+    assert rows["x_blocked"].basis == () and "沒有記下讀到的平台版本" in rows["x_blocked"].reason
+    assert "120" in rows["x_wait_approval"].basis[0].observed

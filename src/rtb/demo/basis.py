@@ -9,19 +9,23 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 
 from rtb.analyzer import policy
 from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
-from rtb.analyzer.task_store import TaskRow
+from rtb.analyzer.task_store import MAX_GENERATION, TaskRow
 from rtb.demo.state_store import Basis
 from rtb.domain.evidence import Evidence, EvidenceKind
 from rtb.domain.metrics import pacing
 from rtb.domain.task_state import TaskState
 from rtb.domain.worth import WorthVerdict
+from rtb.executor import inbox_store
 from rtb.executor.attempt_store import DspCallKind, DspCallResult, DspCallRow, FirstRow
 
 RECOMPUTED = "依存下的證據重算"
 RECORDED = "執行端當下記下"
+RECORDED_INBOX = "收件口當下記下"
+RECORDED_ANALYZER = "分析端當下記下"
 
 STALE = "太舊,重新蒐集"
 PROPOSE = "照規則算出建議金額"
@@ -169,6 +173,9 @@ def platform_call(calls: Sequence[DspCallRow], state: str, written_at: str) -> t
     if state == "unknown":
         return (Basis(what, "平台明確回覆成功或拒絕,才知道有沒有寫進去",
                       "不知道有沒有寫進去,回頭去平台查", RECORDED),)
+    if state == "in_flight":  # 不明之後查不到,同編號重送
+        return (Basis(what, "依編號查平台查不到這一筆,才確定沒寫進去",
+                      "確定沒寫進去,同編號重送", RECORDED),)
     if state == "committed_unverified":
         return (Basis(what, "平台說收到了或查到這個編號,才算寫進去",
                       "寫進去了,接著比對平台實際狀態", RECORDED),)
@@ -231,3 +238,49 @@ def write_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:
     if ratio.conclusion != "沒超過" or cap.conclusion != "沒超過" or total.conclusion != "放得下":
         return ()
     return (RouteStep("x_guard", "x_total", ratio, (cap,)), RouteStep("x_total", "x_write", total))
+
+
+_FAILURE_TEXT = {"dsp_unavailable": "讀不到平台", "table_full": "全表未結案已滿",
+                 "no_report": "處理的人沒回報"}
+
+
+def lifecycle(kind: str, *, deliveries: int | None, reason: str | None,
+              actor: str | None) -> tuple[Basis, ...]:
+    """收件口當下記下的:投遞次數(上限讀收件口的常數)、放回排隊的原因、重新送入的操作人。"""
+    limit = inbox_store.MAX_DELIVERIES
+    if kind == "dead_lettered" and deliveries is not None:
+        return (Basis(f"已經交出去 {deliveries} 次,都沒能開始處理", f"最多 {limit} 次",
+                      "用完,停下等人處理", RECORDED_INBOX),)
+    if kind == "reclaimed" and deliveries is not None:
+        return (Basis(f"這是第 {deliveries} 次交出去(前一個處理的人沒回報)", f"最多 {limit} 次",
+                      "還沒到上限,換人接手", RECORDED_INBOX),)
+    if kind == "lease_released" and reason in _FAILURE_TEXT:
+        return (Basis(f"這一輪沒能開始:{_FAILURE_TEXT[reason]}"
+                      + ("" if deliveries is None else f"(第 {deliveries} 次交出去)"),
+                      "沒能開始就放回排隊,之後再交出去", "放回排隊", RECORDED_INBOX),)
+    if kind == "replay_requeued" and actor:
+        return (Basis(f"操作人 {actor} 下重新送入", "只有管理指令能把停下的建議放回排隊",
+                      "放回排隊,照一般流程重跑每一關", RECORDED_INBOX),)
+    return ()
+
+
+def stopped(*, amount: int | None, used: int | None, cap: int | None) -> tuple[Basis, ...]:
+    """停下等人確認那一刻收件口記下的:當時已用、這次金額、總上限;沒記的不給。"""
+    if amount is None or used is None or cap is None:
+        return ()
+    return (Basis(f"已經加出去 {used},這次要加 {amount},共 {used + amount}",
+                  f"全部廣告加起來的總上限 {cap}", "超過總上限,停下等人確認", RECORDED_INBOX),)
+
+
+_REPLAN_TEXT = {"version_changed": "廣告被別人改過", "expired": "建議過期",
+                "after_retention": "收件紀錄已清掉、平台也查不到",
+                "policy_version_changed": "規則改了", "decision_stale": "建議放太久"}
+
+
+def follow_up(reason: StrEnum, generation: int | None) -> tuple[Basis, ...]:
+    """開新工作:分析端記下的原因與這是第幾代接續(上限讀分析端的常數)。"""
+    if generation is None:
+        return ()
+    return (Basis(f"{_REPLAN_TEXT.get(reason.value, reason.value)};這是第 {generation} 代",
+                  f"接續最多 {MAX_GENERATION} 代", "開一件新工作照現況重新分析",
+                  RECORDED_ANALYZER),)

@@ -12,7 +12,7 @@
 
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
@@ -29,8 +29,10 @@ from rtb.executor.inbox_store import (
     BlockCode,
     DatabaseNotUpgraded,
     DeadLetterReason,
+    LifecycleEvent,
     LifecycleKind,
     ReadOnlyInbox,
+    StopKind,
 )
 
 UNRECOVERABLE = "無法還原(系統沒有保存原因)"
@@ -41,9 +43,17 @@ HOLD_SECONDS = 1.0  # 事件晚這麼久才寫進判斷紀錄:各資料庫提交
 _EXECUTOR_SOURCES = frozenset({attempt_store.Source.EXECUTOR_LOOP.value,
                                attempt_store.Source.STARTUP_RECOVERY.value})
 _TERMINAL = frozenset(kind.value for kind in TERMINAL_KINDS)
+_STOP_KINDS = frozenset(kind.value for kind in StopKind)
+_EVER = (datetime(2000, 1, 1, tzinfo=UTC), datetime(9999, 1, 1, tzinfo=UTC))
+
+
+def _int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 _DECIDED = frozenset({TaskState.PROPOSED, TaskState.NO_ACTION, TaskState.COLLECTING_EVIDENCE})
 _ADMIN = attempt_store.Source.ADMIN_COMMAND.value
-_ASKED = frozenset({"unknown", "committed_unverified"})  # 這兩種結果看得到最近一次跟平台的往來
+# 這幾種結果看得到最近一次跟平台的往來(送出中只看重送那一次:前面那次查不到)
+_ASKED = frozenset({"unknown", "committed_unverified", "in_flight"})
+_NO_VERSION = "(執行端當下沒有記下讀到的平台版本)"
 
 Member = tuple[type[StrEnum], str]
 
@@ -320,7 +330,8 @@ class Observer:
         return SourceEvent(follow.written_at, f"analyzer.follow_ups#{follow.original_task_id}",
                            (ReplanReason, follow.reason.name), None,
                            f"task:{follow.original_task_id}", order=("analyzer", 0, follow.rowid),
-                           task=follow.original_task_id)
+                           task=follow.original_task_id,
+                           basis=basis_of.follow_up(follow.reason, follow.generation))
 
     def _task(self, reader: TaskReader, rowid: int, row: TaskRow) -> SourceEvent | None:
         note, detail, missing = None, None, False
@@ -353,6 +364,20 @@ class Observer:
                                  recorded)
 
     @staticmethod
+    def _stops(inbox: ReadOnlyInbox, tx: attempt_store.ReadTransaction,
+               lifecycle: Sequence[LifecycleEvent]) -> dict[str, dict[str, int | None]]:
+        """停下等人確認的那幾筆,收件口停下紀錄當時記的金額、已用、總上限(依冪等鍵)。"""
+        wanted = {(e.tenant, e.reason) for e in lifecycle
+                  if e.kind == LifecycleKind.AWAITING_APPROVAL.value and e.tenant
+                  and e.reason in _STOP_KINDS}
+        found: dict[str, dict[str, int | None]] = {}
+        for tenant, reason in wanted:
+            for row in inbox.stops(tx, StopKind(reason), str(tenant), *_EVER):
+                key, amount, used, cap = row[0], row[5], row[6], row[7]
+                found[str(key)] = {"amount": _int(amount), "used": _int(used), "cap": _int(cap)}
+        return found
+
+    @staticmethod
     def _attempt_basis(attempt: attempt_store.AttemptTraceRow,
                        starts: dict[str, attempt_store.FirstRow],
                        calls: dict[str, tuple[attempt_store.DspCallRow, ...]],
@@ -360,7 +385,8 @@ class Observer:
         """開始一筆那一列帶執行端記下的核對材料;轉成不明或平台已收到的那一列帶最近一次跟平台的往來。"""
         if attempt.seq == 1 and attempt.key in starts:
             return basis_of.write_start(starts[attempt.key])
-        if attempt.state in _ASKED and attempt.task_id in calls:
+        if attempt.state in _ASKED and attempt.task_id in calls and not (
+                attempt.state == "in_flight" and attempt.seq == 1):
             return basis_of.platform_call(
                 [c for c in calls[attempt.task_id] if c.key == attempt.key], attempt.state,
                 attempt.written_at)
@@ -369,6 +395,30 @@ class Observer:
     def _shifted(self, at: str, source: str | None) -> datetime:
         moment = _time(at)
         return moment - self.executor_offset if source in _EXECUTOR_SOURCES else moment
+
+    def _lifecycle_event(self, event: LifecycleEvent,
+                         stops: dict[str, dict[str, int | None]]) -> SourceEvent:
+        detail: Member | None = None
+        if event.kind in (LifecycleKind.BLOCKED.value, LifecycleKind.AWAITING_APPROVAL.value):
+            detail = _member(BlockCode, event.reason)  # 等人確認也帶著停在哪一關
+        elif event.kind == LifecycleKind.DEAD_LETTERED.value:
+            detail = _member(DeadLetterReason, event.reason)
+        note = None
+        if (event.kind == LifecycleKind.BLOCKED.value
+                and event.reason == BlockCode.VERSION_CHANGED.value):  # 協調者裁定:不間接推
+            note = flow.OUTCOMES[(BlockCode, "VERSION_CHANGED")].text + _NO_VERSION
+        found = basis_of.lifecycle(event.kind, deliveries=event.deliveries, reason=event.reason,
+                                   actor=event.actor)
+        if event.kind == LifecycleKind.AWAITING_APPROVAL.value and event.key in stops:
+            found = basis_of.stopped(**stops[event.key])
+        # 同一時間:開始類的事件排在嘗試之前,結案類的排在嘗試之後
+        rank = 2 if event.kind in _TERMINAL else 0
+        return SourceEvent(
+            self._shifted(event.at, event.source), f"inbox.lifecycle_events#{event.id}",
+            _member(LifecycleKind, event.kind) or (LifecycleKind, ""), detail,
+            f"proposal:{event.task_id}/{event.revision}", order=("inbox", rank, event.id),
+            key=event.key, task=event.task_id, note=note, basis=found,
+            actor="人工" if event.source == _ADMIN else "程式")
 
     def _inbox(self) -> list[SourceEvent]:
         if not self._inbox_db.is_file():
@@ -387,27 +437,12 @@ class Observer:
                     lambda pair: pair[0])
                 starts = attempt_store.first_rows_for(
                     tx, [a.key for _, a in attempts if a.seq == 1])
+                stops = self._stops(inbox, tx, lifecycle)
                 calls = {task: attempt_store.dsp_calls_for(tx, task) for task in
                          {a.task_id for _, a in attempts if a.task_id and a.state in _ASKED}}
         finally:
             inbox.close()
-        events = []
-        for event in lifecycle:
-            detail: Member | None = None
-            if event.kind == LifecycleKind.BLOCKED.value:
-                detail = _member(BlockCode, event.reason)
-            elif event.kind == LifecycleKind.DEAD_LETTERED.value:
-                detail = _member(DeadLetterReason, event.reason)
-            elif event.kind == LifecycleKind.AWAITING_APPROVAL.value:  # 帶著停在哪一關
-                detail = _member(BlockCode, event.reason)
-            # 同一時間:開始類的事件排在嘗試之前,結案類的排在嘗試之後
-            rank = 2 if event.kind in _TERMINAL else 0
-            events.append(SourceEvent(
-                self._shifted(event.at, event.source), f"inbox.lifecycle_events#{event.id}",
-                _member(LifecycleKind, event.kind) or (LifecycleKind, ""), detail,
-                f"proposal:{event.task_id}/{event.revision}", order=("inbox", rank, event.id),
-                key=event.key, task=event.task_id,
-                actor="人工" if event.source == _ADMIN else "程式"))
+        events = [self._lifecycle_event(event, stops) for event in lifecycle]
         for rowid, attempt in attempts:
             events.append(SourceEvent(
                 self._shifted(attempt.written_at, attempt.source),
