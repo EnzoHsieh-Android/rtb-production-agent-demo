@@ -1,0 +1,48 @@
+[
+ {
+  "round": "r2",
+  "seat": "修正驗收",
+  "lens": "修正驗收",
+  "materials": [
+   "governance/review-reports/code-phase13-inc1/r2-delta.patch",
+   "governance/review-reports/code-phase13-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase13-inc1/r1-鏡頭1-閘道與邊界.md",
+   "governance/review-reports/code-phase13-inc1/r1-鏡頭2-花費帳與錄製.md",
+   "governance/review-reports/code-phase13-inc1/r1-外家-codex.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "資安-opus",
+  "lens": "資安-opus",
+  "materials": [
+   "governance/review-reports/code-phase13-inc1/r2-delta.patch",
+   "governance/review-reports/code-phase13-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase13-inc1/r1-資安-opus.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase13-inc1/r2-delta.patch",
+   "governance/review-reports/code-phase13-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase13-inc1/r1-架構對齊.md"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "外家-codex",
+  "lens": "外家-codex",
+  "materials": [
+   "governance/review-reports/code-phase13-inc1/r2-delta.patch",
+   "governance/review-reports/code-phase13-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase13-inc1/r1-外家-codex.md"
+  ],
+  "auditor": "codex"
+ }
+]

@@ -329,7 +329,7 @@ def test_calls_for_two_proposals_sharing_a_key_keep_their_own_content_hash(world
 
 
 # ---- Phase 11B 增量 2:提案那一步的模型說明欄([S915]、[S930]) ----
-def _narrate(world, outcome, text=None, source="recorded", *, record=True):
+def _narrate(world, outcome, text=None, source="recorded", *, record=True, dropped=0):
     """直接經分析端資料庫模組寫一次領取與結果(說明命令列本身在 tests/analyzer/test_narrate.py)。"""
     from rtb.analyzer.task_store import NarrativeOutcome
 
@@ -339,7 +339,8 @@ def _narrate(world, outcome, text=None, source="recorded", *, record=True):
     assert claim is not None
     if record:
         assert world.analyzer.record_narrative(claim, NarrativeOutcome(outcome), text=text,
-                                               source=source, now=NOW + timedelta(minutes=2))
+                                               source=source, now=NOW + timedelta(minutes=2),
+                                               dropped=dropped)
 
 
 def _narrative_detail(world):
@@ -385,3 +386,20 @@ def test_the_trace_marks_a_narrative_still_in_progress_and_an_old_database(world
     finally:
         conn.close()
     assert _narrative_detail(world) == {"result": None, "shown": "尚未產生"}  # 增量 2 之前的庫
+
+
+def test_the_trace_says_how_many_sentences_were_not_shown(world):
+    """代碼審 r3:數字對不回而拿掉的句子不靜默刪,追蹤檢視標出有幾句沒顯示。"""
+    world.analyze()
+    _narrate(world, "ok", text="提案把預算從 100 加到 110。", source="live", dropped=2)
+    shown = _narrative_detail(world)
+    assert shown["text"] == "提案把預算從 100 加到 110。"
+    assert shown["dropped_sentences"] == 2 and shown["note"] == "有 2 句因數字對不回未顯示"
+
+
+def test_the_trace_says_sentences_were_dropped_even_when_none_is_left(world):
+    world.analyze()
+    _narrate(world, "unreadable", dropped=3)
+    assert _narrative_detail(world) == {"result": "unreadable", "shown": "回應讀不懂",
+                                        "dropped_sentences": 3,
+                                        "note": "有 3 句因數字對不回未顯示"}

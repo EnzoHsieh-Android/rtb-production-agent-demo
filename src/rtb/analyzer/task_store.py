@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS narrative_claims (
     content_hash TEXT NOT NULL, owner TEXT NOT NULL, claimed_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS narrative_results (
     claim_seq INTEGER PRIMARY KEY REFERENCES narrative_claims (claim_seq), outcome TEXT NOT NULL,
-    source TEXT, text TEXT, written_at TEXT NOT NULL);
+    source TEXT, text TEXT, written_at TEXT NOT NULL, dropped INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS investigation_rounds (
     task_id TEXT NOT NULL, seq INTEGER NOT NULL, round INTEGER NOT NULL, kind TEXT NOT NULL,
     choice TEXT NOT NULL, decided_by TEXT NOT NULL, reason TEXT, fallback TEXT, reason_code TEXT,
@@ -184,6 +184,7 @@ class NarrativeStatus:
     outcome: str | None
     text: str | None
     source: str | None
+    dropped: int = 0  # 因數字對不回而沒顯示的句數(代碼審 r3:不靜默刪)
 
 
 class ReplanReason(StrEnum):
@@ -524,15 +525,15 @@ class TaskReads:
                               "AND name = 'narrative_results'").fetchone() is None:
             return None
         rows = self._conn.execute(
-            "SELECT r.outcome, r.text, r.source FROM narrative_claims c "
+            "SELECT r.outcome, r.text, r.source, coalesce(r.dropped, 0) FROM narrative_claims c "
             "LEFT JOIN narrative_results r ON r.claim_seq = c.claim_seq "
             "WHERE c.task_id = ? AND c.revision = ? AND c.content_hash = ? ORDER BY c.claim_seq",
             (task_id, revision, content_hash)).fetchall()
         if not rows:
             return None
         success = next((r for r in rows if r[0] == NarrativeOutcome.OK.value), None)
-        outcome, text, source = success if success is not None else rows[-1]
-        return NarrativeStatus(outcome, text, source)
+        outcome, text, source, dropped = success if success is not None else rows[-1]
+        return NarrativeStatus(outcome, text, source, int(dropped))
 
     def tasks_after(self, after: int) -> tuple[tuple[int, TaskRow], ...]:
         """列號大於 after 的任務歷史列,依寫入順序,最多一頁:(列號, 那一列)。"""
@@ -820,7 +821,8 @@ class TaskStore(TaskReads):
         ).fetchone() is not None
 
     def record_narrative(self, claim: NarrativeClaim, outcome: NarrativeOutcome, *,
-                         text: str | None, source: str | None, now: datetime) -> bool:
+                         text: str | None, source: str | None, now: datetime,
+                         dropped: int = 0) -> bool:
         """追加一筆結果;同一個交易裡核對這張收據仍是這份提案最新的領取、而且還沒有結果,不是就不寫
         (被接手的舊持有者寫不進去)。成功一定帶文字、失敗一定不帶。回傳有沒有寫進去。"""
         if type(outcome) is not NarrativeOutcome:
@@ -837,8 +839,8 @@ class TaskStore(TaskReads):
             if self._conn.execute("SELECT 1 FROM narrative_results WHERE claim_seq = ?",
                                   (claim.claim_seq,)).fetchone() is not None:
                 return False
-            self._conn.execute("INSERT INTO narrative_results VALUES (?, ?, ?, ?, ?)",
-                               (claim.claim_seq, outcome.value, source, text, _iso(now)))
+            self._conn.execute("INSERT INTO narrative_results VALUES (?, ?, ?, ?, ?, ?)",
+                               (claim.claim_seq, outcome.value, source, text, _iso(now), dropped))
         return True
 
     def acquire_lease(self, task_id: str, owner: str, now: datetime) -> LeaseReceipt | None:

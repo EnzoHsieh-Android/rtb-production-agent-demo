@@ -20,7 +20,12 @@ from pathlib import Path
 
 import pytest
 
-from tests.analyzer.test_boundaries import NETWORK_MODULES, _imported_modules, _source_of
+from tests.analyzer.test_boundaries import (
+    NETWORK_MODULES,
+    _imported_modules,
+    _resolve_from,
+    _source_of,
+)
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 RTB = SRC / "rtb"
@@ -297,32 +302,72 @@ def _literal_member(node):
     return node.attr if name == "Caller" else None
 
 
-def caller_argument_offenders(tree, module):
-    """開閘道、建請求、建閘道時帶的呼叫者:一定要是字面的 Caller.成員(不准變數、別名、getattr),
-    而且要是
-    這支模組准用的成員(代碼審 r2:標籤在開閘道時綁死,送出時不收)。"""
+PICKERS = frozenset({"list", "tuple", "sorted", "iter", "next", "reversed", "enumerate"})
+
+
+def _mentions_caller(node):
+    return any((isinstance(n, ast.Name) and n.id == "Caller")
+               or (isinstance(n, ast.Attribute) and n.attr == "Caller") for n in ast.walk(node))
+
+
+def _relabel_offenders(call, name, module):
+    """建好之後換標籤或挑成員的寫法(代碼審 r3):replace(…, caller=…)(送出點裡的 replace 連 ** 展開也
+    不准)、__setattr__(…, "caller", …)、把 Caller 攤成清單或迭代器再挑(list(Caller)[1]、
+    next(iter(Caller)))。"""
     found = []
+    spread = module in CALL_MODEL_USERS and any(k.arg is None for k in call.keywords)
+    if name == "replace" and (spread or any(k.arg == "caller" for k in call.keywords)):
+        found.append(f"{module}:{call.lineno} 用 replace 換呼叫者")
+    if name in ("__setattr__", "setattr") and any(
+            isinstance(a, ast.Constant) and a.value == "caller" for a in call.args):
+        found.append(f"{module}:{call.lineno} 用 {name} 換呼叫者")
+    if name in PICKERS and any(_mentions_caller(a) for a in call.args):
+        found.append(f"{module}:{call.lineno} 把 Caller 攤開來挑成員")
+    return found
+
+
+def _given_callers(node, name):
+    given = [k.value for k in node.keywords if k.arg == "caller"]
+    if not given and name == "ModelRequest" and node.args:
+        given = [node.args[0]]
+    if not given and name == "Gate" and len(node.args) > 1:
+        given = [node.args[1]]
+    return given
+
+
+def _taker_offenders(node, name, module):
+    """開閘道、建請求、建閘道帶的呼叫者要是字面的、准用的成員;用 ** 展開就看不出來,一律不准。"""
+    if any(k.arg is None for k in node.keywords):
+        return [f"{module}:{node.lineno} {name} 用 ** 展開,看不出呼叫者"]
+    given = _given_callers(node, name)
+    if not given and name == "open_gate":
+        return [f"{module}:{node.lineno} open_gate 沒帶呼叫者"]
+    found = []
+    for value in given:
+        member = _literal_member(value)
+        if member is None:
+            found.append(f"{module}:{node.lineno} {name} 的呼叫者不是字面的 Caller.成員")
+        elif module not in CALLER_USERS[member]:
+            found.append(f"{module}:{node.lineno} {name} 用了 {member}")
+    return found
+
+
+def caller_argument_offenders(tree, module):
+    """開閘道、建請求、建閘道時帶的呼叫者:一定要是字面的 Caller.成員(不准變數、別名、getattr、展開),
+    而且要是這支模組准用的成員(代碼審 r2:標籤在開閘道時綁死,送出時不收);建好之後也不准換標籤、
+    不准把 Caller 攤開來挑成員(代碼審 r3)。"""
+    found = [f"{module}:{node.lineno} 用 __members__ 挑呼叫者" for node in ast.walk(tree)
+             if isinstance(node, ast.Attribute) and node.attr == "__members__"
+             and _mentions_caller(node.value)]
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
         name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(
             func, ast.Attribute) else None
-        if name not in CALLER_TAKERS:
-            continue
-        given = [k.value for k in node.keywords if k.arg == "caller"]
-        if not given and name == "ModelRequest" and node.args:
-            given = [node.args[0]]
-        if not given and name == "Gate" and len(node.args) > 1:
-            given = [node.args[1]]
-        for value in given:
-            member = _literal_member(value)
-            if member is None:
-                found.append(f"{module}:{node.lineno} {name} 的呼叫者不是字面的 Caller.成員")
-            elif module not in CALLER_USERS[member]:
-                found.append(f"{module}:{node.lineno} {name} 用了 {member}")
-        if not given and name == "open_gate":
-            found.append(f"{module}:{node.lineno} open_gate 沒帶呼叫者")
+        found += _relabel_offenders(node, name, module)
+        if name in CALLER_TAKERS:
+            found += _taker_offenders(node, name, module)
     return found
 
 
@@ -349,8 +394,20 @@ def test_each_caller_label_is_used_only_by_its_own_module():
                   "c = mc.Caller.EVAL_CANDIDATE\nr = mc.ModelRequest(caller=c)\n",
                   "g = modelgate.open_gate({}, caller=modelgate.Caller.HYPOTHESIS)\n",
                   "g = modelgate.open_gate({}, demo_id=None)\n",
-                  "r = core.ModelRequest(core.Caller.VERIFICATION, 's', 'u', 1, 1.0)\n"):
+                  "r = core.ModelRequest(core.Caller.VERIFICATION, 's', 'u', 1, 1.0)\n",
+                  # 代碼審 r3:展開、建好之後換標籤、挑成員
+                  "r = mc.ModelRequest(**{'caller': mc.Caller('analyzer_' + 'narrative')})\n",
+                  "g = modelgate.Gate(**dict(caller=modelgate.Caller.INVESTIGATION))\n",
+                  "import dataclasses\nr2 = dataclasses.replace(r, caller=mc.Caller.HYPOTHESIS)\n",
+                  "from dataclasses import replace\nr2 = replace(r, **extra)\n",
+                  "object.__setattr__(r, 'caller', mc.Caller.HYPOTHESIS)\n",
+                  "setattr(r, 'caller', x)\n",
+                  "c = list(mc.Caller)[1]\n", "c = next(iter(mc.Caller))\n",
+                  "c = sorted(Caller)[0]\n", "c = mc.Caller.__members__['NARRATIVE']\n"):
         assert caller_argument_offenders(ast.parse(probe), "rtb.eval.model_candidate"), probe
+    # 標籤清單照舊可以整份拿來當指標的有界標籤(不是挑成員)
+    assert caller_argument_offenders(ast.parse(
+        "labels = frozenset(c.value for c in Caller)\n"), "rtb.ops.metrics") == []
     assert caller_argument_offenders(ast.parse(
         "r = mc.ModelRequest(caller=mc.Caller.EVAL_CANDIDATE)\n"), "rtb.eval.model_candidate") == []
     for probe in ("from rtb import modelclient as mc\nx = mc.Caller.NARRATIVE\n",
@@ -412,7 +469,9 @@ def backend_offenders(tree, label, module=None):
             found += [f"{label}: 匯入送出命令列 {a.name}" for a in node.names
                       if a.name in SENDING_ENTRIES and module not in CALL_MODEL_USERS]
         elif isinstance(node, ast.ImportFrom):
-            module_name = node.module or ""
+            # 相對匯入先接成完整名稱(代碼審 r3:最上層模組寫 from .analyzer import narrate 就繞過)
+            module_name = (_resolve_from(SRC, module, node) if node.level and module
+                           else node.module or "")
             names = {a.name for a in node.names}
             if module_name in ("rtb.modelclaude", "rtb.modelverify") or (
                     module_name == "rtb" and names & {"modelclaude", "modelverify"}):
@@ -462,6 +521,18 @@ def test_only_the_model_client_modules_touch_the_claude_backend():
                   "from rtb.ops.hypothesis import run",
                   "from rtb.ops import hypothesis as h\nh.run([])"):
         assert backend_offenders(ast.parse(probe), "probe"), probe
+    # 代碼審 r3:最上層模組用同層相對匯入轉手
+    for probe in ("from .analyzer import narrate\nnarrate.run([])",
+                  "from .ops import hypothesis", "from .analyzer.modelgate import open_gate"):
+        assert backend_offenders(ast.parse(probe), "rtb.httpkit", "rtb.httpkit"), probe
+    # 最上層共用模組吃的是 pyproject 那張禁令表:也禁閘道與兩支送出命令列
+    for banned in ("from rtb.analyzer import modelgate", "from rtb.analyzer import narrate",
+                   "import rtb.ops.hypothesis"):
+        result = subprocess.run(
+            [sys.executable, "-m", "ruff", "check", "--config", str(SRC.parent / "pyproject.toml"),
+             "--stdin-filename", str(RTB / "probe.py"), "-"],
+            input=f"{banned}\n", capture_output=True, text=True, timeout=60, check=False)
+        assert result.returncode == 1 and "TID251" in result.stdout, banned
     # 代碼審 r1:分析端與維運以外的各層(含展示與它的啟動器)也禁匯入模型閘道
     for config in (RTB / "dsp" / "ruff.toml", RTB / "eval" / "ruff.toml",
                    RTB / "demo" / "ruff.toml", RTB / "demo" / "launcher" / "ruff.toml",

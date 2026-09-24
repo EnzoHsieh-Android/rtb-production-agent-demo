@@ -45,7 +45,7 @@
     },
     {
       "path": "src/rtb/analyzer/task_store.py",
-      "sha256": "24c8a7ad5276ccef8583f126038539bbf65e7989395d56887f766fdf02b9c6bf"
+      "sha256": "a5afbb465e9fa5a5ad05940293e2df511517cc7338f023a4589b3d8f97c9e311"
     },
     {
       "path": "src/rtb/capabilitykit.py",
@@ -145,7 +145,7 @@
     },
     {
       "path": "src/rtb/modelclient.py",
-      "sha256": "b72831f5b72d4ebd39029dafc78719235e5c36eff583578728222f30140a14d8"
+      "sha256": "52f2cd9aa82878489e0d0e68fc55e526b930427e78e92fc7a1dc09bc8f0a99bc"
     },
     {
       "path": "src/rtb/modelcore.py",
@@ -161,7 +161,7 @@
     },
     {
       "path": "src/rtb/modelrecording.py",
-      "sha256": "0ea81155b26296438f9dbfd29ff592fb68deb5f7174164b4e7bf1c8ad141c71f"
+      "sha256": "600f3401fb79d33424e1857ff944725f3f256fff7451b6c771b2a2d2d5acd107"
     },
     {
       "path": "src/rtb/sqlitekit.py",
@@ -175,7 +175,7 @@
   "harness": [
     {
       "path": "pyproject.toml",
-      "sha256": "2daae40b8401da748207a5375c03da17b7b9cd686d7b6e88d4f287f291d48055"
+      "sha256": "9112a805811eba5df43772c0ba94374973d0ab59aa32404f98c6c8391b722d9b"
     },
     {
       "path": "tests/__init__.py",
