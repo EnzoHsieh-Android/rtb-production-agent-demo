@@ -95,9 +95,10 @@ def _ops_offenders(ops_dir):
 # 維運套件本身也用不到,一律不准
 DYNAMIC_LOOKUPS = frozenset({"getattr", "attrgetter", "methodcaller", "__getattribute__", "vars",
                              "__dict__", "eval", "exec", "compile", "__import__", "importlib",
-                             "import_module"})
-# 內建的執行函式:直接呼叫、經 builtins 取用、從 builtins 匯入都算;別的物件上同名的方法不算
-# (副作用核對用正規式模組的 compile,整合增量 3 時撞到)
+                             "import_module", "builtins", "__builtins__"})
+# 內建的執行函式:直接呼叫、從 builtins 匯入都算;builtins 模組本身不准匯入或引用(上面的禁用名,別名與
+# 變數也就拿不到),所以別的物件上同名的方法不算(副作用核對用正規式模組的 compile,整合增量 3 時撞到;
+# 整合代碼審第 1 輪:原本只認字面的 builtins.,別名繞得過)
 BUILTIN_RUNNERS = frozenset({"eval", "exec", "compile", "__import__"})
 
 
@@ -107,9 +108,7 @@ def _dynamic_lookups(label, tree):
         if isinstance(node, ast.Name):
             names = [node.id]
         elif isinstance(node, ast.Attribute):
-            on_builtins = (isinstance(node.value, ast.Name)
-                           and node.value.id in ("builtins", "__builtins__"))
-            names = [] if node.attr in BUILTIN_RUNNERS and not on_builtins else [node.attr]
+            names = [] if node.attr in BUILTIN_RUNNERS else [node.attr]
         elif isinstance(node, ast.alias):
             names = [node.name, node.name.split(".")[0]]
         elif isinstance(node, ast.ImportFrom):
@@ -190,9 +189,14 @@ def test_the_ops_package_is_read_only_and_imported_by_nobody():
     "\ndef _w():\n    import importlib.util\n    return importlib.util\n",
     "\nimport importlib.util as _iu\n",  # 只有子模組的名字
     "\nfrom importlib.util import find_spec as _fs\n",  # 從子模組匯入別的名字
-    # 整合增量 3 後:內建的執行函式經 builtins 模組取用也算
+    # 整合增量 3 後:經 builtins 模組取用內建執行函式也算(擋在匯入與引用 builtins 那一步)
     "\nimport builtins\n\ndef _w():\n    return builtins.compile('x', 'y', 'eval')\n",
     "\nfrom builtins import eval as _e\n",
+    # 整合代碼審第 1 輪:經別名或變數取到 builtins 也要抓(擋在匯入與引用那一步)
+    "\nimport builtins as b\n\ndef _w():\n    return b.eval('1')\n",
+    "\nimport builtins\n\ndef _w():\n    x = builtins\n    return x.eval('1')\n",
+    "\nfrom builtins import compile as c\n\ndef _w():\n    return c('x', 'y', 'eval')\n",
+    "\ndef _w():\n    return __builtins__['eval']('1')\n",
 ])
 def test_the_ops_scan_catches_a_write_call(tmp_path, extra):
     """[S617] 的殺傷力:在維運套件的副本放一個寫入呼叫,掃描就要找到。"""
