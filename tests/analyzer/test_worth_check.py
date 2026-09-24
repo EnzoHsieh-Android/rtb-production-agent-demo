@@ -166,21 +166,41 @@ def test_a_candidate_saying_insufficient_evidence_is_no_action_with_that_reason(
 
 
 # ---- [S711] ----
+def _expected_cell(status, impressions, clicks, conversions, revenue, spend):
+    """照計劃的評分表(使用者裁定,由上而下第一個成立的)獨立寫一次。"""
+    if status is CampaignStatus.PAUSED:
+        return WorthCell.PAUSED
+    values = (impressions, clicks, conversions, revenue, spend)
+    if (any(v is None or v < 0 for v in values) or clicks > impressions
+            or conversions > clicks):
+        return WorthCell.ANOMALY
+    if impressions == 0 or clicks == 0:
+        return WorthCell.NO_DELIVERY
+    if conversions > 0 or revenue > 0:
+        return WorthCell.DELIVERY_WITH_VALUE
+    return WorthCell.DELIVERY_WITHOUT_VALUE
+
+
 def test_the_rubric_gives_exactly_one_class_for_every_input():
-    values = (1, 0, -1, None)
+    counts = (None, -1, 0, 1, 5)  # 1 與 5 造得出「點擊多於曝光」「轉換多於點擊」
+    money = (None, -1.0, 0.0, 3.0)
     seen = set()
-    for status, impressions, clicks, conversions, revenue in itertools.product(
-            CampaignStatus, values, values, values, values):
-        cell = worth.cell_of(_input(status, impressions, clicks, conversions, revenue))
-        assert isinstance(cell, WorthCell)
+    for status, impressions, clicks, conversions, revenue, spend in itertools.product(
+            CampaignStatus, counts, counts, counts, money, money):
+        worth_input = WorthInput(status=status, budget=100, spend=spend, impressions=impressions,
+                                 clicks=clicks, conversions=conversions, revenue=revenue)
+        cell = worth.cell_of(worth_input)
+        assert cell is _expected_cell(status, impressions, clicks, conversions, revenue, spend), (
+            worth_input)
         seen.add(cell)
-        positive = worth.is_positive
-        expected = (WorthCell.PAUSED if status is CampaignStatus.PAUSED
-                    else WorthCell.NO_DELIVERY if not (positive(impressions) and positive(clicks))
-                    else WorthCell.DELIVERY_WITH_VALUE if positive(conversions) or positive(revenue)
-                    else WorthCell.DELIVERY_WITHOUT_VALUE)
-        assert cell is expected
     assert seen == set(WorthCell)
+    assert len(WorthCell) == 5
+    # 計劃裡寫死的邊界例
+    base = {"status": CampaignStatus.ACTIVE, "budget": 100, "spend": 1.0, "revenue": 0.0}
+    assert worth.cell_of(WorthInput(**base, impressions=5, clicks=0, conversions=0)) is \
+        WorthCell.NO_DELIVERY
+    assert worth.cell_of(WorthInput(**base, impressions=5, clicks=0, conversions=1)) is \
+        WorthCell.ANOMALY
 
 
 # ---- [S715] ----

@@ -5,8 +5,9 @@
 分析端 DSP 用戶端的白名單一樣、用同一支共用檢查:預算是 0 到資料庫整數上限的整數;曝光、點擊、轉換
 是整數或缺值、絕對值在上限內;花費、營收是有限數或缺值;布林一律拒絕。
 
-評分格是這個判斷的切片:依狀態、曝光點擊是否都是正數、轉換營收是否有正數分成 4 格;配速與預算不影響
-這個判斷,不當切片鍵。「正數」= 通過建構驗證而且大於零;缺值、零、負數都不是正數。
+評分格是這個判斷的切片,跟使用者裁定的評分表五條一一對應(由上而下第一個成立的):暫停、資料異常、
+沒投放、有價值、沒價值;配速與預算不影響這個判斷,不當切片鍵。「正數」= 通過建構驗證而且大於零;
+缺值、零、負數都不是正數。
 """
 
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ class WorthVerdict(StrEnum):
 
 class WorthCell(StrEnum):
     PAUSED = "paused"
+    ANOMALY = "anomaly"
     NO_DELIVERY = "no_delivery"
     DELIVERY_WITH_VALUE = "delivery_with_value"
     DELIVERY_WITHOUT_VALUE = "delivery_without_value"
@@ -71,10 +73,24 @@ def is_positive(value: int | float | None) -> bool:
     return value is not None and value > 0
 
 
+def is_anomalous(worth_input: WorthInput) -> bool:
+    """資料異常(使用者 2026-09-24 裁定,程式判得出的才算):曝光、點擊、轉換、營收、花費任一個是負數
+    或缺值,或點擊多於曝光,或轉換多於點擊。數字合不合理(點擊率九成、花費過低)不判。"""
+    i = worth_input
+    values = (i.impressions, i.clicks, i.conversions, i.revenue, i.spend)
+    if any(v is None or v < 0 for v in values):
+        return True
+    assert i.impressions is not None and i.clicks is not None  # noqa: S101 - 上面已排除缺值
+    assert i.conversions is not None  # noqa: S101
+    return i.clicks > i.impressions or i.conversions > i.clicks
+
+
 def cell_of(worth_input: WorthInput) -> WorthCell:
-    """每一筆可建構的判斷點輸入恰好落在一格([S711])。"""
+    """評分表由上而下第一個成立的;每一筆可建構的判斷點輸入恰好落在一格([S711])。"""
     if worth_input.status is CampaignStatus.PAUSED:
         return WorthCell.PAUSED
+    if is_anomalous(worth_input):
+        return WorthCell.ANOMALY
     if not (is_positive(worth_input.impressions) and is_positive(worth_input.clicks)):
         return WorthCell.NO_DELIVERY
     if is_positive(worth_input.conversions) or is_positive(worth_input.revenue):
