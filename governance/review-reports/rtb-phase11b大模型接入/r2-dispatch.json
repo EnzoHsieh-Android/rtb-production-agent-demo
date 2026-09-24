@@ -1,0 +1,37 @@
+[
+ {
+  "round": "r2",
+  "seat": "前輪驗收",
+  "lens": "第 1 輪 28 條是否折對",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r2-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入/r2-delta.diff",
+   "governance/review-reports/rtb-phase11b大模型接入/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "新段落",
+  "lens": "新段落的可繞過性與可實作性",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r2-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入/r2-delta.diff",
+   "governance/review-reports/rtb-phase11b大模型接入/",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "外家-codex",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r2-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入/r2-delta.diff",
+   "governance/review-reports/rtb-phase11b大模型接入/",
+   "src/rtb/"
+  ],
+  "auditor": "codex"
+ }
+]

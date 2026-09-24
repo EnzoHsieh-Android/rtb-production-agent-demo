@@ -1,0 +1,83 @@
+[
+ {
+  "round": "r1",
+  "seat": "信任邊界",
+  "lens": "模型輸出與提示注入:模型文字會不會經任何路徑影響決策、核可、日誌、執行端",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r1-snapshot.md",
+   "src/rtb/",
+   "tests/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "花費上限",
+  "lens": "花費帳:預留與結算的算法、並行、月份與展示邊界、失敗結算、繞過上限的路徑",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r1-snapshot.md",
+   "src/rtb/",
+   "tests/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "金鑰外連",
+  "lens": "金鑰與對外連線:金鑰外洩路徑、行程隔離、HTTPS、錄製檔內容、環境清除",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r1-snapshot.md",
+   "src/rtb/",
+   "tests/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "合約可測",
+  "lens": "合約可測性:每條 [S9xx] 能否寫出輸入→預期、設計段與合約一致、增量劃分自洽",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r1-snapshot.md",
+   "src/rtb/",
+   "tests/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "既有合約",
+  "lens": "可實作性與既有合約衝突:Phase 7/9/10 合約、共用用戶端 64KB 與無重試、Anthropic API 事實(錯誤碼、usage、版本標頭)、錄製鍵穩定性",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r1-snapshot.md",
+   "src/rtb/",
+   "tests/",
+   "docs/rtb-production-agent-demo-knowledge/Projects/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "既有模組邊界與做法",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r1-snapshot.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r1-snapshot.md",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex"
+ }
+]
