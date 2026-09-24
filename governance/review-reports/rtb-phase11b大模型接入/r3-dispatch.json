@@ -1,0 +1,37 @@
+[
+ {
+  "round": "r3",
+  "seat": "前輪驗收",
+  "lens": "第 2 輪 17 條是否折對",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r3-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入/r3-delta.diff",
+   "governance/review-reports/rtb-phase11b大模型接入/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "末輪掃描",
+  "lens": "只掃 blocking 級",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r3-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入/r3-delta.diff",
+   "governance/review-reports/rtb-phase11b大模型接入/",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "外家-codex",
+  "lens": "外家否決",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入/r3-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入/r3-delta.diff",
+   "governance/review-reports/rtb-phase11b大模型接入/",
+   "src/rtb/"
+  ],
+  "auditor": "codex"
+ }
+]

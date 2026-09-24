@@ -1,0 +1,86 @@
+[
+ {
+  "round": "r2",
+  "seat": "鏡頭1-後端",
+  "lens": "鏡頭1-後端",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "鏡頭2-花費",
+  "lens": "鏡頭2-花費",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "鏡頭3-評估",
+  "lens": "鏡頭3-評估",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "鏡頭4-測試",
+  "lens": "鏡頭4-測試",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "資安-opus",
+  "lens": "資安-opus",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "外家-codex",
+  "lens": "外家-codex",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex-gpt-6-sol"
+ }
+]

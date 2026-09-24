@@ -60,6 +60,14 @@ from rtb.executor.inbox_store import (
     LifecycleKind,
     ReadOnlyInbox,
 )
+from rtb.modelledger_view import (
+    Caller,
+    LedgerUnreadable,
+    ModelLedgerView,
+    Outcome,
+    Source,
+    ledger_path,
+)
 from rtb.ops.cli import EXIT_BAD_ARGUMENTS as EXIT_BAD_ARGUMENTS  # 參數錯(7,維運套件共用)
 from rtb.ops.cli import Parser, aware_time
 
@@ -78,8 +86,13 @@ EXIT_UNSTABLE = 5  # 重讀時端到端跟第一輪不同:照樣印出第一輪�
 EXIT_BAD_CONFIG = 6
 EVENT_COUNT_NOTE = ("事件次數:同一份提案每擋一次、每進一次待核可都算一次(重投再擋算兩次);"
                     "可觀測查詢的停下紀錄是同提案同種類只記一次的提案數,定義不同,數字不必相等")
-JEV_NOTE = ("不適用:本系統的分析是確定性計算,沒有呼叫模型,沒有模型與 Jev 的延遲、成本、格式失敗或"
-            "退回率可量;Phase 10 若接模型再補")
+# 模型與 Jev(Phase 11B 增量 1 起):從模型花費帳的唯讀開法算,依呼叫者、結果類別、來源分次數
+MODEL_NOTE = ("模型呼叫次數(依預留時間歸窗),依呼叫者、結果類別、來源(即時或錄製重播)分;還沒結算的"
+              "結果類別記 unsettled;花費與延遲在花費帳")
+NO_LEDGER_NOTE = "無樣本:沒有指定模型花費帳"
+MISSING_LEDGER_NOTE = "無樣本:模型花費帳不存在(還沒有任何模型呼叫)"
+BROKEN_LEDGER_NOTE = "無樣本:模型花費帳還沒建齊表或讀取出錯(其他指標照常)"
+UNSETTLED = "unsettled"
 
 
 class WindowTooLong(ValueError):
@@ -96,6 +109,9 @@ class LabelKind(StrEnum):
     PROGRAM_VERSION = "program_version"
     POLICY_VERSION = "policy_version"
     ANALYZER_ENDPOINT = "analyzer_endpoint"
+    MODEL_CALLER = "model_caller"
+    MODEL_OUTCOME = "model_outcome"
+    MODEL_SOURCE = "model_source"
 
 
 class Stage(StrEnum):
@@ -149,7 +165,7 @@ DECLARED: Mapping[str, frozenset[LabelKind]] = {
                     "unresolved_escalated", "in_flight")
        for suffix in ("", "_max_age_seconds")},
     "locked_campaigns": _STAGE_ONLY, "aggregate_utilization": _TENANT_STAGE,
-    "model_and_jev": frozenset(),
+    "model_and_jev": frozenset({K.MODEL_CALLER, K.MODEL_OUTCOME, K.MODEL_SOURCE, K.STAGE}),
 }
 STALE_REASONS = frozenset({BlockCode.VERSION_CHANGED, BlockCode.POLICY_VERSION_CHANGED,
                            BlockCode.DECISION_STALE})
@@ -228,6 +244,9 @@ _BLOCK_CODES = frozenset(code.value for code in BlockCode)
 _CALL_KINDS = frozenset(kind.value for kind in DspCallKind)
 _CALL_RESULTS = frozenset(result.value for result in DspCallResult)
 _ENDPOINTS = frozenset(endpoint.value for endpoint in ToolEndpoint)
+_MODEL_CALLERS = frozenset(caller.value for caller in Caller)
+_MODEL_OUTCOMES = frozenset(outcome.value for outcome in Outcome) | {UNSETTLED}
+_MODEL_SOURCES = frozenset(source.value for source in Source)
 
 
 def _reason(value: str | None) -> str:
@@ -785,8 +804,41 @@ def _compute_window(
                  _waits, _execution, _reconciliation, _add_end_to_end, _dsp, _analyzer_calls,
                  _event_counts):
         step(w)
-    w.samples.append(Sample("model_and_jev", (), None, 0, Status.NOT_APPLICABLE, note=JEV_NOTE))
     return tuple(w.samples)
+
+
+def _model_samples(model_ledger: Path | None, since: datetime,
+                   until: datetime) -> list[Sample]:
+    """模型與 Jev:經花費帳唯讀開法讀窗內的呼叫(依預留時間),依呼叫者、結果類別、來源數次數
+    ([S907])。"""
+    if model_ledger is None:
+        return [Sample("model_and_jev", (), None, 0, Status.NO_SAMPLES, note=NO_LEDGER_NOTE)]
+    broken = [Sample("model_and_jev", (), None, 0, Status.NO_SAMPLES, note=BROKEN_LEDGER_NOTE)]
+    try:
+        reader = ModelLedgerView(model_ledger)
+    except FileNotFoundError:
+        return [Sample("model_and_jev", (), None, 0, Status.NO_SAMPLES, note=MISSING_LEDGER_NOTE)]
+    except (DatabaseNotUpgraded, LedgerUnreadable):  # 只讓這一項變無樣本,不拖垮整份報告
+        return broken
+    try:
+        with reader.read_transaction():
+            calls = reader.calls_between(
+                since.astimezone(UTC).isoformat(timespec="microseconds"),
+                until.astimezone(UTC).isoformat(timespec="microseconds"))
+    except LedgerUnreadable:
+        return broken
+    finally:
+        reader.close()
+    counts: dict[tuple[Label, ...], int] = defaultdict(int)
+    for call in calls:
+        counts[_labels(Stage.ANALYSIS, (K.MODEL_CALLER, _closed(call.caller, _MODEL_CALLERS)),
+                       (K.MODEL_OUTCOME, _closed(call.outcome or UNSETTLED, _MODEL_OUTCOMES)),
+                       (K.MODEL_SOURCE, _closed(call.source, _MODEL_SOURCES)))] += 1
+    if not counts:
+        return [Sample("model_and_jev", _labels(Stage.ANALYSIS), None, 0, Status.NO_SAMPLES,
+                       note=MODEL_NOTE)]
+    return [Sample("model_and_jev", labels, count, count, note=MODEL_NOTE)
+            for labels, count in sorted(counts.items())]
 
 
 def _check_window(since: datetime, until: datetime) -> None:
@@ -799,7 +851,7 @@ def _check_window(since: datetime, until: datetime) -> None:
 
 def collect_window(
     since: datetime, until: datetime, *, executor_db: Path, analyzer_db: Path,
-    tenants: Sequence[Tenant],
+    tenants: Sequence[Tenant], model_ledger: Path | None = None,
 ) -> Report:
     """窗內統計。報告的每一個數字(含端到端)都出自第一輪讀到的執行端與分析端輸入。端到端跨兩個資料庫,
     之後再重讀兩輪,只用來確認端到端的完整樣本跟第一輪一致:每一輪都一致才標穩定;任何一輪不同就停、
@@ -813,7 +865,9 @@ def collect_window(
     analyzer = _read_analyzer(Path(analyzer_db), since, until,
                               (task for task, _, _ in part.finals))
     first = _end_to_end_members(start, end, part, analyzer.chains)
-    samples = _compute_window(since, until, part, analyzer, tenants, _end_to_end_samples(first))
+    samples = (*_compute_window(since, until, part, analyzer, tenants,
+                                _end_to_end_samples(first)),
+               *_model_samples(model_ledger, since, until))
     for rounds in range(2, MAX_ROUNDS + 1):
         ends = _read_executor(Path(executor_db), since, until, full=False)
         chains = _read_analyzer(Path(analyzer_db), since, until,
@@ -891,6 +945,8 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--since", type=aware_time)
     parser.add_argument("--until", type=aware_time)
     parser.add_argument("--now", type=aware_time, help="給了就是現況快照")
+    parser.add_argument("--model-ledger", type=Path,
+                        help="模型花費帳(窗內統計的模型與 Jev 指標用;預設家目錄那一本)")
     args = parser.parse_args(argv)
     if args.now is None and (args.since is None or args.until is None or args.analyzer_db is None):
         parser.error("窗內統計要 --since、--until 與 --analyzer-db;現況快照要 --now")
@@ -908,7 +964,8 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
         result = (collect_snapshot(args.now, executor_db=args.executor_db, tenants=tenants)
                   if args.now is not None else
                   collect_window(args.since, args.until, executor_db=args.executor_db,
-                                 analyzer_db=args.analyzer_db, tenants=tenants))
+                                 analyzer_db=args.analyzer_db, tenants=tenants,
+                                 model_ledger=args.model_ledger or ledger_path()))
     except WindowTooLong as refused:
         print(f"拒絕:{refused}(窗內統計最長 24 小時)", file=errors)
         return EXIT_WINDOW_TOO_LONG

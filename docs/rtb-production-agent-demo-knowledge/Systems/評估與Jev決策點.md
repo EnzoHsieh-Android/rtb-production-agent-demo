@@ -3,7 +3,7 @@ type: system
 status: doing
 created: 2026-09-24
 updated: 2026-09-24
-responsibility: 負責「值不值得加」判斷點的離線評估:評分表、合成評估集與生成器、逐格計分與報告、比較表、逐格採用決定與人讀的決定紀錄;不負責判斷點本身與路由(在分析端的決策規則),不讀也不寫任何資料庫,不被任何其他套件匯入
+responsibility: 負責「值不值得加」判斷點的離線評估:評分表、合成評估集與生成器、逐格計分與報告、比較表、逐格採用決定與人讀的決定紀錄,以及接入點 3 的模型候選(旁路紀錄、整批停下、子集、批次紀錄、比較表模型列);不負責判斷點本身與路由(在分析端的決策規則);除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、不啟動子行程;不被任何其他套件匯入
 aliases: []
 about_code:
   - src/rtb/eval/__init__.py
@@ -13,12 +13,15 @@ about_code:
   - src/rtb/eval/scoring.py
   - src/rtb/eval/adoption.py
   - src/rtb/eval/record.py
+  - src/rtb/eval/model_candidate.py
+  - tests/eval/test_model_candidate.py
 tags:
   - type/system
   - status/doing
 summary: |-
   WHY: [2026-09-24] 交接文件 Phase 10:只在有證據的窄決策點評估 Jev,依切片報品質、跟程式基準比品質成本延遲、沒達門檻明確不採用。使用者本人裁定評估對象是「值不值得加」這一個判斷,結論照實寫兩個不採用理由。出處:[[Projects/RTB_Phase10評估與Jev決策點_計劃]] 增量 2。
   RULE: 合成評估集只是有限的合約案例,不套統計信賴、不能產生已驗證清單;已驗證清單只能來自正式環境隱藏抽樣集,而且只有採用函式建得出來。[since:2026-09-24] [retire:接上正式環境抽樣集與人工標註、改用它們重建評估時] [test:test_evaluation_calls_the_candidate_without_validating_anything]
+  WHY: [2026-09-24] Phase 11B 接入點 3:模型候選實作既有候選介面,評估紀錄命令列成為三支模型入口之一;評估套件的「不讀寫任何資料庫」有意識地放寬成「除了經模型用戶端寫花費帳與呼叫模型」,匯入閉包以開工前為基準只准多出模型用戶端一條分支。出處 [[Projects/RTB_Phase11B大模型接入_計劃]]〈接入點 3〉〈既有邊界怎麼改〉。
   RULE: 評估套件不被分析端、執行端、DSP、領域層、維運套件匯入(五個目錄的匯入規則禁令加邊界測試),規則作者的程式讀不到評估集;生成器不讀決策規則與它的測試。[since:2026-09-24] [retire:評估集改由獨立、有存取控制的評估執行器注入、不再放進程式庫時] [test:test_nothing_outside_the_eval_package_imports_it]
 decisions:
   - content: 合成評估集第一版未提交就換成第二版:正數計數改照漏斗順序造
@@ -55,3 +58,32 @@ verified_by:
 - 決定紀錄(`governance/eval/phase10-worth-adoption.md`,`python -m rtb.eval.record` 產生,命令列照專案的兩層形狀;評估套件不准匯入維運套件,所以比照執行端各自建解析器)。2026-09-24 用第四版評估集:結論不採用;現行規則在暫停格誤提案 39/60、資料異常格類別全錯(36 筆判成值得加、24 筆判成不值得加)、沒價值格 60/60 判成值得加,沒投放與有價值兩格全對;擾動 0 組改變。
 - 匯入禁令(代碼審第 2 輪):分析端、執行端、DSP、領域層、維運套件五層的匯入規則另禁 importlib,邊界測試把這五層任何 __import__ 或 import_module 呼叫、對 __import__ 的任何引用、從 builtins 匯入都算違規(不只認字面常數,第 3 輪補引用與 builtins);這五層今天沒有合法的動態匯入。防回歸:[test:test_nothing_outside_the_eval_package_imports_it]。
 - 評分表原意對照(`governance/eval/rubric-intent-check.md`,評分表每次改動都重跑一批):4 格版兩批促成使用者加「資料自洽」;5 格版第 3 批在暫停、沒投放兩格一致,資料異常 2/3、有價值 1/3 一致,沒價值格代理 3/3 判「不值得加」、跟使用者裁定的「證據不足」不一致;使用者本人確認維持原裁定(一小時窗太短、轉換常有延遲,看不出來不等於沒效益),評分表沒改。
+
+## 模型候選(Phase 11B 增量 1)
+
+- `src/rtb/eval/model_candidate.py`:把七個欄位格式化成固定模板,要模型只回 `{"verdict": ...}`;失敗一律往外丟,
+  由既有路由退回現行規則;旁路紀錄記每次的結果類別、結算狀態、無法可靠分類與工具使用標記。跑合成集固定子集
+  (每格 14 組、每組 3 個變體,種子 20260924);本地上限拒絕、訂閱額度用完、設定錯誤、花費帳忙碌、超支、
+  無法可靠分類、偵測到工具使用就在那個情境之後整批停下。批次紀錄每個情境一列,七欄相同的標「共用前一列」;
+  比較表模型列從批次紀錄算(成本取最高一次原價,沒呼叫模型的不算進比率)。模型呼叫經 [[Systems/模型用戶端]]。
+- `src/rtb/eval/record.py` 在入口讀模式(即時開關、展示編號、PATH 上的 claude、啟用紀錄),即時模式的花費帳寫死
+  家目錄那一本,`--ledger` 只在錄製模式能用;預留時花費帳忙碌以結束代碼 9 結束。
+- `tests/eval/test_model_candidate.py`:[S908]、[S909]、[S918]、[S919]、[S924]、[S928]、[S933]、[S934]。
+- 代碼審第 1 輪補強(2026-09-24):去重跟錄製開關無關(即時沒開錄製時候選自己記住這一批呼叫過的鍵,開錄製時照錄製檔);
+  共用的失敗列標共用、不算送出;模型用戶端以外的例外也替那個情境補一列(暫時性、無法可靠分類)並停下,不會讀到上一列;
+  成功形狀帶工具痕跡、超支又未結算也停。模型的計分走既有的計分與合成集報告,模型段另印「模型逐格結果」表、錯誤子型與
+  擾動改變的組數;有旗標時比較表的 LLM 列寫「沒量(原因:旗標)」;重播時批次紀錄的情境清單要是這次子集的開頭一段,
+  不是就標「批次紀錄的情境清單跟這次子集不同」。防回歸:[test:test_identical_inputs_share_one_call_without_recording]、
+  [test:test_a_non_model_error_gets_its_own_row_and_stops]、[test:test_the_model_section_reports_its_own_scores]、
+  [test:test_flags_show_up_in_the_llm_row_and_the_scenarios_must_match]。
+- 代碼審第 2 輪補強(2026-09-24):重播時批次紀錄要跟這次重播逐列對得上(列數、順序、有錄製的列的結果類別與原價),
+  讀不懂或對不上就掛旗標、不算門檻;即時跑到一半被中斷時照寫已跑的部分並標中斷;模型逐格結果只算真的呼叫了模型的情境,
+  另列實際作答、退回、沒呼叫;即時沒開錄製時來源寫「即時、未存檔」;「不採用的理由」是 Phase 10 固定文字,模型段另註明
+  候選實測已有。評估套件的送出名字(send、backend、BackendCall…)只准模型候選用 call_model,模型用戶端的匯入閉包寫死、
+  不准有網路模組。防回歸:[test:test_a_batch_record_missing_rows_is_flagged]、
+  [test:test_a_tampered_batch_record_is_not_trusted]、[test:test_the_model_scores_only_count_calls_that_were_made]、
+  [test:test_an_interrupted_live_run_still_writes_its_batch]。
+- 代碼審第 3 輪補強(2026-09-24):重播核對擴大到延遲、判定與共用/送出標記(共用照子集的提示重算),有旗標的批次
+  不印門檻判定;被中斷的那一次也進批次紀錄(interrupted,附沒結算的預留編號);別批擋住時旗標寫明先清哪一批。
+  防回歸:[test:test_a_faster_batch_record_cannot_pass_the_latency_bar]。
+

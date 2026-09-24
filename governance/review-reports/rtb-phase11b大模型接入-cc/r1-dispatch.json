@@ -1,0 +1,57 @@
+[
+ {
+  "round": "r1",
+  "seat": "通才-opus",
+  "lens": "第 5 版改動段整體",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r1-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r1-delta.diff",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "子行程安全",
+  "lens": "claude 子行程的工具、環境、憑證、注入",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r1-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r1-delta.diff",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "花費結算",
+  "lens": "花費帳改成 API 等價金額與結算分類",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r1-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r1-delta.diff",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r1-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r1-delta.diff",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家",
+  "materials": [
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r1-snapshot.md",
+   "governance/review-reports/rtb-phase11b大模型接入-cc/r1-delta.diff",
+   "src/rtb/"
+  ],
+  "auditor": "codex"
+ }
+]
