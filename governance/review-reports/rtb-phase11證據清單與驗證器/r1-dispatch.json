@@ -1,0 +1,10 @@
+{"round": "r1", "spec": "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md", "snapshot_sha256": "6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41",
+ "seats": [
+  {"seat": "繞過-sonnet", "lens": "驗證器邏輯與可繞過性(想偽造綠燈的作者;威脅模型防忘記不防刻意)", "materials": ["/tmp/rtb-phase11-r1.md", "src/rtb/dsp/server.py", "tools/mypy_sarif.py", ".github/workflows/ci.yml", "pyproject.toml"], "auditor": "sonnet"},
+  {"seat": "宣稱證據-sonnet", "lens": "宣稱與證據對應(五條宣稱證據夠不夠、範圍漏檔)", "materials": ["/tmp/rtb-phase11-r1.md", "src/rtb/dsp/server.py", "src/rtb/dsp/store.py", "src/rtb/executor/execution.py", "tests/executor/test_f7_end_to_end.py", "docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md"], "auditor": "sonnet"},
+  {"seat": "可測重現-sonnet", "lens": "可測性與重現性(本機與 CI 一致、時間成本)", "materials": ["/tmp/rtb-phase11-r1.md", ".github/workflows/ci.yml", "pyproject.toml", "requirements-dev.txt", "tests/executor/test_f7_end_to_end.py"], "auditor": "sonnet"},
+  {"seat": "邊界-sonnet", "lens": "極端輸入(清單格式、語法樹讀常數、pytest 節點編號與 JUnit 的邊界)", "materials": ["/tmp/rtb-phase11-r1.md", "src/rtb/dsp/server.py", "pyproject.toml", "tests/dsp/test_store.py"], "auditor": "sonnet"},
+  {"seat": "接手-sonnet", "lens": "接手的人與回退(合約條款可測、增量切分、圖譜落點、回退可行)", "materials": ["/tmp/rtb-phase11-r1.md", "docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md", "CLAUDE.md"], "auditor": "sonnet"},
+  {"seat": "架構對齊-sonnet", "lens": "架構對齊 §7.6 四問", "materials": ["/tmp/rtb-phase11-r1.md", "tools/mypy_sarif.py", "tests/tools/test_mypy_sarif.py", "pyproject.toml", "ruff.toml", ".github/workflows/ci.yml"], "auditor": "sonnet"},
+  {"seat": "外家-codex", "lens": "外家否決:全份通才", "materials": ["/tmp/rtb-phase11-r1.md", "src/rtb/dsp/server.py", "src/rtb/dsp/store.py", ".github/workflows/ci.yml", "pyproject.toml"], "auditor": "codex"}
+ ]}

@@ -1,0 +1,14 @@
+{
+ "round": "r2",
+ "seat": "外家-codex",
+ "lens": "外家否決:全份通才,重點在第 1 輪後新寫段落",
+ "materials": [
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r2-snapshot.md",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r2-delta.patch",
+  "pyproject.toml",
+  ".github/workflows/ci.yml",
+  "src/rtb/dsp/server.py"
+ ],
+ "auditor": "codex",
+ "snapshot_sha256": "7fa390df6fea0de62515c64f029d6161d8a79f611d3b7a5f2715cd2232c7fceb"
+}

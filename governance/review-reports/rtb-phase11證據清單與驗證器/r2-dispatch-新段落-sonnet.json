@@ -1,0 +1,17 @@
+{
+ "round": "r2",
+ "seat": "新段落-sonnet",
+ "lens": "新段落可繞過性與可實作性:依賴閉包、conftest 鏈、pytest 外掛入口、路徑大小寫、讀檔規則、範圍詞、互不匯入兩向、F6 搬家",
+ "materials": [
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r2-snapshot.md",
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r2-delta.patch",
+  "pyproject.toml",
+  "ruff.toml",
+  "src/rtb/dsp/server.py",
+  "tests/executor/conftest.py",
+  "tests/dsp/conftest.py",
+  "src/rtb/eval/ruff.toml"
+ ],
+ "auditor": "sonnet",
+ "snapshot_sha256": "7fa390df6fea0de62515c64f029d6161d8a79f611d3b7a5f2715cd2232c7fceb"
+}

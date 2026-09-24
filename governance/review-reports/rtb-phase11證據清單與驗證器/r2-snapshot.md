@@ -48,7 +48,7 @@ RETIRE-IF: 專案改用外部的證據平台(例如 CI 內建的出處證明與�
   - symbols:宣稱依賴的關鍵函式,寫成「檔:名稱」或「檔:類別.方法」。
 - 清單不帶任何結果;結果一律由驗證器算。
 - 讀檔規則(前掃與第 1 輪審查實跑確認 Python 標準 json 的行為):重複鍵一律擋(標準解析器會靜默留下後一個);NaN、Infinity 擋;整數欄位要真的是整數(JSON 的 true 在 Python 裡等於 1,不算整數);超長整數、編碼錯、語法錯都歸「清單讀不懂」。
-- 路徑規則:scope、harness、symbols、enumerations 的路徑一律是相對 repo 根、用 / 分隔;不准絕對路徑、不准 ..、路徑上任何一段是符號連結也擋;每一段的大小寫要跟目錄實際列出的檔名完全一樣(macOS 預設不分大小寫、CI 的 Linux 分,只靠「檔案存在」會本機過、CI 擋)。做法固定:從 repo 根往下逐段走,每一段都拿上一層 os.listdir 列出的名字做完整字串比對(不做 Unicode 正規化),同一段再用 lstat 確認不是符號連結;不准用「先確認檔案存在、再只比檔名」的捷徑(中間目錄段的大小寫錯會漏掉)。同一個檔不能同時在 scope 與 harness。
+- 路徑規則:scope、harness、symbols 的路徑一律是相對 repo 根、用 / 分隔;不准絕對路徑、不准 ..、路徑上任何一段是符號連結也擋;每一段的大小寫要跟目錄實際列出的檔名完全一樣(macOS 預設不分大小寫、CI 的 Linux 分,只靠「檔案存在」會本機過、CI 擋)。同一個檔不能同時在 scope 與 harness。
 
 ### 驗證器(tools/verify_claims.py,指令:python tools/verify_claims.py claims/)
 
@@ -56,22 +56,17 @@ RETIRE-IF: 專案改用外部的證據平台(例如 CI 內建的出處證明與�
 1. 格式:讀檔規則、每層白名單、型別、claim_id 跟檔名一致;沒有任何清單、或少了五條必要宣稱之一也擋(必要宣稱是驗證器裡的一個常數,五個名字)。
 2. 存在:路徑規則;scope、harness、symbols 的檔案都存在;symbols 只認模組最外層(不在 if、try、with 等區塊底下)的 def 或 class,「類別.方法」只認直接寫在類別本體的 def;同一個名字在最外層定義之後又被重新指派,也擋。
 3. 範圍閉包與新舊:
-   - 驗證器先機械算出「一定要列」的檔:scope 從宣告的正式檔、symbols 所在的檔與證據測試檔出發,沿靜態匯入在 src/rtb 內遞迴,得到依賴閉包;harness 一定要含每支證據測試檔本身、從 repo 根到它所在目錄路上的每個 conftest.py、pyproject.toml(pytest 設定在這裡),以及證據測試檔沿靜態匯入在 tests/ 內遞迴到的模組(假物件、樣本、共用夾具)。symbols 所在的檔一定要在 scope。
-   - 匯入怎麼解析成檔(第 2 輪審查實測:專案的子套件多半沒有 __init__.py,是命名空間套件,`from rtb.dsp import store` 這種寫法很常見,只解析 `rtb.dsp` 會漏掉 store.py):檔案裡任何位置的 import 都算(含函式內、TYPE_CHECKING 區塊、相對匯入);`import a.b.c` 解析成 a/b/c.py 或 a/b/c/__init__.py;`from a.b import x` 除了 a/b.py 或 a/b/__init__.py,若 a/b/x.py 或 a/b/x/__init__.py 存在也算進去;閉包裡每個模組的每一層上層套件若有 __init__.py 也算進去(Python 匯入子模組時會隱式執行它們,例如 rtb/__init__.py)。
+   - 驗證器先機械算出「一定要列」的檔:scope 從宣告的正式檔與證據測試檔出發,沿靜態匯入(檔案裡任何位置的 import,含函式內與相對匯入)在 src/rtb 內遞迴,得到依賴閉包;harness 一定要含每支證據測試檔本身、從 repo 根到它所在目錄路上的每個 conftest.py、pyproject.toml(pytest 設定在這裡),以及證據測試檔沿靜態匯入在 tests/ 內遞迴到的模組(假物件、樣本、共用夾具)。
    - 少列任何一個就擋並指出是哪一個;作者可以多列(例如子行程啟動、靜態匯入看不到的檔)。
    - 然後每個檔重算 sha256,跟清單不一致就擋(「證據是舊版本的」)。不用 git 比較,因為 CI 只抓一層歷史。
-4. 列舉覆蓋:policy 句子含範圍詞時(驗證器裡的一個常數:每一種、每種、每個、每支、每筆、每項、各種、所有、全部、全數、任何、一律、凡是、逐一;第 2 輪審查指出只列五個詞,換成「各種」就掃不到),至少要有一個 enumerations(沒有登錄表可列舉,就要改寫宣稱、不准用這些詞)。每個 enumerations 讀出的項目都要被至少一項證據的 covers 標到,少一項就擋並印出是哪一項;covers 寫了列舉裡沒有的項目也擋(多半是打錯字或舊名字)。登錄表只認最外層的普通或帶型別註記的賦值,值是 tuple、list、set 或 frozenset 字面、元素全是字串字面;讀不出來(動態組出來的、從別處匯入的)也擋,不放行。
+4. 列舉覆蓋:policy 句子含「每一種」「所有」「全部」「任何」「一律」任一個詞時,至少要有一個 enumerations(沒有登錄表可列舉,就要改寫宣稱、不准用這些詞)。每個 enumerations 讀出的項目都要被至少一項證據的 covers 標到,少一項就擋並印出是哪一項;covers 寫了列舉裡沒有的項目也擋(多半是打錯字或舊名字)。登錄表只認最外層的普通或帶型別註記的賦值,值是 tuple、list、set 或 frozenset 字面、元素全是字串字面;讀不出來(動態組出來的、從別處匯入的)也擋,不放行。
 5. 故障注入:kind 是 failure_injection 的證據,用語法樹確認那支測試(含它用到的 fixture 所在檔)真的引用了宣告的注入手段,而且測試本體有斷言。
-6. 真的跑:把所有證據的節點編號交給 pytest(子行程、sys.executable -m pytest、工作目錄是 repo 根、`-c pyproject.toml` 指定唯一設定檔、關掉快取、加 `-o xfail_strict=true`、輸出 JUnit XML 到暫存檔、總時限 900 秒),每個編號都要至少收集到一筆、全部通過;跳過、預期失敗、沒收集到、被取消選取都算擋;pytest 回「找不到測試」也擋;超過總時限也擋(印「逾時」,不是通過)。參數化的函式展開成全部參數,全部要過。擋下時附上 pytest 對那支測試的失敗訊息,讓讀的人分得出是斷言失敗還是時間上限(見 F7 那條)。
+6. 真的跑:把所有證據的節點編號交給 pytest(子行程、sys.executable -m pytest、工作目錄是 repo 根、關掉快取、加 `-o xfail_strict=true`、環境變數 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 不自動載入已安裝的外掛、輸出 JUnit XML 到暫存檔、總時限 900 秒),每個編號都要至少收集到一筆、全部通過;跳過、預期失敗、沒收集到、被取消選取都算擋;pytest 回「找不到測試」也擋;超過總時限也擋(印「逾時」,不是通過)。參數化的函式展開成全部參數,全部要過。擋下時附上 pytest 對那支測試的失敗訊息,讓讀的人分得出是斷言失敗還是時間上限(見 F7 那條)。
    - JUnit 的限制(前掃實跑 pytest 9.1.1 確認):跳過與預期失敗都記成 skipped(type 分別是 pytest.skip、pytest.xfail);**預期失敗卻通過的測試在 JUnit 裡跟一般通過長得一樣**,所以要靠 `xfail_strict=true` 把它變成失敗;被取消選取的測試不出現在 JUnit 裡,靠「每個編號至少一筆」抓。
    - 任一個編號找不到時,pytest 回結束代碼 4 而且整批一支都不跑;驗證器要從 pytest 的輸出指出是哪一個編號,不能只說「有錯」。
    - JUnit 記的是 classname(路徑斜線換成點、去掉 .py,類別方法再接類別名)加 name(參數化帶方括號),驗證器照這個規則把節點編號對回 testcase。
    - conftest 與 pytest 設定能改測試結果(第 1 輪審查實跑:一支 conftest 的報告鉤子能把失敗改成通過,JUnit 裡看不出來);第 3 步把它們強制算進 harness 雜湊,改了就擋、讓審查員看到差異。
-   - 能改結果卻不在任何檔案裡的東西要清掉(第 2 輪審查實跑:PYTEST_DISABLE_PLUGIN_AUTOLOAD 只擋自動載入,擋不住 -p、conftest 的 pytest_plugins、設定檔 addopts 的 -p;環境變數 PYTEST_ADDOPTS 帶 -p 能載入改結果的外掛,不在任何雜湊裡):子行程的環境先拿掉所有 PYTEST_ 開頭的變數與 PYTHONPATH、PYTHONSTARTUP,再設 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1。conftest 的 pytest_plugins 與設定檔的 addopts 在 harness 雜湊裡,改了會擋。
-   - pytest 設定來源只准一份:repo 根出現 pytest.ini、.pytest.ini、tox.ini 或 setup.cfg 就擋(實測 pytest.ini 一存在,pyproject.toml 裡的 pytest 設定整段失效);另外用 -c 指定 pyproject.toml。
-   - 子行程用新的行程群組啟動,逾時時整組結束,不留下測試另起的模擬 DSP 等孫行程。
-- 輸出:不管通過或擋下,都印出驗證器檔本身的 sha256、每份清單的 sha256,以及讀得到時的目前提交編號(讀不到印「無」),讓一次結果對得回是哪一版驗證器對哪一版清單算的。結果只印在輸出裡,不寫回任何清單(使用者裁定:清單不帶結果)。
-- 驗證器不匯入 rtb 的任何模組(讀程式一律用語法樹與文字、跑測試用子行程),也不呼叫 lumos(原始碼裡不出現 lumos 的指令路徑);rtb 的任何模組也不准匯入 tools。守法照專案既有兩種機制各用在該用的地方:新開 tools/ruff.toml 用 banned-api 禁 tools 匯入 rtb(比照各層 ruff.toml 的整模組禁令,只管得到 tools/ 底下);另用一支語法樹掃描測試同時擋三件事:rtb 匯入 tools(rtb 有不在任何分層目錄裡的最上層模組,各層 ruff.toml 蓋不到)、tests/tools/ 裡驗證器的測試匯入 rtb(第 2 輪審查實測 ruff 目錄設定管不到平行的 tests/tools/;驗證器的測試只用自己造的小 repo,不該碰產品碼)、以及 tools/ 用動態匯入字串帶 rtb(比照既有的邊界掃描測試)。
+- 驗證器不匯入 rtb 的任何模組(讀程式一律用語法樹與文字、跑測試用子行程),也不呼叫 lumos(原始碼裡不出現 lumos 的指令路徑);rtb 的任何模組也不准匯入 tools。守法照專案既有兩種機制各用在該用的地方:新開 tools/ruff.toml 用 banned-api 禁 tools 匯入 rtb(比照各層 ruff.toml 的整模組禁令);rtb 那一側有不在任何分層目錄裡的最上層模組(例如共用 HTTP 外殼),各層 ruff.toml 蓋不到,所以另用一支語法樹掃描測試擋 rtb 匯入 tools(比照既有的邊界掃描測試)。
 - 驗證器只做機械檢查。「這組測試夠不夠代表這條宣稱」這種語意判斷不在驗證器裡,也不讀任何審查結論。
 - 驗證器的測試放 tests/tools/,只用 tmp_path 裡自己造的小 repo(幾支一瞬間跑完的小測試),不跑正式證據;正式五份清單的「前五步都過」由測試直接呼叫驗證器模組裡前五步的函式檢查,**不另開跳過第 6 步的命令列旗標**(命令列只有一種跑法,沒有能跳過真跑的開關)。理由:tests/ 底下的測試會被既有 checks 工作的 pytest 全套收集,若在那裡叫驗證器真跑正式證據,F7 會在同一個工作裡被巢狀多跑一次。
 
@@ -83,8 +78,7 @@ REVISIT:2027-03-31 查一次這段期間 claims/*.json 的每次改動是否都�
 ### 五條宣稱
 
 - claims/idempotency-unknown-outcome.json:DSP 同一把冪等鍵最多套用一次;DSP 已提交但回應逾時時,執行端記成結果不明、用同一把鍵對帳,不換新鍵重送;提交後當機可從操作紀錄恢復。證據:F1 三支、F2 當機恢復、DSP 儲存層同鍵只套用一次與寫入原子性、收件口同修訂只收一份的單元與並行測試。
-- 下面五段是每條宣稱涵蓋什麼的摘要,不是 policy 欄位的原文;policy 欄位是一句白話,用到範圍詞就要有列舉(第 4 步)。
-- claims/permission-guardrail.json:寫入要帶有效能力憑證,範圍(廣告、動作、租戶)對得上才放行;單次加額超過比例上限、決策過時、廣告版本已變時擋下;人工核可只對它簽的那一份內容有效;死信重放照樣重跑每一關(F6);故障注入要開旗標、只綁本機、分析端送不出故障標頭。沒有既有 ★INVARIANT★,證據節點在增量 1 從前掃列的測試檔逐支選定。
+- claims/permission-guardrail.json:寫入要帶有效能力憑證,範圍(廣告、動作、租戶)對得上才放行;單次加額超過比例上限、決策過時、廣告版本已變一律擋下;人工核可只對它簽的那一份內容有效;死信重放照樣重跑每一關(F6);故障注入要開旗標、只綁本機、分析端送不出故障標頭。沒有既有 ★INVARIANT★,證據節點在增量 1 從前掃列的測試檔逐支選定。
 - claims/concurrency.json:同一份提案多個工作者同時處理只寫 DSP 一次;舊版本決策被擋、不寫進 DSP;分析端同一個任務併發推進只落地一次。證據:F3、F4 端到端與多工作者、版本衝突、租約測試。
 - claims/prompt-injection.json:廣告名稱等不可信文字不影響決策、不流進提案;提案只收白名單欄位;可信證據不帶自由文字。證據:F5 端到端與信任邊界、提案、證據、DSP 用戶端白名單測試。
 - claims/aggregate-blast-radius.json:總曝險到門檻就停、剛好到門檻放行;兩個工作者不能一起衝過門檻;超過的停在待核可、每筆都有紀錄。證據:F7 端到端與總曝險、核可測試。
@@ -93,7 +87,7 @@ REVISIT:2027-03-31 查一次這段期間 claims/*.json 的每次改動是否都�
 ### CI 與本機
 
 - CI 另開一個跟 checks 平行的工作:checkout、裝開發期工具、跑同一條指令;結束代碼不是 0 就紅。平行跑是為了不拉長 checks 那個工作的時間(F7 的 60 秒上限在那裡)。
-- 接線要有合約:比照既有「防止 CI 步驟看起來有跑、其實不擋」的接線檢查,鎖住新工作的指令字串與不准 continue-on-error、|| true、if 條件;而且要看工作歸屬:驗證器指令只在一個不是 checks、沒有 needs 的工作裡,checks 工作裡不准出現它(既有接線檢查只找全域指令字串、不分工作,要另外寫)。
+- 接線要有合約:比照既有「防止 CI 步驟看起來有跑、其實不擋」的接線檢查,鎖住新工作的指令字串與不准 continue-on-error、|| true、if 條件。
 - 已知風險:F7 在 CI 上偶爾超過 60 秒(見 [[Issues/F7端到端在CI上偶爾超過60秒]]),使用者裁定紅了就重跑。新工作會再跑一次 F7,等於每次推送多一次撞到的機會;驗證器擋下時印出 pytest 的失敗訊息,讀的人看得出是時間上限不是宣稱失敗,處理照〈使用者裁定〉(重跑);新工作因 F7 超時重跑也算進那篇 Issue 的回頭條件次數。
 - 本機用同一條指令;Systems 家寫清楚。
 
@@ -105,22 +99,20 @@ REVISIT:2027-03-31 查一次這段期間 claims/*.json 的每次改動是否都�
 ## 合約候選
 
 - [S800] 清單任一層物件出現白名單以外的鍵(包括 result、passed、status、verdict、done)、有重複鍵、有 NaN 或 Infinity、或整數欄位不是真正的整數(含布林)時,驗證器應擋下。[test:test_a_manifest_with_any_unknown_key_is_blocked]
-- [S801] 清單引用的 scope、harness、symbols、enumerations 有任一個檔案不存在、路徑不合規則(絕對路徑、..、符號連結、大小寫不符)、或名稱找不到最外層定義時,驗證器應擋下並指出是哪一個。[test:test_a_missing_file_or_symbol_is_blocked]
+- [S801] 清單引用的 scope、harness、symbols 有任一個檔案不存在、路徑不合規則(絕對路徑、..、符號連結、大小寫不符)、或名稱找不到最外層定義時,驗證器應擋下並指出是哪一個。[test:test_a_missing_file_or_symbol_is_blocked]
 - [S802] scope 或 harness 任一檔的內容雜湊跟清單不一致時,驗證器應擋下。[test:test_a_stale_scope_hash_is_blocked]
 - [S803] 列舉讀出的每一項沒有被任何證據 covers 標到時,驗證器應擋下並指出缺哪一項;covers 寫了列舉以外的項目、登錄表讀不出字面常數、或 policy 用了範圍詞卻沒有列舉時,也應擋下。[test:test_an_uncovered_enumerated_item_is_blocked]
 - [S804] 證據的任一測試節點沒收集到、被跳過、預期失敗、預期失敗卻通過、沒通過或逾時時,驗證器應擋下。[test:test_a_skipped_or_failing_or_missing_test_is_blocked]
 - [S805] repo 裡放了一份偽造的「全部通過」測試結果檔時,驗證器應照樣自己跑證據測試,以自己跑出的結果判定。[test:test_the_verifier_runs_the_tests_itself]
 - [S806] kind 是 failure_injection 的證據,測試沒引用宣告的注入手段或沒有斷言時,驗證器應擋下。[test:test_a_failure_injection_without_the_injection_or_assertion_is_blocked]
 - [S807] 缺少五條必要宣稱任一條時,驗證器應擋下。[test:test_a_missing_required_claim_is_blocked]
-- [S808] 驗證器與它在 tests/tools/ 的測試不應匯入 rtb 的任何模組,驗證器也不應呼叫 lumos;rtb 的任何模組也不應匯入 tools。[test:test_the_verifier_and_the_product_do_not_import_each_other]
+- [S808] 驗證器不應匯入 rtb 的任何模組,也不應呼叫 lumos;rtb 的任何模組也不應匯入 tools。[test:test_the_verifier_and_the_product_do_not_import_each_other]
 - [S809] 五份正式清單在目前版本上,驗證器前五步應全部不擋。[test:test_the_committed_claims_pass]
-- [S810] scope 少列了依賴閉包裡的正式檔(含套件屬性匯入解析到的子模組、上層套件的 __init__.py、symbols 所在的檔),或 harness 少列了證據測試檔本身、路上的 conftest.py、pyproject.toml 或它靜態匯入到的測試模組時,驗證器應擋下並指出是哪一個。[test:test_a_file_missing_from_the_dependency_closure_is_blocked]
+- [S810] scope 少列了依賴閉包裡的正式檔,或 harness 少列了證據測試檔本身、路上的 conftest.py、pyproject.toml 或它靜態匯入到的測試模組時,驗證器應擋下並指出是哪一個。[test:test_a_file_missing_from_the_dependency_closure_is_blocked]
 - [S811] 驗證器全部通過時應以結束代碼 0 結束,有擋下時以 1 結束,參數錯或清單讀不懂時以 2 結束。[test:test_the_exit_code_tells_pass_block_and_undecidable_apart]
 - [S812] 證據節點編號帶參數方括號、或 pytest 找不到某個編號時,驗證器應擋下並指出是哪一個編號。[test:test_a_parametrized_or_unknown_node_id_is_named_in_the_block]
-- [S813] 當 CI 設定被改動時,接線檢查應確認 python tools/verify_claims.py claims/ 只跑在一個不是 checks、沒有 needs 的工作裡,而且沒有 continue-on-error、|| true 或 if 條件。[test:test_the_ci_runs_the_claims_verifier_and_it_can_fail]
+- [S813] 當 CI 設定被改動時,接線檢查應確認平行工作跑的正是 python tools/verify_claims.py claims/,而且沒有 continue-on-error、|| true 或 if 條件。[test:test_the_ci_runs_the_claims_verifier_and_it_can_fail]
 - [S814] claim_id 跟檔名不一致時,驗證器應擋下。[test:test_a_claim_id_that_differs_from_the_file_name_is_blocked]
-- [S815] 當環境裡有 PYTEST_ADDOPTS 或 repo 根有 pyproject.toml 以外的 pytest 設定檔時,驗證器應不受環境變數影響、並擋下多出來的設定檔。[test:test_the_pytest_run_ignores_outside_config_and_environment]
-- [S816] 驗證器的輸出應列出驗證器檔本身與每份清單的 sha256。[test:test_the_output_names_the_verifier_and_manifest_versions]
 
 ## 實務隱患
 
@@ -130,7 +122,7 @@ REVISIT:2027-03-31 查一次這段期間 claims/*.json 的每次改動是否都�
 - 未排除:守衛面:新舊判定靠清單裡的雜湊,作者可以改了程式之後直接重算雜湊寫回去,機器分不出「重看過證據還成立」還是「只是重貼」;唯一的效果是逼那次改動在同一個提交裡讓清單出現差異、讓審查員看得到。這是機械驗證的天花板,語意是否仍成立歸獨立審查員。
 REVISIT:2027-03-31 查 Issues 裡標 宣稱驗證器 的筆記;有任何一篇記的是「雜湊重貼沒被審查員抓到」,就改成「雜湊變動要附一行審查理由,驗證器檢查理由存在」。事件入口:代碼審或事故覆盤發現時,開一篇 Issue 並加標籤 宣稱驗證器。
 - 未排除:covers 是作者自己標的,驗證器只查「有標、項目在列舉裡、測試名對得上、測試真的跑過且通過」,不查那支測試真的測了那一項;同理故障注入只證明有注入、有斷言,不證明注入有意義。
-- 未排除:列舉只對有登錄表的宣稱有效;「所有並行路徑」這類沒有登錄表的宣稱列舉不出來,只能改寫成不用範圍詞、或靠審查員判斷;範圍詞是固定清單,已擴充常見同義詞,但換個清單外的說法(例如用「都」)仍掃不到,歸審查員。
+- 未排除:列舉只對有登錄表的宣稱有效;「所有並行路徑」這類沒有登錄表的宣稱列舉不出來,只能改寫成不用範圍詞、或靠審查員判斷;範圍詞只掃固定幾個詞,換個說法就掃不到。
 - 未排除:依賴閉包只看靜態匯入;動態匯入(五個受保護層已禁 importlib,其他地方沒禁)、子行程啟動的程式、讀檔讀進來的資料看不到,要作者自己多列。驗證器與產品互不匯入的掃描也只看靜態匯入,刻意用動態匯入就繞得過。
 - 未排除:驗證器每次跑證據測試約 45 秒到 1 分鐘(F7 那支占 30 秒),CI 多一個平行工作;F7 的已知 CI 抖動在新工作裡多一次發生機會(見〈CI 與本機〉)。
 - 已排除:並行:驗證器只讀檔與跑測試,不寫共用狀態;暫存的 JUnit 檔放在自己建的暫存目錄。
@@ -145,7 +137,4 @@ REVISIT:2027-03-31 查 Issues 裡標 宣稱驗證器 的筆記;有任何一篇�
   - 改了協調者自己定的取捨:①拆增量改成五份清單全在增量 1(不做分期開關);②Mock-DSP 措辭改窄不再隨回退改回。雜湊綁定而非 git、權限護欄證據節點延到實作選,都維持(後者從增量 2 提前到增量 1)。
   - 新增:第 3 步依賴閉包(scope 沿靜態匯入、harness 強制含證據測試檔、conftest、pyproject 與匯入到的測試模組);讀檔與路徑規則;範圍詞強制列舉;函式層節點編號;symbols 只認最外層;不自動載入 pytest 外掛與 900 秒總時限;結束代碼 2 併入參數錯;tools/ruff.toml 加掃描測試雙向禁匯入;CI 接線合約;語意審查入口;S810–S814。
   - 例:清單列了 src/rtb/dsp/server.py 沒列 src/rtb/dsp/capability.py → 第 3 步擋下並指名 capability.py(輸入→預期);tests/executor/ 底下新增一支會改結果的 conftest.py → 它必須在 harness,沒列擋、列了改了雜湊不符擋。
-- r2(2026-09-24,3 席:前輪驗收、新段落可繞過性與可實作性、外家 Codex;delta 審):13 條/blocking 12(各席總結句加總)/第 1 輪 42 條驗收全數折對;新段落照字面實作會漏:套件屬性匯入與上層 __init__.py、PYTEST_ADDOPTS 與非 pyproject 設定檔、中間目錄段大小寫、tests/tools 不受 tools/ruff.toml 管、範圍詞同義詞、symbols 檔不必在 scope、列舉來源檔不受路徑規則、CI 合約不分工作;13 條全折。卷證同目錄 r2-*。
-  - 例:測試檔只寫 from rtb.dsp import store → 閉包要含 src/rtb/dsp/store.py 與 src/rtb/__init__.py,少列就擋(輸入→預期);環境變數 PYTEST_ADDOPTS 帶 -p 外掛 → 子行程環境清掉,結果不受影響。
-  - 外家 Codex 標挑戰使用者裁定的「驗證器產出要有身分與結果」:只折不抵觸裁定的部分(輸出印驗證器與清單 sha256,不寫回清單),交協調者確認。
 - 轉問使用者的結果(2026-09-24):F7 多跑一次照舊「紅燈就重跑」,已記進〈使用者裁定〉;語意審查入口維持 REVISIT,不另加機械守衛。

@@ -1,0 +1,64 @@
+{
+ "loop": "rtb-phase11證據清單與驗證器",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-24T12:44:47+08:00",
+ "spec_path": "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md",
+ "spec_sha": "079d41ac652957cc96e28fba871a40fc0ac3be349ce299d0da7f9810a945a5e9",
+ "rows": [
+  "{\"ts\": \"2026-09-24T12:43:51+08:00\", \"kind\": \"none\", \"auditor\": \"外家-codex\", \"token\": \"CANARY-8373529e\", \"note\": \"\", \"loop\": \"rtb-phase11證據清單與驗證器\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 9, \"result_sha256\": \"079d41ac652957cc96e28fba871a40fc0ac3be349ce299d0da7f9810a945a5e9\", \"reviewed_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md\", \"scope_lines\": 112, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 9, \"report_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-外家-codex.md\", \"report_sha256\": \"408a834e597b505f4208430b452f07910a5f0120760ae4b848fa9cf048452bbd\", \"snapshot_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-snapshot.md\", \"snapshot_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\"}",
+  "{\"ts\": \"2026-09-24T12:43:51+08:00\", \"kind\": \"none\", \"auditor\": \"宣稱證據-sonnet\", \"token\": \"CANARY-9f7960cb\", \"note\": \"\", \"loop\": \"rtb-phase11證據清單與驗證器\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"079d41ac652957cc96e28fba871a40fc0ac3be349ce299d0da7f9810a945a5e9\", \"reviewed_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md\", \"scope_lines\": 112, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 2, \"report_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-宣稱證據-sonnet.md\", \"report_sha256\": \"a2c1c740b3202d3ef499b881d45045201192c278e37af50d40608481215d7588\", \"snapshot_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-snapshot.md\", \"snapshot_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\"}",
+  "{\"ts\": \"2026-09-24T12:43:52+08:00\", \"kind\": \"none\", \"auditor\": \"可測重現-sonnet\", \"token\": \"CANARY-b58b57f6\", \"note\": \"\", \"loop\": \"rtb-phase11證據清單與驗證器\", \"round\": \"r1\", \"severity\": \"blocker\", \"findings\": 3, \"result_sha256\": \"079d41ac652957cc96e28fba871a40fc0ac3be349ce299d0da7f9810a945a5e9\", \"reviewed_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md\", \"scope_lines\": 112, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 3, \"report_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-可測重現-sonnet.md\", \"report_sha256\": \"dabefed7c4d59bb25d290e0356c13d0b66ea57e1a5280f36fd418777a4d31aab\", \"snapshot_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-snapshot.md\", \"snapshot_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\"}",
+  "{\"ts\": \"2026-09-24T12:43:52+08:00\", \"kind\": \"none\", \"auditor\": \"邊界-sonnet\", \"token\": \"CANARY-fe450061\", \"note\": \"\", \"loop\": \"rtb-phase11證據清單與驗證器\", \"round\": \"r1\", \"severity\": \"blocker\", \"findings\": 10, \"result_sha256\": \"079d41ac652957cc96e28fba871a40fc0ac3be349ce299d0da7f9810a945a5e9\", \"reviewed_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md\", \"scope_lines\": 112, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 10, \"report_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-邊界-sonnet.md\", \"report_sha256\": \"9dc61419406a1eb14f19b27fecc8e99abe7b344468a3053e87af068631a8beb5\", \"snapshot_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-snapshot.md\", \"snapshot_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\"}",
+  "{\"ts\": \"2026-09-24T12:43:52+08:00\", \"kind\": \"none\", \"auditor\": \"接手-sonnet\", \"token\": \"CANARY-69d5f27e\", \"note\": \"\", \"loop\": \"rtb-phase11證據清單與驗證器\", \"round\": \"r1\", \"severity\": \"blocker\", \"findings\": 10, \"result_sha256\": \"079d41ac652957cc96e28fba871a40fc0ac3be349ce299d0da7f9810a945a5e9\", \"reviewed_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md\", \"scope_lines\": 112, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 11, \"report_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-接手-sonnet.md\", \"report_sha256\": \"4ec75c51847697aa33966064da3b7caa9588701798f1e5af93b6c868763060cb\", \"snapshot_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-snapshot.md\", \"snapshot_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\"}",
+  "{\"ts\": \"2026-09-24T12:43:53+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊-sonnet\", \"token\": \"CANARY-76fed380\", \"note\": \"\", \"loop\": \"rtb-phase11證據清單與驗證器\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 3, \"result_sha256\": \"079d41ac652957cc96e28fba871a40fc0ac3be349ce299d0da7f9810a945a5e9\", \"reviewed_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md\", \"scope_lines\": 112, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 3, \"report_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-架構對齊-sonnet.md\", \"report_sha256\": \"5704e53f8dae892ed02823763c1c779a5831a4e740b116a10472392fa4f663fa\", \"snapshot_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-snapshot.md\", \"snapshot_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\"}",
+  "{\"ts\": \"2026-09-24T12:44:21+08:00\", \"kind\": \"none\", \"auditor\": \"繞過-sonnet\", \"token\": \"CANARY-786f8fc3\", \"note\": \"處置清單彙整全輪 7 席 44 條(43 折、1 重現不到);findings 欄只能填本席報告條數\", \"loop\": \"rtb-phase11證據清單與驗證器\", \"round\": \"r1\", \"severity\": \"blocker\", \"findings\": 6, \"result_sha256\": \"079d41ac652957cc96e28fba871a40fc0ac3be349ce299d0da7f9810a945a5e9\", \"reviewed_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md\", \"scope_lines\": 112, \"tier\": \"high\", \"orchestrator\": \"claude\", \"findings_set\": [\"b1\", \"b2\", \"b3\", \"b4\", \"b5\", \"b6\", \"c1\", \"c2\", \"c3\", \"c4\", \"c5\", \"c6\", \"c7\", \"c8\", \"c9\", \"e1\", \"e2\", \"t1\", \"t2\", \"t3\", \"x1\", \"x2\", \"x3\", \"x4\", \"x5\", \"x6\", \"x7\", \"x8\", \"x9\", \"xb\", \"h1\", \"h2\", \"h3\", \"h4\", \"h5\", \"h6\", \"h7\", \"h8\", \"h9\", \"h11\", \"a1\", \"a2\", \"a3\"], \"folded_set\": [\"b1\", \"b2\", \"b3\", \"b4\", \"b5\", \"b6\", \"c1\", \"c2\", \"c3\", \"c4\", \"c5\", \"c6\", \"c7\", \"c8\", \"c9\", \"e1\", \"e2\", \"t1\", \"t2\", \"t3\", \"x1\", \"x2\", \"x3\", \"x4\", \"x5\", \"x6\", \"x7\", \"x8\", \"x9\", \"xb\", \"h1\", \"h2\", \"h3\", \"h4\", \"h5\", \"h6\", \"h7\", \"h8\", \"h9\", \"h11\", \"a1\", \"a2\", \"a3\"], \"accepted_set\": [], \"refuted_set\": [\"h10\"], \"refuted_reasons\": {\"h10\": \"前掃已修正席位讀到主工作樹舊版\"}, \"reported\": 6, \"report_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-繞過-sonnet.md\", \"report_sha256\": \"56cf8093007d444bc5d0edc81a4dd78190d71ebe5571db677fd1fd51791dbf34\", \"snapshot_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-snapshot.md\", \"snapshot_sha256\": \"6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41\", \"intake_path\": \"governance/review-reports/rtb-phase11證據清單與驗證器/r1-intake.md\", \"intake_sha256\": \"cf430c83bcb8d172ce33754885f62a04e33f1b80d46db1718d97ba9045f55d7b\"}"
+ ],
+ "all_row_shas": [
+  "14869e11a899d27b5af777cfb7a0ca3139c631724cf0077ae3a975a2da6e3cf3",
+  "4ecb6cdeb716995d1d95d6d61d88c8667e02b8b64366b7770d1600da20430788",
+  "83f68d142fb5fe5771f95480ce144c25c723dc8bde39c87bb2b42a48a402f7f0",
+  "8a17026132f03e664686ce59e7726b4414652074cabc601179e3568c9188604c",
+  "99550bde2159673e4c8cc4be56e2576a42bf816716b266733fe8aac21a27f516",
+  "febd970a2fe2d5370142e194aef6e19c9e7a47c08fecb2549891037a0dcfdb03",
+  "ff27c17b88d8ce8724f177167961a9ce7f8d475def48df5625d012a3cded5db8"
+ ],
+ "files": {
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-外家-codex.md": {
+   "sha256": "408a834e597b505f4208430b452f07910a5f0120760ae4b848fa9cf048452bbd",
+   "git_blob": "6ba2345c59812607015b3e89a20002f9122db7f3"
+  },
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-snapshot.md": {
+   "sha256": "6531bca71b35cfa422c1f1c31f7483c6181f589f77bef19bb578e3c9af405c41",
+   "git_blob": "0f5aa5e295b6ffc5d83ed4cf7fcb235b8461cc40"
+  },
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-宣稱證據-sonnet.md": {
+   "sha256": "a2c1c740b3202d3ef499b881d45045201192c278e37af50d40608481215d7588",
+   "git_blob": "b9ab69581b487f587d2ef635764acc1411620302"
+  },
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-可測重現-sonnet.md": {
+   "sha256": "dabefed7c4d59bb25d290e0356c13d0b66ea57e1a5280f36fd418777a4d31aab",
+   "git_blob": "54320d8351f1cb7f1f6154cfd4e5aa2c4bc640b1"
+  },
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-邊界-sonnet.md": {
+   "sha256": "9dc61419406a1eb14f19b27fecc8e99abe7b344468a3053e87af068631a8beb5",
+   "git_blob": "aaaaa00cc4f08ebc7d0d0d5beb37064bd50ddbed"
+  },
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-接手-sonnet.md": {
+   "sha256": "4ec75c51847697aa33966064da3b7caa9588701798f1e5af93b6c868763060cb",
+   "git_blob": "afcc441c80c99f3f14b159f894fe30b26069a877"
+  },
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-架構對齊-sonnet.md": {
+   "sha256": "5704e53f8dae892ed02823763c1c779a5831a4e740b116a10472392fa4f663fa",
+   "git_blob": "c606b517f5af90f77fa6a4de040a136083c6fac7"
+  },
+  "governance/review-reports/rtb-phase11證據清單與驗證器/r1-繞過-sonnet.md": {
+   "sha256": "56cf8093007d444bc5d0edc81a4dd78190d71ebe5571db677fd1fd51791dbf34",
+   "git_blob": "032657aa1d39fcc3b31dd88bf1e0e34d2e54543e"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}
