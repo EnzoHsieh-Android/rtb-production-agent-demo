@@ -4681,3 +4681,7 @@
 {"ts": "2026-09-25T02:17:15+08:00", "commit": "d867a2b", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d867a2b553d72fdc0d25d114b63fded4fdc30edb"}
 {"ts": "2026-09-25T02:17:26+08:00", "commit": "65b01a7", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-25T02:17:27+08:00", "commit": "65b01a7", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "65b01a7ed17f8dda72fa2ad11e1e5f35b27904b9"}
+{"ts": "2026-09-25T02:17:27+08:00", "commit": "ad0f678", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-25T02:17:28+08:00", "commit": "ad0f678", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "ad0f6788bb2270d96d88d562d135e967d232fc4d"}
+{"ts": "2026-09-25T02:55:20+08:00", "commit": "685fb5d", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Systems/Mock-DSP.md", "Systems/執行迴圈.md", "Systems/外部寫入嘗試紀錄.md", "Systems/提案收件口.md"], "note": "tokens=14 hits=5 secs=1.4"}
+{"ts": "2026-09-25T02:55:22+08:00", "commit": "685fb5d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "685fb5d0fa784c1f462c04b483864e3641db802b"}
