@@ -1,11 +1,11 @@
 ---
 type: project
-status: doing
+status: done
 created: 2026-09-24
 updated: 2026-09-24
 tags:
   - type/project
-  - status/doing
+  - status/done
 lands_in:
   - Systems/宣稱驗證器
 ---
