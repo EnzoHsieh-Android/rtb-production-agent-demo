@@ -164,17 +164,14 @@ def invocations(script: Path) -> list[dict]:
     return found
 
 
-def alive(pid: int, *, proc_root: Path = Path("/proc")) -> bool:
-    """測試共用的存活判斷,跟產品碼同一套:讀得到 <proc_root>/<pid>/stat 就看狀態是不是殭屍(Z);
-    讀不到才送 0 號訊號(macOS:還沒領回的殭屍回 EPERM,不存在回 ESRCH,都算不在)。Linux 上對殭屍送
-    訊號照樣成功,只看訊號會把它當活的(例如容器裡 pytest 是 1 號行程、孤兒沒人領回)。"""
-    try:
-        stat = (proc_root / str(pid) / "stat").read_text(encoding="ascii", errors="replace")
-    except OSError:
-        stat = None
-    if stat is not None:
-        fields = stat[stat.rfind(")") + 2:].split()
-        return bool(fields) and fields[0] != "Z"
+def alive(pid: int, *, proc_root: Path | None = None) -> bool:
+    """測試共用的存活判斷,直接用產品碼的 stat 解析(`cc._stat_fields`):認得就看狀態是不是殭屍(Z);
+    判不出來(讀不到、欄位不足)才送 0 號訊號(macOS:還沒領回的殭屍回 EPERM,不存在回 ESRCH,都算不在)。
+    Linux 上對殭屍送訊號照樣成功,只看訊號會把它當活的(例如容器裡 pytest 是 1 號行程、孤兒沒人領回)。
+    行程表位置預設跟產品碼一樣(`cc.PROC_ROOT`)。"""
+    found = cc._stat_fields((cc.PROC_ROOT if proc_root is None else proc_root) / str(pid))
+    if found is not None:
+        return found[0] != "Z"
     try:
         os.kill(pid, 0)
     except (ProcessLookupError, PermissionError):

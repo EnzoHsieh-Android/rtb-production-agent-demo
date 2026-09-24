@@ -128,30 +128,77 @@ def _starts_from_os_environ(value):
     return _is_os_environ(value.values[0])
 
 
-# pop 的鍵用常數名寫時,只認這幾個能力金鑰常數(值在下面的測試裡核對過不是受保護的鍵)
+# pop 的鍵用常數名寫時,只認 rtb.capabilitykit 的這幾個能力金鑰常數
+# (值在下面的測試裡核對過不是受保護的鍵),而且要真的從那裡匯入、檔裡沒有別處重新綁這個名字
+# (代碼審第 2 輪:只看名字會被同名變數騙過)
 POPPABLE_CONSTANTS = frozenset({"KEY_ENV", "APPROVAL_KEY_ENV", "AUDIT_KEY_ENV"})
+CAPABILITY_MODULE = "rtb.capabilitykit"
 
 
-def _popped_protected(node):
+def _bindings(tree):
+    """整支檔裡每個名字被綁定的方式:(種類, 來源) 的清單。種類:import(來源是「模組.原名」)或 other
+    (賦值、for、with、函式參數、推導式變數…,一律當成重新綁定)。"""
+    bound: dict[str, list[tuple[str, str]]] = {}
+
+    def add(name, how, origin=""):
+        bound.setdefault(name, []).append((how, origin))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                add(alias.asname or alias.name, "import", f"{node.module}.{alias.name}")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                add(alias.asname or alias.name.split(".")[0], "import",
+                    alias.name if alias.asname else alias.name.split(".")[0])
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+            add(node.id, "other")
+        elif isinstance(node, ast.arg):
+            add(node.arg, "other")
+    return bound
+
+
+def _only_import_of(bound, name, origin):
+    """這個名字在檔裡只有一種綁法:從 origin 匯入(沒有別處重新綁定)。"""
+    ways = bound.get(name, [])
+    return bool(ways) and all(way == ("import", origin) for way in ways)
+
+
+def _capability_constant(key, bound):
+    """pop 的鍵是真的 rtb.capabilitykit 金鑰常數:
+    `from rtb.capabilitykit import KEY_ENV` 之後的 KEY_ENV,
+    或 `from rtb import capabilitykit` / `import rtb.capabilitykit as capabilitykit` 之後的
+    capabilitykit.KEY_ENV。"""
+    if isinstance(key, ast.Name):
+        return any(_only_import_of(bound, key.id, f"{CAPABILITY_MODULE}.{constant}")
+                   for constant in POPPABLE_CONSTANTS)
+    if (isinstance(key, ast.Attribute) and key.attr in POPPABLE_CONSTANTS
+            and isinstance(key.value, ast.Name)):
+        return _only_import_of(bound, key.value.id, CAPABILITY_MODULE)
+    return False
+
+
+def _popped_protected(node, bound):
     """env.pop(<鍵>) 拿掉的是受保護的鍵,或看不出拿掉什麼(不是字面字串、也不是認得的金鑰常數)。"""
     if not node.args:
         return True
     key = node.args[0]
-    if isinstance(key, ast.Name) and key.id in POPPABLE_CONSTANTS:
+    if _capability_constant(key, bound):
         return False
     keys = _literal_keys(key)
     return keys is None or bool(keys & PROTECTED_KEYS)
 
 
 def _destroyed_names(tree):
-    """被清空、刪鍵或 pop 掉受保護鍵的變數(env.clear()、del env[...]、env.pop('HOME')):
-    這種環境不算從 os.environ 起頭。"""
+    """被清空、刪鍵、popitem 或 pop 掉受保護鍵的變數(env.clear()、del env[...]、env.popitem()、
+    env.pop('HOME')):這種環境不算從 os.environ 起頭。"""
+    bound = _bindings(tree)
     names = set()
     for node in ast.walk(tree):
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and isinstance(node.func.value, ast.Name) and (
-                    node.func.attr == "clear"
-                    or (node.func.attr == "pop" and _popped_protected(node)))):
+                    node.func.attr in ("clear", "popitem")
+                    or (node.func.attr == "pop" and _popped_protected(node, bound)))):
             names.add(node.func.value.id)
         elif isinstance(node, ast.Delete):
             names |= {t.value.id for t in node.targets
@@ -196,7 +243,10 @@ def test_subprocess_tests_inherit_the_isolated_environment():
 
     assert not {getattr(capabilitykit, name) for name in POPPABLE_CONSTANTS} & PROTECTED_KEYS
     for ok in ("env = {**os.environ, 'A': '1'}\nenv.pop('B', None)\nsubprocess.run([], env=env)",
-               "env = {**os.environ}\nenv.pop(KEY_ENV, None)\nsubprocess.run([], env=env)",
+               "from rtb.capabilitykit import KEY_ENV\nenv = {**os.environ}\n"
+               "env.pop(KEY_ENV, None)\nsubprocess.run([], env=env)",
+               "from rtb import capabilitykit\nenv = {**os.environ}\n"
+               "env.pop(capabilitykit.KEY_ENV, None)\nsubprocess.run([], env=env)",
                "env = {k: v for k, v in os.environ.items() if k != 'X'}\n"
                "subprocess.run([], env=env)",
                "env = {k: v for k, v in os.environ.items() if k not in ('X', 'Y')}\n"
@@ -227,7 +277,18 @@ def test_subprocess_tests_inherit_the_isolated_environment():
                   "subprocess.run([], env=env)",
                   "env = {**os.environ}\nenv.pop('HOME')\nsubprocess.run([], env=env)",
                   "env = {**os.environ}\nenv.pop('PATH', None)\nsubprocess.run([], env=env)",
-                  "env = {**os.environ}\nenv.pop(name, None)\nsubprocess.run([], env=env)"):
+                  "env = {**os.environ}\nenv.pop(name, None)\nsubprocess.run([], env=env)",
+                  # 代碼審第 2 輪:常數名要真的來自 rtb.capabilitykit、沒被重新綁定;popitem 也算刪鍵
+                  "KEY_ENV = 'HOME'\nenv = {**os.environ}\nenv.pop(KEY_ENV, None)\n"
+                  "subprocess.run([], env=env)",
+                  "from os import sep as KEY_ENV\nenv = {**os.environ}\nenv.pop(KEY_ENV, None)\n"
+                  "subprocess.run([], env=env)",
+                  "from rtb.capabilitykit import KEY_ENV\nfor KEY_ENV in ('HOME',):\n    pass\n"
+                  "env = {**os.environ}\nenv.pop(KEY_ENV, None)\nsubprocess.run([], env=env)",
+                  "env = {**os.environ}\nenv.pop(KEY_ENV, None)\nsubprocess.run([], env=env)",
+                  "import other as capabilitykit\nenv = {**os.environ}\n"
+                  "env.pop(capabilitykit.KEY_ENV, None)\nsubprocess.run([], env=env)",
+                  "env = {**os.environ}\nenv.popitem()\nsubprocess.run([], env=env)"):
         assert env_offenders(ast.parse(probe), "probe"), probe
 
 
