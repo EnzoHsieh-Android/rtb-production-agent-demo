@@ -1,0 +1,6 @@
+# 故障套件自己:套件內模組互相匯入。禁令表照上一層(src/rtb/demo/ruff.toml)全部重列、只少
+# 故障套件那一條;兩份只差這一條由 tests/demo/test_boundaries.py 比對。
+extend = "../../../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"

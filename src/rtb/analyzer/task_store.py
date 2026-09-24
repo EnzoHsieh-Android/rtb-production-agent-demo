@@ -32,7 +32,7 @@ from typing import Any
 from rtb.domain._checks import is_id, require_aware
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
 from rtb.domain.proposal import ActionType, Proposal
-from rtb.domain.task_state import IllegalTransition, TaskState, can_transition
+from rtb.domain.task_state import TERMINAL_STATES, IllegalTransition, TaskState, can_transition
 from rtb.sqlitekit import (
     BUSY_TIMEOUT_SECONDS,
     DatabaseBusy,
@@ -347,6 +347,15 @@ class TaskReads:
             (task_id,),
         ).fetchall()
         return tuple(_row_from_record(r) for r in records)
+
+    def open_task_ids(self) -> tuple[str, ...]:
+        """最新一列還不是終點狀態的任務,依任務編號排序(Phase 12 分析端驅動命令列每一輪要推進的)。"""
+        rows = self._conn.execute(
+            "SELECT t.task_id, t.state FROM tasks t WHERE t.seq = "
+            "(SELECT max(seq) FROM tasks WHERE task_id = t.task_id) ORDER BY t.task_id",
+        ).fetchall()
+        return tuple(task_id for task_id, state in rows
+                     if TaskState(state) not in TERMINAL_STATES)
 
     def handed_off_keys(self, task_id: str) -> tuple[tuple[int, str | None], ...]:
         """交給執行那幾列的(序號, 存下的冪等鍵);Phase 5 之前寫的列沒有存鍵,是空值。"""

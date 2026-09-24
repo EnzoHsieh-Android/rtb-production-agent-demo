@@ -1,0 +1,8 @@
+# 展示套件(Phase 12):故障套件只准展示啟動器匯入(啟動器子目錄的 ruff.toml 重列這裡全部禁令、
+# 只少故障套件那一條;ruff 子目錄設定會整張蓋掉禁令表,不能用檔案層級關掉整條規則,那會連禁止
+# 動態匯入一起放掉)。兩份只差這一條由 tests/demo/test_boundaries.py 比對。
+extend = "../../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"rtb.demo.faults".msg = "故障手段只准展示啟動器匯入(Phase 12 [S1050]);其他展示模組經啟動器排故障"
+"importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"

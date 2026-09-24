@@ -4,6 +4,7 @@
 extend = "../../../pyproject.toml"
 
 [lint.flake8-tidy-imports.banned-api]
+"rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
 "sqlite3".msg = "評估是離線計算,不讀也不寫任何資料庫"
 "rtb.sqlitekit".msg = "評估是離線計算,不讀也不寫任何資料庫"
 "rtb.executor".msg = "評估只看分析端的判斷點,不碰執行端"

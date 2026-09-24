@@ -3,6 +3,7 @@
 extend = "../../../pyproject.toml"
 
 [lint.flake8-tidy-imports.banned-api]
+"rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
 "sqlite3".msg = "領域層不得碰資料庫"
 "rtb.sqlitekit".msg = "領域層不得碰資料庫(共用的資料庫基礎)"
 "rtb.httpkit".msg = "領域層不得碰網路(共用的 HTTP 基礎)"
