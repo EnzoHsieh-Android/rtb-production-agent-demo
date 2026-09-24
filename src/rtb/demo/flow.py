@@ -232,7 +232,7 @@ MAPPED_ENUMS: tuple[type[StrEnum], ...] = (
 _PLACES: dict[type[StrEnum], dict[str, Place]] = {
     Disposition: {
         "IN_PROGRESS": _at("x_pick", "執行端已拿起,正在處理"),
-        "HANDED_OFF": _at("x_write", "已交給寫入這一步"),
+        "HANDED_OFF": _at("x_done", "這把鍵的寫入已經確認完成"),
         "BLOCKED": _at("x_blocked", "擋下,不寫入"),
         "DEAD_LETTER": _at("x_deadletter", "試太多次都沒能開始,先停下等人處理"),
         "AWAITING_APPROVAL": _at("x_wait_approval", "等人確認"),
@@ -265,7 +265,7 @@ _PLACES: dict[type[StrEnum], dict[str, Place]] = {
         "DELIVERED": _on("x_pending", "x_pick", "輪到它,被拿起"),
         "RECLAIMED": _at("x_reclaimed", "前一個處理的人沒回報,換人接手"),
         "LEASE_RELEASED": _at("x_deferred", "這一輪沒能開始,放回排隊"),
-        "HANDED_OFF": _at("x_write", "交給寫入這一步"),
+        "HANDED_OFF": _at("x_done", "寫入已經確認完成,這份建議處理完了"),
         "BLOCKED": _at("x_blocked", "擋下"),
         "DEAD_LETTERED": _at("x_deadletter", "停下等人處理"),
         "AWAITING_APPROVAL": _at("x_wait_approval", "開始等人確認"),

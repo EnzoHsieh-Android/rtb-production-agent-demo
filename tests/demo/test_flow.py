@@ -196,3 +196,13 @@ def test_every_decision_node_is_bound_to_an_enum():
         for target in targets:
             if target not in unbound:
                 assert _covered(node, target, enum), f"{node}→{target} 沒有 {enum.__name__}"
+
+
+def test_handed_off_means_different_things_on_the_two_sides():
+    """分析端的「已交給執行」是收件口收下(排隊等執行);執行端的處置與生命週期「已交給執行」是這把鍵
+    的寫入已確認(完成)。第一版把後者對到「寫入廣告平台」,真的跑 F1 時判斷紀錄順序才露出來。"""
+    assert flow.OUTCOMES[(TaskState, "HANDED_OFF")].edge == ("i_check", "x_pending")
+    assert flow.OUTCOMES[(LifecycleKind, "HANDED_OFF")].node == "x_done"
+    from rtb.executor.inbox_store import Disposition
+
+    assert flow.OUTCOMES[(Disposition, "HANDED_OFF")].node == "x_done"

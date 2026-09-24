@@ -1,0 +1,194 @@
+"""展示狀態暫存資料庫(Phase 12 設計審 r1 a2):驅動執行緒寫,展示伺服器用唯讀開法讀。
+
+用共用的 SQLite 工具開,不自創檔案協定;一次展示一個展示編號,同一個檔可以放好幾次展示。
+記的是驅動程式觀察到的事:每個情境的起訖與結果、每一筆判斷(帶來源)、目前節點,以及 F7 這種
+多工作者並行情境的各節點筆數。頁面要的展示狀態由伺服器從這裡組(增量 2b)。
+"""
+
+import json
+import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+
+from rtb.sqlitekit import (
+    begin_snapshot,
+    connect,
+    connect_read_only,
+    end_snapshot,
+    immediate_transaction,
+)
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS scenario_runs (
+    demo_id TEXT NOT NULL, code TEXT NOT NULL, status TEXT NOT NULL, reason TEXT,
+    summary TEXT, started_at TEXT NOT NULL, finished_at TEXT, PRIMARY KEY (demo_id, code));
+CREATE TABLE IF NOT EXISTS decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, demo_id TEXT NOT NULL, code TEXT NOT NULL,
+    node TEXT NOT NULL, edge_json TEXT, outcome TEXT NOT NULL, reason TEXT NOT NULL,
+    at TEXT NOT NULL, origin TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS decisions_by_scenario ON decisions (demo_id, code, id);
+CREATE TABLE IF NOT EXISTS current_node (
+    demo_id TEXT PRIMARY KEY, code TEXT NOT NULL, node TEXT NOT NULL, entered_at TEXT NOT NULL,
+    decision_id INTEGER);
+CREATE TABLE IF NOT EXISTS node_counts (
+    demo_id TEXT NOT NULL, code TEXT NOT NULL, node TEXT NOT NULL, count INTEGER NOT NULL,
+    PRIMARY KEY (demo_id, code, node));
+"""
+
+
+@dataclass(frozen=True)
+class ScenarioRun:
+    code: str
+    status: str  # running / done / incomplete / awaiting_confirmation
+    reason: str | None
+    summary: str | None
+    started_at: datetime
+    finished_at: datetime | None
+
+
+@dataclass(frozen=True)
+class DecisionRow:
+    """一筆判斷:走到哪個節點、走的那條邊(圖上沒有這條邊就是空)、判成什麼、白話原因、時間、來源。"""
+
+    node: str
+    edge: tuple[str, str] | None
+    outcome: str
+    reason: str
+    at: datetime
+    origin: str  # 哪一顆資料庫的哪個事件編號或哪一列
+
+
+@dataclass(frozen=True)
+class CurrentNode:
+    scenario: str
+    node: str
+    entered_at: datetime
+    last_decision: DecisionRow | None
+
+
+def _iso(moment: datetime) -> str:
+    return moment.isoformat()
+
+
+def _time(text: str | None) -> datetime | None:
+    return None if text is None else datetime.fromisoformat(text)
+
+
+class StateWriter:
+    """每一次寫入開一條短連線:驅動程式跑在展示伺服器的執行緒裡,情境本體又在自己的執行緒裡,
+    SQLite 連線不能跨執行緒共用;一次展示只寫幾百列,短連線的成本可以忽略。"""
+
+    def __init__(self, path: Path, demo_id: str) -> None:
+        self.path, self.demo_id = Path(path), demo_id
+        connect(self.path, schema=SCHEMA).close()  # 先建表
+
+    def close(self) -> None:
+        """沒有常駐連線;保留這個方法讓呼叫端照一般資源的寫法收尾。"""
+
+    @contextmanager
+    def _write(self) -> Iterator[sqlite3.Connection]:
+        conn = connect(self.path)
+        try:
+            with immediate_transaction(conn):
+                yield conn
+        finally:
+            conn.close()
+
+    def start_scenario(self, code: str, at: datetime) -> None:
+        with self._write() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO scenario_runs "
+                "VALUES (?, ?, 'running', NULL, NULL, ?, NULL)",
+                (self.demo_id, code, _iso(at)))
+
+    def finish_scenario(self, code: str, status: str, reason: str | None, summary: str | None,
+                        at: datetime) -> None:
+        with self._write() as conn:
+            conn.execute(
+                "UPDATE scenario_runs SET status = ?, reason = ?, summary = ?, finished_at = ? "
+                "WHERE demo_id = ? AND code = ?",
+                (status, reason, summary, _iso(at), self.demo_id, code))
+
+    def mark_status(self, code: str, status: str, reason: str | None = None) -> None:
+        with self._write() as conn:
+            conn.execute(
+                "UPDATE scenario_runs SET status = ?, reason = ? WHERE demo_id = ? AND code = ?",
+                (status, reason, self.demo_id, code))
+
+    def record_decision(self, code: str, row: DecisionRow) -> None:
+        edge = None if row.edge is None else json.dumps(list(row.edge))
+        with self._write() as conn:
+            cursor = conn.execute(
+                "INSERT INTO decisions (demo_id, code, node, edge_json, outcome, reason, at, "
+                "origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (self.demo_id, code, row.node, edge, row.outcome, row.reason, _iso(row.at),
+                 row.origin))
+            conn.execute("INSERT OR REPLACE INTO current_node VALUES (?, ?, ?, ?, ?)",
+                         (self.demo_id, code, row.node, _iso(row.at), cursor.lastrowid))
+
+    def set_node_counts(self, code: str, counts: dict[str, int]) -> None:
+        with self._write() as conn:
+            conn.execute("DELETE FROM node_counts WHERE demo_id = ? AND code = ?",
+                         (self.demo_id, code))
+            conn.executemany("INSERT INTO node_counts VALUES (?, ?, ?, ?)",
+                             [(self.demo_id, code, node, n) for node, n in counts.items()])
+
+
+def _decision(record: tuple[str, str | None, str, str, str, str]) -> DecisionRow:
+    node, edge, outcome, reason, at, origin = record
+    pair = None if edge is None else tuple(json.loads(edge))
+    return DecisionRow(node, (pair[0], pair[1]) if pair else None, outcome, reason,
+                       datetime.fromisoformat(at), origin)
+
+
+class StateReader:
+    """唯讀開法:一開就進同一個快照,直到 close(伺服器每次產生頁面開一次)。"""
+
+    def __init__(self, path: Path) -> None:
+        self._conn = connect_read_only(path)
+        try:
+            begin_snapshot(self._conn)
+        except BaseException:
+            self._conn.close()
+            raise
+
+    def close(self) -> None:
+        try:
+            end_snapshot(self._conn)
+        finally:
+            self._conn.close()
+
+    def scenario_runs(self, demo_id: str) -> tuple[ScenarioRun, ...]:
+        rows = self._conn.execute(
+            "SELECT code, status, reason, summary, started_at, finished_at FROM scenario_runs "
+            "WHERE demo_id = ? ORDER BY code", (demo_id,)).fetchall()
+        return tuple(ScenarioRun(code, status, reason, summary, datetime.fromisoformat(started),
+                                 _time(finished))
+                     for code, status, reason, summary, started, finished in rows)
+
+    def decisions(self, demo_id: str, code: str) -> tuple[DecisionRow, ...]:
+        rows = self._conn.execute(
+            "SELECT node, edge_json, outcome, reason, at, origin FROM decisions "
+            "WHERE demo_id = ? AND code = ? ORDER BY id", (demo_id, code)).fetchall()
+        return tuple(_decision(row) for row in rows)
+
+    def current(self, demo_id: str) -> CurrentNode | None:
+        row = self._conn.execute(
+            "SELECT code, node, entered_at, decision_id FROM current_node WHERE demo_id = ?",
+            (demo_id,)).fetchone()
+        if row is None:
+            return None
+        code, node, entered, decision_id = row
+        last = self._conn.execute(
+            "SELECT node, edge_json, outcome, reason, at, origin FROM decisions WHERE id = ?",
+            (decision_id,)).fetchone()
+        return CurrentNode(code, node, datetime.fromisoformat(entered),
+                           None if last is None else _decision(last))
+
+    def node_counts(self, demo_id: str, code: str) -> tuple[tuple[str, int], ...]:
+        return tuple((node, int(n)) for node, n in self._conn.execute(
+            "SELECT node, count FROM node_counts WHERE demo_id = ? AND code = ? ORDER BY node",
+            (demo_id, code)))
