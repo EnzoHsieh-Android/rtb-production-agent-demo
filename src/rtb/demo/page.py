@@ -9,7 +9,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from itertools import pairwise
 from pathlib import Path
 from typing import Final
 
@@ -695,6 +694,8 @@ def _render_result_evidence(scenario: Scenario) -> str:
 
 def _render_flow(flow: FlowGraph, scenario: Scenario) -> str:
     view = _flow_view(flow, scenario)
+    if not view.nodes:
+        return '<p class="empty flow-empty">這個情境還沒有走過的路徑紀錄。</p>'
     if scenario.hypothesis is not None:
         advisory = FlowNode("ai_hypothesis", "AI 推測可能原因(只供參考)",
                             NodeKind.STEP, "分析", NodeOwner.AI)
@@ -865,20 +866,21 @@ def _flow_layout(
 def _flow_view(flow: FlowGraph, scenario: Scenario) -> _FlowView:
     nodes = _node_map(flow)
     edge_map = {(edge.source, edge.target): edge for edge in flow.edges}
-    trace_pairs = scenario.traversed_edges or _infer_trace(flow, scenario)
+    # 只畫真的走過的邊:可以斷開、可以分好幾段(不同工作、回頭之後),照時間排;
+    # 沒有紀錄的地方照實斷開,不從圖上替沒看到的判斷補路(代碼審第 3 輪 g2)
+    trace_pairs = scenario.traversed_edges
     if any(pair not in edge_map for pair in trace_pairs):
         raise ValueError("情境路徑含有正式圖不存在的分支")
     trace = tuple(edge_map[pair] for pair in trace_pairs)
-    if any(first.target != second.source for first, second in pairwise(trace)):
-        raise ValueError("情境路徑的步驟沒有接起來")
     ordered_ids: list[str] = []
     for edge in trace:
         if edge.source not in ordered_ids:
             ordered_ids.append(edge.source)
         if edge.target not in ordered_ids:
             ordered_ids.append(edge.target)
-    if not ordered_ids:
-        ordered_ids.append(flow.nodes[0].id)
+    for decision in scenario.path:  # 有判斷紀錄、但進來的邊沒記下的節點照樣畫出來
+        if decision.node in nodes and decision.node not in ordered_ids:
+            ordered_ids.append(decision.node)
     ordered_ids, trace, groups = _group_analysis(nodes, ordered_ids, trace)
     visited = frozenset(ordered_ids)
     return _FlowView(
@@ -929,38 +931,6 @@ def _group_analysis(
             )
         )
     return ordered_ids, trace, tuple(groups)
-
-
-def _infer_trace(flow: FlowGraph, scenario: Scenario) -> tuple[tuple[str, str], ...]:
-    choices = {decision.node: decision.taken_edge for decision in scenario.path
-               if decision.taken_edge is not None}
-    outgoing: dict[str, list[FlowEdge]] = defaultdict(list)
-    indegree = {node.id: 0 for node in flow.nodes}
-    for edge in flow.edges:
-        outgoing[edge.source].append(edge)
-        indegree[edge.target] += 1
-    roots = [node.id for node in flow.nodes if indegree[node.id] == 0]
-    if not roots:
-        return ()
-    current = roots[0]
-    result: list[tuple[str, str]] = []
-    visited = {current}
-    while current != scenario.current_node:
-        candidates = outgoing[current]
-        if not candidates:
-            break
-        chosen = choices.get(current)
-        edge = next(
-            (item for item in candidates if chosen == (item.source, item.target)),
-            candidates[0],
-        )
-        pair = (edge.source, edge.target)
-        if edge.target in visited:
-            break
-        result.append(pair)
-        visited.add(edge.target)
-        current = edge.target
-    return tuple(result)
 
 
 def _render_lane_bands(lanes: tuple[_LaneBand, ...], width: int) -> str:
