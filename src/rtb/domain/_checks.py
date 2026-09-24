@@ -8,7 +8,7 @@ DSP(rtb.dsp)是外部系統的模擬器,刻意不依賴這裡,所以它自己另
 import math
 import re
 from datetime import datetime
-from typing import Any, TypeGuard
+from typing import TypeGuard
 
 ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 MAX_INT = 2**63 - 1  # 資料庫整數上限:提案、分析端 DSP 用戶端白名單、判斷點輸入共用這一個
@@ -24,17 +24,17 @@ def is_plain_number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, int | float) and not isinstance(value, bool)
 
 
-def is_int_between(low: int, value: Any) -> TypeGuard[int]:
+def is_int_between(low: int, value: object) -> TypeGuard[int]:
     """不是布林的整數,在 low 到資料庫整數上限之間(分析端 DSP 用戶端白名單的預算與版本)。"""
     return is_plain_int(value) and low <= value <= MAX_INT
 
 
-def is_count_or_none(value: Any) -> bool:
+def is_count_or_none(value: object) -> TypeGuard[int | None]:
     """缺值,或不是布林的整數、絕對值在資料庫整數上限內(白名單的曝光、點擊、轉換)。"""
     return value is None or (is_plain_int(value) and abs(value) <= MAX_INT)
 
 
-def is_finite_or_none(value: Any) -> bool:
+def is_finite_or_none(value: object) -> TypeGuard[int | float | None]:
     """缺值,或不是布林的有限數字、沒有上限(白名單的花費、營收)。"""
     if value is None:
         return True

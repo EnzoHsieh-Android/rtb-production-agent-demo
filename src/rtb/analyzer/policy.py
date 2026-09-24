@@ -13,7 +13,7 @@
 不影響 S49 的合約(規則本身的判斷邏輯),留給接上真正決策邏輯的後面階段一併解決。
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from types import MappingProxyType
@@ -69,30 +69,49 @@ class WorthCandidate(Protocol):
     def __call__(self, worth_input: WorthInput, timeout_seconds: float) -> WorthVerdict: ...
 
 
-_ISSUED = object()  # 模組私有的哨兵:非空的已驗證清單只有帶著它才建得出來
+# 只有信任的呼叫端(評估套件的採用函式、測試)匯入它建已驗證清單;模組內用它建空的 NONE。比照執行端
+# 交易物件的簽發者寫法(不是資料類別,就沒有 dataclasses.replace 可繞)
+_VALIDATED_CELLS_ISSUER = object()
 
 
-@dataclass(frozen=True)
 class ValidatedCells:
-    """已驗證、允許呼叫候選的評分格。非空的只有私有工廠 `_issue_validated_cells` 建得出來(給評估
-    套件的採用函式與測試);直接建構非空清單會被拒(代碼審第 1 輪)。正式路徑拿到的是空的 NONE。"""
+    """已驗證、允許呼叫候選的評分格。建構時要帶簽發者哨兵,空清單也一樣(代碼審第 1、2 輪);
+    建好之後不能改、複製拿到的是同一個物件,所以從已簽發的清單也拿不到新的非空清單。
+    正式路徑拿到的是空的 NONE。"""
 
-    cells: frozenset[WorthCell]
-    _issuer: object = field(default=None, repr=False, compare=False)
-
+    __slots__ = ("_cells",)
+    _cells: frozenset[WorthCell]
     NONE: ClassVar[ValidatedCells]
 
-    def __post_init__(self) -> None:
-        if self.cells and self._issuer is not _ISSUED:
-            raise ValueError("非空的已驗證清單只能由採用函式經私有工廠建立")
+    def __init__(self, cells: frozenset[WorthCell], issuer: object) -> None:
+        if issuer is not _VALIDATED_CELLS_ISSUER:
+            raise ValueError("已驗證清單只能由採用函式建立")
+        object.__setattr__(self, "_cells", frozenset(cells))
+
+    @property
+    def cells(self) -> frozenset[WorthCell]:
+        return self._cells
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("已驗證清單建好之後不能改")
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ValidatedCells) and other._cells == self._cells
+
+    def __hash__(self) -> int:
+        return hash(self._cells)
+
+    def __repr__(self) -> str:
+        return f"ValidatedCells({sorted(self._cells)!r})"
+
+    def __copy__(self) -> ValidatedCells:
+        return self
+
+    def __deepcopy__(self, memo: object) -> ValidatedCells:
+        return self
 
 
-ValidatedCells.NONE = ValidatedCells(frozenset())
-
-
-def _issue_validated_cells(cells: frozenset[WorthCell]) -> ValidatedCells:
-    """私有工廠:只給評估套件的採用函式(與測試)用。"""
-    return ValidatedCells(cells, _ISSUED)
+ValidatedCells.NONE = ValidatedCells(frozenset(), _VALIDATED_CELLS_ISSUER)
 
 
 @dataclass(frozen=True)

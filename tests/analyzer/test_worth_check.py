@@ -3,17 +3,20 @@
 合約 [S700] 到 [S705]、[S711]、[S715]。
 """
 
+import copy
+import dataclasses
 import hashlib
 import inspect
 import itertools
 import math
 import pathlib
+import typing
 
 import pytest
 
 from rtb.analyzer import dsp_client, policy
 from rtb.analyzer.flow import NeedsFreshEvidence, NoAction, ProposalDecision
-from rtb.domain import worth
+from rtb.domain import _checks, worth
 from rtb.domain.proposal import MAX_INT
 from rtb.domain.worth import CampaignStatus, WorthCell, WorthInput, WorthInputInvalid, WorthVerdict
 from tests.analyzer import frozen_policy_e8b26f6 as frozen
@@ -42,7 +45,8 @@ def test_extracting_the_worth_increase_check_keeps_every_decision_identical():
     assert changed == [], f"決策結果變了:{changed[:10]}"
 
 
-ALL_CELLS = policy._issue_validated_cells(frozenset(WorthCell))  # 私有工廠:只給採用函式與測試
+ISSUER = policy._VALIDATED_CELLS_ISSUER  # 信任的呼叫端(採用函式、測試)才匯入它
+ALL_CELLS = policy.ValidatedCells(frozenset(WorthCell), ISSUER)
 
 
 NO_CANDIDATE = {"candidate": None, "allowed": policy.ValidatedCells.NONE}
@@ -72,7 +76,7 @@ class _Recording:
 def test_only_validated_slices_reach_the_candidate():
     paused = _input(status=CampaignStatus.PAUSED)
     candidate = _Recording(WorthVerdict.NOT_WORTH)
-    only_paused = policy._issue_validated_cells(frozenset({WorthCell.PAUSED}))
+    only_paused = policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
     result = policy.route(paused, _call(candidate), only_paused)
     assert (result.verdict, result.path) == (WorthVerdict.NOT_WORTH, policy.RoutePath.CANDIDATE)
     assert candidate.calls == [(paused, 1.0)]
@@ -238,10 +242,24 @@ def test_a_large_legal_revenue_reaches_the_candidate():
 
 # ---- 代碼審第 1 輪:已驗證清單只有私有工廠建得出來、逾時跟著候選走、嚴重錯誤不吞 ----
 def test_a_validated_list_cannot_be_built_directly():
-    with pytest.raises(ValueError):
-        policy.ValidatedCells(frozenset({WorthCell.PAUSED}))
+    for issuer in (None, object()):
+        for cells in (frozenset({WorthCell.PAUSED}), frozenset()):
+            with pytest.raises(ValueError):
+                policy.ValidatedCells(cells, issuer)
     assert policy.ValidatedCells.NONE.cells == frozenset()
-    assert policy._issue_validated_cells(frozenset({WorthCell.PAUSED})).cells == {WorthCell.PAUSED}
+    issued = policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
+    assert issued.cells == {WorthCell.PAUSED}
+    assert issued == policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
+    assert hash(issued) == hash(policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER))
+    # 代碼審第 2 輪:從已簽發的物件也拿不到新的非空清單
+    with pytest.raises(TypeError):
+        dataclasses.replace(issued, cells=frozenset(WorthCell))  # type: ignore[type-var]
+    assert copy.copy(issued) is issued and copy.deepcopy(issued) is issued
+    for name in ("cells", "_cells"):
+        with pytest.raises(AttributeError):
+            setattr(issued, name, frozenset(WorthCell))
+    assert issued.cells == {WorthCell.PAUSED}
+    assert policy.ValidatedCells.NONE.cells == frozenset()
 
 
 def test_explain_has_no_default_candidate_or_timeout():
@@ -256,3 +274,12 @@ def test_explain_has_no_default_candidate_or_timeout():
 def test_fatal_errors_from_the_candidate_are_not_swallowed(fatal):
     with pytest.raises(type(fatal)):
         policy.route(_input(), _call(_Recording(fatal)), ALL_CELLS)
+
+
+def test_the_shared_whitelist_checks_are_type_guards():
+    """代碼審第 2 輪:共用小檢查照檔頭規定,參數收任何值、回傳用型別守衛。"""
+    for name, narrowed in (("is_int_between", "int"), ("is_count_or_none", "int | None"),
+                           ("is_finite_or_none", "int | float | None")):
+        hints = typing.get_type_hints(getattr(_checks, name))
+        assert hints["value"] is object, name
+        assert str(hints["return"]) == f"typing.TypeGuard[{narrowed}]", (name, hints["return"])
