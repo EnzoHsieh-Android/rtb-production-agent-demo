@@ -3,16 +3,20 @@
 合約 [S700] 到 [S705]、[S711]、[S715]。
 """
 
+import copy
+import dataclasses
 import hashlib
+import inspect
 import itertools
 import math
 import pathlib
+import typing
 
 import pytest
 
-from rtb.analyzer import policy
+from rtb.analyzer import dsp_client, policy
 from rtb.analyzer.flow import NeedsFreshEvidence, NoAction, ProposalDecision
-from rtb.domain import worth
+from rtb.domain import _checks, worth
 from rtb.domain.proposal import MAX_INT
 from rtb.domain.worth import CampaignStatus, WorthCell, WorthInput, WorthInputInvalid, WorthVerdict
 from tests.analyzer import frozen_policy_e8b26f6 as frozen
@@ -41,7 +45,15 @@ def test_extracting_the_worth_increase_check_keeps_every_decision_identical():
     assert changed == [], f"決策結果變了:{changed[:10]}"
 
 
-ALL_CELLS = policy.ValidatedCells(frozenset(WorthCell))
+ISSUER = policy._VALIDATED_CELLS_ISSUER  # 信任的呼叫端(採用函式、測試)才匯入它
+ALL_CELLS = policy.ValidatedCells(frozenset(WorthCell), ISSUER)
+
+
+NO_CANDIDATE = {"candidate": None, "allowed": policy.ValidatedCells.NONE}
+
+
+def _call(judge, timeout_seconds=1.0):
+    return policy.CandidateCall(judge, timeout_seconds)
 
 
 def _input(status=CampaignStatus.ACTIVE, impressions=500, clicks=12, conversions=1, revenue=5.0):
@@ -64,17 +76,17 @@ class _Recording:
 def test_only_validated_slices_reach_the_candidate():
     paused = _input(status=CampaignStatus.PAUSED)
     candidate = _Recording(WorthVerdict.NOT_WORTH)
-    only_paused = policy.ValidatedCells(frozenset({WorthCell.PAUSED}))
-    result = policy.route(paused, candidate, only_paused, timeout_seconds=1.0)
+    only_paused = policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
+    result = policy.route(paused, _call(candidate), only_paused)
     assert (result.verdict, result.path) == (WorthVerdict.NOT_WORTH, policy.RoutePath.CANDIDATE)
     assert candidate.calls == [(paused, 1.0)]
     # 這格不在清單上:走現行規則(暫停中但有投放,現行規則照舊說值得加),候選沒被叫
     active = _input()
-    result = policy.route(active, candidate, only_paused, timeout_seconds=1.0)
+    result = policy.route(active, _call(candidate), only_paused)
     assert (result.verdict, result.path) == (WorthVerdict.WORTH, policy.RoutePath.CODE_RULE)
     assert len(candidate.calls) == 1
     # 沒有候選:清單再滿也走現行規則
-    result = policy.route(paused, None, ALL_CELLS, timeout_seconds=1.0)
+    result = policy.route(paused, None, ALL_CELLS)
     assert (result.verdict, result.path) == (WorthVerdict.WORTH, policy.RoutePath.CODE_RULE)
 
 
@@ -89,11 +101,11 @@ def test_only_validated_slices_reach_the_candidate():
 ])
 def test_a_failing_or_unsure_candidate_falls_back_to_the_code_rule(answer, path):
     no_delivery = _input(impressions=0)
-    result = policy.route(no_delivery, _Recording(answer), ALL_CELLS, timeout_seconds=1.0)
+    result = policy.route(no_delivery, _call(_Recording(answer)), ALL_CELLS)
     assert result.verdict is WorthVerdict.NOT_WORTH  # 現行規則對沒投放的答案
     assert result.path is policy.RoutePath(path)
     # 候選說「證據不足」是合法答案,不退回;決策函式把它當不做
-    result = policy.route(_input(), _Recording(WorthVerdict.INSUFFICIENT), ALL_CELLS, 1.0)
+    result = policy.route(_input(), _call(_Recording(WorthVerdict.INSUFFICIENT)), ALL_CELLS)
     assert (result.verdict, result.path) == (WorthVerdict.INSUFFICIENT, policy.RoutePath.CANDIDATE)
 
 
@@ -110,12 +122,12 @@ def test_the_candidate_never_sees_untrusted_campaign_text():
 def test_production_wiring_has_no_candidate_and_no_validated_slice(monkeypatch):
     seen = []
     real = policy.route
-    monkeypatch.setattr(policy, "route", lambda i, c, a, timeout_seconds: seen.append((c, a))
-                        or real(i, c, a, timeout_seconds=timeout_seconds))
+    monkeypatch.setattr(policy, "route", lambda i, c, a: seen.append((c, a)) or real(i, c, a))
     case = next(c for c, fp in zip(samples.cases(), samples.EXPECTED, strict=True)
                 if fp.startswith("P"))
     assert isinstance(policy.decide(case.task, case.evidence, case.now), ProposalDecision)
-    policy.explain(case.task, case.evidence, case.now)
+    policy.explain(case.task, case.evidence, case.now, candidate=None,
+                   allowed=policy.ValidatedCells.NONE)
     assert seen == [(None, policy.ValidatedCells.NONE)] * 2
     assert policy.ValidatedCells.NONE.cells == frozenset()
 
@@ -128,9 +140,9 @@ def test_every_no_action_path_reports_its_reason():
             expected = policy.decide(case.task, case.evidence, case.now)
         except AssertionError as exc:
             with pytest.raises(type(exc), match=str(exc)):
-                policy.explain(case.task, case.evidence, case.now)
+                policy.explain(case.task, case.evidence, case.now, **NO_CANDIDATE)
             continue
-        decision, reason = policy.explain(case.task, case.evidence, case.now)
+        decision, reason = policy.explain(case.task, case.evidence, case.now, **NO_CANDIDATE)
         assert decision == expected
         assert (reason is None) == isinstance(decision, ProposalDecision)
         if isinstance(decision, NeedsFreshEvidence):
@@ -147,48 +159,147 @@ def test_a_candidate_saying_insufficient_evidence_is_no_action_with_that_reason(
     case = next(c for c, fp in zip(samples.cases(), samples.EXPECTED, strict=True)
                 if fp.startswith("P"))
     decision, reason = policy.explain(case.task, case.evidence, case.now,
-                                      candidate=_Recording(WorthVerdict.INSUFFICIENT),
-                                      allowed=ALL_CELLS, timeout_seconds=1.0)
+                                      candidate=_call(_Recording(WorthVerdict.INSUFFICIENT)),
+                                      allowed=ALL_CELLS)
     assert isinstance(decision, NoAction)
     assert reason is policy.NoActionReason.JUDGED_INSUFFICIENT
 
 
 # ---- [S711] ----
+def _expected_cell(status, impressions, clicks, conversions, revenue, spend):
+    """照計劃的評分表(使用者裁定,由上而下第一個成立的)獨立寫一次。"""
+    if status is CampaignStatus.PAUSED:
+        return WorthCell.PAUSED
+    values = (impressions, clicks, conversions, revenue, spend)
+    if (any(v is None or v < 0 for v in values) or clicks > impressions
+            or conversions > clicks):
+        return WorthCell.ANOMALY
+    if impressions == 0 or clicks == 0:
+        return WorthCell.NO_DELIVERY
+    if conversions > 0 or revenue > 0:
+        return WorthCell.DELIVERY_WITH_VALUE
+    return WorthCell.DELIVERY_WITHOUT_VALUE
+
+
 def test_the_rubric_gives_exactly_one_class_for_every_input():
-    values = (1, 0, -1, None)
+    counts = (None, -1, 0, 1, 5)  # 1 與 5 造得出「點擊多於曝光」「轉換多於點擊」
+    money = (None, -1.0, 0.0, 3.0)
     seen = set()
-    for status, impressions, clicks, conversions, revenue in itertools.product(
-            CampaignStatus, values, values, values, values):
-        cell = worth.cell_of(_input(status, impressions, clicks, conversions, revenue))
-        assert isinstance(cell, WorthCell)
+    for status, impressions, clicks, conversions, revenue, spend in itertools.product(
+            CampaignStatus, counts, counts, counts, money, money):
+        worth_input = WorthInput(status=status, budget=100, spend=spend, impressions=impressions,
+                                 clicks=clicks, conversions=conversions, revenue=revenue)
+        cell = worth.cell_of(worth_input)
+        assert cell is _expected_cell(status, impressions, clicks, conversions, revenue, spend), (
+            worth_input)
         seen.add(cell)
-        positive = worth.is_positive
-        expected = (WorthCell.PAUSED if status is CampaignStatus.PAUSED
-                    else WorthCell.NO_DELIVERY if not (positive(impressions) and positive(clicks))
-                    else WorthCell.DELIVERY_WITH_VALUE if positive(conversions) or positive(revenue)
-                    else WorthCell.DELIVERY_WITHOUT_VALUE)
-        assert cell is expected
     assert seen == set(WorthCell)
+    assert len(WorthCell) == 5
+    # 計劃裡寫死的邊界例
+    base = {"status": CampaignStatus.ACTIVE, "budget": 100, "spend": 1.0, "revenue": 0.0}
+    assert worth.cell_of(WorthInput(**base, impressions=5, clicks=0, conversions=0)) is \
+        WorthCell.NO_DELIVERY
+    assert worth.cell_of(WorthInput(**base, impressions=5, clicks=0, conversions=1)) is \
+        WorthCell.ANOMALY
 
 
 # ---- [S715] ----
-@pytest.mark.parametrize("field", ["budget", "spend", "impressions", "clicks", "conversions",
-                                   "revenue"])
-@pytest.mark.parametrize("bad", [True, False, math.nan, math.inf, -math.inf, MAX_INT + 1,
-                                 -(MAX_INT + 1), "1", [1]])
-def test_the_worth_input_rejects_values_the_dsp_whitelist_rejects(field, bad):
+EDGE_VALUES = (None, True, False, 0, 1, -1, 0.5, -0.5, 1e20, -1e20, math.nan, math.inf, -math.inf,
+               MAX_INT, MAX_INT + 1, -MAX_INT, -(MAX_INT + 1), 10**400, "1", [1])
+# 判斷點欄位 → 分析端 DSP 用戶端白名單同一欄的檢查(代碼審第 1 輪:兩邊逐欄要一致)
+WHITELIST = {"budget": dsp_client.STATE_FIELDS["budget"],
+             **{name: dsp_client.METRICS_FIELDS[name]
+                for name in ("spend", "impressions", "clicks", "conversions", "revenue")}}
+
+
+def _accepts(field, value):
     fields = {"status": CampaignStatus.ACTIVE, "budget": 1, "spend": 1.0, "impressions": 1,
-              "clicks": 1, "conversions": 1, "revenue": 1.0, field: bad}
-    with pytest.raises(WorthInputInvalid):
+              "clicks": 1, "conversions": 1, "revenue": 1.0, field: value}
+    try:
         WorthInput(**fields)
+    except WorthInputInvalid:
+        return False
+    return True
 
 
-def test_the_worth_input_accepts_edge_values_and_rejects_unknown_statuses():
-    for value in (None, 0, -1, MAX_INT, -MAX_INT, 0.5, -0.5):
-        WorthInput(status=CampaignStatus.PAUSED, budget=value, spend=value, impressions=value,
-                   clicks=value, conversions=value, revenue=value)
+@pytest.mark.parametrize("field", sorted(WHITELIST))
+def test_the_worth_input_rejects_values_the_dsp_whitelist_rejects(field):
+    """同一組邊界值兩邊都跑:判斷點收不收,跟 DSP 白名單收不收,逐值相同。"""
+    assert {repr(v): _accepts(field, v) for v in EDGE_VALUES} == {
+        repr(v): WHITELIST[field](v) for v in EDGE_VALUES}
+    # 兩邊共用同一支檢查,比對抓不到檢查本身的錯:另外寫死白名單的判準
+    for value in (True, math.nan, math.inf, -math.inf, 10**400, "1"):
+        assert not _accepts(field, value), (field, value)
+    assert _accepts(field, 0)
+    if field in ("spend", "revenue"):
+        assert _accepts(field, 1e20) and _accepts(field, -0.5)
+    if field in ("impressions", "clicks", "conversions"):
+        assert not _accepts(field, 0.5) and not _accepts(field, MAX_INT + 1)
+    if field == "budget":
+        assert not _accepts(field, None) and not _accepts(field, -1) and _accepts(field, MAX_INT)
+
+
+def test_the_worth_input_rejects_unknown_statuses():
     for status in ("active", "archived", None):
         with pytest.raises(WorthInputInvalid):
             WorthInput(status=status, budget=1, spend=1.0, impressions=1, clicks=1,  # type: ignore[arg-type]
                        conversions=1, revenue=1.0)
     assert issubclass(WorthInputInvalid, ValueError)
+
+
+def test_a_large_legal_revenue_reaches_the_candidate():
+    """代碼審第 1 輪:合法的大額營收(DSP 白名單收)不能被當成歸不了格而跳過候選。"""
+    case = next(c for c, fp in zip(samples.cases(), samples.EXPECTED, strict=True)
+                if fp.startswith("P"))
+    state, _metrics, *rest = case.evidence
+    rich = samples._metrics(1.0, 500, 12, 1, 1e20)
+    candidate = _Recording(WorthVerdict.NOT_WORTH)
+    decision, reason = policy.explain(case.task, (state, rich, *rest), case.now,
+                                      candidate=_call(candidate), allowed=ALL_CELLS)
+    assert len(candidate.calls) == 1
+    assert (decision, reason) == (NoAction(), policy.NoActionReason.JUDGED_NOT_WORTH)
+
+
+# ---- 代碼審第 1 輪:已驗證清單只有私有工廠建得出來、逾時跟著候選走、嚴重錯誤不吞 ----
+def test_a_validated_list_cannot_be_built_directly():
+    for issuer in (None, object()):
+        for cells in (frozenset({WorthCell.PAUSED}), frozenset()):
+            with pytest.raises(ValueError):
+                policy.ValidatedCells(cells, issuer)
+    assert policy.ValidatedCells.NONE.cells == frozenset()
+    issued = policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
+    assert issued.cells == {WorthCell.PAUSED}
+    assert issued == policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
+    assert hash(issued) == hash(policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER))
+    # 代碼審第 2 輪:從已簽發的物件也拿不到新的非空清單
+    with pytest.raises(TypeError):
+        dataclasses.replace(issued, cells=frozenset(WorthCell))  # type: ignore[type-var]
+    assert copy.copy(issued) is issued and copy.deepcopy(issued) is issued
+    for name in ("cells", "_cells"):
+        with pytest.raises(AttributeError):
+            setattr(issued, name, frozenset(WorthCell))
+    assert issued.cells == {WorthCell.PAUSED}
+    assert policy.ValidatedCells.NONE.cells == frozenset()
+
+
+def test_explain_has_no_default_candidate_or_timeout():
+    parameters = inspect.signature(policy.explain).parameters
+    assert all(parameters[name].default is inspect.Parameter.empty
+               for name in ("candidate", "allowed"))
+    assert "timeout_seconds" not in parameters
+    assert "timeout_seconds" in inspect.signature(policy.CandidateCall).parameters
+
+
+@pytest.mark.parametrize("fatal", [MemoryError(), RecursionError()])
+def test_fatal_errors_from_the_candidate_are_not_swallowed(fatal):
+    with pytest.raises(type(fatal)):
+        policy.route(_input(), _call(_Recording(fatal)), ALL_CELLS)
+
+
+def test_the_shared_whitelist_checks_are_type_guards():
+    """代碼審第 2 輪:共用小檢查照檔頭規定,參數收任何值、回傳用型別守衛。"""
+    for name, narrowed in (("is_int_between", "int"), ("is_count_or_none", "int | None"),
+                           ("is_finite_or_none", "int | float | None")):
+        hints = typing.get_type_hints(getattr(_checks, name))
+        assert hints["value"] is object, name
+        assert str(hints["return"]) == f"typing.TypeGuard[{narrowed}]", (name, hints["return"])

@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from rtb.analyzer.policy import RoutePath, TrialCells, ValidatedCells, WorthCandidate, route
+from rtb.analyzer.policy import CandidateCall, RoutePath, TrialCells, ValidatedCells, route
 from rtb.domain.worth import WorthCell, WorthVerdict
 from rtb.eval.generator import Scenario
 
@@ -35,14 +35,13 @@ class ScoredCase:
 
 
 def score(
-    scenarios: tuple[Scenario, ...], candidate: WorthCandidate | None,
-    trial: TrialCells | None, timeout_seconds: float,
+    scenarios: tuple[Scenario, ...], candidate: CandidateCall | None, trial: TrialCells | None,
 ) -> tuple[ScoredCase, ...]:
     """評估入口:待測格清單只在這次評估裡用,不產生、不改動已驗證清單([S716])。"""
     allowed: TrialCells | ValidatedCells = ValidatedCells.NONE if trial is None else trial
     scored = []
     for scenario in scenarios:
-        result = route(scenario.worth_input, candidate, allowed, timeout_seconds=timeout_seconds)
+        result = route(scenario.worth_input, candidate, allowed)
         scored.append(ScoredCase(scenario, result.verdict, result.path))
     return tuple(scored)
 

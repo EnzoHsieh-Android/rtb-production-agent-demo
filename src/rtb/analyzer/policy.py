@@ -69,16 +69,57 @@ class WorthCandidate(Protocol):
     def __call__(self, worth_input: WorthInput, timeout_seconds: float) -> WorthVerdict: ...
 
 
-@dataclass(frozen=True)
+# 只有信任的呼叫端(評估套件的採用函式、測試)匯入它建已驗證清單;模組內用它建空的 NONE。比照執行端
+# 交易物件的簽發者寫法(不是資料類別,就沒有 dataclasses.replace 可繞)
+_VALIDATED_CELLS_ISSUER = object()
+
+
 class ValidatedCells:
-    """已驗證、允許呼叫候選的評分格。只有採用函式產生得出來(Phase 10 增量 2);正式路徑是空的。"""
+    """已驗證、允許呼叫候選的評分格。建構時要帶簽發者哨兵,空清單也一樣(代碼審第 1、2 輪);
+    建好之後不能改、複製拿到的是同一個物件,所以從已簽發的清單也拿不到新的非空清單。
+    正式路徑拿到的是空的 NONE。"""
 
-    cells: frozenset[WorthCell]
-
+    __slots__ = ("_cells",)
+    _cells: frozenset[WorthCell]
     NONE: ClassVar[ValidatedCells]
 
+    def __init__(self, cells: frozenset[WorthCell], issuer: object) -> None:
+        if issuer is not _VALIDATED_CELLS_ISSUER:
+            raise ValueError("已驗證清單只能由採用函式建立")
+        object.__setattr__(self, "_cells", frozenset(cells))
 
-ValidatedCells.NONE = ValidatedCells(frozenset())
+    @property
+    def cells(self) -> frozenset[WorthCell]:
+        return self._cells
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("已驗證清單建好之後不能改")
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ValidatedCells) and other._cells == self._cells
+
+    def __hash__(self) -> int:
+        return hash(self._cells)
+
+    def __repr__(self) -> str:
+        return f"ValidatedCells({sorted(self._cells)!r})"
+
+    def __copy__(self) -> ValidatedCells:
+        return self
+
+    def __deepcopy__(self, memo: object) -> ValidatedCells:
+        return self
+
+
+ValidatedCells.NONE = ValidatedCells(frozenset(), _VALIDATED_CELLS_ISSUER)
+
+
+@dataclass(frozen=True)
+class CandidateCall:
+    """一個候選連同它的逾時秒數:有候選才需要逾時,逾時沒有預設值(比照共用 HTTP 用戶端)。"""
+
+    judge: WorthCandidate
+    timeout_seconds: float
 
 
 @dataclass(frozen=True)
@@ -128,11 +169,11 @@ def code_rule(worth_input: WorthInput) -> WorthVerdict:
     return WorthVerdict.NOT_WORTH
 
 
-def _candidate_answer(
-    candidate: WorthCandidate, worth_input: WorthInput, timeout_seconds: float
-) -> RouteResult:
+def _candidate_answer(candidate: CandidateCall, worth_input: WorthInput) -> RouteResult:
     try:
-        answer = candidate(worth_input, timeout_seconds)
+        answer = candidate.judge(worth_input, candidate.timeout_seconds)
+    except (MemoryError, RecursionError):  # 行程本身出事,不是候選判斷失敗:照舊往外丟
+        raise
     except TimeoutError:
         return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_TIMEOUT)
     except Exception:  # 候選是可替換的外部判斷:任何失敗都退回現行規則,不讓它改變流程狀態
@@ -145,45 +186,46 @@ def _candidate_answer(
 
 
 def route(
-    worth_input: WorthInput, candidate: WorthCandidate | None,
-    allowed: ValidatedCells | TrialCells, timeout_seconds: float,
+    worth_input: WorthInput, candidate: CandidateCall | None,
+    allowed: ValidatedCells | TrialCells,
 ) -> RouteResult:
     """只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選,其餘走現行程式規則([S701])。
     允許清單在正式路徑是已驗證清單,在評估入口是待測格清單。"""
     if candidate is None or cell_of(worth_input) not in allowed.cells:
         return RouteResult(code_rule(worth_input), RoutePath.CODE_RULE)
-    return _candidate_answer(candidate, worth_input, timeout_seconds)
+    return _candidate_answer(candidate, worth_input)
 
 
 def _worth_input(state: dict[str, Any], metrics: dict[str, Any]) -> WorthInput:
     status = state.get("status")
     if not isinstance(status, str) or status not in {s.value for s in CampaignStatus}:
         raise WorthInputInvalid(f"狀態不是啟用或暫停:{status!r}")
+    budget: Any = state.get("budget")  # 型別由判斷點輸入的建構驗證把關
     return WorthInput(
-        status=CampaignStatus(status), budget=state.get("budget"), spend=metrics.get("spend"),
+        status=CampaignStatus(status), budget=budget, spend=metrics.get("spend"),
         impressions=metrics.get("impressions"), clicks=metrics.get("clicks"),
         conversions=metrics.get("conversions"), revenue=metrics.get("revenue"))
 
 
 def _judge(
-    state: dict[str, Any], metrics: dict[str, Any], candidate: WorthCandidate | None,
-    allowed: ValidatedCells, timeout_seconds: float,
+    state: dict[str, Any], metrics: dict[str, Any], candidate: CandidateCall | None,
+    allowed: ValidatedCells,
 ) -> WorthVerdict:
     try:
         worth_input = _worth_input(state, metrics)
     except WorthInputInvalid:  # 歸不了格:照原樣的判斷式走現行規則(正式路徑上白名單已擋掉同樣的值)
         has_delivery = _has_delivery(metrics.get("impressions"), metrics.get("clicks"))
         return WorthVerdict.WORTH if has_delivery else WorthVerdict.NOT_WORTH
-    return route(worth_input, candidate, allowed, timeout_seconds=timeout_seconds).verdict
+    return route(worth_input, candidate, allowed).verdict
 
 
 def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
     task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime, *,
-    candidate: WorthCandidate | None = None, allowed: ValidatedCells = ValidatedCells.NONE,
-    timeout_seconds: float = 0.0,
+    candidate: CandidateCall | None, allowed: ValidatedCells,
 ) -> tuple[Decision, NoActionReason | None]:
     """決策結果加「為什麼沒提案」(評估用,[S705]);決策結果那一半就是 `decide` 的回傳值,
-    `decide` 對某筆輸入丟例外時這裡丟同一種。候選與允許清單只給評估入口用。"""
+    `decide` 對某筆輸入丟例外時這裡丟同一種。候選與允許清單都要明寫(`decide` 傳沒有候選、空清單),
+    非空的只給評估入口用。"""
     if not _all_fresh(evidence, now):
         return NeedsFreshEvidence(), NoActionReason.STALE_EVIDENCE
     state = _payload(evidence, EvidenceKind.CAMPAIGN_STATE)
@@ -198,7 +240,7 @@ def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
         return NoAction(), NoActionReason.PACING_UNKNOWN
     if underpacing is False:
         return NoAction(), NoActionReason.NOT_UNDERPACING
-    verdict = _judge(state, metrics, candidate, allowed, timeout_seconds)
+    verdict = _judge(state, metrics, candidate, allowed)
     if verdict is WorthVerdict.INSUFFICIENT:
         return NoAction(), NoActionReason.JUDGED_INSUFFICIENT
     if verdict is not WorthVerdict.WORTH:
@@ -229,4 +271,4 @@ def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
 def decide(task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime) -> Decision:
     """`now` 由流程層傳進來(`advance()` 手上、也寫進歷史列的同一個時間),這裡不自己讀系統時鐘。
     正式路徑沒有候選、允許清單是空的,所以「值不值得加」永遠走現行程式規則([S704])。"""
-    return explain(task, evidence, now)[0]
+    return explain(task, evidence, now, candidate=None, allowed=ValidatedCells.NONE)[0]

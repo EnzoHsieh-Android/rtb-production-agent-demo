@@ -9,7 +9,7 @@
 import math
 from dataclasses import dataclass, fields
 
-from rtb.analyzer.policy import ValidatedCells
+from rtb.analyzer.policy import _VALIDATED_CELLS_ISSUER, ValidatedCells
 from rtb.domain.worth import WorthCell
 from rtb.eval.scoring import PRODUCTION, RECALL, CellReport, Report
 
@@ -138,6 +138,8 @@ def decide_adoption(
     for cell in report.cells:
         reasons = tuple(shared + _quality_problems(cell))
         decisions.append(CellDecision(cell.cell, not reasons, reasons))
-    validated = ValidatedCells(frozenset(d.cell for d in decisions if d.validated))
+    # 採用函式是已驗證清單唯一的信任呼叫端:帶分析端的簽發者哨兵建(代碼審第 2 輪的寫法)
+    validated = ValidatedCells(frozenset(d.cell for d in decisions if d.validated),
+                               _VALIDATED_CELLS_ISSUER)
     return Adoption(cells=tuple(decisions), validated=validated, adopt=bool(validated.cells),
                     reasons=tuple(dict.fromkeys(shared)))

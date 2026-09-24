@@ -23,7 +23,8 @@ from rtb.eval.scoring import SYNTHETIC, Report, build_report, eval_set_sha256, s
 
 # 使用者 2026-09-24 本人裁定的兩個不採用理由(計劃〈使用者裁定〉)
 NOT_ADOPTED_REASONS = (
-    "照評分表,這個判斷可以由程式精確算出,本來就該是程式;現行規則不準記成程式缺陷",
+    "照評分表,這個判斷可以由程式精確算出,本來就該是程式;現行規則在某些格判錯,這件事記成現行規則的"
+    "程式缺陷(不是需要換判斷者的理由)",
     "缺正式環境紀錄、人工標註與候選實測",
 )
 MISSING_EVIDENCE = (
@@ -46,12 +47,12 @@ WARMUP, RUNS = 2_000, 20_000
 def measure_latency(inputs: tuple[WorthInput, ...]) -> tuple[float, float]:
     """現行程式規則經路由的每次延遲(微秒):中位、p95。"""
     for index in range(WARMUP):
-        route(inputs[index % len(inputs)], None, ValidatedCells.NONE, timeout_seconds=0.0)
+        route(inputs[index % len(inputs)], None, ValidatedCells.NONE)
     samples = []
     for index in range(RUNS):
         worth_input = inputs[index % len(inputs)]
         started = time.perf_counter_ns()
-        route(worth_input, None, ValidatedCells.NONE, timeout_seconds=0.0)
+        route(worth_input, None, ValidatedCells.NONE)
         samples.append((time.perf_counter_ns() - started) / 1000)
     samples.sort()
     return statistics.median(samples), samples[int(len(samples) * 0.95)]
@@ -65,7 +66,7 @@ def _not_measured() -> dict[str, Measure]:
 
 def comparison_rows(code_rule_latency: tuple[float, float]) -> tuple[ComparisonRow, ...]:
     scenarios = from_rows(eval_set.ROWS)
-    scored = score(scenarios, None, None, 0.0)
+    scored = score(scenarios, None, None)
     quality = sum(1 for s in scored if s.final is s.scenario.gold) / len(scored)
     median, p95 = code_rule_latency
     code = ComparisonRow(
@@ -123,7 +124,7 @@ def render(report: Report, rows: tuple[ComparisonRow, ...], adoption: Adoption) 
 
 def main() -> None:
     scenarios = from_rows(eval_set.ROWS)
-    report = build_report(SYNTHETIC, score(scenarios, None, None, 0.0), eval_set_sha256())
+    report = build_report(SYNTHETIC, score(scenarios, None, None), eval_set_sha256())
     rows = comparison_rows(measure_latency(tuple(s.worth_input for s in scenarios)))
     adoption = decide_adoption(report, None, OperationalLimits(None, None, None))
     print(render(report, rows, adoption))
