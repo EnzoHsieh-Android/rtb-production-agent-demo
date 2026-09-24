@@ -32,3 +32,17 @@ preflight-4: ran
 ## 動到〈使用者裁定〉的
 
 無。〈使用者裁定〉的 DAG 那條只寫「判斷點、分支條件」,「終點事件種類」出自設計與合約段,p2 只改那兩處。
+
+## 收貨機械重現(編排者 Claude 查證的部分;協調者核對的另補)
+
+| id | 指令或讀檔 | 輸出摘要 | 判定 |
+|---|---|---|---|
+| x4 | grep -n "class AttemptState\|class OutcomeCode" src/rtb/domain/attempt.py;grep -n "class Result" src/rtb/executor/execution.py;grep VoidOutcome | AttemptState 在 attempt.py:44、OutcomeCode 在 attempt.py:76、執行迴圈 Result 在 execution.py:310、VoidOutcome 在 execution.py:264;第 1 版 S1017 的清單都沒列 | HIT |
+| f1 | sed -n 28,55p src/rtb/domain/task_state.py | _FLOW 裡 ANALYZING → COLLECTING_EVIDENCE、PROPOSED → COLLECTING_EVIDENCE 兩條往回走的轉換;第 1 版只提死信重放與接續任務 | HIT |
+| a1 | grep -n "def reply\|application/json\|def _dispatch" src/rtb/httpkit.py | reply(:235)寫死 Content-Type application/json(:239);請求分派在 _dispatch(:149);沒有 HTML 出口 | HIT |
+| k1 | grep -n "def issue" -A8 src/rtb/executor/approval.py | issue(key, proposal, stage, tenant, *, approver, max_increase, issued_at, expires_at);approver 要過 is_id(src/rtb/domain/_checks.py:49) | HIT |
+| k6 | grep -n "MIN_KEY_BYTES" src/rtb/capabilitykit.py | MIN_KEY_BYTES = 32(:34) | HIT |
+| q1 | Phase 11B 增量 1(rtb-11b-rev a5eeedb)src/rtb/modelclient.py:321 settings_from_env、:337 _live_refusal | 即時條件除即時開關、展示編號、claude 外,還有價目表期限、管理政策、實測紀錄([S942])、真家目錄隔離時的記憶內容 | HIT |
+| q2 | 同上 settings_from_env 讀 RTB_MODEL_LIVE、RTB_MODEL、RTB_MODEL_RECORD | 白名單只給 PATH、HOME、LANG、USER 時三個變數都讀不到,入口一律判成錄製 | HIT |
+| q3 | modelclient.py:826 _open(建目錄、第一次建表);src/rtb/eval/record.py:160 --ledger「只在錄製模式能用」 | 重播也記一筆 0 元帳;預設帳在 ~/.rtb/model-ledger.sqlite | HIT |
+| q4 | src/rtb/modelledger_view.py:147 ModelLedgerView 只有 calls_between(:167);modelclient.py:869 used_so_far 按展示編號加總但走讀寫開法 | 唯讀開法沒有按展示編號查的讀法 | HIT |
