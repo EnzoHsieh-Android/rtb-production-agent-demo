@@ -268,7 +268,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - [S1000] 當分析端驅動命令列啟動時,它應只經正式的 DSP 用戶端與收件口用戶端呼叫流程推進函式,不帶任何故障注入手段。[test:test_the_analyzer_runner_uses_only_production_collaborators]
 - [S1001] 當呼叫次數乘逾時乘 2 不小於租約時,分析端驅動命令列應拒絕啟動。[test:test_the_analyzer_runner_refuses_a_lease_too_short_for_its_calls]
 - [S1002] 正式程式與展示以外的套件應不匯入展示套件,而且展示專用的故障套件只准展示啟動器匯入。[test:test_nothing_outside_the_demo_package_imports_it]
-- [S1003] 當驅動程式啟動任何行程時,子行程環境的鍵應只在 PATH、HOME、LANG、USER、PYTHONPATH(值固定為專案 src 的絕對路徑)、該角色需要的金鑰,與有排故障的那一個子行程的 RTB_DEMO_FAULT_NONCE 之內,模型入口另外只多 RTB_MODEL_LIVE、RTB_MODEL、RTB_MODEL_RECORD。[test:test_demo_processes_get_only_whitelisted_environment]
+- [S1003] 當驅動程式啟動任何行程時,子行程環境的鍵應只在 PATH、HOME、LANG、USER、PYTHONPATH(值固定為專案 src 的絕對路徑)、該角色需要的金鑰,與有排故障的那一個子行程的 RTB_DEMO_FAULT_NONCE 之內,模型入口另外只多 RTB_MODEL_LIVE、RTB_MODEL、RTB_MODEL_RECORD,驗證器與比較表產生器另外只多 LC_ALL、LC_CTYPE。[test:test_demo_processes_get_only_whitelisted_environment]
 - [S1004] 展示伺服器每次展示產生的金鑰應是 secrets.token_urlsafe 的文字、UTF-8 長度不短於 MIN_KEY_BYTES、每次展示都不同,而且展示狀態資料庫、報告與收據檔裡都找不到金鑰的文字或它的 UTF-8 位元組。[test:test_demo_keys_are_random_and_long_enough]
 - [S1005] 驅動程式應依序跑完 F1 到 F7,每個情境結束前把它啟動的行程全部結束。[test:test_the_driver_runs_every_scenario_and_leaves_no_process_behind]
 - [S1006] 當某個情境的預期處置斷言沒過時,驅動程式應把它標成「沒跑完」並寫哪一條沒對上,不標成照預期跑完。[test:test_a_scenario_is_done_only_when_its_expected_dispositions_are_seen]
@@ -397,15 +397,20 @@ REVISIT:2027-03-31 「AI 參與決策」階段改成分析端每一步自己存�
     - 顯示位置:比較表只放在報告底部(使用者 2026-09-24 裁定補充資訊只留在報告),主頁不放。
     - README 這次不做(使用者要求 Phase 13 全部做完後由 Codex 全盤重寫)。
     - 代碼審 r1 修正(協調者 2026-09-25 裁定):
-      - 子行程環境照 [S1003] 白名單:驅動程式起驗證器與產生器共用一支 `tool_environment`(PATH、HOME、LANG);上面「從 os.environ 起頭」那句作廢。產生器用檔案路徑跑(-E -s),同目錄的定義與驗證器也用檔案路徑載入,外面同名的 tools 套件頂替不了。(已由 r2 訂正:改回一般套件匯入,見下一條。)
+      - 子行程環境照 [S1003] 白名單:驅動程式起驗證器與產生器共用一支 `tool_environment`(PATH、HOME、LANG;r3 加 LC_ALL、LC_CTYPE);上面「從 os.environ 起頭」那句作廢。產生器用檔案路徑跑(-E -s),同目錄的定義與驗證器也用檔案路徑載入,外面同名的 tools 套件頂替不了。(已由 r2 訂正:改回一般套件匯入,見下一條。)
       - 「沒有驗證器」那一欄用驗證器的 `clean_environment()` 與同一套 pytest 旗標,兩欄跑的是同一組測試;外面帶 PYTEST_ADDOPTS 兩欄結果不變。
       - 五個改法直接用公開名字,驗證器測試從 FORGERIES 展開、用明確的項目名字,展開後仍是原本那 278 項;原本那支比對「同一份定義」的測試擋不住另抄一份,刪掉,改成直接核對參數化用的就是 FORGERIES。
       - 產生器:每一步逾時或被要求停止,最後一律整組 SIGKILL;SIGTERM 只記下要停(不在刪暫存目錄途中丟例外);先檢查 pytest 能匯入,不行整張表記「這次沒產生:環境缺 pytest」;pytest 結束代碼不是 0 或 1、或總結行不是測試總結,那一列算沒產生。
       - 驅動程式:讀產生器輸出設 1MB 上限、任何讀不懂都記「這次沒產生」,花了幾秒用自己量的。
     - 代碼審 r2 修正(協調者 2026-09-25 代使用者裁定):
-      - 驗證器與產生器跑證據測試的指令都加 -P:原本 repo 根放一份改結果的 `_pytest/` 就能騙過驗證器、不用重算雜湊,說明裡的天花板因此不成立;加了之後天花板那句照舊成立。
+      - 驗證器與產生器跑證據測試的指令都加 -P:原本 repo 根放一份改結果的 `_pytest/` 就能騙過驗證器、不用重算雜湊,說明裡的天花板因此不成立;加了之後天花板那句照舊成立。(已由 r3 訂正:-P 只擋最直接的一條,頂替標準庫模組照樣繞得過,「照舊成立」作廢,見下方 r3 修正。)
       - tools 加 `__init__.py` 成為正式套件,產生器改回一般套件匯入,驅動程式在 repo 根以 `-E -s -X utf8 -m tools.forgery_comparison` 跑:-E 忽略 PYTHONPATH、repo 根是匯入路徑第一項、tools 是正式套件,同名套件頂替不了。
       - 編碼:驗證器與產生器的子行程加 -X utf8,驅動程式讀輸出照 UTF-8、讀不懂的位元組換成替代字元(伺服器的 LANG 與 LC_ALL 不一致時也不出錯、不卡)。
+    - 代碼審 r3 修正(協調者 2026-09-25 代使用者裁定;末輪,之後由協調者驗收):
+      - 威脅模型照實寫:驗證器防的是忘了重算雜湊、忘了跑、宣稱比證據大這類疏忽,不防存心繞過;已知繞過手法至少有「連雜湊一起重算」「在 repo 內頂替 pytest 內部或標準庫模組」兩類(加了 -P 之後,pytest 設定階段自己還會把 repo 根與 src 插到匯入路徑最前面,repo 根或 src 放一支 pdb.py 就能把失敗改成通過)。不再一條條堵;-P 照留;比較表天花板那一列照舊示範第一類,說明文字改成照實的威脅模型。重現步驟與「不追」的理由在 [[Systems/宣稱驗證器]] 的 PITFALL。
+      - 驅動程式給驗證器與產生器的白名單環境加 LC_ALL、LC_CTYPE(語系變數不是秘密):原本只抄 LANG,LANG 是 latin-1 時驗證器再往下開的子行程印中文會崩、驗證器誤判沒過。
+      - 驗證器跑證據測試也加 -X utf8、照 UTF-8 讀並替換讀不懂的位元組:證據測試失敗訊息含非 ASCII、語系又是 latin-1 時不再解碼崩潰。
+      - 測試補齊:語系不一致時比較表前五列「有驗證器」都是擋下;驅動程式讀到驗證器印的不合法位元組照樣讀完。
 - (2026-09-24 實作者解讀,代碼審 r1 t2)[S1004] 後半句(展示狀態資料庫、報告與收據檔裡找不到金鑰)歸增量 2b:報告與收據檔在 2b 才產生。增量 1 驗前半句(每把都是 token_urlsafe 的文字、夠長、每次展示都不同),並驗展示狀態資料庫的寫入端不收金鑰(資料結構沒有金鑰欄位)。
 
 ## 審計修正紀錄

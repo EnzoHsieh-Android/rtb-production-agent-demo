@@ -1191,16 +1191,20 @@ def run_evidence(root: Path, nodes: list[str], timeout: float) -> list[str]:
         # -E 不讀 PYTHON 開頭的變數、-s 不開 user site(代碼審第 1 輪:CI 的 setup-python 沒有
         # venv,user site 裡的 usercustomize 能在清完環境後再自己設 PYTEST_ADDOPTS)。-P 不把工作
         # 目錄(repo 根)放在匯入路徑最前面:不然 repo 根放一份 `_pytest/`,pytest 內部匯入的就是它,
-        # 不用重算雜湊就能把失敗改成通過(Phase 12 增量 3 代碼審 r2 s1)
+        # 不用重算雜湊就能把失敗改成通過(Phase 12 增量 3 代碼審 r2 s1)。-P 只擋掉最直接的一條:
+        # pytest 設定階段自己還會把 repo 根與 src 插到匯入路徑最前面,之後才匯入的標準庫(pdb…)照樣
+        # 能被頂替——驗證器防疏忽、不防存心繞過,這類不追(代碼審 r3,見 Systems/宣稱驗證器 PITFALL)
         # 兩個 -c 不同義、順序不能動:第一個是直譯器的「執行這段碼」(RUNNER 讀 sys.argv[1] 當紀錄
         # 檔、其餘原樣交給 pytest),第二個是交給 pytest 的設定檔旗標
-        command = [sys.executable, "-E", "-s", "-P", "-c", RUNNER, str(recorded),
+        # -X utf8 讓證據測試照 UTF-8 印,這裡照 UTF-8 讀、不合法的位元組換成替代字元:失敗訊息含非
+        # ASCII、語系又是 latin-1 時不再解碼崩潰(代碼審 r3 s2)
+        command = [sys.executable, "-E", "-s", "-P", "-X", "utf8", "-c", RUNNER, str(recorded),
                    "-c", PYTEST_CONFIG, "--rootdir", ".",
                    "-p", "no:cacheprovider", "-o", "xfail_strict=true", "-q",
                    f"--junitxml={junit}", *nodes]
         process = subprocess.Popen(  # noqa: S603 - 指令全由驗證器組,節點編號當參數傳
             command, cwd=root, env=clean_environment(), stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True, start_new_session=True)
+            stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", start_new_session=True)
         try:
             output, _ = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:

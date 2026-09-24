@@ -1124,7 +1124,8 @@ def _end_group(popen: subprocess.Popen[str]) -> None:
             continue
 
 
-_TOOL_VARIABLES = ("PATH", "HOME", "LANG")
+_TOOL_VARIABLES = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE")  # 語系變數不是秘密;少了 LC_ALL,
+# 驗證器再往下開的子行程只看到 LANG,LANG 是 latin-1 時印中文會崩(代碼審 r3 v2)
 
 
 def tool_environment() -> dict[str, str]:

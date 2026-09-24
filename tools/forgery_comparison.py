@@ -40,8 +40,10 @@ STEP_TIMEOUT_SECONDS = 120.0  # 一列裡每一步(證據測試、驗證器)的�
 STOP_SECONDS = 5.0  # 送 SIGTERM 後等整組收手,再硬殺
 POLL_SECONDS = 0.2
 NOTE = ("比的是有沒有機械驗證:同一份改動、同一份清單、同一組測試,差別只在有沒有跑驗證器;"
-        "不是比模型寫程式的品質。最後一列是天花板:改結果的鉤子連雜湊一起重算,有驗證器也擋不住,"
-        "這部分歸人審(清單的差異會進提交,審查員看得到)。")
+        "不是比模型寫程式的品質。驗證器防的是疏忽(忘了重算雜湊、忘了跑、宣稱比證據大),不防存心繞過;"
+        "已知的繞過手法至少有兩類:連雜湊一起重算、在 repo 內頂替 pytest 內部或標準庫模組。"
+        "最後一列示範第一類:改結果的鉤子連雜湊一起重算,有驗證器也擋不住,這部分歸人審"
+        "(清單的差異會進提交,審查員看得到)。")
 NOT_GENERATED = "這次沒產生:"
 # pytest 的總結行(「2 passed」「1 passed, 1 skipped」「1 failed, 1 passed」…)
 _SUMMARY = re.compile(r"\d+ (passed|failed|skipped|errors?|deselected|xfailed|xpassed)\b.*")
@@ -142,8 +144,8 @@ def _verifier_summary(code: int, out: str) -> str:
 
 
 # 起子行程的旗標:-E 不讀 PYTHON 開頭的變數、-s 不開 user site、-P 不把工作目錄(小 repo 根)放在匯入
-# 路徑最前面(代碼審 r2 s1:不然小 repo 根藏一份 `_pytest/` 就能改結果)、-X utf8 不看語系設定
-# (代碼審 r2 s2)
+# 路徑最前面(代碼審 r2 s1:不然小 repo 根藏一份 `_pytest/` 就能改結果;只擋最直接的一條,頂替標準庫
+# 模組照樣繞得過,驗證器不防存心繞過,代碼審 r3)、-X utf8 不看語系設定(代碼審 r2 s2)
 _FLAGS = ("-E", "-s", "-P", "-X", "utf8")
 
 

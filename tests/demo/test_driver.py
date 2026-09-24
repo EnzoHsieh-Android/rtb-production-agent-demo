@@ -1322,17 +1322,19 @@ def test_a_cancelled_demo_generates_no_comparison(tmp_path, state):
 
 # ---- 增量 3 代碼審 r1 ----
 def test_the_comparison_generator_gets_only_the_whitelisted_environment(monkeypatch):
-    """[S1003][代碼審 r1 s1/a2] 比較表產生器跟驗證器用同一套白名單環境(PATH、HOME、LANG),外面的
-    金鑰與 PYTEST_、PYTHON 開頭的變數都帶不進去。"""
+    """[S1003][代碼審 r1 s1/a2、r3 v2] 比較表產生器跟驗證器用同一套白名單環境(PATH、HOME、LANG、
+    LC_ALL、LC_CTYPE),外面的金鑰與 PYTEST_、PYTHON 開頭的變數都帶不進去。"""
     monkeypatch.setenv("SOME_SECRET_TOKEN", "abc123")
+    monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
     monkeypatch.setenv("PYTEST_ADDOPTS", "-p evil")
     listing = [sys.executable, "-c", (
         "import json, os\nprint(json.dumps({'rows': [], 'note': ','.join(sorted(os.environ)),"
         " 'seconds': 0}))")]
     keys = set(driver_module.run_comparison(listing, "d", 10).note.split(","))
-    assert keys <= {"PATH", "HOME", "LANG", "LC_CTYPE", "__CF_USER_TEXT_ENCODING"}, keys
+    assert "LC_ALL" in keys
+    assert keys <= {"PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "__CF_USER_TEXT_ENCODING"}, keys
     assert driver_module.tool_environment() == {
-        k: os.environ[k] for k in ("PATH", "HOME", "LANG") if k in os.environ}
+        k: os.environ[k] for k in ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE") if k in os.environ}
 
 
 def test_the_comparison_generator_is_the_repos_own_even_if_another_tools_package_exists(tmp_path):
@@ -1386,6 +1388,7 @@ def test_the_tools_run_in_utf8_whatever_the_locale_says(monkeypatch):
     result = driver_module.run_comparison(driver_module.default_comparison_command(), "d", 120)
     assert len(result.rows) == 6, result.note
     assert result.rows[-1][0].startswith("conftest 偷改測試結果")
+    assert all(row[2].startswith("擋下:") for row in result.rows[:5]), result.rows  # r3 v3
     assert "-X" in driver_module.default_verifier_command()
     assert driver_module.default_verifier_command()[1:3] == ["-X", "utf8"]
 
@@ -1399,3 +1402,33 @@ def test_bytes_that_are_not_utf8_do_not_stall_the_reader():
         "d", 20)
     assert time.monotonic() - started < 10
     assert result.rows == () and "讀不懂" in result.note
+
+
+# ---- 增量 3 代碼審 r3 ----
+_CHILD_PRINTS_CHINESE = (
+    "import subprocess, sys\n"
+    "out = subprocess.run([sys.executable, '-c', 'print(\"無\")'],\n"
+    "                     capture_output=True).stdout\n"
+    "ok = out.strip() == '無'.encode('utf-8')\n"
+    "print('通過' if ok else '擋下')\nprint('- 子行程印出 ' + repr(out))\n"
+    "sys.exit(0 if ok else 1)\n")
+
+
+def test_the_verifiers_own_children_see_a_consistent_locale(monkeypatch):
+    """[代碼審 r3 v2] 伺服器的 LANG 是 latin-1、LC_ALL 是 UTF-8:驗證器再往下開的子行程也要拿到一致的
+    語系(白名單照抄 LC_ALL、LC_CTYPE),印中文不變成跳脫字元、驗證器不誤判沒過。"""
+    monkeypatch.setenv("LANG", "en_US.ISO8859-1")
+    monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
+    outcome = driver_module.run_verifier([sys.executable, "-c", _CHILD_PRINTS_CHINESE], "d", 60)
+    assert outcome.passed, outcome.lines
+    assert {"LC_ALL", "LC_CTYPE"} & set(driver_module._TOOL_VARIABLES) == {"LC_ALL", "LC_CTYPE"}
+
+
+def test_a_verifier_that_prints_bytes_that_are_not_utf8_is_read_to_the_end():
+    """[代碼審 r3 v3] 驗證器印出不合法的位元組:照樣讀完(換成替代字元),判定照結束代碼,不卡住。"""
+    started = time.monotonic()
+    outcome = driver_module.run_verifier(
+        [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\xff\\n' + b'a' * 300000"
+         " + b'\\n'); sys.stdout.flush(); print('通過')"], "d", 20)
+    assert time.monotonic() - started < 10
+    assert outcome.passed and "\ufffd" in outcome.lines[0]

@@ -1484,6 +1484,24 @@ def test_a_shadowed_pytest_internal_package_at_the_repo_root_is_blocked(repo):
     assert "test_pause" in output
 
 
+def test_a_non_ascii_failure_message_under_a_latin1_locale_is_still_a_block(repo, monkeypatch):
+    """[Phase 12 增量 3 代碼審 r3 s2] 語系是 latin-1、證據測試的失敗訊息含非 ASCII 字元:驗證器照樣
+    讀得完、擋下並寫原因(原本證據測試照 latin-1 印、驗證器照 UTF-8 嚴格讀,解碼時崩潰,
+    沒有擋下原因)。"""
+    monkeypatch.setenv("LANG", "en_US.ISO8859-1")
+    for name in ("LC_ALL", "LC_CTYPE"):
+        monkeypatch.delenv(name, raising=False)
+    write_files(repo, {"tests/dsp/test_server.py": TEST_SERVER.replace(
+        "def test_pause():\n    assert act(\"pause\") == samples.EXPECTED",
+        "def test_pause():\n    assert not act(\"pause\"), \"caf\\u00e9\"")})
+    write_manifests(repo)
+
+    code, output = verify(repo)
+
+    assert code == 1, output
+    assert "test_pause" in output
+
+
 REMINDER = "重貼雜湊前先確認證據仍成立"
 
 

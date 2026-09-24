@@ -214,3 +214,14 @@ def test_the_generator_commands_run_in_utf8_without_the_working_directory_first(
     assert command[:6] == ["py", "-E", "-s", "-P", "-X", "utf8"]
     assert forgery_comparison._verifier_command("py", "claims")[:6] == [
         "py", "-E", "-s", "-P", "-X", "utf8"]
+
+
+# ---- 代碼審 r3(增量 3)----
+def test_the_note_says_what_the_verifier_guards_against_and_what_it_does_not():
+    """[代碼審 r3 s1/v1] 說明照實寫:驗證器防疏忽(忘了重算、忘了跑、宣稱比證據大),不防存心繞過;已知
+    繞過手法至少有「連雜湊一起重算」「在 repo 內頂替 pytest 內部或標準庫模組」兩類。
+    不寫成只有一種擋不住。"""
+    note = forgery_comparison.NOTE
+    assert "不防存心繞過" in note
+    for known in ("連雜湊一起重算", "頂替 pytest 內部或標準庫模組"):
+        assert known in note, known
