@@ -311,16 +311,27 @@ def test_the_narrative_outcomes_match_the_model_client_outcomes():
 
 # ---- 代碼審 r1 ----
 def test_sentences_with_untraceable_numbers_are_not_shown(handed_off, tmp_path):
-    """說明文字裡的數字要對回送出去的證據;對不上的句子不存、不顯示,全句都對不上就記回應讀不懂。"""
+    """說明文字裡的數字要對回送出去的證據;對不上的句子不存、不顯示,全句都對不上就記回應讀不懂。拿掉幾句
+    照實記下、追蹤檢視標出來,不靜默刪(代碼審 r3)。保留意見照樣顯示。"""
     db = _copy(handed_off, tmp_path)
-    text = "預算從 100 加到 110,依據是配速偏低。昨天花費999999美元,轉換率100%。"
+    text = ("預算從 100 加到 110,依據是配速偏低。昨天花費999999美元。"
+            "不過目前樣本數偏少,報酬的估計不穩定。建議核可前參考近期趨勢再決定。")
     [done] = _narrate(db, _gate(tmp_path, live(FakeBackend(reply(text)))))
-    assert done.outcome == "ok"
-    assert _status(db).text == "預算從 100 加到 110,依據是配速偏低。"
+    assert done.outcome == "ok" and done.dropped == 1
+    status = _status(db)
+    assert status.text == ("預算從 100 加到 110,依據是配速偏低。"
+                           "不過目前樣本數偏少,報酬的估計不穩定。建議核可前參考近期趨勢再決定。")
+    assert status.dropped == 1
     (tmp_path / "all").mkdir()
     db2 = _copy(handed_off, tmp_path / "all")
-    [bad] = _narrate(db2, _gate(tmp_path / "all", live(FakeBackend(reply("花費 999999 美元。")))))
-    assert bad.outcome == "unreadable" and _status(db2).text is None
+    [bad] = _narrate(db2, _gate(tmp_path / "all", live(FakeBackend(reply("花費 999999。")))))
+    assert bad.outcome == "unreadable" and bad.dropped == 1
+    assert _status(db2).text is None and _status(db2).dropped == 1
+    assert GOOD.endswith("模型產生的說明只供參考。")
+    (tmp_path / "good").mkdir()
+    db3 = _copy(handed_off, tmp_path / "good")
+    [kept] = _narrate(db3, _gate(tmp_path / "good", live(FakeBackend(reply(GOOD)))))
+    assert kept.dropped == 0 and _status(db3).text == GOOD  # 第二句「只供參考」保留
 
 
 def test_live_recording_without_a_batch_id_is_refused_at_the_entry(handed_off, tmp_path):
@@ -390,6 +401,7 @@ def test_the_prompts_ask_for_arabic_numerals_copied_from_the_evidence():
 
     for prompt in (narrate.SYSTEM_PROMPT, hypothesis.SYSTEM_PROMPT):
         assert "數字一律用阿拉伯數字照證據原樣寫,不要自己推算比率或時間" in prompt
+        assert "數字後面不要接單位或量詞" in prompt  # 代碼審 r3:帶單位的數字是數詞,會被拿掉
 
 
 def test_only_calls_that_were_sent_count_toward_the_claim_limit(handed_off, tmp_path):

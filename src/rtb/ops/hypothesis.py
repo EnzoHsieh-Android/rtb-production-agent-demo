@@ -292,7 +292,11 @@ def _ask(text: str, put_back: Callable[[str], str], settings: mc.Settings,
                 **shown}
     hypotheses, step = answer
     # 數字要對回送出去的內容(代碼審 r1,Phase 13 計劃④):對不上的那一條不顯示,全部對不上整份作廢
-    hypotheses = [kept for kept in (mc.traceable_sentences(h, text)[0] for h in hypotheses) if kept]
+    checked = [mc.traceable_sentences(h, text) for h in hypotheses]
+    dropped = sum(1 for kept, _ in checked if not kept)
+    hypotheses = [kept for kept, _ in checked if kept]
+    if dropped:  # 拿掉幾條照實標出,不靜默刪(代碼審 r3)
+        shown |= {"dropped_hypotheses": dropped, "note": f"有 {dropped} 條因數字對不回未顯示"}
     if not hypotheses:
         return {"status": "failed", "message": NO_HYPOTHESIS, "reason": "untraceable_numbers",
                 **shown}
@@ -334,11 +338,12 @@ def _hypothesis(args: argparse.Namespace, settings: mc.Settings, sources: sli.So
     """回(印出用的 hypothesis 一欄, 花費帳是不是忙碌)。沒有告警、或即時加錄製的入口檢查沒過,就不呼叫
     模型、不記帳。"""
     alerts = fired(statuses)
+    if refusal is not None:  # 有沒有告警都印原因(代碼審 r3)
+        print(refusal, file=errors)
     if not alerts:
         print(NO_ALERT, file=errors)
         return {"status": "no_alert", "message": NO_ALERT}, False
     if refusal is not None:
-        print(refusal, file=errors)
         return {"status": "refused", "message": NO_HYPOTHESIS, "reason": "recording_refused"}, False
     for notice in settings.notices:
         print(notice, file=errors)

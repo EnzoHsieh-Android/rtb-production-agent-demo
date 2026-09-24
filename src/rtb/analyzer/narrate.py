@@ -71,6 +71,7 @@ class NarrationResult:
     content_hash: str
     outcome: str  # 說明的結果類別,或 skipped、already_done
     source: str | None = None
+    dropped: int = 0  # 因數字對不回而沒存的句數
 
 
 def proposal_hash(proposal: Proposal) -> str:
@@ -172,13 +173,17 @@ def _narrate_one(store: TaskStore, gate: modelgate.Gate, row: TaskRow, claim: Na
             raise  # 花費帳忙碌:命令列以專用結束代碼結束(結果照記,之後可以立刻再領)
     else:
         source = result.source.value
-        kept = modelgate.traceable_sentences(result.text, trusted)[0] if valid_narrative(
-            result.text) else ""
-        if kept:  # 數字對不回證據的句子不存、不顯示;一句都不剩就當讀不懂
+        kept, dropped = (modelgate.traceable_sentences(result.text, trusted)
+                         if valid_narrative(result.text) else ("", 0))
+        # 數字對不回證據的句子不存、不顯示,拿掉幾句照實記下(追蹤檢視標出);一句都不剩就當讀不懂
+        if kept:
             outcome, text = NarrativeOutcome.OK, restore(kept)
         else:
             outcome = NarrativeOutcome.UNREADABLE
-        store.record_narrative(claim, outcome, text=text, source=source, now=clock())
+        store.record_narrative(claim, outcome, text=text, source=source, now=clock(),
+                               dropped=dropped)
+        return NarrationResult(claim.task_id, claim.revision, claim.content_hash, outcome.value,
+                               source, dropped)
     return NarrationResult(claim.task_id, claim.revision, claim.content_hash, outcome.value, source)
 
 

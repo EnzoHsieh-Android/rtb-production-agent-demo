@@ -20,6 +20,10 @@ select = [
 # 最上層共用模組(sqlitekit、httpkit、httpclient、capabilitykit)吃的是這一份;各層與展示套件的
 # ruff.toml 整張重列自己的禁令表(子目錄設定會蓋掉這張表)。Phase 12 代碼審 r1 s2
 "rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+# 最上層共用模組不准碰會送出模型呼叫的入口(Phase 13 代碼審 r3:各層准匯入共用模組,共用模組若轉手就繞過)
+"rtb.analyzer.modelgate".msg = "分析端模型閘道是送出模型呼叫的入口:只准分析端寫死的幾支模組用(Phase 13 [S1100])"
+"rtb.analyzer.narrate".msg = "模型說明命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r3)"
+"rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r3)"
 
 [tool.ruff.lint.per-file-ignores]
 # 測試裡本來就會 assert、啟動子行程、開連線到本機、用固定種子的亂數

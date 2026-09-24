@@ -336,20 +336,42 @@ def test_live_recording_hypotheses_need_a_batch_id_and_still_print_the_alert(row
 
 
 def test_hypotheses_with_untraceable_numbers_are_not_shown(rows, dsp_url, tmp_path):
-    """假說文字裡的數字要對回送出去的內容:對不上的那一條不顯示,全部對不上就整份作廢。"""
+    """假說文字裡的數字要對回送出去的內容:對不上的那一條不顯示並標出拿掉幾條,全部對不上就整份作廢;
+    沒有數詞的常用寫法照常顯示(代碼審 r3)。"""
     fire_alert(rows)
-    answer = {"hypotheses": ["12 件都過期了,執行迴圈可能沒在跑", "昨天花了 999999 美元"],
+    answer = {"hypotheses": ["過期的都是同一批,執行迴圈可能沒在跑", "昨天花了 999999"],
               "next_step": "open_example_trace"}
     _, environ = live_env(tmp_path / "a", answer)
     code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1")
+    shown = printed["hypothesis"]
+    assert shown["status"] == "ok"
+    assert shown["hypotheses"] == ["過期的都是同一批,執行迴圈可能沒在跑"]
+    assert shown["dropped_hypotheses"] == 1 and shown["note"] == "有 1 條因數字對不回未顯示"
+    plain = {"hypotheses": ["過期的都是同一批", "執行迴圈一直卡在等鎖,要進一步看",
+                            "工作者之間的版本不一致"], "next_step": "open_example_trace"}
+    _, environ = live_env(tmp_path / "c", plain)
+    code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1")
     assert printed["hypothesis"]["status"] == "ok"
-    assert printed["hypothesis"]["hypotheses"] == ["12 件都過期了,執行迴圈可能沒在跑"]
-    _, environ = live_env(tmp_path / "b", {"hypotheses": ["昨天花了 999999 美元"],
+    assert printed["hypothesis"]["hypotheses"] == plain["hypotheses"]
+    assert "dropped_hypotheses" not in printed["hypothesis"]
+    _, environ = live_env(tmp_path / "b", {"hypotheses": ["昨天花了 999999"],
                                           "next_step": "open_example_trace"})
     code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1")
     assert printed["hypothesis"]["status"] == "failed"
     assert printed["hypothesis"]["reason"] == "untraceable_numbers"
+    assert printed["hypothesis"]["dropped_hypotheses"] == 1
     assert code == slo_code(rows, dsp_url)
+
+
+def test_a_refused_live_recording_says_why_even_without_an_alert(rows, dsp_url, tmp_path):
+    """代碼審 r3:沒有告警時,即時加錄製的入口參數錯照樣印原因。"""
+    rows.event(NOW - timedelta(seconds=3), "h1", "handed_off")
+    _, environ = live_env(tmp_path, VALID)
+    environ = {**environ, "RTB_MODEL_RECORD": "1"}
+    code, printed, err = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1")
+    assert code == hypothesis.EXIT_BAD_ARGUMENTS
+    assert printed["hypothesis"]["status"] == "no_alert"
+    assert "批次" in err and "拒絕" in err
 
 
 def test_the_recording_directory_is_checked_once_before_the_call(rows, dsp_url, tmp_path,

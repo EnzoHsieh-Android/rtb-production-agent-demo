@@ -389,7 +389,8 @@ def test_the_recording_directory_check_has_no_gaps(tmp_path):  # noqa: PLR0915 -
             mc.check_recordings_dir(closed / "rec", "b1")
     finally:
         closed.chmod(0o700)
-    for field, value in (("outcome", "unknown"), ("settlement", "sort_of")):
+    for field, value in (("outcome", "unknown"), ("settlement", "sort_of"),
+                         ("caller", "unknown")):  # 代碼審 r3:呼叫者也要是合法成員
         bad = tmp_path / f"bad-{field}"
         bad.mkdir()
         mc.call_model(request(f"q-{field}", batch_id="b1"), live(FakeBackend(reply("a")), True),
@@ -400,9 +401,10 @@ def test_the_recording_directory_check_has_no_gaps(tmp_path):  # noqa: PLR0915 -
         if field == "outcome":
             data["text"] = None
         saved.write_text(json.dumps(data), encoding="utf-8")
-        with pytest.raises(mc.NoRecording):  # 讀的時候會拒絕
-            rec_module.load_recording(saved, key=data["key"], caller=mc.Caller.EVAL_CANDIDATE,
-                                      model=mc.DEFAULT_MODEL)
+        for caller in mc.Caller:  # 讀的時候不論哪個合法呼叫者都讀不回
+            with pytest.raises(mc.NoRecording):
+                rec_module.load_recording(saved, key=data["key"], caller=caller,
+                                          model=mc.DEFAULT_MODEL)
         with pytest.raises(mc.MixedRecordingsDir):  # 開錄前就該拒絕,兩邊同一套規則
             mc.check_recordings_dir(bad, "b1")
 
@@ -418,29 +420,57 @@ def test_the_cap_message_says_it_counts_only_the_capped_callers(dirs, monkeypatc
 
 def test_numbers_in_model_text_must_trace_back_to_the_evidence():
     """代碼審 r1(Phase 13 計劃〈省掉不值得發生的模型工作〉④:11B 的說明與假說也照這條):文字裡提到的
-    數字要能對回送出去的證據,對不上的句子不顯示。"""
-    evidence = "預算=100、新預算=110、點擊=12、轉換=1、花費=0.5、風險說明:budget +10%"
+    數字要能對回送出去的證據,對不上的句子不顯示。r3 改裁定(協調者代使用者):只在出現數詞時判對不回,
+    常用詞裡的數字字不算。"""
+    evidence = "預算=100、新預算=110、點擊=12、轉換=1、花費=0.5、營收=5.0、風險說明:budget +10%"
     kept, dropped = mc.traceable_sentences(
-        "預算從 100 加到 110,加了 10%。昨天花費999999美元,轉換率100%。點擊 12 次!", evidence)
-    assert kept == "預算從 100 加到 110,加了 10%。點擊 12 次!" and dropped == 1
+        "預算從 100 加到 110。昨天花費999999美元。點擊數 12,轉換數 1!", evidence)
+    assert kept == "預算從 100 加到 110。點擊數 12,轉換數 1!" and dropped == 1
     assert mc.traceable_sentences("沒有任何數字的說明。", evidence) == ("沒有任何數字的說明。", 0)
-    assert mc.traceable_sentences("花費 0.50 元,新預算 110.0。", evidence)[1] == 0  # 同值不同寫法
-    assert mc.traceable_sentences("花費1,000元。", "花費=1000") == ("花費1,000元。", 0)
-    assert mc.traceable_sentences("全形數字１２次。", evidence) == ("全形數字１２次。", 0)
+    assert mc.traceable_sentences("花費 0.50,新預算 110.0。", evidence)[1] == 0  # 同值不同寫法
+    assert mc.traceable_sentences("花費1,000。", "花費=1000") == ("花費1,000。", 0)
+    assert mc.traceable_sentences("全形數字１２。", evidence) == ("全形數字１２。", 0)
     assert mc.traceable_sentences("只有 999。", evidence) == ("", 1)
-    # 代碼審 r2(協調者裁定):負號保留;中文或大寫數字、數字後接萬千億、認不出的數字記號一律當對不回
+    # 負號保留(含長破折號、U+2010 連字號)
     assert mc.traceable_sentences("剩餘預算 11.88。", "剩餘預算 -11.88") == ("", 1)
     kept = "剩餘預算 -11.88。"
     assert mc.traceable_sentences(kept, "剩餘預算 -11.88") == (kept, 0)
-    assert mc.traceable_sentences("變動為 -5。", "變動=5") == ("", 1)
-    for fabricated in ("建議預算九十九萬九千。", "預算從 100 萬加到 110 萬。", "花費壹佰元。",
-                       "排名第⑨。", "上看 10⁶ 美元。", "損失上看 1e5 美元。", "花掉 ½。",
-                       "第 Ⅻ 批。", "兩次都失敗。", "預算加一成。"):
-        assert mc.traceable_sentences(fabricated, evidence + "、100、110、10、5、1") == ("", 1), (
-            fabricated)
+    for negative in ("變動為 -5。", "變動為 \u22125。", "變動為 \u20145。", "變動為 \u20105。"):
+        assert mc.traceable_sentences(negative, "變動=5") == ("", 1), negative
+    # 證據裡的科學記號當一個數,不拆成可冒用的 1 與 5(代碼審 r3 Codex 2)
+    assert mc.traceable_sentences("比率為 5。", "比率=1e-05") == ("", 1)
     # 全形的句末標點也斷句
-    assert mc.traceable_sentences("預算從 100 加到 110\uff1b點擊率約 2.4%\u3002", evidence) == (
+    assert mc.traceable_sentences("預算從 100 加到 110\uff1b昨天 999\u3002", evidence) == (
         "預算從 100 加到 110\uff1b", 1)
-    shouted = "點擊 12 次\uff01真的\uff1f"
-    assert mc.traceable_sentences(shouted + "昨天 999 次\uff01", evidence) == (shouted, 1)
     assert modelgate.traceable_sentences is mc.traceable_sentences
+
+
+# 常見的正常寫法:含單個數字字或常用詞,沒有數詞,要保留(保留意見要照樣顯示;代碼審 r3 修正驗收 1)
+PLAIN = ("目前樣本數偏少,需要進一步觀察。", "配速偏低,提案一致。", "建議核可前參考近期趨勢再決定。",
+         "兩者差距不大。", "萬一轉換沒回來,加的預算就白花了。", "不知道為什麼轉換偏少。",
+         "後續會陸續回報。", "一律以程式算的數字為準。", "這批廣告一直表現穩定。",
+         "同一批廣告一起調整。", "唯一的風險是樣本少。", "統一由人工確認。", "一定要再確認一下。",
+         "還有一些不確定。", "參與核可的人要看完。", "模型產生的說明只供參考。",
+         "點擊數 12,轉換數 1。", "預算從 100 加到 110。",
+         "需要进一步观察。", "建议参考近期趋势。", "不知道为什么。", "后续陆续回报。",
+         "统一由人工确认。", "大陸市場的廣告另外看。", "零星的轉換不代表趨勢。")
+# 數詞:連續的數字字、數字後面緊接單位或量詞、分組寫法、k/K/M/B、科學記號、其他數字記號
+FABRICATED = ("目前只有一筆轉換。", "建議預算九十九萬九千。", "預算從 100 萬加到 110 萬。",
+              "點擊 12 次。", "加了 10%。", "花費 5 元。", "花費 5 美元。", "兩倍的預算。",
+              "三百萬的損失。", "五十倍的漲幅。", "两倍的预算。", "三百万的损失。", "一亿的预算。",
+              "仨次都失敗。", "廿天內。", "花費壹佰。", "觀察 3 天。", "過去 24 小時。",
+              "等了 10 分鐘。", "1 100 500 的損失。", "1'100'500 的損失。", "1_100_500 的損失。",
+              "1\u202f100\u202f500 的損失。",
+              "\uff11 \uff11\uff10\uff10 \uff15\uff10\uff10 的損失。", "500k 的損失。",
+              "500K 的損失。", "5M 的損失。", "5B 的損失。", "損失上看 1e5。", "排名第⑨。",
+              "上看 10⁶。", "花掉 ½。", "第 Ⅻ 批。", "預算加一成。")
+
+
+def test_only_numeral_phrases_count_as_untraceable():
+    """代碼審 r3(協調者改裁定):正常寫法保留,數詞一律當對不回。"""
+    evidence = "預算=100、新預算=110、點擊=12、轉換=1、花費=0.5、營收=5.0、1、5、10、24、3、500"
+    for sentence in PLAIN:
+        assert mc.traceable_sentences(sentence, evidence) == (sentence, 0), sentence
+    for sentence in FABRICATED:
+        assert mc.traceable_sentences(sentence, evidence) == ("", 1), sentence
+    assert "一律" in mc.COMMON_WORDS and "參考" in mc.COMMON_WORDS  # 白名單寫在程式

@@ -222,10 +222,17 @@ def _narrative(status: NarrativeStatus | None) -> dict[str, object]:
     if status is None:
         return {"result": None, "shown": NOT_YET}
     if status.outcome == "ok" and status.text is not None:
-        return {"label": MODEL_LABEL, "source": status.source, "text": status.text}
-    if status.outcome is None:
+        shown: dict[str, object] = {"label": MODEL_LABEL, "source": status.source,
+                                    "text": status.text}
+    elif status.outcome is None:
         return {"result": None, "shown": IN_PROGRESS}
-    return {"result": status.outcome, "shown": NARRATIVE_SHOWN.get(status.outcome, "其他失敗")}
+    else:
+        shown = {"result": status.outcome,
+                 "shown": NARRATIVE_SHOWN.get(status.outcome, "其他失敗")}
+    if status.dropped:  # 數字對不回而拿掉的句子照實標出(代碼審 r3)
+        shown |= {"dropped_sentences": status.dropped,
+                  "note": f"有 {status.dropped} 句因數字對不回未顯示"}
+    return shown
 
 
 def _tool_segment(index: int, position: int, call: ToolCall) -> Segment:

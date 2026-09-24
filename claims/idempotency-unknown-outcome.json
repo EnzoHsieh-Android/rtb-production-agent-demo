@@ -99,7 +99,7 @@
   "harness": [
     {
       "path": "pyproject.toml",
-      "sha256": "2daae40b8401da748207a5375c03da17b7b9cd686d7b6e88d4f287f291d48055"
+      "sha256": "1103855351649f19456498b6772dbdf988260d39b74767df5536d54f64a1c36d"
     },
     {
       "path": "tests/__init__.py",

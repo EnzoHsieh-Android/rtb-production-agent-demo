@@ -190,7 +190,7 @@ class PendingRecording(Exception):
 
 
 def validated(path: Path, data: object) -> Recording:
-    """錄製檔內容的共用驗證(讀取與開錄前目錄檢查同一套,代碼審 r2):欄位齊、結果類別與結算狀態
+    """錄製檔內容的共用驗證(讀取與開錄前目錄檢查同一套,代碼審 r2):欄位齊、結果類別、呼叫者與結算狀態
     是合法值、
     每欄型別都對;不符丟「沒有錄製」。不看鍵、呼叫者與模型(那是讀取時跟請求比的)。"""
     try:
@@ -198,6 +198,7 @@ def validated(path: Path, data: object) -> Recording:
             raise TypeError("不是物件")
         recording = Recording(**data)
         Outcome(recording.outcome)
+        Caller(recording.caller)  # 呼叫者也要是合法成員,不然哪個呼叫者都讀不回(代碼審 r3)
         if recording.settlement is not None:
             SettlementState(recording.settlement)
     except (ValueError, TypeError) as bad:

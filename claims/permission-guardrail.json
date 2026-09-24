@@ -29,7 +29,7 @@
     },
     {
       "path": "src/rtb/analyzer/task_store.py",
-      "sha256": "ca0e74d7260392b03000ba4ac768539de96c5e4db1742285944208ccabcc2b52"
+      "sha256": "1d1d005f89ffeaa3cbc03a823578336e283bd306ca4c300aa640622555c3e516"
     },
     {
       "path": "src/rtb/capabilitykit.py",
@@ -151,7 +151,7 @@
   "harness": [
     {
       "path": "pyproject.toml",
-      "sha256": "2daae40b8401da748207a5375c03da17b7b9cd686d7b6e88d4f287f291d48055"
+      "sha256": "1103855351649f19456498b6772dbdf988260d39b74767df5536d54f64a1c36d"
     },
     {
       "path": "tests/__init__.py",
