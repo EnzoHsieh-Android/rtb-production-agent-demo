@@ -76,39 +76,20 @@ _VALIDATED_CELLS_ISSUER = object()
 
 class ValidatedCells:
     """已驗證、允許呼叫候選的評分格。建構時要帶簽發者哨兵,空清單也一樣(代碼審第 1、2 輪);
-    建好之後不能改、複製拿到的是同一個物件,所以從已簽發的清單也拿不到新的非空清單。
-    正式路徑拿到的是空的 NONE。"""
+    不是資料類別,沒有 dataclasses.replace 可繞;cells 是唯讀屬性。比照執行端交易物件的最小形狀,
+    威脅模型是防忘記、不防刻意繞過:刻意去改內部屬性擋不住。正式路徑拿到的是空的 NONE。"""
 
     __slots__ = ("_cells",)
-    _cells: frozenset[WorthCell]
     NONE: ClassVar[ValidatedCells]
 
     def __init__(self, cells: frozenset[WorthCell], issuer: object) -> None:
         if issuer is not _VALIDATED_CELLS_ISSUER:
             raise ValueError("已驗證清單只能由採用函式建立")
-        object.__setattr__(self, "_cells", frozenset(cells))
+        self._cells = frozenset(cells)
 
     @property
     def cells(self) -> frozenset[WorthCell]:
         return self._cells
-
-    def __setattr__(self, name: str, value: object) -> None:
-        raise AttributeError("已驗證清單建好之後不能改")
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, ValidatedCells) and other._cells == self._cells
-
-    def __hash__(self) -> int:
-        return hash(self._cells)
-
-    def __repr__(self) -> str:
-        return f"ValidatedCells({sorted(self._cells)!r})"
-
-    def __copy__(self) -> ValidatedCells:
-        return self
-
-    def __deepcopy__(self, memo: object) -> ValidatedCells:
-        return self
 
 
 ValidatedCells.NONE = ValidatedCells(frozenset(), _VALIDATED_CELLS_ISSUER)
