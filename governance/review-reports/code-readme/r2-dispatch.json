@@ -1,0 +1,26 @@
+[
+ {
+  "round": "r2",
+  "seat": "鏡頭1-事實與腳本",
+  "lens": "驗收 r1 並核對事實",
+  "materials": [
+   "governance/review-reports/code-readme/r2-snapshot.patch",
+   "governance/review-reports/code-readme/r2-delta.patch",
+   "README.md",
+   "docs/assets/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "驗收 r1 架構",
+  "materials": [
+   "governance/review-reports/code-readme/r2-snapshot.patch",
+   "governance/review-reports/code-readme/r2-delta.patch",
+   "README.md",
+   "docs/assets/"
+  ],
+  "auditor": "claude-opus"
+ }
+]

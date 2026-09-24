@@ -25006,6 +25006,149 @@ def t_ci_status_and_gov():
     check("gov 總開關:移除宣告後不顯示", "failure" not in r.stdout, r.stdout[-300:])
 
 
+def t_ci_rerun_latest_attempt_wins():
+    """同一個 CI 執行重跑過(第 1 次紅、第 2 次綠),只算最後那次——兩個讀帳的地方都一樣。
+
+    出身:2026-09-23 實踩。推上去 CI 紅了一次(測試時序競態),重跑變綠,但 ci-status 仍回報 failure。
+    原因之一是當時直接用 gh 重跑、沒再跑 ci-wait,成功那次根本沒進帳;但就算進了帳也一樣錯:
+    讀帳的地方對「同一個提交的全部筆」取最壞,而同一個執行的兩次嘗試是兩筆,舊的那次紅永遠蓋掉新的綠。
+    「取最壞」只該跨不同執行(不同 workflow),同一個執行要先只留最後一次嘗試。
+    開場提醒那支 hook 是同一個錯(任何一筆紅就喊紅),一起修。
+    翻紅釘:ci-status 拿掉「同一個執行只留最後一次」→ ①紅;hook 拿掉 → ③紅。
+    """
+    import json as _json, subprocess as _sp
+    from pathlib import Path as _P
+    stub = _GH_STUB_HEAD + "sys.exit(9)\n"
+    root, v, env = _mk_ci_env(stub)
+    sha = _sp.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    log = v.parent / ".ci-log.jsonl"
+    def row(run_id, att, concl, wf="CI", ts="2026-09-23T10:00:00+08:00"):
+        return {"ts": ts, "run_id": run_id, "attempt": att, "sha": sha, "branch": "main", "workflow": wf,
+                "conclusion": concl, "title": "t", "url": f"u{run_id}", "failed_step": "test" if concl != "success" else "",
+                "dedup_key": f"{run_id}:{att}:{concl}"}
+    def put(rows):
+        log.write_text("".join(_json.dumps(x, ensure_ascii=False) + "\n" for x in rows), encoding="utf-8")
+    def status():
+        r = _ci_run(root, v, env, "ci-status", "--json")
+        return _json.loads(r.stdout.strip().splitlines()[-1])
+    put([row(5, 1, "failure"), row(5, 2, "success", ts="2026-09-23T10:30:00+08:00")])
+    check("① 同一個執行第 1 次紅、第 2 次綠 → 報綠", status().get("conclusion") == "success", str(status()))
+    put([row(5, 2, "success", ts="2026-09-23T10:30:00+08:00"), row(5, 1, "failure")])
+    check("① 反序寫進帳也一樣報綠(看的是嘗試次數,不是在檔裡的位置)", status().get("conclusion") == "success", str(status()))
+    put([row(5, 1, "failure"), row(5, 2, "success"), row(6, 1, "failure", wf="Lint")])
+    check("② 不同執行(另一支 workflow)紅了,照舊報紅(取最壞只跨執行)",
+          status().get("conclusion") == "failure" and status().get("workflow") == "Lint", str(status()))
+    # 代碼審 r1 通才席:同一個執行一筆存整數、一筆存字串,也要算同一個
+    r_str = row(5, 2, "success"); r_str["run_id"] = "5"
+    put([row(5, 1, "failure"), r_str])
+    check("⑤ run_id 一筆整數一筆字串,照樣只算最後一次", status().get("conclusion") == "success", str(status()))
+    # 同一次嘗試有兩筆結論不同(不該發生,但發生了):留紅的,而且不看在檔裡的先後
+    put([row(5, 1, "success"), row(5, 1, "failure")])
+    a = status().get("conclusion")
+    put([row(5, 1, "failure"), row(5, 1, "success")])
+    b = status().get("conclusion")
+    check("⑥ 同一次嘗試兩筆結論不同 → 兩種順序都留紅的", a == "failure" and b == "failure", f"{a} {b}")
+    # 代碼審 r2 通才席:兩筆都不是紅(取消對成功)時,也不准看先後——留比較糟的那筆
+    put([row(5, 1, "cancelled"), row(5, 1, "success")]); a2 = status().get("conclusion")
+    put([row(5, 1, "success"), row(5, 1, "cancelled")]); b2 = status().get("conclusion")
+    check("⑦ 取消對成功 → 兩種順序都留取消", a2 == "cancelled" and b2 == "cancelled", f"{a2} {b2}")
+    hook = _P(__file__).resolve().parent / "hooks" / "claude" / "ci-status-hook.py"
+    def run_hook():
+        return _sp.run([sys.executable, str(hook)], input=_json.dumps({"cwd": str(root)}), capture_output=True,
+                       text=True, cwd=str(root), env=env, timeout=60)
+    put([row(5, 1, "failure"), row(5, 2, "success")])
+    h = run_hook()
+    check("③ 開場提醒:重跑變綠的不再喊紅", "CI 是紅的" not in h.stdout, h.stdout[:300])
+    put([row(5, 1, "failure"), row(5, 2, "success"), row(6, 1, "failure", wf="Lint")])
+    h = run_hook()
+    check("④ 開場提醒:別的執行真的紅,照舊喊", "CI 是紅的" in h.stdout and "Lint" in h.stdout, h.stdout[:300])
+
+
+def t_ci_wait_rerun_records_latest_attempt():
+    """真的走一次:第一次 ci-wait 記下紅,重跑後再 ci-wait 記下第 2 次嘗試的綠,ci-status 就該報綠。
+
+    出身:代碼審 r1 通才席——另一支測試是直接手寫帳,沒證明寫帳那一側在重跑後真的會記下遞增的嘗試次數。
+    這支用假的 gh:第一次回「第 7 號執行第 1 次嘗試失敗」,之後回「第 7 號執行第 2 次嘗試成功」。
+    翻紅釘:ci-status 拿掉「同一個執行只留最後一次」→ ②紅。
+    """
+    import json as _json
+    sha_stub = (
+        "\nif args[:2] == [\"run\", \"list\"]:\n"
+        "    print(json.dumps(RUNS_FIRST if n == 0 else RUNS_LATER)); sys.exit(0)\n"
+        "if args[:2] == [\"run\", \"view\"]:\n"
+        "    if \"--log-failed\" in args:\n"
+        "        print('build' + chr(9) + 'x'); sys.exit(0)\n"
+        "    print(json.dumps({\"jobs\": [{\"name\": \"build\", \"steps\": [{\"name\": \"Full test suite\", \"conclusion\": \"failure\"}]}]})); sys.exit(0)\n"
+        "sys.exit(0)\n")
+    first = [{"databaseId": 7, "attempt": 1, "status": "completed", "conclusion": "failure",
+              "displayTitle": "t", "url": "u7", "workflowName": "CI"}]
+    later = [{"databaseId": 7, "attempt": 2, "status": "completed", "conclusion": "success",
+              "displayTitle": "t", "url": "u7", "workflowName": "CI"}]
+    stub = (_GH_STUB_HEAD + f"RUNS_FIRST = {first!r}\nRUNS_LATER = {later!r}\n".replace("'", '"') + sha_stub)
+    root, v, env = _mk_ci_env(stub)
+    env["GH_STATE"] = str(root / "st-rerun")
+    r1 = _ci_run(root, v, env, "ci-wait", "--json")
+    r2 = _ci_run(root, v, env, "ci-wait", "--json")
+    rows = [_json.loads(l) for l in (v.parent / ".ci-log.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    atts = sorted((r.get("attempt"), r.get("conclusion")) for r in rows)
+    check("① 現場成立:兩次 ci-wait 各記一筆,嘗試次數遞增", atts == [(1, "failure"), (2, "success")],
+          f"{atts} rc={r1.returncode},{r2.returncode}")
+    d = _json.loads(_ci_run(root, v, env, "ci-status", "--json").stdout.strip().splitlines()[-1])
+    check("② 重跑變綠之後 ci-status 報綠", d.get("conclusion") == "success", str(d))
+
+
+def t_ci_latest_attempts_copies_identical():
+    """「同一個執行只留最後一次嘗試」在主程式與 hook 各有複本,所有複本的程式必須一模一樣。
+
+    hook 是獨立檔、複製到全域後 import 不到主程式,只能各放一份;沒有這支守衛,
+    改了一邊忘了另一邊,兩個地方對同一次 CI 就會給出相反的結論。比的是語法樹(說明文字可以不同)。
+    ★掃全部、不寫死清單★(代碼審 r1 架構席):本 repo 的 hook 間複本守衛(信任邊界、逾時預算)
+    都踩過「寫死三支、漏了第四支」才改成掃全部——第一版這支又寫死了兩個路徑。
+    ★函式裡那組「算紅」的結論也要跟各檔自己的常數一致★:為了讓複本逐字相同,那組寫在函式裡,
+    等於多了一份清單,不盯的話會跟 _CI_RED / RED 悄悄分岔。
+    翻紅釘:改 hook 那份的任一行邏輯 → ③紅;把函式裡的紅燈集合少一個 → ④紅。
+    """
+    import ast as _ast
+    from pathlib import Path as _P
+    base = _P(__file__).resolve().parent
+    files = [base / "lumos"] + sorted((base / "hooks").rglob("*.py"))
+    bodies, reds_inline, reds_const, dup = {}, {}, {}, []
+    for f in files:
+        try:
+            tree = _ast.parse(f.read_text(encoding="utf-8"))
+        except (SyntaxError, OSError):
+            continue
+        # ★函式要從整棵樹找,不能只看最外層★(代碼審 r2 兩席):包在 if/class/另一個函式裡的複本,
+        # 只看最外層會整份從比對名單裡消失,守衛照樣全綠——通才席實際塞了一份包在 if True: 裡、
+        # 邏輯寫錯的複本,四條全過。常數那邊仍只看最外層(那是各檔自己的模組常數)。
+        defs = [n for n in _ast.walk(tree) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+                and n.name == "_ci_latest_attempts"]
+        if len(defs) > 1:
+            dup.append(f.name)
+        for n in defs[:1]:
+                stmts = list(n.body)
+                if stmts and isinstance(stmts[0], _ast.Expr) and isinstance(getattr(stmts[0], "value", None), _ast.Constant):
+                    stmts = stmts[1:]
+                bodies[f.name] = _ast.dump(_ast.Module(body=stmts, type_ignores=[]))
+                for sub in _ast.walk(n):
+                    if isinstance(sub, _ast.Tuple) and all(isinstance(e, _ast.Constant) and isinstance(e.value, str) for e in sub.elts) \
+                            and "failure" in [e.value for e in sub.elts]:
+                        reds_inline[f.name] = tuple(e.value for e in sub.elts)
+        for n in tree.body:
+            if isinstance(n, _ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], _ast.Name) \
+                    and n.targets[0].id in ("_CI_RED", "RED") and isinstance(n.value, _ast.Tuple):
+                reds_const[f.name] = tuple(e.value for e in n.value.elts)
+    check("① 現場成立:至少找到主程式與開場提醒 hook 兩份", {"lumos", "ci-status-hook.py"} <= set(bodies), str(sorted(bodies)))
+    ref = bodies.get("lumos")
+    diff = [k for k, b in bodies.items() if b != ref]
+    check("② 找到的複本都比對了", len(bodies) >= 2, str(sorted(bodies)))
+    check("③ 所有複本的程式一模一樣", diff == [], f"跟主程式不一致的:{diff}")
+    check("③ 沒有哪個檔裡同時藏了兩份", dup == [], f"同一檔多份:{dup}")
+    bad = [k for k in bodies if k in reds_const and set(reds_inline.get(k, ())) != set(reds_const[k])]
+    check("④ 函式裡的紅燈集合跟各檔自己的常數一致", bad == [] and all(k in reds_inline for k in bodies),
+          f"不一致:{bad} 函式內:{reds_inline} 常數:{reds_const}")
+
+
 def t_ci_hooks():
     """[S2b] SessionStart hook 註冊對稱 + 提醒判法(該 sha 全部筆/總開關)。"""
     import json as _json
@@ -42634,6 +42777,83 @@ def t_nodehome_diff_route_per_commit():
     _nh_commit(root, "同一個提交改 a、說明寫進 B")
     rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
     check("②同一個提交裡改程式又寫進不是家的節點 → 照擋", rc == 1 and "Systems/B" in out, out[-600:])
+
+
+def t_nodehome_merge_auto_combined_not_blocked():
+    """兩條分支各自改同一篇筆記的不同段、同一支程式的不同行,合併時 git 自動合在一起——推送前不該擋。
+
+    出身:2026-09-24 rtb-production-agent-demo 回報(第三次發生)。推送前逐提交檢查對合併提交,
+    原本把「跟每一個上一版都不一樣」的路徑當成合併自己改的;但兩邊都改過、git 自動合起來的檔,
+    合併後也會跟兩邊都不一樣——於是另一邊配好家的筆記,被拿去跟這邊的程式湊成一對,判成
+    「寫了說明卻不是改動檔的家」。實際核對那次合併:合併本身真正多改的(git 的 remerge-diff)
+    是治理帳、record.py、ruff 設定,那篇筆記不在裡面。
+    翻紅釘:合併提交改回用「跟每個上一版都不一樣」→ ②紅。
+    """
+    print("t_nodehome_merge_auto_combined_not_blocked")
+    root = _nh_repo()
+    _nh_file(root, "src/a.py", "x = 1\n")
+    _nh_file(root, "src/b.py", "l1\nl2\nl3\nl4\nl5\nl6\n")
+    _nh_node(root, "A", about=["src/a.py"], body="`src/a.py` 第一段\n\n中間不動\n\n中間不動二\n\n第四段")
+    _nh_node(root, "B", about=["src/b.py"], body="實作在 `src/b.py`。")
+    _nh_commit(root, "init")
+    base = _nh_git(root, "rev-parse", "HEAD").stdout.strip()
+    _nh_git(root, "branch", "-M", "main")
+    # 主線:改 A 的最後一段 + A 的家 a.py(配對正確)+ 另外改 b.py 的最後一行
+    _nh_git(root, "checkout", "-q", "-b", "feature")
+    _nh_git(root, "checkout", "-q", "main")
+    _nh_node(root, "A", about=["src/a.py"], body="`src/a.py` 第一段\n\n中間不動\n\n中間不動二\n\n第四段(主線改)")
+    _nh_file(root, "src/a.py", "x = 2\n")
+    _nh_file(root, "src/b.py", "l1\nl2\nl3\nl4\nl5\nl6 主線\n")
+    _nh_commit(root, "主線:A 的說明配 a.py,另改 b.py")
+    # 功能分支:改 A 的第一段 + 同樣改 a.py(兩邊一樣,合併後 a.py 跟兩邊都相同)+ 改 b.py 的第一行
+    _nh_git(root, "checkout", "-q", "feature")
+    _nh_node(root, "A", about=["src/a.py"], body="`src/a.py` 第一段(分支改)\n\n中間不動\n\n中間不動二\n\n第四段")
+    _nh_file(root, "src/a.py", "x = 2\n")
+    _nh_file(root, "src/b.py", "l1 分支\nl2\nl3\nl4\nl5\nl6\n")
+    _nh_commit(root, "分支:A 的說明配 a.py,另改 b.py")
+    m = _nh_git(root, "merge", "-q", "--no-ff", "--no-edit", "main")
+    check("① 現場成立:合併自動完成、沒有衝突", m.returncode == 0, m.stdout + m.stderr)
+    for f in ("docs/kg-knowledge/Systems/A.md", "src/b.py"):
+        d1 = _nh_git(root, "diff", "--quiet", "HEAD^1", "HEAD", "--", f).returncode
+        d2 = _nh_git(root, "diff", "--quiet", "HEAD^2", "HEAD", "--", f).returncode
+        check(f"① 現場成立:{f} 合併後跟兩邊都不一樣(兩邊都改過、git 自動合起來)", d1 == 1 and d2 == 1, f"{d1} {d2}")
+    rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
+    check("② 兩邊各自配好家的說明,合併自動合起來 → 不擋", rc == 0, out[-800:])
+    # ③ 專案的 git 設定註冊了自訂合併驅動器:精確判法會在記憶體裡重做合併、跑那個驅動器——不准跑
+    marker = root / "DRIVER_RAN"
+    _nh_git(root, "config", "merge.evil.driver", f"touch {marker} && false")
+    (root / ".gitattributes").write_text("* merge=evil\n", encoding="utf-8")
+    rc3, out3 = _nh_check(root, "--diff", f"{base}..HEAD")
+    check("③ 有自訂合併驅動器時,那個驅動器的指令完全沒被執行", not marker.exists(), out3[-400:])
+
+
+def t_nodehome_octopus_merge_own_violation_still_blocked():
+    """一次合三條以上分支的合併(章魚合併),合併提交自己順手改程式、把說明寫進不是家的節點——照擋。
+
+    出身:代碼審 r1 通才席。git 對章魚合併不做 remerge-diff:只在標準輸出印一行警告、退出碼照樣是 0,
+    被當成「這個合併什麼都沒改」——合併裡夾帶的違規整個放行。章魚合併要退回舊判法。
+    翻紅釘:章魚合併也走精確判法 → ②紅。
+    """
+    print("t_nodehome_octopus_merge_own_violation_still_blocked")
+    root = _nh_repo()
+    _nh_base(root)
+    base = _nh_git(root, "rev-parse", "HEAD").stdout.strip()
+    _nh_git(root, "branch", "-M", "main")
+    for b in ("x", "y"):
+        _nh_git(root, "checkout", "-q", "-b", b, "main")
+        _nh_file(root, f"src/{b}.txt", b + "\n")
+        _nh_commit(root, f"分支 {b}")
+    _nh_git(root, "checkout", "-q", "main")
+    _nh_file(root, "src/m.txt", "m\n")
+    _nh_commit(root, "主線")
+    m = _nh_git(root, "merge", "-q", "--no-ff", "--no-commit", "x", "y")
+    _nh_file(root, "src/a.py", "x = 2\n")
+    _nh_node(root, "B", about=["src/b.py"], body="`src/b.py` 合併時順手寫了 a 的事")
+    _nh_commit(root, "章魚合併,順手改 a、說明寫進 B")
+    np = len(_nh_git(root, "log", "-1", "--format=%P").stdout.split())
+    check("① 現場成立:合併有三個上一版", m.returncode == 0 and np == 3, f"{m.stdout}{m.stderr} parents={np}")
+    rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
+    check("② 章魚合併自己夾帶的違規 → 照擋", rc == 1 and "Systems/B" in out, out[-600:])
 
 
 def t_nodehome_diff_route_counts_content_per_commit():

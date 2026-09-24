@@ -40,6 +40,35 @@ def _ci_enabled(root):
     return isinstance(data, dict) and isinstance(data.get("ci"), dict)
 
 
+def _ci_latest_attempts(rows):
+    """同一個 CI 執行(run_id)重跑過的,只留最後一次嘗試;沒有 run_id 的原樣保留。
+
+    ★「取最壞」只該跨不同執行★(2026-09-23 實踩):同一個執行第 1 次紅、第 2 次綠時,
+    舊的紅不該讓開場提醒一直喊「上次 CI 是紅的」。
+    ★這是 scripts/lumos 裡同名函式的逐字複本★(hook 是獨立檔 import 不到),有測試盯著兩份一致。
+    """
+    best, keep = {}, []
+    for r in rows:
+        rid = r.get("run_id")
+        if rid is None:
+            keep.append(r)
+            continue
+        rid = str(rid)   # 同一個執行一筆存整數、一筆存字串,也要算同一個
+        try:
+            att = int(r.get("attempt") or 0)
+        except (TypeError, ValueError):
+            att = 0
+        concl = r.get("conclusion") or ""
+        # 越糟越大:紅 2、其他沒成功的(取消、跳過…)1、成功 0
+        bad = 2 if concl in ("failure", "timed_out", "startup_failure") else (0 if concl == "success" else 1)
+        cur = best.get(rid)
+        # 嘗試次數大的贏;同一次嘗試有兩筆結論不同時留比較糟的那筆(往安全那邊倒)。
+        # 只有兩筆同樣糟(例如一筆取消、一筆跳過)時才會看先後——那時選哪筆結論都一樣不是綠
+        if cur is None or att > cur[0] or (att == cur[0] and bad > cur[1]):
+            best[rid] = (att, bad, r)
+    return keep + [r for _a, _bad, r in best.values()]
+
+
 def _find_log(root):
     for d in sorted((root / "docs").glob("*-knowledge")):
         p = d.parent / CI_LOG_NAME
@@ -192,7 +221,7 @@ def main():
                     rows.append(d)
     except OSError:
         return 0
-    reds = [r for r in rows if (r.get("conclusion") or "") in RED]
+    reds = [r for r in _ci_latest_attempts(rows) if (r.get("conclusion") or "") in RED]
     if not reds:
         return 0                                    # 綠或無資料：零噪音
 

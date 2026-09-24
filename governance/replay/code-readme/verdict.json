@@ -1,0 +1,42 @@
+{
+ "loop": "code-readme",
+ "round": "r3",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-25T00:59:35+08:00",
+ "spec_path": "governance/review-reports/code-readme/r3-snapshot.patch",
+ "spec_sha": "5f2746631a0941b18d4cb88caebacbe19fde483d08f2ae2672e3bcd523d6b17f",
+ "rows": [
+  "{\"ts\": \"2026-09-24T23:06:38+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-6e2a97bd\", \"note\": \"\", \"loop\": \"code-readme\", \"round\": \"r1\", \"severity\": \"blocker\", \"findings\": 5, \"result_sha256\": \"0ae72b0a6ae20331c4781ce05bda1aa9d17632470f7204328ee46b3e017e3f67\", \"reviewed_sha256\": \"0ae72b0a6ae20331c4781ce05bda1aa9d17632470f7204328ee46b3e017e3f67\", \"spec_path\": \"governance/review-reports/code-readme/r1-snapshot.patch\", \"scope_lines\": 675, \"reported\": 5, \"report_path\": \"governance/review-reports/code-readme/r1-架構對齊.md\", \"report_sha256\": \"f6112f9c1371289a6e6a90ededa618ca5590656cda4dc9b1ff6e2ad7fc482f86\", \"snapshot_path\": \"governance/review-reports/code-readme/r1-snapshot.patch\", \"snapshot_sha256\": \"0ae72b0a6ae20331c4781ce05bda1aa9d17632470f7204328ee46b3e017e3f67\"}",
+  "{\"ts\": \"2026-09-24T23:06:38+08:00\", \"kind\": \"none\", \"auditor\": \"鏡頭1-事實與腳本\", \"token\": \"CANARY-25372833\", \"note\": \"\", \"loop\": \"code-readme\", \"round\": \"r1\", \"severity\": \"blocker\", \"findings\": 6, \"result_sha256\": \"0ae72b0a6ae20331c4781ce05bda1aa9d17632470f7204328ee46b3e017e3f67\", \"reviewed_sha256\": \"0ae72b0a6ae20331c4781ce05bda1aa9d17632470f7204328ee46b3e017e3f67\", \"spec_path\": \"governance/review-reports/code-readme/r1-snapshot.patch\", \"scope_lines\": 675, \"findings_set\": [\"f1\", \"f2\", \"f3\", \"f4\", \"f5\", \"f6\", \"a1\", \"a2\", \"a3\", \"a4\", \"a5\"], \"folded_set\": [\"f1\", \"f2\", \"f3\", \"f4\", \"f5\", \"f6\", \"a1\", \"a2\", \"a3\", \"a4\", \"a5\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 6, \"report_path\": \"governance/review-reports/code-readme/r1-鏡頭1-事實與腳本.md\", \"report_sha256\": \"5fe79fb3aeb168e79c1a970d9ebfb6fc472f4de20922e116796d8b7de7f10b2e\", \"snapshot_path\": \"governance/review-reports/code-readme/r1-snapshot.patch\", \"snapshot_sha256\": \"0ae72b0a6ae20331c4781ce05bda1aa9d17632470f7204328ee46b3e017e3f67\"}",
+  "{\"ts\": \"2026-09-25T00:26:32+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-73ae6b06\", \"note\": \"\", \"loop\": \"code-readme\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 3, \"result_sha256\": \"4868c02bdc8b5188c458909cc7791fafc86c3aa29b26c2ef1d70e13f2923ae48\", \"reviewed_sha256\": \"4868c02bdc8b5188c458909cc7791fafc86c3aa29b26c2ef1d70e13f2923ae48\", \"spec_path\": \"governance/review-reports/code-readme/r2-snapshot.patch\", \"scope_lines\": 774, \"reported\": 3, \"report_path\": \"governance/review-reports/code-readme/r2-架構對齊.md\", \"report_sha256\": \"252535ebc13a099b493b7676bb04b74a25d3d1b6cbb867b702edd7583ac4734a\", \"snapshot_path\": \"governance/review-reports/code-readme/r2-snapshot.patch\", \"snapshot_sha256\": \"4868c02bdc8b5188c458909cc7791fafc86c3aa29b26c2ef1d70e13f2923ae48\"}",
+  "{\"ts\": \"2026-09-25T00:26:32+08:00\", \"kind\": \"none\", \"auditor\": \"鏡頭1-事實與腳本\", \"token\": \"CANARY-b92eaf89\", \"note\": \"\", \"loop\": \"code-readme\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 6, \"result_sha256\": \"4868c02bdc8b5188c458909cc7791fafc86c3aa29b26c2ef1d70e13f2923ae48\", \"reviewed_sha256\": \"4868c02bdc8b5188c458909cc7791fafc86c3aa29b26c2ef1d70e13f2923ae48\", \"spec_path\": \"governance/review-reports/code-readme/r2-snapshot.patch\", \"scope_lines\": 774, \"findings_set\": [\"f1\", \"f2\", \"f3\", \"f4\", \"f5\", \"f6\", \"a1\", \"a2\", \"a3\"], \"folded_set\": [\"f1\", \"f2\", \"f3\", \"f4\", \"f5\", \"f6\", \"a1\", \"a2\", \"a3\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 6, \"report_path\": \"governance/review-reports/code-readme/r2-鏡頭1-事實與腳本.md\", \"report_sha256\": \"cd64ae8ccb43249232b0b9acf05466b8b01f8379a65f61d514029ea0199c584e\", \"snapshot_path\": \"governance/review-reports/code-readme/r2-snapshot.patch\", \"snapshot_sha256\": \"4868c02bdc8b5188c458909cc7791fafc86c3aa29b26c2ef1d70e13f2923ae48\"}",
+  "{\"ts\": \"2026-09-25T00:59:00+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-f383af61\", \"note\": \"\", \"loop\": \"code-readme\", \"round\": \"r3\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"5f2746631a0941b18d4cb88caebacbe19fde483d08f2ae2672e3bcd523d6b17f\", \"reviewed_sha256\": \"5f2746631a0941b18d4cb88caebacbe19fde483d08f2ae2672e3bcd523d6b17f\", \"spec_path\": \"governance/review-reports/code-readme/r3-snapshot.patch\", \"scope_lines\": 922, \"reported\": 0, \"report_path\": \"governance/review-reports/code-readme/r3-架構對齊.md\", \"report_sha256\": \"cded397a355c3820f008dae77eaa4f54487f82e7452924a20b02a5a71a4cb912\", \"snapshot_path\": \"governance/review-reports/code-readme/r3-snapshot.patch\", \"snapshot_sha256\": \"5f2746631a0941b18d4cb88caebacbe19fde483d08f2ae2672e3bcd523d6b17f\"}",
+  "{\"ts\": \"2026-09-25T00:59:00+08:00\", \"kind\": \"none\", \"auditor\": \"鏡頭1-事實與腳本\", \"token\": \"CANARY-f453dbd5\", \"note\": \"\", \"loop\": \"code-readme\", \"round\": \"r3\", \"severity\": \"major\", \"findings\": 4, \"result_sha256\": \"5f2746631a0941b18d4cb88caebacbe19fde483d08f2ae2672e3bcd523d6b17f\", \"reviewed_sha256\": \"5f2746631a0941b18d4cb88caebacbe19fde483d08f2ae2672e3bcd523d6b17f\", \"spec_path\": \"governance/review-reports/code-readme/r3-snapshot.patch\", \"scope_lines\": 922, \"findings_set\": [\"f1\", \"f2\", \"f3\", \"f4\"], \"folded_set\": [\"f1\", \"f2\", \"f3\", \"f4\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"f1\": \"code\", \"f2\": \"code\", \"f3\": \"code\", \"f4\": \"spec\"}, \"reported\": 4, \"report_path\": \"governance/review-reports/code-readme/r3-鏡頭1-事實與腳本.md\", \"report_sha256\": \"11a4d3a11027486f9741f9bf9815c9c872d5df2cd36120588f384bed097019c2\", \"snapshot_path\": \"governance/review-reports/code-readme/r3-snapshot.patch\", \"snapshot_sha256\": \"5f2746631a0941b18d4cb88caebacbe19fde483d08f2ae2672e3bcd523d6b17f\"}"
+ ],
+ "all_row_shas": [
+  "05f72a7e5ed7f1096cc323a1c9051fa4210cd81cd6107a7533045221a3ac40e8",
+  "1e8c69e60ddb876d20f0cb588f62a29d718de57a9a231688e7ea267461a4b93e",
+  "25bb421b2a997c946175ce6331ef195b15bc60c822683b1e716930e5d1f450c0",
+  "61523185db996f67c5a5c1cf3c3a4e498b058e48041b93e4be5797dd02775ae4",
+  "6ee340d4b6f8fa2d14678984a68fe392c45126b56e029f8857dada48623d4962",
+  "a9dba03b76af580419d336e0e37ab611aae4c9a24d59b6de3f373064bc60064e"
+ ],
+ "files": {
+  "governance/review-reports/code-readme/r3-架構對齊.md": {
+   "sha256": "cded397a355c3820f008dae77eaa4f54487f82e7452924a20b02a5a71a4cb912",
+   "git_blob": "1a450b1232feac75067f7cde7f10f09f75fb288d"
+  },
+  "governance/review-reports/code-readme/r3-snapshot.patch": {
+   "sha256": "5f2746631a0941b18d4cb88caebacbe19fde483d08f2ae2672e3bcd523d6b17f",
+   "git_blob": "907c3289070efd2a0b4a3f8bbc99e73d1aa32b09"
+  },
+  "governance/review-reports/code-readme/r3-鏡頭1-事實與腳本.md": {
+   "sha256": "11a4d3a11027486f9741f9bf9815c9c872d5df2cd36120588f384bed097019c2",
+   "git_blob": "e67867a4b59de1d02ac4667c8bb29327f952bfad"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

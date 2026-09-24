@@ -21889,11 +21889,34 @@ def _nodehome_name_status(raw):
     return paths, src, gone - set(src)
 
 
+def _nodehome_merge_own_changes(repo_root, sha):
+    """合併提交「自己」真正多改的路徑:跟 git 自動合併會產生的結果比(remerge-diff),不是跟兩邊各比。拿不到回 None。
+
+    ★為什麼不能用「跟每一個上一版都不一樣」★(2026-09-24 rtb-production-agent-demo 回報,第三次發生):
+    兩條分支都改過、git 自動合起來的檔,合併後也跟兩邊都不一樣,會被當成合併自己寫的——另一邊配好家的筆記
+    就被拿去跟這邊的程式湊成一對,判成「寫了說明卻不是改動檔的家」。remerge-diff 只列出合併時手動解衝突
+    或順手多改的部分,正是這道檢查要看的。
+    ★先確認沒有自訂合併驅動器★:remerge-diff 會在記憶體裡重做一次合併,專案的 git 設定若註冊了自訂合併驅動器,
+    就會執行那個指令——跟本檔對差異驅動器的防範同一類(被打開的資料夾可以自帶設定)。有就不用、退回舊判法。
+    git 2.36 以前沒有 remerge-diff,也回 None 退回舊判法。
+    """
+    drv = _lens_git(repo_root, "config", "--get-regexp", r"^merge\..*\.driver$", binary=True)
+    if drv is None or drv.returncode != 1:     # 0=有自訂驅動器;其他=判不了。兩種都不冒險
+        return None
+    r = _nodehome_git(repo_root, "show", "--remerge-diff", "--no-ext-diff", "--no-textconv", "--format=",
+                      "--name-status", "-z", "-M", sha)
+    if r is None:
+        return None
+    return _nodehome_name_status(r)
+
+
 def _nodehome_commit_groups(repo_root, base, tip):
     """推送前:範圍裡每個提交各自改了哪些路徑(改名兩邊都算)。git 失敗回 None(退回整批一個提交)。
     每個提交回 {sha, parents, paths, src, gone}:src=這個提交裡改名的新路徑→舊路徑、gone=刪掉或改名掉的舊路徑。
     ★合併提交也要查★(代碼審 r3 單reviewer:原本整個排除,解衝突時在合併提交裡順手寫的說明、改的程式都沒人看):
-    只算它自己多改的——跟每一個上一版都不一樣的路徑;照搬某一邊進來的,那一邊的提交已經各自查過。"""
+    只算它自己多改的:兩邊合併用 git 的 remerge-diff(跟 git 自動合併會產生的結果比,兩邊都改過、git 自動合起來的
+    不算);拿不到精確答案時(舊 git、專案設了自訂合併驅動器、三條以上的章魚合併)退回「跟每一個上一版都不一樣的
+    路徑」——這個退路會把自動合起來的檔也算進來、可能誤擋。照搬某一邊進來的,那一邊的提交已經各自查過。"""
     raw = _nodehome_git(repo_root, "rev-list", "--reverse", "--parents", f"{base}..{tip}" if base else tip)
     if raw is None:
         return None
@@ -21909,15 +21932,23 @@ def _nodehome_commit_groups(repo_root, base, tip):
                 return None
             paths, src, gone = _nodehome_name_status(r)
         else:
-            per = []
-            for p in parents:
-                r = _nodehome_git(repo_root, "diff-tree", "--no-commit-id", "--name-status", "-z", "-M", "-r", p, sha)
-                if r is None:
-                    return None
-                per.append(_nodehome_name_status(r))
-            paths = set.intersection(*(x[0] for x in per))
-            src = {k: v for k, v in per[0][1].items() if k in paths}
-            gone = set.intersection(*(x[2] for x in per))
+            # 章魚合併(三個以上上一版)git 不做 remerge-diff:只印一行警告、退出碼照樣 0,會被讀成「什麼都沒改」
+            # 而放行夾帶的違規(代碼審 r1 通才席)——只有一般的兩邊合併走精確判法
+            rm = _nodehome_merge_own_changes(repo_root, sha) if len(parents) == 2 else None
+            if rm is not None:
+                paths, src, gone = rm
+            else:
+                # 退路(舊 git 沒有 remerge-diff、或專案設了自訂合併驅動器):跟每一個上一版都不一樣的路徑。
+                # ★這個退路會把「兩邊都改過、git 自動合起來」的檔也算成合併自己改的★,可能誤擋——只在拿不到精確答案時用
+                per = []
+                for p in parents:
+                    r = _nodehome_git(repo_root, "diff-tree", "--no-commit-id", "--name-status", "-z", "-M", "-r", p, sha)
+                    if r is None:
+                        return None
+                    per.append(_nodehome_name_status(r))
+                paths = set.intersection(*(x[0] for x in per))
+                src = {k: v for k, v in per[0][1].items() if k in paths}
+                gone = set.intersection(*(x[2] for x in per))
         out.append({"sha": sha, "parents": parents, "paths": paths, "src": src, "gone": gone})
     return out
 
@@ -24665,6 +24696,36 @@ def _ci_red_escape(env, sha, concl, workflow):
         return 0
 
 
+def _ci_latest_attempts(rows):
+    """同一個 CI 執行(run_id)重跑過的,只留最後一次嘗試;沒有 run_id 的原樣保留。
+
+    ★「取最壞」只該跨不同執行★(2026-09-23 實踩):同一個提交的全部筆取最壞,是為了
+    「多支 workflow 各記一筆、綠的排在紅的後面時不要被蓋掉」;但同一個執行重跑一次也是新的一筆,
+    第 1 次紅、第 2 次綠時,舊的紅會永遠蓋掉新的綠——重跑過的 CI 永遠報紅。
+    ★開場提醒那支 hook 有一份逐字相同的複本★(獨立檔 import 不到),改這裡要一起改。
+    """
+    best, keep = {}, []
+    for r in rows:
+        rid = r.get("run_id")
+        if rid is None:
+            keep.append(r)
+            continue
+        rid = str(rid)   # 同一個執行一筆存整數、一筆存字串,也要算同一個
+        try:
+            att = int(r.get("attempt") or 0)
+        except (TypeError, ValueError):
+            att = 0
+        concl = r.get("conclusion") or ""
+        # 越糟越大:紅 2、其他沒成功的(取消、跳過…)1、成功 0
+        bad = 2 if concl in ("failure", "timed_out", "startup_failure") else (0 if concl == "success" else 1)
+        cur = best.get(rid)
+        # 嘗試次數大的贏;同一次嘗試有兩筆結論不同時留比較糟的那筆(往安全那邊倒)。
+        # 只有兩筆同樣糟(例如一筆取消、一筆跳過)時才會看先後——那時選哪筆結論都一樣不是綠
+        if cur is None or att > cur[0] or (att == cur[0] and bad > cur[1]):
+            best[rid] = (att, bad, r)
+    return keep + [r for _a, _bad, r in best.values()]
+
+
 def cmd_ci_status(env, repo_dir=None, as_json=False):
     """[S3] 唯讀查最後一次 CI 結果(不打網路,供離線與 hook)。恆 rc0。"""
     import json
@@ -24699,7 +24760,7 @@ def cmd_ci_status(env, repo_dir=None, as_json=False):
     last = None
     if rows:
         newest_sha = rows[-1].get("sha")
-        same = [r for r in rows if r.get("sha") == newest_sha] or [rows[-1]]
+        same = _ci_latest_attempts([r for r in rows if r.get("sha") == newest_sha] or [rows[-1]])
         last = (next((r for r in same if (r.get("conclusion") or "") in _CI_RED), None)
                 or next((r for r in same if (r.get("conclusion") or "") not in _CI_GREEN), None)
                 or same[-1])
