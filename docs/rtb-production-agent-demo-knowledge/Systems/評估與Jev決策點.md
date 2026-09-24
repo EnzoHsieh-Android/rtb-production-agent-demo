@@ -39,6 +39,8 @@ decisions:
     why_chosen: 生成器改了照規則換批;規則沒有因為看過答案而改
     decided: 2026-09-24
     valid: true
+verified_by:
+  - "[[Verification/Phase10驗收紀錄]]"
 ---
 # 評估與Jev決策點
 
