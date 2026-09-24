@@ -35,7 +35,7 @@ from tests.ops.test_ops_boundaries import OPS, _ops_offenders
 
 NOW = at(minutes=600)
 CLI_KEY = "k" * 32
-VALID = {"hypotheses": ["任務甲那一批在收件後都過期了,可能是執行迴圈沒在跑"],
+VALID = {"hypotheses": ["任務甲那批在收件後都過期了,可能是執行迴圈沒在跑"],
          "next_step": "open_example_trace"}
 
 
@@ -350,3 +350,25 @@ def test_hypotheses_with_untraceable_numbers_are_not_shown(rows, dsp_url, tmp_pa
     assert printed["hypothesis"]["status"] == "failed"
     assert printed["hypothesis"]["reason"] == "untraceable_numbers"
     assert code == slo_code(rows, dsp_url)
+
+
+def test_the_recording_directory_is_checked_once_before_the_call(rows, dsp_url, tmp_path,
+                                                                 monkeypatch):
+    """代碼審 r2:目錄檢查只在呼叫模型之前做一次;呼叫之後目錄裡多出同批別的佔位,也不把已經成功的
+    假說改判成參數錯。"""
+    fire_alert(rows)
+    _, environ = live_env(tmp_path, VALID)
+    environ = {**environ, "RTB_MODEL_RECORD": "1"}
+    real, calls = mc.check_recordings_dir, []
+
+    def once_then_mixed(directory, batch_id):
+        calls.append(directory)
+        if len(calls) > 1:
+            raise mc.MixedRecordingsDir("別的行程留下的佔位")
+        return real(directory, batch_id)
+
+    monkeypatch.setattr(mc, "check_recordings_dir", once_then_mixed)
+    code, printed, _ = run(rows, dsp_url, tmp_path, environ, "--demo-id", "demo-1",
+                           "--batch-id", "b1", "--recordings-dir", str(tmp_path / "fresh"))
+    assert printed["hypothesis"]["status"] == "ok"
+    assert code == slo_code(rows, dsp_url) and len(calls) == 1

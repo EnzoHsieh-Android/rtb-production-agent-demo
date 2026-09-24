@@ -123,6 +123,9 @@ def test_a_hangup_during_a_recorded_call_kills_the_group_and_frees_the_name(tmp_
         recordings = work / "rec"
         code = _child_prelude() + (
             "import os, signal, sys, threading, time\n"
+            # 這支測試要的是「一般行程被關終端機」:背景跑的整套(nohup、代理程式的背景工作)會把
+            # SIGHUP 設成忽略、子行程照樣繼承,產品碼刻意不動原本忽略的訊號,測試就量不到(代碼審 r2)
+            f"signal.signal({int(number)}, signal.SIG_DFL)\n"
             "from pathlib import Path\n"
             "from rtb import modelclaude as cc, modelclient as mc\n"
             f"log = Path({str(script.with_name('claude.log'))!r})\n"

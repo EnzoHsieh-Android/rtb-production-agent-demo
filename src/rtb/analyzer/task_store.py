@@ -100,6 +100,10 @@ NARRATIVE_CLAIM_WINDOW = timedelta(minutes=10)
 # 輪
 # 同一個數,夠吸收一兩次暫時性失敗
 MAX_NARRATIVE_CLAIMS = 3
+# 確定沒送出模型呼叫、沒花錢的結果類別:不算進領取上限(代碼審 r2:花費帳忙碌三次就永遠不再產生說明)。
+# 還沒有結果的領取照算(持有者可能已經付了費才崩潰)
+UNSENT_NARRATIVE_OUTCOMES = frozenset({"ledger_busy", "local_cap_refused", "config_error",
+                                       "no_recording"})
 # 接續任務的保留命名空間:一般建任務入口拒收這個開頭的任務編號,只有建接續任務寫得進去
 FOLLOW_UP_PREFIX = "fu-"
 _FOLLOW_UP_HASH_LENGTH = 24
@@ -682,7 +686,8 @@ class TaskStore(TaskReads):
                 "ORDER BY c.claim_seq", (task_id, revision, content_hash)).fetchall()
             if any(r[2] == NarrativeOutcome.OK.value for r in rows):
                 return None
-            if len(rows) >= MAX_NARRATIVE_CLAIMS:
+            sent = sum(1 for r in rows if r[2] not in UNSENT_NARRATIVE_OUTCOMES)
+            if sent >= MAX_NARRATIVE_CLAIMS:
                 return None
             if rows and rows[-1][2] is None and rows[-1][1] > _iso(now - NARRATIVE_CLAIM_WINDOW):
                 return None
@@ -694,11 +699,14 @@ class TaskStore(TaskReads):
             return NarrativeClaim(cursor.lastrowid, task_id, revision, content_hash)
 
     def narrative_claim_count(self, task_id: str, revision: int, content_hash: str) -> int:
-        """這份提案一共領過幾次(領滿 MAX_NARRATIVE_CLAIMS 次就不再領)。"""
-        row = self._conn.execute(
-            "SELECT count(*) FROM narrative_claims WHERE task_id = ? AND revision = ? "
-            "AND content_hash = ?", (task_id, revision, content_hash)).fetchone()
-        return int(row[0])
+        """這份提案算進領取上限的領取次數(確定沒送出的不算;領滿 MAX_NARRATIVE_CLAIMS 次就
+        不再領)。"""
+        rows = self._conn.execute(
+            "SELECT r.outcome FROM narrative_claims c "
+            "LEFT JOIN narrative_results r ON r.claim_seq = c.claim_seq "
+            "WHERE c.task_id = ? AND c.revision = ? AND c.content_hash = ?",
+            (task_id, revision, content_hash)).fetchall()
+        return sum(1 for (outcome,) in rows if outcome not in UNSENT_NARRATIVE_OUTCOMES)
 
     def has_narrative(self, task_id: str, revision: int, content_hash: str) -> bool:
         """這份提案已經有成功的說明。"""

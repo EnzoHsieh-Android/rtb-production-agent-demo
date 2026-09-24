@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+import stat
 import unicodedata
 import uuid
 from dataclasses import asdict, dataclass
@@ -140,11 +141,9 @@ def _batch_of(path: Path, batch_id: str) -> str | None:
         raise MixedRecordingsDir(
             f"錄製目錄裡有{where}留下的佔位 {path.name}:確認沒有行程還在錄之後刪掉再錄")
     try:
-        recording = Recording(**data)
-    except TypeError as bad:
-        raise MixedRecordingsDir(f"{path.name} 不是錄製檔") from bad
-    if not _well_typed(data):
-        raise MixedRecordingsDir(f"{path.name} 不是錄製檔")
+        recording = validated(path, data)  # 跟讀取同一套驗證:讀不回來的檔開錄前就拒絕
+    except NoRecording as bad:
+        raise MixedRecordingsDir(f"{path.name} 不是讀得回來的錄製檔({bad})") from bad
     if path.name != f"{recording.key}.json":
         raise MixedRecordingsDir(f"{path.name} 的檔名跟檔內的錄製鍵不符,讀的時候會被當成沒有錄製")
     return recording.batch_id
@@ -156,14 +155,18 @@ def check_recordings_dir(directory: Path, batch_id: str | None) -> None:
     有其他檔或子目錄、讀不懂的檔、別的批次、任何佔位(含同一批中斷留下的)一律拒絕:不要把兩批混在
     同一個目錄,也不要讓錄製在第一次呼叫才以錄製衝突或設定錯誤失敗(Phase 13〈錄製批次與入庫〉、
     代碼審 r1)。專案根的入庫目錄有說明檔,所以即時加錄製一定要給新目錄。"""
-    if not batch_id:
+    if not batch_id or not batch_id.strip():
         raise MixedRecordingsDir("即時加錄製要帶批次編號")
     folder = Path(directory)
-    if folder.is_symlink():
-        raise MixedRecordingsDir(f"{folder} 是符號連結,不收;{_FRESH}")
-    if not os.path.lexists(folder):
+    try:
+        mode = folder.lstat().st_mode  # 只有「不存在」放行;上一層讀不到或是檔案都拒絕(代碼審 r2)
+    except FileNotFoundError:
         return
-    if not folder.is_dir():
+    except OSError as broken:
+        raise MixedRecordingsDir(f"錄製目錄讀不到({type(broken).__name__});{_FRESH}") from broken
+    if stat.S_ISLNK(mode):
+        raise MixedRecordingsDir(f"{folder} 是符號連結,不收;{_FRESH}")
+    if not stat.S_ISDIR(mode):
         raise MixedRecordingsDir(f"{folder} 不是目錄")
     try:
         entries = sorted(folder.iterdir())
@@ -186,6 +189,24 @@ class PendingRecording(Exception):
         self.batch_id = batch_id
 
 
+def validated(path: Path, data: object) -> Recording:
+    """錄製檔內容的共用驗證(讀取與開錄前目錄檢查同一套,代碼審 r2):欄位齊、結果類別與結算狀態
+    是合法值、
+    每欄型別都對;不符丟「沒有錄製」。不看鍵、呼叫者與模型(那是讀取時跟請求比的)。"""
+    try:
+        if not isinstance(data, dict):
+            raise TypeError("不是物件")
+        recording = Recording(**data)
+        Outcome(recording.outcome)
+        if recording.settlement is not None:
+            SettlementState(recording.settlement)
+    except (ValueError, TypeError) as bad:
+        raise NoRecording(f"錄製檔讀不懂:{path.name}") from bad
+    if not _well_typed(data):
+        raise NoRecording(f"錄製檔欄位型別不對:{path.name}")
+    return recording
+
+
 def load_recording(path: Path, *, key: str, caller: Caller, model: str) -> Recording | None:
     """讀錄製檔並驗:鍵等於檔名、呼叫者與模型等於這次請求、每欄型別都對;不符丟「沒有錄製」。
     不存在回 None(懸空的符號連結也算存在);還在錄的佔位丟 `PendingRecording`。"""
@@ -200,15 +221,7 @@ def load_recording(path: Path, *, key: str, caller: Caller, model: str) -> Recor
     pending, batch = _pending_batch(data)
     if pending:
         raise PendingRecording(batch)
-    try:
-        recording = Recording(**data)
-        Outcome(recording.outcome)
-        if recording.settlement is not None:
-            SettlementState(recording.settlement)
-    except (ValueError, TypeError) as bad:
-        raise NoRecording(f"錄製檔讀不懂:{path.name}") from bad
-    if not _well_typed(data):
-        raise NoRecording(f"錄製檔欄位型別不對:{path.name}")
+    recording = validated(path, data)
     if (recording.key != key or path.name != f"{key}.json"
             or recording.caller != Caller(caller).value or recording.model != model):
         raise NoRecording(f"錄製檔的鍵、呼叫者或模型跟這次請求不符:{path.name}")

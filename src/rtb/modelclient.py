@@ -147,34 +147,56 @@ def call_deadline_seconds(timeout_seconds: float) -> float:
             + ledger_waits)
 
 
-_NUMBER = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
-_SENTENCE = re.compile(r"[^。!?;!?;]*[。!?;!?;]?")
+# 數字:前面可帶負號(半形、減號、全形),可帶千分位逗號與小數;
+# 負號前面緊接英數字時(t-1、3-5 這類)不算負號
+_NUMBER = re.compile(r"(?:(?<![0-9A-Za-z])[-\u2212\uff0d])?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
+# 句末標點:全形與半形的 。!?;(代碼審 r2:原本半形寫了兩次,全形的漏了)
+_SENTENCE = re.compile(r"[^。!?;\uff01\uff1f\uff1b]*[。!?;\uff01\uff1f\uff1b]?")
+# 認不出的數字寫法(協調者裁定,代碼審 r2):中文或大寫數字字元(零〇一二…十百千萬億、兩、壹貳…)、上標、
+# 圈數字、分數、羅馬數字都是「有數值卻不是十進位數字」的字;另有科學記號。
+# 不去完整解析,含它們的句子一律
+# 當成對不回
+_EXPONENT = re.compile(r"\d[eE][-+]?\d")
+_OTHER_NUMERALS = frozenset("零〇一二三四五六七八九十百千萬億兩壹貳參叁肆伍陸柒捌玖拾佰仟")
+
+
+def _unreadable_numerals(text: str) -> bool:
+    return bool(_EXPONENT.search(text)) or any(
+        (ch.isnumeric() and not ch.isdecimal()) or ch in _OTHER_NUMERALS for ch in text)
 
 
 def _numbers(text: str) -> set[Decimal]:
-    """文字裡的每一個數字(全形數字照認:正規式的 \\d 與 Decimal 都認 Unicode 數字;千分位逗號拿掉;同值
-    不同寫法算同一個:0.50 等於 0.5)。"""
+    """文字裡的每一個數字:負號保留(-5 對不回 5);全形數字照認(正規式的 \\d 與 Decimal 都認
+    Unicode 十進位
+    數字);千分位逗號拿掉;同值不同寫法算同一個(0.50 等於 0.5)。"""
     found = set()
     for match in _NUMBER.finditer(text):
-        found.add(Decimal(match.group(0).replace(",", "")).normalize())
+        raw = match.group(0).replace(",", "").replace("\u2212", "-").replace("\uff0d", "-")
+        found.add(Decimal(raw))
     return found
 
 
 def traceable_sentences(text: str, evidence: str) -> tuple[str, int]:
     """模型文字裡提到的數字要能對回送出去的證據(Phase 13 計劃〈省掉不值得發生的模型工作〉④:11B 的
-    說明與假說也照這條):照句末標點切句,句子裡有任何一個數字不在證據文字裡就整句拿掉。回(留下的
-    文字, 拿掉幾句)。只比數值、不比單位與語意——核對只證明數字出自證據,不證明用對了地方。要在佔位符
-    換回真實編號之前比(真實編號裡的數字不在送出的內容裡)。"""
+    說明與假說也照這條):照句末標點切句,句子裡有任何一個數字不在證據文字裡就整句拿掉;含中文或大寫
+    數字、上標、圈數字、分數、羅馬數字或科學記號的句子也整句拿掉(不解析,一律當對不回;系統提示要模型
+    用阿拉伯數字照證據原樣寫)。回(留下的文字, 拿掉幾句)。只比數值、不比單位與語意——
+    核對只證明數字出自
+    證據,不證明用對了地方。要在佔位符換回真實編號之前比(真實編號裡的數字不在送出的內容裡)。"""
     allowed = _numbers(evidence)
     kept, dropped = [], 0
     for sentence in _SENTENCE.findall(text):
         if not sentence:
             continue
-        if _numbers(sentence) <= allowed:
+        if not _unreadable_numerals(sentence) and _numbers(sentence) <= allowed:
             kept.append(sentence)
         else:
             dropped += 1
     return "".join(kept).strip(), dropped
+
+
+# 說明與假說的系統提示都要附上的一句(核對只認阿拉伯數字,自己推算的比率或時間對不回證據)
+NUMERALS_RULE = "數字一律用阿拉伯數字照證據原樣寫,不要自己推算比率或時間。"
 
 
 class Preflight(StrEnum):

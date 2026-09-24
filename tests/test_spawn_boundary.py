@@ -281,6 +281,48 @@ def caller_offenders(tree, module):
     return sorted(f"{module}: 用了 {name}" for name in used if module not in CALLER_USERS[name])
 
 
+CALLER_TAKERS = frozenset({"open_gate", "ModelRequest", "Gate"})  # 收呼叫者標籤的建構與開閘道
+
+
+def _literal_member(node):
+    """`<…>.Caller.成員` 或 `Caller.成員` 的字面寫法;回成員名,不是就回 None。"""
+    if not (isinstance(node, ast.Attribute) and node.attr in CALLER_USERS):
+        return None
+    base = node.value
+    name = base.id if isinstance(base, ast.Name) else base.attr if isinstance(
+        base, ast.Attribute) else None
+    return node.attr if name == "Caller" else None
+
+
+def caller_argument_offenders(tree, module):
+    """開閘道、建請求、建閘道時帶的呼叫者:一定要是字面的 Caller.成員(不准變數、別名、getattr),
+    而且要是
+    這支模組准用的成員(代碼審 r2:標籤在開閘道時綁死,送出時不收)。"""
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(
+            func, ast.Attribute) else None
+        if name not in CALLER_TAKERS:
+            continue
+        given = [k.value for k in node.keywords if k.arg == "caller"]
+        if not given and name == "ModelRequest" and node.args:
+            given = [node.args[0]]
+        if not given and name == "Gate" and len(node.args) > 1:
+            given = [node.args[1]]
+        for value in given:
+            member = _literal_member(value)
+            if member is None:
+                found.append(f"{module}:{node.lineno} {name} 的呼叫者不是字面的 Caller.成員")
+            elif module not in CALLER_USERS[member]:
+                found.append(f"{module}:{node.lineno} {name} 用了 {member}")
+        if not given and name == "open_gate":
+            found.append(f"{module}:{node.lineno} open_gate 沒帶呼叫者")
+    return found
+
+
 def test_each_caller_label_is_used_only_by_its_own_module():
     """代碼審 r1:花費上限依請求自報的呼叫者判,每個呼叫者標籤只准它自己的那支模組用。"""
     from rtb.modelledger_view import Caller
@@ -292,6 +334,22 @@ def test_each_caller_label_is_used_only_by_its_own_module():
         if module not in CALLER_EXEMPT:
             offenders += caller_offenders(ast.parse(path.read_text(encoding="utf-8")), module)
     assert offenders == []
+    arguments = []
+    for path in sorted(RTB.rglob("*.py")):
+        module = _module_name(path)
+        if module not in CALLER_EXEMPT and module != GATE:
+            arguments += caller_argument_offenders(ast.parse(path.read_text(encoding="utf-8")),
+                                                   module)
+    assert arguments == []
+    for probe in ("from rtb.modelclient import Caller as K\nr = ModelRequest(caller=K.NARRATIVE)\n",
+                  "r = mc.ModelRequest(caller=getattr(mc.Caller, 'NARRATIVE'))\n",
+                  "c = mc.Caller.EVAL_CANDIDATE\nr = mc.ModelRequest(caller=c)\n",
+                  "g = modelgate.open_gate({}, caller=modelgate.Caller.HYPOTHESIS)\n",
+                  "g = modelgate.open_gate({}, demo_id=None)\n",
+                  "r = core.ModelRequest(core.Caller.VERIFICATION, 's', 'u', 1, 1.0)\n"):
+        assert caller_argument_offenders(ast.parse(probe), "rtb.eval.model_candidate"), probe
+    assert caller_argument_offenders(ast.parse(
+        "r = mc.ModelRequest(caller=mc.Caller.EVAL_CANDIDATE)\n"), "rtb.eval.model_candidate") == []
     for probe in ("from rtb import modelclient as mc\nx = mc.Caller.NARRATIVE\n",
                   "from rtb.modelclient import Caller\nx = Caller('ops_hypothesis')\n",
                   "from rtb.modelclient import Caller\nx = Caller['INVESTIGATION']\n"):
@@ -322,6 +380,8 @@ CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate",
                               "rtb.analyzer.modelgate", "rtb.analyzer.narrate",
                               "rtb.ops.hypothesis"})
 SEND_CALLS = frozenset({"call_model", "open_gate", "complete"})
+# 會送出模型呼叫的命令列模組:匯入它就能經它的 run 轉手送出,匯入本身就算送出點(代碼審 r2)
+SENDING_ENTRIES = frozenset({"rtb.analyzer.narrate", "rtb.ops.hypothesis"})
 # 每個呼叫者標籤只准哪幾支模組用(代碼審 r1:花費上限看請求自報的呼叫者,標籤要綁住模組才守得住
 # 「誰都不能自稱不計入」)。定義它的唯讀開法與只拿來列上限清單的花費帳寫入不算使用;Phase 13 增量 2 的
 # AI 決策模組開檔時把它加進「分析端調查」那一格
@@ -343,6 +403,8 @@ def backend_offenders(tree, label, module=None):
         if isinstance(node, ast.Import):
             found += [f"{label}: 匯入 {a.name}" for a in node.names
                       if a.name in ("rtb.modelclaude", "rtb.modelverify")]
+            found += [f"{label}: 匯入送出命令列 {a.name}" for a in node.names
+                      if a.name in SENDING_ENTRIES and module not in CALL_MODEL_USERS]
         elif isinstance(node, ast.ImportFrom):
             module_name = node.module or ""
             names = {a.name for a in node.names}
@@ -352,6 +414,9 @@ def backend_offenders(tree, label, module=None):
             found += [f"{label}: 匯入 {n}" for n in names & BACKEND_NAMES]
             if names & SEND_CALLS and module not in CALL_MODEL_USERS:
                 found.append(f"{label}: 匯入 {sorted(names & SEND_CALLS)}")
+            entries = {f"{module_name}.{n}" for n in names} | {module_name}
+            if entries & SENDING_ENTRIES and module not in CALL_MODEL_USERS:
+                found.append(f"{label}: 匯入送出命令列 {sorted(entries & SENDING_ENTRIES)}")
         elif isinstance(node, ast.Attribute) and (node.attr in BACKEND_NAMES or (
                 node.attr in SEND_CALLS and module not in CALL_MODEL_USERS)):
             found.append(f"{label}:{node.lineno} 取用 {node.attr}")
@@ -384,13 +449,20 @@ def test_only_the_model_client_modules_touch_the_claude_backend():
                   "from rtb.analyzer import modelgate as g\ng.open_gate({}, demo_id=None, "
                   "ledger=None, recordings=None)",
                   "def f(gate):\n    return gate.complete(1, 's', 'u')",
-                  "from rtb.analyzer.modelgate import open_gate"):
+                  "from rtb.analyzer.modelgate import open_gate",
+                  # 代碼審 r2:經說明或假說命令列的 run 轉手送出
+                  "from rtb.analyzer import narrate\nnarrate.run(['--db', 'x'])",
+                  "import rtb.ops.hypothesis",
+                  "from rtb.ops.hypothesis import run",
+                  "from rtb.ops import hypothesis as h\nh.run([])"):
         assert backend_offenders(ast.parse(probe), "probe"), probe
     # 代碼審 r1:分析端與維運以外的各層(含展示與它的啟動器)也禁匯入模型閘道
     for config in (RTB / "dsp" / "ruff.toml", RTB / "eval" / "ruff.toml",
                    RTB / "demo" / "ruff.toml", RTB / "demo" / "launcher" / "ruff.toml",
                    RTB / "executor" / "ruff.toml", RTB / "domain" / "ruff.toml"):
-        for banned in ("from rtb.analyzer import modelgate", "import rtb.analyzer.modelgate"):
+        for banned in ("from rtb.analyzer import modelgate", "import rtb.analyzer.modelgate",
+                       "from rtb.analyzer import narrate", "import rtb.ops.hypothesis",
+                       "from rtb.ops import hypothesis"):
             result = subprocess.run(
                 [sys.executable, "-m", "ruff", "check", "--config", str(config),
                  "--stdin-filename", str(config.parent / "probe.py"), "-"],

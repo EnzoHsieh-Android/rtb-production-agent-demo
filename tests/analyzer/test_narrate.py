@@ -31,7 +31,7 @@ from tests.ops.test_hypothesis import (
 )
 
 SRC = Path(__file__).resolve().parents[2] / "src"
-GOOD = "這份提案把預算加一成,依據是配速偏低;模型產生的說明只供參考。"
+GOOD = "這份提案把預算從 100 加到 110,依據是配速偏低;模型產生的說明只供參考。"
 
 
 @pytest.fixture(scope="module")
@@ -52,7 +52,8 @@ def _copy(handed_off, tmp_path):
 def _gate(tmp_path, settings, demo_id="demo-1"):
     recordings = tmp_path / "rec"
     recordings.mkdir(exist_ok=True)
-    return modelgate.Gate(settings, demo_id, tmp_path / "ledger.sqlite", recordings)
+    return modelgate.Gate(settings, modelgate.Caller.NARRATIVE, demo_id, tmp_path / "ledger.sqlite",
+                          recordings)
 
 
 def _narrate(db, gate, *, owner="n1", now=None):
@@ -381,3 +382,28 @@ def test_failed_narratives_are_retried_only_a_few_times(handed_off, tmp_path):
     assert outcomes == ["unreadable"] * 3 + ["gave_up"] * 2
     assert len(backend.calls) == 3
     assert len(_tables(db, "narrative_claims")["narrative_claims"]) == 3
+
+
+# ---- 代碼審 r2 ----
+def test_the_prompts_ask_for_arabic_numerals_copied_from_the_evidence():
+    from rtb.ops import hypothesis
+
+    for prompt in (narrate.SYSTEM_PROMPT, hypothesis.SYSTEM_PROMPT):
+        assert "數字一律用阿拉伯數字照證據原樣寫,不要自己推算比率或時間" in prompt
+
+
+def test_only_calls_that_were_sent_count_toward_the_claim_limit(handed_off, tmp_path):
+    """花費帳忙碌(沒送出、沒花錢)的領取不算進上限:忙三次之後照樣能產生說明。"""
+    db = _copy(handed_off, tmp_path)
+
+    class Busy(modelgate.Gate):
+        def complete(self, *_args, **_kwargs):
+            raise modelgate.LedgerBusy("忙")
+
+    busy = Busy(live(FakeBackend()), modelgate.Caller.NARRATIVE, "demo-1",
+                tmp_path / "ledger.sqlite", tmp_path)
+    for _ in range(ts.MAX_NARRATIVE_CLAIMS):
+        with pytest.raises(modelgate.LedgerBusy):
+            _narrate(db, busy)
+    [done] = _narrate(db, _gate(tmp_path, live(FakeBackend(reply(GOOD)))))
+    assert done.outcome == "ok"
