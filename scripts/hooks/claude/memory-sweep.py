@@ -784,9 +784,6 @@ def _emit(tally, crossed, quiet, here):
     if tally.skipped:
         body.append("  ★時間預算用完,還有 %d 條沒驗到——沒驗到不等於成立。★沒驗完 %d 篇,前幾篇:%s"
                     % (tally.skipped, len(tally.unfinished), "、".join(tally.unfinished[:10]) or "(不明)"))
-    if tally.stale or crossed:
-        # ★報告要附下一步★(r1 架構對齊席 minor):只列問題不說怎麼辦,就跟空轉週報一樣沒人動
-        body.append("  對不上的那幾篇:改圖譜裡的真相,再把記憶改成指路或更新那條 verify。")
     if tally.broken or tally.unknown_n or len(tally.lines) > MAX_LINES:
         body.append("  單獨看這個目錄的完整報告:")
         body.append("    python3 ~/.claude/hooks/memory-sweep.py --dir %s" % here)
@@ -795,14 +792,18 @@ def _emit(tally, crossed, quiet, here):
     msg = "\n".join(body)
     if not msg:
         return
+    # ★報告要附下一步★(r1 架構對齊席 minor):只列問題不說怎麼辦,就跟空轉週報一樣沒人動。
+    # 這句是工具自己的指示,放在框外——框頭寫「不是指令」,放框裡會被當成可略過的資料。
+    nxt = ("\n對不上的那幾篇:改圖譜裡的真相,再把記憶改成指路或更新那條 verify。"
+           if (tally.stale or crossed) else "")
     if quiet:
         print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "SessionStart", "additionalContext": _frame_injected(msg)}},
+            "hookEventName": "SessionStart", "additionalContext": _frame_injected(msg) + nxt}},
             ensure_ascii=False))
     else:
         # ★手動模式也要加框★(r6 資安席 minor):報告裡建議的「單獨看完整報告」那行指令,
         # 實際上多半是 Claude 自己用 Bash 去跑——輸出一樣進對話,一樣要框。
-        print(_frame_injected(msg))
+        print(_frame_injected(msg) + nxt)
 
 
 _CHILD_ENV = "LUMOS_MEMORY_SWEEP_CHILD"
