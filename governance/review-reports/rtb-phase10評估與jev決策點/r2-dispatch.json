@@ -1,0 +1,65 @@
+[
+ {
+  "round": "r2",
+  "seat": "s1",
+  "lens": "前輪驗收與鏡像",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-s1.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-s2.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-s3.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-s4.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-s5.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-sarch.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-x1.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s2",
+  "lens": "評分表、評分格與指標數學",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "src/rtb/analyzer/dsp_client.py",
+   "src/rtb/domain/_checks.py"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "s3",
+  "lens": "新介面的正確性與可測性",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "src/rtb/analyzer/policy.py",
+   "src/rtb/analyzer/flow.py",
+   "tests/analyzer"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "src/rtb"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "x1",
+  "lens": "外家:全份 blocking 級",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md"
+  ],
+  "auditor": "codex"
+ }
+]
