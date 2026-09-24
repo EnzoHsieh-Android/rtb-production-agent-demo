@@ -5,16 +5,20 @@
 沒寫;不真的等 5 秒。退避經注入的睡眠,測試記下序列、不真的睡。
 """
 
+import io
+
 import pytest
 
 from rtb import sqlitekit
-from rtb.executor import attempt_store
+from rtb.capabilitykit import KEY_ENV
+from rtb.domain.attempt import AttemptState
+from rtb.executor import attempt_store, runner
 from rtb.executor.execution import Executor, Result, WriteAnswer
 from rtb.executor.inbox_store import InboxBusy, InboxBusyNotStarted
 from rtb.sqlitekit import DatabaseBusy
-from tests.capability_samples import TEST_APPROVAL_KEY
+from tests.capability_samples import TEST_APPROVAL_KEY, TEST_KEY
 from tests.executor.conftest import Clock
-from tests.executor.fakes import Harness
+from tests.executor.fakes import Harness, proposal
 
 
 class BusyBegin:
@@ -205,5 +209,54 @@ def _one_busy_write(directory, busy, before_busy):
         except InboxBusyNotStarted:
             done = False
         return done, sleeps
+    finally:
+        h.close()
+
+
+# ---- [S687] 入口接線:啟動程式把自己的睡眠交給執行迴圈,退避才真的會睡 ----
+def test_the_runner_hands_its_sleep_to_the_result_write_retry(tmp_path, clock, monkeypatch):
+    busy = BusyBegin(monkeypatch)
+    h = Harness(tmp_path, clock)
+    try:
+        h.submit()
+        h.dsp.on_write = lambda *_a: busy.arm(1)
+        slept = []
+        code = runner.run(
+            ["--db", str(h.db), "--dsp-url", "http://127.0.0.1:9", "--tenant-config",
+             str(h.config), "--interval-seconds", "0.01"],
+            environ={KEY_ENV: TEST_KEY.decode()}, clock=h.clock, dsp=h.dsp,
+            out=io.StringIO(), sleep=slept.append, max_rounds=1, owner="executor")
+        assert code == 0
+        assert busy.hits == 1
+        assert slept == [0.05]  # 退避經啟動程式的睡眠;這輪有進展,不另休息一個間隔
+        assert _states(h) == ["in_flight", "committed_unverified", "verified"]
+    finally:
+        h.close()
+
+
+# ---- [S690] 沒有收據的舊鍵:沒有租約可讀,只受次數限制 ----
+def test_a_legacy_key_without_a_receipt_retries_on_count_alone(tmp_path, clock, monkeypatch):
+    busy, sleeps = BusyBegin(monkeypatch), []
+    h = Harness(tmp_path, clock)
+    try:
+        prop = proposal()
+        with h.store.transaction() as tx:  # 收件表沒有對應處理中訊息的舊鍵(Phase 3 時代留下)
+            row = attempt_store.begin(tx, prop, h.clock(), capability_expires_at=h.clock()).row
+            attempt_store.transition(tx, row.key, row.seq, AttemptState.COMMITTED_UNVERIFIED,
+                                     h.clock(), written_version=4)
+        clock.advance(hours=1)  # 若誤用租約期限,早就過期、一次都不會重試
+        h.dsp.on_read = lambda _c: busy.arm(99)  # 查證讀取之後,記結果的開交易一直鎖不到
+        with pytest.raises(InboxBusyNotStarted):
+            _worker(h, sleeps).reconcile_all()
+        busy.arm(0)
+        assert busy.hits == 4  # 第一次加重試 3 次:只受次數限制
+        assert sleeps == [0.05, 0.1, 0.2]
+        assert _states(h) == ["in_flight", "committed_unverified"]  # 沒有多寫任何一列
+
+        sleeps.clear()
+        h.dsp.on_read = lambda _c: busy.arm(2)  # 鎖不到兩次之後拿到:照常寫完
+        _worker(h, sleeps).reconcile_all()
+        assert sleeps == [0.05, 0.1]
+        assert len(_states(h)) == 3
     finally:
         h.close()
