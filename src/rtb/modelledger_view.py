@@ -37,12 +37,14 @@ def ledger_path() -> Path:
 
 
 class Caller(StrEnum):
-    """會呼叫模型的三個接入點,加上即時模式實測命令列(封閉列舉;實測的呼叫也算進每月上限)。"""
+    """會呼叫模型的地方(封閉列舉):Phase 11B 的三個接入點與即時模式實測命令列,加上 Phase 13 的分析端
+    調查。哪幾個計入花費上限寫死在花費帳寫入模組(`modelledger.CAPPED_CALLERS`),不看這裡。"""
 
     EVAL_CANDIDATE = "eval_candidate"
     HYPOTHESIS = "ops_hypothesis"
     NARRATIVE = "analyzer_narrative"
     VERIFICATION = "live_verification"
+    INVESTIGATION = "analyzer_investigation"  # Phase 13:AI 在分析端主導的有上限調查
 
 
 class Source(StrEnum):
@@ -196,6 +198,16 @@ class ModelLedgerView:
         except sqlite3.DatabaseError as broken:
             raise LedgerUnreadable(f"花費帳讀不了:{type(broken).__name__}") from broken
         return tuple(LedgerCall.from_row(row) for row in rows)
+
+    def used_by_demo(self, demo_id: str) -> int:
+        """這個展示編號的已用(十億分之一美元):已結算的照結算、還沒結算的照預留、有核銷的照核銷規則,
+        不分呼叫者(一鍵展示頁面的花費從這裡讀;判上限只算計入上限的呼叫者,在寫入模組)。"""
+        try:
+            rows = self._conn.execute(CALLS_SELECT + "WHERE r.demo_id = ? ORDER BY r.id",
+                                      (demo_id,)).fetchall()
+        except sqlite3.DatabaseError as broken:
+            raise LedgerUnreadable(f"花費帳讀不了:{type(broken).__name__}") from broken
+        return sum(LedgerCall.from_row(row).effective_nanousd for row in rows)
 
     def close(self) -> None:
         self._conn.close()

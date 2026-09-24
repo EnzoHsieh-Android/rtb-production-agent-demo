@@ -240,10 +240,17 @@ def _eval_roots():
     return [f"rtb.eval.{p.stem}" for p in sorted(EVAL.glob("*.py")) if p.stem != "__init__"]
 
 
+# Phase 13 改寫 [S918](計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉):
+# 評估套件的閉包
+# 只准多出寫死的准許名單。增量 1 起有模型閘道;AI 決策模組、小常數模組與 Phase 13 的評估模組(評估集、
+# 生成器、執行器、報告)在增量 2、3 開檔時照同一條加進這份名單(小常數模組也要加進模型用戶端閉包)
+PHASE13_ALLOWED = frozenset({"rtb.analyzer.modelgate"})
+
+
 def test_the_eval_package_reaches_the_model_only_through_the_model_client():  # noqa: PLR0915
     closure = _closure(_eval_roots())
     # 允許多出來的分支寫死(代碼審第 2 輪:動態算的話,模型用戶端多匯入什麼都會被跟著放行)
-    branch = MODEL_CLIENT_CLOSURE | {"rtb.eval.model_candidate"}
+    branch = MODEL_CLIENT_CLOSURE | {"rtb.eval.model_candidate"} | PHASE13_ALLOWED
     assert set(_closure(["rtb.modelclient"])) == MODEL_CLIENT_CLOSURE
     assert "rtb.modelclient" in closure
     assert set(closure) - BASELINE <= branch, sorted(set(closure) - BASELINE - branch)

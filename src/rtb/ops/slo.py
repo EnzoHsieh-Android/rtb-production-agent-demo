@@ -297,6 +297,12 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
         return EXIT_NOT_UPGRADED
     print(json.dumps(to_primitives(statuses), ensure_ascii=False, indent=2),
           file=out or sys.stdout)
+    return exit_code(statuses, errors)
+
+
+def exit_code(statuses: tuple[SloStatus, ...], errors: TextIO) -> int:
+    """印完狀態之後的結束代碼(假說命令列也用這一份,結束代碼跟這裡一致):任何一條缺資料或出錯回
+    「不完整」並把哪幾條、為什麼印到 errors;都齊但有不穩定回「不穩定」;否則 0。"""
     incomplete = [s for s in statuses if s.missing or s.error is not None]
     if incomplete:
         for s in incomplete:

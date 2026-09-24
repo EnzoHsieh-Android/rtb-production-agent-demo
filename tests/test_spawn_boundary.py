@@ -5,7 +5,10 @@
 concurrent.futures 的行程池(含別名與 __import__、importlib 動態載入),或呼叫 os.system、os.popen、
 os.fork、os.forkpty、os.exec*、os.spawn*、os.posix_spawn*、asyncio.create_subprocess_*,只准出現在
 模型用戶端。
-分析端只有模型說明命令列(增量 2)准匯入模型用戶端,分析端目錄不准直接匯入網路或子行程模組。
+分析端只有模型閘道准匯入模型用戶端的任何一支模組(Phase 13 改寫 [S917],計劃
+[[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉),分析端目錄不准直接匯入網路或子行程模組;
+准匯入模型閘道的分析端模組寫死成清單,流程推進、決策規則與 DSP
+用戶端的匯入閉包不含模型用戶端([S1100])。
 維運、評估、DSP、執行端的靜態檢查規則另加 subprocess 禁令。
 """
 
@@ -16,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.analyzer.test_boundaries import NETWORK_MODULES, _imported_modules
+from tests.analyzer.test_boundaries import NETWORK_MODULES, _imported_modules, _source_of
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 RTB = SRC / "rtb"
@@ -26,6 +29,12 @@ ALLOWED = frozenset({"rtb.modelclaude"})  # 模型用戶端的 Claude Code 後�
 # 也不准匯入模型用戶端
 PROJECT_STARTERS = frozenset({"rtb.demo.launcher", "rtb.demo.driver"})
 MODEL_CLIENTS = frozenset({"rtb.modelclaude", "rtb.modelclient"})
+GATE = "rtb.analyzer.modelgate"  # 分析端唯一准匯入模型用戶端的模組(Phase 13)
+# 准匯入模型閘道的分析端模組(寫死,[S1100]):模型說明命令列、分析端驅動命令列;Phase 13 增量 2 的
+# AI 決策函式所在模組開檔時加在這裡
+GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.runner"})
+# 匯入閉包不准含模型用戶端任何一支模組的分析端模組([S1100])
+MODEL_FREE = ("rtb.analyzer.flow", "rtb.analyzer.policy", "rtb.analyzer.dsp_client")
 SPAWN_MODULES = frozenset({"subprocess", "multiprocessing", "pty", "webbrowser",
                            "_posixsubprocess"})
 OS_SPAWNERS = ("system", "popen", "exec", "spawn", "posix_spawn", "fork", "forkpty")
@@ -115,18 +124,7 @@ def test_only_the_model_client_starts_claude():
             offenders += found
     assert offenders == []
     assert starters == ALLOWED | PROJECT_STARTERS  # 都真的在用,掃描不是空轉
-    # 分析端:沒有檔案匯入模型用戶端(增量 2 起只准模型說明命令列),也不直接匯入網路或子行程模組
-    analyzer_offenders = []
-    for path in sorted((RTB / "analyzer").glob("*.py")):
-        module = _module_name(path)
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        imported = _imported_modules(SRC, module, tree)
-        imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
-        if "rtb.modelclient" in imported and module != "rtb.analyzer.narrate":
-            analyzer_offenders.append(f"{module}: 匯入模型用戶端")
-        analyzer_offenders += [f"{module}: {m}" for m in imported
-                               if m.split(".")[0] in NETWORK_MODULES | SPAWN_MODULES]
-    assert analyzer_offenders == []
+    assert analyzer_model_offenders() == []
     # 殺傷力:各種寫法都抓得到
     for probe in ("import subprocess", "from subprocess import run", "import multiprocessing",
                   "import pty", "import os\nos.system('x')", "import os\nos.execvp('x', [])",
@@ -140,6 +138,87 @@ def test_only_the_model_client_starts_claude():
                   "import importlib\nimportlib.import_module('pty')",
                   "name = 'sub' + 'process'\nx = __import__(name)"):
         assert spawn_offenders(ast.parse(probe), "probe"), probe
+
+
+def model_client_modules():
+    """模型用戶端的每一支模組:src/rtb/ 底下檔名以 model 開頭的(實作當下列舉,不寫死)。"""
+    return frozenset(f"rtb.{path.stem}" for path in RTB.glob("model*.py"))
+
+
+def analyzer_model_offenders(analyzer=RTB / "analyzer"):
+    """分析端目錄:只有模型閘道准匯入模型用戶端的任何一支模組;任何檔都不准直接匯入網路或子行程模組。"""
+    clients, offenders = model_client_modules(), []
+    for path in sorted(analyzer.glob("*.py")):
+        module = _module_name(path) if path.is_relative_to(SRC) else f"rtb.analyzer.{path.stem}"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        imported = _imported_modules(SRC, module, tree)
+        imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+        touched = {m for m in imported if any(m == c or m.startswith(c + ".") for c in clients)}
+        touched |= {f"rtb.{a.name}" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+                    and n.module == "rtb" for a in n.names if f"rtb.{a.name}" in clients}
+        if touched and module != GATE:
+            offenders.append(f"{module}: 匯入模型用戶端 {sorted(touched)}")
+        offenders += [f"{module}: {m}" for m in imported
+                      if m.split(".")[0] in NETWORK_MODULES | SPAWN_MODULES]
+    return offenders
+
+
+def closure_of(roots, src=SRC):
+    pending, closure = list(roots), set()
+    while pending:
+        module = pending.pop()
+        if module in closure:
+            continue
+        closure.add(module)
+        path = _source_of(src, module)
+        if path is None:
+            continue
+        parts = module.split(".")
+        pending += [".".join(parts[:i]) for i in range(1, len(parts))]
+        pending += sorted(_imported_modules(src, module, ast.parse(
+            path.read_text(encoding="utf-8"))) - closure)
+    return closure
+
+
+def gate_offenders(analyzer=RTB / "analyzer"):
+    """匯入模型閘道的分析端模組只准是寫死的那幾支。"""
+    offenders = []
+    for path in sorted(analyzer.glob("*.py")):
+        module = f"rtb.analyzer.{path.stem}"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        imported = _imported_modules(SRC, module, tree)
+        imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+        if GATE in imported and module not in GATE_USERS:
+            offenders.append(f"{module}: 匯入模型閘道")
+    return offenders
+
+
+def test_the_analyzer_reaches_the_model_only_through_the_gateway(tmp_path):
+    """[S1100] 分析端只經模型閘道碰模型用戶端;准匯入閘道的分析端模組寫死;流程推進、決策規則與 DSP
+    用戶端的匯入閉包不含模型用戶端的任何一支模組。"""
+    clients = model_client_modules()
+    assert {"rtb.modelclient", "rtb.modelclaude", "rtb.modelcore", "rtb.modelledger",
+            "rtb.modelledger_view", "rtb.modelrecording", "rtb.modelverify",
+            "rtb.modelledger_writeoff"} <= clients
+    assert analyzer_model_offenders() == []
+    assert gate_offenders() == []
+    assert (RTB / "analyzer" / "modelgate.py").is_file()
+    for root in MODEL_FREE:
+        reached = closure_of([root])
+        assert not reached & (clients | {GATE}), (root, sorted(reached & (clients | {GATE})))
+    assert "rtb.modelclient" in closure_of([GATE])
+    # 殺傷力:分析端副本裡任何一支檔直接碰模型用戶端的任何模組、或白名單外的檔匯入閘道,都抓得到
+    for probe in ("from rtb import modelclient\n", "import rtb.modelcore\n",
+                  "from rtb.modelledger_view import Caller\n", "from rtb import modelrecording\n",
+                  "from rtb.modelclient import call_model\n"):
+        copy = tmp_path / f"a{abs(hash(probe))}"
+        copy.mkdir()
+        (copy / "policy.py").write_text(probe, encoding="utf-8")
+        assert analyzer_model_offenders(copy), probe
+    copy = tmp_path / "gate_user"
+    copy.mkdir()
+    (copy / "flow.py").write_text("from rtb.analyzer import modelgate\n", encoding="utf-8")
+    assert gate_offenders(copy)
 
 
 @pytest.mark.parametrize("layer", ["ops", "eval", "dsp", "executor"])
@@ -159,7 +238,10 @@ BACKEND_NAMES = frozenset({"run_claude", "ClaudeCodeBackend", "check_login", "cl
 BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverify"})
 
 
-CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate"})  # 送出呼叫的地方
+# 送出呼叫的地方:模型用戶端本身、評估的模型候選、分析端模型閘道(Phase 13 改寫)與維運的假說命令列
+# (Phase 11B [S912];分析端的模型說明命令列經閘道送出,不直接碰 call_model)
+CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate",
+                              "rtb.analyzer.modelgate", "rtb.ops.hypothesis"})
 
 
 def backend_offenders(tree, label, module=None):

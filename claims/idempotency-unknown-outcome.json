@@ -81,7 +81,7 @@
     },
     {
       "path": "src/rtb/modelclaude.py",
-      "sha256": "c5f35c60f18d4d34b2d62e48ac9aec6517b04ee15ef8a705afa7c68b6a39269e"
+      "sha256": "a04e97c2c70a205205cb8f3075f36c3fe0eab4180a35090f5720584efe7845a8"
     },
     {
       "path": "src/rtb/modelcore.py",
@@ -89,7 +89,7 @@
     },
     {
       "path": "src/rtb/modelledger_view.py",
-      "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
     },
     {
       "path": "src/rtb/sqlitekit.py",

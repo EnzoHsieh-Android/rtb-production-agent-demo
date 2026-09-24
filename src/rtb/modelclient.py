@@ -18,6 +18,8 @@ claude 絕對路徑)經 `settings_from_env` 組成設定往下傳。時間一律
 
 花費帳(金額單位:十億分之一美元,整數):即時呼叫前在單一寫入交易裡讀出這個展示編號與本月的已用、
 加上這次的預留,超過 1 美元或 20 美元就不呼叫、丟「本地上限拒絕」(給人看的是「已達上限」)。
+上限只管花費帳模組寫死的計入上限呼叫者,已用也只加總它們;Phase 13 的三個呼叫者照記估算成本、
+不判上限([S1134])。
 預留算法見 modelcore(一次請求的最壞花費,乘上撞頂後自動續寫的次數,再乘安全係數 1.2);這一筆預留的
 原價(不含係數)當 Claude Code 的單次花費上限傳進去。回報的用量或花費大得離譜時照預留結算、標超支。
 結算:成功取 Claude Code 回報的花費估計與「token 數(含快取)乘價目表」的
@@ -35,12 +37,14 @@ import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from rtb import modelclaude as cc
 from rtb import modelcore as core
 from rtb import modelledger as ledger_db
 from rtb import modelrecording as rec
+from rtb.modelclaude import CallTerminated as CallTerminated  # 停止訊號:轉手給入口與閘道([S1154])
 from rtb.modelcore import DEFAULT_MODEL as DEFAULT_MODEL
 from rtb.modelcore import LIVE_ENV as LIVE_ENV
 from rtb.modelcore import MODEL_ENV as MODEL_ENV
@@ -71,8 +75,11 @@ from rtb.modelcore import TransientServiceError as TransientServiceError
 from rtb.modelcore import UnknownModel as UnknownModel
 from rtb.modelcore import UnreadableModelResponse as UnreadableModelResponse
 from rtb.modelledger_view import ledger_path
+from rtb.modelrecording import MixedRecordingsDir as MixedRecordingsDir
+from rtb.modelrecording import Placeholders as Placeholders
+from rtb.modelrecording import check_recordings_dir as check_recordings_dir
 from rtb.modelrecording import recording_key as recording_key
-from rtb.sqlitekit import DatabaseBusy
+from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy
 
 log = logging.getLogger(__name__)
 
@@ -127,6 +134,43 @@ def _live_refusal(environ: Mapping[str, str], demo_id: str | None,
         if memory is not None:
             return f"{memory};真 HOME 隔離下有記憶內容,即時模式拒絕啟動,這次改用錄製", None
     return None, isolation
+
+
+def call_deadline_seconds(timeout_seconds: float) -> float:
+    """一次 `call_model` 最壞要多久才回來:模型逾時,加第一次送出前的登入檢查、兩次等行程群組結束,
+    以及預留一次、結算最多 SETTLE_ATTEMPTS 次的花費帳等鎖(各等資料庫忙碌逾時)。入口拿來核對自己的
+    期限(說明命令列的領取期限);數字都取自真常數,不另寫一份。"""
+    ledger_waits = (1 + ledger_db.SETTLE_ATTEMPTS) * BUSY_TIMEOUT_SECONDS
+    return (timeout_seconds + cc.LOGIN_CHECK_TIMEOUT_SECONDS + 2 * cc.GROUP_EXIT_WAIT_SECONDS
+            + ledger_waits)
+
+
+class Preflight(StrEnum):
+    PASSED = "passed"
+    FAILED = "failed"
+    NOT_APPLICABLE = "not_applicable"  # 錄製模式:不呼叫任何東西
+
+
+@dataclass(frozen=True)
+class LoginPreflight:
+    outcome: Preflight
+    reason: str | None = None
+
+
+def preflight_login(settings: Settings) -> LoginPreflight:
+    """啟動時的登入預檢(Phase 13 [S1160]):即時模式做一次登入檢查並設後端的已登入旗標,之後每次送出
+    不再檢查;沒過回「沒過」與原因(呼叫端整趟改用程式規則,不中途再試)。錄製模式回「不適用」,不呼叫
+    任何東西。名字刻意不叫 check_login:那是後端的名字,邊界測試不准模型用戶端以外的地方碰它。"""
+    backend = settings.backend
+    if settings.mode is not core.Mode.LIVE or backend is None:
+        return LoginPreflight(Preflight.NOT_APPLICABLE)
+    if not isinstance(backend, cc.ClaudeCodeBackend):  # 將來的 API 後端沒有登入這回事
+        return LoginPreflight(Preflight.PASSED)
+    try:
+        backend.preflight()
+    except core.ConfigError as refused:
+        return LoginPreflight(Preflight.FAILED, str(refused))
+    return LoginPreflight(Preflight.PASSED)
 
 
 def default_recordings_dir() -> Path:

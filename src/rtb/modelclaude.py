@@ -582,6 +582,12 @@ class ClaudeCodeBackend:
         if code != 0 or not isinstance(status, dict) or status.get("loggedIn") is not True:
             raise ConfigError("claude 沒登入", sub_reason="not_logged_in")
 
+    def preflight(self) -> None:
+        """啟動時的登入預檢(Phase 13 [S1160]):做一次登入檢查,過了就設已登入旗標,之後每次送出不再
+        檢查(不佔每一輪的模型逾時)。沒過照 `check_login` 丟設定錯誤、旗標不設。"""
+        self.check_login()
+        self._logged_in = True
+
     def send(self, call: BackendCall) -> BackendReply:
         """登入檢查(第一次)花掉的時間從這次呼叫的總期限扣掉。"""
         deadline = time.monotonic() + call.timeout_seconds

@@ -29,7 +29,8 @@ from rtb import modelcore as core
 from rtb import modelledger as ledger_db
 from rtb import modelledger_view as view
 from rtb import modelrecording as rec
-from rtb.ops import metrics
+from rtb.analyzer import narrate
+from rtb.ops import hypothesis, metrics
 from tests.model.fakes import (
     FakeBackend,
     fake_claude,
@@ -140,6 +141,12 @@ def test_the_budget_caps_stop_the_call_before_it_is_sent(dirs):
     assert backend.calls == []
     booked = [r for r in rows(dirs[1]) if r.outcome == "local_cap_refused"]
     assert len(booked) == 2 and all(r.effective_nanousd == 0 for r in booked)
+    # Phase 13 改寫:上限只管花費帳模組寫死的計入上限呼叫者;不在清單裡的呼叫者照樣送出
+    assert mc.Caller.NARRATIVE not in ledger_db.CAPPED_CALLERS
+    uncapped = FakeBackend(reply("照樣送出"))
+    call(live(uncapped), request(demo_id="fresh", max_output_tokens=3_000,
+                                 caller=mc.Caller.NARRATIVE), dirs)
+    assert len(uncapped.calls) == 1
 
 
 # ---- [S903] ----
@@ -150,6 +157,11 @@ def test_concurrent_reservations_never_exceed_the_cap(dirs):
         release.wait(5)
         return reply("x", input_tokens=0, output_tokens=0)
 
+    # Phase 13 改寫:不計入上限的呼叫者先在同一個展示花掉超過 1 美元,不影響計入上限的呼叫者的加總
+    for n in range(4):
+        call(live(FakeBackend(reply("x", input_tokens=0, output_tokens=30_000))),
+             request(f"h{n}", caller=mc.Caller.HYPOTHESIS, max_output_tokens=32_000), dirs)
+    assert ledger_db.used_so_far(dirs[1], "demo-1").demo_nanousd == 0
     backend = FakeBackend(slow)
     each = request(demo_id="demo-1", max_output_tokens=3_000)  # 每筆預留約 0.3 美元
     per_call = core.reservation_nanousd(each, mc.DEFAULT_MODEL)
@@ -249,7 +261,7 @@ def test_recordings_are_found_from_any_working_directory(tmp_path, monkeypatch):
 
 
 # ---- [S921] ----
-def test_the_same_scenario_twice_gives_the_same_prompt_and_key():
+def test_the_same_scenario_twice_gives_the_same_prompt_and_key(tmp_path, monkeypatch):
     """增量 1 的共用部分:錄製鍵只看內容(不含後端種類)、佔位符依出現順序;時間與真實編號不進送出內容。
     接入點 1、2 用真的執行迴圈跑兩次的部分,在增量 2 組出假說與說明的輸入時補進這支測試。"""
     key_params = set(inspect.signature(mc.recording_key).parameters)
@@ -273,6 +285,62 @@ def test_the_same_scenario_twice_gives_the_same_prompt_and_key():
     assert len(set(names)) == 12
     assert many.restore(" ".join(reversed(names))) == " ".join(
         f"id-{n}" for n in reversed(range(12)))
+    # 增量 2:接入點 2(模型說明)與接入點 1(假說)各用真的一條路完整跑兩次,送出內容與錄製鍵逐位元組相同
+    narratives = [_narrative_prompt(tmp_path / f"n{n}") for n in range(2)]
+    assert narratives[0] == narratives[1] and "任務甲" in narratives[0]
+    hypotheses = [_hypothesis_prompt(tmp_path / f"h{n}", monkeypatch) for n in range(2)]
+    assert hypotheses[0] == hypotheses[1] and "範例(任務甲)" in hypotheses[0]
+    for caller, prompts, system in ((mc.Caller.NARRATIVE, narratives, narrate.SYSTEM_PROMPT),
+                                    (mc.Caller.HYPOTHESIS, hypotheses, hypothesis.SYSTEM_PROMPT)):
+        keys = {mc.recording_key(caller, mc.DEFAULT_MODEL, system, text, 1024)
+                for text in prompts}
+        assert len(keys) == 1
+
+
+def _narrative_prompt(folder):
+    """F5 端到端那條真的路(模擬 DSP、分析行程、收件口、執行迴圈)跑一次,組模型說明的送出內容。"""
+    from rtb.analyzer.task_store import TaskReader
+    from tests.analyzer.test_f5_end_to_end import NORMAL_NAME, run_once
+
+    folder.mkdir()
+    run_once(folder, NORMAL_NAME, "underpacing")
+    reader = TaskReader(folder / "analyzer.db")
+    try:
+        [row] = reader.handed_off_rows()
+        return narrate.prompt_for(reader, row)[0]
+    finally:
+        reader.close()
+
+
+def _hypothesis_prompt(folder, monkeypatch):
+    """調查實演那條真的路(模擬 DSP 伺服器、收件口、兩個執行迴圈,預設的輪詢)跑到告警響,組假說的送出
+    內容。"""
+    from tests.ops import test_investigation_drill as drill
+
+    folder.mkdir()
+    d = drill.Drill(folder)
+    try:
+        for campaign in ("a00", "b00"):
+            d.submit(campaign, d.clock.now)
+        d.process(monkeypatch)
+        for campaign in drill.A_BAD:
+            d.server.plan[drill.operation_key(d.submit(campaign, d.t0))] = ["transient_5xx"] * 2
+        d.server.plan[drill.operation_key(d.submit(drill.A_TIMEOUT, d.t0))] = [
+            "timeout_after_commit"]
+        for campaign in drill.B_OK:
+            d.submit(campaign, d.t0)
+        drill.jump_to(d.clock, d.t0)
+        d.process(monkeypatch)
+        drill.jump_to(d.clock, d.t0 + timedelta(minutes=5))
+        d.reconcile(monkeypatch)
+        drill.jump_to(d.clock, d.t0 + timedelta(minutes=10, seconds=1))
+        statuses, text, _ = hypothesis.gather_input(
+            d.clock.now, executor_db=d.executor_db, analyzer_db=d.analyzer_db, dsp_url=d.url,
+            dsp_timeout_seconds=2.0, audit_key=drill.AUDIT, tenants_config=d.config)
+        assert hypothesis.fired(statuses)  # 告警真的響了
+        return text
+    finally:
+        d.close()
 
 
 # ---- [S922] ----

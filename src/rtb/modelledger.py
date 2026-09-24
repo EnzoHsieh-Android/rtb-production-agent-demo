@@ -25,6 +25,10 @@ from rtb.modelledger_view import CALLS_SELECT, LedgerCall
 from rtb.sqlitekit import DatabaseBusy, connect, immediate_transaction, read_snapshot
 
 SETTLE_ATTEMPTS = 3  # 結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤
+# 計入花費上限的呼叫者(Phase 13 裁定 13 與〈花費帳與採用判定〉,[S1134]):寫死在這裡、不是請求參數,
+# 誰都不能自稱不計入。Phase 13 的三個呼叫者(分析端調查、說明、假說)照記估算成本但不在清單裡,不會被
+# 上限拒絕,也不會把這兩個呼叫者的已用推過上限。舊帳的列全是這兩個呼叫者,依呼叫者過濾不必遷移。
+CAPPED_CALLERS: frozenset[Caller] = frozenset({Caller.EVAL_CANDIDATE, Caller.VERIFICATION})
 
 # ---- 花費帳 ----
 _NO_CHANGE = "SELECT RAISE(ABORT, '花費帳只增不改')"
@@ -97,10 +101,18 @@ def _calls(conn: sqlite3.Connection, where: str, params: tuple[object, ...]) -> 
     return [LedgerCall.from_row(row) for row in conn.execute(CALLS_SELECT + where, params)]
 
 
+def _capped(call: LedgerCall) -> bool:
+    return call.caller in {caller.value for caller in CAPPED_CALLERS}
+
+
 def _used(conn: sqlite3.Connection, demo_id: str | None, month: str) -> tuple[int, int]:
-    in_month = sum(c.effective_nanousd for c in _calls(conn, "WHERE r.month = ?", (month,)))
+    """計入上限的呼叫者在這個展示編號與這個月的已用(只加總 CAPPED_CALLERS 的列,[S902]、[S903]
+    照 Phase 13 改寫)。"""
+    in_month = sum(c.effective_nanousd for c in _calls(conn, "WHERE r.month = ?", (month,))
+                   if _capped(c))
     for_demo = 0 if demo_id is None else sum(
-        c.effective_nanousd for c in _calls(conn, "WHERE r.demo_id = ?", (demo_id,)))
+        c.effective_nanousd for c in _calls(conn, "WHERE r.demo_id = ?", (demo_id,))
+        if _capped(c))
     return for_demo, in_month
 
 
@@ -112,7 +124,8 @@ class Spent:
 
 
 def used_so_far(ledger: Path, demo_id: str | None) -> Spent:
-    """這個展示編號與本月(系統時鐘的 UTC 月曆月)的已用。"""
+    """計入上限的呼叫者在這個展示編號與本月(系統時鐘的 UTC 月曆月)的已用(判上限看的那一份;
+    整次展示不分呼叫者的花費在唯讀開法的 used_by_demo)。"""
     month = core.utc_now().strftime("%Y-%m")
     conn = _open(ledger)
     try:
@@ -177,16 +190,19 @@ def book(ledger: Path, request: ModelRequest, model: str, done: Settlement) -> N
 
 
 def reserve(ledger: Path, request: ModelRequest, model: str, backend: Backend) -> int:
-    """單一寫入交易裡讀已用、加預留、判上限、寫預留列([S902]、[S903])。超過上限記一筆 0 元的
-    「本地上限拒絕」並丟例外,不呼叫。"""
+    """單一寫入交易裡讀已用、加預留、判上限、寫預留列([S902]、[S903])。只有計入上限的呼叫者要判
+    上限(已用也只加總它們);超過上限記一筆 0 元的「本地上限拒絕」並丟例外,不呼叫。不計入的呼叫者
+    照樣寫預留列(估算成本照記,[S1134])。"""
     amount = core.reservation_nanousd(request, model)
+    capped = Caller(request.caller) in CAPPED_CALLERS
     conn = _open(ledger)
     try:
         with immediate_transaction(conn):
             now = core.utc_now()  # 整筆只讀一次系統時鐘
-            for_demo, in_month = _used(conn, request.demo_id, now.strftime("%Y-%m"))
-            over = (for_demo + amount > core.DEMO_CAP_NANOUSD) or (
-                in_month + amount > core.MONTH_CAP_NANOUSD)
+            for_demo, in_month = (_used(conn, request.demo_id, now.strftime("%Y-%m")) if capped
+                                  else (0, 0))
+            over = capped and ((for_demo + amount > core.DEMO_CAP_NANOUSD) or (
+                in_month + amount > core.MONTH_CAP_NANOUSD))
             if over:
                 refused = _insert_reservation(conn, request, model, backend, 0, now)
                 _insert_settlement(conn, refused, zero(Outcome.LOCAL_CAP_REFUSED))

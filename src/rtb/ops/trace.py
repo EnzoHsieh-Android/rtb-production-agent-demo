@@ -11,6 +11,11 @@
 重新開三個快照並記下各自的讀取時間,兩輪的資料內容(不含讀取時間)相同才回傳;最多三輪,仍不同就回傳
 最後一輪並標明「讀取期間有新提交,時間線可能不一致」。
 
+模型說明(Phase 11B 增量 2,[S915]、[S930]):分析端提案那一步(已提案那一列)的細節最後多一欄「模型
+說明」,放在程式算的數字與證據之後。有成功結果就顯示文字,標「模型產生、僅供參考」與來源(錄製或即時);
+沒有成功結果就顯示最新一筆的結果類別(例如「已達上限」);還沒有任何領取(或資料庫還沒有說明表)顯示
+「尚未產生」。說明只從分析端唯讀開法讀,追蹤檢視不呼叫模型。
+
 排序:時間一律正規化成 UTC;同一刻先依來源(分析端、執行端、DSP),同來源再依表,同一張表依它自己的
 寫入順序(自動遞增序號、嘗試的鍵與序號、任務歷史的序號)。表之間的固定順序只為了穩定,不代表因果。
 每一段都帶齊關聯欄位,缺的標明缺,不留白。
@@ -26,9 +31,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, TextIO
 
-from rtb.analyzer.task_store import TaskReader, TaskRow, ToolCall
+from rtb.analyzer.task_store import NarrativeStatus, TaskReader, TaskRow, ToolCall
 from rtb.domain.attempt import operation_key
 from rtb.domain.proposal import content_hash
+from rtb.domain.task_state import TaskState
 from rtb.executor import attempt_store
 from rtb.executor.attempt_store import AttemptTraceRow, DspCallRow
 from rtb.executor.inbox_store import (
@@ -80,6 +86,15 @@ class KeyOrigin(StrEnum):
     EXECUTOR_RECORDED = "executor_recorded"  # 分析端沒有這份修訂,用執行端事件寫下時算的鍵
 
 
+MODEL_LABEL = "模型產生、僅供參考"
+NOT_YET = "尚未產生"
+IN_PROGRESS = "產生中(還沒有結果)"
+# 說明沒有成功結果時,結果類別給人看的寫法(類別跟模型用戶端的結果類別同值)
+NARRATIVE_SHOWN = {
+    "timeout": "逾時", "local_cap_refused": "已達上限", "quota_exhausted": "訂閱額度用完",
+    "overrun": "超支", "no_recording": "沒有錄製", "unreadable": "回應讀不懂",
+    "config_error": "設定錯誤", "transient": "暫時性服務錯誤", "ledger_busy": "花費帳忙碌",
+}
 MISSING = Absent.MISSING
 UNKNOWN = Absent.UNKNOWN
 ORIGIN_ORDER = tuple(Origin)
@@ -194,9 +209,23 @@ def _history_segment(
         fields |= {"revision": prop.revision, "content_hash": content_hash(prop),
                    "policy_version": prop.policy_version}
     evidence = tuple(item.evidence_id for item in reader.evidence_for(row.task_id, row.seq))
+    detail: dict[str, object] = {"seq": row.seq, "error_detail": row.error_detail,
+                                 "evidence": evidence}
+    if prop is not None and row.state is TaskState.PROPOSED:  # 提案那一步:說明放在最後
+        detail["model_narrative"] = _narrative(
+            reader.narrative_for(row.task_id, prop.revision, content_hash(prop)))
     return _segment((Origin.ANALYZER, Table.TASK_HISTORY), row.written_at, (index, row.seq),
-                    row.state.value, fields,
-                    {"seq": row.seq, "error_detail": row.error_detail, "evidence": evidence})
+                    row.state.value, fields, detail)
+
+
+def _narrative(status: NarrativeStatus | None) -> dict[str, object]:
+    if status is None:
+        return {"result": None, "shown": NOT_YET}
+    if status.outcome == "ok" and status.text is not None:
+        return {"label": MODEL_LABEL, "source": status.source, "text": status.text}
+    if status.outcome is None:
+        return {"result": None, "shown": IN_PROGRESS}
+    return {"result": status.outcome, "shown": NARRATIVE_SHOWN.get(status.outcome, "其他失敗")}
 
 
 def _tool_segment(index: int, position: int, call: ToolCall) -> Segment:

@@ -116,6 +116,51 @@ def _pending_batch(data: object) -> tuple[bool, str | None]:
     return False, None
 
 
+class MixedRecordingsDir(ValueError):
+    """開錄前的目錄檢查沒過:錄製目錄不是空的、也不是只有同一批的錄製檔(Phase 13 [S1142]、[S1165])。
+    """
+
+
+_RECORDING_NAME = re.compile(r"[0-9a-f]{64}\.json")
+
+
+def _batch_of(path: Path) -> str | None:
+    """一個錄製檔或佔位檔記的批次;讀不懂丟 MixedRecordingsDir。"""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as bad:
+        raise MixedRecordingsDir(f"{path.name} 讀不懂({type(bad).__name__})") from bad
+    pending, batch = _pending_batch(data)
+    if pending:
+        return batch
+    try:
+        recording = Recording(**data)
+    except TypeError as bad:
+        raise MixedRecordingsDir(f"{path.name} 不是錄製檔") from bad
+    if not _well_typed(data):
+        raise MixedRecordingsDir(f"{path.name} 不是錄製檔")
+    return recording.batch_id
+
+
+def check_recordings_dir(directory: Path, batch_id: str) -> None:
+    """開錄前的目錄檢查(runner 與評估執行器共用):目錄不存在或是空的就放行;裡面只准有錄製檔或佔位檔,
+    而且每一份的批次都等於這一批。其他檔、子目錄、讀不懂的檔、別的批次(含別批留下的佔位)一律拒絕,
+    不要把兩批混在同一個目錄、也不要讓舊鍵以錄製衝突被拒卻看起來像設定錯誤(Phase 13〈錄製批次與
+    入庫〉)。"""
+    folder = Path(directory)
+    if not folder.exists():
+        return
+    if not folder.is_dir():
+        raise MixedRecordingsDir(f"{folder} 不是目錄")
+    for entry in sorted(folder.iterdir()):
+        if not entry.is_file() or entry.is_symlink() or not _RECORDING_NAME.fullmatch(entry.name):
+            raise MixedRecordingsDir(f"錄製目錄裡有不是錄製檔的東西:{entry.name}")
+        found = _batch_of(entry)
+        if found != batch_id:
+            raise MixedRecordingsDir(
+                f"錄製目錄裡有別的批次({found}),這一批是 {batch_id};換一個全新的目錄再錄")
+
+
 class PendingRecording(Exception):
     """檔名已被佔住、還在錄(可能是別的批次,也可能是同批次的另一個呼叫)。"""
 

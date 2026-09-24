@@ -12,6 +12,10 @@
 唯讀開法(Phase 9 增量 1):`TaskReader` 只開唯讀連線、不建表不補欄位,一開就進一個不取鎖的快照,
 直到關閉;缺表或缺欄位丟 DatabaseNotUpgraded。追蹤檢視用它讀,不跟分析行程搶寫入鎖。
 
+模型說明的領取表與結果表(Phase 11B 增量 2,[S929]):模型說明命令列每次領取一列(自己的遞增領取序號;
+任務、修訂、內容雜湊只當查詢欄位、不設唯一),寫結果時在同一個交易裡核對這張收據仍是這份提案最新的
+領取、而且還沒有結果,舊持有者寫不進去。結果只增不改。說明不進任何決策、不進收件口,執行端不讀。
+
 接續任務(Phase 5):已交給執行的任務因版本已變、決策過期、或收件表已清掉而 DSP 沒有寫入時,
 另開一個接續任務重讀現況再決定(任務狀態機不變,原任務轉擋下)。建接續任務、寫接續關係、原任務
 結案是同一個交易,走原任務的提交圍籬;接續關係表同樣只增不改,原任務編號是主鍵(一個任務最多
@@ -69,6 +73,14 @@ CREATE TABLE IF NOT EXISTS follow_ups (
 CREATE TABLE IF NOT EXISTS no_action_reasons (
     task_id TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL,
     PRIMARY KEY (task_id, seq));
+CREATE TABLE IF NOT EXISTS narrative_claims (
+    claim_seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, revision INTEGER NOT NULL,
+    content_hash TEXT NOT NULL, owner TEXT NOT NULL, claimed_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS narrative_results (
+    claim_seq INTEGER PRIMARY KEY REFERENCES narrative_claims (claim_seq), outcome TEXT NOT NULL,
+    source TEXT, text TEXT, written_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS narrative_claims_by_proposal
+    ON narrative_claims (task_id, revision, content_hash);
 CREATE INDEX IF NOT EXISTS follow_ups_by_campaign ON follow_ups (campaign_id);
 CREATE INDEX IF NOT EXISTS tool_calls_by_time ON tool_calls (at);
 """
@@ -78,6 +90,10 @@ MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長�
 # 暫用,沒有實測校準:要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件,各自的逾時由建用戶端
 # 的呼叫端決定);分析端驅動命令列(rtb.analyzer.runner)啟動時斷言這條不等式([S1001])
 LEASE_DURATION = timedelta(seconds=60)
+# 模型說明的領取期限(Phase 11B 增量 2):最新一次領取沒有結果、不到這麼久就跳過,超過才准再領。
+# 說明命令列
+# 啟動時斷言「模型呼叫的總期限加 1 分鐘餘裕小於它」,所以接手時前一個持有者的呼叫一定已經結束
+NARRATIVE_CLAIM_WINDOW = timedelta(minutes=10)
 # 接續任務的保留命名空間:一般建任務入口拒收這個開頭的任務編號,只有建接續任務寫得進去
 FOLLOW_UP_PREFIX = "fu-"
 _FOLLOW_UP_HASH_LENGTH = 24
@@ -107,6 +123,41 @@ class TaskStoreBusy(Exception):
 
 class TaskNotFound(Exception):
     """這個任務編號完全沒有歷史列。"""
+
+
+class NarrativeOutcome(StrEnum):
+    """一次模型說明的結果類別:成功,或模型用戶端的九類失敗之一(值跟花費帳的結果類別相同;分析端的資料庫
+    模組不匯入模型用戶端,這份封閉列舉由測試核對兩邊一致)。"""
+
+    OK = "ok"
+    TIMEOUT = "timeout"
+    LOCAL_CAP_REFUSED = "local_cap_refused"
+    QUOTA_EXHAUSTED = "quota_exhausted"
+    OVERRUN = "overrun"
+    NO_RECORDING = "no_recording"
+    UNREADABLE = "unreadable"
+    CONFIG_ERROR = "config_error"
+    TRANSIENT = "transient"
+    LEDGER_BUSY = "ledger_busy"
+
+
+@dataclass(frozen=True)
+class NarrativeClaim:
+    """領取收據:寫結果時要帶它,核對它仍是這份提案最新的領取。"""
+
+    claim_seq: int
+    task_id: str
+    revision: int
+    content_hash: str
+
+
+@dataclass(frozen=True)
+class NarrativeStatus:
+    """一份提案的模型說明現況:有成功結果就是那一筆;沒有就是最新一次領取的結果類別(還在等結果是空值)。"""
+
+    outcome: str | None
+    text: str | None
+    source: str | None
 
 
 class ReplanReason(StrEnum):
@@ -368,6 +419,32 @@ class TaskReads:
         ).fetchone()
         return None if record is None else str(record[0])
 
+    def handed_off_rows(self) -> tuple[TaskRow, ...]:
+        """已送進收件口的每一列(交給執行那幾列,帶提案),依寫入順序;模型說明命令列從這裡找要寫說明的
+        提案。"""
+        records = self._conn.execute(
+            f"SELECT {_TASK_COLUMNS} FROM tasks WHERE state = ? AND proposal_json IS NOT NULL "  # noqa: S608 - 固定欄位清單
+            "ORDER BY rowid", (TaskState.HANDED_OFF.value,)).fetchall()
+        return tuple(_row_from_record(r) for r in records)
+
+    def narrative_for(self, task_id: str, revision: int,
+                      content_hash: str) -> NarrativeStatus | None:
+        """一份提案的模型說明現況;沒有任何領取回 None(顯示「尚未產生」)。唯讀開法不建表:資料庫還沒有
+        說明表(Phase 11B 增量 2 之前)也當沒有領取。"""
+        if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                              "AND name = 'narrative_results'").fetchone() is None:
+            return None
+        rows = self._conn.execute(
+            "SELECT r.outcome, r.text, r.source FROM narrative_claims c "
+            "LEFT JOIN narrative_results r ON r.claim_seq = c.claim_seq "
+            "WHERE c.task_id = ? AND c.revision = ? AND c.content_hash = ? ORDER BY c.claim_seq",
+            (task_id, revision, content_hash)).fetchall()
+        if not rows:
+            return None
+        success = next((r for r in rows if r[0] == NarrativeOutcome.OK.value), None)
+        outcome, text, source = success if success is not None else rows[-1]
+        return NarrativeStatus(outcome, text, source)
+
     def tasks_after(self, after: int) -> tuple[tuple[int, TaskRow], ...]:
         """列號大於 after 的任務歷史列,依寫入順序,最多一頁:(列號, 那一列)。"""
         sql, params = tasks_after_query(after)
@@ -585,6 +662,58 @@ class TaskStore(TaskReads):
              _iso(now)),
         )
         return f"{head};{note}"
+
+    def claim_narrative(self, task_id: str, revision: int, content_hash: str, *, owner: str,
+                        now: datetime) -> NarrativeClaim | None:
+        """在一個寫入交易裡查與寫([S929]):已有成功結果不再領;最新一次領取有結果而且是失敗就立刻再領;
+        最新一次領取沒有結果、不到領取期限就跳過(回 None,不呼叫模型);超過期限才再領。"""
+        with immediate_transaction(self._conn):
+            rows = self._conn.execute(
+                "SELECT c.claim_seq, c.claimed_at, r.outcome FROM narrative_claims c "
+                "LEFT JOIN narrative_results r ON r.claim_seq = c.claim_seq "
+                "WHERE c.task_id = ? AND c.revision = ? AND c.content_hash = ? "
+                "ORDER BY c.claim_seq", (task_id, revision, content_hash)).fetchall()
+            if any(r[2] == NarrativeOutcome.OK.value for r in rows):
+                return None
+            if rows and rows[-1][2] is None and rows[-1][1] > _iso(now - NARRATIVE_CLAIM_WINDOW):
+                return None
+            cursor = self._conn.execute(
+                "INSERT INTO narrative_claims (task_id, revision, content_hash, owner, claimed_at) "
+                "VALUES (?, ?, ?, ?, ?)", (task_id, revision, content_hash, owner, _iso(now)))
+            if cursor.lastrowid is None:
+                raise AssertionError("新增領取列沒有拿到序號")
+            return NarrativeClaim(cursor.lastrowid, task_id, revision, content_hash)
+
+    def has_narrative(self, task_id: str, revision: int, content_hash: str) -> bool:
+        """這份提案已經有成功的說明。"""
+        return self._conn.execute(
+            "SELECT 1 FROM narrative_claims c "
+            "JOIN narrative_results r ON r.claim_seq = c.claim_seq "
+            "WHERE c.task_id = ? AND c.revision = ? AND c.content_hash = ? AND r.outcome = ? "
+            "LIMIT 1", (task_id, revision, content_hash, NarrativeOutcome.OK.value),
+        ).fetchone() is not None
+
+    def record_narrative(self, claim: NarrativeClaim, outcome: NarrativeOutcome, *,
+                         text: str | None, source: str | None, now: datetime) -> bool:
+        """追加一筆結果;同一個交易裡核對這張收據仍是這份提案最新的領取、而且還沒有結果,不是就不寫
+        (被接手的舊持有者寫不進去)。成功一定帶文字、失敗一定不帶。回傳有沒有寫進去。"""
+        if type(outcome) is not NarrativeOutcome:
+            raise ValueError("結果類別必須是 NarrativeOutcome 的成員")
+        if (outcome is NarrativeOutcome.OK) != (text is not None):
+            raise ValueError("成功一定帶說明文字、失敗一定不帶")
+        with immediate_transaction(self._conn):
+            latest = self._conn.execute(
+                "SELECT max(claim_seq) FROM narrative_claims "
+                "WHERE task_id = ? AND revision = ? AND content_hash = ?",
+                (claim.task_id, claim.revision, claim.content_hash)).fetchone()
+            if latest is None or latest[0] != claim.claim_seq:
+                return False
+            if self._conn.execute("SELECT 1 FROM narrative_results WHERE claim_seq = ?",
+                                  (claim.claim_seq,)).fetchone() is not None:
+                return False
+            self._conn.execute("INSERT INTO narrative_results VALUES (?, ?, ?, ?, ?)",
+                               (claim.claim_seq, outcome.value, source, text, _iso(now)))
+        return True
 
     def acquire_lease(self, task_id: str, owner: str, now: datetime) -> LeaseReceipt | None:
         """目前沒人持有(沒有租約列、目前那一列是放掉列、或已過期)就新增一列取得列、回傳收據;

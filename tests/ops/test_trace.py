@@ -326,3 +326,62 @@ def test_calls_for_two_proposals_sharing_a_key_keep_their_own_content_hash(world
     conn.close()
     calls = [s for s in build(world, "sk").segments if s.table is Table.DSP_CALLS]
     assert {s.field("content_hash") for s in calls} == {trace.UNKNOWN}
+
+
+# ---- Phase 11B 增量 2:提案那一步的模型說明欄([S915]、[S930]) ----
+def _narrate(world, outcome, text=None, source="recorded", *, record=True):
+    """直接經分析端資料庫模組寫一次領取與結果(說明命令列本身在 tests/analyzer/test_narrate.py)。"""
+    from rtb.analyzer.task_store import NarrativeOutcome
+
+    prop = proposal(task_id="t1", revision=1)
+    claim = world.analyzer.claim_narrative("t1", 1, content_hash(prop), owner="n",
+                                           now=NOW + timedelta(minutes=1))
+    assert claim is not None
+    if record:
+        assert world.analyzer.record_narrative(claim, NarrativeOutcome(outcome), text=text,
+                                               source=source, now=NOW + timedelta(minutes=2))
+
+
+def _narrative_detail(world):
+    result = build(world)
+    [step] = [s for s in result.segments
+              if s.table is Table.TASK_HISTORY and s.what == TaskState.PROPOSED.value]
+    detail = dict(step.detail)
+    assert list(detail)[-1] == "model_narrative"  # 放在程式算的數字與證據之後
+    others = [s for s in result.segments if s.table is Table.TASK_HISTORY
+              and s.what != TaskState.PROPOSED.value]
+    assert all("model_narrative" not in dict(s.detail) for s in others)
+    json.dumps(trace.to_primitives(result), ensure_ascii=False)  # 命令列輸出照樣轉得成 JSON
+    return detail["model_narrative"]
+
+
+def test_the_trace_labels_the_model_narrative(world):
+    world.analyze()
+    _narrate(world, "ok", text="提案把預算加一成,依據是配速偏低。", source="live")
+    shown = _narrative_detail(world)
+    assert shown == {"label": trace.MODEL_LABEL, "source": "live",
+                     "text": "提案把預算加一成,依據是配速偏低。"}
+    assert trace.MODEL_LABEL == "模型產生、僅供參考"
+
+
+@pytest.mark.parametrize(("outcome", "shown"), [
+    ("local_cap_refused", "已達上限"), ("quota_exhausted", "訂閱額度用完"),
+    ("no_recording", "沒有錄製"), ("timeout", "逾時"), ("unreadable", "回應讀不懂")])
+def test_the_trace_shows_why_there_is_no_narrative(world, outcome, shown):
+    world.analyze()
+    assert _narrative_detail(world) == {"result": None, "shown": "尚未產生"}
+    _narrate(world, outcome)
+    assert _narrative_detail(world) == {"result": outcome, "shown": shown}
+
+
+def test_the_trace_marks_a_narrative_still_in_progress_and_an_old_database(world):
+    world.analyze()
+    _narrate(world, "ok", record=False)
+    assert _narrative_detail(world) == {"result": None, "shown": "產生中(還沒有結果)"}
+    conn = sqlite3.connect(world.analyzer_db)
+    try:
+        conn.execute("DROP TABLE narrative_results")
+        conn.execute("DROP TABLE narrative_claims")
+    finally:
+        conn.close()
+    assert _narrative_detail(world) == {"result": None, "shown": "尚未產生"}  # 增量 2 之前的庫

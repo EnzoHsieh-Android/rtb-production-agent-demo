@@ -34,6 +34,7 @@ READ_WHITELIST: dict[str, frozenset[str]] = {
     "history": _WALKERS, "evidence_for": _TRACE, "list_tool_calls": _TRACE,
     "follow_up_of": _WALKERS, "follow_up_to": _WALKERS, "handed_off_keys": _TRACE,
     "tool_calls_between": _METRICS,
+    "narrative_for": _TRACE,  # Phase 11B 增量 2:追蹤檢視提案那一步的模型說明欄
     # 收件口
     "lifecycle_events": _WALKERS, "dead_letters_for": _TRACE, "dead_letter_ops_for": _TRACE,
     "lifecycle_events_between": frozenset({"metrics.py", "sli.py"}),
@@ -45,7 +46,7 @@ READ_WHITELIST: dict[str, frozenset[str]] = {
     "unresolved_keys": _METRICS, "campaigns_with_unresolved": _METRICS,
     "unknown_rows_between": _SLI, "first_rows_for": _SIDE_EFFECTS,
     "approval_uses_for": _SIDE_EFFECTS, "first_rows_for_proposal": _SIDE_EFFECTS,
-    "utilization": _METRICS, "load_tenants": _METRICS,
+    "utilization": _METRICS, "load_tenants": frozenset({"metrics.py", "hypothesis.py"}),
     # 模型花費帳的唯讀開法與它的讀取方法:只准指標讀(追蹤到增量 2 才加);模型用戶端的送出呼叫與
     # 花費帳寫入函式不在這裡(增量 2 只准假說命令列)
     "ModelLedgerView": _METRICS, "calls_between": _METRICS, "ledger_path": _METRICS,
@@ -56,6 +57,13 @@ HYPOTHESIS = "hypothesis.py"
 WRITE_WHITELIST: dict[str, frozenset[str]] = {
     "call_model": frozenset({HYPOTHESIS}), "write_off": frozenset({HYPOTHESIS}),
 }
+# 假說命令列(增量 2)要用的模型用戶端詞彙:模式判定、錄製目錄與帳檔路徑、請求型別與例外、佔位符。
+# 跟寫入名字一樣只准出現在假說命令列那一格,不套「白名單名字都判成不寫入」那條檢查(它們不在掃描的
+# 讀取模組裡);模型後端(Claude Code 後端、實測、核銷)照舊誰都不准碰
+HYPOTHESIS_ONLY: dict[str, frozenset[str]] = {name: frozenset({HYPOTHESIS}) for name in (
+    "settings_from_env", "default_recordings_dir", "live_ledger_path", "ModelRequest", "Settings",
+    "Mode", "Caller", "LedgerBusy", "ModelCallFailed", "UnknownModel", "Placeholders",
+    "substitute", "restore", "mode", "notices")}
 SCANNED = (SRC / "executor" / "inbox_store.py", SRC / "executor" / "attempt_store.py",
            SRC / "analyzer" / "task_store.py", SRC / "executor" / "observability.py",
            SRC / "executor" / "capability_signer.py", SRC / "modelledger_view.py")
@@ -100,7 +108,7 @@ def _ops_offenders(ops_dir):
              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
     offenders = []
     for path, tree in trees.items():
-        allowed = {name for table in (READ_WHITELIST, WRITE_WHITELIST)
+        allowed = {name for table in (READ_WHITELIST, WRITE_WHITELIST, HYPOTHESIS_ONLY)
                    for name, files in table.items() if path.name in files}
         if path.name != HYPOTHESIS:  # 任何維運檔都不准匯入假說命令列(防經它的函式轉手)
             offenders += [f"{path.name}: 匯入假說命令列" for name in _imports(tree, "rtb.ops")
@@ -210,6 +218,9 @@ def test_the_ops_package_is_read_only_and_imported_by_nobody():
         for qualname, writes in classify(path).items():
             classified.setdefault(qualname.split(".")[-1], set()).add(writes)
     assert not set(READ_WHITELIST) & set(WRITE_WHITELIST)  # 會寫的名字不混進讀取白名單
+    assert not set(READ_WHITELIST) & set(HYPOTHESIS_ONLY)
+    assert all(files == {HYPOTHESIS} for files in (*WRITE_WHITELIST.values(),
+                                                    *HYPOTHESIS_ONLY.values()))
     classes = {"ReadOnlyInbox", "TaskReader", "ModelLedgerView"}  # 類別不判
     for name in set(READ_WHITELIST) - classes:
         assert classified.get(name) == {False}, name
