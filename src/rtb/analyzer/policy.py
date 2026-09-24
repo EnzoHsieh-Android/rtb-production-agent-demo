@@ -81,6 +81,14 @@ class ValidatedCells:
 ValidatedCells.NONE = ValidatedCells(frozenset())
 
 
+@dataclass(frozen=True)
+class TrialCells:
+    """評估入口指定「這次試著呼叫候選」的格(Phase 10 增量 2,[S716])。跟已驗證清單是不同型別:
+    只在那一次評估裡用,不會被輸出或存成已驗證清單,正式路徑不會拿到它。"""
+
+    cells: frozenset[WorthCell]
+
+
 class RoutePath(StrEnum):
     CODE_RULE = "code_rule"
     CANDIDATE = "candidate"
@@ -137,10 +145,11 @@ def _candidate_answer(
 
 
 def route(
-    worth_input: WorthInput, candidate: WorthCandidate | None, allowed: ValidatedCells,
-    timeout_seconds: float,
+    worth_input: WorthInput, candidate: WorthCandidate | None,
+    allowed: ValidatedCells | TrialCells, timeout_seconds: float,
 ) -> RouteResult:
-    """只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選,其餘走現行程式規則([S701])。"""
+    """只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選,其餘走現行程式規則([S701])。
+    允許清單在正式路徑是已驗證清單,在評估入口是待測格清單。"""
     if candidate is None or cell_of(worth_input) not in allowed.cells:
         return RouteResult(code_rule(worth_input), RoutePath.CODE_RULE)
     return _candidate_answer(candidate, worth_input, timeout_seconds)
