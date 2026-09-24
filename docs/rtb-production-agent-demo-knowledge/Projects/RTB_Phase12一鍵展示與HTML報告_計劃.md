@@ -55,7 +55,7 @@ RETIRE-IF: 使用者決定不再需要本機展示(或改成有正式部署的�
   - F6(死信重放):執行端時鐘往後推 16 分鐘、讀不到 DSP 用連不上的位址;
   - F7(總曝險):行程內假 DSP、3000 個廣告、8 個工作者,本機約 30 秒(CI 偶爾超過 60 秒,見 [[Issues/F7端到端在CI上偶爾超過60秒]])。
 - 共用行程基礎的伺服器外殼只綁回送位址、有主機標頭檢查、連線數上限、請求期限;處理器只回 JSON,沒有回 HTML 的寫法;故障注入要啟動時開旗標才存在。
-- 唯讀出口已有:追蹤檢視(三個來源組時間線,唯讀開法)、指標、服務水準、稽核查詢(執行端可觀測查詢:總曝險稽核明細——哪些通過、哪些被總曝險擋下、剩餘多少,以及核可次數;都是彙總,不是逐筆擋下紀錄)、DSP 操作歷史;Phase 11 的驗證器(輸出印驗證器與清單雜湊、提交編號、通過或擋下原因)。驗證器目前只在 Phase 11 的分支上、還沒合進主線;Phase 12 增量 3 的最終驗收要等它合進來才能跑。
+- 唯讀出口已有:追蹤檢視(三個來源組時間線,唯讀開法)、指標、服務水準、稽核查詢(執行端可觀測查詢:總曝險稽核明細——哪些通過、哪些被總曝險擋下、剩餘多少,以及核可次數;都是彙總,不是逐筆擋下紀錄)、DSP 操作歷史;Phase 11 的驗證器(輸出印驗證器與清單雜湊、提交編號、通過或擋下原因)。驗證器已合進主線(main 403eb39,2026-09-24);本計劃的分支 phase12-design 從合進之前的主線開出,實作前要 rebase 或合併到含 Phase 11 的主線。
 - Phase 11B 計劃(第 6 版,尚未實作):模型入口三支命令列(模型說明命令列在分析端、假說命令列在維運、評估紀錄);即時模式要「開啟即時呼叫環境變數、命令列帶展示編號、找得到 claude」三者齊備,否則走錄製;展示編號由一鍵展示每按一次產生一個、傳給所有模型入口,共用 1 美元;模型說明命令列在送件之後由一鍵展示呼叫。**Phase 12 依賴 Phase 11B 先實作完**。
 - 需求 Issue 寫「啟動非模型行程一律用模型用戶端的『不含模型金鑰的子行程環境』函式」;但 Phase 11B 第 5 版起模型後端改走 Claude Code、沒有 API 金鑰,那支刪金鑰函式不做了。所以本計劃自己定一份子行程環境白名單(見〈設計〉),需求的意圖(展示行程拿不到使用者環境裡的秘密)照做;這個不一致已經協調者確認照這樣處理(2026-09-24)。
 - 交接文件 Phase 12 完成條件的「有無 Skill Contract 的前後比較」(Skill Contract 指 Phase 11 的證據清單加驗證器這套機械驗證;專案裡沒有其他定義,本計劃照使用者裁定第 6 項讀成「有沒有機械驗證」)與「README」,需求 Issue 沒提;本計劃列進範圍,前後比較照使用者裁定用造假示範並排對照。
@@ -79,7 +79,8 @@ RETIRE-IF: 使用者決定不再需要本機展示(或改成有正式部署的�
 - 同時只准一次展示在跑:在跑時任何觸發都回「已有展示在跑」並顯示那一次的進度;單一情境重跑也算一次展示。
 - 每按一次產生一個展示編號(隨機、URL 安全),它同時是:暫存目錄名稱、傳給所有模型入口的展示編號(Phase 11B 的 1 美元上限以它為單位)、報告檔名的一段。
 - 頁面與進度讀取不寫任何資料庫;只有觸發會啟動驅動程式,驅動程式照正式程式寫它自己的暫存資料庫。展示用的資料庫放暫存目錄、每次重建。
-- 進度更新:展示在跑時頁面用 meta refresh 每 2 秒整頁重讀(沒有腳本);展示結束後不再重讀。
+- 進度更新:展示在跑時頁面用 meta refresh 每 2 秒整頁重讀(沒有腳本),重讀網址帶 #current,讓畫面停在目前節點;展示結束後不再重讀。
+- 切換情境:沒有腳本,情境清單每列是連到 /?scenario=F3 這種網址的連結;伺服器照查詢參數產生頁面,查詢參數只接受七個情境代碼之一,其他值(含空值、重複參數)當沒選。展示在跑時一律跟著目前情境,不看查詢參數。
 
 ### 驅動程式:依序跑 F1–F7
 
@@ -113,7 +114,9 @@ RETIRE-IF: 使用者決定不再需要本機展示(或改成有正式部署的�
 
 - 頂端摘要:展示編號、開始時間(UTC)、模型模式(錄製時寫「錄製回應,不是即時呼叫」)、這次的花費(從花費帳唯讀開法讀,Phase 11B)、驗證器版本雜湊與提交編號、目前進度(幾個情境跑完、共幾個)。
 - 展示在跑時最上方固定一條「現在進度」:第幾個情境、情境名、目前節點、已經在這一步多久(伺服器產生當下算好)、上一個判斷。
-- 情境列表:F1–F7 各一個可展開區塊,摘要一行寫代碼、標題、狀態;進行中的情境預設展開。展開後依序:這個情境在測什麼、流程圖(高亮實際走過的路徑與目前節點)、判斷紀錄表、任務時間線、處置說明、DSP 真實狀態、稽核、模型那一步、假說。
+- 主流程圖:整頁一張橫向的流程圖(泳道換行排,整張圖不用橫捲),高亮「正在跑的情境」或「選看的情境」實際走過的完整路徑;目前節點帶固定錨點,每 2 秒重讀時畫面停在那裡。
+- 情境清單:F1–F7 每列一行(代碼、標題、狀態、一句結果),每列是切換選看情境的連結;正在跑或選看的那一列標明。
+- 選看情境的細節:這個情境在測什麼、判斷紀錄表、任務時間線、處置說明、DSP 真實狀態、稽核、模型那一步、假說。
 - 處置說明:每個擋下原因、處置、死信原因都對到一句白話說明,這張對照表是程式常數,每個列舉成員都要有一句(沒有就測試紅)。
 - 模型那一步:先列程式算的數字(金額、關卡、租戶),再列模型文字,標「模型產生、僅供參考」與來源;沒有成功結果就顯示結果類別(例如「已達上限」「尚未產生」)。服務水準告警響時另顯示假說,同樣標示。
 - 驗證器結果:原樣顯示驗證器的輸出(每行一段純文字,預設收合),通過或擋下用文字標明,擋下原因逐條列。
@@ -132,7 +135,7 @@ RETIRE-IF: 使用者決定不再需要本機展示(或改成有正式部署的�
 - 美觀:
   - 一份自帶的樣式表,不引外部字型、CDN 或圖片;色彩、間距、圓角、字級用 CSS 變數定義成一套系統。
   - 支援深色模式(prefers-color-scheme);深淺兩組配色的文字與背景對比都至少 4.5 比 1。
-  - 系統字型堆疊;窄螢幕(約 400 像素寬)也能讀,表格可橫向捲動,流程圖用 viewBox 縮放。
+  - 系統字型堆疊;窄螢幕(約 400 像素寬)也能讀,表格可橫向捲動,流程圖泳道換行、用 viewBox 縮放。
 - 限制照舊:內容安全政策不准任何腳本;樣式只從同源樣式表載入;流程圖是伺服器端產生的內嵌 SVG,裡面同樣不准腳本、事件屬性、外部連結與 foreignObject;模型文字一律純文字。
 
 ### 模型文字與不可信文字的顯示規則
@@ -161,7 +164,7 @@ RETIRE-IF: 使用者決定不再需要本機展示(或改成有正式部署的�
 以下照協調者給 2a(Codex)的介面逐字照抄,兩邊以此為準;2a 可以補欄位、不刪不改名,補了要回報。第 2 版之後要改介面,先跟協調者說。
 
 頁面函式:
-- src/rtb/demo/page.py:render_page(state: DemoState, *, form_token: str) -> str;render_report(state: DemoState) -> str(靜態報告:同一套版面,沒有任何表單、沒有自動重讀);escape_text(s: str) -> str;CONTENT_SECURITY_POLICY: str(給 2b 放進回應標頭的值);STYLESHEET_PATH 常數(樣式表的網址路徑,例如 "/static/demo.css")。
+- src/rtb/demo/page.py:render_page(state: DemoState, *, form_token: str) -> str;〔2026-09-24 Codex 第二版改定,協調者轉達:render_page(state, *, form_token, selected: ScenarioCode | None = None)——閒置時畫選看的情境,執行中自動跟目前情境;情境清單每列是連到 /?scenario=F3 的連結,查詢參數只接受 ScenarioCode 成員,其他值當沒選(由 2b 伺服器解析後傳入)。目前節點畫成 <g id="current">,執行中 meta refresh 的網址帶 #current。〕render_report(state: DemoState) -> str(靜態報告:同一套版面,沒有任何表單、沒有自動重讀);escape_text(s: str) -> str;CONTENT_SECURITY_POLICY: str(給 2b 放進回應標頭的值);STYLESHEET_PATH 常數(樣式表的網址路徑,例如 "/static/demo.css")。
 
 資料結構:
 - DemoState:demo_id(str)、started_at(datetime,UTC)、model_mode(ModelMode:RECORDED 錄製、LIVE 即時)、model_cost_usd(Decimal | None,這次展示的模型花費估計)、verifier_digest(str | None)、commit(str | None)、running(bool)、scenarios(tuple[Scenario, ...])、verifier(VerifierResult | None)、known_limits(tuple[str, ...])、comparison(Comparison | None)、approval(ApprovalForm | None)。
@@ -179,6 +182,12 @@ RETIRE-IF: 使用者決定不再需要本機展示(或改成有正式部署的�
   - FlowGraph:nodes(tuple[FlowNode, ...])、edges(tuple[FlowEdge, ...])。FlowNode:id(str)、label(str)、kind(NodeKind:STEP 一般步驟、DECISION 判斷點、TERMINAL 結束點)、lane(str,例如「分析端」「收件口」「執行端」「DSP」「人工」,用來分泳道或上色)。FlowEdge:source(str)、target(str)、label(str,分支條件,例如「是」「否」「版本已變」「結果不明」)。
   - DemoState 加 flow(FlowGraph);Scenario 加 path(tuple[Decision, ...]):每個 Decision 有 node(判斷點或步驟的 id)、taken_edge(走的那條邊,用 (source, target))、outcome(str,判成什麼)、reason(str,白話為什麼,可能含不可信文字)、at(datetime | None)。
 
+Codex 第二版追加(2026-09-24,協調者轉達;之後介面不再變):
+- Scenario 補 result_summary(str,一句結果)與 traversed_edges(tuple[tuple[str, str], ...],實際走過的完整路徑)。
+
+2b 需要頁面多吃的(列給協調者轉 Codex,目前一條):
+- render_report 沒有 selected 可選:靜態報告要能看到七個情境各自的路徑與細節(報告沒有伺服器可以切換),請 Codex 說明報告版面怎麼呈現七個情境(例如每個情境各畫一次主流程圖高亮自己的路徑,或一張圖加七組細節)。
+
 執行中狀態追加(使用者本人要求流程在跑的時候也要非常清楚):
 - 資料結構再加:Scenario 加 current_node(str | None,正在執行的節點 id;只有 RUNNING 的情境會有);DemoState 加 current(CurrentStep | None):scenario(ScenarioCode)、node(str)、started_at(datetime)、last_decision(Decision | None)。
 
@@ -189,7 +198,7 @@ RETIRE-IF: 使用者決定不再需要本機展示(或改成有正式部署的�
   - 實作方式:codex exec,workspace-write,只在協調者指定的工作樹;不提交(提交由協調者審完、補系統筆記後做)。
   - 代碼審:外家席由 Claude 擔任;另派一席 Codex 以外的審查員專看頁面安全(逸出、內容安全政策、SVG 裡沒有腳本與外部資源)。
 - 增量 2b(我們實作,2a 過代碼審後):串接。展示伺服器路由與 HTML 出口、每 2 秒重讀、全部跑一次與單一情境重跑的觸發防護、從驅動程式的狀態檔組成展示狀態、頁面核可(金鑰、確認框核對、顯示收據)、報告另存 ~/.rtb/demo-reports/ 保留 20 份、處置說明表對進系統列舉。代碼審照常,觸發防護另由一席審。
-- 增量 3(我們實作,Phase 11 驗證器合進主線之後):前後比較資料(從造假示範產生)、README、最終驗收(驗證器全部通過、已知缺口照實列)。
+- 增量 3(我們實作;Phase 11 驗證器已在主線):前後比較資料(從造假示範產生)、README、最終驗收(驗證器全部通過、已知缺口照實列)。
 
 ## 合約候選
 
@@ -218,6 +227,7 @@ RETIRE-IF: 使用者決定不再需要本機展示(或改成有正式部署的�
 - [S1022] 頁面應「好讀、好看」,由使用者本人看過展示進行中與展示結束兩張截圖確認。[manual:使用者本人看截圖確認可讀性與美觀]
 - [S1023] 當展示結束時,伺服器應另存一份沒有表單與自動重讀的靜態報告到 ~/.rtb/demo-reports/,並只保留最近 20 份。[test:test_a_finished_demo_saves_a_static_report_and_keeps_twenty]
 - [S1024] F7 情境應用約 300 個廣告與等比例縮小的門檻,頁面應註明完整規模由驗證器跑的 F7 測試證明。[test:test_the_demo_f7_is_scaled_down_and_says_so]
+- [S1026] 當查詢參數 scenario 不是七個情境代碼之一時,展示伺服器應當成沒選看任何情境產生頁面,不回錯誤也不把參數值放進頁面。[test:test_an_unknown_scenario_query_is_treated_as_no_selection]
 - [S1025] 前後比較表應對每一種造假示範並排列出沒有驗證器與有驗證器的結果,並寫明比的是有沒有機械驗證。[test:test_the_comparison_shows_every_forgery_with_and_without_the_verifier]
 
 ## 實務隱患

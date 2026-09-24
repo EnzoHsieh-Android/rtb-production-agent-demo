@@ -3516,3 +3516,6 @@
 {"ts": "2026-09-24T15:47:45+08:00", "commit": "f183cd8", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-24T15:47:46+08:00", "commit": "f183cd8", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "f183cd84abfb2f218d2843e9fb4fd8a3661e0ea1"}
 {"ts": "2026-09-24T16:09:55+08:00", "commit": "cdc63e5", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase12一鍵展示與HTML報告_計劃.md"], "note": "door=high clauses=26 bound=0 red=0 green=0 weak=0 regress=16 no-run"}
+{"ts": "2026-09-24T16:10:02+08:00", "commit": "cdc63e5", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T16:10:03+08:00", "commit": "cdc63e5", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "cdc63e5f137f8c6caf557a8522640d5f01ea0232"}
+{"ts": "2026-09-24T16:14:29+08:00", "commit": "f607b74", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase12一鍵展示與HTML報告_計劃.md"], "note": "door=high clauses=27 bound=0 red=0 green=0 weak=0 regress=16 no-run"}
