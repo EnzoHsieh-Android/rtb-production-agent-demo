@@ -826,7 +826,8 @@ def _children(work):
     """命令列裡帶這個工作目錄的行程(伺服器起的子行程都把資料庫放在這底下)。"""
     import subprocess
 
-    listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True,  # noqa: S607
+    # ww:Linux 的 ps 輸出不是終端機時預設截在 80 欄,工作目錄路徑會被截掉(macOS 不截)
+    listing = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True,  # noqa: S607
                              text=True, check=False).stdout
     return [int(line.split(None, 1)[0]) for line in listing.splitlines()
             if str(work) in line and "rtb.demo.server" not in line]
