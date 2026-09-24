@@ -94,7 +94,7 @@ PYTHONPATH=src .venv/bin/python -m rtb.eval.record --ledger /tmp/rtb-model-ledge
 
 模型預設採**錄製回應模式**，不會發出付費模型呼叫；此提交的[錄製目錄](recordings/model/README.md)尚無批次紀錄，因此評估會如實標示模型「沒量／沒有批次紀錄」。即時模式須明確開啟、提供展示編號，並先通過[本機實測命令列](src/rtb/modelverify.py)寫下啟用紀錄；本地帳本限制**每次展示 1 美元、每月 20 美元**的估算額度。[模式判定](src/rtb/modelclient.py) · [花費帳](src/rtb/modelledger.py) · [Phase 11B 計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md)
 
-目前沒有串起所有服務的單一啟動指令；分析流程由測試組裝驅動，完整事故流程可從上述端到端測試觀察。[分析流程](src/rtb/analyzer/flow.py) · [Phase 12 需求](docs/rtb-production-agent-demo-knowledge/Issues/Phase12需要可看任務階段與處置的HTML報告.md)
+目前沒有串起所有服務的單一啟動指令。展示驅動程式已能依序真跑 F1–F7 七個情境並在最後跑宣稱驗證器，但只由測試呼叫；可操作的展示頁面與伺服器還在開發。[展示驅動](src/rtb/demo/driver.py) · [Phase 12 增量 1 階段性驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase12增量1驗收紀錄.md)
 
 ## 專案結構
 
@@ -125,7 +125,12 @@ PYTHONPATH=src .venv/bin/python -m rtb.eval.record --ledger /tmp/rtb-model-ledge
 - [Phase 10](docs/rtb-production-agent-demo-knowledge/Verification/Phase10驗收紀錄.md)：單一判斷點的合成評估與採用決定。
 - [Phase 11](docs/rtb-production-agent-demo-knowledge/Verification/Phase11驗收紀錄.md)：五份證據清單、宣稱驗證器與 CI 接線。
 
-**進行中：**[Phase 11B 大模型接入計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md)已有增量 1 的模型用戶端、花費帳與評估候選程式；原因假說與提案風險說明列在增量 2，目前不是已驗收功能。**規劃中：**[Phase 12 HTML 一鍵展示需求](docs/rtb-production-agent-demo-knowledge/Issues/Phase12需要可看任務階段與處置的HTML報告.md)，本分支尚無展示頁面。
+**階段性完成（只涵蓋增量 1）：**
+
+- [Phase 11B 增量 1](docs/rtb-production-agent-demo-knowledge/Verification/Phase11B增量1驗收紀錄.md)：模型用戶端、本機 Claude Code 後端、花費帳與上限、評估的模型候選；還沒做過即時實測，正式決策路徑沒有採用模型。
+- [Phase 12 增量 1](docs/rtb-production-agent-demo-knowledge/Verification/Phase12增量1驗收紀錄.md)：一鍵展示的啟動器、故障注入、分析端驅動與 F1–F7 真跑；展示頁面與伺服器還沒上主線。
+
+**進行中：**Phase 12 的展示頁面與伺服器；[Phase 11B 計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md)的增量 2（原因假說、給確認者的說明）。**規劃中：**讓 AI 在分析端參與「查什麼、要不要提案」的決策（金額與權限仍由程式與護欄把關）。
 
 ## 開發方式與限制
 
