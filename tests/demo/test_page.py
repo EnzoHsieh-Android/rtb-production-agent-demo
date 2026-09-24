@@ -942,3 +942,21 @@ def test_a_decision_without_a_matching_edge_is_shown_not_dropped() -> None:
     decision = replace(first.path[-1], taken_edge=None)
     report = render_report(_with_first(state, path=(*first.path[:-1], decision)))
     assert report.count('class="decision-card') >= len(first.path)
+
+
+def test_a_broken_or_segmented_path_is_drawn_as_it_happened() -> None:
+    """真資料的路徑可以斷開、分好幾段(回頭之後、另一件工作),頁面照實畫,不要求接得起來。"""
+    state = make_demo_state()
+    first = state.scenarios[0]
+    pairs = first.traversed_edges
+    segmented = (pairs[0], *pairs[2:])  # 拿掉中間一段,兩段接不起來
+    report = render_report(_with_first(state, traversed_edges=segmented))
+    assert "情境路徑的步驟沒有接起來" not in report
+    assert first.title in report
+
+
+def test_no_recorded_path_means_no_guessed_route() -> None:
+    """沒有走過的邊、也沒有判斷紀錄時,不從圖的第一個節點替它猜一條路。"""
+    report = render_report(_with_first(make_demo_state(), traversed_edges=(), path=(),
+                                       current_node=None))
+    assert "這個情境還沒有走過的路徑紀錄" in report
