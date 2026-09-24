@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS scenario_runs (
 CREATE TABLE IF NOT EXISTS decisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT, demo_id TEXT NOT NULL, code TEXT NOT NULL,
     node TEXT NOT NULL, edge_json TEXT, outcome TEXT NOT NULL, reason TEXT NOT NULL,
-    at TEXT NOT NULL, origin TEXT NOT NULL);
+    at TEXT NOT NULL, origin TEXT NOT NULL, basis_json TEXT NOT NULL DEFAULT '[]',
+    operation_key TEXT, actor TEXT NOT NULL DEFAULT '程式');
 CREATE INDEX IF NOT EXISTS decisions_by_scenario ON decisions (demo_id, code, id);
 CREATE TABLE IF NOT EXISTS current_node (
     demo_id TEXT PRIMARY KEY, code TEXT NOT NULL, node TEXT NOT NULL, entered_at TEXT NOT NULL,
@@ -38,6 +39,9 @@ CREATE TABLE IF NOT EXISTS verifier_runs (
     passed INTEGER NOT NULL, lines_json TEXT NOT NULL, reasons_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS confirmations (
     demo_id TEXT PRIMARY KEY, code TEXT NOT NULL, request_json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS scenario_details (
+    demo_id TEXT NOT NULL, code TEXT NOT NULL, details_json TEXT NOT NULL,
+    PRIMARY KEY (demo_id, code));
 CREATE TABLE IF NOT EXISTS node_counts (
     demo_id TEXT NOT NULL, code TEXT NOT NULL, node TEXT NOT NULL, count INTEGER NOT NULL,
     PRIMARY KEY (demo_id, code, node));
@@ -55,8 +59,21 @@ class ScenarioRun:
 
 
 @dataclass(frozen=True)
+class Basis:
+    """一次判斷所用的一組根據(增量 2b):量到的值、當時生效的標準、比較後的結論,以及這組根據從哪來
+    (做判斷的程式當下記下的,或依存下的證據用正式規則重算的)。拿不到就不給這一組,不造數字。"""
+
+    observed: str
+    standard: str
+    conclusion: str
+    source: str
+
+
+@dataclass(frozen=True)
 class DecisionRow:
-    """一筆判斷:走到哪個節點、走的那條邊(圖上沒有這條邊就是空)、判成什麼、白話原因、時間、來源。"""
+    """一筆判斷:走到哪個節點、走的那條邊(圖上沒有這條邊就是空)、判成什麼、白話原因、時間、來源;
+    增量 2b 加上根據(可多組)、關聯的外部寫入操作鍵、誰判的(程式、人工、外部平台;之後「AI 參與
+    決策」階段加 AI,並另加一欄放 AI 看到什麼、答了什麼、程式怎麼接手)。"""
 
     node: str
     edge: tuple[str, str] | None
@@ -64,6 +81,50 @@ class DecisionRow:
     reason: str
     at: datetime
     origin: str  # 哪一顆資料庫的哪個事件編號或哪一列
+    basis: tuple[Basis, ...] = ()
+    operation_key: str | None = None
+    actor: str = "程式"
+
+
+@dataclass(frozen=True)
+class ChangeRecord:
+    """一個廣告最後改了什麼。金額是平台預算的原樣整數(平台預算單位,沒有幣別,不換算)。"""
+
+    campaign: str
+    before: int | None
+    after: int | None
+    written: bool
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class ScenarioDetails:
+    """情境層的細節(增量 2b),拿不到的一律空值:為什麼開始、目標與限制、排隊等了幾秒、展示刻意
+    製造的故障(流程圖節點, 說明)、追蹤的那一筆操作鍵與平台套用次數、最後改了什麼;很多廣告的
+    情境(F7)另給一行彙總。"""
+
+    trigger: str | None = None
+    goal: str | None = None
+    queue_wait_seconds: int | None = None
+    injected_faults: tuple[tuple[str, str], ...] = ()
+    operation_key: str | None = None
+    platform_apply_count: int | None = None
+    change: ChangeRecord | None = None
+    change_overview: str | None = None
+
+
+def _details_json(details: ScenarioDetails) -> str:
+    body = dict(details.__dict__)
+    body["injected_faults"] = [list(pair) for pair in details.injected_faults]
+    body["change"] = None if details.change is None else dict(details.change.__dict__)
+    return json.dumps(body, ensure_ascii=False)
+
+
+def _details_from(text: str) -> ScenarioDetails:
+    body = json.loads(text)
+    body["injected_faults"] = tuple((str(a), str(b)) for a, b in body["injected_faults"])
+    body["change"] = None if body["change"] is None else ChangeRecord(**body["change"])
+    return ScenarioDetails(**body)
 
 
 @dataclass(frozen=True)
@@ -168,11 +229,18 @@ class StateWriter:
         with self._write() as conn:
             cursor = conn.execute(
                 "INSERT INTO decisions (demo_id, code, node, edge_json, outcome, reason, at, "
-                "origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "origin, basis_json, operation_key, actor) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (self.demo_id, code, row.node, edge, row.outcome, row.reason, _iso(row.at),
-                 row.origin))
+                 row.origin, json.dumps([list(b.__dict__.values()) for b in row.basis],
+                                        ensure_ascii=False), row.operation_key, row.actor))
             conn.execute("INSERT OR REPLACE INTO current_node VALUES (?, ?, ?, ?, ?)",
                          (self.demo_id, code, row.node, _iso(row.at), cursor.lastrowid))
+
+    def set_scenario_details(self, code: str, details: ScenarioDetails) -> None:
+        with self._write() as conn:
+            conn.execute("INSERT OR REPLACE INTO scenario_details VALUES (?, ?, ?)",
+                         (self.demo_id, code, _details_json(details)))
 
     def record_verifier_run(self, run: VerifierRun) -> None:
         with self._write() as conn:
@@ -201,11 +269,15 @@ class StateWriter:
                              [(self.demo_id, code, node, n) for node, n in counts.items()])
 
 
-def _decision(record: tuple[str, str | None, str, str, str, str]) -> DecisionRow:
-    node, edge, outcome, reason, at, origin = record
+_DECISION_COLUMNS = "node, edge_json, outcome, reason, at, origin, basis_json, operation_key, actor"
+
+
+def _decision(record: tuple[str, ...]) -> DecisionRow:
+    node, edge, outcome, reason, at, origin, basis, key, actor = record
     pair = None if edge is None else tuple(json.loads(edge))
     return DecisionRow(node, (pair[0], pair[1]) if pair else None, outcome, reason,
-                       datetime.fromisoformat(at), origin)
+                       datetime.fromisoformat(at), origin,
+                       tuple(Basis(*item) for item in json.loads(basis)), key, actor)
 
 
 class StateReader:
@@ -235,7 +307,7 @@ class StateReader:
 
     def decisions(self, demo_id: str, code: str) -> tuple[DecisionRow, ...]:
         rows = self._conn.execute(
-            "SELECT node, edge_json, outcome, reason, at, origin FROM decisions "
+            f"SELECT {_DECISION_COLUMNS} FROM decisions "  # noqa: S608 - 固定欄位清單
             "WHERE demo_id = ? AND code = ? ORDER BY id", (demo_id, code)).fetchall()
         return tuple(_decision(row) for row in rows)
 
@@ -247,10 +319,16 @@ class StateReader:
             return None
         code, node, entered, decision_id = row
         last = self._conn.execute(
-            "SELECT node, edge_json, outcome, reason, at, origin FROM decisions WHERE id = ?",
+            f"SELECT {_DECISION_COLUMNS} FROM decisions WHERE id = ?",  # noqa: S608 - 固定欄位清單
             (decision_id,)).fetchone()
         return CurrentNode(code, node, datetime.fromisoformat(entered),
                            None if last is None else _decision(last))
+
+    def scenario_details(self, demo_id: str, code: str) -> ScenarioDetails | None:
+        row = self._conn.execute(
+            "SELECT details_json FROM scenario_details WHERE demo_id = ? AND code = ?",
+            (demo_id, code)).fetchone()
+        return None if row is None else _details_from(str(row[0]))
 
     def latest_verifier_run(self) -> VerifierRun | None:
         """最近一次全部跑一次的驗證器結果(不限展示編號:單一情境重跑沿用上一次完整執行的)。"""

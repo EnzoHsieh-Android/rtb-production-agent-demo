@@ -133,3 +133,45 @@ def test_a_confirmation_request_keeps_every_source_the_server_signs_from(tmp_pat
         assert reader.confirmation("demo-1") is None
     finally:
         reader.close()
+
+
+# ---- 增量 2b:判斷的根據、誰判的、操作鍵;情境的細節 ----
+def test_a_decision_keeps_its_basis_actor_and_operation_key(tmp_path, writer):
+    """每筆判斷可帶多組根據(量到的值、標準、結論、這組根據從哪來)、誰判的、關聯的操作鍵;沒有的留空。"""
+    from rtb.demo.state_store import Basis
+
+    basis = (Basis("花了預算的 0.2%", "預期至少花 2.1%(一天的 1/24 乘 0.5)", "花太慢",
+                   "依存下的證據重算"),)
+    writer.start_scenario("F1", T0)
+    writer.record_decision("F1", DecisionRow("a_pacing", None, "x", "y", T0, "o", basis=basis,
+                                             operation_key="k1", actor="程式"))
+    writer.record_decision("F1", DecisionRow("x_write", None, "x", "y", T0, "o2"))
+
+    reader = _reader(tmp_path)
+    try:
+        first, second = reader.decisions("demo-1", "F1")
+    finally:
+        reader.close()
+    assert first.basis == basis and first.operation_key == "k1" and first.actor == "程式"
+    assert second.basis == () and second.operation_key is None
+
+
+def test_scenario_details_are_kept_and_missing_ones_stay_empty(tmp_path, writer):
+    from rtb.demo.state_store import ChangeRecord, ScenarioDetails
+
+    details = ScenarioDetails(
+        trigger="展示驅動程式直接建立工作", goal="加一成", queue_wait_seconds=0,
+        injected_faults=(("x_write", "寫進平台後執行端當場倒下"),), operation_key="k1",
+        platform_apply_count=1,
+        change=ChangeRecord("c1", before=100, after=110, written=True, reason=None),
+        change_overview="放行 123 個、人工確認後寫入 1 個、沒寫入 176 個;加了 1240,總上限 1234")
+    writer.start_scenario("F2", T0)
+    writer.set_scenario_details("F2", details)
+    writer.start_scenario("F3", T0)
+
+    reader = _reader(tmp_path)
+    try:
+        assert reader.scenario_details("demo-1", "F2") == details
+        assert reader.scenario_details("demo-1", "F3") is None
+    finally:
+        reader.close()

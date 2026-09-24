@@ -1027,3 +1027,67 @@ def test_a_cancel_stops_a_running_verifier(tmp_path):
     assert time.monotonic() - began < 15
     assert not run.passed and "取消" in run.reasons[0]
     assert _gone(int(marker.read_text()))
+
+
+# ---- 增量 2b:判斷的根據、誰判的、操作鍵(真的跑) ----
+def test_real_decisions_carry_their_basis(tmp_path, state):
+    """F5 兩件工作:提案那一步與不調整那一步都帶重算的根據、最後一組結論跟實際判定一致;寫入平台
+    那一步帶執行端記下的核對材料與操作鍵。"""
+    from rtb.demo import basis
+
+    assert _driver(tmp_path, state).run_one("F5").status == DONE
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        decisions = reader.decisions("demo-1", "F5")
+    finally:
+        reader.close()
+    by_node = {d.node: d for d in decisions}
+    assert by_node["a_propose"].basis[-1].conclusion == basis.PROPOSE
+    assert by_node["a_no_action"].basis[-1].conclusion == "沒有花太慢,不調整"
+    assert {b.source for b in by_node["a_propose"].basis} == {basis.RECOMPUTED}
+    write = by_node["x_write"]
+    assert write.basis and {b.source for b in write.basis} == {basis.RECORDED}
+    assert write.operation_key and write.actor == "程式"
+    assert by_node["a_receive"].operation_key is None
+
+
+def _details(tmp_path, code):
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        return reader.scenario_details("demo-1", code)
+    finally:
+        reader.close()
+
+
+def test_a_scenario_records_what_changed_and_how_it_was_set_up(tmp_path, state):
+    """情境細節:為什麼開始(照實寫驅動程式直接建工作)、目標、刻意製造的故障與位置、排隊等了幾秒、
+    追蹤的操作鍵與平台上套用幾次、最後改了什麼(平台預算原樣整數,沒有幣別)。"""
+    assert _driver(tmp_path, state).run_one("F2").status == DONE
+    details = _details(tmp_path, "F2")
+    assert details.trigger == driver_module.TRIGGER and "代替排程" in details.trigger
+    assert details.goal
+    assert [node for node, _ in details.injected_faults] == ["x_write"]
+    assert details.operation_key and details.platform_apply_count == 1
+    assert isinstance(details.queue_wait_seconds, int) and details.queue_wait_seconds >= 0
+    change = details.change
+    assert (change.campaign, change.before, change.after, change.written) == ("c1", 100, 110, True)
+
+
+def test_a_blocked_then_replanned_scenario_shows_the_final_write(tmp_path, state):
+    assert _driver(tmp_path, state).run_one("F4").status == DONE
+    details = _details(tmp_path, "F4")
+    change = details.change
+    assert (change.before, change.after, change.written) == (100, 220, True)
+    assert details.platform_apply_count == 1  # 另一個寫入者那一筆不是這把鍵,不算
+
+
+def test_f7_records_an_overview_and_the_confirmed_one(tmp_path, state):
+    """F7 兩樣都放(協調者裁定):一行彙總(放行幾個、人工確認後寫入幾個、沒寫入幾個、加了多少與總上限),
+    加上人工確認那一筆的明細。"""
+    verdict, _ = _small_f7(tmp_path, state, cap=60, approve=_approve_when_asked)
+    assert verdict.status == DONE, verdict.reason
+    details = _details(tmp_path, "F7")
+    assert "放行 12 個" in details.change_overview
+    assert "人工確認後寫入 1 個" in details.change_overview
+    assert "沒寫入 17 個" in details.change_overview and "總上限 124" in details.change_overview
+    assert details.change.written and (details.change.before, details.change.after) == (100, 110)

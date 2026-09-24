@@ -23,7 +23,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -36,7 +36,13 @@ from rtb.demo import launcher
 from rtb.demo.keys import DemoKeys
 from rtb.demo.launcher import FaultRequest, Process, Role, StartFailed
 from rtb.demo.observe import Observer, PathBuilder, Timeline, all_pages, missing_from_path
-from rtb.demo.state_store import ConfirmationRequest, StateWriter, VerifierRun
+from rtb.demo.state_store import (
+    ChangeRecord,
+    ConfirmationRequest,
+    ScenarioDetails,
+    StateWriter,
+    VerifierRun,
+)
 from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
 from rtb.domain.evidence import Evidence, EvidenceKind
 from rtb.domain.proposal import Proposal, content_hash
@@ -122,6 +128,9 @@ class World:
     paused_seconds: float = 0.0  # 等人確認的時間:不算進情境總時限([S1008])
     closed: bool = False
     traces: dict[str, Trace] = field(default_factory=dict)  # 情境結束時收的追蹤檢視(頁面用)
+    initial_budgets: dict[str, int] = field(default_factory=dict)  # 造資料時寫進平台的預算
+    tracked: tuple[str, str] | None = None  # 情境追蹤的那一筆:(最後寫進平台的工作, 廣告)
+    overview: str | None = None  # 很多廣告的情境(F7)的一行彙總
     _lock: threading.Lock = field(default_factory=threading.Lock)
     pause_started: float | None = None
     dsp: Process = field(init=False)
@@ -139,6 +148,7 @@ class World:
         self._timeline = Timeline()
 
     def seed(self, campaigns: Sequence[Campaign], aggregate_limit: int | None = None) -> None:
+        self.initial_budgets.update({c.campaign_id: c.budget for c in campaigns})
         store = CampaignStore(self.dsp_db)
         try:
             for c in campaigns:
@@ -435,6 +445,13 @@ class Scenario:
     title: str
     time_limit_seconds: float
     run: Callable[[World], str]  # 回一句結果;斷言沒過丟 ScenarioFailed
+    goal: str | None = None  # 這件工作的目標與限制(增量 2b,給人看)
+    faults: tuple[tuple[str, str], ...] = ()  # 展示刻意製造的故障:(流程圖節點, 說明)
+
+
+# 展示沒有排程器:驅動程式直接建工作。照實寫,不寫成排程觸發(協調者 2026-09-24)
+TRIGGER = "展示驅動程式直接建立工作(代替排程)"
+_LIMITS = "單次最多加現有預算的一半、單一廣告有上限、全部廣告加起來有總上限"
 
 
 # 每件工作的每一條紀錄兩份清單(計劃〈交叉核對〉,第 2、3 輪代碼審 o1/c3/g1/x1):必經節點照順序逐一
@@ -480,6 +497,7 @@ def _run_f1(world: World) -> str:
     _sent(world, "t1", 2)  # 第一次沒提交、同編號補送一次
     _applied_once(world, "c1", 110)  # 預算 100 加一成
     world.collect_traces(["t1"])
+    world.tracked = ("t1", "c1")
     return "第一次送出沒有回音,回頭查過再用同一個編號補送,平台上只改了一次(100 → 110)"
 
 
@@ -530,6 +548,7 @@ def _run_f2(world: World) -> str:
     _no_rejected_permission(world, "t1")
     _applied_once(world, "c1", 110)  # 預算 100 加一成
     world.collect_traces(["t1"])
+    world.tracked = ("t1", "c1")
     return "寫進平台後執行端當場倒下;重啟後查平台紀錄確認已經寫進去,沒有重送,平台上只改一次"
 
 
@@ -612,6 +631,7 @@ def _run_f3(world: World) -> str:
     _sent(world, "t1", 1)
     _applied_once(world, "c1", 110)  # 預算 100 加一成
     world.collect_traces(["t1"])
+    world.tracked = ("t1", "c1")
     return "兩個分析工作者同時搶只有一方花錢;同一則訊息投遞兩次,平台上只改一次"
 
 
@@ -659,6 +679,7 @@ def _run_f4(world: World) -> str:
     if budgets != [("update_budget", 200), ("update_budget", 220)]:
         raise ScenarioFailed(f"平台上的寫入不對:{budgets}(舊建議的 110 不該出現)")
     world.collect_traces(["t1", follow])
+    world.tracked = (follow, "c1")
     return "另一方先把預算改成 200;舊建議(110)以版本已變擋下,新工作照現況改成 220,舊值從沒寫進平台"
 
 
@@ -699,6 +720,7 @@ def _run_f5(world: World) -> str:
     if (world.campaign("c1") or {}).get("name") != ADVERSARIAL_NAME:
         raise ScenarioFailed("廣告名稱被動到了")
     world.collect_traces(["t1", "t2"])
+    world.tracked = ("t1", "c1")
     return ("名稱裡叫系統加 500%、洩漏金鑰,原文進了分析端;規則路徑照樣只加一成、名稱不變,旁邊的"
             "廣告照規則不調整(模型那一段待 11B 接上後補驗)")
 
@@ -740,6 +762,7 @@ def _run_f6(world: World) -> str:
     if budgets != [("update_budget", 200), ("update_budget", 220)]:
         raise ScenarioFailed(f"平台上的寫入不對:{budgets}(舊決策的 110 不該出現)")
     world.collect_traces(["t1", follow])
+    world.tracked = (follow, "c1")
     return "停下等人處理之後廣告被改;重新送入時以版本已變擋下,新工作改成 220,舊決策沒寫進平台"
 
 
@@ -887,10 +910,13 @@ def make_f7(campaigns: int = F7_CAMPAIGNS, limit: int = F7_LIMIT, workers: int =
         if not world.watch(all_settled, 240, lambda: _node_counts(world)):
             raise ScenarioFailed(f"時限內沒有全部走完:{_where_now(world)}")
         passes = limit // INCREASE
+        world.overview = _overview(world, campaigns, limit, confirmed=False)
         _check_campaign_by_campaign(world, ids, passes)
         _check_total_against_limit(world, limit, confirmed=False)
         waiting = _earliest_waiting(world)
+        world.tracked = (waiting.request.task_id, waiting.proposal.campaign_id)
         confirmed = _wait_for_confirmation(world, waiting.request, confirm_cap_seconds)
+        world.overview = _overview(world, campaigns, limit, confirmed)
         _node_counts(world)
         _check_campaign_by_campaign(world, ids, passes + (1 if confirmed else 0))
         _check_total_against_limit(world, limit, confirmed)
@@ -901,6 +927,17 @@ def make_f7(campaigns: int = F7_CAMPAIGNS, limit: int = F7_LIMIT, workers: int =
         return (f"{campaigns} 個廣告各加一成,全部加起來到總上限就停:放行 {passes} 個、"
                 f"其餘停下等人確認;確認的那一筆帶著這次展示簽發的核可寫進平台")
     return run
+
+
+def _overview(world: World, campaigns: int, limit: int, confirmed: bool) -> str:
+    """F7 的一行彙總(協調者 2026-09-24 裁定):放行幾個、人工確認後寫入幾個、沒寫入幾個、加了多少、
+    總上限。
+    數字全部讀自平台操作紀錄;金額是平台預算的原樣整數。"""
+    writes = world.platform_writes()
+    total = sum((w.new_budget or 0) - world.initial_budgets.get(w.campaign_id, 0) for w in writes)
+    by_hand = 1 if confirmed else 0
+    return (f"放行 {len(writes) - by_hand} 個各加一成、人工確認後寫入 {by_hand} 個、"
+            f"沒寫入 {campaigns - len(writes)} 個;一共加了 {total},總上限 {limit}")
 
 
 def _confirm_limit(request: ConfirmationRequest, cap_seconds: float) -> float:
@@ -930,6 +967,41 @@ def _wait_for_confirmation(world: World, request: ConfirmationRequest, cap_secon
         world.state.clear_confirmation()
         if not world.stop.is_set():  # 已經被收掉的情境不能把「沒跑完」改寫回進行中
             world.state.mark_status(world.code, "running")
+
+
+def _queue_wait(world: World, task_id: str) -> int | None:
+    """收件口收下那一刻到執行端第一次拿起(生命週期事件的時間,都在重啟之前,同一個時鐘)。"""
+    events = world.lifecycle(task_id)
+    received = next((e.at for e in events if e.kind == LifecycleKind.RECEIVED.value), None)
+    picked = next((e.at for e in events if e.kind == LifecycleKind.DELIVERED.value), None)
+    if received is None or picked is None:
+        return None
+    wait = (datetime.fromisoformat(picked) - datetime.fromisoformat(received)).total_seconds()
+    return max(0, round(wait))
+
+
+def _details(scenario: Scenario, world: World, verdict: Verdict) -> ScenarioDetails:
+    """情境細節:讀得到的照實放,讀不到的留空值,不造數字;讀的時候出錯也只留固定的那幾樣。"""
+    static = ScenarioDetails(trigger=TRIGGER, goal=scenario.goal, injected_faults=scenario.faults)
+    if world.tracked is None:
+        return static
+    task_id, campaign = world.tracked
+    try:
+        keys = [row.key for row in world.attempts(task_id)]
+        key = keys[0] if keys else None
+        writes = world.platform_writes(campaign)
+        applied = None if key is None else sum(1 for w in writes if w.key == key)
+        written = bool(applied)
+        blocked = [e.reason for e in world.lifecycle(task_id)
+                   if e.kind == LifecycleKind.BLOCKED.value]
+        change = ChangeRecord(campaign, world.initial_budgets.get(campaign),
+                              world.budget(campaign), written,
+                              None if written else (blocked[-1] if blocked else verdict.reason))
+        return replace(static, queue_wait_seconds=_queue_wait(world, task_id),
+                       operation_key=key, platform_apply_count=applied, change=change,
+                       change_overview=world.overview)
+    except Exception:  # 讀不到(行程已經停了、資料庫沒建好):只留固定的,不猜
+        return static
 
 
 ALL_CODES = ("F1", "F2", "F3", "F4", "F5", "F6", "F7")
@@ -1002,14 +1074,29 @@ def run_verifier(command: Sequence[str], demo_id: str, timeout_seconds: float,
     return VerifierRun(demo_id, _now(), popen.returncode == 0, kept, reasons)
 
 
+_PACE_GOAL = f"讓花太慢的廣告跟上進度:加一成預算。限制:{_LIMITS}"
 SCENARIOS: dict[str, Scenario] = {
-    "F1": Scenario("F1", "送出去沒有回音,平台到底改了沒?", 90, _run_f1),
-    "F2": Scenario("F2", "寫進平台之後執行端當場倒下", 120, _run_f2),
-    "F3": Scenario("F3", "同一件工作被處理兩次會不會重複花錢、重複改", 120, _run_f3),
-    "F4": Scenario("F4", "建議寫好之後,廣告被別人先改了", 120, _run_f4),
-    "F5": Scenario("F5", "廣告名稱裡藏著要系統亂來的指令", 120, _run_f5),
-    "F6": Scenario("F6", "停下等人處理的建議,重新送入時世界已經變了", 150, _run_f6),
-    "F7": Scenario("F7", "很多筆小加額,全部加起來會不會超過總上限", 300, make_f7()),
+    "F1": Scenario("F1", "送出去沒有回音,平台到底改了沒?", 90, _run_f1,
+                   f"{_PACE_GOAL};平台上同一筆只能改一次",
+                   (("p_reply", "平台第一次收到寫入時還沒提交就逾時,不回覆"),)),
+    "F2": Scenario("F2", "寫進平台之後執行端當場倒下", 120, _run_f2,
+                   f"{_PACE_GOAL};倒下重啟後不重送",
+                   (("x_write", "寫進平台之後、記下結果之前,執行端當場倒下"),)),
+    "F3": Scenario("F3", "同一件工作被處理兩次會不會重複花錢、重複改", 120, _run_f3,
+                   f"{_PACE_GOAL};同一件工作只花一次分析費用、平台只改一次",
+                   (("a_collect", "兩個分析工作者同時搶同一件工作"),
+                    ("x_pick", "執行端剛拿起這份建議就倒下,重啟後再投遞一次"))),
+    "F4": Scenario("F4", "建議寫好之後,廣告被別人先改了", 120, _run_f4,
+                   f"{_PACE_GOAL};廣告被別人改過就照現況重算,不寫舊建議",
+                   (("x_precheck", "建議寫好之後,另一個寫入者先把預算改成 200"),)),
+    "F5": Scenario("F5", "廣告名稱裡藏著要系統亂來的指令", 120, _run_f5,
+                   f"{_PACE_GOAL};名稱裡的文字不能改變規則",
+                   (("a_collect", "廣告名稱換成一段叫系統加 500%、洩漏金鑰的文字"),)),
+    "F6": Scenario("F6", "停下等人處理的建議,重新送入時世界已經變了", 150, _run_f6,
+                   f"{_PACE_GOAL};人工重新送入時照現況再確認",
+                   (("x_pick", "執行端連不上平台,投遞次數用完停下等人處理"),)),
+    "F7": Scenario("F7", "很多筆小加額,全部加起來會不會超過總上限", 300, make_f7(),
+                   f"{_PACE_GOAL};全部加起來到總上限就停,超過的等人確認"),
 }
 
 
@@ -1060,6 +1147,7 @@ class Driver:
             verdict = self._attempt(scenario, world)
         finally:
             self._current = None
+        self.state.set_scenario_details(code, _details(scenario, world, verdict))
         try:
             world.close()
         except Exception as broken:  # 收尾出錯也要結案,不停在執行中、不中斷整次展示

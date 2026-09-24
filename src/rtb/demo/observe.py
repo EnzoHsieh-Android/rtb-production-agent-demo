@@ -18,8 +18,9 @@ from pathlib import Path
 
 from rtb.analyzer.policy import NoActionReason
 from rtb.analyzer.task_store import FollowUpRow, ReplanReason, TaskReader, TaskRow
+from rtb.demo import basis as basis_of
 from rtb.demo import flow
-from rtb.demo.state_store import DecisionRow
+from rtb.demo.state_store import Basis, DecisionRow
 from rtb.domain.attempt import AttemptState, OutcomeCode
 from rtb.domain.task_state import TaskState
 from rtb.executor import attempt_store
@@ -40,6 +41,9 @@ HOLD_SECONDS = 1.0  # 事件晚這麼久才寫進判斷紀錄:各資料庫提交
 _EXECUTOR_SOURCES = frozenset({attempt_store.Source.EXECUTOR_LOOP.value,
                                attempt_store.Source.STARTUP_RECOVERY.value})
 _TERMINAL = frozenset(kind.value for kind in TERMINAL_KINDS)
+_DECIDED = frozenset({TaskState.PROPOSED, TaskState.NO_ACTION, TaskState.COLLECTING_EVIDENCE})
+_ADMIN = attempt_store.Source.ADMIN_COMMAND.value
+_ASKED = frozenset({"unknown", "committed_unverified"})  # 這兩種結果看得到最近一次跟平台的往來
 
 Member = tuple[type[StrEnum], str]
 
@@ -61,6 +65,8 @@ class SourceEvent:
     key: str | None = None
     task: str | None = None
     note: str | None = None
+    basis: tuple[Basis, ...] = ()  # 這一步的根據(增量 2b,見 basis 模組)
+    actor: str = "程式"  # 誰判的:程式或人工(管理指令寫的列)
 
 
 def _sort_key(event: SourceEvent) -> tuple[datetime, tuple[str, int, int]]:
@@ -181,7 +187,8 @@ class PathBuilder:
              reason: str) -> DecisionRow:
         member = event.detail or event.primary
         return DecisionRow(node=node, edge=edge, outcome=f"{member[0].__name__}.{member[1]}",
-                           reason=reason, at=event.at, origin=event.origin)
+                           reason=reason, at=event.at, origin=event.origin, basis=event.basis,
+                           operation_key=event.key, actor=event.actor)
 
     def _one(self, event: SourceEvent) -> DecisionRow | None:
         special = self._special(event)
@@ -206,7 +213,8 @@ class PathBuilder:
         member = event.detail if detail is not None and event.detail else event.primary
         reason = event.note or (UNRECOVERABLE if unrecoverable else chosen.text)
         return DecisionRow(node=node, edge=edge, outcome=f"{member[0].__name__}.{member[1]}",
-                           reason=reason, at=event.at, origin=event.origin)
+                           reason=reason, at=event.at, origin=event.origin, basis=event.basis,
+                           operation_key=event.key, actor=event.actor)
 
 
 class Timeline:
@@ -321,12 +329,41 @@ class Observer:
                 return None  # 由「開新工作」那筆事件表示,不另外記「這件工作結束」
             if follow is not None:
                 note = GENERATIONS_USED_UP  # 代數用完:接續關係有記,但沒有開新工作
+        recorded = None
         if row.state is TaskState.NO_ACTION:  # 原因跟這一列同一個交易寫
-            detail = _member(NoActionReason, reader.no_action_reason(row.task_id, row.seq))
+            recorded = reader.no_action_reason(row.task_id, row.seq)
+            detail = _member(NoActionReason, recorded)
             missing = detail is None
         return SourceEvent(row.written_at, f"analyzer.tasks#{row.task_id}/{row.seq}",
                            (TaskState, row.state.name), detail, f"task:{row.task_id}", missing,
-                           order=("analyzer", 1, rowid), task=row.task_id, note=note)
+                           order=("analyzer", 1, rowid), task=row.task_id, note=note,
+                           basis=self._analysis_basis(reader, row, recorded))
+
+    @staticmethod
+    def _analysis_basis(reader: TaskReader, row: TaskRow,
+                        recorded: str | None) -> tuple[Basis, ...]:
+        """分析之後寫下的那一列(提案、不調整、太舊重新蒐集)帶根據:拿分析中那一列底下的證據重算。"""
+        if row.state not in _DECIDED or row.seq < 2:  # 至少要有前一列
+            return ()
+        before = next((r for r in reader.history(row.task_id) if r.seq == row.seq - 1), None)
+        if before is None or before.state is not TaskState.ANALYZING:
+            return ()
+        return basis_of.analysis(before, reader.evidence_for(row.task_id, before.seq), row,
+                                 recorded)
+
+    @staticmethod
+    def _attempt_basis(attempt: attempt_store.AttemptTraceRow,
+                       starts: dict[str, attempt_store.FirstRow],
+                       calls: dict[str, tuple[attempt_store.DspCallRow, ...]],
+                       ) -> tuple[Basis, ...]:
+        """開始一筆那一列帶執行端記下的核對材料;轉成不明或平台已收到的那一列帶最近一次跟平台的往來。"""
+        if attempt.seq == 1 and attempt.key in starts:
+            return basis_of.write_start(starts[attempt.key])
+        if attempt.state in _ASKED and attempt.task_id in calls:
+            return basis_of.platform_call(
+                [c for c in calls[attempt.task_id] if c.key == attempt.key], attempt.state,
+                attempt.written_at)
+        return ()
 
     def _shifted(self, at: str, source: str | None) -> datetime:
         moment = _time(at)
@@ -347,6 +384,10 @@ class Observer:
                 attempts, self._attempts_after = all_pages(
                     lambda after: attempt_store.trace_rows_after(tx, after), self._attempts_after,
                     lambda pair: pair[0])
+                starts = attempt_store.first_rows_for(
+                    tx, [a.key for _, a in attempts if a.seq == 1])
+                calls = {task: attempt_store.dsp_calls_for(tx, task) for task in
+                         {a.task_id for _, a in attempts if a.task_id and a.state in _ASKED}}
         finally:
             inbox.close()
         events = []
@@ -362,12 +403,15 @@ class Observer:
                 self._shifted(event.at, event.source), f"inbox.lifecycle_events#{event.id}",
                 _member(LifecycleKind, event.kind) or (LifecycleKind, ""), detail,
                 f"proposal:{event.task_id}/{event.revision}", order=("inbox", rank, event.id),
-                key=event.key, task=event.task_id))
+                key=event.key, task=event.task_id,
+                actor="人工" if event.source == _ADMIN else "程式"))
         for rowid, attempt in attempts:
             events.append(SourceEvent(
                 self._shifted(attempt.written_at, attempt.source),
                 f"inbox.attempts#{attempt.key}/{attempt.seq}",
                 _member(AttemptState, attempt.state) or (AttemptState, ""),
                 _member(OutcomeCode, attempt.code), f"key:{attempt.key}",
-                order=("inbox", 1, rowid), key=attempt.key, task=attempt.task_id))
+                order=("inbox", 1, rowid), key=attempt.key, task=attempt.task_id,
+                basis=self._attempt_basis(attempt, starts, calls),
+                actor="人工" if attempt.source == _ADMIN else "程式"))
         return events
