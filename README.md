@@ -8,9 +8,9 @@
 
 ## 系統怎麼運作
 
-![RTB agent 動圖：由左到右依序顯示分析、收件、執行、廣告平台與人工五條泳道；程式、AI、人工、外部平台以不同顏色標示，F6 與 F7 的人工分支回到待處理佇列。](docs/assets/agent-flow.gif)
+![RTB agent 動圖：由上到下排列分析、收件、執行、廣告平台與人工五條泳道；主線由建議直接送出，AI 說明標為未接入；F6 與 F7 的人工分支回到待處理佇列。](docs/assets/agent-flow.gif)
 
-動圖逐步亮起完整流程；想一次看清所有步驟與回頭路線，可開啟 [SVG 靜態總覽圖](docs/assets/agent-flow.svg)。圖中的 AI 說明是 [Phase 12 展示頁](docs/rtb-production-agent-demo-knowledge/Issues/Phase12需要可看任務階段與處置的HTML報告.md)流程的可選步驟；此分支的正式分析流程尚未接入該步驟，模型候選仍只用於離線評估。
+動圖逐步亮起主線；想一次看清主線加上 F6、F7 兩條人工回頭線，可開啟 [SVG 靜態總覽圖](docs/assets/agent-flow.svg)。圖中灰色的 AI 說明屬 [Phase 11B 增量 2 計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md)；目前 main 的正式分析流程尚未接入，模型候選仍只用於離線評估。[Phase 12 展示頁與伺服器](docs/rtb-production-agent-demo-knowledge/Verification/Phase12增量1驗收紀錄.md)也還沒上主線。
 
 這裡的「佇列」是 SQLite 資料表中的待處理工作，提供重新投遞；SQLite 是把資料存在本機檔案的資料庫。分析端與執行端是分開的行程，以本機 HTTP 收件口交接提案；HTTP 收件口是程式間送提案的網路入口。[分析任務表](src/rtb/analyzer/task_store.py) · [收件表](src/rtb/executor/inbox_store.py) · [收件口](src/rtb/executor/inbox_server.py)
 
@@ -128,7 +128,7 @@ PYTHONPATH=src .venv/bin/python -m rtb.eval.record --ledger /tmp/rtb-model-ledge
 **階段性完成（只涵蓋增量 1）：**
 
 - [Phase 11B 增量 1](docs/rtb-production-agent-demo-knowledge/Verification/Phase11B增量1驗收紀錄.md)：模型用戶端、本機 Claude Code 後端、花費帳與上限、評估的模型候選；還沒做過即時實測，正式決策路徑沒有採用模型。
-- [Phase 12 增量 1](docs/rtb-production-agent-demo-knowledge/Verification/Phase12增量1驗收紀錄.md)：一鍵展示的啟動器、故障注入、分析端驅動與 F1–F7 真跑；展示頁面與伺服器還沒上主線。
+- [Phase 12 增量 1](docs/rtb-production-agent-demo-knowledge/Verification/Phase12增量1驗收紀錄.md)：啟動器與驅動程式的程式庫（尚無使用者命令）、故障注入、分析端驅動與 F1–F7 真跑；展示頁面與伺服器還沒上主線。
 
 **進行中：**Phase 12 的展示頁面與伺服器；[Phase 11B 計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md)的增量 2（原因假說、給確認者的說明）。**規劃中：**讓 AI 在分析端參與「查什麼、要不要提案」的決策（金額與權限仍由程式與護欄把關）。
 
@@ -137,3 +137,8 @@ PYTHONPATH=src .venv/bin/python -m rtb.eval.record --ledger /tmp/rtb-model-ledge
 - 各階段先留下計劃，經設計審、代碼審、CI 與驗收紀錄；完整規則見 [AGENTS.md](AGENTS.md) 與 [CLAUDE.md](CLAUDE.md)。
 - 這是本機單機示範：SQLite 佇列不是正式訊息系統，Mock DSP 不會碰真實廣告帳戶。[架構筆記](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md)
 - 分析與執行的正常程式路徑分開，但同一作業系統使用者下並無強制隔離；本地花費帳的上限防忘記，不防刻意刪帳或改帳。[架構筆記](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md) · [Phase 11B 計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md)
+- 結果不明的對帳仰賴 Mock DSP 的作廢與依鍵查詢能力；真實平台不一定提供，換平台時須重驗。[Phase 3 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase3驗收紀錄.md) · [Phase 5 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase5驗收紀錄.md)
+- 人工核可採對稱金鑰，執行端也讀得到核可金鑰，擋不住有權限的人自行簽核可。[核可模組](src/rtb/executor/approval.py) · [Phase 6 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase6驗收紀錄.md)
+- 24 小時曝險窗、加額比例上限五成、決策新鮮度 15 分鐘、租約 60 秒與投遞上限 5 都是暫用值，尚未實測校準；調整門檻時須按各驗收紀錄重驗。[Phase 6 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase6驗收紀錄.md) · [Phase 8 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase8驗收紀錄.md) · [Phase 4 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase4驗收紀錄.md)
+- F5 目前只驗程式規則路徑不受不可信廣告名稱影響，尚未驗模型是否會受騙；模型接入時須延伸端到端測試。[Phase 7 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase7驗收紀錄.md) · [Phase 12 增量 1 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase12增量1驗收紀錄.md)
+- F7 端到端測試在 CI 偶爾超過 60 秒，已有尚未實作的效能改善計劃；若再因超時紅燈，依追蹤問題的條件重評。[Phase 9 驗收](docs/rtb-production-agent-demo-knowledge/Verification/Phase9驗收紀錄.md) · [追蹤問題](docs/rtb-production-agent-demo-knowledge/Issues/F7端到端在CI上偶爾超過60秒.md)
