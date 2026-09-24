@@ -1,0 +1,74 @@
+[
+ {
+  "round": "r2",
+  "seat": "驗收-頁面",
+  "lens": "驗收 p1–p10 t4 t9 與使用者裁定的頁面部分",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "驗收-資料",
+  "lens": "驗收 d1–d10 a1 a6 t6",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "驗收-伺服器",
+  "lens": "驗收 v1–v7 s1–s6 x1–x3 a2–a4 a7 t2 t3 t5 t7 t8",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "資安-opus",
+  "lens": "全範圍能被利用的洞",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "驗收 a1–a7 與新寫法",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "外家-codex",
+  "lens": "外家獨立驗收",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex-gpt-6-sol"
+ }
+]

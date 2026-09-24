@@ -1,0 +1,58 @@
+[
+ {
+  "round": "r3",
+  "seat": "驗收頁面",
+  "lens": "末輪:頁面修正驗收＋真瀏覽器",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r3-delta.patch",
+   "governance/review-reports/code-phase12-inc2/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-驗收頁面.md",
+   "governance/review-reports/code-phase12-inc2/r2-驗收資料.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "驗收伺服器",
+  "lens": "末輪:伺服器與訊號收尾驗收",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r3-delta.patch",
+   "governance/review-reports/code-phase12-inc2/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-驗收伺服器.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "資安-opus",
+  "lens": "末輪:攻擊者視角,涵蓋最後凍結 patch",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r3-delta.patch",
+   "governance/review-reports/code-phase12-inc2/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-資安.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "架構對齊",
+  "lens": "末輪:拆檔與新寫法",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r3-delta.patch",
+   "governance/review-reports/code-phase12-inc2/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-架構對齊.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "外家-codex",
+  "lens": "末輪:外家否決",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r3-delta.patch",
+   "governance/review-reports/code-phase12-inc2/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc2/r2-外家-codex.md"
+  ],
+  "auditor": "codex"
+ }
+]

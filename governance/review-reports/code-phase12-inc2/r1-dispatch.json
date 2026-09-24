@@ -1,0 +1,79 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1-頁面",
+  "lens": "2a 頁面產生、escape、CSP、SVG、無腳本",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2-資料對應",
+  "lens": "basis present observe 對應正確性、假綠",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3-伺服器",
+  "lens": "server 路由、同源、並行、核可簽發、報告另存",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭4-測試",
+  "lens": "測試足不足、變異、條款綁定",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "資安-opus",
+  "lens": "全範圍能被利用的洞",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "新寫法對照既有",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家獨立找 bug(伺服器與資料)",
+  "materials": [
+   "governance/review-reports/code-phase12-inc2/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex-gpt-6-sol"
+ }
+]
