@@ -25,7 +25,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
-from rtb import modelclient as mc
+from rtb import modelclaude as cc
+from rtb import modelcore as core
 
 EXIT_OK = 0
 EXIT_NOT_WRITTEN = 5  # 有項目沒過:不寫紀錄,即時模式不開
@@ -41,21 +42,21 @@ POISON_SETTINGS = json.dumps({"model": "claude-rtb-poison-does-not-exist"})
 @dataclass
 class Verification:
     claude_version: str | None
-    isolation: mc.Isolation | None = None
+    isolation: cc.Isolation | None = None
     checks: dict[str, bool] = field(default_factory=dict)
     notes: dict[str, Any] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
         return self.claude_version is not None and self.isolation is not None and all(
-            self.checks.get(name) is True for name in mc.REQUIRED_CHECKS)
+            self.checks.get(name) is True for name in cc.REQUIRED_CHECKS)
 
 
-def _call(model: str, prompt: str, max_output_tokens: int) -> mc.BackendCall:
-    request = mc.ModelRequest(mc.Caller.EVAL_CANDIDATE, "你是測試助手。", prompt,
+def _call(model: str, prompt: str, max_output_tokens: int) -> core.BackendCall:
+    request = core.ModelRequest(core.Caller.EVAL_CANDIDATE, "你是測試助手。", prompt,
                               max_output_tokens, TIMEOUT_SECONDS)
-    return mc.BackendCall(model, request.system, prompt, max_output_tokens, TIMEOUT_SECONDS,
-                          mc.call_budget_nanousd(request, model))
+    return core.BackendCall(model, request.system, prompt, max_output_tokens, TIMEOUT_SECONDS,
+                          core.call_budget_nanousd(request, model))
 
 
 def _json(stdout: bytes) -> dict[str, Any] | None:
@@ -77,24 +78,24 @@ class Checker:
 
     def __init__(self, claude: Path, environ: Mapping[str, str], model: str) -> None:
         self.claude, self.environ, self.model = claude, environ, model
-        self.backend = mc.ClaudeCodeBackend(claude, environ, mc.Isolation.EMPTY_HOME)
+        self.backend = cc.ClaudeCodeBackend(claude, environ, cc.Isolation.EMPTY_HOME)
 
     def run(self, args: list[str], prompt: str, max_output_tokens: int,
             home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
-        return mc.run_claude(args, prompt, self.backend.child_env(max_output_tokens),
+        return cc.run_claude(args, prompt, self.backend.child_env(max_output_tokens),
                              TIMEOUT_SECONDS,
-                             isolated_home=self.backend.isolation is mc.Isolation.EMPTY_HOME,
+                             isolated_home=self.backend.isolation is cc.Isolation.EMPTY_HOME,
                              home_files=home_files)
 
     def args(self, prompt: str, max_output_tokens: int) -> list[str]:
         return self.backend.command(_call(self.model, prompt, max_output_tokens))
 
-    def login(self) -> mc.Isolation | None:
-        for isolation in (mc.Isolation.EMPTY_HOME, mc.Isolation.REAL_HOME):
-            self.backend = mc.ClaudeCodeBackend(self.claude, self.environ, isolation)
+    def login(self) -> cc.Isolation | None:
+        for isolation in (cc.Isolation.EMPTY_HOME, cc.Isolation.REAL_HOME):
+            self.backend = cc.ClaudeCodeBackend(self.claude, self.environ, isolation)
             try:
                 self.backend.check_login()
-            except mc.ModelCallFailed:
+            except core.ModelCallFailed:
                 continue
             return isolation
         return None
@@ -129,7 +130,7 @@ class Checker:
         return isinstance(tokens, int) and tokens <= OUTPUT_CAP
 
     def settings_suppressed(self) -> bool:
-        if self.backend.isolation is not mc.Isolation.EMPTY_HOME:
+        if self.backend.isolation is not cc.Isolation.EMPTY_HOME:
             return False  # 真 HOME 不能放對照用的設定檔:這一項只在空暫存 HOME 隔離下驗得了
         code, stdout, _ = self.run(self.args(SHORT_PROMPT, 50), SHORT_PROMPT, 50,
                                    {".claude/settings.json": POISON_SETTINGS})
@@ -148,9 +149,9 @@ class Checker:
                 "bad_argument_stderr": stderr.decode("utf-8", errors="replace")[:500]}
 
 
-def verify(claude: Path, environ: Mapping[str, str], model: str = mc.DEFAULT_MODEL,
+def verify(claude: Path, environ: Mapping[str, str], model: str = core.DEFAULT_MODEL,
            checker: Callable[[Path, Mapping[str, str], str], Checker] = Checker) -> Verification:
-    result = Verification(mc.claude_version(claude, environ))
+    result = Verification(cc.claude_version(claude, environ))
     run = checker(claude, environ, model)
     result.isolation = run.login()
     result.checks["login_ok"] = result.isolation is not None
@@ -170,7 +171,7 @@ def write_record(result: Verification) -> Path:
     """全部通過才寫(呼叫端先確認 `passed`);寫到呼叫時的 HOME 底下。"""
     if not result.passed or result.isolation is None:
         raise ValueError("有項目沒過,不寫即時模式啟用紀錄")
-    path = mc.verification_path()
+    path = cc.verification_path()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     record = {"claude_version": result.claude_version, "isolation": result.isolation.value,
               "checks": result.checks, "checked_on": datetime.now(UTC).date().isoformat(),
@@ -182,7 +183,7 @@ def write_record(result: Verification) -> Path:
 def run(argv: list[str] | None = None, *, out: TextIO | None = None,
         environ: Mapping[str, str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="即時模式實測:全部通過才寫啟用紀錄(會花一點額度)")
-    parser.add_argument("--model", default=mc.DEFAULT_MODEL)
+    parser.add_argument("--model", default=core.DEFAULT_MODEL)
     args = parser.parse_args(argv)
     printer = out or sys.stdout
     source = os.environ if environ is None else environ
@@ -192,7 +193,7 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
         return EXIT_NO_CLAUDE
     result = verify(Path(claude), source, args.model)
     print(f"claude 版本:{result.claude_version};隔離方式:{result.isolation}", file=printer)
-    for name in mc.REQUIRED_CHECKS:
+    for name in cc.REQUIRED_CHECKS:
         print(f"- {name}:{'過' if result.checks.get(name) else '沒過'}", file=printer)
     if not result.passed:
         print("有項目沒過:不寫啟用紀錄,即時模式不開", file=printer)

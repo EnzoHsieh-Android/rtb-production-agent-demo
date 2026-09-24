@@ -9,6 +9,7 @@ import json
 import sys
 from pathlib import Path
 
+from rtb import modelclaude as cc
 from rtb import modelclient as mc
 from rtb import modelverify
 from tests.model.fakes import FAKE_VERSION
@@ -73,9 +74,9 @@ def test_live_mode_needs_a_current_verification_record_writer(tmp_path):
     script = _claude(tmp_path)
     code, text = _run(script)
     assert code == modelverify.EXIT_OK, text
-    record = json.loads(mc.verification_path().read_text(encoding="utf-8"))
+    record = json.loads(cc.verification_path().read_text(encoding="utf-8"))
     assert record["claude_version"] == FAKE_VERSION and record["isolation"] == "empty_home"
-    assert all(record["checks"][name] is True for name in mc.REQUIRED_CHECKS)
+    assert all(record["checks"][name] is True for name in cc.REQUIRED_CHECKS)
     assert record["notes"]["bad_argument_exit_code"] == 1
     assert "unknown option" in record["notes"]["bad_argument_stderr"]
     assert record["notes"]["fixed_input_tokens_seen"] == 3900
@@ -89,9 +90,9 @@ def test_live_mode_needs_a_current_verification_record_writer(tmp_path):
             ("poison", {"poison_breaks": True}, "setting_sources_suppress_user_settings"),
             ("hooks", {"hook_events": True}, "no_hook_events"),
             ("memory", {"memory": True}, "no_memory_or_claude_md")):
-        mc.verification_path().unlink(missing_ok=True)
+        cc.verification_path().unlink(missing_ok=True)
         script = _claude(tmp_path / name, **overrides)
         code, text = _run(script)
         assert code == modelverify.EXIT_NOT_WRITTEN, name
         assert f"- {failing}:沒過" in text, (name, text)
-        assert not mc.verification_path().exists(), name
+        assert not cc.verification_path().exists(), name

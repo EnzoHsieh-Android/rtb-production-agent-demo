@@ -18,7 +18,10 @@ from pathlib import Path
 
 import pytest
 
+from rtb import modelclaude as cc
 from rtb import modelclient as mc
+from rtb import modelcore as core
+from rtb import modelledger as ledger_db
 from rtb.analyzer import policy
 from rtb.domain.worth import CampaignStatus, WorthCell, WorthInput, WorthInputInvalid, WorthVerdict
 from rtb.eval import adoption, eval_set, generator, model_candidate, record
@@ -110,11 +113,11 @@ def test_a_bad_model_answer_falls_back_to_the_rule(tmp_path, monkeypatch):
     missing = _candidate(tmp_path, recorded())
     assert policy.route(worth_input, policy.CandidateCall(missing, 5.0), ALL_CELLS).verdict is rule
     assert missing.attempts[-1].outcome == "no_recording"
-    monkeypatch.setattr(mc, "MONTH_CAP_NANOUSD", 1)
+    monkeypatch.setattr(core, "MONTH_CAP_NANOUSD", 1)
     capped = _candidate(tmp_path, live())
     assert policy.route(worth_input, policy.CandidateCall(capped, 5.0), ALL_CELLS).verdict is rule
     assert capped.attempts[-1].outcome == "local_cap_refused"
-    monkeypatch.setattr(mc, "MONTH_CAP_NANOUSD", 20 * mc.NANOUSD_PER_USD)
+    monkeypatch.setattr(core, "MONTH_CAP_NANOUSD", 20 * mc.NANOUSD_PER_USD)
     good = _candidate(tmp_path, live(FakeBackend(reply('{"verdict": "not_worth"}'))))
     result = policy.route(worth_input, policy.CandidateCall(good, 5.0), ALL_CELLS)
     assert (result.verdict, result.path) == (WorthVerdict.NOT_WORTH, policy.RoutePath.CANDIDATE)
@@ -276,8 +279,8 @@ def test_the_candidate_input_cannot_carry_campaign_text():
 
 
 # ---- [S924] ----
-OVERLOADED = mc.ErrorSample("result", "overloaded", mc.Outcome.TRANSIENT, "overloaded")
-QUOTA_SAMPLE = mc.ErrorSample("result", "usage limit reached", mc.Outcome.QUOTA_EXHAUSTED, "quota")
+OVERLOADED = cc.ErrorSample("result", "overloaded", mc.Outcome.TRANSIENT, "overloaded")
+QUOTA_SAMPLE = cc.ErrorSample("result", "usage limit reached", mc.Outcome.QUOTA_EXHAUSTED, "quota")
 
 
 def test_the_evaluation_stops_at_the_cap_or_a_setup_error(  # noqa: PLR0915 - 逐種停下情境
@@ -291,13 +294,13 @@ def test_the_evaluation_stops_at_the_cap_or_a_setup_error(  # noqa: PLR0915 - �
 
     calls, text = run("setup", logged_in=False)  # 沒登入:設定錯誤,第一個情境就停、沒呼叫模型
     assert calls == 0 and "未跑完" in text and "設定錯誤" in text and "模型候選:不採用" in text
-    monkeypatch.setattr(mc, "KNOWN_ERRORS", (QUOTA_SAMPLE, OVERLOADED))
+    monkeypatch.setattr(cc, "KNOWN_ERRORS", (QUOTA_SAMPLE, OVERLOADED))
     calls, text = run("quota", output=claude_json(QUOTA, is_error=True), code=1)
     assert calls == 1 and "未跑完" in text and "訂閱額度用完" in text
-    monkeypatch.setattr(mc, "MONTH_CAP_NANOUSD", 1)
+    monkeypatch.setattr(core, "MONTH_CAP_NANOUSD", 1)
     calls, text = run("cap")
     assert calls == 0 and "未跑完" in text and "已達上限" in text
-    monkeypatch.setattr(mc, "MONTH_CAP_NANOUSD", 20 * mc.NANOUSD_PER_USD)
+    monkeypatch.setattr(core, "MONTH_CAP_NANOUSD", 20 * mc.NANOUSD_PER_USD)
     calls, text = run("flaky", output=claude_json("overloaded", is_error=True), code=1)
     # 認得的暫時性錯誤不停;每次照預留結算,這一個展示編號跑到 1 美元才被本地上限擋下
     assert calls > 1 and "無法可靠分類" not in text and "停在第 1 個" not in text
@@ -306,7 +309,7 @@ def test_the_evaluation_stops_at_the_cap_or_a_setup_error(  # noqa: PLR0915 - �
     assert calls == 1 and "偵測到工具使用" in text  # 認得的暫時性錯誤,但帶工具使用痕跡就停
     calls, text = run("odd", output=claude_json("???", is_error=True), code=1)
     assert calls == 1 and "未跑完" in text and "無法可靠分類" in text  # 認不出的就停
-    monkeypatch.setattr(mc, "KNOWN_ERRORS", ())
+    monkeypatch.setattr(cc, "KNOWN_ERRORS", ())
     calls, text = run("raw_quota", output=claude_json(QUOTA, is_error=True), code=1)
     assert calls == 1 and "無法可靠分類" in text  # 沒有真實樣本:認不出,保守停下
     # 沒有呼叫模型的不算進四種比率,另外列件數;訂閱額度用完照算進例外率
@@ -363,7 +366,7 @@ def test_an_overrun_is_booked_and_stops_the_evaluation(tmp_path, caplog, monkeyp
             assert row.effective_nanousd == -(-listed * 6 // 5) > row.reserved_nanousd, name
     assert sum("超支" in r.getMessage() for r in caplog.records) == 3
     # 結算時花費帳忙碌:照常回文字、留未結算;手上的實際花費已超過預留就標超支
-    monkeypatch.setattr(mc, "_settle", _busy_settle)
+    monkeypatch.setattr(ledger_db, "settle", _busy_settle)
     (tmp_path / "busy").mkdir()
     result = mc.call_model(
         mc.ModelRequest(mc.Caller.EVAL_CANDIDATE, "s", "u", 32, 5.0, demo_id="d"),

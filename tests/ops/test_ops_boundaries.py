@@ -59,9 +59,11 @@ WRITE_WHITELIST: dict[str, frozenset[str]] = {
 SCANNED = (SRC / "executor" / "inbox_store.py", SRC / "executor" / "attempt_store.py",
            SRC / "analyzer" / "task_store.py", SRC / "executor" / "observability.py",
            SRC / "executor" / "capability_signer.py", SRC / "modelledger_view.py")
-# 掃描範圍:分析端、執行端兩個目錄,加上模型用戶端與花費帳唯讀開法兩支檔(Phase 11B 增量 1)
-SCAN_FILES = (SRC / "modelclient.py", SRC / "modelledger_view.py")
-_SCAN_MODULES = ("rtb.analyzer", "rtb.executor", "rtb.modelclient", "rtb.modelledger_view")
+# 掃描範圍:分析端、執行端兩個目錄,加上模型用戶端各模組與花費帳唯讀開法(Phase 11B 增量 1)
+MODEL_FILES = ("modelclient", "modelcore", "modelclaude", "modelrecording", "modelledger",
+               "modelledger_view")
+SCAN_FILES = tuple(SRC / f"{name}.py" for name in MODEL_FILES)
+_SCAN_MODULES = ("rtb.analyzer", "rtb.executor", *(f"rtb.{name}" for name in MODEL_FILES))
 
 
 def _defined_names(classes=True):
@@ -245,7 +247,7 @@ def test_the_ops_package_is_read_only_and_imported_by_nobody():
     "\ndef _w():\n    return __builtins__['eval']('1')\n",
     # Phase 11B 增量 1:模型用戶端的送出呼叫與花費帳寫入,維運套件在增量 1 一律不准碰
     "\ndef _w(r, s):\n    return call_model(r, s)\n",
-    "\nfrom rtb.modelclient import write_off as _w\n",
+    "\nfrom rtb.modelledger import write_off as _w\n",
     "\ndef _w(m):\n    return m.used_so_far\n",
     # 經維運內部函式轉手:任何維運檔都不准匯入假說命令列(計劃第 7 版 [S912])
     "\nfrom rtb.ops.hypothesis import ask as _a\n",

@@ -22,8 +22,12 @@ from pathlib import Path
 
 import pytest
 
+from rtb import modelclaude as cc
 from rtb import modelclient as mc
+from rtb import modelcore as core
+from rtb import modelledger as ledger_db
 from rtb import modelledger_view as view
+from rtb import modelrecording as rec
 from rtb.ops import metrics
 from tests.model.fakes import (
     FakeBackend,
@@ -112,14 +116,14 @@ def _spend(dirs, demo, output_tokens):
 
 
 def test_the_budget_caps_stop_the_call_before_it_is_sent(dirs):
-    assert (mc.DEMO_CAP_NANOUSD, mc.MONTH_CAP_NANOUSD) == (1 * USD, 20 * USD)
-    assert mc.SAFETY_FACTOR == (6, 5)
+    assert (core.DEMO_CAP_NANOUSD, core.MONTH_CAP_NANOUSD) == (1 * USD, 20 * USD)
+    assert core.SAFETY_FACTOR == (6, 5)
     _spend(dirs, "demo-1", 30_000)  # 0.3 乘 1.2 = 0.36 美元
     _spend(dirs, "demo-1", 30_000)  # 0.72 美元
-    assert mc.used_so_far(dirs[1], "demo-1").demo_nanousd == 720_000_000
+    assert ledger_db.used_so_far(dirs[1], "demo-1").demo_nanousd == 720_000_000
     backend = FakeBackend(reply("不該送出"))
     big = request(demo_id="demo-1", max_output_tokens=25_000)  # 預留約 0.3 美元
-    assert mc.reservation_nanousd(big, mc.DEFAULT_MODEL) > 280_000_000
+    assert core.reservation_nanousd(big, mc.DEFAULT_MODEL) > 280_000_000
     with pytest.raises(mc.LocalCapRefused, match="已達上限") as failed:
         call(live(backend), big, dirs)
     assert failed.value.outcome is mc.Outcome.LOCAL_CAP_REFUSED
@@ -127,7 +131,7 @@ def test_the_budget_caps_stop_the_call_before_it_is_sent(dirs):
     call(live(backend), request(demo_id="demo-1"), dirs)  # 小的照樣過
     for n in range(53):  # 每月 20 美元:換展示編號也擋得住
         _spend(dirs, f"month-{n}", 30_000)
-    assert mc.used_so_far(dirs[1], "fresh").month_nanousd > 19.7 * USD
+    assert ledger_db.used_so_far(dirs[1], "fresh").month_nanousd > 19.7 * USD
     backend = FakeBackend(reply("不該送出"))
     with pytest.raises(mc.LocalCapRefused, match="已達上限"):
         call(live(backend), request(demo_id="fresh", max_output_tokens=20_000), dirs)
@@ -146,8 +150,8 @@ def test_concurrent_reservations_never_exceed_the_cap(dirs):
 
     backend = FakeBackend(slow)
     each = request(demo_id="demo-1", max_output_tokens=25_000)  # 每筆預留約 0.3 美元
-    per_call = mc.reservation_nanousd(each, mc.DEFAULT_MODEL)
-    assert 3 * per_call < mc.DEMO_CAP_NANOUSD < 4 * per_call
+    per_call = core.reservation_nanousd(each, mc.DEFAULT_MODEL)
+    assert 3 * per_call < core.DEMO_CAP_NANOUSD < 4 * per_call
     barrier, outcomes = threading.Barrier(8), []
 
     def worker():
@@ -164,14 +168,14 @@ def test_concurrent_reservations_never_exceed_the_cap(dirs):
     while len(backend.calls) < 3 and time.monotonic() < deadline:
         time.sleep(0.01)
     time.sleep(0.2)  # 讓還沒預留的都走到預留那一步
-    in_flight = mc.used_so_far(dirs[1], "demo-1").demo_nanousd  # 預留都還沒結算
+    in_flight = ledger_db.used_so_far(dirs[1], "demo-1").demo_nanousd  # 預留都還沒結算
     release.set()
     for thread in threads:
         thread.join(10)
     sent = [o for o in outcomes if isinstance(o, mc.ModelResult)]
     assert len(outcomes) == 8 and len(sent) == len(backend.calls) <= 3
-    assert in_flight == len(sent) * per_call <= mc.DEMO_CAP_NANOUSD
-    assert mc.used_so_far(dirs[1], "demo-1").demo_nanousd <= mc.DEMO_CAP_NANOUSD
+    assert in_flight == len(sent) * per_call <= core.DEMO_CAP_NANOUSD
+    assert ledger_db.used_so_far(dirs[1], "demo-1").demo_nanousd <= core.DEMO_CAP_NANOUSD
 
 
 # ---- [S907] ----
@@ -257,12 +261,12 @@ def test_the_same_scenario_twice_gives_the_same_prompt_and_key():
     runs = (["t-123", "k-9", "t-123", "t-456"], ["t-777", "k-1", "t-777", "t-000"])
     sent = []
     for ids in runs:
-        holder = mc.Placeholders("任務")
+        holder = rec.Placeholders("任務")
         text = " ".join(holder.substitute(i) for i in ids)
         sent.append(text)
         assert holder.restore(text) == " ".join(ids)
     assert sent[0] == sent[1] == "任務甲 任務乙 任務甲 任務丙"
-    many = mc.Placeholders("任務")
+    many = rec.Placeholders("任務")
     names = [many.substitute(f"id-{n}") for n in range(12)]
     assert len(set(names)) == 12
     assert many.restore(" ".join(reversed(names))) == " ".join(
@@ -272,16 +276,16 @@ def test_the_same_scenario_twice_gives_the_same_prompt_and_key():
 # ---- [S922] ----
 def test_an_unsettled_reservation_counts_in_its_own_month(dirs, monkeypatch):
     clock = [datetime(2026, 8, 31, 23, 59, 50, tzinfo=UTC)]
-    monkeypatch.setattr(mc, "_utc_now", lambda: clock[0])
+    monkeypatch.setattr(core, "utc_now", lambda: clock[0])
     req = request(max_output_tokens=1000)
     with pytest.raises(KeyboardInterrupt):  # 行程在呼叫途中被殺:沒有結算
         call(live(FakeBackend(KeyboardInterrupt())), req, dirs)
-    reserved = mc.reservation_nanousd(req, mc.DEFAULT_MODEL)
+    reserved = core.reservation_nanousd(req, mc.DEFAULT_MODEL)
     [row] = rows(dirs[1])
     assert row.outcome is None and row.month == "2026-08"
-    assert mc.used_so_far(dirs[1], "demo-1").month_nanousd == reserved
+    assert ledger_db.used_so_far(dirs[1], "demo-1").month_nanousd == reserved
     clock[0] = datetime(2026, 9, 1, 0, 0, 10, tzinfo=UTC)
-    now = mc.used_so_far(dirs[1], "demo-1")
+    now = ledger_db.used_so_far(dirs[1], "demo-1")
     assert now.month_nanousd == 0  # 不跨月
     assert now.demo_nanousd == reserved  # 同一個展示編號照樣算
 
@@ -328,8 +332,9 @@ def test_live_calls_always_book_into_the_one_ledger(tmp_path, monkeypatch, _isol
 # ---- [S926] ----
 def test_the_ledger_ignores_the_command_line_now(dirs, monkeypatch):
     time_words = {"now", "today", "clock", "at", "when", "month", "until", "since"}
-    for function in (mc.call_model, mc.settings_from_env, mc.used_so_far, mc.write_off,
-                     mc.reservation_nanousd):
+    for function in (mc.call_model, mc.settings_from_env, ledger_db.used_so_far,
+                     ledger_db.write_off,
+                     core.reservation_nanousd):
         assert not time_words & set(inspect.signature(function).parameters), function
     assert not time_words & set(mc.ModelRequest.__dataclass_fields__)
     before = datetime.now(UTC)
@@ -338,8 +343,8 @@ def test_the_ledger_ignores_the_command_line_now(dirs, monkeypatch):
     [row] = rows(dirs[1])
     assert before <= datetime.fromisoformat(row.reserved_at) <= after
     assert row.month == before.strftime("%Y-%m")
-    monkeypatch.setattr(mc, "_utc_now", lambda: before + timedelta(days=40))
-    assert mc.used_so_far(dirs[1], "demo-1").month_nanousd == 0
+    monkeypatch.setattr(core, "utc_now", lambda: before + timedelta(days=40))
+    assert ledger_db.used_so_far(dirs[1], "demo-1").month_nanousd == 0
 
 
 # ---- [S927] ----
@@ -348,9 +353,9 @@ def test_a_stale_price_table_refuses_live_mode(dirs, tmp_path, monkeypatch):
     write_verification()
     environ = {mc.LIVE_ENV: "1"}
     checked = datetime.combine(mc.PRICES_CHECKED_ON, datetime.min.time(), tzinfo=UTC)
-    monkeypatch.setattr(mc, "_utc_now", lambda: checked + timedelta(days=90, hours=12))
+    monkeypatch.setattr(core, "utc_now", lambda: checked + timedelta(days=90, hours=12))
     assert mc.settings_from_env(environ, "demo-1", script).mode is mc.Mode.LIVE
-    monkeypatch.setattr(mc, "_utc_now", lambda: checked + timedelta(days=91, hours=1))
+    monkeypatch.setattr(core, "utc_now", lambda: checked + timedelta(days=91, hours=1))
     stale = mc.settings_from_env(environ, "demo-1", script)
     assert stale.mode is mc.Mode.RECORDED and stale.backend is None
     assert any("價目表" in note and "90" in note for note in stale.notices)
@@ -358,7 +363,7 @@ def test_a_stale_price_table_refuses_live_mode(dirs, tmp_path, monkeypatch):
     with pytest.raises(mc.ConfigError, match="價目表"):  # 直接給即時設定也一樣拒絕
         call(live(backend), request(), dirs)
     assert backend.calls == [] and not dirs[1].exists()  # 沒記帳
-    assert timedelta(days=90) == mc.PRICE_MAX_AGE
+    assert timedelta(days=90) == core.PRICE_MAX_AGE
     assert isinstance(mc.PRICES_CHECKED_ON, date)
     with pytest.raises(mc.UnknownModel):  # 模型代號只收價目表裡有的
         mc.settings_from_env({**environ, mc.MODEL_ENV: "claude-imaginary-9"}, "demo-1", script)
@@ -394,8 +399,8 @@ def test_managed_hooks_refuse_live_mode(tmp_path, monkeypatch):
     system = tmp_path / "system"
     system.mkdir()
     plist = tmp_path / "com.anthropic.claudecode.plist"
-    monkeypatch.setattr(mc, "MANAGED_DIRS", (system,))
-    monkeypatch.setattr(mc, "MDM_PLISTS", (plist,))
+    monkeypatch.setattr(cc, "MANAGED_DIRS", (system,))
+    monkeypatch.setattr(cc, "MDM_PLISTS", (plist,))
     remote = Path.home() / ".claude" / "remote-settings.json"
     assert mc.settings_from_env(environ, "demo-1", script).mode is mc.Mode.LIVE  # 沒有任何來源
     cases = [  # (來源檔, 內容)
@@ -433,24 +438,24 @@ def test_live_mode_needs_a_current_verification_record(tmp_path):
     def mode():
         return mc.settings_from_env(environ, "demo-1", script)
 
-    assert mc.verification_path() == Path.home() / ".rtb" / "live-verification.json"
+    assert cc.verification_path() == Path.home() / ".rtb" / "live-verification.json"
     refused = mode()  # 沒有紀錄
     assert refused.mode is mc.Mode.RECORDED and any("啟用紀錄" in n for n in refused.notices)
-    for name in mc.REQUIRED_CHECKS:  # 任一項沒過
+    for name in cc.REQUIRED_CHECKS:  # 任一項沒過
         write_verification(**{name: False})
         assert mode().mode is mc.Mode.RECORDED, name
     write_verification(version="1.0.0 (Claude Code)")  # 版本不同:Claude Code 升級後自動失效
     refused = mode()
     assert refused.mode is mc.Mode.RECORDED and any("版本" in n for n in refused.notices)
-    mc.verification_path().write_text("{", encoding="utf-8")  # 讀不懂
+    cc.verification_path().write_text("{", encoding="utf-8")  # 讀不懂
     assert mode().mode is mc.Mode.RECORDED
     write_verification(isolation="somewhere")
     assert mode().mode is mc.Mode.RECORDED
     write_verification()
     ok = mode()
-    assert ok.mode is mc.Mode.LIVE and ok.backend.isolation is mc.Isolation.EMPTY_HOME
+    assert ok.mode is mc.Mode.LIVE and ok.backend.isolation is cc.Isolation.EMPTY_HOME
     write_verification(isolation="real_home")  # 退路隔離:每次即時啟動前查記憶目錄
-    assert mode().backend.isolation is mc.Isolation.REAL_HOME
+    assert mode().backend.isolation is cc.Isolation.REAL_HOME
     memory = Path.home() / ".claude" / "projects" / "x" / "memory"
     memory.mkdir(parents=True)
     assert mode().mode is mc.Mode.LIVE  # 空的記憶目錄不算

@@ -16,6 +16,8 @@ from decimal import Decimal
 import pytest
 
 from rtb import modelclient as mc
+from rtb import modelcore as core
+from rtb import modelledger as ledger_db
 from rtb import modelledger_view as view
 from rtb import modelledger_writeoff as writeoff
 from tests.model.fakes import FakeBackend, live, reply, request
@@ -57,7 +59,7 @@ def test_a_write_off_is_appended_and_changes_the_used_amount(  # noqa: PLR0915 -
     recordings = tmp_path / "rec"
     recordings.mkdir()
     clock = [datetime(2026, 9, 24, 12, 0, tzinfo=UTC)]
-    monkeypatch.setattr(mc, "_utc_now", lambda: clock[0])
+    monkeypatch.setattr(core, "utc_now", lambda: clock[0])
 
     def run(req, backend):
         return mc.call_model(req, live(backend), recordings_dir=recordings, ledger=ledger)
@@ -69,7 +71,7 @@ def test_a_write_off_is_appended_and_changes_the_used_amount(  # noqa: PLR0915 -
         run(request("丙", max_output_tokens=500), FakeBackend(KeyboardInterrupt()))
     rows = _rows(ledger)
     reserved_1, reserved_3 = rows[1].reserved_nanousd, rows[3].reserved_nanousd
-    assert mc.used_so_far(ledger, "demo-1").demo_nanousd == (
+    assert ledger_db.used_so_far(ledger, "demo-1").demo_nanousd == (
         reserved_1 + rows[2].settled_nanousd + reserved_3)
     before = _dump(ledger)
 
@@ -89,11 +91,12 @@ def test_a_write_off_is_appended_and_changes_the_used_amount(  # noqa: PLR0915 -
     assert code == writeoff.EXIT_OK, text
     code, _ = _write_off(1, amount="0")  # 同一筆不能核銷兩次
     assert code == writeoff.EXIT_REFUSED
-    assert mc.used_so_far(ledger, "demo-1").demo_nanousd == rows[2].settled_nanousd + reserved_3
-    clock[0] += mc.LONGEST_REQUEST + timedelta(seconds=1)  # 超過最長請求期限
+    assert ledger_db.used_so_far(ledger, "demo-1").demo_nanousd == (
+        rows[2].settled_nanousd + reserved_3)
+    clock[0] += core.LONGEST_REQUEST + timedelta(seconds=1)  # 超過最長請求期限
     code, _ = _write_off(3, amount="0.0001")
     assert code == writeoff.EXIT_OK
-    assert mc.used_so_far(ledger, "demo-1").demo_nanousd == rows[2].settled_nanousd + 100_000
+    assert ledger_db.used_so_far(ledger, "demo-1").demo_nanousd == rows[2].settled_nanousd + 100_000
     assert _dump(ledger) == before  # 原列不改,只追加核銷列
     offs = _dump(ledger, ("model_write_offs",))["model_write_offs"]
     assert len(offs) == 2 and all("本機紀錄" in str(o) for o in offs)
@@ -103,8 +106,8 @@ def test_a_write_off_is_appended_and_changes_the_used_amount(  # noqa: PLR0915 -
             conn.execute("UPDATE model_write_offs SET amount_nanousd = 0")
         finally:
             conn.close()
-    with pytest.raises(mc.WriteOffRefused):
-        mc.write_off(ledger, 99, Decimal("0"), "r", "u")  # 不存在的列
+    with pytest.raises(ledger_db.WriteOffRefused):
+        ledger_db.write_off(ledger, 99, Decimal("0"), "r", "u")  # 不存在的列
 
     # 核銷之後才來的結算:已用改算較高的金額,並印出錯誤
     caplog.set_level(logging.ERROR)
@@ -120,14 +123,14 @@ def test_a_write_off_is_appended_and_changes_the_used_amount(  # noqa: PLR0915 -
     deadline = time.monotonic() + 5
     while 4 not in _rows(ledger) and time.monotonic() < deadline:
         time.sleep(0.01)
-    clock[0] += mc.LONGEST_REQUEST + timedelta(seconds=1)
+    clock[0] += core.LONGEST_REQUEST + timedelta(seconds=1)
     code, _ = _write_off(4, amount="0")
     assert code == writeoff.EXIT_OK
-    assert mc.used_so_far(ledger, "demo-1").demo_nanousd == rows[2].settled_nanousd + 100_000
+    assert ledger_db.used_so_far(ledger, "demo-1").demo_nanousd == rows[2].settled_nanousd + 100_000
     release.set()
     worker.join(10)
     settled = _rows(ledger)[4].settled_nanousd
     assert outcome and settled > 0
-    assert mc.used_so_far(ledger, "demo-1").demo_nanousd == (
+    assert ledger_db.used_so_far(ledger, "demo-1").demo_nanousd == (
         rows[2].settled_nanousd + 100_000 + settled)
     assert any("核銷" in r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR)

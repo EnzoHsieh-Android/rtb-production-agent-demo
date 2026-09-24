@@ -13,7 +13,9 @@ import shlex
 import threading
 from pathlib import Path
 
+from rtb import modelclaude as cc
 from rtb import modelclient as mc
+from rtb import modelcore as core
 
 
 def reply(  # noqa: PLR0913 - 回應的每一欄
@@ -29,7 +31,7 @@ def reply(  # noqa: PLR0913 - 回應的每一欄
 class FakeBackend:
     """依序回應(最後一個重複用):元素是 BackendReply、例外物件,或收到呼叫後回應的函式。"""
 
-    kind = mc.Backend.CLAUDE_CODE
+    kind = core.Backend.CLAUDE_CODE
 
     def __init__(self, *responses):
         self.responses = list(responses) or [reply()]
@@ -87,8 +89,8 @@ FAKE_VERSION = "9.9.9 (Claude Code)"
 def write_verification(version=FAKE_VERSION, isolation="empty_home", **checks):
     """在呼叫時的家目錄寫一份即時模式啟用紀錄(預設全過、版本跟假 claude 一樣)。"""
     record = {"claude_version": version, "isolation": isolation, "checked_on": "2026-09-24",
-              "checks": {**dict.fromkeys(mc.REQUIRED_CHECKS, True), **checks}}
-    path = mc.verification_path()
+              "checks": {**dict.fromkeys(cc.REQUIRED_CHECKS, True), **checks}}
+    path = cc.verification_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(record), encoding="utf-8")
     return path

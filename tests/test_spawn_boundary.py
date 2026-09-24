@@ -20,7 +20,7 @@ from tests.analyzer.test_boundaries import NETWORK_MODULES, _imported_modules
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 RTB = SRC / "rtb"
-ALLOWED = frozenset({"rtb.modelclient"})
+ALLOWED = frozenset({"rtb.modelclaude"})  # 模型用戶端的 Claude Code 後端那一支
 SPAWN_MODULES = frozenset({"subprocess", "multiprocessing", "pty", "webbrowser"})
 OS_SPAWNERS = ("system", "popen", "exec", "spawn", "posix_spawn", "fork", "forkpty")
 ASYNC_SPAWNERS = ("create_subprocess_exec", "create_subprocess_shell")

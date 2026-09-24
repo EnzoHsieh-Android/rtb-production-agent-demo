@@ -14,7 +14,10 @@ from pathlib import Path
 
 import pytest
 
+from rtb import modelclaude as cc
 from rtb import modelclient as mc
+from rtb import modelcore as core
+from rtb import modelledger as ledger_db
 from rtb import modelledger_view as view
 from tests.model.fakes import claude_json, fake_claude, invocations, live, request
 
@@ -31,10 +34,10 @@ def _rows(ledger):
         reader.close()
 
 
-def _call(tmp_path, script, req=None, name="x", isolation=mc.Isolation.EMPTY_HOME):
+def _call(tmp_path, script, req=None, name="x", isolation=cc.Isolation.EMPTY_HOME):
     recordings = tmp_path / f"{name}-rec"
     recordings.mkdir(exist_ok=True)
-    settings = live(mc.ClaudeCodeBackend(script, isolation=isolation))
+    settings = live(cc.ClaudeCodeBackend(script, isolation=isolation))
     return mc.call_model(req or request(), settings, recordings_dir=recordings,
                          ledger=tmp_path / f"{name}.sqlite")
 
@@ -44,11 +47,11 @@ QUOTA = "Claude AI usage limit reached|1759000000"
 # 認得的錯誤子類型只收有真實樣本的(KNOWN_ERRORS 在增量 1 是空的,等協調者錄製時補)。
 # 這裡注入「假設取到了」的樣本,驗分類機制本身;沒注入時一律落到無法可靠分類
 SAMPLES = (
-    mc.ErrorSample("result", "usage limit reached", mc.Outcome.QUOTA_EXHAUSTED, "quota"),
-    mc.ErrorSample("subtype", "error_max_budget_usd", mc.Outcome.OVERRUN, "call_budget"),
-    mc.ErrorSample("result", "not logged in", mc.Outcome.CONFIG_ERROR, "not_logged_in"),
-    mc.ErrorSample("result", "not found", mc.Outcome.CONFIG_ERROR, "unknown_model"),
-    mc.ErrorSample("result", "overloaded", mc.Outcome.TRANSIENT, "overloaded"),
+    cc.ErrorSample("result", "usage limit reached", mc.Outcome.QUOTA_EXHAUSTED, "quota"),
+    cc.ErrorSample("subtype", "error_max_budget_usd", mc.Outcome.OVERRUN, "call_budget"),
+    cc.ErrorSample("result", "not logged in", mc.Outcome.CONFIG_ERROR, "not_logged_in"),
+    cc.ErrorSample("result", "not found", mc.Outcome.CONFIG_ERROR, "unknown_model"),
+    cc.ErrorSample("result", "overloaded", mc.Outcome.TRANSIENT, "overloaded"),
 )
 CASES = {  # 名稱: (假 claude 的設定, 例外類別, 結果類別, 照預留結算?)
     "missing_exe": ({"missing": True}, mc.ConfigError, "config_error", False),
@@ -94,9 +97,9 @@ def _script(tmp_path, name, options):
 
 def test_failed_calls_are_settled_by_their_kind(  # noqa: PLR0915 - 五步判定的逐條情境
         tmp_path, monkeypatch):
-    monkeypatch.setattr(mc, "KNOWN_ERRORS", SAMPLES)
+    monkeypatch.setattr(cc, "KNOWN_ERRORS", SAMPLES)
     req = request(max_output_tokens=200, timeout_seconds=1.0)
-    reserved = mc.reservation_nanousd(req, mc.DEFAULT_MODEL)
+    reserved = core.reservation_nanousd(req, mc.DEFAULT_MODEL)
     for name, (options, error, outcome, charged) in CASES.items():
         script = _script(tmp_path, name, options)
         with pytest.raises(error) as failed:
@@ -112,14 +115,14 @@ def test_failed_calls_are_settled_by_their_kind(  # noqa: PLR0915 - 五步判定
     # 沒登入:呼叫前的本地檢查就擋下,模型那一條指令根本沒跑
     assert invocations(tmp_path / "not_logged_in" / "claude") == []
     # 沒有真實樣本時(KNOWN_ERRORS 是空的),額度用完這類也認不出:暫時性、無法可靠分類
-    monkeypatch.setattr(mc, "KNOWN_ERRORS", ())
-    assert mc.KNOWN_ERRORS == ()
+    monkeypatch.setattr(cc, "KNOWN_ERRORS", ())
+    assert cc.KNOWN_ERRORS == ()
     with pytest.raises(mc.TransientServiceError) as failed:
         _call(tmp_path, fake_claude(tmp_path / "raw", claude_json(QUOTA, is_error=True)), req,
               "raw")
     assert failed.value.unclassified
     # 失敗但讀得出用量:取「預留」與「原價乘 1.2」較高者
-    monkeypatch.setattr(mc, "KNOWN_ERRORS", SAMPLES)
+    monkeypatch.setattr(cc, "KNOWN_ERRORS", SAMPLES)
     heavy = claude_json(QUOTA, is_error=True, input_tokens=1000, output_tokens=90_000)
     with pytest.raises(mc.QuotaExhausted) as failed:
         _call(tmp_path, fake_claude(tmp_path / "heavy", heavy), req, "heavy")
@@ -137,7 +140,7 @@ def test_failed_calls_are_settled_by_their_kind(  # noqa: PLR0915 - 五步判定
     assert row.list_nanousd == listed and row.settled_nanousd == listed * 6 // 5
     assert good.settlement is mc.SettlementState.SETTLED
     # 結算寫不進去:照常回文字,那筆留在未結算、照預留算
-    monkeypatch.setattr(mc, "_settle", _busy)
+    monkeypatch.setattr(ledger_db, "settle", _busy)
     busy = _call(tmp_path, script, req, "busy")
     [row] = _rows(tmp_path / "busy.sqlite")
     assert row.outcome is None and row.effective_nanousd == reserved
@@ -159,7 +162,7 @@ def test_the_claude_subprocess_gets_only_whitelisted_environment(tmp_path, monke
     script = fake_claude(tmp_path / "c")
     _call(tmp_path, script, request(max_output_tokens=77))  # 預設隔離:空暫存 HOME
     _call(tmp_path, script, request(max_output_tokens=77), "real",
-          mc.Isolation.REAL_HOME)  # 退路隔離:真 HOME
+          cc.Isolation.REAL_HOME)  # 退路隔離:真 HOME
     empty, real = invocations(script)
     for seen in (empty, real):
         env = seen["env"]
@@ -196,20 +199,20 @@ def test_the_claude_command_disables_every_tool(tmp_path):
     assert not [a for a in args if a in FORBIDDEN_FLAGS]
     assert _value(args, "--output-format") == "json"
     assert _value(args, "--model") == mc.DEFAULT_MODEL
-    assert _value(args, "--effort") == mc.CLAUDE_EFFORT == "low"
+    assert _value(args, "--effort") == cc.CLAUDE_EFFORT == "low"
     assert _value(args, "--system-prompt") == req.system
     assert _value(args, "--tools") == ""
-    assert _value(args, "--setting-sources") == mc.SETTING_SOURCES == ""  # 最少的設定來源
+    assert _value(args, "--setting-sources") == cc.SETTING_SOURCES == ""  # 最少的設定來源
     assert _value(args, "--settings") == "{}"  # 空設定
     budget = Decimal(_value(args, "--max-budget-usd")) * mc.NANOUSD_PER_USD
-    assert budget == mc.call_budget_nanousd(req, mc.DEFAULT_MODEL)
+    assert budget == core.call_budget_nanousd(req, mc.DEFAULT_MODEL)
     # 預留的原價:(提示位元組數 + Claude Code 固定附加 4000)乘三種輸入單價最高者
     # (1 小時快取寫入 4 美元)加輸出上限乘輸出單價(變異檢查補的斷言:不能只跟同一支函式比)
     prompt_bytes = len((req.system + req.user).encode("utf-8"))
-    assert mc.CLAUDE_FIXED_INPUT_TOKENS == 4000
+    assert core.CLAUDE_FIXED_INPUT_TOKENS == 4000
     assert budget == (prompt_bytes + 4000) * 4_000 + 40 * 10_000
-    assert mc.call_budget_nanousd(req, mc.DEFAULT_MODEL) * 6 == pytest.approx(
-        mc.reservation_nanousd(req, mc.DEFAULT_MODEL) * 5, abs=6)
+    assert core.call_budget_nanousd(req, mc.DEFAULT_MODEL) * 6 == pytest.approx(
+        core.reservation_nanousd(req, mc.DEFAULT_MODEL) * 5, abs=6)
     assert seen["stdin"] == req.user and req.user not in args  # 使用者內容只從標準輸入送
     assert seen["cwd_listing"] == []  # 每次新建的空暫存目錄
     assert Path(seen["cwd"]).parent.name.startswith("rtb-claude-")
@@ -222,7 +225,7 @@ def test_the_claude_command_disables_every_tool(tmp_path):
 # ---- [S936] ----
 def test_any_sign_of_tool_use_is_unreadable(tmp_path):
     req = request(max_output_tokens=100)
-    reserved = mc.reservation_nanousd(req, mc.DEFAULT_MODEL)
+    reserved = core.reservation_nanousd(req, mc.DEFAULT_MODEL)
     for name, output in (("turns", claude_json(num_turns=2)),
                          ("denied", claude_json(denials=[{"tool_name": "Bash"}])),
                          ("zero_turns", claude_json(num_turns=0))):

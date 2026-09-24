@@ -10,7 +10,7 @@ import sys
 from decimal import Decimal, InvalidOperation
 from typing import TextIO
 
-from rtb import modelclient
+from rtb import modelclient, modelcore, modelledger
 
 EXIT_OK = 0
 EXIT_REFUSED = 3
@@ -41,15 +41,15 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
     args = _parse(argv)
     errors = err or sys.stderr
     try:
-        done = modelclient.write_off(modelclient.live_ledger_path(), args.reservation_id,
+        done = modelledger.write_off(modelclient.live_ledger_path(), args.reservation_id,
                                      args.amount_usd, args.reason, args.evidence)
-    except modelclient.WriteOffRefused as refused:
+    except modelledger.WriteOffRefused as refused:
         print(f"拒絕:{refused}", file=errors)
         return EXIT_REFUSED
-    except modelclient.LedgerBusy as busy:
+    except modelcore.LedgerBusy as busy:
         print(f"{busy};稍後再試", file=errors)
         return EXIT_LEDGER_BUSY
-    usd = modelclient.NANOUSD_PER_USD
+    usd = modelcore.NANOUSD_PER_USD
     print(f"已核銷預留 {done.reservation_id}:這筆算進已用的金額從 {done.before_nanousd / usd:.6f} "
           f"改成 {done.after_nanousd / usd:.6f} 美元", file=out or sys.stdout)
     return EXIT_OK
