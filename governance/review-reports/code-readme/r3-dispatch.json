@@ -1,0 +1,30 @@
+[
+ {
+  "round": "r3",
+  "seat": "鏡頭1-事實與腳本",
+  "lens": "末輪:驗收 r2 修正、只掃 blocking",
+  "materials": [
+   "governance/review-reports/code-readme/r3-snapshot.patch",
+   "governance/review-reports/code-readme/r3-delta.patch",
+   "governance/review-reports/code-readme/r2-鏡頭1-事實與腳本.md",
+   "governance/review-reports/code-readme/r2-架構對齊.md",
+   "README.md",
+   "docs/assets/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "架構對齊",
+  "lens": "末輪:驗收 r2 架構修正",
+  "materials": [
+   "governance/review-reports/code-readme/r3-snapshot.patch",
+   "governance/review-reports/code-readme/r3-delta.patch",
+   "governance/review-reports/code-readme/r2-鏡頭1-事實與腳本.md",
+   "governance/review-reports/code-readme/r2-架構對齊.md",
+   "README.md",
+   "docs/assets/"
+  ],
+  "auditor": "claude-opus"
+ }
+]

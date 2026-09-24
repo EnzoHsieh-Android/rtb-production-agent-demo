@@ -1,0 +1,26 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1-事實與腳本",
+  "lens": "README 每句宣稱對得上程式與驗收紀錄、動圖腳本",
+  "materials": [
+   "governance/review-reports/code-readme/r1-snapshot.patch",
+   "README.md",
+   "tools/make_agent_flow_gif.py",
+   "docs/assets/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "跟既有寫法一致",
+  "materials": [
+   "governance/review-reports/code-readme/r1-snapshot.patch",
+   "README.md",
+   "tools/make_agent_flow_gif.py",
+   "docs/assets/"
+  ],
+  "auditor": "claude-opus"
+ }
+]

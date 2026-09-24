@@ -48,4 +48,5 @@ mypy_path = "src"
 namespace_packages = true
 explicit_package_bases = true
 strict = true
+# docs/assets 的產圖腳本刻意不掃（使用者裁定，見 Systems/README流程動圖產生器）。
 files = ["src", "tools"]
