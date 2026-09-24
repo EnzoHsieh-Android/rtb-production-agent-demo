@@ -1,0 +1,41 @@
+[
+ {
+  "round": "r3",
+  "seat": "s1",
+  "lens": "前輪修復驗收與鏡像",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r3-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-intake.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-s1.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-s2.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-s3.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-sarch.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-x1.md"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "sarch",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r3-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-intake.md",
+   "src/rtb"
+  ],
+  "auditor": "sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "x1",
+  "lens": "外家:全份 blocking 級",
+  "materials": [
+   "governance/review-reports/rtb-phase10評估與jev決策點/r3-snapshot.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r1-intake.md",
+   "governance/review-reports/rtb-phase10評估與jev決策點/r2-intake.md"
+  ],
+  "auditor": "codex"
+ }
+]
