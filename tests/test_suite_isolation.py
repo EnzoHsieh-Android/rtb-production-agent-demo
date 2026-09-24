@@ -70,13 +70,21 @@ def test_each_test_gets_its_own_temp_dir_and_empty_policy_sources(tmp_path):
     assert all(p.is_relative_to(tmp_path.parent.parent) for p in cc.MDM_PLISTS)
 
 
+def _is_os_environ(node):
+    return (isinstance(node, ast.Attribute) and node.attr == "environ"
+            and isinstance(node.value, ast.Name) and node.value.id == "os")
+
+
 def _starts_from_os_environ(value):
-    """env= 的值要是字面 dict、第一個展開的是 os.environ(之後才覆寫)。"""
+    """env= 的值要是字面 dict、第一個展開的是 os.environ(之後才覆寫);或是逐項走 os.environ.items()
+    的 dict 推導式(只濾掉幾個鍵,例如宣稱驗證器的測試拿掉 PYTHONDONTWRITEBYTECODE)。"""
+    if isinstance(value, ast.DictComp) and len(value.generators) == 1:
+        source = value.generators[0].iter
+        return (isinstance(source, ast.Call) and isinstance(source.func, ast.Attribute)
+                and source.func.attr == "items" and _is_os_environ(source.func.value))
     if not isinstance(value, ast.Dict) or not value.keys or value.keys[0] is not None:
         return False
-    first = value.values[0]
-    return (isinstance(first, ast.Attribute) and first.attr == "environ"
-            and isinstance(first.value, ast.Name) and first.value.id == "os")
+    return _is_os_environ(value.values[0])
 
 
 def _destroyed_names(tree):
@@ -125,8 +133,10 @@ def test_subprocess_tests_inherit_the_isolated_environment():
         offenders += env_offenders(ast.parse(path.read_text(encoding="utf-8")),
                                    str(path.relative_to(root)))
     assert offenders == []
-    ok = "env = {**os.environ, 'A': '1'}\nenv.pop('B', None)\nsubprocess.run([], env=env)"
-    assert env_offenders(ast.parse(ok), "probe") == []
+    for ok in ("env = {**os.environ, 'A': '1'}\nenv.pop('B', None)\nsubprocess.run([], env=env)",
+               "env = {k: v for k, v in os.environ.items() if k != 'X'}\n"
+               "subprocess.run([], env=env)"):
+        assert env_offenders(ast.parse(ok), "probe") == [], ok
     for probe in ("env = {'PYTHONPATH': 'src'}\nsubprocess.run([], env=env)",
                   "env = {**os.environ}\nenv = {}\nsubprocess.run([], env=env)",
                   "subprocess.run([], env=dict(os.environ))",
@@ -135,7 +145,9 @@ def test_subprocess_tests_inherit_the_isolated_environment():
                   "subprocess.run([], env={**base})",
                   "base = {}\nsubprocess.run([], env={**base, 'A': '1'})",
                   "env = {**os.environ}\nenv.clear()\nsubprocess.run([], env=env)",
-                  "env = {**os.environ}\ndel env['HOME']\nsubprocess.run([], env=env)"):
+                  "env = {**os.environ}\ndel env['HOME']\nsubprocess.run([], env=env)",
+                  "env = {k: v for k, v in base.items()}\nsubprocess.run([], env=env)",
+                  "env = {k: v for k, v in os.environ.keys()}\nsubprocess.run([], env=env)"):
         assert env_offenders(ast.parse(probe), "probe"), probe
 
 

@@ -215,9 +215,40 @@ def _count(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
+# Linux 的行程表(測試換成暫存目錄模擬);macOS 沒有,退回送訊號判斷
+PROC_ROOT = Path("/proc")
+
+
+def _proc_group_members(group: int) -> bool | None:
+    """從行程表找同一個行程群組、狀態不是殭屍(Z)的行程;讀不到行程表回 None(交給送訊號判斷)。
+    Linux 上群組只剩還沒領回的主行程(殭屍)時,對群組送 0 號訊號照樣成功,不能用它判;而主行程刻意
+    不先領回(領回之後行程編號與群組編號可能被重用),所以要看行程表裡的狀態。"""
+    try:
+        entries = list(PROC_ROOT.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = (entry / "stat").read_text(encoding="ascii", errors="replace")
+        except OSError:
+            continue  # 讀的當下剛結束:不算
+        fields = stat[stat.rfind(")") + 2:].split()  # 行程名可能含空白與括號:從最後一個「)」之後切
+        if len(fields) < 3 or not fields[2].lstrip("-").isdigit():
+            continue
+        if int(fields[2]) == group and fields[0] != "Z":
+            return True
+    return False
+
+
 def _has_live_members(group: int) -> bool:
-    """行程群組裡還有沒有活著的行程。macOS 上群組只剩還沒領回的殭屍時回 EPERM,群組不存在回 ESRCH,
+    """行程群組裡還有沒有活著的行程。Linux 看行程表(同群組、不是殭屍的才算活的);讀不到行程表時
+    (macOS)對群組送 0 號訊號:macOS 上群組只剩還沒領回的殭屍時回 EPERM,群組不存在回 ESRCH,
     兩種都算沒有活的。"""
+    members = _proc_group_members(group)
+    if members is not None:
+        return members
     try:
         os.killpg(group, 0)
     except (ProcessLookupError, PermissionError):

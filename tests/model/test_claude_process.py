@@ -8,6 +8,7 @@
 一律用假的 claude 腳本;不呼叫真的 claude。
 """
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -174,3 +175,65 @@ def _child_prelude():
     from tests.conftest import child_prelude
 
     return child_prelude(modelledger_view.account_home())
+
+
+# ---- Linux 上的行程群組判斷(CI 在 Linux 每次呼叫白等 5 秒) ----
+def _fake_proc(root, entries):
+    """假的 /proc:每筆 (pid, 狀態, pgrp) 寫一個 <pid>/stat
+    (格式同 Linux:pid (comm) 狀態 ppid pgrp …;comm 故意含空白與括號)。"""
+    for pid, state, pgrp in entries:
+        (root / str(pid)).mkdir(parents=True, exist_ok=True)
+        (root / str(pid) / "stat").write_text(
+            f"{pid} (claude (x) y) {state} 1 {pgrp} {pgrp} 0 -1 4194304 0 0 0\n", encoding="ascii")
+    (root / "self").mkdir(exist_ok=True)  # 不是數字的項目要略過
+
+
+def test_linux_group_check_ignores_the_unreaped_leader(tmp_path, monkeypatch):
+    """Linux 上群組只剩還沒領回的主行程(殭屍)時,對群組送 0 號訊號會成功;要改看 /proc,
+    同一個 pgrp、狀態不是 Z 的才算活的。讀不到 /proc 就退回原本的送訊號判斷。"""
+    monkeypatch.setattr(cc.os, "killpg", lambda _group, _sig: None)  # 像 Linux:永遠成功
+    proc = tmp_path / "proc"
+    _fake_proc(proc, [(4242, "Z", 4242), (5000, "S", 7777)])
+    monkeypatch.setattr(cc, "PROC_ROOT", proc, raising=False)
+    assert cc._has_live_members(4242) is False  # 只剩殭屍主行程;別的群組不算
+    _fake_proc(proc, [(4300, "S", 4242)])
+    assert cc._has_live_members(4242) is True  # 同群組有睡著的孫行程
+    monkeypatch.setattr(cc, "PROC_ROOT", tmp_path / "no-proc", raising=False)
+    assert cc._has_live_members(4242) is True  # 讀不到 /proc:退回送訊號判斷
+
+
+def test_linux_like_group_check_does_not_wait_out_the_limit(tmp_path, monkeypatch):
+    """模擬 Linux(送 0 號訊號對殭屍主行程也成功、/proc 看得到它是 Z):呼叫結束後清理不能白等到
+    GROUP_EXIT_WAIT_SECONDS 才放手。"""
+    real_killpg = os.killpg
+    proc = tmp_path / "proc"
+    proc.mkdir()
+
+    def linux_killpg(group, sig):
+        if sig == 0:
+            return  # Linux:群組只剩殭屍主行程時照樣成功
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            real_killpg(group, sig)
+
+    real_popen = cc.subprocess.Popen
+
+    def popen_with_proc(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        _fake_proc(proc, [(process.pid, "Z", process.pid)])  # 結束後就是殭屍主行程
+        return process
+
+    monkeypatch.setattr(cc.os, "killpg", linux_killpg)
+    monkeypatch.setattr(cc.subprocess, "Popen", popen_with_proc)
+    monkeypatch.setattr(cc, "PROC_ROOT", proc, raising=False)
+    script = fake_claude(tmp_path / "c", claude_json())
+    process = real_popen([str(script), "-p"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, start_new_session=True)
+    _fake_proc(proc, [(process.pid, "Z", process.pid)])
+    assert cc._exited_unreaped(process.pid, time.monotonic() + 10)
+    started = time.monotonic()
+    cc._empty_group(process.pid)
+    assert time.monotonic() - started < 0.5, "清理白等到群組上限"
+    process.wait()
+    started = time.monotonic()
+    cc.run_claude([str(script), "-p"], "x", {"PATH": os.environ["PATH"]}, 20.0)
+    assert time.monotonic() - started < cc.GROUP_EXIT_WAIT_SECONDS
