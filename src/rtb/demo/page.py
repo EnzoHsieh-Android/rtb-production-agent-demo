@@ -407,8 +407,9 @@ def _decimal(value: Decimal) -> str:
     return format(value, "f")
 
 
-def _currency_from_cents(value: int) -> str:
-    return f"{Decimal(value) / Decimal(100):,.2f}"
+def _budget(value: int) -> str:
+    """廣告平台上的預算原樣整數,沒有幣別(不換算、不自訂匯率)。"""
+    return f"{value:,}"
 
 
 def _render_actions(state: DemoState, token: str | None, focus: Scenario) -> str:
@@ -624,7 +625,7 @@ def _render_focus(
         f"<p>{escape_text(scenario.what_it_tests)}</p>"
         f"{_render_scenario_origin(scenario)}{reason}</div>"
         f'<span class="status {status_class}">{escape_text(status)}</span></div>'
-        f"{_render_change_summary(scenario.change_summary)}"
+        f"{_render_change_summary(scenario.change_summary, scenario.change_overview)}"
         f"{_render_result_evidence(scenario)}"
         '<details class="report-disclosure"><summary>觸發條件與目標</summary>'
         '<div class="scenario-intent">'
@@ -656,7 +657,10 @@ def _render_scenario_origin(scenario: Scenario) -> str:
     return f'<p class="source-note">{escape_text(_scenario_origin_text(scenario))}</p>'
 
 
-def _render_change_summary(change: ChangeSummary | None) -> str:
+def _render_change_summary(change: ChangeSummary | None, overview: str | None = None) -> str:
+    extra = f'<p class="change-overview">{escape_text(overview)}</p>' if overview else ""
+    if change is None and overview:
+        return f'<div class="change-summary"><strong>最後改了什麼</strong>{extra}</div>'
     if change is None:
         return (
             '<div class="change-summary"><strong>最後改了什麼</strong>'
@@ -665,14 +669,12 @@ def _render_change_summary(change: ChangeSummary | None) -> str:
     if not change.written:
         detail = f"沒有改任何預算。原因：{change.reason or '(這次沒有記錄)'}"
     else:
-        before = ("(這次沒有記錄)" if change.before_cents is None
-                  else f"{_currency_from_cents(change.before_cents)} 元")
-        after = ("(這次沒有記錄)" if change.after_cents is None
-                 else f"{_currency_from_cents(change.after_cents)} 元")
-        detail = f"預算從 {before} 改成 {after}；已寫入廣告平台。"
+        before = "(這次沒有記錄)" if change.before is None else _budget(change.before)
+        after = "(這次沒有記錄)" if change.after is None else _budget(change.after)
+        detail = f"預算從 {before} 改成 {after}（平台預算單位）；已寫入廣告平台。"
     return (
         '<div class="change-summary"><strong>最後改了什麼</strong>'
-        f'<p>廣告：{escape_text(change.campaign)}；{escape_text(detail)}</p></div>'
+        f'{extra}<p>廣告：{escape_text(change.campaign)}；{escape_text(detail)}</p></div>'
     )
 
 
@@ -930,7 +932,8 @@ def _group_analysis(
 
 
 def _infer_trace(flow: FlowGraph, scenario: Scenario) -> tuple[tuple[str, str], ...]:
-    choices = {decision.node: decision.taken_edge for decision in scenario.path}
+    choices = {decision.node: decision.taken_edge for decision in scenario.path
+               if decision.taken_edge is not None}
     outgoing: dict[str, list[FlowEdge]] = defaultdict(list)
     indegree = {node.id: 0 for node in flow.nodes}
     for edge in flow.edges:
@@ -1143,7 +1146,9 @@ def _node_map(flow: FlowGraph) -> dict[str, FlowNode]:
     return {node.id: node for node in flow.nodes}
 
 
-def _edge_label(flow: FlowGraph, pair: tuple[str, str]) -> str:
+def _edge_label(flow: FlowGraph, pair: tuple[str, str] | None) -> str:
+    if pair is None:
+        return "這一步對不到圖上的分支"
     return next(
         (_flow_label(edge.label) for edge in flow.edges if (edge.source, edge.target) == pair),
         f"{pair[0]} → {pair[1]}",
@@ -1187,9 +1192,9 @@ def _decision_card(
     flow: FlowGraph,
 ) -> str:
     node = nodes.get(decision.node)
-    if node is None or not any(
+    if node is None or (decision.taken_edge is not None and not any(
         (edge.source, edge.target) == decision.taken_edge for edge in flow.edges
-    ):
+    )):
         raise ValueError("判斷紀錄指向不存在的節點或分支")
     latest = " is-latest" if index == total else ""
     at = "時間未記錄" if decision.at is None else _format_time(decision.at)
@@ -1197,7 +1202,10 @@ def _decision_card(
         "".join(
             '<li><span>量到的值：'
             f'{escape_text(item.observed)}</span><span>標準：{escape_text(item.standard)}</span>'
-            f'<strong>比較結果：{escape_text(item.conclusion)}</strong></li>'
+            f'<strong>比較結果：{escape_text(item.conclusion)}</strong>'
+            + (f'<small class="basis-source">{escape_text(item.source)}</small>'
+               if item.source else "")
+            + '</li>'
             for item in decision.basis
         )
         if decision.basis else '<li>這一步沒有留下數字根據</li>'
@@ -1278,7 +1286,7 @@ def _render_dsp(dsp: DspState | None) -> str:
         return '<p class="empty">尚無資料。</p>'
     rows = "".join(
         f'<tr><td>{escape_text(item.campaign)}</td><td class="number">'
-        f'{escape_text(_currency_from_cents(item.budget))}</td><td class="number">'
+        f'{escape_text(_budget(item.budget))}</td><td class="number">'
         f"{escape_text(str(item.version))}</td><td>{escape_text(item.status)}</td></tr>"
         for item in dsp.campaigns
     )

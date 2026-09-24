@@ -27,6 +27,7 @@ from rtb.demo.state import (
     ApprovalForm,
     CurrentStep,
     Decision,
+    DecisionBasis,
     DemoState,
     Disposition,
     ModelMode,
@@ -170,7 +171,7 @@ def test_scenario_summary_fault_handoff_and_unique_execution_ids() -> None:
     assert "從七個情境，查看系統如何判斷" in report
     assert report.count("最後改了什麼") == 7
     assert "沒有改任何預算。原因：" in report
-    assert "預算從 500.00 元 改成 600.00 元；已寫入廣告平台" in report
+    assert "預算從 100 改成 110（平台預算單位）；已寫入廣告平台" in report
     assert "交給另一段程式；在排隊等了 3 秒" in report
     assert 'class="flow-handoff"' in report
     assert "目前正式預算決策由程式規則執行" in report
@@ -903,3 +904,40 @@ def test_renderer_rejects_a_route_that_does_not_exist_in_the_formal_graph() -> N
     )
     with pytest.raises(ValueError, match="不存在"):
         render_page(replace(state, scenarios=(broken, *state.scenarios[1:])), form_token="token")
+
+
+# ---- 後端資料介面對齊(2b):無幣別金額、F7 彙總、根據來源、對不到的邊留空 ----
+def _with_first(state, **changes):
+    first = replace(state.scenarios[0], **changes)
+    return replace(state, scenarios=(first, *state.scenarios[1:]))
+
+
+def test_budget_is_shown_as_the_platform_integer_without_a_currency() -> None:
+    report = render_report(make_demo_state())
+    summary = report.split("最後改了什麼", 1)[1].split("</div>", 1)[0]
+    assert "元" not in summary and "分" not in summary
+    assert "（平台預算單位）" in summary
+
+
+def test_a_multi_campaign_overview_is_shown_above_the_single_change() -> None:
+    overview = "放行 123 個各加一成、人工確認後寫入 1 個、沒寫入 176 個;總額 1233/1234"
+    report = render_report(_with_first(make_demo_state(), change_overview=overview))
+    assert overview in report
+    assert report.index(overview) < report.index("廣告：", report.index(overview))
+
+
+def test_each_basis_shows_where_it_came_from() -> None:
+    state = make_demo_state()
+    first = state.scenarios[0]
+    decision = replace(first.path[0], basis=(DecisionBasis("3 分鐘前", "上限 15 分鐘", "夠新",
+                                                           source="依存下的證據重算"),))
+    report = render_report(_with_first(state, path=(decision, *first.path[1:])))
+    assert "依存下的證據重算" in report
+
+
+def test_a_decision_without_a_matching_edge_is_shown_not_dropped() -> None:
+    state = make_demo_state()
+    first = state.scenarios[0]
+    decision = replace(first.path[-1], taken_edge=None)
+    report = render_report(_with_first(state, path=(*first.path[:-1], decision)))
+    assert report.count('class="decision-card') >= len(first.path)

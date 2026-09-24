@@ -198,13 +198,13 @@ _FAULTS = {
 }
 
 _CHANGES = {
-    ScenarioCode.F1: ChangeSummary("廣告-001", 50000, 60000, True),
-    ScenarioCode.F2: ChangeSummary("廣告-002", 50000, 60000, True),
-    ScenarioCode.F3: ChangeSummary("廣告-003", 50000, 50000, False, "重複的舊建議在收件時停止"),
-    ScenarioCode.F4: ChangeSummary("廣告-004", 50000, 50000, False, "寫入前資料版本已更新"),
-    ScenarioCode.F5: ChangeSummary("廣告-005", 50000, 60000, True),
-    ScenarioCode.F6: ChangeSummary("廣告-006", 50000, 50000, False, "失敗次數已達上限，交給人工"),
-    ScenarioCode.F7: ChangeSummary("廣告-007", 50000, 50000, False, "人工確認後等待重新檢查"),
+    ScenarioCode.F1: ChangeSummary("廣告-001", 100, 110, True),
+    ScenarioCode.F2: ChangeSummary("廣告-002", 100, 110, True),
+    ScenarioCode.F3: ChangeSummary("廣告-003", 100, 100, False, "重複的舊建議在收件時停止"),
+    ScenarioCode.F4: ChangeSummary("廣告-004", 100, 100, False, "寫入前資料版本已更新"),
+    ScenarioCode.F5: ChangeSummary("廣告-005", 100, 110, True),
+    ScenarioCode.F6: ChangeSummary("廣告-006", 100, 100, False, "失敗次數已達上限，交給人工"),
+    ScenarioCode.F7: ChangeSummary("廣告-007", 100, 100, False, "人工確認後等待重新檢查"),
 }
 
 
@@ -230,7 +230,7 @@ def _scenario(
         dispositions=dispositions,
         dsp=DspState(
             campaigns=(DspCampaign(_CHANGES[code].campaign,
-                                   _CHANGES[code].after_cents or 50000, 8, "正在投放"),),
+                                   _CHANGES[code].after or 100, 8, "正在投放"),),
             operations=operations,
         ),
         audit=("按正式流程圖記下每一次判斷", detail),

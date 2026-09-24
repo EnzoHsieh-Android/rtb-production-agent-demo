@@ -107,12 +107,13 @@ class DecisionBasis:
     observed: str
     standard: str
     conclusion: str
+    source: str | None = None  # 這組根據從哪來,例如「依存下的證據重算」「執行端當下記下」
 
 
 @dataclass(frozen=True, slots=True)
 class Decision:
     node: str
-    taken_edge: tuple[str, str]
+    taken_edge: tuple[str, str] | None  # 對不到圖上的邊時留空,不猜一條(代碼審第 3 輪)
     outcome: str
     reason: str
     at: datetime | None
@@ -150,11 +151,11 @@ class DspState:
 
 @dataclass(frozen=True, slots=True)
 class ChangeSummary:
-    """情境結束時，廣告平台上的預算是否真的變動。金額單位為分。"""
+    """情境結束時，廣告平台上的預算是否真的變動。金額是平台上的預算原樣整數，沒有幣別。"""
 
     campaign: str
-    before_cents: int | None
-    after_cents: int | None
+    before: int | None
+    after: int | None
     written: bool
     reason: str | None = None
 
@@ -236,6 +237,7 @@ class Scenario:
     ran_at: datetime | None = None
     model_mode: ModelMode | None = None
     change_summary: ChangeSummary | None = None
+    change_overview: str | None = None  # 多個廣告的情境(F7)一行彙總:放行、人工寫入、沒寫入與總額
     trigger: str | None = None
     goal: str | None = None
     queue_wait_seconds: int | None = None
