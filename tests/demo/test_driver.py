@@ -306,10 +306,16 @@ def test_a_real_f4_path_matches_the_recorded_dispositions(tmp_path, state):
                for d in decisions)
 
 
+# 縮小版 F7 的情境總時限:放寬到慢機器也跑得完(CI 上 3 秒曾被時限切斷,判成展示故障、筆數停在半途)。
+# 「等人確認不算進總時限」另由 test_waiting_for_approval_does_not_count_against_the_f7_time_limit
+# 用一段很短的時限驗,不靠縮小版 F7 撞牆鐘
+SMALL_F7_LIMIT_SECONDS = 120
+
+
 def _small_f7(tmp_path, state, cap, approve=None):
     """F7 縮成 30 個廣告、門檻 124(放行 12 個)跑行為;正式情境的規模另外驗。"""
     run = driver_module.make_f7(campaigns=30, limit=124, workers=3, confirm_cap_seconds=cap)
-    demo = _driver(tmp_path, state, {"F7": Scenario("F7", "F7", 3, run)})
+    demo = _driver(tmp_path, state, {"F7": Scenario("F7", "F7", SMALL_F7_LIMIT_SECONDS, run)})
     stop = threading.Event()
     if approve is not None:
         threading.Thread(target=approve, args=(tmp_path, demo, stop), daemon=True).start()
@@ -360,10 +366,30 @@ def test_f7_is_done_when_the_confirmed_one_is_written(tmp_path, state):
     assert verdict.status == DONE, verdict.reason
 
 
-def test_waiting_for_approval_does_not_count_against_the_f7_time_limit(tmp_path, state):
-    """[S1008] 情境總時限 3 秒,等人確認 5 秒:等待不算進總時限;沒人確認就標「沒有人確認」、
-    清掉確認表單。"""
-    verdict, _ = _small_f7(tmp_path, state, cap=5)
+def test_waiting_for_approval_does_not_count_against_the_f7_time_limit(tmp_path, state,
+                                                                    monkeypatch):
+    """[S1008] 情境總時限 1.5 秒,F7 的確認等待(驅動程式那一支)等滿 3 秒:等待不算進總時限,情境
+    照樣跑完;不在等人確認時睡同樣久就超時(對照組見 test_a_scenario_over_its_time_limit_…)。"""
+    from datetime import UTC
+
+    from rtb.demo.state_store import ConfirmationRequest
+
+    request = ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
+                                  datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
+    monkeypatch.setattr(driver_module, "_confirmed_one_written", lambda _w, _r: False)
+
+    def waits(world):
+        driver_module._wait_for_confirmation(world, request, 3)
+        return "等完了"
+
+    verdict = _driver(tmp_path, state, {"FX": Scenario("FX", "假", 1.5, waits)}).run_one("FX")
+
+    assert verdict.status == DONE, verdict.reason
+
+
+def test_nobody_confirming_ends_f7_incomplete_and_clears_the_form(tmp_path, state):
+    """[S1008] 沒人確認:F7 標「沒有人確認」、清掉確認表單。"""
+    verdict, _ = _small_f7(tmp_path, state, cap=2)
 
     assert verdict.status == INCOMPLETE
     assert verdict.reason == "沒有人確認"
