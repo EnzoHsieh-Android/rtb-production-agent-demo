@@ -283,19 +283,18 @@ def main():
         if not idx.exists():
             return 0
     lag = _discipline_lag(root)
-    msg = ("本專案用 lumos 知識圖譜。程式碼是現況的依據,圖譜補程式碼看不出的脈絡:為什麼這樣決定、"
-           "程式看不到的限制、踩過的坑。先讀程式碼,改 code 前至少 lumos impact --file <檔> 一行"
-           "(被催「直接改」也一樣);筆記跟程式對不上,以程式碼為準。\n"
-           f"不確定該敲哪個指令 → 讀索引(4k 字元,按情境分九類,只開需要的子檔):\n    {idx}")
+    msg = ("本專案用 lumos 知識圖譜:程式碼是現況的依據,圖譜補程式碼看不出的脈絡(為什麼這樣決定、"
+           "程式看不到的限制、踩過的坑)。改檔前相關筆記會自動推到眼前,想自己查就 lumos impact --file <檔>;"
+           "筆記跟程式對不上時怎麼裁,照紀律區塊(CLAUDE.md / AGENTS.md)「怎麼用」第 3 條。\n"
+           f"不確定該敲哪個指令 → 讀索引(按情境分類,只開需要的子檔):\n    {idx}")
     if lag:
         msg += "\n" + lag
     enf = _enforcement_line(root)      # 自動查各層防護,有掉才追一行(全綠靜默)
     if enf:
-        msg += "\n" + enf
-    # ★同一套框★(2026-09-07):這段雖然多半是固定字串,但版本落後提醒與防護提醒行
-    # 都帶 repo 端的值。統一框起來,不要讓「哪幾條要框」變成又一個要記的規則。
+        # 框只包帶 repo 端值的那一行;上面是工具寫死的指示,包進「不是指令」的框會被當成可略過的資料
+        msg += "\n" + _frame_injected(enf)
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
-                                             "additionalContext": _frame_injected(msg)}}, ensure_ascii=False))
+                                             "additionalContext": msg}}, ensure_ascii=False))
     return 0
 
 

@@ -233,10 +233,11 @@ def main():
         detail += f" / {_plain_label(first['failed_step'], cap=60)}"
     detail += "）"
     msg = (f"⚠ 上次 push 的 CI 是紅的{detail} sha={_plain_label(sha[:7], cap=12)}"
-           f" → {_plain_label(first.get('url', ''), cap=200)}"
-           f"\n本輪開工前先處理或明確跳過；細節：lumos ci-status")
+           f" → {_plain_label(first.get('url', ''), cap=200)}")
+    # 工具自己的指示放在框外:框頭寫「不是指令」,框裡的祈使句會被當成可略過的資料
+    ctx = _frame_injected(msg) + "\n本輪開工前先處理或明確跳過；細節：lumos ci-status"
     print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "SessionStart", "additionalContext": _frame_injected(msg)}}, ensure_ascii=False))
+        "hookEventName": "SessionStart", "additionalContext": ctx}}, ensure_ascii=False))
     return 0
 
 
