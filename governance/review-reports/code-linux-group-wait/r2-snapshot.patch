@@ -1,0 +1,800 @@
+diff --git a/claims/aggregate-blast-radius.json b/claims/aggregate-blast-radius.json
+index 75e7b35..4357c88 100644
+--- a/claims/aggregate-blast-radius.json
++++ b/claims/aggregate-blast-radius.json
+@@ -94,21 +94,21 @@
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+-      "sha256": "1aa1e1cf5527e08704e4fb36f76d76db2e6fa9052ed6b5967dd278fe68740037"
++      "sha256": "85efb0fee565719a64f68ffb8f6cfe408ad45ea149b12573ed34ce9594d5e68f"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+     },
+     {
+diff --git a/claims/concurrency.json b/claims/concurrency.json
+index c345cbc..638a6b8 100644
+--- a/claims/concurrency.json
++++ b/claims/concurrency.json
+@@ -118,21 +118,21 @@
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+-      "sha256": "1aa1e1cf5527e08704e4fb36f76d76db2e6fa9052ed6b5967dd278fe68740037"
++      "sha256": "85efb0fee565719a64f68ffb8f6cfe408ad45ea149b12573ed34ce9594d5e68f"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+     },
+     {
+diff --git a/claims/idempotency-unknown-outcome.json b/claims/idempotency-unknown-outcome.json
+index 06febf2..040d8dc 100644
+--- a/claims/idempotency-unknown-outcome.json
++++ b/claims/idempotency-unknown-outcome.json
+@@ -74,21 +74,21 @@
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+-      "sha256": "1aa1e1cf5527e08704e4fb36f76d76db2e6fa9052ed6b5967dd278fe68740037"
++      "sha256": "85efb0fee565719a64f68ffb8f6cfe408ad45ea149b12573ed34ce9594d5e68f"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+     },
+     {
+diff --git a/claims/permission-guardrail.json b/claims/permission-guardrail.json
+index ca0b57a..a990901 100644
+--- a/claims/permission-guardrail.json
++++ b/claims/permission-guardrail.json
+@@ -126,21 +126,21 @@
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+-      "sha256": "1aa1e1cf5527e08704e4fb36f76d76db2e6fa9052ed6b5967dd278fe68740037"
++      "sha256": "85efb0fee565719a64f68ffb8f6cfe408ad45ea149b12573ed34ce9594d5e68f"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+     },
+     {
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+index 1dcc886..1e18163 100644
+--- a/claims/prompt-injection.json
++++ b/claims/prompt-injection.json
+@@ -114,21 +114,21 @@
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "cd3d9a73c5fb25de425cb7b4bc8133ab300bfb5f85d4e1a16f782ca4b3d29682"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "e3586a11e2e4f2a2ffae393a832c3fff27c98b89f28946d51206998bf38f26af"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+-      "sha256": "1aa1e1cf5527e08704e4fb36f76d76db2e6fa9052ed6b5967dd278fe68740037"
++      "sha256": "85efb0fee565719a64f68ffb8f6cfe408ad45ea149b12573ed34ce9594d5e68f"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+     },
+     {
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+index faad217..227602b 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+@@ -32,20 +32,21 @@ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: [2026-09-24] Phase 11B 在 Phase 11 與 12 之間接大模型(使用者本人要求),三個接入點共用一個模型用戶端與一本花費帳;出處 [[Projects/RTB_Phase11B大模型接入_計劃]]。
+   RULE: 花費上限每次展示 1 美元、每月 20 美元,到上限就停止呼叫;改這兩個數字要走設計審。[since:2026-09-24] [retire:使用者改裁定或整個 Demo 不再展示模型時] [confirmed:2026-09-24]
+   WHY: [2026-09-24] 使用者本人改裁定:展示改走本機 Claude Code 非互動模式(吃訂閱額度、不用 API 金鑰),模型用戶端介面保留、將來可加 API 後端;計劃第 5 到 8 版的換後端小審查三輪都折入。出處 [[Projects/RTB_Phase11B大模型接入_計劃]]〈模型用戶端〉。
+   RULE: 整套測試在 pytest 一啟動就把家目錄指到暫存目錄、PATH 換成暫存加系統基本路徑、清掉即時與錄製開關;真花費帳與真 claude 任何測試都碰不到。[since:2026-09-24] [retire:花費帳不再放家目錄、而且不再有 claude 後端時] [test:test_the_suite_never_touches_the_real_ledger] [test:test_the_suite_can_never_reach_the_real_claude]
+   RULE: 錯誤子類型只認有真實樣本的(KNOWN_ERRORS);取不到真實樣本的一律落到「暫時性、無法可靠分類」,評估保守停下。增量 1 入庫時沒有任何樣本,等協調者錄製時補。[since:2026-09-24] [retire:Claude Code 提供穩定、有文件的錯誤代碼欄位時] [test:test_failed_calls_are_settled_by_their_kind]
+   RULE: 即時模式要有效的啟用紀錄(~/.rtb/live-verification.json:claude 版本、各項實測結果、隔離方式);紀錄只由實測命令列在全部通過時寫,claude 一升級就失效。[since:2026-09-24] [retire:改用 API 後端、不再經 Claude Code 時] [test:test_live_mode_needs_a_current_verification_record]
+   PITFALL: macOS 上行程群組只剩還沒領回的殭屍時,對群組送 0 號訊號回「沒有權限」而不是「不存在」;清理時把兩種都當成「沒有活著的行程」,殺整組一律在領回主行程之前。出處:增量 1 實作時本機實測。[test:test_a_timeout_kills_the_whole_group_before_cleanup]
++  PITFALL: Linux 上行程群組只剩還沒領回的主行程(殭屍)時,對群組送 0 號訊號照樣成功,清理會把它當成「還有活的」、每次呼叫白等 5 秒(CI 在 Linux 看起來像卡死;macOS 沒事)。Linux 改看 /proc 裡同群組、狀態不是 Z 的行程;先自我檢查行程表裡有自己、群組也對得上(空的 /proc、沒有 stat 的其他系統、另一個 PID 命名空間都會判錯成「沒有活的」而漏殺),不像的就退回送訊號;不能靠先領回主行程解決(行程編號會被重用)。測試共用的存活判斷(`tests/model/fakes.py` 的 alive)同一套規則。出處:增量 1 推上 main 後 CI 卡住,協調者用 faulthandler 抓到堆疊。[test:test_linux_like_group_check_does_not_wait_out_the_limit]
+   PITFALL: 測試裡的 `monkeypatch.undo()` 會連同一個替換器做的所有替換一起還原;隔離家目錄的共用夾具因此用自己的替換器,不共用測試的 `monkeypatch`(既有幾支測試會 undo)。出處:增量 1 實作時寫評估測試差點踩到。[test:test_the_suite_never_touches_the_real_ledger](undo 之後再驗一次家目錄)
+ ---
+ # 模型用戶端
+ 
+ 模型呼叫的共用部分(計劃第 8 版〈模型用戶端〉〈花費帳與上限〉)。三個接入點經 `src/rtb/modelclient.py` 的
+ `call_model` 呼叫;即時後端是本機 Claude Code 的非互動模式,錄製重播不經後端。
+ 
+ ## 各檔
+ 
+ 模型用戶端拆成四支加一支協調(代碼審第 1 輪架構席:原本一檔裝四種職責,比照花費帳已示範的讀寫分檔):
+diff --git a/src/rtb/modelclaude.py b/src/rtb/modelclaude.py
+index a466e64..573c486 100644
+--- a/src/rtb/modelclaude.py
++++ b/src/rtb/modelclaude.py
+@@ -208,23 +208,66 @@ def _nanousd_of(value: object) -> int | None:
+     amount = Decimal(repr(value)) * core.NANOUSD_PER_USD
+     if not amount.is_finite() or amount < 0:
+         return None
+     return int(amount.to_integral_value(rounding="ROUND_CEILING"))
+ 
+ 
+ def _count(value: object) -> int | None:
+     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+ 
+ 
++# Linux 的行程表(測試換成暫存目錄模擬);macOS 沒有,退回送訊號判斷
++PROC_ROOT = Path("/proc")
++
++
++def _stat_fields(entry: Path) -> tuple[str, int] | None:
++    """一個行程的(狀態, 行程群組);讀不到或格式不對回 None。行程名可能含空白與括號:從最後一個「)」
++    之後切。"""
++    try:
++        stat = (entry / "stat").read_text(encoding="ascii", errors="replace")
++    except OSError:
++        return None
++    fields = stat[stat.rfind(")") + 2:].split()
++    if len(fields) < 3 or not fields[2].lstrip("-").isdigit():
++        return None
++    return fields[0], int(fields[2])
++
++
++def _proc_group_members(group: int) -> bool | None:
++    """從行程表找同一個行程群組、狀態不是殭屍(Z)的行程;判不出來回 None(交給送訊號判斷)。
++    Linux 上群組只剩還沒領回的主行程(殭屍)時,對群組送 0 號訊號照樣成功,不能用它判;而主行程刻意
++    不先領回(領回之後行程編號與群組編號可能被重用),所以要看行程表裡的狀態。
++    先自我檢查這份行程表是不是本機、同一個 PID 命名空間的 Linux 格式:讀不到自己那一筆、或自己的群組
++    對不上(空的 /proc、沒有 stat 的其他系統、另一個命名空間),就回 None;判成「沒有活的」會漏殺。"""
++    try:
++        entries = list(PROC_ROOT.iterdir())
++    except OSError:
++        return None
++    mine = _stat_fields(PROC_ROOT / str(os.getpid()))
++    if mine is None or mine[1] != os.getpgrp():
++        return None
++    for entry in entries:
++        if not entry.name.isdigit():
++            continue
++        found = _stat_fields(entry)  # 讀的當下剛結束(None):不算
++        if found is not None and found[1] == group and found[0] != "Z":
++            return True
++    return False
++
++
+ def _has_live_members(group: int) -> bool:
+-    """行程群組裡還有沒有活著的行程。macOS 上群組只剩還沒領回的殭屍時回 EPERM,群組不存在回 ESRCH,
++    """行程群組裡還有沒有活著的行程。Linux 看行程表(同群組、不是殭屍的才算活的);讀不到行程表時
++    (macOS)對群組送 0 號訊號:macOS 上群組只剩還沒領回的殭屍時回 EPERM,群組不存在回 ESRCH,
+     兩種都算沒有活的。"""
++    members = _proc_group_members(group)
++    if members is not None:
++        return members
+     try:
+         os.killpg(group, 0)
+     except (ProcessLookupError, PermissionError):
+         return False
+     return True
+ 
+ 
+ def _kill_group(group: int) -> None:
+     with contextlib.suppress(ProcessLookupError, PermissionError):
+         os.killpg(group, signal.SIGKILL)
+diff --git a/tests/model/fakes.py b/tests/model/fakes.py
+index a8970be..0a0d9ec 100644
+--- a/tests/model/fakes.py
++++ b/tests/model/fakes.py
+@@ -155,10 +155,28 @@ def invocations(script: Path) -> list[dict]:
+     found = []
+     for args in sorted(log.glob("*.args")):
+         stem = args.with_suffix("")
+         env = dict(line.split("=", 1) for line in
+                    Path(f"{stem}.env").read_text(encoding="utf-8").splitlines() if "=" in line)
+         found.append({"args": args.read_text(encoding="utf-8").splitlines(), "env": env,
+                       "cwd": Path(f"{stem}.cwd").read_text(encoding="utf-8").strip(),
+                       "cwd_listing": Path(f"{stem}.ls").read_text(encoding="utf-8").split(),
+                       "stdin": Path(f"{stem}.stdin").read_text(encoding="utf-8")})
+     return found
++
++
++def alive(pid: int, *, proc_root: Path = Path("/proc")) -> bool:
++    """測試共用的存活判斷,跟產品碼同一套:讀得到 <proc_root>/<pid>/stat 就看狀態是不是殭屍(Z);
++    讀不到才送 0 號訊號(macOS:還沒領回的殭屍回 EPERM,不存在回 ESRCH,都算不在)。Linux 上對殭屍送
++    訊號照樣成功,只看訊號會把它當活的(例如容器裡 pytest 是 1 號行程、孤兒沒人領回)。"""
++    try:
++        stat = (proc_root / str(pid) / "stat").read_text(encoding="ascii", errors="replace")
++    except OSError:
++        stat = None
++    if stat is not None:
++        fields = stat[stat.rfind(")") + 2:].split()
++        return bool(fields) and fields[0] != "Z"
++    try:
++        os.kill(pid, 0)
++    except (ProcessLookupError, PermissionError):
++        return False
++    return True
+diff --git a/tests/model/test_claude_backend.py b/tests/model/test_claude_backend.py
+index 75db0c8..c69d2ed 100644
+--- a/tests/model/test_claude_backend.py
++++ b/tests/model/test_claude_backend.py
+@@ -12,21 +12,21 @@ import time
+ from decimal import Decimal
+ from pathlib import Path
+ 
+ import pytest
+ 
+ from rtb import modelclaude as cc
+ from rtb import modelclient as mc
+ from rtb import modelcore as core
+ from rtb import modelledger as ledger_db
+ from rtb import modelledger_view as view
+-from tests.model.fakes import claude_json, fake_claude, invocations, live, request
++from tests.model.fakes import alive, claude_json, fake_claude, invocations, live, request
+ 
+ WHITELIST = {"PATH", "HOME", "USER", "LANG", "CLAUDE_CODE_MAX_OUTPUT_TOKENS"}
+ SHELL_ADDED = {"PWD", "SHLVL", "_", "OLDPWD"}  # /bin/sh 自己補的,不是模型用戶端傳的
+ 
+ 
+ def _rows(ledger):
+     reader = view.ModelLedgerView(ledger)
+     try:
+         with reader.read_transaction():
+             return reader.calls_between("0000", "9999")
+@@ -241,46 +241,40 @@ def test_any_sign_of_tool_use_is_unreadable(tmp_path):
+                          ("zero_turns", claude_json(num_turns=0))):
+         script = fake_claude(tmp_path / name, output)
+         with pytest.raises(mc.UnreadableModelResponse):
+             _call(tmp_path, script, req, name)
+         [row] = _rows(tmp_path / f"{name}.sqlite")
+         assert (row.outcome, row.sub_reason, row.effective_nanousd) == (
+             "unreadable", "tool_use", reserved), name
+ 
+ 
+ # ---- [S939] ----
+-def _alive(pid):
+-    try:
+-        os.kill(pid, 0)
+-    except ProcessLookupError:
+-        return False
+-    return True
+ 
+ 
+ def test_a_timeout_kills_the_whole_group_before_cleanup(tmp_path):
+     before = set(Path(tempfile.gettempdir()).glob("rtb-claude-*"))
+     script = fake_claude(tmp_path / "slow", sleep=30, grandchild=True)
+     started = time.monotonic()
+     with pytest.raises(mc.ModelTimeout):
+         _call(tmp_path, script, request(timeout_seconds=3.0), "slow")
+     assert time.monotonic() - started < 15
+     [seen] = invocations(script)
+     pid = int((tmp_path / "slow" / "grandchild.pid").read_text(encoding="utf-8"))
+-    assert not _alive(pid)  # 孫行程也被殺了
++    assert not alive(pid)  # 孫行程也被殺了
+     assert not Path(seen["cwd"]).parent.exists()  # 殺整組、確認群組空,再刪暫存目錄
+     # 孫行程繼承了輸出、還在跑:成功的呼叫不被拖成逾時,孫行程照樣被殺
+     script = fake_claude(tmp_path / "lingering", grandchild=True)
+     started = time.monotonic()
+     assert _call(tmp_path, script, request(timeout_seconds=5.0), "lingering").text
+     assert time.monotonic() - started < 4
+     pid = int((tmp_path / "lingering" / "grandchild.pid").read_text(encoding="utf-8"))
+-    assert not _alive(pid)
++    assert not alive(pid)
+     for name, options in (("fine", {}), ("failing", {"output": claude_json(), "code": 2}),
+                           ("missing", {"executable": False})):
+         script = fake_claude(tmp_path / name, **options)
+         with contextlib.suppress(mc.TransientServiceError, mc.ConfigError):
+             _call(tmp_path, script, request(), name)
+         for seen in invocations(script):
+             assert not Path(seen["cwd"]).parent.exists(), name
+     left = set(Path(tempfile.gettempdir()).glob("rtb-claude-*")) - before
+     assert not left  # 四條路徑都刪乾淨
+     assert signal.SIGKILL  # 強制結束訊號(殺整個行程群組)
+diff --git a/tests/model/test_claude_process.py b/tests/model/test_claude_process.py
+index 8fc40ed..568f19e 100644
+--- a/tests/model/test_claude_process.py
++++ b/tests/model/test_claude_process.py
+@@ -1,63 +1,56 @@
+ """Phase 11B 增量 1 代碼審第 1 輪:Claude Code 子行程與中斷、回應判定的補強。
+ 
+ - 呼叫途中被中斷(Ctrl-C 的 KeyboardInterrupt、SIGTERM)也要照 [S939] 的順序殺整組、
+   確認空了、刪暫存目錄。
+ - 登入狀態檢查耗掉的時間算進這次呼叫的總期限。
+ - 不是錯誤的回應,子類型不是 success 就是讀不懂;成功形狀帶工具痕跡要讓評估停下。
+ - 讀不成 JSON 的非 0 結束,標準錯誤只留本機日誌、不進子原因與錄製檔。
+ 一律用假的 claude 腳本;不呼叫真的 claude。
+ """
+ 
++import contextlib
+ import os
+ import signal
+ import subprocess
+ import sys
+ import threading
+ import time
+ from pathlib import Path
+ 
+ import pytest
+ 
+ from rtb import modelclaude as cc
+ from rtb import modelclient as mc
+-from tests.model.fakes import claude_json, fake_claude, live, request
++from tests.model.fakes import alive, claude_json, fake_claude, live, request
+ 
+ SRC = Path(__file__).resolve().parents[2] / "src"
+ 
+ 
+-def _alive(pid):
+-    try:
+-        os.kill(pid, 0)
+-    except ProcessLookupError:
+-        return False
+-    except PermissionError:  # macOS:還沒領回的殭屍
+-        return False
+-    return True
+ 
+ 
+ def _wait_started(script, limit=10.0):
+     log = script.with_name("claude.log")
+     deadline = time.monotonic() + limit
+     while time.monotonic() < deadline:
+         found = list(log.glob("*.started"))
+         if found:
+             return int(found[0].name.split(".")[0])
+         time.sleep(0.02)
+     raise AssertionError("假 claude 沒有起來")
+ 
+ 
+ def _gone(pid, limit=5.0):
+     deadline = time.monotonic() + limit
+-    while _alive(pid) and time.monotonic() < deadline:
++    while alive(pid) and time.monotonic() < deadline:
+         time.sleep(0.05)
+-    return not _alive(pid)
++    return not alive(pid)
+ 
+ 
+ @pytest.fixture
+ def default_sigint():
+     """非互動 shell 的背景工作會把 SIGINT 設成忽略:測試期間裝回預設處理器,結束還原
+     (代碼審第 3 輪)。"""
+     previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+     try:
+         yield
+     finally:
+@@ -167,10 +160,120 @@ def test_stderr_stays_out_of_the_ledger_and_recordings(tmp_path, caplog):
+     assert secret.encode() not in (tmp_path / "l.sqlite").read_bytes()
+     assert any(secret in r.getMessage() for r in caplog.records)  # 本機日誌留得到
+ 
+ 
+ def _child_prelude():
+     """子行程的程式碼開頭:換掉帳號家目錄的讀法(指到這支測試的暫存家目錄;子行程沒有共用夾具)。"""
+     from rtb import modelledger_view
+     from tests.conftest import child_prelude
+ 
+     return child_prelude(modelledger_view.account_home())
++
++
++# ---- Linux 上的行程群組判斷(CI 在 Linux 每次呼叫白等 5 秒) ----
++def _fake_proc(root, entries, *, with_self=True):
++    """假的 /proc:每筆 (pid, 狀態, pgrp) 寫一個 <pid>/stat
++    (格式同 Linux:pid (comm) 狀態 ppid pgrp …;comm 故意含空白與括號)。預設也放本行程自己那一筆
++    (產品碼先用它自我檢查這份行程表是不是本機、同一個命名空間的)。"""
++    if with_self:
++        entries = [*entries, (os.getpid(), "R", os.getpgrp())]
++    for pid, state, pgrp in entries:
++        (root / str(pid)).mkdir(parents=True, exist_ok=True)
++        (root / str(pid) / "stat").write_text(
++            f"{pid} (claude (x) y) {state} 1 {pgrp} {pgrp} 0 -1 4194304 0 0 0\n", encoding="ascii")
++    (root / "self").mkdir(exist_ok=True)  # 不是數字的項目要略過
++
++
++def test_linux_group_check_ignores_the_unreaped_leader(tmp_path, monkeypatch):
++    """Linux 上群組只剩還沒領回的主行程(殭屍)時,對群組送 0 號訊號會成功;要改看 /proc,
++    同一個 pgrp、狀態不是 Z 的才算活的。讀不到 /proc 就退回原本的送訊號判斷。"""
++    monkeypatch.setattr(cc.os, "killpg", lambda _group, _sig: None)  # 像 Linux:永遠成功
++    proc = tmp_path / "proc"
++    _fake_proc(proc, [(4242, "Z", 4242), (5000, "S", 7777)])
++    monkeypatch.setattr(cc, "PROC_ROOT", proc, raising=False)
++    assert cc._has_live_members(4242) is False  # 只剩殭屍主行程;別的群組不算
++    _fake_proc(proc, [(4300, "S", 4242)])
++    assert cc._has_live_members(4242) is True  # 同群組有睡著的孫行程
++    monkeypatch.setattr(cc, "PROC_ROOT", tmp_path / "no-proc", raising=False)
++    assert cc._has_live_members(4242) is True  # 讀不到 /proc:退回送訊號判斷
++
++
++@pytest.mark.parametrize("shape", ["empty", "no_stat", "other_namespace", "self_wrong_group"])
++def test_a_proc_that_does_not_look_like_ours_falls_back_to_signals(tmp_path, monkeypatch, shape):
++    """/proc 讀得到但不像本機的 Linux 行程表(空的、沒有 stat、另一個 PID 命名空間、
++    自己的群組對不上):不能判成「沒有活的」,要退回送訊號判斷(代碼審:判錯的方向會漏殺)。"""
++    monkeypatch.setattr(cc.os, "killpg", lambda _group, _sig: None)  # 送訊號說:群組還有活的
++    proc = tmp_path / "proc"
++    proc.mkdir()
++    if shape == "no_stat":
++        for pid in (os.getpid(), 4242):
++            (proc / str(pid)).mkdir()
++            (proc / str(pid) / "status").write_text("State: S\n", encoding="ascii")
++    elif shape == "other_namespace":
++        _fake_proc(proc, [(1, "S", 1)], with_self=False)
++    elif shape == "self_wrong_group":
++        _fake_proc(proc, [(os.getpid(), "R", os.getpgrp() + 12345)], with_self=False)
++    monkeypatch.setattr(cc, "PROC_ROOT", proc)
++    assert cc._proc_group_members(4242) is None
++    assert cc._has_live_members(4242) is True
++
++
++@pytest.mark.skipif(sys.platform != "linux", reason="只有 Linux 有這種格式的 /proc")
++def test_the_real_proc_is_parsed():
++    """真的 /proc:自己的群組有活的;一個已結束、還沒領回的新工作階段子行程,它的群組沒有活的。"""
++    assert cc._proc_group_members(os.getpgrp()) is True
++    process = subprocess.Popen(["/bin/sh", "-c", "exit 0"], start_new_session=True)
++    try:
++        assert cc._exited_unreaped(process.pid, time.monotonic() + 10)
++        assert cc._proc_group_members(process.pid) is False
++        assert cc._has_live_members(process.pid) is False
++    finally:
++        process.wait()
++
++
++def test_the_liveness_helper_treats_a_zombie_as_gone(tmp_path):
++    """測試共用的存活判斷跟產品碼同一套:讀得到 /proc/<pid>/stat 就看是不是殭屍,讀不到才送訊號。"""
++    from tests.model.fakes import alive
++
++    proc = tmp_path / "proc"
++    _fake_proc(proc, [(4242, "Z", 4242), (4300, "S", 4242)])
++    assert alive(4242, proc_root=proc) is False
++    assert alive(4300, proc_root=proc) is True
++    assert alive(os.getpid(), proc_root=tmp_path / "no-proc") is True
++    assert alive(2**22 + 12345, proc_root=tmp_path / "no-proc") is False
++
++
++def test_linux_like_group_check_does_not_wait_out_the_limit(tmp_path, monkeypatch):
++    """模擬 Linux(送 0 號訊號對殭屍主行程也成功、/proc 看得到它是 Z):呼叫結束後清理不能白等到
++    GROUP_EXIT_WAIT_SECONDS 才放手。"""
++    real_killpg = os.killpg
++    proc = tmp_path / "proc"
++    proc.mkdir()
++
++    def linux_killpg(group, sig):
++        if sig == 0:
++            return  # Linux:群組只剩殭屍主行程時照樣成功
++        with contextlib.suppress(ProcessLookupError, PermissionError):
++            real_killpg(group, sig)
++
++    real_popen = cc.subprocess.Popen
++
++    def popen_with_proc(*args, **kwargs):
++        process = real_popen(*args, **kwargs)
++        _fake_proc(proc, [(process.pid, "Z", process.pid)])  # 結束後就是殭屍主行程
++        return process
++
++    monkeypatch.setattr(cc.os, "killpg", linux_killpg)
++    monkeypatch.setattr(cc.subprocess, "Popen", popen_with_proc)
++    monkeypatch.setattr(cc, "PROC_ROOT", proc, raising=False)
++    script = fake_claude(tmp_path / "c", claude_json())
++    process = real_popen([str(script), "-p"], stdin=subprocess.DEVNULL,
++                         stdout=subprocess.DEVNULL, start_new_session=True)
++    _fake_proc(proc, [(process.pid, "Z", process.pid)])
++    assert cc._exited_unreaped(process.pid, time.monotonic() + 10)
++    started = time.monotonic()
++    cc._empty_group(process.pid)
++    assert time.monotonic() - started < 0.5, "清理白等到群組上限"
++    process.wait()
++    started = time.monotonic()
++    cc.run_claude([str(script), "-p"], "x", {"PATH": os.environ["PATH"]}, 20.0)
++    assert time.monotonic() - started < cc.GROUP_EXIT_WAIT_SECONDS
+diff --git a/tests/model/test_live_guards.py b/tests/model/test_live_guards.py
+index c2611cd..f8549b6 100644
+--- a/tests/model/test_live_guards.py
++++ b/tests/model/test_live_guards.py
+@@ -13,40 +13,34 @@ import os
+ import signal
+ import subprocess
+ import sys
+ from pathlib import Path
+ 
+ import pytest
+ 
+ from rtb import modelclaude as cc
+ from rtb import modelclient as mc
+ from rtb import modelledger_view as view
+-from tests.model.fakes import fake_claude, invocations, live, request, write_verification
++from tests.model.fakes import alive, fake_claude, invocations, live, request, write_verification
+ 
+ SRC = Path(__file__).resolve().parents[2] / "src"
+ 
+ 
+ def _rows(ledger):
+     reader = view.ModelLedgerView(ledger)
+     try:
+         with reader.read_transaction():
+             return reader.calls_between("0000", "9999")
+     finally:
+         reader.close()
+ 
+ 
+-def _alive(pid):
+-    try:
+-        os.kill(pid, 0)
+-    except (ProcessLookupError, PermissionError):
+-        return False
+-    return True
+ 
+ 
+ def test_a_claude_upgrade_mid_run_never_reaches_an_unverified_version(tmp_path):
+     """入口判成即時之後,連結改指新版:之後的呼叫仍用實測過的那一版;那一版被清掉就是設定錯誤。"""
+     old = fake_claude(tmp_path / "versions" / "old")
+     new = fake_claude(tmp_path / "versions" / "new")
+     bin_dir = tmp_path / "bin"
+     bin_dir.mkdir()
+     link = bin_dir / "claude"
+     link.symlink_to(old)
+@@ -111,21 +105,21 @@ def _interrupt_right_after_popen(tmp_path, monkeypatch):
+     def popen_then_interrupt(*args, **kwargs):
+         process = real(*args, **kwargs)
+         started.append(process.pid)
+         signal.raise_signal(signal.SIGINT)  # 送到自己這個執行緒
+         return process
+ 
+     monkeypatch.setattr(cc.subprocess, "Popen", popen_then_interrupt)
+     env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
+     with pytest.raises(KeyboardInterrupt):
+         cc.run_claude([str(script), "-p"], "x", env, 20.0)
+-    assert started and not _alive(started[0])
++    assert started and not alive(started[0])
+ 
+ 
+ def test_a_hangup_during_a_recorded_call_kills_the_group_and_frees_the_name(tmp_path):
+     """關終端機(SIGHUP):轉成例外、殺整組、放掉錄製佔位;SIGQUIT 同理(用子行程跑,免得殺掉整套)。"""
+     for number, name in ((signal.SIGHUP, "hup"), (signal.SIGQUIT, "quit")):
+         work = tmp_path / name
+         script = fake_claude(work / "c", sleep=30, grandchild=True)
+         recordings = work / "rec"
+         code = _child_prelude() + (
+             "import os, signal, sys, threading, time\n"
+@@ -147,21 +141,21 @@ def test_a_hangup_during_a_recorded_call_kills_the_group_and_frees_the_name(tmp_
+             "except BaseException as stopped:\n"
+             "    print(type(stopped).__name__)\n"
+             "    sys.exit(3)\n")
+         result = subprocess.run([sys.executable, "-c", code],
+                                 env={**os.environ, "PYTHONPATH": str(SRC)}, capture_output=True,
+                                 text=True, timeout=60, check=False)
+         log = script.with_name("claude.log")
+         started = int(next(log.glob("*.started")).name.split(".")[0])
+         grandchild = int((work / "c" / "grandchild.pid").read_text(encoding="utf-8"))
+         assert result.returncode == 3, (name, result.stdout + result.stderr)
+-        assert not _alive(started) and not _alive(grandchild), name
++        assert not alive(started) and not alive(grandchild), name
+         assert list(recordings.glob("*.json")) == [], name  # 佔位放掉了
+ 
+ 
+ def test_a_leftover_claim_says_it_may_be_an_interrupted_run(tmp_path):
+     """別的批次留下的佔位:拒絕訊息要講「可能是中斷留下的佔位」,不是「已經錄過」。"""
+     from rtb import modelrecording as rec
+ 
+     key = rec.recording_key(mc.Caller.EVAL_CANDIDATE, mc.DEFAULT_MODEL, "固定系統提示", "hello",
+                             50)
+     (tmp_path / f"{key}.json").write_text(json.dumps({"claimed_by_batch": "old"}),
+diff --git a/tests/test_suite_isolation.py b/tests/test_suite_isolation.py
+index 46b880f..474e769 100644
+--- a/tests/test_suite_isolation.py
++++ b/tests/test_suite_isolation.py
+@@ -63,35 +63,102 @@ def test_each_test_gets_its_own_temp_dir_and_empty_policy_sources(tmp_path):
+     import tempfile
+ 
+     from rtb import modelclaude as cc
+ 
+     assert Path(tempfile.gettempdir()).is_relative_to(tmp_path.parent.parent)
+     for directory in cc.MANAGED_DIRS:
+         assert directory.is_relative_to(tmp_path.parent.parent) and not any(directory.iterdir())
+     assert all(p.is_relative_to(tmp_path.parent.parent) for p in cc.MDM_PLISTS)
+ 
+ 
++def _is_os_environ(node):
++    return (isinstance(node, ast.Attribute) and node.attr == "environ"
++            and isinstance(node.value, ast.Name) and node.value.id == "os")
++
++
++# 子行程環境一定要帶著的鍵:家目錄、PATH 與清掉的模型開關(拿掉就退回真的家目錄或找得到真的 claude)
++PROTECTED_KEYS = frozenset({"HOME", "PATH", *MODEL_ENV})
++
++
++def _literal_keys(node):
++    """字面字串或字面字串的 tuple/list/set;不是就 None。"""
++    if isinstance(node, ast.Constant) and isinstance(node.value, str):
++        return {node.value}
++    if isinstance(node, ast.Tuple | ast.List | ast.Set) and all(
++            isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.elts):
++        return {e.value for e in node.elts}
++    return None
++
++
++def _harmless_filter(condition, key_name):
++    """推導式的過濾條件只准是「鍵 != 字面鍵」或「鍵 not in (字面鍵…)」,
++    而且拿掉的鍵不能是受保護的鍵。"""
++    if not (isinstance(condition, ast.Compare) and len(condition.ops) == 1
++            and isinstance(condition.left, ast.Name) and condition.left.id == key_name
++            and isinstance(condition.ops[0], ast.NotEq | ast.NotIn)):
++        return False
++    dropped = _literal_keys(condition.comparators[0])
++    return dropped is not None and not dropped & PROTECTED_KEYS
++
++
++def _environ_comprehension(value):
++    """逐項走 os.environ.items() 的 dict 推導式:鍵與值原樣帶過,只准濾掉幾個無害的字面鍵
++    (例如宣稱驗證器的測試拿掉 PYTHONDONTWRITEBYTECODE)。"""
++    if len(value.generators) != 1:
++        return False
++    generator = value.generators[0]
++    source, target = generator.iter, generator.target
++    if not (isinstance(source, ast.Call) and isinstance(source.func, ast.Attribute)
++            and source.func.attr == "items" and _is_os_environ(source.func.value)
++            and isinstance(target, ast.Tuple) and len(target.elts) == 2
++            and all(isinstance(e, ast.Name) for e in target.elts)):
++        return False
++    key_name, value_name = (e.id for e in target.elts)
++    return (isinstance(value.key, ast.Name) and value.key.id == key_name
++            and isinstance(value.value, ast.Name) and value.value.id == value_name
++            and all(_harmless_filter(c, key_name) for c in generator.ifs))
++
++
+ def _starts_from_os_environ(value):
+-    """env= 的值要是字面 dict、第一個展開的是 os.environ(之後才覆寫)。"""
++    """env= 的值要是字面 dict、第一個展開的是 os.environ(之後才覆寫);或是逐項走 os.environ.items()、
++    只濾掉無害字面鍵的 dict 推導式。"""
++    if isinstance(value, ast.DictComp):
++        return _environ_comprehension(value)
+     if not isinstance(value, ast.Dict) or not value.keys or value.keys[0] is not None:
+         return False
+-    first = value.values[0]
+-    return (isinstance(first, ast.Attribute) and first.attr == "environ"
+-            and isinstance(first.value, ast.Name) and first.value.id == "os")
++    return _is_os_environ(value.values[0])
++
++
++# pop 的鍵用常數名寫時,只認這幾個能力金鑰常數(值在下面的測試裡核對過不是受保護的鍵)
++POPPABLE_CONSTANTS = frozenset({"KEY_ENV", "APPROVAL_KEY_ENV", "AUDIT_KEY_ENV"})
++
++
++def _popped_protected(node):
++    """env.pop(<鍵>) 拿掉的是受保護的鍵,或看不出拿掉什麼(不是字面字串、也不是認得的金鑰常數)。"""
++    if not node.args:
++        return True
++    key = node.args[0]
++    if isinstance(key, ast.Name) and key.id in POPPABLE_CONSTANTS:
++        return False
++    keys = _literal_keys(key)
++    return keys is None or bool(keys & PROTECTED_KEYS)
+ 
+ 
+ def _destroyed_names(tree):
+-    """被清空或刪鍵的變數(env.clear()、del env[...]):這種環境不算從 os.environ 起頭。"""
++    """被清空、刪鍵或 pop 掉受保護鍵的變數(env.clear()、del env[...]、env.pop('HOME')):
++    這種環境不算從 os.environ 起頭。"""
+     names = set()
+     for node in ast.walk(tree):
+         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+-                and node.func.attr == "clear" and isinstance(node.func.value, ast.Name)):
++                and isinstance(node.func.value, ast.Name) and (
++                    node.func.attr == "clear"
++                    or (node.func.attr == "pop" and _popped_protected(node)))):
+             names.add(node.func.value.id)
+         elif isinstance(node, ast.Delete):
+             names |= {t.value.id for t in node.targets
+                       if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name)}
+     return names
+ 
+ 
+ def _environ_names(tree):
+     """整支檔裡每次賦值都是 {**os.environ, ...}、之後也沒被清空或刪鍵的變數名。"""
+     good, bad = set(), set()
+@@ -118,31 +185,56 @@ def _test_files():
+ 
+ def test_subprocess_tests_inherit_the_isolated_environment():
+     """子行程測試自己給環境時,一律寫成 {**os.environ, ...}(HOME、PATH 與清掉的模型開關才傳得下去);
+     變數、dict(...)、別的 dict 展開、之後清空或刪鍵的都抓(代碼審第 2、3 輪)。"""
+     root, files = _test_files()
+     offenders = []
+     for path in files:
+         offenders += env_offenders(ast.parse(path.read_text(encoding="utf-8")),
+                                    str(path.relative_to(root)))
+     assert offenders == []
+-    ok = "env = {**os.environ, 'A': '1'}\nenv.pop('B', None)\nsubprocess.run([], env=env)"
+-    assert env_offenders(ast.parse(ok), "probe") == []
++    from rtb import capabilitykit
++
++    assert not {getattr(capabilitykit, name) for name in POPPABLE_CONSTANTS} & PROTECTED_KEYS
++    for ok in ("env = {**os.environ, 'A': '1'}\nenv.pop('B', None)\nsubprocess.run([], env=env)",
++               "env = {**os.environ}\nenv.pop(KEY_ENV, None)\nsubprocess.run([], env=env)",
++               "env = {k: v for k, v in os.environ.items() if k != 'X'}\n"
++               "subprocess.run([], env=env)",
++               "env = {k: v for k, v in os.environ.items() if k not in ('X', 'Y')}\n"
++               "subprocess.run([], env=env)"):
++        assert env_offenders(ast.parse(ok), "probe") == [], ok
+     for probe in ("env = {'PYTHONPATH': 'src'}\nsubprocess.run([], env=env)",
+                   "env = {**os.environ}\nenv = {}\nsubprocess.run([], env=env)",
+                   "subprocess.run([], env=dict(os.environ))",
+                   "subprocess.run([], env={'A': '1', **os.environ})",
+                   "subprocess.run([], env={'PYTHONPATH': 'src'})",
+                   "subprocess.run([], env={**base})",
+                   "base = {}\nsubprocess.run([], env={**base, 'A': '1'})",
+                   "env = {**os.environ}\nenv.clear()\nsubprocess.run([], env=env)",
+-                  "env = {**os.environ}\ndel env['HOME']\nsubprocess.run([], env=env)"):
++                  "env = {**os.environ}\ndel env['HOME']\nsubprocess.run([], env=env)",
++                  "env = {k: v for k, v in base.items()}\nsubprocess.run([], env=env)",
++                  "env = {k: v for k, v in os.environ.keys()}\nsubprocess.run([], env=env)",
++                  # 代碼審:推導式也不准拿掉 HOME、PATH、模型開關,值要原樣帶過
++                  "env = {k: v for k, v in os.environ.items() if k != 'HOME'}\n"
++                  "subprocess.run([], env=env)",
++                  "env = {k: v for k, v in os.environ.items() if k not in ('X', 'PATH')}\n"
++                  "subprocess.run([], env=env)",
++                  "env = {k: v for k, v in os.environ.items() if k == 'PYTHONPATH'}\n"
++                  "subprocess.run([], env=env)",
++                  "env = {k: '' for k, v in os.environ.items()}\nsubprocess.run([], env=env)",
++                  "env = {k: v for k, v in os.environ.items() if not k.startswith('HO')}\n"
++                  "subprocess.run([], env=env)",
++                  "env = {k: v for k, v in os.environ.items() if k != 'RTB_MODEL_LIVE'}\n"
++                  "subprocess.run([], env=env)",
++                  "env = {**os.environ}\nenv.pop('HOME')\nsubprocess.run([], env=env)",
++                  "env = {**os.environ}\nenv.pop('PATH', None)\nsubprocess.run([], env=env)",
++                  "env = {**os.environ}\nenv.pop(name, None)\nsubprocess.run([], env=env)"):
+         assert env_offenders(ast.parse(probe), "probe"), probe
+ 
+ 
+ # 碰得到帳號家目錄(花費帳、啟用紀錄)的模組:子行程的程式碼提到它們,就要先換掉帳號家目錄的讀法
+ ACCOUNT_SENSITIVE = ("modelclient", "modelledger", "modelverify", "modelclaude", "modelcore",
+                      "rtb.eval", "tests.model")
+ 
+ 
+ def _code_of(call, assigned):
+     """subprocess 呼叫裡 [..., "-c", <程式碼>, ...] 的程式碼(變數就找它在檔裡的賦值)。"""

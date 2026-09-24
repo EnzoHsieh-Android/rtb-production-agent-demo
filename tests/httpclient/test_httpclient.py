@@ -1,6 +1,7 @@
 """共用的 HTTP 用戶端基礎:逾時必填、標頭是封閉列舉、沒有能送任意標頭的路徑。"""
 
 import inspect
+import os
 import socket
 import threading
 import time
@@ -277,3 +278,44 @@ def test_a_slow_drip_response_gives_up_once_the_total_deadline_passes():
         assert 0.4 < elapsed < 3  # 真的等到超過期限才放棄,但沒有等到整包收完(~1.5 秒)才放棄
     finally:
         sock.close()
+
+
+def test_a_proxy_in_the_environment_is_never_used():
+    """[Phase 12 代碼審 r3 s1] 環境裡設了 HTTP_PROXY:請求一律直連,代理收不到任何連線(帶稽核金鑰的
+    請求原本會送去代理,代理的回應也被當成平台真相)。用子行程跑,因為代理設定在建用戶端時就讀進去了。"""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    proxy = socket.socket()
+    proxy.bind(("127.0.0.1", 0))
+    proxy.listen(8)
+    proxy.settimeout(0.5)
+
+    class Ok(JsonHandler):
+        def handle_request(self, _method):
+            return 200, {"ok": True}
+
+    target = KitServer(Ok)
+    threading.Thread(target=target.serve_forever, args=(0.02,), daemon=True).start()
+    src = Path(httpclient.__file__).resolve().parents[1]
+    script = ("import sys\nfrom rtb.httpclient import request_json\n"
+              "status, body = request_json(sys.argv[1], 'GET', None, 3)\nprint(status)\n")
+    try:
+        proxy_url = f"http://127.0.0.1:{proxy.getsockname()[1]}"
+        child = subprocess.run(
+            [sys.executable, "-c", script, f"http://127.0.0.1:{target.server_address[1]}/x"],
+            env={**os.environ, "PYTHONPATH": str(src), "HTTP_PROXY": proxy_url,
+                 "http_proxy": proxy_url, "NO_PROXY": "", "no_proxy": ""},
+            capture_output=True, text=True, timeout=20, check=False)
+        try:
+            proxy.accept()[0].close()
+            reached_proxy = True
+        except TimeoutError:
+            reached_proxy = False
+    finally:
+        proxy.close()
+        target.shutdown()
+        target.server_close()
+    assert not reached_proxy
+    assert child.stdout.strip() == "200", child.stderr

@@ -1,0 +1,86 @@
+[
+ {
+  "round": "r3",
+  "seat": "驗收-假綠與情境",
+  "lens": "o1 c3 f1–f5 c1 c2 c5 與三處解讀(1)(2)",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "驗收-行程與驅動",
+  "lens": "o2 v1 s1 o3 c4 v2 v3 n3 s2–s4 o4 與 7ae5aa7",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "驗收-讀取出口與流程圖",
+  "lens": "a1–a3 n1 n2 n4 與解讀(3)",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "共用HTTP回歸",
+  "lens": "a90d48d httpkit 回歸",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "資安-opus",
+  "lens": "全範圍能被利用的洞",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "架構對齊",
+  "lens": "新寫法對照既有",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "外家-codex",
+  "lens": "外家獨立驗收",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex-gpt-6-sol"
+ }
+]

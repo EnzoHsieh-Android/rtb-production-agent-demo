@@ -161,6 +161,7 @@ def render(report: SyntheticReport | ProductionReport, rows: tuple[ComparisonRow
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        allow_abbrev=False,
         description="用合成評估集評「值不值得加」判斷點,印出人讀的決定紀錄;LLM 列跑模型候選"
                     "(預設重播錄製,只寫花費帳與即時錄製)")
     parser.add_argument("--demo-id", help="展示編號;即時模式必填,同一個編號共用 1 美元")

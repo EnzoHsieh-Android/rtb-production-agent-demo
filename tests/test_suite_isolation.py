@@ -70,21 +70,135 @@ def test_each_test_gets_its_own_temp_dir_and_empty_policy_sources(tmp_path):
     assert all(p.is_relative_to(tmp_path.parent.parent) for p in cc.MDM_PLISTS)
 
 
+def _is_os_environ(node):
+    return (isinstance(node, ast.Attribute) and node.attr == "environ"
+            and isinstance(node.value, ast.Name) and node.value.id == "os")
+
+
+# 子行程環境一定要帶著的鍵:家目錄、PATH 與清掉的模型開關(拿掉就退回真的家目錄或找得到真的 claude)
+PROTECTED_KEYS = frozenset({"HOME", "PATH", *MODEL_ENV})
+
+
+def _literal_keys(node):
+    """字面字串或字面字串的 tuple/list/set;不是就 None。"""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value}
+    if isinstance(node, ast.Tuple | ast.List | ast.Set) and all(
+            isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.elts):
+        return {e.value for e in node.elts}
+    return None
+
+
+def _harmless_filter(condition, key_name):
+    """推導式的過濾條件只准是「鍵 != 字面鍵」或「鍵 not in (字面鍵…)」,
+    而且拿掉的鍵不能是受保護的鍵。"""
+    if not (isinstance(condition, ast.Compare) and len(condition.ops) == 1
+            and isinstance(condition.left, ast.Name) and condition.left.id == key_name
+            and isinstance(condition.ops[0], ast.NotEq | ast.NotIn)):
+        return False
+    dropped = _literal_keys(condition.comparators[0])
+    return dropped is not None and not dropped & PROTECTED_KEYS
+
+
+def _environ_comprehension(value):
+    """逐項走 os.environ.items() 的 dict 推導式:鍵與值原樣帶過,只准濾掉幾個無害的字面鍵
+    (例如宣稱驗證器的測試拿掉 PYTHONDONTWRITEBYTECODE)。"""
+    if len(value.generators) != 1:
+        return False
+    generator = value.generators[0]
+    source, target = generator.iter, generator.target
+    if not (isinstance(source, ast.Call) and isinstance(source.func, ast.Attribute)
+            and source.func.attr == "items" and _is_os_environ(source.func.value)
+            and isinstance(target, ast.Tuple) and len(target.elts) == 2
+            and all(isinstance(e, ast.Name) for e in target.elts)):
+        return False
+    key_name, value_name = (e.id for e in target.elts)
+    return (isinstance(value.key, ast.Name) and value.key.id == key_name
+            and isinstance(value.value, ast.Name) and value.value.id == value_name
+            and all(_harmless_filter(c, key_name) for c in generator.ifs))
+
+
 def _starts_from_os_environ(value):
-    """env= 的值要是字面 dict、第一個展開的是 os.environ(之後才覆寫)。"""
+    """env= 的值要是字面 dict、第一個展開的是 os.environ(之後才覆寫);或是逐項走 os.environ.items()、
+    只濾掉無害字面鍵的 dict 推導式。"""
+    if isinstance(value, ast.DictComp):
+        return _environ_comprehension(value)
     if not isinstance(value, ast.Dict) or not value.keys or value.keys[0] is not None:
         return False
-    first = value.values[0]
-    return (isinstance(first, ast.Attribute) and first.attr == "environ"
-            and isinstance(first.value, ast.Name) and first.value.id == "os")
+    return _is_os_environ(value.values[0])
+
+
+# pop 的鍵用常數名寫時,只認 rtb.capabilitykit 的這幾個能力金鑰常數
+# (值在下面的測試裡核對過不是受保護的鍵),而且要真的從那裡匯入、檔裡沒有別處重新綁這個名字
+# (代碼審第 2 輪:只看名字會被同名變數騙過)
+POPPABLE_CONSTANTS = frozenset({"KEY_ENV", "APPROVAL_KEY_ENV", "AUDIT_KEY_ENV"})
+CAPABILITY_MODULE = "rtb.capabilitykit"
+
+
+def _bindings(tree):
+    """整支檔裡每個名字被綁定的方式:(種類, 來源) 的清單。種類:import(來源是「模組.原名」)或 other
+    (賦值、for、with、函式參數、推導式變數…,一律當成重新綁定)。"""
+    bound: dict[str, list[tuple[str, str]]] = {}
+
+    def add(name, how, origin=""):
+        bound.setdefault(name, []).append((how, origin))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                add(alias.asname or alias.name, "import", f"{node.module}.{alias.name}")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                add(alias.asname or alias.name.split(".")[0], "import",
+                    alias.name if alias.asname else alias.name.split(".")[0])
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+            add(node.id, "other")
+        elif isinstance(node, ast.arg):
+            add(node.arg, "other")
+    return bound
+
+
+def _only_import_of(bound, name, origin):
+    """這個名字在檔裡只有一種綁法:從 origin 匯入(沒有別處重新綁定)。"""
+    ways = bound.get(name, [])
+    return bool(ways) and all(way == ("import", origin) for way in ways)
+
+
+def _capability_constant(key, bound):
+    """pop 的鍵是真的 rtb.capabilitykit 金鑰常數:
+    `from rtb.capabilitykit import KEY_ENV` 之後的 KEY_ENV,
+    或 `from rtb import capabilitykit` / `import rtb.capabilitykit as capabilitykit` 之後的
+    capabilitykit.KEY_ENV。"""
+    if isinstance(key, ast.Name):
+        return any(_only_import_of(bound, key.id, f"{CAPABILITY_MODULE}.{constant}")
+                   for constant in POPPABLE_CONSTANTS)
+    if (isinstance(key, ast.Attribute) and key.attr in POPPABLE_CONSTANTS
+            and isinstance(key.value, ast.Name)):
+        return _only_import_of(bound, key.value.id, CAPABILITY_MODULE)
+    return False
+
+
+def _popped_protected(node, bound):
+    """env.pop(<鍵>) 拿掉的是受保護的鍵,或看不出拿掉什麼(不是字面字串、也不是認得的金鑰常數)。"""
+    if not node.args:
+        return True
+    key = node.args[0]
+    if _capability_constant(key, bound):
+        return False
+    keys = _literal_keys(key)
+    return keys is None or bool(keys & PROTECTED_KEYS)
 
 
 def _destroyed_names(tree):
-    """被清空或刪鍵的變數(env.clear()、del env[...]):這種環境不算從 os.environ 起頭。"""
+    """被清空、刪鍵、popitem 或 pop 掉受保護鍵的變數(env.clear()、del env[...]、env.popitem()、
+    env.pop('HOME')):這種環境不算從 os.environ 起頭。"""
+    bound = _bindings(tree)
     names = set()
     for node in ast.walk(tree):
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "clear" and isinstance(node.func.value, ast.Name)):
+                and isinstance(node.func.value, ast.Name) and (
+                    node.func.attr in ("clear", "popitem")
+                    or (node.func.attr == "pop" and _popped_protected(node, bound)))):
             names.add(node.func.value.id)
         elif isinstance(node, ast.Delete):
             names |= {t.value.id for t in node.targets
@@ -92,14 +206,38 @@ def _destroyed_names(tree):
     return names
 
 
+# 唯一的例外(Phase 12 增量 1 合入主線時):展示啟動器測試要驗「子行程只拿到白名單」([S1003]),
+# 環境本來就該由啟動器照白名單組,不能從 os.environ 起頭。只認 launcher.child_env(...) 與
+# launcher.command_for(...) 而且 user_env 傳的就是 os.environ:啟動器從它照抄 HOME 與 PATH(下面的
+# 測試核對),清掉的模型開關本來就不在裡面。其他寫法(user_env 給別的 dict、別的模組的同名函式)照擋。
+LAUNCHER_ENV_BUILDERS = frozenset({"child_env", "command_for"})
+
+
+def _launcher_env(value):
+    """launcher.child_env(..., user_env=os.environ) 或
+    launcher.command_for(..., user_env=os.environ)。"""
+    return (isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute)
+            and value.func.attr in LAUNCHER_ENV_BUILDERS
+            and isinstance(value.func.value, ast.Name) and value.func.value.id == "launcher"
+            and any(k.arg == "user_env" and _is_os_environ(k.value) for k in value.keywords))
+
+
 def _environ_names(tree):
-    """整支檔裡每次賦值都是 {**os.environ, ...}、之後也沒被清空或刪鍵的變數名。"""
+    """整支檔裡每次賦值都是 {**os.environ, ...}(或啟動器照白名單從 os.environ 組的,見上)、之後也沒被
+    清空或刪鍵的變數名。`command, env = launcher.command_for(...)` 認第二個名字。"""
     good, bad = set(), set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    (good if _starts_from_os_environ(node.value) else bad).add(target.id)
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                ok = _starts_from_os_environ(node.value) or (
+                    _launcher_env(node.value) and node.value.func.attr == "child_env")
+                (good if ok else bad).add(target.id)
+            elif isinstance(target, ast.Tuple) and len(target.elts) == 2 and all(
+                    isinstance(e, ast.Name) for e in target.elts):
+                ok = _launcher_env(node.value) and node.value.func.attr == "command_for"
+                (good if ok else bad).add(target.elts[1].id)
     return good - bad - _destroyed_names(tree)
 
 
@@ -125,8 +263,22 @@ def test_subprocess_tests_inherit_the_isolated_environment():
         offenders += env_offenders(ast.parse(path.read_text(encoding="utf-8")),
                                    str(path.relative_to(root)))
     assert offenders == []
-    ok = "env = {**os.environ, 'A': '1'}\nenv.pop('B', None)\nsubprocess.run([], env=env)"
-    assert env_offenders(ast.parse(ok), "probe") == []
+    from rtb import capabilitykit
+
+    assert not {getattr(capabilitykit, name) for name in POPPABLE_CONSTANTS} & PROTECTED_KEYS
+    for ok in ("env = {**os.environ, 'A': '1'}\nenv.pop('B', None)\nsubprocess.run([], env=env)",
+               "from rtb.capabilitykit import KEY_ENV\nenv = {**os.environ}\n"
+               "env.pop(KEY_ENV, None)\nsubprocess.run([], env=env)",
+               "from rtb import capabilitykit\nenv = {**os.environ}\n"
+               "env.pop(capabilitykit.KEY_ENV, None)\nsubprocess.run([], env=env)",
+               "env = {k: v for k, v in os.environ.items() if k != 'X'}\n"
+               "subprocess.run([], env=env)",
+               "env = {k: v for k, v in os.environ.items() if k not in ('X', 'Y')}\n"
+               "subprocess.run([], env=env)",
+               "env = launcher.child_env(r, k, user_env=os.environ)\nsubprocess.run([], env=env)",
+               "command, env = launcher.command_for(r, [], k, root=x, faults=None, "
+               "user_env=os.environ)\nsubprocess.run(command, env=env)"):
+        assert env_offenders(ast.parse(ok), "probe") == [], ok
     for probe in ("env = {'PYTHONPATH': 'src'}\nsubprocess.run([], env=env)",
                   "env = {**os.environ}\nenv = {}\nsubprocess.run([], env=env)",
                   "subprocess.run([], env=dict(os.environ))",
@@ -135,8 +287,57 @@ def test_subprocess_tests_inherit_the_isolated_environment():
                   "subprocess.run([], env={**base})",
                   "base = {}\nsubprocess.run([], env={**base, 'A': '1'})",
                   "env = {**os.environ}\nenv.clear()\nsubprocess.run([], env=env)",
-                  "env = {**os.environ}\ndel env['HOME']\nsubprocess.run([], env=env)"):
+                  "env = {**os.environ}\ndel env['HOME']\nsubprocess.run([], env=env)",
+                  "env = {k: v for k, v in base.items()}\nsubprocess.run([], env=env)",
+                  "env = {k: v for k, v in os.environ.keys()}\nsubprocess.run([], env=env)",
+                  # 代碼審:推導式也不准拿掉 HOME、PATH、模型開關,值要原樣帶過
+                  "env = {k: v for k, v in os.environ.items() if k != 'HOME'}\n"
+                  "subprocess.run([], env=env)",
+                  "env = {k: v for k, v in os.environ.items() if k not in ('X', 'PATH')}\n"
+                  "subprocess.run([], env=env)",
+                  "env = {k: v for k, v in os.environ.items() if k == 'PYTHONPATH'}\n"
+                  "subprocess.run([], env=env)",
+                  "env = {k: '' for k, v in os.environ.items()}\nsubprocess.run([], env=env)",
+                  "env = {k: v for k, v in os.environ.items() if not k.startswith('HO')}\n"
+                  "subprocess.run([], env=env)",
+                  "env = {k: v for k, v in os.environ.items() if k != 'RTB_MODEL_LIVE'}\n"
+                  "subprocess.run([], env=env)",
+                  "env = {**os.environ}\nenv.pop('HOME')\nsubprocess.run([], env=env)",
+                  "env = {**os.environ}\nenv.pop('PATH', None)\nsubprocess.run([], env=env)",
+                  "env = {**os.environ}\nenv.pop(name, None)\nsubprocess.run([], env=env)",
+                  # 代碼審第 2 輪:常數名要真的來自 rtb.capabilitykit、沒被重新綁定;popitem 也算刪鍵
+                  "KEY_ENV = 'HOME'\nenv = {**os.environ}\nenv.pop(KEY_ENV, None)\n"
+                  "subprocess.run([], env=env)",
+                  "from os import sep as KEY_ENV\nenv = {**os.environ}\nenv.pop(KEY_ENV, None)\n"
+                  "subprocess.run([], env=env)",
+                  "from rtb.capabilitykit import KEY_ENV\nfor KEY_ENV in ('HOME',):\n    pass\n"
+                  "env = {**os.environ}\nenv.pop(KEY_ENV, None)\nsubprocess.run([], env=env)",
+                  "env = {**os.environ}\nenv.pop(KEY_ENV, None)\nsubprocess.run([], env=env)",
+                  "import other as capabilitykit\nenv = {**os.environ}\n"
+                  "env.pop(capabilitykit.KEY_ENV, None)\nsubprocess.run([], env=env)",
+                  "env = {**os.environ}\nenv.popitem()\nsubprocess.run([], env=env)",
+                  # 啟動器的例外只認 user_env 就是 os.environ、而且是 launcher 的那兩支
+                  "env = launcher.child_env(r, k, user_env={'PATH': '/bin'})\n"
+                  "subprocess.run([], env=env)",
+                  "env = launcher.child_env(r, k, user_env=base)\nsubprocess.run([], env=env)",
+                  "env = launcher.child_env(r, k)\nsubprocess.run([], env=env)",
+                  "env = other.child_env(r, k, user_env=os.environ)\nsubprocess.run([], env=env)",
+                  "env = launcher.command_for(r, [], k, user_env=os.environ)\n"
+                  "subprocess.run([], env=env)",
+                  "command, env = launcher.child_env(r, k, user_env=os.environ)\n"
+                  "subprocess.run(command, env=env)",
+                  "env = launcher.child_env(r, k, user_env=os.environ)\nenv.pop('HOME')\n"
+                  "subprocess.run([], env=env)",
+                  "subprocess.run([], env=launcher.child_env(r, k, user_env=os.environ))"):
         assert env_offenders(ast.parse(probe), "probe"), probe
+    # 例外的前提:啟動器照白名單組環境時,HOME 與 PATH 原樣取自傳進去的 os.environ
+    from rtb.demo import launcher
+    from rtb.demo.keys import DemoKeys
+
+    for role in launcher.Role:
+        built = launcher.child_env(role, DemoKeys.generate(), user_env=os.environ)
+        assert built["HOME"] == os.environ["HOME"] and built["PATH"] == os.environ["PATH"]
+        assert not {name for name in MODEL_ENV if name in built}
 
 
 # 碰得到帳號家目錄(花費帳、啟用紀錄)的模組:子行程的程式碼提到它們,就要先換掉帳號家目錄的讀法

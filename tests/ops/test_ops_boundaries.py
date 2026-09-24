@@ -285,3 +285,10 @@ def test_the_ops_scan_allows_methods_that_share_a_builtin_name(tmp_path):
     with (copy / "trace.py").open("a", encoding="utf-8") as file:
         file.write("\nimport re\n\n_P = re.compile('x')\n")
     assert _ops_offenders(copy) == []
+
+
+def test_ops_command_lines_refuse_abbreviated_options_by_default():
+    """[代碼審 r2 a3] 不收縮寫放在維運共用的解析器裡當預設,之後新增的命令列不會漏掉。"""
+    from rtb.ops.cli import Parser
+
+    assert Parser().allow_abbrev is False

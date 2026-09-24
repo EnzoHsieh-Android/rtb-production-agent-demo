@@ -21,6 +21,11 @@ from tests.analyzer.test_boundaries import NETWORK_MODULES, _imported_modules
 SRC = Path(__file__).resolve().parents[1] / "src"
 RTB = SRC / "rtb"
 ALLOWED = frozenset({"rtb.modelclaude"})  # 模型用戶端的 Claude Code 後端那一支
+# 一鍵展示(Phase 12)的啟動器與驅動程式也起子行程,但起的是本專案自己的模組(DSP、收件口、執行迴圈、
+# 分析端)與專案內的驗證器,不是 claude;[S917] 的原意由下面那支測試守:它們的原始碼不准提到 claude,
+# 也不准匯入模型用戶端
+PROJECT_STARTERS = frozenset({"rtb.demo.launcher", "rtb.demo.driver"})
+MODEL_CLIENTS = frozenset({"rtb.modelclaude", "rtb.modelclient"})
 SPAWN_MODULES = frozenset({"subprocess", "multiprocessing", "pty", "webbrowser",
                            "_posixsubprocess"})
 OS_SPAWNERS = ("system", "popen", "exec", "spawn", "posix_spawn", "fork", "forkpty")
@@ -106,10 +111,10 @@ def test_only_the_model_client_starts_claude():
         found = spawn_offenders(ast.parse(path.read_text(encoding="utf-8")), module)
         if found:
             starters.add(module)
-        if module not in ALLOWED:
+        if module not in ALLOWED | PROJECT_STARTERS:
             offenders += found
     assert offenders == []
-    assert starters == ALLOWED  # 模型用戶端真的在用,掃描不是空轉
+    assert starters == ALLOWED | PROJECT_STARTERS  # 都真的在用,掃描不是空轉
     # 分析端:沒有檔案匯入模型用戶端(增量 2 起只准模型說明命令列),也不直接匯入網路或子行程模組
     analyzer_offenders = []
     for path in sorted((RTB / "analyzer").glob("*.py")):
@@ -226,3 +231,32 @@ def test_spawn_aliases_and_loop_helpers_are_caught():
                   "import asyncio\nloop = asyncio.get_event_loop()\nloop.subprocess_exec(1)",
                   "def f(loop):\n    return loop.subprocess_shell('x')"):
         assert spawn_offenders(ast.parse(probe), "probe"), probe
+
+
+def claude_mentions(module, source):
+    """[S917] 本專案模組的啟動者不准碰 claude:原始碼提到 claude(不分大小寫)或匯入模型用戶端就算。"""
+    tree = ast.parse(source)
+    imported = _imported_modules(SRC, module, tree)
+    imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    found = [f"{module}: 匯入 {m}" for m in imported
+             if any(m == c or m.startswith(c + ".") for c in MODEL_CLIENTS)]
+    if "claude" in source.lower():
+        found.append(f"{module}: 原始碼提到 claude")
+    return found
+
+
+def test_the_demo_starters_never_start_claude():
+    """展示的啟動器與驅動程式准起子行程(起的是本專案的模組與驗證器),但它們的原始碼不准提到 claude、
+    不准匯入模型用戶端:[S917]「只有模型用戶端會啟動 claude」照樣成立。"""
+    offenders = []
+    for module in sorted(PROJECT_STARTERS):
+        path = RTB.joinpath(*module.split(".")[1:])
+        path = path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
+        offenders += claude_mentions(module, path.read_text(encoding="utf-8"))
+    assert offenders == []
+    for probe in ("import subprocess\nsubprocess.run(['claude'])",
+                  "import subprocess\nsubprocess.run(['CLAUDE', '-p'])",
+                  "from rtb import modelclient",
+                  "import rtb.modelclaude",
+                  "from rtb.modelclient import run"):
+        assert claude_mentions("rtb.demo.driver", probe), probe

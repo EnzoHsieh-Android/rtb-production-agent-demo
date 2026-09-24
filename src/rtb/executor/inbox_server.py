@@ -174,7 +174,7 @@ class InboxServer(KitServer):
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="提案收件口")
+    parser = argparse.ArgumentParser(allow_abbrev=False, description="提案收件口")
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--host", default=LOOPBACK)
     parser.add_argument("--max-pending", type=int, default=DEFAULT_MAX_PENDING)

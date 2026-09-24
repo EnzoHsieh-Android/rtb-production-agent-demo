@@ -21,7 +21,7 @@ EXIT_BUSY = 6  # 資料庫忙碌:稍後再試(跟執行迴圈、核可工具同�
 
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="把一份死信放回待處理")
+    parser = argparse.ArgumentParser(allow_abbrev=False, description="把一份死信放回待處理")
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--revision", required=True, type=int)

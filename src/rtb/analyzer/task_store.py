@@ -32,7 +32,7 @@ from typing import Any
 from rtb.domain._checks import is_id, require_aware
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
 from rtb.domain.proposal import ActionType, Proposal
-from rtb.domain.task_state import IllegalTransition, TaskState, can_transition
+from rtb.domain.task_state import TERMINAL_STATES, IllegalTransition, TaskState, can_transition
 from rtb.sqlitekit import (
     BUSY_TIMEOUT_SECONDS,
     DatabaseBusy,
@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS follow_ups (
     original_task_id TEXT PRIMARY KEY, follow_up_task_id TEXT UNIQUE,
     generation INTEGER NOT NULL, campaign_id TEXT NOT NULL, reason TEXT NOT NULL,
     outcome TEXT NOT NULL, written_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS no_action_reasons (
+    task_id TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL,
+    PRIMARY KEY (task_id, seq));
 CREATE INDEX IF NOT EXISTS follow_ups_by_campaign ON follow_ups (campaign_id);
 CREATE INDEX IF NOT EXISTS tool_calls_by_time ON tool_calls (at);
 """
@@ -73,7 +76,7 @@ _TASK_COLUMNS = ("task_id, seq, state, campaign_id, proposal_json, error_detail,
                  "operation_key")
 MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
 # 暫用,沒有實測校準:要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件,各自的逾時由建用戶端
-# 的呼叫端決定);分析行程還沒有正式啟動程式,這條不等式目前沒有機械守衛(計劃增量 3b)
+# 的呼叫端決定);分析端驅動命令列(rtb.analyzer.runner)啟動時斷言這條不等式([S1001])
 LEASE_DURATION = timedelta(seconds=60)
 # 接續任務的保留命名空間:一般建任務入口拒收這個開頭的任務編號,只有建接續任務寫得進去
 FOLLOW_UP_PREFIX = "fu-"
@@ -141,6 +144,32 @@ def tool_calls_between_query(since: datetime, until: datetime) -> tuple[str, tup
     """時間窗內對外呼叫的查詢語句(測試用它看查詢計畫)。"""
     return ("SELECT task_id, task_seq, endpoint, outcome, latency_ms, at FROM tool_calls "
             "WHERE at >= ? AND at < ? ORDER BY at, id", (_iso(since), _iso(until)))
+
+
+CURSOR_PAGE = 1000  # 游標式讀取一次最多回幾列;呼叫端讀到不滿一頁才算讀完
+
+
+def tasks_after_query(after: int) -> tuple[str, tuple[int, ...]]:
+    """列號大於 after 的任務歷史列(Phase 12 代碼審 r2 a1:展示觀察器照列號往後讀,不自己下查詢)。"""
+    return (f"SELECT rowid, {_TASK_COLUMNS} FROM tasks WHERE rowid > ? "  # noqa: S608 - 固定欄位清單
+            "ORDER BY rowid LIMIT ?", (after, CURSOR_PAGE))
+
+
+def follow_ups_after_query(after: int) -> tuple[str, tuple[int, ...]]:
+    """列號大於 after 的接續關係(同上)。"""
+    return ("SELECT rowid, original_task_id, follow_up_task_id, reason, written_at FROM follow_ups "
+            "WHERE rowid > ? ORDER BY rowid LIMIT ?", (after, CURSOR_PAGE))
+
+
+@dataclass(frozen=True)
+class FollowUpRow:
+    """一列接續關係:原任務結案時寫;代數用完時沒有開新工作,接續任務是空值。"""
+
+    rowid: int
+    original_task_id: str
+    follow_up_task_id: str | None
+    reason: ReplanReason
+    written_at: datetime
 
 
 class _FollowUpOutcome(StrEnum):
@@ -327,12 +356,44 @@ class TaskReads:
         sql, params = tool_calls_between_query(since, until)
         return tuple(_tool_call(row) for row in self._conn.execute(sql, params))
 
+    def no_action_reason(self, task_id: str, seq: int) -> str | None:
+        """不提案那一列存下的原因(Phase 12 設計審 r2 p1);沒存、或資料庫還沒有原因表都回空值。
+        唯讀開法不建表,所以先看表在不在:Phase 12 之前的資料庫照樣開得起來。"""
+        if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                              "AND name = 'no_action_reasons'").fetchone() is None:
+            return None
+        record = self._conn.execute(
+            "SELECT reason FROM no_action_reasons WHERE task_id = ? AND seq = ?", (task_id, seq),
+        ).fetchone()
+        return None if record is None else str(record[0])
+
+    def tasks_after(self, after: int) -> tuple[tuple[int, TaskRow], ...]:
+        """列號大於 after 的任務歷史列,依寫入順序,最多一頁:(列號, 那一列)。"""
+        sql, params = tasks_after_query(after)
+        return tuple((int(r[0]), _row_from_record(r[1:])) for r in self._conn.execute(sql, params))
+
+    def follow_ups_after(self, after: int) -> tuple[FollowUpRow, ...]:
+        """列號大於 after 的接續關係,依寫入順序,最多一頁。"""
+        sql, params = follow_ups_after_query(after)
+        return tuple(FollowUpRow(int(r[0]), r[1], r[2], ReplanReason(r[3]),
+                                 datetime.fromisoformat(r[4].replace("Z", "+00:00")))
+                     for r in self._conn.execute(sql, params))
+
     def history(self, task_id: str) -> tuple[TaskRow, ...]:
         records = self._conn.execute(
             f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ? ORDER BY seq",  # noqa: S608 - 固定欄位清單
             (task_id,),
         ).fetchall()
         return tuple(_row_from_record(r) for r in records)
+
+    def open_task_ids(self) -> tuple[str, ...]:
+        """最新一列還不是終點狀態的任務,依任務編號排序(Phase 12 分析端驅動命令列每一輪要推進的)。"""
+        rows = self._conn.execute(
+            "SELECT t.task_id, t.state FROM tasks t WHERE t.seq = "
+            "(SELECT max(seq) FROM tasks WHERE task_id = t.task_id) ORDER BY t.task_id",
+        ).fetchall()
+        return tuple(task_id for task_id, state in rows
+                     if TaskState(state) not in TERMINAL_STATES)
 
     def handed_off_keys(self, task_id: str) -> tuple[tuple[int, str | None], ...]:
         """交給執行那幾列的(序號, 存下的冪等鍵);Phase 5 之前寫的列沒有存鍵,是空值。"""
@@ -423,6 +484,7 @@ class TaskStore(TaskReads):
         lease: LeaseReceipt | None = None,
         operation_key: str | None = None,
         follow_up: FollowUp | None = None,
+        no_action_reason: StrEnum | None = None,
     ) -> bool:
         """核對租約與 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
 
@@ -434,7 +496,11 @@ class TaskStore(TaskReads):
 
         帶 follow_up:原任務這一列(結案)跟接續任務、接續關係在同一個交易裡寫,同一道圍籬;
         錯誤說明後面補上接續任務編號、代數用完、或接續編號衝突(防線,不建立)。
+
+        帶 no_action_reason:只准跟不提案那一列一起寫,同一個交易寫進只增的原因表(Phase 12)。
         """
+        if no_action_reason is not None and new_state is not TaskState.NO_ACTION:
+            raise ValueError(f"原因只能跟不提案那一列一起寫,這一步是 {new_state}")
         mismatched = [item.task_id for item in evidence if item.task_id != task_id]
         if mismatched:
             raise EvidenceTaskMismatch(
@@ -463,20 +529,28 @@ class TaskStore(TaskReads):
                  None if proposal is None else _proposal_to_json(proposal),
                  capped_detail, _iso(now), operation_key),
             )
-            for item in evidence:
-                self._conn.execute(
-                    "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (task_id, next_seq, item.evidence_id, item.kind.value, item.source,
-                     _iso(item.observed_at), item.campaign_version_observed,
-                     item.content_hash, item.trust_class.value,
-                     json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True,
-                                allow_nan=False)),
-                )
+            self._insert_attachments(task_id, next_seq, evidence, no_action_reason)
             if lease is not None:
                 self._append_release(lease, now)
             if before_commit is not None:
                 before_commit()
         return True
+
+    def _insert_attachments(self, task_id: str, seq: int, evidence: Sequence[Evidence],
+                            no_action_reason: StrEnum | None) -> None:
+        """跟新的一列同一個交易寫的附帶資料:證據列,與不提案的原因。"""
+        if no_action_reason is not None:
+            self._conn.execute("INSERT INTO no_action_reasons VALUES (?, ?, ?)",
+                               (task_id, seq, no_action_reason.value))
+        for item in evidence:
+            self._conn.execute(
+                "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, seq, item.evidence_id, item.kind.value, item.source,
+                 _iso(item.observed_at), item.campaign_version_observed,
+                 item.content_hash, item.trust_class.value,
+                 json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True,
+                            allow_nan=False)),
+            )
 
     def _write_follow_up(
         self, task_id: str, campaign_id: str, reason: ReplanReason, now: datetime,
@@ -596,7 +670,9 @@ class TaskStore(TaskReads):
             return
 
 
-# 唯讀開法要求資料庫已經有的表與欄位
+# 唯讀開法要求資料庫已經有的表與欄位。不提案原因表 no_action_reasons 刻意不列:Phase 12 之前的資料庫
+# 沒有這張表,列進來舊庫就開不起來;讀原因的方法自己看表在不在、沒有就回空值(展示寫「無法還原」,
+# Phase 12 設計審 r2 p1、代碼審 r1 a2)
 _REQUIRED_SCHEMA: dict[str, tuple[str, ...]] = {
     "tasks": ("task_id", "seq", "state", "proposal_json", "operation_key"),
     "evidence": ("payload_json",), "tool_calls": ("latency_ms",), "task_leases": ("owner",),

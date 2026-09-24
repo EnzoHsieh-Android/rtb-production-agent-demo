@@ -16,9 +16,15 @@ select = [
     "RUF", "C4", "PIE", "RET", "ARG",
 ]
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# 最上層共用模組(sqlitekit、httpkit、httpclient、capabilitykit)吃的是這一份;各層與展示套件的
+# ruff.toml 整張重列自己的禁令表(子目錄設定會蓋掉這張表)。Phase 12 代碼審 r1 s2
+"rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+
 [tool.ruff.lint.per-file-ignores]
 # 測試裡本來就會 assert、啟動子行程、開連線到本機、用固定種子的亂數
-"tests/**" = ["S101", "S603", "S310", "S311", "ARG002"]
+# TID251:上面那張禁令表是給正式程式的;測試本來就要匯入各層與展示套件(禁令表加上之前測試也不受限)
+"tests/**" = ["S101", "S603", "S310", "S311", "ARG002", "TID251"]
 
 # lumos 會把檔案抽到 .lumos/lintbase-*/ 臨時目錄再跑 ruff;明寫第一方套件,匯入排序才不會因目錄不同而判斷不一樣
 [tool.ruff.lint.isort]

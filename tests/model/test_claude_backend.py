@@ -19,7 +19,7 @@ from rtb import modelclient as mc
 from rtb import modelcore as core
 from rtb import modelledger as ledger_db
 from rtb import modelledger_view as view
-from tests.model.fakes import claude_json, fake_claude, invocations, live, request
+from tests.model.fakes import alive, claude_json, fake_claude, invocations, live, request
 
 WHITELIST = {"PATH", "HOME", "USER", "LANG", "CLAUDE_CODE_MAX_OUTPUT_TOKENS"}
 SHELL_ADDED = {"PWD", "SHLVL", "_", "OLDPWD"}  # /bin/sh 自己補的,不是模型用戶端傳的
@@ -248,12 +248,6 @@ def test_any_sign_of_tool_use_is_unreadable(tmp_path):
 
 
 # ---- [S939] ----
-def _alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
 
 
 def test_a_timeout_kills_the_whole_group_before_cleanup(tmp_path):
@@ -265,7 +259,7 @@ def test_a_timeout_kills_the_whole_group_before_cleanup(tmp_path):
     assert time.monotonic() - started < 15
     [seen] = invocations(script)
     pid = int((tmp_path / "slow" / "grandchild.pid").read_text(encoding="utf-8"))
-    assert not _alive(pid)  # 孫行程也被殺了
+    assert not alive(pid)  # 孫行程也被殺了
     assert not Path(seen["cwd"]).parent.exists()  # 殺整組、確認群組空,再刪暫存目錄
     # 孫行程繼承了輸出、還在跑:成功的呼叫不被拖成逾時,孫行程照樣被殺
     script = fake_claude(tmp_path / "lingering", grandchild=True)
@@ -273,7 +267,7 @@ def test_a_timeout_kills_the_whole_group_before_cleanup(tmp_path):
     assert _call(tmp_path, script, request(timeout_seconds=5.0), "lingering").text
     assert time.monotonic() - started < 4
     pid = int((tmp_path / "lingering" / "grandchild.pid").read_text(encoding="utf-8"))
-    assert not _alive(pid)
+    assert not alive(pid)
     for name, options in (("fine", {}), ("failing", {"output": claude_json(), "code": 2}),
                           ("missing", {"executable": False})):
         script = fake_claude(tmp_path / name, **options)

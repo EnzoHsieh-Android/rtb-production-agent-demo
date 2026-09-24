@@ -19,6 +19,7 @@ tags:
   - type/system
   - status/doing
 summary: |-
+  WHY:[2026-09-24 Phase 12 代碼審 r1] 命令列參數不收縮寫(allow_abbrev=False):一鍵展示的故障啟動器用正式入口同一支 parser 的解析結果核對目標路徑,縮寫與等號寫法都不能繞過(Phase 12 代碼審 r1 s1/l2/x2)。長選項一律寫全。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]。
   WHY: [2026-09-24] 交接文件 Phase 10:只在有證據的窄決策點評估 Jev,依切片報品質、跟程式基準比品質成本延遲、沒達門檻明確不採用。使用者本人裁定評估對象是「值不值得加」這一個判斷,結論照實寫兩個不採用理由。出處:[[Projects/RTB_Phase10評估與Jev決策點_計劃]] 增量 2。
   RULE: 合成評估集只是有限的合約案例,不套統計信賴、不能產生已驗證清單;已驗證清單只能來自正式環境隱藏抽樣集,而且只有採用函式建得出來。[since:2026-09-24] [retire:接上正式環境抽樣集與人工標註、改用它們重建評估時] [test:test_evaluation_calls_the_candidate_without_validating_anything]
   WHY: [2026-09-24] Phase 11B 接入點 3:模型候選實作既有候選介面,評估紀錄命令列成為三支模型入口之一;評估套件的「不讀寫任何資料庫」有意識地放寬成「除了經模型用戶端寫花費帳與呼叫模型」,匯入閉包以開工前為基準只准多出模型用戶端一條分支。出處 [[Projects/RTB_Phase11B大模型接入_計劃]]〈接入點 3〉〈既有邊界怎麼改〉。
@@ -44,6 +45,7 @@ decisions:
     valid: true
 verified_by:
   - "[[Verification/Phase10驗收紀錄]]"
+  - "[[Verification/Phase11B增量1驗收紀錄]]"
 ---
 # 評估與Jev決策點
 

@@ -20,7 +20,7 @@ import pytest
 from rtb import modelclaude as cc
 from rtb import modelclient as mc
 from rtb import modelledger_view as view
-from tests.model.fakes import fake_claude, invocations, live, request, write_verification
+from tests.model.fakes import alive, fake_claude, invocations, live, request, write_verification
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 
@@ -34,12 +34,6 @@ def _rows(ledger):
         reader.close()
 
 
-def _alive(pid):
-    try:
-        os.kill(pid, 0)
-    except (ProcessLookupError, PermissionError):
-        return False
-    return True
 
 
 def test_a_claude_upgrade_mid_run_never_reaches_an_unverified_version(tmp_path):
@@ -118,7 +112,7 @@ def _interrupt_right_after_popen(tmp_path, monkeypatch):
     env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
     with pytest.raises(KeyboardInterrupt):
         cc.run_claude([str(script), "-p"], "x", env, 20.0)
-    assert started and not _alive(started[0])
+    assert started and not alive(started[0])
 
 
 def test_a_hangup_during_a_recorded_call_kills_the_group_and_frees_the_name(tmp_path):
@@ -154,7 +148,7 @@ def test_a_hangup_during_a_recorded_call_kills_the_group_and_frees_the_name(tmp_
         started = int(next(log.glob("*.started")).name.split(".")[0])
         grandchild = int((work / "c" / "grandchild.pid").read_text(encoding="utf-8"))
         assert result.returncode == 3, (name, result.stdout + result.stderr)
-        assert not _alive(started) and not _alive(grandchild), name
+        assert not alive(started) and not alive(grandchild), name
         assert list(recordings.glob("*.json")) == [], name  # 佔位放掉了
 
 

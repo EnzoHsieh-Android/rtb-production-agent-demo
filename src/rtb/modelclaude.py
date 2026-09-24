@@ -215,9 +215,60 @@ def _count(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
+# Linux 的行程表(測試換成暫存目錄模擬);macOS 沒有,退回送訊號判斷
+PROC_ROOT = Path("/proc")
+
+
+def _stat_fields(entry: Path) -> tuple[str, int] | None:
+    """一個行程的(狀態, 行程群組);讀不到或格式不對回 None。行程名可能含空白與括號:從最後一個「)」
+    之後切。"""
+    try:
+        stat = (entry / "stat").read_text(encoding="ascii", errors="replace")
+    except OSError:
+        return None
+    fields = stat[stat.rfind(")") + 2:].split()
+    if len(fields) < 3 or not fields[2].lstrip("-").isdigit():
+        return None
+    return fields[0], int(fields[2])
+
+
+def _proc_group_members(group: int) -> bool | None:
+    """從行程表找同一個行程群組、狀態不是殭屍(Z)的行程;判不出來回 None(交給送訊號判斷)。
+    Linux 上群組只剩還沒領回的主行程(殭屍)時,對群組送 0 號訊號照樣成功,不能用它判;而主行程刻意
+    不先領回(領回之後行程編號與群組編號可能被重用),所以要看行程表裡的狀態。
+    先自我檢查這份行程表是不是本機、同一個 PID 命名空間的 Linux 格式,判不準就回 None
+    (判成「沒有活的」會漏殺):
+    ① 核心自己的判斷:/proc/self 指到的編號要等於本行程的編號(它依這份 procfs 所屬的命名空間算;讀的人
+      不在那個命名空間時是宿主編號或讀不到;代碼審第 2 輪:只比 stat 會撞到宿主的核心執行緒)。
+    ② 本行程的群組編號是 0(群組在命名空間外面)也判不準。
+    ③ 行程表裡自己那一筆讀得到、群組也對得上(空的 /proc、沒有 stat 的其他系統)。"""
+    pid, pgrp = os.getpid(), os.getpgrp()
+    try:
+        entries = list(PROC_ROOT.iterdir())
+        own = os.readlink(PROC_ROOT / "self")
+    except OSError:
+        return None
+    if own != str(pid) or pgrp == 0:
+        return None
+    mine = _stat_fields(PROC_ROOT / str(pid))
+    if mine is None or mine[1] != pgrp:
+        return None
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        found = _stat_fields(entry)  # 讀的當下剛結束(None):不算
+        if found is not None and found[1] == group and found[0] != "Z":
+            return True
+    return False
+
+
 def _has_live_members(group: int) -> bool:
-    """行程群組裡還有沒有活著的行程。macOS 上群組只剩還沒領回的殭屍時回 EPERM,群組不存在回 ESRCH,
+    """行程群組裡還有沒有活著的行程。Linux 看行程表(同群組、不是殭屍的才算活的);讀不到行程表時
+    (macOS)對群組送 0 號訊號:macOS 上群組只剩還沒領回的殭屍時回 EPERM,群組不存在回 ESRCH,
     兩種都算沒有活的。"""
+    members = _proc_group_members(group)
+    if members is not None:
+        return members
     try:
         os.killpg(group, 0)
     except (ProcessLookupError, PermissionError):
