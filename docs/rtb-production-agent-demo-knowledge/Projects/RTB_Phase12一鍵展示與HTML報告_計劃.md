@@ -1,12 +1,12 @@
 ---
 type: project
-status: doing
+status: done
 created: 2026-09-24
 updated: 2026-09-24
 self_audit: gpt-5.6-sol/2026-09-24
 tags:
   - type/project
-  - status/doing
+  - status/done
 lands_in:
   - Systems/一鍵展示
   - Systems/分析行程流程與檢查點

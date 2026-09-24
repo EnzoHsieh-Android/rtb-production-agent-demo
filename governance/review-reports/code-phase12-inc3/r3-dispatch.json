@@ -1,0 +1,35 @@
+[
+ {
+  "round": "r3",
+  "seat": "修正驗收",
+  "lens": "修正驗收",
+  "materials": [
+   "governance/review-reports/code-phase12-inc3/r3-delta.patch",
+   "governance/review-reports/code-phase12-inc3/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc3/r2-修正驗收.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "資安-opus",
+  "lens": "資安-opus",
+  "materials": [
+   "governance/review-reports/code-phase12-inc3/r3-delta.patch",
+   "governance/review-reports/code-phase12-inc3/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc3/r2-資安-opus.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase12-inc3/r3-delta.patch",
+   "governance/review-reports/code-phase12-inc3/r3-snapshot.patch",
+   "governance/review-reports/code-phase12-inc3/r2-架構對齊.md"
+  ],
+  "auditor": "claude-opus"
+ }
+]

@@ -1,0 +1,38 @@
+[
+ {
+  "round": "r2",
+  "seat": "修正驗收",
+  "lens": "修正驗收",
+  "materials": [
+   "governance/review-reports/code-phase12-inc3/r2-delta.patch",
+   "governance/review-reports/code-phase12-inc3/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc3/r1-鏡頭1-產生器與行程.md",
+   "governance/review-reports/code-phase12-inc3/r1-鏡頭2-搬家與驗證器項目.md",
+   "governance/review-reports/code-phase12-inc3/r1-鏡頭3-頁面與驅動整合.md",
+   "governance/review-reports/code-phase12-inc3/r1-外家-codex.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "資安-opus",
+  "lens": "資安-opus",
+  "materials": [
+   "governance/review-reports/code-phase12-inc3/r2-delta.patch",
+   "governance/review-reports/code-phase12-inc3/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc3/r1-資安-opus.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase12-inc3/r2-delta.patch",
+   "governance/review-reports/code-phase12-inc3/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc3/r1-架構對齊.md"
+  ],
+  "auditor": "claude-opus"
+ }
+]
