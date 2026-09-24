@@ -140,8 +140,8 @@ def test_importing_every_production_entry_never_loads_the_demo_package():
             "print(sorted(m for m in sys.modules\n"
             "             if m == 'rtb.demo' or m.startswith('rtb.demo.')))\n")
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                            timeout=60, check=False, env={"PYTHONPATH": str(SRC),
-                                                          "PATH": os.environ["PATH"]})
+                            timeout=60, check=False,
+                            env={**os.environ, "PYTHONPATH": str(SRC)})
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "[]"
 

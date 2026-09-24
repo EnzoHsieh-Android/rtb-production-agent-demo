@@ -259,7 +259,7 @@
     },
     {
       "path": "tests/httpclient/test_httpclient.py",
-      "sha256": "270b471a94313af43eba5651429452a3e94f60a97691fb209a342804c8d37ebd"
+      "sha256": "e18b551c441a9efbb596274ae714a5fff1d0f5dbc08a232ab8cbccafb8558fa1"
     },
     {
       "path": "tests/kit/__init__.py",

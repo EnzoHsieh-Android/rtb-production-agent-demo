@@ -4,6 +4,7 @@
 import ast
 import io
 import itertools
+import os
 import re
 import threading
 import time
@@ -222,8 +223,8 @@ def test_the_analyzer_runner_exits_cleanly_on_sigterm(tmp_path):
     child = subprocess.Popen(
         [sys.executable, "-m", "rtb.analyzer.runner", *_argv(tmp_path, "http://127.0.0.1:9",
                                                              "http://127.0.0.1:9")],
-        stdout=subprocess.PIPE, text=True, env={"PYTHONPATH": str(RUNNER.parents[2]),
-                                                "PATH": "/usr/bin:/bin"})
+        stdout=subprocess.PIPE, text=True,
+        env={**os.environ, "PYTHONPATH": str(RUNNER.parents[2])})
     try:
         assert child.stdout.readline().strip() == runner.READY
         child.send_signal(signal.SIGTERM)
@@ -409,7 +410,7 @@ def test_a_stop_signal_cuts_the_rest_between_rounds_short(tmp_path):
     argv[argv.index("--interval-seconds") + 1] = "20"
     child = subprocess.Popen(
         [sys.executable, "-m", "rtb.analyzer.runner", *argv], stdout=subprocess.PIPE, text=True,
-        env={"PYTHONPATH": str(RUNNER.parents[2]), "PATH": "/usr/bin:/bin"})
+        env={**os.environ, "PYTHONPATH": str(RUNNER.parents[2])})
     try:
         assert child.stdout.readline().strip() == runner.READY
         time.sleep(1.0)  # 沒有任務:第一輪馬上進休息

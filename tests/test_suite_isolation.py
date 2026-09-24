@@ -206,14 +206,38 @@ def _destroyed_names(tree):
     return names
 
 
+# 唯一的例外(Phase 12 增量 1 合入主線時):展示啟動器測試要驗「子行程只拿到白名單」([S1003]),
+# 環境本來就該由啟動器照白名單組,不能從 os.environ 起頭。只認 launcher.child_env(...) 與
+# launcher.command_for(...) 而且 user_env 傳的就是 os.environ:啟動器從它照抄 HOME 與 PATH(下面的
+# 測試核對),清掉的模型開關本來就不在裡面。其他寫法(user_env 給別的 dict、別的模組的同名函式)照擋。
+LAUNCHER_ENV_BUILDERS = frozenset({"child_env", "command_for"})
+
+
+def _launcher_env(value):
+    """launcher.child_env(..., user_env=os.environ) 或
+    launcher.command_for(..., user_env=os.environ)。"""
+    return (isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute)
+            and value.func.attr in LAUNCHER_ENV_BUILDERS
+            and isinstance(value.func.value, ast.Name) and value.func.value.id == "launcher"
+            and any(k.arg == "user_env" and _is_os_environ(k.value) for k in value.keywords))
+
+
 def _environ_names(tree):
-    """整支檔裡每次賦值都是 {**os.environ, ...}、之後也沒被清空或刪鍵的變數名。"""
+    """整支檔裡每次賦值都是 {**os.environ, ...}(或啟動器照白名單從 os.environ 組的,見上)、之後也沒被
+    清空或刪鍵的變數名。`command, env = launcher.command_for(...)` 認第二個名字。"""
     good, bad = set(), set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    (good if _starts_from_os_environ(node.value) else bad).add(target.id)
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                ok = _starts_from_os_environ(node.value) or (
+                    _launcher_env(node.value) and node.value.func.attr == "child_env")
+                (good if ok else bad).add(target.id)
+            elif isinstance(target, ast.Tuple) and len(target.elts) == 2 and all(
+                    isinstance(e, ast.Name) for e in target.elts):
+                ok = _launcher_env(node.value) and node.value.func.attr == "command_for"
+                (good if ok else bad).add(target.elts[1].id)
     return good - bad - _destroyed_names(tree)
 
 
@@ -250,7 +274,10 @@ def test_subprocess_tests_inherit_the_isolated_environment():
                "env = {k: v for k, v in os.environ.items() if k != 'X'}\n"
                "subprocess.run([], env=env)",
                "env = {k: v for k, v in os.environ.items() if k not in ('X', 'Y')}\n"
-               "subprocess.run([], env=env)"):
+               "subprocess.run([], env=env)",
+               "env = launcher.child_env(r, k, user_env=os.environ)\nsubprocess.run([], env=env)",
+               "command, env = launcher.command_for(r, [], k, root=x, faults=None, "
+               "user_env=os.environ)\nsubprocess.run(command, env=env)"):
         assert env_offenders(ast.parse(ok), "probe") == [], ok
     for probe in ("env = {'PYTHONPATH': 'src'}\nsubprocess.run([], env=env)",
                   "env = {**os.environ}\nenv = {}\nsubprocess.run([], env=env)",
@@ -288,8 +315,29 @@ def test_subprocess_tests_inherit_the_isolated_environment():
                   "env = {**os.environ}\nenv.pop(KEY_ENV, None)\nsubprocess.run([], env=env)",
                   "import other as capabilitykit\nenv = {**os.environ}\n"
                   "env.pop(capabilitykit.KEY_ENV, None)\nsubprocess.run([], env=env)",
-                  "env = {**os.environ}\nenv.popitem()\nsubprocess.run([], env=env)"):
+                  "env = {**os.environ}\nenv.popitem()\nsubprocess.run([], env=env)",
+                  # 啟動器的例外只認 user_env 就是 os.environ、而且是 launcher 的那兩支
+                  "env = launcher.child_env(r, k, user_env={'PATH': '/bin'})\n"
+                  "subprocess.run([], env=env)",
+                  "env = launcher.child_env(r, k, user_env=base)\nsubprocess.run([], env=env)",
+                  "env = launcher.child_env(r, k)\nsubprocess.run([], env=env)",
+                  "env = other.child_env(r, k, user_env=os.environ)\nsubprocess.run([], env=env)",
+                  "env = launcher.command_for(r, [], k, user_env=os.environ)\n"
+                  "subprocess.run([], env=env)",
+                  "command, env = launcher.child_env(r, k, user_env=os.environ)\n"
+                  "subprocess.run(command, env=env)",
+                  "env = launcher.child_env(r, k, user_env=os.environ)\nenv.pop('HOME')\n"
+                  "subprocess.run([], env=env)",
+                  "subprocess.run([], env=launcher.child_env(r, k, user_env=os.environ))"):
         assert env_offenders(ast.parse(probe), "probe"), probe
+    # 例外的前提:啟動器照白名單組環境時,HOME 與 PATH 原樣取自傳進去的 os.environ
+    from rtb.demo import launcher
+    from rtb.demo.keys import DemoKeys
+
+    for role in launcher.Role:
+        built = launcher.child_env(role, DemoKeys.generate(), user_env=os.environ)
+        assert built["HOME"] == os.environ["HOME"] and built["PATH"] == os.environ["PATH"]
+        assert not {name for name in MODEL_ENV if name in built}
 
 
 # 碰得到帳號家目錄(花費帳、啟用紀錄)的模組:子行程的程式碼提到它們,就要先換掉帳號家目錄的讀法

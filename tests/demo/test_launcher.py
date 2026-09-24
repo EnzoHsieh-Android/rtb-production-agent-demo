@@ -42,9 +42,9 @@ def test_demo_keys_are_random_and_long_enough():
 
 def test_child_processes_read_back_the_same_key_the_server_signs_with():
     demo_keys = keys.DemoKeys.generate()
-    env = launcher.child_env(Role.EXECUTOR, demo_keys, user_env=USER_ENV)
-    assert read_key(env) == demo_keys.signing_bytes(KEY_ENV)
-    assert read_key(env, APPROVAL_KEY_ENV) == demo_keys.signing_bytes(APPROVAL_KEY_ENV)
+    built = launcher.child_env(Role.EXECUTOR, demo_keys, user_env=USER_ENV)
+    assert read_key(built) == demo_keys.signing_bytes(KEY_ENV)
+    assert read_key(built, APPROVAL_KEY_ENV) == demo_keys.signing_bytes(APPROVAL_KEY_ENV)
     dsp_env = launcher.child_env(Role.DSP, demo_keys, user_env=USER_ENV)
     assert read_audit_key(dsp_env) == demo_keys.signing_bytes(AUDIT_KEY_ENV)
 
@@ -64,13 +64,13 @@ def test_the_key_text_is_not_in_its_repr():
 ])
 def test_demo_processes_get_only_whitelisted_environment(role, extra):
     demo_keys = keys.DemoKeys.generate()
-    env = launcher.child_env(role, demo_keys, user_env=USER_ENV)
-    assert set(env) == BASE | extra
-    assert env["PYTHONPATH"] == str(SRC)
-    assert "leak" not in env.values()
-    assert env.get(KEY_ENV) in (None, demo_keys.capability)
+    built = launcher.child_env(role, demo_keys, user_env=USER_ENV)
+    assert set(built) == BASE | extra
+    assert built["PYTHONPATH"] == str(SRC)
+    assert "leak" not in built.values()
+    assert built.get(KEY_ENV) in (None, demo_keys.capability)
     for name in MODEL & extra:
-        assert env[name] == USER_ENV[name]
+        assert built[name] == USER_ENV[name]
 
 
 def test_only_the_faulted_process_gets_the_fault_nonce():
@@ -83,8 +83,8 @@ def test_only_the_faulted_process_gets_the_fault_nonce():
 
 
 def test_missing_user_basics_are_left_out_not_invented():
-    env = launcher.child_env(Role.INBOX, keys.DemoKeys.generate(), user_env={"PATH": "/bin"})
-    assert set(env) == {"PATH", "PYTHONPATH"}
+    built = launcher.child_env(Role.INBOX, keys.DemoKeys.generate(), user_env={"PATH": "/bin"})
+    assert set(built) == {"PATH", "PYTHONPATH"}
 
 
 # ---- [S1049] 故障跨行程交付 ----
@@ -100,8 +100,7 @@ def _plan(_root_dir=None, **overrides):
 
 def _run_child(_root_dir, config, nonce, *args, role="dsp", timeout=20):
     env = launcher.child_env(Role.DSP if role == "dsp" else Role.EXECUTOR,
-                             keys.DemoKeys.generate(), user_env={"PATH": os.environ["PATH"]},
-                             fault_nonce=nonce)
+                             keys.DemoKeys.generate(), user_env=os.environ, fault_nonce=nonce)
     return subprocess.run([sys.executable, "-m", "rtb.demo.launcher.child", role, str(config),
                            "--", *args], env=env, capture_output=True, text=True,
                           timeout=timeout, check=False)
@@ -228,11 +227,11 @@ def test_a_delivered_dsp_plan_is_applied_to_the_first_write(tmp_path):
 def test_a_plain_start_has_no_fault_door(tmp_path):
     """沒排故障的子行程直接跑正式入口,不經故障啟動器,也拿不到隨機值。"""
     root = _root(tmp_path)
-    command, env = launcher.command_for(Role.DSP, ["--db", str(root / "dsp.db")],
+    command, built = launcher.command_for(Role.DSP, ["--db", str(root / "dsp.db")],
                                         keys.DemoKeys.generate(), root=root, faults=None,
                                         user_env=USER_ENV)
     assert command[:4] == [sys.executable, "-P", "-m", "rtb.dsp.server"]
-    assert launcher.FAULT_NONCE_ENV not in env
+    assert launcher.FAULT_NONCE_ENV not in built
 
 
 def test_stop_ends_a_real_started_process(tmp_path):
@@ -405,8 +404,8 @@ def test_the_nonce_is_gone_from_the_child_environment_after_the_check(tmp_path):
              "    return 0\n"
              "child.executor_faults.run = spy\n"
              "raise SystemExit(child.main())\n")
-    env = launcher.child_env(Role.EXECUTOR, keys.DemoKeys.generate(),
-                             user_env={"PATH": os.environ["PATH"]}, fault_nonce=nonce)
+    env = launcher.child_env(Role.EXECUTOR, keys.DemoKeys.generate(), user_env=os.environ,
+                             fault_nonce=nonce)
     out = subprocess.run([sys.executable, "-c", probe, "executor", str(config), "--", "--db",
                           str(root / "e.db"), "--dsp-url", "http://127.0.0.1:9",
                           "--tenant-config", str(root / "t.json")],
@@ -486,8 +485,8 @@ def test_started_processes_really_get_only_the_whitelist(tmp_path, monkeypatch, 
     real = launcher.command_for
 
     def probing(*args, **kwargs):
-        _, env = real(*args, **kwargs)
-        return [sys.executable, "-c", probe], env
+        _, built = real(*args, **kwargs)
+        return [sys.executable, "-c", probe], built
 
     monkeypatch.setattr(launcher, "command_for", probing)
     root = _root(tmp_path)
