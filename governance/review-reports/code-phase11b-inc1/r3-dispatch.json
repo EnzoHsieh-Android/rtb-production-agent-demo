@@ -1,0 +1,62 @@
+[
+ {
+  "round": "r3",
+  "seat": "驗收-後端花費",
+  "lens": "驗收 b1–b6、c1–c5、x1–x2",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "驗收-評估測試",
+  "lens": "驗收 e1–e4、t1–t5、a1–a2",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "資安-opus",
+  "lens": "驗收 s1–s3 並找能被利用的新洞",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "架構對齊",
+  "lens": "驗收 a1–a2、本輪新寫法",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "外家-codex",
+  "lens": "外家獨立驗收",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r3-snapshot.patch",
+   "governance/review-reports/code-phase11b-inc1/r3-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex-gpt-6-sol"
+ }
+]

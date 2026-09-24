@@ -1,0 +1,86 @@
+[
+ {
+  "round": "r2",
+  "seat": "驗收-啟動與故障",
+  "lens": "驗收 s1–s6 l1–l6 t1 t2 t4 t7 t8",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "驗收-分析端",
+  "lens": "驗收 d1–d8 a1–a6 t3 t5 t6 x3",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "新段-驅動與觀察",
+  "lens": "第二塊 state_store observe driver F1–F3",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "新段-F4到F7",
+  "lens": "第三塊 F4–F7",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "資安-opus",
+  "lens": "全範圍能被利用的洞",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "新寫法對照既有",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "外家-codex",
+  "lens": "外家獨立找 bug",
+  "materials": [
+   "governance/review-reports/code-phase12-inc1/r2-snapshot.patch",
+   "governance/review-reports/code-phase12-inc1/r2-delta.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex-gpt-6-sol"
+ }
+]

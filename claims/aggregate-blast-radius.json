@@ -100,6 +100,18 @@
       "sha256": "3eddad1a06c141fe7be1babb1683f384e45e56445624abb9aae02bfcfc4da945"
     },
     {
+      "path": "src/rtb/modelclaude.py",
+      "sha256": "c5f35c60f18d4d34b2d62e48ac9aec6517b04ee15ef8a705afa7c68b6a39269e"
+    },
+    {
+      "path": "src/rtb/modelcore.py",
+      "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+    },
+    {
+      "path": "src/rtb/modelledger_view.py",
+      "sha256": "fb1f53b55052cfa845aad3723330dcaf107045a6e8356f724163d147f49be79c"
+    },
+    {
       "path": "src/rtb/sqlitekit.py",
       "sha256": "be5c50eb2ac7e423c3b2441205a123d154167761ff7e73a76956e2b28b8863f3"
     }
@@ -116,6 +128,10 @@
     {
       "path": "tests/capability_samples.py",
       "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "64bab5f81ca469c57dd3434199bac535d2df1df142a83e23899ddcd2c7fea8c7"
     },
     {
       "path": "tests/domain/__init__.py",

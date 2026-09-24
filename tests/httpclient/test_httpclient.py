@@ -1,6 +1,7 @@
 """共用的 HTTP 用戶端基礎:逾時必填、標頭是封閉列舉、沒有能送任意標頭的路徑。"""
 
 import inspect
+import os
 import socket
 import threading
 import time
@@ -304,7 +305,7 @@ def test_a_proxy_in_the_environment_is_never_used():
         proxy_url = f"http://127.0.0.1:{proxy.getsockname()[1]}"
         child = subprocess.run(
             [sys.executable, "-c", script, f"http://127.0.0.1:{target.server_address[1]}/x"],
-            env={"PYTHONPATH": str(src), "PATH": "/usr/bin:/bin", "HTTP_PROXY": proxy_url,
+            env={**os.environ, "PYTHONPATH": str(src), "HTTP_PROXY": proxy_url,
                  "http_proxy": proxy_url, "NO_PROXY": "", "no_proxy": ""},
             capture_output=True, text=True, timeout=20, check=False)
         try:

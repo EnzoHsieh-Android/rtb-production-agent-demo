@@ -1,0 +1,3020 @@
+diff --git a/claims/aggregate-blast-radius.json b/claims/aggregate-blast-radius.json
+index 1f67e76..d9b4926 100644
+--- a/claims/aggregate-blast-radius.json
++++ b/claims/aggregate-blast-radius.json
+@@ -2,25 +2,25 @@
+   "manifest_version": 1,
+   "claim_id": "aggregate-blast-radius",
+   "policy": "單筆變更都在單一廣告上限內時,租戶 24 小時內加預算的總曝險到門檻就停、剛好等於門檻仍放行;兩個工作者不能一起衝過門檻;超過的停在待核可,由人簽核可才放行,擋下的都有紀錄。",
+   "scope": [
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+-      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
++      "sha256": "d85984ece3a2e43c76fafeaa10d002614a2c1f9ee2b9e88891f8fcadd98cb7f4"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
++      "sha256": "ec91080ef509bd1bc019cf639b6379af23f2ee9d0688b047423ea46343fb74ec"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/domain/_checks.py",
+       "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
+     },
+     {
+diff --git a/claims/concurrency.json b/claims/concurrency.json
+index 40be2af..f76de20 100644
+--- a/claims/concurrency.json
++++ b/claims/concurrency.json
+@@ -6,37 +6,37 @@
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/dsp_client.py",
+       "sha256": "d6991fc51304ac97efcc1906f877fc71c76abd26cc31234475cf367376b31cc2"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+-      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
++      "sha256": "d85984ece3a2e43c76fafeaa10d002614a2c1f9ee2b9e88891f8fcadd98cb7f4"
+     },
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+       "sha256": "cdb1244eb81c643a3c9a0c1b510c315351377bf095f15c7a7468d4b60a2e4dd4"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "f382a95dc7619dfb72d25a668ee69b3834a982333eaa62300e11d8057e52fd97"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
++      "sha256": "ec91080ef509bd1bc019cf639b6379af23f2ee9d0688b047423ea46343fb74ec"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/domain/_checks.py",
+       "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
+     },
+     {
+diff --git a/claims/permission-guardrail.json b/claims/permission-guardrail.json
+index f914f48..dba0e4b 100644
+--- a/claims/permission-guardrail.json
++++ b/claims/permission-guardrail.json
+@@ -6,37 +6,37 @@
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/dsp_client.py",
+       "sha256": "d6991fc51304ac97efcc1906f877fc71c76abd26cc31234475cf367376b31cc2"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+-      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
++      "sha256": "d85984ece3a2e43c76fafeaa10d002614a2c1f9ee2b9e88891f8fcadd98cb7f4"
+     },
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+       "sha256": "cdb1244eb81c643a3c9a0c1b510c315351377bf095f15c7a7468d4b60a2e4dd4"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "f382a95dc7619dfb72d25a668ee69b3834a982333eaa62300e11d8057e52fd97"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
++      "sha256": "ec91080ef509bd1bc019cf639b6379af23f2ee9d0688b047423ea46343fb74ec"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/domain/_checks.py",
+       "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
+     },
+     {
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+index c7389e8..4e0a609 100644
+--- a/claims/prompt-injection.json
++++ b/claims/prompt-injection.json
+@@ -6,37 +6,37 @@
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/dsp_client.py",
+       "sha256": "d6991fc51304ac97efcc1906f877fc71c76abd26cc31234475cf367376b31cc2"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+-      "sha256": "fdd59e51d42401326f052de12f1767db187fbc81a7204687505ffed843c3d906"
++      "sha256": "d85984ece3a2e43c76fafeaa10d002614a2c1f9ee2b9e88891f8fcadd98cb7f4"
+     },
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+       "sha256": "cdb1244eb81c643a3c9a0c1b510c315351377bf095f15c7a7468d4b60a2e4dd4"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "f382a95dc7619dfb72d25a668ee69b3834a982333eaa62300e11d8057e52fd97"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "309cce81b39699408f836f9387e690fd1c3f10a12ddf404fdaf56114322a8478"
++      "sha256": "ec91080ef509bd1bc019cf639b6379af23f2ee9d0688b047423ea46343fb74ec"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/domain/_checks.py",
+       "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
+     },
+     {
+diff --git a/docs/rtb-production-agent-demo-knowledge/Issues/Phase11後接入大模型API的三個階段.md b/docs/rtb-production-agent-demo-knowledge/Issues/Phase11後接入大模型API的三個階段.md
+index fdf2903..8d5c82c 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Issues/Phase11後接入大模型API的三個階段.md
++++ b/docs/rtb-production-agent-demo-knowledge/Issues/Phase11後接入大模型API的三個階段.md
+@@ -22,14 +22,22 @@ summary: |-
+   1. 異常原因假說與調查建議:指標異常時讀追蹤與指標,提出原因假說與下一步;只給建議、不下決定。Phase 0 路由表原本就把這類「多證據模糊推理」劃給模型。
+   2. 分析端提案的風險說明:模型依證據寫提案的風險說明文字;決策照舊由程式規則下,文字當不可信輸入(沿用 Phase 7 信任邊界)。
+   3. 「值不值得加」的候選:接進 Phase 10 評估機制,實測品質、成本、延遲;預期結論仍是不採用(評分表可由程式精確算出),但比較表會有實測數字。
+ 
+ ## 開工時必須處理的邊界(Phase 0 架構筆記已預告)
+ 
+ - 對外連線:第一次連外部服務;只在明確開啟時才連,預設不連。
+ - 金鑰:只從環境變數讀、不進程式庫;CI 沒有金鑰,測試用錄好的回應或假的模型用戶端,真實呼叫只在本機展示時跑。
+ - 信任邊界:模型輸出一律當不可信輸入,不能直接下決定、不能繞過執行端任何關卡;接入點 3 走 Phase 10 的候選協定(經共用 HTTP 用戶端、帶截止時間、失敗退回現行規則)。
+ - 成本與延遲:每次呼叫記花費、延遲、失敗率;接入點 3 的成本延遲門檻照 Phase 10 規定由使用者在接上第一個候選時裁定。
+-- 要問使用者:用哪一家、哪個模型;每次展示的花費上限。
++- 要問使用者:用哪一家、哪個模型;每次展示的花費上限。(已問,見下節)
++
++## 使用者裁定(2026-09-24,使用者本人)
++
++- 供應商:Anthropic Claude。
++- 預設模型:Sonnet 5(模型代號 claude-sonnet-5)。
++- 花費上限:每次展示 1 美元、每月 20 美元;到上限就停止呼叫模型,改顯示「已達上限」,不默默繼續花。
++- 模型後端(2026-09-24,設計審三輪之後,使用者本人):因為是本機 Demo,改走本機 Claude Code 非互動模式(吃訂閱額度、不用 API 金鑰),模型用戶端介面保留、將來可加 API 後端;主控台開工作區與設上限那一步這一版不需要。
++- 沒設金鑰時:一鍵展示碰到模型階段改用錄好的回應,頁面清楚標示「這段是錄製回應,不是即時呼叫」;CI 同樣走錄好的回應。
+ 
+ REVISIT:2026-12-31 Phase 11 收尾時開這個階段的計劃,把這篇的需求寫進去並結案。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Issues/Phase12需要可看任務階段與處置的HTML報告.md b/docs/rtb-production-agent-demo-knowledge/Issues/Phase12需要可看任務階段與處置的HTML報告.md
+index 869e755..9ac4334 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Issues/Phase12需要可看任務階段與處置的HTML報告.md
++++ b/docs/rtb-production-agent-demo-knowledge/Issues/Phase12需要可看任務階段與處置的HTML報告.md
+@@ -26,13 +26,17 @@ summary: |-
+ - Phase 12 完成條件已要求展示狀態時間線、DSP 真實狀態、追蹤、稽核與驗證器結果,並展示擋下、恢復與對帳,不只順利流程。HTML 是這份展示的呈現方式。
+ - 第 19 節非目標:「漂亮 dashboard 或複雜前端」。使用者本人已決定要 HTML;照第 19 節,Phase 12 設計時仍要寫明最小做法與額外成本。
+ 
+ ## Phase 12 設計時要定的
+ 
+ - 使用者已定:頁面上觸發、即時更新,所以要一支展示伺服器(標準函式庫的 HTTP 伺服器,只綁本機回送位址,比照既有 httpkit 的做法)提供頁面、觸發端點與進度讀取;還要定:同時只允許一次展示在跑、展示用的資料庫放暫存目錄且每次重建、要不要圖表還是表格加時間線就夠。
+ - 分析端目前沒有會自己跑的驅動程式(只在測試裡驅動),展示要先補一支分析端驅動,這是 Phase 12 的必要工作,不是額外功能。
+ - 不做長駐上線部署(交接文件非目標);展示伺服器只給本機展示用。
+ - 資料來源只用既有的唯讀出口:追蹤檢視、指標、服務水準、稽核查詢、驗證器輸出、DSP 操作歷史;頁面與進度讀取不寫任何資料庫,只有「觸發」會啟動展示流程(展示流程本身照正式程式寫它自己的暫存資料庫)。
+ - 零依賴家規:不引入前端框架或套件,用標準函式庫產生 HTML。
++- 模型文字(Phase 11B 帶進來的假說與模型說明)一律當純文字插入頁面,不經任何會解讀 HTML 的寫法;頁面設禁止內嵌腳本的內容安全政策;測試要涵蓋腳本標籤、事件屬性、網址、實體編碼與雙向控制字元(Phase 11B 設計審第 1 輪外家席)。
++- 模型說明跟核可控制分開:模型文字不產生連結、命令或「建議核可」這類動作;核可畫面要求核可者逐項確認程式算的數字(金額、關卡、租戶)才能送出(Phase 11B 設計審第 1 輪外家席)。
++- 核可者在頁面上看到模型說明時,留一份只增不改的顯示收據:提案雜湊、模型文字雜湊、來源(即時或錄製)、顯示時間;執行端不讀它,只供事後查核核可當時看到什麼(同上)。
++- 一鍵展示每按一次產生一個展示編號,傳給這次展示所有會呼叫模型的入口(共用每次 1 美元上限);啟動非模型行程一律用模型用戶端的「不含模型金鑰的子行程環境」函式(Phase 11B 計劃)。
+ 
+ REVISIT:2027-01-31 Phase 12 開工時把這篇的需求寫進 Phase 12 計劃,並把這篇結案。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+new file mode 100644
+index 0000000..6436e9d
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+@@ -0,0 +1,53 @@
++---
++type: system
++status: doing
++created: 2026-09-24
++updated: 2026-09-24
++responsibility: Phase 12 本機一鍵展示的展示套件:展示狀態資料結構、正式流程圖定義(節點、分支、回頭轉換展開、系統結果列舉對到圖上哪裡、白話顯示字)、每次展示的金鑰、子行程啟動與環境白名單、只給展示用的故障手段與它的跨行程交付;不負責被測系統本身的行為,也不負責頁面怎麼畫
++aliases: []
++about_code:
++  - src/rtb/demo/__init__.py
++  - src/rtb/demo/state.py
++  - src/rtb/demo/flow.py
++  - src/rtb/demo/keys.py
++  - src/rtb/demo/launcher/__init__.py
++  - src/rtb/demo/launcher/child.py
++  - src/rtb/demo/faults/__init__.py
++  - src/rtb/demo/faults/delivery.py
++  - src/rtb/demo/faults/dsp.py
++  - src/rtb/demo/faults/executor.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: [2026-09-24 Phase 12 增量 1] 流程圖要能直接交給頁面畫成有向無環圖,但程式裡有往回走的轉換(重新蒐集資料、同鍵重送、放回排隊、人工重新送入、開新工作)。每一條展開成一個「回頭」節點,標籤寫明回到哪一步,不畫回原節點;展示走了不只一次時由判斷紀錄表逐次列出。否決過把回頭畫成環:頁面的分層排版要求無環,有環就丟例外。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]〈流程圖與判斷路徑〉(設計審 r1 f1)。防回歸:[test:test_every_known_back_transition_is_unrolled]、[test:test_the_flow_graph_is_a_well_formed_dag]。
++  WHY: [2026-09-24 設計審 r1 f2] 系統結果對應表的鍵是(列舉類別, 成員名),不用成員名或值:擋下原因與停下種類都有總上限已滿、一次加太多,單用名字會互相蓋掉。防回歸:[test:test_same_named_members_of_different_enums_are_kept_apart]。
++  WHY: [2026-09-24 設計審 r1 x4、r2 n9] 對應清單是十八個列舉:計劃第 3 版的十二個(處置、擋下原因、死信原因、停下種類、生命週期事件、重放結果、嘗試狀態、結果代碼、作廢結果、執行迴圈結果、任務狀態、重新規劃原因),加設計審 r2 補的六個真正決定分支的列舉(分析端路由、不提案原因、證據新鮮度、值不值得加的判定、處理待確認的結果、最後失敗原因);任務狀態只看得到「不調整」這種終點,看不出為什麼。系統新增一個成員卻沒補圖或白話,測試會紅。防回歸:[test:test_every_system_outcome_maps_onto_the_flow_graph]、[test:test_every_disposition_has_a_plain_explanation]、[test:test_the_mapped_enums_are_the_eighteen_in_the_plan]。
++  WHY: [2026-09-24 設計審 r2 n9] 流程圖上每個判斷點綁一個列舉(DECISION_ENUMS):每條分支都要有那個列舉的成員對到這條邊或它通往的節點;「檢查通過、往下走」或由別的紀錄決定的分支明列成例外並寫理由。有的判斷點綁的是執行迴圈結果而不是擋下原因,因為擋下原因只標得出「擋下」那條分支,執行迴圈結果連過期、先放回、等人確認都分得出來。防回歸:[test:test_every_decision_node_is_bound_to_an_enum]。
++  WHY: [2026-09-24 設計審 r2 n8] 執行端四種「放回待處理」的生命週期事件(確認後放回、重放放回、被接手、放掉處理權)各展開成一個回頭節點,對應表也指到那個節點;重放放回的是同一份建議,不是新的一版。防回歸:[test:test_every_put_back_event_is_an_unrolled_back_node]。
++  RULE: 流程圖與結果對應表的顯示字一律白話;禁用術語(死信、猝死、總曝險、冪等、租約、對帳、護欄、接續任務、修訂、結果不明)出現時要緊接括號白話解釋,由 unexplained_terms 掃描。 [since:2026-09-24] [retire:使用者本人撤回「頁面文字一律白話」的裁定,或展示頁不再給沒有背景的人看時] [confirmed:2026-09-24]
++  WHY: [2026-09-24 設計審 r3 m1] 三把展示金鑰是 `secrets.token_urlsafe` 的文字,不是位元組:環境變數只裝得下文字,子行程照共用讀法把文字轉回 UTF-8;伺服器行程內簽發用同一條轉法(`DemoKeys.signing_bytes`),兩邊的金鑰值才相同。否決過用位元組金鑰:設計審實測 2000 把隨機位元組,有的含 NUL 傳不進環境,全部讀不回來。防回歸:[test:test_child_processes_read_back_the_same_key_the_server_signs_with]、[test:test_demo_keys_are_random_and_long_enough]。
++  WHY: [2026-09-24 設計審 r3 m2] 故障手段跑在子行程裡,所以跨行程交付:啟動器在這次展示的暫存根目錄寫故障設定檔(只存一次性隨機值的雜湊),隨機值經白名單環境只給那一個子行程;子行程裡的故障啟動器核對設定檔在根目錄內、隨機值相符、根目錄的標記檔是這次展示的編號、角色相符、目標資料庫在根目錄內、猝死點認得,任一不符就以結束代碼 3 結束,不會退回成沒有故障的正常啟動。否決過「啟動器行程記憶體裡的登記表」:子行程看不到父行程的記憶體(設計審 r3 m2)。防回歸:[test:test_fault_tools_refuse_anything_but_the_launcher_capability]、[test:test_a_plan_for_another_role_or_an_unknown_crash_point_is_refused]、[test:test_a_self_written_plan_without_the_launcher_is_refused]。
++  WHY: [2026-09-24 設計審 r2 n16] 故障套件只准展示啟動器碰:掃描測試掃 src 全部抓匯入與字串;ruff 禁令放在 `src/rtb/demo/ruff.toml`,啟動器與故障套件自己的子目錄 ruff.toml 重列上一層全部禁令、只少故障套件那一條(ruff 子目錄設定會整張蓋掉禁令表,檔案層級關掉整條規則會連禁止動態匯入一起放掉);各層的 ruff.toml 另外禁止匯入展示套件。防回歸:[test:test_only_the_launcher_may_reach_the_fault_package]、[test:test_the_launcher_ruff_bans_differ_from_the_demo_ones_by_the_fault_package_only]、[test:test_nothing_outside_the_demo_package_imports_it]、[test:test_every_layer_bans_importing_the_demo_package]。
++  RULE: 展示啟動的子行程環境只准白名單:PATH、HOME、LANG、USER(使用者環境有才帶)、PYTHONPATH(固定為專案 src 的絕對路徑)、該角色的金鑰;模型入口另帶三個模型變數;排了故障的那一個子行程另帶一次性隨機值。使用者環境裡的其他變數(含別的金鑰)一律不帶。 [since:2026-09-24] [retire:展示改成在容器或獨立使用者下跑、子行程本來就拿不到使用者環境時] [confirmed:2026-09-24]
++  DEP: 頁面(增量 2a,Codex 實作)照展示狀態資料結構畫圖;state.py 以 Codex 那份為準,這裡是原樣複本,合併時以 Codex 版為準。
++---
++# 一鍵展示
++
++Phase 12 的展示套件。計劃:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]。
++
++## 啟動與故障交付
++
++- `src/rtb/demo/keys.py`:每次展示的三把金鑰(能力、稽核、核可),文字形式;`repr` 不印金鑰。
++- `src/rtb/demo/launcher/__init__.py`:子行程啟動(`start`,獨立行程群組,`stop` 連孫行程一起結束)、環境白名單(`child_env`)、展示根目錄(`prepare_root`,寫標記檔)、把故障請求交給故障套件寫成設定檔(`write_fault_plan`)。沒排故障的子行程直接跑正式入口(`python -m` 正式模組)。
++- `src/rtb/demo/launcher/child.py`:子行程裡的故障啟動器,核對交付之後帶著故障跑正式入口。
++- `src/rtb/demo/faults/__init__.py` 只是套件宣告;`src/rtb/demo/faults/delivery.py` 寫與核對故障設定檔;`src/rtb/demo/faults/dsp.py` 是帶故障排程的模擬 DSP(照 F1 端到端測試的組法:每個會改狀態的請求依序取一個故障與時鐘偏移);`src/rtb/demo/faults/executor.py` 是執行迴圈的猝死點與時鐘偏移(照 F2、F3 端到端測試的組法)。
++
++## 流程圖怎麼對到系統
++
++- `src/rtb/demo/flow.py` 是流程圖本身:48 個節點(24 個一般步驟、17 個判斷點、7 個結束點,其中 10 個是回頭節點)、68 條分支,五條泳道;另外放系統結果對應表、判斷點綁定表、回頭轉換清單與禁用術語掃描。`src/rtb/demo/state.py` 是頁面與伺服器共用的資料結構(Codex 那份的原樣複本);`src/rtb/demo/__init__.py` 只是套件宣告。
++
++- 節點的內部編號用 a_(分析)、i_(收件)、x_(執行)、p_(廣告平台)、h_(人工)開頭;顯示給人看的是標籤。
++- 對到的列舉來自這幾處的家:[[Systems/提案收件口]](處置、擋下原因、死信原因、停下種類、生命週期事件、重放結果)、[[Systems/執行迴圈]](作廢結果、執行迴圈結果)、[[Systems/任務流程領域模型]](任務狀態、嘗試狀態、結果代碼)、[[Systems/分析行程流程與檢查點]](重新規劃原因、分析端路由、不提案原因)。
++- 一個成員可以對到節點或邊,好幾個成員可以對到同一條邊(例如六種執行前檢查沒過都在「寫入前再確認 → 擋下」這條邊上),白話說明各自不同;判斷紀錄表顯示的是成員自己的白話,圖上顯示的是邊的標籤。
++- 驅動程式(增量 1 之後的部分)記判斷時,用這份對應表把系統實際的結果換成圖上的邊與白話原因。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+index 2965a79..7c4ecef 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+@@ -1,47 +1,50 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-22
+-updated: 2026-09-23
++updated: 2026-09-24
+ responsibility: 負責分析行程自己的只增不改歷史表(任務、證據、對外呼叫紀錄)與 advance() 驅動函式,一次只做狀態機的下一步並落地成檢查點;也負責真的 DSP/收件口用戶端(dsp_client.py、inbox_client.py)與示範用的最小決策規則(policy.py)、把它們包成會記錄 tool_calls 的版本(instrumented.py)。不負責多任務排程、不負責交接之後(執行行程那一側)的任何狀態。
+ aliases: []
+ about_code:
+   - src/rtb/analyzer/task_store.py
+   - src/rtb/analyzer/flow.py
+   - src/rtb/analyzer/dsp_client.py
+   - src/rtb/analyzer/inbox_client.py
+   - src/rtb/analyzer/policy.py
+   - src/rtb/analyzer/instrumented.py
++  - src/rtb/analyzer/runner.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   KEY:★INVARIANT★ 事故 F5:不可信的廣告文字(目前是廣告名稱;素材文字會走同一條路)試圖改政策、擴權或取得秘密時,提案仍受結構驗證與執行期範圍限制,不會造成任何未授權的工具呼叫。 [test:test_f5_an_injected_campaign_name_changes_nothing_end_to_end,test_f5_an_injected_name_on_a_healthy_campaign_triggers_no_write,test_f5_a_stuffed_campaign_name_does_not_fail_the_analysis,test_no_adversarial_campaign_name_changes_the_decision,test_untrusted_text_and_the_campaign_text_kind_always_come_together,test_trusted_evidence_cannot_carry_free_text,test_fields_outside_the_allowlist_never_reach_the_evidence,test_the_execution_side_never_reads_free_text,test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer,test_unknown_fields_are_rejected_so_nothing_can_be_smuggled_in,test_the_executor_refuses_to_sign_outside_its_current_tenant_configuration,test_each_failed_precheck_blocks_the_proposal_without_a_write] [kill:recipes] [audit:sonnet/2026-09-23]
+   WHY:[2026-09-23]事故 F5 轉正,留在分析行程不搬家(使用者裁定)。措辭照實改(使用者裁定):原文「廣告或素材文字」改成「廣告文字(目前是廣告名稱;素材文字會走同一條路)」,因為模擬 DSP 目前只有廣告名稱這一種文字,綁定測試全用廣告名稱。「素材文字會走同一條路」是設計意圖、目前沒有測試:專案還沒有任何素材文字欄位,將來加素材文字時要把本合約的差異測試與端到端延伸過去。子句對應:改政策與擴權由差異測試與端到端守、取得秘密由分析行程讀不到簽發金鑰那支守、結構驗證由四層守(提案白名單、DSP 用戶端逐欄白名單、證據種類與信任成對、可信證據不能夾帶自由文字)、執行期範圍限制由簽發器與執行前檢查兩支守、未授權的工具呼叫由端到端兩支守。四條殺傷力配方全數翻紅;獨立審計(sonnet)同意,另做兩組改壞實驗(預算上限放寬、分析行程匯入簽發器)都翻紅,卷證 governance/review-reports/rtb-phase7提示注入與信任邊界/f5-audit.md。出處:[[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 增量 4。
+   WHY: 分析行程在流程跑到一半當機重啟,不確定卡在哪一步、外部呼叫(蒐證、送出提案)有沒有真的發生;歷史表只增不改讓「這一步的輸出已安全存好」等於「這一列真的寫進資料庫」,不需要另外的旗標。出處:[[Projects/RTB_Phase2任務流程_計劃]] 增量 3 設計,2026-09-22 對話裡使用者選對「用同一個修訂序號重送」的恢復策略。
+   RULE: `EvidenceSource`、`Submit` 的失敗一律視為暫時性、可以放心重試;只有 `Decide` 自己丟出例外時才轉 FAILED,因為那是對已到手的證據做純計算,重跑同一份證據只會再次得到同樣的例外。[since:2026-09-22] [retire:三個介面的失敗語意改變時重審]
+   RULE: 每次狀態推進都是新增一列,不更新既有列;新列的序號在寫入交易內用目前最大序號加一決定,並核對「準備要接的那一列」仍是目前最新的一列,不是就中止、不寫入——這是並行呼叫 `advance()` 的最後一道防線。[since:2026-09-22] [retire:改用外部排程完全保證同任務不並行時可以拿掉,但仍建議保留當防禦]
+   RULE: `Submit` 的成功回傳值、預期失敗(`SubmitStale`/`SubmitBusy`)用型別化例外,比照 [[Systems/提案收件口]] 的 `Accepted`/`InboxRejected` 風格,不是另一套錯誤處理。前提:`Submit` 的實作(收件口)保證同一份提案重複呼叫永遠安全,所以未定義的例外也視為可重試。[since:2026-09-22] [retire:Submit 的實作換掉、不再保證重送安全時重審]
+   PITFALL: `advance()` 讀狀態列跟呼叫外部介面之間原本沒有鎖保護,並行呼叫可能各自算出不同但都「合法」的下一步(例如一個要進 PROPOSED、一個要退回 COLLECTING_EVIDENCE),都通過 `task_state.transition()` 的檢查,而且兩邊都已經呼叫過外部介面、錢花了兩次。2026-09-23 起由任務租約守(見下面租約那幾條,Phase 4 增量 3b):拿不到租約的一方不呼叫任何外部介面;寫入交易內重新核對序號仍保留當最後防線。防回歸:[test:test_two_concurrent_advance_calls_on_the_same_task_never_both_commit_conflicting_outcomes]、[test:test_two_real_threads_advancing_the_same_task_pay_for_the_analysis_once]。
+   WHY:[2026-09-23] 事故 F3「重複投遞不重複分析費用」:同一個任務被同時推進兩次,兩邊都讀到同一列、都去呼叫要花錢的蒐證與分析,最後只有一邊寫得進去。使用者情境題選 b:呼叫外部之前先在任務上取得租約,拿不到的一方跳過,寫入時再核對租約還是自己的(圍籬)。否決:只靠寫入時的序號核對(結果一份、錢花兩次)、分析結果快取(同時開始時都查不到)、向分析服務要冪等鍵(對方支不支援不在本專案控制內)。出處:[[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3b 設計與第 1 輪設計審。
+   RULE: 任務租約是 `task_store.py` 裡一張只增不改的租約紀錄表(取得、放掉各新增一列,目前的租約=這個任務租約序號最大的那一列),不是像 [[Systems/提案收件口]] 那樣改欄位:任務模組有一支掃描測試(Phase 2 的 S41)不准出現任何改或刪的資料庫敘述。概念照執行側(租約序號、擁有者、到期、收據、條件寫入),只換寫法。[since:2026-09-23] [retire:任務模組不再要求只增不改、或分析行程改由外部佇列保證同一任務同時只交給一個工作者時重審]
+   RULE: `advance()` 在呼叫任何外部介面之前取得租約,拿不到就回原狀態、什麼都不呼叫;拿到後重讀目前那一列,跟讀到的不同(別人剛做完一步)就放掉租約、回傳新狀態,不在同一輪改用新列(送件的工具呼叫紀錄綁的是呼叫端在呼叫前讀到的列);沒進展、提交失敗、行程內例外都放掉租約,放掉一律帶「目前那一列還是我的取得列」條件,放掉本身的資料庫錯誤吞在任務模組的 `release_lease_quietly` 裡、保留原例外(推進函式不認得資料庫錯誤型別,2026-09-23 代碼審架構席指出原本寫在推進函式是跨層);替不存在的任務取得租約丟 `TaskNotFound`、不寫列。擁有者比照執行側由呼叫端傳入(`advance(..., owner=...)`,預設 "analyzer";往後由啟動程式傳工作者身分),只是標籤:擋住舊持有者的是租約序號(每次取得都不同,主鍵唯一),多個呼叫端共用同一個擁有者也分得開,擁有者也不是秘密或憑證(威脅模型「防忘記,不防刻意繞過」)。代碼審第 1、2 輪架構席指出隨機碼、在推進函式裡自己讀行程編號都是專案沒有的第二種做法。不續租:一次推進只做一步,做完就放掉。[since:2026-09-23] [retire:推進函式改成一次做多步、或加入續租時重審]
+   RULE: 帶收據的提交只核對「目前那一列是我的取得列」,不核對到期時間(跟執行側 [S101] 刻意不同):分析側沒有續租,而且時間只有步驟開頭傳進來的那一個,判不出自己過期沒有;過期但沒人接手時寫進去,沒有第二個人花過錢。不帶收據的提交在別人持有有效租約時寫不進去(防忘記)。[since:2026-09-23] [retire:分析側改成拿到寫入鎖後讀真時鐘、或加入續租時,改回核對到期]
+-  RULE: 租約長度暫用 60 秒(`LEASE_DURATION`),沒有實測校準;要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件)。分析行程還沒有正式啟動程式,逾時由誰設都不存在,這條不等式現在沒有機械守衛。[since:2026-09-23] [retire:有正式啟動程式並在那裡斷言不等式時撤掉這條、改成那支斷言的說明]
++  WHY:[2026-09-24 Phase 12 增量 1] 租約長度暫用 60 秒(`LEASE_DURATION`),沒有實測校準;要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件)。分析端驅動命令列 `runner.py` 啟動時斷言「呼叫次數 2 乘單次逾時乘 2 小於租約」,不成立就拒絕啟動、什麼都不做(原本這條是「沒有機械守衛」的 RULE,照它的撤除條件改寫成這支斷言的說明)。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]] [S1001]。防回歸:[test:test_the_analyzer_runner_refuses_a_lease_too_short_for_its_calls]、[test:test_the_lease_inequality_matches_the_lease_constant]。
++  WHY:[2026-09-24 Phase 12 增量 1] `runner.py` 是分析端的正式入口:每一輪對 `open_task_ids()`(最新一列還不是終點的任務)逐一推進,用會記呼叫紀錄的真 DSP 與收件口用戶端、正式決策規則,不提案原因接 `policy.explain` 的第二個值;一件任務出事只記到標準錯誤、下一輪再試;收到 SIGTERM 或 SIGINT 就在這一輪結束後停。只匯入分析端與領域層的正式模組,沒有故障手段(S1000,掃描測試守)。防回歸:[test:test_the_analyzer_runner_advances_every_open_task_with_production_clients]、[test:test_the_analyzer_runner_uses_only_production_collaborators]。
+   PITFALL: 租約只擋得住同一時間有兩個有效持有者;持有者花完錢、提交前行程猝死,或一步做超過租約被接手,都會再花一次分析費用(至少一次的代價),而且舊持有者被接手時兩邊的外部呼叫會在時間上重疊。用測試把這個照實的限制固定下來,不要寫成「不會重複分析費用」。防回歸:[test:test_a_holder_that_dies_after_paying_is_analysed_again_once_the_lease_expires]、[test:test_an_expired_holder_cannot_commit_after_a_takeover_even_when_the_sequence_still_matches]。
+   PITFALL: 放掉租約若不核對「目前那一列還是我的」,被接手的舊持有者遲來的放掉列會排在接手者的取得列之後,讓第三方在接手者還在花錢時拿到租約,接手者自己的提交也會被擋(2026-09-23 第 1 輪設計審並發席排出的交錯)。防回歸:[test:test_a_late_release_from_a_replaced_holder_writes_nothing]。
+   PITFALL: 租約讓「這一步沒有進展」(蒐證失敗、送件忙碌)從原本零個寫入交易變成兩個(取得、放掉),而 SQLite 的立即寫入鎖鎖的是整個資料庫檔,不相干的任務也會互搶;代碼審併發席把忙碌等待壓到 0.05 秒、二十個任務各輪詢十五次,重現了幾次「資料庫忙碌」從推進函式丟出。預設等 5 秒時沒觀察到,呼叫端本來就要處理推進函式丟的忙碌例外(提交一直會丟),所以不算新型別的錯,但頻率沒人量過。防回歸:無(只是量的變化,等有多任務啟動程式時量)。
+   TEST: tests/analyzer/test_task_lease.py 涵蓋 Phase 4 計劃增量 3b 的 S150~S160:真並行只花一次、拿不到租約不呼叫、過期接手後舊持有者寫不進去、真猝死後到期再分析一次、取得前被搶先就交回、沒進展或例外放掉、不帶收據的提交、舊資料庫補表、過期未接手照寫、遲來的放掉不寫、放掉失敗不蓋例外;十一道防護各做過一次拿掉防護、清快取重跑必紅的變異檢查。
+   PITFALL: 狀態轉換若不透過網域層的 `transition()` 計算,即使目前的分支邏輯永遠算得出合法轉換,這道防線也會變成沒有牙齒的裝飾;要用「換掉呼叫、確認例外會傳出去」的方式驗證它真的有被呼叫,不能只驗證正常路徑。防回歸:[test:test_every_step_computes_its_new_state_through_the_domain_transition_function]、[test:test_an_illegal_transition_from_the_domain_layer_is_never_swallowed](2026-09-22 實作時發現這道防線一開始沒有任何測試咬得到)。
+   PITFALL: 提案快照存進歷史列前要序列化(`to_primitives`/JSON),讀回來時 `requested_change` 必須包回 `MappingProxyType` 再建構 `Proposal`,否則會被 `Proposal.__post_init__` 的自我驗證判定成不合法而丟例外。防回歸:[test:test_analyzing_with_a_proposal_decision_stores_the_snapshot_and_moves_to_proposed]、[test:test_proposed_always_resubmits_the_stored_snapshot_never_a_freshly_built_one]。
+   RULE: `commit_step` 附帶的證據若有 `task_id` 跟目標任務不同,一律拒收(`EvidenceTaskMismatch`);新列的狀態也要通過 `task_state.can_transition()` 才能寫入,不是只靠呼叫端(`flow.advance()`)的紀律——`commit_step` 是所有寫入唯一的入口,防線放在這裡才擋得住往後任何新呼叫端。範圍是歷史表與證據表的狀態寫入;2026-09-23 起的租約紀錄表由 `acquire_lease`/`release_lease` 直接寫,不經 `commit_step`,跟任務狀態機無關(2026-09-23 代碼審圖譜席指出字面範圍要講清楚)。[since:2026-09-22] [retire:若這個模組不再是唯一寫入入口時重審]
++  WHY:[2026-09-24 Phase 12 設計審 r2 p1] 分析端決定不提案時,把不提案原因存進只增的原因表 `no_action_reasons`(任務編號、序號、原因),跟結案那一列同一個交易寫;`TaskReads.no_action_reason` 給一鍵展示的驅動程式讀,唯讀開法遇到還沒有這張表的舊資料庫回空值(展示寫「無法還原」)。原因不放進決策結果:Phase 10 裁定決策型別的相等比較照舊([[Projects/RTB_Phase10評估與Jev決策點_計劃]]),所以 `advance()` 另收一個可省略的 `no_action_reason` 介面,只在決策是不提案時問,輸入跟 `Decide` 相同;問不到、出錯或答的不是列舉成員都當作沒有原因,不改變不提案的結果(原因表不刪,任意字串寫進去是注入管道)。流程層與任務模組不匯入決策規則(規則匯入流程層的決策型別,反過來會循環),型別只約束成列舉成員;`commit_step` 只准不提案那一列帶原因。正式接線(`policy.explain` 的第二個值)留給分析端驅動命令列。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]] [S1048]。防回歸:[test:test_the_analyzer_keeps_why_it_did_not_propose]、[test:test_an_answer_that_is_not_a_reason_member_is_not_stored]、[test:test_the_reader_answers_none_on_a_database_from_before_the_reason_table]。
+   RULE: `create_task` 的任務編號與廣告編號都要通過 `_checks.is_id`(與提案的任務/廣告編號同一套格式);`Submit`、`Decide` 回傳合約之外的型別時 `advance()` 直接丟 `_BrokenCollaborator`,不會被靜默吞成成功或 `NeedsFreshEvidence`;`error_detail` 進歷史表前会截斷到 2000 字元上限。[since:2026-09-22] [retire:三個介面改用型別檢查器在邊界擋下時可以拿掉執行期檢查]
+   PITFALL: `EvidenceSource` 回傳非 tuple 的東西(不是丟例外)時,若不特別檢查型別,`commit_step` 會在證據比對那一步用 `None`(或其他型別)當可疊代物件而整個丟出無關的 `TypeError`,不會被當成「這次沒拿到證據」處理;2026-09-22 用真實多執行緒（20 條、有同步屏障）測試 `advance()` 本身時意外撞出這個洞,不是設計出來的測試案例。防回歸:[test:test_an_evidence_source_that_returns_the_wrong_shape_is_treated_as_a_failed_fetch]、[test:test_many_real_threads_racing_advance_on_the_same_task_commit_exactly_once]。
+   PITFALL: 同一個任務多次進出蒐證狀態(重新規劃的正常路徑)時,若前後兩輪的 `EvidenceSource` 給出相同的證據編號,原本以證據編號單獨當主鍵會讓第二輪寫入撞唯一鍵、丟出沒接住的例外,任務永久卡死。改成複合主鍵(任務編號, 檢查點序號, 證據編號)之後,同一個編號在不同輪次可以重複出現。防回歸:[test:test_evidence_for_does_not_leak_evidence_from_an_earlier_round_after_a_reweave](2026-09-22 代碼審兩席各自獨立實測重現)。
+   RULE: `dsp_client.py`、`inbox_client.py` 不碰 `TaskStore`,只做「打 HTTP、轉成 Evidence/Accepted」;要記錄 tool_calls 的一律是 `instrumented.py`:單一 HTTP 呼叫的介面(`Submit`)用 `InstrumentedEvidenceSource`/`InstrumentedSubmit` 包一層,`dsp_client` 內部有兩個端點,改用 `on_call` 鉤子讓 `dsp_client` 自己在每個端點各記一筆(`instrumented.dsp_evidence_source`),不是整個呼叫包一層才記一筆——`flow.py` 本身完全不知道 tool_calls 這件事。[since:2026-09-22] [retire:三個檔案的職責邊界改變時重審]
+   RULE: 收件口的 `too_many_revisions` 轉 `SubmitRejectedPermanently`(定義在 `flow.py`,`inbox_client.py` 只匯入使用),`_from_proposed` 收到它轉 FAILED,不是 `SubmitStale`——退回蒐證再送下一個修訂只會再次碰到同一個上限,重試不會解決。[since:2026-09-22] [retire:收件口的修訂上限機制改變時重審]
+   PITFALL: `too_many_revisions` 若跟其他 409 一起被歸類成 `SubmitStale`,任務會在「退回蒐證、重新分析、再送下一個修訂、再被拒」之間無限循環,永遠到不了任何終點狀態。防回歸:[test:test_a_permanent_submit_rejection_fails_the_task_instead_of_looping_forever]。
+   PITFALL: `evidence`、`evidence_id` 若用單一欄位當表格主鍵,同一個任務多次進出蒐證(設計本身支援的正常重新規劃)給出相同證據編號時,第二輪會撞唯一鍵丟出沒接住的例外,任務永久卡死——這是實作中用真實多執行緒測試意外撞出來的洞,不在原本設計審的任何一條發現裡。改成複合主鍵(任務編號, 檢查點序號, 證據編號)解決。防回歸:[test:test_evidence_for_does_not_leak_evidence_from_an_earlier_round_after_a_reweave]。
+   TEST: tests/analyzer/test_flow.py 涵蓋計劃 S20~S41:任務建立與衝突、九個狀態每一種去處、並行呼叫的防線(含真實多執行緒加同步屏障)、序號決定的時機、逐步崩潰前後恢復、歷史表只增不改;另涵蓋第 1 輪代碼審折入的項目:證據任務歸屬、狀態合法性、輸入格式、錯誤訊息長度上限、讀回毀損轉 FAILED、跨輪證據隔離。
+   PITFALL: `evidence` 表新增欄位(例如增量 4 的 `payload_json`)若只靠 `CREATE TABLE IF NOT EXISTS`,不會幫增量 3 就存在的舊資料庫補欄位,升級後開舊資料庫會在讀寫證據時直接 `no such column`(2026-09-22 代碼審 Codex 外家席指出)。`TaskStore.__init__` 現在每次連線都會檢查一次、缺欄位就用 `ALTER TABLE ... ADD COLUMN ... DEFAULT` 補上,舊列補預設值(誠實反映「這些舊列沒有留下原始數值」,不是編造)。防回歸:[test:test_opening_a_pre_increment_4_database_adds_the_missing_payload_column]。[since:2026-09-22] [retire:改成正式的遷移工具鏈時撤除這個就地補欄位的做法]
+   PITFALL: `InstrumentedSubmit` 曾經在呼叫完成後才用 `store.latest(task_id)` 回頭查 `task_seq`——`Submit` 協定簽章只有 proposal 沒有 task,事後反查在並行的另一次 `advance()` 已經把同一個任務推進到下一列時,會把這次呼叫記到錯的(更新的)`task_seq`(2026-09-22 代碼審 Codex 外家席指出)。改成建構時就綁定「呼叫發生當下」讀到的 `TaskRow` 快照,不再事後查詢;呼叫端要在每次呼叫前用當下讀到的列建一個新的 `InstrumentedSubmit`,不能是長壽命、跨列共用的單一實例。防回歸:[test:test_submit_records_the_task_seq_bound_at_construction_not_whatever_is_latest_when_it_finishes]。
+@@ -74,23 +77,23 @@ kill_recipes: |-
+ 
+ 已知缺口(如實標明):
+ - `tasks` 與 `evidence` 兩張表只增不改,長時間運作會無界成長,尤其重新規劃的迴圈沒有次數上限;解法留給與提案收件口一起決定的保留期限。
+ REVISIT:2026-10-20 與 [[Systems/提案收件口]] 的保留期限一起決定分析行程歷史表的清理方式。
+ - `policy.py` 的示範規則永遠把新提案的修訂序號當成 1,不會追蹤同一個任務先前送過幾次修訂;一個提案被收件口退回(`SubmitStale`)之後重新分析,示範規則不會自動送出正確的下一個修訂序號,會一直送修訂 1 而持續被 `revision_out_of_order` 拒收。這不影響 S49 的合約(規則本身的判斷邏輯經過測試),但整條流程在「重新規劃」這條路徑上目前示範不完整。
+ REVISIT:2026-10-20 接上真正的決策邏輯時,一併設計修訂序號的追蹤方式(可能要讓 TaskRow 或另一張表記住「這個任務目前送到第幾個修訂」)。
+ - FAILED 狀態目前只有一個觸發點(`Decide` 丟例外);`EvidenceSource`、`Submit` 的失敗都視為暫時性、永遠重試,沒有「重試次數上限後轉為永久失敗」的機制,理論上一個一直失敗的外部呼叫會讓任務永遠卡在原狀態。
+ REVISIT:2026-10-20 增量 4 接上真的網路呼叫後,評估是否需要重試上限或逾時轉 FAILED。
+ 
+ - 租約讓每次沒有進展的推進多兩個寫入交易,多任務同時輪詢時「資料庫忙碌」的頻率沒量過(摘要裡那條 PITFALL)。
+-REVISIT:2026-12-31 分析行程有多任務啟動程式時,量一次多任務輪詢下推進函式丟「資料庫忙碌」的頻率,決定要不要把沒進展時的取得與放掉合併或改成忙碌就跳過。
++REVISIT:2026-12-31 分析行程有多任務啟動程式時,量一次多任務輪詢下推進函式丟「資料庫忙碌」的頻率,決定要不要把沒進展時的取得與放掉合併或改成忙碌就跳過(2026-09-24:分析端驅動命令列已有,條件到了,量測還沒做)。
+ - 任務租約長度(暫用 60 秒)要遠大於一步最慢的時間,這條不等式目前沒有機械守衛(摘要裡租約長度那條 RULE)。
+-REVISIT:2026-12-31 分析行程有正式啟動程式、或決策改接外部模型呼叫時,在啟動程式裡斷言「一步最多幾次呼叫 × 單次逾時 × 2 < 租約長度」,並量一次真實的單步耗時。
++REVISIT:2026-12-31 分析端驅動命令列的租約斷言已做(2026-09-24);還沒做的是量一次真實的單步耗時,跟租約 60 秒比,決定要不要改租約長度。
+ - RULE: 任務表建構子補欄位失敗時要關掉剛開的連線,等鎖逾時轉成自己模組的「忙碌」例外,跟收件表、DSP 儲存層同一寫法。防回歸:[test:test_a_failed_column_migration_closes_the_new_connection]。[since:2026-09-23] [retire:三支資料庫模組改用共用的開庫函式時撤除]
+ 
+ ## 事故 F3 的分析側(2026-09-23)
+ 
+ - 事故 F3 已轉正,合約行在 [[Systems/執行迴圈]](跨執行與分析兩側,家放執行迴圈,使用者裁定)。分析側守的是「同一個任務被同時推進時,同一時間只有一個持有有效租約的一方會花分析費用」,由這篇的任務租約測試作證。
+ 
+ 
+ ## 已交給執行之後與重新規劃(Phase 5 分析側,2026-09-23)
+ 
+ 設計與取捨在 [[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]](第 4 版,設計審三輪)。這裡只記程式看不出的脈絡。
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+index e0c2d4e..f16b40d 100644
+--- a/src/rtb/analyzer/flow.py
++++ b/src/rtb/analyzer/flow.py
+@@ -19,20 +19,21 @@
+ 
+ 三個介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
+ 多個參數與語意(不是單純「一個函式」),`Protocol` 讓型別檢查器能核對實作簽章、也讓文件
+ 掛在介面本身,是刻意的選擇,不是要在專案裡另立一套慣用法;現有 `Callable` 用法(單一動作
+ 的簡單回呼)不受影響。
+ """
+ 
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import datetime
++from enum import StrEnum
+ from typing import Protocol
+ 
+ from rtb.analyzer.task_store import (
+     CorruptedHistoryRow,
+     FollowUp,
+     LeaseReceipt,
+     ReplanReason,
+     TaskNotFound,
+     TaskRow,
+     TaskStore,
+@@ -71,20 +72,31 @@ class EvidenceSource(Protocol):
+ 
+ 
+ class Decide(Protocol):
+     def __call__(
+         self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime
+     ) -> Decision:
+         """`now` 是 `advance()` 手上、也會寫進歷史列的同一個時間;決策層不自己讀系統時鐘。"""
+         ...
+ 
+ 
++class ExplainNoAction(Protocol):
++    def __call__(
++        self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime
++    ) -> StrEnum | None:
++        """決策是不提案時問「為什麼」(Phase 12 設計審 r2 p1):輸入跟 `Decide` 相同,
++        回不提案原因列舉的成員。
++        原因不放進決策結果(Phase 10 裁定,決策型別的相等比較照舊),所以另開這個可省略的介面;
++        流程層不匯入決策規則(規則匯入流程層的決策型別),型別只約束成列舉成員。"""
++        ...
++
++
+ @dataclass(frozen=True)
+ class Accepted:
+     """`Submit` 的成功結果。後五個欄位是收件口回應本文的內容(Phase 5),已交給執行之後那一步
+     要核對它們屬於送出的這份提案;只看有沒有收下的呼叫端與測試替身可以不給。"""
+ 
+     replayed: bool
+     task_id: str | None = None
+     revision: int | None = None
+     content_hash: str | None = None
+     state: str | None = None  # 收件口的處置,沒有處置時是提案本身的狀態
+@@ -129,47 +141,50 @@ class OperationLookup(Protocol):
+ class _BrokenCollaborator(Exception):
+     """協作介面回傳了合約之外的型別:這是協作介面本身的錯,不是暫時性失敗,不能重試。"""
+ 
+ 
+ @dataclass(frozen=True)
+ class _Collaborators:
+     evidence_source: EvidenceSource
+     decide: Decide
+     submit: Submit
+     operation_lookup: OperationLookup | None = None  # 只有已交給執行那一步讀
++    no_action_reason: ExplainNoAction | None = None  # 只有分析中、決策是不提案時問
+ 
+ 
+ @dataclass(frozen=True)
+ class _Step:
+     """一步的結果:新狀態,以及要跟著這一列一起提交的東西(都可省略)。"""
+ 
+     new_state: TaskState
+     evidence: tuple[Evidence, ...] = ()
+     proposal: Proposal | None = None
+     error_detail: str | None = None
+     operation_key: str | None = None
+     follow_up: FollowUp | None = None
++    no_action_reason: StrEnum | None = None
+ 
+ 
+ _StepOutcome = _Step | None
+ 
+ 
+ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、租約擁有者與操作查詢
+     store: TaskStore,
+     task_id: str,
+     evidence_source: EvidenceSource,
+     decide: Decide,
+     submit: Submit,
+     now: datetime,
+     before_commit: Callable[[], None] | None = None,
+     owner: str = "analyzer",  # 租約擁有者:比照執行側由啟動程式傳入工作者身分,這裡只當標籤
+     operation_lookup: OperationLookup | None = None,  # 不給:已交給執行的任務停在原地
++    no_action_reason: ExplainNoAction | None = None,  # 不給:不提案照舊結案,不存原因
+ ) -> TaskState:
+     """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。
+ 
+     呼叫任何外部介面之前先在任務上取得租約(Phase 4 增量 3b):拿不到就回原狀態、什麼都不
+     呼叫;這一步做完(寫入、沒進展或行程內例外)都放掉。擋住舊持有者的是租約序號(每次取得都
+     不同),不是擁有者:多個呼叫端共用同一個擁有者也分得開。行程真的猝死放不掉,租約留到到期,
+     接手者會再呼叫一次——至少一次的代價。
+     """
+     row = store.latest(task_id)
+     if row is None:
+@@ -177,22 +192,23 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、
+     if row.state in TERMINAL_STATES:
+         return row.state
+     if row.state is TaskState.HANDED_OFF and operation_lookup is None:
+         return row.state
+ 
+     lease = store.acquire_lease(task_id, owner, now)
+     if lease is None:  # 別人正持有:不花錢,跟「沒有進展」一樣回原狀態
+         return row.state
+     try:
+         return _advance_holding(
+-            store, row, _Collaborators(evidence_source, decide, submit, operation_lookup), now,
+-            before_commit, lease)
++            store, row,
++            _Collaborators(evidence_source, decide, submit, operation_lookup, no_action_reason),
++            now, before_commit, lease)
+     except BaseException:
+         store.release_lease_quietly(lease, now)  # 放掉失敗也不蓋掉原本的例外
+         raise
+ 
+ 
+ def _advance_holding(
+     store: TaskStore,
+     row: TaskRow,
+     collaborators: _Collaborators,
+     now: datetime,
+@@ -207,20 +223,21 @@ def _advance_holding(
+         return row.state if current is None else current.state
+     outcome = _STEPS[row.state](store, row, collaborators, now)
+     if outcome is None:  # 這一步的結果是「不寫入,留在原狀態」
+         store.release_lease(lease, now)
+         return row.state
+     transition(row.state, outcome.new_state)  # 非法轉換在這裡就會炸,不會靜默寫出壞資料
+     committed = store.commit_step(
+         row.task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
+         evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
+         lease=lease, operation_key=outcome.operation_key, follow_up=outcome.follow_up,
++        no_action_reason=outcome.no_action_reason,
+     )
+     if not committed:  # 輸了序號或租約:還是自己的才放掉(條件寫在 release_lease 裡)
+         store.release_lease(lease, now)
+     return outcome.new_state if committed else row.state
+ 
+ 
+ def _from_received(
+     _store: TaskStore, _row: TaskRow, _c: _Collaborators, _now: datetime
+ ) -> _StepOutcome:
+     return _Step(TaskState.COLLECTING_EVIDENCE)
+@@ -245,28 +262,42 @@ def _from_analyzing(
+ ) -> _StepOutcome:
+     try:
+         evidence = store.evidence_for(row.task_id, row.seq)
+     except CorruptedHistoryRow as exc:  # 存好的資料本身毀損,重試沒有用:直接轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+     try:
+         decision = c.decide(row, evidence, now)
+     except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+     if isinstance(decision, NoAction):
+-        return _Step(TaskState.NO_ACTION)
++        return _Step(TaskState.NO_ACTION, no_action_reason=_why_not(c, row, evidence, now))
+     if isinstance(decision, ProposalDecision):
+         return _Step(TaskState.PROPOSED, proposal=decision.proposal)
+     if isinstance(decision, NeedsFreshEvidence):
+         return _Step(TaskState.COLLECTING_EVIDENCE)
+     raise _BrokenCollaborator(f"Decide 回傳了合約之外的型別:{type(decision)!r}")
+ 
+ 
++def _why_not(
++    c: _Collaborators, row: TaskRow, evidence: tuple[Evidence, ...], now: datetime
++) -> StrEnum | None:
++    """不提案的原因只是給人看的附帶資料:問不到、出錯或答非列舉成員都當作沒有原因,不改變「不提案」
++    這個結果(原因表不會刪,任意字串寫進去等於開一條注入管道)。"""
++    if c.no_action_reason is None:
++        return None
++    try:
++        answer = c.no_action_reason(row, evidence, now)
++    except Exception:  # 附帶資料查不出來不影響流程,跟證據來源失敗一樣不轉 FAILED
++        return None
++    return answer if isinstance(answer, StrEnum) else None
++
++
+ def _from_proposed(
+     _store: TaskStore, row: TaskRow, c: _Collaborators, _now: datetime
+ ) -> _StepOutcome:
+     if row.proposal is None:
+         raise AssertionError("PROPOSED 狀態的列一定帶著提案快照")
+     try:
+         result = c.submit(row.proposal)
+     except SubmitRejectedPermanently as exc:
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+     except SubmitStale:
+diff --git a/src/rtb/analyzer/ruff.toml b/src/rtb/analyzer/ruff.toml
+index 632ace8..a2a78ec 100644
+--- a/src/rtb/analyzer/ruff.toml
++++ b/src/rtb/analyzer/ruff.toml
+@@ -1,9 +1,10 @@
+ # analyzer 與 dsp、executor 是不同的行程,不得互相匯入(見 Phase 0 架構的行程拆分)。
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
++"rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+ "rtb.dsp".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.executor".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+diff --git a/src/rtb/analyzer/runner.py b/src/rtb/analyzer/runner.py
+new file mode 100644
+index 0000000..8f1941a
+--- /dev/null
++++ b/src/rtb/analyzer/runner.py
+@@ -0,0 +1,110 @@
++"""分析端驅動命令列(Phase 12 增量 1,正式入口):反覆領取待推進的任務,用正式的 DSP 用戶端與收件口
++用戶端呼叫流程推進函式,直到收到停止訊號(或跑滿指定輪數)。跟測試用同一支推進函式、同一套租約;
++這是正式程式,不帶任何故障手段([S1000])。
++
++租約長度與呼叫逾時的機械守衛([S1001]):一步最多兩次讀 DSP 或一次送件,呼叫次數 乘 單次逾時 乘 2
++要小於租約,否則一步還沒做完租約就到期、被別人接手,同一件工作會花兩次錢;不成立就拒絕啟動。
++"""
++
++import argparse
++import signal
++import sys
++import threading
++from collections.abc import Callable
++from datetime import UTC, datetime
++from enum import StrEnum
++from pathlib import Path
++from types import FrameType
++from typing import TextIO
++
++from rtb.analyzer import dsp_client, flow, inbox_client, instrumented, policy
++from rtb.analyzer.task_store import LEASE_DURATION, TaskRow, TaskStore, ToolEndpoint
++from rtb.domain.evidence import Evidence
++
++READY = "READY"
++CALLS_PER_STEP = 2  # 一步最多兩次讀 DSP(廣告現況、成效指標)或一次送件
++EXIT_UNSAFE_CONFIG = 2
++
++
++def _parse(argv: list[str] | None) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="分析端驅動:推進所有還沒結束的任務")
++    parser.add_argument("--db", required=True, type=Path)
++    parser.add_argument("--dsp-url", required=True)
++    parser.add_argument("--inbox-url", required=True)
++    parser.add_argument("--timeout-seconds", type=float, default=3.0)
++    parser.add_argument("--interval-seconds", type=float, default=0.5)
++    parser.add_argument("--owner", default="analyzer-runner")
++    return parser.parse_args(argv)
++
++
++def _no_action_reason(task: TaskRow, evidence: tuple[Evidence, ...],
++                      now: datetime) -> StrEnum | None:
++    """正式接線:不提案原因跟決策函式同一套規則(沒有候選、空的允許清單,等於決策函式的判法)。"""
++    return policy.explain(task, evidence, now, candidate=None,
++                          allowed=policy.ValidatedCells.NONE)[1]
++
++
++def _advance_one(store: TaskStore, task_id: str, args: argparse.Namespace,
++                 now: datetime) -> None:
++    row = store.latest(task_id)
++    if row is None:
++        return
++    source = instrumented.dsp_evidence_source(store, args.dsp_url, args.timeout_seconds)
++
++    def read_evidence(task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
++        return source(task, now)
++
++    send = inbox_client.make_client(args.inbox_url, args.timeout_seconds)
++    lookup = dsp_client.make_operation_lookup(args.dsp_url, args.timeout_seconds)
++    # 呼叫紀錄綁「呼叫當下讀到的那一列」:每一步都用當下的列重建
++    flow.advance(
++        store, task_id, read_evidence, policy.decide,
++        instrumented.InstrumentedSubmit(store, send, ToolEndpoint.INBOX_SUBMIT, row), now,
++        owner=args.owner,
++        operation_lookup=instrumented.InstrumentedOperationLookup(
++            store, lookup, ToolEndpoint.DSP_OPERATION, row),
++        no_action_reason=_no_action_reason)
++
++
++def run(
++    argv: list[str] | None = None, *, max_rounds: int | None = None,
++    stop: threading.Event | None = None, out: TextIO | None = None, err: TextIO | None = None,
++    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
++) -> int:
++    args = _parse(argv)
++    errors = err or sys.stderr
++    if CALLS_PER_STEP * args.timeout_seconds * 2 >= LEASE_DURATION.total_seconds():
++        errors.write(f"拒絕啟動:{CALLS_PER_STEP} 次呼叫 乘 逾時 {args.timeout_seconds} 秒 乘 2 "
++                     f"不小於租約 {LEASE_DURATION.total_seconds():.0f} 秒\n")
++        return EXIT_UNSAFE_CONFIG
++    stop = stop or threading.Event()
++    store = TaskStore(args.db)
++    try:
++        print(READY, file=out or sys.stdout, flush=True)
++        rounds = 0
++        while not stop.is_set() and (max_rounds is None or rounds < max_rounds):
++            for task_id in store.open_task_ids():
++                try:
++                    _advance_one(store, task_id, args, clock())
++                except Exception as problem:  # 一件任務出事不停掉整個驅動;下一輪再試
++                    errors.write(f"{task_id} 這一步沒有進展:{problem!r}\n")
++            rounds += 1
++            stop.wait(args.interval_seconds)
++        return 0
++    finally:
++        store.close()
++
++
++def main(argv: list[str] | None = None) -> None:
++    stop = threading.Event()
++
++    def ask_to_stop(_signal: int, _frame: FrameType | None) -> None:
++        stop.set()
++
++    signal.signal(signal.SIGTERM, ask_to_stop)
++    signal.signal(signal.SIGINT, ask_to_stop)
++    raise SystemExit(run(argv, stop=stop))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index 299f9b1..cc3f6fa 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -25,21 +25,21 @@ from collections.abc import Callable, Sequence
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from pathlib import Path
+ from types import MappingProxyType
+ from typing import Any
+ 
+ from rtb.domain._checks import is_id, require_aware
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
+ from rtb.domain.proposal import ActionType, Proposal
+-from rtb.domain.task_state import IllegalTransition, TaskState, can_transition
++from rtb.domain.task_state import TERMINAL_STATES, IllegalTransition, TaskState, can_transition
+ from rtb.sqlitekit import (
+     BUSY_TIMEOUT_SECONDS,
+     DatabaseBusy,
+     DatabaseNotUpgraded,
+     begin_snapshot,
+     connect,
+     connect_read_only,
+     end_snapshot,
+     immediate_transaction,
+     missing_schema,
+@@ -59,20 +59,23 @@ CREATE TABLE IF NOT EXISTS evidence (
+ CREATE TABLE IF NOT EXISTS tool_calls (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, task_seq INTEGER NOT NULL,
+     endpoint TEXT NOT NULL, outcome TEXT NOT NULL, latency_ms REAL NOT NULL, at TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS task_leases (
+     task_id TEXT NOT NULL, lease_seq INTEGER NOT NULL, owner TEXT, expires_at TEXT NOT NULL,
+     PRIMARY KEY (task_id, lease_seq));
+ CREATE TABLE IF NOT EXISTS follow_ups (
+     original_task_id TEXT PRIMARY KEY, follow_up_task_id TEXT UNIQUE,
+     generation INTEGER NOT NULL, campaign_id TEXT NOT NULL, reason TEXT NOT NULL,
+     outcome TEXT NOT NULL, written_at TEXT NOT NULL);
++CREATE TABLE IF NOT EXISTS no_action_reasons (
++    task_id TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL,
++    PRIMARY KEY (task_id, seq));
+ CREATE INDEX IF NOT EXISTS follow_ups_by_campaign ON follow_ups (campaign_id);
+ CREATE INDEX IF NOT EXISTS tool_calls_by_time ON tool_calls (at);
+ """
+ _TASK_COLUMNS = ("task_id, seq, state, campaign_id, proposal_json, error_detail, written_at, "
+                  "operation_key")
+ MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
+ # 暫用,沒有實測校準:要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件,各自的逾時由建用戶端
+ # 的呼叫端決定);分析行程還沒有正式啟動程式,這條不等式目前沒有機械守衛(計劃增量 3b)
+ LEASE_DURATION = timedelta(seconds=60)
+ # 接續任務的保留命名空間:一般建任務入口拒收這個開頭的任務編號,只有建接續任務寫得進去
+@@ -320,27 +323,47 @@ class TaskReads:
+             "SELECT task_id, task_seq, endpoint, outcome, latency_ms, at FROM tool_calls "
+             "WHERE task_id = ? ORDER BY id", (task_id,),
+         ).fetchall()
+         return tuple(_tool_call(r) for r in rows)
+ 
+     def tool_calls_between(self, since: datetime, until: datetime) -> tuple[ToolCall, ...]:
+         """時間窗內的對外呼叫(含起點、不含終點),依時間;走時間索引(Phase 9 增量 2 的指標用)。"""
+         sql, params = tool_calls_between_query(since, until)
+         return tuple(_tool_call(row) for row in self._conn.execute(sql, params))
+ 
++    def no_action_reason(self, task_id: str, seq: int) -> str | None:
++        """不提案那一列存下的原因(Phase 12 設計審 r2 p1);沒存、或資料庫還沒有原因表都回空值。
++        唯讀開法不建表,所以先看表在不在:Phase 12 之前的資料庫照樣開得起來。"""
++        if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
++                              "AND name = 'no_action_reasons'").fetchone() is None:
++            return None
++        record = self._conn.execute(
++            "SELECT reason FROM no_action_reasons WHERE task_id = ? AND seq = ?", (task_id, seq),
++        ).fetchone()
++        return None if record is None else str(record[0])
++
+     def history(self, task_id: str) -> tuple[TaskRow, ...]:
+         records = self._conn.execute(
+             f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ? ORDER BY seq",  # noqa: S608 - 固定欄位清單
+             (task_id,),
+         ).fetchall()
+         return tuple(_row_from_record(r) for r in records)
+ 
++    def open_task_ids(self) -> tuple[str, ...]:
++        """最新一列還不是終點狀態的任務,依任務編號排序(Phase 12 分析端驅動命令列每一輪要推進的)。"""
++        rows = self._conn.execute(
++            "SELECT t.task_id, t.state FROM tasks t WHERE t.seq = "
++            "(SELECT max(seq) FROM tasks WHERE task_id = t.task_id) ORDER BY t.task_id",
++        ).fetchall()
++        return tuple(task_id for task_id, state in rows
++                     if TaskState(state) not in TERMINAL_STATES)
++
+     def handed_off_keys(self, task_id: str) -> tuple[tuple[int, str | None], ...]:
+         """交給執行那幾列的(序號, 存下的冪等鍵);Phase 5 之前寫的列沒有存鍵,是空值。"""
+         return tuple((int(seq), key) for seq, key in self._conn.execute(
+             "SELECT seq, operation_key FROM tasks WHERE task_id = ? AND state = ? ORDER BY seq",
+             (task_id, TaskState.HANDED_OFF.value)))
+ 
+ 
+ class TaskStore(TaskReads):
+     def __init__(self, path: Path, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS):
+         try:
+@@ -416,32 +439,37 @@ class TaskStore(TaskReads):
+         new_state: TaskState,
+         now: datetime,
+         *,
+         evidence: Sequence[Evidence] = (),
+         proposal: Proposal | None = None,
+         error_detail: str | None = None,
+         before_commit: Callable[[], None] | None = None,
+         lease: LeaseReceipt | None = None,
+         operation_key: str | None = None,
+         follow_up: FollowUp | None = None,
++        no_action_reason: StrEnum | None = None,
+     ) -> bool:
+         """核對租約與 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
+ 
+         帶收據:目前那一列租約必須正是這張收據的取得列,寫入成功就在同一個交易裡放掉租約;
+         只核對號碼不核對到期時間(時間只有呼叫端步驟開頭傳進來的那個,判不出自己過期沒有;
+         過期但沒人接手時寫進去也沒有第二個人花過錢)。不帶收據:別人持有有效租約就不寫,
+         往後忘了帶收據的呼叫端也蓋不過正在花錢的持有者。
+         回傳是否真的寫入了;False 表示輸給並行的另一次呼叫,這次呼叫沒有寫入任何東西。
+ 
+         帶 follow_up:原任務這一列(結案)跟接續任務、接續關係在同一個交易裡寫,同一道圍籬;
+         錯誤說明後面補上接續任務編號、代數用完、或接續編號衝突(防線,不建立)。
++
++        帶 no_action_reason:只准跟不提案那一列一起寫,同一個交易寫進只增的原因表(Phase 12)。
+         """
++        if no_action_reason is not None and new_state is not TaskState.NO_ACTION:
++            raise ValueError(f"原因只能跟不提案那一列一起寫,這一步是 {new_state}")
+         mismatched = [item.task_id for item in evidence if item.task_id != task_id]
+         if mismatched:
+             raise EvidenceTaskMismatch(
+                 f"要附帶的證據裡有 {mismatched} 不屬於任務 {task_id}")
+         capped_detail = (
+             None if error_detail is None else error_detail[:MAX_ERROR_DETAIL_LENGTH])
+         with immediate_transaction(self._conn):
+             if not self._lease_allows(task_id, lease, now):
+                 return False
+             row = self._conn.execute(
+@@ -456,35 +484,43 @@ class TaskStore(TaskReads):
+             next_seq = expected_seq + 1
+             if follow_up is not None:
+                 note = self._write_follow_up(task_id, campaign_id, follow_up.reason, now)
+                 capped_detail = f"{error_detail or ''};{note}"[:MAX_ERROR_DETAIL_LENGTH]
+             self._conn.execute(
+                 f"INSERT INTO tasks ({_TASK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608 - 固定欄位清單
+                 (task_id, next_seq, new_state.value, campaign_id,
+                  None if proposal is None else _proposal_to_json(proposal),
+                  capped_detail, _iso(now), operation_key),
+             )
+-            for item in evidence:
+-                self._conn.execute(
+-                    "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+-                    (task_id, next_seq, item.evidence_id, item.kind.value, item.source,
+-                     _iso(item.observed_at), item.campaign_version_observed,
+-                     item.content_hash, item.trust_class.value,
+-                     json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True,
+-                                allow_nan=False)),
+-                )
++            self._insert_attachments(task_id, next_seq, evidence, no_action_reason)
+             if lease is not None:
+                 self._append_release(lease, now)
+             if before_commit is not None:
+                 before_commit()
+         return True
+ 
++    def _insert_attachments(self, task_id: str, seq: int, evidence: Sequence[Evidence],
++                            no_action_reason: StrEnum | None) -> None:
++        """跟新的一列同一個交易寫的附帶資料:證據列,與不提案的原因。"""
++        if no_action_reason is not None:
++            self._conn.execute("INSERT INTO no_action_reasons VALUES (?, ?, ?)",
++                               (task_id, seq, no_action_reason.value))
++        for item in evidence:
++            self._conn.execute(
++                "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
++                (task_id, seq, item.evidence_id, item.kind.value, item.source,
++                 _iso(item.observed_at), item.campaign_version_observed,
++                 item.content_hash, item.trust_class.value,
++                 json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True,
++                            allow_nan=False)),
++            )
++
+     def _write_follow_up(
+         self, task_id: str, campaign_id: str, reason: ReplanReason, now: datetime,
+     ) -> str:
+         """在呼叫端的交易裡建接續任務與接續關係;回傳要補進原任務錯誤說明的一段話。"""
+         head = f"replan={reason.value}"
+         link = self._conn.execute(
+             "SELECT follow_up_task_id FROM follow_ups WHERE original_task_id = ?", (task_id,),
+         ).fetchone()
+         if link is not None:  # 防線:同一個交易寫原任務結案,正常不會已有關係;沿用、不再寫
+             return f"{head};follow_up={link[0] or 'none'}"
+diff --git a/src/rtb/demo/__init__.py b/src/rtb/demo/__init__.py
+new file mode 100644
+index 0000000..a2473ad
+--- /dev/null
++++ b/src/rtb/demo/__init__.py
+@@ -0,0 +1 @@
++"""只供本機事故展示使用的頁面元件。"""
+diff --git a/src/rtb/demo/faults/__init__.py b/src/rtb/demo/faults/__init__.py
+new file mode 100644
+index 0000000..44c9b95
+--- /dev/null
++++ b/src/rtb/demo/faults/__init__.py
+@@ -0,0 +1 @@
++"""展示專用的故障手段(Phase 12 增量 1)。只准展示啟動器匯入;正式程式與展示的其他模組碰不到。"""
+diff --git a/src/rtb/demo/faults/delivery.py b/src/rtb/demo/faults/delivery.py
+new file mode 100644
+index 0000000..61efe44
+--- /dev/null
++++ b/src/rtb/demo/faults/delivery.py
+@@ -0,0 +1,98 @@
++"""故障跨行程交付(Phase 12 設計審 r3 m2):啟動器在這次展示的暫存根目錄寫一份故障設定檔,另產生
++一次性隨機值,經白名單環境只傳給那一個子行程;子行程啟動時核對設定檔在根目錄內、隨機值相符、根目錄
++是這次展示建的(標記檔內容等於設定檔記的展示編號)、目標路徑都在根目錄內,任一不符就拒。
++
++設定檔只存隨機值的雜湊,不存隨機值本身:讀得到暫存目錄的人照樣造不出能通過的一次交付。天花板:
++同一個使用者的其他本機程式讀得到環境與暫存目錄,這裡不防本機惡意程式(計劃〈實務隱患〉)。
++"""
++
++import hashlib
++import hmac
++import json
++import os
++import secrets
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++ROOT_MARKER = ".rtb-demo-root"
++_NONCE_BYTES = 32
++
++
++class FaultRefused(Exception):
++    """交付核對沒過:子行程不啟動故障(也不退回成沒有故障的正常啟動)。"""
++
++
++@dataclass(frozen=True)
++class FaultPlan:
++    """一個子行程的故障安排。dsp_plan 依序給每個會改狀態的請求(故障模式, DSP 時鐘偏移秒數);
++    clock_offset_seconds 是整個子行程的時鐘偏移;crash_point 是執行迴圈的猝死點。"""
++
++    role: str
++    dsp_plan: tuple[tuple[str, float], ...] = ()
++    clock_offset_seconds: float = 0.0
++    crash_point: str | None = None
++
++
++def prepare_root(base: Path, demo_id: str) -> Path:
++    root = Path(base) / demo_id
++    root.mkdir(parents=True, mode=0o700)  # 已經存在就是別次展示的,丟例外不共用
++    (root / ROOT_MARKER).write_text(demo_id, encoding="utf-8")
++    return root
++
++
++def _digest(nonce: str) -> str:
++    return hashlib.sha256(nonce.encode("utf-8")).hexdigest()
++
++
++def write_plan(root: Path, plan: FaultPlan) -> tuple[Path, str]:
++    demo_id = (root / ROOT_MARKER).read_text(encoding="utf-8")
++    nonce = secrets.token_urlsafe(_NONCE_BYTES)
++    path = root / f"faults-{plan.role}-{secrets.token_hex(4)}.json"
++    body = {"demo_id": demo_id, "root": str(root.resolve()), "role": plan.role,
++            "dsp_plan": [list(step) for step in plan.dsp_plan],
++            "clock_offset_seconds": plan.clock_offset_seconds, "crash_point": plan.crash_point,
++            "nonce_sha256": _digest(nonce)}
++    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++    with os.fdopen(descriptor, "w", encoding="utf-8") as out:
++        json.dump(body, out)
++    return path, nonce
++
++
++def _load(config: Path) -> dict[str, Any]:
++    try:
++        body = json.loads(config.read_text(encoding="utf-8"))
++    except (OSError, ValueError) as bad:
++        raise FaultRefused(f"讀不到故障設定檔:{bad}") from bad
++    if not isinstance(body, dict):
++        raise FaultRefused("故障設定檔格式不對")
++    return body
++
++
++def _root_of(body: dict[str, Any], config: Path) -> Path:
++    root = Path(str(body.get("root", ""))).resolve()
++    if not root.is_absolute() or not config.resolve().is_relative_to(root):
++        raise FaultRefused("故障設定檔不在它記的展示根目錄內")
++    try:
++        marker = (root / ROOT_MARKER).read_text(encoding="utf-8")
++    except OSError as missing:
++        raise FaultRefused("根目錄不是展示建的(沒有標記檔)") from missing
++    if not hmac.compare_digest(marker, str(body.get("demo_id", ""))):
++        raise FaultRefused("根目錄不是這次展示建的(標記檔的展示編號不同)")
++    return root
++
++
++def load_verified(config: Path, nonce: str | None, role: str, targets: list[Path]) -> FaultPlan:
++    body = _load(config)
++    root = _root_of(body, config)
++    if nonce is None or not hmac.compare_digest(_digest(nonce), str(body.get("nonce_sha256"))):
++        raise FaultRefused("一次性隨機值不相符")
++    if body.get("role") != role:
++        raise FaultRefused(f"故障設定檔是給 {body.get('role')!r} 的,不是 {role!r}")
++    outside = [str(t) for t in targets if not Path(t).resolve().is_relative_to(root)]
++    if outside:
++        raise FaultRefused(f"目標路徑不在展示根目錄內:{', '.join(outside)}")
++    return FaultPlan(role=role,
++                     dsp_plan=tuple((str(f), float(o)) for f, o in body.get("dsp_plan", [])),
++                     clock_offset_seconds=float(body.get("clock_offset_seconds", 0.0)),
++                     crash_point=body.get("crash_point"))
+diff --git a/src/rtb/demo/faults/dsp.py b/src/rtb/demo/faults/dsp.py
+new file mode 100644
+index 0000000..169cdd4
+--- /dev/null
++++ b/src/rtb/demo/faults/dsp.py
+@@ -0,0 +1,61 @@
++"""模擬 DSP 的故障排程(照事故 F1 端到端測試的組法):每個會改狀態的請求依序取一個安排
++(故障模式, DSP 時鐘偏移);沒排到的請求照常。用戶端送不出故障標頭,故障只能排在伺服器這一側。"""
++
++import argparse
++import os
++import threading
++import time
++from pathlib import Path
++from typing import Any
++
++from rtb.capabilitykit import read_audit_key, read_key
++from rtb.demo.faults.delivery import FaultPlan
++from rtb.dsp.server import DspHandler, DspServer
++from rtb.dsp.store import CampaignStore
++
++
++class _PlannedHandler(DspHandler):
++    server: PlannedDsp
++
++    def read_fault(self, modes: frozenset[str]) -> str | None:  # noqa: ARG002 - 故障照排程給,不看標頭
++        if self.command != "POST":
++            return None
++        return self.server.next_fault()
++
++
++class PlannedDsp(DspServer):
++    def __init__(self, db: Path, plan: FaultPlan, hang_seconds: float, delay_seconds: float,
++                 **keys: Any) -> None:
++        self._base_offset = plan.clock_offset_seconds
++        self._offset = plan.clock_offset_seconds
++        self._plan = list(plan.dsp_plan)
++        self._lock = threading.Lock()
++        super().__init__(db, fault_injection=True, hang_seconds=hang_seconds,
++                         delay_seconds=delay_seconds,
++                         clock=lambda: time.time() + self._offset, **keys)
++        self.RequestHandlerClass = _PlannedHandler
++
++    def next_fault(self) -> str | None:
++        with self._lock:
++            if not self._plan:
++                self._offset = self._base_offset
++                return None
++            fault, offset = self._plan.pop(0)
++            self._offset = self._base_offset + offset
++            return fault or None
++
++
++def serve(argv: list[str], plan: FaultPlan) -> None:
++    parser = argparse.ArgumentParser(description="展示用模擬 DSP(帶故障排程)")
++    parser.add_argument("--db", required=True, type=Path)
++    parser.add_argument("--hang-seconds", type=float, default=2.0)
++    parser.add_argument("--delay-seconds", type=float, default=0.3)
++    args = parser.parse_args(argv)
++    CampaignStore(args.db).close()
++    server = PlannedDsp(args.db, plan, args.hang_seconds, args.delay_seconds,
++                        capability_key=read_key(os.environ), audit_key=read_audit_key(os.environ))
++    print(f"PORT={server.server_address[1]}", flush=True)
++    try:
++        server.serve_forever()
++    finally:
++        server.server_close()
+diff --git a/src/rtb/demo/faults/executor.py b/src/rtb/demo/faults/executor.py
+new file mode 100644
+index 0000000..7b9ae0a
+--- /dev/null
++++ b/src/rtb/demo/faults/executor.py
+@@ -0,0 +1,55 @@
++"""執行迴圈的猝死點與時鐘偏移(照事故 F2、F3 端到端測試的組法):把要監控的方法換成「印出死點、
++os._exit(9)」再呼叫正式入口——行程真的猝死,沒有例外、沒有回滾、沒有收尾。"""
++
++import os
++import sys
++from collections.abc import Callable
++from datetime import datetime, timedelta
++from typing import Any
++
++from rtb.demo.faults.delivery import FaultPlan
++from rtb.executor import runner
++from rtb.executor.dsp_client import DspClient
++from rtb.executor.execution import Executor
++from rtb.executor.inbox_store import utc_now
++
++DEATH = "DEATH"
++
++
++def _die(point: str) -> None:
++    print(f"{DEATH} point={point}", file=sys.stderr, flush=True)
++    os._exit(9)
++
++
++def _before(owner: type, name: str, point: str) -> None:
++    setattr(owner, name, lambda *_a, **_k: _die(point))
++
++
++def _after(owner: type, name: str, point: str) -> None:
++    original: Callable[..., Any] = getattr(owner, name)
++
++    def wrapped(*args: Any, **kwargs: Any) -> Any:
++        original(*args, **kwargs)
++        _die(point)
++
++    setattr(owner, name, wrapped)
++
++
++CRASH_POINTS: dict[str, Callable[[str], None]] = {
++    "before_dsp_call": lambda p: _before(DspClient, "write", p),
++    "after_dsp_commit": lambda p: _after(DspClient, "write", p),
++    "before_verification": lambda p: _before(Executor, "_verify", p),
++    "after_terminal_commit": lambda p: _after(Executor, "_verify", p),
++    "after_receiving": lambda p: _before(Executor, "_take", p),
++}
++
++
++def run(argv: list[str], plan: FaultPlan) -> int:
++    if plan.crash_point is not None:
++        CRASH_POINTS[plan.crash_point](plan.crash_point)
++    shift = timedelta(seconds=plan.clock_offset_seconds)
++
++    def clock() -> datetime:
++        return utc_now() + shift
++
++    return runner.run(argv, clock=clock)
+diff --git a/src/rtb/demo/faults/ruff.toml b/src/rtb/demo/faults/ruff.toml
+new file mode 100644
+index 0000000..edea441
+--- /dev/null
++++ b/src/rtb/demo/faults/ruff.toml
+@@ -0,0 +1,6 @@
++# 故障套件自己:套件內模組互相匯入。禁令表照上一層(src/rtb/demo/ruff.toml)全部重列、只少
++# 故障套件那一條;兩份只差這一條由 tests/demo/test_boundaries.py 比對。
++extend = "../../../../pyproject.toml"
++
++[lint.flake8-tidy-imports.banned-api]
++"importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+diff --git a/src/rtb/demo/flow.py b/src/rtb/demo/flow.py
+new file mode 100644
+index 0000000..12d3ffd
+--- /dev/null
++++ b/src/rtb/demo/flow.py
+@@ -0,0 +1,409 @@
++"""Phase 12 展示的正式流程圖:節點、判斷點、分支,每個系統結果列舉成員對到圖上的哪裡,以及白話顯示字。
++
++流程圖是有向無環圖:程式裡往回走的轉換(重新蒐集資料、重送、放回排隊、開新工作)各展開成一個「回頭」
++節點,標明回到哪一步,不畫回原節點。展示走了不只一次時,判斷紀錄表逐次列出,圖上只有一份。
++
++對應表的鍵是(列舉類別, 成員名):不同列舉的同名成員(擋下原因與停下種類都有總上限已滿)不互相蓋掉。
++顯示字照使用者 2026-09-24 的白話裁定寫:禁用術語非用不可時要緊接括號白話解釋(`unexplained_terms`)。
++"""
++
++import re
++from dataclasses import dataclass
++from enum import StrEnum
++
++from rtb.analyzer.policy import NoActionReason, RoutePath
++from rtb.analyzer.task_store import ReplanReason
++from rtb.demo.state import FlowEdge, FlowGraph, FlowNode, NodeKind
++from rtb.domain.attempt import AttemptState, OutcomeCode
++from rtb.domain.evidence import Freshness
++from rtb.domain.task_state import TaskState
++from rtb.domain.worth import WorthVerdict
++from rtb.executor.execution import Result, VoidOutcome
++from rtb.executor.inbox_store import (
++    AwaitingOutcome,
++    BlockCode,
++    DeadLetterReason,
++    Disposition,
++    LastFailure,
++    LifecycleKind,
++    ReplayOutcome,
++    StopKind,
++)
++
++BANNED_TERMS = ("死信", "猝死", "總曝險", "冪等", "租約", "對帳", "護欄", "接續任務", "修訂",
++                "結果不明")
++_EXPLAINED = re.compile("[(\uff08][^()\uff08\uff09]+[)\uff09]")  # 半形或全形括號,裡面要有字
++
++
++def unexplained_terms(text: str) -> list[str]:
++    """顯示文字裡沒有緊接括號白話解釋的禁用術語(依清單順序,每個詞最多列一次)。"""
++    return [term for term in BANNED_TERMS
++            if any(not _EXPLAINED.match(text, m.end()) for m in re.finditer(term, text))]
++
++
++ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN = "分析", "收件", "執行", "廣告平台", "人工"
++LANES = (ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN)
++START = "a_receive"
++
++S, D, T = NodeKind.STEP, NodeKind.DECISION, NodeKind.TERMINAL
++_NODES: tuple[tuple[str, str, NodeKind, str], ...] = (
++    ("a_receive", "收到工作", S, ANALYZE),
++    ("a_collect", "蒐集廣告的最新資料", S, ANALYZE),
++    ("a_fresh", "資料夠新嗎?", D, ANALYZE),
++    ("a_complete", "廣告狀態和成效資料都齊全嗎?", D, ANALYZE),
++    ("a_pacing", "預算花得比預期慢嗎?", D, ANALYZE),
++    ("a_route", "由誰判斷值不值得加預算?", D, ANALYZE),
++    ("a_candidate", "請模型候選判斷", D, ANALYZE),
++    ("a_rule", "用程式規則判斷", S, ANALYZE),
++    ("a_worth", "值得加預算嗎?", D, ANALYZE),
++    ("a_no_action", "不調整,結束", T, ANALYZE),
++    ("a_failed", "這件工作出錯,結束", T, ANALYZE),
++    ("a_propose", "寫好調整建議", S, ANALYZE),
++    ("a_narrate", "請模型寫一段說明給確認的人看(僅供參考)", S, ANALYZE),
++    ("a_submit", "把建議送去執行", S, ANALYZE),
++    ("a_blocked_end", "被擋下,這件工作結束", T, ANALYZE),
++    ("i_check", "收件檢查:這份建議能收嗎?", D, INBOX),
++    ("i_superseded", "已經有更新的建議,舊的不處理", T, INBOX),
++    ("x_pending", "排隊等執行", S, INBOX),
++    ("x_pick", "拿起下一份建議:是不是已經試太多次?", D, EXECUTE),
++    ("x_deadletter", "試太多次都沒能開始,先停下等人處理", S, EXECUTE),
++    ("x_existing", "同一筆已經有人在寫,交給那一筆", T, EXECUTE),
++    ("x_precheck", "寫入前再確認:廣告還在、版本沒變、規則沒變、建議沒放太久?", D, EXECUTE),
++    ("x_expired", "建議已經過期,不再處理", S, EXECUTE),
++    ("x_guard", "在允許的廣告、預算上限與單次加幅之內嗎?", D, EXECUTE),
++    ("x_total", "全部廣告加起來會不會超過總上限?", D, EXECUTE),
++    ("x_blocked", "擋下,不寫入", S, EXECUTE),
++    ("x_wait_approval", "等人確認這次加預算", S, EXECUTE),
++    ("x_write", "寫入廣告平台", S, EXECUTE),
++    ("x_unknown", "不知道有沒有寫進去:回頭去平台查", D, EXECUTE),
++    ("x_verify", "比對平台上的實際預算是不是跟建議一樣", D, EXECUTE),
++    ("x_failed", "這筆寫入失敗(確定沒改到)", S, EXECUTE),
++    ("x_escalated", "交給人判斷,這個廣告先鎖住不再動", S, EXECUTE),
++    ("x_done", "完成:平台上的預算已照建議改好", T, EXECUTE),
++    ("p_reply", "廣告平台怎麼回覆?", D, PLATFORM),
++    ("h_approve", "人工確認:同意這次加預算嗎?", D, HUMAN),
++    ("h_replay", "人工決定:要不要重新送入?", D, HUMAN),
++    ("h_replay_refused", "不重新送入,結束", T, HUMAN),
++    ("h_resolve", "人工查明:到底有沒有寫進去?", D, HUMAN),
++)
++
++
++@dataclass(frozen=True, slots=True)
++class BackTransition:
++    """一條往回走的轉換展開成的節點:`node` 沒有出去的邊,標籤寫明回到 `returns_to` 那一步。
++    `transition` 是它在程式狀態轉換表裡對應的那一條,`lifecycle` 是執行端記下它的那種生命週期事件
++    (放回待處理的四種);兩者都沒有的(例如開新工作)就是空。"""
++
++    node: str
++    what: str
++    lane: str
++    returns_to: str
++    transition: tuple[StrEnum, StrEnum] | None = None
++    lifecycle: LifecycleKind | None = None
++
++
++BACK_TRANSITIONS = (
++    BackTransition("a_recollect", "資料太舊,重新蒐集", ANALYZE, "a_collect",
++                   (TaskState.ANALYZING, TaskState.COLLECTING_EVIDENCE)),
++    BackTransition("a_restale", "送出時資料已經過時,重新蒐集", ANALYZE, "a_collect",
++                   (TaskState.PROPOSED, TaskState.COLLECTING_EVIDENCE)),
++    BackTransition("a_followup", "開一件新工作,照廣告現在的樣子重新分析", ANALYZE, "a_receive"),
++    BackTransition("x_deferred", "這一輪先不處理,放回排隊", EXECUTE, "x_pending",
++                   lifecycle=LifecycleKind.LEASE_RELEASED),
++    BackTransition("x_lease_lost", "處理權被別人接手,這一輪放手", EXECUTE, "x_pending"),
++    BackTransition("x_reclaimed", "處理的人中途沒回報,換人重新拿起", EXECUTE, "x_pick",
++                   lifecycle=LifecycleKind.RECLAIMED),
++    BackTransition("x_approved", "人已同意,放回排隊", EXECUTE, "x_pending",
++                   lifecycle=LifecycleKind.APPROVAL_RELEASED),
++    BackTransition("r_requeued", "同一份建議重新放回排隊", HUMAN, "x_pending",
++                   lifecycle=LifecycleKind.REPLAY_REQUEUED),
++    BackTransition("x_resend", "用同一個編號再送一次", EXECUTE, "x_write",
++                   (AttemptState.UNKNOWN, AttemptState.IN_FLIGHT)),
++    BackTransition("x_recheck", "這次查不出結論,稍後再查", EXECUTE, "x_unknown"),
++)
++
++_EDGES: tuple[tuple[str, str, str], ...] = (
++    ("a_receive", "a_collect", "開始"),
++    ("a_collect", "a_fresh", "拿到資料"),
++    ("a_fresh", "a_recollect", "太舊"),
++    ("a_fresh", "a_complete", "夠新"),
++    ("a_complete", "a_no_action", "缺資料"),
++    ("a_complete", "a_pacing", "齊全"),
++    ("a_pacing", "a_no_action", "不慢或算不出來"),
++    ("a_pacing", "a_route", "偏慢"),
++    ("a_route", "a_rule", "沒有候選或不在允許範圍"),
++    ("a_route", "a_candidate", "交給模型候選"),
++    ("a_candidate", "a_worth", "候選給出答案"),
++    ("a_candidate", "a_rule", "候選出狀況,改用程式規則"),
++    ("a_rule", "a_worth", "規則的結果"),
++    ("a_worth", "a_no_action", "不值得或資料不夠判斷"),
++    ("a_worth", "a_propose", "值得"),
++    ("a_worth", "a_failed", "分析出錯"),
++    ("a_propose", "a_narrate", "附上模型說明"),
++    ("a_propose", "a_submit", "直接送出"),
++    ("a_narrate", "a_submit", "送出"),
++    ("a_submit", "i_check", "送到收件"),
++    ("i_check", "x_pending", "收下"),
++    ("i_check", "a_restale", "資料已過時"),
++    ("i_check", "a_failed", "拒收(內容有衝突或格式不對)"),
++    ("i_check", "i_superseded", "已有更新的建議"),
++    ("i_check", "x_expired", "送到時已過期"),
++    ("x_pending", "x_pick", "輪到它"),
++    ("x_pending", "a_followup", "紀錄已清掉、平台也查不到"),
++    ("x_pick", "x_deadletter", "試太多次了"),
++    ("x_pick", "x_precheck", "還能處理"),
++    ("x_pick", "x_existing", "同一筆已經有人在寫"),
++    ("x_pick", "x_lease_lost", "處理權被接手"),
++    ("x_deadletter", "h_replay", "等人決定"),
++    ("h_replay", "r_requeued", "重新送入"),
++    ("h_replay", "h_replay_refused", "不送入"),
++    ("x_precheck", "x_blocked", "沒過"),
++    ("x_precheck", "x_expired", "已過期"),
++    ("x_precheck", "x_deferred", "這一輪先不處理"),
++    ("x_precheck", "x_guard", "通過"),
++    ("x_guard", "x_blocked", "超出允許範圍"),
++    ("x_guard", "x_wait_approval", "一次加太多,要人確認"),
++    ("x_guard", "x_total", "在範圍內"),
++    ("x_total", "x_blocked", "總上限已用完"),
++    ("x_total", "x_wait_approval", "會超過總上限,要人確認"),
++    ("x_total", "x_write", "不會超過"),
++    ("x_wait_approval", "h_approve", "等人確認"),
++    ("h_approve", "x_approved", "同意"),
++    ("h_approve", "x_blocked", "放太久沒人確認"),
++    ("h_approve", "i_superseded", "等的時候有了更新的建議"),
++    ("x_write", "p_reply", "送出"),
++    ("x_write", "x_reclaimed", "處理到一半中斷"),
++    ("p_reply", "x_verify", "說收到了"),
++    ("p_reply", "x_failed", "拒絕"),
++    ("p_reply", "x_unknown", "沒有明確回覆(逾時或斷線)"),
++    ("p_reply", "x_escalated", "請求本身有問題"),
++    ("x_unknown", "x_verify", "查到已經寫進去"),
++    ("x_unknown", "x_resend", "確定沒寫進去"),
++    ("x_unknown", "x_failed", "已作廢,確定不會發生"),
++    ("x_unknown", "x_recheck", "這次查不出來"),
++    ("x_unknown", "x_escalated", "查不出也證明不了"),
++    ("x_verify", "x_done", "一致"),
++    ("x_verify", "x_escalated", "不一致或一直查不到"),
++    ("x_escalated", "h_resolve", "等人查明"),
++    ("h_resolve", "x_done", "有寫進去"),
++    ("h_resolve", "x_failed", "沒寫進去"),
++    ("x_failed", "a_failed", "記成失敗"),
++    ("x_blocked", "a_followup", "廣告或規則變了、建議放太久"),
++    ("x_blocked", "a_blocked_end", "其他原因"),
++    ("x_expired", "a_followup", "照現況重新分析"),
++)
++
++
++def _graph() -> FlowGraph:
++    labels = {node_id: label for node_id, label, _, _ in _NODES}
++    back_nodes = tuple(
++        FlowNode(b.node, f"{b.what}(回到「{labels[b.returns_to]}」)", S, b.lane)
++        for b in BACK_TRANSITIONS)
++    nodes = tuple(FlowNode(*row) for row in _NODES) + back_nodes
++    return FlowGraph(nodes, tuple(FlowEdge(*row) for row in _EDGES))
++
++
++FLOW_GRAPH = _graph()
++
++
++@dataclass(frozen=True, slots=True)
++class Place:
++    """一個列舉成員在圖上的位置(節點或邊,二擇一)與它的白話顯示字。"""
++
++    text: str
++    node: str | None = None
++    edge: tuple[str, str] | None = None
++
++
++def _at(node: str, text: str) -> Place:
++    return Place(text, node=node)
++
++
++def _on(source: str, target: str, text: str) -> Place:
++    return Place(text, edge=(source, target))
++
++
++MAPPED_ENUMS: tuple[type[StrEnum], ...] = (
++    Disposition, BlockCode, DeadLetterReason, StopKind, LifecycleKind, ReplayOutcome,
++    AttemptState, OutcomeCode, VoidOutcome, Result, TaskState, ReplanReason, RoutePath,
++    NoActionReason, AwaitingOutcome, LastFailure, Freshness, WorthVerdict,
++)
++
++_PLACES: dict[type[StrEnum], dict[str, Place]] = {
++    Disposition: {
++        "IN_PROGRESS": _at("x_pick", "執行端已拿起,正在處理"),
++        "HANDED_OFF": _at("x_write", "已交給寫入這一步"),
++        "BLOCKED": _at("x_blocked", "擋下,不寫入"),
++        "DEAD_LETTER": _at("x_deadletter", "試太多次都沒能開始,先停下等人處理"),
++        "AWAITING_APPROVAL": _at("x_wait_approval", "等人確認"),
++    },
++    BlockCode: {
++        "CAMPAIGN_NOT_FOUND": _on("x_precheck", "x_blocked", "找不到這個廣告"),
++        "CAMPAIGN_NOT_ACTIVE": _on("x_precheck", "x_blocked", "廣告已經沒在投放"),
++        "VERSION_CHANGED": _on("x_precheck", "x_blocked", "建議寫好之後,廣告被別人改過"),
++        "CAMPAIGN_NOT_ALLOWED": _on("x_guard", "x_blocked", "這個廣告不在允許調整的範圍"),
++        "OVER_BUDGET_CAP": _on("x_guard", "x_blocked", "調完會超過這個廣告的預算上限"),
++        "BUDGET_INCREASE_TOO_LARGE": _on("x_guard", "x_wait_approval", "一次加太多,要人確認"),
++        "OPERATION_PREVIOUSLY_FAILED": _on("x_precheck", "x_blocked", "同一筆之前已經確定失敗"),
++        "AGGREGATE_LIMIT_REACHED": _on("x_total", "x_wait_approval",
++                                       "全部加起來會超過總上限,要人確認"),
++        "POLICY_VERSION_CHANGED": _on("x_precheck", "x_blocked", "建議寫好之後,規則改了"),
++        "DECISION_STALE": _on("x_precheck", "x_blocked", "建議放太久,已經不算數"),
++    },
++    DeadLetterReason: {
++        "DELIVERY_LIMIT": _on("x_pick", "x_deadletter", "送了太多次都沒能開始處理"),
++    },
++    StopKind: {
++        "AGGREGATE_LIMIT_REACHED": _on("x_total", "x_blocked", "總上限已經用完,擋下"),
++        "TABLE_FULL": _on("x_precheck", "x_deferred", "待處理的太多,這一輪先放回排隊"),
++        "BUDGET_INCREASE_TOO_LARGE": _on("x_guard", "x_wait_approval", "一次加太多,停下等人確認"),
++    },
++    LifecycleKind: {
++        "RECEIVED": _on("i_check", "x_pending", "收件收下"),
++        "SUPERSEDED": _at("i_superseded", "已經有更新的建議,舊的不處理"),
++        "EXPIRED": _at("x_expired", "建議已經過期"),
++        "DELIVERED": _on("x_pending", "x_pick", "輪到它,被拿起"),
++        "RECLAIMED": _at("x_reclaimed", "前一個處理的人沒回報,換人接手"),
++        "LEASE_RELEASED": _at("x_deferred", "這一輪沒能開始,放回排隊"),
++        "HANDED_OFF": _at("x_write", "交給寫入這一步"),
++        "BLOCKED": _at("x_blocked", "擋下"),
++        "DEAD_LETTERED": _at("x_deadletter", "停下等人處理"),
++        "AWAITING_APPROVAL": _at("x_wait_approval", "開始等人確認"),
++        "APPROVAL_RELEASED": _at("x_approved", "人已同意,放回排隊"),
++        "REPLAY_REQUEUED": _at("r_requeued", "人工重新送入,放回排隊"),
++    },
++    ReplayOutcome: {
++        "REQUEUED": _on("h_replay", "r_requeued", "重新放回排隊"),
++        "NOT_IN_INBOX": _on("h_replay", "h_replay_refused", "收件紀錄已經不在了"),
++        "NOT_DEAD_LETTER": _on("h_replay", "h_replay_refused", "它不是停下等人處理的那種"),
++        "EXPIRED": _on("h_replay", "h_replay_refused", "建議已經過期"),
++        "SUPERSEDED": _on("h_replay", "h_replay_refused", "已經有更新的建議"),
++        "UNREADABLE": _on("h_replay", "h_replay_refused", "存下來的內容讀不回來"),
++        "INBOX_FULL": _on("h_replay", "h_replay_refused", "排隊已滿"),
++    },
++    AttemptState: {
++        "IN_FLIGHT": _at("x_write", "正在送去平台"),
++        "UNKNOWN": _at("x_unknown", "不知道平台有沒有寫進去"),
++        "COMMITTED_UNVERIFIED": _at("x_verify", "平台說收到了,還沒比對實際狀態"),
++        "VERIFIED": _at("x_done", "比對過,平台上確實改好了"),
++        "FAILED": _at("x_failed", "確定沒改到"),
++        "ESCALATED": _at("x_escalated", "交給人判斷,廣告先鎖住"),
++    },
++    OutcomeCode: {
++        "VERSION_CONFLICT": _on("p_reply", "x_failed", "平台說廣告版本不對"),
++        "VALIDATION_REJECTED": _on("p_reply", "x_failed", "平台說內容不合格"),
++        "CAMPAIGN_NOT_FOUND": _on("p_reply", "x_failed", "平台找不到這個廣告"),
++        "OTHER_REJECTION": _on("p_reply", "x_failed", "平台以其他原因拒絕"),
++        "NOT_HAPPENED": _on("x_unknown", "x_failed", "確定這筆不會發生"),
++        "MANUAL_FAILURE": _on("h_resolve", "x_failed", "人查明沒寫進去"),
++        "IDEMPOTENCY_CONFLICT": _on("p_reply", "x_escalated", "同一個編號送了不同內容"),
++        "VERIFICATION_TIMEOUTS_EXHAUSTED": _on("x_verify", "x_escalated", "一直查不到結論"),
++        "SEND_LIMIT_REACHED": _on("x_unknown", "x_escalated", "重送次數用完"),
++        "VERIFICATION_MISMATCH": _on("x_verify", "x_escalated", "平台上的預算跟建議不一樣"),
++        "CANNOT_PROVE_NOT_HAPPENED": _on("x_unknown", "x_escalated", "證明不了這筆沒發生"),
++        "CAPABILITY_REJECTED": _on("p_reply", "x_escalated", "平台不收這次的寫入許可"),
++        "LOCAL_REQUEST_ERROR": _on("p_reply", "x_escalated", "我們自己送出的請求有錯"),
++    },
++    VoidOutcome: {
++        "FAILED": _on("x_unknown", "x_failed", "作廢成功,確定沒寫進去"),
++        "FOUND": _on("x_unknown", "x_verify", "查到已經寫進去"),
++        "TIMEOUT": _on("x_unknown", "x_recheck", "這次查不出結論,稍後再查"),
++        "ESCALATED": _on("x_unknown", "x_escalated", "查不出來,交給人"),
++    },
++    Result: {
++        "IDLE": _at("x_pending", "沒有要處理的建議"),
++        "DEFERRED": _at("x_deferred", "這一輪什麼都沒寫,先放回排隊"),
++        "EXPIRED": _at("x_expired", "建議已經過期"),
++        "BLOCKED": _at("x_blocked", "擋下,不寫入"),
++        "HANDED_OFF_TO_EXISTING": _at("x_existing", "同一筆已經有人在寫,交給那一筆"),
++        "EXECUTED": _on("x_total", "x_write", "檢查都通過,送去寫入"),
++        "AWAITING_APPROVAL": _at("x_wait_approval", "停下等人確認"),
++        "LEASE_LOST": _at("x_lease_lost", "處理權被別人接手,這一輪放手"),
++    },
++    TaskState: {
++        "RECEIVED": _at("a_receive", "收到工作"),
++        "COLLECTING_EVIDENCE": _at("a_collect", "正在蒐集資料"),
++        "ANALYZING": _at("a_fresh", "正在分析資料"),
++        "PROPOSED": _at("a_propose", "建議寫好了"),
++        "HANDED_OFF": _on("i_check", "x_pending", "執行端已收下"),
++        "COMPLETED": _at("x_done", "完成"),
++        "FAILED": _at("a_failed", "出錯,結束"),
++        "BLOCKED": _at("a_blocked_end", "被擋下,結束"),
++        "NO_ACTION": _at("a_no_action", "不調整,結束"),
++        "SUPERSEDED": _at("i_superseded", "被更新的建議取代"),
++    },
++    ReplanReason: {
++        "VERSION_CHANGED": _on("x_blocked", "a_followup", "廣告被別人改過,照現況重新分析"),
++        "EXPIRED": _on("x_expired", "a_followup", "建議過期,重新分析"),
++        "AFTER_RETENTION": _on("x_pending", "a_followup",
++                               "收件紀錄已清掉、平台也查不到這筆寫入,重新分析"),
++        "POLICY_VERSION_CHANGED": _on("x_blocked", "a_followup", "規則改了,照新規則重新分析"),
++        "DECISION_STALE": _on("x_blocked", "a_followup", "建議放太久,重新分析"),
++    },
++    RoutePath: {
++        "CODE_RULE": _on("a_route", "a_rule", "用程式規則判斷"),
++        "CANDIDATE": _on("a_candidate", "a_worth", "模型候選給出答案"),
++        "FALLBACK_EXCEPTION": _on("a_candidate", "a_rule", "模型候選出錯,改用程式規則"),
++        "FALLBACK_TIMEOUT": _on("a_candidate", "a_rule", "模型候選太慢,改用程式規則"),
++        "FALLBACK_INVALID": _on("a_candidate", "a_rule", "模型候選的答案看不懂,改用程式規則"),
++        "FALLBACK_UNSURE": _on("a_candidate", "a_rule", "模型候選沒把握,改用程式規則"),
++    },
++    NoActionReason: {
++        "STALE_EVIDENCE": _on("a_fresh", "a_recollect", "資料太舊,要重新蒐集"),
++        "MISSING_STATE_OR_METRICS": _on("a_complete", "a_no_action", "缺廣告狀態或成效資料"),
++        "PACING_UNKNOWN": _on("a_pacing", "a_no_action", "算不出預算花得快還是慢"),
++        "NOT_UNDERPACING": _on("a_pacing", "a_no_action", "預算沒有花得比預期慢"),
++        "JUDGED_NOT_WORTH": _on("a_worth", "a_no_action", "判斷不值得加"),
++        "JUDGED_INSUFFICIENT": _on("a_worth", "a_no_action", "資料不夠判斷"),
++    },
++}
++
++_PLACES.update({
++    AwaitingOutcome: {
++        "EXPIRED": _on("h_approve", "x_blocked", "放太久沒人確認,擋下"),
++        "SUPERSEDED": _on("h_approve", "i_superseded", "等的時候有了更新的建議"),
++        "RELEASED": _on("h_approve", "x_approved", "人已同意,放回排隊"),
++    },
++    LastFailure: {
++        "DSP_UNAVAILABLE": _on("x_precheck", "x_deferred", "讀不到廣告平台的現況,這一輪先放回"),
++        "TABLE_FULL": _on("x_precheck", "x_deferred", "待處理的太多,這一輪先放回"),
++        "NO_REPORT": _at("x_reclaimed", "處理的人中途沒回報"),
++    },
++    Freshness: {
++        "FRESH": _on("a_fresh", "a_complete", "資料夠新"),
++        "EXPIRED": _on("a_fresh", "a_recollect", "資料超過有效時間"),
++        "VERSION_CHANGED": _on("a_fresh", "a_recollect", "讀到資料之後廣告又被改過"),
++        "UNVERIFIED": _on("a_fresh", "a_recollect", "沒讀到廣告現在的版本,不能算新"),
++    },
++    WorthVerdict: {
++        "WORTH": _on("a_worth", "a_propose", "值得加"),
++        "NOT_WORTH": _on("a_worth", "a_no_action", "不值得加"),
++        "INSUFFICIENT": _on("a_worth", "a_no_action", "資料不夠判斷"),
++        "UNSURE": _on("a_candidate", "a_rule", "模型候選沒把握,改用程式規則"),
++    },
++})
++
++OUTCOMES: dict[tuple[type[StrEnum], str], Place] = {
++    (enum, name): place for enum, places in _PLACES.items() for name, place in places.items()}
++
++# 每個判斷點綁一個列舉(設計審 r2 n9):除了列在後面的例外分支,每條分支都有那個列舉的成員對到這條邊或
++# 它通往的節點。例外分支是「檢查通過、往下走」或由別的紀錄決定的那一條,旁邊寫明。
++DECISION_ENUMS: dict[str, tuple[type[StrEnum], tuple[str, ...]]] = {
++    "a_fresh": (Freshness, ()),
++    "a_complete": (NoActionReason, ("a_pacing",)),  # 齊全:往下走
++    "a_pacing": (NoActionReason, ("a_route",)),  # 偏慢:往下走
++    "a_route": (RoutePath, ("a_candidate",)),  # 交給候選:路由結果在候選那一步才定
++    "a_candidate": (RoutePath, ()),
++    "a_worth": (WorthVerdict, ("a_failed",)),  # 分析出錯:任務狀態記成失敗
++    "i_check": (LifecycleKind, ("a_restale", "a_failed")),  # 送件時過時與拒收:任務狀態記
++    "x_pick": (Result, ("x_deadletter", "x_precheck")),  # 試太多次:死信原因記;還能處理:往下走
++    "x_precheck": (Result, ("x_guard",)),  # 通過:往下走
++    "x_guard": (Result, ("x_total",)),  # 在範圍內:往下走
++    "x_total": (Result, ()),
++    "p_reply": (AttemptState, ()),
++    "x_unknown": (VoidOutcome, ("x_resend",)),  # 確定沒寫進去:嘗試狀態從不明回到送出中
++    "x_verify": (AttemptState, ()),
++    "h_approve": (AwaitingOutcome, ()),
++    "h_replay": (ReplayOutcome, ()),
++    "h_resolve": (AttemptState, ()),
++}
+diff --git a/src/rtb/demo/keys.py b/src/rtb/demo/keys.py
+new file mode 100644
+index 0000000..1e13477
+--- /dev/null
++++ b/src/rtb/demo/keys.py
+@@ -0,0 +1,36 @@
++"""一次展示的三把金鑰(能力、稽核、核可),Phase 12 設計審 r3 m1。
++
++環境變數只裝得下文字,子行程照共用讀法 `read_key` 把文字轉回 UTF-8 位元組;所以金鑰一開始就是
++`secrets.token_urlsafe` 的文字,伺服器行程內簽發也用同一條轉法(`signing_bytes`),兩邊的值才相同。
++用位元組金鑰的話,含 NUL 的傳不進環境、不是合法 UTF-8 的讀不回來(r3 實測 2000 把全部失敗)。
++"""
++
++import secrets
++from dataclasses import dataclass
++
++from rtb.capabilitykit import APPROVAL_KEY_ENV, AUDIT_KEY_ENV, KEY_ENV, MIN_KEY_BYTES
++
++_TOKEN_BYTES = MIN_KEY_BYTES  # token_urlsafe(32) 是 43 個 ASCII 字元,UTF-8 長度 43 ≥ 32
++
++
++@dataclass(frozen=True, repr=False)
++class DemoKeys:
++    capability: str
++    audit: str
++    approval: str
++
++    @classmethod
++    def generate(cls) -> DemoKeys:
++        return cls(*(secrets.token_urlsafe(_TOKEN_BYTES) for _ in range(3)))
++
++    def text(self, env_name: str) -> str:
++        """這把金鑰放進子行程環境的文字。"""
++        return {KEY_ENV: self.capability, AUDIT_KEY_ENV: self.audit,
++                APPROVAL_KEY_ENV: self.approval}[env_name]
++
++    def signing_bytes(self, env_name: str) -> bytes:
++        """伺服器行程內簽發用的位元組:跟子行程 `read_key` 讀回的一樣。"""
++        return self.text(env_name).encode("utf-8")
++
++    def __repr__(self) -> str:
++        return "DemoKeys(<三把展示金鑰,不印出>)"
+diff --git a/src/rtb/demo/launcher/__init__.py b/src/rtb/demo/launcher/__init__.py
+new file mode 100644
+index 0000000..056e570
+--- /dev/null
++++ b/src/rtb/demo/launcher/__init__.py
+@@ -0,0 +1,174 @@
++"""展示啟動器(Phase 12 增量 1):用子行程起各角色,環境一律從白名單組;要排故障的子行程改經
++故障啟動器(`rtb.demo.launcher.child`)跑,故障設定檔與一次性隨機值只交給那一個子行程。
++
++全庫只有這個子目錄准匯入故障套件(這裡的 ruff.toml 比上一層少那一條禁令,另有測試比對兩份只差
++這一條)。展示的其他模組經這裡的 `FaultRequest`、`write_fault_plan`、`start` 排故障。
++"""
++
++import os
++import queue
++import signal
++import subprocess
++import sys
++import threading
++from collections.abc import Mapping, Sequence
++from dataclasses import dataclass
++from enum import StrEnum
++from pathlib import Path
++
++import rtb
++from rtb.capabilitykit import APPROVAL_KEY_ENV, AUDIT_KEY_ENV, KEY_ENV
++from rtb.demo.faults.delivery import ROOT_MARKER, FaultPlan, prepare_root, write_plan
++from rtb.demo.keys import DemoKeys
++
++SRC = str(Path(rtb.__file__).resolve().parents[1])  # 專案沒有安裝成套件,子行程靠它找程式
++FAULT_NONCE_ENV = "RTB_DEMO_FAULT_NONCE"
++EXIT_FAULT_REFUSED = 3
++STARTUP_SECONDS = 20.0
++STOP_SECONDS = 5.0
++_BASICS = ("PATH", "HOME", "LANG", "USER")
++_MODEL_VARIABLES = ("RTB_MODEL_LIVE", "RTB_MODEL", "RTB_MODEL_RECORD")
++
++__all__ = ["EXIT_FAULT_REFUSED", "FAULT_NONCE_ENV", "ROOT_MARKER", "FaultRequest", "Role",
++           "child_env", "command_for", "prepare_root", "start", "write_fault_plan"]
++
++
++class Role(StrEnum):
++    DSP = "dsp"
++    INBOX = "inbox"
++    EXECUTOR = "executor"
++    ANALYZER = "analyzer"
++    MODEL_ENTRY = "model_entry"
++
++
++_ROLE_KEYS: dict[Role, tuple[str, ...]] = {
++    Role.DSP: (KEY_ENV, AUDIT_KEY_ENV),
++    Role.EXECUTOR: (KEY_ENV, APPROVAL_KEY_ENV),
++}
++_MODULES: dict[Role, str] = {
++    Role.DSP: "rtb.dsp.server",
++    Role.INBOX: "rtb.executor.inbox_server",
++    Role.EXECUTOR: "rtb.executor.runner",
++    Role.ANALYZER: "rtb.analyzer.runner",
++}
++# 啟動成功時子行程印的第一行開頭:伺服器印連接埠,迴圈印就緒
++_READY_PREFIX = {Role.DSP: "PORT=", Role.INBOX: "PORT=", Role.EXECUTOR: "READY",
++                 Role.ANALYZER: "READY"}
++
++
++@dataclass(frozen=True)
++class FaultRequest:
++    """展示其他模組排故障用的請求;啟動器把它交給故障套件寫成設定檔。"""
++
++    role: Role
++    dsp_plan: tuple[tuple[str, float], ...] = ()
++    clock_offset_seconds: float = 0.0
++    crash_point: str | None = None
++
++
++def child_env(role: Role, keys: DemoKeys, *, user_env: Mapping[str, str],
++              fault_nonce: str | None = None) -> dict[str, str]:
++    """子行程環境白名單([S1003]):基本四樣照使用者環境有的才帶、PYTHONPATH 固定為專案 src、
++    該角色的金鑰;模型入口另帶三個模型變數;排了故障的那一個子行程另帶一次性隨機值。"""
++    env = {name: user_env[name] for name in _BASICS if name in user_env}
++    env["PYTHONPATH"] = SRC
++    env.update({name: keys.text(name) for name in _ROLE_KEYS.get(role, ())})
++    if role is Role.MODEL_ENTRY:
++        env.update({name: user_env[name] for name in _MODEL_VARIABLES if name in user_env})
++    if fault_nonce is not None:
++        env[FAULT_NONCE_ENV] = fault_nonce
++    return env
++
++
++def write_fault_plan(root: Path, request: FaultRequest) -> tuple[Path, str]:
++    return write_plan(root, FaultPlan(role=request.role.value, dsp_plan=request.dsp_plan,
++                                      clock_offset_seconds=request.clock_offset_seconds,
++                                      crash_point=request.crash_point))
++
++
++def command_for(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,
++                faults: FaultRequest | None,
++                user_env: Mapping[str, str]) -> tuple[list[str], dict[str, str]]:
++    if role not in _MODULES:
++        raise ValueError(f"{role} 沒有固定的正式入口")
++    if faults is None:
++        return ([sys.executable, "-m", _MODULES[role], *args],
++                child_env(role, keys, user_env=user_env))
++    if faults.role is not role:
++        raise ValueError(f"故障是排給 {faults.role} 的,不是 {role}")
++    config, nonce = write_fault_plan(root, faults)
++    return ([sys.executable, "-m", "rtb.demo.launcher.child", role.value, str(config), "--",
++             *args], child_env(role, keys, user_env=user_env, fault_nonce=nonce))
++
++
++class Process:
++    """一個已啟動的子行程:獨立的行程群組,stop 連同它開的孫行程一起結束。"""
++
++    def __init__(self, popen: subprocess.Popen[str], first_line: str) -> None:
++        self._popen = popen
++        self.first_line = first_line
++        self.pid = popen.pid
++        port = first_line.removeprefix("PORT=") if first_line.startswith("PORT=") else None
++        self.url = None if port is None else f"http://127.0.0.1:{port}"
++
++    def poll(self) -> int | None:
++        return self._popen.poll()
++
++    def wait(self, timeout: float) -> int:
++        return self._popen.wait(timeout)
++
++    def stop(self) -> None:
++        if self._popen.poll() is None:
++            try:
++                os.killpg(self._popen.pid, signal.SIGTERM)
++                self._popen.wait(STOP_SECONDS)
++            except subprocess.TimeoutExpired:
++                os.killpg(self._popen.pid, signal.SIGKILL)
++                self._popen.wait(STOP_SECONDS)
++            except ProcessLookupError:
++                pass
++        if self._popen.stdout is not None:
++            self._popen.stdout.close()
++
++
++class StartFailed(Exception):
++    """子行程沒在時限內印出就緒那一行(起不來、拒絕啟動或太慢)。"""
++
++
++def _first_line(popen: subprocess.Popen[str], prefix: str) -> str:
++    lines: queue.Queue[str] = queue.Queue()
++
++    def read() -> None:
++        if popen.stdout is None:
++            lines.put("")
++            return
++        for line in popen.stdout:
++            lines.put(line.strip())
++        lines.put("")
++
++    threading.Thread(target=read, daemon=True).start()
++    while True:
++        try:
++            line = lines.get(timeout=STARTUP_SECONDS)
++        except queue.Empty as slow:
++            raise StartFailed(f"{STARTUP_SECONDS} 秒內沒有就緒") from slow
++        if line.startswith(prefix):
++            return line
++        if line == "" and popen.poll() is not None:
++            raise StartFailed(f"子行程結束了,結束代碼 {popen.returncode}")
++
++
++def start(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,
++          faults: FaultRequest | None, user_env: Mapping[str, str]) -> Process:
++    command, env = command_for(role, args, keys, root=root, faults=faults, user_env=user_env)
++    log = open(root / f"{role.value}-{os.getpid()}-{threading.get_ident()}.log", "a",  # noqa: SIM115 - 交給子行程,父行程不再寫
++               encoding="utf-8")
++    popen = subprocess.Popen(command, env=env, cwd=root, stdout=subprocess.PIPE, stderr=log,  # noqa: S603 - 指令是固定的 python -m 模組加參數
++                             text=True, start_new_session=True)
++    log.close()
++    try:
++        first = _first_line(popen, _READY_PREFIX[role])
++    except StartFailed:
++        Process(popen, "").stop()
++        raise
++    return Process(popen, first)
+diff --git a/src/rtb/demo/launcher/child.py b/src/rtb/demo/launcher/child.py
+new file mode 100644
+index 0000000..c94f0ed
+--- /dev/null
++++ b/src/rtb/demo/launcher/child.py
+@@ -0,0 +1,53 @@
++"""故障啟動器:在子行程裡核對故障交付,過了才帶著故障跑正式入口(Phase 12 設計審 r3 m2)。
++
++用法只給展示啟動器:`python -m rtb.demo.launcher.child <角色> <故障設定檔> -- <正式入口參數>`,
++一次性隨機值經環境變數給。核對不過一律以結束代碼 3 結束,不會退回成沒有故障的正常啟動。
++"""
++
++import os
++import sys
++from pathlib import Path
++
++from rtb.demo.faults import dsp as dsp_faults
++from rtb.demo.faults import executor as executor_faults
++from rtb.demo.faults.delivery import FaultPlan, FaultRefused, load_verified
++from rtb.demo.launcher import EXIT_FAULT_REFUSED, FAULT_NONCE_ENV, Role
++
++_PATH_OPTIONS = ("--db", "--tenant-config")
++
++
++def _targets(args: list[str]) -> list[Path]:
++    return [Path(args[i + 1]) for i, arg in enumerate(args[:-1]) if arg in _PATH_OPTIONS]
++
++
++def _verified(argv: list[str]) -> tuple[Role, FaultPlan, list[str]]:
++    if len(argv) < 3 or argv[2] != "--":  # 角色、設定檔、分隔
++        raise FaultRefused("用法:<角色> <故障設定檔> -- <參數>")
++    try:
++        role = Role(argv[0])
++    except ValueError as bad:
++        raise FaultRefused(f"不認得的角色 {argv[0]!r}") from bad
++    if role not in (Role.DSP, Role.EXECUTOR):
++        raise FaultRefused(f"{role} 沒有故障手段")
++    args = argv[3:]
++    plan = load_verified(Path(argv[1]), os.environ.get(FAULT_NONCE_ENV), role.value,
++                         _targets(args))
++    if plan.crash_point is not None and plan.crash_point not in executor_faults.CRASH_POINTS:
++        raise FaultRefused(f"不認得的猝死點 {plan.crash_point!r}")
++    return role, plan, args
++
++
++def main(argv: list[str] | None = None) -> int:
++    try:
++        role, plan, args = _verified(sys.argv[1:] if argv is None else argv)
++    except FaultRefused as refused:
++        sys.stderr.write(f"拒絕啟動故障:{refused}\n")
++        return EXIT_FAULT_REFUSED
++    if role is Role.DSP:
++        dsp_faults.serve(args, plan)
++        return 0
++    return executor_faults.run(args, plan)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/src/rtb/demo/launcher/ruff.toml b/src/rtb/demo/launcher/ruff.toml
+new file mode 100644
+index 0000000..ffc2f55
+--- /dev/null
++++ b/src/rtb/demo/launcher/ruff.toml
+@@ -0,0 +1,6 @@
++# 展示啟動器:唯一准匯入故障套件的地方。禁令表照上一層(src/rtb/demo/ruff.toml)全部重列、只少
++# 故障套件那一條;兩份只差這一條由 tests/demo/test_boundaries.py 比對。
++extend = "../../../../pyproject.toml"
++
++[lint.flake8-tidy-imports.banned-api]
++"importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+diff --git a/src/rtb/demo/ruff.toml b/src/rtb/demo/ruff.toml
+new file mode 100644
+index 0000000..0a3988c
+--- /dev/null
++++ b/src/rtb/demo/ruff.toml
+@@ -0,0 +1,8 @@
++# 展示套件(Phase 12):故障套件只准展示啟動器匯入(啟動器子目錄的 ruff.toml 重列這裡全部禁令、
++# 只少故障套件那一條;ruff 子目錄設定會整張蓋掉禁令表,不能用檔案層級關掉整條規則,那會連禁止
++# 動態匯入一起放掉)。兩份只差這一條由 tests/demo/test_boundaries.py 比對。
++extend = "../../../pyproject.toml"
++
++[lint.flake8-tidy-imports.banned-api]
++"rtb.demo.faults".msg = "故障手段只准展示啟動器匯入(Phase 12 [S1050]);其他展示模組經啟動器排故障"
++"importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+diff --git a/src/rtb/demo/state.py b/src/rtb/demo/state.py
+new file mode 100644
+index 0000000..afcff87
+--- /dev/null
++++ b/src/rtb/demo/state.py
+@@ -0,0 +1,217 @@
++# ruff: noqa: RUF002
++"""展示頁與後續展示伺服器共用的不可變狀態介面。"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import datetime
++from decimal import Decimal
++from enum import Enum
++
++
++class ModelMode(Enum):
++    """這次展示的模型呼叫模式。"""
++
++    RECORDED = "錄製"
++    LIVE = "即時"
++
++
++class ModelSource(Enum):
++    """單段模型文字的來源。"""
++
++    LIVE = "即時"
++    RECORDED = "錄製"
++
++
++class ScenarioCode(Enum):
++    """Phase 12 的七個事故情境。"""
++
++    F1 = "F1"
++    F2 = "F2"
++    F3 = "F3"
++    F4 = "F4"
++    F5 = "F5"
++    F6 = "F6"
++    F7 = "F7"
++
++
++class ScenarioStatus(Enum):
++    """情境本身是否完整跑完；不把系統擋下誤當展示失敗。"""
++
++    PENDING = "尚未開始"
++    RUNNING = "正在執行"
++    DONE = "結果符合預期"
++    INCOMPLETE = "未完成"
++
++
++class Stage(Enum):
++    """任務時間線會顯示的階段。"""
++
++    RECEIVE = "收到工作"
++    ANALYZE = "查看資料"
++    PROPOSE = "準備調整建議"
++    SUBMIT = "送出建議"
++    PRECHECK = "寫入前再確認"
++    WRITE = "寫入廣告平台"
++    UNKNOWN = "平台未明確回覆"
++    RECONCILE = "回頭確認結果"
++    BLOCK = "停止處理"
++    APPROVAL = "等待人工確認"
++    REPLAY = "人工重新送入"
++    FOLLOW_UP = "建立後續工作"
++    COMPLETE = "完成"
++
++
++class NodeKind(Enum):
++    """流程圖節點形狀。"""
++
++    STEP = "一般步驟"
++    DECISION = "判斷點"
++    TERMINAL = "結束點"
++
++
++@dataclass(frozen=True, slots=True)
++class FlowNode:
++    id: str
++    label: str
++    kind: NodeKind
++    lane: str
++
++
++@dataclass(frozen=True, slots=True)
++class FlowEdge:
++    source: str
++    target: str
++    label: str
++
++
++@dataclass(frozen=True, slots=True)
++class FlowGraph:
++    nodes: tuple[FlowNode, ...]
++    edges: tuple[FlowEdge, ...]
++
++
++@dataclass(frozen=True, slots=True)
++class Decision:
++    node: str
++    taken_edge: tuple[str, str]
++    outcome: str
++    reason: str
++    at: datetime | None
++
++
++@dataclass(frozen=True, slots=True)
++class TimelineStep:
++    stage: Stage
++    at: datetime
++    detail: str
++
++
++@dataclass(frozen=True, slots=True)
++class Disposition:
++    code: str
++    explanation: str
++
++
++@dataclass(frozen=True, slots=True)
++class DspCampaign:
++    campaign: str
++    budget: int
++    version: int
++    status: str
++
++
++@dataclass(frozen=True, slots=True)
++class DspState:
++    campaigns: tuple[DspCampaign, ...]
++    operations: tuple[str, ...]
++
++
++@dataclass(frozen=True, slots=True)
++class ModelStep:
++    numbers: tuple[tuple[str, str], ...]
++    narrative: str | None
++    source: ModelSource
++    result_kind: str
++
++
++@dataclass(frozen=True, slots=True)
++class Hypothesis:
++    alert: str
++    hypotheses: tuple[str, ...]
++    next_step: str
++    source: ModelSource
++
++
++@dataclass(frozen=True, slots=True)
++class VerifierResult:
++    passed: bool
++    lines: tuple[str, ...]
++    reasons: tuple[str, ...]
++
++
++@dataclass(frozen=True, slots=True)
++class ComparisonRow:
++    forgery: str
++    without_verifier: str
++    with_verifier: str
++
++
++@dataclass(frozen=True, slots=True)
++class Comparison:
++    rows: tuple[ComparisonRow, ...]
++    note: str
++
++
++@dataclass(frozen=True, slots=True)
++class ApprovalForm:
++    proposal_hash: str
++    numbers: tuple[tuple[str, str], ...]
++    narrative: str | None
++    source: ModelSource | None
++
++
++@dataclass(frozen=True, slots=True)
++class Scenario:
++    code: ScenarioCode
++    title: str
++    what_it_tests: str
++    status: ScenarioStatus
++    incomplete_reason: str | None
++    timeline: tuple[TimelineStep, ...]
++    dispositions: tuple[Disposition, ...]
++    dsp: DspState | None
++    audit: tuple[str, ...]
++    model_step: ModelStep | None
++    hypothesis: Hypothesis | None
++    path: tuple[Decision, ...]
++    current_node: str | None
++    result_summary: str = ""
++    traversed_edges: tuple[tuple[str, str], ...] = ()
++
++
++@dataclass(frozen=True, slots=True)
++class CurrentStep:
++    scenario: ScenarioCode
++    node: str
++    started_at: datetime
++    last_decision: Decision | None
++
++
++@dataclass(frozen=True, slots=True)
++class DemoState:
++    demo_id: str
++    started_at: datetime
++    model_mode: ModelMode
++    model_cost_usd: Decimal | None
++    verifier_digest: str | None
++    commit: str | None
++    running: bool
++    scenarios: tuple[Scenario, ...]
++    verifier: VerifierResult | None
++    known_limits: tuple[str, ...]
++    comparison: Comparison | None
++    approval: ApprovalForm | None
++    flow: FlowGraph
++    current: CurrentStep | None
++    observed_at: datetime | None = None
+diff --git a/src/rtb/domain/ruff.toml b/src/rtb/domain/ruff.toml
+index 1888a62..356fc88 100644
+--- a/src/rtb/domain/ruff.toml
++++ b/src/rtb/domain/ruff.toml
+@@ -1,15 +1,16 @@
+ # 領域層(src/rtb/domain)是純判斷:不得匯入資料庫、網路、行程、動態匯入或模型客戶端。
+ # 這份設定只在這個目錄生效;DSP、測試與之後的其他層本來就要用這些,不受影響。
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
++"rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+ "sqlite3".msg = "領域層不得碰資料庫"
+ "rtb.sqlitekit".msg = "領域層不得碰資料庫(共用的資料庫基礎)"
+ "rtb.httpkit".msg = "領域層不得碰網路(共用的 HTTP 基礎)"
+ "socket".msg = "領域層不得碰網路"
+ "urllib.request".msg = "領域層不得碰網路"
+ "http.client".msg = "領域層不得碰網路"
+ "http.server".msg = "領域層不得碰網路"
+ "requests".msg = "領域層不得碰網路"
+ "httpx".msg = "領域層不得碰網路"
+ "urllib3".msg = "領域層不得碰網路"
+diff --git a/src/rtb/dsp/ruff.toml b/src/rtb/dsp/ruff.toml
+index 857873a..3d75c6e 100644
+--- a/src/rtb/dsp/ruff.toml
++++ b/src/rtb/dsp/ruff.toml
+@@ -1,8 +1,9 @@
+ # dsp 與 executor 是兩個獨立的行程,不得互相匯入(見 Phase 0 架構的行程拆分)。
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
++"rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+ "rtb.executor".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+diff --git a/src/rtb/eval/ruff.toml b/src/rtb/eval/ruff.toml
+index 61200f2..fb1f26e 100644
+--- a/src/rtb/eval/ruff.toml
++++ b/src/rtb/eval/ruff.toml
+@@ -1,11 +1,12 @@
+ # 評估套件(src/rtb/eval,Phase 10 增量 2):離線評估「值不值得加」判斷點。可以匯入分析端的判斷點與
+ # 路由、領域層的型別;不碰資料庫、不碰執行端與 DSP、不碰維運套件。反過來分析端、執行端、DSP、領域層、
+ # 維運套件都不准匯入這裡(禁令寫在各自目錄的 ruff.toml),規則作者的程式讀不到評估集。
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
++"rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+ "sqlite3".msg = "評估是離線計算,不讀也不寫任何資料庫"
+ "rtb.sqlitekit".msg = "評估是離線計算,不讀也不寫任何資料庫"
+ "rtb.executor".msg = "評估只看分析端的判斷點,不碰執行端"
+ "rtb.dsp".msg = "評估只看分析端的判斷點,不碰 DSP"
+ "rtb.ops".msg = "評估跟維運套件互不依賴"
+diff --git a/src/rtb/executor/ruff.toml b/src/rtb/executor/ruff.toml
+index 5a6397b..64e78e3 100644
+--- a/src/rtb/executor/ruff.toml
++++ b/src/rtb/executor/ruff.toml
+@@ -1,8 +1,9 @@
+ # executor 與 dsp 是兩個獨立的行程,不得互相匯入(見 Phase 0 架構的行程拆分)。
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
++"rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+ "rtb.dsp".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+diff --git a/src/rtb/ops/ruff.toml b/src/rtb/ops/ruff.toml
+index 040617a..c616f39 100644
+--- a/src/rtb/ops/ruff.toml
++++ b/src/rtb/ops/ruff.toml
+@@ -1,11 +1,12 @@
+ # 維運套件(src/rtb/ops,Phase 9 增量 1):追蹤檢視這類只讀的維運工具。可以匯入分析端與執行端的
+ # 讀取介面,但只准經唯讀開法讀資料庫(不自己開連線),DSP 只經它的 HTTP 唯讀端點讀。反過來分析端、
+ # 執行端、DSP 都不准匯入這裡(禁令寫在各自目錄的 ruff.toml)。只准呼叫的讀取函式白名單由邊界測試守。
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
++"rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+ "sqlite3".msg = "維運套件只能經分析端、執行端的唯讀開法讀資料庫,不自己開連線"
+ "rtb.sqlitekit".msg = "維運套件只能經唯讀開法讀資料庫;要的例外從收件口模組拿"
+ "rtb.dsp".msg = "DSP 只經它的 HTTP 唯讀端點讀,不匯入 DSP 的程式"
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+diff --git a/tests/analyzer/test_no_action_reason.py b/tests/analyzer/test_no_action_reason.py
+new file mode 100644
+index 0000000..ffee7fd
+--- /dev/null
++++ b/tests/analyzer/test_no_action_reason.py
+@@ -0,0 +1,159 @@
++"""分析端決定不提案時存下原因(Phase 12 [S1048],設計審 r2 p1):
++展示的判斷紀錄要讀得到「不調整」是哪一種。
++
++原因不放進決策結果(Phase 10 的裁定,決策型別的相等比較照舊);流程層另收一個可省略的「問原因」介面,
++只在決策是不提案時問,答案跟結案那一列在同一個交易裡寫進只增的原因表。
++"""
++
++import sqlite3
++
++import pytest
++
++from rtb.analyzer import flow
++from rtb.analyzer.policy import NoActionReason
++from rtb.analyzer.task_store import TaskReader, TaskStore
++from rtb.domain.task_state import TaskState
++from tests.analyzer.conftest import NOW, Counting, make_evidence, make_proposal
++
++NOOP = Counting()
++
++
++@pytest.fixture(autouse=True)
++def _reset_noop():
++    NOOP.calls.clear()
++
++
++def _to_analyzing(store):
++    store.create_task("t1", "c1", NOW)
++    flow.advance(store, "t1", NOOP, NOOP, NOOP, NOW)
++    flow.advance(store, "t1", Counting(returns=(make_evidence(),)), NOOP, NOOP, NOW)
++    return store.latest("t1")
++
++
++def _decide_nothing():
++    return Counting(returns=flow.NoAction())
++
++
++@pytest.mark.parametrize("reason", [r for r in NoActionReason
++                                    if r is not NoActionReason.STALE_EVIDENCE])
++def test_the_analyzer_keeps_why_it_did_not_propose(store, tmp_path, reason):
++    """[S1048] 不提案時問到的原因,跟結案那一列一起寫進分析端資料庫,唯讀開法也讀得到。"""
++    _to_analyzing(store)
++
++    state = flow.advance(store, "t1", NOOP, _decide_nothing(), NOOP, NOW,
++                         no_action_reason=Counting(returns=reason))
++
++    assert state is TaskState.NO_ACTION
++    seq = store.latest("t1").seq
++    assert store.no_action_reason("t1", seq) == reason.value
++    reader = TaskReader(tmp_path / "analyzer.db")
++    try:
++        assert reader.no_action_reason("t1", seq) == reason.value
++    finally:
++        reader.close()
++
++
++def test_the_reason_collaborator_gets_the_same_inputs_as_decide(store):
++    row = _to_analyzing(store)
++    ask = Counting(returns=NoActionReason.PACING_UNKNOWN)
++
++    flow.advance(store, "t1", NOOP, _decide_nothing(), NOOP, NOW, no_action_reason=ask)
++
++    (args,) = ask.calls
++    assert args[0].task_id == row.task_id and args[0].seq == row.seq
++    assert args[1] == store.evidence_for("t1", row.seq)
++    assert args[2] == NOW
++
++
++def test_without_a_reason_collaborator_nothing_changes(store):
++    _to_analyzing(store)
++
++    state = flow.advance(store, "t1", NOOP, _decide_nothing(), NOOP, NOW)
++
++    assert state is TaskState.NO_ACTION
++    assert store.no_action_reason("t1", store.latest("t1").seq) is None
++
++
++def test_a_failing_reason_lookup_does_not_change_the_outcome(store):
++    _to_analyzing(store)
++
++    state = flow.advance(store, "t1", NOOP, _decide_nothing(), NOOP, NOW,
++                         no_action_reason=Counting(raises=RuntimeError("boom")))
++
++    assert state is TaskState.NO_ACTION
++    assert store.no_action_reason("t1", store.latest("t1").seq) is None
++
++
++@pytest.mark.parametrize("answer", ["not_underpacing", "<script>alert(1)</script>", 3])
++def test_an_answer_that_is_not_a_reason_member_is_not_stored(store, answer):
++    """只收列舉成員:原因表不會刪,任意字串寫進去等於開一條注入管道。"""
++    _to_analyzing(store)
++
++    state = flow.advance(store, "t1", NOOP, _decide_nothing(), NOOP, NOW,
++                         no_action_reason=Counting(returns=answer))
++
++    assert state is TaskState.NO_ACTION
++    assert store.no_action_reason("t1", store.latest("t1").seq) is None
++
++
++def test_the_reason_is_only_asked_when_nothing_is_proposed(store):
++    _to_analyzing(store)
++    ask = Counting(returns=NoActionReason.JUDGED_NOT_WORTH)
++
++    flow.advance(store, "t1", NOOP, Counting(returns=flow.ProposalDecision(make_proposal())),
++                 NOOP, NOW, no_action_reason=ask)
++
++    assert ask.calls == []
++
++
++def test_a_crash_before_commit_leaves_neither_the_row_nor_the_reason(store):
++    row = _to_analyzing(store)
++
++    def boom():
++        raise RuntimeError("crash")
++
++    with pytest.raises(RuntimeError):
++        flow.advance(store, "t1", NOOP, _decide_nothing(), NOOP, NOW, before_commit=boom,
++                     no_action_reason=Counting(returns=NoActionReason.NOT_UNDERPACING))
++
++    assert store.latest("t1").seq == row.seq
++    assert store.no_action_reason("t1", row.seq + 1) is None
++
++
++def test_the_store_refuses_a_reason_on_any_other_step(store):
++    row = _to_analyzing(store)
++
++    with pytest.raises(ValueError, match="不提案"):
++        store.commit_step("t1", row.seq, TaskState.PROPOSED, NOW, proposal=make_proposal(),
++                          no_action_reason=NoActionReason.NOT_UNDERPACING)
++
++    assert store.latest("t1").seq == row.seq
++
++
++def test_the_reader_answers_none_on_a_database_from_before_the_reason_table(store, tmp_path):
++    """唯讀開法不建表:舊資料庫沒有原因表時照樣開得起來,原因一律當作沒存(展示寫「無法還原」)。"""
++    _to_analyzing(store)
++    flow.advance(store, "t1", NOOP, _decide_nothing(), NOOP, NOW)
++    store.close()
++    with sqlite3.connect(tmp_path / "analyzer.db") as conn:
++        conn.execute("DROP TABLE no_action_reasons")
++
++    reader = TaskReader(tmp_path / "analyzer.db")
++    try:
++        assert reader.no_action_reason("t1", 4) is None
++    finally:
++        reader.close()
++
++
++def test_opening_an_older_database_for_writing_adds_the_reason_table(tmp_path):
++    path = tmp_path / "old.db"
++    TaskStore(path).close()
++    with sqlite3.connect(path) as conn:
++        conn.execute("DROP TABLE no_action_reasons")
++
++    reopened = TaskStore(path)
++    try:
++        reopened.create_task("t1", "c1", NOW)
++        assert reopened.no_action_reason("t1", 1) is None
++    finally:
++        reopened.close()
+diff --git a/tests/analyzer/test_runner.py b/tests/analyzer/test_runner.py
+new file mode 100644
+index 0000000..e57cd1a
+--- /dev/null
++++ b/tests/analyzer/test_runner.py
+@@ -0,0 +1,146 @@
++"""分析端驅動命令列(Phase 12 增量 1 [S1000] [S1001]):反覆領取待推進的任務,用正式的 DSP 與收件口
++用戶端推進;一步最多兩次讀 DSP 或一次送件,呼叫次數 乘 逾時 乘 2 要小於租約才准啟動。"""
++
++import ast
++import io
++import re
++import threading
++from datetime import UTC, datetime
++from pathlib import Path
++
++import pytest
++
++from rtb.analyzer import runner
++from rtb.analyzer.task_store import LEASE_DURATION, TaskReader, TaskStore
++from rtb.domain.task_state import TaskState
++from rtb.dsp.server import DspServer
++from rtb.dsp.store import CampaignStore
++from rtb.executor.inbox_server import InboxServer
++
++RUNNER = Path(runner.__file__)
++
++
++@pytest.fixture
++def services(tmp_path):
++    dsp_store = CampaignStore(tmp_path / "dsp.db")
++    dsp_store.seed_campaign("c1", budget=100)
++    dsp_store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=0.5,
++                           revenue=5.0)
++    dsp_store.seed_campaign("c2", budget=100)
++    dsp_store.seed_metrics("c2", "1h", impressions=500, clicks=12, conversions=1, spend=100.0,
++                           revenue=5.0)
++    dsp_store.close()
++    dsp = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
++                    delay_seconds=0.0)
++    inbox = InboxServer(tmp_path / "inbox.db", fault_injection=False)
++    for server in (dsp, inbox):
++        threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
++    try:
++        yield (f"http://127.0.0.1:{dsp.server_address[1]}",
++               f"http://127.0.0.1:{inbox.server_address[1]}")
++    finally:
++        for server in (dsp, inbox):
++            server.shutdown()
++            server.server_close()
++
++
++def _argv(tmp_path, dsp_url, inbox_url, timeout="2"):
++    return ["--db", str(tmp_path / "analyzer.db"), "--dsp-url", dsp_url, "--inbox-url", inbox_url,
++            "--timeout-seconds", timeout, "--interval-seconds", "0.01"]
++
++
++def _create(tmp_path, *tasks):
++    store = TaskStore(tmp_path / "analyzer.db")
++    try:
++        for task_id, campaign in tasks:
++            store.create_task(task_id, campaign, datetime.now(UTC))
++    finally:
++        store.close()
++
++
++def _latest(tmp_path, task_id):
++    reader = TaskReader(tmp_path / "analyzer.db")
++    try:
++        return reader.latest(task_id)
++    finally:
++        reader.close()
++
++
++def test_the_analyzer_runner_advances_every_open_task_with_production_clients(tmp_path, services):
++    """[S1000] 真的 DSP 與收件口:一件要加預算的任務走到交給執行,一件不慢的走到不調整並存下原因。"""
++    _create(tmp_path, ("t1", "c1"), ("t2", "c2"))
++    out = io.StringIO()
++
++    code = runner.run(_argv(tmp_path, *services), max_rounds=12, out=out)
++
++    assert code == 0
++    assert out.getvalue().splitlines()[0] == runner.READY
++    assert _latest(tmp_path, "t1").state is TaskState.HANDED_OFF
++    no_action = _latest(tmp_path, "t2")
++    assert no_action.state is TaskState.NO_ACTION
++    reader = TaskReader(tmp_path / "analyzer.db")
++    try:
++        assert reader.no_action_reason("t2", no_action.seq) == "not_underpacing"
++        assert [c.endpoint for c in reader.list_tool_calls("t1")]  # 用的是會記呼叫紀錄的版本
++    finally:
++        reader.close()
++
++
++def test_the_analyzer_runner_uses_only_production_collaborators():
++    """[S1000] 分析端驅動命令列只匯入分析端與共用的正式模組,沒有任何故障手段、測試或展示程式。"""
++    tree = ast.parse(RUNNER.read_text(encoding="utf-8"))
++    modules = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module]
++    modules += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
++    rtb_modules = {m for m in modules if m.startswith("rtb")}
++    assert rtb_modules <= {"rtb.analyzer", "rtb.analyzer.task_store", "rtb.analyzer.flow",
++                           "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
++                           "rtb.analyzer.inbox_client", "rtb.analyzer.instrumented",
++                           "rtb.domain.evidence"}, rtb_modules
++    text = RUNNER.read_text(encoding="utf-8")
++    assert not re.search(r"\bfault|X-Fault|rtb\.demo", text, re.IGNORECASE)
++
++
++@pytest.mark.parametrize("timeout", ["15", "20", "60"])
++def test_the_analyzer_runner_refuses_a_lease_too_short_for_its_calls(tmp_path, timeout):
++    """[S1001] 呼叫次數 2 乘 逾時 乘 2 不小於租約 60 秒就拒絕啟動,什麼都不做。"""
++    _create(tmp_path, ("t1", "c1"))
++    err = io.StringIO()
++
++    code = runner.run(_argv(tmp_path, "http://127.0.0.1:9", "http://127.0.0.1:9", timeout),
++                      max_rounds=1, err=err)
++
++    assert code == runner.EXIT_UNSAFE_CONFIG
++    assert "租約" in err.getvalue()
++    assert _latest(tmp_path, "t1").state is TaskState.RECEIVED
++
++
++def test_the_lease_inequality_matches_the_lease_constant():
++    lease = LEASE_DURATION.total_seconds()
++    assert runner.CALLS_PER_STEP * 14.9 * 2 < lease <= runner.CALLS_PER_STEP * 15 * 2
++
++
++def test_the_analyzer_runner_stops_when_asked(tmp_path, services):
++    _create(tmp_path, ("t1", "c1"))
++    stop = threading.Event()
++    stop.set()
++
++    # 有上限:不看停止訊號時會推進而紅,不會卡住
++    code = runner.run(_argv(tmp_path, *services), stop=stop, max_rounds=3)
++
++    assert code == 0
++    assert _latest(tmp_path, "t1").state is TaskState.RECEIVED
++
++
++def test_open_tasks_are_the_ones_not_yet_at_an_end(tmp_path):
++    store = TaskStore(tmp_path / "analyzer.db")
++    try:
++        now = datetime.now(UTC)
++        for task_id in ("a", "b", "c"):
++            store.create_task(task_id, "c1", now)
++        row = store.latest("b")
++        store.commit_step("b", row.seq, TaskState.COLLECTING_EVIDENCE, now)
++        row = store.latest("c")
++        store.commit_step("c", row.seq, TaskState.FAILED, now, error_detail="x")
++        assert store.open_task_ids() == ("a", "b")
++    finally:
++        store.close()
+diff --git a/tests/demo/__init__.py b/tests/demo/__init__.py
+new file mode 100644
+index 0000000..29d6512
+--- /dev/null
++++ b/tests/demo/__init__.py
+@@ -0,0 +1 @@
++"""展示頁測試。"""
+diff --git a/tests/demo/test_boundaries.py b/tests/demo/test_boundaries.py
+new file mode 100644
+index 0000000..39808ec
+--- /dev/null
++++ b/tests/demo/test_boundaries.py
+@@ -0,0 +1,90 @@
++"""展示套件的匯入邊界(Phase 12 [S1002] [S1050]):正式程式不匯入展示套件;故障套件只准展示啟動器碰。"""
++
++import ast
++import subprocess
++import sys
++import tomllib
++from pathlib import Path
++
++import pytest
++
++ROOT = Path(__file__).resolve().parents[2]
++SRC = ROOT / "src"
++DEMO = SRC / "rtb" / "demo"
++LAUNCHER = DEMO / "launcher"
++FAULTS_MODULE = "rtb.demo.faults"
++LAYERS = ("analyzer", "domain", "dsp", "eval", "executor", "ops")
++
++
++def _imports(tree: ast.AST) -> list[str]:
++    names = []
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import):
++            names += [alias.name for alias in node.names]
++        elif isinstance(node, ast.ImportFrom) and node.module:
++            names += [node.module, *(f"{node.module}.{a.name}" for a in node.names)]
++    return names
++
++
++def _python_files(base: Path) -> list[Path]:
++    return sorted(p for p in base.rglob("*.py") if "__pycache__" not in p.parts)
++
++
++def test_nothing_outside_the_demo_package_imports_it():
++    """[S1002] src 裡展示套件以外的任何模組都不匯入展示套件。"""
++    offenders = [f"{path.relative_to(SRC)} → {name}"
++                 for path in _python_files(SRC) if not path.is_relative_to(DEMO)
++                 for name in _imports(ast.parse(path.read_text(encoding="utf-8")))
++                 if name == "rtb.demo" or name.startswith("rtb.demo.")]
++    assert offenders == []
++
++
++def test_only_the_launcher_may_reach_the_fault_package():
++    """[S1050] src 全部(不含 tests)除了啟動器子目錄與故障套件自己,沒有任何地方匯入或在字串裡提到
++    故障套件(用 -m 字串啟動子行程也算)。"""
++    faults = DEMO / "faults"
++    offenders = [str(path.relative_to(SRC)) for path in _python_files(SRC)
++                 if not path.is_relative_to(LAUNCHER) and not path.is_relative_to(faults)
++                 and FAULTS_MODULE in path.read_text(encoding="utf-8")]
++    offenders += [f"{path.relative_to(SRC)} → {name}" for path in _python_files(SRC)
++                  if not path.is_relative_to(LAUNCHER) and not path.is_relative_to(faults)
++                  for name in _imports(ast.parse(path.read_text(encoding="utf-8")))
++                  if name == FAULTS_MODULE or name.startswith(FAULTS_MODULE + ".")]
++    assert offenders == []
++
++
++def _banned(config: Path) -> dict[str, object]:
++    return tomllib.loads(config.read_text(encoding="utf-8"))["lint"]["flake8-tidy-imports"][
++        "banned-api"]
++
++
++@pytest.mark.parametrize("subdir", [LAUNCHER, DEMO / "faults"], ids=["launcher", "faults"])
++def test_the_launcher_ruff_bans_differ_from_the_demo_ones_by_the_fault_package_only(subdir):
++    """[S1050] ruff 子目錄設定會整張蓋掉上一層的禁令表:啟動器(與故障套件自己,套件內互相匯入)那份
++    重列全部禁令、只少故障套件一條。"""
++    demo, allowed = _banned(DEMO / "ruff.toml"), _banned(subdir / "ruff.toml")
++    assert FAULTS_MODULE in demo
++    assert {k: v for k, v in demo.items() if k != FAULTS_MODULE} == allowed
++
++
++def _ruff_flags(config: Path, source: str) -> bool:
++    result = subprocess.run(
++        [sys.executable, "-m", "ruff", "check", "--config", str(config), "--stdin-filename",
++         str(config.parent / "probe.py"), "-"],
++        input=source, capture_output=True, text=True, timeout=60, check=False)
++    return result.returncode == 1 and "TID251" in result.stdout
++
++
++@pytest.mark.parametrize(("config", "source", "flagged"), [
++    (DEMO / "ruff.toml", "import rtb.demo.faults\n", True),
++    (DEMO / "ruff.toml", "import importlib\n", True),
++    (LAUNCHER / "ruff.toml", "import rtb.demo.faults\n", False),
++    (LAUNCHER / "ruff.toml", "import importlib\n", True),
++])
++def test_ruff_enforces_the_fault_package_ban(config, source, flagged):
++    assert _ruff_flags(config, source) is flagged
++
++
++@pytest.mark.parametrize("layer", LAYERS)
++def test_every_layer_bans_importing_the_demo_package(layer):
++    assert _ruff_flags(SRC / "rtb" / layer / "ruff.toml", "import rtb.demo\n")
+diff --git a/tests/demo/test_flow.py b/tests/demo/test_flow.py
+new file mode 100644
+index 0000000..9312f33
+--- /dev/null
++++ b/tests/demo/test_flow.py
+@@ -0,0 +1,198 @@
++"""Phase 12 正式流程圖定義:有向無環、每個系統結果都對得到圖、回頭轉換展開、白話顯示字。"""
++
++from enum import StrEnum
++
++import pytest
++
++from rtb.demo import flow
++from rtb.demo.state import FlowGraph, NodeKind
++from rtb.domain.attempt import TRANSITIONS as ATTEMPT_TRANSITIONS
++from rtb.domain.attempt import AttemptState
++from rtb.domain.task_state import TRANSITIONS as TASK_TRANSITIONS
++from rtb.domain.task_state import TaskState
++from rtb.executor.inbox_store import BlockCode, LifecycleKind, StopKind
++
++GRAPH = flow.FLOW_GRAPH
++NODES = {node.id: node for node in GRAPH.nodes}
++EDGES = {(edge.source, edge.target): edge for edge in GRAPH.edges}
++
++
++def _topological_order(graph: FlowGraph) -> list[str]:
++    incoming = {node.id: 0 for node in graph.nodes}
++    for edge in graph.edges:
++        incoming[edge.target] += 1
++    ready = [node for node, count in incoming.items() if count == 0]
++    order = []
++    while ready:
++        node = ready.pop()
++        order.append(node)
++        for edge in graph.edges:
++            if edge.source == node:
++                incoming[edge.target] -= 1
++                if incoming[edge.target] == 0:
++                    ready.append(edge.target)
++    return order
++
++
++def test_the_flow_graph_is_a_well_formed_dag():
++    assert len(NODES) == len(GRAPH.nodes), "節點編號重複"
++    assert len(EDGES) == len(GRAPH.edges), "同一對節點之間的邊重複(判斷紀錄用起點終點認邊)"
++    assert all(s in NODES and t in NODES for s, t in EDGES), "邊指到不存在的節點"
++    assert len(_topological_order(GRAPH)) == len(NODES), "流程圖有環"
++
++
++def test_every_node_is_reachable_from_the_start_and_every_end_is_a_dead_end():
++    reached, pending = set(), [flow.START]
++    while pending:
++        node = pending.pop()
++        if node not in reached:
++            reached.add(node)
++            pending += [t for s, t in EDGES if s == node]
++    assert reached == set(NODES)
++    loop_nodes = {back.node for back in flow.BACK_TRANSITIONS}
++    for node in GRAPH.nodes:
++        leaves = [t for s, t in EDGES if s == node.id]
++        if node.kind is NodeKind.TERMINAL or node.id in loop_nodes:
++            assert not leaves, f"{node.id} 是結束點或回頭節點,不該再有出去的邊"
++        else:
++            assert leaves, f"{node.id} 走不下去"
++        if node.kind is NodeKind.DECISION:
++            assert len(leaves) >= 2, f"判斷點 {node.id} 至少要兩條分支"
++
++
++def test_the_graph_is_the_type_the_page_draws():
++    assert isinstance(GRAPH, FlowGraph)
++    assert {node.lane for node in GRAPH.nodes} <= set(flow.LANES)
++
++
++@pytest.mark.parametrize("enum", flow.MAPPED_ENUMS, ids=lambda e: e.__name__)
++def test_every_system_outcome_maps_onto_the_flow_graph(enum: type[StrEnum]):
++    """[S1024] 十二個列舉的每個成員(以列舉類別加成員名為鍵)都對到一條邊或一個節點。"""
++    for member in enum:
++        place = flow.OUTCOMES.get((enum, member.name))
++        assert place is not None, f"{enum.__name__}.{member.name} 沒有對到流程圖"
++        if place.edge is not None:
++            assert place.edge in EDGES, f"{enum.__name__}.{member.name} 對到不存在的邊"
++        else:
++            assert place.node in NODES, f"{enum.__name__}.{member.name} 對到不存在的節點"
++
++
++def test_the_mapped_enums_are_the_eighteen_in_the_plan():
++    """計劃第 4 版的十八個:第 3 版的十二個,加設計審 r2 補的處理待確認的結果、最後失敗原因、
++    證據新鮮度、值不值得加的判定、沒提案原因、路由路徑。"""
++    assert {f"{e.__module__}.{e.__name__}" for e in flow.MAPPED_ENUMS} == {
++        "rtb.executor.inbox_store.Disposition", "rtb.executor.inbox_store.BlockCode",
++        "rtb.executor.inbox_store.DeadLetterReason", "rtb.executor.inbox_store.StopKind",
++        "rtb.executor.inbox_store.LifecycleKind", "rtb.executor.inbox_store.ReplayOutcome",
++        "rtb.domain.attempt.AttemptState", "rtb.domain.attempt.OutcomeCode",
++        "rtb.executor.execution.VoidOutcome", "rtb.executor.execution.Result",
++        "rtb.domain.task_state.TaskState", "rtb.analyzer.task_store.ReplanReason",
++        "rtb.analyzer.policy.RoutePath", "rtb.analyzer.policy.NoActionReason",
++        "rtb.executor.inbox_store.AwaitingOutcome", "rtb.executor.inbox_store.LastFailure",
++        "rtb.domain.evidence.Freshness", "rtb.domain.worth.WorthVerdict",
++    }
++    mapped = {key[0] for key in flow.OUTCOMES}
++    assert mapped == set(flow.MAPPED_ENUMS), "對應表裡有清單外的列舉"
++
++
++def test_same_named_members_of_different_enums_are_kept_apart():
++    """[f2] 鍵是(列舉類別, 成員名):擋下原因與停下種類都有總曝險已滿,不會互相蓋掉。"""
++    name = "AGGREGATE_LIMIT_REACHED"
++    assert (BlockCode, name) in flow.OUTCOMES
++    assert (StopKind, name) in flow.OUTCOMES
++    assert flow.OUTCOMES[(BlockCode, name)] is not flow.OUTCOMES[(StopKind, name)]
++
++
++def _backward(transitions, enum):
++    order = list(enum)
++    return {(a, b) for a, targets in transitions.items() for b in targets
++            if order.index(b) < order.index(a)}
++
++
++@pytest.mark.parametrize(("transitions", "enum"), [
++    (TASK_TRANSITIONS, TaskState), (ATTEMPT_TRANSITIONS, AttemptState)])
++def test_every_known_back_transition_is_unrolled(transitions, enum):
++    """[S1025] 程式狀態轉換表裡每一條往回走的轉換,都列在回頭轉換清單並展開成新節點。"""
++    listed = {back.transition for back in flow.BACK_TRANSITIONS if back.transition}
++    for source, target in _backward(transitions, enum):
++        assert (source, target) in listed, f"{enum.__name__} {source}→{target} 沒列進回頭轉換清單"
++
++
++# 執行端代表「放回待處理」的生命週期事件種類(設計審 r2 n8):確認後放回、重放放回、被接手、放掉處理權
++PUT_BACK_KINDS = (LifecycleKind.APPROVAL_RELEASED, LifecycleKind.REPLAY_REQUEUED,
++                  LifecycleKind.RECLAIMED, LifecycleKind.LEASE_RELEASED)
++
++
++@pytest.mark.parametrize("kind", PUT_BACK_KINDS, ids=lambda k: k.name)
++def test_every_put_back_event_is_an_unrolled_back_node(kind):
++    """[S1025] 執行端放回待處理的事件種類,各自是一個展開的回頭節點,對應表也指到那個節點。"""
++    backs = {back.lifecycle: back.node for back in flow.BACK_TRANSITIONS if back.lifecycle}
++    assert kind in backs, f"{kind.name} 沒列進回頭轉換清單"
++    assert flow.OUTCOMES[(LifecycleKind, kind.name)].node == backs[kind]
++
++
++def test_every_back_transition_is_a_new_node_that_names_where_it_returns():
++    for back in flow.BACK_TRANSITIONS:
++        assert back.node in NODES and back.returns_to in NODES
++        assert back.node != back.returns_to
++        assert f"「{NODES[back.returns_to].label}」" in NODES[back.node].label
++
++
++@pytest.mark.parametrize("enum", flow.MAPPED_ENUMS, ids=lambda e: e.__name__)
++def test_every_disposition_has_a_plain_explanation(enum: type[StrEnum]):
++    """[S1026] 對應清單上每個列舉的每個成員都有一句白話說明。"""
++    for member in enum:
++        place = flow.OUTCOMES.get((enum, member.name))
++        assert place is not None and place.text.strip(), f"{enum.__name__}.{member.name} 沒有白話"
++        assert member.value not in place.text, "白話說明不該直接用程式代碼"
++
++
++def _display_texts():
++    yield from (node.label for node in GRAPH.nodes)
++    yield from (edge.label for edge in GRAPH.edges)
++    yield from flow.LANES
++    yield from (place.text for place in flow.OUTCOMES.values())
++
++
++def test_display_text_explains_every_banned_term():
++    """[S1042] 顯示文字出現禁用術語時,同一段緊接括號白話解釋。"""
++    problems = [(text, term) for text in _display_texts()
++                for term in flow.unexplained_terms(text)]
++    assert not problems
++
++
++@pytest.mark.parametrize(("text", "expected"), [
++    ("回頭對帳", ["對帳"]),
++    ("回頭對帳(去平台查這筆有沒有寫進去)", []),
++    ("回頭對帳 (去平台查)", ["對帳"]),
++    ("對帳()", ["對帳"]),
++    ("死信與總曝險", ["死信", "總曝險"]),
++    ("寫入成功", []),
++    ("對帳\uff08去平台查\uff09", []),
++])
++def test_the_banned_term_check_needs_a_bracket_right_after(text, expected):
++    assert flow.unexplained_terms(text) == expected
++
++
++def test_the_banned_terms_cover_the_ruling():
++    assert set(flow.BANNED_TERMS) >= {"死信", "猝死", "總曝險", "冪等", "租約", "對帳", "護欄",
++                                      "接續任務", "修訂", "結果不明"}
++
++
++def _covered(node: str, target: str, enum: type[StrEnum]) -> bool:
++    return any(place.edge == (node, target) or place.node == target
++               for (e, _), place in flow.OUTCOMES.items() if e is enum)
++
++
++def test_every_decision_node_is_bound_to_an_enum():
++    """[S1055] 每個判斷點綁一個對應清單上的列舉;除了明列的例外分支(通過、或由別的紀錄決定),
++    每條分支都有那個列舉的成員對到這條邊或它通往的節點。"""
++    decisions = {node.id for node in GRAPH.nodes if node.kind is NodeKind.DECISION}
++    assert set(flow.DECISION_ENUMS) == decisions
++    for node, (enum, unbound) in flow.DECISION_ENUMS.items():
++        assert enum in flow.MAPPED_ENUMS
++        targets = [t for s, t in EDGES if s == node]
++        assert set(unbound) < set(targets), f"{node} 的例外分支不在它的分支裡,或全部都是例外"
++        for target in targets:
++            if target not in unbound:
++                assert _covered(node, target, enum), f"{node}→{target} 沒有 {enum.__name__}"
+diff --git a/tests/demo/test_launcher.py b/tests/demo/test_launcher.py
+new file mode 100644
+index 0000000..710637a
+--- /dev/null
++++ b/tests/demo/test_launcher.py
+@@ -0,0 +1,226 @@
++"""Phase 12 增量 1:展示金鑰、子行程環境白名單、故障跨行程交付([S1003] [S1004] [S1049] [S1059])。"""
++
++import json
++import os
++import subprocess
++import sys
++import time
++from pathlib import Path
++
++import pytest
++
++from rtb.capabilitykit import (
++    APPROVAL_KEY_ENV,
++    AUDIT_KEY_ENV,
++    KEY_ENV,
++    MIN_KEY_BYTES,
++    read_audit_key,
++    read_key,
++)
++from rtb.demo import keys, launcher
++from rtb.demo.launcher import Role
++from rtb.dsp.store import CampaignStore
++
++SRC = Path(__file__).resolve().parents[2] / "src"
++USER_ENV = {"PATH": "/usr/bin:/bin", "HOME": "/home/someone", "LANG": "zh_TW.UTF-8",
++            "USER": "someone", "AWS_SECRET_ACCESS_KEY": "leak", "PYTHONPATH": "/elsewhere",
++            "RTB_MODEL_LIVE": "1", "RTB_MODEL": "claude-sonnet-5", "RTB_MODEL_RECORD": "1",
++            "ANTHROPIC_API_KEY": "leak", KEY_ENV: "user-own-key-should-not-pass-through-at-all"}
++BASE = {"PATH", "HOME", "LANG", "USER", "PYTHONPATH"}
++MODEL = {"RTB_MODEL_LIVE", "RTB_MODEL", "RTB_MODEL_RECORD"}
++
++
++# ---- [S1004] [S1059] 金鑰 ----
++def test_demo_keys_are_random_and_long_enough():
++    first, second = keys.DemoKeys.generate(), keys.DemoKeys.generate()
++    for text in (first.capability, first.audit, first.approval):
++        assert isinstance(text, str) and text.isascii()
++        assert len(text.encode("utf-8")) >= MIN_KEY_BYTES
++    assert len({first.capability, first.audit, first.approval}) == 3
++    assert first != second
++
++
++def test_child_processes_read_back_the_same_key_the_server_signs_with():
++    demo_keys = keys.DemoKeys.generate()
++    env = launcher.child_env(Role.EXECUTOR, demo_keys, user_env=USER_ENV)
++    assert read_key(env) == demo_keys.signing_bytes(KEY_ENV)
++    assert read_key(env, APPROVAL_KEY_ENV) == demo_keys.signing_bytes(APPROVAL_KEY_ENV)
++    dsp_env = launcher.child_env(Role.DSP, demo_keys, user_env=USER_ENV)
++    assert read_audit_key(dsp_env) == demo_keys.signing_bytes(AUDIT_KEY_ENV)
++
++
++def test_the_key_text_is_not_in_its_repr():
++    demo_keys = keys.DemoKeys.generate()
++    assert demo_keys.capability not in repr(demo_keys)
++
++
++# ---- [S1003] 環境白名單 ----
++@pytest.mark.parametrize(("role", "extra"), [
++    (Role.DSP, {KEY_ENV, AUDIT_KEY_ENV}),
++    (Role.EXECUTOR, {KEY_ENV, APPROVAL_KEY_ENV}),
++    (Role.INBOX, set()),
++    (Role.ANALYZER, set()),
++    (Role.MODEL_ENTRY, MODEL),
++])
++def test_demo_processes_get_only_whitelisted_environment(role, extra):
++    demo_keys = keys.DemoKeys.generate()
++    env = launcher.child_env(role, demo_keys, user_env=USER_ENV)
++    assert set(env) == BASE | extra
++    assert env["PYTHONPATH"] == str(SRC)
++    assert "leak" not in env.values()
++    assert env.get(KEY_ENV) in (None, demo_keys.capability)
++    for name in MODEL & extra:
++        assert env[name] == USER_ENV[name]
++
++
++def test_only_the_faulted_process_gets_the_fault_nonce():
++    demo_keys = keys.DemoKeys.generate()
++    plain = launcher.child_env(Role.DSP, demo_keys, user_env=USER_ENV)
++    faulted = launcher.child_env(Role.DSP, demo_keys, user_env=USER_ENV, fault_nonce="n" * 43)
++    assert launcher.FAULT_NONCE_ENV not in plain
++    assert faulted[launcher.FAULT_NONCE_ENV] == "n" * 43
++    assert set(faulted) - set(plain) == {launcher.FAULT_NONCE_ENV}
++
++
++def test_missing_user_basics_are_left_out_not_invented():
++    env = launcher.child_env(Role.INBOX, keys.DemoKeys.generate(), user_env={"PATH": "/bin"})
++    assert set(env) == {"PATH", "PYTHONPATH"}
++
++
++# ---- [S1049] 故障跨行程交付 ----
++def _root(tmp_path, demo_id="demo-1"):
++    return launcher.prepare_root(tmp_path / "demos", demo_id)
++
++
++def _plan(_root_dir=None, **overrides):
++    fields = {"role": Role.DSP, "dsp_plan": (("timeout_before_commit", 0.0),),
++              "clock_offset_seconds": 0.0, "crash_point": None} | overrides
++    return launcher.FaultRequest(**fields)
++
++
++def _run_child(_root_dir, config, nonce, *args, role="dsp", timeout=20):
++    env = launcher.child_env(Role.DSP if role == "dsp" else Role.EXECUTOR,
++                             keys.DemoKeys.generate(), user_env={"PATH": os.environ["PATH"]},
++                             fault_nonce=nonce)
++    return subprocess.run([sys.executable, "-m", "rtb.demo.launcher.child", role, str(config),
++                           "--", *args], env=env, capture_output=True, text=True,
++                          timeout=timeout, check=False)
++
++
++def test_the_launcher_writes_the_plan_inside_the_root(tmp_path):
++    root = _root(tmp_path)
++    config, nonce = launcher.write_fault_plan(root, _plan(root))
++    assert config.resolve().is_relative_to(root.resolve())
++    assert nonce not in config.read_text(encoding="utf-8")
++    assert len(nonce.encode()) >= 32
++
++
++@pytest.mark.parametrize("how", ["no nonce", "wrong nonce", "outside root", "no marker",
++                                 "other demo marker", "db outside root"])
++def test_fault_tools_refuse_anything_but_the_launcher_capability(tmp_path, how):
++    """[S1049] 沒有啟動器交付的設定檔與相符的一次性隨機值、設定檔在根目錄外、根目錄不是這次展示
++    建的、目標資料庫在根目錄外,子行程都拒絕啟動故障(不會退回成沒有故障的正常啟動)。"""
++    root = _root(tmp_path)
++    config, nonce = launcher.write_fault_plan(root, _plan(root))
++    db = root / "dsp.db"
++    if how == "no nonce":
++        nonce = None
++    elif how == "wrong nonce":
++        nonce = "x" * 43
++    elif how == "outside root":
++        moved = tmp_path / "elsewhere.json"
++        moved.write_text(config.read_text(encoding="utf-8"), encoding="utf-8")
++        config = moved
++    elif how == "no marker":
++        (root / launcher.ROOT_MARKER).unlink()
++    elif how == "other demo marker":
++        (root / launcher.ROOT_MARKER).write_text("demo-2", encoding="utf-8")
++    elif how == "db outside root":
++        db = tmp_path / "dsp.db"
++
++    child = _run_child(root, config, nonce, "--db", str(db))
++
++    assert child.returncode == launcher.EXIT_FAULT_REFUSED, (child.stdout, child.stderr)
++    assert "PORT=" not in child.stdout
++
++
++@pytest.mark.parametrize("how", ["wrong role", "unknown crash point"])
++def test_a_plan_for_another_role_or_an_unknown_crash_point_is_refused(tmp_path, how):
++    root = _root(tmp_path)
++    if how == "wrong role":
++        config, nonce = launcher.write_fault_plan(root, _plan())
++    else:
++        config, nonce = launcher.write_fault_plan(
++            root, _plan(role=Role.EXECUTOR, dsp_plan=(), crash_point="nowhere"))
++
++    child = _run_child(root, config, nonce, "--db", str(root / "executor.db"), role="executor")
++
++    assert child.returncode == launcher.EXIT_FAULT_REFUSED, child.stderr
++    assert "READY" not in child.stdout
++
++
++def test_a_self_written_plan_without_the_launcher_is_refused(tmp_path):
++    """直接執行或自己造一份設定檔:沒有啟動器寫的標記與隨機值雜湊,一樣拒。"""
++    root = tmp_path / "fake-root"
++    root.mkdir()
++    config = root / "faults.json"
++    config.write_text(json.dumps({"role": "dsp", "dsp_plan": [], "clock_offset_seconds": 0}),
++                      encoding="utf-8")
++
++    child = _run_child(root, config, "x" * 43, "--db", str(root / "dsp.db"))
++
++    assert child.returncode == launcher.EXIT_FAULT_REFUSED
++
++
++def test_a_delivered_dsp_plan_is_applied_to_the_first_write(tmp_path):
++    """交付正確時,DSP 子行程照排定的故障回應第一個寫入(提交前逾時:不提交)。"""
++    from rtb.demo.launcher import start
++
++    root = _root(tmp_path)
++    CampaignStore(root / "dsp.db").seed_campaign("c1", budget=100)
++    demo_keys = keys.DemoKeys.generate()
++    process = start(Role.DSP, ["--db", str(root / "dsp.db"), "--hang-seconds", "0.3"],
++                    demo_keys, root=root, faults=_plan(root), user_env=os.environ)
++    try:
++        from rtb.executor.capability_signer import CapabilitySigner
++        from rtb.executor.dsp_client import DspClient
++        from tests.executor.fakes import proposal, write_config
++
++        config = write_config(root / "tenants.json")
++        prop = proposal(campaign_id="c1", campaign_version_observed=1)
++        token = CapabilitySigner(demo_keys.signing_bytes(KEY_ENV)).sign(
++            prop, "k1", config, int(time.time()))
++        answer = DspClient(process.url, 0.2).write(prop, "k1", token, on_call=lambda _call: None)
++        assert answer.status is None  # 排定的提交前逾時:用戶端沒拿到回應
++        time.sleep(0.5)
++        assert CampaignStore(root / "dsp.db").get_campaign("c1").version == 1
++    finally:
++        process.stop()
++
++
++def test_a_plain_start_has_no_fault_door(tmp_path):
++    """沒排故障的子行程直接跑正式入口,不經故障啟動器,也拿不到隨機值。"""
++    root = _root(tmp_path)
++    command, env = launcher.command_for(Role.DSP, ["--db", str(root / "dsp.db")],
++                                        keys.DemoKeys.generate(), root=root, faults=None,
++                                        user_env=USER_ENV)
++    assert command[:3] == [sys.executable, "-m", "rtb.dsp.server"]
++    assert launcher.FAULT_NONCE_ENV not in env
++
++
++def test_stop_ends_the_whole_process_group(tmp_path):
++    root = _root(tmp_path)
++    process = launcher.start(Role.INBOX, ["--db", str(root / "inbox.db")],
++                             keys.DemoKeys.generate(), root=root, faults=None,
++                             user_env=os.environ)
++    pid = process.pid
++    process.stop()
++    deadline = time.monotonic() + 5
++    while time.monotonic() < deadline:
++        try:
++            os.kill(pid, 0)
++        except ProcessLookupError:
++            break
++        time.sleep(0.05)
++    else:
++        pytest.fail("子行程沒結束")

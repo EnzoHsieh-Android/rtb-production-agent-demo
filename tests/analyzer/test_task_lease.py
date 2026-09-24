@@ -5,6 +5,7 @@
 不然先拿到的一路做完,另一方之後合法進來,測不到互斥。
 """
 
+import os
 import sqlite3
 import subprocess
 import sys
@@ -195,7 +196,8 @@ def test_a_holder_that_dies_after_paying_is_analysed_again_once_the_lease_expire
 
     child = subprocess.run(
         [sys.executable, "-c", CHILD, str(path), str(calls), NOW.isoformat()],
-        env={"PYTHONPATH": SRC}, capture_output=True, text=True, timeout=30, check=False)
+        env={**os.environ, "PYTHONPATH": SRC}, capture_output=True, text=True, timeout=30,
+        check=False)
 
     assert child.returncode == 9, child.stderr  # 真的死在付費呼叫之後
     assert calls.read_text().splitlines() == ["paid"]

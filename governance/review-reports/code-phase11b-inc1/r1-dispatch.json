@@ -1,0 +1,101 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1-後端",
+  "lens": "Claude Code 後端與子行程",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2-花費",
+  "lens": "花費帳、結算、上限、核銷",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3-評估",
+  "lens": "評估候選、比較表、指標",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭4-測試",
+  "lens": "測試有效性與隔離",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "外家finder-codex",
+  "lens": "外家全面",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex"
+ },
+ {
+  "round": "r1",
+  "seat": "外家否決-codex",
+  "lens": "外家:花費與外送",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "資安-opus",
+  "lens": "資安",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "規格符合",
+  "lens": "合約兌現",
+  "materials": [
+   "governance/review-reports/code-phase11b-inc1/r1-snapshot.patch",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-sonnet"
+ }
+]
