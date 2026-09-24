@@ -3,13 +3,13 @@
 合約 [S700] 到 [S705]、[S711]、[S715]。
 """
 
-import copy
 import dataclasses
 import hashlib
 import inspect
 import itertools
 import math
 import pathlib
+import pickle
 import typing
 
 import pytest
@@ -269,17 +269,14 @@ def test_a_validated_list_cannot_be_built_directly():
     assert policy.ValidatedCells.NONE.cells == frozenset()
     issued = policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
     assert issued.cells == {WorthCell.PAUSED}
-    assert issued == policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
-    assert hash(issued) == hash(policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER))
-    # 代碼審第 2 輪:從已簽發的物件也拿不到新的非空清單
+    # 代碼審第 2 輪:從已簽發的物件用 dataclasses.replace 換不出新的非空清單;cells 是唯讀屬性
+    assert not dataclasses.is_dataclass(policy.ValidatedCells)
     with pytest.raises(TypeError):
         dataclasses.replace(issued, cells=frozenset(WorthCell))  # type: ignore[type-var]
-    assert copy.copy(issued) is issued and copy.deepcopy(issued) is issued
-    for name in ("cells", "_cells"):
-        with pytest.raises(AttributeError):
-            setattr(issued, name, frozenset(WorthCell))
-    assert issued.cells == {WorthCell.PAUSED}
-    assert policy.ValidatedCells.NONE.cells == frozenset()
+    with pytest.raises(AttributeError):
+        issued.cells = frozenset(WorthCell)  # type: ignore[misc]
+    # pickle 往返照常(代碼審第 3 輪)
+    assert pickle.loads(pickle.dumps(issued)).cells == {WorthCell.PAUSED}  # noqa: S301 - 自己剛產的
 
 
 def test_explain_has_no_default_candidate_or_timeout():
