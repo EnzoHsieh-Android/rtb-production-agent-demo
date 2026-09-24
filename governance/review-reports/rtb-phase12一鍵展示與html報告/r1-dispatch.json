@@ -1,0 +1,79 @@
+[
+ {
+  "round": "r1",
+  "seat": "伺服器觸發",
+  "lens": "展示伺服器與觸發防護",
+  "materials": [
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r1-snapshot.md",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "驅動重現",
+  "lens": "驅動程式與 F1–F7 情境重現",
+  "materials": [
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r1-snapshot.md",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "核可金鑰",
+  "lens": "頁面核可、金鑰、收據、子行程環境",
+  "materials": [
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r1-snapshot.md",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "流程對應",
+  "lens": "流程圖定義與判斷路徑對應",
+  "materials": [
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r1-snapshot.md",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "合約可測",
+  "lens": "合約可測與增量自洽",
+  "materials": [
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r1-snapshot.md",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r1-snapshot.md",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家",
+  "materials": [
+   "governance/review-reports/rtb-phase12一鍵展示與html報告/r1-snapshot.md",
+   "src/rtb/",
+   "tests/"
+  ],
+  "auditor": "codex"
+ }
+]

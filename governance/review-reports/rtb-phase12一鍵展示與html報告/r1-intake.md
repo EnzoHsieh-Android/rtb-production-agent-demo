@@ -46,3 +46,11 @@ preflight-4: ran
 | q2 | 同上 settings_from_env 讀 RTB_MODEL_LIVE、RTB_MODEL、RTB_MODEL_RECORD | 白名單只給 PATH、HOME、LANG、USER 時三個變數都讀不到,入口一律判成錄製 | HIT |
 | q3 | modelclient.py:826 _open(建目錄、第一次建表);src/rtb/eval/record.py:160 --ledger「只在錄製模式能用」 | 重播也記一筆 0 元帳;預設帳在 ~/.rtb/model-ledger.sqlite | HIT |
 | q4 | src/rtb/modelledger_view.py:147 ModelLedgerView 只有 calls_between(:167);modelclient.py:869 used_so_far 按展示編號加總但走讀寫開法 | 唯讀開法沒有按展示編號查的讀法 | HIT |
+
+## 協調者補充核對(2026-09-24)
+
+| id | 重現 | 結果 |
+|---|---|---|
+| x5 | 外家-codex 引句「每個情境的判斷紀錄從追蹤檢視、生命週期事件與稽核組出來」機械錨不到;對照快照原句「判斷路徑:每個情境的判斷紀錄(節點、走的分支、判定結果、白話原因、時間)從追蹤檢視、生命週期事件與稽核組出來」,只省略括號內容,語意一致 | HIT 採信 |
+| s3 | grep src/rtb/httpkit.py:41 `class KitServer(ThreadingHTTPServer)`,每個請求各自執行緒 | HIT 採信 |
+| k6 | src/rtb/capabilitykit.py:34 MIN_KEY_BYTES = 32 | HIT 採信 |
