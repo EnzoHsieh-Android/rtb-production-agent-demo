@@ -4370,3 +4370,64 @@
 {"ts": "2026-09-24T23:24:49+08:00", "commit": "d25cd4f", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "d25cd4fefe75b8482ba1472fbfbc2b568dc8ca9a"}
 {"ts": "2026-09-24T23:25:18+08:00", "commit": "4fb9a7d", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Projects/RTB_Phase6權限護欄與總曝險_計劃.md", "Systems/寫入能力憑證.md", "Systems/提案收件口.md"], "note": "tokens=7 hits=5 secs=0.1"}
 {"ts": "2026-09-24T23:25:21+08:00", "commit": "4fb9a7d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "4fb9a7d055da51d31dbdd047df02ac10ec1b7972"}
+{"ts": "2026-09-24T22:58:03+08:00", "commit": "90c5574", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T22:58:03+08:00", "commit": "90c5574", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "90c5574b3381c32e40409c708012235b5c21e927"}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["一鍵展示"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["可觀測查詢"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["執行迴圈"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["宣稱驗證器"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["寫入能力憑證"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["有界標籤的指標"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["服務水準與燒損告警"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["模型用戶端"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["死信重放指令"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["稽核表只增不改守衛"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["評估與Jev決策點"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["調查實演"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["追蹤檢視"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-cascade", "kind": "warned", "hard": false, "nodes": [], "note": "unseen=2 broken=0"}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s5", "kind": "warned", "hard": false, "nodes": ["F7效能_計劃"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s5", "kind": "warned", "hard": false, "nodes": ["RTB_Phase11B大模型接入_計劃"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s5", "kind": "warned", "hard": false, "nodes": ["RTB_Phase12一鍵展示與HTML報告_計劃"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["F7端到端在CI上偶爾超過60秒"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["Phase11後接入大模型API的三個階段"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["Phase12需要可看任務階段與處置的HTML報告"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["Phase9代使用者裁定待覆核"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用HTTP伺服器連線名額測試在CI偶發逾時"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["執行迴圈收到SIGTERM等於硬殺"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["每支檔有家在合併提交上誤擋"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["一鍵展示"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["可觀測查詢"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["執行迴圈"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["宣稱驗證器"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["寫入能力憑證"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["有界標籤的指標"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["服務水準與燒損告警"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["模型用戶端"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["死信重放指令"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["稽核表只增不改守衛"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["評估與Jev決策點"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["調查實演"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["追蹤檢視"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-24T22:58:12+08:00", "commit": "510b1ef", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=4 soft=7"}
+{"ts": "2026-09-24T22:58:13+08:00", "commit": "510b1ef", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次推送:新違規 0 條", "detail": "這次推送:新違規 0 條", "attempt_id": "20260924T145808Z-57370", "head_sha": "510b1ef943c3723f1fe085a3780664695b957f40"}
+{"ts": "2026-09-24T22:58:15+08:00", "commit": "510b1ef", "gate": "bound-tests", "kind": "no-pins", "hard": false, "nodes": [], "note": "989e3abd8ea91d816484f883ed781cf9208faa9d..510b1ef943c3723f1fe085a3780664695b957f40"}
+{"ts": "2026-09-24T23:09:19+08:00", "commit": "510b1ef", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase13AI參與決策_計劃.md"], "note": "door=high clauses=26 bound=0 red=0 green=0 weak=0 regress=54 no-run"}
+{"ts": "2026-09-24T23:10:16+08:00", "commit": "510b1ef", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-24T23:10:17+08:00", "commit": "510b1ef", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "510b1ef943c3723f1fe085a3780664695b957f40"}
