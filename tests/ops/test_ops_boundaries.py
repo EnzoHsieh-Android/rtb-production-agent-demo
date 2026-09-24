@@ -33,10 +33,17 @@ READ_WHITELIST = frozenset({
     # 服務水準與副作用核對(增量 3):結果不明的窗口讀取、一批鍵的第一列與核可使用、同一份提案的第一列
     "unknown_rows_between", "first_rows_for", "approval_uses_for", "first_rows_for_proposal",
     "failure_class",  # 死信信封的欄位名;同名的是收件口的分類函式,也是機械判定的非寫入函式
+    # 模型花費帳的唯讀開法與它的讀取方法(Phase 11B 增量 1,計劃
+    # [[Projects/RTB_Phase11B大模型接入_計劃]]〈既有邊界怎麼改〉:指標改讀花費帳);
+    # 模型用戶端的送出呼叫與花費帳寫入函式不在這裡
+    "ModelLedgerView", "calls_between", "ledger_path",
 })
 SCANNED = (SRC / "executor" / "inbox_store.py", SRC / "executor" / "attempt_store.py",
            SRC / "analyzer" / "task_store.py", SRC / "executor" / "observability.py",
-           SRC / "executor" / "capability_signer.py")
+           SRC / "executor" / "capability_signer.py", SRC / "modelledger_view.py")
+# 掃描範圍:分析端、執行端兩個目錄,加上花費帳唯讀開法(Phase 11B 增量 1;模型用戶端落地時一併納入)
+SCAN_FILES = (SRC / "modelledger_view.py",)
+_SCAN_MODULES = ("rtb.analyzer", "rtb.executor", "rtb.modelledger_view")
 
 
 def _defined_names(classes=True):
@@ -44,11 +51,11 @@ def _defined_names(classes=True):
     kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef) if classes else (
         ast.FunctionDef, ast.AsyncFunctionDef)
     names = set()
-    for directory in (SRC / "analyzer", SRC / "executor"):
-        for path in directory.glob("*.py"):
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if isinstance(node, kinds):
-                    names.add(node.name)
+    paths = [*(SRC / "analyzer").glob("*.py"), *(SRC / "executor").glob("*.py"), *SCAN_FILES]
+    for path in paths:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, kinds):
+                names.add(node.name)
     return names
 
 
@@ -86,8 +93,7 @@ def _ops_offenders(ops_dir):
                 offenders += [f"{path.name}: 匯入 {a.name}" for a in node.names
                               if a.name in ("InboxStore", "TaskStore", "connect")
                               or (a.name in functions - READ_WHITELIST
-                                  and (node.module or "").startswith(("rtb.analyzer",
-                                                                      "rtb.executor")))]
+                                  and (node.module or "").startswith(_SCAN_MODULES))]
     return offenders
 
 
@@ -161,7 +167,7 @@ def test_the_ops_package_is_read_only_and_imported_by_nobody():
     for path in SCANNED:
         for qualname, writes in classify(path).items():
             classified.setdefault(qualname.split(".")[-1], set()).add(writes)
-    for name in READ_WHITELIST - {"ReadOnlyInbox", "TaskReader"}:
+    for name in READ_WHITELIST - {"ReadOnlyInbox", "TaskReader", "ModelLedgerView"}:  # 類別不判
         assert classified.get(name) == {False}, name
 
 
