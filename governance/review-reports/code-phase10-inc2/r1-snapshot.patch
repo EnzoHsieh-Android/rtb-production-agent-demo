@@ -1,0 +1,1396 @@
+diff --git a/src/rtb/analyzer/policy.py b/src/rtb/analyzer/policy.py
+index e43f8bb..6487420 100644
+--- a/src/rtb/analyzer/policy.py
++++ b/src/rtb/analyzer/policy.py
+@@ -115,20 +115,28 @@ ValidatedCells.NONE = ValidatedCells(frozenset(), _VALIDATED_CELLS_ISSUER)
+ 
+ 
+ @dataclass(frozen=True)
+ class CandidateCall:
+     """一個候選連同它的逾時秒數:有候選才需要逾時,逾時沒有預設值(比照共用 HTTP 用戶端)。"""
+ 
+     judge: WorthCandidate
+     timeout_seconds: float
+ 
+ 
++@dataclass(frozen=True)
++class TrialCells:
++    """評估入口指定「這次試著呼叫候選」的格(Phase 10 增量 2,[S716])。跟已驗證清單是不同型別:
++    只在那一次評估裡用,不會被輸出或存成已驗證清單,正式路徑不會拿到它。"""
++
++    cells: frozenset[WorthCell]
++
++
+ class RoutePath(StrEnum):
+     CODE_RULE = "code_rule"
+     CANDIDATE = "candidate"
+     FALLBACK_EXCEPTION = "fallback_exception"
+     FALLBACK_TIMEOUT = "fallback_timeout"
+     FALLBACK_INVALID = "fallback_invalid"
+     FALLBACK_UNSURE = "fallback_unsure"
+ 
+ 
+ @dataclass(frozen=True)
+@@ -171,23 +179,25 @@ def _candidate_answer(candidate: CandidateCall, worth_input: WorthInput) -> Rout
+     except Exception:  # 候選是可替換的外部判斷:任何失敗都退回現行規則,不讓它改變流程狀態
+         return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_EXCEPTION)
+     if not isinstance(answer, WorthVerdict):
+         return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_INVALID)
+     if answer is WorthVerdict.UNSURE:
+         return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_UNSURE)
+     return RouteResult(answer, RoutePath.CANDIDATE)
+ 
+ 
+ def route(
+-    worth_input: WorthInput, candidate: CandidateCall | None, allowed: ValidatedCells,
++    worth_input: WorthInput, candidate: CandidateCall | None,
++    allowed: ValidatedCells | TrialCells,
+ ) -> RouteResult:
+-    """只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選,其餘走現行程式規則([S701])。"""
++    """只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選,其餘走現行程式規則([S701])。
++    允許清單在正式路徑是已驗證清單,在評估入口是待測格清單。"""
+     if candidate is None or cell_of(worth_input) not in allowed.cells:
+         return RouteResult(code_rule(worth_input), RoutePath.CODE_RULE)
+     return _candidate_answer(candidate, worth_input)
+ 
+ 
+ def _worth_input(state: dict[str, Any], metrics: dict[str, Any]) -> WorthInput:
+     status = state.get("status")
+     if not isinstance(status, str) or status not in {s.value for s in CampaignStatus}:
+         raise WorthInputInvalid(f"狀態不是啟用或暫停:{status!r}")
+     budget: Any = state.get("budget")  # 型別由判斷點輸入的建構驗證把關
+diff --git a/src/rtb/analyzer/ruff.toml b/src/rtb/analyzer/ruff.toml
+index 9bdcf71..8dcdb2e 100644
+--- a/src/rtb/analyzer/ruff.toml
++++ b/src/rtb/analyzer/ruff.toml
+@@ -1,7 +1,8 @@
+ # analyzer 與 dsp、executor 是不同的行程,不得互相匯入(見 Phase 0 架構的行程拆分)。
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
+ "rtb.dsp".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.executor".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
++"rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+diff --git a/src/rtb/domain/ruff.toml b/src/rtb/domain/ruff.toml
+index ee16f6f..d9f58ef 100644
+--- a/src/rtb/domain/ruff.toml
++++ b/src/rtb/domain/ruff.toml
+@@ -21,10 +21,11 @@ extend = "../../../pyproject.toml"
+ "asyncio.create_subprocess_shell".msg = "領域層不得啟動行程"
+ "multiprocessing".msg = "領域層不得啟動行程"
+ "ctypes".msg = "領域層不得呼叫原生程式"
+ "ssl".msg = "領域層不得碰網路"
+ "smtplib".msg = "領域層不得碰網路"
+ "socketserver".msg = "領域層不得碰網路"
+ "importlib.import_module".msg = "領域層不得動態匯入,會繞過這裡的檢查"
+ "anthropic".msg = "領域層不得呼叫模型"
+ "openai".msg = "領域層不得呼叫模型"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
++"rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+diff --git a/src/rtb/dsp/ruff.toml b/src/rtb/dsp/ruff.toml
+index 86cdcb4..25f57b6 100644
+--- a/src/rtb/dsp/ruff.toml
++++ b/src/rtb/dsp/ruff.toml
+@@ -1,6 +1,7 @@
+ # dsp 與 executor 是兩個獨立的行程,不得互相匯入(見 Phase 0 架構的行程拆分)。
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
+ "rtb.executor".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
++"rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+diff --git a/src/rtb/eval/__init__.py b/src/rtb/eval/__init__.py
+new file mode 100644
+index 0000000..1ca3e62
+--- /dev/null
++++ b/src/rtb/eval/__init__.py
+@@ -0,0 +1,6 @@
++"""「值不值得加」判斷點的離線評估(Phase 10 增量 2)。
++
++評估套件可以匯入分析端的判斷點與路由、領域層的型別;分析端、執行端、DSP、領域層、維運套件都不准
++匯入這裡(各目錄匯入規則的禁令加邊界測試,[S712])——規則作者的程式在結構上讀不到評估集。不讀也不寫
++任何資料庫。
++"""
+diff --git a/src/rtb/eval/adoption.py b/src/rtb/eval/adoption.py
+new file mode 100644
+index 0000000..8d71cad
+--- /dev/null
++++ b/src/rtb/eval/adoption.py
+@@ -0,0 +1,145 @@
++"""比較表與逐格採用決定(Phase 10 增量 2,[S708]、[S709]、[S710])。
++
++一格要同時滿足才進已驗證清單:①正式環境抽樣集上候選實測、樣本數夠、該格每一項品質指標的 95% Wilson
++信賴下界都過門檻;②成本、延遲、格式失敗率、例外率、逾時率、退回率都有量測、而且不超過事先定好的門檻
++(門檻由使用者在接上第一個候選時裁定,沒定之前不得採用);比較表裡任何「沒量」的欄位都擋採用。門檻是
++常數,不依結果調整。已驗證清單只有這裡建得出來([S716])。
++"""
++
++import math
++from dataclasses import dataclass, fields
++
++from rtb.analyzer.policy import _VALIDATED_CELLS_ISSUER, ValidatedCells
++from rtb.domain.worth import WorthCell
++from rtb.eval.scoring import PRODUCTION, RECALL, CellReport, Report
++
++# 暫用、待使用者覆核(計劃〈設計〉)。最少樣本是「全對時下界剛好過門檻」的筆數,由下界本身就擋住
++# 樣本不夠的格(少一筆、全對也過不了),所以不另寫樣本數檢查——變異檢查證實另寫那一道拿掉結果不變
++WORTH_RECALL_BAR = 0.80
++OTHER_BAR = 0.95
++WORTH_MIN_SAMPLES = 16
++OTHER_MIN_SAMPLES = 73
++Z_95 = 1.959963984540054
++
++
++def wilson_lower(successes: int, n: int, z: float = Z_95) -> float:
++    """比例的 95% Wilson 信賴下界。"""
++    if n <= 0:
++        raise ValueError("樣本數要大於零")
++    p = successes / n
++    denominator = 1 + z * z / n
++    center = p + z * z / (2 * n)
++    margin = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
++    return (center - margin) / denominator
++
++
++@dataclass(frozen=True)
++class Measure:
++    """比較表的一個儲存格:有量就有數值,沒量就沒有數值、而且寫原因([S709])。"""
++
++    measured: bool
++    value: float | None
++    reason: str | None
++
++    def __post_init__(self) -> None:
++        if self.measured and (self.value is None or self.reason is not None):
++            raise ValueError("有量的儲存格要有數值、不寫沒量的原因")
++        if not self.measured and (self.value is not None or not self.reason):
++            raise ValueError("沒量的儲存格不能有數值,而且要寫原因")
++
++    @classmethod
++    def of(cls, value: float) -> Measure:
++        return cls(measured=True, value=value, reason=None)
++
++    @classmethod
++    def not_measured(cls, reason: str) -> Measure:
++        return cls(measured=False, value=None, reason=reason)
++
++
++@dataclass(frozen=True)
++class ComparisonRow:
++    approach: str
++    quality: Measure
++    cost_per_call_usd: Measure
++    latency_median_us: Measure
++    latency_p95_us: Measure
++    format_failure_rate: Measure
++    exception_rate: Measure
++    timeout_rate: Measure
++    fallback_rate: Measure
++
++    def measures(self) -> tuple[Measure, ...]:
++        return tuple(getattr(self, f.name) for f in fields(self) if f.name != "approach")
++
++
++@dataclass(frozen=True)
++class OperationalLimits:
++    """成本、延遲、失敗率的門檻;None 表示使用者還沒裁定,沒定之前一格都不採用。"""
++
++    cost_per_call_usd: float | None
++    latency_p95_us: float | None
++    failure_rate: float | None
++
++
++@dataclass(frozen=True)
++class CellDecision:
++    cell: WorthCell
++    validated: bool
++    reasons: tuple[str, ...]
++
++
++@dataclass(frozen=True)
++class Adoption:
++    cells: tuple[CellDecision, ...]
++    validated: ValidatedCells
++    adopt: bool
++    reasons: tuple[str, ...]
++
++
++def _operational_problems(row: ComparisonRow | None, limits: OperationalLimits) -> list[str]:
++    if row is None:
++        return ["沒有候選實測"]
++    problems = [f"比較表有沒量的欄位:{row.approach}" for m in row.measures() if not m.measured][:1]
++    if None in (limits.cost_per_call_usd, limits.latency_p95_us, limits.failure_rate):
++        problems.append("成本、延遲或失敗率的門檻還沒裁定")
++    if problems:
++        return problems
++    assert limits.cost_per_call_usd is not None  # noqa: S101 - 上面已確認三個門檻都有值
++    assert limits.latency_p95_us is not None  # noqa: S101
++    assert limits.failure_rate is not None  # noqa: S101
++    checks = ((row.cost_per_call_usd, limits.cost_per_call_usd, "成本超過門檻"),
++              (row.latency_p95_us, limits.latency_p95_us, "延遲 p95 超過門檻"),
++              (row.format_failure_rate, limits.failure_rate, "格式失敗率超過門檻"),
++              (row.exception_rate, limits.failure_rate, "例外率超過門檻"),
++              (row.timeout_rate, limits.failure_rate, "逾時率超過門檻"),
++              (row.fallback_rate, limits.failure_rate, "退回率超過門檻"))
++    return [message for measure, bar, message in checks
++            if measure.value is not None and measure.value > bar]
++
++
++def _quality_problems(cell: CellReport) -> list[str]:
++    if cell.metric == RECALL:
++        low = wilson_lower(cell.numerator, cell.n)
++        return [] if low >= WORTH_RECALL_BAR else [f"召回率下界 {low:.3f} 未達 {WORTH_RECALL_BAR}"]
++    # 這三格的標準答案都不是「值得加」,每一次誤提案同時也是一次類別錯誤,所以類別正確率的下界過了,
++    # 「不誤提案的比例」下界必然也過;只比類別正確率(變異檢查證實另比誤提案率那一道拿掉結果不變)。
++    # 誤提案率照樣在報告裡逐格列出
++    correct = wilson_lower(cell.class_correct_count, cell.n)
++    return [] if correct >= OTHER_BAR else [f"類別正確率下界 {correct:.3f} 未達 {OTHER_BAR}"]
++
++
++def decide_adoption(
++    report: Report, candidate: ComparisonRow | None, limits: OperationalLimits
++) -> Adoption:
++    shared = _operational_problems(candidate, limits)
++    if report.kind != PRODUCTION:
++        shared = ["只有合成集:合成集是有限的合約案例,不能產生已驗證清單", *shared]
++    decisions = []
++    for cell in report.cells:
++        reasons = tuple(shared + _quality_problems(cell))
++        decisions.append(CellDecision(cell.cell, not reasons, reasons))
++    # 採用函式是已驗證清單唯一的信任呼叫端:帶分析端的簽發者哨兵建(代碼審第 2 輪的寫法)
++    validated = ValidatedCells(frozenset(d.cell for d in decisions if d.validated),
++                               _VALIDATED_CELLS_ISSUER)
++    return Adoption(cells=tuple(decisions), validated=validated, adopt=bool(validated.cells),
++                    reasons=tuple(dict.fromkeys(shared)))
+diff --git a/src/rtb/eval/eval_set.py b/src/rtb/eval/eval_set.py
+new file mode 100644
+index 0000000..bd19e84
+--- /dev/null
++++ b/src/rtb/eval/eval_set.py
+@@ -0,0 +1,312 @@
++# ruff: noqa: E501 - 生成的資料列,一列一筆情境
++"""合成評估集(Phase 10 增量 2):`rtb.eval.generator.render(generate(SEED))` 的產出,不要手改。
++
++每列:情境編號、擾動組、變體、歸檔的格、單一故障、狀態、預算、花費、曝光、點擊、轉換、營收、
++標準答案(程式照評分表算)。
++雜湊由測試釘住;換批要同時用決策指令記一筆理由與時間(計劃〈外洩紀錄〉)。
++"""
++
++from rtb.eval.generator import Row
++
++ROWS: tuple[Row, ...] = (
++    ('paused-00-base', 'paused-00', 'base', 'paused', '', 'paused', 9223372036854775807, 1.6117941277779907e+17, 8953, 2380, 0, 0.0, 'not_worth'),
++    ('paused-00-spend', 'paused-00', 'spend', 'paused', '', 'paused', 9223372036854775807, 5.290703091319459e+16, 8953, 2380, 0, 0.0, 'not_worth'),
++    ('paused-00-budget', 'paused-00', 'budget', 'paused', '', 'paused', 48, 0.76, 8953, 2380, 0, 0.0, 'not_worth'),
++    ('paused-01-base', 'paused-01', 'base', 'paused', '', 'paused', 1, 0.0, 5458, 2828, 0, 1221.11, 'not_worth'),
++    ('paused-01-spend', 'paused-01', 'spend', 'paused', '', 'paused', 1, 0.02, 5458, 2828, 0, 1221.11, 'not_worth'),
++    ('paused-01-budget', 'paused-01', 'budget', 'paused', '', 'paused', 5000, 8.92, 5458, 2828, 0, 1221.11, 'not_worth'),
++    ('paused-02-base', 'paused-02', 'base', 'paused', '', 'paused', 10000, 182.78, 5318, 619, 262, 2511.02, 'not_worth'),
++    ('paused-02-spend', 'paused-02', 'spend', 'paused', '', 'paused', 10000, 89.25, 5318, 619, 262, 2511.02, 'not_worth'),
++    ('paused-02-budget', 'paused-02', 'budget', 'paused', '', 'paused', 5000, 96.03, 5318, 619, 262, 2511.02, 'not_worth'),
++    ('paused-03-base', 'paused-03', 'base', 'paused', '', 'paused', 4611686018427387903, 5.22410484886712e+16, 635, None, 0, 0.0, 'not_worth'),
++    ('paused-03-spend', 'paused-03', 'spend', 'paused', '', 'paused', 4611686018427387903, 6.236744271431147e+16, 635, None, 0, 0.0, 'not_worth'),
++    ('paused-03-budget', 'paused-03', 'budget', 'paused', '', 'paused', 48, 0.6, 635, None, 0, 0.0, 'not_worth'),
++    ('paused-04-base', 'paused-04', 'base', 'paused', '', 'paused', 10000, 49.45, 2826, 1868, 1652, 0.0, 'not_worth'),
++    ('paused-04-spend', 'paused-04', 'spend', 'paused', '', 'paused', 10000, 24.32, 2826, 1868, 1652, 0.0, 'not_worth'),
++    ('paused-04-budget', 'paused-04', 'budget', 'paused', '', 'paused', 1000000000, 463584.99, 2826, 1868, 1652, 0.0, 'not_worth'),
++    ('paused-05-base', 'paused-05', 'base', 'paused', '', 'paused', 1, 0.01, 4780, 3398, 0, 2215.35, 'not_worth'),
++    ('paused-05-spend', 'paused-05', 'spend', 'paused', '', 'paused', 1, 0.0, 4780, 3398, 0, 2215.35, 'not_worth'),
++    ('paused-05-budget', 'paused-05', 'budget', 'paused', '', 'paused', 48, 0.55, 4780, 3398, 0, 2215.35, 'not_worth'),
++    ('paused-06-base', 'paused-06', 'base', 'paused', '', 'paused', 24, 0.03, 9465, 7951, 1792, 0.0, 'not_worth'),
++    ('paused-06-spend', 'paused-06', 'spend', 'paused', '', 'paused', 24, 0.32, 9465, 7951, 1792, 0.0, 'not_worth'),
++    ('paused-06-budget', 'paused-06', 'budget', 'paused', '', 'paused', 5000, 54.71, 9465, 7951, 1792, 0.0, 'not_worth'),
++    ('paused-07-base', 'paused-07', 'base', 'paused', '', 'paused', 24, 0.16, 1789, None, 0, 0.0, 'not_worth'),
++    ('paused-07-spend', 'paused-07', 'spend', 'paused', '', 'paused', 24, 0.35, 1789, None, 0, 0.0, 'not_worth'),
++    ('paused-07-budget', 'paused-07', 'budget', 'paused', '', 'paused', 5000, 71.03, 1789, None, 0, 0.0, 'not_worth'),
++    ('paused-08-base', 'paused-08', 'base', 'paused', '', 'paused', 4611686018427387903, 9.311723847181008e+16, 4850, 179, 25, 0.0, 'not_worth'),
++    ('paused-08-spend', 'paused-08', 'spend', 'paused', '', 'paused', 4611686018427387903, 6.194729658791466e+16, 4850, 179, 25, 0.0, 'not_worth'),
++    ('paused-08-budget', 'paused-08', 'budget', 'paused', '', 'paused', 48, 0.11, 4850, 179, 25, 0.0, 'not_worth'),
++    ('paused-09-base', 'paused-09', 'base', 'paused', '', 'paused', 1, 0.01, 9022, 0, 0, 0.0, 'not_worth'),
++    ('paused-09-spend', 'paused-09', 'spend', 'paused', '', 'paused', 1, 0.02, 9022, 0, 0, 0.0, 'not_worth'),
++    ('paused-09-budget', 'paused-09', 'budget', 'paused', '', 'paused', 5000, 69.43, 9022, 0, 0, 0.0, 'not_worth'),
++    ('paused-10-base', 'paused-10', 'base', 'paused', '', 'paused', 4611686018427387903, 5412074687763807.0, 4255, 1549, 213, 4770.57, 'not_worth'),
++    ('paused-10-spend', 'paused-10', 'spend', 'paused', '', 'paused', 4611686018427387903, 2.749476553053711e+16, 4255, 1549, 213, 4770.57, 'not_worth'),
++    ('paused-10-budget', 'paused-10', 'budget', 'paused', '', 'paused', 1000000000, 225797.22, 4255, 1549, 213, 4770.57, 'not_worth'),
++    ('paused-11-base', 'paused-11', 'base', 'paused', '', 'paused', 10000, 74.29, 7408, None, 0, 0.0, 'not_worth'),
++    ('paused-11-spend', 'paused-11', 'spend', 'paused', '', 'paused', 10000, 101.72, 7408, None, 0, 0.0, 'not_worth'),
++    ('paused-11-budget', 'paused-11', 'budget', 'paused', '', 'paused', 5000, 74.53, 7408, None, 0, 0.0, 'not_worth'),
++    ('paused-12-base', 'paused-12', 'base', 'paused', '', 'paused', 24, 0.08, 4554, 2779, 508, 0.0, 'not_worth'),
++    ('paused-12-spend', 'paused-12', 'spend', 'paused', '', 'paused', 24, 0.36, 4554, 2779, 508, 0.0, 'not_worth'),
++    ('paused-12-budget', 'paused-12', 'budget', 'paused', '', 'paused', 48, 0.57, 4554, 2779, 508, 0.0, 'not_worth'),
++    ('paused-13-base', 'paused-13', 'base', 'paused', '', 'paused', 100, 0.03, 7077, 4633, 0, 2042.44, 'not_worth'),
++    ('paused-13-spend', 'paused-13', 'spend', 'paused', '', 'paused', 100, 1.19, 7077, 4633, 0, 2042.44, 'not_worth'),
++    ('paused-13-budget', 'paused-13', 'budget', 'paused', '', 'paused', 48, 0.01, 7077, 4633, 0, 2042.44, 'not_worth'),
++    ('paused-14-base', 'paused-14', 'base', 'paused', '', 'paused', 10000, 170.79, 3151, 411, 0, 0.0, 'not_worth'),
++    ('paused-14-spend', 'paused-14', 'spend', 'paused', '', 'paused', 10000, 57.92, 3151, 411, 0, 0.0, 'not_worth'),
++    ('paused-14-budget', 'paused-14', 'budget', 'paused', '', 'paused', 5000, 6.36, 3151, 411, 0, 0.0, 'not_worth'),
++    ('paused-15-base', 'paused-15', 'base', 'paused', '', 'paused', 4611686018427387903, 6553590425680847.0, 7772, None, 3419, 0.0, 'not_worth'),
++    ('paused-15-spend', 'paused-15', 'spend', 'paused', '', 'paused', 4611686018427387903, 2.278105400460035e+16, 7772, None, 3419, 0.0, 'not_worth'),
++    ('paused-15-budget', 'paused-15', 'budget', 'paused', '', 'paused', 48, 0.32, 7772, None, 3419, 0.0, 'not_worth'),
++    ('paused-16-base', 'paused-16', 'base', 'paused', '', 'paused', 9223372036854775807, 6.426028443448969e+16, 1657, 1198, 0, 1835.12, 'not_worth'),
++    ('paused-16-spend', 'paused-16', 'spend', 'paused', '', 'paused', 9223372036854775807, 1.2693473938380363e+17, 1657, 1198, 0, 1835.12, 'not_worth'),
++    ('paused-16-budget', 'paused-16', 'budget', 'paused', '', 'paused', 5000, 47.67, 1657, 1198, 0, 1835.12, 'not_worth'),
++    ('paused-17-base', 'paused-17', 'base', 'paused', '', 'paused', 9223372036854775807, 1.5813310658212224e+17, 1287, 1094, 0, 4273.13, 'not_worth'),
++    ('paused-17-spend', 'paused-17', 'spend', 'paused', '', 'paused', 9223372036854775807, 569028424823591.0, 1287, 1094, 0, 4273.13, 'not_worth'),
++    ('paused-17-budget', 'paused-17', 'budget', 'paused', '', 'paused', 1000000000, 19464495.2, 1287, 1094, 0, 4273.13, 'not_worth'),
++    ('paused-18-base', 'paused-18', 'base', 'paused', '', 'paused', 24, 0.32, 7499, 7085, 0, 0.0, 'not_worth'),
++    ('paused-18-spend', 'paused-18', 'spend', 'paused', '', 'paused', 24, 0.48, 7499, 7085, 0, 0.0, 'not_worth'),
++    ('paused-18-budget', 'paused-18', 'budget', 'paused', '', 'paused', 5000, 2.37, 7499, 7085, 0, 0.0, 'not_worth'),
++    ('paused-19-base', 'paused-19', 'base', 'paused', '', 'paused', 9223372036854775807, 1.3915201690865811e+17, 9925, None, 0, 0.0, 'not_worth'),
++    ('paused-19-spend', 'paused-19', 'spend', 'paused', '', 'paused', 9223372036854775807, 2797423799307582.5, 9925, None, 0, 0.0, 'not_worth'),
++    ('paused-19-budget', 'paused-19', 'budget', 'paused', '', 'paused', 1000000000, 14656138.89, 9925, None, 0, 0.0, 'not_worth'),
++    ('anomaly-00-base', 'anomaly-00', 'base', 'anomaly', 'impressions:missing', 'active', 10000, 94.05, None, 1070, 0, 3657.18, 'insufficient_evidence'),
++    ('anomaly-00-spend', 'anomaly-00', 'spend', 'anomaly', 'impressions:missing', 'active', 10000, 84.47, None, 1070, 0, 3657.18, 'insufficient_evidence'),
++    ('anomaly-00-budget', 'anomaly-00', 'budget', 'anomaly', 'impressions:missing', 'active', 1000000000, 19684648.27, None, 1070, 0, 3657.18, 'insufficient_evidence'),
++    ('anomaly-01-base', 'anomaly-01', 'base', 'anomaly', 'clicks:missing', 'active', 9223372036854775807, 2.9772684802906e+16, 2891, None, 2123, 0.0, 'insufficient_evidence'),
++    ('anomaly-01-spend', 'anomaly-01', 'spend', 'anomaly', 'clicks:missing', 'active', 9223372036854775807, 1.2721318490734147e+17, 2891, None, 2123, 0.0, 'insufficient_evidence'),
++    ('anomaly-01-budget', 'anomaly-01', 'budget', 'anomaly', 'clicks:missing', 'active', 48, 0.38, 2891, None, 2123, 0.0, 'insufficient_evidence'),
++    ('anomaly-02-base', 'anomaly-02', 'base', 'anomaly', 'conversions:missing', 'active', 24, 0.48, 5091, 744, None, 1130.93, 'insufficient_evidence'),
++    ('anomaly-02-spend', 'anomaly-02', 'spend', 'anomaly', 'conversions:missing', 'active', 24, 0.18, 5091, 744, None, 1130.93, 'insufficient_evidence'),
++    ('anomaly-02-budget', 'anomaly-02', 'budget', 'anomaly', 'conversions:missing', 'active', 48, 0.51, 5091, 744, None, 1130.93, 'insufficient_evidence'),
++    ('anomaly-03-base', 'anomaly-03', 'base', 'anomaly', 'revenue:missing', 'active', 100, 0.15, 5307, 424, 0, None, 'insufficient_evidence'),
++    ('anomaly-03-spend', 'anomaly-03', 'spend', 'anomaly', 'revenue:missing', 'active', 100, 0.18, 5307, 424, 0, None, 'insufficient_evidence'),
++    ('anomaly-03-budget', 'anomaly-03', 'budget', 'anomaly', 'revenue:missing', 'active', 1000000000, 9162400.18, 5307, 424, 0, None, 'insufficient_evidence'),
++    ('anomaly-04-base', 'anomaly-04', 'base', 'anomaly', 'spend:missing', 'active', 24, None, 1900, 461, 188, 0.0, 'insufficient_evidence'),
++    ('anomaly-04-spend', 'anomaly-04', 'spend', 'anomaly', 'spend:missing', 'active', 24, None, 1900, 461, 188, 0.0, 'insufficient_evidence'),
++    ('anomaly-04-budget', 'anomaly-04', 'budget', 'anomaly', 'spend:missing', 'active', 48, None, 1900, 461, 188, 0.0, 'insufficient_evidence'),
++    ('anomaly-05-base', 'anomaly-05', 'base', 'anomaly', 'impressions:negative', 'active', 9223372036854775807, 2.8296710161274772e+16, -3, 273, 231, 4373.91, 'insufficient_evidence'),
++    ('anomaly-05-spend', 'anomaly-05', 'spend', 'anomaly', 'impressions:negative', 'active', 9223372036854775807, 1.1309490693055482e+16, -3, 273, 231, 4373.91, 'insufficient_evidence'),
++    ('anomaly-05-budget', 'anomaly-05', 'budget', 'anomaly', 'impressions:negative', 'active', 1000000000, 8831726.78, -3, 273, 231, 4373.91, 'insufficient_evidence'),
++    ('anomaly-06-base', 'anomaly-06', 'base', 'anomaly', 'clicks:negative', 'active', 10000, 97.71, 9933, -47, 0, 1803.23, 'insufficient_evidence'),
++    ('anomaly-06-spend', 'anomaly-06', 'spend', 'anomaly', 'clicks:negative', 'active', 10000, 2.49, 9933, -47, 0, 1803.23, 'insufficient_evidence'),
++    ('anomaly-06-budget', 'anomaly-06', 'budget', 'anomaly', 'clicks:negative', 'active', 48, 0.68, 9933, -47, 0, 1803.23, 'insufficient_evidence'),
++    ('anomaly-07-base', 'anomaly-07', 'base', 'anomaly', 'conversions:negative', 'active', 100, 1.02, 5711, 5176, -25, 0.0, 'insufficient_evidence'),
++    ('anomaly-07-spend', 'anomaly-07', 'spend', 'anomaly', 'conversions:negative', 'active', 100, 0.32, 5711, 5176, -25, 0.0, 'insufficient_evidence'),
++    ('anomaly-07-budget', 'anomaly-07', 'budget', 'anomaly', 'conversions:negative', 'active', 48, 0.32, 5711, 5176, -25, 0.0, 'insufficient_evidence'),
++    ('anomaly-08-base', 'anomaly-08', 'base', 'anomaly', 'revenue:negative', 'active', 9223372036854775807, 1.7220544383982186e+17, 3252, 2284, 1385, -1.0, 'insufficient_evidence'),
++    ('anomaly-08-spend', 'anomaly-08', 'spend', 'anomaly', 'revenue:negative', 'active', 9223372036854775807, 2.8385009658638556e+16, 3252, 2284, 1385, -1.0, 'insufficient_evidence'),
++    ('anomaly-08-budget', 'anomaly-08', 'budget', 'anomaly', 'revenue:negative', 'active', 1000000000, 6057909.88, 3252, 2284, 1385, -1.0, 'insufficient_evidence'),
++    ('anomaly-09-base', 'anomaly-09', 'base', 'anomaly', 'spend:negative', 'active', 24, -6.96, 255, 74, 0, 3224.97, 'insufficient_evidence'),
++    ('anomaly-09-spend', 'anomaly-09', 'spend', 'anomaly', 'spend:negative', 'active', 24, -6.96, 255, 74, 0, 3224.97, 'insufficient_evidence'),
++    ('anomaly-09-budget', 'anomaly-09', 'budget', 'anomaly', 'spend:negative', 'active', 1000000000, -6.96, 255, 74, 0, 3224.97, 'insufficient_evidence'),
++    ('anomaly-10-base', 'anomaly-10', 'base', 'anomaly', 'clicks>impressions', 'active', 9223372036854775807, 8.611690213422157e+16, 2694, 2723, 0, 0.0, 'insufficient_evidence'),
++    ('anomaly-10-spend', 'anomaly-10', 'spend', 'anomaly', 'clicks>impressions', 'active', 9223372036854775807, 6.159705917240979e+16, 2694, 2723, 0, 0.0, 'insufficient_evidence'),
++    ('anomaly-10-budget', 'anomaly-10', 'budget', 'anomaly', 'clicks>impressions', 'active', 5000, 41.34, 2694, 2723, 0, 0.0, 'insufficient_evidence'),
++    ('anomaly-11-base', 'anomaly-11', 'base', 'anomaly', 'conversions>clicks', 'active', 100, 0.5, 3236, 677, 678, 4798.94, 'insufficient_evidence'),
++    ('anomaly-11-spend', 'anomaly-11', 'spend', 'anomaly', 'conversions>clicks', 'active', 100, 1.32, 3236, 677, 678, 4798.94, 'insufficient_evidence'),
++    ('anomaly-11-budget', 'anomaly-11', 'budget', 'anomaly', 'conversions>clicks', 'active', 1000000000, 244288.11, 3236, 677, 678, 4798.94, 'insufficient_evidence'),
++    ('anomaly-12-base', 'anomaly-12', 'base', 'anomaly', 'impressions:missing', 'active', 100, 1.71, None, 4136, 0, 4242.9, 'insufficient_evidence'),
++    ('anomaly-12-spend', 'anomaly-12', 'spend', 'anomaly', 'impressions:missing', 'active', 100, 1.68, None, 4136, 0, 4242.9, 'insufficient_evidence'),
++    ('anomaly-12-budget', 'anomaly-12', 'budget', 'anomaly', 'impressions:missing', 'active', 48, 0.13, None, 4136, 0, 4242.9, 'insufficient_evidence'),
++    ('anomaly-13-base', 'anomaly-13', 'base', 'anomaly', 'clicks:missing', 'active', 100, 0.75, 5892, None, 877, 0.0, 'insufficient_evidence'),
++    ('anomaly-13-spend', 'anomaly-13', 'spend', 'anomaly', 'clicks:missing', 'active', 100, 1.58, 5892, None, 877, 0.0, 'insufficient_evidence'),
++    ('anomaly-13-budget', 'anomaly-13', 'budget', 'anomaly', 'clicks:missing', 'active', 1000000000, 7979863.49, 5892, None, 877, 0.0, 'insufficient_evidence'),
++    ('anomaly-14-base', 'anomaly-14', 'base', 'anomaly', 'conversions:missing', 'active', 1, 0.0, 4544, 2629, None, 4444.79, 'insufficient_evidence'),
++    ('anomaly-14-spend', 'anomaly-14', 'spend', 'anomaly', 'conversions:missing', 'active', 1, 0.01, 4544, 2629, None, 4444.79, 'insufficient_evidence'),
++    ('anomaly-14-budget', 'anomaly-14', 'budget', 'anomaly', 'conversions:missing', 'active', 1000000000, 15301371.1, 4544, 2629, None, 4444.79, 'insufficient_evidence'),
++    ('anomaly-15-base', 'anomaly-15', 'base', 'anomaly', 'revenue:missing', 'active', 4611686018427387903, 8.417066295445595e+16, 8006, 3256, 0, None, 'insufficient_evidence'),
++    ('anomaly-15-spend', 'anomaly-15', 'spend', 'anomaly', 'revenue:missing', 'active', 4611686018427387903, 5.604259397870141e+16, 8006, 3256, 0, None, 'insufficient_evidence'),
++    ('anomaly-15-budget', 'anomaly-15', 'budget', 'anomaly', 'revenue:missing', 'active', 48, 0.11, 8006, 3256, 0, None, 'insufficient_evidence'),
++    ('anomaly-16-base', 'anomaly-16', 'base', 'anomaly', 'spend:missing', 'active', 9223372036854775807, None, 8976, 2798, 205, 0.0, 'insufficient_evidence'),
++    ('anomaly-16-spend', 'anomaly-16', 'spend', 'anomaly', 'spend:missing', 'active', 9223372036854775807, None, 8976, 2798, 205, 0.0, 'insufficient_evidence'),
++    ('anomaly-16-budget', 'anomaly-16', 'budget', 'anomaly', 'spend:missing', 'active', 5000, None, 8976, 2798, 205, 0.0, 'insufficient_evidence'),
++    ('anomaly-17-base', 'anomaly-17', 'base', 'anomaly', 'impressions:negative', 'active', 9223372036854775807, 1.1189069608264109e+17, -29, 1360, 426, 3245.2, 'insufficient_evidence'),
++    ('anomaly-17-spend', 'anomaly-17', 'spend', 'anomaly', 'impressions:negative', 'active', 9223372036854775807, 1.8990244644947952e+17, -29, 1360, 426, 3245.2, 'insufficient_evidence'),
++    ('anomaly-17-budget', 'anomaly-17', 'budget', 'anomaly', 'impressions:negative', 'active', 5000, 58.88, -29, 1360, 426, 3245.2, 'insufficient_evidence'),
++    ('anomaly-18-base', 'anomaly-18', 'base', 'anomaly', 'clicks:negative', 'active', 4611686018427387903, 6945196295330124.0, 1424, -22, 0, 4170.84, 'insufficient_evidence'),
++    ('anomaly-18-spend', 'anomaly-18', 'spend', 'anomaly', 'clicks:negative', 'active', 4611686018427387903, 2.340991992801047e+16, 1424, -22, 0, 4170.84, 'insufficient_evidence'),
++    ('anomaly-18-budget', 'anomaly-18', 'budget', 'anomaly', 'clicks:negative', 'active', 48, 0.72, 1424, -22, 0, 4170.84, 'insufficient_evidence'),
++    ('anomaly-19-base', 'anomaly-19', 'base', 'anomaly', 'conversions:negative', 'active', 100, 0.28, 2743, 665, -31, 0.0, 'insufficient_evidence'),
++    ('anomaly-19-spend', 'anomaly-19', 'spend', 'anomaly', 'conversions:negative', 'active', 100, 1.54, 2743, 665, -31, 0.0, 'insufficient_evidence'),
++    ('anomaly-19-budget', 'anomaly-19', 'budget', 'anomaly', 'conversions:negative', 'active', 5000, 89.87, 2743, 665, -31, 0.0, 'insufficient_evidence'),
++    ('no_delivery-00-base', 'no_delivery-00', 'base', 'no_delivery', '', 'active', 10000, 100.16, 360, 0, 0, 4789.72, 'not_worth'),
++    ('no_delivery-00-spend', 'no_delivery-00', 'spend', 'no_delivery', '', 'active', 10000, 116.17, 360, 0, 0, 4789.72, 'not_worth'),
++    ('no_delivery-00-budget', 'no_delivery-00', 'budget', 'no_delivery', '', 'active', 48, 0.67, 360, 0, 0, 4789.72, 'not_worth'),
++    ('no_delivery-01-base', 'no_delivery-01', 'base', 'no_delivery', '', 'active', 9223372036854775807, 1.6098453569968726e+17, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-01-spend', 'no_delivery-01', 'spend', 'no_delivery', '', 'active', 9223372036854775807, 1.2561843707461342e+17, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-01-budget', 'no_delivery-01', 'budget', 'no_delivery', '', 'active', 5000, 78.67, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-02-base', 'no_delivery-02', 'base', 'no_delivery', '', 'active', 10000, 35.61, 6155, 0, 0, 2831.96, 'not_worth'),
++    ('no_delivery-02-spend', 'no_delivery-02', 'spend', 'no_delivery', '', 'active', 10000, 61.06, 6155, 0, 0, 2831.96, 'not_worth'),
++    ('no_delivery-02-budget', 'no_delivery-02', 'budget', 'no_delivery', '', 'active', 48, 0.02, 6155, 0, 0, 2831.96, 'not_worth'),
++    ('no_delivery-03-base', 'no_delivery-03', 'base', 'no_delivery', '', 'active', 4611686018427387903, 7.683766080020368e+16, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-03-spend', 'no_delivery-03', 'spend', 'no_delivery', '', 'active', 4611686018427387903, 6.3862312307579464e+16, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-03-budget', 'no_delivery-03', 'budget', 'no_delivery', '', 'active', 5000, 67.64, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-04-base', 'no_delivery-04', 'base', 'no_delivery', '', 'active', 24, 0.39, 2929, 0, 0, 2981.07, 'not_worth'),
++    ('no_delivery-04-spend', 'no_delivery-04', 'spend', 'no_delivery', '', 'active', 24, 0.15, 2929, 0, 0, 2981.07, 'not_worth'),
++    ('no_delivery-04-budget', 'no_delivery-04', 'budget', 'no_delivery', '', 'active', 5000, 17.89, 2929, 0, 0, 2981.07, 'not_worth'),
++    ('no_delivery-05-base', 'no_delivery-05', 'base', 'no_delivery', '', 'active', 24, 0.32, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-05-spend', 'no_delivery-05', 'spend', 'no_delivery', '', 'active', 24, 0.41, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-05-budget', 'no_delivery-05', 'budget', 'no_delivery', '', 'active', 5000, 12.35, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-06-base', 'no_delivery-06', 'base', 'no_delivery', '', 'active', 10000, 14.58, 714, 0, 0, 3944.51, 'not_worth'),
++    ('no_delivery-06-spend', 'no_delivery-06', 'spend', 'no_delivery', '', 'active', 10000, 66.23, 714, 0, 0, 3944.51, 'not_worth'),
++    ('no_delivery-06-budget', 'no_delivery-06', 'budget', 'no_delivery', '', 'active', 5000, 43.89, 714, 0, 0, 3944.51, 'not_worth'),
++    ('no_delivery-07-base', 'no_delivery-07', 'base', 'no_delivery', '', 'active', 1, 0.01, 0, 0, 0, 841.93, 'not_worth'),
++    ('no_delivery-07-spend', 'no_delivery-07', 'spend', 'no_delivery', '', 'active', 1, 0.02, 0, 0, 0, 841.93, 'not_worth'),
++    ('no_delivery-07-budget', 'no_delivery-07', 'budget', 'no_delivery', '', 'active', 1000000000, 13644101.21, 0, 0, 0, 841.93, 'not_worth'),
++    ('no_delivery-08-base', 'no_delivery-08', 'base', 'no_delivery', '', 'active', 10000, 155.62, 7878, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-08-spend', 'no_delivery-08', 'spend', 'no_delivery', '', 'active', 10000, 41.41, 7878, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-08-budget', 'no_delivery-08', 'budget', 'no_delivery', '', 'active', 5000, 89.47, 7878, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-09-base', 'no_delivery-09', 'base', 'no_delivery', '', 'active', 10000, 104.96, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-09-spend', 'no_delivery-09', 'spend', 'no_delivery', '', 'active', 10000, 73.52, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-09-budget', 'no_delivery-09', 'budget', 'no_delivery', '', 'active', 1000000000, 19455231.11, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-10-base', 'no_delivery-10', 'base', 'no_delivery', '', 'active', 10000, 99.87, 9301, 0, 0, 491.08, 'not_worth'),
++    ('no_delivery-10-spend', 'no_delivery-10', 'spend', 'no_delivery', '', 'active', 10000, 4.31, 9301, 0, 0, 491.08, 'not_worth'),
++    ('no_delivery-10-budget', 'no_delivery-10', 'budget', 'no_delivery', '', 'active', 48, 0.74, 9301, 0, 0, 491.08, 'not_worth'),
++    ('no_delivery-11-base', 'no_delivery-11', 'base', 'no_delivery', '', 'active', 4611686018427387903, 8.985235158470774e+16, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-11-spend', 'no_delivery-11', 'spend', 'no_delivery', '', 'active', 4611686018427387903, 2.8392137102857932e+16, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-11-budget', 'no_delivery-11', 'budget', 'no_delivery', '', 'active', 48, 0.2, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-12-base', 'no_delivery-12', 'base', 'no_delivery', '', 'active', 1, 0.02, 5209, 0, 0, 3223.25, 'not_worth'),
++    ('no_delivery-12-spend', 'no_delivery-12', 'spend', 'no_delivery', '', 'active', 1, 0.01, 5209, 0, 0, 3223.25, 'not_worth'),
++    ('no_delivery-12-budget', 'no_delivery-12', 'budget', 'no_delivery', '', 'active', 48, 0.54, 5209, 0, 0, 3223.25, 'not_worth'),
++    ('no_delivery-13-base', 'no_delivery-13', 'base', 'no_delivery', '', 'active', 10000, 92.66, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-13-spend', 'no_delivery-13', 'spend', 'no_delivery', '', 'active', 10000, 166.22, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-13-budget', 'no_delivery-13', 'budget', 'no_delivery', '', 'active', 48, 0.94, 0, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-14-base', 'no_delivery-14', 'base', 'no_delivery', '', 'active', 1, 0.02, 1737, 0, 0, 936.86, 'not_worth'),
++    ('no_delivery-14-spend', 'no_delivery-14', 'spend', 'no_delivery', '', 'active', 1, 0.01, 1737, 0, 0, 936.86, 'not_worth'),
++    ('no_delivery-14-budget', 'no_delivery-14', 'budget', 'no_delivery', '', 'active', 5000, 87.57, 1737, 0, 0, 936.86, 'not_worth'),
++    ('no_delivery-15-base', 'no_delivery-15', 'base', 'no_delivery', '', 'active', 9223372036854775807, 1.83560054499805e+17, 0, 0, 0, 3374.92, 'not_worth'),
++    ('no_delivery-15-spend', 'no_delivery-15', 'spend', 'no_delivery', '', 'active', 9223372036854775807, 1.1941910035854611e+17, 0, 0, 0, 3374.92, 'not_worth'),
++    ('no_delivery-15-budget', 'no_delivery-15', 'budget', 'no_delivery', '', 'active', 48, 0.93, 0, 0, 0, 3374.92, 'not_worth'),
++    ('no_delivery-16-base', 'no_delivery-16', 'base', 'no_delivery', '', 'active', 1, 0.0, 420, 0, 0, 1227.49, 'not_worth'),
++    ('no_delivery-16-spend', 'no_delivery-16', 'spend', 'no_delivery', '', 'active', 1, 0.02, 420, 0, 0, 1227.49, 'not_worth'),
++    ('no_delivery-16-budget', 'no_delivery-16', 'budget', 'no_delivery', '', 'active', 48, 0.61, 420, 0, 0, 1227.49, 'not_worth'),
++    ('no_delivery-17-base', 'no_delivery-17', 'base', 'no_delivery', '', 'active', 10000, 64.33, 0, 0, 0, 3731.78, 'not_worth'),
++    ('no_delivery-17-spend', 'no_delivery-17', 'spend', 'no_delivery', '', 'active', 10000, 116.88, 0, 0, 0, 3731.78, 'not_worth'),
++    ('no_delivery-17-budget', 'no_delivery-17', 'budget', 'no_delivery', '', 'active', 1000000000, 17193108.27, 0, 0, 0, 3731.78, 'not_worth'),
++    ('no_delivery-18-base', 'no_delivery-18', 'base', 'no_delivery', '', 'active', 24, 0.41, 4768, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-18-spend', 'no_delivery-18', 'spend', 'no_delivery', '', 'active', 24, 0.29, 4768, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-18-budget', 'no_delivery-18', 'budget', 'no_delivery', '', 'active', 1000000000, 18473927.13, 4768, 0, 0, 0.0, 'not_worth'),
++    ('no_delivery-19-base', 'no_delivery-19', 'base', 'no_delivery', '', 'active', 24, 0.18, 0, 0, 0, 4789.43, 'not_worth'),
++    ('no_delivery-19-spend', 'no_delivery-19', 'spend', 'no_delivery', '', 'active', 24, 0.1, 0, 0, 0, 4789.43, 'not_worth'),
++    ('no_delivery-19-budget', 'no_delivery-19', 'budget', 'no_delivery', '', 'active', 1000000000, 17835625.9, 0, 0, 0, 4789.43, 'not_worth'),
++    ('delivery_with_value-00-base', 'delivery_with_value-00', 'base', 'delivery_with_value', '', 'active', 4611686018427387903, 8.629928300635394e+16, 4287, 4130, 0, 2838.22, 'worth'),
++    ('delivery_with_value-00-spend', 'delivery_with_value-00', 'spend', 'delivery_with_value', '', 'active', 4611686018427387903, 8.437008238463154e+16, 4287, 4130, 0, 2838.22, 'worth'),
++    ('delivery_with_value-00-budget', 'delivery_with_value-00', 'budget', 'delivery_with_value', '', 'active', 48, 0.12, 4287, 4130, 0, 2838.22, 'worth'),
++    ('delivery_with_value-01-base', 'delivery_with_value-01', 'base', 'delivery_with_value', '', 'active', 24, 0.33, 7078, 1899, 1669, 0.0, 'worth'),
++    ('delivery_with_value-01-spend', 'delivery_with_value-01', 'spend', 'delivery_with_value', '', 'active', 24, 0.39, 7078, 1899, 1669, 0.0, 'worth'),
++    ('delivery_with_value-01-budget', 'delivery_with_value-01', 'budget', 'delivery_with_value', '', 'active', 1000000000, 12946485.99, 7078, 1899, 1669, 0.0, 'worth'),
++    ('delivery_with_value-02-base', 'delivery_with_value-02', 'base', 'delivery_with_value', '', 'active', 100, 0.27, 1064, 292, 101, 236.98, 'worth'),
++    ('delivery_with_value-02-spend', 'delivery_with_value-02', 'spend', 'delivery_with_value', '', 'active', 100, 1.13, 1064, 292, 101, 236.98, 'worth'),
++    ('delivery_with_value-02-budget', 'delivery_with_value-02', 'budget', 'delivery_with_value', '', 'active', 5000, 83.54, 1064, 292, 101, 236.98, 'worth'),
++    ('delivery_with_value-03-base', 'delivery_with_value-03', 'base', 'delivery_with_value', '', 'active', 100, 1.06, 8199, 6726, 0, 1866.69, 'worth'),
++    ('delivery_with_value-03-spend', 'delivery_with_value-03', 'spend', 'delivery_with_value', '', 'active', 100, 0.96, 8199, 6726, 0, 1866.69, 'worth'),
++    ('delivery_with_value-03-budget', 'delivery_with_value-03', 'budget', 'delivery_with_value', '', 'active', 5000, 18.33, 8199, 6726, 0, 1866.69, 'worth'),
++    ('delivery_with_value-04-base', 'delivery_with_value-04', 'base', 'delivery_with_value', '', 'active', 10000, 153.83, 660, 198, 17, 0.0, 'worth'),
++    ('delivery_with_value-04-spend', 'delivery_with_value-04', 'spend', 'delivery_with_value', '', 'active', 10000, 161.38, 660, 198, 17, 0.0, 'worth'),
++    ('delivery_with_value-04-budget', 'delivery_with_value-04', 'budget', 'delivery_with_value', '', 'active', 1000000000, 2743682.74, 660, 198, 17, 0.0, 'worth'),
++    ('delivery_with_value-05-base', 'delivery_with_value-05', 'base', 'delivery_with_value', '', 'active', 9223372036854775807, 1.7905969676521107e+17, 7212, 5660, 1661, 2953.95, 'worth'),
++    ('delivery_with_value-05-spend', 'delivery_with_value-05', 'spend', 'delivery_with_value', '', 'active', 9223372036854775807, 1.8562551722052154e+17, 7212, 5660, 1661, 2953.95, 'worth'),
++    ('delivery_with_value-05-budget', 'delivery_with_value-05', 'budget', 'delivery_with_value', '', 'active', 5000, 87.87, 7212, 5660, 1661, 2953.95, 'worth'),
++    ('delivery_with_value-06-base', 'delivery_with_value-06', 'base', 'delivery_with_value', '', 'active', 24, 0.28, 4960, 2413, 0, 2324.05, 'worth'),
++    ('delivery_with_value-06-spend', 'delivery_with_value-06', 'spend', 'delivery_with_value', '', 'active', 24, 0.45, 4960, 2413, 0, 2324.05, 'worth'),
++    ('delivery_with_value-06-budget', 'delivery_with_value-06', 'budget', 'delivery_with_value', '', 'active', 48, 0.68, 4960, 2413, 0, 2324.05, 'worth'),
++    ('delivery_with_value-07-base', 'delivery_with_value-07', 'base', 'delivery_with_value', '', 'active', 1, 0.01, 6745, 3313, 424, 0.0, 'worth'),
++    ('delivery_with_value-07-spend', 'delivery_with_value-07', 'spend', 'delivery_with_value', '', 'active', 1, 0.0, 6745, 3313, 424, 0.0, 'worth'),
++    ('delivery_with_value-07-budget', 'delivery_with_value-07', 'budget', 'delivery_with_value', '', 'active', 5000, 38.71, 6745, 3313, 424, 0.0, 'worth'),
++    ('delivery_with_value-08-base', 'delivery_with_value-08', 'base', 'delivery_with_value', '', 'active', 24, 0.29, 4942, 3804, 2875, 4519.71, 'worth'),
++    ('delivery_with_value-08-spend', 'delivery_with_value-08', 'spend', 'delivery_with_value', '', 'active', 24, 0.08, 4942, 3804, 2875, 4519.71, 'worth'),
++    ('delivery_with_value-08-budget', 'delivery_with_value-08', 'budget', 'delivery_with_value', '', 'active', 48, 0.27, 4942, 3804, 2875, 4519.71, 'worth'),
++    ('delivery_with_value-09-base', 'delivery_with_value-09', 'base', 'delivery_with_value', '', 'active', 10000, 99.53, 5160, 4616, 0, 1753.72, 'worth'),
++    ('delivery_with_value-09-spend', 'delivery_with_value-09', 'spend', 'delivery_with_value', '', 'active', 10000, 58.83, 5160, 4616, 0, 1753.72, 'worth'),
++    ('delivery_with_value-09-budget', 'delivery_with_value-09', 'budget', 'delivery_with_value', '', 'active', 48, 0.15, 5160, 4616, 0, 1753.72, 'worth'),
++    ('delivery_with_value-10-base', 'delivery_with_value-10', 'base', 'delivery_with_value', '', 'active', 100, 0.28, 9868, 7225, 5846, 0.0, 'worth'),
++    ('delivery_with_value-10-spend', 'delivery_with_value-10', 'spend', 'delivery_with_value', '', 'active', 100, 0.67, 9868, 7225, 5846, 0.0, 'worth'),
++    ('delivery_with_value-10-budget', 'delivery_with_value-10', 'budget', 'delivery_with_value', '', 'active', 5000, 47.9, 9868, 7225, 5846, 0.0, 'worth'),
++    ('delivery_with_value-11-base', 'delivery_with_value-11', 'base', 'delivery_with_value', '', 'active', 24, 0.14, 8786, 2481, 563, 4122.2, 'worth'),
++    ('delivery_with_value-11-spend', 'delivery_with_value-11', 'spend', 'delivery_with_value', '', 'active', 24, 0.08, 8786, 2481, 563, 4122.2, 'worth'),
++    ('delivery_with_value-11-budget', 'delivery_with_value-11', 'budget', 'delivery_with_value', '', 'active', 48, 0.54, 8786, 2481, 563, 4122.2, 'worth'),
++    ('delivery_with_value-12-base', 'delivery_with_value-12', 'base', 'delivery_with_value', '', 'active', 24, 0.42, 732, 567, 0, 2286.22, 'worth'),
++    ('delivery_with_value-12-spend', 'delivery_with_value-12', 'spend', 'delivery_with_value', '', 'active', 24, 0.41, 732, 567, 0, 2286.22, 'worth'),
++    ('delivery_with_value-12-budget', 'delivery_with_value-12', 'budget', 'delivery_with_value', '', 'active', 5000, 89.53, 732, 567, 0, 2286.22, 'worth'),
++    ('delivery_with_value-13-base', 'delivery_with_value-13', 'base', 'delivery_with_value', '', 'active', 4611686018427387903, 969709907515293.0, 7438, 2956, 1717, 0.0, 'worth'),
++    ('delivery_with_value-13-spend', 'delivery_with_value-13', 'spend', 'delivery_with_value', '', 'active', 4611686018427387903, 1.379737054144248e+16, 7438, 2956, 1717, 0.0, 'worth'),
++    ('delivery_with_value-13-budget', 'delivery_with_value-13', 'budget', 'delivery_with_value', '', 'active', 1000000000, 5771165.36, 7438, 2956, 1717, 0.0, 'worth'),
++    ('delivery_with_value-14-base', 'delivery_with_value-14', 'base', 'delivery_with_value', '', 'active', 4611686018427387903, 9.008125939876366e+16, 8964, 8567, 3383, 845.07, 'worth'),
++    ('delivery_with_value-14-spend', 'delivery_with_value-14', 'spend', 'delivery_with_value', '', 'active', 4611686018427387903, 4.897302985187484e+16, 8964, 8567, 3383, 845.07, 'worth'),
++    ('delivery_with_value-14-budget', 'delivery_with_value-14', 'budget', 'delivery_with_value', '', 'active', 48, 0.38, 8964, 8567, 3383, 845.07, 'worth'),
++    ('delivery_with_value-15-base', 'delivery_with_value-15', 'base', 'delivery_with_value', '', 'active', 9223372036854775807, 1.391108647383481e+17, 3930, 1134, 0, 91.99, 'worth'),
++    ('delivery_with_value-15-spend', 'delivery_with_value-15', 'spend', 'delivery_with_value', '', 'active', 9223372036854775807, 1.6247114575439072e+17, 3930, 1134, 0, 91.99, 'worth'),
++    ('delivery_with_value-15-budget', 'delivery_with_value-15', 'budget', 'delivery_with_value', '', 'active', 48, 0.73, 3930, 1134, 0, 91.99, 'worth'),
++    ('delivery_with_value-16-base', 'delivery_with_value-16', 'base', 'delivery_with_value', '', 'active', 1, 0.01, 7285, 5223, 723, 0.0, 'worth'),
++    ('delivery_with_value-16-spend', 'delivery_with_value-16', 'spend', 'delivery_with_value', '', 'active', 1, 0.01, 7285, 5223, 723, 0.0, 'worth'),
++    ('delivery_with_value-16-budget', 'delivery_with_value-16', 'budget', 'delivery_with_value', '', 'active', 1000000000, 18646010.99, 7285, 5223, 723, 0.0, 'worth'),
++    ('delivery_with_value-17-base', 'delivery_with_value-17', 'base', 'delivery_with_value', '', 'active', 10000, 53.73, 5014, 4064, 197, 4734.59, 'worth'),
++    ('delivery_with_value-17-spend', 'delivery_with_value-17', 'spend', 'delivery_with_value', '', 'active', 10000, 96.04, 5014, 4064, 197, 4734.59, 'worth'),
++    ('delivery_with_value-17-budget', 'delivery_with_value-17', 'budget', 'delivery_with_value', '', 'active', 1000000000, 14009146.93, 5014, 4064, 197, 4734.59, 'worth'),
++    ('delivery_with_value-18-base', 'delivery_with_value-18', 'base', 'delivery_with_value', '', 'active', 24, 0.44, 6693, 2612, 0, 1137.77, 'worth'),
++    ('delivery_with_value-18-spend', 'delivery_with_value-18', 'spend', 'delivery_with_value', '', 'active', 24, 0.21, 6693, 2612, 0, 1137.77, 'worth'),
++    ('delivery_with_value-18-budget', 'delivery_with_value-18', 'budget', 'delivery_with_value', '', 'active', 1000000000, 10392608.3, 6693, 2612, 0, 1137.77, 'worth'),
++    ('delivery_with_value-19-base', 'delivery_with_value-19', 'base', 'delivery_with_value', '', 'active', 4611686018427387903, 4.384150399090943e+16, 6170, 5044, 894, 0.0, 'worth'),
++    ('delivery_with_value-19-spend', 'delivery_with_value-19', 'spend', 'delivery_with_value', '', 'active', 4611686018427387903, 4711592015328939.0, 6170, 5044, 894, 0.0, 'worth'),
++    ('delivery_with_value-19-budget', 'delivery_with_value-19', 'budget', 'delivery_with_value', '', 'active', 5000, 74.75, 6170, 5044, 894, 0.0, 'worth'),
++    ('delivery_without_value-00-base', 'delivery_without_value-00', 'base', 'delivery_without_value', '', 'active', 4611686018427387903, 5.595678269689073e+16, 316, 306, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-00-spend', 'delivery_without_value-00', 'spend', 'delivery_without_value', '', 'active', 4611686018427387903, 3.2955821954487532e+16, 316, 306, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-00-budget', 'delivery_without_value-00', 'budget', 'delivery_without_value', '', 'active', 5000, 14.98, 316, 306, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-01-base', 'delivery_without_value-01', 'base', 'delivery_without_value', '', 'active', 100, 0.23, 7289, 513, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-01-spend', 'delivery_without_value-01', 'spend', 'delivery_without_value', '', 'active', 100, 0.38, 7289, 513, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-01-budget', 'delivery_without_value-01', 'budget', 'delivery_without_value', '', 'active', 1000000000, 6740100.72, 7289, 513, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-02-base', 'delivery_without_value-02', 'base', 'delivery_without_value', '', 'active', 24, 0.48, 8186, 5372, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-02-spend', 'delivery_without_value-02', 'spend', 'delivery_without_value', '', 'active', 24, 0.3, 8186, 5372, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-02-budget', 'delivery_without_value-02', 'budget', 'delivery_without_value', '', 'active', 1000000000, 759527.47, 8186, 5372, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-03-base', 'delivery_without_value-03', 'base', 'delivery_without_value', '', 'active', 100, 1.22, 8502, 3056, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-03-spend', 'delivery_without_value-03', 'spend', 'delivery_without_value', '', 'active', 100, 1.59, 8502, 3056, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-03-budget', 'delivery_without_value-03', 'budget', 'delivery_without_value', '', 'active', 1000000000, 4697819.18, 8502, 3056, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-04-base', 'delivery_without_value-04', 'base', 'delivery_without_value', '', 'active', 100, 0.96, 1441, 399, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-04-spend', 'delivery_without_value-04', 'spend', 'delivery_without_value', '', 'active', 100, 1.71, 1441, 399, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-04-budget', 'delivery_without_value-04', 'budget', 'delivery_without_value', '', 'active', 48, 0.94, 1441, 399, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-05-base', 'delivery_without_value-05', 'base', 'delivery_without_value', '', 'active', 4611686018427387903, 9.177923408330178e+16, 156, 51, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-05-spend', 'delivery_without_value-05', 'spend', 'delivery_without_value', '', 'active', 4611686018427387903, 6.982318750090388e+16, 156, 51, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-05-budget', 'delivery_without_value-05', 'budget', 'delivery_without_value', '', 'active', 5000, 72.53, 156, 51, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-06-base', 'delivery_without_value-06', 'base', 'delivery_without_value', '', 'active', 1, 0.02, 7199, 4319, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-06-spend', 'delivery_without_value-06', 'spend', 'delivery_without_value', '', 'active', 1, 0.01, 7199, 4319, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-06-budget', 'delivery_without_value-06', 'budget', 'delivery_without_value', '', 'active', 1000000000, 6621695.56, 7199, 4319, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-07-base', 'delivery_without_value-07', 'base', 'delivery_without_value', '', 'active', 1, 0.01, 2602, 245, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-07-spend', 'delivery_without_value-07', 'spend', 'delivery_without_value', '', 'active', 1, 0.01, 2602, 245, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-07-budget', 'delivery_without_value-07', 'budget', 'delivery_without_value', '', 'active', 48, 0.85, 2602, 245, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-08-base', 'delivery_without_value-08', 'base', 'delivery_without_value', '', 'active', 4611686018427387903, 1.0455062562476546e+16, 2327, 1871, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-08-spend', 'delivery_without_value-08', 'spend', 'delivery_without_value', '', 'active', 4611686018427387903, 1.134562872513108e+16, 2327, 1871, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-08-budget', 'delivery_without_value-08', 'budget', 'delivery_without_value', '', 'active', 48, 0.09, 2327, 1871, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-09-base', 'delivery_without_value-09', 'base', 'delivery_without_value', '', 'active', 10000, 176.74, 571, 238, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-09-spend', 'delivery_without_value-09', 'spend', 'delivery_without_value', '', 'active', 10000, 112.2, 571, 238, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-09-budget', 'delivery_without_value-09', 'budget', 'delivery_without_value', '', 'active', 48, 0.27, 571, 238, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-10-base', 'delivery_without_value-10', 'base', 'delivery_without_value', '', 'active', 10000, 56.73, 3032, 2767, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-10-spend', 'delivery_without_value-10', 'spend', 'delivery_without_value', '', 'active', 10000, 168.13, 3032, 2767, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-10-budget', 'delivery_without_value-10', 'budget', 'delivery_without_value', '', 'active', 48, 0.75, 3032, 2767, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-11-base', 'delivery_without_value-11', 'base', 'delivery_without_value', '', 'active', 1, 0.02, 6526, 4262, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-11-spend', 'delivery_without_value-11', 'spend', 'delivery_without_value', '', 'active', 1, 0.02, 6526, 4262, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-11-budget', 'delivery_without_value-11', 'budget', 'delivery_without_value', '', 'active', 48, 0.77, 6526, 4262, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-12-base', 'delivery_without_value-12', 'base', 'delivery_without_value', '', 'active', 9223372036854775807, 1.8757741088552947e+17, 9700, 3983, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-12-spend', 'delivery_without_value-12', 'spend', 'delivery_without_value', '', 'active', 9223372036854775807, 4.501713966194932e+16, 9700, 3983, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-12-budget', 'delivery_without_value-12', 'budget', 'delivery_without_value', '', 'active', 5000, 91.46, 9700, 3983, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-13-base', 'delivery_without_value-13', 'base', 'delivery_without_value', '', 'active', 1, 0.01, 5499, 3690, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-13-spend', 'delivery_without_value-13', 'spend', 'delivery_without_value', '', 'active', 1, 0.02, 5499, 3690, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-13-budget', 'delivery_without_value-13', 'budget', 'delivery_without_value', '', 'active', 5000, 19.07, 5499, 3690, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-14-base', 'delivery_without_value-14', 'base', 'delivery_without_value', '', 'active', 100, 1.98, 333, 218, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-14-spend', 'delivery_without_value-14', 'spend', 'delivery_without_value', '', 'active', 100, 1.21, 333, 218, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-14-budget', 'delivery_without_value-14', 'budget', 'delivery_without_value', '', 'active', 5000, 69.48, 333, 218, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-15-base', 'delivery_without_value-15', 'base', 'delivery_without_value', '', 'active', 1, 0.01, 5901, 5853, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-15-spend', 'delivery_without_value-15', 'spend', 'delivery_without_value', '', 'active', 1, 0.01, 5901, 5853, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-15-budget', 'delivery_without_value-15', 'budget', 'delivery_without_value', '', 'active', 5000, 71.78, 5901, 5853, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-16-base', 'delivery_without_value-16', 'base', 'delivery_without_value', '', 'active', 100, 0.42, 3925, 929, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-16-spend', 'delivery_without_value-16', 'spend', 'delivery_without_value', '', 'active', 100, 1.42, 3925, 929, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-16-budget', 'delivery_without_value-16', 'budget', 'delivery_without_value', '', 'active', 5000, 70.21, 3925, 929, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-17-base', 'delivery_without_value-17', 'base', 'delivery_without_value', '', 'active', 100, 0.23, 8556, 516, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-17-spend', 'delivery_without_value-17', 'spend', 'delivery_without_value', '', 'active', 100, 1.07, 8556, 516, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-17-budget', 'delivery_without_value-17', 'budget', 'delivery_without_value', '', 'active', 48, 0.08, 8556, 516, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-18-base', 'delivery_without_value-18', 'base', 'delivery_without_value', '', 'active', 4611686018427387903, 3.607670709521678e+16, 2346, 1081, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-18-spend', 'delivery_without_value-18', 'spend', 'delivery_without_value', '', 'active', 4611686018427387903, 6.898080196055264e+16, 2346, 1081, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-18-budget', 'delivery_without_value-18', 'budget', 'delivery_without_value', '', 'active', 1000000000, 5744499.06, 2346, 1081, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-19-base', 'delivery_without_value-19', 'base', 'delivery_without_value', '', 'active', 24, 0.43, 771, 743, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-19-spend', 'delivery_without_value-19', 'spend', 'delivery_without_value', '', 'active', 24, 0.08, 771, 743, 0, 0.0, 'insufficient_evidence'),
++    ('delivery_without_value-19-budget', 'delivery_without_value-19', 'budget', 'delivery_without_value', '', 'active', 1000000000, 13814659.95, 771, 743, 0, 0.0, 'insufficient_evidence'),
++)
+diff --git a/src/rtb/eval/generator.py b/src/rtb/eval/generator.py
+new file mode 100644
+index 0000000..4214e7a
+--- /dev/null
++++ b/src/rtb/eval/generator.py
+@@ -0,0 +1,168 @@
++"""合成評估集的生成器(Phase 10 增量 2)。
++
++只依評分格的定義與欄位型別造數字,不讀決策規則與它的測試(測試掃這支檔的匯入守)。每個評分格造
++`BASES_PER_CELL` 組基準情境,每組三個變體:基準、只改花費(仍在偏低範圍)、只改預算——後兩個是無關欄位
++擾動檢查([S713]),答案應跟基準一樣。正常的格照漏斗順序造(點擊不多於曝光、轉換不多於點擊,沒有負數與
++缺值);資料異常格輪流造單一故障:五個欄位各一次缺值、各一次負數,以及只違反「點擊多於曝光」、只違反
++「轉換多於點擊」([S717])。計劃釘住的邊界案例放在各格前幾組。種子固定;`render` 產出 `eval_set.py`
++的全文,雜湊由測試釘住([S706]),測試另外重跑生成器逐值比對。這是有限的合約案例,不給任何統計保證。
++"""
++
++import random
++from dataclasses import dataclass
++
++from rtb.domain.proposal import MAX_INT
++from rtb.domain.worth import CampaignStatus, WorthCell, WorthInput, WorthVerdict, cell_of
++from rtb.eval.rubric import gold
++
++SEED = 20260924
++BASES_PER_CELL = 20
++VARIANTS = ("base", "spend", "budget")
++AMOUNT_FIELDS = ("impressions", "clicks", "conversions", "revenue", "spend")
++# 資料異常格的單一故障:欄位:缺值、欄位:負數,以及兩種「多於」
++FAULTS = (*(f"{name}:missing" for name in AMOUNT_FIELDS),
++          *(f"{name}:negative" for name in AMOUNT_FIELDS),
++          "clicks>impressions", "conversions>clicks")
++NO_FAULT = ""
++# 偏低配速:花費 < 預算乘 1/24 再乘 0.5。基準與擾動都把花費留在這個範圍裡
++_UNDERPACED_SHARE = 1 / 24 * 0.5
++
++Row = tuple[str, str, str, str, str, str, int, float | None, int | None, int | None, int | None,
++            float | None, str]
++
++
++@dataclass(frozen=True)
++class Scenario:
++    scenario_id: str
++    group: str
++    variant: str
++    filed_cell: WorthCell  # 生成器把它歸在哪一格;測試用評分表重算比對([S717])
++    fault: str  # 資料異常格的單一故障;其他格是空字串
++    worth_input: WorthInput
++    gold: WorthVerdict
++
++    @property
++    def cell(self) -> WorthCell:
++        return cell_of(self.worth_input)
++
++
++Fields = dict[str, int | float | None]
++
++
++def _funnel(rng: random.Random, clicks_positive: bool, conversions_positive: bool) -> Fields:
++    """正常資料:曝光 ≥ 點擊 ≥ 轉換 ≥ 0;要正數的就取正數,不要的取零。"""
++    impressions = rng.randint(1, 10_000)
++    clicks = rng.randint(1, impressions) if clicks_positive else 0
++    conversions = rng.randint(1, clicks) if conversions_positive and clicks else 0
++    return {"impressions": impressions, "clicks": clicks, "conversions": conversions}
++
++
++def _revenue(rng: random.Random, positive: bool) -> float:
++    return round(rng.uniform(0.01, 5_000.0), 2) if positive else 0.0
++
++
++def _normal(rng: random.Random, cell: WorthCell, index: int) -> Fields:
++    if cell is WorthCell.PAUSED:  # 暫停格:什麼樣的資料都判不值得加,正常與異常都造
++        fields = _funnel(rng, rng.random() < 0.7, rng.random() < 0.5)
++        if index % 4 == 3:
++            fields["clicks"] = None
++        return {**fields, "revenue": _revenue(rng, rng.random() < 0.5)}
++    if cell is WorthCell.NO_DELIVERY:
++        fields = _funnel(rng, False, False)
++        if index % 2 == 1:  # 曝光也是零;第 0 組固定是「曝光正、點擊零」的邊界
++            fields["impressions"] = 0
++        return {**fields, "revenue": _revenue(rng, rng.random() < 0.5)}
++    if cell is WorthCell.DELIVERY_WITH_VALUE:
++        # 第 0 組營收正轉換零、第 1 組轉換正營收零(邊界),之後輪流
++        conversions_positive, revenue_positive = ((False, True), (True, False), (True, True))[
++            index % 3]
++        return {**_funnel(rng, True, conversions_positive),
++                "revenue": _revenue(rng, revenue_positive)}
++    return {**_funnel(rng, True, False), "revenue": 0.0}  # 沒價值格:轉換營收都是零
++
++
++def _inject(rng: random.Random, fields: Fields, fault: str) -> Fields:
++    """在正常資料上只打一個故障(花費欄的故障在 `generate` 打)。"""
++    fields = dict(fields)
++    if fault == "clicks>impressions":
++        fields["clicks"] = int(fields["impressions"] or 0) + rng.randint(1, 50)
++        fields["conversions"] = 0
++    elif fault == "conversions>clicks":
++        fields["conversions"] = int(fields["clicks"] or 0) + rng.randint(1, 50)
++    elif ":" in fault:
++        name, kind = fault.split(":")
++        if name != "spend":
++            fields[name] = None if kind == "missing" else (
++                -1.0 if name == "revenue" else -rng.randint(1, 50))
++    return fields
++
++
++def _spend(rng: random.Random, budget: int, fault: str) -> float | None:
++    if fault == "spend:missing":
++        return None
++    if fault == "spend:negative":
++        return -round(rng.uniform(0.01, 10.0), 2)
++    return round(rng.uniform(0.0, budget * _UNDERPACED_SHARE * 0.99), 2)
++
++
++def generate(seed: int) -> tuple[Scenario, ...]:
++    rng = random.Random(seed)  # noqa: S311 - 造合成案例,不是安全用途
++    scenarios = []
++    for cell in WorthCell:
++        status = CampaignStatus.PAUSED if cell is WorthCell.PAUSED else CampaignStatus.ACTIVE
++        for index in range(BASES_PER_CELL):
++            group = f"{cell.value}-{index:02d}"
++            fault = FAULTS[index % len(FAULTS)] if cell is WorthCell.ANOMALY else NO_FAULT
++            base_cell = WorthCell.DELIVERY_WITH_VALUE if cell is WorthCell.ANOMALY else cell
++            fields = _inject(rng, _normal(rng, base_cell, index), fault)
++            budget = rng.choice((1, 24, 100, 10_000, MAX_INT // 2, MAX_INT))
++            perturbed_budget = rng.choice((48, 5_000, 10**9))
++            spend = _spend(rng, budget, fault)
++            for variant in VARIANTS:
++                use_budget = perturbed_budget if variant == "budget" else budget
++                use_spend = spend
++                if variant != "base" and not fault.startswith("spend:"):
++                    use_spend = _spend(rng, use_budget, fault)  # 花費的故障不擾動,留著那個故障
++                worth_input = WorthInput(status=status, budget=use_budget, spend=use_spend,
++                                         **fields)  # type: ignore[arg-type]
++                if cell_of(worth_input) is not cell:
++                    raise AssertionError(f"生成器造出不屬於 {cell} 的情境:{worth_input}")
++                scenarios.append(Scenario(f"{group}-{variant}", group, variant, cell, fault,
++                                          worth_input, gold(worth_input)))
++    return tuple(scenarios)
++
++
++def to_row(scenario: Scenario) -> Row:
++    i = scenario.worth_input
++    return (scenario.scenario_id, scenario.group, scenario.variant, scenario.filed_cell.value,
++            scenario.fault, i.status.value, i.budget, i.spend, i.impressions, i.clicks,
++            i.conversions, i.revenue, scenario.gold.value)
++
++
++def from_rows(rows: tuple[Row, ...]) -> tuple[Scenario, ...]:
++    return tuple(
++        Scenario(scenario_id, group, variant, WorthCell(filed), fault,
++                 WorthInput(status=CampaignStatus(status), budget=budget, spend=spend,
++                            impressions=impressions, clicks=clicks, conversions=conversions,
++                            revenue=revenue),
++                 WorthVerdict(answer))
++        for (scenario_id, group, variant, filed, fault, status, budget, spend, impressions,
++             clicks, conversions, revenue, answer) in rows)
++
++
++HEADER = '''# ruff: noqa: E501 - 生成的資料列,一列一筆情境
++"""合成評估集(Phase 10 增量 2):`rtb.eval.generator.render(generate(SEED))` 的產出,不要手改。
++
++每列:情境編號、擾動組、變體、歸檔的格、單一故障、狀態、預算、花費、曝光、點擊、轉換、營收、
++標準答案(程式照評分表算)。
++雜湊由測試釘住;換批要同時用決策指令記一筆理由與時間(計劃〈外洩紀錄〉)。
++"""
++
++from rtb.eval.generator import Row
++
++ROWS: tuple[Row, ...] = (
++'''
++
++
++def render(scenarios: tuple[Scenario, ...]) -> str:
++    return HEADER + "".join(f"    {to_row(s)!r},\n" for s in scenarios) + ")\n"
+diff --git a/src/rtb/eval/record.py b/src/rtb/eval/record.py
+new file mode 100644
+index 0000000..e2b454a
+--- /dev/null
++++ b/src/rtb/eval/record.py
+@@ -0,0 +1,134 @@
++"""比較表與人讀的決定紀錄(Phase 10 增量 2,[S709]、[S710])。
++
++決定紀錄由純函式 `render` 從結構化的報告、比較表與採用決定產生,記下它依據的評估集雜湊;延遲量法照
++前掃:行程內先暖身,再用 perf_counter_ns 量上萬次取中位與 p95。現行程式規則實測;LLM 與 Jev 沒有候選,
++寫「沒量、原因:未導入」,不編數字、不做假呼叫。產生:`python -m rtb.eval.record`。
++"""
++
++import statistics
++import time
++
++from rtb.analyzer.policy import ValidatedCells, route
++from rtb.domain.worth import WorthInput
++from rtb.eval import eval_set
++from rtb.eval.adoption import (
++    Adoption,
++    ComparisonRow,
++    Measure,
++    OperationalLimits,
++    decide_adoption,
++)
++from rtb.eval.generator import from_rows
++from rtb.eval.scoring import SYNTHETIC, Report, build_report, eval_set_sha256, score
++
++# 使用者 2026-09-24 本人裁定的兩個不採用理由(計劃〈使用者裁定〉)
++NOT_ADOPTED_REASONS = (
++    "照評分表,這個判斷可以由程式精確算出,本來就該是程式;現行規則在某些格判錯,這件事記成現行規則的"
++    "程式缺陷(不是需要換判斷者的理由)",
++    "缺正式環境紀錄、人工標註與候選實測",
++)
++MISSING_EVIDENCE = (
++    "正式環境的決策紀錄抽樣",
++    "人工標註",
++    "候選模型在每一格的實測(品質、成本、延遲、失敗率)",
++    "上線後逐格監測的機制",
++)
++SCOPE_LIMIT = ("這次只評「要不要提案調整」列裡的「值不值得加」子判斷,不回答 Phase 0 路由表標 Jev 的"
++               "「證據夠不夠」「下一步查什麼」「繼續或停止」三列。")
++LEAKAGE = (
++    "合成評估集由生成器照評分格的定義與欄位型別造出,生成器不讀決策規則與它的測試;標準答案由程式照"
++    "評分表算。評估套件不被任何其他套件匯入,規則作者的程式讀不到評估集。規則作者看過逐筆答案後回頭"
++    "調規則,就要換一批,換批要用決策指令記一筆理由與時間。正式環境隱藏集不進程式庫。"
++)
++NOT_INTRODUCED = "未導入"
++WARMUP, RUNS = 2_000, 20_000
++
++
++def measure_latency(inputs: tuple[WorthInput, ...]) -> tuple[float, float]:
++    """現行程式規則經路由的每次延遲(微秒):中位、p95。"""
++    for index in range(WARMUP):
++        route(inputs[index % len(inputs)], None, ValidatedCells.NONE)
++    samples = []
++    for index in range(RUNS):
++        worth_input = inputs[index % len(inputs)]
++        started = time.perf_counter_ns()
++        route(worth_input, None, ValidatedCells.NONE)
++        samples.append((time.perf_counter_ns() - started) / 1000)
++    samples.sort()
++    return statistics.median(samples), samples[int(len(samples) * 0.95)]
++
++
++def _not_measured() -> dict[str, Measure]:
++    names = ("quality", "cost_per_call_usd", "latency_median_us", "latency_p95_us",
++             "format_failure_rate", "exception_rate", "timeout_rate", "fallback_rate")
++    return {name: Measure.not_measured(NOT_INTRODUCED) for name in names}
++
++
++def comparison_rows(code_rule_latency: tuple[float, float]) -> tuple[ComparisonRow, ...]:
++    scenarios = from_rows(eval_set.ROWS)
++    scored = score(scenarios, None, None)
++    quality = sum(1 for s in scored if s.final is s.scenario.gold) / len(scored)
++    median, p95 = code_rule_latency
++    code = ComparisonRow(
++        approach="現行程式規則", quality=Measure.of(quality), cost_per_call_usd=Measure.of(0.0),
++        latency_median_us=Measure.of(median), latency_p95_us=Measure.of(p95),
++        format_failure_rate=Measure.of(0.0), exception_rate=Measure.of(0.0),
++        timeout_rate=Measure.of(0.0), fallback_rate=Measure.of(0.0))
++    return (code, ComparisonRow(approach="LLM", **_not_measured()),
++            ComparisonRow(approach="Jev", **_not_measured()))
++
++
++def _cell(measure: Measure) -> str:
++    return f"{measure.value:.4g}" if measure.measured else f"沒量({measure.reason})"
++
++
++def render(report: Report, rows: tuple[ComparisonRow, ...], adoption: Adoption) -> str:
++    lines = [
++        "# 「值不值得加」判斷點:評估與採用決定",
++        "",
++        f"- 評估集雜湊:{report.eval_set_sha256}",
++        f"- 評估集種類:{report.kind}",
++        f"- 結論:{'採用' if adoption.adopt else '不採用'} Jev",
++        "",
++        "## 不採用的理由",
++        "",
++        *[f"- {reason}" for reason in NOT_ADOPTED_REASONS],
++        *[f"- {reason}" for reason in adoption.reasons],
++        "",
++        f"適用範圍:{SCOPE_LIMIT}",
++        "",
++        "## 現行程式規則逐格結果",
++        "",
++        "| 評分格 | 筆數 | 指標 | 分子/分母 | 類別正確 | 錯誤子型(標準答案 → 最後答案:筆數) |",
++        "|---|---|---|---|---|---|",
++    ]
++    for cell in report.cells:
++        errors = "、".join(f"{g.value} → {f.value}:{c}" for g, f, c in cell.errors) or "無"
++        lines.append(f"| {cell.cell.value} | {cell.n} | {cell.metric} | "
++                     f"{cell.numerator}/{cell.denominator} | {cell.class_correct_count}/{cell.n} | "
++                     f"{errors} |")
++    lines += ["", f"無關欄位擾動後答案改變的組數:{report.perturbation_changed}", "",
++              "## 比較表", "",
++              "| 做法 | 品質 | 每次成本(美元) | 延遲中位(微秒) | 延遲 p95(微秒) | 格式失敗率 | "
++              "例外率 | 逾時率 | 退回率 |",
++              "|---|---|---|---|---|---|---|---|---|"]
++    lines += [f"| {row.approach} | " + " | ".join(_cell(m) for m in row.measures()) + " |"
++              for row in rows]
++    lines += ["", "延遲是單次量測(本機、行程內),只當量級參考。", "", "## 逐格採用決定", ""]
++    lines += [f"- {d.cell.value}:{'驗證過' if d.validated else '未驗證'}"
++              f"({';'.join(d.reasons) or '全部達標'})" for d in adoption.cells]
++    lines += ["", "## 缺的證據", "", *[f"- {item}" for item in MISSING_EVIDENCE], "",
++              "## 外洩紀錄", "", LEAKAGE, ""]
++    return "\n".join(lines)
++
++
++def main() -> None:
++    scenarios = from_rows(eval_set.ROWS)
++    report = build_report(SYNTHETIC, score(scenarios, None, None), eval_set_sha256())
++    rows = comparison_rows(measure_latency(tuple(s.worth_input for s in scenarios)))
++    adoption = decide_adoption(report, None, OperationalLimits(None, None, None))
++    print(render(report, rows, adoption))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/rtb/eval/rubric.py b/src/rtb/eval/rubric.py
+new file mode 100644
+index 0000000..ae47ab3
+--- /dev/null
++++ b/src/rtb/eval/rubric.py
+@@ -0,0 +1,23 @@
++"""評分表:每個評分格對一個標準答案(Phase 10 增量 2,[S711] 評分表那半)。
++
++五條全由使用者 2026-09-24 本人裁定(原意對照後加「資料自不自洽」),由上而下第一個成立的:暫停 →
++不值得加;資料異常 → 證據不足;沒投放 → 不值得加;有價值 → 值得加;沒價值 → 證據不足。評分格就是這
++五條(歸格在領域層)。標準答案由程式照這張表算,不派代理標註。
++"""
++
++from collections.abc import Mapping
++from types import MappingProxyType
++
++from rtb.domain.worth import WorthCell, WorthInput, WorthVerdict, cell_of
++
++RUBRIC: Mapping[WorthCell, WorthVerdict] = MappingProxyType({
++    WorthCell.PAUSED: WorthVerdict.NOT_WORTH,
++    WorthCell.ANOMALY: WorthVerdict.INSUFFICIENT,
++    WorthCell.NO_DELIVERY: WorthVerdict.NOT_WORTH,
++    WorthCell.DELIVERY_WITH_VALUE: WorthVerdict.WORTH,
++    WorthCell.DELIVERY_WITHOUT_VALUE: WorthVerdict.INSUFFICIENT,
++})
++
++
++def gold(worth_input: WorthInput) -> WorthVerdict:
++    return RUBRIC[cell_of(worth_input)]
+diff --git a/src/rtb/eval/ruff.toml b/src/rtb/eval/ruff.toml
+new file mode 100644
+index 0000000..61200f2
+--- /dev/null
++++ b/src/rtb/eval/ruff.toml
+@@ -0,0 +1,11 @@
++# 評估套件(src/rtb/eval,Phase 10 增量 2):離線評估「值不值得加」判斷點。可以匯入分析端的判斷點與
++# 路由、領域層的型別;不碰資料庫、不碰執行端與 DSP、不碰維運套件。反過來分析端、執行端、DSP、領域層、
++# 維運套件都不准匯入這裡(禁令寫在各自目錄的 ruff.toml),規則作者的程式讀不到評估集。
++extend = "../../../pyproject.toml"
++
++[lint.flake8-tidy-imports.banned-api]
++"sqlite3".msg = "評估是離線計算,不讀也不寫任何資料庫"
++"rtb.sqlitekit".msg = "評估是離線計算,不讀也不寫任何資料庫"
++"rtb.executor".msg = "評估只看分析端的判斷點,不碰執行端"
++"rtb.dsp".msg = "評估只看分析端的判斷點,不碰 DSP"
++"rtb.ops".msg = "評估跟維運套件互不依賴"
+diff --git a/src/rtb/eval/scoring.py b/src/rtb/eval/scoring.py
+new file mode 100644
+index 0000000..bcf6be6
+--- /dev/null
++++ b/src/rtb/eval/scoring.py
+@@ -0,0 +1,99 @@
++"""逐筆計分與逐格報告(Phase 10 增量 2,[S707]、[S713]、[S714])。
++
++逐筆走跟正式路徑相同的組合:判斷點輸入經分析端的路由函式(含包裝與退回),依「最後有效的答案」
++計分,不是依候選原始回答計分——候選回「不知道」退回現行規則後提案,照樣算一次誤提案。現行規則用同一套
++計分(不傳候選)。每格事先指定指標,分母是那一格的樣本數,不會是零:「值得加」格報召回率,其他三格報
++誤提案率與類別正確率。合成集不套統計信賴,信賴下界只留給之後的正式環境抽樣集。
++"""
++
++import hashlib
++from collections import Counter
++from collections.abc import Mapping
++from dataclasses import dataclass
++from pathlib import Path
++
++from rtb.analyzer.policy import CandidateCall, RoutePath, TrialCells, ValidatedCells, route
++from rtb.domain.worth import WorthCell, WorthVerdict
++from rtb.eval.generator import Scenario
++
++SYNTHETIC = "synthetic"  # 合成集:有限的合約案例,不能產生已驗證清單
++PRODUCTION = "production"  # 正式環境抽樣集:隱藏、人工標註,不進程式庫
++RECALL = "recall"
++FALSE_PROPOSAL_RATE = "false_proposal_rate"
++EVAL_SET = Path(__file__).with_name("eval_set.py")
++
++
++def eval_set_sha256() -> str:
++    return hashlib.sha256(EVAL_SET.read_bytes()).hexdigest()
++
++
++@dataclass(frozen=True)
++class ScoredCase:
++    scenario: Scenario
++    final: WorthVerdict
++    path: RoutePath
++
++
++def score(
++    scenarios: tuple[Scenario, ...], candidate: CandidateCall | None, trial: TrialCells | None,
++) -> tuple[ScoredCase, ...]:
++    """評估入口:待測格清單只在這次評估裡用,不產生、不改動已驗證清單([S716])。"""
++    allowed: TrialCells | ValidatedCells = ValidatedCells.NONE if trial is None else trial
++    scored = []
++    for scenario in scenarios:
++        result = route(scenario.worth_input, candidate, allowed)
++        scored.append(ScoredCase(scenario, result.verdict, result.path))
++    return tuple(scored)
++
++
++@dataclass(frozen=True)
++class CellReport:
++    cell: WorthCell
++    n: int
++    metric: str  # RECALL 或 FALSE_PROPOSAL_RATE
++    numerator: int  # 召回:說值得加的筆數;誤提案率:不該加卻說值得加的筆數
++    denominator: int
++    class_correct_count: int  # 最後有效答案等於標準答案的筆數
++    errors: tuple[tuple[WorthVerdict, WorthVerdict, int], ...]  # (標準答案, 最後答案, 筆數)
++    paths: Mapping[RoutePath, int]
++    lower_bound: float | None  # 只有正式環境抽樣集才有;合成集一律沒有
++
++    @property
++    def class_correct(self) -> float | None:
++        return None if self.metric == RECALL else self.class_correct_count / self.n
++
++
++@dataclass(frozen=True)
++class Report:
++    kind: str
++    eval_set_sha256: str
++    cells: tuple[CellReport, ...]
++    confusion: Mapping[tuple[WorthVerdict, WorthVerdict], int]
++    perturbation_changed: int  # 擾動組裡最後答案不一致的組數([S713])
++
++
++def _cell_report(cell: WorthCell, cases: list[ScoredCase]) -> CellReport:
++    n = len(cases)
++    proposed = sum(1 for c in cases if c.final is WorthVerdict.WORTH)
++    correct = sum(1 for c in cases if c.final is c.scenario.gold)
++    errors = Counter((c.scenario.gold, c.final) for c in cases if c.final is not c.scenario.gold)
++    return CellReport(
++        cell=cell, n=n,
++        metric=RECALL if cell is WorthCell.DELIVERY_WITH_VALUE else FALSE_PROPOSAL_RATE,
++        numerator=proposed, denominator=n, class_correct_count=correct,
++        errors=tuple((gold, final, count) for (gold, final), count in sorted(errors.items())),
++        paths=dict(Counter(c.path for c in cases)), lower_bound=None)
++
++
++def build_report(kind: str, scored: tuple[ScoredCase, ...], sha256: str) -> Report:
++    by_cell: dict[WorthCell, list[ScoredCase]] = {cell: [] for cell in WorthCell}
++    for case in scored:
++        by_cell[case.scenario.cell].append(case)
++    finals_by_group: dict[str, set[WorthVerdict]] = {}
++    for case in scored:
++        finals_by_group.setdefault(case.scenario.group, set()).add(case.final)
++    return Report(
++        kind=kind, eval_set_sha256=sha256,
++        cells=tuple(_cell_report(cell, cases) for cell, cases in by_cell.items() if cases),
++        confusion=dict(Counter((c.scenario.gold, c.final) for c in scored)),
++        perturbation_changed=sum(1 for finals in finals_by_group.values() if len(finals) > 1))
+diff --git a/src/rtb/executor/ruff.toml b/src/rtb/executor/ruff.toml
+index ccee4f2..c3b588d 100644
+--- a/src/rtb/executor/ruff.toml
++++ b/src/rtb/executor/ruff.toml
+@@ -1,6 +1,7 @@
+ # executor 與 dsp 是兩個獨立的行程,不得互相匯入(見 Phase 0 架構的行程拆分)。
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
+ "rtb.dsp".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
++"rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+diff --git a/src/rtb/ops/ruff.toml b/src/rtb/ops/ruff.toml
+index 14ad47b..4198617 100644
+--- a/src/rtb/ops/ruff.toml
++++ b/src/rtb/ops/ruff.toml
+@@ -1,9 +1,10 @@
+ # 維運套件(src/rtb/ops,Phase 9 增量 1):追蹤檢視這類只讀的維運工具。可以匯入分析端與執行端的
+ # 讀取介面,但只准經唯讀開法讀資料庫(不自己開連線),DSP 只經它的 HTTP 唯讀端點讀。反過來分析端、
+ # 執行端、DSP 都不准匯入這裡(禁令寫在各自目錄的 ruff.toml)。只准呼叫的讀取函式白名單由邊界測試守。
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
+ "sqlite3".msg = "維運套件只能經分析端、執行端的唯讀開法讀資料庫,不自己開連線"
+ "rtb.sqlitekit".msg = "維運套件只能經唯讀開法讀資料庫;要的例外從收件口模組拿"
+ "rtb.dsp".msg = "DSP 只經它的 HTTP 唯讀端點讀,不匯入 DSP 的程式"
++"rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+diff --git a/tests/eval/__init__.py b/tests/eval/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/tests/eval/test_evaluation.py b/tests/eval/test_evaluation.py
+new file mode 100644
+index 0000000..90a8541
+--- /dev/null
++++ b/tests/eval/test_evaluation.py
+@@ -0,0 +1,312 @@
++"""Phase 10 增量 2:評估套件。
++
++合約 [S706] 到 [S714]、[S716],以及 [S711] 評分表那半(增量 1 驗了每筆可建構輸入恰好落一格)。
++"""
++
++import ast
++import hashlib
++import itertools
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++from rtb.analyzer import policy
++from rtb.domain.worth import CampaignStatus, WorthCell, WorthInput, WorthVerdict, cell_of
++from rtb.eval import adoption, eval_set, generator, record, rubric, scoring
++
++SRC = Path(__file__).resolve().parents[2] / "src" / "rtb"
++EVAL = SRC / "eval"
++EVAL_SET = EVAL / "eval_set.py"
++# 合成評估集的雜湊:改了評估集就要同時改這裡,並用決策指令記一筆換批理由與時間(計劃〈外洩紀錄〉)
++EVAL_SET_SHA256 = "b9380338e65b22345804a49e27e025a6c613c457717fde14575d0c96ab0d2ac2"
++
++
++def _scenarios():
++    return generator.from_rows(eval_set.ROWS)
++
++
++def _code_rule_report():
++    return scoring.build_report(scoring.SYNTHETIC, scoring.score(_scenarios(), None, None),
++                                scoring.eval_set_sha256())
++
++
++def _call(judge):
++    return policy.CandidateCall(judge, 1.0)
++
++
++class _Answer:
++    def __init__(self, answer):
++        self.answer, self.calls = answer, 0
++
++    def __call__(self, worth_input, timeout_seconds):
++        self.calls += 1
++        return self.answer(worth_input) if callable(self.answer) else self.answer
++
++
++# ---- [S711] 評分表那半 ----
++def test_the_rubric_gives_exactly_one_class_for_every_input():
++    assert set(rubric.RUBRIC) == set(WorthCell)
++    assert WorthVerdict.UNSURE not in rubric.RUBRIC.values()
++    assert rubric.RUBRIC == {WorthCell.PAUSED: WorthVerdict.NOT_WORTH,
++                             WorthCell.ANOMALY: WorthVerdict.INSUFFICIENT,
++                             WorthCell.NO_DELIVERY: WorthVerdict.NOT_WORTH,
++                             WorthCell.DELIVERY_WITH_VALUE: WorthVerdict.WORTH,
++                             WorthCell.DELIVERY_WITHOUT_VALUE: WorthVerdict.INSUFFICIENT}
++    counts, money = (None, -1, 0, 1, 5), (None, -1.0, 0.0, 3.0)
++    classes = set()
++    for status, impressions, clicks, conversions, revenue, spend in itertools.product(
++            CampaignStatus, counts, counts, counts, money, money):
++        worth_input = WorthInput(status=status, budget=100, spend=spend, impressions=impressions,
++                                 clicks=clicks, conversions=conversions, revenue=revenue)
++        verdict = rubric.gold(worth_input)
++        assert verdict is rubric.RUBRIC[cell_of(worth_input)]
++        classes.add(verdict)
++    assert classes == {WorthVerdict.WORTH, WorthVerdict.NOT_WORTH, WorthVerdict.INSUFFICIENT}
++
++
++# ---- [S706] ----
++def test_the_eval_set_is_pinned_by_hash():
++    assert hashlib.sha256(EVAL_SET.read_bytes()).hexdigest() == EVAL_SET_SHA256
++    assert scoring.eval_set_sha256() == EVAL_SET_SHA256
++    # 評估集就是生成器用固定種子的產出,標準答案由程式照評分表算
++    assert generator.render(generator.generate(generator.SEED)) == EVAL_SET.read_text("utf-8")
++    scenarios = _scenarios()
++    assert all(s.gold is rubric.gold(s.worth_input) for s in scenarios)
++    assert {s.cell for s in scenarios} == set(WorthCell)
++
++
++# ---- [S717] ----
++def _nonnegative(*values):
++    return all(v is not None and v >= 0 for v in values)
++
++
++def test_the_generator_covers_every_anomaly_and_matches_the_committed_set():
++    scenarios = _scenarios()
++    # 重跑生成器逐值比對已提交的常數模組,不只驗雜湊
++    assert generator.generate(generator.SEED) == scenarios
++    for s in scenarios:  # 用評分表重算的格等於它歸檔的格
++        assert s.cell is s.filed_cell, s.scenario_id
++    anomalies = [s for s in scenarios if s.filed_cell is WorthCell.ANOMALY]
++    assert {s.fault for s in anomalies} == set(generator.FAULTS)
++    for s in anomalies:  # 每筆只有它標的那一個故障
++        i = s.worth_input
++        values = {name: getattr(i, name) for name in generator.AMOUNT_FIELDS}
++        if ":" in s.fault:
++            name, kind = s.fault.split(":")
++            assert (values[name] is None) == (kind == "missing"), s.scenario_id
++            assert kind == "missing" or values[name] < 0, s.scenario_id
++            assert _nonnegative(*(v for k, v in values.items() if k != name)), s.scenario_id
++        else:
++            assert _nonnegative(*values.values()), s.scenario_id
++            assert (i.clicks > i.impressions) == (s.fault == "clicks>impressions")
++            assert (i.conversions > i.clicks) == (s.fault == "conversions>clicks")
++    assert all(s.fault == "" for s in scenarios if s.filed_cell is not WorthCell.ANOMALY)
++    normal = [s.worth_input for s in scenarios
++              if s.filed_cell not in (WorthCell.PAUSED, WorthCell.ANOMALY)]
++    assert all(_nonnegative(i.impressions, i.clicks, i.conversions, i.revenue, i.spend)
++               and i.impressions >= i.clicks >= i.conversions for i in normal)
++    # 計劃釘住的邊界案例
++    by_cell = {cell: [s.worth_input for s in scenarios if s.filed_cell is cell]
++               for cell in WorthCell}
++    assert any(i.revenue > 0 and i.conversions == 0
++               for i in by_cell[WorthCell.DELIVERY_WITH_VALUE])
++    assert any(i.conversions > 0 and i.revenue == 0
++               for i in by_cell[WorthCell.DELIVERY_WITH_VALUE])
++    assert any(i.spend is None for i in by_cell[WorthCell.ANOMALY])
++    assert any(i.impressions > 0 and i.clicks == 0 for i in by_cell[WorthCell.NO_DELIVERY])
++
++
++def test_the_generator_reads_neither_the_decision_rule_nor_its_tests():
++    tree = ast.parse((EVAL / "generator.py").read_text("utf-8"))
++    imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
++    imported |= {a.name for node in ast.walk(tree) if isinstance(node, ast.Import)
++                 for a in node.names}
++    assert not {m for m in imported if m and m.startswith(("rtb.analyzer", "tests"))}
++
++
++# ---- [S707] ----
++def test_the_eval_report_is_per_slice_and_marks_thin_slices():
++    report = _code_rule_report()
++    assert [c.cell for c in report.cells] == list(WorthCell)
++    for cell in report.cells:
++        assert cell.lower_bound is None  # 合成集不套統計信賴
++        assert cell.denominator == cell.n > 0
++        if cell.cell is WorthCell.DELIVERY_WITH_VALUE:
++            assert cell.metric == scoring.RECALL
++        else:
++            assert cell.metric == scoring.FALSE_PROPOSAL_RATE
++            assert cell.class_correct is not None
++        assert sum(count for _, _, count in cell.errors) == cell.n - cell.class_correct_count
++    # 依最後有效答案計分:候選回「不知道」退回現行規則,暫停中有投放的照樣被計成誤提案
++    unsure = scoring.build_report(
++        scoring.SYNTHETIC,
++        scoring.score(_scenarios(), _call(_Answer(WorthVerdict.UNSURE)),
++                      policy.TrialCells(frozenset(WorthCell))), scoring.eval_set_sha256())
++    paused = next(c for c in unsure.cells if c.cell is WorthCell.PAUSED)
++    code_paused = next(c for c in report.cells if c.cell is WorthCell.PAUSED)
++    assert paused.numerator == code_paused.numerator > 0
++    assert paused.paths[policy.RoutePath.FALLBACK_UNSURE] == paused.n
++
++
++# ---- [S708] ----
++def _production_cell(cell, n, correct, false_proposals):
++    return scoring.CellReport(
++        cell=cell, n=n, metric=(scoring.RECALL if cell is WorthCell.DELIVERY_WITH_VALUE
++                                else scoring.FALSE_PROPOSAL_RATE),
++        numerator=(correct if cell is WorthCell.DELIVERY_WITH_VALUE else false_proposals),
++        denominator=n, class_correct_count=correct, errors=(), paths={},
++        lower_bound=None)
++
++
++def _measured_row(latency=10.0):
++    measured = adoption.Measure.of
++    return adoption.ComparisonRow(
++        approach="候選", quality=measured(1.0), cost_per_call_usd=measured(0.0),
++        latency_median_us=measured(latency), latency_p95_us=measured(latency),
++        format_failure_rate=measured(0.0), exception_rate=measured(0.0),
++        timeout_rate=measured(0.0), fallback_rate=measured(0.0))
++
++
++LIMITS = adoption.OperationalLimits(cost_per_call_usd=0.01, latency_p95_us=1000.0,
++                                    failure_rate=0.01)
++
++
++def test_a_slice_is_validated_only_when_every_bar_is_met():
++    good = scoring.Report(kind=scoring.PRODUCTION, eval_set_sha256="x", cells=(
++        _production_cell(WorthCell.PAUSED, 73, 73, 0),
++        _production_cell(WorthCell.DELIVERY_WITH_VALUE, 16, 16, 0),
++        _production_cell(WorthCell.NO_DELIVERY, 72, 72, 0),  # 少一筆:樣本數不夠
++        _production_cell(WorthCell.DELIVERY_WITHOUT_VALUE, 73, 72, 1),  # 一筆誤提案:下界不過
++    ), confusion={}, perturbation_changed=0)
++    result = adoption.decide_adoption(good, _measured_row(), LIMITS)
++    assert result.validated.cells == frozenset({WorthCell.PAUSED, WorthCell.DELIVERY_WITH_VALUE})
++    assert adoption.wilson_lower(73, 73) >= 0.95 > adoption.wilson_lower(72, 72)
++    assert adoption.wilson_lower(16, 16) >= 0.80 > adoption.wilson_lower(15, 15)
++    # 門檻是常數:延遲超過、門檻還沒定、有任何一欄沒量,一格都不驗證
++    for row, limits in ((_measured_row(latency=5000.0), LIMITS),
++                        (_measured_row(), adoption.OperationalLimits(None, None, None)),
++                        (adoption.ComparisonRow(**{**vars(_measured_row()),
++                                                   "timeout_rate": adoption.Measure.not_measured(
++                                                       "沒量")}), LIMITS)):
++        assert adoption.decide_adoption(good, row, limits).validated.cells == frozenset()
++    # 比的是信賴下界不是點估計:召回 15/16(點估計 0.94)下界不到 0.80;
++    # 類別正確率另外要過:證據不足格全答「不值得加」,沒有誤提案但類別全錯
++    mixed = scoring.Report(kind=scoring.PRODUCTION, eval_set_sha256="x", cells=(
++        _production_cell(WorthCell.DELIVERY_WITH_VALUE, 16, 15, 0),
++        _production_cell(WorthCell.DELIVERY_WITHOUT_VALUE, 73, 0, 0),
++    ), confusion={}, perturbation_changed=0)
++    assert adoption.decide_adoption(mixed, _measured_row(), LIMITS).validated.cells == frozenset()
++    assert (adoption.WORTH_RECALL_BAR, adoption.OTHER_BAR) == (0.80, 0.95)
++    assert (adoption.WORTH_MIN_SAMPLES, adoption.OTHER_MIN_SAMPLES) == (16, 73)
++
++
++# ---- [S709] ----
++def test_unmeasured_candidates_show_no_numbers():
++    rows = record.comparison_rows(code_rule_latency=(18.0, 19.0))
++    unmeasured = [m for row in rows for m in vars(row).values()
++                  if isinstance(m, adoption.Measure) and not m.measured]
++    assert unmeasured
++    assert all(m.value is None and m.reason for m in unmeasured)
++    assert {row.approach for row in rows} == {"現行程式規則", "LLM", "Jev"}
++    with pytest.raises(ValueError):
++        adoption.Measure(measured=False, value=1.0, reason="未導入")
++    with pytest.raises(ValueError):
++        adoption.Measure(measured=False, value=None, reason="")
++
++
++# ---- [S710] ----
++def test_the_adoption_decision_is_no_without_measured_validated_slices():
++    report = _code_rule_report()
++    result = adoption.decide_adoption(report, None, LIMITS)
++    assert not result.adopt
++    assert result.validated.cells == frozenset()
++    assert all(not c.validated for c in result.cells)
++    text = record.render(report, record.comparison_rows(code_rule_latency=(18.0, 19.0)), result)
++    assert "不採用" in text and report.eval_set_sha256 in text
++    for reason in record.NOT_ADOPTED_REASONS + record.MISSING_EVIDENCE:
++        assert reason in text
++    # 使用者裁定的原意(評分表設計審第 1 輪:舊句會被讀成「不准記成缺陷」)
++    assert "記成現行規則的程式缺陷" in text and "不準記成" not in text
++
++
++# ---- [S712] ----
++OTHER_LAYERS = ("analyzer", "executor", "dsp", "domain", "ops")
++
++
++def test_nothing_outside_the_eval_package_imports_it():
++    for layer in OTHER_LAYERS:  # 各目錄的匯入禁令真的擋得住
++        config = SRC / layer / "ruff.toml"
++        result = subprocess.run(
++            [sys.executable, "-m", "ruff", "check", "--config", str(config),
++             "--stdin-filename", str(config.parent / "probe.py"), "-"],
++            input="import rtb.eval.eval_set\n", capture_output=True, text=True, timeout=60,
++            check=False)
++        assert result.returncode == 1 and "TID251" in result.stdout, (layer, result.stdout)
++    importers = []
++    for path in SRC.rglob("*.py"):
++        if EVAL in path.parents:
++            continue
++        for node in ast.walk(ast.parse(path.read_text("utf-8"))):
++            names = ([a.name for a in node.names] if isinstance(node, ast.Import)
++                     else [node.module or ""] if isinstance(node, ast.ImportFrom) else [])
++            importers += [f"{path.name}: {n}" for n in names
++                          if n == "rtb.eval" or n.startswith("rtb.eval.")]
++    assert importers == []
++
++
++# ---- [S713] ----
++def test_irrelevant_fields_do_not_change_the_answer():
++    assert _code_rule_report().perturbation_changed == 0
++    groups = {s.group for s in _scenarios()}
++    assert all({s.variant for s in _scenarios() if s.group == g} == set(generator.VARIANTS)
++               for g in groups)
++    # 殺傷力:看預算下判斷的候選,擾動後答案會變,報告要數得出來
++    by_budget = _Answer(lambda i: WorthVerdict.WORTH if (i.budget or 0) > 500
++                        else WorthVerdict.NOT_WORTH)
++    report = scoring.build_report(
++        scoring.SYNTHETIC,
++        scoring.score(_scenarios(), _call(by_budget), policy.TrialCells(frozenset(WorthCell))),
++        scoring.eval_set_sha256())
++    assert report.perturbation_changed > 0
++
++
++# ---- [S714] ----
++def test_the_code_rule_is_scored_per_slice_like_a_candidate():
++    report = _code_rule_report()
++    cells = {c.cell: c for c in report.cells}
++    # 現行規則不看狀態:暫停中有投放的被提案;不看轉換營收與資料自洽:沒價值與資料異常格判錯
++    assert cells[WorthCell.PAUSED].numerator > 0
++    assert (WorthVerdict.NOT_WORTH, WorthVerdict.WORTH) in {(g, f) for g, f, _ in
++                                                           cells[WorthCell.PAUSED].errors}
++    without = cells[WorthCell.DELIVERY_WITHOUT_VALUE]
++    assert without.numerator == without.n and without.class_correct_count == 0
++    anomaly = cells[WorthCell.ANOMALY]
++    assert anomaly.class_correct_count == 0 and 0 < anomaly.numerator < anomaly.n
++    assert cells[WorthCell.NO_DELIVERY].class_correct_count == cells[WorthCell.NO_DELIVERY].n
++    assert cells[WorthCell.DELIVERY_WITH_VALUE].numerator == cells[
++        WorthCell.DELIVERY_WITH_VALUE].n
++    assert all(set(c.paths) == {policy.RoutePath.CODE_RULE} for c in report.cells)
++
++
++# ---- [S716] ----
++def test_evaluation_calls_the_candidate_without_validating_anything():
++    candidate = _Answer(WorthVerdict.NOT_WORTH)
++    trial = policy.TrialCells(frozenset({WorthCell.PAUSED}))
++    scored = scoring.score(_scenarios(), _call(candidate), trial)
++    paused = [s for s in scored if s.scenario.cell is WorthCell.PAUSED]
++    assert candidate.calls == len(paused) > 0
++    assert all(s.path is policy.RoutePath.CANDIDATE for s in paused)
++    assert policy.ValidatedCells.NONE.cells == frozenset()
++    report = scoring.build_report(scoring.SYNTHETIC, scored, scoring.eval_set_sha256())
++    assert adoption.decide_adoption(report, _measured_row(), LIMITS).validated.cells == frozenset()
++    # 已驗證清單只有採用函式建得出來:原始碼裡只有這兩處建構它
++    builders = []
++    for path in SRC.rglob("*.py"):
++        for node in ast.walk(ast.parse(path.read_text("utf-8"))):
++            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name | ast.Attribute)
++                    and (getattr(node.func, "id", None) or getattr(node.func, "attr", None))
++                    == "ValidatedCells"):
++                builders.append(path.relative_to(SRC).as_posix())
++    assert sorted(builders) == ["analyzer/policy.py", "eval/adoption.py"]

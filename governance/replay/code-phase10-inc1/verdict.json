@@ -1,0 +1,44 @@
+{
+ "loop": "code-phase10-inc1",
+ "round": "r3",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-24T12:09:13+08:00",
+ "spec_path": "governance/review-reports/code-phase10-inc1/r3-snapshot.patch",
+ "spec_sha": "61de2ae8513b94d11245399a594ec4e886bd7f2dc98d6db978d6a68bb5a0e849",
+ "rows": [
+  "{\"ts\": \"2026-09-24T09:37:11+08:00\", \"kind\": \"none\", \"auditor\": \"arch-sonnet\", \"token\": \"CANARY-0a64bd9b\", \"note\": \"\", \"loop\": \"code-phase10-inc1\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"d4d8c1ae781c9bcc6b3962d0b940d5e99ab02b093ab3533bedca7922d92a81de\", \"reviewed_sha256\": \"d4d8c1ae781c9bcc6b3962d0b940d5e99ab02b093ab3533bedca7922d92a81de\", \"spec_path\": \"governance/review-reports/code-phase10-inc1/r1-snapshot.patch\", \"scope_lines\": 1518, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 3, \"report_path\": \"governance/review-reports/code-phase10-inc1/r1-arch-sonnet.md\", \"report_sha256\": \"f328226f698bd8e7bb24cca15aaaf6ec429a808ab051a418d8b66630fb14b558\", \"snapshot_path\": \"governance/review-reports/code-phase10-inc1/r1-snapshot.patch\", \"snapshot_sha256\": \"d4d8c1ae781c9bcc6b3962d0b940d5e99ab02b093ab3533bedca7922d92a81de\"}",
+  "{\"ts\": \"2026-09-24T09:37:11+08:00\", \"kind\": \"none\", \"auditor\": \"correct-sonnet\", \"token\": \"CANARY-076e7ab2\", \"note\": \"\", \"loop\": \"code-phase10-inc1\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"d4d8c1ae781c9bcc6b3962d0b940d5e99ab02b093ab3533bedca7922d92a81de\", \"reviewed_sha256\": \"d4d8c1ae781c9bcc6b3962d0b940d5e99ab02b093ab3533bedca7922d92a81de\", \"spec_path\": \"governance/review-reports/code-phase10-inc1/r1-snapshot.patch\", \"scope_lines\": 1518, \"reported\": 3, \"report_path\": \"governance/review-reports/code-phase10-inc1/r1-correct-sonnet.md\", \"report_sha256\": \"031f8f1fa1b7dcbaffaf0d0e2c89cca020ee25cf8846995b3ede37eff5f3be46\", \"snapshot_path\": \"governance/review-reports/code-phase10-inc1/r1-snapshot.patch\", \"snapshot_sha256\": \"d4d8c1ae781c9bcc6b3962d0b940d5e99ab02b093ab3533bedca7922d92a81de\"}",
+  "{\"ts\": \"2026-09-24T09:37:11+08:00\", \"kind\": \"none\", \"auditor\": \"finder-codex\", \"token\": \"CANARY-8bb93693\", \"note\": \"\", \"loop\": \"code-phase10-inc1\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"d4d8c1ae781c9bcc6b3962d0b940d5e99ab02b093ab3533bedca7922d92a81de\", \"reviewed_sha256\": \"d4d8c1ae781c9bcc6b3962d0b940d5e99ab02b093ab3533bedca7922d92a81de\", \"spec_path\": \"governance/review-reports/code-phase10-inc1/r1-snapshot.patch\", \"scope_lines\": 1518, \"findings_set\": [\"correct-1\", \"x1-1\", \"arch-1\", \"arch-2\", \"x1-2\", \"correct-2\"], \"folded_set\": [\"correct-1\", \"x1-1\", \"arch-1\", \"arch-2\", \"x1-2\", \"correct-2\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 2, \"report_path\": \"governance/review-reports/code-phase10-inc1/r1-finder-codex.md\", \"report_sha256\": \"ac83fadf8236d071769a58e2aeb306066adcd97d40387314309e24dfc2397400\", \"snapshot_path\": \"governance/review-reports/code-phase10-inc1/r1-snapshot.patch\", \"snapshot_sha256\": \"d4d8c1ae781c9bcc6b3962d0b940d5e99ab02b093ab3533bedca7922d92a81de\", \"intake_path\": \"governance/review-reports/code-phase10-inc1/r1-intake.md\", \"intake_sha256\": \"22afc285430e5e0b842f718e181a22ec2f8e90c0c4d20ec9ca2b6d2ced3c6627\"}",
+  "{\"ts\": \"2026-09-24T09:55:40+08:00\", \"kind\": \"none\", \"auditor\": \"arch-sonnet\", \"token\": \"CANARY-301cdad6\", \"note\": \"\", \"loop\": \"code-phase10-inc1\", \"round\": \"r2\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"4371b21c2e2118500e6c421a2c1ee53ddd9bfe37ecca424df08b4c9e0653bc32\", \"reviewed_sha256\": \"4371b21c2e2118500e6c421a2c1ee53ddd9bfe37ecca424df08b4c9e0653bc32\", \"spec_path\": \"governance/review-reports/code-phase10-inc1/r2-snapshot.patch\", \"scope_lines\": 1679, \"reported\": 3, \"report_path\": \"governance/review-reports/code-phase10-inc1/r2-arch-sonnet.md\", \"report_sha256\": \"7e37bcb372f6ca974c64066edd6e917cb7f3eb0d2fe64511d0c8f8e00049cdc9\", \"snapshot_path\": \"governance/review-reports/code-phase10-inc1/r2-snapshot.patch\", \"snapshot_sha256\": \"4371b21c2e2118500e6c421a2c1ee53ddd9bfe37ecca424df08b4c9e0653bc32\"}",
+  "{\"ts\": \"2026-09-24T09:55:40+08:00\", \"kind\": \"none\", \"auditor\": \"regress-sonnet\", \"token\": \"CANARY-f531abdf\", \"note\": \"\", \"loop\": \"code-phase10-inc1\", \"round\": \"r2\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"4371b21c2e2118500e6c421a2c1ee53ddd9bfe37ecca424df08b4c9e0653bc32\", \"reviewed_sha256\": \"4371b21c2e2118500e6c421a2c1ee53ddd9bfe37ecca424df08b4c9e0653bc32\", \"spec_path\": \"governance/review-reports/code-phase10-inc1/r2-snapshot.patch\", \"scope_lines\": 1679, \"findings_set\": [\"regress-1\", \"arch-1\", \"arch-2\"], \"folded_set\": [\"regress-1\", \"arch-1\", \"arch-2\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 2, \"report_path\": \"governance/review-reports/code-phase10-inc1/r2-regress-sonnet.md\", \"report_sha256\": \"4230265bc3a1a6464f113b49f1a8230f004a05f9565a832b83428929ba7b5351\", \"snapshot_path\": \"governance/review-reports/code-phase10-inc1/r2-snapshot.patch\", \"snapshot_sha256\": \"4371b21c2e2118500e6c421a2c1ee53ddd9bfe37ecca424df08b4c9e0653bc32\", \"intake_path\": \"governance/review-reports/code-phase10-inc1/r2-intake.md\", \"intake_sha256\": \"319b505730b657c8abf0ba9728061c23c53c69197d89a2db7d438d6e02278b39\"}",
+  "{\"ts\": \"2026-09-24T10:13:33+08:00\", \"kind\": \"none\", \"auditor\": \"regress-sonnet\", \"token\": \"CANARY-66118bae\", \"note\": \"\", \"loop\": \"code-phase10-inc1\", \"round\": \"r3\", \"severity\": \"minor\", \"findings\": 1, \"result_sha256\": \"61de2ae8513b94d11245399a594ec4e886bd7f2dc98d6db978d6a68bb5a0e849\", \"reviewed_sha256\": \"61de2ae8513b94d11245399a594ec4e886bd7f2dc98d6db978d6a68bb5a0e849\", \"spec_path\": \"governance/review-reports/code-phase10-inc1/r3-snapshot.patch\", \"scope_lines\": 1760, \"reported\": 2, \"report_path\": \"governance/review-reports/code-phase10-inc1/r3-regress-sonnet.md\", \"report_sha256\": \"ca77c0f19bea309d449293d4a379cfb6aa16a38c586f2f37aeb931d7b9976946\", \"snapshot_path\": \"governance/review-reports/code-phase10-inc1/r3-snapshot.patch\", \"snapshot_sha256\": \"61de2ae8513b94d11245399a594ec4e886bd7f2dc98d6db978d6a68bb5a0e849\"}",
+  "{\"ts\": \"2026-09-24T10:13:34+08:00\", \"kind\": \"none\", \"auditor\": \"arch-sonnet\", \"token\": \"CANARY-20627341\", \"note\": \"\", \"loop\": \"code-phase10-inc1\", \"round\": \"r3\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"61de2ae8513b94d11245399a594ec4e886bd7f2dc98d6db978d6a68bb5a0e849\", \"reviewed_sha256\": \"61de2ae8513b94d11245399a594ec4e886bd7f2dc98d6db978d6a68bb5a0e849\", \"spec_path\": \"governance/review-reports/code-phase10-inc1/r3-snapshot.patch\", \"scope_lines\": 1760, \"findings_set\": [\"arch-1\", \"regress-1\", \"arch-2\"], \"folded_set\": [\"arch-1\", \"regress-1\", \"arch-2\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 3, \"report_path\": \"governance/review-reports/code-phase10-inc1/r3-arch-sonnet.md\", \"report_sha256\": \"c7d9e9f131b8e51edf4ad1823d17eb08f89a8f90d653fad158730313cd3c8302\", \"snapshot_path\": \"governance/review-reports/code-phase10-inc1/r3-snapshot.patch\", \"snapshot_sha256\": \"61de2ae8513b94d11245399a594ec4e886bd7f2dc98d6db978d6a68bb5a0e849\", \"intake_path\": \"governance/review-reports/code-phase10-inc1/r3-intake.md\", \"intake_sha256\": \"abcac5482832928434f514333142c2f402a47778f53ede4903bf3f596b448988\"}"
+ ],
+ "all_row_shas": [
+  "0d5f11a37ec9c399a2f4d5d11d7334e3465aa9348d5a9a75a0f0703119903880",
+  "57960026600c1d9fb90c6de46edaeb2aa90b6c80197b138f4f40089875397096",
+  "895e5fea9470fac96075143207c7a6625e18a6cd8e9abe514f76517707843ec5",
+  "a829ad09aef4bd4c373705b97d29d0ee9ecd4dfa23641c398ed1512c689641a2",
+  "b4a62f9f5fdf2374c7496bcbfef6faec4d37111f2958dc853ff2c521bea75dbd",
+  "d8ddbc94d54f52ccf3290f5a531dd45935710c9cae102b05f5b13a5a0c89d126",
+  "de9a393a685081bda4eb1d0207ab66988e51e4266c19862393315d00bda93be5"
+ ],
+ "files": {
+  "governance/review-reports/code-phase10-inc1/r3-regress-sonnet.md": {
+   "sha256": "ca77c0f19bea309d449293d4a379cfb6aa16a38c586f2f37aeb931d7b9976946",
+   "git_blob": "a4d4df8540866eb781a3a2e4f89aee81bbf5b02b"
+  },
+  "governance/review-reports/code-phase10-inc1/r3-snapshot.patch": {
+   "sha256": "61de2ae8513b94d11245399a594ec4e886bd7f2dc98d6db978d6a68bb5a0e849",
+   "git_blob": "46e28d47ef0dc51e4d6f8372f1c45caa63e5cc9b"
+  },
+  "governance/review-reports/code-phase10-inc1/r3-arch-sonnet.md": {
+   "sha256": "c7d9e9f131b8e51edf4ad1823d17eb08f89a8f90d653fad158730313cd3c8302",
+   "git_blob": "ba15d9cf4c94d9c954f6797b4e29c15db802be09"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

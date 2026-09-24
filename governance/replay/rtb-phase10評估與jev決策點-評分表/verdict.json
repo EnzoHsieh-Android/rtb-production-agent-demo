@@ -1,0 +1,40 @@
+{
+ "loop": "rtb-phase10評估與jev決策點-評分表",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-24T12:09:13+08:00",
+ "spec_path": "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase10評估與Jev決策點_計劃.md",
+ "spec_sha": "6bd53d5d1eb85b5c06a693dffb858fd8e7e5bb1e7682d09f5a62a85857242f27",
+ "rows": [
+  "{\"ts\": \"2026-09-24T10:00:43+08:00\", \"kind\": \"none\", \"auditor\": \"s1\", \"token\": \"CANARY-d51d8df2\", \"note\": \"\", \"loop\": \"rtb-phase10評估與jev決策點-評分表\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"6bd53d5d1eb85b5c06a693dffb858fd8e7e5bb1e7682d09f5a62a85857242f27\", \"reviewed_sha256\": \"6bd53d5d1eb85b5c06a693dffb858fd8e7e5bb1e7682d09f5a62a85857242f27\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase10評估與Jev決策點_計劃.md\", \"scope_lines\": 148, \"reported\": 2, \"report_path\": \"governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-s1.md\", \"report_sha256\": \"e68d6326fe4f29525fd732dbbcf3732643d61db6fc4122181b2f41f7b744b62c\", \"snapshot_path\": \"governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-snapshot.md\", \"snapshot_sha256\": \"e8eb82a1fbdf99f33db0af3c1b661b0d1b1e04f339213d9dcb466d14c0e15d03\"}",
+  "{\"ts\": \"2026-09-24T10:00:43+08:00\", \"kind\": \"none\", \"auditor\": \"s2\", \"token\": \"CANARY-7c4652fb\", \"note\": \"\", \"loop\": \"rtb-phase10評估與jev決策點-評分表\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 4, \"result_sha256\": \"6bd53d5d1eb85b5c06a693dffb858fd8e7e5bb1e7682d09f5a62a85857242f27\", \"reviewed_sha256\": \"6bd53d5d1eb85b5c06a693dffb858fd8e7e5bb1e7682d09f5a62a85857242f27\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase10評估與Jev決策點_計劃.md\", \"scope_lines\": 148, \"reported\": 5, \"report_path\": \"governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-s2.md\", \"report_sha256\": \"4184af477a19f95d0deb336460da497b0b4447983f868c57951e6d168184306b\", \"snapshot_path\": \"governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-snapshot.md\", \"snapshot_sha256\": \"e8eb82a1fbdf99f33db0af3c1b661b0d1b1e04f339213d9dcb466d14c0e15d03\"}",
+  "{\"ts\": \"2026-09-24T10:00:44+08:00\", \"kind\": \"none\", \"auditor\": \"x1\", \"token\": \"CANARY-aaaa673f\", \"note\": \"\", \"loop\": \"rtb-phase10評估與jev決策點-評分表\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 5, \"result_sha256\": \"6bd53d5d1eb85b5c06a693dffb858fd8e7e5bb1e7682d09f5a62a85857242f27\", \"reviewed_sha256\": \"6bd53d5d1eb85b5c06a693dffb858fd8e7e5bb1e7682d09f5a62a85857242f27\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase10評估與Jev決策點_計劃.md\", \"scope_lines\": 148, \"findings_set\": [\"s1-1\", \"s2-2\", \"x1-1\", \"x1-2\", \"x1-3\", \"x1-4\", \"s2-3\", \"x1-5\", \"s2-1\", \"s2-4\", \"s1-2\"], \"folded_set\": [\"s1-1\", \"s2-2\", \"x1-1\", \"x1-2\", \"x1-3\", \"x1-4\", \"s2-3\", \"x1-5\", \"s2-1\", \"s2-4\", \"s1-2\"], \"accepted_set\": [], \"refuted_set\": [], \"reported\": 5, \"report_path\": \"governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-x1.md\", \"report_sha256\": \"3647de30141bcaa676dbc4f148fcca96b7687ea57a999a70f5a2e5b04822be2a\", \"snapshot_path\": \"governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-snapshot.md\", \"snapshot_sha256\": \"e8eb82a1fbdf99f33db0af3c1b661b0d1b1e04f339213d9dcb466d14c0e15d03\", \"intake_path\": \"governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-intake.md\", \"intake_sha256\": \"a40016d69ea10f2c0631becb50cb11f3aec8b5febc744bb806fb893e9bb9822a\"}"
+ ],
+ "all_row_shas": [
+  "5cea913043c823f516429ceb875178e3acb8d79668896fa25932d65e731458e5",
+  "dfcc3f03afb98bee93b3cd099325982ee0518e2a75f851d272c6a6424a888fff",
+  "f9e351eb76cadb332ea572b41fc4bc4182a4c584bf3a0eaf89f30386dee68c4c"
+ ],
+ "files": {
+  "governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-s1.md": {
+   "sha256": "e68d6326fe4f29525fd732dbbcf3732643d61db6fc4122181b2f41f7b744b62c",
+   "git_blob": "df059a56ccc26293ef15114ea0d0b3ee16c34f83"
+  },
+  "governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-snapshot.md": {
+   "sha256": "e8eb82a1fbdf99f33db0af3c1b661b0d1b1e04f339213d9dcb466d14c0e15d03",
+   "git_blob": "5c32466a7f436efe4079f53babc641f2522a8017"
+  },
+  "governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-s2.md": {
+   "sha256": "4184af477a19f95d0deb336460da497b0b4447983f868c57951e6d168184306b",
+   "git_blob": "52e7f98a85965d979cc975658b1394460661b6f9"
+  },
+  "governance/review-reports/rtb-phase10評估與jev決策點-評分表/r1-x1.md": {
+   "sha256": "3647de30141bcaa676dbc4f148fcca96b7687ea57a999a70f5a2e5b04822be2a",
+   "git_blob": "704025cdd9668913634061c375a246eeaa91d170"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

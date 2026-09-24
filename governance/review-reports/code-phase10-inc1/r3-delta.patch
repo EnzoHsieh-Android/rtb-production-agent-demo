@@ -1,0 +1,449 @@
+diff --git a/src/rtb/analyzer/policy.py b/src/rtb/analyzer/policy.py
+index 981dfa5..e43f8bb 100644
+--- a/src/rtb/analyzer/policy.py
++++ b/src/rtb/analyzer/policy.py
+@@ -6,21 +6,21 @@
+ 執行行程執行前重讀 DSP 時的事(Phase 3),不在這裡假裝做了。
+ 接著用增量 1 metrics.py 既有的 pacing() 判斷配速,缺值或不知道一律 NoAction,不猜、不丟例外。
+ 配速明顯偏低(暫用門檻 0.5)且曝光、點擊都大於零(真的有在投放,不是設定壞了)才提案調高預算
+ (固定漲一成,暫用值)。
+ 
+ 已知限制:這支示範規則永遠把提案的修訂序號當成 1,不會追蹤同一個任務先前送過幾次修訂;
+ 一個任務被收件口退回(SubmitStale)之後重新分析,示範規則不會自動送出下一個修訂——這個限制
+ 不影響 S49 的合約(規則本身的判斷邏輯),留給接上真正決策邏輯的後面階段一併解決。
+ """
+ 
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ from datetime import datetime, timedelta
+ from enum import StrEnum
+ from types import MappingProxyType
+ from typing import Any, ClassVar, Protocol
+ 
+ from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
+ from rtb.analyzer.task_store import TaskRow
+ from rtb.domain._checks import is_plain_number
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass, check_freshness
+ from rtb.domain.metrics import pacing
+@@ -62,44 +62,63 @@ def _all_fresh(evidence: tuple[Evidence, ...], now: datetime) -> bool:
+     )
+ 
+ 
+ class WorthCandidate(Protocol):
+     """「值不值得加」的候選判斷(Phase 10)。比照決策函式的介面用型別協定;逾時用專案既有的合作式
+     做法:實作必須經共用 HTTP 用戶端呼叫、把 `timeout_seconds` 當它的逾時(逾時丟 TimeoutError)。"""
+ 
+     def __call__(self, worth_input: WorthInput, timeout_seconds: float) -> WorthVerdict: ...
+ 
+ 
+-_ISSUED = object()  # 模組私有的哨兵:非空的已驗證清單只有帶著它才建得出來
++# 只有信任的呼叫端(評估套件的採用函式、測試)匯入它建已驗證清單;模組內用它建空的 NONE。比照執行端
++# 交易物件的簽發者寫法(不是資料類別,就沒有 dataclasses.replace 可繞)
++_VALIDATED_CELLS_ISSUER = object()
+ 
+ 
+-@dataclass(frozen=True)
+ class ValidatedCells:
+-    """已驗證、允許呼叫候選的評分格。非空的只有私有工廠 `_issue_validated_cells` 建得出來(給評估
+-    套件的採用函式與測試);直接建構非空清單會被拒(代碼審第 1 輪)。正式路徑拿到的是空的 NONE。"""
+-
+-    cells: frozenset[WorthCell]
+-    _issuer: object = field(default=None, repr=False, compare=False)
++    """已驗證、允許呼叫候選的評分格。建構時要帶簽發者哨兵,空清單也一樣(代碼審第 1、2 輪);
++    建好之後不能改、複製拿到的是同一個物件,所以從已簽發的清單也拿不到新的非空清單。
++    正式路徑拿到的是空的 NONE。"""
+ 
++    __slots__ = ("_cells",)
++    _cells: frozenset[WorthCell]
+     NONE: ClassVar[ValidatedCells]
+ 
+-    def __post_init__(self) -> None:
+-        if self.cells and self._issuer is not _ISSUED:
+-            raise ValueError("非空的已驗證清單只能由採用函式經私有工廠建立")
++    def __init__(self, cells: frozenset[WorthCell], issuer: object) -> None:
++        if issuer is not _VALIDATED_CELLS_ISSUER:
++            raise ValueError("已驗證清單只能由採用函式建立")
++        object.__setattr__(self, "_cells", frozenset(cells))
++
++    @property
++    def cells(self) -> frozenset[WorthCell]:
++        return self._cells
++
++    def __setattr__(self, name: str, value: object) -> None:
++        raise AttributeError("已驗證清單建好之後不能改")
++
++    def __eq__(self, other: object) -> bool:
++        return isinstance(other, ValidatedCells) and other._cells == self._cells
++
++    def __hash__(self) -> int:
++        return hash(self._cells)
++
++    def __repr__(self) -> str:
++        return f"ValidatedCells({sorted(self._cells)!r})"
+ 
++    def __copy__(self) -> ValidatedCells:
++        return self
+ 
+-ValidatedCells.NONE = ValidatedCells(frozenset())
++    def __deepcopy__(self, memo: object) -> ValidatedCells:
++        return self
+ 
+ 
+-def _issue_validated_cells(cells: frozenset[WorthCell]) -> ValidatedCells:
+-    """私有工廠:只給評估套件的採用函式(與測試)用。"""
+-    return ValidatedCells(cells, _ISSUED)
++ValidatedCells.NONE = ValidatedCells(frozenset(), _VALIDATED_CELLS_ISSUER)
+ 
+ 
+ @dataclass(frozen=True)
+ class CandidateCall:
+     """一個候選連同它的逾時秒數:有候選才需要逾時,逾時沒有預設值(比照共用 HTTP 用戶端)。"""
+ 
+     judge: WorthCandidate
+     timeout_seconds: float
+ 
+ 
+diff --git a/src/rtb/domain/_checks.py b/src/rtb/domain/_checks.py
+index 8c875a1..e00da51 100644
+--- a/src/rtb/domain/_checks.py
++++ b/src/rtb/domain/_checks.py
+@@ -1,47 +1,47 @@
+ """領域層共用的小檢查:同一個規則只有一份定義,免得各模組改了一處漏另一處。
+ 
+ 只放「證據編號、任務編號這類識別碼的格式」「整數不含布林」「時間帶時區」這類到處要用的判斷。
+ 判斷函式用 TypeGuard 標明「通過之後是什麼型別」,讓型別檢查(mypy)能驗證邊界判斷。
+ DSP(rtb.dsp)是外部系統的模擬器,刻意不依賴這裡,所以它自己另有一份。
+ """
+ 
+ import math
+ import re
+ from datetime import datetime
+-from typing import Any, TypeGuard
++from typing import TypeGuard
+ 
+ ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+ MAX_INT = 2**63 - 1  # 資料庫整數上限:提案、分析端 DSP 用戶端白名單、判斷點輸入共用這一個
+ 
+ 
+ def is_plain_int(value: object) -> TypeGuard[int]:
+     """是整數,而且不是布林(Python 的 True 也是整數,會繞過型別檢查)。"""
+     return isinstance(value, int) and not isinstance(value, bool)
+ 
+ 
+ def is_plain_number(value: object) -> TypeGuard[int | float]:
+     """是整數或浮點數,而且不是布林。"""
+     return isinstance(value, int | float) and not isinstance(value, bool)
+ 
+ 
+-def is_int_between(low: int, value: Any) -> TypeGuard[int]:
++def is_int_between(low: int, value: object) -> TypeGuard[int]:
+     """不是布林的整數,在 low 到資料庫整數上限之間(分析端 DSP 用戶端白名單的預算與版本)。"""
+     return is_plain_int(value) and low <= value <= MAX_INT
+ 
+ 
+-def is_count_or_none(value: Any) -> bool:
++def is_count_or_none(value: object) -> TypeGuard[int | None]:
+     """缺值,或不是布林的整數、絕對值在資料庫整數上限內(白名單的曝光、點擊、轉換)。"""
+     return value is None or (is_plain_int(value) and abs(value) <= MAX_INT)
+ 
+ 
+-def is_finite_or_none(value: Any) -> bool:
++def is_finite_or_none(value: object) -> TypeGuard[int | float | None]:
+     """缺值,或不是布林的有限數字、沒有上限(白名單的花費、營收)。"""
+     if value is None:
+         return True
+     try:
+         return is_plain_number(value) and math.isfinite(value)
+     except OverflowError:  # 大到超出浮點範圍的整數
+         return False
+ 
+ 
+ def is_id(value: object) -> TypeGuard[str]:
+diff --git a/src/rtb/domain/worth.py b/src/rtb/domain/worth.py
+index 53f5710..cf0ceba 100644
+--- a/src/rtb/domain/worth.py
++++ b/src/rtb/domain/worth.py
+@@ -1,19 +1,20 @@
+ """「配速偏低時,這個廣告值不值得加預算」這個判斷點的輸入、輸出與評分格(Phase 10 增量 1)。
+ 
+ 判斷點輸入只有決策當下的可信數字欄位,結構上沒有放廣告文字或整批證據的位置:候選拿不到不可信
+ 文字是型別保證,不是呼叫端自律(比照證據型別把信任標記做在建構驗證裡)。建構時逐欄驗值,判準跟
+ 分析端 DSP 用戶端的白名單一樣、用同一支共用檢查:預算是 0 到資料庫整數上限的整數;曝光、點擊、轉換
+ 是整數或缺值、絕對值在上限內;花費、營收是有限數或缺值;布林一律拒絕。
+ 
+-評分格是這個判斷的切片:依狀態、曝光點擊是否都是正數、轉換營收是否有正數分成 4 格;配速與預算不影響
+-這個判斷,不當切片鍵。「正數」= 通過建構驗證而且大於零;缺值、零、負數都不是正數。
++評分格是這個判斷的切片,跟使用者裁定的評分表五條一一對應(由上而下第一個成立的):暫停、資料異常、
++沒投放、有價值、沒價值;配速與預算不影響這個判斷,不當切片鍵。「正數」= 通過建構驗證而且大於零;
++缺值、零、負數都不是正數。
+ """
+ 
+ from dataclasses import dataclass
+ from enum import StrEnum
+ 
+ from rtb.domain._checks import is_count_or_none, is_finite_or_none, is_int_between
+ 
+ 
+ class CampaignStatus(StrEnum):
+     ACTIVE = "active"
+@@ -24,20 +25,21 @@ class WorthVerdict(StrEnum):
+     """判斷點的四種答案;「不知道」只有候選會答,路由遇到它就退回現行規則。"""
+ 
+     WORTH = "worth"
+     NOT_WORTH = "not_worth"
+     INSUFFICIENT = "insufficient_evidence"
+     UNSURE = "unsure"
+ 
+ 
+ class WorthCell(StrEnum):
+     PAUSED = "paused"
++    ANOMALY = "anomaly"
+     NO_DELIVERY = "no_delivery"
+     DELIVERY_WITH_VALUE = "delivery_with_value"
+     DELIVERY_WITHOUT_VALUE = "delivery_without_value"
+ 
+ 
+ class WorthInputInvalid(ValueError):
+     """判斷點輸入的值驗證不過(歸不了格);決策函式只接這一種,其他例外照舊往外丟。"""
+ 
+ 
+ @dataclass(frozen=True)
+@@ -64,19 +66,33 @@ class WorthInput:
+         for name, ok in checks:
+             if not ok:
+                 raise WorthInputInvalid(f"{name} 不合分析端 DSP 用戶端白名單的判準")
+ 
+ 
+ def is_positive(value: int | float | None) -> bool:
+     """只對通過建構驗證的值有意義:缺值、零、負數都不是正數。"""
+     return value is not None and value > 0
+ 
+ 
++def is_anomalous(worth_input: WorthInput) -> bool:
++    """資料異常(使用者 2026-09-24 裁定,程式判得出的才算):曝光、點擊、轉換、營收、花費任一個是負數
++    或缺值,或點擊多於曝光,或轉換多於點擊。數字合不合理(點擊率九成、花費過低)不判。"""
++    i = worth_input
++    values = (i.impressions, i.clicks, i.conversions, i.revenue, i.spend)
++    if any(v is None or v < 0 for v in values):
++        return True
++    assert i.impressions is not None and i.clicks is not None  # noqa: S101 - 上面已排除缺值
++    assert i.conversions is not None  # noqa: S101
++    return i.clicks > i.impressions or i.conversions > i.clicks
++
++
+ def cell_of(worth_input: WorthInput) -> WorthCell:
+-    """每一筆可建構的判斷點輸入恰好落在一格([S711])。"""
++    """評分表由上而下第一個成立的;每一筆可建構的判斷點輸入恰好落在一格([S711])。"""
+     if worth_input.status is CampaignStatus.PAUSED:
+         return WorthCell.PAUSED
++    if is_anomalous(worth_input):
++        return WorthCell.ANOMALY
+     if not (is_positive(worth_input.impressions) and is_positive(worth_input.clicks)):
+         return WorthCell.NO_DELIVERY
+     if is_positive(worth_input.conversions) or is_positive(worth_input.revenue):
+         return WorthCell.DELIVERY_WITH_VALUE
+     return WorthCell.DELIVERY_WITHOUT_VALUE
+diff --git a/tests/analyzer/test_worth_check.py b/tests/analyzer/test_worth_check.py
+index 5022357..e614891 100644
+--- a/tests/analyzer/test_worth_check.py
++++ b/tests/analyzer/test_worth_check.py
+@@ -1,26 +1,29 @@
+ """Phase 10 增量 1:把「值不值得加」抽成可插入的判斷點,行為不變。
+ 
+ 合約 [S700] 到 [S705]、[S711]、[S715]。
+ """
+ 
++import copy
++import dataclasses
+ import hashlib
+ import inspect
+ import itertools
+ import math
+ import pathlib
++import typing
+ 
+ import pytest
+ 
+ from rtb.analyzer import dsp_client, policy
+ from rtb.analyzer.flow import NeedsFreshEvidence, NoAction, ProposalDecision
+-from rtb.domain import worth
++from rtb.domain import _checks, worth
+ from rtb.domain.proposal import MAX_INT
+ from rtb.domain.worth import CampaignStatus, WorthCell, WorthInput, WorthInputInvalid, WorthVerdict
+ from tests.analyzer import frozen_policy_e8b26f6 as frozen
+ from tests.analyzer import policy_before_samples as samples
+ 
+ FROZEN = pathlib.Path(frozen.__file__)
+ # main e8b26f6 上決策規則檔的雜湊(審查時用
+ # `git show e8b26f6:src/rtb/analyzer/policy.py | shasum -a 256` 對一次):
+ # 凍結舊規則檔必須是它原樣的複製
+ FROZEN_SHA256 = "750b2af2051a3c78bd3e751467ca7f42002956925aeaae5d47a2d59107cfc41f"
+@@ -35,21 +38,22 @@ def test_extracting_the_worth_increase_check_keeps_every_decision_identical():
+     # 第二步:凍結舊規則今天跑出來還是存下的結果;紅了是它匯入的相依模組行為變了,不是抽壞
+     drifted = [i for i, case in enumerate(cases)
+                if samples.fingerprint(frozen.decide, case) != samples.EXPECTED[i]]
+     assert drifted == [], f"相依模組行為變了:{drifted[:10]}"
+     # 第三步:新的決策函式跟存下的結果逐筆相同;紅了才是抽判斷點抽壞了
+     changed = [i for i, case in enumerate(cases)
+                if samples.fingerprint(policy.decide, case) != samples.EXPECTED[i]]
+     assert changed == [], f"決策結果變了:{changed[:10]}"
+ 
+ 
+-ALL_CELLS = policy._issue_validated_cells(frozenset(WorthCell))  # 私有工廠:只給採用函式與測試
++ISSUER = policy._VALIDATED_CELLS_ISSUER  # 信任的呼叫端(採用函式、測試)才匯入它
++ALL_CELLS = policy.ValidatedCells(frozenset(WorthCell), ISSUER)
+ 
+ 
+ NO_CANDIDATE = {"candidate": None, "allowed": policy.ValidatedCells.NONE}
+ 
+ 
+ def _call(judge, timeout_seconds=1.0):
+     return policy.CandidateCall(judge, timeout_seconds)
+ 
+ 
+ def _input(status=CampaignStatus.ACTIVE, impressions=500, clicks=12, conversions=1, revenue=5.0):
+@@ -65,21 +69,21 @@ class _Recording:
+         self.calls.append((worth_input, timeout_seconds))
+         if isinstance(self.answer, BaseException):
+             raise self.answer
+         return self.answer
+ 
+ 
+ # ---- [S701] ----
+ def test_only_validated_slices_reach_the_candidate():
+     paused = _input(status=CampaignStatus.PAUSED)
+     candidate = _Recording(WorthVerdict.NOT_WORTH)
+-    only_paused = policy._issue_validated_cells(frozenset({WorthCell.PAUSED}))
++    only_paused = policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
+     result = policy.route(paused, _call(candidate), only_paused)
+     assert (result.verdict, result.path) == (WorthVerdict.NOT_WORTH, policy.RoutePath.CANDIDATE)
+     assert candidate.calls == [(paused, 1.0)]
+     # 這格不在清單上:走現行規則(暫停中但有投放,現行規則照舊說值得加),候選沒被叫
+     active = _input()
+     result = policy.route(active, _call(candidate), only_paused)
+     assert (result.verdict, result.path) == (WorthVerdict.WORTH, policy.RoutePath.CODE_RULE)
+     assert len(candidate.calls) == 1
+     # 沒有候選:清單再滿也走現行規則
+     result = policy.route(paused, None, ALL_CELLS)
+@@ -155,35 +159,55 @@ def test_a_candidate_saying_insufficient_evidence_is_no_action_with_that_reason(
+     case = next(c for c, fp in zip(samples.cases(), samples.EXPECTED, strict=True)
+                 if fp.startswith("P"))
+     decision, reason = policy.explain(case.task, case.evidence, case.now,
+                                       candidate=_call(_Recording(WorthVerdict.INSUFFICIENT)),
+                                       allowed=ALL_CELLS)
+     assert isinstance(decision, NoAction)
+     assert reason is policy.NoActionReason.JUDGED_INSUFFICIENT
+ 
+ 
+ # ---- [S711] ----
++def _expected_cell(status, impressions, clicks, conversions, revenue, spend):
++    """照計劃的評分表(使用者裁定,由上而下第一個成立的)獨立寫一次。"""
++    if status is CampaignStatus.PAUSED:
++        return WorthCell.PAUSED
++    values = (impressions, clicks, conversions, revenue, spend)
++    if (any(v is None or v < 0 for v in values) or clicks > impressions
++            or conversions > clicks):
++        return WorthCell.ANOMALY
++    if impressions == 0 or clicks == 0:
++        return WorthCell.NO_DELIVERY
++    if conversions > 0 or revenue > 0:
++        return WorthCell.DELIVERY_WITH_VALUE
++    return WorthCell.DELIVERY_WITHOUT_VALUE
++
++
+ def test_the_rubric_gives_exactly_one_class_for_every_input():
+-    values = (1, 0, -1, None)
++    counts = (None, -1, 0, 1, 5)  # 1 與 5 造得出「點擊多於曝光」「轉換多於點擊」
++    money = (None, -1.0, 0.0, 3.0)
+     seen = set()
+-    for status, impressions, clicks, conversions, revenue in itertools.product(
+-            CampaignStatus, values, values, values, values):
+-        cell = worth.cell_of(_input(status, impressions, clicks, conversions, revenue))
+-        assert isinstance(cell, WorthCell)
++    for status, impressions, clicks, conversions, revenue, spend in itertools.product(
++            CampaignStatus, counts, counts, counts, money, money):
++        worth_input = WorthInput(status=status, budget=100, spend=spend, impressions=impressions,
++                                 clicks=clicks, conversions=conversions, revenue=revenue)
++        cell = worth.cell_of(worth_input)
++        assert cell is _expected_cell(status, impressions, clicks, conversions, revenue, spend), (
++            worth_input)
+         seen.add(cell)
+-        positive = worth.is_positive
+-        expected = (WorthCell.PAUSED if status is CampaignStatus.PAUSED
+-                    else WorthCell.NO_DELIVERY if not (positive(impressions) and positive(clicks))
+-                    else WorthCell.DELIVERY_WITH_VALUE if positive(conversions) or positive(revenue)
+-                    else WorthCell.DELIVERY_WITHOUT_VALUE)
+-        assert cell is expected
+     assert seen == set(WorthCell)
++    assert len(WorthCell) == 5
++    # 計劃裡寫死的邊界例
++    base = {"status": CampaignStatus.ACTIVE, "budget": 100, "spend": 1.0, "revenue": 0.0}
++    assert worth.cell_of(WorthInput(**base, impressions=5, clicks=0, conversions=0)) is \
++        WorthCell.NO_DELIVERY
++    assert worth.cell_of(WorthInput(**base, impressions=5, clicks=0, conversions=1)) is \
++        WorthCell.ANOMALY
+ 
+ 
+ # ---- [S715] ----
+ EDGE_VALUES = (None, True, False, 0, 1, -1, 0.5, -0.5, 1e20, -1e20, math.nan, math.inf, -math.inf,
+                MAX_INT, MAX_INT + 1, -MAX_INT, -(MAX_INT + 1), 10**400, "1", [1])
+ # 判斷點欄位 → 分析端 DSP 用戶端白名單同一欄的檢查(代碼審第 1 輪:兩邊逐欄要一致)
+ WHITELIST = {"budget": dsp_client.STATE_FIELDS["budget"],
+              **{name: dsp_client.METRICS_FIELDS[name]
+                 for name in ("spend", "impressions", "clicks", "conversions", "revenue")}}
+ 
+@@ -231,28 +255,51 @@ def test_a_large_legal_revenue_reaches_the_candidate():
+     rich = samples._metrics(1.0, 500, 12, 1, 1e20)
+     candidate = _Recording(WorthVerdict.NOT_WORTH)
+     decision, reason = policy.explain(case.task, (state, rich, *rest), case.now,
+                                       candidate=_call(candidate), allowed=ALL_CELLS)
+     assert len(candidate.calls) == 1
+     assert (decision, reason) == (NoAction(), policy.NoActionReason.JUDGED_NOT_WORTH)
+ 
+ 
+ # ---- 代碼審第 1 輪:已驗證清單只有私有工廠建得出來、逾時跟著候選走、嚴重錯誤不吞 ----
+ def test_a_validated_list_cannot_be_built_directly():
+-    with pytest.raises(ValueError):
+-        policy.ValidatedCells(frozenset({WorthCell.PAUSED}))
++    for issuer in (None, object()):
++        for cells in (frozenset({WorthCell.PAUSED}), frozenset()):
++            with pytest.raises(ValueError):
++                policy.ValidatedCells(cells, issuer)
++    assert policy.ValidatedCells.NONE.cells == frozenset()
++    issued = policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
++    assert issued.cells == {WorthCell.PAUSED}
++    assert issued == policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
++    assert hash(issued) == hash(policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER))
++    # 代碼審第 2 輪:從已簽發的物件也拿不到新的非空清單
++    with pytest.raises(TypeError):
++        dataclasses.replace(issued, cells=frozenset(WorthCell))  # type: ignore[type-var]
++    assert copy.copy(issued) is issued and copy.deepcopy(issued) is issued
++    for name in ("cells", "_cells"):
++        with pytest.raises(AttributeError):
++            setattr(issued, name, frozenset(WorthCell))
++    assert issued.cells == {WorthCell.PAUSED}
+     assert policy.ValidatedCells.NONE.cells == frozenset()
+-    assert policy._issue_validated_cells(frozenset({WorthCell.PAUSED})).cells == {WorthCell.PAUSED}
+ 
+ 
+ def test_explain_has_no_default_candidate_or_timeout():
+     parameters = inspect.signature(policy.explain).parameters
+     assert all(parameters[name].default is inspect.Parameter.empty
+                for name in ("candidate", "allowed"))
+     assert "timeout_seconds" not in parameters
+     assert "timeout_seconds" in inspect.signature(policy.CandidateCall).parameters
+ 
+ 
+ @pytest.mark.parametrize("fatal", [MemoryError(), RecursionError()])
+ def test_fatal_errors_from_the_candidate_are_not_swallowed(fatal):
+     with pytest.raises(type(fatal)):
+         policy.route(_input(), _call(_Recording(fatal)), ALL_CELLS)
++
++
++def test_the_shared_whitelist_checks_are_type_guards():
++    """代碼審第 2 輪:共用小檢查照檔頭規定,參數收任何值、回傳用型別守衛。"""
++    for name, narrowed in (("is_int_between", "int"), ("is_count_or_none", "int | None"),
++                           ("is_finite_or_none", "int | float | None")):
++        hints = typing.get_type_hints(getattr(_checks, name))
++        assert hints["value"] is object, name
++        assert str(hints["return"]) == f"typing.TypeGuard[{narrowed}]", (name, hints["return"])
