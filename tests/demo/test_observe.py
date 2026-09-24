@@ -333,3 +333,35 @@ def test_cursor_reads_go_on_until_an_empty_page():
     pages = {0: [1, 2], 2: [3], 3: []}
     found, after = all_pages(lambda cursor: pages[cursor], 0, lambda row: row)
     assert (found, after) == ([1, 2, 3], 3)
+
+
+def test_an_edge_reachable_two_ways_is_left_blank_not_guessed():
+    """[第 3 輪 g2 的延伸,真跑報告抓到] 從上一個節點經紀錄對不到的判斷點,能走到這個節點的邊不只一條
+    (等人確認可以從範圍檢查、也可以從總上限過來):不挑第一條,留空。"""
+    from rtb.demo.observe import _edge_into
+
+    assert _edge_into("x_wait_approval", "x_pick") is None
+    assert _edge_into("x_unknown", "x_write") == ("p_reply", "x_unknown")  # 只有一條:照用
+
+
+def test_a_stop_for_confirmation_uses_the_check_it_recorded():
+    """停下等人確認的事件記著是哪一關:照它畫從那一關出去的邊(總上限 → 等人確認)。"""
+    rows = PathBuilder().add([_lifecycle(0, "DELIVERED"),
+                              _lifecycle(1, "AWAITING_APPROVAL", "AGGREGATE_LIMIT_REACHED")])
+    assert rows[-1].node == "x_wait_approval"
+    assert rows[-1].edge == ("x_total", "x_wait_approval")
+
+
+def test_the_observer_passes_on_which_check_stopped_it(tmp_path):
+    from rtb.demo.observe import Observer
+    from tests.ops.rows import Rows
+
+    built = Rows(tmp_path)
+    try:
+        built.event(T0, "t1", "delivered", key="k1")
+        built.event(T0 + timedelta(seconds=1), "t1", "awaiting_approval", key="k1",
+                    reason="aggregate_limit_reached")
+    finally:
+        built.close()
+    rows = PathBuilder().add(Observer(tmp_path / "analyzer.db", tmp_path / "executor.db").poll())
+    assert rows[-1].edge == ("x_total", "x_wait_approval")

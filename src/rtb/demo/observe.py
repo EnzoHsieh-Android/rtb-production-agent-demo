@@ -105,17 +105,18 @@ def _edge_into(node: str, previous: str | None) -> tuple[str, str] | None:
         return incoming[0] if len(incoming) == 1 and incoming[0][0] not in _OBSERVABLE else None
     if (previous, node) in _EDGES:
         return (previous, node)
-    seen, frontier = {previous}, [previous]
+    seen, frontier, found = {previous}, [previous], set()
     while frontier:
         step = frontier.pop(0)
         for target in _OUTGOING.get(step, []):
             if target in _OBSERVABLE or target in seen:
                 continue
             if (target, node) in _EDGES:
-                return (target, node)
+                found.add((target, node))
             seen.add(target)
             frontier.append(target)
-    return None
+    # 經過對不到的判斷點能走到的邊不只一條:不挑(真跑報告抓到等人確認被畫成從範圍檢查過來)
+    return found.pop() if len(found) == 1 else None
 
 
 class PathBuilder:
@@ -397,6 +398,8 @@ class Observer:
                 detail = _member(BlockCode, event.reason)
             elif event.kind == LifecycleKind.DEAD_LETTERED.value:
                 detail = _member(DeadLetterReason, event.reason)
+            elif event.kind == LifecycleKind.AWAITING_APPROVAL.value:  # 帶著停在哪一關
+                detail = _member(BlockCode, event.reason)
             # 同一時間:開始類的事件排在嘗試之前,結案類的排在嘗試之後
             rank = 2 if event.kind in _TERMINAL else 0
             events.append(SourceEvent(
