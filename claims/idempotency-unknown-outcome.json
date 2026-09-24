@@ -77,7 +77,7 @@
     },
     {
       "path": "src/rtb/httpkit.py",
-      "sha256": "d3a28a1e1319277838a84da8711c0d85410bc86ec670efc0fa48ba264da476a6"
+      "sha256": "307480d888cf37489ec3f876ff9124d55dcf0ad877ca70887749a292e2e0e885"
     },
     {
       "path": "src/rtb/modelclaude.py",

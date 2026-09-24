@@ -10,7 +10,7 @@ import sqlite3  # noqa: TID251 - 展示狀態庫是展示自己的資料庫(不�
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS confirmations (
     demo_id TEXT PRIMARY KEY, code TEXT NOT NULL, request_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS confirmation_windows (
     demo_id TEXT PRIMARY KEY, until TEXT NOT NULL, approved_at TEXT, closed_at TEXT,
-    signing_at TEXT);
+    signing_at TEXT, sign_failed_at TEXT);
 CREATE TABLE IF NOT EXISTS demo_runs (demo_id TEXT PRIMARY KEY, full INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS scenario_details (
     demo_id TEXT NOT NULL, code TEXT NOT NULL, details_json TEXT NOT NULL,
@@ -254,8 +254,11 @@ class StateWriter:
             with immediate_transaction(conn):  # 之前版本建的展示狀態庫:補後來加的欄位(逐欄寫死)
                 if "task" not in _columns(conn, "PRAGMA table_info(decisions)"):
                     conn.execute("ALTER TABLE decisions ADD COLUMN task TEXT")
-                if "signing_at" not in _columns(conn, "PRAGMA table_info(confirmation_windows)"):
+                window = _columns(conn, "PRAGMA table_info(confirmation_windows)")
+                if "signing_at" not in window:
                     conn.execute("ALTER TABLE confirmation_windows ADD COLUMN signing_at TEXT")
+                if "sign_failed_at" not in window:
+                    conn.execute("ALTER TABLE confirmation_windows ADD COLUMN sign_failed_at TEXT")
         finally:
             conn.close()
 
@@ -375,19 +378,32 @@ class StateWriter:
                 raise ConfirmationClosed(CONFIRMATION_IN_PROGRESS)
             if closed is not None or pending is None or now >= datetime.fromisoformat(until):
                 raise ConfirmationClosed(CONFIRMATION_TIMED_OUT)
-            conn.execute("UPDATE confirmation_windows SET signing_at = ? WHERE demo_id = ?",
-                         (_iso(now), self.demo_id))
+            conn.execute("UPDATE confirmation_windows SET signing_at = ?, sign_failed_at = NULL "
+                         "WHERE demo_id = ?", (_iso(now), self.demo_id))
         try:
             sign(str(pending[0]), _request_from(str(pending[1])))
         except BaseException:
+            # 退回簽發中、留下簽發失敗(代碼審 r3 v3:驅動程式看到就不再等)
             with self._write() as conn:
-                conn.execute("UPDATE confirmation_windows SET signing_at = NULL WHERE demo_id = ?",
-                             (self.demo_id,))
+                conn.execute("UPDATE confirmation_windows SET signing_at = NULL, "
+                             "sign_failed_at = ? WHERE demo_id = ?",
+                             (_iso(datetime.now(UTC)), self.demo_id))
             raise
         with self._write() as conn:
             conn.execute("DELETE FROM confirmations WHERE demo_id = ?", (self.demo_id,))
             conn.execute("UPDATE confirmation_windows SET approved_at = ?, signing_at = NULL "
                          "WHERE demo_id = ?", (_iso(now), self.demo_id))
+
+    def confirmation_failed(self) -> bool:
+        """最近一次簽發失敗、之後沒有再簽成(關窗前一刻有人按了確認,但核可沒簽出來)。"""
+        conn = connect(self.path)
+        try:
+            row = conn.execute(
+                "SELECT sign_failed_at, approved_at FROM confirmation_windows WHERE demo_id = ?",
+                (self.demo_id,)).fetchone()
+        finally:
+            conn.close()
+        return row is not None and row[0] is not None and row[1] is None
 
     def clear_confirmation(self, now: datetime | None = None) -> bool:
         """確認逾時或已確認:關掉確認窗、清掉確認表單(設計審 r3 m4),確認頁與送出確認之後一律拒。

@@ -7,14 +7,14 @@ from pathlib import Path
 from typing import Final
 
 from rtb.demo.flow_svg import (
-    _LANE_ORDER,
-    _cards,
-    _edge_label,
-    _flow_label,
-    _node_map,
-    _render_flow,
-    _validate_flow,
+    LANE_ORDER,
+    decision_cards,
+    edge_label,
     escape_text,
+    flow_label,
+    node_map,
+    render_flow,
+    validate_flow,
 )
 from rtb.demo.state import (
     ApprovalForm,
@@ -160,7 +160,7 @@ def render_page(
 def render_report(state: DemoState, *, inline_styles: bool = True) -> str:
     """產生沒有表單、沒有自動重讀的靜態展示報告。另存的檔案把樣式內嵌(file:// 打開也有版面);
     經伺服器送的連同源樣式表(內容安全政策不准內嵌樣式,代碼審 r1 p2)。"""
-    _validate_flow(state.flow)
+    validate_flow(state.flow)
     scenarios = "".join(
         '<article class="report-scenario">'
         f"{_render_focus(scenario, state.flow, id_suffix=scenario.code.value, compact=True)}"
@@ -227,7 +227,7 @@ def _render_document(
     refresh_tick: int,
     inline_styles: bool,
 ) -> str:
-    _validate_flow(state.flow)
+    validate_flow(state.flow)
     focus = _selected_scenario(state, selected)
     awaiting = _is_awaiting_approval(state)
     refresh_url = None
@@ -430,7 +430,7 @@ def _render_current_progress(state: DemoState) -> str:
         return ""
     current = state.current
     scenario = next((item for item in state.scenarios if item.code is current.scenario), None)
-    node = _node_map(state.flow).get(current.node)
+    node = node_map(state.flow).get(current.node)
     if scenario is None or node is None:
         raise ValueError("目前進度指向不存在的情境或流程節點")
     observed_at = state.observed_at or current.started_at
@@ -445,7 +445,7 @@ def _render_current_progress(state: DemoState) -> str:
         '<span class="live-dot" aria-hidden="true"></span><strong>現在進度</strong>'
         f'<span class="progress-scenario">情境 {position} / 共 {len(state.scenarios)}・'
         f"{escape_text(scenario.code.value)} {escape_text(scenario.title)}</span>"
-        f'<span class="progress-node">▶ {escape_text(_flow_label(node.label))}・'
+        f'<span class="progress-node">▶ {escape_text(flow_label(node.label))}・'
         f'已經在這一步 {elapsed} 秒</span>'
         f"{last}</aside>"
     )
@@ -454,11 +454,11 @@ def _render_current_progress(state: DemoState) -> str:
 def _current_last_decision(decision: Decision | None, flow: FlowGraph) -> str:
     if decision is None:
         return '<span class="progress-decision">上一個判斷：尚無</span>'
-    node = _node_map(flow).get(decision.node)
-    label = decision.node if node is None else _flow_label(node.label)
+    node = node_map(flow).get(decision.node)
+    label = decision.node if node is None else flow_label(node.label)
     ended = (decision.taken_edge is None and node is not None
              and node.kind is NodeKind.TERMINAL)
-    branch = "已結束" if ended else _edge_label(flow, decision.taken_edge)
+    branch = "已結束" if ended else edge_label(flow, decision.taken_edge)
     return (
         '<span class="progress-decision">上一個判斷（剛剛）：'
         f"{escape_text(label)} → {escape_text(decision.outcome)}（{escape_text(branch)}）</span>"
@@ -484,14 +484,14 @@ _INCIDENT_NODE: Final = {
 
 
 def _render_system_map(flow: FlowGraph) -> str:
-    groups: dict[str, list[FlowNode]] = {lane: [] for lane in _LANE_ORDER}
+    groups: dict[str, list[FlowNode]] = {lane: [] for lane in LANE_ORDER}
     for node in flow.nodes:
         groups.setdefault(node.lane, []).append(node)
     cards = []
-    for index, lane in enumerate(_LANE_ORDER, start=1):
+    for index, lane in enumerate(LANE_ORDER, start=1):
         title, boundary = _ROLE_COPY[lane]
         steps = "".join(
-            f'<li>{escape_text(_flow_label(node.label))}</li>' for node in groups[lane]
+            f'<li>{escape_text(flow_label(node.label))}</li>' for node in groups[lane]
         )
         cards.append(
             f'<li class="role-card"><span class="role-number">{index:02d}</span>'
@@ -568,7 +568,7 @@ def _render_scenario_row(
 def _pivot_label(scenario: Scenario, flow: FlowGraph) -> str:
     node_id = _INCIDENT_NODE[scenario.code]
     node = next((item for item in flow.nodes if item.id == node_id), None)
-    return _flow_label(node.label) if node is not None else node_id
+    return flow_label(node.label) if node is not None else node_id
 
 
 def _fallback_result(scenario: Scenario) -> str:
@@ -616,7 +616,7 @@ def _render_focus(
         f'<p><strong>為什麼開始跑：</strong>{escape_text(scenario.trigger or "(這次沒有記錄)")}</p>'
         f'<p><strong>目標：</strong>{escape_text(scenario.goal or "(這次沒有記錄)")}</p>'
         '</div></details>'
-        f"{_render_flow(flow, scenario)}"
+        f"{render_flow(flow, scenario)}"
         f"{_render_decisions(scenario, flow)}</section>"
     )
 
@@ -697,8 +697,8 @@ def _render_result_evidence(scenario: Scenario) -> str:
 
 
 def _render_decisions(scenario: Scenario, flow: FlowGraph) -> str:
-    nodes = _node_map(flow)
-    shown = _cards(scenario.path)
+    nodes = node_map(flow)
+    shown = decision_cards(scenario.path)
     cards = "".join(
         _decision_card(decision, index, len(shown), nodes, flow, count)
         for index, (decision, count) in enumerate(shown, start=1)
@@ -769,7 +769,7 @@ def _decision_card(
     return (
         f'<li class="decision-card{latest}{kind_class}">'
         f'<div class="decision-number">{index:02d}</div>'
-        f'<div><p class="decision-node">{escape_text(_flow_label(node.label))}'
+        f'<div><p class="decision-node">{escape_text(flow_label(node.label))}'
         f'{f"（共 {count} 筆）" if count > 1 else ""}</p>'
         f'<p class="decision-outcome">{escape_text(decision.outcome)}</p>'
         f'{basis_block}'

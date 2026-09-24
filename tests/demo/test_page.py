@@ -738,10 +738,10 @@ def test_back_arrows_return_to_formal_target_outside_the_lanes() -> None:
 
 def test_owner_palette_has_labels_shapes_and_aa_text_contrast() -> None:
     from rtb.demo.flow import FLOW_GRAPH
-    from rtb.demo.flow_svg import _SHORT_LABELS
+    from rtb.demo.flow_svg import SHORT_LABELS
 
     css = DEMO_CSS  # 樣式表跟頁面同一份(不靠工作目錄的相對路徑;代碼審 r1 t9)
-    assert {node.id for node in FLOW_GRAPH.nodes} <= set(_SHORT_LABELS)
+    assert {node.id for node in FLOW_GRAPH.nodes} <= set(SHORT_LABELS)
     fills_by_mode: list[dict[str, str]] = [{}, {}]
     for owner in ("code", "ai", "human", "external"):
         palettes = re.findall(
@@ -1319,3 +1319,41 @@ def test_the_cost_line_says_no_ai_was_called_instead_of_no_run() -> None:
                     model_cost_usd=None, last_full_run_cost_usd=None, full_demo_id="d")
     markup = render_page(state, form_token="t")
     assert "尚無完整執行紀錄" not in markup and "沒有呼叫 AI，沒有費用" in markup
+
+
+# ---- 代碼審 r3(Phase 12 增量 2)----
+def test_a_long_node_number_is_not_crossed_by_its_own_skip_line() -> None:
+    """[代碼審 r3 p1] 「判斷 N・經 M」這種長編號不會被自己那個節點往上拉的跳線劃過。"""
+    path = (_step("x_pending", ("x_pending", "x_pick")),
+            _step("a_receive", ("a_receive", "a_collect")),
+            _step("x_pick", ("x_pick", "x_precheck")),
+            _step("x_precheck", ("x_precheck", "x_guard")),
+            _step("x_guard", ("x_guard", "x_total")),
+            _step("x_pick", ("x_pick", "x_deadletter")))
+    state = make_demo_state()
+    first = replace(state.scenarios[0], path=path,
+                    traversed_edges=tuple(d.taken_edge for d in path if d.taken_edge))
+    svg = _svg(render_page(replace(state, scenarios=(first, *state.scenarios[1:])),
+                           form_token="t", selected=ScenarioCode.F1))
+    badges = [(int(x), text) for x, text in re.findall(
+        r'class="decision-badge" x="(\d+)" y="\d+">([^<]+)<', svg) if "經" in text]
+    assert badges, "要有一個長編號"
+    lines = [int(re.findall(r"-?\d+", d)[0]) for d in re.findall(
+        r'<g class="flow-edge is-taken is-skip">.*?<path d="([^"]+)"', svg)]
+    for x, text in badges:
+        right = x + _text_width(text, 12)
+        assert all(not (x <= line <= right) for line in lines), (x, right, lines)
+
+
+def test_the_page_uses_only_public_names_from_the_flow_drawing() -> None:
+    """[代碼審 r3 a1] 頁面組裝與測試只用流程圖那支檔公開的名字(照拆檔慣例),不匯入底線開頭的
+    私有實作。"""
+    import ast
+    import inspect
+
+    from rtb.demo import page
+
+    imported = [alias.name for node in ast.walk(ast.parse(inspect.getsource(page)))
+                if isinstance(node, ast.ImportFrom) and node.module
+                and node.module.startswith("rtb.demo") for alias in node.names]
+    assert imported and not [name for name in imported if name.startswith("_")]

@@ -17,6 +17,7 @@
 """
 
 import argparse
+import contextlib
 import hmac
 import os
 import re
@@ -25,6 +26,7 @@ import signal
 import stat
 import sys
 import threading
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -66,6 +68,7 @@ APPROVER = "demo-operator"
 APPROVAL_SECONDS = 300  # 核可有效期:取 min(提案決策到期, 現在 + 這麼多秒)
 KEEP_REPORTS = 20  # 全部跑一次、單一情境重跑的報告各留最近這麼多份
 STOP_JOIN_SECONDS = 60.0  # 伺服器結束時等驅動執行緒收完行程的上限
+SIGNING_WAIT_SECONDS = 30.0  # 第二次確認等第一次簽發結果的上限(收件口忙碌上限 5 秒,留餘裕)
 _CODES = frozenset(code.value for code in ScenarioCode)
 _REPORT_NAME = re.compile(r"demo-(full|rerun)-\d{8}-\d{6}-[0-9a-f]{8}\.html")
 # 每個回應都帶:不快取(主頁與確認頁帶表單隨機值)、不猜內容型別、不把來源網址送到別的網站
@@ -157,9 +160,13 @@ class DemoService:
             run = Run(demo_id, keys, self.driver_factory(self.base, demo_id, keys, writer),
                       tuple(codes), full)
             with self._lock:
+                if self.closing:  # 建驅動的途中收尾開始了:這一次不開跑(代碼審 r3 c1/s1)
+                    raise RequestRejected(503, "shutting_down")
                 self.current = run
-            self.thread = threading.Thread(target=self._drive, args=(run, writer), daemon=True)
-            self.thread.start()
+                # 執行緒在鎖裡起:收尾一拿到鎖,讀到的一定是這一次與它的執行緒
+                self.thread = threading.Thread(target=self._drive, args=(run, writer),
+                                               daemon=True)
+                self.thread.start()
         except BaseException:
             self.running = False  # 還沒交給驅動執行緒:這裡放掉
             raise
@@ -203,8 +210,14 @@ class DemoService:
             run, thread = self.current, self.thread
         if run is not None and self.running:
             run.driver.cancel()
-        if thread is not None:
-            thread.join(timeout)
+        if thread is None:
+            return
+        deadline = time.monotonic() + timeout
+        while thread.is_alive() and time.monotonic() < deadline:
+            try:
+                thread.join(min(1.0, max(0.0, deadline - time.monotonic())))
+            except BaseException:  # noqa: S112 - 收尾中被打斷(例如訊號)照樣等完,不然子行程變孤兒
+                continue
 
     # ---- 讀 ----
     def next_tick(self) -> int:
@@ -320,8 +333,29 @@ class DemoService:
 
         try:
             writer.answer_confirmation(datetime.now(UTC), sign)
+        except ConfirmationClosed as closed:
+            if closed.code != CONFIRMATION_IN_PROGRESS:
+                raise
+            self._await_signing(run.demo_id)
         finally:
             writer.close()
+
+    def _await_signing(self, demo_id: str) -> None:
+        """第一次確認還在簽:等它的結果再回應同一個結果(代碼審 r3 c2/v4:原本直接回成功,第一次簽
+        失敗時使用者以為確認了)。簽成功就正常返回(轉回展示),沒簽成就拒絕並說明。"""
+        deadline = time.monotonic() + SIGNING_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            reader = StateReader(self.state_db)
+            try:
+                outcome = reader.confirmation_refusal(demo_id)
+            finally:
+                reader.close()
+            if outcome == ALREADY_CONFIRMED:
+                return
+            if outcome != CONFIRMATION_IN_PROGRESS:
+                raise RequestRejected(409, "previous_confirmation_failed")
+            time.sleep(0.1)
+        raise RequestRejected(409, CONFIRMATION_IN_PROGRESS)
 
 
 def _same(given: str, expected: str) -> bool:
@@ -384,7 +418,7 @@ def _page(service: DemoService, query: str) -> Response:
         selected=None if state.running else _selected(query)))
 
 
-_DONE_HERE = frozenset({ALREADY_CONFIRMED, CONFIRMATION_IN_PROGRESS})
+_DONE_HERE = frozenset({ALREADY_CONFIRMED})
 
 
 def _approval_page(service: DemoService, _query: str) -> Response:
@@ -486,17 +520,11 @@ def serve(service: DemoService) -> DemoServer:
     return DemoServer(service)
 
 
-def _terminate(signum: int, _frame: FrameType | None) -> None:
-    raise SystemExit(128 + signum)  # SIGTERM、SIGHUP 跟 Ctrl-C 走同一條收尾路徑
-
-
-def _cleaning_up(_signum: int, _frame: FrameType | None) -> None:
-    """收尾中再來的 Ctrl-C、SIGTERM、SIGHUP:只說正在收尾,不打斷(打斷等待驅動執行緒,子行程就
-    變孤兒;代碼審 r2 v2/s1)。"""
-    print("正在收尾:停掉展示、收掉它起的行程,請稍候", file=sys.stderr, flush=True)
-
-
 def main(argv: list[str] | None = None) -> None:
+    """起伺服器,等到 Ctrl-C、SIGTERM 或 SIGHUP(關終端機)就收尾。訊號處理只記下「要結束了」,
+    不丟例外:收尾(停展示、等驅動執行緒收完行程)不會被第二個訊號、或寫到已掛斷終端機的錯誤打斷
+    (代碼審 r3 v1/v2:原本在處理函式裡丟例外、收尾中印提示,兩種都打斷等待,子行程變孤兒)。
+    伺服器迴圈在另一條執行緒跑,主執行緒只等「要結束了」。"""
     parser = argparse.ArgumentParser(allow_abbrev=False, description="一鍵展示伺服器(只綁本機)")
     parser.add_argument("--work-dir", type=Path, required=True,
                         help="暫存目錄:每次展示的資料庫與行程都放這底下")
@@ -508,16 +536,30 @@ def main(argv: list[str] | None = None) -> None:
                           args.reports or default_reports(),
                           tighten_reports=args.reports is None)
     server = serve(service)
-    for signum in (signal.SIGTERM, signal.SIGHUP):
-        signal.signal(signum, _terminate)
+    ending = threading.Event()
+    received: list[int] = []
+
+    def request_end(signum: int, _frame: FrameType | None) -> None:
+        received.append(signum)
+        ending.set()
+
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, request_end)
     print(f"PORT={server.server_address[1]}", flush=True)
+    serving = threading.Thread(target=server.serve_forever, daemon=True)
+    serving.start()
     try:
-        server.serve_forever()
+        while not ending.wait(1.0):
+            if not serving.is_alive():  # 伺服器迴圈自己出事:照樣收尾
+                break
     finally:
-        for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-            signal.signal(signum, _cleaning_up)
+        with contextlib.suppress(OSError):  # 終端機已掛斷時印不出來,不能因此打斷收尾
+            print("正在收尾:停掉展示、收掉它起的行程,請稍候", file=sys.stderr, flush=True)
+        server.shutdown()
         server.server_close()
         service.stop()  # [代碼審 r1 v2] 停掉正在跑的展示,等驅動執行緒收完它起的行程
+    if received:
+        raise SystemExit(128 + received[0])
 
 
 if __name__ == "__main__":

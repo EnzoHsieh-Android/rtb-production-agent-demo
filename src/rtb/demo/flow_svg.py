@@ -40,10 +40,10 @@ _STEP_SPACING: Final = 97
 _LANE_HEIGHT: Final = 140
 
 
-_LANE_ORDER: Final = ("分析", "收件", "執行", "廣告平台", "人工")
+LANE_ORDER: Final = ("分析", "收件", "執行", "廣告平台", "人工")
 
 
-_FLOW_HEIGHT: Final = len(_LANE_ORDER) * _LANE_HEIGHT + 100
+_FLOW_HEIGHT: Final = len(LANE_ORDER) * _LANE_HEIGHT + 100
 
 
 _GROUP_ID: Final = "analysis_group"
@@ -55,7 +55,7 @@ _SECOND_GROUP_ID: Final = "analysis_after_ai"
 _GROUP_IDS: Final = frozenset({_GROUP_ID, _SECOND_GROUP_ID})
 
 
-_SHORT_LABELS: Final[dict[str, str]] = {
+SHORT_LABELS: Final[dict[str, str]] = {
     "a_receive": "收到工作", "a_collect": "蒐集資料", "a_fresh": "資料夠新？",
     "a_complete": "資料齊全？", "a_pacing": "花費偏慢？", "a_route": "選擇判法",
     "a_candidate": "候選判斷", "a_rule": "規則判斷", "a_worth": "值得加？",
@@ -104,12 +104,12 @@ def _visible_character(character: str) -> str:
     return character
 
 
-def _flow_label(label: str) -> str:
+def flow_label(label: str) -> str:
     """正式圖的內部稱呼在展示層換成讀者熟悉的字。"""
     return label.replace("模型", "AI")
 
 
-def _render_flow(flow: FlowGraph, scenario: Scenario) -> str:
+def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
     view = _flow_view(flow, scenario)
     if not view.nodes:
         return '<p class="empty flow-empty">這個情境還沒有走過的路徑紀錄。</p>'
@@ -132,7 +132,7 @@ def _render_flow(flow: FlowGraph, scenario: Scenario) -> str:
     )
     sequence: dict[str, int] = {}  # 節點 → 它自己第一張判斷卡(代碼審 r1 p5)
     entered: dict[str, int] = {}  # 節點 → 第一次被走到的那張卡(它自己的,或走進它的那條邊的)
-    for index, (item, _count) in enumerate(_cards(scenario.path), start=1):
+    for index, (item, _count) in enumerate(decision_cards(scenario.path), start=1):
         sequence.setdefault(item.node, index)
         for node_id in item.taken_edge or (item.node,):
             entered.setdefault(node_id, index)
@@ -163,7 +163,7 @@ def _render_flow(flow: FlowGraph, scenario: Scenario) -> str:
             f"{scenario.queue_wait_seconds} 秒")
     faults = "".join(
         f'<p class="fault-note">展示故意製造：{escape_text(fault.description)}'
-        f'（位置：{escape_text(_SHORT_LABELS.get(fault.node, fault.node))}）</p>'
+        f'（位置：{escape_text(SHORT_LABELS.get(fault.node, fault.node))}）</p>'
         for fault in scenario.injected_faults
     ) or '<p class="fault-note is-empty">這個情境沒有安排故障</p>'
     queue_note = (
@@ -229,7 +229,7 @@ def _render_handoff(positions: dict[str, tuple[int, int]], *, queued: bool) -> s
 
 def _render_untaken_branches(flow: FlowGraph, scenario: Scenario) -> str:
     """每條未走分支只畫到最近的結束點或這次已走過的節點。"""
-    nodes = _node_map(flow)
+    nodes = node_map(flow)
     outgoing: dict[str, list[FlowEdge]] = defaultdict(list)
     for edge in flow.edges:
         outgoing[edge.source].append(edge)
@@ -247,16 +247,16 @@ def _render_untaken_branches(flow: FlowGraph, scenario: Scenario) -> str:
             steps = "".join(
                 '<span class="branch-connector" aria-hidden="true">→</span>'
                 '<span class="branch-step">'
-                f'{escape_text(_SHORT_LABELS.get(node_id, _flow_label(nodes[node_id].label)))}'
+                f'{escape_text(SHORT_LABELS.get(node_id, flow_label(nodes[node_id].label)))}'
                 '</span>'
                 for node_id in chain
             )
-            source = _SHORT_LABELS.get(decision.node, decision.node)
+            source = SHORT_LABELS.get(decision.node, decision.node)
             rows.append(
                 '<div class="branch-route">'
                 f'<span class="branch-source">{escape_text(source)}</span>'
                 f'<span class="branch-connector" aria-hidden="true">→</span>'
-                f'<span class="branch-step">{escape_text(_flow_label(edge.label))}</span>'
+                f'<span class="branch-step">{escape_text(flow_label(edge.label))}</span>'
                 f'{steps}</div>'
             )
     if not rows:
@@ -293,16 +293,16 @@ def _flow_layout(
     positions: dict[str, tuple[int, int]] = {}
     x = 24
     for node in nodes:
-        positions[node.id] = (x, 50 + _LANE_ORDER.index(node.lane) * _LANE_HEIGHT + 30)
+        positions[node.id] = (x, 50 + LANE_ORDER.index(node.lane) * _LANE_HEIGHT + 30)
         x += _node_width(node) + 64
     lanes = tuple(_LaneBand(lane, 50 + index * _LANE_HEIGHT, _LANE_HEIGHT - 4)
-                  for index, lane in enumerate(_LANE_ORDER))
+                  for index, lane in enumerate(LANE_ORDER))
     last = nodes[-1]
     return positions, lanes, positions[last.id][0] + _node_width(last) + 12
 
 
 def _flow_view(flow: FlowGraph, scenario: Scenario) -> _FlowView:
-    nodes = _node_map(flow)
+    nodes = node_map(flow)
     edge_map = {(edge.source, edge.target): edge for edge in flow.edges}
     # 只畫真的走過的邊:可以斷開、可以分好幾段(不同工作、回頭之後),同一條邊只畫一次;
     # 沒有紀錄的地方照實斷開,不從圖上替沒看到的判斷補路(代碼審第 3 輪 g2)
@@ -413,13 +413,14 @@ def _render_active_edge(
         )
         return (
             '<g class="flow-edge is-taken">'
-            f'<title>{escape_text(_flow_label(edge.label))}</title>'
+            f'<title>{escape_text(flow_label(edge.label))}</title>'
             f'<path d="{path}" marker-end="url(#{marker_id})"></path></g>'
         )
     # 要跨過同一泳道的其他節點(或往回接):走節點列上方的空隙、畫成虛線,不從節點底下穿過(代碼審 r1 p5)
     gap_y = source_y - 24  # 在「判斷 N」編號字(節點上方 5 到 19)再上面,不劃過編號(代碼審 r2 g3)
-    rise_x = source_x + _edge_start_offset(edge.source) // 2
-    drop_x = target_x + _NODE_WIDTH // 2
+    # 從節點寬的 3/4 處拉上去、落下來:編號字從左邊畫起,長的「判斷 N・經 M」也碰不到(代碼審 r3 p1)
+    rise_x = source_x + _edge_start_offset(edge.source) * 3 // 4
+    drop_x = target_x + _NODE_WIDTH * 3 // 4
     attach_y = target_y if target_y >= source_y else target_y + _NODE_HEIGHT
     path = (
         f"M {rise_x} {source_y} L {rise_x} {gap_y} L {drop_x} {gap_y} "
@@ -429,7 +430,7 @@ def _render_active_edge(
     shown = f"跳過 {len(skipped)} 個" if skipped else "往回接"
     return (
         '<g class="flow-edge is-taken is-skip">'
-        f'<title>{escape_text(_flow_label(edge.label) + note)}</title>'
+        f'<title>{escape_text(flow_label(edge.label) + note)}</title>'
         f'<path d="{path}" marker-end="url(#{marker_id})"></path>'
         f'<text class="skip-note" x="{(rise_x + drop_x) // 2}" y="{gap_y - 3}">'
         f"{escape_text(shown)}</text></g>"
@@ -468,9 +469,9 @@ def _render_back_edge(
     end_x = target_x + _node_width(next(node for node in nodes if node.id == target)) // 2
     path = (f"M {start_x} {source_end} L {start_x} {rail_y} "
             f"L {end_x} {rail_y} L {end_x} {target_end}")
-    destination = "分析群組中的「" + _SHORT_LABELS.get(back.returns_to, "收到工作") + "」" if (
+    destination = "分析群組中的「" + SHORT_LABELS.get(back.returns_to, "收到工作") + "」" if (
         target == _GROUP_ID
-    ) else _SHORT_LABELS.get(back.returns_to, back.returns_to)
+    ) else SHORT_LABELS.get(back.returns_to, back.returns_to)
     label = "回到：" + destination
     label_x = max(88, min(width - 90, (start_x + end_x) // 2))
     label_y = rail_y - 5 if top else rail_y + 17
@@ -496,7 +497,7 @@ def _render_node(  # noqa: PLR0913 - 節點要帶狀態、編號、群組與故�
     state_class = "is-current" if current else "is-visited" if visited else "is-future"
     shape = _node_shape(node.kind, x, y, _node_width(node), 100 if grouped else _NODE_HEIGHT)
     short = ("確認資料與建議" if grouped else
-             _SHORT_LABELS.get(node.id, _flow_label(node.label)))
+             SHORT_LABELS.get(node.id, flow_label(node.label)))
     lines = _svg_lines(short, 24 if grouped else 20)
     first_y = y + 34 - (len(lines) - 1) * 9
     label = "".join(
@@ -521,8 +522,8 @@ def _render_node(  # noqa: PLR0913 - 節點要帶狀態、編號、群組與故�
         if grouped else ""
     )
     title = (
-        "；".join(_flow_label(item.label) for item in grouped)
-        if grouped else _flow_label(node.label)
+        "；".join(flow_label(item.label) for item in grouped)
+        if grouped else flow_label(node.label)
     )
     marker = (
         f'<text class="fault-marker" x="{x + _node_width(node) - 13}" y="{y + 20}">!</text>'
@@ -563,8 +564,8 @@ def _node_shape(kind: NodeKind, x: int, y: int, width: int, height: int) -> str:
     )
 
 
-def _validate_flow(flow: FlowGraph) -> None:
-    nodes = _node_map(flow)
+def validate_flow(flow: FlowGraph) -> None:
+    nodes = node_map(flow)
     if len(nodes) != len(flow.nodes):
         raise ValueError("流程圖節點 id 不可重複")
     successors: dict[str, list[str]] = defaultdict(list)
@@ -587,15 +588,15 @@ def _validate_flow(flow: FlowGraph) -> None:
         raise ValueError("流程圖含有環，無法畫成 DAG")
 
 
-def _node_map(flow: FlowGraph) -> dict[str, FlowNode]:
+def node_map(flow: FlowGraph) -> dict[str, FlowNode]:
     return {node.id: node for node in flow.nodes}
 
 
-def _edge_label(flow: FlowGraph, pair: tuple[str, str] | None) -> str:
+def edge_label(flow: FlowGraph, pair: tuple[str, str] | None) -> str:
     if pair is None:
         return "這一步對不到圖上的分支"
     return next(
-        (_flow_label(edge.label) for edge in flow.edges if (edge.source, edge.target) == pair),
+        (flow_label(edge.label) for edge in flow.edges if (edge.source, edge.target) == pair),
         f"{pair[0]} → {pair[1]}",
     )
 
@@ -603,7 +604,7 @@ def _edge_label(flow: FlowGraph, pair: tuple[str, str] | None) -> str:
 _CARD_LIMIT: Final = 60  # 判斷超過這麼多筆(F7 那種幾千筆)就依節點與分支彙總成一張卡,標筆數
 
 
-def _cards(path: tuple[Decision, ...]) -> tuple[tuple[Decision, int], ...]:
+def decision_cards(path: tuple[Decision, ...]) -> tuple[tuple[Decision, int], ...]:
     """要畫的判斷卡:筆數不多就逐筆;很多就依(節點, 分支)彙總,留第一筆的根據、照第一次出現排
     (代碼審 r1 p8:F7 單頁原本 4.7MB)。"""
     if len(path) <= _CARD_LIMIT:

@@ -277,3 +277,20 @@ def test_signing_happens_outside_the_state_database_write(tmp_path, writer):
 
     writer.answer_confirmation(datetime.now(UTC), sign)
     assert seen["approved"] is True and seen["seconds"] < 1.5
+
+
+# ---- 代碼審 r3(Phase 12 增量 2)----
+def test_a_failed_signing_leaves_a_mark_the_driver_can_see(writer):
+    """[代碼審 r3 v3] 簽發失敗退回簽發中時留下簽發失敗的標記(驅動程式看到就不再等);下一次預留
+    或簽成功就清掉。"""
+    writer.set_confirmation("F7", _request(), datetime.now(UTC) + timedelta(minutes=5))
+    assert writer.confirmation_failed() is False
+
+    def broken(_code, _req):
+        raise RuntimeError("收件口忙")
+
+    with pytest.raises(RuntimeError):
+        writer.answer_confirmation(datetime.now(UTC), broken)
+    assert writer.confirmation_failed() is True
+    writer.answer_confirmation(datetime.now(UTC), lambda _code, _req: None)
+    assert writer.confirmation_failed() is False

@@ -773,6 +773,7 @@ def _run_f6(world: World) -> str:
 F7_CAMPAIGNS, F7_LIMIT, F7_WORKERS = 300, 1234, 8
 CONFIRM_CAP_SECONDS = 600.0
 CONFIRM_MARGIN_SECONDS = 60.0
+SIGN_FAILED = "有人確認但簽發失敗"
 APPROVED_WRITE_SECONDS = 60.0  # 關窗前一刻才簽的核可:再等它寫進平台這麼久(核可本身最多 300 秒)
 INCREASE = 10  # 每個廣告 100 加一成
 # 每份提案最後一個生命週期事件 → 它現在停在流程圖的哪個節點(F7 的各節點筆數)
@@ -975,8 +976,12 @@ def _wait_for_confirmation(world: World, request: ConfirmationRequest, cap_secon
         if not world.stop.is_set():  # 已經被收掉的情境不能把「沒跑完」改寫回進行中
             world.state.mark_status(world.code, "running")
     if not written and approved:
-        written = world.wait_paused(lambda: _confirmed_one_written(world, request),
-                                    APPROVED_WRITE_SECONDS, lambda: _node_counts(world))
+        # 關窗前一刻有人正在簽:等它寫進平台;簽發失敗就不再等(代碼審 r3 v3)
+        written = world.wait_paused(
+            lambda: _confirmed_one_written(world, request) or world.state.confirmation_failed(),
+            APPROVED_WRITE_SECONDS, lambda: _node_counts(world))
+        if world.state.confirmation_failed():
+            raise ScenarioFailed(SIGN_FAILED)
     return written
 
 

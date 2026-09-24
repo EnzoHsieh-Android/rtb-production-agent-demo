@@ -256,7 +256,10 @@ class JsonHandler(BaseHTTPRequestHandler):
             raise RequestRejected(400, "invalid_host")
 
     def single_header(self, name: str) -> str | None:
-        values = self.headers.get_all(name) or []
+        # HTTP/0.9 式的請求行(只有「GET /」兩段)基底類別把標頭設成空的 dict:當成沒有標頭,
+        # 照一般缺標頭的路徑拒,不撞 AttributeError 回 500(Phase 12 代碼審 r3 s2)
+        get_all = getattr(self.headers, "get_all", None)
+        values = (get_all(name) if get_all is not None else None) or []
         if len(values) > 1:
             raise RequestRejected(400, "duplicate_header")
         return values[0] if values else None

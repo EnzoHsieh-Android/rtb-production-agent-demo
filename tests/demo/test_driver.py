@@ -640,11 +640,13 @@ def test_the_driver_reports_a_timeout_only_after_the_scenario_has_wound_down(tmp
 
 
 class _ConfirmStub:
-    def __init__(self, stop_during_wait, approved_at_close=False, written_after=False):
+    def __init__(self, stop_during_wait, approved_at_close=False, written_after=False,
+                 sign_failed=False):
         self.code, self.stop = "F7", threading.Event()
         self.marks, self.cleared, self.waits = [], [], []
         self._stop_during_wait = stop_during_wait
         self._approved, self._written_after = approved_at_close, written_after
+        self._failed = sign_failed
         stub = self
 
         class _State:
@@ -658,13 +660,16 @@ class _ConfirmStub:
                 stub.cleared.append(True)
                 return stub._approved
 
+            def confirmation_failed(self):
+                return stub._failed
+
         self.state = _State()
 
     def wait_paused(self, _done, limit, _on_poll=None):
         self.waits.append(limit)
         if self._stop_during_wait:
             self.stop.set()
-        return len(self.waits) > 1 and self._written_after
+        return len(self.waits) > 1 and (self._written_after or self._failed)
 
 
 def test_a_stopped_scenario_does_not_ask_for_confirmation():
@@ -1224,3 +1229,18 @@ def test_a_cancel_that_lands_before_the_scenario_starts_still_stops_it(tmp_path)
     verdict = demo.run_one("FX")
     assert time.monotonic() - started < 10
     assert verdict.status == INCOMPLETE and "展示被停止" in verdict.reason
+
+
+# ---- 代碼審 r3(Phase 12 增量 2)----
+def test_a_confirmation_whose_signing_failed_is_not_waited_for_or_called_unconfirmed():
+    """[代碼審 r3 v3] 關窗時有人正在簽、後來簽失敗:驅動程式看到簽發失敗就不再等,原因照實寫
+    「有人確認但簽發失敗」,不寫成沒有人確認。"""
+    from datetime import UTC
+
+    from rtb.demo.state_store import ConfirmationRequest
+
+    request = ConfirmationRequest("t1", 1, "h" * 64, "/x", "aggregate_limit_reached", 10,
+                                  datetime.now(UTC) + timedelta(hours=1), (("廣告", "c1"),))
+    failed = _ConfirmStub(stop_during_wait=False, approved_at_close=True, sign_failed=True)
+    with pytest.raises(ScenarioFailed, match="有人確認但簽發失敗"):
+        driver_module._wait_for_confirmation(failed, request, 5)

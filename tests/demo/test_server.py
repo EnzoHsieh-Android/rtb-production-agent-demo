@@ -3,6 +3,7 @@
 多數測試換掉驅動程式的情境(很快跑完的假情境),真的核可流程用縮小版 F7 真跑。
 """
 
+import contextlib
 import hashlib
 import http.client
 import os
@@ -907,7 +908,8 @@ def test_confirming_twice_takes_you_back_to_the_demo(running, f7):
     assert _signed(f7) == 1
 
 
-@pytest.mark.parametrize("line", [b"GARBAGE\r\n\r\n", b"GET / HTTP/9.9\r\n\r\n"])
+@pytest.mark.parametrize("line", [b"GARBAGE\r\n\r\n", b"GET / HTTP/9.9\r\n\r\n",
+                                  b"GET /\r\n\r\n"])
 def test_a_broken_request_line_still_gets_the_safety_headers(running, line):
     """[代碼審 r2 s2] 請求行壞掉(會被當成 HTTP/0.9)的錯誤回應也帶狀態行與安全標頭。"""
     import socket
@@ -918,7 +920,7 @@ def test_a_broken_request_line_still_gets_the_safety_headers(running, line):
         while chunk := conn.recv(4096):
             data += chunk
     head = data.split(b"\r\n\r\n", 1)[0]
-    assert head.startswith(b"HTTP/1.")
+    assert head.startswith(b"HTTP/1.") and b" 500 " not in head.split(b"\r\n")[0]
     for name in (b"Content-Security-Policy", b"Cache-Control: no-store",
                  b"X-Content-Type-Options: nosniff"):
         assert name in head, name
@@ -949,3 +951,178 @@ def test_a_reports_directory_the_user_named_is_left_as_it_is(service, tmp_path):
     service.reports = blocked
     _full_then_rerun(service, "F3")
     assert "報告沒存成" in service.state().report_note
+
+
+# ---- 代碼審 r3(Phase 12 增量 2)----
+def _server_on_a_terminal(work):
+    """在假終端機裡起伺服器(它是那個終端機的 session leader,stdout、stderr 都接在終端機上),回
+    (行程編號, 終端機 master, 連接埠)。"""
+    import pty
+    import sys
+
+    pid, master = pty.fork()
+    if pid == 0:
+        os.execv(sys.executable, [sys.executable, "-m", "rtb.demo.server",  # noqa: S606 - 測試起專案內的伺服器
+                                  "--work-dir", str(work), "--reports", str(work / "reports")])
+    seen = b""
+    while b"\n" not in seen:
+        seen += os.read(master, 1024)
+    return pid, master, int(re.search(rb"PORT=(\d+)", seen).group(1))
+
+
+def test_closing_the_terminal_leaves_no_child_processes(tmp_path):
+    """[代碼審 r3 v1] 真的關掉終端機:終端機掛斷(stderr 寫不出去)、殼層再轉送一次 SIGHUP,收尾照樣
+    做完、子行程一個都不留(原本收尾中的提示印到掛斷的終端機丟 EIO,打斷等待,11 支孤兒)。"""
+    import signal
+
+    work = tmp_path / "work"
+    pid, master, port = _server_on_a_terminal(work)
+    try:
+        page = _request(port, "GET", "/")[2]
+        token = re.search(r'name="token" value="([^"]+)"', page).group(1)
+        _post(port, "/run/scenario", {"token": token, "scenario": "F7"})
+        assert _wait(lambda: len(_children(work)) >= 8, 60), "子行程沒起來"
+        os.close(master)  # 關掉終端機:核心送 SIGHUP 給 session leader,之後寫終端機會 EIO
+        master = -1
+        time.sleep(0.1)
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGHUP)  # 殼層轉送的第二個 SIGHUP
+        assert _wait(lambda: _reaped(pid), 90)
+        assert _wait(lambda: not _children(work), 10), _children(work)
+    finally:
+        if master >= 0:
+            os.close(master)
+        with contextlib.suppress(ProcessLookupError, ChildProcessError):
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+        for child in _children(work):
+            os.kill(child, signal.SIGKILL)
+
+
+def _reaped(pid):
+    with contextlib.suppress(ChildProcessError):
+        done, _ = os.waitpid(pid, os.WNOHANG)
+        return done == pid
+    return True
+
+
+def test_two_signals_arriving_together_still_leave_no_child_processes(tmp_path):
+    """[代碼審 r3 v2] SIGTERM 和 SIGHUP 同時到:第二個不能在收尾開始前把收尾打斷。"""
+    import signal
+    import subprocess
+    import sys
+
+    work = tmp_path / "work"
+    popen = subprocess.Popen(
+        [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
+         "--reports", str(work / "reports")],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    try:
+        port = int(popen.stdout.readline().strip().removeprefix("PORT="))
+        page = _request(port, "GET", "/")[2]
+        token = re.search(r'name="token" value="([^"]+)"', page).group(1)
+        _post(port, "/run/scenario", {"token": token, "scenario": "F7"})
+        assert _wait(lambda: len(_children(work)) >= 8, 60), "子行程沒起來"
+        os.kill(popen.pid, signal.SIGTERM)
+        os.kill(popen.pid, signal.SIGHUP)
+        popen.wait(90)
+        assert _wait(lambda: not _children(work), 10), _children(work)
+    finally:
+        if popen.poll() is None:
+            popen.kill()
+        for pid in _children(work):
+            os.kill(pid, signal.SIGKILL)
+
+
+def test_a_stop_that_lands_while_a_demo_is_being_set_up_leaves_nothing_running(service,
+                                                                                 monkeypatch):
+    """[代碼審 r3 c1/s1] 收尾剛好落在「通過收尾中檢查」與「記下這一次」之間:這一次不開跑(或被取消
+    並等到收完),收尾返回之後沒有驅動執行緒還在跑。"""
+    from rtb.demo.state_store import StateWriter
+
+    service.driver_factory = _factory(gate := Gate())
+    real = StateWriter.record_demo
+    stopper = []
+
+    def slow(self, *, full):
+        stopper.append(threading.Thread(target=service.stop, kwargs={"timeout": 5}))
+        stopper[0].start()
+        time.sleep(0.3)  # 把窗口拉長:收尾在這段時間裡讀目前這一次
+        real(self, full=full)
+
+    monkeypatch.setattr(StateWriter, "record_demo", slow)
+    try:
+        with pytest.raises(server_module.RequestRejected):
+            service.start(driver_module.ALL_CODES, full=True)
+        stopper[0].join(10)
+        assert not service.running
+        assert service.thread is None or not service.thread.is_alive()
+    finally:
+        gate.opened.set()
+
+
+def _hold_signing(monkeypatch, outcome):
+    """讓第一次簽發停在預留之後,等測試放行;outcome 是 None 就簽成功,不然丟那個例外。"""
+    reached, release = threading.Event(), threading.Event()
+    real = server_module._sign
+
+    def held(*args):
+        reached.set()
+        release.wait(30)
+        if outcome is not None:
+            raise outcome
+        real(*args)
+
+    monkeypatch.setattr(server_module, "_sign", held)
+    return reached, release
+
+
+@pytest.mark.parametrize("fails", [True, False])
+def test_a_second_confirmation_while_the_first_is_signing_gets_the_first_ones_result(
+        running, f7, monkeypatch, fails):
+    """[代碼審 r3 c2/v4] 第一次還在簽時又按一次:第二次等第一次的結果再回應。第一次簽失敗,第二次
+    不能回成功(原本回 303,使用者以為確認了);第一次簽成功,第二次轉回展示。只簽一張。"""
+    from rtb.executor.inbox_store import InboxBusy
+
+    reached, release = _hold_signing(monkeypatch, InboxBusy("忙") if fails else None)
+    fields, _ = _approval_fields(f7)
+    first = []
+    worker = threading.Thread(target=lambda: first.append(_post(running, "/approve", fields)))
+    worker.start()
+    assert reached.wait(10)
+    second = []
+    other = threading.Thread(target=lambda: second.append(_post(running, "/approve", fields)))
+    other.start()
+    time.sleep(0.5)
+    release.set()
+    worker.join(30)
+    other.join(30)
+    if fails:
+        assert first[0][0] == 503 and second[0][0] != 303, (first[0][0], second[0][0])
+        assert "previous_confirmation_failed" in second[0][2] and _signed(f7) == 0
+        monkeypatch.undo()
+        _post(running, "/approve", _approval_fields(f7)[0])
+    else:
+        assert first[0][0] == 303 and second[0][:2][0] == 303 and _signed(f7) == 1
+
+
+def test_an_interrupted_wait_during_shutdown_keeps_waiting(service, monkeypatch):
+    """[代碼審 r3 v1] 收尾等驅動執行緒時被打斷(例如訊號處理丟例外):照樣接著等到它收完,不提早返回
+    讓主行程結束(那樣子行程會變孤兒)。"""
+    service.driver_factory = _factory(gate := Gate())
+    service.start(driver_module.ALL_CODES, full=True)
+    thread = service.thread
+    real_join = type(thread).join
+    calls = []
+
+    def interrupted(self, timeout=None):
+        calls.append(timeout)
+        if len(calls) == 1:
+            raise RuntimeError("被打斷")  # 第一次等待被打斷(任何例外都一樣)
+        return real_join(self, timeout)
+
+    monkeypatch.setattr(type(thread), "join", interrupted)
+    threading.Timer(0.5, gate.opened.set).start()
+    service.stop(timeout=20)
+    monkeypatch.undo()
+    assert len(calls) >= 2 and not thread.is_alive()
