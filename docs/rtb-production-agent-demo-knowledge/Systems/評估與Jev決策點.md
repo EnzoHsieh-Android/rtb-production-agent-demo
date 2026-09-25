@@ -51,6 +51,7 @@ decisions:
 verified_by:
   - "[[Verification/Phase10驗收紀錄]]"
   - "[[Verification/Phase11B增量1驗收紀錄]]"
+  - "[[Verification/Phase13增量3驗收紀錄]]"
 ---
 # 評估與Jev決策點
 

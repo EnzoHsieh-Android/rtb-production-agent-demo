@@ -1,0 +1,5 @@
+[
+ {"round":"r2","seat":"修正驗收","lens":"修正驗收","materials":["governance/review-reports/code-phase13-inc3/r2-snapshot.patch","governance/review-reports/code-phase13-inc3/r2-fixes.patch"],"auditor":"claude-opus"},
+ {"round":"r2","seat":"架構對齊","lens":"架構對齊","materials":["governance/review-reports/code-phase13-inc3/r2-snapshot.patch"],"auditor":"claude-opus"},
+ {"round":"r2","seat":"外家-codex","lens":"外家-codex","materials":["governance/review-reports/code-phase13-inc3/r2-snapshot.patch"],"auditor":"codex-gpt-6-sol"}
+]
