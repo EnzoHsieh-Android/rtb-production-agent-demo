@@ -18,7 +18,9 @@ import hashlib
 import json
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
+from fractions import Fraction
 from types import MappingProxyType
 from typing import Any
 
@@ -31,6 +33,7 @@ from rtb.domain._checks import (
     is_int_between,
 )
 from rtb.domain.evidence import MAX_UNTRUSTED_TEXT_LENGTH, Evidence, EvidenceKind, TrustClass
+from rtb.domain.metrics import exact_value
 from rtb.domain.proposal import ActionType
 from rtb.httpclient import request_json
 
@@ -194,3 +197,223 @@ def make_operation_lookup(
                             expected_version=expected)
 
     return lookup
+
+
+# ---- AI 追加查詢的讀法(Phase 13 增量 2,計劃〈新增的兩種模擬資料〉,[S1108] [S1132] [S1148]) ----
+# 每個查詢選項只打它自己那支唯讀端點(較長時間窗讀 1 天與 7 天兩次)。清單型回應的逐欄白名單:頂層帶
+# 廣告編號與 rows(操作歷史照既有端點是 history),每一列只收下面列的欄位,多欄、少欄、型別不對
+# 整包不收。
+# 查不到(404)記 not_found、逾時記 timeout、欄位不合格記 invalid,都是「這個查詢沒有結果」,不丟例外;
+# 其他失敗(5xx、連不上)照基本讀取的規則往外丟,這一步不寫入、下次重試。每支欄位檢查自己負責對任何
+# JSON 型別只回真假、不丟例外(跟上面兩張白名單同一種慣例)。
+# 呼叫紀錄(tool_calls)的記法三種都跟既有一致:例外(含逾時、200 但本文讀不懂)記例外類別名,同 _get;
+# 查不到記 not_found,同依冪等鍵查操作的包裝;成功記 ok(本文讀得懂但白名單不合格時也是 ok,
+# 收據那邊記 invalid)。
+
+
+@dataclass(frozen=True)
+class QueryRead:
+    """一個查詢的讀取結果:驗過的原始回應,或沒有結果的原因(not_found、timeout、invalid)。"""
+
+    raw: dict[str, Any] | None
+    reason: str | None = None
+
+
+_COUNT_FIELDS = ("impressions", "clicks", "conversions")
+_AMOUNT_FIELDS = ("spend", "revenue")
+DAILY_ROW_FIELDS: dict[str, Check] = {
+    "days_ago": lambda value: is_int_between(1, value) and value <= DAILY_DAYS,
+    **dict.fromkeys(_COUNT_FIELDS, is_count_or_none),
+    **dict.fromkeys(_AMOUNT_FIELDS, is_finite_or_none),
+    "no_data": lambda value: isinstance(value, bool),
+}
+ADJUSTMENT_ROW_FIELDS: dict[str, Check] = {
+    "days_ago": lambda value: is_int_between(MIN_ADJUSTMENT_AGE_DAYS, value),
+    "budget_before": lambda value: is_int_between(0, value),
+    "budget_after": lambda value: is_int_between(0, value),
+    **{f"{side}_{name}": is_count_or_none for side in ("before", "after")
+       for name in _COUNT_FIELDS},
+    **{f"{side}_{name}": is_finite_or_none for side in ("before", "after")
+       for name in _AMOUNT_FIELDS},
+}
+HISTORY_ROW_FIELDS: dict[str, Check] = {
+    "operation_id": lambda value: is_int_between(1, value),
+    "action": lambda value: (isinstance(value, str)
+                             and value in {item.value for item in ActionType}),
+    "version_after": lambda value: is_int_between(1, value),
+    "received_at": lambda value: isinstance(value, str) and _aware(value),
+    "committed_at": lambda value: isinstance(value, str) and _aware(value),
+    "idempotency_key": is_id,
+}
+DAILY_DAYS = 7
+MAX_PAST_ADJUSTMENTS = 5
+MIN_ADJUSTMENT_AGE_DAYS = 3
+
+
+def _aware(text: str) -> bool:
+    try:
+        return datetime.fromisoformat(text).tzinfo is not None
+    except ValueError:
+        return False
+
+
+def _rows_ok(rows: Any, fields: dict[str, Check]) -> bool:
+    return isinstance(rows, list) and all(
+        isinstance(row, dict) and set(row) == set(fields)
+        and all(check(row[name]) for name, check in fields.items()) for row in rows)
+
+
+def check_daily(body: Any, campaign_id: str) -> dict[str, Any] | None:
+    """逐日:頂層恰好廣告編號與 rows;固定 7 列、由近到遠;缺資料那天五欄 null 而且 no_data 為真。"""
+    if not isinstance(body, dict) or set(body) != {"campaign_id", "rows"}:
+        return None
+    rows = body["rows"]
+    if body["campaign_id"] != campaign_id or not _rows_ok(rows, DAILY_ROW_FIELDS):
+        return None
+    if [row["days_ago"] for row in rows] != list(range(1, DAILY_DAYS + 1)):
+        return None
+    if any(row["no_data"] != all(row[n] is None for n in (*_COUNT_FIELDS, *_AMOUNT_FIELDS))
+           for row in rows):
+        return None
+    return {"campaign_id": campaign_id, "rows": rows}
+
+
+def check_adjustments(body: Any, campaign_id: str) -> dict[str, Any] | None:
+    """過去調整:頂層恰好廣告編號與 rows;最多 5 列、由新到舊、每筆至少 3 天前;空串列是「零筆」。"""
+    if not isinstance(body, dict) or set(body) != {"campaign_id", "rows"}:
+        return None
+    rows = body["rows"]
+    if (body["campaign_id"] != campaign_id or not _rows_ok(rows, ADJUSTMENT_ROW_FIELDS)
+            or len(rows) > MAX_PAST_ADJUSTMENTS):
+        return None
+    ages = [row["days_ago"] for row in rows]
+    return {"campaign_id": campaign_id, "rows": rows} if ages == sorted(ages) else None
+
+
+def check_history(body: Any) -> dict[str, Any] | None:
+    """操作歷史(既有端點):頂層恰好 history,每一列只收既有的六欄。"""
+    if not isinstance(body, dict) or set(body) != {"history"}:
+        return None
+    return {"history": body["history"]} if _rows_ok(body["history"], HISTORY_ROW_FIELDS) else None
+
+
+def _window_body(body: Any, campaign_id: str, window: str) -> dict[str, Any] | None:
+    fields: dict[str, Check] = {**METRICS_FIELDS, "window": lambda value: value == window}
+    if not isinstance(body, dict) or any(
+            name not in body or not check(body[name]) for name, check in fields.items()):
+        return None
+    return {n: body[n] for n in fields} if body["campaign_id"] == campaign_id else None
+
+
+def check_longer_window(day: dict[str, Any], week: dict[str, Any]) -> dict[str, Any] | None:
+    """較長時間窗的跨窗一致性(代碼審 r2 y4、r3 g1:判定只在讀取層這一處):1 天窗有任何計數或金額大於
+    7 天窗就是資料自相矛盾,整份回應不收、記 invalid。缺值的欄不比;比大小用精確值,不經浮點。"""
+    for name in (*_COUNT_FIELDS, *_AMOUNT_FIELDS):
+        small, large = exact_value(day.get(name)), exact_value(week.get(name))
+        if isinstance(small, Fraction) and isinstance(large, Fraction) and small > large:
+            return None
+    return {"1d": day, "7d": week}
+
+
+def _timed_out(problem: BaseException) -> bool:
+    return isinstance(problem, TimeoutError) or isinstance(
+        getattr(problem, "reason", None), TimeoutError)
+
+
+_OK, _NOT_FOUND = 200, 404  # 分析端目錄不准匯入 http 這類網路模組(邊界測試),狀態碼寫成數字
+
+
+class _NoResult(Exception):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _read(base_url: str, path: str, timeout_seconds: float, task: TaskRow,
+          on_call: OnDspCall | None, endpoint: ToolEndpoint) -> Any:
+    """讀一支唯讀端點:200 回本文;404 與逾時丟「沒有結果」;其他失敗照基本讀取往外丟。
+    每次都記一筆呼叫紀錄。"""
+    started = time.monotonic()
+    outcome = "ok"
+    try:
+        return _answer(base_url, path, timeout_seconds)
+    except _NoResult as none:
+        # 呼叫紀錄記法對齊既有(代碼審 r2 z2):例外(含逾時)記例外類別名,同基本讀取的 _get;查不到
+        # 記 not_found,同依冪等鍵查操作;200 但本文讀不懂記 invalid
+        cause = none.__cause__
+        outcome = (type(cause).__name__ if none.reason != "not_found" and cause is not None
+                   else none.reason)
+        raise
+    except Exception as exc:
+        outcome = type(exc).__name__
+        raise
+    finally:
+        if on_call is not None:
+            on_call(task, endpoint, outcome, (time.monotonic() - started) * 1000)
+
+
+def _answer(base_url: str, path: str, timeout_seconds: float) -> Any:
+    """200 回本文;404 不論本文讀不讀得懂都是「查不到」;逾時是「逾時」;200 但本文讀不懂是
+    「欄位不合格」;
+    其他狀態碼(含本文不是物件的)丟 DspRequestFailed,照基本讀取的規則往外丟。"""
+    try:
+        status, body = request_json(f"{base_url}{path}", "GET", None, timeout_seconds)
+    except ValueError as bad:  # 共用用戶端的「讀不懂」(帶狀態碼);邊界測試只准從它匯入請求函式
+        code = getattr(bad, "status", None)
+        if code == _OK:
+            raise _NoResult("invalid") from bad
+        if code == _NOT_FOUND:
+            raise _NoResult("not_found") from bad
+        if code is not None:
+            raise DspRequestFailed(f"{path} 回 {code}:本文讀不懂") from bad
+        raise
+    except Exception as exc:
+        if _timed_out(exc):
+            raise _NoResult("timeout") from exc
+        raise
+    if status == _NOT_FOUND:
+        raise _NoResult("not_found")
+    if status != _OK:
+        error = body.get("error", "未知錯誤") if isinstance(body, dict) else "本文不是物件"
+        raise DspRequestFailed(f"{path} 回 {status}:{error}")
+    return body
+
+
+def _query(base_url: str, timeout: float, task: TaskRow, option: str,
+           on_call: OnDspCall | None) -> dict[str, Any] | None:
+    root, campaign = f"/campaigns/{task.campaign_id}", task.campaign_id
+    if option == "check_longer_window":
+        windows = {}
+        for window in ("1d", "7d"):
+            body = _read(base_url, f"{root}/metrics?window={window}", timeout, task, on_call,
+                         ToolEndpoint.DSP_METRICS)
+            windows[window] = _window_body(body, campaign, window)
+        day, week = windows["1d"], windows["7d"]
+        if day is None or week is None:
+            return None
+        return check_longer_window(day, week)
+    if option == "check_change_history":
+        return check_history(_read(base_url, f"{root}/history", timeout, task, on_call,
+                                   ToolEndpoint.DSP_HISTORY))
+    if option == "check_daily_trend":
+        return check_daily(_read(base_url, f"{root}/daily", timeout, task, on_call,
+                                 ToolEndpoint.DSP_DAILY), campaign)
+    if option == "check_past_adjustments":
+        return check_adjustments(_read(base_url, f"{root}/adjustments", timeout, task, on_call,
+                                       ToolEndpoint.DSP_ADJUSTMENTS), campaign)
+    raise ValueError(f"不認得的查詢選項:{option!r}")
+
+
+def make_query_reader(
+    base_url: str, timeout_seconds: float, on_call: OnDspCall | None = None,
+) -> Callable[[TaskRow, str], QueryRead]:
+    """回一支「讀一個查詢選項」的函式:(任務, 選項代碼) → 讀取結果。選項代碼是調查模組的查詢選項。"""
+
+    def read(task: TaskRow, option: str) -> QueryRead:
+        try:
+            raw = _query(base_url, timeout_seconds, task, option, on_call)
+        except _NoResult as none:
+            return QueryRead(None, none.reason)
+        return QueryRead(None, "invalid") if raw is None else QueryRead(raw)
+
+    return read

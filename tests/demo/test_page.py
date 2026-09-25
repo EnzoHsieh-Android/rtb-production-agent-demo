@@ -922,9 +922,10 @@ def test_formal_flow_map_and_every_sample_route_match() -> None:
 
     state = make_demo_state()
     assert state.flow is FLOW_GRAPH
-    assert len(state.flow.nodes) == 48
+    # Phase 13 增量 2:AI 選下一步、AI 要再查(回頭)、只判不送三個節點,六條邊:48 → 51、72 → 78
+    assert len(state.flow.nodes) == 51
     # 代碼審 r1 d2/d3 修過流程圖的邊(多 6 條出口、拿掉 2 條程式不會走的):68 → 72
-    assert len(state.flow.edges) == 72
+    assert len(state.flow.edges) == 78
     markup = render_page(state, form_token="token")
     assert markup.count('class="role-card"') == len(LANES)
     assert "分析行程提出建議" in markup

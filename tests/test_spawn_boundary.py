@@ -36,11 +36,14 @@ ALLOWED = frozenset({"rtb.modelclaude"})  # 模型用戶端的 Claude Code 後�
 PROJECT_STARTERS = frozenset({"rtb.demo.launcher", "rtb.demo.driver"})
 MODEL_CLIENTS = frozenset({"rtb.modelclaude", "rtb.modelclient"})
 GATE = "rtb.analyzer.modelgate"  # 分析端唯一准匯入模型用戶端的模組(Phase 13)
-# 准匯入模型閘道的分析端模組(寫死,[S1100]):模型說明命令列、分析端驅動命令列;Phase 13 增量 2 的
-# AI 決策函式所在模組開檔時加在這裡
-GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.runner"})
-# 匯入閉包不准含模型用戶端任何一支模組的分析端模組([S1100])
-MODEL_FREE = ("rtb.analyzer.flow", "rtb.analyzer.policy", "rtb.analyzer.dsp_client")
+# 准匯入模型閘道的分析端模組(寫死,[S1100]):模型說明命令列、分析端驅動命令列、AI 決策函式所在模組
+# (Phase 13 增量 2 開檔)
+GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.runner", "rtb.analyzer.ai_judge"})
+# 匯入閉包不准含模型用戶端任何一支模組的分析端模組([S1100]);調查詞彙模組與證據來源包裝也不准
+# (展示流程圖與觀察器讀調查詞彙,展示伺服器行程不能因此載入模型用戶端)
+MODEL_FREE = ("rtb.analyzer.flow", "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
+              "rtb.analyzer.investigation", "rtb.analyzer.instrumented", "rtb.demo.flow",
+              "rtb.demo.observe", "rtb.demo.launcher")
 SPAWN_MODULES = frozenset({"subprocess", "multiprocessing", "pty", "webbrowser",
                            "_posixsubprocess"})
 OS_SPAWNERS = ("system", "popen", "exec", "spawn", "posix_spawn", "fork", "forkpty")
@@ -433,12 +436,15 @@ BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverif
 # 送出呼叫的地方:模型用戶端本身、評估的模型候選、分析端模型閘道(Phase 13 改寫)、經閘道送出的模型說明
 # 命令列與維運的假說命令列(Phase 11B [S912])。送出的名字除了 call_model,還有閘道的 open_gate 與
 # complete(代碼審 r1:閘道是第二個送出入口)
+# Phase 13 增量 2 加:AI 決策模組(開閘道、送出)與開了 AI 決策的分析端驅動命令列(把開閘道函式交給它)
 CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate",
                               "rtb.analyzer.modelgate", "rtb.analyzer.narrate",
-                              "rtb.ops.hypothesis"})
+                              "rtb.ops.hypothesis", "rtb.analyzer.ai_judge",
+                              "rtb.analyzer.runner"})
 SEND_CALLS = frozenset({"call_model", "open_gate", "complete"})
 # 會送出模型呼叫的命令列模組:匯入它就能經它的 run 轉手送出,匯入本身就算送出點(代碼審 r2)
-SENDING_ENTRIES = frozenset({"rtb.analyzer.narrate", "rtb.ops.hypothesis"})
+SENDING_ENTRIES = frozenset({"rtb.analyzer.narrate", "rtb.ops.hypothesis",
+                             "rtb.analyzer.ai_judge", "rtb.analyzer.runner"})
 # 每個呼叫者標籤只准哪幾支模組用(代碼審 r1:花費上限看請求自報的呼叫者,標籤要綁住模組才守得住
 # 「誰都不能自稱不計入」)。定義它的唯讀開法與只拿來列上限清單的花費帳寫入不算使用;Phase 13 增量 2 的
 # AI 決策模組開檔時把它加進「分析端調查」那一格
@@ -447,7 +453,7 @@ CALLER_USERS: dict[str, frozenset[str]] = {
     "HYPOTHESIS": frozenset({"rtb.ops.hypothesis"}),
     "NARRATIVE": frozenset({"rtb.analyzer.narrate"}),
     "VERIFICATION": frozenset({"rtb.modelverify"}),
-    "INVESTIGATION": frozenset(),
+    "INVESTIGATION": frozenset({"rtb.analyzer.ai_judge"}),  # Phase 13 增量 2:AI 決策模組開閘道
 }
 CALLER_EXEMPT = frozenset({"rtb.modelledger_view", "rtb.modelledger"})
 

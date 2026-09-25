@@ -150,9 +150,11 @@ def test_every_no_action_path_reports_its_reason():
         if isinstance(decision, NoAction):
             assert reason is not policy.NoActionReason.STALE_EVIDENCE
         reasons.add(reason)
-    # 每一條不做的路徑在固定資料裡都走到過;「證據不足」只有候選會答,另外驗
+    # 每一條不做的路徑在固定資料裡都走到過;「證據不足」只有候選或 AI 路徑會答,另外驗;考題結束只有
+    # 分析端驅動帶 --hold-submit 時產生(Phase 13 照計劃〈要改寫的既有合約〉改寫 [S705])
     only_candidates = {policy.NoActionReason.JUDGED_INSUFFICIENT}
-    assert reasons - {None} == set(policy.NoActionReason) - only_candidates
+    exam_hold = {policy.NoActionReason.EXAM_HOLD}
+    assert reasons - {None} == set(policy.NoActionReason) - only_candidates - exam_hold
 
 
 def test_a_candidate_saying_insufficient_evidence_is_no_action_with_that_reason():

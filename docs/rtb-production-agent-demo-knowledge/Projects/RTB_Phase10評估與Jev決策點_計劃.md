@@ -2,7 +2,7 @@
 type: project
 status: done
 created: 2026-09-24
-updated: 2026-09-24
+updated: 2026-09-25
 tags:
   - type/project
   - status/done
@@ -111,7 +111,7 @@ RETIRE-IF: 接上真實流量與人工標註之後,這份以合成情境與程�
 - [S702] 候選逾時、丟例外、回傳不是判斷點的輸出列舉、或回「不知道」時,應退回現行程式規則,決策照常。[test:test_a_failing_or_unsure_candidate_falls_back_to_the_code_rule]
 - [S703] 判斷點的輸入型別應只有狀態、預算、花費、曝光、點擊、轉換、營收七個欄位,建構時多給欄位應被拒絕。[test:test_the_candidate_never_sees_untrusted_campaign_text]
 - [S704] 決策函式應以「沒有候選、空的已驗證清單」呼叫路由函式,所以任何決策函式的呼叫者都走現行程式規則。[test:test_production_wiring_has_no_candidate_and_no_validated_slice]
-- [S705] 對每一筆固定資料輸入,診斷函式回的決策結果應等於決策函式的結果、不做時應回報一個原因;決策函式丟例外的輸入,診斷函式應丟同一種例外。[test:test_every_no_action_path_reports_its_reason]
+- [S705] 對每一筆固定資料輸入,診斷函式回的決策結果應等於決策函式的結果、不做時應回報一個原因,而且固定資料應走得到 `NoActionReason` 除了只有候選或 AI 路徑產生的原因、以及考題結束之外的每一個成員;決策函式丟例外的輸入,診斷函式應丟同一種例外。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉改寫:Phase 13 在 `NoActionReason` 加「考題結束」,現行規則永遠產不出它)[test:test_every_no_action_path_reports_its_reason]
 - [S706] 評估集的情境與標準答案應被雜湊釘住,內容改了測試就紅。[test:test_the_eval_set_is_pinned_by_hash]
 - [S707] 評估報告應逐格報事先指定的指標、分子分母與錯誤子型,並依最後有效答案計分;合成集的報告應不含信賴下界。[test:test_the_eval_report_is_per_slice_and_marks_thin_slices]
 - [S708] 某一格應只在正式環境抽樣集上有候選實測、樣本數夠、該格指定的每一項品質指標(含類別正確率)下界都過門檻、成本延遲與各失敗率都有量測且不超門檻時算驗證過;門檻是常數,報告不得依結果調整。[test:test_a_slice_is_validated_only_when_every_bar_is_met]

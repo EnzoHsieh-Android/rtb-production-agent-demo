@@ -21,6 +21,7 @@ from rtb import modelledger_view as view
 from rtb.analyzer import modelgate, narrate
 from rtb.analyzer import task_store as ts
 from rtb.analyzer.task_store import TaskReader, TaskStore
+from rtb.domain.evidence import quoted_untrusted
 from rtb.domain.task_state import TaskState
 from tests.adversarial_samples import SAMPLES
 from tests.analyzer.test_f5_end_to_end import NORMAL_NAME, SAMPLE_IDS, run_once
@@ -142,7 +143,7 @@ def test_injected_campaign_names_cannot_change_any_program_decision(tmp_path, na
     assert result["proposal"].requested_change == narrated_normal["proposal"].requested_change
     numbers, data = obeying.calls[0].user.split("<<<資料開始")
     assert "t1" not in numbers and "c1" not in numbers  # 編號換成佔位符(名稱本身可能含這些字)
-    assert narrate._quoted(name[:100])[:-1] in data  # 名稱只在資料區,寫成跳脫過的 JSON 字串
+    assert quoted_untrusted(name[:100])[:-1] in data  # 名稱只在資料區,寫成跳脫過的 JSON 字串
     reader = TaskReader(db)
     try:
         [row] = reader.handed_off_rows()
@@ -271,7 +272,7 @@ def narrate_placeholder(user):
 
 
 # ---- [S1102](說明命令列那半) ----
-def test_recorded_entries_book_into_the_given_ledger(handed_off, tmp_path):
+def test_recorded_entries_book_into_the_given_ledger(handed_off, tmp_path):  # noqa: PLR0915
     db = _copy(handed_off, tmp_path)
     ledger = tmp_path / "demo-ledger.sqlite"
     out, err = _Sink(), _Sink()
@@ -292,6 +293,19 @@ def test_recorded_entries_book_into_the_given_ledger(handed_off, tmp_path):
     assert not mc.live_ledger_path().exists()  # 家目錄(測試裡是暫存)的帳沒被建立
     assert not (Path(view.account_home()) / ".rtb").exists()
     recorded_hypotheses_book_into_the_given_ledger(tmp_path)  # 假說命令列那半
+    assert not mc.live_ledger_path().exists()
+    # 開了 AI 決策的分析端驅動命令列那半(Phase 13 增量 2)
+    from tests.analyzer.test_investigation_e2e import recorded_runner_books_into_the_given_ledger
+
+    runner_ledger = recorded_runner_books_into_the_given_ledger(tmp_path)
+    reader = view.ModelLedgerView(runner_ledger)
+    try:
+        with reader.read_transaction():
+            rows = reader.calls_between("0000", "9999")
+    finally:
+        reader.close()
+    assert rows and {(r.caller, r.demo_id, r.source, r.outcome) for r in rows} == {
+        ("analyzer_investigation", "demo-7", "recorded", "no_recording")}
     assert not mc.live_ledger_path().exists()
 
 

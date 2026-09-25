@@ -78,6 +78,7 @@ class SourceEvent:
     note: str | None = None
     basis: tuple[Basis, ...] = ()  # 這一步的根據(增量 2b,見 basis 模組)
     actor: str = "程式"  # 誰判的:程式或人工(管理指令寫的列)
+    reason_code: str | None = None  # 同序號調查紀錄列的原因代碼(Phase 13:ai_query)
 
 
 def _sort_key(event: SourceEvent) -> tuple[datetime, tuple[str, int, int]]:
@@ -89,7 +90,9 @@ _EDGE_TEXT = {(e.source, e.target): e.label for e in flow.FLOW_GRAPH.edges}
 _INCOMING: dict[str, list[tuple[str, str]]] = {}
 for _edge in _EDGES:
     _INCOMING.setdefault(_edge[1], []).append(_edge)
-_BACKS = {back.transition: back for back in flow.BACK_TRANSITIONS if back.transition}
+# 回頭節點用(轉換, 原因代碼)查(Phase 13 [S1139]):「AI 要再查」與「資料太舊重蒐證」是同一個轉換
+_BACKS = {(back.transition, back.reason): back for back in flow.BACK_TRANSITIONS
+          if back.transition}
 _BACK_TEXT = {back.node: back.what for back in flow.BACK_TRANSITIONS}
 
 
@@ -161,7 +164,7 @@ class PathBuilder:
         if before is None:
             return None
         try:
-            back = _BACKS.get((enum[before], enum[name]))
+            back = _BACKS.get(((enum[before], enum[name]), event.reason_code))
         except KeyError:
             return None
         return None if back is None else back.node
@@ -348,10 +351,13 @@ class Observer:
             recorded = reader.no_action_reason(row.task_id, row.seq)
             detail = _member(NoActionReason, recorded)
             missing = detail is None
+        # 同序號調查紀錄列的原因代碼(ai_query);調查紀錄表不在(Phase 13 之前的資料庫)就當沒有
+        code = (reader.investigation_reason_code(row.task_id, row.seq)
+                if row.state is TaskState.COLLECTING_EVIDENCE else None)
         return SourceEvent(row.written_at, f"analyzer.tasks#{row.task_id}/{row.seq}",
                            (TaskState, row.state.name), detail, f"task:{row.task_id}", missing,
                            order=("analyzer", 1, rowid), task=row.task_id, note=note,
-                           basis=self._analysis_basis(reader, row, recorded))
+                           basis=self._analysis_basis(reader, row, recorded), reason_code=code)
 
     @staticmethod
     def _analysis_basis(reader: TaskReader, row: TaskRow,

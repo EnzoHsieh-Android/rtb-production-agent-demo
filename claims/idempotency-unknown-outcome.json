@@ -13,7 +13,7 @@
     },
     {
       "path": "src/rtb/domain/_checks.py",
-      "sha256": "e3daab5ae360d2842c421fa8fce44734957535b08cfa8bdaa1b87a0478a4eb5a"
+      "sha256": "b5a8acd6bf4adb4c6c4dff9c0a905e6b5cf53d703e8ff32c9a92174113dd8a07"
     },
     {
       "path": "src/rtb/domain/attempt.py",
@@ -29,15 +29,15 @@
     },
     {
       "path": "src/rtb/dsp/errors.py",
-      "sha256": "a0f5062db51ed48881b90031ea065dbaf817b59ab0bf251af38a39237f72dad0"
+      "sha256": "8a2da02e83240a71b3d279998a50fe36d19c7e484e58568e3f53af2dbdd85bbf"
     },
     {
       "path": "src/rtb/dsp/server.py",
-      "sha256": "46d9891fa7db32c90201c6a6ae749357567f7e4e001c794b1ae94a194ea383fd"
+      "sha256": "f8e71e3a1a9138afdc57435af39343e3e8f63f36217e6904c08d829edec97ed2"
     },
     {
       "path": "src/rtb/dsp/store.py",
-      "sha256": "5d945e67e43e7bb01725dcd68cb2c2ba3559818c8f0e5d63b8773ef5798d3713"
+      "sha256": "83d80417f0822153fbd1ea590754ba04047aa379a1d3228a7a045c89b45c1438"
     },
     {
       "path": "src/rtb/executor/approval.py",
@@ -81,7 +81,7 @@
     },
     {
       "path": "src/rtb/modelclaude.py",
-      "sha256": "a04e97c2c70a205205cb8f3075f36c3fe0eab4180a35090f5720584efe7845a8"
+      "sha256": "2242e058db69843c5c8e306d8dcb4f63407d8601e1e9b247894647c627ae4f96"
     },
     {
       "path": "src/rtb/modelcore.py",
@@ -94,12 +94,16 @@
     {
       "path": "src/rtb/sqlitekit.py",
       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+    },
+    {
+      "path": "src/rtb/stepbudget.py",
+      "sha256": "f8a519b8b77db13cec0e1ce3b28a7b702bf2efb6b6ded73d975116c46fe2f3b9"
     }
   ],
   "harness": [
     {
       "path": "pyproject.toml",
-      "sha256": "1103855351649f19456498b6772dbdf988260d39b74767df5536d54f64a1c36d"
+      "sha256": "9112a805811eba5df43772c0ba94374973d0ab59aa32404f98c6c8391b722d9b"
     },
     {
       "path": "tests/__init__.py",

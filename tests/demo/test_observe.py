@@ -467,3 +467,42 @@ def test_releasing_an_approved_proposal_is_a_human_step(tmp_path):
         built.close()
     events = Observer(tmp_path / "analyzer.db", tmp_path / "executor.db").poll()
     assert [e.actor for e in events if e.primary[1] == "APPROVAL_RELEASED"] == ["人工"]
+
+
+# ---- [S1139](Phase 13 增量 2) ----
+def test_ai_query_and_stale_recollect_map_to_different_back_nodes(tmp_path):
+    """[S1139] 回頭節點用(轉換, 同序號調查紀錄列的原因代碼)查:帶 ai_query 的「分析中 → 蒐集證據
+    」與不帶的同一個轉換各自對到自己的節點、不互蓋;調查紀錄表不在時當成沒有原因代碼。"""
+    from dataclasses import replace
+
+    states = ["RECEIVED", "COLLECTING_EVIDENCE", "ANALYZING", "COLLECTING_EVIDENCE"]
+    stale = [_event(i, (TaskState, s), entity="t1") for i, s in enumerate(states)]
+    asked = [replace(e, entity="t2", task="t2") for e in stale]
+    asked[-1] = replace(asked[-1], reason_code="ai_query")
+    rows = PathBuilder().add([*stale, *asked])
+    assert [r.node for r in rows if r.task == "t2"][-1] == "a_ai_query"
+    assert [r.node for r in rows if r.task != "t2"][-1] == "a_recollect"
+    backs = [b for b in flow.BACK_TRANSITIONS if b.transition == (
+        TaskState.ANALYZING, TaskState.COLLECTING_EVIDENCE)]
+    assert {(b.node, b.reason) for b in backs} == {("a_recollect", None),
+                                                    ("a_ai_query", "ai_query")}
+    # 觀察器:同序號的調查紀錄帶 ai_query 才畫成「AI 要再查」;舊資料庫沒有調查紀錄表也開得起來
+    from rtb.analyzer.task_store import InvestigationRecord, TaskStore
+    from rtb.demo.observe import Observer
+
+    for dropped in (False, True):
+        db = tmp_path / f"a{int(dropped)}.db"
+        store = TaskStore(db)
+        store.create_task("t1", "c1", T0)
+        store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, T0)
+        store.commit_step("t1", 2, TaskState.ANALYZING, T0)
+        store.commit_step("t1", 3, TaskState.COLLECTING_EVIDENCE, T0, investigation=(
+            InvestigationRecord("query", 1, "check_daily_trend", "ai", reason_code="ai_query")))
+        if dropped:
+            store._conn.execute("DROP TABLE investigation_rounds")
+        store.close()
+        events = Observer(db, tmp_path / "no-inbox.db").poll()
+        codes = [e.reason_code for e in events]
+        assert codes[-1] == (None if dropped else "ai_query")
+        last = PathBuilder().add(events)[-1]
+        assert last.node == ("a_recollect" if dropped else "a_ai_query")

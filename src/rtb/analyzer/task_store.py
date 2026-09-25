@@ -16,6 +16,15 @@
 任務、修訂、內容雜湊只當查詢欄位、不設唯一),寫結果時在同一個交易裡核對這張收據仍是這份提案最新的
 領取、而且還沒有結果,舊持有者寫不進去。結果只增不改。說明不進任何決策、不進收件口,執行端不讀。
 
+AI 調查的紀錄表與原始資料表(Phase 13 增量 2,[S1110] [S1130] [S1151]):AI 那一步每一輪一列調查紀錄
+(選了什麼、理由、誰判的、退回原因、`ai_query` 原因代碼),蒐證那一步每個追加查詢的原始回應一列(正規化
+JSON);兩張都只增不改,跟狀態列、證據在同一個交易、同一道租約與序號圍籬裡寫(提交函式的兩個新參數)。
+原始資料只給人看與追查,沒有任何決策路徑讀它;執行端與收件口都不讀這兩張表([S1114])。
+
+續租(Phase 13 增量 2,[S1135] [S1150]):只有開了 AI 決策的分析那一步在呼叫模型前續租一次。租約表只增
+不改,所以續租是新增一列(序號加 1、擁有者相同),條件是目前最新那一列正是手上收據的序號與擁有者;時鐘在
+交易裡拿到鎖之後才讀。一步照樣只做一步。
+
 接續任務(Phase 5):已交給執行的任務因版本已變、決策過期、或收件表已清掉而 DSP 沒有寫入時,
 另開一個接續任務重讀現況再決定(任務狀態機不變,原任務轉擋下)。建接續任務、寫接續關係、原任務
 結案是同一個交易,走原任務的提交圍籬;接續關係表同樣只增不改,原任務編號是主鍵(一個任務最多
@@ -79,6 +88,16 @@ CREATE TABLE IF NOT EXISTS narrative_claims (
 CREATE TABLE IF NOT EXISTS narrative_results (
     claim_seq INTEGER PRIMARY KEY REFERENCES narrative_claims (claim_seq), outcome TEXT NOT NULL,
     source TEXT, text TEXT, written_at TEXT NOT NULL, dropped INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS investigation_rounds (
+    task_id TEXT NOT NULL, seq INTEGER NOT NULL, round INTEGER NOT NULL, kind TEXT NOT NULL,
+    choice TEXT NOT NULL, decided_by TEXT NOT NULL, reason TEXT, fallback TEXT, reason_code TEXT,
+    cited_json TEXT, model_source TEXT, written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
+CREATE TABLE IF NOT EXISTS investigation_calls (
+    task_id TEXT NOT NULL, call_seq INTEGER NOT NULL, lease_seq INTEGER NOT NULL,
+    written_at TEXT NOT NULL, PRIMARY KEY (task_id, call_seq));
+CREATE TABLE IF NOT EXISTS investigation_raw (
+    task_id TEXT NOT NULL, seq INTEGER NOT NULL, option TEXT NOT NULL, raw_json TEXT NOT NULL,
+    stored_at TEXT NOT NULL, PRIMARY KEY (task_id, seq, option));
 CREATE INDEX IF NOT EXISTS narrative_claims_by_proposal
     ON narrative_claims (task_id, revision, content_hash);
 CREATE INDEX IF NOT EXISTS follow_ups_by_campaign ON follow_ups (campaign_id);
@@ -191,6 +210,9 @@ class ToolEndpoint(StrEnum):
     DSP_METRICS = "dsp:metrics"  # 讀成效指標
     DSP_EVIDENCE = "dsp:evidence"  # 整包證據來源(包一層只記一筆的那種)
     DSP_OPERATION = "dsp:operation"  # 依冪等鍵查 DSP 操作
+    DSP_HISTORY = "dsp:history"  # AI 追加查詢:讀操作歷史(Phase 13)
+    DSP_DAILY = "dsp:daily"  # AI 追加查詢:讀逐日成效(Phase 13)
+    DSP_ADJUSTMENTS = "dsp:adjustments"  # AI 追加查詢:讀過去調整(Phase 13)
     INBOX_SUBMIT = "inbox:submit"  # 送出提案到收件口
     OTHER = "other"
 
@@ -288,6 +310,33 @@ class LeaseReceipt:
     task_id: str
     lease_seq: int
     owner: str
+
+
+@dataclass(frozen=True)
+class InvestigationRecord:
+    """AI 那一步的一輪調查紀錄(Phase 13 增量 2)。欄位是字串,詞彙(選項代碼、退回原因)由分析端的調查
+    模組定;資料庫模組只存,不解讀。理由是模型產生的不可信文字:只存、只顯示。"""
+
+    kind: str  # query(選查詢)、conclusion(下結論)、fallback(退回程式規則)
+    round: int  # 這件工作的第幾輪;退回時記的是這一輪原本會是第幾輪
+    choice: str  # 查詢代碼以逗號串起、結論代碼,或退回時規則的結果
+    decided_by: str  # ai 或 rule
+    reason: str | None = None
+    fallback: str | None = None
+    reason_code: str | None = None  # 選查詢那一列帶 ai_query(展示觀察器分辨回頭節點)
+    cited_json: str | None = None  # AI 引用的收據值(已核對存在)
+    model_source: str | None = None  # recorded 或 live
+
+
+@dataclass(frozen=True)
+class RawQuery:
+    """一個追加查詢的原始回應(正規化 JSON):跟證據同一個交易寫進調查原始資料表。"""
+
+    option: str
+    raw_json: str
+
+
+MAX_INVESTIGATION_TEXT = 2000  # 調查紀錄的文字欄進永久不可刪改的表,長度必須有上限
 
 
 @dataclass(frozen=True)
@@ -428,6 +477,47 @@ class TaskReads:
         record = self._conn.execute(
             "SELECT reason FROM no_action_reasons WHERE task_id = ? AND seq = ?", (task_id, seq),
         ).fetchone()
+        return None if record is None else str(record[0])
+
+    def _has_table(self, name: str) -> bool:
+        return self._conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                                  (name,)).fetchone() is not None
+
+    def investigation_rounds(self, task_id: str) -> tuple[tuple[int, InvestigationRecord], ...]:
+        """這件工作已提交的調查紀錄(序號, 紀錄),依序號;唯讀開法遇到還沒有這張表的舊庫回空的。"""
+        if not self._has_table("investigation_rounds"):
+            return ()
+        rows = self._conn.execute(
+            "SELECT seq, kind, round, choice, decided_by, reason, fallback, reason_code, "
+            "cited_json, model_source FROM investigation_rounds WHERE task_id = ? ORDER BY seq",
+            (task_id,)).fetchall()
+        return tuple((int(r[0]), InvestigationRecord(*r[1:])) for r in rows)
+
+    def investigation_call_count(self, task_id: str) -> int:
+        """這件工作一生呼叫過(或正要呼叫)幾次模型:AI 那一步每次續租記一次;表不在就是 0。"""
+        if not self._has_table("investigation_calls"):
+            return 0
+        record = self._conn.execute(
+            "SELECT count(*) FROM investigation_calls WHERE task_id = ?", (task_id,)).fetchone()
+        return int(record[0])
+
+    def investigation_reason_code(self, task_id: str, seq: int) -> str | None:
+        """同序號調查紀錄列的原因代碼(展示觀察器用它分辨「AI 要再查」與「資料太舊重蒐證」);表不在、
+        沒有那一列都回空值。"""
+        if not self._has_table("investigation_rounds"):
+            return None
+        record = self._conn.execute(
+            "SELECT reason_code FROM investigation_rounds WHERE task_id = ? AND seq = ?",
+            (task_id, seq)).fetchone()
+        return None if record is None or record[0] is None else str(record[0])
+
+    def raw_query(self, task_id: str, seq: int, option: str) -> str | None:
+        """用(任務、那一輪分析列的序號、選項代碼)取回原始回應;那一輪沒有結果就是空值。只給人看。"""
+        if not self._has_table("investigation_raw"):
+            return None
+        record = self._conn.execute(
+            "SELECT raw_json FROM investigation_raw WHERE task_id = ? AND seq = ? AND option = ?",
+            (task_id, seq, option)).fetchone()
         return None if record is None else str(record[0])
 
     def handed_off_rows(self) -> tuple[TaskRow, ...]:
@@ -574,6 +664,8 @@ class TaskStore(TaskReads):
         operation_key: str | None = None,
         follow_up: FollowUp | None = None,
         no_action_reason: StrEnum | None = None,
+        investigation: InvestigationRecord | None = None,
+        raw: Sequence[RawQuery] = (),
     ) -> bool:
         """核對租約與 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
 
@@ -587,6 +679,9 @@ class TaskStore(TaskReads):
         錯誤說明後面補上接續任務編號、代數用完、或接續編號衝突(防線,不建立)。
 
         帶 no_action_reason:只准跟不提案那一列一起寫,同一個交易寫進只增的原因表(Phase 12)。
+
+        帶 investigation / raw(Phase 13 增量 2):這一輪的調查紀錄、追加查詢的原始回應,序號都是
+        新的那一列;輸給接手者時連它們一起沒寫。
         """
         if no_action_reason is not None and new_state is not TaskState.NO_ACTION:
             raise ValueError(f"原因只能跟不提案那一列一起寫,這一步是 {new_state}")
@@ -619,6 +714,7 @@ class TaskStore(TaskReads):
                  capped_detail, _iso(now), operation_key),
             )
             self._insert_attachments(task_id, next_seq, evidence, no_action_reason)
+            self._insert_investigation(task_id, next_seq, investigation, raw, now)
             if lease is not None:
                 self._append_release(lease, now)
             if before_commit is not None:
@@ -640,6 +736,23 @@ class TaskStore(TaskReads):
                  json.dumps(dict(item.payload), sort_keys=True, ensure_ascii=True,
                             allow_nan=False)),
             )
+
+    def _insert_investigation(self, task_id: str, seq: int,
+                              record: InvestigationRecord | None, raw: Sequence[RawQuery],
+                              now: datetime) -> None:
+        if record is not None:
+            if type(record.round) is not int or record.round < 1:
+                raise ValueError("調查紀錄的輪數要是正整數")
+            cap = MAX_INVESTIGATION_TEXT
+            self._conn.execute(
+                "INSERT INTO investigation_rounds VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, seq, record.round, record.kind, record.choice[:cap], record.decided_by,
+                 None if record.reason is None else record.reason[:cap], record.fallback,
+                 record.reason_code, None if record.cited_json is None else record.cited_json[:cap],
+                 record.model_source, _iso(now)))
+        for item in raw:
+            self._conn.execute("INSERT INTO investigation_raw VALUES (?, ?, ?, ?, ?)",
+                               (task_id, seq, item.option, item.raw_json, _iso(now)))
 
     def _write_follow_up(
         self, task_id: str, campaign_id: str, reason: ReplanReason, now: datetime,
@@ -745,8 +858,8 @@ class TaskStore(TaskReads):
         """目前沒人持有(沒有租約列、目前那一列是放掉列、或已過期)就新增一列取得列、回傳收據;
         有人持有就什麼都不寫、回傳 None;沒有這個任務丟 TaskNotFound,不替它寫租約列。
 
-        命名對照執行側收件表:取得對應 `_lease`/`take_over`,放掉對應 `release`;
-        這裡沒有續租(`extend`),一次推進只做一步。"""
+        命名對照執行側收件表:取得對應 `_lease`/`take_over`,放掉對應 `release`。續租只有開了
+        AI 決策的分析那一步用(`renew_lease`,新增一列,不原地延長);一次推進照樣只做一步。"""
         with immediate_transaction(self._conn):
             if self._conn.execute(
                     "SELECT 1 FROM tasks WHERE task_id = ? LIMIT 1", (task_id,)).fetchone() is None:
@@ -760,6 +873,45 @@ class TaskStore(TaskReads):
                 (task_id, next_seq, owner, _iso(now + LEASE_DURATION)),
             )
         return LeaseReceipt(task_id, next_seq, owner)
+
+    def renew_lease(self, lease: LeaseReceipt,
+                    clock: Callable[[], datetime]) -> LeaseReceipt | None:
+        """續租(Phase 13 增量 2,只有開了 AI 決策的分析那一步呼叫模型前用):在一個交易裡、目前
+        最新的租約列正是這張收據的序號與擁有者時,新增一列序號加 1、擁有者相同的取得列,回新的收據。
+        時鐘在拿到鎖之後才讀([S1150]),不用一步開頭的時間(用它等於沒延長)。條件不符(被接手、
+        已放掉)或等鎖逾時都回 None,什麼都沒寫。"""
+        try:
+            with immediate_transaction(self._conn):
+                if not self._holds(lease):
+                    return None
+                now = clock()
+                self._conn.execute(
+                    "INSERT INTO task_leases VALUES (?, ?, ?, ?)",
+                    (lease.task_id, lease.lease_seq + 1, lease.owner, _iso(now + LEASE_DURATION)))
+        except DatabaseBusy:
+            return None
+        return LeaseReceipt(lease.task_id, lease.lease_seq + 1, lease.owner)
+
+    def record_model_call(self, lease: LeaseReceipt, clock: Callable[[], datetime],
+                          limit: int) -> int | None:
+        """確定要呼叫模型的那一刻記一次(Phase 13 代碼審 r1 s2、r2 v3):在一個寫入交易裡核對仍持有
+        租約,這件工作一生還沒到上限就新增一列、回第幾次;已到上限回上限加 1、什麼都不寫。忙碌或失去
+        租約回 None,呼叫端不呼叫模型。次數在付費之前落地,提交一直忙碌也不會無上限重付;在呼叫前才記,
+        停止或出錯而沒問模型的不會被算進去。"""
+        try:
+            with immediate_transaction(self._conn):
+                if not self._holds(lease):
+                    return None
+                used = int(self._conn.execute(
+                    "SELECT count(*) FROM investigation_calls WHERE task_id = ?",
+                    (lease.task_id,)).fetchone()[0])
+                if used >= limit:
+                    return limit + 1
+                self._conn.execute("INSERT INTO investigation_calls VALUES (?, ?, ?, ?)",
+                                   (lease.task_id, used + 1, lease.lease_seq, _iso(clock())))
+        except DatabaseBusy:
+            return None
+        return used + 1
 
     def release_lease(self, lease: LeaseReceipt, now: datetime) -> bool:
         """目前那一列還是這張收據的取得列才新增放掉列;已被接手就什麼都不寫、回傳 False。

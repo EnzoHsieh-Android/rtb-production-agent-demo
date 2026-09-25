@@ -2,7 +2,7 @@
 type: project
 status: done
 created: 2026-09-24
-updated: 2026-09-24
+updated: 2026-09-25
 self_audit: gpt-5.6-sol/2026-09-24
 tags:
   - type/project
@@ -265,7 +265,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 
 ## 合約候選
 
-- [S1000] 當分析端驅動命令列啟動時,它應只經正式的 DSP 用戶端與收件口用戶端呼叫流程推進函式,不帶任何故障注入手段。[test:test_the_analyzer_runner_uses_only_production_collaborators]
+- [S1000] 當分析端驅動命令列啟動時,它應只經正式的 DSP 用戶端與收件口用戶端呼叫流程推進函式,不帶任何故障注入手段。(合約文字不改;2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 在測試寫死的匯入名單加模型閘道、AI 決策模組、它的模型無關詞彙模組與小常數模組)[test:test_the_analyzer_runner_uses_only_production_collaborators]
 - [S1001] 當呼叫次數乘逾時乘 2 不小於租約時,分析端驅動命令列應拒絕啟動。[test:test_the_analyzer_runner_refuses_a_lease_too_short_for_its_calls]
 - [S1002] 正式程式與展示以外的套件應不匯入展示套件,而且展示專用的故障套件只准展示啟動器匯入。[test:test_nothing_outside_the_demo_package_imports_it]
 - [S1003] 當驅動程式啟動任何行程時,子行程環境的鍵應只在 PATH、HOME、LANG、USER、PYTHONPATH(值固定為專案 src 的絕對路徑)、該角色需要的金鑰,與有排故障的那一個子行程的 RTB_DEMO_FAULT_NONCE 之內,模型入口另外只多 RTB_MODEL_LIVE、RTB_MODEL、RTB_MODEL_RECORD,驗證器與比較表產生器另外只多 LC_ALL、LC_CTYPE。[test:test_demo_processes_get_only_whitelisted_environment]
@@ -289,7 +289,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - [S1021] 當單一情境重跑時,伺服器應不啟動驗證器,頁面的驗證器結果應標明取自哪一次全部跑一次(時間與展示編號)。[test:test_a_single_scenario_rerun_does_not_run_the_verifier_and_labels_the_old_result]
 - [S1022] 當頁面插入模型文字、廣告名稱、節點標籤、判斷原因或驗證器輸出時,腳本標籤、事件屬性、網址、實體編碼與雙向控制字元都應以看得見的文字出現,不形成任何標籤、屬性或連結。[test:test_untrusted_text_never_becomes_markup]
 - [S1023] 展示伺服器的每個 HTML 回應(含錯誤頁)應帶不准任何腳本的內容安全政策標頭,頁面與流程圖裡應沒有腳本、事件屬性、外部資源與 foreignObject。[test:test_every_page_carries_a_script_free_content_security_policy]
-- [S1024] 流程圖定義應是有向無環圖,而且對應清單上每一個列舉(十八個)的每一個成員(以列舉類別加成員名為鍵)都對得到流程圖裡的一條邊或一個節點。[test:test_every_system_outcome_maps_onto_the_flow_graph]
+- [S1024] 流程圖定義應是有向無環圖,而且對應清單上每一個列舉(十九個,多了 Phase 13 的退回原因列舉)的每一個成員(以列舉類別加成員名為鍵)都對得到流程圖裡的一條邊或一個節點。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉改寫)[test:test_every_system_outcome_maps_onto_the_flow_graph]
 - [S1025] 程式的任務狀態與嘗試狀態轉換表裡每一條往回走的轉換,以及執行端代表放回待處理的生命週期事件種類,都應列在流程圖定義的回頭轉換清單裡並展開成新節點。[test:test_every_known_back_transition_is_unrolled]
 - [S1026] 對應清單上每一個列舉的每一個成員,處置說明對照表都應有一句白話說明。[test:test_every_disposition_has_a_plain_explanation]
 - [S1027] 當模型說明有成功結果時,頁面應先列程式算的數字、再列標示「模型產生、僅供參考」與來源的模型文字;沒有成功結果時應顯示結果類別。[test:test_the_model_step_shows_computed_numbers_first_and_labels_the_text]

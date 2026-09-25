@@ -36,6 +36,7 @@ from rtb.modelcore import (
     TransientServiceError,
     UnreadableModelResponse,
 )
+from rtb.stepbudget import GROUP_EXIT_WAIT_SECONDS as GROUP_EXIT_WAIT
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +48,9 @@ SETTING_SOURCES = ""
 EMPTY_SETTINGS = "{}"
 CHILD_ENV = ("PATH", "HOME", "USER", "LANG")
 LOGIN_CHECK_TIMEOUT_SECONDS = 10.0
-GROUP_EXIT_WAIT_SECONDS = 5.0
+# 等行程群組結束的秒數住在小常數模組(Phase 13 增量 2):分析端的租約守衛與展示啟動器也用它,
+# 誰都不必從這支後端匯入
+GROUP_EXIT_WAIT_SECONDS = GROUP_EXIT_WAIT
 VERSION_CHECK_TIMEOUT_SECONDS = 10.0
 # 管理政策來源(系統管理員層級,安全模式不保證會略過,[S941]):系統層目錄下的 managed-settings.json、
 # managed-settings.d 底下每一支、managed-mcp.json,macOS 的 MDM 設定(系統層與個人層

@@ -74,6 +74,8 @@ SHORT_LABELS: Final[dict[str, str]] = {
     "x_existing": "已有寫入", "x_failed": "寫入失敗", "x_escalated": "交給人工",
     "h_replay_refused": "不重新送入", "h_resolve": "人工查明",
     "ai_hypothesis": "推測原因",
+    # Phase 13 增量 2:AI 參與決策的判斷點、「AI 要再查」回頭節點、只判不送的終點
+    "a_ai": "AI 選下一步", "a_ai_query": "AI 要再查", "a_exam_hold": "只判不送",
 }
 
 
@@ -439,7 +441,7 @@ def _render_active_edge(
 
 def _edge_start_offset(node_id: str) -> int:
     return (_GROUP_WIDTH if node_id in _GROUP_IDS else
-            _AI_WIDTH if node_id in {"a_candidate", "a_narrate"} else _NODE_WIDTH)
+            _AI_WIDTH if node_id in {"a_candidate", "a_narrate", "a_ai"} else _NODE_WIDTH)
 
 
 def _node_width(node: FlowNode) -> int:

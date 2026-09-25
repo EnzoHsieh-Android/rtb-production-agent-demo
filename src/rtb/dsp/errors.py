@@ -71,3 +71,11 @@ class CapabilityScopeMismatch(CapabilityError):
 
 class OperationVoided(PermanentError):
     """這把冪等鍵已被作廢(對帳判失敗之前的證明):同鍵的新寫入一律拒收,三張表都不動。"""
+
+
+class DailyNotFound(PermanentError):
+    """這個廣告沒有種逐日成效(Phase 13 增量 2):整個廣告沒種,不是某幾天缺資料。"""
+
+
+class AdjustmentsNotFound(PermanentError):
+    """這個廣告沒有種過去調整(Phase 13 增量 2);種了零筆是「有資料、零筆」,不是這個。"""

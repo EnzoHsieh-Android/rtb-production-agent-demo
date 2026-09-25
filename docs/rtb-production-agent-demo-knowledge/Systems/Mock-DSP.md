@@ -2,7 +2,7 @@
 type: system
 status: doing
 created: 2026-09-21
-updated: 2026-09-23
+updated: 2026-09-25
 responsibility: 負責 Mock DSP 的廣告狀態、版本、操作歷史與冪等紀錄的儲存與原子提交、型別化錯誤,以及獨立行程的 HTTP 介面與故障注入;不負責指標計算與 agent 端的任何邏輯。
 aliases: []
 about_code:
@@ -11,6 +11,8 @@ about_code:
   - src/rtb/dsp/server.py
   - src/rtb/dsp/capability.py
   - tests/executor/fakes.py
+  - src/rtb/dsp/seed.py
+  - tests/dsp/test_investigation_data.py
 tags:
   - type/system
   - status/doing
@@ -108,3 +110,17 @@ REVISIT:2026-11-30 盤點作廢表的筆數成長,決定要不要設保留期與
   - 列操作兩支端點回全租戶明細,要帶唯讀稽核金鑰(代使用者裁定):放在專用標頭、寫法是金鑰位元組的 base64url,解回位元組後固定時間比對,解不開當帶錯(代碼審第 2 輪:第 1 輪借用能力憑證標頭、放原文,非 Latin-1 金鑰送不出);稽核金鑰超過 1024 位元組啟動就報設定錯誤、不啟動(代碼審第 3 輪,防回歸:[test:test_the_dsp_refuses_to_start_with_an_overlong_audit_key]);沒帶 401、帶錯 403、啟動時沒設這把金鑰一律 503(比照沒設簽發金鑰拒收寫入)。不沿用寫入憑證:那套聲明綁單一廣告、冪等鍵與寫入動作,又是簽發金鑰簽的。金鑰由啟動程式讀環境變數傳進伺服器物件。既有依鍵、依廣告的唯讀端點不變。防回歸:[test:test_the_operation_list_endpoints_require_the_audit_key]。
   - 游標只收十進位數字(上標數字判數字會過、轉整數會失敗),轉整數後不得超過 SQLite 整數上限,都回 400 invalid_cursor。防回歸:[test:test_a_cursor_must_be_a_plain_decimal_within_the_integer_range]。
   - 提交時間寫入前統一成固定 UTC 寫法(換算成 +00:00 的 isoformat),依時間找起點的查詢用同一支函式:時鐘注入非 UTC 偏移時,原樣存下會讓字串順序跟時間順序對不上、游標漏筆。舊資料不搬(理由:預設時鐘本來就是這種寫法、補欄位做法從不改寫舊列、操作紀錄只增不改;詳見 [[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 3 的實作解讀)。防回歸:[test:test_dsp_commit_times_are_stored_in_one_utc_form]、[test:test_a_page_boundary_between_equal_commit_times_reads_each_operation_once]。
+
+## 逐日成效與過去調整(Phase 13 增量 2,2026-09-25)
+
+出處 [[Projects/RTB_Phase13AI參與決策_計劃]]〈新增的兩種模擬資料〉(使用者裁定 10)。
+
+- 兩張新表 `daily_metrics`(每個廣告 7 列,第幾天前 1–7)、`past_adjustments`(最多 5 列,只放 3 天以前的調整)加一張「種過了」的標記表;兩支只准 GET 的唯讀端點 `/campaigns/{id}/daily`、`/campaigns/{id}/adjustments`。回應頂層帶廣告編號與 `rows`,只有相對天數、不帶日期或時間戳;逐日缺資料那天五欄 null、`no_data` 為真;沒種回 404(`daily_not_found`、`adjustments_not_found`),種了零筆過去調整回空串列。
+- 測試在 `tests/dsp/test_investigation_data.py`(兩支端點只讀不帶日期、種子一致性、只給種子用的過去日期寫法)。
+- 資料只由展示種子(`seed.py`)寫;種子讓逐日第 1 天等於 1 天窗、7 天加總等於 7 天窗,過去調整筆數等於操作歷史裡 3 天以前的預算調整筆數。展示情境目前每個廣告種同一份(每天一樣、沒有過去調整),所以沒有過去操作,F1–F7 對平台寫入的既有斷言不受影響。
+
+RULE: `CampaignStore.seed_past_operations` 只准展示種子呼叫,而且只准在平台還沒有任何操作時呼叫;它把全平台要種的過去預算調整依時間先後(最舊的先寫)寫進操作紀錄,寫完提交時間跟操作編號的順序一致。既有唯一的寫入路徑照舊把提交時間墊到不早於上一筆,一行不改。[since:2026-09-25] [retire:展示改成從真實操作紀錄推算歷史、或模擬平台不再需要過去日期的操作時拿掉這支] 防回歸:[test:test_seeded_past_operations_keep_commit_times_monotonic](含全庫掃描:只有種子模組呼叫它)。
+
+WHY: 用「第幾天前」不用日期:送給模型的內容要逐位元組穩定(錄製鍵),也不送時間戳。出處:[[Projects/RTB_Phase13AI參與決策_計劃]]〈新增的兩種模擬資料〉。防回歸:[test:test_the_daily_and_past_adjustment_endpoints_are_read_only_and_dateless]、[test:test_seeded_daily_and_adjustment_data_agree_with_windows_and_history]。
+
+WHY: [2026-09-25 Phase 13 增量 2 代碼審 r1] 展示種子改成全有或全無:`CampaignStore.seed_history` 在同一個交易裡寫 1 天與 7 天窗、逐日、過去調整與過去操作(原本逐廣告各自提交,最後一步被拒時前面已經寫進去);重種過去調整先清掉舊列;調整前後的預算要是非負整數;逐日第 1 天缺資料時 1 天窗照樣種、五欄空值(不種的話較長時間窗整個變成「查不到」)。`seed_history` 跟 `seed_past_operations` 一樣只准展示種子呼叫(同一支全庫掃描)。防回歸:[test:test_seeding_history_is_all_or_nothing]、[test:test_reseeding_past_adjustments_replaces_the_old_rows]、[test:test_past_adjustment_budgets_must_be_non_negative_integers]、[test:test_a_missing_first_day_seeds_an_empty_one_day_window]。

@@ -210,10 +210,11 @@ def _top_imports(tree):
     return names | {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
 
 
-# 模型用戶端的匯入閉包(寫死;改它要看是不是多了網路或子行程的路)
+# 模型用戶端的匯入閉包(寫死;改它要看是不是多了網路或子行程的路)。Phase 13 增量 2 照計劃改寫 [S918]:
+# 加小常數模組(模型後端與花費帳從它取等行程群組秒數與結算次數)
 MODEL_CLIENT_CLOSURE = frozenset({
     "rtb", "rtb.modelclaude", "rtb.modelclient", "rtb.modelcore", "rtb.modelledger",
-    "rtb.modelledger_view", "rtb.modelrecording", "rtb.sqlitekit"})
+    "rtb.modelledger_view", "rtb.modelrecording", "rtb.sqlitekit", "rtb.stepbudget"})
 MODEL_NET_ROOTS = frozenset({"urllib", "http", "socket", "ssl", "socketserver", "asyncio",
                              "requests", "httpx", "urllib3", "aiohttp", "ftplib", "smtplib",
                              "xmlrpc"})

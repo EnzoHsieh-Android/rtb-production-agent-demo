@@ -1,7 +1,7 @@
 """分析端模型閘道(Phase 13 增量 1,計劃〈共用模型入口與行程〉):分析端唯一准匯入模型用戶端的地方。
 
-使用者裁定「共用同一個模型入口」落在這裡:分析端要呼叫模型的地方(模型說明命令列;增量 2 起加上 AI
-決策函式所在模組與分析端驅動命令列)都經它,准匯入它的分析端模組寫死在邊界測試([S1100])。流程推進與
+使用者裁定「共用同一個模型入口」落在這裡:分析端要呼叫模型的地方(模型說明命令列、AI 決策函式所在
+模組與分析端驅動命令列)都經它,准匯入它的分析端模組寫死在邊界測試([S1100])。流程推進與
 決策規則的匯入閉包不含模型用戶端的任何一支模組。
 
 閘道負責入口該判的事,判一次、之後沿用:
@@ -89,6 +89,14 @@ class Gate:
         """一次呼叫從送出到回來最壞要多久(模型逾時加模型用戶端自己的清理與等鎖);入口拿來核對租約或
         領取期限。"""
         return call_deadline_seconds(timeout_seconds)
+
+    def check_recordings(self) -> None:
+        """開錄前的目錄檢查(即時加錄製模式,Phase 13 [S1142]):目錄要是空的或只有同一批的檔,不符丟
+        GateRefused(沒帶批次編號也是)。開閘道時已經檢查過一次;這支給入口在印就緒之前再核一次。"""
+        try:
+            check_recordings_dir(self.recordings, self.batch_id)
+        except MixedRecordingsDir as mixed:
+            raise GateRefused(f"錄製目錄不能開錄:{mixed}") from mixed
 
     def preflight_login(self) -> LoginPreflight:
         """啟動時的登入預檢(即時模式才真的檢查,錄製模式回不適用)。"""

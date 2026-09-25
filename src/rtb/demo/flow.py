@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
+from rtb.analyzer.investigation import AI_QUERY, FallbackReason
 from rtb.analyzer.policy import NoActionReason, RoutePath
 from rtb.analyzer.task_store import ReplanReason
 from rtb.demo.state import FlowEdge, FlowGraph, FlowNode, NodeKind, NodeOwner
@@ -45,7 +46,7 @@ def unexplained_terms(text: str) -> list[str]:
 ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN = "分析", "收件", "執行", "廣告平台", "人工"
 LANES = (ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN)
 START = "a_receive"
-AI_NODES = frozenset({"a_candidate", "a_narrate"})
+AI_NODES = frozenset({"a_candidate", "a_narrate", "a_ai"})
 
 S, D, T = NodeKind.STEP, NodeKind.DECISION, NodeKind.TERMINAL
 _NODES: tuple[tuple[str, str, NodeKind, str], ...] = (
@@ -56,9 +57,11 @@ _NODES: tuple[tuple[str, str, NodeKind, str], ...] = (
     ("a_pacing", "預算花得比預期慢嗎?", D, ANALYZE),
     ("a_route", "由誰判斷值不值得加預算?", D, ANALYZE),
     ("a_candidate", "請模型候選判斷", D, ANALYZE),
+    ("a_ai", "AI 選下一步(展示模式,未通過採用門檻)", D, ANALYZE),
     ("a_rule", "用程式規則判斷", S, ANALYZE),
     ("a_worth", "值得加預算嗎?", D, ANALYZE),
     ("a_no_action", "不調整,結束", T, ANALYZE),
+    ("a_exam_hold", "只判不送(考題用),不送出,結束", T, ANALYZE),
     ("a_failed", "這件工作出錯,結束", T, ANALYZE),
     ("a_propose", "寫好調整建議", S, ANALYZE),
     ("a_narrate", "請模型寫一段說明給確認的人看(僅供參考)", S, ANALYZE),
@@ -102,11 +105,14 @@ class BackTransition:
     returns_to: str
     transition: tuple[StrEnum, StrEnum] | None = None
     lifecycle: LifecycleKind | None = None
+    reason: str | None = None  # 同一個轉換靠同序號調查紀錄列的原因代碼分開(Phase 13 [S1139])
 
 
 BACK_TRANSITIONS = (
     BackTransition("a_recollect", "資料太舊,重新蒐集", ANALYZE, "a_collect",
                    (TaskState.ANALYZING, TaskState.COLLECTING_EVIDENCE)),
+    BackTransition("a_ai_query", "AI 要再查一種唯讀資料", ANALYZE, "a_collect",
+                   (TaskState.ANALYZING, TaskState.COLLECTING_EVIDENCE), reason=AI_QUERY),
     BackTransition("a_restale", "送出時資料已經過時,重新蒐集", ANALYZE, "a_collect",
                    (TaskState.PROPOSED, TaskState.COLLECTING_EVIDENCE)),
     BackTransition("a_followup", "開一件新工作,照廣告現在的樣子重新分析", ANALYZE, "a_receive"),
@@ -133,6 +139,11 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
     ("a_complete", "a_pacing", "齊全"),
     ("a_pacing", "a_no_action", "不慢或算不出來"),
     ("a_pacing", "a_route", "偏慢"),
+    ("a_pacing", "a_ai", "偏慢,這次讓 AI 參與決定"),
+    ("a_ai", "a_ai_query", "AI 選了查詢"),
+    ("a_ai", "a_propose", "AI 判值得加,程式照公式算金額"),
+    ("a_ai", "a_no_action", "AI 判不值得加或證據不足"),
+    ("a_ai", "a_rule", "改由程式規則決定"),
     ("a_route", "a_rule", "用程式規則判斷(這次不交給 AI)"),
     ("a_route", "a_candidate", "請 AI 提供參考判斷"),
     ("a_candidate", "a_worth", "候選給出答案"),
@@ -143,6 +154,7 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
     ("a_worth", "a_failed", "分析出錯"),
     ("a_propose", "a_narrate", "附上模型說明"),
     ("a_propose", "a_submit", "不需 AI 說明,送出"),
+    ("a_propose", "a_exam_hold", "這件只判不送(考題用)"),
     ("a_narrate", "a_submit", "送出"),
     ("a_submit", "i_check", "送到收件"),
     ("i_check", "x_pending", "收下"),
@@ -238,7 +250,7 @@ def _on(source: str, target: str, text: str) -> Place:
 MAPPED_ENUMS: tuple[type[StrEnum], ...] = (
     Disposition, BlockCode, DeadLetterReason, StopKind, LifecycleKind, ReplayOutcome,
     AttemptState, OutcomeCode, VoidOutcome, Result, TaskState, ReplanReason, RoutePath,
-    NoActionReason, AwaitingOutcome, LastFailure, Freshness, WorthVerdict,
+    NoActionReason, AwaitingOutcome, LastFailure, Freshness, WorthVerdict, FallbackReason,
 )
 
 _PLACES: dict[type[StrEnum], dict[str, Place]] = {
@@ -367,6 +379,7 @@ _PLACES: dict[type[StrEnum], dict[str, Place]] = {
         "NOT_UNDERPACING": _on("a_pacing", "a_no_action", "預算沒有花得比預期慢"),
         "JUDGED_NOT_WORTH": _on("a_worth", "a_no_action", "判斷不值得加"),
         "JUDGED_INSUFFICIENT": _on("a_worth", "a_no_action", "資料不夠判斷"),
+        "EXAM_HOLD": _at("a_exam_hold", "判了值得加,但這件只判不送(考題用)"),
     },
 }
 
@@ -387,6 +400,20 @@ _PLACES.update({
         "VERSION_CHANGED": _on("a_fresh", "a_recollect", "讀到資料之後廣告又被改過"),
         "UNVERIFIED": _on("a_fresh", "a_recollect", "沒讀到廣告現在的版本,不能算新"),
     },
+    FallbackReason: {
+        "TIMEOUT": _on("a_ai", "a_rule", "AI 太慢,改由程式規則決定"),
+        "LOCAL_CAP_REFUSED": _on("a_ai", "a_rule", "已達花費上限,改由程式規則決定"),
+        "QUOTA_EXHAUSTED": _on("a_ai", "a_rule", "模型額度用完,改由程式規則決定"),
+        "OVERRUN": _on("a_ai", "a_rule", "單次花費超過上限,改由程式規則決定"),
+        "NO_RECORDING": _on("a_ai", "a_rule", "沒有對應的錄製回應,改由程式規則決定"),
+        "UNREADABLE": _on("a_ai", "a_rule", "模型回應讀不懂,改由程式規則決定"),
+        "CONFIG_ERROR": _on("a_ai", "a_rule", "模型設定有問題,改由程式規則決定"),
+        "TRANSIENT": _on("a_ai", "a_rule", "模型服務暫時出錯,改由程式規則決定"),
+        "LEDGER_BUSY": _on("a_ai", "a_rule", "花費紀錄忙碌,改由程式規則決定"),
+        "OFF_MENU": _on("a_ai", "a_rule", "AI 的答案不在固定選項裡或引用對不上,改由程式規則決定"),
+        "PREFLIGHT_FAILED": _on("a_ai", "a_rule", "啟動時登入檢查沒過,改由程式規則決定"),
+        "AI_ALREADY_USED": _on("a_ai", "a_rule", "這件工作已經問過 AI,改由程式規則決定"),
+    },
     WorthVerdict: {
         "WORTH": _on("a_worth", "a_propose", "值得加"),
         "NOT_WORTH": _on("a_worth", "a_no_action", "不值得加"),
@@ -403,7 +430,9 @@ OUTCOMES: dict[tuple[type[StrEnum], str], Place] = {
 DECISION_ENUMS: dict[str, tuple[type[StrEnum], tuple[str, ...]]] = {
     "a_fresh": (Freshness, ()),
     "a_complete": (NoActionReason, ("a_pacing",)),  # 齊全:往下走
-    "a_pacing": (NoActionReason, ("a_route",)),  # 偏慢:往下走
+    "a_pacing": (NoActionReason, ("a_route", "a_ai")),  # 偏慢:往下走(交給規則路由或 AI)
+    # AI 選查詢、判值得加、判不提案:由調查紀錄決定;改由程式規則:退回原因
+    "a_ai": (FallbackReason, ("a_ai_query", "a_propose", "a_no_action")),
     "a_route": (RoutePath, ("a_candidate",)),  # 交給候選:路由結果在候選那一步才定
     "a_candidate": (RoutePath, ()),
     "a_worth": (WorthVerdict, ("a_failed",)),  # 分析出錯:任務狀態記成失敗
