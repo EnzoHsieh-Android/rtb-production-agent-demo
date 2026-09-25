@@ -849,7 +849,7 @@ def test_model_mode_cost_progress_and_utc_are_visible_in_summary() -> None:
     )
     html = render_page(state, form_token="token")
 
-    assert "使用預先錄好的內容（沒有即時連線）" in html
+    assert "錄製回應（沒有即時連線）" in html  # Phase 13 增量 4 代碼審 r1 t4:照實寫
     assert "0.42 美元" in html
     assert "沒有開即時開關" in html
     assert "上次完整執行 AI 費用" in html

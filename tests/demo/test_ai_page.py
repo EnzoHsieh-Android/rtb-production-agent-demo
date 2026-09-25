@@ -1,4 +1,4 @@
-# ruff: noqa: RUF001, RUF003, S106
+# ruff: noqa: RUF001, S106
 """Phase 13 增量 4:展示頁的 AI 步驟(計劃〈展示頁怎麼顯示〉,[S1121] [S1122] [S1123]):真的跑情境
 (假錄製),從展示狀態庫組頁面,看每一輪 AI 步驟與標示。"""
 
@@ -42,6 +42,11 @@ def ran(tmp_path_factory):
         empty = Driver(root / "demos2", "demo-1", DemoKeys.generate(), writer,
                        user_env=os.environ, recordings_dir=root / "none")
         assert empty.run_one("F2").status == "done"
+        twin = root / "twin"  # 雙胞胎第 1 輪答選項外、退回程式規則;受攻擊廣告判值得加(代碼審 r1 p3)
+        fake.fake_batch(twin, BATCH, {"normal": [fake.OFF_MENU], "attacked": [fake.PROPOSE]})
+        held = Driver(root / "demos3", "demo-1", DemoKeys.generate(), writer,
+                      user_env=os.environ, recordings_dir=twin)
+        assert held.run_one("F5").status == "done"
     finally:
         writer.close()
     reader = StateReader(root / "state.db")
@@ -114,11 +119,11 @@ def test_ai_scenarios_are_labelled_demo_mode_not_adopted(ran):
     assert DEMO_MODE_BANNER in page and "這次誰決定:AI(展示模式)".replace(":", "：") in page
     report = render_report(ran)
     banner = f'<div class="ai-banner"><strong>{DEMO_MODE_BANNER}</strong>'
-    assert report.count(banner) == 2  # F1、F2 兩個開了 AI 的情境,F3–F7 還沒跑
+    assert report.count(banner) == 3  # F1、F2、F5 三個開了 AI 的情境,其餘還沒跑
     assert banner not in render_page(ran, form_token="t", selected=ScenarioCode.F3,
                                      refresh_tick=0)
     assert ran.model_mode is ModelMode.RECORDED
-    assert ran.model_mode_reason == "錄製回應,不是即時呼叫"
+    assert ran.model_mode_reason == "錄製回應,不是即時呼叫"  # F1、F5 有對上的錄製回應
 
 
 def test_the_narrative_shows_computed_numbers_first_and_its_source(ran):
@@ -135,3 +140,77 @@ def test_the_narrative_shows_computed_numbers_first_and_its_source(ran):
     assert missing.result_kind == "no_recording"
     assert "沒有對應的錄製回應" in _text(render_page(ran, form_token="t", refresh_tick=0,
                                                      selected=ScenarioCode.F2))
+
+
+def test_the_hypothesis_card_says_which_kind_of_nothing(ran):
+    """(代碼審 r1 p1)假說卡:沒有記錄、命令列沒跑完(不知道有沒有告警)、明確沒有告警,各寫各的;這三種
+    都不畫「AI 推測可能原因」節點。只有告警響、問過 AI 才有假說卡的內容。"""
+    from dataclasses import replace
+
+    from rtb.demo import present
+    from rtb.demo.state_store import ScenarioDetails
+
+    cases = {None: present.NO_RECORD,
+             '{"status": "not_run", "error": "命令列逾時(120 秒)"}':
+                 f"{present.NOT_ASKED}(命令列逾時(120 秒))",
+             '{"status": "failed", "error": "命令列逾時"}': f"{present.NOT_ASKED}(命令列逾時)",
+             '{"status": "no_alert", "message": "x"}': present.NO_ALERT}
+    for stored, note in cases.items():
+        found, shown = present._hypothesis(ScenarioDetails(ai_enabled=True, hypothesis_json=stored))
+        assert found is None and shown == note, stored
+    found, shown = present._hypothesis(ScenarioDetails(ai_enabled=True, hypothesis_json=(
+        '{"status": "failed", "reason": "no_recording", "alerts": ["x"], "mode": "recorded"}')))
+    assert shown is None and found.hypotheses == () and "no_recording" in found.next_step
+    f1 = _scenario(ran, ScenarioCode.F1)
+    assert f1.hypothesis is None and f1.hypothesis_note == present.NO_ALERT  # 真跑:沒有告警
+    for note in cases.values():
+        page = render_page(replace(ran, scenarios=tuple(
+            replace(s, hypothesis=None, hypothesis_note=note) if s is f1 else s
+            for s in ran.scenarios)), form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
+        assert note in _text(page) and "推測原因" not in page.split('class="flow-graph"')[1].split(
+            "</svg>")[0]
+
+
+def test_an_untouched_fault_counts_as_finished_and_hides_the_pivot(ran):
+    """(代碼審 r1 p2)「AI 判不提案、故障沒走到」算已完成、另外標幾個沒走到;列表那一列不寫固定的
+    故障位置。"""
+    from dataclasses import replace
+
+    from rtb.demo.state import ScenarioStatus
+
+    f2 = _scenario(ran, ScenarioCode.F2)
+    state = replace(ran, scenarios=tuple(
+        replace(s, status=ScenarioStatus.NOT_EXERCISED) if s is f2 else s for s in ran.scenarios))
+    text = _text(render_page(state, form_token="t", selected=ScenarioCode.F1, refresh_tick=0))
+    assert "3 / 7" in text and "其中 1 個 AI 判不提案（不提出調整建議），故障沒走到" in text
+    assert "故障這次沒有走到" in text
+    row = text.split("寫進平台之後執行端當場倒下", 1)[1].split("F3", 1)[0]
+    assert "轉向" not in row and "故障這次沒有走到" in row
+
+
+def test_a_held_twin_that_fell_back_shows_the_rule_path_to_the_exam_hold(ran):
+    """(代碼審 r1 p3)F5 雙胞胎退回程式規則後照規則判值得加、只判不送:畫出「用程式規則 → 值得加嗎 →
+    寫建議 → 只判不送」,帶重算的值得加根據。"""
+    f5 = _scenario(ran, ScenarioCode.F5)
+    twin = [d.taken_edge for d in f5.path if d.task_id == "t3"]
+    for edge in (("a_ai", "a_rule"), ("a_rule", "a_worth"), ("a_worth", "a_propose"),
+                 ("a_propose", "a_exam_hold")):
+        assert edge in twin, (edge, twin)
+    worth = next(d for d in f5.path if d.task_id == "t3" and d.taken_edge == ("a_worth",
+                                                                             "a_propose"))
+    assert worth.basis and worth.basis[0].source == "依存下的證據重算"
+
+
+def test_the_new_page_text_explains_its_jargon_on_real_runs(ran):
+    """(代碼審 r1 p4)真跑過的 F1、F2、F5 主頁:這一增量加的文字(結果、考題、橫幅、AI 步驟與程式接手、
+    說明與假說卡)裡的「模型」「提案」都緊接括號白話解釋。"""
+    for code in (ScenarioCode.F1, ScenarioCode.F2, ScenarioCode.F5):
+        page = render_page(ran, form_token="t", selected=code, refresh_tick=0)
+        focus = page.split('class="focus-panel', 1)[1]
+        parts = [focus.split('class="result-evidence"', 1)[1].split("</details>", 1)[0],
+                 *re.findall(r'<(?:div|p) class="(?:ai-banner|ai-outcome|ai-exam|ai-node-card)'
+                             r'"[^>]*>.*?</(?:div|p)>', focus, re.DOTALL),
+                 *[c for c in focus.split("<li ") if "ai-round" in c or "程式接手" in c]]
+        text = _text("".join(parts))
+        for term in ("模型", "提案"):
+            assert term not in re.sub(rf"{term}（[^（）]+）", "", text), (code, term, text[:300])

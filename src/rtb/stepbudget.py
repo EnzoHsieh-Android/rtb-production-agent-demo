@@ -18,6 +18,7 @@ GROUP_EXIT_WAIT_SECONDS = 5.0  # 模型後端每次等 claude 行程群組結束
 GROUP_EXIT_WAITS = 2
 SETTLE_ATTEMPTS = 3  # 花費帳結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤
 LEDGER_RESERVATIONS = 1  # 每次呼叫預留一次
+LOGIN_CHECK_TIMEOUT_SECONDS = 10.0  # 模型後端的登入狀態檢查(啟動時的預檢也是這一次)
 
 
 def collect_step_worst_seconds(dsp_timeout_seconds: float, reads: int) -> float:
@@ -40,3 +41,9 @@ def ai_stop_grace_seconds() -> float:
     """帶 --ai-judge 的分析端收到停止後最多還要多久:停止可能在續租等鎖時送到,從那一刻算起是續租
     等鎖加上續租後的最壞耗時(5 + 55 = 60)。"""
     return BUSY_TIMEOUT_SECONDS + ai_step_worst_seconds()
+
+
+def preflight_worst_seconds() -> float:
+    """開 AI 的分析端印出就緒之後、做完登入預檢印模式行之前最壞要多久:登入檢查逾時加兩次等行程群組
+    (10 + 10 = 20;Phase 13 增量 4 代碼審 r1 l4:展示驅動等模式行的時限從這裡取)。"""
+    return LOGIN_CHECK_TIMEOUT_SECONDS + GROUP_EXIT_WAITS * GROUP_EXIT_WAIT_SECONDS

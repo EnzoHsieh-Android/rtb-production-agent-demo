@@ -20,6 +20,7 @@ from rtb.capabilitykit import (
 from rtb.demo import keys, launcher
 from rtb.demo.launcher import Role
 from rtb.dsp.store import CampaignStore
+from tests.conftest import PRODUCT_MODULE_COMMAND
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 USER_ENV = {"PATH": "/usr/bin:/bin", "HOME": "/home/someone", "LANG": "zh_TW.UTF-8",
@@ -230,7 +231,11 @@ def test_a_plain_start_has_no_fault_door(tmp_path):
     command, built = launcher.command_for(Role.DSP, ["--db", str(root / "dsp.db")],
                                         keys.DemoKeys.generate(), root=root, faults=None,
                                         user_env=USER_ENV)
-    assert command[:4] == [sys.executable, "-P", "-m", "rtb.dsp.server"]
+    # 測試裡指令外面多包一層換帳號家目錄的開頭(共用夾具);正式入口本身照舊
+    assert command[:2] == [sys.executable, "-P"] and "rtb.dsp.server" in " ".join(command)
+    assert "rtb.demo.launcher.child" not in " ".join(command)
+    assert PRODUCT_MODULE_COMMAND("rtb.dsp.server", ["x"]) == [
+        sys.executable, "-P", "-m", "rtb.dsp.server", "x"]
     assert launcher.FAULT_NONCE_ENV not in built
 
 
@@ -561,7 +566,7 @@ def test_a_config_already_marked_used_is_refused(tmp_path, copy_as):
     command, env = launcher.command_for(Role.DSP, ["--db", str(root / "dsp.db")],
                                         keys.DemoKeys.generate(), root=root, faults=request,
                                         user_env=os.environ)
-    config_at = command.index("rtb.demo.launcher.child") + 2
+    config_at = command.index("--") - 1  # 故障啟動器的參數:角色、設定檔、--、正式入口的參數
     copy = root / copy_as
     shutil.copy(command[config_at], copy)
     first = launcher._spawn(command, env, root, "PORT=", root / "a.log")

@@ -59,6 +59,8 @@ def _agrees(decision: Decision, reason: policy.NoActionReason | None, decided: T
                 == dict(decided.proposal.requested_change))
     if decided.state is TaskState.COLLECTING_EVIDENCE:
         return isinstance(decision, NeedsFreshEvidence)
+    if decided.state is TaskState.NO_ACTION and recorded_reason == "exam_hold":
+        return isinstance(decision, ProposalDecision)  # 判了值得加、只判不送(Phase 13 F5 雙胞胎)
     if decided.state is TaskState.NO_ACTION:
         return (isinstance(decision, NoAction) and reason is not None
                 and reason.value == recorded_reason)
@@ -475,7 +477,7 @@ def takeover(record: InvestigationRecord, decided: TaskRow,
                  BasisCode.AI_TAKEOVER)
 
 
-EXAM_HOLD = Basis("判了值得加(誰判的見前一步)", "這個廣告列在只判不送的清單(考題用)",
+EXAM_HOLD = Basis("判了值得加", "這個廣告列在只判不送的清單(考題用)",
                   "不送出,以考題結束結案", RECORDED_ROUND, BasisCode.AI_TAKEOVER)
 
 
@@ -502,12 +504,16 @@ def ai_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:
             RouteStep("a_pacing", "a_ai", pace))
 
 
-def rule_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:
+def rule_route(found: Sequence[Basis], *, held: bool = False) -> tuple[RouteStep, ...]:
     """退回之後程式規則判斷的兩步:用程式規則 → 值得加嗎 → 寫建議或不調整(根據是 after_fallback
-    給的)。"""
+    給的)。held:只判不送的那一件(F5 雙胞胎),寫好建議之後再走一步「只判不送」(代碼審 r1 p3)。"""
     items = list(found)
     if not items or items[0].code not in _WORTH_CODES:
         return ()
     worth = items[0]
     target = "a_propose" if worth.code is BasisCode.WORTH else "a_no_action"
-    return (RouteStep("a_rule", "a_worth", worth), RouteStep("a_worth", target, worth))
+    steps = (RouteStep("a_rule", "a_worth", worth), RouteStep("a_worth", target, worth))
+    if held and target == "a_propose":
+        hold = next((b for b in items if b.code is BasisCode.AI_TAKEOVER), EXAM_HOLD)
+        return (*steps, RouteStep("a_propose", "a_exam_hold", hold))
+    return steps

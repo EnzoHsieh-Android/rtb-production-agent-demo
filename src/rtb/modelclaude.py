@@ -37,6 +37,7 @@ from rtb.modelcore import (
     UnreadableModelResponse,
 )
 from rtb.stepbudget import GROUP_EXIT_WAIT_SECONDS as GROUP_EXIT_WAIT
+from rtb.stepbudget import LOGIN_CHECK_TIMEOUT_SECONDS as LOGIN_CHECK_TIMEOUT
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ OUTPUT_LIMIT_ENV = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
 SETTING_SOURCES = ""
 EMPTY_SETTINGS = "{}"
 CHILD_ENV = ("PATH", "HOME", "USER", "LANG")
-LOGIN_CHECK_TIMEOUT_SECONDS = 10.0
+LOGIN_CHECK_TIMEOUT_SECONDS = LOGIN_CHECK_TIMEOUT  # 住在小常數模組:展示驅動等模式行也用它
 # 等行程群組結束的秒數住在小常數模組(Phase 13 增量 2):分析端的租約守衛與展示啟動器也用它,
 # 誰都不必從這支後端匯入
 GROUP_EXIT_WAIT_SECONDS = GROUP_EXIT_WAIT

@@ -103,12 +103,14 @@ class Gate:
         return _preflight_login(self.settings)
 
 
-def open_gate(environ: Mapping[str, str], *, caller: Caller, demo_id: str | None,
-              ledger: Path | None, recordings: Path | None, batch_id: str | None = None) -> Gate:
+def open_gate(environ: Mapping[str, str], *, caller: Caller, demo_id: str | None,  # noqa: PLR0913 - 入口判模式要的每一樣
+              ledger: Path | None, recordings: Path | None, batch_id: str | None = None,
+              recorded_ledger: Path | None = None) -> Gate:
     """在入口判一次模式。RTB_MODEL 指定的模型不在價目表丟 UnknownModel;即時模式給了帳檔路徑、
     或即時加錄製卻沒帶批次、錄製目錄不是新的(空的或只有同一批的錄製檔),丟 GateRefused:
     在入口拒絕,不等到第一次呼叫才失敗(代碼審 r1,比照 [S1142])。
-    預設的錄製目錄是專案根的入庫目錄,只供重播。"""
+    預設的錄製目錄是專案根的入庫目錄,只供重播。recorded_ledger:判成錄製時才用的帳檔,判成即時就
+    忽略、照舊用帳號家目錄那一本(Phase 13 增量 4 代碼審 r1 h1:呼叫端不猜模式,一律給,由這裡決定)。"""
     claude = shutil.which("claude", path=environ.get("PATH", ""))
     settings = settings_from_env(environ, demo_id, claude)
     folder = Path(recordings) if recordings is not None else default_recordings_dir()
@@ -121,5 +123,7 @@ def open_gate(environ: Mapping[str, str], *, caller: Caller, demo_id: str | None
             raise GateRefused(f"即時加錄製模式拒絕啟動:{mixed}") from mixed
     if not isinstance(caller, Caller):
         raise GateRefused("呼叫者必須是封閉列舉的成員")
+    chosen = ledger if ledger is not None else (
+        recorded_ledger if settings.mode is Mode.RECORDED else None)
     return Gate(settings, caller, demo_id,
-                Path(ledger) if ledger is not None else live_ledger_path(), folder, batch_id)
+                Path(chosen) if chosen is not None else live_ledger_path(), folder, batch_id)

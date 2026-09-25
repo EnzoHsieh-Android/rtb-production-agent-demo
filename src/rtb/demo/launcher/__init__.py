@@ -31,11 +31,27 @@ EXIT_FAULT_REFUSED = 3
 STARTUP_SECONDS = 20.0
 STOP_SECONDS = 5.0
 _BASICS = ("PATH", "HOME", "LANG", "USER")
-_MODEL_VARIABLES = ("RTB_MODEL_LIVE", "RTB_MODEL", "RTB_MODEL_RECORD")
+# 三個模型環境變數(全展示只有這一份:驅動與批次檢查都用它,代碼審 r1 h3)
+MODEL_VARIABLES = ("RTB_MODEL_LIVE", "RTB_MODEL", "RTB_MODEL_RECORD")
 
-__all__ = ["ENTRIES", "EXIT_FAULT_REFUSED", "FAULT_NONCE_ENV", "ROOT_MARKER", "EntryRun",
-           "FaultRequest", "Role", "child_env", "command_for", "entry_command", "prepare_root",
-           "run_entry", "start", "stop_grace_seconds", "write_fault_plan"]
+__all__ = [
+    "ENTRIES",
+    "EXIT_FAULT_REFUSED",
+    "FAULT_NONCE_ENV",
+    "MODEL_VARIABLES",
+    "ROOT_MARKER",
+    "EntryRun",
+    "FaultRequest",
+    "Role",
+    "child_env",
+    "command_for",
+    "entry_command",
+    "prepare_root",
+    "run_entry",
+    "start",
+    "stop_grace_seconds",
+    "write_fault_plan",
+]
 AI_JUDGE_FLAG = "--ai-judge"
 
 
@@ -82,10 +98,16 @@ def child_env(role: Role, keys: DemoKeys, *, user_env: Mapping[str, str],
     env["PYTHONPATH"] = SRC
     env.update({name: keys.text(name) for name in _ROLE_KEYS.get(role, ())})
     if role is Role.MODEL_ENTRY or (role is Role.ANALYZER and live_model):
-        env.update({name: user_env[name] for name in _MODEL_VARIABLES if name in user_env})
+        env.update({name: user_env[name] for name in MODEL_VARIABLES if name in user_env})
     if fault_nonce is not None:
         env[FAULT_NONCE_ENV] = fault_nonce
     return env
+
+
+def module_command(module: str, args: Sequence[str]) -> list[str]:
+    """起本專案一支模組的指令(-P:不把工作目錄放進匯入路徑)。測試的共用夾具把它換成先換掉帳號家目錄
+    讀法再跑同一支模組的版本(子行程沒有夾具;代碼審 r1 l3:展示子行程在 pytest 裡寫過真的花費帳)。"""
+    return [sys.executable, "-P", "-m", module, *args]
 
 
 def write_fault_plan(root: Path, request: FaultRequest) -> tuple[Path, str]:
@@ -102,14 +124,13 @@ def command_for(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path, 
         raise ValueError(f"{role} 沒有固定的正式入口")
     model = live_model and role is Role.ANALYZER and AI_JUDGE_FLAG in args
     if faults is None:
-        return ([sys.executable, "-P", "-m", _MODULES[role], *args],
+        return (module_command(_MODULES[role], args),
                 child_env(role, keys, user_env=user_env, live_model=model))
     if faults.role is not role:
         raise ValueError(f"故障是排給 {faults.role} 的,不是 {role}")
     config, nonce = write_fault_plan(root, faults)
-    return ([sys.executable, "-P", "-m", "rtb.demo.launcher.child", role.value, str(config),
-             "--",
-             *args], child_env(role, keys, user_env=user_env, fault_nonce=nonce,
+    return (module_command("rtb.demo.launcher.child", [role.value, str(config), "--", *args]),
+            child_env(role, keys, user_env=user_env, fault_nonce=nonce,
                                live_model=model))
 
 
@@ -284,23 +305,45 @@ class EntryRun:
 
 
 def entry_command(entry: str, args: Sequence[str]) -> list[str]:
-    return [sys.executable, "-P", "-m", ENTRIES[entry], *args]
+    return module_command(ENTRIES[entry], args)
 
 
-def run_entry(entry: str, args: Sequence[str], keys: DemoKeys, *, root: Path,
-              user_env: Mapping[str, str], timeout_seconds: float) -> EntryRun:
-    """跑一次模型入口(不是常駐行程,不等就緒那一行):環境照模型入口的白名單,標準錯誤寫進根目錄的
-    紀錄檔,自己的行程群組;逾時先 SIGTERM 整組、再硬殺,回逾時。要不要帶模型變數由呼叫端給的
-    user_env 決定(驅動程式只在情境列在即時清單時帶)。"""
+ENTRY_POLL_SECONDS = 0.2
+
+
+def run_entry(entry: str, args: Sequence[str], keys: DemoKeys, *, root: Path,  # noqa: PLR0913 - 起行程要的每一樣
+              user_env: Mapping[str, str], timeout_seconds: float, live_model: bool = False,
+              stop: threading.Event | None = None) -> EntryRun:
+    """跑一次模型入口(不是常駐行程,不等就緒那一行):標準錯誤寫進根目錄的紀錄檔,自己的行程群組。
+    三個模型變數只在 live_model(情境列在即時清單)時帶,由 child_env 統一決定(代碼審 r1 h3)。
+    逾時或停止旗標一設就先 SIGTERM 整組、再硬殺,回逾時(代碼審 r1 l1:展示收尾時不留孤兒)。"""
     log_path = root / f"{entry}-{os.getpid()}-{threading.get_ident()}.log"
+    env = child_env(Role.MODEL_ENTRY, keys,
+                    user_env={k: v for k, v in user_env.items()
+                              if live_model or k not in MODEL_VARIABLES})
     with open(log_path, "a", encoding="utf-8") as log:
         popen = subprocess.Popen(entry_command(entry, args),  # noqa: S603 - 指令是固定的 python 模組加參數
-                                 env=child_env(Role.MODEL_ENTRY, keys, user_env=user_env),
-                                 cwd=root, stdout=subprocess.PIPE, stderr=log, text=True,
+                                 env=env, cwd=root, stdout=subprocess.PIPE, stderr=log, text=True,
                                  start_new_session=True)
-    try:
-        out, _ = popen.communicate(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired:
-        Process(popen, "").stop()
-        return EntryRun(None, "", True)
-    return EntryRun(popen.returncode, out, False)
+    reader, lines = _drain(popen)
+    deadline = time.monotonic() + timeout_seconds
+    while popen.poll() is None:
+        if time.monotonic() >= deadline or (stop is not None and stop.is_set()):
+            Process(popen, "", reader).stop()
+            return EntryRun(None, "", True)
+        time.sleep(ENTRY_POLL_SECONDS)
+    reader.join(STOP_SECONDS)
+    return EntryRun(popen.returncode, "".join(lines), False)
+
+
+def _drain(popen: subprocess.Popen[str]) -> tuple[threading.Thread, list[str]]:
+    """另一條執行緒把標準輸出讀完(子行程寫滿管線也不會卡住)。"""
+    lines: list[str] = []
+
+    def read() -> None:
+        if popen.stdout is not None:
+            lines.extend(popen.stdout)
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    return reader, lines

@@ -23,6 +23,7 @@ from rtb.demo.driver import Driver, Scenario
 from rtb.demo.present import numbers_digest
 from rtb.demo.server import DemoService, serve
 from rtb.demo.state_store import ConfirmationRequest, DecisionRow, StateReader
+from tests.conftest import demo_server_command
 
 # 起伺服器子行程要把 src 放進 PYTHONPATH:CI 沒有安裝這個套件,pytest 的 pythonpath 設定只影響測試
 # 行程自己
@@ -800,12 +801,11 @@ def test_stopping_the_server_mid_demo_leaves_no_child_processes(tmp_path):
     它起的子行程(平台、收件口、執行端、分析端)一個都不留。"""
     import signal
     import subprocess
-    import sys
 
     for signum in (signal.SIGTERM, signal.SIGINT):
         work = tmp_path / signum.name
         popen = subprocess.Popen(
-            [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
+            [*demo_server_command(), "--work-dir", str(work),
              "--reports", str(work / "reports")],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
             env={**os.environ, "PYTHONPATH": SRC})
@@ -882,11 +882,10 @@ def test_hanging_up_or_signalling_twice_still_leaves_no_child_processes(tmp_path
     子行程一個都不留。"""
     import signal
     import subprocess
-    import sys
 
     work = tmp_path / "work"
     popen = subprocess.Popen(
-        [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
+        [*demo_server_command(), "--work-dir", str(work),
          "--reports", str(work / "reports")],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
         env={**os.environ, "PYTHONPATH": SRC})
@@ -973,7 +972,7 @@ def _server_on_a_terminal(work):
 
     pid, master = pty.fork()
     if pid == 0:
-        os.execve(sys.executable, [sys.executable, "-m", "rtb.demo.server",  # noqa: S606 - 測試起專案內的伺服器
+        os.execve(sys.executable, [*demo_server_command(),  # noqa: S606 - 測試起專案內的伺服器
                                    "--work-dir", str(work), "--reports", str(work / "reports")],
                   {**os.environ, "PYTHONPATH": SRC})
     seen = b""
@@ -1022,11 +1021,10 @@ def test_two_signals_arriving_together_still_leave_no_child_processes(tmp_path):
     """[代碼審 r3 v2] SIGTERM 和 SIGHUP 同時到:第二個不能在收尾開始前把收尾打斷。"""
     import signal
     import subprocess
-    import sys
 
     work = tmp_path / "work"
     popen = subprocess.Popen(
-        [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
+        [*demo_server_command(), "--work-dir", str(work),
          "--reports", str(work / "reports")],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
         env={**os.environ, "PYTHONPATH": SRC})

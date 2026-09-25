@@ -166,6 +166,7 @@ class ScenarioDetails:
     exam: str | None = None
     narrative_json: str | None = None
     hypothesis_json: str | None = None
+    answered_rounds: int | None = None  # AI 真的給出答案(不是退回)的輪數:摘要照實寫有沒有錄製可用
 
 
 def _details_json(details: ScenarioDetails) -> str:

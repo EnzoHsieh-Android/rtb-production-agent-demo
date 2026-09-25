@@ -46,7 +46,8 @@ def test_a_model_entry_runs_once_with_the_model_entry_whitelist(tmp_path, monkey
     real = launcher.entry_command
 
     def probing(entry, args):
-        assert real(entry, args)[-len(args) - 1:] == [launcher.ENTRIES[entry], *args]
+        built = real(entry, args)
+        assert built[-len(args):] == list(args) and launcher.ENTRIES[entry] in " ".join(built)
         return [sys.executable, "-c", probe]
 
     monkeypatch.setattr(launcher, "entry_command", probing)

@@ -98,6 +98,8 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--ai-judge", action="store_true", help="分析那一步讓 AI 參與決策")
     parser.add_argument("--demo-id", help="展示編號;即時模式必填")
     parser.add_argument("--ledger", type=Path, help="只在錄製模式能用:花費帳換到別的路徑")
+    parser.add_argument("--recorded-ledger", type=Path,
+                        help="判成錄製模式時用的花費帳;判成即時就忽略(展示一律給,不猜模式)")
     parser.add_argument("--recordings-dir", type=Path,
                         help="錄製目錄(預設專案根的 recordings/model)")
     parser.add_argument("--batch-id", help="錄製批次;即時加錄製模式必填")
@@ -219,7 +221,7 @@ def _open_ai_gate(args: argparse.Namespace, environ: Mapping[str, str], open_gat
     try:
         gate = ai_judge.open_investigation_gate(
             environ, demo_id=args.demo_id, ledger=args.ledger, recordings=args.recordings_dir,
-            batch_id=args.batch_id, open_gate=open_gate)
+            batch_id=args.batch_id, open_gate=open_gate, recorded_ledger=args.recorded_ledger)
     except (modelgate.UnknownModel, modelgate.GateRefused) as refused:
         errors.write(f"拒絕啟動:{refused}\n")
         return None
@@ -260,11 +262,11 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
     store = TaskStore(args.db)
     try:
         print(READY, file=out or sys.stdout, flush=True)
-        if gate is not None:  # 展示頁照這一行顯示實際判出的模式與原因(Phase 13 增量 4)
-            shown = {"mode": gate.mode.value, "notices": list(gate.notices)}
-            print(f"{MODEL_LINE} {json.dumps(shown, ensure_ascii=False)}", file=out or sys.stdout,
-                  flush=True)
-        ai = None if gate is None else _Ai(_judge_for(args, gate, stop, errors), clock)
+        ai = None
+        if gate is not None:
+            judge, checked = _judge_for(args, gate, stop, errors)
+            _print_mode(gate, checked, out or sys.stdout)
+            ai = _Ai(judge, clock)
         _loop(store, args, ai, _Loop(stop, max_rounds, clock, sleep, monotonic, errors))
         return 0
     except modelgate.CallTerminated:  # 模型呼叫途中收到停止:流程層已放掉租約、這一步沒寫
@@ -274,7 +276,7 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
 
 
 def _judge_for(args: argparse.Namespace, gate: modelgate.Gate, stop: _Stop,
-               errors: TextIO) -> ai_judge.Judge:
+               errors: TextIO) -> tuple[ai_judge.Judge, modelgate.LoginPreflight]:
     """印出就緒之後、取任何租約之前做一次登入預檢([S1160]);沒過就整趟用程式規則。"""
     checked = gate.preflight_login()
     if checked.outcome is modelgate.Preflight.FAILED:
@@ -282,7 +284,22 @@ def _judge_for(args: argparse.Namespace, gate: modelgate.Gate, stop: _Stop,
     held = investigation.hold_list(args.hold_submit) or frozenset()
     return ai_judge.Judge(ai_judge.gate_complete(gate),
                           preflight_ok=checked.outcome is not modelgate.Preflight.FAILED,
-                          stop_requested=stop.is_set, hold=held)
+                          stop_requested=stop.is_set, hold=held), checked
+
+
+PREFLIGHT_FAILED_MODE = "rule"  # 模式行:即時的登入預檢沒過,整趟改由程式規則決定
+
+
+def _print_mode(gate: modelgate.Gate, checked: modelgate.LoginPreflight, out: TextIO) -> None:
+    """登入預檢之後印模式行(Phase 13 增量 4 代碼審 r1 k4/l5):實際生效的模式——預檢沒過寫改由程式
+    規則與原因;純 ASCII(語系不是 UTF-8 時印中文會讓分析端當掉)。"""
+    notices = list(gate.notices)
+    mode = gate.mode.value
+    if checked.outcome is modelgate.Preflight.FAILED:
+        mode = PREFLIGHT_FAILED_MODE
+        notices.append(f"登入預檢沒過,這一趟改由程式規則決定:{checked.reason}")
+    shown = {"mode": mode, "notices": notices}
+    print(f"{MODEL_LINE} {json.dumps(shown, ensure_ascii=True)}", file=out, flush=True)
 
 
 @dataclass(frozen=True)

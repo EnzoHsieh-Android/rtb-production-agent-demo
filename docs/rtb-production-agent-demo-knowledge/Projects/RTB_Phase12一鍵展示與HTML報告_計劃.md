@@ -292,7 +292,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - [S1024] 流程圖定義應是有向無環圖,而且對應清單上每一個列舉(十九個,多了 Phase 13 的退回原因列舉)的每一個成員(以列舉類別加成員名為鍵)都對得到流程圖裡的一條邊或一個節點。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉改寫)[test:test_every_system_outcome_maps_onto_the_flow_graph]
 - [S1025] 程式的任務狀態與嘗試狀態轉換表裡每一條往回走的轉換,以及執行端代表放回待處理的生命週期事件種類,都應列在流程圖定義的回頭轉換清單裡並展開成新節點。[test:test_every_known_back_transition_is_unrolled]
 - [S1026] 對應清單上每一個列舉的每一個成員,處置說明對照表都應有一句白話說明。[test:test_every_disposition_has_a_plain_explanation]
-- [S1027] 當模型說明有成功結果時,頁面應先列程式算的數字、再列標示「模型產生、僅供參考」與來源的模型文字;沒有成功結果時應顯示結果類別。[test:test_the_model_step_shows_computed_numbers_first_and_labels_the_text]
+- [S1027] 當模型說明有成功結果時,頁面應先列程式算的數字、再列標示「AI 產生、僅供參考」(代使用者裁定 2026-09-25:依 Phase 12 白話規則,「模型」是術語,頁面標示改成「AI 產生、僅供參考」;Phase 13 增量 4 代碼審 r1 t2)與來源的模型文字;沒有成功結果時應顯示結果類別。[test:test_the_model_step_shows_computed_numbers_first_and_labels_the_text]
 - [S1028] 頁面顯示的模型模式應是模型入口實際判出的模式與原因,不是驅動程式自己推的。[test:test_the_page_shows_the_model_mode_the_entry_actually_chose]
 - [S1029] 每按一次觸發,驅動程式應產生一個新的展示編號,並把同一個編號傳給這次展示的每一個模型入口。[test:test_one_demo_id_per_trigger_reaches_every_model_entry]
 - [S1030] 當沒開即時開關時(用模型用戶端同一支判定,RTB_MODEL_LIVE=true 也算沒開),驅動程式應讓模型入口把花費帳記在這次展示的暫存目錄,不碰使用者家目錄下的真帳。[test:test_recorded_demos_book_into_a_temporary_ledger]

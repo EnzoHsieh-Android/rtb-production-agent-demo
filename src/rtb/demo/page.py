@@ -135,8 +135,8 @@ _STATUS_ICON: Final = {
     ScenarioStatus.INCOMPLETE: "!",
     ScenarioStatus.NOT_EXERCISED: "–",
 }
-# Phase 13 增量 4 的標示(計劃〈展示頁怎麼顯示〉):頁面照 Phase 12 的白話規則把「模型」寫成 AI
-# (合約的「模型產生、僅供參考」在頁面上是 MODEL_LABEL)
+# Phase 13 增量 4 的標示(計劃〈展示頁怎麼顯示〉):模型文字一律標這一句(合約 [S1121] [S1027] 的字面;
+# 代使用者裁定 2026-09-25 依 Phase 12 白話規則把「模型」寫成 AI)
 MODEL_LABEL: Final = "AI 產生、僅供參考"
 DEMO_MODE_BANNER: Final = "展示模式、未通過採用門檻"
 CITED_LABEL: Final = "AI 引用的收據值(已核對存在)"
@@ -292,14 +292,17 @@ def _selected_scenario(state: DemoState, selected: ScenarioCode | None) -> Scena
 
 
 def _render_summary(state: DemoState) -> str:
-    done = sum(item.status is ScenarioStatus.DONE for item in state.scenarios)
+    # 「AI 判不提案、故障沒走到」也算跑完([S1144] 不算沒跑完;代碼審 r1 p2),另外標幾個沒走到
+    done = sum(item.status in _FINISHED for item in state.scenarios)
+    untouched = sum(item.status is ScenarioStatus.NOT_EXERCISED for item in state.scenarios)
     mode = _MODE_TEXT[state.model_mode]
     cost = "—" if state.model_cost_usd is None else f"{_decimal(state.model_cost_usd)} 美元"
     reason = state.model_mode_reason or "原因未記錄"
     started = "—" if state.started_at is None else _format_time(state.started_at)
     verdict, source = _verifier_summary(state)
     primary: tuple[tuple[str, str, str | None], ...] = (
-        ("已完成情境", f"{done} / {len(state.scenarios)}", None),
+        ("已完成情境", f"{done} / {len(state.scenarios)}",
+         f"其中 {untouched} 個 AI 判不提案（不提出調整建議），故障沒走到" if untouched else None),
         ("自動查核", verdict, source),
         ("AI 說明方式", mode, reason),
         ("本次 AI 費用", cost, None),
@@ -349,8 +352,9 @@ def _render_summary(state: DemoState) -> str:
     )
 
 
+_FINISHED: Final = frozenset({ScenarioStatus.DONE, ScenarioStatus.NOT_EXERCISED})
 _MODE_TEXT: Final = {
-    ModelMode.RECORDED: "使用預先錄好的內容（沒有即時連線）",
+    ModelMode.RECORDED: "錄製回應（沒有即時連線）",
     ModelMode.LIVE: "現場即時產生",
     ModelMode.NOT_CALLED: "這次沒有呼叫 AI",
 }
@@ -556,7 +560,7 @@ def _render_scenario_row(
     content = (
         f'<span class="scenario-code">{escape_text(scenario.code.value)}</span>'
         f'<span class="scenario-name">{escape_text(scenario.title)}</span>'
-        f'<span class="scenario-pivot">轉向：{escape_text(_pivot_label(scenario, flow))}</span>'
+        f'<span class="scenario-pivot">{escape_text(_pivot_text(scenario, flow))}</span>'
         f'<span class="scenario-result">{escape_text(result)}'
         f'<small>{escape_text(origin)}</small></span>'
         f'<span class="status {status_class}">{escape_text(status)}</span>'
@@ -573,6 +577,13 @@ def _render_scenario_row(
             raise ValueError("互動頁缺少表單值")
         rerun = _form("/run/scenario", "重跑", token, scenario.code.value)
     return f'<li class="scenario-row{selected_class}">{content}{rerun}</li>'
+
+
+def _pivot_text(scenario: Scenario, flow: FlowGraph) -> str:
+    """列表那一列的「轉向」:故障沒走到的情境不寫固定的故障位置(代碼審 r1 p2)。"""
+    if scenario.status is ScenarioStatus.NOT_EXERCISED:
+        return "故障這次沒有走到"
+    return f"轉向：{_pivot_label(scenario, flow)}"
 
 
 def _pivot_label(scenario: Scenario, flow: FlowGraph) -> str:
@@ -795,8 +806,9 @@ def _result_text(kind: str) -> str:
 def _render_hypothesis(scenario: Scenario) -> str:
     found = scenario.hypothesis
     if found is None:
+        note = scenario.hypothesis_note or "這次沒有記錄"
         return ('<div class="ai-node-card"><strong>AI 推測可能原因</strong>'
-                "<blockquote>這次沒有告警，沒有請 AI 推測原因</blockquote></div>")
+                f"<blockquote>{escape_text(note)}</blockquote></div>")
     items = "".join(f"<li>{escape_text(h)}</li>" for h in found.hypotheses)
     body = (f'<p class="model-warning">{MODEL_LABEL}・{escape_text(found.source.value)}回應</p>'
             f"<ul>{items}</ul><p>下一步：{escape_text(found.next_step)}</p>"
@@ -905,7 +917,7 @@ def _model_text(text: str | None, source: ModelSource | None) -> str:
         return '<p class="empty">沒有 AI 說明。</p>'
     source_text = "內容來源未記錄" if source is None else f"{source.value}內容"
     return (
-        '<div class="model-note"><p class="model-warning">AI 產生，只供參考，不會控制系統・'
+        f'<div class="model-note"><p class="model-warning">{MODEL_LABEL}・不會控制系統・'
         f"{escape_text(source_text)}</p><p>{escape_text(text)}</p></div>"
     )
 

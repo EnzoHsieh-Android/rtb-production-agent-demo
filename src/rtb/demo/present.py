@@ -59,6 +59,7 @@ from rtb.demo.state_store import (
 
 AI_ACTOR = "AI"  # 判斷紀錄裡 AI 判的那一列(觀察器照調查紀錄寫)
 MODEL_MODE_REASON = "錄製回應,不是即時呼叫"
+NOTHING_RECORDED = "這次一筆對得上的錄製回應都沒有,AI 那一步全部改由程式規則決定"
 NOT_CALLED_REASON = "還沒有開了 AI 決策的情境跑過,這次沒有呼叫 AI"
 def known_limits() -> tuple[str, ...]:
     """這次示範的範圍與限制;F7 的規模取自驅動程式當下的常數(代碼審 r2 d2:不寫死)。"""
@@ -83,7 +84,8 @@ _STATUS = {"running": ScenarioStatus.RUNNING, "done": ScenarioStatus.DONE,
            "not_exercised": ScenarioStatus.NOT_EXERCISED}
 _DECIDED_BY = {"rule": DecidedBy.RULE, "ai": DecidedBy.AI_DEMO,
                "ai_fallback": DecidedBy.AI_FALLBACK}
-_MODES = {"recorded": ModelMode.RECORDED, "live": ModelMode.LIVE}
+# 分析端模式行的「rule」:即時的登入預檢沒過,整趟改由程式規則決定(沒有呼叫 AI)
+_MODES = {"recorded": ModelMode.RECORDED, "live": ModelMode.LIVE, "rule": ModelMode.NOT_CALLED}
 _STAGE = {
     "a_receive": Stage.RECEIVE, "a_collect": Stage.ANALYZE, "a_fresh": Stage.ANALYZE,
     "a_recollect": Stage.ANALYZE, "a_propose": Stage.PROPOSE, "x_pending": Stage.SUBMIT,
@@ -157,6 +159,9 @@ def _filled(row: DecisionRow) -> tuple[Decision, ...]:
     """補上的判斷點(見檔頭);補不了就是空的。最後一步接回這一列本身的節點。"""
     if row.edge is not None and row.edge[0] == "a_ai" and row.node in {"a_ai", "a_rule"}:
         return _ai_steps(row)
+    held = basis_of.rule_route(row.basis, held=True) if row.node == "a_exam_hold" else ()
+    if held:  # 退回之後程式規則判值得加、只判不送(代碼審 r1 p3)
+        return _route(row, held)
     if any(b.code is BasisCode.AI_TAKEOVER for b in row.basis):
         # 程式接手那一列:狀態往前走(照 AI 的選擇做事),根據照樣列出做了什麼
         return (Decision(node=row.node, taken_edge=None, outcome=row.reason, reason=row.reason,
@@ -231,6 +236,7 @@ def _scenario(code: ScenarioCode, run: ScenarioRun | None, rows: Sequence[Decisi
     path = _decisions(rows)
     details = details or ScenarioDetails()
     change = details.change
+    hypothesis, hypothesis_note = _hypothesis(details)
     return Scenario(
         code=code, title=definition.title, what_it_tests=_explains(code.value),
         status=ScenarioStatus.PENDING if run is None else _STATUS[run.status],
@@ -239,7 +245,7 @@ def _scenario(code: ScenarioCode, run: ScenarioRun | None, rows: Sequence[Decisi
         dispositions=tuple(Disposition(*item) for item in details.dispositions),
         dsp=DspState(tuple(DspCampaign(*c) for c in details.platform),
                      details.platform_operations) if details.platform else None,
-        audit=details.audit, model_step=_model_step(details), hypothesis=_hypothesis(details),
+        audit=details.audit, model_step=_model_step(details), hypothesis=hypothesis,
         path=path,
         current_node=current_node, result_summary=(run.summary or "") if run else "",
         traversed_edges=_traversed(path), source_demo_id=demo_id,
@@ -254,7 +260,8 @@ def _scenario(code: ScenarioCode, run: ScenarioRun | None, rows: Sequence[Decisi
         operation_key=details.operation_key, platform_apply_count=details.platform_apply_count,
         ai_enabled=details.ai_enabled, decided_by=_DECIDED_BY.get(details.decided_by or ""),
         model_mode_reason=details.model_mode_reason, outcome_note=details.outcome_note,
-        exam=details.exam,
+        exam=details.exam, answered_rounds=details.answered_rounds,
+        hypothesis_note=hypothesis_note if details.ai_enabled else None,
     )
 
 
@@ -288,19 +295,30 @@ def _model_step(details: ScenarioDetails) -> ModelStep | None:
                      str(found.get("outcome") or found.get("error") or "沒有結果"))
 
 
-def _hypothesis(details: ScenarioDetails) -> Hypothesis | None:
-    """原因假說命令列的結果;沒有告警、沒跑都是空的(頁面照實寫)。沒給出假說時假說是空的、
-    下一步寫原因。"""
+NO_RECORD = "這次沒有記錄"
+NOT_ASKED = "沒問到,不知道有沒有告警"
+NO_ALERT = "這次沒有告警,沒有請 AI 推測原因"
+
+
+def _hypothesis(details: ScenarioDetails) -> tuple[Hypothesis | None, str | None]:
+    """原因假說命令列的結果(代碼審 r1 p1):只有告警響、問過 AI 才有假說卡;沒有記錄(沒跑、取消、
+    舊資料)、命令列沒跑完(不知道有沒有告警)、明確沒有告警,各自照實寫一句,都不畫 AI 節點。"""
     found = _json(details.hypothesis_json)
-    if found is None or found.get("status") in (None, "no_alert"):
-        return None
+    if found is None:
+        return None, NO_RECORD
+    status = found.get("status")
+    if status == "no_alert":
+        return None, NO_ALERT
     source = _SOURCES.get(str(found.get("source") or found.get("mode")), ModelSource.RECORDED)
     alerts = "、".join(str(a) for a in found.get("alerts", [])) or "服務水準告警"
-    if found.get("status") != "ok":
-        reason = found.get("reason") or found.get("error") or "原因沒有記下"
-        return Hypothesis(alerts, (), f"AI 沒有給出推測(原因:{reason})", source)
-    return Hypothesis(alerts, tuple(str(h) for h in found.get("hypotheses", [])),
-                      str(found.get("next_step_shown") or found.get("next_step") or ""), source)
+    if status == "ok":
+        return Hypothesis(alerts, tuple(str(h) for h in found.get("hypotheses", [])),
+                          str(found.get("next_step_shown") or found.get("next_step") or ""),
+                          source), None
+    if status == "failed" and found.get("reason"):  # 告警響了、問了 AI,沒給出假說
+        return Hypothesis(alerts, (), f"AI 沒有給出推測(原因:{found['reason']})", source), None
+    why = found.get("error") or found.get("reason") or "命令列沒有跑完"
+    return None, f"{NOT_ASKED}({why})"
 
 
 def _comparison(run: ComparisonRun | None) -> Comparison | None:
@@ -372,4 +390,6 @@ def _demo_mode(scenarios: Sequence[Scenario]) -> tuple[ModelMode, str]:
     live = [s.code.value for s in ran if s.model_mode is ModelMode.LIVE]
     if live:
         return ModelMode.LIVE, f"{'、'.join(live)} 即時呼叫,其餘情境{MODEL_MODE_REASON}"
+    if all(s.answered_rounds == 0 for s in ran):  # 照實寫:一筆錄製都沒對上(代碼審 r1 t4)
+        return ModelMode.RECORDED, f"{MODEL_MODE_REASON};{NOTHING_RECORDED}"
     return ModelMode.RECORDED, MODEL_MODE_REASON

@@ -413,6 +413,9 @@ class Observer:
             return ()
         rule = inv.code_rule_evidence(evidence)
         if recorded == NoActionReason.EXAM_HOLD.value:
+            if record is not None and record.kind == inv.RecordKind.FALLBACK:  # 退回後規則判值得加
+                ruled = basis_of.after_fallback(basis_of.analysis(before, rule, row, recorded))
+                return (*ruled, basis_of.EXAM_HOLD)
             return (basis_of.EXAM_HOLD,)
         if record is None:
             return basis_of.analysis(before, rule, row, recorded)

@@ -10,7 +10,12 @@ from rtb.demo.driver import Driver
 from rtb.demo.flow import FLOW_GRAPH
 from rtb.demo.keys import DemoKeys
 from rtb.demo.page import render_page
-from rtb.demo.present import MODEL_MODE_REASON, build_demo_state, numbers_digest
+from rtb.demo.present import (
+    MODEL_MODE_REASON,
+    NOTHING_RECORDED,
+    build_demo_state,
+    numbers_digest,
+)
 from rtb.demo.state import ScenarioCode, ScenarioStatus
 from rtb.demo.state_store import (
     ConfirmationRequest,
@@ -99,7 +104,9 @@ def test_scenario_fields_come_from_what_the_driver_recorded(ran):
     # Phase 13 增量 4:說明命令列在錄製模式跑了,沒有錄製就照實記結果類別;沒有告警就沒有假說
     assert f2.model_step is not None and f2.model_step.result_kind == "no_recording"
     assert f2.model_step.narrative is None and f2.hypothesis is None
-    assert state.comparison is None and state.model_mode_reason == MODEL_MODE_REASON
+    # 沒有任何錄製對上:摘要照實寫(Phase 13 增量 4 代碼審 r1 t4)
+    assert state.comparison is None
+    assert state.model_mode_reason == f"{MODEL_MODE_REASON};{NOTHING_RECORDED}"
     assert state.verifier_digest == "abc123" and state.commit == "deadbeef"
     assert state.is_sample is False
 

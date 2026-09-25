@@ -15,3 +15,10 @@ extend = "../../../pyproject.toml"
 "rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准分析端驅動與評估執行器用(Phase 13 增量 2)"
 "rtb.analyzer.runner".msg = "分析端驅動命令列開了 AI 決策會送出模型呼叫:展示只准用子行程起它,不准匯入(Phase 13 增量 2)"
 "rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r2)"
+"rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用;展示的批次檢查經模型用戶端門面(Phase 13 增量 4 代碼審 r1 h2)"
+"rtb.modelclient".msg = "展示伺服器與驅動不准載入模型用戶端([S1143]);只有批次檢查那一支經門面,見下面的逐檔設定"
+
+# 展示錄製批次的入庫前檢查(Phase 13 增量 4)要經模型用戶端門面讀錄製檔:ruff 的匯入禁令只能整檔關,
+# 其餘禁令改由 tests/demo/test_ai_demo.py 逐條核對這支的匯入(只多 rtb.modelclient 一條)
+[lint.per-file-ignores]
+"recordings.py" = ["TID251"]

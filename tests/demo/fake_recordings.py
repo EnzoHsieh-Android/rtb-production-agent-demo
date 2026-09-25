@@ -22,6 +22,7 @@ from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from rtb import modelclient as mc
 from rtb import modelcore as core
 from rtb.analyzer import ai_judge, narrate, runner
 from rtb.analyzer import investigation as inv
@@ -139,12 +140,16 @@ class _Sink:
         return None
 
 
+FAKE_BACKEND = "fake"  # 假錄製的後端:入庫前的批次檢查一律拒收(代碼審增量 4 r1 s2)
+
+
 def recording(caller: core.Caller,  # noqa: PLR0913 - 錄製檔的每一欄
               system: str, user: str, max_tokens: int, text: str,
-              batch: str, *, outcome: core.Outcome = core.Outcome.OK) -> Recording:
+              batch: str, *, outcome: core.Outcome = core.Outcome.OK,
+              backend: str = FAKE_BACKEND) -> Recording:
     key = recording_key(caller, core.DEFAULT_MODEL, system, user, max_tokens)
     ok = outcome is core.Outcome.OK
-    return Recording(key=key, caller=caller.value, model=core.DEFAULT_MODEL, backend="fake",
+    return Recording(key=key, caller=caller.value, model=core.DEFAULT_MODEL, backend=backend,
                      batch_id=batch, recorded_on="2026-09-25", outcome=outcome.value,
                      sub_reason=None, text=text if ok else None, input_tokens=None,
                      output_tokens=None, cache_write_5m_tokens=None, cache_write_1h_tokens=None,
@@ -153,6 +158,11 @@ def recording(caller: core.Caller,  # noqa: PLR0913 - 錄製檔的每一欄
 
 
 def write(directory: Path, found: Recording) -> Path:
+    """寫一份假錄製;拒絕寫到專案的入庫錄製目錄(recordings/model)底下(代碼審增量 4 r1 t3)。"""
+    root = mc.default_recordings_dir().resolve()
+    target = directory.resolve()
+    if target == root or root in target.parents:
+        raise ValueError(f"假錄製不准寫進入庫錄製目錄:{directory}")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{found.key}.json"
     path.write_text(json.dumps(asdict(found), ensure_ascii=False, indent=1), encoding="utf-8")
@@ -160,7 +170,7 @@ def write(directory: Path, found: Recording) -> Path:
 
 
 def fake_batch(directory: Path, batch: str, plan: dict[str, list[str]],
-               narrative: str | None = None) -> list[str]:
+               narrative: str | None = None, *, backend: str = FAKE_BACKEND) -> list[str]:
     """照規格寫一批假錄製:每種廣告依輪次的回答,與(給了 narrative 時)每一份提案的說明;回錄製鍵。"""
     keys = []
     for family, answers in plan.items():
@@ -168,14 +178,14 @@ def fake_batch(directory: Path, batch: str, plan: dict[str, list[str]],
         for index, user in enumerate(users):
             text = answers[min(index, len(answers) - 1)]
             found = recording(core.Caller.INVESTIGATION, inv.SYSTEM_PROMPT, user,
-                              ai_judge.MAX_OUTPUT_TOKENS, text, batch)
+                              ai_judge.MAX_OUTPUT_TOKENS, text, batch, backend=backend)
             write(directory, found)
             keys.append(found.key)
         if narrative is not None:
             for user in narratives:
                 text = NARRATIVE_200 if family == "follow_up" else narrative
                 found = recording(core.Caller.NARRATIVE, narrate.SYSTEM_PROMPT, user,
-                                  narrate.MAX_OUTPUT_TOKENS, text, batch)
+                                  narrate.MAX_OUTPUT_TOKENS, text, batch, backend=backend)
                 write(directory, found)
                 keys.append(found.key)
     return keys

@@ -275,6 +275,9 @@ class Scenario:
     model_mode_reason: str | None = None
     outcome_note: str | None = None
     exam: str | None = None
+    # 沒有假說內容時照實寫哪一種(代碼審 r1 p1):這次沒有記錄、沒問到、這次沒有告警
+    hypothesis_note: str | None = None
+    answered_rounds: int | None = None  # AI 真的給出答案的輪數(沒有記錄是空的)
 
 
 @dataclass(frozen=True, slots=True)

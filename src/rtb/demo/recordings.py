@@ -19,27 +19,32 @@
 import argparse
 import json
 import os
+import re
 import sys
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from rtb.demo.driver import MODEL_VARIABLES, Driver
+from rtb import modelclient as mc
+from rtb.demo.driver import DONE, NOT_EXERCISED, Driver
 from rtb.demo.keys import DemoKeys
+from rtb.demo.launcher import MODEL_VARIABLES
 from rtb.demo.state_store import StateWriter
 from rtb.modelledger_view import ModelLedgerView
 from rtb.modelledger_view import Outcome as LedgerOutcome
-from rtb.modelrecording import MixedRecordingsDir, check_recordings_dir, validated
 
 REPLAYED = ("F1", "F2", "F3", "F4", "F5", "F6")
-REFUSED_OUTCOMES = frozenset({"config_error", "ledger_busy"})
+BATCH_PATTERN = re.compile(r"phase13-demo-\d{8}")  # 入庫的展示批次(計劃〈錄製批次與入庫〉)
+BATCH_SHAPE = "phase13-demo-YYYYMMDD"
+FINISHED = frozenset({DONE, NOT_EXERCISED})  # 重播算數:情境要真的跑完(代碼審 r1 k1)
 _EVER = ("2000-01-01T00:00:00+00:00", "9999-01-01T00:00:00+00:00")
 
 
 @dataclass(frozen=True)
 class BatchCheck:
-    """一次入庫前檢查的結果:找不到錄製幾筆、批次本身的問題、各情境跑的結果(給人追查)。"""
+    """一次入庫前檢查的結果:找不到錄製幾筆、問題(批次本身的、重播沒跑完或沒問到的)、各情境跑的
+    結果(給人追查)。"""
 
     missing: int
     problems: tuple[str, ...]
@@ -51,49 +56,56 @@ class BatchCheck:
 
 
 def batch_problems(directory: Path, batch_id: str) -> tuple[str, ...]:
-    """第 1、2 條:目錄只有同一批的錄製檔、沒有佔位檔;沒有設定錯誤、花費帳忙碌、無法可靠分類的
-    錄製。"""
+    """第 1、2 條與正式後端:經模型用戶端門面的共用驗收(跟評估批次同一份),另核批次編號格式、
+    錄製檔都是這一批。"""
+    problems = [] if BATCH_PATTERN.fullmatch(batch_id) else [
+        f"批次編號要是 {BATCH_SHAPE}:{batch_id}"]
+    problems += mc.batch_file_problems(directory, BATCH_PATTERN, BATCH_SHAPE)
+    if directory.is_dir():
+        others = sorted({str(data.get("batch_id")) for _p, data in mc.recording_files(directory)
+                         if isinstance(data, dict) and "batch_id" in data} - {batch_id})
+        if others:
+            problems.append(f"目錄裡有別的批次:{others}(要檢查的是 {batch_id})")
+    return tuple(problems)
+
+
+def replay_problems(verdicts: Sequence[tuple[str, str, str | None]],
+                    ledgers: Mapping[str, Path]) -> tuple[int, tuple[str, ...]]:
+    """第 4 條:回(找不到錄製的筆數, 重播本身的問題)。每個情境要跑完(照預期或故障沒走到),每一本帳
+    都要在、都有呼叫紀錄——情境在第一次問 AI 之前就失敗,帳根本不會建,那一段錄製等於沒驗
+    (代碼審 r1 k1/l2/s3)。"""
+    problems = [f"{code} 沒有跑完:{status}({reason})" for code, status, reason in verdicts
+                if status not in FINISHED]
+    missing = 0
+    for code, ledger in ledgers.items():
+        calls = _calls(ledger)
+        if calls is None:
+            problems.append(f"{code} 的花費帳不在或讀不了:這個情境一次都沒有問 AI")
+            continue
+        if not calls:
+            problems.append(f"{code} 的花費帳沒有任何呼叫紀錄")
+        missing += sum(1 for outcome in calls if outcome == LedgerOutcome.NO_RECORDING.value)
+    return missing, tuple(problems)
+
+
+def _calls(ledger: Path) -> list[str | None] | None:
+    if not ledger.is_file():
+        return None
     try:
-        check_recordings_dir(directory, batch_id)
-    except MixedRecordingsDir as mixed:
-        return (f"目錄不是只有這一批的錄製檔:{mixed}",)
-    if not directory.is_dir():
-        return ("錄製目錄不存在",)
-    found = []
-    for path in sorted(directory.glob("*.json")):
-        recording = validated(path, json.loads(path.read_text(encoding="utf-8")))
-        if recording.outcome in REFUSED_OUTCOMES:
-            found.append(f"{path.name}:結果是 {recording.outcome}")
-        if recording.unclassified:
-            found.append(f"{path.name}:無法可靠分類")
-    return tuple(found)
-
-
-def missing_recordings(ledgers: Sequence[Path]) -> int:
-    """這幾本暫存花費帳裡記成「沒有錄製」的呼叫筆數(帳還沒建就是這個情境沒有呼叫過)。"""
-    total = 0
-    for ledger in ledgers:
-        if not ledger.is_file():
-            continue
-        try:
-            view = ModelLedgerView(ledger)
-        except Exception:  # 讀不了、還沒建齊的帳當成至少一筆對不上,不放行
-            total += 1
-            continue
-        try:
-            total += sum(1 for call in view.calls_between(*_EVER)
-                         if call.outcome == LedgerOutcome.NO_RECORDING.value)
-        finally:
-            view.close()
-    return total
+        view = ModelLedgerView(ledger)
+    except Exception:  # 讀不了、還沒建齊
+        return None
+    try:
+        return [call.outcome for call in view.calls_between(*_EVER)]
+    finally:
+        view.close()
 
 
 def check_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
                      codes: Sequence[str] = REPLAYED,
                      user_env: Mapping[str, str] | None = None) -> BatchCheck:
-    """[S1164] 用錄製模式跑一次 F1 到 F6(讀這個目錄),數找不到錄製的筆數,再加上批次本身的兩條。
-    使用者環境拿掉三個模型變數:這裡一律只重播,不即時呼叫。"""
-    problems = batch_problems(directory, batch_id)
+    """[S1164] 用錄製模式跑一次 F1 到 F6(讀這個目錄),數找不到錄製的筆數,再加上批次本身與重播本身的
+    問題。使用者環境拿掉三個模型變數:這裡一律只重播,不即時呼叫。"""
     env = {k: v for k, v in (os.environ if user_env is None else user_env).items()
            if k not in MODEL_VARIABLES}
     demo_id = f"batch-check-{uuid.uuid4().hex[:8]}"
@@ -102,12 +114,12 @@ def check_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
     try:
         driver = Driver(work_dir / "demos", demo_id, DemoKeys.generate(), state, user_env=env,
                         recordings_dir=directory)
-        verdicts = driver.run(codes)
+        verdicts = tuple((v.code, v.status, v.reason) for v in driver.run(codes))
     finally:
         state.close()
-    ledgers = [driver.root / code / "model-ledger.db" for code in codes]
-    return BatchCheck(missing_recordings(ledgers), problems,
-                      tuple((v.code, v.status, v.reason) for v in verdicts))
+    missing, replayed = replay_problems(
+        verdicts, {code: driver.root / code / "model-ledger.db" for code in codes})
+    return BatchCheck(missing, (*batch_problems(directory, batch_id), *replayed), verdicts)
 
 
 def main(argv: list[str] | None = None) -> None:
