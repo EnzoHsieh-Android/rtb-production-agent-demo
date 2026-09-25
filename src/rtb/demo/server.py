@@ -37,7 +37,7 @@ from urllib.parse import parse_qs, urlsplit
 from rtb import modelledger_view
 from rtb.capabilitykit import APPROVAL_KEY_ENV
 from rtb.demo import present
-from rtb.demo.driver import ALL_CODES, Driver
+from rtb.demo.driver import ALL_CODES, NEVER_LIVE, Driver
 from rtb.demo.keys import DemoKeys
 from rtb.demo.page import (
     CONTENT_SECURITY_POLICY,
@@ -97,6 +97,17 @@ DriverFactory = Callable[[Path, str, DemoKeys, StateWriter], Driver]
 
 def _real_driver(base: Path, demo_id: str, keys: DemoKeys, state: StateWriter) -> Driver:
     return Driver(base, demo_id, keys, state)
+
+
+def live_driver(live: Sequence[str]) -> DriverFactory:
+    """「哪些情境即時」清單(Phase 13 [S1145]):伺服器啟動時給一次,之後每次展示照這份清單起驅動;
+    F7 或不認得的情境在啟動時就拒(驅動程式建構時檢查)。"""
+    codes = frozenset(live)
+
+    def build(base: Path, demo_id: str, keys: DemoKeys, state: StateWriter) -> Driver:
+        return Driver(base, demo_id, keys, state, live=codes)
+
+    return build
 
 
 @dataclass
@@ -520,20 +531,38 @@ def serve(service: DemoService) -> DemoServer:
     return DemoServer(service)
 
 
-def main(argv: list[str] | None = None) -> None:
-    """起伺服器,等到 Ctrl-C、SIGTERM 或 SIGHUP(關終端機)就收尾。訊號處理只記下「要結束了」,
-    不丟例外:收尾(停展示、等驅動執行緒收完行程)不會被第二個訊號、或寫到已掛斷終端機的錯誤打斷
-    (代碼審 r3 v1/v2:原本在處理函式裡丟例外、收尾中印提示,兩種都打斷等待,子行程變孤兒)。
-    伺服器迴圈在另一條執行緒跑,主執行緒只等「要結束了」。"""
+def _arguments(argv: list[str] | None) -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(allow_abbrev=False, description="一鍵展示伺服器(只綁本機)")
     parser.add_argument("--work-dir", type=Path, required=True,
                         help="暫存目錄:每次展示的資料庫與行程都放這底下")
     parser.add_argument("--reports", type=Path, default=None,
                         help="報告目錄(預設帳號家目錄下的 .rtb/demo-reports)")
+    parser.add_argument("--live", default="",
+                        help="讓分析那一步即時呼叫 AI 的情境(逗號分隔,例如 F5;預設空的=全部錄製,"
+                             "F7 不准)")
     args = parser.parse_args(argv)
+    return args, _live_codes(parser, args.live)
+
+
+def _live_codes(parser: argparse.ArgumentParser, text: str) -> list[str]:
+    """--live 的情境清單;F7 或不認得的情境在啟動時就拒([S1145])。"""
+    live = [code for code in text.split(",") if code]
+    refused = sorted((set(live) - set(ALL_CODES)) | (set(live) & NEVER_LIVE))
+    if refused:
+        parser.error(f"--live 不收 {', '.join(refused)}(F7 永遠只用錄製回應)")
+    return live
+
+
+def main(argv: list[str] | None = None) -> None:
+    """起伺服器,等到 Ctrl-C、SIGTERM 或 SIGHUP(關終端機)就收尾。訊號處理只記下「要結束了」,
+    不丟例外:收尾(停展示、等驅動執行緒收完行程)不會被第二個訊號、或寫到已掛斷終端機的錯誤打斷
+    (代碼審 r3 v1/v2:原本在處理函式裡丟例外、收尾中印提示,兩種都打斷等待,子行程變孤兒)。
+    伺服器迴圈在另一條執行緒跑,主執行緒只等「要結束了」。"""
+    args, live = _arguments(argv)
     args.work_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     service = DemoService(args.work_dir / "demos", args.work_dir / "state.db",
                           args.reports or default_reports(),
+                          driver_factory=live_driver(live) if live else _real_driver,
                           tighten_reports=args.reports is None)
     server = serve(service)
     ending = threading.Event()

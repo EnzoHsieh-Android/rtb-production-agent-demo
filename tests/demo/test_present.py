@@ -69,17 +69,20 @@ def test_paths_use_only_real_edges_and_may_break_off(ran):
 
 
 def test_the_analysis_checks_are_filled_in_from_the_recomputed_basis(ran):
-    """[協調者裁定 2] 分析端的中間判斷點用重算補上,每一筆標重算;交給誰判斷寫沒有模型入口。"""
+    """[協調者裁定 2] 分析端的中間判斷點用重算補上,每一筆標重算。Phase 13 增量 4:分析那一步開了 AI
+    決策,這次沒有錄製,AI 那一步寫「這次改由程式規則決定」,之後照程式規則判
+    (不再畫「交給誰判斷」)。"""
     tmp_path, _ = ran
     f2 = next(s for s in _state(tmp_path).scenarios if s.code is ScenarioCode.F2)
     filled = {d.node: d for d in f2.path if d.node in {
-        "a_fresh", "a_complete", "a_pacing", "a_route", "a_worth"}}
-    assert set(filled) == {"a_fresh", "a_complete", "a_pacing", "a_route", "a_worth"}
-    assert all(b.source == "依存下的證據重算" for n, d in filled.items() if n != "a_route"
-               for b in d.basis)
-    assert filled["a_route"].basis[0].source.startswith("固定說明")  # 代碼審 r1 d10
-    assert filled["a_route"].taken_edge == ("a_route", "a_rule")
-    assert "沒有模型入口" in filled["a_route"].basis[0].observed
+        "a_fresh", "a_complete", "a_pacing", "a_rule", "a_worth"}}
+    assert set(filled) == {"a_fresh", "a_complete", "a_pacing", "a_rule", "a_worth"}
+    assert all(b.source == "依存下的證據重算" for d in filled.values() for b in d.basis)
+    assert filled["a_pacing"].taken_edge == ("a_pacing", "a_ai")
+    [fallback] = [d for d in f2.path if d.taken_edge == ("a_ai", "a_rule")]
+    assert "沒有對應的錄製回應" in fallback.outcome
+    assert filled["a_rule"].taken_edge == ("a_rule", "a_worth")
+    assert not any(d.node == "a_route" for d in f2.path)
     write_checks = [d for d in f2.path if d.node in {"x_guard", "x_total"}]
     assert [d.taken_edge for d in write_checks] == [("x_guard", "x_total"), ("x_total", "x_write")]
     assert all(b.source == "執行端當下記下" for d in write_checks for b in d.basis)
@@ -93,7 +96,9 @@ def test_scenario_fields_come_from_what_the_driver_recorded(ran):
     assert f2.platform_apply_count == 1 and f2.operation_key
     assert [f.node for f in f2.injected_faults] == ["x_write"]
     assert f2.dsp.campaigns[0].budget == 110 and f2.timeline
-    assert f2.model_step is None and f2.hypothesis is None  # 沒有模型入口,不造
+    # Phase 13 增量 4:說明命令列在錄製模式跑了,沒有錄製就照實記結果類別;沒有告警就沒有假說
+    assert f2.model_step is not None and f2.model_step.result_kind == "no_recording"
+    assert f2.model_step.narrative is None and f2.hypothesis is None
     assert state.comparison is None and state.model_mode_reason == MODEL_MODE_REASON
     assert state.verifier_digest == "abc123" and state.commit == "deadbeef"
     assert state.is_sample is False

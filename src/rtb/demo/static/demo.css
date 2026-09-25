@@ -803,3 +803,17 @@ h2 { font-size:21px; line-height:1.5; }
 .flow-edge.is-skip path { stroke-dasharray: 6 4; } /* 跨過同一泳道其他節點的線走上方空隙、畫虛線 */
 .flow-edge .skip-note { fill: var(--muted); font-size: 10px; font-weight: 600; text-anchor: middle; } /* 跳過幾個節點:畫面看得到 */
 .report-note { margin-top:12px; padding:10px 14px; border:1px solid var(--danger); border-radius:10px; font-size:12px; color:var(--danger); }
+
+/* Phase 13 增量 4:AI 參與決策的標示 */
+.status-not-exercised { background: var(--surface-soft); color: var(--muted, inherit); }
+.ai-banner { margin: 0.6rem 0; padding: 0.6rem 0.9rem; border-left: 4px solid #74428e; background: var(--surface-soft); }
+.ai-banner strong { color: #74428e; }
+.ai-banner p { margin: 0.2rem 0; }
+.ai-outcome, .ai-exam { margin: 0.4rem 0; padding: 0.4rem 0.8rem; border-left: 3px solid #74428e; background: var(--surface-soft); }
+.decision-card.is-ai { border-color: #74428e; }
+.ai-round { border-left: 3px solid #74428e; padding-left: 0.6rem; }
+.ai-round dl { margin: 0.3rem 0; }
+.ai-round dt { font-weight: 750; margin-top: 0.3rem; }
+.ai-round dd { margin: 0 0 0.2rem; overflow-wrap: anywhere; }
+.ai-round dd small { display: block; color: var(--muted, inherit); }
+.ai-numbers { margin: 0.2rem 0 0.4rem 1.2rem; }

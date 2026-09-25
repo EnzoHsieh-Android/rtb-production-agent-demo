@@ -41,7 +41,7 @@
     },
     {
       "path": "src/rtb/analyzer/runner.py",
-      "sha256": "621974120adefe2782a7eeee1307d18fc619b494ab1e79d68201d81596945986"
+      "sha256": "cd728dfed02b27c939edc449ae514c9f4dd1cb98eac14defa4af4471ad22b65b"
     },
     {
       "path": "src/rtb/analyzer/task_store.py",

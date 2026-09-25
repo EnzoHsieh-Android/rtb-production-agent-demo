@@ -18,6 +18,7 @@ AI 參與決策(Phase 13 增量 2,計劃 [[Projects/RTB_Phase13AI參與決策_�
 """
 
 import argparse
+import json
 import math
 import os
 import signal
@@ -52,10 +53,12 @@ from rtb.stepbudget import (
 )
 
 READY = "READY"
+MODEL_LINE = "MODEL"  # 開了 AI 決策時就緒之後那一行的開頭:後面是這一趟判出的模式與原因(一行 JSON)
 MIN_TIMEOUT_SECONDS = 0.1  # 比這小的逾時每次呼叫都失敗,等於永遠不推進
 EXIT_UNSAFE_CONFIG = 7  # 跟執行端同一個代碼;2 是 argparse 參數錯誤的代碼,不能共用
 BACKOFF_CAP_SECONDS = 10.0  # 沒有進展的任務最久隔這麼久再問一次
-__all__ = ["CALLS_PER_STEP", "DEFAULT_TIMEOUT_SECONDS", "READY", "StopFlag", "main", "run"]
+__all__ = ["CALLS_PER_STEP", "DEFAULT_TIMEOUT_SECONDS", "MODEL_LINE", "READY", "StopFlag", "main",
+           "run"]
 REST_SLICE_SECONDS = 0.1  # 每輪之間的休息切成小段,每段之間看停止旗標
 
 
@@ -257,6 +260,10 @@ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
     store = TaskStore(args.db)
     try:
         print(READY, file=out or sys.stdout, flush=True)
+        if gate is not None:  # 展示頁照這一行顯示實際判出的模式與原因(Phase 13 增量 4)
+            shown = {"mode": gate.mode.value, "notices": list(gate.notices)}
+            print(f"{MODEL_LINE} {json.dumps(shown, ensure_ascii=False)}", file=out or sys.stdout,
+                  flush=True)
         ai = None if gate is None else _Ai(_judge_for(args, gate, stop, errors), clock)
         _loop(store, args, ai, _Loop(stop, max_rounds, clock, sleep, monotonic, errors))
         return 0

@@ -87,6 +87,11 @@ class BasisCode(StrEnum):
     CAP_OVER = "cap_over"
     TOTAL_OK = "total_ok"
     TOTAL_OVER = "total_over"
+    # Phase 13 增量 4:AI 參與決策的那一步(AI 判斷列、引用的收據值、退回程式規則、程式接手)
+    AI_ROUND = "ai_round"
+    AI_CITED = "ai_cited"
+    AI_FALLBACK = "ai_fallback"
+    AI_TAKEOVER = "ai_takeover"
 
 
 @dataclass(frozen=True)
@@ -150,6 +155,17 @@ class ScenarioDetails:
     platform_operations: tuple[str, ...] = ()
     audit: tuple[str, ...] = ()  # 人工操作的稽核(死信重新送入等)
     dispositions: tuple[tuple[str, str, str], ...] = ()  # 收件口的擋下與停下:(類別, 代碼, 說明)
+    # Phase 13 增量 4(AI 參與決策):這個情境開了沒有、誰決定的(rule / ai / ai_fallback)、分析端
+    # 實際判出的模式(recorded / live)與原因、結局的標示(故障沒走到、接續任務 AI 判證據不足)、F5 的
+    # 模型考題;模型說明與原因假說兩支命令列的結果各是一份 JSON(照命令列印的原樣再加驅動記的數字)
+    ai_enabled: bool = False
+    decided_by: str | None = None
+    model_mode: str | None = None
+    model_mode_reason: str | None = None
+    outcome_note: str | None = None
+    exam: str | None = None
+    narrative_json: str | None = None
+    hypothesis_json: str | None = None
 
 
 def _details_json(details: ScenarioDetails) -> str:

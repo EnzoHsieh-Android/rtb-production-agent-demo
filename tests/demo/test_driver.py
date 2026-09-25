@@ -884,6 +884,7 @@ def test_the_new_task_counts_as_written_only_once_the_inbox_says_so():
     stub.follow_ups = lambda: [FollowUpRow(1, "t1", "t1-next", ReplanReason.VERSION_CHANGED,
                                            datetime.now().astimezone())]
     stub.finished = lambda _t: False  # 平台已是新值,收件口或分析端還沒記下完成
+    stub.settled = lambda _t, done: done()  # Phase 13 增量 4:接續任務結局是提案,照提案路徑等
     assert driver_module._follow_up_written(stub, "t1", "c1", 220) is False
     stub.finished = lambda task: task == "t1-next"
     assert driver_module._follow_up_written(stub, "t1", "c1", 220) is True

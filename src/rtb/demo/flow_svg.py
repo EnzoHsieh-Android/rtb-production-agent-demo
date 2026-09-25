@@ -111,6 +111,16 @@ def flow_label(label: str) -> str:
     return label.replace("模型", "AI")
 
 
+def _ai_boundary(scenario: Scenario) -> str:
+    """這個情境 AI 參與到哪:開了 AI 決策時 AI 選下一步(展示模式、未通過採用門檻),金額照舊由
+    程式算。"""
+    if scenario.ai_enabled:
+        return ("這個情境讓 AI 參與決定下一步（展示模式、未通過採用門檻）；"
+                "金額、廣告與動作照舊由程式決定，AI 答不出或答錯就改由程式規則決定；"
+                "AI 說明與推測只供參考。")
+    return "目前正式預算決策由程式規則執行；AI 候選另行評估，AI 說明與推測供參考。"
+
+
 def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
     view = _flow_view(flow, scenario)
     if not view.nodes:
@@ -179,8 +189,7 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         '<span class="legend-ai">AI（只供參考）</span><span class="legend-human">人工</span>'
         '<span class="legend-external">外部平台</span>'
         '<span>✓ 已經過</span><span>▶ 正在處理</span></p>'
-        '<p class="ai-boundary">目前正式預算決策由程式規則執行；'
-        'AI 候選另行評估，AI 說明與推測供參考。</p></div>'
+        f'<p class="ai-boundary">{escape_text(_ai_boundary(scenario))}</p></div>'
         f'<p class="queue-note">{escape_text(queue_note)}</p>'
         '<div class="diagram-view">'
         f'<input class="diagram-zoom" type="checkbox" id="zoom-{scenario.code.value}">'

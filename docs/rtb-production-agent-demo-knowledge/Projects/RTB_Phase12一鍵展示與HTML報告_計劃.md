@@ -268,7 +268,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - [S1000] 當分析端驅動命令列啟動時,它應只經正式的 DSP 用戶端與收件口用戶端呼叫流程推進函式,不帶任何故障注入手段。(合約文字不改;2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 在測試寫死的匯入名單加模型閘道、AI 決策模組、它的模型無關詞彙模組與小常數模組)[test:test_the_analyzer_runner_uses_only_production_collaborators]
 - [S1001] 當呼叫次數乘逾時乘 2 不小於租約時,分析端驅動命令列應拒絕啟動。[test:test_the_analyzer_runner_refuses_a_lease_too_short_for_its_calls]
 - [S1002] 正式程式與展示以外的套件應不匯入展示套件,而且展示專用的故障套件只准展示啟動器匯入。[test:test_nothing_outside_the_demo_package_imports_it]
-- [S1003] 當驅動程式啟動任何行程時,子行程環境的鍵應只在 PATH、HOME、LANG、USER、PYTHONPATH(值固定為專案 src 的絕對路徑)、該角色需要的金鑰,與有排故障的那一個子行程的 RTB_DEMO_FAULT_NONCE 之內,模型入口另外只多 RTB_MODEL_LIVE、RTB_MODEL、RTB_MODEL_RECORD,驗證器與比較表產生器另外只多 LC_ALL、LC_CTYPE。[test:test_demo_processes_get_only_whitelisted_environment]
+- [S1003] 當驅動程式啟動任何行程時,子行程環境的鍵應只在 PATH、HOME、LANG、USER、PYTHONPATH(值固定為專案 src 的絕對路徑)、該角色需要的金鑰,與有排故障的那一個子行程的 RTB_DEMO_FAULT_NONCE 之內,模型入口另外只多 RTB_MODEL_LIVE、RTB_MODEL、RTB_MODEL_RECORD,分析端只在那個情境列在即時清單、而且那次帶 --ai-judge 時多同樣三個(照 [[Projects/RTB_Phase13AI參與決策_計劃]] [S1145] 放寬),驗證器與比較表產生器另外只多 LC_ALL、LC_CTYPE。[test:test_demo_processes_get_only_whitelisted_environment]
 - [S1004] 展示伺服器每次展示產生的金鑰應是 secrets.token_urlsafe 的文字、UTF-8 長度不短於 MIN_KEY_BYTES、每次展示都不同,而且展示狀態資料庫、報告與收據檔裡都找不到金鑰的文字或它的 UTF-8 位元組。[test:test_demo_keys_are_random_and_long_enough]
 - [S1005] 驅動程式應依序跑完 F1 到 F7,每個情境結束前把它啟動的行程全部結束。[test:test_the_driver_runs_every_scenario_and_leaves_no_process_behind]
 - [S1006] 當某個情境的預期處置斷言沒過時,驅動程式應把它標成「沒跑完」並寫哪一條沒對上,不標成照預期跑完。[test:test_a_scenario_is_done_only_when_its_expected_dispositions_are_seen]

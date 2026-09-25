@@ -125,6 +125,7 @@ _STATUS_CLASS: Final = {
     ScenarioStatus.AWAITING_APPROVAL: "status-awaiting",
     ScenarioStatus.DONE: "status-done",
     ScenarioStatus.INCOMPLETE: "status-incomplete",
+    ScenarioStatus.NOT_EXERCISED: "status-not-exercised",
 }
 _STATUS_ICON: Final = {
     ScenarioStatus.PENDING: "○",
@@ -132,7 +133,14 @@ _STATUS_ICON: Final = {
     ScenarioStatus.AWAITING_APPROVAL: "◆",
     ScenarioStatus.DONE: "✓",
     ScenarioStatus.INCOMPLETE: "!",
+    ScenarioStatus.NOT_EXERCISED: "–",
 }
+# Phase 13 增量 4 的標示(計劃〈展示頁怎麼顯示〉):頁面照 Phase 12 的白話規則把「模型」寫成 AI
+# (合約的「模型產生、僅供參考」在頁面上是 MODEL_LABEL)
+MODEL_LABEL: Final = "AI 產生、僅供參考"
+DEMO_MODE_BANNER: Final = "展示模式、未通過採用門檻"
+CITED_LABEL: Final = "AI 引用的收據值(已核對存在)"
+
 
 
 def disposition_text(category: str, code: str) -> str:
@@ -611,8 +619,9 @@ def _render_focus(
         f"<p>{escape_text(scenario.what_it_tests)}</p>"
         f"{_render_scenario_origin(scenario)}{reason}</div>"
         f'<span class="status {status_class}">{escape_text(status)}</span></div>'
+        f"{_render_ai_banner(scenario)}"
         f"{_render_change_summary(scenario.change_summary, scenario.change_overview)}"
-        f"{_render_result_evidence(scenario)}"
+        f"{_render_result_evidence(scenario)}{_render_ai_outcome(scenario)}"
         '<details class="report-disclosure"><summary>觸發條件與目標</summary>'
         '<div class="scenario-intent">'
         f'<p><strong>為什麼開始跑：</strong>{escape_text(scenario.trigger or "(這次沒有記錄)")}</p>'
@@ -645,6 +654,8 @@ def _scenario_origin_text(scenario: Scenario) -> str:
         if scenario.model_mode is None
         else "這次沒有呼叫 AI"
         if scenario.model_mode is ModelMode.NOT_CALLED
+        else "AI 採錄製回應，不是即時呼叫"
+        if scenario.model_mode is ModelMode.RECORDED
         else f"AI 採{scenario.model_mode.value}方式"
     )
     scale = f"；{_SCALED_DOWN}" if scenario.code is ScenarioCode.F7 else ""
@@ -720,15 +731,78 @@ def _render_decisions(scenario: Scenario, flow: FlowGraph) -> str:
     )
 
 
-def _render_ai_node_card(scenario: Scenario) -> str:
-    visited = {item for pair in scenario.traversed_edges for item in pair}
-    narrative = scenario.model_step.narrative if scenario.model_step is not None else None
-    content = "這次沒有請 AI 寫說明" if "a_narrate" not in visited or not narrative else narrative
+def _render_ai_banner(scenario: Scenario) -> str:
+    """[S1123] 開了 AI 決策的情境標「展示模式、未通過採用門檻」,另寫這一次誰決定(程式規則、AI、
+    AI 退回    程式規則)與分析那一步的 AI 模式原因。"""
+    if not scenario.ai_enabled:
+        return ""
+    who = "(這次沒有記錄)" if scenario.decided_by is None else scenario.decided_by.value
+    reason = scenario.model_mode_reason or "(這次沒有記錄)"
     return (
-        '<div class="ai-node-card"><strong>AI 寫說明</strong>'
-        '<p>AI 寫的，只供參考</p>'
-        f'<blockquote>{escape_text(content)}</blockquote></div>'
+        f'<div class="ai-banner"><strong>{escape_text(DEMO_MODE_BANNER)}</strong>'
+        f"<p>分析那一步讓 AI 參與決定；AI 的判斷沒有通過正式採用的門檻，只在展示裡用。"
+        f"金額、廣告與動作照舊由程式決定。</p>"
+        f"<p>這次誰決定：{escape_text(who)}；AI 回應：{escape_text(reason)}</p></div>"
     )
+
+
+def _render_ai_outcome(scenario: Scenario) -> str:
+    """結局的標示([S1144] [S1168])與 F5 的模型考題([S1124]):各自另列一行,不混進情境結果。"""
+    lines = []
+    if scenario.outcome_note:
+        lines.append(f'<p class="ai-outcome">{escape_text(scenario.outcome_note)}</p>')
+    if scenario.exam:
+        lines.append(f'<p class="ai-exam"><strong>模型（AI）考題：</strong>'
+                     f"{escape_text(scenario.exam)}</p>")
+    return "".join(lines)
+
+
+def _render_ai_node_card(scenario: Scenario) -> str:
+    """[S1027] AI 寫給確認的人看的說明:程式算的數字在前,AI 文字標「AI 產生、僅供參考」與來源;
+    沒有成功結果就寫結果類別。另一張是服務水準告警時 AI 推測的可能原因。說明在建議送出之後才寫
+    (不在流程圖的判斷路徑上),所以不看流程圖走過哪些節點。"""
+    step = scenario.model_step
+    if step is None:
+        narrative = '<blockquote>這次沒有請 AI 寫說明</blockquote>'
+    else:
+        numbers = "".join(f"<li>{escape_text(k)}：{escape_text(v)}</li>" for k, v in step.numbers)
+        text = (f'<p class="model-warning">{MODEL_LABEL}・{escape_text(step.source.value)}回應</p>'
+                f"<blockquote>{escape_text(step.narrative)}</blockquote>"
+                if step.narrative else
+                f'<blockquote>AI 沒有寫出說明（結果：'
+                f'{escape_text(_result_text(step.result_kind))}）'
+                '</blockquote>')
+        narrative = (f'<p>程式算的數字</p><ul class="ai-numbers">{numbers}</ul>{text}'
+                     if numbers else text)
+    return (
+        '<div class="ai-node-card"><strong>AI 寫說明（給確認的人看）</strong>'
+        f"{narrative}</div>{_render_hypothesis(scenario)}"
+    )
+
+
+_RESULT_TEXT: Final = {
+    "no_recording": "沒有對應的錄製回應", "timeout": "AI 太慢", "unreadable": "回應讀不懂",
+    "config_error": "設定有問題", "transient": "服務暫時出錯", "ledger_busy": "花費紀錄忙碌",
+    "quota_exhausted": "額度用完", "overrun": "單次花費超過上限",
+    "local_cap_refused": "已達花費上限",
+}
+
+
+def _result_text(kind: str) -> str:
+    return _RESULT_TEXT.get(kind, kind)
+
+
+def _render_hypothesis(scenario: Scenario) -> str:
+    found = scenario.hypothesis
+    if found is None:
+        return ('<div class="ai-node-card"><strong>AI 推測可能原因</strong>'
+                "<blockquote>這次沒有告警，沒有請 AI 推測原因</blockquote></div>")
+    items = "".join(f"<li>{escape_text(h)}</li>" for h in found.hypotheses)
+    body = (f'<p class="model-warning">{MODEL_LABEL}・{escape_text(found.source.value)}回應</p>'
+            f"<ul>{items}</ul><p>下一步：{escape_text(found.next_step)}</p>"
+            if items else f"<blockquote>{escape_text(found.next_step)}</blockquote>")
+    return (f'<div class="ai-node-card"><strong>AI 推測可能原因（告警：{escape_text(found.alert)}）'
+            f"</strong>{body}</div>")
 
 
 def _decision_card(
@@ -763,11 +837,18 @@ def _decision_card(
         if decision.operation_key else ""
     )
     progress = decision.kind is DecisionKind.PROGRESS
-    basis_block = (  # 狀態往前走不是判斷,不列根據欄,免得看起來像缺資料
-        '<p class="decision-kind">狀態前進</p>' if progress
-        else f'<div class="decision-basis"><strong>根據</strong><ul>{basis}</ul></div>'
-    )
-    kind_class = " is-progress" if progress else ""
+    if decision.kind is DecisionKind.AI_JUDGEMENT:
+        basis_block = _ai_basis(decision)
+    elif progress and decision.basis and decision.node in _TAKEOVER_NODES:
+        # 程式接手 AI 的選擇(Phase 13):照樣列出做了什麼
+        basis_block = f'<div class="decision-basis"><strong>程式接手</strong><ul>{basis}</ul></div>'
+    else:
+        basis_block = (  # 狀態往前走不是判斷,不列根據欄,免得看起來像缺資料
+            '<p class="decision-kind">狀態前進</p>' if progress
+            else f'<div class="decision-basis"><strong>根據</strong><ul>{basis}</ul></div>'
+        )
+    kind_class = (" is-progress" if progress
+                  else " is-ai" if decision.kind is DecisionKind.AI_JUDGEMENT else "")
     return (
         f'<li class="decision-card{latest}{kind_class}">'
         f'<div class="decision-number">{index:02d}</div>'
@@ -777,6 +858,30 @@ def _decision_card(
         f'{basis_block}'
         f'{operation}'
         f"<time>{escape_text(at)}</time></div></li>"
+    )
+
+
+# 程式接手 AI 選擇的那幾步(照查詢去讀、照公式算金額、照結論結案、只判不送):狀態前進,但列出做了什麼
+_TAKEOVER_NODES: Final = frozenset({"a_ai_query", "a_propose", "a_no_action", "a_exam_hold"})
+
+
+def _ai_basis(decision: Decision) -> str:
+    """[S1121] AI 判斷那一張:程式整理的證據、這一輪允許的選項、選了什麼與理由(標「AI 產生、僅供
+    參考」與來源),以及 AI 引用的收據值(已核對存在)。第一組是 AI 看到與選的,其餘是引用。"""
+    if not decision.basis:
+        return '<div class="decision-basis ai-round"><p>這一輪沒有留下紀錄</p></div>'
+    main, *cited = decision.basis
+    source = main.source or "來源沒有記下"
+    quoted = "".join(
+        f"<dt>{CITED_LABEL}</dt><dd>{escape_text(item.observed)}"
+        f"<small>{escape_text(item.standard)}</small></dd>" for item in cited)
+    return (
+        '<div class="decision-basis ai-round">'
+        f'<p class="model-warning">AI 判斷・{MODEL_LABEL}・{escape_text(source)}</p><dl>'
+        f"<dt>AI 看到的證據（程式整理的數字）</dt><dd>{escape_text(main.observed)}</dd>"
+        f"<dt>這一輪允許的選項</dt><dd>{escape_text(main.standard)}</dd>"
+        f"<dt>AI 選了什麼、理由（{MODEL_LABEL}）</dt><dd>{escape_text(main.conclusion)}</dd>"
+        f"{quoted}</dl></div>"
     )
 
 

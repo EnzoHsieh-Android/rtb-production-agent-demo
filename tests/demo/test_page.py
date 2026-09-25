@@ -16,6 +16,7 @@ from rtb.demo.page import (
     CONTENT_SECURITY_POLICY,
     DEMO_CSS,
     JARGON_TERMS,
+    MODEL_LABEL,
     STYLESHEET_PATH,
     disposition_text,
     escape_text,
@@ -132,7 +133,7 @@ def test_model_text_follows_computed_numbers_and_is_clearly_labelled() -> None:
     number_at = html.index("量到的值")
     narrative_at = html.index("AI 建議")
     assert number_at < narrative_at
-    assert "AI 寫的，只供參考" in html
+    assert MODEL_LABEL in html  # Phase 13 增量 4:說明卡改用跟 AI 判斷同一個標示
     assert "範例預覽" in html
     assert "&lt;strong&gt;不是標籤&lt;/strong&gt;" in html
     assert "<strong>不是標籤</strong>" not in html
@@ -184,10 +185,12 @@ def test_scenario_summary_fault_handoff_and_unique_execution_ids() -> None:
 
 
 def test_ai_narrative_is_in_its_step_card_and_missing_ai_is_explained() -> None:
-    report = render_report(make_demo_state())
+    state = make_demo_state()  # Phase 13 增量 4:沒有說明的情境照實寫(不再看有沒有走過寫說明節點)
+    report = render_report(replace(state, scenarios=(
+        state.scenarios[0], replace(state.scenarios[1], model_step=None), *state.scenarios[2:])))
 
     assert 'class="ai-node-card"' in report
-    assert "AI 寫的，只供參考" in report
+    assert MODEL_LABEL in report  # Phase 13 增量 4:跟 AI 判斷同一個標示
     assert "近期帶來的成果穩定" in report
     assert "這次沒有請 AI 寫說明" in report
     assert "沒有候選或不在允許範圍" not in report
@@ -1131,7 +1134,8 @@ def test_plain_wording_for_normal_situations() -> None:
                     started_at=None, demo_id="")
     first = replace(state.scenarios[0], injected_faults=())
     others = tuple(replace(item, model_mode=ModelMode.NOT_CALLED) for item in state.scenarios[1:])
-    first = replace(first, model_mode=ModelMode.NOT_CALLED)
+    # Phase 13 增量 4:說明卡不再只在走過「寫說明」節點時才顯示,沒呼叫 AI 的情境也就沒有說明與推測
+    first = replace(first, model_mode=ModelMode.NOT_CALLED, model_step=None, hypothesis=None)
     markup = render_page(replace(state, scenarios=(first, *others)),
                          form_token="t", selected=ScenarioCode.F1)
     assert "這個情境沒有安排故障" in markup and "(這次沒有記錄)</p>" not in markup.split(
