@@ -5,6 +5,7 @@
 import html as html_lib
 import os
 import re
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -90,8 +91,12 @@ def test_each_ai_round_shows_evidence_choice_reason_and_takeover(ran):
     for label in (MODEL_LABEL, "AI 看到的證據", "這一輪允許的選項", CITED_LABEL, "程式接手",
                   "錄製回應", "100 → 110", "base.conversions = 1"):
         assert label in text, label
-    cards = page.split('class="decision-trail"', 1)[1].split("</ol>", 1)[0].split("<li ")
-    ours = _text("".join(c for c in cards if "ai-round" in c or "程式接手" in c))
+    assert page.index('class="decision-hero"') < page.index('class="ai-rounds"')
+    assert page.index('class="ai-rounds"') < page.index('class="change-summary"')
+    assert '<section class="ai-rounds"' in page
+    assert '<details class="ai-rounds"' not in page
+    ours = _text(page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0])
+    assert ours.index("先看 1 天與 7 天") < ours.index("100 → 110")
     assert ours
     for term in JARGON_TERMS:  # 新加的 AI 步驟文字也照白話規則(術語要緊接括號解釋)
         assert term not in re.sub(rf"{re.escape(term)}（[^（）]+）", "", ours), term
@@ -108,6 +113,11 @@ def test_a_fallback_is_labelled_on_the_page(ran):
     assert f2.decided_by is DecidedBy.AI_FALLBACK
     text = _text(render_page(ran, form_token="t", selected=ScenarioCode.F2, refresh_tick=0))
     assert "這次改由程式規則決定(原因:沒有對應的錄製回應)" in text
+    page = render_page(ran, form_token="t", selected=ScenarioCode.F2, refresh_tick=0)
+    rounds = page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0]
+    assert fallback.outcome in _text(rounds)
+    assert 'class="ai-round-card is-fallback"' in rounds
+    assert "規則後續判斷" in rounds
 
 
 def test_ai_scenarios_are_labelled_demo_mode_not_adopted(ran):
@@ -117,6 +127,7 @@ def test_ai_scenarios_are_labelled_demo_mode_not_adopted(ran):
     assert f1.model_mode is ModelMode.RECORDED and not f3.ai_enabled
     page = render_page(ran, form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
     assert DEMO_MODE_BANNER in page and "這次誰決定:AI(展示模式)".replace(":", "：") in page
+    assert "展示模式、未採用" in page
     report = render_report(ran)
     banner = f'<div class="ai-banner"><strong>{DEMO_MODE_BANNER}</strong>'
     assert report.count(banner) == 3  # F1、F2、F5 三個開了 AI 的情境,其餘還沒跑
@@ -124,6 +135,37 @@ def test_ai_scenarios_are_labelled_demo_mode_not_adopted(ran):
                                      refresh_tick=0)
     assert ran.model_mode is ModelMode.RECORDED
     assert ran.model_mode_reason == "錄製回應,不是即時呼叫"  # F1、F5 有對上的錄製回應
+
+
+def test_f5_rounds_keep_each_tasks_takeover_separate(ran):
+    f5 = _scenario(ran, ScenarioCode.F5)
+    page = render_page(ran, form_token="t", selected=ScenarioCode.F5, refresh_tick=0)
+    rounds = page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0]
+    assert '工作 t1' in rounds and '工作 t3' in rounds
+    assert f5.exam in _text(page)
+    assert 'class="exam-verdict ai-exam"' in page
+    assert page.index('class="exam-verdict ai-exam"') < page.index('class="ai-rounds"')
+
+
+def test_ai_round_without_matching_progress_says_so(ran):
+    f1 = _scenario(ran, ScenarioCode.F1)
+    path = tuple(d for d in f1.path if d.node != "a_ai_query")
+    changed = replace(f1, path=path)
+    state = replace(ran, scenarios=tuple(changed if s.code is ScenarioCode.F1 else s
+                                        for s in ran.scenarios))
+    page = render_page(state, form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
+    rounds = _text(page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0])
+    assert "沒有留下接手紀錄" in rounds
+
+
+def test_decision_hero_counts_distinct_choices_without_guessing_one(ran):
+    f5 = _scenario(ran, ScenarioCode.F5)
+    page = render_page(ran, form_token="t", selected=ScenarioCode.F5, refresh_tick=0)
+    hero = _text(page.split('class="decision-hero"', 1)[1].split('</section>', 1)[0])
+    assert "AI 選的下一步／退回原因" in hero
+    assert "這次結果" in hero
+    assert "筆" in hero
+    assert f5.result_summary in hero
 
 
 def test_the_narrative_shows_computed_numbers_first_and_its_source(ran):

@@ -1,6 +1,7 @@
 # ruff: noqa: RUF001, RUF002
 """把展示狀態安全地轉成無腳本 HTML。"""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -630,15 +631,19 @@ def _render_focus(
         f"<p>{escape_text(scenario.what_it_tests)}</p>"
         f"{_render_scenario_origin(scenario)}{reason}</div>"
         f'<span class="status {status_class}">{escape_text(status)}</span></div>'
+        f"{_render_decision_hero(scenario)}"
         f"{_render_ai_banner(scenario)}"
+        f"{_render_ai_outcome(scenario)}"
+        f"{_render_ai_rounds(scenario)}"
         f"{_render_change_summary(scenario.change_summary, scenario.change_overview)}"
-        f"{_render_result_evidence(scenario)}{_render_ai_outcome(scenario)}"
+        '<details class="flow-disclosure" open><summary>處理流程：實際走到的階段</summary>'
+        f"{render_flow(flow, scenario)}</details>"
         '<details class="report-disclosure"><summary>觸發條件與目標</summary>'
         '<div class="scenario-intent">'
         f'<p><strong>為什麼開始跑：</strong>{escape_text(scenario.trigger or "(這次沒有記錄)")}</p>'
         f'<p><strong>目標：</strong>{escape_text(scenario.goal or "(這次沒有記錄)")}</p>'
         '</div></details>'
-        f"{render_flow(flow, scenario)}"
+        f"{_render_result_evidence(scenario)}"
         f"{_render_decisions(scenario, flow)}</section>"
     )
 
@@ -720,6 +725,115 @@ def _render_result_evidence(scenario: Scenario) -> str:
     )
 
 
+def _render_decision_hero(scenario: Scenario) -> str:
+    """頁首只彙總已有的選擇；多件工作逐種計數，不以一件代表全部。"""
+    who = scenario.decided_by.value if scenario.decided_by else "(這次沒有記錄)"
+    choices: dict[str, int] = {}
+    for decision in scenario.path:
+        if (decision.kind is DecisionKind.AI_JUDGEMENT or
+                decision.taken_edge == ("a_ai", "a_rule")):
+            choice = decision.outcome
+        else:
+            continue
+        choices[choice] = choices.get(choice, 0) + 1
+    if choices:
+        choice_html = "".join(
+            f'<li>{escape_text(choice)}（{count} 筆）</li>' for choice, count in choices.items()
+        )
+    else:
+        choice_html = '<li>這次沒有 AI 判斷紀錄</li>'
+    result = scenario.result_summary or _fallback_result(scenario)
+    unreached = (
+        '<small class="decision-hero__note">'
+        f'{escape_text("AI 判不提案,故障處理這次沒有走到")}'
+        '（不提出調整建議；本次未觸發故障處理）</small>'
+        if scenario.status is ScenarioStatus.NOT_EXERCISED else ""
+    )
+    return (
+        '<section class="decision-hero" aria-label="決策摘要">'
+        '<div class="decision-hero__grid">'
+        f'<div><span>這次誰決定</span><strong>{escape_text(who)}</strong></div>'
+        f'<div><span>AI 選的下一步／退回原因</span><ul>{choice_html}</ul></div>'
+        f'<div><span>這次結果</span><strong>{escape_text(result)}</strong>{unreached}</div>'
+        '</div></section>'
+    )
+
+
+def _round_takeover(path: tuple[Decision, ...], index: int) -> Decision | None:
+    decision = path[index]
+    target = decision.taken_edge[1] if decision.taken_edge else None
+    if target is None:
+        return None
+    for later in path[index + 1:]:
+        if later.task_id != decision.task_id:
+            continue
+        if later.kind is DecisionKind.AI_JUDGEMENT or later.taken_edge == ("a_ai", "a_rule"):
+            break
+        if later.kind is DecisionKind.PROGRESS and later.node == target:
+            return later
+    return None
+
+
+def _round_rule_followup(path: tuple[Decision, ...], index: int) -> tuple[Decision, ...]:
+    task = path[index].task_id
+    following: list[Decision] = []
+    for later in path[index + 1:]:
+        if later.task_id != task:
+            continue
+        if later.kind is DecisionKind.AI_JUDGEMENT or later.taken_edge == ("a_ai", "a_rule"):
+            break
+        if not later.node.startswith("a_"):
+            break
+        if later.kind is DecisionKind.JUDGEMENT:
+            following.append(later)
+    return tuple(following)
+
+
+def _render_ai_rounds(scenario: Scenario) -> str:
+    """依工作與原始順序配對 AI、退回及接手；相同內容合併並標筆數。"""
+    groups: dict[tuple[Decision, Decision | None, tuple[Decision, ...]], list[str]] = {}
+    for index, decision in enumerate(scenario.path):
+        fallback = decision.taken_edge == ("a_ai", "a_rule")
+        if decision.kind is not DecisionKind.AI_JUDGEMENT and not fallback:
+            continue
+        takeover = None if fallback else _round_takeover(scenario.path, index)
+        followup = _round_rule_followup(scenario.path, index) if fallback else ()
+        # 時間與工作編號不影響內容相同與否;證據、選擇與接手不同就分開顯示。
+        key = (replace(decision, task_id=None, at=None, operation_key=None),
+               replace(takeover, task_id=None, at=None, operation_key=None)
+               if takeover is not None else None,
+               tuple(replace(item, task_id=None, at=None, operation_key=None)
+                     for item in followup))
+        groups.setdefault(key, []).append(decision.task_id or "工作編號未記錄")
+    if not groups:
+        return ""
+    cards = []
+    for number, ((decision, takeover, followup), tasks) in enumerate(groups.items(), start=1):
+        fallback = decision.kind is not DecisionKind.AI_JUDGEMENT
+        task_label = (f"工作 {tasks[0]}" if len(tasks) == 1
+                      else f"共 {len(tasks)} 筆工作")
+        if fallback:
+            reason = f'<p class="ai-round-card__fallback">{escape_text(decision.outcome)}</p>'
+            rules = "".join(f'<li>{escape_text(item.outcome)}</li>' for item in followup)
+            body = (f'{reason}<div class="ai-round-card__rules"><strong>規則後續判斷</strong>'
+                    f'<ul>{rules or "<li>沒有留下後續判斷紀錄</li>"}</ul></div>')
+        else:
+            takeover_text = ("沒有留下接手紀錄" if takeover is None else
+                             "；".join(item.observed for item in takeover.basis) or
+                             takeover.outcome)
+            body = (_ai_basis(decision, fields_class="ai-round-card__fields") +
+                    f'<div class="ai-round-card__takeover"><strong>程式接手</strong>'
+                    f'<p>{escape_text(takeover_text)}</p></div>')
+        card_class = "ai-round-card is-fallback" if fallback else "ai-round-card"
+        cards.append(
+            f'<article class="{card_class}"><h4>第 {number} 輪／{escape_text(task_label)}</h4>'
+            f'{body}</article>'
+        )
+    return ('<section class="ai-rounds" aria-label="AI 逐輪判斷">'
+            '<h3>AI 逐輪判斷</h3><div class="ai-rounds__list">'
+            f'{"".join(cards)}</div></section>')
+
+
 def _render_decisions(scenario: Scenario, flow: FlowGraph) -> str:
     nodes = node_map(flow)
     shown = decision_cards(scenario.path)
@@ -751,7 +865,8 @@ def _render_ai_banner(scenario: Scenario) -> str:
     reason = scenario.model_mode_reason or "(這次沒有記錄)"
     return (
         f'<div class="ai-banner"><strong>{escape_text(DEMO_MODE_BANNER)}</strong>'
-        f"<p>分析那一步讓 AI 參與決定；AI 的判斷沒有通過正式採用的門檻，只在展示裡用。"
+        f"<p>展示模式、未採用。分析那一步讓 AI 參與決定；"
+        f"AI 的判斷沒有通過正式採用的門檻，只在展示裡用。"
         f"金額、廣告與動作照舊由程式決定。</p>"
         f"<p>這次誰決定：{escape_text(who)}；AI 回應：{escape_text(reason)}</p></div>"
     )
@@ -763,8 +878,13 @@ def _render_ai_outcome(scenario: Scenario) -> str:
     if scenario.outcome_note:
         lines.append(f'<p class="ai-outcome">{escape_text(scenario.outcome_note)}</p>')
     if scenario.exam:
-        lines.append(f'<p class="ai-exam"><strong>模型（AI）考題：</strong>'
-                     f"{escape_text(scenario.exam)}</p>")
+        if "考題沒通過" in scenario.exam:
+            label = ("<strong>模型考題沒通過</strong>"
+                     "（AI 回答的考題未過，與情境是否完成分開看）")
+        else:
+            label = "<strong>模型（AI）考題：</strong>"
+        lines.append(f'<p class="exam-verdict ai-exam">{label}'
+                     f"<span>{escape_text(scenario.exam)}</span></p>")
     return "".join(lines)
 
 
@@ -877,7 +997,7 @@ def _decision_card(
 _TAKEOVER_NODES: Final = frozenset({"a_ai_query", "a_propose", "a_no_action", "a_exam_hold"})
 
 
-def _ai_basis(decision: Decision) -> str:
+def _ai_basis(decision: Decision, *, fields_class: str = "") -> str:
     """[S1121] AI 判斷那一張:程式整理的證據、這一輪允許的選項、選了什麼與理由(標「AI 產生、僅供
     參考」與來源),以及 AI 引用的收據值(已核對存在)。第一組是 AI 看到與選的,其餘是引用。"""
     if not decision.basis:
@@ -889,7 +1009,8 @@ def _ai_basis(decision: Decision) -> str:
         f"<small>{escape_text(item.standard)}</small></dd>" for item in cited)
     return (
         '<div class="decision-basis ai-round">'
-        f'<p class="model-warning">AI 判斷・{MODEL_LABEL}・{escape_text(source)}</p><dl>'
+        f'<p class="model-warning">AI 判斷・{MODEL_LABEL}・{escape_text(source)}</p>'
+        f'<dl class="{escape_text(fields_class)}">'
         f"<dt>AI 看到的證據（程式整理的數字）</dt><dd>{escape_text(main.observed)}</dd>"
         f"<dt>這一輪允許的選項</dt><dd>{escape_text(main.standard)}</dd>"
         f"<dt>AI 選了什麼、理由（{MODEL_LABEL}）</dt><dd>{escape_text(main.conclusion)}</dd>"

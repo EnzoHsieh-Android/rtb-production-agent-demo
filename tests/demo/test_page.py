@@ -543,11 +543,9 @@ def test_flow_uses_horizontal_swimlanes_and_svg_coordinates_stay_inside_the_view
     width, height = (int(value) for value in viewbox.groups())
     assert width <= 1440
     assert height <= 800
-    assert markup.count('class="lane-band"') == 5
+    assert markup.count('class="lane-band"') == 2
     assert '<div class="flow-lanes" aria-label="處理角色">' in html
-    assert re.findall(r'<div class="flow-lane">([^<]+)</div>', html) == [
-        "分析", "收件", "執行", "廣告平台", "人工"
-    ]
+    assert re.findall(r'<div class="flow-lane">([^<]+)</div>', html) == ["分析", "收件"]
     root = ET.fromstring(markup)  # noqa: S314 - renderer output, not untrusted XML
     bands = root.findall('.//g[@class="lane-band"]')
     assert all(band.find("text") is None for band in bands)
@@ -571,6 +569,103 @@ def _rect_coordinate(group: ET.Element, coordinate: str) -> int:
     rect = group.find("rect")
     assert rect is not None
     return int(rect.get(coordinate, "0"))
+
+
+def test_analysis_only_flow_hides_later_lanes_and_marks_unentered_stages() -> None:
+    state = make_demo_state(running=False)
+    scenario = state.scenarios[0]
+    cut = replace(scenario, path=tuple(d for d in scenario.path if d.node.startswith("a_")),
+                  traversed_edges=tuple(edge for edge in scenario.traversed_edges
+                                        if edge[0].startswith("a_") and edge[1].startswith("a_")))
+    state = replace(state, scenarios=(cut, *state.scenarios[1:]))
+    page = render_page(state, form_token="t", selected=scenario.code, refresh_tick=0)
+    markup = re.search(r'<svg class="flow-graph".*?</svg>', page, re.DOTALL)
+    assert markup is not None
+    assert 'viewBox="0 0' in markup.group(0)
+    assert markup.group(0).count('class="lane-band"') == 1
+    assert re.findall(r'<div class="flow-lane">([^<]+)</div>', page) == ["分析"]
+    assert '後續階段這次未進入' in page
+    assert 'height="240"' in markup.group(0)
+
+
+def test_mobile_layout_contains_long_values_inside_cards_and_scrolls_only_the_flow() -> None:
+    css = DEMO_CSS
+    assert '.decision-hero__grid' in css and 'minmax(0,1fr)' in css
+    assert '.ai-round-card__fields' in css and 'overflow-wrap:anywhere' in css
+    assert re.search(r'@media\s*\(max-width:\s*760px\).*?\.decision-hero__grid[^}]*'
+                     r'grid-template-columns:\s*1fr', css, re.DOTALL)
+    assert re.search(r'@media\s*\(max-width:\s*760px\).*?\.ai-round-card__fields[^}]*'
+                     r'grid-template-columns:\s*1fr', css, re.DOTALL)
+    assert '.diagram-frame .flow-scroll { overflow-x:auto; }' in css
+    assert 'min-width:0' in css
+    assert '.ai-banner strong { color: #74428e; }' not in css
+    assert '.ai-node-card { border-left:2px solid #af9ccf' not in css
+
+
+def test_ai_rounds_pair_by_task_and_escape_all_supplied_text() -> None:
+    state = make_demo_state(running=False)
+    scenario = state.scenarios[0]
+    hostile = '名字"><script>alert(1)</script>'
+    main = DecisionBasis(hostile, "可查 A 或 B", "選 A；理由含 <b> 標籤", "錄製回應")
+    first = Decision("a_ai", ("a_ai", "a_ai_query"), "先查", "", None,
+                     (main,), kind=DecisionKind.AI_JUDGEMENT, task_id="t1")
+    other = replace(first, task_id="t2", outcome="再查")
+    wrong_task = Decision("a_ai_query", None, "查詢完成", "", None,
+                          (DecisionBasis("錯的接手", "", ""),),
+                          kind=DecisionKind.PROGRESS, task_id="t2")
+    right_task = replace(wrong_task, task_id="t1",
+                         basis=(DecisionBasis("正確接手", "", ""),))
+    changed = replace(scenario, path=(first, wrong_task, right_task, other))
+    state = replace(state, scenarios=(changed, *state.scenarios[1:]))
+    page = render_page(state, form_token="t", selected=scenario.code)
+    rounds = page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0]
+    assert rounds.count('class="ai-round-card"') == 2
+    assert "工作 t1" in rounds and "工作 t2" in rounds
+    assert "正確接手" in rounds and "錯的接手" not in rounds
+    assert "沒有留下接手紀錄" in rounds
+    assert "<script>" not in rounds and "&lt;script&gt;" in rounds
+
+
+def test_identical_ai_rounds_show_count_without_hundreds_of_cards() -> None:
+    state = make_demo_state(running=False)
+    scenario = state.scenarios[0]
+    main = DecisionBasis("base: budget=100", "選 A", "選 A，先查", "錄製回應")
+    path = tuple(
+        replace(Decision("a_ai", ("a_ai", "a_ai_query"), "先查", "", None,
+                         (main,), kind=DecisionKind.AI_JUDGEMENT), task_id=f"t{i}")
+        for i in range(300)
+    )
+    changed = replace(scenario, path=path)
+    state = replace(state, scenarios=(changed, *state.scenarios[1:]))
+    page = render_page(state, form_token="t", selected=scenario.code)
+    rounds = page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0]
+    assert "共 300 筆工作" in rounds
+    assert rounds.count('class="ai-round-card"') == 1
+
+
+def test_exam_verdict_is_visually_separate_from_scenario_result() -> None:
+    state = make_demo_state(running=False)
+    scenario = state.scenarios[4]
+    changed = replace(scenario, exam="錄製當時的 AI 回答:考題沒通過",
+                      result_summary="情境完成")
+    state = replace(state, scenarios=(*state.scenarios[:4], changed, *state.scenarios[5:]))
+    page = render_page(state, form_token="t", selected=ScenarioCode.F5)
+    hero = page.split('class="decision-hero"', 1)[1].split('</section>', 1)[0]
+    verdict = page.split('class="exam-verdict ai-exam"', 1)[1].split('</p>', 1)[0]
+    assert "情境完成" in hero and "模型考題沒通過" not in hero
+    assert "模型考題沒通過" in verdict
+    assert "AI 回答的考題未過，與情境是否完成分開看" in verdict
+    assert not _unexplained(_visible_text_outside_verbatim(page), "模型")
+
+
+def test_unreached_fault_keeps_its_fixed_label_with_plain_explanation() -> None:
+    state = make_demo_state(running=False)
+    scenario = replace(state.scenarios[1], status=ScenarioStatus.NOT_EXERCISED)
+    state = replace(state, scenarios=(state.scenarios[0], scenario, *state.scenarios[2:]))
+    page = render_page(state, form_token="t", selected=ScenarioCode.F2)
+    assert "AI 判不提案,故障處理這次沒有走到" in page
+    assert "不提出調整建議；本次未觸發故障處理" in page
+    assert not _unexplained(_visible_text_outside_verbatim(page), "提案")
 
 
 def test_every_scenario_flow_moves_right_and_decision_numbers_match_cards() -> None:
@@ -728,8 +823,9 @@ def test_back_arrows_return_to_formal_target_outside_the_lanes() -> None:
         path = returned.find("path")
         assert path is not None and "stroke" not in path.attrib
         coordinates = [int(value) for value in re.findall(r"\d+", path.get("d", ""))]
-        assert coordinates[3] in {24, 775}
-        assert coordinates[5] in {24, 775}
+        height = int(root.get("viewBox", "").split()[3])
+        assert coordinates[3] in {24, height - 25}
+        assert coordinates[5] in {24, height - 25}
         label = returned.find("text")
         assert label is not None and label.text is not None
         assert label.text.startswith("回到：")
@@ -892,6 +988,12 @@ def _visible_text_outside_verbatim(markup: str) -> str:
 
 
 def _unexplained(text: str, term: str) -> bool:
+    if term == "模型":
+        text = text.replace("模型考題沒通過 （AI 回答的考題未過，與情境是否完成分開看）", "")
+    if term == "提案":
+        text = text.replace(
+            "AI 判不提案,故障處理這次沒有走到（不提出調整建議；本次未觸發故障處理）", ""
+        )
     return term in re.sub(rf"{re.escape(term)}（[^（）]+）", "", text)
 
 

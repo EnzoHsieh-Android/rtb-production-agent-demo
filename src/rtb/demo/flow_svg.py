@@ -43,9 +43,6 @@ _LANE_HEIGHT: Final = 140
 LANE_ORDER: Final = ("分析", "收件", "執行", "廣告平台", "人工")
 
 
-_FLOW_HEIGHT: Final = len(LANE_ORDER) * _LANE_HEIGHT + 100
-
-
 _GROUP_ID: Final = "analysis_group"
 
 
@@ -131,6 +128,7 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         view = _FlowView((*view.nodes, advisory), view.active_edges,
                          view.visited | {advisory.id}, view.groups)
     positions, lanes, width = _flow_layout(view.nodes)
+    height = len(lanes) * _LANE_HEIGHT + 100
     lane_bands = _render_lane_bands(lanes, width)
     lane_labels = "".join(
         f'<div class="flow-lane">{escape_text(lane.name)}</div>' for lane in lanes
@@ -167,7 +165,7 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         )
         for node in view.nodes
     )
-    back = "".join(_render_back_edge(view.nodes, node.id, positions, width, marker_id)
+    back = "".join(_render_back_edge(view.nodes, node.id, positions, width, height, marker_id)
                    for node in view.nodes)  # 路徑中段的回頭轉換也畫(代碼審 r2 g6)
     queued = "x_pending" in {node.id for node in view.nodes}
     handoff = _render_handoff(positions, queued=queued)
@@ -182,6 +180,8 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         f"交給另一段程式；在排隊等了 {wait}"
         if queued else "交給另一段程式；收件後沒有進入執行佇列"
     )
+    later = ('<p class="flow-later">後續階段這次未進入</p>'
+             if len(lanes) < len(LANE_ORDER) else '')
     return (
         '<div class="flow-toolbar"><p><strong>實線</strong>是這次走過的路徑；'
         '淡色虛線是沒走的分支；回頭箭頭表示回到前一步。</p>'
@@ -190,18 +190,19 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         '<span class="legend-external">外部平台</span>'
         '<span>✓ 已經過</span><span>▶ 正在處理</span></p>'
         f'<p class="ai-boundary">{escape_text(_ai_boundary(scenario))}</p></div>'
-        f'<p class="queue-note">{escape_text(queue_note)}</p>'
+        f'<p class="queue-note">{escape_text(queue_note)}</p>{later}'
         '<div class="diagram-view">'
         f'<input class="diagram-zoom" type="checkbox" id="zoom-{scenario.code.value}">'
         '<div class="diagram-actions"><span>處理流程 · 可左右捲動閱讀</span>'
         f'<label for="zoom-{scenario.code.value}"><span class="zoom-out">完整總覽</span>'
         '<span class="zoom-in">清楚閱讀</span></label></div>'
-        '<div class="diagram-frame"><div class="flow-lanes" aria-label="處理角色">'
+        f'<div class="diagram-frame lane-count-{len(lanes)}">'
+        '<div class="flow-lanes" aria-label="處理角色">'
         f'{lane_labels}</div><div class="flow-scroll" tabindex="0" '
         'role="region" aria-label="處理流程，可使用左右方向鍵捲動"><div class="flow-canvas">'
         f'<svg class="flow-graph" role="img" aria-label="{escape_text(scenario.code.value)} '
-        f'處理流程圖" viewBox="0 0 {width} {_FLOW_HEIGHT}" '
-        f'width="{width}" height="{_FLOW_HEIGHT}"><defs>'
+        f'處理流程圖" viewBox="0 0 {width} {height}" '
+        f'width="{width}" height="{height}"><defs>'
         f'<marker id="{marker_id}" markerWidth="8" '
         'markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" '
         'class="arrow-head"></path></marker></defs>'
@@ -300,14 +301,15 @@ def _branch_to_endpoint(
 def _flow_layout(
     nodes: tuple[FlowNode, ...],
 ) -> tuple[dict[str, tuple[int, int]], tuple[_LaneBand, ...], int]:
-    """五列各佔 140px；群組加寬，其餘節點保持可讀間距。"""
+    """只保留最後一條有節點的泳道以前的列；群組加寬，其餘節點保持可讀間距。"""
     positions: dict[str, tuple[int, int]] = {}
     x = 24
     for node in nodes:
         positions[node.id] = (x, 50 + LANE_ORDER.index(node.lane) * _LANE_HEIGHT + 30)
         x += _node_width(node) + 64
+    last_lane = max(LANE_ORDER.index(node.lane) for node in nodes)
     lanes = tuple(_LaneBand(lane, 50 + index * _LANE_HEIGHT, _LANE_HEIGHT - 4)
-                  for index, lane in enumerate(LANE_ORDER))
+                  for index, lane in enumerate(LANE_ORDER[:last_lane + 1]))
     last = nodes[-1]
     return positions, lanes, positions[last.id][0] + _node_width(last) + 12
 
@@ -460,7 +462,7 @@ def _node_width(node: FlowNode) -> int:
 
 def _render_back_edge(
     nodes: tuple[FlowNode, ...], node_id: str, positions: dict[str, tuple[int, int]],
-    width: int, marker_id: str,
+    width: int, height: int, marker_id: str,
 ) -> str:
     from rtb.demo.flow import BACK_TRANSITIONS
 
@@ -473,7 +475,7 @@ def _render_back_edge(
     source_x, source_y = positions[back.node]
     target_x, target_y = positions[target]
     top = back.lane == "分析"
-    rail_y = 24 if top else _FLOW_HEIGHT - 25
+    rail_y = 24 if top else height - 25
     source_end = source_y if top else source_y + _NODE_HEIGHT
     target_end = target_y if top else target_y + (100 if target in _GROUP_IDS else _NODE_HEIGHT)
     start_x = source_x + _NODE_WIDTH // 2
