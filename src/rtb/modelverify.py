@@ -39,6 +39,11 @@ EXIT_OK = 0
 EXIT_NOT_WRITTEN = 5  # 有項目沒過:不寫紀錄,即時模式不開
 EXIT_NO_CLAUDE = 6
 TIMEOUT_SECONDS = 120.0
+# 設定來源對照組(拿掉壓制參數、讀到連不到的 API 位址)的逾時。協調者 2026-09-25 用 claude 2.1.281
+# 真實測:對照組對連不到的位址一直重試,120 秒逾時整組被殺;同一次實測裡同一句短提示帶壓制參數的
+# 主呼叫 3.3 秒成功、其他短呼叫 3.1 到 7.6 秒。對照組本來就該失敗,逾時算「對照失敗」;30 秒是短呼叫
+# 實測最久值的約 4 倍,真的讀不到毒值時對照組早就成功回來,不會被誤判成失敗
+CONTROL_TIMEOUT_SECONDS = 30.0
 OUTPUT_CAP = 32
 # 撞頂後允許的總輸出:上限的 1 + 續寫次數 倍(使用者 2026-09-25 裁定:claude 2.1.281 上限 32 時
 # 續寫 3 次、num_turns=4、output_tokens=128,最後回「超過輸出上限」的錯誤;續寫次數住在模型用戶端
@@ -71,10 +76,11 @@ class Verification:
             self.checks.get(name) is True for name in cc.REQUIRED_CHECKS)
 
 
-def _request(prompt: str, max_output_tokens: int, demo_id: str | None = None
-             ) -> core.ModelRequest:
+def _request(prompt: str, max_output_tokens: int, demo_id: str | None = None,
+             timeout_seconds: float | None = None) -> core.ModelRequest:
     return core.ModelRequest(core.Caller.VERIFICATION, SYSTEM_PROMPT, prompt, max_output_tokens,
-                             TIMEOUT_SECONDS, demo_id=demo_id)
+                             TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds,
+                             demo_id=demo_id)
 
 
 def _call(model: str, prompt: str, max_output_tokens: int) -> core.BackendCall:
@@ -120,24 +126,29 @@ class Checker:
         self.backend = cc.ClaudeCodeBackend(claude, environ, cc.Isolation.EMPTY_HOME)
         self.ledger = mc.live_ledger_path()
         self.demo_id = f"live-verification-{uuid.uuid4().hex[:8]}"
+        self.notes: dict[str, Any] = {}  # 逐項的觀察(例如對照組怎麼失敗的),跟參考資料一起寫進紀錄
 
     def _raw(self, args: list[str], prompt: str, max_output_tokens: int,
-             home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
+             home_files: Mapping[str, str] | None = None,
+             timeout_seconds: float | None = None) -> tuple[int, bytes, bytes]:
         return cc.run_claude(args, prompt, self.backend.child_env(max_output_tokens),
-                             TIMEOUT_SECONDS,
+                             TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds,
                              isolated_home=self.backend.isolation is cc.Isolation.EMPTY_HOME,
                              home_files=home_files)
 
     def run(self, args: list[str], prompt: str, max_output_tokens: int,
-            home_files: Mapping[str, str] | None = None) -> tuple[int, bytes, bytes]:
-        """真的呼叫一次模型:先預留(超過上限就丟本地上限拒絕、不呼叫),跑完照模型用戶端的結算規則記帳。"""
-        request = _request(prompt, max_output_tokens, self.demo_id)
+            home_files: Mapping[str, str] | None = None,
+            timeout_seconds: float | None = None) -> tuple[int, bytes, bytes]:
+        """真的呼叫一次模型:先預留(超過上限就丟本地上限拒絕、不呼叫),跑完照模型用戶端的結算規則記帳。
+        逾時照模型用戶端丟 ModelTimeout(先結算);要不要吞掉由各項自己決定。"""
+        request = _request(prompt, max_output_tokens, self.demo_id, timeout_seconds)
         reserved = core.reservation_nanousd(request, self.model)
         reservation_id = ledger_db.reserve(self.ledger, request, self.model,
                                            core.Backend.CLAUDE_CODE)
         started = time.monotonic()
         try:
-            code, stdout, stderr = self._raw(args, prompt, max_output_tokens, home_files)
+            code, stdout, stderr = self._raw(args, prompt, max_output_tokens, home_files,
+                                             request.timeout_seconds)
         except core.ModelCallFailed as failed:
             mc.settle_quietly(self.ledger, reservation_id, mc.settlement_for(
                 (None, failed), self.model, reserved, (time.monotonic() - started) * 1000))
@@ -241,16 +252,31 @@ class Checker:
 
     def settings_suppressed(self) -> bool:
         """使用者設定放命令列蓋不掉的毒值(env 裡連不到的 API 位址):帶組合參數要成功;不帶這些參數的
-        正面對照必須失敗(證明毒值真的會被讀到,否則這項驗不出東西)。只在空暫存 HOME 隔離下驗得了。"""
+        正面對照必須失敗(證明毒值真的會被讀到,否則這項驗不出東西)。只在空暫存 HOME 隔離下驗得了。
+        協調者 2026-09-25 真實測:對照組讀到毒值後一直重試到逾時——對照組逾時算「對照失敗」
+        (預期),用較短的 CONTROL_TIMEOUT_SECONDS;帶壓制參數的主呼叫逾時算這項沒過;兩種逾時都
+        不讓整個實測中斷。"""
         if self.backend.isolation is not cc.Isolation.EMPTY_HOME:
             return False  # 真 HOME 不能放對照用的設定檔
         poison = {".claude/settings.json": POISON_SETTINGS}
         args = self.command_for(SHORT_PROMPT, 50)
-        code, stdout, _ = self.run(args, SHORT_PROMPT, 50, poison)
-        control_code, control_out, _ = self.run(_without(args, SUPPRESSION_FLAGS), SHORT_PROMPT,
-                                                50, poison)
-        control_failed = control_code != 0 or not _succeeded(_json(control_out))
-        return code == 0 and _succeeded(_json(stdout)) and control_failed
+        try:
+            code, stdout, _ = self.run(args, SHORT_PROMPT, 50, poison)
+        except core.ModelTimeout:
+            self.notes["settings_main"] = "timeout"
+            return False  # 主呼叫掛住:壓制參數沒讓它正常回來,不用再跑對照
+        self.notes["settings_main"] = "ok" if code == 0 and _succeeded(_json(stdout)) else "failed"
+        try:
+            control_code, control_out, _ = self.run(
+                _without(args, SUPPRESSION_FLAGS), SHORT_PROMPT, 50, poison,
+                timeout_seconds=CONTROL_TIMEOUT_SECONDS)
+        except core.ModelTimeout:
+            self.notes["settings_control"] = "timeout"
+            control_failed = True
+        else:
+            control_failed = control_code != 0 or not _succeeded(_json(control_out))
+            self.notes["settings_control"] = "failed" if control_failed else "succeeded"
+        return self.notes["settings_main"] == "ok" and control_failed
 
     def references(self) -> dict[str, Any]:
         _, stdout, _ = self.run(self.command_for(SHORT_PROMPT, 50), SHORT_PROMPT, 50)
@@ -258,7 +284,8 @@ class Checker:
         usage = data.get("usage") if data is not None and _succeeded(data) else None
         code, _, stderr = self._raw([str(self.claude), "--rtb-no-such-flag"], "", 1)  # 不呼叫模型
         return {"fixed_input_tokens_seen": _fixed_input(usage), "bad_argument_exit_code": code,
-                "bad_argument_stderr": stderr.decode("utf-8", errors="replace")[:500]}
+                "bad_argument_stderr": stderr.decode("utf-8", errors="replace")[:500],
+                **self.notes}
 
 
 def _fixed_input(usage: object) -> int | None:

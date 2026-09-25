@@ -8,7 +8,9 @@
 
 import io
 import json
+import sqlite3
 import sys
+import time
 from pathlib import Path
 
 from rtb import modelclaude as cc
@@ -75,6 +77,10 @@ if cap and mode in ("default_cap_error", "cap_error", "continued", "continued_ov
                   result=("API Error: Claude's response exceeded the "
                           f"{{limit}} output token maximum"))
     print(json.dumps(result)); sys.exit(1)
+if CONFIG["hang_on_poison"] and poisoned:  # 讀到毒設定就一直重試連不到的位址、掛住不回
+    import time; time.sleep(600)
+if CONFIG["hang_suppressed"] and suppressed and os.path.exists(settings):  # 帶壓制參數也掛住
+    import time; time.sleep(600)
 if poisoned or CONFIG["api_error"]:
     result.update(is_error=True, subtype="error", result="API Error: 400 bad request",
                   usage={{"input_tokens": 0, "output_tokens": 0}})
@@ -90,7 +96,7 @@ GOOD = {"login_with_token": False, "echo_token": False, "login_empty_home": True
         "contrast_changes": True, "tools_ignored": False, "output": "cap",
         "suppression_broken": False, "poison_readable": True, "hook_events": False,
         "memory_loaded": False, "memory_readable": True, "input_tokens": 3900,
-        "api_error": False}
+        "api_error": False, "hang_on_poison": False, "hang_suppressed": False}
 
 
 def _claude(tmp_path, **overrides):
@@ -276,3 +282,43 @@ def test_the_reservation_pays_for_four_times_the_output_cap():
 
     price = core.PRICES[core.DEFAULT_MODEL]
     assert budget(101) - budget(100) >= 4 * price.output_nanousd
+
+
+# ---- 協調者 2026-09-25 真實測:設定來源對照組讀到連不到的位址,claude 一直重試到 120 秒逾時 ----
+def _timeouts_by_call():
+    with sqlite3.connect(mc.live_ledger_path()) as db:
+        return db.execute("select r.timeout_seconds, s.outcome from model_reservations r join "
+                          "model_settlements s on s.reservation_id = r.id order by r.id").fetchall()
+
+
+def test_a_hanging_settings_control_counts_as_the_expected_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(modelverify, "CONTROL_TIMEOUT_SECONDS", 1.0)
+    script = _claude(tmp_path, hang_on_poison=True)
+    started = time.monotonic()
+    code, text = _run(script)
+    assert code == modelverify.EXIT_OK, text
+    assert "- setting_sources_suppress_user_settings:過" in text
+    assert time.monotonic() - started < 60  # 對照組用短逾時,不是主呼叫的 120 秒
+    record = json.loads(cc.verification_path().read_text(encoding="utf-8"))
+    assert record["notes"]["settings_control"] == "timeout"
+    assert (modelverify.CONTROL_TIMEOUT_SECONDS, "timeout") in _timeouts_by_call()
+
+
+def test_a_hanging_suppressed_settings_call_fails_the_check_without_aborting(tmp_path,
+                                                                             monkeypatch):
+    monkeypatch.setattr(modelverify, "TIMEOUT_SECONDS", 1.0)
+    script = _claude(tmp_path, hang_suppressed=True)
+    code, text = _run(script)
+    assert code == modelverify.EXIT_NOT_WRITTEN, text
+    assert "實測沒跑完" not in text  # 整個實測沒有中斷:每一項都照實印出
+    assert "- setting_sources_suppress_user_settings:沒過" in text
+    for name in cc.REQUIRED_CHECKS:
+        if name != "setting_sources_suppress_user_settings":
+            assert f"- {name}:過" in text, (name, text)
+    assert not cc.verification_path().exists()
+    assert (1.0, "timeout") in _timeouts_by_call()
+
+
+def test_the_settings_control_timeout_is_shorter_than_the_main_call():
+    assert modelverify.CONTROL_TIMEOUT_SECONDS == 30.0
+    assert modelverify.CONTROL_TIMEOUT_SECONDS < modelverify.TIMEOUT_SECONDS == 120.0
