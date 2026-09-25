@@ -800,3 +800,20 @@ def test_continued_output_falls_back_without_stopping_the_evaluation(tmp_path):
     for case in run.scored:
         assert case.final is policy.code_rule(case.scenario.worth_input), case
         assert case.path is not policy.RoutePath.CANDIDATE
+
+
+def test_the_output_cap_error_does_not_stop_the_evaluation(tmp_path):
+    """使用者 2026-09-25 裁定延伸(協調者):撞頂錯誤(真實樣本)是普通失敗,退回規則、評估不停;
+    認不出的錯誤照舊無法可靠分類、停下。"""
+    text = ("API Error: Claude's response exceeded the 32 output token maximum. To configure "
+            "this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment variable.")
+    script = fake_claude(tmp_path / "bin", claude_json(text, is_error=True, num_turns=4), code=1)
+    candidate = _candidate(tmp_path, live(cc.ClaudeCodeBackend(script)))
+    scenarios = _subset()[:4]
+    run = model_candidate.run_subset(scenarios, candidate, 5.0)
+    assert run.stopped is None and len(run.rows) == len(scenarios)
+    assert {r.outcome for r in run.rows} == {"unreadable"}
+    other = fake_claude(tmp_path / "odd", claude_json("???", is_error=True), code=1)
+    (tmp_path / "o").mkdir()
+    odd = _candidate(tmp_path / "o", live(cc.ClaudeCodeBackend(other)))
+    assert model_candidate.run_subset(scenarios, odd, 5.0).stopped is not None

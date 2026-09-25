@@ -331,3 +331,37 @@ def test_continued_turns_without_denials_are_an_ordinary_failure(tmp_path, monke
     # 批次驗收用同一個子原因字串把它算失敗類錄製(兩支檔不互相匯入,這裡核對)
     from rtb import modelrecording
     assert cc.OUTPUT_CONTINUED in modelrecording.FAILED_BATCH_SUB_REASONS
+
+
+# ---- 使用者 2026-09-25 裁定延伸(協調者):撞頂錯誤的真實樣本 ----
+# 協調者 2026-09-25 用 claude 2.1.281 實測的原文(上限 32、續寫三次後回的錯誤)
+OUTPUT_CAP_ERROR = ("API Error: Claude's response exceeded the 32 output token maximum. To "
+                    "configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment "
+                    "variable.")
+
+
+def test_the_output_cap_error_is_an_ordinary_failure(tmp_path):
+    """用程式裡真正的 KNOWN_ERRORS(不換):撞頂錯誤歸回應讀不懂、子原因跟續寫同一個(批次驗收算失敗類),
+    不標無法可靠分類、不標工具使用;只收這一種,其他錯誤訊息照舊無法可靠分類。"""
+    req = request(max_output_tokens=100)
+    reserved = core.reservation_nanousd(req, mc.DEFAULT_MODEL)
+    for name, text in (("real_sample", OUTPUT_CAP_ERROR),
+                       ("other_cap", OUTPUT_CAP_ERROR.replace(" 32 ", " 1024 "))):
+        script = fake_claude(tmp_path / name, claude_json(text, is_error=True, num_turns=4),
+                             code=1)
+        with pytest.raises(mc.UnreadableModelResponse) as failed:
+            _call(tmp_path, script, req, name)
+        assert failed.value.sub_reason == cc.OUTPUT_CONTINUED, name
+        assert (failed.value.unclassified, failed.value.tool_use) == (False, False), name
+        [row] = _rows(tmp_path / f"{name}.sqlite")
+        assert (row.outcome, row.sub_reason, row.effective_nanousd) == (
+            "unreadable", cc.OUTPUT_CONTINUED, reserved), name
+    for name, text in (("no_number", "API Error: Claude's response exceeded the output token "
+                                     "maximum."),
+                       ("word_number", OUTPUT_CAP_ERROR.replace(" 32 ", " many ")),
+                       ("overloaded", "API Error: 529 overloaded"),
+                       ("usage_limit", "Claude AI usage limit reached")):
+        script = fake_claude(tmp_path / name, claude_json(text, is_error=True), code=1)
+        with pytest.raises(mc.TransientServiceError) as failed:
+            _call(tmp_path, script, req, name)
+        assert failed.value.unclassified is True, name
