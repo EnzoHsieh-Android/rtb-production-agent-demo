@@ -154,7 +154,7 @@ def test_concurrent_reservations_never_exceed_the_cap(dirs):
     release = threading.Event()
 
     def slow(_call):
-        release.wait(5)
+        release.wait(30)
         return reply("x", input_tokens=0, output_tokens=0)
 
     # Phase 13 改寫:不計入上限的呼叫者先在同一個展示花掉超過 1 美元,不影響計入上限的呼叫者的加總
@@ -178,10 +178,11 @@ def test_concurrent_reservations_never_exceed_the_cap(dirs):
     threads = [threading.Thread(target=worker) for _ in range(8)]
     for thread in threads:
         thread.start()
-    deadline = time.monotonic() + 10
-    while len(backend.calls) < 3 and time.monotonic() < deadline:
+    # 等 8 條都走完預留:3 條卡在後端、其餘被拒(拒絕寫進 outcomes)。只等固定時間的話,慢機器上
+    # 有幾條會在放行之後才預留,那時前面已結算成 0 元,照規則又放得進去(2026-09-25 CI 實際發生)
+    deadline = time.monotonic() + 30
+    while len(backend.calls) + len(outcomes) < 8 and time.monotonic() < deadline:
         time.sleep(0.01)
-    time.sleep(0.2)  # 讓還沒預留的都走到預留那一步
     in_flight = ledger_db.used_so_far(dirs[1], "demo-1").demo_nanousd  # 預留都還沒結算
     release.set()
     for thread in threads:
