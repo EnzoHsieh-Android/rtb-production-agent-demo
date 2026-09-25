@@ -292,14 +292,14 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - [S1024] 流程圖定義應是有向無環圖,而且對應清單上每一個列舉(十九個,多了 Phase 13 的退回原因列舉)的每一個成員(以列舉類別加成員名為鍵)都對得到流程圖裡的一條邊或一個節點。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉改寫)[test:test_every_system_outcome_maps_onto_the_flow_graph]
 - [S1025] 程式的任務狀態與嘗試狀態轉換表裡每一條往回走的轉換,以及執行端代表放回待處理的生命週期事件種類,都應列在流程圖定義的回頭轉換清單裡並展開成新節點。[test:test_every_known_back_transition_is_unrolled]
 - [S1026] 對應清單上每一個列舉的每一個成員,處置說明對照表都應有一句白話說明。[test:test_every_disposition_has_a_plain_explanation]
-- [S1027] 當模型說明有成功結果時,頁面應先列程式算的數字、再列標示「AI 產生、僅供參考」(代使用者裁定 2026-09-25:依 Phase 12 白話規則,「模型」是術語,頁面標示改成「AI 產生、僅供參考」;Phase 13 增量 4 代碼審 r1 t2)與來源的模型文字;沒有成功結果時應顯示結果類別。[test:test_the_model_step_shows_computed_numbers_first_and_labels_the_text]
-- [S1028] 頁面顯示的模型模式應是模型入口實際判出的模式與原因,不是驅動程式自己推的。[test:test_the_page_shows_the_model_mode_the_entry_actually_chose]
-- [S1029] 每按一次觸發,驅動程式應產生一個新的展示編號,並把同一個編號傳給這次展示的每一個模型入口。[test:test_one_demo_id_per_trigger_reaches_every_model_entry]
-- [S1030] 當沒開即時開關時(用模型用戶端同一支判定,RTB_MODEL_LIVE=true 也算沒開),驅動程式應讓模型入口把花費帳記在這次展示的暫存目錄,不碰使用者家目錄下的真帳。[test:test_recorded_demos_book_into_a_temporary_ledger]
+- [S1027] 當模型說明有成功結果時,頁面應先列程式算的數字、再列標示「AI 產生、僅供參考」(代使用者裁定 2026-09-25:依 Phase 12 白話規則,「模型」是術語,頁面標示改成「AI 產生、僅供參考」;Phase 13 增量 4 代碼審 r1 t2)與來源的模型文字;沒有成功結果時應顯示結果類別。[test:test_the_model_step_shows_computed_numbers_first_and_labels_the_text] [test:test_the_narrative_shows_computed_numbers_first_and_its_source](2026-09-25 健檢發現原綁的測試不存在,Phase 13 增量 4 補:前一支在 tests/demo/test_model_entry_contracts.py 驗數字在前、標示與來源、再來是模型文字、沒成功顯示結果類別;後一支是增量 4 的頁面串接測試)
+- [S1028] 頁面顯示的模型模式應是模型入口實際判出的模式與原因,不是驅動程式自己推的。[test:test_the_page_shows_the_model_mode_the_entry_actually_chose] [test:test_a_listed_scenario_that_falls_back_books_into_its_temporary_ledger] [test:test_the_runner_prints_the_mode_it_chose_right_after_ready](2026-09-25 健檢發現原綁的測試不存在,Phase 13 增量 4 補:列在即時清單、驅動以為即時,分析端、說明、假說三支模型入口自己判成錄製,頁面照它們回報的模式、原因與來源顯示)
+- [S1029] 每按一次觸發,驅動程式應產生一個新的展示編號,並把同一個編號傳給這次展示的每一個模型入口。[test:test_one_demo_id_per_trigger_reaches_every_model_entry](2026-09-25 健檢發現原綁的測試不存在,Phase 13 增量 4 補:經展示伺服器觸發兩次,兩個展示編號不同,每次的分析端、說明、假說命令列拿到的 --demo-id 相同)
+- [S1030] 當沒開即時開關時(用模型用戶端同一支判定,RTB_MODEL_LIVE=true 也算沒開),驅動程式應讓模型入口把花費帳記在這次展示的暫存目錄,不碰使用者家目錄下的真帳。[test:test_recorded_demos_book_into_a_temporary_ledger] [test:test_a_listed_scenario_that_falls_back_books_into_its_temporary_ledger] [test:test_the_demo_uses_recordings_unless_live_is_switched_on](2026-09-25 健檢發現原綁的測試不存在,Phase 13 增量 4 補:RTB_MODEL_LIVE=true、情境列在即時清單、有叫得到的假 claude 與啟用紀錄,三支模型入口都判成錄製、沒叫 claude,帳記在情境暫存目錄、帳號家目錄下沒有帳)
 - [S1031] 展示頁應原樣顯示驗證器的輸出,擋下時逐條列出原因。[test:test_the_page_shows_the_verifier_output_verbatim]
 - [S1032] 當確認者在頁面上送出確認時,伺服器應在每個確認框都勾了、展示編號與提案雜湊對得上等人確認的那一筆、表單帶的數字摘要雜湊等於驅動程式記下的數字快照算出的雜湊時才簽發,否則拒絕。[test:test_an_approval_needs_every_computed_number_confirmed]
 - [S1033] 簽發確認要的 task_id、revision、提案雜湊、租戶設定檔、關卡、最大加額與提案決策到期應取自驅動程式記下的展示狀態,不取自表單;伺服器行程內簽發並寫進 F7 的執行端暫存資料庫,到期取 min(提案決策到期, 現在 + 固定秒數),確認人固定為 demo-operator。[test:test_the_approval_signature_takes_its_fields_from_the_demo_state_not_the_form]
-- [S1034] 當確認頁在同源(Sec-Fetch-Site 是 same-origin 或 none、Sec-Fetch-Dest 是 document)的請求下顯示模型說明時,伺服器應在 ~/.rtb/demo-reports/ 旁的收據檔追加一筆含提案雜湊、模型文字雜湊、來源與顯示時間的收據,同一份提案雜湊與模型文字雜湊只記一次,並寫進當次靜態報告;不符的請求照樣顯示頁面但不記;執行端應不讀它。[test:test_showing_a_model_note_on_the_approval_page_leaves_a_receipt]
+- [S1034] 當確認頁在同源(Sec-Fetch-Site 是 same-origin 或 none、Sec-Fetch-Dest 是 document)的請求下顯示模型說明時,伺服器應在 ~/.rtb/demo-reports/ 旁的收據檔追加一筆含提案雜湊、模型文字雜湊、來源與顯示時間的收據,同一份提案雜湊與模型文字雜湊只記一次,並寫進當次靜態報告;不符的請求照樣顯示頁面但不記;執行端應不讀它。[test:test_showing_a_model_note_on_the_approval_page_leaves_a_receipt](待增量 4 補做(2026-09-25 健檢發現未實作):確認頁目前沒有模型說明、也沒有收據,綁的測試不存在)
 - [S1035] 頁面上每一種情境狀態與驗證器通過或擋下都應有文字標示,不只靠顏色。[test:test_every_status_has_a_text_label]
 - [S1036] 頁面與樣式表應不請求任何外部資源(外部網址、@import、外部字型)。[test:test_the_page_and_stylesheet_load_nothing_external]
 - [S1037] 樣式表的深色與淺色兩組配色變數,文字與背景的對比都應至少 4.5 比 1。[test:test_both_colour_schemes_have_enough_contrast]
