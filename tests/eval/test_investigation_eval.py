@@ -599,6 +599,11 @@ def test_the_batch_check_goes_red_on_missing_failed_or_mixed_recordings(tmp_path
     assert any("設定錯誤" in p for p in ie.batch_problems(folder, ()))
     victim.write_text(json.dumps({**json.loads(saved), "unclassified": True}), encoding="utf-8")
     assert any("無法可靠分類" in p for p in ie.batch_problems(folder, ()))
+    # 撞頂自動續寫的失敗錄製(使用者 2026-09-25 裁定:普通失敗,但算失敗類錄製,入庫前擋下、要重錄)
+    continued = {**json.loads(saved), "outcome": "unreadable", "text": None,
+                 "sub_reason": "output_continued"}
+    victim.write_text(json.dumps(continued), encoding="utf-8")
+    assert any("輸出撞頂自動續寫" in p for p in ie.batch_problems(folder, ()))
     # 別批的錄製檔
     other = {**json.loads(saved), "batch_id": "phase13-eval-20260101"}
     victim.write_text(json.dumps(other), encoding="utf-8")

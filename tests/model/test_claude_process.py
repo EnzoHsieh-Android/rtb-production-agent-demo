@@ -138,8 +138,9 @@ def test_a_success_needs_the_success_subtype(tmp_path):
 
 
 def test_success_shaped_tool_use_is_flagged(tmp_path):
-    """成功形狀的回應帶多輪對話:除了讀不懂,也要標「偵測到工具使用」(評估據此停下)。"""
-    script = fake_claude(tmp_path / "c", claude_json(num_turns=3))
+    """成功形狀的回應帶權限被拒:除了讀不懂,也要標「偵測到工具使用」(評估據此停下)。只有多輪、
+    權限被拒清單空是撞頂續寫,不標(使用者 2026-09-25 裁定)。"""
+    script = fake_claude(tmp_path / "c", claude_json(num_turns=3, denials=[{"tool_name": "Bash"}]))
     with pytest.raises(mc.UnreadableModelResponse) as failed:
         mc.call_model(request(), live(cc.ClaudeCodeBackend(script)), recordings_dir=tmp_path,
                       ledger=tmp_path / "l.sqlite")

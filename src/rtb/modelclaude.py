@@ -99,6 +99,9 @@ class ErrorSample:
 # 取不到真實樣本的子類型程式裡就不認,一律落到「暫時性服務錯誤、無法可靠分類」(照預留結算,
 # 評估保守停下)。增量 1 實作時還沒有任何真實樣本,所以是空的,等協調者錄製時補。
 KNOWN_ERRORS: tuple[ErrorSample, ...] = ()
+# 不是錯誤的回應對話輪數大於 1、權限被拒清單空:Claude Code 撞到輸出上限後自動續寫(使用者 2026-09-25
+# 裁定:普通失敗,記成回應讀不懂加這個子原因,不標工具使用;批次驗收把它算失敗類錄製、要重錄)
+OUTPUT_CONTINUED = "output_continued"
 
 
 def _policy_files() -> list[Path]:
@@ -499,10 +502,15 @@ def _parse_output(returncode: int, stdout: bytes, stderr: bytes) -> dict[str, An
 
 
 def _tool_use_seen(data: Mapping[str, Any]) -> bool:
-    """錯誤回應的工具使用痕跡:對話輪數大於 1 或權限被拒清單非空(輪數 0 或缺欄位不算)。"""
-    turns, denials = data.get("num_turns"), data.get("permission_denials")
-    return (isinstance(turns, int) and not isinstance(turns, bool) and turns > 1) or (
-        isinstance(denials, list) and bool(denials))
+    """錯誤回應的工具使用痕跡:權限被拒清單非空。對話輪數大於 1 不算(撞頂自動續寫,使用者 2026-09-25
+    裁定)。"""
+    denials = data.get("permission_denials")
+    return isinstance(denials, list) and bool(denials)
+
+
+def _continued(turns: object, denials: object) -> bool:
+    """撞頂自動續寫的形狀:對話輪數是大於 1 的整數、權限被拒清單在而且是空的。"""
+    return isinstance(turns, int) and not isinstance(turns, bool) and turns > 1 and denials == []
 
 
 def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
@@ -520,14 +528,15 @@ def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
                                         reply=reply, unclassified=True)
     if _tool_use_seen(data):
         failure.tool_use = True
-        log.error("claude 的錯誤回應帶著工具使用的痕跡(對話輪數或權限被拒清單):評估應整批停下")
+        log.error("claude 的錯誤回應帶著工具使用的痕跡(權限被拒清單):評估應整批停下")
     return failure
 
 
 def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"") -> BackendReply:
     """回應判定五步(前一步不過就不看後面,[S904]):①起不起得來(在 `run_claude`)②讀成 JSON、有類型、
     子類型、是否錯誤三欄 ③是錯誤就先分子類型(再看有沒有工具使用痕跡)④不是錯誤才做工具使用偵測
-    (對話輪數 1、權限被拒清單空,[S936];不過就標工具使用)、子類型要是 success、欄位齊全
+    (對話輪數 1、權限被拒清單空,[S936];多輪而權限被拒清單空是撞頂自動續寫,判讀不懂、不標工具使用,
+    使用者 2026-09-25 裁定;其他不符標工具使用)、子類型要是 success、欄位齊全
     ⑤結束代碼非 0 → 暫時性、無法可靠分類。"""
     data = _parse_output(returncode, stdout, stderr)
     if data["is_error"]:
@@ -535,6 +544,9 @@ def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"") -> Backend
     result = data.get("result")
     reply = _usage_of(data, result if isinstance(result, str) else "")
     turns, denials = data.get("num_turns"), data.get("permission_denials")
+    if _continued(turns, denials):
+        log.warning("claude 撞到輸出上限後自動續寫(對話輪數 %s、沒有權限被拒):這一次算失敗", turns)
+        raise UnreadableModelResponse("輸出撞頂自動續寫", sub_reason=OUTPUT_CONTINUED, reply=reply)
     if isinstance(turns, bool) or turns != 1 or denials != []:
         failure = UnreadableModelResponse("回應有工具使用的痕跡", sub_reason="tool_use",
                                           reply=reply)

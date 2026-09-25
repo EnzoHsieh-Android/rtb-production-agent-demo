@@ -407,9 +407,13 @@ def test_the_evaluation_stops_at_the_cap_or_a_setup_error(  # noqa: PLR0915 - �
     calls, text = run("flaky", output=claude_json("overloaded", is_error=True), code=1)
     # 認得的暫時性錯誤不停;每次照預留結算,這一個展示編號跑到 1 美元才被本地上限擋下
     assert calls > 1 and "無法可靠分類" not in text and "停在第 1 個" not in text
-    calls, text = run("toolish", output=claude_json("overloaded", is_error=True, num_turns=2),
+    calls, text = run("toolish", output=claude_json("overloaded", is_error=True, num_turns=2,
+                                                    denials=[{"tool_name": "Bash"}]), code=1)
+    assert calls == 1 and "偵測到工具使用" in text  # 認得的暫時性錯誤,但帶權限被拒就停
+    # 只有多輪、權限被拒清單空(撞頂自動續寫,使用者 2026-09-25 裁定):不算工具使用,不停
+    calls, text = run("continued", output=claude_json("overloaded", is_error=True, num_turns=4),
                       code=1)
-    assert calls == 1 and "偵測到工具使用" in text  # 認得的暫時性錯誤,但帶工具使用痕跡就停
+    assert calls > 1 and "偵測到工具使用" not in text and "停在第 1 個" not in text
     calls, text = run("odd", output=claude_json("???", is_error=True), code=1)
     assert calls == 1 and "未跑完" in text and "無法可靠分類" in text  # 認不出的就停
     monkeypatch.setattr(cc, "KNOWN_ERRORS", ())
@@ -554,7 +558,8 @@ def test_a_shared_failure_is_not_counted_as_sent(tmp_path):
 
 
 def test_success_shaped_tool_use_stops_the_evaluation(tmp_path):
-    script = fake_claude(tmp_path / "bin", claude_json('{"verdict": "worth"}', num_turns=3))
+    script = fake_claude(tmp_path / "bin", claude_json('{"verdict": "worth"}', num_turns=3,
+                                                       denials=[{"tool_name": "Bash"}]))
     candidate = _candidate(tmp_path, live(cc.ClaudeCodeBackend(script)))
     run = model_candidate.run_subset(_subset()[:4], candidate, 5.0)
     assert run.stopped == "tool_use" and len(run.rows) == 1
@@ -780,3 +785,18 @@ def _ledger_rows(ledger):
             return reader.calls_between("0000", "9999")
     finally:
         reader.close()
+
+
+def test_continued_output_falls_back_without_stopping_the_evaluation(tmp_path):
+    """使用者 2026-09-25 裁定:多輪但權限被拒清單空(撞頂自動續寫)是普通失敗——這一格退回現行規則,
+    評估不整批停下,每個情境都照跑、各記一筆讀不懂。"""
+    script = fake_claude(tmp_path / "bin", claude_json('{"verdict": "worth"}', num_turns=2))
+    candidate = _candidate(tmp_path, live(cc.ClaudeCodeBackend(script)))
+    scenarios = _subset()[:4]
+    run = model_candidate.run_subset(scenarios, candidate, 5.0)
+    assert run.stopped is None and len(run.rows) == len(scenarios)
+    assert {r.outcome for r in run.rows} == {"unreadable"}
+    assert all(a.tool_use is False for a in candidate.attempts)
+    for case in run.scored:
+        assert case.final is policy.code_rule(case.scenario.worth_input), case
+        assert case.path is not policy.RoutePath.CANDIDATE
