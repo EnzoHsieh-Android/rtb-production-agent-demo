@@ -23,9 +23,16 @@ from rtb.analyzer import investigation as inv
 from rtb.analyzer import policy
 from rtb.analyzer.task_store import InvestigationRecord
 from rtb.domain.worth import WorthVerdict
-from rtb.eval.adoption import NO_MONITORING, Measure, OperationalLimits, operational_problems
+from rtb.eval.adoption import (
+    MARKED,
+    NO_MONITORING,
+    UNSENT,
+    Measure,
+    OperationalLimits,
+    operational_problems,
+    threshold_marks,
+)
 from rtb.eval.investigation_cases import VERDICT, Case, Cell, worth_input
-from rtb.eval.model_candidate import MARKED, UNSENT, threshold_marks
 
 # 本計劃給調查決策點的門檻(〈花費帳與採用判定〉):成本不設門檻;延遲 p95 3 秒、失敗率 1% 沿用使用者
 # 裁定,延遲中位 3 秒沿用 Phase 11B 協調者補的同一個值

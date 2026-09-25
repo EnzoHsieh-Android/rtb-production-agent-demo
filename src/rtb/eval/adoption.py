@@ -254,3 +254,34 @@ def decide_adoption(
     return Adoption(cells=tuple(decisions), validated=validated, adopt=adopt,
                     reasons=() if adopt else (*NOT_ADOPTED_REASONS, *dict.fromkeys(shared)),
                     missing_evidence=tuple(missing))
+
+
+# ---- 逐欄判定(Phase 11B 模型候選與 Phase 13 調查評估共用;Phase 13 增量 3 代碼審 r2 從模型候選搬來,
+# 報告模組不必匯入會送出的模型候選) ----
+# 沒有呼叫模型的結果類別(沒有錄製、花費帳忙碌、本地上限拒絕、設定錯誤):不算進比率,另外列件數。寫成
+# 字面值,採用判定模組照舊不碰模型用戶端;測試核對跟模型用戶端的結果類別一致(同分析端說明領取的做法)
+UNSENT = frozenset({"no_recording", "ledger_busy", "local_cap_refused", "config_error"})
+MARKED = (("cost_per_call_usd", "每次成本", "cost"), ("latency_median_us", "延遲中位", "median"),
+          ("latency_p95_us", "延遲 p95", "p95"), ("format_failure_rate", "格式失敗率", "rate"),
+          ("exception_rate", "例外率", "rate"), ("timeout_rate", "逾時率", "rate"),
+          ("fallback_rate", "退回率", "rate"))
+
+
+def threshold_marks(row: MeasuredRow, limits: OperationalLimits) -> Mapping[str, str]:
+    """逐欄標過或沒過(門檻是使用者裁定的常數,不依結果調整)。門檻的 cost_exempt 為真時,成本那一欄
+    寫「不設門檻」、不比大小(Phase 13 [S1155])。"""
+    bars = {"cost": limits.cost_per_call_usd, "median": limits.latency_median_us,
+            "p95": limits.latency_p95_us, "rate": limits.failure_rate}
+    marks = {}
+    for name, _label, bar_kind in MARKED:
+        measure: Measure = getattr(row, name)
+        bar = bars[bar_kind]
+        if bar_kind == "cost" and limits.cost_exempt:
+            marks[name] = NO_COST_GATE
+        elif not measure.measured or measure.value is None:
+            marks[name] = "沒量"
+        elif bar is None:
+            marks[name] = "門檻未定"
+        else:
+            marks[name] = "過" if measure.value <= bar else "沒過"
+    return marks

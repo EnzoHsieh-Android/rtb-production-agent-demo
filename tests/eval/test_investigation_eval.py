@@ -791,22 +791,16 @@ def test_cost_exempt_ignores_an_unmeasured_cost():
     assert adoption.operational_problems(free, priced) == ["這一格的比較表有沒量或不合法的欄位"]
 
 
-def test_live_recording_must_go_to_a_fresh_directory(tmp_path, monkeypatch):
-    """代碼審 r1 e1:即時加錄製沒帶 --recordings-dir、或路徑落在入庫目錄(recordings/model/
-    底下)就拒絕開始,結束代碼非 0、不寫任何錄製、不呼叫模型;重播模式預設才用入庫目錄。"""
-    root = tmp_path / "recordings" / "model"
-    monkeypatch.setattr(ie, "COMMITTED_ROOT", root)
-    monkeypatch.setattr(ie, "DEFAULT_RECORDINGS", root / "phase13-investigation-eval")
+def test_live_recording_must_go_to_a_fresh_directory(tmp_path):
+    """代碼審 r1 e1:即時加錄製沒帶 --recordings-dir 就拒絕開始,結束代碼非 0、不寫任何錄製、不呼叫
+    模型;重播模式預設才用入庫目錄。落在入庫目錄底下的判準在共用的開錄前目錄檢查(代碼審 r2,見
+    test_every_live_recording_entry_refuses_the_committed_directory)。"""
     script = fake_claude(tmp_path / "bin", claude_json("{}"))
     environ = _live_env(script.parent)
-    base = ["--demo-id", "eval-1", "--batch-id", BATCH]
-    code, _, err = _cli(base, environ)
-    assert code == ie.EXIT_REFUSED and "新的錄製目錄" in err
-    code, _, err = _cli([*base, "--recordings-dir", str(root / "other")], environ)
-    assert code == ie.EXIT_REFUSED and "入庫目錄" in err
-    code, _, err = _cli([*base, "--recordings-dir", str(root / "x" / ".." / "y")], environ)
-    assert code == ie.EXIT_REFUSED
-    assert not root.exists() and invocations(script) == []
+    before = sorted(mc.default_recordings_dir().rglob("*"))
+    code, _, err = _cli(["--demo-id", "eval-1", "--batch-id", BATCH], environ)
+    assert code == ie.EXIT_REFUSED and "--recordings-dir" in err
+    assert sorted(mc.default_recordings_dir().rglob("*")) == before and invocations(script) == []
     replay, _ = _replay_env(tmp_path)
     code, out, _ = _cli(["--ledger", str(tmp_path / "l.sqlite")], replay)
     assert code == ie.EXIT_OK and "phase13-investigation-eval" in out
@@ -861,3 +855,79 @@ def test_stored_query_results_pass_the_read_layer_checks():
         assert dsp_client.check_daily(results["check_daily_trend"], campaign) is not None
         assert dsp_client.check_adjustments(results["check_past_adjustments"], campaign) is not None
         assert dsp_client.check_history(results["check_change_history"]) is not None
+
+
+# ---- 代碼審 r2(2026-09-25)----
+def _committed_variants(tmp_path):
+    """入庫目錄底下的幾種寫法:還不存在的子目錄、經符號連結、大小寫不同(只在不分大小寫的檔案系統)。"""
+    root = mc.default_recordings_dir()
+    assert root.is_dir()
+    variants = [root / "r2-newsub" / "deeper", root / "phase13-investigation-eval"]
+    link = tmp_path / "link"
+    link.symlink_to(root, target_is_directory=True)
+    variants.append(link / "r2-newsub")
+    upper = Path(str(root).replace("recordings/model", "Recordings/Model"))
+    if upper != root and upper.exists():  # macOS 預設不分大小寫;分大小寫的機器上這個路徑不存在
+        variants.append(upper / "r2-newsub")
+    return variants
+
+
+def test_every_live_recording_entry_refuses_the_committed_directory(tmp_path):
+    """代碼審 r2 a1/v1:「即時加錄製不准寫進入庫目錄」只有一套判準,在共用的開錄前目錄檢查裡:入庫根
+    (門面的預設錄製目錄)底下的任何路徑——還不存在的子目錄、經符號連結、大小寫不同——四個入口都拒絕;
+    重播照舊能讀入庫目錄;入庫目錄以外的新目錄照舊放行。"""
+    from argparse import Namespace
+
+    from rtb.ops import hypothesis
+
+    script = fake_claude(tmp_path / "bin", claude_json("{}"))
+    environ = _live_env(script.parent)
+    for target in _committed_variants(tmp_path):
+        with pytest.raises(mc.MixedRecordingsDir, match="入庫"):
+            mc.check_recordings_dir(target, BATCH)
+        # runner(經 AI 決策模組開閘道)與說明命令列都經模型閘道開錄前檢查
+        for caller in (mc.Caller.INVESTIGATION, mc.Caller.NARRATIVE):
+            with pytest.raises(modelgate.GateRefused, match="入庫"):
+                modelgate.open_gate(environ, caller=caller, demo_id="d1", ledger=None,
+                                    recordings=target, batch_id=BATCH)
+        refusal = hypothesis.recording_refusal(
+            Namespace(recordings_dir=target, batch_id=BATCH), live(record=True))
+        assert refusal is not None and "入庫" in refusal, target
+        code, _, err = _cli(["--demo-id", "eval-1", "--batch-id", BATCH, "--recordings-dir",
+                             str(target)], environ)
+        assert code == ie.EXIT_REFUSED and "入庫" in err, (target, err)
+        assert not (mc.default_recordings_dir() / "r2-newsub").exists()
+    assert invocations(script) == []
+    # 評估執行器仍要求明寫 --recordings-dir
+    code, _, err = _cli(["--demo-id", "eval-1", "--batch-id", BATCH], environ)
+    assert code == ie.EXIT_REFUSED and "--recordings-dir" in err
+    # 新目錄照舊放行;重播照舊讀入庫目錄(不做開錄前檢查)
+    mc.check_recordings_dir(tmp_path / "fresh", BATCH)
+    assert hypothesis.recording_refusal(
+        Namespace(recordings_dir=tmp_path / "fresh", batch_id=BATCH), live(record=True)) is None
+    gate = modelgate.open_gate({"PATH": str(script.parent)}, caller=mc.Caller.INVESTIGATION,
+                               demo_id=None, ledger=tmp_path / "l.sqlite", recordings=None,
+                               batch_id=None)
+    assert gate.mode is mc.Mode.RECORDED and gate.recordings == mc.default_recordings_dir()
+    # 評估執行器不再自己找專案根或另算入庫根
+    source = (EVAL / "investigation_eval.py").read_text(encoding="utf-8")
+    assert "_project_root" not in source and "_fresh" not in source
+    assert "pyproject.toml" not in source
+
+
+def test_the_report_takes_the_shared_marks_from_adoption_not_the_sender():
+    """代碼審 r2 a2:逐欄判定(threshold_marks)、欄位標示(MARKED)與沒送出的結果類別(UNSENT)放在
+    採用判定模組共用;調查報告與模型候選都從那裡取,報告不匯入會送出的模型候選。"""
+    assert model_candidate.threshold_marks is adoption.threshold_marks
+    assert model_candidate.MARKED is adoption.MARKED and model_candidate.UNSENT is adoption.UNSENT
+    outcomes = {mc.Outcome.NO_RECORDING.value, mc.Outcome.LEDGER_BUSY.value,
+                mc.Outcome.LOCAL_CAP_REFUSED.value, mc.Outcome.CONFIG_ERROR.value}
+    assert outcomes == adoption.UNSENT
+    tree = ast.parse((EVAL / "investigation_report.py").read_text(encoding="utf-8"))
+    imported = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
+        f"{n.module}.{a.name}" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+        for a in n.names}
+    assert not {name for name in imported if "model_candidate" in name}
+    adoption_tree = ast.parse((EVAL / "adoption.py").read_text(encoding="utf-8"))
+    assert not {n.module for n in ast.walk(adoption_tree) if isinstance(n, ast.ImportFrom)
+                and (n.module or "").startswith("rtb.model")}  # 採用判定照舊不碰模型用戶端

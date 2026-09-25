@@ -49,13 +49,10 @@ FAILED_OUTCOMES = MappingProxyType({mc.Outcome.CONFIG_ERROR.value: "設定錯誤
 Ask = Callable[[str, str], Any]  # AI 決策函式的模型呼叫(系統提示, 使用者內容) → 模型結果
 
 
-def _project_root() -> Path:
-    here = Path(__file__).resolve()
-    return next(parent for parent in here.parents if (parent / "pyproject.toml").is_file())
-
-
-COMMITTED_ROOT = _project_root() / "recordings" / "model"  # 入庫的錄製都在這底下,只供重播
-DEFAULT_RECORDINGS = COMMITTED_ROOT / "phase13-investigation-eval"
+# 入庫位置在門面的預設錄製目錄(入庫根)底下;專案裡只有門面那一處算入庫根
+DEFAULT_RECORDINGS = mc.default_recordings_dir() / "phase13-investigation-eval"
+FRESH_HINT = ("即時加錄製要明寫 --recordings-dir,給一個入庫目錄以外的新目錄;"
+              "入庫目錄只供重播,驗過才整個搬進去")
 
 
 # ---- 逐筆跑 ----
@@ -200,7 +197,7 @@ def batch_problems(directory: Path, runs: Sequence[CaseRun]) -> list[str]:
         problems.append(f"錄製檔的批次編號要是同一個 phase13-eval-YYYYMMDD:{found}")
     else:
         try:
-            mc.check_recordings_dir(directory, batch)
+            mc.check_one_batch(directory, batch)
         except mc.MixedRecordingsDir as mixed:
             problems.append(f"錄製目錄不是只有這一批的錄製檔:{mixed}")
     bad: dict[str, int] = {}
@@ -251,13 +248,6 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _fresh(folder: Path | None) -> bool:
-    """即時加錄製的目錄要明寫、而且不在入庫目錄底下(不在入庫的錄製上疊錄,計劃〈錄製批次與入庫〉)。"""
-    if folder is None:
-        return False
-    return not Path(folder).resolve().is_relative_to(COMMITTED_ROOT.resolve())
-
-
 def run(argv: list[str] | None = None, *, out: TextIO | None = None,
         err: TextIO | None = None, environ: Mapping[str, str] | None = None) -> int:
     args = _parse(argv)
@@ -267,19 +257,17 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
     if args.batch_id is not None and not BATCH_PATTERN.fullmatch(args.batch_id):
         print(f"批次編號要是 phase13-eval-YYYYMMDD(錄製那天):{args.batch_id!r}", file=errors)
         return EXIT_REFUSED
-    try:  # 即時加錄製時,開閘道就先跑模型用戶端的開錄前目錄檢查([S1165])
+    # 即時加錄製時,開閘道就先跑模型用戶端的開錄前目錄檢查([S1165]):「不准寫進入庫目錄」
+    # 只有那一套判準;沒帶 --recordings-dir 時用的預設目錄就在入庫根底下,一定被它拒絕,
+    # 拒絕訊息另附明寫目錄的提示
+    try:
         gate = ai_judge.open_investigation_gate(source, demo_id=args.demo_id, ledger=args.ledger,
                                                 recordings=folder, batch_id=args.batch_id)
     except ValueError as refused:  # GateRefused、UnknownModel 都是 ValueError
-        print(f"拒絕開始:{refused}", file=errors)
+        hint = "" if args.recordings_dir is not None else f"({FRESH_HINT})"
+        print(f"拒絕開始:{refused}{hint}", file=errors)
         return EXIT_REFUSED
     live = gate.mode.value == "live"
-    if live and gate.settings.record and not _fresh(args.recordings_dir):
-        where = ("沒帶 --recordings-dir" if args.recordings_dir is None
-                 else f"{args.recordings_dir} 在入庫目錄 {COMMITTED_ROOT} 底下")
-        print(f"拒絕開始:即時加錄製要給一個新的錄製目錄({where});入庫目錄只供重播,驗過才整個搬進去",
-              file=errors)
-        return EXIT_REFUSED
     if args.verify and live:
         print("--verify 只准重播錄製(不要帶即時開關)", file=errors)
         return EXIT_REFUSED
@@ -293,8 +281,8 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
     if live:
         lines.append(f"- 即時模式(批次 {args.batch_id or '未錄製'}):錄完用 --verify 重播驗收")
     else:
-        shown = folder.relative_to(_project_root()) if folder.is_relative_to(
-            _project_root()) else folder
+        root = mc.default_recordings_dir().parent.parent
+        shown = folder.relative_to(root) if folder.is_relative_to(root) else folder
         lines.append(f"- 驗收:{'通過' if not problems else '沒過'}(目錄 {shown})")
         lines += [f"- {problem}" for problem in problems]
     print("\n".join(lines), file=out or sys.stdout)

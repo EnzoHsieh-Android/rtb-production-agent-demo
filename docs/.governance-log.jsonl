@@ -5308,3 +5308,4 @@
 {"ts": "2026-09-25T09:43:17+08:00", "commit": "41bbf28", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "Phase 13 增量 2(AI 調查迴圈)代碼審 3 輪:r1 7 席 16 條、r2 4 席 12 條、r3 4 席 7 條全修;末輪修正協調者乾淨複本驗收 3094 過;同步核對未動的 4 篇只經宣稱雜湊或匯入閉包牽連,評估筆記由增量 3 更新", "branch": "main", "head_sha": "41bbf28335643717a765c8bbcd4909b4bcad1c68"}
 {"ts": "2026-09-25T09:59:04+08:00", "commit": "6d11d94", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-25T09:59:05+08:00", "commit": "6d11d94", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "6d11d94b8bb3be54fd78175ae3bf53eccc4d4e2f"}
+{"ts": "2026-09-25T09:59:24+08:00", "commit": "b8c64dd", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Issues/共用HTTP伺服器連線名額測試在CI偶發逾時.md", "Systems/Mock-DSP.md", "Systems/分析行程流程與檢查點.md"], "note": "tokens=1 hits=4 secs=0.1"}

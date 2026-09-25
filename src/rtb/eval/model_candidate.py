@@ -24,7 +24,7 @@ import math
 import random
 import statistics
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,13 +32,10 @@ from pathlib import Path
 from rtb import modelclient as mc
 from rtb.analyzer.policy import CandidateCall, TrialCells, route
 from rtb.domain.worth import WorthCell, WorthInput, WorthVerdict
-from rtb.eval.adoption import (
-    NO_COST_GATE,
-    ComparisonRow,
-    Measure,
-    MeasuredRow,
-    OperationalLimits,
-)
+from rtb.eval.adoption import MARKED as MARKED  # 逐欄判定與沒送出類別放在採用判定模組共用
+from rtb.eval.adoption import UNSENT as UNSENT
+from rtb.eval.adoption import ComparisonRow, Measure, OperationalLimits
+from rtb.eval.adoption import threshold_marks as threshold_marks
 from rtb.eval.generator import Scenario
 from rtb.eval.scoring import ScoredCase
 
@@ -56,9 +53,6 @@ SUBSET_SEED = 20260924
 GROUPS_PER_CELL = 14
 INVALID_VERDICT = "invalid_verdict"
 OK = mc.Outcome.OK.value
-# 沒有呼叫模型的結果類別:不算進四種比率,另外列件數(計劃第 6 版〈接入點 3〉母體)
-UNSENT = frozenset({mc.Outcome.NO_RECORDING.value, mc.Outcome.LEDGER_BUSY.value,
-                    mc.Outcome.LOCAL_CAP_REFUSED.value, mc.Outcome.CONFIG_ERROR.value})
 # 整批停下(計劃第 8 版):本地上限拒絕、訂閱額度用完、設定錯誤、花費帳忙碌、超支;另外看旁路紀錄的
 # 結算狀態(超支)、「無法可靠分類」與「偵測到工具使用」標記
 STOP_OUTCOMES = frozenset({mc.Outcome.LOCAL_CAP_REFUSED.value, mc.Outcome.QUOTA_EXHAUSTED.value,
@@ -441,27 +435,3 @@ def unsent_counts(batch: BatchRecord) -> dict[str, int]:
     return dict(Counter(r.outcome for r in batch.rows if not r.sent and not r.shared))
 
 
-MARKED = (("cost_per_call_usd", "每次成本", "cost"), ("latency_median_us", "延遲中位", "median"),
-          ("latency_p95_us", "延遲 p95", "p95"), ("format_failure_rate", "格式失敗率", "rate"),
-          ("exception_rate", "例外率", "rate"), ("timeout_rate", "逾時率", "rate"),
-          ("fallback_rate", "退回率", "rate"))
-
-
-def threshold_marks(row: MeasuredRow, limits: OperationalLimits) -> Mapping[str, str]:
-    """逐欄標過或沒過(門檻是使用者裁定的常數,不依結果調整)。門檻的 cost_exempt 為真時,成本那一欄
-    寫「不設門檻」、不比大小(Phase 13 [S1155])。"""
-    bars = {"cost": limits.cost_per_call_usd, "median": limits.latency_median_us,
-            "p95": limits.latency_p95_us, "rate": limits.failure_rate}
-    marks = {}
-    for name, _label, bar_kind in MARKED:
-        measure: Measure = getattr(row, name)
-        bar = bars[bar_kind]
-        if bar_kind == "cost" and limits.cost_exempt:
-            marks[name] = NO_COST_GATE
-        elif not measure.measured or measure.value is None:
-            marks[name] = "沒量"
-        elif bar is None:
-            marks[name] = "門檻未定"
-        else:
-            marks[name] = "過" if measure.value <= bar else "沒過"
-    return marks

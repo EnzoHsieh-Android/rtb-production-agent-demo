@@ -149,12 +149,54 @@ def _batch_of(path: Path, batch_id: str) -> str | None:
     return recording.batch_id
 
 
+def default_recordings_dir() -> Path:
+    """錄製目錄的預設值錨在專案根的 recordings/model/(從這支檔往上找 pyproject.toml),從別的工作目錄
+    啟動照樣找得到([S920])。這裡就是入庫根:入庫的錄製都在它底下,只供重播;專案裡只有這一處算它
+    (門面轉手,Phase 13 增量 3 代碼審 r2)。"""
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").is_file():
+            return parent / "recordings" / "model"
+    return here.parents[2] / "recordings" / "model"
+
+
+def _inside_committed(target: Path) -> bool:
+    """目標路徑是不是落在入庫根底下(含入庫根本身):目標與它每一層已存在的祖先,只要有一個跟入庫根是
+    同一個檔案(同裝置、同 inode,跟隨符號連結)就算。比檔案身分、不比路徑字面,所以大小寫不同(不分大小
+    寫的檔案系統)、經符號連結、還不存在的子目錄都認得出來(Phase 13 增量 3 代碼審 r2 a1/v1)。"""
+    try:
+        root = os.stat(default_recordings_dir())
+    except OSError:
+        return False  # 入庫根不存在:沒有東西可以疊上去
+    candidate = Path(os.path.abspath(target))
+    for path in (candidate, *candidate.parents):
+        try:
+            found = os.stat(path)
+        except OSError:
+            continue  # 還不存在(或讀不到)的那一層:往上看
+        if (found.st_dev, found.st_ino) == (root.st_dev, root.st_ino):
+            return True
+    return False
+
+
 def check_recordings_dir(directory: Path, batch_id: str | None) -> None:
-    """開錄前的目錄檢查(runner、評估執行器與兩支模型入口共用):目錄不存在或是空的就放行;裡面只准有
+    """開錄前的目錄檢查(即時加錄製的入口共用:runner 與說明命令列經模型閘道、評估執行器經 AI 決策模組
+    開閘道、假說命令列直接呼叫):沒帶批次拒絕;目錄落在入庫根底下(預設錄製目錄,含還不存在的子目錄、
+    大小寫不同或經符號連結的寫法)拒絕——入庫的錄製只供重播,即時錄製一律寫進新目錄,驗過才整個搬進去;
+    其餘照 `check_one_batch` 核目錄內容。重播不經這支。"""
+    if not batch_id or not batch_id.strip():
+        raise MixedRecordingsDir("即時加錄製要帶批次編號")
+    if _inside_committed(Path(directory)):
+        raise MixedRecordingsDir(f"{directory} 在入庫目錄 {default_recordings_dir()} 底下;{_FRESH}")
+    check_one_batch(directory, batch_id)
+
+
+def check_one_batch(directory: Path, batch_id: str | None) -> None:
+    """目錄內容的檢查(開錄前檢查的後半,評估的錄製批次驗收也用它核入庫目錄):目錄不存在或是空的就放行;裡面只准有
     檔名等於檔內錄製鍵、批次等於這一批的錄製檔。沒帶批次、目錄是懸空的符號連結或不是目錄、列不出來、
     有其他檔或子目錄、讀不懂的檔、別的批次、任何佔位(含同一批中斷留下的)一律拒絕:不要把兩批混在
     同一個目錄,也不要讓錄製在第一次呼叫才以錄製衝突或設定錯誤失敗(Phase 13〈錄製批次與入庫〉、
-    代碼審 r1)。專案根的入庫目錄有說明檔,所以即時加錄製一定要給新目錄。"""
+    代碼審 r1)。"""
     if not batch_id or not batch_id.strip():
         raise MixedRecordingsDir("即時加錄製要帶批次編號")
     folder = Path(directory)
