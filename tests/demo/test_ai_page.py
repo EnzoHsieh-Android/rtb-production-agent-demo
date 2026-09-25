@@ -225,9 +225,9 @@ def test_an_untouched_fault_counts_as_finished_and_hides_the_pivot(ran):
         replace(s, status=ScenarioStatus.NOT_EXERCISED) if s is f2 else s for s in ran.scenarios))
     text = _text(render_page(state, form_token="t", selected=ScenarioCode.F1, refresh_tick=0))
     assert "3 / 7" in text and "其中 1 個 AI 判不提案（不提出調整建議），故障沒走到" in text
-    assert "故障這次沒有走到" in text
+    # 側邊欄那一列只顯示情境狀態;「故障處理這次沒有走到」就是狀態本身(展示頁第三輪改版)
     row = text.split("寫進平台之後執行端當場倒下", 1)[1].split("F3", 1)[0]
-    assert "轉向" not in row and "故障這次沒有走到" in row
+    assert "轉向" not in row and ScenarioStatus.NOT_EXERCISED.value in row
 
 
 def test_a_held_twin_that_fell_back_shows_the_rule_path_to_the_exam_hold(ran):

@@ -40,8 +40,17 @@ from rtb.demo.state import (
 FLOW_SCRIPT: Final = """(() => {
   let active = null;
   let pinned = false;
+  let closeTimer = null;
+  let lastViewportScrollAt = -Infinity;
+  const HOVER_CLOSE_DELAY_MS = 300;
   const nodeFor = target => target.closest?.('.flow-node[data-flow-popover]');
+  const cancelClose = () => {
+    if (closeTimer === null) return;
+    clearTimeout(closeTimer);
+    closeTimer = null;
+  };
   const hide = () => {
+    cancelClose();
     if (!active) return;
     const box = document.getElementById(active.dataset.flowPopover);
     if (box) box.hidden = true;
@@ -50,6 +59,7 @@ FLOW_SCRIPT: Final = """(() => {
     pinned = false;
   };
   const show = (node, pin = false) => {
+    cancelClose();
     if (active !== node) hide();
     const box = document.getElementById(node.dataset.flowPopover);
     if (!box) return;
@@ -72,23 +82,35 @@ FLOW_SCRIPT: Final = """(() => {
     const top = room < 120 ? 8 : above ? rect.top - height - 8 : rect.bottom + 8;
     box.style.top = `${Math.max(8, Math.min(top, innerHeight - height - 8))}px`;
   };
-  document.addEventListener('pointerover', event => {
-    const node = nodeFor(event.target);
-    if (node && !pinned) show(node);
+  const scheduleClose = () => {
+    if (!active || pinned || document.activeElement === active) return;
+    cancelClose();
+    closeTimer = setTimeout(() => { closeTimer = null; hide(); }, HOVER_CLOSE_DELAY_MS);
+  };
+  document.querySelectorAll('.flow-node[data-flow-popover]').forEach(node => {
+    const box = document.getElementById(node.dataset.flowPopover);
+    if (!box) return;
+    node.addEventListener('mouseenter', () => { if (!pinned) show(node); });
+    node.addEventListener('mouseleave', () => {
+      if (active === node && performance.now() - lastViewportScrollAt >= HOVER_CLOSE_DELAY_MS)
+        scheduleClose();
+    });
+    box.addEventListener('mouseenter', () => { if (active === node) cancelClose(); });
+    box.addEventListener('mouseleave', () => { if (active === node) scheduleClose(); });
   });
-  document.addEventListener('pointerout', event => {
-    if (!active || pinned) return;
-    const next = event.relatedTarget;
+  document.addEventListener('mousemove', event => {
+    if (!active || pinned || closeTimer !== null || document.activeElement === active) return;
     const box = document.getElementById(active.dataset.flowPopover);
-    if (active.contains(next) || box?.contains(next)) return;
-    if (active.contains(event.target) || box?.contains(event.target)) hide();
+    if (!active.contains(event.target) && !box?.contains(event.target)) scheduleClose();
   });
   document.addEventListener('focusin', event => {
     const node = nodeFor(event.target);
     if (node && node !== active) show(node);
   });
   document.addEventListener('focusout', event => {
-    if (active && !pinned && event.target === active) hide();
+    if (!active || pinned || event.target !== active) return;
+    const box = document.getElementById(active.dataset.flowPopover);
+    if (!box?.contains(event.relatedTarget) && !box?.matches(':hover')) hide();
   });
   document.addEventListener('click', event => {
     if (event.target.closest?.('.flow-popover-close')) { hide(); return; }
@@ -108,7 +130,14 @@ FLOW_SCRIPT: Final = """(() => {
     }
   });
   window.addEventListener('resize', () => { if (active) show(active, pinned); });
-  document.addEventListener('scroll', () => { if (active) show(active, pinned); }, true);
+  document.addEventListener('scroll', event => {
+    if (!active || event.target.closest?.('.flow-popover')) return;
+    lastViewportScrollAt = performance.now();
+    const rect = active.getBoundingClientRect();
+    if (rect.bottom <= 0 || rect.top >= innerHeight ||
+        rect.right <= 0 || rect.left >= innerWidth) hide();
+    else show(active, pinned);
+  }, true);
 })();"""
 _SCRIPT_HASH: Final = base64.b64encode(hashlib.sha256(FLOW_SCRIPT.encode()).digest()).decode()
 CONTENT_SECURITY_POLICY: Final = (

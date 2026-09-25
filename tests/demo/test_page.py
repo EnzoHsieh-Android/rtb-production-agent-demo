@@ -115,7 +115,7 @@ def test_flow_nodes_contain_escaped_step_details_for_hover_touch_and_keyboard() 
         assert '量到的值：' in markup and '標準：' in markup and '比較結果：' in markup
         assert 'class="flow-popover-close"' in markup
     assert 'max-height:' in DEMO_CSS and '.flow-popover' in DEMO_CSS
-    assert 'Escape' in page and 'pointerover' in page and 'focusin' in page
+    assert 'Escape' in page and 'mouseenter' in page and 'focusin' in page
 
 
 def test_flow_popover_scrolls_and_stays_inside_the_viewport() -> None:
@@ -126,6 +126,22 @@ def test_flow_popover_scrolls_and_stays_inside_the_viewport() -> None:
     assert 'box.style.maxHeight' in FLOW_SCRIPT
     assert 'box.style.left' in FLOW_SCRIPT and 'innerWidth - width - 8' in FLOW_SCRIPT
     assert 'box.style.top' in FLOW_SCRIPT and 'innerHeight - height - 8' in FLOW_SCRIPT
+
+
+def test_flow_popover_hover_crosses_the_gap_without_closing() -> None:
+    assert 'const HOVER_CLOSE_DELAY_MS = 300;' in FLOW_SCRIPT
+    for target in ('node', 'box'):
+        assert f"{target}.addEventListener('mouseenter'" in FLOW_SCRIPT
+        assert f"{target}.addEventListener('mouseleave'" in FLOW_SCRIPT
+    assert 'clearTimeout(closeTimer)' in FLOW_SCRIPT
+    assert 'setTimeout(' in FLOW_SCRIPT and 'HOVER_CLOSE_DELAY_MS' in FLOW_SCRIPT
+
+
+def test_flow_popover_wheel_scroll_does_not_close_or_move_the_page() -> None:
+    assert re.search(r'\.flow-popover\s*\{[^}]*overscroll-behavior:contain', DEMO_CSS)
+    assert "event.target.closest?.('.flow-popover')" in FLOW_SCRIPT
+    assert "document.addEventListener('scroll'" in FLOW_SCRIPT
+    assert 'rect.bottom <= 0' in FLOW_SCRIPT and 'rect.top >= innerHeight' in FLOW_SCRIPT
 
 
 def test_page_and_report_remove_demo_mode_from_every_flow_label() -> None:
