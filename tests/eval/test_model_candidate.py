@@ -37,6 +37,7 @@ from tests.model.fakes import (
     reply,
     write_verification,
 )
+from tests.test_spawn_boundary import model_client_modules
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 EVAL = SRC / "rtb" / "eval"
@@ -239,20 +240,38 @@ def send_names(tree):
     return found
 
 
+def eval_model_imports(folder=EVAL):
+    """評估套件每支檔直接匯入了模型用戶端哪些模組:(經門面的檔名, 繞過門面的清單)。模型用戶端
+    照分析端的邊界測試列舉(src/rtb/ 底下 model 開頭的每一支)。"""
+    clients, importers, offenders = model_client_modules(), set(), []
+    for path in sorted(folder.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        imported = _imported_modules(SRC, f"rtb.eval.{path.stem}", tree) | _top_imports(tree)
+        reached = imported & clients
+        if "rtb.modelclient" in reached:
+            importers.add(path.stem)
+        offenders += [f"{path.name}: {m}" for m in sorted(reached - {"rtb.modelclient"})]
+    return importers, offenders
+
+
 def _eval_roots():
     return [f"rtb.eval.{p.stem}" for p in sorted(EVAL.glob("*.py")) if p.stem != "__init__"]
 
 
 # Phase 13 改寫 [S918](計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉):評估套件的
-# 閉包只准多出寫死的准許名單。名單上的模型閘道、AI 決策模組、小常數模組與 Phase 13
-# 的評估模組(評估集、
-# 生成器、執行器、報告)要等增量 3 的評估執行器真的需要時才加(代碼審 r1:
-# 先放閘道等於讓評估套件任何一支
-# 模組都能經閘道送出);小常數模組出現時也要加進模型用戶端閉包
-PHASE13_ALLOWED: frozenset[str] = frozenset()
+# 閉包只准多出寫死的准許名單——模型用戶端閉包(含小常數模組,見上)、模型閘道、AI 決策模組
+# (AI 決策函式所在的 ai_judge 與它的詞彙模組 investigation,增量 2 拆成兩支)、Phase 13 增量 3
+# 新增的評估模組(評估集、生成器與標準答案、執行器、報告)。增量 3 的評估執行器匯入 AI 決策模組,
+# 名單在這一增量補齊
+PHASE13_ALLOWED: frozenset[str] = frozenset({
+    "rtb.analyzer.modelgate", "rtb.analyzer.ai_judge", "rtb.analyzer.investigation",
+    "rtb.eval.investigation_cases", "rtb.eval.investigation_set", "rtb.eval.investigation_eval",
+    "rtb.eval.investigation_report"})
+# 經 AI 決策模組送出的名字(開閘道、把閘道包成送出函式):評估套件裡只准評估執行器用
+AI_JUDGE_SENDS = frozenset({"open_investigation_gate", "gate_complete"})
 
 
-def test_the_eval_package_reaches_the_model_only_through_the_model_client():  # noqa: PLR0915
+def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_path):  # noqa: PLR0915
     closure = _closure(_eval_roots())
     # 允許多出來的分支寫死(代碼審第 2 輪:動態算的話,模型用戶端多匯入什麼都會被跟著放行)
     branch = MODEL_CLIENT_CLOSURE | {"rtb.eval.model_candidate"} | PHASE13_ALLOWED
@@ -272,18 +291,40 @@ def test_the_eval_package_reaches_the_model_only_through_the_model_client():  # 
          "--stdin-filename", str(EVAL / "probe.py"), "-"],
         input="import subprocess\n", capture_output=True, text=True, timeout=60, check=False)
     assert result.returncode == 1 and "TID251" in result.stdout
-    # 只有模型候選與評估紀錄命令列匯入模型用戶端;送出呼叫只准模型候選用
-    importers, senders, bypass = set(), set(), set()
+    # 評估套件碰模型用戶端一律經門面 rtb.modelclient(Phase 13 代碼審 r1:模型用戶端是 src/rtb/
+    # 底下每一支 model 開頭的檔,只比對門面一個名字擋不住直接匯入內部模組);准經門面的只有下面四支
+    importers, offenders = eval_model_imports()
+    assert offenders == []
+    assert importers == {"model_candidate", "record", "investigation_eval",
+                         "investigation_report"}
+    # 殺傷力:准許的評估模組直接匯入模型用戶端的內部模組(例如會寫錄製的函式)也抓得到
+    for probe in ("from rtb.modelrecording import claim, save_recording\n",
+                  "import rtb.modelcore\n", "from rtb import modelledger\n"):
+        copy = tmp_path / f"e{abs(hash(probe))}"
+        copy.mkdir()
+        source = (EVAL / "investigation_report.py").read_text(encoding="utf-8")
+        (copy / "investigation_report.py").write_text(probe + source, encoding="utf-8")
+        assert eval_model_imports(copy)[1], probe
+    # 送出呼叫只准模型候選用
+    senders, bypass = set(), set()
     for path in sorted(EVAL.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        module = f"rtb.eval.{path.stem}"
-        if "rtb.modelclient" in _imported_modules(SRC, module, tree):
-            importers.add(path.stem)
         senders |= {path.stem} if send_names(tree) & {"call_model"} else set()
         bypass |= {f"{path.stem}: {n}" for n in send_names(tree) - {"call_model"}}
-    assert importers == {"model_candidate", "record"}
     assert senders == {"model_candidate"}
     assert bypass == set()  # 沒有人拿後端直接送出(繞過花費帳)
+    # Phase 13 增量 3:匯入 AI 決策模組、經它開閘道送出的,只有評估執行器
+    judge_importers, judge_senders = set(), set()
+    for path in sorted(EVAL.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if "rtb.analyzer.ai_judge" in _imported_modules(SRC, f"rtb.eval.{path.stem}", tree):
+            judge_importers.add(path.stem)
+        used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {
+            n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
+            a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
+        judge_senders |= {path.stem} if used & AI_JUDGE_SENDS else set()
+    assert judge_importers == {"investigation_eval"}
+    assert judge_senders == {"investigation_eval"}
     for probe in ("def f(s):\n    return s.backend.send(1)\n",
                   "from rtb import modelclient as mc\nmc.BackendCall('m', 's', 'u', 1, 1.0, 1)\n",
                   "def f(b):\n    g = b.send\n    return g\n",

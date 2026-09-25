@@ -10,6 +10,7 @@ import pytest
 
 from rtb.domain import metrics as m
 from rtb.domain.metrics import MetricResult, Reason, ctr, cvr, pacing, roas
+from tests.eval.test_investigation_eval import answer_key_goes_through_exact_ratio
 
 
 def test_ratios_return_a_known_value_for_normal_inputs():
@@ -322,8 +323,8 @@ def test_receipt_values_are_fixed_strings_computed_in_the_domain():
 
 
 def test_one_exact_ratio_function_feeds_receipts_and_the_answer_key(monkeypatch):
-    """[S1162] 精確比率函式回分數或三態原因代碼之一;收據格式化經它取得比率(標準答案產生函式在增量 3
-    開檔時同樣經它);金額量化溢位寫 na。"""
+    """[S1162] 精確比率函式回分數或三態原因代碼之一;收據格式化與標準答案產生函式都經它取得比率;
+    金額量化溢位寫 na。"""
     assert m.exact_ratio(12, 500) == Fraction(3, 125)
     assert m.exact_ratio(0.5, 2) == Fraction(1, 4)
     assert m.exact_ratio(3, 0) is Reason.NO_DENOMINATOR
@@ -352,6 +353,9 @@ def test_one_exact_ratio_function_feeds_receipts_and_the_answer_key(monkeypatch)
     assert m.receipt_amount(1e27) == m.NA  # Decimal 量化溢位歸資料不合理
     assert m.receipt_amount(10**26) == m.NA
     assert m.receipt_amount(10**20) == "100000000000000000000.00"
+    # 標準答案產生函式那半(Phase 13 增量 3):評估的標準答案也只經它取得比率,
+    # 算出的值寫成收據字串時跟收據格式化逐字相同
+    answer_key_goes_through_exact_ratio(monkeypatch)
 
 
 # ---- Phase 13 增量 2 代碼審 r1(d1、d2) ----

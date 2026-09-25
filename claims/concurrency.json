@@ -25,7 +25,7 @@
     },
     {
       "path": "src/rtb/analyzer/investigation.py",
-      "sha256": "4f754ab841923f3339e185f802670b293952717b3b4ab6f7d8d4ddb9bf457d98"
+      "sha256": "bcfa94bdebeefffeeab5fe9de1af78223e208aff65767f59513088441d8cb798"
     },
     {
       "path": "src/rtb/analyzer/policy.py",

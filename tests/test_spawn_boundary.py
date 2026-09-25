@@ -437,14 +437,17 @@ BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverif
 # 命令列與維運的假說命令列(Phase 11B [S912])。送出的名字除了 call_model,還有閘道的 open_gate 與
 # complete(代碼審 r1:閘道是第二個送出入口)
 # Phase 13 增量 2 加:AI 決策模組(開閘道、送出)與開了 AI 決策的分析端驅動命令列(把開閘道函式交給它)
+# Phase 13 增量 3 加:調查評估執行器(呼叫同一支 AI 決策函式,[S1146];[S918] 照計劃改寫)
 CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate",
                               "rtb.analyzer.modelgate", "rtb.analyzer.narrate",
                               "rtb.ops.hypothesis", "rtb.analyzer.ai_judge",
-                              "rtb.analyzer.runner"})
+                              "rtb.analyzer.runner", "rtb.eval.investigation_eval"})
 SEND_CALLS = frozenset({"call_model", "open_gate", "complete"})
 # 會送出模型呼叫的命令列模組:匯入它就能經它的 run 轉手送出,匯入本身就算送出點(代碼審 r2)
+# Phase 13 增量 3 代碼審 r1:調查評估執行器的 run 即時模式會送出,匯入它也算送出點
 SENDING_ENTRIES = frozenset({"rtb.analyzer.narrate", "rtb.ops.hypothesis",
-                             "rtb.analyzer.ai_judge", "rtb.analyzer.runner"})
+                             "rtb.analyzer.ai_judge", "rtb.analyzer.runner",
+                             "rtb.eval.investigation_eval"})
 # 每個呼叫者標籤只准哪幾支模組用(代碼審 r1:花費上限看請求自報的呼叫者,標籤要綁住模組才守得住
 # 「誰都不能自稱不計入」)。定義它的唯讀開法與只拿來列上限清單的花費帳寫入不算使用;Phase 13 增量 2 的
 # AI 決策模組開檔時把它加進「分析端調查」那一格
@@ -595,3 +598,14 @@ def test_the_demo_starters_never_start_claude():
                   "import rtb.modelclaude",
                   "from rtb.modelclient import run"):
         assert claude_mentions("rtb.demo.driver", probe), probe
+
+
+def test_importing_the_eval_runner_counts_as_a_send_point():
+    """Phase 13 增量 3 代碼審 r1:調查評估執行器即時模式會送出,匯入它就算送出點;既有的評估模組
+    匯入它、經它的 run 轉手送出要被擋。"""
+    assert "rtb.eval.investigation_eval" in SENDING_ENTRIES
+    for probe in ("from rtb.eval import investigation_eval\n",
+                  "import rtb.eval.investigation_eval\n",
+                  "from rtb.eval.investigation_eval import run\n"):
+        found = backend_offenders(ast.parse(probe), "scoring.py", "rtb.eval.scoring")
+        assert found, probe

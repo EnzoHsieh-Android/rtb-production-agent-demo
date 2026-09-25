@@ -1,0 +1,5 @@
+[
+ {"round":"r1","seat":"鏡頭1-標準答案與評估","lens":"鏡頭1-標準答案與評估","materials":["governance/review-reports/code-phase13-inc3/r1-snapshot.patch","docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"],"auditor":"claude-opus"},
+ {"round":"r1","seat":"架構對齊","lens":"架構對齊","materials":["governance/review-reports/code-phase13-inc3/r1-snapshot.patch"],"auditor":"claude-opus"},
+ {"round":"r1","seat":"外家-codex","lens":"外家-codex","materials":["governance/review-reports/code-phase13-inc3/r1-snapshot.patch","docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"],"auditor":"codex-gpt-6-sol"}
+]

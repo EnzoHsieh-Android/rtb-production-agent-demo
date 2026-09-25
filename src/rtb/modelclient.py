@@ -80,8 +80,11 @@ from rtb.modelcore import UnreadableModelResponse as UnreadableModelResponse
 from rtb.modelledger_view import ledger_path
 from rtb.modelrecording import MixedRecordingsDir as MixedRecordingsDir
 from rtb.modelrecording import Placeholders as Placeholders
+from rtb.modelrecording import check_one_batch as check_one_batch
 from rtb.modelrecording import check_recordings_dir as check_recordings_dir
+from rtb.modelrecording import default_recordings_dir as default_recordings_dir  # 入庫根只算這一處
 from rtb.modelrecording import recording_key as recording_key
+from rtb.modelrecording import validated as validated  # 錄製檔的共用驗證(評估批次驗收用)
 from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy
 
 log = logging.getLogger(__name__)
@@ -259,16 +262,6 @@ def preflight_login(settings: Settings) -> LoginPreflight:
     except core.ConfigError as refused:
         return LoginPreflight(Preflight.FAILED, str(refused))
     return LoginPreflight(Preflight.PASSED)
-
-
-def default_recordings_dir() -> Path:
-    """錄製目錄的預設值錨在專案根的 recordings/model/(從這支檔往上找 pyproject.toml),從別的工作目錄
-    啟動照樣找得到([S920])。"""
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        if (parent / "pyproject.toml").is_file():
-            return parent / "recordings" / "model"
-    return here.parents[2] / "recordings" / "model"
 
 
 def live_ledger_path() -> Path:

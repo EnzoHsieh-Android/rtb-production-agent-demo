@@ -11,6 +11,7 @@
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
+from typing import Protocol
 
 from rtb.analyzer.policy import _VALIDATED_CELLS_ISSUER, ValidatedCells
 from rtb.domain._checks import is_finite_or_none
@@ -41,6 +42,8 @@ NOT_ADOPTED_REASONS = (
     "缺正式環境紀錄、人工標註與候選實測",
 )
 NO_MONITORING = "上線後逐格監測的機制"
+# 成本不設門檻時報告逐欄判定寫的字(Phase 13 [S1155];使用者裁定 9、13:假設正式環境用自研模型)
+NO_COST_GATE = "不設門檻(假設正式環境用自研模型、成本另計)"
 
 
 def _finite_nonnegative(value: object) -> bool:
@@ -72,6 +75,9 @@ class Measure:
         return cls(measured=False, value=None, reason=reason)
 
 
+# 比較表一列的全部量測欄(品質、成本、延遲中位與 p95、四種比率),門檻判定照名字逐欄讀
+MEASURE_FIELDS = ("quality", "cost_per_call_usd", "latency_median_us", "latency_p95_us",
+                  "format_failure_rate", "exception_rate", "timeout_rate", "fallback_rate")
 RATE_FIELDS = ("quality", "format_failure_rate", "exception_rate", "timeout_rate",
                "fallback_rate")
 
@@ -102,14 +108,43 @@ class ComparisonRow:
                      if f.name not in ("approach", "cell"))
 
 
+class MeasuredRow(Protocol):
+    """門檻判定讀的一列:成本、延遲中位與 p95、四種比率,加上全部量測。比較表的逐格一列,與 Phase 13
+    調查評估的模型那一列都是這個形狀。"""
+
+    @property
+    def quality(self) -> Measure: ...
+    @property
+    def cost_per_call_usd(self) -> Measure: ...
+    @property
+    def latency_median_us(self) -> Measure: ...
+    @property
+    def latency_p95_us(self) -> Measure: ...
+    @property
+    def format_failure_rate(self) -> Measure: ...
+    @property
+    def exception_rate(self) -> Measure: ...
+    @property
+    def timeout_rate(self) -> Measure: ...
+    @property
+    def fallback_rate(self) -> Measure: ...
+    def measures(self) -> tuple[Measure, ...]: ...
+
+
 @dataclass(frozen=True)
 class OperationalLimits:
-    """成本、延遲、失敗率的門檻;None 表示使用者還沒裁定,沒定之前一格都不採用。"""
+    """成本、延遲、失敗率的門檻;None 表示使用者還沒裁定,沒定之前一格都不採用。
+
+    cost_exempt(Phase 13 [S1140]):「這個決策點不設成本門檻」的明示值(使用者裁定 9、13,
+    假設正式環境用自研模型)。成本欄只收有限數或 None,None 在這裡是「還沒裁定」,所以另開
+    布林欄;為真時成本門檻必須是 None,採用判定跳過成本那一項、延遲與失敗率照查。預設假,
+    既有門檻行為不變。"""
 
     cost_per_call_usd: float | None
     latency_median_us: float | None
     latency_p95_us: float | None
     failure_rate: float | None
+    cost_exempt: bool = False
 
     def __post_init__(self) -> None:
         for value in (self.cost_per_call_usd, self.latency_median_us, self.latency_p95_us,
@@ -118,6 +153,10 @@ class OperationalLimits:
                 raise ValueError("門檻要是有限、不為負的數字")
         if self.failure_rate is not None and self.failure_rate > 1:
             raise ValueError("失敗率門檻要在 0 到 1 之間")
+        if type(self.cost_exempt) is not bool:
+            raise ValueError("cost_exempt 要是真的布林值")
+        if self.cost_exempt and self.cost_per_call_usd is not None:
+            raise ValueError("cost_exempt 為真時成本門檻要是 None(不設門檻,不是某個數字)")
 
 
 @dataclass(frozen=True)
@@ -136,16 +175,24 @@ class Adoption:
     missing_evidence: tuple[str, ...]
 
 
-def _row_problems(row: ComparisonRow | None, limits: OperationalLimits) -> list[str]:
+def operational_problems(row: MeasuredRow | None, limits: OperationalLimits) -> list[str]:
+    """一列的成本、延遲、失敗率跟門檻比;沒量、不合法、門檻沒裁定都算問題。cost_exempt 為真時不比成本
+    ([S1140])。Phase 10 的逐格採用與 Phase 13 調查評估的模型那一列共用這一支。"""
     if row is None:
         return ["這一格沒有候選實測"]
+    # cost_exempt 為真時成本那一欄不必有量(代碼審 r1:自研模型可能根本沒有計價),其他欄照舊要有量
+    names = [n for n in MEASURE_FIELDS if not (limits.cost_exempt and n == "cost_per_call_usd")]
+    measures = [getattr(row, name) for name in names]
     if not all(m.measured and m.value is not None and _finite_nonnegative(m.value)
-               for m in row.measures()):
+               for m in measures):
         return ["這一格的比較表有沒量或不合法的欄位"]
-    if None in (limits.cost_per_call_usd, limits.latency_median_us, limits.latency_p95_us,
-                limits.failure_rate):
+    cost_undecided = limits.cost_per_call_usd is None and not limits.cost_exempt
+    if cost_undecided or None in (limits.latency_median_us, limits.latency_p95_us,
+                                  limits.failure_rate):
         return ["成本、延遲或失敗率的門檻還沒裁定"]
-    checks = ((row.cost_per_call_usd, limits.cost_per_call_usd, "成本超過門檻"),
+    cost = () if limits.cost_exempt else (
+        (row.cost_per_call_usd, limits.cost_per_call_usd, "成本超過門檻"),)
+    checks = (*cost,
               (row.latency_median_us, limits.latency_median_us, "延遲中位超過門檻"),
               (row.latency_p95_us, limits.latency_p95_us, "延遲 p95 超過門檻"),
               (row.format_failure_rate, limits.failure_rate, "格式失敗率超過門檻"),
@@ -192,7 +239,7 @@ def decide_adoption(
         row = None if candidate is None else candidate.get(cell)
         if row is not None and row.cell is not cell:  # 同一列掛在別格的鍵下,視同這一格沒量
             row = None
-        reasons += _row_problems(row, limits)
+        reasons += operational_problems(row, limits)
         decisions.append(CellDecision(cell, not reasons, tuple(dict.fromkeys(reasons))))
     # 採用函式是已驗證清單唯一的信任呼叫端:帶分析端的簽發者哨兵建
     validated = ValidatedCells(frozenset(d.cell for d in decisions if d.validated),
@@ -207,3 +254,34 @@ def decide_adoption(
     return Adoption(cells=tuple(decisions), validated=validated, adopt=adopt,
                     reasons=() if adopt else (*NOT_ADOPTED_REASONS, *dict.fromkeys(shared)),
                     missing_evidence=tuple(missing))
+
+
+# ---- 逐欄判定(Phase 11B 模型候選與 Phase 13 調查評估共用;Phase 13 增量 3 代碼審 r2 從模型候選搬來,
+# 報告模組不必匯入會送出的模型候選) ----
+# 沒有呼叫模型的結果類別(沒有錄製、花費帳忙碌、本地上限拒絕、設定錯誤):不算進比率,另外列件數。寫成
+# 字面值,採用判定模組照舊不碰模型用戶端;測試核對跟模型用戶端的結果類別一致(同分析端說明領取的做法)
+UNSENT = frozenset({"no_recording", "ledger_busy", "local_cap_refused", "config_error"})
+MARKED = (("cost_per_call_usd", "每次成本", "cost"), ("latency_median_us", "延遲中位", "median"),
+          ("latency_p95_us", "延遲 p95", "p95"), ("format_failure_rate", "格式失敗率", "rate"),
+          ("exception_rate", "例外率", "rate"), ("timeout_rate", "逾時率", "rate"),
+          ("fallback_rate", "退回率", "rate"))
+
+
+def threshold_marks(row: MeasuredRow, limits: OperationalLimits) -> Mapping[str, str]:
+    """逐欄標過或沒過(門檻是使用者裁定的常數,不依結果調整)。門檻的 cost_exempt 為真時,成本那一欄
+    寫「不設門檻」、不比大小(Phase 13 [S1155])。"""
+    bars = {"cost": limits.cost_per_call_usd, "median": limits.latency_median_us,
+            "p95": limits.latency_p95_us, "rate": limits.failure_rate}
+    marks = {}
+    for name, _label, bar_kind in MARKED:
+        measure: Measure = getattr(row, name)
+        bar = bars[bar_kind]
+        if bar_kind == "cost" and limits.cost_exempt:
+            marks[name] = NO_COST_GATE
+        elif not measure.measured or measure.value is None:
+            marks[name] = "沒量"
+        elif bar is None:
+            marks[name] = "門檻未定"
+        else:
+            marks[name] = "過" if measure.value <= bar else "沒過"
+    return marks
