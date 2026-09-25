@@ -1,1 +1,9 @@
 {"event": "header", "ts": "2026-09-21T14:44:33+00:00", "root_decision_id": "Projects/RTB_Agent_Phase0架構.md#d9", "node": "Projects/RTB_Agent_Phase0架構.md"}
+{"event": "transition", "ts": "2026-09-25T05:04:36+00:00", "neighbor": "Verification/Phase1驗收紀錄.md", "edge_type": "plan_refs", "from_decision_id": "Projects/RTB_Agent_Phase0架構.md#d9", "state": "confirmed", "by": "ai"}
+{"event": "transition", "ts": "2026-09-25T05:04:37+00:00", "neighbor": "Verification/事故F1_結果不明只用原鍵對帳.md", "edge_type": "plan_refs", "from_decision_id": "Projects/RTB_Agent_Phase0架構.md#d9", "state": "confirmed", "by": "ai"}
+{"event": "transition", "ts": "2026-09-25T05:04:37+00:00", "neighbor": "Verification/事故F2_確認前當機不重複副作用.md", "edge_type": "plan_refs", "from_decision_id": "Projects/RTB_Agent_Phase0架構.md#d9", "state": "confirmed", "by": "ai"}
+{"event": "transition", "ts": "2026-09-25T05:04:37+00:00", "neighbor": "Verification/事故F3_重複投遞不重複分析與副作用.md", "edge_type": "plan_refs", "from_decision_id": "Projects/RTB_Agent_Phase0架構.md#d9", "state": "confirmed", "by": "ai"}
+{"event": "transition", "ts": "2026-09-25T05:04:38+00:00", "neighbor": "Verification/事故F4_舊版本寫入被拒不覆蓋.md", "edge_type": "plan_refs", "from_decision_id": "Projects/RTB_Agent_Phase0架構.md#d9", "state": "confirmed", "by": "ai"}
+{"event": "transition", "ts": "2026-09-25T05:04:38+00:00", "neighbor": "Verification/事故F5_不可信文字不能擴權.md", "edge_type": "plan_refs", "from_decision_id": "Projects/RTB_Agent_Phase0架構.md#d9", "state": "confirmed", "by": "ai"}
+{"event": "transition", "ts": "2026-09-25T05:04:38+00:00", "neighbor": "Verification/事故F6_死信重放必須重新驗證.md", "edge_type": "plan_refs", "from_decision_id": "Projects/RTB_Agent_Phase0架構.md#d9", "state": "confirmed", "by": "ai"}
+{"event": "transition", "ts": "2026-09-25T05:04:39+00:00", "neighbor": "Verification/事故F7_總曝險到門檻就停.md", "edge_type": "plan_refs", "from_decision_id": "Projects/RTB_Agent_Phase0架構.md#d9", "state": "confirmed", "by": "ai"}
