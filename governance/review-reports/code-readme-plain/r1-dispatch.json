@@ -1,0 +1,14 @@
+[
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "README 每句宣稱對得上程式與文件、寫法跟既有一致",
+  "materials": [
+   "governance/review-reports/code-readme-plain/r1-snapshot.patch",
+   "README.md",
+   "recordings/model/README.md",
+   "governance/eval/phase13-investigation-adoption.md"
+  ],
+  "auditor": "claude-sonnet"
+ }
+]
