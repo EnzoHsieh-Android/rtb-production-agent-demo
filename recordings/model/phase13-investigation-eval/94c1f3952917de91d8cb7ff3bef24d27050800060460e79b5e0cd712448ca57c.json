@@ -1,0 +1,22 @@
+{
+ "key": "94c1f3952917de91d8cb7ff3bef24d27050800060460e79b5e0cd712448ca57c",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": \"do_not_propose\", \"reason\": \"廣告狀態為暫停中,依規則第一條直接判定不值得加預算\", \"evidence\": [{\"ref\": \"base\", \"field\": \"status\", \"value\": \"paused\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 79,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 610,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 3484400,
+ "list_nanousd": 3484400,
+ "latency_ms": 3830.184541642666,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

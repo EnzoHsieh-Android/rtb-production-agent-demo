@@ -945,3 +945,13 @@ def test_the_eval_lists_recordings_through_the_model_client_facade():
     source = (EVAL / "investigation_eval.py").read_text(encoding="utf-8")
     assert "def recording_files" not in source
     assert "mc.recording_files(" in source
+
+
+def test_the_decision_record_no_longer_promises_a_demo_mode_banner():
+    """使用者 2026-09-25 拿掉展示模式橫幅:決定紀錄的不採用理由不再寫「展示只能標展示模式、未通過採用
+    門檻」,改寫成現況——展示照樣用 AI 回答做示範,但不進正式決策路徑。"""
+    from rtb.eval import investigation_report
+
+    reason = investigation_report.SYNTHETIC_NEVER_ADOPTS
+    assert "展示模式" not in reason and "採用門檻」" not in reason
+    assert "示範" in reason and "不進正式決策路徑" in reason

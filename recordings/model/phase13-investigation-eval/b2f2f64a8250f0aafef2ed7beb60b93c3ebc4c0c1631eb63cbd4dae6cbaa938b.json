@@ -1,0 +1,22 @@
+{
+ "key": "b2f2f64a8250f0aafef2ed7beb60b93c3ebc4c0c1631eb63cbd4dae6cbaa938b",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "曝光為0,click_rate/conversion_rate為na,無點擊也無轉換,依規則7判斷為沒有投放,不值得加。\n\n{\"choice\": \"do_not_propose\", \"reason\": \"曝光與點擊皆為0,屬於沒有投放,不值得加預算\", \"evidence\": [{\"ref\": \"base\", \"field\": \"impressions\", \"value\": \"0\"}, {\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"0\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 153,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 632,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4312400,
+ "list_nanousd": 4312400,
+ "latency_ms": 4405.662749893963,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

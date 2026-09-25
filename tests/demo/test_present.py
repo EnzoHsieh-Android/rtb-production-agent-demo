@@ -29,9 +29,12 @@ EDGES = {(e.source, e.target) for e in FLOW_GRAPH.edges}
 
 @pytest.fixture
 def ran(tmp_path):
-    """真的跑 F2(猝死重啟)與 F4(舊工作擋下、開新工作:路徑會斷開成兩段)。"""
+    """真的跑 F2(猝死重啟)與 F4(舊工作擋下、開新工作:路徑會斷開成兩段)。錄製目錄明給一個空目錄:
+    這幾支驗的是 AI 沒給回答、改由程式規則的畫法,不跟著入庫的展示批次(2026-09-25 入庫)變。"""
     writer = StateWriter(tmp_path / "state.db", "demo-1")
-    demo = Driver(tmp_path / "demos", "demo-1", DemoKeys.generate(), writer, user_env=os.environ)
+    (tmp_path / "no-recordings").mkdir()
+    demo = Driver(tmp_path / "demos", "demo-1", DemoKeys.generate(), writer, user_env=os.environ,
+                  recordings_dir=tmp_path / "no-recordings")
     for code in ("F2", "F4"):
         assert demo.run_one(code).status == "done"
     writer.record_verifier_run(VerifierRun(

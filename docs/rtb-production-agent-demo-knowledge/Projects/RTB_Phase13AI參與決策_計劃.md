@@ -732,7 +732,7 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
 - [S1161] 當 AI 決策函式在續租前或呼叫模型前查到已收到停止時,應不續租、不呼叫模型,丟 RenewalSkipped,這一步不寫入。[test:test_a_pending_stop_skips_renewal_and_the_model_call]
 - [S1162] domain 指標模組的精確比率函式應回分數或三態原因代碼之一;收據格式化與標準答案產生函式應都經它取得比率;金額量化溢位時收據應寫 na。[test:test_one_exact_ratio_function_feeds_receipts_and_the_answer_key]
 - [S1163] 評估生成器產生的每一筆案例,每個百分比門檻用到的精確值應離門檻超過 0.05 個百分點。[test:test_no_generated_case_sits_on_a_rounding_boundary]
-- [S1164] 展示批次入庫前,用錄製模式跑一次 F1 到 F6 時找不到錄製的筆數應為 0,批次也應滿足評估批次的另外兩條驗過條件;入庫後 CI 重播 F1–F6,任一輪 AI 退回就應失敗,F7 不查;入庫目錄未存在時照 [S1141] 跳過。(使用者 2026-09-25 裁定:加一條缺錄退回即紅的 CI 守衛,並用假錄製證明抓得到。)入庫前檢查(含錄完的自動檢查)也應把 F1–F6 任一輪 AI 退回算成問題、判不過,跟 CI 守衛同一支判法(增量 4 代碼審 r2 m1,代使用者裁定 2026-09-25)。[test:test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording] [test:test_a_recorded_batch_with_ai_fallbacks_fails_the_intake_check] [test:test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6] [test:test_demo_recording_guard_catches_a_missing_fake_answer]
+- [S1164] 展示批次入庫前,用錄製模式跑一次 F1 到 F6 時找不到錄製的筆數應為 0,批次也應滿足評估批次的另外兩條驗過條件;入庫後 CI 重播 F1–F6,任一輪 AI 退回就應失敗,F7 不查;入庫目錄未存在時照 [S1141] 跳過(2026-09-25 批次 phase13-demo-20260925 已入庫,這支 CI 測試已啟用)。(使用者 2026-09-25 裁定:加一條缺錄退回即紅的 CI 守衛,並用假錄製證明抓得到。)入庫前檢查(含錄完的自動檢查)也應把 F1–F6 任一輪 AI 退回算成問題、判不過,跟 CI 守衛同一支判法(增量 4 代碼審 r2 m1,代使用者裁定 2026-09-25)。[test:test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording] [test:test_a_recorded_batch_with_ai_fallbacks_fails_the_intake_check] [test:test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6] [test:test_demo_recording_guard_catches_a_missing_fake_answer]
 - [S1165] 當評估執行器開始即時加錄製時,應先呼叫模型用戶端的開錄前目錄檢查,目錄既不是空的也不是只有同一批的檔時應拒絕開始。[test:test_the_eval_runner_refuses_to_record_into_a_mixed_directory]
 - [S1166] 當某個情境列在即時清單裡時,驅動應給它的分析端一個這次展示專屬、不在入庫目錄底下的新錄製目錄,批次編號應是 demo-live 加展示編號;入庫的展示錄製目錄內容應不變。[test:test_live_scenarios_record_into_a_fresh_per_demo_directory]
 - [S1167] 驅動應依每件工作實際的結局選預期組:提案結局用情境既有的必經節點與收件口、寫入平台紀錄;不提案結局只核分析端紀錄、必經換成不提案結案或考題結束節點,而且這件工作的收件口與寫入平台紀錄應不存在;故障斷言應只對結局是提案的工作要求。[test:test_the_driver_picks_expectations_by_each_task_outcome]
@@ -921,6 +921,8 @@ PYTHONPATH=src .venv/bin/python -m rtb.eval.investigation_eval --ledger /tmp/rtb
 - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後;頁面前綴由第二輪裁定覆蓋):「AI 判不提案,故障處理這次沒有走到」在驅動的結果與頁面上寫成「AI 判不提案（不提出調整建議）,故障處理這次沒有走到」;F5 考題行本文仍報「考題通過/沒通過」,頁面前綴只顯示「AI 的回答」,底層錄製前綴不改。
 - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後;頂端模式字由第二輪裁定撤回):情境細節仍記 `answered_rounds` 與模式原因供內部使用,頁面頂端不列錄製或即時,缺錄在詳情只顯示「AI 這次沒有給出回答」。
 - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後):截圖由實作者代協調者拍(計劃〈拆增量〉原寫由協調者先備好),在合完主線、修完 r1 的最終程式上重拍,時間記在驗收紀錄。
+
+- 實作者解讀(2026-09-25,兩批錄製入庫後):協調者照新系統提示用真 claude 錄了展示批次 phase13-demo-20260925(`recordings/model/phase13-demo/`,6 份)與調查評估批次 phase13-eval-20260925(`recordings/model/phase13-investigation-eval/`,84 份),都過入庫前檢查。評估重播結果:模型在名稱正常的 36 筆裡類別正確 17 筆、格式失敗率 32.5%(協調者判讀多為模型在 JSON 前加推理文字)、延遲 p95 約 7.2 秒,結論不採用。[S1141]、[S1164] 的 CI 測試原本入庫前跳過,現在已啟用。決定紀錄的不採用理由改成「展示照樣可以用 AI 回答做示範,但不進正式決策路徑」(使用者同日拿掉展示模式橫幅,舊句「展示只能標展示模式、未通過採用門檻」對不上)。
 
 增量 4 代碼審 r2 後的解讀(代使用者裁定 2026-09-25,18 條全修):
 

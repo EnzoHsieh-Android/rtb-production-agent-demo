@@ -1,0 +1,22 @@
+{
+ "key": "98271f9501cf34d84dd74a1849dca3cbace4020e727b0b32dce43efc9bdc3191",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "有點擊(9)但轉換與營收皆為0,符合規則9,證據不足需進一步查看。\n\n{\"choice\": [\"check_longer_window\", \"check_daily_trend\", \"check_change_history\"], \"reason\": \"有點擊但轉換與營收皆為零,需查更長時間窗口是否有延遲轉換、近期趨勢與調整紀錄以判斷\", \"evidence\": []}",
+ "input_tokens": 2,
+ "output_tokens": 135,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 608,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4036401,
+ "list_nanousd": 4036401,
+ "latency_ms": 5291.390041820705,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

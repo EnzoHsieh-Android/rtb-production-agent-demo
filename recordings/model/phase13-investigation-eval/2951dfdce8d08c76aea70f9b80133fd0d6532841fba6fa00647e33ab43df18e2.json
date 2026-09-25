@@ -1,0 +1,22 @@
+{
+ "key": "2951dfdce8d08c76aea70f9b80133fd0d6532841fba6fa00647e33ab43df18e2",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "無點擊(clicks=0),依規則7沒有投放,不值得加。\n\n{\"choice\": \"do_not_propose\", \"reason\": \"沒有點擊,屬於沒有投放,不值得加預算\", \"evidence\": [{\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"0\"}, {\"ref\": \"base\", \"field\": \"impressions\", \"value\": \"456\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 125,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 602,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 3912400,
+ "list_nanousd": 3912400,
+ "latency_ms": 3858.7502921000123,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

@@ -1,0 +1,22 @@
+{
+ "key": "917c3ffe9333e516fb908bd01ec5bd84d5468bf884a8f17c0dcb8e8025426b27",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": \"stop_insufficient\", \"reason\": \"最近3天轉換率較前4天大幅下降超過一半,屬品質問題,證據不足以判斷值得加預算\", \"evidence\": [{\"ref\": \"check_daily_trend\", \"field\": \"conversion_rate_change\", \"value\": \"-73.6\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 140,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 787,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4802400,
+ "list_nanousd": 4802400,
+ "latency_ms": 4127.102457918227,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

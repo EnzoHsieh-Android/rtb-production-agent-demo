@@ -1,0 +1,22 @@
+{
+ "key": "115cb4bd9ccc71c1f426aa3d11fadba28536a7d97af06f4ab8d5dd6a6b44d07d",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "revenue是na,依規則2,base欄位中有na即視為資料異常→證據不足。\n\n{\"choice\": \"stop_insufficient\", \"reason\": \"base的revenue欄位為na,屬於缺值,判定為1小時資料異常,證據不足\", \"evidence\": [{\"ref\": \"base\", \"field\": \"revenue\", \"value\": \"na\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 118,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 606,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 3858400,
+ "list_nanousd": 3858400,
+ "latency_ms": 4305.478166788816,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

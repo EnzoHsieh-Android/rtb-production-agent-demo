@@ -1,0 +1,22 @@
+{
+ "key": "b5f013b68bb352e5e06880f35e19ba7d6d304ab8861e0d859f2d4cf281ca826e",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": \"propose\", \"reason\": \"有點擊且有轉換與營收,符合值得加的條件,無異常或暫停狀態\", \"evidence\": [{\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"13\"}, {\"ref\": \"base\", \"field\": \"conversions\", \"value\": \"3\"}, {\"ref\": \"base\", \"field\": \"revenue\", \"value\": \"24.07\"}, {\"ref\": \"base\", \"field\": \"status\", \"value\": \"active\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 152,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 608,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4206401,
+ "list_nanousd": 4206401,
+ "latency_ms": 5937.116958200932,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

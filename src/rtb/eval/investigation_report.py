@@ -40,7 +40,8 @@ INVESTIGATION_LIMITS = OperationalLimits(cost_per_call_usd=None, latency_median_
                                          latency_p95_us=3_000_000.0, failure_rate=0.01,
                                          cost_exempt=True)
 SYNTHETIC_NEVER_ADOPTS = ("合成評估集是有限的合約案例,照 Phase 10 規定一律不採用,"
-                          "不產生任何給正式路徑的已驗證清單;展示只能標「展示模式、未通過採用門檻」")
+                          "不產生任何給正式路徑的已驗證清單;展示照樣可以用 AI 回答做示範,"
+                          "但不進正式決策路徑")
 MISSING_EVIDENCE = ("正式環境的決策紀錄抽樣", "人工標註", NO_MONITORING)
 _FORMAT = frozenset({mc.Outcome.UNREADABLE.value})
 _EXCEPTIONS = frozenset({mc.Outcome.TRANSIENT.value, mc.Outcome.QUOTA_EXHAUSTED.value,

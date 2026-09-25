@@ -1,0 +1,22 @@
+{
+ "key": "57a1d4178b9f313498346fcea268ae9576476effa68d063943a53d94b7f4473d",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": [\"check_longer_window\"], \"reason\": \"有點擊但轉換與營收皆為零,需檢查1天或7天是否有轉換以判斷是否符合第6條\", \"evidence\": []}",
+ "input_tokens": 2,
+ "output_tokens": 72,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 639,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 3530401,
+ "list_nanousd": 3530401,
+ "latency_ms": 3859.5617916435003,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

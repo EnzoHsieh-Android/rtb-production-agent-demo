@@ -1,0 +1,22 @@
+{
+ "key": "9098a9a9859f7f5c4fe7ffc1288c360af9486698be91f8f2c8b9524e02e41ccc",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": [\"check_change_history\", \"check_daily_trend\"], \"reason\": \"需先確認近3天是否調過預算、加預算後成效如何,以及轉換率是否驟降,才能依規則3-5判斷\", \"evidence\": []}",
+ "input_tokens": 2,
+ "output_tokens": 267,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 828,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 6236400,
+ "list_nanousd": 6236400,
+ "latency_ms": 6097.784332931042,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

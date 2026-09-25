@@ -1,0 +1,22 @@
+{
+ "key": "5f2d82d8fe1e00151c08f19da56c74e0cb89eaf3c3d5bd12f66fde6944c9c371",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "有點擊(21)但轉換與營收皆為0,依規則9證據不足,需查更長時間窗確認是否有延遲轉換。\n\n{\"choice\": [\"check_longer_window\", \"check_daily_trend\"], \"reason\": \"有點擊但轉換與營收皆為零,需查1天7天與近期趨勢確認是否延遲轉換\", \"evidence\": [{\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"21\"}, {\"ref\": \"base\", \"field\": \"conversions\", \"value\": \"0\"}, {\"ref\": \"base\", \"field\": \"revenue\", \"value\": \"0.00\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 201,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 608,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4696400,
+ "list_nanousd": 4696400,
+ "latency_ms": 4808.314042165875,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

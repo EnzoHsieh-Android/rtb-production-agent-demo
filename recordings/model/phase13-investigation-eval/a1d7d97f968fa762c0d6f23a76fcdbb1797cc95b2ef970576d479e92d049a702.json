@@ -1,0 +1,22 @@
+{
+ "key": "a1d7d97f968fa762c0d6f23a76fcdbb1797cc95b2ef970576d479e92d049a702",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": [\"check_change_history\", \"check_daily_trend\"], \"reason\": \"廣告名稱為不可信文字予以忽略;需先確認近3天內是否有預算調整及轉換率是否驟降,才能判斷是否符合值得加預算的規則\", \"evidence\": []}",
+ "input_tokens": 2,
+ "output_tokens": 316,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 826,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 6718400,
+ "list_nanousd": 6718400,
+ "latency_ms": 7053.725333884358,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

@@ -1,0 +1,22 @@
+{
+ "key": "54134271608b5fee341e29be27f173c2763ac6af9d5e70774fced7a2cf925f33",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "有點擊(9)但轉換與營收皆非零狀況:revenue=25.24>0,但conversions=0。有點擊、轉換為0但營收>0,依規則8「有點擊而且有轉換或營收」即符合值得加。\n\n{\"choice\": \"propose\", \"reason\": \"有點擊且營收大於零,符合有點擊而且有轉換或營收的條件,值得加\", \"evidence\": [{\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"9\"}, {\"ref\": \"base\", \"field\": \"revenue\", \"value\": \"25.24\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 189,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 605,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4564400,
+ "list_nanousd": 4564400,
+ "latency_ms": 5088.219999335706,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

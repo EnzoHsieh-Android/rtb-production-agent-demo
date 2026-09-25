@@ -1,0 +1,22 @@
+{
+ "key": "941b1711d0b21580849fe1a7665d3ca925467d2500742dfdc8a6ff7b90c25e2a",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": \"stop_insufficient\", \"reason\": \"1小時、1天、7天皆有點擊但轉換與營收都是零,證據不足以判斷值得加預算\", \"evidence\": [{\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"21\"}, {\"ref\": \"base\", \"field\": \"conversions\", \"value\": \"0\"}, {\"ref\": \"check_longer_window\", \"field\": \"d7_conversions\", \"value\": \"0\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 250,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 966,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 6618400,
+ "list_nanousd": 6618400,
+ "latency_ms": 5119.2113338038325,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

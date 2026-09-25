@@ -1,0 +1,22 @@
+{
+ "key": "dafc4f120b2bb1fa6d25a7e66df360bee216baf948416fed2ef5536334174cea",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": [\"check_change_history\", \"check_daily_trend\"], \"reason\": \"1小時、1天、7天轉換與營收都是零,需先確認近3天是否有預算調整及轉換率是否驟降,才能判斷是否證據不足或不值得加\", \"evidence\": []}",
+ "input_tokens": 2,
+ "output_tokens": 228,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 794,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 5710400,
+ "list_nanousd": 5710400,
+ "latency_ms": 7244.450957514346,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

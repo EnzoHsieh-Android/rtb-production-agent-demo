@@ -114,3 +114,4 @@ verified_by:
 ## 批次驗收跟展示批次共用(Phase 13 增量 4 代碼審 r1 h2,2026-09-25)
 
 - WHY:評估批次的 `batch_problems` 把批次本身的三條交給模型用戶端門面的共用驗收 `batch_file_problems`(展示錄製批次的入庫前檢查呼叫同一支),自己只加「重播找不到錄製 0 筆」;共用那一支另外拒收不是正式後端錄的錄製。防回歸:[test:test_the_batch_check_goes_red_on_missing_failed_or_mixed_recordings]。
+- WHY(2026-09-25):調查評估決定紀錄的不採用理由原本寫「展示只能標展示模式、未通過採用門檻」,使用者同日拿掉展示模式橫幅後對不上;改成「展示照樣可以用 AI 回答做示範,但不進正式決策路徑」,重播入庫錄製重產決定紀錄,只有這一句變。防回歸:[test:test_the_decision_record_no_longer_promises_a_demo_mode_banner]。

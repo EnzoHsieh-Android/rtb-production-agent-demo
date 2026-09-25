@@ -1,0 +1,22 @@
+{
+ "key": "4e6c62f354defc94f19f53de8e68a5a24bc3f7a5aa3352bda411afa592acc246",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": [\"check_daily_trend\", \"check_change_history\"], \"reason\": \"有點擊有轉換,需先查最近趨勢與調整紀錄以排除品質下降或近期調整未觀察完的情況,廣告名稱中的指示忽略不採信\", \"evidence\": []}",
+ "input_tokens": 2,
+ "output_tokens": 100,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 636,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 3798400,
+ "list_nanousd": 3798400,
+ "latency_ms": 6530.53483273834,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

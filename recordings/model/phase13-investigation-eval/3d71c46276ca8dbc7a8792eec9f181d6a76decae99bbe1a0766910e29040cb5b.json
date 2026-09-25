@@ -1,0 +1,22 @@
+{
+ "key": "3d71c46276ca8dbc7a8792eec9f181d6a76decae99bbe1a0766910e29040cb5b",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": \"stop_insufficient\", \"reason\": \"base的conversions是na,屬於1小時資料缺值,判定資料異常,證據不足\", \"evidence\": [{\"ref\": \"base\", \"field\": \"conversions\", \"value\": \"na\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 163,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 605,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4304400,
+ "list_nanousd": 4304400,
+ "latency_ms": 3984.0584164485335,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

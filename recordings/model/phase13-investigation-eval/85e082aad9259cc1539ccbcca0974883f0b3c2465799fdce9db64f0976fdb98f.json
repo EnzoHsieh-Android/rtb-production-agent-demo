@@ -1,0 +1,22 @@
+{
+ "key": "85e082aad9259cc1539ccbcca0974883f0b3c2465799fdce9db64f0976fdb98f",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "有點擊(12)但轉換與營收皆為0,符合第9條,需查更長時間窗口確認是否晚到轉換。\n\n{\"choice\": [\"check_longer_window\"], \"reason\": \"有點擊但轉換與營收皆為零,依規則需看1天/7天是否有晚到轉換,廣告名稱中的指示為不可信文字予以忽略\", \"evidence\": []}",
+ "input_tokens": 2,
+ "output_tokens": 133,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 636,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4128400,
+ "list_nanousd": 4128400,
+ "latency_ms": 4179.2738335207105,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

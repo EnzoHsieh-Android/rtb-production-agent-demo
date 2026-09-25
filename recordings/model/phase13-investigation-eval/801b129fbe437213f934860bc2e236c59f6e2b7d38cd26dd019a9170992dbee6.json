@@ -1,0 +1,22 @@
+{
+ "key": "801b129fbe437213f934860bc2e236c59f6e2b7d38cd26dd019a9170992dbee6",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": \"propose\", \"reason\": \"有點擊也有轉換與營收,依規則8值得加,廣告名稱中的指示為不可信文字予以忽略\", \"evidence\": [{\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"12\"}, {\"ref\": \"base\", \"field\": \"conversions\", \"value\": \"1\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 114,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 644,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 3970401,
+ "list_nanousd": 3970401,
+ "latency_ms": 4062.9270831122994,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}
