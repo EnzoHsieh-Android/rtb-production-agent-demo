@@ -30,7 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from rtb import modelclient as mc
-from rtb.demo.driver import DONE, NOT_EXERCISED, Driver
+from rtb.demo.driver import DEMO_RECORDINGS, DONE, NOT_EXERCISED, Driver
 from rtb.demo.keys import DemoKeys
 from rtb.demo.launcher import MODEL_VARIABLES
 from rtb.demo.present import build_demo_state
@@ -127,7 +127,9 @@ def check_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
                      codes: Sequence[str] = REPLAYED,
                      user_env: Mapping[str, str] | None = None) -> BatchCheck:
     """[S1164] 用錄製模式跑一次 F1 到 F6(讀這個目錄),數找不到錄製的筆數,再加上批次本身與重播本身的
-    問題。使用者環境拿掉三個模型變數:這裡一律只重播,不即時呼叫。"""
+    問題。使用者環境拿掉三個模型變數:這裡一律只重播,不即時呼叫。目錄一律先轉成絕對路徑:子行程在別的
+    工作目錄跑,相對路徑會讀不到錄製(協調者 2026-09-25 實測:相對 --dir 重播全找不到)。"""
+    directory, work_dir = Path(directory).resolve(), Path(work_dir).resolve()
     env = {k: v for k, v in (os.environ if user_env is None else user_env).items()
            if k not in MODEL_VARIABLES}
     demo_id = f"batch-check-{uuid.uuid4().hex[:8]}"
@@ -148,9 +150,9 @@ def check_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
 
 # ---- 錄一批展示錄製(協調者用真 claude 錄;測試一律用假 claude) ----
 RECORDED_CODES = REPLAYED  # F7 不錄:它與 F5 雙胞胎共用 F1 的錄製鍵([S1158])
-NEXT_STEP = ("驗過之後把整個目錄搬進 recordings/model/phase13-demo/(整個替換入庫的那一份,不在舊目錄"
+NEXT_STEP = ("驗過之後把整個目錄搬進 " + str(DEMO_RECORDINGS) + "(整個替換入庫的那一份,不在舊目錄"
              "上疊錄),再跑一次入庫前檢查:python -m rtb.demo.recordings --dir "
-             "recordings/model/phase13-demo --batch-id {batch} --work-dir <暫存目錄>")
+             + str(DEMO_RECORDINGS) + " --batch-id {batch} --work-dir <暫存目錄>")
 
 
 @dataclass(frozen=True)
@@ -200,7 +202,9 @@ def recording_problems(directory: Path, batch_id: str,
 def record_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
                       user_env: Mapping[str, str] | None = None) -> RecordResult:
     """依序以即時加錄製跑 F1 到 F6,分析端、說明、假說三支模型入口都寫進同一個全新目錄、同一個批次;
-    錄完自動跑一次入庫前檢查(重播 F1 到 F6)。即時模式的花費帳照設計記在帳號家目錄那一本。"""
+    錄完自動跑一次入庫前檢查(重播 F1 到 F6)。即時模式的花費帳照設計記在帳號家目錄那一本。目錄一律
+    先轉成絕對路徑(同 `check_demo_batch`)。"""
+    directory, work_dir = Path(directory).resolve(), Path(work_dir).resolve()
     env = {**(os.environ if user_env is None else user_env),
            mc.LIVE_ENV: "1", mc.RECORD_ENV: "1"}
     problems = recording_problems(directory, batch_id, env)
@@ -246,6 +250,7 @@ def main(argv: list[str] | None = None, *, user_env: Mapping[str, str] | None = 
     parser.add_argument("--record", action="store_true",
                         help="以即時加錄製跑 F1 到 F6 錄進 --dir(全新目錄),錄完自動檢查")
     args = parser.parse_args(argv)
+    args.dir, args.work_dir = args.dir.resolve(), args.work_dir.resolve()  # 相對路徑一收到就轉絕對
     if args.record:
         recorded = record_demo_batch(args.dir, args.batch_id, args.work_dir, user_env=user_env)
         print(json.dumps({**asdict(recorded), "passed": recorded.passed}, ensure_ascii=False))

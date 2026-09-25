@@ -109,3 +109,22 @@ def test_a_recorded_batch_with_ai_fallbacks_fails_the_intake_check(tmp_path):
     assert fallbacks, result.check.problems
     assert any(p.startswith("F1 ") for p in fallbacks), fallbacks
     assert not result.passed
+
+
+# ---- 協調者 2026-09-25:相對路徑的 --dir 重播全找不到錄製 ----
+def test_the_intake_check_accepts_relative_paths(tmp_path, monkeypatch, capsys):
+    """命令列用相對路徑給 --dir 與 --work-dir(錄完印的下一步就是這種寫法):一收到就轉成絕對路徑,
+    子行程在別的工作目錄也讀得到同一批錄製,有效批次照樣通過。"""
+    from tests.demo import fake_recordings as fake
+
+    fake.fake_batch(tmp_path / "rec", BATCH, {"normal": [fake.PROPOSE], "attacked": [fake.PROPOSE],
+                                              "follow_up": [fake.PROPOSE]},
+                    narrative=fake.NARRATIVE, backend="claude_code")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as done:
+        demo_recordings.main(["--dir", "rec", "--batch-id", BATCH, "--work-dir", "work"])
+    printed = json.loads(capsys.readouterr().out)
+    assert done.value.code == 0 and printed["passed"] is True, printed
+    assert printed["missing"] == 0
+    assert "{batch}" not in demo_recordings.NEXT_STEP or str(
+        driver_module.DEMO_RECORDINGS) in demo_recordings.NEXT_STEP.format(batch=BATCH)
