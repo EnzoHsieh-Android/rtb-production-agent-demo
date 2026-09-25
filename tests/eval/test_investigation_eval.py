@@ -55,8 +55,10 @@ def _base(user):
 
 
 def _name(user):
+    """資料區那一行是 JSON 字串(增量 2 代碼審後改成跟說明提示同一種寫法);截斷標記另接在後面。"""
     lines = user.splitlines()
-    return lines[lines.index("<<<資料開始") + 1]
+    line = lines[lines.index("<<<資料開始") + 1]
+    return json.JSONDecoder().raw_decode(line)[0]
 
 
 def conclude(choice, field="status"):
@@ -453,6 +455,17 @@ def test_the_system_prompt_lists_the_nine_rules_in_answer_key_order():
         verdict = line.split("→", 1)[1].strip()
         assert verdict.startswith(VERDICT_WORDS[ic.VERDICT[cell]]), (cell, line)
     assert "na" in inv.SYSTEM_PROMPT and "那一條不適用" in inv.SYSTEM_PROMPT
+    # 代碼審 r1 e3:na 條款寫明第 2 條(資料異常)的缺值例外——1 小時五個原始欄位是 na 就是缺值或負數,
+    # 算資料異常、證據不足,不跳過;跟標準答案一致(缺值不會被當成「算不出、不適用」)
+    na_rule = next(line for line in inv.SYSTEM_PROMPT.splitlines() if "那一條不適用" in line)
+    assert "例外" in na_rule and "第 2 條" in na_rule and "證據不足" in na_rule
+    assert all(word in na_rule for word in ("曝光", "點擊", "轉換", "花費", "營收"))
+    anomalous = [c for c in investigation_set.CASES
+                 if c.cell is ic.Cell.ANOMALY and None in c.metrics.values()]
+    assert anomalous and all(ic.gold(c) is WorthVerdict.INSUFFICIENT for c in anomalous)
+    for case in anomalous:
+        base = inv.base_receipt(case.state, case.metrics, 24)
+        assert m.NA in (base["conversions"], base["revenue"])
     # 殺傷力:標準答案的順序是實際判定順序(暫停排在資料異常前)
     anomalous_paused = dataclasses.replace(
         normal_case(ic.Cell.ANOMALY), state={**normal_case(ic.Cell.ANOMALY).state,
@@ -797,3 +810,54 @@ def test_live_recording_must_go_to_a_fresh_directory(tmp_path, monkeypatch):
     replay, _ = _replay_env(tmp_path)
     code, out, _ = _cli(["--ledger", str(tmp_path / "l.sqlite")], replay)
     assert code == ie.EXIT_OK and "phase13-investigation-eval" in out
+
+
+# ---- 合併增量 2 最終版(2026-09-25)----
+def test_the_eval_counts_model_calls_in_memory_with_the_same_cap(monkeypatch):
+    """[S1146] 合併增量 2 後:AI 決策函式送出前要記一次呼叫次數。評估沒有任務列,給一支在
+    記憶體裡計次、照同一個上限的實作(已達上限回上限加 1、不記),每筆案例各自一個。"""
+    counter = ie.CallCounter()
+    assert [counter(3) for _ in range(5)] == [1, 2, 3, 4, 4]
+    assert counter.used == 3
+    seen = []
+    real = ai_judge.Judge.__call__
+
+    def spy(self, task, evidence, now, context):
+        seen.append(context.begin_call)
+        return real(self, task, evidence, now, context)
+
+    monkeypatch.setattr(ai_judge.Judge, "__call__", spy)
+    case = normal_case(ic.Cell.LATE_CONVERSIONS)
+    run = ie.run_case(case, Scripted(query("check_longer_window"), query("check_daily_trend"),
+                                     conclude("propose")))
+    assert run.rounds == 3 and len({id(c) for c in seen}) == 1
+    assert seen[0].used == 3
+    other = ie.run_case(case, Scripted(conclude("propose")))
+    assert other.rounds == 1  # 下一筆重新計
+    # 上限用完(例如同一件工作重進分析)就不再呼叫模型,改由現行規則決定
+    monkeypatch.setattr(ie, "CallCounter", lambda: _Exhausted())
+    capped = ie.run_case(case, Scripted(conclude("propose")))
+    assert capped.rounds == 0 and capped.fallback == "ai_already_used"
+
+
+class _Exhausted:
+    used = 3
+
+    def __call__(self, limit):
+        return limit + 1
+
+
+def test_stored_query_results_pass_the_read_layer_checks():
+    """合併增量 2 後:「1 天窗大於 7 天窗」等判定在讀取層(DSP 用戶端)做,評估不經讀取層、
+    直接拿案例存的結果;所以每筆案例存的結果都要是讀取層會收下的樣子,評估才等於正式路徑。"""
+    from rtb.analyzer import dsp_client
+
+    for case in investigation_set.CASES:
+        results, campaign = case.results, f"c-{case.group}"
+        windows = results["check_longer_window"]
+        for window in ("1d", "7d"):
+            assert dsp_client._window_body(windows[window], campaign, window) == windows[window]
+        assert dsp_client.check_longer_window(windows["1d"], windows["7d"]) is not None
+        assert dsp_client.check_daily(results["check_daily_trend"], campaign) is not None
+        assert dsp_client.check_adjustments(results["check_past_adjustments"], campaign) is not None
+        assert dsp_client.check_history(results["check_change_history"]) is not None

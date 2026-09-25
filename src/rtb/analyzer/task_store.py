@@ -92,6 +92,9 @@ CREATE TABLE IF NOT EXISTS investigation_rounds (
     task_id TEXT NOT NULL, seq INTEGER NOT NULL, round INTEGER NOT NULL, kind TEXT NOT NULL,
     choice TEXT NOT NULL, decided_by TEXT NOT NULL, reason TEXT, fallback TEXT, reason_code TEXT,
     cited_json TEXT, model_source TEXT, written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
+CREATE TABLE IF NOT EXISTS investigation_calls (
+    task_id TEXT NOT NULL, call_seq INTEGER NOT NULL, lease_seq INTEGER NOT NULL,
+    written_at TEXT NOT NULL, PRIMARY KEY (task_id, call_seq));
 CREATE TABLE IF NOT EXISTS investigation_raw (
     task_id TEXT NOT NULL, seq INTEGER NOT NULL, option TEXT NOT NULL, raw_json TEXT NOT NULL,
     stored_at TEXT NOT NULL, PRIMARY KEY (task_id, seq, option));
@@ -490,6 +493,14 @@ class TaskReads:
             (task_id,)).fetchall()
         return tuple((int(r[0]), InvestigationRecord(*r[1:])) for r in rows)
 
+    def investigation_call_count(self, task_id: str) -> int:
+        """這件工作一生呼叫過(或正要呼叫)幾次模型:AI 那一步每次續租記一次;表不在就是 0。"""
+        if not self._has_table("investigation_calls"):
+            return 0
+        record = self._conn.execute(
+            "SELECT count(*) FROM investigation_calls WHERE task_id = ?", (task_id,)).fetchone()
+        return int(record[0])
+
     def investigation_reason_code(self, task_id: str, seq: int) -> str | None:
         """同序號調查紀錄列的原因代碼(展示觀察器用它分辨「AI 要再查」與「資料太舊重蒐證」);表不在、
         沒有那一列都回空值。"""
@@ -880,6 +891,27 @@ class TaskStore(TaskReads):
         except DatabaseBusy:
             return None
         return LeaseReceipt(lease.task_id, lease.lease_seq + 1, lease.owner)
+
+    def record_model_call(self, lease: LeaseReceipt, clock: Callable[[], datetime],
+                          limit: int) -> int | None:
+        """確定要呼叫模型的那一刻記一次(Phase 13 代碼審 r1 s2、r2 v3):在一個寫入交易裡核對仍持有
+        租約,這件工作一生還沒到上限就新增一列、回第幾次;已到上限回上限加 1、什麼都不寫。忙碌或失去
+        租約回 None,呼叫端不呼叫模型。次數在付費之前落地,提交一直忙碌也不會無上限重付;在呼叫前才記,
+        停止或出錯而沒問模型的不會被算進去。"""
+        try:
+            with immediate_transaction(self._conn):
+                if not self._holds(lease):
+                    return None
+                used = int(self._conn.execute(
+                    "SELECT count(*) FROM investigation_calls WHERE task_id = ?",
+                    (lease.task_id,)).fetchone()[0])
+                if used >= limit:
+                    return limit + 1
+                self._conn.execute("INSERT INTO investigation_calls VALUES (?, ?, ?, ?)",
+                                   (lease.task_id, used + 1, lease.lease_seq, _iso(clock())))
+        except DatabaseBusy:
+            return None
+        return used + 1
 
     def release_lease(self, lease: LeaseReceipt, now: datetime) -> bool:
         """目前那一列還是這張收據的取得列才新增放掉列;已被接手就什麼都不寫、回傳 False。

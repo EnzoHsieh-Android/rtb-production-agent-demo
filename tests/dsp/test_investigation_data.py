@@ -12,8 +12,13 @@ from pathlib import Path
 import pytest
 
 from rtb.dsp import seed
-from rtb.dsp.errors import ValidationRejected
-from rtb.dsp.store import CampaignStore, Operation
+from rtb.dsp.errors import (
+    AdjustmentsNotFound,
+    DailyNotFound,
+    MetricsNotFound,
+    ValidationRejected,
+)
+from rtb.dsp.store import CampaignStore, Operation, PastAdjustment
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 NOW = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
@@ -141,6 +146,96 @@ def test_seeded_past_operations_keep_commit_times_monotonic(tmp_path):  # noqa: 
     callers = []
     for path in sorted((SRC / "rtb").rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Attribute) and node.attr == "seed_past_operations":
+            if isinstance(node, ast.Attribute) and node.attr in ("seed_past_operations",
+                                                                 "seed_history"):
                 callers.append(path.relative_to(SRC).as_posix())
     assert sorted(set(callers)) == ["rtb/dsp/seed.py"]
+
+
+# ---- Phase 13 增量 2 代碼審 r1(d4、d5) ----
+_ADJ = seed.AdjustmentSeed(4, 100, 110, before=seed.DayFigures(300, 30, 6, 4.5, 24.0),
+                           after=seed.DayFigures(300, 30, 3, 4.5, 12.0))
+
+
+def test_seeding_history_is_all_or_nothing(tmp_path):
+    """d4-1:平台已經有操作時整份種子被拒,前面的逐日與過去調整也都沒寫進去。"""
+    store = CampaignStore(tmp_path / "dsp.db")
+    try:
+        store.seed_campaign("c1", budget=90)
+        store.execute(Operation("c1", "update_budget", {"new_budget": 95}, 1, "live-1"))
+        with pytest.raises(ValidationRejected):
+            seed.seed_platform_history(store, {"c1": seed.HistoryProfile(
+                daily=(DAY,) * 7, adjustments=(_ADJ,))}, NOW)
+        with pytest.raises(AdjustmentsNotFound):
+            store.get_past_adjustments("c1")
+        with pytest.raises(DailyNotFound):
+            store.get_daily("c1")
+        with pytest.raises(MetricsNotFound):
+            store.get_metrics("c1", "7d")
+    finally:
+        store.close()
+
+
+def test_reseeding_past_adjustments_replaces_the_old_rows(tmp_path):
+    """d4-2:重種成較少筆時,舊的過去調整不留下來。"""
+    store = CampaignStore(tmp_path / "dsp.db")
+    try:
+        store.seed_campaign("c1", budget=90)
+        before, after = _ADJ.before.as_fields(), _ADJ.after.as_fields()
+        store.seed_past_adjustments("c1", [PastAdjustment(d, 90, 100, before, after)
+                                           for d in (3, 5, 7)])
+        store.seed_past_adjustments("c1", [PastAdjustment(9, 90, 100, before, after)])
+        assert [a.days_ago for a in store.get_past_adjustments("c1")] == [9]
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize(("budget_before", "budget_after"), [(-5, 100), ("abc", 1.5),
+                                                              (100, True), (1.5, 100)])
+def test_past_adjustment_budgets_must_be_non_negative_integers(tmp_path, budget_before,
+                                                               budget_after):
+    """d4-3:調整前後的預算要是非負整數。"""
+    store = CampaignStore(tmp_path / "dsp.db")
+    try:
+        store.seed_campaign("c1", budget=90)
+        with pytest.raises(ValidationRejected):
+            store.seed_past_adjustments("c1", [PastAdjustment(
+                4, budget_before, budget_after, _ADJ.before.as_fields(),
+                _ADJ.after.as_fields())])
+        with pytest.raises(AdjustmentsNotFound):
+            store.get_past_adjustments("c1")
+    finally:
+        store.close()
+
+
+def test_a_missing_first_day_seeds_an_empty_one_day_window(tmp_path):
+    """d5:逐日第 1 天缺資料時 1 天窗照樣在(五欄 null);較長時間窗有結果,d1 欄 na、d7 欄有值。"""
+    from rtb.analyzer import dsp_client
+    from rtb.analyzer import investigation as inv
+    from rtb.analyzer.task_store import TaskRow
+    from rtb.domain.task_state import TaskState
+    from rtb.dsp.server import DspServer
+
+    store = _seeded(tmp_path, profile=seed.HistoryProfile(daily=(None,) + (DAY,) * 6))
+    try:
+        assert seed.consistency_problems(store, "c1", NOW) == []
+        window = store.get_metrics("c1", "1d")
+        assert (window.impressions, window.spend) == (None, None)
+    finally:
+        store.close()
+    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
+                       delay_seconds=0.0)
+    import threading
+
+    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+    try:
+        read = dsp_client.make_query_reader(f"http://127.0.0.1:{server.server_address[1]}", 2.0)(
+            TaskRow("t1", 2, TaskState.COLLECTING_EVIDENCE, "c1", None, None, NOW),
+            inv.QueryOption.CHECK_LONGER_WINDOW.value)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert read.reason is None and read.raw is not None
+    payload = inv.receipt_payload(inv.QueryOption.CHECK_LONGER_WINDOW, read.raw, NOW)
+    assert payload["d1_impressions"] == "na" and payload["d1_revenue"] == "na"
+    assert payload["d7_impressions"] == "600"

@@ -37,7 +37,7 @@ from typing import Any, TextIO
 from rtb.analyzer import modelgate
 from rtb.analyzer import task_store as tasks
 from rtb.analyzer.task_store import NarrativeClaim, NarrativeOutcome, TaskReads, TaskRow, TaskStore
-from rtb.domain.evidence import Evidence, EvidenceKind
+from rtb.domain.evidence import Evidence, EvidenceKind, quoted_untrusted
 from rtb.domain.proposal import Proposal, content_hash
 
 EXIT_OK = 0
@@ -101,13 +101,6 @@ def _evidence_of(store: TaskReads, row: TaskRow) -> list[Evidence]:
     return [found[ref] for ref in proposal.evidence_refs if ref in found]
 
 
-def _quoted(name: str) -> str:
-    """不可信文字放進資料區的寫法:整段 JSON 字串(換行與控制字元變成跳脫),其他不可列印的字(例如雙向
-    覆寫)也寫成 \\u 跳脫;名稱永遠只佔一行,偽造的「資料結束」出不了資料區(代碼審 r1)。"""
-    return "".join(ch if ch.isprintable() else f"\\u{ord(ch):04x}"
-                   for ch in json.dumps(name, ensure_ascii=False))
-
-
 def prompt_for(store: TaskReads, row: TaskRow) -> tuple[str, Callable[[str], str], str]:
     """照欄位白名單組使用者內容;回(內容, 把佔位符換回真實編號的函式, 程式算的那一段)。對照只留在
     本機,驗證通過後才拿來換回;說明裡的數字只准對回程式算的那一段(資料區的名稱不算證據)。"""
@@ -138,7 +131,7 @@ def prompt_for(store: TaskReads, row: TaskRow) -> tuple[str, Callable[[str], str
             name = item.payload.get("name")
             if isinstance(name, str):
                 cut = "(已截斷)" if item.payload.get("truncated") is True else ""
-                untrusted.append(f"{label}{cut}:{_quoted(name)}")
+                untrusted.append(f"{label}{cut}:{quoted_untrusted(name)}")
             continue
         values = "、".join(f"{f}={_value(item.payload.get(f))}" for f in fields)
         lines.append(f"- {label} {item.kind.value}:{values}")

@@ -8,6 +8,7 @@
 標成可信的證據,字串只能是短代號。自由文字能不能被當成可信,由型別保證,不靠每個用戶端自律。
 """
 
+import json
 import math
 from dataclasses import dataclass
 from datetime import datetime
@@ -158,3 +159,22 @@ def check_freshness(
     if current_version != evidence.campaign_version_observed:
         return Freshness.VERSION_CHANGED
     return Freshness.FRESH
+
+
+def quoted_untrusted(text: str) -> str:
+    """不可信文字放進送給模型的資料區的寫法:整段 JSON 字串(換行與控制字元變成跳脫),其他不可列印的字
+    (例如雙向覆寫)也寫成 \\u 跳脫;永遠只佔一行,偽造的「資料結束」出不了資料區。說明提示與調查提示
+    共用這一支(Phase 13 增量 1 代碼審 r1 在說明提示修過,增量 2 代碼審 r1 a1 搬到這裡讓調查提示
+    也用)。"""
+    return "".join(ch if ch.isprintable() else _json_escape(ch)
+                   for ch in json.dumps(text, ensure_ascii=False))
+
+
+def _json_escape(ch: str) -> str:
+    """一個字的 JSON 跳脫:BMP 以外的字寫成 UTF-16 代理對兩段(\\u 後面只能接四位,寫五位會被讀成
+    別的字,Phase 13 代碼審 r2 x2/y3)。"""
+    code = ord(ch)
+    if code <= 0xFFFF:
+        return f"\\u{code:04x}"
+    code -= 0x10000
+    return f"\\u{0xD800 + (code >> 10):04x}\\u{0xDC00 + (code & 0x3FF):04x}"

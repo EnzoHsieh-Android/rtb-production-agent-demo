@@ -356,3 +356,26 @@ def test_one_exact_ratio_function_feeds_receipts_and_the_answer_key(monkeypatch)
     # 標準答案產生函式那半(Phase 13 增量 3):評估的標準答案也只經它取得比率,
     # 算出的值寫成收據字串時跟收據格式化逐字相同
     answer_key_goes_through_exact_ratio(monkeypatch)
+
+
+# ---- Phase 13 增量 2 代碼審 r1(d1、d2) ----
+def test_a_receipt_value_too_long_for_trusted_evidence_is_na():
+    """d1:比率寫出來超過可信證據字串上限(128 字)歸資料不合理,寫 na。"""
+    assert m.receipt_change(1e-300, 1e300) == m.NA
+    assert m.receipt_ratio(10**200, 1) == m.NA
+    assert len(m.receipt_ratio(10**123, 1)) == 128  # 剛好放得下就照寫
+    assert m.receipt_ratio(10**130, 1) == m.NA  # 整數部分 133 位數
+    assert m.receipt_ratio(10**20, 1) != m.NA
+
+
+def test_money_ratios_use_the_decimal_value_written_on_the_receipt():
+    """d2:涉及金額的比率先照收據金額的 Decimal(repr(x)) 轉十進位再算,跟收據上的金額一致。"""
+    assert m.receipt_change(0.16, 0.17) == "6.2"
+    assert m.receipt_change(0.16, 0.15) == "-6.2"
+    assert m.exact_ratio(1.15, 100) == Fraction(115, 10000)
+    from rtb.analyzer import investigation as inv
+
+    base = inv.base_receipt({"status": "active", "budget": 2400},
+                            {"impressions": 10, "clicks": 1, "conversions": 0, "spend": 1.15,
+                             "revenue": 0.0}, 24)
+    assert base["pacing"] == "1.2"

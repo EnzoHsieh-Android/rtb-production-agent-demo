@@ -21,6 +21,7 @@ from rtb import modelledger_view as view
 from rtb.analyzer import modelgate, narrate
 from rtb.analyzer import task_store as ts
 from rtb.analyzer.task_store import TaskReader, TaskStore
+from rtb.domain.evidence import quoted_untrusted
 from rtb.domain.task_state import TaskState
 from tests.adversarial_samples import SAMPLES
 from tests.analyzer.test_f5_end_to_end import NORMAL_NAME, SAMPLE_IDS, run_once
@@ -142,7 +143,7 @@ def test_injected_campaign_names_cannot_change_any_program_decision(tmp_path, na
     assert result["proposal"].requested_change == narrated_normal["proposal"].requested_change
     numbers, data = obeying.calls[0].user.split("<<<資料開始")
     assert "t1" not in numbers and "c1" not in numbers  # 編號換成佔位符(名稱本身可能含這些字)
-    assert narrate._quoted(name[:100])[:-1] in data  # 名稱只在資料區,寫成跳脫過的 JSON 字串
+    assert quoted_untrusted(name[:100])[:-1] in data  # 名稱只在資料區,寫成跳脫過的 JSON 字串
     reader = TaskReader(db)
     try:
         [row] = reader.handed_off_rows()

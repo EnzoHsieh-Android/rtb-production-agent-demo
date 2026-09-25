@@ -20,6 +20,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from fractions import Fraction
 from types import MappingProxyType
 from typing import Any
 
@@ -32,6 +33,7 @@ from rtb.domain._checks import (
     is_int_between,
 )
 from rtb.domain.evidence import MAX_UNTRUSTED_TEXT_LENGTH, Evidence, EvidenceKind, TrustClass
+from rtb.domain.metrics import exact_value
 from rtb.domain.proposal import ActionType
 from rtb.httpclient import request_json
 
@@ -202,7 +204,11 @@ def make_operation_lookup(
 # 廣告編號與 rows(操作歷史照既有端點是 history),每一列只收下面列的欄位,多欄、少欄、型別不對
 # 整包不收。
 # 查不到(404)記 not_found、逾時記 timeout、欄位不合格記 invalid,都是「這個查詢沒有結果」,不丟例外;
-# 其他失敗(5xx、連不上)照基本讀取的規則往外丟,這一步不寫入、下次重試。
+# 其他失敗(5xx、連不上)照基本讀取的規則往外丟,這一步不寫入、下次重試。每支欄位檢查自己負責對任何
+# JSON 型別只回真假、不丟例外(跟上面兩張白名單同一種慣例)。
+# 呼叫紀錄(tool_calls)的記法三種都跟既有一致:例外(含逾時、200 但本文讀不懂)記例外類別名,同 _get;
+# 查不到記 not_found,同依冪等鍵查操作的包裝;成功記 ok(本文讀得懂但白名單不合格時也是 ok,
+# 收據那邊記 invalid)。
 
 
 @dataclass(frozen=True)
@@ -232,7 +238,8 @@ ADJUSTMENT_ROW_FIELDS: dict[str, Check] = {
 }
 HISTORY_ROW_FIELDS: dict[str, Check] = {
     "operation_id": lambda value: is_int_between(1, value),
-    "action": lambda value: value in {item.value for item in ActionType},
+    "action": lambda value: (isinstance(value, str)
+                             and value in {item.value for item in ActionType}),
     "version_after": lambda value: is_int_between(1, value),
     "received_at": lambda value: isinstance(value, str) and _aware(value),
     "committed_at": lambda value: isinstance(value, str) and _aware(value),
@@ -298,6 +305,16 @@ def _window_body(body: Any, campaign_id: str, window: str) -> dict[str, Any] | N
     return {n: body[n] for n in fields} if body["campaign_id"] == campaign_id else None
 
 
+def check_longer_window(day: dict[str, Any], week: dict[str, Any]) -> dict[str, Any] | None:
+    """較長時間窗的跨窗一致性(代碼審 r2 y4、r3 g1:判定只在讀取層這一處):1 天窗有任何計數或金額大於
+    7 天窗就是資料自相矛盾,整份回應不收、記 invalid。缺值的欄不比;比大小用精確值,不經浮點。"""
+    for name in (*_COUNT_FIELDS, *_AMOUNT_FIELDS):
+        small, large = exact_value(day.get(name)), exact_value(week.get(name))
+        if isinstance(small, Fraction) and isinstance(large, Fraction) and small > large:
+            return None
+    return {"1d": day, "7d": week}
+
+
 def _timed_out(problem: BaseException) -> bool:
     return isinstance(problem, TimeoutError) or isinstance(
         getattr(problem, "reason", None), TimeoutError)
@@ -319,24 +336,46 @@ def _read(base_url: str, path: str, timeout_seconds: float, task: TaskRow,
     started = time.monotonic()
     outcome = "ok"
     try:
-        status, body = request_json(f"{base_url}{path}", "GET", None, timeout_seconds)
-    except ValueError as bad:  # 共用用戶端的「讀不懂」(帶狀態碼);邊界測試只准從它匯入請求函式
-        outcome = type(bad).__name__
-        if getattr(bad, "status", None) == _OK:
-            raise _NoResult("invalid") from bad
+        return _answer(base_url, path, timeout_seconds)
+    except _NoResult as none:
+        # 呼叫紀錄記法對齊既有(代碼審 r2 z2):例外(含逾時)記例外類別名,同基本讀取的 _get;查不到
+        # 記 not_found,同依冪等鍵查操作;200 但本文讀不懂記 invalid
+        cause = none.__cause__
+        outcome = (type(cause).__name__ if none.reason != "not_found" and cause is not None
+                   else none.reason)
         raise
     except Exception as exc:
         outcome = type(exc).__name__
-        if _timed_out(exc):
-            raise _NoResult("timeout") from exc
         raise
     finally:
         if on_call is not None:
             on_call(task, endpoint, outcome, (time.monotonic() - started) * 1000)
+
+
+def _answer(base_url: str, path: str, timeout_seconds: float) -> Any:
+    """200 回本文;404 不論本文讀不讀得懂都是「查不到」;逾時是「逾時」;200 但本文讀不懂是
+    「欄位不合格」;
+    其他狀態碼(含本文不是物件的)丟 DspRequestFailed,照基本讀取的規則往外丟。"""
+    try:
+        status, body = request_json(f"{base_url}{path}", "GET", None, timeout_seconds)
+    except ValueError as bad:  # 共用用戶端的「讀不懂」(帶狀態碼);邊界測試只准從它匯入請求函式
+        code = getattr(bad, "status", None)
+        if code == _OK:
+            raise _NoResult("invalid") from bad
+        if code == _NOT_FOUND:
+            raise _NoResult("not_found") from bad
+        if code is not None:
+            raise DspRequestFailed(f"{path} 回 {code}:本文讀不懂") from bad
+        raise
+    except Exception as exc:
+        if _timed_out(exc):
+            raise _NoResult("timeout") from exc
+        raise
     if status == _NOT_FOUND:
         raise _NoResult("not_found")
     if status != _OK:
-        raise DspRequestFailed(f"{path} 回 {status}:{body.get('error', '未知錯誤')}")
+        error = body.get("error", "未知錯誤") if isinstance(body, dict) else "本文不是物件"
+        raise DspRequestFailed(f"{path} 回 {status}:{error}")
     return body
 
 
@@ -349,9 +388,10 @@ def _query(base_url: str, timeout: float, task: TaskRow, option: str,
             body = _read(base_url, f"{root}/metrics?window={window}", timeout, task, on_call,
                          ToolEndpoint.DSP_METRICS)
             windows[window] = _window_body(body, campaign, window)
-        if any(item is None for item in windows.values()):
+        day, week = windows["1d"], windows["7d"]
+        if day is None or week is None:
             return None
-        return windows
+        return check_longer_window(day, week)
     if option == "check_change_history":
         return check_history(_read(base_url, f"{root}/history", timeout, task, on_call,
                                    ToolEndpoint.DSP_HISTORY))

@@ -136,16 +136,31 @@ def run_case(case: Case, ask: Ask) -> CaseRun:
     AI 決策函式。"""
     logged = _Logged(ask)
     judge = ai_judge.Judge(logged)
+    counter = CallCounter()
     records: list[InvestigationRecord] = []
     for seq in range(1, inv.MAX_ROUNDS + 2):  # 最多 3 輪模型呼叫;多一輪留給「上限後只剩結論」的保險
         task = _task(case, seq)
         evidence = case_evidence(case, task, inv.progress(records))
-        outcome = judge(task, evidence, NOW, AiContext(_renewed, tuple(records)))
+        outcome = judge(task, evidence, NOW, AiContext(_renewed, tuple(records), counter))
         if outcome.record is not None:
             records.append(outcome.record)
         if not isinstance(outcome.result, QueryMore):
             return CaseRun(case, _verdict(outcome), tuple(records), tuple(logged.calls))
     raise AssertionError(f"{case.case_id} 超過輪數上限還在選查詢:AI 決策函式的上限沒有生效")
+
+
+class CallCounter:
+    """送出前的呼叫記次(評估沒有任務列,在記憶體裡計;照流程層那支同一個語意):回這筆案例第幾次模型
+    呼叫,已達上限回上限加 1、不記。每筆案例一個。"""
+
+    def __init__(self) -> None:
+        self.used = 0
+
+    def __call__(self, limit: int) -> int:
+        if self.used >= limit:
+            return limit + 1
+        self.used += 1
+        return self.used
 
 
 def _renewed() -> None:

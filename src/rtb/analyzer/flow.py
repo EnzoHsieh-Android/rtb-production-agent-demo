@@ -89,11 +89,13 @@ class AiOutcome:
 
 @dataclass(frozen=True)
 class AiContext:
-    """流程層交給 AI 決策函式的兩樣:續租回呼(成功就換掉容器裡的收據,沒成丟 RenewalSkipped),
-    與這件工作先前各輪的調查紀錄(從資料庫讀出的已提交列)。"""
+    """流程層交給 AI 決策函式的三樣:續租回呼(成功就換掉容器裡的收據;沒成丟 RenewalSkipped)、這件工作
+    先前各輪的調查紀錄(從資料庫讀出的已提交列),與「確定要呼叫模型」的記次回呼(收上限,回這件工作一生
+    第幾次模型呼叫;超過上限回上限加 1、不記;記不進去丟 RenewalSkipped,代碼審 r2 v3)。"""
 
     renew: Callable[[], None]
     rounds: tuple[InvestigationRecord, ...]
+    begin_call: Callable[[int], int]
 
 
 class RenewalSkipped(Exception):  # 名字照計劃(R3-2):它不是錯誤,是「這步不寫」
@@ -207,6 +209,7 @@ class _Collaborators:
     no_action_reason: ExplainNoAction | None = None  # 只有分析中、決策是不提案時問
     ai_decide: AiDecide | None = None  # 給了:分析中那一步改問 AI 決策函式
     renew: Callable[[], None] | None = None  # 續租回呼(有 AI 決策函式才有)
+    begin_call: Callable[[int], int] | None = None  # 呼叫模型前的記次回呼(同上)
 
 
 @dataclass(frozen=True)
@@ -265,12 +268,14 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、
     if acquired is None:  # 別人正持有:不花錢,跟「沒有進展」一樣回原狀態
         return row.state
     lease = _Lease(acquired)
-    renew = None if ai_decide is None else _renewer(store, lease, clock or _system_clock)
+    tick = clock or _system_clock
+    renew = None if ai_decide is None else _renewer(store, lease, tick)
+    begin_call = None if ai_decide is None else _call_recorder(store, lease, tick)
     try:
         return _advance_holding(
             store, row,
             _Collaborators(evidence_source, decide, submit, operation_lookup, no_action_reason,
-                           ai_decide, renew),
+                           ai_decide, renew, begin_call),
             now, before_commit, lease)
     except BaseException:
         store.release_lease_quietly(lease.current, now)  # 放掉失敗也不蓋掉原本的例外
@@ -281,17 +286,43 @@ def _system_clock() -> datetime:
     return datetime.now(UTC)
 
 
+class _StoreFailed(Exception):
+    """續租時資料庫層丟的例外(不是鎖競爭):包起來穿過 AI 決策函式,在流程層還原成原本的例外往外丟,
+    這一步不寫入、下一輪重試,跟沒開 AI 時一樣,不轉 FAILED(代碼審 r1 f1)。"""
+
+
 def _renewer(store: TaskStore, lease: _Lease,
              clock: Callable[[], datetime]) -> Callable[[], None]:
-    """續租回呼:成功就在這一刻換掉容器裡的收據;條件不符或等鎖逾時丟 RenewalSkipped。"""
+    """續租回呼:成功就在這一刻換掉容器裡的收據;條件不符或等鎖逾時丟 RenewalSkipped;其他資料庫錯誤
+    包成 _StoreFailed。"""
 
     def renew() -> None:
-        renewed = store.renew_lease(lease.current, clock)
+        try:
+            renewed = store.renew_lease(lease.current, clock)
+        except Exception as failed:
+            raise _StoreFailed(repr(failed)) from failed
         if renewed is None:
             raise RenewalSkipped("續租沒成:被接手或等鎖逾時")
         lease.current = renewed
 
     return renew
+
+
+def _call_recorder(store: TaskStore, lease: _Lease,
+                   clock: Callable[[], datetime]) -> Callable[[int], int]:
+    """確定要呼叫模型的那一刻記一次(獨立的寫入交易,交易內核對仍持有租約;代碼審 r2 v3):回這件工作
+    一生第幾次模型呼叫,已達上限回上限加 1、不記;忙碌或失去租約丟 RenewalSkipped,不呼叫模型。"""
+
+    def begin_call(limit: int) -> int:
+        try:
+            count = store.record_model_call(lease.current, clock, limit)
+        except Exception as failed:
+            raise _StoreFailed(repr(failed)) from failed
+        if count is None:
+            raise RenewalSkipped("記不下這次模型呼叫:忙碌或失去租約")
+        return count
+
+    return begin_call
 
 
 def _advance_holding(
@@ -353,8 +384,10 @@ def _from_analyzing(
         evidence = store.evidence_for(row.task_id, row.seq)
     except CorruptedHistoryRow as exc:  # 存好的資料本身毀損,重試沒有用:直接轉 FAILED
         return _Step(TaskState.FAILED, error_detail=repr(exc))
-    if c.ai_decide is not None and c.renew is not None:
-        return _from_ai(store, row, c.ai_decide, c.renew, evidence, now)
+    if c.ai_decide is not None and c.renew is not None and c.begin_call is not None:
+        return _from_ai(row, c.ai_decide, AiContext(
+            c.renew, tuple(record for _seq, record in store.investigation_rounds(row.task_id)),
+            c.begin_call), evidence, now)
     try:
         decision = c.decide(row, evidence, now)
     except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
@@ -368,17 +401,21 @@ def _from_analyzing(
     raise _BrokenCollaborator(f"Decide 回傳了合約之外的型別:{type(decision)!r}")
 
 
-def _from_ai(store: TaskStore, row: TaskRow, ai_decide: AiDecide, renew: Callable[[], None],
+def _from_ai(row: TaskRow, ai_decide: AiDecide, context: AiContext,
              evidence: tuple[Evidence, ...], now: datetime) -> _StepOutcome:
-    """AI 那一步:續租沒成是「這步不寫」(在通用例外之前接,[S1152]);其他例外照決策丟例外轉 FAILED;
-    停止訊號這類 BaseException 不接,由 advance 用容器裡的收據放掉租約後往外丟。"""
+    """AI 那一步:續租沒成是「這步不寫」(在通用例外之前接,[S1152]);讀資料庫與續租時的資料庫錯誤跟
+    沒開 AI 時一樣往外丟(這步不寫、下一輪重試,代碼審 r1 f1);只有對已到手的證據做純計算那一段的
+    例外照決策丟例外轉 FAILED;停止訊號這類 BaseException 不接,由 advance 用容器裡的收據放掉租約後
+    往外丟。"""
     try:
-        rounds = tuple(record for _seq, record in store.investigation_rounds(row.task_id))
-        outcome = ai_decide(row, evidence, now, AiContext(renew, rounds))
+        outcome = ai_decide(row, evidence, now, context)
         if not isinstance(outcome, AiOutcome):
             raise _BrokenCollaborator(f"AI 決策函式回傳了合約之外的型別:{type(outcome)!r}")
     except RenewalSkipped:
         return None
+    except _StoreFailed as failed:
+        cause = failed.__cause__
+        raise cause if isinstance(cause, Exception) else failed from None
     except Exception as exc:  # 對已到手的證據做純計算的那一半出錯:同決策丟例外,轉 FAILED
         return _Step(TaskState.FAILED, error_detail=repr(exc))
     result, record = outcome.result, outcome.record

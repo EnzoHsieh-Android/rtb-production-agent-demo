@@ -18,7 +18,7 @@ from enum import StrEnum
 from fractions import Fraction
 from typing import TypeGuard
 
-from rtb.domain._checks import is_plain_number
+from rtb.domain._checks import MAX_ID_LENGTH, is_plain_number
 
 
 class Reason(StrEnum):
@@ -163,6 +163,7 @@ NA = "na"  # 算不出(分母為零、缺資料、資料不合理)一律寫它;�
 Exact = Fraction | Reason
 _WORST_FIRST = (Reason.INVALID_DATA, Reason.MISSING_DATA, Reason.NO_DENOMINATOR)
 _CENTS = Decimal("0.01")
+MAX_RECEIPT_CHARS = MAX_ID_LENGTH  # 可信證據字串的上限(領域層識別碼格式的長度上限)
 
 
 def _exact_input(value: object) -> Fraction | Reason:
@@ -176,9 +177,17 @@ def _exact_input(value: object) -> Fraction | Reason:
     if not _is_valid_amount(value):
         return Reason.INVALID_DATA
     try:
-        return Fraction(value)
-    except (OverflowError, ValueError):
+        # 浮點(平台的金額)先照收據金額的寫法 Decimal(repr(x)) 轉成十進位再算(代碼審 r1 d2):
+        # 用二進位近似值算,0.16 → 0.17 會捨成 6.3,跟收據上寫的 0.16、0.17 推得的 6.2 對不上
+        return Fraction(Decimal(repr(value))) if isinstance(value, float) else Fraction(value)
+    except (OverflowError, ValueError, InvalidOperation):
         return Reason.INVALID_DATA
+
+
+def exact_value(value: object) -> Exact:
+    """一個值的精確分數(浮點照收據金額的寫法 Decimal(repr(x)) 轉十進位),或三態原因代碼之一;收據的
+    加總、平均、大小比較都經它,不經浮點(Phase 13 代碼審 r2 y1)。"""
+    return _exact_input(value)
 
 
 def exact_ratio(numerator: object, denominator: object) -> Exact:
@@ -203,11 +212,11 @@ def exact_change(before: object, after: object) -> Exact:
 
 
 def exact_click_rate(clicks: object, impressions: object) -> Exact:
-    """點擊率;點擊多於曝光是資料不合理(跟既有 ctr 同一條)。"""
-    if (_is_valid_amount(clicks) and _is_valid_amount(impressions)
-            and not isinstance(clicks, bool) and clicks > impressions):
+    """點擊率;點擊多於曝光是資料不合理(跟既有 ctr 同一條)。輸入可以是加總出來的分數。"""
+    top, bottom = _exact_input(clicks), _exact_input(impressions)
+    if isinstance(top, Fraction) and isinstance(bottom, Fraction) and top > bottom:
         return Reason.INVALID_DATA
-    return exact_ratio(clicks, impressions)
+    return exact_ratio(top, bottom)
 
 
 def percent_text(value: Exact) -> str:
@@ -216,7 +225,13 @@ def percent_text(value: Exact) -> str:
         return NA
     tenths = round(value * 1000)  # 分數的 round 是四捨五入到偶數
     sign = "-" if tenths < 0 else ""
-    return f"{sign}{abs(tenths) // 10}.{abs(tenths) % 10}"
+    return _fits(f"{sign}{abs(tenths) // 10}.{abs(tenths) % 10}")
+
+
+def _fits(text: str) -> str:
+    """收據字串要放得進可信證據(識別碼格式,最多 MAX_RECEIPT_CHARS 字);寫不下就是資料不合理,寫 na
+    (代碼審 r1 d1:極端但有限的金額會算出幾百位數,建證據時丟例外、整步卡住)。"""
+    return text if len(text) <= MAX_RECEIPT_CHARS else NA
 
 
 def receipt_ratio(numerator: object, denominator: object) -> str:
@@ -241,11 +256,11 @@ def receipt_amount(value: object) -> str:
         cents = exact.quantize(_CENTS, rounding=ROUND_HALF_EVEN, context=Context(prec=28))
     except InvalidOperation:
         return NA
-    return str(cents.copy_abs() if cents == 0 else cents)
+    return _fits(str(cents.copy_abs() if cents == 0 else cents))
 
 
 def receipt_count(value: object) -> str:
     """計數(曝光、點擊、轉換、筆數、天數)照寫整數;缺值、負數、布林、小數都寫 na。"""
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-        return str(value)
+        return _fits(str(value))
     return NA
