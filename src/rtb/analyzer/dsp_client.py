@@ -232,7 +232,8 @@ ADJUSTMENT_ROW_FIELDS: dict[str, Check] = {
 }
 HISTORY_ROW_FIELDS: dict[str, Check] = {
     "operation_id": lambda value: is_int_between(1, value),
-    "action": lambda value: value in {item.value for item in ActionType},
+    "action": lambda value: (isinstance(value, str)
+                             and value in {item.value for item in ActionType}),
     "version_after": lambda value: is_int_between(1, value),
     "received_at": lambda value: isinstance(value, str) and _aware(value),
     "committed_at": lambda value: isinstance(value, str) and _aware(value),
@@ -250,10 +251,19 @@ def _aware(text: str) -> bool:
         return False
 
 
+def _passes(check: Check, value: Any) -> bool:
+    """逐欄檢查對任何 JSON 型別(串列、物件、null、布林)都只回真假,不丟例外(代碼審 r1 c2:陣列放進
+    集合查找丟 TypeError,蒐證那一步就反覆失敗、任務卡住)。"""
+    try:
+        return bool(check(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 def _rows_ok(rows: Any, fields: dict[str, Check]) -> bool:
     return isinstance(rows, list) and all(
         isinstance(row, dict) and set(row) == set(fields)
-        and all(check(row[name]) for name, check in fields.items()) for row in rows)
+        and all(_passes(check, row[name]) for name, check in fields.items()) for row in rows)
 
 
 def check_daily(body: Any, campaign_id: str) -> dict[str, Any] | None:
@@ -319,24 +329,42 @@ def _read(base_url: str, path: str, timeout_seconds: float, task: TaskRow,
     started = time.monotonic()
     outcome = "ok"
     try:
-        status, body = request_json(f"{base_url}{path}", "GET", None, timeout_seconds)
-    except ValueError as bad:  # 共用用戶端的「讀不懂」(帶狀態碼);邊界測試只准從它匯入請求函式
-        outcome = type(bad).__name__
-        if getattr(bad, "status", None) == _OK:
-            raise _NoResult("invalid") from bad
+        return _answer(base_url, path, timeout_seconds)
+    except _NoResult as none:
+        outcome = none.reason  # 呼叫紀錄照實記(代碼審 r1 d3):查不到記 not_found、逾時記 timeout
         raise
     except Exception as exc:
         outcome = type(exc).__name__
-        if _timed_out(exc):
-            raise _NoResult("timeout") from exc
         raise
     finally:
         if on_call is not None:
             on_call(task, endpoint, outcome, (time.monotonic() - started) * 1000)
+
+
+def _answer(base_url: str, path: str, timeout_seconds: float) -> Any:
+    """200 回本文;404 不論本文讀不讀得懂都是「查不到」;逾時是「逾時」;200 但本文讀不懂是
+    「欄位不合格」;
+    其他狀態碼(含本文不是物件的)丟 DspRequestFailed,照基本讀取的規則往外丟。"""
+    try:
+        status, body = request_json(f"{base_url}{path}", "GET", None, timeout_seconds)
+    except ValueError as bad:  # 共用用戶端的「讀不懂」(帶狀態碼);邊界測試只准從它匯入請求函式
+        code = getattr(bad, "status", None)
+        if code == _OK:
+            raise _NoResult("invalid") from bad
+        if code == _NOT_FOUND:
+            raise _NoResult("not_found") from bad
+        if code is not None:
+            raise DspRequestFailed(f"{path} 回 {code}:本文讀不懂") from bad
+        raise
+    except Exception as exc:
+        if _timed_out(exc):
+            raise _NoResult("timeout") from exc
+        raise
     if status == _NOT_FOUND:
         raise _NoResult("not_found")
     if status != _OK:
-        raise DspRequestFailed(f"{path} 回 {status}:{body.get('error', '未知錯誤')}")
+        error = body.get("error", "未知錯誤") if isinstance(body, dict) else "本文不是物件"
+        raise DspRequestFailed(f"{path} 回 {status}:{error}")
     return body
 
 

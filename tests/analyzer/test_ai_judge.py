@@ -85,11 +85,14 @@ class Model:
 
 
 class Renew:
+    """假的續租回呼:回這件工作一生第幾次模型呼叫(跟流程層一樣,續租時就落地)。"""
+
     def __init__(self):
         self.calls = 0
 
     def __call__(self):
         self.calls += 1
+        return self.calls
 
 
 def run(model, evidence, rounds=(), **kwargs):
@@ -368,7 +371,7 @@ def test_a_conclusion_whose_evidence_does_not_match_the_receipts_falls_back(cite
     cite_na = (("base", "conversion_rate", "na"),)
     fell, _ = run(Model(reply("stop_insufficient", evidence=cite_na)), na)
     assert inv.base_receipt(dict(na[0].payload), dict(na[1].payload), 24)["conversion_rate"] == "na"
-    assert fell.record is None or fell.record.fallback == "off_menu"
+    assert fell.record.fallback == "off_menu"  # 代碼審 r1:拿掉「沒有紀錄也算」的逃生口
 
 
 # ---- [S1138] ----

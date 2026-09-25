@@ -92,6 +92,9 @@ CREATE TABLE IF NOT EXISTS investigation_rounds (
     task_id TEXT NOT NULL, seq INTEGER NOT NULL, round INTEGER NOT NULL, kind TEXT NOT NULL,
     choice TEXT NOT NULL, decided_by TEXT NOT NULL, reason TEXT, fallback TEXT, reason_code TEXT,
     cited_json TEXT, model_source TEXT, written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
+CREATE TABLE IF NOT EXISTS investigation_calls (
+    task_id TEXT NOT NULL, call_seq INTEGER NOT NULL, lease_seq INTEGER NOT NULL,
+    written_at TEXT NOT NULL, PRIMARY KEY (task_id, call_seq));
 CREATE TABLE IF NOT EXISTS investigation_raw (
     task_id TEXT NOT NULL, seq INTEGER NOT NULL, option TEXT NOT NULL, raw_json TEXT NOT NULL,
     stored_at TEXT NOT NULL, PRIMARY KEY (task_id, seq, option));
@@ -490,6 +493,14 @@ class TaskReads:
             (task_id,)).fetchall()
         return tuple((int(r[0]), InvestigationRecord(*r[1:])) for r in rows)
 
+    def investigation_call_count(self, task_id: str) -> int:
+        """這件工作一生呼叫過(或正要呼叫)幾次模型:AI 那一步每次續租記一次;表不在就是 0。"""
+        if not self._has_table("investigation_calls"):
+            return 0
+        record = self._conn.execute(
+            "SELECT count(*) FROM investigation_calls WHERE task_id = ?", (task_id,)).fetchone()
+        return int(record[0])
+
     def investigation_reason_code(self, task_id: str, seq: int) -> str | None:
         """同序號調查紀錄列的原因代碼(展示觀察器用它分辨「AI 要再查」與「資料太舊重蒐證」);表不在、
         沒有那一列都回空值。"""
@@ -877,6 +888,14 @@ class TaskStore(TaskReads):
                 self._conn.execute(
                     "INSERT INTO task_leases VALUES (?, ?, ?, ?)",
                     (lease.task_id, lease.lease_seq + 1, lease.owner, _iso(now + LEASE_DURATION)))
+                # 續租只有 AI 那一步在呼叫模型前做:同一個交易記下「這件工作又要呼叫一次模型」,次數在
+                # 付費之前就落地(代碼審 r1 s2:只數已提交的調查紀錄時,提交一直忙碌就會無上限
+                # 重付)
+                self._conn.execute(
+                    "INSERT INTO investigation_calls "
+                    "SELECT ?, coalesce(max(call_seq), 0) + 1, ?, ? "
+                    "FROM investigation_calls WHERE task_id = ?",
+                    (lease.task_id, lease.lease_seq + 1, _iso(now), lease.task_id))
         except DatabaseBusy:
             return None
         return LeaseReceipt(lease.task_id, lease.lease_seq + 1, lease.owner)

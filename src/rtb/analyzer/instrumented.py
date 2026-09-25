@@ -150,11 +150,21 @@ def investigation_source(
         receipts, raws = [], []
         for option in state.queried:
             read = reader(task, option.value)
-            missing = None if read.reason is None else inv.NoResult(read.reason)
-            receipts.append(inv.receipt_evidence(task.task_id, task.seq, option, read.raw,
-                                                 missing, now))
-            if read.raw is not None:
+            receipt = receipt_or_invalid(task.task_id, task.seq, option, read, now)
+            receipts.append(receipt)
+            if read.raw is not None and receipt.payload.get("result") != "none":
                 raws.append(RawQuery(option.value, inv.canonical_json(read.raw)))
         return EvidenceBatch(evidence + tuple(receipts), tuple(raws))
 
     return fetch
+
+
+def receipt_or_invalid(task_id: str, seq: int, option: inv.QueryOption,
+                       read: dsp_client.QueryRead, now: datetime) -> Evidence:
+    """把一次查詢寫成收據;建收據時仍丟 ValueError(例如某個值放不進可信證據)就改記一筆「這個查詢
+    沒有結果(invalid)」,這一步照常往下走,不讓整步反覆失敗(代碼審 r1 d1、s1)。"""
+    missing = None if read.reason is None else inv.NoResult(read.reason)
+    try:
+        return inv.receipt_evidence(task_id, seq, option, read.raw, missing, now)
+    except ValueError:
+        return inv.receipt_evidence(task_id, seq, option, None, inv.NoResult.INVALID, now)

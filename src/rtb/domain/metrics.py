@@ -18,7 +18,7 @@ from enum import StrEnum
 from fractions import Fraction
 from typing import TypeGuard
 
-from rtb.domain._checks import is_plain_number
+from rtb.domain._checks import MAX_ID_LENGTH, is_plain_number
 
 
 class Reason(StrEnum):
@@ -163,6 +163,7 @@ NA = "na"  # 算不出(分母為零、缺資料、資料不合理)一律寫它;�
 Exact = Fraction | Reason
 _WORST_FIRST = (Reason.INVALID_DATA, Reason.MISSING_DATA, Reason.NO_DENOMINATOR)
 _CENTS = Decimal("0.01")
+MAX_RECEIPT_CHARS = MAX_ID_LENGTH  # 可信證據字串的上限(領域層識別碼格式的長度上限)
 
 
 def _exact_input(value: object) -> Fraction | Reason:
@@ -176,8 +177,10 @@ def _exact_input(value: object) -> Fraction | Reason:
     if not _is_valid_amount(value):
         return Reason.INVALID_DATA
     try:
-        return Fraction(value)
-    except (OverflowError, ValueError):
+        # 浮點(平台的金額)先照收據金額的寫法 Decimal(repr(x)) 轉成十進位再算(代碼審 r1 d2):
+        # 用二進位近似值算,0.16 → 0.17 會捨成 6.3,跟收據上寫的 0.16、0.17 推得的 6.2 對不上
+        return Fraction(Decimal(repr(value))) if isinstance(value, float) else Fraction(value)
+    except (OverflowError, ValueError, InvalidOperation):
         return Reason.INVALID_DATA
 
 
@@ -202,6 +205,15 @@ def exact_change(before: object, after: object) -> Exact:
     return ratio if isinstance(ratio, Reason) else ratio - 1
 
 
+def exact_conversion_rate(conversions: object, clicks: object) -> Exact:
+    """轉換率;轉換多於點擊是資料不合理(跟判斷點的資料異常同一條,代碼審 r1 c3)。只給收據的逐日趨勢
+    與過去調整用;既有的 cvr 與 base 收據照舊不擋(瀏覽後轉換)。"""
+    if (_is_valid_amount(conversions) and _is_valid_amount(clicks)
+            and not isinstance(conversions, bool) and conversions > clicks):
+        return Reason.INVALID_DATA
+    return exact_ratio(conversions, clicks)
+
+
 def exact_click_rate(clicks: object, impressions: object) -> Exact:
     """點擊率;點擊多於曝光是資料不合理(跟既有 ctr 同一條)。"""
     if (_is_valid_amount(clicks) and _is_valid_amount(impressions)
@@ -216,7 +228,13 @@ def percent_text(value: Exact) -> str:
         return NA
     tenths = round(value * 1000)  # 分數的 round 是四捨五入到偶數
     sign = "-" if tenths < 0 else ""
-    return f"{sign}{abs(tenths) // 10}.{abs(tenths) % 10}"
+    return _fits(f"{sign}{abs(tenths) // 10}.{abs(tenths) % 10}")
+
+
+def _fits(text: str) -> str:
+    """收據字串要放得進可信證據(識別碼格式,最多 MAX_RECEIPT_CHARS 字);寫不下就是資料不合理,寫 na
+    (代碼審 r1 d1:極端但有限的金額會算出幾百位數,建證據時丟例外、整步卡住)。"""
+    return text if len(text) <= MAX_RECEIPT_CHARS else NA
 
 
 def receipt_ratio(numerator: object, denominator: object) -> str:
@@ -241,11 +259,11 @@ def receipt_amount(value: object) -> str:
         cents = exact.quantize(_CENTS, rounding=ROUND_HALF_EVEN, context=Context(prec=28))
     except InvalidOperation:
         return NA
-    return str(cents.copy_abs() if cents == 0 else cents)
+    return _fits(str(cents.copy_abs() if cents == 0 else cents))
 
 
 def receipt_count(value: object) -> str:
     """計數(曝光、點擊、轉換、筆數、天數)照寫整數;缺值、負數、布林、小數都寫 na。"""
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-        return str(value)
+        return _fits(str(value))
     return NA

@@ -10,7 +10,8 @@ import re
 from datetime import datetime
 from typing import TypeGuard
 
-ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+MAX_ID_LENGTH = 128  # 識別碼與可信證據字串的長度上限(收據格式化也照它,Phase 13 代碼審 r1 d1)
+ID_PATTERN = re.compile(rf"[A-Za-z0-9._:-]{{1,{MAX_ID_LENGTH}}}")
 # SHA-256 的小寫十六進位寫法:證據內容雜湊與評估的隱藏集雜湊共用
 HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 MAX_INT = 2**63 - 1  # 資料庫整數上限:提案、分析端 DSP 用戶端白名單、判斷點輸入共用這一個

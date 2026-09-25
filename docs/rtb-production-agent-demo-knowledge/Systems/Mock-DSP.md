@@ -122,3 +122,5 @@ REVISIT:2026-11-30 盤點作廢表的筆數成長,決定要不要設保留期與
 RULE: `CampaignStore.seed_past_operations` 只准展示種子呼叫,而且只准在平台還沒有任何操作時呼叫;它把全平台要種的過去預算調整依時間先後(最舊的先寫)寫進操作紀錄,寫完提交時間跟操作編號的順序一致。既有唯一的寫入路徑照舊把提交時間墊到不早於上一筆,一行不改。[since:2026-09-25] [retire:展示改成從真實操作紀錄推算歷史、或模擬平台不再需要過去日期的操作時拿掉這支] 防回歸:[test:test_seeded_past_operations_keep_commit_times_monotonic](含全庫掃描:只有種子模組呼叫它)。
 
 WHY: 用「第幾天前」不用日期:送給模型的內容要逐位元組穩定(錄製鍵),也不送時間戳。出處:[[Projects/RTB_Phase13AI參與決策_計劃]]〈新增的兩種模擬資料〉。防回歸:[test:test_the_daily_and_past_adjustment_endpoints_are_read_only_and_dateless]、[test:test_seeded_daily_and_adjustment_data_agree_with_windows_and_history]。
+
+WHY: [2026-09-25 Phase 13 增量 2 代碼審 r1] 展示種子改成全有或全無:`CampaignStore.seed_history` 在同一個交易裡寫 1 天與 7 天窗、逐日、過去調整與過去操作(原本逐廣告各自提交,最後一步被拒時前面已經寫進去);重種過去調整先清掉舊列;調整前後的預算要是非負整數;逐日第 1 天缺資料時 1 天窗照樣種、五欄空值(不種的話較長時間窗整個變成「查不到」)。`seed_history` 跟 `seed_past_operations` 一樣只准展示種子呼叫(同一支全庫掃描)。防回歸:[test:test_seeding_history_is_all_or_nothing]、[test:test_reseeding_past_adjustments_replaces_the_old_rows]、[test:test_past_adjustment_budgets_must_be_non_negative_integers]、[test:test_a_missing_first_day_seeds_an_empty_one_day_window]。

@@ -21,6 +21,7 @@ from rtb.dsp.store import (
     METRIC_FIELDS,
     MIN_ADJUSTMENT_AGE_DAYS,
     CampaignStore,
+    HistorySeed,
     PastAdjustment,
     PastBudgetChange,
     commit_text,
@@ -73,31 +74,30 @@ def _total(days: list[DayFigures]) -> dict[str, float | None]:
     return {name: sum(getattr(day, name) for day in days) for name in METRIC_FIELDS}
 
 
-def _seed_one(store: CampaignStore, campaign_id: str, profile: HistoryProfile) -> None:
+def _entry(campaign_id: str, profile: HistoryProfile) -> HistorySeed:
+    """一個廣告要種的東西。逐日第 1 天缺資料時,1 天窗照樣種、五欄都是空值(代碼審 r1 d5:原本不種,
+    讀較長時間窗時 1 天窗 404,整個查詢變成「查不到」,明明有的 7 天資料模型也拿不到)。"""
     days = [day for day in profile.daily if day is not None]
     first = profile.daily[0]
-    if first is not None:
-        store.seed_metrics(campaign_id, "1d", **first.as_fields())
+    windows: dict[str, dict[str, float | None]] = {
+        "1d": dict.fromkeys(METRIC_FIELDS) if first is None else first.as_fields()}
     if days:
-        store.seed_metrics(campaign_id, "7d", **_total(days))
-    store.seed_daily(campaign_id, [None if day is None else day.as_fields()
-                                   for day in profile.daily])
-    store.seed_past_adjustments(campaign_id, [
-        PastAdjustment(a.days_ago, a.budget_before, a.budget_after, a.before.as_fields(),
-                       a.after.as_fields()) for a in profile.adjustments])
+        windows["7d"] = _total(days)
+    return HistorySeed(
+        campaign_id, windows,
+        [None if day is None else day.as_fields() for day in profile.daily],
+        [PastAdjustment(a.days_ago, a.budget_before, a.budget_after, a.before.as_fields(),
+                        a.after.as_fields()) for a in profile.adjustments])
 
 
 def seed_platform_history(store: CampaignStore, profiles: Mapping[str, HistoryProfile],
                           now: datetime) -> None:
-    """替全平台的廣告種歷史:各自的窗與逐日、過去調整,再一次把全部過去調整寫進操作歷史。廣告要先建好;
-    平台還不能有任何操作(過去日期寫法的前提)。"""
-    changes = []
-    for campaign_id, profile in profiles.items():
-        _seed_one(store, campaign_id, profile)
-        changes += [PastBudgetChange(campaign_id, a.days_ago, a.budget_after)
-                    for a in profile.adjustments]
-    if changes:
-        store.seed_past_operations(changes, now)
+    """替全平台的廣告種歷史:各自的窗與逐日、過去調整,再把全部過去調整寫進操作歷史。全部在同一個
+    交易裡,全有或全無(代碼審 r1 d4)。廣告要先建好;有過去調整時平台還不能有任何操作。"""
+    changes = [PastBudgetChange(campaign_id, a.days_ago, a.budget_after)
+               for campaign_id, profile in profiles.items() for a in profile.adjustments]
+    store.seed_history([_entry(campaign_id, profile) for campaign_id, profile in profiles.items()],
+                       changes, now)
 
 
 def _window(store: CampaignStore, campaign_id: str, window: str) -> dict[str, float | None] | None:
@@ -112,7 +112,8 @@ def consistency_problems(store: CampaignStore, campaign_id: str, now: datetime) 
     """[S1127] 的三條一致性,回對不上的地方(空的就是一致)。"""
     problems = []
     daily = store.get_daily(campaign_id)
-    first = None if daily[0].no_data else {name: getattr(daily[0], name) for name in METRIC_FIELDS}
+    first = (dict.fromkeys(METRIC_FIELDS) if daily[0].no_data
+             else {name: getattr(daily[0], name) for name in METRIC_FIELDS})
     if first != _window(store, campaign_id, "1d"):
         problems.append("逐日第 1 天不等於 1 天窗")
     kept = [DayFigures(*(getattr(row, name) for name in METRIC_FIELDS))
