@@ -732,7 +732,7 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
 - [S1161] 當 AI 決策函式在續租前或呼叫模型前查到已收到停止時,應不續租、不呼叫模型,丟 RenewalSkipped,這一步不寫入。[test:test_a_pending_stop_skips_renewal_and_the_model_call]
 - [S1162] domain 指標模組的精確比率函式應回分數或三態原因代碼之一;收據格式化與標準答案產生函式應都經它取得比率;金額量化溢位時收據應寫 na。[test:test_one_exact_ratio_function_feeds_receipts_and_the_answer_key]
 - [S1163] 評估生成器產生的每一筆案例,每個百分比門檻用到的精確值應離門檻超過 0.05 個百分點。[test:test_no_generated_case_sits_on_a_rounding_boundary]
-- [S1164] 展示批次入庫前,用錄製模式跑一次 F1 到 F6 時找不到錄製的筆數應為 0,批次也應滿足評估批次的另外兩條驗過條件;入庫後 CI 重播 F1–F6,任一輪 AI 退回就應失敗,F7 不查;入庫目錄未存在時照 [S1141] 跳過。(使用者 2026-09-25 裁定:加一條缺錄退回即紅的 CI 守衛,並用假錄製證明抓得到。)[test:test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording] [test:test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6] [test:test_demo_recording_guard_catches_a_missing_fake_answer]
+- [S1164] 展示批次入庫前,用錄製模式跑一次 F1 到 F6 時找不到錄製的筆數應為 0,批次也應滿足評估批次的另外兩條驗過條件;入庫後 CI 重播 F1–F6,任一輪 AI 退回就應失敗,F7 不查;入庫目錄未存在時照 [S1141] 跳過。(使用者 2026-09-25 裁定:加一條缺錄退回即紅的 CI 守衛,並用假錄製證明抓得到。)入庫前檢查(含錄完的自動檢查)也應把 F1–F6 任一輪 AI 退回算成問題、判不過,跟 CI 守衛同一支判法(增量 4 代碼審 r2 m1,代使用者裁定 2026-09-25)。[test:test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording] [test:test_a_recorded_batch_with_ai_fallbacks_fails_the_intake_check] [test:test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6] [test:test_demo_recording_guard_catches_a_missing_fake_answer]
 - [S1165] 當評估執行器開始即時加錄製時,應先呼叫模型用戶端的開錄前目錄檢查,目錄既不是空的也不是只有同一批的檔時應拒絕開始。[test:test_the_eval_runner_refuses_to_record_into_a_mixed_directory]
 - [S1166] 當某個情境列在即時清單裡時,驅動應給它的分析端一個這次展示專屬、不在入庫目錄底下的新錄製目錄,批次編號應是 demo-live 加展示編號;入庫的展示錄製目錄內容應不變。[test:test_live_scenarios_record_into_a_fresh_per_demo_directory]
 - [S1167] 驅動應依每件工作實際的結局選預期組:提案結局用情境既有的必經節點與收件口、寫入平台紀錄;不提案結局只核分析端紀錄、必經換成不提案結案或考題結束節點,而且這件工作的收件口與寫入平台紀錄應不存在;故障斷言應只對結局是提案的工作要求。[test:test_the_driver_picks_expectations_by_each_task_outcome]
@@ -922,6 +922,12 @@ PYTHONPATH=src .venv/bin/python -m rtb.eval.investigation_eval --ledger /tmp/rtb
 - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後;頂端模式字由第二輪裁定撤回):情境細節仍記 `answered_rounds` 與模式原因供內部使用,頁面頂端不列錄製或即時,缺錄在詳情只顯示「AI 這次沒有給出回答」。
 - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後):截圖由實作者代協調者拍(計劃〈拆增量〉原寫由協調者先備好),在合完主線、修完 r1 的最終程式上重拍,時間記在驗收紀錄。
 
+增量 4 代碼審 r2 後的解讀(代使用者裁定 2026-09-25,18 條全修):
+
+- 實作者解讀(2026-09-25,增量 4 代碼審 r2 c1/s2/m2/v4):入庫根 recordings/model 不存在(或讀不到)時,共用的開錄前目錄檢查一律拒絕開錄(「入庫根 … 不存在:checkout 不完整,不開錄」),入庫根本身、它底下、別處的新目錄都不放行;不改成字面路徑比對(macOS 對不存在的路徑 realpath 不統一大小寫)。四個入口都經這一支。
+- 實作者解讀(2026-09-25,增量 4 代碼審 r2 m1):「F1–F6 任一輪 AI 退回」的判法搬進 `rtb.demo.recordings.ai_fallback_problems`(讀重播的展示狀態庫、跟頁面同一份判斷列),`check_demo_batch` 把它算進問題;錄完的自動檢查、入庫前命令列與 CI 守衛都呼叫同一支,錄到退回就判不過、要重錄。
+- 實作者解讀(2026-09-25,增量 4 代碼審 r2 v2/v3/a1):補測試釘住「閘道判成即時就不用 recorded_ledger」「假說命令列錄製模式有告警時帳落在 --recorded-ledger」(選補測試、不改假說命令列經閘道:模型閘道只准分析端寫死的幾支模組匯入([S1100],pyproject 的匯入禁令),假說命令列在維運套件、照 [S912] 自己直接呼叫模型用戶端,改經閘道要放寬禁令);「帳在但沒有呼叫紀錄」與 F7 不提案那幾件的路徑核對各補一支;評估端刪掉自己那份錄製檔列舉,改用門面的 `mc.recording_files`。
+
 ## 審計修正紀錄
 
 - r1(2026-09-25,7 席:鏡頭 1–5、架構對齊、外家 Codex):42 條/blocking 35(各席總結句加總:Codex 7、架構 2、鏡頭1 5、鏡頭2 8、鏡頭3 4、鏡頭4 5、鏡頭5 4)/結論:骨架(每輪一步、列舉選項、退回規則)站得住,但照字面實作會在五處出錯——原始回應塞不進證據型別、追加收據會經新鮮度與證據參照改變規則路徑、租約漏算模型用戶端自己的等待、輪數與紀錄交易沒定義、F3/F5/F7 與故障情境的斷言跟 AI 判斷打架;42 條歸成 A–R 十八件全數折入,每件是代使用者裁定(2026-09-25),逐件見〈使用者裁定〉的第 1 輪折入表。新增合約 S1135–S1148;本計劃 S1100、S1104–S1107、S1109–S1111、S1113、S1115、S1116、S1120、S1121、S1124、S1127、S1129–S1131、S1133、S1134 改寫;既有 S902、S903、S917、S1003 列進要改寫的清單。卷證 governance/review-reports/rtb-phase13ai參與決策/r1-*。
@@ -937,3 +943,4 @@ PYTHONPATH=src .venv/bin/python -m rtb.eval.investigation_eval --ledger /tmp/rtb
 - 增量 3 r2(2026-09-25,3 席):3 條/blocking 1/全折。a1、v1 即時錄製不准寫進入庫目錄只留一套判準、放進共用開錄前目錄檢查(比檔案身分,抗大小寫、符號連結、還不存在的子目錄),四個入口共用;a2 共用的逐欄判定搬到採用判定模組。卷證 governance/review-reports/code-phase13-inc3/r2-*。
 - 增量 3 r3(2026-09-25,3 席,最後一輪):2 條(同一件)/blocking 1/全折,修正由協調者驗收。入庫目錄判斷按字面收掉「..」,「指向入庫根的連結/../model/新目錄」會被放行;改成先照作業系統的走法解析路徑再比檔案身分。卷證 governance/review-reports/code-phase13-inc3/r3-*。
 - 增量 4 r1(2026-09-25,7 席):25 條/blocking 11/全折。卷證 governance/review-reports/code-phase13-inc4/r1-*;逐條落點見 [[Systems/一鍵展示]]、[[Systems/展示頁面]]「展示串接代碼審 r1 修正」與 [[Systems/模型用戶端]]「展示串接的代碼審 r1」。
+- 增量 4 r2(2026-09-25,6 席):18 條/blocking 3/全折(代使用者裁定)。擋推送:c1(s2、m2、v4 同報)入庫根不存在就不開錄;p1「這次沒有走到」改看實際碰過的角色;p2 浮出框鍵盤可用。其餘 p3–p5、v1–v3、s1、s3、m1、m3、m4、a1、t1 全修。卷證 governance/review-reports/code-phase13-inc4/r2-*;逐條落點見本計劃〈實作解讀〉「增量 4 代碼審 r2 後」、[[Systems/展示頁面]]「展示串接代碼審 r2 修正」、[[Systems/一鍵展示]]「展示串接代碼審 r2 修正」與 [[Systems/模型用戶端]]「展示串接的代碼審 r2」。

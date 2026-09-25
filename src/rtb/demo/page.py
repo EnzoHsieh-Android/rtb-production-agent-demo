@@ -40,6 +40,8 @@ from rtb.demo.state import (
 FLOW_SCRIPT: Final = """(() => {
   let active = null;
   let pinned = false;
+  let openedByFocus = false;
+  let restoringFocus = false;
   let closeTimer = null;
   let lastViewportScrollAt = -Infinity;
   const HOVER_CLOSE_DELAY_MS = 300;
@@ -57,10 +59,11 @@ FLOW_SCRIPT: Final = """(() => {
     active.setAttribute('aria-expanded', 'false');
     active = null;
     pinned = false;
+    openedByFocus = false;
   };
-  const show = (node, pin = false) => {
+  const show = (node, pin = false, byFocus = false) => {
     cancelClose();
-    if (active !== node) hide();
+    if (active !== node) { hide(); openedByFocus = byFocus; }
     const box = document.getElementById(node.dataset.flowPopover);
     if (!box) return;
     active = node;
@@ -82,15 +85,20 @@ FLOW_SCRIPT: Final = """(() => {
     const top = room < 120 ? 8 : above ? rect.top - height - 8 : rect.bottom + 8;
     box.style.top = `${Math.max(8, Math.min(top, innerHeight - height - 8))}px`;
   };
+  const keptByFocus = () => openedByFocus && document.activeElement === active;
   const scheduleClose = () => {
-    if (!active || pinned || document.activeElement === active) return;
+    if (!active || pinned || keptByFocus()) return;
     cancelClose();
     closeTimer = setTimeout(() => { closeTimer = null; hide(); }, HOVER_CLOSE_DELAY_MS);
   };
   document.querySelectorAll('.flow-node[data-flow-popover]').forEach(node => {
     const box = document.getElementById(node.dataset.flowPopover);
     if (!box) return;
-    node.addEventListener('mouseenter', () => { if (!pinned) show(node); });
+    node.addEventListener('mouseenter', () => {
+      if (pinned) return;
+      if (active !== node) show(node);
+      else openedByFocus = false;
+    });
     node.addEventListener('mouseleave', () => {
       if (active === node && performance.now() - lastViewportScrollAt >= HOVER_CLOSE_DELAY_MS)
         scheduleClose();
@@ -99,13 +107,14 @@ FLOW_SCRIPT: Final = """(() => {
     box.addEventListener('mouseleave', () => { if (active === node) scheduleClose(); });
   });
   document.addEventListener('mousemove', event => {
-    if (!active || pinned || closeTimer !== null || document.activeElement === active) return;
+    if (!active || pinned || closeTimer !== null || keptByFocus()) return;
     const box = document.getElementById(active.dataset.flowPopover);
     if (!active.contains(event.target) && !box?.contains(event.target)) scheduleClose();
   });
   document.addEventListener('focusin', event => {
+    if (restoringFocus) return;
     const node = nodeFor(event.target);
-    if (node && node !== active) show(node);
+    if (node && node !== active) show(node, false, true);
   });
   document.addEventListener('focusout', event => {
     if (!active || pinned || event.target !== active) return;
@@ -120,13 +129,29 @@ FLOW_SCRIPT: Final = """(() => {
       else show(node, true);
     } else if (!event.target.closest?.('.flow-popover')) hide();
   });
+  // Esc 收框;焦點在框裡時還給那一格(不因此再打開)
+  const returnFocus = node => {
+    restoringFocus = true;
+    try { node.focus({ preventScroll: true }); } finally { restoringFocus = false; }
+  };
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { hide(); return; }
+    const inBox = event.target.closest?.('.flow-popover');
+    if (event.key === 'Escape') {
+      const node = active;
+      if (inBox && node) returnFocus(node);
+      hide();
+      return;
+    }
+    if (inBox) return;  // 框裡的方向鍵、翻頁、空白鍵照瀏覽器預設捲框,不開關格子
     const node = nodeFor(event.target);
     if (node && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
       if (active === node && pinned) hide();
-      else show(node, true);
+      else {
+        show(node, true);
+        const box = document.getElementById(node.dataset.flowPopover);
+        if (box && !box.hidden) box.focus({ preventScroll: true });  // 鍵盤釘住:焦點移進框
+      }
     }
   });
   window.addEventListener('resize', () => { if (active) show(active, pinned); });
@@ -138,6 +163,16 @@ FLOW_SCRIPT: Final = """(() => {
         rect.right <= 0 || rect.left >= innerWidth) hide();
     else show(active, pinned);
   }, true);
+  // 窄螢幕的情境列是一排可左右滑的卡:載入時把選中那張捲進可視區(只動這一列,不捲整頁)
+  const revealSelected = () => {
+    const list = document.querySelector('.scenario-index');
+    const row = list?.querySelector('.scenario-row.is-selected');
+    if (!list || !row || list.scrollWidth <= list.clientWidth) return;
+    const listRect = list.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    list.scrollLeft += rowRect.left - listRect.left - (listRect.width - rowRect.width) / 2;
+  };
+  revealSelected();
 })();"""
 _SCRIPT_HASH: Final = base64.b64encode(hashlib.sha256(FLOW_SCRIPT.encode()).digest()).decode()
 CONTENT_SECURITY_POLICY: Final = (
@@ -146,6 +181,13 @@ CONTENT_SECURITY_POLICY: Final = (
 )
 STYLESHEET_PATH: Final = "/static/demo.css"
 DEMO_CSS: Final = (Path(__file__).parent / "static" / "demo.css").read_text(encoding="utf-8")
+_STYLE_HASH: Final = base64.b64encode(hashlib.sha256(DEMO_CSS.encode()).digest()).decode()
+# 另存的單檔報告(樣式內嵌、用 file:// 打開)沒有回應標頭,改在 <head> 用 meta 宣告;腳本與內嵌樣式各綁
+# 自己的雜湊,不用 unsafe-inline(增量 4 代碼審 r2 s3)。frame-ancestors 在 meta 裡無效,不寫
+INLINE_CONTENT_SECURITY_POLICY: Final = (
+    f"default-src 'none'; script-src 'sha256-{_SCRIPT_HASH}'; "
+    f"style-src 'sha256-{_STYLE_HASH}'; form-action 'none'; base-uri 'none'; img-src 'none'"
+)
 
 JARGON_TERMS: Final[tuple[str, ...]] = (
     "死信",
@@ -391,7 +433,8 @@ def _render_head(*, refresh_url: str | None, inline_styles: bool) -> str:
         else ""
     )
     styles = (
-        f"<style>{DEMO_CSS}</style>"
+        f'<meta http-equiv="Content-Security-Policy" '
+        f'content="{escape_text(INLINE_CONTENT_SECURITY_POLICY)}"><style>{DEMO_CSS}</style>'
         if inline_styles
         else f'<link rel="stylesheet" href="{STYLESHEET_PATH}">'
     )
@@ -869,19 +912,15 @@ def _render_decision_hero(scenario: Scenario) -> str:
         )
     else:
         choice_html = '<li>這次沒有 AI 判斷紀錄</li>'
+    # 「AI 判不提案,故障處理這次沒有走到」已在結果摘要裡(提案緊接括號解釋),不再另寫一次
+    # (增量 4 代碼審 r2 v1)
     result = scenario.result_summary or _fallback_result(scenario)
-    unreached = (
-        '<small class="decision-hero__note">'
-        f'{escape_text("AI 判不提案,故障處理這次沒有走到")}'
-        '（不提出調整建議；本次未觸發故障處理）</small>'
-        if scenario.status is ScenarioStatus.NOT_EXERCISED else ""
-    )
     return (
         '<section class="decision-hero" aria-label="決策摘要">'
         '<div class="decision-hero__grid">'
         f'<div><span>這次誰決定</span><strong>{escape_text(who)}</strong></div>'
         f'<div><span>AI 選的下一步／退回原因</span><ul>{choice_html}</ul></div>'
-        f'<div><span>這次結果</span><strong>{escape_text(result)}</strong>{unreached}</div>'
+        f'<div><span>這次結果</span><strong>{escape_text(result)}</strong></div>'
         '</div></section>'
     )
 
@@ -1009,16 +1048,24 @@ def _flow_node_details(scenario: Scenario, flow: FlowGraph) -> dict[str, str]:
             shown = list(merged.values())
         else:
             shown = [(position, decision, 1) for position, decision in decisions]
+        per_task: dict[str, int] = {}
+        labels = []
+        for index, (_position, decision, count) in enumerate(shown, start=1):
+            if decision.task_id is not None:
+                per_task[decision.task_id] = per_task.get(decision.task_id, 0) + 1
+            labels.append(_occurrence_label(decision, index, count,
+                                            per_task.get(decision.task_id or "", 0)))
         cards = "".join(
             '<li class="flow-occurrence">'
-            f'<strong>{_occurrence_label(decision, index, count)}</strong>'
+            f'<strong>{label}</strong>'
             f'{"<p>以下根據與時間取其中第一筆。</p>" if count > 1 else ""}'
             '<ol class="decision-trail">'
             f'{_decision_card(decision, index, len(shown), nodes, flow, count)}'
             '</ol>'
             f'{_ai_cell_followup(scenario.path, position, decision)}'
             '</li>'
-            for index, (position, decision, count) in enumerate(shown, start=1)
+            for index, ((position, decision, count), label) in enumerate(
+                zip(shown, labels, strict=True), start=1)
         )
         output[node_id] = f'<ol class="flow-occurrences">{cards}</ol>'
     if scenario.model_step is not None:
@@ -1028,10 +1075,16 @@ def _flow_node_details(scenario: Scenario, flow: FlowGraph) -> dict[str, str]:
     return output
 
 
-def _occurrence_label(decision: Decision, index: int, count: int) -> str:
+def _occurrence_label(decision: Decision, index: int, count: int, task_round: int) -> str:
+    """同一格走過好幾次:帶工作編號、按每件工作各自數(AI 那格數「輪」,跟 AI 逐輪卡一致;增量 4 代碼審
+    r2 p4);沒記工作編號的舊資料照舊連號。"""
     if count > 1:
         return f"共 {count} 筆，結果：{escape_text(_public_text(decision.outcome))}"
-    return f"第 {index} 次"
+    if decision.task_id is None:
+        return f"第 {index} 次"
+    unit = ("輪" if decision.kind is DecisionKind.AI_JUDGEMENT
+            or decision.taken_edge == ("a_ai", "a_rule") else "次")
+    return f"工作 {escape_text(decision.task_id)} 第 {task_round} {unit}"
 
 
 def _ai_cell_followup(path: tuple[Decision, ...], position: int, decision: Decision) -> str:
@@ -1177,6 +1230,11 @@ def _decision_card(
 _TAKEOVER_NODES: Final = frozenset({"a_ai_query", "a_propose", "a_no_action", "a_exam_hold"})
 
 
+# AI 那一輪的標準欄本身以這串字開頭(展示狀態的原文);頁面欄名已經寫了,值就不再重複
+# (增量 4 代碼審 r2 p5)
+_ALLOWED_PREFIX: Final = "這一輪允許的選項:"
+
+
 def _ai_basis(decision: Decision, *, fields_class: str = "") -> str:
     """[S1121] AI 判斷那一張:程式整理的證據、這一輪允許的選項、選了什麼與理由(標「AI 產生、僅供
     參考」,不標來源),以及 AI 引用的收據值(已核對存在)。第一組是 AI 看到與選的,其餘是引用。"""
@@ -1192,7 +1250,8 @@ def _ai_basis(decision: Decision, *, fields_class: str = "") -> str:
         f'<dl class="{escape_text(fields_class)}">'
         "<dt>AI 看到的證據（程式整理的數字）</dt>"
         f"<dd>{escape_text(_public_text(main.observed))}</dd>"
-        f"<dt>這一輪允許的選項</dt><dd>{escape_text(_public_text(main.standard))}</dd>"
+        f"<dt>這一輪允許的選項</dt>"
+        f"<dd>{escape_text(_public_text(main.standard.removeprefix(_ALLOWED_PREFIX)))}</dd>"
         f"<dt>AI 選了什麼、理由（{MODEL_LABEL}）</dt>"
         f"<dd>{escape_text(_public_text(main.conclusion))}</dd>"
         f"{quoted}</dl></div>"

@@ -109,7 +109,7 @@ def test_flow_nodes_contain_escaped_step_details_for_hover_touch_and_keyboard() 
         assert 'class="flow-node ' in markup and 'tabindex="0"' in markup
         assert 'role="button"' in markup and 'aria-expanded="false"' in markup
         assert 'data-flow-popover=' in markup
-        assert 'class="flow-popover"' in markup and ' hidden role="dialog"' in markup
+        assert 'class="flow-popover"' in markup and ' hidden tabindex="-1" role="dialog"' in markup
         assert '&lt;script&gt;危險&lt;/script&gt;' in markup
         assert '<script>危險</script>' not in markup
         assert '量到的值：' in markup and '標準：' in markup and '比較結果：' in markup
@@ -180,7 +180,8 @@ def test_unentered_flow_stage_names_only_the_lanes_not_reached() -> None:
     assert "廣告平台這次沒有走到" not in markup
     assert "後續階段這次未進入" not in markup
     seventh = render_page(state, form_token="t", selected=ScenarioCode.F7)
-    assert 'class="flow-later"' not in seventh
+    # 範例 F7 在寫入前就停下等人確認:畫了廣告平台泳道但沒碰過,照實點名(增量 4 代碼審 r2 p1)
+    assert '<p class="flow-later">廣告平台這次沒有走到</p>' in seventh
 
 
 def test_scenario_intent_merges_repeated_goal_and_keeps_trigger() -> None:
@@ -824,8 +825,9 @@ def test_unreached_fault_keeps_its_fixed_label_with_plain_explanation() -> None:
     scenario = replace(state.scenarios[1], status=ScenarioStatus.NOT_EXERCISED)
     state = replace(state, scenarios=(state.scenarios[0], scenario, *state.scenarios[2:]))
     page = render_page(state, form_token="t", selected=ScenarioCode.F2)
-    assert "AI 判不提案,故障處理這次沒有走到" in page
-    assert "不提出調整建議；本次未觸發故障處理" in page
+    # 固定標示照狀態顯示(「提案」緊接括號解釋);決策摘要不再另寫一次裸詞版本(增量 4 代碼審 r2 v1)
+    assert ScenarioStatus.NOT_EXERCISED.value in html_lib.unescape(page)
+    assert "AI 判不提案,故障處理這次沒有走到" not in page
     assert not _unexplained(_visible_text_outside_verbatim(page), "提案")
 
 
@@ -1170,10 +1172,6 @@ def _visible_text_outside_verbatim(markup: str) -> str:
 def _unexplained(text: str, term: str) -> bool:
     if term == "模型":
         text = text.replace("模型考題沒通過 （AI 回答的考題未過，與情境是否完成分開看）", "")
-    if term == "提案":
-        text = text.replace(
-            "AI 判不提案,故障處理這次沒有走到（不提出調整建議；本次未觸發故障處理）", ""
-        )
     return term in re.sub(rf"{re.escape(term)}（[^（）]+）", "", text)
 
 
@@ -1671,3 +1669,106 @@ def test_the_report_shows_the_comparison_side_by_side() -> None:
     assert "有無自動查核的差別" not in render_page(state, form_token="t")
     empty = render_report(replace(state, comparison=None))
     assert "前後比較這次還沒有產生" in empty
+
+
+# ---- 增量 4 代碼審 r2(2026-09-25) ----
+def _later(markup: str) -> str | None:
+    found = re.search(r'<p class="flow-later">([^<]*)</p>', markup)
+    return None if found is None else html_lib.unescape(found.group(1))
+
+
+def test_unentered_lanes_follow_the_roles_actually_touched() -> None:
+    """r2 p1:「這次沒有走到」看這件工作實際碰過的角色,不是畫了幾條泳道。寫進平台(x_write)就算碰過
+    廣告平台,即使沒有留下平台回覆;中間沒有節點的泳道也要點名。"""
+    state = make_demo_state()
+    f2 = next(s for s in state.scenarios if s.code is ScenarioCode.F2)
+    wrote = Decision("x_write", ("x_total", "x_write"), "送出", "", None)
+    crashed = replace(f2, path=(*f2.path, wrote),
+                      traversed_edges=(*f2.traversed_edges, ("x_total", "x_write")))
+    shown = replace(state, scenarios=tuple(crashed if s is f2 else s for s in state.scenarios))
+    assert _later(render_page(shown, form_token="t", selected=ScenarioCode.F2)) == (
+        "人工這次沒有走到")
+    # F6 範例:從執行直接交給人工決定,中間的廣告平台泳道畫了但沒有節點 → 要點名
+    assert _later(render_page(state, form_token="t", selected=ScenarioCode.F6)) == (
+        "廣告平台這次沒有走到")
+
+
+def test_repeated_flow_cell_names_the_task_and_its_own_round() -> None:
+    """r2 p4:同一格有好幾件工作時,浮出框寫「工作 t3 第 2 輪」(AI 格)、「工作 t1 第 1 次」(其他格),
+    跟 AI 逐輪卡一樣按每件工作各自數。"""
+    state = make_demo_state()
+    first = state.scenarios[0]
+
+    def ai(task: str) -> Decision:
+        return Decision("a_ai", ("a_ai", "a_ai_query"), "先查", "", None,
+                        kind=DecisionKind.AI_JUDGEMENT, task_id=task)
+
+    changed = replace(first, path=(ai("t1"), ai("t3"), ai("t3"),
+                                   replace(first.path[0], task_id="t1")),
+                      traversed_edges=(("a_ai", "a_ai_query"),))
+    page = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])),
+                       form_token="t")
+    box = page.split('id="flow-detail-F1-a_ai"', 1)[1].split('class="flow-popover"', 1)[0]
+    labels = re.findall(r'<li class="flow-occurrence"><strong>([^<]+)</strong>', box)
+    assert labels == ["工作 t1 第 1 輪", "工作 t3 第 1 輪", "工作 t3 第 2 輪"]
+    other = page.split(f'id="flow-detail-F1-{first.path[0].node}"', 1)[1]
+    assert "<strong>工作 t1 第 1 次</strong>" in other.split('class="flow-popover"', 1)[0]
+
+
+def test_ai_cell_does_not_repeat_the_allowed_choices_label() -> None:
+    """r2 p5:AI 格「這一輪允許的選項」欄位值不再以同一串字開頭。"""
+    state = make_demo_state()
+    first = state.scenarios[0]
+    main = DecisionBasis("base:x", "這一輪允許的選項:check_longer_window,propose",
+                         "選了 propose", "錄製回應")
+    ai = Decision("a_ai", ("a_ai", "a_propose"), "寫建議", "", None, basis=(main,),
+                  kind=DecisionKind.AI_JUDGEMENT, task_id="t1")
+    changed = replace(first, path=(ai,), traversed_edges=(("a_ai", "a_propose"),))
+    page = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])),
+                       form_token="t")
+    text = html_lib.unescape(re.sub(r"<[^>]+>", " ", page))
+    assert "這一輪允許的選項" in text
+    assert not re.search(r"這一輪允許的選項\s+這一輪允許的選項", text)
+
+
+def test_narrow_scenario_strip_scrolls_the_selected_card_into_view() -> None:
+    """r2 p5:窄螢幕的情境列載入時把選中的卡捲進可視區(只動那一列的 scrollLeft,不捲整頁)。"""
+    assert "revealSelected" in FLOW_SCRIPT
+    assert ".scenario-row.is-selected" in FLOW_SCRIPT and "scrollLeft" in FLOW_SCRIPT
+
+
+def test_flow_popover_is_keyboard_operable() -> None:
+    """r2 p2/p3(不靠瀏覽器的那一半;行為由 test_flow_popover_browser 在瀏覽器裡驗):框可聚焦、
+    鍵盤釘住後焦點移進框、Esc 收框並把焦點還給格子、框內按鍵不觸發格子的開關;hover 開的框不因焦點
+    留在格子而不收。"""
+    page = render_page(make_demo_state(), form_token="t")
+    assert re.search(r'<div class="flow-popover" id="[^"]+" hidden tabindex="-1"', page)
+    assert "box.focus(" in FLOW_SCRIPT
+    assert "returnFocus" in FLOW_SCRIPT
+    assert "openedByFocus" in FLOW_SCRIPT
+    assert "closest?.('.flow-popover')" in FLOW_SCRIPT
+
+
+def test_saved_report_carries_a_hash_bound_content_security_policy() -> None:
+    """r2 s3:另存的單檔報告(樣式內嵌)在 <head> 帶 meta CSP:腳本與內嵌樣式各用自己的 sha256,
+    沒有 unsafe-inline;經伺服器送的報告與頁面照舊用回應標頭。"""
+    report = render_report(make_demo_state(), inline_styles=True)
+    head = report.split("</head>", 1)[0]
+    found = re.search(r'<meta http-equiv="Content-Security-Policy" content="([^"]+)">', head)
+    assert found is not None
+    policy = html_lib.unescape(found.group(1))
+    assert "unsafe-inline" not in policy and "default-src 'none'" in policy
+
+    def digest(text: str) -> str:
+        return base64.b64encode(hashlib.sha256(text.encode()).digest()).decode()
+
+    scripts = re.findall(r"<script>(.*?)</script>", report, re.DOTALL)
+    styles = re.findall(r"<style>(.*?)</style>", report, re.DOTALL)
+    assert scripts and styles
+    for script in scripts:
+        assert f"script-src 'sha256-{digest(script)}'" in policy
+    for style in styles:
+        assert f"'sha256-{digest(style)}'" in policy.split("style-src", 1)[1].split(";", 1)[0]
+    assert found.start() < head.index("<style>")  # 政策要在內嵌樣式之前宣告
+    served = render_report(make_demo_state(), inline_styles=False)
+    assert 'http-equiv="Content-Security-Policy"' not in served

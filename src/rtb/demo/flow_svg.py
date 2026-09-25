@@ -44,6 +44,11 @@ _LANE_HEIGHT: Final = 140
 LANE_ORDER: Final = ("分析", "收件", "執行", "廣告平台", "人工")
 
 
+# 走到這些節點就算碰過另一個角色(跨角色的動作):執行端送去寫入/同筆重送,平台就已經收到東西,
+# 即使執行端當場倒下、沒有留下平台回覆那一格(增量 4 代碼審 r2 p1)
+_ALSO_TOUCHES: Final[dict[str, str]] = {"x_write": "廣告平台", "x_resend": "廣告平台"}
+
+
 _GROUP_ID: Final = "analysis_group"
 
 
@@ -160,7 +165,7 @@ def render_flow(  # noqa: PLR0915 - 流程圖組裝包含泳道、邊、節點�
         )
         popover_id = f"flow-detail-{scenario.code.value}-{node.id}"
         popovers.append(
-            f'<div class="flow-popover" id="{escape_text(popover_id)}" hidden '
+            f'<div class="flow-popover" id="{escape_text(popover_id)}" hidden tabindex="-1" '
             'role="dialog" aria-label="這一步的判斷內容">'
             '<button class="flow-popover-close" type="button" aria-label="關閉判斷內容">×</button>'
             f'<h4>{escape_text(flow_label(node.label))}</h4>{content}</div>'
@@ -199,8 +204,13 @@ def render_flow(  # noqa: PLR0915 - 流程圖組裝包含泳道、邊、節點�
         f"交給另一段程式；在排隊等了 {wait}"
         if queued else "交給另一段程式；收件後沒有進入執行佇列"
     )
-    entered_lanes = {lane.name for lane in lanes}
-    unentered = [lane for lane in LANE_ORDER if lane not in entered_lanes]
+    # 看這件(這幾件)工作實際碰過的角色,不是畫了哪幾條泳道:中間沒有節點的泳道也點名,
+    # 跨角色的動作(寫進平台)算碰過(增量 4 代碼審 r2 p1)
+    touched = {node.lane for node in view.nodes}
+    touched |= {_ALSO_TOUCHES[node_id] for node_id in view.visited if node_id in _ALSO_TOUCHES}
+    touched |= {_ALSO_TOUCHES[item.id] for _, items in view.groups for item in items
+                if item.id in _ALSO_TOUCHES}
+    unentered = [lane for lane in LANE_ORDER if lane not in touched]
     later = (f'<p class="flow-later">{escape_text("、".join(unentered))}這次沒有走到</p>'
              if unentered else '')
     return (

@@ -243,16 +243,62 @@ def test_a_held_twin_that_fell_back_shows_the_rule_path_to_the_exam_hold(ran):
     assert worth.basis and worth.basis[0].source == "依存下的證據重算"
 
 
-def test_the_new_page_text_explains_its_jargon_on_real_runs(ran):
+def test_the_new_page_text_explains_its_jargon_on_real_runs(ran, untouched):
     """(代碼審 r1 p4)真跑過的 F1、F2、F5 主頁:這一增量加的文字(結果、考題、橫幅、AI 步驟與程式接手、
-    說明與假說卡)裡的「模型」「提案」都緊接括號白話解釋。"""
-    for code in (ScenarioCode.F1, ScenarioCode.F2, ScenarioCode.F5):
-        page = render_page(ran, form_token="t", selected=code, refresh_tick=0)
+    說明與假說卡)裡的「模型」「提案」都緊接括號白話解釋。r2 v1:另跑故障沒走到的 F2,並掃決策摘要。"""
+    for state, code in ((ran, ScenarioCode.F1), (ran, ScenarioCode.F2), (ran, ScenarioCode.F5),
+                        (untouched, ScenarioCode.F2)):
+        page = render_page(state, form_token="t", selected=code, refresh_tick=0)
         focus = page.split('class="focus-panel', 1)[1]
         parts = [focus.split('class="result-evidence"', 1)[1].split("</details>", 1)[0],
+                 focus.split('class="decision-hero"', 1)[1].split("</section>", 1)[0],
                  *re.findall(r'<(?:div|p) class="(?:ai-banner|ai-outcome|ai-exam|ai-node-card)'
                              r'"[^>]*>.*?</(?:div|p)>', focus, re.DOTALL),
                  *[c for c in focus.split("<li ") if "ai-round" in c or "程式接手" in c]]
         text = _text("".join(parts))
         for term in ("模型", "提案"):
             assert term not in re.sub(rf"{term}（[^（）]+）", "", text), (code, term, text[:300])
+
+
+def _later(markup):
+    found = re.search(r'<p class="flow-later">([^<]*)</p>', markup)
+    return None if found is None else html_lib.unescape(found.group(1))
+
+
+def test_f2_that_wrote_to_the_platform_does_not_say_the_platform_was_not_reached(ran):
+    """r2 p1:F2 寫進平台之後執行端才倒下(沒有平台回覆那一格),「這次沒有走到」不得點名廣告平台。"""
+    page = render_page(ran, form_token="t", selected=ScenarioCode.F2, refresh_tick=0)
+    assert "x_write" in {d.node for d in _scenario(ran, ScenarioCode.F2).path} or (
+        "x_total", "x_write") in _scenario(ran, ScenarioCode.F2).traversed_edges
+    later = _later(page)
+    assert later is not None and "廣告平台" not in later and "人工" in later
+
+
+@pytest.fixture(scope="module")
+def untouched(tmp_path_factory):
+    """F2 受測工作 AI 判證據不足、不提案:故障處理這次沒有走到(r2 v1)。"""
+    root = tmp_path_factory.mktemp("ai-page-untouched")
+    recordings = root / "rec"
+    fake.fake_batch(recordings, BATCH, {"normal": [fake.INSUFFICIENT]})
+    writer = StateWriter(root / "state.db", "demo-2")
+    try:
+        demo = Driver(root / "demos", "demo-2", DemoKeys.generate(), writer,
+                      user_env=os.environ, recordings_dir=recordings)
+        assert demo.run_one("F2").status == "not_exercised"
+    finally:
+        writer.close()
+    reader = StateReader(root / "state.db")
+    try:
+        return build_demo_state(reader, "demo-2", running=False, now=datetime.now(UTC))
+    finally:
+        reader.close()
+
+
+def test_the_decision_summary_explains_its_jargon_and_says_the_untouched_fault_once(untouched):
+    """r2 v1:決策摘要(decision-hero)不重複「判不提案,故障處理這次沒有走到」那句,「提案」緊接括號
+    白話解釋。"""
+    page = render_page(untouched, form_token="t", selected=ScenarioCode.F2, refresh_tick=0)
+    hero = page.split('class="decision-hero"', 1)[1].split("</section>", 1)[0]
+    text = _text(hero)
+    assert text.count("判不提案") == 1, text
+    assert "提案" not in re.sub(r"提案（[^（）]+）", "", text), text

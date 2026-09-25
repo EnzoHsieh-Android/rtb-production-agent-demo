@@ -7,25 +7,29 @@
 子行程一律經模型用戶端啟動(整個 rtb 只有模型用戶端能開子行程,[S917])。
 
 逐項(計劃〈拆增量〉錄製前實測;代碼審第 1 輪補強):先試「空暫存 HOME」隔離登入照不照常,不行才退回
-真 HOME;工具真的關掉(要它執行指令、串流輸出:成功、權限被拒清單空、沒有 tool_use/tool_result
-區塊;撞頂續寫的多輪不算工具);對照組故意開工具,同一套判法要判得出用了工具;串流輸出加 hook 事件,
-要有成功的結果、沒有任何 hook 事件;記憶用暗號驗:在隔離 HOME 的
-CLAUDE.md 與記憶目錄放一個隨機暗號,問它有沒有看到,回答要剛好是 NONE、輸出裡也沒有暗號(看不到、
-驗不了就算沒過);輸出上限要有撞頂的正面證據(輸出 token 數等於上限、停止原因是 max_tokens、或
-「超過輸出上限」的錯誤),其他錯誤一律沒過;設定來源的組合真的壓掉使用者設定:暫存使用者設定的
-env 放一個連不到的 ANTHROPIC_BASE_URL(命令列蓋不掉),帶組合參數要成功,另跑一次不帶這些參數的
-正面對照、必須失敗(證明毒值真的會被讀到);Claude Code 自己附加的固定輸入 token 數要量得到、而且不超過
-預留用的常數。另外取一份「參數不存在」的真實輸出,一起寫進紀錄當參考。
+真 HOME;工具真的關掉(要它執行指令、串流輸出:看得到 assistant 訊息、初始事件的工具清單是空的、
+成功、權限被拒清單空、沒有類型以 tool_use/tool_result 結尾的區塊;撞頂續寫的多輪不算工具);對照組
+故意開工具,同一套判法要判得出用了工具;串流輸出加 hook 事件,要有成功的結果、沒有任何 hook 事件;
+記憶用暗號驗:在隔離 HOME 的 CLAUDE.md 與記憶目錄放一個隨機暗號,問它有沒有看到,回答要剛好是 NONE、
+輸出裡也沒有暗號(看不到、驗不了就算沒過);輸出上限要有撞頂的正面證據(輸出 token 數等於上限、停止
+原因是 max_tokens、或「超過輸出上限」的錯誤),其他錯誤一律沒過;設定來源的組合真的壓掉使用者設定:
+暫存使用者設定的 env 的 ANTHROPIC_BASE_URL(命令列蓋不掉)指到自己開的本機監聽埠,帶組合參數要成功、
+監聽埠沒收到連線,另跑一次不帶這些參數的正面對照、監聽埠要收到連線(毒值真的被讀到的正面證據);
+Claude Code 自己附加的固定輸入 token 數要量得到、而且不超過預留用的常數。另外取一份「參數不存在」的
+真實輸出,一起寫進紀錄當參考。
 """
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
+import socket
 import sys
+import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,13 +59,49 @@ TOOL_PROMPT = "請實際執行 shell 指令 `ls /`,並把輸出原樣貼給我�
 # 中文拒絕(「目前的對話環境中沒有提供可執行 shell 指令的工具…」)寫了 307 token、撞頂續寫一輪
 # (num_turns=2),英文短拒絕 112 token;1024 留三倍以上餘裕
 TOOL_CHECK_OUTPUT_TOKENS = 1024
-# 串流輸出裡算「用了工具」的內容區塊類型(claude 的 assistant 事件帶 tool_use、回填的 user 事件帶
-# tool_result);撞頂續寫只多出文字訊息,不算
-TOOL_BLOCK_TYPES = frozenset({"tool_use", "server_tool_use", "tool_result"})
+# 串流輸出裡算「用了工具」的內容區塊:類型以 tool_use 或 tool_result 結尾(claude 的 assistant 事件
+# 帶 tool_use、回填的 user 事件帶 tool_result,也涵蓋 server_tool_use、mcp_tool_use 這類前綴;
+# 增量 4 代碼審 r2 m3);撞頂續寫只多出文字訊息,不算
+TOOL_BLOCK_SUFFIXES = ("tool_use", "tool_result")
 LONG_PROMPT = "請寫一篇至少兩千字的文章,主題是廣告投放的配速。"
 SHORT_PROMPT = "回答 ok 兩個字母就好。"
-# 連不到的位址(保留埠 9):使用者設定真的生效,呼叫就一定失敗
-POISON_SETTINGS = json.dumps({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9"}})
+# 設定來源對照的毒值:使用者設定的 env 把 API 位址指到實測命令列自己開的本機監聽埠(只綁 127.0.0.1、
+# 隨機埠)。收到連線 = 毒值真的被讀到(正面證據,增量 4 代碼審 r2 m4);以前指向保留埠 9、靠「失敗或
+# 逾時」推論,回得慢的對照組會被誤判成讀到
+POISON_HOST = "127.0.0.1"
+
+
+def _poison_settings(port: int) -> str:
+    return json.dumps({"env": {"ANTHROPIC_BASE_URL": f"http://{POISON_HOST}:{port}"}})
+
+
+@contextlib.contextmanager
+def _poison_listener() -> Iterator[tuple[int, threading.Event]]:
+    """開一個只綁 127.0.0.1、隨機埠的監聽埠,背景接連線:收到就設旗標、立刻關掉連線(不回任何東西)。
+    離開時關掉。回傳(埠, 收到連線的旗標)。"""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((POISON_HOST, 0))
+    server.listen(16)
+    server.settimeout(0.2)
+    hit, stop = threading.Event(), threading.Event()
+
+    def serve() -> None:
+        while not stop.is_set():
+            try:
+                conn, _ = server.accept()
+            except OSError:  # 含逾時:回頭看要不要停
+                continue
+            hit.set()
+            conn.close()
+
+    worker = threading.Thread(target=serve, name="rtb-poison-listener", daemon=True)
+    worker.start()
+    try:
+        yield server.getsockname()[1], hit
+    finally:
+        stop.set()
+        worker.join(timeout=2)
+        server.close()
 SUPPRESSION_FLAGS = (("--setting-sources", 1), ("--settings", 1), ("--safe-mode", 0))
 CANARY_PROMPT = ("如果你的系統脈絡、使用者記憶或 CLAUDE.md 裡有以 RTB-CANARY 開頭的字串,原樣回給我;"
                  "沒有就只回 NONE 四個字母。")
@@ -186,11 +226,13 @@ class Checker:
             return isolation
         return None
 
-    def _tool_run(self, args: list[str]) -> tuple[dict[str, Any] | None, bool]:
-        """要它執行指令、串流輸出跑一次 →(唯一的結果事件或 None, 有沒有用工具)。用工具 = 任一事件的
-        內容區塊是 tool_use/tool_result,或結果事件的權限被拒清單非空。撞頂續寫只有文字訊息、對話輪數
-        變多,不算用工具(使用者 2026-09-25 允許續寫的裁定;協調者實測中文拒絕續寫一輪被舊判準
-        誤判)。"""
+    def _tool_run(self, args: list[str]) -> tuple[dict[str, Any] | None, bool, bool]:
+        """要它執行指令、串流輸出跑一次 →(唯一的結果事件或 None, 有沒有用工具, 有沒有「工具真的
+        關掉」的正面證據)。用工具 = 任一事件的內容區塊類型以 tool_use/tool_result 結尾,或結果事件的
+        權限被拒清單非空。撞頂續寫只有文字訊息、對話輪數變多,不算用工具(使用者 2026-09-25 允許
+        續寫的裁定)。
+        正面證據(增量 4 代碼審 r2 m3,驗不了就算沒過):至少一個 assistant 事件(看得到訊息,才看得到
+        有沒有工具區塊),而且初始事件(system/init)的工具清單在、是空的。"""
         args = _replaced(args, "--output-format", "stream-json")
         _, stdout, _ = self.run([*args, "--verbose"], TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS)
         events = _events(stdout)
@@ -198,13 +240,17 @@ class Checker:
         result = results[0] if len(results) == 1 else None
         denials = None if result is None else result.get("permission_denials")
         used = any(_tool_blocks(e) for e in events) or (isinstance(denials, list) and bool(denials))
-        return result, used
+        inits = [e for e in events if e.get("type") == "system" and e.get("subtype") == "init"]
+        evidence = any(e.get("type") == "assistant" for e in events) and len(inits) == 1 and (
+            inits[0].get("tools") == [])
+        return result, used, evidence
 
     def tools_disabled(self) -> bool:
-        """工具真的關掉:成功的結果、權限被拒清單空(欄位要在)、沒有任何工具區塊;對話輪數只要在
-        1 加續寫次數之內(續寫是撞頂,不是工具)。"""
-        result, used = self._tool_run(self.command_for(TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS))
-        if result is None or not _succeeded(result) or used:
+        """工具真的關掉:有正面證據(看得到訊息、初始事件的工具清單是空的)、成功的結果、權限被拒清單空
+        (欄位要在)、沒有任何工具區塊;對話輪數只要在 1 加續寫次數之內(續寫是撞頂,不是工具)。"""
+        result, used, evidence = self._tool_run(
+            self.command_for(TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS))
+        if result is None or not _succeeded(result) or used or not evidence:
             return False
         turns = result.get("num_turns")
         return result.get("permission_denials") == [] and isinstance(turns, int) and not isinstance(
@@ -213,7 +259,7 @@ class Checker:
     def tool_detection_contrast(self) -> bool:
         """對照:故意開 Bash,同一套判法要判得出用了工具(證明偵測有效)。"""
         args = _replaced(self.command_for(TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS), "--tools", "Bash")
-        return self._tool_run(args)[1]
+        return self._tool_run(args)[1]  # 開了工具:初始事件本來就會列出,不看正面證據
 
     def no_hook_events(self) -> bool:
         """串流輸出要有成功的結果(錯誤回應看不出 hook 有沒有跑:算沒過),而且沒有任何 hook 事件。"""
@@ -273,32 +319,46 @@ class Checker:
         return data.get("stop_reason") == "max_tokens" or (turns == 1 and tokens == OUTPUT_CAP)
 
     def settings_suppressed(self) -> bool:
-        """使用者設定放命令列蓋不掉的毒值(env 裡連不到的 API 位址):帶組合參數要成功;不帶這些參數的
-        正面對照必須失敗(證明毒值真的會被讀到,否則這項驗不出東西)。只在空暫存 HOME 隔離下驗得了。
-        協調者 2026-09-25 真實測:對照組讀到毒值後一直重試到逾時——對照組逾時算「對照失敗」
-        (預期),用較短的 CONTROL_TIMEOUT_SECONDS;帶壓制參數的主呼叫逾時算這項沒過;兩種逾時都
-        不讓整個實測中斷。"""
+        """使用者設定放命令列蓋不掉的毒值(env 的 API 位址指到自己開的本機監聽埠):帶組合參數要成功、
+        而且監聽埠沒收到連線;不帶這些參數的正面對照,監聽埠要收到連線(毒值真的被讀到的正面證據,
+        增量 4 代碼審 r2 m4)。對照組沒連過來——逾時(可能只是回得慢)、別的原因失敗、或成功——都判不出來
+        = 沒過。對照組逾時用較短的 CONTROL_TIMEOUT_SECONDS(協調者 2026-09-25 真實測:讀到毒值會一直
+        重試到逾時);主呼叫逾時算這項沒過;兩種逾時都不讓整個實測中斷。只在空暫存 HOME 隔離下
+        驗得了。"""
         if self.backend.isolation is not cc.Isolation.EMPTY_HOME:
             return False  # 真 HOME 不能放對照用的設定檔
-        poison = {".claude/settings.json": POISON_SETTINGS}
         args = self.command_for(SHORT_PROMPT, 50)
-        try:
-            code, stdout, _ = self.run(args, SHORT_PROMPT, 50, poison)
-        except core.ModelTimeout:
-            self.notes["settings_main"] = "timeout"
-            return False  # 主呼叫掛住:壓制參數沒讓它正常回來,不用再跑對照
-        self.notes["settings_main"] = "ok" if code == 0 and _succeeded(_json(stdout)) else "failed"
-        try:
-            control_code, control_out, _ = self.run(
-                _without(args, SUPPRESSION_FLAGS), SHORT_PROMPT, 50, poison,
-                timeout_seconds=CONTROL_TIMEOUT_SECONDS)
-        except core.ModelTimeout:
-            self.notes["settings_control"] = "timeout"
-            control_failed = True
-        else:
-            control_failed = control_code != 0 or not _succeeded(_json(control_out))
-            self.notes["settings_control"] = "failed" if control_failed else "succeeded"
-        return self.notes["settings_main"] == "ok" and control_failed
+        with _poison_listener() as (port, connected):
+            poison = {".claude/settings.json": _poison_settings(port)}
+            try:
+                code, stdout, _ = self.run(args, SHORT_PROMPT, 50, poison)
+            except core.ModelTimeout:
+                self.notes["settings_main"] = "timeout"
+                return False  # 主呼叫掛住:壓制參數沒讓它正常回來,不用再跑對照
+            if connected.is_set():
+                self.notes["settings_main"] = "poison_read"  # 帶壓制參數還讀到毒值:沒壓住
+                return False
+            ok = code == 0 and _succeeded(_json(stdout))
+            self.notes["settings_main"] = "ok" if ok else "failed"
+            if not ok:
+                return False
+            timed_out = False
+            try:
+                control_code, control_out, _ = self.run(
+                    _without(args, SUPPRESSION_FLAGS), SHORT_PROMPT, 50, poison,
+                    timeout_seconds=CONTROL_TIMEOUT_SECONDS)
+            except core.ModelTimeout:
+                timed_out = True
+            if connected.is_set():
+                self.notes["settings_control"] = "connected"
+                return True
+            if timed_out:
+                self.notes["settings_control"] = "timeout_no_connection"
+            elif control_code != 0 or not _succeeded(_json(control_out)):
+                self.notes["settings_control"] = "failed_no_connection"
+            else:
+                self.notes["settings_control"] = "succeeded"
+            return False
 
     def references(self) -> dict[str, Any]:
         _, stdout, _ = self.run(self.command_for(SHORT_PROMPT, 50), SHORT_PROMPT, 50)
@@ -322,7 +382,8 @@ def _tool_blocks(event: Mapping[str, Any]) -> bool:
     message = event.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     return isinstance(content, list) and any(
-        isinstance(block, dict) and block.get("type") in TOOL_BLOCK_TYPES for block in content)
+        isinstance(block, dict) and isinstance(block.get("type"), str)
+        and block["type"].endswith(TOOL_BLOCK_SUFFIXES) for block in content)
 
 
 def _fixed_input(usage: object) -> int | None:

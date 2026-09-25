@@ -54,6 +54,21 @@ if "ls /" in prompt and not used_tool:  # 拒絕執行指令的回答
 settings = os.path.join(home, ".claude", "settings.json")
 suppressed = flag("--setting-sources") == "" and not CONFIG["suppression_broken"]
 poisoned = os.path.exists(settings) and not suppressed and CONFIG["poison_readable"]
+if poisoned:  # 真的讀到毒值:照設定裡的 API 位址連一次(真的 claude 會對它送請求)
+    import socket, urllib.parse
+    url = urllib.parse.urlparse(json.load(open(settings))["env"]["ANTHROPIC_BASE_URL"])
+    if CONFIG["url_log"]:
+        open(CONFIG["url_log"], "a").write(url.geturl() + "\\n")
+    try:
+        socket.create_connection((url.hostname, url.port), timeout=2).close()
+    except OSError:
+        pass
+control = os.path.exists(settings) and not suppressed and not poisoned
+if control and CONFIG["slow_control"]:  # 沒讀到毒值、只是回得慢(服務過載退避重試)
+    import time; time.sleep(600)
+if control and CONFIG["control_fails_quietly"]:  # 沒讀到毒值、因為別的原因失敗
+    print(json.dumps({{"type": "result", "subtype": "error", "is_error": True, "num_turns": 1,
+                      "result": "API Error: 529 overloaded"}})); sys.exit(1)
 text = "ok"
 claude_md = os.path.join(home, ".claude", "CLAUDE.md")
 if "RTB-CANARY" in prompt:
@@ -94,19 +109,24 @@ if poisoned or CONFIG["api_error"]:
     result.update(is_error=True, subtype="error", result="API Error: 400 bad request",
                   usage={{"input_tokens": 0, "output_tokens": 0}})
     print(json.dumps(result)); sys.exit(1)
-if flag("--output-format") == "stream-json":
-    print(json.dumps({{"type": "system", "subtype": "init"}}))
+quiet = CONFIG["only_result"] and "ls /" in prompt  # 串流裡只有結果事件(看不到任何訊息)
+if flag("--output-format") == "stream-json" and not quiet:
+    listed = [t for t in tools.split(",") if t]
+    if CONFIG["init_tools_leak"] and "ls /" in prompt:
+        listed = listed or ["Bash"]  # 參數說關掉了,初始事件卻列出工具
+    print(json.dumps({{"type": "system", "subtype": "init", "tools": listed}}))
     if CONFIG["hook_events"]:
         print(json.dumps({{"type": "system", "subtype": "hook_started"}}))
     for _ in range(turns):
         print(json.dumps({{"type": "assistant", "message": {{"content": [
             {{"type": "text", "text": "..."}}]}}}}))
     if used_tool:
+        prefix = CONFIG["block_prefix"]
         print(json.dumps({{"type": "assistant", "message": {{"content": [
-            {{"type": "tool_use", "id": "t1", "name": "Bash",
+            {{"type": prefix + "tool_use", "id": "t1", "name": "Bash",
               "input": {{"command": "ls /"}}}}]}}}}))
         print(json.dumps({{"type": "user", "message": {{"content": [
-            {{"type": "tool_result", "tool_use_id": "t1", "content": "bin"}}]}}}}))
+            {{"type": prefix + "tool_result", "tool_use_id": "t1", "content": "bin"}}]}}}}))
 print(json.dumps(result))
 """
 GOOD = {"login_with_token": False, "echo_token": False, "login_empty_home": True,
@@ -116,6 +136,8 @@ GOOD = {"login_with_token": False, "echo_token": False, "login_empty_home": True
         "memory_loaded": False, "memory_readable": True, "input_tokens": 3900,
         "api_error": False, "hang_on_poison": False, "hang_suppressed": False,
         "tool_use_one_turn": False, "continued_refusal": False, "long_refusal": False,
+        "only_result": False, "init_tools_leak": False, "block_prefix": "",
+        "url_log": None, "slow_control": False, "control_fails_quietly": False,
         "cap_log": None}
 
 
@@ -321,7 +343,8 @@ def test_a_hanging_settings_control_counts_as_the_expected_failure(tmp_path, mon
     assert "- setting_sources_suppress_user_settings:過" in text
     assert time.monotonic() - started < 60  # 對照組用短逾時,不是主呼叫的 120 秒
     record = json.loads(cc.verification_path().read_text(encoding="utf-8"))
-    assert record["notes"]["settings_control"] == "timeout"
+    # 代碼審 r2 m4:過的依據是本機監聽埠收到連線(毒值讀到),不是逾時本身
+    assert record["notes"]["settings_control"] == "connected"
     assert (modelverify.CONTROL_TIMEOUT_SECONDS, "timeout") in _timeouts_by_call()
 
 
@@ -371,3 +394,51 @@ def test_a_tool_use_event_fails_the_tool_check_even_in_one_turn(tmp_path):
     checks = _checks_of(text)
     assert not checks["tools_disabled"]
     assert checks["tool_detection_contrast"]  # 開 Bash 的對照組照樣判得出用了工具
+
+
+# ---- 增量 4 代碼審 r2 m3:工具關掉要有正面證據;區塊類型看結尾 ----
+def test_the_tool_check_needs_positive_evidence(tmp_path):
+    """串流裡只有結果事件(看不到任何訊息)、或初始事件列出的工具清單不是空的,工具關掉那項判沒過
+    (驗不了就算沒過)。"""
+    for name, overrides in (("only_result", {"only_result": True, "continued_refusal": True}),
+                            ("init_tools_leak", {"init_tools_leak": True})):
+        code, text = _run(_claude(tmp_path / name, **overrides))
+        assert code == modelverify.EXIT_NOT_WRITTEN, (name, text)
+        assert not _checks_of(text)["tools_disabled"], (name, text)
+
+
+def test_prefixed_tool_blocks_count_as_tool_use(tmp_path):
+    """區塊類型以 tool_use/tool_result 結尾就算工具(例如 mcp_tool_use、mcp_tool_result):關掉那項
+    判沒過,開 Bash 的對照組照樣判得出。"""
+    code, text = _run(_claude(tmp_path, tool_use_one_turn=True, block_prefix="mcp_"))
+    assert code == modelverify.EXIT_NOT_WRITTEN, text
+    checks = _checks_of(text)
+    assert not checks["tools_disabled"] and checks["tool_detection_contrast"], text
+
+
+# ---- 增量 4 代碼審 r2 m4:設定來源對照組要有正面證據(本機監聽埠收到連線) ----
+def test_the_poison_points_at_a_listener_of_our_own(tmp_path):
+    """毒值 ANTHROPIC_BASE_URL 指向實測命令列自己開的監聽埠(只綁 127.0.0.1、隨機埠);對照組連上
+    就證明毒值讀到,這項過。"""
+    urls = tmp_path / "urls.txt"
+    code, text = _run(_claude(tmp_path, url_log=str(urls)))
+    assert code == modelverify.EXIT_OK, text
+    [url] = urls.read_text().split()
+    host, port = url.removeprefix("http://").rstrip("/").split(":")
+    assert host == "127.0.0.1" and int(port) not in (0, 9)
+    record = json.loads(cc.verification_path().read_text(encoding="utf-8"))
+    assert record["notes"]["settings_control"] == "connected"
+
+
+def test_a_control_without_a_connection_proves_nothing(tmp_path, monkeypatch):
+    """對照組沒連到監聽埠:回得慢而逾時、或因為別的原因失敗,都判不出毒值有沒有讀到——這項沒過
+    (以前逾時或失敗就算對照失敗、判過)。"""
+    monkeypatch.setattr(modelverify, "CONTROL_TIMEOUT_SECONDS", 1.0)
+    for name, overrides in (
+            ("slow", {"poison_readable": False, "slow_control": True}),
+            ("quiet_failure", {"poison_readable": False, "control_fails_quietly": True})):
+        cc.verification_path().unlink(missing_ok=True)
+        code, text = _run(_claude(tmp_path / name, **overrides))
+        assert code == modelverify.EXIT_NOT_WRITTEN, (name, text)
+        assert "- setting_sources_suppress_user_settings:沒過" in text, (name, text)
+        assert "實測沒跑完" not in text, name

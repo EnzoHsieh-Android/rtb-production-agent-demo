@@ -169,3 +169,21 @@ def _rows(ledger):
     finally:
         reader.close()
 
+
+
+# ---- 增量 4 代碼審 r2 c1/s2/m2/v4(代使用者裁定 2026-09-25):入庫根不存在就不開錄 ----
+def test_a_missing_committed_root_refuses_every_live_recording(tmp_path, monkeypatch):
+    """入庫根(recordings/model)不存在 = checkout 不完整:開錄前檢查一律拒絕,入庫根本身、它底下的任何
+    路徑、以及別處的新目錄都不放行(不改成字面路徑比對:macOS 不存在的路徑 realpath 不統一大小寫);
+    入庫根存在時照舊——底下拒絕、別處的新目錄放行。"""
+    root = tmp_path / "repo" / "recordings" / "model"
+    monkeypatch.setattr(rec, "default_recordings_dir", lambda: root)
+    for target in (root, root / "phase13-demo", root / "new" / "deeper", tmp_path / "fresh"):
+        with pytest.raises(mc.MixedRecordingsDir, match=r"入庫根.*不存在"):
+            mc.check_recordings_dir(target, "phase13-demo-20260925")
+    assert not root.exists() and not (tmp_path / "fresh").exists()
+    root.mkdir(parents=True)
+    for target in (root, root / "phase13-demo", root / "new" / "deeper"):
+        with pytest.raises(mc.MixedRecordingsDir, match="入庫"):
+            mc.check_recordings_dir(target, "phase13-demo-20260925")
+    mc.check_recordings_dir(tmp_path / "fresh", "phase13-demo-20260925")

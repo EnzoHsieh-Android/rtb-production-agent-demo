@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import re
-import sqlite3
 import stat
 import subprocess
 import sys
@@ -34,7 +33,6 @@ from rtb.demo.driver import (
 from rtb.demo.keys import DemoKeys
 from rtb.demo.launcher import Role
 from rtb.demo.observe import PathBuilder, missing_from_path
-from rtb.demo.present import build_demo_state
 from rtb.demo.state_store import StateReader, StateWriter
 from rtb.domain.task_state import TaskState
 from rtb.modelledger_view import ledger_path
@@ -299,7 +297,6 @@ def test_the_driver_picks_expectations_by_each_task_outcome(tmp_path, state):
 
 
 def _row(task, seq, state):
-    from datetime import UTC, datetime
 
     from rtb.analyzer.task_store import TaskRow
     return TaskRow(task, seq, state, "c1", None, None, datetime.now(UTC))
@@ -414,46 +411,29 @@ def test_f7_shares_one_recording_key_with_f1():
 
 
 # ---- [S1164] 展示批次入庫前:F1–F6 找不到錄製 0 筆,批次本身也過那兩條 ----
-def _assert_no_ai_fallback(state) -> None:
-    fallback = [(scenario.code.value, decision.task_id, decision.outcome)
-                for scenario in state.scenarios[:6] for decision in scenario.path
-                if decision.taken_edge == ("a_ai", "a_rule")]
-    assert not fallback, f"AI 這次沒有給出回答或退回程式規則:{fallback}"
-
-
 @pytest.mark.skipif(not driver_module.DEMO_RECORDINGS.exists(),
                     reason="展示錄製批次入庫後才啟用,照 [S1141] 的目錄開關")
 def test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6(tmp_path):
-    """只重播入庫 F1-F6;任何一件工作的一輪 AI 退回就讓 CI 失敗。"""
+    """只重播入庫 F1-F6;任何一件工作的一輪 AI 退回就讓 CI 失敗。退回的判法在入庫前檢查裡
+    (`recordings.ai_fallback_problems`,代碼審 r2 m1):錄完的自動檢查與這支呼叫同一支。"""
     replay = tmp_path / "replay"
     result = demo_recordings.check_demo_batch(
         driver_module.DEMO_RECORDINGS, BATCH, replay,
         user_env={"PATH": str(tmp_path / "no-claude"), "HOME": str(tmp_path / "home")},
     )
     assert result.passed, result
-    with sqlite3.connect(replay / "state.db") as conn:
-        [(demo_id,)] = conn.execute("SELECT DISTINCT demo_id FROM scenario_runs").fetchall()
-    reader = StateReader(replay / "state.db")
-    try:
-        shown = build_demo_state(reader, demo_id, running=False, now=datetime.now(UTC))
-    finally:
-        reader.close()
-    _assert_no_ai_fallback(shown)
+    assert not [p for p in result.problems if "AI 這次沒有給出回答" in p]
 
 
 def test_demo_recording_guard_catches_a_missing_fake_answer(tmp_path, state):
-    """假錄製少一份回答時,守衛讀真的重播判斷列並抓到退回。"""
+    """假錄製少一份回答時,守衛(入庫前檢查的共用判法)讀真的重播判斷列並抓到退回。"""
     partial = tmp_path / "missing-fake-recordings"
     fake.fake_batch(partial, BATCH, {"attacked": [fake.PROPOSE]})
     env = {"PATH": str(tmp_path / "no-claude"), "HOME": str(tmp_path / "home")}
     assert _driver(tmp_path, state, partial, user_env=env).run_one("F2").status == DONE
-    reader = StateReader(tmp_path / "state.db")
-    try:
-        shown = build_demo_state(reader, "demo-1", running=False, now=datetime.now(UTC))
-    finally:
-        reader.close()
-    with pytest.raises(AssertionError, match="AI 這次沒有給出回答"):
-        _assert_no_ai_fallback(shown)
+    problems = demo_recordings.ai_fallback_problems(tmp_path / "state.db", "demo-1")
+    assert problems and all("AI 這次沒有給出回答" in p for p in problems), problems
+    assert all(p.startswith("F2 ") for p in problems), problems
 
 
 def test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording(tmp_path, monkeypatch):
@@ -492,6 +472,14 @@ def test_the_replay_needs_every_scenario_finished_with_a_ledger_that_has_calls(t
     assert problems == ("F1 沒有跑完:incomplete(startup failed)",
                         "F1 的花費帳不在或讀不了:這個情境一次都沒有問 AI")
     assert not demo_recordings.BatchCheck(0, problems).passed
+    # 代碼審 r2 v3:帳在、表也建好了,但一筆呼叫紀錄都沒有
+    from rtb import modelledger
+
+    empty = tmp_path / "empty.db"
+    modelledger.used_so_far(empty, None)  # 建出一本空帳
+    assert empty.is_file()
+    missing, problems = demo_recordings.replay_problems((("F3", DONE, None),), {"F3": empty})
+    assert (missing, problems) == (0, ("F3 的花費帳沒有任何呼叫紀錄",))
 
 
 def test_the_batch_itself_must_be_one_clean_batch(tmp_path):
@@ -666,3 +654,30 @@ def test_the_server_refuses_f7_or_unknown_codes_in_the_live_list(tmp_path, capsy
         assert named in capsys.readouterr().err
     assert server._arguments(["--work-dir", work])[1] == []
     assert server._arguments(["--work-dir", work, "--live", "F1,F5"])[1] == ["F1", "F5"]
+
+
+def test_f7_checks_the_path_of_every_task_the_ai_declined(tmp_path, state, monkeypatch):
+    """(代碼審 r2 v3)F7 縮小版、假錄製讓 AI 判證據不足:每一件都以不提案結案,也都照不提案的預期組核
+    分析端路徑(以前 F7 測試只跑「全部提案」,不核不提案那一支也照樣綠)。"""
+    from tests.demo import test_driver as td
+
+    checked = []
+    real = driver_module.World.require_streams
+
+    def spy(self, expected):
+        checked.append(dict(expected))
+        return real(self, expected)
+
+    monkeypatch.setattr(driver_module.World, "require_streams", spy)
+    rec = _batch(tmp_path, normal=[fake.INSUFFICIENT])
+    run = driver_module.make_f7(campaigns=12, limit=50, workers=3)
+    demo = _driver(tmp_path, state, rec, scenarios={
+        "F7": driver_module.Scenario("F7", "F7", td.SMALL_F7_LIMIT_SECONDS, run)})
+    verdict = demo.run_one("F7")
+    assert verdict.status in (DONE, NOT_EXERCISED), verdict.reason
+    [expected] = checked
+    tasks = [f"t{i:04d}" for i in range(12)]
+    for task in tasks:
+        mine = {k: v for k, v in expected.items() if k[0] == task}
+        assert mine == dict(expectations(task, Outcome.NO_PROPOSE, {})), task
+    assert not [k for k in expected if k[1] == "proposal"]

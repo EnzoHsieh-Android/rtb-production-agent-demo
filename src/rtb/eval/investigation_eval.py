@@ -18,7 +18,6 @@
 
 import argparse
 import hashlib
-import json
 import os
 import re
 import sys
@@ -170,16 +169,6 @@ rule_verdict = report_mod.rule_verdict  # 現行規則對同一筆的答案(比�
 
 
 # ---- 錄製批次的驗收 ----
-def recording_files(directory: Path) -> list[tuple[Path, Any]]:
-    found = []
-    for path in sorted(directory.iterdir()):
-        try:
-            found.append((path, json.loads(path.read_text(encoding="utf-8"))))
-        except (OSError, UnicodeDecodeError, ValueError):
-            found.append((path, None))
-    return found
-
-
 def batch_problems(directory: Path, runs: Sequence[CaseRun]) -> list[str]:
     """[S1141] 的驗過條件(缺一條就不准入庫):批次本身的三條走模型用戶端門面的共用驗收(失敗類錄製
     0 份;同一批、格式對、沒有佔位與別的檔;正式後端錄的,跟展示批次同一份);重播找不到錄製 0 筆(runs
@@ -196,7 +185,7 @@ def recording_dates(directory: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
     if not directory.is_dir():
         return (), ()
     dates, batches = set(), set()
-    for path, data in recording_files(directory):
+    for path, data in mc.recording_files(directory):
         try:
             recording = mc.validated(path, data)
         except mc.NoRecording:

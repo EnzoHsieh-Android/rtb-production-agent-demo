@@ -938,3 +938,10 @@ def test_the_report_takes_the_shared_marks_from_adoption_not_the_sender():
     adoption_tree = ast.parse((EVAL / "adoption.py").read_text(encoding="utf-8"))
     assert not {n.module for n in ast.walk(adoption_tree) if isinstance(n, ast.ImportFrom)
                 and (n.module or "").startswith("rtb.model")}  # 採用判定照舊不碰模型用戶端
+
+
+def test_the_eval_lists_recordings_through_the_model_client_facade():
+    """代碼審 r2 a1:列錄製檔只有門面那一份(入庫驗收與報告的錄製日期看同一批檔),評估不另留一份。"""
+    source = (EVAL / "investigation_eval.py").read_text(encoding="utf-8")
+    assert "def recording_files" not in source
+    assert "mc.recording_files(" in source

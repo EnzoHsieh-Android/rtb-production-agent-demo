@@ -314,10 +314,13 @@ def test_continued_turns_without_denials_are_an_ordinary_failure(tmp_path, monke
     req = request(max_output_tokens=100)
     reserved = core.reservation_nanousd(req, mc.DEFAULT_MODEL)
     for name, output, error, outcome, sub_reason in (
-            ("success_continued", claude_json(num_turns=2), mc.UnreadableModelResponse,
-             "unreadable", cc.OUTPUT_CONTINUED),
-            ("four_turns", claude_json(num_turns=4), mc.UnreadableModelResponse,
-             "unreadable", cc.OUTPUT_CONTINUED),
+            # 撞頂證據(代碼審 r2 s1):總輸出至少 (輪數-1)乘上限,或停止原因 max_tokens
+            ("success_continued", claude_json(num_turns=2, output_tokens=150),
+             mc.UnreadableModelResponse, "unreadable", cc.OUTPUT_CONTINUED),
+            ("four_turns", claude_json(num_turns=4, output_tokens=400),
+             mc.UnreadableModelResponse, "unreadable", cc.OUTPUT_CONTINUED),
+            ("stop_reason", claude_json(num_turns=3, stop_reason="max_tokens"),
+             mc.UnreadableModelResponse, "unreadable", cc.OUTPUT_CONTINUED),
             ("error_continued", claude_json(QUOTA, is_error=True, num_turns=4),
              mc.QuotaExhausted, "quota_exhausted", "quota")):
         script = fake_claude(tmp_path / name, output)
@@ -365,3 +368,22 @@ def test_the_output_cap_error_is_an_ordinary_failure(tmp_path):
         with pytest.raises(mc.TransientServiceError) as failed:
             _call(tmp_path, script, req, name)
         assert failed.value.unclassified is True, name
+
+
+# ---- 增量 4 代碼審 r2 s1:續寫要在裁定的輪數內、而且看得到撞頂,否則照舊當工具使用 ----
+def test_many_turns_or_no_cap_evidence_is_still_tool_use(tmp_path):
+    """多輪、權限被拒清單空,只有在對話輪數不超過 1 加 OUTPUT_RECOVERY_ATTEMPTS、而且有撞頂證據
+    (總輸出至少(輪數-1)乘上限,或停止原因 max_tokens)時才算撞頂續寫;輪數超過(例如 9)或看不出撞頂,
+    照舊判讀不懂並標工具使用(評估據此停下)。"""
+    req = request(max_output_tokens=100)
+    for name, output in (
+            ("nine_turns", claude_json(num_turns=9, output_tokens=900)),
+            ("five_turns", claude_json(num_turns=1 + core.OUTPUT_RECOVERY_ATTEMPTS + 1,
+                                       output_tokens=500, stop_reason="max_tokens")),
+            ("no_evidence", claude_json(num_turns=2, output_tokens=40)),
+            ("just_short", claude_json(num_turns=3, output_tokens=199))):
+        script = fake_claude(tmp_path / name, output)
+        with pytest.raises(mc.UnreadableModelResponse) as failed:
+            _call(tmp_path, script, req, name)
+        assert failed.value.tool_use is True, name
+        assert failed.value.sub_reason == "tool_use", name

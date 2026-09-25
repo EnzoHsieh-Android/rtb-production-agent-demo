@@ -91,3 +91,21 @@ def test_the_command_line_prints_the_result_and_the_next_step(tmp_path, capsys):
     assert ended.value.code == 1
     shown = json.loads(capsys.readouterr().out)
     assert shown["passed"] is False and shown["problems"]
+
+
+# ---- 增量 4 代碼審 r2 m1:錄到 AI 退回就判不過(跟 CI 守衛同一支判法) ----
+def test_a_recorded_batch_with_ai_fallbacks_fails_the_intake_check(tmp_path):
+    """假 claude 每次都回不是 JSON 的回答:F1 到 F6 每一輪 AI 都退回程式規則。錄完的自動檢查要判不過,
+    列出退回的情境與工作(以前只看找不到錄製與批次檔,判通過,入庫後才被 CI 守衛擋下)。"""
+    env = dict(os.environ)
+    script = fake_claude(tmp_path / "bin", claude_json("這不是 JSON 的回答"))
+    env["PATH"] = f"{script.parent}:{env['PATH']}"
+    write_verification()
+    result = demo_recordings.record_demo_batch(tmp_path / "batch", BATCH, tmp_path / "work",
+                                               user_env=env)
+    assert result.problems == (), result
+    assert result.check is not None and not result.check.passed, result.check
+    fallbacks = [p for p in result.check.problems if "AI 這次沒有給出回答" in p]
+    assert fallbacks, result.check.problems
+    assert any(p.startswith("F1 ") for p in fallbacks), fallbacks
+    assert not result.passed

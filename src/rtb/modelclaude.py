@@ -524,9 +524,22 @@ def _tool_use_seen(data: Mapping[str, Any]) -> bool:
     return isinstance(denials, list) and bool(denials)
 
 
-def _continued(turns: object, denials: object) -> bool:
-    """撞頂自動續寫的形狀:對話輪數是大於 1 的整數、權限被拒清單在而且是空的。"""
-    return isinstance(turns, int) and not isinstance(turns, bool) and turns > 1 and denials == []
+def _continued(data: Mapping[str, Any], max_output_tokens: int | None) -> bool:
+    """撞頂自動續寫的形狀:對話輪數是 2 到 1 加 OUTPUT_RECOVERY_ATTEMPTS 的整數(使用者 2026-09-25
+    裁定續寫最多 3 次)、權限被拒清單在而且是空的,而且看得到撞頂——停止原因 max_tokens,或總輸出至少
+    (輪數-1)乘這次的上限(前幾輪都寫滿才會續寫)。輪數超過或看不出撞頂:不是續寫,照舊當工具使用
+    (增量 4 代碼審 r2 s1:工具被允許而且成功執行的呼叫也是「多輪、沒被拒」)。"""
+    turns, denials = data.get("num_turns"), data.get("permission_denials")
+    if not isinstance(turns, int) or isinstance(turns, bool) or denials != []:
+        return False
+    if not 1 < turns <= 1 + core.OUTPUT_RECOVERY_ATTEMPTS:
+        return False
+    if data.get("stop_reason") == "max_tokens":
+        return True
+    usage = data.get("usage")
+    tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
+    return (max_output_tokens is not None and isinstance(tokens, int)
+            and not isinstance(tokens, bool) and tokens >= (turns - 1) * max_output_tokens)
 
 
 def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
@@ -548,11 +561,13 @@ def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
     return failure
 
 
-def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"") -> BackendReply:
+def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"",
+                 max_output_tokens: int | None = None) -> BackendReply:
     """回應判定五步(前一步不過就不看後面,[S904]):①起不起得來(在 `run_claude`)②讀成 JSON、有類型、
     子類型、是否錯誤三欄 ③是錯誤就先分子類型(再看有沒有工具使用痕跡)④不是錯誤才做工具使用偵測
-    (對話輪數 1、權限被拒清單空,[S936];多輪而權限被拒清單空是撞頂自動續寫,判讀不懂、不標工具使用,
-    使用者 2026-09-25 裁定;其他不符標工具使用)、子類型要是 success、欄位齊全
+    (對話輪數 1、權限被拒清單空,[S936];多輪而權限被拒清單空、輪數在續寫次數內、看得到撞頂(需要這次
+    的輸出上限 `max_output_tokens`)是撞頂自動續寫,判讀不懂、不標工具使用,使用者 2026-09-25 裁定;
+    其他不符標工具使用)、子類型要是 success、欄位齊全
     ⑤結束代碼非 0 → 暫時性、無法可靠分類。"""
     data = _parse_output(returncode, stdout, stderr)
     if data["is_error"]:
@@ -560,7 +575,7 @@ def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"") -> Backend
     result = data.get("result")
     reply = _usage_of(data, result if isinstance(result, str) else "")
     turns, denials = data.get("num_turns"), data.get("permission_denials")
-    if _continued(turns, denials):
+    if _continued(data, max_output_tokens):
         log.warning("claude 撞到輸出上限後自動續寫(對話輪數 %s、沒有權限被拒):這一次算失敗", turns)
         raise UnreadableModelResponse("輸出撞頂自動續寫", sub_reason=OUTPUT_CONTINUED, reply=reply)
     if isinstance(turns, bool) or turns != 1 or denials != []:
@@ -648,4 +663,4 @@ class ClaudeCodeBackend:
         code, stdout, stderr = run_claude(
             self.command(call), call.user, self.child_env(call.max_output_tokens),
             remaining, isolated_home=self.isolation is Isolation.EMPTY_HOME)
-        return judge_output(code, stdout, stderr)
+        return judge_output(code, stdout, stderr, call.max_output_tokens)

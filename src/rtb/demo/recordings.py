@@ -1,4 +1,5 @@
-"""展示錄製批次入庫前的檢查(Phase 13 增量 4,計劃〈錄製批次與入庫〉「驗過」的第 1、2、4 條,[S1164])。
+"""展示錄製批次入庫前的檢查(Phase 13 增量 4,計劃〈錄製批次與入庫〉「驗過」的第 1、2、4 條,[S1164];
+另加 F1 到 F6 任何一輪 AI 退回就不過,跟 CI 守衛同一支判法,增量 4 代碼審 r2 m1)。
 
 入庫的展示錄製(recordings/model/phase13-demo/)要先過這三條才准入庫:
 1. 批次裡設定錯誤、花費帳忙碌、無法可靠分類這三類的錄製都是 0 份(claude 剛好登出時整批都是設定錯誤,
@@ -25,12 +26,14 @@ import sys
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from rtb import modelclient as mc
 from rtb.demo.driver import DONE, NOT_EXERCISED, Driver
 from rtb.demo.keys import DemoKeys
 from rtb.demo.launcher import MODEL_VARIABLES
+from rtb.demo.present import build_demo_state
 from rtb.demo.state_store import StateReader, StateWriter
 from rtb.modelledger_view import ModelLedgerView
 from rtb.modelledger_view import Outcome as LedgerOutcome
@@ -89,6 +92,24 @@ def replay_problems(verdicts: Sequence[tuple[str, str, str | None]],
     return missing, tuple(problems)
 
 
+def ai_fallback_problems(state_db: Path, demo_id: str,
+                         codes: Sequence[str] = REPLAYED) -> tuple[str, ...]:
+    """重播 F1 到 F6 時,任何一件工作的任何一輪 AI 退回程式規則(流程走 a_ai → a_rule)都算一條問題
+    (使用者 2026-09-25 裁定的 CI 守衛;增量 4 代碼審 r2 m1 搬進這裡:錄完的自動檢查、入庫前檢查與 CI
+    測試呼叫同一支,錄到退回就判不過、要重錄)。F7 不查。讀展示狀態庫,跟頁面同一份判斷列。"""
+    reader = StateReader(state_db)
+    try:
+        shown = build_demo_state(reader, demo_id, running=False, now=datetime.now(UTC))
+    finally:
+        reader.close()
+    wanted = set(codes) - {"F7"}
+    return tuple(
+        f"{scenario.code.value} 工作 {decision.task_id} 的 AI 這次沒有給出回答、退回程式規則"
+        f"({decision.outcome})"
+        for scenario in shown.scenarios if scenario.code.value in wanted
+        for decision in scenario.path if decision.taken_edge == ("a_ai", "a_rule"))
+
+
 def _calls(ledger: Path) -> list[str | None] | None:
     if not ledger.is_file():
         return None
@@ -120,7 +141,9 @@ def check_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
         state.close()
     missing, replayed = replay_problems(
         verdicts, {code: driver.root / code / "model-ledger.db" for code in codes})
-    return BatchCheck(missing, (*batch_problems(directory, batch_id), *replayed), verdicts)
+    fallbacks = ai_fallback_problems(work_dir / "state.db", demo_id, codes)
+    return BatchCheck(missing, (*batch_problems(directory, batch_id), *replayed, *fallbacks),
+                      verdicts)
 
 
 # ---- 錄一批展示錄製(協調者用真 claude 錄;測試一律用假 claude) ----

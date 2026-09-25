@@ -164,10 +164,7 @@ def _inside_committed(target: Path) -> bool:
     """目標路徑是不是落在入庫根底下(含入庫根本身):目標與它每一層已存在的祖先,只要有一個跟入庫根是
     同一個檔案(同裝置、同 inode,跟隨符號連結)就算。比檔案身分、不比路徑字面,所以大小寫不同(不分大小
     寫的檔案系統)、經符號連結、還不存在的子目錄都認得出來(Phase 13 增量 3 代碼審 r2 a1/v1)。"""
-    try:
-        root = os.stat(default_recordings_dir())
-    except OSError:
-        return False  # 入庫根不存在:沒有東西可以疊上去
+    root = os.stat(default_recordings_dir())  # 讀不到就丟 OSError:呼叫端當成 checkout 不完整擋下
     # 先照作業系統的走法解析(跟著符號連結再處理「..」;不存在的尾段照字面接上),不按字面收掉「..」:
     # 「指向入庫根的連結/../model/新目錄」實際就在入庫根底下(代碼審 r3)
     candidate = Path(os.path.realpath(target))
@@ -188,7 +185,15 @@ def check_recordings_dir(directory: Path, batch_id: str | None) -> None:
     其餘照 `check_one_batch` 核目錄內容。重播不經這支。"""
     if not batch_id or not batch_id.strip():
         raise MixedRecordingsDir("即時加錄製要帶批次編號")
-    if _inside_committed(Path(directory)):
+    # 入庫根不存在(或讀不到)就一律不開錄(增量 4 代碼審 r2 c1/s2/m2/v4,代使用者裁定 2026-09-25):
+    # 以前當成「沒有東西可以疊上去」放行,錄製會直接在預設入庫位置建目錄、沒經驗過就落地。不改成字面
+    # 路徑比對頂替——macOS 對不存在的路徑 realpath 不統一大小寫,反而多一個洞
+    try:
+        inside = _inside_committed(Path(directory))
+    except OSError as missing:
+        raise MixedRecordingsDir(
+            f"入庫根 {default_recordings_dir()} 不存在:checkout 不完整,不開錄") from missing
+    if inside:
         raise MixedRecordingsDir(f"{directory} 在入庫目錄 {default_recordings_dir()} 底下;{_FRESH}")
     check_one_batch(directory, batch_id)
 
