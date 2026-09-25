@@ -94,4 +94,4 @@ def test_f7_many_small_increases_stop_at_the_aggregate_limit(tmp_path, clock):
         assert recorded == [(CAMPAIGNS - EXPECTED_PASSES, 1)]  # 每一筆擋下都記了、當時確實超過
     finally:
         h.close()
-    assert time.monotonic() - started < 60
+    assert time.monotonic() - started < 120  # 使用者 2026-09-25 裁定:上限 60 → 120 秒

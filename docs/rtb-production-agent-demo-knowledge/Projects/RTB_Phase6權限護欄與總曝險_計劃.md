@@ -121,7 +121,7 @@ REVISIT:2027-01-31 有真實的政策或模型改版推出流程時,評估要不
 - [S337] 當租戶設定缺總額上限,這個租戶的門檻應當成 0(加預算一律擋下並留擋下紀錄,其他租戶不受影響);值不合法時簽發器應視為設定檔不合法;調降門檻後,下一次簽發起應用新值,已預留的鍵應不受影響。[test:test_a_missing_aggregate_limit_blocks_only_that_tenant_and_lowering_it_applies_from_the_next_signing]
 - [S338] 當收件表的擋下原因允許值清單少了目前列舉裡的任何一個值(不只看某一個特定值,要逐一比對整個列舉),開啟時應重建出含全部值的清單,舊資料不變;用「增量 1 之前的列舉」與「只少一個值的列舉」各建一個舊資料庫驗。[test:test_an_old_inbox_database_accepts_every_current_block_code]
 - [S339] 當提案因總曝險已滿被擋下,收件口應在回給分析行程的回應裡把擋下原因寫成不允許。[test:test_the_aggregate_block_is_reported_as_not_permitted]
-- [S340] 當 3000 個廣告各加一成、單筆都在單一廣告上限內(事故 F7 端到端,8 個工作者執行緒並行、行程內模擬 DSP),執行端應在門檻就停下,DSP 收到的加預算總額不超過門檻,之後的提案都停在待核可、提案到期後都確認成已擋下並記總曝險已滿(增量 3 改寫:沒有人核可);整支測試應在 60 秒內跑完。[test:test_f7_many_small_increases_stop_at_the_aggregate_limit]
+- [S340] 當 3000 個廣告各加一成、單筆都在單一廣告上限內(事故 F7 端到端,8 個工作者執行緒並行、行程內模擬 DSP),執行端應在門檻就停下,DSP 收到的加預算總額不超過門檻,之後的提案都停在待核可、提案到期後都確認成已擋下並記總曝險已滿(增量 3 改寫:沒有人核可);整支測試應在 120 秒內跑完(使用者 2026-09-25 裁定由 60 秒放寬:CI 機器慢時跑到 66 秒)。[test:test_f7_many_small_increases_stop_at_the_aggregate_limit]
 - [S341] 當嘗試紀錄有 30 萬列歷史、20 把沒有終點的舊鍵、單一租戶 24 小時內有 3000 筆已驗證時,一次額度查詢的時間應不超過同一份資料上既有「有未結案嘗試的廣告」查詢的兩倍加 5 毫秒(本機量測,暫用值);門檻與金額都在整數上限附近時,加總應不溢位。[test:test_the_aggregate_query_is_no_slower_than_picking_and_never_overflows]
 - [S342] 當總曝險擋下、表滿延後或比例過大(增量 3 起多這一種,已用額度與門檻為空),執行端應在同一個交易裡寫一列停下紀錄(種類、任務、修訂、提案內容雜湊、冪等鍵、租戶、廣告、這筆金額、當時已用額度、當時門檻、是否封頂、時間),同一份提案同一種類只記一列;已用額度超過整數上限時應封頂寫入並標記、不丟例外;這張表只增不改、不被清理。[test:test_every_stop_leaves_one_durable_record_per_proposal]
 - [S343] 當執行行程資料庫是 Phase 6 之前建的,開啟時應替嘗試紀錄補上租戶與預留金額兩欄、不回填;沒有租戶與金額的舊加預算鍵應以新預算全額算進每一個租戶的額度,已驗證的照驗證完成時間出窗,沒有終點的一直算到結案。[test:test_old_attempts_count_against_every_tenant_until_they_leave_the_window]
