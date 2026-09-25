@@ -20,6 +20,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
+from fractions import Fraction
 from types import MappingProxyType
 from typing import Any
 
@@ -216,10 +217,16 @@ def _moment(text: Any) -> datetime | None:
 
 
 def _sum(rows: Sequence[Mapping[str, Any]], name: str) -> Any:
+    """加總精確算:每個值先照收據金額的寫法轉成分數再加,不經浮點(代碼審 r2 y1:大整數混著浮點加
+    會丟 OverflowError,證據來源的退路接不住、整步卡住)。有缺值回 None,有不合理的值回那個原因。"""
     values = [row.get(name) for row in rows]
     if any(value is None for value in values):
         return None
-    return sum(values)
+    exact = [m.exact_value(value) for value in values]
+    for item in exact:
+        if isinstance(item, m.Reason):
+            return item
+    return sum(exact, Fraction(0))
 
 
 def _average(rows: Sequence[Mapping[str, Any]], name: str) -> m.Exact:
@@ -245,31 +252,14 @@ def receipt_payload(option: QueryOption, raw: Mapping[str, Any], now: datetime) 
         return _daily_trend(raw["rows"])
     payload: dict[str, str] = {}
     for index, row in enumerate(raw["rows"], start=1):
-        before, after = _segment(row, "before_"), _segment(row, "after_")
         payload[f"adj{index}_days_ago"] = m.receipt_count(row["days_ago"])
         payload[f"adj{index}_budget_change"] = m.receipt_change(row["budget_before"],
                                                                 row["budget_after"])
-        payload[f"adj{index}_conversions_change"] = _change(
-            _field(before, "conversions"), _field(after, "conversions"))
-        payload[f"adj{index}_revenue_change"] = _change(
-            _field(before, "revenue"), _field(after, "revenue"))
+        payload[f"adj{index}_conversions_change"] = m.receipt_change(
+            row["before_conversions"], row["after_conversions"])
+        payload[f"adj{index}_revenue_change"] = m.receipt_change(row["before_revenue"],
+                                                                 row["after_revenue"])
     return payload
-
-
-def _segment(row: Mapping[str, Any], prefix: str = "") -> Mapping[str, Any] | m.Reason:
-    """一段成效(五欄)。點擊多於曝光、轉換多於點擊是資料不合理(跟判斷點的資料異常同一條,代碼審 r1
-    c3):這一段算出來的每個比率都寫 na,不讓不可能的數字變成可信收據。"""
-    part = {name: row.get(prefix + name)
-            for name in ("impressions", "clicks", "conversions", "spend", "revenue")}
-    if m.exact_click_rate(part["clicks"], part["impressions"]) is m.Reason.INVALID_DATA:
-        return m.Reason.INVALID_DATA
-    if m.exact_conversion_rate(part["conversions"], part["clicks"]) is m.Reason.INVALID_DATA:
-        return m.Reason.INVALID_DATA
-    return part
-
-
-def _field(segment: Mapping[str, Any] | m.Reason, name: str) -> Any:
-    return segment if isinstance(segment, m.Reason) else segment[name]
 
 
 def _change(before: Any, after: Any) -> str:
@@ -277,40 +267,41 @@ def _change(before: Any, after: Any) -> str:
 
 
 def _daily_trend(rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+    """最近 3 天對前 4 天。不可能的只有「點擊多於曝光」,而且看整段加總(單日的零點擊有轉換是瀏覽後
+    轉換,合法);那一段只讓點擊率寫 na,轉換、營收、轉換率照算(代碼審 r2 v2、y4 收斂)。"""
     recent = [r for r in rows if not r["no_data"] and r["days_ago"] <= RECENT_DAYS]
     earlier = [r for r in rows if not r["no_data"] and r["days_ago"] > RECENT_DAYS]
-    parts = {"recent": _total_segment(recent), "earlier": _total_segment(earlier)}
 
-    def average(which: str, rows_: Sequence[Mapping[str, Any]], name: str) -> m.Exact:
-        segment = parts[which]
-        return segment if isinstance(segment, m.Reason) else _average(rows_, name)
+    def click_rate(part: Sequence[Mapping[str, Any]]) -> m.Exact:
+        return m.exact_click_rate(_sum(part, "clicks"), _sum(part, "impressions"))
 
-    def rate(which: str, top: str, bottom: str) -> m.Exact:
-        segment = parts[which]
-        if isinstance(segment, m.Reason):
-            return segment
-        return m.exact_ratio(segment[top], segment[bottom])
+    def conversion_rate(part: Sequence[Mapping[str, Any]]) -> m.Exact:
+        return m.exact_ratio(_sum(part, "conversions"), _sum(part, "clicks"))
 
     return {
-        "conversions_change": _change(average("earlier", earlier, "conversions"),
-                                      average("recent", recent, "conversions")),
-        "revenue_change": _change(average("earlier", earlier, "revenue"),
-                                  average("recent", recent, "revenue")),
-        "click_rate_change": _change(rate("earlier", "clicks", "impressions"),
-                                     rate("recent", "clicks", "impressions")),
-        "conversion_rate_change": _change(rate("earlier", "conversions", "clicks"),
-                                          rate("recent", "conversions", "clicks")),
+        "conversions_change": _change(_average(earlier, "conversions"),
+                                      _average(recent, "conversions")),
+        "revenue_change": _change(_average(earlier, "revenue"), _average(recent, "revenue")),
+        "click_rate_change": _change(click_rate(earlier), click_rate(recent)),
+        "conversion_rate_change": _change(conversion_rate(earlier), conversion_rate(recent)),
         "days_without_data": m.receipt_count(sum(1 for r in rows if r["no_data"])),
     }
 
 
-def _total_segment(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | m.Reason:
-    """一段天數的加總;任何一天不合理、或加總不合理,整段都算不合理。"""
-    if any(isinstance(_segment(row), m.Reason) for row in rows):
-        return m.Reason.INVALID_DATA
-    totals = {name: _sum(rows, name)
-              for name in ("impressions", "clicks", "conversions", "spend", "revenue")}
-    return _segment(totals)
+_WINDOW_FIELDS = ("impressions", "clicks", "conversions", "spend", "revenue")
+
+
+def contradictory(option: QueryOption, raw: Mapping[str, Any]) -> bool:
+    """資料自相矛盾、整份收據記成「沒有結果(invalid)」的情況:較長時間窗的 1 天窗有任何計數或金額
+    大於 7 天窗(代碼審 r2 y4)。缺值的欄不比。"""
+    if option is not QueryOption.CHECK_LONGER_WINDOW:
+        return False
+    day, week = raw["1d"], raw["7d"]
+    for name in _WINDOW_FIELDS:
+        small, large = m.exact_value(day.get(name)), m.exact_value(week.get(name))
+        if isinstance(small, Fraction) and isinstance(large, Fraction) and small > large:
+            return True
+    return False
 
 
 def raw_rows(option: QueryOption, raw: Mapping[str, Any]) -> int:
@@ -329,6 +320,8 @@ def canonical_json(raw: Mapping[str, Any]) -> str:
 def receipt_evidence(task_id: str, seq: int, option: QueryOption, raw: Mapping[str, Any] | None,
                      no_result: NoResult | None, now: datetime) -> Evidence:
     """把一個查詢的結果寫成收據證據(可信、扁平、只含數字字串與短代號);沒有結果寫 result=none。"""
+    if raw is not None and contradictory(option, raw):
+        raw, no_result = None, NoResult.INVALID
     if raw is None:
         payload = {"result": "none", "reason": (no_result or NoResult.INVALID).value,
                    RAW_ROWS: "0"}
@@ -473,20 +466,33 @@ def _cited(raw: Any, receipts: Mapping[str, Receipt]) -> tuple[Cited, ...]:
         receipt = receipts.get(ref) if isinstance(ref, str) else None
         if receipt is None or not isinstance(field, str) or not isinstance(value, str):
             raise OffMenu("證據的參照不是 base 也不是已查過的選項")
+        if not (storable(ref) and storable(field) and storable(value)):
+            raise OffMenu("證據裡有寫不進資料庫的字元")
         if citable(receipt).get(field) != value:
             raise OffMenu("證據的欄位或數值對不上收據(或引用了 na、沒有結果的收據)")
         found.append(Cited(ref, field, value))
     return tuple(found)
 
 
-_REJECTED_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
+_REJECTED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
+
+
+def storable(text: str) -> bool:
+    """寫得進資料庫(UTF-8 編得出來):孤立代理字元編不出來,SQLite 寫入會丟例外、這一步反覆失敗
+    (代碼審 r2 x1/y2/v1)。任何會寫進資料庫的模型輸出字串都要過這一關。"""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _plain_line(text: str) -> bool:
-    """一句話:不含換行、控制字元(Cc)、格式字元(Cf,含雙向覆寫與零寬字元)、行與段落分隔(Zl、Zp)。
-    全形空白、不斷行空白這類一般空白放行(代碼審 r1 a2:str.isprintable 把它們也判成不可列印,中文回答
-    的合格答案會被整輪退回)。"""
-    return not any(unicodedata.category(ch) in _REJECTED_CATEGORIES for ch in text)
+    """一句話:寫得進資料庫,而且不含換行、控制字元(Cc)、格式字元(Cf,含雙向覆寫與零寬字元)、
+    代理(Cs)、私用(Co)、未指定(Cn)、行與段落分隔(Zl、Zp)。全形空白、不斷行空白這類一般空白放行
+    (代碼審 r1 a2:str.isprintable 把它們也判成不可列印,中文回答的合格答案會被整輪退回)。"""
+    return storable(text) and not any(
+        unicodedata.category(ch) in _REJECTED_CATEGORIES for ch in text)
 
 
 def parse_answer(text: str, allowed: Sequence[str], budget: int,

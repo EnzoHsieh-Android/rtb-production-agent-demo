@@ -20,6 +20,7 @@ from tests.analyzer.conftest import NOW, Counting
 from tests.analyzer.test_ai_judge import (
     CITE_BASE,
     TASK,
+    Calls,
     Model,
     Renew,
     base_evidence,
@@ -77,8 +78,6 @@ def test_every_row_check_turns_any_json_type_into_invalid_not_an_exception(junk)
     for field in dsp_client.ADJUSTMENT_ROW_FIELDS:
         row = {**ADJ_ROW, field: junk}
         assert dsp_client.check_adjustments({"campaign_id": "c1", "rows": [row]}, "c1") is None
-    # 逐欄檢查外面再包一層:任何一支檢查自己丟型別錯,也只當成不合格
-    assert dsp_client._passes(lambda value: value in {"x"}, junk) is False
     for key in ("campaign_id", "rows"):  # 頂層也一樣
         body = _daily([{}] * 7)
         body[key] = junk
@@ -88,25 +87,15 @@ def test_every_row_check_turns_any_json_type_into_invalid_not_an_exception(junk)
                                                  if key != "rows" else junk}, "c1") is None
 
 
-# ---- c3:逐日趨勢與過去調整的比率沿用「點擊不多於曝光、轉換不多於點擊」 ----
+# ---- c3(代碼審 r2 收斂):只有點擊多於曝光算不可能,看整段加總,只讓點擊率寫 na ----
 def test_impossible_segments_make_the_trend_and_adjustment_ratios_na():
     rows = [{"impressions": 100, "clicks": 200}] * 3 + [{"impressions": 100, "clicks": 10}] * 4
     body = dsp_client.check_daily(_daily(rows), "c1")
     assert body is not None  # 白名單只驗型別,放行
     payload = inv.receipt_payload(inv.QueryOption.CHECK_DAILY_TREND, body, NOW)
     assert payload["click_rate_change"] == "na"
-    assert payload["conversion_rate_change"] == "na"  # 不合理的那一段算出來的比率都寫 na
-    assert payload["days_without_data"] == "0"
-    too_many = [{"clicks": 10, "conversions": 50}] * 3 + [{}] * 4
-    payload = inv.receipt_payload(inv.QueryOption.CHECK_DAILY_TREND,
-                                  dsp_client.check_daily(_daily(too_many), "c1"), NOW)
-    assert payload["conversion_rate_change"] == "na"
-    bad_adj = {**ADJ_ROW, "after_clicks": 30, "after_conversions": 90}
-    payload = inv.receipt_payload(inv.QueryOption.CHECK_PAST_ADJUSTMENTS,
-                                  {"campaign_id": "c1", "rows": [bad_adj]}, NOW)
-    assert payload["adj1_conversions_change"] == "na"
-    assert payload["adj1_revenue_change"] == "na"
-    assert payload["adj1_budget_change"] == "11.1"  # 預算不受成效那一段影響
+    assert payload["conversion_rate_change"] != "na"  # 輸入本身沒有不可能,照算
+    assert payload["conversions_change"] == "0.0" and payload["revenue_change"] == "0.0"
 
 
 # ---- d1:收據寫不下的值歸資料不合理;證據來源建收據仍失敗就記 invalid,這步照常往下走 ----
@@ -224,15 +213,9 @@ class _nothing:
 
 
 def test_the_persisted_call_count_sends_the_fourth_call_to_the_rule():
-    renew = Renew()
-    renew.count = 4
-
-    def counted():
-        renew.calls += 1
-        return renew.count
-
     model = Model(reply("propose", evidence=CITE_BASE))
-    outcome = ai_judge.Judge(model)(TASK, base_evidence(), NOW, flow.AiContext(counted, ()))
+    outcome = ai_judge.Judge(model)(TASK, base_evidence(), NOW,
+                                    flow.AiContext(Renew(), (), Calls(start=3)))
     assert model.sent == []
     assert outcome.record.fallback == "ai_already_used"
     assert (outcome.result, outcome.no_action_reason) == rule(base_evidence())

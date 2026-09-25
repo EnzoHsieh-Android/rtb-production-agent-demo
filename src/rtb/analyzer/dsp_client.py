@@ -202,7 +202,11 @@ def make_operation_lookup(
 # 廣告編號與 rows(操作歷史照既有端點是 history),每一列只收下面列的欄位,多欄、少欄、型別不對
 # 整包不收。
 # 查不到(404)記 not_found、逾時記 timeout、欄位不合格記 invalid,都是「這個查詢沒有結果」,不丟例外;
-# 其他失敗(5xx、連不上)照基本讀取的規則往外丟,這一步不寫入、下次重試。
+# 其他失敗(5xx、連不上)照基本讀取的規則往外丟,這一步不寫入、下次重試。每支欄位檢查自己負責對任何
+# JSON 型別只回真假、不丟例外(跟上面兩張白名單同一種慣例)。
+# 呼叫紀錄(tool_calls)的記法跟既有一致:例外(含逾時)記例外類別名,同 _get;查不到記 not_found,
+# 同依冪等鍵查操作的包裝;200 但本文讀不懂或欄位不合格記 invalid(白名單不合格時照 HTTP 結果記 ok,
+# 收據那邊記 invalid)。
 
 
 @dataclass(frozen=True)
@@ -251,19 +255,10 @@ def _aware(text: str) -> bool:
         return False
 
 
-def _passes(check: Check, value: Any) -> bool:
-    """逐欄檢查對任何 JSON 型別(串列、物件、null、布林)都只回真假,不丟例外(代碼審 r1 c2:陣列放進
-    集合查找丟 TypeError,蒐證那一步就反覆失敗、任務卡住)。"""
-    try:
-        return bool(check(value))
-    except (TypeError, ValueError, OverflowError):
-        return False
-
-
 def _rows_ok(rows: Any, fields: dict[str, Check]) -> bool:
     return isinstance(rows, list) and all(
         isinstance(row, dict) and set(row) == set(fields)
-        and all(_passes(check, row[name]) for name, check in fields.items()) for row in rows)
+        and all(check(row[name]) for name, check in fields.items()) for row in rows)
 
 
 def check_daily(body: Any, campaign_id: str) -> dict[str, Any] | None:
@@ -331,7 +326,11 @@ def _read(base_url: str, path: str, timeout_seconds: float, task: TaskRow,
     try:
         return _answer(base_url, path, timeout_seconds)
     except _NoResult as none:
-        outcome = none.reason  # 呼叫紀錄照實記(代碼審 r1 d3):查不到記 not_found、逾時記 timeout
+        # 呼叫紀錄記法對齊既有(代碼審 r2 z2):例外(含逾時)記例外類別名,同基本讀取的 _get;查不到
+        # 記 not_found,同依冪等鍵查操作;200 但本文讀不懂記 invalid
+        cause = none.__cause__
+        outcome = (type(cause).__name__ if none.reason == "timeout" and cause is not None
+                   else none.reason)
         raise
     except Exception as exc:
         outcome = type(exc).__name__

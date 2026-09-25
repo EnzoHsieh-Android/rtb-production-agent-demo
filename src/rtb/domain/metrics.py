@@ -184,6 +184,12 @@ def _exact_input(value: object) -> Fraction | Reason:
         return Reason.INVALID_DATA
 
 
+def exact_value(value: object) -> Exact:
+    """一個值的精確分數(浮點照收據金額的寫法 Decimal(repr(x)) 轉十進位),或三態原因代碼之一;收據的
+    加總、平均、大小比較都經它,不經浮點(Phase 13 代碼審 r2 y1)。"""
+    return _exact_input(value)
+
+
 def exact_ratio(numerator: object, denominator: object) -> Exact:
     """分子 ÷ 分母的精確分數,或三態原因代碼之一(不合理 > 缺漏 > 分母為零,同這支檔的既有順序)。
     點擊率、轉換率、配速比、變化百分比都由它算;輸入可以是前一次比率的結果(原因照傳)。"""
@@ -205,21 +211,12 @@ def exact_change(before: object, after: object) -> Exact:
     return ratio if isinstance(ratio, Reason) else ratio - 1
 
 
-def exact_conversion_rate(conversions: object, clicks: object) -> Exact:
-    """轉換率;轉換多於點擊是資料不合理(跟判斷點的資料異常同一條,代碼審 r1 c3)。只給收據的逐日趨勢
-    與過去調整用;既有的 cvr 與 base 收據照舊不擋(瀏覽後轉換)。"""
-    if (_is_valid_amount(conversions) and _is_valid_amount(clicks)
-            and not isinstance(conversions, bool) and conversions > clicks):
-        return Reason.INVALID_DATA
-    return exact_ratio(conversions, clicks)
-
-
 def exact_click_rate(clicks: object, impressions: object) -> Exact:
-    """點擊率;點擊多於曝光是資料不合理(跟既有 ctr 同一條)。"""
-    if (_is_valid_amount(clicks) and _is_valid_amount(impressions)
-            and not isinstance(clicks, bool) and clicks > impressions):
+    """點擊率;點擊多於曝光是資料不合理(跟既有 ctr 同一條)。輸入可以是加總出來的分數。"""
+    top, bottom = _exact_input(clicks), _exact_input(impressions)
+    if isinstance(top, Fraction) and isinstance(bottom, Fraction) and top > bottom:
         return Reason.INVALID_DATA
-    return exact_ratio(clicks, impressions)
+    return exact_ratio(top, bottom)
 
 
 def percent_text(value: Exact) -> str:

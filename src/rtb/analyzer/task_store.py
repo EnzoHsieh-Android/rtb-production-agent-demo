@@ -888,17 +888,30 @@ class TaskStore(TaskReads):
                 self._conn.execute(
                     "INSERT INTO task_leases VALUES (?, ?, ?, ?)",
                     (lease.task_id, lease.lease_seq + 1, lease.owner, _iso(now + LEASE_DURATION)))
-                # 續租只有 AI 那一步在呼叫模型前做:同一個交易記下「這件工作又要呼叫一次模型」,次數在
-                # 付費之前就落地(代碼審 r1 s2:只數已提交的調查紀錄時,提交一直忙碌就會無上限
-                # 重付)
-                self._conn.execute(
-                    "INSERT INTO investigation_calls "
-                    "SELECT ?, coalesce(max(call_seq), 0) + 1, ?, ? "
-                    "FROM investigation_calls WHERE task_id = ?",
-                    (lease.task_id, lease.lease_seq + 1, _iso(now), lease.task_id))
         except DatabaseBusy:
             return None
         return LeaseReceipt(lease.task_id, lease.lease_seq + 1, lease.owner)
+
+    def record_model_call(self, lease: LeaseReceipt, clock: Callable[[], datetime],
+                          limit: int) -> int | None:
+        """確定要呼叫模型的那一刻記一次(Phase 13 代碼審 r1 s2、r2 v3):在一個寫入交易裡核對仍持有
+        租約,這件工作一生還沒到上限就新增一列、回第幾次;已到上限回上限加 1、什麼都不寫。忙碌或失去
+        租約回 None,呼叫端不呼叫模型。次數在付費之前落地,提交一直忙碌也不會無上限重付;在呼叫前才記,
+        停止或出錯而沒問模型的不會被算進去。"""
+        try:
+            with immediate_transaction(self._conn):
+                if not self._holds(lease):
+                    return None
+                used = int(self._conn.execute(
+                    "SELECT count(*) FROM investigation_calls WHERE task_id = ?",
+                    (lease.task_id,)).fetchone()[0])
+                if used >= limit:
+                    return limit + 1
+                self._conn.execute("INSERT INTO investigation_calls VALUES (?, ?, ?, ?)",
+                                   (lease.task_id, used + 1, lease.lease_seq, _iso(clock())))
+        except DatabaseBusy:
+            return None
+        return used + 1
 
     def release_lease(self, lease: LeaseReceipt, now: datetime) -> bool:
         """目前那一列還是這張收據的取得列才新增放掉列;已被接手就什麼都不寫、回傳 False。

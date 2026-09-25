@@ -85,20 +85,32 @@ class Model:
 
 
 class Renew:
-    """假的續租回呼:回這件工作一生第幾次模型呼叫(跟流程層一樣,續租時就落地)。"""
+    """假的續租回呼。"""
 
     def __init__(self):
         self.calls = 0
 
     def __call__(self):
         self.calls += 1
-        return self.calls
+
+
+class Calls:
+    """假的「確定要呼叫模型」記次回呼:回這件工作一生第幾次模型呼叫。"""
+
+    def __init__(self, start=0):
+        self.count = start
+
+    def __call__(self, limit):
+        if self.count >= limit:
+            return limit + 1
+        self.count += 1
+        return self.count
 
 
 def run(model, evidence, rounds=(), **kwargs):
     renew = Renew()
     judge = ai_judge.Judge(model, **kwargs)
-    outcome = judge(TASK, evidence, NOW, flow.AiContext(renew, tuple(rounds)))
+    outcome = judge(TASK, evidence, NOW, flow.AiContext(renew, tuple(rounds), Calls()))
     return outcome, renew
 
 
@@ -404,11 +416,11 @@ def test_a_pending_stop_skips_renewal_and_the_model_call():
     early = Renew()
     stopped = ai_judge.Judge(model, stop_requested=lambda: True)
     with pytest.raises(flow.RenewalSkipped):
-        stopped(TASK, base_evidence(), NOW, flow.AiContext(early, ()))
+        stopped(TASK, base_evidence(), NOW, flow.AiContext(early, (), Calls()))
     assert early.calls == 0 and model.sent == []  # 續租前就看到停止:連續租都不做
     answers = iter((False, True))  # 續租前還沒、續租後才收到
     renew = Renew()
     judge = ai_judge.Judge(model, stop_requested=lambda: next(answers))
     with pytest.raises(flow.RenewalSkipped):
-        judge(TASK, base_evidence(), NOW, flow.AiContext(renew, ()))
+        judge(TASK, base_evidence(), NOW, flow.AiContext(renew, (), Calls()))
     assert renew.calls == 1 and model.sent == []

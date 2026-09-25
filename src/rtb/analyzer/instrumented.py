@@ -166,5 +166,5 @@ def receipt_or_invalid(task_id: str, seq: int, option: inv.QueryOption,
     missing = None if read.reason is None else inv.NoResult(read.reason)
     try:
         return inv.receipt_evidence(task_id, seq, option, read.raw, missing, now)
-    except ValueError:
+    except (ValueError, ArithmeticError):  # 代碼審 r2 y1:溢位這類算術錯誤也一樣
         return inv.receipt_evidence(task_id, seq, option, None, inv.NoResult.INVALID, now)

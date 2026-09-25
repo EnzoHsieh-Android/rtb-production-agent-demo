@@ -94,14 +94,11 @@ class Judge:
             return _fallback(task, base, now, state, inv.FallbackReason.PREFLIGHT_FAILED)
         if self.stop_requested():
             raise RenewalSkipped("已收到停止:不續租、不呼叫模型")
-        calls = context.renew()
-        if calls > inv.MAX_ROUNDS:
-            # 這件工作一生的模型呼叫次數(續租時就落地,代碼審 r1 s2)已經超過輪數上限:模型付過費、
-            # 提交卻一直沒寫進去時,不再重付,改由程式規則決定
-            return _fallback(task, base, now, state, inv.FallbackReason.AI_ALREADY_USED)
+        context.renew()
         if self.stop_requested():
             raise RenewalSkipped("已收到停止:不呼叫模型")
-        return self._ask(task, base, now, state, _Inputs(evidence, facts.state, facts.metrics))
+        return self._ask(task, base, now, state,
+                         _Inputs(evidence, facts.state, facts.metrics, context))
 
     def _ask(self, task: TaskRow, base: tuple[Evidence, ...], now: datetime,
              state: inv.Progress, inputs: _Inputs) -> AiOutcome:
@@ -111,6 +108,10 @@ class Judge:
         user = inv.prompt(base_receipt, receipts, state, name, truncated)
         if self.stop_requested():  # 組提示期間收到停止:不呼叫模型、這一步不寫(代碼審 r1 c1)
             raise RenewalSkipped("已收到停止:不呼叫模型")
+        if inputs.context.begin_call(inv.MAX_ROUNDS) > inv.MAX_ROUNDS:
+            # 這件工作一生的模型呼叫次數(確定要呼叫的那一刻才記,代碼審 r1 s2、r2 v3)已到上限:
+            # 模型付過費、提交卻一直沒寫進去時,不再重付,改由程式規則決定
+            return _fallback(task, base, now, state, inv.FallbackReason.AI_ALREADY_USED)
         try:
             result = self.complete(inv.SYSTEM_PROMPT, user)
         except modelgate.ModelCallFailed as failed:
@@ -145,6 +146,7 @@ class _Inputs:
     evidence: tuple[Evidence, ...]
     state: Any
     metrics: Any
+    context: AiContext
 
 
 def _rule(task: TaskRow, base: tuple[Evidence, ...],
