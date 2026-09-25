@@ -582,8 +582,8 @@ th { color: var(--muted); font-size: var(--font-xs); }
 .flow-handoff text { fill: var(--accent-strong); text-anchor: middle; font-weight: 900; font-size: 15px; }
 .flow-node.is-visited:not(.owner-ai):not(.owner-external) rect,
 .flow-node.is-current:not(.owner-ai):not(.owner-external) rect { stroke-dasharray: none; }
-.fault-marker { fill: #a72c49 !important; font-weight: 900; font-size: 18px; }
-.fault-note { margin: 0.6rem 0; padding: 0.5rem 0.7rem; border-left: 4px solid #a72c49; background: #ffe6eb; color: #a72c49; font-weight: 800; }
+.fault-marker { fill: var(--danger) !important; font-weight: 900; font-size: 18px; }
+.fault-note { margin: 0.6rem 0; padding: 0.5rem 0.7rem; border-left: 4px solid var(--danger); background: var(--danger-soft); color: var(--danger); font-weight: 800; }
 .fault-note.is-empty { border-color: var(--border-strong); background: var(--surface-soft); color: var(--muted); }
 .result-evidence { margin: 0.5rem 0; padding: 0.65rem 1rem; background: var(--surface-soft); overflow-wrap: anywhere; }
 .result-evidence p { margin: 0.2rem 0 0; font-size: var(--font-sm); }
@@ -601,10 +601,6 @@ th { color: var(--muted); font-size: var(--font-xs); }
 .branch-source, .branch-step { padding: 0.25rem 0.45rem; border: 1.5px dashed var(--border-strong); border-radius: 0.35rem; background: var(--surface); font-size: var(--font-sm); }
 .branch-source { border-style: solid; opacity: 1; }
 .branch-connector { color: var(--muted); border-bottom: 2px dashed var(--border-strong); padding-inline: 0.3rem; }
-@media (prefers-color-scheme: dark) {
-  .fault-note { background: #3c1d25; color: #ff9cae; }
-  .fault-marker { fill: #ff9cae !important; }
-}
 
 @media print {
   .flow-scroll, .report .flow-scroll { overflow: visible; }
@@ -649,7 +645,8 @@ th { color: var(--muted); font-size: var(--font-xs); }
 .diagram-frame .flow-handoff text { font-size:12px; }
 .diagram-frame .flow-node rect { stroke-width:1.5px; }
 .diagram-frame .flow-edge path { stroke-width:2px; }
-:root { --background:#0d1117; --surface:#141a23; --surface-raised:#18212b; --surface-soft:#1b2430; --text:#e8edf3; --muted:#a1afbf; --faint:#8392a5; --border:#283342; --border-strong:#36465a; --accent:#79d5c3; --accent-strong:#a6e9dc; --accent-soft:#19332f; --success:#8bdfb5; --success-soft:#1a3028; --shadow:none; --radius:12px; --radius-lg:18px; }
+/* 頁面改版後一律深色:狀態色也要跟著重設,否則偏好淺色時會拿到淺色那組、配上深色底(協調者 2026-09-25 裁定修對比) */
+:root { --background:#0d1117; --surface:#141a23; --surface-raised:#18212b; --surface-soft:#1b2430; --text:#e8edf3; --muted:#a1afbf; --faint:#8392a5; --border:#283342; --border-strong:#36465a; --accent:#79d5c3; --accent-strong:#a6e9dc; --accent-soft:#19332f; --success:#8bdfb5; --success-soft:#1a3028; --current:#ffd166; --current-soft:#372d17; --danger:#ff9cae; --danger-soft:#3c1d25; --pending:#c3c8d2; --shadow:none; --radius:12px; --radius-lg:18px; }
 html { color-scheme:dark; scroll-padding-top:28px; }
 body { background:radial-gradient(ellipse at 90% 0%,#19303755,transparent 650px),var(--background); font-size:14px; -webkit-font-smoothing:antialiased; }
 main { width:min(1440px,calc(100% - 80px)); padding:48px 0 64px; }
@@ -697,7 +694,7 @@ h2 { font-size:21px; line-height:1.5; }
 .scenario-code { font-size:12px; padding-top:3px; }
 .scenario-pivot { display:none; }
 .scenario-result { grid-column:2; grid-row:auto; font-size:11px; color:var(--muted); }
-.scenario-result small { display:block; color:var(--faint); font-size:10px; }
+.scenario-result small { display:block; color:var(--muted); font-size:10px; }
 .scenario-link .status { grid-column:2; grid-row:auto; font-size:10px; border:0; padding:0; justify-content:flex-start; background:transparent; min-width:0; }
 .status { border:0; font-size:11px; font-weight:550; padding:5px 10px; }
 .report-scenarios { display:block; min-width:0; }
