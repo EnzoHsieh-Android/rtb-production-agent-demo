@@ -35,6 +35,7 @@ from tests.model.fakes import (
     live,
     recorded,
     reply,
+    rounds,
     write_verification,
 )
 from tests.test_spawn_boundary import model_client_modules
@@ -790,8 +791,10 @@ def _ledger_rows(ledger):
 def test_continued_output_falls_back_without_stopping_the_evaluation(tmp_path):
     """使用者 2026-09-25 裁定:多輪但權限被拒清單空(撞頂自動續寫)是普通失敗——這一格退回現行規則,
     評估不整批停下,每個情境都照跑、各記一筆讀不懂。"""
+    cap = model_candidate.MAX_OUTPUT_TOKENS
     script = fake_claude(tmp_path / "bin", claude_json('{"verdict": "worth"}', num_turns=2,
-                                                       stop_reason="max_tokens"))
+                                                       output_tokens=cap + 5,
+                                                       iterations=rounds(cap, 5)))
     candidate = _candidate(tmp_path, live(cc.ClaudeCodeBackend(script)))
     scenarios = _subset()[:4]
     run = model_candidate.run_subset(scenarios, candidate, 5.0)

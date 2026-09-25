@@ -161,7 +161,7 @@
     },
     {
       "path": "src/rtb/modelclaude.py",
-      "sha256": "327376272f0e8a9b6925d267f252228af240508510b2c6af102dcbf4ce9e2d36"
+      "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
     },
     {
       "path": "src/rtb/modelclient.py",
@@ -275,7 +275,7 @@
     },
     {
       "path": "tests/model/fakes.py",
-      "sha256": "8b6534d70573cb78513e4784bd846f04d004c3f60edfe6d81c528c56ccf5d90a"
+      "sha256": "6456ec6e10e0c3ea36357b99223f10409a1462a555c9413231129bae8b469ee7"
     }
   ],
   "enumerations": [],

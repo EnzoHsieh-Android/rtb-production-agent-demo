@@ -6,12 +6,17 @@
 不呼叫真的 claude。
 """
 
+import contextlib
 import io
 import json
+import socket
 import sqlite3
 import sys
+import threading
 import time
 from pathlib import Path
+
+import pytest
 
 from rtb import modelclaude as cc
 from rtb import modelclient as mc
@@ -54,13 +59,15 @@ if "ls /" in prompt and not used_tool:  # 拒絕執行指令的回答
 settings = os.path.join(home, ".claude", "settings.json")
 suppressed = flag("--setting-sources") == "" and not CONFIG["suppression_broken"]
 poisoned = os.path.exists(settings) and not suppressed and CONFIG["poison_readable"]
-if poisoned:  # 真的讀到毒值:照設定裡的 API 位址連一次(真的 claude 會對它送請求)
+peek = os.path.exists(settings) and suppressed and CONFIG["main_peeks"]  # 壓制參數下仍讀到毒值
+if poisoned or peek:  # 讀到毒值:照設定裡的 API 位址送一個請求(真的 claude 會 POST /v1/messages)
     import socket, urllib.parse
     url = urllib.parse.urlparse(json.load(open(settings))["env"]["ANTHROPIC_BASE_URL"])
     if CONFIG["url_log"]:
         open(CONFIG["url_log"], "a").write(url.geturl() + "\\n")
     try:
-        socket.create_connection((url.hostname, url.port), timeout=2).close()
+        with socket.create_connection((url.hostname, url.port), timeout=2) as conn:
+            conn.sendall(b"POST /v1/messages?beta=true HTTP/1.1\\r\\nAuthorization: Bearer x\\r\\n")
     except OSError:
         pass
 control = os.path.exists(settings) and not suppressed and not poisoned
@@ -110,6 +117,7 @@ if poisoned or CONFIG["api_error"]:
                   usage={{"input_tokens": 0, "output_tokens": 0}})
     print(json.dumps(result)); sys.exit(1)
 quiet = CONFIG["only_result"] and "ls /" in prompt  # 串流裡只有結果事件(看不到任何訊息)
+silent = CONFIG["no_assistant"] and "ls /" in prompt  # 有初始事件與結果,沒有任何 assistant 事件
 if flag("--output-format") == "stream-json" and not quiet:
     listed = [t for t in tools.split(",") if t]
     if CONFIG["init_tools_leak"] and "ls /" in prompt:
@@ -117,7 +125,7 @@ if flag("--output-format") == "stream-json" and not quiet:
     print(json.dumps({{"type": "system", "subtype": "init", "tools": listed}}))
     if CONFIG["hook_events"]:
         print(json.dumps({{"type": "system", "subtype": "hook_started"}}))
-    for _ in range(turns):
+    for _ in range(0 if silent else turns):
         print(json.dumps({{"type": "assistant", "message": {{"content": [
             {{"type": "text", "text": "..."}}]}}}}))
     if used_tool:
@@ -138,6 +146,7 @@ GOOD = {"login_with_token": False, "echo_token": False, "login_empty_home": True
         "tool_use_one_turn": False, "continued_refusal": False, "long_refusal": False,
         "only_result": False, "init_tools_leak": False, "block_prefix": "",
         "url_log": None, "slow_control": False, "control_fails_quietly": False,
+        "no_assistant": False, "main_peeks": False,
         "cap_log": None}
 
 
@@ -442,3 +451,74 @@ def test_a_control_without_a_connection_proves_nothing(tmp_path, monkeypatch):
         assert code == modelverify.EXIT_NOT_WRITTEN, (name, text)
         assert "- setting_sources_suppress_user_settings:沒過" in text, (name, text)
         assert "實測沒跑完" not in text, name
+
+
+# ---- 增量 4 代碼審 r3 s1/v3:監聽埠只認 API 請求行;正面證據與監聽埠的收尾各自守住 ----
+def test_a_stranger_connection_is_not_proof_the_poison_was_read(tmp_path, monkeypatch):
+    """對照組期間別的行程連進監聽埠(不送、或送的不是 API 請求行):不算毒值讀到,這項沒過。"""
+    monkeypatch.setattr(modelverify, "CONTROL_TIMEOUT_SECONDS", 1.0)
+    real = modelverify._poison_listener
+    for name, payload in (("silent", b""), ("junk", b"hello there\r\n"),
+                          ("get_root", b"GET / HTTP/1.1\r\n")):
+
+        @contextlib.contextmanager
+        def meddled(payload=payload):
+            with real() as (port, hit):
+                def poke():
+                    time.sleep(0.3)
+                    with socket.create_connection(("127.0.0.1", port), timeout=2) as conn:
+                        if payload:
+                            conn.sendall(payload)
+                        time.sleep(0.6)
+                threading.Thread(target=poke, daemon=True).start()
+                yield port, hit
+
+        monkeypatch.setattr(modelverify, "_poison_listener", meddled)
+        cc.verification_path().unlink(missing_ok=True)
+        code, text = _run(_claude(tmp_path / name, poison_readable=False, slow_control=True))
+        assert code == modelverify.EXIT_NOT_WRITTEN, (name, text)
+        assert "- setting_sources_suppress_user_settings:沒過" in text, (name, text)
+
+
+def test_the_listener_flags_only_an_api_request_line_and_closes_on_exit():
+    """監聽埠:送 API 請求行(POST /v1/…)才設旗標;離開後埠關掉(再連被拒)、背景執行緒停下;
+    with 裡丟例外也一樣收乾淨。"""
+    with modelverify._poison_listener() as (port, hit):
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as conn:
+            conn.sendall(b"hello\r\n")
+        time.sleep(0.8)
+        assert not hit.is_set()
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as conn:
+            conn.sendall(b"POST /v1/messages?beta=true HTTP/1.1\r\n")
+        deadline = time.monotonic() + 3
+        while not hit.is_set() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert hit.is_set()
+    for _ in range(2):
+        with pytest.raises(OSError):
+            socket.create_connection(("127.0.0.1", port), timeout=1).close()
+        assert not [t for t in threading.enumerate() if t.name == "rtb-poison-listener"]
+        with pytest.raises(RuntimeError), modelverify._poison_listener() as (port, _hit):
+            raise RuntimeError("boom")
+
+
+def test_the_tool_check_needs_an_assistant_event_even_with_an_empty_tool_list(tmp_path):
+    """初始事件的工具清單是空的、結果也成功,但串流裡一個 assistant 事件都沒有:看不到訊息就驗不了,
+    工具關掉那項判沒過(正面證據的兩半各自要成立)。"""
+    code, text = _run(_claude(tmp_path, no_assistant=True))
+    assert code == modelverify.EXIT_NOT_WRITTEN, text
+    assert "- tools_disabled:沒過" in text, text
+
+
+def test_the_main_call_reading_the_poison_fails_the_settings_check(tmp_path):
+    """帶壓制參數的主呼叫成功了,但監聽埠在主呼叫期間收到 API 請求:毒值沒壓住,這項沒過,
+    附註記 poison_read,不再跑對照組。"""
+    urls = tmp_path / "urls.txt"
+    script = _claude(tmp_path, main_peeks=True, url_log=str(urls))
+    environ = {"PATH": str(script.parent), "HOME": str(Path.home())}
+    checker = modelverify.Checker(script, environ, core.DEFAULT_MODEL)
+    assert checker.login() is cc.Isolation.EMPTY_HOME
+    assert checker.settings_suppressed() is False
+    assert checker.notes["settings_main"] == "poison_read"
+    assert "settings_control" not in checker.notes
+    assert len(urls.read_text().split()) == 1  # 只有主呼叫連過,對照組沒跑

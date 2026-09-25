@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
+from rtb.demo.flow import PLATFORM
 from rtb.demo.state import (
     Decision,
     FlowEdge,
@@ -46,7 +47,7 @@ LANE_ORDER: Final = ("分析", "收件", "執行", "廣告平台", "人工")
 
 # 走到這些節點就算碰過另一個角色(跨角色的動作):執行端送去寫入/同筆重送,平台就已經收到東西,
 # 即使執行端當場倒下、沒有留下平台回覆那一格(增量 4 代碼審 r2 p1)
-_ALSO_TOUCHES: Final[dict[str, str]] = {"x_write": "廣告平台", "x_resend": "廣告平台"}
+_ALSO_TOUCHES: Final[dict[str, str]] = {"x_write": PLATFORM, "x_resend": PLATFORM}
 
 
 _GROUP_ID: Final = "analysis_group"

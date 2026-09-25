@@ -19,7 +19,15 @@ from rtb import modelclient as mc
 from rtb import modelcore as core
 from rtb import modelledger as ledger_db
 from rtb import modelledger_view as view
-from tests.model.fakes import alive, claude_json, fake_claude, invocations, live, request
+from tests.model.fakes import (
+    alive,
+    claude_json,
+    fake_claude,
+    invocations,
+    live,
+    request,
+    rounds,
+)
 
 WHITELIST = {"PATH", "HOME", "USER", "LANG", "CLAUDE_CODE_MAX_OUTPUT_TOKENS"}
 SHELL_ADDED = {"PWD", "SHLVL", "_", "OLDPWD"}  # /bin/sh 自己補的,不是模型用戶端傳的
@@ -314,12 +322,12 @@ def test_continued_turns_without_denials_are_an_ordinary_failure(tmp_path, monke
     req = request(max_output_tokens=100)
     reserved = core.reservation_nanousd(req, mc.DEFAULT_MODEL)
     for name, output, error, outcome, sub_reason in (
-            # 撞頂證據(代碼審 r2 s1):總輸出至少 (輪數-1)乘上限,或停止原因 max_tokens
-            ("success_continued", claude_json(num_turns=2, output_tokens=150),
+            # 逐輪撞頂證據(代碼審 r3 c1):除最後一輪外每輪都是訊息、而且寫滿這次的上限
+            ("success_continued", claude_json(num_turns=2, output_tokens=150,
+                                              iterations=rounds(100, 50)),
              mc.UnreadableModelResponse, "unreadable", cc.OUTPUT_CONTINUED),
-            ("four_turns", claude_json(num_turns=4, output_tokens=400),
-             mc.UnreadableModelResponse, "unreadable", cc.OUTPUT_CONTINUED),
-            ("stop_reason", claude_json(num_turns=3, stop_reason="max_tokens"),
+            ("four_turns", claude_json(num_turns=4, output_tokens=400,
+                                       iterations=rounds(100, 100, 100, 100)),
              mc.UnreadableModelResponse, "unreadable", cc.OUTPUT_CONTINUED),
             ("error_continued", claude_json(QUOTA, is_error=True, num_turns=4),
              mc.QuotaExhausted, "quota_exhausted", "quota")):
@@ -377,13 +385,62 @@ def test_many_turns_or_no_cap_evidence_is_still_tool_use(tmp_path):
     照舊判讀不懂並標工具使用(評估據此停下)。"""
     req = request(max_output_tokens=100)
     for name, output in (
-            ("nine_turns", claude_json(num_turns=9, output_tokens=900)),
+            ("nine_turns", claude_json(num_turns=9, output_tokens=900,
+                                       iterations=rounds(*[100] * 9))),
             ("five_turns", claude_json(num_turns=1 + core.OUTPUT_RECOVERY_ATTEMPTS + 1,
-                                       output_tokens=500, stop_reason="max_tokens")),
+                                       output_tokens=500, iterations=rounds(*[100] * 5))),
             ("no_evidence", claude_json(num_turns=2, output_tokens=40)),
-            ("just_short", claude_json(num_turns=3, output_tokens=199))):
+            ("just_short", claude_json(num_turns=3, output_tokens=199,
+                                       iterations=rounds(100, 99, 0)))):
         script = fake_claude(tmp_path / name, output)
         with pytest.raises(mc.UnreadableModelResponse) as failed:
             _call(tmp_path, script, req, name)
         assert failed.value.tool_use is True, name
         assert failed.value.sub_reason == "tool_use", name
+
+
+# ---- 增量 4 代碼審 r3 c1/v2:撞頂續寫看逐輪證據(usage.iterations) ----
+def test_continued_output_needs_every_earlier_round_to_hit_the_cap(tmp_path):
+    """只有 usage.iterations 裡除最後一輪外每一輪都是訊息(type message)、而且輸出達到這次的單輪上限,
+    才算撞頂續寫;總輸出夠多不算(工具那一輪提早停、之後再寫長也能湊到)。逐輪用量缺、型別不對、任一
+    非最後輪沒頂到、不是訊息、權限被拒清單非空、或輪數超過 1 加續寫次數,都照舊判工具使用。"""
+    req = request(max_output_tokens=100)
+    continued = {
+        "full_rounds": claude_json(num_turns=2, output_tokens=150, iterations=rounds(100, 50)),
+        "exactly_cap": claude_json(num_turns=3, output_tokens=200,
+                                   iterations=rounds(100, 100, 0)),
+        "four_rounds": claude_json(num_turns=4, output_tokens=330,
+                                   iterations=rounds(100, 100, 100, 30)),
+    }
+    tool_use = {
+        # 協調者給的例子:2 輪、總輸出 150、上限 100,第 1 輪只有 40(工具那輪提早停)
+        "early_first_round": claude_json(num_turns=2, output_tokens=150,
+                                         iterations=rounds(40, 110)),
+        "one_below_cap": claude_json(num_turns=2, output_tokens=150, iterations=rounds(99, 51)),
+        "no_iterations": claude_json(num_turns=2, output_tokens=150),
+        "iterations_not_a_list": claude_json(num_turns=2, output_tokens=150,
+                                             iterations={"type": "message"}),
+        "round_not_an_object": claude_json(num_turns=2, output_tokens=150,
+                                           iterations=["message", {"type": "message"}]),
+        "tokens_not_a_number": claude_json(
+            num_turns=2, output_tokens=150,
+            iterations=[{"type": "message", "output_tokens": True}, {"type": "message"}]),
+        "tool_round": claude_json(num_turns=2, output_tokens=150,
+                                  iterations=[{"type": "tool_use", "output_tokens": 100},
+                                              {"type": "message", "output_tokens": 50}]),
+        "rounds_disagree_with_turns": claude_json(num_turns=3, output_tokens=150,
+                                                  iterations=rounds(100, 50)),
+        "denied": claude_json(num_turns=2, output_tokens=150, iterations=rounds(100, 50),
+                              denials=[{"tool_name": "Bash"}]),
+        "too_many_rounds": claude_json(num_turns=5, output_tokens=450,
+                                       iterations=rounds(100, 100, 100, 100, 50)),
+    }
+    for name, output in (*continued.items(), *tool_use.items()):
+        script = fake_claude(tmp_path / name, output)
+        with pytest.raises(mc.UnreadableModelResponse) as failed:
+            _call(tmp_path, script, req, name)
+        if name in continued:
+            assert (failed.value.sub_reason, failed.value.tool_use) == (
+                cc.OUTPUT_CONTINUED, False), name
+        else:
+            assert (failed.value.sub_reason, failed.value.tool_use) == ("tool_use", True), name

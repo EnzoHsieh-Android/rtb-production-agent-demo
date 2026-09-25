@@ -23,6 +23,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import shutil
 import socket
 import sys
@@ -75,10 +76,34 @@ def _poison_settings(port: int) -> str:
     return json.dumps({"env": {"ANTHROPIC_BASE_URL": f"http://{POISON_HOST}:{port}"}})
 
 
+# 監聽埠只認 API 請求行(增量 4 代碼審 r3 s1):本機別的行程連進來不算毒值讀到。只讀第一行、有上限、
+# 有逾時,不讀標頭(權杖在 Authorization 標頭裡),讀到的內容一律不記錄
+REQUEST_LINE_LIMIT = 64
+REQUEST_LINE_TIMEOUT_SECONDS = 0.5
+_API_REQUEST_LINE = re.compile(rb"POST /v1/[A-Za-z0-9_./?=&-]* HTTP/1\.[01]\r?\n")
+
+
+def _api_request_line(conn: socket.socket) -> bool:
+    """從連線讀第一行(最多 REQUEST_LINE_LIMIT 位元組、REQUEST_LINE_TIMEOUT_SECONDS 秒):是
+    `POST /v1/… HTTP/1.x` 這種 API 請求行才算。讀不到、太長、不是請求行都不算。"""
+    conn.settimeout(REQUEST_LINE_TIMEOUT_SECONDS)
+    line = b""
+    try:
+        while b"\n" not in line and len(line) < REQUEST_LINE_LIMIT:
+            chunk = conn.recv(REQUEST_LINE_LIMIT - len(line))
+            if not chunk:
+                break
+            line += chunk
+    except OSError:  # 含逾時
+        return False
+    first = line.split(b"\n", 1)[0] + b"\n" if b"\n" in line else b""
+    return _API_REQUEST_LINE.fullmatch(first) is not None
+
+
 @contextlib.contextmanager
 def _poison_listener() -> Iterator[tuple[int, threading.Event]]:
-    """開一個只綁 127.0.0.1、隨機埠的監聽埠,背景接連線:收到就設旗標、立刻關掉連線(不回任何東西)。
-    離開時關掉。回傳(埠, 收到連線的旗標)。"""
+    """開一個只綁 127.0.0.1、隨機埠的監聽埠,背景接連線:第一行是 API 請求行才設旗標,之後立刻關掉
+    連線(不回任何東西、不記錄讀到的內容)。離開時關掉。回傳(埠, 收到 API 請求的旗標)。"""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((POISON_HOST, 0))
     server.listen(16)
@@ -91,8 +116,11 @@ def _poison_listener() -> Iterator[tuple[int, threading.Event]]:
                 conn, _ = server.accept()
             except OSError:  # 含逾時:回頭看要不要停
                 continue
-            hit.set()
-            conn.close()
+            try:
+                if _api_request_line(conn):
+                    hit.set()
+            finally:
+                conn.close()
 
     worker = threading.Thread(target=serve, name="rtb-poison-listener", daemon=True)
     worker.start()

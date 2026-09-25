@@ -1772,3 +1772,25 @@ def test_saved_report_carries_a_hash_bound_content_security_policy() -> None:
     assert found.start() < head.index("<style>")  # 政策要在內嵌樣式之前宣告
     served = render_report(make_demo_state(), inline_styles=False)
     assert 'http-equiv="Content-Security-Policy"' not in served
+
+
+def test_cross_role_touches_come_from_the_flow_graph() -> None:
+    """(代碼審 r3 a2)「走到這格就算碰過另一個角色」的對應表:鍵都是流程圖存在的節點或回頭轉移,值用
+    流程圖的角色常數(泳道改名或節點改名時,這張表不會靜默失效)。"""
+    import ast
+    from pathlib import Path
+
+    from rtb.demo import flow, flow_svg
+
+    known = {node.id for node in flow.FLOW_GRAPH.nodes} | {
+        back.node for back in flow.BACK_TRANSITIONS}
+    assert flow_svg._ALSO_TOUCHES
+    for node_id, lane in flow_svg._ALSO_TOUCHES.items():
+        assert node_id in known, node_id
+        assert lane in flow.LANES, lane
+    assert set(flow_svg._ALSO_TOUCHES.values()) == {flow.PLATFORM}
+    tree = ast.parse(Path(flow_svg.__file__).read_text(encoding="utf-8"))
+    [table] = [n.value for n in ast.walk(tree) if isinstance(n, ast.AnnAssign)
+               and getattr(n.target, "id", "") == "_ALSO_TOUCHES"]
+    assert isinstance(table, ast.Dict)
+    assert all(isinstance(value, ast.Name) and value.id == "PLATFORM" for value in table.values)

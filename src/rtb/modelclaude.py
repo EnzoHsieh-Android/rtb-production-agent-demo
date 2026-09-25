@@ -525,21 +525,28 @@ def _tool_use_seen(data: Mapping[str, Any]) -> bool:
 
 
 def _continued(data: Mapping[str, Any], max_output_tokens: int | None) -> bool:
-    """撞頂自動續寫的形狀:對話輪數是 2 到 1 加 OUTPUT_RECOVERY_ATTEMPTS 的整數(使用者 2026-09-25
-    裁定續寫最多 3 次)、權限被拒清單在而且是空的,而且看得到撞頂——停止原因 max_tokens,或總輸出至少
-    (輪數-1)乘這次的上限(前幾輪都寫滿才會續寫)。輪數超過或看不出撞頂:不是續寫,照舊當工具使用
-    (增量 4 代碼審 r2 s1:工具被允許而且成功執行的呼叫也是「多輪、沒被拒」)。"""
+    """撞頂自動續寫的形狀(使用者 2026-09-25 裁定續寫最多 3 次):對話輪數是 2 到 1 加
+    OUTPUT_RECOVERY_ATTEMPTS 的整數、權限被拒清單在而且是空的,而且逐輪看得到撞頂——用量的逐輪清單
+    (usage.iterations)長度等於輪數,除最後一輪外每一輪的類型都是訊息(message)、輸出達到這次的單輪
+    上限。只看總輸出不夠(增量 4 代碼審 r3 c1):工具那一輪提早停、之後再寫長,總數也湊得到。逐輪清單
+    缺、型別不對、任一非最後輪沒頂到或不是訊息、不知道這次的上限:不是續寫,照舊當工具使用。"""
     turns, denials = data.get("num_turns"), data.get("permission_denials")
     if not isinstance(turns, int) or isinstance(turns, bool) or denials != []:
         return False
-    if not 1 < turns <= 1 + core.OUTPUT_RECOVERY_ATTEMPTS:
+    if not 1 < turns <= 1 + core.OUTPUT_RECOVERY_ATTEMPTS or max_output_tokens is None:
         return False
-    if data.get("stop_reason") == "max_tokens":
-        return True
     usage = data.get("usage")
-    tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
-    return (max_output_tokens is not None and isinstance(tokens, int)
-            and not isinstance(tokens, bool) and tokens >= (turns - 1) * max_output_tokens)
+    rounds = usage.get("iterations") if isinstance(usage, dict) else None
+    if not isinstance(rounds, list) or len(rounds) != turns:
+        return False
+    if not all(isinstance(one, dict) for one in rounds):
+        return False
+    for one in rounds[:-1]:
+        tokens = one.get("output_tokens")
+        if one.get("type") != "message" or not isinstance(tokens, int) or isinstance(
+                tokens, bool) or tokens < max_output_tokens:
+            return False
+    return True
 
 
 def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:

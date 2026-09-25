@@ -121,19 +121,24 @@ FLOW_SCRIPT: Final = """(() => {
     const box = document.getElementById(active.dataset.flowPopover);
     if (!box?.contains(event.relatedTarget) && !box?.matches(':hover')) hide();
   });
+  // Esc 或「×」收框時把焦點還給那一格(不因此再打開)
+  const returnFocus = node => {
+    restoringFocus = true;
+    try { node.focus({ preventScroll: true }); } finally { restoringFocus = false; }
+  };
   document.addEventListener('click', event => {
-    if (event.target.closest?.('.flow-popover-close')) { hide(); return; }
+    if (event.target.closest?.('.flow-popover-close')) {
+      const node = active;  // 「×」關框跟 Esc 一樣把焦點還給那一格(代碼審 r3 v1/c2)
+      if (node) returnFocus(node);
+      hide();
+      return;
+    }
     const node = nodeFor(event.target);
     if (node) {
       if (active === node && pinned) hide();
       else show(node, true);
     } else if (!event.target.closest?.('.flow-popover')) hide();
   });
-  // Esc 收框;焦點在框裡時還給那一格(不因此再打開)
-  const returnFocus = node => {
-    restoringFocus = true;
-    try { node.focus({ preventScroll: true }); } finally { restoringFocus = false; }
-  };
   document.addEventListener('keydown', event => {
     const inBox = event.target.closest?.('.flow-popover');
     if (event.key === 'Escape') {
