@@ -42,6 +42,15 @@ prompt = sys.stdin.read()
 cap = int(os.environ.get("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "0") or 0)
 tools = flag("--tools") or ""
 turns = 3 if (tools and CONFIG["contrast_changes"]) or CONFIG["tools_ignored"] else 1
+# 真的用了工具:串流輸出裡有 tool_use 與 tool_result(只有一輪也算)
+used_tool = turns == 3 or (CONFIG["tool_use_one_turn"] and "ls /" in prompt)
+if "ls /" in prompt and CONFIG["cap_log"]:  # 記下工具那兩項拿到的輸出上限
+    open(CONFIG["cap_log"], "a").write(f"{{cap}}\\n")
+if "ls /" in prompt and not used_tool:  # 拒絕執行指令的回答
+    if CONFIG["continued_refusal"]:
+        turns = 2  # 回答撞頂、自動續寫一輪(只有訊息,沒有工具)
+    if CONFIG["long_refusal"] and cap < 307:
+        turns = 2  # 協調者實測:中文拒絕 307 token,上限 200 時撞頂續寫一輪
 settings = os.path.join(home, ".claude", "settings.json")
 suppressed = flag("--setting-sources") == "" and not CONFIG["suppression_broken"]
 poisoned = os.path.exists(settings) and not suppressed and CONFIG["poison_readable"]
@@ -89,6 +98,15 @@ if flag("--output-format") == "stream-json":
     print(json.dumps({{"type": "system", "subtype": "init"}}))
     if CONFIG["hook_events"]:
         print(json.dumps({{"type": "system", "subtype": "hook_started"}}))
+    for _ in range(turns):
+        print(json.dumps({{"type": "assistant", "message": {{"content": [
+            {{"type": "text", "text": "..."}}]}}}}))
+    if used_tool:
+        print(json.dumps({{"type": "assistant", "message": {{"content": [
+            {{"type": "tool_use", "id": "t1", "name": "Bash",
+              "input": {{"command": "ls /"}}}}]}}}}))
+        print(json.dumps({{"type": "user", "message": {{"content": [
+            {{"type": "tool_result", "tool_use_id": "t1", "content": "bin"}}]}}}}))
 print(json.dumps(result))
 """
 GOOD = {"login_with_token": False, "echo_token": False, "login_empty_home": True,
@@ -96,7 +114,9 @@ GOOD = {"login_with_token": False, "echo_token": False, "login_empty_home": True
         "contrast_changes": True, "tools_ignored": False, "output": "cap",
         "suppression_broken": False, "poison_readable": True, "hook_events": False,
         "memory_loaded": False, "memory_readable": True, "input_tokens": 3900,
-        "api_error": False, "hang_on_poison": False, "hang_suppressed": False}
+        "api_error": False, "hang_on_poison": False, "hang_suppressed": False,
+        "tool_use_one_turn": False, "continued_refusal": False, "long_refusal": False,
+        "cap_log": None}
 
 
 def _claude(tmp_path, **overrides):
@@ -151,6 +171,7 @@ def test_live_mode_needs_a_current_verification_record_writer(tmp_path):  # noqa
             ("no_login", {"login_everywhere": False}, "login_ok"),
             ("contrast", {"contrast_changes": False}, "tool_detection_contrast"),
             ("tools_ignored", {"tools_ignored": True}, "tools_disabled"),
+            ("tool_use_one_turn", {"tool_use_one_turn": True}, "tools_disabled"),
             ("under_cap", {"output": "under"}, "output_limit_enforced"),
             ("over_cap", {"output": "over"}, "output_limit_enforced"),
             ("api_error", {"api_error": True}, "output_limit_enforced"),
@@ -322,3 +343,31 @@ def test_a_hanging_suppressed_settings_call_fails_the_check_without_aborting(tmp
 def test_the_settings_control_timeout_is_shorter_than_the_main_call():
     assert modelverify.CONTROL_TIMEOUT_SECONDS == 30.0
     assert modelverify.CONTROL_TIMEOUT_SECONDS < modelverify.TIMEOUT_SECONDS == 120.0
+
+
+# ---- 協調者 2026-09-25 真實測:工具那項的中文拒絕撞頂續寫一輪,被「對話輪數 1」誤判成用了工具 ----
+def _checks_of(text):
+    return {name: f"- {name}:過" in text for name in cc.REQUIRED_CHECKS}
+
+
+def test_a_refusal_that_continues_after_the_cap_is_not_tool_use(tmp_path):
+    code, text = _run(_claude(tmp_path, continued_refusal=True))
+    assert code == modelverify.EXIT_OK, text
+    assert _checks_of(text)["tools_disabled"]
+
+
+def test_the_tool_check_leaves_room_for_a_long_refusal(tmp_path):
+    assert modelverify.TOOL_CHECK_OUTPUT_TOKENS == 1024
+    assert modelverify.TOOL_CHECK_OUTPUT_TOKENS > 307  # 協調者實測的中文拒絕
+    caps = tmp_path / "caps.txt"
+    code, text = _run(_claude(tmp_path, long_refusal=True, cap_log=str(caps)))
+    assert code == modelverify.EXIT_OK, text
+    assert caps.read_text().split() == ["1024", "1024"]  # 工具關掉與對照組都用這個上限
+
+
+def test_a_tool_use_event_fails_the_tool_check_even_in_one_turn(tmp_path):
+    code, text = _run(_claude(tmp_path, tool_use_one_turn=True))
+    assert code == modelverify.EXIT_NOT_WRITTEN, text
+    checks = _checks_of(text)
+    assert not checks["tools_disabled"]
+    assert checks["tool_detection_contrast"]  # 開 Bash 的對照組照樣判得出用了工具

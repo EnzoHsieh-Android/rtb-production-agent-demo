@@ -7,8 +7,9 @@
 子行程一律經模型用戶端啟動(整個 rtb 只有模型用戶端能開子行程,[S917])。
 
 逐項(計劃〈拆增量〉錄製前實測;代碼審第 1 輪補強):先試「空暫存 HOME」隔離登入照不照常,不行才退回
-真 HOME;工具真的關掉(要它執行指令,成功、對話輪數 1、權限被拒清單空);對照組故意開工具,這兩個欄位
-真的會變;串流輸出加 hook 事件,要有成功的結果、沒有任何 hook 事件;記憶用暗號驗:在隔離 HOME 的
+真 HOME;工具真的關掉(要它執行指令、串流輸出:成功、權限被拒清單空、沒有 tool_use/tool_result
+區塊;撞頂續寫的多輪不算工具);對照組故意開工具,同一套判法要判得出用了工具;串流輸出加 hook 事件,
+要有成功的結果、沒有任何 hook 事件;記憶用暗號驗:在隔離 HOME 的
 CLAUDE.md 與記憶目錄放一個隨機暗號,問它有沒有看到,回答要剛好是 NONE、輸出裡也沒有暗號(看不到、
 驗不了就算沒過);輸出上限要有撞頂的正面證據(輸出 token 數等於上限、停止原因是 max_tokens、或
 「超過輸出上限」的錯誤),其他錯誤一律沒過;設定來源的組合真的壓掉使用者設定:暫存使用者設定的
@@ -50,6 +51,13 @@ OUTPUT_CAP = 32
 # 的常數)
 OUTPUT_ALLOWANCE = 1 + core.OUTPUT_RECOVERY_ATTEMPTS
 TOOL_PROMPT = "請實際執行 shell 指令 `ls /`,並把輸出原樣貼給我。"
+# 工具那兩項的輸出上限:正常拒絕不能撞頂。協調者 2026-09-25 用 claude 2.1.281 真實測,原本上限 200 時
+# 中文拒絕(「目前的對話環境中沒有提供可執行 shell 指令的工具…」)寫了 307 token、撞頂續寫一輪
+# (num_turns=2),英文短拒絕 112 token;1024 留三倍以上餘裕
+TOOL_CHECK_OUTPUT_TOKENS = 1024
+# 串流輸出裡算「用了工具」的內容區塊類型(claude 的 assistant 事件帶 tool_use、回填的 user 事件帶
+# tool_result);撞頂續寫只多出文字訊息,不算
+TOOL_BLOCK_TYPES = frozenset({"tool_use", "server_tool_use", "tool_result"})
 LONG_PROMPT = "請寫一篇至少兩千字的文章,主題是廣告投放的配速。"
 SHORT_PROMPT = "回答 ok 兩個字母就好。"
 # 連不到的位址(保留埠 9):使用者設定真的生效,呼叫就一定失敗
@@ -178,26 +186,40 @@ class Checker:
             return isolation
         return None
 
+    def _tool_run(self, args: list[str]) -> tuple[dict[str, Any] | None, bool]:
+        """要它執行指令、串流輸出跑一次 →(唯一的結果事件或 None, 有沒有用工具)。用工具 = 任一事件的
+        內容區塊是 tool_use/tool_result,或結果事件的權限被拒清單非空。撞頂續寫只有文字訊息、對話輪數
+        變多,不算用工具(使用者 2026-09-25 允許續寫的裁定;協調者實測中文拒絕續寫一輪被舊判準
+        誤判)。"""
+        args = _replaced(args, "--output-format", "stream-json")
+        _, stdout, _ = self.run([*args, "--verbose"], TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS)
+        events = _events(stdout)
+        results = [e for e in events if e.get("type") == "result"]
+        result = results[0] if len(results) == 1 else None
+        denials = None if result is None else result.get("permission_denials")
+        used = any(_tool_blocks(e) for e in events) or (isinstance(denials, list) and bool(denials))
+        return result, used
+
     def tools_disabled(self) -> bool:
-        _, stdout, _ = self.run(self.command_for(TOOL_PROMPT, 200), TOOL_PROMPT, 200)
-        data = _json(stdout)
-        return _succeeded(data) and data is not None and data.get(
-            "num_turns") == 1 and data.get("permission_denials") == []
+        """工具真的關掉:成功的結果、權限被拒清單空(欄位要在)、沒有任何工具區塊;對話輪數只要在
+        1 加續寫次數之內(續寫是撞頂,不是工具)。"""
+        result, used = self._tool_run(self.command_for(TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS))
+        if result is None or not _succeeded(result) or used:
+            return False
+        turns = result.get("num_turns")
+        return result.get("permission_denials") == [] and isinstance(turns, int) and not isinstance(
+            turns, bool) and 1 <= turns <= 1 + core.OUTPUT_RECOVERY_ATTEMPTS
 
     def tool_detection_contrast(self) -> bool:
-        args = _replaced(self.command_for(TOOL_PROMPT, 200), "--tools", "Bash")
-        _, stdout, _ = self.run(args, TOOL_PROMPT, 200)
-        data = _json(stdout) or {}
-        turns, denials = data.get("num_turns"), data.get("permission_denials")
-        return (isinstance(turns, int) and turns > 1) or bool(denials)
+        """對照:故意開 Bash,同一套判法要判得出用了工具(證明偵測有效)。"""
+        args = _replaced(self.command_for(TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS), "--tools", "Bash")
+        return self._tool_run(args)[1]
 
     def no_hook_events(self) -> bool:
         """串流輸出要有成功的結果(錯誤回應看不出 hook 有沒有跑:算沒過),而且沒有任何 hook 事件。"""
         args = _replaced(self.command_for(SHORT_PROMPT, 50), "--output-format", "stream-json")
         _, stdout, _ = self.run([*args, "--verbose", "--include-hook-events"], SHORT_PROMPT, 50)
-        events = [e for e in (_json(line.encode()) for line in
-                              stdout.decode("utf-8", errors="replace").splitlines()
-                              if line.strip()) if e is not None]
+        events = _events(stdout)
         results = [e for e in events if e.get("type") == "result"]
         hooks = any("hook" in f"{e.get('type', '')} {e.get('subtype', '')}".lower()
                     for e in events)
@@ -286,6 +308,21 @@ class Checker:
         return {"fixed_input_tokens_seen": _fixed_input(usage), "bad_argument_exit_code": code,
                 "bad_argument_stderr": stderr.decode("utf-8", errors="replace")[:500],
                 **self.notes}
+
+
+def _events(stdout: bytes) -> list[dict[str, Any]]:
+    """串流輸出(一行一個 JSON 事件)→ 讀得懂的事件。"""
+    return [e for e in (_json(line.encode()) for line in
+                        stdout.decode("utf-8", errors="replace").splitlines() if line.strip())
+            if e is not None]
+
+
+def _tool_blocks(event: Mapping[str, Any]) -> bool:
+    """這個事件的訊息內容裡有沒有工具區塊(tool_use/tool_result)。"""
+    message = event.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    return isinstance(content, list) and any(
+        isinstance(block, dict) and block.get("type") in TOOL_BLOCK_TYPES for block in content)
 
 
 def _fixed_input(usage: object) -> int | None:
