@@ -866,6 +866,8 @@ def _committed_variants(tmp_path):
     link = tmp_path / "link"
     link.symlink_to(root, target_is_directory=True)
     variants.append(link / "r2-newsub")
+    # 代碼審 r3:連結後面接「..」,作業系統是先跟著連結走再往上,按字面收掉「..」會算錯位置
+    variants.append(link / ".." / root.name / "r2-newsub")
     upper = Path(str(root).replace("recordings/model", "Recordings/Model"))
     if upper != root and upper.exists():  # macOS 預設不分大小寫;分大小寫的機器上這個路徑不存在
         variants.append(upper / "r2-newsub")

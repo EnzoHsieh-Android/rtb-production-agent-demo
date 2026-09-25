@@ -168,7 +168,9 @@ def _inside_committed(target: Path) -> bool:
         root = os.stat(default_recordings_dir())
     except OSError:
         return False  # 入庫根不存在:沒有東西可以疊上去
-    candidate = Path(os.path.abspath(target))
+    # 先照作業系統的走法解析(跟著符號連結再處理「..」;不存在的尾段照字面接上),不按字面收掉「..」:
+    # 「指向入庫根的連結/../model/新目錄」實際就在入庫根底下(代碼審 r3)
+    candidate = Path(os.path.realpath(target))
     for path in (candidate, *candidate.parents):
         try:
             found = os.stat(path)

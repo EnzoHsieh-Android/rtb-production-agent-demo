@@ -161,7 +161,7 @@
     },
     {
       "path": "src/rtb/modelrecording.py",
-      "sha256": "18922d7aa9280335dc80c09412ea728d11094f3854400e2e41a85c9980e77a34"
+      "sha256": "ccf5fffbce21351e73492f42488a38850d10d3f5fad3c5d0bb61363077fdecca"
     },
     {
       "path": "src/rtb/sqlitekit.py",

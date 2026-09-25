@@ -5309,3 +5309,5 @@
 {"ts": "2026-09-25T09:59:04+08:00", "commit": "6d11d94", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-25T09:59:05+08:00", "commit": "6d11d94", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "6d11d94b8bb3be54fd78175ae3bf53eccc4d4e2f"}
 {"ts": "2026-09-25T09:59:24+08:00", "commit": "b8c64dd", "gate": "delguard", "kind": "ok", "hard": false, "nodes": ["Issues/共用HTTP伺服器連線名額測試在CI偶發逾時.md", "Systems/Mock-DSP.md", "Systems/分析行程流程與檢查點.md"], "note": "tokens=1 hits=4 secs=0.1"}
+{"ts": "2026-09-25T10:17:23+08:00", "commit": "ed9e269", "gate": "delguard", "kind": "degraded", "hard": false, "nodes": [], "note": "reason=timeout tokens=40"}
+{"ts": "2026-09-25T10:17:25+08:00", "commit": "ed9e269", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "ed9e269b34e1fac91163f7e0fab0af5cb97d4cc1"}
