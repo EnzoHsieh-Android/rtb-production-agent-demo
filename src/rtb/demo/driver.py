@@ -1869,9 +1869,13 @@ class Driver:
                  scenarios: Mapping[str, Scenario] | None = None,
                  stop: threading.Event | None = None,
                  live: Collection[str] = (),
-                 recordings_dir: Path | None = None) -> None:
+                 recordings_dir: Path | None = None,
+                 live_batch: tuple[Path, str] | None = None) -> None:
         """live:「哪些情境即時」清單(預設空的,全部錄製;F7 不准放進來,[S1145]);recordings_dir:
-        錄製模式讀的展示錄製目錄(預設入庫的 recordings/model/phase13-demo)。"""
+        錄製模式讀的展示錄製目錄(預設入庫的 recordings/model/phase13-demo)。live_batch:(目錄, 批次)
+        只給錄展示批次的命令列用——即時清單裡的情境全部錄進這同一個目錄、同一個批次(入庫格式);
+        沒給就照舊每個情境一個 live-recordings/<代碼>、批次 demo-live-<展示編號>。"""
+        self.live_batch = live_batch
         self.live = frozenset(live)
         if self.live & NEVER_LIVE:
             raise ValueError(f"即時清單不准放 {sorted(self.live & NEVER_LIVE)}:{F7_RECORDED_ONLY}")
@@ -1920,6 +1924,9 @@ class Driver:
         新錄製目錄(在展示根目錄底下、不在入庫目錄底下)與批次 demo-live-<展示編號>([S1166])。"""
         if code not in self.live:
             return AiSetup(self.demo_id, live=False, recordings=self.recordings_dir)
+        if self.live_batch is not None:
+            return AiSetup(self.demo_id, live=True, recordings=self.live_batch[0],
+                           batch_id=self.live_batch[1])
         return AiSetup(self.demo_id, live=True, recordings=self.root / "live-recordings" / code,
                        batch_id=f"{LIVE_BATCH_PREFIX}{self.demo_id}")
 
