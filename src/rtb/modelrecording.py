@@ -309,6 +309,9 @@ def save_recording(path: Path, recording: Recording) -> None:
 # ---- 入庫前的批次驗收(Phase 13 評估批次與展示批次共用,代碼審增量 4 r1 h2) ----
 FAILED_BATCH_OUTCOMES = {Outcome.CONFIG_ERROR.value: "設定錯誤",
                          Outcome.LEDGER_BUSY.value: "花費帳忙碌"}
+# 同樣算失敗類的子原因:撞頂自動續寫(使用者 2026-09-25 裁定;子原因字串與模型用戶端 Claude Code 後端
+# 的 OUTPUT_CONTINUED 相同,由測試核對)——錄到的是輸出上限給太小,不是模型的判斷,入庫前要重錄
+FAILED_BATCH_SUB_REASONS = {"output_continued": "輸出撞頂自動續寫"}
 # 入庫的錄製只收正式後端錄的(測試與截圖用的假錄製 backend 是 fake,不准入庫;代碼審增量 4 r1 s2)
 OFFICIAL_BACKENDS = frozenset({Backend.CLAUDE_CODE.value})
 
@@ -349,7 +352,8 @@ def batch_file_problems(directory: Path, pattern: re.Pattern[str], shape: str) -
             recording = validated(path, data)
         except NoRecording:
             continue  # 佔位或讀不懂:上面的目錄檢查已經算進問題
-        labels = [FAILED_BATCH_OUTCOMES.get(recording.outcome)]
+        labels = [FAILED_BATCH_OUTCOMES.get(recording.outcome),
+                  FAILED_BATCH_SUB_REASONS.get(recording.sub_reason or "")]
         if recording.unclassified:
             labels.append("無法可靠分類")
         if recording.backend not in OFFICIAL_BACKENDS:

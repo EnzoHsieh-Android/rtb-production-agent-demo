@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 import uuid
 from collections.abc import Mapping, Sequence
@@ -30,7 +31,7 @@ from rtb import modelclient as mc
 from rtb.demo.driver import DONE, NOT_EXERCISED, Driver
 from rtb.demo.keys import DemoKeys
 from rtb.demo.launcher import MODEL_VARIABLES
-from rtb.demo.state_store import StateWriter
+from rtb.demo.state_store import StateReader, StateWriter
 from rtb.modelledger_view import ModelLedgerView
 from rtb.modelledger_view import Outcome as LedgerOutcome
 
@@ -122,14 +123,111 @@ def check_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
     return BatchCheck(missing, (*batch_problems(directory, batch_id), *replayed), verdicts)
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(allow_abbrev=False,
-                                     description="展示錄製批次入庫前的檢查(只重播,不呼叫模型)")
+# ---- 錄一批展示錄製(協調者用真 claude 錄;測試一律用假 claude) ----
+RECORDED_CODES = REPLAYED  # F7 不錄:它與 F5 雙胞胎共用 F1 的錄製鍵([S1158])
+NEXT_STEP = ("驗過之後把整個目錄搬進 recordings/model/phase13-demo/(整個替換入庫的那一份,不在舊目錄"
+             "上疊錄),再跑一次入庫前檢查:python -m rtb.demo.recordings --dir "
+             "recordings/model/phase13-demo --batch-id {batch} --work-dir <暫存目錄>")
+
+
+@dataclass(frozen=True)
+class RecordResult:
+    """錄一批的結果:開錄前或錄的途中的問題、各情境的結果、錄完自動跑的入庫前檢查(沒錄就是空的)。"""
+
+    problems: tuple[str, ...]
+    verdicts: tuple[tuple[str, str, str | None], ...] = ()
+    check: BatchCheck | None = None
+    next_step: str | None = None
+
+    @property
+    def passed(self) -> bool:
+        return not self.problems and self.check is not None and self.check.passed
+
+
+def recording_problems(directory: Path, batch_id: str,
+                       env: Mapping[str, str]) -> tuple[str, ...]:
+    """開錄前的檢查:批次編號格式、目錄不存在或是空的、不在入庫目錄底下(共用的開錄前目錄檢查);
+    即時開關打開之後模型用戶端真的判成即時加錄製、登入預檢過了。不過就不跑任何情境(不退回錄製假裝
+    錄好了)。"""
+    problems = [] if BATCH_PATTERN.fullmatch(batch_id) else [
+        f"批次編號要是 {BATCH_SHAPE}:{batch_id}"]
+    if directory.exists() and (not directory.is_dir() or any(directory.iterdir())):
+        problems.append(f"錄製目錄要不存在或是空的:{directory}")
+    try:
+        mc.check_recordings_dir(directory, batch_id)
+    except mc.MixedRecordingsDir as mixed:
+        problems.append(f"錄製目錄不能開錄:{mixed}")
+    if problems:
+        return tuple(problems)
+    claude = shutil.which("claude", path=env.get("PATH", ""))
+    try:
+        settings = mc.settings_from_env(env, f"record-{batch_id}", claude)
+    except mc.UnknownModel as unknown:
+        return (f"模型設定不對:{unknown}",)
+    if settings.mode is not mc.Mode.LIVE or not settings.record:
+        why = ";".join(settings.notices) or ("PATH 上找不到 claude" if claude is None
+                                             else "即時模式沒開")
+        return (f"即時模式不能用,不錄:{why}",)
+    checked = mc.preflight_login(settings)
+    if checked.outcome is mc.Preflight.FAILED:
+        return (f"claude 登入預檢沒過,不錄:{checked.reason}",)
+    return ()
+
+
+def record_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
+                      user_env: Mapping[str, str] | None = None) -> RecordResult:
+    """依序以即時加錄製跑 F1 到 F6,分析端、說明、假說三支模型入口都寫進同一個全新目錄、同一個批次;
+    錄完自動跑一次入庫前檢查(重播 F1 到 F6)。即時模式的花費帳照設計記在帳號家目錄那一本。"""
+    env = {**(os.environ if user_env is None else user_env),
+           mc.LIVE_ENV: "1", mc.RECORD_ENV: "1"}
+    problems = recording_problems(directory, batch_id, env)
+    if problems:
+        return RecordResult(problems)
+    demo_id = f"record-{uuid.uuid4().hex[:8]}"
+    work_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    state = StateWriter(work_dir / "record-state.db", demo_id)
+    try:
+        driver = Driver(work_dir / "record-demos", demo_id, DemoKeys.generate(), state,
+                        user_env=env, live=RECORDED_CODES, recordings_dir=directory,
+                        live_batch=(directory, batch_id))
+        verdicts = tuple((v.code, v.status, v.reason) for v in driver.run(RECORDED_CODES))
+        modes = _modes(work_dir / "record-state.db", demo_id)
+    finally:
+        state.close()
+    found = [f"{code} 錄的時候沒有跑完:{status}({reason})" for code, status, reason in verdicts
+             if status not in FINISHED]
+    found += [f"{code} 的分析端沒有判成即時({mode})" for code, mode in modes.items()
+              if mode != "live"]
+    check = check_demo_batch(directory, batch_id, work_dir / "check",
+                             user_env={k: v for k, v in env.items() if k not in MODEL_VARIABLES})
+    return RecordResult(tuple(found), verdicts, check, NEXT_STEP.format(batch=batch_id))
+
+
+def _modes(state_db: Path, demo_id: str) -> dict[str, str | None]:
+    reader = StateReader(state_db)
+    try:
+        return {code: (details.model_mode if details is not None else None)
+                for code in RECORDED_CODES
+                for details in (reader.scenario_details(demo_id, code),)}
+    finally:
+        reader.close()
+
+
+def main(argv: list[str] | None = None, *, user_env: Mapping[str, str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        allow_abbrev=False,
+        description="展示錄製批次:入庫前的檢查(只重播),或加 --record 以即時加錄製錄一批")
     parser.add_argument("--dir", required=True, type=Path)
     parser.add_argument("--batch-id", required=True)
     parser.add_argument("--work-dir", required=True, type=Path)
+    parser.add_argument("--record", action="store_true",
+                        help="以即時加錄製跑 F1 到 F6 錄進 --dir(全新目錄),錄完自動檢查")
     args = parser.parse_args(argv)
-    result = check_demo_batch(args.dir, args.batch_id, args.work_dir)
+    if args.record:
+        recorded = record_demo_batch(args.dir, args.batch_id, args.work_dir, user_env=user_env)
+        print(json.dumps({**asdict(recorded), "passed": recorded.passed}, ensure_ascii=False))
+        raise SystemExit(0 if recorded.passed else 1)
+    result = check_demo_batch(args.dir, args.batch_id, args.work_dir, user_env=user_env)
     print(json.dumps({**asdict(result), "passed": result.passed}, ensure_ascii=False))
     raise SystemExit(0 if result.passed else 1)
 
