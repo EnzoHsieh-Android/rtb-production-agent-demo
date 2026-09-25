@@ -5198,3 +5198,5 @@
 {"ts": "2026-09-25T07:58:54+08:00", "commit": "6590849", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "659084986ff363fd9f10b14d9c494dd9e045b16e"}
 {"ts": "2026-09-25T07:59:03+08:00", "commit": "f4831bd", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-25T07:59:04+08:00", "commit": "f4831bd", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "f4831bdfe40fff4ab9d6256fb921827e3cb805ed"}
+{"ts": "2026-09-25T08:41:32+08:00", "commit": "cec4fc2", "gate": "delguard", "kind": "degraded", "hard": false, "nodes": [], "note": "reason=timeout tokens=39"}
+{"ts": "2026-09-25T08:41:34+08:00", "commit": "cec4fc2", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "cec4fc2d8941f51c7229e518c7ba556ea140e026"}
