@@ -106,7 +106,9 @@ def _visible_character(character: str) -> str:
 
 def flow_label(label: str) -> str:
     """正式圖的內部稱呼在展示層換成讀者熟悉的字。"""
-    return label.replace("模型", "AI")
+    return (label.replace("模型", "AI")
+            .replace("(展示模式,未通過採用門檻)", "")
+            .replace("沒有對應的錄製回應", "AI 這次沒有給出回答"))
 
 
 def _ai_boundary(scenario: Scenario) -> str:
@@ -197,8 +199,10 @@ def render_flow(  # noqa: PLR0915 - 流程圖組裝包含泳道、邊、節點�
         f"交給另一段程式；在排隊等了 {wait}"
         if queued else "交給另一段程式；收件後沒有進入執行佇列"
     )
-    later = ('<p class="flow-later">後續階段這次未進入</p>'
-             if len(lanes) < len(LANE_ORDER) else '')
+    entered_lanes = {lane.name for lane in lanes}
+    unentered = [lane for lane in LANE_ORDER if lane not in entered_lanes]
+    later = (f'<p class="flow-later">{escape_text("、".join(unentered))}這次沒有走到</p>'
+             if unentered else '')
     return (
         '<div class="flow-toolbar"><p><strong>實線</strong>是這次走過的路徑；'
         '淡色虛線是沒走的分支；回頭箭頭表示回到前一步。</p>'

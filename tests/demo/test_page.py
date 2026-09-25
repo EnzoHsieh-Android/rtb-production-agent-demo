@@ -89,7 +89,7 @@ def test_focus_reads_scenario_then_flow_then_results_and_collapses_other_details
     page = render_page(make_demo_state(), form_token="t")
     focus = page.split('class="focus-panel', 1)[1]
     positions = [focus.index(text) for text in (
-        'class="focus-heading"', '這次情境：', 'class="flow-disclosure"',
+        'class="focus-heading"', '觸發條件：', 'class="flow-disclosure"',
         '處理結果概述', 'class="decision-hero"',
         'class="change-summary"', '這次沒走的分支', '操作識別',
     )]
@@ -116,6 +116,88 @@ def test_flow_nodes_contain_escaped_step_details_for_hover_touch_and_keyboard() 
         assert 'class="flow-popover-close"' in markup
     assert 'max-height:' in DEMO_CSS and '.flow-popover' in DEMO_CSS
     assert 'Escape' in page and 'pointerover' in page and 'focusin' in page
+
+
+def test_flow_popover_scrolls_and_stays_inside_the_viewport() -> None:
+    assert re.search(r'\.flow-popover\s*\{[^}]*max-height:[^;]+;[^}]*overflow-y:auto',
+                     DEMO_CSS)
+    assert 'const availableBelow' in FLOW_SCRIPT
+    assert 'const availableAbove' in FLOW_SCRIPT
+    assert 'box.style.maxHeight' in FLOW_SCRIPT
+    assert 'box.style.left' in FLOW_SCRIPT and 'innerWidth - width - 8' in FLOW_SCRIPT
+    assert 'box.style.top' in FLOW_SCRIPT and 'innerHeight - height - 8' in FLOW_SCRIPT
+
+
+def test_page_and_report_remove_demo_mode_from_every_flow_label() -> None:
+    state = make_demo_state()
+    for markup in (render_page(state, form_token="t"), render_report(state)):
+        assert '展示模式' not in html_lib.unescape(markup)
+    first = state.scenarios[0]
+    ai = Decision("a_ai", ("a_ai", "a_ai_query"), "先查", "", None,
+                  kind=DecisionKind.AI_JUDGEMENT)
+    changed = replace(first, path=(ai,), traversed_edges=(("a_ai", "a_ai_query"),))
+    page = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])),
+                       form_token="t")
+    assert 'id="flow-detail-F1-a_ai"' in page
+    assert '<h4>AI 選下一步</h4>' in page
+
+
+def test_missing_ai_answer_is_plain_in_popover_values_and_comparisons() -> None:
+    state = make_demo_state()
+    first = state.scenarios[0]
+    missing = "沒有對應的錄製回應"
+    basis = DecisionBasis(missing, "正常標準", missing, "錄製回應")
+    changed = replace(first, path=(replace(first.path[0], basis=(basis,), outcome=missing),
+                                   *first.path[1:]))
+    shown = replace(state, scenarios=(changed, *state.scenarios[1:]))
+    for markup in (render_page(shown, form_token="t"), render_report(shown)):
+        assert "量到的值：AI 這次沒有給出回答" in markup
+        assert "比較結果：AI 這次沒有給出回答" in markup
+        assert all(word not in markup for word in
+                   ("錄製回應", "沒有對應的錄製", "即時呼叫", "即時清單"))
+
+
+def test_unentered_flow_stage_names_only_the_lanes_not_reached() -> None:
+    state = make_demo_state()
+    markup = render_page(state, form_token="t")
+    assert "人工這次沒有走到" in markup
+    assert "廣告平台這次沒有走到" not in markup
+    assert "後續階段這次未進入" not in markup
+    seventh = render_page(state, form_token="t", selected=ScenarioCode.F7)
+    assert 'class="flow-later"' not in seventh
+
+
+def test_scenario_intent_merges_repeated_goal_and_keeps_trigger() -> None:
+    state = make_demo_state()
+    first = state.scenarios[0]
+    shared = "同一句目標不可重複"
+    changed = replace(first, what_it_tests=shared, goal=shared, trigger="排程觸發")
+    markup = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])),
+                         form_token="t")
+    intent = markup.split('class="scenario-intent"', 1)[1].split('</details>', 1)[0]
+    assert intent.count(shared) == 1
+    assert "排程觸發" in intent
+    assert intent.count('<p>') == 1
+
+
+def test_interactive_workspace_has_sticky_sidebar_and_mobile_scenario_strip() -> None:
+    markup = render_page(make_demo_state(), form_token="t", selected=ScenarioCode.F2)
+    assert 'class="demo-workspace"' in markup
+    assert markup.index('id="roles"') < markup.index('class="demo-workspace"')
+    assert markup.index('id="scenarios"') < markup.index('id="flow"')
+    assert 'class="scenario-row is-selected"' in markup
+    assert 'href="?scenario=F2#flow"' in markup
+    assert markup.count('action="/run/scenario"') == 1
+    sidebar = markup.split('class="demo-workspace"', 1)[1].split('</section>', 1)[0]
+    assert 'class="scenario-result"' not in sidebar
+    assert re.search(r'\.demo-workspace\s*\{[^}]*grid-template-columns:270px minmax\(0,1fr\)',
+                     DEMO_CSS)
+    assert re.search(r'\.demo-workspace \.scenario-section\s*\{[^}]*position:sticky',
+                     DEMO_CSS)
+    mobile = DEMO_CSS.split('@media(max-width:760px)', 1)[1]
+    assert re.search(r'\.demo-workspace\s*\{[^}]*grid-template-columns:1fr', mobile)
+    assert re.search(r'\.demo-workspace \.scenario-index\s*\{[^}]*overflow-x:auto', mobile)
+    assert re.search(r'\.demo-workspace \.scenario-row\s*\{[^}]*flex:', mobile)
 
 
 def test_repeated_flow_node_lists_occurrences_and_large_same_results_merge() -> None:
@@ -153,14 +235,14 @@ def test_running_page_refreshes_and_hides_trigger_forms() -> None:
     assert '<g class="flow-node is-current' in html
 
 
-def test_idle_page_has_one_all_form_and_seven_scenario_forms_with_tokens() -> None:
+def test_idle_page_has_one_all_form_and_selected_scenario_form_with_tokens() -> None:
     html = render_page(make_demo_state(running=False), form_token='t"<&')
 
     assert "展示進行中" not in html
     assert 'action="/run"' in html
-    assert html.count('action="/run/scenario"') == 7
-    assert html.count(">重跑 F") == 7
-    assert html.count('name="token"') == 8
+    assert html.count('action="/run/scenario"') == 1
+    assert html.count(">重跑 F") == 1
+    assert html.count('name="token"') == 2
     assert 'value="t&quot;&lt;&amp;"' in html
 
 
@@ -644,7 +726,7 @@ def test_analysis_only_flow_hides_later_lanes_and_marks_unentered_stages() -> No
     assert 'viewBox="0 0' in markup.group(0)
     assert markup.group(0).count('class="lane-band"') == 1
     assert re.findall(r'<div class="flow-lane">([^<]+)</div>', page) == ["分析"]
-    assert '後續階段這次未進入' in page
+    assert '收件、執行、廣告平台、人工這次沒有走到' in page
     assert 'height="240"' in markup.group(0)
 
 
@@ -1227,7 +1309,9 @@ def test_every_scenario_shows_where_its_result_came_from() -> None:
     assert "這個情境還沒有執行紀錄" in report
     f7 = render_page(shown, form_token="token", selected=ScenarioCode.F7)
     assert "規模縮小" in f7 and "完整規模由自動查核跑的 F7 測試證明" in f7
-    assert "取自單一情境重跑" in render_page(shown, form_token="token")  # 清單列上也標
+    assert "取自單一情境重跑" in render_page(
+        shown, form_token="token", selected=ScenarioCode.F3
+    )  # 選中情境的其餘明細仍可追查出處
     never = replace(shown, verifier=None, full_demo_id=None)
     assert "還沒有完整執行過" in _verifier_cell(render_page(never, form_token="token"))
 
@@ -1283,13 +1367,13 @@ def test_untrusted_text_never_becomes_markup() -> None:
         assert escape_text(HOSTILE) in markup
 
 
-def test_the_scenario_list_is_pinned_only_in_the_two_column_report() -> None:
-    """[代碼審 r1 p1] 情境清單只在報告的左右兩欄版面釘住;互動頁(單欄)釘住會在桌面寬度蓋住詳情。
-    頁面測試跑不了瀏覽器,量版面幾何的那一步用瀏覽器實測另外留證(見〈實作解讀〉)。"""
+def test_the_scenario_list_is_pinned_in_both_two_column_workspaces() -> None:
+    """桌面報告與互動頁都把清單釘在左欄,窄畫面則取消 sticky。"""
     rules = re.findall(r"([^{}]+)\{[^}]*position:\s*sticky[^}]*\}", DEMO_CSS)
     pinned = [selector.strip() for selector in rules if "scenario-section" in selector]
-    assert pinned == [".report-workspace .scenario-section"]
-    assert 'class="report-workspace"' not in render_page(make_demo_state(), form_token="t")
+    assert pinned == [".report-workspace .scenario-section",
+                      ".demo-workspace .scenario-section"]
+    assert 'class="demo-workspace"' in render_page(make_demo_state(), form_token="t")
 
 
 def test_results_are_not_invented_for_scenarios_that_have_not_finished() -> None:

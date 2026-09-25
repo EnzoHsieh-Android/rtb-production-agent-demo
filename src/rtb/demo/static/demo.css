@@ -679,9 +679,12 @@ h2 { font-size:21px; line-height:1.5; }
 .role-card summary { font-size:11px; }
 .role-card::after { display:none; }
 .map-note { font-size:12px; background:transparent; color:var(--muted); border-left:2px solid var(--border-strong); padding:0 12px; margin-top:14px; }
-.report-workspace { display:grid; grid-template-columns:270px minmax(0,1fr); align-items:start; gap:24px; }
+.report-workspace { display:grid; grid-template-columns:270px minmax(0,1fr); align-items:start; gap:24px; min-width:0; }
+.demo-workspace { display:grid; grid-template-columns:270px minmax(0,1fr); align-items:start; gap:24px; min-width:0; margin-top:24px; }
+.demo-workspace .focus-panel { min-width:0; scroll-margin-top:24px; }
 .scenario-section { margin:0; }
-.report-workspace .scenario-section { position:sticky; top:24px; } /* 只在報告的左右兩欄版面釘住;互動頁是單欄,釘住會蓋住詳情 */
+.report-workspace .scenario-section { position:sticky; top:24px; max-height:calc(100vh - 48px); overflow-y:auto; }
+.demo-workspace .scenario-section { position:sticky; top:24px; max-height:calc(100vh - 48px); overflow-y:auto; }
 .scenario-section .section-heading { display:block; }
 .scenario-section h2 { font-size:18px; }
 .scenario-section .section-heading p:last-child { margin-top:8px; }
@@ -703,6 +706,9 @@ h2 { font-size:21px; line-height:1.5; }
 .focus-heading { gap:12px; padding-bottom:20px; border-bottom:1px solid var(--border); }
 .focus-heading h2 { font-size:23px; margin:8px 0 12px; }
 .focus-heading p { font-size:13px; line-height:1.9; }
+.focus-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:10px; }
+.focus-actions form { margin:0; }
+.focus-actions button { white-space:nowrap; }
 .focus-heading .source-note { font-size:12px; color:var(--muted); }
 .change-summary { border:1px solid #386958 !important; background:linear-gradient(100deg,#19372d,#172820) !important; padding:18px 20px !important; margin:22px 0 12px !important; }
 .change-summary>strong { color:var(--accent); font-size:11px; font-weight:600; }
@@ -750,8 +756,8 @@ h2 { font-size:21px; line-height:1.5; }
 .detail-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .detail-card:nth-last-child(-n+3) { grid-column:auto; }
 .detail-card>summary { font-size:12px; font-weight:500; }
-@media(max-width:1150px) { main { width:calc(100% - 48px); padding-top:32px; } .report-workspace { grid-template-columns:1fr; } .scenario-section { position:static; } .scenario-index { grid-template-columns:repeat(2,minmax(0,1fr)); } .scenario-row:last-child { grid-column:1 / -1; } .scenario-link { height:100%; } .role-card { padding:14px 12px; } .summary-strip>div { padding:16px; } }
-@media(max-width:760px) { .current-progress { position:static; } main { width:calc(100% - 32px); padding-top:24px; } .summary-strip { grid-template-columns:1fr 1fr; } .summary-strip>div:nth-child(3) { border-left:0; border-top:1px solid var(--border); } .summary-strip>div:nth-child(4) { border-top:1px solid var(--border); } .summary-strip>div:nth-child(5) { border-top:1px solid var(--border); border-left:0; } .summary-strip dd { font-size:13px; } .role-map { grid-template-columns:repeat(2,minmax(0,1fr)); } .role-card:last-child { grid-column:1 / -1; } .role-card p,.role-card strong { min-height:0; } .section-heading { display:block; } .section-heading p:last-child { margin-top:8px; } .report .focus-panel { padding:18px; } .focus-heading h2 { font-size:20px; } .flow-toolbar { align-items:flex-start; } .report .decision-trail { grid-template-columns:1fr; } }
+@media(max-width:1150px) { main { width:calc(100% - 48px); padding-top:32px; } .report-workspace { grid-template-columns:1fr; } .report-workspace .scenario-section { position:static; max-height:none; overflow:visible; } .report-workspace .scenario-index { grid-template-columns:repeat(2,minmax(0,1fr)); } .report-workspace .scenario-row:last-child { grid-column:1 / -1; } .scenario-link { height:100%; } .role-card { padding:14px 12px; } .summary-strip>div { padding:16px; } }
+@media(max-width:760px) { .current-progress { position:static; } main { width:calc(100% - 32px); padding-top:24px; } .demo-workspace { grid-template-columns:1fr; gap:16px; } .demo-workspace .scenario-section { position:static; max-height:none; overflow:visible; min-width:0; } .demo-workspace .scenario-index { display:flex; gap:8px; min-width:0; max-width:100%; overflow-x:auto; overflow-y:hidden; overscroll-behavior-inline:contain; padding-bottom:8px; } .demo-workspace .scenario-row { flex:0 0 158px; } .demo-workspace .scenario-link { display:grid; grid-template-columns:28px minmax(0,1fr); padding:10px; height:100%; } .demo-workspace .scenario-result,.demo-workspace .scenario-pivot { display:none; } .demo-workspace .scenario-link .status { grid-column:2; } .summary-strip { grid-template-columns:1fr 1fr; } .summary-strip>div:nth-child(3) { border-left:0; border-top:1px solid var(--border); } .summary-strip>div:nth-child(4) { border-top:1px solid var(--border); } .summary-strip>div:nth-child(5) { border-top:1px solid var(--border); border-left:0; } .summary-strip dd { font-size:13px; } .role-map { grid-template-columns:repeat(2,minmax(0,1fr)); } .role-card:last-child { grid-column:1 / -1; } .role-card p,.role-card strong { min-height:0; } .section-heading { display:block; } .section-heading p:last-child { margin-top:8px; } .report .focus-panel { padding:18px; } .focus-heading h2 { font-size:20px; } .flow-toolbar { align-items:flex-start; } .report .decision-trail { grid-template-columns:1fr; } }
 @media(max-width:480px) { .scenario-index { grid-template-columns:1fr; } .hero { gap:20px; } .summary-strip>div { padding:14px; } .detail-grid { grid-template-columns:1fr; } .diagram-actions { align-items:flex-start; } }
 @media print { .report-workspace { display:block; } .scenario-section { position:static; } .report-scenario[hidden] { display:block; } .diagram-actions { display:none; } .report-scenario { break-before:page; } }
 

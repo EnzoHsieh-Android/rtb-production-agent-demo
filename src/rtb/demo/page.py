@@ -57,13 +57,20 @@ FLOW_SCRIPT: Final = """(() => {
     pinned = pin;
     box.hidden = false;
     node.setAttribute('aria-expanded', 'true');
+    box.style.maxHeight = '';
     const rect = node.getBoundingClientRect();
     const width = box.getBoundingClientRect().width;
+    const naturalHeight = box.getBoundingClientRect().height;
+    const availableBelow = Math.max(0, innerHeight - rect.bottom - 16);
+    const availableAbove = Math.max(0, rect.top - 16);
+    const above = availableBelow < naturalHeight && availableAbove > availableBelow;
+    const room = above ? availableAbove : availableBelow;
+    const viewportHeight = Math.max(0, innerHeight - 16);
+    box.style.maxHeight = `${Math.min(416, room < 120 ? viewportHeight : room)}px`;
     const height = box.getBoundingClientRect().height;
     box.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`;
-    const top = rect.bottom + height + 8 < innerHeight
-      ? rect.bottom + 8 : rect.top - height - 8;
-    box.style.top = `${Math.max(8, top)}px`;
+    const top = room < 120 ? 8 : above ? rect.top - height - 8 : rect.bottom + 8;
+    box.style.top = `${Math.max(8, Math.min(top, innerHeight - height - 8))}px`;
   };
   document.addEventListener('pointerover', event => {
     const node = nodeFor(event.target);
@@ -225,14 +232,14 @@ def render_page(
     selected: ScenarioCode | None = None,
 ) -> str:
     """產生可觸發展示、可顯示即時進度的完整頁面；每次重讀須傳入新的 tick。"""
-    return _render_document(
+    return _public_page_html(_render_document(
         state,
         form_token=form_token,
         interactive=True,
         selected=selected,
         refresh_tick=refresh_tick,
         inline_styles=False,
-    )
+    ))
 
 
 def render_report(state: DemoState, *, inline_styles: bool = True) -> str:
@@ -255,13 +262,23 @@ def render_report(state: DemoState, *, inline_styles: bool = True) -> str:
         '<a href="#scenarios">情境與流程</a><a href="#report-details">查核、限制與名詞</a></nav>'
         f"{_render_system_map(state.flow)}"
         '<div class="report-workspace">'
-        f"{_render_scenario_index(state, state.scenarios[0], False, None)}"
+        f"{_render_scenario_index(state, state.scenarios[0], False)}"
         f'<section class="report-scenarios" aria-label="七個情境的處理流程">{scenarios}</section>'
         f"</div>{_render_report_details(state)}</main>"
     )
     head = _render_head(refresh_url=None, inline_styles=inline_styles)
-    return (f'<!doctype html><html lang="zh-Hant">{head}<body>{body}'
-            f'<script>{FLOW_SCRIPT}</script></body></html>')
+    return _public_page_html(f'<!doctype html><html lang="zh-Hant">{head}<body>{body}'
+                             f'<script>{FLOW_SCRIPT}</script></body></html>')
+
+
+def _public_page_html(markup: str) -> str:
+    """最後檢查讀者可見的舊模式用語；所有動態內容此時都已經過 escape_text。"""
+    return (markup.replace("沒有對應的錄製回應", "AI 這次沒有給出回答")
+            .replace("(展示模式,未通過採用門檻)", "")
+            .replace("(展示模式)", "")
+            .replace("錄製回應", "AI 回答")
+            .replace("即時呼叫", "AI 回答")
+            .replace("即時清單", "AI 情境"))
 
 
 def _render_report_details(state: DemoState) -> str:
@@ -316,6 +333,10 @@ def _render_document(
     head = _render_head(refresh_url=refresh_url, inline_styles=inline_styles)
     current = _render_current_progress(state) if interactive else ""
     actions = _render_actions(state, form_token, focus) if interactive else ""
+    rerun = (
+        _form("/run/scenario", "重跑", form_token, focus.code.value)
+        if not state.running and not awaiting and form_token is not None else ""
+    )
     body = (
         f'{current}<main><header class="hero"><div><p class="eyebrow">'
         "廣告預算安全調整示範</p>"
@@ -324,8 +345,10 @@ def _render_document(
         "以及最後結果好不好。七個情境是同一次展示依序跑的七個子案例。</p>"
         f"</div>{_render_summary(state)}{actions}</header>"
         f"{_render_system_map(state.flow)}"
-        f"{_render_scenario_index(state, focus, interactive, form_token)}"
-        f"{_render_focus(focus, state.flow)}"
+        '<div class="demo-workspace">'
+        f"{_render_scenario_index(state, focus, interactive)}"
+        f"{_render_focus(focus, state.flow, rerun=rerun)}"
+        '</div>'
         '</main>'
     )
     return (f'<!doctype html><html lang="zh-Hant">{head}<body>{body}'
@@ -591,10 +614,9 @@ def _render_scenario_index(
     state: DemoState,
     focus: Scenario,
     interactive: bool,
-    token: str | None,
 ) -> str:
     rows = "".join(
-        _render_scenario_row(item, item is focus, interactive, token, state)
+        _render_scenario_row(item, item is focus, interactive, state)
         for item in state.scenarios
     )
     return (
@@ -610,21 +632,15 @@ def _render_scenario_row(
     scenario: Scenario,
     selected: bool,
     interactive: bool,
-    token: str | None,
     state: DemoState,
 ) -> str:
-    running, flow = state.running or _is_awaiting_approval(state), state.flow
+    flow = state.flow
     selected_class = " is-selected" if selected else ""
     status_class = _STATUS_CLASS[scenario.status]
     status = f"{_STATUS_ICON[scenario.status]} {scenario.status.value}"
-    result = scenario.result_summary or _fallback_result(scenario)
-    origin = _origin_kind(scenario)
     content = (
         f'<span class="scenario-code">{escape_text(scenario.code.value)}</span>'
         f'<span class="scenario-name">{escape_text(scenario.title)}</span>'
-        f'<span class="scenario-pivot">{escape_text(_pivot_text(scenario, flow))}</span>'
-        f'<span class="scenario-result">{escape_text(result)}'
-        f'<small>{escape_text(origin)}</small></span>'
         f'<span class="status {status_class}">{escape_text(status)}</span>'
     )
     if interactive:
@@ -632,13 +648,18 @@ def _render_scenario_row(
             f'<a class="scenario-link" href="?scenario={scenario.code.value}#flow">{content}</a>'
         )
     else:
+        result = scenario.result_summary or _fallback_result(scenario)
+        origin = _origin_kind(scenario)
+        content = (
+            f'<span class="scenario-code">{escape_text(scenario.code.value)}</span>'
+            f'<span class="scenario-name">{escape_text(scenario.title)}</span>'
+            f'<span class="scenario-pivot">{escape_text(_pivot_text(scenario, flow))}</span>'
+            f'<span class="scenario-result">{escape_text(result)}'
+            f'<small>{escape_text(origin)}</small></span>'
+            f'<span class="status {status_class}">{escape_text(status)}</span>'
+        )
         content = f'<a class="scenario-link" href="#flow-{scenario.code.value}">{content}</a>'
-    rerun = ""
-    if interactive and not running:
-        if token is None:
-            raise ValueError("互動頁缺少表單值")
-        rerun = _form("/run/scenario", "重跑", token, scenario.code.value)
-    return f'<li class="scenario-row{selected_class}">{content}{rerun}</li>'
+    return f'<li class="scenario-row{selected_class}">{content}</li>'
 
 
 def _pivot_text(scenario: Scenario, flow: FlowGraph) -> str:
@@ -671,6 +692,7 @@ def _render_focus(
     *,
     id_suffix: str | None = None,
     compact: bool = False,
+    rerun: str = "",
 ) -> str:
     status_class = _STATUS_CLASS[scenario.status]
     status = f"{_STATUS_ICON[scenario.status]} {scenario.status.value}"
@@ -690,11 +712,10 @@ def _render_focus(
         f'<h2 id="{escape_text(title_id)}"><span>{escape_text(scenario.code.value)}</span> '
         f"{escape_text(scenario.title)}</h2>"
         f"{reason}</div>"
-        f'<span class="status {status_class}">{escape_text(status)}</span></div>'
+        f'<div class="focus-actions"><span class="status {status_class}">'
+        f'{escape_text(status)}</span>{rerun}</div></div>'
         '<details class="scenario-intent" open><summary>這次情境</summary>'
-        f'<p>這次情境：{escape_text(scenario.what_it_tests)}</p>'
-        f'<p><strong>觸發條件：</strong>{escape_text(scenario.trigger or "(這次沒有記錄)")}</p>'
-        f'<p><strong>目標：</strong>{escape_text(scenario.goal or "(這次沒有記錄)")}</p>'
+        f'{_render_intent(scenario)}'
         '</details>'
         '<details class="flow-disclosure" open><summary>處理流程：實際走到的階段</summary>'
         f"{render_flow(flow, scenario, _flow_node_details(scenario, flow))}</details>"
@@ -712,6 +733,19 @@ def _render_focus(
         f"{_render_ai_node_card(scenario)}"
         '</details></section>'
     )
+
+
+def _render_intent(scenario: Scenario) -> str:
+    """觸發、情境與目標併讀；同一句目標只留一次。"""
+    what = scenario.what_it_tests.strip()
+    goal = (scenario.goal or "").strip()
+    if goal and goal not in what and what not in goal:
+        purpose = f"{what.rstrip('。')}。目標是{goal.rstrip('。')}。"
+    else:
+        purpose = what or goal or "(這次沒有記錄)"
+    trigger = scenario.trigger or "(這次沒有記錄)"
+    return (f'<p><strong>觸發條件：</strong>{escape_text(trigger)}；'
+            f'{escape_text(purpose)}</p>')
 
 
 _SCALED_DOWN: Final = "規模縮小：這是等比例縮小的展示；完整規模由自動查核跑的 F7 測試證明。"
@@ -789,7 +823,8 @@ def _render_operation_details(scenario: Scenario) -> str:
 
 def _render_decision_hero(scenario: Scenario) -> str:
     """頁首只彙總已有的選擇；多件工作逐種計數，不以一件代表全部。"""
-    who = scenario.decided_by.value if scenario.decided_by else "(這次沒有記錄)"
+    who = (scenario.decided_by.value.replace("(展示模式)", "")
+           if scenario.decided_by else "(這次沒有記錄)")
     choices: dict[str, int] = {}
     for decision in scenario.path:
         if (decision.kind is DecisionKind.AI_JUDGEMENT or
@@ -882,7 +917,8 @@ def _render_ai_rounds(scenario: Scenario) -> str:
             reason = (f'<p class="ai-round-card__fallback">'
                       f'{escape_text(_public_text(decision.outcome))}</p>')
             rules = "".join(
-                f'<li>{escape_text(_rule_followup_text(item))}</li>' for item in followup
+                f'<li>{escape_text(_public_text(_rule_followup_text(item)))}</li>'
+                for item in followup
             )
             body = (f'{reason}<div class="ai-round-card__rules">'
                     '<strong>程式規則接手後的判斷</strong>'
@@ -893,7 +929,7 @@ def _render_ai_rounds(scenario: Scenario) -> str:
                              takeover.outcome)
             body = (_ai_basis(decision, fields_class="ai-round-card__fields") +
                     f'<div class="ai-round-card__takeover"><strong>程式接手</strong>'
-                    f'<p>{escape_text(takeover_text)}</p></div>')
+                    f'<p>{escape_text(_public_text(takeover_text))}</p></div>')
         card_class = "ai-round-card is-fallback" if fallback else "ai-round-card"
         cards.append(
             f'<article class="{card_class}"><h4>第 {number} 輪／{escape_text(task_label)}</h4>'
@@ -917,6 +953,8 @@ def _rule_followup_text(decision: Decision) -> str:
 def _public_text(value: str) -> str:
     """只把內部的缺錄原因與考題前綴換成讀者看到的白話。"""
     shown = (value.replace("沒有對應的錄製回應", "AI 這次沒有給出回答")
+             .replace("(展示模式,未通過採用門檻)", "")
+             .replace("(展示模式)", "")
              .replace("錄製當時的 AI 回答:", "AI 的回答："))
     for source in ("錄製回應", "即時呼叫", "來源沒有記下"):
         shown = shown.replace(f"理由({MODEL_LABEL},{source}):", f"理由({MODEL_LABEL}):")
@@ -976,7 +1014,10 @@ def _ai_cell_followup(path: tuple[Decision, ...], position: int, decision: Decis
         return f'<p>程式接手：{escape_text(summary)}</p>'
     if decision.taken_edge == ("a_ai", "a_rule"):
         rules = _round_rule_followup(path, position)
-        return "".join(f'<p>{escape_text(_rule_followup_text(item))}</p>' for item in rules)
+        return "".join(
+            f'<p>{escape_text(_public_text(_rule_followup_text(item)))}</p>'
+            for item in rules
+        )
     return ""
 
 
@@ -1064,10 +1105,11 @@ def _decision_card(
     basis = (
         "".join(
             '<li><span>量到的值：'
-            f'{escape_text(item.observed)}</span><span>標準：{escape_text(item.standard)}</span>'
-            f'<strong>比較結果：{escape_text(item.conclusion)}</strong>'
+            f'{escape_text(_public_text(item.observed))}</span>'
+            f'<span>標準：{escape_text(_public_text(item.standard))}</span>'
+            f'<strong>比較結果：{escape_text(_public_text(item.conclusion))}</strong>'
             + (f'<small class="basis-source">{escape_text(item.source)}</small>'
-               if item.source else "")
+               if item.source and item.source not in ("錄製回應", "即時呼叫") else "")
             + '</li>'
             for item in decision.basis
         )
@@ -1119,9 +1161,11 @@ def _ai_basis(decision: Decision, *, fields_class: str = "") -> str:
         '<div class="decision-basis ai-round">'
         f'<p class="model-warning">AI 判斷・{MODEL_LABEL}</p>'
         f'<dl class="{escape_text(fields_class)}">'
-        f"<dt>AI 看到的證據（程式整理的數字）</dt><dd>{escape_text(main.observed)}</dd>"
-        f"<dt>這一輪允許的選項</dt><dd>{escape_text(main.standard)}</dd>"
-        f"<dt>AI 選了什麼、理由（{MODEL_LABEL}）</dt><dd>{escape_text(main.conclusion)}</dd>"
+        "<dt>AI 看到的證據（程式整理的數字）</dt>"
+        f"<dd>{escape_text(_public_text(main.observed))}</dd>"
+        f"<dt>這一輪允許的選項</dt><dd>{escape_text(_public_text(main.standard))}</dd>"
+        f"<dt>AI 選了什麼、理由（{MODEL_LABEL}）</dt>"
+        f"<dd>{escape_text(_public_text(main.conclusion))}</dd>"
         f"{quoted}</dl></div>"
     )
 
