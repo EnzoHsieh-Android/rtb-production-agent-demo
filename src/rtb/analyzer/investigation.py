@@ -288,22 +288,6 @@ def _daily_trend(rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
     }
 
 
-_WINDOW_FIELDS = ("impressions", "clicks", "conversions", "spend", "revenue")
-
-
-def contradictory(option: QueryOption, raw: Mapping[str, Any]) -> bool:
-    """資料自相矛盾、整份收據記成「沒有結果(invalid)」的情況:較長時間窗的 1 天窗有任何計數或金額
-    大於 7 天窗(代碼審 r2 y4)。缺值的欄不比。"""
-    if option is not QueryOption.CHECK_LONGER_WINDOW:
-        return False
-    day, week = raw["1d"], raw["7d"]
-    for name in _WINDOW_FIELDS:
-        small, large = m.exact_value(day.get(name)), m.exact_value(week.get(name))
-        if isinstance(small, Fraction) and isinstance(large, Fraction) and small > large:
-            return True
-    return False
-
-
 def raw_rows(option: QueryOption, raw: Mapping[str, Any]) -> int:
     if option is QueryOption.CHECK_LONGER_WINDOW:
         return 2
@@ -320,8 +304,6 @@ def canonical_json(raw: Mapping[str, Any]) -> str:
 def receipt_evidence(task_id: str, seq: int, option: QueryOption, raw: Mapping[str, Any] | None,
                      no_result: NoResult | None, now: datetime) -> Evidence:
     """把一個查詢的結果寫成收據證據(可信、扁平、只含數字字串與短代號);沒有結果寫 result=none。"""
-    if raw is not None and contradictory(option, raw):
-        raw, no_result = None, NoResult.INVALID
     if raw is None:
         payload = {"result": "none", "reason": (no_result or NoResult.INVALID).value,
                    RAW_ROWS: "0"}
@@ -447,7 +429,8 @@ def _choice(raw: Any, allowed: Sequence[str],
             raise OffMenu("結論不在這一輪允許清單")
         return Conclusion(raw), ()
     if (not isinstance(raw, list) or not raw or len(raw) > budget
-            or len(set(map(str, raw))) != len(raw)):
+            or not all(isinstance(code, str) for code in raw) or len(set(raw)) != len(raw)):
+        # 先確認每個元素都是字串再去重:深巢狀的串列轉字串會丟 RecursionError(代碼審 r3 q1)
         raise OffMenu("查詢要是 1 個到剩下可查數量的不重複代碼串列")
     if any(not isinstance(code, str) or code not in allowed or code not in _OPTION_CODES
            for code in raw):
@@ -501,7 +484,7 @@ def parse_answer(text: str, allowed: Sequence[str], budget: int,
     選項代碼)。"""
     try:
         data = json.loads(text)
-    except (ValueError, TypeError) as bad:
+    except (ValueError, TypeError, RecursionError) as bad:  # 巢狀太深也是讀不成(代碼審 r3 q1)
         raise OffMenu("讀不成 JSON") from bad
     if not isinstance(data, dict) or set(data) != {"choice", "reason", "evidence"}:
         raise OffMenu("要恰好 choice、reason、evidence 三欄")

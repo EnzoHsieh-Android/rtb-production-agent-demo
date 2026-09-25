@@ -20,6 +20,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from fractions import Fraction
 from types import MappingProxyType
 from typing import Any
 
@@ -32,6 +33,7 @@ from rtb.domain._checks import (
     is_int_between,
 )
 from rtb.domain.evidence import MAX_UNTRUSTED_TEXT_LENGTH, Evidence, EvidenceKind, TrustClass
+from rtb.domain.metrics import exact_value
 from rtb.domain.proposal import ActionType
 from rtb.httpclient import request_json
 
@@ -204,8 +206,8 @@ def make_operation_lookup(
 # 查不到(404)記 not_found、逾時記 timeout、欄位不合格記 invalid,都是「這個查詢沒有結果」,不丟例外;
 # 其他失敗(5xx、連不上)照基本讀取的規則往外丟,這一步不寫入、下次重試。每支欄位檢查自己負責對任何
 # JSON 型別只回真假、不丟例外(跟上面兩張白名單同一種慣例)。
-# 呼叫紀錄(tool_calls)的記法跟既有一致:例外(含逾時)記例外類別名,同 _get;查不到記 not_found,
-# 同依冪等鍵查操作的包裝;200 但本文讀不懂或欄位不合格記 invalid(白名單不合格時照 HTTP 結果記 ok,
+# 呼叫紀錄(tool_calls)的記法三種都跟既有一致:例外(含逾時、200 但本文讀不懂)記例外類別名,同 _get;
+# 查不到記 not_found,同依冪等鍵查操作的包裝;成功記 ok(本文讀得懂但白名單不合格時也是 ok,
 # 收據那邊記 invalid)。
 
 
@@ -303,6 +305,16 @@ def _window_body(body: Any, campaign_id: str, window: str) -> dict[str, Any] | N
     return {n: body[n] for n in fields} if body["campaign_id"] == campaign_id else None
 
 
+def check_longer_window(day: dict[str, Any], week: dict[str, Any]) -> dict[str, Any] | None:
+    """較長時間窗的跨窗一致性(代碼審 r2 y4、r3 g1:判定只在讀取層這一處):1 天窗有任何計數或金額大於
+    7 天窗就是資料自相矛盾,整份回應不收、記 invalid。缺值的欄不比;比大小用精確值,不經浮點。"""
+    for name in (*_COUNT_FIELDS, *_AMOUNT_FIELDS):
+        small, large = exact_value(day.get(name)), exact_value(week.get(name))
+        if isinstance(small, Fraction) and isinstance(large, Fraction) and small > large:
+            return None
+    return {"1d": day, "7d": week}
+
+
 def _timed_out(problem: BaseException) -> bool:
     return isinstance(problem, TimeoutError) or isinstance(
         getattr(problem, "reason", None), TimeoutError)
@@ -329,7 +341,7 @@ def _read(base_url: str, path: str, timeout_seconds: float, task: TaskRow,
         # 呼叫紀錄記法對齊既有(代碼審 r2 z2):例外(含逾時)記例外類別名,同基本讀取的 _get;查不到
         # 記 not_found,同依冪等鍵查操作;200 但本文讀不懂記 invalid
         cause = none.__cause__
-        outcome = (type(cause).__name__ if none.reason == "timeout" and cause is not None
+        outcome = (type(cause).__name__ if none.reason != "not_found" and cause is not None
                    else none.reason)
         raise
     except Exception as exc:
@@ -376,9 +388,10 @@ def _query(base_url: str, timeout: float, task: TaskRow, option: str,
             body = _read(base_url, f"{root}/metrics?window={window}", timeout, task, on_call,
                          ToolEndpoint.DSP_METRICS)
             windows[window] = _window_body(body, campaign, window)
-        if any(item is None for item in windows.values()):
+        day, week = windows["1d"], windows["7d"]
+        if day is None or week is None:
             return None
-        return windows
+        return check_longer_window(day, week)
     if option == "check_change_history":
         return check_history(_read(base_url, f"{root}/history", timeout, task, on_call,
                                    ToolEndpoint.DSP_HISTORY))

@@ -159,13 +159,13 @@ def test_only_the_click_rate_is_na_when_a_segment_has_more_clicks_than_impressio
 
 
 def test_a_one_day_window_larger_than_the_seven_day_window_is_invalid():
+    """(r3 g1:判定搬到讀取層 dsp_client,整份回應不收、記 invalid)"""
     window = {"campaign_id": "c1", "impressions": 100, "clicks": 10, "conversions": 1,
               "spend": 1.0, "revenue": 2.0}
-    raw = {"1d": {**window, "window": "1d", "impressions": 100_000},
-           "7d": {**window, "window": "7d"}}
-    evidence = inv.receipt_evidence("t1", 2, inv.QueryOption.CHECK_LONGER_WINDOW, raw, None, NOW)
-    assert dict(evidence.payload) == {"result": "none", "reason": "invalid", "raw_rows": "0"}
+    assert dsp_client.check_longer_window(
+        {**window, "window": "1d", "impressions": 100_000}, {**window, "window": "7d"}) is None
     fine = {"1d": {**window, "window": "1d"}, "7d": {**window, "window": "7d", "clicks": 20}}
+    assert dsp_client.check_longer_window(fine["1d"], fine["7d"]) == fine
     ok = inv.receipt_evidence("t1", 2, inv.QueryOption.CHECK_LONGER_WINDOW, fine, None, NOW)
     assert dict(ok.payload)["d1_conversion_rate"] == "10.0"
     clicky = {"1d": {**window, "window": "1d", "clicks": 200, "impressions": 100},

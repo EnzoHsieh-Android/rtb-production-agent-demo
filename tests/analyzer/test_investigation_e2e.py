@@ -224,14 +224,17 @@ def test_the_runner_refuses_a_model_timeout_that_outlives_the_lease(tmp_path, mo
 
     assert investigation.MAX_COLLECT_READS == 6
     assert stepbudget.collect_step_worst_seconds(3.0, 6) == 58.0
-    assert stepbudget.ai_step_worst_seconds() == 50.0
+    assert stepbudget.ai_step_worst_seconds() == 55.0  # 代碼審 r3:多算一次記次等鎖
     assert refused("4", "--ai-judge")[0]  # 5 + 6 乘 9 + 5 = 64
     assert "租約" in refused("4", "--ai-judge")[1]
     assert not refused("3", "--ai-judge")[0]
     assert not refused("5")[0]  # 沒開 AI:5 秒照舊合法
     assert refused("15")[0]  # [S1001] 照舊
-    monkeypatch.setattr(stepbudget, "MODEL_TIMEOUT_SECONDS", 26.0)  # 26 + 10 + 20 + 5 = 61
+    # 代碼審 r3:AI 那一步 = 模型 + 清理 10 + 花費帳 20 + 記次 5 + 提交 5;21 + 40 = 61 要拒絕
+    monkeypatch.setattr(stepbudget, "MODEL_TIMEOUT_SECONDS", 21.0)
     assert refused("1", "--ai-judge")[0]
+    monkeypatch.setattr(stepbudget, "MODEL_TIMEOUT_SECONDS", 19.0)  # 19 + 40 = 59 放行
+    assert not refused("1", "--ai-judge")[0]
     monkeypatch.undo()
     monkeypatch.setattr(investigation, "MAX_COLLECT_READS", 7)  # 5 + 7 乘 8 + 5 = 66
     assert refused("3", "--ai-judge")[0]

@@ -112,6 +112,8 @@ class Judge:
             # 這件工作一生的模型呼叫次數(確定要呼叫的那一刻才記,代碼審 r1 s2、r2 v3)已到上限:
             # 模型付過費、提交卻一直沒寫進去時,不再重付,改由程式規則決定
             return _fallback(task, base, now, state, inv.FallbackReason.AI_ALREADY_USED)
+        if self.stop_requested():  # 記次等鎖期間收到停止(代碼審 r3 w1):已記的次數照算,不呼叫
+            raise RenewalSkipped("已收到停止:不呼叫模型")
         try:
             result = self.complete(inv.SYSTEM_PROMPT, user)
         except modelgate.ModelCallFailed as failed:

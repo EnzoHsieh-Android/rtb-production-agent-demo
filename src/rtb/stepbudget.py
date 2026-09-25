@@ -29,13 +29,14 @@ def collect_step_worst_seconds(dsp_timeout_seconds: float, reads: int) -> float:
 
 def ai_step_worst_seconds() -> float:
     """AI 那一步從續租拿到鎖、讀時鐘之後算起的最壞耗時:模型逾時、兩次等行程群組、花費帳預留一次加
-    結算最多三次的等鎖、提交等鎖(15 + 10 + 20 + 5 = 50)。續租自己的等鎖在讀時鐘之前,不佔新租約。"""
+    結算最多三次的等鎖、送出前記一次模型呼叫的等鎖(Phase 13 代碼審 r3 補)、提交等鎖
+    (15 + 10 + 20 + 5 + 5 = 55,仍小於租約 60)。續租自己的等鎖在讀時鐘之前,不佔新租約。"""
     ledger_waits = (LEDGER_RESERVATIONS + SETTLE_ATTEMPTS) * BUSY_TIMEOUT_SECONDS
     return (MODEL_TIMEOUT_SECONDS + GROUP_EXIT_WAITS * GROUP_EXIT_WAIT_SECONDS + ledger_waits
-            + BUSY_TIMEOUT_SECONDS)
+            + BUSY_TIMEOUT_SECONDS + BUSY_TIMEOUT_SECONDS)
 
 
 def ai_stop_grace_seconds() -> float:
     """帶 --ai-judge 的分析端收到停止後最多還要多久:停止可能在續租等鎖時送到,從那一刻算起是續租
-    等鎖加上續租後的最壞耗時(5 + 50 = 55)。"""
+    等鎖加上續租後的最壞耗時(5 + 55 = 60)。"""
     return BUSY_TIMEOUT_SECONDS + ai_step_worst_seconds()
