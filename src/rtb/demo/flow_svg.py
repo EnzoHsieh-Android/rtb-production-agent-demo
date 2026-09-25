@@ -9,6 +9,7 @@
 import html
 import unicodedata
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
@@ -109,16 +110,17 @@ def flow_label(label: str) -> str:
 
 
 def _ai_boundary(scenario: Scenario) -> str:
-    """這個情境 AI 參與到哪:開了 AI 決策時 AI 選下一步(展示模式、未通過採用門檻),金額照舊由
-    程式算。"""
+    """這個情境 AI 參與到哪；金額照舊由程式算。"""
     if scenario.ai_enabled:
-        return ("這個情境讓 AI 參與決定下一步（展示模式、未通過採用門檻）；"
+        return ("這個情境讓 AI 參與決定下一步；"
                 "金額、廣告與動作照舊由程式決定，AI 答不出或答錯就改由程式規則決定；"
                 "AI 說明與推測只供參考。")
     return "目前正式預算決策由程式規則執行；AI 候選另行評估，AI 說明與推測供參考。"
 
 
-def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
+def render_flow(  # noqa: PLR0915 - 流程圖組裝包含泳道、邊、節點與判斷框
+    flow: FlowGraph, scenario: Scenario, node_details: Mapping[str, str] | None = None,
+) -> str:
     view = _flow_view(flow, scenario)
     if not view.nodes:
         return '<p class="empty flow-empty">這個情境還沒有走過的路徑紀錄。</p>'
@@ -147,6 +149,20 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         for node_id in item.taken_edge or (item.node,):
             entered.setdefault(node_id, index)
     groups = dict(view.groups)
+    details = node_details or {}
+    popovers: list[str] = []
+    for node in view.nodes:
+        parts = [details[item.id] for item in groups.get(node.id, ()) if item.id in details]
+        content = "".join(parts) if parts else details.get(
+            node.id, '<p>這一步沒有留下判斷紀錄。</p>'
+        )
+        popover_id = f"flow-detail-{scenario.code.value}-{node.id}"
+        popovers.append(
+            f'<div class="flow-popover" id="{escape_text(popover_id)}" hidden '
+            'role="dialog" aria-label="這一步的判斷內容">'
+            '<button class="flow-popover-close" type="button" aria-label="關閉判斷內容">×</button>'
+            f'<h4>{escape_text(flow_label(node.label))}</h4>{content}</div>'
+        )
     nodes = "".join(
         _render_node(
             node,
@@ -162,6 +178,7 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
                   if fault.node == node.id or fault.node in {
                       item.id for item in groups.get(node.id, ())
                   }),
+            f"flow-detail-{scenario.code.value}-{node.id}",
         )
         for node in view.nodes
     )
@@ -200,14 +217,15 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         '<div class="flow-lanes" aria-label="處理角色">'
         f'{lane_labels}</div><div class="flow-scroll" tabindex="0" '
         'role="region" aria-label="處理流程，可使用左右方向鍵捲動"><div class="flow-canvas">'
-        f'<svg class="flow-graph" role="img" aria-label="{escape_text(scenario.code.value)} '
+        f'<svg class="flow-graph" role="group" aria-label="{escape_text(scenario.code.value)} '
         f'處理流程圖" viewBox="0 0 {width} {height}" '
         f'width="{width}" height="{height}"><defs>'
         f'<marker id="{marker_id}" markerWidth="8" '
         'markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" '
         'class="arrow-head"></path></marker></defs>'
-        f"{lane_bands}{active_edges}{handoff}{back}{nodes}</svg></div></div></div></div>"
-        f"{faults}{_render_untaken_branches(flow, scenario)}"
+        f"{lane_bands}{active_edges}{handoff}{back}{nodes}</svg></div></div></div>"
+        f"{''.join(popovers)}</div>"
+        f"{faults}"
     )
 
 
@@ -239,7 +257,7 @@ def _render_handoff(positions: dict[str, tuple[int, int]], *, queued: bool) -> s
     )
 
 
-def _render_untaken_branches(flow: FlowGraph, scenario: Scenario) -> str:
+def render_untaken_branches(flow: FlowGraph, scenario: Scenario) -> str:
     """每條未走分支只畫到最近的結束點或這次已走過的節點。"""
     nodes = node_map(flow)
     outgoing: dict[str, list[FlowEdge]] = defaultdict(list)
@@ -505,6 +523,7 @@ def _render_node(  # noqa: PLR0913 - 節點要帶狀態、編號、群組與故�
     group_numbers: tuple[int, ...],
     grouped: tuple[FlowNode, ...],
     faults: tuple[str, ...],
+    popover_id: str,
 ) -> str:
     x, y = position
     state_class = "is-current" if current else "is-visited" if visited else "is-future"
@@ -531,7 +550,7 @@ def _render_node(  # noqa: PLR0913 - 節點要帶狀態、編號、群組與故�
                  f'{covered}</text>')
     details = (
         f'<text class="group-detail" x="{x + _GROUP_WIDTH // 2}" y="{y + 61}">'
-        f'{len(grouped)} 步・細節見下方卡片</text>'
+        f'{len(grouped)} 步・點選看判斷</text>'
         if grouped else ""
     )
     title = (
@@ -544,7 +563,10 @@ def _render_node(  # noqa: PLR0913 - 節點要帶狀態、編號、群組與故�
     )
     return (
         f'<g class="flow-node {state_class} kind-{node.kind.name.lower()} '
-        f'owner-{node.owner.name.lower()}{" is-group" if grouped else ""}">'
+        f'owner-{node.owner.name.lower()}{" is-group" if grouped else ""}" '
+        f'tabindex="0" role="button" aria-expanded="false" '
+        f'aria-controls="{escape_text(popover_id)}" '
+        f'data-flow-popover="{escape_text(popover_id)}">'
         f"<title>{escape_text(title)}</title>{shape}{badge}{marker}"
         f'<text class="node-label">{label}</text>'
         f'{details}<text class="node-state" x="{x + _node_width(node) // 2}" '

@@ -81,7 +81,7 @@ def _capture(monkeypatch, on_first_start=None):
     return seen
 
 
-# ---- [S1027] 說明卡:程式算的數字在前,再來是標示與來源、模型文字;沒成功顯示結果類別 ----
+# ---- [S1027] 說明卡:程式算的數字在前,再來是 AI 標示與文字;頁面不列模式 ----
 def test_the_model_step_shows_computed_numbers_first_and_labels_the_text(tmp_path, state):
     recordings = tmp_path / "rec"
     fake.fake_batch(recordings, BATCH, {"normal": [fake.PROPOSE]}, narrative=fake.NARRATIVE)
@@ -91,22 +91,25 @@ def test_the_model_step_shows_computed_numbers_first_and_labels_the_text(tmp_pat
     assert step is not None and step.result_kind == "ok" and step.source is ModelSource.RECORDED
     page = render_page(shown, form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
     card = page.split('class="ai-node-card"', 1)[1]
-    numbers, label = card.index("100 → 110"), card.index(f"{MODEL_LABEL}・錄製回應")
+    numbers, label = card.index("100 → 110"), card.index(MODEL_LABEL)
     assert numbers < label < card.index(fake.NARRATIVE[:8])
+    assert "錄製回應" not in card and "即時" not in card
     failed = replace(step, narrative=None, result_kind="no_recording")  # 沒有成功結果:顯示結果類別
     page = render_page(replace(shown, scenarios=tuple(
         replace(s, model_step=failed) if s.code is ScenarioCode.F1 else s
         for s in shown.scenarios)), form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
     card = page.split('class="ai-node-card"', 1)[1].split("</div>", 1)[0]
-    assert "沒有對應的錄製回應" in card and MODEL_LABEL not in card
+    assert "AI 這次沒有給出回答" in card and MODEL_LABEL not in card
 
 
-# ---- [S1028] 頁面顯示模型入口實際判出的模式,不是驅動程式推的 ----
-def test_the_page_shows_the_model_mode_the_entry_actually_chose(tmp_path, state, monkeypatch):
+# ---- [S1028] 模型入口保留實際模式,頁面不區分來源 ----
+def test_the_page_hides_model_mode_while_entries_keep_their_actual_choice(
+    tmp_path, state, monkeypatch,
+):
     """F1 列在即時清單、即時開關有開,但 PATH 上沒有 claude:驅動照清單會以為是即時,三支模型入口
-    自己判成錄製。頁面照入口回報的寫:分析端的模式行(錄製與原因)、說明命令列的來源(錄製回應)、
+    自己判成錄製。頁面不顯示分析端模式與說明來源;記錄仍保留入口實際判出的模式與原因。
     假說命令列印的那一欄照原樣存。即時清單的錄製目錄在情境起第一支行程前先放好假錄製,讓退回錄製的
-    入口讀得到回應(說明卡才有來源可顯示)。"""
+    入口讀得到回應(說明卡顯示 AI 回答,但不顯示來源)。"""
     recordings = tmp_path / "rec"
     fake.fake_batch(recordings, BATCH, {"normal": [fake.PROPOSE]}, narrative=fake.NARRATIVE)
     live_dir = tmp_path / "demos" / "demo-1" / "live-recordings" / "F1"
@@ -121,17 +124,18 @@ def test_the_page_shows_the_model_mode_the_entry_actually_chose(tmp_path, state,
         shown = build(reader, "demo-1")
     finally:
         reader.close()
-    # 分析端:模式行回報錄製與原因,頁面照寫
+    # 分析端:模式行回報錄製與原因,頁面隱藏
     assert details.model_mode == "recorded"
     f1 = _scenario(shown, ScenarioCode.F1)
     assert f1.model_mode_reason.startswith("列在即時清單,但分析端判成錄製回應:")
     page = render_page(shown, form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
-    assert f1.model_mode_reason in page and "AI 採錄製回應" in page
-    # 說明命令列:回報的模式與來源是錄製,頁面說明卡照寫「錄製回應」
+    assert f1.model_mode_reason not in page and "AI 採錄製回應" not in page
+    # 說明命令列:內部回報錄製來源,頁面說明卡只標 AI 產生
     narrated = json.loads(details.narrative_json)
     assert (narrated["mode"], narrated["source"]) == ("recorded", "recorded")
     assert f1.model_step.source is ModelSource.RECORDED
-    assert f"{MODEL_LABEL}・錄製回應" in page.split('class="ai-node-card"', 1)[1]
+    assert MODEL_LABEL in page.split('class="ai-node-card"', 1)[1]
+    assert "錄製回應" not in page and "即時清單" not in page
     # 假說命令列:印出的那一欄照原樣存(這次沒有告警),頁面照它寫
     assert json.loads(details.hypothesis_json)["status"] == "no_alert"
     assert f1.hypothesis is None and f1.hypothesis_note == present.NO_ALERT

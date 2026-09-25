@@ -3,6 +3,7 @@
 多數測試換掉驅動程式的情境(很快跑完的假情境),真的核可流程用縮小版 F7 真跑。
 """
 
+import base64
 import contextlib
 import hashlib
 import http.client
@@ -20,6 +21,7 @@ import pytest
 from rtb.demo import driver as driver_module
 from rtb.demo import server as server_module
 from rtb.demo.driver import Driver, Scenario
+from rtb.demo.page import FLOW_SCRIPT
 from rtb.demo.present import numbers_digest
 from rtb.demo.server import DemoService, serve
 from rtb.demo.state_store import ConfirmationRequest, DecisionRow, StateReader
@@ -135,15 +137,22 @@ def test_the_stylesheet_is_served_as_css(running):
 def test_every_route_rejects_a_non_local_host(running, method, path):
     """[S1017] 主機標頭不是本機:每一個路由都拒,錯誤頁帶內容安全政策標頭。"""
     status, headers, _ = _request(running, method, path, host="evil.example:80")
-    assert status == 400 and "script-src 'none'" in headers["Content-Security-Policy"]
+    assert status == 400 and "script-src 'sha256-" in headers["Content-Security-Policy"]
 
 
-def test_every_page_carries_a_script_free_content_security_policy(running):
-    """[S1023] 每個 HTML 回應(含錯誤頁)帶不准腳本的政策標頭,頁面裡沒有腳本。"""
+def test_every_page_allows_only_the_hashed_flow_script(running):
+    """[S1023] 每個 HTML 回應只允許那支固定流程格腳本。"""
+    digest = base64.b64encode(hashlib.sha256(FLOW_SCRIPT.encode()).digest()).decode()
+    expected = (
+        f"default-src 'none'; script-src 'sha256-{digest}'; style-src 'self'; "
+        "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; img-src 'none'"
+    )
     for path in ("/", "/report", "/approve", "/nothing"):
         _, headers, body = _request(running, "GET", path)
-        assert "script-src 'none'" in headers["Content-Security-Policy"], path
-        assert "<script" not in body.lower(), path
+        assert headers["Content-Security-Policy"] == expected, path
+        assert body.count("<script>") == (1 if path in {"/", "/report"} else 0), path
+        if path in {"/", "/report"}:
+            assert body.split("<script>", 1)[1].split("</script>", 1)[0] == FLOW_SCRIPT
 
 
 def test_every_post_redirects_to_the_current_node(running, service):
@@ -594,7 +603,7 @@ def test_a_request_without_a_host_header_is_refused_even_on_http_1_0(running):
         data = b""
         while chunk := conn.recv(4096):
             data += chunk
-    assert data.startswith(b"HTTP/1.0 400") and b"script-src 'none'" in data
+    assert data.startswith(b"HTTP/1.0 400") and b"script-src 'sha256-" in data
 
 
 # ---- 代碼審 r1(Phase 12 增量 2)----

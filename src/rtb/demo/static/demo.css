@@ -770,6 +770,18 @@ h2 { font-size:21px; line-height:1.5; }
 .report-workspace:has(#flow-F7:target) .scenario-row:has(a[href="#flow-F7"]) { background:var(--accent-soft); border-color:#4c8d7f; }
 .report-workspace:not(:has(.report-scenario :target)) .scenario-row:first-child { background:var(--accent-soft); border-color:#4c8d7f; }
 .diagram-view { position:relative; }
+.flow-node[data-flow-popover] { cursor:pointer; }
+.flow-node[data-flow-popover]:focus-visible rect,
+.flow-node[data-flow-popover][aria-expanded="true"] rect { stroke:var(--current); stroke-width:3px; }
+.flow-popover[hidden] { display:none; }
+.flow-popover { position:fixed; z-index:50; width:min(26rem,calc(100vw - 16px)); max-height:min(26rem,calc(100vh - 16px)); overflow-y:auto; padding:16px; border:1px solid var(--border-strong); border-radius:10px; background:var(--surface-raised); color:var(--text); box-shadow:var(--shadow); overflow-wrap:anywhere; }
+.flow-popover h4 { margin:0 28px 12px 0; }
+.flow-popover-close { float:right; min-width:32px; min-height:32px; cursor:pointer; }
+.flow-occurrences { list-style:none; margin:0; padding:0; }
+.flow-occurrence + .flow-occurrence { border-top:1px solid var(--border); padding-top:12px; margin-top:12px; }
+.flow-occurrence > strong { display:block; margin-bottom:8px; }
+.flow-popover .decision-trail { display:block; padding:0; }
+.flow-popover .decision-card { width:auto; }
 .diagram-zoom { position:absolute; opacity:0; width:1px; height:1px; }
 .diagram-actions label { padding:5px 12px; background:var(--surface-soft); border:1px solid var(--border); border-radius:7px; cursor:pointer; color:var(--text); }
 .diagram-zoom:focus-visible + .diagram-actions label { outline:3px solid var(--current); outline-offset:3px; }

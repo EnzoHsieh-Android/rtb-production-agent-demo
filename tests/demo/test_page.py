@@ -1,6 +1,8 @@
 # ruff: noqa: RUF001, S106
 from __future__ import annotations
 
+import base64
+import hashlib
 import html as html_lib
 import re
 import unicodedata
@@ -15,6 +17,7 @@ import pytest
 from rtb.demo.page import (
     CONTENT_SECURITY_POLICY,
     DEMO_CSS,
+    FLOW_SCRIPT,
     JARGON_TERMS,
     MODEL_LABEL,
     STYLESHEET_PATH,
@@ -72,7 +75,7 @@ def test_escape_text_turns_hostile_input_into_visible_plain_text() -> None:
 def test_page_never_contains_active_or_external_content(running: bool) -> None:
     html = render_page(make_demo_state(running=running), form_token='惡意"><script>')
 
-    assert re.search(r"<\s*script\b", html, re.IGNORECASE) is None
+    assert html.count('<script>') == 1
     tags = "\n".join(re.findall(r"<[^>]+>", html))
     assert re.search(r"\son[a-z]+\s*=", tags, re.IGNORECASE) is None
     assert re.search(r"\sstyle\s*=", tags, re.IGNORECASE) is None
@@ -80,6 +83,60 @@ def test_page_never_contains_active_or_external_content(running: bool) -> None:
     assert re.search(r'(?:href|src)="(?:https?:)?//', tags, re.IGNORECASE) is None
     assert "<foreignObject" not in html
     assert f'href="{STYLESHEET_PATH}"' in html
+
+
+def test_focus_reads_scenario_then_flow_then_results_and_collapses_other_details() -> None:
+    page = render_page(make_demo_state(), form_token="t")
+    focus = page.split('class="focus-panel', 1)[1]
+    positions = [focus.index(text) for text in (
+        'class="focus-heading"', '這次情境：', 'class="flow-disclosure"',
+        '處理結果概述', 'class="decision-hero"',
+        'class="change-summary"', '這次沒走的分支', '操作識別',
+    )]
+    assert positions == sorted(positions)
+    assert '<details class="scenario-intent" open>' in focus
+    assert '每一步為什麼這樣判' not in focus
+
+
+def test_flow_nodes_contain_escaped_step_details_for_hover_touch_and_keyboard() -> None:
+    state = make_demo_state()
+    first = state.scenarios[0]
+    changed = replace(first, path=(replace(first.path[0], outcome='<script>危險</script>'),
+                                   *first.path[1:]))
+    page = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])), form_token="t")
+    report = render_report(replace(state, scenarios=(changed, *state.scenarios[1:])))
+    for markup in (page, report):
+        assert 'class="flow-node ' in markup and 'tabindex="0"' in markup
+        assert 'role="button"' in markup and 'aria-expanded="false"' in markup
+        assert 'data-flow-popover=' in markup
+        assert 'class="flow-popover"' in markup and ' hidden role="dialog"' in markup
+        assert '&lt;script&gt;危險&lt;/script&gt;' in markup
+        assert '<script>危險</script>' not in markup
+        assert '量到的值：' in markup and '標準：' in markup and '比較結果：' in markup
+        assert 'class="flow-popover-close"' in markup
+    assert 'max-height:' in DEMO_CSS and '.flow-popover' in DEMO_CSS
+    assert 'Escape' in page and 'pointerover' in page and 'focusin' in page
+
+
+def test_repeated_flow_node_lists_occurrences_and_large_same_results_merge() -> None:
+    state = make_demo_state()
+    first = state.scenarios[0]
+    original = first.path[0]
+    few = replace(first, path=(original, replace(original, outcome="另一種結果"), original))
+    page = render_page(replace(state, scenarios=(few, *state.scenarios[1:])), form_token="t")
+    assert '第 1 次' in page and '第 2 次' in page and '第 3 次' in page
+    many = replace(first, path=tuple(replace(original, task_id=f"t{i}") for i in range(4200)))
+    page = render_page(replace(state, scenarios=(many, *state.scenarios[1:])), form_token="t")
+    assert '共 4200 筆，結果：' in page
+    assert page.count('class="decision-card') < 20
+
+
+def test_advisory_flow_cell_shows_its_existing_ai_explanation() -> None:
+    page = render_page(make_demo_state(), form_token="t")
+    cell = page.split('id="flow-detail-F1-ai_hypothesis"', 1)[1].split(
+        '</div></div><p class="fault-note"', 1)[0]
+    assert "廣告平台回覆變慢" in cell
+    assert "先查廣告平台的操作紀錄" in cell
 
 
 def test_running_page_refreshes_and_hides_trigger_forms() -> None:
@@ -159,7 +216,7 @@ def test_decision_basis_and_missing_data_have_honest_visible_copy() -> None:
 
     assert "這一步沒有留下數字根據" in html
     assert "最後改了什麼</strong><p>(這次沒有記錄)" in html
-    assert "為什麼開始跑：</strong>(這次沒有記錄)" in html
+    assert "觸發條件：</strong>(這次沒有記錄)" in html
     assert "在排隊等了 (這次沒有記錄)" in html
     assert "操作鍵 (這次沒有記錄)" in html
     assert "平台套用次數 (這次沒有記錄)" in html
@@ -281,7 +338,7 @@ def test_awaiting_approval_main_page_has_link_and_no_refresh_or_form() -> None:
 def test_content_security_policy_contains_every_required_directive() -> None:
     for directive in (
         "default-src 'none'",
-        "script-src 'none'",
+        "script-src 'sha256-",
         "style-src 'self'",
         "form-action 'self'",
         "frame-ancestors 'none'",
@@ -383,7 +440,10 @@ def test_report_navigation_and_sample_provenance_are_explicit() -> None:
     assert '名詞小辭典' in body and '這次示範的範圍與限制' in body
     main = render_page(state, form_token="token")
     assert '名詞小辭典' not in main and '這次示範的範圍與限制' not in main
-    assert '<script' not in report
+    assert report.count('<script>') == 1
+    script = report.split('<script>', 1)[1].split('</script>', 1)[0]
+    digest = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
+    assert f"script-src 'sha256-{digest}'" in CONTENT_SECURITY_POLICY
     for scenario in state.scenarios:
         code = scenario.code.value
         assert f'href="#flow-{code}"' in report
@@ -624,6 +684,9 @@ def test_ai_rounds_pair_by_task_and_escape_all_supplied_text() -> None:
     assert "正確接手" in rounds and "錯的接手" not in rounds
     assert "沒有留下接手紀錄" in rounds
     assert "<script>" not in rounds and "&lt;script&gt;" in rounds
+    ai_cell = (page.split('id="flow-detail-F1-a_ai"', 1)[1]
+               .split('</div><div class="flow-popover"', 1)[0])
+    assert "正確接手" in ai_cell and "錯的接手" not in ai_cell
 
 
 def test_identical_ai_rounds_show_count_without_hundreds_of_cards() -> None:
@@ -688,7 +751,7 @@ def test_every_scenario_flow_moves_right_and_decision_numbers_match_cards() -> N
         assert node_xs == sorted(node_xs)
         grouped = [group for group in nodes if "is-group" in group.get("class", "")]
         assert grouped
-        assert all("細節見下方卡片" in "".join(group.itertext()) for group in grouped)
+        assert all("點選看判斷" in "".join(group.itertext()) for group in grouped)
         assert len(node_xs) < len(scenario.traversed_edges) + 1
         badges = [group.find('text[@class="decision-badge"]') for group in nodes]
         numbers = [badge.text for badge in badges if badge is not None]
@@ -945,12 +1008,31 @@ def test_model_mode_cost_progress_and_utc_are_visible_in_summary() -> None:
     )
     html = render_page(state, form_token="token")
 
-    assert "錄製回應（沒有即時連線）" in html  # Phase 13 增量 4 代碼審 r1 t4:照實寫
+    assert "AI 說明方式" not in html and "錄製回應（沒有即時連線）" not in html
     assert "0.42 美元" in html
-    assert "沒有開即時開關" in html
+    assert "沒有開即時開關" not in html
     assert "上次完整執行 AI 費用" in html
     assert "UTC" in html
     assert "7 / 7" in html
+
+
+def test_page_hides_model_source_embedded_in_outcome_and_progress_text() -> None:
+    state = make_demo_state()
+    first = state.scenarios[0]
+    for mode_source in ("錄製回應", "即時呼叫"):
+        note = f"AI 的判斷:值得加預算。理由(AI 產生、僅供參考,{mode_source}):依收據判斷"
+        changed = replace(first, outcome_note=note)
+        shown = replace(state, scenarios=(changed, *state.scenarios[1:]))
+        for page in (render_page(shown, form_token="t", selected=ScenarioCode.F1),
+                     render_report(shown)):
+            assert mode_source not in page
+            assert "理由(AI 產生、僅供參考):依收據判斷" in page
+    running = make_demo_state(running=True)
+    assert running.current is not None and running.current.last_decision is not None
+    current = replace(running.current, last_decision=replace(
+        running.current.last_decision, outcome="沒有對應的錄製回應"))
+    live_page = render_page(replace(running, current=current), form_token="t")
+    assert "AI 這次沒有給出回答" in live_page and "錄製回應" not in live_page
 
 
 def test_current_step_accepts_timezone_aware_timestamp() -> None:
@@ -1127,7 +1209,7 @@ def test_a_progress_step_does_not_show_an_empty_basis() -> None:
 
 # ---- 代碼審 r1(Phase 12 增量 2)----
 def test_every_scenario_shows_where_its_result_came_from() -> None:
-    """[S1054][S1012] 主頁與報告逐情境顯示出處:展示編號、時間、AI 模式,重跑的標明取自單一情境重跑;
+    """[S1054][S1012] 主頁與報告逐情境顯示出處:展示編號、時間,重跑的標明取自單一情境重跑;
     F7 註明規模縮小;沒跑過的照實寫;自動查核那一格沒有完整執行過時照實寫。"""
     state = replace(make_demo_state(), is_sample=False, full_demo_id="2026-09-24-001")
     f3 = state.scenarios[2]
@@ -1141,6 +1223,7 @@ def test_every_scenario_shows_where_its_result_came_from() -> None:
         assert f"情境執行編號 {scenario.source_demo_id}-{scenario.code.value}" in report
         assert "執行時間" in report
     assert "取自單一情境重跑（展示編號 2026-09-25-rerun）" in report
+    assert "AI 採錄製回應" not in report and "AI 說明方式" not in report
     assert "這個情境還沒有執行紀錄" in report
     f7 = render_page(shown, form_token="token", selected=ScenarioCode.F7)
     assert "規模縮小" in f7 and "完整規模由自動查核跑的 F7 測試證明" in f7
@@ -1193,7 +1276,9 @@ def test_untrusted_text_never_becomes_markup() -> None:
     pages = (render_page(hostile, form_token="token", selected=ScenarioCode.F1),
              render_report(hostile), render_approval(hostile, form_token="token"))
     for markup in pages:
-        assert "<script>" not in markup and "<img" not in markup
+        assert markup.count("<script>") == (0 if '<main class="approval-page">' in markup else 1)
+        assert "<script>" not in markup.replace(f"<script>{FLOW_SCRIPT}</script>", "")
+        assert "<img" not in markup
         assert "〔U+202E〕" in markup and "&amp;amp;" in markup
         assert escape_text(HOSTILE) in markup
 
@@ -1243,7 +1328,7 @@ def test_plain_wording_for_normal_situations() -> None:
     assert "這個情境沒有安排故障" in markup and "(這次沒有記錄)</p>" not in markup.split(
         "fault-note", 1)[1][:80]
     assert "<dt>開始時間</dt><dd>—</dd>" in markup and "<dd>none</dd>" not in markup
-    assert "<dt>AI 說明方式</dt><dd>這次沒有呼叫 AI" in markup and "錄製" not in markup
+    assert "AI 說明方式" not in markup and "錄製" not in markup
     running = make_demo_state(running=True)
     assert running.current is not None
     ended = replace(running, current=replace(running.current, last_decision=Decision(
@@ -1482,7 +1567,7 @@ def test_the_report_shows_the_comparison_side_by_side() -> None:
     assert "<th>沒有自動查核</th><th>有自動查核</th>" in table
     assert ("<tr><td>只填已完成</td><td>pytest 結束代碼 0:2 passed</td><td>擋下:缺 result</td></tr>"
             in table)
-    assert "比的是有沒有機械驗證" in table and "<script>" not in report
+    assert "比的是有沒有機械驗證" in table and report.count("<script>") == 1
     assert "有無自動查核的差別" not in render_page(state, form_token="t")
     empty = render_report(replace(state, comparison=None))
     assert "前後比較這次還沒有產生" in empty

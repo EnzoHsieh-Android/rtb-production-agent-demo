@@ -14,7 +14,6 @@ from rtb.demo.driver import Driver
 from rtb.demo.keys import DemoKeys
 from rtb.demo.page import (
     CITED_LABEL,
-    DEMO_MODE_BANNER,
     JARGON_TERMS,
     MODEL_LABEL,
     render_page,
@@ -67,7 +66,7 @@ def _text(markup):
 
 
 def test_each_ai_round_shows_evidence_choice_reason_and_takeover(ran):
-    """[S1121] 每一輪:程式格式化的證據、允許的選項、選了什麼、標「AI 產生、僅供參考」與來源的理由、
+    """[S1121] 每一輪:程式格式化的證據、允許的選項、選了什麼、只標「AI 產生、僅供參考」的理由、
     「AI 引用的收據值(已核對存在)」,以及程式怎麼接手。"""
     f1 = _scenario(ran, ScenarioCode.F1)
     rounds = [d for d in f1.path if d.kind is DecisionKind.AI_JUDGEMENT]
@@ -89,8 +88,10 @@ def test_each_ai_round_shows_evidence_choice_reason_and_takeover(ran):
     page = render_page(ran, form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
     text = _text(page)
     for label in (MODEL_LABEL, "AI 看到的證據", "這一輪允許的選項", CITED_LABEL, "程式接手",
-                  "錄製回應", "100 → 110", "base.conversions = 1"):
+                  "100 → 110", "base.conversions = 1"):
         assert label in text, label
+    assert "錄製回應" not in text
+    assert page.index('class="flow-disclosure"') < page.index('class="decision-hero"')
     assert page.index('class="decision-hero"') < page.index('class="ai-rounds"')
     assert page.index('class="ai-rounds"') < page.index('class="change-summary"')
     assert '<section class="ai-rounds"' in page
@@ -112,37 +113,35 @@ def test_a_fallback_is_labelled_on_the_page(ran):
     assert [d.taken_edge for d in after[:2]] == [("a_rule", "a_worth"), ("a_worth", "a_propose")]
     assert f2.decided_by is DecidedBy.AI_FALLBACK
     text = _text(render_page(ran, form_token="t", selected=ScenarioCode.F2, refresh_tick=0))
-    assert "這次改由程式規則決定(原因:沒有對應的錄製回應)" in text
+    assert "這次改由程式規則決定(原因:AI 這次沒有給出回答)" in text
     page = render_page(ran, form_token="t", selected=ScenarioCode.F2, refresh_tick=0)
     rounds = page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0]
-    assert fallback.outcome in _text(rounds)
+    assert "這次改由程式規則決定(原因:AI 這次沒有給出回答)" in _text(rounds)
     assert 'class="ai-round-card is-fallback"' in rounds
-    assert "規則後續判斷" in rounds
+    assert "程式規則接手後判定：值得加預算" in rounds
 
 
-def test_ai_scenarios_are_labelled_demo_mode_not_adopted(ran):
-    """[S1123] 開了 AI 決策的情境,頁面與靜態報告都標「展示模式、未通過採用門檻」;沒跑過的不標。"""
+def test_ai_scenarios_have_no_demo_mode_banner(ran):
+    """[S1123] 詳情頁與靜態報告不掛展示模式橫幅。"""
     f1, f3 = _scenario(ran, ScenarioCode.F1), _scenario(ran, ScenarioCode.F3)
     assert f1.ai_enabled and f1.decided_by is DecidedBy.AI_DEMO
     assert f1.model_mode is ModelMode.RECORDED and not f3.ai_enabled
     page = render_page(ran, form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
-    assert DEMO_MODE_BANNER in page and "這次誰決定:AI(展示模式)".replace(":", "：") in page
-    assert "展示模式、未採用" in page
+    assert 'class="ai-banner"' not in page
+    assert "展示模式、未通過採用門檻" not in page
+    assert "展示模式、未採用" not in page
     report = render_report(ran)
-    banner = f'<div class="ai-banner"><strong>{DEMO_MODE_BANNER}</strong>'
-    assert report.count(banner) == 3  # F1、F2、F5 三個開了 AI 的情境,其餘還沒跑
-    assert banner not in render_page(ran, form_token="t", selected=ScenarioCode.F3,
-                                     refresh_tick=0)
+    assert 'class="ai-banner"' not in report
     assert ran.model_mode is ModelMode.RECORDED
     assert ran.model_mode_reason == "錄製回應,不是即時呼叫"  # F1、F5 有對上的錄製回應
 
 
 def test_f5_rounds_keep_each_tasks_takeover_separate(ran):
-    f5 = _scenario(ran, ScenarioCode.F5)
     page = render_page(ran, form_token="t", selected=ScenarioCode.F5, refresh_tick=0)
     rounds = page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0]
     assert '工作 t1' in rounds and '工作 t3' in rounds
-    assert f5.exam in _text(page)
+    assert '第 1 輪／工作 t3' in rounds
+    assert "AI 的回答：" in _text(page)
     assert 'class="exam-verdict ai-exam"' in page
     assert page.index('class="exam-verdict ai-exam"') < page.index('class="ai-rounds"')
 
@@ -168,8 +167,8 @@ def test_decision_hero_counts_distinct_choices_without_guessing_one(ran):
     assert f5.result_summary in hero
 
 
-def test_the_narrative_shows_computed_numbers_first_and_its_source(ran):
-    """[S1027](從增量 1 移過來的頁面串接):錄製模式的說明卡有內容,程式算的數字在前、AI 文字在後。"""
+def test_the_narrative_shows_computed_numbers_first_without_mode_source(ran):
+    """[S1027] 說明卡的數字在 AI 文字前,且頁面不標錄製或即時。"""
     step = _scenario(ran, ScenarioCode.F1).model_step
     assert step is not None and step.result_kind == "ok"
     assert step.numbers == (("廣告", "c1"), ("建議金額", "100 → 110"))
@@ -177,10 +176,11 @@ def test_the_narrative_shows_computed_numbers_first_and_its_source(ran):
     page = render_page(ran, form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
     card = page.split('class="ai-node-card"', 1)[1]
     assert card.index("100 → 110") < card.index(fake.NARRATIVE[:8])
+    assert "錄製回應" not in card and "即時" not in card
     missing = _scenario(ran, ScenarioCode.F2).model_step  # 沒有錄製:照實寫結果類別
     assert missing is not None and missing.narrative is None
     assert missing.result_kind == "no_recording"
-    assert "沒有對應的錄製回應" in _text(render_page(ran, form_token="t", refresh_tick=0,
+    assert "AI 這次沒有給出回答" in _text(render_page(ran, form_token="t", refresh_tick=0,
                                                      selected=ScenarioCode.F2))
 
 

@@ -7,9 +7,11 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import stat
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -32,6 +34,7 @@ from rtb.demo.driver import (
 from rtb.demo.keys import DemoKeys
 from rtb.demo.launcher import Role
 from rtb.demo.observe import PathBuilder, missing_from_path
+from rtb.demo.present import build_demo_state
 from rtb.demo.state_store import StateReader, StateWriter
 from rtb.domain.task_state import TaskState
 from rtb.modelledger_view import ledger_path
@@ -411,6 +414,48 @@ def test_f7_shares_one_recording_key_with_f1():
 
 
 # ---- [S1164] 展示批次入庫前:F1–F6 找不到錄製 0 筆,批次本身也過那兩條 ----
+def _assert_no_ai_fallback(state) -> None:
+    fallback = [(scenario.code.value, decision.task_id, decision.outcome)
+                for scenario in state.scenarios[:6] for decision in scenario.path
+                if decision.taken_edge == ("a_ai", "a_rule")]
+    assert not fallback, f"AI 這次沒有給出回答或退回程式規則:{fallback}"
+
+
+@pytest.mark.skipif(not driver_module.DEMO_RECORDINGS.exists(),
+                    reason="展示錄製批次入庫後才啟用,照 [S1141] 的目錄開關")
+def test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6(tmp_path):
+    """只重播入庫 F1-F6;任何一件工作的一輪 AI 退回就讓 CI 失敗。"""
+    replay = tmp_path / "replay"
+    result = demo_recordings.check_demo_batch(
+        driver_module.DEMO_RECORDINGS, BATCH, replay,
+        user_env={"PATH": str(tmp_path / "no-claude"), "HOME": str(tmp_path / "home")},
+    )
+    assert result.passed, result
+    with sqlite3.connect(replay / "state.db") as conn:
+        [(demo_id,)] = conn.execute("SELECT DISTINCT demo_id FROM scenario_runs").fetchall()
+    reader = StateReader(replay / "state.db")
+    try:
+        shown = build_demo_state(reader, demo_id, running=False, now=datetime.now(UTC))
+    finally:
+        reader.close()
+    _assert_no_ai_fallback(shown)
+
+
+def test_demo_recording_guard_catches_a_missing_fake_answer(tmp_path, state):
+    """假錄製少一份回答時,守衛讀真的重播判斷列並抓到退回。"""
+    partial = tmp_path / "missing-fake-recordings"
+    fake.fake_batch(partial, BATCH, {"attacked": [fake.PROPOSE]})
+    env = {"PATH": str(tmp_path / "no-claude"), "HOME": str(tmp_path / "home")}
+    assert _driver(tmp_path, state, partial, user_env=env).run_one("F2").status == DONE
+    reader = StateReader(tmp_path / "state.db")
+    try:
+        shown = build_demo_state(reader, "demo-1", running=False, now=datetime.now(UTC))
+    finally:
+        reader.close()
+    with pytest.raises(AssertionError, match="AI 這次沒有給出回答"):
+        _assert_no_ai_fallback(shown)
+
+
 def test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording(tmp_path, monkeypatch):
     complete = tmp_path / "complete"  # 假錄製冒充正式後端錄的一批(只在這支測試)
     fake.fake_batch(complete, BATCH, {"normal": [fake.PROPOSE], "attacked": [fake.PROPOSE],
