@@ -1,0 +1,72 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1-流程與租約",
+  "lens": "鏡頭1-流程與租約",
+  "materials": [
+   "governance/review-reports/code-phase13-inc2/r1-snapshot.patch",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2-AI決策與舉證",
+  "lens": "鏡頭2-AI決策與舉證",
+  "materials": [
+   "governance/review-reports/code-phase13-inc2/r1-snapshot.patch",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3-資料端點與收據",
+  "lens": "鏡頭3-資料端點與收據",
+  "materials": [
+   "governance/review-reports/code-phase13-inc2/r1-snapshot.patch",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭4-展示與宣稱",
+  "lens": "鏡頭4-展示與宣稱",
+  "materials": [
+   "governance/review-reports/code-phase13-inc2/r1-snapshot.patch",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "資安-opus",
+  "lens": "資安-opus",
+  "materials": [
+   "governance/review-reports/code-phase13-inc2/r1-snapshot.patch",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase13-inc2/r1-snapshot.patch",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家-codex",
+  "materials": [
+   "governance/review-reports/code-phase13-inc2/r1-snapshot.patch",
+   "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"
+  ],
+  "auditor": "codex"
+ }
+]
