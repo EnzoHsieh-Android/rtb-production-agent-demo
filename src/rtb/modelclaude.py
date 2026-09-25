@@ -10,6 +10,7 @@ import logging
 import os
 import plistlib
 import pwd
+import re
 import shutil
 import signal
 import subprocess
@@ -87,21 +88,36 @@ REQUIRED_CHECKS = ("login_ok", "tools_disabled", "tool_detection_contrast", "no_
 
 @dataclass(frozen=True)
 class ErrorSample:
-    """一種認得的錯誤子類型:比對 claude JSON 輸出的哪一欄(小寫後包含哪段文字)、歸哪一類。"""
+    """一種認得的錯誤子類型:比對 claude JSON 輸出的哪一欄(小寫後包含哪段文字;有 `pattern` 就改用這個
+    正規表示式在小寫後的欄位裡找)、歸哪一類。"""
 
     field: str
     contains: str
     outcome: Outcome
     sub_reason: str
+    pattern: str | None = None
+
+    def matches(self, data: Mapping[str, Any]) -> bool:
+        text = str(data.get(self.field, "")).lower()
+        if self.pattern is not None:
+            return re.search(self.pattern, text) is not None
+        return self.contains in text
 
 
 # 認得的錯誤子類型:只收在本機錄製時取到真實輸出的樣本(存成測試夾具並寫明比對哪一欄)。
 # 取不到真實樣本的子類型程式裡就不認,一律落到「暫時性服務錯誤、無法可靠分類」(照預留結算,
-# 評估保守停下)。增量 1 實作時還沒有任何真實樣本,所以是空的,等協調者錄製時補。
-KNOWN_ERRORS: tuple[ErrorSample, ...] = ()
+# 評估保守停下)。增量 1 實作時還沒有任何真實樣本;目前只收一種(見下)。
 # 不是錯誤的回應對話輪數大於 1、權限被拒清單空:Claude Code 撞到輸出上限後自動續寫(使用者 2026-09-25
 # 裁定:普通失敗,記成回應讀不懂加這個子原因,不標工具使用;批次驗收把它算失敗類錄製、要重錄)
 OUTPUT_CONTINUED = "output_continued"
+KNOWN_ERRORS: tuple[ErrorSample, ...] = (
+    # 續寫完仍撞頂的錯誤(使用者 2026-09-25 裁定延伸,協調者):協調者同日用 claude 2.1.281 實測原文
+    # 「API Error: Claude's response exceeded the 32 output token maximum. To configure this
+    # behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment variable.」;N 要是數字。跟續寫
+    # 同一個子原因(批次驗收同樣擋下要重錄);只收這一種,其他錯誤照舊無法可靠分類
+    ErrorSample("result", "output token maximum", Outcome.UNREADABLE, OUTPUT_CONTINUED,
+                pattern=r"claude's response exceeded the \d+ output token maximum"),
+)
 
 
 def _policy_files() -> list[Path]:
@@ -519,7 +535,7 @@ def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
     reply = _usage_of(data, "")
     failure: ModelCallFailed | None = None
     for sample in KNOWN_ERRORS:
-        if sample.contains in str(data.get(sample.field, "")).lower():
+        if sample.matches(data):
             failure = core.BY_OUTCOME[sample.outcome](f"claude 回報錯誤:{sample.sub_reason}",
                                                   sub_reason=sample.sub_reason, reply=reply)
             break
