@@ -22,7 +22,12 @@ import rtb
 from rtb.capabilitykit import APPROVAL_KEY_ENV, AUDIT_KEY_ENV, KEY_ENV
 from rtb.demo.faults.delivery import ROOT_MARKER, FaultPlan, prepare_root, write_plan
 from rtb.demo.keys import DemoKeys
-from rtb.stepbudget import CALLS_PER_STEP, DEFAULT_TIMEOUT_SECONDS, ai_stop_grace_seconds
+from rtb.stepbudget import (
+    CALLS_PER_STEP,
+    DEFAULT_TIMEOUT_SECONDS,
+    LOGIN_TOKEN_ENV,
+    ai_stop_grace_seconds,
+)
 
 SRC = str(Path(rtb.__file__).resolve().parents[1])  # 專案沒有安裝成套件,子行程靠它找程式
 # 子行程一律 python -P:不把工作目錄(展示根目錄)放進 sys.path,根目錄裡的同名檔蓋不掉標準函式庫
@@ -32,7 +37,8 @@ STARTUP_SECONDS = 20.0
 STOP_SECONDS = 5.0
 _BASICS = ("PATH", "HOME", "LANG", "USER")
 # 三個模型環境變數(全展示只有這一份:驅動與批次檢查都用它,代碼審 r1 h3)
-MODEL_VARIABLES = ("RTB_MODEL_LIVE", "RTB_MODEL", "RTB_MODEL_RECORD")
+# 即時模式的登入權杖(使用者 2026-09-25 裁定)跟著三個模型變數走:只給列在即時清單的分析端與模型入口
+MODEL_VARIABLES = ("RTB_MODEL_LIVE", "RTB_MODEL", "RTB_MODEL_RECORD", LOGIN_TOKEN_ENV)
 
 __all__ = [
     "ENTRIES",

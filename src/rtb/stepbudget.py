@@ -18,6 +18,9 @@ GROUP_EXIT_WAIT_SECONDS = 5.0  # 模型後端每次等 claude 行程群組結束
 GROUP_EXIT_WAITS = 2
 SETTLE_ATTEMPTS = 3  # 花費帳結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤
 LEDGER_RESERVATIONS = 1  # 每次呼叫預留一次
+# 模型後端空暫存 HOME 隔離時的登入權杖變數名(使用者 2026-09-25 裁定用 `setup-token` 的長期權杖);放在
+# 這裡是因為展示啟動器也要照名字轉交,而它的原始碼不准提到模型後端
+LOGIN_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"  # noqa: S105 - 變數名,不是權杖
 LOGIN_CHECK_TIMEOUT_SECONDS = 10.0  # 模型後端的登入狀態檢查(啟動時的預檢也是這一次)
 
 

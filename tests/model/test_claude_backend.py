@@ -173,6 +173,9 @@ def test_the_claude_subprocess_gets_only_whitelisted_environment(tmp_path, monke
     _call(tmp_path, script, request(max_output_tokens=77), "real",
           cc.Isolation.REAL_HOME)  # 退路隔離:真 HOME
     empty, real = invocations(script)
+    # 使用者 2026-09-25 裁定:空暫存 HOME 隔離時另帶長期權杖(登入用);真 HOME 照舊不帶
+    assert empty["env"].pop("CLAUDE_CODE_OAUTH_TOKEN") == "secret-decoy-CLAUDE_CODE_OAUTH_TOKEN"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in real["env"]
     for seen in (empty, real):
         env = seen["env"]
         assert set(env) - SHELL_ADDED <= WHITELIST, set(env) - SHELL_ADDED - WHITELIST

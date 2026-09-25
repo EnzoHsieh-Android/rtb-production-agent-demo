@@ -38,6 +38,7 @@ from rtb.modelcore import (
 )
 from rtb.stepbudget import GROUP_EXIT_WAIT_SECONDS as GROUP_EXIT_WAIT
 from rtb.stepbudget import LOGIN_CHECK_TIMEOUT_SECONDS as LOGIN_CHECK_TIMEOUT
+from rtb.stepbudget import LOGIN_TOKEN_ENV
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +49,10 @@ OUTPUT_LIMIT_ENV = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
 SETTING_SOURCES = ""
 EMPTY_SETTINGS = "{}"
 CHILD_ENV = ("PATH", "HOME", "USER", "LANG")
+# `claude setup-token` 的長期權杖(使用者 2026-09-25 裁定):這台機器的訂閱登入在真 HOME,空暫存 HOME
+# 要它才登入得了。只在空暫存 HOME 隔離時傳給子行程;只走環境變數,不寫檔、不進紀錄與錯誤訊息
+OAUTH_TOKEN_ENV = LOGIN_TOKEN_ENV
+REDACTED = b"[\xe5\xb7\xb2\xe9\x81\xae\xe8\x94\xbd]"  # 「[已遮蔽]」
 LOGIN_CHECK_TIMEOUT_SECONDS = LOGIN_CHECK_TIMEOUT  # 住在小常數模組:展示驅動等模式行也用它
 # 等行程群組結束的秒數住在小常數模組(Phase 13 增量 2):分析端的租約守衛與展示啟動器也用它,
 # 誰都不必從這支後端匯入
@@ -416,9 +421,17 @@ def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout
                 args, (stdin, stdout, stderr), workdir, child_env, timeout_seconds)
         if timed_out:
             raise ModelTimeout("模型呼叫逾時,已殺掉整個行程群組")
-        return returncode, (files / "stdout").read_bytes(), (files / "stderr").read_bytes()
+        secret = child_env.get(OAUTH_TOKEN_ENV, "").encode("utf-8")
+        return (returncode, _redacted((files / "stdout").read_bytes(), secret),
+                _redacted((files / "stderr").read_bytes(), secret))
     finally:
         shutil.rmtree(base, ignore_errors=True)
+
+
+def _redacted(data: bytes, secret: bytes) -> bytes:
+    """子行程的輸出一律先遮掉長期權杖,之後才進日誌、錄製、紀錄與錯誤訊息(使用者 2026-09-25
+    裁定)。"""
+    return data.replace(secret, REDACTED) if secret else data
 
 
 def _tokens_of(usage: Mapping[str, Any]) -> tuple[int, int, int, int, int] | None:
@@ -558,6 +571,8 @@ class ClaudeCodeBackend:
         source = os.environ if self._source_env is None else self._source_env
         env = {name: source[name] for name in CHILD_ENV if name in source}
         env[OUTPUT_LIMIT_ENV] = str(max_output_tokens)
+        if self.isolation is Isolation.EMPTY_HOME and source.get(OAUTH_TOKEN_ENV):
+            env[OAUTH_TOKEN_ENV] = source[OAUTH_TOKEN_ENV]
         return env
 
     def command(self, call: BackendCall) -> list[str]:

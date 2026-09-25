@@ -40,6 +40,10 @@ EXIT_NOT_WRITTEN = 5  # 有項目沒過:不寫紀錄,即時模式不開
 EXIT_NO_CLAUDE = 6
 TIMEOUT_SECONDS = 120.0
 OUTPUT_CAP = 32
+# 撞頂後允許的總輸出:上限的 1 + 續寫次數 倍(使用者 2026-09-25 裁定:claude 2.1.281 上限 32 時
+# 續寫 3 次、num_turns=4、output_tokens=128,最後回「超過輸出上限」的錯誤;續寫次數住在模型用戶端
+# 的常數)
+OUTPUT_ALLOWANCE = 1 + core.OUTPUT_RECOVERY_ATTEMPTS
 TOOL_PROMPT = "請實際執行 shell 指令 `ls /`,並把輸出原樣貼給我。"
 LONG_PROMPT = "請寫一篇至少兩千字的文章,主題是廣告投放的配速。"
 SHORT_PROMPT = "回答 ok 兩個字母就好。"
@@ -209,25 +213,31 @@ class Checker:
         leaked = control is not None and canary in str(control.get("result", ""))
         return suppressed and leaked
 
-    def output_limit(self) -> bool:
-        """要有撞頂的正面證據:輸出 token 數剛好等於上限、停止原因是 max_tokens,或「超過輸出上限」的
-        錯誤;其他錯誤、或輸出比上限少(沒撞頂,證明不了)都算沒過。"""
+    def output_limit(self) -> bool:  # noqa: PLR0911 - 每一條沒過的理由一個出口
+        """輸出上限要有撞頂的正面證據(使用者 2026-09-25 裁定):允許撞頂後自動續寫,但續寫最多
+        OUTPUT_RECOVERY_ATTEMPTS 次(對話輪數不超過 1 加續寫次數)、總輸出 token 不超過上限的
+        OUTPUT_ALLOWANCE 倍,而且要看得到撞頂——「超過輸出上限」的錯誤、停止原因是 max_tokens,或沒有
+        續寫時輸出剛好等於上限。其他錯誤、輸出比上限少(證明不了)、讀不到輸出用量都算沒過。"""
         _, stdout, _ = self.run(self.command_for(LONG_PROMPT, OUTPUT_CAP), LONG_PROMPT, OUTPUT_CAP)
         data = _json(stdout)
         if data is None:
             return False
         turns = data.get("num_turns")
-        if isinstance(turns, int) and not isinstance(turns, bool) and turns > 1:
-            return False  # 看得出撞頂後自動續寫了(多次請求):上限沒有把一次呼叫限住
+        if not isinstance(turns, int) or isinstance(turns, bool) or not 1 <= turns <= (
+                1 + core.OUTPUT_RECOVERY_ATTEMPTS):
+            return False
+        usage = data.get("usage")
+        tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
+        if not isinstance(tokens, int) or isinstance(tokens, bool):
+            return False  # 量不到總輸出:證明不了沒超過
+        if tokens > OUTPUT_CAP * OUTPUT_ALLOWANCE:
+            return False  # 續寫累加超過允許的倍數:沒限住
         if data.get("is_error") is not False:
             expected = OUTPUT_MAXIMUM_ERROR.format(cap=OUTPUT_CAP)
             return data.get("is_error") is True and expected in str(data.get("result", "")).lower()
-        usage = data.get("usage")
-        tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
-        if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens > OUTPUT_CAP:
-            return False  # 輸出超過上限(撞到的是別的上限,或續寫累加):沒限住
-        return data.get("subtype") == "success" and (
-            tokens == OUTPUT_CAP or data.get("stop_reason") == "max_tokens")
+        if data.get("subtype") != "success":
+            return False
+        return data.get("stop_reason") == "max_tokens" or (turns == 1 and tokens == OUTPUT_CAP)
 
     def settings_suppressed(self) -> bool:
         """使用者設定放命令列蓋不掉的毒值(env 裡連不到的 API 位址):帶組合參數要成功;不帶這些參數的
