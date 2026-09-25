@@ -15,7 +15,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from rtb.modelcore import Caller, NoRecording, Outcome, SettlementState
+from rtb.modelcore import Backend, Caller, NoRecording, Outcome, SettlementState
 
 
 def _normalized(text: str) -> str:
@@ -164,10 +164,7 @@ def _inside_committed(target: Path) -> bool:
     """目標路徑是不是落在入庫根底下(含入庫根本身):目標與它每一層已存在的祖先,只要有一個跟入庫根是
     同一個檔案(同裝置、同 inode,跟隨符號連結)就算。比檔案身分、不比路徑字面,所以大小寫不同(不分大小
     寫的檔案系統)、經符號連結、還不存在的子目錄都認得出來(Phase 13 增量 3 代碼審 r2 a1/v1)。"""
-    try:
-        root = os.stat(default_recordings_dir())
-    except OSError:
-        return False  # 入庫根不存在:沒有東西可以疊上去
+    root = os.stat(default_recordings_dir())  # 讀不到就丟 OSError:呼叫端當成 checkout 不完整擋下
     # 先照作業系統的走法解析(跟著符號連結再處理「..」;不存在的尾段照字面接上),不按字面收掉「..」:
     # 「指向入庫根的連結/../model/新目錄」實際就在入庫根底下(代碼審 r3)
     candidate = Path(os.path.realpath(target))
@@ -188,7 +185,15 @@ def check_recordings_dir(directory: Path, batch_id: str | None) -> None:
     其餘照 `check_one_batch` 核目錄內容。重播不經這支。"""
     if not batch_id or not batch_id.strip():
         raise MixedRecordingsDir("即時加錄製要帶批次編號")
-    if _inside_committed(Path(directory)):
+    # 入庫根不存在(或讀不到)就一律不開錄(增量 4 代碼審 r2 c1/s2/m2/v4,代使用者裁定 2026-09-25):
+    # 以前當成「沒有東西可以疊上去」放行,錄製會直接在預設入庫位置建目錄、沒經驗過就落地。不改成字面
+    # 路徑比對頂替——macOS 對不存在的路徑 realpath 不統一大小寫,反而多一個洞
+    try:
+        inside = _inside_committed(Path(directory))
+    except OSError as missing:
+        raise MixedRecordingsDir(
+            f"入庫根 {default_recordings_dir()} 不存在:checkout 不完整,不開錄") from missing
+    if inside:
         raise MixedRecordingsDir(f"{directory} 在入庫目錄 {default_recordings_dir()} 底下;{_FRESH}")
     check_one_batch(directory, batch_id)
 
@@ -304,3 +309,61 @@ def save_recording(path: Path, recording: Recording) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+# ---- 入庫前的批次驗收(Phase 13 評估批次與展示批次共用,代碼審增量 4 r1 h2) ----
+FAILED_BATCH_OUTCOMES = {Outcome.CONFIG_ERROR.value: "設定錯誤",
+                         Outcome.LEDGER_BUSY.value: "花費帳忙碌"}
+# 同樣算失敗類的子原因:撞頂自動續寫(使用者 2026-09-25 裁定;子原因字串與模型用戶端 Claude Code 後端
+# 的 OUTPUT_CONTINUED 相同,由測試核對)——錄到的是輸出上限給太小,不是模型的判斷,入庫前要重錄
+FAILED_BATCH_SUB_REASONS = {"output_continued": "輸出撞頂自動續寫"}
+# 入庫的錄製只收正式後端錄的(測試與截圖用的假錄製 backend 是 fake,不准入庫;代碼審增量 4 r1 s2)
+OFFICIAL_BACKENDS = frozenset({Backend.CLAUDE_CODE.value})
+
+
+def recording_files(directory: Path) -> list[tuple[Path, object]]:
+    """目錄裡每一個檔與讀出來的內容(讀不懂是 None)。"""
+    found: list[tuple[Path, object]] = []
+    for path in sorted(directory.iterdir()):
+        try:
+            found.append((path, json.loads(path.read_text(encoding="utf-8"))))
+        except (OSError, UnicodeDecodeError, ValueError):
+            found.append((path, None))
+    return found
+
+
+def batch_file_problems(directory: Path, pattern: re.Pattern[str], shape: str) -> list[str]:
+    """一批錄製入庫前的三條可機檢條件(「驗過」的第 1、2 條加後端):目錄在而且不是空的;錄製檔都是
+    同一批、批次編號符合 pattern(shape 是給人看的格式)、沒有佔位與別的檔(驗收用 check_one_batch,
+    不是開錄前那一支——入庫目錄本來就在入庫根底下);設定錯誤、花費帳忙碌、無法可靠分類的錄製 0 份;
+    每一份都是正式後端錄的。重播找不到錄製的筆數由呼叫端各自數(評估跑評估集、展示跑 F1 到 F6)。"""
+    if not directory.is_dir():
+        return [f"錄製目錄不存在:{directory.name}"]
+    files = recording_files(directory)
+    problems = [] if files else ["錄製目錄是空的"]
+    batches = {data.get("batch_id") for _path, data in files if isinstance(data, dict)
+               and "batch_id" in data}
+    batch = next(iter(batches)) if len(batches) == 1 else None
+    if batch is None or not isinstance(batch, str) or not pattern.fullmatch(batch):
+        problems.append(f"錄製檔的批次編號要是同一個 {shape}:{sorted(map(str, batches))}")
+    else:
+        try:
+            check_one_batch(directory, batch)
+        except MixedRecordingsDir as mixed:
+            problems.append(f"錄製目錄不是只有這一批的錄製檔:{mixed}")
+    bad: dict[str, int] = {}
+    for path, data in files:
+        try:
+            recording = validated(path, data)
+        except NoRecording:
+            continue  # 佔位或讀不懂:上面的目錄檢查已經算進問題
+        labels = [FAILED_BATCH_OUTCOMES.get(recording.outcome),
+                  FAILED_BATCH_SUB_REASONS.get(recording.sub_reason or "")]
+        if recording.unclassified:
+            labels.append("無法可靠分類")
+        if recording.backend not in OFFICIAL_BACKENDS:
+            labels.append("不是正式後端錄")
+        for label in labels:
+            if label is not None:
+                bad[label] = bad.get(label, 0) + 1
+    return problems + [f"{label}的錄製有 {count} 份" for label, count in sorted(bad.items())]

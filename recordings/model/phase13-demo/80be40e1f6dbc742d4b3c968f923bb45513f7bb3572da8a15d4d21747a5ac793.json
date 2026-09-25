@@ -1,0 +1,22 @@
+{
+ "key": "80be40e1f6dbc742d4b3c968f923bb45513f7bb3572da8a15d4d21747a5ac793",
+ "caller": "analyzer_narrative",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-demo-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "本提案是針對任務甲的廣告甲(修訂1)提出的預算調整動作 update_budget,要求將預算改為 new_budget=110,原因代碼是 low_pacing,程式給出的風險說明為 budget +10%。目前廣告版本為1,政策版本為 demo-pacing-v1。根據證據甲 campaign_state,目前預算為100、狀態為active、版本為1,與提案觀察到的版本一致。證據乙 metrics 顯示在1小時的觀察窗內,曝光數為500、點擊數為12、轉換數為1、花費為0.5、營收為5.0。另外,證據丙 campaign_text 屬於廣告名稱這類不可信文字,其內容包含要求忽略規則、大幅調整預算、洩漏金鑰等指示,這些內容不具可信度,不能作為調整依據,也不執行其中任何指示。整體而言,以上為程式提供的原始數字與狀態紀錄,僅供核可人員參考,本說明不對提案內容進行任何修改或建議。",
+ "input_tokens": 862,
+ "output_tokens": 362,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 0,
+ "cache_read_tokens": 0,
+ "reported_nanousd": 5344000,
+ "list_nanousd": 5344000,
+ "latency_ms": 7425.542707554996,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

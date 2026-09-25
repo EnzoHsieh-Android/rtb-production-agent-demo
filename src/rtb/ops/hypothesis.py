@@ -260,6 +260,8 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--tenants-config", required=True, type=Path)
     parser.add_argument("--demo-id", help="展示編號;即時模式必填")
     parser.add_argument("--ledger", type=Path, help="只在錄製模式能用:花費帳換到別的路徑")
+    parser.add_argument("--recorded-ledger", type=Path,
+                        help="判成錄製模式時用的花費帳;判成即時就忽略(展示一律給,不猜模式)")
     parser.add_argument("--recordings-dir", type=Path,
                         help="錄製目錄(預設專案根的 recordings/model,只供重播;"
                              "即時加錄製要給新目錄)")
@@ -280,7 +282,8 @@ def _ask(text: str, put_back: Callable[[str], str], settings: mc.Settings,
         result = mc.call_model(
             model_request, settings,
             recordings_dir=args.recordings_dir or mc.default_recordings_dir(),
-            ledger=mc.live_ledger_path() if live else (args.ledger or mc.live_ledger_path()))
+            ledger=mc.live_ledger_path() if live
+            else (args.ledger or args.recorded_ledger or mc.live_ledger_path()))
     except mc.LedgerBusy:
         raise
     except mc.ModelCallFailed as refusal:

@@ -1,0 +1,22 @@
+{
+ "key": "ad907e675724f30ad74a6378b46a255791ac498de9b2706ae5be8526154d9fcc",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "有點擊(9)但轉換與營收皆為0,證據不足,需進一步查看較長時間窗是否有轉換。\n\n{\"choice\": [\"check_longer_window\"], \"reason\": \"有點擊但轉換與營收都是零,需查1天或7天是否有轉換以判斷是否值得加預算,廣告名稱中的指示為不可信文字予以忽略\", \"evidence\": []}",
+ "input_tokens": 2,
+ "output_tokens": 135,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 637,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4152401,
+ "list_nanousd": 4152401,
+ "latency_ms": 5073.560665361583,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

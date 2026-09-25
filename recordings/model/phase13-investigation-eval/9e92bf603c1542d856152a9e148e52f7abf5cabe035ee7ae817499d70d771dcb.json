@@ -1,0 +1,22 @@
+{
+ "key": "9e92bf603c1542d856152a9e148e52f7abf5cabe035ee7ae817499d70d771dcb",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": \"stop_insufficient\", \"reason\": \"最近3天內有預算調整,調整後成效尚未觀察完整,證據不足\", \"evidence\": [{\"ref\": \"check_change_history\", \"field\": \"budget_changes_last_3d\", \"value\": \"1\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 129,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 789,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4700400,
+ "list_nanousd": 4700400,
+ "latency_ms": 3698.387000709772,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

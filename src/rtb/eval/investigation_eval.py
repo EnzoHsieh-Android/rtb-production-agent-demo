@@ -18,7 +18,6 @@
 
 import argparse
 import hashlib
-import json
 import os
 import re
 import sys
@@ -44,8 +43,6 @@ EXIT_OK = 0
 EXIT_VERIFY_FAILED = 1
 EXIT_REFUSED = 2  # 參數錯、閘道拒絕(跟 argparse 的參數錯同一個代碼)
 BATCH_PATTERN = re.compile(r"phase13-eval-\d{8}")
-FAILED_OUTCOMES = MappingProxyType({mc.Outcome.CONFIG_ERROR.value: "設定錯誤",
-                                    mc.Outcome.LEDGER_BUSY.value: "花費帳忙碌"})
 Ask = Callable[[str, str], Any]  # AI 決策函式的模型呼叫(系統提示, 使用者內容) → 模型結果
 
 
@@ -172,46 +169,11 @@ rule_verdict = report_mod.rule_verdict  # 現行規則對同一筆的答案(比�
 
 
 # ---- 錄製批次的驗收 ----
-def recording_files(directory: Path) -> list[tuple[Path, Any]]:
-    found = []
-    for path in sorted(directory.iterdir()):
-        try:
-            found.append((path, json.loads(path.read_text(encoding="utf-8"))))
-        except (OSError, UnicodeDecodeError, ValueError):
-            found.append((path, None))
-    return found
-
-
 def batch_problems(directory: Path, runs: Sequence[CaseRun]) -> list[str]:
-    """[S1141] 的驗過條件(缺一條就不准入庫):失敗類錄製 0 份;同一批、格式對、沒有佔位與別的檔;
-    重播找不到錄製 0 筆(runs 是用錄製模式跑的那一趟)。"""
-    if not directory.is_dir():
-        return [f"錄製目錄不存在:{directory.name}"]
-    files = recording_files(directory)
-    problems = [] if files else ["錄製目錄是空的"]
-    batches = {data.get("batch_id") for _path, data in files if isinstance(data, dict)
-               and "batch_id" in data}
-    batch = next(iter(batches)) if len(batches) == 1 else None
-    if batch is None or not isinstance(batch, str) or not BATCH_PATTERN.fullmatch(batch):
-        found = sorted(map(str, batches))
-        problems.append(f"錄製檔的批次編號要是同一個 phase13-eval-YYYYMMDD:{found}")
-    else:
-        try:
-            mc.check_one_batch(directory, batch)
-        except mc.MixedRecordingsDir as mixed:
-            problems.append(f"錄製目錄不是只有這一批的錄製檔:{mixed}")
-    bad: dict[str, int] = {}
-    for path, data in files:
-        try:
-            recording = mc.validated(path, data)
-        except mc.NoRecording:
-            continue  # 佔位或讀不懂:上面的目錄檢查已經算進問題
-        label = FAILED_OUTCOMES.get(recording.outcome)
-        if recording.unclassified:
-            label = "無法可靠分類"
-        if label is not None:
-            bad[label] = bad.get(label, 0) + 1
-    problems += [f"{label}的錄製有 {count} 份" for label, count in sorted(bad.items())]
+    """[S1141] 的驗過條件(缺一條就不准入庫):批次本身的三條走模型用戶端門面的共用驗收(失敗類錄製
+    0 份;同一批、格式對、沒有佔位與別的檔;正式後端錄的,跟展示批次同一份);重播找不到錄製 0 筆(runs
+    是用錄製模式跑的那一趟)。"""
+    problems = mc.batch_file_problems(directory, BATCH_PATTERN, "phase13-eval-YYYYMMDD")
     missing = sum(1 for run in runs if run.missing_recording)
     if missing:
         problems.append(f"重播時找不到錄製:{missing} 筆")
@@ -223,7 +185,7 @@ def recording_dates(directory: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
     if not directory.is_dir():
         return (), ()
     dates, batches = set(), set()
-    for path, data in recording_files(directory):
+    for path, data in mc.recording_files(directory):
         try:
             recording = mc.validated(path, data)
         except mc.NoRecording:

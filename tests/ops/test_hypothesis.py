@@ -285,6 +285,28 @@ def recorded_hypotheses_book_into_the_given_ledger(tmp_path):
         assert code == hypothesis.EXIT_BAD_ARGUMENTS and "家目錄" in err.getvalue()
 
 
+
+# ---- 增量 4 代碼審 r2 v2:展示給的 --recorded-ledger 在錄製模式有告警時才用 ----
+def test_recorded_hypotheses_book_into_the_recorded_ledger(rows, dsp_url, tmp_path):
+    """展示驅動一律給 --recorded-ledger(不猜模式):錄製模式、告警響了,重播紀錄記在它,帳號家目錄
+    那一本不建(以前拿掉這一條,展示的重播紀錄會寫進真的帳)。"""
+    ledger = tmp_path / "scenario-ledger.sqlite"
+    fire_alert(rows)
+    code, printed, _ = run(rows, dsp_url, tmp_path, {}, "--demo-id", "demo-9",
+                           "--recorded-ledger", str(ledger),
+                           "--recordings-dir", str(tmp_path / "empty"))
+    assert code == slo_code(rows, dsp_url)
+    shown = printed["hypothesis"]
+    assert shown["mode"] == "recorded" and shown["reason"] == "no_recording"
+    reader = view.ModelLedgerView(ledger)
+    try:
+        with reader.read_transaction():
+            [row] = reader.calls_between("0000", "9999")
+    finally:
+        reader.close()
+    assert (row.caller, row.demo_id, row.source) == ("ops_hypothesis", "demo-9", "recorded")
+    assert not mc.live_ledger_path().exists()
+
 # ---- [S916](接入點 1 那半;合約測試在 tests/analyzer/test_narrate.py 呼叫它) ----
 def hypothesis_ignores_injected_names(tmp_path, name):
     """廣告名稱藏誘導文字、模型照誘導回答:假說命令列不送名稱、不寫任何業務資料庫、結束代碼不變,

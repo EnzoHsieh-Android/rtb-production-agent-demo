@@ -6,16 +6,19 @@
 拿不到的就不給那一組,不造數字。
 """
 
-from collections.abc import Sequence
+import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
+from rtb.analyzer import investigation as inv
 from rtb.analyzer import policy
 from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
-from rtb.analyzer.task_store import MAX_GENERATION, TaskRow
+from rtb.analyzer.task_store import MAX_GENERATION, InvestigationRecord, TaskRow
 from rtb.demo.state_store import Basis, BasisCode
-from rtb.domain.evidence import Evidence
+from rtb.domain.evidence import Evidence, EvidenceKind
 from rtb.domain.task_state import TaskState
 from rtb.domain.worth import WorthVerdict
 from rtb.executor import guardrails, inbox_store
@@ -56,6 +59,8 @@ def _agrees(decision: Decision, reason: policy.NoActionReason | None, decided: T
                 == dict(decided.proposal.requested_change))
     if decided.state is TaskState.COLLECTING_EVIDENCE:
         return isinstance(decision, NeedsFreshEvidence)
+    if decided.state is TaskState.NO_ACTION and recorded_reason == "exam_hold":
+        return isinstance(decision, ProposalDecision)  # 判了值得加、只判不送(Phase 13 F5 雙胞胎)
     if decided.state is TaskState.NO_ACTION:
         return (isinstance(decision, NoAction) and reason is not None
                 and reason.value == recorded_reason)
@@ -302,3 +307,213 @@ def follow_up(reason: StrEnum, generation: int | None) -> tuple[Basis, ...]:
     return (Basis(f"{_REPLAN_TEXT.get(reason.value, reason.value)};這是第 {generation} 代",
                   f"接續最多 {MAX_GENERATION} 代", "開一件新工作照現況重新分析",
                   RECORDED_ANALYZER),)
+
+
+
+# ---- Phase 13 增量 4:AI 參與決策的那一步(計劃〈展示頁怎麼顯示〉) ----
+# 每一輪 AI 步驟在判斷紀錄佔兩列:「AI 判斷」列(看到的證據、允許的選項、選了什麼與理由、引用的
+# 收據值)與「程式接手」列(做了哪個唯讀查詢、照公式算的金額、不提案結案,或改由程式規則決定)。
+# 證據與選項是程式算的(同一批證據用調查詞彙模組同一支函式重算);選擇、理由與引用取自調查紀錄當下
+# 記下的。
+# 同 AI 決策模組的配速分母(測試核對兩邊一致)
+HOURS_PER_BUDGET = round(1 / policy.ELAPSED_FRACTION_1H)
+RECORDED_ROUND = "調查紀錄當下記下"
+OPTION_TEXT = {
+    inv.QueryOption.CHECK_LONGER_WINDOW.value: "看 1 天與 7 天的成效",
+    inv.QueryOption.CHECK_CHANGE_HISTORY.value: "看改過幾次預算、暫停過幾次",
+    inv.QueryOption.CHECK_DAILY_TREND.value: "看最近 3 天對前 4 天的趨勢",
+    inv.QueryOption.CHECK_PAST_ADJUSTMENTS.value: "看以前調預算之後的成效",
+    inv.Conclusion.PROPOSE.value: "值得加",
+    inv.Conclusion.DO_NOT_PROPOSE.value: "不值得加",
+    inv.Conclusion.STOP_INSUFFICIENT.value: "證據不足,停止",
+}
+FALLBACK_CAUSE = {
+    inv.FallbackReason.TIMEOUT: "AI 太慢",
+    inv.FallbackReason.LOCAL_CAP_REFUSED: "已達花費上限",
+    inv.FallbackReason.QUOTA_EXHAUSTED: "額度用完",
+    inv.FallbackReason.OVERRUN: "單次花費超過上限",
+    inv.FallbackReason.NO_RECORDING: "沒有對應的錄製回應",
+    inv.FallbackReason.UNREADABLE: "回應讀不懂",
+    inv.FallbackReason.CONFIG_ERROR: "設定有問題",
+    inv.FallbackReason.TRANSIENT: "服務暫時出錯",
+    inv.FallbackReason.LEDGER_BUSY: "花費紀錄忙碌",
+    inv.FallbackReason.OFF_MENU: "答案不在固定選項裡,或引用的數字對不上",
+    inv.FallbackReason.PREFLIGHT_FAILED: "啟動時登入檢查沒過",
+    inv.FallbackReason.AI_ALREADY_USED: "這件工作已經問過 AI",
+}
+FALLBACK_LABEL = "這次改由程式規則決定"
+SOURCE_TEXT = {"recorded": "錄製回應", "live": "即時呼叫"}
+_WORTH_CODES = frozenset({BasisCode.WORTH, BasisCode.NOT_WORTH, BasisCode.INSUFFICIENT})
+
+
+def choice_text(choice: str) -> str:
+    """選項代碼(查詢以逗號串起)的白話:代碼照原樣留著,後面接白話。"""
+    return "、".join(f"{code}({OPTION_TEXT.get(code, '不認得的選項')})"
+                    for code in choice.split(",") if code)
+
+
+def fallback_text(code: str | None) -> str:
+    try:
+        cause = FALLBACK_CAUSE[inv.FallbackReason(code or "")]
+    except ValueError:
+        cause = "原因沒有記下"
+    return f"{FALLBACK_LABEL}(原因:{cause})"
+
+
+def ai_target(record: InvestigationRecord) -> str:
+    """這一輪 AI 那一步走出去的那條邊通往哪:退回 → 用程式規則;選查詢 → AI 要再查;結論 → 寫建議
+    或不調整。"""
+    if record.kind == inv.RecordKind.FALLBACK:
+        return "a_rule"
+    if record.kind == inv.RecordKind.QUERY:
+        return "a_ai_query"
+    return "a_propose" if record.choice == inv.Conclusion.PROPOSE.value else "a_no_action"
+
+
+def _fields(receipt: inv.Receipt) -> str:
+    if inv.is_no_result(receipt):
+        return f"沒有結果({receipt.get('reason', 'invalid')})"
+    return "、".join(f"{k}={v}" for k, v in receipt.items() if k != inv.RAW_ROWS)
+
+
+def _receipts_text(evidence: Sequence[Evidence], state: Mapping[str, Any],
+                   metrics: Mapping[str, Any]) -> str:
+    """AI 這一輪看到的收據(程式算的字串,跟送給 AI 的同一支函式):base 加上已查過的每一個查詢。"""
+    base = inv.base_receipt(state, metrics, HOURS_PER_BUDGET)
+    parts = [f"base:{_fields(base)}"]
+    parts += [f"{option.value}:{_fields(receipt)}"
+              for option, receipt in inv.query_receipts(evidence).items()]
+    return ";".join(parts)
+
+
+def _before_ai(evidence: Sequence[Evidence], at: datetime) -> tuple[tuple[Basis, ...], str | None]:
+    """AI 那一步之前的程式判斷點(新鮮度、花得慢不慢)重算的根據,與 AI 看到的收據;程式的前四道沒全過
+    (那樣不會問 AI)就不給。"""
+    items = inv.code_rule_evidence(evidence)
+    try:
+        facts = policy.steps(items, at)
+    except Exception:  # 正式規則對這份證據丟例外:不給根據
+        return (), None
+    if not facts.fresh or facts.state is None or facts.metrics is None or not facts.underpacing:
+        return (), None
+    budget, spend = facts.state.get("budget"), facts.metrics.get("spend")
+    shown = "算不出來" if facts.pacing_ratio is None else f"{facts.pacing_ratio:.0%}"
+    pace = Basis(f"花費 {spend}、預算 {budget}:到現在該花的進度是 {shown}",
+                 f"一天預算的 1/{HOURS_PER_BUDGET} 當作這一小時該花的,"
+                 f"進度低於 {policy.UNDERPACING_THRESHOLD:.0%} 算花太慢",
+                 "花太慢,這次讓 AI 參與決定", RECOMPUTED, BasisCode.UNDERPACING)
+    return (_freshness(items, at, True), pace), _receipts_text(evidence, facts.state, facts.metrics)
+
+
+@dataclass(frozen=True)
+class AiStep:
+    """一輪 AI 那一步在判斷紀錄裡的樣子:走到哪個節點、走出去的那條邊、白話原因、根據、誰判的。"""
+
+    node: str
+    edge: tuple[str, str]
+    reason: str
+    basis: tuple[Basis, ...]
+    actor: str
+
+
+def ai_step(record: InvestigationRecord, earlier: Sequence[InvestigationRecord],
+            evidence: Sequence[Evidence], at: datetime) -> AiStep:
+    """「AI 判斷」列(退回時是「改由程式規則決定」那一列)。earlier 是這件工作在這一輪之前已提交的調查
+    紀錄(算這一輪允許的選項);evidence 是這一輪分析那一步的整批證據。"""
+    before, seen = _before_ai(evidence, at)
+    source = SOURCE_TEXT.get(record.model_source or "", "來源沒有記下")
+    edge = ("a_ai", ai_target(record))
+    if record.kind == inv.RecordKind.FALLBACK:
+        text = fallback_text(record.fallback)
+        return AiStep("a_rule", edge, text, (*before, Basis(
+            f"AI 這一輪沒有給出能用的答案:{text.split('原因:')[-1].rstrip(')')}",
+            "AI 要在時限內、從這一輪允許的選項裡回答,而且引用的收據值要對得上",
+            text, RECORDED_ROUND, BasisCode.AI_FALLBACK)), "程式")
+    allowed = inv.allowed_choices(inv.progress(earlier))
+    main = Basis(seen or "(這一輪的收據算不回來)",
+                 "這一輪允許的選項:" + choice_text(",".join(allowed)),
+                 f"選了 {choice_text(record.choice)}。理由:{record.reason or '(沒有記下)'}",
+                 source, BasisCode.AI_ROUND)
+    items = [main]
+    cited = _cited(record.cited_json)
+    if cited:
+        items.append(Basis(cited, "只證明這些數字存在、而且跟收據上的一字不差,不證明它們支持結論",
+                           "已核對存在", RECORDED_ROUND, BasisCode.AI_CITED))
+    what = ("AI 選了查詢:" if record.kind == inv.RecordKind.QUERY else "AI 判:")
+    return AiStep("a_ai", edge, what + choice_text(record.choice), (*before, *items), "AI")
+
+
+def _cited(text: str | None) -> str:
+    """調查紀錄記下的引用(已核對存在的收據值)寫成一行;讀不懂就不給。"""
+    if not text:
+        return ""
+    try:
+        items = json.loads(text)["evidence"]
+        return ";".join(f"{i['ref']}.{i['field']} = {i['value']}" for i in items)
+    except (ValueError, KeyError, TypeError):
+        return ""
+
+
+def takeover(record: InvestigationRecord, decided: TaskRow,
+             evidence: Sequence[Evidence]) -> Basis | None:
+    """「程式接手」列的根據:照 AI 選的唯讀查詢去讀、照公式算金額、照結論不提案結案。退回的那一輪不在
+    這裡(程式規則那幾步照 analysis 重算)。"""
+    if record.kind == inv.RecordKind.QUERY:
+        return Basis(f"照 AI 選的唯讀查詢去讀:{choice_text(record.choice)}",
+                     "只讀、不寫;每件工作每種查詢最多一次", "回去蒐集資料,帶著新的收據再問一次 AI",
+                     RECORDED_ROUND, BasisCode.AI_TAKEOVER)
+    if record.kind != inv.RecordKind.CONCLUSION:
+        return None
+    if decided.state is TaskState.PROPOSED and decided.proposal is not None:
+        state: Mapping[str, Any] = next(
+            (e.payload for e in evidence if e.kind is EvidenceKind.CAMPAIGN_STATE), {})
+        new = decided.proposal.requested_change.get("new_budget")
+        return Basis(f"{state.get('budget')} → {new}",
+                     f"加 {policy.BUDGET_INCREASE_FRACTION:.0%}(四捨五入,至少加 1),"
+                     "跟程式規則同一個公式;金額、廣告與動作都由程式決定",
+                     PROPOSE, RECOMPUTED, BasisCode.AI_TAKEOVER)
+    return Basis(f"AI 判{OPTION_TEXT.get(record.choice, record.choice)}",
+                 "AI 下了不調整的結論,程式照結論結案", "不調整,結束", RECORDED_ROUND,
+                 BasisCode.AI_TAKEOVER)
+
+
+EXAM_HOLD = Basis("判了值得加", "這個廣告列在只判不送的清單(考題用)",
+                  "不送出,以考題結束結案", RECORDED_ROUND, BasisCode.AI_TAKEOVER)
+
+
+def after_fallback(found: Sequence[Basis]) -> tuple[Basis, ...]:
+    """退回之後程式規則那幾步的根據:analysis() 重算的整組扣掉 AI 那一步之前已經顯示過的新鮮度
+    與配速。"""
+    items = list(found)
+    if len(items) >= 2 and items[0].code is BasisCode.FRESH \
+            and items[1].code is BasisCode.UNDERPACING:
+        return tuple(items[2:])
+    return ()
+
+
+def ai_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:
+    """AI 那一步之前走過的判斷點:新鮮度 → 資料齊不齊 → 花得慢不慢 → AI 選下一步(ai_step 給的
+    前兩組)。"""
+    by_code = {b.code: b for b in found}
+    fresh, pace = by_code.get(BasisCode.FRESH), by_code.get(BasisCode.UNDERPACING)
+    if fresh is None or pace is None:
+        return ()
+    return (RouteStep("a_fresh", "a_complete", fresh),
+            RouteStep("a_complete", "a_pacing", Basis("廣告狀態與成效資料都有", "兩樣都要有才判斷",
+                                                      "齊全", RECOMPUTED, BasisCode.COMPLETE)),
+            RouteStep("a_pacing", "a_ai", pace))
+
+
+def rule_route(found: Sequence[Basis], *, held: bool = False) -> tuple[RouteStep, ...]:
+    """退回之後程式規則判斷的兩步:用程式規則 → 值得加嗎 → 寫建議或不調整(根據是 after_fallback
+    給的)。held:只判不送的那一件(F5 雙胞胎),寫好建議之後再走一步「只判不送」(代碼審 r1 p3)。"""
+    items = list(found)
+    if not items or items[0].code not in _WORTH_CODES:
+        return ()
+    worth = items[0]
+    target = "a_propose" if worth.code is BasisCode.WORTH else "a_no_action"
+    steps = (RouteStep("a_rule", "a_worth", worth), RouteStep("a_worth", target, worth))
+    if held and target == "a_propose":
+        hold = next((b for b in items if b.code is BasisCode.AI_TAKEOVER), EXAM_HOLD)
+        return (*steps, RouteStep("a_propose", "a_exam_hold", hold))
+    return steps

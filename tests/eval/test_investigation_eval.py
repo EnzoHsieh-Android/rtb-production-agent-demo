@@ -599,6 +599,11 @@ def test_the_batch_check_goes_red_on_missing_failed_or_mixed_recordings(tmp_path
     assert any("設定錯誤" in p for p in ie.batch_problems(folder, ()))
     victim.write_text(json.dumps({**json.loads(saved), "unclassified": True}), encoding="utf-8")
     assert any("無法可靠分類" in p for p in ie.batch_problems(folder, ()))
+    # 撞頂自動續寫的失敗錄製(使用者 2026-09-25 裁定:普通失敗,但算失敗類錄製,入庫前擋下、要重錄)
+    continued = {**json.loads(saved), "outcome": "unreadable", "text": None,
+                 "sub_reason": "output_continued"}
+    victim.write_text(json.dumps(continued), encoding="utf-8")
+    assert any("輸出撞頂自動續寫" in p for p in ie.batch_problems(folder, ()))
     # 別批的錄製檔
     other = {**json.loads(saved), "batch_id": "phase13-eval-20260101"}
     victim.write_text(json.dumps(other), encoding="utf-8")
@@ -933,3 +938,20 @@ def test_the_report_takes_the_shared_marks_from_adoption_not_the_sender():
     adoption_tree = ast.parse((EVAL / "adoption.py").read_text(encoding="utf-8"))
     assert not {n.module for n in ast.walk(adoption_tree) if isinstance(n, ast.ImportFrom)
                 and (n.module or "").startswith("rtb.model")}  # 採用判定照舊不碰模型用戶端
+
+
+def test_the_eval_lists_recordings_through_the_model_client_facade():
+    """代碼審 r2 a1:列錄製檔只有門面那一份(入庫驗收與報告的錄製日期看同一批檔),評估不另留一份。"""
+    source = (EVAL / "investigation_eval.py").read_text(encoding="utf-8")
+    assert "def recording_files" not in source
+    assert "mc.recording_files(" in source
+
+
+def test_the_decision_record_no_longer_promises_a_demo_mode_banner():
+    """使用者 2026-09-25 拿掉展示模式橫幅:決定紀錄的不採用理由不再寫「展示只能標展示模式、未通過採用
+    門檻」,改寫成現況——展示照樣用 AI 回答做示範,但不進正式決策路徑。"""
+    from rtb.eval import investigation_report
+
+    reason = investigation_report.SYNTHETIC_NEVER_ADOPTS
+    assert "展示模式" not in reason and "採用門檻」" not in reason
+    assert "示範" in reason and "不進正式決策路徑" in reason

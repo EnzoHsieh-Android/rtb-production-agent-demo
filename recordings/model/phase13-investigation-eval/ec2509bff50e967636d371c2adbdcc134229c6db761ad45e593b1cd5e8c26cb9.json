@@ -1,0 +1,22 @@
+{
+ "key": "ec2509bff50e967636d371c2adbdcc134229c6db761ad45e593b1cd5e8c26cb9",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": \"stop_insufficient\", \"reason\": \"點擊數大於曝光數,屬於1小時資料異常,證據不足\", \"evidence\": [{\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"15\"}, {\"ref\": \"base\", \"field\": \"impressions\", \"value\": \"12\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 131,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 635,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4104400,
+ "list_nanousd": 4104400,
+ "latency_ms": 4632.487040944397,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

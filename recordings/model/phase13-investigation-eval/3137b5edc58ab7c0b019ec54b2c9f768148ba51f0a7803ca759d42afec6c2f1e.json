@@ -1,0 +1,22 @@
+{
+ "key": "3137b5edc58ab7c0b019ec54b2c9f768148ba51f0a7803ca759d42afec6c2f1e",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": [\"check_longer_window\"], \"reason\": \"有點擊但轉換與營收皆為零,需查1天或7天是否有延遲轉換以判斷規則6或9\", \"evidence\": []}",
+ "input_tokens": 2,
+ "output_tokens": 71,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 608,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 3396400,
+ "list_nanousd": 3396400,
+ "latency_ms": 3754.0814178064466,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

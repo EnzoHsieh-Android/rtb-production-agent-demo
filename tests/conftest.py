@@ -11,19 +11,22 @@
 
 import os
 import pwd
+import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import pytest
 
 from rtb import modelledger_view
+from rtb.demo import launcher
 
 # 真的家目錄從帳號資料庫讀,不看 HOME(HOME 在測試裡會被換掉)
 REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
 REAL_LEDGER = REAL_HOME / ".rtb" / "model-ledger.sqlite"
 REAL_VERIFICATION = REAL_HOME / ".rtb" / "live-verification.json"
 PRODUCT_ACCOUNT_HOME = modelledger_view.account_home  # 產品那一支(只讀帳號資料庫)
+PRODUCT_MODULE_COMMAND = launcher.module_command  # 產品那一支(展示啟動器起子行程的指令)
 
 
 def unset_account_home() -> Path:
@@ -38,6 +41,37 @@ def child_prelude(home: Path) -> str:
     return ("from pathlib import Path as _RtbPath\n"
             "from rtb import modelledger_view as _rtb_view\n"
             f"_rtb_view.account_home = lambda: _RtbPath({str(home)!r})\n")
+
+
+def _run_module(module: str) -> str:
+    return ("import runpy, sys\n"
+            f"sys.argv[0] = {module!r}\n"
+            f"runpy.run_module({module!r}, run_name='__main__', alter_sys=True)\n")
+
+
+def isolated_module_command(home: Path, module: str, args: Sequence[str]) -> list[str]:
+    """展示啟動器在測試裡起子行程的指令:先跑 child_prelude 換掉帳號家目錄,再照原樣跑那支模組。"""
+    return [sys.executable, "-P", "-c", child_prelude(home) + _run_module(module), *args]
+
+
+def demo_server_command() -> list[str]:
+    """測試起展示伺服器子行程的指令:伺服器自己換掉帳號家目錄,也讓它的啟動器起的每個子行程都換
+    (代碼審 Phase 13 增量 4 r1 l3)。家目錄取這支測試的夾具換上的那一個。"""
+    home = modelledger_view.account_home()
+    children = child_prelude(home)
+    code = (children + "import sys as _rtb_sys\n"
+            "from rtb.demo import launcher as _rtb_launcher\n"
+            f"_RTB_CHILD = {children!r}\n"
+            "def _rtb_command(module, args):\n"
+            "    run = ('import runpy, sys\\nsys.argv[0] = ' + repr(module) + '\\n'\n"
+            "           + 'runpy.run_module(' + repr(module) + \", run_name='__main__', "
+            "alter_sys=True)\\n\")\n"
+            "    return [_rtb_sys.executable, '-P', '-c', _RTB_CHILD + run, *args]\n"
+            "_rtb_launcher.module_command = _rtb_command\n"
+            + _run_module("rtb.demo.server"))
+    return [sys.executable, "-c", code]
+
+
 MODEL_ENV = ("ANTHROPIC_API_KEY", "RTB_MODEL_LIVE", "RTB_MODEL_RECORD", "RTB_MODEL")
 # 整套測試的 PATH:只有每支測試的暫存目錄加系統基本路徑,真的 claude 不在上面([S935])
 SYSTEM_PATH = ("/usr/bin", "/bin", "/usr/sbin", "/sbin")
@@ -55,7 +89,15 @@ def ledger_state(path: Path = REAL_LEDGER) -> tuple[object, ...]:
             state.append((suffix, stat.st_size, stat.st_mtime_ns))
         else:
             state.append((suffix, None))
+    if path == REAL_LEDGER:  # 真的 ~/.rtb 底下有哪些檔(代碼審 Phase 13 增量 4 r1 l3:不只看那一本帳)
+        state.append(("rtb-dir", real_rtb_listing()))
     return tuple(state)
+
+
+def real_rtb_listing() -> tuple[str, ...]:
+    """帳號家目錄(從帳號資料庫讀)底下 .rtb 目錄裡的每一個檔名;目錄不存在是空的。"""
+    folder = REAL_HOME / ".rtb"
+    return tuple(sorted(p.name for p in folder.iterdir())) if folder.is_dir() else ()
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -103,6 +145,10 @@ def _isolated_home(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     patch.setattr(modelclaude, "MANAGED_DIRS", (policy / "system",))
     patch.setattr(modelclaude, "MDM_PLISTS", (policy / modelclaude.MDM_PLIST_NAME,))
     patch.setattr(modelclaude, "MANAGED_PREFERENCES", policy / "preferences")
+    # 展示啟動器起的子行程也先換掉帳號家目錄的讀法(代碼審 Phase 13 增量 4 r1 l3:它們不吃這個夾具,
+    # 起的分析端與模型入口在 pytest 裡寫過真的花費帳)
+    patch.setattr(launcher, "module_command", lambda module, args: isolated_module_command(
+        home, module, args))
     try:
         yield home
     finally:

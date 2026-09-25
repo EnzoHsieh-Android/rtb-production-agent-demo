@@ -1,0 +1,22 @@
+{
+ "key": "e234948513614f364a6b0e5d8c03fe40b5f9bfd7d593c6bd0e15795f9e0e7428",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": [\"check_longer_window\"], \"reason\": \"clicks為0,conversions與revenue皆為0,需看較長時間窗確認是否有延遲轉換\", \"evidence\": [{\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"0\"}, {\"ref\": \"base\", \"field\": \"conversions\", \"value\": \"0\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 115,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 633,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 3936400,
+ "list_nanousd": 3936400,
+ "latency_ms": 3892.7380004897714,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

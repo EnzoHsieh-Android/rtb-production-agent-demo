@@ -20,6 +20,26 @@
       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
     },
     {
+      "path": "src/rtb/demo/__init__.py",
+      "sha256": "8e9e34bf95e44bc1ad24532939ab182e04594d30784626954badf50d1486c42e"
+    },
+    {
+      "path": "src/rtb/demo/faults/__init__.py",
+      "sha256": "2f08db945e5b3a3c77b43a0ec15b986272e69fa5293a2359b11a15d2328ad3b7"
+    },
+    {
+      "path": "src/rtb/demo/faults/delivery.py",
+      "sha256": "7b2cb0e6d57a8c7297d260045bc1285c3e5e7fddc40b33929496a438ca81dd1f"
+    },
+    {
+      "path": "src/rtb/demo/keys.py",
+      "sha256": "c3285208b33832267210a0a059f664bb69d8a90c1ac5305d525315d40c7ed159"
+    },
+    {
+      "path": "src/rtb/demo/launcher/__init__.py",
+      "sha256": "c387254e85f9018b897f2cfd56cc28dc08e9b33cd7256d855565b558f0f9f51f"
+    },
+    {
       "path": "src/rtb/domain/_checks.py",
       "sha256": "b5a8acd6bf4adb4c6c4dff9c0a905e6b5cf53d703e8ff32c9a92174113dd8a07"
     },
@@ -46,6 +66,10 @@
     {
       "path": "src/rtb/dsp/errors.py",
       "sha256": "8a2da02e83240a71b3d279998a50fe36d19c7e484e58568e3f53af2dbdd85bbf"
+    },
+    {
+      "path": "src/rtb/dsp/server.py",
+      "sha256": "f8e71e3a1a9138afdc57435af39343e3e8f63f36217e6904c08d829edec97ed2"
     },
     {
       "path": "src/rtb/dsp/store.py",
@@ -101,7 +125,7 @@
     },
     {
       "path": "src/rtb/modelclaude.py",
-      "sha256": "2242e058db69843c5c8e306d8dcb4f63407d8601e1e9b247894647c627ae4f96"
+      "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
     },
     {
       "path": "src/rtb/modelcore.py",
@@ -117,7 +141,7 @@
     },
     {
       "path": "src/rtb/stepbudget.py",
-      "sha256": "f8a519b8b77db13cec0e1ce3b28a7b702bf2efb6b6ded73d975116c46fe2f3b9"
+      "sha256": "346ca606356525e90f86601caab77b18806b2f35237ac9670b84949812987210"
     }
   ],
   "harness": [
@@ -135,7 +159,7 @@
     },
     {
       "path": "tests/conftest.py",
-      "sha256": "64bab5f81ca469c57dd3434199bac535d2df1df142a83e23899ddcd2c7fea8c7"
+      "sha256": "152e66fc3e54b9110b0bc001b6b8fde5ce40dd5fc4b126c8b5d8020a6b6acdcb"
     },
     {
       "path": "tests/domain/__init__.py",

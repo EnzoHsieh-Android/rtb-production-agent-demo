@@ -1,0 +1,22 @@
+{
+ "key": "e78937892d55576174c28b663c824546f5fc4269d01db7fd391abe92df721a4b",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"choice\": \"propose\", \"reason\": \"廣告啟用中,資料無異常,有點擊也有轉換與營收,符合值得加預算條件\", \"evidence\": [{\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"14\"}, {\"ref\": \"base\", \"field\": \"conversions\", \"value\": \"3\"}, {\"ref\": \"base\", \"field\": \"revenue\", \"value\": \"26.53\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 134,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 606,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4018400,
+ "list_nanousd": 4018400,
+ "latency_ms": 3844.8644997552037,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

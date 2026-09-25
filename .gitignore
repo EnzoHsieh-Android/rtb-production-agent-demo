@@ -3,3 +3,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.pyc
+
+# Phase 13 增量 4:三種標示截圖用的假錄製與展示暫存(不入庫)
+.demo-fake-recordings/
+.demo-work/

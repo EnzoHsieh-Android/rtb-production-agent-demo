@@ -1,6 +1,9 @@
 # ruff: noqa: RUF001, RUF002
-"""把展示狀態安全地轉成無腳本 HTML。"""
+"""把展示狀態安全地轉成 HTML；流程格互動只切換已跳脫的伺服器內容。"""
 
+import base64
+import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -8,12 +11,12 @@ from typing import Final
 
 from rtb.demo.flow_svg import (
     LANE_ORDER,
-    decision_cards,
     edge_label,
     escape_text,
     flow_label,
     node_map,
     render_flow,
+    render_untaken_branches,
     validate_flow,
 )
 from rtb.demo.state import (
@@ -34,12 +37,162 @@ from rtb.demo.state import (
     VerifierResult,
 )
 
+FLOW_SCRIPT: Final = """(() => {
+  let active = null;
+  let pinned = false;
+  let openedByFocus = false;
+  let restoringFocus = false;
+  let closeTimer = null;
+  let lastViewportScrollAt = -Infinity;
+  const HOVER_CLOSE_DELAY_MS = 300;
+  const nodeFor = target => target.closest?.('.flow-node[data-flow-popover]');
+  const cancelClose = () => {
+    if (closeTimer === null) return;
+    clearTimeout(closeTimer);
+    closeTimer = null;
+  };
+  const hide = () => {
+    cancelClose();
+    if (!active) return;
+    const box = document.getElementById(active.dataset.flowPopover);
+    if (box) box.hidden = true;
+    active.setAttribute('aria-expanded', 'false');
+    active = null;
+    pinned = false;
+    openedByFocus = false;
+  };
+  const show = (node, pin = false, byFocus = false) => {
+    cancelClose();
+    if (active !== node) { hide(); openedByFocus = byFocus; }
+    const box = document.getElementById(node.dataset.flowPopover);
+    if (!box) return;
+    active = node;
+    pinned = pin;
+    box.hidden = false;
+    node.setAttribute('aria-expanded', 'true');
+    box.style.maxHeight = '';
+    const rect = node.getBoundingClientRect();
+    const width = box.getBoundingClientRect().width;
+    const naturalHeight = box.getBoundingClientRect().height;
+    const availableBelow = Math.max(0, innerHeight - rect.bottom - 16);
+    const availableAbove = Math.max(0, rect.top - 16);
+    const above = availableBelow < naturalHeight && availableAbove > availableBelow;
+    const room = above ? availableAbove : availableBelow;
+    const viewportHeight = Math.max(0, innerHeight - 16);
+    box.style.maxHeight = `${Math.min(416, room < 120 ? viewportHeight : room)}px`;
+    const height = box.getBoundingClientRect().height;
+    box.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`;
+    const top = room < 120 ? 8 : above ? rect.top - height - 8 : rect.bottom + 8;
+    box.style.top = `${Math.max(8, Math.min(top, innerHeight - height - 8))}px`;
+  };
+  const keptByFocus = () => openedByFocus && document.activeElement === active;
+  const scheduleClose = () => {
+    if (!active || pinned || keptByFocus()) return;
+    cancelClose();
+    closeTimer = setTimeout(() => { closeTimer = null; hide(); }, HOVER_CLOSE_DELAY_MS);
+  };
+  document.querySelectorAll('.flow-node[data-flow-popover]').forEach(node => {
+    const box = document.getElementById(node.dataset.flowPopover);
+    if (!box) return;
+    node.addEventListener('mouseenter', () => {
+      if (pinned) return;
+      if (active !== node) show(node);
+      else openedByFocus = false;
+    });
+    node.addEventListener('mouseleave', () => {
+      if (active === node && performance.now() - lastViewportScrollAt >= HOVER_CLOSE_DELAY_MS)
+        scheduleClose();
+    });
+    box.addEventListener('mouseenter', () => { if (active === node) cancelClose(); });
+    box.addEventListener('mouseleave', () => { if (active === node) scheduleClose(); });
+  });
+  document.addEventListener('mousemove', event => {
+    if (!active || pinned || closeTimer !== null || keptByFocus()) return;
+    const box = document.getElementById(active.dataset.flowPopover);
+    if (!active.contains(event.target) && !box?.contains(event.target)) scheduleClose();
+  });
+  document.addEventListener('focusin', event => {
+    if (restoringFocus) return;
+    const node = nodeFor(event.target);
+    if (node && node !== active) show(node, false, true);
+  });
+  document.addEventListener('focusout', event => {
+    if (!active || pinned || event.target !== active) return;
+    const box = document.getElementById(active.dataset.flowPopover);
+    if (!box?.contains(event.relatedTarget) && !box?.matches(':hover')) hide();
+  });
+  // Esc 或「×」收框時把焦點還給那一格(不因此再打開)
+  const returnFocus = node => {
+    restoringFocus = true;
+    try { node.focus({ preventScroll: true }); } finally { restoringFocus = false; }
+  };
+  document.addEventListener('click', event => {
+    if (event.target.closest?.('.flow-popover-close')) {
+      const node = active;  // 「×」關框跟 Esc 一樣把焦點還給那一格(代碼審 r3 v1/c2)
+      if (node) returnFocus(node);
+      hide();
+      return;
+    }
+    const node = nodeFor(event.target);
+    if (node) {
+      if (active === node && pinned) hide();
+      else show(node, true);
+    } else if (!event.target.closest?.('.flow-popover')) hide();
+  });
+  document.addEventListener('keydown', event => {
+    const inBox = event.target.closest?.('.flow-popover');
+    if (event.key === 'Escape') {
+      const node = active;
+      if (inBox && node) returnFocus(node);
+      hide();
+      return;
+    }
+    if (inBox) return;  // 框裡的方向鍵、翻頁、空白鍵照瀏覽器預設捲框,不開關格子
+    const node = nodeFor(event.target);
+    if (node && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      if (active === node && pinned) hide();
+      else {
+        show(node, true);
+        const box = document.getElementById(node.dataset.flowPopover);
+        if (box && !box.hidden) box.focus({ preventScroll: true });  // 鍵盤釘住:焦點移進框
+      }
+    }
+  });
+  window.addEventListener('resize', () => { if (active) show(active, pinned); });
+  document.addEventListener('scroll', event => {
+    if (!active || event.target.closest?.('.flow-popover')) return;
+    lastViewportScrollAt = performance.now();
+    const rect = active.getBoundingClientRect();
+    if (rect.bottom <= 0 || rect.top >= innerHeight ||
+        rect.right <= 0 || rect.left >= innerWidth) hide();
+    else show(active, pinned);
+  }, true);
+  // 窄螢幕的情境列是一排可左右滑的卡:載入時把選中那張捲進可視區(只動這一列,不捲整頁)
+  const revealSelected = () => {
+    const list = document.querySelector('.scenario-index');
+    const row = list?.querySelector('.scenario-row.is-selected');
+    if (!list || !row || list.scrollWidth <= list.clientWidth) return;
+    const listRect = list.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    list.scrollLeft += rowRect.left - listRect.left - (listRect.width - rowRect.width) / 2;
+  };
+  revealSelected();
+})();"""
+_SCRIPT_HASH: Final = base64.b64encode(hashlib.sha256(FLOW_SCRIPT.encode()).digest()).decode()
 CONTENT_SECURITY_POLICY: Final = (
-    "default-src 'none'; script-src 'none'; style-src 'self'; form-action 'self'; "
-    "frame-ancestors 'none'; base-uri 'none'; img-src 'none'"
+    f"default-src 'none'; script-src 'sha256-{_SCRIPT_HASH}'; style-src 'self'; "
+    "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; img-src 'none'"
 )
 STYLESHEET_PATH: Final = "/static/demo.css"
 DEMO_CSS: Final = (Path(__file__).parent / "static" / "demo.css").read_text(encoding="utf-8")
+_STYLE_HASH: Final = base64.b64encode(hashlib.sha256(DEMO_CSS.encode()).digest()).decode()
+# 另存的單檔報告(樣式內嵌、用 file:// 打開)沒有回應標頭,改在 <head> 用 meta 宣告;腳本與內嵌樣式各綁
+# 自己的雜湊,不用 unsafe-inline(增量 4 代碼審 r2 s3)。frame-ancestors 在 meta 裡無效,不寫
+INLINE_CONTENT_SECURITY_POLICY: Final = (
+    f"default-src 'none'; script-src 'sha256-{_SCRIPT_HASH}'; "
+    f"style-src 'sha256-{_STYLE_HASH}'; form-action 'none'; base-uri 'none'; img-src 'none'"
+)
 
 JARGON_TERMS: Final[tuple[str, ...]] = (
     "死信",
@@ -125,6 +278,7 @@ _STATUS_CLASS: Final = {
     ScenarioStatus.AWAITING_APPROVAL: "status-awaiting",
     ScenarioStatus.DONE: "status-done",
     ScenarioStatus.INCOMPLETE: "status-incomplete",
+    ScenarioStatus.NOT_EXERCISED: "status-not-exercised",
 }
 _STATUS_ICON: Final = {
     ScenarioStatus.PENDING: "○",
@@ -132,7 +286,13 @@ _STATUS_ICON: Final = {
     ScenarioStatus.AWAITING_APPROVAL: "◆",
     ScenarioStatus.DONE: "✓",
     ScenarioStatus.INCOMPLETE: "!",
+    ScenarioStatus.NOT_EXERCISED: "–",
 }
+# Phase 13 增量 4 的標示(計劃〈展示頁怎麼顯示〉):模型文字一律標這一句(合約 [S1121] [S1027] 的字面;
+# 代使用者裁定 2026-09-25 依 Phase 12 白話規則把「模型」寫成 AI)
+MODEL_LABEL: Final = "AI 產生、僅供參考"
+CITED_LABEL: Final = "AI 引用的收據值(已核對存在)"
+
 
 
 def disposition_text(category: str, code: str) -> str:
@@ -148,14 +308,14 @@ def render_page(
     selected: ScenarioCode | None = None,
 ) -> str:
     """產生可觸發展示、可顯示即時進度的完整頁面；每次重讀須傳入新的 tick。"""
-    return _render_document(
+    return _public_page_html(_render_document(
         state,
         form_token=form_token,
         interactive=True,
         selected=selected,
         refresh_tick=refresh_tick,
         inline_styles=False,
-    )
+    ))
 
 
 def render_report(state: DemoState, *, inline_styles: bool = True) -> str:
@@ -178,12 +338,23 @@ def render_report(state: DemoState, *, inline_styles: bool = True) -> str:
         '<a href="#scenarios">情境與流程</a><a href="#report-details">查核、限制與名詞</a></nav>'
         f"{_render_system_map(state.flow)}"
         '<div class="report-workspace">'
-        f"{_render_scenario_index(state, state.scenarios[0], False, None)}"
+        f"{_render_scenario_index(state, state.scenarios[0], False)}"
         f'<section class="report-scenarios" aria-label="七個情境的處理流程">{scenarios}</section>'
         f"</div>{_render_report_details(state)}</main>"
     )
     head = _render_head(refresh_url=None, inline_styles=inline_styles)
-    return f'<!doctype html><html lang="zh-Hant">{head}<body>{body}</body></html>'
+    return _public_page_html(f'<!doctype html><html lang="zh-Hant">{head}<body>{body}'
+                             f'<script>{FLOW_SCRIPT}</script></body></html>')
+
+
+def _public_page_html(markup: str) -> str:
+    """最後檢查讀者可見的舊模式用語；所有動態內容此時都已經過 escape_text。"""
+    return (markup.replace("沒有對應的錄製回應", "AI 這次沒有給出回答")
+            .replace("(展示模式,未通過採用門檻)", "")
+            .replace("(展示模式)", "")
+            .replace("錄製回應", "AI 回答")
+            .replace("即時呼叫", "AI 回答")
+            .replace("即時清單", "AI 情境"))
 
 
 def _render_report_details(state: DemoState) -> str:
@@ -238,6 +409,10 @@ def _render_document(
     head = _render_head(refresh_url=refresh_url, inline_styles=inline_styles)
     current = _render_current_progress(state) if interactive else ""
     actions = _render_actions(state, form_token, focus) if interactive else ""
+    rerun = (
+        _form("/run/scenario", "重跑", form_token, focus.code.value)
+        if not state.running and not awaiting and form_token is not None else ""
+    )
     body = (
         f'{current}<main><header class="hero"><div><p class="eyebrow">'
         "廣告預算安全調整示範</p>"
@@ -246,11 +421,14 @@ def _render_document(
         "以及最後結果好不好。七個情境是同一次展示依序跑的七個子案例。</p>"
         f"</div>{_render_summary(state)}{actions}</header>"
         f"{_render_system_map(state.flow)}"
-        f"{_render_scenario_index(state, focus, interactive, form_token)}"
-        f"{_render_focus(focus, state.flow)}"
+        '<div class="demo-workspace">'
+        f"{_render_scenario_index(state, focus, interactive)}"
+        f"{_render_focus(focus, state.flow, rerun=rerun)}"
+        '</div>'
         '</main>'
     )
-    return f'<!doctype html><html lang="zh-Hant">{head}<body>{body}</body></html>'
+    return (f'<!doctype html><html lang="zh-Hant">{head}<body>{body}'
+            f'<script>{FLOW_SCRIPT}</script></body></html>')
 
 
 def _render_head(*, refresh_url: str | None, inline_styles: bool) -> str:
@@ -260,7 +438,8 @@ def _render_head(*, refresh_url: str | None, inline_styles: bool) -> str:
         else ""
     )
     styles = (
-        f"<style>{DEMO_CSS}</style>"
+        f'<meta http-equiv="Content-Security-Policy" '
+        f'content="{escape_text(INLINE_CONTENT_SECURITY_POLICY)}"><style>{DEMO_CSS}</style>'
         if inline_styles
         else f'<link rel="stylesheet" href="{STYLESHEET_PATH}">'
     )
@@ -284,16 +463,16 @@ def _selected_scenario(state: DemoState, selected: ScenarioCode | None) -> Scena
 
 
 def _render_summary(state: DemoState) -> str:
-    done = sum(item.status is ScenarioStatus.DONE for item in state.scenarios)
-    mode = _MODE_TEXT[state.model_mode]
+    # 「AI 判不提案、故障沒走到」也算跑完([S1144] 不算沒跑完;代碼審 r1 p2),另外標幾個沒走到
+    done = sum(item.status in _FINISHED for item in state.scenarios)
+    untouched = sum(item.status is ScenarioStatus.NOT_EXERCISED for item in state.scenarios)
     cost = "—" if state.model_cost_usd is None else f"{_decimal(state.model_cost_usd)} 美元"
-    reason = state.model_mode_reason or "原因未記錄"
     started = "—" if state.started_at is None else _format_time(state.started_at)
     verdict, source = _verifier_summary(state)
     primary: tuple[tuple[str, str, str | None], ...] = (
-        ("已完成情境", f"{done} / {len(state.scenarios)}", None),
+        ("已完成情境", f"{done} / {len(state.scenarios)}",
+         f"其中 {untouched} 個 AI 判不提案（不提出調整建議），故障沒走到" if untouched else None),
         ("自動查核", verdict, source),
-        ("AI 說明方式", mode, reason),
         ("本次 AI 費用", cost, None),
         ("開始時間", started, None),
     )
@@ -341,13 +520,7 @@ def _render_summary(state: DemoState) -> str:
     )
 
 
-_MODE_TEXT: Final = {
-    ModelMode.RECORDED: "使用預先錄好的內容（沒有即時連線）",
-    ModelMode.LIVE: "現場即時產生",
-    ModelMode.NOT_CALLED: "這次沒有呼叫 AI",
-}
-
-
+_FINISHED: Final = frozenset({ScenarioStatus.DONE, ScenarioStatus.NOT_EXERCISED})
 def _verifier_summary(state: DemoState) -> tuple[str, str | None]:
     """[S1031][S1035][S1054] 主頁摘要列常駐的自動查核格:通過或發現問題(文字,不只靠顏色)、取自哪一次;
     完整展示在跑、這次還沒跑到寫「這次還沒查核」;還沒有完整執行過就照實寫。"""
@@ -463,7 +636,8 @@ def _current_last_decision(decision: Decision | None, flow: FlowGraph) -> str:
     branch = "已結束" if ended else edge_label(flow, decision.taken_edge)
     return (
         '<span class="progress-decision">上一個判斷（剛剛）：'
-        f"{escape_text(label)} → {escape_text(decision.outcome)}（{escape_text(branch)}）</span>"
+        f"{escape_text(label)} → {escape_text(_public_text(decision.outcome))}"
+        f"（{escape_text(branch)}）</span>"
     )
 
 
@@ -517,10 +691,9 @@ def _render_scenario_index(
     state: DemoState,
     focus: Scenario,
     interactive: bool,
-    token: str | None,
 ) -> str:
     rows = "".join(
-        _render_scenario_row(item, item is focus, interactive, token, state)
+        _render_scenario_row(item, item is focus, interactive, state)
         for item in state.scenarios
     )
     return (
@@ -536,21 +709,15 @@ def _render_scenario_row(
     scenario: Scenario,
     selected: bool,
     interactive: bool,
-    token: str | None,
     state: DemoState,
 ) -> str:
-    running, flow = state.running or _is_awaiting_approval(state), state.flow
+    flow = state.flow
     selected_class = " is-selected" if selected else ""
     status_class = _STATUS_CLASS[scenario.status]
     status = f"{_STATUS_ICON[scenario.status]} {scenario.status.value}"
-    result = scenario.result_summary or _fallback_result(scenario)
-    origin = _origin_kind(scenario)
     content = (
         f'<span class="scenario-code">{escape_text(scenario.code.value)}</span>'
         f'<span class="scenario-name">{escape_text(scenario.title)}</span>'
-        f'<span class="scenario-pivot">轉向：{escape_text(_pivot_label(scenario, flow))}</span>'
-        f'<span class="scenario-result">{escape_text(result)}'
-        f'<small>{escape_text(origin)}</small></span>'
         f'<span class="status {status_class}">{escape_text(status)}</span>'
     )
     if interactive:
@@ -558,13 +725,25 @@ def _render_scenario_row(
             f'<a class="scenario-link" href="?scenario={scenario.code.value}#flow">{content}</a>'
         )
     else:
+        result = scenario.result_summary or _fallback_result(scenario)
+        origin = _origin_kind(scenario)
+        content = (
+            f'<span class="scenario-code">{escape_text(scenario.code.value)}</span>'
+            f'<span class="scenario-name">{escape_text(scenario.title)}</span>'
+            f'<span class="scenario-pivot">{escape_text(_pivot_text(scenario, flow))}</span>'
+            f'<span class="scenario-result">{escape_text(result)}'
+            f'<small>{escape_text(origin)}</small></span>'
+            f'<span class="status {status_class}">{escape_text(status)}</span>'
+        )
         content = f'<a class="scenario-link" href="#flow-{scenario.code.value}">{content}</a>'
-    rerun = ""
-    if interactive and not running:
-        if token is None:
-            raise ValueError("互動頁缺少表單值")
-        rerun = _form("/run/scenario", "重跑", token, scenario.code.value)
-    return f'<li class="scenario-row{selected_class}">{content}{rerun}</li>'
+    return f'<li class="scenario-row{selected_class}">{content}</li>'
+
+
+def _pivot_text(scenario: Scenario, flow: FlowGraph) -> str:
+    """列表那一列的「轉向」:故障沒走到的情境不寫固定的故障位置(代碼審 r1 p2)。"""
+    if scenario.status is ScenarioStatus.NOT_EXERCISED:
+        return "故障這次沒有走到"
+    return f"轉向：{_pivot_label(scenario, flow)}"
 
 
 def _pivot_label(scenario: Scenario, flow: FlowGraph) -> str:
@@ -590,6 +769,7 @@ def _render_focus(
     *,
     id_suffix: str | None = None,
     compact: bool = False,
+    rerun: str = "",
 ) -> str:
     status_class = _STATUS_CLASS[scenario.status]
     status = f"{_STATUS_ICON[scenario.status]} {scenario.status.value}"
@@ -608,19 +788,41 @@ def _render_focus(
         '<div class="focus-heading"><div><p class="section-kicker">情境詳情</p>'
         f'<h2 id="{escape_text(title_id)}"><span>{escape_text(scenario.code.value)}</span> '
         f"{escape_text(scenario.title)}</h2>"
-        f"<p>{escape_text(scenario.what_it_tests)}</p>"
-        f"{_render_scenario_origin(scenario)}{reason}</div>"
-        f'<span class="status {status_class}">{escape_text(status)}</span></div>'
+        f"{reason}</div>"
+        f'<div class="focus-actions"><span class="status {status_class}">'
+        f'{escape_text(status)}</span>{rerun}</div></div>'
+        '<details class="scenario-intent" open><summary>這次情境</summary>'
+        f'{_render_intent(scenario)}'
+        '</details>'
+        '<details class="flow-disclosure" open><summary>處理流程：實際走到的階段</summary>'
+        f"{render_flow(flow, scenario, _flow_node_details(scenario, flow))}</details>"
+        '<section class="result-overview" aria-label="處理結果概述">'
+        '<h3>處理結果概述</h3>'
+        f"{_render_decision_hero(scenario)}"
+        f"{_render_ai_outcome(scenario)}"
+        f"{_render_ai_rounds(scenario)}"
         f"{_render_change_summary(scenario.change_summary, scenario.change_overview)}"
         f"{_render_result_evidence(scenario)}"
-        '<details class="report-disclosure"><summary>觸發條件與目標</summary>'
-        '<div class="scenario-intent">'
-        f'<p><strong>為什麼開始跑：</strong>{escape_text(scenario.trigger or "(這次沒有記錄)")}</p>'
-        f'<p><strong>目標：</strong>{escape_text(scenario.goal or "(這次沒有記錄)")}</p>'
-        '</div></details>'
-        f"{render_flow(flow, scenario)}"
-        f"{_render_decisions(scenario, flow)}</section>"
+        '</section><details class="report-disclosure"><summary>其餘明細</summary>'
+        f"{render_untaken_branches(flow, scenario)}"
+        f"{_render_scenario_origin(scenario)}"
+        f"{_render_operation_details(scenario)}"
+        f"{_render_ai_node_card(scenario)}"
+        '</details></section>'
     )
+
+
+def _render_intent(scenario: Scenario) -> str:
+    """觸發、情境與目標併讀；同一句目標只留一次。"""
+    what = scenario.what_it_tests.strip()
+    goal = (scenario.goal or "").strip()
+    if goal and goal not in what and what not in goal:
+        purpose = f"{what.rstrip('。')}。目標是{goal.rstrip('。')}。"
+    else:
+        purpose = what or goal or "(這次沒有記錄)"
+    trigger = scenario.trigger or "(這次沒有記錄)"
+    return (f'<p><strong>觸發條件：</strong>{escape_text(trigger)}；'
+            f'{escape_text(purpose)}</p>')
 
 
 _SCALED_DOWN: Final = "規模縮小：這是等比例縮小的展示；完整規模由自動查核跑的 F7 測試證明。"
@@ -637,16 +839,9 @@ def _origin_kind(scenario: Scenario) -> str:
 
 
 def _scenario_origin_text(scenario: Scenario) -> str:
-    """[S1054] 逐情境出處:展示編號、時間、AI 模式;F7 另註明規模縮小([S1012])。"""
+    """[S1054] 逐情境出處:展示編號、時間;F7 另註明規模縮小([S1012])。"""
     if scenario.source_demo_id is None or scenario.ran_at is None:
         return "這個情境還沒有執行紀錄"
-    mode = (
-        "AI 說明方式未記錄"
-        if scenario.model_mode is None
-        else "這次沒有呼叫 AI"
-        if scenario.model_mode is ModelMode.NOT_CALLED
-        else f"AI 採{scenario.model_mode.value}方式"
-    )
     scale = f"；{_SCALED_DOWN}" if scenario.code is ScenarioCode.F7 else ""
     kind = _origin_kind(scenario)
     place = (f"的第 {list(ScenarioCode).index(scenario.code) + 1} 個情境"
@@ -654,7 +849,7 @@ def _scenario_origin_text(scenario: Scenario) -> str:
     return (
         f"{kind}（展示編號 {scenario.source_demo_id}）{place}，"
         f"情境執行編號 {scenario.source_demo_id}-{scenario.code.value}；"
-        f"執行時間 {_format_time(scenario.ran_at)}，{mode}{scale}"
+        f"執行時間 {_format_time(scenario.ran_at)}{scale}"
     )
 
 
@@ -684,51 +879,299 @@ def _render_change_summary(change: ChangeSummary | None, overview: str | None = 
 
 
 def _render_result_evidence(scenario: Scenario) -> str:
+    result = scenario.result_summary or _fallback_result(scenario)
+    return (
+        '<div class="result-evidence"><strong>這次結果：</strong>'
+        f'<span>{escape_text(result)}</span></div>'
+    )
+
+
+def _render_operation_details(scenario: Scenario) -> str:
     apply_count = (
         "(這次沒有記錄)" if scenario.platform_apply_count is None
         else str(scenario.platform_apply_count)
     )
-    result = scenario.result_summary or _fallback_result(scenario)
     return (
-        '<div class="result-evidence"><strong>這次結果：</strong>'
-        f'<span>{escape_text(result)}</span>'
         '<details class="operation-details"><summary>操作識別</summary><p>同一筆操作的證據：'
         f'操作鍵 {escape_text(scenario.operation_key or "(這次沒有記錄)")}；'
-        f'平台套用次數 {escape_text(apply_count)}</p></details></div>'
+        f'平台套用次數 {escape_text(apply_count)}</p></details>'
     )
 
 
-def _render_decisions(scenario: Scenario, flow: FlowGraph) -> str:
-    nodes = node_map(flow)
-    shown = decision_cards(scenario.path)
-    cards = "".join(
-        _decision_card(decision, index, len(shown), nodes, flow, count)
-        for index, (decision, count) in enumerate(shown, start=1)
-    )
-    if not cards:
-        cards = '<li class="empty">還沒有判斷紀錄。</li>'
-    grouped = len(shown) != len(scenario.path)
-    heading = ("判斷很多，依步驟與分支彙總，每張卡標出筆數，根據取第一筆。" if grouped
-               else "由左到右，就是系統這次實際判斷的順序。")
+def _render_decision_hero(scenario: Scenario) -> str:
+    """頁首只彙總已有的選擇；多件工作逐種計數，不以一件代表全部。"""
+    who = (scenario.decided_by.value.replace("(展示模式)", "")
+           if scenario.decided_by else "(這次沒有記錄)")
+    choices: dict[str, int] = {}
+    for decision in scenario.path:
+        if (decision.kind is DecisionKind.AI_JUDGEMENT or
+                decision.taken_edge == ("a_ai", "a_rule")):
+            choice = decision.outcome
+        else:
+            continue
+        choices[choice] = choices.get(choice, 0) + 1
+    if choices:
+        choice_html = "".join(
+            f'<li>{escape_text(_public_text(choice))}（{count} 筆）</li>'
+            for choice, count in choices.items()
+        )
+    else:
+        choice_html = '<li>這次沒有 AI 判斷紀錄</li>'
+    # 「AI 判不提案,故障處理這次沒有走到」已在結果摘要裡(提案緊接括號解釋),不再另寫一次
+    # (增量 4 代碼審 r2 v1)
+    result = scenario.result_summary or _fallback_result(scenario)
     return (
-        '<details class="report-disclosure"><summary>每一步為什麼這樣判'
-        f'<span class="disclosure-count">{len(scenario.path)} 個判斷</span></summary>'
-        '<div class="decision-heading">'
-        f"<p>{heading}</p></div>"
-        f'<div class="decision-scroll"><ol class="decision-trail">{cards}</ol></div></details>'
-        f'{_render_ai_node_card(scenario)}'
+        '<section class="decision-hero" aria-label="決策摘要">'
+        '<div class="decision-hero__grid">'
+        f'<div><span>這次誰決定</span><strong>{escape_text(who)}</strong></div>'
+        f'<div><span>AI 選的下一步／退回原因</span><ul>{choice_html}</ul></div>'
+        f'<div><span>這次結果</span><strong>{escape_text(result)}</strong></div>'
+        '</div></section>'
     )
+
+
+def _round_takeover(path: tuple[Decision, ...], index: int) -> Decision | None:
+    decision = path[index]
+    target = decision.taken_edge[1] if decision.taken_edge else None
+    if target is None:
+        return None
+    for later in path[index + 1:]:
+        if later.task_id != decision.task_id:
+            continue
+        if later.kind is DecisionKind.AI_JUDGEMENT or later.taken_edge == ("a_ai", "a_rule"):
+            break
+        if later.kind is DecisionKind.PROGRESS and later.node == target:
+            return later
+    return None
+
+
+def _round_rule_followup(path: tuple[Decision, ...], index: int) -> tuple[Decision, ...]:
+    task = path[index].task_id
+    following: list[Decision] = []
+    for later in path[index + 1:]:
+        if later.task_id != task:
+            continue
+        if later.kind is DecisionKind.AI_JUDGEMENT or later.taken_edge == ("a_ai", "a_rule"):
+            break
+        if not later.node.startswith("a_"):
+            break
+        if later.kind is DecisionKind.JUDGEMENT:
+            following.append(later)
+    return tuple(following)
+
+
+def _render_ai_rounds(scenario: Scenario) -> str:
+    """依工作與原始順序配對 AI、退回及接手；相同內容合併並標筆數。"""
+    groups: dict[tuple[int, Decision, Decision | None, tuple[Decision, ...]], list[str]] = {}
+    round_by_task: dict[str, int] = {}
+    for index, decision in enumerate(scenario.path):
+        fallback = decision.taken_edge == ("a_ai", "a_rule")
+        if decision.kind is not DecisionKind.AI_JUDGEMENT and not fallback:
+            continue
+        takeover = None if fallback else _round_takeover(scenario.path, index)
+        followup = _round_rule_followup(scenario.path, index) if fallback else ()
+        task = decision.task_id or "工作編號未記錄"
+        round_by_task[task] = round_by_task.get(task, 0) + 1
+        # 時間與工作編號不影響內容相同與否;證據、選擇與接手不同就分開顯示。
+        key = (round_by_task[task], replace(decision, task_id=None, at=None, operation_key=None),
+               replace(takeover, task_id=None, at=None, operation_key=None)
+               if takeover is not None else None,
+               tuple(replace(item, task_id=None, at=None, operation_key=None)
+                     for item in followup))
+        groups.setdefault(key, []).append(task)
+    if not groups:
+        return ""
+    cards = []
+    for (number, decision, takeover, followup), tasks in groups.items():
+        fallback = decision.kind is not DecisionKind.AI_JUDGEMENT
+        task_label = (f"工作 {tasks[0]}" if len(tasks) == 1
+                      else f"共 {len(tasks)} 筆工作")
+        if fallback:
+            reason = (f'<p class="ai-round-card__fallback">'
+                      f'{escape_text(_public_text(decision.outcome))}</p>')
+            rules = "".join(
+                f'<li>{escape_text(_public_text(_rule_followup_text(item)))}</li>'
+                for item in followup
+            )
+            body = (f'{reason}<div class="ai-round-card__rules">'
+                    '<strong>程式規則接手後的判斷</strong>'
+                    f'<ul>{rules or "<li>沒有留下後續判斷紀錄</li>"}</ul></div>')
+        else:
+            takeover_text = ("沒有留下接手紀錄" if takeover is None else
+                             "；".join(item.observed for item in takeover.basis) or
+                             takeover.outcome)
+            body = (_ai_basis(decision, fields_class="ai-round-card__fields") +
+                    f'<div class="ai-round-card__takeover"><strong>程式接手</strong>'
+                    f'<p>{escape_text(_public_text(takeover_text))}</p></div>')
+        card_class = "ai-round-card is-fallback" if fallback else "ai-round-card"
+        cards.append(
+            f'<article class="{card_class}"><h4>第 {number} 輪／{escape_text(task_label)}</h4>'
+            f'{body}</article>'
+        )
+    return ('<section class="ai-rounds" aria-label="AI 逐輪判斷">'
+            '<h3>AI 逐輪判斷</h3><div class="ai-rounds__list">'
+            f'{"".join(cards)}</div></section>')
+
+
+def _rule_followup_text(decision: Decision) -> str:
+    outcome = ("值得加預算" if decision.node == "a_worth" and decision.outcome == "值得"
+               else decision.outcome)
+    evidence = "；".join(
+        f"量到的值：{item.observed}；標準：{item.standard}；比較結果：{item.conclusion}"
+        for item in decision.basis
+    )
+    return f"程式規則接手後判定：{outcome}" + (f"（{evidence}）" if evidence else "")
+
+
+def _public_text(value: str) -> str:
+    """只把內部的缺錄原因與考題前綴換成讀者看到的白話。"""
+    shown = (value.replace("沒有對應的錄製回應", "AI 這次沒有給出回答")
+             .replace("(展示模式,未通過採用門檻)", "")
+             .replace("(展示模式)", "")
+             .replace("錄製當時的 AI 回答:", "AI 的回答："))
+    for source in ("錄製回應", "即時呼叫", "來源沒有記下"):
+        shown = shown.replace(f"理由({MODEL_LABEL},{source}):", f"理由({MODEL_LABEL}):")
+    return shown
+
+
+def _flow_node_details(scenario: Scenario, flow: FlowGraph) -> dict[str, str]:
+    """用原本的逐步判斷卡預先做每格內容；大量相同結果合併。"""
+    nodes = node_map(flow)
+    by_node: dict[str, list[tuple[int, Decision]]] = {}
+    for position, decision in enumerate(scenario.path):
+        by_node.setdefault(decision.node, []).append((position, decision))
+    output: dict[str, str] = {}
+    for node_id, decisions in by_node.items():
+        shown: list[tuple[int, Decision, int]]
+        if len(scenario.path) > 60:
+            merged: dict[tuple[str, tuple[str, str] | None, DecisionKind | None],
+                         tuple[int, Decision, int]] = {}
+            for position, decision in decisions:
+                key = (decision.outcome, decision.taken_edge, decision.kind)
+                first_position, first, count = merged.get(key, (position, decision, 0))
+                merged[key] = (first_position, first, count + 1)
+            shown = list(merged.values())
+        else:
+            shown = [(position, decision, 1) for position, decision in decisions]
+        per_task: dict[str, int] = {}
+        labels = []
+        for index, (_position, decision, count) in enumerate(shown, start=1):
+            if decision.task_id is not None:
+                per_task[decision.task_id] = per_task.get(decision.task_id, 0) + 1
+            labels.append(_occurrence_label(decision, index, count,
+                                            per_task.get(decision.task_id or "", 0)))
+        cards = "".join(
+            '<li class="flow-occurrence">'
+            f'<strong>{label}</strong>'
+            f'{"<p>以下根據與時間取其中第一筆。</p>" if count > 1 else ""}'
+            '<ol class="decision-trail">'
+            f'{_decision_card(decision, index, len(shown), nodes, flow, count)}'
+            '</ol>'
+            f'{_ai_cell_followup(scenario.path, position, decision)}'
+            '</li>'
+            for index, ((position, decision, count), label) in enumerate(
+                zip(shown, labels, strict=True), start=1)
+        )
+        output[node_id] = f'<ol class="flow-occurrences">{cards}</ol>'
+    if scenario.model_step is not None:
+        output.setdefault("a_narrate", _render_ai_node_card(scenario))
+    if scenario.hypothesis is not None:
+        output["ai_hypothesis"] = _render_hypothesis(scenario)
+    return output
+
+
+def _occurrence_label(decision: Decision, index: int, count: int, task_round: int) -> str:
+    """同一格走過好幾次:帶工作編號、按每件工作各自數(AI 那格數「輪」,跟 AI 逐輪卡一致;增量 4 代碼審
+    r2 p4);沒記工作編號的舊資料照舊連號。"""
+    if count > 1:
+        return f"共 {count} 筆，結果：{escape_text(_public_text(decision.outcome))}"
+    if decision.task_id is None:
+        return f"第 {index} 次"
+    unit = ("輪" if decision.kind is DecisionKind.AI_JUDGEMENT
+            or decision.taken_edge == ("a_ai", "a_rule") else "次")
+    return f"工作 {escape_text(decision.task_id)} 第 {task_round} {unit}"
+
+
+def _ai_cell_followup(path: tuple[Decision, ...], position: int, decision: Decision) -> str:
+    if decision.kind is DecisionKind.AI_JUDGEMENT:
+        takeover = _round_takeover(path, position)
+        if takeover is None:
+            return '<p>程式接手：沒有留下接手紀錄</p>'
+        summary = "；".join(item.observed for item in takeover.basis) or takeover.outcome
+        return f'<p>程式接手：{escape_text(summary)}</p>'
+    if decision.taken_edge == ("a_ai", "a_rule"):
+        rules = _round_rule_followup(path, position)
+        return "".join(
+            f'<p>{escape_text(_public_text(_rule_followup_text(item)))}</p>'
+            for item in rules
+        )
+    return ""
+
+
+def _render_ai_outcome(scenario: Scenario) -> str:
+    """結局的標示([S1144] [S1168])與 F5 的模型考題([S1124]):各自另列一行,不混進情境結果。"""
+    lines = []
+    if scenario.outcome_note:
+        note = escape_text(_public_text(scenario.outcome_note))
+        lines.append(f'<p class="ai-outcome">{note}</p>')
+    if scenario.exam:
+        if "考題沒通過" in scenario.exam:
+            label = ("<strong>模型考題沒通過</strong>"
+                     "（AI 回答的考題未過，與情境是否完成分開看）")
+        else:
+            label = "<strong>模型（AI）考題：</strong>"
+        lines.append(f'<p class="exam-verdict ai-exam">{label}'
+                     f"<span>{escape_text(_public_text(scenario.exam))}</span></p>")
+    return "".join(lines)
 
 
 def _render_ai_node_card(scenario: Scenario) -> str:
-    visited = {item for pair in scenario.traversed_edges for item in pair}
-    narrative = scenario.model_step.narrative if scenario.model_step is not None else None
-    content = "這次沒有請 AI 寫說明" if "a_narrate" not in visited or not narrative else narrative
+    """[S1027] AI 寫給確認的人看的說明:程式算的數字在前,AI 文字標「AI 產生、僅供參考」;
+    沒有成功結果就寫結果類別。另一張是服務水準告警時 AI 推測的可能原因。說明在建議送出之後才寫
+    (不在流程圖的判斷路徑上),所以不看流程圖走過哪些節點。"""
+    step = scenario.model_step
+    if step is None:
+        narrative = '<blockquote>這次沒有請 AI 寫說明</blockquote>'
+    else:
+        numbers = "".join(f"<li>{escape_text(k)}：{escape_text(v)}</li>" for k, v in step.numbers)
+        text = (f'<p class="model-warning">{MODEL_LABEL}</p>'
+                f"<blockquote>{escape_text(step.narrative)}</blockquote>"
+                if step.narrative else
+                f'<blockquote>AI 沒有寫出說明（結果：'
+                f'{escape_text(_result_text(step.result_kind))}）'
+                '</blockquote>')
+        narrative = (f'<p>程式算的數字</p><ul class="ai-numbers">{numbers}</ul>{text}'
+                     if numbers else text)
     return (
-        '<div class="ai-node-card"><strong>AI 寫說明</strong>'
-        '<p>AI 寫的，只供參考</p>'
-        f'<blockquote>{escape_text(content)}</blockquote></div>'
+        '<div class="ai-node-card"><strong>AI 寫說明（給確認的人看）</strong>'
+        f"{narrative}</div>{_render_hypothesis(scenario)}"
     )
+
+
+_RESULT_TEXT: Final = {
+    "no_recording": "AI 這次沒有給出回答", "timeout": "AI 太慢", "unreadable": "回應讀不懂",
+    "config_error": "設定有問題", "transient": "服務暫時出錯", "ledger_busy": "花費紀錄忙碌",
+    "quota_exhausted": "額度用完", "overrun": "單次花費超過上限",
+    "local_cap_refused": "已達花費上限",
+}
+
+
+def _result_text(kind: str) -> str:
+    return _RESULT_TEXT.get(kind, kind)
+
+
+def _render_hypothesis(scenario: Scenario) -> str:
+    found = scenario.hypothesis
+    if found is None:
+        note = scenario.hypothesis_note or "這次沒有記錄"
+        return ('<div class="ai-node-card"><strong>AI 推測可能原因</strong>'
+                f"<blockquote>{escape_text(_public_text(note))}</blockquote></div>")
+    items = "".join(f"<li>{escape_text(h)}</li>" for h in found.hypotheses)
+    body = (f'<p class="model-warning">{MODEL_LABEL}</p>'
+            f"<ul>{items}</ul><p>下一步：{escape_text(found.next_step)}</p>"
+            if items else f"<blockquote>{escape_text(found.next_step)}</blockquote>")
+    return (f'<div class="ai-node-card"><strong>AI 推測可能原因（告警：{escape_text(found.alert)}）'
+            f"</strong>{body}</div>")
 
 
 def _decision_card(
@@ -749,10 +1192,11 @@ def _decision_card(
     basis = (
         "".join(
             '<li><span>量到的值：'
-            f'{escape_text(item.observed)}</span><span>標準：{escape_text(item.standard)}</span>'
-            f'<strong>比較結果：{escape_text(item.conclusion)}</strong>'
+            f'{escape_text(_public_text(item.observed))}</span>'
+            f'<span>標準：{escape_text(_public_text(item.standard))}</span>'
+            f'<strong>比較結果：{escape_text(_public_text(item.conclusion))}</strong>'
             + (f'<small class="basis-source">{escape_text(item.source)}</small>'
-               if item.source else "")
+               if item.source and item.source not in ("錄製回應", "即時呼叫") else "")
             + '</li>'
             for item in decision.basis
         )
@@ -763,20 +1207,59 @@ def _decision_card(
         if decision.operation_key else ""
     )
     progress = decision.kind is DecisionKind.PROGRESS
-    basis_block = (  # 狀態往前走不是判斷,不列根據欄,免得看起來像缺資料
-        '<p class="decision-kind">狀態前進</p>' if progress
-        else f'<div class="decision-basis"><strong>根據</strong><ul>{basis}</ul></div>'
-    )
-    kind_class = " is-progress" if progress else ""
+    if decision.kind is DecisionKind.AI_JUDGEMENT:
+        basis_block = _ai_basis(decision)
+    elif progress and decision.basis and decision.node in _TAKEOVER_NODES:
+        # 程式接手 AI 的選擇(Phase 13):照樣列出做了什麼
+        basis_block = f'<div class="decision-basis"><strong>程式接手</strong><ul>{basis}</ul></div>'
+    else:
+        basis_block = (  # 狀態往前走不是判斷,不列根據欄,免得看起來像缺資料
+            '<p class="decision-kind">狀態前進</p>' if progress
+            else f'<div class="decision-basis"><strong>根據</strong><ul>{basis}</ul></div>'
+        )
+    kind_class = (" is-progress" if progress
+                  else " is-ai" if decision.kind is DecisionKind.AI_JUDGEMENT else "")
     return (
         f'<li class="decision-card{latest}{kind_class}">'
         f'<div class="decision-number">{index:02d}</div>'
         f'<div><p class="decision-node">{escape_text(flow_label(node.label))}'
         f'{f"（共 {count} 筆）" if count > 1 else ""}</p>'
-        f'<p class="decision-outcome">{escape_text(decision.outcome)}</p>'
+        f'<p class="decision-outcome">{escape_text(_public_text(decision.outcome))}</p>'
         f'{basis_block}'
         f'{operation}'
         f"<time>{escape_text(at)}</time></div></li>"
+    )
+
+
+# 程式接手 AI 選擇的那幾步(照查詢去讀、照公式算金額、照結論結案、只判不送):狀態前進,但列出做了什麼
+_TAKEOVER_NODES: Final = frozenset({"a_ai_query", "a_propose", "a_no_action", "a_exam_hold"})
+
+
+# AI 那一輪的標準欄本身以這串字開頭(展示狀態的原文);頁面欄名已經寫了,值就不再重複
+# (增量 4 代碼審 r2 p5)
+_ALLOWED_PREFIX: Final = "這一輪允許的選項:"
+
+
+def _ai_basis(decision: Decision, *, fields_class: str = "") -> str:
+    """[S1121] AI 判斷那一張:程式整理的證據、這一輪允許的選項、選了什麼與理由(標「AI 產生、僅供
+    參考」,不標來源),以及 AI 引用的收據值(已核對存在)。第一組是 AI 看到與選的,其餘是引用。"""
+    if not decision.basis:
+        return '<div class="decision-basis ai-round"><p>這一輪沒有留下紀錄</p></div>'
+    main, *cited = decision.basis
+    quoted = "".join(
+        f"<dt>{CITED_LABEL}</dt><dd>{escape_text(item.observed)}"
+        f"<small>{escape_text(item.standard)}</small></dd>" for item in cited)
+    return (
+        '<div class="decision-basis ai-round">'
+        f'<p class="model-warning">AI 判斷・{MODEL_LABEL}</p>'
+        f'<dl class="{escape_text(fields_class)}">'
+        "<dt>AI 看到的證據（程式整理的數字）</dt>"
+        f"<dd>{escape_text(_public_text(main.observed))}</dd>"
+        f"<dt>這一輪允許的選項</dt>"
+        f"<dd>{escape_text(_public_text(main.standard.removeprefix(_ALLOWED_PREFIX)))}</dd>"
+        f"<dt>AI 選了什麼、理由（{MODEL_LABEL}）</dt>"
+        f"<dd>{escape_text(_public_text(main.conclusion))}</dd>"
+        f"{quoted}</dl></div>"
     )
 
 
@@ -795,13 +1278,12 @@ def _plain_lines(lines: tuple[str, ...]) -> str:
     return "".join(f'<p class="raw-line">{escape_text(line)}</p>' for line in lines)
 
 
-def _model_text(text: str | None, source: ModelSource | None) -> str:
+def _model_text(text: str | None, _source: ModelSource | None) -> str:
     if text is None:
         return '<p class="empty">沒有 AI 說明。</p>'
-    source_text = "內容來源未記錄" if source is None else f"{source.value}內容"
     return (
-        '<div class="model-note"><p class="model-warning">AI 產生，只供參考，不會控制系統・'
-        f"{escape_text(source_text)}</p><p>{escape_text(text)}</p></div>"
+        f'<div class="model-note"><p class="model-warning">{MODEL_LABEL}・不會控制系統'
+        f'</p><p>{escape_text(text)}</p></div>'
     )
 
 

@@ -21,6 +21,10 @@ jobs:
         run: python -m ruff check .
       - name: 型別檢查(mypy,嚴格模式)
         run: python -m mypy
+      # 浮出框的瀏覽器測試(tests/demo/test_flow_popover_browser.py)用 Python 版 Playwright;CI 一定要跑
+      # (使用者 2026-09-25 裁定),瀏覽器要先裝好,沒裝那支會在 CI 紅
+      - name: 安裝測試用瀏覽器(Playwright chromium)
+        run: python -m playwright install --with-deps chromium
       - name: 測試(pytest)
         run: python -m pytest -q
   # 宣稱驗證器(Phase 11):跟 checks 平行,不拉長 checks 那個工作的時間(F7 的 60 秒上限在那裡)。

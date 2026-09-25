@@ -3,6 +3,7 @@
 多數測試換掉驅動程式的情境(很快跑完的假情境),真的核可流程用縮小版 F7 真跑。
 """
 
+import base64
 import contextlib
 import hashlib
 import http.client
@@ -20,9 +21,11 @@ import pytest
 from rtb.demo import driver as driver_module
 from rtb.demo import server as server_module
 from rtb.demo.driver import Driver, Scenario
+from rtb.demo.page import FLOW_SCRIPT
 from rtb.demo.present import numbers_digest
 from rtb.demo.server import DemoService, serve
 from rtb.demo.state_store import ConfirmationRequest, DecisionRow, StateReader
+from tests.conftest import demo_server_command
 
 # 起伺服器子行程要把 src 放進 PYTHONPATH:CI 沒有安裝這個套件,pytest 的 pythonpath 設定只影響測試
 # 行程自己
@@ -134,15 +137,22 @@ def test_the_stylesheet_is_served_as_css(running):
 def test_every_route_rejects_a_non_local_host(running, method, path):
     """[S1017] 主機標頭不是本機:每一個路由都拒,錯誤頁帶內容安全政策標頭。"""
     status, headers, _ = _request(running, method, path, host="evil.example:80")
-    assert status == 400 and "script-src 'none'" in headers["Content-Security-Policy"]
+    assert status == 400 and "script-src 'sha256-" in headers["Content-Security-Policy"]
 
 
-def test_every_page_carries_a_script_free_content_security_policy(running):
-    """[S1023] 每個 HTML 回應(含錯誤頁)帶不准腳本的政策標頭,頁面裡沒有腳本。"""
+def test_every_page_allows_only_the_hashed_flow_script(running):
+    """[S1023] 每個 HTML 回應只允許那支固定流程格腳本。"""
+    digest = base64.b64encode(hashlib.sha256(FLOW_SCRIPT.encode()).digest()).decode()
+    expected = (
+        f"default-src 'none'; script-src 'sha256-{digest}'; style-src 'self'; "
+        "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; img-src 'none'"
+    )
     for path in ("/", "/report", "/approve", "/nothing"):
         _, headers, body = _request(running, "GET", path)
-        assert "script-src 'none'" in headers["Content-Security-Policy"], path
-        assert "<script" not in body.lower(), path
+        assert headers["Content-Security-Policy"] == expected, path
+        assert body.count("<script>") == (1 if path in {"/", "/report"} else 0), path
+        if path in {"/", "/report"}:
+            assert body.split("<script>", 1)[1].split("</script>", 1)[0] == FLOW_SCRIPT
 
 
 def test_every_post_redirects_to_the_current_node(running, service):
@@ -593,7 +603,7 @@ def test_a_request_without_a_host_header_is_refused_even_on_http_1_0(running):
         data = b""
         while chunk := conn.recv(4096):
             data += chunk
-    assert data.startswith(b"HTTP/1.0 400") and b"script-src 'none'" in data
+    assert data.startswith(b"HTTP/1.0 400") and b"script-src 'sha256-" in data
 
 
 # ---- 代碼審 r1(Phase 12 增量 2)----
@@ -800,12 +810,11 @@ def test_stopping_the_server_mid_demo_leaves_no_child_processes(tmp_path):
     它起的子行程(平台、收件口、執行端、分析端)一個都不留。"""
     import signal
     import subprocess
-    import sys
 
     for signum in (signal.SIGTERM, signal.SIGINT):
         work = tmp_path / signum.name
         popen = subprocess.Popen(
-            [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
+            [*demo_server_command(), "--work-dir", str(work),
              "--reports", str(work / "reports")],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
             env={**os.environ, "PYTHONPATH": SRC})
@@ -882,11 +891,10 @@ def test_hanging_up_or_signalling_twice_still_leaves_no_child_processes(tmp_path
     子行程一個都不留。"""
     import signal
     import subprocess
-    import sys
 
     work = tmp_path / "work"
     popen = subprocess.Popen(
-        [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
+        [*demo_server_command(), "--work-dir", str(work),
          "--reports", str(work / "reports")],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
         env={**os.environ, "PYTHONPATH": SRC})
@@ -973,7 +981,7 @@ def _server_on_a_terminal(work):
 
     pid, master = pty.fork()
     if pid == 0:
-        os.execve(sys.executable, [sys.executable, "-m", "rtb.demo.server",  # noqa: S606 - 測試起專案內的伺服器
+        os.execve(sys.executable, [*demo_server_command(),  # noqa: S606 - 測試起專案內的伺服器
                                    "--work-dir", str(work), "--reports", str(work / "reports")],
                   {**os.environ, "PYTHONPATH": SRC})
     seen = b""
@@ -1022,11 +1030,10 @@ def test_two_signals_arriving_together_still_leave_no_child_processes(tmp_path):
     """[代碼審 r3 v2] SIGTERM 和 SIGHUP 同時到:第二個不能在收尾開始前把收尾打斷。"""
     import signal
     import subprocess
-    import sys
 
     work = tmp_path / "work"
     popen = subprocess.Popen(
-        [sys.executable, "-m", "rtb.demo.server", "--work-dir", str(work),
+        [*demo_server_command(), "--work-dir", str(work),
          "--reports", str(work / "reports")],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
         env={**os.environ, "PYTHONPATH": SRC})

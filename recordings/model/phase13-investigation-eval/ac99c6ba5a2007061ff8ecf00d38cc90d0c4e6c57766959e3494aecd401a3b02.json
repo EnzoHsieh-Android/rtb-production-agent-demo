@@ -1,0 +1,22 @@
+{
+ "key": "ac99c6ba5a2007061ff8ecf00d38cc90d0c4e6c57766959e3494aecd401a3b02",
+ "caller": "analyzer_investigation",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-eval-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "有revenue和clicks,conversions=0但revenue不為0,且非\"轉換與營收都是零\"情況,符合第8條「有點擊而且有轉換或營收」。\n\n{\"choice\": \"propose\", \"reason\": \"有點擊且有營收,符合值得加預算條件\", \"evidence\": [{\"ref\": \"base\", \"field\": \"clicks\", \"value\": \"22\"}, {\"ref\": \"base\", \"field\": \"revenue\", \"value\": \"33.52\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 152,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 608,
+ "cache_read_tokens": 1252,
+ "reported_nanousd": 4206401,
+ "list_nanousd": 4206401,
+ "latency_ms": 4256.778665818274,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

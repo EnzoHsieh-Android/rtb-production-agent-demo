@@ -479,3 +479,22 @@ def test_only_numeral_phrases_count_as_untraceable():
     for sentence in FABRICATED:
         assert mc.traceable_sentences(sentence, evidence) == ("", 1), sentence
     assert "一律" in mc.COMMON_WORDS and "參考" in mc.COMMON_WORDS  # 白名單寫在程式
+
+
+# ---- 增量 4 代碼審 r2 v2:錄製帳只在判成錄製時用 ----
+def test_a_live_gate_ignores_the_recorded_ledger(tmp_path):
+    """呼叫端一律給 recorded_ledger(展示驅動不猜模式):判成即時時照舊記在帳號家目錄那一本(每月上限讀
+    的那本),不寫進情境暫存帳;判成錄製才用它。"""
+    recorded = tmp_path / "scenario-ledger.sqlite"
+    script = fake_claude(tmp_path / "bin")
+    write_verification()
+    environ = {"RTB_MODEL_LIVE": "1", "PATH": str(script.parent)}
+    for caller in (modelgate.Caller.INVESTIGATION, modelgate.Caller.NARRATIVE):
+        gate = modelgate.open_gate(environ, caller=caller, demo_id="demo-1", ledger=None,
+                                   recordings=tmp_path / "rec", recorded_ledger=recorded)
+        assert gate.mode is modelgate.Mode.LIVE, gate.notices
+        assert gate.ledger == mc.live_ledger_path() != recorded
+        replay = modelgate.open_gate({"PATH": str(script.parent)}, caller=caller, demo_id="demo-1",
+                                     ledger=None, recordings=tmp_path / "rec",
+                                     recorded_ledger=recorded)
+        assert replay.mode is modelgate.Mode.RECORDED and replay.ledger == recorded

@@ -73,7 +73,7 @@ def request(user="hello", *, demo_id="demo-1", batch_id=None, max_output_tokens=
 def claude_json(  # noqa: PLR0913 - JSON 輸出的每一欄
         result='{"verdict": "not_worth"}', *, num_turns=1, is_error=False, denials=(),
                 input_tokens=100, output_tokens=10, cache_creation=0, cache_read=0,
-                cost_usd=0.0003, subtype=None, usage=True, **extra):
+                cost_usd=0.0003, subtype=None, usage=True, iterations=None, **extra):
     """Claude Code 非互動 JSON 輸出的形狀(欄位名以實作當下的 claude 為準;錯誤樣本待協調者錄製時用
     真實輸出校正)。usage=False 時不給用量欄位。"""
     data = {"type": "result", "subtype": subtype or ("error" if is_error else "success"),
@@ -83,7 +83,15 @@ def claude_json(  # noqa: PLR0913 - JSON 輸出的每一欄
         data["usage"] = {"input_tokens": input_tokens, "output_tokens": output_tokens,
                          "cache_creation_input_tokens": cache_creation,
                          "cache_read_input_tokens": cache_read}
+        if iterations is not None:  # 逐輪用量(Claude Code 的 usage.iterations)
+            data["usage"]["iterations"] = iterations
     return data
+
+
+def rounds(*outputs, kind="message"):
+    """usage.iterations 的逐輪形狀:每輪一個 {type, output_tokens}(協調者 2026-09-25 實測
+    2.1.281,上限 32 時是 [{type: message, output_tokens: 32}, …])。"""
+    return [{"type": kind, "output_tokens": tokens} for tokens in outputs]
 
 
 FAKE_VERSION = "9.9.9 (Claude Code)"

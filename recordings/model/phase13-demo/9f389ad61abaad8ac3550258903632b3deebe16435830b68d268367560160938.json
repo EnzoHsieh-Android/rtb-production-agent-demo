@@ -1,0 +1,22 @@
+{
+ "key": "9f389ad61abaad8ac3550258903632b3deebe16435830b68d268367560160938",
+ "caller": "analyzer_narrative",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-demo-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "本提案為任務甲下廣告甲的第1版修訂,動作為調整預算(update_budget),要求將預算改為new_budget=110,原因代碼為low_pacing,程式給出的風險說明為budget +10%。目前廣告狀態證據顯示campaign_state中budget=100、status=\"active\"、version=1,與提案觀察到的廣告版本1一致,政策版本為demo-pacing-v1。成效數據(1小時窗口)為impressions=500、clicks=12、conversions=1、spend=0.5、revenue=5.0。廣告文字欄位為空字串,未提供額外資訊。以上為系統實際讀取到的數字與狀態,提供給核可人員參考,本說明不建議是否核准或修改此提案內容。",
+ "input_tokens": 826,
+ "output_tokens": 260,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 0,
+ "cache_read_tokens": 0,
+ "reported_nanousd": 4252000,
+ "list_nanousd": 4252000,
+ "latency_ms": 7149.442125111818,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

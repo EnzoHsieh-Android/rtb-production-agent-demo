@@ -10,6 +10,7 @@ import logging
 import os
 import plistlib
 import pwd
+import re
 import shutil
 import signal
 import subprocess
@@ -37,6 +38,8 @@ from rtb.modelcore import (
     UnreadableModelResponse,
 )
 from rtb.stepbudget import GROUP_EXIT_WAIT_SECONDS as GROUP_EXIT_WAIT
+from rtb.stepbudget import LOGIN_CHECK_TIMEOUT_SECONDS as LOGIN_CHECK_TIMEOUT
+from rtb.stepbudget import LOGIN_TOKEN_ENV
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +50,11 @@ OUTPUT_LIMIT_ENV = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
 SETTING_SOURCES = ""
 EMPTY_SETTINGS = "{}"
 CHILD_ENV = ("PATH", "HOME", "USER", "LANG")
-LOGIN_CHECK_TIMEOUT_SECONDS = 10.0
+# `claude setup-token` 的長期權杖(使用者 2026-09-25 裁定):這台機器的訂閱登入在真 HOME,空暫存 HOME
+# 要它才登入得了。只在空暫存 HOME 隔離時傳給子行程;只走環境變數,不寫檔、不進紀錄與錯誤訊息
+OAUTH_TOKEN_ENV = LOGIN_TOKEN_ENV
+REDACTED = b"[\xe5\xb7\xb2\xe9\x81\xae\xe8\x94\xbd]"  # 「[已遮蔽]」
+LOGIN_CHECK_TIMEOUT_SECONDS = LOGIN_CHECK_TIMEOUT  # 住在小常數模組:展示驅動等模式行也用它
 # 等行程群組結束的秒數住在小常數模組(Phase 13 增量 2):分析端的租約守衛與展示啟動器也用它,
 # 誰都不必從這支後端匯入
 GROUP_EXIT_WAIT_SECONDS = GROUP_EXIT_WAIT
@@ -81,18 +88,36 @@ REQUIRED_CHECKS = ("login_ok", "tools_disabled", "tool_detection_contrast", "no_
 
 @dataclass(frozen=True)
 class ErrorSample:
-    """一種認得的錯誤子類型:比對 claude JSON 輸出的哪一欄(小寫後包含哪段文字)、歸哪一類。"""
+    """一種認得的錯誤子類型:比對 claude JSON 輸出的哪一欄(小寫後包含哪段文字;有 `pattern` 就改用這個
+    正規表示式在小寫後的欄位裡找)、歸哪一類。"""
 
     field: str
     contains: str
     outcome: Outcome
     sub_reason: str
+    pattern: str | None = None
+
+    def matches(self, data: Mapping[str, Any]) -> bool:
+        text = str(data.get(self.field, "")).lower()
+        if self.pattern is not None:
+            return re.search(self.pattern, text) is not None
+        return self.contains in text
 
 
 # 認得的錯誤子類型:只收在本機錄製時取到真實輸出的樣本(存成測試夾具並寫明比對哪一欄)。
 # 取不到真實樣本的子類型程式裡就不認,一律落到「暫時性服務錯誤、無法可靠分類」(照預留結算,
-# 評估保守停下)。增量 1 實作時還沒有任何真實樣本,所以是空的,等協調者錄製時補。
-KNOWN_ERRORS: tuple[ErrorSample, ...] = ()
+# 評估保守停下)。增量 1 實作時還沒有任何真實樣本;目前只收一種(見下)。
+# 不是錯誤的回應對話輪數大於 1、權限被拒清單空:Claude Code 撞到輸出上限後自動續寫(使用者 2026-09-25
+# 裁定:普通失敗,記成回應讀不懂加這個子原因,不標工具使用;批次驗收把它算失敗類錄製、要重錄)
+OUTPUT_CONTINUED = "output_continued"
+KNOWN_ERRORS: tuple[ErrorSample, ...] = (
+    # 續寫完仍撞頂的錯誤(使用者 2026-09-25 裁定延伸,協調者):協調者同日用 claude 2.1.281 實測原文
+    # 「API Error: Claude's response exceeded the 32 output token maximum. To configure this
+    # behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment variable.」;N 要是數字。跟續寫
+    # 同一個子原因(批次驗收同樣擋下要重錄);只收這一種,其他錯誤照舊無法可靠分類
+    ErrorSample("result", "output token maximum", Outcome.UNREADABLE, OUTPUT_CONTINUED,
+                pattern=r"claude's response exceeded the \d+ output token maximum"),
+)
 
 
 def _policy_files() -> list[Path]:
@@ -415,9 +440,17 @@ def run_claude(args: list[str], stdin_text: str, env: Mapping[str, str], timeout
                 args, (stdin, stdout, stderr), workdir, child_env, timeout_seconds)
         if timed_out:
             raise ModelTimeout("模型呼叫逾時,已殺掉整個行程群組")
-        return returncode, (files / "stdout").read_bytes(), (files / "stderr").read_bytes()
+        secret = child_env.get(OAUTH_TOKEN_ENV, "").encode("utf-8")
+        return (returncode, _redacted((files / "stdout").read_bytes(), secret),
+                _redacted((files / "stderr").read_bytes(), secret))
     finally:
         shutil.rmtree(base, ignore_errors=True)
+
+
+def _redacted(data: bytes, secret: bytes) -> bytes:
+    """子行程的輸出一律先遮掉長期權杖,之後才進日誌、錄製、紀錄與錯誤訊息(使用者 2026-09-25
+    裁定)。"""
+    return data.replace(secret, REDACTED) if secret else data
 
 
 def _tokens_of(usage: Mapping[str, Any]) -> tuple[int, int, int, int, int] | None:
@@ -485,10 +518,35 @@ def _parse_output(returncode: int, stdout: bytes, stderr: bytes) -> dict[str, An
 
 
 def _tool_use_seen(data: Mapping[str, Any]) -> bool:
-    """錯誤回應的工具使用痕跡:對話輪數大於 1 或權限被拒清單非空(輪數 0 或缺欄位不算)。"""
+    """錯誤回應的工具使用痕跡:權限被拒清單非空。對話輪數大於 1 不算(撞頂自動續寫,使用者 2026-09-25
+    裁定)。"""
+    denials = data.get("permission_denials")
+    return isinstance(denials, list) and bool(denials)
+
+
+def _continued(data: Mapping[str, Any], max_output_tokens: int | None) -> bool:
+    """撞頂自動續寫的形狀(使用者 2026-09-25 裁定續寫最多 3 次):對話輪數是 2 到 1 加
+    OUTPUT_RECOVERY_ATTEMPTS 的整數、權限被拒清單在而且是空的,而且逐輪看得到撞頂——用量的逐輪清單
+    (usage.iterations)長度等於輪數,除最後一輪外每一輪的類型都是訊息(message)、輸出達到這次的單輪
+    上限。只看總輸出不夠(增量 4 代碼審 r3 c1):工具那一輪提早停、之後再寫長,總數也湊得到。逐輪清單
+    缺、型別不對、任一非最後輪沒頂到或不是訊息、不知道這次的上限:不是續寫,照舊當工具使用。"""
     turns, denials = data.get("num_turns"), data.get("permission_denials")
-    return (isinstance(turns, int) and not isinstance(turns, bool) and turns > 1) or (
-        isinstance(denials, list) and bool(denials))
+    if not isinstance(turns, int) or isinstance(turns, bool) or denials != []:
+        return False
+    if not 1 < turns <= 1 + core.OUTPUT_RECOVERY_ATTEMPTS or max_output_tokens is None:
+        return False
+    usage = data.get("usage")
+    rounds = usage.get("iterations") if isinstance(usage, dict) else None
+    if not isinstance(rounds, list) or len(rounds) != turns:
+        return False
+    if not all(isinstance(one, dict) for one in rounds):
+        return False
+    for one in rounds[:-1]:
+        tokens = one.get("output_tokens")
+        if one.get("type") != "message" or not isinstance(tokens, int) or isinstance(
+                tokens, bool) or tokens < max_output_tokens:
+            return False
+    return True
 
 
 def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
@@ -497,7 +555,7 @@ def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
     reply = _usage_of(data, "")
     failure: ModelCallFailed | None = None
     for sample in KNOWN_ERRORS:
-        if sample.contains in str(data.get(sample.field, "")).lower():
+        if sample.matches(data):
             failure = core.BY_OUTCOME[sample.outcome](f"claude 回報錯誤:{sample.sub_reason}",
                                                   sub_reason=sample.sub_reason, reply=reply)
             break
@@ -506,14 +564,17 @@ def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
                                         reply=reply, unclassified=True)
     if _tool_use_seen(data):
         failure.tool_use = True
-        log.error("claude 的錯誤回應帶著工具使用的痕跡(對話輪數或權限被拒清單):評估應整批停下")
+        log.error("claude 的錯誤回應帶著工具使用的痕跡(權限被拒清單):評估應整批停下")
     return failure
 
 
-def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"") -> BackendReply:
+def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"",
+                 max_output_tokens: int | None = None) -> BackendReply:
     """回應判定五步(前一步不過就不看後面,[S904]):①起不起得來(在 `run_claude`)②讀成 JSON、有類型、
     子類型、是否錯誤三欄 ③是錯誤就先分子類型(再看有沒有工具使用痕跡)④不是錯誤才做工具使用偵測
-    (對話輪數 1、權限被拒清單空,[S936];不過就標工具使用)、子類型要是 success、欄位齊全
+    (對話輪數 1、權限被拒清單空,[S936];多輪而權限被拒清單空、輪數在續寫次數內、看得到撞頂(需要這次
+    的輸出上限 `max_output_tokens`)是撞頂自動續寫,判讀不懂、不標工具使用,使用者 2026-09-25 裁定;
+    其他不符標工具使用)、子類型要是 success、欄位齊全
     ⑤結束代碼非 0 → 暫時性、無法可靠分類。"""
     data = _parse_output(returncode, stdout, stderr)
     if data["is_error"]:
@@ -521,6 +582,9 @@ def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"") -> Backend
     result = data.get("result")
     reply = _usage_of(data, result if isinstance(result, str) else "")
     turns, denials = data.get("num_turns"), data.get("permission_denials")
+    if _continued(data, max_output_tokens):
+        log.warning("claude 撞到輸出上限後自動續寫(對話輪數 %s、沒有權限被拒):這一次算失敗", turns)
+        raise UnreadableModelResponse("輸出撞頂自動續寫", sub_reason=OUTPUT_CONTINUED, reply=reply)
     if isinstance(turns, bool) or turns != 1 or denials != []:
         failure = UnreadableModelResponse("回應有工具使用的痕跡", sub_reason="tool_use",
                                           reply=reply)
@@ -557,6 +621,8 @@ class ClaudeCodeBackend:
         source = os.environ if self._source_env is None else self._source_env
         env = {name: source[name] for name in CHILD_ENV if name in source}
         env[OUTPUT_LIMIT_ENV] = str(max_output_tokens)
+        if self.isolation is Isolation.EMPTY_HOME and source.get(OAUTH_TOKEN_ENV):
+            env[OAUTH_TOKEN_ENV] = source[OAUTH_TOKEN_ENV]
         return env
 
     def command(self, call: BackendCall) -> list[str]:
@@ -604,4 +670,4 @@ class ClaudeCodeBackend:
         code, stdout, stderr = run_claude(
             self.command(call), call.user, self.child_env(call.max_output_tokens),
             remaining, isolated_home=self.isolation is Isolation.EMPTY_HOME)
-        return judge_output(code, stdout, stderr)
+        return judge_output(code, stdout, stderr, call.max_output_tokens)

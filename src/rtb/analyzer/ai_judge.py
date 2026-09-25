@@ -46,13 +46,15 @@ Complete = Callable[[str, str], modelgate.ModelResult]
 GateOpener = Callable[..., modelgate.Gate]
 
 
-def open_investigation_gate(environ: Mapping[str, str], *, demo_id: str | None,
+def open_investigation_gate(environ: Mapping[str, str], *, demo_id: str | None,  # noqa: PLR0913 - 閘道要的每一樣
                             ledger: Path | None, recordings: Path | None, batch_id: str | None,
-                            open_gate: GateOpener = modelgate.open_gate) -> modelgate.Gate:
+                            open_gate: GateOpener = modelgate.open_gate,
+                            recorded_ledger: Path | None = None) -> modelgate.Gate:
     """開分析端調查的模型閘道:呼叫者標籤在這裡綁死成「分析端調查」(邊界測試的 CALLER_USERS 只准這支
     模組用它)。拒絕照閘道的 GateRefused、UnknownModel 往外丟。"""
     return open_gate(environ, caller=modelgate.Caller.INVESTIGATION, demo_id=demo_id,
-                     ledger=ledger, recordings=recordings, batch_id=batch_id)
+                     ledger=ledger, recordings=recordings, batch_id=batch_id,
+                     recorded_ledger=recorded_ledger)
 
 
 def gate_complete(gate: modelgate.Gate) -> Complete:

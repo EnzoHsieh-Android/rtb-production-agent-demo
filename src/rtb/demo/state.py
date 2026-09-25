@@ -1,4 +1,4 @@
-# ruff: noqa: RUF002
+# ruff: noqa: RUF001, RUF002
 """展示頁與後續展示伺服器共用的不可變狀態介面。"""
 
 from dataclasses import dataclass
@@ -42,6 +42,9 @@ class ScenarioStatus(Enum):
     AWAITING_APPROVAL = "等你確認"
     DONE = "結果符合預期"
     INCOMPLETE = "未完成"
+    # Phase 13 [S1144]:受測的工作 AI 合法判不提案——不算沒跑完,也不算照預期演示了故障
+    # 頁面照白話規則,「提案」緊接括號解釋;合約原文「AI 判不提案,故障處理這次沒有走到」在驅動的結果裡
+    NOT_EXERCISED = "AI 判不提案（不提出調整建議），故障處理這次沒有走到"
 
 
 class Stage(Enum):
@@ -104,6 +107,15 @@ class DecisionKind(Enum):
 
     JUDGEMENT = "判斷"
     PROGRESS = "狀態前進"
+    AI_JUDGEMENT = "AI 判斷"  # Phase 13:模型產生的選擇與理由,頁面放在明確標示的框裡
+
+
+class DecidedBy(Enum):
+    """一個情境的分析那一步由誰決定(Phase 13 計劃〈展示頁怎麼顯示〉的「誰決定」標示)。"""
+
+    RULE = "程式規則"
+    AI_DEMO = "AI(展示模式)"
+    AI_FALLBACK = "AI 退回程式規則"
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,6 +268,16 @@ class Scenario:
     injected_faults: tuple[InjectedFault, ...] = ()
     operation_key: str | None = None
     platform_apply_count: int | None = None
+    # Phase 13 增量 4:開了 AI 決策(頁面標「展示模式、未通過採用門檻」)、誰決定、這個情境的模式原因、
+    # 結局標示(例如「故障照預期,接續任務 AI 判證據不足」)、F5 的模型考題
+    ai_enabled: bool = False
+    decided_by: DecidedBy | None = None
+    model_mode_reason: str | None = None
+    outcome_note: str | None = None
+    exam: str | None = None
+    # 沒有假說內容時照實寫哪一種(代碼審 r1 p1):這次沒有記錄、沒問到、這次沒有告警
+    hypothesis_note: str | None = None
+    answered_rounds: int | None = None  # AI 真的給出答案的輪數(沒有記錄是空的)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,6 +1,7 @@
 """Phase 13 增量 2 代碼審 r3(最後一輪,governance/review-reports/code-phase13-inc2/r3-*):
 每一條一支現場成立、修之前會紅的測試。用假模型與假 DSP,不碰真模型。"""
 
+import json
 import sqlite3
 from datetime import timedelta
 
@@ -215,3 +216,40 @@ def test_an_unreadable_ok_response_is_logged_with_the_exception_name(monkeypatch
         inv.QueryOption.CHECK_DAILY_TREND.value)
     assert read.reason == "invalid"  # 收據照舊記「欄位不合格」
     assert calls == [("dsp:daily", "Unreadable")]  # 呼叫紀錄跟基本讀取一樣記例外類別名
+
+
+# ---- 協調者 2026-09-25 真錄製:提示把查詢寫成「一串查詢代碼」,模型回了逗號串成的一個字串 ----
+ALL_CHOICES = (*(o.value for o in inv.QueryOption), "propose", "do_not_propose",
+               "stop_insufficient")
+
+
+def _examples():
+    return [json.loads(line) for line in inv.SYSTEM_PROMPT.splitlines()
+            if line.startswith('{"choice"')]
+
+
+def test_the_prompt_spells_out_the_choice_format_with_examples():
+    """系統提示明寫:結論是一個字串代碼;查詢是 JSON 陣列(只選一個也是陣列),不要用逗號串在同一個
+    字串裡;附兩個照得過驗證的範例(一個結論、一個兩項查詢的陣列)。"""
+    prompt = inv.SYSTEM_PROMPT
+    assert "一串查詢代碼" not in prompt
+    rule = next(line for line in prompt.splitlines() if "JSON 陣列" in line)
+    assert "字串" in rule and "只選一個" in rule and "逗號" in rule
+    examples = _examples()
+    conclusions = [e for e in examples if isinstance(e["choice"], str)]
+    queries = [e for e in examples if isinstance(e["choice"], list)]
+    assert conclusions and queries
+    assert all(len(e["choice"]) >= 2 for e in queries)  # 範例示範「多個」也是陣列元素,不是逗號串
+    base = {"conversions": "3", "clicks": "40"}
+    for example in examples:
+        answer = inv.parse_answer(json.dumps(example, ensure_ascii=False), ALL_CHOICES, 3,
+                                  {"base": base})
+        assert answer.conclusion is not None or len(answer.queries) >= 2, example
+
+
+def test_a_comma_joined_query_string_is_still_off_menu():
+    """不放寬解析:協調者真錄製拿到的回答(逗號串成一個字串)照舊判選項外答案。"""
+    recorded = ('{"choice": "check_change_history,check_daily_trend", '
+                '"reason": "要看調整紀錄與趨勢", "evidence": []}')
+    with pytest.raises(inv.OffMenu):
+        inv.parse_answer(recorded, ALL_CHOICES, 3, {})

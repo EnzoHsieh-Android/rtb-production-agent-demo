@@ -110,3 +110,8 @@ verified_by:
 - `tests/eval/test_investigation_eval.py`:上面各條的合約測試([S1117]–[S1119]、[S1133]、[S1140]、[S1141]、[S1146]、[S1155]、[S1159]、[S1163]、[S1165]),以及 [S1162] 標準答案那半的檢查函式(由 tests/domain/test_metrics.py 綁 [S1162] 的那支呼叫)。全部用假的模型呼叫或假 claude,不碰真模型。
 - 代碼審 r1 補強(2026-09-25):比較表某格只要有一筆正常案例沒真的呼叫到模型就寫「沒量(錄製不全)」,任一筆缺錄時模型那一列整列沒量,品質與退回率的分母是筆數;成本豁免時成本欄可以沒量;評估套件只經模型用戶端門面(匯入檢查涵蓋全部 model 開頭的檔);即時加錄製一定要給入庫目錄以外的新目錄;評估執行器匯入就算送出點。防回歸:[test:test_a_partly_recorded_batch_is_not_reported_as_measured]、[test:test_the_fallback_rate_counts_cases_not_calls]、[test:test_the_answer_key_boundaries_match_the_receipts]、[test:test_exempt_limits_still_check_failure_rates_and_the_batch_check_counts_ledger_busy]、[test:test_cost_exempt_ignores_an_unmeasured_cost]、[test:test_live_recording_must_go_to_a_fresh_directory]、[test:test_importing_the_eval_runner_counts_as_a_send_point]。
 - 代碼審 r2 補強(2026-09-25):即時錄製不准寫進入庫目錄改由模型用戶端共用的開錄前目錄檢查判(見 [[Systems/模型用戶端]]),評估執行器不再自己比路徑;逐欄判定、欄位標示與沒送出的結果類別搬到 `adoption.py` 共用,調查報告不匯入模型候選。防回歸:[test:test_every_live_recording_entry_refuses_the_committed_directory]、[test:test_the_report_takes_the_shared_marks_from_adoption_not_the_sender]。
+
+## 批次驗收跟展示批次共用(Phase 13 增量 4 代碼審 r1 h2,2026-09-25)
+
+- WHY:評估批次的 `batch_problems` 把批次本身的三條交給模型用戶端門面的共用驗收 `batch_file_problems`(展示錄製批次的入庫前檢查呼叫同一支),自己只加「重播找不到錄製 0 筆」;共用那一支另外拒收不是正式後端錄的錄製。防回歸:[test:test_the_batch_check_goes_red_on_missing_failed_or_mixed_recordings]。
+- WHY(2026-09-25):調查評估決定紀錄的不採用理由原本寫「展示只能標展示模式、未通過採用門檻」,使用者同日拿掉展示模式橫幅後對不上;改成「展示照樣可以用 AI 回答做示範,但不進正式決策路徑」,重播入庫錄製重產決定紀錄,只有這一句變。防回歸:[test:test_the_decision_record_no_longer_promises_a_demo_mode_banner]。

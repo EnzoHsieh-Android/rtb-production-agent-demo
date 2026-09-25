@@ -213,6 +213,8 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--db", required=True, type=Path, help="分析端資料庫")
     parser.add_argument("--demo-id", help="展示編號;即時模式必填")
     parser.add_argument("--ledger", type=Path, help="只在錄製模式能用:花費帳換到別的路徑")
+    parser.add_argument("--recorded-ledger", type=Path,
+                        help="判成錄製模式時用的花費帳;判成即時就忽略(展示一律給,不猜模式)")
     parser.add_argument("--recordings-dir", type=Path,
                         help="錄製目錄(預設專案根的 recordings/model,只供重播;"
                              "即時加錄製要給新目錄)")
@@ -237,7 +239,8 @@ def run(argv: list[str] | None = None, *, environ: Mapping[str, str] | None = No
         gate = modelgate.open_gate(os.environ if environ is None else environ,
                                    caller=modelgate.Caller.NARRATIVE,
                                    demo_id=args.demo_id, ledger=args.ledger,
-                                   recordings=args.recordings_dir, batch_id=args.batch_id)
+                                   recordings=args.recordings_dir, batch_id=args.batch_id,
+                                   recorded_ledger=args.recorded_ledger)
     except (modelgate.UnknownModel, modelgate.GateRefused) as refused:
         print(f"參數錯誤:{refused}", file=errors)
         return EXIT_BAD_ARGUMENTS

@@ -9,9 +9,11 @@
 import html
 import unicodedata
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
+from rtb.demo.flow import PLATFORM
 from rtb.demo.state import (
     Decision,
     FlowEdge,
@@ -43,7 +45,9 @@ _LANE_HEIGHT: Final = 140
 LANE_ORDER: Final = ("分析", "收件", "執行", "廣告平台", "人工")
 
 
-_FLOW_HEIGHT: Final = len(LANE_ORDER) * _LANE_HEIGHT + 100
+# 走到這些節點就算碰過另一個角色(跨角色的動作):執行端送去寫入/同筆重送,平台就已經收到東西,
+# 即使執行端當場倒下、沒有留下平台回覆那一格(增量 4 代碼審 r2 p1)
+_ALSO_TOUCHES: Final[dict[str, str]] = {"x_write": PLATFORM, "x_resend": PLATFORM}
 
 
 _GROUP_ID: Final = "analysis_group"
@@ -108,10 +112,23 @@ def _visible_character(character: str) -> str:
 
 def flow_label(label: str) -> str:
     """正式圖的內部稱呼在展示層換成讀者熟悉的字。"""
-    return label.replace("模型", "AI")
+    return (label.replace("模型", "AI")
+            .replace("(展示模式,未通過採用門檻)", "")
+            .replace("沒有對應的錄製回應", "AI 這次沒有給出回答"))
 
 
-def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
+def _ai_boundary(scenario: Scenario) -> str:
+    """這個情境 AI 參與到哪；金額照舊由程式算。"""
+    if scenario.ai_enabled:
+        return ("這個情境讓 AI 參與決定下一步；"
+                "金額、廣告與動作照舊由程式決定，AI 答不出或答錯就改由程式規則決定；"
+                "AI 說明與推測只供參考。")
+    return "目前正式預算決策由程式規則執行；AI 候選另行評估，AI 說明與推測供參考。"
+
+
+def render_flow(  # noqa: PLR0915 - 流程圖組裝包含泳道、邊、節點與判斷框
+    flow: FlowGraph, scenario: Scenario, node_details: Mapping[str, str] | None = None,
+) -> str:
     view = _flow_view(flow, scenario)
     if not view.nodes:
         return '<p class="empty flow-empty">這個情境還沒有走過的路徑紀錄。</p>'
@@ -121,6 +138,7 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         view = _FlowView((*view.nodes, advisory), view.active_edges,
                          view.visited | {advisory.id}, view.groups)
     positions, lanes, width = _flow_layout(view.nodes)
+    height = len(lanes) * _LANE_HEIGHT + 100
     lane_bands = _render_lane_bands(lanes, width)
     lane_labels = "".join(
         f'<div class="flow-lane">{escape_text(lane.name)}</div>' for lane in lanes
@@ -139,6 +157,20 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         for node_id in item.taken_edge or (item.node,):
             entered.setdefault(node_id, index)
     groups = dict(view.groups)
+    details = node_details or {}
+    popovers: list[str] = []
+    for node in view.nodes:
+        parts = [details[item.id] for item in groups.get(node.id, ()) if item.id in details]
+        content = "".join(parts) if parts else details.get(
+            node.id, '<p>這一步沒有留下判斷紀錄。</p>'
+        )
+        popover_id = f"flow-detail-{scenario.code.value}-{node.id}"
+        popovers.append(
+            f'<div class="flow-popover" id="{escape_text(popover_id)}" hidden tabindex="-1" '
+            'role="dialog" aria-label="這一步的判斷內容">'
+            '<button class="flow-popover-close" type="button" aria-label="關閉判斷內容">×</button>'
+            f'<h4>{escape_text(flow_label(node.label))}</h4>{content}</div>'
+        )
     nodes = "".join(
         _render_node(
             node,
@@ -154,10 +186,11 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
                   if fault.node == node.id or fault.node in {
                       item.id for item in groups.get(node.id, ())
                   }),
+            f"flow-detail-{scenario.code.value}-{node.id}",
         )
         for node in view.nodes
     )
-    back = "".join(_render_back_edge(view.nodes, node.id, positions, width, marker_id)
+    back = "".join(_render_back_edge(view.nodes, node.id, positions, width, height, marker_id)
                    for node in view.nodes)  # 路徑中段的回頭轉換也畫(代碼審 r2 g6)
     queued = "x_pending" in {node.id for node in view.nodes}
     handoff = _render_handoff(positions, queued=queued)
@@ -172,6 +205,15 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         f"交給另一段程式；在排隊等了 {wait}"
         if queued else "交給另一段程式；收件後沒有進入執行佇列"
     )
+    # 看這件(這幾件)工作實際碰過的角色,不是畫了哪幾條泳道:中間沒有節點的泳道也點名,
+    # 跨角色的動作(寫進平台)算碰過(增量 4 代碼審 r2 p1)
+    touched = {node.lane for node in view.nodes}
+    touched |= {_ALSO_TOUCHES[node_id] for node_id in view.visited if node_id in _ALSO_TOUCHES}
+    touched |= {_ALSO_TOUCHES[item.id] for _, items in view.groups for item in items
+                if item.id in _ALSO_TOUCHES}
+    unentered = [lane for lane in LANE_ORDER if lane not in touched]
+    later = (f'<p class="flow-later">{escape_text("、".join(unentered))}這次沒有走到</p>'
+             if unentered else '')
     return (
         '<div class="flow-toolbar"><p><strong>實線</strong>是這次走過的路徑；'
         '淡色虛線是沒走的分支；回頭箭頭表示回到前一步。</p>'
@@ -179,25 +221,26 @@ def render_flow(flow: FlowGraph, scenario: Scenario) -> str:
         '<span class="legend-ai">AI（只供參考）</span><span class="legend-human">人工</span>'
         '<span class="legend-external">外部平台</span>'
         '<span>✓ 已經過</span><span>▶ 正在處理</span></p>'
-        '<p class="ai-boundary">目前正式預算決策由程式規則執行；'
-        'AI 候選另行評估，AI 說明與推測供參考。</p></div>'
-        f'<p class="queue-note">{escape_text(queue_note)}</p>'
+        f'<p class="ai-boundary">{escape_text(_ai_boundary(scenario))}</p></div>'
+        f'<p class="queue-note">{escape_text(queue_note)}</p>{later}'
         '<div class="diagram-view">'
         f'<input class="diagram-zoom" type="checkbox" id="zoom-{scenario.code.value}">'
         '<div class="diagram-actions"><span>處理流程 · 可左右捲動閱讀</span>'
         f'<label for="zoom-{scenario.code.value}"><span class="zoom-out">完整總覽</span>'
         '<span class="zoom-in">清楚閱讀</span></label></div>'
-        '<div class="diagram-frame"><div class="flow-lanes" aria-label="處理角色">'
+        f'<div class="diagram-frame lane-count-{len(lanes)}">'
+        '<div class="flow-lanes" aria-label="處理角色">'
         f'{lane_labels}</div><div class="flow-scroll" tabindex="0" '
         'role="region" aria-label="處理流程，可使用左右方向鍵捲動"><div class="flow-canvas">'
-        f'<svg class="flow-graph" role="img" aria-label="{escape_text(scenario.code.value)} '
-        f'處理流程圖" viewBox="0 0 {width} {_FLOW_HEIGHT}" '
-        f'width="{width}" height="{_FLOW_HEIGHT}"><defs>'
+        f'<svg class="flow-graph" role="group" aria-label="{escape_text(scenario.code.value)} '
+        f'處理流程圖" viewBox="0 0 {width} {height}" '
+        f'width="{width}" height="{height}"><defs>'
         f'<marker id="{marker_id}" markerWidth="8" '
         'markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" '
         'class="arrow-head"></path></marker></defs>'
-        f"{lane_bands}{active_edges}{handoff}{back}{nodes}</svg></div></div></div></div>"
-        f"{faults}{_render_untaken_branches(flow, scenario)}"
+        f"{lane_bands}{active_edges}{handoff}{back}{nodes}</svg></div></div></div>"
+        f"{''.join(popovers)}</div>"
+        f"{faults}"
     )
 
 
@@ -229,7 +272,7 @@ def _render_handoff(positions: dict[str, tuple[int, int]], *, queued: bool) -> s
     )
 
 
-def _render_untaken_branches(flow: FlowGraph, scenario: Scenario) -> str:
+def render_untaken_branches(flow: FlowGraph, scenario: Scenario) -> str:
     """每條未走分支只畫到最近的結束點或這次已走過的節點。"""
     nodes = node_map(flow)
     outgoing: dict[str, list[FlowEdge]] = defaultdict(list)
@@ -291,14 +334,15 @@ def _branch_to_endpoint(
 def _flow_layout(
     nodes: tuple[FlowNode, ...],
 ) -> tuple[dict[str, tuple[int, int]], tuple[_LaneBand, ...], int]:
-    """五列各佔 140px；群組加寬，其餘節點保持可讀間距。"""
+    """只保留最後一條有節點的泳道以前的列；群組加寬，其餘節點保持可讀間距。"""
     positions: dict[str, tuple[int, int]] = {}
     x = 24
     for node in nodes:
         positions[node.id] = (x, 50 + LANE_ORDER.index(node.lane) * _LANE_HEIGHT + 30)
         x += _node_width(node) + 64
+    last_lane = max(LANE_ORDER.index(node.lane) for node in nodes)
     lanes = tuple(_LaneBand(lane, 50 + index * _LANE_HEIGHT, _LANE_HEIGHT - 4)
-                  for index, lane in enumerate(LANE_ORDER))
+                  for index, lane in enumerate(LANE_ORDER[:last_lane + 1]))
     last = nodes[-1]
     return positions, lanes, positions[last.id][0] + _node_width(last) + 12
 
@@ -451,7 +495,7 @@ def _node_width(node: FlowNode) -> int:
 
 def _render_back_edge(
     nodes: tuple[FlowNode, ...], node_id: str, positions: dict[str, tuple[int, int]],
-    width: int, marker_id: str,
+    width: int, height: int, marker_id: str,
 ) -> str:
     from rtb.demo.flow import BACK_TRANSITIONS
 
@@ -464,7 +508,7 @@ def _render_back_edge(
     source_x, source_y = positions[back.node]
     target_x, target_y = positions[target]
     top = back.lane == "分析"
-    rail_y = 24 if top else _FLOW_HEIGHT - 25
+    rail_y = 24 if top else height - 25
     source_end = source_y if top else source_y + _NODE_HEIGHT
     target_end = target_y if top else target_y + (100 if target in _GROUP_IDS else _NODE_HEIGHT)
     start_x = source_x + _NODE_WIDTH // 2
@@ -494,6 +538,7 @@ def _render_node(  # noqa: PLR0913 - 節點要帶狀態、編號、群組與故�
     group_numbers: tuple[int, ...],
     grouped: tuple[FlowNode, ...],
     faults: tuple[str, ...],
+    popover_id: str,
 ) -> str:
     x, y = position
     state_class = "is-current" if current else "is-visited" if visited else "is-future"
@@ -520,7 +565,7 @@ def _render_node(  # noqa: PLR0913 - 節點要帶狀態、編號、群組與故�
                  f'{covered}</text>')
     details = (
         f'<text class="group-detail" x="{x + _GROUP_WIDTH // 2}" y="{y + 61}">'
-        f'{len(grouped)} 步・細節見下方卡片</text>'
+        f'{len(grouped)} 步・點選看判斷</text>'
         if grouped else ""
     )
     title = (
@@ -533,7 +578,10 @@ def _render_node(  # noqa: PLR0913 - 節點要帶狀態、編號、群組與故�
     )
     return (
         f'<g class="flow-node {state_class} kind-{node.kind.name.lower()} '
-        f'owner-{node.owner.name.lower()}{" is-group" if grouped else ""}">'
+        f'owner-{node.owner.name.lower()}{" is-group" if grouped else ""}" '
+        f'tabindex="0" role="button" aria-expanded="false" '
+        f'aria-controls="{escape_text(popover_id)}" '
+        f'data-flow-popover="{escape_text(popover_id)}">'
         f"<title>{escape_text(title)}</title>{shape}{badge}{marker}"
         f'<text class="node-label">{label}</text>'
         f'{details}<text class="node-state" x="{x + _node_width(node) // 2}" '

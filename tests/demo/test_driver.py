@@ -447,8 +447,9 @@ def test_the_demo_f7_is_scaled_down_and_says_so():
         300, 1234, 8)
     assert driver_module.F7_LIMIT * 10 + 5 == 12_345
     import inspect
-    source = inspect.getsource(driver_module.make_f7)
+    source = inspect.getsource(driver_module._f7_start)  # 開場搬進 _f7_start(增量 4 代碼審 r1)
     assert "world.start_platform()" in source
+    assert "_f7_start(" in inspect.getsource(driver_module.make_f7)
 
 
 @pytest.mark.parametrize(("writes", "limit", "confirmed", "ok"), [
@@ -884,6 +885,7 @@ def test_the_new_task_counts_as_written_only_once_the_inbox_says_so():
     stub.follow_ups = lambda: [FollowUpRow(1, "t1", "t1-next", ReplanReason.VERSION_CHANGED,
                                            datetime.now().astimezone())]
     stub.finished = lambda _t: False  # 平台已是新值,收件口或分析端還沒記下完成
+    stub.settled = lambda _t, done: done()  # Phase 13 增量 4:接續任務結局是提案,照提案路徑等
     assert driver_module._follow_up_written(stub, "t1", "c1", 220) is False
     stub.finished = lambda task: task == "t1-next"
     assert driver_module._follow_up_written(stub, "t1", "c1", 220) is True
@@ -926,11 +928,12 @@ def test_f5_checks_the_name_really_reached_the_analyzer():
 
 
 def test_f5_says_only_what_it_checked():
-    """[c5] 分析端目前只走程式規則:F5 不宣稱擋住了提示注入,註明模型那一段待 11B 接上後補驗。"""
+    """[c5] F5 不宣稱擋住了提示注入(Phase 13 增量 4 起寫明名稱最多能讓 AI 改判要不要加預算,
+    程式層守住金額、廣告與動作)。"""
     import inspect
 
     source = inspect.getsource(driver_module._run_f5)
-    assert "11B" in source and "擋住" not in source
+    assert "擋住" not in source and "最多能讓它改判要不要加預算" in source
 
 
 def test_the_driver_reads_other_systems_only_through_their_exits():

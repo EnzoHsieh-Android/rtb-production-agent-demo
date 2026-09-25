@@ -1,0 +1,22 @@
+{
+ "key": "c85ca6fdcf3ca6750ad0f8fdf470717d2e529b3874b35e992a5fbc3704e981a9",
+ "caller": "analyzer_narrative",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase13-demo-20260925",
+ "recorded_on": "2026-09-25",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "此提案是針對任務甲底下的廣告甲,在第1版修訂中,要把預算從目前的200調整為220,理由是投放速度偏慢(low_pacing),程式固定的風險說明寫的是budget +10%。目前廣告狀態為active,版本為2,與觀察到的廣告版本2一致,政策版本為demo-pacing-v1。從證據乙這1小時的成效數字來看,曝光數500、點擊數12、轉換數1、花費0.5、收益5.0。整體而言,這是一筆小幅度的預算上調申請,對應的成效數據規模也不大,建議核可者依這些原始數字自行判斷是否核准,系統本身不對是否應該調整提出建議。",
+ "input_tokens": 825,
+ "output_tokens": 248,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 0,
+ "cache_read_tokens": 0,
+ "reported_nanousd": 4130000,
+ "list_nanousd": 4130000,
+ "latency_ms": 7595.376041717827,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

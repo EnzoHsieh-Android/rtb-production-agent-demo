@@ -9,7 +9,14 @@ import os
 from pathlib import Path
 
 from rtb.modelledger_view import ledger_path
-from tests.conftest import _BEFORE, MODEL_ENV, REAL_HOME, REAL_LEDGER, ledger_state
+from tests.conftest import (
+    _BEFORE,
+    MODEL_ENV,
+    REAL_HOME,
+    REAL_LEDGER,
+    ledger_state,
+    real_rtb_listing,
+)
 
 # 收集階段(pytest_configure 之後、任何夾具之前)看到的環境:開關要已經清掉、PATH 與 HOME 要已經換掉
 COLLECTED = {"switches": [name for name in MODEL_ENV if name in os.environ],
@@ -480,3 +487,13 @@ def test_the_verification_helper_refuses_the_real_home(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError):
         fakes.write_verification()
     assert not pretend_real.exists()
+
+
+def test_the_suite_leaves_no_new_file_under_the_real_rtb_dir(request):
+    """[S932](Phase 13 增量 4 代碼審 r1 l3):展示啟動器起的子行程在測試裡也換掉帳號家目錄,整套到目前
+    為止真的 ~/.rtb 底下沒有多出任何檔(整套結束時共用夾具再比一次,多了就讓整套失敗)。"""
+    from rtb.demo import launcher
+
+    before = dict(item for item in request.config.stash[_BEFORE] if item[0] == "rtb-dir")
+    assert before["rtb-dir"] == real_rtb_listing()
+    assert "runpy" in " ".join(launcher.module_command("rtb.dsp.server", []))  # 夾具換上了
