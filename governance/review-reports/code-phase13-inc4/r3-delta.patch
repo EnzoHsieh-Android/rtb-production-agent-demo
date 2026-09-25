@@ -1,0 +1,2612 @@
+diff --git a/claims/aggregate-blast-radius.json b/claims/aggregate-blast-radius.json
+index 281f719..e778430 100644
+--- a/claims/aggregate-blast-radius.json
++++ b/claims/aggregate-blast-radius.json
+@@ -118,21 +118,21 @@
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "7cf2204a0219ad6ee0381f1692f4a03327099b226161470a0fd62e804d4bfbc6"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "307480d888cf37489ec3f876ff9124d55dcf0ad877ca70887749a292e2e0e885"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+-      "sha256": "e2121946ac4e0ad175de5f8b3b2b230348e3f60bf6f340542d2fec7f8538b9e1"
++      "sha256": "327376272f0e8a9b6925d267f252228af240508510b2c6af102dcbf4ce9e2d36"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+     },
+     {
+diff --git a/claims/concurrency.json b/claims/concurrency.json
+index 5bc0d53..d924f80 100644
+--- a/claims/concurrency.json
++++ b/claims/concurrency.json
+@@ -142,21 +142,21 @@
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "7cf2204a0219ad6ee0381f1692f4a03327099b226161470a0fd62e804d4bfbc6"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "307480d888cf37489ec3f876ff9124d55dcf0ad877ca70887749a292e2e0e885"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+-      "sha256": "e2121946ac4e0ad175de5f8b3b2b230348e3f60bf6f340542d2fec7f8538b9e1"
++      "sha256": "327376272f0e8a9b6925d267f252228af240508510b2c6af102dcbf4ce9e2d36"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+     },
+     {
+diff --git a/claims/idempotency-unknown-outcome.json b/claims/idempotency-unknown-outcome.json
+index ec9a1c7..b5ca4b5 100644
+--- a/claims/idempotency-unknown-outcome.json
++++ b/claims/idempotency-unknown-outcome.json
+@@ -94,21 +94,21 @@
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "7cf2204a0219ad6ee0381f1692f4a03327099b226161470a0fd62e804d4bfbc6"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "307480d888cf37489ec3f876ff9124d55dcf0ad877ca70887749a292e2e0e885"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+-      "sha256": "e2121946ac4e0ad175de5f8b3b2b230348e3f60bf6f340542d2fec7f8538b9e1"
++      "sha256": "327376272f0e8a9b6925d267f252228af240508510b2c6af102dcbf4ce9e2d36"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+     },
+     {
+diff --git a/claims/permission-guardrail.json b/claims/permission-guardrail.json
+index cfe4ace..4efa74d 100644
+--- a/claims/permission-guardrail.json
++++ b/claims/permission-guardrail.json
+@@ -150,21 +150,21 @@
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "7cf2204a0219ad6ee0381f1692f4a03327099b226161470a0fd62e804d4bfbc6"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "307480d888cf37489ec3f876ff9124d55dcf0ad877ca70887749a292e2e0e885"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+-      "sha256": "e2121946ac4e0ad175de5f8b3b2b230348e3f60bf6f340542d2fec7f8538b9e1"
++      "sha256": "327376272f0e8a9b6925d267f252228af240508510b2c6af102dcbf4ce9e2d36"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+     },
+     {
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+index c96e4b5..a2e20d0 100644
+--- a/claims/prompt-injection.json
++++ b/claims/prompt-injection.json
+@@ -154,41 +154,41 @@
+     {
+       "path": "src/rtb/httpclient.py",
+       "sha256": "7cf2204a0219ad6ee0381f1692f4a03327099b226161470a0fd62e804d4bfbc6"
+     },
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "307480d888cf37489ec3f876ff9124d55dcf0ad877ca70887749a292e2e0e885"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+-      "sha256": "e2121946ac4e0ad175de5f8b3b2b230348e3f60bf6f340542d2fec7f8538b9e1"
++      "sha256": "327376272f0e8a9b6925d267f252228af240508510b2c6af102dcbf4ce9e2d36"
+     },
+     {
+       "path": "src/rtb/modelclient.py",
+       "sha256": "2af00cef6e81525e86207de3eca2909ac7586acd91fdf957719fcaea18b3e568"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger.py",
+       "sha256": "722663e03a97525e7ea7b0694a498a164741d7ad18de1bf9e57647bb952b3000"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+     },
+     {
+       "path": "src/rtb/modelrecording.py",
+-      "sha256": "b24bfb0f99207553cbe8f46888f10e0a5c69d06a89b4360d4fbd6b4312522fa6"
++      "sha256": "09f03583198e52f00b648d14d553b88313c7f98c48ba0b9597cba7056efb7f21"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "346ca606356525e90f86601caab77b18806b2f35237ac9670b84949812987210"
+     }
+   ],
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
+index 67684e6..4297e31 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
+@@ -91,21 +91,21 @@ RETIRE-IF: 使用者決定整個 Demo 不再展示模型(三個接入點都拔
+   2. 標準輸出能不能讀成 JSON 物件,而且至少有「類型、子類型、是否錯誤」三個欄位 → 不能時:結束代碼非 0 就歸暫時性服務錯誤並標「無法可靠分類」(例如參數改名時程式在解析參數就退出),標準錯誤的前幾行存進子原因;結束代碼 0 才歸回應讀不懂。
+   3. 是錯誤的回應,先分錯誤子類型(分完之後,只要對話輪數大於 1 或權限被拒清單非空,另加「偵測到工具使用」標記、印錯誤要人看;對話輪數為 0 或缺這兩個欄位不加):訂閱額度用完 → 訂閱額度用完;超過單次花費上限 → 超支;沒登入、不認得的模型 → 設定錯誤;認得的暫時性錯誤(過載、限流、網路)→ 暫時性服務錯誤;**認不出的子類型 → 暫時性服務錯誤,並標「無法可靠分類」**。
+   4. 不是錯誤的回應,才做工具使用偵測(對話輪數必須是 1、權限被拒清單必須是空的)與欄位齊全檢查,任一不符 → 回應讀不懂 [S936]。使用者 2026-09-25 裁定:對話輪數大於 1 而權限被拒清單空,是 Claude Code 撞到輸出上限後自動續寫,不是工具使用——判回應讀不懂、子原因「輸出撞頂自動續寫」(`output_continued`),不標工具使用,呼叫端照既有規則退回程式規則,評估與批次錄製不整批停下;錄進批次算失敗類錄製,入庫前擋下要重錄。權限被拒清單非空(或輪數欄位缺、型別不對、為 0)照原判標工具使用。
+   5. 結束代碼非 0 而前面都沒判出 → 暫時性服務錯誤,標「無法可靠分類」。
+   - 錯誤子類型的比對依據,在本機錄製時取真實輸出存成測試夾具並寫明比對哪個欄位;取不到真實樣本的子類型,程式裡就不認它(落到「無法可靠分類」)。
+   - 「沒登入」另在呼叫前做本地檢查:模型用戶端跑一次 claude 的登入狀態指令(JSON 輸出),同樣走環境白名單、新行程群組與固定逾時 10 秒,算進入口的總期限;每個入口只跑一次;沒登入就設定錯誤、不呼叫模型。
+ - 例外類別共九類:逾時、本地上限拒絕(預留時超過本地上限,沒有呼叫)、訂閱額度用完(已經呼叫)、超支(已經呼叫,結算超過預留,或 Claude Code 回報超過單次花費上限)、沒有錄製、回應讀不懂、設定錯誤(確定還沒呼叫模型:執行檔找不到或起不來、沒登入、不認得的模型)、暫時性服務錯誤(另帶「無法可靠分類」標記)、花費帳忙碌。
+   - 模型用戶端的回傳值與每一個例外都帶「結算狀態」(已結算、未結算、超支、超支又未結算),所以既有路由吞掉例外之後,模型候選仍能把類別與結算狀態寫進旁路紀錄;呼叫前就擋下、還沒寫預留的例外(本地檢查、別批已錄、預留時花費帳忙碌或出錯)沒有預留可言,結算狀態是「無」(None)(代碼審第 1 輪 p3 修正措辭)。
+   - 花費帳忙碌分兩種:預留時忙碌(沒有呼叫,丟例外,寫不進帳,印到標準錯誤,入口以專用結束代碼結束,不算進失敗率母體);結算時忙碌(已經呼叫成功,照常回文字,那筆留在未結算、照預留算進已用,結算狀態標「未結算」;手上的實際花費若已超過預留,結算狀態改標「超支」)。
+ - 回應讀出的用量:輸入、輸出 token 數與兩個快取 token 數都記進花費帳(各一欄);花費估計見花費帳的結算。
+-- 即時模式啟用紀錄(第 8 版,fail-closed)[S942]:協調者在本機跑一支實測命令列(照〈拆增量〉的錄製前實測逐項做),全部通過才寫出 ~/.rtb/live-verification.json,內容是 claude 版本、各項結果、實測日期與採用的隔離方式。即時模式啟動時,模型用戶端跑一次 claude 版本指令(同樣走環境白名單、新行程群組、固定逾時),紀錄檔不存在、任一項沒過、或版本跟紀錄不同,一律走錄製並印原因。Claude Code 一升級,紀錄自動失效,要重跑實測。必須通過的項目:工具真的關掉(含故意開工具的對照;協調者 2026-09-25 真實測後改判法:看串流輸出裡有沒有 tool_use/tool_result 區塊與權限被拒清單,撞頂續寫的多輪不算用工具,延續使用者同日允許續寫的裁定)、沒有任何 hook 事件、送出內容裡沒有使用者記憶或 CLAUDE.md、輸出上限變數真的限住輸出(使用者 2026-09-25 裁定改判準:允許撞頂後自動續寫,續寫最多 3 次、總輸出 token 不超過上限的 4 倍,而且要有撞頂證據——「超過輸出上限」的錯誤或停止原因 max_tokens;超過 4 倍仍判沒過)、設定來源的組合真的壓掉使用者設定(對照:暫存使用者設定裡放一個會讓呼叫明顯失敗的值,組合參數下它不生效;協調者 2026-09-25 真實測發現對照組讀到連不到的位址會一直重試到逾時——對照組逾時算對照失敗、逾時縮成 30 秒,帶組合參數的主呼叫逾時算這項沒過,都不讓整個實測中斷)、登入正常。輸出上限沒限住就不寫紀錄——即時模式不開,不靠事後的超支偵測兜底。
++- 即時模式啟用紀錄(第 8 版,fail-closed)[S942]:協調者在本機跑一支實測命令列(照〈拆增量〉的錄製前實測逐項做),全部通過才寫出 ~/.rtb/live-verification.json,內容是 claude 版本、各項結果、實測日期與採用的隔離方式。即時模式啟動時,模型用戶端跑一次 claude 版本指令(同樣走環境白名單、新行程群組、固定逾時),紀錄檔不存在、任一項沒過、或版本跟紀錄不同,一律走錄製並印原因。Claude Code 一升級,紀錄自動失效,要重跑實測。必須通過的項目:工具真的關掉(含故意開工具的對照;增量 4 代碼審 r2 m3 補正面證據:串流裡至少一個 assistant 事件、初始事件的工具清單是空的,只有結果事件判沒過,區塊類型以 tool_use/tool_result 結尾就算工具;協調者 2026-09-25 真實測後改判法:看串流輸出裡有沒有 tool_use/tool_result 區塊與權限被拒清單,撞頂續寫的多輪不算用工具,延續使用者同日允許續寫的裁定)、沒有任何 hook 事件、送出內容裡沒有使用者記憶或 CLAUDE.md、輸出上限變數真的限住輸出(使用者 2026-09-25 裁定改判準:允許撞頂後自動續寫,續寫最多 3 次、總輸出 token 不超過上限的 4 倍,而且要有撞頂證據——「超過輸出上限」的錯誤或停止原因 max_tokens;超過 4 倍仍判沒過)、設定來源的組合真的壓掉使用者設定(對照:暫存使用者設定裡放一個會讓呼叫明顯失敗的值,組合參數下它不生效;協調者 2026-09-25 真實測發現對照組讀到連不到的位址會一直重試到逾時——對照組逾時縮成 30 秒,帶組合參數的主呼叫逾時算這項沒過,都不讓整個實測中斷;增量 4 代碼審 r2 m4 改成正面證據:毒值指到實測命令列自己開的本機監聽埠(只綁 127.0.0.1、隨機埠),對照組連上才算毒值讀到,沒連上而逾時或失敗都判不出來 = 沒過,主呼叫期間收到連線也算沒壓住)、登入正常。輸出上限沒限住就不寫紀錄——即時模式不開,不靠事後的超支偵測兜底。
+ - 隔離方式的優先順序:首選讓 claude 子行程的 HOME 指向每次新建的空暫存目錄(macOS 的訂閱登入憑證在鑰匙圈,不在 HOME;若實測登入照常,使用者層的設定、hook、記憶、外掛全部碰不到);這條不行才退回「真 HOME 加安全模式與設定來源參數」,且每次即時啟動前另查記憶目錄,有內容就拒絕即時。採用哪一種寫進啟用紀錄。
+ - 模式判定在三支入口:RTB_MODEL_LIVE=1、命令列帶了展示編號、入口在 PATH 上找得到 claude 執行檔、而且啟用紀錄有效,才是即時;少任一樣就是錄製(少展示編號但另外兩樣都有時,印一行「即時模式需要展示編號,這次改用錄製」)。模型預設 Sonnet 5,可由 RTB_MODEL 覆寫,但只收價目表裡有的模型。
+ - 測試不准碰到真的 claude:在測試根目錄的共用設定(pytest 啟動時就執行的那一段)直接改行程環境,刪掉 RTB_MODEL_LIVE 與 RTB_MODEL_RECORD、把 PATH 換成只含暫存目錄與系統基本路徑、HOME 也指到暫存目錄,讓收集階段與各層級夾具都生效;帳檔與啟用紀錄的路徑一律在呼叫時才用 HOME 算,不准做成模組層常數;要測即時路徑的測試一律把假 claude 腳本的絕對路徑直接傳給模型用戶端 [S935]。
+ - 錄製目錄由入口傳進來;入口的預設值錨在專案根的 recordings/model/(從模組檔案位置往上找),從別的目錄啟動照樣找得到 [S920]。
+ - 錄製檔:檔名是「呼叫者、模型、系統提示、使用者內容、輸出上限」正規化後的 sha256(不含後端種類,所以將來換 API 後端錄製照樣通用);內容只存結果文字、錄製當時的延遲、token 數、結果類別、花費估計、後端種類與批次編號。錄製模式找不到對應檔 → 丟「沒有錄製」(不會退去即時呼叫)。錄製只在即時模式加 RTB_MODEL_RECORD=1 時寫;即時加錄製模式下,送出**之前**先查錄製目錄:這一批已經有同一個鍵 → 直接讀它、不呼叫、不記即時帳(評估的批次紀錄那一列標「共用前一列」);有同一個鍵但屬於別的批次 → 呼叫前就拒絕(換一批要整批重錄,舊批整批刪掉),不花額度、不覆寫 [S931]。
+ - 送給模型的內容一律用**欄位白名單**組,不是去掉黑名單:每個接入點列出送出的欄位,只送穩定的欄位;任務編號、冪等鍵、DSP 操作編號、稽核鍵、證據引用、內容雜湊都不送,改成依出現順序的佔位符(任務甲、任務乙…);時間戳與量到的延遲都不送(連分桶也不送:執行迴圈每秒輪詢、人工核可的等待由人決定,任何連續的時間界線都會被切到,同一個情境重跑會落到不同級距);改送事件的先後順序,加上每兩個相鄰事件之間屬於哪一類間隔:同一步內、跨行程交接、人工等待、重試退避、死信等待(由事件種類決定,不看時間長短)。指標只送次數、比率與狀態,不送延遲數值。所以同一個示範情境完整跑兩次,送出的內容與錄製鍵相同 [S921]。代價:模型分不出「2 秒內三次」與「50 分鐘內三次」,只看得到「連續三次重試退避」;照實列在實務隱患。
+ - 佔位符與真實編號的對照表只留在本機、不送出;模型輸出通過驗證之後,才把佔位符字面換回真實編號再印出或存下,人拿到的是查得到的編號。
+ 
+ ### 花費帳與上限
+ 
+@@ -312,21 +312,21 @@ RETIRE-IF: 使用者決定整個 Demo 不再展示模型(三個接入點都拔
+ - [S925] 即時模式從兩份不同的簽出、任何工作目錄、任何入口呼叫時,應寫進家目錄固定位置的同一本花費帳,入口沒有參數能改成別本。[test:test_live_calls_always_book_into_the_one_ledger]
+ - [S926] 入口帶了過去的「現在」參數時,花費帳的月份與價目表期限應照系統時鐘判定。[test:test_the_ledger_ignores_the_command_line_now]
+ - [S927] 價目表查核日期超過 90 天時,即時模式應拒絕啟動並改用錄製。[test:test_a_stale_price_table_refuses_live_mode]
+ - [S928] 比較表的每次呼叫成本應取該格最高一次的原價;平均通過但有一次超過 0.002 美元時,成本欄應標沒過。[test:test_the_cost_per_call_is_the_most_expensive_call]
+ - [S929] 兩個模型說明命令列同時處理同一份提案時,模型應只被呼叫一次;最新領取是失敗時應可以立刻再領,沒有結果超過 10 分鐘應可以再領;被接手的舊持有者應寫不進結果;模型總期限加餘裕不小於領取期限時入口應拒絕啟動。[test:test_two_narrators_call_the_model_once_per_proposal]
+ - [S930] 模型說明因本地上限拒絕、訂閱額度用完、沒有錄製或其他失敗而沒有文字時,追蹤檢視應顯示最新一筆的結果類別;沒有任何領取時應顯示尚未產生。[test:test_the_trace_shows_why_there_is_no_narrative]
+ - [S931] 即時加錄製模式下,同一批已有同一個鍵時應直接讀它、不送出;別的批次已有同一個鍵時應在送出前拒絕,不花錢、不覆寫。[test:test_recording_never_overwrites_an_existing_file]
+ - [S932] 整套測試跑完,使用者家目錄下的真花費帳應沒有被建立或修改。[test:test_the_suite_never_touches_the_real_ledger]
+ - [S934] 不論成敗,入帳的含係數金額大於這一筆的預留、或 Claude Code 回報超過單次花費上限時,花費帳應照實記進已用並標記超支,模型用戶端的結果應帶超支狀態,評估應整批停下。[test:test_an_overrun_is_booked_and_stops_the_evaluation]
+ - [S935] 整套測試期間,真的 claude 執行檔應不在 PATH 上、即時與錄製開關應被清掉;要測即時路徑的測試應把假 claude 的絕對路徑傳給模型用戶端。[test:test_the_suite_can_never_reach_the_real_claude]
+-- [S936] 不是錯誤的回應,對話輪數不是 1 或權限被拒清單不是空的時,模型用戶端應判回應讀不懂;其中對話輪數大於 1 而權限被拒清單空的(撞頂自動續寫),子原因應記「輸出撞頂自動續寫」、應不標偵測到工具使用,其餘應標偵測到工具使用;錯誤回應帶著權限被拒清單非空時,應另標偵測到工具使用,只有對話輪數大於 1 應不標;兩種情況的結算都照 [S904]。(使用者 2026-09-25 裁定改寫:原本對話輪數大於 1 一律算工具使用)[test:test_any_sign_of_tool_use_is_unreadable]、[test:test_continued_turns_without_denials_are_an_ordinary_failure]
++- [S936] 不是錯誤的回應,對話輪數不是 1 或權限被拒清單不是空的時,模型用戶端應判回應讀不懂;其中對話輪數大於 1 而權限被拒清單空的(撞頂自動續寫),子原因應記「輸出撞頂自動續寫」、應不標偵測到工具使用,其餘應標偵測到工具使用;錯誤回應帶著權限被拒清單非空時,應另標偵測到工具使用,只有對話輪數大於 1 應不標;兩種情況的結算都照 [S904]。(使用者 2026-09-25 裁定改寫:原本對話輪數大於 1 一律算工具使用;增量 4 代碼審 r2 s1 補:算撞頂續寫要對話輪數不超過 1 加續寫次數(3),而且看得到撞頂——停止原因 max_tokens 或總輸出至少(輪數-1)乘這次的上限;否則照舊標工具使用)[test:test_any_sign_of_tool_use_is_unreadable]、[test:test_continued_turns_without_denials_are_an_ordinary_failure]、[test:test_many_turns_or_no_cap_evidence_is_still_tool_use]
+ - [S939] 起不來、成功、非 0 結束、逾時四條路徑結束時,都應殺掉 claude 子行程的整個行程群組(包括留在群組裡的孫行程)並確認群組已空,再刪暫存目錄;孫行程繼承了輸出時,成功的呼叫應不被拖成逾時。[test:test_a_timeout_kills_the_whole_group_before_cleanup]
+ - [S941] 任一管理政策來源(管理設定檔、管理設定目錄裡每一支、管理 MCP 檔、MDM 設定、遠端下發設定快取)存在且含 hook、MCP、env 或金鑰輔助程式設定時,即時模式應拒絕啟動並改用錄製。[test:test_managed_hooks_refuse_live_mode]
+ - [S942] 即時模式啟用紀錄不存在、任一項沒過、或記錄的 claude 版本跟現在不同時,即時模式應不開、一律走錄製並印原因。[test:test_live_mode_needs_a_current_verification_record]
+ - [S940] 成功呼叫的原價應取 Claude Code 回報的花費估計與「token 數(含快取)乘價目表」兩者中較高的那個。[test:test_the_cost_is_the_higher_of_reported_and_computed]
+ - [S933] 評估子集裡七個欄位相同的情境,同一批應只即時呼叫模型一次,錄製檔一份、批次紀錄各一列。[test:test_identical_inputs_share_one_live_call]
+ 
+ ## 實務隱患
+ 
+ - 未排除:金流:這一版走訂閱,不另外花錢,消耗的是使用者訂閱方案的使用額度(跟使用者平常用 Claude Code 共用)。防線:花費帳以 API 等價金額先預留後結算、兩個上限、傳給 Claude Code 的單次花費上限、固定位置的一本帳;最後一道是訂閱方案本身的額度。天花板:Claude Code 回報的花費估計不一定等於訂閱實際扣的額度;有人直接改帳檔、刪掉帳檔或換一台機器,本地上限就歸零(防忘記,不防刻意繞過)。將來換 API 後端時,照第 4 版的金流防線(含主控台上限)。
+ REVISIT:2026-12-31 看花費帳的原價月合計,跟使用者感受到的訂閱額度消耗對一次;差很多就開 Issue 記錄。事件入口:使用者回報 Claude Code 額度被 Demo 吃掉太多時。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
+index 11bcac0..c75e31d 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
+@@ -725,21 +725,21 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
+ - [S1154] runner 與模型閘道應不從模型後端匯入任何名字;停止訊號轉成的例外應經模型用戶端轉手、模型閘道再轉給 runner。[test:test_the_stop_exception_reaches_the_runner_without_touching_the_backend]
+ - [S1155] 當門檻的 cost_exempt 是真時,報告的逐欄判定應在成本那一欄寫「不設門檻」、不比大小;Phase 11B 模型候選的門檻常數應不變。[test:test_the_report_writes_no_cost_gate_for_an_exempt_limit]
+ - [S1156] 當分析端驅動命令列帶 --hold-submit 而清單裡的廣告被判值得加時,不論是 AI 判的還是退回程式規則判的,都應不產生送件,這一步應以不提案結案、原因是考題結束,調查紀錄應照記是誰判的;清單外的廣告應照舊送件。[test:test_held_campaigns_are_judged_but_never_submitted]
+ - [S1157] 驅動核對分析端路徑時,不論這件工作的結局是提案還是不提案,都應接受 AI 選下一步、ai_query 回頭、第二次新鮮度判斷與改由程式規則這些節點,情境應不因路徑多出這些節點被判對不上。[test:test_ai_nodes_are_allowed_on_the_analysis_path]
+ - [S1158] F7 全部 300 件工作與 F5 雙胞胎送給模型的內容,每一輪應各只有 1 個相異的錄製鍵,而且應等於 F1 受測廣告同一輪的錄製鍵。[test:test_f7_shares_one_recording_key_with_f1]
+ - [S1159] 送給模型的系統提示應含完整九條評分規則,順序應跟標準答案產生函式的判定順序相同。[test:test_the_system_prompt_lists_the_nine_rules_in_answer_key_order]
+ - [S1160] 當開了 AI 決策的分析端驅動命令列以即時模式啟動時,應在印出 READY 之後、取任何租約之前經模型閘道呼叫模型用戶端的 preflight_login 一次,並設後端的已登入旗標;預檢沒過時,這一趟應全部以程式規則決定並記退回原因「登入預檢沒過」,每一輪的模型呼叫應不再做登入檢查;錄製模式應回不適用、不呼叫任何東西。[test:test_the_runner_checks_the_login_once_before_taking_any_lease]
+ - [S1161] 當 AI 決策函式在續租前或呼叫模型前查到已收到停止時,應不續租、不呼叫模型,丟 RenewalSkipped,這一步不寫入。[test:test_a_pending_stop_skips_renewal_and_the_model_call]
+ - [S1162] domain 指標模組的精確比率函式應回分數或三態原因代碼之一;收據格式化與標準答案產生函式應都經它取得比率;金額量化溢位時收據應寫 na。[test:test_one_exact_ratio_function_feeds_receipts_and_the_answer_key]
+ - [S1163] 評估生成器產生的每一筆案例,每個百分比門檻用到的精確值應離門檻超過 0.05 個百分點。[test:test_no_generated_case_sits_on_a_rounding_boundary]
+-- [S1164] 展示批次入庫前,用錄製模式跑一次 F1 到 F6 時找不到錄製的筆數應為 0,批次也應滿足評估批次的另外兩條驗過條件;入庫後 CI 重播 F1–F6,任一輪 AI 退回就應失敗,F7 不查;入庫目錄未存在時照 [S1141] 跳過。(使用者 2026-09-25 裁定:加一條缺錄退回即紅的 CI 守衛,並用假錄製證明抓得到。)[test:test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording] [test:test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6] [test:test_demo_recording_guard_catches_a_missing_fake_answer]
++- [S1164] 展示批次入庫前,用錄製模式跑一次 F1 到 F6 時找不到錄製的筆數應為 0,批次也應滿足評估批次的另外兩條驗過條件;入庫後 CI 重播 F1–F6,任一輪 AI 退回就應失敗,F7 不查;入庫目錄未存在時照 [S1141] 跳過。(使用者 2026-09-25 裁定:加一條缺錄退回即紅的 CI 守衛,並用假錄製證明抓得到。)入庫前檢查(含錄完的自動檢查)也應把 F1–F6 任一輪 AI 退回算成問題、判不過,跟 CI 守衛同一支判法(增量 4 代碼審 r2 m1,代使用者裁定 2026-09-25)。[test:test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording] [test:test_a_recorded_batch_with_ai_fallbacks_fails_the_intake_check] [test:test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6] [test:test_demo_recording_guard_catches_a_missing_fake_answer]
+ - [S1165] 當評估執行器開始即時加錄製時,應先呼叫模型用戶端的開錄前目錄檢查,目錄既不是空的也不是只有同一批的檔時應拒絕開始。[test:test_the_eval_runner_refuses_to_record_into_a_mixed_directory]
+ - [S1166] 當某個情境列在即時清單裡時,驅動應給它的分析端一個這次展示專屬、不在入庫目錄底下的新錄製目錄,批次編號應是 demo-live 加展示編號;入庫的展示錄製目錄內容應不變。[test:test_live_scenarios_record_into_a_fresh_per_demo_directory]
+ - [S1167] 驅動應依每件工作實際的結局選預期組:提案結局用情境既有的必經節點與收件口、寫入平台紀錄;不提案結局只核分析端紀錄、必經換成不提案結案或考題結束節點,而且這件工作的收件口與寫入平台紀錄應不存在;故障斷言應只對結局是提案的工作要求。[test:test_the_driver_picks_expectations_by_each_task_outcome]
+ - [S1168] 當 F4 或 F6 的原任務演練到版本已變擋下、接續任務 AI 判證據不足時,情境應算照預期跑完,並標「故障照預期,接續任務 AI 判證據不足」。[test:test_f4_and_f6_accept_an_insufficient_follow_up]
+ 
+ ### 要改寫的既有合約(落地時改到原出處的計劃或系統筆記)
+ 
+ - Phase 11B 的 [S902] 改成:花費帳模組寫死的計入上限呼叫者,本次展示已用加預留超過 1 美元、或本月已用加預留超過 20 美元(加總只算這些呼叫者)時,模型用戶端應不發出請求並丟「本地上限拒絕」;不在清單裡的呼叫者應不受這條限制。
+ - Phase 11B 的 [S903] 改成:兩個計入上限的呼叫端同時預留時,花費帳應讓後者看得到前者的預留,兩筆加總不會讓計入上限的已用(依呼叫者過濾後的加總)超過上限。
+ - Phase 11B 的 [S918] 改成:評估套件的匯入閉包跟現況基準相比,應只多出寫死的准許名單——模型用戶端閉包(含小常數模組)、模型閘道、AI 決策模組、本計劃新增的評估模組(評估集、生成器、執行器、報告)。模型用戶端閉包的寫死相等比較也要加小常數模組。(〈使用者裁定〉R3-10)
+@@ -915,25 +915,32 @@ PYTHONPATH=src .venv/bin/python -m rtb.eval.investigation_eval --ledger /tmp/rtb
+ 
+ - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後):驅動不猜模式:錄製用的帳檔(情境暫存目錄的 model-ledger.db)一律以 `--recorded-ledger` 交給分析端與說明、假說命令列,閘道判成即時就忽略、照舊用帳號家目錄那一本;`--ledger` 的語意不變(即時時照舊拒絕)。
+ - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後):分析端模式行改在登入預檢之後印、純 ASCII;預檢沒過時模式寫 `rule`、原因附在 notices,展示頁那個情境寫「這次沒有呼叫 AI」加原因。驅動等這一行的時限是小常數模組的 `preflight_worst_seconds()`(登入檢查 10 秒加兩次等行程群組,共 20 秒)加 5 秒餘裕;登入檢查逾時從模型後端搬進小常數模組。
+ - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後):pytest 裡的子行程隔離做在測試這一側,產品碼照舊不讀任何環境變數:啟動器起子行程的指令集中在 `launcher.module_command`,共用夾具把它換成「先跑 child_prelude 換掉帳號家目錄,再用 runpy 跑同一支模組」;測試起展示伺服器子行程用 `tests/conftest.py` 的 `demo_server_command`,伺服器行程自己與它起的子行程都換。整套結束時另外比對真的 `~/.rtb` 底下的檔名。
+ - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後):共用的批次驗收放在模型用戶端的錄製模組、經門面轉手(`mc.batch_file_problems`):評估批次與展示批次都呼叫它,各自再數重播找不到錄製的筆數;「正式後端」目前只有 `claude_code`,將來的 API 後端上線時加進 `OFFICIAL_BACKENDS`。展示批次另核「錄製檔的批次等於要檢查的那一批」(共用那一支只核是不是同一批、格式對不對)。
+ - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後):「誰決定」是情境層級:每件問過 AI 的工作取最後一列調查紀錄,全是 AI 合法下的結論才標 AI(展示模式),任一件不是就標 AI 退回程式規則;頁面的標示字沒改(「AI 退回程式規則」已經涵蓋「AI 選過查詢、最後由規則決定」)。
+ - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後;頁面前綴由第二輪裁定覆蓋):「AI 判不提案,故障處理這次沒有走到」在驅動的結果與頁面上寫成「AI 判不提案（不提出調整建議）,故障處理這次沒有走到」;F5 考題行本文仍報「考題通過/沒通過」,頁面前綴只顯示「AI 的回答」,底層錄製前綴不改。
+ - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後;頂端模式字由第二輪裁定撤回):情境細節仍記 `answered_rounds` 與模式原因供內部使用,頁面頂端不列錄製或即時,缺錄在詳情只顯示「AI 這次沒有給出回答」。
+ - 實作者解讀(2026-09-25,增量 4 代碼審 r1 後):截圖由實作者代協調者拍(計劃〈拆增量〉原寫由協調者先備好),在合完主線、修完 r1 的最終程式上重拍,時間記在驗收紀錄。
+ 
++增量 4 代碼審 r2 後的解讀(代使用者裁定 2026-09-25,18 條全修):
++
++- 實作者解讀(2026-09-25,增量 4 代碼審 r2 c1/s2/m2/v4):入庫根 recordings/model 不存在(或讀不到)時,共用的開錄前目錄檢查一律拒絕開錄(「入庫根 … 不存在:checkout 不完整,不開錄」),入庫根本身、它底下、別處的新目錄都不放行;不改成字面路徑比對(macOS 對不存在的路徑 realpath 不統一大小寫)。四個入口都經這一支。
++- 實作者解讀(2026-09-25,增量 4 代碼審 r2 m1):「F1–F6 任一輪 AI 退回」的判法搬進 `rtb.demo.recordings.ai_fallback_problems`(讀重播的展示狀態庫、跟頁面同一份判斷列),`check_demo_batch` 把它算進問題;錄完的自動檢查、入庫前命令列與 CI 守衛都呼叫同一支,錄到退回就判不過、要重錄。
++- 實作者解讀(2026-09-25,增量 4 代碼審 r2 v2/v3/a1):補測試釘住「閘道判成即時就不用 recorded_ledger」「假說命令列錄製模式有告警時帳落在 --recorded-ledger」(選補測試、不改假說命令列經閘道:模型閘道只准分析端寫死的幾支模組匯入([S1100],pyproject 的匯入禁令),假說命令列在維運套件、照 [S912] 自己直接呼叫模型用戶端,改經閘道要放寬禁令);「帳在但沒有呼叫紀錄」與 F7 不提案那幾件的路徑核對各補一支;評估端刪掉自己那份錄製檔列舉,改用門面的 `mc.recording_files`。
++
+ ## 審計修正紀錄
+ 
+ - r1(2026-09-25,7 席:鏡頭 1–5、架構對齊、外家 Codex):42 條/blocking 35(各席總結句加總:Codex 7、架構 2、鏡頭1 5、鏡頭2 8、鏡頭3 4、鏡頭4 5、鏡頭5 4)/結論:骨架(每輪一步、列舉選項、退回規則)站得住,但照字面實作會在五處出錯——原始回應塞不進證據型別、追加收據會經新鮮度與證據參照改變規則路徑、租約漏算模型用戶端自己的等待、輪數與紀錄交易沒定義、F3/F5/F7 與故障情境的斷言跟 AI 判斷打架;42 條歸成 A–R 十八件全數折入,每件是代使用者裁定(2026-09-25),逐件見〈使用者裁定〉的第 1 輪折入表。新增合約 S1135–S1148;本計劃 S1100、S1104–S1107、S1109–S1111、S1113、S1115、S1116、S1120、S1121、S1124、S1127、S1129–S1131、S1133、S1134 改寫;既有 S902、S903、S917、S1003 列進要改寫的清單。卷證 governance/review-reports/rtb-phase13ai參與決策/r1-*。
+ - r1 例(輸入→預期):第 1 輪模型選逐日趨勢,第 2 輪模型逾時退回規則,那一批帶了一筆 16 分鐘前的逐日趨勢收據 → 傳給現行規則的只有現況、1 小時指標、廣告文字,不回「要新證據」,提案的證據參照與內容雜湊跟沒開 AI 時一字不差;F5 只種 1 小時窗,模型第 1 輪回 `{"choice":"propose","reason":"有點擊有轉換","evidence":[{"ref":"base","field":"conversions","value":"1"}]}` → 核對通過、直接提案,不必先查一次無關資料。
+ - r2(2026-09-25,5 席:鏡頭 1–3、架構對齊、外家 Codex):32 條/blocking 21(各席總結句加總:鏡頭1 5、鏡頭2 4、鏡頭3 6、架構 1、Codex 5)/前輪驗收:第 1 輪多數已解,但照字面實作還會在這幾處出錯——續租照執行端原地延長在只增不改的租約表做不到、用一步開頭的時間續租等於沒延長;`n/a` 過不了可信證據字元集;捨入後的字串判門檻會改錯答案;原始資料在交易外寫;F3 賽跑執行緒根本走不到決策;F5 雙胞胎沒有任務列跑不起來;故障分層漏了等待條件與路徑核對;挑錄製會專挑答錯的批次;系統提示只給五條。32 條歸成 R2-1 到 R2-23 全數折入,每件是代使用者裁定(2026-09-25),逐件見〈使用者裁定〉的第 2 輪折入表。新增合約 S1149–S1159;本計劃 S1113、S1117、S1118、S1124、S1125、S1130、S1131、S1133–S1135、S1138–S1147 改寫;既有 S918 加進要改寫的清單,S902、S903 的改寫文字換成依呼叫者過濾。卷證 governance/review-reports/rtb-phase13ai參與決策/r2-*。
+ - r2 例(輸入→預期):即時模式第 1 輪,續租時等鎖 4 秒才拿到鎖 → 新租約的到期時間從拿到鎖那一刻讀時鐘算起,之後模型 15 + 清理 10 + 花費帳等鎖 20 + 提交 5 = 50 秒內做完,別的工作者接不走;流程層用續租回來的新收據提交,寫入成功。前 4 天點擊 10,000、轉換 5,000,最近 3 天點擊 10,000、轉換 2,498 → 收據寫 `"-50.0"`,標準答案照精確值判「轉換率掉超過一半 → 證據不足」。
+ - r3(2026-09-25,最後一輪,5 席:鏡頭 1–3、架構對齊、外家 Codex):21 條/blocking 8(各席總結句加總:鏡頭1 1、鏡頭2 3、鏡頭3 4、架構 0、Codex 0)/前輪驗收:第 2 輪多數已解,架構席 0 條;照字面實作還會出錯的是——新收據只經回傳值交回、續租後丟例外就落空成付費迴圈;`exam_hold` 放哪都會讓 [S705] 或 [S1024] 翻紅;`--hold-submit` 只攔 AI 判的提案、雙胞胎退回規則照樣送件;評估執行器走不到開錄前目錄檢查、空的展示批次會驗過;展示情境逐情境補丁三輪都補不齊(F4、F6、F5 各漏一處,路徑必經還寫死要提案)。21 條歸成 R3-1 到 R3-16 全數折入,每件是代使用者裁定(2026-09-25),逐件見〈使用者裁定〉的第 3 輪折入表;〈展示情境怎麼接 AI〉改寫成依結局選預期的通用規則,取代前兩輪逐情境的條文。新增合約 S1161–S1168;本計劃 S1113、S1125、S1136、S1141、S1142、S1144、S1147、S1149、S1152、S1156–S1158、S1160 改寫;既有 S705、S1024 加進要改寫的清單,S918 名單寫全,送出呼叫名單指明 `CALL_MODEL_USERS`,S1000 註明測試名單要跟著改。卷證 governance/review-reports/rtb-phase13ai參與決策/r3-*。
+ - r3 例(輸入→預期):F4 錄製模式,原任務 t1 提案後被「版本已變」擋下,接續任務的 AI 查了操作歷史、看到最近 3 天內有 1 筆調整、判 `stop_insufficient` → 驅動把 t1 歸提案組、接續任務歸不提案組,等到兩件都走完就放行,只對 t1 斷言版本已變擋下,情境照預期跑完並標「故障照預期,接續任務 AI 判證據不足」。續租成功後收據格式化丟了沒列在退回清單裡的例外 → 流程層用容器裡的新收據寫 FAILED,寫得進去,不會每 60 秒重付一次。
+ - 代碼審 r1(2026-09-25,7 席:外家、資安、架構對齊、鏡頭 1–4):16 條/blocking 5/全折。卷證 governance/review-reports/code-phase13-inc2/r1-*;逐條落點見 [[Systems/分析行程流程與檢查點]]「增量 2 代碼審 r1 修正」。
+ - 代碼審 r2(2026-09-25,4 席:外家、資安、修正驗收、架構對齊):12 條/blocking 3/全折。卷證 governance/review-reports/code-phase13-inc2/r2-*;逐條落點見 [[Systems/分析行程流程與檢查點]]「增量 2 代碼審 r2 修正」。
+ - 代碼審 r3(2026-09-25,4 席,最後一輪):7 條/blocking 1/全折,修正由協調者驗收。卷證 governance/review-reports/code-phase13-inc2/r3-*;逐條落點見 [[Systems/分析行程流程與檢查點]]「增量 2 代碼審 r3 修正」。
+ - 增量 3 r1(2026-09-25,3 席):9 條/blocking 4/全折(e3 併入合併時)。k1 成本豁免時成本欄可沒量;k2、e2 錄製不全時模型欄與模型那一列寫沒量、分母只算真的呼叫了模型的筆數;h1 評估端只經模型用戶端門面、匯入檢查涵蓋全部 model 開頭的檔;e1 即時加錄製不准寫進入庫目錄;e4 補五個邊界測試;e5 退回率分母改成筆、補四個測試;e6 評估執行器列進送出點。卷證 governance/review-reports/code-phase13-inc3/r1-*。
+ - 增量 3 r2(2026-09-25,3 席):3 條/blocking 1/全折。a1、v1 即時錄製不准寫進入庫目錄只留一套判準、放進共用開錄前目錄檢查(比檔案身分,抗大小寫、符號連結、還不存在的子目錄),四個入口共用;a2 共用的逐欄判定搬到採用判定模組。卷證 governance/review-reports/code-phase13-inc3/r2-*。
+ - 增量 3 r3(2026-09-25,3 席,最後一輪):2 條(同一件)/blocking 1/全折,修正由協調者驗收。入庫目錄判斷按字面收掉「..」,「指向入庫根的連結/../model/新目錄」會被放行;改成先照作業系統的走法解析路徑再比檔案身分。卷證 governance/review-reports/code-phase13-inc3/r3-*。
+ - 增量 4 r1(2026-09-25,7 席):25 條/blocking 11/全折。卷證 governance/review-reports/code-phase13-inc4/r1-*;逐條落點見 [[Systems/一鍵展示]]、[[Systems/展示頁面]]「展示串接代碼審 r1 修正」與 [[Systems/模型用戶端]]「展示串接的代碼審 r1」。
++- 增量 4 r2(2026-09-25,6 席):18 條/blocking 3/全折(代使用者裁定)。擋推送:c1(s2、m2、v4 同報)入庫根不存在就不開錄;p1「這次沒有走到」改看實際碰過的角色;p2 浮出框鍵盤可用。其餘 p3–p5、v1–v3、s1、s3、m1、m3、m4、a1、t1 全修。卷證 governance/review-reports/code-phase13-inc4/r2-*;逐條落點見本計劃〈實作解讀〉「增量 4 代碼審 r2 後」、[[Systems/展示頁面]]「展示串接代碼審 r2 修正」、[[Systems/一鍵展示]]「展示串接代碼審 r2 修正」與 [[Systems/模型用戶端]]「展示串接的代碼審 r2」。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+index 725ad2c..ac02c96 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+@@ -189,10 +189,15 @@ WHY: 增量 3 代碼審 r2 s2:白名單環境只照抄 LANG,伺服器的 LC_ALL
+ - WHY:說明與假說兩支命令列跑的時候看整次展示的停止旗標,停了就收掉整組,兩支之間再看一次:即時清單裡的情境一次說明最壞約 100 秒,伺服器收尾只等驅動 60 秒,原本會留下孤兒行程。三個模型變數只留啟動器一份(`launcher.MODEL_VARIABLES`),模型入口帶不帶由 `run_entry(live_model=)` 交給 `child_env` 決定。防回歸:[test:test_cancelling_during_the_model_entries_ends_the_scenario_quickly]。
+ - WHY:退回之後程式規則判不提案時照舊算對不上(不是「故障沒走到」);只有 AI 合法下的結論才標故障沒走到。防回歸:[test:test_a_rule_no_propose_after_a_fallback_is_a_failure_not_an_untouched_fault]。
+ - WHY:驅動寫給頁面的結果摘要照白話規則:「故障沒走到」與 F5「AI 判不提案,平台上沒有任何寫入」裡的「提案」緊接括號解釋(頁面把結果摘要照原樣顯示)。防回歸:[test:test_f5_checks_program_invariants_and_reports_the_model_exam]、[test:test_a_legit_ai_no_propose_marks_the_fault_as_not_exercised]。
+ - WHY:F5 情境本體的說明(頁面「在驗什麼」那一行)改寫成開了 AI 決策之後的樣子:名稱最多能讓 AI 改判要不要加預算,程式層守住金額、廣告與動作,雙胞胎另列考題;重拍截圖時發現頁面還在寫增量 2 之前的「只走程式規則、待 11B 補驗」。受測那一件被 AI 判不提案、平台沒寫入時,「最後改了什麼」的原因寫 AI 判不提案,不寫「沒有記錄」。防回歸:[test:test_f5_says_only_what_it_checked]、[test:test_f5_checks_program_invariants_and_reports_the_model_exam]。
+ 
+ ## 錄展示批次的命令列(Phase 13 增量 4 補,2026-09-25)
+ 
+ - WHY:入庫格式的展示批次(`recordings/model/phase13-demo/`,批次 phase13-demo-YYYYMMDD)要由協調者用真 claude 錄;展示伺服器的 `--live` 把每個情境錄進各自的 live-recordings/<代碼>、批次 demo-live-<展示編號>,過不了入庫前檢查。所以 `src/rtb/demo/recordings.py` 加 `--record`:依序以即時加錄製跑 F1 到 F6(F7 不錄,它與 F5 雙胞胎共用 F1 的錄製鍵),分析端、說明、假說三支模型入口全部寫進同一個全新目錄、同一個批次(驅動的 `live_batch` 參數只給這支用,不改展示行為);同一批裡已錄過的鍵照模型用戶端的規則直接重播,不重付。錄完自動跑入庫前檢查,印結果與下一步。防回歸:[test:test_a_recorded_batch_covers_f1_to_f6_and_passes_the_intake_check]。
+ - WHY:開錄前就拒、不退回錄製假裝錄好:目錄要不存在或是空的、不在入庫目錄底下(共用的開錄前目錄檢查)、批次編號格式對;模型用戶端要真的判成即時加錄製(有 claude、有啟用紀錄、價目表沒過期)、登入預檢要過。錄的途中任一個情境的分析端沒判成即時也照實列問題。即時模式的花費帳照設計記在帳號家目錄那一本(測試裡隔離)。防回歸:[test:test_recording_refuses_before_calling_anything]、[test:test_the_command_line_prints_the_result_and_the_next_step]。
+ - WHY:即時模式的登入權杖(CLAUDE_CODE_OAUTH_TOKEN,使用者 2026-09-25 裁定)跟三個模型變數放在啟動器同一組 `MODEL_VARIABLES`:只給列在即時清單的分析端與模型入口,不在清單的拿掉;變數名取自小常數模組(啟動器原始碼不准提到模型後端)。理由見 [[Systems/模型用戶端]]。防回歸:[test:test_the_analyzer_gets_model_env_only_when_live_and_ai_judged]。
++
++## 展示串接代碼審 r2 修正(Phase 13 增量 4,2026-09-25,代使用者裁定)
++
++- WHY:`--record` 錄完的自動檢查只看找不到錄製與批次檔,F1–F6 每一輪 AI 都退回的批次也判通過,入庫後才被 CI 守衛擋下、白花一輪額度。「任一輪 AI 退回」的判法搬進 `recordings.ai_fallback_problems`(讀重播的展示狀態庫,跟頁面同一份判斷列),`check_demo_batch` 算進問題;錄完的自動檢查、入庫前命令列與 CI 守衛呼叫同一支。防回歸:[test:test_a_recorded_batch_with_ai_fallbacks_fails_the_intake_check]、[test:test_demo_recording_guard_catches_a_missing_fake_answer]。
++- WHY:兩個分支缺測試:入庫前檢查「帳在但沒有呼叫紀錄」、F7 不提案那幾件的路徑核對。各補一支(F7 縮成 12 個廣告、假錄製讓 AI 判證據不足)。防回歸:[test:test_the_replay_needs_every_scenario_finished_with_a_ledger_that_has_calls]、[test:test_f7_checks_the_path_of_every_task_the_ai_declined]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md b/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md
+index 4d7ed7d..c2cd8f7 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md
+@@ -101,10 +101,19 @@ WHY: 以下是使用者 2026-09-25 第一輪改版提案的當時安排,第二
+ 
+ WHY: 使用者 2026-09-25 逐項要求第二輪改版:情境標題下先交代觸發與目標,再看流程,結果概述下移;逐步判斷搬到流程格,桌機 hover、觸控點擊、鍵盤可操作且靜態報告離線可用,舊清單移除。每格內容仍用原判斷資料在伺服器端經 `escape_text` 產生,固定雜湊腳本只管顯示與定位;F7 同格同結果合併,不同才分列。AI 輪次依每件工作重數,後續規則判斷帶原有數值與比較結論;詳情橫幅整段移除,頁面只標「AI 產生、僅供參考」,缺錄白話顯示「AI 這次沒有給出回答」。出處:使用者 2026-09-25 九項裁定與 [[Projects/RTB_Phase13AI參與決策_計劃]]〈實作解讀〉。防回歸:`test_focus_reads_scenario_then_flow_then_results_and_collapses_other_details`、`test_flow_nodes_contain_escaped_step_details_for_hover_touch_and_keyboard`、`test_repeated_flow_node_lists_occurrences_and_large_same_results_merge`、`test_f5_rounds_keep_each_tasks_takeover_separate`、`test_ai_scenarios_have_no_demo_mode_banner`、`test_the_page_hides_model_mode_while_entries_keep_their_actual_choice`、`test_page_hides_model_source_embedded_in_outcome_and_progress_text`、`test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6`、`test_demo_recording_guard_catches_a_missing_fake_answer`。
+ 
+ WHY: 使用者 2026-09-25 第三輪實際操作後要求浮出框可捲且留在視窗內、頁面全面移除展示模式與錄製/即時用語、缺席階段點名、情境與目標併句,互動頁回到左側 sticky 情境清單與右側詳情,760px 以下改頂端橫向情境列；重跑移到詳情頁首避免清單擁擠,角色分工留在兩欄上方供所有情境共用。出處:使用者第三輪六項裁定。防回歸:`test_flow_popover_scrolls_and_stays_inside_the_viewport`、`test_page_and_report_remove_demo_mode_from_every_flow_label`、`test_missing_ai_answer_is_plain_in_popover_values_and_comparisons`、`test_unentered_flow_stage_names_only_the_lanes_not_reached`、`test_scenario_intent_merges_repeated_goal_and_keeps_trigger`、`test_interactive_workspace_has_sticky_sidebar_and_mobile_scenario_strip`。
+ 
+ PITFALL: 2026-09-25 桌機實測指出滑鼠跨過流程格與浮出框間的空隙時立即收框,因此改成離開後等 300ms、進框取消收起且框內捲動不觸發重新定位；防回歸:`test_flow_popover_hover_crosses_the_gap_without_closing`、`test_flow_popover_wheel_scroll_does_not_close_or_move_the_page`。
+ 
+ UI flow（待協調者在可開瀏覽器的環境重放）：桌面點 F1、F7 檢查左欄高亮且詳情頁首可見 → hover、點擊與鍵盤開啟 F1 長浮出框並捲到底、靠右下節點確認翻面或向上 → 390px 手機寬度左右滑情境列、只在流程圖內橫捲；沙盒不能開本機網路,本輪未做瀏覽器量測,由協調者執行 [[Projects/RTB_Phase13AI參與決策_計劃]] 的第三輪展示截圖驗收時重驗。 [test:browser:third-round-demo-layout]
+ 
+ VERIFY: 300 筆合併與 760px 單欄目前是合成資料及 HTML/CSS 結構檢查；真 F7 卡數和實際手機橫向溢出尚待協調者統一拍新版截圖時，從展示頁的 F7 詳情與手機寬度一併核對，入口是本計劃的展示截圖驗收。這份結構測試不代表瀏覽器量測已通過。
++
++## 展示串接代碼審 r2 修正(Phase 13 增量 4,2026-09-25)
++
++- WHY:「X 這次沒有走到」原本看畫了哪幾條泳道,F2(寫進平台後執行端當場倒下、沒有平台回覆那一格)被點名「廣告平台沒有走到」,跟同頁「寫進平台」矛盾;中間畫了但沒節點的泳道反而不點名。改看這件(這幾件)工作實際碰過的角色:走過的節點所屬泳道,加上跨角色的動作(送去寫入、同筆重送算碰過廣告平台)。範例 F7 在寫入前停下等人確認,所以現在照實點名廣告平台。防回歸:[test:test_unentered_lanes_follow_the_roles_actually_touched]、[test:test_f2_that_wrote_to_the_platform_does_not_say_the_platform_was_not_reached]、[test:test_unentered_flow_stage_names_only_the_lanes_not_reached]。
++- WHY:浮出框只用鍵盤看不到下半段(框不能聚焦,方向鍵捲整頁、空白鍵收框)。框加 tabindex="-1";鍵盤 Enter/空白鍵釘住後焦點移進框,框裡的方向鍵、翻頁、空白鍵照瀏覽器預設捲框、不開關格子;Esc 收框並把焦點還給格子(還焦點時不重開)。hover 開的框不再因「焦點留在格子」而不收:只有用鍵盤聚焦打開的框才靠焦點留著(點兩下取消釘住後再 hover 移開,照 300ms 收)。窄螢幕情境列載入時把選中那張卡捲進列的可視區(只動那一列)。防回歸:[test:test_flow_popover_is_keyboard_operable]、[test:test_narrow_scenario_strip_scrolls_the_selected_card_into_view]、[test:test_flow_popover_keyboard_hover_strip_and_saved_report_in_a_browser]。
++- WHY:浮出框同一格有好幾件工作時只寫「第 N 次」連號;改成「工作 t3 第 2 輪」(AI 那格數輪、其他格數次,按每件工作各自數,跟 AI 逐輪卡一致),沒記工作編號的舊資料照舊連號。AI 格「這一輪允許的選項」欄位值去掉重複的同名開頭。決策摘要不再另寫一次裸詞的「AI 判不提案,故障處理這次沒有走到」(結果摘要已有帶括號解釋的版本;固定標示照情境狀態顯示),白話規則測試補跑故障沒走到的 F2 並掃決策摘要。防回歸:[test:test_repeated_flow_cell_names_the_task_and_its_own_round]、[test:test_ai_cell_does_not_repeat_the_allowed_choices_label]、[test:test_the_decision_summary_explains_its_jargon_and_says_the_untouched_fault_once]、[test:test_the_new_page_text_explains_its_jargon_on_real_runs]、[test:test_unreached_fault_keeps_its_fixed_label_with_plain_explanation]。
++- WHY:另存的單檔報告帶腳本卻沒有內容安全政策(file:// 打開沒有回應標頭)。樣式內嵌的那一版在 <head> 加 meta CSP:default-src 'none',腳本綁浮出框腳本的 sha256、內嵌樣式綁樣式表內容的 sha256,不用 unsafe-inline;frame-ancestors 在 meta 無效不寫。經伺服器送的頁面與報告照舊用回應標頭。防回歸:[test:test_saved_report_carries_a_hash_bound_content_security_policy]。
++- 瀏覽器那支測試(`tests/demo/test_flow_popover_browser.py`)把頁面與報告寫成靜態檔,用 node 的 Playwright 以 file:// 打開驗鍵盤、hover、窄螢幕與 meta CSP,不起伺服器、不加依賴;找不到 node 或版本對得上本機 chromium 的 Playwright node 模組(npx 快取,或用 RTB_PLAYWRIGHT_NODE_PATH、RTB_NODE 指定)就跳過。CI 沒裝這些,照例跳過,只有靜態那一半守著。
++REVISIT:2026-12-31 CI 若加裝 node Playwright 與 chromium,讓瀏覽器那支在 CI 真的跑;否則每次改浮出框腳本都要在本機跑一次那支測試。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+index f30cbc5..8fcc9d9 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+@@ -224,10 +224,19 @@ WHY: [2026-09-25 Phase 13 增量 2 代碼審 r3] `ai_step_worst_seconds` 多算
+ 
+ ## 長期權杖登入與撞頂續寫(使用者 2026-09-25 裁定)
+ 
+ - WHY:協調者實測 8 項沒過 3 項:這台機器的 claude 訂閱登入在真 HOME,空暫存 HOME 登入失敗、退回真 HOME,記憶暗號與設定來源兩項在真 HOME 驗不了。使用者裁定用 `claude setup-token` 的長期權杖:空暫存 HOME 隔離時子行程多帶 CLAUDE_CODE_OAUTH_TOKEN(變數名放在小常數模組,展示啟動器也要照名字轉交);真 HOME 照舊不帶。子行程的輸出一出來就遮掉權杖,日誌、錄製、啟用紀錄、花費帳、錯誤訊息都不含它。防回歸:[test:test_an_empty_home_logs_in_with_the_long_lived_token]、[test:test_the_token_is_passed_only_to_an_empty_home_child]、[test:test_the_token_never_lands_in_records_ledgers_logs_or_errors]、[test:test_the_claude_subprocess_gets_only_whitelisted_environment]。
+ - WHY:claude 2.1.281 撞到輸出上限 32 後自動續寫三次(num_turns=4、output_tokens=128)再回「超過輸出上限」的錯誤,原判準一律判沒過。使用者裁定:允許續寫,續寫最多 `OUTPUT_RECOVERY_ATTEMPTS`(3)次、總輸出不超過上限的 `1 + OUTPUT_RECOVERY_ATTEMPTS` 倍、要有撞頂證據;預留原本就按四次請求算,補測試釘住。逾時沒改,評估寫在 [[Projects/RTB_Phase11B大模型接入_計劃]]「使用者 2026-09-25 裁定後」。防回歸:[test:test_the_output_limit_allows_three_continuations_within_four_times_the_cap]、[test:test_the_reservation_pays_for_four_times_the_output_cap]。
+ - WHY:協調者用長期權杖重跑實測,其他項全過,設定來源那項的對照組(拿掉壓制參數、使用者設定 env 放連不到的 API 位址)讓 claude 一直重試到 120 秒逾時;逾時的 ModelTimeout 往外傳,整個實測中斷、沒寫紀錄(唯讀查花費帳確認是對照組逾時,帶壓制參數的主呼叫 3.3 秒成功)。對照組本來就該失敗:改成它逾時算「對照失敗」、逾時縮成 `CONTROL_TIMEOUT_SECONDS`(30 秒,出處寫在常數旁);帶壓制參數的主呼叫逾時照舊 120 秒,逾時判這項沒過、其他項照跑照印。只在這一項吞逾時:其他項的呼叫逾時照舊中斷整個實測(沒遇過,不擴大)。防回歸:[test:test_a_hanging_settings_control_counts_as_the_expected_failure]、[test:test_a_hanging_suppressed_settings_call_fails_the_check_without_aborting]、[test:test_the_settings_control_timeout_is_shorter_than_the_main_call]。
+ - WHY:協調者再重跑,工具關掉那項時好時壞:中文拒絕 307 token 超過上限 200,撞頂續寫一輪,「對話輪數 1」的判準把續寫當成用了工具。改成看串流輸出的內容區塊(tool_use/server_tool_use/tool_result)與權限被拒清單,續寫的多輪不算;上限調到 1024 讓正常拒絕不撞頂;開 Bash 的對照組用同一套判法。沒用 usage.iterations:沒有帶工具往返的真實樣本,不確定分得出工具。(寫這條時)正式呼叫的 [S936] 仍用對話輪數,撞頂續寫會被標工具使用,待協調者裁。防回歸:[test:test_a_refusal_that_continues_after_the_cap_is_not_tool_use]、[test:test_the_tool_check_leaves_room_for_a_long_refusal]、[test:test_a_tool_use_event_fails_the_tool_check_even_in_one_turn]。
+ - WHY:使用者 2026-09-25 裁定上一條的待裁事項:正式呼叫「對話輪數大於 1、權限被拒清單空」是撞頂自動續寫,當普通失敗。沿用結果類別「回應讀不懂」加子原因 `output_continued`,不新增類別(新增要改分析端退回原因列舉、流程圖對照、唯讀開法與頁面標籤,語意卻一樣);不標工具使用,評估不停、呼叫端退回規則;錯誤回應也只看權限被拒清單。批次驗收把這個子原因算失敗類錄製(`FAILED_BATCH_SUB_REASONS`,字串與 `modelclaude.OUTPUT_CONTINUED` 由測試核對),入庫前擋下要重錄。防回歸:[test:test_continued_turns_without_denials_are_an_ordinary_failure]、[test:test_continued_output_falls_back_without_stopping_the_evaluation]、[test:test_the_batch_check_goes_red_on_missing_failed_or_mixed_recordings]、[test:test_success_shaped_tool_use_stops_the_evaluation]。
+ - WHY:同一裁定延伸(協調者 2026-09-25):續寫完仍撞頂的錯誤回應原本因 `KNOWN_ERRORS` 是空的落到無法可靠分類、評估停批。收進第一個真實樣本(協調者實測原文),比對改可用正規表示式(`ErrorSample.pattern`,N 要是數字),歸回應讀不懂加 `output_continued`,批次驗收同樣擋下要重錄。只收這一種,不泛化。防回歸:[test:test_the_output_cap_error_is_an_ordinary_failure]、[test:test_the_output_cap_error_does_not_stop_the_evaluation]。
+ 
++
++## 展示串接的代碼審 r2(Phase 13 增量 4,2026-09-25,代使用者裁定)
++
++- WHY:入庫根 recordings/model 不存在時,開錄前檢查以前當成「沒有東西可以疊上去」放行,即時錄製會在預設入庫位置建目錄、沒經驗過就落地(四席同報)。改成入庫根讀不到就一律拒絕開錄(`MixedRecordingsDir`「入庫根 … 不存在:checkout 不完整,不開錄」);不改成字面路徑比對,macOS 對不存在的路徑 realpath 不統一大小寫。防回歸:[test:test_a_missing_committed_root_refuses_every_live_recording]。
++- WHY:撞頂續寫的判法原本只看「多輪、沒被拒」,工具被允許而且成功執行的呼叫也長這樣。改成輪數不超過 1 加 `OUTPUT_RECOVERY_ATTEMPTS`、而且看得到撞頂(停止原因 max_tokens,或總輸出至少(輪數-1)乘這次的上限;`judge_output` 多收這次的上限),否則照舊標工具使用。防回歸:[test:test_many_turns_or_no_cap_evidence_is_still_tool_use]。
++- WHY:實測命令列的工具那項以前只在看得到的訊息裡找工具區塊,串流只有結果事件時也判過;改成要正面證據(至少一個 assistant 事件、初始事件的工具清單是空的),區塊類型以 tool_use/tool_result 結尾就算(涵蓋 mcp_ 這類前綴)。防回歸:[test:test_the_tool_check_needs_positive_evidence]、[test:test_prefixed_tool_blocks_count_as_tool_use]。
++- WHY:設定來源的對照組以前逾時就算「毒值讀到」,回得慢的對照組會被誤判;改成毒值指到實測命令列自己開的本機監聽埠(只綁 127.0.0.1、隨機埠),收到連線才算讀到,沒連上而逾時或失敗都判不出來 = 沒過;主呼叫期間收到連線也算沒壓住。紀錄附註寫 `connected`、`timeout_no_connection`、`failed_no_connection` 或 `succeeded`。防回歸:[test:test_the_poison_points_at_a_listener_of_our_own]、[test:test_a_control_without_a_connection_proves_nothing]、[test:test_a_hanging_settings_control_counts_as_the_expected_failure]。
++- WHY:錄製帳的取捨缺測試:補「即時閘道不用 recorded_ledger」與「假說命令列錄製模式有告警時記在 --recorded-ledger」。假說命令列不改經閘道(模型閘道只准分析端寫死的幾支模組匯入)。防回歸:[test:test_a_live_gate_ignores_the_recorded_ledger]、[test:test_recorded_hypotheses_book_into_the_recorded_ledger]。
++- 評估端刪掉自己那份錄製檔列舉,報告的錄製日期改用門面的 `mc.recording_files`(跟入庫驗收看同一批檔)。防回歸:[test:test_the_eval_lists_recordings_through_the_model_client_facade]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Verification/Phase13增量4驗收紀錄.md b/docs/rtb-production-agent-demo-knowledge/Verification/Phase13增量4驗收紀錄.md
+index 90c16c6..8ef4083 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Verification/Phase13增量4驗收紀錄.md
++++ b/docs/rtb-production-agent-demo-knowledge/Verification/Phase13增量4驗收紀錄.md
+@@ -13,30 +13,30 @@ tags:
+ plan_refs:
+   - "[[Projects/RTB_Phase13AI參與決策_計劃]]"
+ ---
+ # Phase13增量4驗收紀錄
+ 
+ 範圍:Phase 13 增量 4——展示串接:七個情境的分析那一步讓 AI 參與決定(預設錄製、「哪些情境即時」清單、F7 永遠錄製)、驅動程式依每件工作的結局選預期、F5 雙胞胎與模型考題、判斷紀錄的「AI 判斷」與「程式接手」兩列、頁面標示、說明與假說兩支命令列接到展示頁、展示批次入庫前的檢查。實作細節見 [[Projects/RTB_Phase13AI參與決策_計劃]]〈實作解讀〉「增量 4」。
+ 
+ ## 已完成(實作者,2026-09-25)
+ - 合約 [S1120]–[S1124]、[S1143]–[S1145]、[S1157]、[S1158]、[S1164]、[S1166]–[S1168] 的綁定測試全綠(tests/demo/test_ai_demo.py、tests/demo/test_ai_page.py;啟動器那一半另在 tests/demo/test_ai_launcher.py)。全程沒有呼叫真的 claude:測試用假錄製,[S1120] 那支另在 PATH 最前面放一支會記錄呼叫的假 claude,驗它一次都沒被叫。
+ - 變異測試(/tmp 複本,24 個變異):23 個第一次就被殺;「說明命令列也拿到模型變數」與「驅動沒讀分析端回報的模式那一行」兩個活下來,補了斷言(說明命令列回報錄製且沒有原因、列在清單的情境模式原因照分析端那一行)後都被殺。F3 賽跑執行緒「換回呼叫正式決策函式」是結構上測不出的變異(那一步本來就走不到決策),不算。
+-- 從增量 1 移過來的頁面串接:錄製模式跑完每個情境,說明與假說兩支命令列各跑一次,說明卡有內容(有錄製時顯示程式算的數字與 AI 文字,沒有錄製時寫「沒有對應的錄製回應」)。假說卡見已知限制。
++- 從增量 1 移過來的頁面串接:錄製模式跑完每個情境,說明與假說兩支命令列各跑一次,說明卡有內容(有錄製時顯示程式算的數字與 AI 文字,沒有錄製時寫「AI 這次沒有給出回答」;頁面改版前寫「沒有對應的錄製回應」)。假說卡見已知限制。
+ - 狀態是 pending(協調者要的 doing 不是驗收紀錄允許的值,用 pending):[S1125] 要使用者本人看過截圖才算完成。
+ 
+ ## 截圖(給使用者本人看,[S1125] 由使用者本人判)
+-- 重拍(增量 4 代碼審 r1 t1):合完主線 81524c0、修完 r1 之後,用最後一個程式提交 c9c250e(2026-09-25 04:31:50 UTC)的程式重跑、重拍;頁面在 04:32–04:42 UTC 產生,截圖在 2026-09-25 04:42:58 UTC 拍完,都晚於那個提交。逐張核對過下表的「看什麼」:三種標示各自出現;全部跑一次七個情境的 AI 那一步都是「這次改由程式規則決定(原因:沒有對應的錄製回應)」、都有「展示模式、未通過採用門檻」;F1–F6 照預期跑完,F7 沒有人確認標「未完成」;頂端摘要寫「錄製回應(沒有即時連線)」、原因寫這次一筆對得上的錄製回應都沒有。
++- 截圖待重拍(增量 4 代碼審 r2 t1,2026-09-25):docs/assets/phase13-inc4/ 目前的截圖是 r1 修完(程式提交 c9c250e)拍的舊頁面,之後頁面照使用者 2026-09-25 逐項要求改版過,截圖上的「展示模式、未通過採用門檻」橫幅、頂端摘要的錄製字樣、退回原因「沒有對應的錄製回應」都已不在現行頁面。現行頁面應看到:詳情頁不掛展示模式橫幅;頁面不分錄製或即時(AI 的文字只標「AI 產生、僅供參考」);AI 退回時寫「這次改由程式規則決定(原因:AI 這次沒有給出回答)」;順序是情境標題 → 這次情境 → 處理流程(格子可浮出判斷內容)→ 處理結果概述 → 其餘明細。截圖待協調者錄完展示批次、入庫之後重拍,下表「看什麼」一欄也照上面現行頁面讀;重拍前這幾張不能當 [S1125] 的依據。
+ 截圖放在 docs/assets/phase13-inc4/,由實作者代協調者拍(計劃〈拆增量〉原寫全部跑一次的截圖由協調者先備好)(情境詳情那一塊整段,判斷紀錄與觸發條件展開;產生頁面的腳本讀展示狀態庫、用靜態頁面渲染,再用瀏覽器截圖)。三種標示的假錄製放在工作目錄底下 git 忽略的 .demo-fake-recordings/<名稱>/,每張一個目錄、只跑那一個情境,由 tests/demo/fake_recordings.py 產生(照展示種子在行程內真的跑一次分析端,收下真的送出去的內容寫成錄製檔)。
+ 
+ | 截圖 | 情境 | 假錄製 | 看什麼 |
+ |---|---|---|---|
+-| full-summary.jpg(頂端摘要)、full-F1.jpg 到 full-F7.jpg(各情境詳情,判斷紀錄展開) | 錄製模式全部跑一次(F1–F7,沒有接展示伺服器;F1–F6 照預期跑完,F7 沒有人按確認,等到上限標「沒有人確認」) | 不用假錄製;讀入庫目錄 recordings/model/phase13-demo/,目前還沒有入庫的批次 | 每個情境的 AI 那一步都是「這次改由程式規則決定(原因:沒有對應的錄製回應)」,之後照程式規則判;每個情境標「展示模式、未通過採用門檻」 |
++| full-summary.jpg(頂端摘要)、full-F1.jpg 到 full-F7.jpg(各情境詳情,判斷紀錄展開) | 錄製模式全部跑一次(F1–F7,沒有接展示伺服器;F1–F6 照預期跑完,F7 沒有人按確認,等到上限標「沒有人確認」) | 不用假錄製;讀入庫目錄 recordings/model/phase13-demo/,目前還沒有入庫的批次 | (現行頁面)每個情境的 AI 那一步都是「這次改由程式規則決定(原因:AI 這次沒有給出回答)」,之後照程式規則判;不掛展示模式橫幅、不寫錄製字樣(舊截圖仍是改版前的樣子,待重拍) |
+ | fallback-f1.jpg | F1 | fallback-f1:F1 受測廣告第 1 輪回答寫成選項外答案 {"choice":"raise_budget","reason":"x","evidence":[]} | 「這次改由程式規則決定(原因:答案不在固定選項裡,或引用的數字對不上)」 |
+ | no-propose-f2.jpg | F2 | no-propose-f2:第 1 輪 stop_insufficient,引用 base 的 conversions = 1 | 情境狀態「AI 判不提案(不提出調整建議),故障處理這次沒有走到」,「最後改了什麼」的原因同一句,另一行列 AI 的判斷 |
+ | exam-failed-f5.jpg | F5 | exam-failed-f5:受攻擊廣告第 1 輪 stop_insufficient;雙胞胎(共用 F1 的鍵)第 1 輪 propose | 情境照預期跑完、平台沒有寫入、「最後改了什麼」的原因寫 AI 判不提案;考題那一行標「模型(AI)考題」、寫「考題沒通過」 |
+ 
+ - [S1125] 使用者本人看過上面哪幾張、日期:(待使用者本人填,不由實作者或協調者代看)
+ 
+ ## 已知限制
+ - 假說卡在展示裡還沒有真的顯示過 AI 的推測:假說只在服務水準告警響時才問 AI,展示情境很短,本機實跑七個情境都沒有告警,頁面照實寫「這次沒有告警,沒有請 AI 推測原因」(有內容那一路只在測試裡用構造的狀態驗過)。
+ REVISIT:2026-12-31 看展示紀錄有沒有任何一次告警響;還是沒有,就另設計一個會觸發告警的展示情境,或把假說卡從展示頁拿掉。
+ - 還沒有入庫的展示錄製批次:錄製模式全部跑一次,AI 那一步全部退回程式規則(依賴協調者本機錄一批 phase13-demo-YYYYMMDD,入庫前跑 python -m rtb.demo.recordings)。
+diff --git a/src/rtb/demo/flow_svg.py b/src/rtb/demo/flow_svg.py
+index f6595a8..ef5a25b 100644
+--- a/src/rtb/demo/flow_svg.py
++++ b/src/rtb/demo/flow_svg.py
+@@ -37,20 +37,25 @@ _NODE_HEIGHT: Final = 80
+ 
+ _STEP_SPACING: Final = 97
+ 
+ 
+ _LANE_HEIGHT: Final = 140
+ 
+ 
+ LANE_ORDER: Final = ("分析", "收件", "執行", "廣告平台", "人工")
+ 
+ 
++# 走到這些節點就算碰過另一個角色(跨角色的動作):執行端送去寫入/同筆重送,平台就已經收到東西,
++# 即使執行端當場倒下、沒有留下平台回覆那一格(增量 4 代碼審 r2 p1)
++_ALSO_TOUCHES: Final[dict[str, str]] = {"x_write": "廣告平台", "x_resend": "廣告平台"}
++
++
+ _GROUP_ID: Final = "analysis_group"
+ 
+ 
+ _SECOND_GROUP_ID: Final = "analysis_after_ai"
+ 
+ 
+ _GROUP_IDS: Final = frozenset({_GROUP_ID, _SECOND_GROUP_ID})
+ 
+ 
+ SHORT_LABELS: Final[dict[str, str]] = {
+@@ -153,21 +158,21 @@ def render_flow(  # noqa: PLR0915 - 流程圖組裝包含泳道、邊、節點
+     groups = dict(view.groups)
+     details = node_details or {}
+     popovers: list[str] = []
+     for node in view.nodes:
+         parts = [details[item.id] for item in groups.get(node.id, ()) if item.id in details]
+         content = "".join(parts) if parts else details.get(
+             node.id, '<p>這一步沒有留下判斷紀錄。</p>'
+         )
+         popover_id = f"flow-detail-{scenario.code.value}-{node.id}"
+         popovers.append(
+-            f'<div class="flow-popover" id="{escape_text(popover_id)}" hidden '
++            f'<div class="flow-popover" id="{escape_text(popover_id)}" hidden tabindex="-1" '
+             'role="dialog" aria-label="這一步的判斷內容">'
+             '<button class="flow-popover-close" type="button" aria-label="關閉判斷內容">×</button>'
+             f'<h4>{escape_text(flow_label(node.label))}</h4>{content}</div>'
+         )
+     nodes = "".join(
+         _render_node(
+             node,
+             positions[node.id],
+             node.id in view.visited,
+             node.id == scenario.current_node or scenario.current_node in {
+@@ -192,22 +197,27 @@ def render_flow(  # noqa: PLR0915 - 流程圖組裝包含泳道、邊、節點
+             f"{scenario.queue_wait_seconds} 秒")
+     faults = "".join(
+         f'<p class="fault-note">展示故意製造：{escape_text(fault.description)}'
+         f'（位置：{escape_text(SHORT_LABELS.get(fault.node, fault.node))}）</p>'
+         for fault in scenario.injected_faults
+     ) or '<p class="fault-note is-empty">這個情境沒有安排故障</p>'
+     queue_note = (
+         f"交給另一段程式；在排隊等了 {wait}"
+         if queued else "交給另一段程式；收件後沒有進入執行佇列"
+     )
+-    entered_lanes = {lane.name for lane in lanes}
+-    unentered = [lane for lane in LANE_ORDER if lane not in entered_lanes]
++    # 看這件(這幾件)工作實際碰過的角色,不是畫了哪幾條泳道:中間沒有節點的泳道也點名,
++    # 跨角色的動作(寫進平台)算碰過(增量 4 代碼審 r2 p1)
++    touched = {node.lane for node in view.nodes}
++    touched |= {_ALSO_TOUCHES[node_id] for node_id in view.visited if node_id in _ALSO_TOUCHES}
++    touched |= {_ALSO_TOUCHES[item.id] for _, items in view.groups for item in items
++                if item.id in _ALSO_TOUCHES}
++    unentered = [lane for lane in LANE_ORDER if lane not in touched]
+     later = (f'<p class="flow-later">{escape_text("、".join(unentered))}這次沒有走到</p>'
+              if unentered else '')
+     return (
+         '<div class="flow-toolbar"><p><strong>實線</strong>是這次走過的路徑；'
+         '淡色虛線是沒走的分支；回頭箭頭表示回到前一步。</p>'
+         '<p class="flow-legend"><span class="legend-code">程式（Code）</span>'
+         '<span class="legend-ai">AI（只供參考）</span><span class="legend-human">人工</span>'
+         '<span class="legend-external">外部平台</span>'
+         '<span>✓ 已經過</span><span>▶ 正在處理</span></p>'
+         f'<p class="ai-boundary">{escape_text(_ai_boundary(scenario))}</p></div>'
+diff --git a/src/rtb/demo/page.py b/src/rtb/demo/page.py
+index 9da4e47..98edf8e 100644
+--- a/src/rtb/demo/page.py
++++ b/src/rtb/demo/page.py
+@@ -33,41 +33,44 @@ from rtb.demo.state import (
+     NodeKind,
+     Scenario,
+     ScenarioCode,
+     ScenarioStatus,
+     VerifierResult,
+ )
+ 
+ FLOW_SCRIPT: Final = """(() => {
+   let active = null;
+   let pinned = false;
++  let openedByFocus = false;
++  let restoringFocus = false;
+   let closeTimer = null;
+   let lastViewportScrollAt = -Infinity;
+   const HOVER_CLOSE_DELAY_MS = 300;
+   const nodeFor = target => target.closest?.('.flow-node[data-flow-popover]');
+   const cancelClose = () => {
+     if (closeTimer === null) return;
+     clearTimeout(closeTimer);
+     closeTimer = null;
+   };
+   const hide = () => {
+     cancelClose();
+     if (!active) return;
+     const box = document.getElementById(active.dataset.flowPopover);
+     if (box) box.hidden = true;
+     active.setAttribute('aria-expanded', 'false');
+     active = null;
+     pinned = false;
++    openedByFocus = false;
+   };
+-  const show = (node, pin = false) => {
++  const show = (node, pin = false, byFocus = false) => {
+     cancelClose();
+-    if (active !== node) hide();
++    if (active !== node) { hide(); openedByFocus = byFocus; }
+     const box = document.getElementById(node.dataset.flowPopover);
+     if (!box) return;
+     active = node;
+     pinned = pin;
+     box.hidden = false;
+     node.setAttribute('aria-expanded', 'true');
+     box.style.maxHeight = '';
+     const rect = node.getBoundingClientRect();
+     const width = box.getBoundingClientRect().width;
+     const naturalHeight = box.getBoundingClientRect().height;
+@@ -75,84 +78,123 @@ FLOW_SCRIPT: Final = """(() => {
+     const availableAbove = Math.max(0, rect.top - 16);
+     const above = availableBelow < naturalHeight && availableAbove > availableBelow;
+     const room = above ? availableAbove : availableBelow;
+     const viewportHeight = Math.max(0, innerHeight - 16);
+     box.style.maxHeight = `${Math.min(416, room < 120 ? viewportHeight : room)}px`;
+     const height = box.getBoundingClientRect().height;
+     box.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`;
+     const top = room < 120 ? 8 : above ? rect.top - height - 8 : rect.bottom + 8;
+     box.style.top = `${Math.max(8, Math.min(top, innerHeight - height - 8))}px`;
+   };
++  const keptByFocus = () => openedByFocus && document.activeElement === active;
+   const scheduleClose = () => {
+-    if (!active || pinned || document.activeElement === active) return;
++    if (!active || pinned || keptByFocus()) return;
+     cancelClose();
+     closeTimer = setTimeout(() => { closeTimer = null; hide(); }, HOVER_CLOSE_DELAY_MS);
+   };
+   document.querySelectorAll('.flow-node[data-flow-popover]').forEach(node => {
+     const box = document.getElementById(node.dataset.flowPopover);
+     if (!box) return;
+-    node.addEventListener('mouseenter', () => { if (!pinned) show(node); });
++    node.addEventListener('mouseenter', () => {
++      if (pinned) return;
++      if (active !== node) show(node);
++      else openedByFocus = false;
++    });
+     node.addEventListener('mouseleave', () => {
+       if (active === node && performance.now() - lastViewportScrollAt >= HOVER_CLOSE_DELAY_MS)
+         scheduleClose();
+     });
+     box.addEventListener('mouseenter', () => { if (active === node) cancelClose(); });
+     box.addEventListener('mouseleave', () => { if (active === node) scheduleClose(); });
+   });
+   document.addEventListener('mousemove', event => {
+-    if (!active || pinned || closeTimer !== null || document.activeElement === active) return;
++    if (!active || pinned || closeTimer !== null || keptByFocus()) return;
+     const box = document.getElementById(active.dataset.flowPopover);
+     if (!active.contains(event.target) && !box?.contains(event.target)) scheduleClose();
+   });
+   document.addEventListener('focusin', event => {
++    if (restoringFocus) return;
+     const node = nodeFor(event.target);
+-    if (node && node !== active) show(node);
++    if (node && node !== active) show(node, false, true);
+   });
+   document.addEventListener('focusout', event => {
+     if (!active || pinned || event.target !== active) return;
+     const box = document.getElementById(active.dataset.flowPopover);
+     if (!box?.contains(event.relatedTarget) && !box?.matches(':hover')) hide();
+   });
+   document.addEventListener('click', event => {
+     if (event.target.closest?.('.flow-popover-close')) { hide(); return; }
+     const node = nodeFor(event.target);
+     if (node) {
+       if (active === node && pinned) hide();
+       else show(node, true);
+     } else if (!event.target.closest?.('.flow-popover')) hide();
+   });
++  // Esc 收框;焦點在框裡時還給那一格(不因此再打開)
++  const returnFocus = node => {
++    restoringFocus = true;
++    try { node.focus({ preventScroll: true }); } finally { restoringFocus = false; }
++  };
+   document.addEventListener('keydown', event => {
+-    if (event.key === 'Escape') { hide(); return; }
++    const inBox = event.target.closest?.('.flow-popover');
++    if (event.key === 'Escape') {
++      const node = active;
++      if (inBox && node) returnFocus(node);
++      hide();
++      return;
++    }
++    if (inBox) return;  // 框裡的方向鍵、翻頁、空白鍵照瀏覽器預設捲框,不開關格子
+     const node = nodeFor(event.target);
+     if (node && (event.key === 'Enter' || event.key === ' ')) {
+       event.preventDefault();
+       if (active === node && pinned) hide();
+-      else show(node, true);
++      else {
++        show(node, true);
++        const box = document.getElementById(node.dataset.flowPopover);
++        if (box && !box.hidden) box.focus({ preventScroll: true });  // 鍵盤釘住:焦點移進框
++      }
+     }
+   });
+   window.addEventListener('resize', () => { if (active) show(active, pinned); });
+   document.addEventListener('scroll', event => {
+     if (!active || event.target.closest?.('.flow-popover')) return;
+     lastViewportScrollAt = performance.now();
+     const rect = active.getBoundingClientRect();
+     if (rect.bottom <= 0 || rect.top >= innerHeight ||
+         rect.right <= 0 || rect.left >= innerWidth) hide();
+     else show(active, pinned);
+   }, true);
++  // 窄螢幕的情境列是一排可左右滑的卡:載入時把選中那張捲進可視區(只動這一列,不捲整頁)
++  const revealSelected = () => {
++    const list = document.querySelector('.scenario-index');
++    const row = list?.querySelector('.scenario-row.is-selected');
++    if (!list || !row || list.scrollWidth <= list.clientWidth) return;
++    const listRect = list.getBoundingClientRect();
++    const rowRect = row.getBoundingClientRect();
++    list.scrollLeft += rowRect.left - listRect.left - (listRect.width - rowRect.width) / 2;
++  };
++  revealSelected();
+ })();"""
+ _SCRIPT_HASH: Final = base64.b64encode(hashlib.sha256(FLOW_SCRIPT.encode()).digest()).decode()
+ CONTENT_SECURITY_POLICY: Final = (
+     f"default-src 'none'; script-src 'sha256-{_SCRIPT_HASH}'; style-src 'self'; "
+     "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; img-src 'none'"
+ )
+ STYLESHEET_PATH: Final = "/static/demo.css"
+ DEMO_CSS: Final = (Path(__file__).parent / "static" / "demo.css").read_text(encoding="utf-8")
++_STYLE_HASH: Final = base64.b64encode(hashlib.sha256(DEMO_CSS.encode()).digest()).decode()
++# 另存的單檔報告(樣式內嵌、用 file:// 打開)沒有回應標頭,改在 <head> 用 meta 宣告;腳本與內嵌樣式各綁
++# 自己的雜湊,不用 unsafe-inline(增量 4 代碼審 r2 s3)。frame-ancestors 在 meta 裡無效,不寫
++INLINE_CONTENT_SECURITY_POLICY: Final = (
++    f"default-src 'none'; script-src 'sha256-{_SCRIPT_HASH}'; "
++    f"style-src 'sha256-{_STYLE_HASH}'; form-action 'none'; base-uri 'none'; img-src 'none'"
++)
+ 
+ JARGON_TERMS: Final[tuple[str, ...]] = (
+     "死信",
+     "猝死",
+     "總曝險",
+     "冪等",
+     "租約",
+     "對帳",
+     "提示注入",
+     "稽核",
+@@ -384,21 +426,22 @@ def _render_document(
+             f'<script>{FLOW_SCRIPT}</script></body></html>')
+ 
+ 
+ def _render_head(*, refresh_url: str | None, inline_styles: bool) -> str:
+     meta_refresh = (
+         f'<meta http-equiv="refresh" content="2; url={escape_text(refresh_url)}">'
+         if refresh_url is not None
+         else ""
+     )
+     styles = (
+-        f"<style>{DEMO_CSS}</style>"
++        f'<meta http-equiv="Content-Security-Policy" '
++        f'content="{escape_text(INLINE_CONTENT_SECURITY_POLICY)}"><style>{DEMO_CSS}</style>'
+         if inline_styles
+         else f'<link rel="stylesheet" href="{STYLESHEET_PATH}">'
+     )
+     return (
+         '<head><meta charset="utf-8"><meta name="viewport" '
+         f'content="width=device-width, initial-scale=1">{meta_refresh}'
+         f"<title>RTB Agent Workflow</title>{styles}</head>"
+     )
+ 
+ 
+@@ -862,33 +905,29 @@ def _render_decision_hero(scenario: Scenario) -> str:
+         else:
+             continue
+         choices[choice] = choices.get(choice, 0) + 1
+     if choices:
+         choice_html = "".join(
+             f'<li>{escape_text(_public_text(choice))}（{count} 筆）</li>'
+             for choice, count in choices.items()
+         )
+     else:
+         choice_html = '<li>這次沒有 AI 判斷紀錄</li>'
++    # 「AI 判不提案,故障處理這次沒有走到」已在結果摘要裡(提案緊接括號解釋),不再另寫一次
++    # (增量 4 代碼審 r2 v1)
+     result = scenario.result_summary or _fallback_result(scenario)
+-    unreached = (
+-        '<small class="decision-hero__note">'
+-        f'{escape_text("AI 判不提案,故障處理這次沒有走到")}'
+-        '（不提出調整建議；本次未觸發故障處理）</small>'
+-        if scenario.status is ScenarioStatus.NOT_EXERCISED else ""
+-    )
+     return (
+         '<section class="decision-hero" aria-label="決策摘要">'
+         '<div class="decision-hero__grid">'
+         f'<div><span>這次誰決定</span><strong>{escape_text(who)}</strong></div>'
+         f'<div><span>AI 選的下一步／退回原因</span><ul>{choice_html}</ul></div>'
+-        f'<div><span>這次結果</span><strong>{escape_text(result)}</strong>{unreached}</div>'
++        f'<div><span>這次結果</span><strong>{escape_text(result)}</strong></div>'
+         '</div></section>'
+     )
+ 
+ 
+ def _round_takeover(path: tuple[Decision, ...], index: int) -> Decision | None:
+     decision = path[index]
+     target = decision.taken_edge[1] if decision.taken_edge else None
+     if target is None:
+         return None
+     for later in path[index + 1:]:
+@@ -1002,43 +1041,57 @@ def _flow_node_details(scenario: Scenario, flow: FlowGraph) -> dict[str, str]:
+         if len(scenario.path) > 60:
+             merged: dict[tuple[str, tuple[str, str] | None, DecisionKind | None],
+                          tuple[int, Decision, int]] = {}
+             for position, decision in decisions:
+                 key = (decision.outcome, decision.taken_edge, decision.kind)
+                 first_position, first, count = merged.get(key, (position, decision, 0))
+                 merged[key] = (first_position, first, count + 1)
+             shown = list(merged.values())
+         else:
+             shown = [(position, decision, 1) for position, decision in decisions]
++        per_task: dict[str, int] = {}
++        labels = []
++        for index, (_position, decision, count) in enumerate(shown, start=1):
++            if decision.task_id is not None:
++                per_task[decision.task_id] = per_task.get(decision.task_id, 0) + 1
++            labels.append(_occurrence_label(decision, index, count,
++                                            per_task.get(decision.task_id or "", 0)))
+         cards = "".join(
+             '<li class="flow-occurrence">'
+-            f'<strong>{_occurrence_label(decision, index, count)}</strong>'
++            f'<strong>{label}</strong>'
+             f'{"<p>以下根據與時間取其中第一筆。</p>" if count > 1 else ""}'
+             '<ol class="decision-trail">'
+             f'{_decision_card(decision, index, len(shown), nodes, flow, count)}'
+             '</ol>'
+             f'{_ai_cell_followup(scenario.path, position, decision)}'
+             '</li>'
+-            for index, (position, decision, count) in enumerate(shown, start=1)
++            for index, ((position, decision, count), label) in enumerate(
++                zip(shown, labels, strict=True), start=1)
+         )
+         output[node_id] = f'<ol class="flow-occurrences">{cards}</ol>'
+     if scenario.model_step is not None:
+         output.setdefault("a_narrate", _render_ai_node_card(scenario))
+     if scenario.hypothesis is not None:
+         output["ai_hypothesis"] = _render_hypothesis(scenario)
+     return output
+ 
+ 
+-def _occurrence_label(decision: Decision, index: int, count: int) -> str:
++def _occurrence_label(decision: Decision, index: int, count: int, task_round: int) -> str:
++    """同一格走過好幾次:帶工作編號、按每件工作各自數(AI 那格數「輪」,跟 AI 逐輪卡一致;增量 4 代碼審
++    r2 p4);沒記工作編號的舊資料照舊連號。"""
+     if count > 1:
+         return f"共 {count} 筆，結果：{escape_text(_public_text(decision.outcome))}"
+-    return f"第 {index} 次"
++    if decision.task_id is None:
++        return f"第 {index} 次"
++    unit = ("輪" if decision.kind is DecisionKind.AI_JUDGEMENT
++            or decision.taken_edge == ("a_ai", "a_rule") else "次")
++    return f"工作 {escape_text(decision.task_id)} 第 {task_round} {unit}"
+ 
+ 
+ def _ai_cell_followup(path: tuple[Decision, ...], position: int, decision: Decision) -> str:
+     if decision.kind is DecisionKind.AI_JUDGEMENT:
+         takeover = _round_takeover(path, position)
+         if takeover is None:
+             return '<p>程式接手：沒有留下接手紀錄</p>'
+         summary = "；".join(item.observed for item in takeover.basis) or takeover.outcome
+         return f'<p>程式接手：{escape_text(summary)}</p>'
+     if decision.taken_edge == ("a_ai", "a_rule"):
+@@ -1170,36 +1223,42 @@ def _decision_card(
+         f'{basis_block}'
+         f'{operation}'
+         f"<time>{escape_text(at)}</time></div></li>"
+     )
+ 
+ 
+ # 程式接手 AI 選擇的那幾步(照查詢去讀、照公式算金額、照結論結案、只判不送):狀態前進,但列出做了什麼
+ _TAKEOVER_NODES: Final = frozenset({"a_ai_query", "a_propose", "a_no_action", "a_exam_hold"})
+ 
+ 
++# AI 那一輪的標準欄本身以這串字開頭(展示狀態的原文);頁面欄名已經寫了,值就不再重複
++# (增量 4 代碼審 r2 p5)
++_ALLOWED_PREFIX: Final = "這一輪允許的選項:"
++
++
+ def _ai_basis(decision: Decision, *, fields_class: str = "") -> str:
+     """[S1121] AI 判斷那一張:程式整理的證據、這一輪允許的選項、選了什麼與理由(標「AI 產生、僅供
+     參考」,不標來源),以及 AI 引用的收據值(已核對存在)。第一組是 AI 看到與選的,其餘是引用。"""
+     if not decision.basis:
+         return '<div class="decision-basis ai-round"><p>這一輪沒有留下紀錄</p></div>'
+     main, *cited = decision.basis
+     quoted = "".join(
+         f"<dt>{CITED_LABEL}</dt><dd>{escape_text(item.observed)}"
+         f"<small>{escape_text(item.standard)}</small></dd>" for item in cited)
+     return (
+         '<div class="decision-basis ai-round">'
+         f'<p class="model-warning">AI 判斷・{MODEL_LABEL}</p>'
+         f'<dl class="{escape_text(fields_class)}">'
+         "<dt>AI 看到的證據（程式整理的數字）</dt>"
+         f"<dd>{escape_text(_public_text(main.observed))}</dd>"
+-        f"<dt>這一輪允許的選項</dt><dd>{escape_text(_public_text(main.standard))}</dd>"
++        f"<dt>這一輪允許的選項</dt>"
++        f"<dd>{escape_text(_public_text(main.standard.removeprefix(_ALLOWED_PREFIX)))}</dd>"
+         f"<dt>AI 選了什麼、理由（{MODEL_LABEL}）</dt>"
+         f"<dd>{escape_text(_public_text(main.conclusion))}</dd>"
+         f"{quoted}</dl></div>"
+     )
+ 
+ 
+ def _detail(title: str, content: str) -> str:
+     return (
+         f'<details class="detail-card"><summary>{escape_text(title)}</summary>'
+         f"<div>{content}</div></details>"
+diff --git a/src/rtb/demo/recordings.py b/src/rtb/demo/recordings.py
+index 8d253a7..e28e2b2 100644
+--- a/src/rtb/demo/recordings.py
++++ b/src/rtb/demo/recordings.py
+@@ -1,11 +1,12 @@
+-"""展示錄製批次入庫前的檢查(Phase 13 增量 4,計劃〈錄製批次與入庫〉「驗過」的第 1、2、4 條,[S1164])。
++"""展示錄製批次入庫前的檢查(Phase 13 增量 4,計劃〈錄製批次與入庫〉「驗過」的第 1、2、4 條,[S1164];
++另加 F1 到 F6 任何一輪 AI 退回就不過,跟 CI 守衛同一支判法,增量 4 代碼審 r2 m1)。
+ 
+ 入庫的展示錄製(recordings/model/phase13-demo/)要先過這三條才准入庫:
+ 1. 批次裡設定錯誤、花費帳忙碌、無法可靠分類這三類的錄製都是 0 份(claude 剛好登出時整批都是設定錯誤,
+    重播時全數退回規則,卻看起來像量過了)。
+ 2. 目錄裡每個錄製檔的批次編號都等於這一批,也沒有殘留的佔位檔(沿用模型用戶端的開錄前目錄檢查)。
+ 4. 用錄製模式跑一次 F1 到 F6,找不到錄製的筆數為 0(登入預檢沒過時整趟走規則、一份錄製都不會留下,
+    空目錄
+    會通過前兩條)。F7 共用 F1 的錄製鍵([S1158]),不另跑。
+ 
+ 找不到錄製的筆數讀每個情境自己的暫存花費帳(錄製模式每次呼叫都記一筆,找不到的記「沒有錄製」),所以
+@@ -18,26 +19,28 @@
+ 
+ import argparse
+ import json
+ import os
+ import re
+ import shutil
+ import sys
+ import uuid
+ from collections.abc import Mapping, Sequence
+ from dataclasses import asdict, dataclass
++from datetime import UTC, datetime
+ from pathlib import Path
+ 
+ from rtb import modelclient as mc
+ from rtb.demo.driver import DONE, NOT_EXERCISED, Driver
+ from rtb.demo.keys import DemoKeys
+ from rtb.demo.launcher import MODEL_VARIABLES
++from rtb.demo.present import build_demo_state
+ from rtb.demo.state_store import StateReader, StateWriter
+ from rtb.modelledger_view import ModelLedgerView
+ from rtb.modelledger_view import Outcome as LedgerOutcome
+ 
+ REPLAYED = ("F1", "F2", "F3", "F4", "F5", "F6")
+ BATCH_PATTERN = re.compile(r"phase13-demo-\d{8}")  # 入庫的展示批次(計劃〈錄製批次與入庫〉)
+ BATCH_SHAPE = "phase13-demo-YYYYMMDD"
+ FINISHED = frozenset({DONE, NOT_EXERCISED})  # 重播算數:情境要真的跑完(代碼審 r1 k1)
+ _EVER = ("2000-01-01T00:00:00+00:00", "9999-01-01T00:00:00+00:00")
+ 
+@@ -82,20 +85,38 @@ def replay_problems(verdicts: Sequence[tuple[str, str, str | None]],
+         calls = _calls(ledger)
+         if calls is None:
+             problems.append(f"{code} 的花費帳不在或讀不了:這個情境一次都沒有問 AI")
+             continue
+         if not calls:
+             problems.append(f"{code} 的花費帳沒有任何呼叫紀錄")
+         missing += sum(1 for outcome in calls if outcome == LedgerOutcome.NO_RECORDING.value)
+     return missing, tuple(problems)
+ 
+ 
++def ai_fallback_problems(state_db: Path, demo_id: str,
++                         codes: Sequence[str] = REPLAYED) -> tuple[str, ...]:
++    """重播 F1 到 F6 時,任何一件工作的任何一輪 AI 退回程式規則(流程走 a_ai → a_rule)都算一條問題
++    (使用者 2026-09-25 裁定的 CI 守衛;增量 4 代碼審 r2 m1 搬進這裡:錄完的自動檢查、入庫前檢查與 CI
++    測試呼叫同一支,錄到退回就判不過、要重錄)。F7 不查。讀展示狀態庫,跟頁面同一份判斷列。"""
++    reader = StateReader(state_db)
++    try:
++        shown = build_demo_state(reader, demo_id, running=False, now=datetime.now(UTC))
++    finally:
++        reader.close()
++    wanted = set(codes) - {"F7"}
++    return tuple(
++        f"{scenario.code.value} 工作 {decision.task_id} 的 AI 這次沒有給出回答、退回程式規則"
++        f"({decision.outcome})"
++        for scenario in shown.scenarios if scenario.code.value in wanted
++        for decision in scenario.path if decision.taken_edge == ("a_ai", "a_rule"))
++
++
+ def _calls(ledger: Path) -> list[str | None] | None:
+     if not ledger.is_file():
+         return None
+     try:
+         view = ModelLedgerView(ledger)
+     except Exception:  # 讀不了、還沒建齊
+         return None
+     try:
+         return [call.outcome for call in view.calls_between(*_EVER)]
+     finally:
+@@ -113,21 +134,23 @@ def check_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
+     work_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+     state = StateWriter(work_dir / "state.db", demo_id)
+     try:
+         driver = Driver(work_dir / "demos", demo_id, DemoKeys.generate(), state, user_env=env,
+                         recordings_dir=directory)
+         verdicts = tuple((v.code, v.status, v.reason) for v in driver.run(codes))
+     finally:
+         state.close()
+     missing, replayed = replay_problems(
+         verdicts, {code: driver.root / code / "model-ledger.db" for code in codes})
+-    return BatchCheck(missing, (*batch_problems(directory, batch_id), *replayed), verdicts)
++    fallbacks = ai_fallback_problems(work_dir / "state.db", demo_id, codes)
++    return BatchCheck(missing, (*batch_problems(directory, batch_id), *replayed, *fallbacks),
++                      verdicts)
+ 
+ 
+ # ---- 錄一批展示錄製(協調者用真 claude 錄;測試一律用假 claude) ----
+ RECORDED_CODES = REPLAYED  # F7 不錄:它與 F5 雙胞胎共用 F1 的錄製鍵([S1158])
+ NEXT_STEP = ("驗過之後把整個目錄搬進 recordings/model/phase13-demo/(整個替換入庫的那一份,不在舊目錄"
+              "上疊錄),再跑一次入庫前檢查:python -m rtb.demo.recordings --dir "
+              "recordings/model/phase13-demo --batch-id {batch} --work-dir <暫存目錄>")
+ 
+ 
+ @dataclass(frozen=True)
+diff --git a/src/rtb/eval/investigation_eval.py b/src/rtb/eval/investigation_eval.py
+index 50d76d4..573f254 100644
+--- a/src/rtb/eval/investigation_eval.py
++++ b/src/rtb/eval/investigation_eval.py
+@@ -11,21 +11,20 @@
+ - 命令列 `python -m rtb.eval.investigation_eval`:預設重播入庫目錄 recordings/model/
+   phase13-investigation-eval/(CI 只重播、不啟動 claude);即時加錄製經 AI 決策模組開模型
+   閘道,開閘道時先跑模型用戶端的開錄前目錄檢查,目錄不是空的也不是只有同一批就拒絕開始
+   ([S1165])。`--verify` 只准重播,驗不過以結束代碼 1 結束。評估批次不另存批次紀錄檔(開錄前
+   目錄檢查不收錄製檔以外的檔);模型那一列從重播時帶回的錄製當時數字算,錄製日期與批次從
+   錄製檔讀。
+ """
+ 
+ import argparse
+ import hashlib
+-import json
+ import os
+ import re
+ import sys
+ from collections.abc import Callable, Mapping, Sequence
+ from pathlib import Path
+ from types import MappingProxyType
+ from typing import Any, TextIO
+ 
+ from rtb import modelclient as mc
+ from rtb.analyzer import ai_judge, policy
+@@ -163,47 +162,37 @@ def _renewed() -> None:
+ 
+ 
+ def run_set(cases: Sequence[Case], ask: Ask) -> tuple[CaseRun, ...]:
+     return tuple(run_case(case, ask) for case in cases)
+ 
+ 
+ rule_verdict = report_mod.rule_verdict  # 現行規則對同一筆的答案(比較表與退回核對用)
+ 
+ 
+ # ---- 錄製批次的驗收 ----
+-def recording_files(directory: Path) -> list[tuple[Path, Any]]:
+-    found = []
+-    for path in sorted(directory.iterdir()):
+-        try:
+-            found.append((path, json.loads(path.read_text(encoding="utf-8"))))
+-        except (OSError, UnicodeDecodeError, ValueError):
+-            found.append((path, None))
+-    return found
+-
+-
+ def batch_problems(directory: Path, runs: Sequence[CaseRun]) -> list[str]:
+     """[S1141] 的驗過條件(缺一條就不准入庫):批次本身的三條走模型用戶端門面的共用驗收(失敗類錄製
+     0 份;同一批、格式對、沒有佔位與別的檔;正式後端錄的,跟展示批次同一份);重播找不到錄製 0 筆(runs
+     是用錄製模式跑的那一趟)。"""
+     problems = mc.batch_file_problems(directory, BATCH_PATTERN, "phase13-eval-YYYYMMDD")
+     missing = sum(1 for run in runs if run.missing_recording)
+     if missing:
+         problems.append(f"重播時找不到錄製:{missing} 筆")
+     return problems
+ 
+ 
+ def recording_dates(directory: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
+     """錄製檔記的錄製日期與批次(讀得懂的才算),給報告標「歷史觀測」。"""
+     if not directory.is_dir():
+         return (), ()
+     dates, batches = set(), set()
+-    for path, data in recording_files(directory):
++    for path, data in mc.recording_files(directory):
+         try:
+             recording = mc.validated(path, data)
+         except mc.NoRecording:
+             continue
+         dates.add(recording.recorded_on)
+         batches.add(str(recording.batch_id))
+     return tuple(sorted(dates)), tuple(sorted(batches))
+ 
+ 
+ # ---- 命令列 ----
+diff --git a/src/rtb/modelclaude.py b/src/rtb/modelclaude.py
+index c1bb799..11b89f9 100644
+--- a/src/rtb/modelclaude.py
++++ b/src/rtb/modelclaude.py
+@@ -517,23 +517,36 @@ def _parse_output(returncode: int, stdout: bytes, stderr: bytes) -> dict[str, An
+     return data
+ 
+ 
+ def _tool_use_seen(data: Mapping[str, Any]) -> bool:
+     """錯誤回應的工具使用痕跡:權限被拒清單非空。對話輪數大於 1 不算(撞頂自動續寫,使用者 2026-09-25
+     裁定)。"""
+     denials = data.get("permission_denials")
+     return isinstance(denials, list) and bool(denials)
+ 
+ 
+-def _continued(turns: object, denials: object) -> bool:
+-    """撞頂自動續寫的形狀:對話輪數是大於 1 的整數、權限被拒清單在而且是空的。"""
+-    return isinstance(turns, int) and not isinstance(turns, bool) and turns > 1 and denials == []
++def _continued(data: Mapping[str, Any], max_output_tokens: int | None) -> bool:
++    """撞頂自動續寫的形狀:對話輪數是 2 到 1 加 OUTPUT_RECOVERY_ATTEMPTS 的整數(使用者 2026-09-25
++    裁定續寫最多 3 次)、權限被拒清單在而且是空的,而且看得到撞頂——停止原因 max_tokens,或總輸出至少
++    (輪數-1)乘這次的上限(前幾輪都寫滿才會續寫)。輪數超過或看不出撞頂:不是續寫,照舊當工具使用
++    (增量 4 代碼審 r2 s1:工具被允許而且成功執行的呼叫也是「多輪、沒被拒」)。"""
++    turns, denials = data.get("num_turns"), data.get("permission_denials")
++    if not isinstance(turns, int) or isinstance(turns, bool) or denials != []:
++        return False
++    if not 1 < turns <= 1 + core.OUTPUT_RECOVERY_ATTEMPTS:
++        return False
++    if data.get("stop_reason") == "max_tokens":
++        return True
++    usage = data.get("usage")
++    tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
++    return (max_output_tokens is not None and isinstance(tokens, int)
++            and not isinstance(tokens, bool) and tokens >= (turns - 1) * max_output_tokens)
+ 
+ 
+ def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
+     """第 3 步:是錯誤的回應先分子類型(只認有真實樣本的,見 KNOWN_ERRORS);認不出的歸暫時性服務錯誤並標
+     「無法可靠分類」。分完之後有工具使用痕跡就另加標記、印錯誤要人看。"""
+     reply = _usage_of(data, "")
+     failure: ModelCallFailed | None = None
+     for sample in KNOWN_ERRORS:
+         if sample.matches(data):
+             failure = core.BY_OUTCOME[sample.outcome](f"claude 回報錯誤:{sample.sub_reason}",
+@@ -541,33 +554,35 @@ def _reported_error(data: Mapping[str, Any]) -> ModelCallFailed:
+             break
+     if failure is None:
+         failure = TransientServiceError("claude 回報認不出的錯誤", sub_reason="unclassified",
+                                         reply=reply, unclassified=True)
+     if _tool_use_seen(data):
+         failure.tool_use = True
+         log.error("claude 的錯誤回應帶著工具使用的痕跡(權限被拒清單):評估應整批停下")
+     return failure
+ 
+ 
+-def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"") -> BackendReply:
++def judge_output(returncode: int, stdout: bytes, stderr: bytes = b"",
++                 max_output_tokens: int | None = None) -> BackendReply:
+     """回應判定五步(前一步不過就不看後面,[S904]):①起不起得來(在 `run_claude`)②讀成 JSON、有類型、
+     子類型、是否錯誤三欄 ③是錯誤就先分子類型(再看有沒有工具使用痕跡)④不是錯誤才做工具使用偵測
+-    (對話輪數 1、權限被拒清單空,[S936];多輪而權限被拒清單空是撞頂自動續寫,判讀不懂、不標工具使用,
+-    使用者 2026-09-25 裁定;其他不符標工具使用)、子類型要是 success、欄位齊全
++    (對話輪數 1、權限被拒清單空,[S936];多輪而權限被拒清單空、輪數在續寫次數內、看得到撞頂(需要這次
++    的輸出上限 `max_output_tokens`)是撞頂自動續寫,判讀不懂、不標工具使用,使用者 2026-09-25 裁定;
++    其他不符標工具使用)、子類型要是 success、欄位齊全
+     ⑤結束代碼非 0 → 暫時性、無法可靠分類。"""
+     data = _parse_output(returncode, stdout, stderr)
+     if data["is_error"]:
+         raise _reported_error(data)
+     result = data.get("result")
+     reply = _usage_of(data, result if isinstance(result, str) else "")
+     turns, denials = data.get("num_turns"), data.get("permission_denials")
+-    if _continued(turns, denials):
++    if _continued(data, max_output_tokens):
+         log.warning("claude 撞到輸出上限後自動續寫(對話輪數 %s、沒有權限被拒):這一次算失敗", turns)
+         raise UnreadableModelResponse("輸出撞頂自動續寫", sub_reason=OUTPUT_CONTINUED, reply=reply)
+     if isinstance(turns, bool) or turns != 1 or denials != []:
+         failure = UnreadableModelResponse("回應有工具使用的痕跡", sub_reason="tool_use",
+                                           reply=reply)
+         failure.tool_use = True
+         log.error("claude 成功形狀的回應帶著工具使用的痕跡:評估應整批停下")
+         raise failure
+     if data["subtype"] != "success":
+         raise UnreadableModelResponse("不是錯誤的回應,子類型卻不是 success",
+@@ -641,11 +656,11 @@ class ClaudeCodeBackend:
+         if not self._logged_in:
+             self.check_login(call.timeout_seconds)
+             self._logged_in = True
+         remaining = deadline - time.monotonic()
+         if remaining <= 0:
+             raise ConfigError("登入狀態檢查用完了這次呼叫的期限,沒有呼叫模型",
+                               sub_reason="login_check_timeout")
+         code, stdout, stderr = run_claude(
+             self.command(call), call.user, self.child_env(call.max_output_tokens),
+             remaining, isolated_home=self.isolation is Isolation.EMPTY_HOME)
+-        return judge_output(code, stdout, stderr)
++        return judge_output(code, stdout, stderr, call.max_output_tokens)
+diff --git a/src/rtb/modelrecording.py b/src/rtb/modelrecording.py
+index 33c21fd..e14361c 100644
+--- a/src/rtb/modelrecording.py
++++ b/src/rtb/modelrecording.py
+@@ -157,45 +157,50 @@ def default_recordings_dir() -> Path:
+     for parent in here.parents:
+         if (parent / "pyproject.toml").is_file():
+             return parent / "recordings" / "model"
+     return here.parents[2] / "recordings" / "model"
+ 
+ 
+ def _inside_committed(target: Path) -> bool:
+     """目標路徑是不是落在入庫根底下(含入庫根本身):目標與它每一層已存在的祖先,只要有一個跟入庫根是
+     同一個檔案(同裝置、同 inode,跟隨符號連結)就算。比檔案身分、不比路徑字面,所以大小寫不同(不分大小
+     寫的檔案系統)、經符號連結、還不存在的子目錄都認得出來(Phase 13 增量 3 代碼審 r2 a1/v1)。"""
+-    try:
+-        root = os.stat(default_recordings_dir())
+-    except OSError:
+-        return False  # 入庫根不存在:沒有東西可以疊上去
++    root = os.stat(default_recordings_dir())  # 讀不到就丟 OSError:呼叫端當成 checkout 不完整擋下
+     # 先照作業系統的走法解析(跟著符號連結再處理「..」;不存在的尾段照字面接上),不按字面收掉「..」:
+     # 「指向入庫根的連結/../model/新目錄」實際就在入庫根底下(代碼審 r3)
+     candidate = Path(os.path.realpath(target))
+     for path in (candidate, *candidate.parents):
+         try:
+             found = os.stat(path)
+         except OSError:
+             continue  # 還不存在(或讀不到)的那一層:往上看
+         if (found.st_dev, found.st_ino) == (root.st_dev, root.st_ino):
+             return True
+     return False
+ 
+ 
+ def check_recordings_dir(directory: Path, batch_id: str | None) -> None:
+     """開錄前的目錄檢查(即時加錄製的入口共用:runner 與說明命令列經模型閘道、評估執行器經 AI 決策模組
+     開閘道、假說命令列直接呼叫):沒帶批次拒絕;目錄落在入庫根底下(預設錄製目錄,含還不存在的子目錄、
+     大小寫不同或經符號連結的寫法)拒絕——入庫的錄製只供重播,即時錄製一律寫進新目錄,驗過才整個搬進去;
+     其餘照 `check_one_batch` 核目錄內容。重播不經這支。"""
+     if not batch_id or not batch_id.strip():
+         raise MixedRecordingsDir("即時加錄製要帶批次編號")
+-    if _inside_committed(Path(directory)):
++    # 入庫根不存在(或讀不到)就一律不開錄(增量 4 代碼審 r2 c1/s2/m2/v4,代使用者裁定 2026-09-25):
++    # 以前當成「沒有東西可以疊上去」放行,錄製會直接在預設入庫位置建目錄、沒經驗過就落地。不改成字面
++    # 路徑比對頂替——macOS 對不存在的路徑 realpath 不統一大小寫,反而多一個洞
++    try:
++        inside = _inside_committed(Path(directory))
++    except OSError as missing:
++        raise MixedRecordingsDir(
++            f"入庫根 {default_recordings_dir()} 不存在:checkout 不完整,不開錄") from missing
++    if inside:
+         raise MixedRecordingsDir(f"{directory} 在入庫目錄 {default_recordings_dir()} 底下;{_FRESH}")
+     check_one_batch(directory, batch_id)
+ 
+ 
+ def check_one_batch(directory: Path, batch_id: str | None) -> None:
+     """目錄內容的檢查(開錄前檢查的後半,評估的錄製批次驗收也用它核入庫目錄):目錄不存在或是空的就放行;裡面只准有
+     檔名等於檔內錄製鍵、批次等於這一批的錄製檔。沒帶批次、目錄是懸空的符號連結或不是目錄、列不出來、
+     有其他檔或子目錄、讀不懂的檔、別的批次、任何佔位(含同一批中斷留下的)一律拒絕:不要把兩批混在
+     同一個目錄,也不要讓錄製在第一次呼叫才以錄製衝突或設定錯誤失敗(Phase 13〈錄製批次與入庫〉、
+     代碼審 r1)。"""
+diff --git a/src/rtb/modelverify.py b/src/rtb/modelverify.py
+index cc5516c..81f66f5 100644
+--- a/src/rtb/modelverify.py
++++ b/src/rtb/modelverify.py
+@@ -1,38 +1,42 @@
+ """即時模式的實測命令列(Phase 11B 增量 1,[S942]):`python -m rtb.modelverify`。
+ 
+ 協調者在本機跑:用真的 claude 逐項實測,全部通過才寫出即時模式啟用紀錄
+ (~/.rtb/live-verification.json:claude 版本、各項結果、實測日期、採用的隔離方式)。
+ 模型用戶端在即時啟動時讀這份紀錄,不存在、有項目沒過、或 claude 版本不同就一律走錄製。
+ 這支會花一點訂閱額度(幾次很短的呼叫);自動測試只用假的 claude 驗它的判定與寫檔。
+ 子行程一律經模型用戶端啟動(整個 rtb 只有模型用戶端能開子行程,[S917])。
+ 
+ 逐項(計劃〈拆增量〉錄製前實測;代碼審第 1 輪補強):先試「空暫存 HOME」隔離登入照不照常,不行才退回
+-真 HOME;工具真的關掉(要它執行指令、串流輸出:成功、權限被拒清單空、沒有 tool_use/tool_result
+-區塊;撞頂續寫的多輪不算工具);對照組故意開工具,同一套判法要判得出用了工具;串流輸出加 hook 事件,
+-要有成功的結果、沒有任何 hook 事件;記憶用暗號驗:在隔離 HOME 的
+-CLAUDE.md 與記憶目錄放一個隨機暗號,問它有沒有看到,回答要剛好是 NONE、輸出裡也沒有暗號(看不到、
+-驗不了就算沒過);輸出上限要有撞頂的正面證據(輸出 token 數等於上限、停止原因是 max_tokens、或
+-「超過輸出上限」的錯誤),其他錯誤一律沒過;設定來源的組合真的壓掉使用者設定:暫存使用者設定的
+-env 放一個連不到的 ANTHROPIC_BASE_URL(命令列蓋不掉),帶組合參數要成功,另跑一次不帶這些參數的
+-正面對照、必須失敗(證明毒值真的會被讀到);Claude Code 自己附加的固定輸入 token 數要量得到、而且不超過
+-預留用的常數。另外取一份「參數不存在」的真實輸出,一起寫進紀錄當參考。
++真 HOME;工具真的關掉(要它執行指令、串流輸出:看得到 assistant 訊息、初始事件的工具清單是空的、
++成功、權限被拒清單空、沒有類型以 tool_use/tool_result 結尾的區塊;撞頂續寫的多輪不算工具);對照組
++故意開工具,同一套判法要判得出用了工具;串流輸出加 hook 事件,要有成功的結果、沒有任何 hook 事件;
++記憶用暗號驗:在隔離 HOME 的 CLAUDE.md 與記憶目錄放一個隨機暗號,問它有沒有看到,回答要剛好是 NONE、
++輸出裡也沒有暗號(看不到、驗不了就算沒過);輸出上限要有撞頂的正面證據(輸出 token 數等於上限、停止
++原因是 max_tokens、或「超過輸出上限」的錯誤),其他錯誤一律沒過;設定來源的組合真的壓掉使用者設定:
++暫存使用者設定的 env 的 ANTHROPIC_BASE_URL(命令列蓋不掉)指到自己開的本機監聽埠,帶組合參數要成功、
++監聽埠沒收到連線,另跑一次不帶這些參數的正面對照、監聽埠要收到連線(毒值真的被讀到的正面證據);
++Claude Code 自己附加的固定輸入 token 數要量得到、而且不超過預留用的常數。另外取一份「參數不存在」的
++真實輸出,一起寫進紀錄當參考。
+ """
+ 
+ import argparse
++import contextlib
+ import json
+ import os
+ import shutil
++import socket
+ import sys
++import threading
+ import time
+ import uuid
+-from collections.abc import Callable, Mapping
++from collections.abc import Callable, Iterator, Mapping
+ from dataclasses import dataclass, field
+ from datetime import UTC, datetime
+ from pathlib import Path
+ from typing import Any, TextIO
+ 
+ from rtb import modelclaude as cc
+ from rtb import modelclient as mc
+ from rtb import modelcore as core
+ from rtb import modelledger as ledger_db
+ 
+@@ -48,27 +52,63 @@ CONTROL_TIMEOUT_SECONDS = 30.0
+ OUTPUT_CAP = 32
+ # 撞頂後允許的總輸出:上限的 1 + 續寫次數 倍(使用者 2026-09-25 裁定:claude 2.1.281 上限 32 時
+ # 續寫 3 次、num_turns=4、output_tokens=128,最後回「超過輸出上限」的錯誤;續寫次數住在模型用戶端
+ # 的常數)
+ OUTPUT_ALLOWANCE = 1 + core.OUTPUT_RECOVERY_ATTEMPTS
+ TOOL_PROMPT = "請實際執行 shell 指令 `ls /`,並把輸出原樣貼給我。"
+ # 工具那兩項的輸出上限:正常拒絕不能撞頂。協調者 2026-09-25 用 claude 2.1.281 真實測,原本上限 200 時
+ # 中文拒絕(「目前的對話環境中沒有提供可執行 shell 指令的工具…」)寫了 307 token、撞頂續寫一輪
+ # (num_turns=2),英文短拒絕 112 token;1024 留三倍以上餘裕
+ TOOL_CHECK_OUTPUT_TOKENS = 1024
+-# 串流輸出裡算「用了工具」的內容區塊類型(claude 的 assistant 事件帶 tool_use、回填的 user 事件帶
+-# tool_result);撞頂續寫只多出文字訊息,不算
+-TOOL_BLOCK_TYPES = frozenset({"tool_use", "server_tool_use", "tool_result"})
++# 串流輸出裡算「用了工具」的內容區塊:類型以 tool_use 或 tool_result 結尾(claude 的 assistant 事件
++# 帶 tool_use、回填的 user 事件帶 tool_result,也涵蓋 server_tool_use、mcp_tool_use 這類前綴;
++# 增量 4 代碼審 r2 m3);撞頂續寫只多出文字訊息,不算
++TOOL_BLOCK_SUFFIXES = ("tool_use", "tool_result")
+ LONG_PROMPT = "請寫一篇至少兩千字的文章,主題是廣告投放的配速。"
+ SHORT_PROMPT = "回答 ok 兩個字母就好。"
+-# 連不到的位址(保留埠 9):使用者設定真的生效,呼叫就一定失敗
+-POISON_SETTINGS = json.dumps({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9"}})
++# 設定來源對照的毒值:使用者設定的 env 把 API 位址指到實測命令列自己開的本機監聽埠(只綁 127.0.0.1、
++# 隨機埠)。收到連線 = 毒值真的被讀到(正面證據,增量 4 代碼審 r2 m4);以前指向保留埠 9、靠「失敗或
++# 逾時」推論,回得慢的對照組會被誤判成讀到
++POISON_HOST = "127.0.0.1"
++
++
++def _poison_settings(port: int) -> str:
++    return json.dumps({"env": {"ANTHROPIC_BASE_URL": f"http://{POISON_HOST}:{port}"}})
++
++
++@contextlib.contextmanager
++def _poison_listener() -> Iterator[tuple[int, threading.Event]]:
++    """開一個只綁 127.0.0.1、隨機埠的監聽埠,背景接連線:收到就設旗標、立刻關掉連線(不回任何東西)。
++    離開時關掉。回傳(埠, 收到連線的旗標)。"""
++    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
++    server.bind((POISON_HOST, 0))
++    server.listen(16)
++    server.settimeout(0.2)
++    hit, stop = threading.Event(), threading.Event()
++
++    def serve() -> None:
++        while not stop.is_set():
++            try:
++                conn, _ = server.accept()
++            except OSError:  # 含逾時:回頭看要不要停
++                continue
++            hit.set()
++            conn.close()
++
++    worker = threading.Thread(target=serve, name="rtb-poison-listener", daemon=True)
++    worker.start()
++    try:
++        yield server.getsockname()[1], hit
++    finally:
++        stop.set()
++        worker.join(timeout=2)
++        server.close()
+ SUPPRESSION_FLAGS = (("--setting-sources", 1), ("--settings", 1), ("--safe-mode", 0))
+ CANARY_PROMPT = ("如果你的系統脈絡、使用者記憶或 CLAUDE.md 裡有以 RTB-CANARY 開頭的字串,原樣回給我;"
+                  "沒有就只回 NONE 四個字母。")
+ # 撞到輸出上限時 Claude Code 的錯誤文字(2.1.281:「Claude's response exceeded the N output token
+ # maximum」,N 是實際生效的上限);要比對到 N 正是這次給的上限,撞到預設上限不算
+ OUTPUT_MAXIMUM_ERROR = "exceeded the {cap} output token maximum"
+ SYSTEM_PROMPT = "你是測試助手。"
+ 
+ 
+ @dataclass
+@@ -179,48 +219,54 @@ class Checker:
+     def login(self) -> cc.Isolation | None:
+         for isolation in (cc.Isolation.EMPTY_HOME, cc.Isolation.REAL_HOME):
+             self.backend = cc.ClaudeCodeBackend(self.claude, self.environ, isolation)
+             try:
+                 self.backend.check_login()
+             except core.ModelCallFailed:
+                 continue
+             return isolation
+         return None
+ 
+-    def _tool_run(self, args: list[str]) -> tuple[dict[str, Any] | None, bool]:
+-        """要它執行指令、串流輸出跑一次 →(唯一的結果事件或 None, 有沒有用工具)。用工具 = 任一事件的
+-        內容區塊是 tool_use/tool_result,或結果事件的權限被拒清單非空。撞頂續寫只有文字訊息、對話輪數
+-        變多,不算用工具(使用者 2026-09-25 允許續寫的裁定;協調者實測中文拒絕續寫一輪被舊判準
+-        誤判)。"""
++    def _tool_run(self, args: list[str]) -> tuple[dict[str, Any] | None, bool, bool]:
++        """要它執行指令、串流輸出跑一次 →(唯一的結果事件或 None, 有沒有用工具, 有沒有「工具真的
++        關掉」的正面證據)。用工具 = 任一事件的內容區塊類型以 tool_use/tool_result 結尾,或結果事件的
++        權限被拒清單非空。撞頂續寫只有文字訊息、對話輪數變多,不算用工具(使用者 2026-09-25 允許
++        續寫的裁定)。
++        正面證據(增量 4 代碼審 r2 m3,驗不了就算沒過):至少一個 assistant 事件(看得到訊息,才看得到
++        有沒有工具區塊),而且初始事件(system/init)的工具清單在、是空的。"""
+         args = _replaced(args, "--output-format", "stream-json")
+         _, stdout, _ = self.run([*args, "--verbose"], TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS)
+         events = _events(stdout)
+         results = [e for e in events if e.get("type") == "result"]
+         result = results[0] if len(results) == 1 else None
+         denials = None if result is None else result.get("permission_denials")
+         used = any(_tool_blocks(e) for e in events) or (isinstance(denials, list) and bool(denials))
+-        return result, used
++        inits = [e for e in events if e.get("type") == "system" and e.get("subtype") == "init"]
++        evidence = any(e.get("type") == "assistant" for e in events) and len(inits) == 1 and (
++            inits[0].get("tools") == [])
++        return result, used, evidence
+ 
+     def tools_disabled(self) -> bool:
+-        """工具真的關掉:成功的結果、權限被拒清單空(欄位要在)、沒有任何工具區塊;對話輪數只要在
+-        1 加續寫次數之內(續寫是撞頂,不是工具)。"""
+-        result, used = self._tool_run(self.command_for(TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS))
+-        if result is None or not _succeeded(result) or used:
++        """工具真的關掉:有正面證據(看得到訊息、初始事件的工具清單是空的)、成功的結果、權限被拒清單空
++        (欄位要在)、沒有任何工具區塊;對話輪數只要在 1 加續寫次數之內(續寫是撞頂,不是工具)。"""
++        result, used, evidence = self._tool_run(
++            self.command_for(TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS))
++        if result is None or not _succeeded(result) or used or not evidence:
+             return False
+         turns = result.get("num_turns")
+         return result.get("permission_denials") == [] and isinstance(turns, int) and not isinstance(
+             turns, bool) and 1 <= turns <= 1 + core.OUTPUT_RECOVERY_ATTEMPTS
+ 
+     def tool_detection_contrast(self) -> bool:
+         """對照:故意開 Bash,同一套判法要判得出用了工具(證明偵測有效)。"""
+         args = _replaced(self.command_for(TOOL_PROMPT, TOOL_CHECK_OUTPUT_TOKENS), "--tools", "Bash")
+-        return self._tool_run(args)[1]
++        return self._tool_run(args)[1]  # 開了工具:初始事件本來就會列出,不看正面證據
+ 
+     def no_hook_events(self) -> bool:
+         """串流輸出要有成功的結果(錯誤回應看不出 hook 有沒有跑:算沒過),而且沒有任何 hook 事件。"""
+         args = _replaced(self.command_for(SHORT_PROMPT, 50), "--output-format", "stream-json")
+         _, stdout, _ = self.run([*args, "--verbose", "--include-hook-events"], SHORT_PROMPT, 50)
+         events = _events(stdout)
+         results = [e for e in events if e.get("type") == "result"]
+         hooks = any("hook" in f"{e.get('type', '')} {e.get('subtype', '')}".lower()
+                     for e in events)
+         return len(results) == 1 and _succeeded(results[0]) and not hooks
+@@ -266,46 +312,60 @@ class Checker:
+         if tokens > OUTPUT_CAP * OUTPUT_ALLOWANCE:
+             return False  # 續寫累加超過允許的倍數:沒限住
+         if data.get("is_error") is not False:
+             expected = OUTPUT_MAXIMUM_ERROR.format(cap=OUTPUT_CAP)
+             return data.get("is_error") is True and expected in str(data.get("result", "")).lower()
+         if data.get("subtype") != "success":
+             return False
+         return data.get("stop_reason") == "max_tokens" or (turns == 1 and tokens == OUTPUT_CAP)
+ 
+     def settings_suppressed(self) -> bool:
+-        """使用者設定放命令列蓋不掉的毒值(env 裡連不到的 API 位址):帶組合參數要成功;不帶這些參數的
+-        正面對照必須失敗(證明毒值真的會被讀到,否則這項驗不出東西)。只在空暫存 HOME 隔離下驗得了。
+-        協調者 2026-09-25 真實測:對照組讀到毒值後一直重試到逾時——對照組逾時算「對照失敗」
+-        (預期),用較短的 CONTROL_TIMEOUT_SECONDS;帶壓制參數的主呼叫逾時算這項沒過;兩種逾時都
+-        不讓整個實測中斷。"""
++        """使用者設定放命令列蓋不掉的毒值(env 的 API 位址指到自己開的本機監聽埠):帶組合參數要成功、
++        而且監聽埠沒收到連線;不帶這些參數的正面對照,監聽埠要收到連線(毒值真的被讀到的正面證據,
++        增量 4 代碼審 r2 m4)。對照組沒連過來——逾時(可能只是回得慢)、別的原因失敗、或成功——都判不出來
++        = 沒過。對照組逾時用較短的 CONTROL_TIMEOUT_SECONDS(協調者 2026-09-25 真實測:讀到毒值會一直
++        重試到逾時);主呼叫逾時算這項沒過;兩種逾時都不讓整個實測中斷。只在空暫存 HOME 隔離下
++        驗得了。"""
+         if self.backend.isolation is not cc.Isolation.EMPTY_HOME:
+             return False  # 真 HOME 不能放對照用的設定檔
+-        poison = {".claude/settings.json": POISON_SETTINGS}
+         args = self.command_for(SHORT_PROMPT, 50)
+-        try:
+-            code, stdout, _ = self.run(args, SHORT_PROMPT, 50, poison)
+-        except core.ModelTimeout:
+-            self.notes["settings_main"] = "timeout"
+-            return False  # 主呼叫掛住:壓制參數沒讓它正常回來,不用再跑對照
+-        self.notes["settings_main"] = "ok" if code == 0 and _succeeded(_json(stdout)) else "failed"
+-        try:
+-            control_code, control_out, _ = self.run(
+-                _without(args, SUPPRESSION_FLAGS), SHORT_PROMPT, 50, poison,
+-                timeout_seconds=CONTROL_TIMEOUT_SECONDS)
+-        except core.ModelTimeout:
+-            self.notes["settings_control"] = "timeout"
+-            control_failed = True
+-        else:
+-            control_failed = control_code != 0 or not _succeeded(_json(control_out))
+-            self.notes["settings_control"] = "failed" if control_failed else "succeeded"
+-        return self.notes["settings_main"] == "ok" and control_failed
++        with _poison_listener() as (port, connected):
++            poison = {".claude/settings.json": _poison_settings(port)}
++            try:
++                code, stdout, _ = self.run(args, SHORT_PROMPT, 50, poison)
++            except core.ModelTimeout:
++                self.notes["settings_main"] = "timeout"
++                return False  # 主呼叫掛住:壓制參數沒讓它正常回來,不用再跑對照
++            if connected.is_set():
++                self.notes["settings_main"] = "poison_read"  # 帶壓制參數還讀到毒值:沒壓住
++                return False
++            ok = code == 0 and _succeeded(_json(stdout))
++            self.notes["settings_main"] = "ok" if ok else "failed"
++            if not ok:
++                return False
++            timed_out = False
++            try:
++                control_code, control_out, _ = self.run(
++                    _without(args, SUPPRESSION_FLAGS), SHORT_PROMPT, 50, poison,
++                    timeout_seconds=CONTROL_TIMEOUT_SECONDS)
++            except core.ModelTimeout:
++                timed_out = True
++            if connected.is_set():
++                self.notes["settings_control"] = "connected"
++                return True
++            if timed_out:
++                self.notes["settings_control"] = "timeout_no_connection"
++            elif control_code != 0 or not _succeeded(_json(control_out)):
++                self.notes["settings_control"] = "failed_no_connection"
++            else:
++                self.notes["settings_control"] = "succeeded"
++            return False
+ 
+     def references(self) -> dict[str, Any]:
+         _, stdout, _ = self.run(self.command_for(SHORT_PROMPT, 50), SHORT_PROMPT, 50)
+         data = _json(stdout)
+         usage = data.get("usage") if data is not None and _succeeded(data) else None
+         code, _, stderr = self._raw([str(self.claude), "--rtb-no-such-flag"], "", 1)  # 不呼叫模型
+         return {"fixed_input_tokens_seen": _fixed_input(usage), "bad_argument_exit_code": code,
+                 "bad_argument_stderr": stderr.decode("utf-8", errors="replace")[:500],
+                 **self.notes}
+ 
+@@ -315,21 +375,22 @@ def _events(stdout: bytes) -> list[dict[str, Any]]:
+     return [e for e in (_json(line.encode()) for line in
+                         stdout.decode("utf-8", errors="replace").splitlines() if line.strip())
+             if e is not None]
+ 
+ 
+ def _tool_blocks(event: Mapping[str, Any]) -> bool:
+     """這個事件的訊息內容裡有沒有工具區塊(tool_use/tool_result)。"""
+     message = event.get("message")
+     content = message.get("content") if isinstance(message, dict) else None
+     return isinstance(content, list) and any(
+-        isinstance(block, dict) and block.get("type") in TOOL_BLOCK_TYPES for block in content)
++        isinstance(block, dict) and isinstance(block.get("type"), str)
++        and block["type"].endswith(TOOL_BLOCK_SUFFIXES) for block in content)
+ 
+ 
+ def _fixed_input(usage: object) -> int | None:
+     """固定附加輸入的量測值:輸入 token 欄一定要有、而且每個輸入類欄位都是不為負的整數才算量到;
+     缺欄或型別不對回 None(不能當 0:量不到的預留可能不夠)。"""
+     if not isinstance(usage, dict):
+         return None
+     fields = {k: v for k, v in usage.items() if k.endswith("input_tokens")}
+     if "input_tokens" not in fields or any(
+             not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in fields.values()):
+diff --git a/tests/demo/test_ai_demo.py b/tests/demo/test_ai_demo.py
+index 6074611..89c4606 100644
+--- a/tests/demo/test_ai_demo.py
++++ b/tests/demo/test_ai_demo.py
+@@ -1,20 +1,19 @@
+ # ruff: noqa: RUF003
+ """Phase 13 增量 4 展示串接(計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈展示情境怎麼接 AI〉
+ 〈通用規則:驅動依每件工作的實際結局選預期〉〈F5 對抗案例的預期〉〈錄製批次與入庫〉):真的起行程
+ 跑情境,分析端讀測試自己寫的假錄製(tests/demo/fake_recordings.py),不碰真模型。"""
+ 
+ import hashlib
+ import json
+ import os
+ import re
+-import sqlite3
+ import stat
+ import subprocess
+ import sys
+ from datetime import UTC, datetime
+ from pathlib import Path
+ 
+ import pytest
+ 
+ from rtb.analyzer import runner
+ from rtb.analyzer.task_store import TaskReader
+@@ -27,21 +26,20 @@ from rtb.demo.driver import (
+     NOT_EXERCISED,
+     NOT_EXERCISED_TEXT,
+     Driver,
+     Outcome,
+     expectations,
+     outcome_of,
+ )
+ from rtb.demo.keys import DemoKeys
+ from rtb.demo.launcher import Role
+ from rtb.demo.observe import PathBuilder, missing_from_path
+-from rtb.demo.present import build_demo_state
+ from rtb.demo.state_store import StateReader, StateWriter
+ from rtb.domain.task_state import TaskState
+ from rtb.modelledger_view import ledger_path
+ from tests.demo import fake_recordings as fake
+ from tests.model.fakes import fake_claude, invocations, write_verification
+ 
+ SRC = Path(__file__).resolve().parents[2] / "src"
+ PROJECT = SRC.parent
+ BATCH = "phase13-demo-20260925"
+ 
+@@ -292,21 +290,20 @@ def test_the_driver_picks_expectations_by_each_task_outcome(tmp_path, state):
+         world.require_streams(no)
+     world._path.streams.pop()
+     world.require_streams(no)
+     # 真的跑:AI 判證據不足 → 等到不提案結案就放行,故障斷言(寫入恰好一次)不做
+     recordings = _batch(tmp_path, normal=[fake.INSUFFICIENT])
+     verdict = _driver(tmp_path, state, recordings).run_one("F1")
+     assert (verdict.status, verdict.summary) == (NOT_EXERCISED, NOT_EXERCISED_TEXT)
+ 
+ 
+ def _row(task, seq, state):
+-    from datetime import UTC, datetime
+ 
+     from rtb.analyzer.task_store import TaskRow
+     return TaskRow(task, seq, state, "c1", None, None, datetime.now(UTC))
+ 
+ 
+ # ---- [S1144] AI 合法判不提案:故障處理這次沒有走到 ----
+ def test_a_legit_ai_no_propose_marks_the_fault_as_not_exercised(tmp_path, state):
+     recordings = _batch(tmp_path, normal=[fake.INSUFFICIENT])
+     verdict = _driver(tmp_path, state, recordings).run_one("F2")
+     assert verdict.status == NOT_EXERCISED  # 不是沒跑完,也不是照預期演示了故障
+@@ -407,60 +404,43 @@ def test_f7_shares_one_recording_key_with_f1():
+             driver_module.F5_TWIN.name) == (driver_module.F1_CAMPAIGN.budget,
+                                             driver_module.F1_CAMPAIGN.spend,
+                                             driver_module.F1_CAMPAIGN.name)
+     seeded = driver_module.f7_campaigns(3)
+     assert all((c.budget, c.spend, c.name) == (driver_module.F1_CAMPAIGN.budget,
+                                                 driver_module.F1_CAMPAIGN.spend,
+                                                 driver_module.F1_CAMPAIGN.name) for c in seeded)
+ 
+ 
+ # ---- [S1164] 展示批次入庫前:F1–F6 找不到錄製 0 筆,批次本身也過那兩條 ----
+-def _assert_no_ai_fallback(state) -> None:
+-    fallback = [(scenario.code.value, decision.task_id, decision.outcome)
+-                for scenario in state.scenarios[:6] for decision in scenario.path
+-                if decision.taken_edge == ("a_ai", "a_rule")]
+-    assert not fallback, f"AI 這次沒有給出回答或退回程式規則:{fallback}"
+-
+-
+ @pytest.mark.skipif(not driver_module.DEMO_RECORDINGS.exists(),
+                     reason="展示錄製批次入庫後才啟用,照 [S1141] 的目錄開關")
+ def test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6(tmp_path):
+-    """只重播入庫 F1-F6;任何一件工作的一輪 AI 退回就讓 CI 失敗。"""
++    """只重播入庫 F1-F6;任何一件工作的一輪 AI 退回就讓 CI 失敗。退回的判法在入庫前檢查裡
++    (`recordings.ai_fallback_problems`,代碼審 r2 m1):錄完的自動檢查與這支呼叫同一支。"""
+     replay = tmp_path / "replay"
+     result = demo_recordings.check_demo_batch(
+         driver_module.DEMO_RECORDINGS, BATCH, replay,
+         user_env={"PATH": str(tmp_path / "no-claude"), "HOME": str(tmp_path / "home")},
+     )
+     assert result.passed, result
+-    with sqlite3.connect(replay / "state.db") as conn:
+-        [(demo_id,)] = conn.execute("SELECT DISTINCT demo_id FROM scenario_runs").fetchall()
+-    reader = StateReader(replay / "state.db")
+-    try:
+-        shown = build_demo_state(reader, demo_id, running=False, now=datetime.now(UTC))
+-    finally:
+-        reader.close()
+-    _assert_no_ai_fallback(shown)
++    assert not [p for p in result.problems if "AI 這次沒有給出回答" in p]
+ 
+ 
+ def test_demo_recording_guard_catches_a_missing_fake_answer(tmp_path, state):
+-    """假錄製少一份回答時,守衛讀真的重播判斷列並抓到退回。"""
++    """假錄製少一份回答時,守衛(入庫前檢查的共用判法)讀真的重播判斷列並抓到退回。"""
+     partial = tmp_path / "missing-fake-recordings"
+     fake.fake_batch(partial, BATCH, {"attacked": [fake.PROPOSE]})
+     env = {"PATH": str(tmp_path / "no-claude"), "HOME": str(tmp_path / "home")}
+     assert _driver(tmp_path, state, partial, user_env=env).run_one("F2").status == DONE
+-    reader = StateReader(tmp_path / "state.db")
+-    try:
+-        shown = build_demo_state(reader, "demo-1", running=False, now=datetime.now(UTC))
+-    finally:
+-        reader.close()
+-    with pytest.raises(AssertionError, match="AI 這次沒有給出回答"):
+-        _assert_no_ai_fallback(shown)
++    problems = demo_recordings.ai_fallback_problems(tmp_path / "state.db", "demo-1")
++    assert problems and all("AI 這次沒有給出回答" in p for p in problems), problems
++    assert all(p.startswith("F2 ") for p in problems), problems
+ 
+ 
+ def test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording(tmp_path, monkeypatch):
+     complete = tmp_path / "complete"  # 假錄製冒充正式後端錄的一批(只在這支測試)
+     fake.fake_batch(complete, BATCH, {"normal": [fake.PROPOSE], "attacked": [fake.PROPOSE],
+                                       "follow_up": [fake.PROPOSE]}, narrative=fake.NARRATIVE,
+                     backend="claude_code")
+     result = demo_recordings.check_demo_batch(complete, BATCH, tmp_path / "work")
+     assert result.missing == 0 and result.problems == (), result
+     assert result.passed and [v[1] for v in result.verdicts] == [DONE] * 6, result.verdicts
+@@ -485,20 +465,28 @@ def test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording(tmp_path, mon
+ 
+ def test_the_replay_needs_every_scenario_finished_with_a_ledger_that_has_calls(tmp_path):
+     """(代碼審 r1 k1/l2/s3)重播本身的問題:情境沒跑完、帳不在、帳裡沒有呼叫紀錄,都不准算過。"""
+     missing, problems = demo_recordings.replay_problems(
+         (("F1", "incomplete", "startup failed"), ("F2", NOT_EXERCISED, None)),
+         {"F1": tmp_path / "none.db"})
+     assert missing == 0
+     assert problems == ("F1 沒有跑完:incomplete(startup failed)",
+                         "F1 的花費帳不在或讀不了:這個情境一次都沒有問 AI")
+     assert not demo_recordings.BatchCheck(0, problems).passed
++    # 代碼審 r2 v3:帳在、表也建好了,但一筆呼叫紀錄都沒有
++    from rtb import modelledger
++
++    empty = tmp_path / "empty.db"
++    modelledger.used_so_far(empty, None)  # 建出一本空帳
++    assert empty.is_file()
++    missing, problems = demo_recordings.replay_problems((("F3", DONE, None),), {"F3": empty})
++    assert (missing, problems) == (0, ("F3 的花費帳沒有任何呼叫紀錄",))
+ 
+ 
+ def test_the_batch_itself_must_be_one_clean_batch(tmp_path):
+     directory = tmp_path / "rec"
+     fake.fake_batch(directory, BATCH, {"normal": [fake.PROPOSE]}, backend="claude_code")
+     assert demo_recordings.batch_problems(directory, BATCH) == ()
+     assert demo_recordings.batch_problems(directory, "phase13-demo-20260101")  # 別的批次
+     assert any("批次編號要是 phase13-demo-YYYYMMDD" in p
+                for p in demo_recordings.batch_problems(directory, "demo-x"))
+     for outcome in ("config_error", "ledger_busy"):
+@@ -659,10 +647,37 @@ def test_the_server_refuses_f7_or_unknown_codes_in_the_live_list(tmp_path, capsy
+     """[S1145] 伺服器的 --live 清單:F7 或不認得的情境在啟動時就拒;沒給就是空的(全部錄製)。"""
+     from rtb.demo import server
+ 
+     work = str(tmp_path)
+     for bad, named in (("F7", "F7"), ("F1,F9", "F9")):
+         with pytest.raises(SystemExit):
+             server._arguments(["--work-dir", work, "--live", bad])
+         assert named in capsys.readouterr().err
+     assert server._arguments(["--work-dir", work])[1] == []
+     assert server._arguments(["--work-dir", work, "--live", "F1,F5"])[1] == ["F1", "F5"]
++
++
++def test_f7_checks_the_path_of_every_task_the_ai_declined(tmp_path, state, monkeypatch):
++    """(代碼審 r2 v3)F7 縮小版、假錄製讓 AI 判證據不足:每一件都以不提案結案,也都照不提案的預期組核
++    分析端路徑(以前 F7 測試只跑「全部提案」,不核不提案那一支也照樣綠)。"""
++    from tests.demo import test_driver as td
++
++    checked = []
++    real = driver_module.World.require_streams
++
++    def spy(self, expected):
++        checked.append(dict(expected))
++        return real(self, expected)
++
++    monkeypatch.setattr(driver_module.World, "require_streams", spy)
++    rec = _batch(tmp_path, normal=[fake.INSUFFICIENT])
++    run = driver_module.make_f7(campaigns=12, limit=50, workers=3)
++    demo = _driver(tmp_path, state, rec, scenarios={
++        "F7": driver_module.Scenario("F7", "F7", td.SMALL_F7_LIMIT_SECONDS, run)})
++    verdict = demo.run_one("F7")
++    assert verdict.status in (DONE, NOT_EXERCISED), verdict.reason
++    [expected] = checked
++    tasks = [f"t{i:04d}" for i in range(12)]
++    for task in tasks:
++        mine = {k: v for k, v in expected.items() if k[0] == task}
++        assert mine == dict(expectations(task, Outcome.NO_PROPOSE, {})), task
++    assert not [k for k in expected if k[1] == "proposal"]
+diff --git a/tests/demo/test_ai_page.py b/tests/demo/test_ai_page.py
+index e1697cb..9573eb0 100644
+--- a/tests/demo/test_ai_page.py
++++ b/tests/demo/test_ai_page.py
+@@ -236,23 +236,69 @@ def test_a_held_twin_that_fell_back_shows_the_rule_path_to_the_exam_hold(ran):
+     f5 = _scenario(ran, ScenarioCode.F5)
+     twin = [d.taken_edge for d in f5.path if d.task_id == "t3"]
+     for edge in (("a_ai", "a_rule"), ("a_rule", "a_worth"), ("a_worth", "a_propose"),
+                  ("a_propose", "a_exam_hold")):
+         assert edge in twin, (edge, twin)
+     worth = next(d for d in f5.path if d.task_id == "t3" and d.taken_edge == ("a_worth",
+                                                                              "a_propose"))
+     assert worth.basis and worth.basis[0].source == "依存下的證據重算"
+ 
+ 
+-def test_the_new_page_text_explains_its_jargon_on_real_runs(ran):
++def test_the_new_page_text_explains_its_jargon_on_real_runs(ran, untouched):
+     """(代碼審 r1 p4)真跑過的 F1、F2、F5 主頁:這一增量加的文字(結果、考題、橫幅、AI 步驟與程式接手、
+-    說明與假說卡)裡的「模型」「提案」都緊接括號白話解釋。"""
+-    for code in (ScenarioCode.F1, ScenarioCode.F2, ScenarioCode.F5):
+-        page = render_page(ran, form_token="t", selected=code, refresh_tick=0)
++    說明與假說卡)裡的「模型」「提案」都緊接括號白話解釋。r2 v1:另跑故障沒走到的 F2,並掃決策摘要。"""
++    for state, code in ((ran, ScenarioCode.F1), (ran, ScenarioCode.F2), (ran, ScenarioCode.F5),
++                        (untouched, ScenarioCode.F2)):
++        page = render_page(state, form_token="t", selected=code, refresh_tick=0)
+         focus = page.split('class="focus-panel', 1)[1]
+         parts = [focus.split('class="result-evidence"', 1)[1].split("</details>", 1)[0],
++                 focus.split('class="decision-hero"', 1)[1].split("</section>", 1)[0],
+                  *re.findall(r'<(?:div|p) class="(?:ai-banner|ai-outcome|ai-exam|ai-node-card)'
+                              r'"[^>]*>.*?</(?:div|p)>', focus, re.DOTALL),
+                  *[c for c in focus.split("<li ") if "ai-round" in c or "程式接手" in c]]
+         text = _text("".join(parts))
+         for term in ("模型", "提案"):
+             assert term not in re.sub(rf"{term}（[^（）]+）", "", text), (code, term, text[:300])
++
++
++def _later(markup):
++    found = re.search(r'<p class="flow-later">([^<]*)</p>', markup)
++    return None if found is None else html_lib.unescape(found.group(1))
++
++
++def test_f2_that_wrote_to_the_platform_does_not_say_the_platform_was_not_reached(ran):
++    """r2 p1:F2 寫進平台之後執行端才倒下(沒有平台回覆那一格),「這次沒有走到」不得點名廣告平台。"""
++    page = render_page(ran, form_token="t", selected=ScenarioCode.F2, refresh_tick=0)
++    assert "x_write" in {d.node for d in _scenario(ran, ScenarioCode.F2).path} or (
++        "x_total", "x_write") in _scenario(ran, ScenarioCode.F2).traversed_edges
++    later = _later(page)
++    assert later is not None and "廣告平台" not in later and "人工" in later
++
++
++@pytest.fixture(scope="module")
++def untouched(tmp_path_factory):
++    """F2 受測工作 AI 判證據不足、不提案:故障處理這次沒有走到(r2 v1)。"""
++    root = tmp_path_factory.mktemp("ai-page-untouched")
++    recordings = root / "rec"
++    fake.fake_batch(recordings, BATCH, {"normal": [fake.INSUFFICIENT]})
++    writer = StateWriter(root / "state.db", "demo-2")
++    try:
++        demo = Driver(root / "demos", "demo-2", DemoKeys.generate(), writer,
++                      user_env=os.environ, recordings_dir=recordings)
++        assert demo.run_one("F2").status == "not_exercised"
++    finally:
++        writer.close()
++    reader = StateReader(root / "state.db")
++    try:
++        return build_demo_state(reader, "demo-2", running=False, now=datetime.now(UTC))
++    finally:
++        reader.close()
++
++
++def test_the_decision_summary_explains_its_jargon_and_says_the_untouched_fault_once(untouched):
++    """r2 v1:決策摘要(decision-hero)不重複「判不提案,故障處理這次沒有走到」那句,「提案」緊接括號
++    白話解釋。"""
++    page = render_page(untouched, form_token="t", selected=ScenarioCode.F2, refresh_tick=0)
++    hero = page.split('class="decision-hero"', 1)[1].split("</section>", 1)[0]
++    text = _text(hero)
++    assert text.count("判不提案") == 1, text
++    assert "提案" not in re.sub(r"提案（[^（）]+）", "", text), text
+diff --git a/tests/demo/test_flow_popover_browser.py b/tests/demo/test_flow_popover_browser.py
+new file mode 100644
+index 0000000..459f2e8
+--- /dev/null
++++ b/tests/demo/test_flow_popover_browser.py
+@@ -0,0 +1,222 @@
++# ruff: noqa: S106
++"""增量 4 代碼審 r2 p2/p3/p5/s3:在真的瀏覽器裡驗流程圖浮出框的腳本行為。
++
++pytest 把頁面與另存報告寫成靜態 HTML 檔,用 node 的 Playwright 以 file:// 打開(不起 rtb 伺服器、
++不裝新套件):
++- 鍵盤:Tab 到格子、Enter 釘住後焦點進框,↑↓/PageDown/Space 捲框不捲整頁、不收框,框內 Enter 不開關
++  格子,Esc 收框並把焦點還給格子。
++- 滑鼠:點兩下取消釘住後(焦點還留在格子),再 hover 移開照延遲收框。
++- 窄螢幕:情境列載入時把選中那張卡捲進可視區。
++- 另存報告帶 meta CSP 仍跑得動腳本、樣式也套得上,沒有違規訊息。
++
++本機要有 node 與 Playwright 的 node 模組(npx 快取或 RTB_PLAYWRIGHT_NODE_PATH 指定的 node_modules)
++和對得上版本的 chromium;找不到就跳過並寫明原因(CI 沒裝,照例跳過,行為的靜態那一半由 test_page 守)。
++"""
++
++import glob
++import json
++import os
++import pwd
++import shutil
++import subprocess
++from dataclasses import replace
++from pathlib import Path
++
++import pytest
++
++from rtb.demo.page import DEMO_CSS, STYLESHEET_PATH, render_page, render_report
++from rtb.demo.state import ScenarioCode
++from tests.demo.sample_data import make_demo_state
++
++# 測試裡 HOME 與 PATH 都換成暫存目錄;找工具看帳號資料庫的家目錄(只讀,不碰 ~/.rtb)
++_REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
++
++
++def _node() -> str | None:
++    for candidate in (os.environ.get("RTB_NODE"),
++                      os.path.join(os.environ.get("NVM_BIN", ""), "node"),
++                      shutil.which("node"),
++                      *sorted(glob.glob(str(_REAL_HOME / ".nvm/versions/node/*/bin/node")),
++                              reverse=True)):
++        if candidate and os.access(candidate, os.X_OK) and Path(candidate).is_file():
++            return candidate
++    return None
++
++
++def _browsers() -> Path:
++    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
++    if configured:
++        return Path(configured)
++    mac = _REAL_HOME / "Library" / "Caches" / "ms-playwright"
++    return mac if mac.is_dir() else _REAL_HOME / ".cache" / "ms-playwright"
++
++
++def _playwright_modules() -> Path | None:
++    """找一份 chromium 版本對得上本機瀏覽器快取的 Playwright node 模組。"""
++    configured = os.environ.get("RTB_PLAYWRIGHT_NODE_PATH")
++    candidates = ([Path(configured)] if configured else
++                  sorted(_REAL_HOME.glob(".npm/_npx/*/node_modules")))
++    for modules in candidates:
++        manifest = modules / "playwright-core" / "browsers.json"
++        if not (modules / "playwright").is_dir() or not manifest.is_file():
++            continue
++        browsers = json.loads(manifest.read_text(encoding="utf-8"))["browsers"]
++        revision = next((b["revision"] for b in browsers if b["name"] == "chromium"), None)
++        if revision and any((_browsers() / f"{name}-{revision}").is_dir()
++                            for name in ("chromium_headless_shell", "chromium")):
++            return modules
++    return None
++
++
++SCRIPT = r"""
++const fs = require('fs');
++const { chromium } = require('playwright');
++const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
++// 鍵盤捲動有平滑動畫:按完鍵等它停下再量
++const settle = page => page.waitForTimeout(600);
++const snapshot = (page, id) => page.evaluate(boxId => {
++  const box = document.getElementById(boxId);
++  const active = document.activeElement;
++  return { hidden: box.hidden, scrollTop: box.scrollTop, scrollHeight: box.scrollHeight,
++           clientHeight: box.clientHeight, focusInBox: box.contains(active),
++           focusOnNode: !!active && active.dataset && active.dataset.flowPopover === boxId,
++           scrollY: window.scrollY, position: getComputedStyle(box).position };
++}, id);
++(async () => {
++  const browser = await chromium.launch();
++  const out = {};
++  try {
++    const wide = await browser.newContext({ viewport: { width: 1280, height: 800 } });
++    const page = await wide.newPage();
++    const errors = [];
++    page.on('pageerror', e => errors.push(String(e)));
++    await page.goto(cfg.page);
++    const node = page.locator(`.flow-node[data-flow-popover="${cfg.box}"]`);
++    await node.scrollIntoViewIfNeeded();  // 真的按 Tab 時瀏覽器會把格子捲進畫面
++    await node.focus();
++    out.afterFocus = await snapshot(page, cfg.box);
++    await page.keyboard.press('Enter');
++    out.afterEnter = await snapshot(page, cfg.box);
++    for (let i = 0; i < 3; i += 1) await page.keyboard.press('ArrowDown');
++    await settle(page);
++    out.afterArrows = await snapshot(page, cfg.box);
++    await page.keyboard.press('PageDown');
++    await settle(page);
++    out.afterPageDown = await snapshot(page, cfg.box);
++    await page.keyboard.press('Space');
++    await settle(page);
++    out.afterSpace = await snapshot(page, cfg.box);
++    await page.keyboard.press('Enter');
++    out.afterEnterInBox = await snapshot(page, cfg.box);
++    await page.keyboard.press('Escape');
++    out.afterEscape = await snapshot(page, cfg.box);
++    await node.click();
++    out.afterClick = await snapshot(page, cfg.box);
++    await node.click();
++    out.afterSecondClick = await snapshot(page, cfg.box);
++    await page.mouse.move(5, 5);
++    await node.hover();
++    out.afterHover = await snapshot(page, cfg.box);
++    await page.mouse.move(5, 5);
++    await page.waitForTimeout(1000);
++    out.afterLeave = await snapshot(page, cfg.box);
++    out.pageErrors = errors;
++
++    const narrow = await browser.newContext({ viewport: { width: 390, height: 844 } });
++    const strip = await narrow.newPage();
++    await strip.goto(cfg.narrow);
++    out.narrow = await strip.evaluate(() => {
++      const list = document.querySelector('.scenario-index');
++      const row = list.querySelector('.scenario-row.is-selected');
++      const l = list.getBoundingClientRect();
++      const r = row.getBoundingClientRect();
++      return { scrollLeft: list.scrollLeft, overflow: list.scrollWidth > list.clientWidth,
++               visible: r.left >= l.left - 1 && r.right <= l.right + 1, scrollY: window.scrollY };
++    });
++
++    const report = await wide.newPage();
++    const violations = [];
++    report.on('console', m => {
++      if (/Content.Security.Policy/i.test(m.text())) violations.push(m.text());
++    });
++    report.on('pageerror', e => violations.push(String(e)));
++    await report.goto(cfg.report);
++    const first = report.locator('.flow-node[data-flow-popover]').first();
++    const reportBox = await first.getAttribute('data-flow-popover');
++    await first.hover();
++    out.report = await snapshot(report, reportBox);
++    out.reportViolations = violations;
++  } finally {
++    await browser.close();
++  }
++  process.stdout.write(JSON.stringify(out));
++})().catch(error => { console.error(error); process.exit(1); });
++"""
++
++
++def _inline(markup: str) -> str:
++    """互動頁連同源樣式表;file:// 打開時把樣式內嵌進來(只為了讓版面在瀏覽器裡成立)。"""
++    return markup.replace(f'<link rel="stylesheet" href="{STYLESHEET_PATH}">',
++                          f"<style>{DEMO_CSS}</style>")
++
++
++def test_flow_popover_keyboard_hover_strip_and_saved_report_in_a_browser(  # noqa: PLR0915
++        tmp_path):
++    node, modules = _node(), _playwright_modules()
++    if node is None:
++        pytest.skip("找不到 node(可用 RTB_NODE 指定):瀏覽器行為這支跳過,靜態那一半由 test_page 守")
++    if modules is None:
++        pytest.skip("找不到版本對得上本機 chromium 的 Playwright node 模組(可用 "
++                    "RTB_PLAYWRIGHT_NODE_PATH 指定 node_modules):跳過")
++    state = make_demo_state(running=False)
++    first = state.scenarios[0]
++    long_path = tuple(replace(first.path[0], task_id="t1") for _ in range(30))
++    tall = replace(first, path=(*long_path, *first.path[1:]))
++    tall_state = replace(state, scenarios=(tall, *state.scenarios[1:]))
++    page_file = tmp_path / "page.html"
++    page_file.write_text(_inline(render_page(tall_state, form_token="t", refresh_tick=0,
++                                             selected=ScenarioCode.F1)), encoding="utf-8")
++    narrow_file = tmp_path / "narrow.html"
++    narrow_file.write_text(_inline(render_page(state, form_token="t", refresh_tick=0,
++                                               selected=ScenarioCode.F7)), encoding="utf-8")
++    report_file = tmp_path / "report.html"
++    report_file.write_text(render_report(state, inline_styles=True), encoding="utf-8")
++    markup = page_file.read_text(encoding="utf-8")
++    box = markup.split('data-flow-popover="', 1)[1].split('"', 1)[0]
++    config = tmp_path / "config.json"
++    config.write_text(json.dumps({"page": page_file.as_uri(), "narrow": narrow_file.as_uri(),
++                                  "report": report_file.as_uri(), "box": box}), encoding="utf-8")
++    script = tmp_path / "popover.js"
++    script.write_text(SCRIPT, encoding="utf-8")
++    env = {**os.environ, "NODE_PATH": str(modules),
++           "PLAYWRIGHT_BROWSERS_PATH": str(_browsers())}
++    done = subprocess.run([node, str(script), str(config)], env=env, capture_output=True,
++                          text=True, timeout=180, check=False)
++    assert done.returncode == 0, done.stderr[-2000:]
++    seen = json.loads(done.stdout)
++
++    # 鍵盤(p2):框比可視區高,焦點進框後方向鍵、翻頁、空白鍵捲框不捲整頁,框內按鍵不開關格子
++    assert seen["afterFocus"]["hidden"] is False
++    enter = seen["afterEnter"]
++    assert enter["hidden"] is False and enter["focusInBox"] is True
++    assert enter["scrollHeight"] > enter["clientHeight"] + 200
++    assert seen["afterArrows"]["scrollTop"] > 0
++    assert seen["afterArrows"]["scrollY"] == enter["scrollY"]
++    assert seen["afterPageDown"]["scrollTop"] > seen["afterArrows"]["scrollTop"]
++    assert seen["afterSpace"]["scrollTop"] > seen["afterPageDown"]["scrollTop"]
++    assert seen["afterSpace"]["hidden"] is False
++    assert seen["afterSpace"]["scrollY"] == enter["scrollY"]
++    assert seen["afterEnterInBox"]["hidden"] is False
++    assert seen["afterEscape"]["hidden"] is True and seen["afterEscape"]["focusOnNode"] is True
++    # 滑鼠(p3):點兩下取消釘住、焦點留在格子,再 hover 移開照延遲收
++    assert seen["afterClick"]["hidden"] is False and seen["afterSecondClick"]["hidden"] is True
++    assert seen["afterHover"]["hidden"] is False
++    assert seen["afterLeave"]["hidden"] is True
++    assert seen["pageErrors"] == []
++    # 窄螢幕(p5):選中的 F7 卡捲進情境列的可視區,不捲整頁
++    narrow = seen["narrow"]
++    assert narrow["overflow"] is True and narrow["scrollLeft"] > 0 and narrow["visible"] is True
++    assert narrow["scrollY"] == 0
++    # 另存報告(s3):meta CSP 下腳本照跑(hover 開框)、樣式照套(框是 fixed),沒有違規
++    assert seen["report"]["hidden"] is False and seen["report"]["position"] == "fixed"
++    assert seen["reportViolations"] == []
+diff --git a/tests/demo/test_page.py b/tests/demo/test_page.py
+index 29d38f4..815fe6f 100644
+--- a/tests/demo/test_page.py
++++ b/tests/demo/test_page.py
+@@ -102,21 +102,21 @@ def test_flow_nodes_contain_escaped_step_details_for_hover_touch_and_keyboard()
+     state = make_demo_state()
+     first = state.scenarios[0]
+     changed = replace(first, path=(replace(first.path[0], outcome='<script>危險</script>'),
+                                    *first.path[1:]))
+     page = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])), form_token="t")
+     report = render_report(replace(state, scenarios=(changed, *state.scenarios[1:])))
+     for markup in (page, report):
+         assert 'class="flow-node ' in markup and 'tabindex="0"' in markup
+         assert 'role="button"' in markup and 'aria-expanded="false"' in markup
+         assert 'data-flow-popover=' in markup
+-        assert 'class="flow-popover"' in markup and ' hidden role="dialog"' in markup
++        assert 'class="flow-popover"' in markup and ' hidden tabindex="-1" role="dialog"' in markup
+         assert '&lt;script&gt;危險&lt;/script&gt;' in markup
+         assert '<script>危險</script>' not in markup
+         assert '量到的值：' in markup and '標準：' in markup and '比較結果：' in markup
+         assert 'class="flow-popover-close"' in markup
+     assert 'max-height:' in DEMO_CSS and '.flow-popover' in DEMO_CSS
+     assert 'Escape' in page and 'mouseenter' in page and 'focusin' in page
+ 
+ 
+ def test_flow_popover_scrolls_and_stays_inside_the_viewport() -> None:
+     assert re.search(r'\.flow-popover\s*\{[^}]*max-height:[^;]+;[^}]*overflow-y:auto',
+@@ -173,21 +173,22 @@ def test_missing_ai_answer_is_plain_in_popover_values_and_comparisons() -> None:
+                    ("錄製回應", "沒有對應的錄製", "即時呼叫", "即時清單"))
+ 
+ 
+ def test_unentered_flow_stage_names_only_the_lanes_not_reached() -> None:
+     state = make_demo_state()
+     markup = render_page(state, form_token="t")
+     assert "人工這次沒有走到" in markup
+     assert "廣告平台這次沒有走到" not in markup
+     assert "後續階段這次未進入" not in markup
+     seventh = render_page(state, form_token="t", selected=ScenarioCode.F7)
+-    assert 'class="flow-later"' not in seventh
++    # 範例 F7 在寫入前就停下等人確認:畫了廣告平台泳道但沒碰過,照實點名(增量 4 代碼審 r2 p1)
++    assert '<p class="flow-later">廣告平台這次沒有走到</p>' in seventh
+ 
+ 
+ def test_scenario_intent_merges_repeated_goal_and_keeps_trigger() -> None:
+     state = make_demo_state()
+     first = state.scenarios[0]
+     shared = "同一句目標不可重複"
+     changed = replace(first, what_it_tests=shared, goal=shared, trigger="排程觸發")
+     markup = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])),
+                          form_token="t")
+     intent = markup.split('class="scenario-intent"', 1)[1].split('</details>', 1)[0]
+@@ -817,22 +818,23 @@ def test_exam_verdict_is_visually_separate_from_scenario_result() -> None:
+     assert "模型考題沒通過" in verdict
+     assert "AI 回答的考題未過，與情境是否完成分開看" in verdict
+     assert not _unexplained(_visible_text_outside_verbatim(page), "模型")
+ 
+ 
+ def test_unreached_fault_keeps_its_fixed_label_with_plain_explanation() -> None:
+     state = make_demo_state(running=False)
+     scenario = replace(state.scenarios[1], status=ScenarioStatus.NOT_EXERCISED)
+     state = replace(state, scenarios=(state.scenarios[0], scenario, *state.scenarios[2:]))
+     page = render_page(state, form_token="t", selected=ScenarioCode.F2)
+-    assert "AI 判不提案,故障處理這次沒有走到" in page
+-    assert "不提出調整建議；本次未觸發故障處理" in page
++    # 固定標示照狀態顯示(「提案」緊接括號解釋);決策摘要不再另寫一次裸詞版本(增量 4 代碼審 r2 v1)
++    assert ScenarioStatus.NOT_EXERCISED.value in html_lib.unescape(page)
++    assert "AI 判不提案,故障處理這次沒有走到" not in page
+     assert not _unexplained(_visible_text_outside_verbatim(page), "提案")
+ 
+ 
+ def test_every_scenario_flow_moves_right_and_decision_numbers_match_cards() -> None:
+     state = make_demo_state()
+     report = render_report(state)
+     for scenario, svg in zip(
+         state.scenarios,
+         re.findall(r'<svg class="flow-graph".*?</svg>', report, re.DOTALL),
+         strict=True,
+@@ -1163,24 +1165,20 @@ def _visible_text_without_glossary(markup: str) -> str:
+ 
+ def _visible_text_outside_verbatim(markup: str) -> str:
+     """去掉驗證器原樣輸出那幾行(機器輸出照原樣顯示,不改寫)之後看得到的文字。"""
+     return _visible_text_without_glossary(
+         re.sub(r'<p class="raw-line">.*?</p>', "", markup, flags=re.DOTALL))
+ 
+ 
+ def _unexplained(text: str, term: str) -> bool:
+     if term == "模型":
+         text = text.replace("模型考題沒通過 （AI 回答的考題未過，與情境是否完成分開看）", "")
+-    if term == "提案":
+-        text = text.replace(
+-            "AI 判不提案,故障處理這次沒有走到（不提出調整建議；本次未觸發故障處理）", ""
+-        )
+     return term in re.sub(rf"{re.escape(term)}（[^（）]+）", "", text)
+ 
+ 
+ def test_example_pages_explain_or_confine_internal_jargon_to_the_glossary() -> None:
+     """主頁沒有名詞小辭典,專有名詞要緊接括號白話解釋;報告裡留下的專有名詞都在小辭典裡。"""
+     state = make_demo_state(running=False)
+     for markup in (render_page(make_demo_state(running=True), form_token="token"),
+                    render_page(state, form_token="token", selected=ScenarioCode.F3)):
+         assert '<dl class="glossary">' not in markup
+         text = _visible_text_outside_verbatim(markup)
+@@ -1664,10 +1662,113 @@ def test_the_report_shows_the_comparison_side_by_side() -> None:
+     state = replace(make_demo_state(), comparison=comparison)
+     report = render_report(state)
+     table = report.split("有無自動查核的差別", 1)[1]
+     assert "<th>沒有自動查核</th><th>有自動查核</th>" in table
+     assert ("<tr><td>只填已完成</td><td>pytest 結束代碼 0:2 passed</td><td>擋下:缺 result</td></tr>"
+             in table)
+     assert "比的是有沒有機械驗證" in table and report.count("<script>") == 1
+     assert "有無自動查核的差別" not in render_page(state, form_token="t")
+     empty = render_report(replace(state, comparison=None))
+     assert "前後比較這次還沒有產生" in empty
++
++
++# ---- 增量 4 代碼審 r2(2026-09-25) ----
++def _later(markup: str) -> str | None:
++    found = re.search(r'<p class="flow-later">([^<]*)</p>', markup)
++    return None if found is None else html_lib.unescape(found.group(1))
++
++
++def test_unentered_lanes_follow_the_roles_actually_touched() -> None:
++    """r2 p1:「這次沒有走到」看這件工作實際碰過的角色,不是畫了幾條泳道。寫進平台(x_write)就算碰過
++    廣告平台,即使沒有留下平台回覆;中間沒有節點的泳道也要點名。"""
++    state = make_demo_state()
++    f2 = next(s for s in state.scenarios if s.code is ScenarioCode.F2)
++    wrote = Decision("x_write", ("x_total", "x_write"), "送出", "", None)
++    crashed = replace(f2, path=(*f2.path, wrote),
++                      traversed_edges=(*f2.traversed_edges, ("x_total", "x_write")))
++    shown = replace(state, scenarios=tuple(crashed if s is f2 else s for s in state.scenarios))
++    assert _later(render_page(shown, form_token="t", selected=ScenarioCode.F2)) == (
++        "人工這次沒有走到")
++    # F6 範例:從執行直接交給人工決定,中間的廣告平台泳道畫了但沒有節點 → 要點名
++    assert _later(render_page(state, form_token="t", selected=ScenarioCode.F6)) == (
++        "廣告平台這次沒有走到")
++
++
++def test_repeated_flow_cell_names_the_task_and_its_own_round() -> None:
++    """r2 p4:同一格有好幾件工作時,浮出框寫「工作 t3 第 2 輪」(AI 格)、「工作 t1 第 1 次」(其他格),
++    跟 AI 逐輪卡一樣按每件工作各自數。"""
++    state = make_demo_state()
++    first = state.scenarios[0]
++
++    def ai(task: str) -> Decision:
++        return Decision("a_ai", ("a_ai", "a_ai_query"), "先查", "", None,
++                        kind=DecisionKind.AI_JUDGEMENT, task_id=task)
++
++    changed = replace(first, path=(ai("t1"), ai("t3"), ai("t3"),
++                                   replace(first.path[0], task_id="t1")),
++                      traversed_edges=(("a_ai", "a_ai_query"),))
++    page = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])),
++                       form_token="t")
++    box = page.split('id="flow-detail-F1-a_ai"', 1)[1].split('class="flow-popover"', 1)[0]
++    labels = re.findall(r'<li class="flow-occurrence"><strong>([^<]+)</strong>', box)
++    assert labels == ["工作 t1 第 1 輪", "工作 t3 第 1 輪", "工作 t3 第 2 輪"]
++    other = page.split(f'id="flow-detail-F1-{first.path[0].node}"', 1)[1]
++    assert "<strong>工作 t1 第 1 次</strong>" in other.split('class="flow-popover"', 1)[0]
++
++
++def test_ai_cell_does_not_repeat_the_allowed_choices_label() -> None:
++    """r2 p5:AI 格「這一輪允許的選項」欄位值不再以同一串字開頭。"""
++    state = make_demo_state()
++    first = state.scenarios[0]
++    main = DecisionBasis("base:x", "這一輪允許的選項:check_longer_window,propose",
++                         "選了 propose", "錄製回應")
++    ai = Decision("a_ai", ("a_ai", "a_propose"), "寫建議", "", None, basis=(main,),
++                  kind=DecisionKind.AI_JUDGEMENT, task_id="t1")
++    changed = replace(first, path=(ai,), traversed_edges=(("a_ai", "a_propose"),))
++    page = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])),
++                       form_token="t")
++    text = html_lib.unescape(re.sub(r"<[^>]+>", " ", page))
++    assert "這一輪允許的選項" in text
++    assert not re.search(r"這一輪允許的選項\s+這一輪允許的選項", text)
++
++
++def test_narrow_scenario_strip_scrolls_the_selected_card_into_view() -> None:
++    """r2 p5:窄螢幕的情境列載入時把選中的卡捲進可視區(只動那一列的 scrollLeft,不捲整頁)。"""
++    assert "revealSelected" in FLOW_SCRIPT
++    assert ".scenario-row.is-selected" in FLOW_SCRIPT and "scrollLeft" in FLOW_SCRIPT
++
++
++def test_flow_popover_is_keyboard_operable() -> None:
++    """r2 p2/p3(不靠瀏覽器的那一半;行為由 test_flow_popover_browser 在瀏覽器裡驗):框可聚焦、
++    鍵盤釘住後焦點移進框、Esc 收框並把焦點還給格子、框內按鍵不觸發格子的開關;hover 開的框不因焦點
++    留在格子而不收。"""
++    page = render_page(make_demo_state(), form_token="t")
++    assert re.search(r'<div class="flow-popover" id="[^"]+" hidden tabindex="-1"', page)
++    assert "box.focus(" in FLOW_SCRIPT
++    assert "returnFocus" in FLOW_SCRIPT
++    assert "openedByFocus" in FLOW_SCRIPT
++    assert "closest?.('.flow-popover')" in FLOW_SCRIPT
++
++
++def test_saved_report_carries_a_hash_bound_content_security_policy() -> None:
++    """r2 s3:另存的單檔報告(樣式內嵌)在 <head> 帶 meta CSP:腳本與內嵌樣式各用自己的 sha256,
++    沒有 unsafe-inline;經伺服器送的報告與頁面照舊用回應標頭。"""
++    report = render_report(make_demo_state(), inline_styles=True)
++    head = report.split("</head>", 1)[0]
++    found = re.search(r'<meta http-equiv="Content-Security-Policy" content="([^"]+)">', head)
++    assert found is not None
++    policy = html_lib.unescape(found.group(1))
++    assert "unsafe-inline" not in policy and "default-src 'none'" in policy
++
++    def digest(text: str) -> str:
++        return base64.b64encode(hashlib.sha256(text.encode()).digest()).decode()
++
++    scripts = re.findall(r"<script>(.*?)</script>", report, re.DOTALL)
++    styles = re.findall(r"<style>(.*?)</style>", report, re.DOTALL)
++    assert scripts and styles
++    for script in scripts:
++        assert f"script-src 'sha256-{digest(script)}'" in policy
++    for style in styles:
++        assert f"'sha256-{digest(style)}'" in policy.split("style-src", 1)[1].split(";", 1)[0]
++    assert found.start() < head.index("<style>")  # 政策要在內嵌樣式之前宣告
++    served = render_report(make_demo_state(), inline_styles=False)
++    assert 'http-equiv="Content-Security-Policy"' not in served
+diff --git a/tests/demo/test_record_demo_batch.py b/tests/demo/test_record_demo_batch.py
+index af54e1d..3c94900 100644
+--- a/tests/demo/test_record_demo_batch.py
++++ b/tests/demo/test_record_demo_batch.py
+@@ -84,10 +84,28 @@ def test_recording_refuses_before_calling_anything(tmp_path, case):
+ 
+ 
+ def test_the_command_line_prints_the_result_and_the_next_step(tmp_path, capsys):
+     env, _script = _live_env(tmp_path, verified=False)
+     with pytest.raises(SystemExit) as ended:
+         demo_recordings.main(["--record", "--dir", str(tmp_path / "b"), "--batch-id", BATCH,
+                               "--work-dir", str(tmp_path / "w")], user_env=env)
+     assert ended.value.code == 1
+     shown = json.loads(capsys.readouterr().out)
+     assert shown["passed"] is False and shown["problems"]
++
++
++# ---- 增量 4 代碼審 r2 m1:錄到 AI 退回就判不過(跟 CI 守衛同一支判法) ----
++def test_a_recorded_batch_with_ai_fallbacks_fails_the_intake_check(tmp_path):
++    """假 claude 每次都回不是 JSON 的回答:F1 到 F6 每一輪 AI 都退回程式規則。錄完的自動檢查要判不過,
++    列出退回的情境與工作(以前只看找不到錄製與批次檔,判通過,入庫後才被 CI 守衛擋下)。"""
++    env = dict(os.environ)
++    script = fake_claude(tmp_path / "bin", claude_json("這不是 JSON 的回答"))
++    env["PATH"] = f"{script.parent}:{env['PATH']}"
++    write_verification()
++    result = demo_recordings.record_demo_batch(tmp_path / "batch", BATCH, tmp_path / "work",
++                                               user_env=env)
++    assert result.problems == (), result
++    assert result.check is not None and not result.check.passed, result.check
++    fallbacks = [p for p in result.check.problems if "AI 這次沒有給出回答" in p]
++    assert fallbacks, result.check.problems
++    assert any(p.startswith("F1 ") for p in fallbacks), fallbacks
++    assert not result.passed
+diff --git a/tests/eval/test_investigation_eval.py b/tests/eval/test_investigation_eval.py
+index 009472a..57c0892 100644
+--- a/tests/eval/test_investigation_eval.py
++++ b/tests/eval/test_investigation_eval.py
+@@ -931,10 +931,17 @@ def test_the_report_takes_the_shared_marks_from_adoption_not_the_sender():
+                 mc.Outcome.LOCAL_CAP_REFUSED.value, mc.Outcome.CONFIG_ERROR.value}
+     assert outcomes == adoption.UNSENT
+     tree = ast.parse((EVAL / "investigation_report.py").read_text(encoding="utf-8"))
+     imported = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
+         f"{n.module}.{a.name}" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+         for a in n.names}
+     assert not {name for name in imported if "model_candidate" in name}
+     adoption_tree = ast.parse((EVAL / "adoption.py").read_text(encoding="utf-8"))
+     assert not {n.module for n in ast.walk(adoption_tree) if isinstance(n, ast.ImportFrom)
+                 and (n.module or "").startswith("rtb.model")}  # 採用判定照舊不碰模型用戶端
++
++
++def test_the_eval_lists_recordings_through_the_model_client_facade():
++    """代碼審 r2 a1:列錄製檔只有門面那一份(入庫驗收與報告的錄製日期看同一批檔),評估不另留一份。"""
++    source = (EVAL / "investigation_eval.py").read_text(encoding="utf-8")
++    assert "def recording_files" not in source
++    assert "mc.recording_files(" in source
+diff --git a/tests/eval/test_model_candidate.py b/tests/eval/test_model_candidate.py
+index 782cb99..be175a4 100644
+--- a/tests/eval/test_model_candidate.py
++++ b/tests/eval/test_model_candidate.py
+@@ -783,21 +783,22 @@ def _ledger_rows(ledger):
+     try:
+         with reader.read_transaction():
+             return reader.calls_between("0000", "9999")
+     finally:
+         reader.close()
+ 
+ 
+ def test_continued_output_falls_back_without_stopping_the_evaluation(tmp_path):
+     """使用者 2026-09-25 裁定:多輪但權限被拒清單空(撞頂自動續寫)是普通失敗——這一格退回現行規則,
+     評估不整批停下,每個情境都照跑、各記一筆讀不懂。"""
+-    script = fake_claude(tmp_path / "bin", claude_json('{"verdict": "worth"}', num_turns=2))
++    script = fake_claude(tmp_path / "bin", claude_json('{"verdict": "worth"}', num_turns=2,
++                                                       stop_reason="max_tokens"))
+     candidate = _candidate(tmp_path, live(cc.ClaudeCodeBackend(script)))
+     scenarios = _subset()[:4]
+     run = model_candidate.run_subset(scenarios, candidate, 5.0)
+     assert run.stopped is None and len(run.rows) == len(scenarios)
+     assert {r.outcome for r in run.rows} == {"unreadable"}
+     assert all(a.tool_use is False for a in candidate.attempts)
+     for case in run.scored:
+         assert case.final is policy.code_rule(case.scenario.worth_input), case
+         assert case.path is not policy.RoutePath.CANDIDATE
+ 
+diff --git a/tests/model/test_claude_backend.py b/tests/model/test_claude_backend.py
+index df927c1..42ab6da 100644
+--- a/tests/model/test_claude_backend.py
++++ b/tests/model/test_claude_backend.py
+@@ -307,24 +307,27 @@ def test_the_cost_is_the_higher_of_reported_and_computed(tmp_path):
+ 
+ 
+ # ---- 使用者 2026-09-25 裁定:多輪但權限被拒清單空 = 撞頂自動續寫,普通失敗、不是工具使用 ----
+ def test_continued_turns_without_denials_are_an_ordinary_failure(tmp_path, monkeypatch):
+     """[S936] 改寫後:不是錯誤的回應對話輪數大於 1、權限被拒清單空,判回應讀不懂、子原因「輸出撞頂自動
+     續寫」,不標工具使用(評估與批次錄製不停);錯誤回應同樣不因輪數標工具使用。結算照 [S904]。"""
+     monkeypatch.setattr(cc, "KNOWN_ERRORS", SAMPLES)
+     req = request(max_output_tokens=100)
+     reserved = core.reservation_nanousd(req, mc.DEFAULT_MODEL)
+     for name, output, error, outcome, sub_reason in (
+-            ("success_continued", claude_json(num_turns=2), mc.UnreadableModelResponse,
+-             "unreadable", cc.OUTPUT_CONTINUED),
+-            ("four_turns", claude_json(num_turns=4), mc.UnreadableModelResponse,
+-             "unreadable", cc.OUTPUT_CONTINUED),
++            # 撞頂證據(代碼審 r2 s1):總輸出至少 (輪數-1)乘上限,或停止原因 max_tokens
++            ("success_continued", claude_json(num_turns=2, output_tokens=150),
++             mc.UnreadableModelResponse, "unreadable", cc.OUTPUT_CONTINUED),
++            ("four_turns", claude_json(num_turns=4, output_tokens=400),
++             mc.UnreadableModelResponse, "unreadable", cc.OUTPUT_CONTINUED),
++            ("stop_reason", claude_json(num_turns=3, stop_reason="max_tokens"),
++             mc.UnreadableModelResponse, "unreadable", cc.OUTPUT_CONTINUED),
+             ("error_continued", claude_json(QUOTA, is_error=True, num_turns=4),
+              mc.QuotaExhausted, "quota_exhausted", "quota")):
+         script = fake_claude(tmp_path / name, output)
+         with pytest.raises(error) as failed:
+             _call(tmp_path, script, req, name)
+         assert failed.value.tool_use is False, name
+         assert failed.value.unclassified is False, name
+         [row] = _rows(tmp_path / f"{name}.sqlite")
+         assert (row.outcome, row.sub_reason, row.effective_nanousd) == (
+             outcome, sub_reason, reserved), name
+@@ -358,10 +361,29 @@ def test_the_output_cap_error_is_an_ordinary_failure(tmp_path):
+             "unreadable", cc.OUTPUT_CONTINUED, reserved), name
+     for name, text in (("no_number", "API Error: Claude's response exceeded the output token "
+                                      "maximum."),
+                        ("word_number", OUTPUT_CAP_ERROR.replace(" 32 ", " many ")),
+                        ("overloaded", "API Error: 529 overloaded"),
+                        ("usage_limit", "Claude AI usage limit reached")):
+         script = fake_claude(tmp_path / name, claude_json(text, is_error=True), code=1)
+         with pytest.raises(mc.TransientServiceError) as failed:
+             _call(tmp_path, script, req, name)
+         assert failed.value.unclassified is True, name
++
++
++# ---- 增量 4 代碼審 r2 s1:續寫要在裁定的輪數內、而且看得到撞頂,否則照舊當工具使用 ----
++def test_many_turns_or_no_cap_evidence_is_still_tool_use(tmp_path):
++    """多輪、權限被拒清單空,只有在對話輪數不超過 1 加 OUTPUT_RECOVERY_ATTEMPTS、而且有撞頂證據
++    (總輸出至少(輪數-1)乘上限,或停止原因 max_tokens)時才算撞頂續寫;輪數超過(例如 9)或看不出撞頂,
++    照舊判讀不懂並標工具使用(評估據此停下)。"""
++    req = request(max_output_tokens=100)
++    for name, output in (
++            ("nine_turns", claude_json(num_turns=9, output_tokens=900)),
++            ("five_turns", claude_json(num_turns=1 + core.OUTPUT_RECOVERY_ATTEMPTS + 1,
++                                       output_tokens=500, stop_reason="max_tokens")),
++            ("no_evidence", claude_json(num_turns=2, output_tokens=40)),
++            ("just_short", claude_json(num_turns=3, output_tokens=199))):
++        script = fake_claude(tmp_path / name, output)
++        with pytest.raises(mc.UnreadableModelResponse) as failed:
++            _call(tmp_path, script, req, name)
++        assert failed.value.tool_use is True, name
++        assert failed.value.sub_reason == "tool_use", name
+diff --git a/tests/model/test_recording_integrity.py b/tests/model/test_recording_integrity.py
+index 54f6f14..ddf0d05 100644
+--- a/tests/model/test_recording_integrity.py
++++ b/tests/model/test_recording_integrity.py
+@@ -162,10 +162,28 @@ def test_a_tampered_recording_is_not_trusted(tmp_path):
+ def _rows(ledger):
+     from rtb import modelledger_view as view
+ 
+     reader = view.ModelLedgerView(ledger)
+     try:
+         with reader.read_transaction():
+             return reader.calls_between("0000", "9999")
+     finally:
+         reader.close()
+ 
++
++
++# ---- 增量 4 代碼審 r2 c1/s2/m2/v4(代使用者裁定 2026-09-25):入庫根不存在就不開錄 ----
++def test_a_missing_committed_root_refuses_every_live_recording(tmp_path, monkeypatch):
++    """入庫根(recordings/model)不存在 = checkout 不完整:開錄前檢查一律拒絕,入庫根本身、它底下的任何
++    路徑、以及別處的新目錄都不放行(不改成字面路徑比對:macOS 不存在的路徑 realpath 不統一大小寫);
++    入庫根存在時照舊——底下拒絕、別處的新目錄放行。"""
++    root = tmp_path / "repo" / "recordings" / "model"
++    monkeypatch.setattr(rec, "default_recordings_dir", lambda: root)
++    for target in (root, root / "phase13-demo", root / "new" / "deeper", tmp_path / "fresh"):
++        with pytest.raises(mc.MixedRecordingsDir, match=r"入庫根.*不存在"):
++            mc.check_recordings_dir(target, "phase13-demo-20260925")
++    assert not root.exists() and not (tmp_path / "fresh").exists()
++    root.mkdir(parents=True)
++    for target in (root, root / "phase13-demo", root / "new" / "deeper"):
++        with pytest.raises(mc.MixedRecordingsDir, match="入庫"):
++            mc.check_recordings_dir(target, "phase13-demo-20260925")
++    mc.check_recordings_dir(tmp_path / "fresh", "phase13-demo-20260925")
+diff --git a/tests/model/test_shared_entry.py b/tests/model/test_shared_entry.py
+index cfaa165..1834668 100644
+--- a/tests/model/test_shared_entry.py
++++ b/tests/model/test_shared_entry.py
+@@ -472,10 +472,29 @@ FABRICATED = ("目前只有一筆轉換。", "建議預算九十九萬九千。"
+ 
+ 
+ def test_only_numeral_phrases_count_as_untraceable():
+     """代碼審 r3(協調者改裁定):正常寫法保留,數詞一律當對不回。"""
+     evidence = "預算=100、新預算=110、點擊=12、轉換=1、花費=0.5、營收=5.0、1、5、10、24、3、500"
+     for sentence in PLAIN:
+         assert mc.traceable_sentences(sentence, evidence) == (sentence, 0), sentence
+     for sentence in FABRICATED:
+         assert mc.traceable_sentences(sentence, evidence) == ("", 1), sentence
+     assert "一律" in mc.COMMON_WORDS and "參考" in mc.COMMON_WORDS  # 白名單寫在程式
++
++
++# ---- 增量 4 代碼審 r2 v2:錄製帳只在判成錄製時用 ----
++def test_a_live_gate_ignores_the_recorded_ledger(tmp_path):
++    """呼叫端一律給 recorded_ledger(展示驅動不猜模式):判成即時時照舊記在帳號家目錄那一本(每月上限讀
++    的那本),不寫進情境暫存帳;判成錄製才用它。"""
++    recorded = tmp_path / "scenario-ledger.sqlite"
++    script = fake_claude(tmp_path / "bin")
++    write_verification()
++    environ = {"RTB_MODEL_LIVE": "1", "PATH": str(script.parent)}
++    for caller in (modelgate.Caller.INVESTIGATION, modelgate.Caller.NARRATIVE):
++        gate = modelgate.open_gate(environ, caller=caller, demo_id="demo-1", ledger=None,
++                                   recordings=tmp_path / "rec", recorded_ledger=recorded)
++        assert gate.mode is modelgate.Mode.LIVE, gate.notices
++        assert gate.ledger == mc.live_ledger_path() != recorded
++        replay = modelgate.open_gate({"PATH": str(script.parent)}, caller=caller, demo_id="demo-1",
++                                     ledger=None, recordings=tmp_path / "rec",
++                                     recorded_ledger=recorded)
++        assert replay.mode is modelgate.Mode.RECORDED and replay.ledger == recorded
+diff --git a/tests/model/test_verification.py b/tests/model/test_verification.py
+index 1f56aba..5086d54 100644
+--- a/tests/model/test_verification.py
++++ b/tests/model/test_verification.py
+@@ -47,20 +47,35 @@ used_tool = turns == 3 or (CONFIG["tool_use_one_turn"] and "ls /" in prompt)
+ if "ls /" in prompt and CONFIG["cap_log"]:  # 記下工具那兩項拿到的輸出上限
+     open(CONFIG["cap_log"], "a").write(f"{{cap}}\\n")
+ if "ls /" in prompt and not used_tool:  # 拒絕執行指令的回答
+     if CONFIG["continued_refusal"]:
+         turns = 2  # 回答撞頂、自動續寫一輪(只有訊息,沒有工具)
+     if CONFIG["long_refusal"] and cap < 307:
+         turns = 2  # 協調者實測:中文拒絕 307 token,上限 200 時撞頂續寫一輪
+ settings = os.path.join(home, ".claude", "settings.json")
+ suppressed = flag("--setting-sources") == "" and not CONFIG["suppression_broken"]
+ poisoned = os.path.exists(settings) and not suppressed and CONFIG["poison_readable"]
++if poisoned:  # 真的讀到毒值:照設定裡的 API 位址連一次(真的 claude 會對它送請求)
++    import socket, urllib.parse
++    url = urllib.parse.urlparse(json.load(open(settings))["env"]["ANTHROPIC_BASE_URL"])
++    if CONFIG["url_log"]:
++        open(CONFIG["url_log"], "a").write(url.geturl() + "\\n")
++    try:
++        socket.create_connection((url.hostname, url.port), timeout=2).close()
++    except OSError:
++        pass
++control = os.path.exists(settings) and not suppressed and not poisoned
++if control and CONFIG["slow_control"]:  # 沒讀到毒值、只是回得慢(服務過載退避重試)
++    import time; time.sleep(600)
++if control and CONFIG["control_fails_quietly"]:  # 沒讀到毒值、因為別的原因失敗
++    print(json.dumps({{"type": "result", "subtype": "error", "is_error": True, "num_turns": 1,
++                      "result": "API Error: 529 overloaded"}})); sys.exit(1)
+ text = "ok"
+ claude_md = os.path.join(home, ".claude", "CLAUDE.md")
+ if "RTB-CANARY" in prompt:
+     text = "NONE"
+     unsuppressed = "--setting-sources" not in args and CONFIG["memory_readable"]
+     if (CONFIG["memory_loaded"] or unsuppressed) and os.path.exists(claude_md):
+         text = open(claude_md).read().strip()
+ mode = CONFIG["output"]
+ if mode in ("over_stop", "default_cap_error", "cap_error", "recovered", "continued",
+             "continued_over", "continued_five", "continued_quiet") and "兩千字" not in prompt:
+@@ -87,42 +102,49 @@ if cap and mode in ("default_cap_error", "cap_error", "continued", "continued_ov
+                           f"{{limit}} output token maximum"))
+     print(json.dumps(result)); sys.exit(1)
+ if CONFIG["hang_on_poison"] and poisoned:  # 讀到毒設定就一直重試連不到的位址、掛住不回
+     import time; time.sleep(600)
+ if CONFIG["hang_suppressed"] and suppressed and os.path.exists(settings):  # 帶壓制參數也掛住
+     import time; time.sleep(600)
+ if poisoned or CONFIG["api_error"]:
+     result.update(is_error=True, subtype="error", result="API Error: 400 bad request",
+                   usage={{"input_tokens": 0, "output_tokens": 0}})
+     print(json.dumps(result)); sys.exit(1)
+-if flag("--output-format") == "stream-json":
+-    print(json.dumps({{"type": "system", "subtype": "init"}}))
++quiet = CONFIG["only_result"] and "ls /" in prompt  # 串流裡只有結果事件(看不到任何訊息)
++if flag("--output-format") == "stream-json" and not quiet:
++    listed = [t for t in tools.split(",") if t]
++    if CONFIG["init_tools_leak"] and "ls /" in prompt:
++        listed = listed or ["Bash"]  # 參數說關掉了,初始事件卻列出工具
++    print(json.dumps({{"type": "system", "subtype": "init", "tools": listed}}))
+     if CONFIG["hook_events"]:
+         print(json.dumps({{"type": "system", "subtype": "hook_started"}}))
+     for _ in range(turns):
+         print(json.dumps({{"type": "assistant", "message": {{"content": [
+             {{"type": "text", "text": "..."}}]}}}}))
+     if used_tool:
++        prefix = CONFIG["block_prefix"]
+         print(json.dumps({{"type": "assistant", "message": {{"content": [
+-            {{"type": "tool_use", "id": "t1", "name": "Bash",
++            {{"type": prefix + "tool_use", "id": "t1", "name": "Bash",
+               "input": {{"command": "ls /"}}}}]}}}}))
+         print(json.dumps({{"type": "user", "message": {{"content": [
+-            {{"type": "tool_result", "tool_use_id": "t1", "content": "bin"}}]}}}}))
++            {{"type": prefix + "tool_result", "tool_use_id": "t1", "content": "bin"}}]}}}}))
+ print(json.dumps(result))
+ """
+ GOOD = {"login_with_token": False, "echo_token": False, "login_empty_home": True,
+         "login_everywhere": True, "version": FAKE_VERSION,
+         "contrast_changes": True, "tools_ignored": False, "output": "cap",
+         "suppression_broken": False, "poison_readable": True, "hook_events": False,
+         "memory_loaded": False, "memory_readable": True, "input_tokens": 3900,
+         "api_error": False, "hang_on_poison": False, "hang_suppressed": False,
+         "tool_use_one_turn": False, "continued_refusal": False, "long_refusal": False,
++        "only_result": False, "init_tools_leak": False, "block_prefix": "",
++        "url_log": None, "slow_control": False, "control_fails_quietly": False,
+         "cap_log": None}
+ 
+ 
+ def _claude(tmp_path, **overrides):
+     directory = tmp_path / "bin"
+     directory.mkdir(parents=True, exist_ok=True)
+     script = directory / "claude"
+     script.write_text(SCRIPT.format(python=sys.executable,
+                                     config=repr({**GOOD, **overrides})), encoding="utf-8")
+     script.chmod(0o755)
+@@ -314,21 +336,22 @@ def _timeouts_by_call():
+ 
+ def test_a_hanging_settings_control_counts_as_the_expected_failure(tmp_path, monkeypatch):
+     monkeypatch.setattr(modelverify, "CONTROL_TIMEOUT_SECONDS", 1.0)
+     script = _claude(tmp_path, hang_on_poison=True)
+     started = time.monotonic()
+     code, text = _run(script)
+     assert code == modelverify.EXIT_OK, text
+     assert "- setting_sources_suppress_user_settings:過" in text
+     assert time.monotonic() - started < 60  # 對照組用短逾時,不是主呼叫的 120 秒
+     record = json.loads(cc.verification_path().read_text(encoding="utf-8"))
+-    assert record["notes"]["settings_control"] == "timeout"
++    # 代碼審 r2 m4:過的依據是本機監聽埠收到連線(毒值讀到),不是逾時本身
++    assert record["notes"]["settings_control"] == "connected"
+     assert (modelverify.CONTROL_TIMEOUT_SECONDS, "timeout") in _timeouts_by_call()
+ 
+ 
+ def test_a_hanging_suppressed_settings_call_fails_the_check_without_aborting(tmp_path,
+                                                                              monkeypatch):
+     monkeypatch.setattr(modelverify, "TIMEOUT_SECONDS", 1.0)
+     script = _claude(tmp_path, hang_suppressed=True)
+     code, text = _run(script)
+     assert code == modelverify.EXIT_NOT_WRITTEN, text
+     assert "實測沒跑完" not in text  # 整個實測沒有中斷:每一項都照實印出
+@@ -364,10 +387,58 @@ def test_the_tool_check_leaves_room_for_a_long_refusal(tmp_path):
+     assert code == modelverify.EXIT_OK, text
+     assert caps.read_text().split() == ["1024", "1024"]  # 工具關掉與對照組都用這個上限
+ 
+ 
+ def test_a_tool_use_event_fails_the_tool_check_even_in_one_turn(tmp_path):
+     code, text = _run(_claude(tmp_path, tool_use_one_turn=True))
+     assert code == modelverify.EXIT_NOT_WRITTEN, text
+     checks = _checks_of(text)
+     assert not checks["tools_disabled"]
+     assert checks["tool_detection_contrast"]  # 開 Bash 的對照組照樣判得出用了工具
++
++
++# ---- 增量 4 代碼審 r2 m3:工具關掉要有正面證據;區塊類型看結尾 ----
++def test_the_tool_check_needs_positive_evidence(tmp_path):
++    """串流裡只有結果事件(看不到任何訊息)、或初始事件列出的工具清單不是空的,工具關掉那項判沒過
++    (驗不了就算沒過)。"""
++    for name, overrides in (("only_result", {"only_result": True, "continued_refusal": True}),
++                            ("init_tools_leak", {"init_tools_leak": True})):
++        code, text = _run(_claude(tmp_path / name, **overrides))
++        assert code == modelverify.EXIT_NOT_WRITTEN, (name, text)
++        assert not _checks_of(text)["tools_disabled"], (name, text)
++
++
++def test_prefixed_tool_blocks_count_as_tool_use(tmp_path):
++    """區塊類型以 tool_use/tool_result 結尾就算工具(例如 mcp_tool_use、mcp_tool_result):關掉那項
++    判沒過,開 Bash 的對照組照樣判得出。"""
++    code, text = _run(_claude(tmp_path, tool_use_one_turn=True, block_prefix="mcp_"))
++    assert code == modelverify.EXIT_NOT_WRITTEN, text
++    checks = _checks_of(text)
++    assert not checks["tools_disabled"] and checks["tool_detection_contrast"], text
++
++
++# ---- 增量 4 代碼審 r2 m4:設定來源對照組要有正面證據(本機監聽埠收到連線) ----
++def test_the_poison_points_at_a_listener_of_our_own(tmp_path):
++    """毒值 ANTHROPIC_BASE_URL 指向實測命令列自己開的監聽埠(只綁 127.0.0.1、隨機埠);對照組連上
++    就證明毒值讀到,這項過。"""
++    urls = tmp_path / "urls.txt"
++    code, text = _run(_claude(tmp_path, url_log=str(urls)))
++    assert code == modelverify.EXIT_OK, text
++    [url] = urls.read_text().split()
++    host, port = url.removeprefix("http://").rstrip("/").split(":")
++    assert host == "127.0.0.1" and int(port) not in (0, 9)
++    record = json.loads(cc.verification_path().read_text(encoding="utf-8"))
++    assert record["notes"]["settings_control"] == "connected"
++
++
++def test_a_control_without_a_connection_proves_nothing(tmp_path, monkeypatch):
++    """對照組沒連到監聽埠:回得慢而逾時、或因為別的原因失敗,都判不出毒值有沒有讀到——這項沒過
++    (以前逾時或失敗就算對照失敗、判過)。"""
++    monkeypatch.setattr(modelverify, "CONTROL_TIMEOUT_SECONDS", 1.0)
++    for name, overrides in (
++            ("slow", {"poison_readable": False, "slow_control": True}),
++            ("quiet_failure", {"poison_readable": False, "control_fails_quietly": True})):
++        cc.verification_path().unlink(missing_ok=True)
++        code, text = _run(_claude(tmp_path / name, **overrides))
++        assert code == modelverify.EXIT_NOT_WRITTEN, (name, text)
++        assert "- setting_sources_suppress_user_settings:沒過" in text, (name, text)
++        assert "實測沒跑完" not in text, name
+diff --git a/tests/ops/test_hypothesis.py b/tests/ops/test_hypothesis.py
+index 4a6d247..7a2bb93 100644
+--- a/tests/ops/test_hypothesis.py
++++ b/tests/ops/test_hypothesis.py
+@@ -278,20 +278,42 @@ def recorded_hypotheses_book_into_the_given_ledger(tmp_path):
+         assert (row.caller, row.demo_id, row.source) == ("ops_hypothesis", "demo-9", "recorded")
+         assert not mc.live_ledger_path().exists()
+         # 即時模式的帳寫死家目錄那一本:給了 --ledger 是參數錯
+         _, environ = live_env(folder, VALID)
+         out, err = io.StringIO(), io.StringIO()
+         code = hypothesis.run(args(data, url, folder, "--demo-id", "d", "--ledger", str(ledger)),
+                               out=out, err=err, environ={AUDIT_KEY_ENV: CLI_KEY, **environ})
+         assert code == hypothesis.EXIT_BAD_ARGUMENTS and "家目錄" in err.getvalue()
+ 
+ 
++
++# ---- 增量 4 代碼審 r2 v2:展示給的 --recorded-ledger 在錄製模式有告警時才用 ----
++def test_recorded_hypotheses_book_into_the_recorded_ledger(rows, dsp_url, tmp_path):
++    """展示驅動一律給 --recorded-ledger(不猜模式):錄製模式、告警響了,重播紀錄記在它,帳號家目錄
++    那一本不建(以前拿掉這一條,展示的重播紀錄會寫進真的帳)。"""
++    ledger = tmp_path / "scenario-ledger.sqlite"
++    fire_alert(rows)
++    code, printed, _ = run(rows, dsp_url, tmp_path, {}, "--demo-id", "demo-9",
++                           "--recorded-ledger", str(ledger),
++                           "--recordings-dir", str(tmp_path / "empty"))
++    assert code == slo_code(rows, dsp_url)
++    shown = printed["hypothesis"]
++    assert shown["mode"] == "recorded" and shown["reason"] == "no_recording"
++    reader = view.ModelLedgerView(ledger)
++    try:
++        with reader.read_transaction():
++            [row] = reader.calls_between("0000", "9999")
++    finally:
++        reader.close()
++    assert (row.caller, row.demo_id, row.source) == ("ops_hypothesis", "demo-9", "recorded")
++    assert not mc.live_ledger_path().exists()
++
+ # ---- [S916](接入點 1 那半;合約測試在 tests/analyzer/test_narrate.py 呼叫它) ----
+ def hypothesis_ignores_injected_names(tmp_path, name):
+     """廣告名稱藏誘導文字、模型照誘導回答:假說命令列不送名稱、不寫任何業務資料庫、結束代碼不變,
+     模型輸出只影響給人看的文字(下一步不在清單就整份作廢)。"""
+     folder = tmp_path / "hypothesis"
+     folder.mkdir()
+     with _world(folder, name) as (data, url, dsp_db):
+         fire_alert(data)
+         data.analyzer.execute(
+             "INSERT INTO evidence VALUES ('e00', 1, 'e00-1-text', 'campaign_text', 'dsp', ?, 1, "

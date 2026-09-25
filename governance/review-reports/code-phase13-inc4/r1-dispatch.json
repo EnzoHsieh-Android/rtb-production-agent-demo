@@ -1,0 +1,9 @@
+[
+ {"round":"r1","seat":"鏡頭1-啟動器與即時清單","lens":"鏡頭1-啟動器與即時清單","materials":["governance/review-reports/code-phase13-inc4/r1-snapshot.patch","docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"],"auditor":"claude-opus"},
+ {"round":"r1","seat":"鏡頭2-驅動與結局規則","lens":"鏡頭2-驅動與結局規則","materials":["governance/review-reports/code-phase13-inc4/r1-snapshot.patch","docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"],"auditor":"claude-opus"},
+ {"round":"r1","seat":"鏡頭3-頁面與觀察","lens":"鏡頭3-頁面與觀察","materials":["governance/review-reports/code-phase13-inc4/r1-snapshot.patch","docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"],"auditor":"claude-opus"},
+ {"round":"r1","seat":"鏡頭4-截圖宣稱與驗收紀錄","lens":"鏡頭4-截圖宣稱與驗收紀錄","materials":["governance/review-reports/code-phase13-inc4/r1-snapshot.patch","docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"],"auditor":"claude-opus"},
+ {"round":"r1","seat":"資安-opus","lens":"資安","materials":["governance/review-reports/code-phase13-inc4/r1-snapshot.patch"],"auditor":"claude-opus"},
+ {"round":"r1","seat":"架構對齊","lens":"架構對齊","materials":["governance/review-reports/code-phase13-inc4/r1-snapshot.patch"],"auditor":"claude-opus"},
+ {"round":"r1","seat":"外家-codex","lens":"外家-codex","materials":["governance/review-reports/code-phase13-inc4/r1-snapshot.patch","docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md"],"auditor":"codex-gpt-6-sol"}
+]
