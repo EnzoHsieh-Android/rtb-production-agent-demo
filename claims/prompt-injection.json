@@ -29,7 +29,7 @@
     },
     {
       "path": "src/rtb/analyzer/investigation.py",
-      "sha256": "bcfa94bdebeefffeeab5fe9de1af78223e208aff65767f59513088441d8cb798"
+      "sha256": "e3608bf1d0408ecc6f1d1fc7dbf6933acdafe93e37d68282995169d667261e1f"
     },
     {
       "path": "src/rtb/analyzer/modelgate.py",
