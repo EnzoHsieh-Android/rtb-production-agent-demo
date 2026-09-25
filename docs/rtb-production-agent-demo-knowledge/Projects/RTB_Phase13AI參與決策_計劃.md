@@ -1,6 +1,6 @@
 ---
 type: project
-status: doing
+status: done
 created: 2026-09-24
 updated: 2026-09-25
 plan_risk: high
@@ -14,7 +14,7 @@ summary: |-
   WHY: Systems/分析行程流程與檢查點 的 F5 不變量合約行「對抗名稱不改變決策」只對程式規則路徑成立,AI 路徑的保證是 S1112(名稱只能翻提不提案,翻不動金額、廣告、動作種類與權限)。出處:計劃草稿(2026-09-24)〈會卡住這個設計的既有程式〉,[[Systems/分析行程流程與檢查點]]。
 tags:
   - type/project
-  - status/doing
+  - status/done
 lands_in:
   - Systems/分析行程流程與檢查點
   - Systems/模型用戶端

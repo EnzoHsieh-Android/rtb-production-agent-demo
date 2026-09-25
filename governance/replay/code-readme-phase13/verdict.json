@@ -1,0 +1,30 @@
+{
+ "loop": "code-readme-phase13",
+ "round": "r2",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-25T22:10:47+08:00",
+ "spec_path": "governance/review-reports/code-readme-phase13/r2-snapshot.patch",
+ "spec_sha": "3457d115d842b3a2868e9c67dfd26439a8189608510269085fa4864345c9632c",
+ "rows": [
+  "{\"ts\": \"2026-09-25T21:58:26+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-599244e2\", \"note\": \"\", \"loop\": \"code-readme-phase13\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 6, \"result_sha256\": \"cb187a4295c6a2705f3b2e515c04130555e6543b88e66a0c413adcc1bc83b67a\", \"reviewed_sha256\": \"cb187a4295c6a2705f3b2e515c04130555e6543b88e66a0c413adcc1bc83b67a\", \"spec_path\": \"governance/review-reports/code-readme-phase13/r1-snapshot.patch\", \"scope_lines\": 1079, \"tier\": \"light\", \"orchestrator\": \"claude\", \"findings_set\": [\"f1\", \"f2\", \"f3\", \"f4\", \"f5\", \"f6\"], \"folded_set\": [\"f1\", \"f2\", \"f3\", \"f4\", \"f5\", \"f6\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"f1\": \"code\", \"f2\": \"code\", \"f3\": \"code\", \"f4\": \"code\", \"f5\": \"code\", \"f6\": \"code\"}, \"reported\": 6, \"report_path\": \"governance/review-reports/code-readme-phase13/r1-架構對齊.md\", \"report_sha256\": \"0a800706dc1d399444d6d0df702dc718faeb6094e3cdd8c41ac918e6ec1006c0\", \"snapshot_path\": \"governance/review-reports/code-readme-phase13/r1-snapshot.patch\", \"snapshot_sha256\": \"cb187a4295c6a2705f3b2e515c04130555e6543b88e66a0c413adcc1bc83b67a\"}",
+  "{\"ts\": \"2026-09-25T22:10:17+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-cc8de741\", \"note\": \"\", \"loop\": \"code-readme-phase13\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 3, \"result_sha256\": \"3457d115d842b3a2868e9c67dfd26439a8189608510269085fa4864345c9632c\", \"reviewed_sha256\": \"3457d115d842b3a2868e9c67dfd26439a8189608510269085fa4864345c9632c\", \"spec_path\": \"governance/review-reports/code-readme-phase13/r2-snapshot.patch\", \"scope_lines\": 1105, \"tier\": \"light\", \"orchestrator\": \"claude\", \"findings_set\": [\"g1\", \"g2\", \"g3\"], \"folded_set\": [\"g1\", \"g2\", \"g3\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"g1\": \"code\", \"g2\": \"code\", \"g3\": \"code\"}, \"reported\": 3, \"report_path\": \"governance/review-reports/code-readme-phase13/r2-架構對齊.md\", \"report_sha256\": \"b0706c7f46fabdf106263d1dd882aaf5d44c095cbb76adfc5644fec8695e2c8e\", \"snapshot_path\": \"governance/review-reports/code-readme-phase13/r2-snapshot.patch\", \"snapshot_sha256\": \"3457d115d842b3a2868e9c67dfd26439a8189608510269085fa4864345c9632c\"}"
+ ],
+ "all_row_shas": [
+  "8473d6afb66a5ad4f9ea288395149d5916ec123661eadee754a4f45da587433e",
+  "bfd5744ff2ba471a70a1571eb7da9c151c93d5c0e16da88b88b4a0252224e44f"
+ ],
+ "files": {
+  "governance/review-reports/code-readme-phase13/r2-架構對齊.md": {
+   "sha256": "b0706c7f46fabdf106263d1dd882aaf5d44c095cbb76adfc5644fec8695e2c8e",
+   "git_blob": "2d59e422459b0deddbb429d6e7c3d5f9d2ffa081"
+  },
+  "governance/review-reports/code-readme-phase13/r2-snapshot.patch": {
+   "sha256": "3457d115d842b3a2868e9c67dfd26439a8189608510269085fa4864345c9632c",
+   "git_blob": "285a4ed83d8ee53596c7f68aa0ff388b85f71cce"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}
