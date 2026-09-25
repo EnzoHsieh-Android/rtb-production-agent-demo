@@ -9,6 +9,9 @@ tags:
   - status/pass
 plan_refs:
   - "[[Projects/RTB_Agent_Phase0架構]]"
+decision_refs_ai:
+  - "Projects/RTB_Agent_Phase0架構.md#d7"
+  - "Projects/RTB_Agent_Phase0架構.md#d9"
 ---
 # Phase1驗收紀錄
 
