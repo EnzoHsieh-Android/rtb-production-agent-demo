@@ -145,7 +145,7 @@
     },
     {
       "path": "src/rtb/modelclient.py",
-      "sha256": "52f2cd9aa82878489e0d0e68fc55e526b930427e78e92fc7a1dc09bc8f0a99bc"
+      "sha256": "ab1305427ac9c4d4dbace568303b61031ae594e20b0e4629ea90ba37ea8704ad"
     },
     {
       "path": "src/rtb/modelcore.py",

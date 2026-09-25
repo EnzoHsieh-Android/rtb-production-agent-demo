@@ -75,6 +75,9 @@ class Measure:
         return cls(measured=False, value=None, reason=reason)
 
 
+# 比較表一列的全部量測欄(品質、成本、延遲中位與 p95、四種比率),門檻判定照名字逐欄讀
+MEASURE_FIELDS = ("quality", "cost_per_call_usd", "latency_median_us", "latency_p95_us",
+                  "format_failure_rate", "exception_rate", "timeout_rate", "fallback_rate")
 RATE_FIELDS = ("quality", "format_failure_rate", "exception_rate", "timeout_rate",
                "fallback_rate")
 
@@ -109,6 +112,8 @@ class MeasuredRow(Protocol):
     """門檻判定讀的一列:成本、延遲中位與 p95、四種比率,加上全部量測。比較表的逐格一列,與 Phase 13
     調查評估的模型那一列都是這個形狀。"""
 
+    @property
+    def quality(self) -> Measure: ...
     @property
     def cost_per_call_usd(self) -> Measure: ...
     @property
@@ -175,8 +180,11 @@ def operational_problems(row: MeasuredRow | None, limits: OperationalLimits) -> 
     ([S1140])。Phase 10 的逐格採用與 Phase 13 調查評估的模型那一列共用這一支。"""
     if row is None:
         return ["這一格沒有候選實測"]
+    # cost_exempt 為真時成本那一欄不必有量(代碼審 r1:自研模型可能根本沒有計價),其他欄照舊要有量
+    names = [n for n in MEASURE_FIELDS if not (limits.cost_exempt and n == "cost_per_call_usd")]
+    measures = [getattr(row, name) for name in names]
     if not all(m.measured and m.value is not None and _finite_nonnegative(m.value)
-               for m in row.measures()):
+               for m in measures):
         return ["這一格的比較表有沒量或不合法的欄位"]
     cost_undecided = limits.cost_per_call_usd is None and not limits.cost_exempt
     if cost_undecided or None in (limits.latency_median_us, limits.latency_p95_us,

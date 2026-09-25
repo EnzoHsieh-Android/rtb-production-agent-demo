@@ -23,11 +23,11 @@ import os
 import re
 import sys
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, TextIO
 
+from rtb import modelclient as mc
 from rtb.analyzer import ai_judge, policy
 from rtb.analyzer import investigation as inv
 from rtb.analyzer.flow import AiContext, NoAction, ProposalDecision, QueryMore
@@ -37,16 +37,15 @@ from rtb.domain.task_state import TaskState
 from rtb.domain.worth import WorthVerdict
 from rtb.eval import investigation_report as report_mod
 from rtb.eval.investigation_cases import NOW, Case
+from rtb.eval.investigation_report import Call, CaseRun
 from rtb.eval.investigation_set import CASES
-from rtb.modelcore import NoRecording, Outcome
-from rtb.modelrecording import MixedRecordingsDir, check_recordings_dir, validated
 
 EXIT_OK = 0
 EXIT_VERIFY_FAILED = 1
 EXIT_REFUSED = 2  # 參數錯、閘道拒絕(跟 argparse 的參數錯同一個代碼)
 BATCH_PATTERN = re.compile(r"phase13-eval-\d{8}")
-FAILED_OUTCOMES = MappingProxyType({Outcome.CONFIG_ERROR.value: "設定錯誤",
-                                    Outcome.LEDGER_BUSY.value: "花費帳忙碌"})
+FAILED_OUTCOMES = MappingProxyType({mc.Outcome.CONFIG_ERROR.value: "設定錯誤",
+                                    mc.Outcome.LEDGER_BUSY.value: "花費帳忙碌"})
 Ask = Callable[[str, str], Any]  # AI 決策函式的模型呼叫(系統提示, 使用者內容) → 模型結果
 
 
@@ -55,45 +54,11 @@ def _project_root() -> Path:
     return next(parent for parent in here.parents if (parent / "pyproject.toml").is_file())
 
 
-DEFAULT_RECORDINGS = _project_root() / "recordings" / "model" / "phase13-investigation-eval"
+COMMITTED_ROOT = _project_root() / "recordings" / "model"  # 入庫的錄製都在這底下,只供重播
+DEFAULT_RECORDINGS = COMMITTED_ROOT / "phase13-investigation-eval"
 
 
 # ---- 逐筆跑 ----
-@dataclass(frozen=True)
-class Call:
-    """一次模型呼叫(或讀錄製)的結果:ok 或模型用戶端的結果類別。"""
-
-    outcome: str
-    latency_ms: float | None
-    list_nanousd: int
-    batch_id: str | None
-    shared: bool
-
-
-@dataclass(frozen=True)
-class CaseRun:
-    case: Case
-    final: WorthVerdict
-    records: tuple[InvestigationRecord, ...]
-    calls: tuple[Call, ...]
-
-    @property
-    def rounds(self) -> int:
-        return len(self.calls)
-
-    @property
-    def fallback(self) -> str | None:
-        return next((r.fallback for r in self.records if r.fallback is not None), None)
-
-    @property
-    def choices(self) -> tuple[str, ...]:
-        return tuple(r.choice for r in self.records if r.decided_by == inv.DecidedBy.AI)
-
-    @property
-    def missing_recording(self) -> bool:
-        return any(c.outcome == Outcome.NO_RECORDING.value for c in self.calls)
-
-
 class _Logged:
     """把模型呼叫原樣轉手,順便記下每次的結果類別、延遲、原價;例外照丟,由 AI 決策函式
     照正式路徑處理。"""
@@ -113,7 +78,7 @@ class _Logged:
                                        getattr(failed, "recording_batch_id", None),
                                        bool(getattr(failed, "shared", False))))
             raise
-        self.calls.append(Call(Outcome.OK.value, result.latency_ms, result.list_nanousd,
+        self.calls.append(Call(mc.Outcome.OK.value, result.latency_ms, result.list_nanousd,
                                result.batch_id, bool(result.shared)))
         return result
 
@@ -220,14 +185,14 @@ def batch_problems(directory: Path, runs: Sequence[CaseRun]) -> list[str]:
         problems.append(f"錄製檔的批次編號要是同一個 phase13-eval-YYYYMMDD:{found}")
     else:
         try:
-            check_recordings_dir(directory, batch)
-        except MixedRecordingsDir as mixed:
+            mc.check_recordings_dir(directory, batch)
+        except mc.MixedRecordingsDir as mixed:
             problems.append(f"錄製目錄不是只有這一批的錄製檔:{mixed}")
     bad: dict[str, int] = {}
     for path, data in files:
         try:
-            recording = validated(path, data)
-        except NoRecording:
+            recording = mc.validated(path, data)
+        except mc.NoRecording:
             continue  # 佔位或讀不懂:上面的目錄檢查已經算進問題
         label = FAILED_OUTCOMES.get(recording.outcome)
         if recording.unclassified:
@@ -248,8 +213,8 @@ def recording_dates(directory: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
     dates, batches = set(), set()
     for path, data in recording_files(directory):
         try:
-            recording = validated(path, data)
-        except NoRecording:
+            recording = mc.validated(path, data)
+        except mc.NoRecording:
             continue
         dates.add(recording.recorded_on)
         batches.add(str(recording.batch_id))
@@ -271,6 +236,13 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _fresh(folder: Path | None) -> bool:
+    """即時加錄製的目錄要明寫、而且不在入庫目錄底下(不在入庫的錄製上疊錄,計劃〈錄製批次與入庫〉)。"""
+    if folder is None:
+        return False
+    return not Path(folder).resolve().is_relative_to(COMMITTED_ROOT.resolve())
+
+
 def run(argv: list[str] | None = None, *, out: TextIO | None = None,
         err: TextIO | None = None, environ: Mapping[str, str] | None = None) -> int:
     args = _parse(argv)
@@ -287,6 +259,12 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
         print(f"拒絕開始:{refused}", file=errors)
         return EXIT_REFUSED
     live = gate.mode.value == "live"
+    if live and gate.settings.record and not _fresh(args.recordings_dir):
+        where = ("沒帶 --recordings-dir" if args.recordings_dir is None
+                 else f"{args.recordings_dir} 在入庫目錄 {COMMITTED_ROOT} 底下")
+        print(f"拒絕開始:即時加錄製要給一個新的錄製目錄({where});入庫目錄只供重播,驗過才整個搬進去",
+              file=errors)
+        return EXIT_REFUSED
     if args.verify and live:
         print("--verify 只准重播錄製(不要帶即時開關)", file=errors)
         return EXIT_REFUSED

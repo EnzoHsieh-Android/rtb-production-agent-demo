@@ -82,6 +82,7 @@ from rtb.modelrecording import MixedRecordingsDir as MixedRecordingsDir
 from rtb.modelrecording import Placeholders as Placeholders
 from rtb.modelrecording import check_recordings_dir as check_recordings_dir
 from rtb.modelrecording import recording_key as recording_key
+from rtb.modelrecording import validated as validated  # 錄製檔的共用驗證(評估批次驗收用)
 from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy
 
 log = logging.getLogger(__name__)

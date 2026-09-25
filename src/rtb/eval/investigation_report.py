@@ -17,17 +17,15 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+from rtb import modelclient as mc
+from rtb.analyzer import investigation as inv
 from rtb.analyzer import policy
+from rtb.analyzer.task_store import InvestigationRecord
 from rtb.domain.worth import WorthVerdict
 from rtb.eval.adoption import NO_MONITORING, Measure, OperationalLimits, operational_problems
 from rtb.eval.investigation_cases import VERDICT, Case, Cell, worth_input
 from rtb.eval.model_candidate import MARKED, UNSENT, threshold_marks
-from rtb.modelcore import NANOUSD_PER_USD, Outcome
-
-if TYPE_CHECKING:
-    from rtb.eval.investigation_eval import CaseRun
 
 # 本計劃給調查決策點的門檻(〈花費帳與採用判定〉):成本不設門檻;延遲 p95 3 秒、失敗率 1% 沿用使用者
 # 裁定,延遲中位 3 秒沿用 Phase 11B 協調者補的同一個值
@@ -37,9 +35,9 @@ INVESTIGATION_LIMITS = OperationalLimits(cost_per_call_usd=None, latency_median_
 SYNTHETIC_NEVER_ADOPTS = ("合成評估集是有限的合約案例,照 Phase 10 規定一律不採用,"
                           "不產生任何給正式路徑的已驗證清單;展示只能標「展示模式、未通過採用門檻」")
 MISSING_EVIDENCE = ("正式環境的決策紀錄抽樣", "人工標註", NO_MONITORING)
-_FORMAT = frozenset({Outcome.UNREADABLE.value})
-_EXCEPTIONS = frozenset({Outcome.TRANSIENT.value, Outcome.QUOTA_EXHAUSTED.value,
-                         Outcome.OVERRUN.value})
+_FORMAT = frozenset({mc.Outcome.UNREADABLE.value})
+_EXCEPTIONS = frozenset({mc.Outcome.TRANSIENT.value, mc.Outcome.QUOTA_EXHAUSTED.value,
+                         mc.Outcome.OVERRUN.value})
 OFF_MENU = "off_menu"
 EVAL_SET = Path(__file__).with_name("investigation_set.py")
 
@@ -55,6 +53,42 @@ def rule_verdict(case: Case) -> WorthVerdict:
     return policy.code_rule(worth_input(case))
 
 
+# ---- 評估執行器逐筆跑出來的結果(執行器建、報告讀)----
+@dataclass(frozen=True)
+class Call:
+    """一次模型呼叫(或讀錄製)的結果:ok 或模型用戶端的結果類別。"""
+
+    outcome: str
+    latency_ms: float | None
+    list_nanousd: int
+    batch_id: str | None
+    shared: bool
+
+
+@dataclass(frozen=True)
+class CaseRun:
+    case: Case
+    final: WorthVerdict
+    records: tuple[InvestigationRecord, ...]
+    calls: tuple[Call, ...]
+
+    @property
+    def rounds(self) -> int:
+        return len(self.calls)
+
+    @property
+    def fallback(self) -> str | None:
+        return next((r.fallback for r in self.records if r.fallback is not None), None)
+
+    @property
+    def choices(self) -> tuple[str, ...]:
+        return tuple(r.choice for r in self.records if r.decided_by == inv.DecidedBy.AI)
+
+    @property
+    def missing_recording(self) -> bool:
+        return any(c.outcome == mc.Outcome.NO_RECORDING.value for c in self.calls)
+
+
 @dataclass(frozen=True)
 class CellStats:
     cell: Cell
@@ -68,6 +102,7 @@ class CellStats:
     mean_list_usd: float = 0.0
     max_list_usd: float = 0.0
     fallbacks: Mapping[str, int] = field(default_factory=dict)
+    all_called: bool = True  # 這一格每一筆都真的呼叫了模型(錄製齊全);不是就寫沒量
 
 
 @dataclass(frozen=True)
@@ -122,7 +157,7 @@ def _stats(cell: Cell, finals: Sequence[tuple[Case, WorthVerdict]],
     correct = sum(1 for _case, final in finals if final is gold)
     errors = Counter((gold.value, final.value) for _case, final in finals if final is not gold)
     rounds = [run.rounds for run in runs]
-    costs = [sum(c.list_nanousd for c in run.calls) / NANOUSD_PER_USD for run in runs]
+    costs = [sum(c.list_nanousd for c in run.calls) / mc.NANOUSD_PER_USD for run in runs]
     return CellStats(
         cell, n, 0 if gold is WorthVerdict.WORTH else proposed, correct,
         (proposed, n) if gold is WorthVerdict.WORTH else None,
@@ -131,7 +166,8 @@ def _stats(cell: Cell, finals: Sequence[tuple[Case, WorthVerdict]],
         max_rounds=max(rounds, default=0),
         mean_list_usd=statistics.fmean(costs) if costs else 0.0,
         max_list_usd=max(costs, default=0.0),
-        fallbacks=dict(Counter(run.fallback for run in runs if run.fallback is not None)))
+        fallbacks=dict(Counter(run.fallback for run in runs if run.fallback is not None)),
+        all_called=all(called(run) for run in runs))
 
 
 def _flips(runs: Sequence[CaseRun]) -> tuple[Flip, ...]:
@@ -149,28 +185,33 @@ def _rate(count: int, total: int) -> Measure:
     return Measure.of(count / total)
 
 
+def called(run: CaseRun) -> bool:
+    """這一筆真的呼叫了模型(或讀到錄製):至少一次呼叫、而且沒有一次是沒送出的結果類別(沒有錄製、上限
+    拒絕、設定錯誤、花費帳忙碌)。沒呼叫的那幾筆是退回規則答的,不算模型成績(照 Phase 11B)。"""
+    return bool(run.calls) and all(c.outcome not in UNSENT for c in run.calls)
+
+
 def _model_row(normal: Sequence[CaseRun]) -> ModelRow | None:
-    """只算名稱正常的案例裡真的送出(或讀到錄製)的呼叫;沒呼叫模型的(沒有錄製、上限拒絕、設定錯誤、
-    花費帳忙碌)不算進比率,另列件數。沒有任何送出就是沒量。"""
-    sent = [c for run in normal for c in run.calls if c.outcome not in UNSENT]
-    if not sent:
+    """只算名稱正常、真的呼叫了模型的案例;任一筆正常案例沒呼叫到(錄製不全)整列沒量(照 Phase 11B:
+    有旗標就不拿來判門檻)。品質與退回率的分子分母都是「筆」;格式失敗、例外、逾時是「次」。"""
+    if not normal or not all(called(run) for run in normal):
         return None
+    sent = [c for run in normal for c in run.calls]
     latencies = sorted(c.latency_ms * 1000 for c in sent if c.latency_ms is not None)
     no_latency = Measure.not_measured("沒有延遲紀錄")
     off_menu = sum(1 for run in normal for r in run.records if r.fallback == OFF_MENU)
-    fallbacks = sum(1 for run in normal if run.fallback is not None
-                    and all(c.outcome not in UNSENT for c in run.calls))
+    fallbacks = sum(1 for run in normal if run.fallback is not None)
     correct = sum(1 for run in normal if run.final is VERDICT[run.case.cell])
     return ModelRow(
         quality=_rate(correct, len(normal)),
-        cost_per_call_usd=Measure.of(max(c.list_nanousd for c in sent) / NANOUSD_PER_USD),
+        cost_per_call_usd=Measure.of(max(c.list_nanousd for c in sent) / mc.NANOUSD_PER_USD),
         latency_median_us=Measure.of(statistics.median(latencies)) if latencies else no_latency,
         latency_p95_us=(Measure.of(latencies[int(len(latencies) * 0.95)]) if latencies
                         else no_latency),
         format_failure_rate=_rate(off_menu + sum(c.outcome in _FORMAT for c in sent), len(sent)),
         exception_rate=_rate(sum(c.outcome in _EXCEPTIONS for c in sent), len(sent)),
-        timeout_rate=_rate(sum(c.outcome == Outcome.TIMEOUT.value for c in sent), len(sent)),
-        fallback_rate=_rate(fallbacks, len(sent)))
+        timeout_rate=_rate(sum(c.outcome == mc.Outcome.TIMEOUT.value for c in sent), len(sent)),
+        fallback_rate=_rate(fallbacks, len(normal)))
 
 
 def build_report(runs: Sequence[CaseRun], *, recorded_on: Sequence[str] = (),
@@ -268,7 +309,7 @@ def render(report: Report, decision: Decision) -> str:
     model = {s.cell: s for s in report.cells}
     for rule in report.rule_cells:
         mine = model.get(rule.cell)
-        shown = ("沒量(錄製不全)" if report.model_row is None or mine is None
+        shown = ("沒量(錄製不全)" if mine is None or not mine.all_called
                  else _pct(mine.class_correct, mine.n))
         lines.append(f"| {rule.cell.value} | {_pct(rule.class_correct, rule.n)} | {shown} |")
     lines += ["", "### 模型那一列的量測與逐欄門檻判定(本計劃的門檻:成本不設門檻,延遲 p95 ≤ 3 秒、"

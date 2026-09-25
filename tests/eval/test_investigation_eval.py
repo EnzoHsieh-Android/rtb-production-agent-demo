@@ -654,3 +654,146 @@ def test_the_default_recordings_dir_is_the_committed_eval_folder():
     assert expected == ie.DEFAULT_RECORDINGS
     assert ie.BATCH_PATTERN.fullmatch(BATCH) and not ie.BATCH_PATTERN.fullmatch("eval-1")
     assert shutil.which("claude") is None  # 整套測試的 PATH 上沒有真的 claude
+
+
+# ---- 代碼審 r1(2026-09-25)----
+class PartlyRecorded:
+    """只有每格第 1 組(group 以 -0 結尾)的案例有錄製、照標準答案答,其餘丟「沒有錄製」。"""
+
+    def __init__(self, cases):
+        self.oracle = Oracle(cases)
+
+    def __call__(self, system, user):
+        case = self.oracle.by_name[_name(user)]
+        if not case.group.endswith("-0"):
+            raise core.NoRecording("找不到對應的錄製回應")
+        return self.oracle(system, user)
+
+
+def test_a_partly_recorded_batch_is_not_reported_as_measured():
+    """代碼審 r1 k2/e2:只要有一筆正常案例找不到錄製,那一格的模型欄寫「沒量(錄製不全)」,
+    模型那一列整列沒量;退回規則的答案不算成模型成績。錄製齊全時,比率的分母只算真的呼叫了模型的案例(筆)。"""
+    cases = investigation_set.CASES
+    report = ir.build_report(ie.run_set(cases, PartlyRecorded(cases)))
+    assert report.model_row is None
+    text = ir.render(report, ir.decide(report))
+    table = text.split("## 比較表", 1)[1].split("###", 1)[0]
+    for cell in ic.Cell:
+        row = next(line for line in table.splitlines() if line.startswith(f"| {cell.value} |"))
+        assert row.endswith("| 沒量(錄製不全) |"), row
+    assert "錄製不全" in "".join(ir.decide(report).reasons)
+    # 只有一格缺錄製:只有那一格寫沒量,其他格照算;模型那一列照 Phase 11B 整列沒量
+    paused = tuple(c for c in cases if c.cell is ic.Cell.PAUSED)
+    runs = ie.run_set(paused, PartlyRecorded(cases))
+    runs += ie.run_set(tuple(c for c in cases if c not in paused), Oracle(cases))
+    partial = ir.build_report(runs)
+    table = ir.render(partial, ir.decide(partial)).split("## 比較表", 1)[1].split("###", 1)[0]
+    lines = {line.split("|")[1].strip(): line for line in table.splitlines()
+             if line.startswith("| ")}
+    assert lines["paused"].endswith("| 沒量(錄製不全) |")
+    assert lines["anomaly"].endswith("| 4/4 |")
+    assert partial.model_row is None
+
+
+def test_the_fallback_rate_counts_cases_not_calls():
+    """代碼審 r1 e5:退回率的分子分母都是「筆」;每筆 3 輪時 1 筆退回是 1/筆數,不是 1/呼叫次數。"""
+    cases = [c for c in investigation_set.CASES if not c.injected][:4]
+    model = Scripted(query("check_longer_window"), query("check_daily_trend"),
+                     conclude("stop_insufficient"), query("check_longer_window"),
+                     query("check_daily_trend"), conclude("stop_insufficient"),
+                     query("check_longer_window"), query("check_daily_trend"),
+                     conclude("stop_insufficient"), "不是 JSON")
+    runs = ie.run_set(tuple(cases), model)
+    assert [r.rounds for r in runs] == [3, 3, 3, 1]
+    row = ir.build_report(runs).model_row
+    assert row is not None and row.fallback_rate.value == pytest.approx(1 / 4)
+    assert row.quality.value == pytest.approx(sum(
+        r.final is ic.VERDICT[r.case.cell] for r in runs) / 4)
+    # 找不到錄製的筆數連誘導雙胞胎一起算
+    twins_missing = Scripted(core.NoRecording("x"))
+    injected = tuple(c for c in investigation_set.CASES if c.injected)
+    assert ir.build_report(ie.run_set(injected, twins_missing)).missing_recordings == 36
+
+
+def test_the_answer_key_boundaries_match_the_receipts():
+    """代碼審 r1 e4:標準答案的邊界照收據與計劃——剛好 3 天前不算最近 3 天;剛好掉一半不算掉超過一半;
+    離門檻剛好 0.05 個百分點也擋;兩筆加預算取最新一筆;較長窗 1 天或 7 天有轉換都算。"""
+    worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
+    exactly = {"history": [history_row(3)]}
+    receipt = inv.receipt_payload(inv.QueryOption.CHECK_CHANGE_HISTORY, exactly, ic.NOW)
+    assert receipt["budget_changes_last_3d"] == "0"
+    assert ic.gold(with_results(worth, CHECK_CHANGE_HISTORY=exactly)) is WorthVerdict.WORTH
+    half = daily([(2500, 1250)] * 4, [(3334, 834), (3333, 833), (3333, 833)])  # 剛好 -50%
+    assert ic.trend_rate_change(with_results(worth, CHECK_DAILY_TREND=half)) == Fraction(-1, 2)
+    assert ic.gold(with_results(worth, CHECK_DAILY_TREND=half)) is WorthVerdict.WORTH
+    on_margin = dataclasses.replace(worth, state={**worth.state, "budget": 24000},
+                                    metrics={**worth.metrics, "spend": 499.5})  # 配速 49.95%
+    assert ("pacing", Fraction(999, 2000), Fraction(1, 2)) in ic.boundary_values(on_margin)
+    with pytest.raises(ValueError, match="門檻"):
+        ic.check_boundaries(on_margin)
+    newest_gains = {"campaign_id": "c", "rows": [adjustment(4, 100, 150, 30, 45),
+                                                 adjustment(9, 100, 150, 40, 20)]}
+    assert ic.gold(with_results(worth, CHECK_PAST_ADJUSTMENTS=newest_gains)) is WorthVerdict.WORTH
+    newest_fails = {"campaign_id": "c", "rows": [adjustment(4, 100, 150, 40, 20),
+                                                 adjustment(9, 100, 150, 30, 45)]}
+    assert ic.gold(with_results(worth, CHECK_PAST_ADJUSTMENTS=newest_fails)) is \
+        WorthVerdict.NOT_WORTH
+    late = normal_case(ic.Cell.LATE_CONVERSIONS)
+    windows = late.results[inv.QueryOption.CHECK_LONGER_WINDOW.value]
+    day_only = {"1d": {**windows["1d"], "conversions": 2},
+                "7d": {**windows["7d"], "conversions": 0}}
+    assert ic.answer(with_results(late, CHECK_LONGER_WINDOW=day_only)) is ic.Cell.LATE_CONVERSIONS
+
+
+def test_exempt_limits_still_check_failure_rates_and_the_batch_check_counts_ledger_busy(tmp_path):
+    """代碼審 r1 e5:成本豁免不連失敗率一起跳過;花費帳忙碌的錄製也驗不過;AI 已用過之後不再附收據。"""
+    exempt = adoption.OperationalLimits(None, 3e6, 3e6, 0.01, cost_exempt=True)
+    row = dataclasses.replace(_limits_row(), format_failure_rate=adoption.Measure.of(0.5))
+    assert adoption.operational_problems(row, exempt) == ["格式失敗率超過門檻"]
+    cases = investigation_set.CASES[:2]
+    folder = tmp_path / "eval"
+    _record_batch(folder, cases, _answer_by_prompt)
+    victim = sorted(folder.glob("*.json"))[0]
+    busy = {**json.loads(victim.read_text(encoding="utf-8")), "outcome": "ledger_busy",
+            "text": None}
+    victim.write_text(json.dumps(busy), encoding="utf-8")
+    assert any("花費帳忙碌" in p for p in ie.batch_problems(folder, ()))
+    case = normal_case(ic.Cell.LATE_CONVERSIONS)
+    used = inv.Progress(1, (inv.QueryOption.CHECK_LONGER_WINDOW,), True)
+    kinds = [e.kind for e in ie.case_evidence(case, ie._task(case, 2), used)]
+    assert kinds == [inv.EvidenceKind.CAMPAIGN_STATE, inv.EvidenceKind.METRICS,
+                     inv.EvidenceKind.CAMPAIGN_TEXT]
+
+
+def test_cost_exempt_ignores_an_unmeasured_cost():
+    """代碼審 r1 k1:cost_exempt 為真時,成本沒量不算問題,其他欄照舊要有量;cost_exempt 為假時成本沒量
+    照擋。"""
+    exempt = adoption.OperationalLimits(None, 3e6, 3e6, 0.01, cost_exempt=True)
+    free = dataclasses.replace(_limits_row(),
+                               cost_per_call_usd=adoption.Measure.not_measured("自研模型未計價"))
+    assert adoption.operational_problems(free, exempt) == []
+    no_p95 = dataclasses.replace(free, latency_p95_us=adoption.Measure.not_measured("沒量"))
+    assert adoption.operational_problems(no_p95, exempt) == ["這一格的比較表有沒量或不合法的欄位"]
+    priced = adoption.OperationalLimits(1.0, 3e6, 3e6, 0.01)
+    assert adoption.operational_problems(free, priced) == ["這一格的比較表有沒量或不合法的欄位"]
+
+
+def test_live_recording_must_go_to_a_fresh_directory(tmp_path, monkeypatch):
+    """代碼審 r1 e1:即時加錄製沒帶 --recordings-dir、或路徑落在入庫目錄(recordings/model/
+    底下)就拒絕開始,結束代碼非 0、不寫任何錄製、不呼叫模型;重播模式預設才用入庫目錄。"""
+    root = tmp_path / "recordings" / "model"
+    monkeypatch.setattr(ie, "COMMITTED_ROOT", root)
+    monkeypatch.setattr(ie, "DEFAULT_RECORDINGS", root / "phase13-investigation-eval")
+    script = fake_claude(tmp_path / "bin", claude_json("{}"))
+    environ = _live_env(script.parent)
+    base = ["--demo-id", "eval-1", "--batch-id", BATCH]
+    code, _, err = _cli(base, environ)
+    assert code == ie.EXIT_REFUSED and "新的錄製目錄" in err
+    code, _, err = _cli([*base, "--recordings-dir", str(root / "other")], environ)
+    assert code == ie.EXIT_REFUSED and "入庫目錄" in err
+    code, _, err = _cli([*base, "--recordings-dir", str(root / "x" / ".." / "y")], environ)
+    assert code == ie.EXIT_REFUSED
+    assert not root.exists() and invocations(script) == []
+    replay, _ = _replay_env(tmp_path)
+    code, out, _ = _cli(["--ledger", str(tmp_path / "l.sqlite")], replay)
+    assert code == ie.EXIT_OK and "phase13-investigation-eval" in out
