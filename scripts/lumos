@@ -21889,7 +21889,7 @@ def _nodehome_name_status(raw):
     return paths, src, gone - set(src)
 
 
-def _nodehome_merge_own_changes(repo_root, sha):
+def _nodehome_merge_own_changes(repo_root, sha, parents):
     """合併提交「自己」真正多改的路徑:跟 git 自動合併會產生的結果比(remerge-diff),不是跟兩邊各比。拿不到回 None。
 
     ★為什麼不能用「跟每一個上一版都不一樣」★(2026-09-24 rtb-production-agent-demo 回報,第三次發生):
@@ -21907,7 +21907,89 @@ def _nodehome_merge_own_changes(repo_root, sha):
                       "--name-status", "-z", "-M", sha)
     if r is None:
         return None
-    return _nodehome_name_status(r)
+    paths, src, gone = _nodehome_name_status(r)
+    # ★每個上一版各自偵測改名★(代碼審 r1 通才席、架構對齊席各自實測):一邊改名、一邊改內容的合併,
+    # remerge-diff 只給新檔名、不標改名;共用一個舊路徑的話,沒改名那一邊用新檔名找不到,它的內容整個漏掉,
+    # 從那一邊搬來的行就被判成合併新寫的。讀不到改名對照就當判不了(照舊查)。
+    pairs = []      # (上一版, 它對合併結果的改名對照 新→舊);讀不到對照是 None
+    for p in parents:
+        rr = _nodehome_git(repo_root, "diff-tree", "--no-commit-id", "--name-status", "-z", "-M", "-r", p, sha)
+        pairs.append((p, None if rr is None else _nodehome_name_status(rr)[1]))
+    order = sorted(paths)
+    specs = []
+    for x in order:
+        specs.append(f"{sha}:{x}")
+        specs += [f"{p}:{x if ren is None else ren.get(x, x)}" for p, ren in pairs]
+    blobs = _nodehome_cat_blobs(repo_root, specs)
+    if blobs is None or any(ren is None for _, ren in pairs):
+        # 任一個上一版的改名對照讀不到、或批次讀取失敗:整個合併照舊查(不是逐檔判)
+        return paths, src, gone
+    kept = set()
+    for n, x in enumerate(order):
+        merged, *olds = blobs[n * (1 + len(parents)):(n + 1) * (1 + len(parents))]
+        if _nodehome_merge_wrote_new_lines(merged, olds):
+            kept.add(x)
+    return kept, {k: v for k, v in src.items() if k in kept}, gone
+
+
+def _nodehome_cat_blobs(repo_root, specs):
+    """一次讀很多個「版本:路徑」的內容,回同順序的 bytes|None(那個版本沒有這支檔就是 None);git 跑不起來回 None。
+
+    ★為什麼不照鄰居逐支 git show★(代碼審 r1 通才席量代價):成本在開 git 行程本身——200 支衝突檔的合併,
+    每支三次讀取就是 600 個行程,實測 13.5 秒;用 git 內建的批次讀取(cat-file --batch)一個行程讀完。
+    原始內容照讀、不經任何轉換程式。路徑裡有換行時批次讀取表達不了,整批當判不了。"""
+    import subprocess as _sp
+    if not specs:
+        return []
+    if any("\n" in s_ for s_ in specs):
+        return None
+    try:
+        r = _sp.run(["git", "-C", str(repo_root), "cat-file", "--batch"],
+                    input=("\n".join(specs) + "\n").encode("utf-8", "surrogateescape"),
+                    capture_output=True, timeout=60)
+    except (OSError, _sp.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    out, pos, res = r.stdout, 0, []
+    for _ in specs:
+        nl = out.find(b"\n", pos)
+        if nl < 0:
+            return None
+        head = out[pos:nl].split(b" ")
+        pos = nl + 1
+        if len(head) == 3 and head[1] == b"blob" and head[2].isdigit():
+            size = int(head[2])
+            res.append(out[pos:pos + size])
+            pos += size + 1
+        elif len(head) == 3 and head[2].isdigit():
+            pos += int(head[2]) + 1     # 不是檔案(例如子模組、目錄)——內容跳過,當讀不到
+            res.append(None)
+        else:
+            res.append(None)            # missing / ambiguous
+    return res
+
+
+def _nodehome_merge_wrote_new_lines(merged, olds):
+    """合併提交裡,這支檔有沒有「兩個上一版都沒有的新行」。判不了一律當有(照舊查)。
+
+    ★為什麼 remerge-diff 列出來還不夠★(2026-09-25 rtb-production-agent-demo 回報,remerge-diff 修法之後又一次):
+    只要有衝突,git 重做的自動合併裡就留著衝突標記,所以每一支解過衝突的檔都會被列成合併改的——
+    就算解法只是把兩邊段落都留下。那時筆記被當成合併新寫的說明,跟同一個合併裡別的程式湊成一對誤擋。
+    實際核對那三個合併:被判寫錯家的三篇筆記與一支程式,解衝突後多出的每一行都在某個上一版找得到。
+    ★直接拿合併結果比兩個上一版,不再逐檔重做合併★(代碼審 r1 通才席量代價):git 自動合併只會產出
+    來自兩邊的行(外加衝突標記),所以「解衝突時新寫的行」就是「合併結果裡兩個上一版都沒有的行」。
+    逐檔重做合併的版本,200 支衝突檔多花 8.7 秒;內容一次批次讀完,見 _nodehome_cat_blobs。
+    ★天花板★:比的是「整行有沒有出現在上一版的任何地方」,解衝突時只刪不加(挑一邊、刪一段)不算寫;
+    新寫的行剛好跟上一版別處某一行一字不差也會漏算——這兩種偏向少擋。改名要靠 git 認得出來(每個上一版
+    各自對合併結果偵測);內容改太多、git 認不出是改名時,那一邊的內容讀不到,會偏向多擋(照舊查)。"""
+    if merged is None or b"\0" in merged:
+        return True
+    seen = set()
+    for blob in olds:
+        if blob is not None:
+            seen.update(ln.strip() for ln in blob.split(b"\n"))
+    return any(ln.strip() and ln.strip() not in seen for ln in merged.split(b"\n"))
 
 
 def _nodehome_commit_groups(repo_root, base, tip):
@@ -21934,7 +22016,7 @@ def _nodehome_commit_groups(repo_root, base, tip):
         else:
             # 章魚合併(三個以上上一版)git 不做 remerge-diff:只印一行警告、退出碼照樣 0,會被讀成「什麼都沒改」
             # 而放行夾帶的違規(代碼審 r1 通才席)——只有一般的兩邊合併走精確判法
-            rm = _nodehome_merge_own_changes(repo_root, sha) if len(parents) == 2 else None
+            rm = _nodehome_merge_own_changes(repo_root, sha, parents) if len(parents) == 2 else None
             if rm is not None:
                 paths, src, gone = rm
             else:

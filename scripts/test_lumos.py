@@ -42861,6 +42861,122 @@ def t_nodehome_merge_auto_combined_not_blocked():
     check("③ 有自訂合併驅動器時,那個驅動器的指令完全沒被執行", not marker.exists(), out3[-400:])
 
 
+def t_nodehome_merge_conflict_union_not_blocked():
+    """合併時解衝突只是把兩邊都留下(每一行都能在某個上一版找到)——不算合併自己寫的,推送前不該擋;
+    解衝突時真的新寫了一行,照擋。
+
+    出身:2026-09-25 rtb-production-agent-demo 回報(remerge-diff 修法之後又一次)。只要有衝突,
+    git 重做的自動合併裡就留著衝突標記,remerge-diff 會把「每一支解過衝突的檔」都列成合併自己改的——
+    就算解法只是兩邊段落都留。實際核對那三個合併:被判寫錯家的三篇筆記與 task_store.py,
+    解衝突後多出的每一行都在某個上一版找得到;同一個合併裡 ai_judge 這幾支才是真的新寫了行。
+    翻紅釘:逐行比對改成一律當有寫 → ②[union] 與 ②[swap] 都紅。
+    """
+    print("t_nodehome_merge_conflict_union_not_blocked")
+    def resolve_union(root, rel, extra=None, swap=False):
+        p = root / rel
+        lines = p.read_text(encoding="utf-8").split("\n")
+        if swap:
+            # 兩邊的段落換個順序留:remerge-diff 會出現「新增的行」,但每一行都在某個上一版找得到
+            # (rtb 那次實際的形狀——只刪衝突標記的話根本沒有新增行,走不到逐行比對那一段)
+            i, j, k = (next(n for n, ln in enumerate(lines) if ln.startswith(t)) for t in ("<<<<<<<", "=======", ">>>>>>>"))
+            lines = lines[:i] + lines[j + 1:k] + lines[i + 1:j] + lines[k + 1:]
+        keep = [ln for ln in lines if not ln.startswith(("<<<<<<<", "=======", ">>>>>>>"))]
+        if extra:
+            keep.insert(len(keep) - 1, extra)
+        p.write_text("\n".join(keep), encoding="utf-8")
+    for case in ("union", "swap", "new_line"):
+        root = _nh_repo()
+        _nh_file(root, "src/a.py", "x = 1\n")
+        _nh_file(root, "src/b.py", "l1\nl2\nl3\n")
+        _nh_node(root, "A", about=["src/a.py"], body="`src/a.py` 第一段\n\n末段")
+        _nh_node(root, "B", about=["src/b.py"], body="實作在 `src/b.py`。")
+        _nh_commit(root, "init")
+        base = _nh_git(root, "rev-parse", "HEAD").stdout.strip()
+        _nh_git(root, "branch", "-M", "main")
+        _nh_git(root, "checkout", "-q", "-b", "feature")
+        _nh_git(root, "checkout", "-q", "main")
+        _nh_node(root, "A", about=["src/a.py"], body="`src/a.py` 第一段\n\n末段(主線補的說明)")
+        _nh_file(root, "src/a.py", "x = 2\n")
+        _nh_file(root, "src/b.py", "l1\nl2\nl3 主線\n")
+        _nh_commit(root, "主線:A 的說明配 a.py,另改 b.py")
+        _nh_git(root, "checkout", "-q", "feature")
+        _nh_node(root, "A", about=["src/a.py"], body="`src/a.py` 第一段\n\n末段(分支補的說明)")
+        _nh_file(root, "src/a.py", "x = 2\n")
+        _nh_file(root, "src/b.py", "l1\nl2\nl3 分支\n")
+        _nh_commit(root, "分支:A 的說明配 a.py,另改 b.py")
+        m = _nh_git(root, "merge", "-q", "--no-ff", "--no-edit", "main")
+        a_md = "docs/kg-knowledge/Systems/A.md"
+        check(f"①[{case}] 現場成立:A 的說明與 b.py 都衝突", m.returncode != 0 and "<<<<<<<" in (root / a_md).read_text(encoding="utf-8")
+              and "<<<<<<<" in (root / "src/b.py").read_text(encoding="utf-8"), m.stdout + m.stderr)
+        extra, swap = case == "new_line", case == "swap"
+        resolve_union(root, a_md, "合併時新寫的一句說明" if extra else None, swap)
+        resolve_union(root, "src/b.py", "l4 合併時新寫" if extra else None, swap)
+        _nh_git(root, "add", "-A")
+        _nh_git(root, "commit", "-q", "--no-edit")
+        rm = _nh_git(root, "show", "--remerge-diff", "--format=", "--name-only", "HEAD").stdout
+        check(f"①[{case}] 現場成立:remerge-diff 把 A 的說明與 b.py 都列成合併改的", a_md in rm and "src/b.py" in rm, rm)
+        rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
+        if case == "swap":
+            d = _nh_git(root, "show", "--remerge-diff", "--format=", "HEAD", "--", a_md).stdout
+            check("①[swap] 現場成立:remerge-diff 裡 A 的說明真的有新增行", any(
+                ln.startswith("+") and not ln.startswith("+++") and ln[1:].strip() for ln in d.splitlines()), d[-400:])
+        if case in ("union", "swap"):
+            check(f"②[{case}] 解衝突只是兩邊都留下(每一行都在某個上一版) → 不擋", rc == 0, out[-800:])
+        else:
+            check("③ 解衝突時在 A 的說明與 b.py 都新寫了一行 → 照擋(A 不是 b.py 的家)",
+                  rc == 1 and "Systems/A" in out, out[-800:])
+
+
+def t_nodehome_merge_rename_one_side_not_blocked():
+    """一邊改檔名、另一邊改內容,合併衝突時兩邊都留(換順序)——每一行都在某個上一版找得到,不算合併自己寫的。
+
+    出身:2026-09-25 代碼審 r1 通才席與架構對齊席各自實測重現。這種合併 remerge-diff 不會標成改名,
+    只給新檔名;原本共用一個舊路徑去兩個上一版找內容,沒改名那一邊用新檔名找不到,它的內容整個
+    漏掉,「從那一邊搬來的行」就被判成合併新寫的——正好跟說明寫的「不會多擋」相反。
+    翻紅釘:每個上一版改回共用同一個舊路徑 → ②紅。
+    """
+    print("t_nodehome_merge_rename_one_side_not_blocked")
+    root = _nh_repo()
+    _nh_file(root, "src/a.py", "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n")
+    _nh_file(root, "src/b.py", "x = 1\n")
+    _nh_node(root, "A", about=["src/a.py", "src/a2.py"], body="`src/a.py` 說明")
+    _nh_node(root, "B", about=["src/b.py"], body="`src/b.py` 第一段\n\n末段")
+    _nh_commit(root, "init")
+    base = _nh_git(root, "rev-parse", "HEAD").stdout.strip()
+    _nh_git(root, "branch", "-M", "main")
+    _nh_git(root, "checkout", "-q", "-b", "feature")
+    _nh_git(root, "checkout", "-q", "main")
+    _nh_git(root, "mv", "src/a.py", "src/a2.py")
+    _nh_file(root, "src/a2.py", "l1\nl2 主線\nl3\nl4\nl5\nl6\nl7\nl8\n")
+    _nh_node(root, "B", about=["src/b.py"], body="`src/b.py` 第一段\n\n末段(主線)")
+    _nh_file(root, "src/b.py", "x = 2\n")
+    _nh_commit(root, "主線:a.py 改名成 a2.py 並改一行;B 配 b.py")
+    _nh_git(root, "checkout", "-q", "feature")
+    _nh_file(root, "src/a.py", "l1\nl2 分支\nl3\nl4\nl5\nl6\nl7\nl8\n")
+    _nh_node(root, "B", about=["src/b.py"], body="`src/b.py` 第一段\n\n末段(分支)")
+    _nh_file(root, "src/b.py", "x = 2\n")
+    _nh_commit(root, "分支:只改 a.py 的同一行;B 配 b.py")
+    m = _nh_git(root, "merge", "-q", "--no-ff", "--no-edit", "main")
+    a2 = root / "src/a2.py"
+    check("① 現場成立:改名那支合併時衝突", m.returncode != 0 and a2.exists() and "<<<<<<<" in a2.read_text(encoding="utf-8"),
+          m.stdout + m.stderr)
+    for rel in ("src/a2.py", "docs/kg-knowledge/Systems/B.md"):
+        p = root / rel
+        lines = p.read_text(encoding="utf-8").split("\n")
+        i, j, k = (next(n for n, ln in enumerate(lines) if ln.startswith(t)) for t in ("<<<<<<<", "=======", ">>>>>>>"))
+        merged = lines[:i] + lines[j + 1:k] + lines[i + 1:j] + lines[k + 1:]
+        if rel.endswith("B.md"):
+            merged.insert(len(merged) - 1, "合併時補的一句說明")   # 合併真的在 B 新寫了說明(但沒改任何程式)
+        p.write_text("\n".join(merged), encoding="utf-8")
+    _nh_git(root, "add", "-A")
+    _nh_git(root, "commit", "-q", "--no-edit")
+    ns = _nh_git(root, "show", "--remerge-diff", "--format=", "--name-status", "-M", "HEAD").stdout
+    check("① 現場成立:remerge-diff 把改名那支只列成新檔名、沒標改名", "src/a2.py" in ns and not ns.lstrip().startswith("R"), ns)
+    rc, out = _nh_check(root, "--diff", f"{base}..HEAD")
+    check("② 改名那支解衝突只是兩邊都留(換順序),合併沒改任何程式 → 合併在 B 補的說明不被判成寫給 a2.py 的 → 不擋",
+          rc == 0, out[-800:])
+
+
 def t_nodehome_octopus_merge_own_violation_still_blocked():
     """一次合三條以上分支的合併(章魚合併),合併提交自己順手改程式、把說明寫進不是家的節點——照擋。
 
