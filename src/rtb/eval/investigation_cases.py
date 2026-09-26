@@ -300,8 +300,9 @@ def _adjustment(rng: random.Random, days_ago: int, raised: bool, factor: float |
     clicks = rng.randint(600, 1200)
     before = 0 if factor is None else rng.randint(20, 60)
     after = 0 if factor is None else round(before * factor)
-    row: dict[str, Any] = {"days_ago": days_ago, "budget_before": before_budget,
-                           "budget_after": after_budget}
+    row: dict[str, Any] = {"days_ago": days_ago,
+                           "committed_at": (NOW - timedelta(days=days_ago)).isoformat(),
+                           "budget_before": before_budget, "budget_after": after_budget}
     for side, conversions in (("before", before), ("after", after)):
         row.update({f"{side}_impressions": clicks * 30, f"{side}_clicks": clicks,
                     f"{side}_conversions": conversions,
@@ -338,7 +339,10 @@ def _history(rng: random.Random, shape: str, past: Sequence[Mapping[str, Any]]
         events.append((20, "pause_campaign"))
     rows = []
     for number, (days_ago, action) in enumerate(sorted(events, reverse=True), start=1):
-        at = (NOW - timedelta(days=days_ago, hours=2)).isoformat()
+        # 跟過去調整列的 committed_at 同一個時刻(NOW - days_ago,Phase 14 增量 2a 代碼審 r1 鏡頭2:
+        # 原本歷史列再早 2 小時,NOW 是 UTC 午夜,兩邊落在不同的 UTC 日、[S1415] 的 D 對不上)。
+        # 收據只看筆數與「是否在 3 天內」,事件都離 3 天界線一天以上,收據與答案不變
+        at = (NOW - timedelta(days=days_ago)).isoformat()
         rows.append({"operation_id": number, "action": action, "version_after": number + 1,
                      "received_at": at, "committed_at": at,
                      "idempotency_key": f"seed-past-{number}"})

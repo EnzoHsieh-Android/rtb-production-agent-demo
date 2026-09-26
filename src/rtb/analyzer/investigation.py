@@ -240,6 +240,18 @@ def receipt_payload(option: QueryOption, raw: Mapping[str, Any], now: datetime) 
     if option is QueryOption.CHECK_LONGER_WINDOW:
         return {**_window_fields("d1", raw["1d"]), **_window_fields("d7", raw["7d"])}
     if option is QueryOption.CHECK_CHANGE_HISTORY:
+        summary = raw.get("summary")
+        if raw.get("truncated") is True and isinstance(summary, Mapping):
+            # [S1422] 截斷時才有摘要:計數取完整集合,另標截斷。摘要的「最近 3 天」是 DSP 讀取
+            # 時刻切的,只當保守旗標;正式規則仍以決策 now 判(計劃 2a 修正紀錄)。沒截斷時照舊由列
+            # 與決策 now 算,收據字串與錄製鍵不變
+            return {"budget_changes": m.receipt_count(summary["total_budget_changes"]),
+                    "pauses": m.receipt_count(summary["total_pauses"]),
+                    "budget_changes_before_3d": m.receipt_count(
+                        summary["total_budget_changes"] - summary["budget_changes_last_3d"]),
+                    "budget_changes_last_3d": m.receipt_count(
+                        summary["budget_changes_last_3d"]),
+                    "history_truncated": "true"}
         cutoff = now - timedelta(days=RECENT_DAYS)
         budget = [_moment(h.get("committed_at")) for h in raw["history"]
                   if h.get("action") == "update_budget"]

@@ -148,8 +148,10 @@ def investigation_source(
         if state.used:
             return EvidenceBatch(evidence)
         receipts, raws = [], []
+        reads = dsp_client.read_query_options(
+            reader, task, tuple(option.value for option in state.queried), now)
         for option in state.queried:
-            read = reader(task, option.value)
+            read = reads[option.value]
             receipt = receipt_or_invalid(task.task_id, task.seq, option, read, now)
             receipts.append(receipt)
             if read.raw is not None and receipt.payload.get("result") != "none":

@@ -533,7 +533,7 @@ def test_metrics_are_returned_as_raw_facts_for_a_known_window(store):
     record = store.get_metrics("c1", "1d")
 
     assert (record.impressions, record.clicks, record.conversions) == (1000, 50, 5)
-    assert (record.spend, record.revenue) == (100.0, 300.0)
+    assert (record.spend, record.revenue) == ("100.00", "300.00")
 
 
 def test_missing_fields_stay_missing_and_are_not_turned_into_zero(store):
@@ -582,12 +582,18 @@ def test_seeding_rejects_an_unknown_window_or_an_unknown_campaign(store):
         store.seed_metrics("ghost", "1d", impressions=1)
 
 
-def test_amounts_are_stored_as_floats_and_integers_beyond_exact_float_range_are_rejected(store):
+def test_amounts_are_stored_as_integer_cents_and_returned_as_fixed_decimal_strings(store):
     store.seed_metrics("c1", "1d", spend=12)
 
-    assert store.get_metrics("c1", "1d").spend == 12.0  # REAL 欄位:整數讀回是浮點數,不是「原樣」
-    with pytest.raises(ValidationRejected):
-        store.seed_metrics("c1", "1h", spend=2**53 + 1)  # 浮點數無法精確表示,存了會失真
-    exact = store.seed_metrics("c1", "7d", spend=2**53)
+    assert store.get_metrics("c1", "1d").spend == "12.00"
+    assert store._conn.execute("SELECT spend, typeof(spend) FROM metrics "
+                               "WHERE campaign_id = 'c1' AND window_name = '1d'").fetchone() == (
+                                   1200, "integer")
+    # 整數部分最多 13 位(跟分析端讀取白名單同一個上限;轉浮點不差一分),超過就拒收、不寫
+    for too_big in (10**13, "10000000000000.00", 1e300, "١٢.٣٤", "0012.00"):
+        with pytest.raises(ValidationRejected):
+            store.seed_metrics("c1", "1h", spend=too_big)
+    largest = "9999999999999.99"
+    store.seed_metrics("c1", "7d", spend=largest)
 
-    assert exact is None and store.get_metrics("c1", "7d").spend == float(2**53)
+    assert store.get_metrics("c1", "7d").spend == largest

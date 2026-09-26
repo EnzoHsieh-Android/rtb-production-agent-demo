@@ -33,7 +33,7 @@
     },
     {
       "path": "src/rtb/domain/_checks.py",
-      "sha256": "b5a8acd6bf4adb4c6c4dff9c0a905e6b5cf53d703e8ff32c9a92174113dd8a07"
+      "sha256": "22ba6502d937289ddec006b117de322df7ab196a244df13571aa15c679b20330"
     },
     {
       "path": "src/rtb/domain/attempt.py",
@@ -53,11 +53,11 @@
     },
     {
       "path": "src/rtb/dsp/server.py",
-      "sha256": "f8e71e3a1a9138afdc57435af39343e3e8f63f36217e6904c08d829edec97ed2"
+      "sha256": "ab287171b8e46e186bc7b551a0c55f14ec987207690710de9a4b080ef68ca551"
     },
     {
       "path": "src/rtb/dsp/store.py",
-      "sha256": "83d80417f0822153fbd1ea590754ba04047aa379a1d3228a7a045c89b45c1438"
+      "sha256": "4e7ad7da4217a2ead22b0214eb02d8fa9c9d69cbd422d871c1a8fcec0e9ac6f9"
     },
     {
       "path": "src/rtb/executor/approval.py",
@@ -155,11 +155,11 @@
     },
     {
       "path": "tests/dsp/test_server.py",
-      "sha256": "9b832528b311baa98740c69579f5add12f24b214eef89dfab585b0e5ab0cd395"
+      "sha256": "e8f74d34f04928d5ac9a5ec592da1b4ad39c7b23d86254bc96db8177737dc38b"
     },
     {
       "path": "tests/dsp/test_store.py",
-      "sha256": "38920db95f75462898d98bc715c0929cd2297570d5f25a35819880da1a0a4243"
+      "sha256": "461cab2b9916da427a859ce982e89e15a90d70bfe483846d6a8a5f880e3f22cf"
     },
     {
       "path": "tests/executor/__init__.py",

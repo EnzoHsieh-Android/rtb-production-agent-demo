@@ -13,8 +13,9 @@ from rtb.analyzer import investigation as inv
 from rtb.analyzer.task_store import InvestigationRecord, TaskRow, TaskStore
 from rtb.domain.task_state import TaskState
 from rtb.dsp import seed
+from rtb.dsp.errors import ValidationRejected
 from rtb.dsp.server import DspServer
-from rtb.dsp.store import CampaignStore
+from rtb.dsp.store import DAILY_MAX_CENTS, CampaignStore, money_text
 from rtb.sqlitekit import DatabaseBusy
 from tests.analyzer.conftest import NOW, Counting
 from tests.analyzer.test_ai_judge import (
@@ -37,7 +38,8 @@ HISTORY_ROW = {"operation_id": 1, "action": "update_budget", "version_after": 2,
                "committed_at": "2026-09-20T00:00:00+00:00", "idempotency_key": "k1"}
 DAILY_ROW = {"days_ago": 1, "impressions": 100, "clicks": 10, "conversions": 1, "spend": 1.0,
              "revenue": 2.0, "no_data": False}
-ADJ_ROW = {"days_ago": 4, "budget_before": 90, "budget_after": 100,
+ADJ_ROW = {"days_ago": 4, "committed_at": "2026-09-20T00:00:00+00:00",
+           "budget_before": 90, "budget_after": 100,
            **{f"{side}_{name}": value for side in ("before", "after")
               for name, value in (("impressions", 300), ("clicks", 30), ("conversions", 3),
                                   ("spend", 4.5), ("revenue", 12.0))}}
@@ -99,14 +101,23 @@ def test_impossible_segments_make_the_trend_and_adjustment_ratios_na():
 
 
 # ---- d1:收據寫不下的值歸資料不合理;證據來源建收據仍失敗就記 invalid,這步照常往下走 ----
+# Phase 14 增量 2a 代碼審 r1:DSP 改存整數分後,1e300 這種值在 DSP 邊界就拒收(ValidationRejected),
+# 進不了資料庫;這支防回歸的意圖「極端值不讓任務卡在蒐證」改用能存的最大金額(整數 13 位)驗:
+# 逐日前三天是最大值、後四天是 0,收據照算(營收變化分母為零寫 na),任務照常往下走。r2:日桶每天的
+# 上限是整數分上限的七分之一(七天合計仍在讀取白名單內),最大值照它取。
 def test_an_extreme_amount_never_leaves_the_task_stuck_collecting_evidence(tmp_path):
-    high, tiny = seed.DayFigures(100, 10, 1, 1.0, 1e300), seed.DayFigures(100, 10, 1, 1.0, 1e-300)
+    biggest = money_text(DAILY_MAX_CENTS)
+    high = seed.DayFigures(100, 10, 1, biggest, biggest)
+    tiny = seed.DayFigures(100, 10, 1, "0.00", "0.00")
     store = CampaignStore(tmp_path / "dsp.db")
     store.seed_campaign("c1", budget=100)
     store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=0.5,
                        revenue=5.0)
+    with pytest.raises(ValidationRejected):  # 存不下的極端值在邊界就拒收
+        seed.seed_platform_history(store, {"c1": seed.HistoryProfile(
+            daily=(seed.DayFigures(100, 10, 1, 1.0, 1e300),) * 7)}, datetime.now(UTC))
     seed.seed_platform_history(store, {"c1": seed.HistoryProfile(
-        daily=(high,) * 3 + (tiny,) * 4)}, datetime.now(UTC))
+        daily=(high,) * 3 + (tiny,) * 4, template=high)}, datetime.now(UTC))
     store.close()
     dsp = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
                     delay_seconds=0.0)

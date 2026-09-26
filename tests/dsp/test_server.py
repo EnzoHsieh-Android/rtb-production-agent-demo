@@ -591,7 +591,7 @@ def test_get_metrics_returns_raw_counts_and_keeps_missing_fields_as_null(start_d
 
     status, body = dsp.request("GET", "/campaigns/c1/metrics?window=1d")
 
-    assert status == 200 and body["impressions"] == 1000 and body["spend"] == 12.5
+    assert status == 200 and body["impressions"] == 1000 and body["spend"] == "12.50"
     assert body["clicks"] is None and body["revenue"] is None
     assert "ctr" not in body  # DSP 只給事實,比率由我們自己算
 

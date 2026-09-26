@@ -52,6 +52,7 @@ verified_by:
   - "[[Verification/Phase10驗收紀錄]]"
   - "[[Verification/Phase11B增量1驗收紀錄]]"
   - "[[Verification/Phase13增量3驗收紀錄]]"
+  - "[[Verification/Phase14增量2a離線驗證]]"
 ---
 # 評估與Jev決策點
 
@@ -119,3 +120,7 @@ verified_by:
 
 - WHY:評估批次的 `batch_problems` 把批次本身的三條交給模型用戶端門面的共用驗收 `batch_file_problems`(展示錄製批次的入庫前檢查呼叫同一支),自己只加「重播找不到錄製 0 筆」;共用那一支另外拒收不是正式後端錄的錄製。防回歸:[test:test_the_batch_check_goes_red_on_missing_failed_or_mixed_recordings]。
 - WHY(2026-09-25):調查評估決定紀錄的不採用理由原本寫「展示只能標展示模式、未通過採用門檻」,使用者同日拿掉展示模式橫幅後對不上;改成「展示照樣可以用 AI 回答做示範,但不進正式決策路徑」,重播入庫錄製重產決定紀錄,只有這一句變。防回歸:[test:test_the_decision_record_no_longer_promises_a_demo_mode_banner]。
+
+## Phase 14 增量 2a 評估資料（2026-09-26）
+
+出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1425]。生成器以固定 NOW 減 days_ago 補帶時區 committed_at 並重產 72 筆。逐筆格與標準答案、調整收據、SYSTEM_PROMPT 位元組及錄製鍵維持原值；時間戳僅供讀取白名單驗證，不進模型提示。2a 代碼審 r1：同一次加額在歷史列與過去調整列改成同一時刻（NOW 減 days_ago；原本歷史列早 2 小時、落在前一個 UTC 日），重產 72 筆後收據雜湊、格與答案不變，入庫錄製重播驗收通過。防回歸：[test:test_adjustment_timestamp_preserves_recorded_receipts_for_all_72_cases]、[test:test_each_past_adjustment_has_the_same_moment_as_its_history_row]。

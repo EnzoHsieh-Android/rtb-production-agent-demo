@@ -133,7 +133,8 @@ class DspHandler(JsonHandler):
         fault = self.read_fault(FAULT_MODES)
         handler, campaign_or_key = self._route(method)
         store = CampaignStore(
-            self.server.db_path, busy_timeout_seconds=self.server.busy_timeout_seconds
+            self.server.db_path, busy_timeout_seconds=self.server.busy_timeout_seconds,
+            **({} if self.server.store_clock is None else {"clock": self.server.store_clock}),
         )
         try:
             return 200, getattr(self, "_" + handler)(store, campaign_or_key, fault)
@@ -159,8 +160,11 @@ class DspHandler(JsonHandler):
     def _get_history(
         self, store: CampaignStore, campaign_id: str, _fault: str | None
     ) -> dict[str, Any]:
-        store.get_campaign(campaign_id)  # 不存在就回 404
-        return {"history": [asdict(h) for h in store.history(campaign_id)]}
+        rows, summary = store.history_limited(campaign_id)
+        if summary is None:  # 沒截斷:維持既有形狀
+            return {"history": [asdict(h) for h in rows]}
+        # 超過 50 筆才截斷:另帶完整集合的摘要與截斷旗標([S1422])
+        return {"history": [asdict(h) for h in rows], "summary": summary, "truncated": True}
 
     def _get_metrics(
         self, store: CampaignStore, campaign_id: str, _fault: str | None
@@ -180,9 +184,9 @@ class DspHandler(JsonHandler):
     def _get_adjustments(
         self, store: CampaignStore, campaign_id: str, _fault: str | None
     ) -> dict[str, Any]:
-        """最多 5 列、由新到舊;沒調整過是空串列(種過、零筆),沒種是 404。"""
+        """最近一次加額,不按查詢時鐘篩三天;沒有加額回空列。"""
         rows = [{"days_ago": item.days_ago, "budget_before": item.budget_before,
-                 "budget_after": item.budget_after,
+                 "budget_after": item.budget_after, "committed_at": item.committed_at,
                  **{f"before_{name}": value for name, value in item.before.items()},
                  **{f"after_{name}": value for name, value in item.after.items()}}
                 for item in store.get_past_adjustments(campaign_id)]
@@ -342,15 +346,19 @@ class DspServer(KitServer):
                  delay_seconds: float, busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
                  socket_timeout_seconds: float = SOCKET_TIMEOUT_SECONDS,
                  capability_key: bytes | None = None,
-                 clock: Callable[[], float] = time.time, audit_key: bytes | None = None):
+                 clock: Callable[[], float] = time.time, audit_key: bytes | None = None,
+                 store_clock: Callable[[], str] | None = None):
         """capability_key 與 audit_key 由啟動程式讀好傳進來;伺服器物件本身不讀環境變數。
-        capability_key 沒給就拒收所有寫入;audit_key 沒給就拒收列操作兩支端點。"""
+        capability_key 沒給就拒收所有寫入;audit_key 沒給就拒收列操作兩支端點。
+        store_clock 是儲存層的時鐘(ISO 字串;逐日桶與提交時間用它),只給測試注入固定時鐘,
+        正式啟動不給、用真實時鐘。"""
         super().__init__(DspHandler, socket_timeout_seconds, fault_injection=fault_injection)
         self.db_path = db_path
         self.capability_key, self.clock = capability_key, clock
         self.audit_key = audit_key
         self.hang_seconds, self.delay_seconds = hang_seconds, delay_seconds
         self.busy_timeout_seconds = busy_timeout_seconds
+        self.store_clock = store_clock
 
 
 def build_parser() -> argparse.ArgumentParser:

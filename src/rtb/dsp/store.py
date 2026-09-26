@@ -16,7 +16,8 @@ import math
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from decimal import ROUND_HALF_EVEN, Context, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, TypeGuard
 
@@ -32,7 +33,13 @@ from rtb.dsp.errors import (
     ValidationRejected,
     VersionConflict,
 )
-from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, begin_immediate, connect
+from rtb.sqlitekit import (
+    BUSY_TIMEOUT_SECONDS,
+    DatabaseBusy,
+    begin_immediate,
+    connect,
+    read_snapshot,
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS campaigns (
@@ -42,26 +49,23 @@ CREATE TABLE IF NOT EXISTS operations (
     operation_id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL,
     action TEXT NOT NULL, params_json TEXT NOT NULL, version_after INTEGER NOT NULL,
     received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
-    policy_version TEXT, expected_version INTEGER);
+    policy_version TEXT, expected_version INTEGER, budget_before INTEGER);
 CREATE INDEX IF NOT EXISTS operations_by_commit ON operations (committed_at);
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, operation_id INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS voided_keys (key TEXT PRIMARY KEY, voided_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS metrics (
     campaign_id TEXT NOT NULL, window_name TEXT NOT NULL, impressions INTEGER, clicks INTEGER,
-    conversions INTEGER, spend REAL, revenue REAL, PRIMARY KEY (campaign_id, window_name));
+    conversions INTEGER, spend INTEGER, revenue INTEGER, PRIMARY KEY (campaign_id, window_name));
 CREATE TABLE IF NOT EXISTS daily_metrics (
-    campaign_id TEXT NOT NULL, days_ago INTEGER NOT NULL, impressions INTEGER, clicks INTEGER,
-    conversions INTEGER, spend REAL, revenue REAL, no_data INTEGER NOT NULL,
-    PRIMARY KEY (campaign_id, days_ago));
-CREATE TABLE IF NOT EXISTS past_adjustment_seeds (campaign_id TEXT PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS past_adjustments (
-    campaign_id TEXT NOT NULL, rank INTEGER NOT NULL, days_ago INTEGER NOT NULL,
-    budget_before INTEGER NOT NULL, budget_after INTEGER NOT NULL,
-    before_impressions INTEGER, before_clicks INTEGER, before_conversions INTEGER,
-    before_spend REAL, before_revenue REAL,
-    after_impressions INTEGER, after_clicks INTEGER, after_conversions INTEGER,
-    after_spend REAL, after_revenue REAL, PRIMARY KEY (campaign_id, rank));
+    campaign_id TEXT NOT NULL, day_utc TEXT NOT NULL, impressions INTEGER, clicks INTEGER,
+    conversions INTEGER, spend INTEGER, revenue INTEGER, no_data INTEGER NOT NULL,
+    PRIMARY KEY (campaign_id, day_utc));
+CREATE TABLE IF NOT EXISTS daily_templates (
+    campaign_id TEXT PRIMARY KEY, impressions INTEGER, clicks INTEGER, conversions INTEGER,
+    spend INTEGER, revenue INTEGER);
+CREATE TABLE IF NOT EXISTS operation_budget_backfill (
+    operation_id INTEGER PRIMARY KEY, budget_before INTEGER NOT NULL);
 """
 
 SQLITE_INTEGER_MAX = 2**63 - 1
@@ -75,19 +79,37 @@ MAX_CAMPAIGN_NAME_LENGTH = 4096
 DEFAULT_CAMPAIGN_NAME = ""  # 沒給名稱的廣告(含補欄位前的舊資料)名稱是空字串
 METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
 COUNT_FIELDS = ("impressions", "clicks", "conversions")  # METRIC_FIELDS 的子集:存成整數
-AMOUNT_FIELDS = ("spend", "revenue")  # 存成 REAL
+AMOUNT_FIELDS = ("spend", "revenue")  # 存成整數分
 METRIC_FIELDS = COUNT_FIELDS + AMOUNT_FIELDS
-# 逐日成效與過去調整(Phase 13 增量 2):只由展示種子寫,端點只讀。用「第幾天前」不用日期:送給模型的
-# 內容要逐位元組穩定(錄製鍵),也不送時間戳
+# 日期鍵只存在 DSP;端點仍用相對日數,避免改動既有收據。
 DAILY_DAYS = 7
+# 金額整數部分最多 13 位(整數分上限 10**15-1):跟分析端讀取白名單同一個數(rtb.domain._checks 的
+# MAX_AMOUNT_WHOLE_DIGITS;DSP 是外部系統的模擬器,刻意不依賴領域層,所以自己一份)。13 位加兩位小數
+# 是 15 位有效數字,分析端轉浮點不會差一分;七天加總最多約 7e15 分,也遠低於 SQLite 整數上限。
+MAX_AMOUNT_WHOLE_DIGITS = 13
+MAX_CENTS = 10 ** (MAX_AMOUNT_WHOLE_DIGITS + 2) - 1
+_AMOUNT_TEXT = re.compile(rf"-?(?:0|[1-9][0-9]{{0,{MAX_AMOUNT_WHOLE_DIGITS - 1}}})\.[0-9]{{2}}",
+                          re.ASCII)
+# 日桶(含樣板)每天的上限是上面兩個上限的七分之一:1d/7d 與加額前後三天的合計在讀取時推算,
+# 這樣任何合計都還在分析端讀取白名單的上限內(金額整數 13 位、計數 SQLITE_INTEGER_MAX),
+# 不會「每天都存得進、讀較長時間窗卻整份 invalid」(代碼審 r2 鏡頭B 發現 1)。
+# 1 小時窗是單一值,照原本的上限。
+DAILY_MAX_CENTS = MAX_CENTS // DAILY_DAYS
+DAILY_MAX_COUNT = SQLITE_INTEGER_MAX // DAILY_DAYS
 MAX_PAST_ADJUSTMENTS = 5
-MIN_ADJUSTMENT_AGE_DAYS = 3  # 要有調整後 3 天才算得出前後對照
-EXACT_FLOAT_INT_MAX = 2**53  # 超過這個大小的整數放進浮點數會失真
+HISTORY_PAGE = 50
+ROLLING_DAYS = 30
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")  # 用 fullmatch,避免 $ 放行結尾換行
 
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _default_clock() -> str:
+    """沒注入時鐘時用真實時鐘;呼叫時才查模組的 _utc_now,測試守衛能把它換成離固定日期很遠的時刻,
+    讓「忘了注入時鐘又用固定日期種資料」的測試當場翻紅(代碼審 r2 鏡頭A)。"""
+    return _utc_now()
 
 
 def _moment(text: str) -> datetime:
@@ -163,8 +185,8 @@ class MetricsRecord:
     impressions: int | None
     clicks: int | None
     conversions: int | None
-    spend: float | None
-    revenue: float | None
+    spend: str | None
+    revenue: str | None
 
 
 @dataclass(frozen=True)
@@ -175,20 +197,21 @@ class DailyRow:
     impressions: int | None
     clicks: int | None
     conversions: int | None
-    spend: float | None
-    revenue: float | None
+    spend: str | None
+    revenue: str | None
     no_data: bool
 
 
 @dataclass(frozen=True)
 class PastAdjustment:
-    """3 天以前的一筆預算調整,帶調整前 3 天與後 3 天的成效總量(各五欄)。"""
+    """最近一次加額,含 D 前後各三個完整 UTC 日的成效。"""
 
     days_ago: int
-    budget_before: int
+    budget_before: int | None  # 舊資料庫遷移補不回前值時是 None(誠實缺證據,不猜)
     budget_after: int
-    before: Mapping[str, float | None]
-    after: Mapping[str, float | None]
+    before: Mapping[str, int | str | None]
+    after: Mapping[str, int | str | None]
+    committed_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -202,12 +225,12 @@ class PastBudgetChange:
 
 @dataclass(frozen=True)
 class HistorySeed:
-    """一個廣告要種的歷史(展示種子用):成效窗(1 天、7 天)、7 天逐日、過去調整。"""
+    """一個廣告要種的歷史:七個帶 UTC 日期的完整日桶,與選填的完整日樣板(之後每個新完成的 UTC 日由
+    它推出;沒給樣板的廣告,新完成的日子就是沒資料)。"""
 
     campaign_id: str
-    windows: Mapping[str, Mapping[str, float | None]]
-    daily: Sequence[Mapping[str, float | None] | None]
-    adjustments: Sequence[PastAdjustment]
+    daily: Sequence[Mapping[str, int | float | str | None] | None]
+    template: Mapping[str, int | float | str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -253,32 +276,94 @@ def _is_storable_count(value: object) -> TypeGuard[int]:
     return is_plain_int(value) and abs(value) <= SQLITE_INTEGER_MAX
 
 
-def _is_storable_amount(value: object) -> TypeGuard[int | float]:
-    if is_plain_int(value):
-        return abs(value) <= EXACT_FLOAT_INT_MAX
-    return isinstance(value, float) and math.isfinite(value)
+def cents_of(value: object) -> int:
+    """DSP 收進來的十進位金額只在這裡換算成整數分(展示種子的核對也用這一支):整數、有限浮點或固定兩位
+    小數字串(只收 ASCII 數字);多於兩位小數、整數部分超過 13 位一律拒收(ValidationRejected),
+    不讓極端值進資料庫(代碼審 r1:1e300 這類值原本在讀取端才出事)。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValidationRejected(f"金額不合法:{value!r}")
+    if isinstance(value, str) and _AMOUNT_TEXT.fullmatch(value) is None:
+        raise ValidationRejected(f"金額字串必須固定兩位小數、整數部分最多 "
+                                 f"{MAX_AMOUNT_WHOLE_DIGITS} 位:{value!r}")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValidationRejected(f"金額不合法:{value!r}")
+    try:
+        amount = Decimal(str(value)).scaleb(2)
+    except InvalidOperation as exc:
+        raise ValidationRejected(f"金額不合法:{value!r}") from exc
+    if (not amount.is_finite() or amount != amount.to_integral_value()
+            or abs(amount) > MAX_CENTS):
+        raise ValidationRejected(f"金額不是可儲存的整數分(多於兩位小數或整數部分超過 "
+                                 f"{MAX_AMOUNT_WHOLE_DIGITS} 位):{value!r}")
+    return int(amount)
 
 
-def _checked_metric(name: str, value: object) -> float | None:
-    """只收存進去不會失真、也不會被讀成別的東西的值;沒給的欄位維持 None,不補成 0。
+def money_text(cents: int | None) -> str | None:
+    """整數分寫成固定兩位小數字串(DSP 對外唯一的金額寫法);缺值維持 None。"""
+    if cents is None:
+        return None
+    sign = "-" if cents < 0 else ""
+    whole, fraction = divmod(abs(cents), 100)
+    return f"{sign}{whole}.{fraction:02d}"
 
-    金額欄位是 REAL,整數讀回會是浮點數(12 變成 12.0);所以整數只收到浮點數能精確表示的大小。
-    """
+
+def _legacy_cents(value: object) -> int | None:
+    """舊 REAL 資料在遷移邊界依原收據的銀行家捨入換成整數分。舊版收任何有限浮點,新版存不下的
+    (非有限、整數部分超過 13 位)改記缺值,不讓整個升級回滾、DSP 起不來(代碼審 r1 外家 finder 3)。"""
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        rounded = Decimal(repr(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN,
+                                                context=Context(prec=60))
+        return cents_of(f"{rounded:.2f}")
+    except (InvalidOperation, ValidationRejected):
+        return None
+
+
+def _checked_metric(name: str, value: object) -> int | None:
+    """計數存整數,金額換成整數分;缺值維持 None。"""
     if value is None:
         return None
     if name in COUNT_FIELDS and _is_storable_count(value):
         return value
-    if name not in COUNT_FIELDS and _is_storable_amount(value):
-        return value
+    if name not in COUNT_FIELDS:
+        return cents_of(value)
     raise ValidationRejected(f"{name} 的值不合法:{value!r}")
 
 
-def _figures(values: Mapping[str, float | None]) -> list[float | None]:
+def _figures(values: Mapping[str, int | float | str | None]) -> list[int | None]:
     """成效五欄照固定順序取出並驗值(跟 1 小時窗同一套);多給的欄位拒絕。"""
     unknown = set(values) - set(METRIC_FIELDS)
     if unknown:
         raise TypeError(f"不認得的指標欄位:{sorted(unknown)}")
     return [_checked_metric(name, values.get(name)) for name in METRIC_FIELDS]
+
+
+def _daily_figures(values: Mapping[str, int | float | str | None]) -> list[int | None]:
+    """日桶與樣板的五欄:同 _figures,另加每天的上限(DAILY_MAX_COUNT、DAILY_MAX_CENTS),保證任何
+    七天合計都在分析端讀取白名單上限內;超過就 ValidationRejected。"""
+    figures = _figures(values)
+    for name, value in zip(METRIC_FIELDS, figures, strict=True):
+        limit = DAILY_MAX_CENTS if name in AMOUNT_FIELDS else DAILY_MAX_COUNT
+        if value is not None and abs(value) > limit:
+            raise ValidationRejected(f"逐日 {name} 超過每天上限(七天合計要在讀取白名單上限內)")
+    return figures
+
+
+Bucket = tuple[int | None, int | None, int | None, int | None, int | None, bool]  # 五欄 + no_data
+
+
+def _bounded_bucket(values: Sequence[int | None], no_data: object) -> Bucket:
+    """舊資料(遷移的相對日數列、前一版已存的日期鍵日桶與樣板)的五欄套每天上限:超過的欄記缺值
+    (同存不下的舊金額),不讓升級失敗,1d/7d 合計也仍在讀取白名單上限內(代碼審 r3 外家 finder 1)。
+    五欄都缺值的那天就是沒資料(no_data 為真),不回「五欄全空卻說有資料」,讀取層才不會整週拒收
+    (代碼審 r3 鏡頭A 發現 3)。遷移與讀取推算用同一支,兩邊一致。"""
+    impressions, clicks, conversions, spend, revenue = (
+        None if value is not None and abs(value) > (
+            DAILY_MAX_CENTS if name in AMOUNT_FIELDS else DAILY_MAX_COUNT) else value
+        for name, value in zip(METRIC_FIELDS, values, strict=True))
+    empty = all(value is None for value in (impressions, clicks, conversions, spend, revenue))
+    return impressions, clicks, conversions, spend, revenue, bool(no_data) or empty
 
 
 def _check_window(window: str | None) -> None:
@@ -307,14 +392,83 @@ def _next_state(campaign: Campaign, op: Operation) -> Campaign:
     return Campaign(campaign.id, campaign.budget, "paused", campaign.version + 1, campaign.name)
 
 
+DERIVED_WINDOWS = frozenset({"1d", "7d"})  # 有日桶的廣告,這兩個窗在讀取時由日桶推算
+_NO_DATA: Bucket = (None, None, None, None, None, True)
+
+
+def _recent_days(today: date) -> list[date]:
+    """最近七個完整 UTC 日,第 1 天(昨天)在最前。"""
+    return [today - timedelta(days=age) for age in range(1, DAILY_DAYS + 1)]
+
+
+def _template_bucket(template: Sequence[int | None]) -> Bucket:
+    """樣板推出的完整日;前一版存下的超額樣板同樣套每天上限(_bounded_bucket)。"""
+    return _bounded_bucket(template, False)
+
+
+def derive_days(stored: Mapping[date, Bucket], newest: date,
+                template: Sequence[int | None] | None, today: date,
+                days: Sequence[date]) -> dict[date, Bucket | None]:
+    """純函式:每個要的日期是哪一桶。今天以後(還沒完成)沒有桶;存下的照存下的;比最新存下日期還新的
+    已完成日由樣板推出,沒有樣板就是沒資料——不把前一天(含沒資料那天)照抄下去(代碼審 r1 鏡頭1)。
+    其餘(被保留期清掉、或從沒種過)沒有桶。讀取端與寫入端的持久化都用這一支,結果必然一致。"""
+    derived: dict[date, Bucket | None] = {}
+    for day in days:
+        if day >= today:
+            derived[day] = None
+        elif day in stored:
+            derived[day] = stored[day]
+        elif day > newest:
+            derived[day] = _NO_DATA if template is None else _template_bucket(template)
+        else:
+            derived[day] = None
+    return derived
+
+
+def window_figures(window: str | None,
+                   buckets: Sequence[Bucket | None]) -> list[int | None] | None:
+    """由最近七個完整日(第 1 天在最前)算 1d/7d 窗的五欄(金額是整數分)。1d:第 1 天沒資料就五欄
+    null。7d:沒資料的天按窗口契約不計;七天全沒資料就沒有這個窗(回 None,端點 404,同舊種子不種
+    7d 窗的行為,代碼審 r1 鏡頭1)。有資料的天任一欄缺值,那一欄就是 null。加總用 Python 整數,
+    不寫回資料庫,不會溢位成例外;超過白名單上限由讀取層記 invalid。"""
+    chosen = buckets[:1] if window == "1d" else buckets
+    kept = [bucket for bucket in chosen if bucket is not None and not bucket[5]]
+    if not kept:
+        return None if window == "7d" else [None] * len(METRIC_FIELDS)
+    fields: list[int | None] = []
+    for index in range(len(METRIC_FIELDS)):
+        values = [bucket[index] for bucket in kept]
+        fields.append(None if any(value is None for value in values)
+                      else sum(value for value in values if value is not None))
+    return fields
+
+
+def three_day_figures(buckets: Sequence[Bucket | None]) -> dict[str, int | str | None]:
+    """加額 D 的前段或後段三個完整日的五欄合計;任一天沒有桶或沒資料,五欄都是 null(第 4 條判證據
+    不足);某欄缺值那欄 null。金額回固定兩位小數字串。"""
+    if len(buckets) != 3:
+        raise ValueError("需要恰好三個 UTC 日")
+    if any(bucket is None or bucket[5] for bucket in buckets):
+        return dict.fromkeys(METRIC_FIELDS)
+    amounts: dict[str, int | str | None] = {}
+    for index, name in enumerate(METRIC_FIELDS):
+        values = [bucket[index] for bucket in buckets if bucket is not None]
+        if any(value is None for value in values):
+            amounts[name] = None
+            continue
+        total = sum(value for value in values if value is not None)
+        amounts[name] = money_text(total) if name in AMOUNT_FIELDS else total
+    return amounts
+
+
 class CampaignStore:
     def __init__(
         self,
         path: Path,
-        clock: Callable[[], str] = _utc_now,
+        clock: Callable[[], str] | None = None,
         busy_timeout_seconds: float = BUSY_TIMEOUT_SECONDS,
     ):
-        self._clock = clock
+        self._clock = clock if clock is not None else _default_clock
         try:
             self._conn = connect(path, busy_timeout_seconds, SCHEMA)
         except DatabaseBusy as exc:
@@ -336,7 +490,12 @@ class CampaignStore:
         """
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
         op_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(operations)")}
-        if {"tenant", "name"} <= columns and {"policy_version", "expected_version"} <= op_columns:
+        daily_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(daily_metrics)")}
+        metric_columns = {row[1]: row[2].upper() for row in self._conn.execute(
+            "PRAGMA table_info(metrics)")}
+        if ({"tenant", "name"} <= columns
+                and {"policy_version", "expected_version", "budget_before"} <= op_columns
+                and "day_utc" in daily_columns and metric_columns.get("spend") == "INTEGER"):
             return
         try:
             begin_immediate(self._conn)
@@ -357,11 +516,88 @@ class CampaignStore:
                 self._conn.execute("ALTER TABLE operations ADD COLUMN policy_version TEXT")
             if "expected_version" not in op_columns:  # 舊操作沒有紀錄預期版本,誠實留空值
                 self._conn.execute("ALTER TABLE operations ADD COLUMN expected_version INTEGER")
+            self._migrate_budget_before(op_columns)
+            self._migrate_money_columns()
+            self._migrate_daily_dates()
             self._conn.execute("COMMIT")
         except BaseException:
             if self._conn.in_transaction:
                 self._conn.execute("ROLLBACK")
             raise
+
+    def _migrate_budget_before(self, columns: set[str]) -> None:
+        """舊資料庫的操作紀錄沒有調整前預算。操作紀錄是只增不改的稽核表,不回頭改寫:補得回來的前值
+        (舊種子快照、同廣告前一筆操作接龍)另記在補值表;補不回來的(例如遷移前 3 天內的第一筆真實
+        加額,舊種子表從來不收)不猜,讀取時誠實回調整前預算 null,由領域判證據不足
+        (代碼審 r1 鏡頭3-3)。"""
+        if "budget_before" in columns:
+            return
+        self._conn.execute("ALTER TABLE operations ADD COLUMN budget_before INTEGER")
+        legacy = self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'past_adjustments'").fetchone() is not None
+        for (campaign_id,) in self._conn.execute("SELECT id FROM campaigns").fetchall():
+            seeded = (self._conn.execute(
+                "SELECT budget_before, budget_after FROM past_adjustments "
+                "WHERE campaign_id = ? ORDER BY days_ago DESC", (campaign_id,)).fetchall()
+                if legacy else [])
+            previous: int | None = None
+            rows = self._conn.execute(
+                "SELECT operation_id, action, params_json FROM operations "
+                "WHERE campaign_id = ? ORDER BY operation_id", (campaign_id,)).fetchall()
+            for operation_id, action, params_json in rows:
+                if action != "update_budget":
+                    continue
+                budget = json.loads(params_json).get("new_budget")
+                if seeded and seeded[0][1] == budget:
+                    previous = seeded.pop(0)[0]
+                if is_plain_int(previous):
+                    self._conn.execute(
+                        "INSERT OR IGNORE INTO operation_budget_backfill (operation_id, "
+                        "budget_before) VALUES (?, ?)", (operation_id, previous))
+                previous = budget if is_plain_int(budget) else None
+        if legacy:
+            self._conn.execute("DROP TABLE past_adjustments")
+            self._conn.execute("DROP TABLE IF EXISTS past_adjustment_seeds")
+
+    def _migrate_money_columns(self) -> None:
+        columns = {row[1]: row[2].upper() for row in self._conn.execute(
+            "PRAGMA table_info(metrics)")}
+        if columns.get("spend") != "REAL":
+            return
+        self._conn.execute("ALTER TABLE metrics RENAME TO metrics_legacy")
+        self._conn.execute(
+            "CREATE TABLE metrics (campaign_id TEXT NOT NULL, window_name TEXT NOT NULL, "
+            "impressions INTEGER, clicks INTEGER, conversions INTEGER, spend INTEGER, "
+            "revenue INTEGER, PRIMARY KEY (campaign_id, window_name))")
+        old = self._conn.execute("SELECT campaign_id, window_name, impressions, clicks, "
+                                 "conversions, spend, revenue FROM metrics_legacy").fetchall()
+        for campaign, window, imp, clicks, conv, spend, revenue in old:
+            self._conn.execute("INSERT INTO metrics VALUES (?, ?, ?, ?, ?, ?, ?)",
+                               (campaign, window, imp, clicks, conv,
+                                _legacy_cents(spend), _legacy_cents(revenue)))
+        self._conn.execute("DROP TABLE metrics_legacy")
+
+    def _migrate_daily_dates(self) -> None:
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(daily_metrics)")}
+        if "days_ago" not in columns:
+            return
+        self._conn.execute("ALTER TABLE daily_metrics RENAME TO daily_metrics_legacy")
+        self._conn.execute(
+            "CREATE TABLE daily_metrics (campaign_id TEXT NOT NULL, day_utc TEXT NOT NULL, "
+            "impressions INTEGER, clicks INTEGER, conversions INTEGER, spend INTEGER, "
+            "revenue INTEGER, no_data INTEGER NOT NULL, PRIMARY KEY (campaign_id, day_utc))")
+        today = _moment(self._clock()).astimezone(UTC).date()
+        old = self._conn.execute("SELECT campaign_id, days_ago, impressions, clicks, "
+                                 "conversions, spend, revenue, no_data "
+                                 "FROM daily_metrics_legacy").fetchall()
+        for campaign_id, age, imp, clicks, conv, spend, revenue, no_data in old:
+            bucket = _bounded_bucket(
+                [imp, clicks, conv, _legacy_cents(spend), _legacy_cents(revenue)], no_data)
+            self._conn.execute("INSERT INTO daily_metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                               (campaign_id, (today - timedelta(days=age)).isoformat(),
+                                *bucket[:5], int(bucket[5])))
+        self._conn.execute("DROP TABLE daily_metrics_legacy")
 
     def close(self) -> None:
         self._conn.close()
@@ -371,6 +607,8 @@ class CampaignStore:
         tenant: str = DEFAULT_TENANT, name: str = DEFAULT_CAMPAIGN_NAME,
     ) -> None:
         _check_campaign_name(name)
+        if not is_plain_int(budget) or not 0 <= budget <= SQLITE_INTEGER_MAX:
+            raise ValidationRejected("初始預算必須是非負整數")
         self._conn.execute(
             "INSERT INTO campaigns (id, budget, status, version, tenant, name) "
             "VALUES (?, ?, ?, 1, ?, ?)",
@@ -391,16 +629,20 @@ class CampaignStore:
             raise CampaignNotFound(campaign_id)
         return Campaign(*row)
 
-    def seed_metrics(self, campaign_id: str, window: str, **fields: float | None) -> None:
+    def seed_metrics(self, campaign_id: str, window: str,
+                     **fields: int | float | str | None) -> None:
         unknown = set(fields) - set(METRIC_FIELDS)
         if unknown:
             raise TypeError(f"不認得的指標欄位:{sorted(unknown)}")
         _check_window(window)
         self.get_campaign(campaign_id)  # 不存在的廣告不能留下讀不到的孤兒列
+        if window in DERIVED_WINDOWS and self._newest_day(campaign_id) is not None:
+            # 有日桶的廣告 1d/7d 一律由日桶推算;另種一份只會被蓋住、看起來像種進去了
+            raise ValidationRejected("這個廣告有逐日資料,1d/7d 由日桶推算,不另種")
         self._write_metrics(campaign_id, window, fields)
 
     def _write_metrics(self, campaign_id: str, window: str,
-                       fields: Mapping[str, float | None]) -> None:
+                       fields: Mapping[str, int | float | str | None]) -> None:
         _check_window(window)
         values = _figures(fields)
         self._conn.execute(
@@ -409,108 +651,197 @@ class CampaignStore:
             (campaign_id, window, *values),
         )
 
+    def _today(self) -> date:
+        """讀一次時鐘的 UTC 日期。每個讀取端點只讀一次,整個回應用同一個日期快照(代碼審 r1 外家
+        finder 1:原本物化與投影各讀一次,午夜落在中間就自相矛盾)。"""
+        return _moment(self._clock()).astimezone(UTC).date()
+
     def get_metrics(self, campaign_id: str, window: str | None) -> MetricsRecord:
+        """1h 讀種下的列;有日桶的廣告 1d/7d 在讀取時由日桶與時鐘推算(不寫資料庫),其餘讀種下的列。"""
         _check_window(window)
-        self.get_campaign(campaign_id)  # 廣告不存在就回 CampaignNotFound
-        row = self._conn.execute(
-            "SELECT campaign_id, window_name, impressions, clicks, conversions, spend, revenue "
-            "FROM metrics WHERE campaign_id = ? AND window_name = ?", (campaign_id, window),
-        ).fetchone()
+        with read_snapshot(self._conn):
+            self.get_campaign(campaign_id)  # 廣告不存在就回 CampaignNotFound
+            if window in DERIVED_WINDOWS:
+                today = self._today()
+                buckets = self._buckets(campaign_id, _recent_days(today), today)
+                if buckets is not None:
+                    values = window_figures(window, [buckets[day] for day in _recent_days(today)])
+                    if values is None:
+                        raise MetricsNotFound(f"{campaign_id}/{window}")
+                    impressions, clicks, conversions, spend, revenue = values
+                    return MetricsRecord(campaign_id, str(window), impressions, clicks,
+                                         conversions, money_text(spend), money_text(revenue))
+            row = self._conn.execute(
+                "SELECT campaign_id, window_name, impressions, clicks, conversions, spend, "
+                "revenue FROM metrics WHERE campaign_id = ? AND window_name = ?",
+                (campaign_id, window)).fetchone()
         if row is None:
             raise MetricsNotFound(f"{campaign_id}/{window}")
-        return MetricsRecord(*row)
+        return MetricsRecord(row[0], row[1], row[2], row[3], row[4],
+                             money_text(row[5]), money_text(row[6]))
 
     def seed_daily(self, campaign_id: str,
-                   days: Sequence[Mapping[str, float | None] | None]) -> None:
-        """種逐日成效(展示種子用):恰好 7 天,第 1 天在最前;None 是那天缺資料(列照樣在)。"""
+                   days: Sequence[Mapping[str, int | float | str | None] | None],
+                   now: datetime | None = None,
+                   template: Mapping[str, int | float | str | None] | None = None) -> None:
+        """種逐日成效(展示種子用):恰好 7 天,第 1 天在最前;None 是那天缺資料(列照樣在)。
+        template 是之後新完成的每一天的成效樣板;不給就是之後的日子沒資料。"""
         self.get_campaign(campaign_id)
+        at = now or _moment(self._clock())
         with self._seed_transaction():
-            self._write_daily(campaign_id, days)
+            self._write_daily(campaign_id, days, at, template)
+            self._prune_daily(campaign_id, at.astimezone(UTC).date())
 
     def _write_daily(self, campaign_id: str,
-                     days: Sequence[Mapping[str, float | None] | None]) -> None:
+                     days: Sequence[Mapping[str, int | float | str | None] | None],
+                     now: datetime,
+                     template: Mapping[str, int | float | str | None] | None) -> None:
         if len(days) != DAILY_DAYS:
             raise ValidationRejected(f"逐日成效要恰好 {DAILY_DAYS} 天")
+        if now.utcoffset() is None:
+            raise ValidationRejected("逐日種子的 now 必須帶時區")
+        today = now.astimezone(UTC).date()
         for days_ago, day in enumerate(days, start=1):
-            values = [None] * len(METRIC_FIELDS) if day is None else _figures(day)
+            values = [None] * len(METRIC_FIELDS) if day is None else _daily_figures(day)
             self._conn.execute(
                 "INSERT OR REPLACE INTO daily_metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (campaign_id, days_ago, *values, int(day is None)))
+                (campaign_id, (today - timedelta(days=days_ago)).isoformat(),
+                 *values, int(day is None)))
+        if template is None:
+            self._conn.execute("DELETE FROM daily_templates WHERE campaign_id = ?",
+                               (campaign_id,))
+        else:
+            self._conn.execute("INSERT OR REPLACE INTO daily_templates VALUES (?, ?, ?, ?, ?, ?)",
+                               (campaign_id, *_daily_figures(template)))
+
+    def _prune_daily(self, campaign_id: str, today: date) -> None:
+        """保留最近 30 完整日,以及最近加額當日兩側的六個比較日。只在寫入交易裡呼叫。"""
+        last = self._latest_raise(campaign_id)
+        protected: list[str] = [""] * 6
+        if last is not None:
+            day = _moment(last[3]).astimezone(UTC).date()
+            protected = [(day + timedelta(days=offset)).isoformat()
+                         for offset in (-3, -2, -1, 1, 2, 3)]
+        cutoff = (today - timedelta(days=ROLLING_DAYS)).isoformat()
+        self._conn.execute(
+            "DELETE FROM daily_metrics WHERE campaign_id = ? AND day_utc < ? "
+            "AND day_utc NOT IN (?, ?, ?, ?, ?, ?)", (campaign_id, cutoff, *protected))
+
+    def _persist_days(self, campaign_id: str, today: date) -> None:
+        """寫入端的持久化(只在寫入交易裡呼叫):把讀取時會推出來的新完成日桶照樣寫下,再做 30 日保留。
+        寫下的值跟讀取推導的一模一樣(同一支 derive_days),所以寫入前後任何讀取的答案都不變;
+        最新日期在拿到寫入鎖之後才讀,並行的另一個寫入先補完也只會讓這裡什麼都不做
+        (代碼審 r1 外家 finder 2:原本在鎖外記住最新日期,別人清掉那一天後展開 None 就丟例外)。"""
+        newest = self._newest_day(campaign_id)
+        if newest is None:
+            return
+        days = [newest + timedelta(days=n) for n in range(1, (today - newest).days)]
+        derived = derive_days({}, newest, self._template(campaign_id), today, days)
+        for day in days:
+            bucket = derived[day]
+            if bucket is not None:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO daily_metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (campaign_id, day.isoformat(), *bucket[:5], int(bucket[5])))
+        self._prune_daily(campaign_id, today)
+
+    def _newest_day(self, campaign_id: str) -> date | None:
+        last = self._conn.execute("SELECT max(day_utc) FROM daily_metrics WHERE campaign_id = ?",
+                                  (campaign_id,)).fetchone()[0]
+        return None if last is None else date.fromisoformat(last)
+
+    def _template(self, campaign_id: str) -> tuple[int | None, ...] | None:
+        row = self._conn.execute(
+            "SELECT impressions, clicks, conversions, spend, revenue FROM daily_templates "
+            "WHERE campaign_id = ?", (campaign_id,)).fetchone()
+        return None if row is None else tuple(row)
+
+    def _buckets(self, campaign_id: str, days: Sequence[date],
+                 today: date) -> dict[date, Bucket | None] | None:
+        """指定日期的日桶(存下的列,或由最新存下日期、樣板與今天推出的);這個廣告沒有任何日桶回 None。
+        只讀,呼叫端包在讀取快照裡。"""
+        newest = self._newest_day(campaign_id)
+        if newest is None:
+            return None
+        stored = {
+            date.fromisoformat(row[0]): _bounded_bucket(row[1:6], row[6])
+            for row in self._conn.execute(
+                "SELECT day_utc, impressions, clicks, conversions, spend, revenue, no_data "
+                "FROM daily_metrics WHERE campaign_id = ? AND day_utc >= ? AND day_utc <= ?",
+                (campaign_id, min(days).isoformat(), max(days).isoformat()))}
+        return derive_days(stored, newest, self._template(campaign_id), today, days)
 
     def get_daily(self, campaign_id: str) -> list[DailyRow]:
-        self.get_campaign(campaign_id)
-        rows = self._conn.execute(
-            "SELECT days_ago, impressions, clicks, conversions, spend, revenue, no_data "
-            "FROM daily_metrics WHERE campaign_id = ? ORDER BY days_ago", (campaign_id,)).fetchall()
-        if not rows:
+        """最近七個完整 UTC 日(第 1 天 = 昨天),讀取時由日桶與時鐘推算,不寫資料庫。"""
+        with read_snapshot(self._conn):
+            self.get_campaign(campaign_id)
+            today = self._today()
+            days = _recent_days(today)
+            buckets = self._buckets(campaign_id, days, today)
+        if buckets is None or all(buckets[day] is None for day in days):
             raise DailyNotFound(campaign_id)
-        return [DailyRow(row[0], row[1], row[2], row[3], row[4], row[5], bool(row[6]))
-                for row in rows]
+        found = []
+        for age, day in enumerate(days, start=1):
+            bucket = buckets[day]
+            found.append(DailyRow(age, None, None, None, None, None, True) if bucket is None
+                         else DailyRow(age, *bucket[:3], money_text(bucket[3]),
+                                       money_text(bucket[4]), bucket[5]))
+        return found
 
-    def seed_past_adjustments(self, campaign_id: str,
-                              adjustments: Sequence[PastAdjustment]) -> None:
-        """種過去調整(展示種子用):最多 5 筆、由新到舊、每筆至少 3 天前、調整前後的預算是非負整數;
-        零筆也記「種過了」。重種會先清掉這個廣告舊的過去調整(代碼審 r1 d4:重種成較少筆時,序號較大的
-        舊列留著、順序也亂掉)。"""
-        self.get_campaign(campaign_id)
-        with self._seed_transaction():
-            self._write_adjustments(campaign_id, adjustments)
-
-    def _write_adjustments(self, campaign_id: str,
-                           adjustments: Sequence[PastAdjustment]) -> None:
-        ages = [item.days_ago for item in adjustments]
-        if (len(adjustments) > MAX_PAST_ADJUSTMENTS
-                or any(not is_plain_int(age) or age < MIN_ADJUSTMENT_AGE_DAYS for age in ages)
-                or ages != sorted(ages)):
-            raise ValidationRejected("過去調整最多 5 筆、由新到舊、每筆至少 3 天前")
-        if any(not is_plain_int(b) or not 0 <= b <= SQLITE_INTEGER_MAX
-               for item in adjustments for b in (item.budget_before, item.budget_after)):
-            raise ValidationRejected("調整前後的預算要是非負整數")
-        self._conn.execute("INSERT OR IGNORE INTO past_adjustment_seeds VALUES (?)", (campaign_id,))
-        self._conn.execute("DELETE FROM past_adjustments WHERE campaign_id = ?", (campaign_id,))
-        for rank, item in enumerate(adjustments, start=1):
-            self._conn.execute(
-                "INSERT INTO past_adjustments VALUES "
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (campaign_id, rank, item.days_ago, item.budget_before, item.budget_after,
-                 *_figures(item.before), *_figures(item.after)))
+    def _latest_raise(self, campaign_id: str) -> tuple[int, int | None, int, str] | None:
+        """只由操作紀錄取最後一次加額;後續減額不影響它。調整前預算先看操作紀錄本身,再看遷移補值表;
+        都沒有(補不回來)的那筆若比任何已知加額新,就回它、前值 None:分不出是不是加額,不能跳過
+        它去回更舊的加額,也不能讓它消失(代碼審 r1 鏡頭3-3)。"""
+        rows = self._conn.execute(
+            "SELECT o.operation_id, COALESCE(o.budget_before, b.budget_before), o.params_json, "
+            "o.committed_at FROM operations o "
+            "LEFT JOIN operation_budget_backfill b ON b.operation_id = o.operation_id "
+            "WHERE o.campaign_id = ? AND o.action = 'update_budget' "
+            "ORDER BY o.operation_id DESC", (campaign_id,)).fetchall()
+        for operation_id, before, params, at in rows:
+            after = json.loads(params).get("new_budget")
+            if not is_plain_int(after):
+                continue
+            if before is None or after > before:
+                return operation_id, before, after, at
+        return None
 
     def get_past_adjustments(self, campaign_id: str) -> list[PastAdjustment]:
-        self.get_campaign(campaign_id)
-        if self._conn.execute("SELECT 1 FROM past_adjustment_seeds WHERE campaign_id = ?",
-                              (campaign_id,)).fetchone() is None:
-            raise AdjustmentsNotFound(campaign_id)
-        rows = self._conn.execute(
-            "SELECT days_ago, budget_before, budget_after, before_impressions, before_clicks, "
-            "before_conversions, before_spend, before_revenue, after_impressions, after_clicks, "
-            "after_conversions, after_spend, after_revenue FROM past_adjustments "
-            "WHERE campaign_id = ? ORDER BY rank", (campaign_id,)).fetchall()
-        return [PastAdjustment(row[0], row[1], row[2], dict(zip(METRIC_FIELDS, row[3:8],
-                                                               strict=True)),
-                               dict(zip(METRIC_FIELDS, row[8:13], strict=True))) for row in rows]
+        """最近一次加額與 D 前後各三個完整 UTC 日;讀取時由日桶與時鐘推算,不寫資料庫。"""
+        with read_snapshot(self._conn):
+            self.get_campaign(campaign_id)
+            if self._newest_day(campaign_id) is None:
+                raise AdjustmentsNotFound(campaign_id)
+            latest = self._latest_raise(campaign_id)
+            if latest is None:
+                return []
+            _, before_budget, after_budget, at = latest
+            day = _moment(at).astimezone(UTC).date()
+            today = self._today()
+            prior = [day - timedelta(days=n) for n in (1, 2, 3)]
+            future = [day + timedelta(days=n) for n in (1, 2, 3)]
+            buckets = self._buckets(campaign_id, prior + future, today)
+        assert buckets is not None  # noqa: S101 - 上面已確認有日桶
+        before = three_day_figures([buckets[d] for d in prior])
+        after = (three_day_figures([buckets[d] for d in future])
+                 if today > day + timedelta(days=3) else dict.fromkeys(METRIC_FIELDS))
+        return [PastAdjustment((today - day).days, before_budget, after_budget, before, after, at)]
 
     def seed_history(self, entries: Sequence[HistorySeed], changes: Sequence[PastBudgetChange],
                      now: datetime) -> None:
-        """**只准展示種子呼叫**:全平台的 1 天與 7 天窗、逐日成效、過去調整與過去操作在同一個交易裡
-        寫,
-        全有或全無(代碼審 r1 d4:原本逐廣告各自提交,最後一步被拒時前面已經寫進去,資料違反
-        [S1127])。"""
+        """**只准展示種子呼叫**:全平台的日桶、視窗投影與預算操作同交易提交。"""
         for entry in entries:
             self.get_campaign(entry.campaign_id)
         with self._seed_transaction():
             for entry in entries:
-                for window, fields in entry.windows.items():
-                    self._write_metrics(entry.campaign_id, window, fields)
-                self._write_daily(entry.campaign_id, entry.daily)
-                self._write_adjustments(entry.campaign_id, entry.adjustments)
+                self._write_daily(entry.campaign_id, entry.daily, now, entry.template)
             self._write_past_operations(changes, now)
+            for entry in entries:
+                self._prune_daily(entry.campaign_id, now.astimezone(UTC).date())
 
     def seed_past_operations(self, changes: Sequence[PastBudgetChange], now: datetime) -> None:
-        """**只准展示種子呼叫**(Phase 13 [S1153],測試掃全庫守):把過去幾天的預算調整寫進操作紀錄。
-        既有唯一的寫入路徑把提交時間取成時鐘讀數、而且不早於上一筆,寫不出「10 天前」;所以另開這支,
-        只准在平台還沒有任何操作時呼叫(展示每個情境都重建資料庫,種子在最前面),一次收全平台要種的
-        過去操作,依時間先後寫(最舊的先寫),寫完提交時間與操作編號的順序一致、單調不減。廣告的預算
-        與版本照每一筆往前推,跟真的寫過一樣;既有寫入路徑一行不改。"""
+        """**只准展示種子呼叫**:平台尚無操作時按時間種歷史操作;
+        與正常寫入共用同一筆操作紀錄及前後預算欄位。"""
         with self._seed_transaction():
             self._write_past_operations(changes, now)
 
@@ -529,7 +860,7 @@ class CampaignStore:
                            {"new_budget": change.new_budget}, current.version,
                            f"seed-past-{index}")
             _validate(op)
-            operation_id = self._apply(op, _next_state(current, op), at, at)
+            operation_id = self._apply(op, current, _next_state(current, op), at, at)
             self._record_idempotency(op, operation_id)
 
     def history(self, campaign_id: str) -> list[HistoryEntry]:
@@ -539,6 +870,40 @@ class CampaignStore:
             (campaign_id,),
         ).fetchall()
         return [HistoryEntry(*row) for row in rows]
+
+    def history_limited(
+        self, campaign_id: str,
+    ) -> tuple[list[HistoryEntry], dict[str, int | bool] | None]:
+        """HTTP 只給最近 50 列;超過 50 筆才另給由未截斷集合算出的摘要(沒截斷回 None,端點維持既有
+        形狀)。摘要與列在同一個讀取快照裡讀,中間插進來的寫入兩邊都看不到(代碼審 r1 外家否決 2)。
+        摘要的「最近 3 天/7 天」以 DSP 讀取時刻切:只是截斷時的保守旗標,正式規則仍以決策 now 判。"""
+        with read_snapshot(self._conn):
+            self.get_campaign(campaign_id)
+            now = _moment(self._clock()).astimezone(UTC)
+            seven = commit_text(now - timedelta(days=7))
+            recent = commit_text(now - timedelta(days=3))
+            counts = self._conn.execute(
+                "SELECT COUNT(*), "
+                "SUM(CASE WHEN action = 'update_budget' THEN 1 ELSE 0 END), "
+                "SUM(CASE WHEN action = 'pause_campaign' THEN 1 ELSE 0 END), "
+                "SUM(CASE WHEN action = 'update_budget' AND committed_at >= ? THEN 1 ELSE 0 END), "
+                "SUM(CASE WHEN action = 'update_budget' AND committed_at > ? THEN 1 ELSE 0 END) "
+                "FROM operations WHERE campaign_id = ?",
+                (seven, recent, campaign_id)).fetchone()
+            rows = self._conn.execute(
+                "SELECT operation_id, action, version_after, received_at, committed_at, "
+                "idempotency_key FROM operations WHERE campaign_id = ? "
+                "ORDER BY operation_id DESC LIMIT ?", (campaign_id, HISTORY_PAGE)).fetchall()
+        entries = [HistoryEntry(*row) for row in reversed(rows)]
+        if counts[0] <= HISTORY_PAGE:
+            return entries, None
+        summary: dict[str, int | bool] = {
+            "total_operations": counts[0], "total_budget_changes": counts[1] or 0,
+            "total_pauses": counts[2] or 0, "budget_changes_7d": counts[3] or 0,
+            "budget_changes_last_3d": counts[4] or 0,
+            "has_recent_budget_change": bool(counts[4]),
+        }
+        return entries, summary
 
     def get_operation_by_key(self, key: str) -> OperationResult | None:
         return self._recorded_result(key, replayed=False)  # 查詢不是重放
@@ -606,8 +971,10 @@ class CampaignStore:
             raise VersionConflict(f"預期 {op.expected_version},目前 {current.version}")
         updated = _next_state(current, op)
         committed_at = self._not_before_last(self._clock())
-        operation_id = self._apply(op, updated, received_at, committed_at)
+        operation_id = self._apply(op, current, updated, received_at, committed_at)
         self._record_idempotency(op, operation_id)
+        # 寫入端負責把新完成的日桶持久化並做保留(讀取端只推算、不寫):同一個交易,值跟讀取推導的一樣
+        self._persist_days(op.campaign_id, _moment(committed_at).astimezone(UTC).date())
         return OperationResult(
             operation_id, op.campaign_id, op.action, updated.version, committed_at, False,
             op.idempotency_key, dict(op.params),
@@ -678,7 +1045,8 @@ class CampaignStore:
         )
 
     def _apply(
-        self, op: Operation, updated: Campaign, received_at: str, committed_at: str
+        self, op: Operation, current: Campaign, updated: Campaign,
+        received_at: str, committed_at: str
     ) -> int:
         self._conn.execute(
             "UPDATE campaigns SET budget = ?, status = ?, version = ? WHERE id = ?",
@@ -686,8 +1054,8 @@ class CampaignStore:
         )
         cursor = self._conn.execute(
             "INSERT INTO operations (campaign_id, action, params_json, version_after, "
-            "received_at, committed_at, idempotency_key, policy_version, expected_version) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "received_at, committed_at, idempotency_key, policy_version, expected_version, "
+            "budget_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 op.campaign_id,
                 op.action,
@@ -698,6 +1066,7 @@ class CampaignStore:
                 op.idempotency_key,
                 op.policy_version,
                 op.expected_version,
+                current.budget if op.action == "update_budget" else None,
             ),
         )
         operation_id = cursor.lastrowid

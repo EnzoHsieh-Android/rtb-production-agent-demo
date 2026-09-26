@@ -304,3 +304,276 @@ def test_an_operation_lookup_failure_other_than_not_found_raises(rigged_operatio
         dsp_client.make_operation_lookup(url, timeout_seconds=3)("k1-abc")
     with pytest.raises(dsp_client.DspRequestFailed):
         dsp_client.make_operation_lookup(url, timeout_seconds=3)("has space/../x")
+
+
+def test_daily_rows_must_match_the_longer_windows(monkeypatch):
+    """[S1414] 0.10+0.20 精確等於 0.30,計數或金額矛盾記 invalid。"""
+    from rtb.analyzer.investigation import QueryOption
+
+    rows = [{"days_ago": day, "impressions": 100, "clicks": 10, "conversions": 1,
+             "spend": "0.10" if day == 1 else "0.20" if day == 2 else "0.00",
+             "revenue": "1.00", "no_data": False} for day in range(1, 8)]
+    daily = {"campaign_id": "c1", "rows": rows}
+    one = {"campaign_id": "c1", "window": "1d", "impressions": 100, "clicks": 10,
+           "conversions": 1, "spend": "0.10", "revenue": "1.00"}
+    week = {"campaign_id": "c1", "window": "7d", "impressions": 700, "clicks": 70,
+            "conversions": 7, "spend": "0.30", "revenue": "7.00"}
+    bodies = {"daily": daily, "1d": one, "7d": week}
+
+    def answer(url, _method, _body, _timeout):
+        key = "1d" if url.endswith("window=1d") else "7d" if url.endswith("window=7d") else "daily"
+        return 200, bodies[key]
+
+    monkeypatch.setattr(dsp_client, "request_json", answer)
+    read = dsp_client.make_query_reader("http://unused", 1.0)
+    options = (QueryOption.CHECK_DAILY_TREND.value, QueryOption.CHECK_LONGER_WINDOW.value)
+
+    def checked_daily():
+        return dsp_client.read_query_options(read, make_row(), options, NOW)[options[0]]
+
+    accepted = checked_daily()
+    assert accepted.reason is None and accepted.raw is not None
+    from rtb.analyzer import investigation as inv
+    assert inv.receipt_payload(inv.QueryOption.CHECK_DAILY_TREND, accepted.raw, NOW)[
+        "revenue_change"] == "0.0"
+    bodies["7d"] = {**week, "clicks": 71}
+    assert checked_daily().reason == "invalid"
+    assert read(make_row(), QueryOption.CHECK_DAILY_TREND.value).reason is None
+    bodies["7d"] = {**week, "spend": "0.31"}
+    assert checked_daily().reason == "invalid"
+
+
+def test_adjustment_timestamp_preserves_recorded_receipts():
+    """[S1425] 有時區的兩日前加額可讀,無時區拒收,收據不含時間戳。"""
+    from rtb.analyzer import investigation as inv
+
+    row = {"days_ago": 2, "committed_at": "2026-09-20T12:00:00+00:00",
+           "budget_before": 100, "budget_after": 120}
+    for side in ("before", "after"):
+        row.update({f"{side}_impressions": 300, f"{side}_clicks": 30,
+                    f"{side}_conversions": 3, f"{side}_spend": "4.50",
+                    f"{side}_revenue": "12.00"})
+    body = {"campaign_id": "c1", "rows": [row]}
+    accepted = dsp_client.check_adjustments(body, "c1")
+    assert accepted is not None
+    receipt = inv.receipt_payload(inv.QueryOption.CHECK_PAST_ADJUSTMENTS, accepted, NOW)
+    assert not any("committed" in key for key in receipt)
+    assert dsp_client.check_adjustments({"campaign_id": "c1", "rows": [
+        {**row, "committed_at": "2026-09-20T12:00:00"}]}, "c1") is None
+
+
+# ---- Phase 14 增量 2a 代碼審 r1 ----
+def test_fixed_amount_strings_have_one_definition_everywhere():
+    """架構對齊、鏡頭2、鏡頭4、資安:固定兩位小數金額的判準只在領域層 _checks 一份——只收 ASCII 數字、
+    整數部分最多 13 位、可帶負號;讀取白名單、指標(收據)與九條三處判法一致。負數跟負浮點一樣:白名單
+    收、指標層判不合理(收據 na)。"""
+    import ast
+    import pathlib
+
+    from rtb.domain import metrics as m
+    from rtb.domain import nine_rules as rules
+
+    accepted = ("0.00", "12.34", "9999999999999.99", "-1.00")
+    rejected = ("١٢.٣٤", "10000000000000.00", "1" * 400 + ".00", "0012.00", "12.3", " 1.00",
+                "5/2", "nan", "1e5")
+    for text in accepted:
+        assert dsp_client.METRICS_FIELDS["spend"](text), text
+        rules.Window(1, 1, 1, text, "1.00")
+    for text in rejected:
+        assert not dsp_client.METRICS_FIELDS["spend"](text), text
+        assert m.receipt_amount(text) == "na" and m.exact_value(text) is m.Reason.INVALID_DATA
+        with pytest.raises(ValueError):
+            rules.Window(1, 1, 1, text, "1.00")
+    assert m.receipt_amount("-5.00") == "na" == m.receipt_amount(-5.0)  # 鏡頭4 發現 2 的守門
+    assert m.exact_value("-5.00") is m.Reason.INVALID_DATA
+    assert m.receipt_amount("9999999999999.99") == "9999999999999.99"
+    src = pathlib.Path(dsp_client.__file__).parents[1]
+    for path in (src / "analyzer" / "dsp_client.py", src / "domain" / "metrics.py",
+                 src / "domain" / "nine_rules.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        names = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
+                 for alias in node.names}
+        assert "re" not in names, path.name  # 不再各自寫金額正規式
+    assert "exact_value" in (src / "analyzer" / "dsp_client.py").read_text(encoding="utf-8")
+
+
+def test_negative_amounts_are_not_compared_across_windows():
+    """鏡頭2 發現 3:1d/7d 的負數金額跟既有行為一樣不參與大小比較(那欄收據 na),整份不因此變成
+    沒有結果;逐日對兩窗的核對同一套比法。"""
+    from rtb.analyzer import investigation as inv
+
+    day = {"campaign_id": "c1", "window": "1d", "impressions": 10, "clicks": 1,
+           "conversions": 1, "spend": "-1.00", "revenue": "1.00"}
+    week = {**day, "window": "7d", "impressions": 70, "clicks": 7, "conversions": 7,
+            "spend": "-5.00", "revenue": "7.00"}
+    checked = dsp_client.check_longer_window(day, week)
+    assert checked is not None
+    receipt = inv.receipt_payload(inv.QueryOption.CHECK_LONGER_WINDOW, checked, NOW)
+    assert receipt["d1_spend"] == receipt["d7_spend"] == "na"
+    assert receipt["d7_revenue"] == "7.00"
+    rows = [{"days_ago": n, "impressions": 10, "clicks": 1, "conversions": 1,
+             "spend": "-1.00", "revenue": "1.00", "no_data": False} for n in range(1, 8)]
+    assert dsp_client._daily_matches(rows, day, week)
+
+
+def _history_rows(count, action="pause_campaign"):
+    return [{"operation_id": n, "action": action, "version_after": n + 1,
+             "received_at": "2026-09-22T00:00:00+00:00",
+             "committed_at": "2026-09-22T00:00:00+00:00", "idempotency_key": f"k{n}"}
+            for n in range(1, count + 1)]
+
+
+def test_a_history_summary_that_contradicts_its_rows_is_invalid():
+    """鏡頭2 發現 2、鏡頭4 發現 1、spec-conformance:截斷時摘要要跟回傳列對得上(列裡有加額、摘要
+    卻說零筆;暫停加加額比總筆數多),否則整份記 invalid;沒截斷維持只有 history 的既有形狀。"""
+    rows = _history_rows(49) + _history_rows(1, "update_budget")
+    rows[-1]["operation_id"] = 50
+    summary = {"total_operations": 60, "total_budget_changes": 1, "total_pauses": 59,
+               "budget_changes_7d": 1, "budget_changes_last_3d": 1,
+               "has_recent_budget_change": True}
+    good = {"history": rows, "summary": summary, "truncated": True}
+    assert dsp_client.check_history(good) == good
+    for broken in (
+            {**summary, "total_budget_changes": 0, "budget_changes_7d": 0,
+             "budget_changes_last_3d": 0, "has_recent_budget_change": False},
+            {**summary, "total_pauses": 999_999_999},
+            {**summary, "total_pauses": 48},
+            {**summary, "total_operations": 50, "total_pauses": 49}):
+        assert dsp_client.check_history({**good, "summary": broken}) is None, broken
+    assert dsp_client.check_history({"history": rows[:10]}) == {"history": rows[:10]}
+    assert dsp_client.check_history({"history": rows[:10], "summary": summary}) is None
+    assert dsp_client.check_history({**good, "truncated": False}) is None
+    assert dsp_client.check_history({**good, "history": rows[:49]}) is None
+    assert dsp_client.check_history({"history": _history_rows(51)}) is None
+
+
+def test_a_legacy_adjustment_without_budget_before_is_read_as_missing():
+    """鏡頭3-3:舊資料遷移補不回調整前預算時,讀取層收下 null,收據那欄 na。"""
+    from rtb.analyzer import investigation as inv
+
+    row = {"days_ago": 0, "committed_at": "2026-09-22T10:00:00+00:00",
+           "budget_before": None, "budget_after": 120}
+    for side in ("before", "after"):
+        row.update({f"{side}_{name}": None for name in
+                    ("impressions", "clicks", "conversions", "spend", "revenue")})
+    checked = dsp_client.check_adjustments({"campaign_id": "c1", "rows": [row]}, "c1")
+    assert checked is not None
+    assert inv.receipt_payload(inv.QueryOption.CHECK_PAST_ADJUSTMENTS, checked, NOW)[
+        "adj1_budget_change"] == "na"
+
+
+def test_the_basic_hour_read_keeps_exact_cents_in_the_receipt(tmp_path):
+    """外家 finder 4:DSP 回的固定兩位小數金額在基本讀取轉回浮點,整數最多 13 位時收據必定是原值;
+    超過 13 位(會差一分的範圍)DSP 存不進去,讀取白名單也不收。"""
+    from rtb.analyzer import investigation as inv
+
+    store = CampaignStore(tmp_path / "dsp.db")
+    store.seed_campaign("c1", budget=100)
+    store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1,
+                       spend="9007199254740.93", revenue="1234567890123.45")
+    store.close()
+    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
+                       delay_seconds=0.0)
+    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+    try:
+        evidence = dsp_client.make_client(
+            f"http://127.0.0.1:{server.server_address[1]}", timeout_seconds=3)(make_row(), NOW)
+    finally:
+        server.shutdown()
+        server.server_close()
+    by_kind = {item.kind: item for item in evidence}
+    receipt = inv.base_receipt(by_kind[EvidenceKind.CAMPAIGN_STATE].payload,
+                               by_kind[EvidenceKind.METRICS].payload, 24)
+    assert (receipt["spend"], receipt["revenue"]) == ("9007199254740.93", "1234567890123.45")
+    assert not dsp_client.METRICS_FIELDS["spend"]("90071992547409.93")
+
+
+def _truncated(rows, **counts):
+    summary = {"total_operations": 60, "total_budget_changes": 1, "total_pauses": 59,
+               "budget_changes_7d": 1, "budget_changes_last_3d": 1,
+               "has_recent_budget_change": True, **counts}
+    return {"history": rows, "summary": summary, "truncated": True}
+
+
+def test_a_truncated_history_summary_must_account_for_every_operation():
+    """代碼審 r2 外家 finder 1:DSP 只有改預算與暫停兩種操作,完整集合裡兩種計數相加必須等於總筆數;
+    原本只要求小於等於,60 筆說成 1 筆加額加 49 筆暫停也收下,截斷收據少報 10 筆。"""
+    rows = _history_rows(49) + _history_rows(1, "update_budget")
+    rows[-1]["operation_id"] = 50
+    assert dsp_client.check_history(_truncated(rows)) is not None
+    assert dsp_client.check_history(_truncated(rows, total_pauses=49)) is None
+    assert dsp_client.check_history(_truncated(rows, total_operations=61)) is None
+
+
+def test_a_truncated_history_summary_cannot_undercount_recent_rows():
+    """代碼審 r2 外家 finder 1、鏡頭B 發現 2:回傳列裡 10 小時前有一筆加額,摘要卻說最近 3 天(或 7 天)
+    0 筆 → 讀取層以這一步的讀取時刻核對、整份 invalid(不讓截斷收據寫「最近 3 天 0 筆」繞過第 3 條)。
+    核對在同一步讀取的收口(read_query_options)做,用的是跟收據同一個 now。"""
+    from datetime import timedelta
+
+    from rtb.analyzer.investigation import QueryOption
+
+    recent = (NOW - timedelta(hours=10)).isoformat()
+    rows = _history_rows(49) + _history_rows(1, "update_budget")
+    rows[-1].update(operation_id=50, received_at=recent, committed_at=recent)
+    bodies = {}
+
+    def reader(_task, _option):
+        return dsp_client.QueryRead(dsp_client.check_history(bodies["history"]))
+
+    option = QueryOption.CHECK_CHANGE_HISTORY.value
+    for counts, ok in (({}, True),
+                       ({"budget_changes_last_3d": 0, "has_recent_budget_change": False}, False),
+                       ({"budget_changes_7d": 0, "budget_changes_last_3d": 0,
+                         "has_recent_budget_change": False}, False)):
+        bodies["history"] = _truncated(rows, **counts)
+        read = dsp_client.read_query_options(reader, make_row(), (option,), NOW)[option]
+        assert (read.reason is None) is ok, counts
+        if not ok:
+            assert read.reason == "invalid"
+
+
+def test_only_the_seven_day_check_catches_an_undercounted_week():
+    """代碼審 r3 鏡頭A 發現 2:列裡 5 天前有一筆加額、摘要說最近 7 天 0 筆(最近 3 天本來就 0)——
+    只有「最近 7 天」那半核對擋得下,拿掉它這支會紅。"""
+    from datetime import timedelta
+
+    from rtb.analyzer.investigation import QueryOption
+
+    five_days = (NOW - timedelta(days=5)).isoformat()
+    rows = _history_rows(49) + _history_rows(1, "update_budget")
+    rows[-1].update(operation_id=50, received_at=five_days, committed_at=five_days)
+    body = _truncated(rows, budget_changes_7d=0, budget_changes_last_3d=0,
+                      has_recent_budget_change=False)
+    assert dsp_client.check_history(body) is not None  # 不用時鐘的核對擋不下
+
+    option = QueryOption.CHECK_CHANGE_HISTORY.value
+    read = dsp_client.read_query_options(
+        lambda _task, _option: dsp_client.QueryRead(dsp_client.check_history(body)),
+        make_row(), (option,), NOW)[option]
+    assert read.reason == "invalid"
+
+
+def test_a_normal_read_delay_near_the_three_day_line_is_not_invalid():
+    """代碼審 r3 鏡頭A 發現 1、外家 finder 3:DSP 讀取時刻本來就比這一步的 now 晚(讀取延遲、
+    時鐘偏快),
+    它的 3 天窗起點較晚。一筆落在兩個起點之間的加額,DSP 摘要正確地不算、讀取層卻算,原本會判
+    invalid。近期邊界留與證據新鮮度相同的 15 分鐘容忍:離 3 天(7 天)界線 15 分鐘內的列不拿來核對。"""
+    from datetime import timedelta
+
+    from rtb.analyzer.investigation import QueryOption
+
+    near = (NOW - timedelta(days=3) + timedelta(seconds=10)).isoformat()
+    rows = _history_rows(49) + _history_rows(1, "update_budget")
+    rows[-1].update(operation_id=50, received_at=near, committed_at=near)
+    option = QueryOption.CHECK_CHANGE_HISTORY.value
+    for counts, reason in (({"budget_changes_last_3d": 0, "has_recent_budget_change": False},
+                            None),
+                           ({"budget_changes_7d": 0, "budget_changes_last_3d": 0,
+                             "has_recent_budget_change": False}, "invalid")):
+        body = _truncated(rows, **counts)
+        read = dsp_client.read_query_options(
+            lambda _task, _option, body=body: dsp_client.QueryRead(
+                dsp_client.check_history(body)),
+            make_row(), (option,), NOW)[option]
+        assert read.reason == reason, counts

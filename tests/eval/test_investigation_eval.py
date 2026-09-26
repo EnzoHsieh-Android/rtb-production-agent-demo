@@ -951,7 +951,9 @@ def test_stored_query_results_pass_the_read_layer_checks():
         for window in ("1d", "7d"):
             assert dsp_client._window_body(windows[window], campaign, window) == windows[window]
         assert dsp_client.check_longer_window(windows["1d"], windows["7d"]) is not None
-        assert dsp_client.check_daily(results["check_daily_trend"], campaign) is not None
+        daily = dsp_client.check_daily(results["check_daily_trend"], campaign)
+        assert daily is not None
+        assert dsp_client._daily_matches(daily["rows"], windows["1d"], windows["7d"])
         assert dsp_client.check_adjustments(results["check_past_adjustments"], campaign) is not None
         assert dsp_client.check_history(results["check_change_history"]) is not None
 
@@ -1049,3 +1051,34 @@ def test_the_decision_record_no_longer_promises_a_demo_mode_banner():
     reason = investigation_report.SYNTHETIC_NEVER_ADOPTS
     assert "展示模式" not in reason and "採用門檻」" not in reason
     assert "示範" in reason and "不進正式決策路徑" in reason
+
+
+def test_adjustment_timestamp_preserves_recorded_receipts_for_all_72_cases():
+    """[S1425] 新時間戳不進收據,72 筆格、答案與模型錄製鍵維持基準。"""
+    cases = investigation_set.CASES
+    assert len(cases) == 72 and ic.generate() == cases
+    rows = [(case.case_id, case.cell.value, ic.gold(case).value,
+             {option.value: inv.receipt_payload(option, case.results[option.value], ic.NOW)
+              for option in inv.QueryOption}) for case in cases]
+    digest = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
+    assert digest == "0f2e89c3cfb8a3c1ed2e55df81378a598c105004ab1f8602419210f4e827d562"
+    assert hashlib.sha256(inv.SYSTEM_PROMPT.encode()).hexdigest() == (
+        "5620ff3b0e53079a39b97ea146c23ce345ca392fb447a326d30d422a26a70a8a")
+
+
+def test_each_past_adjustment_has_the_same_moment_as_its_history_row():
+    """Phase 14 增量 2a 代碼審 r1 鏡頭2:同一次加額在過去調整列與操作歷史列是同一個時刻,UTC 日期
+    也跟 days_ago 對得上([S1415] 以 committed_at 的 UTC 日當 D);原本歷史列早 2 小時、落在前一天。"""
+    from datetime import datetime, timedelta
+
+    checked = 0
+    for case in investigation_set.CASES:
+        history = {row["committed_at"] for row in
+                   case.results["check_change_history"]["history"]
+                   if row["action"] == "update_budget"}
+        for row in case.results["check_past_adjustments"]["rows"]:
+            assert row["committed_at"] in history, case.case_id
+            moment = datetime.fromisoformat(row["committed_at"])
+            assert moment.date() == (ic.NOW - timedelta(days=row["days_ago"])).date()
+            checked += 1
+    assert checked == 48

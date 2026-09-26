@@ -1,0 +1,83 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1",
+  "lens": "DSP 資料模型與計算正確性(store/seed/server):調整紀錄、UTC 日期桶、物化、保留、前後三日轉換、金額分",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r1-partA-dsp.patch"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2",
+  "lens": "讀取層白名單與跨窗精確核對、收據字串與錄製鍵相容、評估集重新 render、讀取次數與租約([S1113])",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r1-partB-reader.patch"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3",
+  "lens": "併發、交易原子性、冪等物化、舊資料遷移與回退(store 的交易邊界、鎖、schema 遷移)",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r1-partA-dsp.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭4",
+  "lens": "邊界輸入與白名單:dsp_client 解析、固定兩位小數、時間戳驗證、上限列數、null 語意",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r1-partB-reader.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家finder",
+  "lens": "全份找洞",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r1-snapshot.patch"
+  ],
+  "auditor": "codex"
+ },
+ {
+  "round": "r1",
+  "seat": "外家否決",
+  "lens": "只報會讓系統做錯事的 major 以上",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r1-snapshot.patch"
+  ],
+  "auditor": "codex"
+ },
+ {
+  "round": "r1",
+  "seat": "spec-conformance",
+  "lens": "條款對照",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r1-snapshot.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "跟既有寫法一致",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r1-snapshot.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "資安-opus",
+  "lens": "攻擊者視角",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r1-snapshot.patch"
+  ],
+  "auditor": "claude-opus"
+ }
+]

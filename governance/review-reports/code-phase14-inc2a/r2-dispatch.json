@@ -1,0 +1,50 @@
+[
+ {
+  "round": "r2",
+  "seat": "鏡頭A",
+  "lens": "DSP 儲存層、推導、遷移、同時寫入與讀取",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r2-delta-dsp.patch"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "鏡頭B",
+  "lens": "讀取層白名單、金額單一來源、收據與錄製鍵相容、評估集",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r2-delta-reader.patch"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "外家finder",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r2-delta.patch",
+   "governance/review-reports/code-phase14-inc2a/r2-snapshot.patch"
+  ],
+  "auditor": "codex"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r2-delta.patch",
+   "governance/review-reports/code-phase14-inc2a/r2-snapshot.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "資安-opus",
+  "lens": "資安-opus",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2a/r2-delta.patch",
+   "governance/review-reports/code-phase14-inc2a/r2-snapshot.patch"
+  ],
+  "auditor": "claude-opus"
+ }
+]

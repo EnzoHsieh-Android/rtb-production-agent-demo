@@ -18,7 +18,12 @@ from enum import StrEnum
 from fractions import Fraction
 from typing import TypeGuard
 
-from rtb.domain._checks import MAX_ID_LENGTH, is_plain_number
+from rtb.domain._checks import (
+    MAX_ID_LENGTH,
+    fixed_amount_fraction,
+    is_fixed_amount,
+    is_plain_number,
+)
 
 
 class Reason(StrEnum):
@@ -166,7 +171,7 @@ _CENTS = Decimal("0.01")
 MAX_RECEIPT_CHARS = MAX_ID_LENGTH  # 可信證據字串的上限(領域層識別碼格式的長度上限)
 
 
-def _exact_input(value: object) -> Fraction | Reason:
+def _exact_input(value: object) -> Fraction | Reason:  # noqa: PLR0911 - 五種輸入需明確分流
     """一個比率輸入:缺值是缺資料;布林、負數、非有限數、不是數字是資料不合理;分數照收(巢狀比率)。"""
     if isinstance(value, Reason):
         return value
@@ -174,6 +179,9 @@ def _exact_input(value: object) -> Fraction | Reason:
         return Reason.MISSING_DATA
     if isinstance(value, Fraction):
         return value if value >= 0 else Reason.INVALID_DATA
+    if is_fixed_amount(value):  # DSP 的固定兩位小數金額(判準只在 _checks 一份);負數同浮點歸不合理
+        exact = fixed_amount_fraction(value)
+        return exact if exact >= 0 else Reason.INVALID_DATA
     if not _is_valid_amount(value):
         return Reason.INVALID_DATA
     try:
@@ -247,9 +255,12 @@ def receipt_change(before: object, after: object) -> str:
 
 
 def receipt_amount(value: object) -> str:
-    """金額(花費、營收)固定 2 位小數:平台端存的是浮點,先 Decimal(repr(x)) 再量化(銀行家捨入)。
-    這是收據裡唯一經過浮點的一段;缺值、負數、非有限數、量化溢位(約 1e26 以上)都寫 na。"""
-    if not _is_valid_amount(value):
+    """金額(花費、營收)固定 2 位小數:浮點先 Decimal(repr(x)) 再量化(銀行家捨入);DSP 的固定兩位小數
+    字串照原值。缺值、負數、非有限數、量化溢位(約 1e26 以上)都寫 na。"""
+    if is_fixed_amount(value):
+        if fixed_amount_fraction(value) < 0:
+            return NA
+    elif not _is_valid_amount(value):
         return NA
     try:
         exact = Decimal(repr(value)) if isinstance(value, float) else Decimal(value)

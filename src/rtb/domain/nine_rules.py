@@ -11,7 +11,7 @@ from fractions import Fraction
 from types import MappingProxyType
 
 from rtb.domain import metrics as m
-from rtb.domain._checks import is_aware, is_count_or_none, is_finite_or_none, is_plain_int
+from rtb.domain._checks import is_amount_or_none, is_aware, is_count_or_none, is_plain_int
 from rtb.domain.worth import CampaignStatus, WorthInput, WorthVerdict, is_anomalous
 
 RECENT_DAYS = 3
@@ -89,15 +89,9 @@ def _check_count(name: str, value: object) -> None:
 
 
 def _check_amount(name: str, value: object) -> None:
-    if value is None or is_finite_or_none(value):
-        return
-    if isinstance(value, str):
-        try:
-            Fraction(value)
-        except (ValueError, ZeroDivisionError) as exc:
-            raise ValueError(f"{name} 必須是有限數字或缺值") from exc
-        return
-    raise ValueError(f"{name} 必須是有限數字或缺值")
+    """跟分析端讀取白名單同一支判準(固定兩位小數字串的定義只在 _checks 一份)。"""
+    if not is_amount_or_none(value):
+        raise ValueError(f"{name} 必須是有限數字、固定兩位小數字串或缺值")
 
 
 def _check_rows(name: str, rows: object, row_type: type) -> None:

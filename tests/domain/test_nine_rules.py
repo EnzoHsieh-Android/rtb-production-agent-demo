@@ -28,6 +28,16 @@ def _evidence(**changes):
     return rules.RuleEvidence(**{**values, **changes})
 
 
+def test_fixed_two_decimal_amount_strings():
+    for amount in ("5/2", "2.5", "nan", " 2.50"):
+        with pytest.raises(ValueError):
+            rules.Window(100, 10, 1, amount, "1.00")
+        with pytest.raises(ValueError):
+            rules.DailyRow(1, 100, 10, 1, "1.00", amount, False)
+    assert rules.Window(100, 10, 1, "0.30", "1.00").spend == "0.30"
+    assert rules.DailyRow(1, 100, 10, 1, "0.10", "0.20", False).spend == "0.10"
+
+
 def test_nine_rule_input_and_query_gaps_have_no_cell():
     invalid = rules.decide(None, _evidence(), NOW)
     assert (invalid.cell, invalid.verdict, invalid.reason) == (

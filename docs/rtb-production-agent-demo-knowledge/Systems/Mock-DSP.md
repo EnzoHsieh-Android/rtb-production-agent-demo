@@ -2,7 +2,7 @@
 type: system
 status: doing
 created: 2026-09-21
-updated: 2026-09-25
+updated: 2026-09-26
 responsibility: 負責 Mock DSP 的廣告狀態、版本、操作歷史與冪等紀錄的儲存與原子提交、型別化錯誤,以及獨立行程的 HTTP 介面與故障注入;不負責指標計算與 agent 端的任何邏輯。
 aliases: []
 about_code:
@@ -13,6 +13,8 @@ about_code:
   - tests/executor/fakes.py
   - src/rtb/dsp/seed.py
   - tests/dsp/test_investigation_data.py
+  - tests/dsp/test_store.py
+  - tests/dsp/test_server.py
 tags:
   - type/system
   - status/doing
@@ -50,6 +52,7 @@ verified_by:
   - "[[Verification/Phase7驗收紀錄]]"
   - "[[Verification/Phase9驗收紀錄]]"
   - "[[Verification/Phase11驗收紀錄]]"
+  - "[[Verification/Phase14增量2a離線驗證]]"
 kill_recipes: |-
   [{"invariant": "同一把冪等鍵最多只套用一次", "test": "test_same_key_same_payload_applies_once_and_returns_original_result", "file": "src/rtb/dsp/store.py", "old": "        if existing is not None:\n            return existing", "new": "        if False:\n            return existing", "note": "重送不再回原結果,同一把鍵被套用第二次"}, {"invariant": "要嘛全部生效", "test": "test_failure_between_state_change_and_idempotency_record_rolls_everything_back", "file": "src/rtb/dsp/store.py", "old": "                self._conn.execute(\"ROLLBACK\")", "new": "                self._conn.execute(\"COMMIT\")", "note": "中途失敗時把半途狀態提交而不是回滾"}, {"invariant": "事故 F1 的 DSP 側", "test": "test_timeout_before_commit_client_sees_timeout_and_dsp_never_commits_later", "file": "src/rtb/dsp/server.py", "old": "            time.sleep(self.server.hang_seconds)  # 不論客戶端是否還在,都不提交\n            raise NoResponse", "new": "            time.sleep(self.server.hang_seconds)", "note": "提交前逾時睡醒後繼續往下提交"}, {"invariant": "預期版本跟現況不符", "test": "test_a_future_expected_version_is_rejected_not_only_a_stale_one", "file": "src/rtb/dsp/store.py", "old": "        if current.version != op.expected_version:", "new": "        if current.version > op.expected_version:", "note": "只擋舊版本,未來版本照樣放行"}]
 decision_refs_ai:
@@ -57,7 +60,7 @@ decision_refs_ai:
 ---
 # Mock-DSP
 
-已有儲存層與獨立行程的 HTTP 介面(查廣告、改預算、暫停、用冪等鍵查操作、查歷史、查指標)加故障注入(需啟動旗標,旗標關閉時收到故障標頭回 400 且不改狀態)。`getMetrics` 只回原始事實(曝光、點擊、轉換、花費、營收;時間窗限 1h、1d、7d),沒有的欄位維持 null,不會被補成 0;比率由 [[確定性指標計算]] 自己算。測試用的 `seed_metrics` 只收存進去不會失真的值:計數欄位只收整數(拒絕 1.5、字串、bytes、布林);金額欄位是 REAL,整數讀回會變浮點(12 變 12.0),所以整數只收到 2**53 以內;NaN、無限大、超出範圍的值、不存在的廣告與不合法的時間窗都被拒絕,沒給的欄位維持 null。負數照存,讓測試能造出不合理資料去驗領域層。標準函式庫會把請求路徑開頭的多個斜線收合,所以 `//網域/...` 不會被當成網域,有測試鎖住。
+已有儲存層與獨立行程的 HTTP 介面(查廣告、改預算、暫停、用冪等鍵查操作、查歷史、查指標)加故障注入(需啟動旗標,旗標關閉時收到故障標頭回 400 且不改狀態)。`getMetrics` 只回原始事實(曝光、點擊、轉換、花費、營收;時間窗限 1h、1d、7d),沒有的欄位維持 null,不會被補成 0;比率由 [[確定性指標計算]] 自己算。測試用的 `seed_metrics` 只收存進去不會失真的值:計數欄位只收整數(拒絕 1.5、字串、bytes、布林);Phase 14 增量 2a 起金額轉成整數分存放,只收不超過兩位小數、整數部分最多 13 位的值,讀回固定兩位小數字串;NaN、無限大、超出範圍的值、不存在的廣告與不合法的時間窗都被拒絕,沒給的欄位維持 null。負數照存,讓測試能造出不合理資料去驗領域層。標準函式庫會把請求路徑開頭的多個斜線收合,所以 `//網域/...` 不會被當成網域,有測試鎖住。
 
 各檔分工:`src/rtb/dsp/store.py` 是儲存層,負責廣告狀態、版本、操作歷史、冪等紀錄與原子提交;`src/rtb/dsp/errors.py` 是型別化錯誤,讓呼叫端靠型別分辨可重試、永久拒絕、版本已變;`src/rtb/dsp/server.py` 是獨立行程的 HTTP 介面與故障注入,只綁定本機回送位址。
 
@@ -113,16 +116,16 @@ REVISIT:2026-11-30 盤點作廢表的筆數成長,決定要不要設保留期與
   - 游標只收十進位數字(上標數字判數字會過、轉整數會失敗),轉整數後不得超過 SQLite 整數上限,都回 400 invalid_cursor。防回歸:[test:test_a_cursor_must_be_a_plain_decimal_within_the_integer_range]。
   - 提交時間寫入前統一成固定 UTC 寫法(換算成 +00:00 的 isoformat),依時間找起點的查詢用同一支函式:時鐘注入非 UTC 偏移時,原樣存下會讓字串順序跟時間順序對不上、游標漏筆。舊資料不搬(理由:預設時鐘本來就是這種寫法、補欄位做法從不改寫舊列、操作紀錄只增不改;詳見 [[Projects/RTB_Phase9可觀測與SLO_計劃]] 增量 3 的實作解讀)。防回歸:[test:test_dsp_commit_times_are_stored_in_one_utc_form]、[test:test_a_page_boundary_between_equal_commit_times_reads_each_operation_once]。
 
-## 逐日成效與過去調整(Phase 13 增量 2,2026-09-25)
+## 逐日成效與過去調整（Phase 14 增量 2a，2026-09-26）
 
-出處 [[Projects/RTB_Phase13AI參與決策_計劃]]〈新增的兩種模擬資料〉(使用者裁定 10)。
+出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1414]、[S1415]、[S1422]、[S1423]、[S1426]；改寫 [[Projects/RTB_Phase13AI參與決策_計劃]] [S1126]、[S1127]、[S1130]。
 
-- 兩張新表 `daily_metrics`(每個廣告 7 列,第幾天前 1–7)、`past_adjustments`(最多 5 列,只放 3 天以前的調整)加一張「種過了」的標記表;兩支只准 GET 的唯讀端點 `/campaigns/{id}/daily`、`/campaigns/{id}/adjustments`。回應頂層帶廣告編號與 `rows`,只有相對天數、不帶日期或時間戳;逐日缺資料那天五欄 null、`no_data` 為真;沒種回 404(`daily_not_found`、`adjustments_not_found`),種了零筆過去調整回空串列。
-- 測試在 `tests/dsp/test_investigation_data.py`(兩支端點只讀不帶日期、種子一致性、只給種子用的過去日期寫法)。
-- 資料只由展示種子(`seed.py`)寫;種子讓逐日第 1 天等於 1 天窗、7 天加總等於 7 天窗,過去調整筆數等於操作歷史裡 3 天以前的預算調整筆數。展示情境目前每個廣告種同一份(每天一樣、沒有過去調整),所以沒有過去操作,F1–F7 對平台寫入的既有斷言不受影響。
-
-RULE: `CampaignStore.seed_past_operations` 只准展示種子呼叫,而且只准在平台還沒有任何操作時呼叫;它把全平台要種的過去預算調整依時間先後(最舊的先寫)寫進操作紀錄,寫完提交時間跟操作編號的順序一致。既有唯一的寫入路徑照舊把提交時間墊到不早於上一筆,一行不改。[since:2026-09-25] [retire:展示改成從真實操作紀錄推算歷史、或模擬平台不再需要過去日期的操作時拿掉這支] 防回歸:[test:test_seeded_past_operations_keep_commit_times_monotonic](含全庫掃描:只有種子模組呼叫它)。
-
-WHY: 用「第幾天前」不用日期:送給模型的內容要逐位元組穩定(錄製鍵),也不送時間戳。出處:[[Projects/RTB_Phase13AI參與決策_計劃]]〈新增的兩種模擬資料〉。防回歸:[test:test_the_daily_and_past_adjustment_endpoints_are_read_only_and_dateless]、[test:test_seeded_daily_and_adjustment_data_agree_with_windows_and_history]。
-
-WHY: [2026-09-25 Phase 13 增量 2 代碼審 r1] 展示種子改成全有或全無:`CampaignStore.seed_history` 在同一個交易裡寫 1 天與 7 天窗、逐日、過去調整與過去操作(原本逐廣告各自提交,最後一步被拒時前面已經寫進去);重種過去調整先清掉舊列;調整前後的預算要是非負整數;逐日第 1 天缺資料時 1 天窗照樣種、五欄空值(不種的話較長時間窗整個變成「查不到」)。`seed_history` 跟 `seed_past_operations` 一樣只准展示種子呼叫(同一支全庫掃描)。防回歸:[test:test_seeding_history_is_all_or_nothing]、[test:test_reseeding_past_adjustments_replaces_the_old_rows]、[test:test_past_adjustment_budgets_must_be_non_negative_integers]、[test:test_a_missing_first_day_seeds_an_empty_one_day_window]。
+- DSP 預算寫入與展示種子只寫操作紀錄一個來源。預算事件在同一交易記錄前後預算與帶時區提交時間；過去調整端點從操作紀錄取最近一次加額，後續減額不會擠掉它。三日窗以加額的 UTC 日期 D 前後各三個完整日桶計算；D+1 至 D+3 未全完成，後段轉換回 null。舊資料庫遷移補不回調整前預算的那筆（例如遷移前 3 天內的第一筆真實加額）照樣回、`budget_before` 為 null，由領域判證據不足，不回 404 讓它消失；操作紀錄是只增不改稽核表，補得回的前值另記在補值表 `operation_budget_backfill`，不回頭改操作紀錄。防回歸：[test:test_past_adjustments_include_normal_budget_operations]、[test:test_old_adjustment_seed_tables_migrate_to_the_single_operation_source]、[test:test_a_legacy_raise_without_a_provable_budget_before_is_reported_as_missing_evidence]、[test:test_audit_tables_are_only_ever_inserted_into]。
+- 已知邊界（2a 代碼審 r2 鏡頭A 發現 2，接受）：舊資料庫某廣告的第一筆改預算補不回前值、之後只有減額時，這筆一直是「最近一次加額」候選（分不出是不是加額），端點一直回它、`budget_before` null，領域第 4 條一直證據不足，直到這個廣告出現下一筆加額為止。接受的理由：只影響 2a 之前建的舊資料庫（新寫入一律同交易記前值；展示每次重種平台）；方向保守（不提案，不會錯提案）；設「多舊不算數」等於猜那筆不是加額，違反「補不回不猜」。正式九條第 4 條在增量 2b 接線時，若要處理這種廣告，改成由人工或新加額解開，不在 DSP 猜。
+REVISIT:2026-12-31 若正式規則上線後仍有來自 2a 之前舊庫的廣告卡在這個邊界，再評估讓人工標記那筆的前值。
+- 逐日資料以 UTC 日期作鍵，保留最近 30 個完整日與最近加額 D±3 日桶。**讀取端點不寫資料庫**（2a 代碼審 r1 鏡頭3 改正：原本讀前物化要搶寫入鎖，別人握鎖時讀取會 503）：逐日、1d/7d、過去調整、歷史都在讀取快照裡讀，剛完成的日桶與 1d/7d 由「已存日桶＋展示樣板＋一次時鐘讀數」在記憶體推算（`derive_days`、`window_figures`）；每個讀取端點只讀一次時鐘，整個回應同一日期快照（外家 finder 1）。持久化與 30 日保留只在寫入端（種子、每筆執行寫入）同一寫入交易做，寫下的值跟讀取推算的相同，最新日期在拿到寫入鎖後才讀（外家 finder 2）。有日桶的廣告 1d/7d 一律推算，不准另用 `seed_metrics` 種這兩窗；七天全沒資料時沒有 7d 窗（404）。防回歸：[test:test_demo_daily_rollover_preserves_full_windows]、[test:test_reads_never_write_and_still_work_while_the_write_lock_is_held]、[test:test_one_read_uses_one_clock_reading_across_midnight]、[test:test_writes_persist_days_after_reading_the_newest_day_under_the_write_lock]、[test:test_a_seven_day_window_without_any_data_is_not_found]。
+- 儲存層沒注入時鐘時，時鐘在呼叫時才查模組的 `_utc_now`：`tests/dsp/test_investigation_data.py` 用自動夾具把它換成固定 NOW 之後 400 天，忘了注入時鐘又用固定日期種資料的測試當場翻紅，不等真實日期走到某天（2a 代碼審 r2 鏡頭A：r1 新加的溢位測試重犯真時鐘配固定日期，10/01 起會紅）。子行程起的 DSP 不受夾具管，用它的測試必須跟日期無關。
+- 新完成的日子只由展示樣板（`daily_templates`，種子給）推出；沒有樣板的廣告，新完成的日子就是沒資料，不把最新一天（含沒資料那天）照抄下去（2a 代碼審 r1 鏡頭1）。防回歸：[test:test_a_completed_day_without_a_template_has_no_data_instead_of_a_copy]。
+- 花費與營收以整數分存算，對外回固定兩位小數字串；DSP 收金額只經 `cents_of`（只收 ASCII 數字、最多兩位小數、整數部分最多 13 位，其餘 ValidationRejected），格式化只經 `money_text`，展示種子的核對也用這兩支。13 位跟分析端讀取白名單同一個數（DSP 依既有邊界不依賴領域層，自留一份）：15 位有效數字轉浮點不差一分，七天加總遠低於 SQLite 上限；加總在讀取時以 Python 整數算、不寫回，不會丟溢位例外。日桶與樣板每天另有上限：金額是整數分上限的七分之一（`DAILY_MAX_CENTS`）、計數是 `SQLITE_INTEGER_MAX` 的七分之一（`DAILY_MAX_COUNT`），超過整份種子拒收；舊相對日數資料遷移、以及前一版已存的日期鍵日桶與樣板（開庫不走遷移）在讀取推算時同一支 `_bounded_bucket` 處理：超限的欄記缺值，五欄都缺值的那天就是沒資料（no_data 為真，不回「五欄全空卻說有資料」讓讀取層整週拒收；2a 代碼審 r3 鏡頭A 3、外家 finder 1/2）。所以 1d/7d 與加額前後三天的合計一定在分析端讀取白名單上限內，不會「每天存得進、讀長窗卻整份 invalid」（2a 代碼審 r2 鏡頭B 發現 1）；1 小時窗是單一值，照原上限。舊庫 REAL 金額存不下者升級時記缺值，DSP 照常啟動。防回歸：[test:test_amounts_are_stored_as_integer_cents_and_returned_as_fixed_decimal_strings]、[test:test_seven_day_totals_never_overflow_into_a_server_error]、[test:test_a_legacy_day_whose_every_value_is_over_the_daily_limit_becomes_no_data]、[test:test_stored_date_keyed_buckets_over_the_daily_limit_read_as_missing]、[test:test_legacy_amounts_that_no_longer_fit_do_not_stop_the_dsp_from_starting]。
+- 歷史端點最多回 50 列；沒超過 50 筆時維持既有 `{"history": […]}` 形狀，超過才另帶由完整集合算的近期預算旗標與計數 `summary` 及 `truncated=true`，讓讀取者不因截斷漏看加額。摘要與列在同一讀取快照裡讀（外家否決 2）。摘要的「最近 3 天」以 DSP 讀取時刻切，只是截斷時的保守旗標，正式規則以決策 now 判。防回歸：[test:test_bounded_history_preserves_recent_budget_changes]、[test:test_an_untruncated_history_keeps_the_existing_shape]、[test:test_history_summary_and_rows_come_from_one_snapshot]。
+- 逐日與過去調整兩支端點只准 GET、不寫資料庫；舊的獨立過去調整表與種子標記不再是正式資料來源。測試在 tests/dsp/test_investigation_data.py、tests/dsp/test_store.py、tests/dsp/test_server.py；HTTP 測試需能綁本機網路埠的環境。

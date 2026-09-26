@@ -1,0 +1,1445 @@
+diff --git a/src/rtb/dsp/seed.py b/src/rtb/dsp/seed.py
+index 51fd7ce..40b0173 100644
+--- a/src/rtb/dsp/seed.py
++++ b/src/rtb/dsp/seed.py
+@@ -1,37 +1,24 @@
+-"""展示種子的逐日成效與過去調整(Phase 13 增量 2,計劃〈新增的兩種模擬資料〉,[S1127] [S1153])。
+-
+-AI 追加查詢用的兩種模擬資料只由這裡寫,頁面標「模擬資料」;不從真實操作紀錄推算(模擬平台的成效本來
+-就是種出來的,推算出來的前後對照一樣是假的)。這裡負責讓幾份資料互相一致,不讓 AI 看到自相矛盾的數字:
+-
+-- 逐日成效第 1 天等於 1 天窗、7 天加總等於 7 天窗(缺資料的天不進加總)。
+-- 過去調整的筆數等於操作歷史裡 **3 天以前**的預算調整筆數:每一筆過去調整,在操作歷史的同樣幾天前寫
+-  一筆預算調整(經 DSP 只給種子用的過去日期寫法,全平台一次、最舊的先寫)。情境中途另一個寫入者或
+-  執行端真的寫的那一筆落在最近 3 天內,不影響這條。
+-
+-只寫模擬平台;不讀時鐘(「現在」由呼叫端給,跟過去操作的提交時間同一個基準)。
+-"""
++"""展示種子只寫 UTC 日桶與預算操作;視窗與過去加額由 DSP 同一來源投影。"""
+ 
+ from collections.abc import Mapping
+ from dataclasses import astuple, dataclass
+-from datetime import datetime, timedelta
++from datetime import datetime
++from decimal import Decimal
+ 
+ from rtb.dsp.errors import MetricsNotFound
+ from rtb.dsp.store import (
+     DAILY_DAYS,
+     METRIC_FIELDS,
+-    MIN_ADJUSTMENT_AGE_DAYS,
+     CampaignStore,
+     HistorySeed,
+-    PastAdjustment,
+     PastBudgetChange,
+-    commit_text,
+ )
+ 
+ __all__ = ["DEMO_PROFILE", "AdjustmentSeed", "DayFigures", "HistoryProfile", "PastBudgetChange",
+            "consistency_problems", "seed_platform_history"]
+ 
+ 
+ @dataclass(frozen=True)
+ class DayFigures:
+     """一段期間的成效五欄(曝光、點擊、轉換、花費、營收)。"""
+ 
+@@ -40,89 +27,79 @@ class DayFigures:
+     conversions: int
+     spend: float
+     revenue: float
+ 
+     def as_fields(self) -> dict[str, float | None]:
+         return dict(zip(METRIC_FIELDS, astuple(self), strict=True))
+ 
+ 
+ @dataclass(frozen=True)
+ class AdjustmentSeed:
+-    """一筆過去調整:幾天前、調整前後的預算、調整前與後各 3 天的成效總量。"""
++    """一筆過去預算操作;前值取操作當時的廣告現況。"""
+ 
+     days_ago: int
+-    budget_before: int
+     budget_after: int
+-    before: DayFigures
+-    after: DayFigures
+ 
+ 
+ @dataclass(frozen=True)
+ class HistoryProfile:
+     """一個廣告的歷史:7 天逐日(第 1 天 = 昨天;None 是那天缺資料),與由新到舊的過去調整。"""
+ 
+     daily: tuple[DayFigures | None, ...]
+     adjustments: tuple[AdjustmentSeed, ...] = ()
+ 
+ 
+ # 展示情境的種子(驅動程式對每個廣告都種這一份):每天一樣的成效、沒有過去調整(有資料、零筆)。
+ # 沒有過去操作,所以 F1 到 F7 對平台寫入的既有斷言(寫入恰好一次、全平台只有那一筆)不受影響
+ _DEMO_DAY = DayFigures(impressions=12_000, clicks=288, conversions=24, spend=12.0, revenue=120.0)
+ DEMO_PROFILE = HistoryProfile(daily=(_DEMO_DAY,) * DAILY_DAYS)
+ 
+ 
+-def _total(days: list[DayFigures]) -> dict[str, float | None]:
+-    return {name: sum(getattr(day, name) for day in days) for name in METRIC_FIELDS}
++def _total(days: list[DayFigures]) -> dict[str, int | str]:
++    return {name: (f"{sum(Decimal(str(getattr(day, name))) for day in days):.2f}"
++                   if name in ("spend", "revenue") else sum(getattr(day, name) for day in days))
++            for name in METRIC_FIELDS}
+ 
+ 
+ def _entry(campaign_id: str, profile: HistoryProfile) -> HistorySeed:
+-    """一個廣告要種的東西。逐日第 1 天缺資料時,1 天窗照樣種、五欄都是空值(代碼審 r1 d5:原本不種,
+-    讀較長時間窗時 1 天窗 404,整個查詢變成「查不到」,明明有的 7 天資料模型也拿不到)。"""
+-    days = [day for day in profile.daily if day is not None]
+-    first = profile.daily[0]
+-    windows: dict[str, dict[str, float | None]] = {
+-        "1d": dict.fromkeys(METRIC_FIELDS) if first is None else first.as_fields()}
+-    if days:
+-        windows["7d"] = _total(days)
+-    return HistorySeed(
+-        campaign_id, windows,
+-        [None if day is None else day.as_fields() for day in profile.daily],
+-        [PastAdjustment(a.days_ago, a.budget_before, a.budget_after, a.before.as_fields(),
+-                        a.after.as_fields()) for a in profile.adjustments])
++    """只種日桶,1d/7d 由同一批分值推算。"""
++    return HistorySeed(campaign_id,
++                       [None if day is None else day.as_fields() for day in profile.daily])
+ 
+ 
+ def seed_platform_history(store: CampaignStore, profiles: Mapping[str, HistoryProfile],
+                           now: datetime) -> None:
+-    """替全平台的廣告種歷史:各自的窗與逐日、過去調整,再把全部過去調整寫進操作歷史。全部在同一個
+-    交易裡,全有或全無(代碼審 r1 d4)。廣告要先建好;有過去調整時平台還不能有任何操作。"""
++    """全平台同交易種逐日與預算操作;視窗和前後對照由日桶及操作紀錄推算。"""
+     changes = [PastBudgetChange(campaign_id, a.days_ago, a.budget_after)
+                for campaign_id, profile in profiles.items() for a in profile.adjustments]
+     store.seed_history([_entry(campaign_id, profile) for campaign_id, profile in profiles.items()],
+                        changes, now)
+ 
+ 
+-def _window(store: CampaignStore, campaign_id: str, window: str) -> dict[str, float | None] | None:
++def _window(store: CampaignStore, campaign_id: str,
++            window: str) -> dict[str, int | str | None] | None:
+     try:
+         record = store.get_metrics(campaign_id, window)
+     except MetricsNotFound:
+         return None
+     return {name: getattr(record, name) for name in METRIC_FIELDS}
+ 
+ 
+ def consistency_problems(store: CampaignStore, campaign_id: str, now: datetime) -> list[str]:
+     """[S1127] 的三條一致性,回對不上的地方(空的就是一致)。"""
++    if now.utcoffset() is None:
++        raise ValueError("now 必須帶時區")
+     problems = []
+     daily = store.get_daily(campaign_id)
+     first = (dict.fromkeys(METRIC_FIELDS) if daily[0].no_data
+-             else {name: getattr(daily[0], name) for name in METRIC_FIELDS})
++             else _total([DayFigures(*(getattr(daily[0], name) for name in METRIC_FIELDS))]))
+     if first != _window(store, campaign_id, "1d"):
+         problems.append("逐日第 1 天不等於 1 天窗")
+     kept = [DayFigures(*(getattr(row, name) for name in METRIC_FIELDS))
+             for row in daily if not row.no_data]
+     if (_total(kept) if kept else None) != _window(store, campaign_id, "7d"):
+         problems.append("7 天加總不等於 7 天窗")
+-    cutoff = commit_text(now - timedelta(days=MIN_ADJUSTMENT_AGE_DAYS))
+-    old = [h for h in store.history(campaign_id)
+-           if h.action == "update_budget" and h.committed_at <= cutoff]
+-    if len(old) != len(store.get_past_adjustments(campaign_id)):
+-        problems.append("過去調整筆數不等於操作歷史裡 3 天以前的預算調整筆數")
++    raises = [h for h in store.history(campaign_id) if h.action == "update_budget"]
++    rows = store.get_past_adjustments(campaign_id)
++    if rows and rows[0].committed_at not in {h.committed_at for h in raises}:
++        problems.append("最近加額找不到對應操作紀錄")
+     return problems
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index 7341614..c44074e 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -152,44 +152,44 @@ class DspHandler(JsonHandler):
+ 
+     # ---- 讀取介面 ----
+     def _get_campaign(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+     ) -> dict[str, Any]:
+         return asdict(store.get_campaign(campaign_id))
+ 
+     def _get_history(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+     ) -> dict[str, Any]:
+-        store.get_campaign(campaign_id)  # 不存在就回 404
+-        return {"history": [asdict(h) for h in store.history(campaign_id)]}
++        rows, summary = store.history_limited(campaign_id)
++        return {"history": [asdict(h) for h in rows], "summary": summary}
+ 
+     def _get_metrics(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+     ) -> dict[str, Any]:
+         windows = parse_qs(urlsplit(self.path).query).get("window", [])
+         if len(windows) > 1:
+             raise RequestRejected(400, "duplicate_query_parameter")
+         return asdict(store.get_metrics(campaign_id, windows[0] if windows else None))
+ 
+     def _get_daily(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+     ) -> dict[str, Any]:
+         """固定 7 列、由近到遠;缺資料那天五欄 null、no_data 為真。只有相對天數,不帶日期。"""
+         return {"campaign_id": campaign_id,
+                 "rows": [asdict(row) for row in store.get_daily(campaign_id)]}
+ 
+     def _get_adjustments(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+     ) -> dict[str, Any]:
+-        """最多 5 列、由新到舊;沒調整過是空串列(種過、零筆),沒種是 404。"""
++        """最近一次加額,不按查詢時鐘篩三天;沒有加額回空列。"""
+         rows = [{"days_ago": item.days_ago, "budget_before": item.budget_before,
+-                 "budget_after": item.budget_after,
++                 "budget_after": item.budget_after, "committed_at": item.committed_at,
+                  **{f"before_{name}": value for name, value in item.before.items()},
+                  **{f"after_{name}": value for name, value in item.after.items()}}
+                 for item in store.get_past_adjustments(campaign_id)]
+         return {"campaign_id": campaign_id, "rows": rows}
+ 
+     def _get_operation(
+         self, store: CampaignStore, key: str, _fault: str | None
+     ) -> dict[str, Any]:
+         result = store.get_operation_by_key(key)
+         if result is None:
+diff --git a/src/rtb/dsp/store.py b/src/rtb/dsp/store.py
+index a51d90e..d55bb6b 100644
+--- a/src/rtb/dsp/store.py
++++ b/src/rtb/dsp/store.py
+@@ -9,21 +9,22 @@
+ 同鍵寫入一律拒收)。作廢只看鍵,不碰憑證、不碰時間、不進操作指紋;作廢紀錄永久保留。
+ """
+ 
+ import contextlib
+ import hashlib
+ import json
+ import math
+ import re
+ from collections.abc import Callable, Iterator, Mapping, Sequence
+ from dataclasses import dataclass
+-from datetime import UTC, datetime, timedelta
++from datetime import UTC, date, datetime, timedelta
++from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
+ from pathlib import Path
+ from typing import Any, TypeGuard
+ 
+ from rtb.dsp.errors import (
+     AdjustmentsNotFound,
+     CampaignNotFound,
+     DailyNotFound,
+     IdempotencyConflict,
+     MetricsNotFound,
+     OperationVoided,
+@@ -35,61 +36,52 @@ from rtb.dsp.errors import (
+ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS, DatabaseBusy, begin_immediate, connect
+ 
+ SCHEMA = """
+ CREATE TABLE IF NOT EXISTS campaigns (
+     id TEXT PRIMARY KEY, budget INTEGER NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL,
+     tenant TEXT NOT NULL DEFAULT 't-default', name TEXT NOT NULL DEFAULT '');
+ CREATE TABLE IF NOT EXISTS operations (
+     operation_id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL,
+     action TEXT NOT NULL, params_json TEXT NOT NULL, version_after INTEGER NOT NULL,
+     received_at TEXT NOT NULL, committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+-    policy_version TEXT, expected_version INTEGER);
++    policy_version TEXT, expected_version INTEGER, budget_before INTEGER);
+ CREATE INDEX IF NOT EXISTS operations_by_commit ON operations (committed_at);
+ CREATE TABLE IF NOT EXISTS idempotency_keys (
+     key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, operation_id INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS voided_keys (key TEXT PRIMARY KEY, voided_at TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS metrics (
+     campaign_id TEXT NOT NULL, window_name TEXT NOT NULL, impressions INTEGER, clicks INTEGER,
+-    conversions INTEGER, spend REAL, revenue REAL, PRIMARY KEY (campaign_id, window_name));
++    conversions INTEGER, spend INTEGER, revenue INTEGER, PRIMARY KEY (campaign_id, window_name));
+ CREATE TABLE IF NOT EXISTS daily_metrics (
+-    campaign_id TEXT NOT NULL, days_ago INTEGER NOT NULL, impressions INTEGER, clicks INTEGER,
+-    conversions INTEGER, spend REAL, revenue REAL, no_data INTEGER NOT NULL,
+-    PRIMARY KEY (campaign_id, days_ago));
+-CREATE TABLE IF NOT EXISTS past_adjustment_seeds (campaign_id TEXT PRIMARY KEY);
+-CREATE TABLE IF NOT EXISTS past_adjustments (
+-    campaign_id TEXT NOT NULL, rank INTEGER NOT NULL, days_ago INTEGER NOT NULL,
+-    budget_before INTEGER NOT NULL, budget_after INTEGER NOT NULL,
+-    before_impressions INTEGER, before_clicks INTEGER, before_conversions INTEGER,
+-    before_spend REAL, before_revenue REAL,
+-    after_impressions INTEGER, after_clicks INTEGER, after_conversions INTEGER,
+-    after_spend REAL, after_revenue REAL, PRIMARY KEY (campaign_id, rank));
++    campaign_id TEXT NOT NULL, day_utc TEXT NOT NULL, impressions INTEGER, clicks INTEGER,
++    conversions INTEGER, spend INTEGER, revenue INTEGER, no_data INTEGER NOT NULL,
++    PRIMARY KEY (campaign_id, day_utc));
+ """
+ 
+ SQLITE_INTEGER_MAX = 2**63 - 1
+ # 列操作端點一次最多回幾筆(Phase 9 增量 3 副作用核對翻頁用)。設計寫「最多 5000 筆」;實際取 50:
+ # 讀它的共用 HTTP 用戶端回應上限是 64 KB,每筆最長約 700 位元組,5000 筆會超過上限整頁讀不回來
+ OPERATION_PAGE = 50
+ DEFAULT_TENANT = "t-default"  # 沒指定租戶的廣告(含補欄位前的舊資料)都屬於它
+ # 廣告名稱的字元上限:真實 DSP 的名稱都有上限。最壞情況(每字都要代理對、回應用 ASCII 逃脫時
+ # 每字 12 位元組)4096 字約 48 KB,仍低於分析端 64 KB 的回應上限,名稱塞不爆回應
+ MAX_CAMPAIGN_NAME_LENGTH = 4096
+ DEFAULT_CAMPAIGN_NAME = ""  # 沒給名稱的廣告(含補欄位前的舊資料)名稱是空字串
+ METRIC_WINDOWS = frozenset({"1h", "1d", "7d"})
+ COUNT_FIELDS = ("impressions", "clicks", "conversions")  # METRIC_FIELDS 的子集:存成整數
+-AMOUNT_FIELDS = ("spend", "revenue")  # 存成 REAL
++AMOUNT_FIELDS = ("spend", "revenue")  # 存成整數分
+ METRIC_FIELDS = COUNT_FIELDS + AMOUNT_FIELDS
+-# 逐日成效與過去調整(Phase 13 增量 2):只由展示種子寫,端點只讀。用「第幾天前」不用日期:送給模型的
+-# 內容要逐位元組穩定(錄製鍵),也不送時間戳
++# 日期鍵只存在 DSP;端點仍用相對日數,避免改動既有收據。
+ DAILY_DAYS = 7
+ MAX_PAST_ADJUSTMENTS = 5
+-MIN_ADJUSTMENT_AGE_DAYS = 3  # 要有調整後 3 天才算得出前後對照
+-EXACT_FLOAT_INT_MAX = 2**53  # 超過這個大小的整數放進浮點數會失真
++HISTORY_PAGE = 50
++ROLLING_DAYS = 30
+ IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")  # 用 fullmatch,避免 $ 放行結尾換行
+ 
+ 
+ def _utc_now() -> str:
+     return datetime.now(UTC).isoformat()
+ 
+ 
+ def _moment(text: str) -> datetime:
+     value = datetime.fromisoformat(text)
+     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+@@ -156,65 +148,64 @@ class VoidResult:
+ 
+ @dataclass(frozen=True)
+ class MetricsRecord:
+     """DSP 回報的原始事實;沒有的欄位維持 None,不會被換成 0。"""
+ 
+     campaign_id: str
+     window: str
+     impressions: int | None
+     clicks: int | None
+     conversions: int | None
+-    spend: float | None
+-    revenue: float | None
++    spend: str | None
++    revenue: str | None
+ 
+ 
+ @dataclass(frozen=True)
+ class DailyRow:
+     """一天的成效(第 1 天 = 昨天);缺資料那天五欄都是 None、no_data 為真,不補零、不省略整列。"""
+ 
+     days_ago: int
+     impressions: int | None
+     clicks: int | None
+     conversions: int | None
+-    spend: float | None
+-    revenue: float | None
++    spend: str | None
++    revenue: str | None
+     no_data: bool
+ 
+ 
+ @dataclass(frozen=True)
+ class PastAdjustment:
+-    """3 天以前的一筆預算調整,帶調整前 3 天與後 3 天的成效總量(各五欄)。"""
++    """最近一次加額,含 D 前後各三個完整 UTC 日的成效。"""
+ 
+     days_ago: int
+     budget_before: int
+     budget_after: int
+-    before: Mapping[str, float | None]
+-    after: Mapping[str, float | None]
++    before: Mapping[str, int | str | None]
++    after: Mapping[str, int | str | None]
++    committed_at: str = ""
+ 
+ 
+ @dataclass(frozen=True)
+ class PastBudgetChange:
+     """只給展示種子用的過去操作:某個廣告在幾天前把預算改成多少。"""
+ 
+     campaign_id: str
+     days_ago: int
+     new_budget: int
+ 
+ 
+ @dataclass(frozen=True)
+ class HistorySeed:
+-    """一個廣告要種的歷史(展示種子用):成效窗(1 天、7 天)、7 天逐日、過去調整。"""
++    """一個廣告要種的歷史:七個帶 UTC 日期的完整日桶。"""
+ 
+     campaign_id: str
+-    windows: Mapping[str, Mapping[str, float | None]]
+-    daily: Sequence[Mapping[str, float | None] | None]
+-    adjustments: Sequence[PastAdjustment]
++    daily: Sequence[Mapping[str, int | float | str | None] | None]
+ 
+ 
+ @dataclass(frozen=True)
+ class HistoryEntry:
+     operation_id: int
+     action: str
+     version_after: int
+     received_at: str
+     committed_at: str
+     idempotency_key: str
+@@ -246,41 +237,66 @@ def _validate(op: Operation) -> None:
+         if not is_plain_int(budget) or not 0 < budget <= SQLITE_INTEGER_MAX:
+             raise ValidationRejected("new_budget 必須是 1 到 2**63-1 的整數")
+     elif op.action != "pause_campaign":
+         raise UnknownAction(op.action)
+ 
+ 
+ def _is_storable_count(value: object) -> TypeGuard[int]:
+     return is_plain_int(value) and abs(value) <= SQLITE_INTEGER_MAX
+ 
+ 
+-def _is_storable_amount(value: object) -> TypeGuard[int | float]:
+-    if is_plain_int(value):
+-        return abs(value) <= EXACT_FLOAT_INT_MAX
+-    return isinstance(value, float) and math.isfinite(value)
++def _cents(value: object) -> int:
++    """輸入的十進位金額只在這裡換算成整數分,拒絕多於兩位小數與溢位。"""
++    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
++        raise ValidationRejected(f"金額不合法:{value!r}")
++    if isinstance(value, str) and re.fullmatch(r"-?\d+\.\d{2}", value) is None:
++        raise ValidationRejected(f"金額字串必須固定兩位小數:{value!r}")
++    if isinstance(value, float) and not math.isfinite(value):
++        raise ValidationRejected(f"金額不合法:{value!r}")
++    try:
++        amount = Decimal(str(value)) * 100
++    except InvalidOperation as exc:
++        raise ValidationRejected(f"金額不合法:{value!r}") from exc
++    if (not amount.is_finite() or amount != amount.to_integral_value()
++            or abs(amount) > SQLITE_INTEGER_MAX):
++        raise ValidationRejected(f"金額不是可儲存的整數分:{value!r}")
++    return int(amount)
++
+ 
++def _money(cents: int | None) -> str | None:
++    if cents is None:
++        return None
++    sign = "-" if cents < 0 else ""
++    whole, fraction = divmod(abs(cents), 100)
++    return f"{sign}{whole}.{fraction:02d}"
+ 
+-def _checked_metric(name: str, value: object) -> float | None:
+-    """只收存進去不會失真、也不會被讀成別的東西的值;沒給的欄位維持 None,不補成 0。
+ 
+-    金額欄位是 REAL,整數讀回會是浮點數(12 變成 12.0);所以整數只收到浮點數能精確表示的大小。
+-    """
++def _legacy_cents(value: float | None) -> int | None:
++    """舊 REAL 資料在遷移邊界依原收據的銀行家捨入換成整數分。"""
++    if value is None:
++        return None
++    rounded = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
++    return _cents(f"{rounded:.2f}")
++
++
++def _checked_metric(name: str, value: object) -> int | None:
++    """計數存整數,金額換成整數分;缺值維持 None。"""
+     if value is None:
+         return None
+     if name in COUNT_FIELDS and _is_storable_count(value):
+         return value
+-    if name not in COUNT_FIELDS and _is_storable_amount(value):
+-        return value
++    if name not in COUNT_FIELDS:
++        return _cents(value)
+     raise ValidationRejected(f"{name} 的值不合法:{value!r}")
+ 
+ 
+-def _figures(values: Mapping[str, float | None]) -> list[float | None]:
++def _figures(values: Mapping[str, int | float | str | None]) -> list[int | None]:
+     """成效五欄照固定順序取出並驗值(跟 1 小時窗同一套);多給的欄位拒絕。"""
+     unknown = set(values) - set(METRIC_FIELDS)
+     if unknown:
+         raise TypeError(f"不認得的指標欄位:{sorted(unknown)}")
+     return [_checked_metric(name, values.get(name)) for name in METRIC_FIELDS]
+ 
+ 
+ def _check_window(window: str | None) -> None:
+     if window not in METRIC_WINDOWS:
+         raise ValidationRejected("window 必須是 1h、1d 或 7d 其中之一")
+@@ -329,224 +345,412 @@ class CampaignStore:
+             raise
+ 
+     def _migrate_columns(self) -> None:
+         """`CREATE TABLE IF NOT EXISTS` 不會幫既有表補欄位:沿用分析行程歷史表的補欄位做法,
+         每次連線檢查一次,缺就在交易內加欄位:廣告表的租戶(舊廣告補預設租戶;租戶只在建檔時
+         設定,DSP 沒有任何改廣告租戶的寫入介面)、廣告名稱(舊廣告補空字串,同樣只在建檔時設定)、
+         操作紀錄的政策版本與預期版本(舊操作留空值)。
+         """
+         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
+         op_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(operations)")}
+-        if {"tenant", "name"} <= columns and {"policy_version", "expected_version"} <= op_columns:
++        daily_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(daily_metrics)")}
++        metric_columns = {row[1]: row[2].upper() for row in self._conn.execute(
++            "PRAGMA table_info(metrics)")}
++        if ({"tenant", "name"} <= columns
++                and {"policy_version", "expected_version", "budget_before"} <= op_columns
++                and "day_utc" in daily_columns and metric_columns.get("spend") == "INTEGER"):
+             return
+         try:
+             begin_immediate(self._conn)
+         except DatabaseBusy as exc:
+             raise StoreBusy(str(exc)) from exc
+         try:
+             columns = {row[1] for row in self._conn.execute("PRAGMA table_info(campaigns)")}
+             if "tenant" not in columns:  # 等鎖期間別的連線可能已經補好
+                 self._conn.execute(
+                     "ALTER TABLE campaigns ADD COLUMN tenant TEXT NOT NULL "
+                     f"DEFAULT '{DEFAULT_TENANT}'")
+             if "name" not in columns:  # 舊廣告沒有名稱,誠實補空字串
+                 self._conn.execute(
+                     "ALTER TABLE campaigns ADD COLUMN name TEXT NOT NULL "
+                     f"DEFAULT '{DEFAULT_CAMPAIGN_NAME}'")
+             op_columns = {r[1] for r in self._conn.execute("PRAGMA table_info(operations)")}
+             if "policy_version" not in op_columns:  # 舊操作沒有紀錄政策版本,誠實留空值
+                 self._conn.execute("ALTER TABLE operations ADD COLUMN policy_version TEXT")
+             if "expected_version" not in op_columns:  # 舊操作沒有紀錄預期版本,誠實留空值
+                 self._conn.execute("ALTER TABLE operations ADD COLUMN expected_version INTEGER")
++            self._migrate_budget_before(op_columns)
++            self._migrate_money_columns()
++            self._migrate_daily_dates()
+             self._conn.execute("COMMIT")
+         except BaseException:
+             if self._conn.in_transaction:
+                 self._conn.execute("ROLLBACK")
+             raise
+ 
++    def _migrate_budget_before(self, columns: set[str]) -> None:
++        if "budget_before" in columns:
++            return
++        self._conn.execute("ALTER TABLE operations ADD COLUMN budget_before INTEGER")
++        legacy = self._conn.execute(
++            "SELECT name FROM sqlite_master WHERE type = 'table' "
++            "AND name = 'past_adjustments'").fetchone() is not None
++        for (campaign_id,) in self._conn.execute("SELECT id FROM campaigns"):
++            seeded = (self._conn.execute(
++                "SELECT budget_before, budget_after FROM past_adjustments "
++                "WHERE campaign_id = ? ORDER BY days_ago DESC", (campaign_id,)).fetchall()
++                if legacy else [])
++            previous: int | None = None
++            rows = self._conn.execute(
++                "SELECT operation_id, action, params_json FROM operations "
++                "WHERE campaign_id = ? ORDER BY operation_id", (campaign_id,)).fetchall()
++            for operation_id, action, params_json in rows:
++                if action != "update_budget":
++                    continue
++                budget = json.loads(params_json).get("new_budget")
++                if seeded and seeded[0][1] == budget:
++                    previous = seeded.pop(0)[0]
++                if previous is not None:
++                    self._conn.execute(
++                        "UPDATE operations SET budget_before = ? WHERE operation_id = ?",
++                        (previous, operation_id))
++                previous = budget if is_plain_int(budget) else None
++        if legacy:
++            self._conn.execute("DROP TABLE past_adjustments")
++            self._conn.execute("DROP TABLE IF EXISTS past_adjustment_seeds")
++
++    def _migrate_money_columns(self) -> None:
++        columns = {row[1]: row[2].upper() for row in self._conn.execute(
++            "PRAGMA table_info(metrics)")}
++        if columns.get("spend") != "REAL":
++            return
++        self._conn.execute("ALTER TABLE metrics RENAME TO metrics_legacy")
++        self._conn.execute(
++            "CREATE TABLE metrics (campaign_id TEXT NOT NULL, window_name TEXT NOT NULL, "
++            "impressions INTEGER, clicks INTEGER, conversions INTEGER, spend INTEGER, "
++            "revenue INTEGER, PRIMARY KEY (campaign_id, window_name))")
++        old = self._conn.execute("SELECT campaign_id, window_name, impressions, clicks, "
++                                 "conversions, spend, revenue FROM metrics_legacy").fetchall()
++        for campaign, window, imp, clicks, conv, spend, revenue in old:
++            self._conn.execute("INSERT INTO metrics VALUES (?, ?, ?, ?, ?, ?, ?)",
++                               (campaign, window, imp, clicks, conv,
++                                _legacy_cents(spend), _legacy_cents(revenue)))
++        self._conn.execute("DROP TABLE metrics_legacy")
++
++    def _migrate_daily_dates(self) -> None:
++        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(daily_metrics)")}
++        if "days_ago" not in columns:
++            return
++        self._conn.execute("ALTER TABLE daily_metrics RENAME TO daily_metrics_legacy")
++        self._conn.execute(
++            "CREATE TABLE daily_metrics (campaign_id TEXT NOT NULL, day_utc TEXT NOT NULL, "
++            "impressions INTEGER, clicks INTEGER, conversions INTEGER, spend INTEGER, "
++            "revenue INTEGER, no_data INTEGER NOT NULL, PRIMARY KEY (campaign_id, day_utc))")
++        today = _moment(self._clock()).astimezone(UTC).date()
++        old = self._conn.execute("SELECT campaign_id, days_ago, impressions, clicks, "
++                                 "conversions, spend, revenue, no_data "
++                                 "FROM daily_metrics_legacy").fetchall()
++        for campaign_id, age, imp, clicks, conv, spend, revenue, no_data in old:
++            self._conn.execute("INSERT INTO daily_metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
++                               (campaign_id, (today - timedelta(days=age)).isoformat(),
++                                imp, clicks, conv, _legacy_cents(spend),
++                                _legacy_cents(revenue), no_data))
++        self._conn.execute("DROP TABLE daily_metrics_legacy")
++
+     def close(self) -> None:
+         self._conn.close()
+ 
+     def seed_campaign(
+         self, campaign_id: str, budget: int, status: str = "active",
+         tenant: str = DEFAULT_TENANT, name: str = DEFAULT_CAMPAIGN_NAME,
+     ) -> None:
+         _check_campaign_name(name)
++        if not is_plain_int(budget) or not 0 <= budget <= SQLITE_INTEGER_MAX:
++            raise ValidationRejected("初始預算必須是非負整數")
+         self._conn.execute(
+             "INSERT INTO campaigns (id, budget, status, version, tenant, name) "
+             "VALUES (?, ?, ?, 1, ?, ?)",
+             (campaign_id, budget, status, tenant, name),
+         )
+ 
+     def tenant_of(self, campaign_id: str) -> str | None:
+         """廣告屬於哪個租戶;廣告不存在回 None(驗證憑證時算範圍不符,不是 404)。"""
+         row = self._conn.execute(
+             "SELECT tenant FROM campaigns WHERE id = ?", (campaign_id,)).fetchone()
+         return None if row is None else str(row[0])
+ 
+     def get_campaign(self, campaign_id: str) -> Campaign:
+         row = self._conn.execute(
+             "SELECT id, budget, status, version, name FROM campaigns WHERE id = ?", (campaign_id,)
+         ).fetchone()
+         if row is None:
+             raise CampaignNotFound(campaign_id)
+         return Campaign(*row)
+ 
+-    def seed_metrics(self, campaign_id: str, window: str, **fields: float | None) -> None:
++    def seed_metrics(self, campaign_id: str, window: str,
++                     **fields: int | float | str | None) -> None:
+         unknown = set(fields) - set(METRIC_FIELDS)
+         if unknown:
+             raise TypeError(f"不認得的指標欄位:{sorted(unknown)}")
+         _check_window(window)
+         self.get_campaign(campaign_id)  # 不存在的廣告不能留下讀不到的孤兒列
+         self._write_metrics(campaign_id, window, fields)
+ 
+     def _write_metrics(self, campaign_id: str, window: str,
+-                       fields: Mapping[str, float | None]) -> None:
++                       fields: Mapping[str, int | float | str | None]) -> None:
+         _check_window(window)
+         values = _figures(fields)
+         self._conn.execute(
+             "INSERT OR REPLACE INTO metrics (campaign_id, window_name, impressions, clicks, "
+             "conversions, spend, revenue) VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (campaign_id, window, *values),
+         )
+ 
+     def get_metrics(self, campaign_id: str, window: str | None) -> MetricsRecord:
+         _check_window(window)
+         self.get_campaign(campaign_id)  # 廣告不存在就回 CampaignNotFound
++        if window in {"1d", "7d"}:
++            self._materialize_daily(campaign_id)
+         row = self._conn.execute(
+             "SELECT campaign_id, window_name, impressions, clicks, conversions, spend, revenue "
+             "FROM metrics WHERE campaign_id = ? AND window_name = ?", (campaign_id, window),
+         ).fetchone()
+         if row is None:
+             raise MetricsNotFound(f"{campaign_id}/{window}")
+-        return MetricsRecord(*row)
++        return MetricsRecord(row[0], row[1], row[2], row[3], row[4],
++                             _money(row[5]), _money(row[6]))
+ 
+     def seed_daily(self, campaign_id: str,
+-                   days: Sequence[Mapping[str, float | None] | None]) -> None:
++                   days: Sequence[Mapping[str, int | float | str | None] | None],
++                   now: datetime | None = None) -> None:
+         """種逐日成效(展示種子用):恰好 7 天,第 1 天在最前;None 是那天缺資料(列照樣在)。"""
+         self.get_campaign(campaign_id)
++        at = now or _moment(self._clock())
+         with self._seed_transaction():
+-            self._write_daily(campaign_id, days)
++            self._write_daily(campaign_id, days, at)
++            self._refresh_windows(campaign_id, at.astimezone(UTC).date())
++            self._prune_daily(campaign_id, at.astimezone(UTC).date())
+ 
+     def _write_daily(self, campaign_id: str,
+-                     days: Sequence[Mapping[str, float | None] | None]) -> None:
++                     days: Sequence[Mapping[str, int | float | str | None] | None],
++                     now: datetime) -> None:
+         if len(days) != DAILY_DAYS:
+             raise ValidationRejected(f"逐日成效要恰好 {DAILY_DAYS} 天")
++        if now.utcoffset() is None:
++            raise ValidationRejected("逐日種子的 now 必須帶時區")
++        today = now.astimezone(UTC).date()
+         for days_ago, day in enumerate(days, start=1):
+             values = [None] * len(METRIC_FIELDS) if day is None else _figures(day)
+             self._conn.execute(
+                 "INSERT OR REPLACE INTO daily_metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+-                (campaign_id, days_ago, *values, int(day is None)))
++                (campaign_id, (today - timedelta(days=days_ago)).isoformat(),
++                 *values, int(day is None)))
++
++    def _prune_daily(self, campaign_id: str, today: date) -> None:
++        """保留最近 30 完整日,以及最近加額當日兩側的六個比較日。"""
++        last = self._latest_raise(campaign_id)
++        protected: list[str] = [""] * 6
++        if last is not None:
++            day = _moment(last[3]).astimezone(UTC).date()
++            protected = [(day + timedelta(days=offset)).isoformat()
++                         for offset in (-3, -2, -1, 1, 2, 3)]
++        cutoff = (today - timedelta(days=ROLLING_DAYS)).isoformat()
++        self._conn.execute(
++            "DELETE FROM daily_metrics WHERE campaign_id = ? AND day_utc < ? "
++            "AND day_utc NOT IN (?, ?, ?, ?, ?, ?)", (campaign_id, cutoff, *protected))
++
++    def _refresh_windows(self, campaign_id: str, today: date) -> None:
++        for window, count in (("1d", 1), ("7d", 7)):
++            since = (today - timedelta(days=count)).isoformat()
++            rows = self._conn.execute(
++                "SELECT impressions, clicks, conversions, spend, revenue, no_data "
++                "FROM daily_metrics WHERE campaign_id = ? AND day_utc >= ? AND day_utc < ? "
++                "ORDER BY day_utc DESC", (campaign_id, since, today.isoformat())).fetchall()
++            if not rows:
++                continue
++            fields: list[int | None] = []
++            for index in range(len(METRIC_FIELDS)):
++                values = [row[index] for row in rows if not row[5]]
++                fields.append(sum(values) if values and all(v is not None for v in values)
++                              else None)
++            self._conn.execute(
++                "INSERT OR REPLACE INTO metrics VALUES (?, ?, ?, ?, ?, ?, ?)",
++                (campaign_id, window, *fields))
++
++    def _materialize_daily(self, campaign_id: str) -> None:
++        """讀取前補齊跨日桶;新增桶與 1d/7d 重算在同一寫入交易。"""
++        last = self._conn.execute("SELECT max(day_utc) FROM daily_metrics WHERE campaign_id = ?",
++                                  (campaign_id,)).fetchone()[0]
++        if last is None:
++            return
++        today = _moment(self._clock()).astimezone(UTC).date()
++        newest = datetime.fromisoformat(last).date()
++        if newest >= today - timedelta(days=1):
++            return
++        with self._seed_transaction():
++            newest_row = self._conn.execute(
++                "SELECT impressions, clicks, conversions, spend, revenue, no_data "
++                "FROM daily_metrics WHERE campaign_id = ? AND day_utc = ?",
++                (campaign_id, last)).fetchone()
++            while newest < today - timedelta(days=1):
++                newest += timedelta(days=1)
++                self._conn.execute(
++                    "INSERT OR IGNORE INTO daily_metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
++                    (campaign_id, newest.isoformat(), *newest_row))
++            self._refresh_windows(campaign_id, today)
++            self._prune_daily(campaign_id, today)
+ 
+     def get_daily(self, campaign_id: str) -> list[DailyRow]:
+         self.get_campaign(campaign_id)
++        self._materialize_daily(campaign_id)
++        today = _moment(self._clock()).astimezone(UTC).date()
+         rows = self._conn.execute(
+-            "SELECT days_ago, impressions, clicks, conversions, spend, revenue, no_data "
+-            "FROM daily_metrics WHERE campaign_id = ? ORDER BY days_ago", (campaign_id,)).fetchall()
++            "SELECT day_utc, impressions, clicks, conversions, spend, revenue, no_data "
++            "FROM daily_metrics WHERE campaign_id = ? AND day_utc >= ? AND day_utc < ? "
++            "ORDER BY day_utc DESC",
++            (campaign_id, (today - timedelta(days=7)).isoformat(), today.isoformat())).fetchall()
+         if not rows:
+             raise DailyNotFound(campaign_id)
+-        return [DailyRow(row[0], row[1], row[2], row[3], row[4], row[5], bool(row[6]))
+-                for row in rows]
+-
+-    def seed_past_adjustments(self, campaign_id: str,
+-                              adjustments: Sequence[PastAdjustment]) -> None:
+-        """種過去調整(展示種子用):最多 5 筆、由新到舊、每筆至少 3 天前、調整前後的預算是非負整數;
+-        零筆也記「種過了」。重種會先清掉這個廣告舊的過去調整(代碼審 r1 d4:重種成較少筆時,序號較大的
+-        舊列留著、順序也亂掉)。"""
+-        self.get_campaign(campaign_id)
+-        with self._seed_transaction():
+-            self._write_adjustments(campaign_id, adjustments)
+-
+-    def _write_adjustments(self, campaign_id: str,
+-                           adjustments: Sequence[PastAdjustment]) -> None:
+-        ages = [item.days_ago for item in adjustments]
+-        if (len(adjustments) > MAX_PAST_ADJUSTMENTS
+-                or any(not is_plain_int(age) or age < MIN_ADJUSTMENT_AGE_DAYS for age in ages)
+-                or ages != sorted(ages)):
+-            raise ValidationRejected("過去調整最多 5 筆、由新到舊、每筆至少 3 天前")
+-        if any(not is_plain_int(b) or not 0 <= b <= SQLITE_INTEGER_MAX
+-               for item in adjustments for b in (item.budget_before, item.budget_after)):
+-            raise ValidationRejected("調整前後的預算要是非負整數")
+-        self._conn.execute("INSERT OR IGNORE INTO past_adjustment_seeds VALUES (?)", (campaign_id,))
+-        self._conn.execute("DELETE FROM past_adjustments WHERE campaign_id = ?", (campaign_id,))
+-        for rank, item in enumerate(adjustments, start=1):
+-            self._conn.execute(
+-                "INSERT INTO past_adjustments VALUES "
+-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+-                (campaign_id, rank, item.days_ago, item.budget_before, item.budget_after,
+-                 *_figures(item.before), *_figures(item.after)))
++        by_day = {row[0]: row for row in rows}
++        found = []
++        for age in range(1, DAILY_DAYS + 1):
++            row = by_day.get((today - timedelta(days=age)).isoformat())
++            found.append(DailyRow(age, None, None, None, None, None, True) if row is None
++                         else DailyRow(age, row[1], row[2], row[3], _money(row[4]),
++                                       _money(row[5]), bool(row[6])))
++        return found
++
++    def _latest_raise(self, campaign_id: str) -> tuple[int, int, int, str] | None:
++        """只由操作紀錄取最後一次加額;後續減額不影響它。"""
++        rows = self._conn.execute(
++            "SELECT operation_id, budget_before, params_json, committed_at FROM operations "
++            "WHERE campaign_id = ? AND action = 'update_budget' AND budget_before IS NOT NULL "
++            "ORDER BY operation_id DESC", (campaign_id,)).fetchall()
++        for operation_id, before, params, at in rows:
++            after = json.loads(params).get("new_budget")
++            if is_plain_int(after) and after > before:
++                return operation_id, before, after, at
++        return None
++
++    def _three_days(self, campaign_id: str, dates: Sequence[str]) -> dict[str, int | str | None]:
++        if len(dates) != 3:
++            raise ValueError("需要恰好三個 UTC 日期")
++        rows = self._conn.execute(
++            "SELECT day_utc, impressions, clicks, conversions, spend, revenue, no_data "
++            "FROM daily_metrics WHERE campaign_id = ? AND day_utc IN (?, ?, ?)",
++            (campaign_id, *dates)).fetchall()
++        if len(rows) != 3 or any(row[6] for row in rows):
++            return dict.fromkeys(METRIC_FIELDS)
++        amounts: list[int | str | None] = []
++        for index, name in enumerate(METRIC_FIELDS, start=1):
++            values = [row[index] for row in rows]
++            if any(value is None for value in values):
++                amounts.append(None)
++            else:
++                total = sum(values)
++                amounts.append(_money(total) if name in AMOUNT_FIELDS else total)
++        return dict(zip(METRIC_FIELDS, amounts, strict=True))
+ 
+     def get_past_adjustments(self, campaign_id: str) -> list[PastAdjustment]:
+         self.get_campaign(campaign_id)
+-        if self._conn.execute("SELECT 1 FROM past_adjustment_seeds WHERE campaign_id = ?",
++        if self._conn.execute("SELECT 1 FROM daily_metrics WHERE campaign_id = ? LIMIT 1",
+                               (campaign_id,)).fetchone() is None:
+             raise AdjustmentsNotFound(campaign_id)
+-        rows = self._conn.execute(
+-            "SELECT days_ago, budget_before, budget_after, before_impressions, before_clicks, "
+-            "before_conversions, before_spend, before_revenue, after_impressions, after_clicks, "
+-            "after_conversions, after_spend, after_revenue FROM past_adjustments "
+-            "WHERE campaign_id = ? ORDER BY rank", (campaign_id,)).fetchall()
+-        return [PastAdjustment(row[0], row[1], row[2], dict(zip(METRIC_FIELDS, row[3:8],
+-                                                               strict=True)),
+-                               dict(zip(METRIC_FIELDS, row[8:13], strict=True))) for row in rows]
++        self._materialize_daily(campaign_id)
++        latest = self._latest_raise(campaign_id)
++        unknown = self._conn.execute(
++            "SELECT max(operation_id) FROM operations WHERE campaign_id = ? "
++            "AND action = 'update_budget' AND budget_before IS NULL",
++            (campaign_id,)).fetchone()[0]
++        if unknown is not None and (latest is None or unknown > latest[0]):
++            raise AdjustmentsNotFound(campaign_id)
++        if latest is None:
++            return []
++        _, before_budget, after_budget, at = latest
++        day = _moment(at).astimezone(UTC).date()
++        today = _moment(self._clock()).astimezone(UTC).date()
++        prior = [(day - timedelta(days=n)).isoformat() for n in (1, 2, 3)]
++        future = [(day + timedelta(days=n)).isoformat() for n in (1, 2, 3)]
++        before = self._three_days(campaign_id, prior)
++        after = (self._three_days(campaign_id, future) if today > day + timedelta(days=3)
++                 else dict.fromkeys(METRIC_FIELDS))
++        return [PastAdjustment((today - day).days, before_budget, after_budget, before, after, at)]
+ 
+     def seed_history(self, entries: Sequence[HistorySeed], changes: Sequence[PastBudgetChange],
+                      now: datetime) -> None:
+-        """**只准展示種子呼叫**:全平台的 1 天與 7 天窗、逐日成效、過去調整與過去操作在同一個交易裡
+-        寫,
+-        全有或全無(代碼審 r1 d4:原本逐廣告各自提交,最後一步被拒時前面已經寫進去,資料違反
+-        [S1127])。"""
++        """**只准展示種子呼叫**:全平台的日桶、視窗投影與預算操作同交易提交。"""
+         for entry in entries:
+             self.get_campaign(entry.campaign_id)
+         with self._seed_transaction():
+             for entry in entries:
+-                for window, fields in entry.windows.items():
+-                    self._write_metrics(entry.campaign_id, window, fields)
+-                self._write_daily(entry.campaign_id, entry.daily)
+-                self._write_adjustments(entry.campaign_id, entry.adjustments)
++                self._write_daily(entry.campaign_id, entry.daily, now)
++                self._refresh_windows(entry.campaign_id, now.astimezone(UTC).date())
+             self._write_past_operations(changes, now)
+ 
+     def seed_past_operations(self, changes: Sequence[PastBudgetChange], now: datetime) -> None:
+-        """**只准展示種子呼叫**(Phase 13 [S1153],測試掃全庫守):把過去幾天的預算調整寫進操作紀錄。
+-        既有唯一的寫入路徑把提交時間取成時鐘讀數、而且不早於上一筆,寫不出「10 天前」;所以另開這支,
+-        只准在平台還沒有任何操作時呼叫(展示每個情境都重建資料庫,種子在最前面),一次收全平台要種的
+-        過去操作,依時間先後寫(最舊的先寫),寫完提交時間與操作編號的順序一致、單調不減。廣告的預算
+-        與版本照每一筆往前推,跟真的寫過一樣;既有寫入路徑一行不改。"""
++        """**只准展示種子呼叫**:平台尚無操作時按時間種歷史操作;
++        與正常寫入共用同一筆操作紀錄及前後預算欄位。"""
+         with self._seed_transaction():
+             self._write_past_operations(changes, now)
+ 
+     def _write_past_operations(self, changes: Sequence[PastBudgetChange], now: datetime) -> None:
+         if any(not is_plain_int(c.days_ago) or c.days_ago < 1 for c in changes):
+             raise ValidationRejected("過去的操作至少要是 1 天前")
+         if not changes:
+             return
+         if self._conn.execute("SELECT 1 FROM operations LIMIT 1").fetchone() is not None:
+             raise ValidationRejected("平台已經有操作:只准在還沒有任何操作時種過去的操作")
+         ordered = sorted(enumerate(changes), key=lambda pair: (-pair[1].days_ago, pair[0]))
+         for index, change in ordered:
+             at = commit_text(now - timedelta(days=change.days_ago))
+             current = self.get_campaign(change.campaign_id)
+             op = Operation(change.campaign_id, "update_budget",
+                            {"new_budget": change.new_budget}, current.version,
+                            f"seed-past-{index}")
+             _validate(op)
+-            operation_id = self._apply(op, _next_state(current, op), at, at)
++            operation_id = self._apply(op, current, _next_state(current, op), at, at)
+             self._record_idempotency(op, operation_id)
+ 
+     def history(self, campaign_id: str) -> list[HistoryEntry]:
+         rows = self._conn.execute(
+             "SELECT operation_id, action, version_after, received_at, committed_at, "
+             "idempotency_key FROM operations WHERE campaign_id = ? ORDER BY operation_id",
+             (campaign_id,),
+         ).fetchall()
+         return [HistoryEntry(*row) for row in rows]
+ 
++    def history_limited(self, campaign_id: str) -> tuple[list[HistoryEntry], dict[str, int | bool]]:
++        """HTTP 只給最近 50 列;計數從未截斷的操作集合計算。"""
++        self.get_campaign(campaign_id)
++        now = _moment(self._clock()).astimezone(UTC)
++        seven = commit_text(now - timedelta(days=7))
++        recent = commit_text(now - timedelta(days=3))
++        counts = self._conn.execute(
++            "SELECT COUNT(*), "
++            "SUM(CASE WHEN action = 'update_budget' THEN 1 ELSE 0 END), "
++            "SUM(CASE WHEN action = 'pause_campaign' THEN 1 ELSE 0 END), "
++            "SUM(CASE WHEN action = 'update_budget' AND committed_at >= ? THEN 1 ELSE 0 END), "
++            "SUM(CASE WHEN action = 'update_budget' AND committed_at > ? THEN 1 ELSE 0 END) "
++            "FROM operations WHERE campaign_id = ?",
++            (seven, recent, campaign_id)).fetchone()
++        rows = self._conn.execute(
++            "SELECT operation_id, action, version_after, received_at, committed_at, "
++            "idempotency_key FROM operations WHERE campaign_id = ? "
++            "ORDER BY operation_id DESC LIMIT ?", (campaign_id, HISTORY_PAGE)).fetchall()
++        summary: dict[str, int | bool] = {
++            "total_operations": counts[0], "total_budget_changes": counts[1] or 0,
++            "total_pauses": counts[2] or 0, "budget_changes_7d": counts[3] or 0,
++            "budget_changes_last_3d": counts[4] or 0,
++            "has_recent_budget_change": bool(counts[4]),
++        }
++        return [HistoryEntry(*row) for row in reversed(rows)], summary
++
+     def get_operation_by_key(self, key: str) -> OperationResult | None:
+         return self._recorded_result(key, replayed=False)  # 查詢不是重放
+ 
+     def execute(self, op: Operation) -> OperationResult:
+         _validate(op)
+         received_at = self._clock()
+         self._begin_write_transaction()
+         try:
+             result = self._execute_in_transaction(op, received_at)
+             self._conn.execute("COMMIT")
+@@ -599,21 +803,21 @@ class CampaignStore:
+         # 這段查詢必須留在寫入交易內(已經拿到寫入鎖):搬到交易外的話,舊請求會先查到「沒作廢」、
+         # 等作廢完成之後才提交,就繞過了作廢
+         if self._conn.execute(
+                 "SELECT 1 FROM voided_keys WHERE key = ?", (op.idempotency_key,)).fetchone():
+             raise OperationVoided(op.idempotency_key)
+         current = self.get_campaign(op.campaign_id)
+         if current.version != op.expected_version:
+             raise VersionConflict(f"預期 {op.expected_version},目前 {current.version}")
+         updated = _next_state(current, op)
+         committed_at = self._not_before_last(self._clock())
+-        operation_id = self._apply(op, updated, received_at, committed_at)
++        operation_id = self._apply(op, current, updated, received_at, committed_at)
+         self._record_idempotency(op, operation_id)
+         return OperationResult(
+             operation_id, op.campaign_id, op.action, updated.version, committed_at, False,
+             op.idempotency_key, dict(op.params),
+             op.expected_version if is_plain_int(op.expected_version) else None,
+         )
+ 
+     def _not_before_last(self, reading: str) -> str:
+         """提交時間取時鐘讀數與上一筆提交時間較大的那個(Phase 9 增量 3):依操作編號翻頁才等於依
+         時間翻頁。時鐘倒退時提交時間會被墊高到上一筆。在寫入交易裡讀,上一筆不會被別人插隊。
+@@ -671,40 +875,42 @@ class CampaignStore:
+         ).fetchone()
+         if row is None:
+             return None
+         operation_id, campaign_id, action, version_after, committed_at, params, expected = row
+         return OperationResult(
+             operation_id, campaign_id, action, version_after, committed_at, replayed,
+             key, json.loads(params), expected if is_plain_int(expected) else None,
+         )
+ 
+     def _apply(
+-        self, op: Operation, updated: Campaign, received_at: str, committed_at: str
++        self, op: Operation, current: Campaign, updated: Campaign,
++        received_at: str, committed_at: str
+     ) -> int:
+         self._conn.execute(
+             "UPDATE campaigns SET budget = ?, status = ?, version = ? WHERE id = ?",
+             (updated.budget, updated.status, updated.version, updated.id),
+         )
+         cursor = self._conn.execute(
+             "INSERT INTO operations (campaign_id, action, params_json, version_after, "
+-            "received_at, committed_at, idempotency_key, policy_version, expected_version) "
+-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
++            "received_at, committed_at, idempotency_key, policy_version, expected_version, "
++            "budget_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (
+                 op.campaign_id,
+                 op.action,
+                 json.dumps(op.params, sort_keys=True),
+                 updated.version,
+                 received_at,
+                 committed_at,
+                 op.idempotency_key,
+                 op.policy_version,
+                 op.expected_version,
++                current.budget if op.action == "update_budget" else None,
+             ),
+         )
+         operation_id = cursor.lastrowid
+         if operation_id is None:  # INSERT 一定會有列編號;沒有代表出了預期外的事,讓交易回滾
+             raise RuntimeError("INSERT 沒有回傳列編號")
+         return operation_id
+ 
+     def _record_idempotency(self, op: Operation, operation_id: int) -> None:
+         self._conn.execute(
+             "INSERT INTO idempotency_keys (key, fingerprint, operation_id) VALUES (?, ?, ?)",
+diff --git a/tests/dsp/test_investigation_data.py b/tests/dsp/test_investigation_data.py
+index 92ea56e..2ac133a 100644
+--- a/tests/dsp/test_investigation_data.py
++++ b/tests/dsp/test_investigation_data.py
+@@ -11,89 +11,89 @@ from pathlib import Path
+ 
+ import pytest
+ 
+ from rtb.dsp import seed
+ from rtb.dsp.errors import (
+     AdjustmentsNotFound,
+     DailyNotFound,
+     MetricsNotFound,
+     ValidationRejected,
+ )
+-from rtb.dsp.store import CampaignStore, Operation, PastAdjustment
++from rtb.dsp.store import CampaignStore, Operation
+ 
+ SRC = Path(__file__).resolve().parents[2] / "src"
+ NOW = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
+ DAY = seed.DayFigures(impressions=100, clicks=10, conversions=2, spend=1.5, revenue=8.0)
+ PROFILE = seed.HistoryProfile(
+     daily=(DAY, DAY, None, DAY, DAY, DAY, DAY),
+     adjustments=(
+-        seed.AdjustmentSeed(4, 100, 110, before=seed.DayFigures(300, 30, 6, 4.5, 24.0),
+-                            after=seed.DayFigures(300, 30, 3, 4.5, 12.0)),
+-        seed.AdjustmentSeed(9, 90, 100, before=seed.DayFigures(300, 30, 3, 4.5, 12.0),
+-                            after=seed.DayFigures(300, 30, 6, 4.5, 24.0)),
++        seed.AdjustmentSeed(4, 110),
++        seed.AdjustmentSeed(9, 100),
+     ))
+ 
+ 
+-def _seeded(tmp_path, profile=PROFILE, campaigns=("c1",)):
++def _seeded(tmp_path, profile=PROFILE, campaigns=("c1",), now=NOW):
+     store = CampaignStore(tmp_path / "dsp.db")
+     for campaign in campaigns:
+         store.seed_campaign(campaign, budget=90)
+         store.seed_metrics(campaign, "1h", impressions=500, clicks=12, conversions=1, spend=0.5,
+                            revenue=5.0)
+-    seed.seed_platform_history(store, dict.fromkeys(campaigns, profile), NOW)
++    seed.seed_platform_history(store, dict.fromkeys(campaigns, profile), now)
+     return store
+ 
+ 
+ def _table_dump(path):
+     with sqlite3.connect(path) as conn:
+         return {table: conn.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()  # noqa: S608
+-                for table in ("daily_metrics", "past_adjustments", "past_adjustment_seeds",
+-                              "operations", "campaigns", "metrics")}
++                for table in ("daily_metrics", "operations", "campaigns", "metrics")}
+ 
+ 
+ ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+ 
+ 
+-def test_the_daily_and_past_adjustment_endpoints_are_read_only_and_dateless(tmp_path, start_dsp):
+-    """[S1126] 兩支端點只接受 GET,呼叫任意次後各表與操作紀錄不變;回應只含相對天數,不含日期時間戳
+-    。"""
++def test_the_daily_and_past_adjustment_endpoints_are_get_only_and_idempotent(tmp_path, start_dsp):
++    """[S1126] 兩支端點只接受 GET;首次跨日物化後重讀冪等,調整回提交時間。"""
+     _seeded(tmp_path).close()
+-    before = _table_dump(tmp_path / "dsp.db")
+     dsp = start_dsp(seed=False)
+-    for _ in range(3):
++    materialized = None
++    for index in range(3):
+         for path in ("/campaigns/c1/daily", "/campaigns/c1/adjustments"):
+             status, body = dsp.request("GET", path)
+             assert status == 200, body
+-            text = json.dumps(body)
+-            assert not ISO_DATE.search(text), text
+-            assert not {"committed_at", "received_at", "date", "at"} & {
+-                k for row in body["rows"] for k in row}
++            if path.endswith("/daily"):
++                assert not ISO_DATE.search(json.dumps(body))
++            else:
++                assert all(ISO_DATE.search(row["committed_at"]) for row in body["rows"])
++        snapshot = _table_dump(tmp_path / "dsp.db")
++        if index:
++            assert snapshot == materialized
++        materialized = snapshot
+     for path in ("/campaigns/c1/daily", "/campaigns/c1/adjustments"):
+         for method in ("POST", "PUT", "DELETE"):
+             status, _ = dsp.request(method, path, {} if method != "DELETE" else None)
+             assert status in (404, 405, 501), (method, path, status)  # 只准 GET
+-    assert _table_dump(tmp_path / "dsp.db") == before
++    assert _table_dump(tmp_path / "dsp.db") == materialized
+     from rtb.dsp.server import ROUTES
+ 
+     new = {name: method for method, _p, name in ROUTES if name in ("get_daily", "get_adjustments")}
+     assert new == {"get_daily": "GET", "get_adjustments": "GET"}
+ 
+ 
+ def test_seeded_daily_and_adjustment_data_agree_with_windows_and_history(tmp_path):
+     """[S1127] 逐日第 1 天等於 1 天窗、7 天加總等於 7 天窗;過去調整筆數等於操作歷史裡 3 天以前的
+     預算調整筆數;情境中當天的新寫入不影響這條一致性。展示種子(驅動程式實際用的那一份)也照這條。"""
+     store = _seeded(tmp_path, campaigns=("c1", "c2"))
+     try:
+         for campaign in ("c1", "c2"):
+             assert seed.consistency_problems(store, campaign, NOW) == []
+         week = store.get_metrics("c1", "7d")
+-        assert (week.impressions, week.conversions, week.spend) == (600, 12, 9.0)
++        assert (week.impressions, week.conversions, week.spend) == (600, 12, "9.00")
+         assert len([h for h in store.history("c1") if h.action == "update_budget"]) == 2
+         # 當天另一個寫入者真的寫一筆預算調整:只落在最近 3 天內,一致性不變
+         version = store.get_campaign("c1").version
+         store.execute(Operation("c1", "update_budget", {"new_budget": 120}, version, "today-1"))
+         assert seed.consistency_problems(store, "c1", NOW) == []
+         # 殺傷力:把 7 天窗改掉、或多種一筆過去調整,都抓得到
+         store.seed_metrics("c1", "7d", impressions=1, clicks=1, conversions=1, spend=1.0,
+                            revenue=1.0)
+         assert seed.consistency_problems(store, "c1", NOW)
+     finally:
+@@ -146,22 +146,21 @@ def test_seeded_past_operations_keep_commit_times_monotonic(tmp_path):  # noqa:
+     callers = []
+     for path in sorted((SRC / "rtb").rglob("*.py")):
+         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+             if isinstance(node, ast.Attribute) and node.attr in ("seed_past_operations",
+                                                                  "seed_history"):
+                 callers.append(path.relative_to(SRC).as_posix())
+     assert sorted(set(callers)) == ["rtb/dsp/seed.py"]
+ 
+ 
+ # ---- Phase 13 增量 2 代碼審 r1(d4、d5) ----
+-_ADJ = seed.AdjustmentSeed(4, 100, 110, before=seed.DayFigures(300, 30, 6, 4.5, 24.0),
+-                           after=seed.DayFigures(300, 30, 3, 4.5, 12.0))
++_ADJ = seed.AdjustmentSeed(4, 110)
+ 
+ 
+ def test_seeding_history_is_all_or_nothing(tmp_path):
+     """d4-1:平台已經有操作時整份種子被拒,前面的逐日與過去調整也都沒寫進去。"""
+     store = CampaignStore(tmp_path / "dsp.db")
+     try:
+         store.seed_campaign("c1", budget=90)
+         store.execute(Operation("c1", "update_budget", {"new_budget": 95}, 1, "live-1"))
+         with pytest.raises(ValidationRejected):
+             seed.seed_platform_history(store, {"c1": seed.HistoryProfile(
+@@ -170,47 +169,51 @@ def test_seeding_history_is_all_or_nothing(tmp_path):
+             store.get_past_adjustments("c1")
+         with pytest.raises(DailyNotFound):
+             store.get_daily("c1")
+         with pytest.raises(MetricsNotFound):
+             store.get_metrics("c1", "7d")
+     finally:
+         store.close()
+ 
+ 
+ def test_reseeding_past_adjustments_replaces_the_old_rows(tmp_path):
+-    """d4-2:重種成較少筆時,舊的過去調整不留下來。"""
++    """原 d4-2 改寫:調整只有操作紀錄這一處,減額不留下另一份舊快照。"""
+     store = CampaignStore(tmp_path / "dsp.db")
+     try:
+         store.seed_campaign("c1", budget=90)
+-        before, after = _ADJ.before.as_fields(), _ADJ.after.as_fields()
+-        store.seed_past_adjustments("c1", [PastAdjustment(d, 90, 100, before, after)
+-                                           for d in (3, 5, 7)])
+-        store.seed_past_adjustments("c1", [PastAdjustment(9, 90, 100, before, after)])
+-        assert [a.days_ago for a in store.get_past_adjustments("c1")] == [9]
++        store.seed_daily("c1", [DAY.as_fields()] * 7, now=NOW)
++        store.execute(Operation("c1", "update_budget", {"new_budget": 100}, 1, "raise"))
++        store.execute(Operation("c1", "update_budget", {"new_budget": 95}, 2, "lower"))
++        assert [(a.budget_before, a.budget_after) for a in store.get_past_adjustments("c1")] == [
++            (90, 100)]
++        tables = {row[0] for row in store._conn.execute("SELECT name FROM sqlite_master")}
++        assert "past_adjustments" not in tables and "past_adjustment_seeds" not in tables
+     finally:
+         store.close()
+ 
+ 
+ @pytest.mark.parametrize(("budget_before", "budget_after"), [(-5, 100), ("abc", 1.5),
+                                                               (100, True), (1.5, 100)])
+ def test_past_adjustment_budgets_must_be_non_negative_integers(tmp_path, budget_before,
+                                                                budget_after):
+-    """d4-3:調整前後的預算要是非負整數。"""
++    """原 d4-3 改寫:前值取廣告現況,後值由正常寫入驗證。"""
+     store = CampaignStore(tmp_path / "dsp.db")
+     try:
+-        store.seed_campaign("c1", budget=90)
+-        with pytest.raises(ValidationRejected):
+-            store.seed_past_adjustments("c1", [PastAdjustment(
+-                4, budget_before, budget_after, _ADJ.before.as_fields(),
+-                _ADJ.after.as_fields())])
+-        with pytest.raises(AdjustmentsNotFound):
+-            store.get_past_adjustments("c1")
++        if not isinstance(budget_before, int) or budget_before < 0:
++            with pytest.raises(ValidationRejected):
++                store.seed_campaign("c1", budget=budget_before)
++        else:
++            store.seed_campaign("c1", budget=budget_before)
++            with pytest.raises(ValidationRejected):
++                store.execute(Operation("c1", "update_budget", {"new_budget": budget_after},
++                                        1, "bad-budget"))
++            assert store.history("c1") == []
+     finally:
+         store.close()
+ 
+ 
+ def test_a_missing_first_day_seeds_an_empty_one_day_window(tmp_path):
+     """d5:逐日第 1 天缺資料時 1 天窗照樣在(五欄 null);較長時間窗有結果,d1 欄 na、d7 欄有值。"""
+     from rtb.analyzer import dsp_client
+     from rtb.analyzer import investigation as inv
+     from rtb.analyzer.task_store import TaskRow
+     from rtb.domain.task_state import TaskState
+@@ -232,10 +235,153 @@ def test_a_missing_first_day_seeds_an_empty_one_day_window(tmp_path):
+         read = dsp_client.make_query_reader(f"http://127.0.0.1:{server.server_address[1]}", 2.0)(
+             TaskRow("t1", 2, TaskState.COLLECTING_EVIDENCE, "c1", None, None, NOW),
+             inv.QueryOption.CHECK_LONGER_WINDOW.value)
+     finally:
+         server.shutdown()
+         server.server_close()
+     assert read.reason is None and read.raw is not None
+     payload = inv.receipt_payload(inv.QueryOption.CHECK_LONGER_WINDOW, read.raw, NOW)
+     assert payload["d1_impressions"] == "na" and payload["d1_revenue"] == "na"
+     assert payload["d7_impressions"] == "600"
++
++
++def test_past_adjustments_include_normal_budget_operations(tmp_path):
++    """[S1415] 真正的加額即時可見,減額不能把最近一次加額擠掉。"""
++    moment = [NOW]
++    store = CampaignStore(tmp_path / "budget.db", clock=lambda: moment[0].isoformat())
++    try:
++        store.seed_campaign("c1", 100)
++        seed.seed_platform_history(store, {"c1": seed.HistoryProfile(daily=(DAY,) * 7)}, NOW)
++        raised = store.execute(Operation("c1", "update_budget", {"new_budget": 120}, 1, "raise"))
++        for index in range(5):
++            store.execute(Operation("c1", "update_budget", {"new_budget": 119 - index},
++                                    index + 2, f"lower-{index}"))
++        rows = store.get_past_adjustments("c1")
++        assert len(rows) == 1
++        assert rows[0].budget_before == 100 and rows[0].budget_after == 120
++        assert rows[0].committed_at == raised.committed_at
++        assert rows[0].after["conversions"] is None
++    finally:
++        store.close()
++
++
++def test_latest_raise_daily_buckets_survive_rolling_retention(tmp_path):
++    """[S1423] 最近加額 40 天前,六個對照日桶仍可計算。"""
++    moment = [NOW - timedelta(days=40)]
++    store = CampaignStore(tmp_path / "retention.db", clock=lambda: moment[0].isoformat())
++    try:
++        store.seed_campaign("c1", 100)
++        store.seed_daily("c1", [DAY.as_fields()] * 7, now=moment[0])
++        store.execute(Operation("c1", "update_budget", {"new_budget": 120}, 1, "raise"))
++        moment[0] += timedelta(days=4)
++        store.seed_daily("c1", [DAY.as_fields()] * 7, now=moment[0])
++        moment[0] = NOW
++        store.get_daily("c1")  # 物化到第 40 天並執行保留
++        count = store._conn.execute("SELECT count(*) FROM daily_metrics "
++                                    "WHERE campaign_id = 'c1'").fetchone()[0]
++        assert count == 36  # 30 個完整日 + 最近加額 D 前後六日
++        rows = store.get_past_adjustments("c1")
++        assert len(rows) == 1
++        assert rows[0].before["conversions"] == 6
++        assert rows[0].after["conversions"] == 6
++    finally:
++        store.close()
++
++
++def test_demo_daily_rollover_preserves_full_windows(tmp_path):
++    """[S1426] 午夜後首次讀取物化昨日並滑動 1d/7d。"""
++    moment = [datetime(2026, 9, 26, 23, 59, tzinfo=UTC)]
++    store = CampaignStore(tmp_path / "rollover.db", clock=lambda: moment[0].isoformat())
++    try:
++        store.seed_campaign("c1", 100)
++        older = seed.DayFigures(100, 10, 1, 1.0, 8.0)
++        seed.seed_platform_history(store, {"c1": seed.HistoryProfile(
++            daily=(DAY, older, older, older, older, older, older))}, moment[0])
++        before = store.get_daily("c1")
++        moment[0] += timedelta(minutes=2)
++        after = store.get_daily("c1")
++        assert len(after) == 7 and after[0].days_ago == 1
++        assert after[0].conversions == DAY.conversions
++        assert after[1].conversions == before[0].conversions
++        assert store.get_metrics("c1", "1d").conversions == after[0].conversions
++        assert store.get_metrics("c1", "7d").conversions == sum(r.conversions or 0 for r in after)
++        assert store.get_daily("c1") == after
++    finally:
++        store.close()
++
++
++def test_bounded_history_preserves_recent_budget_changes(tmp_path):
++    """[S1422] 回傳列有界,完整七日摘要不受截斷影響。"""
++    from rtb.dsp.server import DspHandler
++
++    store = CampaignStore(tmp_path / "history.db", clock=lambda: NOW.isoformat())
++    try:
++        store.seed_campaign("c1", 100)
++        store.execute(Operation("c1", "update_budget", {"new_budget": 101}, 1, "budget-0"))
++        for index in range(59):
++            store.execute(Operation("c1", "pause_campaign", {},
++                                    index + 2, f"pause-{index}"))
++        body = DspHandler._get_history(object(), store, "c1", None)
++        assert len(body["history"]) == 50
++        assert not any(row["action"] == "update_budget" for row in body["history"])
++        assert body["summary"]["budget_changes_7d"] == 1
++        assert body["summary"]["has_recent_budget_change"] is True
++        from rtb.analyzer import dsp_client
++        from rtb.analyzer import investigation as inv
++        checked = dsp_client.check_history(body)
++        assert checked is not None
++        assert inv.receipt_payload(inv.QueryOption.CHECK_CHANGE_HISTORY, checked, NOW)[
++            "budget_changes_last_3d"] == "1"
++        assert len(json.dumps(body)) < 64 * 1024
++    finally:
++        store.close()
++
++
++def test_old_adjustment_seed_tables_migrate_to_the_single_operation_source(tmp_path):
++    """舊種子與 REAL 金額、相對日鍵可在開庫時轉成 2a 單源。"""
++    path = tmp_path / "legacy.db"
++    with sqlite3.connect(path) as conn:
++        conn.executescript("""
++            CREATE TABLE campaigns (id TEXT PRIMARY KEY, budget INTEGER NOT NULL,
++                status TEXT NOT NULL, version INTEGER NOT NULL);
++            CREATE TABLE operations (operation_id INTEGER PRIMARY KEY AUTOINCREMENT,
++                campaign_id TEXT NOT NULL, action TEXT NOT NULL, params_json TEXT NOT NULL,
++                version_after INTEGER NOT NULL, received_at TEXT NOT NULL,
++                committed_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE);
++            CREATE TABLE metrics (campaign_id TEXT NOT NULL, window_name TEXT NOT NULL,
++                impressions INTEGER, clicks INTEGER, conversions INTEGER, spend REAL,
++                revenue REAL, PRIMARY KEY (campaign_id, window_name));
++            CREATE TABLE daily_metrics (campaign_id TEXT NOT NULL, days_ago INTEGER NOT NULL,
++                impressions INTEGER, clicks INTEGER, conversions INTEGER, spend REAL,
++                revenue REAL, no_data INTEGER NOT NULL, PRIMARY KEY (campaign_id, days_ago));
++            CREATE TABLE past_adjustments (campaign_id TEXT, rank INTEGER, days_ago INTEGER,
++                budget_before INTEGER, budget_after INTEGER);
++            CREATE TABLE past_adjustment_seeds (campaign_id TEXT PRIMARY KEY);
++            INSERT INTO campaigns VALUES ('c1', 110, 'active', 3);
++            INSERT INTO past_adjustments VALUES ('c1', 1, 4, 100, 110);
++            INSERT INTO past_adjustments VALUES ('c1', 2, 9, 90, 100);
++            INSERT INTO past_adjustment_seeds VALUES ('c1');
++        """)
++        for version, days, budget in ((2, 9, 100), (3, 4, 110)):
++            at = (NOW - timedelta(days=days)).isoformat()
++            conn.execute("INSERT INTO operations (campaign_id, action, params_json, "
++                         "version_after, received_at, committed_at, idempotency_key) "
++                         "VALUES (?, 'update_budget', ?, ?, ?, ?, ?)",
++                         ("c1", json.dumps({"new_budget": budget}), version, at, at,
++                          f"legacy-{version}"))
++        for age in range(1, 8):
++            conn.execute("INSERT INTO daily_metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
++                         ("c1", age, 100, 10, 2, 1.5, 8.0, 0))
++        conn.execute("INSERT INTO metrics VALUES ('c1', '1d', 100, 10, 2, 1.5, 8.0)")
++    store = CampaignStore(path, clock=lambda: NOW.isoformat())
++    try:
++        assert store.get_metrics("c1", "1d").spend == "1.50"
++        assert store._conn.execute("SELECT spend, typeof(spend) FROM metrics").fetchone() == (
++            150, "integer")
++        assert store._conn.execute("PRAGMA table_info(daily_metrics)").fetchall()[1][1] == "day_utc"
++        rows = store.get_past_adjustments("c1")
++        assert len(rows) == 1 and rows[0].budget_before == 100
++        assert rows[0].before["conversions"] == rows[0].after["conversions"] == 6
++        tables = {r[0] for r in store._conn.execute("SELECT name FROM sqlite_master")}
++        assert "past_adjustments" not in tables and "past_adjustment_seeds" not in tables
++    finally:
++        store.close()
+diff --git a/tests/dsp/test_server.py b/tests/dsp/test_server.py
+index 2482eb2..9c6c52e 100644
+--- a/tests/dsp/test_server.py
++++ b/tests/dsp/test_server.py
+@@ -584,21 +584,21 @@ def seed_metrics(tmp_path, **fields):
+     store.seed_metrics("c1", "1d", **fields)
+     store.close()
+ 
+ 
+ def test_get_metrics_returns_raw_counts_and_keeps_missing_fields_as_null(start_dsp, tmp_path):
+     dsp = start_dsp()
+     seed_metrics(tmp_path, impressions=1000, clicks=None, spend=12.5)
+ 
+     status, body = dsp.request("GET", "/campaigns/c1/metrics?window=1d")
+ 
+-    assert status == 200 and body["impressions"] == 1000 and body["spend"] == 12.5
++    assert status == 200 and body["impressions"] == 1000 and body["spend"] == "12.50"
+     assert body["clicks"] is None and body["revenue"] is None
+     assert "ctr" not in body  # DSP 只給事實,比率由我們自己算
+ 
+ 
+ @pytest.mark.parametrize("query,expected_status,expected_error", [
+     ("", 422, "validation_rejected"),
+     ("?window=5years", 422, "validation_rejected"),
+     ("?window=1d&window=7d", 400, "duplicate_query_parameter"),
+     ("?window=7d", 404, "metrics_not_found"),
+ ])
+diff --git a/tests/dsp/test_store.py b/tests/dsp/test_store.py
+index 39dc0b5..91564d7 100644
+--- a/tests/dsp/test_store.py
++++ b/tests/dsp/test_store.py
+@@ -526,21 +526,21 @@ def test_runtime_code_imports_only_the_standard_library_and_this_project():
+     assert offenders == []
+ 
+ 
+ def test_metrics_are_returned_as_raw_facts_for_a_known_window(store):
+     store.seed_metrics("c1", "1d", impressions=1000, clicks=50, conversions=5,
+                        spend=100.0, revenue=300.0)
+ 
+     record = store.get_metrics("c1", "1d")
+ 
+     assert (record.impressions, record.clicks, record.conversions) == (1000, 50, 5)
+-    assert (record.spend, record.revenue) == (100.0, 300.0)
++    assert (record.spend, record.revenue) == ("100.00", "300.00")
+ 
+ 
+ def test_missing_fields_stay_missing_and_are_not_turned_into_zero(store):
+     store.seed_metrics("c1", "1d", impressions=1000, clicks=None)
+ 
+     record = store.get_metrics("c1", "1d")
+ 
+     assert record.impressions == 1000 and record.clicks is None and record.revenue is None
+ 
+ 
+@@ -575,19 +575,23 @@ def test_seeding_rejects_values_that_would_be_stored_or_served_as_something_else
+         store.get_metrics("c1", "1d")  # 被拒絕的資料沒有留下任何列
+ 
+ 
+ def test_seeding_rejects_an_unknown_window_or_an_unknown_campaign(store):
+     with pytest.raises(ValidationRejected):
+         store.seed_metrics("c1", "2h", impressions=1)
+     with pytest.raises(CampaignNotFound):
+         store.seed_metrics("ghost", "1d", impressions=1)
+ 
+ 
+-def test_amounts_are_stored_as_floats_and_integers_beyond_exact_float_range_are_rejected(store):
++def test_amounts_are_stored_as_integer_cents_and_returned_as_fixed_decimal_strings(store):
+     store.seed_metrics("c1", "1d", spend=12)
+ 
+-    assert store.get_metrics("c1", "1d").spend == 12.0  # REAL 欄位:整數讀回是浮點數,不是「原樣」
++    assert store.get_metrics("c1", "1d").spend == "12.00"
++    assert store._conn.execute("SELECT spend, typeof(spend) FROM metrics "
++                               "WHERE campaign_id = 'c1' AND window_name = '1d'").fetchone() == (
++                                   1200, "integer")
+     with pytest.raises(ValidationRejected):
+-        store.seed_metrics("c1", "1h", spend=2**53 + 1)  # 浮點數無法精確表示,存了會失真
+-    exact = store.seed_metrics("c1", "7d", spend=2**53)
++        store.seed_metrics("c1", "1h", spend=2**63 // 100 + 1)
++    largest = (2**63 - 1) // 100
++    store.seed_metrics("c1", "7d", spend=largest)
+ 
+-    assert exact is None and store.get_metrics("c1", "7d").spend == float(2**53)
++    assert store.get_metrics("c1", "7d").spend == f"{largest}.00"
