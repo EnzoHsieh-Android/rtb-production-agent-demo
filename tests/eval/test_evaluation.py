@@ -569,3 +569,26 @@ def test_evaluation_calls_the_candidate_without_validating_anything():
                     == "ValidatedCells"):
                 builders.append(path.relative_to(SRC).as_posix())
     assert sorted(builders) == ["analyzer/policy.py", "eval/adoption.py"]
+
+
+# ---- Phase 14 增量 4 代碼審 r1(外家 finder-2、單 reviewer-4、架構對齊-2)----
+def test_the_phase_ten_record_says_what_did_not_run_and_marks_old_data(tmp_path):
+    """模型候選一次都沒被呼叫時,不寫「跑了 N 個情境」而照實寫沒有跑;比較表「現行程式規則」五列每列標
+    「舊資料不足以評估九條規則」,表下註明品質 1 是缺四查詢短路徑剛好等於標準答案。數字格一律走共用的
+    格式化(不出科學記號)。"""
+    out, err = io.StringIO(), io.StringIO()
+    code = record.run(["--recordings-dir", str(tmp_path / "empty"),
+                       "--ledger", str(tmp_path / "l.sqlite")],
+                      out=out, err=err, environ={"PATH": "", "HOME": str(tmp_path)})
+    assert code == record.EXIT_OK, err.getvalue()
+    text = out.getvalue()
+    assert "跑了" not in text and "沒有跑" in text
+    rows = [line for line in text.splitlines() if line.startswith("| 現行程式規則")]
+    assert len(rows) == len(WorthCell)
+    assert all(scoring.MISSING_QUERIES_NOTE in row for row in rows), rows
+    # 代碼審 r2:暫停、異常兩格九條用基本資料就判得出(品質 1 有效),只有沒價值格是恰好等於標準答案
+    assert "paused、anomaly 兩格九條用基本資料就判得出" in text
+    assert "delivery_without_value 的品質 1 是缺四查詢時一律回證據不足" in text
+    assert "暫停、異常判得出,沒價值格" not in text
+    assert record._cell is not None and adoption.format_value(12_345_600.0) == "12345600"
+    assert adoption.format_value(0.8341) == "0.8341" and "e+" not in adoption.format_value(4.2e6)

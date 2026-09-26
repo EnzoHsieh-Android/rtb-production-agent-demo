@@ -2,7 +2,7 @@
 type: system
 status: doing
 created: 2026-09-24
-updated: 2026-09-26
+updated: 2026-09-27
 responsibility: 負責「值不值得加」判斷點的離線評估:評分表、合成評估集與生成器、逐格計分與報告、比較表、逐格採用決定與人讀的決定紀錄,接入點 3 的模型候選(旁路紀錄、整批停下、子集、批次紀錄、比較表模型列),以及 Phase 13 AI 調查的評估(九格評分與標準答案、72 筆含誘導雙胞胎的評估集與生成器、呼叫正式路徑同一支 AI 決策函式的評估執行器、逐格報告與不採用的決定、錄製批次驗收);不負責判斷點本身、路由與 AI 決策函式(在分析端);除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、不啟動子行程;不被任何其他套件匯入
 aliases: []
 about_code:
@@ -24,7 +24,7 @@ tags:
   - type/system
   - status/doing
 summary: |-
-  WHY: [2026-09-26 Phase 14 增量 3] AI 退出正式與展示的加額決策後,評估執行器是 `ai_judge.Judge` 唯一的呼叫者:直接呼叫、先前各輪紀錄與記次在記憶體、沒有流程層/任務庫/規則輪;遇到 `RuleContinue` 當場回傳(AI 答 propose 記原始值得加,退回取案例九條 `rule_verdict(case)`)。錄製重播與協調者授權的即時加錄製都照舊可達。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1146] 改寫、[S1429]。防回歸:[test:test_the_investigation_eval_runs_the_same_ai_judge]、[test:test_only_phase13_eval_uses_ai_judge_and_runner_stays_rule_only]。
+  WHY: [2026-09-26 Phase 14 增量 3] AI 退出正式與展示的加額決策後,評估執行器是 `ai_judge.Judge` 唯一的呼叫者:直接呼叫、先前各輪紀錄與記次在記憶體、沒有流程層/任務庫/規則輪;不再選查詢就當場結束;增量 4 起每筆分開存 AI 原始(模型自己下的結論,退回是無有效答案)與案例九條 `rule_verdict(case)`,見正文〈報告三列分列〉。錄製重播與協調者授權的即時加錄製都照舊可達。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1146] 改寫、[S1429]。防回歸:[test:test_the_investigation_eval_runs_the_same_ai_judge]、[test:test_only_phase13_eval_uses_ai_judge_and_runner_stays_rule_only]。
   WHY:[2026-09-24 Phase 12 代碼審 r1] 命令列參數不收縮寫(allow_abbrev=False):一鍵展示的故障啟動器用正式入口同一支 parser 的解析結果核對目標路徑,縮寫與等號寫法都不能繞過(Phase 12 代碼審 r1 s1/l2/x2)。長選項一律寫全。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]。
   WHY: [2026-09-24] 交接文件 Phase 10:只在有證據的窄決策點評估 Jev,依切片報品質、跟程式基準比品質成本延遲、沒達門檻明確不採用。使用者本人裁定評估對象是「值不值得加」這一個判斷,結論照實寫兩個不採用理由。出處:[[Projects/RTB_Phase10評估與Jev決策點_計劃]] 增量 2。
   RULE: 合成評估集只是有限的合約案例,不套統計信賴、不能產生已驗證清單;已驗證清單只能來自正式環境隱藏抽樣集,而且只有採用函式建得出來。[since:2026-09-24] [retire:接上正式環境抽樣集與人工標註、改用它們重建評估時] [test:test_evaluation_calls_the_candidate_without_validating_anything]
@@ -56,6 +56,7 @@ verified_by:
   - "[[Verification/Phase14增量2a離線驗證]]"
   - "[[Verification/Phase14增量2b驗證紀錄]]"
   - "[[Verification/Phase14增量3驗證紀錄]]"
+  - "[[Verification/Phase14增量4驗證紀錄]]"
 ---
 # 評估與Jev決策點
 
@@ -114,7 +115,7 @@ verified_by:
 - `src/rtb/eval/investigation_report.py`:逐格報告只算名稱正常的 4 筆(誤提案、類別正確、值得加格召回、平均與最多輪數、每個決策的原價、退回原因分布);對抗切片另列誘導雙胞胎結論翻轉的筆數與差異;比較表是現行程式規則(實測)對模型(歷史觀測、錄製日期);採用一律不採用、不建任何已驗證清單。模型那一列用本計劃自己的門檻常數 `INVESTIGATION_LIMITS`:成本不設門檻(`cost_exempt`),延遲 p95 3 秒、失敗率 1%。防回歸:[test:test_the_investigation_report_is_per_slice_and_never_adopts_synthetic]、[test:test_the_report_counts_decisions_flipped_by_injected_names]、[test:test_the_investigation_evaluation_never_validates_a_slice]。
 - `src/rtb/eval/adoption.py` 的門檻型別加 `cost_exempt`(預設假;為真時成本門檻必須是 None);採用判定抽成 `operational_problems`,Phase 10 的逐格採用與調查評估的模型那一列共用,`cost_exempt` 為真就不比成本、延遲與失敗率照查。`src/rtb/eval/model_candidate.py` 的逐欄判定在 `cost_exempt` 為真時成本那一欄寫「不設門檻(假設正式環境用自研模型、成本另計)」;Phase 11B 模型候選那組門檻常數不動。防回歸:[test:test_an_explicit_no_cost_gate_skips_only_the_cost_check]、[test:test_the_report_writes_no_cost_gate_for_an_exempt_limit]。
 - 匯入邊界([S918] 照 Phase 13 改寫):評估套件閉包的准許名單加模型閘道、AI 決策模組(ai_judge 與它的詞彙模組)與這四支;匯入 AI 決策模組、經它開閘道送出的,評估套件裡只准評估執行器。
-- 決定紀錄 `governance/eval/phase13-investigation-adoption.md`(命令列產生)。2026-09-25 入庫時還沒有評估錄製:72 筆全部「找不到錄製」、退回現行規則,模型那一列沒量,結論不採用。現行規則實測:暫停、資料異常、裁定 12 三格與沒價值格全錯(有投放就提案),較長窗有轉換、沒投放、有價值三格全對。
+- (2026-09-25 當時紀錄,現況數字見文末〈報告三列分列〉)決定紀錄 `governance/eval/phase13-investigation-adoption.md`(命令列產生)。2026-09-25 入庫時還沒有評估錄製:72 筆全部「找不到錄製」、退回現行規則,模型那一列沒量,結論不採用。現行規則實測:暫停、資料異常、裁定 12 三格與沒價值格全錯(有投放就提案),較長窗有轉換、沒投放、有價值三格全對。
 - `tests/eval/test_investigation_eval.py`:上面各條的合約測試([S1117]–[S1119]、[S1133]、[S1140]、[S1141]、[S1146]、[S1155]、[S1159]、[S1163]、[S1165]),以及 [S1162] 標準答案那半的檢查函式(由 tests/domain/test_metrics.py 綁 [S1162] 的那支呼叫)。全部用假的模型呼叫或假 claude,不碰真模型。
 - 代碼審 r1 補強(2026-09-25):比較表某格只要有一筆正常案例沒真的呼叫到模型就寫「沒量(錄製不全)」,任一筆缺錄時模型那一列整列沒量,品質與退回率的分母是筆數;成本豁免時成本欄可以沒量;評估套件只經模型用戶端門面(匯入檢查涵蓋全部 model 開頭的檔);即時加錄製一定要給入庫目錄以外的新目錄;評估執行器匯入就算送出點。防回歸:[test:test_a_partly_recorded_batch_is_not_reported_as_measured]、[test:test_the_fallback_rate_counts_cases_not_calls]、[test:test_the_answer_key_boundaries_match_the_receipts]、[test:test_exempt_limits_still_check_failure_rates_and_the_batch_check_counts_ledger_busy]、[test:test_cost_exempt_ignores_an_unmeasured_cost]、[test:test_live_recording_must_go_to_a_fresh_directory]、[test:test_importing_the_eval_runner_counts_as_a_send_point]。
 - 代碼審 r2 補強(2026-09-25):即時錄製不准寫進入庫目錄改由模型用戶端共用的開錄前目錄檢查判(見 [[Systems/模型用戶端]]),評估執行器不再自己比路徑;逐欄判定、欄位標示與沒送出的結果類別搬到 `adoption.py` 共用,調查報告不匯入模型候選。防回歸:[test:test_every_live_recording_entry_refuses_the_committed_directory]、[test:test_the_report_takes_the_shared_marks_from_adoption_not_the_sender]。
@@ -139,7 +140,7 @@ verified_by:
 (`Judge(raw_replay=True)` 的旗標在 Phase 14 增量 3 拿掉:Judge 只剩評估這一個呼叫者,語意固定就是原始錄製重播,見文末)
 
 - 正式環境抽樣報告(`production_report`)同樣標「舊資料不足以評估九條規則」;延遲量測與報告寫明量的是缺四查詢的九條短路徑。
-- Phase 13 評估用 `Judge(raw_replay=True)`:沿用舊前置過濾、AI 答 propose 時 `CaseRun.final` 記模型自己的答案(正式路徑已改成規則否決);報告數字不變,「AI+規則否決」列是增量 4。
+- Phase 13 評估用 `Judge(raw_replay=True)`:沿用舊前置過濾、AI 答 propose 時 `CaseRun.final` 記模型自己的答案(增量 4 撤掉 `final`:它把退回後規則答的也混進來,見文末)(正式路徑已改成規則否決);報告數字不變,「AI+規則否決」列是增量 4。
 
 ## 錄製重播不寫真帳本(Phase 14 增量 2b 代碼審 r2,2026-09-26)
 
@@ -151,4 +152,40 @@ Phase 13 評估命令列與 Phase 10 評估(`record`)在錄製模式沒帶 `--le
 
 - WHY:`Judge` 的 `raw_replay`、`preflight_ok`、`stop_requested`、`hold` 參數撤除(沒有入口就刪):評估一向用原始錄製重播的語意(暫停/異常照舊問模型,還原錄製當時的原始答案),正式路徑的前置過濾分支已經不存在。`AiContext` 從流程層搬到 `rtb.analyzer.investigation`、拿掉續租回呼,評估執行器的「永遠成功的續租」跟著刪。報告數字不變(重播同一批錄製)。
 - WHY:匯入邊界:原始碼裡只有 `rtb.eval.investigation_eval` 匯入 AI 決策模組;分析端驅動移出准匯入模型閘道與送出點的名單。防回歸:[test:test_only_phase13_eval_uses_ai_judge_and_runner_stays_rule_only]。
-- 報告的「AI 原始 / AI+規則否決 / 程式規則」三列分列與同源警語仍是增量 4([S1410] [S1418] 尚未綁到測試)。
+- (已由增量 4 完成,見下一節)報告的「AI 原始 / AI+規則否決 / 程式規則」三列分列與同源警語。
+
+## 報告三列分列(Phase 14 增量 4,2026-09-27)
+
+出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈評估與報告〉[S1410][S1418]、使用者裁定 8;驗證見 [[Verification/Phase14增量4驗證紀錄]]。
+
+- WHY:舊報告的「模型」列取的是「最後答案」,AI 退回(多半是選項外答案)時填的是規則的答案,所以把規則答對的算成模型答對(品質 0.4722,AI 原始只有 0.3333)。改成 `CaseRun` 分開存 `ai_raw`(模型自己下的結論,沒有就是 None)與 `code_rule`/`rule_reason`(案例九條),刪 `final`;沒有有效答案另列原因,不算誤提案、不算答對。防回歸:[test:test_reports_keep_raw_ai_errors_separate_from_rule_vetoes]。
+- WHY:「AI+規則否決」只在報告層由 `ai_raw` 與 `code_rule` 派生(propose 被九條否決就取九條結果,原因取九條細因),分母同 AI 原始;正式流程已無此機制(裁定 8)。它與程式規則都跟標準答案同源,報告逐列標「同源構造,不作品質證據」。
+- WHY:採用理由加「AI 原始品質不足」一條,品質欄只數 AI 原始答對 / 名稱正常筆數、退回率改數無有效答案的筆數;規則 36/36 不能替模型答對。防回歸:[test:test_shared_rule_accuracy_never_changes_the_ai_adoption_decision]。
+- WHY:延遲分單位與量測範圍——模型呼叫毫秒(錄製記的毫秒原值)、九條本機計算微秒(報告產生時行程內量,每次重產數字會小幅變動,只當量級)、整段正式蒐證不在評估裡量(寫沒量、指向 F7 實測)。代碼審 r1 起單位只寫在欄名、格內不換算:模型那一列照門檻常數存微秒、印微秒。
+- 報告開頭加三到五行白話摘要,數字取這次重播。原「比較表(現行規則 對 模型)」併進三列分列表。
+- 2026-09-27 重播數字(名稱正常 36 筆):AI 原始有效 23、答對 12、誤提案 11/19、無有效答案 13;派生 0/19;程式規則 36/36(同源);雙胞胎 AI 原始 13 組不同;模型延遲中位 4236、p95 7244 毫秒。以程式碼為準,重查:`PYTHONPATH=src .venv/bin/python -m rtb.eval.investigation_eval --verify --ledger <暫存路徑>`。
+
+### 代碼審 r1 修正(Phase 14 增量 4,2026-09-27)
+
+出處:governance/review-reports/code-phase14-inc4/(r1 單 reviewer、架構對齊、外家 finder),協調者裁定全修。
+
+- WHY:缺錄製(任一次呼叫是沒送出的結果類別)另列 `missing`,不算 AI「無有效答案」、不進有效答案分母;有缺錄製時報告開頭、合計、摘要標「不可採信」,也不出 AI 原始品質理由(改由「錄製不全」理由說明)。原本逐格標沒量、合計卻把缺錄製算成無有效答案(外家 finder-1)。防回歸:[test:test_missing_recordings_are_their_own_column_and_void_the_report]。
+- WHY:派生否決細因走評估集既有的 `rule_decision(case)` 封裝,報告不再直接匯入領域九條(架構對齊-1)。防回歸:[test:test_the_rule_reason_goes_through_the_case_wrapper]。
+- WHY:數字格統一走 `adoption.format_value`(Phase 10 比較表 `record._cell` 與調查報告共用):四位有效數字、一萬以上印整數,不出科學記號;單位寫在欄名、格內不換算(架構對齊-2、單 reviewer-5)。模型呼叫毫秒直接取錄製記的毫秒原值(`Report.model_latency_ms`)。防回歸:[test:test_latency_units_live_in_the_column_names_not_in_the_cells]。
+- WHY:Phase 10 模型段沒呼叫過模型時寫「候選子集 N 個情境:沒有跑」,不寫「跑了」;比較表「現行程式規則」五列格名帶「舊資料不足以評估九條規則」,表下註明品質 1 是缺四查詢短路徑剛好等於標準答案(外家 finder-2、單 reviewer-4)。防回歸:[test:test_the_phase_ten_record_says_what_did_not_run_and_marks_old_data]。
+- WHY:入庫的 Phase 13 決定紀錄要跟入庫錄製重播逐字相同,只排除九條本機延遲那一行(每次行程內重量);派生列殺傷力補反例(AI 有效答錯的非提案照留、值得加格 propose 不算否決、派生雙胞胎件數、九條延遲量級),單 reviewer 列的四種改壞(派生恆取規則、雙胞胎改用 AI 原始算、延遲不除 1000、任何 propose 都算否決)逐一在原檔改壞後翻紅、已還原(外家 finder-3、單 reviewer-3)。防回歸:[test:test_the_committed_report_matches_a_replay_of_the_committed_recordings]、[test:test_the_derived_row_only_replaces_vetoed_proposals]。
+- WHY:無有效答案照最後一次呼叫原文讀本意(第一個帶 choice 的 JSON 物件):本意誤提案/答對/答錯/選查詢/讀不出/沒有原文,另給「照本意算」參考值,明標非正式口徑;正式口徑照舊只算有效答案。為此 `Call` 多存回應原文(只供揭露、不參與計分)(單 reviewer-1)。防回歸:[test:test_off_menu_answers_disclose_what_the_model_meant]。
+- WHY:雙胞胎拆「兩邊都有有效答案而結論不同」與「一邊沒有有效答案」兩行,摘要同步(單 reviewer-2);報告說明評估集雜湊為何跟錄製時不同、重播找不到錄製 0 筆代表題目未變(單 reviewer-6);`no_answer` 一律扁平代碼(退回代碼、`preflight`、`no_conclusion`,架構對齊-3)。防回歸:[test:test_the_twin_slice_separates_changed_answers_from_format_failures]、[test:test_the_report_explains_why_the_eval_set_hash_differs_from_recording_time]、[test:test_no_answer_reasons_are_flat_codes]。
+- 2026-09-27 r1 修正後重播:本意揭露為本意誤提案 2、本意答對 4、本意選查詢 7;照本意算(非正式)有答案 29/36、答對 16、誤提案 13/25;雙胞胎兩邊都有答案而不同 3 組、一邊沒有有效答案 10 組。其餘數字不變。
+
+### 代碼審 r2 修正(Phase 14 增量 4,2026-09-27)
+
+出處:governance/review-reports/code-phase14-inc4/(r2 單 reviewer、架構對齊),全是 minor,協調者裁定 6 條全修。
+
+- WHY:缺錄製的單筆旗標與筆數照同檔慣例分單複數:`CaseRun.missing_recording`(布林)對 `Report`/`CellStats`/`Totals` 的 `missing_recordings`(整數);原本只看「找不到錄製」的舊 `missing_recording` 併進來,一律看全部沒送出類別(上限拒絕、設定錯誤、花費帳忙碌也算)。批次驗收那句改成「找不到錄製(或沒送出)」。防回歸:[test:test_every_unsent_outcome_counts_as_a_missing_recording]。
+- WHY:雙胞胎任一側缺錄製的組不比、不進「一邊沒有有效答案(格式失敗等)」,另列「缺錄製 N 組」;開頭、合計、摘要的不可採信改看整批(含誘導側)的 `missing_recordings`。防回歸:[test:test_a_missing_twin_is_not_a_format_failure_and_voids_the_report]。
+- WHY:評估集雜湊說明改成實際比對:`RECORDED_EVAL_SETS` 登記每個入庫評估批次錄製時的雜湊與換版原因(phase13-eval-20260925 → 8dccc36a…,已由 git 於 f4831bd 的 investigation_set.py 重算核對),相同印相同、不同才印差異與原因、沒登記照實寫無法比對、沒有批次不印。重錄新批次時要補一列。防回歸:[test:test_the_report_explains_why_the_eval_set_hash_differs_from_recording_time]。
+- WHY:同一個模型延遲整份只用毫秒呈現,模型那一列的延遲兩欄印錄製記的毫秒原值(欄名標毫秒),門檻照舊在內部用微秒比。
+- WHY:Phase 10 表下註更正:暫停、異常兩格九條用基本資料就判得出(品質 1 有效),只有沒價值格是缺四查詢時一律證據不足而恰好等於標準答案。
+- 殺傷力補反例:照本意算的分母只算應不提案格([test:test_intent_reference_counts_only_should_not_cells_in_its_denominator])、本意讀最後一輪原文([test:test_intent_reads_the_last_call_of_a_multi_round_case])、缺錄製判斷涵蓋所有沒送出類別;三種改壞加「雙胞胎不排除缺錄製」逐一改在原檔後各自翻紅,已還原。
+- 重產後對外數字不變;報告多一行「缺錄製:0 組」,雜湊說明改成比對結果,模型列延遲改印 4236/7244 毫秒。

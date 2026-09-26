@@ -120,7 +120,7 @@ RETIRE-IF: 接上真實流量與人工標註之後,這份以合成情境與程�
 - [S711] 評分表應對每一筆可建構的判斷點輸入(狀態兩值 × 曝光、點擊、轉換、營收、花費各為正數、零、負數、缺值,含點擊多於曝光、轉換多於點擊)恰好給一類。[test:test_the_rubric_gives_exactly_one_class_for_every_input]
 - [S712] 分析端、執行端、DSP、領域層、維運套件各自的匯入規則應禁止匯入評估套件,原始碼掃描也應找不到這種匯入。[test:test_nothing_outside_the_eval_package_imports_it]
 - [S713] 同一筆判斷點輸入只改配速(偏低範圍內)或預算時,被評對象的最後有效答案應不變;評估報告應列出擾動後答案改變的筆數。[test:test_irrelevant_fields_do_not_change_the_answer]
-- [S714] 評估報告應對現行規則逐格報分子、分母與錯誤子型,跟候選用同一套計分。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1417] 改寫:五格逐格報法保留,舊「只看投放」的數字與錯誤子型撤掉,按明示缺四查詢的九條重算——暫停、異常全對,其餘證據不足、零誤提案;每格標「舊資料不足以評估九條規則」,標準答案不動;不把 Phase 13 數字算進本條。)[test:test_phase_ten_scenarios_explicitly_report_missing_queries]
+- [S714] 評估報告應對現行規則逐格報分子、分母與錯誤子型,跟候選用同一套計分。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1417] 改寫:五格逐格報法保留,舊「只看投放」的數字與錯誤子型撤掉,按明示缺四查詢的九條重算——暫停、異常全對,其餘證據不足、零誤提案;每格標「舊資料不足以評估九條規則」,標準答案不動;不把 Phase 13 數字算進本條。)[test:test_phase_ten_scenarios_explicitly_report_missing_queries](2026-09-27 Phase 14 增量 4 重產 governance/eval/phase10-worth-adoption.md 驗過:五格都帶標註、標準答案不變,暫停與異常 60/60,沒投放 0/60 類別正確、有價值召回 0/60,五格誤提案 0;見 [[Verification/Phase14增量4驗證紀錄]])
 - [S715] 判斷點輸入建構時應逐欄照 DSP 白名單驗值:預算要是 0 到資料庫整數上限的整數;曝光、點擊、轉換要是缺值或絕對值不超過上限的整數;花費、營收要是缺值或任意有限數;布林、錯型別、狀態不是啟用或暫停,都應被拒絕。[test:test_the_worth_input_rejects_values_the_dsp_whitelist_rejects]
 - [S716] 評估入口傳進路由函式的待測格清單應讓候選在已驗證清單為空時也被呼叫,而且評估結束後已驗證清單應仍為空;只有採用函式產生得出已驗證清單。[test:test_evaluation_calls_the_candidate_without_validating_anything]
 - [S717] 生成器產出的每筆情境,用評分表重算的格應等於它歸檔的格;資料異常格應有每個可缺值或可為負欄位的單一故障案例、只違反「點擊多於曝光」與只違反「轉換多於點擊」的案例;重跑生成器應逐值等於已提交的常數模組,不只驗雜湊;邊界案例應釘住營收正轉換零、轉換正營收零、花費缺值、曝光正點擊零。[test:test_the_generator_covers_every_anomaly_and_matches_the_committed_set]

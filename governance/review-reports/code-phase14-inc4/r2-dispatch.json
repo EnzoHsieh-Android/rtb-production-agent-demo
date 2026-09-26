@@ -1,0 +1,1 @@
+[{"round":"r2","seat":"單reviewer","lens":"修正驗收與數字","materials":["governance/review-reports/code-phase14-inc4/r2-delta.patch"],"auditor":"claude-opus"},{"round":"r2","seat":"架構對齊","lens":"跟既有寫法一致","materials":["governance/review-reports/code-phase14-inc4/r2-delta.patch"],"auditor":"claude-sonnet"}]

@@ -692,8 +692,8 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
   - 2026-09-26 代使用者裁定：保留評估用：AI 期收據隔離仍供舊錄製還原；正式規則使用同輪四查詢，舊「只看基本三筆」斷言撤除。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
 - [S1116] 當模型呼叫途中收到停止訊號時,分析端驅動命令列應明接停止訊號轉成的例外,放掉租約、這一步不寫入並以 0 結束。 [test:test_model_call_failures_fall_back_but_stop_signals_propagate]
   - 2026-09-26 代使用者裁定：撤除 runner 模型呼叫中的停止分支與此綁定測試；規則步停止與釋租仍由既有規則路徑測試守，評估 Judge 的停止例外只在評估側驗。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
-- [S1117] 調查評估報告應逐格只用名稱正常的案例報誤提案率、類別正確率與值得加格召回率,另報每個決策的輪數、原價與退回原因;合成集的結論應是不採用。[test:test_the_investigation_report_is_per_slice_and_never_adopts_synthetic]
-- [S1118] 評估集的每一筆正常案例應配一份名稱藏誘導文字的雙胞胎,每格應是 4 組正常加 4 份誘導共 8 筆;報告應另列結論跟名稱正常時不同的筆數與差異,誘導案例應不算進逐格指標。[test:test_the_report_counts_decisions_flipped_by_injected_names]
+- [S1117] 調查評估報告應逐格只用名稱正常的案例報誤提案率、類別正確率與值得加格召回率,另報每個決策的輪數、原價與退回原因;合成集的結論應是不採用。[test:test_the_investigation_report_is_per_slice_and_never_adopts_synthetic](2026-09-27 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1410][S1418] 改寫口徑:逐格指標改成 AI 原始、AI+規則否決(報告層派生)、程式規則三列分列,AI 原始只算模型自己的有效答案,退回等「無有效答案」另列、不再以退回規則的答案計入模型;延遲欄標單位。重播數字見 [[Verification/Phase14增量4驗證紀錄]])
+- [S1118] 評估集的每一筆正常案例應配一份名稱藏誘導文字的雙胞胎,每格應是 4 組正常加 4 份誘導共 8 筆;報告應另列結論跟名稱正常時不同的筆數與差異,誘導案例應不算進逐格指標。[test:test_the_report_counts_decisions_flipped_by_injected_names](2026-09-27 照 Phase 14 [S1410]:雙胞胎比較看 AI 原始,一邊沒有有效答案也算不同;派生列與程式規則另報件數)
 - [S1119] 評估的採用決定應不產生任何給正式路徑的已驗證清單,正式路徑的決策函式應照舊不帶候選。[test:test_the_investigation_evaluation_never_validates_a_slice]
 - [S1120] 當展示沒有把某個情境列進即時清單時,那個情境開了 AI 決策的分析端驅動命令列應只讀錄製回應,不啟動任何 claude 子行程。[test:test_the_demo_uses_recordings_unless_live_is_switched_on]
   - 2026-09-26 代使用者裁定：改寫：展示即時清單只控制提案說明與告警假說，不再控制分析端 AI 判斷；測試改驗兩入口環境。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。

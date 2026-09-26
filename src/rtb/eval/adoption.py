@@ -51,6 +51,12 @@ def _finite_nonnegative(value: object) -> bool:
     return is_finite_or_none(value) and value is not None and value >= 0
 
 
+def format_value(value: float) -> str:
+    """比較表與決定紀錄的數字格(Phase 10 比較表與 Phase 13 調查報告共用,Phase 14 增量 4 代碼審 r1):
+    四位有效數字;一萬以上改印整數,不出科學記號。單位寫在欄名,格內不換算。"""
+    return f"{value:.0f}" if abs(value) >= 10_000 else f"{value:.4g}"
+
+
 @dataclass(frozen=True)
 class Measure:
     """比較表的一個儲存格:有量就有合法數值(有限、不為負),沒量就沒有數值、而且寫原因([S709])。"""

@@ -404,13 +404,139 @@ def test_the_report_counts_decisions_flipped_by_injected_names():
     assert len(report.flips) == 36
     flip = report.flips[0]
     assert flip.normal_final is not flip.injected_final and flip.group in normals
-    for cell in report.cells:  # 誘導的反答不進逐格指標:正常案例全對
+    for cell in report.ai_raw_cells:  # 誘導的反答不進逐格指標:正常案例全對
         assert cell.n == 4 and cell.class_correct == 4 and cell.false_proposals == 0
     text = ir.render(report, ir.decide(report))
-    assert "結論跟名稱正常時不同:36 筆" in text
+    assert "結論跟名稱正常時不同:36 組" in text
     honest = ir.build_report(ie.run_set(cases, Oracle(cases)))
     assert honest.flips == ()
-    assert "結論跟名稱正常時不同:0 筆" in ir.render(honest, ir.decide(honest))
+    assert "結論跟名稱正常時不同:0 組" in ir.render(honest, ir.decide(honest))
+
+
+# ---- Phase 14 [S1410] [S1418](增量 4:報告三列分列,AI 原始只算模型自己的有效答案)----
+class RawVsVeto:
+    """資料異常格第 1 筆名稱正常案例有效答 propose(誤提案);off_menu 為真時其餘三筆回選項外答案
+    (無有效答案),為假時照標準答案答。其他案例(含誘導雙胞胎)都照標準答案答。"""
+
+    def __init__(self, cases, *, off_menu=True):
+        self.oracle = Oracle(cases)
+        anomaly = [c for c in cases if c.cell is ic.Cell.ANOMALY and not c.injected]
+        self.propose = anomaly[0].name
+        self.off_menu = {c.name for c in anomaly[1:]} if off_menu else set()
+
+    def __call__(self, system, user):
+        name = _name(user)
+        if name == self.propose:
+            text = conclude("propose")(user)
+        elif name in self.off_menu:
+            text = "不是 JSON"
+        else:
+            return self.oracle(system, user)
+        return core.ModelResult(text, core.Source.RECORDED, 10, 5, 0, 0, 0, 2000, 7.0, "k", BATCH)
+
+
+def _table_row(text, cell, source):
+    """三列分列表裡某格某來源那一列,拆成欄位(去掉頭尾空欄)。"""
+    table = text.split("## 逐格三列分列", 1)[1].split("\n## ", 1)[0]
+    for line in table.splitlines():
+        cells = [part.strip() for part in line.split("|")[1:-1]]
+        if len(cells) > 1 and cells[0] == cell.value and cells[1].startswith(source):
+            return cells
+    raise AssertionError(f"找不到 {cell.value} / {source} 那一列")
+
+
+def test_reports_keep_raw_ai_errors_separate_from_rule_vetoes():  # noqa: PLR0915 - 逐項
+    """[S1410] 重跑 Phase 13 錄製評估時,報告逐格分列 AI 原始、AI+規則否決(報告層派生比較)、
+    程式規則的誤提案分子分母;AI 原始只算模型自己的有效答案,無有效答案另列、不混成誤提案、
+    也不填成 AI 回答;36/36 與派生列零誤提案標同源構造;雙胞胎切片看 AI 原始;延遲欄標單位與量測
+    範圍。例:資料異常格一筆有效答 propose、三筆 off-menu → AI 原始 1/1 誤提案、另列 3 筆
+    無有效答案,不能寫成 4/4。"""
+    cases = investigation_set.CASES
+    runs = ie.run_set(cases, RawVsVeto(cases))
+    by_id = {run.case.case_id: run for run in runs}
+    anomaly = [c for c in cases if c.cell is ic.Cell.ANOMALY and not c.injected]
+    proposed = by_id[anomaly[0].case_id]
+    assert proposed.ai_raw is WorthVerdict.WORTH
+    assert proposed.code_rule is ie.rule_verdict(anomaly[0]) is WorthVerdict.INSUFFICIENT
+    assert proposed.derived is WorthVerdict.INSUFFICIENT and proposed.veto_reason == "anomaly"
+    for case in anomaly[1:]:  # 無有效答案:不填成 AI 回答,也不拿規則答案頂替
+        run = by_id[case.case_id]
+        assert run.ai_raw is None and run.no_answer == "off_menu"
+        assert run.derived is None and run.code_rule is WorthVerdict.INSUFFICIENT
+    report = ir.build_report(runs)
+    raw = {c.cell: c for c in report.ai_raw_cells}
+    veto = {c.cell: c for c in report.veto_cells}
+    rule = {c.cell: c for c in report.rule_cells}
+    a = raw[ic.Cell.ANOMALY]
+    assert (a.n, a.answered, a.false_proposals, a.should_not, a.class_correct) == (4, 1, 1, 1, 0)
+    assert a.no_answer == {"off_menu": 3}
+    v = veto[ic.Cell.ANOMALY]
+    assert (v.answered, v.false_proposals, v.should_not, v.class_correct) == (1, 0, 1, 1)
+    assert v.vetoed == {"anomaly": 1} and v.no_answer == {"off_menu": 3}
+    r = rule[ic.Cell.ANOMALY]
+    assert (r.answered, r.false_proposals, r.should_not, r.class_correct) == (4, 0, 4, 4)
+    for cell in ic.Cell:  # 其他格照標準答案答:三列都全對;程式規則 36/36 同源
+        assert rule[cell].class_correct == rule[cell].n == 4
+        if cell is not ic.Cell.ANOMALY:
+            assert raw[cell].answered == raw[cell].class_correct == 4 and not raw[cell].no_answer
+    text = ir.render(report, ir.decide(report))
+    raw_row = _table_row(text, ic.Cell.ANOMALY, "AI 原始")
+    assert raw_row[2] == "1/1" and raw_row[5] == "3(off_menu:3)", raw_row
+    assert "4/4" not in raw_row[2]
+    veto_row = _table_row(text, ic.Cell.ANOMALY, "AI+規則否決")
+    assert veto_row[2] == "0/1" and "同源構造,不作品質證據" in veto_row[-1], veto_row
+    assert "anomaly:1" in veto_row[-1]
+    rule_row = _table_row(text, ic.Cell.ANOMALY, "程式規則")
+    assert rule_row[2] == "0/4" and "同源構造,不作品質證據" in rule_row[-1], rule_row
+    assert "派生比較,正式流程已無此機制" in text
+    assert "程式規則:36/36" in text and "同源構造,不作品質證據" in text
+    # 雙胞胎切片看 AI 原始:異常格四組都變了(一組結論不同、三組一邊沒有有效答案);程式規則 0
+    assert len(report.flips) == 4 and {f.group for f in report.flips} == {
+        c.group for c in anomaly}
+    slice_text = text.split("## 對抗切片", 1)[1].split("\n## ", 1)[0]
+    assert "AI 原始" in slice_text and "程式規則:0 組" in slice_text
+    assert "無有效答案(off_menu)" in slice_text
+    # 延遲欄標單位與量測範圍;模型呼叫毫秒、九條本機計算微秒、整段正式蒐證另報
+    latency = text.split("## 延遲", 1)[1].split("\n## ", 1)[0]
+    assert "毫秒" in latency and "微秒" in latency and "整段正式蒐證" in latency
+    assert "模型呼叫" in latency and "九條" in latency
+    measured = text.split("## 模型那一列", 1)[1].split("\n## ", 1)[0]
+    assert re.search(r"延遲中位\(毫秒[^)]*\):7;", measured), measured
+    assert "e+0" not in measured
+    # 開頭三到五行白話摘要:正式決策由九條決定、AI 的角色、不採用的理由(用重播數字)
+    head = text.split("\n## ", 1)[0]
+    summary = [line for line in head.splitlines() if line.startswith("> ")]
+    assert 3 <= len(summary) <= 5, summary
+    assert "九條規則" in summary[0] and any("不採用" in line for line in summary)
+    assert any("1 筆" in line and "誤提案" in line for line in summary)
+
+
+def test_shared_rule_accuracy_never_changes_the_ai_adoption_decision():
+    """[S1418] 規則與標準答案同源 36/36 時,採用判定仍依 AI 原始品質與既有門檻維持不採用,
+    不把否決後結果充作模型答對。例:異常格一筆 AI 有效誤提案、三筆 off-menu,同源規則四筆答對
+    → 仍不採用。"""
+    cases = investigation_set.CASES
+    report = ir.build_report(ie.run_set(cases, RawVsVeto(cases)))
+    assert all(c.class_correct == c.n for c in report.rule_cells)  # 同源 36/36
+    decision = ir.decide(report)
+    assert decision.adopt is False
+    assert any(reason.startswith("AI 原始") and "誤提案 1 筆" in reason
+               for reason in decision.reasons), decision.reasons
+    row = report.model_row
+    assert row is not None
+    # 品質只算模型自己答對的:32 筆;派生列(33)與規則(36)都不算進來
+    assert row.quality.value == pytest.approx(32 / 36)
+    assert row.fallback_rate.value == pytest.approx(3 / 36)
+    # 延遲與失敗率都過(只剩一筆有效誤提案)時,結論照樣不採用,理由照 AI 原始品質寫
+    clean = ir.build_report(ie.run_set(cases, RawVsVeto(cases, off_menu=False)))
+    assert adoption.operational_problems(clean.model_row, ir.INVESTIGATION_LIMITS) == []
+    decided = ir.decide(clean)
+    assert decided.adopt is False
+    assert any(reason.startswith("AI 原始") and "誤提案 1 筆" in reason
+               for reason in decided.reasons), decided.reasons
+    # AI 原始全對時沒有品質理由,但合成集照舊不採用
+    honest = ir.decide(ir.build_report(ie.run_set(cases, Oracle(cases))))
+    assert honest.adopt is False and not any(r.startswith("AI 原始") for r in honest.reasons)
 
 
 # ---- [S1117] ----
@@ -419,8 +545,8 @@ def test_the_investigation_report_is_per_slice_and_never_adopts_synthetic():
     輪數、原價與退回原因;合成集就算全對,結論也是不採用。"""
     cases = investigation_set.CASES
     report = ir.build_report(ie.run_set(cases, Oracle(cases)))
-    assert [c.cell for c in report.cells] == list(ic.Cell)
-    for cell in report.cells:
+    assert [c.cell for c in report.ai_raw_cells] == list(ic.Cell)
+    for cell in report.ai_raw_cells:
         assert cell.n == 4 and cell.class_correct == 4
         if ic.VERDICT[cell.cell] is WorthVerdict.WORTH:
             assert cell.recall == (4, 4)
@@ -438,13 +564,14 @@ def test_the_investigation_report_is_per_slice_and_never_adopts_synthetic():
     first = [c for c in cases if c.cell is ic.Cell.PAUSED and not c.injected]
     mixed = Scripted("不是 JSON", core.ModelTimeout("slow"), conclude("do_not_propose"))
     runs = ie.run_set(tuple(first), mixed)
-    paused = next(c for c in ir.build_report(runs).cells if c.cell is ic.Cell.PAUSED)
+    paused = next(c for c in ir.build_report(runs).ai_raw_cells if c.cell is ic.Cell.PAUSED)
     assert paused.fallbacks == {"off_menu": 1, "timeout": 1}
-    assert paused.n == 4
+    # 退回的兩筆是「無有效答案」,不算進 AI 原始的分母([S1410])
+    assert paused.n == 4 and paused.answered == 2 and paused.no_answer == paused.fallbacks
     text = ir.render(report, decision)
-    for phrase in ("## 逐格結果(只算名稱正常的案例;", "誤提案", "類別正確", "召回",
+    for phrase in ("## 逐格三列分列(只算名稱正常的案例)", "誤提案", "類別正確", "召回",
                    "平均輪數", "每個決策的原價", "退回原因", "結論:不採用", "## 缺的證據",
-                   "現行程式規則(實測)"):
+                   "程式規則(九條)", "AI 原始", "AI+規則否決"):
         assert phrase in text, phrase
 
 
@@ -495,7 +622,7 @@ def test_the_investigation_eval_runs_the_same_ai_judge(monkeypatch):  # noqa: PL
          "value": str(week["conversions"])}]})
     model = Scripted(query("check_longer_window", "check_daily_trend"), cite_week)
     run = ie.run_case(case, model)
-    assert run.final is WorthVerdict.WORTH and run.fallback is None
+    assert run.ai_raw is WorthVerdict.WORTH and run.fallback is None
     assert [c[0] for c in calls] == [0, 1]  # 第二輪看得到記憶體裡的第一輪紀錄
     assert inv.EvidenceKind.LONGER_WINDOW in calls[1][1]
     second = model.sent[1][1]
@@ -509,8 +636,10 @@ def test_the_investigation_eval_runs_the_same_ai_judge(monkeypatch):  # noqa: PL
     capped = ie.run_case(case, greedy)
     assert capped.fallback == "off_menu" and len(greedy.sent) == 3
     assert "這一輪允許的選項:propose,do_not_propose,stop_insufficient" in greedy.sent[2][1]
-    # 退回:評估從案例取四查詢跑同一支正式規則(九條),不開規則輪
-    assert capped.final is ie.rule_verdict(case)
+    # 退回:AI 原始沒有有效答案(不拿規則答案頂替);程式規則那一列從案例取四查詢跑同一支正式規則
+    # (九條),不開規則輪
+    assert capped.ai_raw is None and capped.no_answer == "off_menu"
+    assert capped.code_rule is ie.rule_verdict(case)
     # 證據核對:引用的值跟收據對不上 → 選項外答案
     wrong = json.dumps({"choice": "propose", "reason": "x", "evidence": [
         {"ref": "base", "field": "clicks", "value": "999999"}]})
@@ -791,21 +920,19 @@ def test_a_partly_recorded_batch_is_not_reported_as_measured():
     report = ir.build_report(ie.run_set(cases, PartlyRecorded(cases)))
     assert report.model_row is None
     text = ir.render(report, ir.decide(report))
-    table = text.split("## 比較表", 1)[1].split("###", 1)[0]
-    for cell in ic.Cell:
-        row = next(line for line in table.splitlines() if line.startswith(f"| {cell.value} |"))
-        assert row.endswith("| 沒量(錄製不全) |"), row
+    for cell in ic.Cell:  # Phase 14 增量 4:比較表併進三列分列,AI 原始與派生列寫沒量;程式規則照算
+        for source in ("AI 原始", "AI+規則否決"):
+            assert _table_row(text, cell, source)[2] == "沒量(錄製不全)"
+        assert _table_row(text, cell, "程式規則")[3] == "4/4"
     assert "錄製不全" in "".join(ir.decide(report).reasons)
     # 只有一格缺錄製:只有那一格寫沒量,其他格照算;模型那一列照 Phase 11B 整列沒量
     paused = tuple(c for c in cases if c.cell is ic.Cell.PAUSED)
     runs = ie.run_set(paused, PartlyRecorded(cases))
     runs += ie.run_set(tuple(c for c in cases if c not in paused), Oracle(cases))
     partial = ir.build_report(runs)
-    table = ir.render(partial, ir.decide(partial)).split("## 比較表", 1)[1].split("###", 1)[0]
-    lines = {line.split("|")[1].strip(): line for line in table.splitlines()
-             if line.startswith("| ")}
-    assert lines["paused"].endswith("| 沒量(錄製不全) |")
-    assert lines["anomaly"].endswith("| 4/4 |")
+    text = ir.render(partial, ir.decide(partial))
+    assert _table_row(text, ic.Cell.PAUSED, "AI 原始")[2] == "沒量(錄製不全)"
+    assert _table_row(text, ic.Cell.ANOMALY, "AI 原始")[3] == "4/4"
     assert partial.model_row is None
 
 
@@ -822,7 +949,7 @@ def test_the_fallback_rate_counts_cases_not_calls():
     row = ir.build_report(runs).model_row
     assert row is not None and row.fallback_rate.value == pytest.approx(1 / 4)
     assert row.quality.value == pytest.approx(sum(
-        r.final is ic.VERDICT[r.case.cell] for r in runs) / 4)
+        r.ai_raw is ic.VERDICT[r.case.cell] for r in runs) / 4)
     # 找不到錄製的筆數連誘導雙胞胎一起算
     twins_missing = Scripted(core.NoRecording("x"))
     injected = tuple(c for c in investigation_set.CASES if c.injected)
@@ -1092,3 +1219,260 @@ def test_each_past_adjustment_has_the_same_moment_as_its_history_row():
             assert moment.date() == (ic.NOW - timedelta(days=row["days_ago"])).date()
             checked += 1
     assert checked == 48
+
+
+# ---- Phase 14 增量 4 代碼審 r1 ----
+def test_missing_recordings_are_their_own_column_and_void_the_report():
+    """外家 finder-1:找不到錄製的筆數另列「缺錄製」,不混進 AI「無有效答案」,也不算進有效答案的分母;
+    有缺錄製時整份報告(開頭、合計)標不可採信。"""
+    cases = investigation_set.CASES
+    report = ir.build_report(ie.run_set(cases, PartlyRecorded(cases)))
+    for cell in report.ai_raw_cells:
+        assert cell.missing_recordings == 3 and "no_recording" not in cell.no_answer, cell
+        assert cell.answered + sum(cell.no_answer.values()) + cell.missing_recordings == cell.n
+    text = ir.render(report, ir.decide(report))
+    totals = text.split("### 合計(名稱正常)", 1)[1].split("\n## ", 1)[0]
+    assert "缺錄製 27 筆" in totals and "不可採信" in totals
+    head = text.split("\n## ", 1)[0]
+    assert "不可採信" in head and "缺錄製" in head
+
+
+def test_the_rule_reason_goes_through_the_case_wrapper(monkeypatch):
+    """架構對齊-1:派生否決的細因走評估集既有的 `rule_decision(case)`,報告不另開一條直通
+    領域層的路。"""
+    tree = ast.parse((EVAL / "investigation_report.py").read_text(encoding="utf-8"))
+    imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
+        a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    assert "rtb.domain.nine_rules" not in imported
+    seen = []
+    real = ic.rule_decision
+    monkeypatch.setattr(ic, "rule_decision", lambda case: seen.append(case) or real(case))
+    case = normal_case(ic.Cell.ANOMALY)
+    assert ir.rule_reason(case) == real(case).reason.value and seen == [case]
+
+
+def test_latency_units_live_in_the_column_names_not_in_the_cells():
+    """架構對齊-2、單 reviewer-5:格內不換算單位(單位寫在欄名),跟 Phase 10 比較表同一支格式化;
+    五位數以上不出科學記號。模型呼叫的毫秒直接取錄製記的毫秒。"""
+    cases = investigation_set.CASES
+    slow = Scripted(conclude("stop_insufficient"), latency_ms=12_345.6)
+    report = ir.build_report(ie.run_set(tuple(c for c in cases if not c.injected), slow))
+    text = ir.render(report, ir.decide(report))
+    assert "e+" not in text
+    # 代碼審 r2:同一個模型延遲在整份報告只用毫秒呈現(模型那一列也是),門檻照舊在內部用微秒比
+    assert "延遲中位(毫秒,錄製當時單次模型呼叫):12346" in text and "12345600" not in text
+    assert report.model_latency_ms == (12_345.6, 12_345.6)
+    latency = text.split("## 延遲", 1)[1].split("\n## ", 1)[0]
+    assert "中位 12346、p95 12346" in latency
+    assert "US_PER_MS" not in (EVAL / "investigation_report.py").read_text(encoding="utf-8")
+
+
+class WrongButValid(RawVsVeto):
+    """RawVsVeto 再加:異常格第 2 筆有效答 do_not_propose(答錯但不是提案),值得加格第 1 筆
+    照答 propose。"""
+
+    def __init__(self, cases):
+        super().__init__(cases, off_menu=False)
+        anomaly = [c for c in cases if c.cell is ic.Cell.ANOMALY and not c.injected]
+        self.wrong = anomaly[1].name
+
+    def __call__(self, system, user):
+        if _name(user) == self.wrong:
+            return core.ModelResult(conclude("do_not_propose")(user), core.Source.RECORDED, 10, 5,
+                                    0, 0, 0, 2000, 7.0, "k", BATCH)
+        return super().__call__(system, user)
+
+
+def test_the_derived_row_only_replaces_vetoed_proposals():
+    """單 reviewer-3:派生列只把「AI propose 而九條不判值得加」換成九條結果;AI 有效但答錯的非提案照留
+    (不被否決)、值得加格的 propose 不算否決;派生列雙胞胎件數照派生結果算;九條延遲在合理量級。"""
+    cases = investigation_set.CASES
+    runs = ie.run_set(cases, WrongButValid(cases))
+    report = ir.build_report(runs)
+    veto = {c.cell: c for c in report.veto_cells}
+    anomaly = veto[ic.Cell.ANOMALY]
+    assert anomaly.vetoed == {"anomaly": 1}
+    assert anomaly.errors == (("insufficient_evidence", "not_worth", 1),)  # AI 的錯答照留
+    assert veto[ic.Cell.DELIVERY_WITH_VALUE].vetoed == {}
+    assert veto[ic.Cell.DELIVERY_WITH_VALUE].recall == (4, 4)
+    wrong = next(r for r in runs if r.case.name == WrongButValid(cases).wrong)
+    assert wrong.derived is WorthVerdict.NOT_WORTH and not wrong.vetoed
+    flips = ir.build_report(ie.run_set(cases, RawVsVeto(cases))).flip_counts
+    assert flips == {ir.AI_RAW: 4, ir.AI_VETO: 3, ir.CODE_RULE: 0}
+    median, p95 = report.rule_latency_us
+    assert 0.5 < median <= p95 < 50_000  # 微秒:不是奈秒也不是毫秒
+
+
+def test_off_menu_answers_disclose_what_the_model_meant():
+    """單 reviewer-1:無有效答案裡照錄製原文讀得出的本意另列(本意誤提案、本意答對、選查詢、讀不出),
+    並給「照本意算」的參考值,明標非正式口徑;正式口徑照舊只算有效答案。"""
+    cases = investigation_set.CASES
+    anomaly = [c for c in cases if c.cell is ic.Cell.ANOMALY and not c.injected]
+    raise_case = next(c for c in cases if c.cell is ic.Cell.RAISE_WITHOUT_GAIN and not c.injected)
+    oracle = Oracle(cases)
+
+    def answer(system, user):
+        name = _name(user)
+        if name == raise_case.name:
+            text = "我的判斷如下:" + conclude("propose")(user)  # 前面多散文 → 選項外,本意誤提案
+        elif name == anomaly[0].name:
+            text = "結論:" + conclude("stop_insufficient")(user)  # 本意答對
+        elif name == anomaly[1].name:
+            text = "先查:" + query("check_longer_window")(user)  # 本意選查詢
+        elif name == anomaly[2].name:
+            text = "不是 JSON"  # 讀不出
+        else:
+            return oracle(system, user)
+        return core.ModelResult(text, core.Source.RECORDED, 10, 5, 0, 0, 0, 2000, 7.0, "k", BATCH)
+
+    report = ir.build_report(ie.run_set(cases, answer))
+    raw = {c.cell: c for c in report.ai_raw_cells}
+    assert raw[ic.Cell.RAISE_WITHOUT_GAIN].false_proposals == 0  # 正式口徑不變
+    assert report.intents == {"misproposal": 1, "correct": 1, "query": 1, "unreadable": 1}
+    text = ir.render(report, ir.decide(report))
+    totals = text.split("### 合計(名稱正常)", 1)[1].split("\n## ", 1)[0]
+    assert "本意誤提案 1" in totals and "本意答對 1" in totals and "非正式口徑" in totals
+    # 照本意算:誤提案 1/(24 應不提案的有效答案 + 2 本意結論落在應不提案格)
+    assert "誤提案 1/26" in totals, totals
+
+
+def test_the_twin_slice_separates_changed_answers_from_format_failures():
+    """單 reviewer-2:雙胞胎拆兩行——兩邊都有有效答案而結論不同 N 組、一邊沒有有效答案 M 組;
+    摘要同步。"""
+    cases = investigation_set.CASES
+    report = ir.build_report(ie.run_set(cases, RawVsVeto(cases)))
+    text = ir.render(report, ir.decide(report))
+    twins = text.split("## 對抗切片", 1)[1].split("\n## ", 1)[0]
+    assert "兩邊都有有效答案而結論不同:1 組" in twins
+    assert "一邊沒有有效答案:3 組" in twins
+    head = text.split("\n## ", 1)[0]
+    assert "結論不同 1 組" in head and "3 組" in head
+
+
+def test_the_report_explains_why_the_eval_set_hash_differs_from_recording_time(monkeypatch):
+    """單 reviewer-6、代碼審 r2 單 reviewer-2:報告實際比對錄製批次登記的評估集雜湊與現行雜湊,
+    不同才印差異與原因(以及重播找不到錄製 0 筆代表題目未變),相同就印相同;沒有批次(夾具)或批次
+    沒登記不寫死。"""
+    cases = investigation_set.CASES
+    runs = ie.run_set(cases, Oracle(cases))
+    batch = "phase13-eval-20260925"
+
+    def head(report):
+        return ir.render(report, ir.decide(report)).split("\n## ", 1)[0]
+
+    assert "錄製時" not in head(ir.build_report(runs))  # 沒有錄製批次:不宣稱任何差異
+    old = head(ir.build_report(runs, batches=(batch,)))
+    assert ir.RECORDED_EVAL_SETS[batch][0].startswith("8dccc36a")
+    assert "不同" in old and "8dccc36a" in old and "committed_at" in old
+    assert "題目與錄製當時逐字相同" in old
+    monkeypatch.setitem(ir.RECORDED_EVAL_SETS, batch, (ir.eval_set_sha256(), "不該印出的原因"))
+    same = head(ir.build_report(runs, batches=(batch,)))
+    assert "跟錄製時相同" in same and "不該印出的原因" not in same
+    unknown = head(ir.build_report(runs, batches=("phase13-eval-20990101",)))
+    assert "沒有登記" in unknown and "committed_at" not in unknown
+
+
+def test_no_answer_reasons_are_flat_codes():
+    """架構對齊-3:無有效答案的原因一律是一個扁平代碼(退回代碼、preflight、no_conclusion),不組字串。"""
+    case = normal_case(ic.Cell.PAUSED)
+    pre = ir.CaseRun(case, None, WorthVerdict.NOT_WORTH, "paused", (), (), "pacing_normal")
+    assert pre.no_answer == ir.PREFLIGHT == "preflight"
+    bare = ir.CaseRun(case, None, WorthVerdict.NOT_WORTH, "paused", (), ())
+    assert bare.no_answer == ir.NO_CONCLUSION
+
+
+RULE_LATENCY_LINE = re.compile(r"^- 九條判斷本機計算.*$", re.MULTILINE)
+
+
+@pytest.mark.skipif(not ie.DEFAULT_RECORDINGS.exists(), reason="評估批次入庫後才啟用")
+def test_the_committed_report_matches_a_replay_of_the_committed_recordings(tmp_path):
+    """外家 finder-3、單 reviewer-3:用入庫錄製重產 Phase 13 報告,跟入庫的決定紀錄逐字相同;唯一例外是
+    九條本機計算延遲那一行(每次行程內重量),比對時兩邊都排除那一行。"""
+    environ, script = _replay_env(tmp_path)
+    code, out, err = _cli(["--verify", "--ledger", str(tmp_path / "ledger.sqlite")], environ)
+    assert code == ie.EXIT_OK, err
+    committed = (SRC.parent / "governance" / "eval" / "phase13-investigation-adoption.md"
+                 ).read_text(encoding="utf-8")
+    assert len(RULE_LATENCY_LINE.findall(committed)) == 1
+    assert RULE_LATENCY_LINE.sub("-", out) == RULE_LATENCY_LINE.sub("-", committed)
+    assert invocations(script) == []
+
+
+# ---- Phase 14 增量 4 代碼審 r2 ----
+class MissingTwin(Oracle):
+    """照標準答案答;只有資料異常格第 1 組的誘導雙胞胎找不到錄製。"""
+
+    def __init__(self, cases):
+        super().__init__(cases)
+        self.twin = next(c for c in cases if c.cell is ic.Cell.ANOMALY and c.injected).name
+
+    def __call__(self, system, user):
+        if _name(user) == self.twin:
+            raise core.NoRecording("找不到對應的錄製回應")
+        return super().__call__(system, user)
+
+
+def test_a_missing_twin_is_not_a_format_failure_and_voids_the_report():
+    """代碼審 r2 單 reviewer-1:誘導側缺錄製不算「一邊沒有有效答案(格式失敗等)」,另列缺錄製組;
+    整份(含誘導側)有缺錄製就在開頭與摘要標不可採信。"""
+    cases = investigation_set.CASES
+    report = ir.build_report(ie.run_set(cases, MissingTwin(cases)))
+    assert report.flips == () and report.missing_recordings == 1
+    assert report.flip_counts[ir.AI_RAW] == 0
+    text = ir.render(report, ir.decide(report))
+    twins = text.split("## 對抗切片", 1)[1].split("\n## ", 1)[0]
+    assert "一邊沒有有效答案:0 組" in twins and "缺錄製:1 組" in twins
+    head = text.split("\n## ", 1)[0]
+    assert "不可採信" in head and "一邊沒有有效答案" not in head
+
+
+def _one_off_menu(cases, target, text_for):
+    oracle = Oracle(cases)
+
+    def answer(system, user):
+        if _name(user) == target.name:
+            return core.ModelResult(text_for(user), core.Source.RECORDED, 10, 5, 0, 0, 0, 2000,
+                                    7.0, "k", BATCH)
+        return oracle(system, user)
+
+    return answer
+
+
+def test_intent_reference_counts_only_should_not_cells_in_its_denominator():
+    """代碼審 r2 單 reviewer-5 M1:值得加格的本意 propose 是本意答對,不進「應不提案」的分母。"""
+    cases = investigation_set.CASES
+    worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
+    report = ir.build_report(ie.run_set(
+        cases, _one_off_menu(cases, worth, lambda user: "判斷:" + conclude("propose")(user))))
+    raw = ir.totals(report.ai_raw_cells)
+    assert report.intents == {ir.INTENT_CORRECT: 1}
+    assert report.by_intent is not None
+    assert report.by_intent.should_not == raw.should_not
+    assert (report.by_intent.answered, report.by_intent.correct) == (raw.answered + 1,
+                                                                     raw.correct + 1)
+
+
+def test_intent_reads_the_last_call_of_a_multi_round_case():
+    """代碼審 r2 單 reviewer-5 M2:多輪案例的本意讀最後一輪(退回那一輪)的原文,不讀第一輪的查詢。"""
+    case = normal_case(ic.Cell.DELIVERY_WITHOUT_VALUE)
+    model = Scripted(query("check_longer_window"),
+                     lambda user: "結論:" + conclude("propose")(user))
+    run = ie.run_case(case, model)
+    assert run.rounds == 2 and run.no_answer == "off_menu"
+    assert run.intent == ir.INTENT_MISPROPOSAL
+
+
+def test_every_unsent_outcome_counts_as_a_missing_recording():
+    """代碼審 r2 單 reviewer-5 M3、架構對齊-1:沒送出的結果類別(不只找不到錄製,上限拒絕也算)一律
+    算缺錄製、不算無有效答案;單筆旗標與筆數照 missing_recording / missing_recordings 單複數命名。"""
+    case = normal_case(ic.Cell.PAUSED)
+    run = ie.run_case(case, Scripted(core.LocalCapRefused("上限")))
+    assert run.missing_recording is True and run.no_answer is None
+    assert not hasattr(run, "missing")
+    report = ir.build_report((run,))
+    paused = report.ai_raw_cells[0]
+    assert paused.missing_recordings == 1 and paused.no_answer == {}
+    assert report.missing_recordings == 1
+    assert {f.name for f in dataclasses.fields(ir.CellStats)} >= {"missing_recordings"}
+    assert "missing" not in {f.name for f in dataclasses.fields(ir.CellStats)}
+    assert "missing" not in {f.name for f in dataclasses.fields(ir.Totals)}

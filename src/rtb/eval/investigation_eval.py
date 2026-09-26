@@ -3,8 +3,10 @@
 
 - 逐筆直接呼叫 AI 決策函式(`ai_judge.Judge`),只把查詢的來源從 DSP 換成案例裡存的結果;先前各輪的
   調查紀錄放在記憶體。輪數上限、選項驗證、證據核對、退回都在 Judge 裡([S1146]);Phase 14 增量 3 起
-  AI 退出正式加額決策,這裡是 Judge 唯一的呼叫者,不經流程層、沒有任務庫、不開 A/B/C 規則輪:遇到
-  `RuleContinue` 當場回傳(AI 答 propose 記原始「值得加」、退回取案例九條 `rule_verdict(case)`)。
+  AI 退出正式加額決策,這裡是 Judge 唯一的呼叫者,不經流程層、沒有任務庫、不開 A/B/C 規則輪:不再選
+  查詢就當場結束。Phase 14 增量 4([S1410])起每筆分開存「AI 原始」(模型自己下的結論;退回、呼叫
+  失敗、輪數用完都是沒有有效答案,不拿規則答案頂替)與案例九條結果 `rule_verdict(case)`,「AI+規則
+  否決」只由報告層派生。
 - 每次模型呼叫記下結果類別、延遲、原價與批次(重播時是錄製當時的值),給報告算模型那一列。
 - 錄製批次的驗收([S1141]):入庫目錄裡設定錯誤、花費帳忙碌、無法可靠分類的錄製各 0 份;
   錄製檔都是同一批、批次編號照 `phase13-eval-YYYYMMDD`、沒有佔位檔(用模型用戶端共用的
@@ -28,14 +30,12 @@ from types import MappingProxyType
 from typing import Any, TextIO
 
 from rtb import modelclient as mc
-from rtb.analyzer import ai_judge, policy
+from rtb.analyzer import ai_judge
 from rtb.analyzer import investigation as inv
-from rtb.analyzer.flow import NoAction, ProposalDecision, RuleContinue
 from rtb.analyzer.investigation import AiContext, QueryMore
 from rtb.analyzer.task_store import InvestigationRecord, TaskRow
 from rtb.domain.evidence import Evidence, EvidenceKind, PayloadValue, TrustClass
 from rtb.domain.task_state import TaskState
-from rtb.domain.worth import WorthVerdict
 from rtb.eval import investigation_report as report_mod
 from rtb.eval.investigation_cases import NOW, Case
 from rtb.eval.investigation_report import Call, CaseRun
@@ -75,7 +75,7 @@ class _Logged:
                                        bool(getattr(failed, "shared", False))))
             raise
         self.calls.append(Call(mc.Outcome.OK.value, result.latency_ms, result.list_nanousd,
-                               result.batch_id, bool(result.shared)))
+                               result.batch_id, bool(result.shared), result.text))
         return result
 
 
@@ -113,23 +113,10 @@ def case_evidence(case: Case, task: TaskRow, state: inv.Progress) -> tuple[Evide
     return base + receipts
 
 
-def _verdict(outcome: Any) -> WorthVerdict:
-    """最後有效答案:提案 = 值得加;不提案依原因(判不值得加、判證據不足)。案例都過了前置過濾,
-    走不到別的原因。"""
-    if isinstance(outcome.result, ProposalDecision):
-        return WorthVerdict.WORTH
-    if isinstance(outcome.result, NoAction):
-        reason = outcome.no_action_reason
-        if reason is policy.NoActionReason.JUDGED_NOT_WORTH:
-            return WorthVerdict.NOT_WORTH
-        if reason is policy.NoActionReason.JUDGED_INSUFFICIENT:
-            return WorthVerdict.INSUFFICIENT
-    raise ValueError(f"評估案例走到了前置過濾或別的結局:{outcome!r}")
-
-
 def run_case(case: Case, ask: Ask) -> CaseRun:
     """一筆案例跑到下結論或退回為止;選查詢就回到「蒐集證據」,從案例取結果再交給同一支
-    AI 決策函式。"""
+    AI 決策函式。結果分開持有 AI 原始(模型自己的有效結論,沒有就是 None)與案例九條結果([S1410]):
+    不再把「AI 答的或退回規則答的」混成一個最後答案。"""
     logged = _Logged(ask)
     judge = ai_judge.Judge(logged)  # 原始錄製重播:還原模型自己的答案(AI 原始)
     counter = CallCounter()
@@ -140,16 +127,18 @@ def run_case(case: Case, ask: Ask) -> CaseRun:
         outcome = judge(task, evidence, NOW, AiContext(tuple(records), counter))
         if outcome.record is not None:
             records.append(outcome.record)
-        if isinstance(outcome.result, RuleContinue):
-            # Phase 14 增量 3([S1146] 改寫):當場回傳,不開規則輪、不經流程層。AI 有效答 propose 時
-            # 記 AI 原始「值得加」;退回時改取案例的九條結果 rule_verdict(case)(四查詢從案例取、以
-            # 案例固定 NOW 跑同一支正式規則)。「AI+規則否決」只是報告層的派生比較(增量 4)
-            ai_said_propose = (outcome.record is not None
-                               and outcome.record.kind == inv.RecordKind.CONCLUSION)
-            final = WorthVerdict.WORTH if ai_said_propose else rule_verdict(case)
-            return CaseRun(case, final, tuple(records), tuple(logged.calls))
-        if not isinstance(outcome.result, QueryMore):
-            return CaseRun(case, _verdict(outcome), tuple(records), tuple(logged.calls))
+        if isinstance(outcome.result, QueryMore):
+            continue
+        # Phase 14 增量 3/4([S1146] 改寫、[S1410]):當場結束,不開規則輪、不經流程層。AI 原始只取模型
+        # 自己下的結論;退回(選項外、呼叫失敗、輪數用完)與舊前置過濾都是「無有效答案」,另記原因。
+        # 程式規則一律取案例九條結果;「AI+規則否決」由報告層從這兩者派生
+        preflight = None
+        if outcome.record is None and not records:  # Phase 13 舊前置過濾:沒送模型就結案
+            reason = outcome.no_action_reason
+            preflight = reason.value if reason is not None else type(outcome.result).__name__
+        return CaseRun(case, report_mod.ai_conclusion(records), rule_verdict(case),
+                       report_mod.rule_reason(case), tuple(records), tuple(logged.calls),
+                       preflight)
     raise AssertionError(f"{case.case_id} 超過輪數上限還在選查詢:AI 決策函式的上限沒有生效")
 
 
@@ -171,7 +160,7 @@ def run_set(cases: Sequence[Case], ask: Ask) -> tuple[CaseRun, ...]:
     return tuple(run_case(case, ask) for case in cases)
 
 
-rule_verdict = report_mod.rule_verdict  # 現行規則對同一筆的答案(比較表與退回核對用)
+rule_verdict = report_mod.rule_verdict  # 正式九條對同一筆的答案(程式規則那一列與派生否決用)
 
 
 # ---- 錄製批次的驗收 ----
@@ -182,7 +171,7 @@ def batch_problems(directory: Path, runs: Sequence[CaseRun]) -> list[str]:
     problems = mc.batch_file_problems(directory, BATCH_PATTERN, "phase13-eval-YYYYMMDD")
     missing = sum(1 for run in runs if run.missing_recording)
     if missing:
-        problems.append(f"重播時找不到錄製:{missing} 筆")
+        problems.append(f"重播時找不到錄製(或沒送出):{missing} 筆")
     return problems
 
 

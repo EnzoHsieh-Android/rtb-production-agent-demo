@@ -42,6 +42,7 @@ from rtb.eval.adoption import (
     Measure,
     OperationalLimits,
     decide_adoption,
+    format_value,
 )
 from rtb.eval.generator import from_rows
 from rtb.eval.scoring import (
@@ -65,6 +66,7 @@ LEAKAGE = (
     "調規則,就要換一批,換批要用決策指令記一筆理由與時間。正式環境隱藏集不進程式庫。"
 )
 NOT_INTRODUCED = "未導入"
+CODE_RULE_APPROACH = "現行程式規則"
 WARMUP, RUNS = 2_000, 10_000
 MEASURE_NAMES = ("quality", "cost_per_call_usd", "latency_median_us", "latency_p95_us",
                  "format_failure_rate", "exception_rate", "timeout_rate", "fallback_rate")
@@ -97,7 +99,7 @@ def comparison_rows(
     for cell in WorthCell:
         median, p95 = latency[cell]
         rows.append(ComparisonRow(
-            approach="現行程式規則", cell=cell, quality=Measure.of(quality[cell]),
+            approach=CODE_RULE_APPROACH, cell=cell, quality=Measure.of(quality[cell]),
             cost_per_call_usd=Measure.of(0.0), latency_median_us=Measure.of(median),
             latency_p95_us=Measure.of(p95), format_failure_rate=Measure.of(0.0),
             exception_rate=Measure.of(0.0), timeout_rate=Measure.of(0.0),
@@ -111,7 +113,9 @@ def comparison_rows(
 
 
 def _cell(measure: Measure) -> str:
-    return f"{measure.value:.4g}" if measure.measured else f"沒量({measure.reason})"
+    """數字格走共用的 `adoption.format_value`(單位在欄名,格內不換算;不出科學記號)。"""
+    return (format_value(measure.value) if measure.measured and measure.value is not None
+            else f"沒量({measure.reason})")
 
 
 def _metric(metric_name: str, numerator: int, denominator: int, low: float | None) -> str:
@@ -130,6 +134,13 @@ def cell_table(cells: tuple[CellReport, ...]) -> list[str]:
         name = cell.cell.value if cell.note is None else f"{cell.cell.value}({cell.note})"
         lines.append(f"| {name} | {cell.n} | {metrics} | {errors} |")
     return lines
+
+
+def _row_cell(row: ComparisonRow, notes: Mapping[WorthCell, str | None]) -> str:
+    """比較表「現行程式規則」列的格名帶逐格結果同一個標註(Phase 14 增量 4 代碼審 r1:單獨截表
+    不失警語)。"""
+    note = notes.get(row.cell) if row.approach == CODE_RULE_APPROACH else None
+    return row.cell.value if note is None else f"{row.cell.value}({note})"
 
 
 def render(report: SyntheticReport | ProductionReport, rows: tuple[ComparisonRow, ...],
@@ -154,10 +165,14 @@ def render(report: SyntheticReport | ProductionReport, rows: tuple[ComparisonRow
               "| 做法 | 評分格 | 品質 | 每次成本(美元) | 延遲中位(微秒) | 延遲 p95(微秒) | "
               "格式失敗率 | 例外率 | 逾時率 | 退回率 |",
               "|---|---|---|---|---|---|---|---|---|---|"]
-    lines += [f"| {row.approach} | {row.cell.value} | "
+    notes = {cell.cell: cell.note for cell in report.cells}
+    lines += [f"| {row.approach} | {_row_cell(row, notes)} | "
               + " | ".join(_cell(m) for m in row.measures()) + " |" for row in rows]
     lines += ["", "延遲是單次量測(本機、行程內),只當量級參考;現行程式規則那幾列量的是缺四查詢時"
-              "的九條短路徑,不含正式規則輪 A/B/C 的讀取與九條全鏈。", "", "## 逐格採用決定", ""]
+              "的九條短路徑,不含正式規則輪 A/B/C 的讀取與九條全鏈。現行程式規則三格品質 1 的"
+              "意義不同:paused、anomaly 兩格九條用基本資料就判得出(品質 1 有效);"
+              "delivery_without_value 的品質 1 是缺四查詢時一律回證據不足、恰好等於標準答案,"
+              "不是九條真的判對。", "", "## 逐格採用決定", ""]
     lines += [f"- {d.cell.value}:{'驗證過' if d.validated else '未驗證'}"
               f"({';'.join(d.reasons) or '全部達標'})" for d in adoption.cells]
     lines += ["", "## 缺的證據", "", *[f"- {item}" for item in adoption.missing_evidence], "",
@@ -294,14 +309,22 @@ def _cell_line(cell: WorthCell, row: ComparisonRow, means: Mapping[WorthCell, fl
     return f"- {cell.value}:{';'.join(parts)}{reference}"
 
 
+def _subset_line(run: model_candidate.ModelRun) -> str:
+    """模型一次都沒被呼叫到時照實寫沒有跑,不寫「跑了 N 個情境」(Phase 14 增量 4 代碼審 r1)。"""
+    subset = (f"{len(run.rows)} 個情境(子集每格 {model_candidate.GROUPS_PER_CELL} 組、"
+              "每組 3 個變體)")
+    if not any(row.outcome not in model_candidate.UNSENT for row in run.rows):
+        return f"- 候選子集 {subset}:沒有跑——模型一次都沒被呼叫到(沒有錄製或呼叫前就被擋下)"
+    return f"- 跑了 {subset}"
+
+
 def model_section(settings: mc.Settings, args: argparse.Namespace,
                   errors: TextIO) -> ModelSection:
     run, batch, flags = _model_run(settings, args, errors)
     rows = None if batch is None else model_candidate.model_rows(batch, run.scored)
     lines = ["", f"## 模型候選({settings.model})", "",
              f"- 模式:{'即時' if settings.mode is mc.Mode.LIVE else '重播錄製回應(不是即時呼叫)'}",
-             f"- 跑了 {len(run.rows)} 個情境(子集每格 {model_candidate.GROUPS_PER_CELL} 組、"
-             "每組 3 個變體)"]
+             _subset_line(run)]
     if batch is not None:
         shared = sum(1 for r in batch.rows if r.shared)
         sent = sum(1 for r in batch.rows if r.sent)

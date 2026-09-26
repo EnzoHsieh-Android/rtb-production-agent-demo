@@ -671,5 +671,6 @@ def _eval_records_and_replays(tmp_path):
     replay_gate = modelgate.Gate(recorded(), mc.Caller.INVESTIGATION, "eval-test",
                                  tmp_path / "replay-ledger.sqlite", folder, None)
     replayed = ie.run_set(cases, ai_judge.gate_complete(replay_gate))
-    assert [r.final for r in replayed] == [r.final for r in recorded_runs]
+    assert [(r.ai_raw, r.code_rule) for r in replayed] == [
+        (r.ai_raw, r.code_rule) for r in recorded_runs]
     assert not any(r.missing_recording for r in replayed)
