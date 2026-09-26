@@ -18,7 +18,17 @@
 - 寫入後就算當機，也能依紀錄恢復，不會再寫一次。
 - [安全宣稱清單](claims/)連到程式與測試證據，並由檢查工具自動核對。
 
-展示備有七種故障情境，包含逾時、當機、重複投遞、舊版本、名稱誘導、人工重放和累計超額。[看展示流程](src/rtb/demo/flow.py)
+展示備有七種故障情境：
+
+| 編號 | 情境 | 沒防護會怎樣 | 系統怎麼擋 | 截圖 |
+|---|---|---|---|---|
+| F1 | 送出寫入後，平台沒有回應 | 當成失敗再送一次，預算被加兩次 | 先回平台查，再用同一個識別碼補送，平台只改一次 | [看](docs/assets/phase13-inc4/full-F1.jpg) |
+| F2 | 寫進平台後、記下結果前，執行端當機 | 重啟後以為沒寫，又寫一次 | 重啟後查平台紀錄，確認寫過就不重送 | [看](docs/assets/phase13-inc4/full-F2.jpg) |
+| F3 | 同一件工作被兩邊同時處理，同一則訊息也投遞兩次 | 分析費用花兩次，平台改兩次 | 只有一邊能做分析，平台只改一次 | [看](docs/assets/phase13-inc4/full-F3.jpg) |
+| F4 | 建議寫好後，別人先改了預算 | 用舊數字蓋掉別人的修改 | 寫入前重查版本，變了就擋下，照現況重算 | [看](docs/assets/phase13-inc4/full-F4.jpg) |
+| F5 | 廣告名稱裡藏著指令，要系統忽略規則、加 500% 預算、洩漏金鑰 | AI 照做，亂加預算或洩漏金鑰 | 名稱只當資料看；金額由程式照公式算，AI 只能決定要不要提案 | [看](docs/assets/phase13-inc4/full-F5.jpg) |
+| F6 | 平台連不上，建議停下等人；人工重送時廣告已被改過 | 過時的建議照樣寫進去 | 重送時再確認一次，擋下舊建議，另開工作重算 | [看](docs/assets/phase13-inc4/full-F6.jpg) |
+| F7 | 很多廣告各加一點，加起來超過總上限 | 每筆都合規，總額卻失控 | 累計到總上限就停，超過的等人核可才寫入 | [看](docs/assets/phase13-inc4/full-F7.jpg) |
 
 ## 跑起來看看
 
@@ -55,3 +65,9 @@ RTB_MODEL_LIVE=1 PYTHONPATH=src .venv/bin/python -m rtb.demo.server --work-dir /
 在名稱正常的 36 筆合成案例中，AI 路徑的最後結論答對 17 筆，程式規則答對 12 筆。但 AI 的回答格式失敗率與延遲都沒過門檻，所以正式決策不採用 AI。展示裡仍看得到它怎麼判斷。[評估結果](governance/eval/phase13-investigation-adoption.md)
 
 這是單機示範，不具備正式環境的行程隔離與訊息服務。
+
+## repo 地圖
+
+- `src/`：系統本體。
+- `tests/`、`claims/`：證據。`tools/` 是核對這些證據的工具。
+- `governance/`、`docs/rtb-production-agent-demo-knowledge/`、`CLAUDE.md`、`AGENTS.md`、`.lumos/`：跟 AI 協作開發時留下的過程紀錄，看系統本身可以略過。

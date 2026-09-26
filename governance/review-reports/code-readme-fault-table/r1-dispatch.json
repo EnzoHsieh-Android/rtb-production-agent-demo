@@ -1,0 +1,14 @@
+[
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "README 的 F1–F7 表與 repo 地圖每句對得上程式與宣稱清單、寫法跟 README 既有一致",
+  "materials": [
+   "governance/review-reports/code-readme-fault-table/r1-snapshot.patch",
+   "README.md",
+   "src/rtb/demo/driver.py",
+   "claims/"
+  ],
+  "auditor": "claude-sonnet"
+ }
+]
