@@ -1,0 +1,325 @@
+diff --git a/docs/assets/agent-flow.svg b/docs/assets/agent-flow.svg
+index 78b0ada..1afaabc 100644
+--- a/docs/assets/agent-flow.svg
++++ b/docs/assets/agent-flow.svg
+@@ -1,33 +1,35 @@
+ <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" font-family="Hiragino Sans GB, sans-serif">
+ <title id="title">RTB Agent 從 AI 調查到安全寫入</title>
+-<desc id="desc">分析端資料太舊會重蒐集，缺資料或配速不慢會不提案；配速偏慢時，未開 AI 才交程式規則。AI 可選唯讀查詢或下結論，AI 失敗時改由程式規則判斷。程式計算提案，收件與執行端重查後才寫入模擬平台。說明與假說只給人參考；F6 重放與 F7 核可回到佇列重驗。</desc>
++<desc id="desc">分析端向模擬平台唯讀讀取廣告現況與指標；資料太舊會重蒐集，缺資料或配速不慢會不提案；配速偏慢時，未開 AI 才交程式規則。AI 可選唯讀查詢或下結論，AI 失敗時改由程式規則判斷。程式計算提案，收件與執行端重查後才寫入模擬平台。說明與假說只給人參考；F6 重放與 F7 核可回到佇列重驗。</desc>
++<defs><marker id="arrow-read" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#89d0ac"/></marker></defs>
+ <defs><marker id="arrow-query" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
+ <defs><marker id="arrow-note" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
+ <defs><marker id="arrow-main" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
+ <defs><marker id="arrow-human" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#f1c875"/></marker></defs>
+ <defs><marker id="arrow-branch" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
+ <defs><marker id="arrow-back" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#f1c875"/></marker></defs>
+ <rect width="1800" height="760" fill="#0b0d12"/>
+ <rect x="24" y="17" width="1752" height="66" rx="16" fill="#11141b" stroke="#424958"/>
+ <text x="900" y="58" text-anchor="middle" fill="#f4f4f5" font-size="25" font-weight="700">RTB Agent：從調查到確認寫入</text>
+ <rect x="95" y="110" width="1681" height="210" rx="10" fill="#171a22"/>
+ <text x="20" y="221" fill="#f4f4f5" font-size="18">分析</text>
+ <rect x="95" y="340" width="1681" height="85" rx="10" fill="#171a22"/>
+ <text x="20" y="388" fill="#f4f4f5" font-size="18">收件</text>
+ <rect x="95" y="440" width="1681" height="100" rx="10" fill="#171a22"/>
+ <text x="20" y="496" fill="#f4f4f5" font-size="18">執行</text>
+ <rect x="95" y="555" width="1681" height="70" rx="10" fill="#171a22"/>
+ <text x="20" y="596" fill="#f4f4f5" font-size="18">廣告平台</text>
+ <rect x="95" y="640" width="1681" height="70" rx="10" fill="#171a22"/>
+ <text x="20" y="681" fill="#f4f4f5" font-size="18">人工</text>
+ <polyline points="165,180 190,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
++<polyline points="215,209 215,561" fill="none" stroke="#89d0ac" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-read)"/>
+ <polyline points="290,180 305,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="425,180 446,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="340,152 340,132 240,132 240,151" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-back)"/>
+ <polyline points="425,196 435,196 435,230 580,230 580,275 599,275" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
+ <polyline points="385,152 385,122 650,122 650,151" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
+ <polyline points="564,180 600,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
+ <polyline points="505,151 505,102 775,102 775,151" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="505,208 505,246" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-query)"/>
+ <polyline points="446,275 240,275 240,209" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-query)"/>
+ <polyline points="564,190 590,190 590,275 599,275" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
+@@ -60,25 +62,27 @@
+ <rect x="841" y="247" width="138" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="910" y="268" text-anchor="middle">AI 說明／假說</text><text x="910" y="291" text-anchor="middle">只給人參考</text></g>
+ <rect x="995" y="354" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1045" y="382" text-anchor="middle">收件檢查</text></g>
+ <rect x="1114" y="354" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1170" y="382" text-anchor="middle">待處理佇列</text></g>
+ <rect x="979" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1035" y="483" text-anchor="middle">多次未啟動</text><text x="1035" y="506" text-anchor="middle">先停下</text></g>
+ <rect x="1120" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1170" y="490" text-anchor="middle">寫前重查</text></g>
+ <rect x="1249" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1305" y="483" text-anchor="middle">權限／版本</text><text x="1305" y="506" text-anchor="middle">單筆／總額</text></g>
+ <rect x="1400" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1450" y="490" text-anchor="middle">憑證寫入</text></g>
+ <rect x="1530" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1580" y="490" text-anchor="middle">核對結果</text></g>
+ <rect x="1661" y="462" width="78" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1700" y="490" text-anchor="middle">完成</text></g>
+ <rect x="1400" y="562" width="100" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="1450" y="583" text-anchor="middle">Mock DSP</text><text x="1450" y="606" text-anchor="middle">模擬平台</text></g>
++<rect x="159" y="562" width="112" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="215" y="583" text-anchor="middle">Mock DSP</text><text x="215" y="606" text-anchor="middle">讀現況／指標</text></g>
+ <rect x="996" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1060" y="675" text-anchor="middle">F6 人工重放</text></g>
+ <rect x="1246" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1310" y="675" text-anchor="middle">F7 人工核可</text></g>
+ <text x="540" y="312" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">太舊回蒐集；缺資料或不慢就不提案</text>
+ <text x="925" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">送件後供人參考，不進決策</text>
+ <text x="1065" y="714" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">重放／核可後都回佇列，重新檢查</text>
+ <text x="290" y="119" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>
+ <text x="560" y="136" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">未開 AI 時</text>
+ <text x="470" y="222" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">缺資料／不慢</text>
++<text x="240" y="430" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">只讀</text>
+ <rect x="95" y="722" width="1681" height="28" rx="7" fill="#11141b" stroke="#424958"/>
+ <text x="112" y="736" dominant-baseline="middle" fill="#93ccee" font-size="15">程式</text>
+ <text x="180" y="736" dominant-baseline="middle" fill="#d5a4f0" font-size="15">AI</text>
+ <text x="235" y="736" dominant-baseline="middle" fill="#f1c875" font-size="15">人工／回頭線</text>
+ <text x="385" y="736" dominant-baseline="middle" fill="#89d0ac" font-size="15">模擬平台</text>
+ <text x="585" y="736" dominant-baseline="middle" fill="#f4f4f5" font-size="15">AI 只選查詢或結論；所有寫入由程式與人工關卡決定</text>
+ </svg>
+\ No newline at end of file
+diff --git a/docs/assets/make_agent_flow_gif.py b/docs/assets/make_agent_flow_gif.py
+index 67eafa4..c887db4 100644
+--- a/docs/assets/make_agent_flow_gif.py
++++ b/docs/assets/make_agent_flow_gif.py
+@@ -36,21 +36,21 @@ NOTES = (
+     (1065, 714, "重放／核可後都回佇列，重新檢查"),
+ )
+ LEGEND = (
+     (112, "程式", COLORS["程式"][1]),
+     (180, "AI", COLORS["AI"][1]),
+     (235, "人工／回頭線", HUMAN),
+     (385, "模擬平台", COLORS["平台"][1]),
+     (585, "AI 只選查詢或結論；所有寫入由程式與人工關卡決定", TEXT),
+ )
+ EDGE_LABELS = ((290, 119, "太舊"), (560, 136, "未開 AI 時"),
+-               (470, 222, "缺資料／不慢"))
++               (470, 222, "缺資料／不慢"), (240, 430, "只讀"))
+ 
+ 
+ @dataclass(frozen=True)
+ class Node:
+     key: str
+     x: int
+     y: int
+     label: tuple[str, ...]
+     owner: str
+     width: int = 100
+@@ -69,29 +69,32 @@ NODES = (
+     Node("narrate", 910, 275, ("AI 說明／假說", "只給人參考"), "AI", 138),
+     Node("inbox", 1045, 382, ("收件檢查",), "程式"),
+     Node("queue", 1170, 382, ("待處理佇列",), "程式", 112),
+     Node("deadletter", 1035, 490, ("多次未啟動", "先停下"), "程式", 112),
+     Node("recheck", 1170, 490, ("寫前重查",), "程式"),
+     Node("limits", 1305, 490, ("權限／版本", "單筆／總額"), "程式", 112),
+     Node("write", 1450, 490, ("憑證寫入",), "程式"),
+     Node("verify", 1580, 490, ("核對結果",), "程式"),
+     Node("done", 1700, 490, ("完成",), "程式", 78),
+     Node("platform", 1450, 590, ("Mock DSP", "模擬平台"), "平台"),
++    # 蒐集資料與 AI 追加查詢都向平台讀現況與指標(分析端的 DSP 用戶端);只讀、不寫
++    Node("platform_read", 215, 590, ("Mock DSP", "讀現況／指標"), "平台", 112),
+     Node("replay", 1060, 675, ("F6 人工重放",), "人工", 128),
+     Node("approve", 1310, 675, ("F7 人工核可",), "人工", 128),
+ )
+ BY_KEY = {node.key: node for node in NODES}
+ MAIN = ("receive", "collect", "filter", "ai", "proposal", "submit", "inbox", "queue",
+         "recheck", "limits", "write", "platform", "verify", "done")
+ CAPTIONS = {
+     "receive": "收到一件工作，開始分析。",
+-    "collect": "程式蒐集最新廣告資料。",
++    "collect": "程式向模擬平台讀最新的廣告現況與指標。",
++    "platform_read": "分析端只讀平台，不寫入；寫入只在執行端。",
+     "filter": "太舊重蒐集；缺資料或不慢就不提案；偏慢才進入判斷。",
+     "ai": "開啟 AI 判斷時，AI 只選固定的下一步。",
+     "query": "AI 可選四種唯讀查詢，查完回到蒐證。",
+     "rule": "呼叫或收據核對失敗，改由程式規則決定。",
+     "stop": "AI 可判不提案或證據不足，工作就停下。",
+     "proposal": "若判值得加，金額、廣告與動作由程式決定。",
+     "submit": "提案送往獨立收件口；說明與假說只給人參考。",
+     "inbox": "收件口檢查並保存提案。",
+     "queue": "提案進入待處理佇列。",
+     "deadletter": "F6：多次未能開始處理，先停下等人。",
+@@ -100,20 +103,21 @@ CAPTIONS = {
+     "write": "通過檢查才用受限憑證寫入。",
+     "platform": "Mock DSP 模擬廣告平台回覆。",
+     "verify": "程式核對平台的實際結果。",
+     "done": "確認一致，工作才算完成。",
+     "replay": "F6：人工重放後回佇列重驗。",
+     "approve": "F7：人工核可後回佇列重驗。",
+ }
+ # 每條路徑的折點在節點框之外；回頭線以虛線標示。
+ EDGES = (
+     ("receive", "collect", ((165, 180), (190, 180)), "main"),
++    ("collect", "platform_read", ((215, 209), (215, 561)), "read"),
+     ("collect", "filter", ((290, 180), (305, 180)), "main"),
+     ("filter", "ai", ((425, 180), (446, 180)), "main"),
+     ("filter", "collect", ((340, 152), (340, 132), (240, 132), (240, 151)), "back"),
+     ("filter", "stop", ((425, 196), (435, 196), (435, 230), (580, 230),
+                         (580, 275), (599, 275)), "branch"),
+     ("filter", "rule", ((385, 152), (385, 122), (650, 122), (650, 151)), "branch"),
+     ("ai", "rule", ((564, 180), (600, 180)), "branch"),
+     ("ai", "proposal", ((505, 151), (505, 102), (775, 102), (775, 151)), "main"),
+     ("ai", "query", ((505, 208), (505, 246)), "query"),
+     ("query", "collect", ((446, 275), (240, 275), (240, 209)), "query"),
+@@ -133,25 +137,30 @@ EDGES = (
+     ("queue", "deadletter", ((1114, 398), (1100, 398), (1100, 490), (1091, 490)), "human"),
+     ("deadletter", "replay", ((1035, 519), (1035, 635), (1060, 635),
+                                (1060, 645)), "human"),
+     ("replay", "queue", ((1124, 675), (1110, 675), (1110, 428), (1126, 428), (1126, 411)), "human"),
+     ("limits", "approve", ((1305, 519), (1305, 645)), "human"),
+     ("approve", "queue", ((1374, 675), (1395, 675), (1395, 430),
+                           (1210, 430), (1210, 411)), "human"),
+ )
+ 
+ 
++DASHED = ("human", "query", "note", "back", "read")  # 回頭線、旁支與只讀線畫虛線
++
++
+ def _edge_color(kind: str) -> str:
+     if kind in ("human", "back"):
+         return HUMAN
+     if kind in ("query", "note"):
+         return COLORS["AI"][1]
++    if kind == "read":
++        return COLORS["平台"][1]
+     return ACCENT
+ 
+ 
+ def _font(path: Path, size: int) -> ImageFont.FreeTypeFont:
+     return ImageFont.truetype(str(path), size)
+ 
+ 
+ def _arrow(draw: ImageDraw.ImageDraw, points: tuple[tuple[int, int], ...],
+            color: str, *, dashed: bool = False) -> None:
+     for start, end in pairwise(points):
+@@ -192,21 +201,21 @@ def _frame(path: Path, key: str) -> Image.Image:
+     draw.rounded_rectangle((24, 17, 1776, 83), radius=16, fill=SURFACE, outline=BORDER)
+     draw.text((900, 50), CAPTIONS[key], font=_font(path, 25), fill=TEXT, anchor="mm")
+     for name, top, bottom in LANES:
+         draw.rounded_rectangle((95, top, 1776, bottom), radius=10, fill=RAISED)
+         draw.text((20, (top + bottom) // 2), name, font=_font(path, 18), fill=TEXT, anchor="lm")
+     for first, _second, points, kind in EDGES:
+         color = _edge_color(kind)
+         if kind == "main" and key in MAIN and first in MAIN \
+                 and MAIN.index(first) >= MAIN.index(key):
+             color = BORDER
+-        _arrow(draw, points, color, dashed=kind in ("human", "query", "note", "back"))
++        _arrow(draw, points, color, dashed=kind in DASHED)
+     for node in NODES:
+         _node(draw, path, node, node.key == key)
+     for x, y, value in NOTES:
+         draw.text((x, y), value, font=_font(path, 15), fill=MUTED, anchor="mm")
+     for x, y, value in EDGE_LABELS:
+         draw.text((x, y), value, font=_font(path, 13), fill=ACCENT, anchor="mm")
+     draw.rounded_rectangle((95, 722, 1776, 750), radius=7, fill=SURFACE, outline=BORDER)
+     for x, value, color in LEGEND:
+         draw.text((x, 736), value, font=_font(path, 15), fill=color, anchor="lm")
+     return frame
+@@ -222,38 +231,39 @@ def _svg_node(node: Node) -> str:
+             f'fill="{fill}" stroke="{stroke}" stroke-width="2"/>'
+             f'<g fill="{fg}" font-size="16" font-weight="700">{lines}</g>')
+ 
+ 
+ def _write_svg() -> None:
+     parts = [
+         '<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" '
+         'viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" '
+         'font-family="Hiragino Sans GB, sans-serif">',
+         '<title id="title">RTB Agent 從 AI 調查到安全寫入</title>',
+-        '<desc id="desc">分析端資料太舊會重蒐集，缺資料或配速不慢會不提案；'
++        '<desc id="desc">分析端向模擬平台唯讀讀取廣告現況與指標；'
++        '資料太舊會重蒐集，缺資料或配速不慢會不提案；'
+         '配速偏慢時，未開 AI 才交程式規則。AI 可選唯讀查詢或下結論，'
+         'AI 失敗時改由程式規則判斷。程式計算提案，收件與執行端重查後才寫入模擬平台。'
+         '說明與假說只給人參考；F6 重放與 F7 核可回到佇列重驗。</desc>',
+         f'<rect width="1800" height="760" fill="{BG}"/>',
+         f'<rect x="24" y="17" width="1752" height="66" rx="16" fill="{SURFACE}" '
+         f'stroke="{BORDER}"/>',
+         f'<text x="900" y="58" text-anchor="middle" fill="{TEXT}" font-size="25" '
+         'font-weight="700">RTB Agent：從調查到確認寫入</text>',
+     ]
+     for name, top, bottom in LANES:
+         parts.append(f'<rect x="95" y="{top}" width="1681" height="{bottom - top}" '
+                      f'rx="10" fill="{RAISED}"/>')
+         parts.append(f'<text x="20" y="{(top + bottom) // 2 + 6}" fill="{TEXT}" '
+                      f'font-size="18">{name}</text>')
+     for _first, _second, points, kind in EDGES:
+         color = _edge_color(kind)
+-        dash = ' stroke-dasharray="7 5"' if kind in ("human", "query", "note", "back") else ""
++        dash = ' stroke-dasharray="7 5"' if kind in DASHED else ""
+         route = " ".join(f"{x},{y}" for x, y in points)
+         parts.append(f'<polyline points="{route}" fill="none" stroke="{color}" '
+                      f'stroke-width="3"{dash} marker-end="url(#arrow-{kind})"/>')
+     for kind in sorted({row[3] for row in EDGES}):
+         color = _edge_color(kind)
+         parts.insert(3, f'<defs><marker id="arrow-{kind}" markerWidth="3" markerHeight="3" '
+                      'refX="8" refY="4" orient="auto" viewBox="0 0 8 8">'
+                      f'<path d="M0 0L8 4L0 8Z" fill="{color}"/></marker></defs>')
+     parts.extend(_svg_node(node) for node in NODES)
+     for x, y, value in NOTES:
+@@ -275,21 +285,21 @@ def main() -> None:
+     parser = argparse.ArgumentParser(description="重畫 README 的 GIF 與 SVG")
+     parser.add_argument("--font", type=Path)
+     args = parser.parse_args()
+     path = args.font or Path(os.environ.get("RTB_FLOW_FONT", FONT))
+     if not path.is_file():
+         parser.error(f"找不到字型：{path}")
+     try:
+         _font(path, 15)
+     except OSError as exc:
+         parser.error(f"無法讀取字型：{exc}")
+-    keys = (*MAIN, "query", "rule", "stop", "deadletter", "replay", "approve")
++    keys = (*MAIN, "platform_read", "query", "rule", "stop", "deadletter", "replay", "approve")
+     frames = [_frame(path, key) for key in keys]
+     sheet = Image.new("RGB", (SIZE[0], SIZE[1] * len(frames)))
+     for index, frame in enumerate(frames):
+         sheet.paste(frame, (0, SIZE[1] * index))
+     palette = sheet.quantize(colors=64)
+     indexed = [frame.quantize(palette=palette) for frame in frames]
+     indexed[0].save(ROOT / "docs/assets/agent-flow.gif", save_all=True,
+                     append_images=indexed[1:], duration=900, loop=0, optimize=True, disposal=2)
+     _write_svg()
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md b/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
+index bb9c966..94390f7 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
+@@ -18,15 +18,17 @@ verified_by:
+   - "[[Verification/README流程動圖驗證]]"
+ ---
+ # README流程動圖產生器
+ 
+ WHY: [2026-09-24] 使用者裁定產圖腳本移到 `docs/assets/make_agent_flow_gif.py`，作為文件產出物工具，不列入 `tools/`、mypy 掃描與正式工具規範；用系統 Python 和 Pillow 12 重畫，不增加專案開發依賴。出處：README 代碼審第 1 輪後的使用者裁定。
+ 
+ WHY: [2026-09-25 Phase 13 主線] 先前灰色「AI 說明規劃中」旁支已誤導讀者：開啟 AI 判斷的展示流程會在程式初篩後讓 AI 選唯讀查詢或結論，查詢回蒐證、失敗改由程式規則決定；此路徑未通過正式採用門檻。給人看的說明與告警假說已接入展示，不影響決策。重畫時把這三種去向及 F6/F7 回佇列重查畫出，節點與分支以 [[Systems/一鍵展示]] 所管的展示流程定義為準，深色配色以 [[Systems/展示頁面]] 的 CSS 為準。出處：Phase 13 已合主線的程式與 [[Projects/RTB_Phase13AI參與決策_計劃]]，可重跑 `python3 docs/assets/make_agent_flow_gif.py` 並對照圖及流程定義。
+ 
+ 展示流程定義把「AI 說明」列在提案與送件之間，作為提案旁的可選節點；實際展示驅動在情境結束後才讀已送出的提案、產生給人看的說明，告警假說也在那時獨立處理。本圖送件後的虛線旁支表現展示時點，不表示那段文字會跟提案一起進入收件或執行決策。
+ 
++WHY: [2026-09-26] 使用者指出舊圖的「蒐集資料」沒有連到廣告平台，讀者會以為分析端只看系統內部資料；實際上分析端的 DSP 用戶端在蒐集時讀廣告現況與成效指標，AI 追加查詢也回到蒐集再讀一次(見 [[Systems/Mock-DSP]])。平台列在蒐集下方另畫一格「Mock DSP 讀現況／指標」，用平台色虛線標「只讀」，跟執行端的實線寫入分開，保住「寫入只在執行端」這個重點；不拉長線接到右邊那一格，免得橫越整張圖。展示流程定義是狀態流程、不畫呼叫關係，這條線不在裡面，是這張 README 圖自己補的。
++
+ WHY: [2026-09-25] F6/F7 回頭線用人工色虛線，AI 查詢回頭線用 AI 色虛線，與程式主線分辨；GIF 和 SVG 共用節點與路徑定義。出處：README 代碼審第 2 輪與本次 Phase 13 README 更新。
+ 
+ 驗證入口：`python3 docs/assets/make_agent_flow_gif.py` 重畫 GIF 與 SVG；用 `--font` 或 `RTB_FLOW_FONT` 指定字型，未指定時才用 macOS Hiragino Sans GB，找不到字型會報錯退出。產出後抽格目視、解析 SVG XML，並跑 `ruff check docs/assets/make_agent_flow_gif.py`。
+ 
+ PITFALL: GIF 各格共用一張調色盤；舊圖曾只從圖例格取色，把當時的「目前步驟」青色併成程式藍，人工格看起來像程式處理(README 代碼審第 3 輪)。現行圖仍把全部影格拼成一張再取色；目前高亮色依展示 CSS 為黃色。重驗：抽人工重放與核可的最後兩格，亮黃色像素都應大於 0；可用 Pillow 逐格讀取 RGB 數值。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md b/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
+index 5d1ef30..0b5b5a7 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
++++ b/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
+@@ -5,21 +5,25 @@ date: 2026-09-25
+ valid_under: readme-phase13 工作樹；Phase 13 四個增量已上主線；展示與評估錄製批次已入庫；圖對照展示流程定義、實際展示驅動與 F6/F7 回佇列路徑，配色對照深色展示頁。
+ revalidate_when: 展示流程定義或實際展示驅動的 AI 調查、說明與假說時點改變，F6/F7 合約、展示頁深色配色、README 流程描述、docs/assets/make_agent_flow_gif.py、字型或 Pillow 版本改變時，重跑產圖、抽格及 SVG 解析。
+ tags:
+   - type/verification
+   - status/pass
+ plan_refs:
+   - "[[Projects/README流程動圖_計劃]]"
+ ---
+ # README流程動圖驗證
+ 
+-## 2026-09-25 Phase 13 重畫（現行圖）
++## 2026-09-26 補分析端只讀平台（現行圖）
++
++「蒐集資料」往下一條平台色虛線、標「只讀」，接到平台列新加的「Mock DSP 讀現況／指標」；執行端寫入平台的實線不變。用系統 Python 3.14.6、Pillow 12.2.0、Hiragino Sans GB 重畫：GIF 1800×760、21 格（多一格只讀說明），抽第 1 格（蒐集資料高亮、只讀線保持平台色）與第 14 格（只讀平台格高亮）目視；最後兩格（人工重放、核可）黃色高亮像素各 5113 點，不為 0；SVG 用標準庫 XML 解析通過；Ruff 檢查產圖腳本通過。下一節是前一版的紀錄，GIF 格數等數字以本節為準。
++
++## 2026-09-25 Phase 13 重畫（前一版）
+ 
+ 現行 GIF/SVG 已對照 Phase 13 四個增量上主線後的展示流程定義、實際展示驅動與深色展示配色重畫。分析泳道標明程式初篩、AI 選查詢回蒐證或下結論、失敗改由程式規則；展示驅動在情境結束後為已送出的提案產生給人看的說明，告警假說另行處理；F6/F7 回佇列重查。展示流程定義中的可選「AI 說明」節點位於提案與送件之間，圖的虛線旁支表示實際展示時點，文字均不進決策。下方「灰色 AI 旁支」「展示頁尚未上主線」與其驗證結果是歷史記錄，不能當現況；現行有效前提以開頭欄位與下文「環境基準」段為準,重驗入口以開頭欄位為準。
+ 
+ 本次用系統 Python 執行產圖腳本成功；GIF 為 1800×760、20 格，抽格目視 AI 查詢回線、規則退回線、F6/F7 回線及人工高亮；SVG 可由標準庫 XML 解析，且兩種圖共用節點與路徑資料。README 的 21 個相對連結逐一檢查皆存在；Ruff 檢查產圖腳本、`pytest -q tests/test_static_wiring.py`（27 個）、兩篇圖譜 lint 與 `lumos doctor` 均通過。回頭條件見開頭的 `revalidate_when`。
+ 
+ 環境基準（補開頭 valid_under 缺的；lumos 沒有改 valid_under 的指令，環境與版本以本段為準）：系統 Python 3.14.6、Pillow 12.2.0、字型 /System/Library/Fonts/Hiragino Sans GB.ttc；同一環境重畫出的 GIF 與已提交的逐位元組相同。開頭寫的「readme-phase13 工作樹」指的是這次合入主線的 README 重寫提交，合併後以主線提交為準。
+ 
+ 2026-09-24 在 docs-readme 工作樹用系統 Python 3.14.6 與 Pillow 12.2.0 重畫 GIF 與 SVG。產圖腳本移至 `docs/assets/make_agent_flow_gif.py`；它是文件產出物工具，不在 pyproject 的 mypy 掃描路徑 `src`、`tools`，也沒有行內 `# mypy:` 例外。以不存在的 `--font` 路徑執行，明確報錯並以代碼 2 退出。
+ 
+ 2026-09-25 依第 2 輪審查重畫後，以 Pillow 抽出 `/tmp/rtb-readme-flow-review-r2/` 的第 1、7、15–20 格逐張目視：送出建議後的灰色 AI 說明是旁支，註明送件後供確認者參考；平台回覆有獨立的向下寫入、向上核對箭頭；F7 回線由佇列下方進入，沒有貼著收件檢查；五條人工路徑的箭頭尖端露在節點與徽章之外，人工目前步驟是青色亮框，與黃色虛線不同。SVG 的對應座標與箭頭由同一支腳本產生，另以標準庫 XML 解析確認 5 條人工路徑帶箭頭、AI 說明註記存在，並核對箭頭終點在節點框外。`/Users/enzo/rtb-production-agent-demo/.venv/bin/python` 執行 `ruff check .` 通過、`mypy` 回報 73 支原始檔無錯、`pytest -q tests/tools tests/test_static_checks.py` 為 305 passed。SVG 未取得瀏覽器截圖；Phase 12 展示頁上主線時照本篇 revalidate_when 在頁面中目視重驗。

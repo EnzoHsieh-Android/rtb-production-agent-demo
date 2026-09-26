@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" font-family="Hiragino Sans GB, sans-serif">
 <title id="title">RTB Agent 從 AI 調查到安全寫入</title>
-<desc id="desc">分析端資料太舊會重蒐集，缺資料或配速不慢會不提案；配速偏慢時，未開 AI 才交程式規則。AI 可選唯讀查詢或下結論，AI 失敗時改由程式規則判斷。程式計算提案，收件與執行端重查後才寫入模擬平台。說明與假說只給人參考；F6 重放與 F7 核可回到佇列重驗。</desc>
+<desc id="desc">分析端向模擬平台唯讀讀取廣告現況與指標；資料太舊會重蒐集，缺資料或配速不慢會不提案；配速偏慢時，未開 AI 才交程式規則。AI 可選唯讀查詢或下結論，AI 失敗時改由程式規則判斷。程式計算提案，收件與執行端重查後才寫入模擬平台。說明與假說只給人參考；F6 重放與 F7 核可回到佇列重驗。</desc>
+<defs><marker id="arrow-read" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#89d0ac"/></marker></defs>
 <defs><marker id="arrow-query" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
 <defs><marker id="arrow-note" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
 <defs><marker id="arrow-main" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
@@ -21,6 +22,7 @@
 <rect x="95" y="640" width="1681" height="70" rx="10" fill="#171a22"/>
 <text x="20" y="681" fill="#f4f4f5" font-size="18">人工</text>
 <polyline points="165,180 190,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="215,209 215,561" fill="none" stroke="#89d0ac" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-read)"/>
 <polyline points="290,180 305,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
 <polyline points="425,180 446,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
 <polyline points="340,152 340,132 240,132 240,151" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-back)"/>
@@ -67,6 +69,7 @@
 <rect x="1530" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1580" y="490" text-anchor="middle">核對結果</text></g>
 <rect x="1661" y="462" width="78" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1700" y="490" text-anchor="middle">完成</text></g>
 <rect x="1400" y="562" width="100" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="1450" y="583" text-anchor="middle">Mock DSP</text><text x="1450" y="606" text-anchor="middle">模擬平台</text></g>
+<rect x="159" y="562" width="112" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="215" y="583" text-anchor="middle">Mock DSP</text><text x="215" y="606" text-anchor="middle">讀現況／指標</text></g>
 <rect x="996" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1060" y="675" text-anchor="middle">F6 人工重放</text></g>
 <rect x="1246" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1310" y="675" text-anchor="middle">F7 人工核可</text></g>
 <text x="540" y="312" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">太舊回蒐集；缺資料或不慢就不提案</text>
@@ -75,6 +78,7 @@
 <text x="290" y="119" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>
 <text x="560" y="136" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">未開 AI 時</text>
 <text x="470" y="222" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">缺資料／不慢</text>
+<text x="240" y="430" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">只讀</text>
 <rect x="95" y="722" width="1681" height="28" rx="7" fill="#11141b" stroke="#424958"/>
 <text x="112" y="736" dominant-baseline="middle" fill="#93ccee" font-size="15">程式</text>
 <text x="180" y="736" dominant-baseline="middle" fill="#d5a4f0" font-size="15">AI</text>

@@ -1,0 +1,28 @@
+{
+ "loop": "code-flow-diagram-read",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-26T12:23:31+08:00",
+ "spec_path": "governance/review-reports/code-flow-diagram-read/r1-snapshot.patch",
+ "spec_sha": "d3965b6897244dec0595ce017f33089b4812ce337501155054e801792a0596d6",
+ "rows": [
+  "{\"ts\": \"2026-09-26T12:23:20+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊-sonnet\", \"token\": \"CANARY-7c40c808\", \"note\": \"\", \"loop\": \"code-flow-diagram-read\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"d3965b6897244dec0595ce017f33089b4812ce337501155054e801792a0596d6\", \"reviewed_sha256\": \"d3965b6897244dec0595ce017f33089b4812ce337501155054e801792a0596d6\", \"spec_path\": \"governance/review-reports/code-flow-diagram-read/r1-snapshot.patch\", \"scope_lines\": 325, \"tier\": \"light\", \"orchestrator\": \"claude\", \"findings_set\": [\"f1\"], \"folded_set\": [\"f1\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"f1\": \"spec\"}, \"reported\": 1, \"report_path\": \"governance/review-reports/code-flow-diagram-read/r1-架構對齊.md\", \"report_sha256\": \"5819023ecc3d5affe7c71e134642b9502ee4b5c620d48ca37c29d6b3b0a7735a\", \"snapshot_path\": \"governance/review-reports/code-flow-diagram-read/r1-snapshot.patch\", \"snapshot_sha256\": \"d3965b6897244dec0595ce017f33089b4812ce337501155054e801792a0596d6\"}"
+ ],
+ "all_row_shas": [
+  "0ce223373709f50b29ff7f9509ecf514c8c4fd9001e3a29025728d9c698a1cbf"
+ ],
+ "files": {
+  "governance/review-reports/code-flow-diagram-read/r1-架構對齊.md": {
+   "sha256": "5819023ecc3d5affe7c71e134642b9502ee4b5c620d48ca37c29d6b3b0a7735a",
+   "git_blob": "520d1bfec3b0c6307b7c1c49fbfa4657744fa502"
+  },
+  "governance/review-reports/code-flow-diagram-read/r1-snapshot.patch": {
+   "sha256": "d3965b6897244dec0595ce017f33089b4812ce337501155054e801792a0596d6",
+   "git_blob": "dfd6c12001c09c01bb7ea5b09c9605a47e1caa8d"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

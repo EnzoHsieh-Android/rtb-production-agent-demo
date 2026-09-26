@@ -1,0 +1,15 @@
+[
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "README 流程圖新加的分析端只讀平台線對得上程式、畫法跟既有圖一致",
+  "materials": [
+   "governance/review-reports/code-flow-diagram-read/r1-snapshot.patch",
+   "docs/assets/make_agent_flow_gif.py",
+   "docs/assets/agent-flow.svg",
+   "src/rtb/analyzer/dsp_client.py",
+   "src/rtb/analyzer/flow.py"
+  ],
+  "auditor": "claude-sonnet"
+ }
+]

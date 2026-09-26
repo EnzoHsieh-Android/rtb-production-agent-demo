@@ -43,7 +43,7 @@ LEGEND = (
     (585, "AI 只選查詢或結論；所有寫入由程式與人工關卡決定", TEXT),
 )
 EDGE_LABELS = ((290, 119, "太舊"), (560, 136, "未開 AI 時"),
-               (470, 222, "缺資料／不慢"))
+               (470, 222, "缺資料／不慢"), (240, 430, "只讀"))
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,8 @@ NODES = (
     Node("verify", 1580, 490, ("核對結果",), "程式"),
     Node("done", 1700, 490, ("完成",), "程式", 78),
     Node("platform", 1450, 590, ("Mock DSP", "模擬平台"), "平台"),
+    # 蒐集資料與 AI 追加查詢都向平台讀現況與指標(分析端的 DSP 用戶端);只讀、不寫
+    Node("platform_read", 215, 590, ("Mock DSP", "讀現況／指標"), "平台", 112),
     Node("replay", 1060, 675, ("F6 人工重放",), "人工", 128),
     Node("approve", 1310, 675, ("F7 人工核可",), "人工", 128),
 )
@@ -84,7 +86,8 @@ MAIN = ("receive", "collect", "filter", "ai", "proposal", "submit", "inbox", "qu
         "recheck", "limits", "write", "platform", "verify", "done")
 CAPTIONS = {
     "receive": "收到一件工作，開始分析。",
-    "collect": "程式蒐集最新廣告資料。",
+    "collect": "程式向模擬平台讀最新的廣告現況與指標。",
+    "platform_read": "分析端只讀平台，不寫入；寫入只在執行端。",
     "filter": "太舊重蒐集；缺資料或不慢就不提案；偏慢才進入判斷。",
     "ai": "開啟 AI 判斷時，AI 只選固定的下一步。",
     "query": "AI 可選四種唯讀查詢，查完回到蒐證。",
@@ -107,6 +110,7 @@ CAPTIONS = {
 # 每條路徑的折點在節點框之外；回頭線以虛線標示。
 EDGES = (
     ("receive", "collect", ((165, 180), (190, 180)), "main"),
+    ("collect", "platform_read", ((215, 209), (215, 561)), "read"),
     ("collect", "filter", ((290, 180), (305, 180)), "main"),
     ("filter", "ai", ((425, 180), (446, 180)), "main"),
     ("filter", "collect", ((340, 152), (340, 132), (240, 132), (240, 151)), "back"),
@@ -140,11 +144,16 @@ EDGES = (
 )
 
 
+DASHED = ("human", "query", "note", "back", "read")  # 回頭線、旁支與只讀線畫虛線
+
+
 def _edge_color(kind: str) -> str:
     if kind in ("human", "back"):
         return HUMAN
     if kind in ("query", "note"):
         return COLORS["AI"][1]
+    if kind == "read":
+        return COLORS["平台"][1]
     return ACCENT
 
 
@@ -199,7 +208,7 @@ def _frame(path: Path, key: str) -> Image.Image:
         if kind == "main" and key in MAIN and first in MAIN \
                 and MAIN.index(first) >= MAIN.index(key):
             color = BORDER
-        _arrow(draw, points, color, dashed=kind in ("human", "query", "note", "back"))
+        _arrow(draw, points, color, dashed=kind in DASHED)
     for node in NODES:
         _node(draw, path, node, node.key == key)
     for x, y, value in NOTES:
@@ -229,7 +238,8 @@ def _write_svg() -> None:
         'viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" '
         'font-family="Hiragino Sans GB, sans-serif">',
         '<title id="title">RTB Agent 從 AI 調查到安全寫入</title>',
-        '<desc id="desc">分析端資料太舊會重蒐集，缺資料或配速不慢會不提案；'
+        '<desc id="desc">分析端向模擬平台唯讀讀取廣告現況與指標；'
+        '資料太舊會重蒐集，缺資料或配速不慢會不提案；'
         '配速偏慢時，未開 AI 才交程式規則。AI 可選唯讀查詢或下結論，'
         'AI 失敗時改由程式規則判斷。程式計算提案，收件與執行端重查後才寫入模擬平台。'
         '說明與假說只給人參考；F6 重放與 F7 核可回到佇列重驗。</desc>',
@@ -246,7 +256,7 @@ def _write_svg() -> None:
                      f'font-size="18">{name}</text>')
     for _first, _second, points, kind in EDGES:
         color = _edge_color(kind)
-        dash = ' stroke-dasharray="7 5"' if kind in ("human", "query", "note", "back") else ""
+        dash = ' stroke-dasharray="7 5"' if kind in DASHED else ""
         route = " ".join(f"{x},{y}" for x, y in points)
         parts.append(f'<polyline points="{route}" fill="none" stroke="{color}" '
                      f'stroke-width="3"{dash} marker-end="url(#arrow-{kind})"/>')
@@ -282,7 +292,7 @@ def main() -> None:
         _font(path, 15)
     except OSError as exc:
         parser.error(f"無法讀取字型：{exc}")
-    keys = (*MAIN, "query", "rule", "stop", "deadletter", "replay", "approve")
+    keys = (*MAIN, "platform_read", "query", "rule", "stop", "deadletter", "replay", "approve")
     frames = [_frame(path, key) for key in keys]
     sheet = Image.new("RGB", (SIZE[0], SIZE[1] * len(frames)))
     for index, frame in enumerate(frames):
