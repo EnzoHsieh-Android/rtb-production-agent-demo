@@ -6204,3 +6204,15 @@
 {"ts": "2026-09-26T11:17:06+08:00", "commit": "bf69d8c", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "README 加 F1–F7 表與 repo 地圖;light 一席架構對齊核對事實,1 條 minor(F5 引號不是原文)已折入", "branch": "readme-fault-table", "head_sha": "bf69d8c090ec5863694fca8600a38d19a7f0db48"}
 {"ts": "2026-09-26T11:17:08+08:00", "commit": "bf69d8c", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
 {"ts": "2026-09-26T11:17:08+08:00", "commit": "bf69d8c", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "bf69d8c090ec5863694fca8600a38d19a7f0db48"}
+{"ts": "2026-09-26T12:17:21+08:00", "commit": "3b4f99a", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-26T12:17:22+08:00", "commit": "3b4f99a", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "3b4f99ad0962e53d66e03a0ea32bfe450d9240ef"}
+{"ts": "2026-09-26T12:17:34+08:00", "commit": "7835ddf", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-26T12:17:35+08:00", "commit": "7835ddf", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "7835ddfb7728ebbdc983f3c3ebadcaf188deee5e"}
+{"ts": "2026-09-26T12:23:20+08:00", "commit": "f4ad9b7", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-flow-diagram-read"], "note": "disposal gate PASS"}
+{"ts": "2026-09-26T12:23:30+08:00", "commit": "3b4f99a", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-26T12:23:31+08:00", "commit": "3b4f99a", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "3b4f99ad0962e53d66e03a0ea32bfe450d9240ef"}
+{"ts": "2026-09-26T12:23:32+08:00", "commit": "c84550a", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-26T12:23:33+08:00", "commit": "c84550a", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "c84550a9f7c03339a7639c4d9e42fc2e508b9a06"}
+{"ts": "2026-09-26T12:23:33+08:00", "commit": "2ee78ae", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "README 流程圖補分析端只讀平台線;light 一席架構對齊,1 條(驗證筆記格數差一)已折入", "branch": "flow-diagram-read", "head_sha": "2ee78ae52601e6645a366a0a80f7392aae9f2e95"}
+{"ts": "2026-09-26T12:23:35+08:00", "commit": "2ee78ae", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
+{"ts": "2026-09-26T12:23:36+08:00", "commit": "2ee78ae", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "2ee78ae52601e6645a366a0a80f7392aae9f2e95"}
