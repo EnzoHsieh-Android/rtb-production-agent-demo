@@ -1,0 +1,1 @@
+[{"round":"r1","seat":"事實核對","lens":"改寫後的句子是否對得上現在的程式碼、查詢指令能否重跑","materials":["governance/review-reports/code-notes-drift-fix/r1-snapshot.patch","src/","tests/"],"auditor":"claude-opus"},{"round":"r1","seat":"架構對齊","lens":"筆記寫法是否照紀律與既有慣例","materials":["governance/review-reports/code-notes-drift-fix/r1-snapshot.patch","CLAUDE.md"],"auditor":"claude-sonnet"}]

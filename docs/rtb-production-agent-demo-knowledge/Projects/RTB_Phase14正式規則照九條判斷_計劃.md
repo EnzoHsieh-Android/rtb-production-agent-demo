@@ -64,6 +64,8 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
 
 ## 現況（2026-09-26 前掃；以程式碼為準）
 
+> 開檔時的快照,不是現況:本計劃自己改掉了其中多項(`code_rule` 改判九條、investigation_source 刪除、分析端驅動不再有 AI 模式)。要知道現在長怎樣,跑各條末尾的重新核對指令。
+
 - `src/rtb/eval/investigation_cases.py` 的 `answer()` 依序判九格；`src/rtb/eval/rubric.py` 只認 Phase 10 自己的 5 格答案,`investigation_cases.py` 的 `_PHASE10`／`VERDICT` 再把它們映到九格裡的第 1、2、7、8、9 格(不連續),其餘四格(裁定 8、裁定 12 三條)的答案直接寫在 `VERDICT`。第 4 條使用最近一筆加預算的調整前後 3 天轉換變化，第 5 條使用逐日資料分段轉換率的變化；比率不可算時跳過該條。重新核對：`rg -n 'def answer|def raise_change|def trend_rate_change|RUBRIC' src/rtb/eval`。
 - `src/rtb/analyzer/policy.py` 的 `code_rule()` 只看曝光、點擊正數；`_judge()` 在 `WorthInputInvalid` 時也用同一舊判法；`steps()` 先做新鮮度與配速再判是否值得加。`build_proposal()` 只用傳入的證據列出參照，現行正式呼叫傳基本三筆。重新核對：`rg -n 'def code_rule|def _judge|def steps|def build_proposal' src/rtb/analyzer/policy.py`。
 - `src/rtb/analyzer/dsp_client.py` 已把四查詢的逾時、404、欄位不合格及 1d／7d 跨窗不一致分成 `QueryRead` 的沒有結果；5xx 與連線失敗會丟例外，仍沿用純讀取步驟下次重試。`src/rtb/analyzer/instrumented.py` 目前只在 AI 調查路徑重讀模型選過的查詢；`src/rtb/analyzer/investigation.py` 的 `CODE_RULE_KINDS` 會排除追加收據。重新核對：`rg -n 'class QueryRead|def make_query_reader|def investigation_source|CODE_RULE_KINDS' src/rtb/analyzer`。

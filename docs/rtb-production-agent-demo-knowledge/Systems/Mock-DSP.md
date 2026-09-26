@@ -2,7 +2,7 @@
 type: system
 status: doing
 created: 2026-09-21
-updated: 2026-09-26
+updated: 2026-09-27
 responsibility: 負責 Mock DSP 的廣告狀態、版本、操作歷史與冪等紀錄的儲存與原子提交、型別化錯誤,以及獨立行程的 HTTP 介面與故障注入;不負責指標計算與 agent 端的任何邏輯。
 aliases: []
 about_code:
@@ -42,7 +42,7 @@ summary: |-
   KEY:★INVARIANT★ 同一把冪等鍵最多只套用一次:同鍵同內容重送回原結果、不再改狀態;同鍵不同內容一律拒收且不改任何東西;並行搶同一把鍵也只有一個真的套用。 [test:test_same_key_same_payload_applies_once_and_returns_original_result,test_every_write_action_with_the_same_key_applies_once_and_replays,test_same_key_different_payload_is_rejected_and_changes_nothing,test_concurrent_requests_with_the_same_key_apply_exactly_once,test_concurrent_same_key_requests_over_http_apply_exactly_once] [audit:sonnet/2026-09-22] [kill:recipes]
   RULE: 並行搶同一把鍵只套用一次的測試(store 與 HTTP 兩支)只用改預算;暫停的同鍵只有循序重送的測試(Phase 11 補的那支)。儲存層的同鍵判斷不分動作,所以目前判斷暫停也成立,但沒有測試直接證明,宣稱驗證器的冪等清單也沒把並行同鍵寫成「每一種」。 [since:2026-09-24] [retire:補上暫停的並行同鍵測試,或儲存層改成依動作分流同鍵判斷時] [confirmed:2026-09-24]
   KEY:★INVARIANT★ 一次寫入操作(改狀態、升版本、記歷史、記冪等紀錄)要嘛全部生效、要嘛全部沒發生;中途失敗或行程猝死都不留下半途狀態。 [test:test_failure_between_state_change_and_idempotency_record_rolls_everything_back,test_process_death_between_state_change_and_idempotency_record_leaves_no_half_state] [audit:sonnet/2026-09-22] [kill:recipes]
-  WHY: DSP 端這幾條合約(F1 提交前後逾時、版本不符一律拒收)描述的是「真實 DSP 必須具備、執行行程對帳要依賴的行為」;Mock DSP 是外部 DSP 的替身。目前沒有正式程式碼呼叫 DSP 寫入,依賴方是 Phase 3 的執行行程對帳,已登記成有最遲日期的預告合約 [[Verification/事故F1_結果不明只用原鍵對帳]]。出處:2026-09-22 合約獨立審計判「誰依賴它」不穩定後,使用者裁定「認定有依賴方」。
+  WHY: DSP 端這幾條合約(F1 提交前後逾時、版本不符一律拒收)描述的是「真實 DSP 必須具備、執行行程對帳要依賴的行為」;Mock DSP 是外部 DSP 的替身。寫下時(2026-09-22)還沒有正式程式碼呼叫 DSP 寫入;Phase 3 起執行行程的 DSP 用戶端會發寫入與作廢(以程式碼為準,查法在那支檔的家 [[Systems/執行迴圈]]),依賴方就是執行行程對帳,當時先登記成有最遲日期的預告合約 [[Verification/事故F1_結果不明只用原鍵對帳]]。出處:2026-09-22 合約獨立審計判「誰依賴它」不穩定後,使用者裁定「認定有依賴方」。
   KEY:★INVARIANT★ 事故 F1 的 DSP 側:提交前逾時的請求事後絕不偷偷提交;提交後才逾時的請求已生效且只生效一次,呼叫端用同一把冪等鍵重試拿到原結果、不會再套用一次。 [test:test_timeout_before_commit_client_sees_timeout_and_dsp_never_commits_later,test_timeout_after_commit_client_sees_timeout_but_dsp_applied_exactly_once,test_retry_with_same_key_after_commit_timeout_replays_and_does_not_apply_twice] [audit:sonnet/2026-09-22] [kill:recipes]
   KEY:★INVARIANT★ 每一種會改廣告狀態的寫入動作(改預算、暫停;不含作廢),預期版本跟現況不符(不論比現況舊或比現況新)一律拒收,不得覆寫較新的狀態,版本號與歷史都不動。 [test:test_stale_expected_version_is_rejected_without_writing,test_stale_version_gets_409_and_does_not_overwrite_newer_state,test_a_future_expected_version_is_rejected_not_only_a_stale_one,test_pause_with_a_stale_expected_version_is_rejected_without_writing,test_every_write_action_on_the_http_routes_has_a_version_check_example,test_every_write_action_rejects_a_stale_expected_version,test_only_the_store_module_writes_to_the_dsp_database] [audit:人裁/2026-09-22] [kill:recipes]
   WHY: [2026-09-24] 版本不符那條原本寫「每一種寫入動作」,但路由另有作廢(void_operation):作廢只看冪等鍵、不改廣告狀態,程式裡預期版本只驗格式不比對,綁的測試也只參數化改預算與暫停兩種。這是合約措辭過大,不是程式漏洞,所以把措辭改窄成跟程式一致,不改程式。改窄後不隨 Phase 11 回退改回。出處:[[Projects/RTB_Phase11證據清單與驗證器_計劃]]〈五條宣稱〉;宣稱驗證器的冪等清單用 CAMPAIGN_WRITE_ACTIONS 列舉,見 [[Systems/宣稱驗證器]]。

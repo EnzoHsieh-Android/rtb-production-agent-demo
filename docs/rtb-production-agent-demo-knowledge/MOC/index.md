@@ -1,6 +1,7 @@
 ---
 type: moc
 status: doing
+updated: 2026-09-27
 ---
 # rtb-production-agent-demo 知識圖譜總索引
 
@@ -93,4 +94,6 @@ status: doing
 - [[Issues/共用HTTP伺服器連線名額測試在CI偶發逾時]](done)
 - [[Issues/執行端寫入前再確認沒記讀到的平台版本]](open)
 - [[Issues/執行迴圈收到SIGTERM等於硬殺]](open)
-- [[Issues/每支檔有家在合併提交上誤擋]](open)
+- [[Issues/每支檔有家在合併提交上誤擋]](resolved)
+- [[Issues/現行規則只看有沒有投放就提案]](resolved)
+- [[Issues/Phase14後筆記漂移清理]](resolved)

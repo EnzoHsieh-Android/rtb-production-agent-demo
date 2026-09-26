@@ -2,7 +2,7 @@
 type: project
 status: doing
 created: 2026-09-21
-updated: 2026-09-21
+updated: 2026-09-27
 tags:
   - type/project
   - status/doing
@@ -239,16 +239,18 @@ RETIRE-IF: pytest 這個例外,若 Phase 1 到 Phase 4 的測試裡從未用到�
 | 證據新鮮度、廣告版本、決策是否過期 | 明確規則 | Code([[Systems/任務流程領域模型]]) | 無 | — |
 | 冪等鍵、同廣告互斥、送出與逾時上限 | 明確規則 | Code([[Systems/外部寫入嘗試紀錄]]) | 無 | — |
 | 權限與寫入能力憑證、單筆與總量上限 | 明確規則 | Phase 3 增量 2 起由 Code 實作;總量在 Phase 6 | 無 | — |
-| 要不要提案調整(示範用配速規則) | 明確規則 | Code:示範規則,配速低於門檻才提案(分析行程的決策函式) | 由 LLM 綜合多份證據提出(見下三列的整體流程);其中「值不值得加」子判斷在 Phase 10 做過評估機制示範,結論不採用 Jev,不回答下面三列(見 [[Projects/RTB_Phase10評估與Jev決策點_計劃]]) | 真實業務規則與證據類型確定之後再議 |
-| 證據夠不夠?(Evidence sufficient?) | 窄的是非判斷 | **尚未實作**:目前固定蒐集現況與指標兩份證據就決策;規劃由 LLM 判斷 | Jev(是非) | Production Trace → 人工審閱與標註 → Rubric → Eval Set → 分片與失敗分析 → 驗證 Jev 在該分片達門檻 → 才導入,並保留 LLM 備援 |
-| 下一步要調查什麼?(Next investigation action?) | 窄的選擇題 | **尚未實作**;規劃由 LLM 在固定選項中選 | Jev(選擇) | 同上 |
-| 繼續還是停止?(Continue / Stop?) | 窄的是非判斷 | **尚未實作**;規劃由 LLM 判斷 | Jev(是非) | 同上 |
+| 要不要提案調整 | 明確規則 | Code:第 1/2 條(暫停、1 小時資料異常)只用基本資料先判,配速偏低才判其餘七條,判值得加才提案(Phase 14 起;之前是示範用配速規則,見 [[Systems/正式九條判斷領域規則]]) | 由 LLM 綜合多份證據提出(見下三列的整體流程);其中「值不值得加」子判斷在 Phase 10 做過評估機制示範,結論不採用 Jev,不回答下面三列(見 [[Projects/RTB_Phase10評估與Jev決策點_計劃]]) | 真實業務規則與證據類型確定之後再議 |
+| 證據夠不夠?(Evidence sufficient?) | 窄的是非判斷 | Code(Phase 14 起):規則輪分步讀固定的追加查詢,缺哪一種就由九條判證據不足、不提案(見 [[Systems/分析行程流程與檢查點]]);Phase 13 曾讓模型參與,Phase 14 使用者裁定撤回 | Jev(是非) | Production Trace → 人工審閱與標註 → Rubric → Eval Set → 分片與失敗分析 → 驗證 Jev 在該分片達門檻 → 才導入,並保留 LLM 備援 |
+| 下一步要調查什麼?(Next investigation action?) | 窄的選擇題 | Code(Phase 14 起):規則輪固定順序,不選;Phase 13 曾由模型在固定選項中選,Phase 14 撤回 | Jev(選擇) | 同上 |
+| 繼續還是停止?(Continue / Stop?) | 窄的是非判斷 | Code(Phase 14 起):規則輪用基本資料判得出就提早結案,否則讀完再定案;Phase 13 曾由模型判斷,Phase 14 撤回 | Jev(是非) | 同上 |
 | 指標異常的原因假說(例如 CVR 大降但追蹤與庫存正常) | 多證據模糊推理 | **已由模型提出、只給建議**(2026-09-25 Phase 11B 增量 2:服務水準告警響才呼叫,輸出假說與固定清單裡的下一步,不下結論、不寫任何決策,見 [[Projects/RTB_Phase11B大模型接入_計劃]]〈接入點 1〉);不能繞過執行閘 | 無(不是窄決策,不適合 Jev) | — |
 | 讀 DSP 現況與指標、寫入預算或暫停 | 外部資訊與動作 | Tool:DSP 讀取用戶端;寫入在 Phase 3 增量 3 起由執行行程發出 | 無 | — |
 
-- 「規劃由 LLM」的三列:LLM 什麼時候接進來、接在哪個階段,還沒排定;接之前這張表的「目前實作」要照實寫「尚未實作」,不能寫成已由 LLM 處理。
+- 「目前實作」欄以程式碼為準,重查:`rg -n "RULE_STEP_READS:|def decide" src/rtb/stepbudget.py src/rtb/analyzer/rule_round.py src/rtb/analyzer/policy.py`(2026-09-27 改寫這欄,見 [[Issues/Phase14後筆記漂移清理]])。
+- (2026-09-22 原文,歷史)「規劃由 LLM」的三列:LLM 什麼時候接進來、接在哪個階段,還沒排定;接之前這張表的「目前實作」要照實寫「尚未實作」,不能寫成已由 LLM 處理。後來 Phase 13 接過、Phase 14 撤回,三列都改成 Code。
 - 交接文件 Phase 10(Eval 與 Jev Decision Point)的完成條件之一是「未達門檻時明確不採用 Jev,而非調低標準」。照這條裁定,在沒有 Production Trace 的前提下,Phase 10 的產出會是「明確不採用,並列出缺哪些證據」,不是一個模擬出來的 Jev 整合。
-REVISIT:2027-01-31 走到 Phase 10 之前重看這張表:哪些列已經有 LLM 實作、是否有任何真實 trace 可以開始標註。
+- (歷史,Phase 10 已過)原回頭條件:2027-01-31 走到 Phase 10 之前重看這張表,哪些列已經有 LLM 實作、是否有任何真實 trace 可以開始標註。2026-09-27 換成下一條。
+REVISIT:2027-03-31 重看這張表:有沒有任何決策點重新接模型或 Jev、有沒有真實 trace 可以開始標註;在那之前,哪次改動讓某個決策點重新接模型(例如 [[Projects/RTB_Phase15AI找規則模式_計劃]] 的結果併入正式路徑),由那次的計劃回改本表。
 
 ## 程式結構原則(clean code)
 

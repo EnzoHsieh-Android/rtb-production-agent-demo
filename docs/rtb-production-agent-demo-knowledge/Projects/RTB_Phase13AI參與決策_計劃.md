@@ -2,16 +2,17 @@
 type: project
 status: done
 created: 2026-09-24
-updated: 2026-09-26
+updated: 2026-09-27
 plan_risk: high
 summary: |-
-  WHY: AI 決策只在分析端驅動命令列帶 --ai-judge 時開(另收 --demo-id、--ledger、--recordings、--batch-id,F5 雙胞胎用 --hold-submit 只判不送);沒開就是現在的行為,守衛照舊只看 --timeout-seconds 那條算式。出處:設計審 r1(2026-09-25)的 F、L 件,[[Projects/RTB_Phase13AI參與決策_計劃]]〈共用模型入口與行程〉。
-  WHY: 模型只經 src/rtb/analyzer/modelgate.py 進 src/rtb/modelclient.py 與 modelclaude.py,在 runner.py 子行程的主執行緒呼叫;src/rtb/analyzer/flow.py 與 src/rtb/analyzer/policy.py 的匯入閉包不含模型用戶端,現行決策函式一行不改,追加收據在 AI 決策函式裡濾掉。出處:設計審 r1(2026-09-25)的 E、Q 件。
+  WHY: 2026-09-26 Phase 14 增量 3(使用者裁定 8)讓 AI 退出「要不要加預算」的決定:本計劃做的 AI 決策路徑(--ai-judge、AI 那一步的續租與守衛、F5 的 AI 路徑)已從正式路徑撤除,AI 調查只剩評估執行器直接呼叫(以程式碼為準,重查呼叫者:`rg -n "ai_judge.Judge\(" src/rtb`;分析端參數:`rg -n "add_argument" src/rtb/analyzer/runner.py`);下面標「歷史」的幾條是當時設計,不是現況。出處:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉8、〈拆增量〉3。
+  WHY: [歷史:Phase 14 增量 3 已撤除 AI 決策路徑,這條是當時設計,現況以程式碼為準] AI 決策只在分析端驅動命令列帶 --ai-judge 時開(另收 --demo-id、--ledger、--recordings、--batch-id,F5 雙胞胎用 --hold-submit 只判不送);沒開就是現在的行為,守衛照舊只看 --timeout-seconds 那條算式。出處:設計審 r1(2026-09-25)的 F、L 件,[[Projects/RTB_Phase13AI參與決策_計劃]]〈共用模型入口與行程〉。
+  WHY: [歷史:Phase 14 增量 3 已撤除 AI 決策路徑,這條是當時設計,現況以程式碼為準] 模型只經 src/rtb/analyzer/modelgate.py 進 src/rtb/modelclient.py 與 modelclaude.py,在 runner.py 子行程的主執行緒呼叫;src/rtb/analyzer/flow.py 與 src/rtb/analyzer/policy.py 的匯入閉包不含模型用戶端,現行決策函式一行不改,追加收據在 AI 決策函式裡濾掉。出處:設計審 r1(2026-09-25)的 E、Q 件。
   WHY: 收據的比率與變化百分比在 src/rtb/domain/metrics.py 用分數精確算,輸出成字串(百分比刻度 1 位小數、金額 2 位、計數整數),算不出寫 na、不能引用;標準答案用精確值判、不讀字串;參照代號就是選項代碼,1 小時基本證據叫 base。出處:設計審 r1、r2(2026-09-25)的 A、B、C、R2-3 到 R2-6 件。
-  WHY: AI 那一步呼叫模型前續租,續租是租約表新增一列、拿鎖後才讀時鐘,成功當下換掉流程層的目前收據容器,沒成丟 RenewalSkipped;模型逾時 15 秒,續租後最壞 55 秒(代碼審 r3 加上送出前記次的等鎖)小於 60 秒租約。出處:設計審 r2、r3(2026-09-25)的 R2-1、R2-2、R3-1、R3-2 件。
+  WHY: [歷史:Phase 14 增量 3 已撤除 AI 決策路徑,這條是當時設計,現況以程式碼為準] AI 那一步呼叫模型前續租,續租是租約表新增一列、拿鎖後才讀時鐘,成功當下換掉流程層的目前收據容器,沒成丟 RenewalSkipped;模型逾時 15 秒,續租後最壞 55 秒(代碼審 r3 加上送出前記次的等鎖)小於 60 秒租約。出處:設計審 r2、r3(2026-09-25)的 R2-1、R2-2、R3-1、R3-2 件。
   WHY: 展示驅動不逐情境補丁,依每件工作的實際結局(提案或不提案)選等待、路徑核對與故障斷言的預期組;送出呼叫名單在 tests/test_spawn_boundary.py 的 CALL_MODEL_USERS;使用者看截圖記在 lumos new verification --plan 開的驗收紀錄。出處:設計審 r3(2026-09-25)的 R3-10、R3-13、R3-16 件。
   WHY: 驗證一律在我方程式做;Claude Code 若有結構化輸出參數(以實作當下 claude --help 為準)只能加用,不信任後端宣稱。出處:計劃草稿(2026-09-24)〈模型回答的格式與驗證〉。
-  WHY: Systems/分析行程流程與檢查點 的 F5 不變量合約行「對抗名稱不改變決策」只對程式規則路徑成立,AI 路徑的保證是 S1112(名稱只能翻提不提案,翻不動金額、廣告、動作種類與權限)。出處:計劃草稿(2026-09-24)〈會卡住這個設計的既有程式〉,[[Systems/分析行程流程與檢查點]]。
+  WHY: [歷史:Phase 14 增量 3 已撤除 AI 決策路徑,這條是當時設計,現況以程式碼為準] Systems/分析行程流程與檢查點 的 F5 不變量合約行「對抗名稱不改變決策」只對程式規則路徑成立,AI 路徑的保證是 S1112(名稱只能翻提不提案,翻不動金額、廣告、動作種類與權限)。出處:計劃草稿(2026-09-24)〈會卡住這個設計的既有程式〉,[[Systems/分析行程流程與檢查點]]。
 tags:
   - type/project
   - status/done

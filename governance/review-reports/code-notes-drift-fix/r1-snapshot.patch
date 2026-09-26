@@ -1,0 +1,644 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Issues/Phase14後筆記漂移清理.md b/docs/rtb-production-agent-demo-knowledge/Issues/Phase14後筆記漂移清理.md
+new file mode 100644
+index 0000000..83d4448
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Issues/Phase14後筆記漂移清理.md
+@@ -0,0 +1,60 @@
++---
++type: issue
++status: resolved
++created: 2026-09-27
++updated: 2026-09-27
++aliases: []
++about_code: []
++tags:
++  - type/issue
++  - status/resolved
++summary: |-
++  FLAG: 2026-09-27 外部稽核抽 55 句「斷言現況」的筆記句,22 句已跟程式碼對不上,集中在 Phase 14(AI 退出加額決策)前寫下的 AI 描述、已完成計劃的「現況」段、以及「目前沒有/還沒/尚未/只有 N 種」這類句子;doctor 只抓到其中 1 句(點名的符號已刪),其餘是語意漂移、機械檢查看不到。
++  DECISION: 已清(2026-09-27,協調者派筆記維護者):22 句逐句回程式碼與測試核對後全部成立、全部處理;改寫成指向程式碼(附可重跑的 rg 查詢)或在已完成計劃裡明標「開檔時快照/歷史」,不刪決策歷史。已修好卻還開著的 [[Issues/現行規則只看有沒有投放就提案]] 一併結案。
++  WHY: 根因兩條:①「目前沒有 X」句型沒綁「X 做出來時要回來改」的事件,下一個 Phase 做出 X 後沒人回改;②已完成計劃的「現況」段只標開檔日期、讀起來像現在式,被 hook 與派工鏡頭推到眼前時會被當現況讀。出處:外部稽核報告 notes-audit-keep.md(2026-09-27,協調者暫存區、未入庫)結論 2-1、2-2 與建議 1。
++---
++# Phase14後筆記漂移清理
++
++## 發生什麼事
++- 2026-09-27 外部稽核(唯讀,main 4783e08)刻意挑「斷言現況」的句子抽 55 句,可判 54 句,22 句已漂移;9 句完全沒有提示,讀者只能當真。
++- 最危險的是摘要行:hook 與派工鏡頭推的是摘要,正文就算有 Phase 14 橫幅,摘要沒改一樣會被照抄。
++
++## 這次改了什麼(每一句都重新回程式碼與測試核對過才改)
++- [[Systems/分析行程流程與檢查點]]
++  - 摘要 RULE「只有 Decide 丟例外才轉 FAILED」:改成「暫時性失敗重試、純計算例外轉 FAILED,另有資料毀損與永久拒收」,觸發點附查詢。這句寫下當天就跟同篇「永久拒收轉 FAILED」那條不一致,不只是後來漂移。
++  - 已知缺口「FAILED 只有一個觸發點」:改成附查詢、標原句已過時。
++  - 已知缺口「租約不等式目前沒有機械守衛」:改成 2026-09-24 起由分析端驅動命令列啟動斷言守。
++  - Phase 5 段「分析行程還沒有啟動程式,接上時要記得給操作查詢」:標寫下時點、附查詢;REVISIT 改成只剩「要不要拿掉預設空值」。
++  - Phase 5 段「擋下原因固定清單(列五種)」:清單改指向程式碼,註明 Phase 8 加了兩種。
++  - Phase 10 段「曝光與點擊都大於零抽成現行程式規則」:註明 Phase 14 增量 2b 起現行規則改判九條。
++  - 順手:代碼審 r1 鏡頭4 那句把已刪的符號從行內程式碼格式改成純文字(doctor Y 段唯一抓到的那一句,原文講的是「已刪」,不是漂移)。
++- [[Systems/執行迴圈]] 摘要 WHY(事故 F4 轉正):「分析行程還沒有啟動程式」標成寫下時的狀況,指向分析端驅動命令列。
++- [[Systems/Mock-DSP]] 摘要 WHY:「目前沒有正式程式碼呼叫 DSP 寫入」改成「寫下時還沒有;Phase 3 起執行行程會發寫入與作廢」,附查詢。
++- [[Systems/正式九條判斷領域規則]]:「正式分析流程及 DSP 跨窗一致性尚未接入」改成增量 2b 已接上,附查詢。
++- [[Systems/評估與Jev決策點]]:評估執行器那條「呼叫正式路徑同一支 AI 決策函式、續租回呼永遠成功」改成直接呼叫、唯一呼叫者、續租已刪;負責範圍欄位同步改(lumos set)。
++- [[Systems/一鍵展示]]:錄製模式時限放寬那條、停止寬限「帶 --ai-judge 取 60 秒」那條,各補一句 Phase 14 增量 3 已撤。
++- [[Projects/RTB_Phase13AI參與決策_計劃]] 摘要:最前面加一條 WHY 說明 AI 決策路徑已在 Phase 14 撤除(附重查呼叫者的查詢),四條相關 WHY(--ai-judge、模型只經閘道、續租、F5 的 AI 路徑)前面標「歷史」。原文保留。
++- [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]「現況」段:段首加一行「開工前快照,本計劃自己改掉了其中多項」。
++- [[Projects/RTB_Phase10評估與Jev決策點_計劃]]「現況」段:段首標快照、附查詢;「值不值得加現在用一行粗略代理」改成「當時」。
++- [[Projects/RTB_Phase6權限護欄與總曝險_計劃]] 增量 1「現況」段:段首標快照;「租戶設定檔目前只有兩欄」改成「當時」,指向寫入能力憑證。
++- [[Projects/RTB_Phase9可觀測與SLO_計劃]]「現況」段:段首標快照;「停下紀錄等沒有機械守衛」改成「當時」,指向稽核表只增不改守衛。
++- [[Projects/RTB_Phase11B大模型接入_計劃]]「現況」段:段首標快照、附命令列入口的查詢;「分析行程目前沒有啟動程式、租約沒守衛」「命令列入口共九支」改成「當時」。
++- [[Projects/RTB_Agent_Phase0架構]] 決策路由表:「證據夠不夠」「下一步查什麼」「繼續或停止」三列從「尚未實作,規劃由 LLM」改成 Phase 14 起的 Code(註明 Phase 13 接過模型、Phase 14 撤回);「要不要提案調整」列改成九條;表下加重查指令,原本「接之前要照實寫尚未實作」那條標成歷史保留。
++- [[Projects/RTB_Phase11證據清單與驗證器_計劃]] 提示注入宣稱那條:補「Phase 14 起範圍又改回、現行範圍看清單原文」,附查詢。
++- [[Issues/現行規則只看有沒有投放就提案]]:核對已在 Phase 14 增量 2b 修好(兩支防回歸測試本機重跑都過),改成已解決並補〈結案〉。
++
++## 核對後不成立、沒改的
++- 無:稽核列的 22 句漂移逐句回程式碼核對,全部成立。
++- 附註兩處跟稽核的判定細節不同,但不影響要不要改:
++  - 分析行程那條 FAILED 的 RULE,寫下當天就跟同篇另一條 RULE 矛盾,是一開始就寫錯,不只是後來漂移。
++  - Phase 6 開檔「現況」的漂移是 Phase 6 自己造成的(它自己加了總額上限),不是後面的 Phase。
++
++## 這次沒處理的(不在清單內,留給下一次)
++- 稽核建議 2 到 6(寫法規範、計劃轉 done 時現況段自動降級、摘要瘦身、Systems 無脈絡重確認、查詢留痕)都是規範或工具面的事,這次只修個別句子。
++- [[Projects/RTB_Phase15AI找規則模式_計劃]] 另一條分支正在改,這次刻意不碰。
++- 同類句子全庫還有,這次只處理稽核抽到的 22 句和同一段緊鄰的同款句子。
++REVISIT:2026-10-31 對 Systems 裡「目前沒有/還沒/尚未/只有 N 種」再抽一輪,看同類句還剩多少,決定要不要照稽核建議 2 在 prose-lint 加提醒。
++
++## 結案(2026-09-27)
++- 上面各處改完,每篇 `lumos lint` 0 問題;`lumos doctor` 0 issues(88 篇),Y 段「筆記點名的符號查無」歸零、總索引漏列少一篇,其餘提醒是改動前就有的舊帳。
++- 同類句子的後續追在上面那條 REVISIT,不讓這篇一直開著。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Issues/現行規則只看有沒有投放就提案.md b/docs/rtb-production-agent-demo-knowledge/Issues/現行規則只看有沒有投放就提案.md
+index 3d446ca..775eb07 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Issues/現行規則只看有沒有投放就提案.md
++++ b/docs/rtb-production-agent-demo-knowledge/Issues/現行規則只看有沒有投放就提案.md
+@@ -1,25 +1,31 @@
+ ---
+ type: issue
+-status: open
++status: resolved
+ created: 2026-09-26
+-updated: 2026-09-26
++updated: 2026-09-27
+ aliases: []
+ about_code:
+   - src/rtb/analyzer/policy.py
+ tags:
+   - type/issue
+-  - status/open
++  - status/resolved
+ summary: |-
+-  FLAG: 正式路徑的決策函式(現行程式規則)只看最近 1 小時有沒有曝光點擊,有就判值得加;不看暫停、轉換營收、資料異常,也不看調整紀錄與較長窗。Phase 13 評估 36 筆名稱正常案例只對 12 筆(暫停、資料異常、近期調過、加了沒效、轉換率下滑、沒價值六格全錯)。
++  FLAG: (已修,以下是 2026-09-26 開 Issue 時的狀況)正式路徑的決策函式(現行程式規則)只看最近 1 小時有沒有曝光點擊,有就判值得加;不看暫停、轉換營收、資料異常,也不看調整紀錄與較長窗。Phase 13 評估 36 筆名稱正常案例只對 12 筆(暫停、資料異常、近期調過、加了沒效、轉換率下滑、沒價值六格全錯)。
+   DECISION: 2026-09-26 使用者裁定修:把評估用的九條標準答案(Phase 10 評分表五條+裁定 12 四條)搬進正式規則,另開計劃。
++  DECISION: 已修(2026-09-26,Phase 14 增量 2b):正式規則改判九條,配速偏低時規則輪分步讀四種追加資料,舊「曝光點擊正數就加」判法撤掉;2026-09-27 補標結案(清理時發現修好了卻還開著)。見下方〈結案〉與 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]。
+   KEY: Phase 10 就量到並記成程式缺陷、寫明「另開計劃」,但之後沒開計劃也沒開 Issue,直到面試官視角試讀時被追問才重新發現。
+ ---
+ # 現行規則只看有沒有投放就提案
+ 
+ 
+ ## 發生什麼事
+ - 2026-09-26 模擬面試官試讀 repo,看到評估表「現行規則 12/36、暫停格 0/4」卻說正式決策用規則,追問才查出規則本身太粗。
+ - 暫停的廣告靠執行端「不在投放」擋下,不會寫;啟用中、有點擊沒轉換的廣告會被提案並寫入(只受單筆與 24 小時累計上限約束)。
+ 
+-## 要做的
++## 要做的(當時紀錄,2026-09-26 已修,現況見〈結案〉)
+ - 另開計劃把九條判斷搬進正式規則,規則模式也要查四種追加資料;既有測試與合約跟著改。
++
++## 結案(2026-09-27 補標;實際在 2026-09-26 Phase 14 增量 2b 修好)
++- 修法:正式決策改用九條判斷(順序是新鮮度、可信現況、第 1/2 條只用基本資料、配速、其餘七條要四種追加資料),四種追加資料由分析端規則輪分三步讀;舊的「曝光點擊正數就值得加」判法整段撤掉。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈實作解讀〉增量 2b;現行規則以程式碼為準:`rg -n "def code_rule|def decide" src/rtb/analyzer/policy.py`。
++- 防回歸:[test:test_paused_and_anomalous_campaigns_finish_from_base_evidence](暫停與資料異常只用基本資料結案、不提案)、[test:test_the_frozen_old_rule_stays_as_history_and_nine_rule_differences_are_listed](舊判法凍結當歷史,列出九條跟它的差異);2026-09-27 本機重跑兩支都過。Phase 13 名稱正常 36 筆的程式規則列見 [[Systems/評估與Jev決策點]]〈報告三列分列〉。
++- 為什麼拖到現在才結案:Phase 14 修完沒人回頭改這篇的狀態;它的 about_code 掛在決策規則那支檔,改那支檔時會被推到眼前、講的卻是已經不存在的問題。這次在 [[Issues/Phase14後筆記漂移清理]] 一起處理。
+diff --git a/docs/rtb-production-agent-demo-knowledge/MOC/index.md b/docs/rtb-production-agent-demo-knowledge/MOC/index.md
+index 4b2d565..a1ae79e 100644
+--- a/docs/rtb-production-agent-demo-knowledge/MOC/index.md
++++ b/docs/rtb-production-agent-demo-knowledge/MOC/index.md
+@@ -1,8 +1,9 @@
+ ---
+ type: moc
+ status: doing
++updated: 2026-09-27
+ ---
+ # rtb-production-agent-demo 知識圖譜總索引
+ 
+ 依種類列出每一篇節點;新增節點時在對應段落補一行。
+ 
+@@ -92,5 +93,7 @@ status: doing
+ - [[Issues/Phase9代使用者裁定待覆核]](open)
+ - [[Issues/共用HTTP伺服器連線名額測試在CI偶發逾時]](done)
+ - [[Issues/執行端寫入前再確認沒記讀到的平台版本]](open)
+ - [[Issues/執行迴圈收到SIGTERM等於硬殺]](open)
+ - [[Issues/每支檔有家在合併提交上誤擋]](open)
++- [[Issues/現行規則只看有沒有投放就提案]]
++- [[Issues/Phase14後筆記漂移清理]]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md
+index bc02408..3993a6b 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Agent_Phase0架構.md
+@@ -1,10 +1,10 @@
+ ---
+ type: project
+ status: doing
+ created: 2026-09-21
+-updated: 2026-09-21
++updated: 2026-09-27
+ tags:
+   - type/project
+   - status/doing
+ decisions:
+   - content: agent 狀態存 SQLite。替代方案:行程內加本地檔案(無交易、無唯一鍵);伺服器型資料庫(Demo 過重)。取捨:單一寫入者、非分散式,已列入已知限制。
+@@ -237,18 +237,19 @@ RETIRE-IF: pytest 這個例外,若 Phase 1 到 Phase 4 的測試裡從未用到
+ |---|---|---|---|---|
+ | CTR、CVR、ROAS、配速計算 | 確定性計算 | Code([[Systems/確定性指標計算]]) | 無 | — |
+ | 證據新鮮度、廣告版本、決策是否過期 | 明確規則 | Code([[Systems/任務流程領域模型]]) | 無 | — |
+ | 冪等鍵、同廣告互斥、送出與逾時上限 | 明確規則 | Code([[Systems/外部寫入嘗試紀錄]]) | 無 | — |
+ | 權限與寫入能力憑證、單筆與總量上限 | 明確規則 | Phase 3 增量 2 起由 Code 實作;總量在 Phase 6 | 無 | — |
+-| 要不要提案調整(示範用配速規則) | 明確規則 | Code:示範規則,配速低於門檻才提案(分析行程的決策函式) | 由 LLM 綜合多份證據提出(見下三列的整體流程);其中「值不值得加」子判斷在 Phase 10 做過評估機制示範,結論不採用 Jev,不回答下面三列(見 [[Projects/RTB_Phase10評估與Jev決策點_計劃]]) | 真實業務規則與證據類型確定之後再議 |
+-| 證據夠不夠?(Evidence sufficient?) | 窄的是非判斷 | **尚未實作**:目前固定蒐集現況與指標兩份證據就決策;規劃由 LLM 判斷 | Jev(是非) | Production Trace → 人工審閱與標註 → Rubric → Eval Set → 分片與失敗分析 → 驗證 Jev 在該分片達門檻 → 才導入,並保留 LLM 備援 |
+-| 下一步要調查什麼?(Next investigation action?) | 窄的選擇題 | **尚未實作**;規劃由 LLM 在固定選項中選 | Jev(選擇) | 同上 |
+-| 繼續還是停止?(Continue / Stop?) | 窄的是非判斷 | **尚未實作**;規劃由 LLM 判斷 | Jev(是非) | 同上 |
++| 要不要提案調整 | 明確規則 | Code:配速偏低才進九條判斷,判值得加才提案(Phase 14 起;之前是示範用配速規則,見 [[Systems/正式九條判斷領域規則]]) | 由 LLM 綜合多份證據提出(見下三列的整體流程);其中「值不值得加」子判斷在 Phase 10 做過評估機制示範,結論不採用 Jev,不回答下面三列(見 [[Projects/RTB_Phase10評估與Jev決策點_計劃]]) | 真實業務規則與證據類型確定之後再議 |
++| 證據夠不夠?(Evidence sufficient?) | 窄的是非判斷 | Code(Phase 14 起):規則輪分步讀固定的追加查詢,缺哪一種就由九條判證據不足、不提案(見 [[Systems/分析行程流程與檢查點]]);Phase 13 曾讓模型參與,Phase 14 使用者裁定撤回 | Jev(是非) | Production Trace → 人工審閱與標註 → Rubric → Eval Set → 分片與失敗分析 → 驗證 Jev 在該分片達門檻 → 才導入,並保留 LLM 備援 |
++| 下一步要調查什麼?(Next investigation action?) | 窄的選擇題 | Code(Phase 14 起):規則輪固定順序,不選;Phase 13 曾由模型在固定選項中選,Phase 14 撤回 | Jev(選擇) | 同上 |
++| 繼續還是停止?(Continue / Stop?) | 窄的是非判斷 | Code(Phase 14 起):規則輪用基本資料判得出就提早結案,否則讀完再定案;Phase 13 曾由模型判斷,Phase 14 撤回 | Jev(是非) | 同上 |
+ | 指標異常的原因假說(例如 CVR 大降但追蹤與庫存正常) | 多證據模糊推理 | **已由模型提出、只給建議**(2026-09-25 Phase 11B 增量 2:服務水準告警響才呼叫,輸出假說與固定清單裡的下一步,不下結論、不寫任何決策,見 [[Projects/RTB_Phase11B大模型接入_計劃]]〈接入點 1〉);不能繞過執行閘 | 無(不是窄決策,不適合 Jev) | — |
+ | 讀 DSP 現況與指標、寫入預算或暫停 | 外部資訊與動作 | Tool:DSP 讀取用戶端;寫入在 Phase 3 增量 3 起由執行行程發出 | 無 | — |
+ 
+-- 「規劃由 LLM」的三列:LLM 什麼時候接進來、接在哪個階段,還沒排定;接之前這張表的「目前實作」要照實寫「尚未實作」,不能寫成已由 LLM 處理。
++- 「目前實作」欄以程式碼為準,重查:`rg -n "RULE_STEP_READS:|def decide" src/rtb/stepbudget.py src/rtb/analyzer/rule_round.py src/rtb/analyzer/policy.py`(2026-09-27 改寫這欄,見 [[Issues/Phase14後筆記漂移清理]])。
++- (2026-09-22 原文,歷史)「規劃由 LLM」的三列:LLM 什麼時候接進來、接在哪個階段,還沒排定;接之前這張表的「目前實作」要照實寫「尚未實作」,不能寫成已由 LLM 處理。後來 Phase 13 接過、Phase 14 撤回,三列都改成 Code。
+ - 交接文件 Phase 10(Eval 與 Jev Decision Point)的完成條件之一是「未達門檻時明確不採用 Jev,而非調低標準」。照這條裁定,在沒有 Production Trace 的前提下,Phase 10 的產出會是「明確不採用,並列出缺哪些證據」,不是一個模擬出來的 Jev 整合。
+ REVISIT:2027-01-31 走到 Phase 10 之前重看這張表:哪些列已經有 LLM 實作、是否有任何真實 trace 可以開始標註。
+ 
+ ## 程式結構原則(clean code)
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase10評估與Jev決策點_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase10評估與Jev決策點_計劃.md
+index 50466b4..d7abeaf 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase10評估與Jev決策點_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase10評估與Jev決策點_計劃.md
+@@ -1,10 +1,10 @@
+ ---
+ type: project
+ status: done
+ created: 2026-09-24
+-updated: 2026-09-25
++updated: 2026-09-27
+ tags:
+   - type/project
+   - status/done
+ lands_in:
+   - Systems/分析行程流程與檢查點
+@@ -44,12 +44,14 @@ RETIRE-IF: 接上真實流量與人工標註之後,這份以合成情境與程
+ - 品質門檻定案(2026-09-24,使用者本人,增量 2 代碼審第 2 輪時):「不誤提案的比例」與類別正確率的 95% Wilson 下界 ≥ 0.95、每格至少 73 筆;「值得加」格召回率下界 ≥ 0.80、至少 16 筆。成本、延遲、失敗率的門檻照舊由使用者在接上第一個候選時裁定,沒定之前不採用。
+ - 評估對象跟 Phase 0 路由表(2026-09-24,使用者本人,設計審第 1 輪後):保留評估對象,照實寫結論。不採用的兩個理由:①照評分表這個判斷可以由程式精確算出,本來就該是程式;現行規則在某些格判錯,這件事記成現行規則的程式缺陷(不是需要換判斷者的理由);②缺正式環境紀錄、人工標註與候選實測。Phase 0 路由表加註「這次不回答『證據夠不夠』『下一步查什麼』『繼續或停止』三個 Jev 候選點」。
+ 
+ ## 現況(2026-09-24 前掃,main e8b26f6)
+ 
++> 開檔時的快照,不是現況:Phase 14 增量 2b 起正式決策改判九條,下面「曝光點擊正數就提案」的判法已撤掉(見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]])。現況以程式碼為準:`rg -n "def code_rule|def decide" src/rtb/analyzer/policy.py`。
++
+ - 分析端決策函式(src/rtb/analyzer/policy.py 的 decide)只有三種結果:任一筆證據過期 → 退回重新蒐證;配速算不出或不偏低、或曝光點擊不是正數 → 不做;新鮮、配速低於 0.5、曝光點擊都大於零 → 提案調高一成。實質上只有一個是非判斷(提不提案),動作種類與金額都是算術。
+-- 「值不值得加」現在用一行粗略代理:曝光與點擊都大於零。它不看轉換與營收,也不看廣告狀態(暫停中的廣告最近一小時有殘量也照樣提案,靠執行端護欄擋)。
++- 「值不值得加」當時用一行粗略代理:曝光與點擊都大於零(Phase 14 已改判九條)。它不看轉換與營收,也不看廣告狀態(暫停中的廣告最近一小時有殘量也照樣提案,靠執行端護欄擋)。
+ - 「不做」不帶原因;決策函式目前沒有正式行程呼叫,只在測試與端到端測試裡接線。
+ - 決策當下分析端有的事實:預算、狀態(啟用/暫停)、版本、最近 1 小時的曝光、點擊、轉換、花費、營收、證據年齡、有無不可信廣告文字。沒有:廣告上線天數(整個系統沒有這個欄位)、租戶(DSP 表有,但分析端用戶端的白名單不收)、動作種類(DSP 也支援暫停,但決策函式只會提案調預算,切不出來)。
+ - 一次呼叫純程式、零模型成本、零網路;前掃在本機量過一次:提案那條中位約 18 微秒、不做那條約 7 微秒(單次量測,只當量級參考)。
+ 
+ ## 評估對象跟 Phase 0 路由表的關係
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
+index 074636e..a5d8d46 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
+@@ -1,10 +1,10 @@
+ ---
+ type: project
+ status: doing
+ created: 2026-09-24
+-updated: 2026-09-24
++updated: 2026-09-27
+ tags:
+   - type/project
+   - status/doing
+ lands_in:
+   - Systems/模型用戶端
+@@ -41,21 +41,23 @@ RETIRE-IF: 使用者決定整個 Demo 不再展示模型(三個接入點都拔
+ - 接入點 2 的說明給人工核可的人看,標明「模型產生、僅供參考」,程式算的數字放在它前面。
+ - 模型後端(2026-09-24 設計審三輪後,使用者本人):因為是本機 Demo,展示改走本機 Claude Code 的非互動模式(吃使用者現有訂閱額度、不用 API 金鑰);模型用戶端的介面保留,將來要上線或給別人用時再加 API 後端。供應商(Anthropic)、預設模型(Sonnet 5)、花費上限的數字不變。
+ 
+ ## 現況(2026-09-24 前掃,main eda93c1 加本分支)
+ 
++> 開檔時的快照,不是現況:之後的 Phase(12 分析端驅動命令列、13 AI 決策、14 撤除 AI 決策)改掉了其中多項。現況以程式碼為準,例:命令列入口 `rg -l "__name__ == .__main__." src/rtb`。
++
+ - 執行期只准標準函式庫(掃描測試守),沒裝 anthropic 套件;要用標準函式庫自己打 HTTPS。共用 HTTP 用戶端用 urllib、走系統預設憑證驗證、不跟隨重新導向、回應上限 64 KB、逾時由呼叫端必給、不重試。
+ - 共用用戶端的標頭是封閉列舉(冪等鍵、能力憑證、DSP 稽核鍵三個),兩支測試把成員整份寫死;Anthropic 要的 x-api-key 與 anthropic-version 不在裡面。
+ - 分析端目錄與它的靜態匯入閉包不准匯入網路模組;分析端只准兩支檔呼叫共用用戶端,而且不准帶標頭。領域層的靜態檢查規則明禁 anthropic 與 openai。
+ - 接入點 1:服務水準評估器回傳每條服務水準的告警狀態,不存告警、不讀時鐘;Phase 9 計劃在增量 3 寫明不送通知、不接外部告警,在增量 4 寫明不做自動下結論的調查自動化工具;這個階段的假說命令列只給建議、不下結論,並在 Phase 9 計劃補一句指向這裡。唯一「從告警走到調查」的是調查實演測試(指標異常 → 切片 → 下鑽 → 時間線 → 查 DSP 歷史)。
+ - 接入點 2:提案的風險說明欄位由示範規則寫死一句固定格式文字,**算進提案的內容雜湊**;同一修訂內容不同會被收件口判內容衝突。執行端全套件不准讀這個欄位(Phase 7 合約)。目前沒有人工核可的顯示畫面,核可是命令列帶任務編號簽。
+ - 接入點 3:分析端已有候選介面(給七個數字欄位、回四種判定之一、必須經共用用戶端呼叫並遵守逾時)、失敗退回現行規則的路由、評估套件的合成集報告與比較表;比較表的模型列目前寫「沒量,原因:未導入」;成本、延遲、失敗率門檻目前是空的(空就不採用)。合成集照 Phase 10 規定一律不採用。
+ - 分析端候選介面的「必須經共用用戶端呼叫」目前只是介面註解的要求,沒有測試強制;這個階段的模型候選經模型用戶端呼叫,由 [S917] 補一支邊界測試。
+ - 非模型行程目前沒有任何「啟動時清掉環境變數」的機制:執行迴圈、模擬 DSP、核可命令列、收件口只讀自己要的變數;Phase 3 計劃留了「分析行程啟動環境不含金鑰現在測不到」的 REVISIT,至今未結案。
+ - 維運套件與評估套件各自的靜態檢查規則都禁 sqlite3 與共用資料庫模組(維運:唯讀、不開資料庫;評估:離線、不讀寫任何資料庫);兩邊的邊界測試只掃直接匯入,不追匯入閉包。維運套件呼叫分析端或執行端的名字要在讀取白名單裡。
+-- 分析行程目前沒有正式啟動程式(分析端目錄裡沒有命令列入口);流程推進函式由測試組裝呼叫,呼叫外部介面時租約暫定 60 秒且「呼叫次數 × 逾時 × 2 < 租約」沒有機械守衛(分析行程流程筆記的 REVISIT)。
+-- 目前的命令列入口共九支:模擬 DSP、評估紀錄、核可、收件口、重放、執行迴圈、指標、服務水準、追蹤。
++- 分析行程當時沒有正式啟動程式(分析端目錄裡沒有命令列入口);流程推進函式由測試組裝呼叫,呼叫外部介面時租約暫定 60 秒且「呼叫次數 × 逾時 × 2 < 租約」沒有機械守衛(分析行程流程筆記的 REVISIT)。兩件都在 Phase 12 補上(分析端驅動命令列與啟動時的租約斷言,見 [[Systems/分析行程流程與檢查點]])。
++- 當時的命令列入口是九支:模擬 DSP、評估紀錄、核可、收件口、重放、執行迴圈、指標、服務水準、追蹤(之後各 Phase 陸續加,數量以程式碼為準,查法見本段開頭)。
+ - 可觀測:分析端的呼叫紀錄表有端點列舉、延遲、結果,會自動變成指標;Phase 9 預留了一個「模型與 Jev」指標,目前標不適用。沒有任何花費欄位。
+ - Phase 7 計劃留了一條事件入口:「哪天模型產生理由摘要…提案轉字串時要改成只印雜湊與編號」。
+ - Phase 0 架構筆記:分析端持有模型金鑰、是最可能被劫持的一端;金鑰只傳給該持有的行程;引入模型時要重開設計審並列入外連與金鑰邊界;模型失敗一律退回、不放行;路由表「指標異常的原因假說」一列目前照實寫「尚未實作」。
+ 
+ ## 設計
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md
+index a8e19a1..e30cc4a 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11證據清單與驗證器_計劃.md
+@@ -1,10 +1,10 @@
+ ---
+ type: project
+ status: done
+ created: 2026-09-24
+-updated: 2026-09-25
++updated: 2026-09-27
+ tags:
+   - type/project
+   - status/done
+ lands_in:
+   - Systems/宣稱驗證器
+@@ -84,11 +84,11 @@ REVISIT:2027-03-31 查一次這段期間 claims/*.json 的每次改動是否都
+ 
+ - claims/idempotency-unknown-outcome.json:DSP 同一把冪等鍵最多套用一次;DSP 已提交但回應逾時時,執行端記成結果不明、用同一把鍵對帳,不換新鍵重送;提交後當機可從操作紀錄恢復。證據:F1 三支、F2 當機恢復、DSP 儲存層同鍵只套用一次與寫入原子性、收件口同修訂只收一份的單元與並行測試。
+ - 下面五段是每條宣稱涵蓋什麼的摘要,不是 policy 欄位的原文;policy 欄位是一句白話,用到範圍詞就要有列舉(第 4 步)。
+ - claims/permission-guardrail.json:寫入要帶有效能力憑證,範圍(廣告、動作、租戶)對得上才放行;單次加額超過比例上限、決策過時、廣告版本已變時擋下;人工核可只對它簽的那一份內容有效;死信重放照樣重跑每一關(F6);故障注入要開旗標、只綁本機、分析端送不出故障標頭。沒有既有 ★INVARIANT★,證據節點在增量 1 從前掃列的測試檔逐支選定。
+ - claims/concurrency.json:同一份提案多個工作者同時處理只寫 DSP 一次;舊版本決策被擋、不寫進 DSP;分析端同一個任務併發推進只落地一次。證據:F3、F4 端到端與多工作者、版本衝突、租約測試。
+-- claims/prompt-injection.json:廣告名稱等不可信文字不影響決策、不流進提案;提案只收白名單欄位;可信證據不帶自由文字。證據:F5 端到端與信任邊界、提案、證據、DSP 用戶端白名單測試。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 協調者代使用者裁定改範圍:未開 AI 決策時不影響決策,開了之後名稱只能翻動提不提案、翻不動金額廣告動作,由 [S1112] 的測試守,見 [[Systems/分析行程流程與檢查點]])
++- claims/prompt-injection.json:廣告名稱等不可信文字不影響決策、不流進提案;提案只收白名單欄位;可信證據不帶自由文字。證據:F5 端到端與信任邊界、提案、證據、DSP 用戶端白名單測試。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 協調者代使用者裁定改範圍:未開 AI 決策時不影響決策,開了之後名稱只能翻動提不提案、翻不動金額廣告動作,由 [S1112] 的測試守,見 [[Systems/分析行程流程與檢查點]];2026-09-26 Phase 14 增量 3 起 AI 不參與加額決策,這個範圍又改回「不可信文字不影響決策」,見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]。現行範圍以清單原文為準:`rg -n '"policy"' claims/prompt-injection.json`)
+ - claims/aggregate-blast-radius.json:總曝險到門檻就停、剛好到門檻放行;兩個工作者不能一起衝過門檻;超過的停在待核可、每筆都有紀錄。證據:F7 端到端與總曝險、核可測試。
+ - 冪等那條另帶列舉:DSP 會改廣告狀態的寫入動作,從 DSP 伺服器模組(路由那一層,不是儲存層)的 CAMPAIGN_WRITE_ACTIONS 列舉(update_budget、pause_campaign),不是從全部路由列舉——作廢只看鍵、不改廣告狀態,不在「版本不符拒收」的範圍。圖譜那條合約的措辭照這個改窄(寫明不含作廢),並附一句理由。作廢自己的冪等目前有循序與「作廢對寫入」競態的測試,沒有「兩個作廢同時進來」的並行測試;五條宣稱都沒把它算進範圍,不在這個階段補。
+ 
+ ### CI 與本機
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
+index a299973..b254ec2 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
+@@ -1,19 +1,20 @@
+ ---
+ type: project
+ status: done
+ created: 2026-09-24
+-updated: 2026-09-26
++updated: 2026-09-27
+ plan_risk: high
+ summary: |-
+-  WHY: AI 決策只在分析端驅動命令列帶 --ai-judge 時開(另收 --demo-id、--ledger、--recordings、--batch-id,F5 雙胞胎用 --hold-submit 只判不送);沒開就是現在的行為,守衛照舊只看 --timeout-seconds 那條算式。出處:設計審 r1(2026-09-25)的 F、L 件,[[Projects/RTB_Phase13AI參與決策_計劃]]〈共用模型入口與行程〉。
+-  WHY: 模型只經 src/rtb/analyzer/modelgate.py 進 src/rtb/modelclient.py 與 modelclaude.py,在 runner.py 子行程的主執行緒呼叫;src/rtb/analyzer/flow.py 與 src/rtb/analyzer/policy.py 的匯入閉包不含模型用戶端,現行決策函式一行不改,追加收據在 AI 決策函式裡濾掉。出處:設計審 r1(2026-09-25)的 E、Q 件。
++  WHY: 2026-09-26 Phase 14 增量 3(使用者裁定 8)讓 AI 退出「要不要加預算」的決定:本計劃做的 AI 決策路徑(--ai-judge、AI 那一步的續租與守衛、F5 的 AI 路徑)已從正式路徑撤除,AI 調查只剩評估執行器直接呼叫(以程式碼為準,重查呼叫者:`rg -n "ai_judge.Judge\(" src/rtb`;分析端參數:`rg -n "add_argument" src/rtb/analyzer/runner.py`);下面標「歷史」的幾條是當時設計,不是現況。出處:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉8、〈拆增量〉3。
++  WHY: [歷史:Phase 14 增量 3 已撤除 AI 決策路徑,這條是當時設計,現況以程式碼為準] AI 決策只在分析端驅動命令列帶 --ai-judge 時開(另收 --demo-id、--ledger、--recordings、--batch-id,F5 雙胞胎用 --hold-submit 只判不送);沒開就是現在的行為,守衛照舊只看 --timeout-seconds 那條算式。出處:設計審 r1(2026-09-25)的 F、L 件,[[Projects/RTB_Phase13AI參與決策_計劃]]〈共用模型入口與行程〉。
++  WHY: [歷史:Phase 14 增量 3 已撤除 AI 決策路徑,這條是當時設計,現況以程式碼為準] 模型只經 src/rtb/analyzer/modelgate.py 進 src/rtb/modelclient.py 與 modelclaude.py,在 runner.py 子行程的主執行緒呼叫;src/rtb/analyzer/flow.py 與 src/rtb/analyzer/policy.py 的匯入閉包不含模型用戶端,現行決策函式一行不改,追加收據在 AI 決策函式裡濾掉。出處:設計審 r1(2026-09-25)的 E、Q 件。
+   WHY: 收據的比率與變化百分比在 src/rtb/domain/metrics.py 用分數精確算,輸出成字串(百分比刻度 1 位小數、金額 2 位、計數整數),算不出寫 na、不能引用;標準答案用精確值判、不讀字串;參照代號就是選項代碼,1 小時基本證據叫 base。出處:設計審 r1、r2(2026-09-25)的 A、B、C、R2-3 到 R2-6 件。
+-  WHY: AI 那一步呼叫模型前續租,續租是租約表新增一列、拿鎖後才讀時鐘,成功當下換掉流程層的目前收據容器,沒成丟 RenewalSkipped;模型逾時 15 秒,續租後最壞 55 秒(代碼審 r3 加上送出前記次的等鎖)小於 60 秒租約。出處:設計審 r2、r3(2026-09-25)的 R2-1、R2-2、R3-1、R3-2 件。
++  WHY: [歷史:Phase 14 增量 3 已撤除 AI 決策路徑,這條是當時設計,現況以程式碼為準] AI 那一步呼叫模型前續租,續租是租約表新增一列、拿鎖後才讀時鐘,成功當下換掉流程層的目前收據容器,沒成丟 RenewalSkipped;模型逾時 15 秒,續租後最壞 55 秒(代碼審 r3 加上送出前記次的等鎖)小於 60 秒租約。出處:設計審 r2、r3(2026-09-25)的 R2-1、R2-2、R3-1、R3-2 件。
+   WHY: 展示驅動不逐情境補丁,依每件工作的實際結局(提案或不提案)選等待、路徑核對與故障斷言的預期組;送出呼叫名單在 tests/test_spawn_boundary.py 的 CALL_MODEL_USERS;使用者看截圖記在 lumos new verification --plan 開的驗收紀錄。出處:設計審 r3(2026-09-25)的 R3-10、R3-13、R3-16 件。
+   WHY: 驗證一律在我方程式做;Claude Code 若有結構化輸出參數(以實作當下 claude --help 為準)只能加用,不信任後端宣稱。出處:計劃草稿(2026-09-24)〈模型回答的格式與驗證〉。
+-  WHY: Systems/分析行程流程與檢查點 的 F5 不變量合約行「對抗名稱不改變決策」只對程式規則路徑成立,AI 路徑的保證是 S1112(名稱只能翻提不提案,翻不動金額、廣告、動作種類與權限)。出處:計劃草稿(2026-09-24)〈會卡住這個設計的既有程式〉,[[Systems/分析行程流程與檢查點]]。
++  WHY: [歷史:Phase 14 增量 3 已撤除 AI 決策路徑,這條是當時設計,現況以程式碼為準] Systems/分析行程流程與檢查點 的 F5 不變量合約行「對抗名稱不改變決策」只對程式規則路徑成立,AI 路徑的保證是 S1112(名稱只能翻提不提案,翻不動金額、廣告、動作種類與權限)。出處:計劃草稿(2026-09-24)〈會卡住這個設計的既有程式〉,[[Systems/分析行程流程與檢查點]]。
+ tags:
+   - type/project
+   - status/done
+ lands_in:
+   - Systems/分析行程流程與檢查點
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md
+index 525d500..456586c 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md
+@@ -62,10 +62,12 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ - 領域模組自己定義四查詢的純資料型別及判定結果型別；分析端把白名單驗證後的 `QueryRead`／原始 dict 轉成領域型別，`rtb.domain` 不匯入 `rtb.analyzer.dsp_client`。新領域檔的家預定為 [[Systems/正式九條判斷領域規則]]，增量 1 建檔時同時建立該 Systems 篇。
+ - 原本列在 Phase 10／13 的舊合約與測試，不應靠改標準答案維持綠燈；落地時逐條重寫或撤除並留下翻案指向。
+ 
+ ## 現況（2026-09-26 前掃；以程式碼為準）
+ 
++> 開工前的快照,不是現況:本計劃自己改掉了其中多項(`code_rule` 改判九條、investigation_source 刪除、分析端驅動不再有 AI 模式)。要知道現在長怎樣,跑各條末尾的重新核對指令。
++
+ - `src/rtb/eval/investigation_cases.py` 的 `answer()` 依序判九格；`src/rtb/eval/rubric.py` 只認 Phase 10 自己的 5 格答案,`investigation_cases.py` 的 `_PHASE10`／`VERDICT` 再把它們映到九格裡的第 1、2、7、8、9 格(不連續),其餘四格(裁定 8、裁定 12 三條)的答案直接寫在 `VERDICT`。第 4 條使用最近一筆加預算的調整前後 3 天轉換變化，第 5 條使用逐日資料分段轉換率的變化；比率不可算時跳過該條。重新核對：`rg -n 'def answer|def raise_change|def trend_rate_change|RUBRIC' src/rtb/eval`。
+ - `src/rtb/analyzer/policy.py` 的 `code_rule()` 只看曝光、點擊正數；`_judge()` 在 `WorthInputInvalid` 時也用同一舊判法；`steps()` 先做新鮮度與配速再判是否值得加。`build_proposal()` 只用傳入的證據列出參照，現行正式呼叫傳基本三筆。重新核對：`rg -n 'def code_rule|def _judge|def steps|def build_proposal' src/rtb/analyzer/policy.py`。
+ - `src/rtb/analyzer/dsp_client.py` 已把四查詢的逾時、404、欄位不合格及 1d／7d 跨窗不一致分成 `QueryRead` 的沒有結果；5xx 與連線失敗會丟例外，仍沿用純讀取步驟下次重試。`src/rtb/analyzer/instrumented.py` 目前只在 AI 調查路徑重讀模型選過的查詢；`src/rtb/analyzer/investigation.py` 的 `CODE_RULE_KINDS` 會排除追加收據。重新核對：`rg -n 'class QueryRead|def make_query_reader|def investigation_source|CODE_RULE_KINDS' src/rtb/analyzer`。
+ - `src/rtb/analyzer/runner.py` 非 AI 模式以「2 次 × 逾時 × 2 < 60 秒」守租約；AI 模式蒐證守衛計入取租約等鎖 5 秒、每次 DSP 逾時與呼叫紀錄等鎖 5 秒、提交等鎖 5 秒。四種查詢共 5 次 HTTP，加上基本現況與 1 小時指標共 7 次；預設 DSP 逾時 3 秒時單步上界 `5 + 7 × (3 + 5) + 5 = 66 秒`，超過租約 60 秒。重新核對：`rg -n 'def _unsafe|collect_step_worst_seconds|MAX_COLLECT_READS|READS_PER_OPTION' src/rtb/analyzer`。
+ - 展示種子 1 小時有 1 筆轉換、逐日平穩、沒有既往調整；除 F4／F6 接續任務，九條下原展示結局預期不變。F7 300 件、8 個工作者、情境時限 300 秒。重新核對：`rg -n 'seed_platform|DEMO_PROFILE|F7_CAMPAIGNS|F7_WORKERS|timeout_seconds' src/rtb/demo src/rtb/dsp`。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
+index 2031d5f..d0caa30 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase6權限護欄與總曝險_計劃.md
+@@ -1,10 +1,10 @@
+ ---
+ type: project
+ status: done
+ created: 2026-09-23
+-updated: 2026-09-23
++updated: 2026-09-27
+ tags:
+   - type/project
+   - status/done
+ lands_in:
+   - Systems/執行迴圈
+@@ -41,12 +41,14 @@ RETIRE-IF: 換成真實 DSP 且 DSP 自己提供帳戶層級的花費上限與
+ 
+ - **狀態(2026-09-23):實作完成,代碼審通過**(分支 phase6-inc1;設計第 4 版,設計審三輪跑滿)。S330–S343 都綁了會真跑的測試;實作時十六道變異、代碼審修正後再做十一道,各自翻紅。代碼審 high 三輪:r1 七席 8 條全折(舊快照壞掉改停機、表滿紀錄補額度、重建測試補組合、窗口邊界改大於等於等)、r2 三席 4 條全折(F7 端到端間歇失敗:工作者比照啟動程式處理忙碌並等租約到期重投;額度查詢在資料庫裡按租戶過濾;停下紀錄補驗雜湊與時間)、r3 三席 1 條全折(只改測試);並行合約 S336 由四席各自用鎖外讀的變異證實會翻紅。卷證在 governance/review-reports/code-phase6-inc1/。F7 端到端約 20 秒。
+ 
+ ### 現況(2026-09-23 開檔核對)
+ 
++> 開檔時的快照,不是現況:本計劃自己改掉了其中幾項(例如租戶設定檔多了總額上限一欄)。現況以程式碼為準,例:`rg -n "class Tenant" -A 6 src/rtb/executor/capability_signer.py`。
++
+ - 單筆限制只有兩道,都在執行端:執行前檢查(廣告存在、在投放、版本相符)與簽發器(廣告屬於租戶、新預算不超過租戶的單一廣告預算上限)。沒有任何東西在算「總共已經加了多少」。
+-- 簽發器每次簽發都重讀租戶設定檔(路徑、擁有者、權限都有檢查);設定檔每個租戶目前只有廣告清單與單一廣告預算上限兩欄。
++- 簽發器每次簽發都重讀租戶設定檔(路徑、擁有者、權限都有檢查);設定檔每個租戶當時只有廣告清單與單一廣告預算上限兩欄(本計劃增量 1 加了總額上限,見 [[Systems/寫入能力憑證]])。
+ - 執行端開始一筆嘗試(寫第一列「嘗試中」)是在核對收據的同一個寫入交易裡做;SQLite 立即取得寫入鎖,多個工作者開始一筆是一個一個來的。嘗試紀錄只增不改,每把鍵最多一列終點(已驗證或失敗)。
+ - 收件表的擋下原因欄位有資料庫層的允許值清單;加一個新代碼,舊資料庫要照既有的重建表步驟重建,而既有「要不要重建」的判斷只看死信這個值在不在,看不出新代碼(開工時要一起改)。
+ - 收件口回給分析行程的擋下原因,權限類已合併成「不允許」(使用者 2026-09-23 裁定)。
+ 
+ ### 最小設計(第 4 版:已折入第 1 到 3 輪設計審)
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md
+index 56f1d99..4dfd36b 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase9可觀測與SLO_計劃.md
+@@ -1,10 +1,10 @@
+ ---
+ type: project
+ status: done
+ created: 2026-09-24
+-updated: 2026-09-24
++updated: 2026-09-27
+ tags:
+   - type/project
+   - status/done
+ lands_in:
+   - Systems/提案收件口
+@@ -35,16 +35,18 @@ RETIRE-IF: 換成外部可觀測平台(集中式追蹤、時間序列資料庫
+ - 服務水準的數值是示範值:交接文件要求由 Claude Code 提案、使用者依示範工作量判斷,不假裝有正式環境基準;這裡提的數值一律標「暫用、待使用者覆核」。
+ - 拆四個增量,一個增量一個增量過設計審與代碼審(比照 Phase 6)。
+ 
+ ## 現況(2026-09-24 開檔核對,main 605c1c2)
+ 
++> 開檔時的快照,不是現況:本計劃自己改掉了其中幾項(例如稽核表只增不改的機械守衛在增量 4 補上)。現況以程式碼為準,各項去對應的 Systems 節點查。
++
+ - 沒有貫穿全程的追蹤編號;分析端資料庫、執行端資料庫、DSP 三邊靠任務編號(收件時,任務與修訂是收件表主鍵)與冪等鍵(執行之後)手動拼。分析端有單一任務的軌跡查詢,不跨元件。
+ - 收件表的處置改變都不記時間、結案後擁有者清空,已結案的任務兩小時後整批刪除;收件事件表每種代碼只留 200 筆。所以佇列等待時間、處置分布、是哪個工作者處理的,兩小時後都查不到。
+ - 嘗試紀錄每次轉換一列、有寫入時間,但沒記工作者;執行端呼叫 DSP 沒有量耗時(分析端的對外呼叫有)。
+ - 執行端所有唯讀查詢都用會取寫入鎖的交易(Phase 6 增量 4 的可觀測查詢筆記自己寫了要留給 Phase 9 改)。
+ - 三邊時間格式不一:執行端與分析端用 `...Z`,DSP 用 `+00:00`。
+-- 只增不改有測試守的:嘗試紀錄、分析端全部表;停下紀錄、核可兩張表、DSP 操作紀錄只有程式慣例、沒有機械守衛。
++- 只增不改有測試守的:嘗試紀錄、分析端全部表;停下紀錄、核可兩張表、DSP 操作紀錄當時只有程式慣例、沒有機械守衛(增量 4 [S675] 補上,見 [[Systems/稽核表只增不改守衛]])。
+ - Phase 8(另一個工作區實作中)會加死信信封表與死信操作稽核表,也會大改收件口模組;本計劃的增量 1 實作排在 Phase 8 合進 main 之後。
+ 
+ ## 增量大綱
+ 
+ - 增量 1:持久的生命週期事件與跨元件追蹤檢視(本節下方詳細設計)。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+index e380a01..894768d 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+@@ -1,10 +1,10 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-21
+-updated: 2026-09-26
++updated: 2026-09-27
+ responsibility: 負責 Mock DSP 的廣告狀態、版本、操作歷史與冪等紀錄的儲存與原子提交、型別化錯誤,以及獨立行程的 HTTP 介面與故障注入;不負責指標計算與 agent 端的任何邏輯。
+ aliases: []
+ about_code:
+   - src/rtb/dsp/store.py
+   - src/rtb/dsp/errors.py
+@@ -40,11 +40,11 @@ summary: |-
+   TEST: tests/dsp/test_store.py 與 tests/dsp/test_server.py 涵蓋同鍵只套用一次(含 20 個並行、同鍵不同內容並行、以及故意沒有保護的對照實作會雙寫)、過期版本被拒、重開後冪等紀錄仍在、行程猝死後無半途狀態、交易中途失敗整體回滾、等待鎖逾時回 503、畸形輸入回型別化錯誤、Host 標頭與重複標頭檢查、執行期只用標準函式庫。
+   WHY: 每一種會改廣告狀態的寫入(改預算、暫停;不含作廢)都必須帶預期版本、版本不符就拒收,這是「結果不明期間同範圍寫入」與「DSP 版本已被別人推進 → 舊提案過期、重新分析、不強制覆寫」這兩條對帳規則在 DSP 端的最後防線;少了它,過期的提案或 lease 過期後才醒來的工作者會覆蓋別人的新結果。出處:[[Projects/RTB_Agent_Phase0架構]] 的外部寫入失敗語意與對帳判定表。
+   KEY:★INVARIANT★ 同一把冪等鍵最多只套用一次:同鍵同內容重送回原結果、不再改狀態;同鍵不同內容一律拒收且不改任何東西;並行搶同一把鍵也只有一個真的套用。 [test:test_same_key_same_payload_applies_once_and_returns_original_result,test_every_write_action_with_the_same_key_applies_once_and_replays,test_same_key_different_payload_is_rejected_and_changes_nothing,test_concurrent_requests_with_the_same_key_apply_exactly_once,test_concurrent_same_key_requests_over_http_apply_exactly_once] [audit:sonnet/2026-09-22] [kill:recipes]
+   RULE: 並行搶同一把鍵只套用一次的測試(store 與 HTTP 兩支)只用改預算;暫停的同鍵只有循序重送的測試(Phase 11 補的那支)。儲存層的同鍵判斷不分動作,所以目前判斷暫停也成立,但沒有測試直接證明,宣稱驗證器的冪等清單也沒把並行同鍵寫成「每一種」。 [since:2026-09-24] [retire:補上暫停的並行同鍵測試,或儲存層改成依動作分流同鍵判斷時] [confirmed:2026-09-24]
+   KEY:★INVARIANT★ 一次寫入操作(改狀態、升版本、記歷史、記冪等紀錄)要嘛全部生效、要嘛全部沒發生;中途失敗或行程猝死都不留下半途狀態。 [test:test_failure_between_state_change_and_idempotency_record_rolls_everything_back,test_process_death_between_state_change_and_idempotency_record_leaves_no_half_state] [audit:sonnet/2026-09-22] [kill:recipes]
+-  WHY: DSP 端這幾條合約(F1 提交前後逾時、版本不符一律拒收)描述的是「真實 DSP 必須具備、執行行程對帳要依賴的行為」;Mock DSP 是外部 DSP 的替身。目前沒有正式程式碼呼叫 DSP 寫入,依賴方是 Phase 3 的執行行程對帳,已登記成有最遲日期的預告合約 [[Verification/事故F1_結果不明只用原鍵對帳]]。出處:2026-09-22 合約獨立審計判「誰依賴它」不穩定後,使用者裁定「認定有依賴方」。
++  WHY: DSP 端這幾條合約(F1 提交前後逾時、版本不符一律拒收)描述的是「真實 DSP 必須具備、執行行程對帳要依賴的行為」;Mock DSP 是外部 DSP 的替身。寫下時(2026-09-22)還沒有正式程式碼呼叫 DSP 寫入;Phase 3 起執行行程的 DSP 用戶端會發寫入與作廢(見 [[Systems/執行迴圈]];以程式碼為準:`rg -n '"POST"' src/rtb/executor/dsp_client.py`),依賴方就是執行行程對帳,當時先登記成有最遲日期的預告合約 [[Verification/事故F1_結果不明只用原鍵對帳]]。出處:2026-09-22 合約獨立審計判「誰依賴它」不穩定後,使用者裁定「認定有依賴方」。
+   KEY:★INVARIANT★ 事故 F1 的 DSP 側:提交前逾時的請求事後絕不偷偷提交;提交後才逾時的請求已生效且只生效一次,呼叫端用同一把冪等鍵重試拿到原結果、不會再套用一次。 [test:test_timeout_before_commit_client_sees_timeout_and_dsp_never_commits_later,test_timeout_after_commit_client_sees_timeout_but_dsp_applied_exactly_once,test_retry_with_same_key_after_commit_timeout_replays_and_does_not_apply_twice] [audit:sonnet/2026-09-22] [kill:recipes]
+   KEY:★INVARIANT★ 每一種會改廣告狀態的寫入動作(改預算、暫停;不含作廢),預期版本跟現況不符(不論比現況舊或比現況新)一律拒收,不得覆寫較新的狀態,版本號與歷史都不動。 [test:test_stale_expected_version_is_rejected_without_writing,test_stale_version_gets_409_and_does_not_overwrite_newer_state,test_a_future_expected_version_is_rejected_not_only_a_stale_one,test_pause_with_a_stale_expected_version_is_rejected_without_writing,test_every_write_action_on_the_http_routes_has_a_version_check_example,test_every_write_action_rejects_a_stale_expected_version,test_only_the_store_module_writes_to_the_dsp_database] [audit:人裁/2026-09-22] [kill:recipes]
+   WHY: [2026-09-24] 版本不符那條原本寫「每一種寫入動作」,但路由另有作廢(void_operation):作廢只看冪等鍵、不改廣告狀態,程式裡預期版本只驗格式不比對,綁的測試也只參數化改預算與暫停兩種。這是合約措辭過大,不是程式漏洞,所以把措辭改窄成跟程式一致,不改程式。改窄後不隨 Phase 11 回退改回。出處:[[Projects/RTB_Phase11證據清單與驗證器_計劃]]〈五條宣稱〉;宣稱驗證器的冪等清單用 CAMPAIGN_WRITE_ACTIONS 列舉,見 [[Systems/宣稱驗證器]]。
+ verified_by:
+   - "[[Verification/Phase1驗收紀錄]]"
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+index a85a202..58fd7cc 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+@@ -1,10 +1,10 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-24
+-updated: 2026-09-25
++updated: 2026-09-27
+ responsibility: Phase 12 本機一鍵展示的展示套件:展示狀態資料結構、正式流程圖定義(節點、分支、回頭轉換展開、系統結果列舉對到圖上哪裡、白話顯示字)、每次展示的金鑰、子行程啟動與環境白名單、只給展示用的故障手段與它的跨行程交付;不負責被測系統本身的行為,也不負責頁面怎麼畫
+ aliases: []
+ about_code:
+   - src/rtb/demo/__init__.py
+   - src/rtb/demo/state.py
+@@ -192,11 +192,11 @@ WHY: 增量 3 代碼審 r2 s2:白名單環境只照抄 LANG,伺服器的 LC_ALL
+ 
+ - WHY:驅動不再猜模式:錄製用的帳檔一律給分析端與說明、假說命令列(`--recorded-ledger`),由閘道決定用不用;原本「列在即時清單而且即時開關有開就不給帳檔」的判法在閘道退回錄製時把 0 元紀錄寫進了真帳。防回歸:[test:test_a_listed_scenario_that_falls_back_books_into_its_temporary_ledger]。
+ - PITFALL:展示啟動器起的子行程在 pytest 裡原本用真的帳號家目錄(帳號家目錄只從帳號資料庫讀、不看 HOME,測試夾具只換了測試行程自己的讀法),2026-09-25 有一筆錄製紀錄因此寫進真的 `~/.rtb`。現在啟動器起子行程的指令集中在 `launcher.module_command`,測試共用夾具把它換成先換掉帳號家目錄再跑同一支模組;測試起展示伺服器子行程用 `tests/conftest.py` 的 `demo_server_command`,伺服器的啟動器也跟著換。整套結束時比對真的 `~/.rtb` 底下的檔名,多了就讓整套失敗。防回歸:[test:test_the_suite_leaves_no_new_file_under_the_real_rtb_dir]、[test:test_the_demo_uses_recordings_unless_live_is_switched_on](給子行程一份測試用的啟用紀錄,模型變數一漏就真的判成即時、叫到假 claude)。
+ - WHY:入庫前的批次檢查 `src/rtb/demo/recordings.py` 經模型用戶端門面讀錄製(展示的 ruff 禁令補 `rtb.modelrecording` 與 `rtb.modelclient`,這一支逐檔放行、其餘匯入由測試逐條核對);「通過」另外要求每個情境跑完(照預期或故障沒走到)、每一本花費帳都在而且有呼叫紀錄——情境在第一次問 AI 之前就失敗時帳根本不會建,原本算 0 筆缺錄製、照樣通過。批次編號要是 phase13-demo-YYYYMMDD、錄製要是正式後端錄的。防回歸:[test:test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording]、[test:test_the_replay_needs_every_scenario_finished_with_a_ledger_that_has_calls]。
+ - WHY:「誰決定」看每件工作最後的結論:都是 AI 合法下的結論才標 AI(展示模式);任一件最後退回、由程式規則決定(就算之前 AI 選過查詢)標 AI 退回程式規則。防回歸:[test:test_who_decided_follows_each_task_final_conclusion]。
+-- WHY:F7 也照通用規則逐件核路徑(寫進平台的、停下等人確認的、確認放行多走一段「人已同意,放回排隊」的、不提案的);錄製模式的時限放寬整段不超過 60 秒(三百件照件數放寬會多二十分鐘,卡住時要等很久才判逾時)。防回歸:[test:test_f7_checks_every_task_path_by_its_outcome]、[test:test_the_ai_allowance_is_capped_in_recorded_mode]。
++- WHY:F7 也照通用規則逐件核路徑(寫進平台的、停下等人確認的、確認放行多走一段「人已同意,放回排隊」的、不提案的);錄製模式的時限放寬整段不超過 60 秒(三百件照件數放寬會多二十分鐘,卡住時要等很久才判逾時;Phase 14 增量 3 已撤掉依 AI 輪數放寬,時限用情境原值,見文末〈AI 退出加額決策〉)。防回歸:[test:test_f7_checks_every_task_path_by_its_outcome]、[test:test_the_ai_allowance_is_capped_in_recorded_mode]。
+ - WHY:說明與假說兩支命令列跑的時候看整次展示的停止旗標,停了就收掉整組,兩支之間再看一次:即時清單裡的情境一次說明最壞約 100 秒,伺服器收尾只等驅動 60 秒,原本會留下孤兒行程。三個模型變數只留啟動器一份(`launcher.MODEL_VARIABLES`),模型入口帶不帶由 `run_entry(live_model=)` 交給 `child_env` 決定。防回歸:[test:test_cancelling_during_the_model_entries_ends_the_scenario_quickly]。
+ - WHY:退回之後程式規則判不提案時照舊算對不上(不是「故障沒走到」);只有 AI 合法下的結論才標故障沒走到。防回歸:[test:test_a_rule_no_propose_after_a_fallback_is_a_failure_not_an_untouched_fault]。
+ - WHY:驅動寫給頁面的結果摘要照白話規則:「故障沒走到」與 F5「AI 判不提案,平台上沒有任何寫入」裡的「提案」緊接括號解釋(頁面把結果摘要照原樣顯示)。防回歸:[test:test_f5_checks_program_invariants_and_reports_the_model_exam]、[test:test_a_legit_ai_no_propose_marks_the_fault_as_not_exercised]。
+ - WHY:F5 情境本體的說明(頁面「在驗什麼」那一行)改寫成開了 AI 決策之後的樣子:名稱最多能讓 AI 改判要不要加預算,程式層守住金額、廣告與動作,雙胞胎另列考題;重拍截圖時發現頁面還在寫增量 2 之前的「只走程式規則、待 11B 補驗」。受測那一件被 AI 判不提案、平台沒寫入時,「最後改了什麼」的原因寫 AI 判不提案,不寫「沒有記錄」。防回歸:[test:test_f5_says_only_what_it_checked]、[test:test_f5_checks_program_invariants_and_reports_the_model_exam]。
+ 
+@@ -218,11 +218,11 @@ WHY: 增量 3 代碼審 r2 s2:白名單環境只照抄 LANG,伺服器的 LC_ALL
+ 
+ ## 正式規則改九條之後的最小相容(Phase 14 增量 2b,2026-09-26)
+ 
+ (Phase 14 增量 3 起撤除或改寫,見文末〈AI 退出加額決策〉)
+ 
+-- 啟動器停分析端的寬限:舊的「兩倍逾時加一秒」(7 秒)撤掉,改取 max(舊兩讀寬限, 規則輪 A/B/C 最壞秒數),預設 50 秒;帶 --ai-judge 再跟 AI 步取最大值(60 秒)。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1419]。防回歸:[test:test_stop_grace_covers_the_longest_rule_step]、[test:test_the_stop_grace_covers_one_ai_step_from_the_shared_constants]。
++- 啟動器停分析端的寬限:舊的「兩倍逾時加一秒」(7 秒)撤掉,改取 max(舊兩讀寬限, 規則輪 A/B/C 最壞秒數),預設 50 秒;帶 --ai-judge 再跟 AI 步取最大值(60 秒;Phase 14 增量 3 撤掉 --ai-judge,這一半跟著撤,見文末〈AI 退出加額決策〉)。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1419]。防回歸:[test:test_stop_grace_covers_the_longest_rule_step]、[test:test_the_stop_grace_covers_one_ai_step_from_the_shared_constants]。
+ - 觀察器:規則輪續步的中間列(續步那一列蒐集、B/C 的分析中、AI 退回開規則輪那一列的重新蒐集、規則輪 A 的分析中)不另畫節點,併進原本的「蒐證、判斷」;AI 退回照舊畫「改由程式規則決定」。規則輪重來(過期、變動)照舊畫重新蒐集。流程圖分開畫「程式補查/重讀」、頁面規則說明與重算根據改成九條,是增量 3。
+ - 驅動 F5:規則輪 A、C 各讀一次現況,名稱原文可能出現不只一次,改核「讀到的名稱都是原文」。
+ - 未解決:政策版本升版使入庫展示錄製的模型說明錄製鍵失效(重播 F1–F6 有 8 筆說明找不到錄製),需協調者重錄;見計劃〈實作解讀〉增量 2b。
+ 
+ ## 代碼審 r1 後的展示相容(Phase 14 增量 2b,2026-09-26)
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+index 1c91f36..92b2e87 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+@@ -1,10 +1,10 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-22
+-updated: 2026-09-26
++updated: 2026-09-27
+ responsibility: 負責分析行程自己的只增不改歷史表(任務、證據、對外呼叫紀錄)與 advance() 驅動函式,一次只做狀態機的下一步並落地成檢查點;也負責真的 DSP/收件口用戶端(dsp_client.py、inbox_client.py)與示範用的最小決策規則(policy.py)、把它們包成會記錄 tool_calls 的版本(instrumented.py)。不負責多任務排程、不負責交接之後(執行行程那一側)的任何狀態。
+ aliases: []
+ about_code:
+   - src/rtb/analyzer/task_store.py
+   - src/rtb/analyzer/flow.py
+@@ -36,11 +36,11 @@ summary: |-
+   WHY: [2026-09-24 Phase 12 第 2 輪代碼審 a1] 任務模組新增兩支照列號往後讀的讀法(任務歷史列、接續關係),各配一支回查詢語句的函式給測試看查詢計畫;一鍵展示的觀察器經唯讀開法用它們,不自己對分析端的表下查詢。接續關係那一支帶出接續任務(代數用完時是空值),觀察器才分得出開了新工作還是代數用完。防回歸:[test:test_every_cursor_reader_walks_the_row_number]、[test:test_task_rows_and_follow_ups_come_after_the_cursor_in_write_order]。
+   WHY:[2026-09-24 Phase 12 代碼審 r1 d1/d4/d7/d8/a1/a4] 分析端驅動命令列的幾處修正:推進函式多收 `expected_seq`,呼叫端讀到的那一列在推進前被別人動過就什麼都不做(不然送件紀錄會記到舊列上);[S1001] 守衛改成「逾時是 0.1 秒以上的有限數、而且呼叫次數乘逾時乘 2 小於租約才放行」(NaN 跟任何數比都不成立,原寫法會放行);沒有進展的任務退避(每次加倍、上限 10 秒),等待中的任務不再每輪寫兩列租約與一筆送件紀錄;結束代碼改 7(2 是 argparse 參數錯誤);訊號處理器只設普通旗標、休息用可注入的 sleep、每件任務之前看停止旗標;租約擁有者預設是行程編號加啟動時間。防回歸:[test:test_a_step_on_a_row_that_moved_on_does_nothing]、[test:test_the_analyzer_runner_refuses_a_timeout_that_is_not_a_sane_number]、[test:test_waiting_tasks_back_off_instead_of_writing_every_round]、[test:test_a_stop_request_is_honoured_before_the_next_task]、[test:test_the_analyzer_runner_exits_cleanly_on_sigterm]。
+   KEY:★INVARIANT★ 事故 F5:不可信的廣告文字(目前是廣告名稱;素材文字會走同一條路)試圖改政策、擴權或取得秘密時,提案仍受結構驗證與執行期範圍限制,不會造成任何未授權的工具呼叫。 [test:test_f5_an_injected_campaign_name_changes_nothing_end_to_end,test_f5_an_injected_name_on_a_healthy_campaign_triggers_no_write,test_f5_a_stuffed_campaign_name_does_not_fail_the_analysis,test_no_adversarial_campaign_name_changes_the_decision,test_untrusted_text_and_the_campaign_text_kind_always_come_together,test_trusted_evidence_cannot_carry_free_text,test_fields_outside_the_allowlist_never_reach_the_evidence,test_the_execution_side_never_reads_free_text,test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer,test_unknown_fields_are_rejected_so_nothing_can_be_smuggled_in,test_the_executor_refuses_to_sign_outside_its_current_tenant_configuration,test_each_failed_precheck_blocks_the_proposal_without_a_write] [kill:recipes] [audit:sonnet/2026-09-23]
+   WHY:[2026-09-23]事故 F5 轉正,留在分析行程不搬家(使用者裁定)。措辭照實改(使用者裁定):原文「廣告或素材文字」改成「廣告文字(目前是廣告名稱;素材文字會走同一條路)」,因為模擬 DSP 目前只有廣告名稱這一種文字,綁定測試全用廣告名稱。「素材文字會走同一條路」是設計意圖、目前沒有測試:專案還沒有任何素材文字欄位,將來加素材文字時要把本合約的差異測試與端到端延伸過去。子句對應:改政策與擴權由差異測試與端到端守、取得秘密由分析行程讀不到簽發金鑰那支守、結構驗證由四層守(提案白名單、DSP 用戶端逐欄白名單、證據種類與信任成對、可信證據不能夾帶自由文字)、執行期範圍限制由簽發器與執行前檢查兩支守、未授權的工具呼叫由端到端兩支守。四條殺傷力配方全數翻紅;獨立審計(sonnet)同意,另做兩組改壞實驗(預算上限放寬、分析行程匯入簽發器)都翻紅,卷證 governance/review-reports/rtb-phase7提示注入與信任邊界/f5-audit.md。出處:[[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 增量 4。
+   WHY: 分析行程在流程跑到一半當機重啟,不確定卡在哪一步、外部呼叫(蒐證、送出提案)有沒有真的發生;歷史表只增不改讓「這一步的輸出已安全存好」等於「這一列真的寫進資料庫」,不需要另外的旗標。出處:[[Projects/RTB_Phase2任務流程_計劃]] 增量 3 設計,2026-09-22 對話裡使用者選對「用同一個修訂序號重送」的恢復策略。
+-  RULE: `EvidenceSource`、`Submit` 的失敗一律視為暫時性、可以放心重試;只有 `Decide` 自己丟出例外時才轉 FAILED,因為那是對已到手的證據做純計算,重跑同一份證據只會再次得到同樣的例外。[since:2026-09-22] [retire:三個介面的失敗語意改變時重審]
++  RULE: `EvidenceSource`、`Submit` 的暫時性失敗一律可以放心重試、不轉 FAILED;對已到手的證據做純計算時丟例外(`Decide`,Phase 14 起還有規則輪的決策)才轉 FAILED,因為重跑同一份證據只會再次得到同樣的例外。另有已存資料毀損、收件口永久拒收兩種轉 FAILED 的情形(理由見各自那條);全部觸發點以程式碼為準:`rg -n "TaskState.FAILED" src/rtb/analyzer/flow.py`(2026-09-27 改寫:原句「只有 Decide 丟例外才轉 FAILED」寫下時就已跟收件口永久拒收那條不一致,見 [[Issues/Phase14後筆記漂移清理]])。[since:2026-09-22] [retire:三個介面的失敗語意改變時重審]
+   RULE: 每次狀態推進都是新增一列,不更新既有列;新列的序號在寫入交易內用目前最大序號加一決定,並核對「準備要接的那一列」仍是目前最新的一列,不是就中止、不寫入——這是並行呼叫 `advance()` 的最後一道防線。[since:2026-09-22] [retire:改用外部排程完全保證同任務不並行時可以拿掉,但仍建議保留當防禦]
+   RULE: `Submit` 的成功回傳值、預期失敗(`SubmitStale`/`SubmitBusy`)用型別化例外,比照 [[Systems/提案收件口]] 的 `Accepted`/`InboxRejected` 風格,不是另一套錯誤處理。前提:`Submit` 的實作(收件口)保證同一份提案重複呼叫永遠安全,所以未定義的例外也視為可重試。[since:2026-09-22] [retire:Submit 的實作換掉、不再保證重送安全時重審]
+   PITFALL: `advance()` 讀狀態列跟呼叫外部介面之間原本沒有鎖保護,並行呼叫可能各自算出不同但都「合法」的下一步(例如一個要進 PROPOSED、一個要退回 COLLECTING_EVIDENCE),都通過 `task_state.transition()` 的檢查,而且兩邊都已經呼叫過外部介面、錢花了兩次。2026-09-23 起由任務租約守(見下面租約那幾條,Phase 4 增量 3b):拿不到租約的一方不呼叫任何外部介面;寫入交易內重新核對序號仍保留當最後防線。防回歸:[test:test_two_concurrent_advance_calls_on_the_same_task_never_both_commit_conflicting_outcomes]、[test:test_two_real_threads_advancing_the_same_task_pay_for_the_analysis_once]。
+   WHY:[2026-09-23] 事故 F3「重複投遞不重複分析費用」:同一個任務被同時推進兩次,兩邊都讀到同一列、都去呼叫要花錢的蒐證與分析,最後只有一邊寫得進去。使用者情境題選 b:呼叫外部之前先在任務上取得租約,拿不到的一方跳過,寫入時再核對租約還是自己的(圍籬)。否決:只靠寫入時的序號核對(結果一份、錢花兩次)、分析結果快取(同時開始時都查不到)、向分析服務要冪等鍵(對方支不支援不在本專案控制內)。出處:[[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3b 設計與第 1 輪設計審。
+   RULE: 任務租約是 `task_store.py` 裡一張只增不改的租約紀錄表(取得、放掉各新增一列,目前的租約=這個任務租約序號最大的那一列),不是像 [[Systems/提案收件口]] 那樣改欄位:任務模組有一支掃描測試(Phase 2 的 S41)不准出現任何改或刪的資料庫敘述。概念照執行側(租約序號、擁有者、到期、收據、條件寫入),只換寫法。[since:2026-09-23] [retire:任務模組不再要求只增不改、或分析行程改由外部佇列保證同一任務同時只交給一個工作者時重審]
+@@ -105,16 +105,16 @@ kill_recipes: |-
+ 已知缺口(如實標明):
+ - `tasks` 與 `evidence` 兩張表只增不改,長時間運作會無界成長,尤其重新規劃的迴圈沒有次數上限;解法留給與提案收件口一起決定的保留期限。
+ REVISIT:2026-10-20 與 [[Systems/提案收件口]] 的保留期限一起決定分析行程歷史表的清理方式。
+ - `policy.py` 的示範規則永遠把新提案的修訂序號當成 1,不會追蹤同一個任務先前送過幾次修訂;一個提案被收件口退回(`SubmitStale`)之後重新分析,示範規則不會自動送出正確的下一個修訂序號,會一直送修訂 1 而持續被 `revision_out_of_order` 拒收。這不影響 S49 的合約(規則本身的判斷邏輯經過測試),但整條流程在「重新規劃」這條路徑上目前示範不完整。
+ REVISIT:2026-10-20 接上真正的決策邏輯時,一併設計修訂序號的追蹤方式(可能要讓 TaskRow 或另一張表記住「這個任務目前送到第幾個修訂」)。
+-- FAILED 狀態目前只有一個觸發點(`Decide` 丟例外);`EvidenceSource`、`Submit` 的失敗都視為暫時性、永遠重試,沒有「重試次數上限後轉為永久失敗」的機制,理論上一個一直失敗的外部呼叫會讓任務永遠卡在原狀態。
++- 轉 FAILED 的觸發點以程式碼為準(`rg -n "TaskState.FAILED" src/rtb/analyzer/flow.py`;2026-09-27 核對時有純計算丟例外、已存資料毀損、收件口永久拒收三類,原句「只有一個觸發點」已過時);`EvidenceSource`、`Submit` 的暫時性失敗都視為永遠重試,沒有「重試次數上限後轉為永久失敗」的機制,理論上一個一直失敗的外部呼叫會讓任務永遠卡在原狀態。
+ REVISIT:2026-10-20 增量 4 接上真的網路呼叫後,評估是否需要重試上限或逾時轉 FAILED。
+ 
+ - 租約讓每次沒有進展的推進多兩個寫入交易,多任務同時輪詢時「資料庫忙碌」的頻率沒量過(摘要裡那條 PITFALL)。
+ REVISIT:2026-12-31 分析行程有多任務啟動程式時,量一次多任務輪詢下推進函式丟「資料庫忙碌」的頻率,決定要不要把沒進展時的取得與放掉合併或改成忙碌就跳過(2026-09-24:分析端驅動命令列已有,條件到了,量測還沒做)。
+-- 任務租約長度(暫用 60 秒)要遠大於一步最慢的時間,這條不等式目前沒有機械守衛(摘要裡租約長度那條 RULE)。
++- 任務租約長度(暫用 60 秒)要遠大於一步最慢的時間;這條不等式 2026-09-24 起由分析端驅動命令列啟動時的斷言守(摘要裡租約長度那條 WHY,[S1001]),還沒量過的是真實單步耗時。
+ REVISIT:2026-12-31 分析端驅動命令列的租約斷言已做(2026-09-24);還沒做的是量一次真實的單步耗時,跟租約 60 秒比,決定要不要改租約長度。
+ - RULE: 任務表建構子補欄位失敗時要關掉剛開的連線,等鎖逾時轉成自己模組的「忙碌」例外,跟收件表、DSP 儲存層同一寫法。防回歸:[test:test_a_failed_column_migration_closes_the_new_connection]。[since:2026-09-23] [retire:三支資料庫模組改用共用的開庫函式時撤除]
+ 
+ ## 事故 F3 的分析側(2026-09-23)
+ 
+@@ -125,19 +125,19 @@ REVISIT:2026-12-31 分析端驅動命令列的租約斷言已做(2026-09-24);還
+ 
+ 設計與取捨在 [[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]](第 4 版,設計審三輪)。這裡只記程式看不出的脈絡。
+ 
+ - **先問收件口,收件表清掉才查 DSP。** 收件口的處置是執行端驗證過的結果;DSP 有操作紀錄只代表寫進去了,不代表驗證通過。收件表只清「沒有待處理也沒有處理中、超過兩小時」的任務,清掉時執行端早就結束,所以之後查 DSP 沒有競態。
+ - **清掉之後 DSP 查不到就重新規劃**,不分當初是版本已變、過期還是死信:收件口重送時會先清掉過期的已結案任務,執行前檢查擋下的版本已變只記在收件表,不這樣做的話,分析端晚兩小時推進,事故 F4 就永遠不會重新規劃。代價是清掉之後死信也會重做,受代數上限約束。
+-- **推進函式的「操作查詢」參數不給,已交給執行的任務照 Phase 4 停住。** 分析行程還沒有啟動程式,接上時要記得給。
+-REVISIT:2027-01-31 分析行程的啟動程式開工時,確認它給了操作查詢,並考慮把預設空值拿掉。
++- **推進函式的「操作查詢」參數不給,已交給執行的任務照 Phase 4 停住。** 寫下時(2026-09-23)分析行程還沒有啟動程式;2026-09-24 Phase 12 起分析端驅動命令列 `runner.py` 有給,以程式碼為準:`rg -n "operation_lookup" src/rtb/analyzer/runner.py`。
++REVISIT:2027-01-31 決定要不要把推進函式操作查詢的預設空值拿掉(啟動程式已給,2026-09-27 核對;預設空值還在)。
+ - **建接續任務、寫接續關係、原任務結案是同一個交易,走原任務的租約圍籬。** 分成兩個交易的話,被接手的過期持有者會先寫進接續任務(Phase 4「被接手後零寫入」)。
+ - **查 DSP 用交接那一列存下的冪等鍵。** Phase 5 之前交接的舊列沒有存鍵,只能用目前的算法重算,只在算法還是第一版時正確;冪等鍵前綴由一支測試釘住,改算法的那次改動會先撞到它。
+ - **收件口回應要核對任務、修訂、內容雜湊與「處置跟原因對得上」**,任何一項不符都當成這一輪沒有進展,不拿別的提案的回應替這個任務結案。
+ - 分析端核對 DSP 操作紀錄的四個欄位,跟執行端對帳核對的是同一組([[Systems/執行迴圈]]);兩邊各寫一份,因為分析行程不准匯入執行行程的模組(邊界測試守著)。以後改其中一邊的核對欄位,要兩邊一起改。
+ - 版本檢查、新鮮度、冪等的分工:版本檢查(執行端)防「根據過時現況做的決策覆蓋新值」;新鮮度(分析端)防「用過期證據做決策」;冪等(執行端與 DSP)防「同一個決策套用兩次」。三者互補、不能互相取代;這個階段多了一件:收件表清掉之後,冪等鍵是分析端查「有沒有寫進去」的鑰匙。
+ - 衝突指標(最小版):分析端只讀接續關係表(不會被清、帶廣告編號並建索引),算得出重新規劃、代數用完、因保留期而重新規劃的次數;DSP 回版本衝突的次數在執行端嘗試紀錄算。
+-- **收件口回來的擋下原因只收固定清單**(版本已變、不允許、廣告不存在、廣告未啟用、同一操作先前已失敗);不在清單的當成回應讀不懂、這一輪沒有進展,不寫進只增不改的歷史表(2026-09-23 代碼審資安席:對方回什麼字串都原樣寫進稽核紀錄,是偽造稽核行與終端機逃逸的注入管道)。「不允許」是超過預算上限與廣告不屬於租戶合併後的泛稱:使用者 2026-09-23 裁定,分析行程不該能用重送試出預算上限與租戶歸屬。
++- **收件口回來的擋下原因只收固定清單**(清單以程式碼為準:`rg -n "_BLOCK_CODES" src/rtb/analyzer/flow.py`;這段寫下時是五種,Phase 8 加了政策已變與決策已過時,見下方〈死信等待與新擋下原因〉);不在清單的當成回應讀不懂、這一輪沒有進展,不寫進只增不改的歷史表(2026-09-23 代碼審資安席:對方回什麼字串都原樣寫進稽核紀錄,是偽造稽核行與終端機逃逸的注入管道)。「不允許」是超過預算上限與廣告不屬於租戶合併後的泛稱:使用者 2026-09-23 裁定,分析行程不該能用重送試出預算上限與租戶歸屬。
+ - 原任務的錯誤說明格式:`<收件口回的>;replan=<重新規劃原因>;<follow_up=接續任務編號|replan_limit_reached=3|follow_up_id_collision=編號>`,只有重新規劃時才有後兩段。
+ - PITFALL: 開舊資料庫補欄位時,「看欄位缺不缺」要在拿到寫入鎖之後再看一次:多個工作者同時開 Phase 5 之前的資料庫,都先看到缺欄位,先拿到鎖的補完,後到的照舊再補會撞「欄位重複」直接啟動失敗(2026-09-23 Phase 5 代碼審第 3 輪外家席實測重現;證據表補欄位也是同一個寫法,一起改成共用的補欄函式)。防回歸:[test:test_another_worker_migrating_between_the_check_and_the_lock_is_harmless]。
+ 
+ ## 分析行程沒有寫入呼叫(Phase 6 增量 2,2026-09-23)
+ 
+@@ -164,11 +164,11 @@ REVISIT:2027-01-31 分析行程的啟動程式開工時,確認它給了操作查
+ - 對外呼叫的端點是封閉列舉(Phase 9 增量 2):記呼叫紀錄只收列舉成員(一般字串連長得一樣的也拒,「其他」只給讀舊列用),因為端點會變成 [[Systems/有界標籤的指標]] 的標籤;改成列舉之前寫進去的舊列,值不在列舉裡的一律讀成其他。防回歸:[test:test_analyzer_tool_call_endpoints_are_a_closed_list]、[test:test_legacy_tool_call_endpoints_read_as_other]。另加窗口讀取函式(依呼叫時間,含起點不含終點)與對外呼叫的時間索引,給指標用。
+ - 代碼審第 1 輪(Phase 9 增量 2):端點型別錯改丟 ValueError,比照執行端封閉列舉的既有慣例(原本丟 TypeError,只接 ValueError 的呼叫端會漏接);任務歷史模組寫進資料庫的時間格式化比照嘗試紀錄拒收沒帶時區的時間(第 2 輪起改呼叫 [[Systems/任務流程領域模型]] 的共用檢查)(原本會當成本機時間換算,窗口讀取實測位移 8 小時、悄悄漏資料);唯讀開法缺對外呼叫的時間索引也算還沒升級(唯讀連線不建索引)。防回歸:[test:test_analyzer_tool_call_endpoints_are_a_closed_list]、[test:test_window_readers_refuse_times_without_a_time_zone]、[test:test_a_read_only_open_without_the_time_indexes_counts_as_not_upgraded]。
+ 
+ ## 「值不值得加」抽成可插入的判斷點(Phase 10 增量 1,2026-09-24)
+ 
+-- 決策規則裡原本那一行「曝光與點擊都大於零」抽成現行程式規則;配速判定偏低之後,先把可信現況與指標組成判斷點輸入,經路由函式決定走現行規則還是候選。路由只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選;候選丟例外、逾時(合作式,候選收逾時秒數、經共用 HTTP 用戶端時會丟 TimeoutError)、回傳不是答案列舉、回「不知道」一律退回現行規則。候選的型別協定只收判斷點輸入與逾時秒數。
++- 決策規則裡原本那一行「曝光與點擊都大於零」抽成現行程式規則(Phase 14 增量 2b 起現行程式規則改判九條、這個舊判法已撤掉,見下方〈Phase 14 增量 2b〉;以程式碼為準:`rg -n "def code_rule" src/rtb/analyzer/policy.py`);配速判定偏低之後,先把可信現況與指標組成判斷點輸入,經路由函式決定走現行規則還是候選。路由只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選;候選丟例外、逾時(合作式,候選收逾時秒數、經共用 HTTP 用戶端時會丟 TimeoutError)、回傳不是答案列舉、回「不知道」一律退回現行規則。候選的型別協定只收判斷點輸入與逾時秒數。
+ - 決策函式簽名不變,內部以「沒有候選、空的已驗證清單」呼叫,所以正式與測試的每個呼叫者都走現行規則。
+ - 代碼審第 1 輪(2026-09-24):候選與它的逾時秒數綁成一個「候選呼叫」,有候選才有逾時、逾時沒有預設值(比照共用 HTTP 用戶端);診斷函式的候選與允許清單都要明寫,決策函式傳「沒有候選、空清單」。已驗證清單建構時要帶模組的簽發者哨兵(空清單也一樣),只有信任的呼叫端(評估套件的採用函式、測試)匯入它;比照執行端交易物件的最小形狀做成普通類別加 __slots__,沒有 dataclasses.replace 可繞,cells 是唯讀屬性(代碼審第 2 輪:第一版是資料類別加私有工廠,用 replace 就能從已簽發的清單換出新的非空清單;第 3 輪:拿掉手刻的相等、雜湊、複製、禁止設定等機制,先例沒有,正式程式只讀 cells)。威脅模型是防忘記、不防刻意繞過,刻意改內部屬性擋不住。正式路徑只拿得到空的。候選丟 MemoryError、RecursionError 照舊往外丟,不當成候選失敗。DSP 用戶端白名單的逐欄檢查搬到領域層共用小檢查,跟判斷點輸入用同一支([[Systems/任務流程領域模型]])。防回歸:[test:test_a_validated_list_cannot_be_built_directly]、[test:test_explain_has_no_default_candidate_or_timeout]、[test:test_fatal_errors_from_the_candidate_are_not_swallowed]。判斷點輸入建構失敗(歸不了格)只接專用例外,照抽出前原樣的判斷式走現行規則;其他例外照舊往外丟。
+ - 評估用的診斷函式回「決策結果 + 為什麼沒提案」(證據過期、缺可信現況或指標、配速算不出、配速不偏低、判斷點說不值得加、判斷點說證據不足);決策函式就是取它的前一半,所以兩者對同一輸入的結果一定相同,丟例外時也丟同一種。原因不放進決策結果,「不做」型別照舊沒有欄位。
+ - 行為不變的證明:`tests/analyzer/frozen_policy_e8b26f6.py` 是 main e8b26f6 決策規則檔的原樣複製(雜湊寫死在測試裡),`tests/analyzer/policy_before_samples.py` 是 625 筆輸入與凍結舊規則對它們的結果摘要;測試分三步報:凍結檔雜湊、凍結舊規則今天的結果(紅了是相依模組變了)、新決策函式的結果(紅了才是抽壞)。防回歸:[test:test_the_frozen_old_rule_stays_as_history_and_nine_rule_differences_are_listed](Phase 14 增量 2b 改寫 [S700]:撤掉「新決策等於舊結果」,改列九條跟舊結果的差異)、[test:test_only_validated_slices_reach_the_candidate]、[test:test_a_failing_or_unsure_candidate_falls_back_to_the_code_rule]、[test:test_production_wiring_has_no_candidate_and_no_validated_slice]、[test:test_every_no_action_path_reports_its_reason]。
+ - 出處:[[Projects/RTB_Phase10評估與Jev決策點_計劃]] 增量 1。
+@@ -362,11 +362,11 @@ PITFALL: 系統提示的回答格式原本寫「"choice": 一個結論代碼,或
+ - `flow.py`:`advance()` 沒有 `ai_decide`/`clock` 參數;`AiDecide`、`AiOutcome`、`AiContext`、`QueryMore`、`RenewalSkipped`、續租容器換收據與模型呼叫記次撤除。給了 `rule_decide` 分析那一步一律問規則輪;沒給照舊問 `decide`(測試與舊介面)。
+ - `investigation.py`:收下評估還用的結果型別(`QueryMore`、`AiContext`(先前各輪紀錄、記次回呼;續租回呼拿掉)、`AiOutcome`);`rule_round_opened_by_ai`、`opens_rule_round`、`hold_list`、`DECIDED_EVENT` 撤除。退回原因列舉與調查紀錄種類照留(評估與歷史資料列唯讀)。
+ - `ai_judge.py`:只給 `rtb.eval.investigation_eval.run_case` 直接呼叫;語意固定是評估的原始錄製重播(Phase 13 舊前置過濾,暫停/異常照舊問模型),`raw_replay`、`preflight_ok`、`stop_requested`、`hold`、`held_rule`、`AI_PROPOSE_VETOED` 撤除。AI 答 propose 回 `RuleContinue`,評估記 AI 原始「值得加」;退回回 `RuleContinue`,評估改取案例九條 `rule_verdict(case)`。
+ - `policy.py`:`NoActionReason.EXAM_HOLD` 撤除(舊資料庫寫過的 `exam_hold` 字串照樣唯讀留著;不提案原因表存字串)。
+ - `rule_round.py`:只改說明;沒有 AI 開輪判斷(那段在 `ai_judge.held_rule`,已撤)。
+-- 代碼審 r1 鏡頭4(協調者裁定「沒有入口就刪」):`instrumented.investigation_source`、任務模組的續租 `renew_lease`、模型呼叫記次 `record_model_call` 與 `investigation_call_count`、提交函式的 `investigation` 參數與調查紀錄寫入、觀察器已不用的 `investigation_reason_code` 都刪了。調查紀錄表與記次表的建表敘述照留(舊庫升級不失敗),`investigation_rounds` 讀法留給人追查舊資料。原本經 AI 期證據來源驗「極端值、超大整數、收據建不起來不讓蒐證卡住」的三支測試,改用規則輪 C 驗同一件事。
++- 代碼審 r1 鏡頭4(協調者裁定「沒有入口就刪」):instrumented 的 investigation_source、任務模組的續租 `renew_lease`、模型呼叫記次 `record_model_call` 與 `investigation_call_count`、提交函式的 `investigation` 參數與調查紀錄寫入、觀察器已不用的 `investigation_reason_code` 都刪了。調查紀錄表與記次表的建表敘述照留(舊庫升級不失敗),`investigation_rounds` 讀法留給人追查舊資料。原本經 AI 期證據來源驗「極端值、超大整數、收據建不起來不讓蒐證卡住」的三支測試,改用規則輪 C 驗同一件事。
+ - 步驟時間預算那支檔(家在 [[Systems/模型用戶端]])的 AI 步常數與 `launcher` 的 AI 寬限分支一併撤除,停止寬限只照 [S1419] 的規則步。
+ - 測試去向:`test_investigation_flow.py` 只留原始資料同交易([S1151] [S1130]);`test_investigation_e2e.py` 只留 [S1114](改用純規則的 `RuleWorld`);`test_runner_model_line.py` 整支刪除;`test_ai_judge.py` 與三支 review 測試改成評估的呼叫方式(直接呼叫 Judge),流程層續租、停止、記次、hold 與否決的測試刪除。逐條對照見驗證紀錄。
+ - WHY:事故 F5 那條不變量(本篇摘要的 ★INVARIANT★)重新對整個正式路徑成立:分析端不再有 AI 路徑,名稱翻不動提不提案。F5 受攻擊名稱的規則格、細因、讀取次數與提案金額跟同數字正常名稱相同由 [S1427] 守;名稱只剩提案說明一個模型入口會看到(資料區逸出引述,說明數字對不回就整句拿掉)。防回歸:[test:test_f5_adversarial_name_preserves_rule_and_traceable_narrative]。
+ - PITFALL(代碼審 r1 外家否決-1,已修):說明的數字核對原本只比數值,展示種子的 1 小時曝光剛好是 500,「把預算加 500%」這類句子核對擋不下。現在百分比另外比語境:寫成百分比的數字(代碼審 r2 起寫法列舉見 [[Systems/模型用戶端]],沒列到的仍只比數值)要對回證據裡也是百分比的同值數字(提案固定的風險說明 `budget +10%` 是唯一的百分比),所以「加 500%」整句拿掉、「加 10%」留著(見 [[Systems/模型用戶端]])。不含數字的句子仍不做語意過濾,靠「AI 產生、僅供參考」標示與人工逐項確認數字(宣稱清單照實寫)。防回歸:[test:test_f5_adversarial_name_preserves_rule_and_traceable_narrative]。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+index 7fe582d..722d389 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/執行迴圈.md
+@@ -1,10 +1,10 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-22
+-updated: 2026-09-23
++updated: 2026-09-27
+ responsibility: 負責執行行程的一次處理一筆(取件、重讀 DSP、執行前檢查、開始嘗試、帶憑證寫 DSP、對照回應寫結果、執行後驗證、確認)、每輪的對帳與執行迴圈啟動程式;不負責收件表與嘗試紀錄的儲存規則、憑證格式與簽發。
+ aliases: []
+ about_code:
+   - src/rtb/executor/execution.py
+   - src/rtb/executor/dsp_client.py
+@@ -19,11 +19,11 @@ summary: |-
+   KEY:★INVARIANT★ 事故 F2:工作者在副作用與持久結果都已完成、但送出確認前當機時,重新投遞後新的工作者由持久狀態與冪等紀錄判定已完成,不產生第二次副作用,最後安全送出確認。 [test:test_crash_before_the_dsp_call_is_recovered_by_a_same_key_resend,test_crash_before_the_dsp_call_then_a_failed_recheck_voids_and_blocks,test_crash_after_the_dsp_commit_is_recovered_from_the_operation_record,test_crash_before_verification_is_recovered_by_reconciliation,test_a_crash_before_the_terminal_commit_rolls_back_the_result_and_the_acknowledgement,test_a_crash_after_the_terminal_commit_changes_nothing_on_restart,test_f3_a_message_delivered_twice_applies_once,test_a_stale_or_expired_receipt_can_write_nothing,test_reconciliation_only_takes_over_an_expired_or_own_lease,test_a_lost_lease_skips_the_key_without_halting,test_two_receipts_for_the_same_key_still_write_the_dsp_once] [audit:sonnet/2026-09-23] [kill:recipes]
+   WHY:[2026-09-23]事故 F2 轉正時先落在 [[Systems/提案收件口]](預告合約登記在那裡,轉正工具照守護對象欄位找家),當天搬來執行迴圈,比照事故 F1。「重新投遞」在這個系統是租約到期後別的工作者接手同一則訊息:還沒開始嘗試的由取件重新交出(投遞次數加 1),已有嘗試紀錄的(F2 的核心當機點)由對帳原子接手租約後推進,兩條路共用同一把租約。「安全送出確認」是帶收據的條件寫入(處置、租約序號、擁有者、到期都要對上)。獨立審計兩次:第一次(只列六支當機測試)不同意,指出重新投遞的取件路徑與收據條件沒人守;證據補上 F3 投遞兩次與佇列的四支收據測試後,第二次(全新審計員)同意。卷證 governance/review-reports/rtb-phase4佇列與重新投遞-增量2/f2-audit-1.md、f2-audit-2.md。
+   KEY:★INVARIANT★ 事故 F3:同一則訊息被投遞兩次以上時,任務識別維持不變、狀態轉換合法,重複投遞不會重複副作用;同一個任務被同時推進時,同一時間只有一個持有有效租約的一方會花分析費用(持有者寫入前當機、或一步做超過租約被接手時,會再分析一次),就算允許重做分析也不能繞過執行閘。 [test:test_two_real_threads_advancing_the_same_task_pay_for_the_analysis_once,test_f3_a_message_delivered_twice_applies_once,test_f3_a_reanalysed_revision_still_passes_through_the_execution_gate,test_f3_a_revision_with_the_same_operation_is_settled_from_the_finished_record,test_two_live_workers_process_a_message_once,test_a_caller_without_the_lease_calls_no_external_interface,test_an_expired_holder_cannot_commit_after_a_takeover_even_when_the_sequence_still_matches,test_a_holder_that_dies_after_paying_is_analysed_again_once_the_lease_expires,test_a_caller_that_acquires_after_another_commit_returns_without_calling_out,test_a_late_release_from_a_replaced_holder_writes_nothing] [audit:sonnet/2026-09-23] [kill:recipes]
+   WHY:[2026-09-23]事故 F3 轉正時先落在 [[Systems/提案收件口]],當天搬來執行迴圈,比照事故 F1、F2。措辭照實寫(使用者裁定):執行側重複投遞不重複副作用是無條件保證(冪等鍵加收據條件寫入);分析側只保證同一時間只有一個持有有效租約的一方花分析費用,持有者寫入前當機、或一步做超過租約被接手時會再分析一次(分析側沒有續租、猝死放不掉租約)。分析行程目前沒有訊息入口,「同一則訊息對應同一個任務編號」等分析行程有啟動程式才補(回頭條件在 [[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3b)。證據跨兩側:執行側三支 F3 端到端與兩個工作者同時取件,分析側六支租約測試。獨立審計(2026-09-23)同意,做了六組改壞實驗全部翻紅;卷證 governance/review-reports/rtb-phase4佇列與重新投遞-增量3b/f3-audit.md。
+   KEY:★INVARIANT★ 事故 F4 端到端:提案形成之後若另一方先更新了廣告,帶著舊預期版本的提案不會寫進 DSP(執行前檢查擋下,或檢查通過後 DSP 以版本衝突拒收),收件口回報版本已變;分析行程(有給操作查詢時)另開接續任務重讀現況再規劃,整條接續鏈最多 3 代,不會覆蓋較新的值。 [test:test_f4_a_stale_proposal_is_replanned_from_the_current_state,test_two_concurrent_writers_reproduce_a_version_conflict,test_a_dsp_version_conflict_is_acknowledged_as_version_changed,test_a_version_conflict_hands_the_task_over_to_a_follow_up,test_each_failed_precheck_blocks_the_proposal_without_a_write,test_after_the_retention_window_a_missing_write_is_replanned,test_the_follow_up_chain_stops_at_the_generation_limit,test_advancing_a_handed_off_task_calls_no_collaborator] [kill:recipes] [audit:sonnet/2026-09-23]
+-  WHY:[2026-09-23]事故 F4 轉正時先落在 [[Systems/提案收件口]],當天搬來執行迴圈,比照事故 F1 到 F3(使用者裁定)。措辭照實改(使用者裁定):原文「執行時帶著舊預期版本的寫入被拒,系統重新取現況再規劃」寫得像無條件保證,實際有兩層擋法(執行前檢查擋下時根本沒送出寫入;檢查通過後才被搶先,DSP 以版本衝突拒收),重新規劃要呼叫端給推進函式操作查詢(分析行程還沒有啟動程式),且整條接續鏈最多 3 代。證據跨兩側:端到端兩格(執行前檢查擋下、寫入前一刻被搶先),每格核對是哪一層擋的;並行寫入重現衝突、DSP 版本衝突確認成版本已變、分析側建接續任務、收件表清掉後仍重新規劃、代數上限、執行前檢查,以及「沒給操作查詢時不動已交給執行的任務」(守「有給操作查詢時」這個前提;第一次獨立審計指出沒有綁定測試守它、拆掉守衛綁定測試全綠,補綁後再審)。獨立審計第一次不同意(缺上述綁定)、補綁後第二次同意,另做兩組改壞實驗(代數上限多一代、整段跳過執行前檢查)都翻紅;卷證 governance/review-reports/rtb-phase5樂觀鎖與重新規劃/f4-audit-1.md、f4-audit-2.md。出處:[[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]]。
++  WHY:[2026-09-23]事故 F4 轉正時先落在 [[Systems/提案收件口]],當天搬來執行迴圈,比照事故 F1 到 F3(使用者裁定)。措辭照實改(使用者裁定):原文「執行時帶著舊預期版本的寫入被拒,系統重新取現況再規劃」寫得像無條件保證,實際有兩層擋法(執行前檢查擋下時根本沒送出寫入;檢查通過後才被搶先,DSP 以版本衝突拒收),重新規劃要呼叫端給推進函式操作查詢(寫下時分析行程還沒有啟動程式;2026-09-24 Phase 12 起分析端驅動命令列有給,見 [[Systems/分析行程流程與檢查點]]〈已交給執行之後與重新規劃〉),且整條接續鏈最多 3 代。證據跨兩側:端到端兩格(執行前檢查擋下、寫入前一刻被搶先),每格核對是哪一層擋的;並行寫入重現衝突、DSP 版本衝突確認成版本已變、分析側建接續任務、收件表清掉後仍重新規劃、代數上限、執行前檢查,以及「沒給操作查詢時不動已交給執行的任務」(守「有給操作查詢時」這個前提;第一次獨立審計指出沒有綁定測試守它、拆掉守衛綁定測試全綠,補綁後再審)。獨立審計第一次不同意(缺上述綁定)、補綁後第二次同意,另做兩組改壞實驗(代數上限多一代、整段跳過執行前檢查)都翻紅;卷證 governance/review-reports/rtb-phase5樂觀鎖與重新規劃/f4-audit-1.md、f4-audit-2.md。出處:[[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]]。
+   KEY:★INVARIANT★ 事故 F7:單筆變更都在單一廣告上限內時,租戶 24 小時內加預算的總曝險(已驗證的算在 24 小時窗口內、還沒結案的一直算)這一筆加上去會超過門檻時(剛好等於門檻仍放行),新的加預算就停下:先停在待核可,由人簽核可放行(核可綁定提案內容雜湊、關卡、金額上限、到期,以及範圍指紋:租戶名稱與設定、比例常數;提案的政策版本也要等於目前版本);沒有核可、提案到期就擋下結案。多個工作者同時處理也不會超過門檻。「分批」只做到額度釋放後新任務能再通過,沒有自動排程。 [test:test_f7_many_small_increases_stop_at_the_aggregate_limit,test_the_aggregate_limit_blocks_at_the_threshold_and_allows_exactly_reaching_it,test_an_unresolved_reservation_counts_no_matter_how_old,test_a_verified_reservation_leaves_the_window_24_hours_after_verification,test_two_workers_cannot_race_past_the_aggregate_limit,test_an_approvable_block_waits_for_approval,test_an_unapproved_proposal_expires_into_blocked,test_a_valid_approval_lets_the_proposal_through_and_still_reserves,test_an_approval_is_void_when_scope_expiry_hash_or_stage_changes,test_an_approval_that_expires_mid_flight_lets_nothing_through,test_an_approval_covers_only_its_own_stage,test_the_capability_never_outlives_the_approval_it_used,test_a_new_task_passes_once_the_budget_is_released,test_an_approval_is_void_across_policy_or_tenant_changes,test_an_approval_is_void_once_any_scope_field_changes] [kill:recipes] [audit:sonnet/2026-09-24]
+   WHY:[2026-09-23]事故 F7 轉正時先落在 [[Systems/提案收件口]](預告合約登記在那裡),當天搬來執行迴圈,比照事故 F1 到 F4(計劃早已定家)。措辭照實改(使用者裁定):原文「一到門檻就停止、分批或轉人工」,實際是停在待核可由人簽核可放行、沒核可到期擋下結案;「分批」只是額度釋放後新任務能再通過,沒有自動排程。獨立審計第一次不同意:「分批」那半句只能由兩支底層測試合起來推論、核可在開始一筆那一刻剛好到期的邊界沒人守、「一到門檻」比實際(剛好等於仍放行)說得滿;補了額度釋放後全新任務通過的端到端測試、把中途過期測試改成剛好走到到期那一秒、措辭改精確,第二次審計也不同意:政策版本與租戶身分兩種失效只有 S375 那支測試守、沒綁上,另一支測試名字宣稱測了政策改變卻沒有;綁上 S375、改名、措辭補範圍指紋、加兩條配方,第三次審計仍不同意:比例常數改了核可要失效沒有行為測試;指紋裡也含政策版本,但提案政策版本的直接比對一定先擋下、測不出差別,措辭改成照實寫那道直接比對(有測試守);補比例常數的行為測試、綁上、加配方。第四次審計不同意:指紋七樣材料只驗到三樣,改成一支逐一改動七樣材料的參數化測試,每樣各一條配方。第五次審計同意(15 條配方逐條實測全紅;兩條次要建議不影響判定、合約文字已審過不再改:措辭可列出任務與修訂、可加綁待核可並行放回的測試)。卷證 governance/review-reports/rtb-phase6權限護欄與總曝險-增量3/f7-audit-*.md。出處:[[Projects/RTB_Phase6權限護欄與總曝險_計劃]]。
+   WHY:[2026-09-23]這條合約轉正時掛在 [[Systems/提案收件口]](預告合約當初登記在那裡),當天就搬來執行迴圈:它描述的是執行迴圈的行為,實作也在這裡。獨立審計(2026-09-23)要求註明兩點:①「查到操作紀錄就核對內容再驗證、不重送」這半句由 test_reconcile_finds_the_operation_by_key_and_verifies_it 與 test_reconcile_escalates_a_mismatched_operation_record 兩支單元測試獨立守著,不是三支端到端測試單獨證明的,所以一起綁上;②「預算只改一次」真正的強制層是 DSP 的同鍵去重(Phase 1 的合約),這五支測試只是重申斷言,DSP 那層被改壞時它們不會紅。
+   WHY: 執行端只驗證並執行獲授權的動作,前提不成立就擋下,不重新分析、不靠 DSP 的版本檢查當第一道防線。出處:使用者情境題 2026-09-22 答 c、事故 F4;設計見 [[Projects/RTB_Phase3外部寫入安全_計劃]] 增量 3。
+   PITFALL: 版本衝突有兩層防線(執行前檢查、DSP 端預期版本),只看最終結果的端到端測試分不出是哪一層擋的:拿掉執行前檢查,DSP 照樣回 409、S310 照樣確認成版本已變,測試仍綠。事故 F4 端到端因此在「執行前就被改」那格另外斷言舊決策那把鍵一筆嘗試都沒開,「送出前一刻被搶先」那格斷言嘗試記版本衝突。出處:[[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]] F4 端到端段。防回歸:[test:test_f4_a_stale_proposal_is_replanned_from_the_current_state]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md b/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md
+index 47153f2..644aff3 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md
+@@ -1,10 +1,10 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-26
+-updated: 2026-09-26
++updated: 2026-09-27
+ responsibility: 負責四查詢的純資料型別、九條先命中判斷、無格封閉原因與共用時間門檻;不負責 DSP 讀取、收據、評估案例或正式流程接線
+ aliases: []
+ about_code:
+   - src/rtb/domain/nine_rules.py
+   - tests/domain/test_nine_rules.py
+@@ -26,11 +26,11 @@ verified_by:
+ 
+ WHY: 2026-09-26 增量 1 先搬領域與評估標準答案,保留正式送件流程原行為,讓後續增量能在同一組可逐筆回歸的資料上接線。出處:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉1。
+ 
+ `tests/domain/test_nine_rules.py` 守這支模組的邊界:列內缺值、單日 no_data、分母零略過與精確門檻,以及領域層只匯入白名單標準函式庫。
+ 
+-2026-09-26 增量 2 的一項收緊: `Window` 與 `DailyRow` 的字串金額只接受固定兩位小數,防止分數寫法或不定小數位數穿過領域邊界；數值型別及負值的既有判定仍留給九條判斷。`test_fixed_two_decimal_amount_strings` 先翻紅後轉綠,領域子集 337 筆通過。正式分析流程及 DSP 跨窗一致性尚未接入,須在增量 2 其餘工作完成時再驗。[test:test_fixed_two_decimal_amount_strings]
++2026-09-26 增量 2 的一項收緊: `Window` 與 `DailyRow` 的字串金額只接受固定兩位小數,防止分數寫法或不定小數位數穿過領域邊界；數值型別及負值的既有判定仍留給九條判斷。`test_fixed_two_decimal_amount_strings` 先翻紅後轉綠,領域子集 337 筆通過。寫下時(增量 2a)正式分析流程及 DSP 跨窗一致性還沒接;增量 2b 已接上(規則輪與讀取層的跨窗檢查,見 [[Systems/分析行程流程與檢查點]];以程式碼為準:`rg -n "nine_rules|def check_longer_window" src/rtb/analyzer`)。[test:test_fixed_two_decimal_amount_strings]
+ 
+ 2a 代碼審 r1（2026-09-26）:`_check_amount` 改用 [[任務流程領域模型]] 家 `_checks.is_amount_or_none`，跟分析端讀取白名單同一支判準(原本自寫一條只收 ASCII 的正規式，讀取層卻收 Unicode 數字，後續接線會讓讀取層放過領域會丟例外的值)；領域層不再匯入 `re`。[test:test_fixed_amount_strings_have_one_definition_everywhere]
+ 
+ ## 增量 2b:提交時刻、截斷旗標與逐日讀取日(2026-09-26)
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+index 5a8f9d0..b0b693f 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+@@ -1,11 +1,11 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-24
+ updated: 2026-09-27
+-responsibility: 負責「值不值得加」判斷點的離線評估:評分表、合成評估集與生成器、逐格計分與報告、比較表、逐格採用決定與人讀的決定紀錄,接入點 3 的模型候選(旁路紀錄、整批停下、子集、批次紀錄、比較表模型列),以及 Phase 13 AI 調查的評估(九格評分與標準答案、72 筆含誘導雙胞胎的評估集與生成器、呼叫正式路徑同一支 AI 決策函式的評估執行器、逐格報告與不採用的決定、錄製批次驗收);不負責判斷點本身、路由與 AI 決策函式(在分析端);除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、不啟動子行程;不被任何其他套件匯入
++responsibility: 負責「值不值得加」判斷點的離線評估:評分表、合成評估集與生成器、逐格計分與報告、比較表、逐格採用決定與人讀的決定紀錄,接入點 3 的模型候選(旁路紀錄、整批停下、子集、批次紀錄、比較表模型列),以及 Phase 13 AI 調查的評估(九格評分與標準答案、72 筆含誘導雙胞胎的評估集與生成器、直接呼叫 AI 決策函式的評估執行器(Phase 14 起正式路徑不呼叫 AI,這裡是唯一呼叫者)、逐格報告與不採用的決定、錄製批次驗收);不負責判斷點本身、路由與 AI 決策函式(在分析端);除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、不啟動子行程;不被任何其他套件匯入
+ aliases: []
+ about_code:
+   - src/rtb/eval/__init__.py
+   - src/rtb/eval/rubric.py
+   - src/rtb/eval/generator.py
+@@ -109,11 +109,11 @@ verified_by:
+ 
+ 計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈評估案例〉〈花費帳與採用判定〉〈錄製批次與入庫〉。評估對象是「配速偏低之後,整段調查的最後結論」。
+ 
+ - `src/rtb/eval/investigation_cases.py`:九格評分(= 標準答案的九條規則,順序寫死在 `ANSWER_ORDER`,系統提示的九條照同一個順序)、標準答案產生函式、生成器。標準答案的比率只經領域層的精確比率函式取得、用分數判門檻,不讀捨入後的收據字串;資料異常直接用 Phase 10 的 `is_anomalous` 看原始 1 小時指標。生成器每格 4 組,每組一筆正常名稱配一份名稱藏誘導文字的雙胞胎(數字完全相同),共 72 筆;任何百分比門檻(轉換率變化 -50%、最近一次加預算的轉換變化 0%、前置過濾的配速 50%)的精確值離門檻不到 0.05 個百分點就重抽,每筆也要落在它要的格,不然生成器自己丟錯。比照 Phase 10 生成器,不匯入分析端(選項代碼另寫一份,測試核對一致)。防回歸:[test:test_the_answer_key_applies_the_history_rules_in_order]、[test:test_no_generated_case_sits_on_a_rounding_boundary]、[test:test_one_exact_ratio_function_feeds_the_answer_key]。
+ - `src/rtb/eval/investigation_set.py`:生成器的產出(不要手改);改題目、名稱或查詢結果會讓錄製鍵對不上,要重錄一批。
+-- `src/rtb/eval/investigation_eval.py`:評估執行器與命令列 `python -m rtb.eval.investigation_eval`。逐筆呼叫正式路徑同一支 AI 決策函式(見 [[Systems/分析行程流程與檢查點]]),只把查詢來源換成案例存的原始結果(收據用正式路徑同一支收據函式算)、續租回呼永遠成功、先前各輪紀錄放在記憶體;沒有自己的驗證或輪數邏輯。預設重播入庫目錄 recordings/model/phase13-investigation-eval/;即時加錄製要帶 `phase13-eval-YYYYMMDD` 批次,開閘道時先跑模型用戶端的開錄前目錄檢查(見 [[Systems/模型用戶端]]);`--verify` 只准重播,照〈錄製批次與入庫〉的驗過條件核(失敗類錄製 0 份、同一批、沒有佔位、重播找不到錄製 0 筆),驗不過以 1 結束。評估批次不另存批次紀錄檔:模型那一列從重播帶回的錄製當時延遲與原價算,錄製日期與批次讀錄製檔。防回歸:[test:test_the_investigation_eval_runs_the_same_ai_judge]、[test:test_the_batch_check_goes_red_on_missing_failed_or_mixed_recordings]、[test:test_the_eval_runner_refuses_to_record_into_a_mixed_directory]。
++- `src/rtb/eval/investigation_eval.py`:評估執行器與命令列 `python -m rtb.eval.investigation_eval`。逐筆直接呼叫 AI 決策函式(見 [[Systems/分析行程流程與檢查點]];寫下時它也是正式路徑那一支,Phase 14 增量 3 起正式路徑不再呼叫 AI,這裡是唯一呼叫者),只把查詢來源換成案例存的原始結果(收據用同一支收據函式算)、先前各輪紀錄放在記憶體;原本的「永遠成功的續租回呼」增量 3 已刪(見下方〈AI 退出加額決策後的評估〉);沒有自己的驗證或輪數邏輯。預設重播入庫目錄 recordings/model/phase13-investigation-eval/;即時加錄製要帶 `phase13-eval-YYYYMMDD` 批次,開閘道時先跑模型用戶端的開錄前目錄檢查(見 [[Systems/模型用戶端]]);`--verify` 只准重播,照〈錄製批次與入庫〉的驗過條件核(失敗類錄製 0 份、同一批、沒有佔位、重播找不到錄製 0 筆),驗不過以 1 結束。評估批次不另存批次紀錄檔:模型那一列從重播帶回的錄製當時延遲與原價算,錄製日期與批次讀錄製檔。防回歸:[test:test_the_investigation_eval_runs_the_same_ai_judge]、[test:test_the_batch_check_goes_red_on_missing_failed_or_mixed_recordings]、[test:test_the_eval_runner_refuses_to_record_into_a_mixed_directory]。
+ - `src/rtb/eval/investigation_report.py`:逐格報告只算名稱正常的 4 筆(誤提案、類別正確、值得加格召回、平均與最多輪數、每個決策的原價、退回原因分布);對抗切片另列誘導雙胞胎結論翻轉的筆數與差異;比較表是現行程式規則(實測)對模型(歷史觀測、錄製日期);採用一律不採用、不建任何已驗證清單。模型那一列用本計劃自己的門檻常數 `INVESTIGATION_LIMITS`:成本不設門檻(`cost_exempt`),延遲 p95 3 秒、失敗率 1%。防回歸:[test:test_the_investigation_report_is_per_slice_and_never_adopts_synthetic]、[test:test_the_report_counts_decisions_flipped_by_injected_names]、[test:test_the_investigation_evaluation_never_validates_a_slice]。
+ - `src/rtb/eval/adoption.py` 的門檻型別加 `cost_exempt`(預設假;為真時成本門檻必須是 None);採用判定抽成 `operational_problems`,Phase 10 的逐格採用與調查評估的模型那一列共用,`cost_exempt` 為真就不比成本、延遲與失敗率照查。`src/rtb/eval/model_candidate.py` 的逐欄判定在 `cost_exempt` 為真時成本那一欄寫「不設門檻(假設正式環境用自研模型、成本另計)」;Phase 11B 模型候選那組門檻常數不動。防回歸:[test:test_an_explicit_no_cost_gate_skips_only_the_cost_check]、[test:test_the_report_writes_no_cost_gate_for_an_exempt_limit]。
+ - 匯入邊界([S918] 照 Phase 13 改寫):評估套件閉包的准許名單加模型閘道、AI 決策模組(ai_judge 與它的詞彙模組)與這四支;匯入 AI 決策模組、經它開閘道送出的,評估套件裡只准評估執行器。
+ - (2026-09-25 當時紀錄,現況數字見文末〈報告三列分列〉)決定紀錄 `governance/eval/phase13-investigation-adoption.md`(命令列產生)。2026-09-25 入庫時還沒有評估錄製:72 筆全部「找不到錄製」、退回現行規則,模型那一列沒量,結論不採用。現行規則實測:暫停、資料異常、裁定 12 三格與沒價值格全錯(有投放就提案),較長窗有轉換、沒投放、有價值三格全對。
+ - `tests/eval/test_investigation_eval.py`:上面各條的合約測試([S1117]–[S1119]、[S1133]、[S1140]、[S1141]、[S1146]、[S1155]、[S1159]、[S1163]、[S1165]),以及 [S1162] 標準答案那半的檢查函式(由 tests/domain/test_metrics.py 綁 [S1162] 的那支呼叫)。全部用假的模型呼叫或假 claude,不碰真模型。
