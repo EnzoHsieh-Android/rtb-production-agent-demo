@@ -33012,6 +33012,696 @@ def t_disposal_severity_tail():
           r2.returncode == 2 and "必須綁輪次" in r2.stderr, f"rc={r2.returncode} {r2.stderr[:200]}")
 
 
+# ── 逃逸帳對得起來(Projects/逃逸帳對得起來_計劃)──
+def _mk_escape_fixture(review=(), converged=(), escapes=(), plans=None):
+    """review:[(迴圈, tier或None)];converged:[迴圈](可重複、可帶 kind);escapes:逃逸列 dict;plans:{計劃名:[scope...]}。"""
+    import json as _j
+    v = mkvault()
+    rows = []
+    for lid, tier in review:
+        r = {"ts": "2026-09-20T10:00:00+08:00", "kind": "none", "loop": lid, "round": "r1", "auditor": "s1",
+             "severity": "minor", "findings": 0, "token": "T" + lid}
+        if tier:
+            r["tier"] = tier
+        rows.append(r)
+    (v.parent / ".canary-log.jsonl").write_text("".join(_j.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    gov = []
+    for c in converged:
+        lid, kind = (c if isinstance(c, tuple) else (c, "converged"))
+        gov.append({"ts": "2026-09-21T10:00:00+08:00", "gate": "design-loop", "kind": kind, "nodes": [lid]})
+    (v.parent / ".governance-log.jsonl").write_text("".join(_j.dumps(g, ensure_ascii=False) + "\n" for g in gov), encoding="utf-8")
+    (v.parent / ".escape-log.jsonl").write_text("".join((e if isinstance(e, str) else _j.dumps(e, ensure_ascii=False)) + "\n" for e in escapes), encoding="utf-8")
+    for name, scopes in (plans or {}).items():
+        tags = "".join(f"\n  - scope/{x}" for x in scopes)
+        write(v, f"Projects/{name}_計劃.md", f"type: project\nstatus: doing\ntags:\n  - type/project{tags}")
+    return v
+
+
+def _esc_stats(v):
+    import json as _j
+    r = run(v, "loop", "escape-stats", "--json")
+    return _j.loads(r.stdout)
+
+
+def _esc_row(loop, stage="CI", token=None, **kw):
+    d = {"ts": "2026-09-22T10:00:00+08:00", "token": token or f"ESC-{loop}-{stage}", "loop": loop, "stage": stage,
+         "severity": "major", "desc": "x"}
+    d.update(kw)
+    return d
+
+
+def _esc_cat(st, kind, tier="standard", scope="未分類"):
+    return next((c for c in st["categories"] if c["kind"] == kind and c["tier"] == tier and c["scope"] == scope), None)
+
+
+def t_escape_loop_kind_written_and_inferred():
+    """[S1] 新寫列帶 loop_kind;只看 loop 欄與審查紀錄(規格閘留痕不算);讀舊列用同一支推出同樣的值。"""
+    import json as _j
+    m = _load_lumos()
+    ids = {"甲"}
+    check("S1 code- 開頭 → code", m._escape_loop_kind("code-甲", ids) == "code", "")
+    check("S1 有審查紀錄 → design", m._escape_loop_kind("甲", ids) == "design", "")
+    check("S1 沒審查紀錄 → plan", m._escape_loop_kind("乙", ids) == "plan", "")
+    v = _mk_escape_fixture(review=[("甲", "standard")])
+    lg = v.parent / ".canary-log.jsonl"
+    lg.write_text(lg.read_text(encoding="utf-8") + _j.dumps({"kind": "spec-gate", "loop": "乙", "token": "SPEC-1"}) + "\n", encoding="utf-8")
+    check("S1 規格閘留痕不算審查紀錄", "乙" not in m._review_loop_ids(type("E", (), {"vault": v})()), "")
+    run(v, "loop", "escape", "甲", "--stage", "CI", "--severity", "major", "--desc", "d", "--sha", "abc1234", expect_rc=0)
+    rec = [_j.loads(l) for l in (v.parent / ".escape-log.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()][-1]
+    check("S1 手動記帳寫進 loop_kind=design", rec.get("loop_kind") == "design", repr(rec))
+
+
+def t_escape_manual_requires_defect_ref():
+    """[S2] 手動記帳 sha/defect_ref 都空(含只有空白)又沒有夠長的理由 → 擋;--sha 寫進列;理由寫進 defect_ref_missing。"""
+    import json as _j
+    v = _mk_escape_fixture(review=[("甲", "standard")])
+    base = ["loop", "escape", "甲", "--stage", "CI", "--severity", "major", "--desc", "d"]
+    _r0 = run(v, *base)
+    check("S2 都沒有 → 擋,而且是因為沒附佐證", _r0.returncode == 2 and "要附佐證" in _r0.stderr, _r0.stderr[-200:])
+    check("S2 只有空白 → 擋", run(v, *base, "--defect-ref", "   ").returncode == 2, "")
+    check("S2 理由太短 → 擋", run(v, *base, "--missing-defect-ref", "!!").returncode == 2, "")
+    run(v, *base, "--sha", "abc1234", expect_rc=0)
+    run(v, *base, "--missing-defect-ref", "口頭回報沒留下提交", expect_rc=0)
+    recs = [_j.loads(l) for l in (v.parent / ".escape-log.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    check("S2 --sha 寫進列", recs[0].get("sha") == "abc1234", repr(recs[0]))
+    check("S2 理由寫進 defect_ref_missing", recs[1].get("defect_ref_missing") == "口頭回報沒留下提交", repr(recs[1]))
+
+
+def t_escape_withdraw_hidden_from_stats_shown_in_list():
+    """[S3] 撤回後統計不算、清單照列並標已撤回與理由。"""
+    v = _mk_escape_fixture(review=[("甲", "standard")], converged=["甲"], escapes=[_esc_row("甲", token="ESC-A", sha="s1")])
+    check("S3 撤回前算一條漏網", _esc_cat(_esc_stats(v), "design")["leaked"] == 1, "")
+    run(v, "loop", "escape", "--withdraw", "ESC-A", "--reason", "重現後確認是誤判", "--withdrawn-by", "tester", expect_rc=0)
+    check("S3 撤回後統計不算", _esc_cat(_esc_stats(v), "design")["leaked"] == 0, "")
+    r = run(v, "loop", "escape", "--list")
+    check("S3 清單照列並在那一列標已撤回與理由", "★已撤回(重現後確認是誤判" in r.stdout, r.stdout)
+    r2 = run(v, "loop", "escape", "--list", "--withdrawn")
+    check("S3 --list --withdrawn 只列撤回過的", "ESC" not in r2.stderr and "已撤回" in r2.stdout, r2.stdout)
+
+
+def t_escape_withdraw_validation():
+    """[S4] 目標不存在、本身是撤回紀錄、撤回者空白、理由不夠 → 擋且帳不變;鎖拿不到印擋下不拋例外。"""
+    v = _mk_escape_fixture(review=[("甲", "standard")], escapes=[_esc_row("甲", token="ESC-A", sha="s1")])
+    log = v.parent / ".escape-log.jsonl"
+    before = log.read_text(encoding="utf-8")
+    for name, args in (("目標不存在", ["--withdraw", "ESC-NOPE", "--reason", "理由夠長了", "--withdrawn-by", "t"]),
+                       ("撤回者空白", ["--withdraw", "ESC-A", "--reason", "理由夠長了", "--withdrawn-by", "  "]),
+                       ("理由不夠", ["--withdraw", "ESC-A", "--reason", "..", "--withdrawn-by", "t"])):
+        r = run(v, "loop", "escape", *args)
+        check(f"S4 {name} → 擋", r.returncode == 2 and "擋下" in r.stderr, r.stderr[-200:])
+        check(f"S4 {name} → 帳不變", log.read_text(encoding="utf-8") == before, "")
+    run(v, "loop", "escape", "--withdraw", "ESC-A", "--reason", "理由夠長了", "--withdrawn-by", "t", expect_rc=0)
+    import json as _j
+    wtok = [_j.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()][-1]["token"]
+    r = run(v, "loop", "escape", "--withdraw", wtok, "--reason", "理由夠長了", "--withdrawn-by", "t")
+    check("S4 撤回紀錄本身不能撤", r.returncode == 2 and "撤回紀錄" in r.stderr, r.stderr[-200:])
+    # 鎖拿不到:在同一個行程換掉寫入鎖讓它拋逾時例外,走真正的指令入口
+    import io, contextlib, sys as _sys
+    m = _load_lumos()
+
+    @contextlib.contextmanager
+    def _busy(_v):
+        raise RuntimeError("等了 60 秒還輪不到寫入(測試模擬)")
+        yield
+    m._vault_write_lock = _busy
+    _argv = _sys.argv
+    err = io.StringIO()
+    try:
+        _sys.argv = ["lumos", "--vault", str(v), "loop", "escape", "--withdraw", "ESC-A", "--reason", "理由夠長了", "--withdrawn-by", "t"]
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            try:
+                rc = m.main()
+            except SystemExit as e:
+                rc = e.code
+            except RuntimeError as e:
+                rc = f"例外冒出來:{e}"
+    finally:
+        _sys.argv = _argv
+    check("S4 鎖拿不到 → 印擋下、退出碼 2、不讓例外冒出來", rc == 2 and "擋下" in err.getvalue(), f"{rc!r} {err.getvalue()[-200:]}")
+
+
+def t_escape_withdrawn_not_resurrected_by_auto():
+    """[S5] 撤回後同 (迴圈,站名,sha) 再自動記 → 不寫新列。"""
+    import json as _j
+    m = _load_lumos()
+    v = _mk_escape_fixture(review=[("甲", "standard")], escapes=[_esc_row("甲", token="ESC-A", sha="s1", auto=True)])
+    run(v, "loop", "escape", "--withdraw", "ESC-A", "--reason", "重現後確認是誤判", "--withdrawn-by", "t", expect_rc=0)
+    env = type("E", (), {"vault": v})()
+    n = m._auto_escape(env, "CI", "major", "again", [("甲", None)], "s1", "CI")
+    check("S5 撤回過的同觸發不補回", n == 0, str(n))
+
+
+def t_escape_stats_rate_unit_is_loop():
+    """[S6] 分子分母都是迴圈、只認 converged,率不超過 1,放行 0 的格不算率。"""
+    v = _mk_escape_fixture(review=[("甲", "standard"), ("乙", "standard")], converged=["甲", ("乙", "cap-reached")],
+                escapes=[_esc_row("甲", token="E1", sha="a"), _esc_row("甲", token="E2", sha="b"), _esc_row("甲", token="E3", sha="c")])
+    c = _esc_cat(_esc_stats(v), "design")
+    check("S6 同一迴圈三筆逃逸只算一個迴圈", c and c["released"] == 1 and c["leaked"] == 1 and c["rate"] <= 1, repr(c))
+    check("S6 cap-reached 不算放行", c and c["released"] == 1, repr(c))
+
+
+def t_escape_stats_next_stage_and_unknown_stage():
+    """[S7] 實作、code-loop、push-gate 開頭 → 下一站接住;不認得的站名算漏網並另列。"""
+    v = _mk_escape_fixture(review=[("甲", "standard"), ("乙", "standard")], converged=["甲", "乙"],
+                escapes=[_esc_row("甲", stage="code-loop", token="E1", sha="a"), _esc_row("甲", stage="push-gate-unreviewed", token="E2", sha="b"),
+                         _esc_row("乙", stage="消費專案真推送", token="E3", sha="c")])
+    st = _esc_stats(v)
+    c = _esc_cat(st, "design")
+    check("S7 下一站接住另列、不算漏網", c["next_stage"] == 2 and c["leaked"] == 1, repr(c))
+    check("S7 不認得的站名另列", st["totals"]["unknown_stage"] == 1, repr(st["totals"]))
+
+
+def t_escape_stats_unattributed_and_unreleased_buckets():
+    """[S8] 同佐證對到兩個以上放行迴圈 → 歸因不明;沒放行迴圈的逃逸另列;兩者都不進分子。"""
+    v = _mk_escape_fixture(review=[("甲", "standard"), ("乙", "standard"), ("丙", "standard")], converged=["甲", "乙"],
+                escapes=[_esc_row("甲", token="E1", sha="same"), _esc_row("乙", token="E2", sha="same"), _esc_row("丙", token="E3", sha="z")])
+    st = _esc_stats(v)
+    c = _esc_cat(st, "design")
+    check("S8 歸因不明不進分子", c["leaked"] == 0 and st["totals"]["unattributed"] == 2, repr(st))
+    check("S8 未放行迴圈的逃逸另列", st["totals"]["unreleased"] == 1, repr(st["totals"]))
+
+
+def t_escape_stats_category_untiered_and_multi_scope():
+    """[S9] 沒分級 → 未定錨;分級不一致取第一筆;兩個範圍標籤各算一次。"""
+    import json as _j
+    v = _mk_escape_fixture(review=[("甲", None), ("乙", "standard")], converged=["甲", "乙"], plans={"乙": ["evals", "guards-gates"]})
+    lg = v.parent / ".canary-log.jsonl"
+    lg.write_text(lg.read_text(encoding="utf-8") + _j.dumps({"kind": "none", "loop": "乙", "round": "r2", "tier": "high", "token": "X"}) + "\n", encoding="utf-8")
+    st = _esc_stats(v)
+    check("S9 沒分級 → 未定錨", _esc_cat(st, "design", "未定錨") is not None, repr(st["categories"]))
+    check("S9 分級不一致取第一筆(standard)", _esc_cat(st, "design", "standard", "evals") is not None and _esc_cat(st, "design", "high", "evals") is None, repr(st["categories"]))
+    check("S9 兩個範圍標籤各算一次", _esc_cat(st, "design", "standard", "guards-gates") is not None, repr(st["categories"]))
+
+
+def t_plan_for_loop_strips_code_prefix_nfc():
+    """[S10] code- 開頭先去前綴,兩邊 NFC 後找到計劃。"""
+    import unicodedata
+    m = _load_lumos()
+    v = mkvault()
+    write(v, "Projects/" + unicodedata.normalize("NFD", "café計劃名") + "_計劃.md", "type: project\nstatus: doing")
+    env = type("E", (), {"vault": v})()
+    got = m._plan_for_loop(env, "code-café計劃名")
+    check("S10 去 code- 前綴並 NFC 找到", got is not None and got.endswith("_計劃.md"), repr(got))
+
+
+def t_escape_stats_small_sample_flag():
+    """[S11] 放行少於 20 → 標樣本太少,仍印原始數字。"""
+    v = _mk_escape_fixture(review=[("甲", "standard")], converged=["甲"])
+    c = _esc_cat(_esc_stats(v), "design")
+    check("S11 標樣本太少", c["small_sample"] is True and c["released"] == 1, repr(c))
+    r = run(v, "loop", "escape-stats")
+    check("S11 文字有樣本太少與原始數字", "樣本太少" in r.stdout and "放行 1" in r.stdout, r.stdout)
+
+
+def t_escape_stats_excludes_loops_absent_from_ledger():
+    """[S12] 治理帳有收斂、審查帳沒這個迴圈 → 不算分母。"""
+    v = _mk_escape_fixture(review=[("甲", "standard")], converged=["甲", "幽靈"])
+    st = _esc_stats(v)
+    check("S12 審查帳沒有的不算分母", sum(c["released"] for c in st["categories"]) == 1, repr(st))
+
+
+def t_rule_gap_standalone_skips_withdrawn():
+    """[S13] 知識庫就在 repo 根的佈局:rule-gap 照舊讀得到逃逸帳,且不算被撤回的列。"""
+    import json as _j, subprocess as _sp, tempfile as _tf
+    repo = Path(_tf.mkdtemp(prefix="gctl-rg-"))
+    _sp.run(["git", "-C", str(repo), "init", "-q"], capture_output=True)
+    rows = [_esc_row("甲", token="E1", rule="R-X"), _esc_row("甲", token="E2", rule="R-X"),
+            {"kind": "withdraw", "target": "E2", "reason": "誤判", "by": "t", "token": "W1"}]
+    (repo / ".escape-log.jsonl").write_text("".join(_j.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    r = _sp.run([sys.executable, GRAPHCTL, "rule-gap", "--repo", str(repo), "--json"], capture_output=True, text=True)
+    d = _j.loads(r.stdout)
+    check("S13 讀得到且撤回的不算", d["missing"].get("R-X", {}).get("n") == 1, r.stdout + r.stderr)
+
+
+def t_escape_withdraw_record_never_counted():
+    """[S14] 撤回紀錄本身不被任何統計讀者當成一筆逃逸。"""
+    m = _load_lumos()
+    v = _mk_escape_fixture(review=[("甲", "standard")], converged=["甲"],
+                escapes=[_esc_row("甲", token="E1", sha="a"), {"kind": "withdraw", "target": "E1", "reason": "誤判了", "by": "t", "token": "W1"}])
+    env = type("E", (), {"vault": v})()
+    rows = m._escape_rows_for(env)
+    check("S14 _escape_rows_for 不回撤回紀錄也不回被撤的列", rows == [], repr(rows))
+    st = _esc_stats(v)
+    check("S14 escape-stats 不把撤回紀錄算成沒審查帳的計劃列", st["totals"]["plan"] == 0 and st["totals"]["no_evidence"] == 0, repr(st["totals"]))
+    r = run(v, "gov", "--stats")
+    check("S14 治理帳統計不崩", r.returncode == 0, r.stderr[-200:])
+
+
+def t_escape_rows_skip_non_object_json():
+    """[S15] 合法 JSON 但不是物件的行當壞行跳過,不拋例外。"""
+    m = _load_lumos()
+    v = _mk_escape_fixture(escapes=["null", "[1,2]", '"s"', _esc_row("甲", token="E1")])
+    env = type("E", (), {"vault": v})()
+    rows = m._escape_rows_for(env)
+    check("S15 非物件行跳過", len(rows) == 1 and rows[0]["token"] == "E1", repr(rows))
+
+
+def t_escape_stats_converged_wins():
+    """[S16] 同迴圈有 converged 也有 cap-reached/rewrite → 算放行。"""
+    v = _mk_escape_fixture(review=[("甲", "standard")], converged=[("甲", "cap-reached"), "甲", ("甲", "rewrite")])
+    check("S16 有 converged 就算放行", _esc_cat(_esc_stats(v), "design")["released"] == 1, "")
+
+
+def t_escape_withdraw_detects_already_withdrawn():
+    """[S17] 已撤過的再撤 → 擋。"""
+    v = _mk_escape_fixture(review=[("甲", "standard")], escapes=[_esc_row("甲", token="ESC-A", sha="s")])
+    run(v, "loop", "escape", "--withdraw", "ESC-A", "--reason", "第一次撤回", "--withdrawn-by", "t", expect_rc=0)
+    r = run(v, "loop", "escape", "--withdraw", "ESC-A", "--reason", "第二次撤回", "--withdrawn-by", "t")
+    check("S17 已撤過 → 擋", r.returncode == 2 and "已經撤回過" in r.stderr, r.stderr[-200:])
+
+
+def t_escape_withdraw_rejects_symlink_ledger():
+    """[S18] 逃逸帳檔是符號連結 → 撤回與手動記帳都擋、不寫入。"""
+    import os as _o
+    v = _mk_escape_fixture(review=[("甲", "standard")], escapes=[_esc_row("甲", token="ESC-A", sha="s")])
+    log = v.parent / ".escape-log.jsonl"
+    real = v.parent / "real-escape.jsonl"
+    real.write_text(log.read_text(encoding="utf-8"), encoding="utf-8")
+    log.unlink(); _o.symlink(str(real), str(log))
+    before = real.read_text(encoding="utf-8")
+    r1 = run(v, "loop", "escape", "--withdraw", "ESC-A", "--reason", "理由夠長了", "--withdrawn-by", "t")
+    r2 = run(v, "loop", "escape", "甲", "--stage", "CI", "--severity", "major", "--desc", "d", "--sha", "x")
+    check("S18 撤回擋下", r1.returncode == 2 and "符號連結" in r1.stderr, r1.stderr[-200:])
+    check("S18 手動記帳擋下", r2.returncode == 2 and "符號連結" in r2.stderr, r2.stderr[-200:])
+    check("S18 連結目標沒被寫", real.read_text(encoding="utf-8") == before, "")
+
+
+def t_escape_withdraw_no_mixed_flags():
+    """[S19] --withdraw 與記帳參數、--list、--auto 混用 → 擋。"""
+    v = _mk_escape_fixture(review=[("甲", "standard")], escapes=[_esc_row("甲", token="ESC-A", sha="s")])
+    for extra in (["--list"], ["--auto"], ["--stage", "CI"], ["--sha", "x"]):
+        r = run(v, "loop", "escape", "--withdraw", "ESC-A", "--reason", "理由夠長了", "--withdrawn-by", "t", *extra)
+        check(f"S19 混用 {extra[0]} → 擋", r.returncode == 2, r.stderr[-200:])
+
+
+def t_escape_stats_unattributed_only_within_population():
+    """[S20] 先剔無佐證;同佐證只在分母母體內對到兩個以上迴圈才算歸因不明。"""
+    v = _mk_escape_fixture(review=[("甲", "standard")], converged=["甲"],
+                escapes=[_esc_row("甲", token="E1", sha="same"), _esc_row("計劃乙", token="E2", sha="same"),
+                         _esc_row("甲", token="E3", stage="prod"), _esc_row("甲", token="E4", stage="prod")])
+    st = _esc_stats(v)
+    c = _esc_cat(st, "design")
+    check("S20 母體外的計劃不讓它變歸因不明", c["leaked"] == 1 and st["totals"]["unattributed"] == 0, repr(st))
+    check("S20 無佐證列不互相比對", st["totals"]["no_evidence"] == 2, repr(st["totals"]))
+
+
+def t_escape_stats_code_manual_only_note():
+    """[S21] code 類標明只含手動記的逃逸、低估。"""
+    v = _mk_escape_fixture(review=[("code-甲", "standard")], converged=["code-甲"])
+    r = run(v, "loop", "escape-stats")
+    check("S21 code 類旁有低估說明", "code × standard" in r.stdout and "只含手動記的逃逸" in r.stdout, r.stdout)
+
+
+def t_escape_review_r1_fixes():
+    """代碼審 r1 折入的行為:清單印 token、--repo 不准跟撤回混用、同 defect_ref 不同 sha 也算歸因不明、
+    落帳的 loop_kind 為準、nodes 不是清單不算、有佐證又給缺佐證理由擋、token 重複不准撤、--withdrawn 單獨擋、
+    帶路徑字元的迴圈編號不查計劃、錯誤訊息清洗控制字元。"""
+    import json as _j
+    m = _load_lumos()
+    v = _mk_escape_fixture(review=[("甲", "standard"), ("乙", "standard")], converged=["甲", "乙"],
+                           escapes=[_esc_row("甲", token="ESC-A", sha="s1", defect_ref="Issue-9"),
+                                    _esc_row("乙", token="ESC-B", sha="s2", defect_ref="Issue-9")])
+    r = run(v, "loop", "escape", "--list")
+    check("清單每列印 token", "ESC-A" in r.stdout and "ESC-B" in r.stdout, r.stdout)
+    r = run(v, "loop", "escape", "--withdraw", "ESC-A", "--reason", "理由夠長了", "--withdrawn-by", "t", "--repo", ".")
+    check("--repo 不准跟撤回混用", r.returncode == 2, r.stderr[-200:])
+    st = _esc_stats(v)
+    check("同 defect_ref 不同 sha → 歸因不明", st["totals"]["unattributed"] == 2 and _esc_cat(st, "design")["leaked"] == 0, repr(st))
+    v2 = _mk_escape_fixture(review=[("丙", "standard")], converged=["丙"],
+                            escapes=[_esc_row("丙", token="E1", sha="x", loop_kind="plan")])
+    check("落帳的 loop_kind 為準(記成 plan 的不因後來有審查紀錄改類)", _esc_stats(v2)["totals"]["plan"] == 1, repr(_esc_stats(v2)))
+    v3 = _mk_escape_fixture(review=[("甲", "standard")])
+    (v3.parent / ".governance-log.jsonl").write_text(_j.dumps({"gate": "design-loop", "kind": "converged", "nodes": "甲乙"}) + "\n", encoding="utf-8")
+    check("nodes 不是清單不算放行", sum(c["released"] for c in _esc_stats(v3)["categories"]) == 0, repr(_esc_stats(v3)))
+    r = run(v3, "loop", "escape", "甲", "--stage", "CI", "--severity", "major", "--desc", "d", "--sha", "x", "--missing-defect-ref", "理由夠長了")
+    check("有佐證又給缺佐證理由 → 擋", r.returncode == 2 and "missing-defect-ref" in r.stderr, r.stderr[-200:])
+    v4 = _mk_escape_fixture(review=[("甲", "standard")], escapes=[_esc_row("甲", token="ESC-D", sha="a"), _esc_row("甲", token="ESC-D", sha="b")])
+    r = run(v4, "loop", "escape", "--withdraw", "ESC-D", "--reason", "理由夠長了", "--withdrawn-by", "t")
+    check("token 重複 → 不准撤", r.returncode == 2 and "出現 2 次" in r.stderr, r.stderr[-200:])
+    r = run(v4, "loop", "escape", "--withdrawn")
+    check("--withdrawn 單獨給 → 擋", r.returncode == 2 and "--list" in r.stderr, r.stderr[-200:])
+    env = type("E", (), {"vault": v4})()
+    (v4 / "x_計劃.md").write_text("---\ntype: project\n---\n", encoding="utf-8")   # Projects/ 外面真的有一份,沒擋就會找到它
+    check("帶路徑字元的迴圈編號不查計劃", m._plan_for_loop(env, "../x") is None and m._plan_for_loop(env, "a/b") is None, "")
+    r = run(v4, "loop", "escape", "--withdraw", "ESC-\x1b[31mX", "--reason", "理由夠長了", "--withdrawn-by", "t")
+    check("錯誤訊息清洗控制字元", "\x1b" not in r.stderr, repr(r.stderr[-120:]))
+
+
+def t_escape_review_r2_fixes():
+    """代碼審 r2 折入的行為:落帳記成 plan 的列不參與歸因比對、站名不認得算全體、帳檔是符號連結時撤回先擋(不先讀)、
+    清單日期清洗、NFD 檔名的計劃照樣分到範圍類、撤回混用空字串也擋、清洗 8 位元控制碼。"""
+    import json as _j, os as _o, unicodedata
+    m = _load_lumos()
+    v = _mk_escape_fixture(review=[("甲", "standard"), ("乙", "standard")], converged=["甲", "乙"],
+                           escapes=[_esc_row("甲", token="E1", sha="same"), _esc_row("乙", token="E2", sha="same", loop_kind="plan")])
+    st = _esc_stats(v)
+    check("r2 落帳 plan 的列不讓真漏網變歸因不明", _esc_cat(st, "design")["leaked"] == 1 and st["totals"]["unattributed"] == 0, repr(st))
+    v2 = _mk_escape_fixture(review=[("甲", "standard")], converged=["甲"],
+                            escapes=[_esc_row("乙計劃", token="E1", stage="怪站"), _esc_row("甲", token="E2", stage="怪站", sha="z")])
+    check("r2 站名不認得算全體(含 plan 類)", _esc_stats(v2)["totals"]["unknown_stage"] == 2, repr(_esc_stats(v2)["totals"]))
+    v3 = _mk_escape_fixture(review=[("甲", "standard")])
+    log = v3.parent / ".escape-log.jsonl"; real = v3.parent / "other.jsonl"
+    real.write_text("", encoding="utf-8"); log.unlink(); _o.symlink(str(real), str(log))
+    r = run(v3, "loop", "escape", "--withdraw", "ESC-NOPE", "--reason", "理由夠長了", "--withdrawn-by", "t")
+    check("r2 帳檔是符號連結 → 撤回先擋、不先讀帳", r.returncode == 2 and "符號連結" in r.stderr and "沒有 token" not in r.stderr, r.stderr[-200:])
+    v4 = _mk_escape_fixture(review=[("甲", "standard")], escapes=[dict(_esc_row("甲", token="E1", sha="s"), ts="\x1b[31m2026")])
+    r = run(v4, "loop", "escape", "--list")
+    check("r2 清單日期清洗控制字元", "\x1b" not in r.stdout, repr(r.stdout[-200:]))
+    r = run(v4, "loop", "escape", "--withdraw", "E1", "--reason", "理由夠長了", "--withdrawn-by", "t", "--stage", "")
+    check("r2 撤回混用空字串也擋", r.returncode == 2, r.stderr[-200:])
+    check("r2 清洗 8 位元控制碼", "\x9b" not in m._esc_clean("a\x9b31mb"), repr(m._esc_clean("a\x9b31mb")))
+    name = unicodedata.normalize("NFD", "café案")
+    v5 = mkvault()
+    write(v5, f"Projects/{name}_計劃.md", "type: project\nstatus: doing")
+    _node = type("N", (), {"fields": {"tags": ["scope/evals"]}})()
+    env5 = type("E", (), {"vault": v5, "notes": {unicodedata.normalize("NFD", f"Projects/{name}_計劃.md"): _node}})()   # 索引鍵跟查到的路徑寫法不同(一邊 NFD、一邊 NFC)
+    check("r2 NFD 檔名的計劃照樣分到範圍類", m._escape_plan_scopes(env5, "code-café案") == ["evals"], repr(m._escape_plan_scopes(env5, "code-café案")))
+
+
+def t_escape_review_r3_fixes():
+    """代碼審 r3 折入的行為:帳裡一行超深巢狀(合法 JSON、解析會遞迴過深)只跳過那一行,
+    逃逸統計、清單、手動記、自動記都不崩;規則缺口清單印說明與規則名前清控制字元。"""
+    import json as _j, subprocess as _sp, sys as _sy
+    m = _load_lumos()
+    deep = "[" * 200000 + "]" * 200000
+    v = _mk_escape_fixture(review=[("甲", "standard")], converged=["甲"],
+                           escapes=[deep, _esc_row("甲", token="E1", sha="s1")])
+    r = run(v, "loop", "escape-stats", "--json")
+    check("r3 逃逸帳超深巢狀行 → 統計只跳過那行", r.returncode == 0 and "Traceback" not in r.stderr
+          and (_esc_cat(_j.loads(r.stdout), "design") or {}).get("leaked") == 1, (r.stderr or r.stdout)[-300:])
+    r = run(v, "loop", "escape", "--list")
+    check("r3 逃逸帳超深巢狀行 → 清單照列、標壞行", r.returncode == 0 and "E1" in r.stdout, (r.stderr or r.stdout)[-300:])
+    led = v.parent / ".canary-log.jsonl"
+    led.write_text(deep + "\n" + led.read_text(encoding="utf-8"), encoding="utf-8")
+    r = run(v, "loop", "escape-stats", "--json")
+    check("r3 審查帳超深巢狀行 → 統計不崩", r.returncode == 0 and "Traceback" not in r.stderr, (r.stderr or r.stdout)[-300:])
+    gov = v.parent / ".governance-log.jsonl"
+    gov.write_text(deep + "\n" + gov.read_text(encoding="utf-8"), encoding="utf-8")
+    r = run(v, "loop", "escape-stats", "--json")
+    check("r3 治理帳超深巢狀行 → 統計不崩、放行照認", r.returncode == 0 and "Traceback" not in r.stderr
+          and (_esc_cat(_j.loads(r.stdout), "design") or {}).get("leaked") == 1, (r.stderr or r.stdout)[-300:])
+    r = run(v, "loop", "escape", "甲", "--stage", "CI", "--severity", "minor", "--desc", "深巢狀後照記", "--sha", "s2")
+    check("r3 審查帳超深巢狀行 → 手動記不擋", r.returncode == 0, (r.stderr or r.stdout)[-300:])
+    env = type("E", (), {"vault": v})()
+    check("r3 審查帳超深巢狀行 → 自動記不崩", m._auto_escape(env, "CI", "major", "x", [("甲", None)], "s3", "CI") == 1, "")
+    repo = v.parent / "rg"
+    (repo / "docs").mkdir(parents=True)
+    _sp.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    (repo / "docs" / ".escape-log.jsonl").write_text(
+        _j.dumps(_esc_row("甲", token="E9", rule="R\x1b[8mHIDDEN\x1b[0m", desc="d\x1b]52;c;bWFs\x07")) + "\n"
+        + _j.dumps(_esc_row("甲", token="E8", rule="R2", desc=12345)) + "\n", encoding="utf-8")
+    r = _sp.run([_sy.executable, str(GRAPHCTL), "rule-gap", "--repo", str(repo)], capture_output=True, text=True)
+    check("r3 規則缺口清單不把控制字元印到終端", r.returncode == 0 and "\x1b" not in r.stdout and "\x07" not in r.stdout
+          and "HIDDEN" in r.stdout, (r.stderr or r.stdout)[-300:])
+    check("r3 說明不是字串也不崩", "R2" in r.stdout, (r.stderr or r.stdout)[-300:])
+    (repo / "docs" / ".escape-log.jsonl").write_text(
+        _j.dumps(_esc_row("甲", token="E7", rule="R\x7f\x9b[8m", desc="d\x9b[31m"), ensure_ascii=False) + "\n", encoding="utf-8")
+    r = _sp.run([_sy.executable, str(GRAPHCTL), "rule-gap", "--repo", str(repo), "--json"], capture_output=True, text=True)
+    check("r3 規則缺口 --json 也不讓 DEL/C1 控制碼穿透", r.returncode == 0 and not any("\x7f" <= ch <= "\x9f" for ch in r.stdout)
+          and "missing" in _j.loads(r.stdout), repr(r.stdout[-300:]))
+    (repo / "docs" / ".escape-log.jsonl").write_text(
+        _j.dumps(_esc_row("甲", token="E5", rule="R\x7fA", desc="d1")) + "\n" + _j.dumps(_esc_row("甲", token="E6", rule="R A", desc="d2")) + "\n", encoding="utf-8")
+    r = _sp.run([_sy.executable, str(GRAPHCTL), "rule-gap", "--repo", str(repo), "--json"], capture_output=True, text=True)
+    check("r3 清洗後撞名的規則次數合併、不吃掉一筆", _j.loads(r.stdout)["missing"].get("R A", {}).get("n") == 2, repr(r.stdout[-300:]))
+    (repo / "docs" / ".escape-log.jsonl").write_text(
+        _j.dumps(_esc_row("甲", token="E3", rule="R" * 250 + "-foo")) + "\n" + _j.dumps(_esc_row("甲", token="E4", rule="R" * 250 + "-bar")) + "\n", encoding="utf-8")
+    r = _sp.run([_sy.executable, str(GRAPHCTL), "rule-gap", "--repo", str(repo), "--json"], capture_output=True, text=True)
+    check("r3 很長的規則名不因截斷而合併", len(_j.loads(r.stdout)["missing"]) == 2, repr(r.stdout[-200:]))
+
+
+# ── 審查跑滿上限提示(Projects/審查跑滿上限提示_計劃)──
+def _cap_real_cutoff(fn):
+    """測試總開關把舊閘退役日設成 9999(舊測試凍結在退役前語意);跑滿上限提示只給退役後的迴圈,
+    這幾支在跑的期間改回真實退役日,跑完還原。"""
+    import functools
+    @functools.wraps(fn)
+    def _w(*a, **k):
+        old = _os_mod.environ.get("LUMOS_PANEL_RETIRE_CUTOFF")
+        _os_mod.environ["LUMOS_PANEL_RETIRE_CUTOFF"] = "2026-08-26"
+        try:
+            return fn(*a, **k)
+        finally:
+            if old is None:
+                _os_mod.environ.pop("LUMOS_PANEL_RETIRE_CUTOFF", None)
+            else:
+                _os_mod.environ["LUMOS_PANEL_RETIRE_CUTOFF"] = old
+    return _w
+
+
+def _cap_rows(spec_rounds, loop="caphint", tier="standard", ts="2026-09-20T10:00:00+08:00", with_round=True):
+    """spec_rounds:每輪 (折入條數 或 None=沒記處置, 最高嚴重度, 各席 findings 值清單)。回帳列清單。"""
+    rows = []
+    for i, (folded, sev, seat_findings) in enumerate(spec_rounds, 1):
+        rid = f"r{i}"
+        for j, f in enumerate(seat_findings):
+            r = {"ts": ts, "kind": "none", "loop": loop, "auditor": f"s{j}-sonnet", "severity": sev,
+                 "token": f"T{i}{j}", "tier": tier, "reviewed_sha256": "x" * 64}
+            if f is not ...:
+                r["findings"] = f
+            if with_round:
+                r["round"] = rid
+            rows.append(r)
+        if folded is not None:
+            ids = [f"{rid}-F{k}" for k in range(folded)]
+            rows.append({"ts": ts, "kind": "none", "loop": loop, "round": rid, "auditor": "s0-sonnet", "severity": sev,
+                         "token": f"C{i}", "tier": tier, "findings": folded, "reviewed_sha256": "x" * 64,
+                         "findings_set": ids, "folded_set": ids, "accepted_set": [], "refuted_set": []})
+    return rows
+
+
+def _cap_hint_of(rows, gate=None):
+    return _load_lumos()._cap_hint(rows, gate=gate)
+
+
+@_cap_real_cutoff
+def t_cap_hint_not_declining_reshape():
+    """[S4] 最後一輪折入數 ≥ 前一輪 → 提示是換做法。"""
+    h = _cap_hint_of(_cap_rows([(5, "major", [3]), (2, "major", [2]), (3, "major", [3])]))
+    check("S4 持平或上升 → 換做法", h is not None and h["hint"] == "reshape", repr(h))
+    h2 = _cap_hint_of(_cap_rows([(5, "major", [5]), (2, "major", [2]), (2, "major", [2])]))
+    check("S4 持平(2→2)也是換做法", h2 is not None and h2["hint"] == "reshape", repr(h2))
+
+
+@_cap_real_cutoff
+def t_cap_hint_declining_minor_can_stop():
+    """[S5] 在降且最後一輪最高 ≤ minor → 可以停。"""
+    h = _cap_hint_of(_cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "minor", [1])]))
+    check("S5 在降且只剩 minor → 可以停", h is not None and h["hint"] == "can-stop", repr(h))
+
+
+@_cap_real_cutoff
+def t_cap_hint_declining_major_human_decides():
+    """[S6] 在降但仍有 major → 由人裁,不得寫成建議再一輪。"""
+    m = _load_lumos()
+    rows = _cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])])
+    h = m._cap_hint(rows)
+    check("S6 在降仍有 major → 由人裁", h is not None and h["hint"] == "human-decides", repr(h))
+    txt = "\n".join(m._cap_hint_lines(h))
+    check("S6 文字不得寫「建議再一輪」", "建議再一輪" not in txt and "由人裁" in txt, txt)
+
+
+@_cap_real_cutoff
+def t_cap_hint_vacuous_round_counts_zero():
+    """[S7] 沒彙總帳而各席 findings 全 0 → 折 0;有人報了條數卻沒彙總帳 → 沒記處置、判不了。"""
+    h = _cap_hint_of(_cap_rows([(4, "major", [4]), (2, "major", [2]), (None, "clean", [0, 0])]))
+    check("S7 空輪算折 0", h is not None and [r["folded"] for r in h["rounds"]] == [4, 2, 0], repr(h))
+    check("S7 空輪算有記處置", h is not None and h["rounds"][-1]["recorded"] is True, repr(h))
+    h2 = _cap_hint_of(_cap_rows([(4, "major", [4]), (2, "major", [2]), (None, "major", [3, 0])]))
+    check("S7 有報沒處置 → 判不了", h2 is not None and h2["hint"] == "unknown" and h2["rounds"][-1]["recorded"] is False, repr(h2))
+
+
+@_cap_real_cutoff
+def t_cap_hint_breaker_total_folded():
+    """[S8] 累計折入 > 20 → 印拆小;不論輪數;沒記處置的輪不加進累計並註明。"""
+    m = _load_lumos()
+    h = m._cap_hint(_cap_rows([(21, "major", [21])]))
+    check("S8 只有一輪但累計 21 → 熔斷", h is not None and h["breaker"] and h["breaker"]["total"] == 21, repr(h))
+    check("S8 只有一輪 → 提示判不了、熔斷並列", h is not None and h["hint"] == "unknown", repr(h))
+    _t = "\n".join(m._cap_hint_lines(h))
+    check("S8 只有一輪的熔斷:文字同時有「判不了」與「拆小」", "判不了" in _t and "拆小" in _t, _t)
+    h2 = m._cap_hint(_cap_rows([(12, "major", [12]), (None, "major", [4]), (10, "major", [10])]))
+    check("S8 沒記處置的輪不加進累計並註明", h2 is not None and h2["breaker"] and h2["breaker"]["total"] == 22
+          and h2["breaker"]["unrecorded_rounds"] == 1, repr(h2))
+    check("S8 文字有拆小", h2 is not None and "拆小" in "\n".join(m._cap_hint_lines(h2)), "")
+
+
+@_cap_real_cutoff
+def t_cap_hint_out_of_scope_silent():
+    """[S9] light、循序單審(不帶輪次)、2026-08-26 以前的舊迴圈 → 不印。"""
+    m = _load_lumos()
+    check("S9 不帶輪次(循序單審) → 不印",
+          m._cap_hint(_cap_rows([(5, "major", [5])] * 4, with_round=False)) is None, "")
+    check("S9 light → 不印", m._cap_hint(_cap_rows([(5, "major", [5])] * 3, tier="light")) is None, "")
+    check("S9 舊迴圈 → 不印", m._cap_hint(_cap_rows([(5, "major", [5])] * 3, ts="2026-08-20T10:00:00+08:00")) is None, "")
+
+
+@_cap_real_cutoff
+def t_cap_hint_can_stop_carries_gate_status():
+    """[S12] 可以停時同一行帶閘狀態。"""
+    m = _load_lumos()
+    rows = _cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "minor", [1])])
+    for gate, want in ((None, "--spec"), ({"passed": True, "fails": []}, "已過閘"),
+                       ({"passed": False, "fails": ["G3"]}, "G3")):
+        lines = m._cap_hint_lines(m._cap_hint(rows, gate=gate))
+        hint_line = next((l for l in lines if "可以停" in l), "")
+        check(f"S12 可以停帶閘狀態({want})", want in hint_line, "\n".join(lines))
+
+
+@_cap_real_cutoff
+def t_cap_hint_untiered_falls_back():
+    """[S13] 帳上沒分級 → 照 standard(上限 3);不出錯。"""
+    rows = _cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])])
+    for r in rows:
+        r.pop("tier", None)
+    h = _cap_hint_of(rows)
+    check("S13 沒分級照 standard 上限 3 → 到上限會印", h is not None and h["cap"] == 3, repr(h))
+
+
+@_cap_real_cutoff
+def t_cap_hint_round_order_by_appearance():
+    """[S14] 輪次跳號 → 前一輪是出現順序的上一輪。"""
+    rows = _cap_rows([(5, "major", [5]), (3, "major", [3]), (4, "major", [4])])
+    for r in rows:
+        r["round"] = {"r1": "r1", "r2": "r3", "r3": "r7"}[r["round"]]
+    h = _cap_hint_of(rows)
+    check("S14 跳號仍照出現順序比(3→4 不降 → 換做法)", h is not None and [x["round"] for x in h["rounds"]] == ["r1", "r3", "r7"]
+          and h["hint"] == "reshape", repr(h))
+
+
+@_cap_real_cutoff
+def t_cap_hint_missing_findings_not_vacuous():
+    """[S15] 某輪有一席缺 findings 欄 → 沒記處置,不是折 0。"""
+    h = _cap_hint_of(_cap_rows([(4, "major", [4]), (2, "major", [2]), (None, "clean", [0, ...])]))
+    check("S15 缺 findings 欄 → 沒記處置", h is not None and h["rounds"][-1]["recorded"] is False, repr(h))
+
+
+def _cap_vault(rows):
+    import json as _j
+    v = mkvault()
+    (v.parent / ".canary-log.jsonl").write_text("".join(_j.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    spec = v.parent / "cap-spec.md"
+    spec.write_text("規則甲:照字面實作要對,十個字以上。\n", encoding="utf-8")
+    return v, spec
+
+
+@_cap_real_cutoff
+def t_loop_next_cap_hint_appended_without_changing_phase():
+    """[S1] 到上限時 loop next 末尾加一段,階段與退出碼照舊(今天 gate-pending、rc1)。"""
+    rows = _cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])])
+    v, _spec = _cap_vault(rows)
+    r = run(v, "loop", "next", "caphint")
+    check("S1 階段照舊 gate-pending", "現在狀態 gate-pending" in r.stdout, r.stdout[:300])
+    check("S1 退出碼照舊 1", r.returncode == 1, str(r.returncode))
+    _ls = r.stdout.rstrip().splitlines()
+    _hi = next((i for i, l in enumerate(_ls) if l.startswith("[cap-hint]")), None)
+    check("S1 末尾加上 [cap-hint] 段(段首一行帶標籤、之後都是縮排的段內行)",
+          _hi is not None and all(l.startswith("  ") for l in _ls[_hi + 1:]) and len(_ls) > _hi + 1, r.stdout[-400:])
+    v2, _ = _cap_vault(rows[: len(rows) * 2 // 3])
+    r2 = run(v2, "loop", "next", "caphint")
+    check("S1 沒到上限不印", "[cap-hint]" not in r2.stdout, r2.stdout[-300:])
+
+
+@_cap_real_cutoff
+def t_loop_next_cap_hint_json_fields():
+    """[S10] --json 帶 cap_hint 物件,欄位 rounds/hint/breaker。"""
+    import json as _j
+    v, _ = _cap_vault(_cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])]))
+    r = run(v, "loop", "next", "caphint", "--json")
+    d = _j.loads(r.stdout)
+    ch = d.get("cap_hint") or {}
+    check("S10 cap_hint 有 rounds/hint/breaker", set(("rounds", "hint", "breaker")) <= set(ch), repr(ch))
+    check("S10 rounds 每筆有 round/folded/max_severity/recorded",
+          all(set(("round", "folded", "max_severity", "recorded")) <= set(x) for x in ch.get("rounds", [])) and ch.get("rounds"), repr(ch))
+
+
+@_cap_real_cutoff
+def t_disposal_cap_hint_without_changing_verdict():
+    """[S2] 到上限時處置閘判定之後印同一段,不論過關與否;判定與退出碼不變。"""
+    rows = _cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])])
+    v, spec = _cap_vault(rows)
+    r = run(v, "loop", "status", "caphint", "--disposal", "--spec", str(spec), "--repo", str(v.parent))
+    check("S2 處置閘印 [cap-hint]", "[cap-hint]" in r.stdout, r.stdout[-500:])
+    check("S2 判定行在前、提示段在後", "DISPOSAL GATE" in r.stdout and r.stdout.index("DISPOSAL GATE") < r.stdout.index("[cap-hint]"), r.stdout[-500:])
+    v2, spec2 = _cap_vault(rows[:-2])   # 少一輪:沒到上限
+    r2 = run(v2, "loop", "status", "caphint", "--disposal", "--spec", str(spec2), "--repo", str(v2.parent))
+    check("S2 退出碼跟沒印時同一個判法(兩邊都沒過 → 1)", r.returncode == r2.returncode == 1, f"{r.returncode} {r2.returncode}")
+
+
+@_cap_real_cutoff
+def t_disposal_cap_hint_silent_when_readonly():
+    """[S3] 唯讀呼叫(回放、凍結)不印。"""
+    import io, contextlib
+    m = _load_lumos()
+    rows = _cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])])
+    v, spec = _cap_vault(rows)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+        m._loop_status_disposal(rows, "caphint", str(spec), 0, v.parent, readonly=True)
+    check("S3 唯讀不印 [cap-hint]", "[cap-hint]" not in buf.getvalue(), buf.getvalue()[-300:])
+
+
+@_cap_real_cutoff
+def t_disposal_cap_hint_fail_open():
+    """[S2] 帳上某輪欄位壞掉(refuted_set 不是清單)時,處置閘照常結束,不因提示段噴例外、退出碼不變(代碼審 r1 blocker)。"""
+    rows = _cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])])
+    for r in rows:
+        if r.get("round") == "r1" and "findings_set" in r:
+            r["refuted_set"] = 5
+    v, spec = _cap_vault(rows)
+    r = run(v, "loop", "status", "caphint", "--disposal", "--spec", str(spec), "--repo", str(v.parent))
+    check("S2 欄位壞掉時處置閘不噴例外", "Traceback" not in r.stderr and r.returncode in (0, 1), r.stderr[-400:])
+
+
+@_cap_real_cutoff
+def t_cap_hint_writes_no_extra_ledger():
+    """[S11] 印這段不多寫帳:loop next 與沒過關的處置閘前後,審查帳與治理帳行數不變。"""
+    rows = _cap_rows([(5, "major", [5]), (3, "major", [3]), (1, "major", [1])])
+    v, spec = _cap_vault(rows)
+    logs = [v.parent / ".canary-log.jsonl", v.parent / ".governance-log.jsonl"]
+    before = [p.read_text(encoding="utf-8").count("\n") if p.exists() else 0 for p in logs]
+    run(v, "loop", "next", "caphint")
+    run(v, "loop", "status", "caphint", "--disposal", "--spec", str(spec), "--repo", str(v.parent))
+    after = [p.read_text(encoding="utf-8").count("\n") if p.exists() else 0 for p in logs]
+    check("S11 帳本行數不變", before == after, f"{before} → {after}")
+
+
+def t_loop_replay_ignores_spec_gate_rows():
+    """[凍結判定] 規格閘自己的留痕(kind=spec-gate、不帶輪次)跟審查帳記在同一個編號下;處置閘本來就略過它,
+    凍結與回放讀帳卻沒略過,整個迴圈被判成「有的帶輪次有的不帶」而拒凍。出身:2026-09-26 兩份設計審過閘後凍結被擋。
+    翻紅釘:拿掉讀帳時略過 spec-gate 那個條件 → 凍結 rc2。"""
+    import json as _j, hashlib as _h, subprocess as _sp, tempfile as _tf
+    v = mkvault()
+    for _c in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
+               ["commit", "-qm", "init", "--allow-empty"]):
+        _sp.run(["git", "-C", str(v.parent)] + _c, capture_output=True)
+    repo = Path(_tf.mkdtemp(prefix="gctl-replay-sg-"))
+    for _c in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
+        _sp.run(["git", "-C", str(repo)] + _c, capture_output=True)
+    d = repo / "governance" / "review-reports" / "sg"
+    d.mkdir(parents=True)
+    spec = repo / "sg-spec.md"
+    spec.write_text("規則甲:回放要決定論,十個字以上。\n", encoding="utf-8")
+    hsp = _h.sha256(spec.read_bytes()).hexdigest()
+    rpt = d / "r1-s1.md"
+    rpt.write_text("severity: minor\n引句:「回放要決定論,十個字以上」\n", encoding="utf-8")
+    snap = d / "r1-snapshot.md"
+    snap.write_text(spec.read_text(encoding="utf-8"), encoding="utf-8")
+    row = {"ts": "2026-09-20T10:00:00+08:00", "kind": "none", "loop": "sg", "round": "r1",
+           "auditor": "s1", "token": "SG1", "severity": "minor", "findings": 1,
+           "findings_set": ["f1"], "folded_set": ["f1"], "accepted_set": [],
+           "result_sha256": hsp, "reviewed_sha256": hsp,
+           "report_path": "governance/review-reports/sg/r1-s1.md", "report_sha256": _h.sha256(rpt.read_bytes()).hexdigest(),
+           "snapshot_path": "governance/review-reports/sg/r1-snapshot.md", "snapshot_sha256": _h.sha256(snap.read_bytes()).hexdigest()}
+    sg = {"ts": "2026-09-20T09:00:00+08:00", "kind": "spec-gate", "token": "SPEC-1", "loop": "sg", "door": "high"}
+    (v.parent / ".canary-log.jsonl").write_text(_j.dumps(sg) + "\n" + _j.dumps(row) + "\n", encoding="utf-8")
+    _sp.run(["git", "-C", str(repo), "add", "-A"], capture_output=True)
+    _sp.run(["git", "-C", str(repo), "commit", "-qm", "evidence"], capture_output=True)
+    r = run(v, "loop", "replay", "sg", "--freeze", "--spec", str(spec), "--repo", str(repo))
+    check("凍結:帳上有規格閘留痕照樣凍得起來", r.returncode == 0, r.stdout[-200:] + r.stderr[-300:])
+    r = run(v, "loop", "replay", "sg", "--golden", str(repo / "governance" / "replay" / "sg" / "verdict.json"), "--repo", str(repo))
+    check("回放:帳上有規格閘留痕照樣對得上凍結判定", r.returncode == 0, r.stdout[-200:] + r.stderr[-300:])
+
+
 def t_loop_replay_freeze_and_golden():
     """[改制回測 S1/S2] 凍結+回放全鏈:閉包完整/spec 活檔免疫/帳本長大不紅/帳被動紅/
     凍結檔被動紅(不誤報邏輯漂移)/golden 過期不紅指路重凍/邏輯漂移紅/唯讀(治理帳零寫入+
@@ -33750,7 +34440,7 @@ def t_loop_escape_ledger():
     v = mkvault()
     spec = v / "Projects" / "esc.md"; spec.write_text("s\n", encoding="utf-8")
     lid = f"esc-{_M1U}"
-    r = run(v, "loop", "escape", lid, "--stage", "prod", "--severity", "major", "--desc", "x")
+    r = run(v, "loop", "escape", "--defect-ref", "測試佐證", lid, "--stage", "prod", "--severity", "major", "--desc", "x")
     check("★紅釘:未知迴圈編號擋下★", r.returncode == 2 and "沒有叫" in r.stderr, r.stderr[:200])
     check("擋下時不落帳", not (v.parent / ".escape-log.jsonl").exists(), "")
     run(v, "canary", "record", "caught", "--loop", lid, "--round", "r1", "--severity", "clean",
@@ -33762,10 +34452,10 @@ def t_loop_escape_ledger():
     check("★紅釘:--stage 必填(季度分層必備欄)★", r_st.returncode == 2 and "--stage 必填" in r_st.stderr, r_st.stderr[:200])
     check("缺 --severity 擋(驗證收在函式內)",
           run(v, "loop", "escape", lid, "--stage", "prod", "--desc", "缺等級").returncode == 2, "")
-    r3 = run(v, "loop", "escape", lid, "--severity", "blocker", "--desc", "上線後資料損壞", "--stage", "prod",
+    r3 = run(v, "loop", "escape", "--defect-ref", "測試佐證", lid, "--severity", "blocker", "--desc", "上線後資料損壞", "--stage", "prod",
              "--defect-ref", "Issues/x", expect_rc=0)
     check("記帳成功訊息講了記什麼+指路", "逃逸入帳" in r3.stdout and "escape --list" in r3.stdout, r3.stdout[:300])
-    run(v, "loop", "escape", lid, "--severity", "minor", "--desc", "第一行\n第二行", "--stage", "CI", expect_rc=0)
+    run(v, "loop", "escape", "--defect-ref", "測試佐證", lid, "--severity", "minor", "--desc", "第一行\n第二行", "--stage", "CI", expect_rc=0)
     rows = [_j.loads(l) for l in (v.parent / ".escape-log.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
     check("多筆 append 後帳完整、欄位齊(含落盤自驗 token)",
           len(rows) == 2 and rows[0]["loop"] == lid and rows[0]["severity"] == "blocker"
@@ -33787,7 +34477,7 @@ def t_loop_escape_ledger():
         "--tier", "standard", "--report", _sevrep(v.parent), expect_rc=0)
     lid_nfd = _ud.normalize("NFD", lid_cjk)
     check("★紅釘 B-3:NFD 貼上形照樣歸因得到(NFC 正規化)★",
-          run(v, "loop", "escape", lid_nfd, "--stage", "prod", "--severity", "minor", "--desc", "n").returncode == 0, "")
+          run(v, "loop", "escape", "--defect-ref", "測試佐證", lid_nfd, "--stage", "prod", "--severity", "minor", "--desc", "n").returncode == 0, "")
     # ★紅釘 F2-1:帳檔是 symlink → 擋下不寫(既存連結會繞過建檔保護、寫進外部檔——r2 實測重現後補)★
     v3 = mkvault()
     spec3 = v3 / "Projects" / "e3.md"; spec3.write_text("s\n", encoding="utf-8")
@@ -33797,7 +34487,7 @@ def t_loop_escape_ledger():
         "--tier", "standard", "--report", _sevrep(v3.parent), expect_rc=0)
     _target = v3.parent / "outside-target.jsonl"; _target.write_text("", encoding="utf-8")
     (v3.parent / ".escape-log.jsonl").symlink_to(_target)
-    rsl = run(v3, "loop", "escape", lid3, "--stage", "prod", "--severity", "minor", "--desc", "x")
+    rsl = run(v3, "loop", "escape", "--defect-ref", "測試佐證", lid3, "--stage", "prod", "--severity", "minor", "--desc", "x")
     check("★紅釘 F2-1:symlink 帳檔擋下、外部目標零寫入★",
           rsl.returncode == 2 and "符號連結" in rsl.stderr and _target.read_text(encoding="utf-8") == "",
           rsl.stderr[:200])
@@ -46602,7 +47292,7 @@ def t_doctor_escape_by_door():
     d, kg = _mk_spec_gate_repo(mkvault().parent.parent / "tw6")
     _sg_plan2(kg, "甲", ["- [S1] 系統應回 200 [test:t_red]", "- [S2] 系統應存檔 [test:t_red2]"])
     run(kg, "spec-gate", "Projects/甲_計劃", expect_rc=0)
-    run(kg, "loop", "escape", "甲", "--stage", "CI", "--severity", "major", "--desc", "CI 紅了一支", expect_rc=0)
+    run(kg, "loop", "escape", "--defect-ref", "測試佐證", "甲", "--stage", "CI", "--severity", "major", "--desc", "CI 紅了一支", expect_rc=0)
     log = kg.parent / ".escape-log.jsonl"
     with open(log, "a", encoding="utf-8") as f:
         f.write(_j.dumps({"ts": "2026-09-17T10:00:00+08:00", "token": "ESC-r", "loop": "甲", "stage": "code-loop", "severity": "blocker", "desc": "輪級粗判", "auto": True, "precision": "round", "plan_risk": "low"}, ensure_ascii=False) + "\n")

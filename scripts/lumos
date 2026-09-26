@@ -603,7 +603,9 @@ def cmd_loop_replay(env, loop_id, golden=None, freeze=False, spec=None, note=Non
                     d = json.loads(line)
                 except ValueError:
                     continue
-                if d.get("loop") == loop_id:
+                # 規格閘留痕不是審查輪(雙向門放行_計劃 S16);處置閘本來就略過,凍結與回放要同一種讀法,
+                # 不然整個迴圈被判成「有的帶輪次有的不帶」而拒凍(2026-09-26 兩份設計審過閘後凍結被擋)
+                if isinstance(d, dict) and d.get("loop") == loop_id and d.get("kind") != "spec-gate":
                     raw.append(line)
                     parsed.append(d)
         except OSError as e:
@@ -2306,7 +2308,7 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
                 _by[_dr][str(_e.get("stage") or "?")] += 1
             for _dr in ("low", "high", "unknown"):
                 if _by.get(_dr):
-                    print(f"    逃逸({'風險低計劃' if _dr == 'low' else '風險高計劃' if _dr == 'high' else '風險不明'})按階段:" + "、".join(f"{k} {v}" for k, v in sorted(_by[_dr].items())))
+                    print(f"    逃逸({'風險低計劃' if _dr == 'low' else '風險高計劃' if _dr == 'high' else '風險不明'})按階段:" + "、".join(f"{_esc_clean(k, 40)} {v}" for k, v in sorted(_by[_dr].items())))
             _tw_esc = [_e for _e in _esc if ((_rec_plan_risk(_e) if (_e.get("plan_risk") or _e.get("door")) else _door_for_loop(env, str(_e.get("loop", "")))) == "low") and _e.get("precision") != "round"]
             _first30 = set(sorted(_two, key=lambda lp: str(_two[lp].get("ts", "")))[:30])
             _n_blocker = len({str(_e.get("loop")) for _e in _tw_esc if _e.get("severity") == "blocker"})
@@ -7385,6 +7387,115 @@ def _review_yield_round(rows):
     return {"N": N, "M": M, "R": R, "F": F, "A": A, "S": S, "has_carrier": carrier is not None}
 
 
+_CAP_HINT_BREAKER = 20   # 累計折入超過這個數就提示拆小(照抄拒絕熔斷器的起點,回看後再調)
+
+
+def _cap_hint(rows, gate=None):
+    """跑滿上限提示(Projects/審查跑滿上限提示_計劃):多席迴圈輪數到分級上限、或累計折入超過熔斷線時,
+    回每輪折入數、最高嚴重度與一條提示;不該印回 None。只讀、不寫帳、不改任何判定。
+    gate:None=不知道過了沒(loop next 印);{"passed": bool, "fails": [...]}=處置閘剛判的結果。"""
+    rows = [r for r in rows if isinstance(r, dict) and r.get("kind") != "spec-gate"]
+    scope = _cap_hint_scope(rows)
+    if scope is None:
+        return None
+    tier, cap = scope
+    groups, err = _disposal_round_groups(rows)
+    if err or not groups:
+        return None
+    out_rounds = [_cap_hint_round(rid, rrows) for rid, rrows in groups.items()]
+    total = sum(x["folded"] for x in out_rounds if x["recorded"])
+    unrecorded = sum(1 for x in out_rounds if not x["recorded"])
+    at_cap = len(out_rounds) >= cap
+    breaker = ({"total": total, "unrecorded_rounds": unrecorded} if total > _CAP_HINT_BREAKER else None)
+    if not at_cap and not breaker:
+        return None
+    return {"cap": cap, "tier": tier, "at_cap": at_cap, "rounds": out_rounds, "hint": _cap_hint_advice(out_rounds),
+            "breaker": breaker, "gate_status": gate}
+
+
+def _cap_hint_scope(rows):
+    """跑滿上限提示的適用範圍:回 (分級, 上限) 或 None(不印)。"""
+    # 只給多席格式:每一列都帶輪次(循序單審與 light 不帶)
+    if not rows or any("round" not in r for r in rows):
+        return None
+    if not _panel_retired_for(rows):      # 2026-08-26 以前開的舊迴圈
+        return None
+    tier = _loop_anchor_tier(rows) or "standard"   # 沒定錨照 loop next 的退路
+    if tier == "light":
+        return None
+    cap = (_TIER_PARAMS.get(tier) or (None, None))[1]
+    return (tier, cap) if cap else None
+
+
+def _cap_hint_round(rid, rrows):
+    """一輪的折入數、有沒有記處置、最高嚴重度。"""
+    y = _review_yield_round(rrows)
+    if y["has_carrier"]:
+        folded, recorded = y["F"] or 0, True
+    elif all(isinstance(r.get("findings"), int) and r["findings"] == 0 for r in rrows):
+        folded, recorded = 0, True      # 空輪:處置閘也看各席 findings 全是 0
+    else:
+        folded, recorded = None, False
+    sevs = [r.get("severity") for r in rrows if r.get("severity") in _SEV_ORDER]
+    max_sev = max(sevs, key=lambda x: _SEV_ORDER[x]) if sevs else None
+    return {"round": rid, "folded": folded, "max_severity": max_sev, "recorded": recorded}
+
+
+def _cap_hint_advice(out_rounds):
+    """提示規則(依序套,第一個成立的就是):判不了/換做法/可以停/由人裁。"""
+    if len(out_rounds) < 2 or any(not x["recorded"] for x in out_rounds):
+        return "unknown"
+    if out_rounds[-1]["folded"] >= out_rounds[-2]["folded"]:
+        return "reshape"
+    if _SEV_ORDER.get(out_rounds[-1]["max_severity"] or "clean", 0) <= _SEV_ORDER["minor"]:
+        return "can-stop"
+    return "human-decides"
+
+
+def _cap_hint_print(rows, gate=None):
+    """處置閘印跑滿上限提示:任何例外都吞掉、什麼都不印,不得影響判定與退出碼(代碼審 r1:帳上某輪欄位壞掉會讓處置閘噴例外)。"""
+    try:
+        for _ln in _cap_hint_lines(_cap_hint(rows, gate=gate)):
+            print(_ln)
+    except Exception:
+        pass
+
+
+def _cap_hint_lines(h):
+    """把 _cap_hint 的結果印成 [cap-hint] 開頭的幾行(loop next 與處置閘同一種措辭)。"""
+    if not h:
+        return []
+    P = "  "   # 標籤只印在段首一行,後面縮排(跟處置閘各段的輸出慣例一樣)
+    lines = []
+    if h["at_cap"]:
+        lines.append("[cap-hint] " + f"已經跑了 {len(h['rounds'])} 輪,到了分級 {h['tier']} 的上限 {h['cap']} 輪。每輪折入與最高嚴重度:")
+    else:
+        lines.append("[cap-hint] " + f"還沒到上限({len(h['rounds'])}/{h['cap']} 輪),但累計折入已經很多。每輪折入與最高嚴重度:")
+    for x in h["rounds"]:
+        f = "這輪沒記處置" if not x["recorded"] else f"折 {x['folded']} 條"
+        lines.append(P + f"  {x['round']}:{f},最高 {x['max_severity'] or '?'}")
+    g = h.get("gate_status")
+    if g is None:
+        gate_txt = "過了沒要帶 --spec 問處置閘(lumos loop status <編號> --disposal --spec <材料> --repo <根>)"
+    elif g.get("passed"):
+        gate_txt = "已過閘,可以收"
+    else:
+        gate_txt = "還沒過(原因:" + "/".join(g.get("fails") or ["?"]) + "),先處理原因再收"
+    lines.append(P + "閘:" + gate_txt)
+    msg = {
+        "unknown": "判不了,自己看(有輪沒記處置,或只有一輪可比)",
+        "reshape": "換做法:最後一輪折入沒比前一輪少——拆小改動、回頭改設計、或整類拿掉,再開一輪多半換不到東西",
+        "can-stop": "可以停:折入在降、最後一輪只剩 minor 以下;" + gate_txt,
+        "human-decides": "有進展(折入在降),但還有 major 以上而且已到上限:要不要破例再一輪,由人裁",
+    }[h["hint"]]
+    lines.append(P + "提示:" + msg)   # 一律印:熔斷觸發但判不了時也要講判不了(設計 S8「並列」)
+    if h.get("breaker"):
+        b = h["breaker"]
+        lines.append(P + f"熔斷:各輪累計折入已經 {b['total']} 條(超過 {_CAP_HINT_BREAKER}),建議拆小改動"
+                     + (f";另有 {b['unrecorded_rounds']} 輪沒記處置,沒算進來" if b["unrecorded_rounds"] else ""))
+    return lines
+
+
 def _review_yield_line(y, escapes=None):
     """把 _review_yield_round 的 dict 印成一行(問閘尾與 gov --stats 同一種措辭)。"""
     q = lambda v: "?" if v is None else str(v)
@@ -7394,8 +7505,9 @@ def _review_yield_line(y, escapes=None):
             f"→ 折 {q(y['F'])} / 放行 {q(y['A'])};{s_part}{tail}")
 
 
-def _escape_rows_for(env, loop_id=None):
-    """讀逃逸帳(append-only,不進閘);loop_id 給了就只回那條迴圈的。壞行跳過。"""
+def _escape_raw_rows(env):
+    """讀逃逸帳的原始列:含撤回紀錄,只跳過壞行與不是 JSON 物件的行(Projects/逃逸帳對得起來_計劃 第三節)。
+    撤回確認目標、自動記的去重要用這支——`_escape_rows_for` 永遠不吐撤回紀錄,拿它確認會判不出「已撤過」。"""
     out = []
     try:
         log = env.vault.parent / ".escape-log.jsonl"
@@ -7406,13 +7518,71 @@ def _escape_rows_for(env, loop_id=None):
                 continue
             try:
                 d = json.loads(ln)
-            except ValueError:
+            except (ValueError, RecursionError):   # 合法但超深巢狀的一行解析會遞迴過深,也只跳過那行(code-逃逸帳 r3 邊界席)
                 continue
-            if loop_id is None or d.get("loop") == loop_id:
+            if isinstance(d, dict):
                 out.append(d)
     except OSError:
         pass
     return out
+
+
+_REVIEW_RECORD_KINDS = ("none", "caught", "missed")   # 審查帳裡真正的審查紀錄;kind=spec-gate 是規格閘自己的留痕
+
+
+def _review_loop_ids(env):
+    """審查帳裡有審查紀錄的迴圈編號(NFC);規格閘留痕不算——風險低沒審的計劃也會有那種列。"""
+    return set(_escape_review_rows_by_loop(env))
+
+
+def _escape_loop_kind(loop_id, review_ids):
+    """逃逸列歸給哪一種迴圈:code-(代碼審)/design(有審查紀錄的設計審)/plan(沒審查帳的計劃)。寫與讀共用這一支。"""
+    lid = nfc(str(loop_id or ""))
+    if lid.startswith("code-"):
+        return "code"
+    return "design" if lid in review_ids else "plan"
+
+
+def _escape_reason_ok(v):
+    """理由門檻:去空白後至少 _MANUAL_MIN_CHARS 個字且至少一個實字(跟 [manual:] 那條同一個判法)。"""
+    return isinstance(v, str) and len(v.strip()) >= _MANUAL_MIN_CHARS and bool(re.search(r"[^\W_]", v))
+
+
+def _escape_log_guard(log):
+    """寫逃逸帳前的共同檢查:帳檔是符號連結就擋、不存在就安全建檔(手動記帳與撤回共用)。回 0 或 2。"""
+    if log.is_symlink():
+        # r2 終態席實測:既存 symlink 會繞過建檔保護、共用寫入原語 open('a') 跟隨連結寫進外部檔——
+        # 每次寫前先擋本體(殘餘=判斷與開檔間競態,best-effort 同 _ledger_append 家族誠實降級)
+        print(f"擋下:逃逸帳檔是一個符號連結,不往裡寫(帳本必須是普通檔案):\n    {log}", file=sys.stderr)
+        return 2
+    if not log.exists():
+        try:
+            os.close(os.open(str(log), os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644))
+        except FileExistsError:
+            pass
+        except OSError as e:
+            print(f"擋下:建不了逃逸帳檔({e}):\n    {log}", file=sys.stderr)
+            return 2
+    return 0
+
+
+def _escape_is_withdraw(r):
+    """撤回紀錄本身不是逃逸事件:任何統計都不當成一筆逃逸。"""
+    return isinstance(r, dict) and r.get("kind") == "withdraw"
+
+
+def _escape_withdrawn_targets(rows):
+    """哪些逃逸列被撤回了(撤回紀錄的 target token 集合)。"""
+    return {r.get("target") for r in rows if _escape_is_withdraw(r) and r.get("target")}
+
+
+def _escape_rows_for(env, loop_id=None, include_withdrawn=False):
+    """讀逃逸帳(append-only,不進閘);loop_id 給了就只回那條迴圈的。壞行、非物件行跳過。
+    撤回紀錄永遠不回;被撤回的列預設不回,include_withdrawn=True 才回(自動記的去重要把撤過的當成記過)。"""
+    rows = _escape_raw_rows(env)
+    gone = set() if include_withdrawn else _escape_withdrawn_targets(rows)
+    return [d for d in rows if not _escape_is_withdraw(d) and d.get("token") not in gone
+            and (loop_id is None or d.get("loop") == loop_id)]
 
 
 def _severity_check_row(rec, root, trust_sha=False):
@@ -8033,7 +8203,7 @@ def _jsonl_append_verified(path, rec, key_field, key_value):
                     continue
                 try:
                     d = json.loads(line)
-                except ValueError:
+                except (ValueError, RecursionError):   # 別筆是超深巢狀行也只跳過;否則已寫進去卻報沒記成功(code-逃逸帳 r3 邊界席)
                     continue
                 if isinstance(d, dict) and d.get(key_field) == key_value:
                     return 0
@@ -9249,7 +9419,7 @@ def _esc_clean(v, limit=200):
     """逃逸帳顯示消毒(code-escape r1 B-1/B-2):控制字元(含換行/ESC)換空格——
     --list 的「一行一筆」是攔截/逃逸週報 grep 的載重合約,使用者可控的 desc 不得打穿;
     ANSI 逃逸碼進終端=帳本可信度風險。截斷防超長刷版。"""
-    out = "".join(ch if ch >= " " and ch != "\x7f" else " " for ch in str(v))
+    out = "".join(ch if ch >= " " and not ("\x7f" <= ch <= "\x9f") else " " for ch in str(v))   # 含 8 位元 C1 控制碼(r2 資安席)
     return out if len(out) <= limit else out[:limit] + "…"
 
 
@@ -9291,10 +9461,24 @@ def _loop_id_for_plan(plan_rel):
 
 
 def _plan_for_loop(env, loop_id):
-    """迴圈編號 → 計劃筆記(vault 相對);找不到回 None。"""
-    for cand in (f"{loop_id}_計劃.md", f"{loop_id}.md"):
-        if (env.vault / "Projects" / cand).is_file():
+    """迴圈編號 → 計劃筆記(vault 相對);找不到回 None。
+    代碼審編號先去掉 code- 前綴;檔名比對兩邊都做 NFC(Projects/逃逸帳對得起來_計劃 第四節)。"""
+    lid = nfc(str(loop_id or ""))
+    if any(ch in lid for ch in ("/", "\\", "..")) or not lid.strip():
+        return None   # 迴圈編號帶路徑字元不查(r1 資安席:否則拼出的路徑可能跳出 Projects/)
+    if lid.startswith("code-"):
+        lid = lid[len("code-"):]
+    proj = env.vault / "Projects"
+    for cand in (f"{lid}_計劃.md", f"{lid}.md"):
+        if (proj / cand).is_file():
             return f"Projects/{cand}"
+    try:
+        names = {nfc(q.name): q.name for q in proj.iterdir()} if proj.is_dir() else {}
+    except OSError:
+        names = {}
+    for cand in (f"{lid}_計劃.md", f"{lid}.md"):
+        if nfc(cand) in names:
+            return f"Projects/{names[nfc(cand)]}"
     return None
 
 
@@ -9309,7 +9493,7 @@ def _door_for_loop(env, loop_id):
             continue
         try:
             d = json.loads(ln)
-        except ValueError:
+        except (ValueError, RecursionError):   # 自動記逃逸會走到這裡,它答應不炸(code-逃逸帳 r3 邊界席)
             continue
         if isinstance(d, dict) and d.get("kind") == "spec-gate" and nfc(str(d.get("loop", ""))) == nfc(loop_id):
             door = _rec_plan_risk(d) if (d.get("plan_risk") or d.get("door")) else door
@@ -9330,18 +9514,19 @@ def _auto_escape(env, stage, severity, desc, loops, sha, source, extra=None):
                 continue
             try:
                 v = json.loads(ln).get("loop")
-            except ValueError:
+            except (ValueError, AttributeError, RecursionError):   # 超深巢狀行解析會遞迴過深(code-逃逸帳 r3 邊界席)
                 continue
             if isinstance(v, str):
                 known.add(nfc(v))
     import datetime as _dt
     import secrets as _sec
+    review_ids = _review_loop_ids(env)
     written = 0
     # ★寫側上鎖(r1 回滾席):兩個 hook 同時寫,各自讀到「還沒包含對方那筆」的 existing,去重會被繞過;
     # 讀 existing→判→append 整段都要在同一把 vault 寫入鎖裡(跟 set/append 共用)。
     with _vault_write_lock(env.vault):
         existing = set()
-        for r in _escape_rows_for(env):
+        for r in _escape_rows_for(env, include_withdrawn=True):   # 撤回過的仍算記過,同觸發不會悄悄補回來
             existing.add((nfc(str(r.get("loop", ""))), r.get("stage"), r.get("sha")))
         for loop_id, plan_rel in loops:
             plan_ok = bool(plan_rel) and _plan_file_exists(env, plan_rel)
@@ -9363,7 +9548,8 @@ def _auto_escape(env, stage, severity, desc, loops, sha, source, extra=None):
             rec = {"ts": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
                    "token": "ESC-" + _sec.token_hex(4),
                    "loop": loop_id, "stage": stage, "severity": severity, "desc": " ".join(desc.split()),
-                   "auto": True, "source": source, "sha": sha, "attribution": attribution, "plan_risk": door}
+                   "auto": True, "source": source, "sha": sha, "attribution": attribution, "plan_risk": door,
+                   "loop_kind": _escape_loop_kind(loop_id, review_ids)}
             if plan_rel:
                 rec["plan"] = plan_rel
             if extra:
@@ -9401,8 +9587,57 @@ def _escape_auto_failed(env, loop_id, stage, why):
     print(f"逃逸自動記失敗({stage}/{loop_id}): {why}", file=sys.stderr)
 
 
+def _escape_withdraw(env, log, target, reason, by, others, auto, list_mode, withdrawn):
+    """撤回一筆逃逸:追加一列撤回紀錄,不改舊列(Projects/逃逸帳對得起來_計劃 第三節)。"""
+    import datetime as _dtw
+    import secrets as _secw
+    if auto or list_mode or withdrawn or any(x is not None for x in others):   # 給了空字串也算混用(r2 邊界席)
+        print("擋下:--withdraw 只能跟 --reason、--withdrawn-by 一起給,不能混記帳參數、--repo、--list 或 --auto(以免你以為做了兩件事)", file=sys.stderr)
+        return 2
+    target = (target or "").strip()
+    if not (by or "").strip():
+        print("擋下:撤回要明講是誰撤的:--withdrawn-by <誰>", file=sys.stderr)
+        return 2
+    if not _escape_reason_ok(reason):
+        print(f"擋下:撤回理由至少 {_MANUAL_MIN_CHARS} 個字、要有實字(撤回會讓統計數字變好看,一定要留得下為什麼)", file=sys.stderr)
+        return 2
+    with _vault_write_lock(env.vault):
+        rc_g = _escape_log_guard(log)   # 先確認帳檔不是符號連結再讀(r2 外家找洞席)
+        if rc_g:
+            return rc_g
+        rows = _escape_raw_rows(env)
+        hits = [r for r in rows if r.get("token") == target]
+        if not hits:
+            print(f"擋下:逃逸帳裡沒有 token {_esc_clean(target, 40)} 這一列,帳本沒動。看全帳(每列都印 token):\n"
+                  "    lumos loop escape --list", file=sys.stderr)
+            return 2
+        if len(hits) > 1:
+            print(f"擋下:token {_esc_clean(target, 40)} 在帳上出現 {len(hits)} 次(帳本損毀或撞號),撤回會連帶藏掉別的列;"
+                  "先對照 git 上一版把重複的那列修好再撤", file=sys.stderr)
+            return 2
+        hit = hits[0]
+        if _escape_is_withdraw(hit):
+            print(f"擋下:{_esc_clean(target, 40)} 本身是一筆撤回紀錄,撤回不能再撤;要反悔就重記一列逃逸", file=sys.stderr)
+            return 2
+        if target in _escape_withdrawn_targets(rows):
+            print(f"擋下:{_esc_clean(target, 40)} 已經撤回過了,帳本沒動", file=sys.stderr)
+            return 2
+        rec = {"kind": "withdraw", "target": target, "reason": reason.strip(), "by": by.strip(),
+               "ts": _dtw.datetime.now().astimezone().isoformat(timespec="seconds"),
+               "token": "ESC-" + _secw.token_hex(4)}
+        rc_w = _jsonl_append_verified(log, rec, "token", rec["token"])
+    if rc_w:
+        return rc_w
+    print(f"✓ 撤回 {_esc_clean(target, 40)}:之後統計(問閘尾漏斗、治理帳統計、escape-stats、規則缺口)都不算它;清單照樣列、標已撤回")
+    print("  撤回者是呼叫的人自報的,工具不驗身分;撤回清單:")
+    print("    lumos loop escape --list --withdrawn")
+    print("  ★還沒更新的 lumos 不認得撤回紀錄★:會把它印成可疑列、治理帳統計多算;共用這本帳的地方都要先跑 lumos update")
+    return 0
+
+
 def cmd_loop_escape(env, loop_id=None, stage=None, severity=None, desc=None,
-                    defect_ref=None, list_mode=False, rule=None, auto=False, git_range=None, sha=None, repo=None):
+                    defect_ref=None, list_mode=False, rule=None, auto=False, git_range=None, sha=None, repo=None,
+                    withdraw=None, reason=None, by=None, withdrawn=False, missing_ref=None):
     """逃逸帳原語(Projects/loop數據收集_計劃 M1②,2026-07-16 設計、2026-08-31 落地)。
     語意:某個審查迴圈收斂放行了,下游(實作/CI/prod/人)發現可歸因的缺陷→記一筆。
     整套審查系統的 ground truth 側;與攔截帳(★圖譜攔截★記號)互為兩面。
@@ -9411,6 +9646,16 @@ def cmd_loop_escape(env, loop_id=None, stage=None, severity=None, desc=None,
     收斂/放行狀態——那是語意判斷,歸人;守衛驗語意=偷渡閘,計劃明文不做。"""
     log = env.vault.parent / ".escape-log.jsonl"
     _SEV_W = {"minor": 0, "major": 1, "blocker": 2}
+    if withdraw is not None:
+        return _escape_withdraw(env, log, withdraw, reason, by,
+                                others=(loop_id, stage, severity, desc, defect_ref, rule, git_range, sha, missing_ref, repo),
+                                auto=auto, list_mode=list_mode, withdrawn=withdrawn)
+    if reason is not None or by is not None:
+        print("擋下:--reason 與 --withdrawn-by 只給撤回用(跟 --withdraw <token> 一起給)", file=sys.stderr)
+        return 2
+    if withdrawn and not list_mode:
+        print("擋下:--withdrawn 是 --list 的修飾(只列撤回過的);要看就用:\n    lumos loop escape --list --withdrawn", file=sys.stderr)
+        return 2
     if auto:
         # 自動模式(規格落成可驗收條件_計劃 第五節):給提交範圍,碰到的計劃筆記各記一筆;對不回就不記。
         if loop_id or list_mode:
@@ -9432,7 +9677,7 @@ def cmd_loop_escape(env, loop_id=None, stage=None, severity=None, desc=None,
         _auto_escape(env, stage.strip(), severity, desc, loops, sha or _git_head(repo_root), source=stage.strip())
         return 0
     if list_mode:
-        if loop_id or stage or severity or desc or defect_ref:
+        if loop_id or stage or severity or desc or defect_ref or missing_ref:
             print("擋下:--list 是唯讀,不能跟記帳參數混用——照原樣執行你會以為記了、其實一筆都沒寫。要記帳就拿掉 --list 重跑", file=sys.stderr)
             return 2
         if not log.exists():
@@ -9446,20 +9691,28 @@ def cmd_loop_escape(env, loop_id=None, stage=None, severity=None, desc=None,
                 continue
             try:
                 d = _je.loads(ln)
-            except ValueError:
+            except (ValueError, RecursionError):
                 bad.append(no)
                 continue
             if not isinstance(d, dict):
                 bad.append(no)      # 合法 JSON 但非物件(null/陣列)——r1 外家 ESC-03:一筆就能弄壞整個 --list
                 continue
             rows.append(d)
+        # 撤回紀錄不當成一筆逃逸;被撤回的列照樣列、標出來(Projects/逃逸帳對得起來_計劃 第三節)
+        _wd = {r.get("target"): r for r in rows if _escape_is_withdraw(r) and r.get("target")}
+        rows = [r for r in rows if not _escape_is_withdraw(r)]
+        if withdrawn:
+            rows = [r for r in rows if r.get("token") in _wd]
         if bad:
             print(f"提醒:逃逸帳有 {len(bad)} 行壞損被跳過(行 {', '.join(map(str, bad[:5]))}"
                   + ("…" if len(bad) > 5 else "") + f");帳檔:{log}", file=sys.stderr)
         by_loop = {}
         for r in rows:
             by_loop.setdefault(str(r.get("loop", "?")), []).append(r)
-        print(f"逃逸帳:{len(rows)} 筆(迴圈收斂放行後、下游抓到的可歸因缺陷;歸因為人工判斷)")
+        _n_wd = sum(1 for r in rows if r.get("token") in _wd)
+        print(f"逃逸帳:{len(rows)} 筆(迴圈收斂放行後、下游抓到的可歸因缺陷;歸因為人工判斷)"
+              + (f";其中 {_n_wd} 筆已撤回(統計不算)" if _n_wd else "")
+              + (";只列撤回過的" if withdrawn else ""))
         for lp, rs in sorted(by_loop.items()):
             worst_row = max(rs, key=lambda r: _SEV_W.get(r.get("severity"), -1))
             wsev = worst_row.get("severity")
@@ -9468,10 +9721,12 @@ def cmd_loop_escape(env, loop_id=None, stage=None, severity=None, desc=None,
             for r in rs:
                 sev = r.get("severity")
                 sev_disp = sev if sev in _SEV_W else f"?{_esc_clean(sev, 12)}"
-                print(f"    {str(r.get('ts') or '?')[:10]} [{sev_disp}@{_esc_clean(r.get('stage', '?'), 30)}] {_esc_clean(r.get('desc', ''))}"
+                print(f"    {_esc_clean(str(r.get('ts') or '?')[:10], 10)} {_esc_clean(r.get('token', '?'), 20)} [{sev_disp}@{_esc_clean(r.get('stage', '?'), 30)}] {_esc_clean(r.get('desc', ''))}"
                       + (f"(佐證:{_esc_clean(r['defect_ref'], 80)})" if r.get("defect_ref") else "")
                       # ★逐筆看得到有沒有標規則★(r1 通才席):只有彙總看得到的話,巡帳的人不知道哪一筆漏標
-                      + (f"[本來該抓的規則:{_esc_clean(str(r['rule']), 40)}]" if r.get("rule") else "[沒標該抓的規則]"))
+                      + (f"[本來該抓的規則:{_esc_clean(str(r['rule']), 40)}]" if r.get("rule") else "[沒標該抓的規則]")
+                      + (lambda w: f" ★已撤回({_esc_clean(w.get('reason', ''), 60)};{_esc_clean(w.get('by', '?'), 20)},"
+                                   f"{_esc_clean(str(w.get('ts') or '?')[:10], 10)})★" if w else "")(_wd.get(r.get("token"))))
         return 0
     # ── 記帳模式:全部驗證在此(r1 架構席 R-2:dispatch 只路由,驗證不拆層) ──
     if not loop_id:
@@ -9487,55 +9742,262 @@ def cmd_loop_escape(env, loop_id=None, stage=None, severity=None, desc=None,
         print("擋下:--desc 不能空——沒有描述的逃逸帳讀側無從歸因,等於沒記", file=sys.stderr)
         return 2
     ledger = env.vault.parent / ".canary-log.jsonl"
-    known, led_bad = set(), 0
+    known, led_bad, review_ids = set(), 0, set()   # 審查帳只掃一次:編號存在與否、哪些是審查紀錄(r2 併發席)
     if ledger.exists():
         import json as _je2
         for ln in ledger.read_text(encoding="utf-8").splitlines():
             if not ln.strip():
                 continue
             try:
-                v = _je2.loads(ln).get("loop")
-            except ValueError:
+                _d = _je2.loads(ln)
+                v = _d.get("loop")
+            except (ValueError, AttributeError, RecursionError):
                 led_bad += 1
                 continue
             if isinstance(v, str):
                 known.add(nfc(v))     # r1 邊界席 B-3:NFC 正規化,NFD 貼上形不再肉眼無解
+                if _d.get("kind") in _REVIEW_RECORD_KINDS:
+                    review_ids.add(nfc(v))
     if nfc(loop_id) not in known:
         msg = f"擋下:審查帳裡沒有叫「{loop_id}」的迴圈——逃逸要歸因到真實存在的迴圈,先確認編號:\n    lumos gov --stats"
         if led_bad:
             msg += f"\n  (審查帳另有 {led_bad} 行壞損被跳過——查不到也可能是編號在那幾行裡)"
         print(msg, file=sys.stderr)
         return 2
+    # 佐證(Projects/逃逸帳對得起來_計劃 第二節):sha 或 defect_ref 至少一個;都沒有要講為什麼沒有
+    if missing_ref is not None and ((sha or "").strip() or (defect_ref or "").strip()):
+        print("擋下:已經附了 --sha 或 --defect-ref,就不要再給 --missing-defect-ref(兩個一起給,理由會被丟掉)", file=sys.stderr)
+        return 2
+    if not (sha or "").strip() and not (defect_ref or "").strip():
+        if missing_ref is None:
+            print("擋下:要附佐證——--sha <提交> 或 --defect-ref <Issue/報告/提交>;真的沒有就講為什麼:\n"
+                  "    --missing-defect-ref \"<為什麼沒有>\"\n"
+                  "  (沒有佐證的逃逸列之後沒辦法去重,同一個缺陷會被記成好幾筆)", file=sys.stderr)
+            return 2
+        if not _escape_reason_ok(missing_ref):
+            print(f"擋下:--missing-defect-ref 的理由至少 {_MANUAL_MIN_CHARS} 個字、要有實字", file=sys.stderr)
+            return 2
     import datetime as _dt_esc
     import secrets as _sec_esc
     rec = {"ts": _dt_esc.datetime.now().astimezone().isoformat(timespec="seconds"),
            "token": "ESC-" + _sec_esc.token_hex(4),       # 落盤自驗唯一鍵(canary auto-mint 慣例)
            "loop": loop_id, "stage": stage.strip(), "severity": severity, "desc": desc.strip()}
-    if defect_ref:
-        rec["defect_ref"] = defect_ref
+    if (defect_ref or "").strip():
+        rec["defect_ref"] = defect_ref.strip()
+    if (sha or "").strip():
+        rec["sha"] = sha.strip()
+    if missing_ref is not None and not rec.get("defect_ref") and not rec.get("sha"):
+        rec["defect_ref_missing"] = missing_ref.strip()
+    rec["loop_kind"] = _escape_loop_kind(loop_id, review_ids)
     if rule:
         # ★閉環的那一格★:標「本來哪條規則該抓」,漏網才長得出新的守衛;
         # 不標的話這本帳只記得「漏掉了」,永遠不會變成下次擋得住的東西(看待辦:lumos rule-gap)
         rec["rule"] = rule.strip()
-    if log.is_symlink():
-        # r2 終態席實測:既存 symlink 會繞過建檔保護、共用寫入原語 open('a') 跟隨連結寫進外部檔——
-        # 每次寫前先擋本體(殘餘=判斷與開檔間競態,best-effort 同 _ledger_append 家族誠實降級)
-        print(f"擋下:逃逸帳檔是一個符號連結,不往裡寫(帳本必須是普通檔案):\n    {log}", file=sys.stderr)
-        return 2
-    if not log.exists():
-        try:
-            os.close(os.open(str(log), os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644))
-        except FileExistsError:
-            pass
-        except OSError as e:
-            print(f"擋下:建不了逃逸帳檔({e}):\n    {log}", file=sys.stderr)
-            return 2
-    rc_w = _jsonl_append_verified(log, rec, "token", rec["token"])   # 共用硬化原語(OSError 擋下+讀回自驗);已知天花板=撞鍵時讀回比對可能對到舊筆(canary 全家族同款,hex4 空間機率極低)
+    with _vault_write_lock(env.vault):   # 手動記帳也上鎖(跟自動記、撤回同一把)
+        rc_g = _escape_log_guard(log)
+        if rc_g:
+            return rc_g
+        rc_w = _jsonl_append_verified(log, rec, "token", rec["token"])   # 共用硬化原語(OSError 擋下+讀回自驗);已知天花板=撞鍵時讀回比對可能對到舊筆(canary 全家族同款,hex4 空間機率極低)
     if rc_w:
         return rc_w
     print(f"✓ 逃逸入帳:迴圈 {loop_id} 放行的東西在「{rec['stage']}」被抓到 {severity} 級缺陷。")
     print("  這筆是審查系統的漏網紀錄——量的是「閘沒接住的」,與攔截帳(★圖譜攔截★)互為兩面;看全帳:")
     print("    lumos loop escape --list")
+    return 0
+
+
+_ESCAPE_NEXT_STAGES = ("實作", "code-loop")   # 以 push-gate 開頭的站名也算下一站接住
+_ESCAPE_LEAK_STAGES = ("CI", "prod", "使用者回報")
+_ESCAPE_STATS_MIN_N = 20
+
+
+def _wilson_interval(k, n, z=1.96):
+    """比例的 Wilson 95% 信賴區間;n=0 回 None。"""
+    if n <= 0:
+        return None
+    import math
+    p = k / n
+    den = 1 + z * z / n
+    mid = (p + z * z / (2 * n)) / den
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den
+    return (max(0.0, mid - half), min(1.0, mid + half))
+
+
+def _escape_stage_class(stage):
+    """站名分類:next=下一站就接住、leak=漏網、unknown=不認得(算漏網、另列)。"""
+    st = str(stage or "")
+    if st in _ESCAPE_NEXT_STAGES or st.startswith("push-gate"):
+        return "next"
+    return "leak" if st in _ESCAPE_LEAK_STAGES else "unknown"
+
+
+def _escape_plan_scopes(env, loop_id):
+    """迴圈對應計劃的 scope/<類> 標籤;對不到計劃或沒標就 ["未分類"]。欄位照全檔慣例從 env.notes 讀。"""
+    rel = _plan_for_loop(env, loop_id)
+    n = None
+    if rel:
+        n = env.notes.get(rel)
+        if n is None:   # 磁碟檔名是 NFD、索引鍵是 NFC 時兩邊都做 NFC 再比(r2 外家否決席)
+            n = next((v for k, v in env.notes.items() if nfc(k) == nfc(rel)), None)
+    if n is None:
+        return ["未分類"]
+    sc = [t[len("scope/"):] for t in as_list(n.fields.get("tags")) if isinstance(t, str) and t.startswith("scope/")]
+    return sc or ["未分類"]
+
+
+def _escape_review_rows_by_loop(env):
+    """審查帳裡的審查紀錄,依迴圈編號(NFC)分組;規格閘留痕不算。"""
+    by_loop = {}
+    try:
+        for ln in (env.vault.parent / ".canary-log.jsonl").read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                d = json.loads(ln)
+            except (ValueError, RecursionError):
+                continue
+            if isinstance(d, dict) and d.get("kind") in _REVIEW_RECORD_KINDS and isinstance(d.get("loop"), str):
+                by_loop.setdefault(nfc(d["loop"]), []).append(d)
+    except OSError:
+        pass
+    return by_loop
+
+
+def _escape_released_loops(env, review_ids):
+    """放行了的迴圈:治理帳有 converged 紀錄(設計審與代碼審過處置閘都寫在 gate=design-loop 這個閘名下、
+    nodes 帶編號;有任何一筆 converged 就算),而且審查帳有它的審查紀錄。"""
+    released = set()
+    try:
+        for ln in (env.vault.parent / ".governance-log.jsonl").read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                d = json.loads(ln)
+            except (ValueError, RecursionError):
+                continue
+            if (isinstance(d, dict) and d.get("kind") == "converged" and d.get("gate") == "design-loop"
+                    and isinstance(d.get("nodes"), list) and d["nodes"] and isinstance(d["nodes"][0], str)):
+                lid = nfc(d["nodes"][0])
+                if lid in review_ids:
+                    released.add(lid)
+    except OSError:
+        pass
+    return released
+
+
+def _escape_evidence_keys(r):
+    """一列的佐證:sha 與 defect_ref 各算一個鍵(r1 外家否決席:只取其一時,同一個 defect_ref 配不同 sha 會逃過比對)。"""
+    return [f"{k}:{str(r.get(k) or '').strip()}" for k in ("sha", "defect_ref") if str(r.get(k) or "").strip()]
+
+
+def _escape_shared_evidence(rows, released):
+    """歸因不明用:先剔無佐證,只在分母母體內,每個佐證對到哪些迴圈。"""
+    ev = {}
+    for r in rows:
+        lid = nfc(str(r.get("loop", "")))
+        if lid in released:
+            for key in _escape_evidence_keys(r):
+                ev.setdefault(key, set()).add(lid)
+    return ev
+
+
+def _escape_stats(env):
+    """逃逸率依類別(Projects/逃逸帳對得起來_計劃 第四節):單位一律是迴圈。回 dict,唯讀。"""
+    raw = _escape_raw_rows(env)                       # 逃逸帳只讀一次:列與撤回數從同一份算(r2 併發席)
+    gone = _escape_withdrawn_targets(raw)
+    rows = [d for d in raw if not _escape_is_withdraw(d) and d.get("token") not in gone]
+    by_loop = _escape_review_rows_by_loop(env)        # 審查帳也只讀一次
+    review_ids = set(by_loop)
+    released = _escape_released_loops(env, review_ids)
+
+    _cat_cache = {}
+
+    def _cats(lid):   # 每個迴圈只算一次(r1 併發席:原本每一列逃逸都重讀計劃)
+        if lid not in _cat_cache:
+            kind = "code" if lid.startswith("code-") else "design"
+            tier = _loop_anchor_tier(by_loop.get(lid, [])) or "未定錨"
+            _cat_cache[lid] = [(kind, tier, sc) for sc in _escape_plan_scopes(env, lid)]
+        return _cat_cache[lid]
+
+    cats = {}
+    for lid in released:
+        for c in _cats(lid):
+            cats.setdefault(c, {"released": set(), "leaked": set(), "next": 0})["released"].add(lid)
+    totals = {"no_evidence": 0, "unattributed": 0, "unknown_stage": 0, "unreleased": 0, "plan": 0,
+              "withdrawn": len(gone)}
+    # 歸因比對只拿會進統計的列:落帳記成 plan 的不參與(r2 正確性席、外家否決席)
+    ev_loops = _escape_shared_evidence([r for r in rows if _escape_row_kind(r, review_ids) != "plan"], released)
+    for r in rows:
+        _escape_tally_row(r, cats, totals, _cats, review_ids, released, ev_loops)
+    return {"categories": _escape_cat_rows(cats), "totals": totals}
+
+
+def _escape_tally_row(r, cats, totals, cats_of, review_ids, released, ev_loops):
+    """一列逃逸記進 totals 或它所屬的各類別(_escape_stats 的逐列那段)。"""
+    lid = nfc(str(r.get("loop", "")))
+    cls = _escape_stage_class(r.get("stage"))
+    if cls == "unknown":
+        totals["unknown_stage"] += 1   # 站名不認得算全體(不論落在哪一桶,r2 外家找洞席)
+    bucket = _escape_row_bucket(r, lid, review_ids, released, ev_loops)
+    if bucket in ("plan", "unreleased", "unattributed"):
+        totals[bucket] += 1
+        return
+    if bucket == "no_evidence":
+        totals["no_evidence"] += 1
+    for c in cats_of(lid):
+        if cls == "next":
+            cats[c]["next"] += 1
+        else:
+            cats[c]["leaked"].add(lid)
+
+
+def _escape_row_kind(r, review_ids):
+    """落帳時已決定的種類為準,不因後來才有審查紀錄就事後改類(r1 外家兩席);沒記的舊列才推。"""
+    k = r.get("loop_kind")
+    return k if k in ("code", "design", "plan") else _escape_loop_kind(r.get("loop"), review_ids)
+
+
+def _escape_row_bucket(r, lid, review_ids, released, ev_loops):
+    """一列逃逸落在哪一桶:plan / unreleased / unattributed / no_evidence(仍算進它的迴圈)/ counted。"""
+    if _escape_row_kind(r, review_ids) == "plan":
+        return "plan"
+    if lid not in released:
+        return "unreleased"
+    keys = _escape_evidence_keys(r)
+    if not keys:
+        return "no_evidence"
+    return "unattributed" if any(len(ev_loops.get(k, ())) > 1 for k in keys) else "counted"
+
+
+def _escape_cat_rows(cats):
+    out = []
+    for (kind, tier, sc), v in sorted(cats.items(), key=lambda kv: (kv[0][0], str(kv[0][1]), kv[0][2])):
+        n, k = len(v["released"]), len(v["leaked"])
+        out.append({"kind": kind, "tier": tier, "scope": sc, "released": n, "leaked": k,
+                    "rate": (k / n) if n else None, "ci95": _wilson_interval(k, n), "next_stage": v["next"],
+                    "small_sample": n < _ESCAPE_STATS_MIN_N})
+    return out
+
+
+def cmd_loop_escape_stats(env, as_json=False):
+    """唯讀:逃逸率依類別(分級 × 範圍類)。"""
+    st = _escape_stats(env)
+    if as_json:
+        print(json.dumps(st, ensure_ascii=False))
+        return 0
+    print("逃逸率依類別(單位:迴圈;分母=處置閘過關放行的迴圈,分子=其中有漏網的迴圈;撤回的不算)")
+    if not st["categories"]:
+        print("  還沒有放行的迴圈可算")
+    for c in st["categories"]:
+        rate = "—" if c["rate"] is None else f"{c['rate']:.0%}"
+        ci = "" if not c["ci95"] else f"(95% 區間 {c['ci95'][0]:.0%} 至 {c['ci95'][1]:.0%})"
+        line = (f"  {c['kind']} × {c['tier']} × {c['scope']}:放行 {c['released']}、有漏網 {c['leaked']}、率 {rate}{ci}"
+                f"、下一站接住 {c['next_stage']}")
+        if c["small_sample"]:
+            line += "  ★樣本太少不下結論(放行少於 20)★"
+        if c["kind"] == "code":
+            line += "  (code 類只含手動記的逃逸,低估)"
+        print(line)
+    t = st["totals"]
+    print(f"  另列:無佐證 {t['no_evidence']} 列、歸因不明 {t['unattributed']} 列、站名不認得 {t['unknown_stage']} 列、"
+          f"未放行迴圈的逃逸 {t['unreleased']} 列、沒審查帳的計劃 {t['plan']} 列、撤回過 {t['withdrawn']} 列")
+    print("  範圍類有兩個以上標籤的計劃每類各算一次,各列加總會大於全體")
     return 0
 
 
@@ -10560,6 +11022,13 @@ def cmd_loop_next(env, loop_id, tier=None, as_json=False, need=2, spec=None, rep
             _sp_degraded = str(_e)
         if extra:
             out.update(extra)
+        # 跑滿上限提示(審查跑滿上限提示_計劃 S1/S10):只附加,不改 phase 與退出碼
+        try:
+            _ch = _cap_hint(rounds)
+        except Exception:
+            _ch = None
+        if _ch:
+            out["cap_hint"] = {"rounds": _ch["rounds"], "hint": _ch["hint"], "breaker": _ch["breaker"]}
         if as_json:
             print(_json.dumps(out, ensure_ascii=False))
         else:
@@ -10621,6 +11090,9 @@ def cmd_loop_next(env, loop_id, tier=None, as_json=False, need=2, spec=None, rep
                         print("    先讀再開;近名者尤其要讀它的 decisions")
             except Exception:
                 pass
+            # 跑滿上限提示放最後(審查跑滿上限提示_計劃 S1):文字輸出是逐欄挑著印的,這段要自己印
+            for _ln in _cap_hint_lines(_ch):
+                print(_ln)
         return 0 if phase == "converged" else 1
 
     # ⓪ escalate:light ratchet 永久態最先短路
@@ -18064,6 +18536,28 @@ def _gated_seat_rows(rounds, loop_id):
     return [r for r in rounds if any(_auditor_matches_slot(r.get("auditor"), s) for s in slots)]
 
 
+def _disposal_round_groups(rounds):
+    """處置閘的分輪:照帳上第一次出現的順序,同一輪的列放一起。回 (groups, None) 或 (None, 擋下訊息)。
+    處置閘與跑滿上限提示共用這一支(Projects/審查跑滿上限提示_計劃),不各寫一份。"""
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for r in rounds:
+        rid_ = r.get("round")
+        if rid_ is None:
+            # round-less 逐筆自成一輪(r2 回歸修:併成單一 __legacy 組會讓較早 carrier
+            # 冒充最新判定/合法 legacy 第二筆假 rc2;守衛只管顯式 round-id)
+            groups[f"__seq{len(groups)}"] = [r]
+            continue
+        if rid_.startswith("__"):
+            # r3 修(3 席重疊):防舊帳/手改帳撞內部鍵(寫側已擋新寫入,讀側防守舊資料)
+            return None, f"擋下:記錄裡有輪次編號 {rid_!r} 用了工具保留的 __ 字首(手改過或舊版寫的),先改掉"
+        if rid_ in groups and next(reversed(groups)) != rid_:
+            # 同 panel 守衛:round-id 被其他輪隔開後重現=append-only 帳次序損壞
+            return None, f"擋下:第 {rid_!r} 輪的記錄被別的輪次隔開後又出現(非連續重現),帳的順序亂了,沒辦法判斷"
+        groups.setdefault(rid_, []).append(r)
+    return groups, None
+
+
 def _disposal_security_step(rounds, rid, loop_id, prov_path):
     """處置閘第六步「資安席」(第五步是條款綁定):回 "fail" / "ok" / "skip",自己印 [disposal] 資安席 那幾行。
     定錨 high、生效日後的代碼審,編制表上每個 required-gated 席:①整個迴圈有它的帳(席名判法見 _auditor_matches_slot)
@@ -18275,7 +18769,6 @@ def _loop_status_disposal(rounds, loop_id, spec, n_badlines=0, root=None, bad_li
     round-id 非連續重現 rc2(reuse panel 守衛;原 OrderedDict 首現序拿錯輪)。
     留痕路徑:非絕對路徑以 repo root(root)解析(與寫側落帳慣例對稱)。
     exit 0=收斂 / 1=未過 / 2=帳面損壞或參數錯。"""
-    from collections import OrderedDict
     if n_badlines:
         print(f"擋下:審查記錄檔有 {n_badlines} 行讀不懂,沒辦法確定「最後一輪」是哪輪,先不判"
               "(修好或搬走壞行再問)"
@@ -18290,24 +18783,10 @@ def _loop_status_disposal(rounds, loop_id, spec, n_badlines=0, root=None, bad_li
         print("擋下:這個審查編號的記錄有的帶輪次、有的不帶,分不出哪輪是判定輪;"
               "統一補 --round,或全部不帶", file=sys.stderr)
         return 2
-    groups = OrderedDict()
-    for r in rounds:
-        rid_ = r.get("round")
-        if rid_ is None:
-            # round-less 逐筆自成一輪(r2 回歸修:併成單一 __legacy 組會讓較早 carrier
-            # 冒充最新判定/合法 legacy 第二筆假 rc2;守衛只管顯式 round-id)
-            groups[f"__seq{len(groups)}"] = [r]
-            continue
-        if rid_.startswith("__"):
-            # r3 修(3 席重疊):防舊帳/手改帳撞內部鍵(寫側已擋新寫入,讀側防守舊資料)
-            print(f"擋下:記錄裡有輪次編號 {rid_!r} 用了工具保留的 __ 字首(手改過或舊版寫的),先改掉", file=sys.stderr)
-            return 2
-        if rid_ in groups and next(reversed(groups)) != rid_:
-            # 同 panel 守衛:round-id 被其他輪隔開後重現=append-only 帳次序損壞
-            print(f"擋下:第 {rid_!r} 輪的記錄被別的輪次隔開後又出現(非連續重現),帳的順序亂了,沒辦法判斷",
-                  file=sys.stderr)
-            return 2
-        groups.setdefault(rid_, []).append(r)
+    groups, _gerr = _disposal_round_groups(rounds)
+    if _gerr:
+        print(_gerr, file=sys.stderr)
+        return 2
     if not groups:
         print(f"⏳ 無記錄({loop_id} 目前一筆記錄都還沒有)")
         return 1
@@ -18573,6 +19052,8 @@ def _loop_status_disposal(rounds, loop_id, spec, n_badlines=0, root=None, bad_li
         result_out["fails"] = list(fails)
     if fails:
         print(f"⛔ DISPOSAL GATE FAIL ({loop_id} 輪 {rid}: {'/'.join(fails)})")
+        if not readonly:   # 跑滿上限提示:只印不擋、回放與凍結不印(審查跑滿上限提示_計劃 S2/S3)
+            _cap_hint_print(rounds, gate={"passed": False, "fails": list(fails)})
         return 1
     # 橫幅只列這次真的跑過而且過了的步驟(代碼審 r3 編排者自找:加了⑤⑥之後橫幅還寫死四項);skip 的不列、不宣稱
     _extra = "".join(f" ∧ {n}" for n, st in (("條款綁定", _cl), ("資安席", _sec), ("落點", _ld)) if st == "ok")
@@ -18582,6 +19063,7 @@ def _loop_status_disposal(rounds, loop_id, spec, n_badlines=0, root=None, bad_li
         print(f"✅ DISPOSAL GATE PASS ({loop_id} 輪 {rid}: G3 ∧ 處置全清 ∧ 留痕可重算 ∧ 引句全錨定{_extra})")
     if not readonly:
         _loop_gov_mark(env, loop_id, "converged", "disposal gate PASS")
+        _cap_hint_print(rounds, gate={"passed": True, "fails": []})   # 審查跑滿上限提示_計劃 S2
     return 0
 
 
@@ -20227,6 +20709,7 @@ def cmd_rule_gap(repo=None, as_json=False):
     log = next((c for c in cands if c.is_file()), cands[0])
     counts, unlabeled = {}, 0
     if log.is_file():
+        _evs = []
         for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
             line = line.strip()
             if not line.startswith("{"):
@@ -20235,12 +20718,19 @@ def cmd_rule_gap(repo=None, as_json=False):
                 ev = json.loads(line)
             except Exception:
                 continue
+            if isinstance(ev, dict):
+                _evs.append(ev)
+        # 撤回紀錄不算逃逸、被撤回的列不算(跟 _escape_rows_for 同一支判斷;這裡保留自己找檔,要支援 standalone 佈局)
+        _gone = _escape_withdrawn_targets(_evs)
+        for ev in _evs:
+            if _escape_is_withdraw(ev) or ev.get("token") in _gone:
+                continue
             _raw = ev.get("rule")
-            rid = _raw.strip() if isinstance(_raw, str) else ""   # 非字串不要整支崩,當成沒標
+            rid = _esc_clean(_raw.strip(), len(_raw)) if isinstance(_raw, str) else ""   # 非字串不要整支崩,當成沒標;讀進來就清控制字元(不截斷,長名字才不會誤合併),清完撞名的次數合併、文字與 --json 同一份(code-逃逸帳 r3 資安席、末輪修正 r2/r3 通才席)
             if not rid or rid == "none":
                 unlabeled += 1
                 continue
-            counts.setdefault(rid, {"n": 0, "desc": ev.get("desc", "")[:60]})
+            counts.setdefault(rid, {"n": 0, "desc": _esc_clean(ev.get("desc", ""), 60)})
             counts[rid]["n"] += 1
     have = set(_rules_declared_ids(repo_root))
     idx, idx_err = _rules_load(repo_root)
@@ -30820,10 +31310,16 @@ def main():
     le.add_argument("--auto", dest="esc_auto", action="store_true",
                     help="自動記:不給編號,改給 --range,碰到的計劃筆記各記一筆(推送閘/CI 用);對不回不記")
     le.add_argument("--range", dest="esc_range", help="--auto 用:提交範圍 a..b")
-    le.add_argument("--sha", dest="esc_sha", help="--auto 用:去重鍵的 sha(不給就取 HEAD)")
+    le.add_argument("--sha", dest="esc_sha", help="缺陷佐證的提交;--auto 時也是去重鍵(不給就取 HEAD)")
     le.add_argument("--repo", dest="esc_repo", help="--auto 用:repo 根(不給就用 vault 的上兩層)")
     le.add_argument("--rule", dest="esc_rule", help="本來哪條規則該抓到它(規則 id;真的沒有對應規則就寫 none)。標了才算得出「該寫哪條規則」——看待辦:lumos rule-gap")
-    le.add_argument("--list", dest="esc_list", action="store_true", help="列全帳(按迴圈分組)")
+    le.add_argument("--list", dest="esc_list", action="store_true", help="列全帳(按迴圈分組;被撤回的標出來)")
+    le.add_argument("--missing-defect-ref", dest="esc_missing_ref", metavar="理由",
+                    help="手動記帳既沒有 --sha 也沒有 --defect-ref 時,講為什麼沒有(至少 4 個字)")
+    le.add_argument("--withdraw", dest="esc_withdraw", metavar="token", help="撤回一筆逃逸(追加撤回紀錄,不改舊列);要一起給 --reason 與 --withdrawn-by;token 看 --list")
+    le.add_argument("--reason", dest="esc_reason", help="--withdraw 用:為什麼撤回(至少 4 個字)")
+    le.add_argument("--withdrawn-by", dest="esc_by", help="--withdraw 用:誰撤的(自報,不驗身分)")
+    le.add_argument("--withdrawn", dest="esc_withdrawn", action="store_true", help="--list 的修飾:只列撤回過的")
     ll = lsub.add_parser("list", help="哪些審查迴圈還開著(帳面沒關門的);next/status 都要 loop_id,這支先給你編號")
     ll.add_argument("--days", dest="ll_days", type=int, default=14, help="幾天內有動才算「在飛」(預設 14)")
     ll.add_argument("--stale", dest="ll_stale", action="store_true", help="只看超過門檻沒動又沒關門的(空轉候選)")
@@ -30832,6 +31328,9 @@ def main():
                     help="略過編號以此開頭的迴圈(可重複;例:--exclude auto- 排掉自主迴圈的每日場次)")
     ll.add_argument("--json", dest="ll_json", action="store_true")
     ll.add_argument("--now", dest="ll_now", metavar="YYYY-MM-DD", help="指定「今天」是哪一天(重算/測試用;預設系統日期)")
+    les = lsub.add_parser("escape-stats", help="逃逸率依類別(分級×範圍類;單位是迴圈,撤回的不算);唯讀",
+                          description="什麼時候用:想知道哪一類審查(設計審或代碼審 × 分級 × 範圍類)放行之後最常漏到下游。單位是迴圈:放行了幾條、之後漏了幾條;下一站接住的、歸因不明的、沒放行的另列。一個類別放行少於 20 條會標樣本太小。唯讀。")
+    les.add_argument("--json", dest="es_json", action="store_true")
     lcs = lsub.add_parser("canary-stats",
                           help="[d4 讀取面] 跨輪 canary 累積帳:席位×caught/missed×尾端連續 missed;唯讀恆 rc0")
     lcs.add_argument("loop_id", nargs="?", default=None, help="省略=全 loop 摘要")
@@ -31646,6 +32145,8 @@ def main():
                                  exclude=args.ll_exclude)
         if args.lcmd == "canary-stats":
             return cmd_loop_canary_stats(env, args.loop_id)
+        if args.lcmd == "escape-stats":
+            return cmd_loop_escape_stats(env, as_json=args.es_json)
         if args.lcmd == "status":
             return cmd_loop_status(env, args.loop_id, args.need,
                                    gate=args.gate, spec=args.gate_spec, repo=args.gate_repo,
@@ -31662,10 +32163,16 @@ def main():
         if args.lcmd == "rewrite":
             return cmd_loop_rewrite(env, args.rw_loop_id, args.rw_successor, args.rw_note)
         if args.lcmd == "escape":
-            return cmd_loop_escape(env, loop_id=args.esc_loop_id, stage=args.esc_stage,
-                                   severity=args.esc_severity, desc=args.esc_desc,
-                                   defect_ref=args.esc_ref, list_mode=args.esc_list, rule=args.esc_rule,
-                                   auto=args.esc_auto, git_range=args.esc_range, sha=args.esc_sha, repo=args.esc_repo)
+            try:   # 寫入鎖拿不到會拋 RuntimeError;照其他寫入指令一樣印「擋下」,不讓例外直接冒出來
+                return cmd_loop_escape(env, loop_id=args.esc_loop_id, stage=args.esc_stage,
+                                       severity=args.esc_severity, desc=args.esc_desc,
+                                       defect_ref=args.esc_ref, list_mode=args.esc_list, rule=args.esc_rule,
+                                       auto=args.esc_auto, git_range=args.esc_range, sha=args.esc_sha, repo=args.esc_repo,
+                                       withdraw=args.esc_withdraw, reason=args.esc_reason, by=args.esc_by,
+                                       withdrawn=args.esc_withdrawn, missing_ref=args.esc_missing_ref)
+            except (ValueError, RuntimeError) as e:
+                print(f"擋下:{e}", file=sys.stderr)
+                return 2
         if args.lcmd == "next":
             return cmd_loop_next(env, args.loop_id, tier=args.next_tier, as_json=args.next_json, orchestrator=args.next_orch,
                                  need=args.need, spec=args.gate_spec, repo=args.gate_repo)
