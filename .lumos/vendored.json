@@ -10,13 +10,13 @@
   "scripts/hooks/claude/dispatch-lens-hook.py": "9d8b0b8ace9bb78c11d82c46d2b902da5945473a83390231924d116ca9bfda5f",
   "scripts/hooks/claude/impact-hook.py": "16851237e0b3cecdb867e9b2dd36cc71e0f4e5c4a01cb155510d3f46df7f3e00",
   "scripts/hooks/claude/lumos-entry-hook.py": "57697cd0e456ffd0ff27dba052999e8aef16fea61d935d0eada51b8ead43e8ba",
-  "scripts/hooks/claude/memory-sweep.py": "bc6a39c841e1c023215e91a21ee660853e884c8f93f07c927daa20dad69c8194",
+  "scripts/hooks/claude/memory-sweep.py": "6bc21768296f6b858e0f5965206ad8c487500c79c7fd5a02bab2396105f9c634",
   "scripts/hooks/post-commit": "754a88db17add2493587bc51e5891b8f810342d10bbddf6f7d97d6c05d3b9651",
   "scripts/hooks/pre-commit": "470f20b9b21f05078adf307ea739022c567f75aab0e91be4a94f1ec4121bb63a",
   "scripts/hooks/pre-push": "10f1b24c65f9fc8d6f221b3c18a2b659a4626fd71c217186c3de8de33b201525",
-  "scripts/lumos": "4110ff0f37a88a40e19e57c5f91e2ac8aa4f09be50d600f36c6427d821da2a7d",
+  "scripts/lumos": "e1f43996fd51b7ddc012d3aa136f71d0d8f1e3ad056164c8765b05e50da389de",
   "scripts/merge-claude-settings.py": "69e9f960f1fea34a443bd0b45ad964856047bd92f646d0335c5d5360d3b454e8",
   "scripts/templates/graph-discipline.md": "f61eebf1537b7834fa48c8f92e5444d8918248dcbd017c62b0a2bd1752b60ceb",
-  "scripts/test_lumos.py": "2d85a42d40e787c6eab0f5b88d2081fdd13826d8010136e13a91080224f0cc78"
+  "scripts/test_lumos.py": "d7aebc5df9ea8f3ebe735c680eac69e29ccec4bdf9e1b0bb38615a2aa01ec12f"
  }
 }

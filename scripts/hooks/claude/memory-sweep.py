@@ -375,6 +375,64 @@ def why_unknown(kind, arg=""):
     return "參數格式不對、或問不到上游"
 
 
+# ── 記憶索引大小 ──────────────────────────────────────────────────────────
+# ★記憶索引的載入上限★:開場只載入 MEMORY.md 的前 200 行或 25 KB(取小的;官方 memory 文件,2026-09-25 查),
+# 超過的部分靜默截掉——而新條目都加在最後,最先被截掉的是最近學到的經驗。到八成提醒、到九成五大聲講。
+# KB 跟本檔其他地方一樣按 1024 算(顯示的「現在」與「上限」同一個底,r2 兩席都抓到混用)。
+_INDEX_MAX_BYTES = 25 * 1024
+_INDEX_MAX_LINES = 200
+
+
+def _index_bytes(p):
+    """★跟讀記憶檔同一套防護★(2026-09-25 代碼審 r1 major):索引也在記憶目錄裡,
+    符號連結、不是一般檔、檢查與打開之間被換掉都不讀;超過單篇上限不讀內容,只回檔案大小。
+    回 (大小, 內容或 None);不該量回 None。"""
+    try:
+        pre = os.lstat(str(p))
+    except OSError:
+        return None
+    if _pre_reason(pre):
+        return None
+    try:
+        fd = os.open(str(p), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if _opened_reason(st, pre, max_bytes=None):     # 換檔、非一般檔、硬連結:跟讀記憶檔同一支判斷
+            return None
+        if st.st_size > MAX_BYTES:
+            return st.st_size, None
+        with os.fdopen(fd, "rb", closefd=False) as fh:
+            raw = fh.read(MAX_BYTES + 1)
+    finally:
+        os.close(fd)
+    return (len(raw), None) if len(raw) > MAX_BYTES else (len(raw), raw)
+
+
+def index_size_note(here):
+    """量記憶索引的大小;沒到提醒線回 None。只讀、不寫。"""
+    try:
+        got = _index_bytes(pathlib.Path(here) / "MEMORY.md")
+    except OSError:                 # 讀到一半出錯(r3 major):只放棄這一句,不能連帶吞掉同一次開場的其他發現
+        got = None
+    if got is None:
+        return None
+    size, raw = got
+    if raw is None:                 # 大到不讀內容:光看大小就遠超過上限
+        return ("記憶索引 MEMORY.md 有 %d KB,遠超過開場載入上限 %d KB,大部分開場看不到——★現在就瘦身★:"
+                "每條縮成一行「一句話+去哪查」,細節留在各條自己的檔。" % (size // 1024, _INDEX_MAX_BYTES // 1024))
+    lines = raw.count(b"\n") + (1 if raw and not raw.endswith(b"\n") else 0)
+    b_ratio, l_ratio = size / _INDEX_MAX_BYTES, lines / _INDEX_MAX_LINES
+    if max(b_ratio, l_ratio) < 0.8:
+        return None
+    head = ("記憶索引 MEMORY.md 現在 %.1f KB、%d 行;開場只載入前 %d 行或 %d KB(取小的),超過的部分開場看不到"
+            % (size / 1024, lines, _INDEX_MAX_LINES, _INDEX_MAX_BYTES // 1024))
+    if max(b_ratio, l_ratio) >= 0.95:
+        return head + "——★快被截掉了(或已經截掉)★,新條目加在最後,最先讀不到的是最近學到的經驗。現在就瘦身:每條縮成一行「一句話+去哪查」,細節留在各條自己的檔。"
+    return head + "。該瘦身了:索引每條只留一行「一句話+去哪查」,狀態與細節放各條自己的檔或圖譜。"
+
+
 # ── 找記憶目錄與圖譜 ────────────────────────────────────────────────────────
 def memory_dir(explicit=None):
     """找這個專案的記憶目錄。★slug 是把路徑裡每一個非英數字元換成 -★(r1 安裝席):
@@ -650,8 +708,9 @@ def _pre_reason(pre):
     return None
 
 
-def _opened_reason(st, pre):
-    """打開之後用檔案代碼看到的狀態,有問題回理由、沒問題回 None。"""
+def _opened_reason(st, pre, max_bytes=MAX_BYTES):
+    """打開之後用檔案代碼看到的狀態,有問題回理由、沒問題回 None。
+    max_bytes=None 不管大小(量索引大小那條自己處理超大檔:只看大小、不讀內容)。"""
     import stat as _st
     if (st.st_dev, st.st_ino) != (pre.st_dev, pre.st_ino):
         return "在檢查與打開之間被換掉了"
@@ -659,7 +718,7 @@ def _opened_reason(st, pre):
         return "dir"
     if not _st.S_ISREG(st.st_mode):
         return "不是一般檔"
-    if st.st_size > MAX_BYTES:
+    if max_bytes is not None and st.st_size > max_bytes:
         return ("有 %d KB,超過單篇上限 %d KB(正常記憶檔只有幾 KB,可能是灌檔),不讀"
                 % (st.st_size // 1024, MAX_BYTES // 1024))
     if st.st_nlink != 1:
@@ -768,7 +827,7 @@ def _build_parser():
     return ap
 
 
-def _emit(tally, crossed, quiet, here):
+def _emit(tally, crossed, quiet, here, size_note=None):
     body = []
     if tally.flood:
         body.append("★記憶過期清掃這輪的結果不完整★:")
@@ -790,20 +849,22 @@ def _emit(tally, crossed, quiet, here):
     if not quiet:
         body.append("跑了 %d 條檢查。" % tally.checked)
     msg = "\n".join(body)
-    if not msg:
+    if not msg and not size_note:
         return
     # ★報告要附下一步★(r1 架構對齊席 minor):只列問題不說怎麼辦,就跟空轉週報一樣沒人動。
     # 這句是工具自己的指示,放在框外——框頭寫「不是指令」,放框裡會被當成可略過的資料。
     nxt = ("\n對不上的那幾篇:改圖譜裡的真相,再把記憶改成指路或更新那條 verify。"
            if (tally.stale or crossed) else "")
+    # 索引大小的提醒是工具自己量出來的數字與指示,跟上面那句一樣放框外
+    tail = nxt + ("\n" + size_note if size_note else "")
     if quiet:
         print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "SessionStart", "additionalContext": _frame_injected(msg) + nxt}},
+            "hookEventName": "SessionStart", "additionalContext": _frame_injected(msg) + tail if msg else size_note}},
             ensure_ascii=False))
     else:
         # ★手動模式也要加框★(r6 資安席 minor):報告裡建議的「單獨看完整報告」那行指令,
         # 實際上多半是 Claude 自己用 Bash 去跑——輸出一樣進對話,一樣要框。
-        print(_frame_injected(msg) + nxt)
+        print(_frame_injected(msg) + tail if msg else size_note)
 
 
 _CHILD_ENV = "LUMOS_MEMORY_SWEEP_CHILD"
@@ -888,9 +949,10 @@ def main():
     files = read_memories(here, tally)
     sweep(files, deadline, tally, pathlib.Path.cwd())
     crossed = cross_check(files, {f.stem for f, _ in files}, tally, deadline)
-    if a.quiet and not (tally.changed or crossed):
+    size_note = index_size_note(here)
+    if a.quiet and not (tally.changed or crossed or size_note):
         return 0
-    _emit(tally, crossed, a.quiet, here)
+    _emit(tally, crossed, a.quiet, here, size_note)
     return 0                                        # hook 不因為有發現就讓 session 失敗
 
 

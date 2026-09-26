@@ -1203,6 +1203,36 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
     else:
         warn(lint_lines, f"有 {len(lint_lines)} 處開頭欄位踩到已知會讀錯的寫法:",
              "鐵則修法見 lumos-project-notes skill; 污染指紋見 pre-commit Gate 1 指引")
+    # ★L 段擴充:每篇跑 lint 的錯誤等級規則(原有+這次新增),擋不擋看 note_lint.gate★(筆記欄位關卡補齊_計劃 S1 到 S5)
+    # 出身:type 必填、摘要必填、status 值域、決策結構這批只在提交前對改到的那篇查,用 --no-verify 提交一次就一路推得上去。
+    # ★原有規則也照開關★(r3 外家席):它們第一次改成整個圖譜跑,消費專案舊筆記本來就違反的話,更新工具當下不能被硬擋。
+    # ★不讀碰到清單★:整個圖譜跑,不動預告合約那段靠 --touched-from 的擋法(r1 接手席)。
+    _nlc = _note_lint_config(_vault_repo_root(env))
+    _nl_mode, _nl_cfgw = _nlc["mode"], _nlc["warnings"]
+    if _nl_cfgw:
+        warn_soft(_nl_cfgw, "筆記欄位規則的設定有問題:")
+    if _nl_mode == "off":
+        print("  筆記欄位規則被關了(.lumos/config.json 的 note_lint.gate 是 off),每篇跑 lint 規則這一步不跑")
+    else:
+        _nl_bad = []
+        for rel, n in sorted(notes.items()):
+            if rel not in env.notes:
+                continue
+            try:
+                _e, _w = _lint_collect(env, rel)
+                _e = [x for x in _e if x not in n.lint] + _lint_new_rules(env, rel)   # 解析指紋上面已經列過,不重複
+            except Exception as _ex:   # 一篇讀不懂的筆記不能讓整個健檢當掉——列成那篇的錯(代碼審 r1 邊界席)
+                _e = [f"lint 讀這篇時出錯({_ex.__class__.__name__}),開頭欄位可能寫成工具讀不懂的形狀——跑 lumos lint <節點> 看"]
+            if _e:
+                _nl_bad.append(f"{rel}: {_e[0]}" + (f"(另有 {len(_e) - 1} 條)" if len(_e) > 1 else ""))
+        if not _nl_bad:
+            ok("每篇筆記都通過 lint 的錯誤等級規則")
+        elif _nl_mode == "on":
+            warn(_nl_bad, f"有 {len(_nl_bad)} 篇筆記沒通過 lint 的錯誤等級規則:",
+                 "逐篇跑 lumos lint <節點> 看完整訊息;每條都講了怎麼修")
+        else:
+            warn_soft([*_nl_bad, "整理完可以打開:把 .lumos/config.json 的 note_lint.gate 設成 on,之後推送前就會擋"],
+                      f"有 {len(_nl_bad)} 篇筆記沒通過 lint 的錯誤等級規則(note_lint.gate 是 warn,先提醒不擋):")
     print()
 
     # Check M: 狀態標籤漂移(status 欄位 vs tags 的 status/*;反正規化完整性,
@@ -2066,7 +2096,8 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
                     _linked.add(_d)
         _unlisted = []
         for rel, n in sorted(notes.items()):
-            if n.fields.get("type") not in _scope:
+            _ty = n.fields.get("type")
+            if not isinstance(_ty, str) or _ty not in _scope:   # type 寫成清單時拿去查集合會丟例外(代碼審 r1 邊界席順帶抓到的舊坑)
                 continue
             if str(n.fields.get("status", "")).strip() in ("superseded", "stale"):
                 continue
@@ -2078,7 +2109,7 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
                 gov_events.append({"gate": "check-s6", "kind": "warned",
                                    "hard": False, "nodes": [n.stem]})
         if not _unlisted:
-            ok(f"總索引把 {len([1 for r, n in notes.items() if n.fields.get('type') in _scope])} 篇節點都列到了(範圍:{'/'.join(sorted(_scope))})")
+            ok(f"總索引把 {len([1 for r, n in notes.items() if isinstance(n.fields.get('type'), str) and n.fields.get('type') in _scope])} 篇節點都列到了(範圍:{'/'.join(sorted(_scope))})")
         else:
             _soft_list(_unlisted,
                        f"有 {len(_unlisted)} 篇節點沒被總索引連到(找不到入口的節點,下一個人只會往舊的那篇塞):",
@@ -4798,6 +4829,35 @@ def cmd_lint(env, node):
     if rel is None:
         print(f"擋下:圖譜裡找不到叫 {node} 的筆記,先確認名稱或路徑(lumos search <關鍵字> 可以找)", file=sys.stderr)
         return 2
+    errs, warns = _lint_collect(env, rel)
+    # ★這次新增的欄位規則擋不擋看專案開關★(筆記欄位關卡補齊_計劃;原有規則不受開關影響,S13)
+    # 從跟「每支檔有家」同一個 repo 根讀(往上找 .git;代碼審 r1:圖譜在 repo 根、巢狀、monorepo 深層都曾讀錯)
+    _nlc = _note_lint_config(_vault_repo_root(env))
+    mode, cfg_warns = _nlc["mode"], _nlc["warnings"]
+    for _cw in cfg_warns:
+        print(f"⚠ {_cw}", file=sys.stderr)
+    if mode != "off":
+        new = _lint_new_rules(env, rel)
+        if mode == "on":
+            errs.extend(new)
+        else:
+            warns.extend(f"{x}(專案開關 note_lint.gate 是 warn,先提醒不擋)" for x in new)
+    if not errs and not warns:
+        print(f"✓ lint {rel} — 0 問題")
+        return 0
+    print(f"lint {rel}")
+    for e in errs:
+        print(f"  ✗ {e}")
+    for w in warns:
+        print(f"  ⚠ {w}")
+    print(f"\n{len(errs)} error / {len(warns)} warning"
+          + ("(error 不修,提交會被擋)" if errs else "(warning 不擋,但建議順手補)"))
+    return 1 if errs else 0
+
+
+def _lint_collect(env, rel):
+    """lint 原有的判定(不含這次新增、看開關的欄位規則):回 (錯誤清單, 提醒清單)。
+    `lumos lint` 與健檢 L 段都呼叫這支,不另寫一份規則(筆記欄位關卡補齊_計劃,r3 架構席)。"""
     n = env.notes[rel]
     errs = list(n.lint)          # frontmatter 指紋(ghost trap / 重複鍵 / 日期引號…)= error
     warns = []
@@ -4838,7 +4898,12 @@ def cmd_lint(env, node):
         warns.append("door 是舊寫法(2026-09-17 改名),改成 plan_risk: high(舊值仍讀得懂)" + ("" if _plan_risk_norm(_dv) != "unknown" else f";而且 {_dv!r} 這個值工具不認得,會當沒寫"))
 
     t = n.fields.get("type")
-    if not isinstance(t, str) or not t:
+    if t is not None and not isinstance(t, str):
+        # 寫成清單等非字串:當成一條錯誤,後面一律當沒寫 type 處理——不然拿它去查允許值會直接丟例外,
+        # 健檢 L 段整個圖譜跑時一篇壞筆記就讓整個健檢當掉(代碼審 r1 邊界席)
+        errs.append(f"type 要是一個字串(一篇只有一種類型),你寫的是 {type(t).__name__}——改成 type: <類型>")
+        t = None
+    elif not isinstance(t, str) or not t:
         errs.append("沒寫 type(這篇是功能、問題還是驗證紀錄?),工具沒辦法分類——在開頭欄位加一行 type: <類型>")
     elif t not in KNOWN_TYPES:
         errs.append(f"type『{t}』工具不認得,會被歸錯類——改成其中一個:{'/'.join(sorted(KNOWN_TYPES))}")
@@ -5024,18 +5089,137 @@ def cmd_lint(env, node):
                 " → 真是通則就寫一支列舉所有實例的測試並 [test:] 綁上;"
                 "寫不出來就八成只是某個模組的個別設計,★請改寫成限定範圍★"
                 "(誤報可加 [test:] 或改寫語氣消音)")
+    return errs, warns
 
-    if not errs and not warns:
-        print(f"✓ lint {rel} — 0 問題")
-        return 0
-    print(f"lint {rel}")
-    for e in errs:
-        print(f"  ✗ {e}")
-    for w in warns:
-        print(f"  ⚠ {w}")
-    print(f"\n{len(errs)} error / {len(warns)} warning"
-          + ("(error 不修,提交會被擋)" if errs else "(warning 不擋,但建議順手補)"))
-    return 1 if errs else 0
+
+_NOTE_LINT_GATE_VALUES = ("on", "warn", "off")
+_NOTE_LINT_PLAN_SINCE = "2026-09-12"   # 計劃要寫落點:看筆記建立日。日期取處置閘落點那一步同一天,但判準不同(那邊看審查迴圈首筆帳的時間)
+_NOTE_DATE_FIELDS = ("created", "updated", "date")
+_NOTE_STATUS_REQUIRED_TYPES = ("system", "project", "verification", "issue")
+
+
+def _note_lint_config(repo_root):
+    """專案開關 note_lint.gate(筆記欄位關卡補齊_計劃):回 {"mode": 模式, "warnings": 警告清單}(形狀同 _nodehome_config)。
+    結構照 _nodehome_config:設定檔不存在 → 用預設、不警告;讀不了、JSON 壞掉、是捷徑檔、note_lint 不是物件 →
+    用預設並警告;值看不懂 → 當 on 並警告(跟 node_home.gate 一樣)。★預設是 warn★(node_home 預設 on):
+    這批規則是新上的、每個消費專案都會跑到,沒設的專案更新工具後不能突然被擋。"""
+    cfg = {"mode": "warn", "warnings": []}
+    p = Path(repo_root) / ".lumos" / "config.json"
+    try:
+        via_link = p.is_symlink() or (p.exists() and p.resolve() != Path(repo_root).resolve() / ".lumos" / "config.json")
+    except OSError:
+        via_link = True
+    if via_link:
+        cfg["warnings"].append(".lumos/config.json(或 .lumos 資料夾)是捷徑檔,不跟過去讀,筆記欄位新規則用預設(只提醒)")
+        return cfg
+    if not p.is_file():
+        return cfg
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        cfg["warnings"].append(f".lumos/config.json 讀不了({e.__class__.__name__}),筆記欄位新規則用預設(只提醒)")
+        return cfg
+    if not isinstance(data, dict):
+        # 整份不是物件(null、陣列、純量)也要出聲(代碼審 r1 邊界席:原本悄悄當沒設)
+        cfg["warnings"].append(".lumos/config.json 整份不是物件,筆記欄位新規則用預設(只提醒)")
+        return cfg
+    nl = data.get("note_lint")
+    if nl is None:
+        return cfg
+    if not isinstance(nl, dict):
+        cfg["warnings"].append("設定檔的 note_lint 不是物件,筆記欄位新規則用預設(只提醒)")
+        return cfg
+    g = nl.get("gate", "warn")
+    if g in _NOTE_LINT_GATE_VALUES:
+        cfg["mode"] = g
+    else:
+        cfg["mode"] = "on"
+        cfg["warnings"].append(f"設定檔的 note_lint.gate={g!r} 看不懂(只認 {'/'.join(_NOTE_LINT_GATE_VALUES)}),已用 on")
+    return cfg
+
+
+def _note_date_ok(v):
+    if not isinstance(v, str) or not DATE_RE.match(v.strip()):
+        return False
+    import datetime as _dt
+    try:
+        _dt.date.fromisoformat(v.strip())
+    except ValueError:
+        return False
+    return True
+
+
+def _note_date_problem(label, present, v, why):
+    """一個日期欄位的問題(沒問題回 None)。頂層日期與決策日期★共用這一支★(代碼審 r2 五席:
+    只替頂層三個補了空字串防呆,同構的決策 decided/ended 沒跟上——同一種資料只准一套判法)。
+    present:欄位有沒有寫(寫了卻空也算錯:會同時繞過日期規則與既有的建立日切點)。"""
+    if not present:
+        return None
+    if v is None or str(v).strip() == "":
+        return f"{label} 寫了卻是空的——填年-月-日(例:2026-09-25),不需要就整行拿掉"
+    if not _note_date_ok(str(v)):
+        return f"{label} 要寫成年-月-日(例:2026-09-25),而且是真的日期;你寫的是 {str(v)!r}——{why}"
+    return None
+
+
+def _lint_new_rules(env, rel):
+    """這次新增、擋不擋看開關的欄位規則(筆記欄位關卡補齊_計劃 S6 到 S10):回問題清單(每條講怎麼修)。每條規則一支小函式。"""
+    n = env.notes[rel]
+    return (_nl_rule_status(n) + _nl_rule_dates(n) + _nl_rule_decisions(n)
+            + _nl_rule_about_code(env, n) + _nl_rule_lands_in(rel, n))
+
+
+def _nl_rule_status(n):
+    t = n.fields.get("type")
+    st = n.fields.get("status")
+    if t not in _NOTE_STATUS_REQUIRED_TYPES or (isinstance(st, str) and st.strip()):
+        return []
+    allowed = {"system": "doing/done/planned/deferred/rejected/superseded/stale", "project": "todo/doing/done/superseded",
+               "issue": "open/doing/resolved/done/wontfix", "verification": "pass/stale/superseded/pending/abandoned"}[t]
+    return [f"沒填 status(寫成空白也算),篩選與健檢各段都靠它判狀態——用 lumos set <節點> status <值> 補上,{t} 允許:{allowed}"]
+
+
+def _nl_rule_dates(n):
+    pbs = (_note_date_problem(k, k in n.fields, n.fields.get(k), "工具拿它比先後,寫錯會悄悄套錯規則") for k in _NOTE_DATE_FIELDS)
+    return [x for x in pbs if x]
+
+
+def _nl_rule_decisions(n):
+    out = []
+    for i, d in enumerate(parse_decisions(n.fm_lines or [])):
+        for k in ("decided", "ended"):
+            pb = _note_date_problem(f"第 {i} 條 decisions 的 {k}", k in d, d.get(k), "翻案時序比對會讀它")
+            if pb:
+                out.append(pb)
+        v = d.get("valid")
+        if v is not None and str(v).strip().lower() not in ("true", "false"):
+            out.append(f"第 {i} 條 decisions 的 valid 只能是 true 或 false,你寫的是 {str(v)!r}——現在只有 false 會被當成推翻,寫成 no、0 會被當成仍有效")
+    return out
+
+
+def _nl_rule_about_code(env, n):
+    ac = n.fields.get("about_code")
+    out = []
+    for item in (as_list(ac) if ac is not None else []):
+        if str(item).strip() == "":
+            continue
+        _, err = _about_code_path(env, item)
+        if err:
+            out.append(f"about_code:{err}——改成這篇真的管的程式檔,或用 lumos remove <節點> about_code <值> 拿掉")
+    return out
+
+
+def _nl_rule_lands_in(rel, n):
+    created = str(n.fields.get("created") or "")
+    if not (n.fields.get("type") == "project" and Path(rel).name.endswith("_計劃.md")
+            and (created >= _NOTE_LINT_PLAN_SINCE or not _note_date_ok(created))):
+        return []
+    li = n.fields.get("lands_in")
+    vals = [x for x in (as_list(li) if li is not None else []) if str(x).strip()]
+    if not vals:
+        return ["計劃沒寫 lands_in(現況要寫進哪幾篇 Systems)——用 lumos append <計劃> lands_in Systems/<名稱> 補上,還沒開的篇也可以先寫"]
+    bad = _lands_in_bad(vals)
+    return [f"lands_in 這幾項不是 Systems/<名稱> 的純字串:{bad}(不帶 .md、不寫 [[連結]])"] if bad else []
 
 
 SPEC_CLAUSE_RE = re.compile(r"\[S(\d+)\]")
@@ -7051,7 +7235,35 @@ def _report_normalize_issues(text):
         vis = _strip_inline_markup(ln)[0]   # 反引號裡的是在「講」格式(`- severity: X`),不是在宣告——沿用行內可見規則
         if _SEV_RESIDUE_RE.search(vis) or _SEV_HEADING_LEVEL_RE.match(vis):
             issues.append((no, "嚴重度要寫成獨立一行 severity: <值>(不是列表項、標題、粗體、方括號、破折號或別的拼法)", ln))
+    issues.extend(_report_findings_missing_severity(lines, _top))
     return issues
+
+
+_FINDING_VERIFIED_WORDS = ("已驗過", "沒問題", "無 finding", "已看,無", "已看，無", "已讀,無", "已讀，無")
+# 只收完整片語、不收單獨的「已讀」「已看」:「已讀取失敗」會被誤豁免(代碼審 r1 架構席);
+# 「已看,無」是資安席範本規定的寫法(歷史報告 code-純文件子集 r1 資安席實例),拿掉會誤擋
+
+
+def _report_findings_missing_severity(lines, top):
+    """★檔首判成非 clean 時,發現段的數量不能多過 severity 行★(2026-09-25:一份 F1、F2 都漏寫的報告在收貨偵測被說成
+    已正規化,到記帳時才因「報了幾條」對不上被擋)。缺的不補值(不能替審查席決定等級),只回給呼叫端印出來要人改。
+    ★只數數量、不分析標題結構★(代碼審三輪、Enzo 裁甲:逐段找範圍的做法每輪都被標題寫法的邊界打穿——子標題、
+    層級錯位、一字不差的兩個標題、縮排、F1.1 編號子標題——而且每輪的洞都是上一輪修正帶進來的)。記帳時「報了幾條」
+    也是數 severity 行,兩邊同一種數法。
+    ★天花板★:指不出是哪一條漏寫;某條寫了兩行、另一條沒寫時數量對得上會漏看。
+    不算發現段的:clean 報告、標題寫明已驗過/沒問題/已看,無 的段、F 後面接小數點的編號子標題(F1.1)。"""
+    if top not in ("minor", "major", "blocker"):
+        return []
+    heads = [(no, ln) for no, ln in _visible_lines(lines, keep_fenced=False)
+             if re.match(r"^\s{0,3}#{2,6}\s*F\d+(?![.\d])", ln, re.I)
+             and not any(w in ln for w in _FINDING_VERIFIED_WORDS)]
+    n_sev = len(_report_severities("\n".join(lines))) - 1   # 扣掉檔首那一行
+    if len(heads) <= n_sev:
+        return []
+    return [(heads[0][0], f"有 {len(heads)} 個發現段、卻只有 {n_sev} 行 severity: <值>——有發現漏寫等級"
+                          "(檔首判成非 clean 時每個 F 段都要有自己一行;要請審查席自己補)", heads[0][1])]
+
+
 
 
 _SEV_INLINE_DECL_RE = re.compile(r"^(\s*(?:[-*+]\s*)?(?:\*\*)?)(?:severity|Severity|嚴重度)(?:\*\*)?\s*[:：]\s*(clean|minor|major|blocker)\b\s*(.*)$")
@@ -10244,15 +10456,17 @@ def cmd_loop_next(env, loop_id, tier=None, as_json=False, need=2, spec=None, rep
             _qid = _shlex.quote(loop_id)
             _tier_flag = f" --tier {eff_tier}" if eff_tier in LOOP_TIERS else ""
             _orch_flag = f" --orchestrator {eff_orch}"
-            out["record_cmd"] = (f"lumos canary record caught|missed --loop {_qid}{rmode}"
+            # ★用現行類別 none★:caught|missed 是 canary 植入協議的類別,2026-08-14 已停用(Systems/canary-audit d5),
+            # 照抄舊模板等於教人記一筆已停用的帳;--snapshot:代碼審記帳從第一筆就要附審材,沒帶會被擋
+            out["record_cmd"] = (f"lumos canary record none --loop {_qid}{rmode}"
                                  f" --auditor <席> --severity <s> --findings <M>"
-                                 f" --report <席報告.md>"
+                                 f" --report <席報告.md> --snapshot <凍結快照.md>"
                                  f" --spec <計劃節點.md> --reviewed <sha256>{_tier_flag}{_orch_flag}"
                                  f" --scope-lines <這輪審了幾行>")   # cb3 s3-f1:寫側 2026-08-26 起審查席必附報告,模板同步
             # [T5 design-loop重設計] 處置閘模板(選用;record_cmd 原樣保留給 code-loop/舊流程)
             if not light and eff_tier != "legacy":
                 out["disposal_cmd"] = (
-                    f"lumos canary record caught|missed --loop {_qid}{rmode}"
+                    f"lumos canary record none --loop {_qid}{rmode}"
                     f" --auditor <席> --severity <s>"
                     f" --findings-set <id串> --folded-set <id串> --accepted-set <id串>"
                     f" --accept-reason <id=理由> --refuted-set none"
@@ -13131,6 +13345,7 @@ def cmd_export_html(env, out_path, standalone=False):
 
 SCALAR_KEYS = {"status", "updated", "created", "type", "self_audit", "signed_off", "regen", "pitfall_ask", "pitfall_source", "about_code_stamp", "responsibility"}  # pitfall_* 2026-08-09 已知坑策展庫;about_code_stamp 2026-08-23(語意欄位基礎,計劃:固定席扇出降權)
 LIST_KEYS = {"verified_by", "plan_refs", "related", "tags", "aliases", "pitfall_when", "core_refs", "about_code", "lands_in"}   # aliases 2026-08-05;pitfall_when 2026-08-09(已知坑策展庫,content-trigger);core_refs 2026-08-11(升格加指針/降格拆指針,兩向都要 T1;值是純路徑非 wikilink——lumos-core-knowledge skill 明令禁跨 vault wikilink)
+COND_KEYS = ("valid_under", "revalidate_when")   # 驗收前提/回頭條件:set 整欄換掉(一個值=單行、多個=清單);spec=Projects/驗收前提欄位可改_計劃
 LINK_KEYS = ("verified_by", "plan_refs", "related", "core_refs")  # S2「純連結欄位」子集(≠LIST_KEYS:那是 append 白名單,pitfall_when=content-trigger 不算連結);spec=Projects/code側刪除傳播守衛_計劃
 DATE_KEYS = {"updated", "created", "date", "decided", "ended"}
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -13173,6 +13388,39 @@ def fm_structure(fm_lines):
     return out
 
 
+# 標準 YAML(1.1/1.2,Obsidian 用的 js-yaml)不加引號會讀成數字、日期、無限大的寫法——這些要加引號才是字串
+# (2026-09-26 代碼審 r2 通才席:原本只認十進位整數與小數)。日期欄位(DATE_KEYS)刻意不加引號,走另一條路,不經這裡。
+_YAML_TYPED_RE = re.compile(
+    r"[-+]?(\d[\d_]*(\.[\d_]*)?|\.\d[\d_]*)([eE][-+]?\d+)?"       # 十進位、小數、科學記號
+    r"|[-+]?0[xX][0-9a-fA-F_]+|[-+]?0[oO]?[0-7_]+|[-+]?0[bB][01_]+"  # 十六、八、二進位
+    r"|[-+]?\d[\d_]*(:[0-5]?\d)+(\.[\d_]*)?"                        # 六十進位(1:20:30)
+    r"|[-+]?\.(inf|Inf|INF)|\.(nan|NaN|NAN)"                          # 無限大、非數
+    r"|\d{4}-\d\d?-\d\d?([Tt ].*)?")                                  # 日期、日期時間
+_YAML_PLAIN_BAD_START = set("-?:,[]{}#&*!|>'\"%@`")
+
+
+def _yaml_plain_ok(v):
+    """★白名單★:這個值不加引號時,本工具的簡易讀法與標準 YAML(Obsidian 等)讀出來一模一樣嗎。
+    只放行確定沒事的;拿不準的一律加引號(2026-09-26 代碼審 r1:原本只列「要加引號的」,
+    漏了「空白 + #」被標準 YAML 當註解切掉、「- 」開頭被當清單)。"""
+    return (v != "" and v == v.strip() and "\n" not in v and "\t" not in v
+            and v[0] not in _YAML_PLAIN_BAD_START and ": " not in v and " #" not in v and not v.endswith(":")
+            and v.lower() not in ("true", "false", "null", "yes", "no", "on", "off", "~")
+            and not _YAML_TYPED_RE.fullmatch(v))
+
+
+def _yaml_quote(v, what):
+    """加引號,只用兩邊讀法一致的寫法:本工具讀的一側只剝掉頭尾一層引號、不解任何跳脫。
+    雙引號在標準 YAML 裡會解反斜線跳脫 → 只在沒有反斜線、沒有雙引號時用;
+    否則單引號(標準 YAML 裡除了 '' 以外一律照字面)→ 只在沒有單引號時用;兩種都不行就擋。"""
+    if '"' not in v and "\\" not in v:
+        return '"' + v + '"'
+    if "'" not in v:
+        return "'" + v + "'"
+    raise ValueError(f"{what}「{v}」同時有單引號、又有雙引號或反斜線,工具寫不出本工具和 Obsidian 都讀得一樣的寫法,"
+                     "檔案沒動;把其中一種引號換掉再寫")
+
+
 def fmt_scalar(key, value):
     """純量值格式化。日期 bare(不加引號避污染指紋);含 ': ' 或特殊字元才引號。"""
     v = value.strip()
@@ -13181,20 +13429,14 @@ def fmt_scalar(key, value):
             raise ValueError(f"{key} 要寫成 年-月-日(例如 2026-08-22),你給的是 {v}")
         return v  # bare,絕不加引號
     # YAML 型別劫持守衛: true/false/null/yes/no/~ 與純數字當 status 會被解析成 bool/num/null
-    if v.lower() in ("true", "false", "null", "yes", "no", "on", "off", "~") or \
-       re.fullmatch(r"-?\d+(\.\d+)?", v):
-        return '"' + v + '"'
-    if re.search(r":\s|^[\[\{>|*&!#@`]|^\s|\s$", v) or v == "":
-        return '"' + v.replace('"', '\\"') + '"'
-    return v
+    # YAML 型別劫持守衛(true/false/null/純數字會被讀成布林/空值/數字)也在白名單判斷裡
+    return v if _yaml_plain_ok(v) else _yaml_quote(v, key)
 
 
 def fmt_list_item(value):
     """list 項格式化。wikilink / 含特殊字元 → 引號(鐵則1 安全:一項一行)。"""
     v = value.strip()
-    if v.startswith("[[") or re.search(r":\s|^[\[\{]", v):
-        return '"' + v.replace('"', '\\"') + '"'
-    return v
+    return v if _yaml_plain_ok(v) else _yaml_quote(v, "清單項")
 
 
 def edit_fm_scalar(fm_lines, key, value):
@@ -13567,9 +13809,24 @@ def cmd_set(env, rel, key, value):
 
 
 def _cmd_set_locked(env, rel, key, value):
+    if key in COND_KEYS:
+        return _set_conditions_locked(env, rel, key, value if isinstance(value, list) else [value])
+    if isinstance(value, list):
+        if len(value) != 1:
+            print(f"擋下:{key} 只收一個值,你給了 {len(value)} 個,檔案沒動(給多個值只有 {'、'.join(COND_KEYS)} 收)",
+                  file=sys.stderr)
+            return 2
+        value = value[0]
     if key not in SCALAR_KEYS:
-        print(f"擋下:{key} 不能用 set 改,檔案沒動。set 只能改這些純量欄位:{sorted(SCALAR_KEYS)}"
+        print(f"擋下:{key} 不能用 set 改,檔案沒動。set 只能改這些純量欄位:{sorted(SCALAR_KEYS)},"
+              f"以及整欄換掉的 {'、'.join(COND_KEYS)}"
               f"(清單欄位用 lumos append;決策新增/翻案用 lumos decision-add / decision-supersede)", file=sys.stderr)
+        return 2
+    # ★負責範圍跟新開節點用同一支判斷、同樣擋★(筆記欄位關卡補齊_計劃 S11;不看開關——r3 架構席:
+    # 同一個欄位的兩個寫入口擋法要一樣;原本只有 new 擋,set 可以寫進一個字)
+    if key == "responsibility" and not _nodehome_resp_ok(value):
+        print(f"擋下:負責範圍至少 {_NODEHOME_RESP_MIN_CHARS} 個字、要有實字(一句話講這篇負責什麼、不負責什麼),檔案沒動",
+              file=sys.stderr)
         return 2
     path = env.vault / rel
     lines, s, e = load_raw_for_edit(path)
@@ -13592,6 +13849,37 @@ def _cmd_set_locked(env, rel, key, value):
 
     atomic_write_verify(path, new_lines, key, _check)
     print(f"✓ set {rel}: {key} 已改成 {exp}" + ("(狀態標籤 status/* 也同步改了)" if tag_synced else ""))
+    return 0
+
+
+def _set_conditions_locked(env, rel, key, values):
+    """驗收紀錄的前提/回頭條件整欄換掉(Projects/驗收前提欄位可改_計劃)。
+
+    ★為什麼整欄換、不走 append/remove★:這兩欄是散文、常提到連結;append/remove 判斷「同一項」看連結目標,
+    兩條提到同一篇的不同條件會被當成重複。原本四種寫法(單行、清單、空的、多行區塊)並存,一律整段拿掉重寫。"""
+    vals = [str(v).strip() for v in values]
+    if not vals or any(not v for v in vals):
+        print(f"擋下:{key} 的每一條都不能是空的,檔案沒動(前提寫這個結論在什麼情況下才算數,回頭條件寫改到什麼該重驗)",
+              file=sys.stderr)
+        return 2
+    if any("\n" in v or "\r" in v for v in vals):
+        print(f"擋下:{key} 一條條件只能一行,檔案沒動(要寫多條就給多個值:lumos set <筆記> {key} \"條件一\" \"條件二\")",
+              file=sys.stderr)
+        return 2
+    path = env.vault / rel
+    lines, _s, e = load_raw_for_edit(path)
+    fm = list(lines[1:e])
+    new = ([f"{key}: {fmt_scalar(key, vals[0])}"] if len(vals) == 1
+           else [f"{key}:"] + [f"  - {fmt_scalar(key, v)}" for v in vals])
+    struct = {k: (a, b) for k, a, b, _kind in fm_structure(fm)}
+    if key in struct:
+        a, b = struct[key]
+        fm[a:b + 1] = new
+    else:   # 插的位置照 edit_fm_scalar:第一個清單或多行區塊欄位之前,都沒有就放最後
+        at = next((a for _k, a, _b, kind in fm_structure(fm) if kind in ("list", "block")), len(fm))
+        fm[at:at] = new
+    atomic_write_verify(path, lines[:1] + fm + lines[e:], key, lambda f: _conds(f.get(key)) == vals)
+    print(f"✓ set {rel}: {key} 整欄換成 {len(vals)} 條" + ("" if len(vals) == 1 else "(一行一項的清單)"))
     return 0
 
 
@@ -13668,6 +13956,13 @@ def _about_code_path(env, value):
         return None, f"「{v}」跑出這個 repo 了(repo 根是 {root})"
     if not target.is_file():
         return None, (f"「{v}」不是這個 repo 裡的檔案" + ("(它是目錄;about_code 要寫到檔案)" if target.is_dir() else "(找不到)"))
+    # ★筆記不是程式檔★(筆記欄位關卡補齊_計劃 S14):有一篇 Issue 就是用 append 把一篇筆記路徑寫進 about_code;
+    # 要連結別篇筆記請寫進 related,about_code 只放這篇管的程式檔。
+    try:
+        target.relative_to(env.vault.resolve())
+        return None, f"「{v}」在圖譜資料夾裡,是筆記不是程式檔——要連結別篇就寫進 related"
+    except ValueError:
+        pass
     # ★大小寫要跟磁碟上的真實檔名一致★(r2):排序加分拿這個值去比對 git 的改動路徑(大小寫敏感);
     # 大小寫不敏感的檔案系統上 SRC/A.TS 也通過 is_file,存進去就永遠對不上
     # 只差 Unicode 正規化寫法(é 一個字 vs e 加重音符號)的是同一個檔,不算寫錯:Mac 的磁碟兩種都認,
@@ -14023,11 +14318,10 @@ def _fm_of(all_lines):
 
 
 def _fmt_decision_value(v):
-    """decision 子欄位值格式化(含 ': ' 或特殊字元 → 引號,避鐵則 3)。"""
+    """decision 子欄位值格式化:跟 fmt_scalar 共用同一套白名單與加引號規則(2026-09-26 代碼審 r2 架構席:
+    原本是第三套手刻判準,結尾裸冒號讓標準 YAML 報錯、含「: 」又有雙引號的寫不進去)。"""
     v = v.strip()
-    if re.search(r":\s|^[\[\{>|*&!#@`\"']|^\s|\s$", v) or v == "":
-        return '"' + v.replace('"', '\\"') + '"'
-    return v
+    return v if _yaml_plain_ok(v) else _yaml_quote(v, "決策內容")
 
 
 def cmd_decision_supersede(env, rel, match, by, ended=None):
@@ -30701,10 +30995,10 @@ def main():
     p.add_argument("--standalone", action="store_true", help="html 內聯 cytoscape/marked(去 CDN,離線/防火牆可開)")
 
     # T1 寫側(行級手術,寫後自驗 atomic)
-    p = sub.add_parser("set", help="改純量欄位(status/updated/created/type)")
+    p = sub.add_parser("set", help="改純量欄位(status/updated/created/type);valid_under/revalidate_when 整欄換掉(可給多個值)")
     p.add_argument("note")
     p.add_argument("key")
-    p.add_argument("value")
+    p.add_argument("value", nargs="+")
     p = sub.add_parser("append", help="list 欄位追加(verified_by/plan_refs/related/tags)")
     p.add_argument("note")
     p.add_argument("key")
