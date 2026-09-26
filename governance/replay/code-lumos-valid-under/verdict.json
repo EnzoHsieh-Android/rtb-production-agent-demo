@@ -1,0 +1,28 @@
+{
+ "loop": "code-lumos-valid-under",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-26T13:40:28+08:00",
+ "spec_path": "governance/review-reports/code-lumos-valid-under/r1-snapshot.patch",
+ "spec_sha": "06bde4f03796ade4e2f7f6ddc11c1f15855f57b86c350e0b7bb830b1176c8d05",
+ "rows": [
+  "{\"ts\": \"2026-09-26T13:40:22+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-253e01d0\", \"note\": \"\", \"loop\": \"code-lumos-valid-under\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 2, \"result_sha256\": \"06bde4f03796ade4e2f7f6ddc11c1f15855f57b86c350e0b7bb830b1176c8d05\", \"reviewed_sha256\": \"06bde4f03796ade4e2f7f6ddc11c1f15855f57b86c350e0b7bb830b1176c8d05\", \"spec_path\": \"governance/review-reports/code-lumos-valid-under/r1-snapshot.patch\", \"scope_lines\": 40, \"tier\": \"light\", \"orchestrator\": \"claude\", \"findings_set\": [\"f1\", \"f2\"], \"folded_set\": [], \"accepted_set\": [\"f1\", \"f2\"], \"refuted_set\": [], \"accept_reasons\": {\"f1\": \"兩項清單是新版 lumos set 支援的多值寫法,環境版本分開一眼可見\", \"f2\": \"全形標點是舊欄位原有,非本次引入\"}, \"finding_kinds\": {\"f1\": \"spec\", \"f2\": \"spec\"}, \"reported\": 2, \"report_path\": \"governance/review-reports/code-lumos-valid-under/r1-架構對齊.md\", \"report_sha256\": \"5c864f0c19d64d89d8be12c9ea08188513e430a36846660f3ac30dab6b68cb60\", \"snapshot_path\": \"governance/review-reports/code-lumos-valid-under/r1-snapshot.patch\", \"snapshot_sha256\": \"06bde4f03796ade4e2f7f6ddc11c1f15855f57b86c350e0b7bb830b1176c8d05\"}"
+ ],
+ "all_row_shas": [
+  "11ba6c6c1938733631c1fc5d5bb44ea105a4e137c17c73ca552277810140531d"
+ ],
+ "files": {
+  "governance/review-reports/code-lumos-valid-under/r1-架構對齊.md": {
+   "sha256": "5c864f0c19d64d89d8be12c9ea08188513e430a36846660f3ac30dab6b68cb60",
+   "git_blob": "9fa7fe724f1a3004d4b6b78dc8c0437d0c827e15"
+  },
+  "governance/review-reports/code-lumos-valid-under/r1-snapshot.patch": {
+   "sha256": "06bde4f03796ade4e2f7f6ddc11c1f15855f57b86c350e0b7bb830b1176c8d05",
+   "git_blob": "8d7043a9fe1c17ec6e9d3bfd357bf44a182a7a0c"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

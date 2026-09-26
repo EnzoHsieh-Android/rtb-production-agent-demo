@@ -2,7 +2,9 @@
 type: verification
 status: pass
 date: 2026-09-25
-valid_under: readme-phase13 工作樹；Phase 13 四個增量已上主線；展示與評估錄製批次已入庫；圖對照展示流程定義、實際展示驅動與 F6/F7 回佇列路徑，配色對照深色展示頁。
+valid_under:
+  - 主線 README 流程圖提交（Phase 13 四個增量上主線後）；展示與評估錄製批次已入庫；圖對照展示流程定義、實際展示驅動與 F6/F7 回佇列路徑，配色對照深色展示頁。
+  - 環境：系統 Python 3.14.6、Pillow 12.2.0、字型 /System/Library/Fonts/Hiragino Sans GB.ttc；同環境重畫的 GIF 與已提交的逐位元組相同。
 revalidate_when: 展示流程定義或實際展示驅動的 AI 調查、說明與假說時點改變，F6/F7 合約、展示頁深色配色、README 流程描述、docs/assets/make_agent_flow_gif.py、字型或 Pillow 版本改變時，重跑產圖、抽格及 SVG 解析。
 tags:
   - type/verification
@@ -18,11 +20,10 @@ plan_refs:
 
 ## 2026-09-25 Phase 13 重畫（前一版）
 
-現行 GIF/SVG 已對照 Phase 13 四個增量上主線後的展示流程定義、實際展示驅動與深色展示配色重畫。分析泳道標明程式初篩、AI 選查詢回蒐證或下結論、失敗改由程式規則；展示驅動在情境結束後為已送出的提案產生給人看的說明，告警假說另行處理；F6/F7 回佇列重查。展示流程定義中的可選「AI 說明」節點位於提案與送件之間，圖的虛線旁支表示實際展示時點，文字均不進決策。下方「灰色 AI 旁支」「展示頁尚未上主線」與其驗證結果是歷史記錄，不能當現況；現行有效前提以開頭欄位與下文「環境基準」段為準,重驗入口以開頭欄位為準。
+現行 GIF/SVG 已對照 Phase 13 四個增量上主線後的展示流程定義、實際展示驅動與深色展示配色重畫。分析泳道標明程式初篩、AI 選查詢回蒐證或下結論、失敗改由程式規則；展示驅動在情境結束後為已送出的提案產生給人看的說明，告警假說另行處理；F6/F7 回佇列重查。展示流程定義中的可選「AI 說明」節點位於提案與送件之間，圖的虛線旁支表示實際展示時點，文字均不進決策。下方「灰色 AI 旁支」「展示頁尚未上主線」與其驗證結果是歷史記錄，不能當現況；現行有效前提與重驗入口以開頭欄位為準。
 
 本次用系統 Python 執行產圖腳本成功；GIF 為 1800×760、20 格，抽格目視 AI 查詢回線、規則退回線、F6/F7 回線及人工高亮；SVG 可由標準庫 XML 解析，且兩種圖共用節點與路徑資料。README 的 21 個相對連結逐一檢查皆存在；Ruff 檢查產圖腳本、`pytest -q tests/test_static_wiring.py`（27 個）、兩篇圖譜 lint 與 `lumos doctor` 均通過。回頭條件見開頭的 `revalidate_when`。
 
-環境基準（補開頭 valid_under 缺的；lumos 沒有改 valid_under 的指令，環境與版本以本段為準）：系統 Python 3.14.6、Pillow 12.2.0、字型 /System/Library/Fonts/Hiragino Sans GB.ttc；同一環境重畫出的 GIF 與已提交的逐位元組相同。開頭寫的「readme-phase13 工作樹」指的是這次合入主線的 README 重寫提交，合併後以主線提交為準。
 
 2026-09-24 在 docs-readme 工作樹用系統 Python 3.14.6 與 Pillow 12.2.0 重畫 GIF 與 SVG。產圖腳本移至 `docs/assets/make_agent_flow_gif.py`；它是文件產出物工具，不在 pyproject 的 mypy 掃描路徑 `src`、`tools`，也沒有行內 `# mypy:` 例外。以不存在的 `--font` 路徑執行，明確報錯並以代碼 2 退出。
 
