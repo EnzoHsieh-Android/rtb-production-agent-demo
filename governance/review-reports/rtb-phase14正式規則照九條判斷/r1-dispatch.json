@@ -1,0 +1,88 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1",
+  "lens": "九條判斷邏輯、精確值與單一來源",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r1.md",
+   "src/rtb/analyzer/",
+   "src/rtb/domain/",
+   "src/rtb/eval/",
+   "src/rtb/demo/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2",
+  "lens": "分步蒐證、租約、併發與中斷續跑",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r1.md",
+   "src/rtb/analyzer/",
+   "src/rtb/domain/",
+   "src/rtb/eval/",
+   "src/rtb/demo/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3",
+  "lens": "AI 退回、前置過濾、提示與錄製鍵",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r1.md",
+   "src/rtb/analyzer/",
+   "src/rtb/domain/",
+   "src/rtb/eval/",
+   "src/rtb/demo/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭4",
+  "lens": "評估報告與既有合約改寫",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r1.md",
+   "src/rtb/analyzer/",
+   "src/rtb/domain/",
+   "src/rtb/eval/",
+   "src/rtb/demo/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭5",
+  "lens": "展示 F1–F7、頁面、F7 時效與回退",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r1.md",
+   "src/rtb/analyzer/",
+   "src/rtb/domain/",
+   "src/rtb/eval/",
+   "src/rtb/demo/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "模組邊界與既有做法",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r1.md",
+   "src/rtb/analyzer/",
+   "src/rtb/domain/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家否決",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r1.md",
+   "src/rtb/"
+  ],
+  "auditor": "codex"
+ }
+]

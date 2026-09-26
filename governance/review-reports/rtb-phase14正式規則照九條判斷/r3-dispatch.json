@@ -1,0 +1,44 @@
+[
+ {
+  "round": "r3",
+  "seat": "鏡頭1",
+  "lens": "九條判斷、列內缺值、AI 否決與評估報告分列",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r3.md",
+   "/tmp/rtb-phase14正式規則照九條判斷-r3-delta.diff",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "鏡頭2",
+  "lens": "分步檢查點、重進入、租約與停止寬限、政策升版、過去調整資料來源",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r3.md",
+   "/tmp/rtb-phase14正式規則照九條判斷-r3-delta.diff",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r3",
+  "seat": "架構對齊",
+  "lens": "模組邊界與既有做法",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r3.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r3",
+  "seat": "外家-codex",
+  "lens": "外家否決",
+  "materials": [
+   "/tmp/rtb-phase14正式規則照九條判斷-r3.md",
+   "src/rtb/"
+  ],
+  "auditor": "codex"
+ }
+]
