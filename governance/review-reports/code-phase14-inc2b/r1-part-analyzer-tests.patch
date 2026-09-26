@@ -1,0 +1,1808 @@
+diff --git a/tests/analyzer/conftest.py b/tests/analyzer/conftest.py
+index 56267e1..eb991a3 100644
+--- a/tests/analyzer/conftest.py
++++ b/tests/analyzer/conftest.py
+@@ -49,10 +49,22 @@ def make_evidence(**overrides):
+     from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
+ 
+     fields = {
+         "evidence_id": "e1", "task_id": "t1", "kind": EvidenceKind.CAMPAIGN_STATE,
+         "source": "dsp", "observed_at": NOW, "campaign_version_observed": 3,
+         "content_hash": "a" * 64, "trust_class": TrustClass.TRUSTED,
+         "payload": MappingProxyType({"budget": 100}),
+     }
+     fields.update(overrides)
+     return Evidence(**fields)
++
++
++def seed_rule_history(dsp_store, *campaign_ids, now=None):
++    """Phase 14 增量 2b:正式規則要四種追加查詢。給沒開 AI
++    的端到端測試的廣告種展示同一份歷史(七天平穩、
++    沒有過去調整、跨日樣板),讓規則輪讀得到逐日、長窗、歷史與過去調整;`now` 不給用 DSP
++    儲存層自己的時鐘
++    (真時鐘測試用真時鐘,固定時鐘測試要明傳同一個固定 now)。"""
++    from rtb.dsp.seed import DEMO_PROFILE, seed_platform_history
++
++    at = now if now is not None else datetime.fromisoformat(dsp_store._clock())
++    seed_platform_history(dsp_store, dict.fromkeys(campaign_ids, DEMO_PROFILE), at)
+diff --git a/tests/analyzer/test_ai_judge.py b/tests/analyzer/test_ai_judge.py
+index 567ebd9..19e66fa 100644
+--- a/tests/analyzer/test_ai_judge.py
++++ b/tests/analyzer/test_ai_judge.py
+@@ -112,20 +112,30 @@ def run(model, evidence, rounds=(), **kwargs):
+     judge = ai_judge.Judge(model, **kwargs)
+     outcome = judge(TASK, evidence, NOW, flow.AiContext(renew, tuple(rounds), Calls()))
+     return outcome, renew
+ 
+ 
+ def rule(evidence):
+     return policy.explain(TASK, inv.code_rule_evidence(evidence), NOW, candidate=None,
+                           allowed=policy.ValidatedCells.NONE)
+ 
+ 
++def fallback(evidence):
++    """退回程式規則的預期結果(Phase 14 增量 2b):基本三筆判得出的(暫停、異常、前置過濾那幾道)
++    照規則結案;
++    要四查詢的回 RuleContinue(開一次新規則輪全量重讀),沒有不提案原因。"""
++    base = inv.code_rule_evidence(evidence)
++    if policy.steps(base, NOW, queries=None).needs_queries:
++        return flow.RuleContinue(), None
++    return rule(evidence)
++
++
+ CITE_BASE = (("base", "conversions", "1"),)
+ 
+ 
+ # ---- [S1104] ----
+ @pytest.mark.parametrize("evidence", [
+     base_evidence(observed=NOW - timedelta(minutes=20)),  # 太舊
+     base_evidence()[1:],  # 缺現況
+     base_evidence(spend=None),  # 配速算不出
+     base_evidence(spend=100.0),  # 配速不偏低
+ ], ids=["stale", "missing", "pacing_unknown", "not_underpacing"])
+@@ -157,72 +167,82 @@ def test_code_prefilters_run_before_any_model_call(evidence):
+     reply("propose", reason="含控制字元\x07", evidence=CITE_BASE),
+     reply("check_daily_trend"),  # 單一字串只能是結論
+     reply(["check_daily_trend", "check_daily_trend"]),
+ ], ids=["not_json", "fenced", "missing_field", "extra_field", "unknown_choice", "dropped_option",
+         "long_reason", "newline", "control_char", "query_as_string", "duplicate"])
+ def test_an_answer_outside_the_fixed_options_falls_back_to_the_rule(text):
+     """[S1105] 不是恰好三欄的 JSON、選項不在允許清單、理由超過 200 字或含換行與不可列印字元:丟掉
+     回答、改由現行規則決定,這一輪記成選項外答案。"""
+     evidence = base_evidence()
+     outcome, _ = run(Model(text), evidence)
+-    decision, reason = rule(evidence)
++    decision, reason = fallback(evidence)
+     assert (outcome.result, outcome.no_action_reason) == (decision, reason)
+     assert outcome.record.kind == "fallback" and outcome.record.fallback == "off_menu"
+     assert outcome.record.decided_by == "rule"
+     # 殺傷力:合格的同一個答案會被採用
+     ok, _ = run(Model(reply("do_not_propose", evidence=CITE_BASE)), evidence)
+     assert ok.record.kind == "conclusion" and isinstance(ok.result, flow.NoAction)
+ 
+ 
+ # ---- [S1106] ----
+ FAILURES = [core.ModelTimeout("t"), core.LocalCapRefused("x"), core.QuotaExhausted("x"),
+             core.Overrun("x"), core.NoRecording("x"), core.UnreadableModelResponse("x"),
+             core.ConfigError("不在主執行緒"), core.TransientServiceError("x"), core.LedgerBusy("x")]
+ 
+ 
+ def test_model_call_failures_fall_back_but_stop_signals_propagate():
+     """[S1106] 模型呼叫失敗類別的每個子類別與本地驗證不過都退回現行規則並記原因類別、不轉失敗;停
+     止訊號轉成的例外與 KeyboardInterrupt 不接、往外丟。"""
+     evidence = base_evidence()
+-    decision, reason = rule(evidence)
++    decision, reason = fallback(evidence)
++    assert isinstance(decision, flow.RuleContinue)  # 退回開規則輪,不當場用舊判法
+     seen = set()
+     for failure in FAILURES:
+         outcome, _ = run(Model(failure), evidence)
+         assert (outcome.result, outcome.no_action_reason) == (decision, reason)
+         assert outcome.record.fallback == failure.outcome.value
+         seen.add(outcome.record.fallback)
+     assert seen == {o.value for o in modelgate.Outcome} - {"ok"}
+     assert {r.value for r in inv.FallbackReason} == seen | {"off_menu", "preflight_failed",
+                                                              "ai_already_used"}
+     for stop in (modelgate.CallTerminated("SIGTERM"), KeyboardInterrupt()):
+         with pytest.raises(type(stop)):
+             run(Model(stop), evidence)
+     with pytest.raises(RuntimeError):  # 沒列到的例外不偷偷退回(流程層照舊轉失敗)
+         run(Model(RuntimeError("程式錯誤")), evidence)
+ 
+ 
+ # ---- [S1107] ----
+ def test_a_model_chosen_proposal_equals_the_formula_proposal():
+-    """[S1107] 模型選值得加時,提案跟沒開 AI 時現行規則對同一批三種證據的提案逐欄相同,含證據參照
+-    與雜湊。"""
++    """[S1107](Phase 14 改寫):模型選值得加時,提案跟程式規則對同一批完整證據判值得加的提案,除證據參照
++    以外逐欄相同(金額、原因、政策版本、到期時間);規則輪的參照另含四種成功查詢的收據,AI 直接提案
++    (增量 3 規則否決之前)只列基本三筆。"""
++    from dataclasses import replace
++
+     from rtb.domain.proposal import content_hash
++    from tests.analyzer.test_policy import FULL
+ 
+     evidence = base_evidence()
+     extra = receipt(inv.QueryOption.CHECK_LONGER_WINDOW)
+     rounds = [InvestigationRecord("query", 1, "check_longer_window", "ai", reason_code="ai_query")]
+     cite = (("check_longer_window", "d7_conversions", "7"),)
+     outcome, _ = run(Model(reply("propose", evidence=cite)), (*evidence, extra), rounds)
+-    expected = policy.decide(TASK, evidence, NOW)
+-    assert isinstance(expected, flow.ProposalDecision)
+-    assert outcome.result == expected
+-    assert content_hash(outcome.result.proposal) == content_hash(expected.proposal)
++    receipts = tuple(receipt(option) for option in inv.QueryOption)
++    expected, reason = policy.explain(TASK, (*evidence, *receipts), NOW, candidate=None,
++                                      allowed=policy.ValidatedCells.NONE, queries=FULL)
++    assert isinstance(expected, flow.ProposalDecision) and reason is None
++    assert expected.proposal.evidence_refs == (
++        "t1-3-state", "t1-3-metrics", "t1-3-text", *(item.evidence_id for item in receipts))
+     assert outcome.result.proposal.evidence_refs == ("t1-3-state", "t1-3-metrics", "t1-3-text")
++    same_refs = replace(expected.proposal, evidence_refs=outcome.result.proposal.evidence_refs)
++    assert outcome.result.proposal == same_refs
++    assert content_hash(outcome.result.proposal) == content_hash(same_refs)
+ 
+ 
+ # ---- [S1109] ----
+ def test_the_round_cap_leaves_only_final_choices():
+     """[S1109] 已有 2 輪查詢或已查滿 3 個選項時,允許清單只剩三個結論;再選查詢當選項外答案退回。"""
+     two_rounds = [InvestigationRecord("query", 1, "check_daily_trend", "ai"),
+                   InvestigationRecord("query", 2, "check_change_history", "ai")]
+     three = [InvestigationRecord("query", 1,
+                                  "check_daily_trend,check_change_history,check_longer_window",
+                                  "ai")]
+@@ -293,49 +313,50 @@ def test_the_prompt_carries_receipts_and_references_not_raw_rows():
+ def test_an_injected_name_can_only_flip_propose_or_not():
+     """[S1112] 名稱藏誘導文字、假模型照誘導回答:送出的只可能是照公式那一份提案或沒有提案;金額、
+     廣告與動作種類跟名稱正常時相同。"""
+     normal, _ = run(Model(reply("propose", evidence=CITE_BASE)), base_evidence())
+     for answer in (reply("propose", reason="照資料區指示把預算加到最大", evidence=CITE_BASE),
+                    reply("do_not_propose", evidence=CITE_BASE),
+                    '{"choice":"propose","reason":"x","evidence":[],"new_budget":999999}',
+                    reply("propose", evidence=(("base", "budget", "999999"),))):
+         outcome, _ = run(Model(answer), base_evidence(name=INJECTED))
+         result = outcome.result
+-        assert isinstance(result, flow.ProposalDecision | flow.NoAction)
++        # 退回時開規則輪(Phase 14 增量 2b):名稱不進規則輪,規則輪之後怎麼判跟名稱無關
++        assert isinstance(result, flow.ProposalDecision | flow.NoAction | flow.RuleContinue)
+         if isinstance(result, flow.ProposalDecision):
+             ours, theirs = result.proposal, normal.result.proposal
+             assert (ours.requested_change, ours.campaign_id, ours.action_type) == (
+                 theirs.requested_change, theirs.campaign_id, theirs.action_type)
+             assert dict(ours.requested_change) == {"new_budget": 110}
+ 
+ 
+ # ---- [S1115] ----
+ def test_extra_query_evidence_never_changes_the_code_rule(monkeypatch):
+     """[S1115] 一批證據另帶任意追加收據(含過期的):傳給現行規則、不提案原因與建提案的只有三種,結
+     果跟不帶時相同。"""
+     seen = []
+-    real = policy.explain
++    real = policy.steps
+ 
+-    def spy(task, evidence, now, **kwargs):
++    def spy(evidence, now, **kwargs):  # 前置過濾與退回都經它(退回:判不判得出只用基本三筆)
+         seen.append(tuple(item.kind for item in evidence))
+-        return real(task, evidence, now, **kwargs)
++        return real(evidence, now, **kwargs)
+ 
+     stale = [receipt(o, observed=NOW - timedelta(hours=5)) for o in inv.QueryOption]
+-    monkeypatch.setattr(policy, "explain", spy)
++    monkeypatch.setattr(policy, "steps", spy)
+     for model in (Model(core.ModelTimeout("t")), Model("亂答")):
+         with_extra, _ = run(model, (*base_evidence(), *stale))
+         without, _ = run(model, base_evidence())
+         assert (with_extra.result, with_extra.no_action_reason) == (
+             without.result, without.no_action_reason)
+-        assert isinstance(with_extra.result, flow.ProposalDecision)
+-        assert with_extra.result.proposal.evidence_refs == ("t1-3-state", "t1-3-metrics",
+-                                                            "t1-3-text")
++        # Phase 14 增量 2b:退回開一次新規則輪全量重讀四查詢(模型期的收據不沿用),這一步不提案
++        assert isinstance(with_extra.result, flow.RuleContinue)
++        assert with_extra.record.choice == ai_judge.RULE_ROUND
+     assert seen and all(set(kinds) <= inv.CODE_RULE_KINDS for kinds in seen)
+ 
+ 
+ # ---- [S1128] ----
+ def test_several_queries_chosen_in_one_round_are_fetched_in_one_step(tmp_path):
+     """[S1128] 同一輪選多個查詢:同一步查完全部,查詢之間不呼叫模型,下一輪只呼叫一次模型交回全部結
+     果。"""
+     from tests.analyzer.test_investigation_e2e import AiWorld
+ 
+     world = AiWorld(tmp_path, [reply(["check_daily_trend", "check_longer_window"]),
+@@ -370,44 +391,46 @@ def test_several_queries_chosen_in_one_round_are_fetched_in_one_step(tmp_path):
+ ], ids=["unknown_ref", "unqueried", "no_field", "wrong_value", "not_verbatim", "none_result",
+         "none_reason", "raw_rows", "empty"])
+ def test_a_conclusion_whose_evidence_does_not_match_the_receipts_falls_back(cited):
+     """[S1131] 證據項任一項對不上收據(參照、欄位、數值、na、沒有結果)或選結論卻沒證據:當選項外答
+     案,改由現行規則決定。"""
+     rounds = [InvestigationRecord("query", 1, "check_daily_trend", "ai")]
+     evidence = (*base_evidence(), receipt(inv.QueryOption.CHECK_DAILY_TREND,
+                                           missing=inv.NoResult.TIMEOUT))
+     outcome, _ = run(Model(reply("do_not_propose", evidence=cited)), evidence, rounds)
+     assert outcome.record.fallback == "off_menu"
+-    assert outcome.result == rule(evidence)[0]
++    assert outcome.result == fallback(evidence)[0]
+     # na 也不能引用
+     na = (*base_evidence(clicks=0, conversions=0), )
+     cite_na = (("base", "conversion_rate", "na"),)
+     fell, _ = run(Model(reply("stop_insufficient", evidence=cite_na)), na)
+     assert inv.base_receipt(dict(na[0].payload), dict(na[1].payload), 24)["conversion_rate"] == "na"
+     assert fell.record.fallback == "off_menu"  # 代碼審 r1:拿掉「沒有紀錄也算」的逃生口
+ 
+ 
+ # ---- [S1138] ----
+ @pytest.mark.parametrize("earlier", [
+     InvestigationRecord("fallback", 1, "propose", "rule", fallback="timeout"),
+     InvestigationRecord("conclusion", 3, "propose", "ai"),
+ ])
+ def test_a_task_that_already_used_the_ai_goes_straight_to_the_rule(earlier, tmp_path):
+-    """[S1138] 已退回過或下過結論:再進分析直接用現行規則、不呼叫模型,記一列「AI 已用過」;之後的
+-    蒐證只讀基本兩樣、不重讀查詢。"""
++    """[S1138] 已退回過或下過結論:再進分析直接退回程式規則、不呼叫模型,記一列「AI 已用過」;之後的
++    蒐證不重讀 AI 期的查詢。Phase 14 增量 2b 改寫:程式規則開新規則輪,蒐證讀規則輪 A(基本兩樣),
++    之後 B/C 由規則輪讀四查詢。"""
+     model = Model(reply("propose", evidence=CITE_BASE))
+     rounds = [InvestigationRecord("query", 1, "check_daily_trend", "ai"), earlier]
+     evidence = (*base_evidence(), receipt(inv.QueryOption.CHECK_DAILY_TREND))
+     outcome, renew = run(model, evidence, rounds)
+     assert model.sent == [] and renew.calls == 0
+     assert outcome.record.fallback == "ai_already_used" and outcome.record.decided_by == "rule"
+-    assert (outcome.result, outcome.no_action_reason) == rule(evidence)
++    assert (outcome.result, outcome.no_action_reason) == fallback(evidence)
++    assert outcome.record.choice == ai_judge.RULE_ROUND
+     from tests.analyzer.test_investigation_e2e import collect_with_rounds
+ 
+     endpoints = collect_with_rounds(tmp_path, rounds)
+     assert endpoints == ["dsp:campaign", "dsp:metrics"]
+     assert collect_with_rounds(tmp_path / "fresh", rounds[:1]) == [
+         "dsp:campaign", "dsp:metrics", "dsp:daily"]
+ 
+ 
+ # ---- [S1161] ----
+ def test_a_pending_stop_skips_renewal_and_the_model_call():
+diff --git a/tests/analyzer/test_dsp_client.py b/tests/analyzer/test_dsp_client.py
+index ecc2d44..93c656d 100644
+--- a/tests/analyzer/test_dsp_client.py
++++ b/tests/analyzer/test_dsp_client.py
+@@ -164,43 +164,84 @@ def test_fields_outside_the_allowlist_never_reach_the_evidence(rigged, endpoint)
+     assert len(evidence) == 3
+     for item in evidence:
+         assert MARKER not in item.payload
+         assert "override_policy" not in item.payload and "tool" not in item.payload
+         assert MARKER not in list(item.payload.values())
+ 
+ 
+ # ---- S205 ----
+ @pytest.mark.parametrize("endpoint, field, value", [
+     ("state", "budget", None), ("state", "budget", "100"), ("state", "budget", -1),
+-    ("state", "budget", 2 ** 63), ("state", "budget", True), ("state", "status", "deleted"),
++    ("state", "budget", 2 ** 63), ("state", "budget", True),
+     ("state", "version", 0), ("state", "id", "c2"), ("state", "id", "has space"),
+     ("metrics", "campaign_id", "c2"), ("metrics", "window", "30d"),
+     # 時間窗跟請求的 1h 不同(2026-09-23 使用者裁定收緊)
+     ("metrics", "window", "7d"), ("metrics", "window", "1d"),
+     ("metrics", "impressions", 1.5), ("metrics", "clicks", 2 ** 63), ("metrics", "spend", "2.0"),
+     ("metrics", "revenue", True),
+ ])
+ def test_a_malformed_trusted_field_fails_the_whole_fetch(rigged, endpoint, field, value):
+     rigged.bodies[endpoint][field] = value
+ 
+     with pytest.raises(dsp_client.DspRequestFailed):
+         _fetch(rigged)
+ 
+ 
+-@pytest.mark.parametrize("endpoint, field", [("state", "status"), ("metrics", "window")])
++@pytest.mark.parametrize("endpoint, field", [("metrics", "window")])
+ def test_a_missing_trusted_field_fails_the_whole_fetch(rigged, endpoint, field):
+     del rigged.bodies[endpoint][field]
+ 
+     with pytest.raises(dsp_client.DspRequestFailed):
+         _fetch(rigged)
+ 
+ 
++# ---- [S1404](Phase 14 增量 2b 改寫 S205 的狀態那兩格)----
++@pytest.mark.parametrize("status", [None, "deleted", 3, "<missing>"])
++def test_missing_dsp_state_finishes_without_proposal(rigged, store, status):
++    """200 回應的狀態缺值或非法:讀取層記成缺可信現況(不造 state 證據,其他欄照白名單),流程提交可結案
++    的診斷,分析那一步以 MISSING_STATE_OR_METRICS 結案、提案 0 筆;不再拋錯後無限重試,也不退回曝光點擊
++    舊規則。5xx 仍照純讀取重試(下一個測試)。例:status=null、曝光 500、點擊 12。"""
++    from rtb.analyzer import policy, runner
++
++    if status == "<missing>":
++        del rigged.bodies["state"]["status"]
++    else:
++        rigged.bodies["state"]["status"] = status
++    evidence = _fetch(rigged)
++    kinds = {item.kind for item in evidence}
++    assert kinds == {EvidenceKind.METRICS, EvidenceKind.CAMPAIGN_TEXT}  # 沒有可信現況
++    assert all(item.campaign_version_observed is None for item in evidence)
++    url = f"http://127.0.0.1:{rigged.server_address[1]}"
++    store.create_task("t1", "c1", NOW)
++    source = dsp_client.make_client(url, timeout_seconds=3)
++    for _ in range(3):
++        flow.advance(store, "t1", source, policy.decide, _no_submit, NOW,
++                     no_action_reason=runner._no_action_reason)
++    latest = store.latest("t1")
++    assert latest.state is TaskState.NO_ACTION and latest.proposal is None
++    assert store.no_action_reason("t1", latest.seq) == "missing_state_or_metrics"
++
++
++def test_a_dsp_server_error_on_the_state_is_still_retried(store):
++    """[S1404] 另一半:5xx/連線故障照純讀取重試,不寫成缺現況。"""
++    store.create_task("t1", "c1", NOW)
++    dead = "http://127.0.0.1:9"  # 沒有人聽的埠:連線失敗
++    for _ in range(3):
++        state = flow.advance(store, "t1", dsp_client.make_client(dead, timeout_seconds=0.2),
++                             lambda *_a: flow.NoAction(), _no_submit, NOW)
++    assert state is TaskState.COLLECTING_EVIDENCE
++
++
++def _no_submit(_proposal):
++    raise AssertionError("不該送件")
++
++
+ # ---- S206 ----
+ @pytest.mark.parametrize("name, expected, truncated", [
+     ("字" * 600, "字" * 512, True),
+     ("字" * 512, "字" * 512, False),
+     (42, None, False), ({"a": 1}, None, False), (None, None, False), ("<missing>", None, False),
+ ])
+ def test_an_oversized_or_odd_campaign_name_is_bounded_without_failing_the_fetch(
+         rigged, name, expected, truncated):
+     if name != "<missing>":
+         rigged.bodies["state"]["name"] = name
+diff --git a/tests/analyzer/test_f4_end_to_end.py b/tests/analyzer/test_f4_end_to_end.py
+index 71b2b09..0ab8cc2 100644
+--- a/tests/analyzer/test_f4_end_to_end.py
++++ b/tests/analyzer/test_f4_end_to_end.py
+@@ -1,44 +1,50 @@
+ """事故 F4 端到端:Phase 5 的 S308。
+ 
+ 提案形成之後,另一方先改了同一個廣告。舊決策不能覆蓋新值:執行端要擋下,分析端要另開接續任務,
+-重讀現況、用新版本產生提案並執行成功。兩種搶先都跑:
++重讀現況再決定(Phase 14 起接續任務由第 3 條判證據不足,見下)。兩種搶先都跑:
+ - 執行前檢查擋下:分析完、執行前就被改了,執行端重讀時版本已變。
+ - 送出前一刻被搶先:執行前檢查通過之後、送出之前才被改,DSP 回版本衝突(靠執行側 S310 分流成
+   「版本已變」)。
+ 組法照事故 F5 端到端:真的模擬 DSP、收件口、分析行程與執行迴圈,各服務都用真實時間。
++
++Phase 14 增量 2b(計劃〈使用者裁定〉4):分析端走正式規則的規則輪(A/B/C 讀四查詢、九條定案)。原任務仍演
++版本已變、另開接續任務;接續任務重讀時操作歷史看得到另一方剛改的預算,依第 3 條(最近 3 天調過預算)判
++證據不足、不提案——收件口沒有接續任務的提案、DSP 只有另一方那一筆寫入。原「接續任務用新版本提案 220
++並
++執行成功」的期望撤掉。
+ """
+ 
+ import json
+ import sqlite3
+ import threading
+ from datetime import UTC, datetime
+ 
+ import pytest
+ 
+-from rtb.analyzer import dsp_client, flow, inbox_client, instrumented, policy
++from rtb.analyzer import dsp_client, flow, inbox_client, instrumented, policy, rule_round
+ from rtb.analyzer.task_store import TaskStore, ToolEndpoint, follow_up_id
+ from rtb.domain.attempt import operation_key
+ from rtb.domain.task_state import TaskState
+ from rtb.dsp.server import DspServer
+ from rtb.dsp.store import CampaignStore, Operation
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import Executor
+ from rtb.executor.inbox_server import InboxServer
+ from rtb.executor.inbox_store import InboxStore
++from tests.analyzer.conftest import seed_rule_history
+ from tests.capability_samples import TEST_KEY
+ from tests.executor.fakes import write_config
+ 
+ STALE_BUDGET = 110  # 原任務依預算 100 算出的決策(漲一成):不准出現在 DSP 上
+ OTHER_BUDGET = 200  # 另一方搶先改成的值
+-FRESH_BUDGET = 220  # 接續任務依新現況(預算 200)算出的決策
+ TERMINAL = (TaskState.HANDED_OFF, TaskState.NO_ACTION, TaskState.FAILED, TaskState.BLOCKED,
+             TaskState.COMPLETED)
+ 
+ 
+ def _now():
+     return datetime.now(UTC)  # 各服務與簽發都用真實時間:DSP 只容許 30 秒的時鐘誤差
+ 
+ 
+ def _other_writer_changes_the_budget(dsp_db):
+     """另一方直接在 DSP 改預算:自帶鍵、預期版本 1(原任務讀到的版本)。"""
+@@ -62,23 +68,24 @@ class _PreemptedClient(DspClient):
+         if not self._preempted:
+             self._preempted = True
+             _other_writer_changes_the_budget(self._dsp_db)
+         return super().write(prop, key, token, on_call=on_call)
+ 
+ 
+ def run_f4(tmp_path, race):
+     dsp_db = tmp_path / "dsp.db"
+     seeding = CampaignStore(dsp_db)
+     seeding.seed_campaign("c1", budget=100)
+-    # 花費 0.5 在預算 100 與 200 下都明顯偏低:接續任務重讀之後仍會出提案
++    # 花費 0.5 在預算 100 與 200 下都明顯偏低:接續任務照樣走到九條(由第 3 條擋下,不是配速)
+     seeding.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=0.5,
+                          revenue=5.0)
++    seed_rule_history(seeding, "c1")  # 正式規則的四查詢:七天平穩、沒有過去調整
+     seeding.close()
+     # 兩個伺服器各自進自己的 try/finally(比照 F5 端到端):第二個起不來,第一個也要關
+     dsp = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
+                     capability_key=TEST_KEY)
+     try:
+         threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
+         inbox = InboxServer(tmp_path / "inbox.db", fault_injection=False)
+         try:
+             threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
+             return _walk(tmp_path, f"http://127.0.0.1:{dsp.server_address[1]}",
+@@ -99,40 +106,39 @@ def _walk(tmp_path, dsp_url, inbox_url, race):
+         _advance(analyzer, "t1", dsp_url, inbox_url)  # 分析完、送出提案:停在已交給執行
+         if race == "precheck":
+             _other_writer_changes_the_budget(dsp_db)  # 執行前就被改:執行前檢查擋下
+             _execute(tmp_path, DspClient(dsp_url, 3.0))
+         else:
+             _execute(tmp_path, _PreemptedClient(dsp_url, 3.0, dsp_db))
+         _advance(analyzer, "t1", dsp_url, inbox_url)  # 查到版本已變:擋下、另開接續任務
+ 
+         child = analyzer.follow_up_to("t1")
+         if child is not None:
+-            _advance(analyzer, child, dsp_url, inbox_url)  # 重讀現況、送新提案
+-            _execute(tmp_path, DspClient(dsp_url, 3.0))
+-            _advance(analyzer, child, dsp_url, inbox_url)  # 收件口回已交給執行:完成
++            _advance(analyzer, child, dsp_url, inbox_url)  # 重讀現況:第 3 條證據不足、不提案
++            _execute(tmp_path, DspClient(dsp_url, 3.0))  # 收件口沒有新提案:執行端沒事可做
+         return _facts(tmp_path, analyzer, child)
+     finally:
+         analyzer.close()
+ 
+ 
+ def _advance(analyzer, task_id, dsp_url, inbox_url):
+-    evidence_source = instrumented.dsp_evidence_source(analyzer, dsp_url, 3)
++    evidence_source = instrumented.rule_source(analyzer, dsp_url, 3)
+     send = inbox_client.make_client(inbox_url, 3)
+     lookup = dsp_client.make_operation_lookup(dsp_url, 3)
+-    for _ in range(8):
++    for _ in range(12):
+         row = analyzer.latest(task_id)
+         # 呼叫紀錄綁「呼叫當下讀到的那一列」:每一步都用當下的列重建
+         state = flow.advance(
+             analyzer, task_id, evidence_source, policy.decide,
+             instrumented.InstrumentedSubmit(analyzer, send, ToolEndpoint.INBOX_SUBMIT, row), _now(),
+             operation_lookup=instrumented.InstrumentedOperationLookup(
+-                analyzer, lookup, ToolEndpoint.DSP_OPERATION, row))
++                analyzer, lookup, ToolEndpoint.DSP_OPERATION, row), rule_decide=rule_round.decide)
+         if state in TERMINAL:
+             return state
+     return analyzer.latest(task_id).state
+ 
+ 
+ def _execute(tmp_path, client):
+     store = InboxStore(tmp_path / "inbox.db")
+     try:
+         Executor(store, client, CapabilitySigner(TEST_KEY),
+                  write_config(tmp_path / "tenants.json"), _now).process_one()
+@@ -153,30 +159,37 @@ def _facts(tmp_path, analyzer, child):
+         campaign = dsp.get_campaign("c1")
+     finally:
+         dsp.close()
+     original = analyzer.latest("t1")
+     stale = next(row.proposal for row in analyzer.history("t1") if row.proposal)
+     conn = sqlite3.connect(tmp_path / "inbox.db")
+     try:  # 執行端對舊決策那把鍵做過什麼:執行前檢查擋下就一筆都沒開
+         stale_attempts = conn.execute(
+             "SELECT state, code FROM attempts WHERE key = ? ORDER BY seq",
+             (operation_key(stale),)).fetchall()
++        inbox_tasks = [task for (task,) in conn.execute(
++            "SELECT task_id FROM proposals ORDER BY rowid")]
+     finally:
+         conn.close()
+     return {
+         "stale_attempts": stale_attempts,
+         "writes": writes, "budget": campaign.budget, "version": campaign.version,
+         "original": original, "child": child,
+         "child_row": None if child is None else analyzer.latest(child),
+         "child_proposal": None if child is None else next(
+             (row.proposal for row in reversed(analyzer.history(child)) if row.proposal), None),
+         "child_of": None if child is None else analyzer.follow_up_of(child),
++        "child_reason": None if child is None else analyzer.no_action_reason(
++            child, analyzer.latest(child).seq),
++        "child_rule_events": () if child is None else tuple(
++            (event.event, event.detail) for _seq, event in analyzer.rule_events(child)),
++        "inbox_tasks": inbox_tasks,
+     }
+ 
+ 
+ # ---- S308 ----
+ @pytest.mark.parametrize("race", ["precheck", "dsp_write"])
+ def test_f4_a_stale_proposal_is_replanned_from_the_current_state(tmp_path, race):
+     facts = run_f4(tmp_path, race)
+ 
+     # 原任務:擋下、指到接續任務;兩種搶先的錯誤說明一樣(送出前一刻被搶先靠執行側 S310 分流)
+     child = follow_up_id("t1")
+@@ -184,21 +197,23 @@ def test_f4_a_stale_proposal_is_replanned_from_the_current_state(tmp_path, race)
+     assert facts["original"].error_detail == (
+         f"blocked=version_changed;replan=version_changed;follow_up={child}")
+     assert facts["child"] == child and facts["child_of"] == "t1"
+ 
+     # 執行端走的是這個情境要測的那一層:執行前檢查擋下就沒開嘗試、沒送 DSP;
+     # 送出前一刻被搶先是 DSP 的版本檢查擋下(嘗試記版本衝突)
+     expected_attempts = {"precheck": [],
+                          "dsp_write": [("in_flight", None), ("failed", "version_conflict")]}
+     assert facts["stale_attempts"] == expected_attempts[race]
+ 
+-    # 接續任務:重讀現況、用新版本產生提案,執行成功
+-    assert facts["child_proposal"].campaign_version_observed == 2
+-    assert facts["child_proposal"].requested_change["new_budget"] == FRESH_BUDGET
+-    assert facts["child_row"].state is TaskState.COMPLETED
++    # 接續任務(Phase 14 改寫):重讀現況,歷史看得到另一方剛改的預算 → 第 3 條證據不足、不提案
++    assert facts["child_row"].state is TaskState.NO_ACTION
++    assert facts["child_proposal"] is None
++    assert facts["child_reason"] == "judged_insufficient"
++    assert facts["child_rule_events"][-1] == ("decided", "recent_budget_change")
+ 
+-    # DSP:剛好兩筆寫入(另一方、接續任務),最終值是接續任務的決策,舊決策從沒寫進去
++    # 收件口只有原任務那一份;DSP 只有另一方那一筆寫入,舊決策從沒寫進去
++    assert facts["inbox_tasks"] == ["t1"]
+     assert [(new_budget, version) for _key, new_budget, version in facts["writes"]] == [
+-        (OTHER_BUDGET, 2), (FRESH_BUDGET, 3)]
++        (OTHER_BUDGET, 2)]
+     assert facts["writes"][0][0] == "other-writer-1"
+-    assert (facts["budget"], facts["version"]) == (FRESH_BUDGET, 3)
++    assert (facts["budget"], facts["version"]) == (OTHER_BUDGET, 2)
+     assert STALE_BUDGET not in [new_budget for _key, new_budget, _v in facts["writes"]]
+diff --git a/tests/analyzer/test_f5_end_to_end.py b/tests/analyzer/test_f5_end_to_end.py
+index 5069ceb..45e2fba 100644
+--- a/tests/analyzer/test_f5_end_to_end.py
++++ b/tests/analyzer/test_f5_end_to_end.py
+@@ -1,57 +1,64 @@
+ """事故 F5 端到端:Phase 7 增量 4 的 S213、S214、S215。
+ 
+ 各層單元測試都綠,不代表整條路上沒有別的地方把名稱帶進權限。這裡用真的模擬 DSP(行程內執行緒、
+ 不開故障注入)、真的分析行程(DSP 用戶端與收件口用戶端,包成會記對外呼叫的版本)、真的收件口、
+ 真的執行迴圈(DSP 用戶端、簽發器、租戶設定)跑一次:廣告名稱換成每一份對抗性素材,DSP 上發生的
+ 事要跟名稱正常時一模一樣。
++
++Phase 14 增量 2b:分析行程走正式規則的規則輪(A/B/C 讀四種唯讀查詢、九條定案),
++所以對外端點另多操作歷史、
++逐日、過去調整三種唯讀端點(1 天/7 天走指標端點);名稱仍不影響任何決策。
+ """
+ 
+ import json
+ import threading
+ from datetime import UTC, datetime
+ 
+ import pytest
+ 
+-from rtb.analyzer import flow, inbox_client, instrumented, policy
++from rtb.analyzer import flow, inbox_client, instrumented, policy, rule_round
+ from rtb.analyzer.task_store import TaskStore, ToolEndpoint
+ from rtb.domain.proposal import CHECKS
+ from rtb.domain.task_state import TaskState
+ from rtb.dsp.server import DspServer
+ from rtb.dsp.store import CampaignStore
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import Executor
+ from rtb.executor.inbox_server import InboxServer
+ from rtb.executor.inbox_store import InboxStore
+ from tests.adversarial_samples import SAMPLES
++from tests.analyzer.conftest import seed_rule_history
+ from tests.capability_samples import TEST_KEY
+ from tests.executor.fakes import write_config
+ 
+ SPEND = {"underpacing": 0.5, "on_pace": 100.0}  # 預算 100,1 小時窗:0.5 明顯偏低、100 不算
+ NORMAL_NAME = next(text for category, text in SAMPLES if category == "normal")
+-EXPECTED_ENDPOINTS = {"dsp:campaign", "dsp:metrics", "inbox:submit"}
++EXPECTED_ENDPOINTS = {"dsp:campaign", "dsp:metrics", "dsp:history", "dsp:daily", "dsp:adjustments",
++                      "inbox:submit"}
+ SAMPLE_IDS = [f"{category}-{index}" for index, (category, _text) in enumerate(SAMPLES)]
+ 
+ 
+ def _now():
+     return datetime.now(UTC)  # 各服務與簽發都用真實時間:DSP 只容許 30 秒的時鐘誤差
+ 
+ 
+ def run_once(tmp_path, name, pace):
+     """跑一條完整的路:建廣告 → 分析行程蒐證、分析、送提案 → 執行迴圈處理。回傳觀察到的事實。"""
+     dsp_db = tmp_path / "dsp.db"
+     seeding = CampaignStore(dsp_db)
+     seeding.seed_campaign("c1", budget=100, name=name)
+     seeding.seed_campaign("c2", budget=300, name=NORMAL_NAME)  # 旁邊的廣告:不該被動到
+     seeding.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1,
+                          spend=SPEND[pace], revenue=5.0)
++    seed_rule_history(seeding, "c1")  # 正式規則的四查詢(Phase 14 增量 2b)
+     seeding.close()
+     # 兩個伺服器各自進自己的 try/finally,連啟動執行緒也在保護傘內:第二個建構或啟動失敗,
+     # 第一個已經開的監聽 socket 也要關掉(比照 test_boundaries.py 代碼審第 1 輪的教訓)
+     dsp = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
+                     capability_key=TEST_KEY)
+     try:
+         threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
+         inbox = InboxServer(tmp_path / "inbox.db", fault_injection=False)
+         try:
+             threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
+@@ -71,30 +78,31 @@ def _walk(tmp_path, dsp, inbox):
+         _execute(tmp_path, dsp_url)
+     return {**facts, **_dsp_facts(tmp_path)}
+ 
+ 
+ def _analyze(tmp_path, dsp_url, inbox_url):
+     """分析行程蒐證、分析、送提案,一路推進到終點或交接。"""
+     analyzer = TaskStore(tmp_path / "analyzer.db")
+     try:
+         now = _now()
+         analyzer.create_task("t1", "c1", now)
+-        evidence_source = instrumented.dsp_evidence_source(analyzer, dsp_url, 3)
++        evidence_source = instrumented.rule_source(analyzer, dsp_url, 3)
+         send = inbox_client.make_client(inbox_url, 3)
+         state = analyzer.latest("t1").state
+-        for _ in range(8):
++        for _ in range(12):
+             if state in (TaskState.HANDED_OFF, TaskState.NO_ACTION, TaskState.FAILED):
+                 break
+             # 送件的呼叫紀錄綁「呼叫當下讀到的那一列」:每一步都用當下的列重建
+             submit = instrumented.InstrumentedSubmit(analyzer, send, ToolEndpoint.INBOX_SUBMIT,
+                                                     analyzer.latest("t1"))
+-            state = flow.advance(analyzer, "t1", evidence_source, policy.decide, submit, now)
++            state = flow.advance(analyzer, "t1", evidence_source, policy.decide, submit, now,
++                                 rule_decide=rule_round.decide)
+         proposal = next((row.proposal for row in reversed(analyzer.history("t1"))
+                          if row.proposal), None)
+         endpoints = {call.endpoint for call in analyzer.list_tool_calls("t1")}
+     finally:
+         analyzer.close()
+     return {"state": state, "proposal": proposal, "endpoints": endpoints}
+ 
+ 
+ def _execute(tmp_path, dsp_url):
+     """執行迴圈用真的 DSP 用戶端、簽發器與租戶設定處理收件口裡那份提案。"""
+diff --git a/tests/analyzer/test_f6_end_to_end.py b/tests/analyzer/test_f6_end_to_end.py
+index 5d9cbf3..ea915a9 100644
+--- a/tests/analyzer/test_f6_end_to_end.py
++++ b/tests/analyzer/test_f6_end_to_end.py
+@@ -19,20 +19,21 @@ import pytest
+ from rtb.analyzer.task_store import TaskStore, follow_up_id
+ from rtb.domain.task_state import TaskState
+ from rtb.dsp.server import DspServer
+ from rtb.dsp.store import CampaignStore
+ from rtb.executor import replay as replay_tool
+ from rtb.executor.capability_signer import CapabilitySigner
+ from rtb.executor.dsp_client import DspClient
+ from rtb.executor.execution import Executor
+ from rtb.executor.inbox_server import InboxServer
+ from rtb.executor.inbox_store import MAX_DELIVERIES, InboxStore
++from tests.analyzer.conftest import seed_rule_history
+ from tests.analyzer.test_f4_end_to_end import (
+     OTHER_BUDGET,
+     STALE_BUDGET,
+     _advance,
+     _now,
+     _other_writer_changes_the_budget,
+ )
+ from tests.capability_samples import TEST_KEY
+ from tests.executor.fakes import write_config
+ 
+@@ -49,20 +50,21 @@ def _execute(tmp_path, client, clock=_now):
+     finally:
+         store.close()
+ 
+ 
+ def run_f6(tmp_path, monkeypatch, change):
+     dsp_db = tmp_path / "dsp.db"
+     seeding = CampaignStore(dsp_db)
+     seeding.seed_campaign("c1", budget=100)
+     seeding.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=0.5,
+                          revenue=5.0)
++    seed_rule_history(seeding, "c1")  # 正式規則的四查詢(Phase 14 增量 2b)
+     seeding.close()
+     dsp = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
+                     capability_key=TEST_KEY)
+     try:
+         threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
+         inbox = InboxServer(tmp_path / "inbox.db", fault_injection=False)
+         try:
+             threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
+             return _walk(tmp_path, monkeypatch, change,
+                          f"http://127.0.0.1:{dsp.server_address[1]}",
+diff --git a/tests/analyzer/test_investigation_e2e.py b/tests/analyzer/test_investigation_e2e.py
+index bd089a4..d8dbd41 100644
+--- a/tests/analyzer/test_investigation_e2e.py
++++ b/tests/analyzer/test_investigation_e2e.py
+@@ -221,21 +221,24 @@ def test_the_runner_refuses_a_model_timeout_that_outlives_the_lease(tmp_path, mo
+                            *extra], max_rounds=0, out=io.StringIO(), err=err,
+                           open_gate=lambda _e, **_k: FakeGate(["x"]))
+         return code == runner.EXIT_UNSAFE_CONFIG, err.getvalue()
+ 
+     assert investigation.MAX_COLLECT_READS == 6
+     assert stepbudget.collect_step_worst_seconds(3.0, 6) == 58.0
+     assert stepbudget.ai_step_worst_seconds() == 55.0  # 代碼審 r3:多算一次記次等鎖
+     assert refused("4", "--ai-judge")[0]  # 5 + 6 乘 9 + 5 = 64
+     assert "租約" in refused("4", "--ai-judge")[1]
+     assert not refused("3", "--ai-judge")[0]
+-    assert not refused("5")[0]  # 沒開 AI:5 秒照舊合法
++    # 沒開 AI:Phase 14 [S1405] 起規則輪 C(5 讀)也要小於租約:4 秒(5 + 5 乘 9 + 5 = 55)合法、
++    # 5 秒(60)拒絕
++    assert not refused("4")[0]
++    assert refused("5")[0]
+     assert refused("15")[0]  # [S1001] 照舊
+     # 代碼審 r3:AI 那一步 = 模型 + 清理 10 + 花費帳 20 + 記次 5 + 提交 5;21 + 40 = 61 要拒絕
+     monkeypatch.setattr(stepbudget, "MODEL_TIMEOUT_SECONDS", 21.0)
+     assert refused("1", "--ai-judge")[0]
+     monkeypatch.setattr(stepbudget, "MODEL_TIMEOUT_SECONDS", 19.0)  # 19 + 40 = 59 放行
+     assert not refused("1", "--ai-judge")[0]
+     monkeypatch.undo()
+     monkeypatch.setattr(investigation, "MAX_COLLECT_READS", 7)  # 5 + 7 乘 8 + 5 = 66
+     assert refused("3", "--ai-judge")[0]
+     tree = ast.parse((SRC / "analyzer" / "runner.py").read_text(encoding="utf-8"))
+diff --git a/tests/analyzer/test_investigation_review.py b/tests/analyzer/test_investigation_review.py
+index 16ab173..657e53b 100644
+--- a/tests/analyzer/test_investigation_review.py
++++ b/tests/analyzer/test_investigation_review.py
+@@ -20,21 +20,20 @@ from rtb.sqlitekit import DatabaseBusy
+ from tests.analyzer.conftest import NOW, Counting
+ from tests.analyzer.test_ai_judge import (
+     CITE_BASE,
+     TASK,
+     Calls,
+     Model,
+     Renew,
+     base_evidence,
+     receipt,
+     reply,
+-    rule,
+     run,
+ )
+ from tests.analyzer.test_investigation_reads import scripted  # noqa: F401 - 假 DSP 夾具
+ 
+ LATER = NOW + timedelta(seconds=40)
+ HISTORY_ROW = {"operation_id": 1, "action": "update_budget", "version_after": 2,
+                "received_at": "2026-09-20T00:00:00+00:00",
+                "committed_at": "2026-09-20T00:00:00+00:00", "idempotency_key": "k1"}
+ DAILY_ROW = {"days_ago": 1, "impressions": 100, "clicks": 10, "conversions": 1, "spend": 1.0,
+              "revenue": 2.0, "no_data": False}
+@@ -222,21 +221,22 @@ class _nothing:
+     def __exit__(self, *_exc):
+         return False
+ 
+ 
+ def test_the_persisted_call_count_sends_the_fourth_call_to_the_rule():
+     model = Model(reply("propose", evidence=CITE_BASE))
+     outcome = ai_judge.Judge(model)(TASK, base_evidence(), NOW,
+                                     flow.AiContext(Renew(), (), Calls(start=3)))
+     assert model.sent == []
+     assert outcome.record.fallback == "ai_already_used"
+-    assert (outcome.result, outcome.no_action_reason) == rule(base_evidence())
++    # Phase 14 增量 2b:退回程式規則 = 開一次新規則輪全量重讀四查詢(不當場用基本三筆判)
++    assert (outcome.result, outcome.no_action_reason) == (flow.RuleContinue(), None)
+ 
+ 
+ # ---- f1:續租時的資料庫錯誤跟沒開 AI 時一樣穿出去、這步不寫、不轉失敗 ----
+ def test_a_database_error_while_renewing_is_retried_not_failed(store, monkeypatch):
+     store.create_task("t1", "c1", NOW)
+     flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW)
+     flow.advance(store, "t1", Counting(returns=base_evidence()), Counting(), Counting(), NOW)
+ 
+     def broken(_lease, _clock):
+         raise sqlite3.OperationalError("disk I/O error")
+diff --git a/tests/analyzer/test_investigation_review_r2.py b/tests/analyzer/test_investigation_review_r2.py
+index e244197..744c31b 100644
+--- a/tests/analyzer/test_investigation_review_r2.py
++++ b/tests/analyzer/test_investigation_review_r2.py
+@@ -42,24 +42,26 @@ def _ai(store, judge, at=NOW):
+ 
+ # ---- x1/y2/v1:寫不進資料庫的模型字串一律是選項外答案 ----
+ @pytest.mark.parametrize("reason", ["\ud800 理由", "私用", "未指定\U000e0080x", "\udfff"])
+ def test_a_reason_that_cannot_be_stored_is_off_menu_on_the_first_call(tmp_path, reason):
+     store = TaskStore(tmp_path / "a.db")
+     try:
+         _to_analyzing(store)
+         model = Model(json.dumps({"choice": "do_not_propose", "reason": reason,
+                                   "evidence": [{"ref": "base", "field": "conversions",
+                                                 "value": "1"}]}))
+-        assert _ai(store, ai_judge.Judge(model)) is TaskState.PROPOSED  # 退回規則:有價值格提案
++        # 退回規則:Phase 14 增量 2b 起開規則輪(回蒐集證據、全量重讀四查詢),不當場提案
++        assert _ai(store, ai_judge.Judge(model)) is TaskState.COLLECTING_EVIDENCE
+         assert len(model.sent) == 1
+         [(_seq, record)] = store.investigation_rounds("t1")
+-        assert (record.kind, record.fallback) == ("fallback", "off_menu")
++        assert (record.kind, record.fallback, record.choice) == (
++            "fallback", "off_menu", ai_judge.RULE_ROUND)
+     finally:
+         store.close()
+ 
+ 
+ # ---- y1:收據的加總與平均精確算,不經浮點 ----
+ def test_huge_json_integers_in_the_daily_rows_never_stall_the_evidence_step(scripted):  # noqa: F811
+     state = {"id": "c1", "budget": 100, "status": "active", "version": 1, "name": "n",
+              "tenant": "t", "extra": 1}
+     metrics = {"campaign_id": "c1", "window": "1h", "impressions": 500, "clicks": 12,
+                "conversions": 1, "spend": 0.5, "revenue": 5.0}
+diff --git a/tests/analyzer/test_policy.py b/tests/analyzer/test_policy.py
+index 3c04663..d96d373 100644
+--- a/tests/analyzer/test_policy.py
++++ b/tests/analyzer/test_policy.py
+@@ -1,52 +1,97 @@
+-"""示範用的最小決策規則:S49。重申:這不是交接文件後面階段要做的真正業務邏輯。"""
++"""決策規則:S49(Phase 14 增量 2b 照計劃改寫:低配速只是進入九條判斷的前提,有曝光點擊不保證提案,
++還要完整有效的四查詢與「值得加」;原零投放、正常配速不提案仍保留)。
++
++只有基本資料時(`policy.decide`)明傳缺四查詢,配速偏低的其餘情形是證據不足;要看提案的測試用
++`decide_full` 帶齊四查詢。證據只有預算、沒有狀態的,照新語意以缺現況不提案([S1404])。
++"""
+ 
+ from types import MappingProxyType
+ 
+ from rtb.analyzer import flow, policy
+ from rtb.analyzer.task_store import TaskRow
++from rtb.domain import nine_rules as rules
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
+ from rtb.domain.task_state import TaskState
+ from tests.analyzer.conftest import NOW
+ 
++_WINDOW = rules.Window(1000, 20, 2, "2.00", "5.00")
++FULL = rules.RuleEvidence(
++    longer=rules.LongerWindow(_WINDOW, _WINDOW), history=rules.ChangeHistory(()),
++    daily=rules.DailyTrend(tuple(rules.DailyRow(day, 1000, 20, 2, "2.00", "5.00", False)
++                                 for day in range(1, 8))),
++    past=rules.PastAdjustments(()))
++
++
++def decide_full(task, evidence, now):
++    """帶齊四查詢(平穩、沒有調整)的九條決策。"""
++    return policy.explain(task, evidence, now, candidate=None, allowed=policy.ValidatedCells.NONE,
++                          queries=FULL)[0]
++
+ 
+ def task_row():
+     return TaskRow(task_id="t1", seq=3, state=TaskState.ANALYZING, campaign_id="c1",
+                    proposal=None, error_detail=None, written_at=NOW)
+ 
+ 
+-def state_evidence(budget=100):
++def state_evidence(budget=100, status="active"):
++    payload = {"budget": budget} if status is None else {"budget": budget, "status": status}
+     return Evidence(
+         evidence_id="e-state", task_id="t1", kind=EvidenceKind.CAMPAIGN_STATE, source="dsp",
+         observed_at=NOW, campaign_version_observed=1, content_hash="a" * 64,
+-        trust_class=TrustClass.TRUSTED, payload=MappingProxyType({"budget": budget}),
++        trust_class=TrustClass.TRUSTED, payload=MappingProxyType(payload),
+     )
+ 
+ 
+-def metrics_evidence(spend=None, impressions=None, clicks=None):
++def metrics_evidence(spend=None, impressions=None, clicks=None, conversions=1, revenue=5.0):
+     return Evidence(
+         evidence_id="e-metrics", task_id="t1", kind=EvidenceKind.METRICS, source="dsp",
+         observed_at=NOW, campaign_version_observed=None, content_hash="b" * 64,
+         trust_class=TrustClass.TRUSTED,
+-        payload=MappingProxyType({"spend": spend, "impressions": impressions, "clicks": clicks}),
++        payload=MappingProxyType({"spend": spend, "impressions": impressions, "clicks": clicks,
++                                  "conversions": conversions, "revenue": revenue}),
+     )
+ 
+ 
+ def test_underpacing_with_real_delivery_proposes_a_budget_increase():
+     evidence = (state_evidence(budget=100), metrics_evidence(spend=1.0, impressions=500, clicks=12))
+ 
+-    decision = policy.decide(task_row(), evidence, now=NOW)
++    decision = decide_full(task_row(), evidence, now=NOW)
+ 
+     assert isinstance(decision, flow.ProposalDecision)
+     assert decision.proposal.requested_change["new_budget"] == 110  # 漲一成,暫用值
+ 
+ 
++def test_underpacing_with_delivery_but_only_base_evidence_is_insufficient():
++    """[S49] 改寫:有曝光點擊不保證提案;沒有四查詢(只有基本資料)→ 證據不足、不提案。"""
++    evidence = (state_evidence(budget=100), metrics_evidence(spend=1.0, impressions=500, clicks=12))
++
++    decision, reason = policy.explain(task_row(), evidence, NOW, candidate=None,
++                                      allowed=policy.ValidatedCells.NONE)
++
++    assert isinstance(decision, flow.NoAction)
++    assert reason is policy.NoActionReason.JUDGED_INSUFFICIENT
++    assert isinstance(policy.decide(task_row(), evidence, now=NOW), flow.NoAction)
++
++
++def test_state_without_a_status_is_missing_state_not_a_proposal():
++    """[S1404] 現況缺狀態:不建判斷點輸入、不進九格,以缺現況不提案(不退回曝光點擊舊規則)。"""
++    evidence = (state_evidence(budget=100, status=None),
++                metrics_evidence(spend=1.0, impressions=500, clicks=12))
++
++    decision, reason = policy.explain(task_row(), evidence, NOW, candidate=None,
++                                      allowed=policy.ValidatedCells.NONE, queries=FULL)
++
++    assert isinstance(decision, flow.NoAction)
++    assert reason is policy.NoActionReason.MISSING_STATE_OR_METRICS
++
++
+ def test_normal_pacing_is_no_action():
+     # 一小時預期花費 = 100/24 ≈ 4.17,花了 4.2 已達標,不該提案
+     evidence = (state_evidence(budget=100), metrics_evidence(spend=4.2, impressions=500, clicks=12))
+ 
+     assert isinstance(policy.decide(None, evidence, now=NOW), flow.NoAction)
+ 
+ 
+ def test_underpacing_with_zero_delivery_is_no_action_not_a_proposal():
+     evidence = (state_evidence(budget=100), metrics_evidence(spend=0.0, impressions=0, clicks=0))
+ 
+@@ -73,35 +118,35 @@ def test_no_evidence_at_all_never_raises_and_is_no_action():
+ def test_missing_state_evidence_never_raises_and_is_no_action():
+     evidence = (metrics_evidence(spend=1.0, impressions=500, clicks=12),)
+ 
+     assert isinstance(policy.decide(None, evidence, now=NOW), flow.NoAction)
+ 
+ 
+ def test_a_small_budget_that_would_round_to_no_change_still_strictly_increases():
+     # budget=1 時 round(1 * 1.1) == round(1.1) == 1:字面上的公式對小額預算算不出漲幅。
+     evidence = (state_evidence(budget=1), metrics_evidence(spend=0.0, impressions=500, clicks=12))
+ 
+-    decision = policy.decide(task_row(), evidence, now=NOW)
++    decision = decide_full(task_row(), evidence, now=NOW)
+ 
+     assert isinstance(decision, flow.ProposalDecision)
+     assert decision.proposal.requested_change["new_budget"] > 1
+ 
+ 
+ def test_a_budget_near_the_proposal_ceiling_is_clamped_instead_of_raising():
+     from rtb.domain.proposal import MAX_INT
+ 
+     near_ceiling = MAX_INT - 1
+     evidence = (state_evidence(budget=near_ceiling),
+                 metrics_evidence(spend=0.0, impressions=500, clicks=12))
+ 
+     # 漲一成的公式算出來會超過上限,不該丟例外
+-    decision = policy.decide(task_row(), evidence, now=NOW)
++    decision = decide_full(task_row(), evidence, now=NOW)
+ 
+     assert isinstance(decision, flow.ProposalDecision)
+     assert decision.proposal.requested_change["new_budget"] == MAX_INT
+ 
+ 
+ def test_boolean_impressions_or_clicks_do_not_count_as_real_delivery():
+     # bool 是 int 的子類別(True == 1);has_delivery 要跟領域層其他數值檢查一樣排除它,
+     # 不然壞掉的資料來源送 True/False 會被誤判成「有在投放」。
+     evidence = (state_evidence(budget=100),
+                 metrics_evidence(spend=0.0, impressions=True, clicks=True))
+@@ -109,29 +154,29 @@ def test_boolean_impressions_or_clicks_do_not_count_as_real_delivery():
+     assert isinstance(policy.decide(None, evidence, now=NOW), flow.NoAction)
+ 
+ 
+ # ---- 決策前先檢查證據新鮮度(2026-09-22 合約審計發現:新鮮度判斷原本沒有任何流程在呼叫) ----
+ def test_evidence_older_than_the_age_limit_asks_for_fresh_evidence_instead_of_deciding():
+     from datetime import timedelta
+ 
+     evidence = (state_evidence(budget=100), metrics_evidence(spend=0.0, impressions=500, clicks=12))
+     later = NOW + policy.MAX_EVIDENCE_AGE + timedelta(seconds=1)
+ 
+-    decision = policy.decide(task_row(), evidence, now=later)
++    decision = decide_full(task_row(), evidence, now=later)
+ 
+     assert isinstance(decision, flow.NeedsFreshEvidence)  # 明明配速偏低,也不能拿過時的證據提案
+ 
+ 
+ def test_evidence_exactly_at_the_age_limit_is_still_used():
+     evidence = (state_evidence(budget=100), metrics_evidence(spend=0.0, impressions=500, clicks=12))
+ 
+-    decision = policy.decide(task_row(), evidence, now=NOW + policy.MAX_EVIDENCE_AGE)
++    decision = decide_full(task_row(), evidence, now=NOW + policy.MAX_EVIDENCE_AGE)
+ 
+     assert isinstance(decision, flow.ProposalDecision)
+ 
+ 
+ def test_one_stale_piece_is_enough_to_ask_for_fresh_evidence():
+     from dataclasses import replace
+     from datetime import timedelta
+ 
+     old_metrics = replace(metrics_evidence(spend=0.0, impressions=500, clicks=12),
+                           observed_at=NOW - policy.MAX_EVIDENCE_AGE - timedelta(seconds=1))
+diff --git a/tests/analyzer/test_rule_round.py b/tests/analyzer/test_rule_round.py
+new file mode 100644
+index 0000000..9acff4e
+--- /dev/null
++++ b/tests/analyzer/test_rule_round.py
+@@ -0,0 +1,313 @@
++"""Phase 14 增量 2b:正式規則的規則輪(A/B/C 分步讀四查詢、九條定案、重進入與政策升版)。
++
++合約 [S1401] [S1402] [S1405] [S1406] [S1413] [S1424],與 [S1107] 改寫的證據參照。一律用真的模擬
++DSP(行程內、
++固定時鐘注入儲存層)與真的分析端資料庫;每一步用呼叫端給的固定 now 推進(2a 教訓:
++固定日期一律注入固定時鐘)。
++"""
++
++import threading
++from datetime import UTC, datetime, timedelta
++
++import pytest
++
++from rtb import stepbudget
++from rtb.analyzer import dsp_client, flow, instrumented, policy, rule_round, runner
++from rtb.analyzer.task_store import RuleStep, ToolEndpoint
++from rtb.domain import proposal as proposal_mod
++from rtb.domain.evidence import EvidenceKind
++from rtb.domain.task_state import TaskState
++from rtb.dsp.seed import DEMO_PROFILE, seed_platform_history
++from rtb.dsp.server import DspServer
++from rtb.dsp.store import CampaignStore
++
++NOW = datetime(2026, 9, 26, 12, 0, tzinfo=UTC)
++BASE_METRICS = {"impressions": 500, "clicks": 12, "conversions": 1, "spend": 2.0, "revenue": 5.0}
++QUERY_ENDPOINTS = {ToolEndpoint.DSP_HISTORY, ToolEndpoint.DSP_DAILY, ToolEndpoint.DSP_ADJUSTMENTS}
++
++
++class Clock:
++    """DSP 儲存層的可控時鐘(ISO 字串)。"""
++
++    def __init__(self, at):
++        self.at = at
++
++    def __call__(self):
++        return self.at.isoformat()
++
++
++@pytest.fixture
++def world(tmp_path):
++    clock = Clock(NOW)
++    db = tmp_path / "dsp.db"
++    dsp = CampaignStore(db, clock=clock)
++    dsp.seed_campaign("c1", budget=2400)
++    dsp.seed_metrics("c1", "1h", **BASE_METRICS)
++    seed_platform_history(dsp, {"c1": DEMO_PROFILE}, NOW)
++    server = DspServer(db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
++                       store_clock=clock)
++    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
++    yield World(f"http://127.0.0.1:{server.server_address[1]}", dsp, clock)
++    server.shutdown()
++    server.server_close()
++    dsp.close()
++
++
++class World:
++    def __init__(self, url, dsp, clock):
++        self.url, self.dsp, self.clock = url, dsp, clock
++        self.sent = []
++
++    def submit(self, proposal):
++        self.sent.append(proposal)
++        return flow.Accepted(replayed=False)
++
++
++def step(store, world, at, task_id="t1", submit=None, source=None):
++    """推進一步(DSP 的時鐘跟分析端的 now 一起走)。"""
++    world.clock.at = at
++    return flow.advance(store, task_id, source or instrumented.rule_source(store, world.url, 3.0),
++                        policy.decide, submit or world.submit, at,
++                        no_action_reason=runner._no_action_reason, rule_decide=rule_round.decide)
++
++
++def run_until(store, world, at, stop_states, limit=20, **kwargs):
++    for _ in range(limit):
++        state = step(store, world, at, **kwargs)
++        if state in stop_states:
++            return state
++    raise AssertionError(f"{limit} 步內沒走到 {stop_states}:{store.latest('t1')}")
++
++
++def calls(store, task_id="t1"):
++    return store.list_tool_calls(task_id)
++
++
++def reads_by_seq(store, task_id="t1"):
++    found = {}
++    for call in calls(store, task_id):
++        found.setdefault(call.task_seq, []).append(call.endpoint)
++    return found
++
++
++def events(store, task_id="t1"):
++    return [(event.event, event.detail) for _seq, event in store.rule_events(task_id)]
++
++
++# ---- 正常路徑:A→B→C→DECIDE,讀取次數與證據參照 ----
++def test_underpacing_campaign_reads_three_steps_and_proposes_with_query_receipts(store, world):
++    store.create_task("t1", "c1", NOW)
++    assert run_until(store, world, NOW, {TaskState.PROPOSED}) is TaskState.PROPOSED
++    steps = [(record.round_id, record.step) for _seq, record in store.rule_steps("t1")]
++    assert steps == [(1, "A"), (1, "B"), (1, "C")]
++    # 宣告的讀取次數 = 實際打 DSP 的次數(2a 教訓;租約守衛用宣告值)
++    per_step = {record.step: len(reads_by_seq(store).get(seq - 1, []))
++                for seq, record in store.rule_steps("t1")}
++    assert per_step == stepbudget.RULE_STEP_READS == {"A": 2, "B": 2, "C": 5}
++    assert rule_round.step_reads_match_budget()
++    assert [e for e, _d in events(store)] == ["continue", "continue", "decided"]
++    proposal = store.latest("t1").proposal
++    # 證據編號帶的是蒐證那一列(分析中那一列的前一列)的序號
++    # [S1107] 改寫:證據參照 = C 的基本三筆 + 四種成功查詢的收據(B 的歷史與過去調整、C 的長窗與逐日)
++    seq_b = next(seq for seq, r in store.rule_steps("t1") if r.step == "B")
++    seq_c = next(seq for seq, r in store.rule_steps("t1") if r.step == "C")
++    assert set(proposal.evidence_refs) == {
++        f"t1-{seq_c - 1}-state", f"t1-{seq_c - 1}-metrics", f"t1-{seq_c - 1}-text",
++        f"t1-{seq_b - 1}-check_change_history", f"t1-{seq_b - 1}-check_past_adjustments",
++        f"t1-{seq_c - 1}-check_longer_window", f"t1-{seq_c - 1}-check_daily_trend"}
++    assert proposal.policy_version == proposal_mod.POLICY_VERSION
++    assert world.sent == []  # 只建提案;送件是下一步
++
++
++# ---- [S1401] ----
++@pytest.mark.parametrize(("status", "metrics", "reason"), [
++    ("paused", {**BASE_METRICS, "clicks": 2}, "judged_not_worth"),
++    ("active", {**BASE_METRICS, "clicks": 600}, "judged_insufficient"),  # 點擊多於曝光
++    ("active", {**BASE_METRICS, "spend": 99.0}, "not_underpacing"),  # 資料齊、配速正常
++])
++def test_paused_and_anomalous_campaigns_finish_from_base_evidence(store, world, status, metrics,
++                                                                  reason):
++    """暫停、1 小時異常只用基本資料在步驟 A 依第 1/2 條結案;配速正常也在 A 結案;追加讀取 0 次、
++    不提案。"""
++    world.dsp._conn.execute("UPDATE campaigns SET status = ? WHERE id = 'c1'", (status,))
++    world.dsp.seed_metrics("c1", "1h", **metrics)
++    store.create_task("t1", "c1", NOW)
++    assert run_until(store, world, NOW, {TaskState.NO_ACTION}) is TaskState.NO_ACTION
++    assert store.no_action_reason("t1", store.latest("t1").seq) == reason
++    assert not {c.endpoint for c in calls(store)} & QUERY_ENDPOINTS
++    assert len(calls(store)) == 2
++    assert [r.step for _s, r in store.rule_steps("t1")] == ["A"]
++
++
++# ---- [S1402] ----
++@pytest.mark.parametrize(("option", "why"), [
++    ("check_change_history", "not_found"), ("check_past_adjustments", "timeout"),
++    ("check_daily_trend", "invalid"), ("check_longer_window", "invalid"),
++])
++def test_missing_query_results_prevent_a_proposal(store, world, monkeypatch, option, why):
++    """任一查詢逾時、404、欄位不合格或跨窗不一致成為「沒有結果」:證據不足、提案 0 筆;
++    細因記查詢代碼。
++    例:歷史 404、1 小時有轉換 → 證據不足。"""
++    real = dsp_client.make_query_reader
++
++    def broken(*args, **kwargs):
++        reader = real(*args, **kwargs)
++
++        def read(task, chosen):
++            return dsp_client.QueryRead(None, why) if chosen == option else reader(task, chosen)
++
++        return read
++
++    monkeypatch.setattr(dsp_client, "make_query_reader", broken)
++    store.create_task("t1", "c1", NOW)
++    assert run_until(store, world, NOW, {TaskState.NO_ACTION}) is TaskState.NO_ACTION
++    assert store.no_action_reason("t1", store.latest("t1").seq) == "judged_insufficient"
++    assert events(store)[-1] == ("decided", f"query_no_result:{option}")
++    assert world.sent == []
++
++
++# ---- [S1405] ----
++def test_rule_collection_steps_fit_the_lease(store, world):
++    """預設逾時 3 秒時各步 2/2/5 讀、最壞 26/26/50 秒皆小於租約 60 秒;自訂逾時讓 C 達 60
++    秒就拒啟動並說
++    是哪一步。只讓租約與序號持有者提交(別人持有租約時這一步不讀、不寫)。"""
++    assert stepbudget.rule_step_worst_seconds(3.0) == {"A": 26.0, "B": 26.0, "C": 50.0}
++    ok = runner._unsafe(runner._parse(["--db", "x", "--dsp-url", "u", "--inbox-url", "u"]))
++    assert ok is None
++    refused = runner._unsafe(runner._parse(["--db", "x", "--dsp-url", "u", "--inbox-url", "u",
++                                            "--timeout-seconds", "5"]))
++    assert refused is not None and "步驟 C" in refused and "5 次讀取" in refused
++    assert runner.run(["--db", str(store_path(store)), "--dsp-url", "u", "--inbox-url", "u",
++                       "--timeout-seconds", "5"], max_rounds=0) == runner.EXIT_UNSAFE_CONFIG
++    # 租約:別人持有時什麼都不讀
++    store.create_task("t1", "c1", NOW)
++    step(store, world, NOW)  # 收到 → 蒐集證據
++    assert store.acquire_lease("t1", "someone-else", NOW) is not None
++    assert step(store, world, NOW) is TaskState.COLLECTING_EVIDENCE
++    assert calls(store) == ()
++
++
++def store_path(store):
++    return store._conn.execute("PRAGMA database_list").fetchone()[2]
++
++
++# ---- [S1406] ----
++def test_decisions_recheck_freshness_and_utc_day_boundaries(store, world):
++    """C 在 23:59:59 UTC 讀逐日、定案在次日 00:00:01 → 證據不足(不用前一天的日桶提案);A 讀完超過
++    15 分鐘才定案 → 作廢這一輪從 A 重讀。"""
++    late = datetime(2026, 9, 26, 23, 59, 59, tzinfo=UTC)
++    store.create_task("t1", "c1", late)
++    for _ in range(5):  # 收到、A、分析 A、B、分析 B
++        step(store, world, late)
++    assert step(store, world, late) is TaskState.ANALYZING  # C 在 23:59:59 讀
++    assert [r.step for _s, r in store.rule_steps("t1")] == ["A", "B", "C"]
++    after_midnight = datetime(2026, 9, 27, 0, 0, 1, tzinfo=UTC)
++    assert step(store, world, after_midnight) is TaskState.NO_ACTION
++    assert events(store)[-1] == ("decided", "day_boundary:check_daily_trend")
++    assert world.sent == []
++
++
++def test_evidence_that_ages_past_fifteen_minutes_restarts_from_step_a(store, world):
++    store.create_task("t1", "c1", NOW)
++    for _ in range(4):  # 收到、A、分析 A(續步)、B
++        step(store, world, NOW)
++    later = NOW + policy.MAX_EVIDENCE_AGE + timedelta(seconds=1)
++    assert step(store, world, later) is TaskState.COLLECTING_EVIDENCE  # 分析 B:A 已過期
++    assert events(store)[-1] == ("restart_stale", None)
++    step(store, world, later)
++    assert [(r.round_id, r.step) for _s, r in store.rule_steps("t1")][-1] == (2, "A")
++
++
++# ---- [S1413] ----
++def test_rule_round_checkpoints_exclude_stale_evidence(store, world):
++    """409 退回後整組從 A 重來,新輪定案不讀舊輪 B 的序號;當機續跑超過 15 分鐘也從 A 重來。"""
++    store.create_task("t1", "c1", NOW)
++    assert run_until(store, world, NOW, {TaskState.PROPOSED}) is TaskState.PROPOSED
++    old_b = next(seq for seq, r in store.rule_steps("t1") if r.step == "B")
++
++    def stale(_proposal):
++        raise flow.SubmitStale("revision_out_of_order")
++
++    assert step(store, world, NOW, submit=stale) is TaskState.COLLECTING_EVIDENCE
++    assert run_until(store, world, NOW, {TaskState.PROPOSED}) is TaskState.PROPOSED
++    rounds = [(r.round_id, r.step, seq) for seq, r in store.rule_steps("t1")]
++    assert [(rid, s) for rid, s, _seq in rounds] == [(1, "A"), (1, "B"), (1, "C"),
++                                                     (2, "A"), (2, "B"), (2, "C")]
++    proposal = store.latest("t1").proposal
++    assert not any(ref.startswith(f"t1-{old_b - 1}-") for ref in proposal.evidence_refs)
++    # 當機續跑:A 已提交、蒐證 B 時已過 15 分鐘 → 新輪 A
++    store.create_task("t2", "c1", NOW)
++    for _ in range(3):
++        step(store, world, NOW, task_id="t2")
++    resumed = NOW + timedelta(minutes=16)
++    step(store, world, resumed, task_id="t2")
++    assert [(r.round_id, r.step) for _s, r in store.rule_steps("t2")] == [(1, "A"), (2, "A")]
++
++
++def test_changes_between_a_and_c_restart_twice_then_stop(store, world):
++    """A 與 C 的 1 小時原始指標不同:作廢重讀;連續第 3 次變動 → 證據不足結案,沒有第 4 輪。"""
++    store.create_task("t1", "c1", NOW)
++    bump = iter(range(1, 10))
++
++    def changing(task, now):
++        record = rule_round.collect_plan(store, task.task_id, now)
++        if record[1] is rule_round.Step.C:  # 每次讀 C 之前 1 小時點擊都變
++            world.dsp.seed_metrics("c1", "1h", **{**BASE_METRICS, "impressions": 500 + next(bump)})
++        return instrumented.rule_source(store, world.url, 3.0)(task, now)
++
++    assert run_until(store, world, NOW, {TaskState.NO_ACTION}, limit=40,
++                     source=changing) is TaskState.NO_ACTION
++    kinds = [e for e, _d in events(store) if e != "continue"]
++    assert kinds == ["restart_changed", "restart_changed", "changed_limit"]
++    assert max(r.round_id for _s, r in store.rule_steps("t1")) == 3
++    assert store.no_action_reason("t1", store.latest("t1").seq) == "judged_insufficient"
++
++
++def test_missing_state_at_step_c_does_not_reuse_step_a(store, world):
++    """[S1404] C 才讀到缺狀態:以缺現況結案,不沿用 A 的舊現況。"""
++    store.create_task("t1", "c1", NOW)
++    for _ in range(5):  # 到 B 分析完
++        step(store, world, NOW)
++    world.dsp._conn.execute("UPDATE campaigns SET status = 'deleted' WHERE id = 'c1'")
++    step(store, world, NOW)  # C
++    assert step(store, world, NOW) is TaskState.NO_ACTION
++    assert store.no_action_reason("t1", store.latest("t1").seq) == "missing_state_or_metrics"
++
++
++# ---- [S1424] ----
++def test_policy_switch_restarts_inflight_analysis(store, world, monkeypatch):
++    """升版前只有基本兩讀(分析中那一列沒有規則輪紀錄)→ 開新輪從 A 重讀,不把缺輪次當 DECIDE;回退版
++    換新政策版本時,停在九條 B 的輪作廢,從回退版的基本步重讀,不以 B 最後序號定案。"""
++    store.create_task("t1", "c1", NOW)
++    store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, NOW)
++    world.clock.at = NOW
++    old = instrumented.dsp_evidence_source(store, world.url, 3.0)(store.latest("t1"), NOW)
++    store.commit_step("t1", 2, TaskState.ANALYZING, NOW, evidence=old)  # 舊版兩讀
++    assert step(store, world, NOW) is TaskState.COLLECTING_EVIDENCE
++    assert events(store) == [("restart_no_round", None)]
++    step(store, world, NOW)
++    assert [(r.round_id, r.step) for _s, r in store.rule_steps("t1")] == [(1, "A")]
++    step(store, world, NOW)
++    step(store, world, NOW)  # B
++    assert [r.step for _s, r in store.rule_steps("t1")] == ["A", "B"]
++    monkeypatch.setattr(rule_round, "POLICY_VERSION", "nine-rules-rollback-v1")
++    monkeypatch.setattr(instrumented, "POLICY_VERSION", "nine-rules-rollback-v1")
++    assert step(store, world, NOW) is TaskState.COLLECTING_EVIDENCE  # 分析 B:不屬於本版本
++    step(store, world, NOW)
++    assert [(r.round_id, r.step, r.policy_version) for _s, r in store.rule_steps("t1")][-1] == (
++        2, "A", "nine-rules-rollback-v1")
++
++
++def test_rule_rows_are_only_written_with_analyzing_rows(store):
++    store.create_task("t1", "c1", NOW)
++    with pytest.raises(ValueError, match="分析中"):
++        store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, NOW,
++                          rule_step=RuleStep(1, "A", "v", NOW))
++
++
++def test_base_step_evidence_kinds(store, world):
++    store.create_task("t1", "c1", NOW)
++    step(store, world, NOW)
++    step(store, world, NOW)
++    kinds = {e.kind for e in store.evidence_for("t1", store.latest("t1").seq)}
++    assert kinds == {EvidenceKind.CAMPAIGN_STATE, EvidenceKind.METRICS, EvidenceKind.CAMPAIGN_TEXT}
+diff --git a/tests/analyzer/test_runner.py b/tests/analyzer/test_runner.py
+index 46e35c5..fc347df 100644
+--- a/tests/analyzer/test_runner.py
++++ b/tests/analyzer/test_runner.py
+@@ -12,33 +12,35 @@ from datetime import UTC, datetime
+ from pathlib import Path
+ 
+ import pytest
+ 
+ from rtb.analyzer import runner
+ from rtb.analyzer.task_store import LEASE_DURATION, TaskReader, TaskStore
+ from rtb.domain.task_state import TERMINAL_STATES, TaskState
+ from rtb.dsp.server import DspServer
+ from rtb.dsp.store import CampaignStore
+ from rtb.executor.inbox_server import InboxServer
++from tests.analyzer.conftest import seed_rule_history
+ 
+ RUNNER = Path(runner.__file__)
+ 
+ 
+ @pytest.fixture
+ def services(tmp_path):
+     dsp_store = CampaignStore(tmp_path / "dsp.db")
+     dsp_store.seed_campaign("c1", budget=100)
+     dsp_store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=0.5,
+                            revenue=5.0)
+     dsp_store.seed_campaign("c2", budget=100)
+     dsp_store.seed_metrics("c2", "1h", impressions=500, clicks=12, conversions=1, spend=100.0,
+                            revenue=5.0)
++    seed_rule_history(dsp_store, "c1", "c2")  # 正式規則要四查詢(Phase 14 增量 2b)
+     dsp_store.close()
+     dsp = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
+                     delay_seconds=0.0)
+     inbox = InboxServer(tmp_path / "inbox.db", fault_injection=False)
+     for server in (dsp, inbox):
+         threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+     try:
+         yield (f"http://127.0.0.1:{dsp.server_address[1]}",
+                f"http://127.0.0.1:{inbox.server_address[1]}")
+     finally:
+@@ -93,27 +95,28 @@ def test_the_analyzer_runner_uses_only_production_collaborators():
+     """[S1000] 分析端驅動命令列只匯入分析端與共用的正式模組,沒有任何故障手段、測試或展示程式。"""
+     tree = ast.parse(RUNNER.read_text(encoding="utf-8"))
+     modules = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module]
+     modules += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
+     # 從套件匯入子模組(from rtb.analyzer import x)也算那支子模組(Phase 13 增量 2 變異測試補的洞:
+     # 原本只看 ImportFrom 的套件名,匯入分析端任何一支子模組都看不出來)
+     modules += [f"{n.module}.{a.name}" for n in ast.walk(tree)
+                 if isinstance(n, ast.ImportFrom) and n.module == "rtb.analyzer" for a in n.names]
+     rtb_modules = {m for m in modules if m.startswith("rtb")}
+     # Phase 13 增量 2 照計劃〈要改寫的既有合約〉加:模型閘道、AI 決策模組、小常數模組(與 AI 決策的
+-    # 模型無關詞彙模組);[S1000] 的合約文字不改
++    # 模型無關詞彙模組);Phase 14 增量 2b 加規則輪模組;[S1000] 的合約文字不改
+     assert rtb_modules <= {"rtb.analyzer", "rtb.analyzer.task_store", "rtb.analyzer.flow",
+                            "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
+                            "rtb.analyzer.inbox_client", "rtb.analyzer.instrumented",
+                            "rtb.domain.evidence", "rtb.domain.task_state",
+                            "rtb.analyzer.modelgate", "rtb.analyzer.ai_judge",
+-                           "rtb.analyzer.investigation", "rtb.stepbudget"}, rtb_modules
++                           "rtb.analyzer.investigation", "rtb.stepbudget",
++                           "rtb.analyzer.rule_round"}, rtb_modules
+     text = RUNNER.read_text(encoding="utf-8")
+     assert not re.search(r"\bfault|X-Fault|rtb\.demo", text, re.IGNORECASE)
+ 
+ 
+ @pytest.mark.parametrize("timeout", ["15", "20", "60"])
+ def test_the_analyzer_runner_refuses_a_lease_too_short_for_its_calls(tmp_path, timeout):
+     """[S1001] 呼叫次數 2 乘 逾時 乘 2 不小於租約 60 秒就拒絕啟動,什麼都不做。"""
+     _create(tmp_path, ("t1", "c1"))
+     err = io.StringIO()
+ 
+@@ -181,21 +184,22 @@ def test_the_unsafe_config_exit_code_is_not_the_argparse_one():
+     assert runner.EXIT_UNSAFE_CONFIG not in (0, 1, 2)
+ 
+ 
+ def test_the_runner_really_submits_through_the_inbox_and_records_every_call(tmp_path, services):
+     """[S1000] 真的經收件口:收件口資料庫收到提案;呼叫紀錄有送件與兩個 DSP 端點。"""
+     import sqlite3
+ 
+     from rtb.analyzer.task_store import ToolEndpoint
+ 
+     _create(tmp_path, ("t1", "c1"))
+-    runner.run(_argv(tmp_path, *services), max_rounds=6, out=io.StringIO())
++    # 規則輪 A/B/C 三步蒐證(Phase 14 增量 2b):走到交給執行 8 步
++    runner.run(_argv(tmp_path, *services), max_rounds=10, out=io.StringIO())
+ 
+     with sqlite3.connect(tmp_path / "inbox.db") as conn:
+         assert conn.execute("SELECT task_id FROM proposals").fetchall() == [("t1",)]
+     reader = TaskReader(tmp_path / "analyzer.db")
+     try:
+         endpoints = {c.endpoint for c in reader.list_tool_calls("t1")}
+     finally:
+         reader.close()
+     assert {ToolEndpoint.INBOX_SUBMIT, ToolEndpoint.DSP_CAMPAIGN,
+             ToolEndpoint.DSP_METRICS} <= endpoints
+@@ -314,38 +318,39 @@ def _walk_to(store, task_id, target, now):
+         store.commit_step(task_id, store.latest(task_id).seq, state, now, **extra)
+ 
+ 
+ def test_a_step_on_a_row_that_moved_on_does_nothing(tmp_path, services, monkeypatch):
+     """[代碼審 r1 d1] 驅動先讀列、推進函式再讀列,中間被別的驅動推進時,這一步什麼都不做:送件紀錄
+     不會記到舊列上。"""
+     from rtb.analyzer import flow, instrumented, policy
+ 
+     _create(tmp_path, ("t1", "c1"))
+     argv = _argv(tmp_path, *services)
+-    runner.run(argv, max_rounds=3, out=io.StringIO())  # 收到 → 蒐集 → 分析 → 已提案
++    # 收到 → 規則輪 A/B/C 各蒐集、分析 → 已提案(Phase 14 增量 2b:7 步)
++    runner.run(argv, max_rounds=7, out=io.StringIO())
+     store = TaskStore(tmp_path / "analyzer.db")
+     assert store.latest("t1").state is TaskState.PROPOSED
+-    real = instrumented.dsp_evidence_source
++    real = instrumented.rule_source
+ 
+     def meanwhile(own_store, url, timeout):
+         other = TaskStore(tmp_path / "analyzer.db")
+         try:  # 別的驅動在這兩次讀列之間把工作推到已交給執行
+             flow.advance(other, "t1", real(other, url, timeout), policy.decide,
+                          instrumented.InstrumentedSubmit(
+                              other, runner.inbox_client.make_client(services[1], 2),
+                              runner.ToolEndpoint.INBOX_SUBMIT, other.latest("t1")),
+                          datetime.now(UTC), owner="other")
+         finally:
+             other.close()
+         return real(own_store, url, timeout)
+ 
+-    monkeypatch.setattr(runner.instrumented, "dsp_evidence_source", meanwhile)
++    monkeypatch.setattr(runner.instrumented, "rule_source", meanwhile)
+     args = runner._parse(argv)
+     runner._advance_one(store, "t1", args, datetime.now(UTC))
+     submits = [c for c in store.list_tool_calls("t1")
+                if c.endpoint is runner.ToolEndpoint.INBOX_SUBMIT]
+     store.close()
+     assert len(submits) == 1  # 只有別的驅動那一次;這一步沒有在舊列上重送
+ 
+ 
+ def test_waiting_tasks_back_off_instead_of_writing_every_round(tmp_path, services):
+     """[代碼審 r1 d7] 已交給執行、收件口還在待處理的任務沒有進展時退避,不會每輪都寫兩列租約與一筆
+@@ -376,21 +381,22 @@ def test_the_timeout_reaches_the_inbox_client_too(tmp_path, services):
+     """[S1001] 送件那一步的逾時也照參數:收件口只收連線不回應,送件那一步在逾時左右結束。"""
+     import socket
+ 
+     listener = socket.socket()
+     listener.bind(("127.0.0.1", 0))
+     listener.listen(8)
+     silent = f"http://127.0.0.1:{listener.getsockname()[1]}"
+     try:
+         _create(tmp_path, ("t1", "c1"))
+         argv = _argv(tmp_path, services[0], silent, timeout="0.3")
+-        runner.run(argv, max_rounds=3, out=io.StringIO(), err=io.StringIO())  # 走到已提案
++        # 走到已提案(規則輪 A/B/C,7 步)
++        runner.run(argv, max_rounds=7, out=io.StringIO(), err=io.StringIO())
+         assert _latest(tmp_path, "t1").state is TaskState.PROPOSED
+         began = time.monotonic()
+         runner.run(argv, max_rounds=1, out=io.StringIO(), err=io.StringIO())  # 送件
+         elapsed = time.monotonic() - began
+     finally:
+         listener.close()
+     assert elapsed < 3, elapsed
+ 
+ 
+ # ---- 代碼審 r2 v3/n3/n4:休息可被打斷、間隔有上限、出錯也退避、退避有上限、查操作也照逾時 ----
+@@ -492,22 +498,22 @@ def test_the_timeout_reaches_the_operation_lookup_too(tmp_path, services):
+             return 422, {"error": "expired_proposal", "retryable": False}
+ 
+     listener = socket.socket()
+     listener.bind(("127.0.0.1", 0))
+     listener.listen(8)
+     silent = f"http://127.0.0.1:{listener.getsockname()[1]}"
+     inbox = KitServer(Purged)
+     threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
+     try:
+         _create(tmp_path, ("t1", "c1"))
+-        runner.run(_argv(tmp_path, *services), max_rounds=4, out=io.StringIO(),
+-                   err=io.StringIO())
++        runner.run(_argv(tmp_path, *services), max_rounds=8, out=io.StringIO(),
++                   err=io.StringIO())  # 規則輪 A/B/C 之後送件:8 步
+         assert _latest(tmp_path, "t1").state is TaskState.HANDED_OFF
+         argv = _argv(tmp_path, silent, f"http://127.0.0.1:{inbox.server_address[1]}",
+                      timeout="0.3")
+         began = time.monotonic()
+         runner.run(argv, max_rounds=1, out=io.StringIO(), err=io.StringIO())
+         elapsed = time.monotonic() - began
+     finally:
+         listener.close()
+         inbox.shutdown()
+         inbox.server_close()
+diff --git a/tests/analyzer/test_trust_boundary.py b/tests/analyzer/test_trust_boundary.py
+index 9362547..9451a93 100644
+--- a/tests/analyzer/test_trust_boundary.py
++++ b/tests/analyzer/test_trust_boundary.py
+@@ -5,21 +5,20 @@
+ """
+ 
+ import ast
+ import dataclasses
+ from datetime import UTC, datetime
+ from pathlib import Path
+ from types import MappingProxyType
+ 
+ import pytest
+ 
+-from rtb.analyzer import policy
+ from rtb.analyzer.dsp_client import _campaign_text
+ from rtb.analyzer.flow import NoAction, ProposalDecision
+ from rtb.analyzer.task_store import TaskRow
+ from rtb.domain.evidence import MAX_UNTRUSTED_TEXT_LENGTH, Evidence, EvidenceKind, TrustClass
+ from rtb.domain.proposal import content_hash
+ from rtb.domain.task_state import TaskState
+ from tests.adversarial_samples import CATEGORIES, NAME_LIMIT, SAMPLES
+ 
+ NOW = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
+ TASK = TaskRow(task_id="t1", seq=3, state=TaskState.ANALYZING, campaign_id="c1", proposal=None,
+@@ -51,26 +50,30 @@ def _batch(name, spend):
+ 
+ def _fingerprint(decision):
+     if isinstance(decision, ProposalDecision):
+         return ("proposal", content_hash(decision.proposal))
+     return (type(decision).__name__,)
+ 
+ 
+ # ---- S210 ----
+ @pytest.mark.parametrize("pace", ["underpacing", "on_pace"])
+ def test_no_adversarial_campaign_name_changes_the_decision(pace):
+-    baseline = policy.decide(TASK, _batch(None, SPEND[pace]), NOW)
++    # Phase 14 增量 2b:正式規則是九條,要四查詢才判得到「值得加」;這裡帶齊一份平穩的四查詢
++    # (跟決策規則測試同一份),名稱照樣不影響任何決策
++    from tests.analyzer.test_policy import decide_full
++
++    baseline = decide_full(TASK, _batch(None, SPEND[pace]), NOW)
+     expected = ProposalDecision if pace == "underpacing" else NoAction
+     assert isinstance(baseline, expected)  # 兩種配速各打到一條路:一次出提案、一次不需動作
+ 
+     for category, name in SAMPLES:
+-        decision = policy.decide(TASK, _batch(name, SPEND[pace]), NOW)
++        decision = decide_full(TASK, _batch(name, SPEND[pace]), NOW)
+         assert decision == baseline, category
+         assert _fingerprint(decision) == _fingerprint(baseline), category
+     if isinstance(baseline, ProposalDecision):  # 仍可引用:提案列出三筆證據編號,含廣告文字
+         assert baseline.proposal.evidence_refs == ("t1-3-state", "t1-3-metrics", "t1-3-text")
+ 
+ 
+ # ---- S211 ----
+ def test_the_adversarial_samples_cover_every_documented_category():
+     assert set(CATEGORIES) == {
+         "scenario", "english", "fake_system", "fake_proposal_json", "secret_request",
+diff --git a/tests/analyzer/test_worth_check.py b/tests/analyzer/test_worth_check.py
+index 8f250f7..8bb9ebc 100644
+--- a/tests/analyzer/test_worth_check.py
++++ b/tests/analyzer/test_worth_check.py
+@@ -4,59 +4,86 @@
+ """
+ 
+ import dataclasses
+ import hashlib
+ import inspect
+ import itertools
+ import math
+ import pathlib
+ import pickle
+ import typing
++from datetime import UTC, datetime
+ 
+ import pytest
+ 
+ from rtb.analyzer import dsp_client, policy
+ from rtb.analyzer.flow import NeedsFreshEvidence, NoAction, ProposalDecision
+ from rtb.domain import _checks, worth
+ from rtb.domain.proposal import MAX_INT
+ from rtb.domain.worth import CampaignStatus, WorthCell, WorthInput, WorthInputInvalid, WorthVerdict
+ from tests.analyzer import frozen_policy_e8b26f6 as frozen
+ from tests.analyzer import policy_before_samples as samples
+ 
+ FROZEN = pathlib.Path(frozen.__file__)
++NOW_RULE = datetime(2026, 9, 25, tzinfo=UTC)
+ # main e8b26f6 上決策規則檔的雜湊(審查時用
+ # `git show e8b26f6:src/rtb/analyzer/policy.py | shasum -a 256` 對一次):
+ # 凍結舊規則檔必須是它原樣的複製
+ FROZEN_SHA256 = "750b2af2051a3c78bd3e751467ca7f42002956925aeaae5d47a2d59107cfc41f"
+ 
+ 
+-# ---- [S700] ----
+-def test_extracting_the_worth_increase_check_keeps_every_decision_identical():
++# ---- [S700](Phase 14 增量 2b 改寫:撤掉「新決策等於 625 筆舊結果」的永久要求)----
++OLD_POLICY_VERSION = "demo-pacing-v1"  # 凍結舊規則當時的政策版本;九條上線後換版([S1416])
++# 九條(基本資料、明傳缺四查詢)對同一批輸入跟舊規則的差異,逐類說明:
++# (舊種類, 新種類, 新的不提案原因) → 筆數
++NINE_RULE_DIFFERENCES = {
++    # 舊「曝光點擊正數就加」:配速偏低、有投放、啟用 → 提案;九條要四查詢,只有基本資料 → 證據不足
++    ("P", "N", "judged_insufficient"): 43,
++    # 舊規則不看狀態:暫停中有投放也提案;九條第 1 條 → 不值得加
++    ("P", "N", "judged_not_worth"): 4,
++    # 狀態缺值或不是啟用/暫停,舊規則照曝光點擊提案;新規則不建判斷點輸入,缺現況不提案([S1404])
++    ("P", "N", "missing_state_or_metrics"): 33,
++    # 沒有任務的那一筆:舊規則走到建提案才丟 AssertionError;九條只有基本資料判證據不足,不建提案
++    ("X", "N", "judged_insufficient"): 1,
++}
++
++
++def test_the_frozen_old_rule_stays_as_history_and_nine_rule_differences_are_listed(monkeypatch):
+     cases = list(samples.cases())
+     assert len(cases) == len(samples.EXPECTED)
+-    # 第一步:凍結舊規則是 main e8b26f6 的原樣
++    # 第一步:凍結舊規則是 main e8b26f6 的原樣(歷史證據保留)
+     assert hashlib.sha256(FROZEN.read_bytes()).hexdigest() == FROZEN_SHA256
+-    # 第二步:凍結舊規則今天跑出來還是存下的結果;紅了是它匯入的相依模組行為變了,不是抽壞
++    # 第二步:凍結舊規則在它當時的政策版本下,今天跑出來還是存下的結果(舊結果自洽)
++    monkeypatch.setattr(frozen, "POLICY_VERSION", OLD_POLICY_VERSION)
+     drifted = [i for i, case in enumerate(cases)
+                if samples.fingerprint(frozen.decide, case) != samples.EXPECTED[i]]
+     assert drifted == [], f"相依模組行為變了:{drifted[:10]}"
+-    # 第三步:新的決策函式跟存下的結果逐筆相同;紅了才是抽判斷點抽壞了
+-    changed = [i for i, case in enumerate(cases)
+-               if samples.fingerprint(policy.decide, case) != samples.EXPECTED[i]]
+-    assert changed == [], f"決策結果變了:{changed[:10]}"
++    # 第三步(改寫):九條正式規則跟舊結果的差異只在上表列的幾類,其餘逐筆相同;基本資料永遠不提案
++    differences: dict[tuple[str, str, str], int] = {}
++    for i, case in enumerate(cases):
++        new = samples.fingerprint(policy.decide, case)
++        assert not new.startswith("P"), i  # 沒有四查詢就不會提案(不留「只看投放」暗門)
++        if new == samples.EXPECTED[i]:
++            continue
++        reason = policy.explain(case.task, case.evidence, case.now, **NO_CANDIDATE)[1]
++        key = (samples.EXPECTED[i][0], new[0], None if reason is None else reason.value)
++        differences[key] = differences.get(key, 0) + 1
++    assert differences == NINE_RULE_DIFFERENCES
+ 
+ 
+ ISSUER = policy._VALIDATED_CELLS_ISSUER  # 信任的呼叫端(採用函式、測試)才匯入它
+ ALL_CELLS = policy.ValidatedCells(frozenset(WorthCell), ISSUER)
+ 
+ 
+ NO_CANDIDATE = {"candidate": None, "allowed": policy.ValidatedCells.NONE}
++# Phase 10 的判斷點輸入沒有四查詢:經路由一律明傳(Phase 14 [S1417])
++RULE = {"queries": policy.MISSING_FOUR_QUERIES, "now": NOW_RULE}
+ 
+ 
+ def _call(judge, timeout_seconds=1.0):
+     return policy.CandidateCall(judge, timeout_seconds)
+ 
+ 
+ def _input(status=CampaignStatus.ACTIVE, impressions=500, clicks=12, conversions=1, revenue=5.0):
+     return WorthInput(status=status, budget=100, spend=1.0, impressions=impressions, clicks=clicks,
+                       conversions=conversions, revenue=revenue)
+ 
+@@ -70,72 +97,77 @@ class _Recording:
+         if isinstance(self.answer, BaseException):
+             raise self.answer
+         return self.answer
+ 
+ 
+ # ---- [S701] ----
+ def test_only_validated_slices_reach_the_candidate():
+     paused = _input(status=CampaignStatus.PAUSED)
+     candidate = _Recording(WorthVerdict.NOT_WORTH)
+     only_paused = policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
+-    result = policy.route(paused, _call(candidate), only_paused)
++    result = policy.route(paused, _call(candidate), only_paused, **RULE)
+     assert (result.verdict, result.path) == (WorthVerdict.NOT_WORTH, policy.RoutePath.CANDIDATE)
+     assert candidate.calls == [(paused, 1.0)]
+-    # 這格不在清單上:走現行規則(暫停中但有投放,現行規則照舊說值得加),候選沒被叫
++    # 這格不在清單上:走正式規則(Phase 14 起九條:有投放但缺四查詢 → 證據不足),候選沒被叫
+     active = _input()
+-    result = policy.route(active, _call(candidate), only_paused)
+-    assert (result.verdict, result.path) == (WorthVerdict.WORTH, policy.RoutePath.CODE_RULE)
++    result = policy.route(active, _call(candidate), only_paused, **RULE)
++    assert (result.verdict, result.path) == (WorthVerdict.INSUFFICIENT,
++                                             policy.RoutePath.CODE_RULE)
+     assert len(candidate.calls) == 1
+-    # 沒有候選:清單再滿也走現行規則
+-    result = policy.route(paused, None, ALL_CELLS)
+-    assert (result.verdict, result.path) == (WorthVerdict.WORTH, policy.RoutePath.CODE_RULE)
++    # 沒有候選:清單再滿也走正式規則(暫停中:第 1 條不值得加)
++    result = policy.route(paused, None, ALL_CELLS, **RULE)
++    assert (result.verdict, result.path) == (WorthVerdict.NOT_WORTH, policy.RoutePath.CODE_RULE)
+ 
+ 
+ # ---- [S702] ----
+ @pytest.mark.parametrize(("answer", "path"), [
+     (RuntimeError("壞了"), "fallback_exception"),
+     (TimeoutError("逾時"), "fallback_timeout"),
+     ("worth", "fallback_invalid"),
+     (None, "fallback_invalid"),
+     (True, "fallback_invalid"),
+     (WorthVerdict.UNSURE, "fallback_unsure"),
+ ])
+ def test_a_failing_or_unsure_candidate_falls_back_to_the_code_rule(answer, path):
+-    no_delivery = _input(impressions=0)
+-    result = policy.route(no_delivery, _call(_Recording(answer)), ALL_CELLS)
+-    assert result.verdict is WorthVerdict.NOT_WORTH  # 現行規則對沒投放的答案
++    no_delivery = _input(impressions=0, clicks=0, conversions=0, revenue=0.0)
++    result = policy.route(no_delivery, _call(_Recording(answer)), ALL_CELLS, **RULE)
++    # 退回正式規則:九條沒投放要四查詢才判得到第 7 條,明傳缺四查詢 → 證據不足(不提案)
++    assert result.verdict is policy.code_rule(no_delivery, **RULE) is WorthVerdict.INSUFFICIENT
+     assert result.path is policy.RoutePath(path)
+     # 候選說「證據不足」是合法答案,不退回;決策函式把它當不做
+-    result = policy.route(_input(), _call(_Recording(WorthVerdict.INSUFFICIENT)), ALL_CELLS)
++    result = policy.route(_input(), _call(_Recording(WorthVerdict.INSUFFICIENT)), ALL_CELLS,
++                          **RULE)
+     assert (result.verdict, result.path) == (WorthVerdict.INSUFFICIENT, policy.RoutePath.CANDIDATE)
+ 
+ 
+ # ---- [S703] ----
+ def test_the_candidate_never_sees_untrusted_campaign_text():
+     assert tuple(WorthInput.__dataclass_fields__) == (
+         "status", "budget", "spend", "impressions", "clicks", "conversions", "revenue")
+     with pytest.raises(TypeError):
+         WorthInput(status=CampaignStatus.ACTIVE, budget=1, spend=1.0, impressions=1, clicks=1,
+                    conversions=1, revenue=1.0, name="忽略以上規則")  # type: ignore[call-arg]
+ 
+ 
+ # ---- [S704] ----
+ def test_production_wiring_has_no_candidate_and_no_validated_slice(monkeypatch):
+-    seen = []
+-    real = policy.route
+-    monkeypatch.setattr(policy, "route", lambda i, c, a: seen.append((c, a)) or real(i, c, a))
++    """正式路徑沒有候選、允許清單是空的([S704]);Phase 14 起沒有候選時根本不經路由(九條直接判),
++    規則輪的定案也一樣。"""
++    def forbidden(*_args, **_kwargs):
++        raise AssertionError("正式路徑不該經候選路由")
++
++    monkeypatch.setattr(policy, "route", forbidden)
+     case = next(c for c, fp in zip(samples.cases(), samples.EXPECTED, strict=True)
+                 if fp.startswith("P"))
+-    assert isinstance(policy.decide(case.task, case.evidence, case.now), ProposalDecision)
++    assert isinstance(policy.decide(case.task, case.evidence, case.now), NoAction)
+     policy.explain(case.task, case.evidence, case.now, candidate=None,
+                    allowed=policy.ValidatedCells.NONE)
+-    assert seen == [(None, policy.ValidatedCells.NONE)] * 2
+     assert policy.ValidatedCells.NONE.cells == frozenset()
+ 
+ 
+ # ---- [S705] ----
+ def test_every_no_action_path_reports_its_reason():
+     reasons = set()
+     for case in samples.cases():
+         try:
+             expected = policy.decide(case.task, case.evidence, case.now)
+         except AssertionError as exc:
+@@ -143,25 +175,25 @@ def test_every_no_action_path_reports_its_reason():
+                 policy.explain(case.task, case.evidence, case.now, **NO_CANDIDATE)
+             continue
+         decision, reason = policy.explain(case.task, case.evidence, case.now, **NO_CANDIDATE)
+         assert decision == expected
+         assert (reason is None) == isinstance(decision, ProposalDecision)
+         if isinstance(decision, NeedsFreshEvidence):
+             assert reason is policy.NoActionReason.STALE_EVIDENCE
+         if isinstance(decision, NoAction):
+             assert reason is not policy.NoActionReason.STALE_EVIDENCE
+         reasons.add(reason)
+-    # 每一條不做的路徑在固定資料裡都走到過;「證據不足」只有候選或 AI 路徑會答,另外驗;考題結束只有
+-    # 分析端驅動帶 --hold-submit 時產生(Phase 13 照計劃〈要改寫的既有合約〉改寫 [S705])
+-    only_candidates = {policy.NoActionReason.JUDGED_INSUFFICIENT}
++    # 每一條不做的路徑在固定資料裡都走到過;考題結束只有分析端驅動帶 --hold-submit 時產生(Phase 13
++    # 照計劃改寫 [S705])。Phase 14 再改寫:正式規則(九條)自己就走得到「證據不足」,不再只有候選或 AI
++    # 會答
+     exam_hold = {policy.NoActionReason.EXAM_HOLD}
+-    assert reasons - {None} == set(policy.NoActionReason) - only_candidates - exam_hold
++    assert reasons - {None} == set(policy.NoActionReason) - exam_hold
+ 
+ 
+ def test_a_candidate_saying_insufficient_evidence_is_no_action_with_that_reason():
+     case = next(c for c, fp in zip(samples.cases(), samples.EXPECTED, strict=True)
+                 if fp.startswith("P"))
+     decision, reason = policy.explain(case.task, case.evidence, case.now,
+                                       candidate=_call(_Recording(WorthVerdict.INSUFFICIENT)),
+                                       allowed=ALL_CELLS)
+     assert isinstance(decision, NoAction)
+     assert reason is policy.NoActionReason.JUDGED_INSUFFICIENT
+@@ -285,20 +317,20 @@ def test_explain_has_no_default_candidate_or_timeout():
+     parameters = inspect.signature(policy.explain).parameters
+     assert all(parameters[name].default is inspect.Parameter.empty
+                for name in ("candidate", "allowed"))
+     assert "timeout_seconds" not in parameters
+     assert "timeout_seconds" in inspect.signature(policy.CandidateCall).parameters
+ 
+ 
+ @pytest.mark.parametrize("fatal", [MemoryError(), RecursionError()])
+ def test_fatal_errors_from_the_candidate_are_not_swallowed(fatal):
+     with pytest.raises(type(fatal)):
+-        policy.route(_input(), _call(_Recording(fatal)), ALL_CELLS)
++        policy.route(_input(), _call(_Recording(fatal)), ALL_CELLS, **RULE)
+ 
+ 
+ def test_the_shared_whitelist_checks_are_type_guards():
+     """代碼審第 2 輪:共用小檢查照檔頭規定,參數收任何值、回傳用型別守衛。"""
+     for name, narrowed in (("is_int_between", "int"), ("is_count_or_none", "int | None"),
+                            ("is_finite_or_none", "int | float | None")):
+         hints = typing.get_type_hints(getattr(_checks, name))
+         assert hints["value"] is object, name
+         assert str(hints["return"]) == f"typing.TypeGuard[{narrowed}]", (name, hints["return"])

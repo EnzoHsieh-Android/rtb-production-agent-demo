@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import TextIO
 
 from rtb import modelclient as mc
-from rtb.analyzer.policy import RoutePath, ValidatedCells, route
+from rtb.analyzer.policy import MISSING_FOUR_QUERIES, RoutePath, ValidatedCells, route
 from rtb.domain.worth import WorthCell, WorthInput
 from rtb.eval import eval_set, model_candidate
 from rtb.eval.adoption import (
@@ -45,6 +45,7 @@ from rtb.eval.adoption import (
 )
 from rtb.eval.generator import from_rows
 from rtb.eval.scoring import (
+    RULE_NOW,
     CellReport,
     ProductionReport,
     SyntheticReport,
@@ -70,14 +71,17 @@ MEASURE_NAMES = ("quality", "cost_per_call_usd", "latency_median_us", "latency_p
 
 
 def measure_latency(inputs: tuple[WorthInput, ...]) -> tuple[float, float]:
-    """現行程式規則經路由的每次延遲(微秒):中位、p95。"""
+    """現行程式規則經路由的每次延遲(微秒):中位、p95。Phase 14 起規則是九條,Phase 10 情境沒有四查詢,
+    量到的是明傳缺四查詢時的短路徑(暫停/異常判完或缺查詢即回),不含正式規則輪 A/B/C 的 DSP 讀取與九條
+    全鏈(代碼審 r1 鏡頭4-2);報告同一段照寫。"""
     for index in range(WARMUP):
-        route(inputs[index % len(inputs)], None, ValidatedCells.NONE)
+        route(inputs[index % len(inputs)], None, ValidatedCells.NONE,
+              queries=MISSING_FOUR_QUERIES, now=RULE_NOW)
     samples = []
     for index in range(RUNS):
         worth_input = inputs[index % len(inputs)]
         started = time.perf_counter_ns()
-        route(worth_input, None, ValidatedCells.NONE)
+        route(worth_input, None, ValidatedCells.NONE, queries=MISSING_FOUR_QUERIES, now=RULE_NOW)
         samples.append((time.perf_counter_ns() - started) / 1000)
     samples.sort()
     return statistics.median(samples), samples[int(len(samples) * 0.95)]
@@ -123,7 +127,8 @@ def cell_table(cells: tuple[CellReport, ...]) -> list[str]:
         metrics = ";".join(_metric(m.name, m.numerator, m.denominator, m.lower_bound)
                            for m in cell.metrics)
         errors = "、".join(f"{g.value} → {f.value}:{c}" for g, f, c in cell.errors) or "無"
-        lines.append(f"| {cell.cell.value} | {cell.n} | {metrics} | {errors} |")
+        name = cell.cell.value if cell.note is None else f"{cell.cell.value}({cell.note})"
+        lines.append(f"| {name} | {cell.n} | {metrics} | {errors} |")
     return lines
 
 
@@ -151,7 +156,8 @@ def render(report: SyntheticReport | ProductionReport, rows: tuple[ComparisonRow
               "|---|---|---|---|---|---|---|---|---|---|"]
     lines += [f"| {row.approach} | {row.cell.value} | "
               + " | ".join(_cell(m) for m in row.measures()) + " |" for row in rows]
-    lines += ["", "延遲是單次量測(本機、行程內),只當量級參考。", "", "## 逐格採用決定", ""]
+    lines += ["", "延遲是單次量測(本機、行程內),只當量級參考;現行程式規則那幾列量的是缺四查詢時"
+              "的九條短路徑,不含正式規則輪 A/B/C 的讀取與九條全鏈。", "", "## 逐格採用決定", ""]
     lines += [f"- {d.cell.value}:{'驗證過' if d.validated else '未驗證'}"
               f"({';'.join(d.reasons) or '全部達標'})" for d in adoption.cells]
     lines += ["", "## 缺的證據", "", *[f"- {item}" for item in adoption.missing_evidence], "",
@@ -234,11 +240,14 @@ def _disagrees(kept: model_candidate.BatchRow, replayed: model_candidate.BatchRo
                 and kept.sent == expected_sent)
 
 
-def _model_run(settings: mc.Settings, args: argparse.Namespace) -> tuple[
+def _model_run(settings: mc.Settings, args: argparse.Namespace, errors: TextIO) -> tuple[
         model_candidate.ModelRun, model_candidate.BatchRecord | None, list[str]]:
     recordings = args.recordings_dir or mc.default_recordings_dir()
     live = settings.mode is mc.Mode.LIVE
-    ledger = mc.live_ledger_path() if live else (args.ledger or mc.live_ledger_path())
+    # 錄製模式沒帶 --ledger:共用的 recorded_ledger 建暫存帳本並印路徑,不退回真帳本(Phase 14 代碼審
+    # r2、r3)
+    ledger = mc.recorded_ledger(settings.mode, args.ledger,
+                                lambda text: print(text, file=errors)) or mc.live_ledger_path()
     batch_id = f"{datetime.now(UTC):%Y%m%d}-{uuid.uuid4().hex[:8]}" if live else None
     candidate = model_candidate.ModelCandidate(settings, recordings_dir=recordings, ledger=ledger,
                                                demo_id=args.demo_id, batch_id=batch_id)
@@ -285,8 +294,9 @@ def _cell_line(cell: WorthCell, row: ComparisonRow, means: Mapping[WorthCell, fl
     return f"- {cell.value}:{';'.join(parts)}{reference}"
 
 
-def model_section(settings: mc.Settings, args: argparse.Namespace) -> ModelSection:
-    run, batch, flags = _model_run(settings, args)
+def model_section(settings: mc.Settings, args: argparse.Namespace,
+                  errors: TextIO) -> ModelSection:
+    run, batch, flags = _model_run(settings, args, errors)
     rows = None if batch is None else model_candidate.model_rows(batch, run.scored)
     lines = ["", f"## 模型候選({settings.model})", "",
              f"- 模式:{'即時' if settings.mode is mc.Mode.LIVE else '重播錄製回應(不是即時呼叫)'}",
@@ -379,7 +389,7 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
     report = synthetic_report(score(scenarios, None, None), eval_set_sha256())
     latency = {cell: measure_latency(tuple(s.worth_input for s in scenarios if s.cell is cell))
                for cell in WorthCell}
-    model = model_section(settings, args)
+    model = model_section(settings, args, errors)
     if model.ledger_busy:
         print("花費帳忙碌:寫不進帳,已停止呼叫模型", file=errors)
         return EXIT_LEDGER_BUSY

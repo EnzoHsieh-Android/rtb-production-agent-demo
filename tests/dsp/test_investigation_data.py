@@ -362,15 +362,17 @@ def test_bounded_history_preserves_recent_budget_changes(tmp_path):
             store.execute(Operation("c1", "pause_campaign", {},
                                     index + 2, f"pause-{index}"))
         body = DspHandler._get_history(object(), store, "c1", None)
-        assert set(body) == {"history", "summary", "truncated"} and body["truncated"] is True
+        # 頂層另帶廣告編號(Phase 14 代碼審 r1 資安-2),讀取層核對、保留
+        assert set(body) == {"campaign_id", "history", "summary", "truncated"}
+        assert body["truncated"] is True and body["campaign_id"] == "c1"
         assert len(body["history"]) == 50
         assert not any(row["action"] == "update_budget" for row in body["history"])
         assert body["summary"]["budget_changes_7d"] == 1
         assert body["summary"]["has_recent_budget_change"] is True
         from rtb.analyzer import dsp_client
         from rtb.analyzer import investigation as inv
-        checked = dsp_client.check_history(body)
-        assert checked is not None
+        checked = dsp_client.check_history(body, "c1")
+        assert checked is not None and checked["campaign_id"] == "c1"
         receipt = inv.receipt_payload(inv.QueryOption.CHECK_CHANGE_HISTORY, checked, NOW)
         assert receipt["budget_changes_last_3d"] == "1" and receipt["history_truncated"] == "true"
         assert len(json.dumps(body)) < 64 * 1024
@@ -391,8 +393,10 @@ def test_an_untruncated_history_keeps_the_existing_shape(tmp_path):
         for index in range(50):
             store.execute(Operation("c1", "pause_campaign", {}, index + 1, f"pause-{index}"))
         body = DspHandler._get_history(object(), store, "c1", None)
-        assert set(body) == {"history"} and len(body["history"]) == 50
-        checked = dsp_client.check_history(body)
+        # 列的形狀照舊;頂層另帶廣告編號(Phase 14 代碼審 r1 資安-2、r2 架構對齊-1:同逐日與過去調整,
+        # 核過的編號留著),收據只讀列、字串不變
+        assert set(body) == {"campaign_id", "history"} and len(body["history"]) == 50
+        checked = dsp_client.check_history(body, "c1")
         assert checked == body
         assert "history_truncated" not in inv.receipt_payload(
             inv.QueryOption.CHECK_CHANGE_HISTORY, checked, NOW)
@@ -717,7 +721,7 @@ def test_a_legacy_raise_without_a_provable_budget_before_is_reported_as_missing_
     receipt = inv.receipt_payload(inv.QueryOption.CHECK_PAST_ADJUSTMENTS, checked, NOW)
     assert receipt["adj1_budget_change"] == "na"
     past = rules.PastAdjustments((rules.AdjustmentRow(0, None, 120, 6, None),))
-    assert rules._past_decision(past) == rules.RuleDecision(
+    assert rules._past_decision(past, NOW) == rules.RuleDecision(
         rules.WorthVerdict.INSUFFICIENT, None, rules.RuleReason.MISSING_ROW_VALUE,
         rules.QueryKind.PAST)
 

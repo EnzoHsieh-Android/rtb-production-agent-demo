@@ -17,12 +17,15 @@
 或清掉後 DSP 查不到寫入,就在原任務結案的同一個交易裡建接續任務重新規劃。沒給操作查詢照 Phase 4
 的行為停在已交給執行。
 
-AI 參與決策(Phase 13 增量 2,計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈租約、逾時與停止訊號〉):
-呼叫端給了 `ai_decide` 時,分析中那一步改問它(輸入另加續租回呼與這件工作先前各輪的調查紀錄),它回
-「結果(既有三種決策之一,或『要再查』)+ 這一輪的調查紀錄 + 不提案原因」的外包型別;決策型別本身不動。
-流程層持有「目前收據」容器:續租回呼成功的當下就換掉容器裡的收據,之後的提交、沒提交時的放掉、例外路徑
-一律讀容器,續租後丟例外也不會拿舊收據寫落空。續租沒成(被接手、等鎖逾時)丟 `RenewalSkipped`,
-分析中那一步在通用例外之前接住、這一步不寫入。流程層不匯入模型用戶端,也不匯入 AI 決策模組。
+正式規則的規則輪(Phase 14 增量 2b,計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]):呼叫端給了
+`rule_decide` 時,分析中那一步一律問它;它回「結果(三種決策之一,或續步/重來 `RuleContinue`)+ 規則
+事件 + 不提案原因」。續步沿用「分析中 → 蒐集證據」轉換,不新增狀態;蒐證那一步的規則輪紀錄由證據來源
+放在 `EvidenceBatch.rule_step`,跟證據同一個交易寫。流程層不匯入決策規則與規則輪模組。
+
+AI 不參與決策(Phase 14 增量 3,計劃〈使用者裁定〉8):原本 Phase 13 的 `ai_decide` 參數、續租回呼、模型
+呼叫記次與 AI 那一步整段撤除;AI 調查只剩評估執行器直接呼叫 `ai_judge.Judge`(不經這裡),它用的結果型別
+(`AiContext`、`AiOutcome`、`QueryMore`)移到 `investigation`。這裡只留規則輪也用的 `NoAction`、
+`ProposalDecision`、`RuleContinue`。
 
 三個介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
 多個參數與語意(不是單純「一個函式」),`Protocol` 讓型別檢查器能核對實作簽章、也讓文件
@@ -32,18 +35,20 @@ AI 參與決策(Phase 13 增量 2,計劃 [[Projects/RTB_Phase13AI參與決策_�
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
 from rtb.analyzer.task_store import (
     CorruptedHistoryRow,
     FollowUp,
-    InvestigationRecord,
     LeaseReceipt,
     RawQuery,
     ReplanReason,
+    RuleEvent,
+    RuleStep,
     TaskNotFound,
+    TaskReads,
     TaskRow,
     TaskStore,
 )
@@ -74,37 +79,28 @@ Decision = NoAction | ProposalDecision | NeedsFreshEvidence
 
 
 @dataclass(frozen=True)
-class QueryMore:
-    """AI 選了查詢:這一步回到蒐集證據(既有的「分析中 → 蒐集證據」轉換),下一步去查(Phase 13)。"""
+class RuleContinue:
+    """規則輪(Phase 14 增量 2b):這一步回到蒐集證據,下一步讀規則輪的下一步(A→B→C),或作廢這一輪從 A
+    重來;是哪一種由一起寫的規則事件說明,不是「資料過期重蒐證」。沿用既有「分析中 → 蒐集證據」
+    轉換。"""
 
 
 @dataclass(frozen=True)
-class AiOutcome:
-    """AI 決策函式的外包型別:結果、這一輪的調查紀錄(跟狀態列同一個交易寫)、不提案原因。"""
+class RuleOutcome:
+    """規則輪決策函式的外包型別:結果(既有三種決策之一,或續步/重來)、跟狀態列同一個交易寫的規則事件、
+    不提案原因。決策型別本身不動(相等比較照舊)。"""
 
-    result: Decision | QueryMore
-    record: InvestigationRecord | None
+    result: Decision | RuleContinue
+    event: RuleEvent | None
     no_action_reason: StrEnum | None = None
 
 
-@dataclass(frozen=True)
-class AiContext:
-    """流程層交給 AI 決策函式的三樣:續租回呼(成功就換掉容器裡的收據;沒成丟 RenewalSkipped)、這件工作
-    先前各輪的調查紀錄(從資料庫讀出的已提交列),與「確定要呼叫模型」的記次回呼(收上限,回這件工作一生
-    第幾次模型呼叫;超過上限回上限加 1、不記;記不進去丟 RenewalSkipped,代碼審 r2 v3)。"""
-
-    renew: Callable[[], None]
-    rounds: tuple[InvestigationRecord, ...]
-    begin_call: Callable[[int], int]
-
-
-class RenewalSkipped(Exception):  # 名字照計劃(R3-2):它不是錯誤,是「這步不寫」
-    """續租沒成(被接手或等鎖逾時),或呼叫模型之前已經收到停止:這一步不寫入、不轉失敗。"""
-
-
-class AiDecide(Protocol):
+class RuleDecide(Protocol):
     def __call__(self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
-                 context: AiContext) -> AiOutcome: ...
+                 reads: TaskReads) -> RuleOutcome:
+        """分析中那一步的規則輪決策:reads 只拿來讀這件工作已提交的規則輪列與各步的證據、原始回應
+        (進度由已提交列重算,不持久化下一步);不寫入、不讀時鐘、不打 DSP。"""
+        ...
 
 
 @dataclass(frozen=True)
@@ -113,6 +109,7 @@ class EvidenceBatch:
 
     evidence: tuple[Evidence, ...]
     raw: tuple[RawQuery, ...] = ()
+    rule_step: RuleStep | None = None  # 規則輪這一步的蒐證紀錄(Phase 14 增量 2b)
 
 
 class EvidenceSource(Protocol):
@@ -194,7 +191,7 @@ class _BrokenCollaborator(Exception):
 
 
 class _Lease:
-    """目前收據容器(Phase 13 [S1149]):續租成功的當下換掉;提交、放掉、例外路徑一律讀它。"""
+    """目前收據容器:提交、放掉、例外路徑一律讀它(Phase 13 的續租換收據已隨 AI 那一步撤除)。"""
 
     def __init__(self, current: LeaseReceipt) -> None:
         self.current = current
@@ -207,9 +204,7 @@ class _Collaborators:
     submit: Submit
     operation_lookup: OperationLookup | None = None  # 只有已交給執行那一步讀
     no_action_reason: ExplainNoAction | None = None  # 只有分析中、決策是不提案時問
-    ai_decide: AiDecide | None = None  # 給了:分析中那一步改問 AI 決策函式
-    renew: Callable[[], None] | None = None  # 續租回呼(有 AI 決策函式才有)
-    begin_call: Callable[[int], int] | None = None  # 呼叫模型前的記次回呼(同上)
+    rule_decide: RuleDecide | None = None  # 給了:分析中那一步走規則輪
 
 
 @dataclass(frozen=True)
@@ -223,8 +218,9 @@ class _Step:
     operation_key: str | None = None
     follow_up: FollowUp | None = None
     no_action_reason: StrEnum | None = None
-    investigation: InvestigationRecord | None = None
     raw: tuple[RawQuery, ...] = ()
+    rule_step: RuleStep | None = None
+    rule_event: RuleEvent | None = None
 
 
 _StepOutcome = _Step | None
@@ -242,8 +238,7 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、
     operation_lookup: OperationLookup | None = None,  # 不給:已交給執行的任務停在原地
     no_action_reason: ExplainNoAction | None = None,  # 不給:不提案照舊結案,不存原因
     expected_seq: int | None = None,  # 給了:目前那一列不是呼叫端讀到的那一列就什麼都不做
-    ai_decide: AiDecide | None = None,  # 給了:分析中那一步改問 AI 決策函式(Phase 13)
-    clock: Callable[[], datetime] | None = None,  # 續租讀的時鐘(拿到鎖之後才讀);不給用系統時鐘
+    rule_decide: RuleDecide | None = None,  # 給了:分析中那一步走規則輪(Phase 14)
 ) -> TaskState:
     """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。
 
@@ -268,61 +263,15 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、
     if acquired is None:  # 別人正持有:不花錢,跟「沒有進展」一樣回原狀態
         return row.state
     lease = _Lease(acquired)
-    tick = clock or _system_clock
-    renew = None if ai_decide is None else _renewer(store, lease, tick)
-    begin_call = None if ai_decide is None else _call_recorder(store, lease, tick)
     try:
         return _advance_holding(
             store, row,
             _Collaborators(evidence_source, decide, submit, operation_lookup, no_action_reason,
-                           ai_decide, renew, begin_call),
+                           rule_decide),
             now, before_commit, lease)
     except BaseException:
         store.release_lease_quietly(lease.current, now)  # 放掉失敗也不蓋掉原本的例外
         raise
-
-
-def _system_clock() -> datetime:
-    return datetime.now(UTC)
-
-
-class _StoreFailed(Exception):
-    """續租時資料庫層丟的例外(不是鎖競爭):包起來穿過 AI 決策函式,在流程層還原成原本的例外往外丟,
-    這一步不寫入、下一輪重試,跟沒開 AI 時一樣,不轉 FAILED(代碼審 r1 f1)。"""
-
-
-def _renewer(store: TaskStore, lease: _Lease,
-             clock: Callable[[], datetime]) -> Callable[[], None]:
-    """續租回呼:成功就在這一刻換掉容器裡的收據;條件不符或等鎖逾時丟 RenewalSkipped;其他資料庫錯誤
-    包成 _StoreFailed。"""
-
-    def renew() -> None:
-        try:
-            renewed = store.renew_lease(lease.current, clock)
-        except Exception as failed:
-            raise _StoreFailed(repr(failed)) from failed
-        if renewed is None:
-            raise RenewalSkipped("續租沒成:被接手或等鎖逾時")
-        lease.current = renewed
-
-    return renew
-
-
-def _call_recorder(store: TaskStore, lease: _Lease,
-                   clock: Callable[[], datetime]) -> Callable[[int], int]:
-    """確定要呼叫模型的那一刻記一次(獨立的寫入交易,交易內核對仍持有租約;代碼審 r2 v3):回這件工作
-    一生第幾次模型呼叫,已達上限回上限加 1、不記;忙碌或失去租約丟 RenewalSkipped,不呼叫模型。"""
-
-    def begin_call(limit: int) -> int:
-        try:
-            count = store.record_model_call(lease.current, clock, limit)
-        except Exception as failed:
-            raise _StoreFailed(repr(failed)) from failed
-        if count is None:
-            raise RenewalSkipped("記不下這次模型呼叫:忙碌或失去租約")
-        return count
-
-    return begin_call
 
 
 def _advance_holding(
@@ -348,8 +297,8 @@ def _advance_holding(
         row.task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
         evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
         lease=lease.current, operation_key=outcome.operation_key, follow_up=outcome.follow_up,
-        no_action_reason=outcome.no_action_reason, investigation=outcome.investigation,
-        raw=outcome.raw,
+        no_action_reason=outcome.no_action_reason,
+        raw=outcome.raw, rule_step=outcome.rule_step, rule_event=outcome.rule_event,
     )
     if not committed:  # 輸了序號或租約:還是自己的才放掉(條件寫在 release_lease 裡)
         store.release_lease(lease.current, now)
@@ -367,6 +316,13 @@ def _from_collecting_evidence(
 ) -> _StepOutcome:
     try:
         got = c.evidence_source(row, now)
+    except CorruptedHistoryRow as exc:
+        # 證據來源要讀已存的規則輪紀錄才知道讀哪一步,那些紀錄毀損:重試沒有用,跟分析那一步一樣
+        # 轉 FAILED(代碼審 r1 鏡頭2-4)
+        return _Step(TaskState.FAILED, error_detail=repr(exc))
+    except Exception:  # 純讀取,重試永遠安全:不寫入,留在原狀態
+        return None
+    try:
         batch = got if isinstance(got, EvidenceBatch) else EvidenceBatch(got)
         if not isinstance(batch.evidence, tuple) or not isinstance(batch.raw, tuple):
             # 形狀不對也當成這次沒拿到證據:EvidenceSource 是純讀取,重試永遠安全,
@@ -374,7 +330,8 @@ def _from_collecting_evidence(
             raise TypeError(f"EvidenceSource 必須回傳 tuple[Evidence, ...],得到 {type(got)!r}")
     except Exception:  # 純讀取,重試永遠安全:不寫入,留在原狀態
         return None
-    return _Step(TaskState.ANALYZING, evidence=batch.evidence, raw=batch.raw)
+    return _Step(TaskState.ANALYZING, evidence=batch.evidence, raw=batch.raw,
+                 rule_step=batch.rule_step)
 
 
 def _from_analyzing(
@@ -384,10 +341,8 @@ def _from_analyzing(
         evidence = store.evidence_for(row.task_id, row.seq)
     except CorruptedHistoryRow as exc:  # 存好的資料本身毀損,重試沒有用:直接轉 FAILED
         return _Step(TaskState.FAILED, error_detail=repr(exc))
-    if c.ai_decide is not None and c.renew is not None and c.begin_call is not None:
-        return _from_ai(row, c.ai_decide, AiContext(
-            c.renew, tuple(record for _seq, record in store.investigation_rounds(row.task_id)),
-            c.begin_call), evidence, now)
+    if c.rule_decide is not None:  # 規則輪(Phase 14):正式分析一律走這裡
+        return _from_rule(store, row, c.rule_decide, evidence, now)
     try:
         decision = c.decide(row, evidence, now)
     except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
@@ -401,32 +356,27 @@ def _from_analyzing(
     raise _BrokenCollaborator(f"Decide 回傳了合約之外的型別:{type(decision)!r}")
 
 
-def _from_ai(row: TaskRow, ai_decide: AiDecide, context: AiContext,
-             evidence: tuple[Evidence, ...], now: datetime) -> _StepOutcome:
-    """AI 那一步:續租沒成是「這步不寫」(在通用例外之前接,[S1152]);讀資料庫與續租時的資料庫錯誤跟
-    沒開 AI 時一樣往外丟(這步不寫、下一輪重試,代碼審 r1 f1);只有對已到手的證據做純計算那一段的
-    例外照決策丟例外轉 FAILED;停止訊號這類 BaseException 不接,由 advance 用容器裡的收據放掉租約後
-    往外丟。"""
+def _from_rule(store: TaskStore, row: TaskRow, rule_decide: RuleDecide,
+               evidence: tuple[Evidence, ...], now: datetime) -> _StepOutcome:
+    """規則輪那一步(Phase 14 增量 2b):已存資料毀損 → FAILED(同決策);其餘例外同決策丟例外轉
+    FAILED。"""
     try:
-        outcome = ai_decide(row, evidence, now, context)
-        if not isinstance(outcome, AiOutcome):
-            raise _BrokenCollaborator(f"AI 決策函式回傳了合約之外的型別:{type(outcome)!r}")
-    except RenewalSkipped:
-        return None
-    except _StoreFailed as failed:
-        cause = failed.__cause__
-        raise cause if isinstance(cause, Exception) else failed from None
-    except Exception as exc:  # 對已到手的證據做純計算的那一半出錯:同決策丟例外,轉 FAILED
+        outcome = rule_decide(row, evidence, now, store)
+        if not isinstance(outcome, RuleOutcome):
+            raise _BrokenCollaborator(f"規則輪決策函式回傳了合約之外的型別:{type(outcome)!r}")
+    except _BrokenCollaborator:
+        raise
+    except Exception as exc:  # 對已存的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
         return _Step(TaskState.FAILED, error_detail=repr(exc))
-    result, record = outcome.result, outcome.record
+    result, event = outcome.result, outcome.event
     if isinstance(result, NoAction):
-        return _Step(TaskState.NO_ACTION, investigation=record,
-                     no_action_reason=outcome.no_action_reason)
+        return _Step(TaskState.NO_ACTION, no_action_reason=outcome.no_action_reason,
+                     rule_event=event)
     if isinstance(result, ProposalDecision):
-        return _Step(TaskState.PROPOSED, proposal=result.proposal, investigation=record)
-    if isinstance(result, NeedsFreshEvidence | QueryMore):
-        return _Step(TaskState.COLLECTING_EVIDENCE, investigation=record)
-    raise _BrokenCollaborator(f"AI 決策函式回傳了合約之外的結果:{type(result)!r}")
+        return _Step(TaskState.PROPOSED, proposal=result.proposal, rule_event=event)
+    if isinstance(result, NeedsFreshEvidence | RuleContinue):
+        return _Step(TaskState.COLLECTING_EVIDENCE, rule_event=event)
+    raise _BrokenCollaborator(f"規則輪決策函式回傳了合約之外的結果:{type(result)!r}")
 
 
 def _why_not(

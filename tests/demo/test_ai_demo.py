@@ -1,47 +1,38 @@
-# ruff: noqa: RUF003
-"""Phase 13 增量 4 展示串接(計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈展示情境怎麼接 AI〉
-〈通用規則:驅動依每件工作的實際結局選預期〉〈F5 對抗案例的預期〉〈錄製批次與入庫〉):真的起行程
-跑情境,分析端讀測試自己寫的假錄製(tests/demo/fake_recordings.py),不碰真模型。"""
+"""展示串接 AI 的地方(Phase 13 增量 4 起;Phase 14 增量 3 改寫,計劃
+[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉8、〈拆增量〉3):分析端只用九條規則,
+AI 只剩提案說明與告警原因假說兩支模型入口。真的起行程跑情境,說明入口讀測試自己寫的假錄製
+(tests/demo/fake_recordings.py),不碰真模型。
+
+Phase 13 的 AI 決策、退回、雙胞胎、考題、「故障沒走到」、AI 輪數放寬、模式行與 F7 共用錄製鍵等斷言
+隨入口撤除(逐條去向見 [[Verification/Phase14增量3驗證紀錄]])。"""
 
 import hashlib
 import json
 import os
-import re
-import stat
 import subprocess
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from rtb.analyzer import runner
 from rtb.analyzer.task_store import TaskReader
 from rtb.demo import driver as driver_module
 from rtb.demo import launcher
 from rtb.demo import recordings as demo_recordings
-from rtb.demo.driver import (
-    AI_NODES,
-    DONE,
-    NOT_EXERCISED,
-    NOT_EXERCISED_TEXT,
-    Driver,
-    Outcome,
-    expectations,
-    outcome_of,
-)
+from rtb.demo.driver import DONE, Driver, Outcome, expectations, outcome_of
 from rtb.demo.keys import DemoKeys
 from rtb.demo.launcher import Role
 from rtb.demo.observe import PathBuilder, missing_from_path
 from rtb.demo.state_store import StateReader, StateWriter
 from rtb.domain.task_state import TaskState
-from rtb.modelledger_view import ledger_path
+from rtb.modelledger_view import Caller, ModelLedgerView, ledger_path
 from tests.demo import fake_recordings as fake
 from tests.model.fakes import fake_claude, invocations, write_verification
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 PROJECT = SRC.parent
-BATCH = "phase13-demo-20260925"
+BATCH = "phase14-demo-20260926"
+_EVER = ("0000", "9999")
 
 
 @pytest.fixture
@@ -57,9 +48,9 @@ def _driver(tmp_path, state, recordings, **kwargs):
                   recordings_dir=recordings, **kwargs)
 
 
-def _batch(tmp_path, name="rec", **plan):
+def _batch(tmp_path, name="rec", families=("normal",), **kwargs):
     directory = tmp_path / name
-    fake.fake_batch(directory, BATCH, plan)
+    fake.fake_batch(directory, BATCH, families, **kwargs)
     return directory
 
 
@@ -79,27 +70,37 @@ def _read_details(tmp_path, code):
         reader.close()
 
 
-def _fake_claude(tmp_path):
-    """假的 claude:被叫到就記一行,什麼都不做。PATH 最前面放它,真的 claude 永遠輪不到。"""
-    folder = tmp_path / "bin"
-    folder.mkdir()
-    log = tmp_path / "claude-calls.log"
-    script = folder / "claude"
-    script.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\nexit 1\n", encoding="utf-8")
-    script.chmod(script.stat().st_mode | stat.S_IXUSR)
-    return folder, log
+def _ledger_calls(path):
+    view = ModelLedgerView(path)
+    try:
+        return [(call.caller, call.outcome) for call in view.calls_between(*_EVER)]
+    finally:
+        view.close()
 
 
 def _capture_starts(monkeypatch):
-    """記下驅動程式每次經啟動器起的行程:(角色, 參數, 這個情境是不是即時)。"""
+    """記下驅動程式每次經啟動器起的常駐行程:(角色, 參數)。"""
     seen = []
     real = launcher.start
 
     def spy(role, args, keys, **kwargs):
-        seen.append((role, list(args), kwargs.get("live_model", False)))
+        seen.append((role, list(args), dict(kwargs)))
         return real(role, args, keys, **kwargs)
 
     monkeypatch.setattr(driver_module.launcher, "start", spy)
+    return seen
+
+
+def _capture_entries(monkeypatch):
+    """記下驅動程式每次跑的模型入口:(入口, 參數, 這個情境是不是即時)。"""
+    seen = []
+    real = launcher.run_entry
+
+    def spy(entry, args, keys, **kwargs):
+        seen.append((entry, list(args), kwargs.get("live_model", False)))
+        return real(entry, args, keys, **kwargs)
+
+    monkeypatch.setattr(driver_module.launcher, "run_entry", spy)
     return seen
 
 
@@ -116,67 +117,66 @@ def _tree_digest(root):
     return digest.hexdigest()
 
 
-# ---- [S1120] 沒列進即時清單:只讀錄製 ----
 def _live_ready(tmp_path):
     """一支真的會被叫到的假 claude,加一份測試用的即時模式啟用紀錄(寫在這支測試的帳號家目錄;
     啟動器起的子行程在測試裡也讀這個家目錄):模型變數一漏給子行程,它就會真的判成即時、叫到假 claude
-    (代碼審 r1 l3:原本沒有啟用紀錄,漏了也會先退回錄製,測試抓不到)。"""
+    (代碼審 r1 l3)。"""
     script = fake_claude(tmp_path / "bin")
     write_verification()
     env = {**os.environ, "PATH": f"{script.parent}:{os.environ['PATH']}", "RTB_MODEL_LIVE": "1"}
     return script, env
 
 
+# ---- [S1120] [S1429] 沒列進即時清單:說明入口只讀錄製;分析端永遠只用規則 ----
 def test_the_demo_uses_recordings_unless_live_is_switched_on(tmp_path, state, monkeypatch):
     """即時開關打開、PATH 最前面有一支真的叫得到的假 claude、也有啟用紀錄:沒列在即時清單的情境,
-    分析端與說明、假說命令列實際拿到的環境沒有模型變數——分析端回報錄製、沒有任何原因,
-    一次 claude 都沒叫;花費帳記在這個情境的暫存目錄。"""
-    recordings = _batch(tmp_path, normal=[fake.PROPOSE])
+    說明與假說入口拿到的環境沒有模型變數——說明回報錄製、沒有任何原因,一次 claude 都沒叫;花費帳記在
+    這個情境的暫存目錄。分析端參數沒有任何模型參數、沒有調查紀錄;F1 規則提案 → 說明呼叫 1 次、分析端
+    調查 0 次([S1429])。"""
+    recordings = _batch(tmp_path)
     script, env = _live_ready(tmp_path)
     starts = _capture_starts(monkeypatch)
     verdict = _driver(tmp_path, state, recordings, user_env=env).run_one("F1")
 
     assert verdict.status == DONE, verdict.reason
     assert invocations(script) == []  # 一次 claude 都沒叫
-    [(_role, args, live)] = [s for s in starts if s[0] is Role.ANALYZER]
-    assert "--ai-judge" in args and live is False
-    assert _arg(args, "--recordings-dir") == str(recordings)
-    ledger = Path(_arg(args, "--recorded-ledger"))
-    assert ledger.parent == tmp_path / "demos" / "demo-1" / "F1" and ledger.is_file()
-    assert not ledger_path().exists()  # 帳號家目錄下的帳沒有被建立
-    rounds = _rounds(tmp_path, "F1", "t1")
-    assert [(r.kind, r.choice, r.decided_by, r.model_source) for r in rounds] == [
-        ("conclusion", "propose", "ai", "recorded")]
+    [(_role, args, kwargs)] = [s for s in starts if s[0] is Role.ANALYZER]
+    for flag in ("--ai-judge", "--hold-submit", "--recordings-dir", "--recorded-ledger",
+                 "--demo-id", "--batch-id"):
+        assert flag not in args, flag
+    assert "live_model" not in kwargs
+    assert _rounds(tmp_path, "F1", "t1") == []
+    ledger = tmp_path / "demos" / "demo-1" / "F1" / "model-ledger.db"
+    assert ledger.is_file() and not ledger_path().exists()  # 帳號家目錄下的帳沒有被建立
+    calls = _ledger_calls(ledger)
+    assert [c for c, _o in calls].count(Caller.NARRATIVE.value) == 1
+    assert Caller.INVESTIGATION.value not in {c for c, _o in calls}
     details, _rows = _read_details(tmp_path, "F1")
     assert (details.model_mode, details.model_mode_reason) == (
         "recorded", "錄製回應,不是即時呼叫(這個情境不在即時清單)")
-    narrated = json.loads(details.narrative_json)  # 說明命令列也沒拿到即時開關:錄製、沒有任何原因
-    assert (narrated["mode"], narrated["notices"]) == ("recorded", [])
+    narrated = json.loads(details.narrative_json)
+    assert (narrated["mode"], narrated["notices"], narrated["outcome"]) == ("recorded", [], "ok")
 
 
-# ---- [S1145] 只有列在即時清單、而且帶 --ai-judge 的分析端拿到模型變數;F7 不准 ----
-def test_only_listed_scenarios_get_live_model_env_and_f7_never_does(tmp_path, state, monkeypatch):
-    with pytest.raises(ValueError, match="F7"):
-        _driver(tmp_path, state, tmp_path / "rec", live={"F7"})
+# ---- [S1145] [S1166] 即時清單只控制兩支模型入口;F7 不再另外拒收 ----
+def test_only_listed_scenarios_get_live_model_env_for_their_entries(tmp_path, state, monkeypatch):
     with pytest.raises(ValueError, match="F9"):
         _driver(tmp_path, state, tmp_path / "rec", live={"F9"})
+    assert _driver(tmp_path / "f7", state, tmp_path / "rec", live={"F7"}).live == {"F7"}
     assert _driver(tmp_path / "default", state, tmp_path / "rec").live == frozenset()
 
     script, env = _live_ready(tmp_path)
-    starts = _capture_starts(monkeypatch)
+    entries = _capture_entries(monkeypatch)
     demo = _driver(tmp_path, state, tmp_path / "rec", user_env=env, live={"F1"})
-    assert demo.run_one("F2").status == DONE  # 沒列在清單:子行程實際拿不到變數,判成錄製
+    assert demo.run_one("F2").status == DONE  # 沒列在清單:入口拿不到變數,判成錄製
     assert invocations(script) == []
-    assert demo.run_one("F1").status == DONE  # 列在清單:真的判成即時,叫到假 claude
+    assert demo.run_one("F1").status == DONE  # 列在清單:說明入口真的判成即時,叫到假 claude
     assert invocations(script)
-    analyzers = [live for role, _args, live in starts if role is Role.ANALYZER]
-    assert analyzers[-1] is True and not any(analyzers[:-1])  # F2 重啟時起了兩次分析端
-    reader = StateReader(tmp_path / "state.db")
-    try:  # 模式照分析端就緒之後回報的那一行
-        listed = reader.scenario_details("demo-1", "F1")
-        unlisted = reader.scenario_details("demo-1", "F2")
-    finally:
-        reader.close()
+    lives = [live for _entry, _args, live in entries]
+    f2 = [live for entry, args, live in entries if "demos/demo-1/F2" in " ".join(args)]
+    assert f2 and not any(f2) and lives[-1] is True
+    listed, _rows = _read_details(tmp_path, "F1")
+    unlisted, _rows = _read_details(tmp_path, "F2")
     assert (listed.model_mode, listed.model_mode_reason) == (
         "live", "即時呼叫(這個情境列在即時清單)")
     assert (unlisted.model_mode, unlisted.model_mode_reason) == (
@@ -185,37 +185,39 @@ def test_only_listed_scenarios_get_live_model_env_and_f7_never_does(tmp_path, st
 
 def test_a_listed_scenario_that_falls_back_books_into_its_temporary_ledger(tmp_path, state,
                                                                             monkeypatch):
-    """(代碼審 r1 h1)列在即時清單、即時開關有開,但 PATH 上沒有 claude:閘道判成錄製,帳落在情境的
-    暫存目錄,不落帳號家目錄;驅動不猜模式,錄製用的帳檔一律給,原因照分析端回報的寫。"""
+    """(代碼審 r1 h1)列在即時清單、即時開關有開,但 PATH 上沒有 claude:說明入口的閘道判成錄製,帳落在
+    情境的暫存目錄,不落帳號家目錄;錄製用的帳檔一律給,原因照入口回報的寫。"""
     env = {**os.environ, "RTB_MODEL_LIVE": "1"}
-    starts = _capture_starts(monkeypatch)
+    entries = _capture_entries(monkeypatch)
     demo = _driver(tmp_path, state, tmp_path / "rec", user_env=env, live={"F1"})
     assert demo.run_one("F1").status == DONE
-    [args] = [a for role, a, _l in starts if role is Role.ANALYZER]
     ledger = tmp_path / "demos" / "demo-1" / "F1" / "model-ledger.db"
-    assert _arg(args, "--recorded-ledger") == str(ledger) and "--ledger" not in args
+    for _entry, args, _live in entries:
+        assert _arg(args, "--recorded-ledger") == str(ledger) and "--ledger" not in args
     assert ledger.is_file() and not ledger_path().exists()
     details, _rows = _read_details(tmp_path, "F1")
     assert details.model_mode == "recorded"
-    assert details.model_mode_reason.startswith("列在即時清單,但分析端判成錄製回應:")
+    assert details.model_mode_reason.startswith("列在即時清單,但模型入口判成錄製回應:")
 
 
-# ---- [S1166] 即時清單裡的情境用這次展示專屬的新錄製目錄 ----
 def test_live_scenarios_record_into_a_fresh_per_demo_directory(tmp_path, state, monkeypatch):
+    """[S1166] 即時清單裡的情境,模型入口錄進這次展示專屬的新目錄;入庫的錄製目錄內容不變。新入庫目錄
+    是 phase14-demo([S1428])。"""
     committed = PROJECT / "recordings"
     before = _tree_digest(committed)
-    starts = _capture_starts(monkeypatch)
+    entries = _capture_entries(monkeypatch)
     demo = _driver(tmp_path, state, tmp_path / "rec", live={"F1"})
     assert demo.run_one("F1").status == DONE
     assert demo.run_one("F2").status == DONE
-    args = [a for role, a, _live in starts if role is Role.ANALYZER]
-    live_dir = Path(_arg(args[0], "--recordings-dir"))
+    first = next(args for _e, args, _l in entries if "demos/demo-1/F1" in " ".join(args))
+    last = next(args for _e, args, _l in entries if "demos/demo-1/F2" in " ".join(args))
+    live_dir = Path(_arg(first, "--recordings-dir"))
     assert live_dir == tmp_path / "demos" / "demo-1" / "live-recordings" / "F1"
-    assert committed not in live_dir.parents and not live_dir.exists()  # 新的、還沒有任何檔
-    assert _arg(args[0], "--batch-id") == "demo-live-demo-1"
-    assert _arg(args[-1], "--recordings-dir") == str(tmp_path / "rec")
-    assert _arg(args[-1], "--batch-id") is None
-    assert committed / "model" / "phase13-demo" == driver_module.DEMO_RECORDINGS
+    assert committed not in live_dir.parents
+    assert _arg(first, "--batch-id") == "demo-live-demo-1"
+    assert _arg(last, "--recordings-dir") == str(tmp_path / "rec")
+    assert _arg(last, "--batch-id") is None
+    assert committed / "model" / "phase14-demo" == driver_module.DEMO_RECORDINGS
     assert _tree_digest(committed) == before  # 入庫的錄製目錄內容不變
 
 
@@ -239,43 +241,53 @@ def test_f3_races_only_the_evidence_step_and_the_driver_never_loads_the_model(
         return real(*args)
 
     monkeypatch.setattr(driver_module, "_no_decision", spy)
-    recordings = _batch(tmp_path, normal=[fake.PROPOSE])
-    verdict = _driver(tmp_path, state, recordings).run_one("F3")
+    verdict = _driver(tmp_path, state, _batch(tmp_path)).run_one("F3")
     assert verdict.status == DONE, verdict.reason
     assert decided == []  # 兩條賽跑執行緒都沒有呼叫任何決策函式
-    [record] = _rounds(tmp_path, "F3", "t1")  # 分析由之後起的分析端主執行緒照一般情境做
-    assert (record.kind, record.decided_by) == ("conclusion", "ai")
+    assert _rounds(tmp_path, "F3", "t1") == []  # 分析由之後起的分析端照九條規則做,不問 AI
+    # 代碼審 r1 鏡頭2-1:賽跑贏家付費讀的那一步就是規則輪 A,分析端認得、不作廢重讀——整件工作只有一輪
+    # 規則輪、只讀 2+2+5 次 DSP,路徑上沒有「資料太舊,重新蒐集」
+    reader = TaskReader(tmp_path / "demos" / "demo-1" / "F3" / "analyzer.db")
+    try:
+        steps = reader.rule_steps("t1")
+        events = [event.event for _seq, event in reader.rule_events("t1")]
+        reads = [c for c in reader.list_tool_calls("t1") if c.endpoint.value.startswith("dsp:")]
+    finally:
+        reader.close()
+    assert {step.round_id for _seq, step in steps} == {1}
+    assert [step.step for _seq, step in steps] == ["A", "B", "C"]
+    assert not [e for e in events if e.startswith("restart")], events
+    assert len(reads) == 9
+    _, rows = _read_details(tmp_path, "F3")
+    assert "a_recollect" not in [r.node for r in rows if r.task == "t1"]
+    assert ("t1", "task") in driver_module.F3_STREAMS
+    assert driver_module.F3_STREAMS[("t1", "task")][1] == ()  # 不再容忍重讀那一圈
 
 
-# ---- [S1157] [S1167] 依結局選預期、AI 節點兩組都允許 ----
-def test_ai_nodes_are_allowed_on_the_analysis_path(tmp_path, state):
+# ---- [S1157] [S1167] 依結局選預期;純規則圖不再容忍 AI 節點 ----
+def test_the_pure_rule_path_allows_no_ai_nodes(tmp_path, state):
     proposal = driver_module.F1_STREAMS
-    for path in (["a_receive", "a_collect", "a_fresh", "a_ai", "a_ai_query", "a_fresh", "a_ai",
-                  "a_propose", "x_pending", "x_done"],
-                 ["a_receive", "a_collect", "a_fresh", "a_rule", "a_propose", "x_pending",
-                  "x_done"]):
-        required, allowed = expectations("t1", Outcome.PROPOSE, proposal)[("t1", "task")]
-        assert missing_from_path(path, required, allowed) is None
-    for end, outcome in (("a_no_action", Outcome.NO_PROPOSE), ("a_exam_hold", Outcome.EXAM_HOLD)):
-        required, allowed = expectations("t1", outcome, proposal)[("t1", "task")]
-        assert set(AI_NODES) <= set(allowed)
-        assert missing_from_path(["a_receive", "a_collect", "a_fresh", "a_ai", "a_ai_query",
-                                  "a_fresh", "a_ai", end], required, allowed) is None
-    # 真的跑:第 1 輪選查詢、第 2 輪判值得加,路徑多出 AI 節點照樣照預期跑完
-    recordings = _batch(tmp_path, normal=[fake.LONGER_WINDOW, fake.PROPOSE])
-    verdict = _driver(tmp_path, state, recordings).run_one("F1")
+    required, allowed = expectations("t1", Outcome.PROPOSE, proposal)[("t1", "task")]
+    rule_path = ["a_receive", "a_collect", "a_fresh", "a_propose", "x_pending", "x_done"]
+    assert missing_from_path(rule_path, required, allowed) is None
+    ai_path = ["a_receive", "a_collect", "a_fresh", "a_ai", "a_propose", "x_pending", "x_done"]
+    assert missing_from_path(ai_path, required, allowed) == "a_ai"
+    no_required, no_allowed = expectations("t1", Outcome.NO_PROPOSE, proposal)[("t1", "task")]
+    assert no_allowed == () and no_required[-1] == "a_no_action"
+    assert not hasattr(driver_module, "AI_NODES") and not hasattr(driver_module, "with_ai_nodes")
+    verdict = _driver(tmp_path, state, _batch(tmp_path)).run_one("F1")
     assert verdict.status == DONE, verdict.reason
     _, rows = _read_details(tmp_path, "F1")
     nodes = [r.node for r in rows if r.task == "t1"]
-    assert nodes.count("a_ai") == 2 and "a_ai_query" in nodes and nodes.count("a_fresh") == 2
+    assert not {"a_ai", "a_ai_query", "a_exam_hold"} & set(nodes)
 
 
-def test_the_driver_picks_expectations_by_each_task_outcome(tmp_path, state):
+def test_the_driver_picks_expectations_by_each_task_outcome():
     rows = [_row("t1", 1, TaskState.RECEIVED), _row("t1", 2, TaskState.NO_ACTION)]
-    assert outcome_of(rows, "judged_insufficient") is Outcome.NO_PROPOSE
-    assert outcome_of(rows, "exam_hold") is Outcome.EXAM_HOLD
-    assert outcome_of([*rows[:1], _row("t1", 2, TaskState.PROPOSED)], None) is Outcome.PROPOSE
-    assert outcome_of(rows[:1], None) is None
+    assert outcome_of(rows) is Outcome.NO_PROPOSE
+    assert outcome_of([*rows[:1], _row("t1", 2, TaskState.PROPOSED)]) is Outcome.PROPOSE
+    assert outcome_of(rows[:1]) is None
+    assert {o.value for o in Outcome} == {"propose", "no_propose"}  # 考題結束撤除
     no = expectations("t1", Outcome.NO_PROPOSE, driver_module.F1_STREAMS)
     assert set(no) == {("t1", "task")}  # 只核分析端那一條
     assert no[("t1", "task")][0][-1] == "a_no_action"
@@ -290,165 +302,104 @@ def test_the_driver_picks_expectations_by_each_task_outcome(tmp_path, state):
         world.require_streams(no)
     world._path.streams.pop()
     world.require_streams(no)
-    # 真的跑:AI 判證據不足 → 等到不提案結案就放行,故障斷言(寫入恰好一次)不做
-    recordings = _batch(tmp_path, normal=[fake.INSUFFICIENT])
-    verdict = _driver(tmp_path, state, recordings).run_one("F1")
-    assert (verdict.status, verdict.summary) == (NOT_EXERCISED, NOT_EXERCISED_TEXT)
 
 
 def _row(task, seq, state):
+    from datetime import UTC, datetime
 
     from rtb.analyzer.task_store import TaskRow
     return TaskRow(task, seq, state, "c1", None, None, datetime.now(UTC))
 
 
-# ---- [S1144] AI 合法判不提案:故障處理這次沒有走到 ----
-def test_a_legit_ai_no_propose_marks_the_fault_as_not_exercised(tmp_path, state):
-    recordings = _batch(tmp_path, normal=[fake.INSUFFICIENT])
-    verdict = _driver(tmp_path, state, recordings).run_one("F2")
-    assert verdict.status == NOT_EXERCISED  # 不是沒跑完,也不是照預期演示了故障
-    # 合約的「AI 判不提案,故障處理這次沒有走到」,「提案」照白話規則緊接括號解釋(代碼審 r1 p4)
-    assert verdict.summary == NOT_EXERCISED_TEXT and verdict.reason is None
-    assert NOT_EXERCISED_TEXT.replace("\uff08不提出調整建議\uff09", "") == \
-        "AI 判不提案,故障處理這次沒有走到"
-    details, _rows = _read_details(tmp_path, "F2")
-    assert details.outcome_note.startswith("AI 的判斷:stop_insufficient")  # AI 的判斷另列一行
-    assert details.decided_by == "ai"
-    reader = StateReader(tmp_path / "state.db")
-    try:
-        [run] = [r for r in reader.scenario_runs("demo-1") if r.code == "F2"]
-    finally:
-        reader.close()
-    assert run.status == NOT_EXERCISED
-
-
-# ---- [S1168] F4、F6:原任務照舊擋下,接續任務 AI 判證據不足 ----
+# ---- [S1409] F4、F6:接續任務照規則第 3 條「剛被調過預算,先不動」,三處寫入都 0 ----
 @pytest.mark.parametrize("code", ["F4", "F6"])
-def test_f4_and_f6_accept_an_insufficient_follow_up(tmp_path, state, code):
-    recordings = _batch(tmp_path, normal=[fake.PROPOSE], follow_up=[fake.INSUFFICIENT])
-    demo = _driver(tmp_path, state, recordings)
+def test_f4_and_f6_follow_ups_show_rule_insufficiency_without_writes(tmp_path, state, code):
+    demo = _driver(tmp_path, state, _batch(tmp_path))
     verdict = demo.run_one(code)
     assert verdict.status == DONE, verdict.reason
-    assert "故障照預期,接續任務 AI 判證據不足" in verdict.summary
-    details, _rows = _read_details(tmp_path, code)
-    assert details.outcome_note.startswith("故障照預期,接續任務 AI 判證據不足")
+    assert f"規則第 3 條{driver_module.RULE_THREE_LABEL}" in verdict.summary
+    assert "AI" not in verdict.summary
+    details, rows = _read_details(tmp_path, code)
+    assert details.outcome_note == (
+        f"故障照預期;接續任務照九條規則第 3 條:{driver_module.RULE_THREE_LABEL}")
     assert details.platform_operations and all("→ 200" in op for op in details.platform_operations)
+    # 代碼審 r1 外家finder-1:接續任務不提案,但原任務 t1 的提案(100 → 110)送進過收件口,照樣要有說明
+    narrated = json.loads(details.narrative_json)
+    assert narrated["outcome"] == "ok" and ["建議金額", "100 → 110"] in narrated["numbers"]
+    follow = next(r.task for r in rows if r.task not in (None, "t1"))
+    reader = TaskReader(tmp_path / "demos" / "demo-1" / code / "analyzer.db")
+    try:
+        history = reader.history(follow)
+        assert history[-1].state is TaskState.NO_ACTION
+        assert not [row for row in history if row.proposal is not None]  # 沒有提案
+        assert [e.detail for _s, e in reader.rule_events(follow) if e.event == "decided"] == [
+            "recent_budget_change"]
+    finally:
+        reader.close()
+    assert not [r for r in rows if r.task == follow and r.node.startswith(("x_", "i_"))]
 
 
-# ---- [S1124] F5:程式層不變量與模型考題 ----
-def test_f5_checks_program_invariants_and_reports_the_model_exam(tmp_path, state, monkeypatch):  # noqa: PLR0915 - 兩次真跑
+# ---- [S1427] F5:名稱不影響規則;平台只有受攻擊廣告照公式那一筆 ----
+def test_f5_runs_without_a_twin_or_an_exam(tmp_path, state, monkeypatch):
     starts = _capture_starts(monkeypatch)
-    passing = _batch(tmp_path, "pass", normal=[fake.PROPOSE], attacked=[fake.PROPOSE])
-    verdict = _driver(tmp_path / "a", state, passing).run_one("F5")
+    verdict = _driver(tmp_path, state, _batch(tmp_path, families=("attacked",))).run_one("F5")
     assert verdict.status == DONE, verdict.reason
-    [args] = [a for role, a, _l in starts if role is Role.ANALYZER]
-    assert _arg(args, "--hold-submit") == driver_module.F5_TWIN.campaign_id
-    base = tmp_path / "a" / "demos" / "demo-1" / "F5"
-    reader = TaskReader(base / "analyzer.db")
+    [args] = [a for role, a, _k in starts if role is Role.ANALYZER]
+    assert "--hold-submit" not in args
+    assert not hasattr(driver_module, "F5_TWIN")
+    from tests.analyzer.test_f5_end_to_end import ADVERSARIAL_NAME
+
+    assert driver_module.ADVERSARIAL_NAME == ADVERSARIAL_NAME  # [S1427] 分析端測試用同一句
+    reader = TaskReader(tmp_path / "demos" / "demo-1" / "F5" / "analyzer.db")
     try:
-        twin = reader.history("t3")
-        assert twin[-1].state is TaskState.NO_ACTION
-        # 雙胞胎是真任務、只判不送
-        assert reader.no_action_reason("t3", twin[-1].seq) == "exam_hold"
-        assert [r.choice for _s, r in reader.investigation_rounds("t3")] == ["propose"]
+        assert reader.history("t3") == ()  # 沒有雙胞胎任務
     finally:
         reader.close()
-    first = _exam_line(tmp_path)
-    assert first.startswith("錄製當時的 AI 回答:考題通過")
-
-    failing = _batch(tmp_path, "fail", normal=[fake.PROPOSE], attacked=[fake.INSUFFICIENT])
-    (tmp_path / "b").mkdir()
-    state_b = StateWriter(tmp_path / "b" / "state.db", "demo-1")
-    try:
-        verdict = _driver(tmp_path / "b", state_b, failing).run_one("F5")
-    finally:
-        state_b.close()
-    assert verdict.status == DONE, verdict.reason  # 情境照預期跑完,考題另列
-    assert "AI 判不提案\uff08不提出調整建議\uff09,平台上沒有任何寫入" in verdict.summary
-    for term in ("模型", "提案"):  # 結果摘要照白話規則(代碼審 r1 p4)
-        assert term not in re.sub(rf"{term}\uff08[^\uff08\uff09]+\uff09", "", verdict.summary)
-    assert "考題沒通過" in _exam_line(tmp_path / "b")
-    change = _f5_details(tmp_path / "b").change  # 沒改預算的原因照實寫 AI 判不提案
-    assert change.written is False and change.reason == driver_module.NOT_PROPOSED_TEXT
+    details, _rows = _read_details(tmp_path, "F5")
+    assert "考題" not in verdict.summary and "AI" not in verdict.summary
+    assert json.loads(details.narrative_json)["outcome"] == "ok"  # 說明照樣寫,名稱只作逸出引述
 
 
-def _f5_details(root):
-    reader = StateReader(root / "state.db")
-    try:
-        return reader.scenario_details("demo-1", "F5")
-    finally:
-        reader.close()
-
-
-def _exam_line(root):
-    return _f5_details(root).exam
-
-
-def test_f5_twin_falling_back_makes_the_exam_uncomparable(tmp_path, state):
-    verdict = _driver(tmp_path, state, tmp_path / "empty").run_one("F5")  # 沒有錄製:兩件都退回
-    assert verdict.status == DONE, verdict.reason
-    assert "退回,無法比較" in _exam_line(tmp_path)
-
-
-# ---- [S1158] F7 與 F5 雙胞胎每一輪只有一個錄製鍵,等於 F1 同一輪 ----
-def test_f7_shares_one_recording_key_with_f1():
-    answers = [fake.LONGER_WINDOW, fake.PROPOSE]
-    f1, _n = fake.run_family("normal", answers)
-    many, _n = fake.run_family("normal", answers, campaigns=4)
-    assert len(f1) == 2  # 兩輪
-    for index, prompt in enumerate(f1):
-        this_round = {p for p in many if p.count("ref=") == prompt.count("ref=")}
-        assert this_round == {prompt}, index  # F7 每一件這一輪送的內容逐位元組相同
-    assert len(many) == 4 * len(f1)
-    assert (driver_module.F5_TWIN.budget, driver_module.F5_TWIN.spend,
-            driver_module.F5_TWIN.name) == (driver_module.F1_CAMPAIGN.budget,
-                                            driver_module.F1_CAMPAIGN.spend,
-                                            driver_module.F1_CAMPAIGN.name)
-    seeded = driver_module.f7_campaigns(3)
-    assert all((c.budget, c.spend, c.name) == (driver_module.F1_CAMPAIGN.budget,
-                                                driver_module.F1_CAMPAIGN.spend,
-                                                driver_module.F1_CAMPAIGN.name) for c in seeded)
-
-
-# ---- [S1164] 展示批次入庫前:F1–F6 找不到錄製 0 筆,批次本身也過那兩條 ----
-@pytest.mark.skipif(not driver_module.DEMO_RECORDINGS.exists(),
-                    reason="展示錄製批次入庫後才啟用,照 [S1141] 的目錄開關")
-def test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6(tmp_path):
-    """只重播入庫 F1-F6;任何一件工作的一輪 AI 退回就讓 CI 失敗。退回的判法在入庫前檢查裡
-    (`recordings.ai_fallback_problems`,代碼審 r2 m1):錄完的自動檢查與這支呼叫同一支。"""
-    replay = tmp_path / "replay"
+# ---- [S1428] 展示批次:有提案的情境要有說明錄製;不提案的可以沒有帳本;不准有分析端調查 ----
+def test_committed_demo_recordings_replay_f1_to_f6_with_narratives(tmp_path):
+    """入庫的 phase14-demo 批次重播 F1 到 F6:找不到錄製 0 筆、有提案的情境都有說明呼叫。**等錄製**:
+    協調者錄完、搬進 recordings/model/phase14-demo 之前這支是紅的(不跳過,免得忘了錄)。"""
+    assert driver_module.DEMO_RECORDINGS.is_dir(), (
+        f"展示批次還沒入庫:{driver_module.DEMO_RECORDINGS}(協調者錄製後再跑)")
+    batches = {json.loads(p.read_text(encoding="utf-8"))["batch_id"]
+               for p in driver_module.DEMO_RECORDINGS.glob("*.json")}
+    [batch] = batches
     result = demo_recordings.check_demo_batch(
-        driver_module.DEMO_RECORDINGS, BATCH, replay,
+        driver_module.DEMO_RECORDINGS, batch, tmp_path / "replay",
         user_env={"PATH": str(tmp_path / "no-claude"), "HOME": str(tmp_path / "home")},
     )
     assert result.passed, result
-    assert not [p for p in result.problems if "AI 這次沒有給出回答" in p]
 
 
-def test_demo_recording_guard_catches_a_missing_fake_answer(tmp_path, state):
-    """假錄製少一份回答時,守衛(入庫前檢查的共用判法)讀真的重播判斷列並抓到退回。"""
-    partial = tmp_path / "missing-fake-recordings"
-    fake.fake_batch(partial, BATCH, {"attacked": [fake.PROPOSE]})
-    env = {"PATH": str(tmp_path / "no-claude"), "HOME": str(tmp_path / "home")}
-    assert _driver(tmp_path, state, partial, user_env=env).run_one("F2").status == DONE
-    problems = demo_recordings.ai_fallback_problems(tmp_path / "state.db", "demo-1")
-    assert problems and all("AI 這次沒有給出回答" in p for p in problems), problems
-    assert all(p.startswith("F2 ") for p in problems), problems
-
-
-def test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording(tmp_path, monkeypatch):
-    complete = tmp_path / "complete"  # 假錄製冒充正式後端錄的一批(只在這支測試)
-    fake.fake_batch(complete, BATCH, {"normal": [fake.PROPOSE], "attacked": [fake.PROPOSE],
-                                      "follow_up": [fake.PROPOSE]}, narrative=fake.NARRATIVE,
-                    backend="claude_code")
+def test_proposed_demo_tasks_require_only_narrative_recordings(tmp_path, monkeypatch):
+    """[S1428] 只有說明錄製的一批(假錄製冒充正式後端錄的,只在這支測試):F1 到 F6 都跑完、找不到錄製
+    0 筆;F4/F6 接續任務不提案、不另外說明,只有原任務 t1 那一份提案說明一次(代碼審 r1 外家finder-1)。
+    空目錄、分析端起不來都不准算過。"""
+    complete = tmp_path / "complete"
+    fake.fake_batch(complete, BATCH, ("normal", "attacked"), backend="claude_code")
     result = demo_recordings.check_demo_batch(complete, BATCH, tmp_path / "work")
     assert result.missing == 0 and result.problems == (), result
     assert result.passed and [v[1] for v in result.verdicts] == [DONE] * 6, result.verdicts
+    root = next((tmp_path / "work" / "demos").iterdir())
+    for code in ("F4", "F6"):  # 接續任務不提案:說明只算 t1 那一份提案一次
+        calls = [c for c, _o in _ledger_calls(root / code / "model-ledger.db")]
+        assert calls.count(Caller.NARRATIVE.value) == 1, (code, calls)
+
+    missing = tmp_path / "missing"  # 少了 F5 那一份說明:F5 找不到錄製
+    fake.fake_batch(missing, BATCH, ("normal",), backend="claude_code")
+    partial = demo_recordings.check_demo_batch(missing, BATCH, tmp_path / "work1",
+                                               codes=("F5",))
+    assert partial.missing >= 1 and not partial.passed
 
     empty = demo_recordings.check_demo_batch(tmp_path / "none", BATCH, tmp_path / "work2",
                                              codes=("F1",))
     assert empty.missing >= 1 and not empty.passed  # 空目錄會過前兩條,過不了這一條
-    # 代碼審 r1 l2:分析端起不來,這個情境一次都沒問 AI、帳根本沒建:不准算過
+    # 代碼審 r1 l2:分析端起不來,這個情境沒有提案、沒有說明:不准算過
     real = launcher.start
 
     def broken(role, args, keys, **kwargs):
@@ -460,42 +411,81 @@ def test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording(tmp_path, mon
     down = demo_recordings.check_demo_batch(complete, BATCH, tmp_path / "work3", codes=("F1",))
     assert down.missing == 0 and not down.passed
     assert any("F1 沒有跑完" in p for p in down.problems)
-    assert any("F1 的花費帳不在" in p for p in down.problems)
 
 
-def test_the_replay_needs_every_scenario_finished_with_a_ledger_that_has_calls(tmp_path):
-    """(代碼審 r1 k1/l2/s3)重播本身的問題:情境沒跑完、帳不在、帳裡沒有呼叫紀錄,都不准算過。"""
-    missing, problems = demo_recordings.replay_problems(
-        (("F1", "incomplete", "startup failed"), ("F2", NOT_EXERCISED, None)),
-        {"F1": tmp_path / "none.db"})
-    assert missing == 0
-    assert problems == ("F1 沒有跑完:incomplete(startup failed)",
-                        "F1 的花費帳不在或讀不了:這個情境一次都沒有問 AI")
-    assert not demo_recordings.BatchCheck(0, problems).passed
-    # 代碼審 r2 v3:帳在、表也建好了,但一筆呼叫紀錄都沒有
+def test_the_replay_needs_a_narrative_call_for_every_real_proposal(tmp_path):
+    """(代碼審 r1 k1/l2/s3;增量 3 r1 外家finder-1 改寫)重播本身的問題:情境沒跑完;送進過收件口的提案
+    數(從情境自己的分析端資料庫讀,不看被驗的驅動寫了什麼)多於帳裡的說明呼叫;帳裡有分析端調查。
+    一份提案都沒有的情境沒有帳不算問題。"""
     from rtb import modelledger
 
+    missing, problems = demo_recordings.replay_problems(
+        (("F1", "incomplete", "startup failed"), ("F4", DONE, None), ("F9", DONE, None)),
+        {"F1": tmp_path / "none.db", "F4": tmp_path / "none4.db", "F9": tmp_path / "none9.db"},
+        {"F1": 1, "F4": 1, "F9": 0})
+    assert missing == 0
+    assert problems == ("F1 沒有跑完:incomplete(startup failed)",
+                        "F1 有 1 份送出的提案,帳裡只有 0 次提案說明的錄製呼叫",
+                        "F4 有 1 份送出的提案,帳裡只有 0 次提案說明的錄製呼叫")
+    assert not demo_recordings.BatchCheck(0, problems).passed
     empty = tmp_path / "empty.db"
     modelledger.used_so_far(empty, None)  # 建出一本空帳
-    assert empty.is_file()
-    missing, problems = demo_recordings.replay_problems((("F3", DONE, None),), {"F3": empty})
-    assert (missing, problems) == (0, ("F3 的花費帳沒有任何呼叫紀錄",))
+    assert demo_recordings.replay_problems((("F3", DONE, None),), {"F3": empty},
+                                           {"F3": 1})[1] == (
+        "F3 有 1 份送出的提案,帳裡只有 0 次提案說明的錄製呼叫",)
+    assert demo_recordings.replay_problems((("F4", DONE, None),), {"F4": empty},
+                                           {"F4": 0}) == (0, ())
+    assert Caller.NARRATIVE.value == demo_recordings.NARRATIVE_CALLER
+    assert {Caller.INVESTIGATION.value} == demo_recordings.RETIRED_CALLERS
+
+
+def test_proposals_are_counted_from_the_scenario_analyzer_database(tmp_path):
+    """外家finder-1:「有提案」從情境自己的分析端資料庫讀(送進收件口的提案),不看驅動寫的說明欄;
+    資料庫不在就是 0。"""
+    from datetime import UTC, datetime
+
+    from rtb.analyzer.task_store import TaskStore
+    from tests.analyzer.conftest import make_proposal
+
+    assert demo_recordings.proposals_in(tmp_path / "absent.db") == 0
+    db = tmp_path / "analyzer.db"
+    store = TaskStore(db)
+    try:
+        now = datetime.now(UTC)
+        proposal = make_proposal()
+        store.create_task(proposal.task_id, proposal.campaign_id, now)
+        for seq, state in enumerate((TaskState.COLLECTING_EVIDENCE, TaskState.ANALYZING), 1):
+            store.commit_step(proposal.task_id, seq, state, now)
+        store.commit_step(proposal.task_id, 3, TaskState.PROPOSED, now, proposal=proposal)
+        assert demo_recordings.proposals_in(db) == 0  # 還沒送進收件口
+        store.commit_step(proposal.task_id, 4, TaskState.HANDED_OFF, now, proposal=proposal)
+    finally:
+        store.close()
+    assert demo_recordings.proposals_in(db) == 1
 
 
 def test_the_batch_itself_must_be_one_clean_batch(tmp_path):
+    """[S1428] 新批號格式 phase14-demo-YYYYMMDD;批次裡不准有分析端調查的錄製。"""
     directory = tmp_path / "rec"
-    fake.fake_batch(directory, BATCH, {"normal": [fake.PROPOSE]}, backend="claude_code")
+    fake.fake_batch(directory, BATCH, ("normal",), backend="claude_code")
     assert demo_recordings.batch_problems(directory, BATCH) == ()
-    assert demo_recordings.batch_problems(directory, "phase13-demo-20260101")  # 別的批次
-    assert any("批次編號要是 phase13-demo-YYYYMMDD" in p
-               for p in demo_recordings.batch_problems(directory, "demo-x"))
+    assert demo_recordings.BATCH_PATTERN.fullmatch("phase14-demo-20260926")
+    assert not demo_recordings.BATCH_PATTERN.fullmatch("phase13-demo-20260925")
+    assert demo_recordings.batch_problems(directory, "phase14-demo-20260101")  # 別的批次
+    assert any("批次編號要是 phase14-demo-YYYYMMDD" in p
+               for p in demo_recordings.batch_problems(directory, "phase13-demo-20260925"))
+    investigation = fake.recording(fake.core.Caller.INVESTIGATION, "s", "u", 5, "ok", BATCH,
+                                   backend="claude_code")
+    path = fake.write(directory, investigation)
+    assert any("分析端調查" in p for p in demo_recordings.batch_problems(directory, BATCH))
+    path.unlink()
     for outcome in ("config_error", "ledger_busy"):
-        bad = fake.recording(fake.core.Caller.INVESTIGATION, "s", outcome, 5, "", BATCH,
+        bad = fake.recording(fake.core.Caller.NARRATIVE, "s", outcome, 5, "", BATCH,
                              outcome=fake.core.Outcome(outcome), backend="claude_code")
         path = fake.write(directory, bad)
         assert any(demo_recordings.batch_problems(directory, BATCH))
         path.unlink()
-    unsure = fake.recording(fake.core.Caller.INVESTIGATION, "s", "u", 5, "ok", BATCH,
+    unsure = fake.recording(fake.core.Caller.NARRATIVE, "s", "u", 5, "ok", BATCH,
                             backend="claude_code")
     path = fake.write(directory, unsure)
     body = json.loads(path.read_text(encoding="utf-8"))
@@ -511,7 +501,7 @@ def test_the_batch_itself_must_be_one_clean_batch(tmp_path):
 
 def test_the_fake_recordings_never_go_into_the_committed_directory():
     """(代碼審 r1 t3)假錄製產生器拒絕寫進入庫錄製目錄;預設寫的後端是 fake,批次檢查一律拒收。"""
-    found = fake.recording(fake.core.Caller.INVESTIGATION, "s", "u", 5, "ok", BATCH)
+    found = fake.recording(fake.core.Caller.NARRATIVE, "s", "u", 5, "ok", BATCH)
     assert found.backend == fake.FAKE_BACKEND
     for target in (PROJECT / "recordings" / "model", PROJECT / "recordings" / "model" / "x"):
         with pytest.raises(ValueError, match="入庫"):
@@ -535,53 +525,6 @@ def test_the_batch_check_reads_recordings_only_through_the_model_client_facade()
                                  if isinstance(n, ast.ImportFrom) for a in n.names} | {
         f"rtb.{a.name}" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
         and n.module == "rtb" for a in n.names}
-
-
-# ---- 代碼審 r1:誰決定、時限、停止、故障沒走到的邊界 ----
-def _record(kind, decided_by, choice="propose", fallback=None):
-    from rtb.analyzer.task_store import InvestigationRecord
-
-    return InvestigationRecord(kind, 1, choice, decided_by, fallback=fallback)
-
-
-def test_who_decided_follows_each_task_final_conclusion():
-    """(代碼審 r1 k3)AI 選過查詢、下一輪退回由程式規則決定 → 標 AI 退回程式規則,不標 AI。"""
-    assert driver_module.decided_by([_record("fallback", "rule", fallback="no_recording")]) \
-        == "ai_fallback"
-    assert driver_module.decided_by([_record("fallback", "rule")]) == "ai_fallback"
-    assert driver_module.decided_by([_record("conclusion", "ai")]) == "ai"
-    assert driver_module.decided_by([]) == "rule"
-    # 每件工作最後一列:一件是 AI 的結論、另一件選過查詢之後退回 → AI 退回程式規則
-    assert driver_module.decided_by([_record("conclusion", "ai"),
-                                     _record("fallback", "rule")]) == "ai_fallback"
-
-
-def test_the_ai_allowance_is_capped_in_recorded_mode(tmp_path):
-    """(代碼審 r1 d1)錄製模式整段放寬不超過 60 秒(F7 三百件照件數放寬會多二十分鐘);即時照每輪
-    最壞值。"""
-    from rtb.stepbudget import ai_step_worst_seconds
-
-    world = driver_module.World.__new__(driver_module.World)
-    world.ai = driver_module.AiSetup("demo-1", live=False, recordings=tmp_path)
-    assert world.round_seconds() == driver_module.RECORDED_ROUND_SECONDS
-    assert world.allow(240, tasks=300) == 240 + driver_module.RECORDED_EXTRA_CAP_SECONDS
-    assert world.allow(60, tasks=1) == 60 + 3 * driver_module.RECORDED_ROUND_SECONDS
-    world.ai = driver_module.AiSetup("demo-1", live=True, recordings=tmp_path)
-    assert world.allow(60, tasks=2) == 60 + 2 * 3 * ai_step_worst_seconds()
-    world.ai = None
-    assert world.allow(60, tasks=300) == 60
-
-
-def test_a_rule_no_propose_after_a_fallback_is_a_failure_not_an_untouched_fault():
-    """(代碼審 r1 d2)受測工作退回程式規則、規則判不提案:對不上(沒跑完),不是「故障沒走到」。"""
-    world = driver_module.World.__new__(driver_module.World)
-    world.rounds = lambda _task: (_record("fallback", "rule", "no_action", "no_recording"),)
-    with pytest.raises(driver_module.ScenarioFailed, match="不是 AI 判的"):
-        world.not_exercised("t1", "c1")
-    world.rounds = lambda _task: (_record("query", "ai", "check_longer_window"),
-                                  _record("conclusion", "rule", "do_not_propose"))
-    with pytest.raises(driver_module.ScenarioFailed):
-        world.not_exercised("t1", "c1")
 
 
 def test_cancelling_during_the_model_entries_ends_the_scenario_quickly(tmp_path, state,
@@ -614,9 +557,13 @@ def test_cancelling_during_the_model_entries_ends_the_scenario_quickly(tmp_path,
 
 def test_f7_checks_every_task_path_by_its_outcome(tmp_path, state, monkeypatch):
     """(代碼審 r1 k2)F7 也照通用規則逐件核路徑:每一件的分析端紀錄都在預期組裡,確認放行的那一件多走
-    「人已同意,放回排隊」。"""
+    「人已同意,放回排隊」。F7 每一件的數字都跟 F1 相同([S1411] 逐件核對九條結論)。"""
     from tests.demo import test_driver as td
 
+    seeded = driver_module.f7_campaigns(3)
+    assert all((c.budget, c.spend, c.name) == (driver_module.F1_CAMPAIGN.budget,
+                                                driver_module.F1_CAMPAIGN.spend,
+                                                driver_module.F1_CAMPAIGN.name) for c in seeded)
     checked = []
     real = driver_module.World.require_streams
 
@@ -635,49 +582,14 @@ def test_f7_checks_every_task_path_by_its_outcome(tmp_path, state, monkeypatch):
     assert len(approved) == 1
 
 
-def test_the_driver_reads_the_runner_model_line_with_the_same_prefix():
-    assert driver_module.MODEL_LINE == runner.MODEL_LINE
-    assert driver_module.PREFLIGHT_FAILED == runner.PREFLIGHT_FAILED_MODE
-    from rtb.analyzer import ai_judge
-    from rtb.demo import basis
-    assert basis.HOURS_PER_BUDGET == ai_judge.HOURS_PER_BUDGET
-
-
-def test_the_server_refuses_f7_or_unknown_codes_in_the_live_list(tmp_path, capsys):
-    """[S1145] 伺服器的 --live 清單:F7 或不認得的情境在啟動時就拒;沒給就是空的(全部錄製)。"""
+def test_the_server_refuses_only_unknown_codes_in_the_live_list(tmp_path, capsys):
+    """伺服器的 --live 清單:不認得的情境在啟動時就拒;F7 不再另外拒收(Phase 14 增量 3 撤除 [S1145]
+    的 F7 限制:分析端不呼叫 AI,即時清單只控制兩支模型入口);沒給就是空的(全部錄製)。"""
     from rtb.demo import server
 
     work = str(tmp_path)
-    for bad, named in (("F7", "F7"), ("F1,F9", "F9")):
-        with pytest.raises(SystemExit):
-            server._arguments(["--work-dir", work, "--live", bad])
-        assert named in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        server._arguments(["--work-dir", work, "--live", "F1,F9"])
+    assert "F9" in capsys.readouterr().err
     assert server._arguments(["--work-dir", work])[1] == []
-    assert server._arguments(["--work-dir", work, "--live", "F1,F5"])[1] == ["F1", "F5"]
-
-
-def test_f7_checks_the_path_of_every_task_the_ai_declined(tmp_path, state, monkeypatch):
-    """(代碼審 r2 v3)F7 縮小版、假錄製讓 AI 判證據不足:每一件都以不提案結案,也都照不提案的預期組核
-    分析端路徑(以前 F7 測試只跑「全部提案」,不核不提案那一支也照樣綠)。"""
-    from tests.demo import test_driver as td
-
-    checked = []
-    real = driver_module.World.require_streams
-
-    def spy(self, expected):
-        checked.append(dict(expected))
-        return real(self, expected)
-
-    monkeypatch.setattr(driver_module.World, "require_streams", spy)
-    rec = _batch(tmp_path, normal=[fake.INSUFFICIENT])
-    run = driver_module.make_f7(campaigns=12, limit=50, workers=3)
-    demo = _driver(tmp_path, state, rec, scenarios={
-        "F7": driver_module.Scenario("F7", "F7", td.SMALL_F7_LIMIT_SECONDS, run)})
-    verdict = demo.run_one("F7")
-    assert verdict.status in (DONE, NOT_EXERCISED), verdict.reason
-    [expected] = checked
-    tasks = [f"t{i:04d}" for i in range(12)]
-    for task in tasks:
-        mine = {k: v for k, v in expected.items() if k[0] == task}
-        assert mine == dict(expectations(task, Outcome.NO_PROPOSE, {})), task
-    assert not [k for k in expected if k[1] == "proposal"]
+    assert server._arguments(["--work-dir", work, "--live", "F1,F7"])[1] == ["F1", "F7"]

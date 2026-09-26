@@ -36,9 +36,9 @@ ALLOWED = frozenset({"rtb.modelclaude"})  # 模型用戶端的 Claude Code 後�
 PROJECT_STARTERS = frozenset({"rtb.demo.launcher", "rtb.demo.driver"})
 MODEL_CLIENTS = frozenset({"rtb.modelclaude", "rtb.modelclient"})
 GATE = "rtb.analyzer.modelgate"  # 分析端唯一准匯入模型用戶端的模組(Phase 13)
-# 准匯入模型閘道的分析端模組(寫死,[S1100]):模型說明命令列、分析端驅動命令列、AI 決策函式所在模組
-# (Phase 13 增量 2 開檔)
-GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.runner", "rtb.analyzer.ai_judge"})
+# 准匯入模型閘道的分析端模組(寫死,[S1100]):模型說明命令列、AI 決策函式所在模組(Phase 13 增量 2
+# 開檔)。Phase 14 增量 3([S1429]):分析端驅動命令列拔掉 --ai-judge,移出名單
+GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.ai_judge"})
 # 匯入閉包不准含模型用戶端任何一支模組的分析端模組([S1100]);調查詞彙模組與證據來源包裝也不准
 # (展示流程圖與觀察器讀調查詞彙,展示伺服器行程不能因此載入模型用戶端)
 MODEL_FREE = ("rtb.analyzer.flow", "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
@@ -436,18 +436,17 @@ BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverif
 # 送出呼叫的地方:模型用戶端本身、評估的模型候選、分析端模型閘道(Phase 13 改寫)、經閘道送出的模型說明
 # 命令列與維運的假說命令列(Phase 11B [S912])。送出的名字除了 call_model,還有閘道的 open_gate 與
 # complete(代碼審 r1:閘道是第二個送出入口)
-# Phase 13 增量 2 加:AI 決策模組(開閘道、送出)與開了 AI 決策的分析端驅動命令列(把開閘道函式交給它)
-# Phase 13 增量 3 加:調查評估執行器(呼叫同一支 AI 決策函式,[S1146];[S918] 照計劃改寫)
+# Phase 13 增量 2 加:AI 決策模組(開閘道、送出);Phase 13 增量 3 加:調查評估執行器(呼叫同一支 AI
+# 決策函式,[S1146];[S918] 照計劃改寫)。Phase 14 增量 3 撤掉分析端驅動命令列([S1429])
 CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate",
                               "rtb.analyzer.modelgate", "rtb.analyzer.narrate",
                               "rtb.ops.hypothesis", "rtb.analyzer.ai_judge",
-                              "rtb.analyzer.runner", "rtb.eval.investigation_eval"})
+                              "rtb.eval.investigation_eval"})
 SEND_CALLS = frozenset({"call_model", "open_gate", "complete"})
 # 會送出模型呼叫的命令列模組:匯入它就能經它的 run 轉手送出,匯入本身就算送出點(代碼審 r2)
 # Phase 13 增量 3 代碼審 r1:調查評估執行器的 run 即時模式會送出,匯入它也算送出點
 SENDING_ENTRIES = frozenset({"rtb.analyzer.narrate", "rtb.ops.hypothesis",
-                             "rtb.analyzer.ai_judge", "rtb.analyzer.runner",
-                             "rtb.eval.investigation_eval"})
+                             "rtb.analyzer.ai_judge", "rtb.eval.investigation_eval"})
 # 每個呼叫者標籤只准哪幾支模組用(代碼審 r1:花費上限看請求自報的呼叫者,標籤要綁住模組才守得住
 # 「誰都不能自稱不計入」)。定義它的唯讀開法與只拿來列上限清單的花費帳寫入不算使用;Phase 13 增量 2 的
 # AI 決策模組開檔時把它加進「分析端調查」那一格
@@ -609,3 +608,68 @@ def test_importing_the_eval_runner_counts_as_a_send_point():
                   "from rtb.eval.investigation_eval import run\n"):
         found = backend_offenders(ast.parse(probe), "scoring.py", "rtb.eval.scoring")
         assert found, probe
+
+
+# ---- Phase 14 增量 3 [S1429]:AI 退出加額決策後,只有評估執行器用 Judge ----
+def test_only_phase13_eval_uses_ai_judge_and_runner_stays_rule_only(tmp_path):
+    """[S1429] 正式分析端驅動與一鍵展示的匯入閉包不含 AI 決策模組、模型閘道;`flow.advance` 沒有
+    `ai_decide` 參數與 AI 分支;原始碼裡只有評估執行器匯入 AI 決策模組;評估的即時加錄製與錄製重播
+    都走得通(假後端,不碰真模型)。展示 F1 的「說明呼叫 1 次、分析端調查 0 次」在
+    tests/demo/test_ai_demo.py 的 test_the_demo_uses_recordings_unless_live_is_switched_on。"""
+    import inspect
+    import os
+
+    from rtb.analyzer import flow
+
+    for module in ("rtb.analyzer.runner", "rtb.demo.driver", "rtb.demo.server"):
+        loaded = subprocess.run(
+            [sys.executable, "-c", f"import sys, {module}\nprint('\\n'.join(sorted(sys.modules)))"],
+            env={**os.environ, "PYTHONPATH": str(SRC)}, capture_output=True, text=True,
+            check=True, timeout=60).stdout.split()
+        for banned in ("rtb.analyzer.ai_judge", "rtb.analyzer.modelgate", "rtb.modelclient"):
+            assert banned not in loaded, (module, banned)
+    assert "ai_decide" not in inspect.signature(flow.advance).parameters
+    assert "clock" not in inspect.signature(flow.advance).parameters
+    for gone in ("AiDecide", "AiOutcome", "AiContext", "QueryMore", "RenewalSkipped", "_from_ai"):
+        assert not hasattr(flow, gone), gone
+    users = set()
+    for path in sorted(RTB.rglob("*.py")):
+        module = ".".join(path.relative_to(SRC).with_suffix("").parts)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.ImportFrom) and (
+                    node.module == "rtb.analyzer.ai_judge" or (
+                        node.module == "rtb.analyzer"
+                        and any(a.name == "ai_judge" for a in node.names)))) or (
+                    isinstance(node, ast.Import)
+                    and any(a.name == "rtb.analyzer.ai_judge" for a in node.names)):
+                users.add(module)
+    assert users == {"rtb.eval.investigation_eval"}
+    _eval_records_and_replays(tmp_path)
+
+
+def _eval_records_and_replays(tmp_path):
+    """評估:協調者授權的即時加錄製(假後端)寫出錄製,再用錄製模式重播,答案相同、沒有找不到的。"""
+    from rtb import modelclient as mc
+    from rtb.analyzer import ai_judge, modelgate
+    from rtb.eval import investigation_eval as ie
+    from rtb.eval import investigation_set
+    from tests.eval.test_investigation_eval import BATCH, Oracle
+    from tests.model.fakes import FakeBackend, live, recorded, reply
+
+    cases = investigation_set.CASES[:4]
+    oracle = Oracle(investigation_set.CASES)
+
+    def answer(call):
+        return reply(oracle(call.system, call.user).text)
+
+    folder = tmp_path / "eval-rec"
+    live_gate = modelgate.Gate(live(FakeBackend(answer), record=True), mc.Caller.INVESTIGATION,
+                               "eval-test", tmp_path / "ledger.sqlite", folder, BATCH)
+    recorded_runs = ie.run_set(cases, ai_judge.gate_complete(live_gate))
+    assert any(folder.glob("*.json"))
+    replay_gate = modelgate.Gate(recorded(), mc.Caller.INVESTIGATION, "eval-test",
+                                 tmp_path / "replay-ledger.sqlite", folder, None)
+    replayed = ie.run_set(cases, ai_judge.gate_complete(replay_gate))
+    assert [r.final for r in replayed] == [r.final for r in recorded_runs]
+    assert not any(r.missing_recording for r in replayed)

@@ -1,0 +1,83 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1",
+  "lens": "分析端/流程層/評估/模型入口:確認沒有任何通往提案的模型入口殘留、九條規則路徑完好、評估只重播仍可跑、暫存帳本共用函式",
+  "materials": [
+   "governance/review-reports/code-phase14-inc3/r1-part-analyzer.patch"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2",
+  "lens": "展示驅動、頁面、流程圖、觀察器、錄製批次驗收工具、啟動器:F1–F7 結局與頁面、錄製驗收規則是否守得住「有提案就要有說明錄製」、舊批次保留",
+  "materials": [
+   "governance/review-reports/code-phase14-inc3/r1-part-demo.patch"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3",
+  "lens": "測試增刪改綁:保留行為是否仍被測、新測試殺傷力、條款綁定無孤兒、claims 證據語意改寫是否成立",
+  "materials": [
+   "governance/review-reports/code-phase14-inc3/r1-tests.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭4",
+  "lens": "殘留死碼與說明一致性:未刪的無入口程式(instrumented.investigation_source、renew_lease、record_model_call、commit_step 的 investigation 參數、Process.next_line 等)是否真的沒人用、該不該刪;註解/說明是否仍描述 AI 決策",
+  "materials": [
+   "governance/review-reports/code-phase14-inc3/r1-part-analyzer.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家finder",
+  "lens": "全部程式改動(不含測試)",
+  "materials": [
+   "governance/review-reports/code-phase14-inc3/r1-src.patch"
+  ],
+  "auditor": "codex"
+ },
+ {
+  "round": "r1",
+  "seat": "外家否決",
+  "lens": "全部程式改動,只看會讓系統做錯事的洞",
+  "materials": [
+   "governance/review-reports/code-phase14-inc3/r1-src.patch"
+  ],
+  "auditor": "codex"
+ },
+ {
+  "round": "r1",
+  "seat": "spec-conformance",
+  "lens": "spec-conformance",
+  "materials": [
+   "governance/review-reports/code-phase14-inc3/r1-snapshot.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase14-inc3/r1-snapshot.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "資安-opus",
+  "lens": "資安-opus",
+  "materials": [
+   "governance/review-reports/code-phase14-inc3/r1-snapshot.patch"
+  ],
+  "auditor": "claude-opus"
+ }
+]

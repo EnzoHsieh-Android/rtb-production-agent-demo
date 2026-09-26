@@ -17,10 +17,10 @@ from enum import StrEnum
 from pathlib import Path
 
 from rtb.analyzer import investigation as inv
+from rtb.analyzer import rule_round
 from rtb.analyzer.policy import NoActionReason
 from rtb.analyzer.task_store import (
     FollowUpRow,
-    InvestigationRecord,
     ReplanReason,
     TaskReader,
     TaskRow,
@@ -86,10 +86,6 @@ class SourceEvent:
     note: str | None = None
     basis: tuple[Basis, ...] = ()  # 這一步的根據(增量 2b,見 basis 模組)
     actor: str = "程式"  # 誰判的:程式或人工(管理指令寫的列)
-    reason_code: str | None = None  # 同序號調查紀錄列的原因代碼(Phase 13:ai_query)
-    # 直接指定的節點與邊(Phase 13 增量 4 的 AI 那一步:由調查紀錄決定,不在列舉對應表裡)
-    node: str | None = None
-    edge: tuple[str, str] | None = None
 
 
 def _sort_key(event: SourceEvent) -> tuple[datetime, tuple[str, int, int]]:
@@ -101,9 +97,8 @@ _EDGE_TEXT = {(e.source, e.target): e.label for e in flow.FLOW_GRAPH.edges}
 _INCOMING: dict[str, list[tuple[str, str]]] = {}
 for _edge in _EDGES:
     _INCOMING.setdefault(_edge[1], []).append(_edge)
-# 回頭節點用(轉換, 原因代碼)查(Phase 13 [S1139]):「AI 要再查」與「資料太舊重蒐證」是同一個轉換
-_BACKS = {(back.transition, back.reason): back for back in flow.BACK_TRANSITIONS
-          if back.transition}
+# 回頭節點用轉換查(Phase 13 [S1139] 靠調查紀錄原因代碼分出的「AI 要再查」隨 Phase 14 增量 3 撤除)
+_BACKS = {back.transition: back for back in flow.BACK_TRANSITIONS if back.transition}
 _BACK_TEXT = {back.node: back.what for back in flow.BACK_TRANSITIONS}
 
 
@@ -175,7 +170,7 @@ class PathBuilder:
         if before is None:
             return None
         try:
-            back = _BACKS.get(((enum[before], enum[name]), event.reason_code))
+            back = _BACKS.get((enum[before], enum[name]))
         except KeyError:
             return None
         return None if back is None else back.node
@@ -218,9 +213,6 @@ class PathBuilder:
                            operation_key=event.key, actor=event.actor, task=event.task)
 
     def _one(self, event: SourceEvent) -> DecisionRow | None:
-        if event.node is not None:  # AI 那一步:節點與邊由調查紀錄決定
-            edge = event.edge if event.edge is not None else _edge_into(event.node, self.last_node)
-            return self._row(event, event.node, edge, event.note or "")
         special = self._special(event)
         back = self._back_node(event)
         if special is True:
@@ -279,11 +271,6 @@ def missing_from_path(observed: Sequence[str], required: Sequence[str],
         elif node not in allowed:
             return node
     return None if position == len(required) else required[position]
-
-
-def _kind_member(record: InvestigationRecord) -> Member:
-    """AI 那一步的判斷結果顯示成調查紀錄的種類(選查詢、下結論、退回);讀不懂的照原樣留著。"""
-    return _member(inv.RecordKind, record.kind) or (inv.RecordKind, record.kind)
 
 
 def _time(text: str) -> datetime:
@@ -356,8 +343,7 @@ class Observer:
                            basis=basis_of.follow_up(follow.reason, follow.generation))
 
     def _task(self, reader: TaskReader, rowid: int, row: TaskRow) -> list[SourceEvent]:
-        """一列任務狀態;分析之後寫下的那一列若有同序號的調查紀錄(Phase 13 增量 4),前面另加一筆
-        「AI 判斷」(或「改由程式規則決定」)事件,排在這一列之前。"""
+        """一列任務狀態(Phase 13 增量 4 另加的「AI 判斷」事件隨 Phase 14 增量 3 撤除)。"""
         note, detail, missing = None, None, False
         if row.state is TaskState.BLOCKED:
             follow = self._follow_ups.get(row.task_id)
@@ -365,31 +351,32 @@ class Observer:
                 return []  # 由「開新工作」那筆事件表示,不另外記「這件工作結束」
             if follow is not None:
                 note = GENERATIONS_USED_UP  # 代數用完:接續關係有記,但沒有開新工作
+        if self._rule_continuation(reader, row):
+            return []
         recorded = None
         if row.state is TaskState.NO_ACTION:  # 原因跟這一列同一個交易寫
             recorded = reader.no_action_reason(row.task_id, row.seq)
             detail = _member(NoActionReason, recorded)
             missing = detail is None
-        # 同序號調查紀錄列的原因代碼(ai_query);調查紀錄表不在(Phase 13 之前的資料庫)就當沒有
-        code = (reader.investigation_reason_code(row.task_id, row.seq)
-                if row.state is TaskState.COLLECTING_EVIDENCE else None)
-        rounds = reader.investigation_rounds(row.task_id) if row.state in _DECIDED else ()
-        record = next((r for seq, r in rounds if seq == row.seq), None)
         before, evidence = self._analyzed(reader, row)
-        main = SourceEvent(row.written_at, f"analyzer.tasks#{row.task_id}/{row.seq}",
-                           (TaskState, row.state.name), detail, f"task:{row.task_id}", missing,
-                           order=("analyzer", 1, 2 * rowid), task=row.task_id, note=note,
-                           basis=self._analysis_basis(before, evidence, row, recorded, record),
-                           reason_code=code)
-        if record is None or before is None:
-            return [main]
-        step = basis_of.ai_step(record, [r for seq, r in rounds if seq < row.seq], evidence,
-                                row.written_at)
-        ai = SourceEvent(row.written_at, f"analyzer.investigation_rounds#{row.task_id}/{row.seq}",
-                         _kind_member(record), None, f"task:{row.task_id}",
-                         order=("analyzer", 1, 2 * rowid - 1), task=row.task_id, note=step.reason,
-                         basis=step.basis, actor=step.actor, node=step.node, edge=step.edge)
-        return [ai, main]
+        return [SourceEvent(row.written_at, f"analyzer.tasks#{row.task_id}/{row.seq}",
+                            (TaskState, row.state.name), detail, f"task:{row.task_id}", missing,
+                            order=("analyzer", 1, 2 * rowid), task=row.task_id, note=note,
+                            basis=self._analysis_basis(reader, before, evidence, row, recorded))]
+
+    @staticmethod
+    def _rule_continuation(reader: TaskReader, row: TaskRow) -> bool:
+        """規則輪續步(Phase 14 增量 2b,A→B→C 讀四查詢)的中間列不另畫節點:續步那一列蒐集證據
+        (規則事件是 continue)與 B/C 蒐完的分析中那一列,都算同一個「蒐證、判斷」步驟。重來(過期、
+        變動)照舊畫成重新蒐集。"""
+        if row.state is TaskState.COLLECTING_EVIDENCE:
+            return any(seq == row.seq and event.event == "continue"
+                       for seq, event in reader.rule_events(row.task_id))
+        if row.state is TaskState.ANALYZING:
+            step = next((step.step for seq, step in reader.rule_steps(row.task_id)
+                         if seq == row.seq), None)
+            return step in ("B", "C")
+        return False
 
     @staticmethod
     def _analyzed(reader: TaskReader, row: TaskRow) -> tuple[TaskRow | None, tuple[Evidence, ...]]:
@@ -402,27 +389,19 @@ class Observer:
         return before, reader.evidence_for(row.task_id, before.seq)
 
     @staticmethod
-    def _analysis_basis(before: TaskRow | None, evidence: tuple[Evidence, ...], row: TaskRow,
-                        recorded: str | None,
-                        record: InvestigationRecord | None) -> tuple[Basis, ...]:
+    def _analysis_basis(reader: TaskReader, before: TaskRow | None,
+                        evidence: tuple[Evidence, ...], row: TaskRow,
+                        recorded: str | None) -> tuple[Basis, ...]:
         """分析之後寫下的那一列(提案、不調整、太舊重新蒐集)帶根據:拿分析中那一列底下的證據重算。
-        傳給正式規則的只有現況、1 小時指標、廣告文字三種(追加查詢的收據在規則入口本來就濾掉,
-        [S1115])。有調查紀錄的那一列是「程式接手」:AI 選的查詢、照公式算的金額、照結論結案;退回的
-        那一輪照規則重算、扣掉 AI 那一步之前已經顯示過的幾組;只判不送的那一列寫考題結束。"""
+        規則輪定案那一列(Phase 14 增量 2b)用同一輪存下的收據與原始回應重算,跟定案同一份四查詢;
+        不是規則輪的列(舊兩讀)只拿現況、1 小時指標、廣告文字三種([S1115])。"""
         if before is None:
             return ()
-        rule = inv.code_rule_evidence(evidence)
-        if recorded == NoActionReason.EXAM_HOLD.value:
-            if record is not None and record.kind == inv.RecordKind.FALLBACK:  # 退回後規則判值得加
-                ruled = basis_of.after_fallback(basis_of.analysis(before, rule, row, recorded))
-                return (*ruled, basis_of.EXAM_HOLD)
-            return (basis_of.EXAM_HOLD,)
-        if record is None:
-            return basis_of.analysis(before, rule, row, recorded)
-        if record.kind == inv.RecordKind.FALLBACK:
-            return basis_of.after_fallback(basis_of.analysis(before, rule, row, recorded))
-        found = basis_of.takeover(record, row, rule)
-        return () if found is None else (found,)
+        inputs = rule_round.decision_inputs(reader, row.task_id, before.seq)
+        if inputs is not None:
+            items, queries = inputs
+            return basis_of.analysis(before, items, row, recorded, queries=queries)
+        return basis_of.analysis(before, inv.code_rule_evidence(evidence), row, recorded)
 
     @staticmethod
     def _stops(inbox: ReadOnlyInbox, tx: attempt_store.ReadTransaction,

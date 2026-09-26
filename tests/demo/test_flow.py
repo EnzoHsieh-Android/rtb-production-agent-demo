@@ -89,7 +89,8 @@ def test_the_mapped_enums_are_the_eighteen_in_the_plan() -> None:
     """計劃第 4 版的十八個:第 3 版的十二個,加設計審 r2 補的處理待確認的結果、最後失敗原因、
     證據新鮮度、值不值得加的判定、沒提案原因、路由路徑。Phase 13 增量 2 照 Phase 13 計劃改寫
      [S1024]:
-    再加 AI 決策退回程式規則的原因,共十九個。"""
+    再加 AI 決策退回程式規則的原因,共十九個。Phase 14 增量 3 撤除 AI 決策那一步,退回原因跟著拿掉,
+    回到十八個。"""
     assert {f"{e.__module__}.{e.__name__}" for e in flow.MAPPED_ENUMS} == {
         "rtb.executor.inbox_store.Disposition", "rtb.executor.inbox_store.BlockCode",
         "rtb.executor.inbox_store.DeadLetterReason", "rtb.executor.inbox_store.StopKind",
@@ -100,9 +101,8 @@ def test_the_mapped_enums_are_the_eighteen_in_the_plan() -> None:
         "rtb.analyzer.policy.RoutePath", "rtb.analyzer.policy.NoActionReason",
         "rtb.executor.inbox_store.AwaitingOutcome", "rtb.executor.inbox_store.LastFailure",
         "rtb.domain.evidence.Freshness", "rtb.domain.worth.WorthVerdict",
-        "rtb.analyzer.investigation.FallbackReason",
     }
-    assert len(flow.MAPPED_ENUMS) == 19
+    assert len(flow.MAPPED_ENUMS) == 18
     mapped = {key[0] for key in flow.OUTCOMES}
     assert mapped == set(flow.MAPPED_ENUMS), "對應表裡有清單外的列舉"
 

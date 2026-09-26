@@ -5,7 +5,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from enum import StrEnum
 from fractions import Fraction
 from types import MappingProxyType
@@ -81,6 +81,7 @@ class RuleReason(StrEnum):
     MISSING_DAILY_ROWS = "missing_daily_rows"
     NO_DATA_DAY = "no_data_day"
     CROSS_QUERY_CONFLICT = "cross_query_conflict"
+    DAY_BOUNDARY = "day_boundary"  # 逐日讀取時刻與決策 now 不在同一個 UTC 日([S1406])
 
 
 def _check_count(name: str, value: object) -> None:
@@ -138,10 +139,17 @@ class HistoryRow:
 
 @dataclass(frozen=True)
 class ChangeHistory:
+    """rows 是回傳的歷史列;recent_flag 是 DSP 歷史被截斷時由完整七日集合算的近期預算旗標([S1422])。
+    旗標以 DSP 讀取時刻切,讀取時刻不晚於決策 now,所以它的三天窗只會比決策 now 的寬:當成近期調整是
+    保守的一邊(多判證據不足,不會多提案)。"""
+
     rows: tuple[HistoryRow, ...]
+    recent_flag: bool = False
 
     def __post_init__(self) -> None:
         _check_rows("history.rows", self.rows, HistoryRow)
+        if not isinstance(self.recent_flag, bool):
+            raise ValueError("recent_flag 必須是布林")
 
 
 @dataclass(frozen=True)
@@ -167,10 +175,16 @@ class DailyRow:
 
 @dataclass(frozen=True)
 class DailyTrend:
+    """read_at 是這批逐日的讀取時刻:給了就要跟決策 now 同一個 UTC 日,不同日判證據不足([S1406]),
+    不拿前一天的日桶提案。評估案例沒有讀取時刻(同一個固定 NOW),不給。"""
+
     rows: tuple[DailyRow, ...]
+    read_at: datetime | None = None
 
     def __post_init__(self) -> None:
         _check_rows("daily.rows", self.rows, DailyRow)
+        if self.read_at is not None and not is_aware(self.read_at):
+            raise ValueError("read_at 必須是帶時區的時間或缺值")
 
 
 @dataclass(frozen=True)
@@ -180,6 +194,8 @@ class AdjustmentRow:
     budget_after: int | None
     before_conversions: int | None
     after_conversions: int | None
+    # 提交時刻(Phase 14 增量 2b):第 3 條與第 4 條以決策 now 判近期與 D+3 是否完整;缺值的列判證據不足
+    committed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         for name in ("days_ago", "budget_before", "budget_after", "before_conversions",
@@ -189,6 +205,8 @@ class AdjustmentRow:
                 name != "days_ago" and not is_count_or_none(value)
             ):
                 raise ValueError(f"{name} 必須是整數" + ("或缺值" if name != "days_ago" else ""))
+        if self.committed_at is not None and not isinstance(self.committed_at, datetime):
+            raise ValueError("committed_at 必須是時間或缺值")
 
 
 @dataclass(frozen=True)
@@ -252,27 +270,40 @@ def segment_rate(rows: tuple[DailyRow, ...]) -> m.Exact:
                          sum(row.clicks for row in rows if row.clicks is not None))
 
 
-def _history_decision(history: ChangeHistory, now: datetime) -> RuleDecision | None:
+def _history_decision(history: ChangeHistory, past: PastAdjustments,
+                      now: datetime) -> RuleDecision | None:
+    """第 3 條:歷史列、截斷時的完整集合旗標、過去調整的提交時刻,任一顯示決策 now 前 3 天內調過預算
+    就命中(過去調整補足被截斷的歷史,[S1415] [S1422])。缺提交時刻的過去調整列留給第 4 條判。"""
     cutoff = now - timedelta(days=RECENT_DAYS)
-    recent = False
+    recent = history.recent_flag
     for row in history.rows:
         if row.action != "update_budget":
             continue
         if not is_aware(row.committed_at):
             return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.HISTORY)
         recent |= row.committed_at > cutoff
+    recent |= any(is_aware(row.committed_at) and row.committed_at > cutoff
+                  for row in past.rows)
     return _hit(Cell.RECENT_BUDGET_CHANGE) if recent else None
 
 
-def _past_decision(past: PastAdjustments) -> RuleDecision | None:
-    if any(_invalid_adjustment_row(row) for row in past.rows):
+def after_window_complete(committed_at: datetime, now: datetime) -> bool:
+    """加額 D 之後三個完整 UTC 日(D+1..D+3)到決策 now 是否都已結束:now 不早於 D+4 日 00:00 UTC。"""
+    day = committed_at.astimezone(UTC).date()
+    return now >= datetime.combine(day + timedelta(days=RECENT_DAYS + 1), time(0), tzinfo=UTC)
+
+
+def _past_decision(past: PastAdjustments, now: datetime) -> RuleDecision | None:
+    if any(_invalid_adjustment_row(row, now) for row in past.rows):
         return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.PAST)
     for row in past.rows:
-        if row.budget_before is None or row.budget_after is None:
+        if row.budget_before is None or row.budget_after is None or not is_aware(row.committed_at):
             return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.PAST)
         if row.budget_after <= row.budget_before:
             continue
-        if row.before_conversions is None or row.after_conversions is None:
+        if (row.before_conversions is None or row.after_conversions is None
+                or not after_window_complete(row.committed_at, now)):
+            # 後窗到決策 now 還沒滿三個完整日:DSP 讀取時回了數字也不採信(裁定 6)
             return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.PAST)
         change = m.exact_change(row.before_conversions, row.after_conversions)
         if isinstance(change, Fraction) and change <= GAIN_THRESHOLD:
@@ -283,10 +314,10 @@ def _past_decision(past: PastAdjustments) -> RuleDecision | None:
     return None
 
 
-def _invalid_adjustment_row(row: AdjustmentRow) -> bool:
-    return row.days_ago < 0 or any(value is not None and value < 0 for value in (
-        row.budget_before, row.budget_after, row.before_conversions, row.after_conversions
-    ))
+def _invalid_adjustment_row(row: AdjustmentRow, now: datetime) -> bool:
+    return row.days_ago < 0 or (is_aware(row.committed_at) and row.committed_at > now) or any(
+        value is not None and value < 0 for value in (
+            row.budget_before, row.budget_after, row.before_conversions, row.after_conversions))
 
 
 def _invalid_daily_row(row: DailyRow) -> bool:
@@ -300,8 +331,16 @@ def _invalid_daily_row(row: DailyRow) -> bool:
              row.conversions > row.clicks))
 
 
-def _daily_decision(daily: DailyTrend) -> RuleDecision | None:  # noqa: PLR0911 - 各缺證據原因需分流
+def _other_day(daily: DailyTrend, now: datetime) -> bool:
+    """逐日讀取時刻跟決策 now 不在同一個 UTC 日([S1406])。"""
+    return daily.read_at is not None and (
+        daily.read_at.astimezone(UTC).date() != now.astimezone(UTC).date())
+
+
+def _daily_decision(daily: DailyTrend, now: datetime) -> RuleDecision | None:  # noqa: PLR0911 - 各缺證據原因需分流
     rows = daily.rows
+    if _other_day(daily, now):
+        return _insufficient(RuleReason.DAY_BOUNDARY, QueryKind.DAILY)
     if any(_invalid_daily_row(row) for row in rows):
         return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.DAILY)
     if len(rows) != DAILY_DAYS or {row.days_ago for row in rows} != set(range(1, DAILY_DAYS + 1)):
@@ -317,6 +356,51 @@ def _daily_decision(daily: DailyTrend) -> RuleDecision | None:  # noqa: PLR0911 
         return _hit(Cell.CONVERSION_RATE_DROP)
     if drop is not m.Reason.NO_DENOMINATOR and isinstance(drop, m.Reason):
         return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.DAILY)
+    return None
+
+
+_WINDOW_FIELDS = ("impressions", "clicks", "conversions", "spend", "revenue")
+
+
+def _window_values(window: Window) -> tuple[Fraction | None, ...]:
+    return tuple(None if getattr(window, name) is None else Fraction(getattr(window, name))
+                 for name in _WINDOW_FIELDS)
+
+
+def _invalid_window(window: Window) -> bool:
+    """負數,或點擊多於曝光、轉換多於點擊(同 1 小時資料異常與逐日列的判準)。"""
+    return (any(value is not None and value < 0 for value in _window_values(window))
+            or (window.impressions is not None and window.clicks is not None
+                and window.clicks > window.impressions)
+            or (window.clicks is not None and window.conversions is not None
+                and window.conversions > window.clicks))
+
+
+def _invalid_longer(longer: LongerWindow) -> bool:
+    """長窗任一窗不合格,或 1 天窗任一欄大於 7 天窗(同讀取層跨窗核對的方向;代碼審 r1 外家 finder-1:
+    負數在讀取層只是不參與比較、收據寫 na,這裡決策一律當不合格,不讓另一窗的正數把它變成提案)。"""
+    if _invalid_window(longer.one_day) or _invalid_window(longer.seven_days):
+        return True
+    return any(small is not None and large is not None and small > large
+               for small, large in zip(_window_values(longer.one_day),
+                                       _window_values(longer.seven_days), strict=True))
+
+
+def _invalid_query(evidence: RuleEvidence, now: datetime) -> RuleDecision | None:
+    """第 3 到 9 條都要四查詢的**有效**結果:先把任一查詢的負數、不自洽、晚於決策 now 的時間抓出來,
+    判證據不足,不管後面哪一條本來會命中。"""
+    assert evidence.longer is not None and evidence.history is not None  # noqa: S101 - 已核對
+    assert evidence.daily is not None and evidence.past is not None  # noqa: S101 - 同上
+    if _other_day(evidence.daily, now):  # 跨日比壞列根本:那批日桶整份不用(代碼審 r2 外家 finder-1)
+        return _insufficient(RuleReason.DAY_BOUNDARY, QueryKind.DAILY)
+    if _invalid_longer(evidence.longer):
+        return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.LONGER)
+    if any(is_aware(row.committed_at) and row.committed_at > now for row in evidence.history.rows):
+        return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.HISTORY)
+    if any(_invalid_adjustment_row(row, now) for row in evidence.past.rows):
+        return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.PAST)
+    if any(_invalid_daily_row(row) for row in evidence.daily.rows):
+        return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.DAILY)
     return None
 
 
@@ -353,5 +437,7 @@ def decide(worth: WorthInput | None, evidence: RuleEvidence, now: datetime) -> R
             return _insufficient(RuleReason.QUERY_NO_RESULT, query)
     assert evidence.longer is not None and evidence.history is not None  # noqa: S101 - 四查詢已核對
     assert evidence.daily is not None and evidence.past is not None  # noqa: S101 - 同上
-    return (_history_decision(evidence.history, now) or _past_decision(evidence.past)
-            or _daily_decision(evidence.daily) or _final_decision(worth, evidence.longer))
+    return (_invalid_query(evidence, now)
+            or _history_decision(evidence.history, evidence.past, now)
+            or _past_decision(evidence.past, now)
+            or _daily_decision(evidence.daily, now) or _final_decision(worth, evidence.longer))

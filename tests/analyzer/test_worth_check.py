@@ -11,6 +11,7 @@ import math
 import pathlib
 import pickle
 import typing
+from datetime import UTC, datetime
 
 import pytest
 
@@ -23,26 +24,50 @@ from tests.analyzer import frozen_policy_e8b26f6 as frozen
 from tests.analyzer import policy_before_samples as samples
 
 FROZEN = pathlib.Path(frozen.__file__)
+NOW_RULE = datetime(2026, 9, 25, tzinfo=UTC)
 # main e8b26f6 上決策規則檔的雜湊(審查時用
 # `git show e8b26f6:src/rtb/analyzer/policy.py | shasum -a 256` 對一次):
 # 凍結舊規則檔必須是它原樣的複製
 FROZEN_SHA256 = "750b2af2051a3c78bd3e751467ca7f42002956925aeaae5d47a2d59107cfc41f"
 
 
-# ---- [S700] ----
-def test_extracting_the_worth_increase_check_keeps_every_decision_identical():
+# ---- [S700](Phase 14 增量 2b 改寫:撤掉「新決策等於 625 筆舊結果」的永久要求)----
+OLD_POLICY_VERSION = "demo-pacing-v1"  # 凍結舊規則當時的政策版本;九條上線後換版([S1416])
+# 九條(基本資料、明傳缺四查詢)對同一批輸入跟舊規則的差異,逐類說明:
+# (舊種類, 新種類, 新的不提案原因) → 筆數
+NINE_RULE_DIFFERENCES = {
+    # 舊「曝光點擊正數就加」:配速偏低、有投放、啟用 → 提案;九條要四查詢,只有基本資料 → 證據不足
+    ("P", "N", "judged_insufficient"): 43,
+    # 舊規則不看狀態:暫停中有投放也提案;九條第 1 條 → 不值得加
+    ("P", "N", "judged_not_worth"): 4,
+    # 狀態缺值或不是啟用/暫停,舊規則照曝光點擊提案;新規則不建判斷點輸入,缺現況不提案([S1404])
+    ("P", "N", "missing_state_or_metrics"): 33,
+    # 沒有任務的那一筆:舊規則走到建提案才丟 AssertionError;九條只有基本資料判證據不足,不建提案
+    ("X", "N", "judged_insufficient"): 1,
+}
+
+
+def test_the_frozen_old_rule_stays_as_history_and_nine_rule_differences_are_listed(monkeypatch):
     cases = list(samples.cases())
     assert len(cases) == len(samples.EXPECTED)
-    # 第一步:凍結舊規則是 main e8b26f6 的原樣
+    # 第一步:凍結舊規則是 main e8b26f6 的原樣(歷史證據保留)
     assert hashlib.sha256(FROZEN.read_bytes()).hexdigest() == FROZEN_SHA256
-    # 第二步:凍結舊規則今天跑出來還是存下的結果;紅了是它匯入的相依模組行為變了,不是抽壞
+    # 第二步:凍結舊規則在它當時的政策版本下,今天跑出來還是存下的結果(舊結果自洽)
+    monkeypatch.setattr(frozen, "POLICY_VERSION", OLD_POLICY_VERSION)
     drifted = [i for i, case in enumerate(cases)
                if samples.fingerprint(frozen.decide, case) != samples.EXPECTED[i]]
     assert drifted == [], f"相依模組行為變了:{drifted[:10]}"
-    # 第三步:新的決策函式跟存下的結果逐筆相同;紅了才是抽判斷點抽壞了
-    changed = [i for i, case in enumerate(cases)
-               if samples.fingerprint(policy.decide, case) != samples.EXPECTED[i]]
-    assert changed == [], f"決策結果變了:{changed[:10]}"
+    # 第三步(改寫):九條正式規則跟舊結果的差異只在上表列的幾類,其餘逐筆相同;基本資料永遠不提案
+    differences: dict[tuple[str, str, str], int] = {}
+    for i, case in enumerate(cases):
+        new = samples.fingerprint(policy.decide, case)
+        assert not new.startswith("P"), i  # 沒有四查詢就不會提案(不留「只看投放」暗門)
+        if new == samples.EXPECTED[i]:
+            continue
+        reason = policy.explain(case.task, case.evidence, case.now, **NO_CANDIDATE)[1]
+        key = (samples.EXPECTED[i][0], new[0], None if reason is None else reason.value)
+        differences[key] = differences.get(key, 0) + 1
+    assert differences == NINE_RULE_DIFFERENCES
 
 
 ISSUER = policy._VALIDATED_CELLS_ISSUER  # 信任的呼叫端(採用函式、測試)才匯入它
@@ -50,6 +75,8 @@ ALL_CELLS = policy.ValidatedCells(frozenset(WorthCell), ISSUER)
 
 
 NO_CANDIDATE = {"candidate": None, "allowed": policy.ValidatedCells.NONE}
+# Phase 10 的判斷點輸入沒有四查詢:經路由一律明傳(Phase 14 [S1417])
+RULE = {"queries": policy.MISSING_FOUR_QUERIES, "now": NOW_RULE}
 
 
 def _call(judge, timeout_seconds=1.0):
@@ -77,17 +104,18 @@ def test_only_validated_slices_reach_the_candidate():
     paused = _input(status=CampaignStatus.PAUSED)
     candidate = _Recording(WorthVerdict.NOT_WORTH)
     only_paused = policy.ValidatedCells(frozenset({WorthCell.PAUSED}), ISSUER)
-    result = policy.route(paused, _call(candidate), only_paused)
+    result = policy.route(paused, _call(candidate), only_paused, **RULE)
     assert (result.verdict, result.path) == (WorthVerdict.NOT_WORTH, policy.RoutePath.CANDIDATE)
     assert candidate.calls == [(paused, 1.0)]
-    # 這格不在清單上:走現行規則(暫停中但有投放,現行規則照舊說值得加),候選沒被叫
+    # 這格不在清單上:走正式規則(Phase 14 起九條:有投放但缺四查詢 → 證據不足),候選沒被叫
     active = _input()
-    result = policy.route(active, _call(candidate), only_paused)
-    assert (result.verdict, result.path) == (WorthVerdict.WORTH, policy.RoutePath.CODE_RULE)
+    result = policy.route(active, _call(candidate), only_paused, **RULE)
+    assert (result.verdict, result.path) == (WorthVerdict.INSUFFICIENT,
+                                             policy.RoutePath.CODE_RULE)
     assert len(candidate.calls) == 1
-    # 沒有候選:清單再滿也走現行規則
-    result = policy.route(paused, None, ALL_CELLS)
-    assert (result.verdict, result.path) == (WorthVerdict.WORTH, policy.RoutePath.CODE_RULE)
+    # 沒有候選:清單再滿也走正式規則(暫停中:第 1 條不值得加)
+    result = policy.route(paused, None, ALL_CELLS, **RULE)
+    assert (result.verdict, result.path) == (WorthVerdict.NOT_WORTH, policy.RoutePath.CODE_RULE)
 
 
 # ---- [S702] ----
@@ -100,12 +128,14 @@ def test_only_validated_slices_reach_the_candidate():
     (WorthVerdict.UNSURE, "fallback_unsure"),
 ])
 def test_a_failing_or_unsure_candidate_falls_back_to_the_code_rule(answer, path):
-    no_delivery = _input(impressions=0)
-    result = policy.route(no_delivery, _call(_Recording(answer)), ALL_CELLS)
-    assert result.verdict is WorthVerdict.NOT_WORTH  # 現行規則對沒投放的答案
+    no_delivery = _input(impressions=0, clicks=0, conversions=0, revenue=0.0)
+    result = policy.route(no_delivery, _call(_Recording(answer)), ALL_CELLS, **RULE)
+    # 退回正式規則:九條沒投放要四查詢才判得到第 7 條,明傳缺四查詢 → 證據不足(不提案)
+    assert result.verdict is policy.code_rule(no_delivery, **RULE) is WorthVerdict.INSUFFICIENT
     assert result.path is policy.RoutePath(path)
     # 候選說「證據不足」是合法答案,不退回;決策函式把它當不做
-    result = policy.route(_input(), _call(_Recording(WorthVerdict.INSUFFICIENT)), ALL_CELLS)
+    result = policy.route(_input(), _call(_Recording(WorthVerdict.INSUFFICIENT)), ALL_CELLS,
+                          **RULE)
     assert (result.verdict, result.path) == (WorthVerdict.INSUFFICIENT, policy.RoutePath.CANDIDATE)
 
 
@@ -120,15 +150,17 @@ def test_the_candidate_never_sees_untrusted_campaign_text():
 
 # ---- [S704] ----
 def test_production_wiring_has_no_candidate_and_no_validated_slice(monkeypatch):
-    seen = []
-    real = policy.route
-    monkeypatch.setattr(policy, "route", lambda i, c, a: seen.append((c, a)) or real(i, c, a))
+    """正式路徑沒有候選、允許清單是空的([S704]);Phase 14 起沒有候選時根本不經路由(九條直接判),
+    規則輪的定案也一樣。"""
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("正式路徑不該經候選路由")
+
+    monkeypatch.setattr(policy, "route", forbidden)
     case = next(c for c, fp in zip(samples.cases(), samples.EXPECTED, strict=True)
                 if fp.startswith("P"))
-    assert isinstance(policy.decide(case.task, case.evidence, case.now), ProposalDecision)
+    assert isinstance(policy.decide(case.task, case.evidence, case.now), NoAction)
     policy.explain(case.task, case.evidence, case.now, candidate=None,
                    allowed=policy.ValidatedCells.NONE)
-    assert seen == [(None, policy.ValidatedCells.NONE)] * 2
     assert policy.ValidatedCells.NONE.cells == frozenset()
 
 
@@ -150,11 +182,9 @@ def test_every_no_action_path_reports_its_reason():
         if isinstance(decision, NoAction):
             assert reason is not policy.NoActionReason.STALE_EVIDENCE
         reasons.add(reason)
-    # 每一條不做的路徑在固定資料裡都走到過;「證據不足」只有候選或 AI 路徑會答,另外驗;考題結束只有
-    # 分析端驅動帶 --hold-submit 時產生(Phase 13 照計劃〈要改寫的既有合約〉改寫 [S705])
-    only_candidates = {policy.NoActionReason.JUDGED_INSUFFICIENT}
-    exam_hold = {policy.NoActionReason.EXAM_HOLD}
-    assert reasons - {None} == set(policy.NoActionReason) - only_candidates - exam_hold
+    # 每一條不做的路徑在固定資料裡都走到過。Phase 14 改寫:正式規則(九條)自己就走得到「證據不足」,
+    # 不再只有候選或 AI 會答;增量 3 撤除考題結束(exam_hold),豁免清單已空([S705])
+    assert reasons - {None} == set(policy.NoActionReason)
 
 
 def test_a_candidate_saying_insufficient_evidence_is_no_action_with_that_reason():
@@ -292,7 +322,7 @@ def test_explain_has_no_default_candidate_or_timeout():
 @pytest.mark.parametrize("fatal", [MemoryError(), RecursionError()])
 def test_fatal_errors_from_the_candidate_are_not_swallowed(fatal):
     with pytest.raises(type(fatal)):
-        policy.route(_input(), _call(_Recording(fatal)), ALL_CELLS)
+        policy.route(_input(), _call(_Recording(fatal)), ALL_CELLS, **RULE)
 
 
 def test_the_shared_whitelist_checks_are_type_guards():

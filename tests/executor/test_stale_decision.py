@@ -54,6 +54,21 @@ def test_a_proposal_from_another_policy_version_is_blocked(h):
     assert h.dsp.writes == []
 
 
+def test_old_policy_proposals_are_blocked_after_the_rule_change(h):
+    """[S1416] 九條政策上線換新版本:舊「有投放就加」政策建的提案,即使廣告版本沒變、還在 30 分鐘內,
+    執行端照 [S504] 擋成政策已變,DSP 寫入 0 次;舊值留在已知版本清單只供指標分類。"""
+    from rtb.domain.proposal import KNOWN_POLICY_VERSIONS
+    assert POLICY_VERSION != "demo-pacing-v1"
+    assert KNOWN_POLICY_VERSIONS[:1] == ("demo-pacing-v1",)
+    assert KNOWN_POLICY_VERSIONS[-1] == POLICY_VERSION
+    h.submit(policy_version="demo-pacing-v1")
+
+    result = h.process()
+
+    assert (result.kind, result.block_code) == (Result.BLOCKED, BlockCode.POLICY_VERSION_CHANGED)
+    assert h.dsp.writes == []
+
+
 def test_the_current_policy_version_passes(h):
     h.submit(policy_version=POLICY_VERSION)
 

@@ -1,8 +1,10 @@
 """Phase 13 增量 2 代碼審 r1 的修正(governance/review-reports/code-phase13-inc2/r1-*):每一條一支現場
-成立、修之前會紅的測試。用假模型與假 DSP,不碰真模型。"""
+成立、修之前會紅的測試。用假模型與假 DSP,不碰真模型。
+
+Phase 14 增量 3:流程層 AI 那一步(停止旗標 c1、呼叫記次落地 s2、續租錯誤 f1/f2)隨入口撤除,那幾支
+測試刪除;Judge 解析與收據相關的留著(評估仍用)。"""
 
 import copy
-import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
 
@@ -10,24 +12,22 @@ import pytest
 
 from rtb.analyzer import ai_judge, dsp_client, flow, instrumented
 from rtb.analyzer import investigation as inv
-from rtb.analyzer.task_store import InvestigationRecord, TaskRow, TaskStore
+from rtb.analyzer.task_store import InvestigationRecord, RuleEvent, RuleStep, TaskRow, TaskStore
+from rtb.domain.proposal import POLICY_VERSION
 from rtb.domain.task_state import TaskState
 from rtb.dsp import seed
 from rtb.dsp.errors import ValidationRejected
 from rtb.dsp.server import DspServer
 from rtb.dsp.store import DAILY_MAX_CENTS, CampaignStore, money_text
-from rtb.sqlitekit import DatabaseBusy
 from tests.analyzer.conftest import NOW, Counting
 from tests.analyzer.test_ai_judge import (
     CITE_BASE,
     TASK,
     Calls,
     Model,
-    Renew,
     base_evidence,
     receipt,
     reply,
-    rule,
     run,
 )
 from tests.analyzer.test_investigation_reads import scripted  # noqa: F401 - 假 DSP 夾具
@@ -50,29 +50,13 @@ def _daily(rows):
                                           for d, row in enumerate(rows, start=1)]}
 
 
-# ---- c1:組完提示之後、呼叫模型之前再看一次停止旗標 ----
-def test_a_stop_that_arrives_while_the_prompt_is_built_skips_the_model_call(monkeypatch):
-    stop = {"set": False}
-    real = inv.prompt
-
-    def building(*args, **kwargs):
-        text = real(*args, **kwargs)
-        stop["set"] = True  # 組提示期間收到停止
-        return text
-
-    monkeypatch.setattr(inv, "prompt", building)
-    model = Model(reply("propose", evidence=CITE_BASE))
-    with pytest.raises(flow.RenewalSkipped):
-        run(model, base_evidence(), stop_requested=lambda: stop["set"])
-    assert model.sent == []
-
-
 # ---- c2:三份逐列白名單對任何 JSON 型別都不丟例外 ----
 @pytest.mark.parametrize("junk", [[], {}, True, [1], {"a": 1}])
 def test_every_row_check_turns_any_json_type_into_invalid_not_an_exception(junk):
     for field in dsp_client.HISTORY_ROW_FIELDS:
         row = {**HISTORY_ROW, field: junk}
-        assert dsp_client.check_history({"history": [row]}) is None, (field, junk)
+        assert dsp_client.check_history({"campaign_id": "c1", "history": [row]}, "c1") is None, (
+            field, junk)
     for field in dsp_client.DAILY_ROW_FIELDS:
         body = _daily([{}] * 7)
         body["rows"][0][field] = junk
@@ -100,6 +84,20 @@ def test_impossible_segments_make_the_trend_and_adjustment_ratios_na():
     assert payload["conversions_change"] == "0.0" and payload["revenue_change"] == "0.0"
 
 
+def at_rule_step_c(tasks, now):
+    """把一件工作推到「下一步要讀規則輪 C(逐日、1 天、7 天)」(直接寫已提交列;Phase 14 增量 3
+    代碼審 r1 鏡頭4:原本經 AI 期證據來源重讀逐日,那支撤了,改用正式的規則輪證據來源驗同一件事)。"""
+    tasks.create_task("t1", "c1", now)
+    assert tasks.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, now)
+    seq = 2
+    for step in ("A", "B"):
+        assert tasks.commit_step("t1", seq, TaskState.ANALYZING, now,
+                                 rule_step=RuleStep(1, step, POLICY_VERSION, now))
+        assert tasks.commit_step("t1", seq + 1, TaskState.COLLECTING_EVIDENCE, now,
+                                 rule_event=RuleEvent(1, "continue"))
+        seq += 2
+
+
 # ---- d1:收據寫不下的值歸資料不合理;證據來源建收據仍失敗就記 invalid,這步照常往下走 ----
 # Phase 14 增量 2a 代碼審 r1:DSP 改存整數分後,1e300 這種值在 DSP 邊界就拒收(ValidationRejected),
 # 進不了資料庫;這支防回歸的意圖「極端值不讓任務卡在蒐證」改用能存的最大金額(整數 13 位)驗:
@@ -125,11 +123,8 @@ def test_an_extreme_amount_never_leaves_the_task_stuck_collecting_evidence(tmp_p
     tasks = TaskStore(tmp_path / "analyzer.db")
     try:
         now = datetime.now(UTC)
-        tasks.create_task("t1", "c1", now)
-        tasks.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, now,
-                          investigation=InvestigationRecord("query", 1, "check_daily_trend", "ai",
-                                                            reason_code="ai_query"))
-        source = instrumented.investigation_source(
+        at_rule_step_c(tasks, now)
+        source = instrumented.rule_source(
             tasks, f"http://127.0.0.1:{dsp.server_address[1]}", 2.0)
         state = flow.advance(tasks, "t1", source, Counting(), Counting(), now)
         assert state is TaskState.ANALYZING
@@ -181,105 +176,15 @@ def test_query_calls_are_logged_with_their_real_outcome(scripted, status, body, 
     assert calls == [("dsp:daily", outcome)]
 
 
-# ---- s2:一件工作一生的模型呼叫次數在呼叫前就落地 ----
-class _BusyCommits(TaskStore):
-    """帶調查紀錄的提交前幾次丟資料庫忙碌(模型已付費、紀錄沒寫進去)。"""
-
-    failures = 5
-
-    def commit_step(self, *args, **kwargs):
-        if kwargs.get("investigation") is not None and type(self).failures > 0:
-            type(self).failures -= 1
-            raise DatabaseBusy("鎖不到")
-        return super().commit_step(*args, **kwargs)
-
-
-def test_repaying_the_model_after_a_busy_commit_is_capped_before_the_call(tmp_path):
-    store = _BusyCommits(tmp_path / "a.db")
-    try:
-        store.create_task("t1", "c1", NOW)
-        flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW)
-        flow.advance(store, "t1", Counting(returns=base_evidence()), Counting(), Counting(), NOW)
-        model = Model(reply(["check_daily_trend"]))
-        judge = ai_judge.Judge(model)
-        for index in range(12):
-            if store.latest("t1").state is not TaskState.ANALYZING:
-                break
-            with pytest.raises(DatabaseBusy) if _BusyCommits.failures > 0 else _nothing():
-                flow.advance(store, "t1", Counting(), Counting(), Counting(),
-                             NOW + timedelta(seconds=index), owner="w1", ai_decide=judge,
-                             clock=lambda: LATER)
-        assert len(model.sent) <= inv.MAX_ROUNDS
-        assert store.investigation_call_count("t1") >= len(model.sent)
-    finally:
-        store.close()
-
-
-class _nothing:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_exc):
-        return False
-
-
+# ---- s2:一件工作一生的模型呼叫次數(評估在記憶體記;流程層落地那半隨增量 3 撤除) ----
 def test_the_persisted_call_count_sends_the_fourth_call_to_the_rule():
     model = Model(reply("propose", evidence=CITE_BASE))
     outcome = ai_judge.Judge(model)(TASK, base_evidence(), NOW,
-                                    flow.AiContext(Renew(), (), Calls(start=3)))
+                                    inv.AiContext((), Calls(start=3)))
     assert model.sent == []
     assert outcome.record.fallback == "ai_already_used"
-    assert (outcome.result, outcome.no_action_reason) == rule(base_evidence())
-
-
-# ---- f1:續租時的資料庫錯誤跟沒開 AI 時一樣穿出去、這步不寫、不轉失敗 ----
-def test_a_database_error_while_renewing_is_retried_not_failed(store, monkeypatch):
-    store.create_task("t1", "c1", NOW)
-    flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW)
-    flow.advance(store, "t1", Counting(returns=base_evidence()), Counting(), Counting(), NOW)
-
-    def broken(_lease, _clock):
-        raise sqlite3.OperationalError("disk I/O error")
-
-    monkeypatch.setattr(store, "renew_lease", broken)
-    model = Model(reply("propose", evidence=CITE_BASE))
-    with pytest.raises(sqlite3.OperationalError):
-        flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW, owner="w1",
-                     ai_decide=ai_judge.Judge(model), clock=lambda: LATER)
-    assert store.latest("t1").state is TaskState.ANALYZING
-    assert model.sent == []
-    monkeypatch.undo()
-    assert store.acquire_lease("t1", "w9", NOW) is not None  # 租約放掉了
-
-
-# ---- f2:真鎖:另一條連線握寫入鎖超過等鎖秒數 ----
-def test_a_real_write_lock_during_renewal_skips_the_step(tmp_path):
-    path = tmp_path / "a.db"
-    store = TaskStore(path, busy_timeout_seconds=0.3)
-    try:
-        store.create_task("t1", "c1", NOW)
-        flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW)
-        flow.advance(store, "t1", Counting(returns=base_evidence()), Counting(), Counting(), NOW)
-        model = Model(reply("propose", evidence=CITE_BASE))
-        judge = ai_judge.Judge(model)
-
-        def locked(task, evidence, now, context):
-            holder = sqlite3.connect(path, isolation_level=None)
-            holder.execute("BEGIN IMMEDIATE")
-            try:
-                return judge(task, evidence, now, context)
-            finally:
-                holder.execute("ROLLBACK")
-                holder.close()
-
-        state = flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW, owner="w1",
-                             ai_decide=locked, clock=lambda: LATER)
-        assert state is TaskState.ANALYZING
-        assert store.latest("t1").state is TaskState.ANALYZING
-        assert model.sent == []
-        assert store.investigation_rounds("t1") == ()
-    finally:
-        store.close()
+    # 退回程式規則:九條要四查詢才判得出 → RuleContinue(評估改取案例九條結果)
+    assert (outcome.result, outcome.no_action_reason) == (flow.RuleContinue(), None)
 
 
 # ---- a1:調查提示的資料區跟說明提示同一種寫法,名稱只佔一行 ----
@@ -361,7 +266,8 @@ def test_a_receipt_that_was_never_queried_cannot_be_cited_even_if_present():
 
 
 def test_row_fixture_shapes_are_the_ones_the_client_accepts():
-    assert dsp_client.check_history({"history": [HISTORY_ROW]}) is not None
+    assert dsp_client.check_history({"campaign_id": "c1", "history": [HISTORY_ROW]},
+                                    "c1") is not None
     assert dsp_client.check_daily(_daily([{}] * 7), "c1") is not None
     assert dsp_client.check_adjustments({"campaign_id": "c1", "rows": [copy.deepcopy(ADJ_ROW)]},
                                         "c1") is not None

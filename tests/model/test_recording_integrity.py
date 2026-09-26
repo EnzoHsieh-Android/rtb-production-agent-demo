@@ -10,6 +10,7 @@
 import json
 import os
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -187,3 +188,37 @@ def test_a_missing_committed_root_refuses_every_live_recording(tmp_path, monkeyp
         with pytest.raises(mc.MixedRecordingsDir, match="入庫"):
             mc.check_recordings_dir(target, "phase13-demo-20260925")
     mc.check_recordings_dir(tmp_path / "fresh", "phase13-demo-20260925")
+
+
+# ---- Phase 14 增量 3 [S1428]:舊展示批次唯讀保留 ----
+PHASE13_DEMO = Path(__file__).resolve().parents[2] / "recordings" / "model" / "phase13-demo"
+PHASE13_DEMO_FILES = {
+    "8041c08e31f857d87a20c306c74aaeb1ac3b57c1070d471d32f0994fbb51a7c5.json":
+        "4b6e72cdd239f89743a2f3f36cab41f445c03135d41c12c00c875ec6aec20378",
+    "80be40e1f6dbc742d4b3c968f923bb45513f7bb3572da8a15d4d21747a5ac793.json":
+        "2087eddeddbebc560f43b6fee675c923db8c2c30f0d3c8daebc8a9dbe9f0659e",
+    "9f389ad61abaad8ac3550258903632b3deebe16435830b68d268367560160938.json":
+        "3ef139468a6b2f9c7869f50ccc11f3636ffa4625eebe8037db74b5960fa76a6d",
+    "c85ca6fdcf3ca6750ad0f8fdf470717d2e529b3874b35e992a5fbc3704e981a9.json":
+        "919b7a8ee99624947d38128b4af99bad99c653a6da1e9c11cb4cd55db2388220",
+    "c9e2e49b585db1303dcf42fe301aa3a8f48fd3ca95572563b055c5c676d952e0.json":
+        "44ad3079c01cda7e349c47dff02d2f70ca8770b6e71c5029a6ca80c508cf9e9d",
+    "d6ffba71301eba96fec5c5f4ae5a5099eecda08b52bd5e55ec7cf88578f64701.json":
+        "d0037b45582fee021f209249bc0920177d4e6a3a81585f4fec8286f140153d0e",
+}
+
+
+def test_the_phase13_demo_batch_stays_as_read_only_history():
+    """[S1428] 舊的 recordings/model/phase13-demo 六份與批號 phase13-demo-20260925 唯讀留作歷史證據:
+    不覆寫、不刪、不多(逐檔雜湊釘住);展示重播改讀 phase14-demo,不再讀這一份。"""
+    import hashlib
+
+    from rtb.demo import driver
+
+    found = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+             for path in PHASE13_DEMO.iterdir()}
+    assert found == PHASE13_DEMO_FILES
+    batches = {json.loads((PHASE13_DEMO / name).read_text(encoding="utf-8"))["batch_id"]
+               for name in found}
+    assert batches == {"phase13-demo-20260925"}
+    assert driver.DEMO_RECORDINGS != PHASE13_DEMO

@@ -19,6 +19,7 @@ from rtb.domain.task_state import TERMINAL_STATES, TaskState
 from rtb.dsp.server import DspServer
 from rtb.dsp.store import CampaignStore
 from rtb.executor.inbox_server import InboxServer
+from tests.analyzer.conftest import seed_rule_history
 
 RUNNER = Path(runner.__file__)
 
@@ -32,6 +33,7 @@ def services(tmp_path):
     dsp_store.seed_campaign("c2", budget=100)
     dsp_store.seed_metrics("c2", "1h", impressions=500, clicks=12, conversions=1, spend=100.0,
                            revenue=5.0)
+    seed_rule_history(dsp_store, "c1", "c2")  # 正式規則要四查詢(Phase 14 增量 2b)
     dsp_store.close()
     dsp = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
                     delay_seconds=0.0)
@@ -99,14 +101,14 @@ def test_the_analyzer_runner_uses_only_production_collaborators():
     modules += [f"{n.module}.{a.name}" for n in ast.walk(tree)
                 if isinstance(n, ast.ImportFrom) and n.module == "rtb.analyzer" for a in n.names]
     rtb_modules = {m for m in modules if m.startswith("rtb")}
-    # Phase 13 增量 2 照計劃〈要改寫的既有合約〉加:模型閘道、AI 決策模組、小常數模組(與 AI 決策的
-    # 模型無關詞彙模組);[S1000] 的合約文字不改
+    # Phase 13 增量 2 加小常數模組;Phase 14 增量 2b 加規則輪模組;Phase 14 增量 3 拿掉模型閘道、
+    # AI 決策模組與調查詞彙模組(runner 不再有 AI 那一步,[S1429];代碼審 r1 鏡頭3)。
+    # [S1000] 的合約文字不改
     assert rtb_modules <= {"rtb.analyzer", "rtb.analyzer.task_store", "rtb.analyzer.flow",
                            "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
                            "rtb.analyzer.inbox_client", "rtb.analyzer.instrumented",
-                           "rtb.domain.evidence", "rtb.domain.task_state",
-                           "rtb.analyzer.modelgate", "rtb.analyzer.ai_judge",
-                           "rtb.analyzer.investigation", "rtb.stepbudget"}, rtb_modules
+                           "rtb.domain.evidence", "rtb.domain.task_state", "rtb.stepbudget",
+                           "rtb.analyzer.rule_round"}, rtb_modules
     text = RUNNER.read_text(encoding="utf-8")
     assert not re.search(r"\bfault|X-Fault|rtb\.demo", text, re.IGNORECASE)
 
@@ -188,7 +190,8 @@ def test_the_runner_really_submits_through_the_inbox_and_records_every_call(tmp_
     from rtb.analyzer.task_store import ToolEndpoint
 
     _create(tmp_path, ("t1", "c1"))
-    runner.run(_argv(tmp_path, *services), max_rounds=6, out=io.StringIO())
+    # 規則輪 A/B/C 三步蒐證(Phase 14 增量 2b):走到交給執行 8 步
+    runner.run(_argv(tmp_path, *services), max_rounds=10, out=io.StringIO())
 
     with sqlite3.connect(tmp_path / "inbox.db") as conn:
         assert conn.execute("SELECT task_id FROM proposals").fetchall() == [("t1",)]
@@ -321,10 +324,11 @@ def test_a_step_on_a_row_that_moved_on_does_nothing(tmp_path, services, monkeypa
 
     _create(tmp_path, ("t1", "c1"))
     argv = _argv(tmp_path, *services)
-    runner.run(argv, max_rounds=3, out=io.StringIO())  # 收到 → 蒐集 → 分析 → 已提案
+    # 收到 → 規則輪 A/B/C 各蒐集、分析 → 已提案(Phase 14 增量 2b:7 步)
+    runner.run(argv, max_rounds=7, out=io.StringIO())
     store = TaskStore(tmp_path / "analyzer.db")
     assert store.latest("t1").state is TaskState.PROPOSED
-    real = instrumented.dsp_evidence_source
+    real = instrumented.rule_source
 
     def meanwhile(own_store, url, timeout):
         other = TaskStore(tmp_path / "analyzer.db")
@@ -338,7 +342,7 @@ def test_a_step_on_a_row_that_moved_on_does_nothing(tmp_path, services, monkeypa
             other.close()
         return real(own_store, url, timeout)
 
-    monkeypatch.setattr(runner.instrumented, "dsp_evidence_source", meanwhile)
+    monkeypatch.setattr(runner.instrumented, "rule_source", meanwhile)
     args = runner._parse(argv)
     runner._advance_one(store, "t1", args, datetime.now(UTC))
     submits = [c for c in store.list_tool_calls("t1")
@@ -383,7 +387,8 @@ def test_the_timeout_reaches_the_inbox_client_too(tmp_path, services):
     try:
         _create(tmp_path, ("t1", "c1"))
         argv = _argv(tmp_path, services[0], silent, timeout="0.3")
-        runner.run(argv, max_rounds=3, out=io.StringIO(), err=io.StringIO())  # 走到已提案
+        # 走到已提案(規則輪 A/B/C,7 步)
+        runner.run(argv, max_rounds=7, out=io.StringIO(), err=io.StringIO())
         assert _latest(tmp_path, "t1").state is TaskState.PROPOSED
         began = time.monotonic()
         runner.run(argv, max_rounds=1, out=io.StringIO(), err=io.StringIO())  # 送件
@@ -499,8 +504,8 @@ def test_the_timeout_reaches_the_operation_lookup_too(tmp_path, services):
     threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
     try:
         _create(tmp_path, ("t1", "c1"))
-        runner.run(_argv(tmp_path, *services), max_rounds=4, out=io.StringIO(),
-                   err=io.StringIO())
+        runner.run(_argv(tmp_path, *services), max_rounds=8, out=io.StringIO(),
+                   err=io.StringIO())  # 規則輪 A/B/C 之後送件:8 步
         assert _latest(tmp_path, "t1").state is TaskState.HANDED_OFF
         argv = _argv(tmp_path, silent, f"http://127.0.0.1:{inbox.server_address[1]}",
                      timeout="0.3")

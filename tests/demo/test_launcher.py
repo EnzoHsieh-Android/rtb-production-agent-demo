@@ -601,21 +601,21 @@ def test_the_analyzer_gets_enough_time_to_finish_its_step(args, at_least):
     assert launcher.stop_grace_seconds(Role.DSP, args) == launcher.STOP_SECONDS
 
 
-def test_the_stop_grace_covers_one_ai_step_from_the_shared_constants(monkeypatch):
-    """[S1136] 帶 --ai-judge 時,停分析端的寬限時間用跟守衛同一組匯入的常數算,不小於續租等鎖加上
-    續租後AI 那一步的最壞耗時(5 + 55 = 60,代碼審 r3 多算一次
-    記次等鎖);沒帶照舊。啟動器不從分析端驅動命令列或模型後端匯入。"""
-    import ast
-
+def test_stop_grace_covers_the_longest_rule_step(monkeypatch):
+    """[S1419] 停止訊號落在規則輪 C 那一步(五次讀取)裡時,規則模式至少給 50 秒(預設逾時 3 秒),從共用
+    常數算:max(舊兩讀寬限, A/B/C 最壞秒數)。Phase 14 增量 3:--ai-judge 與 AI 步寬限(60 秒)撤除,
+    啟動器不再認那個旗標、也不再從 stepbudget 取 AI 步常數。"""
     from rtb import stepbudget
-    from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS
 
-    grace = launcher.stop_grace_seconds(Role.ANALYZER, ["--ai-judge"])
-    assert grace >= BUSY_TIMEOUT_SECONDS + stepbudget.ai_step_worst_seconds() == 60.0
-    assert launcher.stop_grace_seconds(Role.ANALYZER, []) == 2 * 3.0 + 1
-    monkeypatch.setattr(stepbudget, "MODEL_TIMEOUT_SECONDS", 30.0)  # 用的是真常數,不是抄一份
-    assert launcher.stop_grace_seconds(Role.ANALYZER, ["--ai-judge"]) == 75.0
-    source = Path(launcher.__file__).read_text(encoding="utf-8")
-    imported = {n.module for n in ast.walk(ast.parse(source)) if isinstance(n, ast.ImportFrom)}
-    assert "rtb.stepbudget" in imported
-    assert not imported & {"rtb.analyzer.runner", "rtb.modelclaude", "rtb.analyzer.ai_judge"}
+    assert stepbudget.RULE_STEP_READS == {"A": 2, "B": 2, "C": 5}
+    assert stepbudget.rule_step_worst_seconds(3.0) == {"A": 26.0, "B": 26.0, "C": 50.0}
+    rule_grace = launcher.stop_grace_seconds(Role.ANALYZER, [])
+    assert rule_grace >= 50.0 > 2 * 3.0 + 1  # C 等第 5 次 DSP 回應時,7 秒就硬殺不夠
+    assert launcher.stop_grace_seconds(Role.ANALYZER, ["--timeout-seconds", "4"]) == (
+        5 + 5 * (4 + 5) + 5)
+    assert launcher.stop_grace_seconds(Role.ANALYZER, ["--ai-judge"]) == rule_grace  # 旗標沒意義
+    assert not hasattr(launcher, "AI_JUDGE_FLAG")
+    assert not hasattr(stepbudget, "ai_step_worst_seconds")
+    assert not hasattr(stepbudget, "ai_stop_grace_seconds")
+    monkeypatch.setattr(stepbudget, "RULE_STEP_READS", {"A": 2, "B": 2, "C": 6})  # 真常數
+    assert launcher.stop_grace_seconds(Role.ANALYZER, []) == 5 + 6 * (3 + 5) + 5

@@ -1,0 +1,1 @@
+[{"round":"r1","seat":"單席","lens":"增量 3 範圍改寫:移除 AI 判斷入口的可行性與漏改","materials":["/tmp/rtb-phase14-inc3-scope-r1.md","/tmp/rtb-phase14-inc3-scope-delta.diff","src/rtb/"],"auditor":"claude-opus"},{"round":"r1","seat":"架構對齊","lens":"模組邊界與既有做法","materials":["/tmp/rtb-phase14-inc3-scope-r1.md","src/rtb/"],"auditor":"claude-sonnet"}]

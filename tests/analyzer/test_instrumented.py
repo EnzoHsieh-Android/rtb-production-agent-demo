@@ -8,10 +8,9 @@ import pytest
 from rtb.analyzer import dsp_client
 from rtb.analyzer.flow import Accepted, DspOperation
 from rtb.analyzer.instrumented import (
-    InstrumentedEvidenceSource,
     InstrumentedOperationLookup,
     InstrumentedSubmit,
-    dsp_evidence_source,
+    rule_source,
 )
 from rtb.analyzer.task_store import TaskRow, ToolEndpoint, trace_for
 from rtb.domain.task_state import TaskState
@@ -26,41 +25,55 @@ def row(seq=2):
 
 
 # ---- S50 ----
-def test_a_successful_call_is_recorded(store):
-    store.create_task("t1", "c1", NOW)
-    source = InstrumentedEvidenceSource(
-        store, lambda _task, _now: (make_evidence(),), ToolEndpoint.DSP_EVIDENCE)
+# (代碼審 r2 協調者裁定:整包只記一筆的 InstrumentedEvidenceSource 沒有正式入口、已刪;證據來源這三條
+# 改走正式入口 rule_source 的 A 步,送件那兩條照舊測 InstrumentedSubmit)
+@pytest.fixture
+def dsp(tmp_path):
+    """不開故障注入的模擬 DSP,c1 預算 100、有 1 小時指標(同目錄 test_dsp_client.py 的寫法)。"""
+    store = CampaignStore(tmp_path / "dsp.db")
+    store.seed_campaign("c1", budget=100)
+    store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=1.0,
+                       revenue=3.0)
+    store.close()
+    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
+                       delay_seconds=0.0)
+    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
 
-    source(row(), NOW)
+
+def test_a_successful_call_is_recorded(store, dsp):
+    """規則輪 A 的基本讀取:兩個內部端點各自記一筆成功,不是整包只記一筆。"""
+    store.create_task("t1", "c1", NOW)
+    rule_source(store, dsp, 3)(row(), NOW)
 
     calls = store.list_tool_calls("t1")
-    assert len(calls) == 1 and calls[0].outcome == "ok" and calls[0].endpoint == "dsp:evidence"
+    assert len(calls) == 2
+    assert {c.endpoint for c in calls} == {"dsp:campaign", "dsp:metrics"}
+    assert all(c.outcome == "ok" for c in calls)
 
 
 def test_a_failing_call_is_recorded_and_the_exception_still_propagates(store):
+    """DSP 連不上:這次讀取記一筆失敗,例外照樣往外丟(這一步不寫、下次重試)。"""
     store.create_task("t1", "c1", NOW)
 
-    def boom(_task, _now):
-        raise RuntimeError("dsp unreachable")
-
-    source = InstrumentedEvidenceSource(store, boom, ToolEndpoint.DSP_EVIDENCE)
-
-    with pytest.raises(RuntimeError):
-        source(row(), NOW)
+    with pytest.raises(OSError):
+        rule_source(store, "http://127.0.0.1:1", 1)(row(), NOW)
 
     calls = store.list_tool_calls("t1")
-    assert len(calls) == 1 and calls[0].outcome == "RuntimeError"
+    assert len(calls) == 1 and calls[0].endpoint == "dsp:campaign" and calls[0].outcome != "ok"
 
 
-def test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result(store):
+def test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result(store, dsp):
+    """呼叫紀錄的寫入本身壞掉(這裡直接拿掉紀錄表),證據照樣讀到、跟紀錄正常時一樣。"""
     store.create_task("t1", "c1", NOW)
-    store.close()  # 之後任何一次 execute() 都會丟 sqlite3.ProgrammingError,模擬寫入紀錄本身壞掉
-    source = InstrumentedEvidenceSource(
-        store, lambda _task, _now: (make_evidence(),), ToolEndpoint.DSP_EVIDENCE)
+    expected = rule_source(store, dsp, 3)(row(), NOW)
+    store._conn.execute("DROP TABLE tool_calls")
 
-    result = source(row(), NOW)  # record_tool_call 內部寫入壞掉,呼叫本身的結果不受影響
+    result = rule_source(store, dsp, 3)(row(), NOW)
 
-    assert result == (make_evidence(),)
+    assert result.evidence and result.evidence == expected.evidence
 
 
 def test_submit_calls_are_recorded_too(store):
@@ -113,33 +126,8 @@ def test_submit_records_the_task_seq_bound_at_construction_not_whatever_is_lates
     assert calls[0].task_seq == 2  # 不是完成後查到的「目前最新」(那會是 3)
 
 
-# ---- dsp_evidence_source:兩個內部端點各自記一筆,不是整個 fetch() 才記一筆 ----
-def test_dsp_evidence_source_records_one_call_per_endpoint_on_full_success(store, tmp_path):
-    dsp_store = CampaignStore(tmp_path / "dsp.db")
-    dsp_store.seed_campaign("c1", budget=100)
-    dsp_store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=1.0,
-                           revenue=3.0)
-    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
-                       delay_seconds=0.0)
-    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
-    try:
-        store.create_task("t1", "c1", NOW)
-        source = dsp_evidence_source(
-            store, f"http://127.0.0.1:{server.server_address[1]}", timeout_seconds=3)
-
-        source(row(), NOW)
-
-        calls = store.list_tool_calls("t1")
-        endpoints = {c.endpoint for c in calls}
-        assert len(calls) == 2  # 兩個端點各記一筆,不是整包只記一筆
-        assert endpoints == {"dsp:campaign", "dsp:metrics"}
-        assert all(c.outcome == "ok" for c in calls)
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
-def test_dsp_evidence_source_still_records_the_first_endpoints_success_when_the_second_fails(
+# ---- 規則輪 A 的兩個內部端點各自記錄:第二個失敗時第一筆成功照樣留著 ----
+def test_rule_step_a_still_records_the_first_endpoints_success_when_the_second_fails(
     store, tmp_path,
 ):
     """兩個端點各自記錄的重點:第一個(現況)成功、第二個(指標)失敗時,第一筆成功的紀錄
@@ -152,8 +140,7 @@ def test_dsp_evidence_source_still_records_the_first_endpoints_success_when_the_
     threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
     try:
         store.create_task("t1", "c1", NOW)
-        source = dsp_evidence_source(
-            store, f"http://127.0.0.1:{server.server_address[1]}", timeout_seconds=3)
+        source = rule_source(store, f"http://127.0.0.1:{server.server_address[1]}", 3)
 
         with pytest.raises(dsp_client.DspRequestFailed):
             source(row(), NOW)

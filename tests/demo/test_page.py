@@ -147,15 +147,11 @@ def test_flow_popover_wheel_scroll_does_not_close_or_move_the_page() -> None:
 def test_page_and_report_remove_demo_mode_from_every_flow_label() -> None:
     state = make_demo_state()
     for markup in (render_page(state, form_token="t"), render_report(state)):
-        assert '展示模式' not in html_lib.unescape(markup)
-    first = state.scenarios[0]
-    ai = Decision("a_ai", ("a_ai", "a_ai_query"), "先查", "", None,
-                  kind=DecisionKind.AI_JUDGEMENT)
-    changed = replace(first, path=(ai,), traversed_edges=(("a_ai", "a_ai_query"),))
-    page = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])),
-                       form_token="t")
-    assert 'id="flow-detail-F1-a_ai"' in page
-    assert '<h4>AI 選下一步</h4>' in page
+        text = html_lib.unescape(markup)
+        assert '展示模式' not in text
+        # Phase 14 增量 3:流程圖沒有 AI 決策節點、AI 要再查與考題終點
+        assert "AI 選下一步" not in text and "AI 要再查" not in text and "只判不送" not in text
+        assert 'flow-detail-F1-a_ai"' not in markup
 
 
 def test_missing_ai_answer_is_plain_in_popover_values_and_comparisons() -> None:
@@ -761,65 +757,6 @@ def test_mobile_layout_contains_long_values_inside_cards_and_scrolls_only_the_fl
     assert '.ai-node-card { border-left:2px solid #af9ccf' not in css
 
 
-def test_ai_rounds_pair_by_task_and_escape_all_supplied_text() -> None:
-    state = make_demo_state(running=False)
-    scenario = state.scenarios[0]
-    hostile = '名字"><script>alert(1)</script>'
-    main = DecisionBasis(hostile, "可查 A 或 B", "選 A；理由含 <b> 標籤", "錄製回應")
-    first = Decision("a_ai", ("a_ai", "a_ai_query"), "先查", "", None,
-                     (main,), kind=DecisionKind.AI_JUDGEMENT, task_id="t1")
-    other = replace(first, task_id="t2", outcome="再查")
-    wrong_task = Decision("a_ai_query", None, "查詢完成", "", None,
-                          (DecisionBasis("錯的接手", "", ""),),
-                          kind=DecisionKind.PROGRESS, task_id="t2")
-    right_task = replace(wrong_task, task_id="t1",
-                         basis=(DecisionBasis("正確接手", "", ""),))
-    changed = replace(scenario, path=(first, wrong_task, right_task, other))
-    state = replace(state, scenarios=(changed, *state.scenarios[1:]))
-    page = render_page(state, form_token="t", selected=scenario.code)
-    rounds = page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0]
-    assert rounds.count('class="ai-round-card"') == 2
-    assert "工作 t1" in rounds and "工作 t2" in rounds
-    assert "正確接手" in rounds and "錯的接手" not in rounds
-    assert "沒有留下接手紀錄" in rounds
-    assert "<script>" not in rounds and "&lt;script&gt;" in rounds
-    ai_cell = (page.split('id="flow-detail-F1-a_ai"', 1)[1]
-               .split('</div><div class="flow-popover"', 1)[0])
-    assert "正確接手" in ai_cell and "錯的接手" not in ai_cell
-
-
-def test_identical_ai_rounds_show_count_without_hundreds_of_cards() -> None:
-    state = make_demo_state(running=False)
-    scenario = state.scenarios[0]
-    main = DecisionBasis("base: budget=100", "選 A", "選 A，先查", "錄製回應")
-    path = tuple(
-        replace(Decision("a_ai", ("a_ai", "a_ai_query"), "先查", "", None,
-                         (main,), kind=DecisionKind.AI_JUDGEMENT), task_id=f"t{i}")
-        for i in range(300)
-    )
-    changed = replace(scenario, path=path)
-    state = replace(state, scenarios=(changed, *state.scenarios[1:]))
-    page = render_page(state, form_token="t", selected=scenario.code)
-    rounds = page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0]
-    assert "共 300 筆工作" in rounds
-    assert rounds.count('class="ai-round-card"') == 1
-
-
-def test_exam_verdict_is_visually_separate_from_scenario_result() -> None:
-    state = make_demo_state(running=False)
-    scenario = state.scenarios[4]
-    changed = replace(scenario, exam="錄製當時的 AI 回答:考題沒通過",
-                      result_summary="情境完成")
-    state = replace(state, scenarios=(*state.scenarios[:4], changed, *state.scenarios[5:]))
-    page = render_page(state, form_token="t", selected=ScenarioCode.F5)
-    hero = page.split('class="decision-hero"', 1)[1].split('</section>', 1)[0]
-    verdict = page.split('class="exam-verdict ai-exam"', 1)[1].split('</p>', 1)[0]
-    assert "情境完成" in hero and "模型考題沒通過" not in hero
-    assert "模型考題沒通過" in verdict
-    assert "AI 回答的考題未過，與情境是否完成分開看" in verdict
-    assert not _unexplained(_visible_text_outside_verbatim(page), "模型")
-
-
 def test_unreached_fault_keeps_its_fixed_label_with_plain_explanation() -> None:
     state = make_demo_state(running=False)
     scenario = replace(state.scenarios[1], status=ScenarioStatus.NOT_EXERCISED)
@@ -1205,10 +1142,10 @@ def test_formal_flow_map_and_every_sample_route_match() -> None:
 
     state = make_demo_state()
     assert state.flow is FLOW_GRAPH
-    # Phase 13 增量 2:AI 選下一步、AI 要再查(回頭)、只判不送三個節點,六條邊:48 → 51、72 → 78
-    assert len(state.flow.nodes) == 51
-    # 代碼審 r1 d2/d3 修過流程圖的邊(多 6 條出口、拿掉 2 條程式不會走的):68 → 72
-    assert len(state.flow.edges) == 78
+    # Phase 13 增量 2 加的 AI 選下一步、AI 要再查(回頭)、只判不送三個節點與六條邊,Phase 14 增量 3
+    # 撤除:51 → 48、78 → 72(代碼審 r1 d2/d3 修過流程圖的邊:68 → 72)
+    assert len(state.flow.nodes) == 48
+    assert len(state.flow.edges) == 72
     markup = render_page(state, form_token="token")
     assert markup.count('class="role-card"') == len(LANES)
     assert "分析行程提出建議" in markup
@@ -1694,41 +1631,18 @@ def test_unentered_lanes_follow_the_roles_actually_touched() -> None:
 
 
 def test_repeated_flow_cell_names_the_task_and_its_own_round() -> None:
-    """r2 p4:同一格有好幾件工作時,浮出框寫「工作 t3 第 2 輪」(AI 格)、「工作 t1 第 1 次」(其他格),
-    跟 AI 逐輪卡一樣按每件工作各自數。"""
+    """r2 p4:同一格有好幾件工作時,浮出框寫「工作 t3 第 2 次」,按每件工作各自數(Phase 14 增量 3:
+    AI 那格數「輪」的說法隨 AI 決策節點撤除)。"""
     state = make_demo_state()
     first = state.scenarios[0]
-
-    def ai(task: str) -> Decision:
-        return Decision("a_ai", ("a_ai", "a_ai_query"), "先查", "", None,
-                        kind=DecisionKind.AI_JUDGEMENT, task_id=task)
-
-    changed = replace(first, path=(ai("t1"), ai("t3"), ai("t3"),
-                                   replace(first.path[0], task_id="t1")),
-                      traversed_edges=(("a_ai", "a_ai_query"),))
+    step = next(d for d in first.path if d.node == "x_pick")  # 分析那幾格併成一組,取執行端的格
+    changed = replace(first, path=(replace(step, task_id="t1"), replace(step, task_id="t3"),
+                                   replace(step, task_id="t3")))
     page = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])),
                        form_token="t")
-    box = page.split('id="flow-detail-F1-a_ai"', 1)[1].split('class="flow-popover"', 1)[0]
+    box = page.split(f'id="flow-detail-F1-{step.node}"', 1)[1].split('class="flow-popover"', 1)[0]
     labels = re.findall(r'<li class="flow-occurrence"><strong>([^<]+)</strong>', box)
-    assert labels == ["工作 t1 第 1 輪", "工作 t3 第 1 輪", "工作 t3 第 2 輪"]
-    other = page.split(f'id="flow-detail-F1-{first.path[0].node}"', 1)[1]
-    assert "<strong>工作 t1 第 1 次</strong>" in other.split('class="flow-popover"', 1)[0]
-
-
-def test_ai_cell_does_not_repeat_the_allowed_choices_label() -> None:
-    """r2 p5:AI 格「這一輪允許的選項」欄位值不再以同一串字開頭。"""
-    state = make_demo_state()
-    first = state.scenarios[0]
-    main = DecisionBasis("base:x", "這一輪允許的選項:check_longer_window,propose",
-                         "選了 propose", "錄製回應")
-    ai = Decision("a_ai", ("a_ai", "a_propose"), "寫建議", "", None, basis=(main,),
-                  kind=DecisionKind.AI_JUDGEMENT, task_id="t1")
-    changed = replace(first, path=(ai,), traversed_edges=(("a_ai", "a_propose"),))
-    page = render_page(replace(state, scenarios=(changed, *state.scenarios[1:])),
-                       form_token="t")
-    text = html_lib.unescape(re.sub(r"<[^>]+>", " ", page))
-    assert "這一輪允許的選項" in text
-    assert not re.search(r"這一輪允許的選項\s+這一輪允許的選項", text)
+    assert labels == ["工作 t1 第 1 次", "工作 t3 第 1 次", "工作 t3 第 2 次"]
 
 
 def test_narrow_scenario_strip_scrolls_the_selected_card_into_view() -> None:

@@ -12,7 +12,7 @@ class ModelMode(Enum):
 
     RECORDED = "錄製"
     LIVE = "即時"
-    NOT_CALLED = "這次沒有呼叫 AI"  # 目前分析端沒有模型入口(代碼審 r1 p6:不預設成錄製)
+    NOT_CALLED = "這次沒有呼叫 AI"  # 說明與假說入口都沒跑(代碼審 r1 p6:不預設成錄製)
 
 
 class ModelSource(Enum):
@@ -107,15 +107,6 @@ class DecisionKind(Enum):
 
     JUDGEMENT = "判斷"
     PROGRESS = "狀態前進"
-    AI_JUDGEMENT = "AI 判斷"  # Phase 13:模型產生的選擇與理由,頁面放在明確標示的框裡
-
-
-class DecidedBy(Enum):
-    """一個情境的分析那一步由誰決定(Phase 13 計劃〈展示頁怎麼顯示〉的「誰決定」標示)。"""
-
-    RULE = "程式規則"
-    AI_DEMO = "AI(展示模式)"
-    AI_FALLBACK = "AI 退回程式規則"
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,16 +259,14 @@ class Scenario:
     injected_faults: tuple[InjectedFault, ...] = ()
     operation_key: str | None = None
     platform_apply_count: int | None = None
-    # Phase 13 增量 4:開了 AI 決策(頁面標「展示模式、未通過採用門檻」)、誰決定、這個情境的模式原因、
-    # 結局標示(例如「故障照預期,接續任務 AI 判證據不足」)、F5 的模型考題
+    # 說明與假說模型入口開了沒有(Phase 14 增量 3 起 AI 不參與加額決策,只剩這兩個入口)、這個情境
+    # 模型回應的模式原因、結局標示(例如 F4/F6 接續任務「規則第 3 條:剛被調過預算,先不動」)
     ai_enabled: bool = False
-    decided_by: DecidedBy | None = None
+    decided_by: str | None = None  # 頁面照寫的「這次誰決定」;舊紀錄照實標(外家finder-2)
     model_mode_reason: str | None = None
     outcome_note: str | None = None
-    exam: str | None = None
     # 沒有假說內容時照實寫哪一種(代碼審 r1 p1):這次沒有記錄、沒問到、這次沒有告警
     hypothesis_note: str | None = None
-    answered_rounds: int | None = None  # AI 真的給出答案的輪數(沒有記錄是空的)
 
 
 @dataclass(frozen=True, slots=True)

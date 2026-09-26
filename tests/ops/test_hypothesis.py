@@ -416,3 +416,17 @@ def test_the_recording_directory_is_checked_once_before_the_call(rows, dsp_url, 
                            "--batch-id", "b1", "--recordings-dir", str(tmp_path / "fresh"))
     assert printed["hypothesis"]["status"] == "ok"
     assert code == slo_code(rows, dsp_url) and len(calls) == 1
+
+
+# ---- Phase 14 代碼審 r2(協調者新增):錄製模式沒帶帳本,不退回帳號家目錄那一本 ----
+def test_recorded_hypotheses_without_a_ledger_use_a_scratch_ledger(rows, dsp_url, tmp_path):
+    fire_alert(rows)
+    code, printed, err = run(rows, dsp_url, tmp_path, {}, "--demo-id", "demo-9",
+                             "--recordings-dir", str(tmp_path / "empty"))
+    assert code == slo_code(rows, dsp_url)
+    shown = printed["hypothesis"]
+    assert shown["mode"] == "recorded" and shown["reason"] == "no_recording"
+    from tests.model.test_shared_entry import _assert_scratch
+
+    _assert_scratch(err)  # 暫存帳本路徑印在標準錯誤、不在帳號家目錄(同其他四個入口)
+    assert not mc.live_ledger_path().exists()

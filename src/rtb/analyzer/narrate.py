@@ -240,7 +240,8 @@ def run(argv: list[str] | None = None, *, environ: Mapping[str, str] | None = No
                                    caller=modelgate.Caller.NARRATIVE,
                                    demo_id=args.demo_id, ledger=args.ledger,
                                    recordings=args.recordings_dir, batch_id=args.batch_id,
-                                   recorded_ledger=args.recorded_ledger)
+                                   recorded_ledger=args.recorded_ledger,
+                                   notify=lambda text: print(text, file=errors))
     except (modelgate.UnknownModel, modelgate.GateRefused) as refused:
         print(f"參數錯誤:{refused}", file=errors)
         return EXIT_BAD_ARGUMENTS

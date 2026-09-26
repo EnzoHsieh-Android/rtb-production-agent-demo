@@ -1,11 +1,17 @@
 """事故 F4 端到端:Phase 5 的 S308。
 
 提案形成之後,另一方先改了同一個廣告。舊決策不能覆蓋新值:執行端要擋下,分析端要另開接續任務,
-重讀現況、用新版本產生提案並執行成功。兩種搶先都跑:
+重讀現況再決定(Phase 14 起接續任務由第 3 條判證據不足,見下)。兩種搶先都跑:
 - 執行前檢查擋下:分析完、執行前就被改了,執行端重讀時版本已變。
 - 送出前一刻被搶先:執行前檢查通過之後、送出之前才被改,DSP 回版本衝突(靠執行側 S310 分流成
   「版本已變」)。
 組法照事故 F5 端到端:真的模擬 DSP、收件口、分析行程與執行迴圈,各服務都用真實時間。
+
+Phase 14 增量 2b(計劃〈使用者裁定〉4):分析端走正式規則的規則輪(A/B/C 讀四查詢、九條定案)。原任務仍演
+版本已變、另開接續任務;接續任務重讀時操作歷史看得到另一方剛改的預算,依第 3 條(最近 3 天調過預算)判
+證據不足、不提案——收件口沒有接續任務的提案、DSP 只有另一方那一筆寫入。原「接續任務用新版本提案 220
+並
+執行成功」的期望撤掉。
 """
 
 import json
@@ -15,7 +21,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from rtb.analyzer import dsp_client, flow, inbox_client, instrumented, policy
+from rtb.analyzer import dsp_client, flow, inbox_client, instrumented, policy, rule_round
 from rtb.analyzer.task_store import TaskStore, ToolEndpoint, follow_up_id
 from rtb.domain.attempt import operation_key
 from rtb.domain.task_state import TaskState
@@ -26,12 +32,12 @@ from rtb.executor.dsp_client import DspClient
 from rtb.executor.execution import Executor
 from rtb.executor.inbox_server import InboxServer
 from rtb.executor.inbox_store import InboxStore
+from tests.analyzer.conftest import seed_rule_history
 from tests.capability_samples import TEST_KEY
 from tests.executor.fakes import write_config
 
 STALE_BUDGET = 110  # 原任務依預算 100 算出的決策(漲一成):不准出現在 DSP 上
 OTHER_BUDGET = 200  # 另一方搶先改成的值
-FRESH_BUDGET = 220  # 接續任務依新現況(預算 200)算出的決策
 TERMINAL = (TaskState.HANDED_OFF, TaskState.NO_ACTION, TaskState.FAILED, TaskState.BLOCKED,
             TaskState.COMPLETED)
 
@@ -69,9 +75,10 @@ def run_f4(tmp_path, race):
     dsp_db = tmp_path / "dsp.db"
     seeding = CampaignStore(dsp_db)
     seeding.seed_campaign("c1", budget=100)
-    # 花費 0.5 在預算 100 與 200 下都明顯偏低:接續任務重讀之後仍會出提案
+    # 花費 0.5 在預算 100 與 200 下都明顯偏低:接續任務照樣走到九條(由第 3 條擋下,不是配速)
     seeding.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=0.5,
                          revenue=5.0)
+    seed_rule_history(seeding, "c1")  # 正式規則的四查詢:七天平穩、沒有過去調整
     seeding.close()
     # 兩個伺服器各自進自己的 try/finally(比照 F5 端到端):第二個起不來,第一個也要關
     dsp = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
@@ -106,26 +113,25 @@ def _walk(tmp_path, dsp_url, inbox_url, race):
 
         child = analyzer.follow_up_to("t1")
         if child is not None:
-            _advance(analyzer, child, dsp_url, inbox_url)  # 重讀現況、送新提案
-            _execute(tmp_path, DspClient(dsp_url, 3.0))
-            _advance(analyzer, child, dsp_url, inbox_url)  # 收件口回已交給執行:完成
+            _advance(analyzer, child, dsp_url, inbox_url)  # 重讀現況:第 3 條證據不足、不提案
+            _execute(tmp_path, DspClient(dsp_url, 3.0))  # 收件口沒有新提案:執行端沒事可做
         return _facts(tmp_path, analyzer, child)
     finally:
         analyzer.close()
 
 
 def _advance(analyzer, task_id, dsp_url, inbox_url):
-    evidence_source = instrumented.dsp_evidence_source(analyzer, dsp_url, 3)
+    evidence_source = instrumented.rule_source(analyzer, dsp_url, 3)
     send = inbox_client.make_client(inbox_url, 3)
     lookup = dsp_client.make_operation_lookup(dsp_url, 3)
-    for _ in range(8):
+    for _ in range(12):
         row = analyzer.latest(task_id)
         # 呼叫紀錄綁「呼叫當下讀到的那一列」:每一步都用當下的列重建
         state = flow.advance(
             analyzer, task_id, evidence_source, policy.decide,
             instrumented.InstrumentedSubmit(analyzer, send, ToolEndpoint.INBOX_SUBMIT, row), _now(),
             operation_lookup=instrumented.InstrumentedOperationLookup(
-                analyzer, lookup, ToolEndpoint.DSP_OPERATION, row))
+                analyzer, lookup, ToolEndpoint.DSP_OPERATION, row), rule_decide=rule_round.decide)
         if state in TERMINAL:
             return state
     return analyzer.latest(task_id).state
@@ -160,6 +166,8 @@ def _facts(tmp_path, analyzer, child):
         stale_attempts = conn.execute(
             "SELECT state, code FROM attempts WHERE key = ? ORDER BY seq",
             (operation_key(stale),)).fetchall()
+        inbox_tasks = [task for (task,) in conn.execute(
+            "SELECT task_id FROM proposals ORDER BY rowid")]
     finally:
         conn.close()
     return {
@@ -170,6 +178,11 @@ def _facts(tmp_path, analyzer, child):
         "child_proposal": None if child is None else next(
             (row.proposal for row in reversed(analyzer.history(child)) if row.proposal), None),
         "child_of": None if child is None else analyzer.follow_up_of(child),
+        "child_reason": None if child is None else analyzer.no_action_reason(
+            child, analyzer.latest(child).seq),
+        "child_rule_events": () if child is None else tuple(
+            (event.event, event.detail) for _seq, event in analyzer.rule_events(child)),
+        "inbox_tasks": inbox_tasks,
     }
 
 
@@ -191,14 +204,16 @@ def test_f4_a_stale_proposal_is_replanned_from_the_current_state(tmp_path, race)
                          "dsp_write": [("in_flight", None), ("failed", "version_conflict")]}
     assert facts["stale_attempts"] == expected_attempts[race]
 
-    # 接續任務:重讀現況、用新版本產生提案,執行成功
-    assert facts["child_proposal"].campaign_version_observed == 2
-    assert facts["child_proposal"].requested_change["new_budget"] == FRESH_BUDGET
-    assert facts["child_row"].state is TaskState.COMPLETED
+    # 接續任務(Phase 14 改寫):重讀現況,歷史看得到另一方剛改的預算 → 第 3 條證據不足、不提案
+    assert facts["child_row"].state is TaskState.NO_ACTION
+    assert facts["child_proposal"] is None
+    assert facts["child_reason"] == "judged_insufficient"
+    assert facts["child_rule_events"][-1] == ("decided", "recent_budget_change")
 
-    # DSP:剛好兩筆寫入(另一方、接續任務),最終值是接續任務的決策,舊決策從沒寫進去
+    # 收件口只有原任務那一份;DSP 只有另一方那一筆寫入,舊決策從沒寫進去
+    assert facts["inbox_tasks"] == ["t1"]
     assert [(new_budget, version) for _key, new_budget, version in facts["writes"]] == [
-        (OTHER_BUDGET, 2), (FRESH_BUDGET, 3)]
+        (OTHER_BUDGET, 2)]
     assert facts["writes"][0][0] == "other-writer-1"
-    assert (facts["budget"], facts["version"]) == (FRESH_BUDGET, 3)
+    assert (facts["budget"], facts["version"]) == (OTHER_BUDGET, 2)
     assert STALE_BUDGET not in [new_budget for _key, new_budget, _v in facts["writes"]]

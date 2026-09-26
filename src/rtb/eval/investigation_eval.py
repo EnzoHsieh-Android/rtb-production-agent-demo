@@ -1,9 +1,10 @@
 """AI 調查的評估執行器與命令列(Phase 13 增量 3,計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]
 〈評估案例〉〈錄製批次與入庫〉)。
 
-- 逐筆呼叫增量 2 的**同一支 AI 決策函式**(`ai_judge.Judge`),只把查詢的來源從 DSP 換成案例裡存的結果;
-  續租回呼傳一支永遠成功的、先前各輪的調查紀錄放在記憶體。輪數上限、選項驗證、證據核對、退回全部照
-  正式路徑([S1146]);這裡沒有自己的迴圈規則,只把「選查詢 → 回蒐集證據」那一步換成從案例取結果。
+- 逐筆直接呼叫 AI 決策函式(`ai_judge.Judge`),只把查詢的來源從 DSP 換成案例裡存的結果;先前各輪的
+  調查紀錄放在記憶體。輪數上限、選項驗證、證據核對、退回都在 Judge 裡([S1146]);Phase 14 增量 3 起
+  AI 退出正式加額決策,這裡是 Judge 唯一的呼叫者,不經流程層、沒有任務庫、不開 A/B/C 規則輪:遇到
+  `RuleContinue` 當場回傳(AI 答 propose 記原始「值得加」、退回取案例九條 `rule_verdict(case)`)。
 - 每次模型呼叫記下結果類別、延遲、原價與批次(重播時是錄製當時的值),給報告算模型那一列。
 - 錄製批次的驗收([S1141]):入庫目錄裡設定錯誤、花費帳忙碌、無法可靠分類的錄製各 0 份;
   錄製檔都是同一批、批次編號照 `phase13-eval-YYYYMMDD`、沒有佔位檔(用模型用戶端共用的
@@ -29,7 +30,8 @@ from typing import Any, TextIO
 from rtb import modelclient as mc
 from rtb.analyzer import ai_judge, policy
 from rtb.analyzer import investigation as inv
-from rtb.analyzer.flow import AiContext, NoAction, ProposalDecision, QueryMore
+from rtb.analyzer.flow import NoAction, ProposalDecision, RuleContinue
+from rtb.analyzer.investigation import AiContext, QueryMore
 from rtb.analyzer.task_store import InvestigationRecord, TaskRow
 from rtb.domain.evidence import Evidence, EvidenceKind, PayloadValue, TrustClass
 from rtb.domain.task_state import TaskState
@@ -129,15 +131,23 @@ def run_case(case: Case, ask: Ask) -> CaseRun:
     """一筆案例跑到下結論或退回為止;選查詢就回到「蒐集證據」,從案例取結果再交給同一支
     AI 決策函式。"""
     logged = _Logged(ask)
-    judge = ai_judge.Judge(logged)
+    judge = ai_judge.Judge(logged)  # 原始錄製重播:還原模型自己的答案(AI 原始)
     counter = CallCounter()
     records: list[InvestigationRecord] = []
     for seq in range(1, inv.MAX_ROUNDS + 2):  # 最多 3 輪模型呼叫;多一輪留給「上限後只剩結論」的保險
         task = _task(case, seq)
         evidence = case_evidence(case, task, inv.progress(records))
-        outcome = judge(task, evidence, NOW, AiContext(_renewed, tuple(records), counter))
+        outcome = judge(task, evidence, NOW, AiContext(tuple(records), counter))
         if outcome.record is not None:
             records.append(outcome.record)
+        if isinstance(outcome.result, RuleContinue):
+            # Phase 14 增量 3([S1146] 改寫):當場回傳,不開規則輪、不經流程層。AI 有效答 propose 時
+            # 記 AI 原始「值得加」;退回時改取案例的九條結果 rule_verdict(case)(四查詢從案例取、以
+            # 案例固定 NOW 跑同一支正式規則)。「AI+規則否決」只是報告層的派生比較(增量 4)
+            ai_said_propose = (outcome.record is not None
+                               and outcome.record.kind == inv.RecordKind.CONCLUSION)
+            final = WorthVerdict.WORTH if ai_said_propose else rule_verdict(case)
+            return CaseRun(case, final, tuple(records), tuple(logged.calls))
         if not isinstance(outcome.result, QueryMore):
             return CaseRun(case, _verdict(outcome), tuple(records), tuple(logged.calls))
     raise AssertionError(f"{case.case_id} 超過輪數上限還在選查詢:AI 決策函式的上限沒有生效")
@@ -155,10 +165,6 @@ class CallCounter:
             return limit + 1
         self.used += 1
         return self.used
-
-
-def _renewed() -> None:
-    """評估沒有任務列與租約:續租永遠成功(計劃〈調查紀錄與狀態同一交易〉,[S1146])。"""
 
 
 def run_set(cases: Sequence[Case], ask: Ask) -> tuple[CaseRun, ...]:
@@ -223,8 +229,9 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
     # 只有那一套判準;沒帶 --recordings-dir 時用的預設目錄就在入庫根底下,一定被它拒絕,
     # 拒絕訊息另附明寫目錄的提示
     try:
-        gate = ai_judge.open_investigation_gate(source, demo_id=args.demo_id, ledger=args.ledger,
-                                                recordings=folder, batch_id=args.batch_id)
+        gate = ai_judge.open_investigation_gate(
+            source, demo_id=args.demo_id, ledger=args.ledger, recordings=folder,
+            batch_id=args.batch_id, notify=lambda text: print(text, file=errors))
     except ValueError as refused:  # GateRefused、UnknownModel 都是 ValueError
         hint = "" if args.recordings_dir is not None else f"({FRESH_HINT})"
         print(f"拒絕開始:{refused}{hint}", file=errors)

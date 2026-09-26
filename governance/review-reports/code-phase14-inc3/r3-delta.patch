@@ -1,0 +1,777 @@
+diff --git a/claims/aggregate-blast-radius.json b/claims/aggregate-blast-radius.json
+index 48d1683..fa4148e 100644
+--- a/claims/aggregate-blast-radius.json
++++ b/claims/aggregate-blast-radius.json
+@@ -6,21 +6,21 @@
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+       "sha256": "0f9d8827e50f35a3942e754aa1ad5170d55c3a20b66984480c1f6e6fffdc8a02"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "933887bf5a7d43272b0b1aff4d5cdb7fe98e20d358b6ff7c51d1741f254cdb34"
++      "sha256": "9900502a5a9ae1f8a0e6112dc048a3f775a93998fece32fa3dffb84ae34abb6a"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/demo/__init__.py",
+       "sha256": "8e9e34bf95e44bc1ad24532939ab182e04594d30784626954badf50d1486c42e"
+     },
+     {
+diff --git a/claims/concurrency.json b/claims/concurrency.json
+index b350a98..d49825c 100644
+--- a/claims/concurrency.json
++++ b/claims/concurrency.json
+@@ -2,49 +2,49 @@
+   "manifest_version": 1,
+   "claim_id": "concurrency",
+   "policy": "同一份提案被多個工作者同時處理時只寫 DSP 一次;舊版本決策被擋、不寫進 DSP,改由後續任務照現況重排;分析端同一個任務併發推進只落地一次。",
+   "scope": [
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/dsp_client.py",
+-      "sha256": "81155d1bce355f0ea885250240d4528e91ed566b4fb7aff9936aec1fd0dad9a0"
++      "sha256": "c71caf735d160e69d93df660db8cfff9ffb04e49776895de3f384f3048e6d617"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+       "sha256": "0f9d8827e50f35a3942e754aa1ad5170d55c3a20b66984480c1f6e6fffdc8a02"
+     },
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+-      "sha256": "17a3fa11521a3c59d6c111d6d1aaf1f756bf93b100f7f3598700e0ddbbfbe092"
++      "sha256": "4bb7812d09ea593bb08d01c0e02ff114d1b83378f098fe8756c893454ba3e370"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+       "sha256": "93353f3bdbdc9f7df828cff7f40b75b11407c5e654efef477af2e38bc00f368e"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "aa8b5b09a9deda2ffdf58c6509cb13f3966d6d785d9504431d5462aaa15030e1"
+     },
+     {
+       "path": "src/rtb/analyzer/rule_round.py",
+       "sha256": "c0959997e784225dab55f13822e62db4dff3dc3e0e802c277e1cfc1a6b399337"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "933887bf5a7d43272b0b1aff4d5cdb7fe98e20d358b6ff7c51d1741f254cdb34"
++      "sha256": "9900502a5a9ae1f8a0e6112dc048a3f775a93998fece32fa3dffb84ae34abb6a"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/demo/__init__.py",
+       "sha256": "8e9e34bf95e44bc1ad24532939ab182e04594d30784626954badf50d1486c42e"
+     },
+     {
+diff --git a/claims/permission-guardrail.json b/claims/permission-guardrail.json
+index c8d7d9a..5a1364e 100644
+--- a/claims/permission-guardrail.json
++++ b/claims/permission-guardrail.json
+@@ -2,49 +2,49 @@
+   "manifest_version": 1,
+   "claim_id": "permission-guardrail",
+   "policy": "DSP 只接受帶有效能力憑證、而且廣告、動作、租戶範圍都對得上的寫入;單次加額超過比例上限、決策過時、廣告版本已變時,執行端在寫進 DSP 之前擋下;人工核可只對它簽的那一份內容有效;死信重放照樣重跑執行前的檢查;故障注入要啟動時開旗標才存在、伺服器只綁本機、分析端送不出故障標頭。",
+   "scope": [
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/dsp_client.py",
+-      "sha256": "81155d1bce355f0ea885250240d4528e91ed566b4fb7aff9936aec1fd0dad9a0"
++      "sha256": "c71caf735d160e69d93df660db8cfff9ffb04e49776895de3f384f3048e6d617"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+       "sha256": "0f9d8827e50f35a3942e754aa1ad5170d55c3a20b66984480c1f6e6fffdc8a02"
+     },
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+-      "sha256": "17a3fa11521a3c59d6c111d6d1aaf1f756bf93b100f7f3598700e0ddbbfbe092"
++      "sha256": "4bb7812d09ea593bb08d01c0e02ff114d1b83378f098fe8756c893454ba3e370"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+       "sha256": "93353f3bdbdc9f7df828cff7f40b75b11407c5e654efef477af2e38bc00f368e"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "aa8b5b09a9deda2ffdf58c6509cb13f3966d6d785d9504431d5462aaa15030e1"
+     },
+     {
+       "path": "src/rtb/analyzer/rule_round.py",
+       "sha256": "c0959997e784225dab55f13822e62db4dff3dc3e0e802c277e1cfc1a6b399337"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "933887bf5a7d43272b0b1aff4d5cdb7fe98e20d358b6ff7c51d1741f254cdb34"
++      "sha256": "9900502a5a9ae1f8a0e6112dc048a3f775a93998fece32fa3dffb84ae34abb6a"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/demo/__init__.py",
+       "sha256": "8e9e34bf95e44bc1ad24532939ab182e04594d30784626954badf50d1486c42e"
+     },
+     {
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+index 06f444c..310cd40 100644
+--- a/claims/prompt-injection.json
++++ b/claims/prompt-injection.json
+@@ -1,34 +1,34 @@
+ {
+   "manifest_version": 1,
+   "claim_id": "prompt-injection",
+-  "policy": "要不要加預算只由程式照九條規則看數字決定(Phase 14 增量 3 起 AI 不參與加額決策):廣告名稱等不可信文字不影響決策、不流進提案;名稱只在提案說明的資料區以逸出文字出現。說明的核對只過濾數字:對不回提案或證據的數字、對不回證據裡百分比的百分比,整句拿掉;不含數字的句子不做語意過濾,只靠「AI 產生、僅供參考」標示與人工逐項確認程式算的數字。提案只收白名單欄位;可信證據不帶自由文字;分析端讀不到簽發金鑰。",
++  "policy": "要不要加預算只由程式照九條規則看數字決定(Phase 14 增量 3 起 AI 不參與加額決策):廣告名稱等不可信文字不影響決策、不流進提案;名稱只在提案說明的資料區以逸出文字出現。說明的核對只過濾數字:對不回提案或證據的數字整句拿掉;寫成百分比的數字(先 NFKC 正規化,認 % 與阿拉伯百分號、percent/per cent/pct、百分點、百分之N)要對回證據裡同樣是百分比的數字,否則整句拿掉;千分號、萬分號整句拿掉。沒列到的百分比寫法仍只比數值;不含數字的句子不做語意過濾,只靠「AI 產生、僅供參考」標示與人工逐項確認程式算的數字。提案只收白名單欄位;可信證據不帶自由文字;分析端讀不到簽發金鑰。",
+   "scope": [
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/dsp_client.py",
+-      "sha256": "81155d1bce355f0ea885250240d4528e91ed566b4fb7aff9936aec1fd0dad9a0"
++      "sha256": "c71caf735d160e69d93df660db8cfff9ffb04e49776895de3f384f3048e6d617"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+       "sha256": "0f9d8827e50f35a3942e754aa1ad5170d55c3a20b66984480c1f6e6fffdc8a02"
+     },
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+-      "sha256": "17a3fa11521a3c59d6c111d6d1aaf1f756bf93b100f7f3598700e0ddbbfbe092"
++      "sha256": "4bb7812d09ea593bb08d01c0e02ff114d1b83378f098fe8756c893454ba3e370"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+       "sha256": "93353f3bdbdc9f7df828cff7f40b75b11407c5e654efef477af2e38bc00f368e"
+     },
+     {
+       "path": "src/rtb/analyzer/modelgate.py",
+       "sha256": "05b0984894662b3ba7d4b31facde1924613114df584e34b41cdbfa737ef7e435"
+     },
+     {
+@@ -42,21 +42,21 @@
+     {
+       "path": "src/rtb/analyzer/rule_round.py",
+       "sha256": "c0959997e784225dab55f13822e62db4dff3dc3e0e802c277e1cfc1a6b399337"
+     },
+     {
+       "path": "src/rtb/analyzer/runner.py",
+       "sha256": "6a2a4a446616d566fc87bc38f99c458e5eb6a4ab781a8ce7729f3cb87b031824"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "933887bf5a7d43272b0b1aff4d5cdb7fe98e20d358b6ff7c51d1741f254cdb34"
++      "sha256": "9900502a5a9ae1f8a0e6112dc048a3f775a93998fece32fa3dffb84ae34abb6a"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/demo/__init__.py",
+       "sha256": "8e9e34bf95e44bc1ad24532939ab182e04594d30784626954badf50d1486c42e"
+     },
+     {
+@@ -166,21 +166,21 @@
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "307480d888cf37489ec3f876ff9124d55dcf0ad877ca70887749a292e2e0e885"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+       "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
+     },
+     {
+       "path": "src/rtb/modelclient.py",
+-      "sha256": "a6589d9708683fd8e585cd31b4c0590cb3bc3180fd9369545991d0f8ea3489c0"
++      "sha256": "cfd0ffc801da142781276b3c9a44933fc99d03a5f263d0c8b7b4ed33ce395d5d"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger.py",
+       "sha256": "722663e03a97525e7ea7b0694a498a164741d7ad18de1bf9e57647bb952b3000"
+     },
+     {
+@@ -224,21 +224,21 @@
+     {
+       "path": "tests/analyzer/test_boundaries.py",
+       "sha256": "372d9adee506fbd47c62dd8699d8a3c463c5173927dce6bedc56e1399a8904ad"
+     },
+     {
+       "path": "tests/analyzer/test_dsp_client.py",
+       "sha256": "cd542cb2de9391d6788303e72bdba4059b1a581fb98efca26234b30576909f0c"
+     },
+     {
+       "path": "tests/analyzer/test_f5_end_to_end.py",
+-      "sha256": "e7338b49f6459a625e16abcdf17e964df13d7f553078c344d4a88b299c20d243"
++      "sha256": "8a94af21b07810878d4739449af95b9552ac64f25b19097d6dd28df14314b00a"
+     },
+     {
+       "path": "tests/analyzer/test_policy.py",
+       "sha256": "57ceca3f612d782c0abbec281acf1bb2db298b1203c516421c6b82362288c803"
+     },
+     {
+       "path": "tests/analyzer/test_trust_boundary.py",
+       "sha256": "792852f65f87a16fb1aae15e570120a7ea7cdac941bdd5714307b5671032cd04"
+     },
+     {
+diff --git a/pyproject.toml b/pyproject.toml
+index 5a4731a..c2c0ba6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,21 +17,21 @@ select = [
+ ]
+ 
+ [tool.ruff.lint.flake8-tidy-imports.banned-api]
+ # 最上層共用模組(sqlitekit、httpkit、httpclient、capabilitykit)吃的是這一份;各層與展示套件的
+ # ruff.toml 整張重列自己的禁令表(子目錄設定會蓋掉這張表)。Phase 12 代碼審 r1 s2
+ "rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+ # 最上層共用模組不准碰會送出模型呼叫的入口(Phase 13 代碼審 r3:各層准匯入共用模組,共用模組若轉手就繞過)
+ "rtb.analyzer.modelgate".msg = "分析端模型閘道是送出模型呼叫的入口:只准分析端寫死的幾支模組用(Phase 13 [S1100])"
+ "rtb.analyzer.narrate".msg = "模型說明命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r3)"
+ "rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r3)"
+-"rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准分析端驅動與評估執行器用(Phase 13 增量 2)"
++"rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准評估執行器用(Phase 14 增量 3 [S1429];分析端驅動與展示都不准)"
+ "rtb.analyzer.runner".msg = "分析端驅動命令列開了 AI 決策會送出模型呼叫:只准用子行程起它,不准匯入(Phase 13 增量 2)"
+ 
+ [tool.ruff.lint.per-file-ignores]
+ # 測試裡本來就會 assert、啟動子行程、開連線到本機、用固定種子的亂數
+ # TID251:上面那張禁令表是給正式程式的;測試本來就要匯入各層與展示套件(禁令表加上之前測試也不受限)
+ "tests/**" = ["S101", "S603", "S310", "S311", "ARG002", "TID251"]
+ 
+ # lumos 會把檔案抽到 .lumos/lintbase-*/ 臨時目錄再跑 ruff;明寫第一方套件,匯入排序才不會因目錄不同而判斷不一樣
+ [tool.ruff.lint.isort]
+ known-first-party = ["rtb", "tests"]
+diff --git a/src/rtb/analyzer/dsp_client.py b/src/rtb/analyzer/dsp_client.py
+index 3b90946..053e315 100644
+--- a/src/rtb/analyzer/dsp_client.py
++++ b/src/rtb/analyzer/dsp_client.py
+@@ -129,21 +129,21 @@ def _get(
+         on_call(task, endpoint_name, "ok", (time.monotonic() - started) * 1000)
+     return body
+ 
+ 
+ def make_client(
+     base_url: str, timeout_seconds: float, on_call: OnDspCall | None = None
+ ) -> Callable[[TaskRow, datetime], tuple[Evidence, ...]]:
+     """回傳一個符合 EvidenceSource 協定的函式,綁定 DSP 的位址與逾時。
+ 
+     `on_call` 不填就是原本的行為(不記錄任何東西);要記 tool_calls 的呼叫端(見
+-    `instrumented.dsp_evidence_source`)傳一個綁定 TaskStore 的鉤子進來。
++    `instrumented.rule_source`)傳一個綁定 TaskStore 的鉤子進來。
+     """
+ 
+     def fetch(task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
+         # 證據的讀取時間用呼叫端(流程層)傳來的時間,不自己讀系統時鐘,見 flow.EvidenceSource
+         state_body = _get(base_url, f"/campaigns/{task.campaign_id}", timeout_seconds,
+                           task, on_call, ToolEndpoint.DSP_CAMPAIGN)
+         metrics_path = f"/campaigns/{task.campaign_id}/metrics?window={REQUESTED_WINDOW}"
+         metrics_body = _get(base_url, metrics_path, timeout_seconds, task, on_call,
+                             ToolEndpoint.DSP_METRICS)
+         # [S1404] 200 回應只有狀態缺值或非法:記成缺可信現況(不造 state 證據、廣告文字不帶版本),
+diff --git a/src/rtb/analyzer/instrumented.py b/src/rtb/analyzer/instrumented.py
+index a3b1033..b105ef9 100644
+--- a/src/rtb/analyzer/instrumented.py
++++ b/src/rtb/analyzer/instrumented.py
+@@ -1,77 +1,32 @@
+ """把真的用戶端包成會記錄 tool_calls 的版本,`flow.advance()` 拿到的一律是包裝過的版本。
+ 
+ `flow.py` 不知道、也不需要知道 tool_calls 這件事——這支檔是唯一知道「証據來源/送出提案」
+ 跟「TaskStore」都存在的地方,保持 dsp_client.py、inbox_client.py 兩支檔繼續不碰 TaskStore。
++
++證據來源只有規則輪的 `rule_source`,經 `dsp_client` 的 `on_call` 鉤子逐端點記;原本整包只記一筆的
++`InstrumentedEvidenceSource` 與 `dsp_evidence_source` 沒有正式入口,Phase 14 增量 3 代碼審 r2 照
++「沒有入口就刪」刪除。
+ """
+ 
+ import time
+ from collections.abc import Callable
+ from datetime import UTC, datetime
+ 
+ from rtb.analyzer import dsp_client, rule_round
+ from rtb.analyzer import investigation as inv
+ from rtb.analyzer.flow import Accepted, DspOperation, EvidenceBatch
+ from rtb.analyzer.task_store import RawQuery, RuleStep, TaskRow, TaskStore, ToolEndpoint
+ from rtb.domain.evidence import Evidence
+ from rtb.domain.proposal import POLICY_VERSION, Proposal
+ 
+ 
+-class InstrumentedEvidenceSource:
+-    """包裝一個原始的 EvidenceSource,呼叫的同時記一筆 tool_calls。
+-
+-    給「內部只有一次 HTTP 呼叫」的 EvidenceSource 用;`dsp_client` 內部有兩個端點,各自成功
+-    /失敗要分開記錄,不能只包整個 `__call__` 記一筆(否則「現況成功、指標失敗」會遺失第一筆
+-    成功紀錄,見下面 `dsp_evidence_source` 的做法)。
+-    """
+-
+-    def __init__(
+-        self,
+-        store: TaskStore,
+-        inner: Callable[[TaskRow, datetime], tuple[Evidence, ...]],
+-        endpoint: ToolEndpoint,
+-    ):
+-        self._store, self._inner, self._endpoint = store, inner, endpoint
+-
+-    def __call__(self, task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
+-        started = time.monotonic()
+-        try:
+-            result = self._inner(task, now)
+-        except Exception as exc:
+-            self._record(task, type(exc).__name__, started)
+-            raise
+-        self._record(task, "ok", started)
+-        return result
+-
+-    def _record(self, task: TaskRow, outcome: str, started: float) -> None:
+-        latency_ms = (time.monotonic() - started) * 1000
+-        self._store.record_tool_call(
+-            task.task_id, task.seq, self._endpoint, outcome, latency_ms, datetime.now(UTC))
+-
+-
+-def dsp_evidence_source(
+-    store: TaskStore, base_url: str, timeout_seconds: float,
+-) -> Callable[[TaskRow, datetime], tuple[Evidence, ...]]:
+-    """建真的 DSP 用戶端,兩個內部端點(現況、指標)各自成功/失敗都各記一筆 tool_calls——
+-    不是像 `InstrumentedEvidenceSource` 那樣整個呼叫包一層才記一筆。呼叫端(`flow.advance()`
+-    要用的 EvidenceSource)拿到的就是這個函式本身,不用再另外包一層。
+-    """
+-
+-    def _on_call(
+-        task: TaskRow, endpoint: ToolEndpoint, outcome: str, latency_ms: float,
+-    ) -> None:
+-        store.record_tool_call(task.task_id, task.seq, endpoint, outcome, latency_ms,
+-                               datetime.now(UTC))
+-
+-    return dsp_client.make_client(base_url, timeout_seconds, on_call=_on_call)
+-
+-
+ class InstrumentedSubmit:
+     """包裝一個原始的 Submit,呼叫的同時記一筆 tool_calls。
+ 
+     `task_seq` 綁定在建構當下傳入的 `task`(呼叫發生時讀到的那一列快照),不是呼叫完成後
+     才回頭查 `store.latest()`——`Submit` 協定的簽章只有 proposal,沒有 task,若靠事後查詢,
+     並行的另一次 `advance()` 可能已經把同一個任務推進到下一列,查到的就是錯的序號(2026-09-22
+     代碼審第 1 輪指出)。呼叫端要在每次呼叫前用當下讀到的 `TaskRow` 建一個新的
+     `InstrumentedSubmit`,不能是長壽命、重複給不同任務列共用的單一實例。
+     """
+ 
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index 4ba6e63..e7fbca1 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -215,21 +215,21 @@ class ReplanReason(StrEnum):
+ 
+ 
+ class ToolEndpoint(StrEnum):
+     """分析端對外呼叫的端點(Phase 9 增量 2,封閉列舉):會變成指標的標籤,不能收任意字串。
+ 
+     記呼叫紀錄只收「其他」以外的成員;「其他」只給讀舊列用:改成列舉之前寫進去的舊列,值不在列舉裡
+     的一律讀成它(只封住新寫入,舊列照樣會帶任意值進標籤)。"""
+ 
+     DSP_CAMPAIGN = "dsp:campaign"  # 讀廣告現況
+     DSP_METRICS = "dsp:metrics"  # 讀成效指標
+-    DSP_EVIDENCE = "dsp:evidence"  # 整包證據來源(包一層只記一筆的那種)
++    DSP_EVIDENCE = "dsp:evidence"  # 整包證據來源(包一層只記一筆;那支包裝已刪,留著讀舊列)
+     DSP_OPERATION = "dsp:operation"  # 依冪等鍵查 DSP 操作
+     DSP_HISTORY = "dsp:history"  # AI 追加查詢:讀操作歷史(Phase 13)
+     DSP_DAILY = "dsp:daily"  # AI 追加查詢:讀逐日成效(Phase 13)
+     DSP_ADJUSTMENTS = "dsp:adjustments"  # AI 追加查詢:讀過去調整(Phase 13)
+     INBOX_SUBMIT = "inbox:submit"  # 送出提案到收件口
+     OTHER = "other"
+ 
+ 
+ def _endpoint(raw: str) -> ToolEndpoint:
+     try:
+diff --git a/src/rtb/modelclient.py b/src/rtb/modelclient.py
+index 9ec0f5a..f2f1e75 100644
+--- a/src/rtb/modelclient.py
++++ b/src/rtb/modelclient.py
+@@ -213,49 +213,62 @@ def _numbers(text: str) -> set[Decimal]:
+     Unicode 十進位數字);千分位逗號拿掉;同值不同寫法算同一個(0.50 等於 0.5)。"""
+     found = set()
+     for match in _NUMBER.finditer(text):
+         raw = match.group(0).replace(",", "")
+         if raw[0] in _NEGATIVE:
+             raw = "-" + raw[1:]
+         found.add(Decimal(raw))
+     return found
+ 
+ 
+-_PERCENT_SIGN = re.compile(r"\s*[%\uff05]")
++# 百分比的寫法(代碼審 r2 三席一致):先 NFKC(全形 %、小型百分號 U+FE6A、全形數字與全形英文字都會
++# 變成半形),再認數字後面的 % 或阿拉伯百分號 U+066A、percent/per cent(含 percentage)、pct、
++# (個)百分點,以及數字前面的「百分之」(百分之N 視同 N%)。
++_PERCENT_AFTER = re.compile(r"\s*(?:[%\u066a]|per\s*cent|pct(?![a-z])|[個个]?\s*百分[點点])",
++                            re.IGNORECASE)
++_PERCENT_BEFORE = re.compile(r"百分之\s*$")
++# 千分號、萬分號(含阿拉伯的兩個):證據裡不會有,出現就整句拿掉
++_PER_MILLE = re.compile(r"[\u2030\u2031\u0609\u060a]")
+ 
+ 
+ def _percentages(text: str) -> set[Decimal]:
+-    """文字裡緊接百分號(半形或全形,中間可隔空白)的阿拉伯數字,同 `_numbers` 的正規化。"""
++    """文字裡寫成百分比的阿拉伯數字(寫法見 `_PERCENT_AFTER`/`_PERCENT_BEFORE`,先 NFKC),同
++    `_numbers` 的正規化。"""
++    text = unicodedata.normalize("NFKC", text)
+     found = set()
+     for match in _NUMBER.finditer(text):
+-        if _PERCENT_SIGN.match(text, match.end()):
++        if (_PERCENT_AFTER.match(text, match.end())
++                or _PERCENT_BEFORE.search(text, 0, match.start())):
+             found |= _numbers(match.group(0))
+     return found
+ 
+ 
+ def traceable_sentences(text: str, evidence: str) -> tuple[str, int]:
+     """模型文字裡提到的數字要能對回送出去的證據(Phase 13 計劃〈省掉不值得發生的模型工作〉④:11B 的
+     說明與假說也照這條):照句末標點切句,句子裡有數詞(`_numeral_phrase`)、或有任何一個阿拉伯數字不在
+     證據文字裡,就整句拿掉。回(留下的文字, 拿掉幾句);呼叫端要把拿掉幾句照實標出來,不靜默刪。只比
+     數值、不比語意——核對只證明數字出自證據,不證明用對了地方。要在佔位符換回真實編號之前比。
+ 
+     百分比另外比語境(Phase 14 增量 3 代碼審 r1 外家否決-1):句子裡緊接百分號的數字,要對回證據裡
+     **也是百分比**的同值數字,不能借同值的計數過關(F5 的 1 小時曝光剛好是 500,「加 500%」原本對得回);
+-    證據沒有的百分比整句拿掉。其他數字照舊只比數值。"""
++    證據沒有的百分比整句拿掉。代碼審 r2 起百分比的寫法先 NFKC 再認:%(含全形、小型百分號)、阿拉伯
++    百分號、percent/per cent/pct、(個)百分點、百分之N;千分號與萬分號一律整句拿掉。沒列到的寫法
++    (例如英文拼出來的數字、自創的說法)仍只比數值,不含數字的句子不做語意過濾。其他數字照舊只比數值。"""
+     allowed = _numbers(evidence)
+     percents = _percentages(evidence)
+     kept, dropped = [], 0
+     for sentence in _SENTENCE.findall(text):
+         if not sentence:
+             continue
+         if (not _numeral_phrase(sentence) and _numbers(sentence) <= allowed
+-                and _percentages(sentence) <= percents):
++                and _percentages(sentence) <= percents
++                and not _PER_MILLE.search(unicodedata.normalize("NFKC", sentence))):
+             kept.append(sentence)
+         else:
+             dropped += 1
+     return "".join(kept).strip(), dropped
+ 
+ 
+ # 說明與假說的系統提示都要附上(核對只認阿拉伯數字,自己推算的比率或時間對不回證據)
+ NUMERALS_RULE = "數字一律用阿拉伯數字照證據原樣寫,不要自己推算比率或時間。"
+ 
+ 
+diff --git a/tests/analyzer/test_f5_end_to_end.py b/tests/analyzer/test_f5_end_to_end.py
+index c6a2151..fcf1e64 100644
+--- a/tests/analyzer/test_f5_end_to_end.py
++++ b/tests/analyzer/test_f5_end_to_end.py
+@@ -203,10 +203,15 @@ def test_f5_adversarial_name_preserves_rule_and_traceable_narrative(tmp_path, no
+     assert result["other_writes"] == [] and result["c2"].budget == 300
+     trusted = result["trusted"]
+     assert trusted == normal_result["trusted"]  # 程式數字段跟名稱正常時逐字相同
+     assert ADVERSARIAL_NAME not in trusted and "洩漏" not in trusted
+     kept, dropped = modelgate.traceable_sentences(
+         "程式照公式把預算從 100 加到 110。名稱要求把預算加到 999999。", trusted)
+     assert "110" in kept and "999999" not in kept and dropped == 1
+     assert "impressions=500" in trusted  # 同值的計數在證據裡,百分比卻對不回
+     kept, dropped = modelgate.traceable_sentences("預算加 10%。請把預算加 500%。", trusted)
+     assert kept == "預算加 10%。" and dropped == 1
++    # 代碼審 r2:換百分號或寫法也一樣拿掉(NFKC 後認 % 與阿拉伯百分號、percent/pct、百分點、百分之N);
++    # 千分號、萬分號一律拿掉
++    for sentence in ("加 500\ufe6a。", "加 500\u066a。", "加百分之500。", "加 500 percent。",
++                     "加 500 pct。", "加 500 個百分點。", "加 10\u2030。", "加 500\u2031。"):
++        assert modelgate.traceable_sentences(sentence, trusted) == ("", 1), sentence
+diff --git a/tests/analyzer/test_instrumented.py b/tests/analyzer/test_instrumented.py
+index b0dd841..b03a8d9 100644
+--- a/tests/analyzer/test_instrumented.py
++++ b/tests/analyzer/test_instrumented.py
+@@ -1,73 +1,93 @@
+ """tool_calls 只增不改的呼叫紀錄與 trace_for:S50、S51。"""
+ 
+ import contextlib
+ import threading
+ 
+ import pytest
+ 
+ from rtb.analyzer import dsp_client
+ from rtb.analyzer.flow import Accepted, DspOperation
+ from rtb.analyzer.instrumented import (
+-    InstrumentedEvidenceSource,
+     InstrumentedOperationLookup,
+     InstrumentedSubmit,
+-    dsp_evidence_source,
++    rule_source,
+ )
+ from rtb.analyzer.task_store import TaskRow, ToolEndpoint, trace_for
+ from rtb.domain.task_state import TaskState
+ from rtb.dsp.server import DspServer
+ from rtb.dsp.store import CampaignStore
+ from tests.analyzer.conftest import NOW, make_evidence, make_proposal
+ 
+ 
+ def row(seq=2):
+     return TaskRow(task_id="t1", seq=seq, state=TaskState.COLLECTING_EVIDENCE,
+                    campaign_id="c1", proposal=None, error_detail=None, written_at=NOW)
+ 
+ 
+ # ---- S50 ----
+-def test_a_successful_call_is_recorded(store):
+-    store.create_task("t1", "c1", NOW)
+-    source = InstrumentedEvidenceSource(
+-        store, lambda _task, _now: (make_evidence(),), ToolEndpoint.DSP_EVIDENCE)
++# (代碼審 r2 協調者裁定:整包只記一筆的 InstrumentedEvidenceSource 沒有正式入口、已刪;證據來源這三條
++# 改走正式入口 rule_source 的 A 步,送件那兩條照舊測 InstrumentedSubmit)
++@contextlib.contextmanager
++def _dsp(tmp_path, *, metrics=True):
++    """起一個不開故障注入的模擬 DSP,c1 預算 100;metrics=False 故意不給 1 小時指標。"""
++    dsp_store = CampaignStore(tmp_path / "dsp.db")
++    dsp_store.seed_campaign("c1", budget=100)
++    if metrics:
++        dsp_store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=1.0,
++                               revenue=3.0)
++    dsp_store.close()
++    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
++                       delay_seconds=0.0)
++    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
++    try:
++        yield f"http://127.0.0.1:{server.server_address[1]}"
++    finally:
++        server.shutdown()
++        server.server_close()
++
+ 
+-    source(row(), NOW)
++def test_a_successful_call_is_recorded(store, tmp_path):
++    """規則輪 A 的基本讀取:兩個內部端點各自記一筆成功,不是整包只記一筆。"""
++    with _dsp(tmp_path) as url:
++        store.create_task("t1", "c1", NOW)
++        rule_source(store, url, 3)(row(), NOW)
+ 
+     calls = store.list_tool_calls("t1")
+-    assert len(calls) == 1 and calls[0].outcome == "ok" and calls[0].endpoint == "dsp:evidence"
++    assert len(calls) == 2
++    assert {c.endpoint for c in calls} == {"dsp:campaign", "dsp:metrics"}
++    assert all(c.outcome == "ok" for c in calls)
+ 
+ 
+-def test_a_failing_call_is_recorded_and_the_exception_still_propagates(store):
++def test_a_failing_call_is_recorded_and_the_exception_still_propagates(store, tmp_path):
++    """DSP 連不上:這次讀取記一筆失敗,例外照樣往外丟(這一步不寫、下次重試)。"""
++    with _dsp(tmp_path) as url:
++        pass  # 伺服器已關:同一個位址連不上
+     store.create_task("t1", "c1", NOW)
+ 
+-    def boom(_task, _now):
+-        raise RuntimeError("dsp unreachable")
+-
+-    source = InstrumentedEvidenceSource(store, boom, ToolEndpoint.DSP_EVIDENCE)
+-
+-    with pytest.raises(RuntimeError):
+-        source(row(), NOW)
++    with pytest.raises(OSError):
++        rule_source(store, url, 3)(row(), NOW)
+ 
+     calls = store.list_tool_calls("t1")
+-    assert len(calls) == 1 and calls[0].outcome == "RuntimeError"
++    assert len(calls) == 1 and calls[0].endpoint == "dsp:campaign" and calls[0].outcome != "ok"
+ 
+ 
+-def test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result(store):
+-    store.create_task("t1", "c1", NOW)
+-    store.close()  # 之後任何一次 execute() 都會丟 sqlite3.ProgrammingError,模擬寫入紀錄本身壞掉
+-    source = InstrumentedEvidenceSource(
+-        store, lambda _task, _now: (make_evidence(),), ToolEndpoint.DSP_EVIDENCE)
++def test_a_failing_tool_call_write_does_not_affect_the_wrapped_calls_own_result(store, tmp_path):
++    """呼叫紀錄的寫入本身壞掉(這裡直接拿掉紀錄表),證據照樣讀到、跟紀錄正常時一樣。"""
++    with _dsp(tmp_path) as url:
++        store.create_task("t1", "c1", NOW)
++        expected = rule_source(store, url, 3)(row(), NOW)
++        store._conn.execute("DROP TABLE tool_calls")
+ 
+-    result = source(row(), NOW)  # record_tool_call 內部寫入壞掉,呼叫本身的結果不受影響
++        result = rule_source(store, url, 3)(row(), NOW)
+ 
+-    assert result == (make_evidence(),)
++    assert result.evidence and result.evidence == expected.evidence
+ 
+ 
+ def test_submit_calls_are_recorded_too(store):
+     store.create_task("t1", "c1", NOW)
+     submit = InstrumentedSubmit(store, lambda _p: Accepted(False), ToolEndpoint.INBOX_SUBMIT, row())
+ 
+     submit(make_proposal())
+ 
+     calls = store.list_tool_calls("t1")
+     assert len(calls) == 1 and calls[0].endpoint == "inbox:submit"
+@@ -106,61 +126,35 @@ def test_submit_records_the_task_seq_bound_at_construction_not_whatever_is_lates
+     submit = InstrumentedSubmit(store, advance_task_during_the_call,
+                                 ToolEndpoint.INBOX_SUBMIT,
+                                 called_at_row)
+ 
+     submit(make_proposal())
+ 
+     calls = store.list_tool_calls("t1")
+     assert calls[0].task_seq == 2  # 不是完成後查到的「目前最新」(那會是 3)
+ 
+ 
+-# ---- dsp_evidence_source:兩個內部端點各自記一筆,不是整個 fetch() 才記一筆 ----
+-def test_dsp_evidence_source_records_one_call_per_endpoint_on_full_success(store, tmp_path):
+-    dsp_store = CampaignStore(tmp_path / "dsp.db")
+-    dsp_store.seed_campaign("c1", budget=100)
+-    dsp_store.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=1.0,
+-                           revenue=3.0)
+-    server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
+-                       delay_seconds=0.0)
+-    threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+-    try:
+-        store.create_task("t1", "c1", NOW)
+-        source = dsp_evidence_source(
+-            store, f"http://127.0.0.1:{server.server_address[1]}", timeout_seconds=3)
+-
+-        source(row(), NOW)
+-
+-        calls = store.list_tool_calls("t1")
+-        endpoints = {c.endpoint for c in calls}
+-        assert len(calls) == 2  # 兩個端點各記一筆,不是整包只記一筆
+-        assert endpoints == {"dsp:campaign", "dsp:metrics"}
+-        assert all(c.outcome == "ok" for c in calls)
+-    finally:
+-        server.shutdown()
+-        server.server_close()
+-
+-
+-def test_dsp_evidence_source_still_records_the_first_endpoints_success_when_the_second_fails(
++# ---- 規則輪 A 的兩個內部端點各自記錄:第二個失敗時第一筆成功照樣留著 ----
++def test_rule_step_a_still_records_the_first_endpoints_success_when_the_second_fails(
+     store, tmp_path,
+ ):
+     """兩個端點各自記錄的重點:第一個(現況)成功、第二個(指標)失敗時,第一筆成功的紀錄
+     不能因為整體呼叫最終丟例外就消失不見——這正是代碼審第 1 輪指出、舊版「包整個 fetch()」
+     的寫法會遺失的那一筆。"""
+     dsp_store = CampaignStore(tmp_path / "dsp.db")
+     dsp_store.seed_campaign("c1", budget=100)  # 故意不 seed_metrics
+     server = DspServer(tmp_path / "dsp.db", fault_injection=False, hang_seconds=0.2,
+                        delay_seconds=0.0)
+     threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True).start()
+     try:
+         store.create_task("t1", "c1", NOW)
+-        source = dsp_evidence_source(
+-            store, f"http://127.0.0.1:{server.server_address[1]}", timeout_seconds=3)
++        source = rule_source(store, f"http://127.0.0.1:{server.server_address[1]}", 3)
+ 
+         with pytest.raises(dsp_client.DspRequestFailed):
+             source(row(), NOW)
+ 
+         calls = store.list_tool_calls("t1")
+         by_endpoint = {c.endpoint: c.outcome for c in calls}
+         assert by_endpoint["dsp:campaign"] == "ok"  # 第一個端點的成功紀錄還在
+         assert by_endpoint["dsp:metrics"] == "DspRequestFailed"
+     finally:
+         server.shutdown()
+diff --git a/tests/analyzer/test_rule_round.py b/tests/analyzer/test_rule_round.py
+index 990957b..114e1c5 100644
+--- a/tests/analyzer/test_rule_round.py
++++ b/tests/analyzer/test_rule_round.py
+@@ -275,21 +275,21 @@ def test_missing_state_at_step_c_does_not_reuse_step_a(store, world):
+     assert store.no_action_reason("t1", store.latest("t1").seq) == "missing_state_or_metrics"
+ 
+ 
+ # ---- [S1424] ----
+ def test_policy_switch_restarts_inflight_analysis(store, world, monkeypatch):
+     """升版前只有基本兩讀(分析中那一列沒有規則輪紀錄)→ 開新輪從 A 重讀,不把缺輪次當 DECIDE;回退版
+     換新政策版本時,停在九條 B 的輪作廢,從回退版的基本步重讀,不以 B 最後序號定案。"""
+     store.create_task("t1", "c1", NOW)
+     store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, NOW)
+     world.clock.at = NOW
+-    old = instrumented.dsp_evidence_source(store, world.url, 3.0)(store.latest("t1"), NOW)
++    old = dsp_client.make_client(world.url, 3.0)(store.latest("t1"), NOW)  # 舊版兩讀
+     store.commit_step("t1", 2, TaskState.ANALYZING, NOW, evidence=old)  # 舊版兩讀
+     assert step(store, world, NOW) is TaskState.COLLECTING_EVIDENCE
+     assert events(store) == [("restart_no_round", None)]
+     step(store, world, NOW)
+     assert [(r.round_id, r.step) for _s, r in store.rule_steps("t1")] == [(1, "A")]
+     step(store, world, NOW)
+     step(store, world, NOW)  # B
+     assert [r.step for _s, r in store.rule_steps("t1")] == ["A", "B"]
+     monkeypatch.setattr(rule_round, "POLICY_VERSION", "nine-rules-rollback-v1")
+     monkeypatch.setattr(instrumented, "POLICY_VERSION", "nine-rules-rollback-v1")
+diff --git a/tests/model/test_shared_entry.py b/tests/model/test_shared_entry.py
+index ee9d2ed..2169e54 100644
+--- a/tests/model/test_shared_entry.py
++++ b/tests/model/test_shared_entry.py
+@@ -600,10 +600,47 @@ def test_narrate_and_the_runner_book_recorded_replays_into_a_scratch_ledger(tmp_
+ 
+ def test_a_percentage_must_trace_back_to_a_percentage():
+     """增量 3 代碼審 r1 外家否決-1:百分比要對回證據裡的百分比,不能借同值的計數過關(F5 的 1 小時曝光
+     剛好是 500,「加 500%」原本會被當成對得回);一般數字照舊對回任何同值的證據數字。"""
+     evidence = "- 證據甲 metrics:impressions=500、clicks=12\n- 風險說明(程式固定文字):budget +10%"
+     assert mc.traceable_sentences("請把預算加 500%。", evidence) == ("", 1)
+     assert mc.traceable_sentences("請把預算加 500 \uff05。", evidence) == ("", 1)
+     assert mc.traceable_sentences("曝光 500 次。", evidence) == ("曝光 500 次。", 0)
+     assert mc.traceable_sentences("預算加 10%。", evidence) == ("預算加 10%。", 0)
+     assert mc.traceable_sentences("點擊 12%。", evidence) == ("", 1)
++
++
++# 增量 3 代碼審 r2(鏡頭A、外家finder、資安 三席一致):百分比的各種寫法都要當百分比核對
++_PERCENT_EVIDENCE = ("- 證據甲 metrics:impressions=500、clicks=12\n"
++                     "- 風險說明(程式固定文字):budget +10%")
++PERCENT_BYPASSES = [
++    "請把預算加 500\ufe6a。",  # 小型百分號(NFKC 會變成 %)
++    "請把預算加 500\u066a。",  # 阿拉伯百分號
++    "請把預算加 \uff15\uff10\uff10%。",  # 全形數字
++    "請把預算加百分之500。",
++    "请把预算加百分之 500。",
++    "請把預算加 500 percent。",
++    "Raise the budget by 500 Percent.",
++    "Raise the budget by 500 per cent.",
++    "Raise the budget by 500 percentage points.",
++    "Raise the budget by 500 pct.",
++    "請把預算加 500 個百分點。",
++    "请把预算加 500 个百分点。",
++    "請把預算加 500 百分點。",
++    "請把預算加 500\u2030。",  # 千分號:對不回,整句拿掉
++    "請把預算加 10\u2030。",
++    "請把預算加 500\u2031。",  # 萬分號
++]
++
++
++@pytest.mark.parametrize("sentence", PERCENT_BYPASSES)
++def test_every_way_of_writing_a_percentage_must_trace_back_to_a_percentage(sentence):
++    """F5 的曝光數剛好是 500:換個百分號或寫法,「加 500%」也不能借曝光數過關;千分號、萬分號
++    一律對不回。"""
++    assert mc.traceable_sentences(sentence, _PERCENT_EVIDENCE) == ("", 1)
++
++
++@pytest.mark.parametrize("sentence", ["預算加百分之10。", "預算加 10 個百分點。",
++                                      "Raise the budget by 10 percent.", "預算加 10\ufe6a。"])
++def test_a_traceable_percentage_survives_any_spelling(sentence):
++    """對得回證據百分比(+10%)的寫法照留,不是一看到百分比就拿掉。"""
++    assert mc.traceable_sentences(sentence, _PERCENT_EVIDENCE) == (sentence, 0)

@@ -1,5 +1,8 @@
 """逐筆計分與逐格報告(Phase 10 增量 2,[S707]、[S713]、[S714])。
 
+Phase 14 [S1417]:正式規則改成九條,Phase 10 情境只有 1 小時資料,`score` 經路由時明傳「缺四查詢」;
+暫停/異常照第 1/2 條先判,其餘證據不足,報告每格標「舊資料不足以評估九條規則」,標準答案不動。
+
 逐筆走跟正式路徑相同的組合:判斷點輸入經分析端的路由函式(含包裝與退回),依「最後有效的答案」
 計分,不是依候選原始回答計分——候選回「不知道」退回現行規則後提案,照樣算一次誤提案。現行規則用同一套
 計分(不傳候選)。每格事先指定指標,分母是那一格的樣本數,不會是零:「值得加」格報召回率,其他四格報
@@ -15,9 +18,17 @@ import math
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
-from rtb.analyzer.policy import CandidateCall, RoutePath, TrialCells, ValidatedCells, route
+from rtb.analyzer.policy import (
+    MISSING_FOUR_QUERIES,
+    CandidateCall,
+    RoutePath,
+    TrialCells,
+    ValidatedCells,
+    route,
+)
 from rtb.domain._checks import is_sha256
 from rtb.domain.worth import WorthCell, WorthVerdict
 from rtb.eval.generator import Scenario
@@ -27,6 +38,11 @@ NO_FALSE_PROPOSAL = "no_false_proposal"  # 其他格:1 減誤提案率(不該加
 CLASS_ACCURACY = "class_accuracy"  # 其他格:最後有效答案等於標準答案的比例
 EVAL_SET = Path(__file__).with_name("eval_set.py")
 Z_95 = 1.959963984540054
+# Phase 10 情境只有 1 小時資料、沒有時間:正式規則改成九條後(Phase 14 [S1417]),轉接器明傳「缺四查詢」
+# ,
+# 暫停/異常照第 1/2 條先判,其餘一律證據不足;決策時間只給領域函式驗證用(缺四查詢時不影響答案)
+RULE_NOW = datetime(2026, 9, 25, tzinfo=UTC)
+MISSING_QUERIES_NOTE = "舊資料不足以評估九條規則"
 # 經過候選的路徑(候選答的,或候選失敗、逾時、答不知道後退回現行規則的)
 _THROUGH_CANDIDATE = frozenset(RoutePath) - {RoutePath.CODE_RULE}
 
@@ -60,7 +76,8 @@ def score(
     allowed: TrialCells | ValidatedCells = ValidatedCells.NONE if trial is None else trial
     scored = []
     for scenario in scenarios:
-        result = route(scenario.worth_input, candidate, allowed)
+        result = route(scenario.worth_input, candidate, allowed, queries=MISSING_FOUR_QUERIES,
+                       now=RULE_NOW)
         scored.append(ScoredCase(scenario, result.verdict, result.path))
     return tuple(scored)
 
@@ -86,6 +103,8 @@ class CellReport:
     class_correct_count: int
     errors: tuple[tuple[WorthVerdict, WorthVerdict, int], ...]  # (標準答案, 最後答案, 筆數)
     paths: Mapping[RoutePath, int]
+    # Phase 14 [S1417]:這一格用的資料不足以評估九條規則(Phase 10 情境沒有四查詢)時的標註
+    note: str | None = None
 
     def metric(self, name: str) -> Metric | None:
         return next((m for m in self.metrics if m.name == name), None)
@@ -167,7 +186,8 @@ def _metrics(cell: WorthCell, n: int, proposed: int, correct: int,
     return (metric(NO_FALSE_PROPOSAL, n - proposed), metric(CLASS_ACCURACY, correct))
 
 
-def _cell_report(cell: WorthCell, cases: list[ScoredCase], with_bounds: bool) -> CellReport:
+def _cell_report(cell: WorthCell, cases: list[ScoredCase], with_bounds: bool,
+                 note: str | None = None) -> CellReport:
     n = len(cases)
     proposed = sum(1 for c in cases if c.final is WorthVerdict.WORTH)
     correct = sum(1 for c in cases if c.final is c.scenario.gold)
@@ -177,17 +197,17 @@ def _cell_report(cell: WorthCell, cases: list[ScoredCase], with_bounds: bool) ->
         false_proposals=0 if cell is WorthCell.DELIVERY_WITH_VALUE else proposed,
         class_correct_count=correct,
         errors=tuple((gold, final, count) for (gold, final), count in sorted(errors.items())),
-        paths=dict(Counter(c.path for c in cases)))
+        paths=dict(Counter(c.path for c in cases)), note=note)
 
 
-def _parts(scored: tuple[ScoredCase, ...], with_bounds: bool) -> tuple[
+def _parts(scored: tuple[ScoredCase, ...], with_bounds: bool, note: str | None = None) -> tuple[
         tuple[CellReport, ...], dict[tuple[WorthVerdict, WorthVerdict], int], int]:
     by_cell: dict[WorthCell, list[ScoredCase]] = {cell: [] for cell in WorthCell}
     finals_by_group: dict[str, set[WorthVerdict]] = {}
     for case in scored:
         by_cell[case.scenario.cell].append(case)
         finals_by_group.setdefault(case.scenario.group, set()).add(case.final)
-    cells = tuple(_cell_report(cell, cases, with_bounds) for cell, cases in by_cell.items()
+    cells = tuple(_cell_report(cell, cases, with_bounds, note) for cell, cases in by_cell.items()
                   if cases)
     confusion = dict(Counter((c.scenario.gold, c.final) for c in scored))
     changed = sum(1 for finals in finals_by_group.values() if len(finals) > 1)
@@ -195,7 +215,9 @@ def _parts(scored: tuple[ScoredCase, ...], with_bounds: bool) -> tuple[
 
 
 def synthetic_report(scored: tuple[ScoredCase, ...], sha256: str) -> SyntheticReport:
-    cells, confusion, changed = _parts(scored, with_bounds=False)
+    """Phase 10 合成集:情境都沒有四查詢(`score` 明傳缺四查詢),每格標「舊資料不足以評估九條
+    規則」。"""
+    cells, confusion, changed = _parts(scored, with_bounds=False, note=MISSING_QUERIES_NOTE)
     return SyntheticReport(sha256, cells, confusion, changed)
 
 
@@ -207,5 +229,6 @@ def production_report(
     72 筆現行規則就能讓現行規則替候選過關)。"""
     if not scored or any(c.path not in _THROUGH_CANDIDATE for c in scored):
         raise ValueError("正式報告每一筆都要交給候選,不得有走現行規則的")
-    cells, confusion, changed = _parts(scored, with_bounds=True)
+    # 情境一樣經 score 明傳缺四查詢:候選退回格落到九條的證據不足,照合成報告標註(代碼審 r1 鏡頭4-1)
+    cells, confusion, changed = _parts(scored, with_bounds=True, note=MISSING_QUERIES_NOTE)
     return ProductionReport(provenance, cells, confusion, changed, _PRODUCTION_ISSUER)

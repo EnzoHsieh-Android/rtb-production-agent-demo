@@ -86,7 +86,10 @@ _NOW = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
 
 
 def _policy_proposal(budget):
-    """分析端現行決策規則依這個預算產生的提案(配速極低、有投放,一定出提案)。"""
+    """分析端正式決策規則依這個預算產生的提案(配速極低、有投放有轉換;Phase 14 起九條要四查詢,帶齊
+    一份平穩、沒有調整的四查詢,一定出提案)。"""
+    from tests.analyzer.test_policy import FULL
+
     task = TaskRow(task_id="t1", seq=3, state=TaskState.ANALYZING, campaign_id="c1",
                    proposal=None, error_detail=None, written_at=_NOW)
     evidence = tuple(
@@ -100,7 +103,8 @@ def _policy_proposal(budget):
              {"campaign_id": "c1", "window": "1h", "impressions": 500, "clicks": 12,
               "conversions": 1, "spend": 0.0, "revenue": 5.0}),
         ))
-    decision = policy.decide(task, evidence, _NOW)
+    decision, _reason = policy.explain(task, evidence, _NOW, candidate=None,
+                                       allowed=policy.ValidatedCells.NONE, queries=FULL)
     return decision.proposal
 
 

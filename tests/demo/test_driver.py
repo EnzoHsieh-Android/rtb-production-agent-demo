@@ -876,19 +876,20 @@ def test_f4_and_f6_check_the_block_reason_not_just_the_block(blocked, replan, ok
             driver_module._blocked_as_version_changed(stub, "t1")
 
 
-def test_the_new_task_counts_as_written_only_once_the_inbox_says_so():
-    """[f2] 平台上已經是新值、收件口還沒記下完成(晚幾毫秒):還不算,不拿收件口的紀錄去斷言。"""
+def test_the_new_task_counts_as_settled_only_once_it_has_an_outcome():
+    """[f2] 改寫(Phase 14 增量 3):F4/F6 接續任務照九條第 3 條不提案,驅動等的是接續任務結案(提案或
+    不提案),不再等平台寫成新值;還沒結案不算。"""
     from rtb.analyzer.task_store import FollowUpRow, ReplanReason
 
-    stub = _Stub(budget=220)
-    stub.budget = lambda _c: 220
+    stub = _Stub()
     stub.follow_ups = lambda: [FollowUpRow(1, "t1", "t1-next", ReplanReason.VERSION_CHANGED,
                                            datetime.now().astimezone())]
-    stub.finished = lambda _t: False  # 平台已是新值,收件口或分析端還沒記下完成
-    stub.settled = lambda _t, done: done()  # Phase 13 增量 4:接續任務結局是提案,照提案路徑等
-    assert driver_module._follow_up_written(stub, "t1", "c1", 220) is False
-    stub.finished = lambda task: task == "t1-next"
-    assert driver_module._follow_up_written(stub, "t1", "c1", 220) is True
+    stub.outcome = lambda _t: None
+    assert driver_module._follow_up_settled(stub, "t1") is False
+    stub.outcome = lambda task: driver_module.Outcome.NO_PROPOSE if task == "t1-next" else None
+    assert driver_module._follow_up_settled(stub, "t1") is True
+    stub.follow_ups = list
+    assert driver_module._follow_up_settled(stub, "t1") is False
 
 
 def test_the_confirmation_wait_is_capped_by_the_decision_expiry_too(monkeypatch):
@@ -928,12 +929,12 @@ def test_f5_checks_the_name_really_reached_the_analyzer():
 
 
 def test_f5_says_only_what_it_checked():
-    """[c5] F5 不宣稱擋住了提示注入(Phase 13 增量 4 起寫明名稱最多能讓 AI 改判要不要加預算,
-    程式層守住金額、廣告與動作)。"""
+    """[c5] F5 不宣稱擋住了提示注入,只寫它核對過的:Phase 14 增量 3 起要不要加預算由九條規則只看
+    數字決定,平台上只有照公式那一筆、名稱不變。"""
     import inspect
 
     source = inspect.getsource(driver_module._run_f5)
-    assert "擋住" not in source and "最多能讓它改判要不要加預算" in source
+    assert "擋住" not in source and "九條規則只看數字決定" in source
 
 
 def test_the_driver_reads_other_systems_only_through_their_exits():
@@ -1137,10 +1138,11 @@ def test_a_blocked_then_replanned_scenario_shows_the_final_write(tmp_path, state
     assert _driver(tmp_path, state).run_one("F4").status == DONE
     details = _details(tmp_path, "F4")
     change = details.change
-    # 「之前」是被追蹤那把鍵寫入前的平台值:別的寫入者先把 100 改成 200,本系統只把 200 改成 220
-    # (代碼審 r1 d3:原本取造資料時的 100,看起來像一次加了 120%)
-    assert (change.before, change.after, change.written) == (200, 220, True)
-    assert details.platform_apply_count == 1  # 另一個寫入者那一筆不是這把鍵,不算
+    # 「之前」是被追蹤那件工作寫入前的平台值:別的寫入者先把 100 改成 200(代碼審 r1 d3:不取造資料時
+    # 的 100)。Phase 14 使用者裁定 4:接續任務看到最近 3 天剛調過預算,九條第 3 條證據不足、不提案
+    # (AI 答 propose 也由規則否決),平台停在 200、本系統沒有寫入
+    assert (change.before, change.after, change.written) == (200, 200, False)
+    assert not details.platform_apply_count  # 本系統沒有寫入(另一個寫入者那一筆不算)
 
 
 def test_f7_records_an_overview_and_the_confirmed_one(tmp_path, state):
@@ -1435,3 +1437,104 @@ def test_a_verifier_that_prints_bytes_that_are_not_utf8_is_read_to_the_end():
          " + b'\\n'); sys.stdout.flush(); print('通過')"], "d", 20)
     assert time.monotonic() - started < 10
     assert outcome.passed and "\ufffd" in outcome.lines[0]
+
+
+def test_model_entries_only_run_with_ai_and_never_without_a_ledger(tmp_path, monkeypatch):
+    """Phase 14 代碼審 r3 外家 finder-3:走實際入口。沒開 AI 的情境,run_model_entries 不叫說明與原因
+    假說任何一支入口(所以不會有「沒帶帳本」的呼叫);開 AI 的情境兩支入口都拿到情境自己的帳本,由
+    tests/demo/test_model_entry_contracts.py 的
+    test_recorded_demos_book_into_a_temporary_ledger 走真的 F1 驗(帳記在情境目錄、帳號家目錄
+    那一本不存在)。入口自己沒帶帳本時也不退回真帳本,見
+    tests/model/test_shared_entry.py。"""
+    from types import SimpleNamespace
+
+    from rtb.demo import driver as driver_module
+
+    called = []
+    monkeypatch.setattr(driver_module.launcher, "run_entry",
+                        lambda entry, *_a, **_k: called.append(entry))
+    world = SimpleNamespace(ai=None, tracked=("t1", "c1"), dir=tmp_path / "F3")
+    assert driver_module.run_model_entries(world) == driver_module.ModelEntries()
+    assert called == []
+
+
+# ---- [S1411](Phase 14 增量 3,併入原 [S1420]):F7 全規模純規則實測 ----
+def test_f7_finishes_with_rule_reads_under_the_actual_allowance(tmp_path, state):  # noqa: PLR0915
+    """[S1411] F7 用正式情境的規模(300 件、8 個執行端工作者、唯一一個分析行程)與原 300 秒時限跑一次,
+    每一件都由純規則 A/B/C(每件 2+2+5 讀)判定;不套 AI 輪數放寬。量分析端逐件耗時、DSP 讀取次數、
+    DSP 讀取本身花的時間(其餘算 SQLite 等待與分步提交的上界)與總耗時,印出來給驗證紀錄。"""
+    import json
+    import statistics
+
+    from rtb.analyzer.task_store import TaskReader
+    from rtb.domain.task_state import TaskState
+
+    scenario = driver_module.SCENARIOS["F7"]
+    assert scenario.time_limit_seconds == 300  # 基準時限,不預先放寬
+    demo = _driver(tmp_path, state, {"F7": scenario})
+    stop = threading.Event()
+    threading.Thread(target=_approve_when_asked, args=(tmp_path, demo, stop), daemon=True).start()
+    started = time.monotonic()
+    try:
+        verdict = demo.run_one("F7")
+    finally:
+        stop.set()
+    elapsed = time.monotonic() - started
+    assert verdict.status == DONE, verdict.reason
+    reader = TaskReader(demo.root / "F7" / "analyzer.db")
+    try:
+        tasks = [f"t{i:04d}" for i in range(driver_module.F7_CAMPAIGNS)]
+        calls = [c for t in tasks for c in reader.list_tool_calls(t)
+                 if c.endpoint.value.startswith("dsp:")]
+        spans = []
+        for task in tasks:
+            history = reader.history(task)
+            proposed = next(r for r in history if r.state is TaskState.PROPOSED)
+            spans.append((proposed.written_at - history[0].written_at).total_seconds())
+        steps = sum(len(reader.rule_steps(t)) for t in tasks)
+    finally:
+        reader.close()
+    expected_reads = driver_module.F7_CAMPAIGNS * 9
+    measured = {
+        "total_seconds": round(elapsed, 1), "limit_seconds": scenario.time_limit_seconds,
+        "dsp_reads": len(calls), "expected_dsp_reads": expected_reads, "rule_steps": steps,
+        "dsp_read_seconds": round(sum(c.latency_ms for c in calls) / 1000, 1),
+        "per_task_seconds_p50": round(statistics.median(spans), 2),
+        "per_task_seconds_max": round(max(spans), 2),
+        "analyzer_span_seconds": round(max(spans), 1),
+    }
+    print("F7 實測:" + json.dumps(measured, ensure_ascii=False))
+    assert len(calls) >= expected_reads  # 每件至少 9 讀;重來會多
+    assert steps >= 3 * driver_module.F7_CAMPAIGNS
+
+
+def test_f7_waits_for_every_task_as_long_as_its_time_limit():
+    """增量 3 代碼審 r1 外家finder-3:拿掉 AI 輪數放寬之後,F7 等全部走完的時限要跟情境總時限(300 秒)
+    一致,不能在 240 秒就先判沒走完。"""
+    seen = []
+
+    class _World:
+        def watch(self, _done, limit, _each=None):
+            seen.append(limit)
+            return True
+
+    driver_module._f7_settled(_World(), ["t0000"])
+    assert seen == [driver_module.SCENARIOS["F7"].time_limit_seconds] == [300]
+
+
+def test_a_failed_narration_is_not_reported_as_no_ai_call(tmp_path):
+    """增量 3 代碼審 r1 鏡頭2-minor2:說明命令列有跑、但逾時或沒印結果時,不能寫成「這個情境沒有
+    呼叫 AI(沒有要寫說明的建議)」;照實寫說明命令列沒有跑完與原因。"""
+    import json
+
+    world = driver_module.World.__new__(driver_module.World)
+    world.ai = driver_module.AiSetup("demo-1", live=False, recordings=tmp_path)
+    entries = driver_module.ModelEntries(
+        json.dumps({"error": "命令列逾時(120 秒)", "numbers": [["廣告", "c1"]]}),
+        json.dumps({"status": "no_alert"}))
+    mode = driver_module.entry_mode(entries)
+    reason = driver_module._mode_reason(world, mode, entries)
+    assert "沒有要寫說明的建議" not in reason
+    assert reason == "說明命令列沒有跑完:命令列逾時(120 秒)"
+    none = driver_module._mode_reason(world, None, driver_module.ModelEntries())
+    assert none.startswith("這個情境沒有呼叫 AI")

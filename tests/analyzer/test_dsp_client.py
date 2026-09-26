@@ -171,7 +171,7 @@ def test_fields_outside_the_allowlist_never_reach_the_evidence(rigged, endpoint)
 # ---- S205 ----
 @pytest.mark.parametrize("endpoint, field, value", [
     ("state", "budget", None), ("state", "budget", "100"), ("state", "budget", -1),
-    ("state", "budget", 2 ** 63), ("state", "budget", True), ("state", "status", "deleted"),
+    ("state", "budget", 2 ** 63), ("state", "budget", True),
     ("state", "version", 0), ("state", "id", "c2"), ("state", "id", "has space"),
     ("metrics", "campaign_id", "c2"), ("metrics", "window", "30d"),
     # 時間窗跟請求的 1h 不同(2026-09-23 使用者裁定收緊)
@@ -186,12 +186,53 @@ def test_a_malformed_trusted_field_fails_the_whole_fetch(rigged, endpoint, field
         _fetch(rigged)
 
 
-@pytest.mark.parametrize("endpoint, field", [("state", "status"), ("metrics", "window")])
+@pytest.mark.parametrize("endpoint, field", [("metrics", "window")])
 def test_a_missing_trusted_field_fails_the_whole_fetch(rigged, endpoint, field):
     del rigged.bodies[endpoint][field]
 
     with pytest.raises(dsp_client.DspRequestFailed):
         _fetch(rigged)
+
+
+# ---- [S1404](Phase 14 增量 2b 改寫 S205 的狀態那兩格)----
+@pytest.mark.parametrize("status", [None, "deleted", 3, "<missing>"])
+def test_missing_dsp_state_finishes_without_proposal(rigged, store, status):
+    """200 回應的狀態缺值或非法:讀取層記成缺可信現況(不造 state 證據,其他欄照白名單),流程提交可結案
+    的診斷,分析那一步以 MISSING_STATE_OR_METRICS 結案、提案 0 筆;不再拋錯後無限重試,也不退回曝光點擊
+    舊規則。5xx 仍照純讀取重試(下一個測試)。例:status=null、曝光 500、點擊 12。"""
+    from rtb.analyzer import policy, runner
+
+    if status == "<missing>":
+        del rigged.bodies["state"]["status"]
+    else:
+        rigged.bodies["state"]["status"] = status
+    evidence = _fetch(rigged)
+    kinds = {item.kind for item in evidence}
+    assert kinds == {EvidenceKind.METRICS, EvidenceKind.CAMPAIGN_TEXT}  # 沒有可信現況
+    assert all(item.campaign_version_observed is None for item in evidence)
+    url = f"http://127.0.0.1:{rigged.server_address[1]}"
+    store.create_task("t1", "c1", NOW)
+    source = dsp_client.make_client(url, timeout_seconds=3)
+    for _ in range(3):
+        flow.advance(store, "t1", source, policy.decide, _no_submit, NOW,
+                     no_action_reason=runner._no_action_reason)
+    latest = store.latest("t1")
+    assert latest.state is TaskState.NO_ACTION and latest.proposal is None
+    assert store.no_action_reason("t1", latest.seq) == "missing_state_or_metrics"
+
+
+def test_a_dsp_server_error_on_the_state_is_still_retried(store):
+    """[S1404] 另一半:5xx/連線故障照純讀取重試,不寫成缺現況。"""
+    store.create_task("t1", "c1", NOW)
+    dead = "http://127.0.0.1:9"  # 沒有人聽的埠:連線失敗
+    for _ in range(3):
+        state = flow.advance(store, "t1", dsp_client.make_client(dead, timeout_seconds=0.2),
+                             lambda *_a: flow.NoAction(), _no_submit, NOW)
+    assert state is TaskState.COLLECTING_EVIDENCE
+
+
+def _no_submit(_proposal):
+    raise AssertionError("不該送件")
 
 
 # ---- S206 ----
@@ -431,20 +472,22 @@ def test_a_history_summary_that_contradicts_its_rows_is_invalid():
     summary = {"total_operations": 60, "total_budget_changes": 1, "total_pauses": 59,
                "budget_changes_7d": 1, "budget_changes_last_3d": 1,
                "has_recent_budget_change": True}
-    good = {"history": rows, "summary": summary, "truncated": True}
-    assert dsp_client.check_history(good) == good
+    good = {"campaign_id": "c1", "history": rows, "summary": summary, "truncated": True}
+    assert dsp_client.check_history(good, "c1") == good
     for broken in (
             {**summary, "total_budget_changes": 0, "budget_changes_7d": 0,
              "budget_changes_last_3d": 0, "has_recent_budget_change": False},
             {**summary, "total_pauses": 999_999_999},
             {**summary, "total_pauses": 48},
             {**summary, "total_operations": 50, "total_pauses": 49}):
-        assert dsp_client.check_history({**good, "summary": broken}) is None, broken
-    assert dsp_client.check_history({"history": rows[:10]}) == {"history": rows[:10]}
-    assert dsp_client.check_history({"history": rows[:10], "summary": summary}) is None
-    assert dsp_client.check_history({**good, "truncated": False}) is None
-    assert dsp_client.check_history({**good, "history": rows[:49]}) is None
-    assert dsp_client.check_history({"history": _history_rows(51)}) is None
+        assert dsp_client.check_history({**good, "summary": broken}, "c1") is None, broken
+    small = {"campaign_id": "c1", "history": rows[:10]}
+    assert dsp_client.check_history(small, "c1") == small
+    assert dsp_client.check_history({**small, "summary": summary}, "c1") is None
+    assert dsp_client.check_history({**good, "truncated": False}, "c1") is None
+    assert dsp_client.check_history({**good, "history": rows[:49]}, "c1") is None
+    assert dsp_client.check_history({"campaign_id": "c1", "history": _history_rows(51)},
+                                    "c1") is None
 
 
 def test_a_legacy_adjustment_without_budget_before_is_read_as_missing():
@@ -492,7 +535,7 @@ def _truncated(rows, **counts):
     summary = {"total_operations": 60, "total_budget_changes": 1, "total_pauses": 59,
                "budget_changes_7d": 1, "budget_changes_last_3d": 1,
                "has_recent_budget_change": True, **counts}
-    return {"history": rows, "summary": summary, "truncated": True}
+    return {"campaign_id": "c1", "history": rows, "summary": summary, "truncated": True}
 
 
 def test_a_truncated_history_summary_must_account_for_every_operation():
@@ -500,9 +543,9 @@ def test_a_truncated_history_summary_must_account_for_every_operation():
     原本只要求小於等於,60 筆說成 1 筆加額加 49 筆暫停也收下,截斷收據少報 10 筆。"""
     rows = _history_rows(49) + _history_rows(1, "update_budget")
     rows[-1]["operation_id"] = 50
-    assert dsp_client.check_history(_truncated(rows)) is not None
-    assert dsp_client.check_history(_truncated(rows, total_pauses=49)) is None
-    assert dsp_client.check_history(_truncated(rows, total_operations=61)) is None
+    assert dsp_client.check_history(_truncated(rows), "c1") is not None
+    assert dsp_client.check_history(_truncated(rows, total_pauses=49), "c1") is None
+    assert dsp_client.check_history(_truncated(rows, total_operations=61), "c1") is None
 
 
 def test_a_truncated_history_summary_cannot_undercount_recent_rows():
@@ -519,7 +562,7 @@ def test_a_truncated_history_summary_cannot_undercount_recent_rows():
     bodies = {}
 
     def reader(_task, _option):
-        return dsp_client.QueryRead(dsp_client.check_history(bodies["history"]))
+        return dsp_client.QueryRead(dsp_client.check_history(bodies["history"], "c1"))
 
     option = QueryOption.CHECK_CHANGE_HISTORY.value
     for counts, ok in (({}, True),
@@ -545,11 +588,11 @@ def test_only_the_seven_day_check_catches_an_undercounted_week():
     rows[-1].update(operation_id=50, received_at=five_days, committed_at=five_days)
     body = _truncated(rows, budget_changes_7d=0, budget_changes_last_3d=0,
                       has_recent_budget_change=False)
-    assert dsp_client.check_history(body) is not None  # 不用時鐘的核對擋不下
+    assert dsp_client.check_history(body, "c1") is not None  # 不用時鐘的核對擋不下
 
     option = QueryOption.CHECK_CHANGE_HISTORY.value
     read = dsp_client.read_query_options(
-        lambda _task, _option: dsp_client.QueryRead(dsp_client.check_history(body)),
+        lambda _task, _option: dsp_client.QueryRead(dsp_client.check_history(body, "c1")),
         make_row(), (option,), NOW)[option]
     assert read.reason == "invalid"
 
@@ -574,6 +617,25 @@ def test_a_normal_read_delay_near_the_three_day_line_is_not_invalid():
         body = _truncated(rows, **counts)
         read = dsp_client.read_query_options(
             lambda _task, _option, body=body: dsp_client.QueryRead(
-                dsp_client.check_history(body)),
+                dsp_client.check_history(body, "c1")),
             make_row(), (option,), NOW)[option]
         assert read.reason == reason, counts
+
+
+# ---- Phase 14 代碼審 r1 資安-2:操作歷史核對廣告編號(進了正式規則第 3 條)----
+def test_the_change_history_must_belong_to_the_task_campaign(dsp):
+    """代碼審 r2 架構對齊-1:跟同檔 check_daily/check_adjustments 同款——廣告編號必填、
+    頂層形狀連編號一起驗、核過的編號留在回傳值裡(收據只讀列與摘要,形狀不受影響)。"""
+    import inspect
+
+    rows = []
+    param = inspect.signature(dsp_client.check_history).parameters["campaign_id"]
+    assert param.default is inspect.Parameter.empty  # 不能不給就跳過核對
+    good = {"campaign_id": "c1", "history": rows}
+    assert dsp_client.check_history(good, "c1") == good
+    for body in ({"campaign_id": "c2", "history": rows}, {"history": rows},
+                 {"campaign_id": 7, "history": rows}, {**good, "extra": 1}):
+        assert dsp_client.check_history(body, "c1") is None, body
+    reader = dsp_client.make_query_reader(dsp, 3.0)
+    read = reader(make_row(), "check_change_history")
+    assert read.reason is None and read.raw == {"campaign_id": "c1", "history": []}

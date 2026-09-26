@@ -1,0 +1,40 @@
+{
+ "loop": "rtb-phase14-inc3-scope",
+ "round": "r2",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-26T23:58:12+08:00",
+ "spec_path": "docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md",
+ "spec_sha": "7e3a4dd28b27d438b6ac18f5c7af7a3e362c019a8de454fb8cdf10634921f967",
+ "rows": [
+  "{\"ts\": \"2026-09-26T23:37:02+08:00\", \"kind\": \"none\", \"auditor\": \"鏡頭2\", \"token\": \"CANARY-c162ad8c\", \"note\": \"\", \"loop\": \"rtb-phase14-inc3-scope\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 3, \"result_sha256\": \"85b8395bdc8eac5e41d8e70feb432ed501d0af42139a7109ae647105fd93ebe4\", \"reviewed_sha256\": \"85b8395bdc8eac5e41d8e70feb432ed501d0af42139a7109ae647105fd93ebe4\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md\", \"scope_lines\": 300, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 3, \"report_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r1-鏡頭2.md\", \"report_sha256\": \"7a88ee64ed01004c0ab282b452f8237bdf6a66468192bec1ecabc6d290f279b1\", \"snapshot_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r1-snapshot.md\", \"snapshot_sha256\": \"388ce9ec41cb39b13ce0c9bf512750f131948464c8d3a5d48c2688521ae6b1b1\"}",
+  "{\"ts\": \"2026-09-26T23:37:02+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-39bb0cfa\", \"note\": \"\", \"loop\": \"rtb-phase14-inc3-scope\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"85b8395bdc8eac5e41d8e70feb432ed501d0af42139a7109ae647105fd93ebe4\", \"reviewed_sha256\": \"85b8395bdc8eac5e41d8e70feb432ed501d0af42139a7109ae647105fd93ebe4\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md\", \"scope_lines\": 300, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 2, \"report_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r1-架構對齊.md\", \"report_sha256\": \"2adeccf5f56d481249c014030d71ad16ce390e1f73e1a25f1d80d97b5d8dd439\", \"snapshot_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r1-snapshot.md\", \"snapshot_sha256\": \"388ce9ec41cb39b13ce0c9bf512750f131948464c8d3a5d48c2688521ae6b1b1\"}",
+  "{\"ts\": \"2026-09-26T23:37:02+08:00\", \"kind\": \"none\", \"auditor\": \"單席\", \"token\": \"CANARY-205cf8f0\", \"note\": \"\", \"loop\": \"rtb-phase14-inc3-scope\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 7, \"result_sha256\": \"85b8395bdc8eac5e41d8e70feb432ed501d0af42139a7109ae647105fd93ebe4\", \"reviewed_sha256\": \"85b8395bdc8eac5e41d8e70feb432ed501d0af42139a7109ae647105fd93ebe4\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md\", \"scope_lines\": 300, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"s_1\", \"s_2\", \"s_3\", \"s_4\", \"s_5\", \"s_6\", \"s_7\", \"l2_1\", \"l2_2\", \"l2_3\", \"a_1\", \"a_2\"], \"folded_set\": [\"s_1\", \"s_2\", \"s_3\", \"s_4\", \"s_5\", \"s_6\", \"s_7\", \"l2_1\", \"l2_2\", \"l2_3\", \"a_1\", \"a_2\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"s_1\": \"spec\", \"s_2\": \"spec\", \"s_3\": \"spec\", \"s_4\": \"spec\", \"s_5\": \"spec\", \"s_6\": \"spec\", \"s_7\": \"spec\", \"l2_1\": \"spec\", \"l2_2\": \"spec\", \"l2_3\": \"spec\", \"a_1\": \"spec\", \"a_2\": \"spec\"}, \"reported\": 7, \"report_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r1-單席.md\", \"report_sha256\": \"5eada83304e9806a7bb1478ae6292fdbe912c5a7fd74b1e63686260c2d38fce4\", \"snapshot_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r1-snapshot.md\", \"snapshot_sha256\": \"388ce9ec41cb39b13ce0c9bf512750f131948464c8d3a5d48c2688521ae6b1b1\", \"intake_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r1-intake.md\", \"intake_sha256\": \"4857d09a3a641e26d45b53ab122456066b8b4c0a62105a90d70612ceed7b7259\"}",
+  "{\"ts\": \"2026-09-26T23:58:10+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-b42a3642\", \"note\": \"\", \"loop\": \"rtb-phase14-inc3-scope\", \"round\": \"r2\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"7e3a4dd28b27d438b6ac18f5c7af7a3e362c019a8de454fb8cdf10634921f967\", \"reviewed_sha256\": \"7e3a4dd28b27d438b6ac18f5c7af7a3e362c019a8de454fb8cdf10634921f967\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md\", \"scope_lines\": 320, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 0, \"report_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r2-架構對齊.md\", \"report_sha256\": \"bf3f6adc6dab947e29391a17e563a150e9839fb84978d78c12b3bf0666d8a30c\", \"snapshot_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r2-snapshot.md\", \"snapshot_sha256\": \"85b8395bdc8eac5e41d8e70feb432ed501d0af42139a7109ae647105fd93ebe4\"}",
+  "{\"ts\": \"2026-09-26T23:58:11+08:00\", \"kind\": \"none\", \"auditor\": \"單席\", \"token\": \"CANARY-b5824636\", \"note\": \"\", \"loop\": \"rtb-phase14-inc3-scope\", \"round\": \"r2\", \"severity\": \"major\", \"findings\": 5, \"result_sha256\": \"7e3a4dd28b27d438b6ac18f5c7af7a3e362c019a8de454fb8cdf10634921f967\", \"reviewed_sha256\": \"7e3a4dd28b27d438b6ac18f5c7af7a3e362c019a8de454fb8cdf10634921f967\", \"spec_path\": \"docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md\", \"scope_lines\": 320, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"s_1\", \"s_2\", \"s_3\", \"s_4\", \"s_5\"], \"folded_set\": [\"s_1\", \"s_2\", \"s_3\", \"s_4\", \"s_5\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"s_1\": \"spec\", \"s_2\": \"spec\", \"s_3\": \"spec\", \"s_4\": \"spec\", \"s_5\": \"spec\"}, \"reported\": 5, \"report_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r2-單席.md\", \"report_sha256\": \"9775e1b5ef6546d31f82eb9f3662b94ab7733f1d2389f960748cc65ea161f1eb\", \"snapshot_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r2-snapshot.md\", \"snapshot_sha256\": \"85b8395bdc8eac5e41d8e70feb432ed501d0af42139a7109ae647105fd93ebe4\", \"intake_path\": \"governance/review-reports/rtb-phase14-inc3-scope/r2-intake.md\", \"intake_sha256\": \"b263a7eb05b466af33d6349e942496c72a2058ea275343c7e3730b0b4ac0a396\"}"
+ ],
+ "all_row_shas": [
+  "647976c305c427d206374c70e436632f36c1ee0e43945804634dbb54f4bb54cf",
+  "72c103573c40bf8308b39fe18e527792c0755ef18e64b254ef9695c25390b3d9",
+  "7953cad072a9ea3e9d8a727cb1206715d12ee07d1f14585b605d25a81e8b5e26",
+  "a2924d97dfdfb2a9c7e044bcf099439d986845c2def56bfc37e1082e67b84697",
+  "d1de97cf87d748ede389aebbc091ee6d7e328ef955c3797edc441d422613756e"
+ ],
+ "files": {
+  "governance/review-reports/rtb-phase14-inc3-scope/r2-架構對齊.md": {
+   "sha256": "bf3f6adc6dab947e29391a17e563a150e9839fb84978d78c12b3bf0666d8a30c",
+   "git_blob": "8f90a86cef3425477a4fef3dd18a2367f183af94"
+  },
+  "governance/review-reports/rtb-phase14-inc3-scope/r2-snapshot.md": {
+   "sha256": "85b8395bdc8eac5e41d8e70feb432ed501d0af42139a7109ae647105fd93ebe4",
+   "git_blob": "18ba7806764d49d98c5ab3401d4be785abc1a945"
+  },
+  "governance/review-reports/rtb-phase14-inc3-scope/r2-單席.md": {
+   "sha256": "9775e1b5ef6546d31f82eb9f3662b94ab7733f1d2389f960748cc65ea161f1eb",
+   "git_blob": "5d274401039d616982f330ce6693b5d3b6ed9972"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

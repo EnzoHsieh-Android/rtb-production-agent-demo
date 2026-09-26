@@ -376,3 +376,26 @@ def test_the_write_call_scan_catches_forgetful_variants(tmp_path, variant):
         file.write(extra)
 
     assert write_call_offenders(src) != [], variant
+
+
+def test_the_investigation_vocabulary_depends_on_flow_one_way_only():
+    """增量 3 代碼審 r1 架構對齊-1:AI 調查的結果型別(AiContext、AiOutcome、QueryMore)照計劃
+    〈拆增量〉3 搬到調查詞彙模組,它們的結果欄要用流程層的決策型別,所以 investigation 只准從 flow
+    匯入這兩個型別名;flow 反過來不准匯入 investigation 或 AI 決策模組(方向只有一條,不成環,
+    流程層照舊不知道 AI)。"""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "src" / "rtb" / "analyzer"
+
+    def from_imports(name):
+        tree = ast.parse((root / f"{name}.py").read_text(encoding="utf-8"))
+        return [(n.module, {a.name for a in n.names}) for n in ast.walk(tree)
+                if isinstance(n, ast.ImportFrom)]
+
+    flow_imports = from_imports("flow")
+    assert not [m for m, names in flow_imports if m and (
+        "investigation" in m or "ai_judge" in m
+        or (m == "rtb.analyzer" and names & {"investigation", "ai_judge"}))]
+    from_flow = [names for m, names in from_imports("investigation") if m == "rtb.analyzer.flow"]
+    assert from_flow == [{"Decision", "RuleContinue"}]

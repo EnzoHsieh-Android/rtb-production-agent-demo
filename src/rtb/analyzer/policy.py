@@ -1,12 +1,19 @@
-"""示範用的最小決策規則:讓整條流程能被示範跑完,不是交接文件後面階段要做的真正業務規則。
+"""正式決策規則(Phase 14 增量 2b 起判「值不值得加」用九條,計劃
+[[Projects/RTB_Phase14正式規則照九條判斷_計劃]])。
 
 規則:先檢查每一筆證據的新鮮度,任一筆不新鮮就回 NeedsFreshEvidence(退回重新蒐證),不拿
 過時的數字做決策——分析行程當機很久才重啟時,歷史表裡的證據可能早就過時。分析端手上最新的
 版本資訊就是這批證據自己讀到的版本,所以這裡實際起作用的只有年齡;「跟 DSP 現況比版本」是
 執行行程執行前重讀 DSP 時的事(Phase 3),不在這裡假裝做了。
-接著用增量 1 metrics.py 既有的 pacing() 判斷配速,缺值或不知道一律 NoAction,不猜、不丟例外。
-配速明顯偏低(暫用門檻 0.5)且曝光、點擊都大於零(真的有在投放,不是設定壞了)才提案調高預算
-(固定漲一成,暫用值)。
+接著看可信現況與成效:缺(或狀態不是啟用/暫停)就 MISSING_STATE_OR_METRICS 不提案([S1404])。
+再用基本資料判九條的第 1/2 條(暫停、1 小時資料異常),命中就結案、不需要追加查詢([S1401]);
+然後用增量 1 metrics.py 既有的 pacing() 判斷配速,缺值或不知道一律 NoAction,不猜、不丟例外。
+配速明顯偏低(暫用門檻 0.5)才進九條其餘各條:要四種追加查詢的有效原始結果(`queries`),由領域
+`rtb.domain.nine_rules` 判;任一查詢沒有結果就證據不足([S1402])。只有判「值得加」才提案調高預算
+(固定漲一成,暫用值)。舊的「曝光點擊正數就值得加」判法已撤掉,不留暗門。
+
+四查詢怎麼分步讀、輪次怎麼算,在 `rule_round`([[Systems/分析行程流程與檢查點]]);這支檔只收已驗證的
+領域型別,`queries=None` 表示「還沒讀四查詢,判到配速就停」,給規則輪的步驟 A 用。
 
 已知限制:這支示範規則永遠把提案的修訂序號當成 1,不會追蹤同一個任務先前送過幾次修訂;
 一個任務被收件口退回(SubmitStale)之後重新分析,示範規則不會自動送出下一個修訂——這個限制
@@ -22,6 +29,7 @@ from typing import Any, ClassVar, Protocol
 
 from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
 from rtb.analyzer.task_store import TaskRow
+from rtb.domain import nine_rules as rules
 from rtb.domain._checks import is_plain_number
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass, check_freshness
 from rtb.domain.metrics import pacing
@@ -136,50 +144,58 @@ class NoActionReason(StrEnum):
     NOT_UNDERPACING = "not_underpacing"
     JUDGED_NOT_WORTH = "judged_not_worth"
     JUDGED_INSUFFICIENT = "judged_insufficient"
-    # 考題結束(Phase 13 增量 2,[S1156]):分析端驅動帶 --hold-submit 時,清單裡的廣告不論 AI 或規則判
-    # 提案都不送件、以不提案結案。現行規則永遠產不出它([S705] 照 Phase 13 改寫排除它);AI 的兩個結論
-    # 沿用上面的「判不值得加」「判證據不足」,來源記在調查紀錄
-    EXAM_HOLD = "exam_hold"
+    # Phase 13 的「考題結束」(exam_hold,--hold-submit)在 Phase 14 增量 3 撤除([S1156] [S1421]):AI
+    # 退出加額決策後沒有考題用途。舊資料庫裡寫過的 exam_hold 字串照樣唯讀留著(不提案原因表存字串)
 
 
-def _has_delivery(impressions: object, clicks: object) -> bool:
-    """現行程式規則:曝光與點擊都是正數就值得加(Phase 2 起的示範規則,抽出來之前原樣的判斷式)。"""
-    return is_plain_number(impressions) and is_plain_number(clicks) \
-        and impressions > 0 and clicks > 0
+# 評估轉接器明傳的「沒有四查詢」(Phase 10 舊情境只有 1 小時資料,[S1417]):不假造查詢結果,
+# 暫停/異常照第 1/2 條先判,其餘都是證據不足
+MISSING_FOUR_QUERIES = rules.RuleEvidence()
 
 
-def code_rule(worth_input: WorthInput) -> WorthVerdict:
-    """現行程式規則:只產出值得加或不值得加,不看狀態與轉換營收(Phase 10 的評估記成程式缺陷)。"""
-    if _has_delivery(worth_input.impressions, worth_input.clicks):
-        return WorthVerdict.WORTH
-    return WorthVerdict.NOT_WORTH
+def code_rule(worth_input: WorthInput, queries: rules.RuleEvidence, now: datetime) -> WorthVerdict:
+    """正式程式規則(九條,Phase 14):四查詢由呼叫端明傳;缺就明傳 MISSING_FOUR_QUERIES。"""
+    return rules.decide(worth_input, queries, now).verdict
 
 
-def _candidate_answer(candidate: CandidateCall, worth_input: WorthInput) -> RouteResult:
+@dataclass(frozen=True)
+class _RuleCall:
+    queries: rules.RuleEvidence
+    now: datetime
+
+
+def _candidate_answer(candidate: CandidateCall, worth_input: WorthInput,
+                      rule: _RuleCall) -> RouteResult:
     try:
         answer = candidate.judge(worth_input, candidate.timeout_seconds)
     except (MemoryError, RecursionError):  # 行程本身出事,不是候選判斷失敗:照舊往外丟
         raise
     except TimeoutError:
-        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_TIMEOUT)
+        return RouteResult(code_rule(worth_input, rule.queries, rule.now),
+                           RoutePath.FALLBACK_TIMEOUT)
     except Exception:  # 候選是可替換的外部判斷:任何失敗都退回現行規則,不讓它改變流程狀態
-        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_EXCEPTION)
+        return RouteResult(code_rule(worth_input, rule.queries, rule.now),
+                           RoutePath.FALLBACK_EXCEPTION)
     if not isinstance(answer, WorthVerdict):
-        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_INVALID)
+        return RouteResult(code_rule(worth_input, rule.queries, rule.now),
+                           RoutePath.FALLBACK_INVALID)
     if answer is WorthVerdict.UNSURE:
-        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_UNSURE)
+        return RouteResult(code_rule(worth_input, rule.queries, rule.now),
+                           RoutePath.FALLBACK_UNSURE)
     return RouteResult(answer, RoutePath.CANDIDATE)
 
 
 def route(
     worth_input: WorthInput, candidate: CandidateCall | None,
-    allowed: ValidatedCells | TrialCells,
+    allowed: ValidatedCells | TrialCells, *, queries: rules.RuleEvidence, now: datetime,
 ) -> RouteResult:
-    """只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選,其餘走現行程式規則([S701])。
-    允許清單在正式路徑是已驗證清單,在評估入口是待測格清單。"""
+    """只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選,其餘走正式程式規則([S701])。
+    允許清單在正式路徑是已驗證清單,在評估入口是待測格清單。四查詢與決策時間一律明傳(Phase 14
+    [S1417]:Phase 10 舊情境明傳 MISSING_FOUR_QUERIES),候選的各種退回也接同一份。"""
+    rule = _RuleCall(queries, now)
     if candidate is None or cell_of(worth_input) not in allowed.cells:
-        return RouteResult(code_rule(worth_input), RoutePath.CODE_RULE)
-    return _candidate_answer(candidate, worth_input)
+        return RouteResult(code_rule(worth_input, queries, now), RoutePath.CODE_RULE)
+    return _candidate_answer(candidate, worth_input, rule)
 
 
 def _worth_input(state: dict[str, Any], metrics: dict[str, Any]) -> WorthInput:
@@ -193,85 +209,126 @@ def _worth_input(state: dict[str, Any], metrics: dict[str, Any]) -> WorthInput:
         conversions=metrics.get("conversions"), revenue=metrics.get("revenue"))
 
 
-def _judge(
-    state: dict[str, Any], metrics: dict[str, Any], candidate: CandidateCall | None,
-    allowed: ValidatedCells,
-) -> WorthVerdict:
-    try:
-        worth_input = _worth_input(state, metrics)
-    except WorthInputInvalid:  # 歸不了格:照原樣的判斷式走現行規則(正式路徑上白名單已擋掉同樣的值)
-        has_delivery = _has_delivery(metrics.get("impressions"), metrics.get("clicks"))
-        return WorthVerdict.WORTH if has_delivery else WorthVerdict.NOT_WORTH
-    return route(worth_input, candidate, allowed).verdict
+def _has_state(state: dict[str, Any] | None) -> bool:
+    """可信現況要有合法狀態(啟用或暫停);缺值或非法跟沒有現況一樣([S1404],不進九格)。"""
+    return state is not None and state.get("status") in {s.value for s in CampaignStatus}
 
 
 @dataclass(frozen=True)
 class PolicySteps:
     """決策規則每一步的中間事實,照規則的順序,停在做出決定的那一步(後面的是空的)。給 `explain`
     自己用,也給展示頁重算判斷的根據(Phase 12 代碼審 r1 a1:外面不再直接呼叫這裡的私有函式、
-    也不再自己另算一次配速)。唯讀:不寫任何東西、不讀時鐘。"""
+    也不再自己另算一次配速)。唯讀:不寫任何東西、不讀時鐘。
+
+    Phase 14:`rule` 是九條的結論(暫停/異常在配速之前就有;其餘在配速偏低、給了四查詢才有);
+    配速照舊算出來(評估的 AI 前置過濾與展示要看),暫停/異常時不影響結論。"""
 
     fresh: bool  # 每一筆證據都夠新
-    state: MappingProxyType[str, Any] | None  # 可信的廣告現況(沒有就是空的)
+    state: MappingProxyType[str, Any] | None  # 可信的廣告現況(沒有或狀態不合法就是空的)
     metrics: MappingProxyType[str, Any] | None  # 可信的成效資料
     pacing_ratio: float | None  # 到現在該花的進度(算不出來是空的)
     underpacing: bool | None  # 花太慢嗎;算不出來是空的
-    worth: WorthVerdict | None  # 值不值得加(只在花太慢時判)
+    worth: WorthVerdict | None  # 值不值得加(暫停/異常,或花太慢而且給了四查詢時才判)
+    rule: rules.RuleDecision | None = None  # 九條的結論(同上)
+
+    @property
+    def settled_by_base(self) -> bool:
+        """只用基本資料就結案(暫停、1 小時異常、判斷點輸入建不起來),不需要追加查詢([S1401])。"""
+        return self.rule is not None and self.rule.reason in _BASE_REASONS
+
+    @property
+    def needs_queries(self) -> bool:
+        """基本資料可續判、配速偏低,但還沒拿四查詢判(規則輪的步驟 A 之後要讀 B/C)。"""
+        return self.underpacing is True and self.rule is None
+
+
+# 只用基本資料就判得出的結論:第 1/2 條與無格的輸入不合法(第 3 到 9 條要四查詢)
+_BASE_REASONS = frozenset({rules.RuleReason.PAUSED, rules.RuleReason.ANOMALY,
+                           rules.RuleReason.INPUT_INVALID})
+
+
+def _base_rule(worth_input: WorthInput | None, now: datetime) -> rules.RuleDecision | None:
+    """九條第 1/2 條(只用基本資料);輸入建不起來也在這裡結案。其餘回 None,待配速與四查詢。"""
+    if worth_input is None:
+        return rules.decide(None, MISSING_FOUR_QUERIES, now)
+    decision = rules.decide(worth_input, MISSING_FOUR_QUERIES, now)
+    return decision if decision.cell in (rules.Cell.PAUSED, rules.Cell.ANOMALY) else None
 
 
 def steps(
     evidence: tuple[Evidence, ...], now: datetime, *,
     candidate: CandidateCall | None = None, allowed: ValidatedCells = ValidatedCells.NONE,
+    queries: rules.RuleEvidence | None = MISSING_FOUR_QUERIES,
 ) -> PolicySteps:
-    """照規則的順序一步一步算,停在做出決定的那一步;候選只在花太慢時才會被呼叫(跟原本一樣)。"""
+    """照規則的順序一步一步算,停在做出決定的那一步;候選只在花太慢時才會被呼叫(跟原本一樣)。
+    `queries=None`:還沒讀四查詢,配速偏低時停在配速(`needs_queries`)。"""
     if not _all_fresh(evidence, now):
         return PolicySteps(False, None, None, None, None, None)
     state = _payload(evidence, EvidenceKind.CAMPAIGN_STATE)
     metrics = _payload(evidence, EvidenceKind.METRICS)
+    if not _has_state(state):
+        state = None
     frozen = (None if state is None else MappingProxyType(state),
               None if metrics is None else MappingProxyType(metrics))
     if state is None or metrics is None:
         return PolicySteps(True, *frozen, None, None, None)
+    try:
+        worth_input: WorthInput | None = _worth_input(state, metrics)
+    except WorthInputInvalid:  # 其他欄位建不起判斷點輸入:九條之外的輸入不合法,證據不足
+        worth_input = None
     ratio = pacing(metrics.get("spend"), state.get("budget"), ELAPSED_FRACTION_1H)
     underpacing = ratio.below(UNDERPACING_THRESHOLD)
-    if not underpacing:
+    base = _base_rule(worth_input, now)
+    if base is not None:
+        return PolicySteps(True, *frozen, ratio.value, underpacing, base.verdict, base)
+    if not underpacing or queries is None or worth_input is None:
         return PolicySteps(True, *frozen, ratio.value, underpacing, None)
-    return PolicySteps(True, *frozen, ratio.value, True,
-                       _judge(state, metrics, candidate, allowed))
+    if candidate is not None:  # 評估入口(Phase 10):候選照允許清單,退回接同一份四查詢
+        verdict = route(worth_input, candidate, allowed, queries=queries, now=now).verdict
+        return PolicySteps(True, *frozen, ratio.value, True, verdict)
+    decided = rules.decide(worth_input, queries, now)
+    return PolicySteps(True, *frozen, ratio.value, True, decided.verdict, decided)
+
+
+def _verdict_reason(verdict: WorthVerdict | None) -> NoActionReason:
+    return (NoActionReason.JUDGED_INSUFFICIENT if verdict is WorthVerdict.INSUFFICIENT
+            else NoActionReason.JUDGED_NOT_WORTH)
 
 
 def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
     task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime, *,
     candidate: CandidateCall | None, allowed: ValidatedCells,
+    queries: rules.RuleEvidence = MISSING_FOUR_QUERIES,
 ) -> tuple[Decision, NoActionReason | None]:
     """決策結果加「為什麼沒提案」(評估用,[S705]);決策結果那一半就是 `decide` 的回傳值,
     `decide` 對某筆輸入丟例外時這裡丟同一種。候選與允許清單都要明寫(`decide` 傳沒有候選、空清單),
-    非空的只給評估入口用。每一步的中間事實由 `steps` 算(同一份邏輯)。"""
-    facts = steps(evidence, now, candidate=candidate, allowed=allowed)
+    非空的只給評估入口用。每一步的中間事實由 `steps` 算(同一份邏輯)。四查詢沒給就是
+    MISSING_FOUR_QUERIES:配速偏低的其餘情形一律證據不足(不回舊的「有投放就加」)。
+    提案的證據參照是傳進來的每一筆(規則輪傳基本三筆加四種查詢收據,[S1107] 改寫)。"""
+    facts = steps(evidence, now, candidate=candidate, allowed=allowed, queries=queries)
     if not facts.fresh:
         return NeedsFreshEvidence(), NoActionReason.STALE_EVIDENCE
     state, metrics = facts.state, facts.metrics
     if state is None or metrics is None:
         return NoAction(), NoActionReason.MISSING_STATE_OR_METRICS
-
+    if facts.settled_by_base:
+        return NoAction(), _verdict_reason(facts.worth)
     if facts.underpacing is None:
         return NoAction(), NoActionReason.PACING_UNKNOWN
     if facts.underpacing is False:
         return NoAction(), NoActionReason.NOT_UNDERPACING
     verdict = facts.worth
-    if verdict is WorthVerdict.INSUFFICIENT:
-        return NoAction(), NoActionReason.JUDGED_INSUFFICIENT
     if verdict is not WorthVerdict.WORTH:
-        return NoAction(), NoActionReason.JUDGED_NOT_WORTH
+        return NoAction(), _verdict_reason(verdict)
 
     return ProposalDecision(build_proposal(task, evidence, state, now)), None
 
 
 def build_proposal(task: TaskRow | None, evidence: tuple[Evidence, ...],
                    state: Mapping[str, Any], now: datetime) -> Proposal:
-    """照公式建提案(Phase 13 增量 2 從 `explain` 抽出,[S1107]):現行規則判值得加與 AI 選 propose
-    都呼叫這一支,所以兩條路徑的提案(原因代碼、風險說明、政策版本、到期時間、證據參照)逐欄相同。
-    證據參照列的是傳進來的每一筆:呼叫端只傳現況、1 小時指標、廣告文字三種。"""
+    """照公式建提案(Phase 13 增量 2 從 `explain` 抽出,[S1107]):Phase 14 起只有規則(規則輪定案)會建
+    提案;增量 3 起 AI 不參與加額決策,沒有任何 AI 提案或 AI 開輪的路。
+    證據參照列的是傳進來的每一筆:規則輪傳 C 的基本三筆加四種成功查詢的收據([S1107] 改寫)。"""
     budget = state.get("budget")
     if task is None:
         raise AssertionError("有真的證據可以決策,task 不該是 None")
@@ -296,5 +353,7 @@ def build_proposal(task: TaskRow | None, evidence: tuple[Evidence, ...],
 
 def decide(task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime) -> Decision:
     """`now` 由流程層傳進來(`advance()` 手上、也寫進歷史列的同一個時間),這裡不自己讀系統時鐘。
-    正式路徑沒有候選、允許清單是空的,所以「值不值得加」永遠走現行程式規則([S704])。"""
-    return explain(task, evidence, now, candidate=None, allowed=ValidatedCells.NONE)[0]
+    沒有候選、允許清單是空的([S704]);只有這一批證據、沒有四查詢(明傳 MISSING_FOUR_QUERIES),
+    所以配速偏低的其餘情形是證據不足。分析端驅動的正式路徑走規則輪(`rule_round`),分步讀四查詢。"""
+    return explain(task, evidence, now, candidate=None, allowed=ValidatedCells.NONE,
+                   queries=MISSING_FOUR_QUERIES)[0]

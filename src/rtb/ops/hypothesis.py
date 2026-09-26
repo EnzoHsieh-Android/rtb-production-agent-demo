@@ -270,9 +270,8 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
 
 
 def _ask(text: str, put_back: Callable[[str], str], settings: mc.Settings,
-         args: argparse.Namespace, alerts: Sequence[SloStatus]) -> dict[str, Any]:
+         args: argparse.Namespace, alerts: Sequence[SloStatus], errors: TextIO) -> dict[str, Any]:
     """呼叫模型並驗證;回印出用的 hypothesis 一欄。花費帳忙碌往外丟 LedgerBusy。"""
-    live = settings.mode is mc.Mode.LIVE
     shown: dict[str, Any] = {"mode": settings.mode.value, "notices": list(settings.notices)}
     model_request = mc.ModelRequest(caller=mc.Caller.HYPOTHESIS, system=SYSTEM_PROMPT, user=text,
                                     max_output_tokens=MAX_OUTPUT_TOKENS,
@@ -282,8 +281,9 @@ def _ask(text: str, put_back: Callable[[str], str], settings: mc.Settings,
         result = mc.call_model(
             model_request, settings,
             recordings_dir=args.recordings_dir or mc.default_recordings_dir(),
-            ledger=mc.live_ledger_path() if live
-            else (args.ledger or args.recorded_ledger or mc.live_ledger_path()))
+            ledger=mc.recorded_ledger(settings.mode, args.ledger or args.recorded_ledger,
+                                      lambda text: print(text, file=errors))
+            or mc.live_ledger_path())
     except mc.LedgerBusy:
         raise
     except mc.ModelCallFailed as refusal:
@@ -353,7 +353,7 @@ def _hypothesis(args: argparse.Namespace, settings: mc.Settings, sources: sli.So
     text, put_back = build_input(args.now, statuses, sources, load_tenants(args.tenants_config))
     busy = False
     try:
-        shown = _ask(text, put_back, settings, args, alerts)
+        shown = _ask(text, put_back, settings, args, alerts, errors)
     except mc.LedgerBusy:
         busy = True
         shown = {"status": "failed", "message": NO_HYPOTHESIS, "reason": "ledger_busy"}

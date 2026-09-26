@@ -1,20 +1,28 @@
 """展示錄製批次入庫前的檢查(Phase 13 增量 4,計劃〈錄製批次與入庫〉「驗過」的第 1、2、4 條,[S1164];
-另加 F1 到 F6 任何一輪 AI 退回就不過,跟 CI 守衛同一支判法,增量 4 代碼審 r2 m1)。
+Phase 14 增量 3 改寫,計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3、[S1428])。
 
-入庫的展示錄製(recordings/model/phase13-demo/)要先過這三條才准入庫:
-1. 批次裡設定錯誤、花費帳忙碌、無法可靠分類這三類的錄製都是 0 份(claude 剛好登出時整批都是設定錯誤,
-   重播時全數退回規則,卻看起來像量過了)。
-2. 目錄裡每個錄製檔的批次編號都等於這一批,也沒有殘留的佔位檔(沿用模型用戶端的開錄前目錄檢查)。
-4. 用錄製模式跑一次 F1 到 F6,找不到錄製的筆數為 0(登入預檢沒過時整趟走規則、一份錄製都不會留下,
-   空目錄
-   會通過前兩條)。F7 共用 F1 的錄製鍵([S1158]),不另跑。
+AI 退出分析端的加額決策後,展示只剩兩支模型入口:提案說明(NARRATIVE)與告警原因假說(HYPOTHESIS)。
+新的入庫目錄是 recordings/model/phase14-demo/,批次編號 `phase14-demo-YYYYMMDD`;舊的
+recordings/model/phase13-demo/ 六份與 `phase13-demo-20260925` 唯讀留作歷史證據(完整性由
+tests/model/test_recording_integrity.py 守),展示重播不再讀它。入庫前要過:
+1. 批次裡設定錯誤、花費帳忙碌、無法可靠分類這三類的錄製都是 0 份(claude 剛好登出時整批都是
+   設定錯誤)。
+2. 目錄裡每個錄製檔的批次編號都等於這一批,也沒有殘留的佔位檔(沿用模型用戶端的開錄前目錄檢查);
+   批次裡不准有分析端調查(INVESTIGATION)的錄製——分析端不再呼叫 AI。
+4. 用錄製模式跑一次 F1 到 F6,找不到錄製的筆數為 0;**每一份送進收件口的提案都要有一次說明的錄製
+   呼叫**。提案數從情境自己的分析端資料庫讀(送進收件口的那幾列),不看被驗的驅動寫了什麼(增量 3 代碼
+   審 r1 外家finder-1):F4/F6 原任務 t1 的提案送進過收件口,照樣要有說明;接續任務照九條第 3 條不提案,
+   不算。一份提案都沒有的情境可以沒有帳本。告警有響才會問假說,有問就一樣不准找不到錄製。
+   F7 不另外錄。
 
-找不到錄製的筆數讀每個情境自己的暫存花費帳(錄製模式每次呼叫都記一筆,找不到的記「沒有錄製」),所以
-分析端的調查、模型說明與原因假說三種呼叫都算進去。
+找不到錄製的筆數讀每個情境自己的暫存花費帳(錄製模式每次呼叫都記一筆,找不到的記「沒有錄製」)。
+Phase 13 的「F1 到 F6 任何一輪 AI 退回就不過」守衛(ai_fallback_problems)隨增量 3 撤除:
+沒有 AI 那一步。
 
 這支檔不給展示伺服器與驅動程式匯入(它讀錄製檔,要用模型用戶端的錄製模組;驅動程式的匯入閉包不含模型
 用戶端,[S1143])。命令列:`python -m rtb.demo.recordings --dir <錄製目錄> --batch-id <批次>
---work-dir <暫存目錄>`,印一行 JSON,都過結束代碼 0,不過 1。
+--work-dir <暫存目錄>`,印一行 JSON,都過結束代碼 0,不過 1;加 `--record` 以即時加錄製錄一批
+(協調者用真 claude 錄;測試一律用假 claude)。
 """
 
 import argparse
@@ -26,22 +34,25 @@ import sys
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
 from rtb import modelclient as mc
-from rtb.demo.driver import DEMO_RECORDINGS, DONE, NOT_EXERCISED, Driver
+from rtb.analyzer.task_store import TaskReader
+from rtb.demo.driver import DEMO_RECORDINGS, DONE, Driver
 from rtb.demo.keys import DemoKeys
 from rtb.demo.launcher import MODEL_VARIABLES
-from rtb.demo.present import build_demo_state
 from rtb.demo.state_store import StateReader, StateWriter
 from rtb.modelledger_view import ModelLedgerView
 from rtb.modelledger_view import Outcome as LedgerOutcome
 
 REPLAYED = ("F1", "F2", "F3", "F4", "F5", "F6")
-BATCH_PATTERN = re.compile(r"phase13-demo-\d{8}")  # 入庫的展示批次(計劃〈錄製批次與入庫〉)
-BATCH_SHAPE = "phase13-demo-YYYYMMDD"
-FINISHED = frozenset({DONE, NOT_EXERCISED})  # 重播算數:情境要真的跑完(代碼審 r1 k1)
+BATCH_PATTERN = re.compile(r"phase14-demo-\d{8}")  # 入庫的展示批次([S1428])
+BATCH_SHAPE = "phase14-demo-YYYYMMDD"
+FINISHED = frozenset({DONE})  # 重播算數:情境要真的跑完(代碼審 r1 k1)
+# 花費帳與錄製檔裡的呼叫者欄(只讀、比對字串;呼叫者標籤的列舉只准各自的入口用,邊界測試守,
+# 測試核對這兩個值等於 modelledger_view.Caller 的成員值)
+NARRATIVE_CALLER = "analyzer_narrative"
+RETIRED_CALLERS = frozenset({"analyzer_investigation"})  # 展示批次不准有的呼叫者(分析端調查)
 _EVER = ("2000-01-01T00:00:00+00:00", "9999-01-01T00:00:00+00:00")
 
 
@@ -66,51 +77,59 @@ def batch_problems(directory: Path, batch_id: str) -> tuple[str, ...]:
         f"批次編號要是 {BATCH_SHAPE}:{batch_id}"]
     problems += mc.batch_file_problems(directory, BATCH_PATTERN, BATCH_SHAPE)
     if directory.is_dir():
-        others = sorted({str(data.get("batch_id")) for _p, data in mc.recording_files(directory)
+        files = mc.recording_files(directory)
+        others = sorted({str(data.get("batch_id")) for _p, data in files
                          if isinstance(data, dict) and "batch_id" in data} - {batch_id})
         if others:
             problems.append(f"目錄裡有別的批次:{others}(要檢查的是 {batch_id})")
+        retired = sum(1 for _p, data in files
+                      if isinstance(data, dict) and data.get("caller") in RETIRED_CALLERS)
+        if retired:
+            problems.append(f"批次裡有分析端調查的錄製 {retired} 份:分析端不再呼叫 AI,不准入庫")
     return tuple(problems)
 
 
 def replay_problems(verdicts: Sequence[tuple[str, str, str | None]],
-                    ledgers: Mapping[str, Path]) -> tuple[int, tuple[str, ...]]:
-    """第 4 條:回(找不到錄製的筆數, 重播本身的問題)。每個情境要跑完(照預期或故障沒走到),每一本帳
-    都要在、都有呼叫紀錄——情境在第一次問 AI 之前就失敗,帳根本不會建,那一段錄製等於沒驗
-    (代碼審 r1 k1/l2/s3)。"""
+                    ledgers: Mapping[str, Path],
+                    proposals: Mapping[str, int]) -> tuple[int, tuple[str, ...]]:
+    """第 4 條:回(找不到錄製的筆數, 重播本身的問題)。每個情境要跑完;送進收件口的提案(proposals,
+    從情境的分析端資料庫數)每一份都要有一次說明的錄製呼叫——情境在說明之前就失敗,帳根本不會建,那一段
+    錄製等於沒驗(代碼審 r1 k1/l2/s3)。一份提案都沒有的情境可以沒有帳本;有帳本就照樣數找不到錄製的
+    筆數。"""
     problems = [f"{code} 沒有跑完:{status}({reason})" for code, status, reason in verdicts
                 if status not in FINISHED]
     missing = 0
     for code, ledger in ledgers.items():
         calls = _calls(ledger)
+        wanted = proposals.get(code, 0)
+        narrated = sum(1 for caller, _outcome in calls or [] if caller == NARRATIVE_CALLER)
+        if narrated < wanted:
+            problems.append(f"{code} 有 {wanted} 份送出的提案,帳裡只有 {narrated} 次提案說明的"
+                            "錄製呼叫")
         if calls is None:
-            problems.append(f"{code} 的花費帳不在或讀不了:這個情境一次都沒有問 AI")
             continue
-        if not calls:
-            problems.append(f"{code} 的花費帳沒有任何呼叫紀錄")
-        missing += sum(1 for outcome in calls if outcome == LedgerOutcome.NO_RECORDING.value)
+        missing += sum(1 for _caller, outcome in calls
+                       if outcome == LedgerOutcome.NO_RECORDING.value)
+        retired = sum(1 for caller, _outcome in calls if caller in RETIRED_CALLERS)
+        if retired:
+            problems.append(f"{code} 呼叫了分析端調查 {retired} 次:分析端不該再呼叫 AI")
     return missing, tuple(problems)
 
 
-def ai_fallback_problems(state_db: Path, demo_id: str,
-                         codes: Sequence[str] = REPLAYED) -> tuple[str, ...]:
-    """重播 F1 到 F6 時,任何一件工作的任何一輪 AI 退回程式規則(流程走 a_ai → a_rule)都算一條問題
-    (使用者 2026-09-25 裁定的 CI 守衛;增量 4 代碼審 r2 m1 搬進這裡:錄完的自動檢查、入庫前檢查與 CI
-    測試呼叫同一支,錄到退回就判不過、要重錄)。F7 不查。讀展示狀態庫,跟頁面同一份判斷列。"""
-    reader = StateReader(state_db)
+def proposals_in(analyzer_db: Path) -> int:
+    """一個情境送進收件口的提案份數(分析端資料庫裡交給執行的列,同一份提案只算一次);資料庫不在是 0。
+    讀的是分析端自己的唯讀開法,跟驅動寫不寫說明無關。"""
+    if not analyzer_db.is_file():
+        return 0
+    reader = TaskReader(analyzer_db)
     try:
-        shown = build_demo_state(reader, demo_id, running=False, now=datetime.now(UTC))
+        return len({(row.task_id, row.proposal.revision) for row in reader.handed_off_rows()
+                    if row.proposal is not None})
     finally:
         reader.close()
-    wanted = set(codes) - {"F7"}
-    return tuple(
-        f"{scenario.code.value} 工作 {decision.task_id} 的 AI 這次沒有給出回答、退回程式規則"
-        f"({decision.outcome})"
-        for scenario in shown.scenarios if scenario.code.value in wanted
-        for decision in scenario.path if decision.taken_edge == ("a_ai", "a_rule"))
 
 
-def _calls(ledger: Path) -> list[str | None] | None:
+def _calls(ledger: Path) -> list[tuple[str | None, str | None]] | None:
     if not ledger.is_file():
         return None
     try:
@@ -118,7 +137,7 @@ def _calls(ledger: Path) -> list[str | None] | None:
     except Exception:  # 讀不了、還沒建齊
         return None
     try:
-        return [call.outcome for call in view.calls_between(*_EVER)]
+        return [(call.caller, call.outcome) for call in view.calls_between(*_EVER)]
     finally:
         view.close()
 
@@ -142,16 +161,15 @@ def check_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
     finally:
         state.close()
     missing, replayed = replay_problems(
-        verdicts, {code: driver.root / code / "model-ledger.db" for code in codes})
-    fallbacks = ai_fallback_problems(work_dir / "state.db", demo_id, codes)
-    return BatchCheck(missing, (*batch_problems(directory, batch_id), *replayed, *fallbacks),
-                      verdicts)
+        verdicts, {code: driver.root / code / "model-ledger.db" for code in codes},
+        {code: proposals_in(driver.root / code / "analyzer.db") for code in codes})
+    return BatchCheck(missing, (*batch_problems(directory, batch_id), *replayed), verdicts)
 
 
 # ---- 錄一批展示錄製(協調者用真 claude 錄;測試一律用假 claude) ----
-RECORDED_CODES = REPLAYED  # F7 不錄:它與 F5 雙胞胎共用 F1 的錄製鍵([S1158])
-NEXT_STEP = ("驗過之後把整個目錄搬進 " + str(DEMO_RECORDINGS) + "(整個替換入庫的那一份,不在舊目錄"
-             "上疊錄),再跑一次入庫前檢查:python -m rtb.demo.recordings --dir "
+RECORDED_CODES = REPLAYED  # F7 不另外錄(入庫檢查只重播 F1 到 F6)
+NEXT_STEP = ("驗過之後把整個目錄搬成 " + str(DEMO_RECORDINGS) + "(新的入庫目錄;舊的 phase13-demo "
+             "唯讀保留,不覆寫、不刪),再跑一次入庫前檢查:python -m rtb.demo.recordings --dir "
              + str(DEMO_RECORDINGS) + " --batch-id {batch} --work-dir <暫存目錄>")
 
 
@@ -201,9 +219,9 @@ def recording_problems(directory: Path, batch_id: str,
 
 def record_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
                       user_env: Mapping[str, str] | None = None) -> RecordResult:
-    """依序以即時加錄製跑 F1 到 F6,分析端、說明、假說三支模型入口都寫進同一個全新目錄、同一個批次;
-    錄完自動跑一次入庫前檢查(重播 F1 到 F6)。即時模式的花費帳照設計記在帳號家目錄那一本。目錄一律
-    先轉成絕對路徑(同 `check_demo_batch`)。"""
+    """依序以即時加錄製跑 F1 到 F6,說明與假說兩支模型入口都寫進同一個全新目錄、同一個批次(分析端不
+    呼叫 AI);錄完自動跑一次入庫前檢查(重播 F1 到 F6)。即時模式的花費帳照設計記在帳號家目錄那一本。
+    目錄一律先轉成絕對路徑(同 `check_demo_batch`)。"""
     directory, work_dir = Path(directory).resolve(), Path(work_dir).resolve()
     env = {**(os.environ if user_env is None else user_env),
            mc.LIVE_ENV: "1", mc.RECORD_ENV: "1"}
@@ -223,8 +241,9 @@ def record_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
         state.close()
     found = [f"{code} 錄的時候沒有跑完:{status}({reason})" for code, status, reason in verdicts
              if status not in FINISHED]
-    found += [f"{code} 的分析端沒有判成即時({mode})" for code, mode in modes.items()
-              if mode != "live"]
+    # 模式由說明與假說入口自己回報;沒呼叫模型的情境(沒有提案也沒有告警)是空的,不算錄失敗
+    found += [f"{code} 的模型入口沒有判成即時({mode})" for code, mode in modes.items()
+              if mode is not None and mode != "live"]
     check = check_demo_batch(directory, batch_id, work_dir / "check",
                              user_env={k: v for k, v in env.items() if k not in MODEL_VARIABLES})
     return RecordResult(tuple(found), verdicts, check, NEXT_STEP.format(batch=batch_id))
@@ -233,9 +252,10 @@ def record_demo_batch(directory: Path, batch_id: str, work_dir: Path, *,
 def _modes(state_db: Path, demo_id: str) -> dict[str, str | None]:
     reader = StateReader(state_db)
     try:
-        return {code: (details.model_mode if details is not None else None)
-                for code in RECORDED_CODES
-                for details in (reader.scenario_details(demo_id, code),)}
+        return {code: (details.model_mode
+                       if (details := reader.scenario_details(demo_id, code)) is not None
+                       else None)
+                for code in RECORDED_CODES}
     finally:
         reader.close()
 

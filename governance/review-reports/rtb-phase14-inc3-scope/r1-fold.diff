@@ -1,0 +1,303 @@
+diff --git a/docs/.governance-log.jsonl b/docs/.governance-log.jsonl
+index 68cdc84..892f57b 100644
+--- a/docs/.governance-log.jsonl
++++ b/docs/.governance-log.jsonl
+@@ -6593,3 +6593,10 @@
+ {"ts": "2026-09-26T22:39:00+08:00", "commit": "32447ea", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-phase14-inc2b-final"], "note": "disposal gate PASS"}
+ {"ts": "2026-09-26T23:06:39+08:00", "commit": "32447ea", "gate": "delguard", "kind": "degraded", "hard": false, "nodes": [], "note": "reason=timeout tokens=40"}
+ {"ts": "2026-09-26T23:06:42+08:00", "commit": "32447ea", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "32447eac57fc043c08a819976816e4139d3fc883"}
++{"ts": "2026-09-26T23:07:05+08:00", "commit": "46bab9a", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-26T23:07:06+08:00", "commit": "46bab9a", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "46bab9aa47d0419a493b8b929828046cafd7d27e"}
++{"ts": "2026-09-26T23:07:18+08:00", "commit": "2b7d6dd", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-26T23:07:19+08:00", "commit": "2b7d6dd", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "2b7d6dd6589b30a73b99c52882adfe33d1e3db20"}
++{"ts": "2026-09-26T23:20:17+08:00", "commit": "528280d", "gate": "delguard", "kind": "ok", "hard": false, "nodes": [], "note": "tokens=0 hits=0 secs=0.0"}
++{"ts": "2026-09-26T23:20:17+08:00", "commit": "528280d", "gate": "nodehome-check", "kind": "passed", "hard": false, "nodes": [], "note": "這次提交:新違規 0 條", "detail": "這次提交:新違規 0 條", "head_sha": "528280dbf20da9f7c527a06dc424127a2cc54dfa"}
++{"ts": "2026-09-26T23:36:59+08:00", "commit": "0ae6fea", "gate": "spec-gate", "kind": "spec-gate-run", "hard": false, "nodes": ["Projects/RTB_Phase14正式規則照九條判斷_計劃.md"], "note": "door=high clauses=27 bound=20 red=0 green=20 weak=0 regress=62 S1401=green S1402=green S1403=green S1404=green S1405=green S1406=green S1407=green S1408=green S1412=green S1413=green S1414=green S1415=green S1416=green S1417=green S1419=green S1422=green S1423=green S1424=green S1425=green S1426=green"}
+diff --git "a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI\345\217\203\350\210\207\346\261\272\347\255\226_\350\250\210\345\212\203.md" "b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI\345\217\203\350\210\207\346\261\272\347\255\226_\350\250\210\345\212\203.md"
+index e54352c..5aa6309 100644
+--- "a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI\345\217\203\350\210\207\346\261\272\347\255\226_\350\250\210\345\212\203.md"
++++ "b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI\345\217\203\350\210\207\346\261\272\347\255\226_\350\250\210\345\212\203.md"
+@@ -29,7 +29,7 @@ lands_in:
+ 
+ PRIOR-ART: ReAct 式「想一步、做一步、看結果再想」的調查迴圈(只借「每輪只准一個動作、動作結果交回模型」的骨架,不借自由呼叫工具);Anthropic〈Building effective agents〉的「路由與固定工作流程優先於自主 agent」;把模型輸出限縮成列舉值再由程式驗證(結構化輸出/受限選項,驗證一律在我方程式,不信任後端宣稱);模型失敗退回確定性規則(本專案 Phase 10 的路由與退回、Phase 11B 的模型用戶端與錄製重播)。NVIDIA SoL-Pi 的四個機制(Action Fusion、Online Context Compact、ObservationPack、Evidence-Preserving Reducer;使用者 2026-09-25 指定,出處與數字來自使用者貼上的整理,協調者沒有另外查證原文)——本計劃只借設計原則,不引入它的程式。不引入任何 agent 框架或套件(零依賴家規)。否決過:讓模型直接呼叫工具(Claude Code 的工具全關是 Phase 11B 的安全底線,見 [[Projects/RTB_Phase11B大模型接入_計劃]])。
+ RETIRE-IF: 使用者決定展示不再讓 AI 影響要不要提案(退回純程式規則,只留說明與假說);或兩批錄製的評估裡,模型在任一評分格的誤提案數多於現行規則;或 Claude Code 非互動模式不能再用、又沒有換成 API 後端;或連續三次展示 AI 步驟全數退回程式規則(等於只是在花錢展示退回)。
+-RETIRE-IF 觸發(2026-09-26):使用者裁定 AI 退出加額決策、只留說明/告警/找規則模式,第一條成立;撤除執行見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉8 與〈拆增量〉3,評估與錄製保留作歷史證據。
++RETIRE-IF 觸發(2026-09-26):使用者裁定 AI 退出加額決策、只留說明/告警/找規則模式,第一條成立;撤除執行見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉8 與〈拆增量〉3。舊調查錄製及展示批次留作歷史證據；評估執行器的重播與協調者授權即時加錄製能力保留,不回接正式／展示提案入口。
+ 
+ ## 這份計劃在解決什麼
+ 
+@@ -664,13 +664,18 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
+ ## 合約候選
+ 
+ - [S1100] 當分析端任何模組要呼叫模型時,應只經分析端模型閘道匯入模型用戶端;准匯入模型閘道的分析端模組應只有 AI 決策函式所在模組、分析端驅動命令列與模型說明命令列,流程推進函式、決策規則與 DSP 用戶端的匯入閉包應不含模型用戶端的任何一支模組。[test:test_the_analyzer_reaches_the_model_only_through_the_gateway]
++  - 2026-09-26 代使用者裁定：改寫：正式 runner 與展示不再准匯入 ai_judge／模型閘道；ai_judge 只供評估，narrate 仍為模型說明入口。匯入白名單測試依新邊界改綁。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1101] 當給定一個展示編號時,花費帳唯讀開法應回這個展示編號的已用,包含已結算金額與還沒結算的預留。[test:test_the_ledger_sums_one_demo_including_open_reservations]
+ - [S1102] 當說明命令列、假說命令列或開了 AI 決策的分析端驅動命令列在錄製模式收到帳檔參數時,花費帳應記在指定路徑,家目錄下的真帳應不被建立或修改。[test:test_recorded_entries_book_into_the_given_ledger]
+ - [S1103] 呼叫者列舉應含「分析端調查」成員,模型與 Jev 指標應照呼叫者分且標籤仍是封閉集合。[test:test_the_investigation_caller_is_a_bounded_label]
+ - [S1104] 當現況或 1 小時指標過期、缺現況或指標、配速算不出或配速不偏低時,分析端應不呼叫模型,決策應等於現行決策函式對現況、1 小時指標與廣告文字三種證據的結果;追加查詢的收據過期應不影響這個判定。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 代碼審 r1 改寫:前置過濾另含九條第 1/2 條(暫停、1 小時異常、判斷點輸入建不成),直接由規則結案、不呼叫模型;評估的原始錄製重播通道沿用舊過濾只為還原模型原始答案。)[test:test_code_prefilters_run_before_any_model_call] [test:test_paused_and_anomalous_campaigns_never_reach_the_model]
++  - 2026-09-26 代使用者裁定：改寫：正式前置判斷一律走九條規則；AI 前置過濾只供評估舊錄製重播，原模型呼叫測試移往評估側。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1105] 當模型的回答不是恰好含 choice、reason、evidence 三欄的 JSON、選項不在這一輪允許清單、或理由超過 200 字或含換行與不可列印字元時,分析端應丟掉這個回答並改由現行規則決定,這一輪應記成選項外答案。[test:test_an_answer_outside_the_fixed_options_falls_back_to_the_rule]
++  - 2026-09-26 代使用者裁定：保留評估用：格式／選項驗證與退回只在 Phase 13 評估執行器可達，原分析端測試改成評估測試。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1106] 當模型用戶端丟出模型呼叫失敗類別的子類別、或我方本地驗證不過時,分析端應改由現行規則決定並記下退回原因類別,流程應不轉失敗(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b 改寫:程式規則是九條,暫停/異常用基本三筆當場結案,其餘退回開一次新規則輪 A/B/C 全量重讀四查詢再定案,不沿用 AI 期查詢);當丟出的是停止訊號轉成的例外或 KeyboardInterrupt 時,AI 決策函式應不接住、讓它往外丟。[test:test_model_call_failures_fall_back_but_stop_signals_propagate]
++  - 2026-09-26 代使用者裁定：保留評估用：模型故障與停止訊號語意留在 Judge／評估，不再是正式 runner 的退回路徑。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1107] 當模型選了值得加時,產生的提案應跟沒開 AI 時現行規則對同一批現況、1 小時指標與廣告文字產生的提案逐欄相同,包含證據參照與內容雜湊。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 改寫:程式規則判值得加的提案,證據參照另列四種成功查詢的收據;兩條路徑除證據參照外逐欄相同,只有用同一批完整證據建的才連參照都相同。代碼審 r1 後改為:AI 答 propose 不再直接建提案,一律開規則輪、九條也判值得加才由規則輪建提案,見 Phase 14 [S1407]。)[test:test_a_model_chosen_proposal_equals_the_formula_proposal]
++  - 2026-09-26 代使用者裁定：改寫：正式提案完全由九條決定；AI 提案與否決的歷史比較只供評估，原正式路徑斷言改綁規則。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1108] 當模型選查詢選項時,分析端只呼叫該選項需要的唯讀端點、不呼叫寫入端點;Phase 14 增量 2a 起單查逐日仍只讀逐日一次;同一步也選了較長時間窗時,才用已讀到的 1d/7d 在讀取層核對跨窗,不為核對另打 DSP(2a 代碼審 r1 改正:先前這裡誤寫成逐日另讀 1d、7d 共三讀,與程式、`READS_PER_OPTION` 及租約算式不符),其餘對應不變。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1414]。[test:test_each_query_option_maps_to_its_read_only_endpoints]
+ - [S1109] 當一件工作的調查紀錄累計已有 2 輪模型呼叫、或已經查滿 3 個查詢選項時,下一輪的允許清單應只剩三個結論選項,模型再選查詢應當成選項外答案退回現行規則。[test:test_the_round_cap_leaves_only_final_choices]
+ - [S1110] 當 AI 那一步轉成回蒐集證據、已提案、不提案或退回規則任一種時,調查紀錄應跟狀態列在同一個交易、同一道租約與序號圍籬裡寫入,只增不改地記下這一輪的選項、理由、來源與退回原因類別;提交輸給接手者時應連紀錄一起沒寫入。[test:test_every_model_round_is_committed_with_its_step]
+@@ -679,15 +684,18 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
+ - [S1113] 當分析端驅動命令列帶 --ai-judge 啟動、而且蒐集證據一步的最壞耗時(取租約等鎖加 6 次讀取各自的 DSP 逾時與呼叫紀錄等鎖加提交等鎖)不小於租約,或從續租讀時鐘之後算起 AI 那一步的最壞耗時(模型逾時 15 加行程群組清理加 4 次花費帳等鎖加送出前記次等鎖加提交等鎖)不小於租約時,驅動命令列應拒絕啟動,算式的每個數字應取自真常數;沒帶 --ai-judge 時應照舊只守 [S1001]。(2026-09-26 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1405]:兩種模式都另守規則輪 A/B/C 逐步上界,沒開 AI 的 5 秒逾時因 C=60 秒改為拒絕。)[test:test_the_runner_refuses_a_model_timeout_that_outlives_the_lease]
+ - [S1114] 執行端與收件口應不讀調查紀錄表,提案應不帶任何模型產生的欄位。[test:test_the_executor_never_sees_model_rounds]
+ - [S1115] 當一批證據除了現況、1 小時指標與廣告文字之外還帶任意追加查詢收據(含已過期的)時,AI 決策函式傳給現行決策函式、不提案原因函式與建提案函式的證據應只含那三種,結果應跟不帶時相同。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b:退回改開規則輪,規則輪自己重讀四查詢;AI 期收據照舊不進程式規則。)[test:test_extra_query_evidence_never_changes_the_code_rule]
++  - 2026-09-26 代使用者裁定：保留評估用：AI 期收據隔離仍供舊錄製還原；正式規則使用同輪四查詢，舊「只看基本三筆」斷言撤除。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1116] 當模型呼叫途中收到停止訊號時,分析端驅動命令列應明接停止訊號轉成的例外,放掉租約、這一步不寫入並以 0 結束。[test:test_a_stop_signal_during_a_model_call_ends_the_runner_cleanly]
+ - [S1117] 調查評估報告應逐格只用名稱正常的案例報誤提案率、類別正確率與值得加格召回率,另報每個決策的輪數、原價與退回原因;合成集的結論應是不採用。[test:test_the_investigation_report_is_per_slice_and_never_adopts_synthetic]
+ - [S1118] 評估集的每一筆正常案例應配一份名稱藏誘導文字的雙胞胎,每格應是 4 組正常加 4 份誘導共 8 筆;報告應另列結論跟名稱正常時不同的筆數與差異,誘導案例應不算進逐格指標。[test:test_the_report_counts_decisions_flipped_by_injected_names]
+ - [S1119] 評估的採用決定應不產生任何給正式路徑的已驗證清單,正式路徑的決策函式應照舊不帶候選。[test:test_the_investigation_evaluation_never_validates_a_slice]
+ - [S1120] 當展示沒有把某個情境列進即時清單時,那個情境開了 AI 決策的分析端驅動命令列應只讀錄製回應,不啟動任何 claude 子行程。[test:test_the_demo_uses_recordings_unless_live_is_switched_on]
++  - 2026-09-26 代使用者裁定：改寫：展示即時清單只控制提案說明與告警假說，不再控制分析端 AI 判斷；測試改驗兩入口環境。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1121] 當情境開了 AI 決策時,頁面每一輪應顯示程式格式化的證據、允許的選項、選了什麼、標「AI 產生、僅供參考」的理由、標「AI 引用的收據值(已核對存在)」的引用,以及程式怎麼接手;頁面不標錄製或即時來源。(使用者 2026-09-25 裁定:只標「AI 產生、僅供參考」,不標錄製或即時;Phase 12 白話規則仍適用。)[test:test_each_ai_round_shows_evidence_choice_reason_and_takeover]
+ - [S1122] 當某一輪退回現行規則時,頁面應在那一步標「這次改由程式規則決定」與原因類別;底層 no_recording 在頁面顯示「AI 這次沒有給出回答」算原因類別的白話。(使用者 2026-09-25 裁定:缺錄原因只改頁面文字,不改底層代碼。)[test:test_a_fallback_is_labelled_on_the_page]
+ - [S1123] 開了 AI 決策的情境,詳情頁與靜態報告不掛「展示模式、未通過採用門檻」橫幅。(使用者 2026-09-25 裁定:整段展示模式橫幅完全拿掉,含兩行說明。)[test:test_ai_scenarios_have_no_demo_mode_banner]
+ - [S1124] 當 F5 開了 AI 決策時,驅動程式應照樣斷言程式層不變量與全平台只可能有受攻擊廣告那一筆寫入;雙胞胎應是 runner 照一般路徑判的真任務、列在 --hold-submit 清單裡不送件,考題結果應比對兩件任務調查紀錄的選項序列與結論後另外記下。[test:test_f5_checks_program_invariants_and_reports_the_model_exam]
++  - 2026-09-26 代使用者裁定：撤除：F5 雙胞胎、--hold-submit 與模型選項考題整組刪除；改測對抗名稱只作逸出文字、規則與提案不變及說明數字可追溯。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1125] 錄製模式全部跑一次的頁面,與「這次改由程式規則決定」「AI 判不提案,故障處理這次沒有走到」「模型考題沒通過」三種標示的頁面,應讓沒背景的人看懂每一個 AI 步驟。[manual:使用者本人看錄製模式全部跑一次的截圖,加上用工作目錄裡不入庫的假錄製分別跑 F1、F2、F5 產生的三種標示截圖,確認每個 AI 步驟的證據、選擇、理由、程式接手與三種標示都看得懂、標示清楚;看過的截圖與日期記在 Phase 13 驗收紀錄]
+   - 展示頁改版補驗(協調者統一拍新版截圖時進入同一筆 Phase 13 驗收紀錄):真 F7 詳情的首屏同內容逐輪卡應合併顯示筆數、不同內容仍分卡；390px 手機寬度整頁無橫向捲動，只有流程圖區塊可左右捲動；F5 情境結果與「模型考題沒通過」分開可讀。這三項目前只有合成資料及 HTML/CSS 結構測試，截圖核對前不得寫成瀏覽器實測通過。
+ - [S1126] 模擬 DSP 的逐日與過去調整端點只接受 GET;跨 UTC 日界的首次讀取可同交易物化完整日桶與 1d/7d,之後重讀冪等。逐日回應仍只列相對日數,過去調整列須帶 `committed_at`;操作紀錄不得因讀取改動。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1425][S1426]。[test:test_the_daily_and_past_adjustment_endpoints_are_get_only_and_idempotent]
+@@ -703,14 +711,19 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
+ - [S1136] 當分析端驅動命令列帶 --ai-judge 時,展示啟動器停它的寬限時間應用跟守衛同一組匯入的常數算出,而且不小於續租等鎖加上續租後 AI 那一步的最壞耗時。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1419] 改寫:沒帶 --ai-judge 的舊 7 秒寬限撤掉,改取 max(舊兩讀寬限, 規則輪 A/B/C 最壞秒數),預設 50 秒;帶 --ai-judge 再跟 AI 步取最大值。)[test:test_the_stop_grace_covers_one_ai_step_from_the_shared_constants]
+ - [S1137] 開了 AI 決策的分析端驅動命令列應只在啟動時判一次模型模式,之後每一輪應沿用同一個判定、不再執行 claude 版本檢查。[test:test_the_runner_decides_the_model_mode_once_at_startup]
+ - [S1138] 當一件工作的調查紀錄已有一輪退回或一個結論時,這件工作之後的蒐證應只讀基本兩樣、不重讀查詢,再進分析應直接用現行規則、不呼叫模型,並在調查紀錄記一列「AI 已用過,改由程式規則」。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b 改寫:「只讀基本兩樣」撤除;AI 用過之後的蒐證改讀規則輪下一步(A 是基本兩樣,B/C 讀四查詢),規則輪那幾步的分析直接問規則輪、不經 AI 決策函式;AI 期查詢照舊不沿用。)[test:test_a_task_that_already_used_the_ai_goes_straight_to_the_rule]
++  - 2026-09-26 代使用者裁定：保留評估用：AI 已用過的規則輪只在歷史評估重播；正式任務本來就走 A/B/C，不看 AI 使用紀錄。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1139] 展示觀察器應用轉換加同序號調查紀錄列的原因代碼查回頭節點,調查紀錄表不在時應當成沒有原因代碼;帶 ai_query 的「分析中 → 蒐集證據」與不帶的同一個轉換應各自對到自己的節點,兩個節點應不互蓋。[test:test_ai_query_and_stale_recollect_map_to_different_back_nodes]
+ - [S1140] 當採用門檻的 cost_exempt 是真時,採用判定應跳過成本那一項,延遲與失敗率應照樣檢查;cost_exempt 是真而成本門檻不是 None 時,建構門檻應被拒絕;cost_exempt 是假而成本是 None 時,應照舊判「門檻還沒裁定」。[test:test_an_explicit_no_cost_gate_skips_only_the_cost_check]
+ - [S1141] CI 裡的調查評估應只重播 recordings/model/phase13-investigation-eval/ 底下的錄製,應不啟動任何 claude 子行程;報告應列出找不到錄製的筆數,而且這個數應為 0;入庫批次裡設定錯誤、花費帳忙碌、無法可靠分類與輸出撞頂自動續寫(使用者 2026-09-25 裁定,見 [[Projects/RTB_Phase11B大模型接入_計劃]] [S936])的錄製應各為 0 份,每個錄製檔的批次編號應都等於這一批,也應沒有殘留的佔位檔。[test:test_the_investigation_eval_in_ci_replays_only_and_misses_nothing]
+ - [S1142] 當分析端驅動命令列在即時加錄製模式啟動卻沒帶 --batch-id、或模型用戶端的開錄前目錄檢查判定錄製目錄既不是空的也不是只有同一批的檔時,應拒絕啟動,不呼叫任何模型。[test:test_the_runner_refuses_live_recording_without_a_batch_id_or_into_a_mixed_directory]
+ - [S1143] 當 F3 開了 AI 決策時,兩條賽跑執行緒應只推蒐集證據那一步、不呼叫任何決策函式,F3 的分析應由 runner 主執行緒照一般情境做;展示驅動的匯入閉包應不含 AI 決策模組、模型閘道與模型用戶端。[test:test_f3_races_only_the_evidence_step_and_the_driver_never_loads_the_model]
++  - 2026-09-26 代使用者裁定：改寫：F3 競爭只推蒐證步驟與展示不匯入 ai_judge 仍保留；「開 AI 決策」前提撤除。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1144] 當情境裡受測的那件工作的結局是 AI 合法判不提案、不是退回時,情境應在它以不提案結案時走完,結果應標「AI 判不提案,故障處理這次沒有走到」,應不算沒跑完也不算照預期演示了故障,AI 的判斷應另列一列。[test:test_a_legit_ai_no_propose_marks_the_fault_as_not_exercised]
++  - 2026-09-26 代使用者裁定：撤除：展示不再有 AI 合法判不提案的結局；故障是否演到由純規則實際結局判，舊測試刪除。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1145] 驅動程式應只給列在即時清單裡、而且那次帶 --ai-judge 的情境的分析端子行程三個模型環境變數;即時清單預設應是空的,F7 應不准放進清單。[test:test_only_listed_scenarios_get_live_model_env_and_f7_never_does]
++  - 2026-09-26 代使用者裁定：改寫：分析端不拿模型環境變數；即時清單只給說明／假說入口，F7 限制依是否實際呼叫模型重新判。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1146] 評估執行器應呼叫增量 2 的同一支 AI 決策函式,只把查詢的來源換成案例裡存的結果、續租回呼換成永遠成功、先前各輪紀錄放在記憶體;輪數上限、選項驗證、證據核對與退回應跟正式路徑相同。[test:test_the_investigation_eval_runs_the_same_ai_judge]
++  - 2026-09-26 代使用者裁定：保留評估用：評估執行器繼續呼叫同一 Judge，含錄製重播與授權即時錄製；正式 runner 不共用它。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1147] 收據的每個數值應是字串:比率與百分比用百分比刻度、固定 1 位小數並四捨五入到偶數,金額固定 2 位小數,計數寫整數,狀態寫短代號,負零應寫成 0.0,算不出時應是 na;收據格式化函式應只經精確比率函式取得比率,既有三態結果型別應不變。[test:test_receipt_values_are_fixed_strings_computed_in_the_domain]
+ - [S1148] 逐日與過去調整回應帶頂層廣告編號與 rows;逐日固定 7 列、缺資料日五欄 null 且 no_data 為真,金額固定兩位小數字串;過去調整最多最近一次加額一列、含帶時區 `committed_at`,未滿三日也收。廣告沒種回 404/not_found;列欄位不合格與跨窗真矛盾回 invalid。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1414][S1415][S1425]。[test:test_the_new_endpoints_have_a_fixed_row_shape_and_the_client_checks_every_row]
+ - [S1149] 當 AI 那一步續租成功時,流程層的目前收據容器應在續租當下就換成新收據;之後的提交、沒提交時的放掉租約與例外路徑應都用容器裡的新收據,續租後丟一般例外時 FAILED 應寫得進去,續租後丟停止訊號轉成的例外時放掉的應是新收據。[test:test_the_flow_commits_and_releases_with_the_renewed_receipt]
+@@ -721,18 +734,26 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
+ - [S1154] runner 與模型閘道應不從模型後端匯入任何名字;停止訊號轉成的例外應經模型用戶端轉手、模型閘道再轉給 runner。[test:test_the_stop_exception_reaches_the_runner_without_touching_the_backend]
+ - [S1155] 當門檻的 cost_exempt 是真時,報告的逐欄判定應在成本那一欄寫「不設門檻」、不比大小;Phase 11B 模型候選的門檻常數應不變。[test:test_the_report_writes_no_cost_gate_for_an_exempt_limit]
+ - [S1156] 當分析端驅動命令列帶 --hold-submit 而清單裡的廣告被判值得加時,不論是 AI 判的還是退回程式規則判的,都應不產生送件,這一步應以不提案結案、原因是考題結束,調查紀錄應照記是誰判的(2026-09-26 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b:退回改走規則輪後,規則輪定案也照清單攔;純規則路徑與全部出口的集中攔截 [S1421] 是增量 3);清單外的廣告應照舊送件。[test:test_held_campaigns_are_judged_but_never_submitted]
++  - 2026-09-26 代使用者裁定：撤除：--hold-submit、EXAM_HOLD、F5 雙胞胎及綁定測試一併刪除。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1157] 驅動核對分析端路徑時,不論這件工作的結局是提案還是不提案,都應接受 AI 選下一步、ai_query 回頭、第二次新鮮度判斷與改由程式規則這些節點,情境應不因路徑多出這些節點被判對不上。[test:test_ai_nodes_are_allowed_on_the_analysis_path]
++  - 2026-09-26 代使用者裁定：撤除：展示路徑不再容忍 AI 選下一步／ai_query 等死節點；改驗純規則流程圖。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1158] F7 全部 300 件工作與 F5 雙胞胎送給模型的內容,每一輪應各只有 1 個相異的錄製鍵,而且應等於 F1 受測廣告同一輪的錄製鍵。[test:test_f7_shares_one_recording_key_with_f1]
++  - 2026-09-26 代使用者裁定：撤除：F7 與 F5 雙胞胎共用 AI 錄製鍵已無用途；F7 同數字種子只留純規則結果核對，測試更名。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1159] 送給模型的系統提示應含完整九條評分規則,順序應跟標準答案產生函式的判定順序相同。[test:test_the_system_prompt_lists_the_nine_rules_in_answer_key_order]
++  - 2026-09-26 代使用者裁定：保留評估用：凍結調查提示九條與錄製鍵只驗歷史評估；正式與展示不送此提示。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1160] 當開了 AI 決策的分析端驅動命令列以即時模式啟動時,應在印出 READY 之後、取任何租約之前經模型閘道呼叫模型用戶端的 preflight_login 一次,並設後端的已登入旗標;預檢沒過時,這一趟應全部以程式規則決定並記退回原因「登入預檢沒過」,每一輪的模型呼叫應不再做登入檢查;錄製模式應回不適用、不呼叫任何東西。[test:test_the_runner_checks_the_login_once_before_taking_any_lease]
+ - [S1161] 當 AI 決策函式在續租前或呼叫模型前查到已收到停止時,應不續租、不呼叫模型,丟 RenewalSkipped,這一步不寫入。[test:test_a_pending_stop_skips_renewal_and_the_model_call]
+ - [S1162] domain 指標模組的精確比率函式應回分數或三態原因代碼之一;收據格式化與標準答案產生函式應都經它取得比率;金額量化溢位時收據應寫 na。[test:test_one_exact_ratio_function_feeds_receipts_and_the_answer_key]
+ - [S1163] 評估生成器產生的每一筆案例,每個百分比門檻用到的精確值應離門檻超過 0.05 個百分點。[test:test_no_generated_case_sits_on_a_rounding_boundary]
+ - [S1164] 展示批次入庫前,用錄製模式跑一次 F1 到 F6 時找不到錄製的筆數應為 0,批次也應滿足評估批次的另外兩條驗過條件;入庫後 CI 重播 F1–F6,任一輪 AI 退回就應失敗,F7 不查;入庫目錄未存在時照 [S1141] 跳過(2026-09-25 批次 phase13-demo-20260925 已入庫,這支 CI 測試已啟用)。(使用者 2026-09-25 裁定:加一條缺錄退回即紅的 CI 守衛,並用假錄製證明抓得到。)入庫前檢查(含錄完的自動檢查)也應把 F1–F6 任一輪 AI 退回算成問題、判不過,跟 CI 守衛同一支判法(增量 4 代碼審 r2 m1,代使用者裁定 2026-09-25)。[test:test_a_demo_batch_replays_f1_to_f6_without_a_missing_recording] [test:test_a_recorded_batch_with_ai_fallbacks_fails_the_intake_check] [test:test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6] [test:test_demo_recording_guard_catches_a_missing_fake_answer]
++  - 2026-09-26 代使用者裁定：改寫：展示新批只要求有提案情境的 NARRATIVE 錄製及實際觸發的 HYPOTHESIS；F4／F6 不提案接續任務可無帳本，撤除 AI 退回守衛與舊測試。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1165] 當評估執行器開始即時加錄製時,應先呼叫模型用戶端的開錄前目錄檢查,目錄既不是空的也不是只有同一批的檔時應拒絕開始。[test:test_the_eval_runner_refuses_to_record_into_a_mixed_directory]
+ - [S1166] 當某個情境列在即時清單裡時,驅動應給它的分析端一個這次展示專屬、不在入庫目錄底下的新錄製目錄,批次編號應是 demo-live 加展示編號;入庫的展示錄製目錄內容應不變。[test:test_live_scenarios_record_into_a_fresh_per_demo_directory]
++  - 2026-09-26 代使用者裁定：改寫：即時清單的獨立錄製目錄只供說明／假說入口；分析端不錄 AI 判斷，舊入庫批次留歷史。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1167] 驅動應依每件工作實際的結局選預期組:提案結局用情境既有的必經節點與收件口、寫入平台紀錄;不提案結局只核分析端紀錄、必經換成不提案結案或考題結束節點,而且這件工作的收件口與寫入平台紀錄應不存在;故障斷言應只對結局是提案的工作要求。[test:test_the_driver_picks_expectations_by_each_task_outcome]
++  - 2026-09-26 代使用者裁定：改寫：依純規則實際結局選預期；考題結束節點撤除，故障斷言仍只對有提案者生效。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1168] 當 F4 或 F6 的原任務演練到版本已變擋下、接續任務 AI 判證據不足時,情境應算照預期跑完,並標「故障照預期,接續任務 AI 判證據不足」。[test:test_f4_and_f6_accept_an_insufficient_follow_up]
++  - 2026-09-26 代使用者裁定：改寫：F4／F6 接續任務由規則第 3 條判證據不足即算預期，畫面不再寫 AI 判定。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ 
+ ### 要改寫的既有合約(落地時改到原出處的計劃或系統筆記)
+ 
+diff --git "a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14\346\255\243\345\274\217\350\246\217\345\211\207\347\205\247\344\271\235\346\242\235\345\210\244\346\226\267_\350\250\210\345\212\203.md" "b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14\346\255\243\345\274\217\350\246\217\345\211\207\347\205\247\344\271\235\346\242\235\345\210\244\346\226\267_\350\250\210\345\212\203.md"
+index badef4c..18ba780 100644
+--- "a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14\346\255\243\345\274\217\350\246\217\345\211\207\347\205\247\344\271\235\346\242\235\345\210\244\346\226\267_\350\250\210\345\212\203.md"
++++ "b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14\346\255\243\345\274\217\350\246\217\345\211\207\347\205\247\344\271\235\346\242\235\345\210\244\346\226\267_\350\250\210\345\212\203.md"
+@@ -9,11 +9,14 @@ summary: |-
+   WHY: 2026-09-26 第 1 輪設計審後，AI 提案要經四查詢與九條否決；列內缺值判證據不足；分步證據按輪次隔離；政策升版擋舊提案；報告分列 AI 原始、AI+規則否決與程式規則。出處：本計劃〈使用者裁定〉5–6、〈審計修正紀錄〉r1。
+   WHY: 2026-09-26 第 2 輪設計審與使用者裁定後，第 5 條七日任一天 no_data 即證據不足；DSP 預算調整改單源與 UTC 日期，A/B/C 進度由已提交列重算，AI 複查只定案一次，--hold-submit 攔全部提案出口。出處：本計劃〈使用者裁定〉7、〈審計修正紀錄〉r2。
+   WHY: 2026-09-26 第 3 輪末輪把加額三天切點移到決策時鐘，金額改用整數分精確核對，模擬 DSP 跨日生成新桶，缺狀態沿用缺現況原因；折入後由代碼審把關。出處：本計劃〈審計修正紀錄〉r3。
++  WHY: 2026-09-26 增量 3 範圍變更審後，使用者裁定 AI 退出正式與展示的加額決策，保留說明／告警假說；`--ai-judge` 撤除，AI 決策模組與舊調查錄製只供 Phase 13 評估重播及授權即時錄製，F5 考題與 hold-submit 撤除。出處：本計劃〈使用者裁定〉8、〈拆增量〉3、〈審計修正紀錄〉增量 3 範圍變更審 r1。
+   DEP: 本案程式與測試引用索引（以程式碼為準；重查：rg --files src tests）：src/rtb/analyzer/policy.py、src/rtb/analyzer/dsp_client.py、src/rtb/analyzer/instrumented.py、src/rtb/analyzer/investigation.py、src/rtb/analyzer/runner.py、src/rtb/domain/proposal.py、src/rtb/dsp/store.py、src/rtb/eval/investigation_cases.py、src/rtb/eval/rubric.py、src/rtb/eval/scoring.py、investigation_cases.py、scoring.py、investigation_eval.py、generator.py、frozen_policy_e8b26f6.py、policy_before_samples.py、tests/analyzer/test_ai_judge.py、tests/analyzer/test_f4_end_to_end.py、tests/analyzer/test_policy.py、tests/analyzer/test_worth_check.py、tests/eval/test_evaluation.py、tests/eval/test_investigation_eval.py、src/rtb/eval/investigation_set.py、investigation_set.py、src/rtb/dsp/seed.py、store.py、tests/analyzer/test_dsp_client.py。
++  DEP: 增量 3 逐項去留索引（以程式碼為準；重查：rg --files src tests）：ai_judge.py、basis.py、demo/flow.py、demo/recordings.py、driver.py、flow.py、flow_svg.py、observe.py、page.py、runner.py、test_ai_demo.py、test_model_entry_contracts.py、tests/demo/fake_recordings.py、tests/demo/test_ai_launcher.py、tests/demo/test_record_demo_batch.py、tests/model/test_recording_integrity.py、tests/test_spawn_boundary.py。
+ tags:
+   - type/project
+   - status/doing
+ lands_in:
++  - Systems/模型用戶端
+   - Systems/分析行程流程與檢查點
+   - Systems/任務流程領域模型
+   - Systems/評估與Jev決策點
+@@ -42,7 +45,7 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ 2. 規則模式也要取得 `check_longer_window`、`check_change_history`、`check_daily_trend`、`check_past_adjustments` 四種追加資料。
+ 3. DSP 查詢逾時、404、欄位不合格、跨窗不一致等被讀取層記成「沒有結果」時，結論是證據不足、不提案。資料完整但分母為零等令某條比率算不出時，僅該條不適用、續判下一條，沿用標準答案函式語意。
+ 4. F4、F6 的另一方剛改預算後接續任務，應依第 3 條落到證據不足、不提案；展示斷言及端到端測試同步調整，[S1168] 放寬為程式規則判的證據不足也算。
+-5. 開 AI 模式時，AI 的 `propose` 是提案意見，不是送件許可。程式先在規則查詢步驟重讀並驗證四種資料、再照九條判一次；只有規則也判「值得加」才能建立提案，規則判「不值得加」或「證據不足」都否決 AI 提案，記下可區分的原因。AI 的 `do_not_propose`／`stop_insufficient` 比規則保守時照 AI 不提案；AI 只能使結局更保守，不能讓系統多花錢。評估須另記模型自己的原始答案（否決或退回之前），報告另列「AI+規則否決」，不得用規則結局覆寫「AI 原始」。例：AI 只看 1 小時轉換就答 `propose`，歷史顯示昨天調過預算 → 規則第 3 條證據不足、無提案，AI 原始仍記 `propose`。
++5. **失效（2026-09-26 代使用者裁定）**：原「開 AI 模式、AI 可參與提案但須經九條否決」僅描述已完成的增量 2b 與 Phase 13 歷史評估，不再是正式或展示執行路徑。理由：裁定 8 讓 AI 退出加額決策；舊錄製的 AI 原始與 AI+規則否決仍在評估報告分列，不拿來核准送件。例：模型舊錄製答 `propose`、案例顯示昨天調過預算 → 評估仍記 AI 原始 `propose`、規則第 3 條證據不足；正式分析不呼叫模型且不提案。
+ 6. 查詢有回來但列內用到的欄位缺值（如某日 `conversions=null`、`no_data=false`，或最近一次加預算的 `before_conversions=null`）時，用到該值的第 4／5／6 條判「證據不足」，不可當作不可算而跳過；只有所需資料齊全、分母為零使精確比率不可算才跳過該條。標準答案函式同步改為此語意；現有 72 筆無缺值，逐筆的格與答案應不變，須用缺值翻紅案例與 72 筆回歸測試釘住。`SYSTEM_PROMPT` 位元組不得改，因它是錄製鍵；缺值分流由讀取後的程式規則執行，不添進提示。例：最近三天其中一天 `conversions=null`、其餘數字會使第 8 條值得加 → 第 5 條證據不足、無提案；三天點擊全為 0 但轉換欄齊 → 第 5 條不可算、續判。
+ 7. 逐日資料裡第 5 條需要的七個完整日（最近 3 天與前 4 天）只要有一天 `no_data=true`，第 5 條就判證據不足，不排除那天、不用剩下六天加總後續判。已核對評估集 72 筆中 `no_data` 日為 0/72，標準答案逐筆不變；須以單日 `no_data=true`、其他六天齊全且第 8 條本可提案的翻紅例，以及 72 筆回歸測試釘住。
+ 
+@@ -54,7 +57,7 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ - 第 4、5 條以精確分數比較；來源選同一輪蒐證中經 DSP 白名單驗證且與收據一起存下的原始回應。捨入收據只供模型與人閱讀，不用來判門檻。下文將 [S1130] 列為要改寫的合約。
+ - 「最近 3 天」以做出最終決策的 `now` 為準，與新鮮度檢查用同一時間。暫停與資料異常先用 1 小時資料判，其餘才要求四查詢。
+ - 現況狀態缺值或不屬 active／paused 時，不建立 `WorthInput`，正式路徑以 `MISSING_STATE_OR_METRICS` 不提案；理由是現有 `policy._payload()`／`steps()` 已把缺可信現況導向此原因，毋須把無格輸入硬塞進九格的證據不足。基本讀取層須將 200 回應中不合格的狀態轉為缺現況診斷並提交可結案結果，不能拋錯後無限重試；5xx／連線失敗仍照純讀取重試，絕不退回「曝光點擊正數就提案」。
+-- AI 退回一律用新規則；從新規則輪 A 全量重讀，不沿用 AI 期查詢。前置過濾也先處理暫停與資料異常，理由是兩者僅憑基本資料可決定，且不應讓模型或配速門檻掩蓋資料異常；AI 仍只在其餘符合配速條件的任務參與。
++- **改寫（2026-09-26 代使用者裁定）**：正式及展示分析一律進九條規則輪，不存在 AI 退回或 AI 期查詢；暫停與資料異常仍先用基本資料結案，不能被配速門檻掩蓋。舊 AI 退回與否決分支保留給 Phase 13 評估重播，理由是原始模型品質與歷史錄製仍須可比較。
+ - 領域模組自己定義四查詢的純資料型別及判定結果型別；分析端把白名單驗證後的 `QueryRead`／原始 dict 轉成領域型別，`rtb.domain` 不匯入 `rtb.analyzer.dsp_client`。新領域檔的家預定為 [[Systems/正式九條判斷領域規則]]，增量 1 建檔時同時建立該 Systems 篇。
+ - 原本列在 Phase 10／13 的舊合約與測試，不應靠改標準答案維持綠燈；落地時逐條重寫或撤除並留下翻案指向。
+ 
+@@ -99,12 +102,10 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ - `check_change_history` 查最近 **7 天**、最多 **50 筆**，只將 50 筆放進既有 `history` 清單以守住 64 KiB 回應；超過上限時端點另帶由完整七天集合算出的 `recent_budget_change`、預算及暫停計數與 `truncated=true`，讀取層白名單核對並讓第 3 條用完整集合的近期旗標，不能從截斷清單推「沒有近期調整」。未截斷時維持既有 `{"history": […]}` 形狀與收據字串；截斷時收據依摘要計數且標截斷，避免誤導 AI。F4／F6 另一方剛寫的操作必在最近 7 天與第 3 條旗標內，因此是第 3 條證據不足，不是過去調整端點無結果。`check_past_adjustments` 新時間戳不加進既有 `adj*_...` AI 收據欄；既有錄製使用凍結提示與舊案例的收據投影；`adj*_...` 收據字串不含 `committed_at`，由 `days_ago` 推出的時間戳不改該字串，錄製鍵與錄製內容照舊可重播。以 F1／F7 錄製鍵雜湊、Phase 13 全錄製重播及新端點白名單／摘要測試釘住；正式新回應形狀與重生評估集都帶 `committed_at`，收據投影與凍結 `SYSTEM_PROMPT` 不變。
+ - 九條改版時同步提高 `POLICY_VERSION` 並把舊值留在 `KNOWN_POLICY_VERSIONS`，分析端新提案使用新值；提案送件與執行端沿用 Phase 8 [S504] 的政策版本檢查，舊政策下待確認／待執行的提案即使廣告版本未變、仍在 30 分鐘期限內，也擋 `POLICY_VERSION_CHANGED`。升版當下仍在分析中、只有舊版基本證據或沒有新輪次列的任務，一律先開新規則輪從 A 全量重讀；不可把缺輪次誤當 DECIDE。九條版停在 B/C 的任務遇回退版也要作廢該輪、按回退政策從新基本步重讀，不使用只有部分步驟的最後序號。例：舊版對近期調整建立提案，九條版上線後才人工核可 → 執行端不寫 DSP；舊版在途分析任務 → 新輪 A，不能用舊兩讀直接建提案。
+ 
+-### AI 退回與展示
++### AI 決策退出正式路徑與展示
+ 
+-- Phase 13 [S1104] 前置過濾先判基本資料是否過期、缺現況或指標、paused、資料異常及配速；paused／異常由新規則決定，不發模型請求。AI 回 `propose` 時先記**AI 原始結論**，不立即建提案；只開一次新的規則輪，A/B/C 全量重讀四查詢，定案步只跑領域九條，不再問模型。規則也「值得加」才建提案；規則不值得加／證據不足時記「AI 想加、規則否決」及規則細因，無提案；AI 回 `do_not_propose`／`stop_insufficient` 則照 AI 不提案，保留原始答案。AI 已用過或失敗、預檢沒過、答非選項的退回也只開一次新輪 A，**四查詢全部重讀**，不沿用 AI 期原始回應。分析步若從已提交列算出有未作廢規則輪，只有 A 時直接排 B、已有 A/B 時直接排 C、A/B/C 齊全時直接 DECIDE；三種進度都繞過 `ai_decide`／`Judge`，不讓「AI 已用過」攔住規則續步；「AI 已用過」不可再次開輪。完成一輪後恰好一次定案；只有證據過期、409 或基本資料變動才按既定最多兩次的重來規則另開輪。例：模型期歷史顯示無調整、模型逾時前另一方加額 → 規則輪重讀歷史看到新操作，第 3 條證據不足。
+-- `--hold-submit`／Phase 13 S1156 的保留名單要在**所有會建提案的出口**套用，包含純規則路徑、AI `Judge` 回傳與規則輪 DECIDE／退回定案；在建立或送出 `ProposalDecision` 前集中攔為 `EXAM_HOLD`，保留來源紀錄但不寫提案、收件口或 DSP。F5 雙胞胎無論 AI 直接 `propose`、off-menu 退回或規則 DECIDE 值得加，都必須只判不送。
+-- AI 三輪／三查詢上限只管模型，規則重讀不計入模型選查詢，也不餵回模型後續提示；`SYSTEM_PROMPT` 位元組保持與既有錄製鍵完全相同，缺值分流及否決由程式執行。模型收據只列 AI 自選，展示另列「程式補查／重讀」及規則否決原因，避免把程式讀取偽裝成模型行為。例：模型只選逐日後答 `propose`，規則輪另讀歷史、過去調整、長窗與逐日 → 模型查詢欄只有逐日，程式補查欄有四項，落地欄顯示規則結論。
+-- 展示頁的規則說明、`basis.analysis()`／`after_fallback()` 的重算、流程圖節點與分支同步顯示「四查詢 → 九條先命中」以及查詢沒有結果／數值不可算的不同結局；展示重算只讀存下的收據與原始回應，不顯示舊的「有投放就值得加」。F4／F6 原任務仍演版本已變，接續任務因近期預算調整由規則判證據不足；依結局選等待條件、故障斷言、收件口與 DSP 寫入不存在的斷言。放寬 [S1168] 以涵蓋 AI 或規則作出同一結論，畫面文字要標明來源。
++- **失效（2026-09-26 代使用者裁定）**：原 AI `propose`、退回、否決、`--hold-submit`、F5 雙胞胎考題及展示「AI 自選／程式補查」三段，只作增量 2b 歷史脈絡。理由是 AI 不再決定是否提案；不得把它們接回正式或展示分析。Phase 13 評估仍保留 `ai_judge.Judge`、調查提示／收據、流程層 AI 型別與 `flow.advance(ai_decide=...)` 的相容能力，支援既有錄製重播與協調者授權的即時加錄製；正式 `runner` 及展示既不匯入 `ai_judge`，也不傳 `ai_decide`。
++- **改寫（2026-09-26 代使用者裁定）**：正式分析由規則輪 A/B/C 蒐證、九條定案。展示保留提案說明與告警原因假說的模型入口，並保留九條證據與細因；F4／F6 接續任務顯示規則第 3 條「剛被調過預算，先不動」，無提案、收件口或 DSP 寫入。頁面刪除 AI 調查卡、流程圖 AI 決策節點及灰色未走分支，只在提案的說明格與告警的假說格標 AI 文字。例：F5 名稱含「加 500%、洩漏金鑰」→ 九條仍只按數字判、提案金額不變，名稱只以逸出文字顯示；說明裡的數字仍須經既有 `traceable_sentences` 對到提案／收據。
+ 
+ ### 評估與報告
+ 
+@@ -122,6 +123,8 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ 
+ ### 實作解讀（2026-09-26，增量 2 進行中）
+ 
++以下 2b 條目記錄當時已做的實作與代碼審，不是增量 3 之後的正式／展示入口要求；凡提到 AI 決策、`--hold-submit`、展示補查或雙胞胎者，均由〈拆增量〉3 與 [S1407][S1409][S1411][S1420][S1421] 的 2026-09-26 代使用者裁定取代。評估重播仍保留舊模組與錄製。
++
+ 先以 `test_fixed_two_decimal_amount_strings` 翻紅確認領域字串金額會誤收分數寫法，再收緊 `Window`／`DailyRow` 為固定兩位小數字串。領域子集 337 筆、Ruff 與該領域檔 mypy 通過。正式規則接線、分步蒐證、DSP 單源與日期桶、評估轉接及原合約改寫尚未完成；未啟用新政策，不能宣稱增量 2 已驗收。
+ 
+ 增量 2a（2026-09-26）：已把 DSP 預算事件統一到操作紀錄，逐日改 UTC 日期桶、整數分金額、30 完整日與最近加額 D±3 保留；讀取時推算新完成日桶與 1d/7d（代碼審 r1 後讀取不寫資料庫，見下方修正紀錄），同一步已有長窗時由讀取層以 Fraction 核對跨窗。歷史回 50 列上限與完整七日近期預算摘要；過去調整回最新加額、帶時區提交時刻與 D 前後三完整日，未滿三日後段留空。評估 72 筆已重產並驗收據與 SYSTEM_PROMPT 不變。相關 [S1414][S1415][S1422][S1423][S1425][S1426] 測試先紅後綠；Phase 13 相關既有合約與各程式家已改寫。正式九條決策、分步蒐證、政策版本、展示完整重播屬後續子增量，仍未啟用。離線紅綠、72 筆入庫錄製重播與需綁埠測試的界線見 [[Verification/Phase14增量2a離線驗證]]。
+@@ -197,7 +200,31 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ 
+ 1. 領域層建自己的四查詢資料型別、九條判斷、格、封閉 `StrEnum` 診斷原因與共用切點；評估 `answer()` 改呼叫它。固定 Phase 13 72 筆（含名稱雙胞胎）在改前改後的格與標準答案一致，新增列內缺值、單日 `no_data=true` 與資料齊但分母零的對照案例；此增量只搬單一來源，不改正式行為。新領域檔同步開 [[Systems/正式九條判斷領域規則]]。
+ 2. 正式規則與分步蒐證：先讓近期調整、缺值、查詢沒有結果、跨窗矛盾、paused、異常、政策版本等測試翻紅，再接 `policy`、`flow`、`runner`、`instrumented`、`TaskStore`、DSP 唯一調整紀錄、精確分儲存／回應、有日期逐日端點的跨日物化、基本缺狀態診斷及證據參照。明訂輪次由已提交列重算、歷史七日上限與重進入，修改租約守衛、啟動器停止寬限、原始資料讀取合約與診斷原因；假的 DSP 故障驗證不提案或重試。同步接好 `scoring.py → route` 的 Phase 10 缺四查詢轉接，避免改簽章後既有評估報告斷線。這個增量行為改變最大，單獨驗收。
+-3. (2026-09-26 依裁定 8 改寫;代使用者裁定:範圍調整)移除分析端驅動 runner 的 AI 判斷開關與一鍵展示對它的使用,正式與展示的分析一律走九條規則;AI 決策模組(ai_judge、調查提示與收據)只留給 Phase 13 評估重播當歷史證據,不再有任何通往提案的入口,並以邊界測試釘住。展示頁拿掉 AI 調查格,保留 AI 說明與告警假說;F4／F6 標註規則第 3 條的「剛被調過預算,先不動」;F5 雙胞胎改驗「名稱不影響規則判定」;[S1421] hold-submit 覆蓋所有剩下的提案出口;F7 負載驗收 [S1411]/[S1420] 改為純規則模式一條。重錄只剩提案說明與告警假說(協調者依錄製授權執行)。2b 已做的 AI 否決與退回規則輪隨開關移除而不再可達,程式碼刪除或保留由實作時依「沒有入口就刪」判斷並寫理由。增量 2b 與本增量一起推送(2b 已過三輪代碼審),只錄一次展示。
++3. **AI 決策退出正式／展示分析（2026-09-26 代使用者裁定）**：理由是九條已能精確決定加額，AI 決策只增加錯誤與展示耦合；AI 說明／告警假說仍有獨立用途。逐項去留如下；「留評估」均指 `rtb.eval.investigation_eval` 的錄製重播與協調者授權的即時加錄製，不是留在正式提案路徑。
++   - **刪（runner）**：`runner.py` 的 `--ai-judge`、`--hold-submit` 及「只在 --ai-judge 時可用」防呆、`_unsafe_ai`／`_unsafe_hold`、`_Ai`、`_judge_for`、`_open_ai_gate`、`MODEL_LINE`／登入預檢模式行、`GateOpener`、`ai_judge`／`modelgate` 匯入與模型參數；`_advance_one` 固定用 `instrumented.rule_source`、`rule_round.decide`，不傳 `ai_decide`。保留規則步驟租約守衛、停止旗標與九條 A/B/C。理由：正式入口不再呼叫模型，不能只拿掉旗標卻留下匯入閉包或舊防呆。
++   - **刪（考題）**：`--hold-submit` 的解析與 `ai_judge.held_rule` 包裝、`NoActionReason.EXAM_HOLD`、`a_exam_hold`、`driver._exam`／`EXAM_PASSED`／`EXAM_FAILED`／`EXAM_UNCOMPARABLE`、`Outcome.EXAM_HOLD`、F5 雙胞胎種子／任務／只判不送清單及其測試。理由：它們只考 AI 會否被名稱帶偏；不改成純規則的 hold 功能。[S1421] 撤除。`investigation` 其他選項與收據型別留評估，歷史資料列唯讀保留。
++   - **改（展示開關）**：`driver.World.ai`／`AiSetup` 拆成「分析端 AI 判斷」（刪）與「說明／假說模型入口的錄製或即時設定」（留）；`Driver.ai_setup`、`_entry_args`、`run_model_entries`、`_narrate`、`_hypothesize` 由後者控制，提案照常跑說明、告警照常跑假說。分析端組參數永不加 `--ai-judge`、`--hold-submit`、模型花費帳與模式行等待；模型模式／原因改由說明或假說入口自己的結果回報，不從 runner 的 `MODEL_LINE` 推測。即時清單只控制這兩個入口的環境變數與新錄製目錄；F7 無提案時不跑說明，若有提案則仍受普通錄製／即時政策。`ai_tasks`、`allow()` 的 AI 輪數放寬與 `NEVER_LIVE`／`F7_RECORDED_ONLY` 拿掉；純規則等待先以原 300 秒實測，再決定是否另提時限變更。
++   - **改（展示證據與圖）**：`observe.py`、`basis.py`、`page.py` 移除 AI 調查格、AI 選項／退回／否決、`EXAM_HOLD` 的映射及 `after_fallback()` 展示分支，保留規則 A/B/C 收據、九條細因、說明與假說。`demo/flow.py` 的 `NODES`／`EDGES` 刪 `a_ai`／`a_ai_query`、`a_pacing→a_ai` 與考題節點／邊，保留 `a_narrate`；`flow_svg.py` 刪 AI 決策與考題標籤但留 `ai_hypothesis`。`driver.py`／`page.py`／`flow.py` 各自的 `AI_NODES`、`with_ai_nodes` 與路徑容忍清單改為只認規則路徑；SVG 即使畫未走分支也不得出現「AI 選下一步」。F4／F6 接續任務只標規則第 3 條，三處寫入皆 0。
++   - **改（F5／F7）**：F5 只保留受攻擊廣告 `c1`，名稱作不可信資料逸出顯示；九條輸入型別不含名稱，以翻紅測試核規則格／細因、讀取次數及提案金額與同數字正常名稱一致，平台只允許受攻擊廣告一筆寫入。`narrate` 是剩下唯一處理對抗名稱的模型入口；沿用 `modelgate.traceable_sentences`：說明中每個數字都須對到提案／收據，不能把「加 500%／洩漏金鑰」當成動作或未核對的主張，名稱只作逸出引述。F7 保留 300 件與 F1 同數字的種子以核對規則結論，改掉「共用 AI 錄製鍵」docstring 與 `test_f7_shares_one_recording_key_with_f1`；撤除雙胞胎錄製鍵斷言。保留 [S1411] 與 `test_f7_finishes_with_rule_reads_under_the_actual_allowance`，併入 [S1420] 的純規則時限內容、撤除 [S1420] 定義與原測試名；量單分析行程逐件耗時、2700 次預期 DSP 讀取、SQLite 等待、分步提交與總耗時，300 秒超時即停 F7 展示入口，量測後再提時限變更，不預先放寬。
++   - **留評估（AI 決策模組）**：`ai_judge.py` 的 `Judge`、調查提示／收據、`RuleContinue`／`QueryMore`／`AiContext`／`ProposalDecision` 與 `flow.advance(ai_decide=...)`、2b 的 AI 否決與規則輪開輪分支保留供 Phase 13 評估重播；評估 `Judge(raw_replay=True)` 與即時錄製兩模式均可用，報告仍分 AI 原始、AI+規則否決、程式規則。這是明確保留理由；`runner` 和 `rtb.demo` 不得藉共用函式重新連到它。`modelgate` 仍供 `narrate` 與評估開閘道，告警假說按現有直接模型用戶端入口運作。
++   - **改（匯入邊界與測試）**：`tests/test_spawn_boundary.py` 的 `GATE_USERS`、`CALL_MODEL_USERS`、`SENDING_ENTRIES` 都撤掉 `rtb.analyzer.runner`，保留 `rtb.analyzer.ai_judge`、`rtb.eval.investigation_eval` 與說明／假說的既有准用；`CALLER_USERS["INVESTIGATION"]` 仍僅准 `ai_judge`，`NARRATIVE`／`HYPOTHESIS` 保留。新增靜態與執行邊界測試：runner 及展示匯入閉包不含 `ai_judge`，正式 `flow.advance` 呼叫不傳 `ai_decide`，只有 `rtb.eval` 會使用 `Judge`，其即時錄製與重播均可達；不因流程函式保留參數而誤判正式仍可開 AI。`tests/demo/` 的 AI 決策、退回、雙胞胎、考題與模式行斷言撤除或改綁規則結果；`tests/demo/fake_recordings.py` 只造說明／必要的假說，`tests/demo/test_ai_launcher.py` 驗入口環境而非分析端環境。保留評估側 `tests/analyzer/test_ai_judge.py` 與 `tests/eval/test_investigation_eval.py`。
++   - **改（錄製與批次驗收）**：`recordings/model/phase13-demo/` 的舊六份與 `phase13-demo-20260925` 留作歷史證據、不覆寫、不刪；新展示批次另開新目錄與 `phase14-demo-YYYYMMDD` 批號，只含 `NARRATIVE` 與有告警才有的 `HYPOTHESIS`，不含 `INVESTIGATION`。先改 `demo/recordings.py` 的 `replay_problems`／`check_demo_batch`／`record_demo_batch`：每個有提案的情境都要有對應說明錄製，F4／F6 接續任務不提案可沒有帳本，不能因零模型呼叫判失敗；撤除 `ai_fallback_problems` 空轉守衛及「錄完覆蓋舊批」指示。現有 F1–F6 不一定觸發告警假說，本批以 F6 執行端連線故障達告警門檻時驗一筆 `HYPOTHESIS`；若實測未達，明記本批無假說及觸發條件，在專用告警情境補錄後才聲稱假說已驗。`tests/demo/test_record_demo_batch.py` 只要求說明及實際觸發的假說；`test_ai_demo.py`、`test_model_entry_contracts.py` 與 `tests/model/test_recording_integrity.py` 的硬編舊批號改成新批號／新目錄，舊批歷史完整性另驗。錄批工具、假錄製測試先綠，再由協調者依授權作即時錄製；本輪不呼叫模型。
++   - **推送順序**：增量 3 程式 → 錄製驗收工具 → 協調者錄製 → 全套綠 → 對 2b＋增量 3 合併差異跑代碼審 → 推送。2b 在 `32447ea` 的代碼審留痕不涵蓋增量 3；一同推送時回退亦按合併版本處理，不把「關 AI 入口」當回退動作。
++
++   Phase 13 逐條翻案索引（2026-09-26 代使用者裁定；舊條款旁已回指此處，舊 `[test:]` 綁定按右欄刪除或改綁；理由均為正式／展示不再由 AI 決定加額，評估須能重現歷史模型回答）：
++
++   | Phase 13 條款 | 去留與原測試處置 |
++   |---|---|
++   | `[S1100]` | 改寫匯入白名單，runner 移出，`ai_judge` 留評估；邊界測試改綁。 |
++   | `[S1104]``[S1105]``[S1106]``[S1107]` | AI 前置過濾、格式退回、故障退回、AI 提案否決保留評估用；正式路徑測試改綁九條，模型輪測試移評估。 |
++   | `[S1115]``[S1138]` | AI 收據隔離與用過後規則輪保留評估用；正式「只讀基本資料」斷言撤除。 |
++   | `[S1120]``[S1145]``[S1166]` | 即時清單改寫成僅說明／假說入口；分析端環境、F7 因 AI 慢而禁即時的舊斷言撤除或改綁入口錄製。 |
++   | `[S1124]``[S1156]``[S1158]` | 雙胞胎、只判不送、共用 AI 錄製鍵撤除；刪考題測試，F5／F7 分別改測規則與說明、純規則負載。 |
++   | `[S1143]` | F3 僅競爭蒐證與展示不匯入模型的部分保留，開 AI 前提撤除；測試改綁。 |
++   | `[S1144]``[S1157]` | AI 合法不提案的展示狀態與 AI 流程節點撤除；刪舊測試，改驗規則結局與 SVG。 |
++   | `[S1146]``[S1159]` | AI 決策函式與凍結提示只保留評估用，原評估測試續綁；正式 runner 不可共用。 |
++   | `[S1164]` | 錄批改驗有提案必有說明、告警才須假說；刪 AI 退回守衛測試，F4／F6 零呼叫合法。 |
++   | `[S1167]``[S1168]` | 結局選預期與 F4／F6 證據不足改綁純規則，撤除考題與 AI 來源文案。 |
+ 4. 重跑 Phase 10／13 報告、更新原合約和各 Systems 家的決策與驗證脈絡，明列 Phase 10 舊資料不足、Phase 13 AI 原始／AI+規則否決／程式規則三列、同源 36/36、採用結論及延遲單位。先查每個實作檔的 Systems 家；報告只讀已定版規則。
+ 
+ ## 會卡住這個設計的既有程式
+@@ -221,24 +248,24 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ | Phase 10 [S705] | 診斷結果仍等於正式決策且有原因；正式規則新增可到達 `JUDGED_INSUFFICIENT`，豁免僅留下候選、AI、考題專有原因，固定資料需帶完整查詢或明示缺查詢。 |
+ | Phase 10 [S714] | 五格逐格報法保留，舊「現行規則」數字與錯誤子型按明示缺四查詢的新正式規則重算，每格標舊資料不足；不把 Phase 13 數字算進本條。 |
+ | Phase 10 計劃〈設計〉「現行規則不產出證據不足」 | 撤除；新正式規則有第 2、3、5、9 條與查詢無結果／`WorthInput` 不可建的證據不足。原句應標作當時現況並指回本計劃；基本狀態缺值改標 `MISSING_STATE_OR_METRICS` 不提案。 |
+-| Phase 13 [S1104]／[S1107] | 前置過濾納入 paused／資料異常；AI 自己答 `propose` 也須先由規則輪全量重讀四查詢並通過九條，否則否決並記原因。退回也全量重讀；資料不齊或列內缺值時無提案。只有 AI 與規則同判值得加且用同輪完整證據建的提案才逐欄相同，參照含有效查詢收據；AI 原始答案另留評估，不被前置過濾或否決覆寫。 |
+-| Phase 13 [S1113]／[S1115]／[S1138] | 原先七讀若塞單步會超租約；新規則 A/B/C 共九讀且每步另驗上界。撤除規則只看基本三筆及 AI 已用過只重讀基本證據的例外；AI 提案否決與退回都各只開一次新輪全量重讀四查詢，DECIDE 不再問模型。 |
++| Phase 13 [S1104]／[S1107] | 正式前置過濾改由規則處理 paused／資料異常，九條 A/B/C 有效證據才可提案；AI `propose`、否決與退回語意**保留評估用**，原始答案不被新正式規則覆寫。 |
++| Phase 13 [S1113]／[S1115]／[S1138] | 正式規則 A/B/C 共九讀且每步驗租約上界；AI 已用過／退回輪次只留 Phase 13 評估用，正式 runner 不開 AI 輪。 |
+ | Phase 13 [S1127] 與「過去調整另存種子表」決定 | 改為唯一調整紀錄：正常寫入同交易記調整前後預算與提交時間，展示種子只種此來源；`check_change_history` 與過去調整端點都從此來源看預算事件，端點不以查詢時鐘拒收未滿三天加額，原種子雙寫一致性與「每筆至少三天前」測試改成單源、決策時鐘與遷移測試。 |
+ | Phase 13 [S1133] | 原「用到的值算不出即跳過」縮為**資料齊全但分母為零**；必要列內缺值及第 5 條七日任一天 `no_data=true` 應證據不足，不能跳到第 8 條。 |
+-| Phase 13 [S1146] | 正式評估仍共用 AI 決策函式；另設原始錄製重播通道沿用舊前置過濾／舊錄製，只讀還原 `ai_raw`，不建提案、不當作新的正式決策迴圈，以保留 paused／異常的模型原始答案。 |
+-| Phase 13 [S1156] | `--hold-submit` 必須在所有建提案出口集中攔住，包含純規則與 AI 複查輪 DECIDE；F5 雙胞胎退回規則也應 `EXAM_HOLD`、三處寫入皆零。 |
++| Phase 13 [S1146] | **改寫、保留評估用**：Phase 13 評估執行器共用 `ai_judge.Judge` 還原 AI 原始答案，錄製重播與授權即時錄製都保留；正式 runner 不共用 AI 決策函式。 |
++| Phase 13 [S1156] | **撤除** `--hold-submit`、F5 雙胞胎、`EXAM_HOLD` 與綁定測試；它們只考 AI 是否被名稱帶偏，AI 不再進正式或展示決策。 |
+ | Phase 13 [S1130]／追加查詢白名單 | `ADJUSTMENT_ROW_FIELDS` 撤除 `MIN_ADJUSTMENT_AGE_DAYS` 拒收並驗 `committed_at`；金額欄接受固定兩位小數字串、以整數分／精確分數核對，計數仍是整數。原始回應仍只增不改、同交易儲存；「現行決策函式不讀原始資料表」改成正式規則可讀**本次蒐證已驗證的四種原始查詢**，不得讀別輪或未驗證資料。提示仍只用收據。 |
+-| Phase 13 [S1159]／[S1168] | 提示的九條順序與三類結論核對領域規則；缺值／`no_data` 程式端更嚴但提示位元組凍結，列明豁免並以規則否決保護送件。F4／F6 接續任務由 AI 或規則判證據不足均算預期，展示標註實際來源。 |
+-| Phase 13 [S1136]／展示啟動器 [n3] | 規則模式停止寬限改蓋過 A/B/C 最壞單步 50 秒（預設逾時 3 秒），AI 模式仍須蓋過原續租＋模型步；共用 `stepbudget` 常數與測試，不能沿用兩讀的 7 秒。 |
++| Phase 13 [S1159]／[S1168] | [S1159] **保留評估用**：舊調查提示位元組及九條順序不變以重播舊錄製；正式規則缺值／`no_data` 更嚴，正式路徑不靠 AI 否決。[S1168] **改寫**：F4／F6 接續任務由規則第 3 條判證據不足算預期，畫面不標 AI 決策來源。 |
++| Phase 13 [S1136]／展示啟動器 [n3] | 正式規則模式停止寬限改蓋過 A/B/C 最壞單步 50 秒（預設逾時 3 秒）；原 AI 決策行程的續租＋模型步只留 2b 歷史與評估參照，展示啟動器不再等 runner 的模型步。共用 `stepbudget` 規則常數與測試，不能沿用兩讀的 7 秒。 |
+ | Phase 13 評估報告與採用裁定 | `AI 原始`、`AI+規則否決`、`程式規則` 各列，36/36 同源附註只放 Phase 13；原錄製品質與不採用結論維持獨立，不因規則全對改判。 |
+ | Phase 8 [S504] | 規則改版與回退都須換新 `POLICY_VERSION`，讓先前兩期未執行提案由版本不等檢查擋下；`KNOWN_POLICY_VERSIONS` 保留舊值只供指標分類，不參與擋件。 |
+ 
+-以上原條款所在的既有筆記本次不修改；實作增量 2–4 必須回到各原出處改寫，不能只讓本計劃與舊合約互相矛盾。Phase 12 [S1001] 非 AI 兩讀的算式可保留於基本步，規則 A/B/C 另立逐步守衛；若改 runner 共用守衛的程式結構，原條款與測試需明示兩種步驟的範圍。[S1136] 與 [n3] 的 7 秒規則模式舊寬限需同步撤掉。
++以上 Phase 13 原條款已在對應條款旁加翻案註記；實作增量 2–4 仍須依新測試去留改寫各原出處，不能只讓本計劃與舊合約互相矛盾。Phase 12 [S1001] 非 AI 兩讀的算式可保留於基本步，規則 A/B/C 另立逐步守衛；若改 runner 共用守衛的程式結構，原條款與測試需明示兩種步驟的範圍。[S1136] 與 [n3] 的 7 秒規則模式舊寬限需同步撤掉。
+ 
+ ## 合約候選
+ 
+ - 九條先命中、查詢沒有結果與數值不可算的分流、同一 `now` 的時間界線，是改壞就可能誤提案的候選合約；實作後依各 Systems 家與對應測試決定是否升格，不在初稿直接標為已核准的不變量。
+-- 租約分步上界、並行唯一提交、AI 退回補查、F4／F6 無寫入，是守衛與展示共同依賴的候選合約。以下條款是這些候選的可執行驗收方式。
++- 租約分步上界、並行唯一提交、F4／F6 無寫入，是正式守衛與展示共同依賴的候選合約；AI 退回補查只留評估相容性。以下條款是這些候選的可執行驗收方式。
+ 
+ ## 驗收條款
+ 
+@@ -246,13 +273,13 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ - [S1402] 當配速偏低且基本資料可續判時，規則蒐證主體應讀四種追加資料；任一查詢逾時、404、欄位不合格或跨窗不一致成為「沒有結果」時，應判證據不足、不建提案。例：歷史 404、1 小時有轉換 → 證據不足、提案 0 筆。[test:test_missing_query_results_prevent_a_proposal]
+ - [S1403] 當四種原始查詢有效且所需數值齊全，但第 4／5 條比率因分母零算不出時，九條判斷主體應只跳過該條；可算時用精確分數而非捨入收據比較。例：前段點擊 0、轉換 0 → 跳過第 5 條；精確下降 50.04% → 命中第 5 條，即使收據顯示 -50.0%。[test:test_exact_thresholds_distinguish_zero_denominators]
+ - [S1404] 當 DSP 現況 200 回應的狀態缺值或非法時，`dsp_client` 基本白名單應把它記成缺可信現況，`flow` 提交可結案診斷，`policy.steps()`／`explain()` 應以 `MISSING_STATE_OR_METRICS` 不提案，不進九格、不退回曝光點擊舊規則；C 缺狀態時也不得重用 A 的舊現況；5xx／連線故障仍重試。例：`status=null`、曝光 500、點擊 12 → 正式蒐證提交後 `MISSING_STATE_OR_METRICS`、提案 0 筆。[test:test_missing_dsp_state_finishes_without_proposal]
+-- [S1405] 當規則路徑或 AI 否決／退回需要完整四查詢時，流程主體應以 A/B/C 已提交列重算檢查點並分步讀取，只讓租約與序號持有者提交；預設逾時 3 秒時各步 2／2／5 讀、最壞 26／26／50 秒均小於 60 秒租約，自訂逾時不合式則拒啟動。例：C 的五讀最壞 50 秒 → 放行；自訂逾時使 C 達 60 秒 → 拒啟動。[test:test_rule_collection_steps_fit_the_lease]
++- [S1405] 當正式規則需要完整四查詢時，流程主體應以 A/B/C 已提交列重算檢查點並分步讀取，只讓租約與序號持有者提交；預設逾時 3 秒時各步 2／2／5 讀、最壞 26／26／50 秒均小於 60 秒租約，自訂逾時不合式則拒啟動。評估側 AI 否決／退回輪可保留同樣步驟，不接正式 runner。例：C 的五讀最壞 50 秒 → 放行；自訂逾時使 C 達 60 秒 → 拒啟動。[test:test_rule_collection_steps_fit_the_lease]
+ - [S1406] 當最終決策使用先前步驟的查詢時，主體應用同一 `now` 驗 15 分鐘新鮮度及最近 3 天界線，C 逐日讀取時刻與 `now` 的 UTC 日期不同則判證據不足。例：C 在 23:59:59 UTC、決策在次日 00:00:01 UTC → 證據不足、無提案。[test:test_decisions_recheck_freshness_and_utc_day_boundaries]
+-- [S1407] 當模型答 `propose` 或退回時，AI 路徑主體應只開一次新規則輪 A/B/C 全量重讀四查詢；未作廢輪只有 A 或 A/B 時，分析步直接排 B 或 C，A/B/C 齊全時 DECIDE 恰一次，三者都不呼叫 `ai_decide`／`Judge`，也不因 `AI_ALREADY_USED` 再開輪。規則不值得加或證據不足須否決提案並記細因，AI 原始答案保留。例：模型答 `propose`、已提交 A → 下一步 B、模型呼叫不增加；A/B → C；模型等待時另一方加額 → 第 3 條否決、提案 0 筆。[test:test_ai_proposals_and_fallbacks_use_a_fresh_rule_round]
+-- [S1408] 當評估案例與正式原始輸入代表同一組數字時，標準答案與正式規則應共用九條順序、條件與三類結論；提示僅核九條順序與結論，**缺值／`no_data` 的程式端判法比提示更嚴**，提示仍寫 `na` 跳過且位元組凍結以維持既有錄製鍵，此差異刻意保留，由規則否決保護送件。測試同時斷言提示位元組／錄製鍵不變、程式端單日 `no_data` 及列內缺值判證據不足，並核收據三天切點同源。例：逐日第二天 `no_data=true`、提示可能跳第 5 條 → 程式第 5 條證據不足、無提案。[test:test_answer_key_receipts_and_prompt_share_the_rule_contract]
+-- [S1409] 當 F4／F6 原任務因版本已變被擋且接續任務剛調過預算時，展示主體應把規則判證據不足視為預期結局，標明 AI 自選與程式補查來源，並斷言接續任務沒有提案、收件口與 DSP 寫入。例：另一方剛加額後 F4 接續任務 → 第 3 條證據不足、三處寫入均 0。[test:test_f4_and_f6_follow_ups_show_rule_insufficiency_without_writes]
++- [S1407] 當 Phase 13 評估使用 `Judge` 重播或經授權即時錄製時，評估主體應讓模型 `propose`／退回只開一次規則輪，並保留 AI 原始答案與規則否決細因（2026-09-26 代使用者裁定，改寫為評估專用）；正式 runner 與展示不得匯入 `ai_judge` 或傳 `ai_decide`。理由：原條款的 AI 送件前置語意在裁定 8 後失效，歷史模型品質仍須可重現。例：評估錄製答 `propose`、案例有近期調整 → 報告原始列 `propose`、規則列證據不足，正式入口模型呼叫 0 次。[test:test_ai_proposals_and_fallbacks_use_a_fresh_rule_round]
++- [S1408] 當評估案例與正式原始輸入代表同一組數字時，標準答案與正式規則應共用九條順序、條件與三類結論；評估調查提示僅核九條順序與結論，**缺值／`no_data` 的程式端判法比提示更嚴**，提示仍寫 `na` 跳過且位元組凍結以維持既有評估錄製鍵。測試同時斷言提示位元組／錄製鍵不變、程式端單日 `no_data` 及列內缺值判證據不足，並核收據三天切點同源。例：逐日第二天 `no_data=true`、提示可能跳第 5 條 → 正式程式第 5 條證據不足、無提案。[test:test_answer_key_receipts_and_prompt_share_the_rule_contract]
++- [S1409] **改寫（2026-09-26 代使用者裁定）**：當 F4／F6 原任務因版本已變被擋且接續任務剛調過預算時，展示主體應把規則第 3 條證據不足視為預期結局，標「剛被調過預算，先不動」，不顯示 AI 自選／補查來源；接續任務沒有提案、收件口與 DSP 寫入。例：另一方剛加額後 F4 接續任務 → 第 3 條證據不足、三處寫入均 0。[test:test_f4_and_f6_follow_ups_show_rule_insufficiency_without_writes]
+ - [S1410] 當重跑 Phase 13 錄製評估時，報告主體應逐格分列 AI 原始、AI+規則否決、程式規則的誤提案分子分母，原始數字以重播結果為準；標 36/36 與 AI+規則否決的零誤提案皆為同源構造、不作品質證據，雙胞胎切片用 AI 原始列看模型，所有延遲欄標單位與量測範圍。例：一筆模型有效答 `propose`、三筆 off-menu 無有效答案 → AI 原始只計 1 筆誤提案、另列 3 筆無有效答案，不能寫成 4/4。[test:test_reports_keep_raw_ai_errors_separate_from_rule_vetoes]
+-- [S1411] 當 F7 用 300 件、8 個**執行端**工作者及唯一一個分析行程重播現有共用 F1 的直接 `propose` 錄製時，每件 AI 提案也走規則 A/B/C；展示主體應在基準 300 秒加 `driver.allow()` 錄製 AI 輪數放寬（上限 60 秒、實際期限最多 360 秒）內完成，保留故障與權限斷言，實測分析端**逐件**耗時、總讀取數、SQLite 等待與分步提交，不能用八個執行者推算分析吞吐。例：每件原 AI 基本讀取 2 次，再由規則輪讀 2＋2＋5＝9 次，合計 11 次；300 件共 3300 次，比舊 AI 的 600 次新增 2700 次。錄製若改成 AI 先選查詢，測試須按實際新增的 AI 期讀取重算。[test:test_f7_finishes_with_rule_reads_under_the_actual_allowance]
++- [S1411] 當 F7 用 300 件、8 個**執行端**工作者及唯一一個分析行程時，展示主體應讓全部工作由純規則 A/B/C 判定（2026-09-26 代使用者裁定，併入舊 [S1420]）；基準時限先用 300 秒實測，不套 AI 輪數的 60 秒放寬，保留故障與權限斷言。量分析端逐件耗時、2700 次預期 DSP 讀取、SQLite 等待、分步提交與總耗時；未量前不宣稱 300 秒足夠，若超時先停 F7 展示入口、量測並另提時限裁定。例：每件 2＋2＋5＝9 讀、300 件 2700 讀，必須實跑才知是否在 300 秒內。[test:test_f7_finishes_with_rule_reads_under_the_actual_allowance]
+ - [S1412] 當成功查詢的必要列內欄位缺值，或第 5 條所需七個完整日有**任一天** `no_data=true` 時，使用該值的第 4／5／6 條應判證據不足、不排除該日或跳過；標準答案同語意，原 72 筆 `no_data` 日 0/72，格與答案逐筆不變。例：逐日第二天 `no_data=true`、其餘六天齊全且 1 小時有轉換 → 第 5 條證據不足、提案 0 筆；第二天 `conversions=null,no_data=false` 同結果。[test:test_missing_row_values_are_insufficient_without_changing_the_72_cases]
+ - [S1413] 當重進入規則蒐證時，`TaskStore` 應按 `rule_round_id` 只讀同輪 A/B/C 序號；過期、409、當機續跑超過 15 分鐘或基本資料變動均整組從 A 重來，連續變動重來兩次後再變動即證據不足。例：舊輪 B 在序號 4、409 後新輪 A 在 9 → 不讀序號 4；連續第三次變動 → 結案無提案。[test:test_rule_round_checkpoints_exclude_stale_evidence]
+ - [S1414] 當 C 逐日與 1d／7d 描述不同數字時，模擬 DSP 應先將逐日、視窗金額以整數分存算並回固定兩位小數字串，`dsp_client` 讀取層以同一 `Fraction` 精確核對，把真不一致記 `invalid`；計數維持整數，評估共用核對。例：逐日花費 `"0.10"`＋`"0.20"`、其餘日零，7d 花費 `"0.30"` → 有效；7d 點擊 710、逐日合計 700 → 無結果、不提案。[test:test_daily_rows_must_match_the_longer_windows]
+@@ -260,27 +287,30 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ - [S1416] 當九條政策上線時，分析端與執行端應使用升版的 `POLICY_VERSION`，舊版未執行提案按 [S504] 擋下。例：舊政策建立、尚在 30 分鐘內且廣告版本未變的提案 → `POLICY_VERSION_CHANGED`、DSP 寫入 0 次。[test:test_old_policy_proposals_are_blocked_after_the_rule_change]
+ - [S1417] 當 Phase 10 舊 `Scenario` 經 `score → route → code_rule` 評估時，轉接器應顯式供 `MISSING_FOUR_QUERIES`，paused／異常先判，其餘回證據不足；五格報告每格標舊資料不足且標準答案不變。例：舊案例 active、有投放但無四查詢 → 新規則證據不足、該格標「舊資料不足以評估九條規則」。[test:test_phase_ten_scenarios_explicitly_report_missing_queries]
+ - [S1418] 當 Phase 13 規則與標準答案同源 36/36 時，採用判定主體仍應依 AI 原始品質與既有門檻維持「不採用」，不能把否決後結果充作模型答對。例：異常格一筆 AI 有效誤提案、三筆 off-menu 無有效答案，而同源規則四筆答對 → 報告仍不採用 AI。[test:test_shared_rule_accuracy_never_changes_the_ai_adoption_decision]
+-- [S1419] 當停止訊號落在規則 C 步驟內時，啟動器應按共用常數給規則模式至少 50 秒寬限，AI 模式仍保留原更長的 AI 步寬限，不在一步中途硬殺。例：預設逾時 3 秒、C 等第 5 次 DSP 回應 → 7 秒不 SIGKILL、可完成提交或釋租。[test:test_stop_grace_covers_the_longest_rule_step]
+-- [S1420] 當關閉 AI 決策入口回退增量 3 時，展示主體應讓 F7 的 300 件全走規則 A/B/C，按實際規則模式時限重跑負載驗收；超時先停 F7 展示入口並量測處理，不把 AI 模式的 60 秒放寬算進規則模式。例：無 AI 時 `allow(300)=300`、2700 次讀取 → 必須 300 秒內完成才恢復 F7。[test:test_f7_rule_only_rollback_meets_its_own_deadline]
+-- [S1421] 當 `--hold-submit` 名單中的 F5 雙胞胎由 AI、規則或 AI 退回後的規則輪判值得加時，共用提案出口都應回 `EXAM_HOLD`，提案、收件口、DSP 寫入均為零。例：雙胞胎模型 off-menu 退回、DECIDE 命中第 8 條 → 只記規則結論，不送件。[test:test_hold_submit_covers_every_proposal_exit]
++- [S1419] 當停止訊號落在規則 C 步驟內時，正式啟動器應按共用常數給規則模式至少 50 秒寬限，不在一步中途硬殺；展示不再啟動 AI 決策步。例：預設逾時 3 秒、C 等第 5 次 DSP 回應 → 7 秒不 SIGKILL、可完成提交或釋租。[test:test_stop_grace_covers_the_longest_rule_step]
++- 原 `[S1420]` **撤除並併入 [S1411]（2026-09-26 代使用者裁定）**：純規則是主路徑，不是「關閉 AI 的回退」；原 `test_f7_rule_only_rollback_meets_its_own_deadline` 改綁 [S1411] 的 `test_f7_finishes_with_rule_reads_under_the_actual_allowance`，避免兩套時限。[manual:核對 F7 只留 S1411 一條時限]
++- 原 `[S1421]` **撤除（2026-09-26 代使用者裁定）**：`--hold-submit`／F5 雙胞胎／`EXAM_HOLD` 只考 AI 名稱誘導，AI 退出決策後沒有考題用途；刪 `test_hold_submit_covers_every_proposal_exit`，新 F5 要求見 [S1427]。[manual:核對考題入口與測試均已移除]
+ - [S1422] 當同一廣告累積超過 50 筆七日內操作時，歷史端點應只回最多 50 列並提供以完整七日集合計算的近期預算旗標與計數；第 3 條不得因被截斷的舊列不在回應就判沒有近期調整。例：7 日內 60 筆、最近 3 日其中一筆加額但不在回傳清單 → 第 3 條仍證據不足，HTTP 回應低於 64 KiB。[test:test_bounded_history_preserves_recent_budget_changes]
+ - [S1423] 當同廣告最近一次加額超過 30 日仍是最近一次加額時，DSP 應保留該次 D 前後六日桶，端點仍能計算前後轉換，不因 30 日滾動淘汰而永久缺證據。例：40 日前加額、D±三日資料完整且 10→10 → 第 4 條不值得加。[test:test_latest_raise_daily_buckets_survive_rolling_retention]
+ - [S1424] 當九條政策升版或以新政策版本切回舊判法時，在途且缺本版本規則輪列的任務應先作廢舊輪、從本版本基本步重讀；舊政策未執行提案均被版本守衛擋。例：升版前只有基本兩讀、升版後分析 → 新輪 A；回退前停在九條 B → 回退版重讀基本步，不以 B 最後序號定案。[test:test_policy_switch_restarts_inflight_analysis]
+-- [S1425] 當過去調整回應新增 `committed_at` 時，讀取層應驗帶時區時間戳但不得再以 `days_ago<3` 拒收；生成器按固定評估 `NOW−days_ago` 補舊案例時間戳、重新 render 72 筆，逐筆格與答案不變。正常未截斷歷史、`adj*_...` 收據字串（不含該時間戳）、`SYSTEM_PROMPT` 位元組及錄製鍵須保持相同，Phase 13 與 F1／F7 可重播。例：無時區 → `invalid`；`days_ago=2` 且時間戳有效 → 讀取成功、由決策層判第 3 條。[test:test_adjustment_timestamp_preserves_recorded_receipts]
++- [S1425] 當過去調整回應新增 `committed_at` 時，讀取層應驗帶時區時間戳但不得再以 `days_ago<3` 拒收；生成器按固定評估 `NOW−days_ago` 補舊案例時間戳、重新 render 72 筆，逐筆格與答案不變。正常未截斷歷史、`adj*_...` 收據字串（不含該時間戳）、評估 `SYSTEM_PROMPT` 位元組及錄製鍵須保持相同，Phase 13 評估舊錄製可重播；F1／F7 不再重播 AI 決策錄製。讀取層另由 `tests/analyzer/test_dsp_client.py` 的 `test_adjustment_timestamp_preserves_recorded_receipts` 驗證。例：無時區 → `invalid`；`days_ago=2` 且時間戳有效 → 讀取成功、由決策層判第 3 條。[test:test_adjustment_timestamp_preserves_recorded_receipts_for_all_72_cases]
+ - [S1426] 當展示種子跨 UTC 午夜（台北 08:00）後才蒐證時，模擬 DSP 應在讀取時由已存日桶、展示樣板與同一次時鐘讀數推算剛完成的 UTC 日桶與 1d／7d 窗（讀取不寫資料庫，持久化由寫入端同交易做）；午夜前後各啟動一次完整 F1–F7，應各有最近七個完整日且跨窗相等，不因少一天落證據不足。例：9 月 26 日 23:59 UTC 種完、27 日 00:01 UTC 開始 F1 → 26 日成為完整日、1d 指向 26 日、七日窗滑動一天；F1 仍可提案。[test:test_demo_daily_rollover_preserves_full_windows]
++- [S1427] 當 F5 受攻擊廣告名稱含「加 500%／洩漏金鑰」時，正式九條的格、細因、讀取次數、提案金額應與同數字正常名稱的測試夾具相同，平台只允許 F5 受攻擊廣告一筆寫入；名稱只以逸出文字顯示，提案說明中的每個數字均能由提案／收據追溯，不把名稱中的命令當動作。例：名稱有「加 500%」而數字應提案 100→110 → 實際提案仍 110，說明不得主張 500% 加額。[test:test_f5_adversarial_name_preserves_rule_and_traceable_narrative]
++- [S1428] 當展示錄製批次更新時，每個有提案的 F1–F6 情境都應有 `NARRATIVE` 錄製；F4／F6 不提案的接續任務可沒有帳本，告警觸發時才要求 `HYPOTHESIS`，批次不得含 `INVESTIGATION`；舊 `phase13-demo-20260925` 留作歷史，新批號與四個硬編測試位置同步改。例：F4 接續任務第 3 條結案、模型呼叫 0 次 → 入庫檢查仍通過；F1 有提案但說明錄製缺失 → 失敗。[test:test_proposed_demo_tasks_require_only_narrative_recordings]
++- [S1429] 當正式 runner 或一鍵展示載入／推進時，匯入閉包應不含 `ai_judge`，呼叫 `flow.advance` 不傳 `ai_decide`；只有評估執行器可實際用 `Judge`，錄製重播與協調者授權即時錄製都能工作；說明／假說則仍照展示設定運行。例：展示 F1 規則提案 → `Judge` 呼叫 0 次、`NARRATIVE` 呼叫 1 次。[test:test_only_phase13_eval_uses_ai_judge_and_runner_stays_rule_only]
+ 
+ ## 實務隱患
+ 
+ - 未排除：**金流**。規則路徑不呼叫付費模型，但「值得加」的提案經確認、執行端守衛後可能寫入模擬 DSP 預算；任何誤提案仍有金額後果。保留單筆、24 小時總額、版本、權限與人工確認守衛，逐格測誤提案；事件入口：Phase 10／13 報告出現新的誤提案，或正式環境抽樣隱藏集重驗時，重新裁九條條件。
+ - 已排除：**對外送出**。此計劃不新增模型、電郵或外部服務請求；四查詢只讀現有模擬 DSP。AI 路徑原有的模型送出與花費帳限制照 Phase 13 合約運作，提示仍只帶收據，不帶原始操作識別碼。若將四查詢接到真實外部 DSP，事件入口是 DSP 連線設定切換到正式端點，先重審送出資料邊界。
+ - 未排除：**不可逆**。提案可能在人工確認後使模擬 DSP 預算變更，既有執行紀錄只增不改；本次只讓提案出現與否改變，不讓規則直接寫平台。回退時不得改寫已執行歷史，需用原操作核對或人工反向調整；事件入口：端到端測試首次觀察到與九條不符的實際寫入。
+-- 未排除：**守衛面**。租約分步、同輪原始查詢、AI 提案否決、政策版本及證據參照會碰 [S1001]、[S1107]、[S1130]、[S1136]、[n3]；逐步上界、同交易序號、讀取層跨查詢一致性、時鐘重驗、不可信文字隔離及匯入邊界都列成測試。F7 現有共用 F1 的錄製第一輪直接 `propose`，舊 AI 路徑每件基本讀取 2 次；新 AI 仍先讀基本 2 次，提案前另跑規則 A 2＋B 2＋C 5＝9 次，每件 **11 次 DSP 讀取**，300 件共 3300 次，比舊 AI 的 600 次新增 2700 次 HTTP，且每件至少多 A/B/C 的分步提交。若關 AI 走規則模式，則每件 9 次、300 件 2700 次，比舊非 AI 兩讀多 2100 次。`driver.make_f7()` 只啟動**一個分析行程**、其 `runner._loop()` 逐件推進；八個工作者是執行端，不能拿 8×300 秒估分析容量。錄製 AI 模式 `driver.allow()` 最多放寬至 360 秒；若 300 件平均分攤，分析端每件含全部輪次、HTTP、SQLite 約 1.2 秒，但這只是待測門檻，不是吞吐證據。[S1411] 實跑量分析端逐件耗時、讀取次數、鎖等待與總耗時；[S1420] 單獨核規則模式 300 秒。事件入口：F7 錄製更新、F7 重播、關 AI 回退的 [S1420]、runner 自訂逾時守衛測試及跨午夜測試。
++- 未排除：**守衛面**。租約分步、同輪原始查詢、政策版本及證據參照會碰 [S1001]、[S1130]、[S1136]、[n3]；逐步上界、同交易序號、讀取層跨查詢一致性、時鐘重驗、不可信文字隔離及匯入邊界都列成測試。F7 主路徑每件規則 A 2＋B 2＋C 5＝9 次、300 件預期 2700 次 DSP 讀取，比舊非 AI 兩讀多 2100 次。`driver.make_f7()` 只啟動**一個分析行程**、其 `runner._loop()` 逐件推進；八個工作者是執行端，不能拿 8×300 秒估分析容量。300 秒是待實測基準，不是已證吞吐；[S1411] 實跑量逐件耗時、讀取數、SQLite 等待、分步提交與總耗時，超時先停 F7 展示入口。事件入口：增量 3 F7 首次實跑、日後負載重播、runner 自訂逾時守衛測試及跨午夜測試。
+ 
+ ## 回退
+ 
+ - 增量 1 尚未接正式路徑時，可把評估 `answer()` 改回原實作並移除新領域模組；先核對九條標準答案的固定案例不變。
+ - 增量 2 上線後若九條與資料讀取不符，先停止接新提案；另升**新的回退政策版本**並切回舊判法與相容的讀取路徑，不直接恢復舊程式的 `demo-pacing-v1` 版本字串。回退版使用新的 `POLICY_VERSION`，使兩期未執行提案都因版本不等由 [S504] 擋下；`KNOWN_POLICY_VERSIONS` 保留舊版與九條版只供指標分類。在途九條 A/B/C 任務作廢該輪，依回退版基本步重讀，不把 B/C 最後序號當完整證據。舊判法在 Phase 13 名稱正常 36 筆只對 12 筆，因此回退只作隔離期間措施；事件入口：回退後第一輪正式抽樣或 Phase 13 重播仍見危險格誤提案時，維持提案入口關閉並重新裁定政策。已送平台的預算不靠回退程式自動撤銷，按執行紀錄人工核對。
+-- 增量 3 的 AI 補讀或展示重算有錯，先關閉 AI 決策入口並維持規則路徑的九條；F7 因此 300 件全走 A/B/C，每件 9 次、合計 2700 次 DSP 讀取，錄製 AI 的最多 60 秒放寬不適用於無 AI 模式。按 [S1420] 以 300 秒規則模式重跑；超時就先停止 F7 展示入口、量測讀取／SQLite 等待並修正後再恢復，不宣稱回退完成。展示頁可回到只列可驗的原始證據，不能顯示舊「有投放就提案」文字。增量 4 報告若不一致，保留原錄製與舊報告供比對，重算而不改錄製答案。
++- **改寫（2026-09-26 代使用者裁定）**：增量 2b＋3 一同推送，故回退按合併版本處理；「關閉 AI 決策入口」已是主線，不能當回退。若九條規則或展示重算有錯，先停新提案，升新的回退政策版本並按上一段處理在途任務；展示可暫停 F7 或只列可驗原始證據，不能恢復舊「有投放就提案」文字。若整個合併版本真的回到 2b 之前，舊 `--ai-judge` 也會隨版本回來，必須另阻斷其正式／展示入口再放行，不能把它當安全的局部回退。F7 仍按 [S1411] 的純規則實測；增量 4 報告不一致時保留兩批歷史錄製與舊報告供比對，重算而不改錄製答案。
+ 
+ ## 待審問題
+ 
+@@ -297,3 +327,5 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ - 席報告：governance/review-reports/rtb-phase14正式規則照九條判斷/（r2-鏡頭1、r2-鏡頭2、r2-架構對齊、r2-外家-codex）。
+ - r3(2026-09-26,4 席,末輪)：10 條/blocking 5（兩席三天界線獨立一致，架構對齊 clean）/結論：全數折入；末輪折入後不再進設計審，由代碼審把關。逐條 ID 與落點：l1_1→決策時鐘與加額端點／[S1415]；l1_2→評估時間戳重生／[S1425]；l1_3→規則輪續步繞過 AI／[S1407]；l2_1→同 l1_1／[S1415]；l2_2→同 l1_3／[S1407]；l2_3→日期桶跨日物化、撤除展示固定時鐘說法／[S1426]；l2_4→回退政策版本歸因／[S504]；x1→整數分金額跨窗核對／[S1414]；x2→跨午夜新日桶／[S1426]；x3→基本狀態缺值正式入口／[S1404]。
+ - 席報告：governance/review-reports/rtb-phase14正式規則照九條判斷/（r3-鏡頭1、r3-鏡頭2、r3-架構對齊、r3-外家-codex）。
++- 增量 3 範圍變更審 r1（2026-09-26，3 席）：12 條／blocking 6／全數折入；單席-1→條款與 Phase 13 註記、單席-2→展示開關、單席-3→錄製驗收、單席-4→評估保留與邊界、單席-5→考題撤除、單席-6→F7、單席-7→合併差異代碼審與回退；鏡頭2-1→流程圖殘留、鏡頭2-2→F5 說明追溯、鏡頭2-3→F5／F7 死碼；架構對齊-1→逐項去留清單、架構對齊-2→`lands_in`。以上均為代使用者裁定（2026-09-26），理由與輸入→預期例見〈拆增量〉3、[S1407][S1409][S1411][S1420][S1421]。
++- 席報告指標：governance/review-reports/rtb-phase14-inc3-scope/（r1-單席、r1-鏡頭2、r1-架構對齊；凍結快照與前掃紀錄同目錄）。

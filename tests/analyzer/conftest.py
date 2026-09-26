@@ -56,3 +56,15 @@ def make_evidence(**overrides):
     }
     fields.update(overrides)
     return Evidence(**fields)
+
+
+def seed_rule_history(dsp_store, *campaign_ids, now=None):
+    """Phase 14 增量 2b:正式規則要四種追加查詢。給沒開 AI
+    的端到端測試的廣告種展示同一份歷史(七天平穩、
+    沒有過去調整、跨日樣板),讓規則輪讀得到逐日、長窗、歷史與過去調整;`now` 不給用 DSP
+    儲存層自己的時鐘
+    (真時鐘測試用真時鐘,固定時鐘測試要明傳同一個固定 now)。"""
+    from rtb.dsp.seed import DEMO_PROFILE, seed_platform_history
+
+    at = now if now is not None else datetime.fromisoformat(dsp_store._clock())
+    seed_platform_history(dsp_store, dict.fromkeys(campaign_ids, DEMO_PROFILE), at)

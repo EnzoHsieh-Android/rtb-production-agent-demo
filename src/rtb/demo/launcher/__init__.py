@@ -26,7 +26,7 @@ from rtb.stepbudget import (
     CALLS_PER_STEP,
     DEFAULT_TIMEOUT_SECONDS,
     LOGIN_TOKEN_ENV,
-    ai_stop_grace_seconds,
+    rule_stop_grace_seconds,
 )
 
 SRC = str(Path(rtb.__file__).resolve().parents[1])  # 專案沒有安裝成套件,子行程靠它找程式
@@ -37,7 +37,8 @@ STARTUP_SECONDS = 20.0
 STOP_SECONDS = 5.0
 _BASICS = ("PATH", "HOME", "LANG", "USER")
 # 三個模型環境變數(全展示只有這一份:驅動與批次檢查都用它,代碼審 r1 h3)
-# 即時模式的登入權杖(使用者 2026-09-25 裁定)跟著三個模型變數走:只給列在即時清單的分析端與模型入口
+# 即時模式的登入權杖(使用者 2026-09-25 裁定)跟著三個模型變數走:只給模型入口(說明、原因假說);
+# Phase 14 增量 3 起分析端不參與 AI 決策,永遠不拿模型變數
 MODEL_VARIABLES = ("RTB_MODEL_LIVE", "RTB_MODEL", "RTB_MODEL_RECORD", LOGIN_TOKEN_ENV)
 
 __all__ = [
@@ -58,7 +59,6 @@ __all__ = [
     "stop_grace_seconds",
     "write_fault_plan",
 ]
-AI_JUDGE_FLAG = "--ai-judge"
 
 
 class Role(StrEnum):
@@ -95,15 +95,14 @@ class FaultRequest:
 
 
 def child_env(role: Role, keys: DemoKeys, *, user_env: Mapping[str, str],
-              fault_nonce: str | None = None, live_model: bool = False) -> dict[str, str]:
+              fault_nonce: str | None = None) -> dict[str, str]:
     """子行程環境白名單([S1003]):基本四樣照使用者環境有的才帶、PYTHONPATH 固定為專案 src、
-    該角色的金鑰;模型入口另帶三個模型變數;分析端只在 live_model(情境列在即時清單、而且這次帶
-    --ai-judge,由 command_for 判)時多同樣三個(Phase 13 [S1145]);排了故障的那一個子行程另帶
-    一次性隨機值。"""
+    該角色的金鑰;只有模型入口另帶模型變數(帶不帶由 run_entry 依即時清單先濾);分析端一律不帶
+    (Phase 14 增量 3 撤除 Phase 13 [S1145] 的分析端分支);排了故障的那一個子行程另帶一次性隨機值。"""
     env = {name: user_env[name] for name in _BASICS if name in user_env}
     env["PYTHONPATH"] = SRC
     env.update({name: keys.text(name) for name in _ROLE_KEYS.get(role, ())})
-    if role is Role.MODEL_ENTRY or (role is Role.ANALYZER and live_model):
+    if role is Role.MODEL_ENTRY:
         env.update({name: user_env[name] for name in MODEL_VARIABLES if name in user_env})
     if fault_nonce is not None:
         env[FAULT_NONCE_ENV] = fault_nonce
@@ -122,35 +121,32 @@ def write_fault_plan(root: Path, request: FaultRequest) -> tuple[Path, str]:
                                       crash_point=request.crash_point))
 
 
-def command_for(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,  # noqa: PLR0913 - 起行程要的每一樣
-                faults: FaultRequest | None, user_env: Mapping[str, str],
-                live_model: bool = False) -> tuple[list[str], dict[str, str]]:
-    """live_model:這個情境列在即時清單;分析端要這次也帶 --ai-judge 才真的拿到模型變數([S1145])。"""
+def command_for(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,
+                faults: FaultRequest | None,
+                user_env: Mapping[str, str]) -> tuple[list[str], dict[str, str]]:
     if role not in _MODULES:
         raise ValueError(f"{role} 沒有固定的正式入口")
-    model = live_model and role is Role.ANALYZER and AI_JUDGE_FLAG in args
     if faults is None:
         return (module_command(_MODULES[role], args),
-                child_env(role, keys, user_env=user_env, live_model=model))
+                child_env(role, keys, user_env=user_env))
     if faults.role is not role:
         raise ValueError(f"故障是排給 {faults.role} 的,不是 {role}")
     config, nonce = write_fault_plan(root, faults)
     return (module_command("rtb.demo.launcher.child", [role.value, str(config), "--", *args]),
-            child_env(role, keys, user_env=user_env, fault_nonce=nonce,
-                               live_model=model))
+            child_env(role, keys, user_env=user_env, fault_nonce=nonce))
 
 
 def stop_grace_seconds(role: Role, args: Sequence[str]) -> float:
-    """收到 SIGTERM 之後等多久才硬殺。分析端會做完手上這一步(最多兩次呼叫,各自有逾時)才停,給它
-    兩倍逾時再加一秒,不在一步中途硬殺(代碼審 r2 n3);其他角色照固定時限。帶 --ai-judge 時(Phase 13
-    [S1136])至少再給「續租等鎖加上續租後 AI 那一步的最壞耗時」,用跟分析端守衛同一組常數算。"""
+    """收到 SIGTERM 之後等多久才硬殺。分析端會做完手上這一步才停,不在一步中途硬殺(代碼審 r2 n3);
+    其他角色照固定時限。Phase 14 [S1419]:規則輪 C 一步最多五次讀取,寬限取 max(舊兩讀寬限, A/B/C 最壞
+    秒數),預設逾時 3 秒是 50 秒(舊的 7 秒撤掉)。Phase 13 [S1136] 帶 --ai-judge 時的 AI 步寬限
+    隨增量 3 撤除。都用跟分析端守衛同一組常數算。"""
     if role is not Role.ANALYZER:
         return STOP_SECONDS
     timeout = DEFAULT_TIMEOUT_SECONDS
     if "--timeout-seconds" in args:
         timeout = float(args[list(args).index("--timeout-seconds") + 1])
-    grace = max(STOP_SECONDS, CALLS_PER_STEP * timeout + 1)
-    return max(grace, ai_stop_grace_seconds()) if AI_JUDGE_FLAG in args else grace
+    return max(STOP_SECONDS, CALLS_PER_STEP * timeout + 1, rule_stop_grace_seconds(timeout))
 
 
 class StartFailed(Exception):
@@ -162,10 +158,8 @@ class Process:
 
     def __init__(self, popen: subprocess.Popen[str], first_line: str,
                  reader: threading.Thread | None = None,
-                 grace_seconds: float = STOP_SECONDS,
-                 lines: queue.Queue[str] | None = None) -> None:
+                 grace_seconds: float = STOP_SECONDS) -> None:
         self._popen, self._reader = popen, reader
-        self._lines = lines
         self.grace_seconds = grace_seconds
         self.first_line = first_line
         self.pid = popen.pid
@@ -174,20 +168,6 @@ class Process:
 
     def poll(self) -> int | None:
         return self._popen.poll()
-
-    def next_line(self, seconds: float) -> str | None:
-        """就緒那一行之後的下一行(分析端開了 AI 決策時另印一行模型模式,Phase 13 增量 4);期限內沒有、
-        或標準輸出已經關了,回空值。"""
-        if self._lines is None:
-            return None
-        try:
-            line = self._lines.get(timeout=max(0.0, seconds))
-        except queue.Empty:
-            return None
-        if line == _EOF:
-            self._lines.put(_EOF)  # 之後再問也一樣是結尾
-            return None
-        return line
 
     def wait(self, timeout: float) -> int:
         return self._popen.wait(timeout)
@@ -283,15 +263,14 @@ def _spawn(command: Sequence[str], env: Mapping[str, str], cwd: Path, prefix: st
     except StartFailed:
         Process(popen, "", reader).stop()
         raise
-    return Process(popen, first, reader, grace_seconds, lines)
+    # 就緒之後的輸出照樣由讀取執行緒收走(管線不會塞滿);Phase 13 增量 4 讀模式行的 next_line 隨
+    # Phase 14 增量 3 撤除(分析端不再印模式行,代碼審 r1 鏡頭4)
+    return Process(popen, first, reader, grace_seconds)
 
 
-def start(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,  # noqa: PLR0913 - 起行程要的每一樣
-          faults: FaultRequest | None, user_env: Mapping[str, str],
-          live_model: bool = False) -> Process:
-    """live_model:這個情境列在即時清單(分析端要這次也帶 --ai-judge 才多三個模型變數,[S1145])。"""
-    command, env = command_for(role, args, keys, root=root, faults=faults, user_env=user_env,
-                               live_model=live_model)
+def start(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,
+          faults: FaultRequest | None, user_env: Mapping[str, str]) -> Process:
+    command, env = command_for(role, args, keys, root=root, faults=faults, user_env=user_env)
     log = root / f"{role.value}-{os.getpid()}-{threading.get_ident()}.log"
     return _spawn(command, env, root, _READY_PREFIX[role], log,
                   grace_seconds=stop_grace_seconds(role, args))

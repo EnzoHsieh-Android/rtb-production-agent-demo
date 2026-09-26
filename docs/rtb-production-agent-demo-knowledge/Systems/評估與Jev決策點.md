@@ -24,6 +24,7 @@ tags:
   - type/system
   - status/doing
 summary: |-
+  WHY: [2026-09-26 Phase 14 增量 3] AI 退出正式與展示的加額決策後,評估執行器是 `ai_judge.Judge` 唯一的呼叫者:直接呼叫、先前各輪紀錄與記次在記憶體、沒有流程層/任務庫/規則輪;遇到 `RuleContinue` 當場回傳(AI 答 propose 記原始值得加,退回取案例九條 `rule_verdict(case)`)。錄製重播與協調者授權的即時加錄製都照舊可達。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1146] 改寫、[S1429]。防回歸:[test:test_the_investigation_eval_runs_the_same_ai_judge]、[test:test_only_phase13_eval_uses_ai_judge_and_runner_stays_rule_only]。
   WHY:[2026-09-24 Phase 12 代碼審 r1] 命令列參數不收縮寫(allow_abbrev=False):一鍵展示的故障啟動器用正式入口同一支 parser 的解析結果核對目標路徑,縮寫與等號寫法都不能繞過(Phase 12 代碼審 r1 s1/l2/x2)。長選項一律寫全。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]。
   WHY: [2026-09-24] 交接文件 Phase 10:只在有證據的窄決策點評估 Jev,依切片報品質、跟程式基準比品質成本延遲、沒達門檻明確不採用。使用者本人裁定評估對象是「值不值得加」這一個判斷,結論照實寫兩個不採用理由。出處:[[Projects/RTB_Phase10評估與Jev決策點_計劃]] 增量 2。
   RULE: 合成評估集只是有限的合約案例,不套統計信賴、不能產生已驗證清單;已驗證清單只能來自正式環境隱藏抽樣集,而且只有採用函式建得出來。[since:2026-09-24] [retire:接上正式環境抽樣集與人工標註、改用它們重建評估時] [test:test_evaluation_calls_the_candidate_without_validating_anything]
@@ -53,6 +54,8 @@ verified_by:
   - "[[Verification/Phase11B增量1驗收紀錄]]"
   - "[[Verification/Phase13增量3驗收紀錄]]"
   - "[[Verification/Phase14增量2a離線驗證]]"
+  - "[[Verification/Phase14增量2b驗證紀錄]]"
+  - "[[Verification/Phase14增量3驗證紀錄]]"
 ---
 # 評估與Jev決策點
 
@@ -124,3 +127,28 @@ verified_by:
 ## Phase 14 增量 2a 評估資料（2026-09-26）
 
 出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1425]。生成器以固定 NOW 減 days_ago 補帶時區 committed_at 並重產 72 筆。逐筆格與標準答案、調整收據、SYSTEM_PROMPT 位元組及錄製鍵維持原值；時間戳僅供讀取白名單驗證，不進模型提示。2a 代碼審 r1：同一次加額在歷史列與過去調整列改成同一時刻（NOW 減 days_ago；原本歷史列早 2 小時、落在前一個 UTC 日），重產 72 筆後收據雜湊、格與答案不變，入庫錄製重播驗收通過。防回歸：[test:test_adjustment_timestamp_preserves_recorded_receipts_for_all_72_cases]、[test:test_each_past_adjustment_has_the_same_moment_as_its_history_row]。
+
+## Phase 14 增量 2b:Phase 10 轉接與 Phase 13 程式規則列(2026-09-26)
+
+- Phase 10:`route` 的四查詢與決策時間改必填,`score`、模型候選 `run_subset`、延遲量測一律明傳 `MISSING_FOUR_QUERIES` 與固定 `scoring.RULE_NOW`;暫停/異常照第 1/2 條先判,其餘證據不足。`synthetic_report` 每格帶 `note`「舊資料不足以評估九條規則」,逐格表印在格名後;標準答案不動。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1417]。防回歸:[test:test_phase_ten_scenarios_explicitly_report_missing_queries]。
+- Phase 13:`investigation_report.rule_verdict` 改成九條加案例四查詢(`rule_evidence`)以案例 NOW 判,跟標準答案同源,36/36 只證接線、不作品質證據(報告三列分列與同源警語是增量 4)。評估執行器遇到 AI 退回開規則輪(`RuleContinue`),改由同一支 `rule_verdict` 從案例取四查詢定案,不打 DSP、不問模型。
+- 評估案例轉接同步帶上過去調整提交時刻與截斷旗標([[Systems/正式九條判斷領域規則]])。
+
+## 代碼審 r1(Phase 14 增量 2b,2026-09-26)
+
+(`Judge(raw_replay=True)` 的旗標在 Phase 14 增量 3 拿掉:Judge 只剩評估這一個呼叫者,語意固定就是原始錄製重播,見文末)
+
+- 正式環境抽樣報告(`production_report`)同樣標「舊資料不足以評估九條規則」;延遲量測與報告寫明量的是缺四查詢的九條短路徑。
+- Phase 13 評估用 `Judge(raw_replay=True)`:沿用舊前置過濾、AI 答 propose 時 `CaseRun.final` 記模型自己的答案(正式路徑已改成規則否決);報告數字不變,「AI+規則否決」列是增量 4。
+
+## 錄製重播不寫真帳本(Phase 14 增量 2b 代碼審 r2,2026-09-26)
+
+Phase 13 評估命令列與 Phase 10 評估(`record`)在錄製模式沒帶 `--ledger` 時改用這次執行專屬的暫存帳本(評估命令列把路徑印到標準錯誤),不再退回帳號家目錄那一本。出處 [[Issues/錄製模式的原因假說寫進真帳本]]。防回歸:[test:test_recorded_entries_never_touch_the_account_ledger]。
+
+## AI 退出加額決策後的評估(Phase 14 增量 3,2026-09-26)
+
+出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3「留評估(AI 決策模組)」、[S1146] 改寫;驗證見 [[Verification/Phase14增量3驗證紀錄]]。
+
+- WHY:`Judge` 的 `raw_replay`、`preflight_ok`、`stop_requested`、`hold` 參數撤除(沒有入口就刪):評估一向用原始錄製重播的語意(暫停/異常照舊問模型,還原錄製當時的原始答案),正式路徑的前置過濾分支已經不存在。`AiContext` 從流程層搬到 `rtb.analyzer.investigation`、拿掉續租回呼,評估執行器的「永遠成功的續租」跟著刪。報告數字不變(重播同一批錄製)。
+- WHY:匯入邊界:原始碼裡只有 `rtb.eval.investigation_eval` 匯入 AI 決策模組;分析端驅動移出准匯入模型閘道與送出點的名單。防回歸:[test:test_only_phase13_eval_uses_ai_judge_and_runner_stays_rule_only]。
+- 報告的「AI 原始 / AI+規則否決 / 程式規則」三列分列與同源警語仍是增量 4([S1410] [S1418] 尚未綁到測試)。

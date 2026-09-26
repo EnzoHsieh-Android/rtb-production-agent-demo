@@ -64,7 +64,9 @@ HYPOTHESIS_ONLY: dict[str, frozenset[str]] = {name: frozenset({HYPOTHESIS}) for 
     "settings_from_env", "default_recordings_dir", "live_ledger_path", "ModelRequest", "Settings",
     "Mode", "Caller", "LedgerBusy", "ModelCallFailed", "UnknownModel", "Placeholders",
     "substitute", "restore", "mode", "notices", "check_recordings_dir", "MixedRecordingsDir",
-    "traceable_sentences", "record")}
+    "traceable_sentences", "record",
+    # Phase 14 代碼審 r2:錄製模式沒帶帳本時的暫存帳本(不退回真帳本)
+    "recorded_ledger")}
 SCANNED = (SRC / "executor" / "inbox_store.py", SRC / "executor" / "attempt_store.py",
            SRC / "analyzer" / "task_store.py", SRC / "executor" / "observability.py",
            SRC / "executor" / "capability_signer.py", SRC / "modelledger_view.py")

@@ -31,13 +31,16 @@ claude 絕對路徑)經 `settings_from_env` 組成設定往下傳。時間一律
 暫時性、無法可靠分類,不讓原生例外漏出去。
 """
 
+import atexit
 import logging
 import re
+import shutil
 import sqlite3
 import sys
+import tempfile
 import time
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
@@ -217,17 +220,66 @@ def _numbers(text: str) -> set[Decimal]:
     return found
 
 
+# 百分比的寫法(代碼審 r2 三席一致):先 NFKC(全形 %、小型百分號 U+FE6A、全形數字與全形英文字都會
+# 變成半形),再認數字後面的 % 或阿拉伯百分號 U+066A、percent/per cent(含 percentage)、pct、
+# (個)百分點,以及數字前面的「百分之」(百分之N 視同 N%)。
+# 代碼審 r3 鏡頭A:數字與單位之間、per 與 cent 之間可隔空白或連字號(各種連字號與破折號、減號),
+# pct 可帶複數 s
+_JOINER = r"[\s\-\u2010-\u2015\u2212]*"
+_PERCENT_AFTER = re.compile(
+    rf"{_JOINER}(?:[%\u066a]|per{_JOINER}cent|pcts?(?![a-z])|[個个]?\s*百分[點点])", re.IGNORECASE)
+_PERCENT_BEFORE = re.compile(r"百分之\s*$")
+# 代碼審 r3 資安:比對前先拿掉看不見的字元,讓核對看到的跟核可人看到的一樣。範圍:Unicode 類別
+# Mn(組合記號,含變體選擇符 U+FE00 到 FE0F、U+E0100 到 E01EF、U+034F、蒙古文變體選擇符)、Me(圍住的
+# 組合記號)、Cf(格式字元,含零寬空白與連接符、U+180E),以及看起來是空白、NFKC 也不動的
+# 韓文填充字 U+115F、U+1160、U+3164、U+FFA0 與點字空白 U+2800。只影響核對,留下的句子照原文。
+_BLANK_LOOKING = frozenset("\u115f\u1160\u3164\uffa0\u2800")
+_INVISIBLE_CATEGORIES = frozenset({"Mn", "Me", "Cf"})
+
+
+def _visible(text: str) -> str:
+    """拿掉看不見與空白樣的字元(範圍見 `_INVISIBLE_CATEGORIES`、`_BLANK_LOOKING`)。"""
+    return "".join(ch for ch in text if ch not in _BLANK_LOOKING
+                   and unicodedata.category(ch) not in _INVISIBLE_CATEGORIES)
+# 千分號、萬分號(含阿拉伯的兩個):證據裡不會有,出現就整句拿掉
+_PER_MILLE = re.compile(r"[\u2030\u2031\u0609\u060a]")
+
+
+def _percentages(text: str) -> set[Decimal]:
+    """文字裡寫成百分比的阿拉伯數字(寫法見 `_PERCENT_AFTER`/`_PERCENT_BEFORE`,先 NFKC),同
+    `_numbers` 的正規化。"""
+    text = _visible(unicodedata.normalize("NFKC", _visible(text)))
+    found = set()
+    for match in _NUMBER.finditer(text):
+        if (_PERCENT_AFTER.match(text, match.end())
+                or _PERCENT_BEFORE.search(text, 0, match.start())):
+            found |= _numbers(match.group(0))
+    return found
+
+
 def traceable_sentences(text: str, evidence: str) -> tuple[str, int]:
     """模型文字裡提到的數字要能對回送出去的證據(Phase 13 計劃〈省掉不值得發生的模型工作〉④:11B 的
     說明與假說也照這條):照句末標點切句,句子裡有數詞(`_numeral_phrase`)、或有任何一個阿拉伯數字不在
     證據文字裡,就整句拿掉。回(留下的文字, 拿掉幾句);呼叫端要把拿掉幾句照實標出來,不靜默刪。只比
-    數值、不比語意——核對只證明數字出自證據,不證明用對了地方。要在佔位符換回真實編號之前比。"""
-    allowed = _numbers(evidence)
+    數值、不比語意——核對只證明數字出自證據,不證明用對了地方。要在佔位符換回真實編號之前比。
+
+    百分比另外比語境(Phase 14 增量 3 代碼審 r1 外家否決-1):句子裡緊接百分號的數字,要對回證據裡
+    **也是百分比**的同值數字,不能借同值的計數過關(F5 的 1 小時曝光剛好是 500,「加 500%」原本對得回);
+    證據沒有的百分比整句拿掉。代碼審 r2 起百分比的寫法先 NFKC 再認:%(含全形、小型百分號)、阿拉伯
+    百分號、percent/per cent/pct(可隔連字號、pct 可帶複數,r3)、(個)百分點、百分之N;千分號與萬分號
+    一律整句拿掉。r3 起所有核對前先拿掉看不見與空白樣的字元(`_visible`),插在數字與百分號之間
+    也沒用。沒列到的寫法(例如英文拼出來的數字、自創的說法)仍只比數值,不含數字的句子不做語意過濾。
+    其他數字照舊只比數值。"""
+    allowed = _numbers(_visible(evidence))
+    percents = _percentages(evidence)
     kept, dropped = [], 0
     for sentence in _SENTENCE.findall(text):
         if not sentence:
             continue
-        if not _numeral_phrase(sentence) and _numbers(sentence) <= allowed:
+        seen = _visible(sentence)  # 核對看的是核可人看得到的字;留下的照原文
+        if (not _numeral_phrase(seen) and _numbers(seen) <= allowed
+                and _percentages(seen) <= percents
+                and not _PER_MILLE.search(unicodedata.normalize("NFKC", seen))):
             kept.append(sentence)
         else:
             dropped += 1
@@ -268,6 +320,27 @@ def preflight_login(settings: Settings) -> LoginPreflight:
 
 def live_ledger_path() -> Path:
     return ledger_path()
+
+
+SCRATCH_LEDGER_NOTICE = "錄製模式沒有指定帳本,這一趟用暫存帳本(不碰帳號家目錄那一本):{path}"
+
+
+def recorded_ledger(mode: Mode, given: Path | None, notify: Callable[[str], None]) -> Path | None:
+    """錄製模式要用的帳本,四個模型入口(說明、評估重播、Phase 10 評估、原因假說;分析端驅動在
+    Phase 14 增量 3 起不開模型閘道)與模型閘道共用這一支(Phase 14 代碼審 r2、r3;事故見
+    Issues/錄製模式的原因假說寫進真帳本)。**模式判出之後**才呼叫:即時回 None(即時的帳寫死帳號家目錄
+    那一本,由呼叫端照舊決定),不建暫存目錄、不通知;錄製且有給帳本就用它;錄製沒給才建這次執行專屬的
+    暫存帳本、用 notify 把路徑告訴使用者,暫存目錄在行程結束時清掉(atexit)。帳號家目錄那一本只准
+    使用者授權的即時呼叫寫。"""
+    if mode is not Mode.RECORDED:
+        return None
+    if given is not None:
+        return given
+    folder = Path(tempfile.mkdtemp(prefix="rtb-recorded-ledger-"))
+    atexit.register(shutil.rmtree, folder, True)
+    path = folder / "model-ledger.sqlite"
+    notify(SCRATCH_LEDGER_NOTICE.format(path=path))
+    return path
 
 
 # ---- 結算規則 ----

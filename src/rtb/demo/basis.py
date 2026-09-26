@@ -6,19 +6,17 @@
 拿不到的就不給那一組,不造數字。
 """
 
-import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
 
-from rtb.analyzer import investigation as inv
 from rtb.analyzer import policy
 from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
-from rtb.analyzer.task_store import MAX_GENERATION, InvestigationRecord, TaskRow
+from rtb.analyzer.task_store import MAX_GENERATION, TaskRow
 from rtb.demo.state_store import Basis, BasisCode
-from rtb.domain.evidence import Evidence, EvidenceKind
+from rtb.domain import nine_rules as rules
+from rtb.domain.evidence import Evidence
 from rtb.domain.task_state import TaskState
 from rtb.domain.worth import WorthVerdict
 from rtb.executor import guardrails, inbox_store
@@ -59,8 +57,6 @@ def _agrees(decision: Decision, reason: policy.NoActionReason | None, decided: T
                 == dict(decided.proposal.requested_change))
     if decided.state is TaskState.COLLECTING_EVIDENCE:
         return isinstance(decision, NeedsFreshEvidence)
-    if decided.state is TaskState.NO_ACTION and recorded_reason == "exam_hold":
-        return isinstance(decision, ProposalDecision)  # 判了值得加、只判不送(Phase 13 F5 雙胞胎)
     if decided.state is TaskState.NO_ACTION:
         return (isinstance(decision, NoAction) and reason is not None
                 and reason.value == recorded_reason)
@@ -77,16 +73,39 @@ def _freshness(evidence: Sequence[Evidence], at: datetime, fresh: bool) -> Basis
                  BasisCode.FRESH if fresh else BasisCode.STALE)
 
 
-def analysis(before: TaskRow, evidence: Sequence[Evidence], decided: TaskRow,
-             recorded_reason: str | None) -> tuple[Basis, ...]:
-    """分析那一步的根據:新鮮度、配速、值不值得加、建議金額,照正式規則的順序,停在做出決定的那一組。
-    before 是分析中那一列(證據掛在它底下),decided 是分析之後寫下的那一列(它的時間就是決策時間)。
-    每一步的中間事實取自正式規則公開的 `policy.steps`(代碼審 r1 a1),這裡只把它寫成人看得懂的字。"""
+BASE_RULE_STANDARD = ("九條的第 1、2 條只用基本資料、排在配速之前:暫停 → 不值得加;"
+                      "1 小時曝光、點擊、轉換、花費、營收有缺值或負數,"
+                      "或點擊多於曝光、轉換多於點擊 → 證據不足")
+NINE_RULES_STANDARD = ("正式規則是九條、由上而下先命中:暫停、1 小時資料異常、"
+                       "最近 3 天調過預算、上次加額沒換到轉換、轉換率掉一半、長窗有轉換、"
+                       "沒投放、有價值、沒價值;第 3 條起要四種追加查詢的有效結果,"
+                       "任一沒有結果就證據不足")
+
+
+def _rule_text(facts: policy.PolicySteps) -> str:
+    rule = facts.rule
+    if rule is None:
+        return "沒有判"
+    if rule.cell is not None:
+        return f"命中「{rules.RULE_TEXT[rule.cell]}」"
+    return f"證據不足({rule.reason.value}{'' if rule.query is None else '/' + rule.query.value})"
+
+
+def analysis(before: TaskRow, evidence: Sequence[Evidence], decided: TaskRow,  # noqa: PLR0911
+             recorded_reason: str | None,
+             queries: rules.RuleEvidence = policy.MISSING_FOUR_QUERIES) -> tuple[Basis, ...]:
+    """分析那一步的根據:新鮮度、(第 1/2 條)、配速、值不值得加、建議金額,照正式規則的順序,停在做出
+    決定的那一組。before 是分析中那一列(證據掛在它底下),decided 是分析之後寫下的那一列(它的時間就是
+    決策時間)。每一步的中間事實取自正式規則公開的 `policy.steps`(代碼審 r1 a1),
+    這裡只把它寫成人看得懂
+    的字。Phase 14 增量 2b:規則輪定案那一列由呼叫端從同一輪已存的原始回應轉好四查詢傳進來(`queries`)
+    ,
+    跟當時同一份;沒傳就是缺四查詢。"""
     at, items = decided.written_at, tuple(evidence)
     try:
         decision, reason = policy.explain(before, items, at, candidate=None,
-                                          allowed=policy.ValidatedCells.NONE)
-        facts = policy.steps(items, at)
+                                          allowed=policy.ValidatedCells.NONE, queries=queries)
+        facts = policy.steps(items, at, queries=queries)
     except Exception:  # 正式規則對這份證據丟例外:當時也不會寫下這一列,不給根據
         return ()
     if not _agrees(decision, reason, decided, recorded_reason):
@@ -97,8 +116,16 @@ def analysis(before: TaskRow, evidence: Sequence[Evidence], decided: TaskRow,
     state, metrics = facts.state, facts.metrics
     if state is None or metrics is None:
         lacking = "、".join(n for n, v in (("廣告狀態", state), ("成效資料", metrics)) if v is None)
-        found.append(Basis(f"缺{lacking}", "兩樣都要有才判斷",
+        found.append(Basis(f"缺{lacking}", "兩樣都要有、狀態要是啟用或暫停才判斷",
                            _NO_ACTION["missing_state_or_metrics"], RECOMPUTED, BasisCode.MISSING))
+        return tuple(found)
+    if facts.settled_by_base:
+        insufficient = facts.worth is WorthVerdict.INSUFFICIENT
+        found.append(Basis(
+            f"狀態 {state.get('status')}、曝光 {metrics.get('impressions')}、點擊 "
+            f"{metrics.get('clicks')}:{_rule_text(facts)}", BASE_RULE_STANDARD,
+            _NO_ACTION["judged_insufficient" if insufficient else "judged_not_worth"], RECOMPUTED,
+            BasisCode.INSUFFICIENT if insufficient else BasisCode.NOT_WORTH))
         return tuple(found)
     budget, spend = state.get("budget"), metrics.get("spend")
     shown = "算不出來" if facts.pacing_ratio is None else f"{facts.pacing_ratio:.0%}"
@@ -116,9 +143,8 @@ def analysis(before: TaskRow, evidence: Sequence[Evidence], decided: TaskRow,
              else (BasisCode.INSUFFICIENT, _NO_ACTION["judged_insufficient"])
              if facts.worth is WorthVerdict.INSUFFICIENT
              else (BasisCode.NOT_WORTH, _NO_ACTION["judged_not_worth"]))
-    found.append(Basis(f"曝光 {metrics.get('impressions')}、點擊 {metrics.get('clicks')}",
-                       "現行程式規則:曝光與點擊都大於 0 就值得加(不看廣告狀態與轉換營收)",
-                       worth[1], RECOMPUTED, worth[0]))
+    found.append(Basis(f"曝光 {metrics.get('impressions')}、點擊 {metrics.get('clicks')}:"
+                       f"{_rule_text(facts)}", NINE_RULES_STANDARD, worth[1], RECOMPUTED, worth[0]))
     if isinstance(decision, ProposalDecision):
         new = decision.proposal.requested_change["new_budget"]
         found.append(Basis(f"{budget} → {new}",
@@ -224,7 +250,8 @@ def analysis_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:  # noqa: PL
     if not items:
         return ()  # 夠新卻沒有下一組:不是 analysis() 給得出的形狀,不補
     second = items.pop(0)
-    if second.code is BasisCode.MISSING:
+    if second.code in (BasisCode.MISSING, BasisCode.NOT_WORTH, BasisCode.INSUFFICIENT):
+        # 缺資料,或九條第 1/2 條只用基本資料就結案(Phase 14:排在配速之前)
         return (*steps, RouteStep("a_complete", "a_no_action", second))
     steps.append(RouteStep("a_complete", "a_pacing",
                            Basis("廣告狀態與成效資料都有", "兩樣都要有才判斷", "齊全", RECOMPUTED,
@@ -309,211 +336,6 @@ def follow_up(reason: StrEnum, generation: int | None) -> tuple[Basis, ...]:
                   RECORDED_ANALYZER),)
 
 
-
-# ---- Phase 13 增量 4:AI 參與決策的那一步(計劃〈展示頁怎麼顯示〉) ----
-# 每一輪 AI 步驟在判斷紀錄佔兩列:「AI 判斷」列(看到的證據、允許的選項、選了什麼與理由、引用的
-# 收據值)與「程式接手」列(做了哪個唯讀查詢、照公式算的金額、不提案結案,或改由程式規則決定)。
-# 證據與選項是程式算的(同一批證據用調查詞彙模組同一支函式重算);選擇、理由與引用取自調查紀錄當下
-# 記下的。
-# 同 AI 決策模組的配速分母(測試核對兩邊一致)
-HOURS_PER_BUDGET = round(1 / policy.ELAPSED_FRACTION_1H)
-RECORDED_ROUND = "調查紀錄當下記下"
-OPTION_TEXT = {
-    inv.QueryOption.CHECK_LONGER_WINDOW.value: "看 1 天與 7 天的成效",
-    inv.QueryOption.CHECK_CHANGE_HISTORY.value: "看改過幾次預算、暫停過幾次",
-    inv.QueryOption.CHECK_DAILY_TREND.value: "看最近 3 天對前 4 天的趨勢",
-    inv.QueryOption.CHECK_PAST_ADJUSTMENTS.value: "看以前調預算之後的成效",
-    inv.Conclusion.PROPOSE.value: "值得加",
-    inv.Conclusion.DO_NOT_PROPOSE.value: "不值得加",
-    inv.Conclusion.STOP_INSUFFICIENT.value: "證據不足,停止",
-}
-FALLBACK_CAUSE = {
-    inv.FallbackReason.TIMEOUT: "AI 太慢",
-    inv.FallbackReason.LOCAL_CAP_REFUSED: "已達花費上限",
-    inv.FallbackReason.QUOTA_EXHAUSTED: "額度用完",
-    inv.FallbackReason.OVERRUN: "單次花費超過上限",
-    inv.FallbackReason.NO_RECORDING: "沒有對應的錄製回應",
-    inv.FallbackReason.UNREADABLE: "回應讀不懂",
-    inv.FallbackReason.CONFIG_ERROR: "設定有問題",
-    inv.FallbackReason.TRANSIENT: "服務暫時出錯",
-    inv.FallbackReason.LEDGER_BUSY: "花費紀錄忙碌",
-    inv.FallbackReason.OFF_MENU: "答案不在固定選項裡,或引用的數字對不上",
-    inv.FallbackReason.PREFLIGHT_FAILED: "啟動時登入檢查沒過",
-    inv.FallbackReason.AI_ALREADY_USED: "這件工作已經問過 AI",
-}
-FALLBACK_LABEL = "這次改由程式規則決定"
-SOURCE_TEXT = {"recorded": "錄製回應", "live": "即時呼叫"}
-_WORTH_CODES = frozenset({BasisCode.WORTH, BasisCode.NOT_WORTH, BasisCode.INSUFFICIENT})
-
-
-def choice_text(choice: str) -> str:
-    """選項代碼(查詢以逗號串起)的白話:代碼照原樣留著,後面接白話。"""
-    return "、".join(f"{code}({OPTION_TEXT.get(code, '不認得的選項')})"
-                    for code in choice.split(",") if code)
-
-
-def fallback_text(code: str | None) -> str:
-    try:
-        cause = FALLBACK_CAUSE[inv.FallbackReason(code or "")]
-    except ValueError:
-        cause = "原因沒有記下"
-    return f"{FALLBACK_LABEL}(原因:{cause})"
-
-
-def ai_target(record: InvestigationRecord) -> str:
-    """這一輪 AI 那一步走出去的那條邊通往哪:退回 → 用程式規則;選查詢 → AI 要再查;結論 → 寫建議
-    或不調整。"""
-    if record.kind == inv.RecordKind.FALLBACK:
-        return "a_rule"
-    if record.kind == inv.RecordKind.QUERY:
-        return "a_ai_query"
-    return "a_propose" if record.choice == inv.Conclusion.PROPOSE.value else "a_no_action"
-
-
-def _fields(receipt: inv.Receipt) -> str:
-    if inv.is_no_result(receipt):
-        return f"沒有結果({receipt.get('reason', 'invalid')})"
-    return "、".join(f"{k}={v}" for k, v in receipt.items() if k != inv.RAW_ROWS)
-
-
-def _receipts_text(evidence: Sequence[Evidence], state: Mapping[str, Any],
-                   metrics: Mapping[str, Any]) -> str:
-    """AI 這一輪看到的收據(程式算的字串,跟送給 AI 的同一支函式):base 加上已查過的每一個查詢。"""
-    base = inv.base_receipt(state, metrics, HOURS_PER_BUDGET)
-    parts = [f"base:{_fields(base)}"]
-    parts += [f"{option.value}:{_fields(receipt)}"
-              for option, receipt in inv.query_receipts(evidence).items()]
-    return ";".join(parts)
-
-
-def _before_ai(evidence: Sequence[Evidence], at: datetime) -> tuple[tuple[Basis, ...], str | None]:
-    """AI 那一步之前的程式判斷點(新鮮度、花得慢不慢)重算的根據,與 AI 看到的收據;程式的前四道沒全過
-    (那樣不會問 AI)就不給。"""
-    items = inv.code_rule_evidence(evidence)
-    try:
-        facts = policy.steps(items, at)
-    except Exception:  # 正式規則對這份證據丟例外:不給根據
-        return (), None
-    if not facts.fresh or facts.state is None or facts.metrics is None or not facts.underpacing:
-        return (), None
-    budget, spend = facts.state.get("budget"), facts.metrics.get("spend")
-    shown = "算不出來" if facts.pacing_ratio is None else f"{facts.pacing_ratio:.0%}"
-    pace = Basis(f"花費 {spend}、預算 {budget}:到現在該花的進度是 {shown}",
-                 f"一天預算的 1/{HOURS_PER_BUDGET} 當作這一小時該花的,"
-                 f"進度低於 {policy.UNDERPACING_THRESHOLD:.0%} 算花太慢",
-                 "花太慢,這次讓 AI 參與決定", RECOMPUTED, BasisCode.UNDERPACING)
-    return (_freshness(items, at, True), pace), _receipts_text(evidence, facts.state, facts.metrics)
-
-
-@dataclass(frozen=True)
-class AiStep:
-    """一輪 AI 那一步在判斷紀錄裡的樣子:走到哪個節點、走出去的那條邊、白話原因、根據、誰判的。"""
-
-    node: str
-    edge: tuple[str, str]
-    reason: str
-    basis: tuple[Basis, ...]
-    actor: str
-
-
-def ai_step(record: InvestigationRecord, earlier: Sequence[InvestigationRecord],
-            evidence: Sequence[Evidence], at: datetime) -> AiStep:
-    """「AI 判斷」列(退回時是「改由程式規則決定」那一列)。earlier 是這件工作在這一輪之前已提交的調查
-    紀錄(算這一輪允許的選項);evidence 是這一輪分析那一步的整批證據。"""
-    before, seen = _before_ai(evidence, at)
-    source = SOURCE_TEXT.get(record.model_source or "", "來源沒有記下")
-    edge = ("a_ai", ai_target(record))
-    if record.kind == inv.RecordKind.FALLBACK:
-        text = fallback_text(record.fallback)
-        return AiStep("a_rule", edge, text, (*before, Basis(
-            f"AI 這一輪沒有給出能用的答案:{text.split('原因:')[-1].rstrip(')')}",
-            "AI 要在時限內、從這一輪允許的選項裡回答,而且引用的收據值要對得上",
-            text, RECORDED_ROUND, BasisCode.AI_FALLBACK)), "程式")
-    allowed = inv.allowed_choices(inv.progress(earlier))
-    main = Basis(seen or "(這一輪的收據算不回來)",
-                 "這一輪允許的選項:" + choice_text(",".join(allowed)),
-                 f"選了 {choice_text(record.choice)}。理由:{record.reason or '(沒有記下)'}",
-                 source, BasisCode.AI_ROUND)
-    items = [main]
-    cited = _cited(record.cited_json)
-    if cited:
-        items.append(Basis(cited, "只證明這些數字存在、而且跟收據上的一字不差,不證明它們支持結論",
-                           "已核對存在", RECORDED_ROUND, BasisCode.AI_CITED))
-    what = ("AI 選了查詢:" if record.kind == inv.RecordKind.QUERY else "AI 判:")
-    return AiStep("a_ai", edge, what + choice_text(record.choice), (*before, *items), "AI")
-
-
-def _cited(text: str | None) -> str:
-    """調查紀錄記下的引用(已核對存在的收據值)寫成一行;讀不懂就不給。"""
-    if not text:
-        return ""
-    try:
-        items = json.loads(text)["evidence"]
-        return ";".join(f"{i['ref']}.{i['field']} = {i['value']}" for i in items)
-    except (ValueError, KeyError, TypeError):
-        return ""
-
-
-def takeover(record: InvestigationRecord, decided: TaskRow,
-             evidence: Sequence[Evidence]) -> Basis | None:
-    """「程式接手」列的根據:照 AI 選的唯讀查詢去讀、照公式算金額、照結論不提案結案。退回的那一輪不在
-    這裡(程式規則那幾步照 analysis 重算)。"""
-    if record.kind == inv.RecordKind.QUERY:
-        return Basis(f"照 AI 選的唯讀查詢去讀:{choice_text(record.choice)}",
-                     "只讀、不寫;每件工作每種查詢最多一次", "回去蒐集資料,帶著新的收據再問一次 AI",
-                     RECORDED_ROUND, BasisCode.AI_TAKEOVER)
-    if record.kind != inv.RecordKind.CONCLUSION:
-        return None
-    if decided.state is TaskState.PROPOSED and decided.proposal is not None:
-        state: Mapping[str, Any] = next(
-            (e.payload for e in evidence if e.kind is EvidenceKind.CAMPAIGN_STATE), {})
-        new = decided.proposal.requested_change.get("new_budget")
-        return Basis(f"{state.get('budget')} → {new}",
-                     f"加 {policy.BUDGET_INCREASE_FRACTION:.0%}(四捨五入,至少加 1),"
-                     "跟程式規則同一個公式;金額、廣告與動作都由程式決定",
-                     PROPOSE, RECOMPUTED, BasisCode.AI_TAKEOVER)
-    return Basis(f"AI 判{OPTION_TEXT.get(record.choice, record.choice)}",
-                 "AI 下了不調整的結論,程式照結論結案", "不調整,結束", RECORDED_ROUND,
-                 BasisCode.AI_TAKEOVER)
-
-
-EXAM_HOLD = Basis("判了值得加", "這個廣告列在只判不送的清單(考題用)",
-                  "不送出,以考題結束結案", RECORDED_ROUND, BasisCode.AI_TAKEOVER)
-
-
-def after_fallback(found: Sequence[Basis]) -> tuple[Basis, ...]:
-    """退回之後程式規則那幾步的根據:analysis() 重算的整組扣掉 AI 那一步之前已經顯示過的新鮮度
-    與配速。"""
-    items = list(found)
-    if len(items) >= 2 and items[0].code is BasisCode.FRESH \
-            and items[1].code is BasisCode.UNDERPACING:
-        return tuple(items[2:])
-    return ()
-
-
-def ai_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:
-    """AI 那一步之前走過的判斷點:新鮮度 → 資料齊不齊 → 花得慢不慢 → AI 選下一步(ai_step 給的
-    前兩組)。"""
-    by_code = {b.code: b for b in found}
-    fresh, pace = by_code.get(BasisCode.FRESH), by_code.get(BasisCode.UNDERPACING)
-    if fresh is None or pace is None:
-        return ()
-    return (RouteStep("a_fresh", "a_complete", fresh),
-            RouteStep("a_complete", "a_pacing", Basis("廣告狀態與成效資料都有", "兩樣都要有才判斷",
-                                                      "齊全", RECOMPUTED, BasisCode.COMPLETE)),
-            RouteStep("a_pacing", "a_ai", pace))
-
-
-def rule_route(found: Sequence[Basis], *, held: bool = False) -> tuple[RouteStep, ...]:
-    """退回之後程式規則判斷的兩步:用程式規則 → 值得加嗎 → 寫建議或不調整(根據是 after_fallback
-    給的)。held:只判不送的那一件(F5 雙胞胎),寫好建議之後再走一步「只判不送」(代碼審 r1 p3)。"""
-    items = list(found)
-    if not items or items[0].code not in _WORTH_CODES:
-        return ()
-    worth = items[0]
-    target = "a_propose" if worth.code is BasisCode.WORTH else "a_no_action"
-    steps = (RouteStep("a_rule", "a_worth", worth), RouteStep("a_worth", target, worth))
-    if held and target == "a_propose":
-        hold = next((b for b in items if b.code is BasisCode.AI_TAKEOVER), EXAM_HOLD)
-        return (*steps, RouteStep("a_propose", "a_exam_hold", hold))
-    return steps
+# Phase 13 增量 4 的「AI 參與決策那一步」根據(AI 判斷列、程式接手、退回、只判不送、AI 之前的判斷點)
+# 隨 Phase 14 增量 3(計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3)撤除:AI 不參與
+# 加額決策,展示只留規則輪的根據、提案說明與告警假說。

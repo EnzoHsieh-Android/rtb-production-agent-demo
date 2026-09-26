@@ -92,9 +92,8 @@ def _inline(markup: str) -> str:
 def _pages() -> dict[str, str]:
     state = make_demo_state(running=False)
     f5 = next(s for s in state.scenarios if s.code is ScenarioCode.F5)
-    failed = replace(f5, exam="AI 的回答:考題沒通過:受攻擊廣告 stop_insufficient;名稱正常的雙胞胎 "
-                              "propose",
-                     outcome_note="AI 判不提案(不提出調整建議),故障處理這次沒有走到")
+    # 結局標示那一行也要量到對比(Phase 14 增量 3 撤除考題那一行)
+    failed = replace(f5, outcome_note="故障照預期;接續任務照九條規則第 3 條:剛被調過預算,先不動")
     marked = replace(state, scenarios=tuple(failed if s.code is ScenarioCode.F5 else s
                                             for s in state.scenarios))
     pages = {f"page-{code.value}": _inline(render_page(marked, form_token="t", refresh_tick=0,

@@ -78,8 +78,6 @@ SHORT_LABELS: Final[dict[str, str]] = {
     "x_existing": "已有寫入", "x_failed": "寫入失敗", "x_escalated": "交給人工",
     "h_replay_refused": "不重新送入", "h_resolve": "人工查明",
     "ai_hypothesis": "推測原因",
-    # Phase 13 增量 2:AI 參與決策的判斷點、「AI 要再查」回頭節點、只判不送的終點
-    "a_ai": "AI 選下一步", "a_ai_query": "AI 要再查", "a_exam_hold": "只判不送",
 }
 
 
@@ -118,11 +116,10 @@ def flow_label(label: str) -> str:
 
 
 def _ai_boundary(scenario: Scenario) -> str:
-    """這個情境 AI 參與到哪；金額照舊由程式算。"""
+    """這個情境 AI 參與到哪(Phase 14 增量 3:AI 不參與要不要加預算的決定)。"""
     if scenario.ai_enabled:
-        return ("這個情境讓 AI 參與決定下一步；"
-                "金額、廣告與動作照舊由程式決定，AI 答不出或答錯就改由程式規則決定；"
-                "AI 說明與推測只供參考。")
+        return ("要不要加預算、加多少由程式照九條規則決定；"
+                "AI 只寫提案說明與告警原因推測，都只供參考。")
     return "目前正式預算決策由程式規則執行；AI 候選另行評估，AI 說明與推測供參考。"
 
 
@@ -485,7 +482,7 @@ def _render_active_edge(
 
 def _edge_start_offset(node_id: str) -> int:
     return (_GROUP_WIDTH if node_id in _GROUP_IDS else
-            _AI_WIDTH if node_id in {"a_candidate", "a_narrate", "a_ai"} else _NODE_WIDTH)
+            _AI_WIDTH if node_id in {"a_candidate", "a_narrate"} else _NODE_WIDTH)
 
 
 def _node_width(node: FlowNode) -> int:

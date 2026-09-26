@@ -12,7 +12,6 @@ from types import MappingProxyType
 
 import pytest
 
-from rtb.analyzer import policy
 from rtb.analyzer.dsp_client import _campaign_text
 from rtb.analyzer.flow import NoAction, ProposalDecision
 from rtb.analyzer.task_store import TaskRow
@@ -58,12 +57,16 @@ def _fingerprint(decision):
 # ---- S210 ----
 @pytest.mark.parametrize("pace", ["underpacing", "on_pace"])
 def test_no_adversarial_campaign_name_changes_the_decision(pace):
-    baseline = policy.decide(TASK, _batch(None, SPEND[pace]), NOW)
+    # Phase 14 增量 2b:正式規則是九條,要四查詢才判得到「值得加」;這裡帶齊一份平穩的四查詢
+    # (跟決策規則測試同一份),名稱照樣不影響任何決策
+    from tests.analyzer.test_policy import decide_full
+
+    baseline = decide_full(TASK, _batch(None, SPEND[pace]), NOW)
     expected = ProposalDecision if pace == "underpacing" else NoAction
     assert isinstance(baseline, expected)  # 兩種配速各打到一條路:一次出提案、一次不需動作
 
     for category, name in SAMPLES:
-        decision = policy.decide(TASK, _batch(name, SPEND[pace]), NOW)
+        decision = decide_full(TASK, _batch(name, SPEND[pace]), NOW)
         assert decision == baseline, category
         assert _fingerprint(decision) == _fingerprint(baseline), category
     if isinstance(baseline, ProposalDecision):  # 仍可引用:提案列出三筆證據編號,含廣告文字

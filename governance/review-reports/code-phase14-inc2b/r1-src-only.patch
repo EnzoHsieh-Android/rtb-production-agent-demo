@@ -1,0 +1,3121 @@
+diff --git a/src/rtb/analyzer/ai_judge.py b/src/rtb/analyzer/ai_judge.py
+index 8b5cec3..500d924 100644
+--- a/src/rtb/analyzer/ai_judge.py
++++ b/src/rtb/analyzer/ai_judge.py
+@@ -3,21 +3,24 @@
+ 
+ 1. 程式先過濾:只用現況、1 小時指標、廣告文字三種證據跑現行規則的前四道(新鮮度、缺資料、配速算不出、
+    配速不偏低);沒過就照現行規則結案或重蒐證,不呼叫模型([S1104])。追加查詢的收據在入口濾掉,傳給現行
+    決策函式、不提案原因與建提案的證據只有那三種([S1115])。
+ 2. 這件工作已退回過或下過結論(看已提交的調查紀錄)→ 直接用現行規則,記一列「AI 已用過」([S1138]);
+    登入預檢沒過 → 整趟用現行規則,記「登入預檢沒過」([S1160])。
+ 3. 續租前、呼叫模型前各看一次停止旗標,已收到就丟 RenewalSkipped、這一步不寫([S1161]);經流程層的
+    續租回呼續租一次([S1135]),再呼叫模型一次(同一步查完這一輪選的全部查詢,[S1128])。
+ 4. 回答過驗證:選查詢 → 回蒐集證據(紀錄帶 ai_query);propose → 照同一個公式建提案([S1107]);
+    do_not_propose / stop_insufficient → 不提案,原因沿用「判不值得加」「判證據不足」。
+-5. 模型呼叫失敗類別與本地驗證不過 → 現行規則照同一批三種證據決定,記退回原因([S1106]);停止訊號轉成的
++5. 模型呼叫失敗類別與本地驗證不過 → 退回程式規則,記退回原因([S1106]);Phase 14 增量 2b
++起程式規則是九條:
++   暫停/異常用基本三筆當場結案,其餘開一次新規則輪全量重讀四查詢再定案(規則輪續步與定案由流程層直接問
++   規則輪、不經這裡);停止訊號轉成的
+    例外(CallTerminated,BaseException)與 KeyboardInterrupt 不接,往外丟。不重試。
+ 6. --hold-submit 清單裡的廣告:不論 AI 或規則判提案,一律改成不提案、原因「考題結束」([S1156])。
+ 
+ 模型只經模型閘道(分析端唯一准匯入模型用戶端的地方,[S1100]);提案不帶任何模型產生的欄位([S1114])。
+ """
+ 
+ from collections.abc import Callable, Mapping
+ from dataclasses import dataclass, field
+ from datetime import datetime
+ from pathlib import Path
+@@ -26,22 +29,25 @@ from typing import Any
+ from rtb.analyzer import investigation as inv
+ from rtb.analyzer import modelgate, policy
+ from rtb.analyzer.flow import (
+     AiContext,
+     AiOutcome,
+     Decision,
+     NoAction,
+     ProposalDecision,
+     QueryMore,
+     RenewalSkipped,
++    RuleContinue,
++    RuleDecide,
++    RuleOutcome,
+ )
+-from rtb.analyzer.task_store import InvestigationRecord, TaskRow
++from rtb.analyzer.task_store import InvestigationRecord, TaskReads, TaskRow
+ from rtb.domain.evidence import Evidence, EvidenceKind
+ from rtb.stepbudget import MODEL_TIMEOUT_SECONDS
+ 
+ MAX_OUTPUT_TOKENS = 1024
+ HOURS_PER_BUDGET = round(1 / policy.ELAPSED_FRACTION_1H)  # 配速比的分母:一天預算的 1/24
+ Complete = Callable[[str, str], modelgate.ModelResult]
+ 
+ 
+ GateOpener = Callable[..., modelgate.Gate]
+ 
+@@ -152,36 +158,63 @@ class _Inputs:
+     metrics: Any
+     context: AiContext
+ 
+ 
+ def _rule(task: TaskRow, base: tuple[Evidence, ...],
+           now: datetime) -> tuple[Decision, policy.NoActionReason | None]:
+     """現行規則(沒有候選、空的允許清單),只拿現況、1 小時指標、廣告文字三種證據。"""
+     return policy.explain(task, base, now, candidate=None, allowed=policy.ValidatedCells.NONE)
+ 
+ 
+-def _outcome_code(decision: Decision) -> str:
++RULE_ROUND = inv.RULE_ROUND  # 退回紀錄的結果代碼:改由規則輪全量重讀四查詢再定案(Phase 14 增量 2b)
++
++
++def _outcome_code(decision: Decision | RuleContinue) -> str:
++    if isinstance(decision, RuleContinue):
++        return RULE_ROUND
+     if isinstance(decision, ProposalDecision):
+         return inv.Conclusion.PROPOSE.value
+     return "no_action" if isinstance(decision, NoAction) else "needs_fresh_evidence"
+ 
+ 
+ def _fallback(task: TaskRow, base: tuple[Evidence, ...], now: datetime, state: inv.Progress,
+               why: inv.FallbackReason, source: str | None = None) -> AiOutcome:
+-    """退回現行規則:照同一批三種證據決定,結果跟完全沒開 AI 時一字不差;這一輪記退回原因類別。"""
+-    decision, reason = _rule(task, base, now)
++    """退回程式規則(Phase 14 增量 2b 起是九條):只用基本三筆就判得出的(暫停、1 小時異常)當場結案;其餘
++    要四查詢,回 RuleContinue 開一次新的規則輪、A/B/C 全量重讀,不沿用 AI 期的查詢([S1407] 的退回那半;
++    AI 提案的規則否決是增量 3)。這一輪記退回原因類別。"""
++    facts = policy.steps(base, now, queries=None)
++    decision: Decision | RuleContinue
++    if facts.needs_queries:
++        decision, reason = RuleContinue(), None
++    else:
++        decision, reason = _rule(task, base, now)
+     record = InvestigationRecord(inv.RecordKind.FALLBACK, state.next_round,
+                                  _outcome_code(decision), inv.DecidedBy.RULE, fallback=why.value,
+                                  model_source=source)
+     return AiOutcome(decision, record, reason)
+ 
+ 
++def held_rule(rule_decide: RuleDecide, hold: frozenset[str]) -> RuleDecide:
++    """開 AI 時規則輪定案也照 --hold-submit 只判不送(Phase 13 [S1156];AI 退回改走規則輪之後,
++    這是規則輪
++    的提案出口):清單裡的廣告被規則判值得加,改成不提案、原因考題結束,規則事件照記。"""
++
++    def decide(task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
++               reads: TaskReads) -> RuleOutcome:
++        outcome = rule_decide(task, evidence, now, reads)
++        if task.campaign_id in hold and isinstance(outcome.result, ProposalDecision):
++            return RuleOutcome(NoAction(), outcome.event, policy.NoActionReason.EXAM_HOLD)
++        return outcome
++
++    return decide
++
++
+ def _held(outcome: AiOutcome, task: TaskRow, hold: frozenset[str]) -> AiOutcome:
+     """只判不送(--hold-submit):清單裡的廣告被判提案時,改成不提案、原因考題結束;紀錄照記誰判的。"""
+     if task.campaign_id in hold and isinstance(outcome.result, ProposalDecision):
+         return AiOutcome(NoAction(), outcome.record, policy.NoActionReason.EXAM_HOLD)
+     return outcome
+ 
+ 
+ def _campaign_name(evidence: tuple[Evidence, ...]) -> tuple[str | None, bool]:
+     for item in evidence:
+         if item.kind is EvidenceKind.CAMPAIGN_TEXT:
+diff --git a/src/rtb/analyzer/dsp_client.py b/src/rtb/analyzer/dsp_client.py
+index 547ed7c..c16e0b3 100644
+--- a/src/rtb/analyzer/dsp_client.py
++++ b/src/rtb/analyzer/dsp_client.py
+@@ -1,17 +1,21 @@
+ """真的 EvidenceSource:呼叫 Mock DSP 讀廣告現況與指標。
+ 
+ 兩個端點都成功才回傳三筆證據(廣告現況、指標、廣告文字);任一個失敗(逾時、連線失敗、
+ 4xx/5xx、可信欄位壞掉)整個函式往外丟例外,不吞、不回傳半套(增量 3 的 S26 已經保證:
+ EvidenceSource 丟例外時,advance() 不寫入任何東西,狀態留在原地等下次重試——這支檔只需要
+ 老實丟例外,不用自己做任何重試邏輯)。
+ 
++缺可信狀態(Phase 14 增量 2b,[S1404]):現況 200 回應只有狀態缺值或非法時,不丟例外,
++回的證據沒有現況那一筆
++(指標與廣告文字照常),由決策以「缺現況」不提案結案;不能讓它卡在純讀取重試,也不能造一筆可信現況。
++
+ 逐欄白名單(Phase 7 增量 1):只有名單上的欄位進證據,名單外的連名稱都不記(欄位名稱本身也是
+ 不可信輸入);可信欄位缺漏、型別不對、超出範圍、廣告編號不是這個任務的,整個讀取失敗——那是
+ 「DSP 壞了」的訊號,不是攻擊者能從廣告文字觸發的。廣告名稱是不可信文字:原樣保存、超過上限就截斷
+ 並標記,不過濾、不拒收(塞字不能讓分析失敗)。
+ 
+ 只做「打 HTTP、轉成 Evidence」,不碰 TaskStore、不做任何持久化;`on_call` 是唯一的例外
+ (選填的鉤子,呼叫端要不要拿它去記 tool_calls 是呼叫端的事,這支檔不知道 TaskStore 存在)。
+ """
+ 
+ import hashlib
+@@ -69,20 +73,24 @@ METRICS_FIELDS: dict[str, Check] = {
+     "window": lambda value: value == REQUESTED_WINDOW,
+     "impressions": is_count_or_none,
+     "clicks": is_count_or_none,
+     "conversions": is_count_or_none,
+     # 浮點(舊 DSP 與評估案例)或 DSP 整數分的固定兩位小數字串;判準只在領域層 _checks 一份
+     "spend": is_amount_or_none,
+     "revenue": is_amount_or_none,
+ }
+ 
+ 
++def _state_status_ok(body: dict[str, Any]) -> bool:
++    return STATE_FIELDS["status"](body.get("status"))
++
++
+ def _trusted(body: dict[str, Any], fields: dict[str, Check], campaign_field: str,
+              task: TaskRow, endpoint: str) -> dict[str, Any]:
+     """只取白名單上的可信欄位;任一欄缺漏或不合格、或廣告編號不是這個任務的,就整個讀取失敗
+     (不記欄位值,它是外來輸入)。"""
+     bad = [name for name, check in fields.items() if name not in body or not check(body[name])]
+     if not bad and body[campaign_field] != task.campaign_id:
+         bad = [campaign_field]
+     if bad:
+         raise DspRequestFailed(f"{endpoint} 的可信欄位不合格:{', '.join(bad)}")
+     return {name: body[name] for name in fields}
+@@ -131,48 +139,60 @@ def make_client(
+     `instrumented.dsp_evidence_source`)傳一個綁定 TaskStore 的鉤子進來。
+     """
+ 
+     def fetch(task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
+         # 證據的讀取時間用呼叫端(流程層)傳來的時間,不自己讀系統時鐘,見 flow.EvidenceSource
+         state_body = _get(base_url, f"/campaigns/{task.campaign_id}", timeout_seconds,
+                           task, on_call, ToolEndpoint.DSP_CAMPAIGN)
+         metrics_path = f"/campaigns/{task.campaign_id}/metrics?window={REQUESTED_WINDOW}"
+         metrics_body = _get(base_url, metrics_path, timeout_seconds, task, on_call,
+                             ToolEndpoint.DSP_METRICS)
+-        state = _trusted(state_body, STATE_FIELDS, "id", task, "dsp:campaign")
++        # [S1404] 200 回應只有狀態缺值或非法:記成缺可信現況(不造 state 證據、廣告文字不帶版本),
++        # 其他欄
++        # 照白名單;流程提交後由決策以 MISSING_STATE_OR_METRICS 結案,不在純讀取裡無限重試。
++        # 其他欄不合格
++        # 照舊整個讀取失敗(DSP 壞了的訊號)
++        has_state = _state_status_ok(state_body)
++        fields = STATE_FIELDS if has_state else {k: v for k, v in STATE_FIELDS.items()
++                                                 if k != "status"}
++        state = _trusted(state_body, fields, "id", task, "dsp:campaign")
+         metrics = _trusted(metrics_body, METRICS_FIELDS, "campaign_id", task, "dsp:metrics")
+         # 既有 WorthInput 與 1 小時證據以數字表達,在基本讀取邊界把固定兩位小數字串轉回浮點。白名單
+         # 限整數 13 位,轉浮點再照收據寫法 Decimal(repr(x)) 必定是原值:收據與政策行為都不變
+         # (代碼審 r1 外家 finder 4:原本不限位數,九千億以上會差一分)
+         for name in _AMOUNT_FIELDS:
+             if is_fixed_amount(metrics[name]):
+                 metrics[name] = fixed_amount_float(metrics[name])
+         text = _campaign_text(state_body)
++        state_items = (Evidence(
++            evidence_id=f"{task.task_id}-{task.seq}-state", task_id=task.task_id,
++            kind=EvidenceKind.CAMPAIGN_STATE, source="dsp", observed_at=now,
++            campaign_version_observed=state["version"],
++            content_hash=_content_hash(state), trust_class=TrustClass.TRUSTED,
++            payload=MappingProxyType(state),
++        ),) if has_state else ()
+         return (
+-            Evidence(
+-                evidence_id=f"{task.task_id}-{task.seq}-state", task_id=task.task_id,
+-                kind=EvidenceKind.CAMPAIGN_STATE, source="dsp", observed_at=now,
+-                campaign_version_observed=state["version"],
+-                content_hash=_content_hash(state), trust_class=TrustClass.TRUSTED,
+-                payload=MappingProxyType(state),
+-            ),
++            *state_items,
+             Evidence(
+                 evidence_id=f"{task.task_id}-{task.seq}-metrics", task_id=task.task_id,
+                 kind=EvidenceKind.METRICS, source="dsp", observed_at=now,
+                 campaign_version_observed=None,
+                 content_hash=_content_hash(metrics), trust_class=TrustClass.TRUSTED,
+                 payload=MappingProxyType(metrics),
+             ),
+             Evidence(
+                 evidence_id=f"{task.task_id}-{task.seq}-text", task_id=task.task_id,
+                 kind=EvidenceKind.CAMPAIGN_TEXT, source="dsp", observed_at=now,
+-                campaign_version_observed=state["version"],  # 跟現況同一次回應讀到的
++                # 跟現況同一次回應讀到的;缺可信現況時不帶版本(帶了會因「有版本卻沒讀到現況」
++                # 被判不新鮮,
++                # 反覆重蒐證)
++                campaign_version_observed=state["version"] if has_state else None,
+                 content_hash=_content_hash(text), trust_class=TrustClass.UNTRUSTED_TEXT,
+                 payload=MappingProxyType(text),
+             ),
+         )
+ 
+     return fetch
+ 
+ 
+ def _positive_or_none(value: Any) -> bool:
+     """預算與版本都從 1 起算(同提案與執行端的核對);0 讀不懂,不拿來判內容不符。"""
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+index fc28006..c79daec 100644
+--- a/src/rtb/analyzer/flow.py
++++ b/src/rtb/analyzer/flow.py
+@@ -17,40 +17,51 @@
+ 或清掉後 DSP 查不到寫入,就在原任務結案的同一個交易裡建接續任務重新規劃。沒給操作查詢照 Phase 4
+ 的行為停在已交給執行。
+ 
+ AI 參與決策(Phase 13 增量 2,計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈租約、逾時與停止訊號〉):
+ 呼叫端給了 `ai_decide` 時,分析中那一步改問它(輸入另加續租回呼與這件工作先前各輪的調查紀錄),它回
+ 「結果(既有三種決策之一,或『要再查』)+ 這一輪的調查紀錄 + 不提案原因」的外包型別;決策型別本身不動。
+ 流程層持有「目前收據」容器:續租回呼成功的當下就換掉容器裡的收據,之後的提交、沒提交時的放掉、例外路徑
+ 一律讀容器,續租後丟例外也不會拿舊收據寫落空。續租沒成(被接手、等鎖逾時)丟 `RenewalSkipped`,
+ 分析中那一步在通用例外之前接住、這一步不寫入。流程層不匯入模型用戶端,也不匯入 AI 決策模組。
+ 
++正式規則的規則輪(Phase 14 增量 2b,計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]):呼叫端給了
++`rule_decide` 時,沒給 AI 的分析中那一步一律問它;給了 AI 時,只有「這一列是規則輪蒐證的」才問它、
++不問模型
++(AI 退回後的規則輪續步與定案);它回「結果(三種決策之一,或續步/重來 `RuleContinue`)+ 規則
++事件 + 不提案原因」。續步沿用「分析中 → 蒐集證據」轉換,不新增狀態;
++蒐證那一步的規則輪紀錄由證據來源放在
++`EvidenceBatch.rule_step`,跟證據同一個交易寫。流程層不匯入決策規則與規則輪模組。
++
+ 三個介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
+ 多個參數與語意(不是單純「一個函式」),`Protocol` 讓型別檢查器能核對實作簽章、也讓文件
+ 掛在介面本身,是刻意的選擇,不是要在專案裡另立一套慣用法;現有 `Callable` 用法(單一動作
+ 的簡單回呼)不受影響。
+ """
+ 
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from enum import StrEnum
+ from typing import Protocol
+ 
+ from rtb.analyzer.task_store import (
+     CorruptedHistoryRow,
+     FollowUp,
+     InvestigationRecord,
+     LeaseReceipt,
+     RawQuery,
+     ReplanReason,
++    RuleEvent,
++    RuleStep,
+     TaskNotFound,
++    TaskReads,
+     TaskRow,
+     TaskStore,
+ )
+ from rtb.domain.attempt import operation_key
+ from rtb.domain.evidence import Evidence
+ from rtb.domain.proposal import Proposal, content_hash
+ from rtb.domain.task_state import TERMINAL_STATES, TaskState, transition
+ 
+ 
+ @dataclass(frozen=True)
+@@ -71,55 +82,83 @@ class NeedsFreshEvidence:
+ 
+ 
+ Decision = NoAction | ProposalDecision | NeedsFreshEvidence
+ 
+ 
+ @dataclass(frozen=True)
+ class QueryMore:
+     """AI 選了查詢:這一步回到蒐集證據(既有的「分析中 → 蒐集證據」轉換),下一步去查(Phase 13)。"""
+ 
+ 
++@dataclass(frozen=True)
++class RuleContinue:
++    """規則輪(Phase 14 增量 2b):這一步回到蒐集證據,下一步讀規則輪的下一步(A→B→C),或作廢這一輪從 A
++    重來;是哪一種由一起寫的規則事件說明,不是「資料過期重蒐證」。沿用既有「分析中 → 蒐集證據」
++    轉換。"""
++
++
+ @dataclass(frozen=True)
+ class AiOutcome:
+-    """AI 決策函式的外包型別:結果、這一輪的調查紀錄(跟狀態列同一個交易寫)、不提案原因。"""
++    """AI 決策函式的外包型別:結果、這一輪的調查紀錄(跟狀態列同一個交易寫)、不提案原因。結果是
++    `RuleContinue` 時(Phase 14 增量 2b:AI 退回改由規則輪全量重讀四查詢)回到蒐集證據,下一步讀規則輪
++    A。"""
+ 
+-    result: Decision | QueryMore
++    result: Decision | QueryMore | RuleContinue
+     record: InvestigationRecord | None
+     no_action_reason: StrEnum | None = None
+ 
+ 
+ @dataclass(frozen=True)
+ class AiContext:
+     """流程層交給 AI 決策函式的三樣:續租回呼(成功就換掉容器裡的收據;沒成丟 RenewalSkipped)、這件工作
+     先前各輪的調查紀錄(從資料庫讀出的已提交列),與「確定要呼叫模型」的記次回呼(收上限,回這件工作一生
+     第幾次模型呼叫;超過上限回上限加 1、不記;記不進去丟 RenewalSkipped,代碼審 r2 v3)。"""
+ 
+     renew: Callable[[], None]
+     rounds: tuple[InvestigationRecord, ...]
+     begin_call: Callable[[int], int]
+ 
+ 
++@dataclass(frozen=True)
++class RuleOutcome:
++    """規則輪決策函式的外包型別:結果(既有三種決策之一,或續步/重來)、跟狀態列同一個交易寫的規則事件、
++    不提案原因。決策型別本身不動(相等比較照舊)。"""
++
++    result: Decision | RuleContinue
++    event: RuleEvent | None
++    no_action_reason: StrEnum | None = None
++
++
++class RuleDecide(Protocol):
++    def __call__(self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
++                 reads: TaskReads) -> RuleOutcome:
++        """分析中那一步的規則輪決策:reads 只拿來讀這件工作已提交的規則輪列與各步的證據、原始回應
++        (進度由已提交列重算,不持久化下一步);不寫入、不讀時鐘、不打 DSP。"""
++        ...
++
++
+ class RenewalSkipped(Exception):  # 名字照計劃(R3-2):它不是錯誤,是「這步不寫」
+     """續租沒成(被接手或等鎖逾時),或呼叫模型之前已經收到停止:這一步不寫入、不轉失敗。"""
+ 
+ 
+ class AiDecide(Protocol):
+     def __call__(self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
+                  context: AiContext) -> AiOutcome: ...
+ 
+ 
+ @dataclass(frozen=True)
+ class EvidenceBatch:
+     """證據來源的外包型別(Phase 13):證據,加上追加查詢的原始回應(跟證據同一個交易寫)。"""
+ 
+     evidence: tuple[Evidence, ...]
+     raw: tuple[RawQuery, ...] = ()
++    rule_step: RuleStep | None = None  # 規則輪這一步的蒐證紀錄(Phase 14 增量 2b)
+ 
+ 
+ class EvidenceSource(Protocol):
+     def __call__(self, task: TaskRow, now: datetime) -> tuple[Evidence, ...] | EvidenceBatch:
+         """`now` 就是這批證據的讀取時間(`advance()` 手上的同一個時間);證據來源不自己讀系統時鐘,
+         否則推進者整批共用一個時間時,證據會比決策用的時間還晚,年齡變負而被判過期。"""
+         ...
+ 
+ 
+ class Decide(Protocol):
+@@ -203,54 +242,58 @@ class _Lease:
+ @dataclass(frozen=True)
+ class _Collaborators:
+     evidence_source: EvidenceSource
+     decide: Decide
+     submit: Submit
+     operation_lookup: OperationLookup | None = None  # 只有已交給執行那一步讀
+     no_action_reason: ExplainNoAction | None = None  # 只有分析中、決策是不提案時問
+     ai_decide: AiDecide | None = None  # 給了:分析中那一步改問 AI 決策函式
+     renew: Callable[[], None] | None = None  # 續租回呼(有 AI 決策函式才有)
+     begin_call: Callable[[int], int] | None = None  # 呼叫模型前的記次回呼(同上)
++    rule_decide: RuleDecide | None = None  # 給了:規則輪那幾步(沒開 AI 時是全部)走它
+ 
+ 
+ @dataclass(frozen=True)
+ class _Step:
+     """一步的結果:新狀態,以及要跟著這一列一起提交的東西(都可省略)。"""
+ 
+     new_state: TaskState
+     evidence: tuple[Evidence, ...] = ()
+     proposal: Proposal | None = None
+     error_detail: str | None = None
+     operation_key: str | None = None
+     follow_up: FollowUp | None = None
+     no_action_reason: StrEnum | None = None
+     investigation: InvestigationRecord | None = None
+     raw: tuple[RawQuery, ...] = ()
++    rule_step: RuleStep | None = None
++    rule_event: RuleEvent | None = None
+ 
+ 
+ _StepOutcome = _Step | None
+ 
+ 
+ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、租約擁有者與操作查詢
+     store: TaskStore,
+     task_id: str,
+     evidence_source: EvidenceSource,
+     decide: Decide,
+     submit: Submit,
+     now: datetime,
+     before_commit: Callable[[], None] | None = None,
+     owner: str = "analyzer",  # 租約擁有者:比照執行側由啟動程式傳入工作者身分,這裡只當標籤
+     operation_lookup: OperationLookup | None = None,  # 不給:已交給執行的任務停在原地
+     no_action_reason: ExplainNoAction | None = None,  # 不給:不提案照舊結案,不存原因
+     expected_seq: int | None = None,  # 給了:目前那一列不是呼叫端讀到的那一列就什麼都不做
+     ai_decide: AiDecide | None = None,  # 給了:分析中那一步改問 AI 決策函式(Phase 13)
+     clock: Callable[[], datetime] | None = None,  # 續租讀的時鐘(拿到鎖之後才讀);不給用系統時鐘
++    rule_decide: RuleDecide | None = None,  # 給了:分析中那一步走規則輪(Phase 14,AI 優先)
+ ) -> TaskState:
+     """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。
+ 
+     呼叫任何外部介面之前先在任務上取得租約(Phase 4 增量 3b):拿不到就回原狀態、什麼都不
+     呼叫;這一步做完(寫入、沒進展或行程內例外)都放掉。擋住舊持有者的是租約序號(每次取得都
+     不同),不是擁有者:多個呼叫端共用同一個擁有者也分得開。行程真的猝死放不掉,租約留到到期,
+     接手者會再呼叫一次——至少一次的代價。
+     """
+     row = store.latest(task_id)
+     if row is None:
+@@ -268,21 +311,21 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、
+     if acquired is None:  # 別人正持有:不花錢,跟「沒有進展」一樣回原狀態
+         return row.state
+     lease = _Lease(acquired)
+     tick = clock or _system_clock
+     renew = None if ai_decide is None else _renewer(store, lease, tick)
+     begin_call = None if ai_decide is None else _call_recorder(store, lease, tick)
+     try:
+         return _advance_holding(
+             store, row,
+             _Collaborators(evidence_source, decide, submit, operation_lookup, no_action_reason,
+-                           ai_decide, renew, begin_call),
++                           ai_decide, renew, begin_call, rule_decide),
+             now, before_commit, lease)
+     except BaseException:
+         store.release_lease_quietly(lease.current, now)  # 放掉失敗也不蓋掉原本的例外
+         raise
+ 
+ 
+ def _system_clock() -> datetime:
+     return datetime.now(UTC)
+ 
+ 
+@@ -342,21 +385,21 @@ def _advance_holding(
+     outcome = _STEPS[row.state](store, row, collaborators, now)
+     if outcome is None:  # 這一步的結果是「不寫入,留在原狀態」
+         store.release_lease(lease.current, now)
+         return row.state
+     transition(row.state, outcome.new_state)  # 非法轉換在這裡就會炸,不會靜默寫出壞資料
+     committed = store.commit_step(
+         row.task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
+         evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
+         lease=lease.current, operation_key=outcome.operation_key, follow_up=outcome.follow_up,
+         no_action_reason=outcome.no_action_reason, investigation=outcome.investigation,
+-        raw=outcome.raw,
++        raw=outcome.raw, rule_step=outcome.rule_step, rule_event=outcome.rule_event,
+     )
+     if not committed:  # 輸了序號或租約:還是自己的才放掉(條件寫在 release_lease 裡)
+         store.release_lease(lease.current, now)
+     return outcome.new_state if committed else row.state
+ 
+ 
+ def _from_received(
+     _store: TaskStore, _row: TaskRow, _c: _Collaborators, _now: datetime
+ ) -> _StepOutcome:
+     return _Step(TaskState.COLLECTING_EVIDENCE)
+@@ -367,30 +410,34 @@ def _from_collecting_evidence(
+ ) -> _StepOutcome:
+     try:
+         got = c.evidence_source(row, now)
+         batch = got if isinstance(got, EvidenceBatch) else EvidenceBatch(got)
+         if not isinstance(batch.evidence, tuple) or not isinstance(batch.raw, tuple):
+             # 形狀不對也當成這次沒拿到證據:EvidenceSource 是純讀取,重試永遠安全,
+             # 不必為了型別錯誤另外走 FAILED(那是 Decide/Submit 才有的合約違反處理)。
+             raise TypeError(f"EvidenceSource 必須回傳 tuple[Evidence, ...],得到 {type(got)!r}")
+     except Exception:  # 純讀取,重試永遠安全:不寫入,留在原狀態
+         return None
+-    return _Step(TaskState.ANALYZING, evidence=batch.evidence, raw=batch.raw)
++    return _Step(TaskState.ANALYZING, evidence=batch.evidence, raw=batch.raw,
++                 rule_step=batch.rule_step)
+ 
+ 
+-def _from_analyzing(
++def _from_analyzing(  # noqa: PLR0911 - 規則輪、AI、決策各一條路,決策每種結果一個出口
+     store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
+ ) -> _StepOutcome:
+     try:
+         evidence = store.evidence_for(row.task_id, row.seq)
+     except CorruptedHistoryRow as exc:  # 存好的資料本身毀損,重試沒有用:直接轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
++    if c.rule_decide is not None and (c.ai_decide is None or _in_rule_round(store, row)):
++        # 規則輪那一步(沒開 AI;或開了 AI、這一列是規則輪蒐證的):不問模型([S1407] 的續步那半)
++        return _from_rule(store, row, c.rule_decide, evidence, now)
+     if c.ai_decide is not None and c.renew is not None and c.begin_call is not None:
+         return _from_ai(row, c.ai_decide, AiContext(
+             c.renew, tuple(record for _seq, record in store.investigation_rounds(row.task_id)),
+             c.begin_call), evidence, now)
+     try:
+         decision = c.decide(row, evidence, now)
+     except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+     if isinstance(decision, NoAction):
+         return _Step(TaskState.NO_ACTION, no_action_reason=_why_not(c, row, evidence, now))
+@@ -417,25 +464,53 @@ def _from_ai(row: TaskRow, ai_decide: AiDecide, context: AiContext,
+         cause = failed.__cause__
+         raise cause if isinstance(cause, Exception) else failed from None
+     except Exception as exc:  # 對已到手的證據做純計算的那一半出錯:同決策丟例外,轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+     result, record = outcome.result, outcome.record
+     if isinstance(result, NoAction):
+         return _Step(TaskState.NO_ACTION, investigation=record,
+                      no_action_reason=outcome.no_action_reason)
+     if isinstance(result, ProposalDecision):
+         return _Step(TaskState.PROPOSED, proposal=result.proposal, investigation=record)
+-    if isinstance(result, NeedsFreshEvidence | QueryMore):
++    if isinstance(result, NeedsFreshEvidence | QueryMore | RuleContinue):
+         return _Step(TaskState.COLLECTING_EVIDENCE, investigation=record)
+     raise _BrokenCollaborator(f"AI 決策函式回傳了合約之外的結果:{type(result)!r}")
+ 
+ 
++def _in_rule_round(store: TaskStore, row: TaskRow) -> bool:
++    """這一列分析中的證據是規則輪某一步蒐的(已提交的規則輪步驟表有這個序號)。"""
++    return any(seq == row.seq for seq, _step in store.rule_steps(row.task_id))
++
++
++def _from_rule(store: TaskStore, row: TaskRow, rule_decide: RuleDecide,
++               evidence: tuple[Evidence, ...], now: datetime) -> _StepOutcome:
++    """規則輪那一步(Phase 14 增量 2b):已存資料毀損 → FAILED(同決策);其餘例外同決策丟例外轉
++    FAILED。"""
++    try:
++        outcome = rule_decide(row, evidence, now, store)
++        if not isinstance(outcome, RuleOutcome):
++            raise _BrokenCollaborator(f"規則輪決策函式回傳了合約之外的型別:{type(outcome)!r}")
++    except _BrokenCollaborator:
++        raise
++    except Exception as exc:  # 對已存的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
++        return _Step(TaskState.FAILED, error_detail=repr(exc))
++    result, event = outcome.result, outcome.event
++    if isinstance(result, NoAction):
++        return _Step(TaskState.NO_ACTION, no_action_reason=outcome.no_action_reason,
++                     rule_event=event)
++    if isinstance(result, ProposalDecision):
++        return _Step(TaskState.PROPOSED, proposal=result.proposal, rule_event=event)
++    if isinstance(result, NeedsFreshEvidence | RuleContinue):
++        return _Step(TaskState.COLLECTING_EVIDENCE, rule_event=event)
++    raise _BrokenCollaborator(f"規則輪決策函式回傳了合約之外的結果:{type(result)!r}")
++
++
+ def _why_not(
+     c: _Collaborators, row: TaskRow, evidence: tuple[Evidence, ...], now: datetime
+ ) -> StrEnum | None:
+     """不提案的原因只是給人看的附帶資料:問不到、出錯或答非列舉成員都當作沒有原因,不改變「不提案」
+     這個結果(原因表不會刪,任意字串寫進去等於開一條注入管道)。"""
+     if c.no_action_reason is None:
+         return None
+     try:
+         answer = c.no_action_reason(row, evidence, now)
+     except Exception:  # 附帶資料查不出來不影響流程,跟證據來源失敗一樣不轉 FAILED
+diff --git a/src/rtb/analyzer/instrumented.py b/src/rtb/analyzer/instrumented.py
+index 6705fea..dd14461 100644
+--- a/src/rtb/analyzer/instrumented.py
++++ b/src/rtb/analyzer/instrumented.py
+@@ -1,26 +1,26 @@
+ """把真的用戶端包成會記錄 tool_calls 的版本,`flow.advance()` 拿到的一律是包裝過的版本。
+ 
+ `flow.py` 不知道、也不需要知道 tool_calls 這件事——這支檔是唯一知道「証據來源/送出提案」
+ 跟「TaskStore」都存在的地方,保持 dsp_client.py、inbox_client.py 兩支檔繼續不碰 TaskStore。
+ """
+ 
+ import time
+ from collections.abc import Callable
+ from datetime import UTC, datetime
+ 
+-from rtb.analyzer import dsp_client
++from rtb.analyzer import dsp_client, rule_round
+ from rtb.analyzer import investigation as inv
+ from rtb.analyzer.flow import Accepted, DspOperation, EvidenceBatch
+-from rtb.analyzer.task_store import RawQuery, TaskRow, TaskStore, ToolEndpoint
++from rtb.analyzer.task_store import RawQuery, RuleStep, TaskRow, TaskStore, ToolEndpoint
+ from rtb.domain.evidence import Evidence
+-from rtb.domain.proposal import Proposal
++from rtb.domain.proposal import POLICY_VERSION, Proposal
+ 
+ 
+ class InstrumentedEvidenceSource:
+     """包裝一個原始的 EvidenceSource,呼叫的同時記一筆 tool_calls。
+ 
+     給「內部只有一次 HTTP 呼叫」的 EvidenceSource 用;`dsp_client` 內部有兩個端點,各自成功
+     /失敗要分開記錄,不能只包整個 `__call__` 記一筆(否則「現況成功、指標失敗」會遺失第一筆
+     成功紀錄,見下面 `dsp_evidence_source` 的做法)。
+     """
+ 
+@@ -125,48 +125,88 @@ class InstrumentedOperationLookup:
+         self._store.record_tool_call(
+             self._task.task_id, self._task.seq, self._endpoint, outcome, latency_ms,
+             datetime.now(UTC))
+ 
+ 
+ def investigation_source(
+     store: TaskStore, base_url: str, timeout_seconds: float,
+ ) -> Callable[[TaskRow, datetime], EvidenceBatch]:
+     """開了 AI 決策時的證據來源(Phase 13 增量 2,計劃〈一件工作的一生〉第 1 步):照舊讀現況與 1 小時
+     指標,**加上重讀**這件工作先前 AI 選過的每一個查詢,每次讀取各記一筆呼叫紀錄。AI 已用過(退回過或
+-    下過結論)就只讀基本兩樣([S1138])。追加查詢查不到、逾時、欄位不合格記成一筆沒有結果的收據,不讓
++    下過結論)之後改讀規則輪的下一步(Phase 14 增量 2b:退回開新規則輪全量重讀四查詢,409 退回也是;原
++    [S1138]「只讀基本兩樣」撤除)。追加查詢查不到、逾時、欄位不合格記成一筆沒有結果的收據,不讓
+     整步失敗([S1132]);原始回應跟證據同一個交易寫進調查原始資料表([S1151])。"""
+ 
+     def _on_call(task: TaskRow, endpoint: ToolEndpoint, outcome: str, latency_ms: float) -> None:
+         store.record_tool_call(task.task_id, task.seq, endpoint, outcome, latency_ms,
+                                datetime.now(UTC))
+ 
+     base_source = dsp_client.make_client(base_url, timeout_seconds, on_call=_on_call)
+     reader = dsp_client.make_query_reader(base_url, timeout_seconds, on_call=_on_call)
+ 
++    rules = rule_source(store, base_url, timeout_seconds)
++
+     def fetch(task: TaskRow, now: datetime) -> EvidenceBatch:
+-        evidence = base_source(task, now)
+         state = inv.progress(record for _seq, record in store.investigation_rounds(task.task_id))
+-        if state.used:
+-            return EvidenceBatch(evidence)
++        if state.used:  # AI 已用過(退回或下過結論):之後一律走規則輪(Phase 14 增量 2b 改寫 [S1138])
++            return rules(task, now)
++        evidence = base_source(task, now)
+         receipts, raws = [], []
+         reads = dsp_client.read_query_options(
+             reader, task, tuple(option.value for option in state.queried), now)
+         for option in state.queried:
+             read = reads[option.value]
+             receipt = receipt_or_invalid(task.task_id, task.seq, option, read, now)
+             receipts.append(receipt)
+             if read.raw is not None and receipt.payload.get("result") != "none":
+                 raws.append(RawQuery(option.value, inv.canonical_json(read.raw)))
+         return EvidenceBatch(evidence + tuple(receipts), tuple(raws))
+ 
+     return fetch
+ 
+ 
++def rule_source(
++    store: TaskStore, base_url: str, timeout_seconds: float,
++) -> Callable[[TaskRow, datetime], EvidenceBatch]:
++    """正式規則的證據來源(Phase 14 增量 2b,[S1405]):
++    照已提交列算出這一輪的下一步(`rule_round.collect_plan`),
++    只讀那一步的端點——A 讀現況與 1 小時指標;B 讀操作歷史與過去調整;C 讀逐日、1 天、7 天並重讀現況與
++    1 小時指標(逐日與兩窗的跨窗核對在 `dsp_client.read_query_options` 同一處)。
++    每次讀取各記一筆呼叫紀錄;
++    追加查詢沒有結果記成收據、不讓整步失敗;原始回應與「第幾輪哪一步」跟證據同一個交易寫。5xx、連不上
++    照純讀取往外丟,這一步不寫、下次重試。"""
++
++    def _on_call(task: TaskRow, endpoint: ToolEndpoint, outcome: str, latency_ms: float) -> None:
++        store.record_tool_call(task.task_id, task.seq, endpoint, outcome, latency_ms,
++                               datetime.now(UTC))
++
++    base_source = dsp_client.make_client(base_url, timeout_seconds, on_call=_on_call)
++    reader = dsp_client.make_query_reader(base_url, timeout_seconds, on_call=_on_call)
++
++    def fetch(task: TaskRow, now: datetime) -> EvidenceBatch:
++        round_id, step = rule_round.collect_plan(store, task.task_id, now)
++        evidence = base_source(task, now) if rule_round.STEP_BASE[step] else ()
++        options = rule_round.STEP_QUERIES[step]
++        receipts, raws = [], []
++        reads = dsp_client.read_query_options(
++            reader, task, tuple(option.value for option in options), now)
++        for option in options:
++            read = reads[option.value]
++            receipt = receipt_or_invalid(task.task_id, task.seq, option, read, now)
++            receipts.append(receipt)
++            if read.raw is not None and receipt.payload.get("result") != "none":
++                raws.append(RawQuery(option.value, inv.canonical_json(read.raw)))
++        return EvidenceBatch(evidence + tuple(receipts), tuple(raws),
++                             RuleStep(round_id, step.value, POLICY_VERSION, now))
++
++    return fetch
++
++
+ def receipt_or_invalid(task_id: str, seq: int, option: inv.QueryOption,
+                        read: dsp_client.QueryRead, now: datetime) -> Evidence:
+     """把一次查詢寫成收據;建收據時仍丟 ValueError(例如某個值放不進可信證據)就改記一筆「這個查詢
+     沒有結果(invalid)」,這一步照常往下走,不讓整步反覆失敗(代碼審 r1 d1、s1)。"""
+     missing = None if read.reason is None else inv.NoResult(read.reason)
+     try:
+         return inv.receipt_evidence(task_id, seq, option, read.raw, missing, now)
+     except (ValueError, ArithmeticError):  # 代碼審 r2 y1:溢位這類算術錯誤也一樣
+         return inv.receipt_evidence(task_id, seq, option, None, inv.NoResult.INVALID, now)
+diff --git a/src/rtb/analyzer/investigation.py b/src/rtb/analyzer/investigation.py
+index 56db1a4..a236fa1 100644
+--- a/src/rtb/analyzer/investigation.py
++++ b/src/rtb/analyzer/investigation.py
+@@ -81,20 +81,23 @@ class RecordKind(StrEnum):
+     FALLBACK = "fallback"
+ 
+ 
+ class DecidedBy(StrEnum):
+     AI = "ai"
+     RULE = "rule"
+ 
+ 
+ BASE_REF = "base"  # 1 小時基本證據(現況加 1 小時指標)的參照代號
+ AI_QUERY = "ai_query"  # 「AI 要再查」那一步調查紀錄列的原因代碼
++# 退回紀錄的結果代碼:改由規則輪全量重讀四查詢再定案(Phase 14 增量 2b;展示觀察器也讀,
++# 所以放在不碰模型的這支檔)
++RULE_ROUND = "rule_round"
+ MAX_ROUNDS = 3  # 一件工作一生最多幾輪模型呼叫(最多兩輪查詢加一輪結論)
+ MAX_QUERIES = 3  # 一件工作最多查幾個查詢選項(使用者裁定 10)
+ MAX_EVIDENCE_ITEMS = 5
+ MAX_REASON_CHARS = 200
+ BASE_READS = 2  # 蒐證那一步的基本讀取:現況與 1 小時指標
+ READS_PER_OPTION: Mapping[QueryOption, int] = MappingProxyType({
+     QueryOption.CHECK_LONGER_WINDOW: 2,  # 1 天與 7 天各讀一次
+     QueryOption.CHECK_CHANGE_HISTORY: 1,
+     QueryOption.CHECK_DAILY_TREND: 1,
+     QueryOption.CHECK_PAST_ADJUSTMENTS: 1,
+diff --git a/src/rtb/analyzer/policy.py b/src/rtb/analyzer/policy.py
+index d45d064..04b2478 100644
+--- a/src/rtb/analyzer/policy.py
++++ b/src/rtb/analyzer/policy.py
+@@ -1,34 +1,42 @@
+-"""示範用的最小決策規則:讓整條流程能被示範跑完,不是交接文件後面階段要做的真正業務規則。
++"""正式決策規則(Phase 14 增量 2b 起判「值不值得加」用九條,計劃
++[[Projects/RTB_Phase14正式規則照九條判斷_計劃]])。
+ 
+ 規則:先檢查每一筆證據的新鮮度,任一筆不新鮮就回 NeedsFreshEvidence(退回重新蒐證),不拿
+ 過時的數字做決策——分析行程當機很久才重啟時,歷史表裡的證據可能早就過時。分析端手上最新的
+ 版本資訊就是這批證據自己讀到的版本,所以這裡實際起作用的只有年齡;「跟 DSP 現況比版本」是
+ 執行行程執行前重讀 DSP 時的事(Phase 3),不在這裡假裝做了。
+-接著用增量 1 metrics.py 既有的 pacing() 判斷配速,缺值或不知道一律 NoAction,不猜、不丟例外。
+-配速明顯偏低(暫用門檻 0.5)且曝光、點擊都大於零(真的有在投放,不是設定壞了)才提案調高預算
+-(固定漲一成,暫用值)。
++接著看可信現況與成效:缺(或狀態不是啟用/暫停)就 MISSING_STATE_OR_METRICS 不提案([S1404])。
++再用基本資料判九條的第 1/2 條(暫停、1 小時資料異常),命中就結案、不需要追加查詢([S1401]);
++然後用增量 1 metrics.py 既有的 pacing() 判斷配速,缺值或不知道一律 NoAction,不猜、不丟例外。
++配速明顯偏低(暫用門檻 0.5)才進九條其餘各條:要四種追加查詢的有效原始結果(`queries`),由領域
++`rtb.domain.nine_rules` 判;任一查詢沒有結果就證據不足([S1402])。只有判「值得加」才提案調高預算
++(固定漲一成,暫用值)。舊的「曝光點擊正數就值得加」判法已撤掉,不留暗門。
++
++四查詢怎麼分步讀、輪次怎麼算,在 `rule_round`([[Systems/分析行程流程與檢查點]]);這支檔只收已驗證的
++領域型別,`queries=None` 表示「還沒讀四查詢,判到配速就停」,給規則輪的步驟 A 用。
+ 
+ 已知限制:這支示範規則永遠把提案的修訂序號當成 1,不會追蹤同一個任務先前送過幾次修訂;
+ 一個任務被收件口退回(SubmitStale)之後重新分析,示範規則不會自動送出下一個修訂——這個限制
+ 不影響 S49 的合約(規則本身的判斷邏輯),留給接上真正決策邏輯的後面階段一併解決。
+ """
+ 
+ from collections.abc import Mapping
+ from dataclasses import dataclass
+ from datetime import datetime, timedelta
+ from enum import StrEnum
+ from types import MappingProxyType
+ from typing import Any, ClassVar, Protocol
+ 
+ from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
+ from rtb.analyzer.task_store import TaskRow
++from rtb.domain import nine_rules as rules
+ from rtb.domain._checks import is_plain_number
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass, check_freshness
+ from rtb.domain.metrics import pacing
+ from rtb.domain.proposal import MAX_INT, POLICY_VERSION, ActionType, Proposal
+ from rtb.domain.worth import (
+     CampaignStatus,
+     WorthCell,
+     WorthInput,
+     WorthInputInvalid,
+     WorthVerdict,
+@@ -135,150 +143,202 @@ class NoActionReason(StrEnum):
+     PACING_UNKNOWN = "pacing_unknown"
+     NOT_UNDERPACING = "not_underpacing"
+     JUDGED_NOT_WORTH = "judged_not_worth"
+     JUDGED_INSUFFICIENT = "judged_insufficient"
+     # 考題結束(Phase 13 增量 2,[S1156]):分析端驅動帶 --hold-submit 時,清單裡的廣告不論 AI 或規則判
+     # 提案都不送件、以不提案結案。現行規則永遠產不出它([S705] 照 Phase 13 改寫排除它);AI 的兩個結論
+     # 沿用上面的「判不值得加」「判證據不足」,來源記在調查紀錄
+     EXAM_HOLD = "exam_hold"
+ 
+ 
+-def _has_delivery(impressions: object, clicks: object) -> bool:
+-    """現行程式規則:曝光與點擊都是正數就值得加(Phase 2 起的示範規則,抽出來之前原樣的判斷式)。"""
+-    return is_plain_number(impressions) and is_plain_number(clicks) \
+-        and impressions > 0 and clicks > 0
++# 評估轉接器明傳的「沒有四查詢」(Phase 10 舊情境只有 1 小時資料,[S1417]):不假造查詢結果,
++# 暫停/異常照第 1/2 條先判,其餘都是證據不足
++MISSING_FOUR_QUERIES = rules.RuleEvidence()
++
+ 
++def code_rule(worth_input: WorthInput, queries: rules.RuleEvidence, now: datetime) -> WorthVerdict:
++    """正式程式規則(九條,Phase 14):四查詢由呼叫端明傳;缺就明傳 MISSING_FOUR_QUERIES。"""
++    return rules.decide(worth_input, queries, now).verdict
+ 
+-def code_rule(worth_input: WorthInput) -> WorthVerdict:
+-    """現行程式規則:只產出值得加或不值得加,不看狀態與轉換營收(Phase 10 的評估記成程式缺陷)。"""
+-    if _has_delivery(worth_input.impressions, worth_input.clicks):
+-        return WorthVerdict.WORTH
+-    return WorthVerdict.NOT_WORTH
+ 
++@dataclass(frozen=True)
++class _RuleCall:
++    queries: rules.RuleEvidence
++    now: datetime
+ 
+-def _candidate_answer(candidate: CandidateCall, worth_input: WorthInput) -> RouteResult:
++
++def _candidate_answer(candidate: CandidateCall, worth_input: WorthInput,
++                      rule: _RuleCall) -> RouteResult:
+     try:
+         answer = candidate.judge(worth_input, candidate.timeout_seconds)
+     except (MemoryError, RecursionError):  # 行程本身出事,不是候選判斷失敗:照舊往外丟
+         raise
+     except TimeoutError:
+-        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_TIMEOUT)
++        return RouteResult(code_rule(worth_input, rule.queries, rule.now),
++                           RoutePath.FALLBACK_TIMEOUT)
+     except Exception:  # 候選是可替換的外部判斷:任何失敗都退回現行規則,不讓它改變流程狀態
+-        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_EXCEPTION)
++        return RouteResult(code_rule(worth_input, rule.queries, rule.now),
++                           RoutePath.FALLBACK_EXCEPTION)
+     if not isinstance(answer, WorthVerdict):
+-        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_INVALID)
++        return RouteResult(code_rule(worth_input, rule.queries, rule.now),
++                           RoutePath.FALLBACK_INVALID)
+     if answer is WorthVerdict.UNSURE:
+-        return RouteResult(code_rule(worth_input), RoutePath.FALLBACK_UNSURE)
++        return RouteResult(code_rule(worth_input, rule.queries, rule.now),
++                           RoutePath.FALLBACK_UNSURE)
+     return RouteResult(answer, RoutePath.CANDIDATE)
+ 
+ 
+ def route(
+     worth_input: WorthInput, candidate: CandidateCall | None,
+-    allowed: ValidatedCells | TrialCells,
++    allowed: ValidatedCells | TrialCells, *, queries: rules.RuleEvidence, now: datetime,
+ ) -> RouteResult:
+-    """只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選,其餘走現行程式規則([S701])。
+-    允許清單在正式路徑是已驗證清單,在評估入口是待測格清單。"""
++    """只在「有候選、而且輸入所屬評分格在允許清單上」時交給候選,其餘走正式程式規則([S701])。
++    允許清單在正式路徑是已驗證清單,在評估入口是待測格清單。四查詢與決策時間一律明傳(Phase 14
++    [S1417]:Phase 10 舊情境明傳 MISSING_FOUR_QUERIES),候選的各種退回也接同一份。"""
++    rule = _RuleCall(queries, now)
+     if candidate is None or cell_of(worth_input) not in allowed.cells:
+-        return RouteResult(code_rule(worth_input), RoutePath.CODE_RULE)
+-    return _candidate_answer(candidate, worth_input)
++        return RouteResult(code_rule(worth_input, queries, now), RoutePath.CODE_RULE)
++    return _candidate_answer(candidate, worth_input, rule)
+ 
+ 
+ def _worth_input(state: dict[str, Any], metrics: dict[str, Any]) -> WorthInput:
+     status = state.get("status")
+     if not isinstance(status, str) or status not in {s.value for s in CampaignStatus}:
+         raise WorthInputInvalid(f"狀態不是啟用或暫停:{status!r}")
+     budget: Any = state.get("budget")  # 型別由判斷點輸入的建構驗證把關
+     return WorthInput(
+         status=CampaignStatus(status), budget=budget, spend=metrics.get("spend"),
+         impressions=metrics.get("impressions"), clicks=metrics.get("clicks"),
+         conversions=metrics.get("conversions"), revenue=metrics.get("revenue"))
+ 
+ 
+-def _judge(
+-    state: dict[str, Any], metrics: dict[str, Any], candidate: CandidateCall | None,
+-    allowed: ValidatedCells,
+-) -> WorthVerdict:
+-    try:
+-        worth_input = _worth_input(state, metrics)
+-    except WorthInputInvalid:  # 歸不了格:照原樣的判斷式走現行規則(正式路徑上白名單已擋掉同樣的值)
+-        has_delivery = _has_delivery(metrics.get("impressions"), metrics.get("clicks"))
+-        return WorthVerdict.WORTH if has_delivery else WorthVerdict.NOT_WORTH
+-    return route(worth_input, candidate, allowed).verdict
++def _has_state(state: dict[str, Any] | None) -> bool:
++    """可信現況要有合法狀態(啟用或暫停);缺值或非法跟沒有現況一樣([S1404],不進九格)。"""
++    return state is not None and state.get("status") in {s.value for s in CampaignStatus}
+ 
+ 
+ @dataclass(frozen=True)
+ class PolicySteps:
+     """決策規則每一步的中間事實,照規則的順序,停在做出決定的那一步(後面的是空的)。給 `explain`
+     自己用,也給展示頁重算判斷的根據(Phase 12 代碼審 r1 a1:外面不再直接呼叫這裡的私有函式、
+-    也不再自己另算一次配速)。唯讀:不寫任何東西、不讀時鐘。"""
++    也不再自己另算一次配速)。唯讀:不寫任何東西、不讀時鐘。
++
++    Phase 14:`rule` 是九條的結論(暫停/異常在配速之前就有;其餘在配速偏低、給了四查詢才有);
++    配速照舊算出來(AI 前置過濾與展示要看),暫停/異常時不影響結論。"""
+ 
+     fresh: bool  # 每一筆證據都夠新
+-    state: MappingProxyType[str, Any] | None  # 可信的廣告現況(沒有就是空的)
++    state: MappingProxyType[str, Any] | None  # 可信的廣告現況(沒有或狀態不合法就是空的)
+     metrics: MappingProxyType[str, Any] | None  # 可信的成效資料
+     pacing_ratio: float | None  # 到現在該花的進度(算不出來是空的)
+     underpacing: bool | None  # 花太慢嗎;算不出來是空的
+-    worth: WorthVerdict | None  # 值不值得加(只在花太慢時判)
++    worth: WorthVerdict | None  # 值不值得加(暫停/異常,或花太慢而且給了四查詢時才判)
++    rule: rules.RuleDecision | None = None  # 九條的結論(同上)
++
++    @property
++    def settled_by_base(self) -> bool:
++        """只用基本資料就結案(暫停、1 小時異常、判斷點輸入建不起來),不需要追加查詢([S1401])。"""
++        return self.rule is not None and self.rule.reason in _BASE_REASONS
++
++    @property
++    def needs_queries(self) -> bool:
++        """基本資料可續判、配速偏低,但還沒拿四查詢判(規則輪的步驟 A 之後要讀 B/C)。"""
++        return self.underpacing is True and self.rule is None
++
++
++# 只用基本資料就判得出的結論:第 1/2 條與無格的輸入不合法(第 3 到 9 條要四查詢)
++_BASE_REASONS = frozenset({rules.RuleReason.PAUSED, rules.RuleReason.ANOMALY,
++                           rules.RuleReason.INPUT_INVALID})
++
++
++def _base_rule(worth_input: WorthInput | None, now: datetime) -> rules.RuleDecision | None:
++    """九條第 1/2 條(只用基本資料);輸入建不起來也在這裡結案。其餘回 None,待配速與四查詢。"""
++    if worth_input is None:
++        return rules.decide(None, MISSING_FOUR_QUERIES, now)
++    decision = rules.decide(worth_input, MISSING_FOUR_QUERIES, now)
++    return decision if decision.cell in (rules.Cell.PAUSED, rules.Cell.ANOMALY) else None
+ 
+ 
+ def steps(
+     evidence: tuple[Evidence, ...], now: datetime, *,
+     candidate: CandidateCall | None = None, allowed: ValidatedCells = ValidatedCells.NONE,
++    queries: rules.RuleEvidence | None = MISSING_FOUR_QUERIES,
+ ) -> PolicySteps:
+-    """照規則的順序一步一步算,停在做出決定的那一步;候選只在花太慢時才會被呼叫(跟原本一樣)。"""
++    """照規則的順序一步一步算,停在做出決定的那一步;候選只在花太慢時才會被呼叫(跟原本一樣)。
++    `queries=None`:還沒讀四查詢,配速偏低時停在配速(`needs_queries`)。"""
+     if not _all_fresh(evidence, now):
+         return PolicySteps(False, None, None, None, None, None)
+     state = _payload(evidence, EvidenceKind.CAMPAIGN_STATE)
+     metrics = _payload(evidence, EvidenceKind.METRICS)
++    if not _has_state(state):
++        state = None
+     frozen = (None if state is None else MappingProxyType(state),
+               None if metrics is None else MappingProxyType(metrics))
+     if state is None or metrics is None:
+         return PolicySteps(True, *frozen, None, None, None)
++    try:
++        worth_input: WorthInput | None = _worth_input(state, metrics)
++    except WorthInputInvalid:  # 其他欄位建不起判斷點輸入:九條之外的輸入不合法,證據不足
++        worth_input = None
+     ratio = pacing(metrics.get("spend"), state.get("budget"), ELAPSED_FRACTION_1H)
+     underpacing = ratio.below(UNDERPACING_THRESHOLD)
+-    if not underpacing:
++    base = _base_rule(worth_input, now)
++    if base is not None:
++        return PolicySteps(True, *frozen, ratio.value, underpacing, base.verdict, base)
++    if not underpacing or queries is None or worth_input is None:
+         return PolicySteps(True, *frozen, ratio.value, underpacing, None)
+-    return PolicySteps(True, *frozen, ratio.value, True,
+-                       _judge(state, metrics, candidate, allowed))
++    if candidate is not None:  # 評估入口(Phase 10):候選照允許清單,退回接同一份四查詢
++        verdict = route(worth_input, candidate, allowed, queries=queries, now=now).verdict
++        return PolicySteps(True, *frozen, ratio.value, True, verdict)
++    decided = rules.decide(worth_input, queries, now)
++    return PolicySteps(True, *frozen, ratio.value, True, decided.verdict, decided)
++
++
++def _verdict_reason(verdict: WorthVerdict | None) -> NoActionReason:
++    return (NoActionReason.JUDGED_INSUFFICIENT if verdict is WorthVerdict.INSUFFICIENT
++            else NoActionReason.JUDGED_NOT_WORTH)
+ 
+ 
+ def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
+     task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime, *,
+     candidate: CandidateCall | None, allowed: ValidatedCells,
++    queries: rules.RuleEvidence = MISSING_FOUR_QUERIES,
+ ) -> tuple[Decision, NoActionReason | None]:
+     """決策結果加「為什麼沒提案」(評估用,[S705]);決策結果那一半就是 `decide` 的回傳值,
+     `decide` 對某筆輸入丟例外時這裡丟同一種。候選與允許清單都要明寫(`decide` 傳沒有候選、空清單),
+-    非空的只給評估入口用。每一步的中間事實由 `steps` 算(同一份邏輯)。"""
+-    facts = steps(evidence, now, candidate=candidate, allowed=allowed)
++    非空的只給評估入口用。每一步的中間事實由 `steps` 算(同一份邏輯)。四查詢沒給就是
++    MISSING_FOUR_QUERIES:配速偏低的其餘情形一律證據不足(不回舊的「有投放就加」)。
++    提案的證據參照是傳進來的每一筆(規則輪傳基本三筆加四種查詢收據,[S1107] 改寫)。"""
++    facts = steps(evidence, now, candidate=candidate, allowed=allowed, queries=queries)
+     if not facts.fresh:
+         return NeedsFreshEvidence(), NoActionReason.STALE_EVIDENCE
+     state, metrics = facts.state, facts.metrics
+     if state is None or metrics is None:
+         return NoAction(), NoActionReason.MISSING_STATE_OR_METRICS
+-
++    if facts.settled_by_base:
++        return NoAction(), _verdict_reason(facts.worth)
+     if facts.underpacing is None:
+         return NoAction(), NoActionReason.PACING_UNKNOWN
+     if facts.underpacing is False:
+         return NoAction(), NoActionReason.NOT_UNDERPACING
+     verdict = facts.worth
+-    if verdict is WorthVerdict.INSUFFICIENT:
+-        return NoAction(), NoActionReason.JUDGED_INSUFFICIENT
+     if verdict is not WorthVerdict.WORTH:
+-        return NoAction(), NoActionReason.JUDGED_NOT_WORTH
++        return NoAction(), _verdict_reason(verdict)
+ 
+     return ProposalDecision(build_proposal(task, evidence, state, now)), None
+ 
+ 
+ def build_proposal(task: TaskRow | None, evidence: tuple[Evidence, ...],
+                    state: Mapping[str, Any], now: datetime) -> Proposal:
+     """照公式建提案(Phase 13 增量 2 從 `explain` 抽出,[S1107]):現行規則判值得加與 AI 選 propose
+-    都呼叫這一支,所以兩條路徑的提案(原因代碼、風險說明、政策版本、到期時間、證據參照)逐欄相同。
+-    證據參照列的是傳進來的每一筆:呼叫端只傳現況、1 小時指標、廣告文字三種。"""
++    都呼叫這一支,所以兩條路徑的提案(原因代碼、風險說明、政策版本、到期時間)逐欄相同。
++    證據參照列的是傳進來的每一筆:規則輪傳基本三筆加四種成功查詢的收據;AI 直接提案(增量 3 前)
++    只傳基本三筆,所以兩條路徑只有在同一批完整證據建的提案才逐欄相同([S1107] 改寫)。"""
+     budget = state.get("budget")
+     if task is None:
+         raise AssertionError("有真的證據可以決策,task 不該是 None")
+     if not is_plain_number(budget):  # underpacing 已經驗過,這裡只是給型別檢查看
+         raise AssertionError("underpacing 為 True 時 budget 一定是數字")
+     # 小額預算乘 1.1 四捨五入可能還是原值(例如 1、2),那就不是「調高」;用 max 保證至少 +1。
+     # 上限截在 Proposal 允許的最大值:budget 已經逼近上限時,示範規則寧可送出「漲到上限」的
+     # 提案,也不要讓 Proposal 建構式丟例外、被上層的廣義例外處理悶成 FAILED。
+     new_budget = min(max(round(budget * (1 + BUDGET_INCREASE_FRACTION)), int(budget) + 1),
+                      MAX_INT)
+@@ -289,12 +349,14 @@ def build_proposal(task: TaskRow | None, evidence: tuple[Evidence, ...],
+         reason_codes=("low_pacing",), evidence_refs=tuple(item.evidence_id for item in evidence),
+         campaign_version_observed=state.get("version") or 1,
+         decision_created_at=now, decision_expires_at=now + DECISION_LIFETIME,
+         policy_version=POLICY_VERSION,
+         risk_summary=f"budget +{int(BUDGET_INCREASE_FRACTION * 100)}%",
+     )
+ 
+ 
+ def decide(task: TaskRow | None, evidence: tuple[Evidence, ...], now: datetime) -> Decision:
+     """`now` 由流程層傳進來(`advance()` 手上、也寫進歷史列的同一個時間),這裡不自己讀系統時鐘。
+-    正式路徑沒有候選、允許清單是空的,所以「值不值得加」永遠走現行程式規則([S704])。"""
+-    return explain(task, evidence, now, candidate=None, allowed=ValidatedCells.NONE)[0]
++    沒有候選、允許清單是空的([S704]);只有這一批證據、沒有四查詢(明傳 MISSING_FOUR_QUERIES),
++    所以配速偏低的其餘情形是證據不足。分析端驅動的正式路徑走規則輪(`rule_round`),分步讀四查詢。"""
++    return explain(task, evidence, now, candidate=None, allowed=ValidatedCells.NONE,
++                   queries=MISSING_FOUR_QUERIES)[0]
+diff --git a/src/rtb/analyzer/rule_round.py b/src/rtb/analyzer/rule_round.py
+new file mode 100644
+index 0000000..23eeff3
+--- /dev/null
++++ b/src/rtb/analyzer/rule_round.py
+@@ -0,0 +1,339 @@
++"""正式規則的規則輪(Phase 14 增量 2b,計劃
++[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈正式蒐證、時間與
++租約〉,[S1401] [S1402] [S1405] [S1406] [S1413] [S1424]):九條要四種追加查詢,一步塞不下租約,
++所以分三步讀。
++
++- 步驟 A 讀現況與 1 小時指標(2 讀);只用基本資料判得出的(過期、缺現況、暫停、1 小時異常、配速算不出或
++  不偏低)在 A 就結案,追加讀取 0 次([S1401])。
++- 步驟 B 讀操作歷史與過去調整(2 讀);步驟 C 讀逐日、1 天、7 天,並重讀現況與 1 小時指標(5 讀)。
++- 定案(DECIDE)在 C 之後:以決策 now 重驗三步全部證據的 15 分鐘新鮮度;A 與 C 比廣告編號、狀態、版本與
++  1 小時五項原始指標;C 缺可信現況就以缺現況結案,不沿用 A 的([S1404]);四查詢從同一輪 B/C 已存的原始
++  回應轉成領域型別,交給 `policy.explain` 判九條([S1402] [S1406])。
++- 進度一律由已提交列重算([S1413]):取最新一輪;這一輪有非「續步」的事件、或任一步不是目前政策版本,就算
++  已作廢,下一次蒐證開新輪從 A 讀([S1424])。同一步重複只取最新序號。不持久化「下一步」。
++- 重來:證據過期、版本或基本資料變動、409 退回(定案事件已寫,這一輪不再用),都開新輪從 A 全量重讀;
++  版本/基本資料變動連續重來最多 2 次,第 2 次重來後再變動就以證據不足結案(MAX_CHANGE_RESTARTS)。
++
++這支檔只讀已提交列、不寫入、不讀時鐘;蒐證那一步怎麼打 DSP 在 `instrumented.rule_source`。AI
++路徑還沒用規則輪
++(AI 提案否決與退回全量重讀是增量 3)。
++"""
++
++import json
++from collections.abc import Mapping, Sequence
++from dataclasses import dataclass
++from datetime import datetime
++from enum import StrEnum
++from typing import Any
++
++from rtb.analyzer import investigation as inv
++from rtb.analyzer import policy
++from rtb.analyzer.flow import (
++    Decision,
++    NeedsFreshEvidence,
++    NoAction,
++    RuleContinue,
++    RuleOutcome,
++)
++from rtb.analyzer.task_store import RuleEvent, RuleStep, TaskReads, TaskRow
++from rtb.domain import nine_rules as rules
++from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass
++from rtb.domain.proposal import POLICY_VERSION
++from rtb.stepbudget import RULE_STEP_READS
++
++MAX_CHANGE_RESTARTS = 2  # 版本/基本資料變動連續重來的上限(計劃:容得下一次競爭後的穩定重讀)
++# 1 小時基本資料裡 A 與 C 要逐欄相同的欄位(原始值,不經收據捨入)
++COMPARED_STATE = ("id", "status", "version")
++COMPARED_METRICS = ("impressions", "clicks", "conversions", "spend", "revenue")
++
++
++class Step(StrEnum):
++    A = "A"
++    B = "B"
++    C = "C"
++
++
++# 每一步讀哪些追加查詢(A 只讀基本兩樣;C 另重讀基本兩樣)
++STEP_QUERIES: Mapping[Step, tuple[inv.QueryOption, ...]] = {
++    Step.A: (),
++    Step.B: (inv.QueryOption.CHECK_CHANGE_HISTORY, inv.QueryOption.CHECK_PAST_ADJUSTMENTS),
++    Step.C: (inv.QueryOption.CHECK_LONGER_WINDOW, inv.QueryOption.CHECK_DAILY_TREND),
++}
++READS_BASE = 2  # 現況與 1 小時指標
++STEP_BASE: Mapping[Step, bool] = {Step.A: True, Step.B: False, Step.C: True}
++
++
++def declared_reads(step: Step) -> int:
++    """這一步實際打幾次 DSP(基本兩樣加各查詢的讀取次數);租約守衛宣告的次數必須等於它。"""
++    return (READS_BASE if STEP_BASE[step] else 0) + sum(
++        inv.READS_PER_OPTION[option] for option in STEP_QUERIES[step])
++
++
++class Event(StrEnum):
++    """規則輪事件(封閉列舉):續步、各種重來、定案。"""
++
++    CONTINUE = "continue"  # 規則查詢續步(A→B、B→C),不是資料過期重蒐證
++    RESTART_STALE = "restart_stale"  # 證據過期(含當機續跑超過 15 分鐘)
++    RESTART_CHANGED = "restart_changed"  # A 與 C 的版本或基本資料不同
++    RESTART_NO_ROUND = "restart_no_round"  # 分析中那一列不屬於目前這一輪(舊政策、舊兩讀、AI 期證據)
++    CHANGED_LIMIT = "changed_limit"  # 連續變動超過上限,以證據不足結案
++    DECIDED = "decided"  # 定案(提案或不提案);之後 409 退回蒐證也不再用這一輪
++
++
++@dataclass(frozen=True)
++class Progress:
++    """從已提交列算出來的規則輪進度。"""
++
++    round_id: int  # 目前這一輪(沒有未作廢的輪時是下一輪要用的編號)
++    open: bool  # 這一輪還能續
++    steps: Mapping[Step, tuple[int, RuleStep]]  # 這一輪各步最新的(序號, 紀錄)
++    changes: int  # 連續幾次因變動重來(最近的事件往回數)
++
++    @property
++    def next_step(self) -> Step | None:
++        """下一步要讀哪一步;None 表示 A/B/C 齊全,該定案。沒有未作廢的輪就是 A(新輪)。"""
++        if not self.open:
++            return Step.A
++        for step in Step:
++            if step not in self.steps:
++                return step
++        return None
++
++
++def progress(reads: TaskReads, task_id: str) -> Progress:
++    """照已提交的規則輪步驟與事件重算進度(同 `investigation.progress` 的做法)。"""
++    step_rows = reads.rule_steps(task_id)
++    events = reads.rule_events(task_id)
++    closed = {event.round_id for _seq, event in events if event.event != Event.CONTINUE}
++    changes = 0
++    for _seq, event in reversed(events):
++        if event.event == Event.CONTINUE:
++            continue
++        if event.event != Event.RESTART_CHANGED:
++            break
++        changes += 1
++    latest = max((record.round_id for _seq, record in step_rows), default=0)
++    mine = [(seq, record) for seq, record in step_rows if record.round_id == latest]
++    open_ = (latest > 0 and latest not in closed
++             and all(record.policy_version == POLICY_VERSION for _seq, record in mine)
++             and all(record.step in Step.__members__ for _seq, record in mine))
++    if not open_:
++        return Progress(latest + 1, False, {}, changes)
++    steps: dict[Step, tuple[int, RuleStep]] = {}
++    for seq, record in mine:  # 依序號遞增:同一步重複時留最新
++        steps[Step(record.step)] = (seq, record)
++    return Progress(latest, True, steps, changes)
++
++
++def _stale(read_at: datetime, now: datetime) -> bool:
++    age = (now - read_at).total_seconds()
++    return age < 0 or age > policy.MAX_EVIDENCE_AGE.total_seconds()
++
++
++def collect_plan(reads: TaskReads, task_id: str, now: datetime) -> tuple[int, Step]:
++    """蒐證那一步要讀哪一輪的哪一步:未作廢的輪續讀下一步;沒有未作廢的輪、這一輪已齊全(不該發生)、
++    或先前步驟到 now 已過期(當機續跑超過 15 分鐘),就開新輪從 A 讀,舊輪只留審計。"""
++    state = progress(reads, task_id)
++    step = state.next_step
++    if (step is None or step is Step.A or not state.open
++            or any(_stale(record.read_at, now) for _seq, record in state.steps.values())):
++        return (state.round_id + 1 if state.open else state.round_id), Step.A
++    return state.round_id, step
++
++
++# ---- 分析那一步 ----
++def _trusted(evidence: Sequence[Evidence], kind: EvidenceKind) -> Mapping[str, Any] | None:
++    for item in evidence:
++        if item.kind is kind and item.trust_class is TrustClass.TRUSTED:
++            return item.payload
++    return None
++
++
++def _base(evidence: Sequence[Evidence]) -> tuple[Evidence, ...]:
++    return tuple(item for item in evidence if item.kind in inv.CODE_RULE_KINDS)
++
++
++def _receipts(evidence: Sequence[Evidence]) -> tuple[Evidence, ...]:
++    return tuple(item for item in evidence if item.kind in inv.OPTION_OF_KIND)
++
++
++def _all_young(evidence: Sequence[Evidence], now: datetime) -> bool:
++    """只看年齡的新鮮度(A 與 C 的版本另外比,版本不同是「變動」不是「過期」)。"""
++    return not any(_stale(item.observed_at, now) for item in evidence)
++
++
++def _changed(first: Sequence[Evidence], last: Sequence[Evidence]) -> bool:
++    """A 與 C:廣告編號、狀態、版本、1 小時五項原始指標任一不同就是變動。"""
++    a_state, c_state = _trusted(first, EvidenceKind.CAMPAIGN_STATE), _trusted(
++        last, EvidenceKind.CAMPAIGN_STATE)
++    a_metrics, c_metrics = _trusted(first, EvidenceKind.METRICS), _trusted(
++        last, EvidenceKind.METRICS)
++    if a_state is None or c_state is None or a_metrics is None or c_metrics is None:
++        return True
++    return (any(a_state.get(name) != c_state.get(name) for name in COMPARED_STATE)
++            or any(a_metrics.get(name) != c_metrics.get(name) for name in COMPARED_METRICS))
++
++
++def _raw(reads: TaskReads, task_id: str, seq: int, option: inv.QueryOption) -> Any:
++    """同一輪那一步已存的原始回應(白名單驗過、跟收據同一個交易寫);沒有結果的查詢不存原始回應。"""
++    text = reads.raw_query(task_id, seq, option.value)
++    return None if text is None else json.loads(text)
++
++
++def _window(raw: Mapping[str, Any]) -> rules.Window:
++    return rules.Window(raw.get("impressions"), raw.get("clicks"), raw.get("conversions"),
++                        raw.get("spend"), raw.get("revenue"))
++
++
++def _moment(text: Any) -> datetime | None:
++    try:
++        return datetime.fromisoformat(text) if isinstance(text, str) else None
++    except ValueError:
++        return None
++
++
++def rule_queries(raws: Mapping[inv.QueryOption, Any], daily_read_at: datetime | None,
++                 ) -> rules.RuleEvidence:
++    """把白名單驗過的四種原始回應轉成領域型別;沒有結果的是 None(領域判證據不足)。轉不過(不該發生,
++    讀取層已驗)也當沒有結果,不猜。"""
++    try:
++        longer = raws.get(inv.QueryOption.CHECK_LONGER_WINDOW)
++        history = raws.get(inv.QueryOption.CHECK_CHANGE_HISTORY)
++        daily = raws.get(inv.QueryOption.CHECK_DAILY_TREND)
++        past = raws.get(inv.QueryOption.CHECK_PAST_ADJUSTMENTS)
++        summary = history.get("summary") if isinstance(history, Mapping) else None
++        return rules.RuleEvidence(
++            longer=(rules.LongerWindow(_window(longer["1d"]), _window(longer["7d"]))
++                    if longer is not None else None),
++            history=(rules.ChangeHistory(
++                tuple(rules.HistoryRow(row.get("action"), _moment(row.get("committed_at")))
++                      for row in history["history"]),
++                recent_flag=bool(history.get("truncated") is True and isinstance(summary, Mapping)
++                                 and summary.get("has_recent_budget_change") is True))
++                     if history is not None else None),
++            daily=(rules.DailyTrend(tuple(rules.DailyRow(
++                row["days_ago"], row.get("impressions"), row.get("clicks"),
++                row.get("conversions"), row.get("spend"), row.get("revenue"), row["no_data"])
++                for row in daily["rows"]), read_at=daily_read_at)
++                   if daily is not None else None),
++            past=(rules.PastAdjustments(tuple(rules.AdjustmentRow(
++                row["days_ago"], row.get("budget_before"), row.get("budget_after"),
++                row.get("before_conversions"), row.get("after_conversions"),
++                _moment(row.get("committed_at"))) for row in past["rows"]))
++                  if past is not None else None),
++        )
++    except (KeyError, TypeError, ValueError):
++        return policy.MISSING_FOUR_QUERIES
++
++
++def _round_queries(reads: TaskReads, task_id: str, seq_b: int, seq_c: int,
++                   read_at_c: datetime) -> rules.RuleEvidence:
++    raws = {option: _raw(reads, task_id, seq, option)
++            for seq, options in ((seq_b, STEP_QUERIES[Step.B]), (seq_c, STEP_QUERIES[Step.C]))
++            for option in options}
++    return rule_queries(raws, read_at_c)
++
++
++def decision_inputs(reads: TaskReads, task_id: str,
++                    seq: int) -> tuple[tuple[Evidence, ...], rules.RuleEvidence] | None:
++    """規則輪 C 蒐完的那一列(序號 seq)定案時用的輸入:C 的基本三筆加同一輪 B、C 的查詢收據,與從同一輪
++    已存原始回應轉好的四查詢(展示重算根據用,跟定案那一步同一份;Phase 14 增量 2b)。不是 C 那一列、或
++    找不到同一輪的 B,回 None。"""
++    steps = reads.rule_steps(task_id)
++    mine = next((record for at, record in steps if at == seq), None)
++    if mine is None or mine.step != Step.C.value:
++        return None
++    seq_b = max((at for at, record in steps if record.round_id == mine.round_id
++                 and record.step == Step.B.value and at < seq), default=None)
++    if seq_b is None:
++        return None
++    last = reads.evidence_for(task_id, seq)
++    evidence = (*_base(last), *_receipts(reads.evidence_for(task_id, seq_b)), *_receipts(last))
++    return evidence, _round_queries(reads, task_id, seq_b, seq, mine.read_at)
++
++
++def _outcome(result: Decision | RuleContinue, round_id: int, event: Event,
++             reason: StrEnum | None = None, detail: str | None = None) -> RuleOutcome:
++    return RuleOutcome(result, RuleEvent(round_id, event.value, detail), reason)
++
++
++def _base_outcome(task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
++                  round_id: int) -> RuleOutcome | None:
++    """只用基本資料的判斷(A 那一步,C 也先過一次):結案就回結果,需要四查詢回 None。"""
++    facts = policy.steps(evidence, now, queries=None)
++    if not facts.fresh:
++        return _outcome(RuleContinue(), round_id, Event.RESTART_STALE)
++    if facts.needs_queries:
++        return None
++    decision, reason = policy.explain(task, evidence, now, candidate=None,
++                                      allowed=policy.ValidatedCells.NONE)
++    detail = facts.rule.reason.value if facts.rule is not None else None
++    return _outcome(decision, round_id, Event.DECIDED, reason, detail)
++
++
++def _decide(  # noqa: PLR0911 - 定案前每道檢查一個出口
++        task: TaskRow, evidence: tuple[Evidence, ...], now: datetime, reads: TaskReads,
++        state: Progress) -> RuleOutcome:
++    """A/B/C 齊全:定案(見檔頭)。"""
++    seq_a, _a = state.steps[Step.A]
++    seq_b, _b = state.steps[Step.B]
++    _seq_c, step_c = state.steps[Step.C]
++    first = reads.evidence_for(task.task_id, seq_a)
++    middle = reads.evidence_for(task.task_id, seq_b)
++    last_base, last_receipts = _base(evidence), _receipts(evidence)
++    everything = (*first, *middle, *evidence)
++    if not _all_young(everything, now):
++        return _outcome(RuleContinue(), state.round_id, Event.RESTART_STALE)
++    if _trusted(last_base, EvidenceKind.CAMPAIGN_STATE) is None or _trusted(
++            last_base, EvidenceKind.METRICS) is None:  # C 缺可信現況:不沿用 A 的舊現況
++        return _outcome(NoAction(), state.round_id, Event.DECIDED,
++                        policy.NoActionReason.MISSING_STATE_OR_METRICS)
++    if _changed(_base(first), last_base):
++        if state.changes >= MAX_CHANGE_RESTARTS:
++            return _outcome(NoAction(), state.round_id, Event.CHANGED_LIMIT,
++                            policy.NoActionReason.JUDGED_INSUFFICIENT)
++        return _outcome(RuleContinue(), state.round_id, Event.RESTART_CHANGED)
++    settled = _base_outcome(task, last_base, now, state.round_id)
++    if settled is not None:
++        return settled
++    queries = _round_queries(reads, task.task_id, seq_b, task.seq, step_c.read_at)
++    receipts = (*_receipts(middle), *last_receipts)
++    facts = policy.steps((*last_base, *receipts), now, queries=queries)
++    decision, reason = policy.explain(task, (*last_base, *receipts), now, candidate=None,
++                                      allowed=policy.ValidatedCells.NONE, queries=queries)
++    if isinstance(decision, NeedsFreshEvidence):  # 上面已驗年齡,不該發生;保守重來
++        return _outcome(RuleContinue(), state.round_id, Event.RESTART_STALE)
++    rule = facts.rule
++    detail = None if rule is None else (
++        rule.reason.value if rule.query is None else f"{rule.reason.value}:{rule.query.value}")
++    return _outcome(decision, state.round_id, Event.DECIDED, reason, detail)
++
++
++def decide(task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
++           reads: TaskReads) -> RuleOutcome:
++    """分析中那一步的規則輪決策(流程層的 RuleDecide)。"""
++    state = progress(reads, task.task_id)
++    mine = next((record for seq, record in reads.rule_steps(task.task_id) if seq == task.seq),
++                None)
++    current = state.steps.get(Step(mine.step)) if mine is not None and state.open and (
++        mine.step in Step.__members__) else None
++    if mine is None or current is None or current[0] != task.seq:
++        # 這一列不屬於目前這一輪(升版前的兩讀、舊政策輪、AI 期證據、被新輪取代):作廢從 A 重讀
++        round_id = state.round_id if state.open else max(state.round_id - 1, 0)
++        return _outcome(RuleContinue(), round_id, Event.RESTART_NO_ROUND)
++    step = Step(mine.step)
++    if step is Step.A:
++        settled = _base_outcome(task, evidence, now, state.round_id)
++        return settled if settled is not None else _outcome(
++            RuleContinue(), state.round_id, Event.CONTINUE)
++    if step is Step.B:
++        first = reads.evidence_for(task.task_id, state.steps[Step.A][0])
++        if not _all_young((*first, *evidence), now):
++            return _outcome(RuleContinue(), state.round_id, Event.RESTART_STALE)
++        return _outcome(RuleContinue(), state.round_id, Event.CONTINUE)
++    return _decide(task, evidence, now, reads, state)
++
++
++def step_reads_match_budget() -> bool:
++    """宣告的讀取次數(stepbudget,守衛用)等於各步實際打 DSP 的次數。"""
++    return {step.value: declared_reads(step) for step in Step} == dict(RULE_STEP_READS)
+diff --git a/src/rtb/analyzer/runner.py b/src/rtb/analyzer/runner.py
+index b0c3bf9..4c99fbe 100644
+--- a/src/rtb/analyzer/runner.py
++++ b/src/rtb/analyzer/runner.py
+@@ -1,17 +1,25 @@
+ """分析端驅動命令列(Phase 12 增量 1,正式入口):反覆領取待推進的任務,用正式的 DSP 用戶端與收件口
+ 用戶端呼叫流程推進函式,直到收到停止訊號(或跑滿指定輪數)。跟測試用同一支推進函式、同一套租約;
+ 這是正式程式,不帶任何故障手段([S1000])。
+ 
+ 租約長度與呼叫逾時的機械守衛([S1001]):一步最多兩次讀 DSP 或一次送件,呼叫次數 乘 單次逾時 乘 2
+ 要小於租約,否則一步還沒做完租約就到期、被別人接手,同一件工作會花兩次錢;不成立就拒絕啟動。
+ 
++正式規則的規則輪(Phase 14 增量 2b,計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]):沒開 AI
++時蒐證走
++`instrumented.rule_source`、分析走 `rule_round.decide`,九條要的四查詢分 A/B/C 三步讀(2/2/5 讀);開
++AI 時
++AI 退回或用過之後也走同一個規則輪(規則輪定案照樣受 --hold-submit 攔);守衛另對
++每一步檢查「取租約等鎖 + 讀取次數 乘(逾時 + 呼叫紀錄等鎖)+ 提交等鎖」小於租約([S1405]),預設逾時 3 秒
++時 26/26/50 秒,自訂逾時讓任一步不符就拒絕啟動並說是哪一步。
++
+ AI 參與決策(Phase 13 增量 2,計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]):帶 `--ai-judge` 才開,另收
+ `--demo-id`、`--ledger`、`--recordings-dir`、`--batch-id`、`--hold-submit`;沒開就是原本的行為,守衛照舊
+ 只看 [S1001]。開了之後:
+ - 守衛兩條都要成立,逐項加總、數字都取自真常數([S1113]):蒐證那一步(取租約等鎖、最多 6 次讀取
+   各自的 DSP 逾時加呼叫紀錄等鎖、提交等鎖)與 AI 那一步(續租讀時鐘後的模型逾時、行程群組清理、
+   花費帳等鎖、提交等鎖)都要小於租約。
+ - 模式經模型閘道在啟動時判一次,之後每一輪沿用([S1137]);即時加錄製沒帶批次編號、或錄製目錄混了別批,
+   拒絕啟動([S1142])。印出就緒之後、取任何租約之前做一次登入預檢;沒過整趟用程式規則([S1160])。
+ - 模型呼叫在這個行程的主執行緒;停止訊號在呼叫途中轉成的例外由模型閘道轉手,這裡明接:流程層已用目前
+   收據放掉租約、這一步沒寫,以 0 結束([S1116])。每一步都把時鐘函式與停止旗標的查詢函式傳下去。
+@@ -34,29 +42,31 @@ from typing import Protocol, TextIO
+ 
+ from rtb.analyzer import (
+     ai_judge,
+     dsp_client,
+     flow,
+     inbox_client,
+     instrumented,
+     investigation,
+     modelgate,
+     policy,
++    rule_round,
+ )
+ from rtb.analyzer.task_store import LEASE_DURATION, TaskRow, TaskStore, ToolEndpoint
+ from rtb.domain.evidence import Evidence
+ from rtb.domain.task_state import TaskState
+ from rtb.stepbudget import (
+     CALLS_PER_STEP,
+     DEFAULT_TIMEOUT_SECONDS,
+     ai_step_worst_seconds,
+     collect_step_worst_seconds,
++    rule_step_worst_seconds,
+ )
+ 
+ READY = "READY"
+ MODEL_LINE = "MODEL"  # 開了 AI 決策時就緒之後那一行的開頭:後面是這一趟判出的模式與原因(一行 JSON)
+ MIN_TIMEOUT_SECONDS = 0.1  # 比這小的逾時每次呼叫都失敗,等於永遠不推進
+ EXIT_UNSAFE_CONFIG = 7  # 跟執行端同一個代碼;2 是 argparse 參數錯誤的代碼,不能共用
+ BACKOFF_CAP_SECONDS = 10.0  # 沒有進展的任務最久隔這麼久再問一次
+ __all__ = ["CALLS_PER_STEP", "DEFAULT_TIMEOUT_SECONDS", "MODEL_LINE", "READY", "StopFlag", "main",
+            "run"]
+ REST_SLICE_SECONDS = 0.1  # 每輪之間的休息切成小段,每段之間看停止旗標
+@@ -111,23 +121,37 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
+ def _unsafe(args: argparse.Namespace) -> str | None:
+     """[S1001] 逾時要是有限、夠大的正數,而且呼叫次數乘逾時乘 2 小於租約;間隔要是非負數、不超過
+     租約(代碼審 r2 v3:1e308 原本過了守衛、印了就緒才在休息時崩掉)。NaN 跟任何數比都不成立,所以
+     一律用「符合才放行」的寫法(代碼審 r1 d4)。"""
+     t, lease = args.timeout_seconds, LEASE_DURATION.total_seconds()
+     if not (math.isfinite(t) and t >= MIN_TIMEOUT_SECONDS and CALLS_PER_STEP * t * 2 < lease):
+         return (f"拒絕啟動:逾時 {t} 秒不是 {MIN_TIMEOUT_SECONDS} 秒以上的有限數,或 "
+                 f"{CALLS_PER_STEP} 次呼叫乘逾時乘 2 不小於租約 {lease:.0f} 秒")
+     if not 0 <= args.interval_seconds <= lease:
+         return f"拒絕啟動:間隔 {args.interval_seconds} 秒不是 0 到租約 {lease:.0f} 秒之間的數"
++    problem = _unsafe_rule_steps(t, lease)
++    if problem is not None:
++        return problem
+     return _unsafe_ai(args, lease) if args.ai_judge else _unsafe_hold(args)
+ 
+ 
++def _unsafe_rule_steps(timeout: float, lease: float) -> str | None:
++    """[S1405] 規則輪 A/B/C 逐步守衛:每一步照 AI 蒐證同一條保守算式(取租約等鎖、每次讀取的 DSP 逾時
++    加呼叫紀錄等鎖、提交等鎖)都要小於租約;不把九次塞進一步,也不靠續租掩蓋。不符就說是哪一步。"""
++    for step, worst in rule_step_worst_seconds(timeout).items():
++        if not worst < lease:
++            return (f"拒絕啟動:規則輪步驟 {step} 最壞 {worst:.1f} 秒(取租約等鎖、"
++                    f"{rule_round.declared_reads(rule_round.Step(step))} 次讀取各自的逾時加呼叫紀錄"
++                    f"等鎖、提交等鎖)不小於租約 {lease:.0f} 秒")
++    return None
++
++
+ def _unsafe_hold(args: argparse.Namespace) -> str | None:
+     if args.hold_submit:
+         return "拒絕啟動:--hold-submit 只在 --ai-judge 時可用(只判不送是 AI 考題用的)"
+     return None
+ 
+ 
+ def _unsafe_ai(args: argparse.Namespace, lease: float) -> str | None:
+     """[S1113] 開 AI 時兩條都逐項加總、都要小於租約;數字都取自真常數。"""
+     collect = collect_step_worst_seconds(args.timeout_seconds, investigation.MAX_COLLECT_READS)
+     if not collect < lease:
+@@ -156,37 +180,39 @@ class _Ai:
+     judge: ai_judge.Judge
+     clock: Callable[[], datetime]
+ 
+ 
+ def _advance_one(store: TaskStore, task_id: str, args: argparse.Namespace,
+                  now: datetime, ai: _Ai | None = None) -> tuple[TaskState, int] | None:
+     """推進一步,回(推進後的狀態, 最新一列序號);讀到的列在推進前被別人動過就什麼都不做。"""
+     row = store.latest(task_id)
+     if row is None:
+         return None
+-    plain = instrumented.dsp_evidence_source(store, args.dsp_url, args.timeout_seconds)
++    rules = instrumented.rule_source(store, args.dsp_url, args.timeout_seconds)
+     probing = instrumented.investigation_source(store, args.dsp_url, args.timeout_seconds)
+ 
+     def read_evidence(task: TaskRow, now: datetime) -> tuple[Evidence, ...] | flow.EvidenceBatch:
+-        return plain(task, now) if ai is None else probing(task, now)
++        return rules(task, now) if ai is None else probing(task, now)
+ 
+     send = inbox_client.make_client(args.inbox_url, args.timeout_seconds)
+     lookup = dsp_client.make_operation_lookup(args.dsp_url, args.timeout_seconds)
+     # 呼叫紀錄綁「呼叫當下讀到的那一列」:每一步都用當下的列重建,而且把那一列的序號交給推進函式
+     state = flow.advance(
+         store, task_id, read_evidence, policy.decide,
+         instrumented.InstrumentedSubmit(store, send, ToolEndpoint.INBOX_SUBMIT, row), now,
+         owner=args.owner,
+         operation_lookup=instrumented.InstrumentedOperationLookup(
+             store, lookup, ToolEndpoint.DSP_OPERATION, row),
+         no_action_reason=_no_action_reason, expected_seq=row.seq,
+-        ai_decide=None if ai is None else ai.judge, clock=None if ai is None else ai.clock)
++        ai_decide=None if ai is None else ai.judge, clock=None if ai is None else ai.clock,
++        rule_decide=(rule_round.decide if ai is None
++                     else ai_judge.held_rule(rule_round.decide, ai.judge.hold)))
+     latest = store.latest(task_id)
+     return state, (latest.seq if latest is not None else row.seq)
+ 
+ 
+ @dataclass
+ class _Backoff:
+     """沒有進展(狀態與序號都沒變)的任務退避:每次沒進展等待加倍,上限 BACKOFF_CAP_SECONDS;
+     一有進展就歸零(代碼審 r1 d7:等待中的任務每輪都寫兩列租約、一筆送件紀錄,表無上限長大)。"""
+ 
+     seen: dict[str, tuple[TaskState, int]] = field(default_factory=dict)
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index 9611973..dc90277 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -18,20 +18,25 @@
+ 
+ AI 調查的紀錄表與原始資料表(Phase 13 增量 2,[S1110] [S1130] [S1151]):AI 那一步每一輪一列調查紀錄
+ (選了什麼、理由、誰判的、退回原因、`ai_query` 原因代碼),蒐證那一步每個追加查詢的原始回應一列(正規化
+ JSON);兩張都只增不改,跟狀態列、證據在同一個交易、同一道租約與序號圍籬裡寫(提交函式的兩個新參數)。
+ 原始資料只給人看與追查,沒有任何決策路徑讀它;執行端與收件口都不讀這兩張表([S1114])。
+ 
+ 續租(Phase 13 增量 2,[S1135] [S1150]):只有開了 AI 決策的分析那一步在呼叫模型前續租一次。租約表只增
+ 不改,所以續租是新增一列(序號加 1、擁有者相同),條件是目前最新那一列正是手上收據的序號與擁有者;時鐘在
+ 交易裡拿到鎖之後才讀。一步照樣只做一步。
+ 
++規則輪(Phase 14 增量 2b,[S1405] [S1413]):正式規則分 A/B/C 三步讀四查詢。蒐證那一步把「這一列是第幾輪
++的哪一步、哪個政策版本、讀取時刻」跟證據、原始回應同一個交易寫進規則步驟表;分析那一步把續步、重來、
++定案寫進規則事件表(細因只存封閉代碼)。兩張都只增不改;進度一律由 `rule_round` 從這兩張的已提交列重算,
++不持久化「下一步」。
++
+ 接續任務(Phase 5):已交給執行的任務因版本已變、決策過期、或收件表已清掉而 DSP 沒有寫入時,
+ 另開一個接續任務重讀現況再決定(任務狀態機不變,原任務轉擋下)。建接續任務、寫接續關係、原任務
+ 結案是同一個交易,走原任務的提交圍籬;接續關係表同樣只增不改,原任務編號是主鍵(一個任務最多
+ 接續一次)。
+ """
+ 
+ import hashlib
+ import json
+ import sqlite3
+ from collections.abc import Callable, Sequence
+@@ -91,20 +96,26 @@ CREATE TABLE IF NOT EXISTS narrative_results (
+ CREATE TABLE IF NOT EXISTS investigation_rounds (
+     task_id TEXT NOT NULL, seq INTEGER NOT NULL, round INTEGER NOT NULL, kind TEXT NOT NULL,
+     choice TEXT NOT NULL, decided_by TEXT NOT NULL, reason TEXT, fallback TEXT, reason_code TEXT,
+     cited_json TEXT, model_source TEXT, written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
+ CREATE TABLE IF NOT EXISTS investigation_calls (
+     task_id TEXT NOT NULL, call_seq INTEGER NOT NULL, lease_seq INTEGER NOT NULL,
+     written_at TEXT NOT NULL, PRIMARY KEY (task_id, call_seq));
+ CREATE TABLE IF NOT EXISTS investigation_raw (
+     task_id TEXT NOT NULL, seq INTEGER NOT NULL, option TEXT NOT NULL, raw_json TEXT NOT NULL,
+     stored_at TEXT NOT NULL, PRIMARY KEY (task_id, seq, option));
++CREATE TABLE IF NOT EXISTS rule_steps (
++    task_id TEXT NOT NULL, seq INTEGER NOT NULL, round_id INTEGER NOT NULL, step TEXT NOT NULL,
++    policy_version TEXT NOT NULL, read_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
++CREATE TABLE IF NOT EXISTS rule_events (
++    task_id TEXT NOT NULL, seq INTEGER NOT NULL, round_id INTEGER NOT NULL, event TEXT NOT NULL,
++    detail TEXT, written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
+ CREATE INDEX IF NOT EXISTS narrative_claims_by_proposal
+     ON narrative_claims (task_id, revision, content_hash);
+ CREATE INDEX IF NOT EXISTS follow_ups_by_campaign ON follow_ups (campaign_id);
+ CREATE INDEX IF NOT EXISTS tool_calls_by_time ON tool_calls (at);
+ """
+ _TASK_COLUMNS = ("task_id, seq, state, campaign_id, proposal_json, error_detail, written_at, "
+                  "operation_key")
+ MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
+ # 暫用,沒有實測校準:要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件,各自的逾時由建用戶端
+ # 的呼叫端決定);分析端驅動命令列(rtb.analyzer.runner)啟動時斷言這條不等式([S1001])
+@@ -329,20 +340,40 @@ class InvestigationRecord:
+ 
+ 
+ @dataclass(frozen=True)
+ class RawQuery:
+     """一個追加查詢的原始回應(正規化 JSON):跟證據同一個交易寫進調查原始資料表。"""
+ 
+     option: str
+     raw_json: str
+ 
+ 
++@dataclass(frozen=True)
++class RuleStep:
++    """規則輪一步的蒐證紀錄(Phase 14 增量 2b):輪次、步驟代碼、政策版本、讀取時刻;序號是那一步蒐證
++    寫下的分析中那一列。詞彙(步驟代碼)由 `rule_round` 定,這裡只存。"""
++
++    round_id: int
++    step: str
++    policy_version: str
++    read_at: datetime
++
++
++@dataclass(frozen=True)
++class RuleEvent:
++    """規則輪的事件(續步、重來、定案):分析那一步寫,序號是它寫下的那一列;detail 是封閉的原因代碼。"""
++
++    round_id: int
++    event: str
++    detail: str | None = None
++
++
+ MAX_INVESTIGATION_TEXT = 2000  # 調查紀錄的文字欄進永久不可刪改的表,長度必須有上限
+ 
+ 
+ @dataclass(frozen=True)
+ class TaskRow:
+     task_id: str
+     seq: int
+     state: TaskState
+     campaign_id: str
+     proposal: Proposal | None
+@@ -513,20 +544,43 @@ class TaskReads:
+ 
+     def raw_query(self, task_id: str, seq: int, option: str) -> str | None:
+         """用(任務、那一輪分析列的序號、選項代碼)取回原始回應;那一輪沒有結果就是空值。只給人看。"""
+         if not self._has_table("investigation_raw"):
+             return None
+         record = self._conn.execute(
+             "SELECT raw_json FROM investigation_raw WHERE task_id = ? AND seq = ? AND option = ?",
+             (task_id, seq, option)).fetchone()
+         return None if record is None else str(record[0])
+ 
++    def rule_steps(self, task_id: str) -> tuple[tuple[int, RuleStep], ...]:
++        """這件工作已提交的規則輪步驟(序號, 紀錄),依序號;唯讀開法遇到還沒有這張表的舊庫回空的。"""
++        if not self._has_table("rule_steps"):
++            return ()
++        rows = self._conn.execute(
++            "SELECT seq, round_id, step, policy_version, read_at FROM rule_steps "
++            "WHERE task_id = ? ORDER BY seq", (task_id,)).fetchall()
++        try:
++            return tuple((int(r[0]), RuleStep(int(r[1]), str(r[2]), str(r[3]),
++                                              datetime.fromisoformat(r[4].replace("Z", "+00:00"))))
++                         for r in rows)
++        except (ValueError, TypeError) as exc:
++            raise CorruptedHistoryRow(f"{task_id} 的規則輪步驟讀不回來:{exc!r}") from exc
++
++    def rule_events(self, task_id: str) -> tuple[tuple[int, RuleEvent], ...]:
++        """這件工作已提交的規則輪事件(序號, 紀錄),依序號;表不在回空的。"""
++        if not self._has_table("rule_events"):
++            return ()
++        rows = self._conn.execute(
++            "SELECT seq, round_id, event, detail FROM rule_events WHERE task_id = ? ORDER BY seq",
++            (task_id,)).fetchall()
++        return tuple((int(r[0]), RuleEvent(int(r[1]), str(r[2]), r[3])) for r in rows)
++
+     def handed_off_rows(self) -> tuple[TaskRow, ...]:
+         """已送進收件口的每一列(交給執行那幾列,帶提案),依寫入順序;模型說明命令列從這裡找要寫說明的
+         提案。"""
+         records = self._conn.execute(
+             f"SELECT {_TASK_COLUMNS} FROM tasks WHERE state = ? AND proposal_json IS NOT NULL "  # noqa: S608 - 固定欄位清單
+             "ORDER BY rowid", (TaskState.HANDED_OFF.value,)).fetchall()
+         return tuple(_row_from_record(r) for r in records)
+ 
+     def narrative_for(self, task_id: str, revision: int,
+                       content_hash: str) -> NarrativeStatus | None:
+@@ -659,37 +713,45 @@ class TaskStore(TaskReads):
+         evidence: Sequence[Evidence] = (),
+         proposal: Proposal | None = None,
+         error_detail: str | None = None,
+         before_commit: Callable[[], None] | None = None,
+         lease: LeaseReceipt | None = None,
+         operation_key: str | None = None,
+         follow_up: FollowUp | None = None,
+         no_action_reason: StrEnum | None = None,
+         investigation: InvestigationRecord | None = None,
+         raw: Sequence[RawQuery] = (),
++        rule_step: RuleStep | None = None,
++        rule_event: RuleEvent | None = None,
+     ) -> bool:
+         """核對租約與 expected_seq 仍是目前最新一列,新增一列 new_state 並(可選)附帶證據列。
+ 
+         帶收據:目前那一列租約必須正是這張收據的取得列,寫入成功就在同一個交易裡放掉租約;
+         只核對號碼不核對到期時間(時間只有呼叫端步驟開頭傳進來的那個,判不出自己過期沒有;
+         過期但沒人接手時寫進去也沒有第二個人花過錢)。不帶收據:別人持有有效租約就不寫,
+         往後忘了帶收據的呼叫端也蓋不過正在花錢的持有者。
+         回傳是否真的寫入了;False 表示輸給並行的另一次呼叫,這次呼叫沒有寫入任何東西。
+ 
+         帶 follow_up:原任務這一列(結案)跟接續任務、接續關係在同一個交易裡寫,同一道圍籬;
+         錯誤說明後面補上接續任務編號、代數用完、或接續編號衝突(防線,不建立)。
+ 
+         帶 no_action_reason:只准跟不提案那一列一起寫,同一個交易寫進只增的原因表(Phase 12)。
+ 
+         帶 investigation / raw(Phase 13 增量 2):這一輪的調查紀錄、追加查詢的原始回應,序號都是
+         新的那一列;輸給接手者時連它們一起沒寫。
++
++        帶 rule_step / rule_event(Phase 14 增量 2b):規則輪這一步的蒐證紀錄(只准跟分析中那一列一起寫)
++        、
++        分析那一步的續步/重來/定案事件;同一個交易、同一道圍籬。
+         """
++        if rule_step is not None and new_state is not TaskState.ANALYZING:
++            raise ValueError(f"規則輪步驟只能跟分析中那一列一起寫,這一步是 {new_state}")
+         if no_action_reason is not None and new_state is not TaskState.NO_ACTION:
+             raise ValueError(f"原因只能跟不提案那一列一起寫,這一步是 {new_state}")
+         mismatched = [item.task_id for item in evidence if item.task_id != task_id]
+         if mismatched:
+             raise EvidenceTaskMismatch(
+                 f"要附帶的證據裡有 {mismatched} 不屬於任務 {task_id}")
+         capped_detail = (
+             None if error_detail is None else error_detail[:MAX_ERROR_DETAIL_LENGTH])
+         with immediate_transaction(self._conn):
+             if not self._lease_allows(task_id, lease, now):
+@@ -708,20 +770,21 @@ class TaskStore(TaskReads):
+                 note = self._write_follow_up(task_id, campaign_id, follow_up.reason, now)
+                 capped_detail = f"{error_detail or ''};{note}"[:MAX_ERROR_DETAIL_LENGTH]
+             self._conn.execute(
+                 f"INSERT INTO tasks ({_TASK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608 - 固定欄位清單
+                 (task_id, next_seq, new_state.value, campaign_id,
+                  None if proposal is None else _proposal_to_json(proposal),
+                  capped_detail, _iso(now), operation_key),
+             )
+             self._insert_attachments(task_id, next_seq, evidence, no_action_reason)
+             self._insert_investigation(task_id, next_seq, investigation, raw, now)
++            self._insert_rule(task_id, next_seq, rule_step, rule_event, now)
+             if lease is not None:
+                 self._append_release(lease, now)
+             if before_commit is not None:
+                 before_commit()
+         return True
+ 
+     def _insert_attachments(self, task_id: str, seq: int, evidence: Sequence[Evidence],
+                             no_action_reason: StrEnum | None) -> None:
+         """跟新的一列同一個交易寫的附帶資料:證據列,與不提案的原因。"""
+         if no_action_reason is not None:
+@@ -747,20 +810,35 @@ class TaskStore(TaskReads):
+             self._conn.execute(
+                 "INSERT INTO investigation_rounds VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 (task_id, seq, record.round, record.kind, record.choice[:cap], record.decided_by,
+                  None if record.reason is None else record.reason[:cap], record.fallback,
+                  record.reason_code, None if record.cited_json is None else record.cited_json[:cap],
+                  record.model_source, _iso(now)))
+         for item in raw:
+             self._conn.execute("INSERT INTO investigation_raw VALUES (?, ?, ?, ?, ?)",
+                                (task_id, seq, item.option, item.raw_json, _iso(now)))
+ 
++    def _insert_rule(self, task_id: str, seq: int, step: RuleStep | None,
++                     event: RuleEvent | None, now: datetime) -> None:
++        if step is not None:
++            if type(step.round_id) is not int or step.round_id < 1:
++                raise ValueError("規則輪的輪次要是正整數")
++            self._conn.execute("INSERT INTO rule_steps VALUES (?, ?, ?, ?, ?, ?)",
++                               (task_id, seq, step.round_id, step.step, step.policy_version,
++                                _iso(step.read_at)))
++        if event is not None:
++            if type(event.round_id) is not int or event.round_id < 0:
++                raise ValueError("規則輪事件的輪次要是非負整數")
++            self._conn.execute("INSERT INTO rule_events VALUES (?, ?, ?, ?, ?, ?)",
++                               (task_id, seq, event.round_id, event.event, event.detail,
++                                _iso(now)))
++
+     def _write_follow_up(
+         self, task_id: str, campaign_id: str, reason: ReplanReason, now: datetime,
+     ) -> str:
+         """在呼叫端的交易裡建接續任務與接續關係;回傳要補進原任務錯誤說明的一段話。"""
+         head = f"replan={reason.value}"
+         link = self._conn.execute(
+             "SELECT follow_up_task_id FROM follow_ups WHERE original_task_id = ?", (task_id,),
+         ).fetchone()
+         if link is not None:  # 防線:同一個交易寫原任務結案,正常不會已有關係;沿用、不再寫
+             return f"{head};follow_up={link[0] or 'none'}"
+diff --git a/src/rtb/demo/basis.py b/src/rtb/demo/basis.py
+index aa26a9c..0bcd5dd 100644
+--- a/src/rtb/demo/basis.py
++++ b/src/rtb/demo/basis.py
+@@ -11,20 +11,21 @@ from collections.abc import Mapping, Sequence
+ from dataclasses import dataclass
+ from datetime import datetime
+ from enum import StrEnum
+ from typing import Any
+ 
+ from rtb.analyzer import investigation as inv
+ from rtb.analyzer import policy
+ from rtb.analyzer.flow import Decision, NeedsFreshEvidence, NoAction, ProposalDecision
+ from rtb.analyzer.task_store import MAX_GENERATION, InvestigationRecord, TaskRow
+ from rtb.demo.state_store import Basis, BasisCode
++from rtb.domain import nine_rules as rules
+ from rtb.domain.evidence import Evidence, EvidenceKind
+ from rtb.domain.task_state import TaskState
+ from rtb.domain.worth import WorthVerdict
+ from rtb.executor import guardrails, inbox_store
+ from rtb.executor.attempt_store import DspCallKind, DspCallResult, DspCallRow, FirstRow
+ 
+ RECOMPUTED = "依存下的證據重算"
+ RECORDED = "執行端當下記下"
+ RECORDED_INBOX = "收件口當下記下"
+ RECORDED_ANALYZER = "分析端當下記下"
+@@ -70,62 +71,92 @@ def _agrees(decision: Decision, reason: policy.NoActionReason | None, decided: T
+ def _freshness(evidence: Sequence[Evidence], at: datetime, fresh: bool) -> Basis:
+     oldest = max(((at - item.observed_at).total_seconds() for item in evidence), default=0.0)
+     limit = policy.MAX_EVIDENCE_AGE.total_seconds() / 60
+     # 標準只寫規則真的做的事:看年齡;版本只跟同一批資料比(跟平台比版本是執行端的事,代碼審 r1 d1)
+     return Basis(f"最舊的資料是 {oldest / 60:.1f} 分鐘前量的",
+                  f"每筆資料不超過 {limit:.0f} 分鐘;版本只跟同一批資料比",
+                  "夠新" if fresh else STALE, RECOMPUTED,
+                  BasisCode.FRESH if fresh else BasisCode.STALE)
+ 
+ 
+-def analysis(before: TaskRow, evidence: Sequence[Evidence], decided: TaskRow,
+-             recorded_reason: str | None) -> tuple[Basis, ...]:
+-    """分析那一步的根據:新鮮度、配速、值不值得加、建議金額,照正式規則的順序,停在做出決定的那一組。
+-    before 是分析中那一列(證據掛在它底下),decided 是分析之後寫下的那一列(它的時間就是決策時間)。
+-    每一步的中間事實取自正式規則公開的 `policy.steps`(代碼審 r1 a1),這裡只把它寫成人看得懂的字。"""
++BASE_RULE_STANDARD = ("九條的第 1、2 條只用基本資料、排在配速之前:暫停 → 不值得加;"
++                      "1 小時曝光、點擊、轉換、花費、營收有缺值或負數,"
++                      "或點擊多於曝光、轉換多於點擊 → 證據不足")
++NINE_RULES_STANDARD = ("正式規則是九條、由上而下先命中:暫停、1 小時資料異常、"
++                       "最近 3 天調過預算、上次加額沒換到轉換、轉換率掉一半、長窗有轉換、"
++                       "沒投放、有價值、沒價值;第 3 條起要四種追加查詢的有效結果,"
++                       "任一沒有結果就證據不足")
++
++
++def _rule_text(facts: policy.PolicySteps) -> str:
++    rule = facts.rule
++    if rule is None:
++        return "沒有判"
++    if rule.cell is not None:
++        return f"命中「{rules.RULE_TEXT[rule.cell]}」"
++    return f"證據不足({rule.reason.value}{'' if rule.query is None else '/' + rule.query.value})"
++
++
++def analysis(before: TaskRow, evidence: Sequence[Evidence], decided: TaskRow,  # noqa: PLR0911
++             recorded_reason: str | None,
++             queries: rules.RuleEvidence = policy.MISSING_FOUR_QUERIES) -> tuple[Basis, ...]:
++    """分析那一步的根據:新鮮度、(第 1/2 條)、配速、值不值得加、建議金額,照正式規則的順序,停在做出
++    決定的那一組。before 是分析中那一列(證據掛在它底下),decided 是分析之後寫下的那一列(它的時間就是
++    決策時間)。每一步的中間事實取自正式規則公開的 `policy.steps`(代碼審 r1 a1),
++    這裡只把它寫成人看得懂
++    的字。Phase 14 增量 2b:規則輪定案那一列由呼叫端從同一輪已存的原始回應轉好四查詢傳進來(`queries`)
++    ,
++    跟當時同一份;沒傳就是缺四查詢。"""
+     at, items = decided.written_at, tuple(evidence)
+     try:
+         decision, reason = policy.explain(before, items, at, candidate=None,
+-                                          allowed=policy.ValidatedCells.NONE)
+-        facts = policy.steps(items, at)
++                                          allowed=policy.ValidatedCells.NONE, queries=queries)
++        facts = policy.steps(items, at, queries=queries)
+     except Exception:  # 正式規則對這份證據丟例外:當時也不會寫下這一列,不給根據
+         return ()
+     if not _agrees(decision, reason, decided, recorded_reason):
+         return ()
+     found = [_freshness(items, at, facts.fresh)]
+     if not facts.fresh:
+         return tuple(found)
+     state, metrics = facts.state, facts.metrics
+     if state is None or metrics is None:
+         lacking = "、".join(n for n, v in (("廣告狀態", state), ("成效資料", metrics)) if v is None)
+-        found.append(Basis(f"缺{lacking}", "兩樣都要有才判斷",
++        found.append(Basis(f"缺{lacking}", "兩樣都要有、狀態要是啟用或暫停才判斷",
+                            _NO_ACTION["missing_state_or_metrics"], RECOMPUTED, BasisCode.MISSING))
+         return tuple(found)
++    if facts.settled_by_base:
++        insufficient = facts.worth is WorthVerdict.INSUFFICIENT
++        found.append(Basis(
++            f"狀態 {state.get('status')}、曝光 {metrics.get('impressions')}、點擊 "
++            f"{metrics.get('clicks')}:{_rule_text(facts)}", BASE_RULE_STANDARD,
++            _NO_ACTION["judged_insufficient" if insufficient else "judged_not_worth"], RECOMPUTED,
++            BasisCode.INSUFFICIENT if insufficient else BasisCode.NOT_WORTH))
++        return tuple(found)
+     budget, spend = state.get("budget"), metrics.get("spend")
+     shown = "算不出來" if facts.pacing_ratio is None else f"{facts.pacing_ratio:.0%}"
+     below = facts.underpacing
+     pace = ((BasisCode.UNDERPACING, "花太慢") if below
+             else (BasisCode.NOT_UNDERPACING, _NO_ACTION["not_underpacing"]) if below is False
+             else (BasisCode.PACING_UNKNOWN, _NO_ACTION["pacing_unknown"]))
+     found.append(Basis(f"花費 {spend}、預算 {budget}:到現在該花的進度是 {shown}",
+                        f"一天預算的 1/{round(1 / policy.ELAPSED_FRACTION_1H)} 當作這一小時該花的,"
+                        f"進度低於 {policy.UNDERPACING_THRESHOLD:.0%} 算花太慢",
+                        pace[1], RECOMPUTED, pace[0]))
+     if not below:
+         return tuple(found)
+     worth = ((BasisCode.WORTH, "值得加") if facts.worth is WorthVerdict.WORTH
+              else (BasisCode.INSUFFICIENT, _NO_ACTION["judged_insufficient"])
+              if facts.worth is WorthVerdict.INSUFFICIENT
+              else (BasisCode.NOT_WORTH, _NO_ACTION["judged_not_worth"]))
+-    found.append(Basis(f"曝光 {metrics.get('impressions')}、點擊 {metrics.get('clicks')}",
+-                       "現行程式規則:曝光與點擊都大於 0 就值得加(不看廣告狀態與轉換營收)",
+-                       worth[1], RECOMPUTED, worth[0]))
++    found.append(Basis(f"曝光 {metrics.get('impressions')}、點擊 {metrics.get('clicks')}:"
++                       f"{_rule_text(facts)}", NINE_RULES_STANDARD, worth[1], RECOMPUTED, worth[0]))
+     if isinstance(decision, ProposalDecision):
+         new = decision.proposal.requested_change["new_budget"]
+         found.append(Basis(f"{budget} → {new}",
+                            f"加 {policy.BUDGET_INCREASE_FRACTION:.0%}(四捨五入,至少加 1)",
+                            PROPOSE, RECOMPUTED, BasisCode.PROPOSE))
+     return tuple(found)
+ 
+ 
+ def write_start(first: FirstRow) -> tuple[Basis, ...]:
+     """開始一筆時執行端自己記下的核對材料:這次要加多少、單次最多加多少、單一廣告上限、總上限與已用。
+@@ -217,21 +248,22 @@ def analysis_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:  # noqa: PL
+         return ()
+     steps: list[RouteStep] = []
+     fresh = items.pop(0)
+     if fresh.code is not BasisCode.FRESH:
+         stale = fresh.code is BasisCode.STALE
+         return (RouteStep("a_fresh", "a_recollect", fresh),) if stale else ()
+     steps.append(RouteStep("a_fresh", "a_complete", fresh))
+     if not items:
+         return ()  # 夠新卻沒有下一組:不是 analysis() 給得出的形狀,不補
+     second = items.pop(0)
+-    if second.code is BasisCode.MISSING:
++    if second.code in (BasisCode.MISSING, BasisCode.NOT_WORTH, BasisCode.INSUFFICIENT):
++        # 缺資料,或九條第 1/2 條只用基本資料就結案(Phase 14:排在配速之前)
+         return (*steps, RouteStep("a_complete", "a_no_action", second))
+     steps.append(RouteStep("a_complete", "a_pacing",
+                            Basis("廣告狀態與成效資料都有", "兩樣都要有才判斷", "齊全", RECOMPUTED,
+                                  BasisCode.COMPLETE)))
+     if second.code is not BasisCode.UNDERPACING:
+         return (*steps, RouteStep("a_pacing", "a_no_action", second))
+     steps.append(RouteStep("a_pacing", "a_route", second))
+     steps.append(RouteStep("a_route", "a_rule", NO_MODEL))
+     if not items:
+         return ()
+diff --git a/src/rtb/demo/driver.py b/src/rtb/demo/driver.py
+index d0ff9d8..d51963e 100644
+--- a/src/rtb/demo/driver.py
++++ b/src/rtb/demo/driver.py
+@@ -23,21 +23,21 @@ import threading
+ import time
+ from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+ from contextlib import contextmanager
+ from dataclasses import dataclass, field, replace
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from pathlib import Path
+ from typing import Any
+ from urllib.parse import quote
+ 
+-from rtb.analyzer import flow, instrumented, policy
++from rtb.analyzer import flow, instrumented, policy, rule_round
+ from rtb.analyzer import investigation as inv
+ from rtb.analyzer.task_store import (
+     FollowUpRow,
+     InvestigationRecord,
+     ReplanReason,
+     TaskReader,
+     TaskRow,
+     TaskStore,
+ )
+ from rtb.capabilitykit import APPROVAL_KEY_ENV, AUDIT_KEY_ENV
+@@ -50,20 +50,21 @@ from rtb.demo.observe import Observer, PathBuilder, Timeline, all_pages, missing
+ from rtb.demo.state_store import (
+     ChangeRecord,
+     ComparisonRun,
+     ConfirmationRequest,
+     ScenarioDetails,
+     StateWriter,
+     VerifierRun,
+ )
+ from rtb.domain.attempt import AttemptState, OutcomeCode, operation_key
+ from rtb.domain.evidence import Evidence, EvidenceKind
++from rtb.domain.nine_rules import RuleReason
+ from rtb.domain.proposal import Proposal, content_hash
+ from rtb.domain.task_state import TaskState
+ from rtb.dsp import seed
+ from rtb.dsp.store import CampaignStore, Operation
+ from rtb.executor import approval, attempt_store
+ from rtb.executor.attempt_store import AttemptRow, ReadTransaction
+ from rtb.executor.inbox_store import (
+     BlockCode,
+     DeadLetterAction,
+     DeadLetterOp,
+@@ -140,20 +141,22 @@ class ScenarioFailed(Exception):
+ class ScenarioStopped(Exception):
+     """情境已經被收掉(超過時限或整次展示取消):不准再起行程、不准再寫確認請求。"""
+ 
+ 
+ class FaultNotExercised(Exception):  # 不是錯誤,是一種結局
+     """[S1144] 受測的那件工作 AI 合法判不提案:情境在它結案時走完,不算沒跑完、也不算照預期演示了
+     故障。"""
+ 
+ 
+ Stream = tuple[tuple[str, ...], tuple[str, ...]]  # 一條紀錄的(必經節點, 允許的回頭)
++RULE_DECIDED = rule_round.Event.DECIDED.value  # 規則輪定案事件
++RECENT_BUDGET_CHANGE = RuleReason.RECENT_BUDGET_CHANGE.value  # 九條第 3 條的細因
+ 
+ 
+ # ---- Phase 13 增量 4:分析那一步讓 AI 參與決定(計劃〈展示情境怎麼接 AI〉) ----
+ NEVER_LIVE = frozenset({"F7"})  # F7 永遠只用錄製回應:即時呼叫 300 個廣告要數十分鐘到數小時
+ LIVE_BATCH_PREFIX = "demo-live-"
+ MODEL_LINE = "MODEL"  # 分析端就緒之後那一行的開頭(同分析端驅動命令列的常數,測試核對兩邊一致)
+ PREFLIGHT_FAILED = "rule"  # 模式行:即時的登入預檢沒過、整趟改由程式規則(同分析端驅動的常數)
+ MODEL_LINE_MARGIN_SECONDS = 5.0  # 等模式行:登入預檢最壞加這一點餘裕(代碼審 r1 l4)
+ RECORDED_ROUND_SECONDS = 1.0  # 錄製模式一輪 AI(續租、讀錄製、記帳、提交)給的時限放寬
+ RECORDED_EXTRA_CAP_SECONDS = 60.0  # 錄製模式一段等待最多放寬這麼多
+@@ -569,20 +572,27 @@ class World:
+         if not task_ids or not self.analyzer_db.is_file():
+             return set()
+         with self._tasks() as reader:
+             return {t for t in task_ids
+                     if _outcome(reader, t) in (Outcome.NO_PROPOSE, Outcome.EXAM_HOLD)}
+ 
+     def rounds(self, task_id: str) -> tuple[InvestigationRecord, ...]:
+         with self._tasks() as reader:
+             return tuple(record for _seq, record in reader.investigation_rounds(task_id))
+ 
++    def rule_decision(self, task_id: str) -> str | None:
++        """規則輪定案時記下的細因(Phase 14 增量 2b,例如 recent_budget_change);沒有定案事件
++        是空的。"""
++        with self._tasks() as reader:
++            return next((event.detail for _seq, event in reversed(reader.rule_events(task_id))
++                         if event.event == RULE_DECIDED), None)
++
+     def settled(self, task_id: str, proposal_done: Callable[[], bool]) -> bool:
+         """[S1167] 這件工作走完了:提案結局要走到情境原本對提案路徑等的那個終點;不提案結局以不提案
+         結案就算。"""
+         outcome = self.outcome(task_id)
+         return outcome is not None and (outcome is not Outcome.PROPOSE or proposal_done())
+ 
+     def expect(self, task_id: str,
+                proposal: Mapping[tuple[str, str], Stream]) -> dict[tuple[str, str], Stream]:
+         outcome = self.outcome(task_id)
+         if outcome is None:
+@@ -901,22 +911,29 @@ def _after_version_change(world: World, follow: str, written: str) -> str:
+     平台就回原本的結果;AI 判不提案就標「故障照預期,接續任務 AI 判證據不足」(或不值得加)。"""
+     budgets = [(w.action, w.new_budget) for w in world.platform_writes("c1")]
+     if world.outcome(follow) is Outcome.PROPOSE:
+         if budgets != [("update_budget", 200), ("update_budget", 220)]:
+             raise ScenarioFailed(f"平台上的寫入不對:{budgets}(舊建議的 110 不該出現)")
+         world.tracked = (follow, "c1")
+         return written
+     if budgets != [("update_budget", 200)]:
+         raise ScenarioFailed(f"平台上的寫入不對:{budgets}(接續任務沒有提案,不該再寫入)")
+     conclusion = world.ai_conclusion(follow)
++    if conclusion is None and world.rule_decision(follow) == RECENT_BUDGET_CHANGE:
++        # 使用者裁定 4(Phase 14):另一方剛改預算,接續任務由程式規則第 3 條判證據不足也是照預期
++        # (放寬 [S1168];畫面分開標 AI 與程式補查是增量 3)
++        label = "故障照預期,接續任務程式規則判證據不足(最近 3 天調過預算)"
++        world.outcome_note = label
++        world.tracked = (follow, "c1")
++        return f"另一方先把預算改成 200;舊建議(110)以版本已變擋下,{label},沒有再寫入平台"
+     if conclusion is None:
+-        raise ScenarioFailed(f"接續任務 {follow} 沒有提案,也不是 AI 判的不提案")
++        raise ScenarioFailed(f"接續任務 {follow} 沒有提案,也不是 AI 或程式規則照預期判的不提案")
+     judged = basis_of.OPTION_TEXT.get(conclusion.choice, conclusion.choice).split(",")[0]
+     label = f"故障照預期,接續任務 AI 判{judged}"
+     world.outcome_note = f"{label}。{ai_line(conclusion)}"
+     world.tracked = (follow, "c1")
+     return f"另一方先把預算改成 200;舊建議(110)以版本已變擋下,{label},沒有再寫入平台"
+ 
+ 
+ def _run_f4(world: World) -> str:
+     """F4:建議寫好之後,另一個寫入者搶先改了廣告;舊建議在寫入前再確認時以版本已變擋下,分析端
+     另開新工作照現況重算,平台上從來沒有舊建議的值。"""
+@@ -984,21 +1001,23 @@ def _run_f5(world: World) -> str:
+ 
+     def settled() -> bool:
+         return (world.settled("t1", lambda: world.finished("t1"))
+                 and all(_declined(world, t) for t in tasks[1:]))
+ 
+     if not world.watch(settled, world.allow(60, tasks=len(tasks))):
+         raise ScenarioFailed("時限內幾件工作沒有都走完")
+     world.require_streams({
+         **world.expect("t1", {k: v for k, v in F5_STREAMS.items() if k[0] == "t1"}),
+         **{k: v for t in tasks[1:] for k, v in world.expect(t, {}).items()}})
+-    if _names_seen_by_the_analyzer(world, "t1") != [ADVERSARIAL_NAME]:
++    # 規則輪 A 與 C 各讀一次現況(Phase 14 增量 2b),名稱原文可能出現不只一次:只看讀到的都是原文
++    names = _names_seen_by_the_analyzer(world, "t1")
++    if not names or set(names) != {ADVERSARIAL_NAME}:
+         raise ScenarioFailed("分析端的證據裡沒有這段名稱原文:對抗文字根本沒進流程")
+     proposed = world.outcome("t1") is Outcome.PROPOSE
+     writes = [(w.campaign_id, w.action, w.new_budget) for w in world.platform_writes()]
+     # 程式層不變量([S1112] [S1124]):全平台只可能有受攻擊廣告照公式的那一筆,或沒有寫入
+     if writes != ([("c1", "update_budget", 110)] if proposed else []):
+         raise ScenarioFailed(f"平台上的寫入跟名稱正常時不一樣:{writes}")
+     if (world.campaign("c1") or {}).get("name") != ADVERSARIAL_NAME:
+         raise ScenarioFailed("廣告名稱被動到了")
+     if twin:
+         world.exam = _exam(world, "t1", "t3")
+diff --git a/src/rtb/demo/launcher/__init__.py b/src/rtb/demo/launcher/__init__.py
+index da8840e..aa3483d 100644
+--- a/src/rtb/demo/launcher/__init__.py
++++ b/src/rtb/demo/launcher/__init__.py
+@@ -20,20 +20,21 @@ from pathlib import Path
+ 
+ import rtb
+ from rtb.capabilitykit import APPROVAL_KEY_ENV, AUDIT_KEY_ENV, KEY_ENV
+ from rtb.demo.faults.delivery import ROOT_MARKER, FaultPlan, prepare_root, write_plan
+ from rtb.demo.keys import DemoKeys
+ from rtb.stepbudget import (
+     CALLS_PER_STEP,
+     DEFAULT_TIMEOUT_SECONDS,
+     LOGIN_TOKEN_ENV,
+     ai_stop_grace_seconds,
++    rule_stop_grace_seconds,
+ )
+ 
+ SRC = str(Path(rtb.__file__).resolve().parents[1])  # 專案沒有安裝成套件,子行程靠它找程式
+ # 子行程一律 python -P:不把工作目錄(展示根目錄)放進 sys.path,根目錄裡的同名檔蓋不掉標準函式庫
+ FAULT_NONCE_ENV = "RTB_DEMO_FAULT_NONCE"
+ EXIT_FAULT_REFUSED = 3
+ STARTUP_SECONDS = 20.0
+ STOP_SECONDS = 5.0
+ _BASICS = ("PATH", "HOME", "LANG", "USER")
+ # 三個模型環境變數(全展示只有這一份:驅動與批次檢查都用它,代碼審 r1 h3)
+@@ -134,29 +135,30 @@ def command_for(role: Role, args: Sequence[str], keys: DemoKeys, *, root: Path,
+                 child_env(role, keys, user_env=user_env, live_model=model))
+     if faults.role is not role:
+         raise ValueError(f"故障是排給 {faults.role} 的,不是 {role}")
+     config, nonce = write_fault_plan(root, faults)
+     return (module_command("rtb.demo.launcher.child", [role.value, str(config), "--", *args]),
+             child_env(role, keys, user_env=user_env, fault_nonce=nonce,
+                                live_model=model))
+ 
+ 
+ def stop_grace_seconds(role: Role, args: Sequence[str]) -> float:
+-    """收到 SIGTERM 之後等多久才硬殺。分析端會做完手上這一步(最多兩次呼叫,各自有逾時)才停,給它
+-    兩倍逾時再加一秒,不在一步中途硬殺(代碼審 r2 n3);其他角色照固定時限。帶 --ai-judge 時(Phase 13
+-    [S1136])至少再給「續租等鎖加上續租後 AI 那一步的最壞耗時」,用跟分析端守衛同一組常數算。"""
++    """收到 SIGTERM 之後等多久才硬殺。分析端會做完手上這一步才停,不在一步中途硬殺(代碼審 r2 n3);
++    其他角色照固定時限。Phase 14 [S1419]:規則輪 C 一步最多五次讀取,寬限取 max(舊兩讀寬限, A/B/C 最壞
++    秒數),預設逾時 3 秒是 50 秒(舊的 7 秒撤掉)。帶 --ai-judge 時(Phase 13 [S1136])再跟「續租等鎖加上
++    續租後 AI 那一步的最壞耗時」取最大值。都用跟分析端守衛同一組常數算。"""
+     if role is not Role.ANALYZER:
+         return STOP_SECONDS
+     timeout = DEFAULT_TIMEOUT_SECONDS
+     if "--timeout-seconds" in args:
+         timeout = float(args[list(args).index("--timeout-seconds") + 1])
+-    grace = max(STOP_SECONDS, CALLS_PER_STEP * timeout + 1)
++    grace = max(STOP_SECONDS, CALLS_PER_STEP * timeout + 1, rule_stop_grace_seconds(timeout))
+     return max(grace, ai_stop_grace_seconds()) if AI_JUDGE_FLAG in args else grace
+ 
+ 
+ class StartFailed(Exception):
+     """子行程沒在時限內印出就緒那一行(起不來、拒絕啟動、第一行不對或太慢)。"""
+ 
+ 
+ class Process:
+     """一個已啟動的子行程:獨立的行程群組,stop 連同它開的孫行程一起結束。"""
+ 
+diff --git a/src/rtb/demo/observe.py b/src/rtb/demo/observe.py
+index b4a514b..d938f14 100644
+--- a/src/rtb/demo/observe.py
++++ b/src/rtb/demo/observe.py
+@@ -10,20 +10,21 @@
+ 節點一律算對不上(第 2 輪代碼審 o1/c3)。
+ """
+ 
+ from collections.abc import Callable, Collection, Sequence
+ from dataclasses import dataclass, replace
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from pathlib import Path
+ 
+ from rtb.analyzer import investigation as inv
++from rtb.analyzer import rule_round
+ from rtb.analyzer.policy import NoActionReason
+ from rtb.analyzer.task_store import (
+     FollowUpRow,
+     InvestigationRecord,
+     ReplanReason,
+     TaskReader,
+     TaskRow,
+ )
+ from rtb.demo import basis as basis_of
+ from rtb.demo import flow
+@@ -358,78 +359,114 @@ class Observer:
+     def _task(self, reader: TaskReader, rowid: int, row: TaskRow) -> list[SourceEvent]:
+         """一列任務狀態;分析之後寫下的那一列若有同序號的調查紀錄(Phase 13 增量 4),前面另加一筆
+         「AI 判斷」(或「改由程式規則決定」)事件,排在這一列之前。"""
+         note, detail, missing = None, None, False
+         if row.state is TaskState.BLOCKED:
+             follow = self._follow_ups.get(row.task_id)
+             if follow is not None and follow.follow_up_task_id is not None:
+                 return []  # 由「開新工作」那筆事件表示,不另外記「這件工作結束」
+             if follow is not None:
+                 note = GENERATIONS_USED_UP  # 代數用完:接續關係有記,但沒有開新工作
++        continuation = self._rule_continuation(reader, row)
+         recorded = None
+         if row.state is TaskState.NO_ACTION:  # 原因跟這一列同一個交易寫
+             recorded = reader.no_action_reason(row.task_id, row.seq)
+             detail = _member(NoActionReason, recorded)
+             missing = detail is None
+         # 同序號調查紀錄列的原因代碼(ai_query);調查紀錄表不在(Phase 13 之前的資料庫)就當沒有
+         code = (reader.investigation_reason_code(row.task_id, row.seq)
+                 if row.state is TaskState.COLLECTING_EVIDENCE else None)
+         rounds = reader.investigation_rounds(row.task_id) if row.state in _DECIDED else ()
+         record = next((r for seq, r in rounds if seq == row.seq), None)
+         before, evidence = self._analyzed(reader, row)
+         main = SourceEvent(row.written_at, f"analyzer.tasks#{row.task_id}/{row.seq}",
+                            (TaskState, row.state.name), detail, f"task:{row.task_id}", missing,
+                            order=("analyzer", 1, 2 * rowid), task=row.task_id, note=note,
+-                           basis=self._analysis_basis(before, evidence, row, recorded, record),
++                           basis=self._analysis_basis(reader, before, evidence, row, recorded,
++                                                      record),
+                            reason_code=code)
+         if record is None or before is None:
+-            return [main]
++            return [] if continuation else [main]
+         step = basis_of.ai_step(record, [r for seq, r in rounds if seq < row.seq], evidence,
+                                 row.written_at)
+         ai = SourceEvent(row.written_at, f"analyzer.investigation_rounds#{row.task_id}/{row.seq}",
+                          _kind_member(record), None, f"task:{row.task_id}",
+                          order=("analyzer", 1, 2 * rowid - 1), task=row.task_id, note=step.reason,
+                          basis=step.basis, actor=step.actor, node=step.node, edge=step.edge)
+-        return [ai, main]
++        return [ai] if continuation else [ai, main]
++
++    @staticmethod
++    def _rule_continuation(reader: TaskReader, row: TaskRow) -> bool:
++        """規則輪續步(Phase 14 增量 2b,A→B→C 讀四查詢)的中間列不另畫節點:續步那一列蒐集證據
++        (規則事件是 continue)與 B/C 蒐完的分析中那一列,都算同一個「蒐證、判斷」步驟;AI 退回開規則輪
++        那一列只畫「改由程式規則決定」、不另畫重新蒐集,規則輪 A 的分析中那一列也不另畫。重來(過期、
++        變動)照舊畫成重新蒐集。流程圖分開畫程式補查是增量 3 的事。"""
++        def opens_rule_round(seq: int) -> bool:  # AI 退回開規則輪的那一列蒐集證據
++            return any(at == seq and record.kind == inv.RecordKind.FALLBACK
++                       and record.choice == inv.RULE_ROUND
++                       for at, record in reader.investigation_rounds(row.task_id))
++
++        if row.state is TaskState.COLLECTING_EVIDENCE:
++            return opens_rule_round(row.seq) or any(
++                seq == row.seq and event.event == "continue"
++                for seq, event in reader.rule_events(row.task_id))
++        if row.state is TaskState.ANALYZING:
++            step = next((step.step for seq, step in reader.rule_steps(row.task_id)
++                         if seq == row.seq), None)
++            return step in ("B", "C") or (step == "A" and opens_rule_round(row.seq - 1))
++        return False
+ 
+     @staticmethod
+     def _analyzed(reader: TaskReader, row: TaskRow) -> tuple[TaskRow | None, tuple[Evidence, ...]]:
+         """分析之後寫下的那一列的前一列(分析中)與它底下的證據;不是這種形狀回空的。"""
+         if row.state not in _DECIDED or row.seq < 2:  # 至少要有前一列
+             return None, ()
+         before = next((r for r in reader.history(row.task_id) if r.seq == row.seq - 1), None)
+         if before is None or before.state is not TaskState.ANALYZING:
+             return None, ()
+         return before, reader.evidence_for(row.task_id, before.seq)
+ 
+     @staticmethod
+-    def _analysis_basis(before: TaskRow | None, evidence: tuple[Evidence, ...], row: TaskRow,
+-                        recorded: str | None,
++    def _analysis_basis(reader: TaskReader, before: TaskRow | None,  # noqa: PLR0911
++                        evidence: tuple[Evidence, ...], row: TaskRow, recorded: str | None,
+                         record: InvestigationRecord | None) -> tuple[Basis, ...]:
+         """分析之後寫下的那一列(提案、不調整、太舊重新蒐集)帶根據:拿分析中那一列底下的證據重算。
+         傳給正式規則的只有現況、1 小時指標、廣告文字三種(追加查詢的收據在規則入口本來就濾掉,
+         [S1115])。有調查紀錄的那一列是「程式接手」:AI 選的查詢、照公式算的金額、照結論結案;退回的
+         那一輪照規則重算、扣掉 AI 那一步之前已經顯示過的幾組;只判不送的那一列寫考題結束。"""
+         if before is None:
+             return ()
+         rule = inv.code_rule_evidence(evidence)
++        inputs = rule_round.decision_inputs(reader, row.task_id, before.seq)
++        if inputs is not None and record is None:
++            # 規則輪定案那一列(Phase 14 增量 2b):同一輪存下的收據與原始回應重算,跟定案同一份四查詢
++            items, queries = inputs
++            found = basis_of.analysis(before, items, row, recorded, queries=queries)
++            if any(at < row.seq and r.kind == inv.RecordKind.FALLBACK
++                   and r.choice == inv.RULE_ROUND
++                   for at, r in reader.investigation_rounds(row.task_id)):
++                # AI 退回開的規則輪:新鮮度與配速在 AI 那一步之前已顯示,這裡只接程式規則那幾步
++                found = basis_of.after_fallback(found)
++            if recorded == NoActionReason.EXAM_HOLD.value:  # 規則輪判值得加、只判不送
++                return (*found, basis_of.EXAM_HOLD)
++            return found
+         if recorded == NoActionReason.EXAM_HOLD.value:
+             if record is not None and record.kind == inv.RecordKind.FALLBACK:  # 退回後規則判值得加
+                 ruled = basis_of.after_fallback(basis_of.analysis(before, rule, row, recorded))
+                 return (*ruled, basis_of.EXAM_HOLD)
+             return (basis_of.EXAM_HOLD,)
+         if record is None:
+             return basis_of.analysis(before, rule, row, recorded)
+         if record.kind == inv.RecordKind.FALLBACK:
+             return basis_of.after_fallback(basis_of.analysis(before, rule, row, recorded))
+-        found = basis_of.takeover(record, row, rule)
+-        return () if found is None else (found,)
++        taken = basis_of.takeover(record, row, rule)
++        return () if taken is None else (taken,)
+ 
+     @staticmethod
+     def _stops(inbox: ReadOnlyInbox, tx: attempt_store.ReadTransaction,
+                lifecycle: Sequence[LifecycleEvent]) -> dict[tuple[str, str], tuple[Stopped, bool]]:
+         """停下等人確認的那幾筆,收件口停下紀錄當時記的金額、已用、總上限與有沒有封頂,依(冪等鍵, 停下
+         種類):同一把鍵先因比例過大、核可後又因總上限停下時兩筆各自保留(代碼審 r1 d5)。"""
+         waiting = [e for e in lifecycle if e.kind == LifecycleKind.AWAITING_APPROVAL.value
+                    and e.tenant and e.reason in _STOP_KINDS and e.key and e.content_hash]
+         found: dict[tuple[str, str], tuple[Stopped, bool]] = {}
+         for tenant, reason in {(str(e.tenant), str(e.reason)) for e in waiting}:
+diff --git a/src/rtb/domain/nine_rules.py b/src/rtb/domain/nine_rules.py
+index f185a60..153edd4 100644
+--- a/src/rtb/domain/nine_rules.py
++++ b/src/rtb/domain/nine_rules.py
+@@ -1,18 +1,18 @@
+ """九條加額判斷的純領域輸入、先命中規則與無格診斷。
+ 
+ 四查詢在邊界完成白名單驗證後轉成這些不可變資料,這裡不讀 DSP、收據或評估案例。
+ """
+ 
+ from collections.abc import Mapping
+ from dataclasses import dataclass
+-from datetime import datetime, timedelta
++from datetime import UTC, datetime, time, timedelta
+ from enum import StrEnum
+ from fractions import Fraction
+ from types import MappingProxyType
+ 
+ from rtb.domain import metrics as m
+ from rtb.domain._checks import is_amount_or_none, is_aware, is_count_or_none, is_plain_int
+ from rtb.domain.worth import CampaignStatus, WorthInput, WorthVerdict, is_anomalous
+ 
+ RECENT_DAYS = 3
+ DAILY_DAYS = 7
+@@ -74,20 +74,21 @@ class RuleReason(StrEnum):
+     NO_DELIVERY = "no_delivery"
+     DELIVERY_WITH_VALUE = "delivery_with_value"
+     DELIVERY_WITHOUT_VALUE = "delivery_without_value"
+     INPUT_INVALID = "input_invalid"
+     QUERY_NO_RESULT = "query_no_result"
+     MISSING_ROW_VALUE = "missing_row_value"
+     INVALID_ROW_VALUE = "invalid_row_value"
+     MISSING_DAILY_ROWS = "missing_daily_rows"
+     NO_DATA_DAY = "no_data_day"
+     CROSS_QUERY_CONFLICT = "cross_query_conflict"
++    DAY_BOUNDARY = "day_boundary"  # 逐日讀取時刻與決策 now 不在同一個 UTC 日([S1406])
+ 
+ 
+ def _check_count(name: str, value: object) -> None:
+     if not is_count_or_none(value):
+         raise ValueError(f"{name} 必須是整數或缺值")
+ 
+ 
+ def _check_amount(name: str, value: object) -> None:
+     """跟分析端讀取白名單同一支判準(固定兩位小數字串的定義只在 _checks 一份)。"""
+     if not is_amount_or_none(value):
+@@ -131,24 +132,31 @@ class HistoryRow:
+ 
+     def __post_init__(self) -> None:
+         if self.action is not None and not isinstance(self.action, str):
+             raise ValueError("action 必須是字串或缺值")
+         if self.committed_at is not None and not isinstance(self.committed_at, datetime):
+             raise ValueError("committed_at 必須是時間或缺值")
+ 
+ 
+ @dataclass(frozen=True)
+ class ChangeHistory:
++    """rows 是回傳的歷史列;recent_flag 是 DSP 歷史被截斷時由完整七日集合算的近期預算旗標([S1422])。
++    旗標以 DSP 讀取時刻切,讀取時刻不晚於決策 now,所以它的三天窗只會比決策 now 的寬:當成近期調整是
++    保守的一邊(多判證據不足,不會多提案)。"""
++
+     rows: tuple[HistoryRow, ...]
++    recent_flag: bool = False
+ 
+     def __post_init__(self) -> None:
+         _check_rows("history.rows", self.rows, HistoryRow)
++        if not isinstance(self.recent_flag, bool):
++            raise ValueError("recent_flag 必須是布林")
+ 
+ 
+ @dataclass(frozen=True)
+ class DailyRow:
+     days_ago: int
+     impressions: int | None
+     clicks: int | None
+     conversions: int | None
+     spend: int | float | str | None
+     revenue: int | float | str | None
+@@ -160,42 +168,52 @@ class DailyRow:
+         for name in ("impressions", "clicks", "conversions"):
+             _check_count(name, getattr(self, name))
+         for name in ("spend", "revenue"):
+             _check_amount(name, getattr(self, name))
+         if not isinstance(self.no_data, bool):
+             raise ValueError("no_data 必須是布林")
+ 
+ 
+ @dataclass(frozen=True)
+ class DailyTrend:
++    """read_at 是這批逐日的讀取時刻:給了就要跟決策 now 同一個 UTC 日,不同日判證據不足([S1406]),
++    不拿前一天的日桶提案。評估案例沒有讀取時刻(同一個固定 NOW),不給。"""
++
+     rows: tuple[DailyRow, ...]
++    read_at: datetime | None = None
+ 
+     def __post_init__(self) -> None:
+         _check_rows("daily.rows", self.rows, DailyRow)
++        if self.read_at is not None and not is_aware(self.read_at):
++            raise ValueError("read_at 必須是帶時區的時間或缺值")
+ 
+ 
+ @dataclass(frozen=True)
+ class AdjustmentRow:
+     days_ago: int
+     budget_before: int | None
+     budget_after: int | None
+     before_conversions: int | None
+     after_conversions: int | None
++    # 提交時刻(Phase 14 增量 2b):第 3 條與第 4 條以決策 now 判近期與 D+3 是否完整;缺值的列判證據不足
++    committed_at: datetime | None = None
+ 
+     def __post_init__(self) -> None:
+         for name in ("days_ago", "budget_before", "budget_after", "before_conversions",
+                      "after_conversions"):
+             value = getattr(self, name)
+             if (name == "days_ago" and not is_plain_int(value)) or (
+                 name != "days_ago" and not is_count_or_none(value)
+             ):
+                 raise ValueError(f"{name} 必須是整數" + ("或缺值" if name != "days_ago" else ""))
++        if self.committed_at is not None and not isinstance(self.committed_at, datetime):
++            raise ValueError("committed_at 必須是時間或缺值")
+ 
+ 
+ @dataclass(frozen=True)
+ class PastAdjustments:
+     rows: tuple[AdjustmentRow, ...]
+ 
+     def __post_init__(self) -> None:
+         _check_rows("past.rows", self.rows, AdjustmentRow)
+ 
+ 
+@@ -245,70 +263,86 @@ def _insufficient(reason: RuleReason, query: QueryKind | None = None) -> RuleDec
+ 
+ 
+ def segment_rate(rows: tuple[DailyRow, ...]) -> m.Exact:
+     """逐日區段的精確轉換率;任一必要欄缺值便回缺資料。"""
+     if any(row.conversions is None or row.clicks is None for row in rows):
+         return m.Reason.MISSING_DATA
+     return m.exact_ratio(sum(row.conversions for row in rows if row.conversions is not None),
+                          sum(row.clicks for row in rows if row.clicks is not None))
+ 
+ 
+-def _history_decision(history: ChangeHistory, now: datetime) -> RuleDecision | None:
++def _history_decision(history: ChangeHistory, past: PastAdjustments,
++                      now: datetime) -> RuleDecision | None:
++    """第 3 條:歷史列、截斷時的完整集合旗標、過去調整的提交時刻,任一顯示決策 now 前 3 天內調過預算
++    就命中(過去調整補足被截斷的歷史,[S1415] [S1422])。缺提交時刻的過去調整列留給第 4 條判。"""
+     cutoff = now - timedelta(days=RECENT_DAYS)
+-    recent = False
++    recent = history.recent_flag
+     for row in history.rows:
+         if row.action != "update_budget":
+             continue
+         if not is_aware(row.committed_at):
+             return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.HISTORY)
+         recent |= row.committed_at > cutoff
++    recent |= any(is_aware(row.committed_at) and row.committed_at > cutoff
++                  for row in past.rows)
+     return _hit(Cell.RECENT_BUDGET_CHANGE) if recent else None
+ 
+ 
+-def _past_decision(past: PastAdjustments) -> RuleDecision | None:
+-    if any(_invalid_adjustment_row(row) for row in past.rows):
++def after_window_complete(committed_at: datetime, now: datetime) -> bool:
++    """加額 D 之後三個完整 UTC 日(D+1..D+3)到決策 now 是否都已結束:now 不早於 D+4 日 00:00 UTC。"""
++    day = committed_at.astimezone(UTC).date()
++    return now >= datetime.combine(day + timedelta(days=RECENT_DAYS + 1), time(0), tzinfo=UTC)
++
++
++def _past_decision(past: PastAdjustments, now: datetime) -> RuleDecision | None:
++    if any(_invalid_adjustment_row(row, now) for row in past.rows):
+         return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.PAST)
+     for row in past.rows:
+-        if row.budget_before is None or row.budget_after is None:
++        if row.budget_before is None or row.budget_after is None or not is_aware(row.committed_at):
+             return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.PAST)
+         if row.budget_after <= row.budget_before:
+             continue
+-        if row.before_conversions is None or row.after_conversions is None:
++        if (row.before_conversions is None or row.after_conversions is None
++                or not after_window_complete(row.committed_at, now)):
++            # 後窗到決策 now 還沒滿三個完整日:DSP 讀取時回了數字也不採信(裁定 6)
+             return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.PAST)
+         change = m.exact_change(row.before_conversions, row.after_conversions)
+         if isinstance(change, Fraction) and change <= GAIN_THRESHOLD:
+             return _hit(Cell.RAISE_WITHOUT_GAIN)
+         if change is not m.Reason.NO_DENOMINATOR and isinstance(change, m.Reason):
+             return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.PAST)
+         break
+     return None
+ 
+ 
+-def _invalid_adjustment_row(row: AdjustmentRow) -> bool:
+-    return row.days_ago < 0 or any(value is not None and value < 0 for value in (
+-        row.budget_before, row.budget_after, row.before_conversions, row.after_conversions
+-    ))
++def _invalid_adjustment_row(row: AdjustmentRow, now: datetime) -> bool:
++    return row.days_ago < 0 or (is_aware(row.committed_at) and row.committed_at > now) or any(
++        value is not None and value < 0 for value in (
++            row.budget_before, row.budget_after, row.before_conversions, row.after_conversions))
+ 
+ 
+ def _invalid_daily_row(row: DailyRow) -> bool:
+     values = (row.impressions, row.clicks, row.conversions,
+               Fraction(row.spend) if row.spend is not None else None,
+               Fraction(row.revenue) if row.revenue is not None else None)
+     return (any(value is not None and value < 0 for value in values) or
+             (row.impressions is not None and row.clicks is not None and
+              row.clicks > row.impressions) or
+             (row.clicks is not None and row.conversions is not None and
+              row.conversions > row.clicks))
+ 
+ 
+-def _daily_decision(daily: DailyTrend) -> RuleDecision | None:  # noqa: PLR0911 - 各缺證據原因需分流
++def _daily_decision(daily: DailyTrend, now: datetime) -> RuleDecision | None:  # noqa: PLR0911 - 各缺證據原因需分流
+     rows = daily.rows
++    if daily.read_at is not None and (
++            daily.read_at.astimezone(UTC).date() != now.astimezone(UTC).date()):
++        return _insufficient(RuleReason.DAY_BOUNDARY, QueryKind.DAILY)
+     if any(_invalid_daily_row(row) for row in rows):
+         return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.DAILY)
+     if len(rows) != DAILY_DAYS or {row.days_ago for row in rows} != set(range(1, DAILY_DAYS + 1)):
+         return _insufficient(RuleReason.MISSING_DAILY_ROWS, QueryKind.DAILY)
+     if any(row.no_data for row in rows):
+         return _insufficient(RuleReason.NO_DATA_DAY, QueryKind.DAILY)
+     if any(row.clicks is None or row.conversions is None for row in rows):
+         return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.DAILY)
+     recent = tuple(row for row in rows if row.days_ago <= RECENT_DAYS)
+     earlier = tuple(row for row in rows if row.days_ago > RECENT_DAYS)
+@@ -346,12 +380,13 @@ def decide(worth: WorthInput | None, evidence: RuleEvidence, now: datetime) -> R
+         return _hit(Cell.PAUSED)
+     if is_anomalous(worth):
+         return _hit(Cell.ANOMALY)
+     for query, value in ((QueryKind.LONGER, evidence.longer),
+                          (QueryKind.HISTORY, evidence.history),
+                          (QueryKind.DAILY, evidence.daily), (QueryKind.PAST, evidence.past)):
+         if value is None:
+             return _insufficient(RuleReason.QUERY_NO_RESULT, query)
+     assert evidence.longer is not None and evidence.history is not None  # noqa: S101 - 四查詢已核對
+     assert evidence.daily is not None and evidence.past is not None  # noqa: S101 - 同上
+-    return (_history_decision(evidence.history, now) or _past_decision(evidence.past)
+-            or _daily_decision(evidence.daily) or _final_decision(worth, evidence.longer))
++    return (_history_decision(evidence.history, evidence.past, now)
++            or _past_decision(evidence.past, now)
++            or _daily_decision(evidence.daily, now) or _final_decision(worth, evidence.longer))
+diff --git a/src/rtb/domain/proposal.py b/src/rtb/domain/proposal.py
+index fa6c354..786e66f 100644
+--- a/src/rtb/domain/proposal.py
++++ b/src/rtb/domain/proposal.py
+@@ -16,25 +16,26 @@ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
+ from enum import StrEnum
+ from types import MappingProxyType
+ from typing import Any, TypeGuard
+ 
+ from rtb.domain._checks import ID_PATTERN, is_aware, is_plain_int
+ from rtb.domain._checks import MAX_INT as MAX_INT  # 定義搬到共用小檢查,這裡照舊匯出
+ 
+ # 分析端目前的決策政策版本:分析端產生提案時用它,執行端判人工核可是否還算數也看它(Phase 6
+ # 增量 3)。兩邊從這裡匯入,只有一個來源,不靠人同步設定檔
+-POLICY_VERSION = "demo-pacing-v1"
++# Phase 14 增量 2b 換成九條正式規則([S1416]):舊「有投放就加」政策下待確認/待執行的提案由 [S504] 擋下
++POLICY_VERSION = "nine-rules-v1"
+ # 用過的政策版本(含目前這個),只增不刪:改版時把新值加在後面、舊值留著。指標的政策版本標籤只收這份
+ # 清單裡的值、其他一律歸「其他」,值域有界;標籤是版本字串本身、不跟查詢當下的目前版本比,改版後同一個
+ # 過去的窗標籤不變(Phase 9 增量 2 代碼審第 1 輪,代使用者裁定)
+-KNOWN_POLICY_VERSIONS: tuple[str, ...] = ("demo-pacing-v1",)
++KNOWN_POLICY_VERSIONS: tuple[str, ...] = ("demo-pacing-v1", "nine-rules-v1")
+ POLICY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}")
+ REASON_PATTERN = re.compile(r"[a-z0-9_]{1,64}")
+ MAX_PAYLOAD_BYTES = 16 * 1024
+ MAX_DEPTH = 6
+ MAX_LIST_ITEMS = 20
+ MAX_RISK_SUMMARY = 500
+ MIN_TIME = datetime(2000, 1, 1, tzinfo=UTC)  # 時間欄位的合理範圍:換成 UTC 不會溢位,也不會離現實太遠
+ MAX_TIME = datetime(2100, 1, 1, tzinfo=UTC)
+ MAX_DECISION_LIFETIME = timedelta(hours=1)  # 決策從建立到到期最多一小時:壓低一份提案佔住名額的時間
+ CONTAINER_OVERHEAD = 8  # 每個容器與每個鍵值的粗估開銷(位元組),讓大量空容器也會被計入
+diff --git a/src/rtb/eval/investigation_cases.py b/src/rtb/eval/investigation_cases.py
+index d16a861..06c5bd7 100644
+--- a/src/rtb/eval/investigation_cases.py
++++ b/src/rtb/eval/investigation_cases.py
+@@ -113,39 +113,51 @@ def _rule_window(raw: Mapping[str, Any]) -> rules.Window:
+     return rules.Window(raw.get("impressions"), raw.get("clicks"), raw.get("conversions"),
+                         raw.get("spend"), raw.get("revenue"))
+ 
+ 
+ def _rule_daily_row(row: Mapping[str, Any]) -> rules.DailyRow:
+     return rules.DailyRow(row["days_ago"], row.get("impressions"), row.get("clicks"),
+                           row.get("conversions"), row.get("spend"), row.get("revenue"),
+                           row["no_data"])
+ 
+ 
++def _moment(text: Any) -> datetime | None:
++    return datetime.fromisoformat(text) if isinstance(text, str) and text else None
++
++
++def _recent_flag(history: Mapping[str, Any]) -> bool:
++    """截斷歷史帶的完整集合近期旗標(正式讀取層同形狀);沒截斷的回應沒有摘要。"""
++    summary = history.get("summary")
++    return (history.get("truncated") is True and isinstance(summary, Mapping)
++            and summary.get("has_recent_budget_change") is True)
++
++
+ def rule_evidence(case: Case) -> rules.RuleEvidence:
+     """評估案例在此邊界轉為正式查詢形狀,領域層不認識 Case 字典。"""
+     raw = case.results
+     longer = raw.get(LONGER)
+     history = raw.get(HISTORY)
+     daily = raw.get(DAILY)
+     past = raw.get(PAST)
+     return rules.RuleEvidence(
+         longer=(rules.LongerWindow(_rule_window(longer["1d"]), _rule_window(longer["7d"]))
+                 if longer is not None else None),
+         history=(rules.ChangeHistory(tuple(
+-            rules.HistoryRow(row.get("action"), datetime.fromisoformat(row["committed_at"])
+-                             if row.get("committed_at") else None)
+-            for row in history["history"])) if history is not None else None),
++            rules.HistoryRow(row.get("action"), _moment(row.get("committed_at")))
++            for row in history["history"]), _recent_flag(history))
++            if history is not None else None),
+         daily=(rules.DailyTrend(tuple(_rule_daily_row(row) for row in daily["rows"]))
+                if daily is not None else None),
+         past=(rules.PastAdjustments(tuple(rules.AdjustmentRow(
+             row["days_ago"], row.get("budget_before"), row.get("budget_after"),
+-            row.get("before_conversions"), row.get("after_conversions"))
++            row.get("before_conversions"), row.get("after_conversions"),
++            _moment(row.get("committed_at")))
+             for row in past["rows"])) if past is not None else None),
+     )
+ 
+ 
+ def rule_decision(case: Case) -> rules.RuleDecision:
+     try:
+         worth = worth_input(case)
+     except (KeyError, TypeError, ValueError):
+         return rules.decide(None, rules.RuleEvidence(), NOW)
+     base = rules.decide(worth, rules.RuleEvidence(), NOW)
+diff --git a/src/rtb/eval/investigation_eval.py b/src/rtb/eval/investigation_eval.py
+index 573f254..e30deab 100644
+--- a/src/rtb/eval/investigation_eval.py
++++ b/src/rtb/eval/investigation_eval.py
+@@ -22,21 +22,21 @@ import os
+ import re
+ import sys
+ from collections.abc import Callable, Mapping, Sequence
+ from pathlib import Path
+ from types import MappingProxyType
+ from typing import Any, TextIO
+ 
+ from rtb import modelclient as mc
+ from rtb.analyzer import ai_judge, policy
+ from rtb.analyzer import investigation as inv
+-from rtb.analyzer.flow import AiContext, NoAction, ProposalDecision, QueryMore
++from rtb.analyzer.flow import AiContext, NoAction, ProposalDecision, QueryMore, RuleContinue
+ from rtb.analyzer.task_store import InvestigationRecord, TaskRow
+ from rtb.domain.evidence import Evidence, EvidenceKind, PayloadValue, TrustClass
+ from rtb.domain.task_state import TaskState
+ from rtb.domain.worth import WorthVerdict
+ from rtb.eval import investigation_report as report_mod
+ from rtb.eval.investigation_cases import NOW, Case
+ from rtb.eval.investigation_report import Call, CaseRun
+ from rtb.eval.investigation_set import CASES
+ 
+ EXIT_OK = 0
+@@ -131,20 +131,24 @@ def run_case(case: Case, ask: Ask) -> CaseRun:
+     logged = _Logged(ask)
+     judge = ai_judge.Judge(logged)
+     counter = CallCounter()
+     records: list[InvestigationRecord] = []
+     for seq in range(1, inv.MAX_ROUNDS + 2):  # 最多 3 輪模型呼叫;多一輪留給「上限後只剩結論」的保險
+         task = _task(case, seq)
+         evidence = case_evidence(case, task, inv.progress(records))
+         outcome = judge(task, evidence, NOW, AiContext(_renewed, tuple(records), counter))
+         if outcome.record is not None:
+             records.append(outcome.record)
++        if isinstance(outcome.result, RuleContinue):
++            # 退回開規則輪(Phase 14 增量 2b):評估沒有 DSP,四查詢直接從案例取、轉成正式領域型別,
++            # 以案例固定 NOW 跑同一支正式規則(不問模型)
++            return CaseRun(case, rule_verdict(case), tuple(records), tuple(logged.calls))
+         if not isinstance(outcome.result, QueryMore):
+             return CaseRun(case, _verdict(outcome), tuple(records), tuple(logged.calls))
+     raise AssertionError(f"{case.case_id} 超過輪數上限還在選查詢:AI 決策函式的上限沒有生效")
+ 
+ 
+ class CallCounter:
+     """送出前的呼叫記次(評估沒有任務列,在記憶體裡計;照流程層那支同一個語意):回這筆案例第幾次模型
+     呼叫,已達上限回上限加 1、不記。每筆案例一個。"""
+ 
+     def __init__(self) -> None:
+diff --git a/src/rtb/eval/investigation_report.py b/src/rtb/eval/investigation_report.py
+index a9d83c5..7544542 100644
+--- a/src/rtb/eval/investigation_report.py
++++ b/src/rtb/eval/investigation_report.py
+@@ -25,21 +25,21 @@ from rtb.analyzer.task_store import InvestigationRecord
+ from rtb.domain.worth import WorthVerdict
+ from rtb.eval.adoption import (
+     MARKED,
+     NO_MONITORING,
+     UNSENT,
+     Measure,
+     OperationalLimits,
+     operational_problems,
+     threshold_marks,
+ )
+-from rtb.eval.investigation_cases import VERDICT, Case, Cell, worth_input
++from rtb.eval.investigation_cases import NOW, VERDICT, Case, Cell, rule_evidence, worth_input
+ 
+ # 本計劃給調查決策點的門檻(〈花費帳與採用判定〉):成本不設門檻;延遲 p95 3 秒、失敗率 1% 沿用使用者
+ # 裁定,延遲中位 3 秒沿用 Phase 11B 協調者補的同一個值
+ INVESTIGATION_LIMITS = OperationalLimits(cost_per_call_usd=None, latency_median_us=3_000_000.0,
+                                          latency_p95_us=3_000_000.0, failure_rate=0.01,
+                                          cost_exempt=True)
+ SYNTHETIC_NEVER_ADOPTS = ("合成評估集是有限的合約案例,照 Phase 10 規定一律不採用,"
+                           "不產生任何給正式路徑的已驗證清單;展示照樣可以用 AI 回答做示範,"
+                           "但不進正式決策路徑")
+ MISSING_EVIDENCE = ("正式環境的決策紀錄抽樣", "人工標註", NO_MONITORING)
+@@ -49,23 +49,24 @@ _EXCEPTIONS = frozenset({mc.Outcome.TRANSIENT.value, mc.Outcome.QUOTA_EXHAUSTED.
+ OFF_MENU = "off_menu"
+ EVAL_SET = Path(__file__).with_name("investigation_set.py")
+ 
+ 
+ def eval_set_sha256() -> str:
+     """評估集檔的雜湊:錄製鍵跟著題目走,報告記下它依據的是哪一版。"""
+     return hashlib.sha256(EVAL_SET.read_bytes()).hexdigest()
+ 
+ 
+ def rule_verdict(case: Case) -> WorthVerdict:
+-    """現行程式規則的答案:同一個判斷點輸入走 Phase 10 的現行規則(正式路徑沒有候選、允許清單是空的,
+-    所以就是這一支)。"""
+-    return policy.code_rule(worth_input(case))
++    """正式程式規則的答案(Phase 14 起是九條):
++    同一個判斷點輸入加案例存的四種查詢結果(轉成正式領域型別),
++    以案例固定 NOW 判。標準答案也由同一支領域規則產生,所以這一列跟標準答案同源,不作品質證據。"""
++    return policy.code_rule(worth_input(case), rule_evidence(case), NOW)
+ 
+ 
+ # ---- 評估執行器逐筆跑出來的結果(執行器建、報告讀)----
+ @dataclass(frozen=True)
+ class Call:
+     """一次模型呼叫(或讀錄製)的結果:ok 或模型用戶端的結果類別。"""
+ 
+     outcome: str
+     latency_ms: float | None
+     list_nanousd: int
+diff --git a/src/rtb/eval/model_candidate.py b/src/rtb/eval/model_candidate.py
+index 89aac36..89408dc 100644
+--- a/src/rtb/eval/model_candidate.py
++++ b/src/rtb/eval/model_candidate.py
+@@ -23,28 +23,28 @@ import json
+ import math
+ import random
+ import statistics
+ from collections import Counter
+ from collections.abc import Sequence
+ from dataclasses import asdict, dataclass, field, replace
+ from datetime import UTC, datetime
+ from pathlib import Path
+ 
+ from rtb import modelclient as mc
+-from rtb.analyzer.policy import CandidateCall, TrialCells, route
++from rtb.analyzer.policy import MISSING_FOUR_QUERIES, CandidateCall, TrialCells, route
+ from rtb.domain.worth import WorthCell, WorthInput, WorthVerdict
+ from rtb.eval.adoption import MARKED as MARKED  # 逐欄判定與沒送出類別放在採用判定模組共用
+ from rtb.eval.adoption import UNSENT as UNSENT
+ from rtb.eval.adoption import ComparisonRow, Measure, OperationalLimits
+ from rtb.eval.adoption import threshold_marks as threshold_marks
+ from rtb.eval.generator import Scenario
+-from rtb.eval.scoring import ScoredCase
++from rtb.eval.scoring import RULE_NOW, ScoredCase
+ 
+ FIELDS = ("status", "budget", "spend", "impressions", "clicks", "conversions", "revenue")
+ SYSTEM_PROMPT = (
+     "你是廣告投放的判斷助手。使用者會給一個配速偏低的廣告的七個欄位,只有狀態與數字。"
+     "請判斷這個廣告值不值得加預算,只回一個 JSON 物件,格式是 {\"verdict\": \"答案\"},"
+     "答案只能是 worth、not_worth、insufficient_evidence、unsure 四個之一,不要回任何其他文字。"
+     "判斷準則由上而下第一個成立的:狀態是暫停 → not_worth;"
+     "任一個數字缺值(missing)或為負、點擊多於曝光、轉換多於點擊 → insufficient_evidence;"
+     "曝光或點擊不是正數 → not_worth;轉換或營收是正數 → worth;其他 → insufficient_evidence。")
+ MAX_OUTPUT_TOKENS = 32
+@@ -356,21 +356,22 @@ def _stop_reason(attempt: Attempt) -> str | None:
+     return None
+ 
+ 
+ def run_subset(scenarios: Sequence[Scenario], candidate: ModelCandidate,
+                timeout_seconds: float) -> ModelRun:
+     """逐情境經既有路由呼叫候選(待測格是全部五格);旁路紀錄出現該停的類別就在那個情境之後停。"""
+     scored, rows, stopped = [], [], None
+     trial = TrialCells(frozenset(WorthCell))
+     for scenario in scenarios:
+         before = len(candidate.attempts)
+-        result = route(scenario.worth_input, CandidateCall(candidate, timeout_seconds), trial)
++        result = route(scenario.worth_input, CandidateCall(candidate, timeout_seconds), trial,
++                       queries=MISSING_FOUR_QUERIES, now=RULE_NOW)
+         scored.append(ScoredCase(scenario, result.verdict, result.path))
+         if len(candidate.attempts) == before:  # 候選沒留下這次的列(不該發生):補一列、停下
+             candidate.attempts.append(UNEXPECTED_ATTEMPT)
+         attempt = candidate.attempts[-1]
+         rows.append(batch_row(scenario, attempt))
+         stopped = _stop_reason(attempt)
+         if stopped is not None:
+             break
+     batches = frozenset(a.recording_batch_id for a in candidate.attempts
+                         if a.recording_batch_id is not None)
+diff --git a/src/rtb/eval/record.py b/src/rtb/eval/record.py
+index 239e345..465466f 100644
+--- a/src/rtb/eval/record.py
++++ b/src/rtb/eval/record.py
+@@ -26,32 +26,33 @@ import statistics
+ import sys
+ import time
+ import uuid
+ from collections.abc import Mapping
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from pathlib import Path
+ from typing import TextIO
+ 
+ from rtb import modelclient as mc
+-from rtb.analyzer.policy import RoutePath, ValidatedCells, route
++from rtb.analyzer.policy import MISSING_FOUR_QUERIES, RoutePath, ValidatedCells, route
+ from rtb.domain.worth import WorthCell, WorthInput
+ from rtb.eval import eval_set, model_candidate
+ from rtb.eval.adoption import (
+     Adoption,
+     ComparisonRow,
+     Measure,
+     OperationalLimits,
+     decide_adoption,
+ )
+ from rtb.eval.generator import from_rows
+ from rtb.eval.scoring import (
++    RULE_NOW,
+     CellReport,
+     ProductionReport,
+     SyntheticReport,
+     eval_set_sha256,
+     score,
+     synthetic_report,
+ )
+ 
+ EXIT_OK = 0
+ EXIT_BAD_ARGUMENTS = 2  # 跟 argparse 的參數錯同一個代碼
+@@ -65,26 +66,27 @@ LEAKAGE = (
+ )
+ NOT_INTRODUCED = "未導入"
+ WARMUP, RUNS = 2_000, 10_000
+ MEASURE_NAMES = ("quality", "cost_per_call_usd", "latency_median_us", "latency_p95_us",
+                  "format_failure_rate", "exception_rate", "timeout_rate", "fallback_rate")
+ 
+ 
+ def measure_latency(inputs: tuple[WorthInput, ...]) -> tuple[float, float]:
+     """現行程式規則經路由的每次延遲(微秒):中位、p95。"""
+     for index in range(WARMUP):
+-        route(inputs[index % len(inputs)], None, ValidatedCells.NONE)
++        route(inputs[index % len(inputs)], None, ValidatedCells.NONE,
++              queries=MISSING_FOUR_QUERIES, now=RULE_NOW)
+     samples = []
+     for index in range(RUNS):
+         worth_input = inputs[index % len(inputs)]
+         started = time.perf_counter_ns()
+-        route(worth_input, None, ValidatedCells.NONE)
++        route(worth_input, None, ValidatedCells.NONE, queries=MISSING_FOUR_QUERIES, now=RULE_NOW)
+         samples.append((time.perf_counter_ns() - started) / 1000)
+     samples.sort()
+     return statistics.median(samples), samples[int(len(samples) * 0.95)]
+ 
+ 
+ def comparison_rows(
+     latency: dict[WorthCell, tuple[float, float]], report: SyntheticReport
+ ) -> tuple[ComparisonRow, ...]:
+     """逐格一列:現行規則每格的品質(類別正確率)、成本 0、量到的延遲、失敗率 0;
+     LLM 與 Jev 全部沒量。"""
+@@ -116,21 +118,22 @@ def _metric(metric_name: str, numerator: int, denominator: int, low: float | Non
+ 
+ 
+ def cell_table(cells: tuple[CellReport, ...]) -> list[str]:
+     """逐格結果表(現行規則與模型候選共用):筆數、指標、錯誤子型。"""
+     lines = ["| 評分格 | 筆數 | 指標(分子/分母) | 錯誤子型(標準答案 → 最後答案:筆數) |",
+              "|---|---|---|---|"]
+     for cell in cells:
+         metrics = ";".join(_metric(m.name, m.numerator, m.denominator, m.lower_bound)
+                            for m in cell.metrics)
+         errors = "、".join(f"{g.value} → {f.value}:{c}" for g, f, c in cell.errors) or "無"
+-        lines.append(f"| {cell.cell.value} | {cell.n} | {metrics} | {errors} |")
++        name = cell.cell.value if cell.note is None else f"{cell.cell.value}({cell.note})"
++        lines.append(f"| {name} | {cell.n} | {metrics} | {errors} |")
+     return lines
+ 
+ 
+ def render(report: SyntheticReport | ProductionReport, rows: tuple[ComparisonRow, ...],
+            adoption: Adoption) -> str:
+     kind = "正式環境抽樣集" if isinstance(report, ProductionReport) else "合成集"
+     sha = (report.provenance.sha256 if isinstance(report, ProductionReport)
+            else report.eval_set_sha256)
+     lines = [
+         "# 「值不值得加」判斷點:評估與採用決定",
+diff --git a/src/rtb/eval/scoring.py b/src/rtb/eval/scoring.py
+index 726b54e..36de077 100644
+--- a/src/rtb/eval/scoring.py
++++ b/src/rtb/eval/scoring.py
+@@ -1,39 +1,55 @@
+ """逐筆計分與逐格報告(Phase 10 增量 2,[S707]、[S713]、[S714])。
+ 
++Phase 14 [S1417]:正式規則改成九條,Phase 10 情境只有 1 小時資料,`score` 經路由時明傳「缺四查詢」;
++暫停/異常照第 1/2 條先判,其餘證據不足,報告每格標「舊資料不足以評估九條規則」,標準答案不動。
++
+ 逐筆走跟正式路徑相同的組合:判斷點輸入經分析端的路由函式(含包裝與退回),依「最後有效的答案」
+ 計分,不是依候選原始回答計分——候選回「不知道」退回現行規則後提案,照樣算一次誤提案。現行規則用同一套
+ 計分(不傳候選)。每格事先指定指標,分母是那一格的樣本數,不會是零:「值得加」格報召回率,其他四格報
+ 「不誤提案的比例」與類別正確率。
+ 
+ 合成集與正式環境抽樣集是兩種不同的報告型別(代碼審第 1 輪:只靠一個字串區分,合成集結果改個字串就能
+ 被當成正式):合成集報告不含信賴下界;正式報告必帶隱藏集出處,只能經 `production_report` 建出來,
+ 每項指標同時存分子、分母、點估計與 95% Wilson 下界,採用函式只讀它存的下界。
+ """
+ 
+ import hashlib
+ import math
+ from collections import Counter
+ from collections.abc import Mapping
+ from dataclasses import dataclass
++from datetime import UTC, datetime
+ from pathlib import Path
+ 
+-from rtb.analyzer.policy import CandidateCall, RoutePath, TrialCells, ValidatedCells, route
++from rtb.analyzer.policy import (
++    MISSING_FOUR_QUERIES,
++    CandidateCall,
++    RoutePath,
++    TrialCells,
++    ValidatedCells,
++    route,
++)
+ from rtb.domain._checks import is_sha256
+ from rtb.domain.worth import WorthCell, WorthVerdict
+ from rtb.eval.generator import Scenario
+ 
+ RECALL = "recall"  # 「值得加」格:該加的有加到多少
+ NO_FALSE_PROPOSAL = "no_false_proposal"  # 其他格:1 減誤提案率(不該加卻提案,判錯就是多花錢)
+ CLASS_ACCURACY = "class_accuracy"  # 其他格:最後有效答案等於標準答案的比例
+ EVAL_SET = Path(__file__).with_name("eval_set.py")
+ Z_95 = 1.959963984540054
++# Phase 10 情境只有 1 小時資料、沒有時間:正式規則改成九條後(Phase 14 [S1417]),轉接器明傳「缺四查詢」
++# ,
++# 暫停/異常照第 1/2 條先判,其餘一律證據不足;決策時間只給領域函式驗證用(缺四查詢時不影響答案)
++RULE_NOW = datetime(2026, 9, 25, tzinfo=UTC)
++MISSING_QUERIES_NOTE = "舊資料不足以評估九條規則"
+ # 經過候選的路徑(候選答的,或候選失敗、逾時、答不知道後退回現行規則的)
+ _THROUGH_CANDIDATE = frozenset(RoutePath) - {RoutePath.CODE_RULE}
+ 
+ 
+ def eval_set_sha256() -> str:
+     return hashlib.sha256(EVAL_SET.read_bytes()).hexdigest()
+ 
+ 
+ def wilson_lower(successes: int, n: int, z: float = Z_95) -> float:
+     """比例的 95% Wilson 信賴下界。"""
+@@ -53,21 +69,22 @@ class ScoredCase:
+     path: RoutePath
+ 
+ 
+ def score(
+     scenarios: tuple[Scenario, ...], candidate: CandidateCall | None, trial: TrialCells | None,
+ ) -> tuple[ScoredCase, ...]:
+     """評估入口:待測格清單只在這次評估裡用,不產生、不改動已驗證清單([S716])。"""
+     allowed: TrialCells | ValidatedCells = ValidatedCells.NONE if trial is None else trial
+     scored = []
+     for scenario in scenarios:
+-        result = route(scenario.worth_input, candidate, allowed)
++        result = route(scenario.worth_input, candidate, allowed, queries=MISSING_FOUR_QUERIES,
++                       now=RULE_NOW)
+         scored.append(ScoredCase(scenario, result.verdict, result.path))
+     return tuple(scored)
+ 
+ 
+ @dataclass(frozen=True)
+ class Metric:
+     name: str
+     numerator: int
+     denominator: int
+     lower_bound: float | None  # 只有正式報告有;合成集一律沒有
+@@ -79,20 +96,22 @@ class Metric:
+ 
+ @dataclass(frozen=True)
+ class CellReport:
+     cell: WorthCell
+     n: int
+     metrics: tuple[Metric, ...]
+     false_proposals: int  # 不該加卻說值得加的筆數(「值得加」格是 0)
+     class_correct_count: int
+     errors: tuple[tuple[WorthVerdict, WorthVerdict, int], ...]  # (標準答案, 最後答案, 筆數)
+     paths: Mapping[RoutePath, int]
++    # Phase 14 [S1417]:這一格用的資料不足以評估九條規則(Phase 10 情境沒有四查詢)時的標註
++    note: str | None = None
+ 
+     def metric(self, name: str) -> Metric | None:
+         return next((m for m in self.metrics if m.name == name), None)
+ 
+ 
+ @dataclass(frozen=True)
+ class SyntheticReport:
+     """合成集的報告:有限的合約案例,不套統計信賴、不能產生已驗證清單。"""
+ 
+     eval_set_sha256: str
+@@ -160,49 +179,52 @@ class ProductionReport:
+ def _metrics(cell: WorthCell, n: int, proposed: int, correct: int,
+              with_bounds: bool) -> tuple[Metric, ...]:
+     def metric(name: str, successes: int) -> Metric:
+         return Metric(name, successes, n, wilson_lower(successes, n) if with_bounds else None)
+ 
+     if cell is WorthCell.DELIVERY_WITH_VALUE:
+         return (metric(RECALL, proposed),)
+     return (metric(NO_FALSE_PROPOSAL, n - proposed), metric(CLASS_ACCURACY, correct))
+ 
+ 
+-def _cell_report(cell: WorthCell, cases: list[ScoredCase], with_bounds: bool) -> CellReport:
++def _cell_report(cell: WorthCell, cases: list[ScoredCase], with_bounds: bool,
++                 note: str | None = None) -> CellReport:
+     n = len(cases)
+     proposed = sum(1 for c in cases if c.final is WorthVerdict.WORTH)
+     correct = sum(1 for c in cases if c.final is c.scenario.gold)
+     errors = Counter((c.scenario.gold, c.final) for c in cases if c.final is not c.scenario.gold)
+     return CellReport(
+         cell=cell, n=n, metrics=_metrics(cell, n, proposed, correct, with_bounds),
+         false_proposals=0 if cell is WorthCell.DELIVERY_WITH_VALUE else proposed,
+         class_correct_count=correct,
+         errors=tuple((gold, final, count) for (gold, final), count in sorted(errors.items())),
+-        paths=dict(Counter(c.path for c in cases)))
++        paths=dict(Counter(c.path for c in cases)), note=note)
+ 
+ 
+-def _parts(scored: tuple[ScoredCase, ...], with_bounds: bool) -> tuple[
++def _parts(scored: tuple[ScoredCase, ...], with_bounds: bool, note: str | None = None) -> tuple[
+         tuple[CellReport, ...], dict[tuple[WorthVerdict, WorthVerdict], int], int]:
+     by_cell: dict[WorthCell, list[ScoredCase]] = {cell: [] for cell in WorthCell}
+     finals_by_group: dict[str, set[WorthVerdict]] = {}
+     for case in scored:
+         by_cell[case.scenario.cell].append(case)
+         finals_by_group.setdefault(case.scenario.group, set()).add(case.final)
+-    cells = tuple(_cell_report(cell, cases, with_bounds) for cell, cases in by_cell.items()
++    cells = tuple(_cell_report(cell, cases, with_bounds, note) for cell, cases in by_cell.items()
+                   if cases)
+     confusion = dict(Counter((c.scenario.gold, c.final) for c in scored))
+     changed = sum(1 for finals in finals_by_group.values() if len(finals) > 1)
+     return cells, confusion, changed
+ 
+ 
+ def synthetic_report(scored: tuple[ScoredCase, ...], sha256: str) -> SyntheticReport:
+-    cells, confusion, changed = _parts(scored, with_bounds=False)
++    """Phase 10 合成集:情境都沒有四查詢(`score` 明傳缺四查詢),每格標「舊資料不足以評估九條
++    規則」。"""
++    cells, confusion, changed = _parts(scored, with_bounds=False, note=MISSING_QUERIES_NOTE)
+     return SyntheticReport(sha256, cells, confusion, changed)
+ 
+ 
+ def production_report(
+     scored: tuple[ScoredCase, ...], provenance: HiddenSetProvenance
+ ) -> ProductionReport:
+     """正式計分入口:每一筆都要交給候選,候選答的或候選退回的(逾時、例外、不知道、非法回傳)都算候選
+     的結果、照最後有效答案計分;任何一筆走現行規則就拒(代碼審第 2、3 輪:只要求每格一筆,1 筆候選加
+     72 筆現行規則就能讓現行規則替候選過關)。"""
+     if not scored or any(c.path not in _THROUGH_CANDIDATE for c in scored):
+diff --git a/src/rtb/stepbudget.py b/src/rtb/stepbudget.py
+index 1c5602e..04f69e5 100644
+--- a/src/rtb/stepbudget.py
++++ b/src/rtb/stepbudget.py
+@@ -17,27 +17,46 @@ MODEL_TIMEOUT_SECONDS = 15.0  # AI 那一步的模型逾時(第 1 版 25、第 1
+ GROUP_EXIT_WAIT_SECONDS = 5.0  # 模型後端每次等 claude 行程群組結束的秒數(一次呼叫最多等兩次)
+ GROUP_EXIT_WAITS = 2
+ SETTLE_ATTEMPTS = 3  # 花費帳結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤
+ LEDGER_RESERVATIONS = 1  # 每次呼叫預留一次
+ # 模型後端空暫存 HOME 隔離時的登入權杖變數名(使用者 2026-09-25 裁定用 `setup-token` 的長期權杖);放在
+ # 這裡是因為展示啟動器也要照名字轉交,而它的原始碼不准提到模型後端
+ LOGIN_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"  # noqa: S105 - 變數名,不是權杖
+ LOGIN_CHECK_TIMEOUT_SECONDS = 10.0  # 模型後端的登入狀態檢查(啟動時的預檢也是這一次)
+ 
+ 
++# 正式規則的規則輪(Phase 14 增量 2b,[S1405]):每一步讀幾次 DSP。A 讀現況與 1 小時指標;B
++# 讀操作歷史與過去
++# 調整;C 讀逐日、1 天、7 天,並重讀現況與 1 小時指標。分析端驅動的租約守衛、規則輪的讀取、
++# 展示啟動器的
++# 停止寬限共用這一份([S1419])
++RULE_STEP_READS: dict[str, int] = {"A": 2, "B": 2, "C": 5}
++
++
+ def collect_step_worst_seconds(dsp_timeout_seconds: float, reads: int) -> float:
+     """開 AI 時蒐集證據那一步的最壞耗時,逐項加總:取租約等鎖、每次讀取的 DSP 逾時加呼叫紀錄等鎖、
+     提交等鎖。"""
+     return (BUSY_TIMEOUT_SECONDS + reads * (dsp_timeout_seconds + BUSY_TIMEOUT_SECONDS)
+             + BUSY_TIMEOUT_SECONDS)
+ 
+ 
++def rule_step_worst_seconds(dsp_timeout_seconds: float) -> dict[str, float]:
++    """規則輪每一步的最壞耗時(同蒐證那一步的逐項加總):預設逾時 3 秒時 A=26、B=26、C=50 秒。"""
++    return {step: collect_step_worst_seconds(dsp_timeout_seconds, reads)
++            for step, reads in RULE_STEP_READS.items()}
++
++
++def rule_stop_grace_seconds(dsp_timeout_seconds: float) -> float:
++    """沒開 AI 的分析端收到停止後最多還要多久:規則輪最長那一步的最壞耗時(預設 50 秒,[S1419])。"""
++    return max(rule_step_worst_seconds(dsp_timeout_seconds).values())
++
++
+ def ai_step_worst_seconds() -> float:
+     """AI 那一步從續租拿到鎖、讀時鐘之後算起的最壞耗時:模型逾時、兩次等行程群組、花費帳預留一次加
+     結算最多三次的等鎖、送出前記一次模型呼叫的等鎖(Phase 13 代碼審 r3 補)、提交等鎖
+     (15 + 10 + 20 + 5 + 5 = 55,仍小於租約 60)。續租自己的等鎖在讀時鐘之前,不佔新租約。"""
+     ledger_waits = (LEDGER_RESERVATIONS + SETTLE_ATTEMPTS) * BUSY_TIMEOUT_SECONDS
+     return (MODEL_TIMEOUT_SECONDS + GROUP_EXIT_WAITS * GROUP_EXIT_WAIT_SECONDS + ledger_waits
+             + BUSY_TIMEOUT_SECONDS + BUSY_TIMEOUT_SECONDS)
+ 
+ 
+ def ai_stop_grace_seconds() -> float:

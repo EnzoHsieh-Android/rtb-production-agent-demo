@@ -1,0 +1,1 @@
+[{"round":"r2","seat":"單席","lens":"範圍變更折入驗收","materials":["/tmp/rtb-phase14-inc3-scope-r2.md","/tmp/rtb-phase14-inc3-scope-r2-delta.diff","src/rtb/"],"auditor":"claude-opus"},{"round":"r2","seat":"架構對齊","lens":"下架寫法與既有慣例","materials":["/tmp/rtb-phase14-inc3-scope-r2.md","src/rtb/"],"auditor":"claude-sonnet"}]

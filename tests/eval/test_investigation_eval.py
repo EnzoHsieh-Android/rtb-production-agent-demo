@@ -132,7 +132,9 @@ def history_row(days_ago, action="update_budget", n=1):
 
 
 def adjustment(days_ago, before_budget, after_budget, before_conversions, after_conversions):
-    row = {"days_ago": days_ago, "budget_before": before_budget, "budget_after": after_budget}
+    # 提交時刻同生成器:固定評估 NOW 減 days_ago(Phase 14 增量 2b:第 3/4 條以它判,不再只看 days_ago)
+    row = {"days_ago": days_ago, "budget_before": before_budget, "budget_after": after_budget,
+           "committed_at": (ic.NOW - timedelta(days=days_ago)).isoformat()}
     for side, conversions in (("before", before_conversions), ("after", after_conversions)):
         row.update({f"{side}_impressions": 30000, f"{side}_clicks": 600,
                     f"{side}_conversions": conversions, f"{side}_spend": 30.0,
@@ -428,10 +430,10 @@ def test_the_investigation_report_is_per_slice_and_never_adopts_synthetic():
         assert cell.mean_list_usd == pytest.approx(2e-6) and cell.fallbacks == {}
     decision = ir.decide(report)
     assert decision.adopt is False and decision.reasons and decision.missing_evidence
-    # 現行規則實測:暫停格有投放就提案(誤提案),沒價值格判值得加
+    # 程式規則(Phase 14 起是九條,拿案例存的四查詢判):跟標準答案同源,逐格全對只證接線一致,
+    # 不是品質證據(原「暫停格誤提案、近期調整格全錯」是舊「只看投放」規則的實測,已撤)
     rule = {c.cell: c for c in report.rule_cells}
-    assert rule[ic.Cell.PAUSED].false_proposals == 4
-    assert rule[ic.Cell.RECENT_BUDGET_CHANGE].class_correct == 0
+    assert all(c.class_correct == c.n and c.false_proposals == 0 for c in rule.values())
     # 退回原因分布:有一件選項外答案、一件逾時
     first = [c for c in cases if c.cell is ic.Cell.PAUSED and not c.injected]
     mixed = Scripted("不是 JSON", core.ModelTimeout("slow"), conclude("do_not_propose"))
@@ -475,15 +477,14 @@ def test_the_investigation_evaluation_never_validates_a_slice(monkeypatch):
 
 # ---- [S1146] ----
 def test_the_investigation_eval_runs_the_same_ai_judge(monkeypatch):  # noqa: PLR0915 - 逐項
-    """[S1146] 評估執行器呼叫增量 2 的同一支 AI 決策函式,只把查詢來源換成案例裡存的結果、
-    續租回呼換成永遠成功、先前各輪紀錄放在記憶體;輪數上限、選項驗證、證據核對與退回跟正式
-    路徑相同。"""
+    """[S1146](Phase 14 增量 3 改寫、保留評估用)評估執行器直接呼叫 AI 決策函式(`ai_judge.Judge`),
+    只把查詢來源換成案例裡存的結果、先前各輪紀錄放在記憶體;沒有流程層、任務庫或 A/B/C 規則輪。輪數
+    上限、選項驗證、證據核對與退回都在 Judge 裡;退回時取案例的九條結果 `rule_verdict(case)`。"""
     calls = []
     real = ai_judge.Judge.__call__
 
     def spy(self, task, evidence, now, context):
         calls.append((len(context.rounds), [e.kind for e in evidence]))
-        context.renew()  # 永遠成功:不丟 RenewalSkipped
         return real(self, task, evidence, now, context)
 
     monkeypatch.setattr(ai_judge.Judge, "__call__", spy)
@@ -508,6 +509,7 @@ def test_the_investigation_eval_runs_the_same_ai_judge(monkeypatch):  # noqa: PL
     capped = ie.run_case(case, greedy)
     assert capped.fallback == "off_menu" and len(greedy.sent) == 3
     assert "這一輪允許的選項:propose,do_not_propose,stop_insufficient" in greedy.sent[2][1]
+    # 退回:評估從案例取四查詢跑同一支正式規則(九條),不開規則輪
     assert capped.final is ie.rule_verdict(case)
     # 證據核對:引用的值跟收據對不上 → 選項外答案
     wrong = json.dumps({"choice": "propose", "reason": "x", "evidence": [
@@ -852,9 +854,15 @@ def test_the_answer_key_boundaries_match_the_receipts():
         WorthVerdict.NOT_WORTH
     late = normal_case(ic.Cell.LATE_CONVERSIONS)
     windows = late.results[inv.QueryOption.CHECK_LONGER_WINDOW.value]
+    # 1 天窗有轉換:7 天窗包含 1 天窗,合理的資料 7 天也至少一樣多(Phase 14 代碼審 r1 外家 finder-1:
+    # 原本這裡用「1 天 2、7 天 0」這組自相矛盾的數字,九條現在判它不合格、證據不足)
     day_only = {"1d": {**windows["1d"], "conversions": 2},
-                "7d": {**windows["7d"], "conversions": 0}}
+                "7d": {**windows["7d"], "conversions": 2}}
     assert ic.answer(with_results(late, CHECK_LONGER_WINDOW=day_only)) is ic.Cell.LATE_CONVERSIONS
+    contradictory = {"1d": {**windows["1d"], "conversions": 2},
+                     "7d": {**windows["7d"], "conversions": 0}}
+    assert ic.gold(with_results(late, CHECK_LONGER_WINDOW=contradictory)) is \
+        WorthVerdict.INSUFFICIENT
 
 
 def test_exempt_limits_still_check_failure_rates_and_the_batch_check_counts_ledger_busy(tmp_path):
@@ -955,7 +963,9 @@ def test_stored_query_results_pass_the_read_layer_checks():
         assert daily is not None
         assert dsp_client._daily_matches(daily["rows"], windows["1d"], windows["7d"])
         assert dsp_client.check_adjustments(results["check_past_adjustments"], campaign) is not None
-        assert dsp_client.check_history(results["check_change_history"]) is not None
+        # 評估案例存的是收據要讀的形狀;正式讀取另帶頂層廣告編號(代碼審 r2 架構對齊-1)
+        assert dsp_client.check_history({"campaign_id": "c", **results["check_change_history"]},
+                                        "c") is not None
 
 
 # ---- 代碼審 r2(2026-09-25)----

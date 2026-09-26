@@ -7,13 +7,19 @@
 常數),Phase 11B [S918] 的名單有列它。
 
 數字都是暫用值,沒有實測校準(計劃 REVISIT 2026-12-31 看展示紀錄裡開 AI 的情境實際耗時)。
+
+Phase 14 增量 3(計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3):AI 退出分析端決策,
+AI 那一步的最壞耗時、帶 --ai-judge 的停止寬限與展示等模式行的登入預檢時限三支函式撤除;留規則輪共用
+常數([S1405] [S1419])與模型後端、花費帳、說明/假說入口仍用的常數。
 """
 
 from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS
 
-CALLS_PER_STEP = 2  # 沒開 AI 時一步最多兩次讀 DSP(廣告現況、成效指標)或一次送件([S1001])
+# 基本那一步兩次讀 DSP(廣告現況、成效指標)或一次送件([S1001]);規則輪各步另見
+# RULE_STEP_READS([S1405])
+CALLS_PER_STEP = 2
 DEFAULT_TIMEOUT_SECONDS = 3.0  # 分析端驅動命令列的 DSP 與收件口逾時預設值(展示用)
-MODEL_TIMEOUT_SECONDS = 15.0  # AI 那一步的模型逾時(第 1 版 25、第 1 輪 20,改小是為了吃下續租等鎖)
+MODEL_TIMEOUT_SECONDS = 15.0  # AI 調查(評估)一次模型呼叫的逾時(第 1 版 25、第 1 輪 20)
 GROUP_EXIT_WAIT_SECONDS = 5.0  # 模型後端每次等 claude 行程群組結束的秒數(一次呼叫最多等兩次)
 GROUP_EXIT_WAITS = 2
 SETTLE_ATTEMPTS = 3  # 花費帳結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤
@@ -24,29 +30,27 @@ LOGIN_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"  # noqa: S105 - 變數名,不是權�
 LOGIN_CHECK_TIMEOUT_SECONDS = 10.0  # 模型後端的登入狀態檢查(啟動時的預檢也是這一次)
 
 
+# 正式規則的規則輪(Phase 14 增量 2b,[S1405]):每一步讀幾次 DSP。A 讀現況與 1 小時指標;B
+# 讀操作歷史與過去
+# 調整;C 讀逐日、1 天、7 天,並重讀現況與 1 小時指標。分析端驅動的租約守衛、規則輪的讀取、
+# 展示啟動器的
+# 停止寬限共用這一份([S1419])
+RULE_STEP_READS: dict[str, int] = {"A": 2, "B": 2, "C": 5}
+
+
 def collect_step_worst_seconds(dsp_timeout_seconds: float, reads: int) -> float:
-    """開 AI 時蒐集證據那一步的最壞耗時,逐項加總:取租約等鎖、每次讀取的 DSP 逾時加呼叫紀錄等鎖、
-    提交等鎖。"""
+    """蒐集證據那一步的最壞耗時(Phase 13 定的算式,規則輪各步沿用),逐項加總:取租約等鎖、
+    每次讀取的 DSP 逾時加呼叫紀錄等鎖、提交等鎖。"""
     return (BUSY_TIMEOUT_SECONDS + reads * (dsp_timeout_seconds + BUSY_TIMEOUT_SECONDS)
             + BUSY_TIMEOUT_SECONDS)
 
 
-def ai_step_worst_seconds() -> float:
-    """AI 那一步從續租拿到鎖、讀時鐘之後算起的最壞耗時:模型逾時、兩次等行程群組、花費帳預留一次加
-    結算最多三次的等鎖、送出前記一次模型呼叫的等鎖(Phase 13 代碼審 r3 補)、提交等鎖
-    (15 + 10 + 20 + 5 + 5 = 55,仍小於租約 60)。續租自己的等鎖在讀時鐘之前,不佔新租約。"""
-    ledger_waits = (LEDGER_RESERVATIONS + SETTLE_ATTEMPTS) * BUSY_TIMEOUT_SECONDS
-    return (MODEL_TIMEOUT_SECONDS + GROUP_EXIT_WAITS * GROUP_EXIT_WAIT_SECONDS + ledger_waits
-            + BUSY_TIMEOUT_SECONDS + BUSY_TIMEOUT_SECONDS)
+def rule_step_worst_seconds(dsp_timeout_seconds: float) -> dict[str, float]:
+    """規則輪每一步的最壞耗時(同蒐證那一步的逐項加總):預設逾時 3 秒時 A=26、B=26、C=50 秒。"""
+    return {step: collect_step_worst_seconds(dsp_timeout_seconds, reads)
+            for step, reads in RULE_STEP_READS.items()}
 
 
-def ai_stop_grace_seconds() -> float:
-    """帶 --ai-judge 的分析端收到停止後最多還要多久:停止可能在續租等鎖時送到,從那一刻算起是續租
-    等鎖加上續租後的最壞耗時(5 + 55 = 60)。"""
-    return BUSY_TIMEOUT_SECONDS + ai_step_worst_seconds()
-
-
-def preflight_worst_seconds() -> float:
-    """開 AI 的分析端印出就緒之後、做完登入預檢印模式行之前最壞要多久:登入檢查逾時加兩次等行程群組
-    (10 + 10 = 20;Phase 13 增量 4 代碼審 r1 l4:展示驅動等模式行的時限從這裡取)。"""
-    return LOGIN_CHECK_TIMEOUT_SECONDS + GROUP_EXIT_WAITS * GROUP_EXIT_WAIT_SECONDS
+def rule_stop_grace_seconds(dsp_timeout_seconds: float) -> float:
+    """分析端收到停止後最多還要多久:規則輪最長那一步的最壞耗時(預設 50 秒,[S1419])。"""
+    return max(rule_step_worst_seconds(dsp_timeout_seconds).values())

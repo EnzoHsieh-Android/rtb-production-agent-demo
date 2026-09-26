@@ -1,5 +1,8 @@
 """Phase 13 增量 2 代碼審 r2 的修正(governance/review-reports/code-phase13-inc2/r2-*):每一條一支現場
-成立、修之前會紅的測試。用假模型與假 DSP,不碰真模型。"""
+成立、修之前會紅的測試。用假模型與假 DSP,不碰真模型。
+
+Phase 14 增量 3:流程層 AI 那一步(停止、呼叫記次落地、提交忙碌重付)撤除,那幾支刪除;Judge 解析與
+收據相關的改成評估的呼叫方式(直接呼叫 Judge)。"""
 
 import json
 from datetime import UTC, datetime, timedelta
@@ -8,7 +11,7 @@ import pytest
 
 from rtb.analyzer import ai_judge, dsp_client, flow, instrumented
 from rtb.analyzer import investigation as inv
-from rtb.analyzer.task_store import InvestigationRecord, TaskRow, TaskStore
+from rtb.analyzer.task_store import TaskRow, TaskStore
 from rtb.domain import metrics as m
 from rtb.domain.evidence import quoted_untrusted
 from rtb.domain.task_state import TaskState
@@ -18,43 +21,26 @@ from tests.analyzer.test_ai_judge import (
     TASK,
     Calls,
     Model,
-    Renew,
     base_evidence,
     reply,
 )
 from tests.analyzer.test_investigation_reads import scripted  # noqa: F401 - 假 DSP 夾具
-from tests.analyzer.test_investigation_review import DAILY_ROW, _BusyCommits, _daily
+from tests.analyzer.test_investigation_review import DAILY_ROW, _daily, at_rule_step_c
 
 LATER = NOW + timedelta(seconds=40)
 
 
-def _to_analyzing(store):
-    store.create_task("t1", "c1", NOW)
-    flow.advance(store, "t1", Counting(), Counting(), Counting(), NOW)
-    flow.advance(store, "t1", Counting(returns=base_evidence()), Counting(), Counting(), NOW)
-    assert store.latest("t1").state is TaskState.ANALYZING
-
-
-def _ai(store, judge, at=NOW):
-    return flow.advance(store, "t1", Counting(), Counting(), Counting(), at, owner="w1",
-                        ai_decide=judge, clock=lambda: LATER)
-
-
 # ---- x1/y2/v1:寫不進資料庫的模型字串一律是選項外答案 ----
-@pytest.mark.parametrize("reason", ["\ud800 理由", "私用", "未指定\U000e0080x", "\udfff"])
-def test_a_reason_that_cannot_be_stored_is_off_menu_on_the_first_call(tmp_path, reason):
-    store = TaskStore(tmp_path / "a.db")
-    try:
-        _to_analyzing(store)
-        model = Model(json.dumps({"choice": "do_not_propose", "reason": reason,
-                                  "evidence": [{"ref": "base", "field": "conversions",
-                                                "value": "1"}]}))
-        assert _ai(store, ai_judge.Judge(model)) is TaskState.PROPOSED  # 退回規則:有價值格提案
-        assert len(model.sent) == 1
-        [(_seq, record)] = store.investigation_rounds("t1")
-        assert (record.kind, record.fallback) == ("fallback", "off_menu")
-    finally:
-        store.close()
+@pytest.mark.parametrize("reason", ["\ud800 理由", "私用\ue000", "未指定\U000e0080x", "\udfff"])
+def test_a_reason_that_cannot_be_stored_is_off_menu_on_the_first_call(reason):
+    model = Model(json.dumps({"choice": "do_not_propose", "reason": reason,
+                              "evidence": [{"ref": "base", "field": "conversions",
+                                            "value": "1"}]}))
+    outcome = ai_judge.Judge(model)(TASK, base_evidence(), NOW, inv.AiContext((), Calls()))
+    assert len(model.sent) == 1
+    assert (outcome.record.kind, outcome.record.fallback, outcome.record.choice) == (
+        "fallback", "off_menu", ai_judge.RULE_ROUND)
+    assert outcome.result == flow.RuleContinue()  # 退回:評估改取案例的九條結果
 
 
 # ---- y1:收據的加總與平均精確算,不經浮點 ----
@@ -79,11 +65,8 @@ def test_huge_json_integers_in_the_daily_rows_never_stall_the_evidence_step(scri
         tasks = TaskStore(Path(folder) / "a.db")
         try:
             now = datetime.now(UTC)
-            tasks.create_task("t1", "c1", now)
-            tasks.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, now,
-                              investigation=InvestigationRecord("query", 1, "check_daily_trend",
-                                                                "ai"))
-            source = instrumented.investigation_source(
+            at_rule_step_c(tasks, now)
+            source = instrumented.rule_source(
                 tasks, f"http://127.0.0.1:{scripted.server_address[1]}", 2.0)
             assert flow.advance(tasks, "t1", source, Counting(), Counting(), now) \
                 is TaskState.ANALYZING
@@ -174,74 +157,11 @@ def test_a_one_day_window_larger_than_the_seven_day_window_is_invalid():
     assert payload["d1_click_rate"] == "na" and payload["d7_click_rate"] == "30.0"
 
 
-# ---- v3:呼叫次數在確定要呼叫模型的那一刻才記 ----
-def test_stops_before_the_call_do_not_use_up_the_model_calls(tmp_path, monkeypatch):
-    store = TaskStore(tmp_path / "a.db")
-    try:
-        _to_analyzing(store)
-        stop = {"set": False}
-        real = inv.prompt
-        stops = {"left": 3}
-
-        def building(*args, **kwargs):
-            text = real(*args, **kwargs)
-            if stops["left"] > 0:
-                stops["left"] -= 1
-                stop["set"] = True
-            return text
-
-        monkeypatch.setattr(inv, "prompt", building)
-        model = Model(reply(["check_daily_trend"]))
-        judge = ai_judge.Judge(model, stop_requested=lambda: stop["set"])
-        for index in range(4):
-            stop["set"] = False
-            _ai(store, judge, NOW + timedelta(seconds=index))
-        assert len(model.sent) == 1  # 前三次都在呼叫前停下,第四次照常問模型
-        assert store.investigation_call_count("t1") == 1
-        [(_seq, record)] = store.investigation_rounds("t1")
-        assert record.kind == "query"
-    finally:
-        store.close()
-
-
-def test_repaying_after_busy_commits_is_still_capped(tmp_path):
-    _BusyCommits.failures = 5
-    store = _BusyCommits(tmp_path / "a.db")
-    try:
-        _to_analyzing(store)
-        model = Model(reply(["check_daily_trend"]))
-        judge = ai_judge.Judge(model)
-        for index in range(12):
-            if store.latest("t1").state is not TaskState.ANALYZING:
-                break
-            try:
-                _ai(store, judge, NOW + timedelta(seconds=index))
-            except Exception:  # noqa: S112 - 提交忙碌:下一輪再推
-                continue
-        assert len(model.sent) <= inv.MAX_ROUNDS
-        assert store.investigation_call_count("t1") == len(model.sent)
-    finally:
-        store.close()
-
-
-def test_a_call_that_cannot_be_recorded_is_not_made(tmp_path, monkeypatch):
-    store = TaskStore(tmp_path / "a.db")
-    try:
-        _to_analyzing(store)
-        monkeypatch.setattr(store, "record_model_call", lambda *_a: None)
-        model = Model(reply("propose", evidence=CITE_BASE))
-        assert _ai(store, ai_judge.Judge(model)) is TaskState.ANALYZING
-        assert model.sent == []
-        assert store.investigation_rounds("t1") == ()
-    finally:
-        store.close()
-
-
 # ---- v4:補殺存活變異 ----
 def test_the_last_allowed_call_still_asks_the_model():
     model = Model(reply("propose", evidence=CITE_BASE))
     outcome = ai_judge.Judge(model)(TASK, base_evidence(), NOW,
-                                    flow.AiContext(Renew(), (), Calls(start=inv.MAX_ROUNDS - 1)))
+                                    inv.AiContext((), Calls(start=inv.MAX_ROUNDS - 1)))
     assert len(model.sent) == 1 and outcome.record.kind == "conclusion"
 
 
@@ -266,13 +186,12 @@ def test_an_invalid_receipt_archives_no_raw_response(monkeypatch, scripted, tmp_
     tasks = TaskStore(tmp_path / "a.db")
     try:
         now = datetime.now(UTC)
-        tasks.create_task("t1", "c1", now)
-        source = instrumented.investigation_source(
+        at_rule_step_c(tasks, now)
+        source = instrumented.rule_source(
             tasks, f"http://127.0.0.1:{scripted.server_address[1]}", 2.0)
-        tasks.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, now,
-                          investigation=InvestigationRecord("query", 1, "check_daily_trend", "ai"))
         batch = source(tasks.latest("t1"), now)
-        assert batch.raw == ()
+        assert batch.rule_step is not None and batch.rule_step.step == "C"
+        assert "check_daily_trend" not in {raw.option for raw in batch.raw}
         receipts = inv.query_receipts(batch.evidence)
         assert receipts[inv.QueryOption.CHECK_DAILY_TREND]["reason"] == "invalid"
     finally:
@@ -314,14 +233,3 @@ def test_a_segment_with_more_conversions_than_clicks_still_has_a_conversion_rate
     assert payload["conversion_rate_change"] == "2400.0"  # 瀏覽後轉換合法,照算
 
 
-def test_a_model_call_is_not_recorded_by_a_worker_that_lost_its_lease(tmp_path):
-    store = TaskStore(tmp_path / "a.db")
-    try:
-        store.create_task("t1", "c1", NOW)
-        lease = store.acquire_lease("t1", "w1", NOW)
-        assert store.record_model_call(lease, lambda: NOW, inv.MAX_ROUNDS) == 1
-        store.release_lease(lease, NOW)
-        assert store.record_model_call(lease, lambda: NOW, inv.MAX_ROUNDS) is None
-        assert store.investigation_call_count("t1") == 1
-    finally:
-        store.close()

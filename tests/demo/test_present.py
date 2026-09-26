@@ -2,17 +2,17 @@
 
 import itertools
 import os
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from rtb.demo.driver import Driver
+from rtb.demo.driver import RULE_THREE_LABEL, Driver
 from rtb.demo.flow import FLOW_GRAPH
 from rtb.demo.keys import DemoKeys
 from rtb.demo.page import render_page
 from rtb.demo.present import (
     MODEL_MODE_REASON,
-    NOTHING_RECORDED,
     build_demo_state,
     numbers_digest,
 )
@@ -30,13 +30,14 @@ EDGES = {(e.source, e.target) for e in FLOW_GRAPH.edges}
 @pytest.fixture
 def ran(tmp_path):
     """真的跑 F2(猝死重啟)與 F4(舊工作擋下、開新工作:路徑會斷開成兩段)。錄製目錄明給一個空目錄:
-    這幾支驗的是 AI 沒給回答、改由程式規則的畫法,不跟著入庫的展示批次(2026-09-25 入庫)變。"""
+    說明入口沒有錄製就照實記結果類別,不跟著入庫的展示批次變。"""
     writer = StateWriter(tmp_path / "state.db", "demo-1")
     (tmp_path / "no-recordings").mkdir()
     demo = Driver(tmp_path / "demos", "demo-1", DemoKeys.generate(), writer, user_env=os.environ,
                   recordings_dir=tmp_path / "no-recordings")
     for code in ("F2", "F4"):
-        assert demo.run_one(code).status == "done"
+        verdict = demo.run_one(code)
+        assert verdict.status == "done", (code, verdict.reason)
     writer.record_verifier_run(VerifierRun(
         "demo-1", datetime.now(UTC), True,
         ("宣稱驗證器", "驗證器 sha256:abc123", "提交編號:deadbeef", "通過:5 條宣稱"), ()))
@@ -58,8 +59,8 @@ def test_a_real_run_becomes_a_page_that_renders(ran):
     markup = render_page(state, form_token="form-value", refresh_tick=1,  # noqa: S106 - 測試值
                          selected=ScenarioCode.F2)
     assert "寫進平台後執行端當場倒下" in markup
-    # F4 的路徑斷成兩段(舊工作擋下、新工作寫入):照樣畫得出來
-    assert "220" in render_page(state, form_token="form-value", refresh_tick=2,  # noqa: S106
+    # F4 的路徑斷成兩段(舊工作擋下、新工作照規則第 3 條不調整):照樣畫得出來
+    assert RULE_THREE_LABEL in render_page(state, form_token="form-value", refresh_tick=2,  # noqa: S106
                                 selected=ScenarioCode.F4)
     by_code = {s.code: s for s in state.scenarios}
     assert by_code[ScenarioCode.F2].status is ScenarioStatus.DONE
@@ -77,20 +78,19 @@ def test_paths_use_only_real_edges_and_may_break_off(ran):
 
 
 def test_the_analysis_checks_are_filled_in_from_the_recomputed_basis(ran):
-    """[協調者裁定 2] 分析端的中間判斷點用重算補上,每一筆標重算。Phase 13 增量 4:分析那一步開了 AI
-    決策,這次沒有錄製,AI 那一步寫「這次改由程式規則決定」,之後照程式規則判
-    (不再畫「交給誰判斷」)。"""
+    """[協調者裁定 2] 分析端的中間判斷點用重算補上,每一筆標重算。Phase 14 增量 3:分析端不經 AI,
+    照「花得慢 → 交給程式規則 → 值得加嗎」補(交給誰判斷那一步是固定說明,不是重算)。"""
     tmp_path, _ = ran
     f2 = next(s for s in _state(tmp_path).scenarios if s.code is ScenarioCode.F2)
     filled = {d.node: d for d in f2.path if d.node in {
-        "a_fresh", "a_complete", "a_pacing", "a_rule", "a_worth"}}
-    assert set(filled) == {"a_fresh", "a_complete", "a_pacing", "a_rule", "a_worth"}
-    assert all(b.source == "依存下的證據重算" for d in filled.values() for b in d.basis)
-    assert filled["a_pacing"].taken_edge == ("a_pacing", "a_ai")
-    [fallback] = [d for d in f2.path if d.taken_edge == ("a_ai", "a_rule")]
-    assert "沒有對應的錄製回應" in fallback.outcome
+        "a_fresh", "a_complete", "a_pacing", "a_route", "a_rule", "a_worth"}}
+    assert set(filled) == {"a_fresh", "a_complete", "a_pacing", "a_route", "a_rule", "a_worth"}
+    assert all(b.source == "依存下的證據重算" for n, d in filled.items() if n != "a_route"
+               for b in d.basis)
+    assert filled["a_pacing"].taken_edge == ("a_pacing", "a_route")
+    assert filled["a_route"].taken_edge == ("a_route", "a_rule")
     assert filled["a_rule"].taken_edge == ("a_rule", "a_worth")
-    assert not any(d.node == "a_route" for d in f2.path)
+    assert not any(d.node in {"a_ai", "a_ai_query"} for d in f2.path)
     write_checks = [d for d in f2.path if d.node in {"x_guard", "x_total"}]
     assert [d.taken_edge for d in write_checks] == [("x_guard", "x_total"), ("x_total", "x_write")]
     assert all(b.source == "執行端當下記下" for d in write_checks for b in d.basis)
@@ -107,9 +107,9 @@ def test_scenario_fields_come_from_what_the_driver_recorded(ran):
     # Phase 13 增量 4:說明命令列在錄製模式跑了,沒有錄製就照實記結果類別;沒有告警就沒有假說
     assert f2.model_step is not None and f2.model_step.result_kind == "no_recording"
     assert f2.model_step.narrative is None and f2.hypothesis is None
-    # 沒有任何錄製對上:摘要照實寫(Phase 13 增量 4 代碼審 r1 t4)
+    # 模式照說明入口回報的寫(錄製);沒有對上的錄製由說明卡照實寫結果類別(Phase 14 增量 3)
     assert state.comparison is None
-    assert state.model_mode_reason == f"{MODEL_MODE_REASON};{NOTHING_RECORDED}"
+    assert state.model_mode_reason == MODEL_MODE_REASON
     assert state.verifier_digest == "abc123" and state.commit == "deadbeef"
     assert state.is_sample is False
 
@@ -285,3 +285,32 @@ def test_the_comparison_comes_from_the_same_full_run_as_the_verifier(tmp_path):
     assert shown.comparison.note.startswith("比的是有沒有機械驗證")
     assert "展示編號 full-1" in shown.comparison.note and "12 秒" in shown.comparison.note
     assert running.comparison is None
+
+
+# ---- 增量 3 代碼審 r1 外家finder-2:舊展示紀錄裡 AI 做的決定照實標,不寫成九條規則 ----
+@pytest.mark.parametrize(("stored", "shown"), [
+    ("ai", "AI(已撤除的舊流程)"),
+    ("ai_fallback", "AI 退回程式規則(已撤除的舊流程)"),
+    ("rule", "程式規則(舊版記錄,早於九條)"),
+    (None, "(這次沒有記錄)"),
+    ("nine_rules", "程式規則(九條)"),
+])
+def test_old_records_keep_who_decided(stored, shown):
+    import json
+
+    from rtb.demo import present
+    from rtb.demo.page import _render_decision_hero
+    from rtb.demo.state_store import ScenarioDetails, _details_from, _details_json
+
+    body = json.loads(_details_json(ScenarioDetails(ai_enabled=True)))
+    body.pop("decided_by", None)
+    if stored is not None:
+        body["decided_by"] = stored
+    body["exam"] = "舊考題"  # 撤除的欄位照樣略過
+    details = _details_from(json.dumps(body))
+    scenario = present._scenario(ScenarioCode.F1, None, (), details, "d", None, None)
+    hero = _render_decision_hero(replace(scenario, result_summary="AI 判值得加"))
+    assert shown in hero
+    if stored != "nine_rules":
+        from rtb.demo.page import RULE_DECIDES
+        assert RULE_DECIDES not in hero

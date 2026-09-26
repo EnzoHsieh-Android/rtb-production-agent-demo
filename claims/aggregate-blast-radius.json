@@ -9,11 +9,11 @@
     },
     {
       "path": "src/rtb/analyzer/flow.py",
-      "sha256": "6fcedb5eb47582039484d15393b45e3d744e91af365c63248b4be13ad6544580"
+      "sha256": "0f9d8827e50f35a3942e754aa1ad5170d55c3a20b66984480c1f6e6fffdc8a02"
     },
     {
       "path": "src/rtb/analyzer/task_store.py",
-      "sha256": "ef8751ce13431ca480e6597afeff1d3ffbf84d39cb5392656766d408eab4ce49"
+      "sha256": "9900502a5a9ae1f8a0e6112dc048a3f775a93998fece32fa3dffb84ae34abb6a"
     },
     {
       "path": "src/rtb/capabilitykit.py",
@@ -37,7 +37,7 @@
     },
     {
       "path": "src/rtb/demo/launcher/__init__.py",
-      "sha256": "c387254e85f9018b897f2cfd56cc28dc08e9b33cd7256d855565b558f0f9f51f"
+      "sha256": "e8ae8f88c22467c1e3693b18f5b2e40e292d0f3067e274e2df538c2ef939bfab"
     },
     {
       "path": "src/rtb/domain/_checks.py",
@@ -53,7 +53,7 @@
     },
     {
       "path": "src/rtb/domain/proposal.py",
-      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
+      "sha256": "fb5f2e77710f1aa6893d4acb644e7481d5e1358c8ab0cadef9e2b91a5d995cc4"
     },
     {
       "path": "src/rtb/domain/task_state.py",
@@ -69,7 +69,7 @@
     },
     {
       "path": "src/rtb/dsp/server.py",
-      "sha256": "ab287171b8e46e186bc7b551a0c55f14ec987207690710de9a4b080ef68ca551"
+      "sha256": "a43f5383406d0ee809cc7e4f69b67a387075c628873e38f106ec35d025cb4e4c"
     },
     {
       "path": "src/rtb/dsp/store.py",
@@ -141,13 +141,13 @@
     },
     {
       "path": "src/rtb/stepbudget.py",
-      "sha256": "346ca606356525e90f86601caab77b18806b2f35237ac9670b84949812987210"
+      "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
     }
   ],
   "harness": [
     {
       "path": "pyproject.toml",
-      "sha256": "9112a805811eba5df43772c0ba94374973d0ab59aa32404f98c6c8391b722d9b"
+      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
     },
     {
       "path": "tests/__init__.py",

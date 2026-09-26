@@ -3,7 +3,6 @@
 
 import base64
 import hashlib
-from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -291,7 +290,6 @@ _STATUS_ICON: Final = {
 # Phase 13 增量 4 的標示(計劃〈展示頁怎麼顯示〉):模型文字一律標這一句(合約 [S1121] [S1027] 的字面;
 # 代使用者裁定 2026-09-25 依 Phase 12 白話規則把「模型」寫成 AI)
 MODEL_LABEL: Final = "AI 產生、僅供參考"
-CITED_LABEL: Final = "AI 引用的收據值(已核對存在)"
 
 
 
@@ -799,8 +797,7 @@ def _render_focus(
         '<section class="result-overview" aria-label="處理結果概述">'
         '<h3>處理結果概述</h3>'
         f"{_render_decision_hero(scenario)}"
-        f"{_render_ai_outcome(scenario)}"
-        f"{_render_ai_rounds(scenario)}"
+        f"{_render_outcome_note(scenario)}"
         f"{_render_change_summary(scenario.change_summary, scenario.change_overview)}"
         f"{_render_result_evidence(scenario)}"
         '</section><details class="report-disclosure"><summary>其餘明細</summary>'
@@ -899,136 +896,29 @@ def _render_operation_details(scenario: Scenario) -> str:
 
 
 def _render_decision_hero(scenario: Scenario) -> str:
-    """頁首只彙總已有的選擇；多件工作逐種計數，不以一件代表全部。"""
-    who = (scenario.decided_by.value.replace("(展示模式)", "")
-           if scenario.decided_by else "(這次沒有記錄)")
-    choices: dict[str, int] = {}
-    for decision in scenario.path:
-        if (decision.kind is DecisionKind.AI_JUDGEMENT or
-                decision.taken_edge == ("a_ai", "a_rule")):
-            choice = decision.outcome
-        else:
-            continue
-        choices[choice] = choices.get(choice, 0) + 1
-    if choices:
-        choice_html = "".join(
-            f'<li>{escape_text(_public_text(choice))}（{count} 筆）</li>'
-            for choice, count in choices.items()
-        )
-    else:
-        choice_html = '<li>這次沒有 AI 判斷紀錄</li>'
-    # 「AI 判不提案,故障處理這次沒有走到」已在結果摘要裡(提案緊接括號解釋),不再另寫一次
-    # (增量 4 代碼審 r2 v1)
+    """頁首決策摘要(Phase 14 增量 3):要不要加預算一律由程式照九條規則決定,不再有 AI 選下一步或
+    退回的欄位;AI 只出現在提案說明與告警推測兩格。「這次誰決定」照展示紀錄寫,舊紀錄裡 AI 的決定
+    照實標已撤除的舊流程(代碼審 r1 外家finder-2)。"""
     result = scenario.result_summary or _fallback_result(scenario)
+    who = scenario.decided_by or NOT_RECORDED
     return (
         '<section class="decision-hero" aria-label="決策摘要">'
         '<div class="decision-hero__grid">'
         f'<div><span>這次誰決定</span><strong>{escape_text(who)}</strong></div>'
-        f'<div><span>AI 選的下一步／退回原因</span><ul>{choice_html}</ul></div>'
         f'<div><span>這次結果</span><strong>{escape_text(result)}</strong></div>'
         '</div></section>'
     )
 
 
-def _round_takeover(path: tuple[Decision, ...], index: int) -> Decision | None:
-    decision = path[index]
-    target = decision.taken_edge[1] if decision.taken_edge else None
-    if target is None:
-        return None
-    for later in path[index + 1:]:
-        if later.task_id != decision.task_id:
-            continue
-        if later.kind is DecisionKind.AI_JUDGEMENT or later.taken_edge == ("a_ai", "a_rule"):
-            break
-        if later.kind is DecisionKind.PROGRESS and later.node == target:
-            return later
-    return None
-
-
-def _round_rule_followup(path: tuple[Decision, ...], index: int) -> tuple[Decision, ...]:
-    task = path[index].task_id
-    following: list[Decision] = []
-    for later in path[index + 1:]:
-        if later.task_id != task:
-            continue
-        if later.kind is DecisionKind.AI_JUDGEMENT or later.taken_edge == ("a_ai", "a_rule"):
-            break
-        if not later.node.startswith("a_"):
-            break
-        if later.kind is DecisionKind.JUDGEMENT:
-            following.append(later)
-    return tuple(following)
-
-
-def _render_ai_rounds(scenario: Scenario) -> str:
-    """依工作與原始順序配對 AI、退回及接手；相同內容合併並標筆數。"""
-    groups: dict[tuple[int, Decision, Decision | None, tuple[Decision, ...]], list[str]] = {}
-    round_by_task: dict[str, int] = {}
-    for index, decision in enumerate(scenario.path):
-        fallback = decision.taken_edge == ("a_ai", "a_rule")
-        if decision.kind is not DecisionKind.AI_JUDGEMENT and not fallback:
-            continue
-        takeover = None if fallback else _round_takeover(scenario.path, index)
-        followup = _round_rule_followup(scenario.path, index) if fallback else ()
-        task = decision.task_id or "工作編號未記錄"
-        round_by_task[task] = round_by_task.get(task, 0) + 1
-        # 時間與工作編號不影響內容相同與否;證據、選擇與接手不同就分開顯示。
-        key = (round_by_task[task], replace(decision, task_id=None, at=None, operation_key=None),
-               replace(takeover, task_id=None, at=None, operation_key=None)
-               if takeover is not None else None,
-               tuple(replace(item, task_id=None, at=None, operation_key=None)
-                     for item in followup))
-        groups.setdefault(key, []).append(task)
-    if not groups:
-        return ""
-    cards = []
-    for (number, decision, takeover, followup), tasks in groups.items():
-        fallback = decision.kind is not DecisionKind.AI_JUDGEMENT
-        task_label = (f"工作 {tasks[0]}" if len(tasks) == 1
-                      else f"共 {len(tasks)} 筆工作")
-        if fallback:
-            reason = (f'<p class="ai-round-card__fallback">'
-                      f'{escape_text(_public_text(decision.outcome))}</p>')
-            rules = "".join(
-                f'<li>{escape_text(_public_text(_rule_followup_text(item)))}</li>'
-                for item in followup
-            )
-            body = (f'{reason}<div class="ai-round-card__rules">'
-                    '<strong>程式規則接手後的判斷</strong>'
-                    f'<ul>{rules or "<li>沒有留下後續判斷紀錄</li>"}</ul></div>')
-        else:
-            takeover_text = ("沒有留下接手紀錄" if takeover is None else
-                             "；".join(item.observed for item in takeover.basis) or
-                             takeover.outcome)
-            body = (_ai_basis(decision, fields_class="ai-round-card__fields") +
-                    f'<div class="ai-round-card__takeover"><strong>程式接手</strong>'
-                    f'<p>{escape_text(_public_text(takeover_text))}</p></div>')
-        card_class = "ai-round-card is-fallback" if fallback else "ai-round-card"
-        cards.append(
-            f'<article class="{card_class}"><h4>第 {number} 輪／{escape_text(task_label)}</h4>'
-            f'{body}</article>'
-        )
-    return ('<section class="ai-rounds" aria-label="AI 逐輪判斷">'
-            '<h3>AI 逐輪判斷</h3><div class="ai-rounds__list">'
-            f'{"".join(cards)}</div></section>')
-
-
-def _rule_followup_text(decision: Decision) -> str:
-    outcome = ("值得加預算" if decision.node == "a_worth" and decision.outcome == "值得"
-               else decision.outcome)
-    evidence = "；".join(
-        f"量到的值：{item.observed}；標準：{item.standard}；比較結果：{item.conclusion}"
-        for item in decision.basis
-    )
-    return f"程式規則接手後判定：{outcome}" + (f"（{evidence}）" if evidence else "")
+RULE_DECIDES: Final = "程式規則(九條)"  # 驅動寫 nine_rules 時顯示的字(present.DECIDED_BY_TEXT)
+NOT_RECORDED: Final = "(這次沒有記錄)"
 
 
 def _public_text(value: str) -> str:
-    """只把內部的缺錄原因與考題前綴換成讀者看到的白話。"""
+    """只把內部的缺錄原因換成讀者看到的白話。"""
     shown = (value.replace("沒有對應的錄製回應", "AI 這次沒有給出回答")
              .replace("(展示模式,未通過採用門檻)", "")
-             .replace("(展示模式)", "")
-             .replace("錄製當時的 AI 回答:", "AI 的回答："))
+             .replace("(展示模式)", ""))
     for source in ("錄製回應", "即時呼叫", "來源沒有記下"):
         shown = shown.replace(f"理由({MODEL_LABEL},{source}):", f"理由({MODEL_LABEL}):")
     return shown
@@ -1067,7 +957,6 @@ def _flow_node_details(scenario: Scenario, flow: FlowGraph) -> dict[str, str]:
             '<ol class="decision-trail">'
             f'{_decision_card(decision, index, len(shown), nodes, flow, count)}'
             '</ol>'
-            f'{_ai_cell_followup(scenario.path, position, decision)}'
             '</li>'
             for index, ((position, decision, count), label) in enumerate(
                 zip(shown, labels, strict=True), start=1)
@@ -1081,48 +970,20 @@ def _flow_node_details(scenario: Scenario, flow: FlowGraph) -> dict[str, str]:
 
 
 def _occurrence_label(decision: Decision, index: int, count: int, task_round: int) -> str:
-    """同一格走過好幾次:帶工作編號、按每件工作各自數(AI 那格數「輪」,跟 AI 逐輪卡一致;增量 4 代碼審
-    r2 p4);沒記工作編號的舊資料照舊連號。"""
+    """同一格走過好幾次:帶工作編號、按每件工作各自數;沒記工作編號的舊資料照舊連號。"""
     if count > 1:
         return f"共 {count} 筆，結果：{escape_text(_public_text(decision.outcome))}"
     if decision.task_id is None:
         return f"第 {index} 次"
-    unit = ("輪" if decision.kind is DecisionKind.AI_JUDGEMENT
-            or decision.taken_edge == ("a_ai", "a_rule") else "次")
-    return f"工作 {escape_text(decision.task_id)} 第 {task_round} {unit}"
+    return f"工作 {escape_text(decision.task_id)} 第 {task_round} 次"
 
 
-def _ai_cell_followup(path: tuple[Decision, ...], position: int, decision: Decision) -> str:
-    if decision.kind is DecisionKind.AI_JUDGEMENT:
-        takeover = _round_takeover(path, position)
-        if takeover is None:
-            return '<p>程式接手：沒有留下接手紀錄</p>'
-        summary = "；".join(item.observed for item in takeover.basis) or takeover.outcome
-        return f'<p>程式接手：{escape_text(summary)}</p>'
-    if decision.taken_edge == ("a_ai", "a_rule"):
-        rules = _round_rule_followup(path, position)
-        return "".join(
-            f'<p>{escape_text(_public_text(_rule_followup_text(item)))}</p>'
-            for item in rules
-        )
-    return ""
-
-
-def _render_ai_outcome(scenario: Scenario) -> str:
-    """結局的標示([S1144] [S1168])與 F5 的模型考題([S1124]):各自另列一行,不混進情境結果。"""
-    lines = []
-    if scenario.outcome_note:
-        note = escape_text(_public_text(scenario.outcome_note))
-        lines.append(f'<p class="ai-outcome">{note}</p>')
-    if scenario.exam:
-        if "考題沒通過" in scenario.exam:
-            label = ("<strong>模型考題沒通過</strong>"
-                     "（AI 回答的考題未過，與情境是否完成分開看）")
-        else:
-            label = "<strong>模型（AI）考題：</strong>"
-        lines.append(f'<p class="exam-verdict ai-exam">{label}'
-                     f"<span>{escape_text(_public_text(scenario.exam))}</span></p>")
-    return "".join(lines)
+def _render_outcome_note(scenario: Scenario) -> str:
+    """結局的標示(例如 F4/F6 接續任務規則第 3 條,[S1409]):另列一行,不混進情境結果。Phase 13 的
+    F5 模型考題隨增量 3 撤除。"""
+    if not scenario.outcome_note:
+        return ""
+    return f'<p class="ai-outcome">{escape_text(_public_text(scenario.outcome_note))}</p>'
 
 
 def _render_ai_node_card(scenario: Scenario) -> str:
@@ -1207,18 +1068,11 @@ def _decision_card(
         if decision.operation_key else ""
     )
     progress = decision.kind is DecisionKind.PROGRESS
-    if decision.kind is DecisionKind.AI_JUDGEMENT:
-        basis_block = _ai_basis(decision)
-    elif progress and decision.basis and decision.node in _TAKEOVER_NODES:
-        # 程式接手 AI 的選擇(Phase 13):照樣列出做了什麼
-        basis_block = f'<div class="decision-basis"><strong>程式接手</strong><ul>{basis}</ul></div>'
-    else:
-        basis_block = (  # 狀態往前走不是判斷,不列根據欄,免得看起來像缺資料
-            '<p class="decision-kind">狀態前進</p>' if progress
-            else f'<div class="decision-basis"><strong>根據</strong><ul>{basis}</ul></div>'
-        )
-    kind_class = (" is-progress" if progress
-                  else " is-ai" if decision.kind is DecisionKind.AI_JUDGEMENT else "")
+    basis_block = (  # 狀態往前走不是判斷,不列根據欄,免得看起來像缺資料
+        '<p class="decision-kind">狀態前進</p>' if progress
+        else f'<div class="decision-basis"><strong>根據</strong><ul>{basis}</ul></div>'
+    )
+    kind_class = " is-progress" if progress else ""
     return (
         f'<li class="decision-card{latest}{kind_class}">'
         f'<div class="decision-number">{index:02d}</div>'
@@ -1228,38 +1082,6 @@ def _decision_card(
         f'{basis_block}'
         f'{operation}'
         f"<time>{escape_text(at)}</time></div></li>"
-    )
-
-
-# 程式接手 AI 選擇的那幾步(照查詢去讀、照公式算金額、照結論結案、只判不送):狀態前進,但列出做了什麼
-_TAKEOVER_NODES: Final = frozenset({"a_ai_query", "a_propose", "a_no_action", "a_exam_hold"})
-
-
-# AI 那一輪的標準欄本身以這串字開頭(展示狀態的原文);頁面欄名已經寫了,值就不再重複
-# (增量 4 代碼審 r2 p5)
-_ALLOWED_PREFIX: Final = "這一輪允許的選項:"
-
-
-def _ai_basis(decision: Decision, *, fields_class: str = "") -> str:
-    """[S1121] AI 判斷那一張:程式整理的證據、這一輪允許的選項、選了什麼與理由(標「AI 產生、僅供
-    參考」,不標來源),以及 AI 引用的收據值(已核對存在)。第一組是 AI 看到與選的,其餘是引用。"""
-    if not decision.basis:
-        return '<div class="decision-basis ai-round"><p>這一輪沒有留下紀錄</p></div>'
-    main, *cited = decision.basis
-    quoted = "".join(
-        f"<dt>{CITED_LABEL}</dt><dd>{escape_text(item.observed)}"
-        f"<small>{escape_text(item.standard)}</small></dd>" for item in cited)
-    return (
-        '<div class="decision-basis ai-round">'
-        f'<p class="model-warning">AI 判斷・{MODEL_LABEL}</p>'
-        f'<dl class="{escape_text(fields_class)}">'
-        "<dt>AI 看到的證據（程式整理的數字）</dt>"
-        f"<dd>{escape_text(_public_text(main.observed))}</dd>"
-        f"<dt>這一輪允許的選項</dt>"
-        f"<dd>{escape_text(_public_text(main.standard.removeprefix(_ALLOWED_PREFIX)))}</dd>"
-        f"<dt>AI 選了什麼、理由（{MODEL_LABEL}）</dt>"
-        f"<dd>{escape_text(_public_text(main.conclusion))}</dd>"
-        f"{quoted}</dl></div>"
     )
 
 

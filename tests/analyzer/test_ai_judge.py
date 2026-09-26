@@ -1,6 +1,11 @@
 """AI 決策函式(Phase 13 增量 2,計劃〈一件工作的一生〉〈固定選項清單〉〈模型回答的格式與驗證〉〈
 退回程式規則〉〈提案與金額〉〈新證據種類與現行規則隔離〉〈送給模型的內容〉):用假的模型呼叫,不碰
-真模型。"""
+真模型。
+
+Phase 14 增量 3(計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3):AI 退出正式與展示
+的加額決策,Judge 只剩評估執行器直接呼叫;這裡只測評估實際走到的提示、收據、解析與退回。原本經分析端
+驅動(--ai-judge)跑的端到端、續租與停止、正式前置過濾、--hold-submit 與 AI 提案否決的測試隨入口刪除
+(逐條去向見 [[Verification/Phase14增量3驗證紀錄]])。"""
 
 import hashlib
 import json
@@ -84,16 +89,6 @@ class Model:
         return core.ModelResult(answer, core.Source.RECORDED, 0, 0, 0, 0, 0, 0, 1.0, "k", "b")
 
 
-class Renew:
-    """假的續租回呼。"""
-
-    def __init__(self):
-        self.calls = 0
-
-    def __call__(self):
-        self.calls += 1
-
-
 class Calls:
     """假的「確定要呼叫模型」記次回呼:回這件工作一生第幾次模型呼叫。"""
 
@@ -107,16 +102,22 @@ class Calls:
         return self.count
 
 
-def run(model, evidence, rounds=(), **kwargs):
-    renew = Renew()
-    judge = ai_judge.Judge(model, **kwargs)
-    outcome = judge(TASK, evidence, NOW, flow.AiContext(renew, tuple(rounds), Calls()))
-    return outcome, renew
+def run(model, evidence, rounds=()):
+    """評估執行器的呼叫方式:直接呼叫 Judge,先前各輪紀錄與記次回呼放在記憶體。回(結果, 模型)。"""
+    judge = ai_judge.Judge(model)
+    outcome = judge(TASK, evidence, NOW, inv.AiContext(tuple(rounds), Calls()))
+    return outcome, model
 
 
 def rule(evidence):
     return policy.explain(TASK, inv.code_rule_evidence(evidence), NOW, candidate=None,
                           allowed=policy.ValidatedCells.NONE)
+
+
+# 退回程式規則的預期結果(Phase 14 增量 2b,增量 3 起只剩評估):這幾支測試用的都是啟用、配速偏低、
+# 資料齊的基本三筆,九條要四查詢才判得到 → RuleContinue(評估改取案例的九條結果)、沒有不提案原因。
+# 寫死,不拿正式程式碼的判準當預言機(代碼審 r1 鏡頭3-1:同一支判準壞了測試也跟著錯,翻不紅)
+OPENS_RULE_ROUND = (flow.RuleContinue(), None)
 
 
 CITE_BASE = (("base", "conversions", "1"),)
@@ -134,13 +135,14 @@ def test_code_prefilters_run_before_any_model_call(evidence):
     。"""
     model = Model(reply("propose", evidence=CITE_BASE))
     old = receipt(inv.QueryOption.CHECK_DAILY_TREND, observed=NOW - timedelta(hours=3))
-    outcome, renew = run(model, (*evidence, old))
-    assert model.sent == [] and renew.calls == 0
+    outcome, _ = run(model, (*evidence, old))
+    assert model.sent == []
     decision, reason = rule(evidence)
     assert (outcome.result, outcome.no_action_reason, outcome.record) == (decision, reason, None)
     # 殺傷力:四道都過的那一批會呼叫模型;那一批加一筆過期收據也照樣呼叫
     passing, _ = run(model, (*base_evidence(), old))
-    assert len(model.sent) == 1 and isinstance(passing.result, flow.ProposalDecision)
+    # AI 答 propose:不建提案,回 RuleContinue 讓評估記原始答案(Phase 14 增量 3)
+    assert len(model.sent) == 1 and passing.result == flow.RuleContinue()
 
 
 # ---- [S1105] ----
@@ -164,8 +166,8 @@ def test_an_answer_outside_the_fixed_options_falls_back_to_the_rule(text):
     回答、改由現行規則決定,這一輪記成選項外答案。"""
     evidence = base_evidence()
     outcome, _ = run(Model(text), evidence)
-    decision, reason = rule(evidence)
-    assert (outcome.result, outcome.no_action_reason) == (decision, reason)
+    assert (outcome.result, outcome.no_action_reason) == OPENS_RULE_ROUND
+    assert outcome.record.choice == ai_judge.RULE_ROUND
     assert outcome.record.kind == "fallback" and outcome.record.fallback == "off_menu"
     assert outcome.record.decided_by == "rule"
     # 殺傷力:合格的同一個答案會被採用
@@ -183,7 +185,7 @@ def test_model_call_failures_fall_back_but_stop_signals_propagate():
     """[S1106] 模型呼叫失敗類別的每個子類別與本地驗證不過都退回現行規則並記原因類別、不轉失敗;停
     止訊號轉成的例外與 KeyboardInterrupt 不接、往外丟。"""
     evidence = base_evidence()
-    decision, reason = rule(evidence)
+    decision, reason = OPENS_RULE_ROUND  # 退回開規則輪,不當場用舊判法
     seen = set()
     for failure in FAILURES:
         outcome, _ = run(Model(failure), evidence)
@@ -198,24 +200,6 @@ def test_model_call_failures_fall_back_but_stop_signals_propagate():
             run(Model(stop), evidence)
     with pytest.raises(RuntimeError):  # 沒列到的例外不偷偷退回(流程層照舊轉失敗)
         run(Model(RuntimeError("程式錯誤")), evidence)
-
-
-# ---- [S1107] ----
-def test_a_model_chosen_proposal_equals_the_formula_proposal():
-    """[S1107] 模型選值得加時,提案跟沒開 AI 時現行規則對同一批三種證據的提案逐欄相同,含證據參照
-    與雜湊。"""
-    from rtb.domain.proposal import content_hash
-
-    evidence = base_evidence()
-    extra = receipt(inv.QueryOption.CHECK_LONGER_WINDOW)
-    rounds = [InvestigationRecord("query", 1, "check_longer_window", "ai", reason_code="ai_query")]
-    cite = (("check_longer_window", "d7_conversions", "7"),)
-    outcome, _ = run(Model(reply("propose", evidence=cite)), (*evidence, extra), rounds)
-    expected = policy.decide(TASK, evidence, NOW)
-    assert isinstance(expected, flow.ProposalDecision)
-    assert outcome.result == expected
-    assert content_hash(outcome.result.proposal) == content_hash(expected.proposal)
-    assert outcome.result.proposal.evidence_refs == ("t1-3-state", "t1-3-metrics", "t1-3-text")
 
 
 # ---- [S1109] ----
@@ -300,7 +284,8 @@ def test_an_injected_name_can_only_flip_propose_or_not():
                    reply("propose", evidence=(("base", "budget", "999999"),))):
         outcome, _ = run(Model(answer), base_evidence(name=INJECTED))
         result = outcome.result
-        assert isinstance(result, flow.ProposalDecision | flow.NoAction)
+        # 退回時開規則輪(Phase 14 增量 2b):名稱不進規則輪,規則輪之後怎麼判跟名稱無關
+        assert isinstance(result, flow.ProposalDecision | flow.NoAction | flow.RuleContinue)
         if isinstance(result, flow.ProposalDecision):
             ours, theirs = result.proposal, normal.result.proposal
             assert (ours.requested_change, ours.campaign_id, ours.action_type) == (
@@ -313,47 +298,36 @@ def test_extra_query_evidence_never_changes_the_code_rule(monkeypatch):
     """[S1115] 一批證據另帶任意追加收據(含過期的):傳給現行規則、不提案原因與建提案的只有三種,結
     果跟不帶時相同。"""
     seen = []
-    real = policy.explain
+    real = policy.steps
 
-    def spy(task, evidence, now, **kwargs):
+    def spy(evidence, now, **kwargs):  # 前置過濾與退回都經它(退回:判不判得出只用基本三筆)
         seen.append(tuple(item.kind for item in evidence))
-        return real(task, evidence, now, **kwargs)
+        return real(evidence, now, **kwargs)
 
     stale = [receipt(o, observed=NOW - timedelta(hours=5)) for o in inv.QueryOption]
-    monkeypatch.setattr(policy, "explain", spy)
+    monkeypatch.setattr(policy, "steps", spy)
     for model in (Model(core.ModelTimeout("t")), Model("亂答")):
         with_extra, _ = run(model, (*base_evidence(), *stale))
         without, _ = run(model, base_evidence())
         assert (with_extra.result, with_extra.no_action_reason) == (
             without.result, without.no_action_reason)
-        assert isinstance(with_extra.result, flow.ProposalDecision)
-        assert with_extra.result.proposal.evidence_refs == ("t1-3-state", "t1-3-metrics",
-                                                            "t1-3-text")
+        # Phase 14 增量 2b:退回開一次新規則輪全量重讀四查詢(模型期的收據不沿用),這一步不提案
+        assert isinstance(with_extra.result, flow.RuleContinue)
+        assert with_extra.record.choice == ai_judge.RULE_ROUND
     assert seen and all(set(kinds) <= inv.CODE_RULE_KINDS for kinds in seen)
 
 
-# ---- [S1128] ----
-def test_several_queries_chosen_in_one_round_are_fetched_in_one_step(tmp_path):
-    """[S1128] 同一輪選多個查詢:同一步查完全部,查詢之間不呼叫模型,下一輪只呼叫一次模型交回全部結
-    果。"""
-    from tests.analyzer.test_investigation_e2e import AiWorld
-
-    world = AiWorld(tmp_path, [reply(["check_daily_trend", "check_longer_window"]),
-                               reply("stop_insufficient",
-                                     evidence=(("check_daily_trend", "conversions_change",
-                                                "-37.5"),))])
-    world.run_until_done()
-    assert world.model_calls == 2
-    reads = world.endpoints_after_first_answer()
-    assert reads.count("dsp:daily") == 1 and reads.count("dsp:metrics") == 1 + 1 + 2
-    query_steps = {c.task_seq for c in world.calls()
-                   if c.endpoint.value in ("dsp:daily",) or (
-                       c.endpoint.value == "dsp:metrics" and c.task_seq > 2)}
-    assert len({c.task_seq for c in world.calls() if c.endpoint.value == "dsp:daily"}) == 1
-    assert query_steps  # 查詢那一步的讀取都掛在同一步(同一個序號)
-    assert world.latest()[1] == "judged_insufficient"
-    sent = world.sent[1][1]
-    assert "ref=check_daily_trend" in sent and "ref=check_longer_window" in sent
+# ---- [S1128](Phase 14 增量 3:runner 路徑撤除,只留 Judge 解析) ----
+def test_several_queries_chosen_in_one_round_are_one_query_step():
+    """[S1128] 同一輪選多個查詢:Judge 回一個「要再查」、紀錄一次記下全部選項(評估執行器照紀錄
+    一次取回全部結果再問一次模型);這一輪只呼叫一次模型。"""
+    model = Model(reply(["check_daily_trend", "check_longer_window"]))
+    outcome, _ = run(model, base_evidence())
+    assert len(model.sent) == 1 and outcome.result == inv.QueryMore()
+    assert (outcome.record.kind, outcome.record.choice, outcome.record.reason_code) == (
+        "query", "check_daily_trend,check_longer_window", inv.AI_QUERY)
+    assert inv.progress([outcome.record]).queried == (
+        inv.QueryOption.CHECK_DAILY_TREND, inv.QueryOption.CHECK_LONGER_WINDOW)
 
 
 # ---- [S1131] ----
@@ -377,7 +351,8 @@ def test_a_conclusion_whose_evidence_does_not_match_the_receipts_falls_back(cite
                                           missing=inv.NoResult.TIMEOUT))
     outcome, _ = run(Model(reply("do_not_propose", evidence=cited)), evidence, rounds)
     assert outcome.record.fallback == "off_menu"
-    assert outcome.result == rule(evidence)[0]
+    assert outcome.result == OPENS_RULE_ROUND[0]
+    assert outcome.record.choice == ai_judge.RULE_ROUND
     # na 也不能引用
     na = (*base_evidence(clicks=0, conversions=0), )
     cite_na = (("base", "conversion_rate", "na"),)
@@ -386,41 +361,33 @@ def test_a_conclusion_whose_evidence_does_not_match_the_receipts_falls_back(cite
     assert fell.record.fallback == "off_menu"  # 代碼審 r1:拿掉「沒有紀錄也算」的逃生口
 
 
-# ---- [S1138] ----
+# ---- [S1138](Phase 14 增量 3:runner 重讀那半撤除,只留評估的 Judge 語意) ----
 @pytest.mark.parametrize("earlier", [
     InvestigationRecord("fallback", 1, "propose", "rule", fallback="timeout"),
     InvestigationRecord("conclusion", 3, "propose", "ai"),
 ])
-def test_a_task_that_already_used_the_ai_goes_straight_to_the_rule(earlier, tmp_path):
-    """[S1138] 已退回過或下過結論:再進分析直接用現行規則、不呼叫模型,記一列「AI 已用過」;之後的
-    蒐證只讀基本兩樣、不重讀查詢。"""
+def test_a_case_that_already_used_the_ai_falls_back_without_calling_the_model(earlier):
+    """已退回過或下過結論:再問 Judge 直接退回程式規則、不呼叫模型,記一列「AI 已用過」;評估執行器照
+    RuleContinue 改取案例的九條結果。"""
     model = Model(reply("propose", evidence=CITE_BASE))
     rounds = [InvestigationRecord("query", 1, "check_daily_trend", "ai"), earlier]
     evidence = (*base_evidence(), receipt(inv.QueryOption.CHECK_DAILY_TREND))
-    outcome, renew = run(model, evidence, rounds)
-    assert model.sent == [] and renew.calls == 0
+    outcome, _ = run(model, evidence, rounds)
+    assert model.sent == []
     assert outcome.record.fallback == "ai_already_used" and outcome.record.decided_by == "rule"
-    assert (outcome.result, outcome.no_action_reason) == rule(evidence)
-    from tests.analyzer.test_investigation_e2e import collect_with_rounds
-
-    endpoints = collect_with_rounds(tmp_path, rounds)
-    assert endpoints == ["dsp:campaign", "dsp:metrics"]
-    assert collect_with_rounds(tmp_path / "fresh", rounds[:1]) == [
-        "dsp:campaign", "dsp:metrics", "dsp:daily"]
+    assert (outcome.result, outcome.no_action_reason) == OPENS_RULE_ROUND
+    assert outcome.record.choice == ai_judge.RULE_ROUND
 
 
-# ---- [S1161] ----
-def test_a_pending_stop_skips_renewal_and_the_model_call():
-    """[S1161] 續租前或呼叫模型前查到已收到停止:不續租、不呼叫模型,丟 RenewalSkipped。"""
+# ---- Phase 14 增量 3:AI 的 propose 只記原始答案,不建提案 ----
+def test_an_ai_propose_is_kept_as_the_raw_answer_without_a_proposal():
+    """AI 答 propose(評估的原始錄製重播):記下 AI 原始結論,結果是 RuleContinue、不建提案;評估執行器
+    把它記成 AI 原始「值得加」。Phase 13 的暫停/異常照舊問模型(還原錄製當時的原始答案)。"""
     model = Model(reply("propose", evidence=CITE_BASE))
-    early = Renew()
-    stopped = ai_judge.Judge(model, stop_requested=lambda: True)
-    with pytest.raises(flow.RenewalSkipped):
-        stopped(TASK, base_evidence(), NOW, flow.AiContext(early, (), Calls()))
-    assert early.calls == 0 and model.sent == []  # 續租前就看到停止:連續租都不做
-    answers = iter((False, True))  # 續租前還沒、續租後才收到
-    renew = Renew()
-    judge = ai_judge.Judge(model, stop_requested=lambda: next(answers))
-    with pytest.raises(flow.RenewalSkipped):
-        judge(TASK, base_evidence(), NOW, flow.AiContext(renew, (), Calls()))
-    assert renew.calls == 1 and model.sent == []
+    outcome, _ = run(model, base_evidence())
+    assert len(model.sent) == 1
+    assert outcome.result == flow.RuleContinue()
+    assert (outcome.record.kind, outcome.record.choice, outcome.record.decided_by) == (
+        "conclusion", "propose", "ai")
+    paused, _ = run(Model(reply("propose", evidence=CITE_BASE)), base_evidence(status="paused"))
+    assert paused.record is not None and paused.record.choice == "propose"

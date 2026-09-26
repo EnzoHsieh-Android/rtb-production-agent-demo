@@ -11,12 +11,17 @@
 - 回答:恰好 choice、reason、evidence 三欄的 JSON;選項要在這一輪允許清單裡;理由不超過 200 字、
   不含換行與不可列印字元;證據逐項核對(參照、欄位、數值逐字相同、不是 na、不是沒有結果收據的欄位)。
   任一條不過都是「選項外答案」([S1105] [S1131])。
+- AI 調查的結果型別(`QueryMore`、`AiContext`、`AiOutcome`;Phase 14 增量 3 從流程層搬來):
+  AI 退出正式與展示的加額決策後,只有評估執行器直接呼叫 `ai_judge.Judge` 時用,
+  流程層不再有 AI 那一步。`AiOutcome.result` 要用流程層的決策型別,所以這支檔從 flow 匯入
+  `Decision`、`RuleContinue` 兩個型別名;方向只有一條(flow 不匯入這裡,不成環),邊界測試守
+  (代碼審 r1 架構對齊-1 的取捨:照計劃留在調查詞彙模組,不另開模組)。
 """
 
 import hashlib
 import json
 import unicodedata
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -24,9 +29,10 @@ from fractions import Fraction
 from types import MappingProxyType
 from typing import Any
 
+from rtb.analyzer.flow import Decision, RuleContinue
+from rtb.analyzer.task_store import InvestigationRecord
 from rtb.domain import metrics as m
 from rtb.domain import nine_rules as rules
-from rtb.domain._checks import is_id
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass, quoted_untrusted
 
 # ---- 選項與上限 ----
@@ -88,6 +94,9 @@ class DecidedBy(StrEnum):
 
 BASE_REF = "base"  # 1 小時基本證據(現況加 1 小時指標)的參照代號
 AI_QUERY = "ai_query"  # 「AI 要再查」那一步調查紀錄列的原因代碼
+# 退回紀錄的結果代碼:需要四查詢才判得出(Phase 14 增量 2b 起;增量 3 後只有評估執行器用,遇到就改取
+# 案例的九條結果 `rule_verdict(case)`,不開規則輪)
+RULE_ROUND = "rule_round"
 MAX_ROUNDS = 3  # 一件工作一生最多幾輪模型呼叫(最多兩輪查詢加一輪結論)
 MAX_QUERIES = 3  # 一件工作最多查幾個查詢選項(使用者裁定 10)
 MAX_EVIDENCE_ITEMS = 5
@@ -111,7 +120,8 @@ RECEIPT_KIND: Mapping[QueryOption, EvidenceKind] = MappingProxyType({
 })
 OPTION_OF_KIND: Mapping[EvidenceKind, QueryOption] = MappingProxyType(
     {kind: option for option, kind in RECEIPT_KIND.items()})
-# 傳給現行決策函式、不提案原因函式與建提案函式的證據只有這三種(不論開不開 AI,[S1115])
+# AI 調查(評估)送進程式前置過濾的證據只有這三種([S1115];Phase 14 增量 3 後只剩評估的 Judge 用,
+# 正式規則輪另讀同輪四查詢)
 CODE_RULE_KINDS = frozenset({EvidenceKind.CAMPAIGN_STATE, EvidenceKind.METRICS,
                              EvidenceKind.CAMPAIGN_TEXT})
 RAW_ROWS = "raw_rows"  # 收據裡記原始筆數的那一欄:給提示用,不算收據欄位、不能被引用
@@ -119,10 +129,29 @@ _OPTION_CODES = frozenset(o.value for o in QueryOption)
 _CONCLUSION_CODES = frozenset(c.value for c in Conclusion)
 
 
-def hold_list(text: str) -> frozenset[str] | None:
-    """--hold-submit 的廣告清單(逗號分隔);有任何一項不是合法的廣告編號就回 None。"""
-    items = [item for item in text.split(",") if item]
-    return frozenset(items) if all(is_id(item) for item in items) else None
+@dataclass(frozen=True)
+class QueryMore:
+    """AI 選了查詢:評估執行器從案例取這一輪選的查詢結果,再問一次(Phase 13;原為流程層型別)。"""
+
+
+@dataclass(frozen=True)
+class AiContext:
+    """評估執行器交給 AI 決策函式的兩樣:這件工作先前各輪的調查紀錄,與「確定要呼叫模型」的記次
+    回呼(收上限,回這件工作一生第幾次模型呼叫;超過上限回上限加 1、不記)。Phase 13 的續租回呼
+    隨流程層 AI 那一步撤除(Phase 14 增量 3)。"""
+
+    rounds: tuple[InvestigationRecord, ...]
+    begin_call: Callable[[int], int]
+
+
+@dataclass(frozen=True)
+class AiOutcome:
+    """AI 決策函式的外包型別:結果、這一輪的調查紀錄、不提案原因。結果是 `RuleContinue` 表示
+    需要四查詢的九條才判得出(評估改取案例的九條結果)。"""
+
+    result: Decision | QueryMore | RuleContinue
+    record: InvestigationRecord | None
+    no_action_reason: StrEnum | None = None
 
 
 def code_rule_evidence(evidence: Iterable[Evidence]) -> tuple[Evidence, ...]:

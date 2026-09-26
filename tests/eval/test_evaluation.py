@@ -156,14 +156,17 @@ def test_the_eval_report_is_per_slice_and_marks_thin_slices():
             assert metric.denominator == cell.n > 0
             assert metric.point == metric.numerator / metric.denominator
         assert sum(count for _, _, count in cell.errors) == cell.n - cell.class_correct_count
-    # 依最後有效答案計分:候選回「不知道」退回現行規則,暫停中有投放的照樣被計成誤提案
+    # 依最後有效答案計分:候選回「不知道」退回正式規則(Phase 14 起是九條,Phase 10 情境明傳缺四查詢),
+    # 最後答案跟正式規則逐格相同;暫停中有投放的不再被誤提案(第 1 條)
     unsure = scoring.synthetic_report(
         scoring.score(_scenarios(), _call(_Answer(WorthVerdict.UNSURE)),
                       policy.TrialCells(frozenset(WorthCell))), scoring.eval_set_sha256())
+    for fallback, code in zip(unsure.cells, report.cells, strict=True):
+        assert (fallback.false_proposals, fallback.class_correct_count, fallback.errors) == (
+            code.false_proposals, code.class_correct_count, code.errors)
+        assert fallback.paths[policy.RoutePath.FALLBACK_UNSURE] == fallback.n
     paused = next(c for c in unsure.cells if c.cell is WorthCell.PAUSED)
-    code_paused = next(c for c in report.cells if c.cell is WorthCell.PAUSED)
-    assert paused.false_proposals == code_paused.false_proposals > 0
-    assert paused.paths[policy.RoutePath.FALLBACK_UNSURE] == paused.n
+    assert paused.false_proposals == 0
 
 
 # ---- [S708] ----
@@ -499,22 +502,51 @@ def test_irrelevant_fields_do_not_change_the_answer():
     assert report.perturbation_changed > 0
 
 
-# ---- [S714] ----
-def test_the_code_rule_is_scored_per_slice_like_a_candidate():
+# ---- [S714](Phase 14 [S1417] 改寫:舊「只看投放」的逐格錯法撤掉,按明示缺四查詢的九條重算)----
+def test_phase_ten_scenarios_explicitly_report_missing_queries():
+    """Phase 10 舊 Scenario 經 score → route → code_rule:轉接器明傳 MISSING_FOUR_QUERIES,
+    暫停/異常先判,
+    其餘回證據不足;五格逐格報法保留(分子、分母、錯誤子型),每格標「舊資料不足以評估九條規則」,
+    標準答案不動。例:active、有投放但無四查詢 → 證據不足。"""
     report = _code_rule_report()
     cells = {c.cell: c for c in report.cells}
-    # 現行規則不看狀態:暫停中有投放的被提案;不看轉換營收與資料自洽:沒價值與資料異常格判錯
-    assert cells[WorthCell.PAUSED].false_proposals > 0
-    assert (WorthVerdict.NOT_WORTH, WorthVerdict.WORTH) in {(g, f) for g, f, _ in
-                                                           cells[WorthCell.PAUSED].errors}
-    without = cells[WorthCell.DELIVERY_WITHOUT_VALUE]
-    assert without.false_proposals == without.n and without.class_correct_count == 0
-    anomaly = cells[WorthCell.ANOMALY]
-    assert anomaly.class_correct_count == 0 and 0 < anomaly.false_proposals < anomaly.n
-    assert cells[WorthCell.NO_DELIVERY].class_correct_count == cells[WorthCell.NO_DELIVERY].n
-    recall = cells[WorthCell.DELIVERY_WITH_VALUE].metric(scoring.RECALL)
-    assert recall.numerator == recall.denominator
+    assert all(c.note == scoring.MISSING_QUERIES_NOTE == "舊資料不足以評估九條規則"
+               for c in report.cells)
     assert all(set(c.paths) == {policy.RoutePath.CODE_RULE} for c in report.cells)
+    # 標準答案不動(Phase 10 使用者裁定的評分表)
+    gold = {cell: {s.gold for s in _scenarios() if s.cell is cell} for cell in WorthCell}
+    assert gold == {WorthCell.PAUSED: {WorthVerdict.NOT_WORTH},
+                    WorthCell.ANOMALY: {WorthVerdict.INSUFFICIENT},
+                    WorthCell.NO_DELIVERY: {WorthVerdict.NOT_WORTH},
+                    WorthCell.DELIVERY_WITH_VALUE: {WorthVerdict.WORTH},
+                    WorthCell.DELIVERY_WITHOUT_VALUE: {WorthVerdict.INSUFFICIENT}}
+    # 第 1/2 條只用 1 小時資料判得出:暫停、異常全對
+    for cell in (WorthCell.PAUSED, WorthCell.ANOMALY):
+        assert cells[cell].class_correct_count == cells[cell].n and cells[cell].errors == ()
+    # 其餘一律證據不足:沒有任何一格誤提案;要四查詢的格按錯誤子型逐格報
+    assert sum(c.false_proposals for c in report.cells) == 0
+    no_delivery = cells[WorthCell.NO_DELIVERY]
+    assert no_delivery.errors == ((WorthVerdict.NOT_WORTH, WorthVerdict.INSUFFICIENT,
+                                   no_delivery.n),)
+    with_value = cells[WorthCell.DELIVERY_WITH_VALUE]
+    assert with_value.metric(scoring.RECALL).numerator == 0
+    assert with_value.errors == ((WorthVerdict.WORTH, WorthVerdict.INSUFFICIENT, with_value.n),)
+    without = cells[WorthCell.DELIVERY_WITHOUT_VALUE]
+    assert without.class_correct_count == without.n
+    # 單筆:active、有投放、無四查詢 → 九條的證據不足;沒有「只看投放」的暗門
+    active = next(s for s in _scenarios() if s.cell is WorthCell.DELIVERY_WITH_VALUE)
+    assert policy.code_rule(active.worth_input, policy.MISSING_FOUR_QUERIES,
+                            scoring.RULE_NOW) is WorthVerdict.INSUFFICIENT
+    with pytest.raises(TypeError):
+        policy.code_rule(active.worth_input)  # type: ignore[call-arg]
+    # 正式環境抽樣報告的情境也經 score 明傳缺四查詢,候選退回格一樣標註(代碼審 r1 鏡頭4-1)
+    production = scoring.production_report(
+        scoring.score(_scenarios(), _call(_Answer(WorthVerdict.UNSURE)),
+                      policy.TrialCells(frozenset(WorthCell))), PROVENANCE)
+    assert all(c.note == scoring.MISSING_QUERIES_NOTE for c in production.cells)
+    # 報告程式改簽章後不斷線:逐格表每格帶標註
+    table = "\n".join(record.cell_table(report.cells))
+    assert table.count("舊資料不足以評估九條規則") == len(WorthCell)
 
 
 # ---- [S716] ----

@@ -9,11 +9,11 @@
     },
     {
       "path": "src/rtb/analyzer/dsp_client.py",
-      "sha256": "22bb68659be03672995e6ea38b8951a19f17603fb1554f58b14bf569ae64f44b"
+      "sha256": "c71caf735d160e69d93df660db8cfff9ffb04e49776895de3f384f3048e6d617"
     },
     {
       "path": "src/rtb/analyzer/flow.py",
-      "sha256": "6fcedb5eb47582039484d15393b45e3d744e91af365c63248b4be13ad6544580"
+      "sha256": "0f9d8827e50f35a3942e754aa1ad5170d55c3a20b66984480c1f6e6fffdc8a02"
     },
     {
       "path": "src/rtb/analyzer/inbox_client.py",
@@ -21,19 +21,23 @@
     },
     {
       "path": "src/rtb/analyzer/instrumented.py",
-      "sha256": "9340788e5a28af6c5812a7bf2b2e609af3c37e2fb12e563b8c4c3ff022d1fc0b"
+      "sha256": "4bb7812d09ea593bb08d01c0e02ff114d1b83378f098fe8756c893454ba3e370"
     },
     {
       "path": "src/rtb/analyzer/investigation.py",
-      "sha256": "60ba80e565651550b1d7216cf2300d992cf8c3bbc3cc9d3806588bc793a5451e"
+      "sha256": "93353f3bdbdc9f7df828cff7f40b75b11407c5e654efef477af2e38bc00f368e"
     },
     {
       "path": "src/rtb/analyzer/policy.py",
-      "sha256": "f05977c5de7d783db669438668510024a9f4b03eff4f14c009e04fb804752d24"
+      "sha256": "aa8b5b09a9deda2ffdf58c6509cb13f3966d6d785d9504431d5462aaa15030e1"
+    },
+    {
+      "path": "src/rtb/analyzer/rule_round.py",
+      "sha256": "c0959997e784225dab55f13822e62db4dff3dc3e0e802c277e1cfc1a6b399337"
     },
     {
       "path": "src/rtb/analyzer/task_store.py",
-      "sha256": "ef8751ce13431ca480e6597afeff1d3ffbf84d39cb5392656766d408eab4ce49"
+      "sha256": "9900502a5a9ae1f8a0e6112dc048a3f775a93998fece32fa3dffb84ae34abb6a"
     },
     {
       "path": "src/rtb/capabilitykit.py",
@@ -57,7 +61,7 @@
     },
     {
       "path": "src/rtb/demo/launcher/__init__.py",
-      "sha256": "c387254e85f9018b897f2cfd56cc28dc08e9b33cd7256d855565b558f0f9f51f"
+      "sha256": "e8ae8f88c22467c1e3693b18f5b2e40e292d0f3067e274e2df538c2ef939bfab"
     },
     {
       "path": "src/rtb/domain/_checks.py",
@@ -77,11 +81,11 @@
     },
     {
       "path": "src/rtb/domain/nine_rules.py",
-      "sha256": "db807dd0e69f61a4884594ddc0621cac83a410f398e40ace611c3d91989ae13f"
+      "sha256": "aaacc8b2b68a9c365a3f1d6f457af0438212c5e51ca639a7723142f8807ce429"
     },
     {
       "path": "src/rtb/domain/proposal.py",
-      "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
+      "sha256": "fb5f2e77710f1aa6893d4acb644e7481d5e1358c8ab0cadef9e2b91a5d995cc4"
     },
     {
       "path": "src/rtb/domain/task_state.py",
@@ -100,8 +104,12 @@
       "sha256": "8a2da02e83240a71b3d279998a50fe36d19c7e484e58568e3f53af2dbdd85bbf"
     },
     {
+      "path": "src/rtb/dsp/seed.py",
+      "sha256": "9c743a3644dd3736fe18f2f2a2da40839c1469d7874b2a9b13fd83b864bf48c4"
+    },
+    {
       "path": "src/rtb/dsp/server.py",
-      "sha256": "ab287171b8e46e186bc7b551a0c55f14ec987207690710de9a4b080ef68ca551"
+      "sha256": "a43f5383406d0ee809cc7e4f69b67a387075c628873e38f106ec35d025cb4e4c"
     },
     {
       "path": "src/rtb/dsp/store.py",
@@ -169,13 +177,13 @@
     },
     {
       "path": "src/rtb/stepbudget.py",
-      "sha256": "346ca606356525e90f86601caab77b18806b2f35237ac9670b84949812987210"
+      "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
     }
   ],
   "harness": [
     {
       "path": "pyproject.toml",
-      "sha256": "9112a805811eba5df43772c0ba94374973d0ab59aa32404f98c6c8391b722d9b"
+      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
     },
     {
       "path": "tests/__init__.py",
@@ -187,11 +195,11 @@
     },
     {
       "path": "tests/analyzer/conftest.py",
-      "sha256": "768e7f782442ab5fbd8e5666f4ba43cbe268a503de1d299089fd1c24e9c9237c"
+      "sha256": "01f896c08eec5a91a704468b2fec3556cbc36b5f9934d2295f94ddf838c9fa6d"
     },
     {
       "path": "tests/analyzer/test_f4_end_to_end.py",
-      "sha256": "caf57ffc0a656e9370c90c54009de7b9e5e92c0c2ed990c79840a6f36b4b21fa"
+      "sha256": "6111986d2bb65dfed8da6ad5344ccd55643fba60546ba6dbc32387c06feea029"
     },
     {
       "path": "tests/analyzer/test_flow.py",

@@ -1,0 +1,2031 @@
+diff --git a/src/rtb/analyzer/ai_judge.py b/src/rtb/analyzer/ai_judge.py
+index fae3dd3..61d4256 100644
+--- a/src/rtb/analyzer/ai_judge.py
++++ b/src/rtb/analyzer/ai_judge.py
+@@ -1,143 +1,110 @@
+-"""AI 決策函式(Phase 13 增量 2,計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈一件工作的一生〉
+-〈退回程式規則〉〈提案與金額〉):開了 AI 決策時,流程層在「分析中」那一步呼叫這裡。
+-
+-1. 程式先過濾:只用現況、1 小時指標、廣告文字三種證據跑前置過濾(新鮮度、缺資料、九條第 1/2 條的暫停與
+-   1 小時異常、配速算不出、配速不偏低);沒過就照正式規則結案或重蒐證,不呼叫模型([S1104];暫停/異常
+-   是 Phase 14 代碼審 r1 提前納入)。追加查詢的收據在入口濾掉,傳給正式規則的證據只有那三種([S1115])。
+-   評估的原始錄製重播(`raw_replay`)才沿用 Phase 13 舊前置過濾,只為還原模型原始答案。
+-2. 這件工作已退回過或下過結論(看已提交的調查紀錄)→ 退回程式規則,記一列「AI 已用過」([S1138]);
+-   登入預檢沒過 → 整趟退回程式規則,記「登入預檢沒過」([S1160])。
+-3. 續租前、呼叫模型前各看一次停止旗標,已收到就丟 RenewalSkipped、這一步不寫([S1161]);經流程層的
+-   續租回呼續租一次([S1135]),再呼叫模型一次(同一步查完這一輪選的全部查詢,[S1128])。
+-4. 回答過驗證:選查詢 → 回蒐集證據(紀錄帶 ai_query);propose → 記下 AI 原始結論、開一次新規則輪
+-   A/B/C 全量重讀四查詢,九條也判值得加才由規則輪照同一個公式建提案,否則規則否決([S1407],Phase 14
+-   代碼審 r1 提前做;規則輪定案事件細因帶 `ai_propose_vetoed:`);do_not_propose / stop_insufficient →
+-   不提案,原因沿用「判不值得加」「判證據不足」(AI 只能讓結局更保守)。
+-5. 模型呼叫失敗類別與本地驗證不過 → 退回程式規則,記退回原因([S1106]);Phase 14 起程式規則是九條:
+-   暫停/異常用基本三筆當場結案,其餘開一次新規則輪全量重讀四查詢再定案(規則輪續步與定案由流程層直接
+-   問規則輪、不經這裡)。停止訊號轉成的例外(CallTerminated,BaseException)與 KeyboardInterrupt 不接,
+-   往外丟。不重試。
+-6. --hold-submit 清單裡的廣告:不論 AI 或規則(含規則輪定案,`held_rule`)判提案,一律改成不提案、原因
+-   「考題結束」([S1156])。
++"""AI 調查的決策函式(Phase 13 增量 2,計劃 [[Projects/RTB_Phase13AI參與決策_計劃]])。
++Phase 14 增量 3(計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉8、〈拆增量〉3)
++起 AI 退出正式與展示的加額決策,這支檔**只給評估執行器**(`rtb.eval.investigation_eval.run_case`)
++直接呼叫:分析端驅動、流程層與一鍵展示都不匯入它(邊界測試守)。留下的是評估實際走到的那一段:
++
++1. 程式先過濾:只用現況、1 小時指標、廣告文字三種證據跑 Phase 13 舊前置過濾(新鮮度、缺資料、
++   配速算不出、配速不偏低);沒過就照程式規則結案,不呼叫模型([S1104])。暫停與 1 小時異常
++   照 Phase 13 仍問模型,只為從既有錄製還原模型自己的原始答案(原 `raw_replay` 通道;
++   正式路徑已不存在,所以不再是選項)。
++   追加查詢的收據在入口濾掉,傳給程式規則的證據只有那三種([S1115])。
++2. 這件工作已退回過或下過結論(看評估記憶體裡的調查紀錄)→ 退回程式規則,記一列「AI 已用過」。
++3. 呼叫模型一次(同一步查完這一輪選的全部查詢,[S1128]);呼叫前經記次回呼,已達上限就退回。
++4. 回答過驗證:選查詢 → `QueryMore`(紀錄帶 ai_query);propose → `RuleContinue`,評估記 AI 原始
++   `propose`;do_not_propose / stop_insufficient → 不提案,原因「判不值得加」「判證據不足」。
++5. 模型呼叫失敗類別與本地驗證不過 → 退回程式規則,記退回原因([S1106]);只用基本三筆判得出的當場結案,
++   其餘回 `RuleContinue`,評估改取案例的九條結果 `rule_verdict(case)`。停止訊號轉成的例外
++   (CallTerminated,BaseException)與 KeyboardInterrupt 不接,往外丟。不重試。
++
++Phase 14 增量 3 撤除(沒有入口就刪):`--hold-submit` 與考題(`held_rule`、`_held`)、AI 提案規則否決
++(`ai_propose_vetoed:`)、登入預檢與停止旗標檢查、續租回呼,以及正式路徑的前置過濾分支。
+ 
+ 模型只經模型閘道(分析端唯一准匯入模型用戶端的地方,[S1100]);提案不帶任何模型產生的欄位([S1114])。
+ """
+ 
+-from collections.abc import Callable, Mapping, Sequence
+-from dataclasses import dataclass, field, replace
++from collections.abc import Callable, Mapping
++from dataclasses import dataclass
+ from datetime import datetime
+ from pathlib import Path
+ from typing import Any
+ 
+ from rtb.analyzer import investigation as inv
+ from rtb.analyzer import modelgate, policy
+-from rtb.analyzer.flow import (
+-    AiContext,
+-    AiOutcome,
+-    Decision,
+-    NoAction,
+-    ProposalDecision,
+-    QueryMore,
+-    RenewalSkipped,
+-    RuleContinue,
+-    RuleDecide,
+-    RuleOutcome,
+-)
+-from rtb.analyzer.task_store import InvestigationRecord, RuleEvent, TaskReads, TaskRow
++from rtb.analyzer.flow import Decision, NoAction, ProposalDecision, RuleContinue
++from rtb.analyzer.investigation import AiContext, AiOutcome, QueryMore
++from rtb.analyzer.task_store import InvestigationRecord, TaskRow
+ from rtb.domain.evidence import Evidence, EvidenceKind
+ from rtb.stepbudget import MODEL_TIMEOUT_SECONDS
+ 
+ MAX_OUTPUT_TOKENS = 1024
+ HOURS_PER_BUDGET = round(1 / policy.ELAPSED_FRACTION_1H)  # 配速比的分母:一天預算的 1/24
+ Complete = Callable[[str, str], modelgate.ModelResult]
+ 
+ 
+ GateOpener = Callable[..., modelgate.Gate]
+ 
+ 
+ def open_investigation_gate(environ: Mapping[str, str], *, demo_id: str | None,  # noqa: PLR0913 - 閘道要的每一樣
+                             ledger: Path | None, recordings: Path | None, batch_id: str | None,
+                             open_gate: GateOpener = modelgate.open_gate,
+-                            recorded_ledger: Path | None = None) -> modelgate.Gate:
++                            recorded_ledger: Path | None = None,
++                            notify: Callable[[str], None] | None = None) -> modelgate.Gate:
+     """開分析端調查的模型閘道:呼叫者標籤在這裡綁死成「分析端調查」(邊界測試的 CALLER_USERS 只准這支
+     模組用它)。拒絕照閘道的 GateRefused、UnknownModel 往外丟。"""
+     return open_gate(environ, caller=modelgate.Caller.INVESTIGATION, demo_id=demo_id,
+                      ledger=ledger, recordings=recordings, batch_id=batch_id,
+-                     recorded_ledger=recorded_ledger)
++                     recorded_ledger=recorded_ledger, notify=notify)
+ 
+ 
+ def gate_complete(gate: modelgate.Gate) -> Complete:
+     """把模型閘道包成「送出一次系統提示加使用者內容」的函式(逾時 15 秒;呼叫者已在開閘道時綁死)。"""
+ 
+     def complete(system: str, user: str) -> modelgate.ModelResult:
+         return gate.complete(system, user, max_output_tokens=MAX_OUTPUT_TOKENS,
+                              timeout_seconds=MODEL_TIMEOUT_SECONDS)
+ 
+     return complete
+ 
+ 
+ @dataclass(frozen=True)
+ class Judge:
+-    """一個 runner(或評估執行器)用的 AI 決策函式:模型呼叫、登入預檢結果、停止旗標、
+-    只判不送的清單。"""
++    """評估執行器用的 AI 決策函式:只有模型呼叫一樣可替換(錄製重播或協調者授權的即時加錄製,
++    都經評估開的模型閘道)。"""
+ 
+     complete: Complete
+-    preflight_ok: bool = True
+-    stop_requested: Callable[[], bool] = field(default=lambda: False)
+-    hold: frozenset[str] = frozenset()
+-    # 評估的原始錄製重播通道(Phase 14 [S1146] 改寫):沿用 Phase 13 舊前置過濾(暫停/異常也問模型),
+-    # 只為從既有錄製還原模型自己的原始答案;正式路徑一律不開
+-    raw_replay: bool = False
+ 
+     def __call__(self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
+                  context: AiContext) -> AiOutcome:
+-        return _held(self._judge(task, evidence, now, context), task, self.hold)
+-
+-    def _judge(self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
+-               context: AiContext) -> AiOutcome:
+         base = inv.code_rule_evidence(evidence)
+         facts = policy.steps(base, now)
+         if not facts.fresh or facts.state is None or facts.metrics is None \
+-                or (facts.settled_by_base and not self.raw_replay) \
+                 or facts.underpacing is not True:
+-            # 暫停、1 小時異常、判斷點輸入建不起來由九條第 1/2 條只用基本資料結案,不送模型
+-            # (代碼審 r1 外家否決-1、資安-1:原排在增量 3 的前置過濾,已在 2b 做)
++            # Phase 13 舊前置過濾:判斷點輸入建不起來、配速不偏低由程式規則結案,不送模型;暫停與
++            # 1 小時異常照舊問模型(評估要還原錄製當時模型自己的答案)
+             decision, reason = _rule(task, base, now)
+             return AiOutcome(decision, None, reason)
+         state = inv.progress(context.rounds)
+         if state.used:
+             return _fallback(task, base, now, state, inv.FallbackReason.AI_ALREADY_USED)
+-        if not self.preflight_ok:
+-            return _fallback(task, base, now, state, inv.FallbackReason.PREFLIGHT_FAILED)
+-        if self.stop_requested():
+-            raise RenewalSkipped("已收到停止:不續租、不呼叫模型")
+-        context.renew()
+-        if self.stop_requested():
+-            raise RenewalSkipped("已收到停止:不呼叫模型")
+         return self._ask(task, base, now, state,
+                          _Inputs(evidence, facts.state, facts.metrics, context))
+ 
+     def _ask(self, task: TaskRow, base: tuple[Evidence, ...], now: datetime,
+              state: inv.Progress, inputs: _Inputs) -> AiOutcome:
+         receipts = inv.query_receipts(inputs.evidence)
+         base_receipt = inv.base_receipt(inputs.state, inputs.metrics, HOURS_PER_BUDGET)
+         name, truncated = _campaign_name(inputs.evidence)
+         user = inv.prompt(base_receipt, receipts, state, name, truncated)
+-        if self.stop_requested():  # 組提示期間收到停止:不呼叫模型、這一步不寫(代碼審 r1 c1)
+-            raise RenewalSkipped("已收到停止:不呼叫模型")
+         if inputs.context.begin_call(inv.MAX_ROUNDS) > inv.MAX_ROUNDS:
+-            # 這件工作一生的模型呼叫次數(確定要呼叫的那一刻才記,代碼審 r1 s2、r2 v3)已到上限:
+-            # 模型付過費、提交卻一直沒寫進去時,不再重付,改由程式規則決定
++            # 這件工作一生的模型呼叫次數(確定要呼叫的那一刻才記)已到上限:改由程式規則決定
+             return _fallback(task, base, now, state, inv.FallbackReason.AI_ALREADY_USED)
+-        if self.stop_requested():  # 記次等鎖期間收到停止(代碼審 r3 w1):已記的次數照算,不呼叫
+-            raise RenewalSkipped("已收到停止:不呼叫模型")
+         try:
+             result = self.complete(inv.SYSTEM_PROMPT, user)
+         except modelgate.ModelCallFailed as failed:
+             return _fallback(task, base, now, state, inv.FallbackReason(failed.outcome.value))
+         refs: dict[str, inv.Receipt] = {inv.BASE_REF: base_receipt}
+         refs.update({o.value: receipts[o] for o in state.queried if o in receipts})
+         allowed = inv.allowed_choices(state)
+         try:
+             answer = inv.parse_answer(result.text, allowed, inv.query_budget(state), refs)
+         except inv.OffMenu:
+@@ -145,23 +112,22 @@ class Judge:
+                              result.source.value)
+         record = InvestigationRecord(
+             inv.RecordKind.QUERY if answer.conclusion is None else inv.RecordKind.CONCLUSION,
+             state.next_round, answer.conclusion or ",".join(q.value for q in answer.queries),
+             inv.DecidedBy.AI, reason=answer.reason,
+             reason_code=inv.AI_QUERY if answer.conclusion is None else None,
+             cited_json=answer.cited_json(), model_source=result.source.value)
+         if answer.conclusion is None:
+             return AiOutcome(QueryMore(), record)
+         if answer.conclusion is inv.Conclusion.PROPOSE:
+-            # AI 的 propose 只是提案意見([S1407] 否決那半,代碼審 r1 提前做):記下 AI 原始結論,
+-            # 開一次新規則輪 A/B/C 全量重讀四查詢,九條也判值得加才由規則輪建提案;
+-            # 否則規則否決、無提案
++            # AI 的 propose 只是評估裡的原始答案(Phase 14 增量 3:不建提案、不開規則輪);評估執行器
++            # 看到紀錄是結論就記 AI 原始「值得加」
+             return AiOutcome(RuleContinue(), record)
+         reason = (policy.NoActionReason.JUDGED_NOT_WORTH
+                   if answer.conclusion is inv.Conclusion.DO_NOT_PROPOSE
+                   else policy.NoActionReason.JUDGED_INSUFFICIENT)
+         return AiOutcome(NoAction(), record, reason)
+ 
+ 
+ @dataclass(frozen=True)
+ class _Inputs:
+     evidence: tuple[Evidence, ...]
+@@ -169,98 +135,43 @@ class _Inputs:
+     metrics: Any
+     context: AiContext
+ 
+ 
+ def _rule(task: TaskRow, base: tuple[Evidence, ...],
+           now: datetime) -> tuple[Decision, policy.NoActionReason | None]:
+     """現行規則(沒有候選、空的允許清單),只拿現況、1 小時指標、廣告文字三種證據。"""
+     return policy.explain(task, base, now, candidate=None, allowed=policy.ValidatedCells.NONE)
+ 
+ 
+-RULE_ROUND = inv.RULE_ROUND  # 退回紀錄的結果代碼:改由規則輪全量重讀四查詢再定案(Phase 14 增量 2b)
++RULE_ROUND = inv.RULE_ROUND  # 退回紀錄的結果代碼:要四查詢才判得出(評估改取案例的九條結果)
+ 
+ 
+ def _outcome_code(decision: Decision | RuleContinue) -> str:
+     if isinstance(decision, RuleContinue):
+         return RULE_ROUND
+     if isinstance(decision, ProposalDecision):
+         return inv.Conclusion.PROPOSE.value
+     return "no_action" if isinstance(decision, NoAction) else "needs_fresh_evidence"
+ 
+ 
+ def _fallback(task: TaskRow, base: tuple[Evidence, ...], now: datetime, state: inv.Progress,
+               why: inv.FallbackReason, source: str | None = None) -> AiOutcome:
+-    """退回程式規則(Phase 14 增量 2b 起是九條):只用基本三筆就判得出的(暫停、1 小時異常)當場結案;其餘
+-    要四查詢,回 RuleContinue 開一次新的規則輪、A/B/C 全量重讀,不沿用 AI 期的查詢([S1407] 的退回那半;
+-    AI 答 propose 的規則否決那半也在 2b,見 `_ask` 與 `held_rule`)。這一輪記退回原因類別。"""
++    """退回程式規則(Phase 14 起是九條):只用基本三筆就判得出的(暫停、1 小時異常)當場結案;其餘
++    要四查詢,回 RuleContinue,評估執行器改取案例的九條結果(不開規則輪)。這一輪記退回原因類別。"""
+     facts = policy.steps(base, now, queries=None)
+     decision: Decision | RuleContinue
+     if facts.needs_queries:
+         decision, reason = RuleContinue(), None
+     else:
+         decision, reason = _rule(task, base, now)
+     record = InvestigationRecord(inv.RecordKind.FALLBACK, state.next_round,
+                                  _outcome_code(decision), inv.DecidedBy.RULE, fallback=why.value,
+                                  model_source=source)
+     return AiOutcome(decision, record, reason)
+ 
+ 
+-DECIDED_EVENT = "decided"  # rule_round.Event.DECIDED(ai_judge 不匯入規則輪;測試核對兩邊同值)
+-AI_PROPOSE_VETOED = "ai_propose_vetoed"  # 規則事件細因的前綴:AI 答 propose、規則輪不判值得加
+-
+-
+-def held_rule(rule_decide: RuleDecide, hold: frozenset[str]) -> RuleDecide:
+-    """開 AI 時的規則輪決策:
+-    - 定案也照 --hold-submit 只判不送(Phase 13 [S1156]):清單裡的廣告被規則判值得加,改成不提案、原因
+-      考題結束,規則事件照記。
+-    - AI 答 propose 之後開的規則輪([S1407] 否決那半):規則不判值得加就是否決,定案事件細因加前綴
+-      `ai_propose_vetoed:`,跟一般規則結論分得開;AI 原始結論另留在調查紀錄。"""
+-
+-    def decide(task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
+-               reads: TaskReads) -> RuleOutcome:
+-        outcome = rule_decide(task, evidence, now, reads)
+-        if task.campaign_id in hold and isinstance(outcome.result, ProposalDecision):
+-            return RuleOutcome(NoAction(), outcome.event, policy.NoActionReason.EXAM_HOLD)
+-        event = outcome.event
+-        if (isinstance(outcome.result, NoAction) and event is not None
+-                and _ai_proposed(reads, task.task_id)):
+-            vetoed = f"{AI_PROPOSE_VETOED}:{event.detail or 'rule'}"
+-            return RuleOutcome(outcome.result, replace(event, detail=vetoed),
+-                               outcome.no_action_reason)
+-        return outcome
+-
+-    return decide
+-
+-
+-def _ai_proposed(reads: TaskReads, task_id: str) -> bool:
+-    """這一輪定案是否就是 AI 答 propose 之後的**第一次**規則輪定案(才算否決):最後一輪調查紀錄是
+-    AI 的 propose,而且它之後還沒有任何規則輪定案過(代碼審 r2 鏡頭1-1/鏡頭2-2:規則已同意、
+-    送件後收件口 409 退回的新輪判不提案,是局勢變了,不是否決)。"""
+-    return first_rule_round_after_ai_propose(reads.investigation_rounds(task_id),
+-                                             reads.rule_events(task_id))
+-
+-
+-def first_rule_round_after_ai_propose(rounds: Sequence[tuple[int, InvestigationRecord]],
+-                                      events: Sequence[tuple[int, RuleEvent]]) -> bool:
+-    """純函式(展示觀察器也用):AI propose 之後還沒有規則輪定案過。"""
+-    if not rounds:
+-        return False
+-    at, last = rounds[-1]
+-    proposed = (last.kind == inv.RecordKind.CONCLUSION and last.decided_by == inv.DecidedBy.AI
+-                and last.choice == inv.Conclusion.PROPOSE.value)
+-    return proposed and not any(seq > at and event.event == DECIDED_EVENT
+-                                for seq, event in events)
+-
+-
+-def _held(outcome: AiOutcome, task: TaskRow, hold: frozenset[str]) -> AiOutcome:
+-    """只判不送(--hold-submit):清單裡的廣告被判提案時,改成不提案、原因考題結束;紀錄照記誰判的。"""
+-    if task.campaign_id in hold and isinstance(outcome.result, ProposalDecision):
+-        return AiOutcome(NoAction(), outcome.record, policy.NoActionReason.EXAM_HOLD)
+-    return outcome
+-
+-
+ def _campaign_name(evidence: tuple[Evidence, ...]) -> tuple[str | None, bool]:
+     for item in evidence:
+         if item.kind is EvidenceKind.CAMPAIGN_TEXT:
+             name = item.payload.get("name")
+             return (name if isinstance(name, str) else None), item.payload.get("truncated") is True
+     return None, False
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+index 94f5d35..2044e69 100644
+--- a/src/rtb/analyzer/flow.py
++++ b/src/rtb/analyzer/flow.py
+@@ -10,51 +10,45 @@
+ 歷史資料本身毀損讀不回來時才轉 FAILED,因為重跑同一份輸入只會再次得到同樣的結果。
+ 
+ 呼叫任何外部介面之前先在任務上取得租約(Phase 4 增量 3b,事故 F3「重複投遞不重複分析費用」):
+ 同一個任務同一時間只有一個持有有效租約的呼叫端會花錢;拿不到租約就回原狀態、什麼都不呼叫。
+ 
+ 已交給執行之後(Phase 5,事故 F4):呼叫端有給「操作查詢」時才往下走,先重送同一份提案問收件口
+ (它的處置是執行端驗證過的結果);收件表已清掉才用交接時存下的冪等鍵查 DSP。版本已變、決策過期、
+ 或清掉後 DSP 查不到寫入,就在原任務結案的同一個交易裡建接續任務重新規劃。沒給操作查詢照 Phase 4
+ 的行為停在已交給執行。
+ 
+-AI 參與決策(Phase 13 增量 2,計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈租約、逾時與停止訊號〉):
+-呼叫端給了 `ai_decide` 時,分析中那一步改問它(輸入另加續租回呼與這件工作先前各輪的調查紀錄),它回
+-「結果(既有三種決策之一,或『要再查』)+ 這一輪的調查紀錄 + 不提案原因」的外包型別;決策型別本身不動。
+-流程層持有「目前收據」容器:續租回呼成功的當下就換掉容器裡的收據,之後的提交、沒提交時的放掉、例外路徑
+-一律讀容器,續租後丟例外也不會拿舊收據寫落空。續租沒成(被接手、等鎖逾時)丟 `RenewalSkipped`,
+-分析中那一步在通用例外之前接住、這一步不寫入。流程層不匯入模型用戶端,也不匯入 AI 決策模組。
+-
+ 正式規則的規則輪(Phase 14 增量 2b,計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]):呼叫端給了
+-`rule_decide` 時,沒給 AI 的分析中那一步一律問它;給了 AI 時,只有「這一列是規則輪蒐證的」才問它、
+-不問模型
+-(AI 退回後的規則輪續步與定案);它回「結果(三種決策之一,或續步/重來 `RuleContinue`)+ 規則
+-事件 + 不提案原因」。續步沿用「分析中 → 蒐集證據」轉換,不新增狀態;
+-蒐證那一步的規則輪紀錄由證據來源放在
+-`EvidenceBatch.rule_step`,跟證據同一個交易寫。流程層不匯入決策規則與規則輪模組。
++`rule_decide` 時,分析中那一步一律問它;它回「結果(三種決策之一,或續步/重來 `RuleContinue`)+ 規則
++事件 + 不提案原因」。續步沿用「分析中 → 蒐集證據」轉換,不新增狀態;蒐證那一步的規則輪紀錄由證據來源
++放在 `EvidenceBatch.rule_step`,跟證據同一個交易寫。流程層不匯入決策規則與規則輪模組。
++
++AI 不參與決策(Phase 14 增量 3,計劃〈使用者裁定〉8):原本 Phase 13 的 `ai_decide` 參數、續租回呼、模型
++呼叫記次與 AI 那一步整段撤除;AI 調查只剩評估執行器直接呼叫 `ai_judge.Judge`(不經這裡),它用的結果型別
++(`AiContext`、`AiOutcome`、`QueryMore`)移到 `investigation`。這裡只留規則輪也用的 `NoAction`、
++`ProposalDecision`、`RuleContinue`。
+ 
+ 三個介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
+ 多個參數與語意(不是單純「一個函式」),`Protocol` 讓型別檢查器能核對實作簽章、也讓文件
+ 掛在介面本身,是刻意的選擇,不是要在專案裡另立一套慣用法;現有 `Callable` 用法(單一動作
+ 的簡單回呼)不受影響。
+ """
+ 
+ from collections.abc import Callable
+ from dataclasses import dataclass
+-from datetime import UTC, datetime
++from datetime import datetime
+ from enum import StrEnum
+ from typing import Protocol
+ 
+ from rtb.analyzer.task_store import (
+     CorruptedHistoryRow,
+     FollowUp,
+-    InvestigationRecord,
+     LeaseReceipt,
+     RawQuery,
+     ReplanReason,
+     RuleEvent,
+     RuleStep,
+     TaskNotFound,
+     TaskReads,
+     TaskRow,
+     TaskStore,
+ )
+@@ -77,81 +71,45 @@ class ProposalDecision:
+ 
+ 
+ @dataclass(frozen=True)
+ class NeedsFreshEvidence:
+     """決策層自己判斷手上的證據不夠新,要求重新蒐證;不是例外。"""
+ 
+ 
+ Decision = NoAction | ProposalDecision | NeedsFreshEvidence
+ 
+ 
+-@dataclass(frozen=True)
+-class QueryMore:
+-    """AI 選了查詢:這一步回到蒐集證據(既有的「分析中 → 蒐集證據」轉換),下一步去查(Phase 13)。"""
+-
+-
+ @dataclass(frozen=True)
+ class RuleContinue:
+     """規則輪(Phase 14 增量 2b):這一步回到蒐集證據,下一步讀規則輪的下一步(A→B→C),或作廢這一輪從 A
+     重來;是哪一種由一起寫的規則事件說明,不是「資料過期重蒐證」。沿用既有「分析中 → 蒐集證據」
+     轉換。"""
+ 
+ 
+-@dataclass(frozen=True)
+-class AiOutcome:
+-    """AI 決策函式的外包型別:結果、這一輪的調查紀錄(跟狀態列同一個交易寫)、不提案原因。結果是
+-    `RuleContinue` 時(Phase 14 增量 2b:AI 退回改由規則輪全量重讀四查詢)回到蒐集證據,下一步讀規則輪
+-    A。"""
+-
+-    result: Decision | QueryMore | RuleContinue
+-    record: InvestigationRecord | None
+-    no_action_reason: StrEnum | None = None
+-
+-
+-@dataclass(frozen=True)
+-class AiContext:
+-    """流程層交給 AI 決策函式的三樣:續租回呼(成功就換掉容器裡的收據;沒成丟 RenewalSkipped)、這件工作
+-    先前各輪的調查紀錄(從資料庫讀出的已提交列),與「確定要呼叫模型」的記次回呼(收上限,回這件工作一生
+-    第幾次模型呼叫;超過上限回上限加 1、不記;記不進去丟 RenewalSkipped,代碼審 r2 v3)。"""
+-
+-    renew: Callable[[], None]
+-    rounds: tuple[InvestigationRecord, ...]
+-    begin_call: Callable[[int], int]
+-
+-
+ @dataclass(frozen=True)
+ class RuleOutcome:
+     """規則輪決策函式的外包型別:結果(既有三種決策之一,或續步/重來)、跟狀態列同一個交易寫的規則事件、
+     不提案原因。決策型別本身不動(相等比較照舊)。"""
+ 
+     result: Decision | RuleContinue
+     event: RuleEvent | None
+     no_action_reason: StrEnum | None = None
+ 
+ 
+ class RuleDecide(Protocol):
+     def __call__(self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
+                  reads: TaskReads) -> RuleOutcome:
+         """分析中那一步的規則輪決策:reads 只拿來讀這件工作已提交的規則輪列與各步的證據、原始回應
+         (進度由已提交列重算,不持久化下一步);不寫入、不讀時鐘、不打 DSP。"""
+         ...
+ 
+ 
+-class RenewalSkipped(Exception):  # 名字照計劃(R3-2):它不是錯誤,是「這步不寫」
+-    """續租沒成(被接手或等鎖逾時),或呼叫模型之前已經收到停止:這一步不寫入、不轉失敗。"""
+-
+-
+-class AiDecide(Protocol):
+-    def __call__(self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
+-                 context: AiContext) -> AiOutcome: ...
+-
+-
+ @dataclass(frozen=True)
+ class EvidenceBatch:
+     """證據來源的外包型別(Phase 13):證據,加上追加查詢的原始回應(跟證據同一個交易寫)。"""
+ 
+     evidence: tuple[Evidence, ...]
+     raw: tuple[RawQuery, ...] = ()
+     rule_step: RuleStep | None = None  # 規則輪這一步的蒐證紀錄(Phase 14 增量 2b)
+ 
+ 
+ class EvidenceSource(Protocol):
+@@ -226,74 +184,68 @@ class OperationLookup(Protocol):
+     def __call__(self, key: str) -> DspOperation | None:
+         """查不到回 None;逾時、斷線、讀不懂一律丟例外(這一輪沒有進展)。"""
+         ...
+ 
+ 
+ class _BrokenCollaborator(Exception):
+     """協作介面回傳了合約之外的型別:這是協作介面本身的錯,不是暫時性失敗,不能重試。"""
+ 
+ 
+ class _Lease:
+-    """目前收據容器(Phase 13 [S1149]):續租成功的當下換掉;提交、放掉、例外路徑一律讀它。"""
++    """目前收據容器:提交、放掉、例外路徑一律讀它(Phase 13 的續租換收據已隨 AI 那一步撤除)。"""
+ 
+     def __init__(self, current: LeaseReceipt) -> None:
+         self.current = current
+ 
+ 
+ @dataclass(frozen=True)
+ class _Collaborators:
+     evidence_source: EvidenceSource
+     decide: Decide
+     submit: Submit
+     operation_lookup: OperationLookup | None = None  # 只有已交給執行那一步讀
+     no_action_reason: ExplainNoAction | None = None  # 只有分析中、決策是不提案時問
+-    ai_decide: AiDecide | None = None  # 給了:分析中那一步改問 AI 決策函式
+-    renew: Callable[[], None] | None = None  # 續租回呼(有 AI 決策函式才有)
+-    begin_call: Callable[[int], int] | None = None  # 呼叫模型前的記次回呼(同上)
+-    rule_decide: RuleDecide | None = None  # 給了:規則輪那幾步(沒開 AI 時是全部)走它
++    rule_decide: RuleDecide | None = None  # 給了:分析中那一步走規則輪
+ 
+ 
+ @dataclass(frozen=True)
+ class _Step:
+     """一步的結果:新狀態,以及要跟著這一列一起提交的東西(都可省略)。"""
+ 
+     new_state: TaskState
+     evidence: tuple[Evidence, ...] = ()
+     proposal: Proposal | None = None
+     error_detail: str | None = None
+     operation_key: str | None = None
+     follow_up: FollowUp | None = None
+     no_action_reason: StrEnum | None = None
+-    investigation: InvestigationRecord | None = None
+     raw: tuple[RawQuery, ...] = ()
+     rule_step: RuleStep | None = None
+     rule_event: RuleEvent | None = None
+ 
+ 
+ _StepOutcome = _Step | None
+ 
+ 
+ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、租約擁有者與操作查詢
+     store: TaskStore,
+     task_id: str,
+     evidence_source: EvidenceSource,
+     decide: Decide,
+     submit: Submit,
+     now: datetime,
+     before_commit: Callable[[], None] | None = None,
+     owner: str = "analyzer",  # 租約擁有者:比照執行側由啟動程式傳入工作者身分,這裡只當標籤
+     operation_lookup: OperationLookup | None = None,  # 不給:已交給執行的任務停在原地
+     no_action_reason: ExplainNoAction | None = None,  # 不給:不提案照舊結案,不存原因
+     expected_seq: int | None = None,  # 給了:目前那一列不是呼叫端讀到的那一列就什麼都不做
+-    ai_decide: AiDecide | None = None,  # 給了:分析中那一步改問 AI 決策函式(Phase 13)
+-    clock: Callable[[], datetime] | None = None,  # 續租讀的時鐘(拿到鎖之後才讀);不給用系統時鐘
+-    rule_decide: RuleDecide | None = None,  # 給了:分析中那一步走規則輪(Phase 14,AI 優先)
++    rule_decide: RuleDecide | None = None,  # 給了:分析中那一步走規則輪(Phase 14)
+ ) -> TaskState:
+     """讀任務目前的狀態,做狀態機的下一步,回傳新狀態(或沒有進展時的原狀態)。
+ 
+     呼叫任何外部介面之前先在任務上取得租約(Phase 4 增量 3b):拿不到就回原狀態、什麼都不
+     呼叫;這一步做完(寫入、沒進展或行程內例外)都放掉。擋住舊持有者的是租約序號(每次取得都
+     不同),不是擁有者:多個呼叫端共用同一個擁有者也分得開。行程真的猝死放不掉,租約留到到期,
+     接手者會再呼叫一次——至少一次的代價。
+     """
+     row = store.latest(task_id)
+     if row is None:
+@@ -304,77 +256,31 @@ def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、
+         return row.state
+     if row.state in TERMINAL_STATES:
+         return row.state
+     if row.state is TaskState.HANDED_OFF and operation_lookup is None:
+         return row.state
+ 
+     acquired = store.acquire_lease(task_id, owner, now)
+     if acquired is None:  # 別人正持有:不花錢,跟「沒有進展」一樣回原狀態
+         return row.state
+     lease = _Lease(acquired)
+-    tick = clock or _system_clock
+-    renew = None if ai_decide is None else _renewer(store, lease, tick)
+-    begin_call = None if ai_decide is None else _call_recorder(store, lease, tick)
+     try:
+         return _advance_holding(
+             store, row,
+             _Collaborators(evidence_source, decide, submit, operation_lookup, no_action_reason,
+-                           ai_decide, renew, begin_call, rule_decide),
++                           rule_decide),
+             now, before_commit, lease)
+     except BaseException:
+         store.release_lease_quietly(lease.current, now)  # 放掉失敗也不蓋掉原本的例外
+         raise
+ 
+ 
+-def _system_clock() -> datetime:
+-    return datetime.now(UTC)
+-
+-
+-class _StoreFailed(Exception):
+-    """續租時資料庫層丟的例外(不是鎖競爭):包起來穿過 AI 決策函式,在流程層還原成原本的例外往外丟,
+-    這一步不寫入、下一輪重試,跟沒開 AI 時一樣,不轉 FAILED(代碼審 r1 f1)。"""
+-
+-
+-def _renewer(store: TaskStore, lease: _Lease,
+-             clock: Callable[[], datetime]) -> Callable[[], None]:
+-    """續租回呼:成功就在這一刻換掉容器裡的收據;條件不符或等鎖逾時丟 RenewalSkipped;其他資料庫錯誤
+-    包成 _StoreFailed。"""
+-
+-    def renew() -> None:
+-        try:
+-            renewed = store.renew_lease(lease.current, clock)
+-        except Exception as failed:
+-            raise _StoreFailed(repr(failed)) from failed
+-        if renewed is None:
+-            raise RenewalSkipped("續租沒成:被接手或等鎖逾時")
+-        lease.current = renewed
+-
+-    return renew
+-
+-
+-def _call_recorder(store: TaskStore, lease: _Lease,
+-                   clock: Callable[[], datetime]) -> Callable[[int], int]:
+-    """確定要呼叫模型的那一刻記一次(獨立的寫入交易,交易內核對仍持有租約;代碼審 r2 v3):回這件工作
+-    一生第幾次模型呼叫,已達上限回上限加 1、不記;忙碌或失去租約丟 RenewalSkipped,不呼叫模型。"""
+-
+-    def begin_call(limit: int) -> int:
+-        try:
+-            count = store.record_model_call(lease.current, clock, limit)
+-        except Exception as failed:
+-            raise _StoreFailed(repr(failed)) from failed
+-        if count is None:
+-            raise RenewalSkipped("記不下這次模型呼叫:忙碌或失去租約")
+-        return count
+-
+-    return begin_call
+-
+-
+ def _advance_holding(
+     store: TaskStore,
+     row: TaskRow,
+     collaborators: _Collaborators,
+     now: datetime,
+     before_commit: Callable[[], None] | None,
+     lease: _Lease,
+ ) -> TaskState:
+     current = store.latest(row.task_id)
+     if current is None or current.seq != row.seq:
+@@ -384,21 +290,21 @@ def _advance_holding(
+         return row.state if current is None else current.state
+     outcome = _STEPS[row.state](store, row, collaborators, now)
+     if outcome is None:  # 這一步的結果是「不寫入,留在原狀態」
+         store.release_lease(lease.current, now)
+         return row.state
+     transition(row.state, outcome.new_state)  # 非法轉換在這裡就會炸,不會靜默寫出壞資料
+     committed = store.commit_step(
+         row.task_id, row.seq, outcome.new_state, now, before_commit=before_commit,
+         evidence=outcome.evidence, proposal=outcome.proposal, error_detail=outcome.error_detail,
+         lease=lease.current, operation_key=outcome.operation_key, follow_up=outcome.follow_up,
+-        no_action_reason=outcome.no_action_reason, investigation=outcome.investigation,
++        no_action_reason=outcome.no_action_reason,
+         raw=outcome.raw, rule_step=outcome.rule_step, rule_event=outcome.rule_event,
+     )
+     if not committed:  # 輸了序號或租約:還是自己的才放掉(條件寫在 release_lease 裡)
+         store.release_lease(lease.current, now)
+     return outcome.new_state if committed else row.state
+ 
+ 
+ def _from_received(
+     _store: TaskStore, _row: TaskRow, _c: _Collaborators, _now: datetime
+ ) -> _StepOutcome:
+@@ -421,82 +327,42 @@ def _from_collecting_evidence(
+         if not isinstance(batch.evidence, tuple) or not isinstance(batch.raw, tuple):
+             # 形狀不對也當成這次沒拿到證據:EvidenceSource 是純讀取,重試永遠安全,
+             # 不必為了型別錯誤另外走 FAILED(那是 Decide/Submit 才有的合約違反處理)。
+             raise TypeError(f"EvidenceSource 必須回傳 tuple[Evidence, ...],得到 {type(got)!r}")
+     except Exception:  # 純讀取,重試永遠安全:不寫入,留在原狀態
+         return None
+     return _Step(TaskState.ANALYZING, evidence=batch.evidence, raw=batch.raw,
+                  rule_step=batch.rule_step)
+ 
+ 
+-def _from_analyzing(  # noqa: PLR0911 - 規則輪、AI、決策各一條路,決策每種結果一個出口
++def _from_analyzing(
+     store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
+ ) -> _StepOutcome:
+     try:
+         evidence = store.evidence_for(row.task_id, row.seq)
+-        in_round = c.rule_decide is not None and (c.ai_decide is None
+-                                                  or _in_rule_round(store, row))
+     except CorruptedHistoryRow as exc:  # 存好的資料本身毀損,重試沒有用:直接轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+-    if in_round and c.rule_decide is not None:
+-        # 規則輪那一步(沒開 AI;或開了 AI、這一列是規則輪蒐證的):不問模型([S1407] 的續步那半)
++    if c.rule_decide is not None:  # 規則輪(Phase 14):正式分析一律走這裡
+         return _from_rule(store, row, c.rule_decide, evidence, now)
+-    if c.ai_decide is not None and c.renew is not None and c.begin_call is not None:
+-        return _from_ai(row, c.ai_decide, AiContext(
+-            c.renew, tuple(record for _seq, record in store.investigation_rounds(row.task_id)),
+-            c.begin_call), evidence, now)
+     try:
+         decision = c.decide(row, evidence, now)
+     except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+     if isinstance(decision, NoAction):
+         return _Step(TaskState.NO_ACTION, no_action_reason=_why_not(c, row, evidence, now))
+     if isinstance(decision, ProposalDecision):
+         return _Step(TaskState.PROPOSED, proposal=decision.proposal)
+     if isinstance(decision, NeedsFreshEvidence):
+         return _Step(TaskState.COLLECTING_EVIDENCE)
+     raise _BrokenCollaborator(f"Decide 回傳了合約之外的型別:{type(decision)!r}")
+ 
+ 
+-def _from_ai(row: TaskRow, ai_decide: AiDecide, context: AiContext,
+-             evidence: tuple[Evidence, ...], now: datetime) -> _StepOutcome:
+-    """AI 那一步:續租沒成是「這步不寫」(在通用例外之前接,[S1152]);讀資料庫與續租時的資料庫錯誤跟
+-    沒開 AI 時一樣往外丟(這步不寫、下一輪重試,代碼審 r1 f1);只有對已到手的證據做純計算那一段的
+-    例外照決策丟例外轉 FAILED;停止訊號這類 BaseException 不接,由 advance 用容器裡的收據放掉租約後
+-    往外丟。"""
+-    try:
+-        outcome = ai_decide(row, evidence, now, context)
+-        if not isinstance(outcome, AiOutcome):
+-            raise _BrokenCollaborator(f"AI 決策函式回傳了合約之外的型別:{type(outcome)!r}")
+-    except RenewalSkipped:
+-        return None
+-    except _StoreFailed as failed:
+-        cause = failed.__cause__
+-        raise cause if isinstance(cause, Exception) else failed from None
+-    except Exception as exc:  # 對已到手的證據做純計算的那一半出錯:同決策丟例外,轉 FAILED
+-        return _Step(TaskState.FAILED, error_detail=repr(exc))
+-    result, record = outcome.result, outcome.record
+-    if isinstance(result, NoAction):
+-        return _Step(TaskState.NO_ACTION, investigation=record,
+-                     no_action_reason=outcome.no_action_reason)
+-    if isinstance(result, ProposalDecision):
+-        return _Step(TaskState.PROPOSED, proposal=result.proposal, investigation=record)
+-    if isinstance(result, NeedsFreshEvidence | QueryMore | RuleContinue):
+-        return _Step(TaskState.COLLECTING_EVIDENCE, investigation=record)
+-    raise _BrokenCollaborator(f"AI 決策函式回傳了合約之外的結果:{type(result)!r}")
+-
+-
+-def _in_rule_round(store: TaskStore, row: TaskRow) -> bool:
+-    """這一列分析中的證據是規則輪某一步蒐的(已提交的規則輪步驟表有這個序號)。"""
+-    return any(seq == row.seq for seq, _step in store.rule_steps(row.task_id))
+-
+-
+ def _from_rule(store: TaskStore, row: TaskRow, rule_decide: RuleDecide,
+                evidence: tuple[Evidence, ...], now: datetime) -> _StepOutcome:
+     """規則輪那一步(Phase 14 增量 2b):已存資料毀損 → FAILED(同決策);其餘例外同決策丟例外轉
+     FAILED。"""
+     try:
+         outcome = rule_decide(row, evidence, now, store)
+         if not isinstance(outcome, RuleOutcome):
+             raise _BrokenCollaborator(f"規則輪決策函式回傳了合約之外的型別:{type(outcome)!r}")
+     except _BrokenCollaborator:
+         raise
+diff --git a/src/rtb/analyzer/instrumented.py b/src/rtb/analyzer/instrumented.py
+index aeaf2ff..758416a 100644
+--- a/src/rtb/analyzer/instrumented.py
++++ b/src/rtb/analyzer/instrumented.py
+@@ -123,21 +123,23 @@ class InstrumentedOperationLookup:
+     def _record(self, outcome: str, started: float) -> None:
+         latency_ms = (time.monotonic() - started) * 1000
+         self._store.record_tool_call(
+             self._task.task_id, self._task.seq, self._endpoint, outcome, latency_ms,
+             datetime.now(UTC))
+ 
+ 
+ def investigation_source(
+     store: TaskStore, base_url: str, timeout_seconds: float,
+ ) -> Callable[[TaskRow, datetime], EvidenceBatch]:
+-    """開了 AI 決策時的證據來源(Phase 13 增量 2,計劃〈一件工作的一生〉第 1 步):照舊讀現況與 1 小時
++    """開了 AI 決策時的證據來源(Phase 13 增量 2,計劃〈一件工作的一生〉第 1 步)。**Phase 14 增量 3 起
++    沒有正式入口**:分析端驅動拔掉 --ai-judge 後固定用 `rule_source`;增量 3 逐項清單沒有列到這支,
++    留待協調者裁定刪或留(見 [[Verification/Phase14增量3驗證紀錄]])。原說明:照舊讀現況與 1 小時
+     指標,**加上重讀**這件工作先前 AI 選過的每一個查詢,每次讀取各記一筆呼叫紀錄。AI 已用過(退回過或
+     下過結論)之後改讀規則輪的下一步(Phase 14 增量 2b:退回開新規則輪全量重讀四查詢,409 退回也是;原
+     [S1138]「只讀基本兩樣」撤除)。追加查詢查不到、逾時、欄位不合格記成一筆沒有結果的收據,不讓
+     整步失敗([S1132]);原始回應跟證據同一個交易寫進調查原始資料表([S1151])。"""
+ 
+     def _on_call(task: TaskRow, endpoint: ToolEndpoint, outcome: str, latency_ms: float) -> None:
+         store.record_tool_call(task.task_id, task.seq, endpoint, outcome, latency_ms,
+                                datetime.now(UTC))
+ 
+     base_source = dsp_client.make_client(base_url, timeout_seconds, on_call=_on_call)
+diff --git a/src/rtb/analyzer/investigation.py b/src/rtb/analyzer/investigation.py
+index a236fa1..ee2a5d4 100644
+--- a/src/rtb/analyzer/investigation.py
++++ b/src/rtb/analyzer/investigation.py
+@@ -4,36 +4,40 @@
+ 這支檔**不碰模型**(匯入閉包不含模型閘道與模型用戶端,[S1100]):AI 決策函式在另一支模組(`ai_judge`),
+ 展示流程圖與展示觀察器也讀這裡的列舉,展示伺服器行程因此不會載入模型用戶端。
+ 
+ - 選項:四個唯讀查詢(每個一件工作最多選一次)、三個結論。一件工作一生最多 3 輪模型呼叫、最多查 3 個
+   查詢;第 3 輪、或已查滿 3 個時,允許清單只剩結論([S1109])。輪數以已提交的調查紀錄累計。
+ - 收據:程式從原始回應算的扁平字串(比率與百分比、金額、計數都經領域層的指標模組,[S1147]);原始回應
+   另存調查原始資料表,送給模型的只有收據([S1129])。參照代號就是選項代碼,1 小時基本證據叫 base。
+ - 回答:恰好 choice、reason、evidence 三欄的 JSON;選項要在這一輪允許清單裡;理由不超過 200 字、
+   不含換行與不可列印字元;證據逐項核對(參照、欄位、數值逐字相同、不是 na、不是沒有結果收據的欄位)。
+   任一條不過都是「選項外答案」([S1105] [S1131])。
++- AI 調查的結果型別(`QueryMore`、`AiContext`、`AiOutcome`;Phase 14 增量 3 從流程層搬來):
++  AI 退出正式與展示的加額決策後,只有評估執行器直接呼叫 `ai_judge.Judge` 時用,
++  流程層不再有 AI 那一步。
+ """
+ 
+ import hashlib
+ import json
+ import unicodedata
+-from collections.abc import Iterable, Mapping, Sequence
++from collections.abc import Callable, Iterable, Mapping, Sequence
+ from dataclasses import dataclass
+ from datetime import datetime, timedelta
+ from enum import StrEnum
+ from fractions import Fraction
+ from types import MappingProxyType
+ from typing import Any
+ 
++from rtb.analyzer.flow import Decision, RuleContinue
++from rtb.analyzer.task_store import InvestigationRecord
+ from rtb.domain import metrics as m
+ from rtb.domain import nine_rules as rules
+-from rtb.domain._checks import is_id
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass, quoted_untrusted
+ 
+ # ---- 選項與上限 ----
+ 
+ 
+ class QueryOption(StrEnum):
+     """查詢選項(程式替 AI 做的唯讀查詢);競價環境與素材疲乏照使用者裁定 4 不加。"""
+ 
+     CHECK_LONGER_WINDOW = "check_longer_window"
+     CHECK_CHANGE_HISTORY = "check_change_history"
+@@ -81,22 +85,22 @@ class RecordKind(StrEnum):
+     FALLBACK = "fallback"
+ 
+ 
+ class DecidedBy(StrEnum):
+     AI = "ai"
+     RULE = "rule"
+ 
+ 
+ BASE_REF = "base"  # 1 小時基本證據(現況加 1 小時指標)的參照代號
+ AI_QUERY = "ai_query"  # 「AI 要再查」那一步調查紀錄列的原因代碼
+-# 退回紀錄的結果代碼:改由規則輪全量重讀四查詢再定案(Phase 14 增量 2b;展示觀察器也讀,
+-# 所以放在不碰模型的這支檔)
++# 退回紀錄的結果代碼:需要四查詢才判得出(Phase 14 增量 2b 起;增量 3 後只有評估執行器用,遇到就改取
++# 案例的九條結果 `rule_verdict(case)`,不開規則輪)
+ RULE_ROUND = "rule_round"
+ MAX_ROUNDS = 3  # 一件工作一生最多幾輪模型呼叫(最多兩輪查詢加一輪結論)
+ MAX_QUERIES = 3  # 一件工作最多查幾個查詢選項(使用者裁定 10)
+ MAX_EVIDENCE_ITEMS = 5
+ MAX_REASON_CHARS = 200
+ BASE_READS = 2  # 蒐證那一步的基本讀取:現況與 1 小時指標
+ READS_PER_OPTION: Mapping[QueryOption, int] = MappingProxyType({
+     QueryOption.CHECK_LONGER_WINDOW: 2,  # 1 天與 7 天各讀一次
+     QueryOption.CHECK_CHANGE_HISTORY: 1,
+     QueryOption.CHECK_DAILY_TREND: 1,
+@@ -107,32 +111,52 @@ MAX_COLLECT_READS = BASE_READS + sum(sorted(READS_PER_OPTION.values(), reverse=T
+ RECENT_DAYS = rules.RECENT_DAYS  # 收據與九條判斷共用切點,SYSTEM_PROMPT 位元組不變
+ 
+ RECEIPT_KIND: Mapping[QueryOption, EvidenceKind] = MappingProxyType({
+     QueryOption.CHECK_LONGER_WINDOW: EvidenceKind.LONGER_WINDOW,
+     QueryOption.CHECK_CHANGE_HISTORY: EvidenceKind.CHANGE_HISTORY,
+     QueryOption.CHECK_DAILY_TREND: EvidenceKind.DAILY_TREND,
+     QueryOption.CHECK_PAST_ADJUSTMENTS: EvidenceKind.PAST_ADJUSTMENTS,
+ })
+ OPTION_OF_KIND: Mapping[EvidenceKind, QueryOption] = MappingProxyType(
+     {kind: option for option, kind in RECEIPT_KIND.items()})
+-# 傳給現行決策函式、不提案原因函式與建提案函式的證據只有這三種(不論開不開 AI,[S1115])
++# AI 調查(評估)送進程式前置過濾的證據只有這三種([S1115];Phase 14 增量 3 後只剩評估的 Judge 用,
++# 正式規則輪另讀同輪四查詢)
+ CODE_RULE_KINDS = frozenset({EvidenceKind.CAMPAIGN_STATE, EvidenceKind.METRICS,
+                              EvidenceKind.CAMPAIGN_TEXT})
+ RAW_ROWS = "raw_rows"  # 收據裡記原始筆數的那一欄:給提示用,不算收據欄位、不能被引用
+ _OPTION_CODES = frozenset(o.value for o in QueryOption)
+ _CONCLUSION_CODES = frozenset(c.value for c in Conclusion)
+ 
+ 
+-def hold_list(text: str) -> frozenset[str] | None:
+-    """--hold-submit 的廣告清單(逗號分隔);有任何一項不是合法的廣告編號就回 None。"""
+-    items = [item for item in text.split(",") if item]
+-    return frozenset(items) if all(is_id(item) for item in items) else None
++@dataclass(frozen=True)
++class QueryMore:
++    """AI 選了查詢:評估執行器從案例取這一輪選的查詢結果,再問一次(Phase 13;原為流程層型別)。"""
++
++
++@dataclass(frozen=True)
++class AiContext:
++    """評估執行器交給 AI 決策函式的兩樣:這件工作先前各輪的調查紀錄,與「確定要呼叫模型」的記次
++    回呼(收上限,回這件工作一生第幾次模型呼叫;超過上限回上限加 1、不記)。Phase 13 的續租回呼
++    隨流程層 AI 那一步撤除(Phase 14 增量 3)。"""
++
++    rounds: tuple[InvestigationRecord, ...]
++    begin_call: Callable[[int], int]
++
++
++@dataclass(frozen=True)
++class AiOutcome:
++    """AI 決策函式的外包型別:結果、這一輪的調查紀錄、不提案原因。結果是 `RuleContinue` 表示
++    需要四查詢的九條才判得出(評估改取案例的九條結果)。"""
++
++    result: Decision | QueryMore | RuleContinue
++    record: InvestigationRecord | None
++    no_action_reason: StrEnum | None = None
+ 
+ 
+ def code_rule_evidence(evidence: Iterable[Evidence]) -> tuple[Evidence, ...]:
+     """只留現況、1 小時指標、廣告文字三種;追加查詢的收據一律濾掉(含過期的)。"""
+     return tuple(item for item in evidence if item.kind in CODE_RULE_KINDS)
+ 
+ 
+ @dataclass(frozen=True)
+ class Progress:
+     """從這件工作的調查紀錄算出來的進度(以已提交的紀錄累計,不看這次進分析是第幾次)。"""
+diff --git a/src/rtb/analyzer/modelgate.py b/src/rtb/analyzer/modelgate.py
+index 76cab2d..5a7d23e 100644
+--- a/src/rtb/analyzer/modelgate.py
++++ b/src/rtb/analyzer/modelgate.py
+@@ -9,27 +9,26 @@
+ 全齊才即時,
+   否則錄製並帶原因)。claude 的絕對路徑在這裡用呼叫端給的環境的 PATH 找,模型用戶端自己不查 PATH。
+ - 帳檔:即時模式寫死帳號家目錄那一本,不接受換路徑;錄製模式可以換(一鍵展示把錄製重播的 0 元紀錄導到
+   這次展示的暫存目錄,Phase 12 [S1030];Phase 13 [S1102])。
+ - 錄製目錄:沒給就用專案根的 recordings/model/。
+ - 停止訊號:模型呼叫期間的 SIGTERM 由模型用戶端轉成 `CallTerminated`(繼承 BaseException),這裡原樣轉手
+   給呼叫端;閘道與它的呼叫端都不從模型後端匯入任何名字([S1154])。
+ """
+ 
+ import shutil
+-from collections.abc import Mapping
++from collections.abc import Callable, Mapping
+ from dataclasses import dataclass
+ from pathlib import Path
+ 
+ # 只轉手型別與函式,不綁模型用戶端的模組物件(代碼審 r1:公開模組物件就能經 modelgate.mc 繞過閘道)
+ from rtb.modelclient import NUMERALS_RULE as NUMERALS_RULE
+-from rtb.modelclient import SCRATCH_LEDGER_NOTICE as SCRATCH_LEDGER_NOTICE
+ from rtb.modelclient import Caller as Caller
+ from rtb.modelclient import CallTerminated as CallTerminated
+ from rtb.modelclient import LedgerBusy as LedgerBusy
+ from rtb.modelclient import LoginPreflight as LoginPreflight
+ from rtb.modelclient import (
+     MixedRecordingsDir,
+     ModelRequest,
+     Settings,
+     call_deadline_seconds,
+     call_model,
+@@ -40,21 +39,21 @@ from rtb.modelclient import (
+ )
+ from rtb.modelclient import Mode as Mode
+ from rtb.modelclient import ModelCallFailed as ModelCallFailed
+ from rtb.modelclient import ModelResult as ModelResult
+ from rtb.modelclient import Outcome as Outcome
+ from rtb.modelclient import Placeholders as Placeholders
+ from rtb.modelclient import Preflight as Preflight
+ from rtb.modelclient import Source as Source
+ from rtb.modelclient import UnknownModel as UnknownModel
+ from rtb.modelclient import preflight_login as _preflight_login
+-from rtb.modelclient import recorded_scratch_ledger as recorded_scratch_ledger
++from rtb.modelclient import recorded_ledger as _resolve_recorded_ledger
+ from rtb.modelclient import traceable_sentences as traceable_sentences
+ 
+ 
+ class GateRefused(ValueError):
+     """入口參數跟模式對不上(例如即時模式還給了帳檔路徑):拒絕啟動,什麼都沒呼叫。"""
+ 
+ 
+ @dataclass(frozen=True)
+ class Gate:
+     """一個入口行程判好的模型設定;之後每一次呼叫都沿用,不再重判模式。呼叫者標籤在開閘道時綁死,
+@@ -100,36 +99,38 @@ class Gate:
+         except MixedRecordingsDir as mixed:
+             raise GateRefused(f"錄製目錄不能開錄:{mixed}") from mixed
+ 
+     def preflight_login(self) -> LoginPreflight:
+         """啟動時的登入預檢(即時模式才真的檢查,錄製模式回不適用)。"""
+         return _preflight_login(self.settings)
+ 
+ 
+ def open_gate(environ: Mapping[str, str], *, caller: Caller, demo_id: str | None,  # noqa: PLR0913 - 入口判模式要的每一樣
+               ledger: Path | None, recordings: Path | None, batch_id: str | None = None,
+-              recorded_ledger: Path | None = None) -> Gate:
++              recorded_ledger: Path | None = None,
++              notify: Callable[[str], None] | None = None) -> Gate:
+     """在入口判一次模式。RTB_MODEL 指定的模型不在價目表丟 UnknownModel;即時模式給了帳檔路徑、
+     或即時加錄製卻沒帶批次、錄製目錄不是新的(空的或只有同一批的錄製檔),丟 GateRefused:
+     在入口拒絕,不等到第一次呼叫才失敗(代碼審 r1,比照 [S1142])。
+     預設的錄製目錄是專案根的入庫目錄,只供重播。recorded_ledger:判成錄製時才用的帳檔,判成即時就
+     忽略、照舊用帳號家目錄那一本(Phase 13 增量 4 代碼審 r1 h1:呼叫端不猜模式,一律給,由這裡決定)。"""
+     claude = shutil.which("claude", path=environ.get("PATH", ""))
+     settings = settings_from_env(environ, demo_id, claude)
+     folder = Path(recordings) if recordings is not None else default_recordings_dir()
+     if settings.mode is Mode.LIVE and ledger is not None:
+         raise GateRefused("即時模式的花費帳寫死在帳號家目錄那一本,不接受換帳檔路徑")
+     if settings.mode is Mode.LIVE and settings.record:
+         try:
+             check_recordings_dir(folder, batch_id)
+         except MixedRecordingsDir as mixed:
+             raise GateRefused(f"即時加錄製模式拒絕啟動:{mixed}") from mixed
+     if not isinstance(caller, Caller):
+         raise GateRefused("呼叫者必須是封閉列舉的成員")
+-    chosen = ledger if ledger is not None else (
+-        recorded_ledger if settings.mode is Mode.RECORDED else None)
+-    if settings.mode is Mode.RECORDED and chosen is None:
+-        # 錄製模式不退回帳號家目錄那一本(Phase 14 代碼審 r2):入口要自己給帳本(命令列沒帶就用
+-        # recorded_scratch_ledger 的暫存帳本)
++    given = ledger if ledger is not None else recorded_ledger
++    if settings.mode is Mode.RECORDED and given is None and notify is None:
++        # 錄製模式不退回帳號家目錄那一本(Phase 14 代碼審 r2):入口要給帳本,或給 notify 讓這裡(判出
++        # 模式之後)照共用的 recorded_ledger 建暫存帳本並通知(代碼審 r3)
+         raise GateRefused("錄製模式要指定帳本(--ledger 或 --recorded-ledger),不寫帳號家目錄那一本")
++    chosen = ledger if ledger is not None else _resolve_recorded_ledger(
++        settings.mode, recorded_ledger, notify or (lambda _text: None))
+     return Gate(settings, caller, demo_id,
+                 Path(chosen) if chosen is not None else live_ledger_path(), folder, batch_id)
+diff --git a/src/rtb/analyzer/narrate.py b/src/rtb/analyzer/narrate.py
+index fe5c698..0a88cf9 100644
+--- a/src/rtb/analyzer/narrate.py
++++ b/src/rtb/analyzer/narrate.py
+@@ -220,45 +220,35 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
+                              "即時加錄製要給新目錄)")
+     parser.add_argument("--batch-id", help="錄製批次;即時加錄製模式必填")
+     parser.add_argument("--owner", default=None)
+     return parser.parse_args(argv)
+ 
+ 
+ def _now() -> datetime:
+     return datetime.now(UTC)
+ 
+ 
+-def _recorded_ledger(args: argparse.Namespace, errors: TextIO) -> Path | None:
+-    """判成錄製時用的帳本:命令列給的,或(都沒給時)這次執行專屬的暫存帳本,不退回真帳本(Phase 14
+-    代碼審 r2)。判成即時時閘道忽略它。"""
+-    if args.recorded_ledger is not None or args.ledger is not None:
+-        given: Path | None = args.recorded_ledger
+-        return given
+-    scratch = modelgate.recorded_scratch_ledger()
+-    print(modelgate.SCRATCH_LEDGER_NOTICE.format(path=scratch), file=errors)
+-    return scratch
+-
+-
+ def run(argv: list[str] | None = None, *, environ: Mapping[str, str] | None = None,
+         out: TextIO | None = None, err: TextIO | None = None,
+         clock: Callable[[], datetime] = _now) -> int:
+     args = _parse(argv)
+     errors = err or sys.stderr
+     if not args.db.is_file():  # 不替它建新的資料庫
+         print(f"找不到分析端資料庫:{args.db}", file=errors)
+         return EXIT_NO_DATABASE
+     try:
+         gate = modelgate.open_gate(os.environ if environ is None else environ,
+                                    caller=modelgate.Caller.NARRATIVE,
+                                    demo_id=args.demo_id, ledger=args.ledger,
+                                    recordings=args.recordings_dir, batch_id=args.batch_id,
+-                                   recorded_ledger=_recorded_ledger(args, errors))
++                                   recorded_ledger=args.recorded_ledger,
++                                   notify=lambda text: print(text, file=errors))
+     except (modelgate.UnknownModel, modelgate.GateRefused) as refused:
+         print(f"參數錯誤:{refused}", file=errors)
+         return EXIT_BAD_ARGUMENTS
+     window = tasks.NARRATIVE_CLAIM_WINDOW.total_seconds()
+     if not gate.deadline_seconds(TIMEOUT_SECONDS) + MARGIN_SECONDS < window:
+         print(f"拒絕啟動:模型呼叫的總期限加 {MARGIN_SECONDS:.0f} 秒餘裕不小於領取期限 "
+               f"{window:.0f} 秒", file=errors)
+         return EXIT_UNSAFE_CONFIG
+     for notice in gate.notices:
+         print(notice, file=errors)
+diff --git a/src/rtb/analyzer/policy.py b/src/rtb/analyzer/policy.py
+index 29165f0..7ab5a07 100644
+--- a/src/rtb/analyzer/policy.py
++++ b/src/rtb/analyzer/policy.py
+@@ -137,24 +137,22 @@ class RouteResult:
+ 
+ class NoActionReason(StrEnum):
+     """評估用的「為什麼沒提案」;不放進決策結果(不做那個型別不加欄位,相等比較照舊)。"""
+ 
+     STALE_EVIDENCE = "stale_evidence"
+     MISSING_STATE_OR_METRICS = "missing_state_or_metrics"
+     PACING_UNKNOWN = "pacing_unknown"
+     NOT_UNDERPACING = "not_underpacing"
+     JUDGED_NOT_WORTH = "judged_not_worth"
+     JUDGED_INSUFFICIENT = "judged_insufficient"
+-    # 考題結束(Phase 13 增量 2,[S1156]):分析端驅動帶 --hold-submit 時,清單裡的廣告不論 AI 或規則判
+-    # 提案都不送件、以不提案結案。現行規則永遠產不出它([S705] 照 Phase 13 改寫排除它);AI 的兩個結論
+-    # 沿用上面的「判不值得加」「判證據不足」,來源記在調查紀錄
+-    EXAM_HOLD = "exam_hold"
++    # Phase 13 的「考題結束」(exam_hold,--hold-submit)在 Phase 14 增量 3 撤除([S1156] [S1421]):AI
++    # 退出加額決策後沒有考題用途。舊資料庫裡寫過的 exam_hold 字串照樣唯讀留著(不提案原因表存字串)
+ 
+ 
+ # 評估轉接器明傳的「沒有四查詢」(Phase 10 舊情境只有 1 小時資料,[S1417]):不假造查詢結果,
+ # 暫停/異常照第 1/2 條先判,其餘都是證據不足
+ MISSING_FOUR_QUERIES = rules.RuleEvidence()
+ 
+ 
+ def code_rule(worth_input: WorthInput, queries: rules.RuleEvidence, now: datetime) -> WorthVerdict:
+     """正式程式規則(九條,Phase 14):四查詢由呼叫端明傳;缺就明傳 MISSING_FOUR_QUERIES。"""
+     return rules.decide(worth_input, queries, now).verdict
+@@ -216,21 +214,21 @@ def _has_state(state: dict[str, Any] | None) -> bool:
+     return state is not None and state.get("status") in {s.value for s in CampaignStatus}
+ 
+ 
+ @dataclass(frozen=True)
+ class PolicySteps:
+     """決策規則每一步的中間事實,照規則的順序,停在做出決定的那一步(後面的是空的)。給 `explain`
+     自己用,也給展示頁重算判斷的根據(Phase 12 代碼審 r1 a1:外面不再直接呼叫這裡的私有函式、
+     也不再自己另算一次配速)。唯讀:不寫任何東西、不讀時鐘。
+ 
+     Phase 14:`rule` 是九條的結論(暫停/異常在配速之前就有;其餘在配速偏低、給了四查詢才有);
+-    配速照舊算出來(AI 前置過濾與展示要看),暫停/異常時不影響結論。"""
++    配速照舊算出來(評估的 AI 前置過濾與展示要看),暫停/異常時不影響結論。"""
+ 
+     fresh: bool  # 每一筆證據都夠新
+     state: MappingProxyType[str, Any] | None  # 可信的廣告現況(沒有或狀態不合法就是空的)
+     metrics: MappingProxyType[str, Any] | None  # 可信的成效資料
+     pacing_ratio: float | None  # 到現在該花的進度(算不出來是空的)
+     underpacing: bool | None  # 花太慢嗎;算不出來是空的
+     worth: WorthVerdict | None  # 值不值得加(暫停/異常,或花太慢而且給了四查詢時才判)
+     rule: rules.RuleDecision | None = None  # 九條的結論(同上)
+ 
+     @property
+@@ -322,21 +320,21 @@ def explain(  # noqa: PLR0911 - 每個出口對應一種不做的原因
+     verdict = facts.worth
+     if verdict is not WorthVerdict.WORTH:
+         return NoAction(), _verdict_reason(verdict)
+ 
+     return ProposalDecision(build_proposal(task, evidence, state, now)), None
+ 
+ 
+ def build_proposal(task: TaskRow | None, evidence: tuple[Evidence, ...],
+                    state: Mapping[str, Any], now: datetime) -> Proposal:
+     """照公式建提案(Phase 13 增量 2 從 `explain` 抽出,[S1107]):Phase 14 起只有規則(規則輪定案)會建
+-    提案;AI 答 propose 也是開規則輪、九條判值得加才由規則輪經這裡建,沒有「AI 直接提案」這條路。
++    提案;增量 3 起 AI 不參與加額決策,沒有任何 AI 提案或 AI 開輪的路。
+     證據參照列的是傳進來的每一筆:規則輪傳 C 的基本三筆加四種成功查詢的收據([S1107] 改寫)。"""
+     budget = state.get("budget")
+     if task is None:
+         raise AssertionError("有真的證據可以決策,task 不該是 None")
+     if not is_plain_number(budget):  # underpacing 已經驗過,這裡只是給型別檢查看
+         raise AssertionError("underpacing 為 True 時 budget 一定是數字")
+     # 小額預算乘 1.1 四捨五入可能還是原值(例如 1、2),那就不是「調高」;用 max 保證至少 +1。
+     # 上限截在 Proposal 允許的最大值:budget 已經逼近上限時,示範規則寧可送出「漲到上限」的
+     # 提案,也不要讓 Proposal 建構式丟例外、被上層的廣義例外處理悶成 FAILED。
+     new_budget = min(max(round(budget * (1 + BUDGET_INCREASE_FRACTION)), int(budget) + 1),
+diff --git a/src/rtb/analyzer/rule_round.py b/src/rtb/analyzer/rule_round.py
+index 03c82d9..bb11fa1 100644
+--- a/src/rtb/analyzer/rule_round.py
++++ b/src/rtb/analyzer/rule_round.py
+@@ -10,22 +10,22 @@
+   1 小時五項原始指標;C 缺可信現況就以缺現況結案,不沿用 A 的([S1404]);四查詢從同一輪 B/C 已存的原始
+   回應轉成領域型別,交給 `policy.explain` 判九條([S1402] [S1406])。
+ - 進度一律由已提交列重算([S1413]):取最新一輪;這一輪有非「續步」的事件、或任一步不是目前政策版本,就算
+   已作廢,下一次蒐證開新輪從 A 讀([S1424])。同一步重複只取最新序號。不持久化「下一步」。
+ - 重來:證據過期、版本或基本資料變動、409 退回(定案事件已寫,這一輪不再用),都開新輪從 A 全量重讀;
+   版本/基本資料變動連續重來最多 2 次,第 2 次重來後再變動就以證據不足結案(MAX_CHANGE_RESTARTS)。
+ 
+ 進度與蒐證計畫是純函式(呼叫端先讀出已提交記錄,同 `investigation.progress` 的慣例);`decide` 讀一次
+ 這件工作的規則輪記錄,再視需要讀各步證據與原始回應;不寫入、不讀時鐘。蒐證那一步怎麼打 DSP 在
+ `instrumented.rule_source`(C 步先讀查詢、最後重讀現況與 1 小時,讓 A/C 比對涵蓋查詢期間的變動)。
+-AI 路徑:退回、AI 用過之後、AI 答 propose 都開這個規則輪(propose 由規則否決或放行),規則輪那幾步由
+-流程層直接問這裡、不經 AI 決策函式。
++Phase 14 增量 3 起 AI 不參與加額決策:正式分析一律走這個規則輪,沒有 AI 開輪、AI 否決或 AI 期證據
++(舊資料庫若有 AI 期的分析列,照「不屬於目前這一輪」作廢、從 A 重讀)。
+ """
+ 
+ import json
+ from collections.abc import Mapping, Sequence
+ from dataclasses import dataclass
+ from datetime import datetime
+ from enum import StrEnum
+ from typing import Any
+ 
+ from rtb.analyzer import investigation as inv
+@@ -70,21 +70,21 @@ def declared_reads(step: Step) -> int:
+     return (READS_BASE if STEP_BASE[step] else 0) + sum(
+         inv.READS_PER_OPTION[option] for option in STEP_QUERIES[step])
+ 
+ 
+ class Event(StrEnum):
+     """規則輪事件(封閉列舉):續步、各種重來、定案。"""
+ 
+     CONTINUE = "continue"  # 規則查詢續步(A→B、B→C),不是資料過期重蒐證
+     RESTART_STALE = "restart_stale"  # 證據過期(含當機續跑超過 15 分鐘)
+     RESTART_CHANGED = "restart_changed"  # A 與 C 的版本或基本資料不同
+-    RESTART_NO_ROUND = "restart_no_round"  # 分析中那一列不屬於目前這一輪(舊政策、舊兩讀、AI 期證據)
++    RESTART_NO_ROUND = "restart_no_round"  # 分析中那一列不屬於目前這一輪(舊政策、舊兩讀、舊 AI 期)
+     CHANGED_LIMIT = "changed_limit"  # 連續變動超過上限,以證據不足結案
+     DECIDED = "decided"  # 定案(提案或不提案);之後 409 退回蒐證也不再用這一輪
+ 
+ 
+ @dataclass(frozen=True)
+ class Progress:
+     """從已提交列算出來的規則輪進度。"""
+ 
+     round_id: int  # 目前這一輪(沒有未作廢的輪時是下一輪要用的編號)
+     open: bool  # 這一輪還能續
+diff --git a/src/rtb/analyzer/runner.py b/src/rtb/analyzer/runner.py
+index fcf5ef6..1b0e7c0 100644
+--- a/src/rtb/analyzer/runner.py
++++ b/src/rtb/analyzer/runner.py
+@@ -1,82 +1,53 @@
+ """分析端驅動命令列(Phase 12 增量 1,正式入口):反覆領取待推進的任務,用正式的 DSP 用戶端與收件口
+ 用戶端呼叫流程推進函式,直到收到停止訊號(或跑滿指定輪數)。跟測試用同一支推進函式、同一套租約;
+ 這是正式程式,不帶任何故障手段([S1000])。
+ 
+ 租約長度與呼叫逾時的機械守衛([S1001]):基本那一步兩次讀 DSP 或一次送件
+ (規則輪 C 最多 5 讀,另守 [S1405]),呼叫次數 乘 單次逾時 乘 2
+ 要小於租約,否則一步還沒做完租約就到期、被別人接手,同一件工作會花兩次錢;不成立就拒絕啟動。
+ 
+-正式規則的規則輪(Phase 14 增量 2b,計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]):沒開 AI
+-時蒐證走
+-`instrumented.rule_source`、分析走 `rule_round.decide`,九條要的四查詢分 A/B/C 三步讀(2/2/5 讀);開
+-AI 時
+-AI 退回或用過之後也走同一個規則輪(規則輪定案照樣受 --hold-submit 攔);守衛另對
+-每一步檢查「取租約等鎖 + 讀取次數 乘(逾時 + 呼叫紀錄等鎖)+ 提交等鎖」小於租約([S1405]),預設逾時 3 秒
+-時 26/26/50 秒,自訂逾時讓任一步不符就拒絕啟動並說是哪一步。
+-
+-AI 參與決策(Phase 13 增量 2,計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]):帶 `--ai-judge` 才開,另收
+-`--demo-id`、`--ledger`、`--recordings-dir`、`--batch-id`、`--hold-submit`;沒開就是原本的行為,守衛照舊
+-只看 [S1001]。開了之後:
+-- 守衛兩條都要成立,逐項加總、數字都取自真常數([S1113]):蒐證那一步(取租約等鎖、最多 6 次讀取
+-  各自的 DSP 逾時加呼叫紀錄等鎖、提交等鎖)與 AI 那一步(續租讀時鐘後的模型逾時、行程群組清理、
+-  花費帳等鎖、提交等鎖)都要小於租約。
+-- 模式經模型閘道在啟動時判一次,之後每一輪沿用([S1137]);即時加錄製沒帶批次編號、或錄製目錄混了別批,
+-  拒絕啟動([S1142])。印出就緒之後、取任何租約之前做一次登入預檢;沒過整趟用程式規則([S1160])。
+-- 模型呼叫在這個行程的主執行緒;停止訊號在呼叫途中轉成的例外由模型閘道轉手,這裡明接:流程層已用目前
+-  收據放掉租約、這一步沒寫,以 0 結束([S1116])。每一步都把時鐘函式與停止旗標的查詢函式傳下去。
++正式規則的規則輪(Phase 14 增量 2b,計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]):
++蒐證走 `instrumented.rule_source`、分析走 `rule_round.decide`,九條要的四查詢分 A/B/C 三步讀
++(2/2/5 讀);守衛另對每一步檢查「取租約等鎖 + 讀取次數 乘(逾時 + 呼叫紀錄等鎖)+ 提交等鎖」
++小於租約([S1405]),預設逾時 3 秒時 26/26/50 秒,自訂逾時讓任一步不符就拒絕啟動並說是哪一步。
++
++AI 不參與決策(Phase 14 增量 3,計劃〈使用者裁定〉8):Phase 13 的 `--ai-judge`、`--hold-submit` 與模型
++相關參數、AI 那一步的租約守衛、登入預檢與模式行整段撤除;這支檔不匯入 AI 決策模組與模型閘道(邊界
++測試守),每一步固定用規則輪。
+ """
+ 
+ import argparse
+-import json
+ import math
+ import os
+ import signal
+ import sys
+ import time
+-from collections.abc import Callable, Mapping
++from collections.abc import Callable
+ from dataclasses import dataclass, field
+ from datetime import UTC, datetime
+ from enum import StrEnum
+ from pathlib import Path
+ from types import FrameType
+ from typing import Protocol, TextIO
+ 
+-from rtb.analyzer import (
+-    ai_judge,
+-    dsp_client,
+-    flow,
+-    inbox_client,
+-    instrumented,
+-    investigation,
+-    modelgate,
+-    policy,
+-    rule_round,
+-)
++from rtb.analyzer import dsp_client, flow, inbox_client, instrumented, policy, rule_round
+ from rtb.analyzer.task_store import LEASE_DURATION, TaskRow, TaskStore, ToolEndpoint
+ from rtb.domain.evidence import Evidence
+ from rtb.domain.task_state import TaskState
+-from rtb.stepbudget import (
+-    CALLS_PER_STEP,
+-    DEFAULT_TIMEOUT_SECONDS,
+-    ai_step_worst_seconds,
+-    collect_step_worst_seconds,
+-    rule_step_worst_seconds,
+-)
++from rtb.stepbudget import CALLS_PER_STEP, DEFAULT_TIMEOUT_SECONDS, rule_step_worst_seconds
+ 
+ READY = "READY"
+-MODEL_LINE = "MODEL"  # 開了 AI 決策時就緒之後那一行的開頭:後面是這一趟判出的模式與原因(一行 JSON)
+ MIN_TIMEOUT_SECONDS = 0.1  # 比這小的逾時每次呼叫都失敗,等於永遠不推進
+ EXIT_UNSAFE_CONFIG = 7  # 跟執行端同一個代碼;2 是 argparse 參數錯誤的代碼,不能共用
+ BACKOFF_CAP_SECONDS = 10.0  # 沒有進展的任務最久隔這麼久再問一次
+-__all__ = ["CALLS_PER_STEP", "DEFAULT_TIMEOUT_SECONDS", "MODEL_LINE", "READY", "StopFlag", "main",
+-           "run"]
++__all__ = ["CALLS_PER_STEP", "DEFAULT_TIMEOUT_SECONDS", "READY", "StopFlag", "main", "run"]
+ REST_SLICE_SECONDS = 0.1  # 每輪之間的休息切成小段,每段之間看停止旗標
+ 
+ 
+ class StopFlag:
+     """停止旗標:訊號處理器只設一個普通屬性、不碰任何鎖(代碼審 r1 a1:在處理器裡 set 一個
+     threading.Event,碰上主執行緒正握著它的鎖就死結)。"""
+ 
+     def __init__(self) -> None:
+         self.requested = False
+ 
+@@ -98,122 +69,77 @@ def default_owner() -> str:
+ 
+ def _parse(argv: list[str] | None) -> argparse.Namespace:
+     parser = argparse.ArgumentParser(allow_abbrev=False,
+                                      description="分析端驅動:推進所有還沒結束的任務")
+     parser.add_argument("--db", required=True, type=Path)
+     parser.add_argument("--dsp-url", required=True)
+     parser.add_argument("--inbox-url", required=True)
+     parser.add_argument("--timeout-seconds", type=float, default=DEFAULT_TIMEOUT_SECONDS)
+     parser.add_argument("--interval-seconds", type=float, default=0.5)
+     parser.add_argument("--owner", default=None)
+-    # Phase 13 增量 2:AI 參與決策(沒帶 --ai-judge 就是原本的行為)
+-    parser.add_argument("--ai-judge", action="store_true", help="分析那一步讓 AI 參與決策")
+-    parser.add_argument("--demo-id", help="展示編號;即時模式必填")
+-    parser.add_argument("--ledger", type=Path, help="只在錄製模式能用:花費帳換到別的路徑")
+-    parser.add_argument("--recorded-ledger", type=Path,
+-                        help="判成錄製模式時用的花費帳;判成即時就忽略(展示一律給,不猜模式)")
+-    parser.add_argument("--recordings-dir", type=Path,
+-                        help="錄製目錄(預設專案根的 recordings/model)")
+-    parser.add_argument("--batch-id", help="錄製批次;即時加錄製模式必填")
+-    parser.add_argument("--hold-submit", default="",
+-                        help="只判不送的廣告編號(逗號分隔):判提案也不送件,以考題結束結案")
+     return parser.parse_args(argv)
+ 
+ 
+ def _unsafe(args: argparse.Namespace) -> str | None:
+     """[S1001] 逾時要是有限、夠大的正數,而且呼叫次數乘逾時乘 2 小於租約;間隔要是非負數、不超過
+     租約(代碼審 r2 v3:1e308 原本過了守衛、印了就緒才在休息時崩掉)。NaN 跟任何數比都不成立,所以
+     一律用「符合才放行」的寫法(代碼審 r1 d4)。"""
+     t, lease = args.timeout_seconds, LEASE_DURATION.total_seconds()
+     if not (math.isfinite(t) and t >= MIN_TIMEOUT_SECONDS and CALLS_PER_STEP * t * 2 < lease):
+         return (f"拒絕啟動:逾時 {t} 秒不是 {MIN_TIMEOUT_SECONDS} 秒以上的有限數,或 "
+                 f"{CALLS_PER_STEP} 次呼叫乘逾時乘 2 不小於租約 {lease:.0f} 秒")
+     if not 0 <= args.interval_seconds <= lease:
+         return f"拒絕啟動:間隔 {args.interval_seconds} 秒不是 0 到租約 {lease:.0f} 秒之間的數"
+-    problem = _unsafe_rule_steps(t, lease)
+-    if problem is not None:
+-        return problem
+-    return _unsafe_ai(args, lease) if args.ai_judge else _unsafe_hold(args)
++    return _unsafe_rule_steps(t, lease)
+ 
+ 
+ def _unsafe_rule_steps(timeout: float, lease: float) -> str | None:
+-    """[S1405] 規則輪 A/B/C 逐步守衛:每一步照 AI 蒐證同一條保守算式(取租約等鎖、每次讀取的 DSP 逾時
+-    加呼叫紀錄等鎖、提交等鎖)都要小於租約;不把九次塞進一步,也不靠續租掩蓋。不符就說是哪一步。"""
++    """[S1405] 規則輪 A/B/C 逐步守衛:每一步照 Phase 13 蒐證那一步同一條保守算式(取租約等鎖、
++    每次讀取的 DSP 逾時加呼叫紀錄等鎖、提交等鎖)都要小於租約;不把九次塞進一步,也不靠續租
++    掩蓋。不符就說是哪一步。"""
+     for step, worst in rule_step_worst_seconds(timeout).items():
+         if not worst < lease:
+             return (f"拒絕啟動:規則輪步驟 {step} 最壞 {worst:.1f} 秒(取租約等鎖、"
+                     f"{rule_round.declared_reads(rule_round.Step(step))} 次讀取各自的逾時加呼叫紀錄"
+                     f"等鎖、提交等鎖)不小於租約 {lease:.0f} 秒")
+     return None
+ 
+ 
+-def _unsafe_hold(args: argparse.Namespace) -> str | None:
+-    if args.hold_submit:
+-        return "拒絕啟動:--hold-submit 只在 --ai-judge 時可用(只判不送是 AI 考題用的)"
+-    return None
+-
+-
+-def _unsafe_ai(args: argparse.Namespace, lease: float) -> str | None:
+-    """[S1113] 開 AI 時兩條都逐項加總、都要小於租約;數字都取自真常數。"""
+-    collect = collect_step_worst_seconds(args.timeout_seconds, investigation.MAX_COLLECT_READS)
+-    if not collect < lease:
+-        return (f"拒絕啟動:開 AI 時蒐證那一步最壞 {collect:.1f} 秒(取租約等鎖、"
+-                f"{investigation.MAX_COLLECT_READS} 次讀取各自的逾時加呼叫紀錄等鎖、提交等鎖)"
+-                f"不小於租約 {lease:.0f} 秒")
+-    judge = ai_step_worst_seconds()
+-    if not judge < lease:
+-        return f"拒絕啟動:AI 那一步最壞 {judge:.1f} 秒不小於租約 {lease:.0f} 秒"
+-    if investigation.hold_list(args.hold_submit) is None:
+-        return "拒絕啟動:--hold-submit 要是逗號分隔的廣告編號"
+-    return None
+-
+-
+ def _no_action_reason(task: TaskRow, evidence: tuple[Evidence, ...],
+                       now: datetime) -> StrEnum | None:
+     """正式接線:不提案原因跟決策函式同一套規則(沒有候選、空的允許清單,等於決策函式的判法)。"""
+     return policy.explain(task, evidence, now, candidate=None,
+                           allowed=policy.ValidatedCells.NONE)[1]
+ 
+ 
+-@dataclass(frozen=True)
+-class _Ai:
+-    """開了 AI 決策時每一步要傳下去的:AI 決策函式與時鐘函式(續租拿到鎖之後才讀)。"""
+-
+-    judge: ai_judge.Judge
+-    clock: Callable[[], datetime]
+-
+-
+ def _advance_one(store: TaskStore, task_id: str, args: argparse.Namespace,
+-                 now: datetime, ai: _Ai | None = None) -> tuple[TaskState, int] | None:
++                 now: datetime) -> tuple[TaskState, int] | None:
+     """推進一步,回(推進後的狀態, 最新一列序號);讀到的列在推進前被別人動過就什麼都不做。"""
+     row = store.latest(task_id)
+     if row is None:
+         return None
+     rules = instrumented.rule_source(store, args.dsp_url, args.timeout_seconds)
+-    probing = instrumented.investigation_source(store, args.dsp_url, args.timeout_seconds)
+ 
+-    def read_evidence(task: TaskRow, now: datetime) -> tuple[Evidence, ...] | flow.EvidenceBatch:
+-        return rules(task, now) if ai is None else probing(task, now)
++    def read_evidence(task: TaskRow, now: datetime) -> flow.EvidenceBatch:
++        return rules(task, now)
+ 
+     send = inbox_client.make_client(args.inbox_url, args.timeout_seconds)
+     lookup = dsp_client.make_operation_lookup(args.dsp_url, args.timeout_seconds)
+     # 呼叫紀錄綁「呼叫當下讀到的那一列」:每一步都用當下的列重建,而且把那一列的序號交給推進函式
+     state = flow.advance(
+         store, task_id, read_evidence, policy.decide,
+         instrumented.InstrumentedSubmit(store, send, ToolEndpoint.INBOX_SUBMIT, row), now,
+         owner=args.owner,
+         operation_lookup=instrumented.InstrumentedOperationLookup(
+             store, lookup, ToolEndpoint.DSP_OPERATION, row),
+         no_action_reason=_no_action_reason, expected_seq=row.seq,
+-        ai_decide=None if ai is None else ai.judge, clock=None if ai is None else ai.clock,
+-        rule_decide=(rule_round.decide if ai is None
+-                     else ai_judge.held_rule(rule_round.decide, ai.judge.hold)))
++        rule_decide=rule_round.decide)
+     latest = store.latest(task_id)
+     return state, (latest.seq if latest is not None else row.seq)
+ 
+ 
+ @dataclass
+ class _Backoff:
+     """沒有進展(狀態與序號都沒變)的任務退避:每次沒進展等待加倍,上限 BACKOFF_CAP_SECONDS;
+     一有進展就歸零(代碼審 r1 d7:等待中的任務每輪都寫兩列租約、一筆送件紀錄,表無上限長大)。"""
+ 
+     seen: dict[str, tuple[TaskState, int]] = field(default_factory=dict)
+@@ -231,143 +157,63 @@ class _Backoff:
+             return
+         self.failed(task_id, now, interval)
+ 
+     def failed(self, task_id: str, now: float, interval: float) -> None:
+         """沒有進展:這一步出例外也算(代碼審 r2 n4:例外原本讓退避歸零,出錯的任務每輪都推)。"""
+         self.misses[task_id] = self.misses.get(task_id, 0) + 1
+         wait = min(max(interval, 0.05) * 2 ** self.misses[task_id], BACKOFF_CAP_SECONDS)
+         self.due[task_id] = now + wait
+ 
+ 
+-GateOpener = ai_judge.GateOpener
+-
+-
+-def _recorded_ledger(args: argparse.Namespace, errors: TextIO) -> Path | None:
+-    """判成錄製時用的帳本:命令列給的,或這次執行專屬的暫存帳本,不退回真帳本(Phase 14 代碼審 r2)。"""
+-    if args.recorded_ledger is not None or args.ledger is not None:
+-        given: Path | None = args.recorded_ledger
+-        return given
+-    scratch = modelgate.recorded_scratch_ledger()
+-    errors.write(modelgate.SCRATCH_LEDGER_NOTICE.format(path=scratch) + "\n")
+-    return scratch
+-
+-
+-def _open_ai_gate(args: argparse.Namespace, environ: Mapping[str, str], open_gate: GateOpener,
+-                  errors: TextIO) -> modelgate.Gate | None:
+-    """啟動時經模型閘道判一次模式([S1137]);即時加錄製沒帶批次編號、或錄製目錄混了別批就拒絕
+-    ([S1142])。拒絕時印原因、回 None,什麼模型都沒呼叫。"""
+-    try:
+-        gate = ai_judge.open_investigation_gate(
+-            environ, demo_id=args.demo_id, ledger=args.ledger, recordings=args.recordings_dir,
+-            batch_id=args.batch_id, open_gate=open_gate,
+-            recorded_ledger=_recorded_ledger(args, errors))
+-    except (modelgate.UnknownModel, modelgate.GateRefused) as refused:
+-        errors.write(f"拒絕啟動:{refused}\n")
+-        return None
+-    if gate.mode is modelgate.Mode.LIVE and gate.settings.record:
+-        if not args.batch_id:
+-            errors.write("拒絕啟動:即時加錄製模式要帶 --batch-id\n")
+-            return None
+-        try:
+-            gate.check_recordings()
+-        except modelgate.GateRefused as mixed:
+-            errors.write(f"拒絕啟動:錄製目錄不能開錄({mixed})\n")
+-            return None
+-    for notice in gate.notices:
+-        errors.write(notice + "\n")
+-    return gate
+-
+-
+ def run(  # noqa: PLR0913 - 協作者都可替換,測試在行程內跑
+     argv: list[str] | None = None, *, max_rounds: int | None = None,
+     stop: _Stop | None = None, out: TextIO | None = None, err: TextIO | None = None,
+     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+     sleep: Callable[[float], None] = time.sleep, monotonic: Callable[[], float] = time.monotonic,
+-    environ: Mapping[str, str] | None = None, open_gate: GateOpener = modelgate.open_gate,
+ ) -> int:
+     args = _parse(argv)
+     errors = err or sys.stderr
+     problem = _unsafe(args)
+     if problem is not None:
+         errors.write(problem + "\n")
+         return EXIT_UNSAFE_CONFIG
+-    gate = None
+-    if args.ai_judge:
+-        gate = _open_ai_gate(args, os.environ if environ is None else environ, open_gate, errors)
+-        if gate is None:
+-            return EXIT_UNSAFE_CONFIG
+     args.owner = args.owner or default_owner()
+     stop = stop or StopFlag()
+     store = TaskStore(args.db)
+     try:
+         print(READY, file=out or sys.stdout, flush=True)
+-        ai = None
+-        if gate is not None:
+-            judge, checked = _judge_for(args, gate, stop, errors)
+-            _print_mode(gate, checked, out or sys.stdout)
+-            ai = _Ai(judge, clock)
+-        _loop(store, args, ai, _Loop(stop, max_rounds, clock, sleep, monotonic, errors))
+-        return 0
+-    except modelgate.CallTerminated:  # 模型呼叫途中收到停止:流程層已放掉租約、這一步沒寫
++        _loop(store, args, _Loop(stop, max_rounds, clock, sleep, monotonic, errors))
+         return 0
+     finally:
+         store.close()
+ 
+ 
+-def _judge_for(args: argparse.Namespace, gate: modelgate.Gate, stop: _Stop,
+-               errors: TextIO) -> tuple[ai_judge.Judge, modelgate.LoginPreflight]:
+-    """印出就緒之後、取任何租約之前做一次登入預檢([S1160]);沒過就整趟用程式規則。"""
+-    checked = gate.preflight_login()
+-    if checked.outcome is modelgate.Preflight.FAILED:
+-        errors.write(f"登入預檢沒過,這一趟改由程式規則決定:{checked.reason}\n")
+-    held = investigation.hold_list(args.hold_submit) or frozenset()
+-    return ai_judge.Judge(ai_judge.gate_complete(gate),
+-                          preflight_ok=checked.outcome is not modelgate.Preflight.FAILED,
+-                          stop_requested=stop.is_set, hold=held), checked
+-
+-
+-PREFLIGHT_FAILED_MODE = "rule"  # 模式行:即時的登入預檢沒過,整趟改由程式規則決定
+-
+-
+-def _print_mode(gate: modelgate.Gate, checked: modelgate.LoginPreflight, out: TextIO) -> None:
+-    """登入預檢之後印模式行(Phase 13 增量 4 代碼審 r1 k4/l5):實際生效的模式——預檢沒過寫改由程式
+-    規則與原因;純 ASCII(語系不是 UTF-8 時印中文會讓分析端當掉)。"""
+-    notices = list(gate.notices)
+-    mode = gate.mode.value
+-    if checked.outcome is modelgate.Preflight.FAILED:
+-        mode = PREFLIGHT_FAILED_MODE
+-        notices.append(f"登入預檢沒過,這一趟改由程式規則決定:{checked.reason}")
+-    shown = {"mode": mode, "notices": notices}
+-    print(f"{MODEL_LINE} {json.dumps(shown, ensure_ascii=True)}", file=out, flush=True)
+-
+-
+ @dataclass(frozen=True)
+ class _Loop:
+     stop: _Stop
+     max_rounds: int | None
+     clock: Callable[[], datetime]
+     sleep: Callable[[float], None]
+     monotonic: Callable[[], float]
+     errors: TextIO
+ 
+ 
+-def _loop(store: TaskStore, args: argparse.Namespace, ai: _Ai | None, loop: _Loop) -> None:
++def _loop(store: TaskStore, args: argparse.Namespace, loop: _Loop) -> None:
+     backoff, rounds, stop, monotonic = _Backoff(), 0, loop.stop, loop.monotonic
+     while not stop.is_set() and (loop.max_rounds is None or rounds < loop.max_rounds):
+         for task_id in store.open_task_ids():
+             if stop.is_set():  # 每件任務之前都看:停止延遲的上限是一步,不是一輪
+                 break
+             if not backoff.ready(task_id, monotonic()):
+                 continue
+             try:
+-                result = (_advance_one(store, task_id, args, loop.clock()) if ai is None
+-                          else _advance_one(store, task_id, args, loop.clock(), ai))
++                result = _advance_one(store, task_id, args, loop.clock())
+             except Exception as problem_:  # 一件任務出事不停掉整個驅動;照樣退避,之後再試
+                 loop.errors.write(f"{task_id} 這一步沒有進展:{problem_!r}\n")
+                 backoff.failed(task_id, monotonic(), args.interval_seconds)
+                 continue
+             backoff.update(task_id, result, monotonic(), args.interval_seconds)
+         rounds += 1
+         _rest(stop, args.interval_seconds, loop.sleep, monotonic)
+ 
+ 
+ def _rest(stop: _Stop, seconds: float, sleep: Callable[[float], None],
+diff --git a/src/rtb/eval/investigation_eval.py b/src/rtb/eval/investigation_eval.py
+index 9f1bcd8..c3ba618 100644
+--- a/src/rtb/eval/investigation_eval.py
++++ b/src/rtb/eval/investigation_eval.py
+@@ -1,16 +1,17 @@
+ """AI 調查的評估執行器與命令列(Phase 13 增量 3,計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]
+ 〈評估案例〉〈錄製批次與入庫〉)。
+ 
+-- 逐筆呼叫增量 2 的**同一支 AI 決策函式**(`ai_judge.Judge`),只把查詢的來源從 DSP 換成案例裡存的結果;
+-  續租回呼傳一支永遠成功的、先前各輪的調查紀錄放在記憶體。輪數上限、選項驗證、證據核對、退回全部照
+-  正式路徑([S1146]);這裡沒有自己的迴圈規則,只把「選查詢 → 回蒐集證據」那一步換成從案例取結果。
++- 逐筆直接呼叫 AI 決策函式(`ai_judge.Judge`),只把查詢的來源從 DSP 換成案例裡存的結果;先前各輪的
++  調查紀錄放在記憶體。輪數上限、選項驗證、證據核對、退回都在 Judge 裡([S1146]);Phase 14 增量 3 起
++  AI 退出正式加額決策,這裡是 Judge 唯一的呼叫者,不經流程層、沒有任務庫、不開 A/B/C 規則輪:遇到
++  `RuleContinue` 當場回傳(AI 答 propose 記原始「值得加」、退回取案例九條 `rule_verdict(case)`)。
+ - 每次模型呼叫記下結果類別、延遲、原價與批次(重播時是錄製當時的值),給報告算模型那一列。
+ - 錄製批次的驗收([S1141]):入庫目錄裡設定錯誤、花費帳忙碌、無法可靠分類的錄製各 0 份;
+   錄製檔都是同一批、批次編號照 `phase13-eval-YYYYMMDD`、沒有佔位檔(用模型用戶端共用的
+   開錄前目錄檢查核);重播整個評估集找不到錄製 0 筆。
+ - 命令列 `python -m rtb.eval.investigation_eval`:預設重播入庫目錄 recordings/model/
+   phase13-investigation-eval/(CI 只重播、不啟動 claude);即時加錄製經 AI 決策模組開模型
+   閘道,開閘道時先跑模型用戶端的開錄前目錄檢查,目錄不是空的也不是只有同一批就拒絕開始
+   ([S1165])。`--verify` 只准重播,驗不過以結束代碼 1 結束。評估批次不另存批次紀錄檔(開錄前
+   目錄檢查不收錄製檔以外的檔);模型那一列從重播時帶回的錄製當時數字算,錄製日期與批次從
+   錄製檔讀。
+@@ -22,21 +23,22 @@ import os
+ import re
+ import sys
+ from collections.abc import Callable, Mapping, Sequence
+ from pathlib import Path
+ from types import MappingProxyType
+ from typing import Any, TextIO
+ 
+ from rtb import modelclient as mc
+ from rtb.analyzer import ai_judge, policy
+ from rtb.analyzer import investigation as inv
+-from rtb.analyzer.flow import AiContext, NoAction, ProposalDecision, QueryMore, RuleContinue
++from rtb.analyzer.flow import NoAction, ProposalDecision, RuleContinue
++from rtb.analyzer.investigation import AiContext, QueryMore
+ from rtb.analyzer.task_store import InvestigationRecord, TaskRow
+ from rtb.domain.evidence import Evidence, EvidenceKind, PayloadValue, TrustClass
+ from rtb.domain.task_state import TaskState
+ from rtb.domain.worth import WorthVerdict
+ from rtb.eval import investigation_report as report_mod
+ from rtb.eval.investigation_cases import NOW, Case
+ from rtb.eval.investigation_report import Call, CaseRun
+ from rtb.eval.investigation_set import CASES
+ 
+ EXIT_OK = 0
+@@ -122,34 +124,33 @@ def _verdict(outcome: Any) -> WorthVerdict:
+             return WorthVerdict.NOT_WORTH
+         if reason is policy.NoActionReason.JUDGED_INSUFFICIENT:
+             return WorthVerdict.INSUFFICIENT
+     raise ValueError(f"評估案例走到了前置過濾或別的結局:{outcome!r}")
+ 
+ 
+ def run_case(case: Case, ask: Ask) -> CaseRun:
+     """一筆案例跑到下結論或退回為止;選查詢就回到「蒐集證據」,從案例取結果再交給同一支
+     AI 決策函式。"""
+     logged = _Logged(ask)
+-    judge = ai_judge.Judge(logged, raw_replay=True)  # 原始錄製重播:還原模型自己的答案(AI 原始)
++    judge = ai_judge.Judge(logged)  # 原始錄製重播:還原模型自己的答案(AI 原始)
+     counter = CallCounter()
+     records: list[InvestigationRecord] = []
+     for seq in range(1, inv.MAX_ROUNDS + 2):  # 最多 3 輪模型呼叫;多一輪留給「上限後只剩結論」的保險
+         task = _task(case, seq)
+         evidence = case_evidence(case, task, inv.progress(records))
+-        outcome = judge(task, evidence, NOW, AiContext(_renewed, tuple(records), counter))
++        outcome = judge(task, evidence, NOW, AiContext(tuple(records), counter))
+         if outcome.record is not None:
+             records.append(outcome.record)
+         if isinstance(outcome.result, RuleContinue):
+-            # Phase 14:退回開規則輪時,評估沒有 DSP,四查詢直接從案例取、轉成正式領域型別,以案例固定
+-            # NOW 跑同一支正式規則(不問模型)。AI 自己答 propose 也開規則輪(正式路徑由規則否決),
+-            # 但這裡記的是模型自己的答案(AI 原始):否決後的結果與「AI+規則否決」那一列是
+-            # 增量 4 的報告工作
++            # Phase 14 增量 3([S1146] 改寫):當場回傳,不開規則輪、不經流程層。AI 有效答 propose 時
++            # 記 AI 原始「值得加」;退回時改取案例的九條結果 rule_verdict(case)(四查詢從案例取、以
++            # 案例固定 NOW 跑同一支正式規則)。「AI+規則否決」只是報告層的派生比較(增量 4)
+             ai_said_propose = (outcome.record is not None
+                                and outcome.record.kind == inv.RecordKind.CONCLUSION)
+             final = WorthVerdict.WORTH if ai_said_propose else rule_verdict(case)
+             return CaseRun(case, final, tuple(records), tuple(logged.calls))
+         if not isinstance(outcome.result, QueryMore):
+             return CaseRun(case, _verdict(outcome), tuple(records), tuple(logged.calls))
+     raise AssertionError(f"{case.case_id} 超過輪數上限還在選查詢:AI 決策函式的上限沒有生效")
+ 
+ 
+ class CallCounter:
+@@ -159,24 +160,20 @@ class CallCounter:
+     def __init__(self) -> None:
+         self.used = 0
+ 
+     def __call__(self, limit: int) -> int:
+         if self.used >= limit:
+             return limit + 1
+         self.used += 1
+         return self.used
+ 
+ 
+-def _renewed() -> None:
+-    """評估沒有任務列與租約:續租永遠成功(計劃〈調查紀錄與狀態同一交易〉,[S1146])。"""
+-
+-
+ def run_set(cases: Sequence[Case], ask: Ask) -> tuple[CaseRun, ...]:
+     return tuple(run_case(case, ask) for case in cases)
+ 
+ 
+ rule_verdict = report_mod.rule_verdict  # 現行規則對同一筆的答案(比較表與退回核對用)
+ 
+ 
+ # ---- 錄製批次的驗收 ----
+ def batch_problems(directory: Path, runs: Sequence[CaseRun]) -> list[str]:
+     """[S1141] 的驗過條件(缺一條就不准入庫):批次本身的三條走模型用戶端門面的共用驗收(失敗類錄製
+@@ -212,49 +209,46 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
+     parser.add_argument("--demo-id", help="展示編號;即時模式必填")
+     parser.add_argument("--recordings-dir", type=Path,
+                         help="錄製目錄(預設 recordings/model/phase13-investigation-eval)")
+     parser.add_argument("--ledger", type=Path, help="只在錄製模式能用:花費帳換到別的路徑")
+     parser.add_argument("--batch-id", help="即時加錄製的批次編號,格式 phase13-eval-YYYYMMDD")
+     parser.add_argument("--verify", action="store_true",
+                         help="驗收錄製批次(只准重播):驗不過以結束代碼 1 結束")
+     return parser.parse_args(argv)
+ 
+ 
+-def run(argv: list[str] | None = None, *, out: TextIO | None = None,  # noqa: PLR0915
++def run(argv: list[str] | None = None, *, out: TextIO | None = None,
+         err: TextIO | None = None, environ: Mapping[str, str] | None = None) -> int:
+     args = _parse(argv)
+     errors = err or sys.stderr
+     source = os.environ if environ is None else environ
+     folder = args.recordings_dir or DEFAULT_RECORDINGS
+     if args.batch_id is not None and not BATCH_PATTERN.fullmatch(args.batch_id):
+         print(f"批次編號要是 phase13-eval-YYYYMMDD(錄製那天):{args.batch_id!r}", file=errors)
+         return EXIT_REFUSED
+     # 即時加錄製時,開閘道就先跑模型用戶端的開錄前目錄檢查([S1165]):「不准寫進入庫目錄」
+     # 只有那一套判準;沒帶 --recordings-dir 時用的預設目錄就在入庫根底下,一定被它拒絕,
+     # 拒絕訊息另附明寫目錄的提示
+     try:
+-        scratch = None if args.ledger is not None else mc.recorded_scratch_ledger()
+-        gate = ai_judge.open_investigation_gate(source, demo_id=args.demo_id, ledger=args.ledger,
+-                                                recordings=folder, batch_id=args.batch_id,
+-                                                recorded_ledger=scratch)
++        gate = ai_judge.open_investigation_gate(
++            source, demo_id=args.demo_id, ledger=args.ledger, recordings=folder,
++            batch_id=args.batch_id, notify=lambda text: print(text, file=errors))
+     except ValueError as refused:  # GateRefused、UnknownModel 都是 ValueError
+         hint = "" if args.recordings_dir is not None else f"({FRESH_HINT})"
+         print(f"拒絕開始:{refused}{hint}", file=errors)
+         return EXIT_REFUSED
+     live = gate.mode.value == "live"
+     if args.verify and live:
+         print("--verify 只准重播錄製(不要帶即時開關)", file=errors)
+         return EXIT_REFUSED
+     for notice in gate.notices:
+         print(notice, file=errors)
+-    if scratch is not None and gate.ledger == scratch:  # 錄製模式沒帶 --ledger(Phase 14 代碼審 r2)
+-        print(mc.SCRATCH_LEDGER_NOTICE.format(path=scratch), file=errors)
+     runs = run_set(CASES, ai_judge.gate_complete(gate))
+     dates, batches = recording_dates(folder)
+     report = report_mod.build_report(runs, recorded_on=dates, batches=batches, live=live)
+     problems = [] if live else batch_problems(folder, runs)
+     lines = [report_mod.render(report, report_mod.decide(report)), "## 錄製批次驗收", ""]
+     if live:
+         lines.append(f"- 即時模式(批次 {args.batch_id or '未錄製'}):錄完用 --verify 重播驗收")
+     else:
+         root = mc.default_recordings_dir().parent.parent
+         shown = folder.relative_to(root) if folder.is_relative_to(root) else folder
+diff --git a/src/rtb/eval/record.py b/src/rtb/eval/record.py
+index 3f5031e..324974d 100644
+--- a/src/rtb/eval/record.py
++++ b/src/rtb/eval/record.py
+@@ -233,26 +233,28 @@ def _disagrees(kept: model_candidate.BatchRow, replayed: model_candidate.BatchRo
+         return False
+     expected_sent = not shared and kept.outcome not in model_candidate.UNSENT
+     same_latency = (kept.latency_ms is None) == (replayed.latency_ms is None) and (
+         kept.latency_ms is None or replayed.latency_ms is None
+         or math.isclose(kept.latency_ms, replayed.latency_ms, rel_tol=1e-9, abs_tol=1e-6))
+     return not (kept.outcome == replayed.outcome and kept.verdict == replayed.verdict
+                 and kept.list_nanousd == replayed.list_nanousd and same_latency
+                 and kept.sent == expected_sent)
+ 
+ 
+-def _model_run(settings: mc.Settings, args: argparse.Namespace) -> tuple[
++def _model_run(settings: mc.Settings, args: argparse.Namespace, errors: TextIO) -> tuple[
+         model_candidate.ModelRun, model_candidate.BatchRecord | None, list[str]]:
+     recordings = args.recordings_dir or mc.default_recordings_dir()
+     live = settings.mode is mc.Mode.LIVE
+-    # 錄製模式沒帶 --ledger 用這次執行專屬的暫存帳本,不退回真帳本(Phase 14 代碼審 r2)
+-    ledger = mc.live_ledger_path() if live else (args.ledger or mc.recorded_scratch_ledger())
++    # 錄製模式沒帶 --ledger:共用的 recorded_ledger 建暫存帳本並印路徑,不退回真帳本(Phase 14 代碼審
++    # r2、r3)
++    ledger = mc.recorded_ledger(settings.mode, args.ledger,
++                                lambda text: print(text, file=errors)) or mc.live_ledger_path()
+     batch_id = f"{datetime.now(UTC):%Y%m%d}-{uuid.uuid4().hex[:8]}" if live else None
+     candidate = model_candidate.ModelCandidate(settings, recordings_dir=recordings, ledger=ledger,
+                                                demo_id=args.demo_id, batch_id=batch_id)
+     chosen = model_candidate.subset(from_rows(eval_set.ROWS))
+     try:
+         run = model_candidate.run_subset(chosen, candidate, model_candidate.TIMEOUT_SECONDS)
+     except BaseException:
+         # 中斷或崩掉:花過錢的嘗試照樣留批次紀錄(標中斷),再往外丟
+         if live and settings.record and batch_id is not None:
+             model_candidate.write_batch(recordings, model_candidate.new_batch(
+@@ -285,22 +287,23 @@ _STOP_TEXT = {"local_cap_refused": "已達上限", "config_error": "設定錯誤
+ 
+ 
+ def _cell_line(cell: WorthCell, row: ComparisonRow, means: Mapping[WorthCell, float]) -> str:
+     marks = model_candidate.threshold_marks(row, model_candidate.MODEL_LIMITS)
+     parts = [f"{label}:{marks[name]}" for name, label, _ in model_candidate.MARKED]
+     mean = means.get(cell)
+     reference = "" if mean is None else f";平均每次成本 {mean:.6f} 美元(只供參考)"
+     return f"- {cell.value}:{';'.join(parts)}{reference}"
+ 
+ 
+-def model_section(settings: mc.Settings, args: argparse.Namespace) -> ModelSection:
+-    run, batch, flags = _model_run(settings, args)
++def model_section(settings: mc.Settings, args: argparse.Namespace,
++                  errors: TextIO) -> ModelSection:
++    run, batch, flags = _model_run(settings, args, errors)
+     rows = None if batch is None else model_candidate.model_rows(batch, run.scored)
+     lines = ["", f"## 模型候選({settings.model})", "",
+              f"- 模式:{'即時' if settings.mode is mc.Mode.LIVE else '重播錄製回應(不是即時呼叫)'}",
+              f"- 跑了 {len(run.rows)} 個情境(子集每格 {model_candidate.GROUPS_PER_CELL} 組、"
+              "每組 3 個變體)"]
+     if batch is not None:
+         shared = sum(1 for r in batch.rows if r.shared)
+         sent = sum(1 for r in batch.rows if r.sent)
+         live_unsaved = settings.mode is mc.Mode.LIVE and not settings.record
+         source = (f"- 來源:即時、未存檔(批次 {batch.batch_id} 只在這次執行的記憶體裡,"
+@@ -379,21 +382,21 @@ def run(argv: list[str] | None = None, *, out: TextIO | None = None,
+         return EXIT_BAD_ARGUMENTS
+     if settings.mode is mc.Mode.LIVE and args.ledger is not None:
+         print("即時模式的花費帳寫死在家目錄那一本,不接受 --ledger", file=errors)
+         return EXIT_BAD_ARGUMENTS
+     for notice in settings.notices:
+         print(notice, file=errors)
+     scenarios = from_rows(eval_set.ROWS)
+     report = synthetic_report(score(scenarios, None, None), eval_set_sha256())
+     latency = {cell: measure_latency(tuple(s.worth_input for s in scenarios if s.cell is cell))
+                for cell in WorthCell}
+-    model = model_section(settings, args)
++    model = model_section(settings, args, errors)
+     if model.ledger_busy:
+         print("花費帳忙碌:寫不進帳,已停止呼叫模型", file=errors)
+         return EXIT_LEDGER_BUSY
+     rows = with_model_rows(comparison_rows(latency, report), model)
+     decided = (decide_adoption(report, None, OperationalLimits(None, None, None, None))
+                if model.rows is None else
+                decide_adoption(report, dict(model.rows), model_candidate.MODEL_LIMITS))
+     print(render(report, rows, decided) + "\n".join(model.lines), file=out or sys.stdout)
+     return EXIT_OK
+ 
+diff --git a/src/rtb/modelclient.py b/src/rtb/modelclient.py
+index 88246ba..aef0d50 100644
+--- a/src/rtb/modelclient.py
++++ b/src/rtb/modelclient.py
+@@ -24,28 +24,30 @@ claude 絕對路徑)經 `settings_from_env` 組成設定往下傳。時間一律
+ 原價(不含係數)當 Claude Code 的單次花費上限傳進去。回報的用量或花費大得離譜時照預留結算、標超支。
+ 結算:成功取 Claude Code 回報的花費估計與「token 數(含快取)乘價目表」的
+ 較高者([S940]);失敗但讀得出用量時取「預留」與「原價乘 1.2」的較高者,讀不出就照預留;
+ 本地上限拒絕與設定錯誤結算 0;不論成敗,入帳大於預留就照實記、標超支並印錯誤([S934])。
+ 結算寫不進去就有上限地重試,仍失敗那筆留在「未結算」,照預留金額算進它預留時所在的月份,應入帳金額
+ 印到標準錯誤。回傳值與每個例外都帶結算狀態(已結算、未結算、超支、超支又未結算);呼叫前就擋下、
+ 還沒預留的例外沒有結算狀態(None)。花費帳或錄製檔的非模型例外(SQLite、檔案系統、溢位)一律包成
+ 暫時性、無法可靠分類,不讓原生例外漏出去。
+ """
+ 
++import atexit
+ import logging
+ import re
++import shutil
+ import sqlite3
+ import sys
+ import tempfile
+ import time
+ import unicodedata
+-from collections.abc import Mapping
++from collections.abc import Callable, Mapping
+ from dataclasses import dataclass
+ from decimal import Decimal
+ from enum import StrEnum
+ from pathlib import Path
+ 
+ from rtb import modelclaude as cc
+ from rtb import modelcore as core
+ from rtb import modelledger as ledger_db
+ from rtb import modelrecording as rec
+ from rtb.modelclaude import CallTerminated as CallTerminated  # 停止訊號:轉手給入口與閘道([S1154])
+@@ -267,26 +269,35 @@ def preflight_login(settings: Settings) -> LoginPreflight:
+     return LoginPreflight(Preflight.PASSED)
+ 
+ 
+ def live_ledger_path() -> Path:
+     return ledger_path()
+ 
+ 
+ SCRATCH_LEDGER_NOTICE = "錄製模式沒有指定帳本,這一趟用暫存帳本(不碰帳號家目錄那一本):{path}"
+ 
+ 
+-def recorded_scratch_ledger() -> Path:
+-    """錄製模式沒指定帳本時,這次執行專屬的暫存帳本(Phase 14 代碼審 r2,事故見 Issues/錄製模式的原因
+-    假說寫進真帳本):錄製重播的呼叫紀錄不花錢,但帳號家目錄那一本只准使用者授權的即時呼叫寫。命令列
+-    入口遇到錄製模式、沒帶 --ledger/--recorded-ledger 時用它並把路徑印到標準錯誤;模型閘道本身沒給
+-    帳本就拒絕,不再退回真帳本。"""
+-    return Path(tempfile.mkdtemp(prefix="rtb-recorded-ledger-")) / "model-ledger.sqlite"
++def recorded_ledger(mode: Mode, given: Path | None, notify: Callable[[str], None]) -> Path | None:
++    """錄製模式要用的帳本,五個模型入口(說明、分析端驅動、評估重播、Phase 10 評估、原因假說)與模型
++    閘道共用這一支(Phase 14 代碼審 r2、r3;事故見 Issues/錄製模式的原因假說寫進真帳本)。**模式判出
++    之後**才呼叫:即時回 None(即時的帳寫死帳號家目錄那一本,由呼叫端照舊決定),不建暫存目錄、
++    不通知;錄製且有給帳本就用它;錄製沒給才建這次執行專屬的暫存帳本、用 notify 把路徑告訴使用者,
++    暫存目錄在行程結束時清掉(atexit)。帳號家目錄那一本只准使用者授權的即時呼叫寫。"""
++    if mode is not Mode.RECORDED:
++        return None
++    if given is not None:
++        return given
++    folder = Path(tempfile.mkdtemp(prefix="rtb-recorded-ledger-"))
++    atexit.register(shutil.rmtree, folder, True)
++    path = folder / "model-ledger.sqlite"
++    notify(SCRATCH_LEDGER_NOTICE.format(path=path))
++    return path
+ 
+ 
+ # ---- 結算規則 ----
+ def _mismatch(reported: int | None, computed: int) -> bool:
+     if reported is None:
+         return False
+     numerator, denominator = core.COST_MISMATCH
+     return abs(reported - computed) * denominator > min(reported, computed) * numerator
+ 
+ 
+diff --git a/src/rtb/ops/hypothesis.py b/src/rtb/ops/hypothesis.py
+index 03f314c..c884884 100644
+--- a/src/rtb/ops/hypothesis.py
++++ b/src/rtb/ops/hypothesis.py
+@@ -262,43 +262,35 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
+     parser.add_argument("--ledger", type=Path, help="只在錄製模式能用:花費帳換到別的路徑")
+     parser.add_argument("--recorded-ledger", type=Path,
+                         help="判成錄製模式時用的花費帳;判成即時就忽略(展示一律給,不猜模式)")
+     parser.add_argument("--recordings-dir", type=Path,
+                         help="錄製目錄(預設專案根的 recordings/model,只供重播;"
+                              "即時加錄製要給新目錄)")
+     parser.add_argument("--batch-id", help="錄製批次;即時加錄製模式必填")
+     return parser.parse_args(argv)
+ 
+ 
+-def _scratch(shown: dict[str, Any]) -> Path:
+-    """錄製模式沒帶帳本:這次執行專屬的暫存帳本,路徑記進 notices(不退回真帳本,Phase 14
+-    代碼審 r2)。"""
+-    scratch = mc.recorded_scratch_ledger()
+-    shown["notices"].append(mc.SCRATCH_LEDGER_NOTICE.format(path=scratch))
+-    return scratch
+-
+-
+ def _ask(text: str, put_back: Callable[[str], str], settings: mc.Settings,
+-         args: argparse.Namespace, alerts: Sequence[SloStatus]) -> dict[str, Any]:
++         args: argparse.Namespace, alerts: Sequence[SloStatus], errors: TextIO) -> dict[str, Any]:
+     """呼叫模型並驗證;回印出用的 hypothesis 一欄。花費帳忙碌往外丟 LedgerBusy。"""
+-    live = settings.mode is mc.Mode.LIVE
+     shown: dict[str, Any] = {"mode": settings.mode.value, "notices": list(settings.notices)}
+     model_request = mc.ModelRequest(caller=mc.Caller.HYPOTHESIS, system=SYSTEM_PROMPT, user=text,
+                                     max_output_tokens=MAX_OUTPUT_TOKENS,
+                                     timeout_seconds=TIMEOUT_SECONDS, demo_id=args.demo_id,
+                                     batch_id=args.batch_id)
+     try:
+         result = mc.call_model(
+             model_request, settings,
+             recordings_dir=args.recordings_dir or mc.default_recordings_dir(),
+-            ledger=mc.live_ledger_path() if live
+-            else (args.ledger or args.recorded_ledger or _scratch(shown)))
++            ledger=mc.recorded_ledger(settings.mode, args.ledger or args.recorded_ledger,
++                                      lambda text: print(text, file=errors))
++            or mc.live_ledger_path())
+     except mc.LedgerBusy:
+         raise
+     except mc.ModelCallFailed as refusal:
+         return {"status": "failed", "message": NO_HYPOTHESIS, "reason": refusal.outcome.value,
+                 **shown}
+     answer = parse_answer(result.text)
+     if answer is None:
+         return {"status": "failed", "message": NO_HYPOTHESIS, "reason": "invalid_answer",
+                 **shown}
+     hypotheses, step = answer
+@@ -354,21 +346,21 @@ def _hypothesis(args: argparse.Namespace, settings: mc.Settings, sources: sli.So
+     if not alerts:
+         print(NO_ALERT, file=errors)
+         return {"status": "no_alert", "message": NO_ALERT}, False
+     if refusal is not None:
+         return {"status": "refused", "message": NO_HYPOTHESIS, "reason": "recording_refused"}, False
+     for notice in settings.notices:
+         print(notice, file=errors)
+     text, put_back = build_input(args.now, statuses, sources, load_tenants(args.tenants_config))
+     busy = False
+     try:
+-        shown = _ask(text, put_back, settings, args, alerts)
++        shown = _ask(text, put_back, settings, args, alerts, errors)
+     except mc.LedgerBusy:
+         busy = True
+         shown = {"status": "failed", "message": NO_HYPOTHESIS, "reason": "ledger_busy"}
+     if shown["status"] != "ok":
+         print(f"{NO_HYPOTHESIS}(原因:{shown['reason']})", file=errors)
+     return shown, busy
+ 
+ 
+ def run(argv: list[str] | None = None, *, out: TextIO | None = None,  # noqa: PLR0911 - 每種拒絕各一個結束代碼
+         err: TextIO | None = None, environ: Mapping[str, str] | None = None) -> int:
+diff --git a/src/rtb/stepbudget.py b/src/rtb/stepbudget.py
+index aeddce2..632200d 100644
+--- a/src/rtb/stepbudget.py
++++ b/src/rtb/stepbudget.py
+@@ -1,73 +1,56 @@
+ """一步的時間預算(Phase 13 增量 2,計劃〈租約、逾時與停止訊號〉,[S1113] [S1136]):分析端驅動命令列的
+ 租約守衛、展示啟動器停分析端的寬限時間、模型後端等行程群組結束的秒數、花費帳結算的嘗試次數,都從這裡
+ 取同一組常數,誰都不必從模型後端匯入(邊界測試只准模型用戶端碰後端)。
+ 
+ 檔名刻意不以 model 開頭、不含 claude 字樣:改寫後的 [S917] 把 src/rtb/ 底下 model 開頭的檔都當模型
+ 用戶端,展示啟動器的原始碼又不准出現 claude。這支檔進模型用戶端的匯入閉包(模型後端與花費帳從這裡取
+ 常數),Phase 11B [S918] 的名單有列它。
+ 
+ 數字都是暫用值,沒有實測校準(計劃 REVISIT 2026-12-31 看展示紀錄裡開 AI 的情境實際耗時)。
++
++Phase 14 增量 3(計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3):AI 退出分析端決策,
++AI 那一步的最壞耗時、帶 --ai-judge 的停止寬限與展示等模式行的登入預檢時限三支函式撤除;留規則輪共用
++常數([S1405] [S1419])與模型後端、花費帳、說明/假說入口仍用的常數。
+ """
+ 
+ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS
+ 
+ # 基本那一步兩次讀 DSP(廣告現況、成效指標)或一次送件([S1001]);規則輪各步另見
+ # RULE_STEP_READS([S1405])
+ CALLS_PER_STEP = 2
+ DEFAULT_TIMEOUT_SECONDS = 3.0  # 分析端驅動命令列的 DSP 與收件口逾時預設值(展示用)
+-MODEL_TIMEOUT_SECONDS = 15.0  # AI 那一步的模型逾時(第 1 版 25、第 1 輪 20,改小是為了吃下續租等鎖)
++MODEL_TIMEOUT_SECONDS = 15.0  # AI 調查(評估)一次模型呼叫的逾時(第 1 版 25、第 1 輪 20)
+ GROUP_EXIT_WAIT_SECONDS = 5.0  # 模型後端每次等 claude 行程群組結束的秒數(一次呼叫最多等兩次)
+ GROUP_EXIT_WAITS = 2
+ SETTLE_ATTEMPTS = 3  # 花費帳結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤
+ LEDGER_RESERVATIONS = 1  # 每次呼叫預留一次
+ # 模型後端空暫存 HOME 隔離時的登入權杖變數名(使用者 2026-09-25 裁定用 `setup-token` 的長期權杖);放在
+ # 這裡是因為展示啟動器也要照名字轉交,而它的原始碼不准提到模型後端
+ LOGIN_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"  # noqa: S105 - 變數名,不是權杖
+ LOGIN_CHECK_TIMEOUT_SECONDS = 10.0  # 模型後端的登入狀態檢查(啟動時的預檢也是這一次)
+ 
+ 
+ # 正式規則的規則輪(Phase 14 增量 2b,[S1405]):每一步讀幾次 DSP。A 讀現況與 1 小時指標;B
+ # 讀操作歷史與過去
+ # 調整;C 讀逐日、1 天、7 天,並重讀現況與 1 小時指標。分析端驅動的租約守衛、規則輪的讀取、
+ # 展示啟動器的
+ # 停止寬限共用這一份([S1419])
+ RULE_STEP_READS: dict[str, int] = {"A": 2, "B": 2, "C": 5}
+ 
+ 
+ def collect_step_worst_seconds(dsp_timeout_seconds: float, reads: int) -> float:
+-    """開 AI 時蒐集證據那一步的最壞耗時,逐項加總:取租約等鎖、每次讀取的 DSP 逾時加呼叫紀錄等鎖、
+-    提交等鎖。"""
++    """蒐集證據那一步的最壞耗時(Phase 13 定的算式,規則輪各步沿用),逐項加總:取租約等鎖、
++    每次讀取的 DSP 逾時加呼叫紀錄等鎖、提交等鎖。"""
+     return (BUSY_TIMEOUT_SECONDS + reads * (dsp_timeout_seconds + BUSY_TIMEOUT_SECONDS)
+             + BUSY_TIMEOUT_SECONDS)
+ 
+ 
+ def rule_step_worst_seconds(dsp_timeout_seconds: float) -> dict[str, float]:
+     """規則輪每一步的最壞耗時(同蒐證那一步的逐項加總):預設逾時 3 秒時 A=26、B=26、C=50 秒。"""
+     return {step: collect_step_worst_seconds(dsp_timeout_seconds, reads)
+             for step, reads in RULE_STEP_READS.items()}
+ 
+ 
+ def rule_stop_grace_seconds(dsp_timeout_seconds: float) -> float:
+-    """沒開 AI 的分析端收到停止後最多還要多久:規則輪最長那一步的最壞耗時(預設 50 秒,[S1419])。"""
++    """分析端收到停止後最多還要多久:規則輪最長那一步的最壞耗時(預設 50 秒,[S1419])。"""
+     return max(rule_step_worst_seconds(dsp_timeout_seconds).values())
+-
+-
+-def ai_step_worst_seconds() -> float:
+-    """AI 那一步從續租拿到鎖、讀時鐘之後算起的最壞耗時:模型逾時、兩次等行程群組、花費帳預留一次加
+-    結算最多三次的等鎖、送出前記一次模型呼叫的等鎖(Phase 13 代碼審 r3 補)、提交等鎖
+-    (15 + 10 + 20 + 5 + 5 = 55,仍小於租約 60)。續租自己的等鎖在讀時鐘之前,不佔新租約。"""
+-    ledger_waits = (LEDGER_RESERVATIONS + SETTLE_ATTEMPTS) * BUSY_TIMEOUT_SECONDS
+-    return (MODEL_TIMEOUT_SECONDS + GROUP_EXIT_WAITS * GROUP_EXIT_WAIT_SECONDS + ledger_waits
+-            + BUSY_TIMEOUT_SECONDS + BUSY_TIMEOUT_SECONDS)
+-
+-
+-def ai_stop_grace_seconds() -> float:
+-    """帶 --ai-judge 的分析端收到停止後最多還要多久:停止可能在續租等鎖時送到,從那一刻算起是續租
+-    等鎖加上續租後的最壞耗時(5 + 55 = 60)。"""
+-    return BUSY_TIMEOUT_SECONDS + ai_step_worst_seconds()
+-
+-
+-def preflight_worst_seconds() -> float:
+-    """開 AI 的分析端印出就緒之後、做完登入預檢印模式行之前最壞要多久:登入檢查逾時加兩次等行程群組
+-    (10 + 10 = 20;Phase 13 增量 4 代碼審 r1 l4:展示驅動等模式行的時限從這裡取)。"""
+-    return LOGIN_CHECK_TIMEOUT_SECONDS + GROUP_EXIT_WAITS * GROUP_EXIT_WAIT_SECONDS

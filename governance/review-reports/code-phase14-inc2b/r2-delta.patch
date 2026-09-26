@@ -1,0 +1,2694 @@
+diff --git a/claims/aggregate-blast-radius.json b/claims/aggregate-blast-radius.json
+index 77f5b78..4c05656 100644
+--- a/claims/aggregate-blast-radius.json
++++ b/claims/aggregate-blast-radius.json
+@@ -2,25 +2,25 @@
+   "manifest_version": 1,
+   "claim_id": "aggregate-blast-radius",
+   "policy": "單筆變更都在單一廣告上限內時,租戶 24 小時內加預算的總曝險到門檻就停、剛好等於門檻仍放行;兩個工作者不能一起衝過門檻;超過的停在待核可,由人簽核可才放行,擋下的都有紀錄。",
+   "scope": [
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+-      "sha256": "e81dbfa9c3271fa750381311955d5ab2ddd4d0999e12f4ba83f82d313129d890"
++      "sha256": "52a3fcc5a48723ce282a4ae2dccf7423afb97198523f3f088552a572108c4c6c"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "f62db3e6e09da27b2d85aa46decbb1564e21248f5497c6e8bba466128c46a69b"
++      "sha256": "01ff34bf41a001d503f91cda2cb5f071eb7c0eaeff07d01f18bc31563bf23c1e"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/demo/__init__.py",
+       "sha256": "8e9e34bf95e44bc1ad24532939ab182e04594d30784626954badf50d1486c42e"
+     },
+     {
+@@ -62,21 +62,21 @@
+     {
+       "path": "src/rtb/dsp/capability.py",
+       "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
+     },
+     {
+       "path": "src/rtb/dsp/errors.py",
+       "sha256": "8a2da02e83240a71b3d279998a50fe36d19c7e484e58568e3f53af2dbdd85bbf"
+     },
+     {
+       "path": "src/rtb/dsp/server.py",
+-      "sha256": "ab287171b8e46e186bc7b551a0c55f14ec987207690710de9a4b080ef68ca551"
++      "sha256": "f0f3ce90512ec8ea11809bea478d511b44b829e1f2f59ebbee816277a302a600"
+     },
+     {
+       "path": "src/rtb/dsp/store.py",
+       "sha256": "4e7ad7da4217a2ead22b0214eb02d8fa9c9d69cbd422d871c1a8fcec0e9ac6f9"
+     },
+     {
+       "path": "src/rtb/executor/approval.py",
+       "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+     },
+     {
+@@ -134,21 +134,21 @@
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+-      "sha256": "5a158d4705fdb9ce762ac2919445d218f01c048eaf2b37e8ed8fc217a255eda8"
++      "sha256": "2bf84adea867667eabc86de861d541925eab8e30aedac5f38a332d5276f8794f"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+       "sha256": "9112a805811eba5df43772c0ba94374973d0ab59aa32404f98c6c8391b722d9b"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+diff --git a/claims/concurrency.json b/claims/concurrency.json
+index 9044cbb..d2a14b8 100644
+--- a/claims/concurrency.json
++++ b/claims/concurrency.json
+@@ -2,49 +2,49 @@
+   "manifest_version": 1,
+   "claim_id": "concurrency",
+   "policy": "同一份提案被多個工作者同時處理時只寫 DSP 一次;舊版本決策被擋、不寫進 DSP,改由後續任務照現況重排;分析端同一個任務併發推進只落地一次。",
+   "scope": [
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/dsp_client.py",
+-      "sha256": "1a2662c0f3750dd9801afe0821e40eec32b08f0ab3ff713561942e9afb75b4d4"
++      "sha256": "f588cb418ab49aba8c0e7d9d7c34fed2fdae3dca196c31e4cc4b3623367f6135"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+-      "sha256": "e81dbfa9c3271fa750381311955d5ab2ddd4d0999e12f4ba83f82d313129d890"
++      "sha256": "52a3fcc5a48723ce282a4ae2dccf7423afb97198523f3f088552a572108c4c6c"
+     },
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+-      "sha256": "a68c1a41bdc5c666742db5bd682a5887aa2309bf53ca1122dc17fa79c9665b03"
++      "sha256": "f017f81e05c59a3d41b28ca66f07816fa2a0b6d727fb01d3e535f9ba4ef59304"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+       "sha256": "ad5c0135bfa815906c83241d422281866697aaadf297c46e8a982e479686ff1b"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "53a107040db9143d9c232ac85d1016b5cdcfeb48e53d79065917282caa90c542"
+     },
+     {
+       "path": "src/rtb/analyzer/rule_round.py",
+-      "sha256": "b242c796483b1a5b6e630ee0603f8fb8c7155bbbfd5cd381f060b2e217d07f76"
++      "sha256": "0e7401cb0dadba2aa166fff33337e7093f22f4daad2e626055a188c5f74eb57e"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "f62db3e6e09da27b2d85aa46decbb1564e21248f5497c6e8bba466128c46a69b"
++      "sha256": "01ff34bf41a001d503f91cda2cb5f071eb7c0eaeff07d01f18bc31563bf23c1e"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/demo/__init__.py",
+       "sha256": "8e9e34bf95e44bc1ad24532939ab182e04594d30784626954badf50d1486c42e"
+     },
+     {
+@@ -74,21 +74,21 @@
+     {
+       "path": "src/rtb/domain/evidence.py",
+       "sha256": "7efccd4aef00af1313fcedb51bb6bb03039777582f18e4d37e14f0b99b26d5d4"
+     },
+     {
+       "path": "src/rtb/domain/metrics.py",
+       "sha256": "e3e5f919ead8f54b4837a30ee7cf4dd54e787b75e6777423c6cd1812b93066d5"
+     },
+     {
+       "path": "src/rtb/domain/nine_rules.py",
+-      "sha256": "264bf0a82d7fda9d12cc2424c772e6a778b527afd4de9f662fbb81b840dd4bc5"
++      "sha256": "daee125a78f53399bb7fb379537d8e23648b36769adae656c431053a8dcc41ce"
+     },
+     {
+       "path": "src/rtb/domain/proposal.py",
+       "sha256": "fb5f2e77710f1aa6893d4acb644e7481d5e1358c8ab0cadef9e2b91a5d995cc4"
+     },
+     {
+       "path": "src/rtb/domain/task_state.py",
+       "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
+     },
+     {
+@@ -102,21 +102,21 @@
+     {
+       "path": "src/rtb/dsp/errors.py",
+       "sha256": "8a2da02e83240a71b3d279998a50fe36d19c7e484e58568e3f53af2dbdd85bbf"
+     },
+     {
+       "path": "src/rtb/dsp/seed.py",
+       "sha256": "9c743a3644dd3736fe18f2f2a2da40839c1469d7874b2a9b13fd83b864bf48c4"
+     },
+     {
+       "path": "src/rtb/dsp/server.py",
+-      "sha256": "ab287171b8e46e186bc7b551a0c55f14ec987207690710de9a4b080ef68ca551"
++      "sha256": "f0f3ce90512ec8ea11809bea478d511b44b829e1f2f59ebbee816277a302a600"
+     },
+     {
+       "path": "src/rtb/dsp/store.py",
+       "sha256": "4e7ad7da4217a2ead22b0214eb02d8fa9c9d69cbd422d871c1a8fcec0e9ac6f9"
+     },
+     {
+       "path": "src/rtb/executor/approval.py",
+       "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+     },
+     {
+@@ -170,21 +170,21 @@
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+-      "sha256": "5a158d4705fdb9ce762ac2919445d218f01c048eaf2b37e8ed8fc217a255eda8"
++      "sha256": "2bf84adea867667eabc86de861d541925eab8e30aedac5f38a332d5276f8794f"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+       "sha256": "9112a805811eba5df43772c0ba94374973d0ab59aa32404f98c6c8391b722d9b"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+diff --git a/claims/idempotency-unknown-outcome.json b/claims/idempotency-unknown-outcome.json
+index 12d47b9..c1c57cc 100644
+--- a/claims/idempotency-unknown-outcome.json
++++ b/claims/idempotency-unknown-outcome.json
+@@ -46,21 +46,21 @@
+     {
+       "path": "src/rtb/dsp/capability.py",
+       "sha256": "e87ae06ebb8db7baacb00162503889db0ac7b399f3499b826ca59509dd45e7d9"
+     },
+     {
+       "path": "src/rtb/dsp/errors.py",
+       "sha256": "8a2da02e83240a71b3d279998a50fe36d19c7e484e58568e3f53af2dbdd85bbf"
+     },
+     {
+       "path": "src/rtb/dsp/server.py",
+-      "sha256": "ab287171b8e46e186bc7b551a0c55f14ec987207690710de9a4b080ef68ca551"
++      "sha256": "f0f3ce90512ec8ea11809bea478d511b44b829e1f2f59ebbee816277a302a600"
+     },
+     {
+       "path": "src/rtb/dsp/store.py",
+       "sha256": "4e7ad7da4217a2ead22b0214eb02d8fa9c9d69cbd422d871c1a8fcec0e9ac6f9"
+     },
+     {
+       "path": "src/rtb/executor/approval.py",
+       "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+     },
+     {
+@@ -110,21 +110,21 @@
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+-      "sha256": "5a158d4705fdb9ce762ac2919445d218f01c048eaf2b37e8ed8fc217a255eda8"
++      "sha256": "2bf84adea867667eabc86de861d541925eab8e30aedac5f38a332d5276f8794f"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+       "sha256": "9112a805811eba5df43772c0ba94374973d0ab59aa32404f98c6c8391b722d9b"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+diff --git a/claims/permission-guardrail.json b/claims/permission-guardrail.json
+index ff6c2be..456cfaa 100644
+--- a/claims/permission-guardrail.json
++++ b/claims/permission-guardrail.json
+@@ -2,49 +2,49 @@
+   "manifest_version": 1,
+   "claim_id": "permission-guardrail",
+   "policy": "DSP 只接受帶有效能力憑證、而且廣告、動作、租戶範圍都對得上的寫入;單次加額超過比例上限、決策過時、廣告版本已變時,執行端在寫進 DSP 之前擋下;人工核可只對它簽的那一份內容有效;死信重放照樣重跑執行前的檢查;故障注入要啟動時開旗標才存在、伺服器只綁本機、分析端送不出故障標頭。",
+   "scope": [
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/dsp_client.py",
+-      "sha256": "1a2662c0f3750dd9801afe0821e40eec32b08f0ab3ff713561942e9afb75b4d4"
++      "sha256": "f588cb418ab49aba8c0e7d9d7c34fed2fdae3dca196c31e4cc4b3623367f6135"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+-      "sha256": "e81dbfa9c3271fa750381311955d5ab2ddd4d0999e12f4ba83f82d313129d890"
++      "sha256": "52a3fcc5a48723ce282a4ae2dccf7423afb97198523f3f088552a572108c4c6c"
+     },
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+-      "sha256": "a68c1a41bdc5c666742db5bd682a5887aa2309bf53ca1122dc17fa79c9665b03"
++      "sha256": "f017f81e05c59a3d41b28ca66f07816fa2a0b6d727fb01d3e535f9ba4ef59304"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+       "sha256": "ad5c0135bfa815906c83241d422281866697aaadf297c46e8a982e479686ff1b"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "53a107040db9143d9c232ac85d1016b5cdcfeb48e53d79065917282caa90c542"
+     },
+     {
+       "path": "src/rtb/analyzer/rule_round.py",
+-      "sha256": "b242c796483b1a5b6e630ee0603f8fb8c7155bbbfd5cd381f060b2e217d07f76"
++      "sha256": "0e7401cb0dadba2aa166fff33337e7093f22f4daad2e626055a188c5f74eb57e"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "f62db3e6e09da27b2d85aa46decbb1564e21248f5497c6e8bba466128c46a69b"
++      "sha256": "01ff34bf41a001d503f91cda2cb5f071eb7c0eaeff07d01f18bc31563bf23c1e"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/demo/__init__.py",
+       "sha256": "8e9e34bf95e44bc1ad24532939ab182e04594d30784626954badf50d1486c42e"
+     },
+     {
+@@ -74,21 +74,21 @@
+     {
+       "path": "src/rtb/domain/evidence.py",
+       "sha256": "7efccd4aef00af1313fcedb51bb6bb03039777582f18e4d37e14f0b99b26d5d4"
+     },
+     {
+       "path": "src/rtb/domain/metrics.py",
+       "sha256": "e3e5f919ead8f54b4837a30ee7cf4dd54e787b75e6777423c6cd1812b93066d5"
+     },
+     {
+       "path": "src/rtb/domain/nine_rules.py",
+-      "sha256": "264bf0a82d7fda9d12cc2424c772e6a778b527afd4de9f662fbb81b840dd4bc5"
++      "sha256": "daee125a78f53399bb7fb379537d8e23648b36769adae656c431053a8dcc41ce"
+     },
+     {
+       "path": "src/rtb/domain/proposal.py",
+       "sha256": "fb5f2e77710f1aa6893d4acb644e7481d5e1358c8ab0cadef9e2b91a5d995cc4"
+     },
+     {
+       "path": "src/rtb/domain/task_state.py",
+       "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
+     },
+     {
+@@ -102,21 +102,21 @@
+     {
+       "path": "src/rtb/dsp/errors.py",
+       "sha256": "8a2da02e83240a71b3d279998a50fe36d19c7e484e58568e3f53af2dbdd85bbf"
+     },
+     {
+       "path": "src/rtb/dsp/seed.py",
+       "sha256": "9c743a3644dd3736fe18f2f2a2da40839c1469d7874b2a9b13fd83b864bf48c4"
+     },
+     {
+       "path": "src/rtb/dsp/server.py",
+-      "sha256": "ab287171b8e46e186bc7b551a0c55f14ec987207690710de9a4b080ef68ca551"
++      "sha256": "f0f3ce90512ec8ea11809bea478d511b44b829e1f2f59ebbee816277a302a600"
+     },
+     {
+       "path": "src/rtb/dsp/store.py",
+       "sha256": "4e7ad7da4217a2ead22b0214eb02d8fa9c9d69cbd422d871c1a8fcec0e9ac6f9"
+     },
+     {
+       "path": "src/rtb/executor/approval.py",
+       "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+     },
+     {
+@@ -178,21 +178,21 @@
+     {
+       "path": "src/rtb/modelledger_view.py",
+       "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+-      "sha256": "5a158d4705fdb9ce762ac2919445d218f01c048eaf2b37e8ed8fc217a255eda8"
++      "sha256": "2bf84adea867667eabc86de861d541925eab8e30aedac5f38a332d5276f8794f"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+       "sha256": "9112a805811eba5df43772c0ba94374973d0ab59aa32404f98c6c8391b722d9b"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+@@ -208,21 +208,21 @@
+     {
+       "path": "tests/analyzer/test_boundaries.py",
+       "sha256": "214a6c6fbc04118f49a433460880c4783e9f0d7c5fbf7c7b9b60f1d227a416cc"
+     },
+     {
+       "path": "tests/analyzer/test_f4_end_to_end.py",
+       "sha256": "6111986d2bb65dfed8da6ad5344ccd55643fba60546ba6dbc32387c06feea029"
+     },
+     {
+       "path": "tests/analyzer/test_f6_end_to_end.py",
+-      "sha256": "04ed1748801a955ed1afb7ad0814f544f0a3a38fc79c1e6421b884e36bd52782"
++      "sha256": "5737b87353bbae326b5d0fe767e814ac0ee18bb47b17fe6c7e320d8b12c2fda5"
+     },
+     {
+       "path": "tests/analyzer/test_policy.py",
+       "sha256": "57ceca3f612d782c0abbec281acf1bb2db298b1203c516421c6b82362288c803"
+     },
+     {
+       "path": "tests/capability_samples.py",
+       "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
+     },
+     {
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+index 103de3f..0e1aa51 100644
+--- a/claims/prompt-injection.json
++++ b/claims/prompt-injection.json
+@@ -2,61 +2,61 @@
+   "manifest_version": 1,
+   "claim_id": "prompt-injection",
+   "policy": "未開 AI 決策時,廣告名稱等不可信文字不影響決策、不流進提案;開了 AI 決策時,名稱只能翻動提不提案,翻不動金額、廣告與動作種類;提案只收白名單欄位;可信證據不帶自由文字;分析端讀不到簽發金鑰。",
+   "scope": [
+     {
+       "path": "src/rtb/__init__.py",
+       "sha256": "f71a2105f658910837e4f9b659061f0bc53b634225f539dbeb68e55ae8012968"
+     },
+     {
+       "path": "src/rtb/analyzer/ai_judge.py",
+-      "sha256": "8bd602fc939b9c041408b356727046251e91e5b0a83aa3f6010b69b959f48a7e"
++      "sha256": "76e5bfc704ed4b0e68b4a5efba842cea660e7fe333ccf49a08a6c26280eeccce"
+     },
+     {
+       "path": "src/rtb/analyzer/dsp_client.py",
+-      "sha256": "1a2662c0f3750dd9801afe0821e40eec32b08f0ab3ff713561942e9afb75b4d4"
++      "sha256": "f588cb418ab49aba8c0e7d9d7c34fed2fdae3dca196c31e4cc4b3623367f6135"
+     },
+     {
+       "path": "src/rtb/analyzer/flow.py",
+-      "sha256": "e81dbfa9c3271fa750381311955d5ab2ddd4d0999e12f4ba83f82d313129d890"
++      "sha256": "52a3fcc5a48723ce282a4ae2dccf7423afb97198523f3f088552a572108c4c6c"
+     },
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+-      "sha256": "a68c1a41bdc5c666742db5bd682a5887aa2309bf53ca1122dc17fa79c9665b03"
++      "sha256": "f017f81e05c59a3d41b28ca66f07816fa2a0b6d727fb01d3e535f9ba4ef59304"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+       "sha256": "ad5c0135bfa815906c83241d422281866697aaadf297c46e8a982e479686ff1b"
+     },
+     {
+       "path": "src/rtb/analyzer/modelgate.py",
+       "sha256": "c1adce89014cf58320a52500f68a6bc710a9b460c1f4273ce52139410def85b3"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "53a107040db9143d9c232ac85d1016b5cdcfeb48e53d79065917282caa90c542"
+     },
+     {
+       "path": "src/rtb/analyzer/rule_round.py",
+-      "sha256": "b242c796483b1a5b6e630ee0603f8fb8c7155bbbfd5cd381f060b2e217d07f76"
++      "sha256": "0e7401cb0dadba2aa166fff33337e7093f22f4daad2e626055a188c5f74eb57e"
+     },
+     {
+       "path": "src/rtb/analyzer/runner.py",
+-      "sha256": "7be4d9dbecab4a5c1b0a517e970f535e57a8a7adb85db90f4b11100f2ec9173d"
++      "sha256": "3192d10efd461530304f48bd976de7eec68bac3de644ba480c19ec9b19268a43"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+-      "sha256": "f62db3e6e09da27b2d85aa46decbb1564e21248f5497c6e8bba466128c46a69b"
++      "sha256": "01ff34bf41a001d503f91cda2cb5f071eb7c0eaeff07d01f18bc31563bf23c1e"
+     },
+     {
+       "path": "src/rtb/capabilitykit.py",
+       "sha256": "27824e35d0c6092076d86a28381a033acb08fd15ccb56fbc091ae6f9da4a4faf"
+     },
+     {
+       "path": "src/rtb/demo/__init__.py",
+       "sha256": "8e9e34bf95e44bc1ad24532939ab182e04594d30784626954badf50d1486c42e"
+     },
+     {
+@@ -86,21 +86,21 @@
+     {
+       "path": "src/rtb/domain/evidence.py",
+       "sha256": "7efccd4aef00af1313fcedb51bb6bb03039777582f18e4d37e14f0b99b26d5d4"
+     },
+     {
+       "path": "src/rtb/domain/metrics.py",
+       "sha256": "e3e5f919ead8f54b4837a30ee7cf4dd54e787b75e6777423c6cd1812b93066d5"
+     },
+     {
+       "path": "src/rtb/domain/nine_rules.py",
+-      "sha256": "264bf0a82d7fda9d12cc2424c772e6a778b527afd4de9f662fbb81b840dd4bc5"
++      "sha256": "daee125a78f53399bb7fb379537d8e23648b36769adae656c431053a8dcc41ce"
+     },
+     {
+       "path": "src/rtb/domain/proposal.py",
+       "sha256": "fb5f2e77710f1aa6893d4acb644e7481d5e1358c8ab0cadef9e2b91a5d995cc4"
+     },
+     {
+       "path": "src/rtb/domain/task_state.py",
+       "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
+     },
+     {
+@@ -114,21 +114,21 @@
+     {
+       "path": "src/rtb/dsp/errors.py",
+       "sha256": "8a2da02e83240a71b3d279998a50fe36d19c7e484e58568e3f53af2dbdd85bbf"
+     },
+     {
+       "path": "src/rtb/dsp/seed.py",
+       "sha256": "9c743a3644dd3736fe18f2f2a2da40839c1469d7874b2a9b13fd83b864bf48c4"
+     },
+     {
+       "path": "src/rtb/dsp/server.py",
+-      "sha256": "ab287171b8e46e186bc7b551a0c55f14ec987207690710de9a4b080ef68ca551"
++      "sha256": "f0f3ce90512ec8ea11809bea478d511b44b829e1f2f59ebbee816277a302a600"
+     },
+     {
+       "path": "src/rtb/dsp/store.py",
+       "sha256": "4e7ad7da4217a2ead22b0214eb02d8fa9c9d69cbd422d871c1a8fcec0e9ac6f9"
+     },
+     {
+       "path": "src/rtb/executor/approval.py",
+       "sha256": "4cde0531b9a5580c6087a5f543d4e050804e57821c026127559a1cc9dfe4a3e8"
+     },
+     {
+@@ -190,21 +190,21 @@
+     {
+       "path": "src/rtb/modelrecording.py",
+       "sha256": "09f03583198e52f00b648d14d553b88313c7f98c48ba0b9597cba7056efb7f21"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+-      "sha256": "5a158d4705fdb9ce762ac2919445d218f01c048eaf2b37e8ed8fc217a255eda8"
++      "sha256": "2bf84adea867667eabc86de861d541925eab8e30aedac5f38a332d5276f8794f"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+       "sha256": "9112a805811eba5df43772c0ba94374973d0ab59aa32404f98c6c8391b722d9b"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+@@ -216,37 +216,37 @@
+     {
+       "path": "tests/analyzer/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/analyzer/conftest.py",
+       "sha256": "01f896c08eec5a91a704468b2fec3556cbc36b5f9934d2295f94ddf838c9fa6d"
+     },
+     {
+       "path": "tests/analyzer/test_ai_judge.py",
+-      "sha256": "0f7781b28bf6791d1ef6521cc44cd68c7e9ddc9c31901f1bffa03ecc26947dad"
++      "sha256": "6c40c2ac2ba723d454eb0f7c4baff9bfa1ac3f4f2ad584588098e334c712883e"
+     },
+     {
+       "path": "tests/analyzer/test_boundaries.py",
+       "sha256": "214a6c6fbc04118f49a433460880c4783e9f0d7c5fbf7c7b9b60f1d227a416cc"
+     },
+     {
+       "path": "tests/analyzer/test_dsp_client.py",
+-      "sha256": "efd5af43aa636579b1c6a2476181de17b53f39c9152259ea7a898b818c09457e"
++      "sha256": "d8b0f4ffa0f3a389329eb522dc305f60db72fd51bbdd024be4b51edd37695295"
+     },
+     {
+       "path": "tests/analyzer/test_f5_end_to_end.py",
+       "sha256": "2aa8f4326862e47c327456112989e1984071fd87b93b90bd322e2501dd002d69"
+     },
+     {
+       "path": "tests/analyzer/test_investigation_e2e.py",
+-      "sha256": "047c5b45c2772853e304ae12123501760b03b9803148f77f3d17512f033af91f"
++      "sha256": "7785c69ff12eb0335ac94af6a5cd341eaa738f7e933b0dd14e1c7873794cff10"
+     },
+     {
+       "path": "tests/analyzer/test_policy.py",
+       "sha256": "57ceca3f612d782c0abbec281acf1bb2db298b1203c516421c6b82362288c803"
+     },
+     {
+       "path": "tests/analyzer/test_trust_boundary.py",
+       "sha256": "792852f65f87a16fb1aae15e570120a7ea7cdac941bdd5714307b5671032cd04"
+     },
+     {
+diff --git a/docs/rtb-production-agent-demo-knowledge/Issues/錄製模式的原因假說寫進真帳本.md b/docs/rtb-production-agent-demo-knowledge/Issues/錄製模式的原因假說寫進真帳本.md
+index 789a0e9..3c8040c 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Issues/錄製模式的原因假說寫進真帳本.md
++++ b/docs/rtb-production-agent-demo-knowledge/Issues/錄製模式的原因假說寫進真帳本.md
+@@ -19,10 +19,12 @@ summary: |-
+ 
+ 
+ ## 發生什麼事
+ - 展示驅動呼叫假說命令列的參數沒有帳本(`src/rtb/demo/driver.py` 的 `_hypothesize`);假說命令列在錄製模式下退回真帳本路徑。
+ - 真帳本只該由使用者授權的即時呼叫寫入;錄製展示寫進去會污染花費帳,也讓套件隔離測試在展示開著時偶發失敗。
+ 
+ ## 要做的
+ - 假說這一步比照分析那一步帶錄製帳本,或讓錄製模式沒有帳本時拒絕而不是退回真帳本;補測試:錄製展示跑完真帳本不變。
+ - 沒查:真帳本這次多了什麼內容(不讀帳號家目錄內容),以及是誰在那個時間跑了展示。
+ - 2026-09-26 17:40:11 真帳本又被寫入一次,當時展示伺服器已關、另一個 RTB 工作階段自述閒置、殘留測試行程的帳本都指向暫存目錄;分支全套測試(3311)跑完前後帳本修改時間不變。寫入者沒查出來,可能是當時某個審查或實作代理跑的指令。另記:9/25 起有幾組「取消不留殘留行程」類測試留下的分析端/執行端行程仍在跑迴圈(帳本都在暫存目錄),那兩支測試本身留下了殘留行程,要另查。
++- 2026-09-26 查明(唯讀帳本中繼欄位,不看其他內容):今天真帳本新增的紀錄全是 source=recorded、caller=analyzer_investigation,多為一批 84 筆(本地 16:00、16:39、17:14、17:40、19:37×2、20:55),84 = 評估錄製批次檔數;即代理照驗證步驟跑的「72 筆評估錄製重播」(`src/rtb/eval/investigation_eval.py` 的 `--ledger` 選填)在錄製模式沒帶帳本時,經模型閘道退路寫進真帳本。12:31 另有 27 筆,對得上展示頁跑情境。這些列不花錢,但違反「錄製模式不碰真帳本」。
++- 修法(增量 3 併做):錄製模式沒指定帳本時拒絕或改用暫存帳本,評估重播、原因假說、展示驅動一體適用;補測試:錄製模式跑完真帳本不變。在那之前,所有重播一律帶 `--ledger <暫存路徑>`。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
+index 923e607..30eafb2 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
+@@ -659,24 +659,24 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
+ - 展示流程圖的列舉覆蓋測試:只掃 `MAPPED_ENUMS` 裡的十八個列舉;新的不提案原因(`EXAM_HOLD`)在其中一個列舉裡,沒補圖主線 CI 會紅,新的退回原因列舉要先加進清單才會被擋([S1024] 的「十八個」跟著改)。Phase 10 [S705] 要求現行規則走得到 `NoActionReason` 每個成員,加 `EXAM_HOLD` 會紅,要改寫(見〈調查紀錄與狀態同一交易〉)。
+ - 判斷紀錄的 basis、kind、operation_key 只在 Phase 12 頁面分支,main 還沒有;頁面介面由 Codex 實作,改介面要先跟協調者說。
+ - 採用門檻的成本數字:Claude Code 後端每次呼叫的固定附加輸入就超過 0.002 美元,AI 決策在這個後端上結構性地過不了成本門檻。
+ 
+ ## 合約候選
+ 
+ - [S1100] 當分析端任何模組要呼叫模型時,應只經分析端模型閘道匯入模型用戶端;准匯入模型閘道的分析端模組應只有 AI 決策函式所在模組、分析端驅動命令列與模型說明命令列,流程推進函式、決策規則與 DSP 用戶端的匯入閉包應不含模型用戶端的任何一支模組。[test:test_the_analyzer_reaches_the_model_only_through_the_gateway]
+ - [S1101] 當給定一個展示編號時,花費帳唯讀開法應回這個展示編號的已用,包含已結算金額與還沒結算的預留。[test:test_the_ledger_sums_one_demo_including_open_reservations]
+ - [S1102] 當說明命令列、假說命令列或開了 AI 決策的分析端驅動命令列在錄製模式收到帳檔參數時,花費帳應記在指定路徑,家目錄下的真帳應不被建立或修改。[test:test_recorded_entries_book_into_the_given_ledger]
+ - [S1103] 呼叫者列舉應含「分析端調查」成員,模型與 Jev 指標應照呼叫者分且標籤仍是封閉集合。[test:test_the_investigation_caller_is_a_bounded_label]
+-- [S1104] 當現況或 1 小時指標過期、缺現況或指標、配速算不出或配速不偏低時,分析端應不呼叫模型,決策應等於現行決策函式對現況、1 小時指標與廣告文字三種證據的結果;追加查詢的收據過期應不影響這個判定。[test:test_code_prefilters_run_before_any_model_call]
++- [S1104] 當現況或 1 小時指標過期、缺現況或指標、配速算不出或配速不偏低時,分析端應不呼叫模型,決策應等於現行決策函式對現況、1 小時指標與廣告文字三種證據的結果;追加查詢的收據過期應不影響這個判定。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 代碼審 r1 改寫:前置過濾另含九條第 1/2 條(暫停、1 小時異常、判斷點輸入建不成),直接由規則結案、不呼叫模型;評估的原始錄製重播通道沿用舊過濾只為還原模型原始答案。)[test:test_code_prefilters_run_before_any_model_call] [test:test_paused_and_anomalous_campaigns_never_reach_the_model]
+ - [S1105] 當模型的回答不是恰好含 choice、reason、evidence 三欄的 JSON、選項不在這一輪允許清單、或理由超過 200 字或含換行與不可列印字元時,分析端應丟掉這個回答並改由現行規則決定,這一輪應記成選項外答案。[test:test_an_answer_outside_the_fixed_options_falls_back_to_the_rule]
+ - [S1106] 當模型用戶端丟出模型呼叫失敗類別的子類別、或我方本地驗證不過時,分析端應改由現行規則決定並記下退回原因類別,流程應不轉失敗(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b 改寫:程式規則是九條,暫停/異常用基本三筆當場結案,其餘退回開一次新規則輪 A/B/C 全量重讀四查詢再定案,不沿用 AI 期查詢);當丟出的是停止訊號轉成的例外或 KeyboardInterrupt 時,AI 決策函式應不接住、讓它往外丟。[test:test_model_call_failures_fall_back_but_stop_signals_propagate]
+-- [S1107] 當模型選了值得加時,產生的提案應跟沒開 AI 時現行規則對同一批現況、1 小時指標與廣告文字產生的提案逐欄相同,包含證據參照與內容雜湊。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 改寫:程式規則判值得加的提案,證據參照另列四種成功查詢的收據;兩條路徑除證據參照外逐欄相同,只有用同一批完整證據建的才連參照都相同。AI 提案的規則否決是增量 3。)[test:test_a_model_chosen_proposal_equals_the_formula_proposal]
++- [S1107] 當模型選了值得加時,產生的提案應跟沒開 AI 時現行規則對同一批現況、1 小時指標與廣告文字產生的提案逐欄相同,包含證據參照與內容雜湊。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 改寫:程式規則判值得加的提案,證據參照另列四種成功查詢的收據;兩條路徑除證據參照外逐欄相同,只有用同一批完整證據建的才連參照都相同。代碼審 r1 後改為:AI 答 propose 不再直接建提案,一律開規則輪、九條也判值得加才由規則輪建提案,見 Phase 14 [S1407]。)[test:test_a_model_chosen_proposal_equals_the_formula_proposal]
+ - [S1108] 當模型選查詢選項時,分析端只呼叫該選項需要的唯讀端點、不呼叫寫入端點;Phase 14 增量 2a 起單查逐日仍只讀逐日一次;同一步也選了較長時間窗時,才用已讀到的 1d/7d 在讀取層核對跨窗,不為核對另打 DSP(2a 代碼審 r1 改正:先前這裡誤寫成逐日另讀 1d、7d 共三讀,與程式、`READS_PER_OPTION` 及租約算式不符),其餘對應不變。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1414]。[test:test_each_query_option_maps_to_its_read_only_endpoints]
+ - [S1109] 當一件工作的調查紀錄累計已有 2 輪模型呼叫、或已經查滿 3 個查詢選項時,下一輪的允許清單應只剩三個結論選項,模型再選查詢應當成選項外答案退回現行規則。[test:test_the_round_cap_leaves_only_final_choices]
+ - [S1110] 當 AI 那一步轉成回蒐集證據、已提案、不提案或退回規則任一種時,調查紀錄應跟狀態列在同一個交易、同一道租約與序號圍籬裡寫入,只增不改地記下這一輪的選項、理由、來源與退回原因類別;提交輸給接手者時應連紀錄一起沒寫入。[test:test_every_model_round_is_committed_with_its_step]
+ - [S1111] 送給模型的內容應只含白名單的數字與狀態、已選的選項代碼、收據、允許清單與標成資料區的廣告名稱;同一個情境跑兩次時送出內容應逐位元組相同,任務編號、冪等鍵、操作編號、時間戳與先前的模型理由應不出現。[test:test_the_investigation_prompt_is_whitelisted_and_stable]
+ - [S1112] 當廣告名稱藏誘導文字、而且假模型照誘導回答時,送進收件口的內容應只可能是照公式的那一份提案或沒有提案,金額、廣告與動作種類應跟名稱正常時相同。[test:test_an_injected_name_can_only_flip_propose_or_not]
+ - [S1113] 當分析端驅動命令列帶 --ai-judge 啟動、而且蒐集證據一步的最壞耗時(取租約等鎖加 6 次讀取各自的 DSP 逾時與呼叫紀錄等鎖加提交等鎖)不小於租約,或從續租讀時鐘之後算起 AI 那一步的最壞耗時(模型逾時 15 加行程群組清理加 4 次花費帳等鎖加送出前記次等鎖加提交等鎖)不小於租約時,驅動命令列應拒絕啟動,算式的每個數字應取自真常數;沒帶 --ai-judge 時應照舊只守 [S1001]。(2026-09-26 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1405]:兩種模式都另守規則輪 A/B/C 逐步上界,沒開 AI 的 5 秒逾時因 C=60 秒改為拒絕。)[test:test_the_runner_refuses_a_model_timeout_that_outlives_the_lease]
+ - [S1114] 執行端與收件口應不讀調查紀錄表,提案應不帶任何模型產生的欄位。[test:test_the_executor_never_sees_model_rounds]
+ - [S1115] 當一批證據除了現況、1 小時指標與廣告文字之外還帶任意追加查詢收據(含已過期的)時,AI 決策函式傳給現行決策函式、不提案原因函式與建提案函式的證據應只含那三種,結果應跟不帶時相同。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b:退回改開規則輪,規則輪自己重讀四查詢;AI 期收據照舊不進程式規則。)[test:test_extra_query_evidence_never_changes_the_code_rule]
+ - [S1116] 當模型呼叫途中收到停止訊號時,分析端驅動命令列應明接停止訊號轉成的例外,放掉租約、這一步不寫入並以 0 結束。[test:test_a_stop_signal_during_a_model_call_ends_the_runner_cleanly]
+ - [S1117] 調查評估報告應逐格只用名稱正常的案例報誤提案率、類別正確率與值得加格召回率,另報每個決策的輪數、原價與退回原因;合成集的結論應是不採用。[test:test_the_investigation_report_is_per_slice_and_never_adopts_synthetic]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md
+index 90343c2..2baa30f 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md
+@@ -150,25 +150,39 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ 
+ 增量 2b（2026-09-26，正式規則與分步蒐證）：正式路徑改判九條並分 A/B/C 三步讀四查詢；新程式在 `rule_round`（[[Systems/分析行程流程與檢查點]]）。要點與測試對應：
+ - 正式規則：`policy.explain/steps/decide` 改用 `rtb.domain.nine_rules`；順序是新鮮度 → 可信現況要有合法狀態 → 第 1/2 條（只用基本資料）→ 配速 → 其餘七條（要四查詢）。四查詢一律明傳：只有基本資料時明傳 `MISSING_FOUR_QUERIES`（配速偏低其餘情形 = 證據不足）；舊「曝光點擊正數就加」與判斷點建不起來時的舊判式整段撤掉。[S1401] [test:test_paused_and_anomalous_campaigns_finish_from_base_evidence]、[S1402] [test:test_missing_query_results_prevent_a_proposal]。
+ - 規則輪：A=現況+1h（2 讀）、B=歷史+過去調整（2 讀）、C=逐日+1d+7d+重讀現況與 1h（5 讀）；宣告讀數由查詢選項算、測試核對等於實際讀數。進度只由已提交的 `rule_steps`／`rule_events` 重算；最新一輪有非續步事件或不是本政策版本就作廢，新輪從 A；蒐證時先前步驟過期（當機續跑逾 15 分鐘）也開新輪；定案以決策 now 重驗三步證據年齡、A/C 比編號狀態版本與 1h 五項原始指標，變動連續重來兩次後再變動以證據不足結案；409 退回後因定案事件已寫、新輪從 A 全量重讀。[S1405] [test:test_rule_collection_steps_fit_the_lease]、[S1413] [test:test_rule_round_checkpoints_exclude_stale_evidence]、[test:test_changes_between_a_and_c_restart_twice_then_stop]、[S1424] [test:test_policy_switch_restarts_inflight_analysis]。
+ - 時間：逐日帶 C 的讀取時刻，跟決策 now 不同 UTC 日即證據不足（領域 `DailyTrend.read_at`、原因 `day_boundary`）；第 3 條另看過去調整的 `committed_at` 與截斷歷史的完整集合近期旗標，第 4 條以決策 now 判 D+3 是否完整（now 早於 D+4 日 00:00 UTC 就證據不足，DSP 回了數字也不採信）；缺提交時刻的過去調整列判證據不足。72 筆逐筆格與答案不變。[S1406] [test:test_decisions_recheck_freshness_and_utc_day_boundaries]、領域 [test:test_past_adjustment_commit_time_is_judged_on_the_decision_clock]、[test:test_truncated_history_recent_flag_counts_as_a_recent_change]、[test:test_daily_read_on_another_utc_day_is_insufficient]。
+ - 缺狀態：現況 200 回應只有狀態缺值／非法時讀取層不丟例外、不造 state 證據（廣告文字也不帶版本），分析以 `MISSING_STATE_OR_METRICS` 結案；C 才缺狀態也不沿用 A 的；5xx／連線照舊重試。[S1404] [test:test_missing_dsp_state_finishes_without_proposal]、[test:test_a_dsp_server_error_on_the_state_is_still_retried]、[test:test_missing_state_at_step_c_does_not_reuse_step_a]。
+ - 證據參照：規則輪提案列 C 的基本三筆加四種成功查詢收據；AI 直接提案仍只列基本三筆，兩者除證據參照外逐欄相同（[S1107] 改寫）[test:test_underpacing_campaign_reads_three_steps_and_proposes_with_query_receipts]、[test:test_a_model_chosen_proposal_equals_the_formula_proposal]。
+ - 政策版本：`POLICY_VERSION` 改 `nine-rules-v1`，`KNOWN_POLICY_VERSIONS` 保留 `demo-pacing-v1`；舊版提案由 [S504] 擋。[S1416] [test:test_old_policy_proposals_are_blocked_after_the_rule_change]。
+ - 租約與寬限：runner 對 A/B/C 各查 `5 + N ×（逾時 + 5）+ 5 < 60`，兩種模式都查（沒開 AI 的 5 秒逾時因 C=60 改拒絕）；啟動器規則模式寬限取 max(舊兩讀寬限, A/B/C 最壞)=50 秒，AI 模式再與 60 秒取大；三者共用 `stepbudget.RULE_STEP_READS`。[S1419] [test:test_stop_grace_covers_the_longest_rule_step]。
+ - Phase 10：`route` 的四查詢與決策時間改必填，`score`／模型候選／延遲量測明傳 `MISSING_FOUR_QUERIES` 與固定 `RULE_NOW`；報告每格標「舊資料不足以評估九條規則」。[S1417] [test:test_phase_ten_scenarios_explicitly_report_missing_queries]。Phase 13 報告的「程式規則」列改用九條加案例的四查詢（同源、36/36 只證接線；報告文字與三列分列是增量 4）。
+-- AI 退回（與增量 3 的分界）：原本 AI 退回走 `_rule`（舊「有投放就加」），九條需要四查詢，所以 2b 照計劃〈AI 退回與展示〉先做**退回那一半**：退回時基本三筆判得出的（暫停、異常、前置過濾那幾道）當場結案，其餘開一次新規則輪 A/B/C 全量重讀（退回紀錄結果代碼 `rule_round`），規則輪那幾步由流程層直接問規則輪、不經 AI；AI 用過之後的蒐證改讀規則輪（撤除 [S1138]「只讀基本兩樣」）；開 AI 時規則輪定案也照 --hold-submit 攔（[S1156] 的這個出口）。評估執行器遇到退回開規則輪，改由案例的四查詢跑同一支正式規則。**留給增量 3**：AI 答 `propose` 的規則否決（2b 仍直接建提案）、AI 前置過濾納入暫停／異常、[S1421] 全部出口集中攔、展示頁與流程圖分開畫程式補查、F4/F6 展示斷言與 [S1409]、F7 負載驗收 [S1411]/[S1420]。
++- AI 退回（與增量 3 的分界）：原本 AI 退回走 `_rule`（舊「有投放就加」），九條需要四查詢，所以 2b 照計劃〈AI 退回與展示〉先做**退回那一半**：退回時基本三筆判得出的（暫停、異常、前置過濾那幾道）當場結案，其餘開一次新規則輪 A/B/C 全量重讀（退回紀錄結果代碼 `rule_round`），規則輪那幾步由流程層直接問規則輪、不經 AI；AI 用過之後的蒐證改讀規則輪（撤除 [S1138]「只讀基本兩樣」）；開 AI 時規則輪定案也照 --hold-submit 攔（[S1156] 的這個出口）。評估執行器遇到退回開規則輪，改由案例的四查詢跑同一支正式規則。**留給增量 3**(代碼審 r1 後否決與前置過濾已提前到 2b,見下方修正)：[S1421] 全部出口集中攔、展示頁與流程圖分開畫程式補查、F4/F6 展示斷言與 [S1409]、F7 負載驗收 [S1411]/[S1420]。
+ - 展示最小相容：觀察器把規則輪續步的中間列（續步那一列蒐集、B/C 的分析中、AI 退回開規則輪那一列的重新蒐集與規則輪 A 的分析中）併進既有節點，不另畫；F5 名稱核對改成「讀到的名稱都是原文」（A、C 各讀一次現況）。
+ - 既有測試期望改變（逐條理由見 [[Verification/Phase14增量2b驗證紀錄]]）：F4 接續任務改為第 3 條證據不足、無提案、收件口與 DSP 只有原先那些寫入；[S700] 改列九條與舊結果的差異；[S705] 豁免只剩考題結束；[S714] 改名改寫；S49、[S1106]、[S1115]、[S1138]、[S1156] 等的退回期望改成規則輪；runner/F5/F6/端到端夾具補種四查詢歷史、步數與端點清單照三步讀調整。
+ - 未解決（停在這裡）：政策版本升版後，入庫展示錄製（phase13-demo-20260925）裡模型說明（提案說明命令列）的提示含政策版本，重播 F1–F6 有 8 筆說明呼叫找不到錄製，`test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6` 紅；代理不准錄，需協調者用真 claude 重錄展示批次（或裁定其他處置）。AI 調查的提示與錄製鍵不含政策版本，Phase 13 評估 72 筆重播不受影響。
+ 
++增量 2b 代碼審 r1 修正(2026-09-26,八席:外家 finder 3、外家否決 1、資安 2、架構對齊 1、鏡頭 1–4 共 9 條 minor;spec-conformance clean;協調者定修法):
++- 外家 finder-1(blocker):長窗任一窗負數、點擊多於曝光、轉換多於點擊,或 1 天窗任一欄大於 7 天窗,九條一律證據不足;並把四查詢所有「不合格」檢查(長窗、晚於決策 now 的歷史／過去調整時刻、負數過去調整、不合格逐日列)移到第 3 條之前,任何一條本會命中都擋在前面。讀取層照 2a 裁定保留「負數不參與跨窗比較、收據寫 na」(給 AI 看),決策以領域為準,兩邊語意一致(都不採用那個值)。[test:test_negative_or_inconsistent_longer_windows_are_insufficient]、[test:test_every_invalid_query_result_blocks_a_proposal_whatever_rule_would_hit]。評估測試原有一組「1 天 2、7 天 0」自相矛盾的長窗改成合理數字,另斷言矛盾那組是證據不足。
++- 外家否決-1(blocker)+資安-1:把原屬增量 3 的兩件提前做。AI 前置過濾納入第 1/2 條(暫停、異常、判斷點輸入建不成)直接由規則結案、不呼叫模型;AI 答 `propose` 不再直接建提案,記下 AI 原始結論後開一次新規則輪 A/B/C,九條也判值得加才由規則輪建提案,否則否決(定案事件細因帶 `ai_propose_vetoed:`,[S1407] 否決那半)。所以不會再有未經九條卻帶 `nine-rules-v1` 的提案。評估的原始錄製重播(`Judge(raw_replay=True)`)沿用 Phase 13 舊前置過濾、`CaseRun.final` 記模型自己的答案,Phase 13 報告數字不變;「AI+規則否決」列仍是增量 4。[test:test_paused_and_anomalous_campaigns_never_reach_the_model]、[test:test_an_ai_propose_opens_a_rule_round_instead_of_a_proposal]、[test:test_an_ai_propose_is_vetoed_when_the_rules_disagree]、[S1107] [test:test_a_model_chosen_proposal_equals_the_formula_proposal](改成端到端:規則輪建提案、模型只呼叫一次)。
++- 外家 finder-2:C 步改成先讀逐日與長窗、最後才重讀現況與 1 小時(仍 5 讀,租約算式不變),查詢期間另一方改預算會被 A/C 比對抓到而重來。[test:test_step_c_rereads_the_state_after_its_queries]。
++- 外家 finder-3:連續變動重來次數只數目前政策版本的輪,升版後歸零([S1424])。[test:test_change_restarts_do_not_carry_over_a_policy_switch]。
++- 架構對齊-1:`rule_round.progress`、`collect_plan` 改純函式,吃呼叫端先讀出的記錄(同 `investigation.progress` 慣例);`decide` 只讀一次規則輪記錄。[test:test_progress_is_recomputed_from_plain_records]。
++- 鏡頭3-1:AI 退回測試的預期值寫死(不拿正式程式的 `needs_queries` 當預言機),並驗證把判準改壞時 [S1105][S1131] 兩支 20 筆翻紅。
++- 鏡頭3-2:F6「決策變舊」的接續任務走完規則輪、提案、執行、完成,補回接續任務正路。[test:test_f6_a_stale_decision_follow_up_is_replanned_and_executed]。
++- 鏡頭2:規則步驟表毀損時,開不開 AI、分析或蒐證那一步都轉 FAILED(原本 AI 模式卡在分析中、蒐證無限重試)。[test:test_a_corrupted_rule_step_row_fails_the_task_instead_of_looping]、[test:test_a_corrupted_rule_step_row_fails_the_collect_step]。調查原始資料表的「沒有決策路徑讀」說法改成「只有規則輪定案讀」,守衛測試改成白名單掃描整個分析端目錄(只准 `rule_round`)。「一步最多兩次讀」四處說法補上規則輪 C 最多 5 讀。
++- 鏡頭4:正式環境抽樣報告同樣標「舊資料不足以評估九條規則」;延遲量測寫明是缺四查詢的九條短路徑。
++- 資安-2:DSP 操作歷史回應頂層帶廣告編號,讀取層核對是這件工作的廣告,核過拿掉,存下的原始回應與收據維持既有形狀。[test:test_the_change_history_must_belong_to_the_task_campaign]。
++- 鏡頭1/2 檔頭:`rule_round`、`ai_judge` 檔頭改成實際接線。
++- 與增量 3 的新分界:否決與前置過濾已在 2b;留給增量 3 的是 [S1421] 全部出口集中攔(純規則路徑的 hold-submit)、展示頁與流程圖分開畫「程式複查／補查」、F4/F6 展示標註與 [S1409]、F7 負載 [S1411]/[S1420]。
++
+ 1. 領域層建自己的四查詢資料型別、九條判斷、格、封閉 `StrEnum` 診斷原因與共用切點；評估 `answer()` 改呼叫它。固定 Phase 13 72 筆（含名稱雙胞胎）在改前改後的格與標準答案一致，新增列內缺值、單日 `no_data=true` 與資料齊但分母零的對照案例；此增量只搬單一來源，不改正式行為。新領域檔同步開 [[Systems/正式九條判斷領域規則]]。
+ 2. 正式規則與分步蒐證：先讓近期調整、缺值、查詢沒有結果、跨窗矛盾、paused、異常、政策版本等測試翻紅，再接 `policy`、`flow`、`runner`、`instrumented`、`TaskStore`、DSP 唯一調整紀錄、精確分儲存／回應、有日期逐日端點的跨日物化、基本缺狀態診斷及證據參照。明訂輪次由已提交列重算、歷史七日上限與重進入，修改租約守衛、啟動器停止寬限、原始資料讀取合約與診斷原因；假的 DSP 故障驗證不提案或重試。同步接好 `scoring.py → route` 的 Phase 10 缺四查詢轉接，避免改簽章後既有評估報告斷線。這個增量行為改變最大，單獨驗收。
+ 3. AI 提案否決與退回全量重讀、前置過濾、展示基礎與流程圖、F4／F6 端到端斷言。保留 F1–F7 既有故障目的，畫面分開 AI 選查詢和程式重讀；錄製模式驗證，不重新呼叫模型。
+ 4. 重跑 Phase 10／13 報告、更新原合約和各 Systems 家的決策與驗證脈絡，明列 Phase 10 舊資料不足、Phase 13 AI 原始／AI+規則否決／程式規則三列、同源 36/36、採用結論及延遲單位。先查每個實作檔的 Systems 家；報告只讀已定版規則。
+ 
+ ## 會卡住這個設計的既有程式
+ 
+ - `tests/analyzer/test_worth_check.py` 的凍結舊 `frozen_policy_e8b26f6.py`、625 筆 `policy_before_samples.py` 及 [S700] 把舊行為當永久等式；要保留舊快照作歷史證據，撤掉「新正式規則仍等於它」的斷言，改為舊與新預期差異逐格說明。
+ - `tests/eval/test_evaluation.py` 的 code_rule 逐格與薄切片按「只看投放」寫；`tests/eval/test_investigation_eval.py` 釘住現行規則六格錯法。更新成九條正式規則與同源警語，不能刪掉逐格誤提案統計。
+ - `tests/analyzer/test_f4_end_to_end.py` 的接續提案 `220` 及 F6 對稱斷言需改為證據不足、無提案、無收件口／平台寫入；展示驅動的預期組與頁面說明同改。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+index 63b1e10..e380a01 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/Mock-DSP.md
+@@ -122,10 +122,14 @@ REVISIT:2026-11-30 盤點作廢表的筆數成長,決定要不要設保留期與
+ 
+ - DSP 預算寫入與展示種子只寫操作紀錄一個來源。預算事件在同一交易記錄前後預算與帶時區提交時間；過去調整端點從操作紀錄取最近一次加額，後續減額不會擠掉它。三日窗以加額的 UTC 日期 D 前後各三個完整日桶計算；D+1 至 D+3 未全完成，後段轉換回 null。舊資料庫遷移補不回調整前預算的那筆（例如遷移前 3 天內的第一筆真實加額）照樣回、`budget_before` 為 null，由領域判證據不足，不回 404 讓它消失；操作紀錄是只增不改稽核表，補得回的前值另記在補值表 `operation_budget_backfill`，不回頭改操作紀錄。防回歸：[test:test_past_adjustments_include_normal_budget_operations]、[test:test_old_adjustment_seed_tables_migrate_to_the_single_operation_source]、[test:test_a_legacy_raise_without_a_provable_budget_before_is_reported_as_missing_evidence]、[test:test_audit_tables_are_only_ever_inserted_into]。
+ - 已知邊界（2a 代碼審 r2 鏡頭A 發現 2，接受）：舊資料庫某廣告的第一筆改預算補不回前值、之後只有減額時，這筆一直是「最近一次加額」候選（分不出是不是加額），端點一直回它、`budget_before` null，領域第 4 條一直證據不足，直到這個廣告出現下一筆加額為止。接受的理由：只影響 2a 之前建的舊資料庫（新寫入一律同交易記前值；展示每次重種平台）；方向保守（不提案，不會錯提案）；設「多舊不算數」等於猜那筆不是加額，違反「補不回不猜」。正式九條第 4 條在增量 2b 接線時，若要處理這種廣告，改成由人工或新加額解開，不在 DSP 猜。
+ REVISIT:2026-12-31 若正式規則上線後仍有來自 2a 之前舊庫的廣告卡在這個邊界，再評估讓人工標記那筆的前值。
+ - 逐日資料以 UTC 日期作鍵，保留最近 30 個完整日與最近加額 D±3 日桶。**讀取端點不寫資料庫**（2a 代碼審 r1 鏡頭3 改正：原本讀前物化要搶寫入鎖，別人握鎖時讀取會 503）：逐日、1d/7d、過去調整、歷史都在讀取快照裡讀，剛完成的日桶與 1d/7d 由「已存日桶＋展示樣板＋一次時鐘讀數」在記憶體推算（`derive_days`、`window_figures`）；每個讀取端點只讀一次時鐘，整個回應同一日期快照（外家 finder 1）。持久化與 30 日保留只在寫入端（種子、每筆執行寫入）同一寫入交易做，寫下的值跟讀取推算的相同，最新日期在拿到寫入鎖後才讀（外家 finder 2）。有日桶的廣告 1d/7d 一律推算，不准另用 `seed_metrics` 種這兩窗；七天全沒資料時沒有 7d 窗（404）。防回歸：[test:test_demo_daily_rollover_preserves_full_windows]、[test:test_reads_never_write_and_still_work_while_the_write_lock_is_held]、[test:test_one_read_uses_one_clock_reading_across_midnight]、[test:test_writes_persist_days_after_reading_the_newest_day_under_the_write_lock]、[test:test_a_seven_day_window_without_any_data_is_not_found]。
+ - 儲存層沒注入時鐘時，時鐘在呼叫時才查模組的 `_utc_now`：`tests/dsp/test_investigation_data.py` 用自動夾具把它換成固定 NOW 之後 400 天，忘了注入時鐘又用固定日期種資料的測試當場翻紅，不等真實日期走到某天（2a 代碼審 r2 鏡頭A：r1 新加的溢位測試重犯真時鐘配固定日期，10/01 起會紅）。子行程起的 DSP 不受夾具管，用它的測試必須跟日期無關。
+ - 新完成的日子只由展示樣板（`daily_templates`，種子給）推出；沒有樣板的廣告，新完成的日子就是沒資料，不把最新一天（含沒資料那天）照抄下去（2a 代碼審 r1 鏡頭1）。防回歸：[test:test_a_completed_day_without_a_template_has_no_data_instead_of_a_copy]。
+ - 花費與營收以整數分存算，對外回固定兩位小數字串；DSP 收金額只經 `cents_of`（只收 ASCII 數字、最多兩位小數、整數部分最多 13 位，其餘 ValidationRejected），格式化只經 `money_text`，展示種子的核對也用這兩支。13 位跟分析端讀取白名單同一個數（DSP 依既有邊界不依賴領域層，自留一份）：15 位有效數字轉浮點不差一分，七天加總遠低於 SQLite 上限；加總在讀取時以 Python 整數算、不寫回，不會丟溢位例外。日桶與樣板每天另有上限：金額是整數分上限的七分之一（`DAILY_MAX_CENTS`）、計數是 `SQLITE_INTEGER_MAX` 的七分之一（`DAILY_MAX_COUNT`），超過整份種子拒收；舊相對日數資料遷移、以及前一版已存的日期鍵日桶與樣板（開庫不走遷移）在讀取推算時同一支 `_bounded_bucket` 處理：超限的欄記缺值，五欄都缺值的那天就是沒資料（no_data 為真，不回「五欄全空卻說有資料」讓讀取層整週拒收；2a 代碼審 r3 鏡頭A 3、外家 finder 1/2）。所以 1d/7d 與加額前後三天的合計一定在分析端讀取白名單上限內，不會「每天存得進、讀長窗卻整份 invalid」（2a 代碼審 r2 鏡頭B 發現 1）；1 小時窗是單一值，照原上限。舊庫 REAL 金額存不下者升級時記缺值，DSP 照常啟動。防回歸：[test:test_amounts_are_stored_as_integer_cents_and_returned_as_fixed_decimal_strings]、[test:test_seven_day_totals_never_overflow_into_a_server_error]、[test:test_a_legacy_day_whose_every_value_is_over_the_daily_limit_becomes_no_data]、[test:test_stored_date_keyed_buckets_over_the_daily_limit_read_as_missing]、[test:test_legacy_amounts_that_no_longer_fit_do_not_stop_the_dsp_from_starting]。
+ - 歷史端點最多回 50 列；沒超過 50 筆時維持既有 `{"history": […]}` 形狀，超過才另帶由完整集合算的近期預算旗標與計數 `summary` 及 `truncated=true`，讓讀取者不因截斷漏看加額。摘要與列在同一讀取快照裡讀（外家否決 2）。摘要的「最近 3 天」以 DSP 讀取時刻切，只是截斷時的保守旗標，正式規則以決策 now 判。防回歸：[test:test_bounded_history_preserves_recent_budget_changes]、[test:test_an_untruncated_history_keeps_the_existing_shape]、[test:test_history_summary_and_rows_come_from_one_snapshot]。
+ - 逐日與過去調整兩支端點只准 GET、不寫資料庫；舊的獨立過去調整表與種子標記不再是正式資料來源。測試在 tests/dsp/test_investigation_data.py、tests/dsp/test_store.py、tests/dsp/test_server.py；HTTP 測試需能綁本機網路埠的環境。
++
++## 操作歷史回應帶廣告編號(Phase 14 增量 2b 代碼審 r1 資安-2,2026-09-26)
++
++`/campaigns/<id>/history` 回應頂層另帶 `campaign_id`,分析端讀取層核對是這件工作的廣告(歷史進了正式規則第 3 條);列的形狀、截斷摘要照舊,分析端核過就拿掉,存下的原始回應與 AI 收據維持既有形狀。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]。[test:test_the_change_history_must_belong_to_the_task_campaign]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+index 793de53..7585ad7 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+@@ -203,10 +203,15 @@ WHY: 增量 3 代碼審 r2 s2:白名單環境只照抄 LANG,伺服器的 LC_ALL
+ - WHY:`--record` 錄完的自動檢查只看找不到錄製與批次檔,F1–F6 每一輪 AI 都退回的批次也判通過,入庫後才被 CI 守衛擋下、白花一輪額度。「任一輪 AI 退回」的判法搬進 `recordings.ai_fallback_problems`(讀重播的展示狀態庫,跟頁面同一份判斷列),`check_demo_batch` 算進問題;錄完的自動檢查、入庫前命令列與 CI 守衛呼叫同一支。防回歸:[test:test_a_recorded_batch_with_ai_fallbacks_fails_the_intake_check]、[test:test_demo_recording_guard_catches_a_missing_fake_answer]。
+ - WHY:兩個分支缺測試:入庫前檢查「帳在但沒有呼叫紀錄」、F7 不提案那幾件的路徑核對。各補一支(F7 縮成 12 個廣告、假錄製讓 AI 判證據不足)。防回歸:[test:test_the_replay_needs_every_scenario_finished_with_a_ledger_that_has_calls]、[test:test_f7_checks_the_path_of_every_task_the_ai_declined]。
+ - WHY(協調者 2026-09-25 實測):入庫前檢查命令列用相對路徑給 --dir(錄完印的下一步就是這種寫法)時,子行程在別的工作目錄跑,重播 17 筆全找不到錄製;改用絕對路徑才過。命令列與 `check_demo_batch`、`record_demo_batch` 一收到 --dir、--work-dir 就轉成絕對路徑,下一步提示直接印入庫目錄的絕對路徑。防回歸:[test:test_the_intake_check_accepts_relative_paths]。
+ 
+ ## 正式規則改九條之後的最小相容(Phase 14 增量 2b,2026-09-26)
+ 
+ - 啟動器停分析端的寬限:舊的「兩倍逾時加一秒」(7 秒)撤掉,改取 max(舊兩讀寬限, 規則輪 A/B/C 最壞秒數),預設 50 秒;帶 --ai-judge 再跟 AI 步取最大值(60 秒)。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1419]。防回歸:[test:test_stop_grace_covers_the_longest_rule_step]、[test:test_the_stop_grace_covers_one_ai_step_from_the_shared_constants]。
+ - 觀察器:規則輪續步的中間列(續步那一列蒐集、B/C 的分析中、AI 退回開規則輪那一列的重新蒐集、規則輪 A 的分析中)不另畫節點,併進原本的「蒐證、判斷」;AI 退回照舊畫「改由程式規則決定」。規則輪重來(過期、變動)照舊畫重新蒐集。流程圖分開畫「程式補查/重讀」、頁面規則說明與重算根據改成九條,是增量 3。
+ - 驅動 F5:規則輪 A、C 各讀一次現況,名稱原文可能出現不只一次,改核「讀到的名稱都是原文」。
+ - 未解決:政策版本升版使入庫展示錄製的模型說明錄製鍵失效(重播 F1–F6 有 8 筆說明找不到錄製),需協調者重錄;見計劃〈實作解讀〉增量 2b。
++
++## 代碼審 r1 後的展示相容(Phase 14 增量 2b,2026-09-26)
++
++- AI 答 propose 之後的規則輪複查:觀察器把那一列蒐集與規則輪中間列併進 AI 那一步,定案列只接「程式規則 → 值得加嗎 → 寫建議」兩步(金額在複查那一步);F1 頁面「程式接手」只剩查詢那一輪。
++- F4 接續任務由規則輪(第 3 條)判證據不足、不寫入;驅動的變化摘要是 200 → 200、沒寫入。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+index 6597112..aeab1a5 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+@@ -38,21 +38,21 @@ summary: |-
+   WHY:[2026-09-23]事故 F5 轉正,留在分析行程不搬家(使用者裁定)。措辭照實改(使用者裁定):原文「廣告或素材文字」改成「廣告文字(目前是廣告名稱;素材文字會走同一條路)」,因為模擬 DSP 目前只有廣告名稱這一種文字,綁定測試全用廣告名稱。「素材文字會走同一條路」是設計意圖、目前沒有測試:專案還沒有任何素材文字欄位,將來加素材文字時要把本合約的差異測試與端到端延伸過去。子句對應:改政策與擴權由差異測試與端到端守、取得秘密由分析行程讀不到簽發金鑰那支守、結構驗證由四層守(提案白名單、DSP 用戶端逐欄白名單、證據種類與信任成對、可信證據不能夾帶自由文字)、執行期範圍限制由簽發器與執行前檢查兩支守、未授權的工具呼叫由端到端兩支守。四條殺傷力配方全數翻紅;獨立審計(sonnet)同意,另做兩組改壞實驗(預算上限放寬、分析行程匯入簽發器)都翻紅,卷證 governance/review-reports/rtb-phase7提示注入與信任邊界/f5-audit.md。出處:[[Projects/RTB_Phase7提示注入與信任邊界_計劃]] 增量 4。
+   WHY: 分析行程在流程跑到一半當機重啟,不確定卡在哪一步、外部呼叫(蒐證、送出提案)有沒有真的發生;歷史表只增不改讓「這一步的輸出已安全存好」等於「這一列真的寫進資料庫」,不需要另外的旗標。出處:[[Projects/RTB_Phase2任務流程_計劃]] 增量 3 設計,2026-09-22 對話裡使用者選對「用同一個修訂序號重送」的恢復策略。
+   RULE: `EvidenceSource`、`Submit` 的失敗一律視為暫時性、可以放心重試;只有 `Decide` 自己丟出例外時才轉 FAILED,因為那是對已到手的證據做純計算,重跑同一份證據只會再次得到同樣的例外。[since:2026-09-22] [retire:三個介面的失敗語意改變時重審]
+   RULE: 每次狀態推進都是新增一列,不更新既有列;新列的序號在寫入交易內用目前最大序號加一決定,並核對「準備要接的那一列」仍是目前最新的一列,不是就中止、不寫入——這是並行呼叫 `advance()` 的最後一道防線。[since:2026-09-22] [retire:改用外部排程完全保證同任務不並行時可以拿掉,但仍建議保留當防禦]
+   RULE: `Submit` 的成功回傳值、預期失敗(`SubmitStale`/`SubmitBusy`)用型別化例外,比照 [[Systems/提案收件口]] 的 `Accepted`/`InboxRejected` 風格,不是另一套錯誤處理。前提:`Submit` 的實作(收件口)保證同一份提案重複呼叫永遠安全,所以未定義的例外也視為可重試。[since:2026-09-22] [retire:Submit 的實作換掉、不再保證重送安全時重審]
+   PITFALL: `advance()` 讀狀態列跟呼叫外部介面之間原本沒有鎖保護,並行呼叫可能各自算出不同但都「合法」的下一步(例如一個要進 PROPOSED、一個要退回 COLLECTING_EVIDENCE),都通過 `task_state.transition()` 的檢查,而且兩邊都已經呼叫過外部介面、錢花了兩次。2026-09-23 起由任務租約守(見下面租約那幾條,Phase 4 增量 3b):拿不到租約的一方不呼叫任何外部介面;寫入交易內重新核對序號仍保留當最後防線。防回歸:[test:test_two_concurrent_advance_calls_on_the_same_task_never_both_commit_conflicting_outcomes]、[test:test_two_real_threads_advancing_the_same_task_pay_for_the_analysis_once]。
+   WHY:[2026-09-23] 事故 F3「重複投遞不重複分析費用」:同一個任務被同時推進兩次,兩邊都讀到同一列、都去呼叫要花錢的蒐證與分析,最後只有一邊寫得進去。使用者情境題選 b:呼叫外部之前先在任務上取得租約,拿不到的一方跳過,寫入時再核對租約還是自己的(圍籬)。否決:只靠寫入時的序號核對(結果一份、錢花兩次)、分析結果快取(同時開始時都查不到)、向分析服務要冪等鍵(對方支不支援不在本專案控制內)。出處:[[Projects/RTB_Phase4佇列與重新投遞_計劃]] 增量 3b 設計與第 1 輪設計審。
+   RULE: 任務租約是 `task_store.py` 裡一張只增不改的租約紀錄表(取得、放掉各新增一列,目前的租約=這個任務租約序號最大的那一列),不是像 [[Systems/提案收件口]] 那樣改欄位:任務模組有一支掃描測試(Phase 2 的 S41)不准出現任何改或刪的資料庫敘述。概念照執行側(租約序號、擁有者、到期、收據、條件寫入),只換寫法。[since:2026-09-23] [retire:任務模組不再要求只增不改、或分析行程改由外部佇列保證同一任務同時只交給一個工作者時重審]
+   RULE: `advance()` 在呼叫任何外部介面之前取得租約,拿不到就回原狀態、什麼都不呼叫;拿到後重讀目前那一列,跟讀到的不同(別人剛做完一步)就放掉租約、回傳新狀態,不在同一輪改用新列(送件的工具呼叫紀錄綁的是呼叫端在呼叫前讀到的列);沒進展、提交失敗、行程內例外都放掉租約,放掉一律帶「目前那一列還是我的取得列」條件,放掉本身的資料庫錯誤吞在任務模組的 `release_lease_quietly` 裡、保留原例外(推進函式不認得資料庫錯誤型別,2026-09-23 代碼審架構席指出原本寫在推進函式是跨層);替不存在的任務取得租約丟 `TaskNotFound`、不寫列。擁有者比照執行側由呼叫端傳入(`advance(..., owner=...)`,預設 "analyzer";往後由啟動程式傳工作者身分),只是標籤:擋住舊持有者的是租約序號(每次取得都不同,主鍵唯一),多個呼叫端共用同一個擁有者也分得開,擁有者也不是秘密或憑證(威脅模型「防忘記,不防刻意繞過」)。代碼審第 1、2 輪架構席指出隨機碼、在推進函式裡自己讀行程編號都是專案沒有的第二種做法。不續租:一次推進只做一步,做完就放掉。[since:2026-09-23] [retire:推進函式改成一次做多步、或加入續租時重審]
+   RULE: 帶收據的提交只核對「目前那一列是我的取得列」,不核對到期時間(跟執行側 [S101] 刻意不同):分析側沒有續租,而且時間只有步驟開頭傳進來的那一個,判不出自己過期沒有;過期但沒人接手時寫進去,沒有第二個人花過錢。不帶收據的提交在別人持有有效租約時寫不進去(防忘記)。[since:2026-09-23] [retire:分析側改成拿到寫入鎖後讀真時鐘、或加入續租時,改回核對到期]
+-  WHY:[2026-09-24 Phase 12 增量 1] 租約長度暫用 60 秒(`LEASE_DURATION`),沒有實測校準;要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件)。分析端驅動命令列 `runner.py` 啟動時斷言「呼叫次數 2 乘單次逾時乘 2 小於租約」,不成立就拒絕啟動、什麼都不做(原本這條是「沒有機械守衛」的 RULE,照它的撤除條件改寫成這支斷言的說明)。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]] [S1001]。防回歸:[test:test_the_analyzer_runner_refuses_a_lease_too_short_for_its_calls]、[test:test_the_lease_inequality_matches_the_lease_constant]。
++  WHY:[2026-09-24 Phase 12 增量 1] 租約長度暫用 60 秒(`LEASE_DURATION`),沒有實測校準;要遠大於一步最慢的時間(當時最多兩次讀 DSP 或一次送件;Phase 14 起規則輪 C 最多 5 讀,另守 [S1405] 逐步上界)。分析端驅動命令列 `runner.py` 啟動時斷言「呼叫次數 2 乘單次逾時乘 2 小於租約」,不成立就拒絕啟動、什麼都不做(原本這條是「沒有機械守衛」的 RULE,照它的撤除條件改寫成這支斷言的說明)。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]] [S1001]。防回歸:[test:test_the_analyzer_runner_refuses_a_lease_too_short_for_its_calls]、[test:test_the_lease_inequality_matches_the_lease_constant]。
+   WHY:[2026-09-24 Phase 12 增量 1] `runner.py` 是分析端的正式入口:每一輪對 `open_task_ids()`(最新一列還不是終點的任務)逐一推進,用會記呼叫紀錄的真 DSP 與收件口用戶端、正式決策規則,不提案原因接 `policy.explain` 的第二個值;一件任務出事只記到標準錯誤、照樣算一次沒進展而退避(2026-09-24 代碼審 r2 n4:原本例外讓退避歸零,出錯的任務每輪都推);收到 SIGTERM 或 SIGINT 就在下一件任務之前停(停止延遲的上限是一步加一小段休息:每輪之間的休息切成 0.1 秒小段、段間看停止旗標,因為 time.sleep 被訊號打斷會睡滿;間隔不得超過租約,r2 v3);啟動器給分析端的停止時限是兩倍逾時加一秒,不在一步中途硬殺(r2 n3)。防回歸:[test:test_a_stop_signal_cuts_the_rest_between_rounds_short]、[test:test_a_task_that_keeps_failing_backs_off_too]、[test:test_backoff_never_waits_longer_than_its_cap]、[test:test_the_analyzer_runner_refuses_an_interval_longer_than_the_lease]。只匯入分析端與領域層的正式模組,沒有故障手段(S1000,掃描測試守)。防回歸:[test:test_the_analyzer_runner_advances_every_open_task_with_production_clients]、[test:test_the_analyzer_runner_uses_only_production_collaborators]。
+   PITFALL: 租約只擋得住同一時間有兩個有效持有者;持有者花完錢、提交前行程猝死,或一步做超過租約被接手,都會再花一次分析費用(至少一次的代價),而且舊持有者被接手時兩邊的外部呼叫會在時間上重疊。用測試把這個照實的限制固定下來,不要寫成「不會重複分析費用」。防回歸:[test:test_a_holder_that_dies_after_paying_is_analysed_again_once_the_lease_expires]、[test:test_an_expired_holder_cannot_commit_after_a_takeover_even_when_the_sequence_still_matches]。
+   PITFALL: 放掉租約若不核對「目前那一列還是我的」,被接手的舊持有者遲來的放掉列會排在接手者的取得列之後,讓第三方在接手者還在花錢時拿到租約,接手者自己的提交也會被擋(2026-09-23 第 1 輪設計審並發席排出的交錯)。防回歸:[test:test_a_late_release_from_a_replaced_holder_writes_nothing]。
+   PITFALL: 租約讓「這一步沒有進展」(蒐證失敗、送件忙碌)從原本零個寫入交易變成兩個(取得、放掉),而 SQLite 的立即寫入鎖鎖的是整個資料庫檔,不相干的任務也會互搶;代碼審併發席把忙碌等待壓到 0.05 秒、二十個任務各輪詢十五次,重現了幾次「資料庫忙碌」從推進函式丟出。預設等 5 秒時沒觀察到,呼叫端本來就要處理推進函式丟的忙碌例外(提交一直會丟),所以不算新型別的錯,但頻率沒人量過。防回歸:無(只是量的變化,等有多任務啟動程式時量)。
+   TEST: tests/analyzer/test_task_lease.py 涵蓋 Phase 4 計劃增量 3b 的 S150~S160:真並行只花一次、拿不到租約不呼叫、過期接手後舊持有者寫不進去、真猝死後到期再分析一次、取得前被搶先就交回、沒進展或例外放掉、不帶收據的提交、舊資料庫補表、過期未接手照寫、遲來的放掉不寫、放掉失敗不蓋例外;十一道防護各做過一次拿掉防護、清快取重跑必紅的變異檢查。
+   PITFALL: 狀態轉換若不透過網域層的 `transition()` 計算,即使目前的分支邏輯永遠算得出合法轉換,這道防線也會變成沒有牙齒的裝飾;要用「換掉呼叫、確認例外會傳出去」的方式驗證它真的有被呼叫,不能只驗證正常路徑。防回歸:[test:test_every_step_computes_its_new_state_through_the_domain_transition_function]、[test:test_an_illegal_transition_from_the_domain_layer_is_never_swallowed](2026-09-22 實作時發現這道防線一開始沒有任何測試咬得到)。
+   PITFALL: 提案快照存進歷史列前要序列化(`to_primitives`/JSON),讀回來時 `requested_change` 必須包回 `MappingProxyType` 再建構 `Proposal`,否則會被 `Proposal.__post_init__` 的自我驗證判定成不合法而丟例外。防回歸:[test:test_analyzing_with_a_proposal_decision_stores_the_snapshot_and_moves_to_proposed]、[test:test_proposed_always_resubmits_the_stored_snapshot_never_a_freshly_built_one]。
+   RULE: `commit_step` 附帶的證據若有 `task_id` 跟目標任務不同,一律拒收(`EvidenceTaskMismatch`);新列的狀態也要通過 `task_state.can_transition()` 才能寫入,不是只靠呼叫端(`flow.advance()`)的紀律——`commit_step` 是所有寫入唯一的入口,防線放在這裡才擋得住往後任何新呼叫端。範圍是歷史表與證據表的狀態寫入;2026-09-23 起的租約紀錄表由 `acquire_lease`/`release_lease` 直接寫,不經 `commit_step`,跟任務狀態機無關(2026-09-23 代碼審圖譜席指出字面範圍要講清楚)。[since:2026-09-22] [retire:若這個模組不再是唯一寫入入口時重審]
+   WHY:[2026-09-24 Phase 12 設計審 r2 p1] 分析端決定不提案時,把不提案原因存進只增的原因表 `no_action_reasons`(任務編號、序號、原因),跟結案那一列同一個交易寫;`TaskReads.no_action_reason` 給一鍵展示的驅動程式讀,唯讀開法遇到還沒有這張表的舊資料庫回空值(展示寫「無法還原」)。原因不放進決策結果:Phase 10 裁定決策型別的相等比較照舊([[Projects/RTB_Phase10評估與Jev決策點_計劃]]),所以 `advance()` 另收一個可省略的 `no_action_reason` 介面,只在決策是不提案時問,輸入跟 `Decide` 相同;問不到、出錯或答的不是列舉成員都當作沒有原因,不改變不提案的結果(原因表不刪,任意字串寫進去是注入管道)。流程層與任務模組不匯入決策規則(規則匯入流程層的決策型別,反過來會循環),型別只約束成列舉成員;`commit_step` 只准不提案那一列帶原因。正式接線(`policy.explain` 的第二個值)留給分析端驅動命令列。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]] [S1048]。防回歸:[test:test_the_analyzer_keeps_why_it_did_not_propose]、[test:test_an_answer_that_is_not_a_reason_member_is_not_stored]、[test:test_the_reader_answers_none_on_a_database_from_before_the_reason_table]。
+   RULE: `create_task` 的任務編號與廣告編號都要通過 `_checks.is_id`(與提案的任務/廣告編號同一套格式);`Submit`、`Decide` 回傳合約之外的型別時 `advance()` 直接丟 `_BrokenCollaborator`,不會被靜默吞成成功或 `NeedsFreshEvidence`;`error_detail` 進歷史表前会截斷到 2000 字元上限。[since:2026-09-22] [retire:三個介面改用型別檢查器在邊界擋下時可以拿掉執行期檢查]
+@@ -302,10 +302,18 @@ PITFALL: 系統提示的回答格式原本寫「"choice": 一個結論代碼,或
+ - `rule_round.py`(新):規則輪 A(現況+1 小時,2 讀)/B(歷史+過去調整,2 讀)/C(逐日+1d+7d+重讀現況與 1 小時,5 讀);讀取次數由 `declared_reads` 從查詢選項算,必須等於 `stepbudget.RULE_STEP_READS`(守衛用宣告值,2a 教訓)。進度只由已提交的規則輪步驟表與事件表重算:最新一輪有非續步事件、或不是目前政策版本就作廢,下一次蒐證開新輪 A;蒐證時先前步驟已超過 15 分鐘(當機續跑)也開新輪。定案時以決策 now 重驗三步證據年齡、A 與 C 比編號/狀態/版本/1 小時五項原始指標;變動連續重來兩次後再變動以證據不足結案(`changed_limit`);C 缺可信現況不沿用 A 的。四查詢從同一輪 B/C 已存的原始回應轉成領域型別(逐日帶 C 的讀取時刻,跟決策 now 不同 UTC 日即證據不足)。只讀、不寫、不讀時鐘。
+ - `task_store.py`:新表 `rule_steps`(這一列是第幾輪哪一步、政策版本、讀取時刻,只准跟分析中那一列同交易寫)與 `rule_events`(續步 continue、restart_stale/changed/no_round、changed_limit、decided,細因存封閉代碼如 `query_no_result:check_change_history`);都只增不改。
+ - `flow.py`:證據來源可回 `EvidenceBatch.rule_step`;分析那一步新增 `RuleDecide` 協作者,回 `RuleOutcome`(結果、規則事件、不提案原因),`RuleContinue` 沿用「分析中 → 蒐集證據」轉換、不新增狀態。沒開 AI 時分析一律問規則輪;開了 AI 時只有「這一列是規則輪蒐證的」才問規則輪、不問模型。
+ - `instrumented.py`:`rule_source` 照 `collect_plan` 只讀那一步的端點(逐日與兩窗在同一步,由讀取層精確核對),原始回應與規則輪紀錄跟證據同交易寫。`investigation_source` 在 AI 已用過之後改讀規則輪的下一步(撤掉 [S1138]「只讀基本兩樣」)。
+ - `dsp_client.py`:現況 200 回應只有狀態缺值或非法時不再丟例外,回的證據沒有現況那一筆、廣告文字不帶版本(帶了會被判「有版本卻沒讀到現況」而反覆重蒐證);流程提交後以缺現況結案。5xx/連線失敗照舊純讀取重試。
+ - `ai_judge.py`:退回程式規則時,基本三筆判得出的(暫停、異常、前置過濾那幾道)照規則當場結案;其餘回 `RuleContinue`、退回紀錄的結果代碼記 `rule_round`,開一次新規則輪全量重讀四查詢(AI 期查詢不沿用)。`held_rule` 讓開 AI 時的規則輪定案也照 --hold-submit 攔成考題結束。AI 自己答 propose 仍直接建提案(規則否決是增量 3),AI 前置過濾不動。
+ - `runner.py`:沒開 AI 用 `rule_source`/`rule_decide`;開 AI 時規則輪續步經 `held_rule`。守衛另對 A/B/C 各查 `5 + N ×(逾時 + 5)+ 5 < 60`,任一步不符拒啟動並說哪一步([S1405]);兩種模式都查,所以沒開 AI 的 5 秒逾時(C=60)現在也拒絕。
+ - 防回歸:[test:test_paused_and_anomalous_campaigns_finish_from_base_evidence]、[test:test_missing_query_results_prevent_a_proposal]、[test:test_missing_dsp_state_finishes_without_proposal]、[test:test_rule_collection_steps_fit_the_lease]、[test:test_decisions_recheck_freshness_and_utc_day_boundaries]、[test:test_rule_round_checkpoints_exclude_stale_evidence]、[test:test_changes_between_a_and_c_restart_twice_then_stop]、[test:test_policy_switch_restarts_inflight_analysis]、[test:test_underpacing_campaign_reads_three_steps_and_proposes_with_query_receipts]。
+ - 已知取捨:1 小時指標若在 A 與 C 之間一直變(真實即時資料),同一件工作最多三輪後以證據不足結案;模擬 DSP 的 1 小時指標是種下的固定值。REVISIT:2026-12-31 接真實 DSP 前量一次 A→C 間 1 小時指標的變動頻率,決定比較欄位或上限。
+ 
++## Phase 14 增量 2b 代碼審 r1 修正(2026-09-26)
++
++出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈實作解讀〉增量 2b 代碼審 r1 修正。
++- AI 入口:前置過濾納入九條第 1/2 條(`settled_by_base`),暫停與異常不送模型;AI 答 `propose` 回 `RuleContinue` 開規則輪,九條也判值得加才由規則輪建提案,否則否決(`held_rule` 把定案事件細因加 `ai_propose_vetoed:`)。`Judge.raw_replay` 只給評估還原模型原始答案。
++- 規則輪:`progress`/`collect_plan` 改純函式(呼叫端先讀記錄);變動重來次數只數目前政策版本的輪;C 步先讀查詢、最後重讀現況與 1 小時。
++- 流程層:規則步驟表讀不回來(`CorruptedHistoryRow`)時,分析(開不開 AI)與蒐證那一步都轉 FAILED,不再卡住或無限重試。
++- 讀取層:歷史回應核對頂層廣告編號(核過拿掉,存下的形狀照舊)。
++- 防回歸:[test:test_paused_and_anomalous_campaigns_never_reach_the_model]、[test:test_an_ai_propose_is_vetoed_when_the_rules_disagree]、[test:test_step_c_rereads_the_state_after_its_queries]、[test:test_change_restarts_do_not_carry_over_a_policy_switch]、[test:test_progress_is_recomputed_from_plain_records]、[test:test_a_corrupted_rule_step_row_fails_the_collect_step]、[test:test_the_change_history_must_belong_to_the_task_campaign]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md b/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md
+index 077e7e8..a024c1e 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md
+@@ -33,10 +33,14 @@ WHY: 2026-09-26 增量 1 先搬領域與評估標準答案,保留正式送件流
+ 2a 代碼審 r1（2026-09-26）:`_check_amount` 改用 [[任務流程領域模型]] 家 `_checks.is_amount_or_none`，跟分析端讀取白名單同一支判準(原本自寫一條只收 ASCII 的正規式，讀取層卻收 Unicode 數字，後續接線會讓讀取層放過領域會丟例外的值)；領域層不再匯入 `re`。[test:test_fixed_amount_strings_have_one_definition_everywhere]
+ 
+ ## 增量 2b:提交時刻、截斷旗標與逐日讀取日(2026-09-26)
+ 
+ 出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 〈實作解讀〉增量 2b。
+ - `AdjustmentRow.committed_at`(帶時區):第 3 條另看過去調整的提交時刻(決策 now 前 3 天內 → 近期調整),補足被截斷的歷史;第 4 條的最新一筆加額要有提交時刻,而且到決策 now 為止 D+1..D+3 三個完整 UTC 日都已結束(`after_window_complete`:now 不早於 D+4 日 00:00 UTC)才採信後段轉換,否則證據不足;提交時刻晚於 now 當不合格列。缺提交時刻的過去調整列(舊呼叫端)判證據不足、不用 `days_ago` 補。
+ - `ChangeHistory.recent_flag`:DSP 歷史被截斷時由完整七日集合算的近期預算旗標;它以 DSP 讀取時刻切,窗只會比決策 now 的寬,當成近期調整是保守的一邊。
+ - `DailyTrend.read_at` 與原因 `day_boundary`:逐日讀取時刻跟決策 now 不同 UTC 日即證據不足([S1406]);評估案例不給讀取時刻。
+ - 評估轉接(`investigation_cases.rule_evidence`)同步帶上提交時刻與截斷旗標;72 筆逐筆格與答案不變(既有 72 筆回歸測試)。
+ - 防回歸:[test:test_past_adjustment_commit_time_is_judged_on_the_decision_clock]、[test:test_past_adjustment_without_or_after_the_decision_time_is_insufficient]、[test:test_truncated_history_recent_flag_counts_as_a_recent_change]、[test:test_daily_read_on_another_utc_day_is_insufficient]。
++
++## 代碼審 r1:不合格查詢結果先擋(2026-09-26)
++
++第 3 條之前先檢查四查詢是否「有效」:長窗負數或不自洽(點擊多於曝光、轉換多於點擊、1 天多於 7 天)、歷史或過去調整的提交時刻晚於決策 now、負數過去調整、不合格逐日列,一律無格證據不足(`INVALID_ROW_VALUE`),不讓另一個正數把不合格資料變成提案(外家 finder-1)。72 筆不受影響。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]。[test:test_negative_or_inconsistent_longer_windows_are_insufficient]、[test:test_every_invalid_query_result_blocks_a_proposal_whatever_rule_would_hit]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+index 651c12e..edc5126 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+@@ -124,10 +124,15 @@ verified_by:
+ 
+ ## Phase 14 增量 2a 評估資料（2026-09-26）
+ 
+ 出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1425]。生成器以固定 NOW 減 days_ago 補帶時區 committed_at 並重產 72 筆。逐筆格與標準答案、調整收據、SYSTEM_PROMPT 位元組及錄製鍵維持原值；時間戳僅供讀取白名單驗證，不進模型提示。2a 代碼審 r1：同一次加額在歷史列與過去調整列改成同一時刻（NOW 減 days_ago；原本歷史列早 2 小時、落在前一個 UTC 日），重產 72 筆後收據雜湊、格與答案不變，入庫錄製重播驗收通過。防回歸：[test:test_adjustment_timestamp_preserves_recorded_receipts_for_all_72_cases]、[test:test_each_past_adjustment_has_the_same_moment_as_its_history_row]。
+ 
+ ## Phase 14 增量 2b:Phase 10 轉接與 Phase 13 程式規則列(2026-09-26)
+ 
+ - Phase 10:`route` 的四查詢與決策時間改必填,`score`、模型候選 `run_subset`、延遲量測一律明傳 `MISSING_FOUR_QUERIES` 與固定 `scoring.RULE_NOW`;暫停/異常照第 1/2 條先判,其餘證據不足。`synthetic_report` 每格帶 `note`「舊資料不足以評估九條規則」,逐格表印在格名後;標準答案不動。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1417]。防回歸:[test:test_phase_ten_scenarios_explicitly_report_missing_queries]。
+ - Phase 13:`investigation_report.rule_verdict` 改成九條加案例四查詢(`rule_evidence`)以案例 NOW 判,跟標準答案同源,36/36 只證接線、不作品質證據(報告三列分列與同源警語是增量 4)。評估執行器遇到 AI 退回開規則輪(`RuleContinue`),改由同一支 `rule_verdict` 從案例取四查詢定案,不打 DSP、不問模型。
+ - 評估案例轉接同步帶上過去調整提交時刻與截斷旗標([[Systems/正式九條判斷領域規則]])。
++
++## 代碼審 r1(Phase 14 增量 2b,2026-09-26)
++
++- 正式環境抽樣報告(`production_report`)同樣標「舊資料不足以評估九條規則」;延遲量測與報告寫明量的是缺四查詢的九條短路徑。
++- Phase 13 評估用 `Judge(raw_replay=True)`:沿用舊前置過濾、AI 答 propose 時 `CaseRun.final` 記模型自己的答案(正式路徑已改成規則否決);報告數字不變,「AI+規則否決」列是增量 4。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Verification/Phase14增量2b驗證紀錄.md b/docs/rtb-production-agent-demo-knowledge/Verification/Phase14增量2b驗證紀錄.md
+index f0a404d..c32d93d 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Verification/Phase14增量2b驗證紀錄.md
++++ b/docs/rtb-production-agent-demo-knowledge/Verification/Phase14增量2b驗證紀錄.md
+@@ -45,10 +45,23 @@ plan_refs:
+ - runner 與 F5/F6/端到端夾具:補種四查詢歷史;步數(提案 7 步、交出 8 步)與端點清單照三步讀調整;沒開 AI 的 5 秒逾時改為拒啟動(C=60 秒)。
+ - 展示:啟動器規則模式寬限 7 秒改 50 秒;test_basis 帶四查詢、暫停改由第 1 條先判(test_campaign_status_decides_first_and_the_standard_says_so 取代舊「狀態不影響」那支)。
+ 
+ ## 未解決
+ 
+ - 政策版本升版後,入庫展示錄製 phase13-demo-20260925 的模型說明提示含政策版本,重播 F1–F6 有 8 筆說明找不到錄製(每個情境 AI 調查呼叫都找得到),test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6 紅。代理不准呼叫模型,需協調者重錄展示批次或另裁處置。
+ 
+ ## 全套
+ 
+ 2026-09-26 本工作樹全套:3338 過、1 略過、1 紅(只有 test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6,原因見〈未解決〉),約 15.6 分鐘。展示子集 600 過、同一支紅。
++
++## 代碼審 r1 修正的紅綠(2026-09-26)
++
++- 外家 finder-1:test_negative_or_inconsistent_longer_windows_are_insufficient(6 格)、test_every_invalid_query_result_blocks_a_proposal_whatever_rule_would_hit:先紅 → 綠。
++- 外家否決-1/資安-1:test_paused_and_anomalous_campaigns_never_reach_the_model(2 格)、test_an_ai_propose_opens_a_rule_round_instead_of_a_proposal:先紅 → 綠;test_an_ai_propose_is_vetoed_when_the_rules_disagree:先紅(細因沒有否決標記)→ 綠。
++- 外家 finder-2:test_step_c_rereads_the_state_after_its_queries:先紅(現況先讀)→ 綠。
++- 外家 finder-3、架構對齊-1:test_change_restarts_do_not_carry_over_a_policy_switch、test_progress_is_recomputed_from_plain_records:先紅 → 綠。
++- 鏡頭2 毀損:test_a_corrupted_rule_step_row_fails_the_task_instead_of_looping[開 AI]、test_a_corrupted_rule_step_row_fails_the_collect_step:先紅 → 綠。
++- 鏡頭3-1:把 `needs_queries` 改成恆假的變異版本上,[S1105][S1131] 兩支共 20 筆翻紅(原本全綠)。
++- 資安-2:test_the_change_history_must_belong_to_the_task_campaign:先紅 → 綠。
++- 鏡頭4-1:production_report 標註斷言先紅 → 綠。
++- 72 筆錄製離線重播(空 HOME):找不到錄製 0、批次驗收通過;宣稱驗證器 5 條、78 支證據測試通過;ruff、mypy 通過。
++- 代碼審 r1 修正後全套:3356 過、1 略過、2 紅。紅的一支是展示錄製(協調者稍後重錄);另一支 test_the_suite_never_touches_the_real_ledger,原因是全套執行期間家目錄的真花費帳被外部行程改了(修改時間落在這次全套執行中),單獨重跑 11 支全綠。
+diff --git a/src/rtb/analyzer/ai_judge.py b/src/rtb/analyzer/ai_judge.py
+index 500d924..9ad0c3f 100644
+--- a/src/rtb/analyzer/ai_judge.py
++++ b/src/rtb/analyzer/ai_judge.py
+@@ -1,34 +1,37 @@
+ """AI 決策函式(Phase 13 增量 2,計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈一件工作的一生〉
+ 〈退回程式規則〉〈提案與金額〉):開了 AI 決策時,流程層在「分析中」那一步呼叫這裡。
+ 
+-1. 程式先過濾:只用現況、1 小時指標、廣告文字三種證據跑現行規則的前四道(新鮮度、缺資料、配速算不出、
+-   配速不偏低);沒過就照現行規則結案或重蒐證,不呼叫模型([S1104])。追加查詢的收據在入口濾掉,傳給現行
+-   決策函式、不提案原因與建提案的證據只有那三種([S1115])。
+-2. 這件工作已退回過或下過結論(看已提交的調查紀錄)→ 直接用現行規則,記一列「AI 已用過」([S1138]);
+-   登入預檢沒過 → 整趟用現行規則,記「登入預檢沒過」([S1160])。
++1. 程式先過濾:只用現況、1 小時指標、廣告文字三種證據跑前置過濾(新鮮度、缺資料、九條第 1/2 條的暫停與
++   1 小時異常、配速算不出、配速不偏低);沒過就照正式規則結案或重蒐證,不呼叫模型([S1104];暫停/異常
++   是 Phase 14 代碼審 r1 提前納入)。追加查詢的收據在入口濾掉,傳給正式規則的證據只有那三種([S1115])。
++   評估的原始錄製重播(`raw_replay`)才沿用 Phase 13 舊前置過濾,只為還原模型原始答案。
++2. 這件工作已退回過或下過結論(看已提交的調查紀錄)→ 退回程式規則,記一列「AI 已用過」([S1138]);
++   登入預檢沒過 → 整趟退回程式規則,記「登入預檢沒過」([S1160])。
+ 3. 續租前、呼叫模型前各看一次停止旗標,已收到就丟 RenewalSkipped、這一步不寫([S1161]);經流程層的
+    續租回呼續租一次([S1135]),再呼叫模型一次(同一步查完這一輪選的全部查詢,[S1128])。
+-4. 回答過驗證:選查詢 → 回蒐集證據(紀錄帶 ai_query);propose → 照同一個公式建提案([S1107]);
+-   do_not_propose / stop_insufficient → 不提案,原因沿用「判不值得加」「判證據不足」。
+-5. 模型呼叫失敗類別與本地驗證不過 → 退回程式規則,記退回原因([S1106]);Phase 14 增量 2b
+-起程式規則是九條:
+-   暫停/異常用基本三筆當場結案,其餘開一次新規則輪全量重讀四查詢再定案(規則輪續步與定案由流程層直接問
+-   規則輪、不經這裡);停止訊號轉成的
+-   例外(CallTerminated,BaseException)與 KeyboardInterrupt 不接,往外丟。不重試。
+-6. --hold-submit 清單裡的廣告:不論 AI 或規則判提案,一律改成不提案、原因「考題結束」([S1156])。
++4. 回答過驗證:選查詢 → 回蒐集證據(紀錄帶 ai_query);propose → 記下 AI 原始結論、開一次新規則輪
++   A/B/C 全量重讀四查詢,九條也判值得加才由規則輪照同一個公式建提案,否則規則否決([S1407],Phase 14
++   代碼審 r1 提前做;規則輪定案事件細因帶 `ai_propose_vetoed:`);do_not_propose / stop_insufficient →
++   不提案,原因沿用「判不值得加」「判證據不足」(AI 只能讓結局更保守)。
++5. 模型呼叫失敗類別與本地驗證不過 → 退回程式規則,記退回原因([S1106]);Phase 14 起程式規則是九條:
++   暫停/異常用基本三筆當場結案,其餘開一次新規則輪全量重讀四查詢再定案(規則輪續步與定案由流程層直接
++   問規則輪、不經這裡)。停止訊號轉成的例外(CallTerminated,BaseException)與 KeyboardInterrupt 不接,
++   往外丟。不重試。
++6. --hold-submit 清單裡的廣告:不論 AI 或規則(含規則輪定案,`held_rule`)判提案,一律改成不提案、原因
++   「考題結束」([S1156])。
+ 
+ 模型只經模型閘道(分析端唯一准匯入模型用戶端的地方,[S1100]);提案不帶任何模型產生的欄位([S1114])。
+ """
+ 
+ from collections.abc import Callable, Mapping
+-from dataclasses import dataclass, field
++from dataclasses import dataclass, field, replace
+ from datetime import datetime
+ from pathlib import Path
+ from typing import Any
+ 
+ from rtb.analyzer import investigation as inv
+ from rtb.analyzer import modelgate, policy
+ from rtb.analyzer.flow import (
+     AiContext,
+     AiOutcome,
+     Decision,
+@@ -75,31 +78,37 @@ def gate_complete(gate: modelgate.Gate) -> Complete:
+ 
+ @dataclass(frozen=True)
+ class Judge:
+     """一個 runner(或評估執行器)用的 AI 決策函式:模型呼叫、登入預檢結果、停止旗標、
+     只判不送的清單。"""
+ 
+     complete: Complete
+     preflight_ok: bool = True
+     stop_requested: Callable[[], bool] = field(default=lambda: False)
+     hold: frozenset[str] = frozenset()
++    # 評估的原始錄製重播通道(Phase 14 [S1146] 改寫):沿用 Phase 13 舊前置過濾(暫停/異常也問模型),
++    # 只為從既有錄製還原模型自己的原始答案;正式路徑一律不開
++    raw_replay: bool = False
+ 
+     def __call__(self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
+                  context: AiContext) -> AiOutcome:
+         return _held(self._judge(task, evidence, now, context), task, self.hold)
+ 
+     def _judge(self, task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
+                context: AiContext) -> AiOutcome:
+         base = inv.code_rule_evidence(evidence)
+         facts = policy.steps(base, now)
+         if not facts.fresh or facts.state is None or facts.metrics is None \
++                or (facts.settled_by_base and not self.raw_replay) \
+                 or facts.underpacing is not True:
++            # 暫停、1 小時異常、判斷點輸入建不起來由九條第 1/2 條只用基本資料結案,不送模型
++            # (代碼審 r1 外家否決-1、資安-1;原是增量 3 的前置過濾,提前做)
+             decision, reason = _rule(task, base, now)
+             return AiOutcome(decision, None, reason)
+         state = inv.progress(context.rounds)
+         if state.used:
+             return _fallback(task, base, now, state, inv.FallbackReason.AI_ALREADY_USED)
+         if not self.preflight_ok:
+             return _fallback(task, base, now, state, inv.FallbackReason.PREFLIGHT_FAILED)
+         if self.stop_requested():
+             raise RenewalSkipped("已收到停止:不續租、不呼叫模型")
+         context.renew()
+@@ -136,22 +145,24 @@ class Judge:
+                              result.source.value)
+         record = InvestigationRecord(
+             inv.RecordKind.QUERY if answer.conclusion is None else inv.RecordKind.CONCLUSION,
+             state.next_round, answer.conclusion or ",".join(q.value for q in answer.queries),
+             inv.DecidedBy.AI, reason=answer.reason,
+             reason_code=inv.AI_QUERY if answer.conclusion is None else None,
+             cited_json=answer.cited_json(), model_source=result.source.value)
+         if answer.conclusion is None:
+             return AiOutcome(QueryMore(), record)
+         if answer.conclusion is inv.Conclusion.PROPOSE:
+-            return AiOutcome(ProposalDecision(policy.build_proposal(task, base, inputs.state, now)),
+-                             record)
++            # AI 的 propose 只是提案意見([S1407] 否決那半,代碼審 r1 提前做):記下 AI 原始結論,
++            # 開一次新規則輪 A/B/C 全量重讀四查詢,九條也判值得加才由規則輪建提案;
++            # 否則規則否決、無提案
++            return AiOutcome(RuleContinue(), record)
+         reason = (policy.NoActionReason.JUDGED_NOT_WORTH
+                   if answer.conclusion is inv.Conclusion.DO_NOT_PROPOSE
+                   else policy.NoActionReason.JUDGED_INSUFFICIENT)
+         return AiOutcome(NoAction(), record, reason)
+ 
+ 
+ @dataclass(frozen=True)
+ class _Inputs:
+     evidence: tuple[Evidence, ...]
+     state: Any
+@@ -186,35 +197,56 @@ def _fallback(task: TaskRow, base: tuple[Evidence, ...], now: datetime, state: i
+     if facts.needs_queries:
+         decision, reason = RuleContinue(), None
+     else:
+         decision, reason = _rule(task, base, now)
+     record = InvestigationRecord(inv.RecordKind.FALLBACK, state.next_round,
+                                  _outcome_code(decision), inv.DecidedBy.RULE, fallback=why.value,
+                                  model_source=source)
+     return AiOutcome(decision, record, reason)
+ 
+ 
++AI_PROPOSE_VETOED = "ai_propose_vetoed"  # 規則事件細因的前綴:AI 答 propose、規則輪不判值得加
++
++
+ def held_rule(rule_decide: RuleDecide, hold: frozenset[str]) -> RuleDecide:
+-    """開 AI 時規則輪定案也照 --hold-submit 只判不送(Phase 13 [S1156];AI 退回改走規則輪之後,
+-    這是規則輪
+-    的提案出口):清單裡的廣告被規則判值得加,改成不提案、原因考題結束,規則事件照記。"""
++    """開 AI 時的規則輪決策:
++    - 定案也照 --hold-submit 只判不送(Phase 13 [S1156]):清單裡的廣告被規則判值得加,改成不提案、原因
++      考題結束,規則事件照記。
++    - AI 答 propose 之後開的規則輪([S1407] 否決那半):規則不判值得加就是否決,定案事件細因加前綴
++      `ai_propose_vetoed:`,跟一般規則結論分得開;AI 原始結論另留在調查紀錄。"""
+ 
+     def decide(task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
+                reads: TaskReads) -> RuleOutcome:
+         outcome = rule_decide(task, evidence, now, reads)
+         if task.campaign_id in hold and isinstance(outcome.result, ProposalDecision):
+             return RuleOutcome(NoAction(), outcome.event, policy.NoActionReason.EXAM_HOLD)
++        event = outcome.event
++        if (isinstance(outcome.result, NoAction) and event is not None
++                and _ai_proposed(reads, task.task_id)):
++            vetoed = f"{AI_PROPOSE_VETOED}:{event.detail or 'rule'}"
++            return RuleOutcome(outcome.result, replace(event, detail=vetoed),
++                               outcome.no_action_reason)
+         return outcome
+ 
+     return decide
+ 
+ 
++def _ai_proposed(reads: TaskReads, task_id: str) -> bool:
++    """這件工作最後一輪調查紀錄是 AI 答 propose(規則輪是它開的)。"""
++    rounds = reads.investigation_rounds(task_id)
++    if not rounds:
++        return False
++    last = rounds[-1][1]
++    return (last.kind == inv.RecordKind.CONCLUSION and last.decided_by == inv.DecidedBy.AI
++            and last.choice == inv.Conclusion.PROPOSE.value)
++
++
+ def _held(outcome: AiOutcome, task: TaskRow, hold: frozenset[str]) -> AiOutcome:
+     """只判不送(--hold-submit):清單裡的廣告被判提案時,改成不提案、原因考題結束;紀錄照記誰判的。"""
+     if task.campaign_id in hold and isinstance(outcome.result, ProposalDecision):
+         return AiOutcome(NoAction(), outcome.record, policy.NoActionReason.EXAM_HOLD)
+     return outcome
+ 
+ 
+ def _campaign_name(evidence: tuple[Evidence, ...]) -> tuple[str | None, bool]:
+     for item in evidence:
+         if item.kind is EvidenceKind.CAMPAIGN_TEXT:
+diff --git a/src/rtb/analyzer/dsp_client.py b/src/rtb/analyzer/dsp_client.py
+index c16e0b3..a748d8a 100644
+--- a/src/rtb/analyzer/dsp_client.py
++++ b/src/rtb/analyzer/dsp_client.py
+@@ -325,27 +325,33 @@ def check_adjustments(body: Any, campaign_id: str) -> dict[str, Any] | None:
+ 
+ 
+ HISTORY_PAGE = 50  # DSP 歷史端點一次最多回的列數(同 DSP 那邊的上限)
+ HISTORY_SUMMARY_COUNTS = ("total_operations", "total_budget_changes", "total_pauses",
+                           "budget_changes_7d", "budget_changes_last_3d")
+ HISTORY_SUMMARY_DAYS = 7  # 摘要「最近 7 天」的天數(同 DSP 的摘要定義)
+ # 截斷歷史近期核對的邊界容忍:同證據新鮮度(policy.MAX_EVIDENCE_AGE),見 history_recent_agrees
+ RECENT_TOLERANCE = MAX_EVIDENCE_AGE
+ 
+ 
+-def check_history(body: Any) -> dict[str, Any] | None:
++def check_history(body: Any, campaign_id: str | None = None) -> dict[str, Any] | None:
+     """操作歷史:沒截斷時頂層恰好 history(既有形狀,最多 50 列);超過 50 筆時 DSP 只回最近 50 列,
+     另帶由完整集合算出的 summary 與 truncated=true([S1422])。不用時鐘就能核對的一致性在這裡驗
+     (見 _summary_agrees),不合就整份不收、記 invalid;要用讀取時刻的「近期筆數不少於回傳列」另在
+     同一步讀取的收口 read_query_options 驗(history_recent_agrees)。"""
+     if not isinstance(body, dict) or "history" not in body:
+         return None
++    if campaign_id is not None:
++        # 正式讀取一律帶廣告編號:回應頂層要恰好是這件工作的廣告,核過就拿掉,存下的原始回應與收據維持
++        # 既有形狀(Phase 14 代碼審 r1 資安-2);不帶的只有評估案例與單元測試的既有形狀
++        if body.get("campaign_id") != campaign_id:
++            return None
++        body = {k: v for k, v in body.items() if k != "campaign_id"}
+     rows = body["history"]
+     if not _rows_ok(rows, HISTORY_ROW_FIELDS) or len(rows) > HISTORY_PAGE:
+         return None
+     if set(body) == {"history"}:
+         return {"history": rows}
+     if (set(body) != {"history", "summary", "truncated"} or body["truncated"] is not True
+             or len(rows) != HISTORY_PAGE or not _summary_agrees(body["summary"], rows)):
+         return None
+     return {"history": rows, "summary": body["summary"], "truncated": True}
+ 
+@@ -486,21 +492,21 @@ def _query(base_url: str, timeout: float, task: TaskRow, option: str,
+         for window in ("1d", "7d"):
+             body = _read(base_url, f"{root}/metrics?window={window}", timeout, task, on_call,
+                          ToolEndpoint.DSP_METRICS)
+             windows[window] = _window_body(body, campaign, window)
+         day, week = windows["1d"], windows["7d"]
+         if day is None or week is None:
+             return None
+         return check_longer_window(day, week)
+     if option == "check_change_history":
+         return check_history(_read(base_url, f"{root}/history", timeout, task, on_call,
+-                                   ToolEndpoint.DSP_HISTORY))
++                                   ToolEndpoint.DSP_HISTORY), campaign)
+     if option == "check_daily_trend":
+         return _query_daily(base_url, root, campaign, timeout, task, on_call)
+     if option == "check_past_adjustments":
+         return check_adjustments(_read(base_url, f"{root}/adjustments", timeout, task, on_call,
+                                        ToolEndpoint.DSP_ADJUSTMENTS), campaign)
+     raise ValueError(f"不認得的查詢選項:{option!r}")
+ 
+ 
+ def make_query_reader(
+     base_url: str, timeout_seconds: float, on_call: OnDspCall | None = None,
+diff --git a/src/rtb/analyzer/flow.py b/src/rtb/analyzer/flow.py
+index c79daec..94f5d35 100644
+--- a/src/rtb/analyzer/flow.py
++++ b/src/rtb/analyzer/flow.py
+@@ -403,39 +403,48 @@ def _from_received(
+     _store: TaskStore, _row: TaskRow, _c: _Collaborators, _now: datetime
+ ) -> _StepOutcome:
+     return _Step(TaskState.COLLECTING_EVIDENCE)
+ 
+ 
+ def _from_collecting_evidence(
+     _store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
+ ) -> _StepOutcome:
+     try:
+         got = c.evidence_source(row, now)
++    except CorruptedHistoryRow as exc:
++        # 證據來源要讀已存的規則輪紀錄才知道讀哪一步,那些紀錄毀損:重試沒有用,跟分析那一步一樣
++        # 轉 FAILED(代碼審 r1 鏡頭2-4)
++        return _Step(TaskState.FAILED, error_detail=repr(exc))
++    except Exception:  # 純讀取,重試永遠安全:不寫入,留在原狀態
++        return None
++    try:
+         batch = got if isinstance(got, EvidenceBatch) else EvidenceBatch(got)
+         if not isinstance(batch.evidence, tuple) or not isinstance(batch.raw, tuple):
+             # 形狀不對也當成這次沒拿到證據:EvidenceSource 是純讀取,重試永遠安全,
+             # 不必為了型別錯誤另外走 FAILED(那是 Decide/Submit 才有的合約違反處理)。
+             raise TypeError(f"EvidenceSource 必須回傳 tuple[Evidence, ...],得到 {type(got)!r}")
+     except Exception:  # 純讀取,重試永遠安全:不寫入,留在原狀態
+         return None
+     return _Step(TaskState.ANALYZING, evidence=batch.evidence, raw=batch.raw,
+                  rule_step=batch.rule_step)
+ 
+ 
+ def _from_analyzing(  # noqa: PLR0911 - 規則輪、AI、決策各一條路,決策每種結果一個出口
+     store: TaskStore, row: TaskRow, c: _Collaborators, now: datetime
+ ) -> _StepOutcome:
+     try:
+         evidence = store.evidence_for(row.task_id, row.seq)
++        in_round = c.rule_decide is not None and (c.ai_decide is None
++                                                  or _in_rule_round(store, row))
+     except CorruptedHistoryRow as exc:  # 存好的資料本身毀損,重試沒有用:直接轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+-    if c.rule_decide is not None and (c.ai_decide is None or _in_rule_round(store, row)):
++    if in_round and c.rule_decide is not None:
+         # 規則輪那一步(沒開 AI;或開了 AI、這一列是規則輪蒐證的):不問模型([S1407] 的續步那半)
+         return _from_rule(store, row, c.rule_decide, evidence, now)
+     if c.ai_decide is not None and c.renew is not None and c.begin_call is not None:
+         return _from_ai(row, c.ai_decide, AiContext(
+             c.renew, tuple(record for _seq, record in store.investigation_rounds(row.task_id)),
+             c.begin_call), evidence, now)
+     try:
+         decision = c.decide(row, evidence, now)
+     except Exception as exc:  # 對已到手的證據做純計算,重跑只會再犯同樣的錯:直接轉 FAILED
+         return _Step(TaskState.FAILED, error_detail=repr(exc))
+diff --git a/src/rtb/analyzer/instrumented.py b/src/rtb/analyzer/instrumented.py
+index dd14461..aeaf2ff 100644
+--- a/src/rtb/analyzer/instrumented.py
++++ b/src/rtb/analyzer/instrumented.py
+@@ -176,26 +176,29 @@ def rule_source(
+     照純讀取往外丟,這一步不寫、下次重試。"""
+ 
+     def _on_call(task: TaskRow, endpoint: ToolEndpoint, outcome: str, latency_ms: float) -> None:
+         store.record_tool_call(task.task_id, task.seq, endpoint, outcome, latency_ms,
+                                datetime.now(UTC))
+ 
+     base_source = dsp_client.make_client(base_url, timeout_seconds, on_call=_on_call)
+     reader = dsp_client.make_query_reader(base_url, timeout_seconds, on_call=_on_call)
+ 
+     def fetch(task: TaskRow, now: datetime) -> EvidenceBatch:
+-        round_id, step = rule_round.collect_plan(store, task.task_id, now)
+-        evidence = base_source(task, now) if rule_round.STEP_BASE[step] else ()
++        round_id, step = rule_round.collect_plan(
++            store.rule_steps(task.task_id), store.rule_events(task.task_id), now)
+         options = rule_round.STEP_QUERIES[step]
+         receipts, raws = [], []
+         reads = dsp_client.read_query_options(
+             reader, task, tuple(option.value for option in options), now)
++        # 現況與 1 小時指標在這一步的查詢**之後**才讀(代碼審 r1 外家 finder-2):C 的重讀要
++        # 涵蓋查詢期間的變動,A/C 比對才抓得到查詢時另一方改的預算;讀取次數不變(C 仍是 5 讀)
++        evidence = base_source(task, now) if rule_round.STEP_BASE[step] else ()
+         for option in options:
+             read = reads[option.value]
+             receipt = receipt_or_invalid(task.task_id, task.seq, option, read, now)
+             receipts.append(receipt)
+             if read.raw is not None and receipt.payload.get("result") != "none":
+                 raws.append(RawQuery(option.value, inv.canonical_json(read.raw)))
+         return EvidenceBatch(evidence + tuple(receipts), tuple(raws),
+                              RuleStep(round_id, step.value, POLICY_VERSION, now))
+ 
+     return fetch
+diff --git a/src/rtb/analyzer/rule_round.py b/src/rtb/analyzer/rule_round.py
+index 23eeff3..03c82d9 100644
+--- a/src/rtb/analyzer/rule_round.py
++++ b/src/rtb/analyzer/rule_round.py
+@@ -7,23 +7,25 @@
+   不偏低)在 A 就結案,追加讀取 0 次([S1401])。
+ - 步驟 B 讀操作歷史與過去調整(2 讀);步驟 C 讀逐日、1 天、7 天,並重讀現況與 1 小時指標(5 讀)。
+ - 定案(DECIDE)在 C 之後:以決策 now 重驗三步全部證據的 15 分鐘新鮮度;A 與 C 比廣告編號、狀態、版本與
+   1 小時五項原始指標;C 缺可信現況就以缺現況結案,不沿用 A 的([S1404]);四查詢從同一輪 B/C 已存的原始
+   回應轉成領域型別,交給 `policy.explain` 判九條([S1402] [S1406])。
+ - 進度一律由已提交列重算([S1413]):取最新一輪;這一輪有非「續步」的事件、或任一步不是目前政策版本,就算
+   已作廢,下一次蒐證開新輪從 A 讀([S1424])。同一步重複只取最新序號。不持久化「下一步」。
+ - 重來:證據過期、版本或基本資料變動、409 退回(定案事件已寫,這一輪不再用),都開新輪從 A 全量重讀;
+   版本/基本資料變動連續重來最多 2 次,第 2 次重來後再變動就以證據不足結案(MAX_CHANGE_RESTARTS)。
+ 
+-這支檔只讀已提交列、不寫入、不讀時鐘;蒐證那一步怎麼打 DSP 在 `instrumented.rule_source`。AI
+-路徑還沒用規則輪
+-(AI 提案否決與退回全量重讀是增量 3)。
++進度與蒐證計畫是純函式(呼叫端先讀出已提交記錄,同 `investigation.progress` 的慣例);`decide` 讀一次
++這件工作的規則輪記錄,再視需要讀各步證據與原始回應;不寫入、不讀時鐘。蒐證那一步怎麼打 DSP 在
++`instrumented.rule_source`(C 步先讀查詢、最後重讀現況與 1 小時,讓 A/C 比對涵蓋查詢期間的變動)。
++AI 路徑:退回、AI 用過之後、AI 答 propose 都開這個規則輪(propose 由規則否決或放行),規則輪那幾步由
++流程層直接問這裡、不經 AI 決策函式。
+ """
+ 
+ import json
+ from collections.abc import Mapping, Sequence
+ from dataclasses import dataclass
+ from datetime import datetime
+ from enum import StrEnum
+ from typing import Any
+ 
+ from rtb.analyzer import investigation as inv
+@@ -93,54 +95,66 @@ class Progress:
+     def next_step(self) -> Step | None:
+         """下一步要讀哪一步;None 表示 A/B/C 齊全,該定案。沒有未作廢的輪就是 A(新輪)。"""
+         if not self.open:
+             return Step.A
+         for step in Step:
+             if step not in self.steps:
+                 return step
+         return None
+ 
+ 
+-def progress(reads: TaskReads, task_id: str) -> Progress:
+-    """照已提交的規則輪步驟與事件重算進度(同 `investigation.progress` 的做法)。"""
+-    step_rows = reads.rule_steps(task_id)
+-    events = reads.rule_events(task_id)
++StepRows = Sequence[tuple[int, RuleStep]]
++EventRows = Sequence[tuple[int, RuleEvent]]
++
++
++def _current_rounds(step_rows: StepRows) -> set[int]:
++    """每一步都是目前政策版本、步驟代碼認得的輪。"""
++    versions: dict[int, bool] = {}
++    for _seq, record in step_rows:
++        ok = record.policy_version == POLICY_VERSION and record.step in Step.__members__
++        versions[record.round_id] = versions.get(record.round_id, True) and ok
++    return {round_id for round_id, ok in versions.items() if ok}
++
++
++def progress(step_rows: StepRows, events: EventRows) -> Progress:
++    """照已提交的規則輪步驟與事件重算進度:純函式,呼叫端先讀出記錄(同
++    `investigation.progress` 的慣例,代碼審 r1 架構對齊-1)。連續變動重來的次數只數目前
++    政策版本的輪,遇到別的事件或別的政策版本的輪就停([S1424]:升版後重來計數歸零,
++    代碼審 r1 外家 finder-3)。"""
++    current = _current_rounds(step_rows)
+     closed = {event.round_id for _seq, event in events if event.event != Event.CONTINUE}
+     changes = 0
+     for _seq, event in reversed(events):
+         if event.event == Event.CONTINUE:
+             continue
+-        if event.event != Event.RESTART_CHANGED:
++        if event.event != Event.RESTART_CHANGED or event.round_id not in current:
+             break
+         changes += 1
+     latest = max((record.round_id for _seq, record in step_rows), default=0)
+-    mine = [(seq, record) for seq, record in step_rows if record.round_id == latest]
+-    open_ = (latest > 0 and latest not in closed
+-             and all(record.policy_version == POLICY_VERSION for _seq, record in mine)
+-             and all(record.step in Step.__members__ for _seq, record in mine))
+-    if not open_:
++    if latest == 0 or latest in closed or latest not in current:
+         return Progress(latest + 1, False, {}, changes)
+     steps: dict[Step, tuple[int, RuleStep]] = {}
+-    for seq, record in mine:  # 依序號遞增:同一步重複時留最新
+-        steps[Step(record.step)] = (seq, record)
++    for seq, record in sorted(step_rows, key=lambda row: row[0]):  # 同一步重複時留最新
++        if record.round_id == latest:
++            steps[Step(record.step)] = (seq, record)
+     return Progress(latest, True, steps, changes)
+ 
+ 
+ def _stale(read_at: datetime, now: datetime) -> bool:
+     age = (now - read_at).total_seconds()
+     return age < 0 or age > policy.MAX_EVIDENCE_AGE.total_seconds()
+ 
+ 
+-def collect_plan(reads: TaskReads, task_id: str, now: datetime) -> tuple[int, Step]:
+-    """蒐證那一步要讀哪一輪的哪一步:未作廢的輪續讀下一步;沒有未作廢的輪、這一輪已齊全(不該發生)、
+-    或先前步驟到 now 已過期(當機續跑超過 15 分鐘),就開新輪從 A 讀,舊輪只留審計。"""
+-    state = progress(reads, task_id)
++def collect_plan(step_rows: StepRows, events: EventRows, now: datetime) -> tuple[int, Step]:
++    """蒐證那一步要讀哪一輪的哪一步(純函式):未作廢的輪續讀下一步;沒有未作廢的輪、這一輪已齊全
++    (不該發生)、或先前步驟到 now 已過期(當機續跑超過 15 分鐘),就開新輪從 A 讀,舊輪只留審計。"""
++    state = progress(step_rows, events)
+     step = state.next_step
+     if (step is None or step is Step.A or not state.open
+             or any(_stale(record.read_at, now) for _seq, record in state.steps.values())):
+         return (state.round_id + 1 if state.open else state.round_id), Step.A
+     return state.round_id, step
+ 
+ 
+ # ---- 分析那一步 ----
+ def _trusted(evidence: Sequence[Evidence], kind: EvidenceKind) -> Mapping[str, Any] | None:
+     for item in evidence:
+@@ -304,24 +318,25 @@ def _decide(  # noqa: PLR0911 - 定案前每道檢查一個出口
+     if isinstance(decision, NeedsFreshEvidence):  # 上面已驗年齡,不該發生;保守重來
+         return _outcome(RuleContinue(), state.round_id, Event.RESTART_STALE)
+     rule = facts.rule
+     detail = None if rule is None else (
+         rule.reason.value if rule.query is None else f"{rule.reason.value}:{rule.query.value}")
+     return _outcome(decision, state.round_id, Event.DECIDED, reason, detail)
+ 
+ 
+ def decide(task: TaskRow, evidence: tuple[Evidence, ...], now: datetime,
+            reads: TaskReads) -> RuleOutcome:
+-    """分析中那一步的規則輪決策(流程層的 RuleDecide)。"""
+-    state = progress(reads, task.task_id)
+-    mine = next((record for seq, record in reads.rule_steps(task.task_id) if seq == task.seq),
+-                None)
++    """分析中那一步的規則輪決策(流程層的 RuleDecide):先讀一次這件工作的規則輪記錄,進度由純函式重算;
++    各步證據與原始回應只在需要時讀。"""
++    step_rows = reads.rule_steps(task.task_id)
++    state = progress(step_rows, reads.rule_events(task.task_id))
++    mine = next((record for seq, record in step_rows if seq == task.seq), None)
+     current = state.steps.get(Step(mine.step)) if mine is not None and state.open and (
+         mine.step in Step.__members__) else None
+     if mine is None or current is None or current[0] != task.seq:
+         # 這一列不屬於目前這一輪(升版前的兩讀、舊政策輪、AI 期證據、被新輪取代):作廢從 A 重讀
+         round_id = state.round_id if state.open else max(state.round_id - 1, 0)
+         return _outcome(RuleContinue(), round_id, Event.RESTART_NO_ROUND)
+     step = Step(mine.step)
+     if step is Step.A:
+         settled = _base_outcome(task, evidence, now, state.round_id)
+         return settled if settled is not None else _outcome(
+diff --git a/src/rtb/analyzer/runner.py b/src/rtb/analyzer/runner.py
+index 4c99fbe..d01d533 100644
+--- a/src/rtb/analyzer/runner.py
++++ b/src/rtb/analyzer/runner.py
+@@ -1,15 +1,16 @@
+ """分析端驅動命令列(Phase 12 增量 1,正式入口):反覆領取待推進的任務,用正式的 DSP 用戶端與收件口
+ 用戶端呼叫流程推進函式,直到收到停止訊號(或跑滿指定輪數)。跟測試用同一支推進函式、同一套租約;
+ 這是正式程式,不帶任何故障手段([S1000])。
+ 
+-租約長度與呼叫逾時的機械守衛([S1001]):一步最多兩次讀 DSP 或一次送件,呼叫次數 乘 單次逾時 乘 2
++租約長度與呼叫逾時的機械守衛([S1001]):基本那一步兩次讀 DSP 或一次送件
++(規則輪 C 最多 5 讀,另守 [S1405]),呼叫次數 乘 單次逾時 乘 2
+ 要小於租約,否則一步還沒做完租約就到期、被別人接手,同一件工作會花兩次錢;不成立就拒絕啟動。
+ 
+ 正式規則的規則輪(Phase 14 增量 2b,計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]):沒開 AI
+ 時蒐證走
+ `instrumented.rule_source`、分析走 `rule_round.decide`,九條要的四查詢分 A/B/C 三步讀(2/2/5 讀);開
+ AI 時
+ AI 退回或用過之後也走同一個規則輪(規則輪定案照樣受 --hold-submit 攔);守衛另對
+ 每一步檢查「取租約等鎖 + 讀取次數 乘(逾時 + 呼叫紀錄等鎖)+ 提交等鎖」小於租約([S1405]),預設逾時 3 秒
+ 時 26/26/50 秒,自訂逾時讓任一步不符就拒絕啟動並說是哪一步。
+ 
+diff --git a/src/rtb/analyzer/task_store.py b/src/rtb/analyzer/task_store.py
+index dc90277..a559f75 100644
+--- a/src/rtb/analyzer/task_store.py
++++ b/src/rtb/analyzer/task_store.py
+@@ -12,21 +12,22 @@
+ 唯讀開法(Phase 9 增量 1):`TaskReader` 只開唯讀連線、不建表不補欄位,一開就進一個不取鎖的快照,
+ 直到關閉;缺表或缺欄位丟 DatabaseNotUpgraded。追蹤檢視用它讀,不跟分析行程搶寫入鎖。
+ 
+ 模型說明的領取表與結果表(Phase 11B 增量 2,[S929]):模型說明命令列每次領取一列(自己的遞增領取序號;
+ 任務、修訂、內容雜湊只當查詢欄位、不設唯一),寫結果時在同一個交易裡核對這張收據仍是這份提案最新的
+ 領取、而且還沒有結果,舊持有者寫不進去。結果只增不改。說明不進任何決策、不進收件口,執行端不讀。
+ 
+ AI 調查的紀錄表與原始資料表(Phase 13 增量 2,[S1110] [S1130] [S1151]):AI 那一步每一輪一列調查紀錄
+ (選了什麼、理由、誰判的、退回原因、`ai_query` 原因代碼),蒐證那一步每個追加查詢的原始回應一列(正規化
+ JSON);兩張都只增不改,跟狀態列、證據在同一個交易、同一道租約與序號圍籬裡寫(提交函式的兩個新參數)。
+-原始資料只給人看與追查,沒有任何決策路徑讀它;執行端與收件口都不讀這兩張表([S1114])。
++原始資料給人看與追查;決策路徑只有規則輪定案讀它(同一輪 B/C 蒐證時白名單驗過、跟收據同交易寫的原始
++回應,Phase 14 增量 2b;守衛測試只准 `rule_round` 讀);執行端與收件口都不讀這兩張表([S1114])。
+ 
+ 續租(Phase 13 增量 2,[S1135] [S1150]):只有開了 AI 決策的分析那一步在呼叫模型前續租一次。租約表只增
+ 不改,所以續租是新增一列(序號加 1、擁有者相同),條件是目前最新那一列正是手上收據的序號與擁有者;時鐘在
+ 交易裡拿到鎖之後才讀。一步照樣只做一步。
+ 
+ 規則輪(Phase 14 增量 2b,[S1405] [S1413]):正式規則分 A/B/C 三步讀四查詢。蒐證那一步把「這一列是第幾輪
+ 的哪一步、哪個政策版本、讀取時刻」跟證據、原始回應同一個交易寫進規則步驟表;分析那一步把續步、重來、
+ 定案寫進規則事件表(細因只存封閉代碼)。兩張都只增不改;進度一律由 `rule_round` 從這兩張的已提交列重算,
+ 不持久化「下一步」。
+ 
+@@ -110,22 +111,23 @@ CREATE TABLE IF NOT EXISTS rule_events (
+     task_id TEXT NOT NULL, seq INTEGER NOT NULL, round_id INTEGER NOT NULL, event TEXT NOT NULL,
+     detail TEXT, written_at TEXT NOT NULL, PRIMARY KEY (task_id, seq));
+ CREATE INDEX IF NOT EXISTS narrative_claims_by_proposal
+     ON narrative_claims (task_id, revision, content_hash);
+ CREATE INDEX IF NOT EXISTS follow_ups_by_campaign ON follow_ups (campaign_id);
+ CREATE INDEX IF NOT EXISTS tool_calls_by_time ON tool_calls (at);
+ """
+ _TASK_COLUMNS = ("task_id, seq, state, campaign_id, proposal_json, error_detail, written_at, "
+                  "operation_key")
+ MAX_ERROR_DETAIL_LENGTH = 2000  # error_detail 進永久不可刪改的表,長度必須有上限
+-# 暫用,沒有實測校準:要遠大於一步最慢的時間(最多兩次讀 DSP 或一次送件,各自的逾時由建用戶端
+-# 的呼叫端決定);分析端驅動命令列(rtb.analyzer.runner)啟動時斷言這條不等式([S1001])
++# 暫用,沒有實測校準:要遠大於一步最慢的時間(規則輪 C 最多 5 次讀 DSP、基本那一步兩次、或一次
++# 送件,各自的逾時由建用戶端的呼叫端決定);分析端驅動命令列(rtb.analyzer.runner)啟動時斷言這些
++# 不等式([S1001] [S1405])
+ LEASE_DURATION = timedelta(seconds=60)
+ # 模型說明的領取期限(Phase 11B 增量 2):最新一次領取沒有結果、不到這麼久就跳過,超過才准再領。
+ # 說明命令列
+ # 啟動時斷言「模型呼叫的總期限加 1 分鐘餘裕小於它」,所以接手時前一個持有者的呼叫一定已經結束
+ NARRATIVE_CLAIM_WINDOW = timedelta(minutes=10)
+ # 同一份提案最多領幾次(代碼審 r1):每次領取至多一次模型呼叫。說明不計花費上限(Phase 13 裁定 13),
+ # 失敗又
+ # 准立刻再領,不設上限的話被名稱誘導出讀不懂的回答時每一趟都再付一次;跟 Phase 13 調查一件工作最多 3
+ # 輪
+ # 同一個數,夠吸收一兩次暫時性失敗
+@@ -536,21 +538,22 @@ class TaskReads:
+         """同序號調查紀錄列的原因代碼(展示觀察器用它分辨「AI 要再查」與「資料太舊重蒐證」);表不在、
+         沒有那一列都回空值。"""
+         if not self._has_table("investigation_rounds"):
+             return None
+         record = self._conn.execute(
+             "SELECT reason_code FROM investigation_rounds WHERE task_id = ? AND seq = ?",
+             (task_id, seq)).fetchone()
+         return None if record is None or record[0] is None else str(record[0])
+ 
+     def raw_query(self, task_id: str, seq: int, option: str) -> str | None:
+-        """用(任務、那一輪分析列的序號、選項代碼)取回原始回應;那一輪沒有結果就是空值。只給人看。"""
++        """用(任務、那一輪分析列的序號、選項代碼)取回原始回應;那一輪沒有結果就是空值。給人看,
++        以及規則輪定案讀同一輪的原始回應(Phase 14)。"""
+         if not self._has_table("investigation_raw"):
+             return None
+         record = self._conn.execute(
+             "SELECT raw_json FROM investigation_raw WHERE task_id = ? AND seq = ? AND option = ?",
+             (task_id, seq, option)).fetchone()
+         return None if record is None else str(record[0])
+ 
+     def rule_steps(self, task_id: str) -> tuple[tuple[int, RuleStep], ...]:
+         """這件工作已提交的規則輪步驟(序號, 紀錄),依序號;唯讀開法遇到還沒有這張表的舊庫回空的。"""
+         if not self._has_table("rule_steps"):
+diff --git a/src/rtb/demo/observe.py b/src/rtb/demo/observe.py
+index d938f14..9684686 100644
+--- a/src/rtb/demo/observe.py
++++ b/src/rtb/demo/observe.py
+@@ -275,20 +275,27 @@ def missing_from_path(observed: Sequence[str], required: Sequence[str],
+     過)。回第一個對不上的節點(多出來的,或最後還沒消耗到的必經節點),都對上回空值。"""
+     position = 0
+     for node in observed:
+         if position < len(required) and node == required[position]:
+             position += 1
+         elif node not in allowed:
+             return node
+     return None if position == len(required) else required[position]
+ 
+ 
++def _opens_rule_round(record: InvestigationRecord) -> bool:
++    """這一輪調查紀錄之後接的是規則輪:退回(結果代碼 rule_round),或 AI 答 propose(規則複查)。"""
++    return ((record.kind == inv.RecordKind.FALLBACK and record.choice == inv.RULE_ROUND)
++            or (record.kind == inv.RecordKind.CONCLUSION
++                and record.choice == inv.Conclusion.PROPOSE.value))
++
++
+ def _kind_member(record: InvestigationRecord) -> Member:
+     """AI 那一步的判斷結果顯示成調查紀錄的種類(選查詢、下結論、退回);讀不懂的照原樣留著。"""
+     return _member(inv.RecordKind, record.kind) or (inv.RecordKind, record.kind)
+ 
+ 
+ def _time(text: str) -> datetime:
+     return datetime.fromisoformat(text.replace("Z", "+00:00"))
+ 
+ 
+ def _member(enum: type[StrEnum], value: str | None) -> Member | None:
+@@ -393,23 +400,23 @@ class Observer:
+                          order=("analyzer", 1, 2 * rowid - 1), task=row.task_id, note=step.reason,
+                          basis=step.basis, actor=step.actor, node=step.node, edge=step.edge)
+         return [ai] if continuation else [ai, main]
+ 
+     @staticmethod
+     def _rule_continuation(reader: TaskReader, row: TaskRow) -> bool:
+         """規則輪續步(Phase 14 增量 2b,A→B→C 讀四查詢)的中間列不另畫節點:續步那一列蒐集證據
+         (規則事件是 continue)與 B/C 蒐完的分析中那一列,都算同一個「蒐證、判斷」步驟;AI 退回開規則輪
+         那一列只畫「改由程式規則決定」、不另畫重新蒐集,規則輪 A 的分析中那一列也不另畫。重來(過期、
+         變動)照舊畫成重新蒐集。流程圖分開畫程式補查是增量 3 的事。"""
+-        def opens_rule_round(seq: int) -> bool:  # AI 退回開規則輪的那一列蒐集證據
+-            return any(at == seq and record.kind == inv.RecordKind.FALLBACK
+-                       and record.choice == inv.RULE_ROUND
++        def opens_rule_round(seq: int) -> bool:
++            # AI 退回開規則輪、或 AI 答 propose 交規則輪複查的那一列蒐集證據(代碼審 r1 提前做的否決)
++            return any(at == seq and _opens_rule_round(record)
+                        for at, record in reader.investigation_rounds(row.task_id))
+ 
+         if row.state is TaskState.COLLECTING_EVIDENCE:
+             return opens_rule_round(row.seq) or any(
+                 seq == row.seq and event.event == "continue"
+                 for seq, event in reader.rule_events(row.task_id))
+         if row.state is TaskState.ANALYZING:
+             step = next((step.step for seq, step in reader.rule_steps(row.task_id)
+                          if seq == row.seq), None)
+             return step in ("B", "C") or (step == "A" and opens_rule_round(row.seq - 1))
+@@ -434,24 +441,24 @@ class Observer:
+         [S1115])。有調查紀錄的那一列是「程式接手」:AI 選的查詢、照公式算的金額、照結論結案;退回的
+         那一輪照規則重算、扣掉 AI 那一步之前已經顯示過的幾組;只判不送的那一列寫考題結束。"""
+         if before is None:
+             return ()
+         rule = inv.code_rule_evidence(evidence)
+         inputs = rule_round.decision_inputs(reader, row.task_id, before.seq)
+         if inputs is not None and record is None:
+             # 規則輪定案那一列(Phase 14 增量 2b):同一輪存下的收據與原始回應重算,跟定案同一份四查詢
+             items, queries = inputs
+             found = basis_of.analysis(before, items, row, recorded, queries=queries)
+-            if any(at < row.seq and r.kind == inv.RecordKind.FALLBACK
+-                   and r.choice == inv.RULE_ROUND
++            if any(at < row.seq and _opens_rule_round(r)
+                    for at, r in reader.investigation_rounds(row.task_id)):
+-                # AI 退回開的規則輪:新鮮度與配速在 AI 那一步之前已顯示,這裡只接程式規則那幾步
++                # AI 退回或 AI 答 propose 開的規則輪:新鮮度與配速在 AI 那一步之前已顯示,這裡只接程式
++                # 規則那幾步(AI 答 propose 時就是規則複查;畫面分開標「程式複查」是增量 3)
+                 found = basis_of.after_fallback(found)
+             if recorded == NoActionReason.EXAM_HOLD.value:  # 規則輪判值得加、只判不送
+                 return (*found, basis_of.EXAM_HOLD)
+             return found
+         if recorded == NoActionReason.EXAM_HOLD.value:
+             if record is not None and record.kind == inv.RecordKind.FALLBACK:  # 退回後規則判值得加
+                 ruled = basis_of.after_fallback(basis_of.analysis(before, rule, row, recorded))
+                 return (*ruled, basis_of.EXAM_HOLD)
+             return (basis_of.EXAM_HOLD,)
+         if record is None:
+diff --git a/src/rtb/domain/nine_rules.py b/src/rtb/domain/nine_rules.py
+index 153edd4..2b4db23 100644
+--- a/src/rtb/domain/nine_rules.py
++++ b/src/rtb/domain/nine_rules.py
+@@ -347,20 +347,63 @@ def _daily_decision(daily: DailyTrend, now: datetime) -> RuleDecision | None:  #
+     recent = tuple(row for row in rows if row.days_ago <= RECENT_DAYS)
+     earlier = tuple(row for row in rows if row.days_ago > RECENT_DAYS)
+     drop = m.exact_change(segment_rate(earlier), segment_rate(recent))
+     if isinstance(drop, Fraction) and drop < DROP_THRESHOLD:
+         return _hit(Cell.CONVERSION_RATE_DROP)
+     if drop is not m.Reason.NO_DENOMINATOR and isinstance(drop, m.Reason):
+         return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.DAILY)
+     return None
+ 
+ 
++_WINDOW_FIELDS = ("impressions", "clicks", "conversions", "spend", "revenue")
++
++
++def _window_values(window: Window) -> tuple[Fraction | None, ...]:
++    return tuple(None if getattr(window, name) is None else Fraction(getattr(window, name))
++                 for name in _WINDOW_FIELDS)
++
++
++def _invalid_window(window: Window) -> bool:
++    """負數,或點擊多於曝光、轉換多於點擊(同 1 小時資料異常與逐日列的判準)。"""
++    return (any(value is not None and value < 0 for value in _window_values(window))
++            or (window.impressions is not None and window.clicks is not None
++                and window.clicks > window.impressions)
++            or (window.clicks is not None and window.conversions is not None
++                and window.conversions > window.clicks))
++
++
++def _invalid_longer(longer: LongerWindow) -> bool:
++    """長窗任一窗不合格,或 1 天窗任一欄大於 7 天窗(同讀取層跨窗核對的方向;代碼審 r1 外家 finder-1:
++    負數在讀取層只是不參與比較、收據寫 na,這裡決策一律當不合格,不讓另一窗的正數把它變成提案)。"""
++    if _invalid_window(longer.one_day) or _invalid_window(longer.seven_days):
++        return True
++    return any(small is not None and large is not None and small > large
++               for small, large in zip(_window_values(longer.one_day),
++                                       _window_values(longer.seven_days), strict=True))
++
++
++def _invalid_query(evidence: RuleEvidence, now: datetime) -> RuleDecision | None:
++    """第 3 到 9 條都要四查詢的**有效**結果:先把任一查詢的負數、不自洽、晚於決策 now 的時間抓出來,
++    判證據不足,不管後面哪一條本來會命中。"""
++    assert evidence.longer is not None and evidence.history is not None  # noqa: S101 - 已核對
++    assert evidence.daily is not None and evidence.past is not None  # noqa: S101 - 同上
++    if _invalid_longer(evidence.longer):
++        return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.LONGER)
++    if any(is_aware(row.committed_at) and row.committed_at > now for row in evidence.history.rows):
++        return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.HISTORY)
++    if any(_invalid_adjustment_row(row, now) for row in evidence.past.rows):
++        return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.PAST)
++    if any(_invalid_daily_row(row) for row in evidence.daily.rows):
++        return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.DAILY)
++    return None
++
++
+ def _final_decision(worth: WorthInput, longer: LongerWindow) -> RuleDecision:
+     assert worth.impressions is not None and worth.clicks is not None  # noqa: S101 - 異常輸入已先排除
+     assert worth.conversions is not None and worth.revenue is not None  # noqa: S101 - 同上
+     if worth.clicks > 0 and worth.conversions == 0 and worth.revenue == 0:
+         windows = (longer.one_day, longer.seven_days)
+         if any(window.conversions is not None and window.conversions > 0 for window in windows):
+             return _hit(Cell.LATE_CONVERSIONS)
+         if any(window.conversions is None for window in windows):
+             return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.LONGER)
+     if worth.impressions == 0 or worth.clicks == 0:
+@@ -380,13 +423,14 @@ def decide(worth: WorthInput | None, evidence: RuleEvidence, now: datetime) -> R
+         return _hit(Cell.PAUSED)
+     if is_anomalous(worth):
+         return _hit(Cell.ANOMALY)
+     for query, value in ((QueryKind.LONGER, evidence.longer),
+                          (QueryKind.HISTORY, evidence.history),
+                          (QueryKind.DAILY, evidence.daily), (QueryKind.PAST, evidence.past)):
+         if value is None:
+             return _insufficient(RuleReason.QUERY_NO_RESULT, query)
+     assert evidence.longer is not None and evidence.history is not None  # noqa: S101 - 四查詢已核對
+     assert evidence.daily is not None and evidence.past is not None  # noqa: S101 - 同上
+-    return (_history_decision(evidence.history, evidence.past, now)
++    return (_invalid_query(evidence, now)
++            or _history_decision(evidence.history, evidence.past, now)
+             or _past_decision(evidence.past, now)
+             or _daily_decision(evidence.daily, now) or _final_decision(worth, evidence.longer))
+diff --git a/src/rtb/dsp/server.py b/src/rtb/dsp/server.py
+index 727c38c..c0d566f 100644
+--- a/src/rtb/dsp/server.py
++++ b/src/rtb/dsp/server.py
+@@ -154,24 +154,27 @@ class DspHandler(JsonHandler):
+     # ---- 讀取介面 ----
+     def _get_campaign(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+     ) -> dict[str, Any]:
+         return asdict(store.get_campaign(campaign_id))
+ 
+     def _get_history(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+     ) -> dict[str, Any]:
+         rows, summary = store.history_limited(campaign_id)
+-        if summary is None:  # 沒截斷:維持既有形狀
+-            return {"history": [asdict(h) for h in rows]}
++        # 頂層帶廣告編號,讀取層核對是這件工作的廣告(Phase 14 代碼審 r1 資安-2:歷史進了正式規則
++        # 第 3 條)
++        if summary is None:  # 沒截斷:列的形狀照舊
++            return {"campaign_id": campaign_id, "history": [asdict(h) for h in rows]}
+         # 超過 50 筆才截斷:另帶完整集合的摘要與截斷旗標([S1422])
+-        return {"history": [asdict(h) for h in rows], "summary": summary, "truncated": True}
++        return {"campaign_id": campaign_id, "history": [asdict(h) for h in rows],
++                "summary": summary, "truncated": True}
+ 
+     def _get_metrics(
+         self, store: CampaignStore, campaign_id: str, _fault: str | None
+     ) -> dict[str, Any]:
+         windows = parse_qs(urlsplit(self.path).query).get("window", [])
+         if len(windows) > 1:
+             raise RequestRejected(400, "duplicate_query_parameter")
+         return asdict(store.get_metrics(campaign_id, windows[0] if windows else None))
+ 
+     def _get_daily(
+diff --git a/src/rtb/eval/investigation_eval.py b/src/rtb/eval/investigation_eval.py
+index e30deab..52149fc 100644
+--- a/src/rtb/eval/investigation_eval.py
++++ b/src/rtb/eval/investigation_eval.py
+@@ -122,33 +122,38 @@ def _verdict(outcome: Any) -> WorthVerdict:
+             return WorthVerdict.NOT_WORTH
+         if reason is policy.NoActionReason.JUDGED_INSUFFICIENT:
+             return WorthVerdict.INSUFFICIENT
+     raise ValueError(f"評估案例走到了前置過濾或別的結局:{outcome!r}")
+ 
+ 
+ def run_case(case: Case, ask: Ask) -> CaseRun:
+     """一筆案例跑到下結論或退回為止;選查詢就回到「蒐集證據」,從案例取結果再交給同一支
+     AI 決策函式。"""
+     logged = _Logged(ask)
+-    judge = ai_judge.Judge(logged)
++    judge = ai_judge.Judge(logged, raw_replay=True)  # 原始錄製重播:還原模型自己的答案(AI 原始)
+     counter = CallCounter()
+     records: list[InvestigationRecord] = []
+     for seq in range(1, inv.MAX_ROUNDS + 2):  # 最多 3 輪模型呼叫;多一輪留給「上限後只剩結論」的保險
+         task = _task(case, seq)
+         evidence = case_evidence(case, task, inv.progress(records))
+         outcome = judge(task, evidence, NOW, AiContext(_renewed, tuple(records), counter))
+         if outcome.record is not None:
+             records.append(outcome.record)
+         if isinstance(outcome.result, RuleContinue):
+-            # 退回開規則輪(Phase 14 增量 2b):評估沒有 DSP,四查詢直接從案例取、轉成正式領域型別,
+-            # 以案例固定 NOW 跑同一支正式規則(不問模型)
+-            return CaseRun(case, rule_verdict(case), tuple(records), tuple(logged.calls))
++            # Phase 14:退回開規則輪時,評估沒有 DSP,四查詢直接從案例取、轉成正式領域型別,以案例固定
++            # NOW 跑同一支正式規則(不問模型)。AI 自己答 propose 也開規則輪(正式路徑由規則否決),
++            # 但這裡記的是模型自己的答案(AI 原始):否決後的結果與「AI+規則否決」那一列是
++            # 增量 4 的報告工作
++            ai_said_propose = (outcome.record is not None
++                               and outcome.record.kind == inv.RecordKind.CONCLUSION)
++            final = WorthVerdict.WORTH if ai_said_propose else rule_verdict(case)
++            return CaseRun(case, final, tuple(records), tuple(logged.calls))
+         if not isinstance(outcome.result, QueryMore):
+             return CaseRun(case, _verdict(outcome), tuple(records), tuple(logged.calls))
+     raise AssertionError(f"{case.case_id} 超過輪數上限還在選查詢:AI 決策函式的上限沒有生效")
+ 
+ 
+ class CallCounter:
+     """送出前的呼叫記次(評估沒有任務列,在記憶體裡計;照流程層那支同一個語意):回這筆案例第幾次模型
+     呼叫,已達上限回上限加 1、不記。每筆案例一個。"""
+ 
+     def __init__(self) -> None:
+diff --git a/src/rtb/eval/record.py b/src/rtb/eval/record.py
+index 465466f..ccf15cb 100644
+--- a/src/rtb/eval/record.py
++++ b/src/rtb/eval/record.py
+@@ -64,21 +64,23 @@ LEAKAGE = (
+     "評分表算。評估套件不被任何其他套件匯入,規則作者的程式讀不到評估集。規則作者看過逐筆答案後回頭"
+     "調規則,就要換一批,換批要用決策指令記一筆理由與時間。正式環境隱藏集不進程式庫。"
+ )
+ NOT_INTRODUCED = "未導入"
+ WARMUP, RUNS = 2_000, 10_000
+ MEASURE_NAMES = ("quality", "cost_per_call_usd", "latency_median_us", "latency_p95_us",
+                  "format_failure_rate", "exception_rate", "timeout_rate", "fallback_rate")
+ 
+ 
+ def measure_latency(inputs: tuple[WorthInput, ...]) -> tuple[float, float]:
+-    """現行程式規則經路由的每次延遲(微秒):中位、p95。"""
++    """現行程式規則經路由的每次延遲(微秒):中位、p95。Phase 14 起規則是九條,Phase 10 情境沒有四查詢,
++    量到的是明傳缺四查詢時的短路徑(暫停/異常判完或缺查詢即回),不含正式規則輪 A/B/C 的 DSP 讀取與九條
++    全鏈(代碼審 r1 鏡頭4-2);報告同一段照寫。"""
+     for index in range(WARMUP):
+         route(inputs[index % len(inputs)], None, ValidatedCells.NONE,
+               queries=MISSING_FOUR_QUERIES, now=RULE_NOW)
+     samples = []
+     for index in range(RUNS):
+         worth_input = inputs[index % len(inputs)]
+         started = time.perf_counter_ns()
+         route(worth_input, None, ValidatedCells.NONE, queries=MISSING_FOUR_QUERIES, now=RULE_NOW)
+         samples.append((time.perf_counter_ns() - started) / 1000)
+     samples.sort()
+@@ -147,21 +149,22 @@ def render(report: SyntheticReport | ProductionReport, rows: tuple[ComparisonRow
+     else:
+         lines += ["", "## 不採用的理由", "", *[f"- {reason}" for reason in adoption.reasons]]
+     lines += ["", f"適用範圍:{SCOPE_LIMIT}", "", "## 逐格結果", "", *cell_table(report.cells)]
+     lines += ["", f"無關欄位擾動後答案改變的組數:{report.perturbation_changed}", "",
+               "## 比較表", "",
+               "| 做法 | 評分格 | 品質 | 每次成本(美元) | 延遲中位(微秒) | 延遲 p95(微秒) | "
+               "格式失敗率 | 例外率 | 逾時率 | 退回率 |",
+               "|---|---|---|---|---|---|---|---|---|---|"]
+     lines += [f"| {row.approach} | {row.cell.value} | "
+               + " | ".join(_cell(m) for m in row.measures()) + " |" for row in rows]
+-    lines += ["", "延遲是單次量測(本機、行程內),只當量級參考。", "", "## 逐格採用決定", ""]
++    lines += ["", "延遲是單次量測(本機、行程內),只當量級參考;現行程式規則那幾列量的是缺四查詢時"
++              "的九條短路徑,不含正式規則輪 A/B/C 的讀取與九條全鏈。", "", "## 逐格採用決定", ""]
+     lines += [f"- {d.cell.value}:{'驗證過' if d.validated else '未驗證'}"
+               f"({';'.join(d.reasons) or '全部達標'})" for d in adoption.cells]
+     lines += ["", "## 缺的證據", "", *[f"- {item}" for item in adoption.missing_evidence], "",
+               "## 外洩紀錄", "", LEAKAGE, ""]
+     return "\n".join(lines)
+ 
+ 
+ def _parse(argv: list[str] | None) -> argparse.Namespace:
+     parser = argparse.ArgumentParser(
+         allow_abbrev=False,
+diff --git a/src/rtb/eval/scoring.py b/src/rtb/eval/scoring.py
+index 36de077..515d4c8 100644
+--- a/src/rtb/eval/scoring.py
++++ b/src/rtb/eval/scoring.py
+@@ -222,12 +222,13 @@ def synthetic_report(scored: tuple[ScoredCase, ...], sha256: str) -> SyntheticRe
+ 
+ 
+ def production_report(
+     scored: tuple[ScoredCase, ...], provenance: HiddenSetProvenance
+ ) -> ProductionReport:
+     """正式計分入口:每一筆都要交給候選,候選答的或候選退回的(逾時、例外、不知道、非法回傳)都算候選
+     的結果、照最後有效答案計分;任何一筆走現行規則就拒(代碼審第 2、3 輪:只要求每格一筆,1 筆候選加
+     72 筆現行規則就能讓現行規則替候選過關)。"""
+     if not scored or any(c.path not in _THROUGH_CANDIDATE for c in scored):
+         raise ValueError("正式報告每一筆都要交給候選,不得有走現行規則的")
+-    cells, confusion, changed = _parts(scored, with_bounds=True)
++    # 情境一樣經 score 明傳缺四查詢:候選退回格落到九條的證據不足,照合成報告標註(代碼審 r1 鏡頭4-1)
++    cells, confusion, changed = _parts(scored, with_bounds=True, note=MISSING_QUERIES_NOTE)
+     return ProductionReport(provenance, cells, confusion, changed, _PRODUCTION_ISSUER)
+diff --git a/src/rtb/stepbudget.py b/src/rtb/stepbudget.py
+index 04f69e5..aeddce2 100644
+--- a/src/rtb/stepbudget.py
++++ b/src/rtb/stepbudget.py
+@@ -4,21 +4,23 @@
+ 
+ 檔名刻意不以 model 開頭、不含 claude 字樣:改寫後的 [S917] 把 src/rtb/ 底下 model 開頭的檔都當模型
+ 用戶端,展示啟動器的原始碼又不准出現 claude。這支檔進模型用戶端的匯入閉包(模型後端與花費帳從這裡取
+ 常數),Phase 11B [S918] 的名單有列它。
+ 
+ 數字都是暫用值,沒有實測校準(計劃 REVISIT 2026-12-31 看展示紀錄裡開 AI 的情境實際耗時)。
+ """
+ 
+ from rtb.sqlitekit import BUSY_TIMEOUT_SECONDS
+ 
+-CALLS_PER_STEP = 2  # 沒開 AI 時一步最多兩次讀 DSP(廣告現況、成效指標)或一次送件([S1001])
++# 基本那一步兩次讀 DSP(廣告現況、成效指標)或一次送件([S1001]);規則輪各步另見
++# RULE_STEP_READS([S1405])
++CALLS_PER_STEP = 2
+ DEFAULT_TIMEOUT_SECONDS = 3.0  # 分析端驅動命令列的 DSP 與收件口逾時預設值(展示用)
+ MODEL_TIMEOUT_SECONDS = 15.0  # AI 那一步的模型逾時(第 1 版 25、第 1 輪 20,改小是為了吃下續租等鎖)
+ GROUP_EXIT_WAIT_SECONDS = 5.0  # 模型後端每次等 claude 行程群組結束的秒數(一次呼叫最多等兩次)
+ GROUP_EXIT_WAITS = 2
+ SETTLE_ATTEMPTS = 3  # 花費帳結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤
+ LEDGER_RESERVATIONS = 1  # 每次呼叫預留一次
+ # 模型後端空暫存 HOME 隔離時的登入權杖變數名(使用者 2026-09-25 裁定用 `setup-token` 的長期權杖);放在
+ # 這裡是因為展示啟動器也要照名字轉交,而它的原始碼不准提到模型後端
+ LOGIN_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"  # noqa: S105 - 變數名,不是權杖
+ LOGIN_CHECK_TIMEOUT_SECONDS = 10.0  # 模型後端的登入狀態檢查(啟動時的預檢也是這一次)
+diff --git a/tests/analyzer/test_ai_judge.py b/tests/analyzer/test_ai_judge.py
+index 19e66fa..8f0f340 100644
+--- a/tests/analyzer/test_ai_judge.py
++++ b/tests/analyzer/test_ai_judge.py
+@@ -112,28 +112,24 @@ def run(model, evidence, rounds=(), **kwargs):
+     judge = ai_judge.Judge(model, **kwargs)
+     outcome = judge(TASK, evidence, NOW, flow.AiContext(renew, tuple(rounds), Calls()))
+     return outcome, renew
+ 
+ 
+ def rule(evidence):
+     return policy.explain(TASK, inv.code_rule_evidence(evidence), NOW, candidate=None,
+                           allowed=policy.ValidatedCells.NONE)
+ 
+ 
+-def fallback(evidence):
+-    """退回程式規則的預期結果(Phase 14 增量 2b):基本三筆判得出的(暫停、異常、前置過濾那幾道)
+-    照規則結案;
+-    要四查詢的回 RuleContinue(開一次新規則輪全量重讀),沒有不提案原因。"""
+-    base = inv.code_rule_evidence(evidence)
+-    if policy.steps(base, NOW, queries=None).needs_queries:
+-        return flow.RuleContinue(), None
+-    return rule(evidence)
++# 退回程式規則的預期結果(Phase 14 增量 2b):這幾支測試用的都是啟用、配速偏低、資料齊的基本三筆,
++# 九條要四查詢才判得到 → 開一次新規則輪(RuleContinue)、沒有不提案原因。寫死,不拿正式程式碼的判準
++# 當預言機(代碼審 r1 鏡頭3-1:同一支判準壞了測試也跟著錯,翻不紅)
++OPENS_RULE_ROUND = (flow.RuleContinue(), None)
+ 
+ 
+ CITE_BASE = (("base", "conversions", "1"),)
+ 
+ 
+ # ---- [S1104] ----
+ @pytest.mark.parametrize("evidence", [
+     base_evidence(observed=NOW - timedelta(minutes=20)),  # 太舊
+     base_evidence()[1:],  # 缺現況
+     base_evidence(spend=None),  # 配速算不出
+@@ -143,21 +139,22 @@ def test_code_prefilters_run_before_any_model_call(evidence):
+     """[S1104] 前四道程式過濾沒過:不呼叫模型,決策等於現行規則對三種證據的結果;追加收據過期不影響
+     。"""
+     model = Model(reply("propose", evidence=CITE_BASE))
+     old = receipt(inv.QueryOption.CHECK_DAILY_TREND, observed=NOW - timedelta(hours=3))
+     outcome, renew = run(model, (*evidence, old))
+     assert model.sent == [] and renew.calls == 0
+     decision, reason = rule(evidence)
+     assert (outcome.result, outcome.no_action_reason, outcome.record) == (decision, reason, None)
+     # 殺傷力:四道都過的那一批會呼叫模型;那一批加一筆過期收據也照樣呼叫
+     passing, _ = run(model, (*base_evidence(), old))
+-    assert len(model.sent) == 1 and isinstance(passing.result, flow.ProposalDecision)
++    # AI 答 propose:Phase 14 起開規則輪複查(不直接建提案)
++    assert len(model.sent) == 1 and passing.result == flow.RuleContinue()
+ 
+ 
+ # ---- [S1105] ----
+ @pytest.mark.parametrize("text", [
+     "不是 JSON",
+     "```json\n" + reply("propose", evidence=CITE_BASE) + "\n```",
+     json.dumps({"choice": "propose", "reason": "x"}),
+     json.dumps({"choice": "do_not_propose", "reason": "x", "extra": 1, "evidence": [
+         {"ref": "base", "field": "conversions", "value": "1"}]}),
+     reply("raise_budget", evidence=CITE_BASE),
+@@ -167,82 +164,71 @@ def test_code_prefilters_run_before_any_model_call(evidence):
+     reply("propose", reason="含控制字元\x07", evidence=CITE_BASE),
+     reply("check_daily_trend"),  # 單一字串只能是結論
+     reply(["check_daily_trend", "check_daily_trend"]),
+ ], ids=["not_json", "fenced", "missing_field", "extra_field", "unknown_choice", "dropped_option",
+         "long_reason", "newline", "control_char", "query_as_string", "duplicate"])
+ def test_an_answer_outside_the_fixed_options_falls_back_to_the_rule(text):
+     """[S1105] 不是恰好三欄的 JSON、選項不在允許清單、理由超過 200 字或含換行與不可列印字元:丟掉
+     回答、改由現行規則決定,這一輪記成選項外答案。"""
+     evidence = base_evidence()
+     outcome, _ = run(Model(text), evidence)
+-    decision, reason = fallback(evidence)
+-    assert (outcome.result, outcome.no_action_reason) == (decision, reason)
++    assert (outcome.result, outcome.no_action_reason) == OPENS_RULE_ROUND
++    assert outcome.record.choice == ai_judge.RULE_ROUND
+     assert outcome.record.kind == "fallback" and outcome.record.fallback == "off_menu"
+     assert outcome.record.decided_by == "rule"
+     # 殺傷力:合格的同一個答案會被採用
+     ok, _ = run(Model(reply("do_not_propose", evidence=CITE_BASE)), evidence)
+     assert ok.record.kind == "conclusion" and isinstance(ok.result, flow.NoAction)
+ 
+ 
+ # ---- [S1106] ----
+ FAILURES = [core.ModelTimeout("t"), core.LocalCapRefused("x"), core.QuotaExhausted("x"),
+             core.Overrun("x"), core.NoRecording("x"), core.UnreadableModelResponse("x"),
+             core.ConfigError("不在主執行緒"), core.TransientServiceError("x"), core.LedgerBusy("x")]
+ 
+ 
+ def test_model_call_failures_fall_back_but_stop_signals_propagate():
+     """[S1106] 模型呼叫失敗類別的每個子類別與本地驗證不過都退回現行規則並記原因類別、不轉失敗;停
+     止訊號轉成的例外與 KeyboardInterrupt 不接、往外丟。"""
+     evidence = base_evidence()
+-    decision, reason = fallback(evidence)
+-    assert isinstance(decision, flow.RuleContinue)  # 退回開規則輪,不當場用舊判法
++    decision, reason = OPENS_RULE_ROUND  # 退回開規則輪,不當場用舊判法
+     seen = set()
+     for failure in FAILURES:
+         outcome, _ = run(Model(failure), evidence)
+         assert (outcome.result, outcome.no_action_reason) == (decision, reason)
+         assert outcome.record.fallback == failure.outcome.value
+         seen.add(outcome.record.fallback)
+     assert seen == {o.value for o in modelgate.Outcome} - {"ok"}
+     assert {r.value for r in inv.FallbackReason} == seen | {"off_menu", "preflight_failed",
+                                                              "ai_already_used"}
+     for stop in (modelgate.CallTerminated("SIGTERM"), KeyboardInterrupt()):
+         with pytest.raises(type(stop)):
+             run(Model(stop), evidence)
+     with pytest.raises(RuntimeError):  # 沒列到的例外不偷偷退回(流程層照舊轉失敗)
+         run(Model(RuntimeError("程式錯誤")), evidence)
+ 
+ 
+ # ---- [S1107] ----
+-def test_a_model_chosen_proposal_equals_the_formula_proposal():
+-    """[S1107](Phase 14 改寫):模型選值得加時,提案跟程式規則對同一批完整證據判值得加的提案,除證據參照
+-    以外逐欄相同(金額、原因、政策版本、到期時間);規則輪的參照另含四種成功查詢的收據,AI 直接提案
+-    (增量 3 規則否決之前)只列基本三筆。"""
+-    from dataclasses import replace
+-
+-    from rtb.domain.proposal import content_hash
+-    from tests.analyzer.test_policy import FULL
++def test_a_model_chosen_proposal_equals_the_formula_proposal(tmp_path):
++    """[S1107](Phase 14 改寫,代碼審 r1 把 [S1407] 否決那半提前):模型選值得加不直接建提案,改開規則輪;
++    規則也判值得加時提案由規則輪照同一個公式建,證據參照是 C 的基本三筆加四種成功查詢的收據,
++    模型只呼叫一次。"""
++    from tests.analyzer.test_investigation_e2e import AiWorld
+ 
+-    evidence = base_evidence()
+-    extra = receipt(inv.QueryOption.CHECK_LONGER_WINDOW)
+-    rounds = [InvestigationRecord("query", 1, "check_longer_window", "ai", reason_code="ai_query")]
+-    cite = (("check_longer_window", "d7_conversions", "7"),)
+-    outcome, _ = run(Model(reply("propose", evidence=cite)), (*evidence, extra), rounds)
+-    receipts = tuple(receipt(option) for option in inv.QueryOption)
+-    expected, reason = policy.explain(TASK, (*evidence, *receipts), NOW, candidate=None,
+-                                      allowed=policy.ValidatedCells.NONE, queries=FULL)
+-    assert isinstance(expected, flow.ProposalDecision) and reason is None
+-    assert expected.proposal.evidence_refs == (
+-        "t1-3-state", "t1-3-metrics", "t1-3-text", *(item.evidence_id for item in receipts))
+-    assert outcome.result.proposal.evidence_refs == ("t1-3-state", "t1-3-metrics", "t1-3-text")
+-    same_refs = replace(expected.proposal, evidence_refs=outcome.result.proposal.evidence_refs)
+-    assert outcome.result.proposal == same_refs
+-    assert content_hash(outcome.result.proposal) == content_hash(same_refs)
++    world = AiWorld(tmp_path, [reply("propose", evidence=CITE_BASE)])
++    world.run_until_done()
++    row, _ = world.latest()
++    assert row.state is TaskState.HANDED_OFF and world.model_calls == 1
++    refs = row.proposal.evidence_refs
++    assert sum(ref.endswith(("-state", "-metrics", "-text")) for ref in refs) == 3
++    assert sum(ref.endswith(tuple(o.value for o in inv.QueryOption)) for ref in refs) == 4
++    assert dict(row.proposal.requested_change) == {"new_budget": 110}
+ 
+ 
+ # ---- [S1109] ----
+ def test_the_round_cap_leaves_only_final_choices():
+     """[S1109] 已有 2 輪查詢或已查滿 3 個選項時,允許清單只剩三個結論;再選查詢當選項外答案退回。"""
+     two_rounds = [InvestigationRecord("query", 1, "check_daily_trend", "ai"),
+                   InvestigationRecord("query", 2, "check_change_history", "ai")]
+     three = [InvestigationRecord("query", 1,
+                                  "check_daily_trend,check_change_history,check_longer_window",
+                                  "ai")]
+@@ -391,21 +377,22 @@ def test_several_queries_chosen_in_one_round_are_fetched_in_one_step(tmp_path):
+ ], ids=["unknown_ref", "unqueried", "no_field", "wrong_value", "not_verbatim", "none_result",
+         "none_reason", "raw_rows", "empty"])
+ def test_a_conclusion_whose_evidence_does_not_match_the_receipts_falls_back(cited):
+     """[S1131] 證據項任一項對不上收據(參照、欄位、數值、na、沒有結果)或選結論卻沒證據:當選項外答
+     案,改由現行規則決定。"""
+     rounds = [InvestigationRecord("query", 1, "check_daily_trend", "ai")]
+     evidence = (*base_evidence(), receipt(inv.QueryOption.CHECK_DAILY_TREND,
+                                           missing=inv.NoResult.TIMEOUT))
+     outcome, _ = run(Model(reply("do_not_propose", evidence=cited)), evidence, rounds)
+     assert outcome.record.fallback == "off_menu"
+-    assert outcome.result == fallback(evidence)[0]
++    assert outcome.result == OPENS_RULE_ROUND[0]
++    assert outcome.record.choice == ai_judge.RULE_ROUND
+     # na 也不能引用
+     na = (*base_evidence(clicks=0, conversions=0), )
+     cite_na = (("base", "conversion_rate", "na"),)
+     fell, _ = run(Model(reply("stop_insufficient", evidence=cite_na)), na)
+     assert inv.base_receipt(dict(na[0].payload), dict(na[1].payload), 24)["conversion_rate"] == "na"
+     assert fell.record.fallback == "off_menu"  # 代碼審 r1:拿掉「沒有紀錄也算」的逃生口
+ 
+ 
+ # ---- [S1138] ----
+ @pytest.mark.parametrize("earlier", [
+@@ -415,21 +402,21 @@ def test_a_conclusion_whose_evidence_does_not_match_the_receipts_falls_back(cite
+ def test_a_task_that_already_used_the_ai_goes_straight_to_the_rule(earlier, tmp_path):
+     """[S1138] 已退回過或下過結論:再進分析直接退回程式規則、不呼叫模型,記一列「AI 已用過」;之後的
+     蒐證不重讀 AI 期的查詢。Phase 14 增量 2b 改寫:程式規則開新規則輪,蒐證讀規則輪 A(基本兩樣),
+     之後 B/C 由規則輪讀四查詢。"""
+     model = Model(reply("propose", evidence=CITE_BASE))
+     rounds = [InvestigationRecord("query", 1, "check_daily_trend", "ai"), earlier]
+     evidence = (*base_evidence(), receipt(inv.QueryOption.CHECK_DAILY_TREND))
+     outcome, renew = run(model, evidence, rounds)
+     assert model.sent == [] and renew.calls == 0
+     assert outcome.record.fallback == "ai_already_used" and outcome.record.decided_by == "rule"
+-    assert (outcome.result, outcome.no_action_reason) == fallback(evidence)
++    assert (outcome.result, outcome.no_action_reason) == OPENS_RULE_ROUND
+     assert outcome.record.choice == ai_judge.RULE_ROUND
+     from tests.analyzer.test_investigation_e2e import collect_with_rounds
+ 
+     endpoints = collect_with_rounds(tmp_path, rounds)
+     assert endpoints == ["dsp:campaign", "dsp:metrics"]
+     assert collect_with_rounds(tmp_path / "fresh", rounds[:1]) == [
+         "dsp:campaign", "dsp:metrics", "dsp:daily"]
+ 
+ 
+ # ---- [S1161] ----
+@@ -440,10 +427,35 @@ def test_a_pending_stop_skips_renewal_and_the_model_call():
+     stopped = ai_judge.Judge(model, stop_requested=lambda: True)
+     with pytest.raises(flow.RenewalSkipped):
+         stopped(TASK, base_evidence(), NOW, flow.AiContext(early, (), Calls()))
+     assert early.calls == 0 and model.sent == []  # 續租前就看到停止:連續租都不做
+     answers = iter((False, True))  # 續租前還沒、續租後才收到
+     renew = Renew()
+     judge = ai_judge.Judge(model, stop_requested=lambda: next(answers))
+     with pytest.raises(flow.RenewalSkipped):
+         judge(TASK, base_evidence(), NOW, flow.AiContext(renew, (), Calls()))
+     assert renew.calls == 1 and model.sent == []
++
++
++# ---- 代碼審 r1 外家否決-1、資安-1:暫停/異常不送模型;AI 的 propose 先經規則輪才建提案 ----
++@pytest.mark.parametrize(("evidence", "reason"), [
++    (base_evidence(status="paused"), policy.NoActionReason.JUDGED_NOT_WORTH),
++    (base_evidence(clicks=600), policy.NoActionReason.JUDGED_INSUFFICIENT),  # 點擊多於曝光
++], ids=["paused", "anomaly"])
++def test_paused_and_anomalous_campaigns_never_reach_the_model(evidence, reason):
++    model = Model(reply("propose", evidence=CITE_BASE))
++    outcome, renew = run(model, evidence)
++    assert model.sent == [] and renew.calls == 0
++    assert isinstance(outcome.result, flow.NoAction) and outcome.no_action_reason is reason
++    assert outcome.record is None
++    assert ai_judge.Judge(model).raw_replay is False  # 舊前置過濾只給評估的原始錄製重播
++
++
++def test_an_ai_propose_opens_a_rule_round_instead_of_a_proposal():
++    """AI 答 propose 只是提案意見:記下 AI 原始結論,這一步回蒐集證據開規則輪(A/B/C 全量重讀、九條判
++    值得加才建提案);提案不帶未經九條的新政策版本。"""
++    model = Model(reply("propose", evidence=CITE_BASE))
++    outcome, _ = run(model, base_evidence())
++    assert len(model.sent) == 1
++    assert outcome.result == flow.RuleContinue()
++    assert (outcome.record.kind, outcome.record.choice, outcome.record.decided_by) == (
++        "conclusion", "propose", "ai")
+diff --git a/tests/analyzer/test_dsp_client.py b/tests/analyzer/test_dsp_client.py
+index 93c656d..1ac353a 100644
+--- a/tests/analyzer/test_dsp_client.py
++++ b/tests/analyzer/test_dsp_client.py
+@@ -611,10 +611,23 @@ def test_a_normal_read_delay_near_the_three_day_line_is_not_invalid():
+     for counts, reason in (({"budget_changes_last_3d": 0, "has_recent_budget_change": False},
+                             None),
+                            ({"budget_changes_7d": 0, "budget_changes_last_3d": 0,
+                              "has_recent_budget_change": False}, "invalid")):
+         body = _truncated(rows, **counts)
+         read = dsp_client.read_query_options(
+             lambda _task, _option, body=body: dsp_client.QueryRead(
+                 dsp_client.check_history(body)),
+             make_row(), (option,), NOW)[option]
+         assert read.reason == reason, counts
++
++
++# ---- Phase 14 代碼審 r1 資安-2:操作歷史核對廣告編號(進了正式規則第 3 條)----
++def test_the_change_history_must_belong_to_the_task_campaign(dsp):
++    rows = []
++    assert dsp_client.check_history({"campaign_id": "c1", "history": rows}, "c1") == {
++        "history": rows}  # 存下的原始回應與收據維持既有形狀
++    for body in ({"campaign_id": "c2", "history": rows}, {"history": rows},
++                 {"campaign_id": 7, "history": rows}):
++        assert dsp_client.check_history(body, "c1") is None, body
++    reader = dsp_client.make_query_reader(dsp, 3.0)
++    read = reader(make_row(), "check_change_history")
++    assert read.reason is None and read.raw == {"history": []}
+diff --git a/tests/analyzer/test_f6_end_to_end.py b/tests/analyzer/test_f6_end_to_end.py
+index ea915a9..d1af2db 100644
+--- a/tests/analyzer/test_f6_end_to_end.py
++++ b/tests/analyzer/test_f6_end_to_end.py
+@@ -44,47 +44,47 @@ EXPECTED_BLOCK = {"version": "version_changed", "policy": "policy_version_change
+ 
+ def _execute(tmp_path, client, clock=_now):
+     store = InboxStore(tmp_path / "inbox.db")
+     try:
+         Executor(store, client, CapabilitySigner(TEST_KEY),
+                  write_config(tmp_path / "tenants.json"), clock).process_one()
+     finally:
+         store.close()
+ 
+ 
+-def run_f6(tmp_path, monkeypatch, change):
++def run_f6(tmp_path, monkeypatch, change, finish_child=False):
+     dsp_db = tmp_path / "dsp.db"
+     seeding = CampaignStore(dsp_db)
+     seeding.seed_campaign("c1", budget=100)
+     seeding.seed_metrics("c1", "1h", impressions=500, clicks=12, conversions=1, spend=0.5,
+                          revenue=5.0)
+     seed_rule_history(seeding, "c1")  # 正式規則的四查詢(Phase 14 增量 2b)
+     seeding.close()
+     dsp = DspServer(dsp_db, fault_injection=False, hang_seconds=0.2, delay_seconds=0.0,
+                     capability_key=TEST_KEY)
+     try:
+         threading.Thread(target=dsp.serve_forever, args=(0.02,), daemon=True).start()
+         inbox = InboxServer(tmp_path / "inbox.db", fault_injection=False)
+         try:
+             threading.Thread(target=inbox.serve_forever, args=(0.02,), daemon=True).start()
+             return _walk(tmp_path, monkeypatch, change,
+                          f"http://127.0.0.1:{dsp.server_address[1]}",
+-                         f"http://127.0.0.1:{inbox.server_address[1]}")
++                         f"http://127.0.0.1:{inbox.server_address[1]}", finish_child)
+         finally:
+             inbox.shutdown()
+             inbox.server_close()
+     finally:
+         dsp.shutdown()
+         dsp.server_close()
+ 
+ 
+-def _walk(tmp_path, monkeypatch, change, dsp_url, inbox_url):
++def _walk(tmp_path, monkeypatch, change, dsp_url, inbox_url, finish_child=False):
+     analyzer = TaskStore(tmp_path / "analyzer.db")
+     try:
+         analyzer.create_task("t1", "c1", _now())
+         _advance(analyzer, "t1", dsp_url, inbox_url)  # 分析完、送出提案:停在已交給執行
+         for _ in range(MAX_DELIVERIES + 1):  # DSP 一直讀不到:投遞次數用完進死信
+             _execute(tmp_path, DspClient(UNREACHABLE, 0.2))
+         waited = _advance(analyzer, "t1", dsp_url, inbox_url)  # 死信、決策還沒過期:等
+ 
+         clock = _now
+         if change == "version":
+@@ -92,39 +92,46 @@ def _walk(tmp_path, monkeypatch, change, dsp_url, inbox_url):
+         elif change == "policy":  # 執行端先升級到新政策版本
+             monkeypatch.setattr("rtb.executor.execution.POLICY_VERSION", "demo-pacing-v2")
+         elif change == "stale":
+             def clock():
+                 return _now() + timedelta(minutes=16)
+         replayed = replay_tool.run(
+             ["--db", str(tmp_path / "inbox.db"), "--task-id", "t1", "--revision", "1",
+              "--operator", "ops-f6"], clock=clock, out=io.StringIO())
+         _execute(tmp_path, DspClient(dsp_url, 3.0), clock)
+         _advance(analyzer, "t1", dsp_url, inbox_url)
++        child = analyzer.follow_up_to("t1")
++        if finish_child and child is not None:  # 接續任務重讀、規則輪提案、執行、完成
++            _advance(analyzer, child, dsp_url, inbox_url)
++            _execute(tmp_path, DspClient(dsp_url, 3.0))
++            _advance(analyzer, child, dsp_url, inbox_url)
+         return _facts(tmp_path, analyzer, waited, replayed)
+     finally:
+         analyzer.close()
+ 
+ 
+ def _facts(tmp_path, analyzer, waited, replayed):
+     conn = sqlite3.connect(tmp_path / "dsp.db")
+     try:
+         writes = [json.loads(params)["new_budget"] for (params,) in conn.execute(
+             "SELECT params_json FROM operations WHERE campaign_id = 'c1' ORDER BY operation_id")]
+     finally:
+         conn.close()
+     conn = sqlite3.connect(tmp_path / "inbox.db")
+     try:
+         actions = [a for (a,) in conn.execute("SELECT action FROM dead_letter_ops ORDER BY id")]
+     finally:
+         conn.close()
++    child = analyzer.follow_up_to("t1")
+     return {"waited": waited, "replayed": replayed, "writes": writes, "actions": actions,
+-            "original": analyzer.latest("t1"), "child": analyzer.follow_up_to("t1")}
++            "original": analyzer.latest("t1"), "child": child,
++            "child_row": None if child is None else analyzer.latest(child)}
+ 
+ 
+ # ---- [S509] ----
+ @pytest.mark.parametrize("change", ["unchanged", "version", "policy", "stale"])
+ def test_f6_a_stale_dead_letter_is_revalidated_on_replay(tmp_path, monkeypatch, change):
+     facts = run_f6(tmp_path, monkeypatch, change)
+ 
+     assert facts["waited"] is TaskState.HANDED_OFF  # 死信還能重放:分析端沒結案
+     assert facts["replayed"] == 0
+     assert facts["actions"] == ["dead_lettered", "replay_requested", "replay_requeued"]
+@@ -135,10 +142,22 @@ def test_f6_a_stale_dead_letter_is_revalidated_on_replay(tmp_path, monkeypatch,
+         assert facts["child"] is None
+         return
+ 
+     code = EXPECTED_BLOCK[change]
+     assert facts["original"].state is TaskState.BLOCKED
+     assert facts["original"].error_detail == (
+         f"blocked={code};replan={code};follow_up={follow_up_id('t1')}")
+     assert facts["child"] == follow_up_id("t1")
+     assert STALE_BUDGET not in facts["writes"]  # 舊決策從沒寫進 DSP
+     assert facts["writes"] == ([OTHER_BUDGET] if change == "version" else [])
++
++
++def test_f6_a_stale_decision_follow_up_is_replanned_and_executed(tmp_path, monkeypatch):
++    """接續任務的正路(Phase 14 代碼審 r1 鏡頭3-2):F4 那種「另一方剛改預算」會被九條第 3 條擋下,
++    所以用「決策變舊」這種不涉及預算調整的重新規劃——接續任務重讀現況、走完規則輪 A/B/C、判值得加、
++    提案、執行成功、完成;平台上是接續任務照新現況算的值,原任務的舊決策沒寫進去。"""
++    facts = run_f6(tmp_path, monkeypatch, "stale", finish_child=True)
++
++    assert facts["original"].state is TaskState.BLOCKED
++    assert facts["child"] == follow_up_id("t1")
++    assert facts["child_row"].state is TaskState.COMPLETED
++    assert facts["writes"] == [STALE_BUDGET]  # 預算沒變:接續任務照 100 算出同一個 110,只寫一次
+diff --git a/tests/analyzer/test_investigation_e2e.py b/tests/analyzer/test_investigation_e2e.py
+index d8dbd41..34d79ae 100644
+--- a/tests/analyzer/test_investigation_e2e.py
++++ b/tests/analyzer/test_investigation_e2e.py
+@@ -451,10 +451,36 @@ def recorded_runner_books_into_the_given_ledger(tmp_path):
+                            "--demo-id", "demo-7", "--ledger", str(ledger),
+                            "--recordings-dir", str(tmp_path / "none")],
+                           max_rounds=20, out=io.StringIO(), err=io.StringIO(), environ={})
+     finally:
+         for server in (dsp, inbox):
+             server.shutdown()
+             server.server_close()
+     assert code == 0
+     return ledger
+ 
++
++
++# ---- Phase 14 代碼審 r1(外家否決-1、資安-1):AI 的 propose 先經規則輪;規則不判值得加就否決 ----
++def test_an_ai_propose_is_vetoed_when_the_rules_disagree(tmp_path):
++    """模型等待期間另一方剛加額:AI 答 propose,規則輪重讀歷史看到最近 3 天的調整 → 第 3 條證據不足,
++    否決、提案 0 筆;AI 原始結論照記,規則事件標明是否決。"""
++    from rtb.dsp.store import Operation
++
++    world = AiWorld(tmp_path, [_propose()])
++    store = CampaignStore(world.root / "dsp.db")
++    try:
++        store.execute(Operation("c1", "update_budget", {"new_budget": 120}, 1, "other-writer"))
++    finally:
++        store.close()
++    assert world.run_until_done() == 0
++    row, reason = world.latest()
++    assert (row.state, reason) == (TaskState.NO_ACTION, "judged_insufficient")
++    assert world.submitted() == [] and world.model_calls == 1
++    assert [(r.kind, r.choice, r.decided_by) for _s, r in world.rounds()] == [
++        ("conclusion", "propose", "ai")]
++    reader = world.reader()
++    try:
++        decided = [e.detail for _s, e in reader.rule_events("t1") if e.event == "decided"]
++    finally:
++        reader.close()
++    assert decided == ["ai_propose_vetoed:recent_budget_change"]
+diff --git a/tests/analyzer/test_investigation_flow.py b/tests/analyzer/test_investigation_flow.py
+index 02427c2..3f21961 100644
+--- a/tests/analyzer/test_investigation_flow.py
++++ b/tests/analyzer/test_investigation_flow.py
+@@ -258,16 +258,23 @@ def test_every_query_result_is_archived_under_its_option_code(store):
+     寫入的正規化 JSON 逐位元組相同;沒有結果的那一輪取不到;現行決策函式、AI 決策函式與提示不讀這
+     張表。"""
+     text = '{"campaign_id":"c1","rows":[{"days_ago":1,"no_data":true}],"x":"\\u00e9"}'
+     _to_analyzing(store, (RawQuery("check_daily_trend", text),))
+     seq = store.latest("t1").seq
+     assert store.raw_query("t1", seq, "check_daily_trend") == text
+     assert store.raw_query("t1", seq, "check_past_adjustments") is None  # 那一輪沒有結果
+     assert store.raw_query("t1", seq - 1, "check_daily_trend") is None
+     source = (SRC / "analyzer" / "task_store.py").read_text(encoding="utf-8")
+     assert "UPDATE investigation" not in source and "DELETE FROM investigation" not in source
+-    for module in ("policy", "ai_judge", "investigation", "flow"):
+-        tree = ast.parse((SRC / "analyzer" / f"{module}.py").read_text(encoding="utf-8"))
++    # Phase 14 增量 2b 改寫(代碼審 r1 鏡頭2):決策路徑只有規則輪定案讀這張表(同一輪 B/C、白名單驗過、
++    # 跟收據同交易寫的原始回應);分析端其餘每支檔都不准讀。白名單式掃描,新檔自動納入
++    readers = set()
++    for path in sorted((SRC / "analyzer").glob("*.py")):
++        if path.name == "task_store.py":
++            continue
++        tree = ast.parse(path.read_text(encoding="utf-8"))
+         names = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+         names |= {n.value for n in ast.walk(tree) if isinstance(n, ast.Constant)
+                   and isinstance(n.value, str)}
+-        assert not {"raw_query", "investigation_raw"} & names, module
++        if {"raw_query", "investigation_raw"} & names:
++            readers.add(path.stem)
++    assert readers == {"rule_round"}
+diff --git a/tests/analyzer/test_rule_round.py b/tests/analyzer/test_rule_round.py
+index 9acff4e..bc821ed 100644
+--- a/tests/analyzer/test_rule_round.py
++++ b/tests/analyzer/test_rule_round.py
+@@ -6,21 +6,21 @@ DSP(行程內、
+ 固定日期一律注入固定時鐘)。
+ """
+ 
+ import threading
+ from datetime import UTC, datetime, timedelta
+ 
+ import pytest
+ 
+ from rtb import stepbudget
+ from rtb.analyzer import dsp_client, flow, instrumented, policy, rule_round, runner
+-from rtb.analyzer.task_store import RuleStep, ToolEndpoint
++from rtb.analyzer.task_store import RuleEvent, RuleStep, ToolEndpoint
+ from rtb.domain import proposal as proposal_mod
+ from rtb.domain.evidence import EvidenceKind
+ from rtb.domain.task_state import TaskState
+ from rtb.dsp.seed import DEMO_PROFILE, seed_platform_history
+ from rtb.dsp.server import DspServer
+ from rtb.dsp.store import CampaignStore
+ 
+ NOW = datetime(2026, 9, 26, 12, 0, tzinfo=UTC)
+ BASE_METRICS = {"impressions": 500, "clicks": 12, "conversions": 1, "spend": 2.0, "revenue": 5.0}
+ QUERY_ENDPOINTS = {ToolEndpoint.DSP_HISTORY, ToolEndpoint.DSP_DAILY, ToolEndpoint.DSP_ADJUSTMENTS}
+@@ -243,21 +243,22 @@ def test_rule_round_checkpoints_exclude_stale_evidence(store, world):
+     step(store, world, resumed, task_id="t2")
+     assert [(r.round_id, r.step) for _s, r in store.rule_steps("t2")] == [(1, "A"), (2, "A")]
+ 
+ 
+ def test_changes_between_a_and_c_restart_twice_then_stop(store, world):
+     """A 與 C 的 1 小時原始指標不同:作廢重讀;連續第 3 次變動 → 證據不足結案,沒有第 4 輪。"""
+     store.create_task("t1", "c1", NOW)
+     bump = iter(range(1, 10))
+ 
+     def changing(task, now):
+-        record = rule_round.collect_plan(store, task.task_id, now)
++        record = rule_round.collect_plan(store.rule_steps(task.task_id),
++                                         store.rule_events(task.task_id), now)
+         if record[1] is rule_round.Step.C:  # 每次讀 C 之前 1 小時點擊都變
+             world.dsp.seed_metrics("c1", "1h", **{**BASE_METRICS, "impressions": 500 + next(bump)})
+         return instrumented.rule_source(store, world.url, 3.0)(task, now)
+ 
+     assert run_until(store, world, NOW, {TaskState.NO_ACTION}, limit=40,
+                      source=changing) is TaskState.NO_ACTION
+     kinds = [e for e, _d in events(store) if e != "continue"]
+     assert kinds == ["restart_changed", "restart_changed", "changed_limit"]
+     assert max(r.round_id for _s, r in store.rule_steps("t1")) == 3
+     assert store.no_action_reason("t1", store.latest("t1").seq) == "judged_insufficient"
+@@ -304,10 +305,120 @@ def test_rule_rows_are_only_written_with_analyzing_rows(store):
+         store.commit_step("t1", 1, TaskState.COLLECTING_EVIDENCE, NOW,
+                           rule_step=RuleStep(1, "A", "v", NOW))
+ 
+ 
+ def test_base_step_evidence_kinds(store, world):
+     store.create_task("t1", "c1", NOW)
+     step(store, world, NOW)
+     step(store, world, NOW)
+     kinds = {e.kind for e in store.evidence_for("t1", store.latest("t1").seq)}
+     assert kinds == {EvidenceKind.CAMPAIGN_STATE, EvidenceKind.METRICS, EvidenceKind.CAMPAIGN_TEXT}
++
++
++# ---- 代碼審 r1 架構對齊-1:進度是純函式,從手造的已提交記錄重算(同 investigation.progress 慣例)----
++def _steps(*rows):
++    return tuple((seq, RuleStep(round_id, step, version, NOW))
++                 for seq, round_id, step, version in rows)
++
++
++def _events(*rows):
++    return tuple((seq, RuleEvent(round_id, event)) for seq, round_id, event in rows)
++
++
++V = proposal_mod.POLICY_VERSION
++
++
++def test_progress_is_recomputed_from_plain_records():
++    assert rule_round.progress((), ()) == rule_round.Progress(1, False, {}, 0)
++    steps = _steps((2, 1, "A", V), (4, 1, "B", V))
++    state = rule_round.progress(steps, _events((3, 1, "continue")))
++    assert (state.round_id, state.open, state.next_step) == (1, True, rule_round.Step.C)
++    closed = rule_round.progress(steps, _events((3, 1, "continue"), (5, 1, "restart_stale")))
++    assert (closed.round_id, closed.open, closed.next_step) == (2, False, rule_round.Step.A)
++    # 同一步重複只取最新序號
++    twice = rule_round.progress(_steps((2, 1, "A", V), (4, 1, "A", V)), ())
++    assert twice.steps[rule_round.Step.A][0] == 4
++    # 蒐證計畫:先前步驟過期(當機續跑)開新輪 A
++    later = NOW + policy.MAX_EVIDENCE_AGE + timedelta(seconds=1)
++    ongoing = _events((3, 1, "continue"))
++    assert rule_round.collect_plan(steps, ongoing, NOW) == (1, rule_round.Step.C)
++    assert rule_round.collect_plan(steps, ongoing, later) == (2, rule_round.Step.A)
++
++
++def test_change_restarts_do_not_carry_over_a_policy_switch():
++    """[S1424] 代碼審 r1 外家 finder-3:舊政策輪的變動重來次數不帶進新政策;
++    新政策第一次變動照樣可重讀。"""
++    steps = _steps((2, 1, "A", "old-v1"), (4, 1, "B", "old-v1"), (6, 1, "C", "old-v1"),
++                   (9, 2, "A", "old-v1"), (11, 2, "B", "old-v1"), (13, 2, "C", "old-v1"),
++                   (16, 3, "A", V), (18, 3, "B", V), (20, 3, "C", V))
++    events = _events((3, 1, "continue"), (5, 1, "continue"), (7, 1, "restart_changed"),
++                     (10, 2, "continue"), (12, 2, "continue"), (14, 2, "restart_changed"),
++                     (17, 3, "continue"), (19, 3, "continue"))
++    assert rule_round.progress(steps, events).changes == 0
++    # 同一政策的連續變動照算
++    same = _steps((2, 1, "A", V), (4, 1, "B", V), (6, 1, "C", V), (9, 2, "A", V))
++    assert rule_round.progress(same, _events((3, 1, "continue"), (5, 1, "continue"),
++                                             (7, 1, "restart_changed"))).changes == 1
++
++
++def test_step_c_rereads_the_state_after_its_queries(store, world, monkeypatch):
++    """代碼審 r1 外家 finder-2:C 步先讀查詢、最後才重讀現況與 1 小時(仍是 5 讀);
++    查詢期間另一方改預算,C 的現況就是新版本,A/C 比對抓得到、作廢重讀,不拿舊版本定案。"""
++    from rtb.dsp.store import Operation
++
++    real = dsp_client.make_query_reader
++    changed = {"done": False}
++
++    def racing(*args, **kwargs):
++        reader = real(*args, **kwargs)
++
++        def read(task, option):
++            result = reader(task, option)
++            if option == "check_daily_trend" and not changed["done"]:
++                changed["done"] = True  # 逐日讀完、C 重讀現況之前,另一方改預算
++                world.dsp.execute(Operation("c1", "update_budget", {"new_budget": 2500}, 1,
++                                            "other-writer-c"))
++            return result
++
++        return read
++
++    store.create_task("t1", "c1", NOW)
++    for _ in range(5):  # 收到、A、分析 A、B、分析 B
++        step(store, world, NOW)
++    monkeypatch.setattr(dsp_client, "make_query_reader", racing)
++    before = len(calls(store))
++    step(store, world, NOW)  # C
++    order = [c.endpoint for c in calls(store)[before:]]
++    assert len(order) == stepbudget.RULE_STEP_READS["C"] == 5
++    assert order[-2:] == [ToolEndpoint.DSP_CAMPAIGN, ToolEndpoint.DSP_METRICS]  # 現況最後讀
++    assert step(store, world, NOW) is TaskState.COLLECTING_EVIDENCE
++    assert events(store)[-1] == ("restart_changed", None)
++
++
++# ---- 代碼審 r1 鏡頭2-4:規則步驟表毀損時一律轉 FAILED(不論開不開 AI、分析或蒐證那一步)----
++def _corrupt(store):
++    store._conn.execute("UPDATE rule_steps SET read_at = 'garbage'")  # 測試直接毀損
++
++
++@pytest.mark.parametrize("with_ai", [False, True])
++def test_a_corrupted_rule_step_row_fails_the_task_instead_of_looping(store, world, with_ai):
++    from rtb.analyzer import ai_judge
++
++    store.create_task("t1", "c1", NOW)
++    step(store, world, NOW)
++    step(store, world, NOW)  # A 蒐完:分析中
++    _corrupt(store)
++    judge = ai_judge.Judge(lambda *_a: pytest.fail("不該問模型")) if with_ai else None
++    state = flow.advance(store, "t1", instrumented.rule_source(store, world.url, 3.0),
++                         policy.decide, world.submit, NOW, rule_decide=rule_round.decide,
++                         ai_decide=judge, clock=lambda: NOW)
++    assert state is TaskState.FAILED
++    assert "CorruptedHistoryRow" in store.latest("t1").error_detail
++
++
++def test_a_corrupted_rule_step_row_fails_the_collect_step(store, world):
++    store.create_task("t1", "c1", NOW)
++    for _ in range(3):  # 收到、A、分析 A(續步 → 蒐集證據)
++        step(store, world, NOW)
++    assert store.latest("t1").state is TaskState.COLLECTING_EVIDENCE
++    _corrupt(store)
++    assert step(store, world, NOW) is TaskState.FAILED
+diff --git a/tests/demo/test_ai_page.py b/tests/demo/test_ai_page.py
+index 9573eb0..9f30b15 100644
+--- a/tests/demo/test_ai_page.py
++++ b/tests/demo/test_ai_page.py
+@@ -58,53 +58,59 @@ def ran(tmp_path_factory):
+ 
+ 
+ def _scenario(state, code):
+     return next(s for s in state.scenarios if s.code is code)
+ 
+ 
+ def _text(markup):
+     return html_lib.unescape(re.sub(r"<[^>]+>", " ", markup))
+ 
+ 
+-def test_each_ai_round_shows_evidence_choice_reason_and_takeover(ran):
++def test_each_ai_round_shows_evidence_choice_reason_and_takeover(ran):  # noqa: PLR0915
+     """[S1121] 每一輪:程式格式化的證據、允許的選項、選了什麼、只標「AI 產生、僅供參考」的理由、
+     「AI 引用的收據值(已核對存在)」,以及程式怎麼接手。"""
+     f1 = _scenario(ran, ScenarioCode.F1)
+     rounds = [d for d in f1.path if d.kind is DecisionKind.AI_JUDGEMENT]
+     assert [d.taken_edge for d in rounds] == [("a_ai", "a_ai_query"), ("a_ai", "a_propose")]
+     first, second = rounds
+     main = first.basis[0]
+     assert "base:" in main.observed and "budget=100" in main.observed  # 程式算的收據字串
+     assert "check_longer_window" in main.standard and "propose" in main.standard
+     assert "選了 check_longer_window" in main.conclusion and "先看 1 天與 7 天" in main.conclusion
+     assert main.source == "錄製回應"
+     assert "check_longer_window:d1_" in second.basis[0].observed  # 第 2 輪看得到查回來的收據
+     assert "check_longer_window" not in second.basis[0].standard.split(":", 1)[1].split("、")[0]
+     assert second.basis[1].observed == "base.conversions = 1"  # 引用(已核對存在)
+     takeovers = [d for d in f1.path if d.kind is DecisionKind.PROGRESS and d.basis
+                  and d.node in {"a_ai_query", "a_propose"}]
+-    assert [d.node for d in takeovers] == ["a_ai_query", "a_propose"]
++    assert [d.node for d in takeovers] == ["a_ai_query"]
+     assert "照 AI 選的唯讀查詢去讀" in takeovers[0].basis[0].observed
+-    assert takeovers[1].basis[0].observed == "100 → 110"  # 照公式算出的金額
++    # Phase 14 代碼審 r1(外家否決-1):AI 答 propose 只是提案意見,程式照九條複查(規則輪),也判值得加
++    # 才照公式算金額;複查那兩步接在 AI 那一步之後(畫面另標「程式複查」是增量 3)
++    review = [d for d in f1.path if d.taken_edge in {("a_rule", "a_worth"),
++                                                     ("a_worth", "a_propose")}]
++    assert [d.taken_edge for d in review] == [("a_rule", "a_worth"), ("a_worth", "a_propose")]
++    assert any(b.observed == "100 → 110" for b in review[-1].basis)  # 照公式算出的金額
+     page = render_page(ran, form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
+     text = _text(page)
+     for label in (MODEL_LABEL, "AI 看到的證據", "這一輪允許的選項", CITED_LABEL, "程式接手",
+                   "100 → 110", "base.conversions = 1"):
+         assert label in text, label
+     assert "錄製回應" not in text
+     assert page.index('class="flow-disclosure"') < page.index('class="decision-hero"')
+     assert page.index('class="decision-hero"') < page.index('class="ai-rounds"')
+     assert page.index('class="ai-rounds"') < page.index('class="change-summary"')
+     assert '<section class="ai-rounds"' in page
+     assert '<details class="ai-rounds"' not in page
+     ours = _text(page.split('class="ai-rounds"', 1)[1].split('</section>', 1)[0])
+-    assert ours.index("先看 1 天與 7 天") < ours.index("100 → 110")
++    # 金額由程式複查(規則輪)算出,不再放在 AI 那幾輪的「程式接手」裡(Phase 14 代碼審 r1);頁面上照樣有
++    assert "先看 1 天與 7 天" in ours and "100 → 110" in text
+     assert ours
+     for term in JARGON_TERMS:  # 新加的 AI 步驟文字也照白話規則(術語要緊接括號解釋)
+         assert term not in re.sub(rf"{re.escape(term)}（[^（）]+）", "", ours), term
+ 
+ 
+ def test_a_fallback_is_labelled_on_the_page(ran):
+     """[S1122] 退回的那一輪在那一步標「這次改由程式規則決定」與原因類別,之後照程式規則判。"""
+     f2 = _scenario(ran, ScenarioCode.F2)
+     [fallback] = [d for d in f2.path if d.taken_edge == ("a_ai", "a_rule")]
+     assert fallback.kind is DecisionKind.JUDGEMENT  # 不是 AI 判的
+diff --git a/tests/demo/test_driver.py b/tests/demo/test_driver.py
+index a8b9150..9473121 100644
+--- a/tests/demo/test_driver.py
++++ b/tests/demo/test_driver.py
+@@ -1130,24 +1130,25 @@ def test_a_replayed_scenario_keeps_its_audit_and_dispositions(tmp_path, state):
+     details = _details(tmp_path, "F6")
+     assert any("demo-operator" in line and "重新送入" in line for line in details.audit)
+     codes = {code for _, code, _ in details.dispositions}
+     assert {"delivery_limit", "version_changed"} <= codes
+ 
+ 
+ def test_a_blocked_then_replanned_scenario_shows_the_final_write(tmp_path, state):
+     assert _driver(tmp_path, state).run_one("F4").status == DONE
+     details = _details(tmp_path, "F4")
+     change = details.change
+-    # 「之前」是被追蹤那把鍵寫入前的平台值:別的寫入者先把 100 改成 200,本系統只把 200 改成 220
+-    # (代碼審 r1 d3:原本取造資料時的 100,看起來像一次加了 120%)
+-    assert (change.before, change.after, change.written) == (200, 220, True)
+-    assert details.platform_apply_count == 1  # 另一個寫入者那一筆不是這把鍵,不算
++    # 「之前」是被追蹤那件工作寫入前的平台值:別的寫入者先把 100 改成 200(代碼審 r1 d3:不取造資料時
++    # 的 100)。Phase 14 使用者裁定 4:接續任務看到最近 3 天剛調過預算,九條第 3 條證據不足、不提案
++    # (AI 答 propose 也由規則否決),平台停在 200、本系統沒有寫入
++    assert (change.before, change.after, change.written) == (200, 200, False)
++    assert not details.platform_apply_count  # 本系統沒有寫入(另一個寫入者那一筆不算)
+ 
+ 
+ def test_f7_records_an_overview_and_the_confirmed_one(tmp_path, state):
+     """F7 兩樣都放(協調者裁定):一行彙總(放行幾個、人工確認後寫入幾個、沒寫入幾個、加了多少與總上限),
+     加上人工確認那一筆的明細。"""
+     verdict, _ = _small_f7(tmp_path, state, cap=60, approve=_approve_when_asked)
+     assert verdict.status == DONE, verdict.reason
+     details = _details(tmp_path, "F7")
+     assert "放行 12 個" in details.change_overview
+     assert "人工確認後寫入 1 個" in details.change_overview
+diff --git a/tests/domain/test_nine_rules.py b/tests/domain/test_nine_rules.py
+index 67f5832..5ea31ef 100644
+--- a/tests/domain/test_nine_rules.py
++++ b/tests/domain/test_nine_rules.py
+@@ -235,10 +235,46 @@ def test_truncated_history_recent_flag_counts_as_a_recent_change():
+ def test_daily_read_on_another_utc_day_is_insufficient():
+     rows = _evidence().daily.rows
+     late = rules.DailyTrend(rows, read_at=datetime(2026, 9, 24, 23, 59, 59, tzinfo=UTC))
+     outcome = rules.decide(_worth(), _evidence(daily=late), datetime(2026, 9, 25, 0, 0, 1,
+                                                                      tzinfo=UTC))
+     assert (outcome.cell, outcome.reason, outcome.query) == (
+         None, rules.RuleReason.DAY_BOUNDARY, rules.QueryKind.DAILY)
+     same = rules.DailyTrend(rows, read_at=datetime(2026, 9, 25, 0, 0, 0, tzinfo=UTC))
+     assert rules.decide(_worth(), _evidence(daily=same), NOW + timedelta(minutes=1)).cell is (
+         rules.Cell.DELIVERY_WITH_VALUE)
++
++
++# ---- 代碼審 r1 外家 finder-1:負數或不自洽的查詢結果一律證據不足(不讓另一個正數把它變成提案)----
++@pytest.mark.parametrize(("one_day", "seven_days"), [
++    (rules.Window(10, 10, -1, "0.00", "0.00"), rules.Window(70, 70, 5, "0.00", "0.00")),  # 負轉換
++    (rules.Window(10, 10, 0, "0.00", "0.00"), rules.Window(70, 70, -5, "0.00", "0.00")),
++    (rules.Window(10, 10, 0, "-1.00", "0.00"), rules.Window(70, 70, 5, "0.00", "0.00")),
++    # 點擊多於曝光、轉換多於點擊、1 天多於 7 天
++    (rules.Window(10, 20, 0, "0.00", "0.00"), rules.Window(70, 70, 5, "0.00", "0.00")),
++    (rules.Window(10, 5, 6, "0.00", "0.00"), rules.Window(70, 70, 7, "0.00", "0.00")),
++    (rules.Window(100, 10, 0, "0.00", "0.00"), rules.Window(70, 70, 5, "0.00", "0.00")),
++])
++def test_negative_or_inconsistent_longer_windows_are_insufficient(one_day, seven_days):
++    no_value = _worth(conversions=0, revenue=0)  # 第 6 條本來會看長窗轉換提案
++    outcome = rules.decide(no_value, _evidence(longer=rules.LongerWindow(one_day, seven_days)), NOW)
++    assert (outcome.cell, outcome.verdict, outcome.reason, outcome.query) == (
++        None, WorthVerdict.INSUFFICIENT, rules.RuleReason.INVALID_ROW_VALUE, rules.QueryKind.LONGER)
++    # 有價值的 1 小時(第 8 條)也不得因長窗不合格而提案
++    assert rules.decide(_worth(), _evidence(longer=rules.LongerWindow(one_day, seven_days)),
++                        NOW).verdict is WorthVerdict.INSUFFICIENT
++
++
++def test_every_invalid_query_result_blocks_a_proposal_whatever_rule_would_hit():
++    """全面:四查詢任一有負數或不自洽,結論都不是值得加(第 3 到 9 條都要有效結果)。"""
++    rows = _evidence().daily.rows
++    bad = {
++        "daily": _evidence(daily=rules.DailyTrend((replace(rows[0], clicks=-1), *rows[1:]))),
++        "past": _evidence(past=rules.PastAdjustments((rules.AdjustmentRow(
++            5, 100, 150, -1, 5, NOW - timedelta(days=5)),))),
++        "past_future": _evidence(past=rules.PastAdjustments((rules.AdjustmentRow(
++            5, 100, 150, 1, 5, NOW + timedelta(days=1)),))),
++        "history_future": _evidence(history=rules.ChangeHistory((rules.HistoryRow(
++            "update_budget", NOW + timedelta(days=1)),))),
++    }
++    for name, evidence in bad.items():
++        assert rules.decide(_worth(), evidence, NOW).verdict is WorthVerdict.INSUFFICIENT, name
+diff --git a/tests/dsp/test_investigation_data.py b/tests/dsp/test_investigation_data.py
+index 9436659..8819c14 100644
+--- a/tests/dsp/test_investigation_data.py
++++ b/tests/dsp/test_investigation_data.py
+@@ -355,52 +355,56 @@ def test_bounded_history_preserves_recent_budget_changes(tmp_path):
+     from rtb.dsp.server import DspHandler
+ 
+     store = CampaignStore(tmp_path / "history.db", clock=lambda: NOW.isoformat())
+     try:
+         store.seed_campaign("c1", 100)
+         store.execute(Operation("c1", "update_budget", {"new_budget": 101}, 1, "budget-0"))
+         for index in range(59):
+             store.execute(Operation("c1", "pause_campaign", {},
+                                     index + 2, f"pause-{index}"))
+         body = DspHandler._get_history(object(), store, "c1", None)
+-        assert set(body) == {"history", "summary", "truncated"} and body["truncated"] is True
++        # 頂層另帶廣告編號(Phase 14 代碼審 r1 資安-2),讀取層核過就拿掉
++        assert set(body) == {"campaign_id", "history", "summary", "truncated"}
++        assert body["truncated"] is True and body["campaign_id"] == "c1"
+         assert len(body["history"]) == 50
+         assert not any(row["action"] == "update_budget" for row in body["history"])
+         assert body["summary"]["budget_changes_7d"] == 1
+         assert body["summary"]["has_recent_budget_change"] is True
+         from rtb.analyzer import dsp_client
+         from rtb.analyzer import investigation as inv
+-        checked = dsp_client.check_history(body)
+-        assert checked is not None
++        checked = dsp_client.check_history(body, "c1")
++        assert checked is not None and "campaign_id" not in checked
+         receipt = inv.receipt_payload(inv.QueryOption.CHECK_CHANGE_HISTORY, checked, NOW)
+         assert receipt["budget_changes_last_3d"] == "1" and receipt["history_truncated"] == "true"
+         assert len(json.dumps(body)) < 64 * 1024
+     finally:
+         store.close()
+ 
+ 
+ def test_an_untruncated_history_keeps_the_existing_shape(tmp_path):
+     """[S1422] 沒超過 50 筆時維持既有 {"history": [...]} 形狀,收據照舊由列與決策 now 算
+     (代碼審 r1 spec-conformance:原本一律附摘要)。"""
+     from rtb.analyzer import dsp_client
+     from rtb.analyzer import investigation as inv
+     from rtb.dsp.server import DspHandler
+ 
+     store = CampaignStore(tmp_path / "history.db", clock=_clock(NOW))
+     try:
+         store.seed_campaign("c1", 100)
+         for index in range(50):
+             store.execute(Operation("c1", "pause_campaign", {}, index + 1, f"pause-{index}"))
+         body = DspHandler._get_history(object(), store, "c1", None)
+-        assert set(body) == {"history"} and len(body["history"]) == 50
+-        checked = dsp_client.check_history(body)
+-        assert checked == body
++        # 列的形狀照舊;頂層另帶廣告編號(Phase 14 代碼審 r1 資安-2),讀取層核過就拿掉,存下的原始回應
++        # 與收據維持既有 {"history": [...]} 形狀
++        assert set(body) == {"campaign_id", "history"} and len(body["history"]) == 50
++        checked = dsp_client.check_history(body, "c1")
++        assert checked == {"history": body["history"]}
+         assert "history_truncated" not in inv.receipt_payload(
+             inv.QueryOption.CHECK_CHANGE_HISTORY, checked, NOW)
+     finally:
+         store.close()
+ 
+ 
+ def test_history_summary_and_rows_come_from_one_snapshot(tmp_path):
+     """代碼審 r1 外家否決 2:摘要與最近 50 列在同一個讀取快照裡讀;另一條連線剛好插在兩次查詢之間
+     寫一筆加額,兩邊都看不到它(原本列看得到、摘要看不到,收據寫最近 3 天 0 筆)。"""
+     path = tmp_path / "race.db"
+diff --git a/tests/eval/test_evaluation.py b/tests/eval/test_evaluation.py
+index f334f7e..8e3bc6c 100644
+--- a/tests/eval/test_evaluation.py
++++ b/tests/eval/test_evaluation.py
+@@ -532,20 +532,25 @@ def test_phase_ten_scenarios_explicitly_report_missing_queries():
+     assert with_value.metric(scoring.RECALL).numerator == 0
+     assert with_value.errors == ((WorthVerdict.WORTH, WorthVerdict.INSUFFICIENT, with_value.n),)
+     without = cells[WorthCell.DELIVERY_WITHOUT_VALUE]
+     assert without.class_correct_count == without.n
+     # 單筆:active、有投放、無四查詢 → 九條的證據不足;沒有「只看投放」的暗門
+     active = next(s for s in _scenarios() if s.cell is WorthCell.DELIVERY_WITH_VALUE)
+     assert policy.code_rule(active.worth_input, policy.MISSING_FOUR_QUERIES,
+                             scoring.RULE_NOW) is WorthVerdict.INSUFFICIENT
+     with pytest.raises(TypeError):
+         policy.code_rule(active.worth_input)  # type: ignore[call-arg]
++    # 正式環境抽樣報告的情境也經 score 明傳缺四查詢,候選退回格一樣標註(代碼審 r1 鏡頭4-1)
++    production = scoring.production_report(
++        scoring.score(_scenarios(), _call(_Answer(WorthVerdict.UNSURE)),
++                      policy.TrialCells(frozenset(WorthCell))), PROVENANCE)
++    assert all(c.note == scoring.MISSING_QUERIES_NOTE for c in production.cells)
+     # 報告程式改簽章後不斷線:逐格表每格帶標註
+     table = "\n".join(record.cell_table(report.cells))
+     assert table.count("舊資料不足以評估九條規則") == len(WorthCell)
+ 
+ 
+ # ---- [S716] ----
+ def test_evaluation_calls_the_candidate_without_validating_anything():
+     candidate = _Answer(WorthVerdict.NOT_WORTH)
+     trial = policy.TrialCells(frozenset({WorthCell.PAUSED}))
+     scored = scoring.score(_scenarios(), _call(candidate), trial)
+diff --git a/tests/eval/test_investigation_eval.py b/tests/eval/test_investigation_eval.py
+index afcc12d..ff28e2a 100644
+--- a/tests/eval/test_investigation_eval.py
++++ b/tests/eval/test_investigation_eval.py
+@@ -848,23 +848,29 @@ def test_the_answer_key_boundaries_match_the_receipts():
+         ic.check_boundaries(on_margin)
+     newest_gains = {"campaign_id": "c", "rows": [adjustment(4, 100, 150, 30, 45),
+                                                  adjustment(9, 100, 150, 40, 20)]}
+     assert ic.gold(with_results(worth, CHECK_PAST_ADJUSTMENTS=newest_gains)) is WorthVerdict.WORTH
+     newest_fails = {"campaign_id": "c", "rows": [adjustment(4, 100, 150, 40, 20),
+                                                  adjustment(9, 100, 150, 30, 45)]}
+     assert ic.gold(with_results(worth, CHECK_PAST_ADJUSTMENTS=newest_fails)) is \
+         WorthVerdict.NOT_WORTH
+     late = normal_case(ic.Cell.LATE_CONVERSIONS)
+     windows = late.results[inv.QueryOption.CHECK_LONGER_WINDOW.value]
++    # 1 天窗有轉換:7 天窗包含 1 天窗,合理的資料 7 天也至少一樣多(Phase 14 代碼審 r1 外家 finder-1:
++    # 原本這裡用「1 天 2、7 天 0」這組自相矛盾的數字,九條現在判它不合格、證據不足)
+     day_only = {"1d": {**windows["1d"], "conversions": 2},
+-                "7d": {**windows["7d"], "conversions": 0}}
++                "7d": {**windows["7d"], "conversions": 2}}
+     assert ic.answer(with_results(late, CHECK_LONGER_WINDOW=day_only)) is ic.Cell.LATE_CONVERSIONS
++    contradictory = {"1d": {**windows["1d"], "conversions": 2},
++                     "7d": {**windows["7d"], "conversions": 0}}
++    assert ic.gold(with_results(late, CHECK_LONGER_WINDOW=contradictory)) is \
++        WorthVerdict.INSUFFICIENT
+ 
+ 
+ def test_exempt_limits_still_check_failure_rates_and_the_batch_check_counts_ledger_busy(tmp_path):
+     """代碼審 r1 e5:成本豁免不連失敗率一起跳過;花費帳忙碌的錄製也驗不過;AI 已用過之後不再附收據。"""
+     exempt = adoption.OperationalLimits(None, 3e6, 3e6, 0.01, cost_exempt=True)
+     row = dataclasses.replace(_limits_row(), format_failure_rate=adoption.Measure.of(0.5))
+     assert adoption.operational_problems(row, exempt) == ["格式失敗率超過門檻"]
+     cases = investigation_set.CASES[:2]
+     folder = tmp_path / "eval"
+     _record_batch(folder, cases, _answer_by_prompt)

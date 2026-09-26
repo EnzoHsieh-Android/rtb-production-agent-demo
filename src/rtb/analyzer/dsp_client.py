@@ -5,6 +5,10 @@
 EvidenceSource 丟例外時,advance() 不寫入任何東西,狀態留在原地等下次重試——這支檔只需要
 老實丟例外,不用自己做任何重試邏輯)。
 
+缺可信狀態(Phase 14 增量 2b,[S1404]):現況 200 回應只有狀態缺值或非法時,不丟例外,
+回的證據沒有現況那一筆
+(指標與廣告文字照常),由決策以「缺現況」不提案結案;不能讓它卡在純讀取重試,也不能造一筆可信現況。
+
 逐欄白名單(Phase 7 增量 1):只有名單上的欄位進證據,名單外的連名稱都不記(欄位名稱本身也是
 不可信輸入);可信欄位缺漏、型別不對、超出範圍、廣告編號不是這個任務的,整個讀取失敗——那是
 「DSP 壞了」的訊號,不是攻擊者能從廣告文字觸發的。廣告名稱是不可信文字:原樣保存、超過上限就截斷
@@ -76,6 +80,10 @@ METRICS_FIELDS: dict[str, Check] = {
 }
 
 
+def _state_status_ok(body: dict[str, Any]) -> bool:
+    return STATE_FIELDS["status"](body.get("status"))
+
+
 def _trusted(body: dict[str, Any], fields: dict[str, Check], campaign_field: str,
              task: TaskRow, endpoint: str) -> dict[str, Any]:
     """只取白名單上的可信欄位;任一欄缺漏或不合格、或廣告編號不是這個任務的,就整個讀取失敗
@@ -128,7 +136,7 @@ def make_client(
     """回傳一個符合 EvidenceSource 協定的函式,綁定 DSP 的位址與逾時。
 
     `on_call` 不填就是原本的行為(不記錄任何東西);要記 tool_calls 的呼叫端(見
-    `instrumented.dsp_evidence_source`)傳一個綁定 TaskStore 的鉤子進來。
+    `instrumented.rule_source`)傳一個綁定 TaskStore 的鉤子進來。
     """
 
     def fetch(task: TaskRow, now: datetime) -> tuple[Evidence, ...]:
@@ -138,7 +146,15 @@ def make_client(
         metrics_path = f"/campaigns/{task.campaign_id}/metrics?window={REQUESTED_WINDOW}"
         metrics_body = _get(base_url, metrics_path, timeout_seconds, task, on_call,
                             ToolEndpoint.DSP_METRICS)
-        state = _trusted(state_body, STATE_FIELDS, "id", task, "dsp:campaign")
+        # [S1404] 200 回應只有狀態缺值或非法:記成缺可信現況(不造 state 證據、廣告文字不帶版本),
+        # 其他欄
+        # 照白名單;流程提交後由決策以 MISSING_STATE_OR_METRICS 結案,不在純讀取裡無限重試。
+        # 其他欄不合格
+        # 照舊整個讀取失敗(DSP 壞了的訊號)
+        has_state = _state_status_ok(state_body)
+        fields = STATE_FIELDS if has_state else {k: v for k, v in STATE_FIELDS.items()
+                                                 if k != "status"}
+        state = _trusted(state_body, fields, "id", task, "dsp:campaign")
         metrics = _trusted(metrics_body, METRICS_FIELDS, "campaign_id", task, "dsp:metrics")
         # 既有 WorthInput 與 1 小時證據以數字表達,在基本讀取邊界把固定兩位小數字串轉回浮點。白名單
         # 限整數 13 位,轉浮點再照收據寫法 Decimal(repr(x)) 必定是原值:收據與政策行為都不變
@@ -147,14 +163,15 @@ def make_client(
             if is_fixed_amount(metrics[name]):
                 metrics[name] = fixed_amount_float(metrics[name])
         text = _campaign_text(state_body)
+        state_items = (Evidence(
+            evidence_id=f"{task.task_id}-{task.seq}-state", task_id=task.task_id,
+            kind=EvidenceKind.CAMPAIGN_STATE, source="dsp", observed_at=now,
+            campaign_version_observed=state["version"],
+            content_hash=_content_hash(state), trust_class=TrustClass.TRUSTED,
+            payload=MappingProxyType(state),
+        ),) if has_state else ()
         return (
-            Evidence(
-                evidence_id=f"{task.task_id}-{task.seq}-state", task_id=task.task_id,
-                kind=EvidenceKind.CAMPAIGN_STATE, source="dsp", observed_at=now,
-                campaign_version_observed=state["version"],
-                content_hash=_content_hash(state), trust_class=TrustClass.TRUSTED,
-                payload=MappingProxyType(state),
-            ),
+            *state_items,
             Evidence(
                 evidence_id=f"{task.task_id}-{task.seq}-metrics", task_id=task.task_id,
                 kind=EvidenceKind.METRICS, source="dsp", observed_at=now,
@@ -165,7 +182,10 @@ def make_client(
             Evidence(
                 evidence_id=f"{task.task_id}-{task.seq}-text", task_id=task.task_id,
                 kind=EvidenceKind.CAMPAIGN_TEXT, source="dsp", observed_at=now,
-                campaign_version_observed=state["version"],  # 跟現況同一次回應讀到的
+                # 跟現況同一次回應讀到的;缺可信現況時不帶版本(帶了會因「有版本卻沒讀到現況」
+                # 被判不新鮮,
+                # 反覆重蒐證)
+                campaign_version_observed=state["version"] if has_state else None,
                 content_hash=_content_hash(text), trust_class=TrustClass.UNTRUSTED_TEXT,
                 payload=MappingProxyType(text),
             ),
@@ -312,22 +332,27 @@ HISTORY_SUMMARY_DAYS = 7  # 摘要「最近 7 天」的天數(同 DSP 的摘要�
 RECENT_TOLERANCE = MAX_EVIDENCE_AGE
 
 
-def check_history(body: Any) -> dict[str, Any] | None:
-    """操作歷史:沒截斷時頂層恰好 history(既有形狀,最多 50 列);超過 50 筆時 DSP 只回最近 50 列,
-    另帶由完整集合算出的 summary 與 truncated=true([S1422])。不用時鐘就能核對的一致性在這裡驗
+def check_history(body: Any, campaign_id: str) -> dict[str, Any] | None:
+    """操作歷史(同 check_daily/check_adjustments:廣告編號必填、頂層連編號一起驗、核過的編號
+    留在回傳值;Phase 14 代碼審 r1 資安-2、r2 架構對齊-1)。沒截斷時頂層恰好 campaign_id 與 history
+    (最多 50 列);超過 50 筆時 DSP 只回最近 50 列,另帶由完整集合算出的 summary 與 truncated=true
+    ([S1422])。收據只讀列與摘要,多一個編號欄不改收據字串與錄製鍵。不用時鐘就能核對的一致性在這裡驗
     (見 _summary_agrees),不合就整份不收、記 invalid;要用讀取時刻的「近期筆數不少於回傳列」另在
     同一步讀取的收口 read_query_options 驗(history_recent_agrees)。"""
-    if not isinstance(body, dict) or "history" not in body:
+    if (not isinstance(body, dict) or "history" not in body
+            or body.get("campaign_id") != campaign_id):
         return None
     rows = body["history"]
     if not _rows_ok(rows, HISTORY_ROW_FIELDS) or len(rows) > HISTORY_PAGE:
         return None
-    if set(body) == {"history"}:
-        return {"history": rows}
-    if (set(body) != {"history", "summary", "truncated"} or body["truncated"] is not True
+    if set(body) == {"campaign_id", "history"}:
+        return {"campaign_id": campaign_id, "history": rows}
+    if (set(body) != {"campaign_id", "history", "summary", "truncated"}
+            or body["truncated"] is not True
             or len(rows) != HISTORY_PAGE or not _summary_agrees(body["summary"], rows)):
         return None
-    return {"history": rows, "summary": body["summary"], "truncated": True}
+    return {"campaign_id": campaign_id, "history": rows, "summary": body["summary"],
+            "truncated": True}
 
 
 def _summary_agrees(summary: Any, rows: list[dict[str, Any]]) -> bool:
@@ -473,7 +498,7 @@ def _query(base_url: str, timeout: float, task: TaskRow, option: str,
         return check_longer_window(day, week)
     if option == "check_change_history":
         return check_history(_read(base_url, f"{root}/history", timeout, task, on_call,
-                                   ToolEndpoint.DSP_HISTORY))
+                                   ToolEndpoint.DSP_HISTORY), campaign)
     if option == "check_daily_trend":
         return _query_daily(base_url, root, campaign, timeout, task, on_call)
     if option == "check_past_adjustments":

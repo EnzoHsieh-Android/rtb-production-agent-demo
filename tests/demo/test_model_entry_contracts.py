@@ -1,7 +1,8 @@
 # ruff: noqa: S106
 """Phase 12 模型入口那幾條驗收([S1027] 到 [S1030],計劃
-[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]):說明、假說兩支命令列與分析端是這次展示的模型入口。真的起行程跑情境,分析端與說明命令列讀測試自己寫的假
-錄製(tests/demo/fake_recordings.py),不碰真模型;帳號家目錄是測試夾具換上的暫存目錄。"""
+[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]):說明、假說兩支命令列是這次展示的模型入口(Phase 14
+增量 3 起分析端不呼叫 AI)。真的起行程跑情境,說明命令列讀測試自己寫的假錄製
+(tests/demo/fake_recordings.py),不碰真模型;帳號家目錄是測試夾具換上的暫存目錄。"""
 
 import json
 import os
@@ -24,7 +25,7 @@ from rtb.modelledger_view import ledger_path
 from tests.demo import fake_recordings as fake
 from tests.model.fakes import fake_claude, invocations, write_verification
 
-BATCH = "phase13-demo-20260925"
+BATCH = "phase14-demo-20260926"
 
 
 @pytest.fixture
@@ -84,7 +85,7 @@ def _capture(monkeypatch, on_first_start=None):
 # ---- [S1027] 說明卡:程式算的數字在前,再來是 AI 標示與文字;頁面不列模式 ----
 def test_the_model_step_shows_computed_numbers_first_and_labels_the_text(tmp_path, state):
     recordings = tmp_path / "rec"
-    fake.fake_batch(recordings, BATCH, {"normal": [fake.PROPOSE]}, narrative=fake.NARRATIVE)
+    fake.fake_batch(recordings, BATCH)
     assert _driver(tmp_path, state, recordings).run_one("F1").status == DONE
     shown = _page_state(tmp_path)
     step = _scenario(shown, ScenarioCode.F1).model_step
@@ -103,15 +104,16 @@ def test_the_model_step_shows_computed_numbers_first_and_labels_the_text(tmp_pat
 
 
 # ---- [S1028] 模型入口保留實際模式,頁面不區分來源 ----
-def test_the_page_hides_model_mode_while_entries_keep_their_actual_choice(
+def test_the_page_hides_model_mode_while_entries_keep_their_actual_choice(  # noqa: PLR0915
     tmp_path, state, monkeypatch,
 ):
-    """F1 列在即時清單、即時開關有開,但 PATH 上沒有 claude:驅動照清單會以為是即時,三支模型入口
-    自己判成錄製。頁面不顯示分析端模式與說明來源;記錄仍保留入口實際判出的模式與原因。
+    """F1 列在即時清單、即時開關有開,但 PATH 上沒有 claude:驅動照清單會以為是即時,兩支模型入口
+    自己判成錄製。頁面不顯示模式與說明來源;記錄仍保留入口實際判出的模式與原因(Phase 14 增量 3:模式
+    改由入口回報,分析端不再印模式行)。
     假說命令列印的那一欄照原樣存。即時清單的錄製目錄在情境起第一支行程前先放好假錄製,讓退回錄製的
     入口讀得到回應(說明卡顯示 AI 回答,但不顯示來源)。"""
     recordings = tmp_path / "rec"
-    fake.fake_batch(recordings, BATCH, {"normal": [fake.PROPOSE]}, narrative=fake.NARRATIVE)
+    fake.fake_batch(recordings, BATCH)
     live_dir = tmp_path / "demos" / "demo-1" / "live-recordings" / "F1"
     seen = _capture(monkeypatch, lambda: shutil.copytree(recordings, live_dir))
     demo = _driver(tmp_path, state, tmp_path / "unused", live={"F1"},
@@ -124,10 +126,10 @@ def test_the_page_hides_model_mode_while_entries_keep_their_actual_choice(
         shown = build(reader, "demo-1")
     finally:
         reader.close()
-    # 分析端:模式行回報錄製與原因,頁面隱藏
+    # 模型入口回報錄製與原因,頁面隱藏
     assert details.model_mode == "recorded"
     f1 = _scenario(shown, ScenarioCode.F1)
-    assert f1.model_mode_reason.startswith("列在即時清單,但分析端判成錄製回應:")
+    assert f1.model_mode_reason.startswith("列在即時清單,但模型入口判成錄製回應:")
     page = render_page(shown, form_token="t", selected=ScenarioCode.F1, refresh_tick=0)
     assert f1.model_mode_reason not in page and "AI 採錄製回應" not in page
     # 說明命令列:內部回報錄製來源,頁面說明卡只標 AI 產生
@@ -144,12 +146,14 @@ def test_the_page_hides_model_mode_while_entries_keep_their_actual_choice(
         {"status": "failed", "reason": "no_recording", "alerts": ["x"], "mode": "live"})))
     assert found.source is ModelSource.LIVE
     assert {name for name, _args in seen} >= {"analyzer", "narrate", "hypothesis"}
+    analyzer_args = next(args for name, args in seen if name == "analyzer")
+    assert "--recordings-dir" not in analyzer_args and "--demo-id" not in analyzer_args
 
 
 # ---- [S1029] 每按一次觸發一個新展示編號,這次展示的每一支模型入口拿到同一個 ----
 def test_one_demo_id_per_trigger_reaches_every_model_entry(tmp_path, monkeypatch):
     recordings = tmp_path / "rec"
-    fake.fake_batch(recordings, BATCH, {"normal": [fake.PROPOSE]}, narrative=fake.NARRATIVE)
+    fake.fake_batch(recordings, BATCH)
     seen = _capture(monkeypatch)
     made = []
 
@@ -174,18 +178,18 @@ def test_one_demo_id_per_trigger_reaches_every_model_entry(tmp_path, monkeypatch
     assert len(made) == 2 and made[0] != made[1]  # 兩次觸發,兩個展示編號
     for demo_id, entries in zip(made, by_trigger, strict=True):
         ids = {name: _arg(args, "--demo-id") for name, args in entries
-               if name in ("analyzer", "narrate", "hypothesis")}
-        assert set(ids) == {"analyzer", "narrate", "hypothesis"}, entries
+               if name in ("narrate", "hypothesis")}
+        assert set(ids) == {"narrate", "hypothesis"}, entries  # 分析端不呼叫 AI,不帶展示編號
         assert set(ids.values()) == {demo_id}  # 每一支模型入口拿到這次的同一個編號
 
 
 # ---- [S1030] 沒開即時開關(RTB_MODEL_LIVE=true 也算沒開):帳記在這次展示的暫存目錄 ----
 def test_recorded_demos_book_into_a_temporary_ledger(tmp_path, state, monkeypatch):
     """即時開關寫成 true(不是 1)、情境也列在即時清單、PATH 最前面有叫得到的假 claude 與啟用紀錄:
-    模型用戶端同一支判定把 true 當沒開,三支模型入口都判成錄製,一次 claude 都沒叫;帳記在這個情境的
+    模型用戶端同一支判定把 true 當沒開,兩支模型入口都判成錄製,一次 claude 都沒叫;帳記在這個情境的
     暫存目錄,帳號家目錄下的帳沒有被建立。"""
     recordings = tmp_path / "rec"
-    fake.fake_batch(recordings, BATCH, {"normal": [fake.PROPOSE]}, narrative=fake.NARRATIVE)
+    fake.fake_batch(recordings, BATCH)
     script = fake_claude(tmp_path / "bin")
     write_verification()
     env = {**os.environ, "PATH": f"{script.parent}:{os.environ['PATH']}",
@@ -197,7 +201,7 @@ def test_recorded_demos_book_into_a_temporary_ledger(tmp_path, state, monkeypatc
     assert invocations(script) == []
     ledger = tmp_path / "demos" / "demo-1" / "F1" / "model-ledger.db"
     for name, args in seen:
-        if name in ("analyzer", "narrate", "hypothesis"):
+        if name in ("narrate", "hypothesis"):
             assert _arg(args, "--recorded-ledger") == str(ledger), name
     assert ledger.is_file() and not ledger_path().exists()
     reader = StateReader(tmp_path / "state.db")

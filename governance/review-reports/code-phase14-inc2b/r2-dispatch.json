@@ -1,0 +1,50 @@
+[
+ {
+  "round": "r2",
+  "seat": "鏡頭1",
+  "lens": "正式規則與 AI 否決正確性",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r2-delta-src.patch"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "鏡頭2",
+  "lens": "狀態機、重進入、租約與讀取次數、交易",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r2-delta-src.patch"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "外家finder",
+  "lens": "外家finder",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r2-delta.patch",
+   "governance/review-reports/code-phase14-inc2b/r2-snapshot.patch"
+  ],
+  "auditor": "codex"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r2-delta.patch",
+   "governance/review-reports/code-phase14-inc2b/r2-snapshot.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "資安-opus",
+  "lens": "資安-opus",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r2-delta.patch",
+   "governance/review-reports/code-phase14-inc2b/r2-snapshot.patch"
+  ],
+  "auditor": "claude-opus"
+ }
+]

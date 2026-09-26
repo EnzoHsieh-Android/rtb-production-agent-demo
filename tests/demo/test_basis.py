@@ -13,6 +13,7 @@ from rtb.analyzer.task_store import TaskRow
 from rtb.demo import basis
 from rtb.domain.task_state import TaskState
 from tests.analyzer.policy_before_samples import NOW, _metrics, _state, _task, cases
+from tests.analyzer.test_policy import FULL  # 帶齊一份平穩的四查詢(Phase 14:九條要它才提案)
 
 
 def _decided(case):
@@ -65,10 +66,10 @@ def test_the_numbers_come_from_the_rule_itself():
     """[條件一] 數字取自正式規則的常數與函式:新鮮度上限、配速門檻、加額比例。"""
     evidence = (_state(100, "active", timedelta(minutes=3)), _metrics(1.0, 500, 12, 1, 5.0))
     decision, _ = policy.explain(_task(), evidence, NOW, candidate=None,
-                                 allowed=policy.ValidatedCells.NONE)
+                                 allowed=policy.ValidatedCells.NONE, queries=FULL)
     row = TaskRow(task_id="t1", seq=4, state=TaskState.PROPOSED, campaign_id="c1",
                   proposal=decision.proposal, error_detail=None, written_at=NOW)
-    fresh, pace, worth, amount = basis.analysis(_task(), evidence, row, None)
+    fresh, pace, worth, amount = basis.analysis(_task(), evidence, row, None, queries=FULL)
     assert "3.0 分鐘" in fresh.observed
     assert f"{policy.MAX_EVIDENCE_AGE.total_seconds() / 60:.0f} 分鐘" in fresh.standard
     assert f"{policy.UNDERPACING_THRESHOLD:.0%}" in pace.standard
@@ -80,7 +81,7 @@ def test_the_numbers_come_from_the_rule_itself():
 def test_a_proposal_that_differs_from_the_recomputed_one_gets_no_basis(changed):
     evidence = (_state(100, "active"), _metrics(1.0, 500, 12, 1, 5.0))
     decision, _ = policy.explain(_task(), evidence, NOW, candidate=None,
-                                 allowed=policy.ValidatedCells.NONE)
+                                 allowed=policy.ValidatedCells.NONE, queries=FULL)
     proposal = decision.proposal
     if changed == "budget":
         from types import MappingProxyType
@@ -89,7 +90,7 @@ def test_a_proposal_that_differs_from_the_recomputed_one_gets_no_basis(changed):
                   state=TaskState.PROPOSED if changed == "budget" else TaskState.NO_ACTION,
                   campaign_id="c1", proposal=proposal if changed == "budget" else None,
                   error_detail=None, written_at=NOW)
-    assert basis.analysis(_task(), evidence, row, None) == ()
+    assert basis.analysis(_task(), evidence, row, None, queries=FULL) == ()
 
 
 def test_the_write_start_basis_is_what_the_executor_recorded():
@@ -175,10 +176,10 @@ def test_the_routing_step_says_there_is_no_model_entry():
     不寫得像 AI 判過。"""
     evidence = (_state(100, "active"), _metrics(1.0, 500, 12, 1, 5.0))
     decision, _ = policy.explain(_task(), evidence, NOW, candidate=None,
-                                 allowed=policy.ValidatedCells.NONE)
+                                 allowed=policy.ValidatedCells.NONE, queries=FULL)
     row = TaskRow(task_id="t1", seq=4, state=TaskState.PROPOSED, campaign_id="c1",
                   proposal=decision.proposal, error_detail=None, written_at=NOW)
-    route = basis.analysis_route(basis.analysis(_task(), evidence, row, None))
+    route = basis.analysis_route(basis.analysis(_task(), evidence, row, None, queries=FULL))
     step = next(s for s in route if s.node == "a_route")
     assert step.target == "a_rule" and "沒有模型入口" in step.basis.observed
     assert "AI" not in step.basis.conclusion
@@ -250,7 +251,7 @@ def test_a_resend_shows_the_lookup_that_found_nothing():
 # ---- 代碼審 r1(Phase 12 增量 2)----
 def _proposed(evidence):
     decision, _ = policy.explain(_task(), evidence, NOW, candidate=None,
-                                 allowed=policy.ValidatedCells.NONE)
+                                 allowed=policy.ValidatedCells.NONE, queries=FULL)
     return TaskRow(task_id="t1", seq=4, state=TaskState.PROPOSED, campaign_id="c1",
                    proposal=decision.proposal, error_detail=None, written_at=NOW)
 
@@ -283,7 +284,11 @@ def test_every_intermediate_conclusion_matches_the_rules_own_steps():
         facts = policy.steps(case.evidence, row.written_at)
         assert (BasisCode.FRESH in found) is facts.fresh
         assert (BasisCode.STALE in found) is (not facts.fresh)
-        if facts.underpacing is not None and facts.fresh and facts.metrics is not None:
+        if facts.settled_by_base:  # 九條第 1/2 條排在配速之前(Phase 14):只給那一組,不給配速
+            assert BasisCode.UNDERPACING not in found and BasisCode.NOT_UNDERPACING not in found
+            assert found[basis.BasisCode.INSUFFICIENT if facts.worth is WorthVerdict.INSUFFICIENT
+                         else basis.BasisCode.NOT_WORTH].standard == basis.BASE_RULE_STANDARD
+        elif facts.underpacing is not None and facts.fresh and facts.metrics is not None:
             assert (BasisCode.UNDERPACING in found) is facts.underpacing
         if facts.worth is not None:
             assert (BasisCode.WORTH in found) is (facts.worth is WorthVerdict.WORTH)
@@ -291,18 +296,23 @@ def test_every_intermediate_conclusion_matches_the_rules_own_steps():
     assert checked > 100
 
 
-def test_campaign_status_plays_no_part_and_the_standard_does_not_claim_it():
-    """[代碼審 r1 d1] 現行規則不看廣告狀態:暫停中的廣告只要有曝光和點擊照樣提案;標準文字只寫規則
-    真的做的事,不寫「廣告啟用」、不寫跟平台比版本。"""
+def test_campaign_status_decides_first_and_the_standard_says_so():
+    """[代碼審 r1 d1] 標準文字只寫規則真的做的事、不寫跟平台比版本。Phase 14 改寫:正式規則是九條,
+    第 1 條先看狀態——暫停中的廣告就算有曝光點擊也在配速之前判不值得加,根據照實寫第 1/2 條;
+    啟用中、帶齊四查詢才判到值得加。"""
     metrics = _metrics(1.0, 500, 12, 1, 5.0)
     active = basis.analysis(_task(), (_state(100, "active"), metrics),
-                            _proposed((_state(100, "active"), metrics)), None)
-    paused = basis.analysis(_task(), (_state(100, "paused"), metrics),
-                            _proposed((_state(100, "paused"), metrics)), None)
-    assert paused and [b.conclusion for b in paused] == [b.conclusion for b in active]
-    assert all("啟用" not in b.standard for b in paused)
+                            _proposed((_state(100, "active"), metrics)), None, queries=FULL)
+    paused_row = TaskRow(task_id="t1", seq=4, state=TaskState.NO_ACTION, campaign_id="c1",
+                         proposal=None, error_detail=None, written_at=NOW)
+    paused = basis.analysis(_task(), (_state(100, "paused"), metrics), paused_row,
+                            "judged_not_worth", queries=FULL)
+    assert [b.conclusion for b in active][-1] == basis.PROPOSE
+    assert len(paused) == 2 and paused[1].standard == basis.BASE_RULE_STANDARD
+    assert "暫停" in paused[1].observed or "paused" in paused[1].observed
+    assert all("啟用" not in b.standard for b in active)
     assert "版本沒變" not in paused[0].standard and "同一批資料" in paused[0].standard
-    assert "不看廣告狀態" in paused[2].standard
+    assert active[2].standard == basis.NINE_RULES_STANDARD
 
 
 def test_the_standards_follow_the_live_constants(monkeypatch):
@@ -317,7 +327,7 @@ def test_the_standards_follow_the_live_constants(monkeypatch):
     monkeypatch.setattr(policy, "MAX_EVIDENCE_AGE", delta(minutes=17))
     monkeypatch.setattr(policy, "BUDGET_INCREASE_FRACTION", 0.2)
     row = _proposed(evidence)  # 當時的決策也照改過的常數(重算要跟它一致才給根據)
-    found = basis.analysis(_task(), evidence, row, None)
+    found = basis.analysis(_task(), evidence, row, None, queries=FULL)
     assert "17 分鐘" in found[0].standard and "加 20%" in found[-1].standard
     monkeypatch.setattr(inbox_store, "MAX_DELIVERIES", 9)
     (dead,) = basis.lifecycle("dead_lettered", deliveries=9, reason=None, actor=None)

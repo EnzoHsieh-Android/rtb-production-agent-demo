@@ -1,0 +1,83 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1",
+  "lens": "分析端正式規則正確性:policy/flow/rule_round/ai_judge 的判定、原因代碼、證據參照、與九條領域判斷和評估標準答案是否一致",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r1-part-analyzer-src.patch"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2",
+  "lens": "分步蒐證的狀態機、輪次隔離與重進入、租約守衛與讀取次數、停止寬限、task_store 新表的交易與只增不改",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r1-part-analyzer-src.patch"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3",
+  "lens": "測試品質:殺傷力(改壞程式會不會紅)、固定時鐘、改寫的既有測試期望是否都有計劃依據、有沒有刪掉逐格統計類斷言",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r1-part-analyzer-tests.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭4",
+  "lens": "領域 nine_rules 的 committed_at 消化、評估 scoring/record/report 的缺四查詢轉接、展示 basis/observe/driver 的相容、stepbudget 常數、claims",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r1-part-other.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家finder",
+  "lens": "全部程式改動(不含測試):正確性、併發、邊界、合約",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r1-src-only.patch"
+  ],
+  "auditor": "codex"
+ },
+ {
+  "round": "r1",
+  "seat": "外家否決",
+  "lens": "全部程式改動,只看會讓系統做錯事的洞",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r1-src-only.patch"
+  ],
+  "auditor": "codex"
+ },
+ {
+  "round": "r1",
+  "seat": "spec-conformance",
+  "lens": "spec-conformance",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r1-snapshot.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "架構對齊",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r1-snapshot.patch"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "資安-opus",
+  "lens": "資安-opus",
+  "materials": [
+   "governance/review-reports/code-phase14-inc2b/r1-snapshot.patch"
+  ],
+  "auditor": "claude-opus"
+ }
+]

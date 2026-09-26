@@ -1,0 +1,46 @@
+{
+ "loop": "code-phase14-inc2b-final",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-27T03:21:16+08:00",
+ "spec_path": "governance/review-reports/code-phase14-inc2b/r3-snapshot.patch",
+ "spec_sha": "c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd",
+ "rows": [
+  "{\"ts\": \"2026-09-26T22:38:59+08:00\", \"kind\": \"none\", \"auditor\": \"外家finder\", \"token\": \"CANARY-0b26c9f5\", \"note\": \"換編號重記:前編號 code-phase14-inc2b 第 3 輪在鏡頭A 補引句之前先記帳,報告指紋事後不符;本編號只重記該輪同一批報告\", \"loop\": \"code-phase14-inc2b-final\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 3, \"result_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\", \"reviewed_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\", \"spec_path\": \"governance/review-reports/code-phase14-inc2b/r3-snapshot.patch\", \"scope_lines\": 2192, \"scope_oversize\": true, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 3, \"report_path\": \"governance/review-reports/code-phase14-inc2b/r3-外家finder.md\", \"report_sha256\": \"5b164969350698ace59fb0f522fd30d38ec7a21108621830427e61760a8e076a\", \"snapshot_path\": \"governance/review-reports/code-phase14-inc2b/r3-snapshot.patch\", \"snapshot_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\"}",
+  "{\"ts\": \"2026-09-26T22:38:59+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-2274add0\", \"note\": \"換編號重記:前編號 code-phase14-inc2b 第 3 輪在鏡頭A 補引句之前先記帳,報告指紋事後不符;本編號只重記該輪同一批報告\", \"loop\": \"code-phase14-inc2b-final\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\", \"reviewed_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\", \"spec_path\": \"governance/review-reports/code-phase14-inc2b/r3-snapshot.patch\", \"scope_lines\": 2192, \"scope_oversize\": true, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 1, \"report_path\": \"governance/review-reports/code-phase14-inc2b/r3-架構對齊.md\", \"report_sha256\": \"21568532c54037def8c97d968be5c61a65e739d53030ea9cd14318123a3535ff\", \"snapshot_path\": \"governance/review-reports/code-phase14-inc2b/r3-snapshot.patch\", \"snapshot_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\"}",
+  "{\"ts\": \"2026-09-26T22:38:59+08:00\", \"kind\": \"none\", \"auditor\": \"資安-opus\", \"token\": \"CANARY-ad678f0f\", \"note\": \"換編號重記:前編號 code-phase14-inc2b 第 3 輪在鏡頭A 補引句之前先記帳,報告指紋事後不符;本編號只重記該輪同一批報告\", \"loop\": \"code-phase14-inc2b-final\", \"round\": \"r1\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\", \"reviewed_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\", \"spec_path\": \"governance/review-reports/code-phase14-inc2b/r3-snapshot.patch\", \"scope_lines\": 2192, \"scope_oversize\": true, \"tier\": \"high\", \"orchestrator\": \"claude\", \"reported\": 0, \"report_path\": \"governance/review-reports/code-phase14-inc2b/r3-資安-opus.md\", \"report_sha256\": \"33ab32d5edc2ff7c170cb67a045bcc8b001d254b4b8497be096e888cc2da4f47\", \"snapshot_path\": \"governance/review-reports/code-phase14-inc2b/r3-snapshot.patch\", \"snapshot_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\"}",
+  "{\"ts\": \"2026-09-26T22:39:00+08:00\", \"kind\": \"none\", \"auditor\": \"鏡頭A\", \"token\": \"CANARY-8588108f\", \"note\": \"換編號重記:前編號 code-phase14-inc2b 第 3 輪在鏡頭A 補引句之前先記帳,報告指紋事後不符;本編號只重記該輪同一批報告\", \"loop\": \"code-phase14-inc2b-final\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 4, \"result_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\", \"reviewed_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\", \"spec_path\": \"governance/review-reports/code-phase14-inc2b/r3-snapshot.patch\", \"scope_lines\": 2192, \"scope_oversize\": true, \"tier\": \"high\", \"orchestrator\": \"claude\", \"findings_set\": [\"la_1\", \"la_2\", \"la_3\", \"la_4\", \"xf_1\", \"xf_2\", \"xf_3\", \"a_1\"], \"folded_set\": [\"la_1\", \"la_2\", \"la_3\", \"la_4\", \"xf_1\", \"xf_2\", \"xf_3\", \"a_1\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"la_1\": \"code\", \"la_2\": \"code\", \"la_3\": \"code\", \"la_4\": \"code\", \"xf_1\": \"code\", \"xf_2\": \"code\", \"xf_3\": \"code\", \"a_1\": \"code\"}, \"reported\": 4, \"report_path\": \"governance/review-reports/code-phase14-inc2b/r3-鏡頭A.md\", \"report_sha256\": \"aff2ba308922202117b25b93af461325af13f6e5ec7296f388a4f18dc573d250\", \"snapshot_path\": \"governance/review-reports/code-phase14-inc2b/r3-snapshot.patch\", \"snapshot_sha256\": \"c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd\"}"
+ ],
+ "all_row_shas": [
+  "5148c9aec55554b685f2d0b499aaa205addb10c8bb1f7a0e9317bf77a94ced6e",
+  "a91f0283eb6714dc8290e1b46988f502eb99735e41270b1dd85cfb4e32a1bd48",
+  "b14423df1bd1a4eac7521d38a0ce40189b6705c69a0cd3bff2ad10741a5795e5",
+  "ef29e452f2a6b06e9d18c1c7469cc72ae69294b1dee19b3177d6364129b6b5e1"
+ ],
+ "files": {
+  "governance/review-reports/code-phase14-inc2b/r3-外家finder.md": {
+   "sha256": "5b164969350698ace59fb0f522fd30d38ec7a21108621830427e61760a8e076a",
+   "git_blob": "b06eed0beb9b62ede89f72cef57f602fdffc1189"
+  },
+  "governance/review-reports/code-phase14-inc2b/r3-snapshot.patch": {
+   "sha256": "c3f1b651a65f143ddde279a7d0f68b46e8fbe4e24a695881886d49e17490b1fd",
+   "git_blob": "7dc7ec710865a639322264fdb1572f00572e89b8"
+  },
+  "governance/review-reports/code-phase14-inc2b/r3-架構對齊.md": {
+   "sha256": "21568532c54037def8c97d968be5c61a65e739d53030ea9cd14318123a3535ff",
+   "git_blob": "55755ca8e1a4f1634beb8928a353d3d9dd7b2f21"
+  },
+  "governance/review-reports/code-phase14-inc2b/r3-資安-opus.md": {
+   "sha256": "33ab32d5edc2ff7c170cb67a045bcc8b001d254b4b8497be096e888cc2da4f47",
+   "git_blob": "0174d8ad07c997ac69574f92731d77522e44835d"
+  },
+  "governance/review-reports/code-phase14-inc2b/r3-鏡頭A.md": {
+   "sha256": "aff2ba308922202117b25b93af461325af13f6e5ec7296f388a4f18dc573d250",
+   "git_blob": "00318532dfb79001ec8bd6433a29e2bb7eca1247"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

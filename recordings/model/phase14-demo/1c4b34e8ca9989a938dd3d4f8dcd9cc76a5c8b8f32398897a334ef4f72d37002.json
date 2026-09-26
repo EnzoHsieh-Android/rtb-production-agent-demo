@@ -1,0 +1,22 @@
+{
+ "key": "1c4b34e8ca9989a938dd3d4f8dcd9cc76a5c8b8f32398897a334ef4f72d37002",
+ "caller": "analyzer_narrative",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase14-demo-20260927",
+ "recorded_on": "2026-09-26",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "這項提案是針對任務甲的廣告甲,將預算從100調整為110,理由代碼為low_pacing,風險說明為budget +10%。目前系統讀到的廣告狀態為active,版本為1,與提案中觀察到的廣告版本1一致,政策版本為nine-rules-v1。近1小時的成效數據為:曝光500次、點擊12次、轉換1次、花費0.5、收益5.0。除以上程式讀到的數字外,其餘證據(廣告文字、歷史異動、過去調整、較長時間窗、每日趨勢)內容為空或屬不可信文字,未提供可用於核對的具體數字,故不納入判斷依據。整體而言,可核對的資訊僅限於預算現值100、狀態與版本一致性,以及上述1小時內的曝光與轉換等數字,並無更長期或歷史數據可比對,建議核可人自行依此有限證據判斷是否核准此預算調整,本說明不對是否核准提出建議。",
+ "input_tokens": 937,
+ "output_tokens": 342,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 0,
+ "cache_read_tokens": 0,
+ "reported_nanousd": 5294000,
+ "list_nanousd": 5294000,
+ "latency_ms": 9530.157875269651,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

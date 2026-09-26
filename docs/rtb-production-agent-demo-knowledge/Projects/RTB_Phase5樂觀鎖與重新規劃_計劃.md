@@ -174,7 +174,7 @@ REVISIT:2027-01-31 Phase 9 開工時,把兩支查詢接上正式指標與告警,
 - [S314] 當接續任務編號已存在卻沒有指到這個原任務的接續關係,推進函式應不建立、把原任務轉擋下並記接續編號衝突;一般建任務應拒絕「fu-」開頭的編號,建接續任務應能建立「fu-」開頭的編號。[test:test_a_follow_up_id_collision_is_refused]
 - [S307] 當同一條接續鏈已達代數上限、又需要重新規劃(不論版本已變或過期),推進函式應只把原任務轉擋下並記重新規劃次數用完,不再建接續任務。[test:test_the_follow_up_chain_stops_at_the_generation_limit]
 - [S318] 當一個任務有接續關係,查它的軌跡應帶出接續到哪個任務;查接續任務的軌跡應帶出接續自哪個任務;操作查詢應出現在呼叫紀錄裡。[test:test_the_trace_links_both_ways_along_the_follow_up_chain]
-- [S308] 當提案形成後另一方先改了廣告(事故 F4 端到端,執行前檢查擋下與 DSP 寫入時才被搶先兩種都跑),執行端應擋下、不覆蓋新值,接續任務應重讀現況、用新版本產生提案並執行成功;DSP 最終值應是接續任務的決策,中間沒有被舊決策覆蓋過。[test:test_f4_a_stale_proposal_is_replanned_from_the_current_state]
+- [S308] 當提案形成後另一方先改了廣告(事故 F4 端到端,執行前檢查擋下與 DSP 寫入時才被搶先兩種都跑),執行端應擋下、不覆蓋新值,接續任務應重讀現況、用新版本產生提案並執行成功;DSP 最終值應是接續任務的決策,中間沒有被舊決策覆蓋過。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉4 改寫:接續任務重讀時操作歷史看得到另一方剛改的預算,九條第 3 條判證據不足、不提案;端到端改斷言接續任務沒有提案、收件口只有原任務那一份、DSP 只有另一方那一筆寫入,舊決策照舊從沒寫進去。原「接續任務提案並執行成功」撤除。)[test:test_f4_a_stale_proposal_is_replanned_from_the_current_state]
 - [S309] 當兩個寫入者同時改同一個廣告(執行前檢查都通過),DSP 應只接受預期版本相符的那一個,另一個的嘗試記版本衝突、收件口擋下原因記版本已變。[test:test_two_concurrent_writers_reproduce_a_version_conflict]
 - [S315] 當有重新規劃與 DSP 版本衝突發生過,分析端的查詢應回報正確的重新規劃、用完、結果已過保留期次數,執行端的查詢應回報正確的 DSP 版本衝突次數,兩者都可依廣告篩。[test:test_conflict_counts_are_queryable]
 

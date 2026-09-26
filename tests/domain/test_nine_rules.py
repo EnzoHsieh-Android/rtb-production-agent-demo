@@ -178,3 +178,114 @@ def test_domain_nine_rules_imports_only_the_allowlisted_stdlib_and_domain():
             assert all(alias.name in allowed for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             assert node.module in allowed or node.module.startswith("rtb.domain")
+
+
+# ---- Phase 14 增量 2b:第 3/4 條以決策 now 消化過去調整的提交時刻([S1415] 領域那半)----
+def _raise(committed_at, before=10, after=10, budget=(100, 150)):
+    days_ago = max(0, (NOW - committed_at).days)
+    return rules.AdjustmentRow(days_ago, budget[0], budget[1], before, after, committed_at)
+
+
+def _past(*rows):
+    return _evidence(past=rules.PastAdjustments(rows))
+
+
+def test_past_adjustment_commit_time_is_judged_on_the_decision_clock():
+    # 未滿三天:第 3 條(即使歷史清單沒有這筆,例如被截斷)
+    recent = _raise(NOW - timedelta(days=2))
+    assert rules.decide(_worth(), _past(recent), NOW).cell is rules.Cell.RECENT_BUDGET_CHANGE
+    # 剛滿三天但 D+3 還沒完整(DSP 回了後段數字也不採信):第 4 條證據不足。計劃例:提交 T,
+    # 定案在 T+3d+10s(T 不在 UTC 午夜,D+4 日 00:00 還沒到)
+    noon = datetime(2026, 9, 25, 12, tzinfo=UTC)
+    just = _raise(noon - timedelta(days=3, seconds=10))
+    outcome = rules.decide(_worth(), _past(just), noon)
+    assert (outcome.cell, outcome.reason, outcome.query) == (
+        None, rules.RuleReason.MISSING_ROW_VALUE, rules.QueryKind.PAST)
+    # D+3 完整、前後轉換 10→10:第 4 條不值得加
+    done = _raise(datetime(2026, 9, 20, 12, tzinfo=UTC))
+    assert rules.decide(_worth(), _past(done), datetime(2026, 9, 24, tzinfo=UTC)).cell is (
+        rules.Cell.RAISE_WITHOUT_GAIN)
+    assert rules.decide(_worth(), _past(done), datetime(2026, 9, 23, 23, 59, 59,
+                                                         tzinfo=UTC)).reason is (
+        rules.RuleReason.MISSING_ROW_VALUE)
+
+
+def test_past_adjustment_without_or_after_the_decision_time_is_insufficient():
+    missing = rules.AdjustmentRow(5, 100, 150, 10, 12)
+    outcome = rules.decide(_worth(), _past(missing), NOW)
+    assert (outcome.cell, outcome.reason, outcome.query) == (
+        None, rules.RuleReason.MISSING_ROW_VALUE, rules.QueryKind.PAST)
+    # 晚於決策 now 的提交時刻:第 3 條先命中(近期),第 4 條也判不合格;不論哪條都不提案
+    future = _raise(NOW + timedelta(hours=1))
+    assert rules.decide(_worth(), _past(future), NOW).verdict is WorthVerdict.INSUFFICIENT
+    assert rules._past_decision(rules.PastAdjustments((future,)), NOW).reason is (
+        rules.RuleReason.INVALID_ROW_VALUE)
+    with pytest.raises(ValueError):
+        rules.AdjustmentRow(5, 100, 150, 10, 12, "2026-09-20")
+
+
+def test_truncated_history_recent_flag_counts_as_a_recent_change():
+    flagged = rules.ChangeHistory((), recent_flag=True)
+    assert rules.decide(_worth(), _evidence(history=flagged), NOW).cell is (
+        rules.Cell.RECENT_BUDGET_CHANGE)
+    with pytest.raises(ValueError):
+        rules.ChangeHistory((), recent_flag="yes")
+
+
+def test_daily_read_on_another_utc_day_is_insufficient():
+    rows = _evidence().daily.rows
+    late = rules.DailyTrend(rows, read_at=datetime(2026, 9, 24, 23, 59, 59, tzinfo=UTC))
+    outcome = rules.decide(_worth(), _evidence(daily=late), datetime(2026, 9, 25, 0, 0, 1,
+                                                                     tzinfo=UTC))
+    assert (outcome.cell, outcome.reason, outcome.query) == (
+        None, rules.RuleReason.DAY_BOUNDARY, rules.QueryKind.DAILY)
+    same = rules.DailyTrend(rows, read_at=datetime(2026, 9, 25, 0, 0, 0, tzinfo=UTC))
+    assert rules.decide(_worth(), _evidence(daily=same), NOW + timedelta(minutes=1)).cell is (
+        rules.Cell.DELIVERY_WITH_VALUE)
+
+
+# ---- 代碼審 r1 外家 finder-1:負數或不自洽的查詢結果一律證據不足(不讓另一個正數把它變成提案)----
+@pytest.mark.parametrize(("one_day", "seven_days"), [
+    (rules.Window(10, 10, -1, "0.00", "0.00"), rules.Window(70, 70, 5, "0.00", "0.00")),  # 負轉換
+    (rules.Window(10, 10, 0, "0.00", "0.00"), rules.Window(70, 70, -5, "0.00", "0.00")),
+    (rules.Window(10, 10, 0, "-1.00", "0.00"), rules.Window(70, 70, 5, "0.00", "0.00")),
+    # 點擊多於曝光、轉換多於點擊、1 天多於 7 天
+    (rules.Window(10, 20, 0, "0.00", "0.00"), rules.Window(70, 70, 5, "0.00", "0.00")),
+    (rules.Window(10, 5, 6, "0.00", "0.00"), rules.Window(70, 70, 7, "0.00", "0.00")),
+    (rules.Window(100, 10, 0, "0.00", "0.00"), rules.Window(70, 70, 5, "0.00", "0.00")),
+])
+def test_negative_or_inconsistent_longer_windows_are_insufficient(one_day, seven_days):
+    no_value = _worth(conversions=0, revenue=0)  # 第 6 條本來會看長窗轉換提案
+    outcome = rules.decide(no_value, _evidence(longer=rules.LongerWindow(one_day, seven_days)), NOW)
+    assert (outcome.cell, outcome.verdict, outcome.reason, outcome.query) == (
+        None, WorthVerdict.INSUFFICIENT, rules.RuleReason.INVALID_ROW_VALUE, rules.QueryKind.LONGER)
+    # 有價值的 1 小時(第 8 條)也不得因長窗不合格而提案
+    assert rules.decide(_worth(), _evidence(longer=rules.LongerWindow(one_day, seven_days)),
+                        NOW).verdict is WorthVerdict.INSUFFICIENT
+
+
+def test_every_invalid_query_result_blocks_a_proposal_whatever_rule_would_hit():
+    """全面:四查詢任一有負數或不自洽,結論都不是值得加(第 3 到 9 條都要有效結果)。"""
+    rows = _evidence().daily.rows
+    bad = {
+        "daily": _evidence(daily=rules.DailyTrend((replace(rows[0], clicks=-1), *rows[1:]))),
+        "past": _evidence(past=rules.PastAdjustments((rules.AdjustmentRow(
+            5, 100, 150, -1, 5, NOW - timedelta(days=5)),))),
+        "past_future": _evidence(past=rules.PastAdjustments((rules.AdjustmentRow(
+            5, 100, 150, 1, 5, NOW + timedelta(days=1)),))),
+        "history_future": _evidence(history=rules.ChangeHistory((rules.HistoryRow(
+            "update_budget", NOW + timedelta(days=1)),))),
+    }
+    for name, evidence in bad.items():
+        assert rules.decide(_worth(), evidence, NOW).verdict is WorthVerdict.INSUFFICIENT, name
+
+
+def test_a_cross_day_daily_read_reports_the_day_boundary_even_with_a_bad_row():
+    """代碼審 r2 外家 finder-1:逐日讀取與決策不同 UTC 日時,就算另有壞列,細因也記跨日(跨日是更根本的
+    原因:那批日桶整份不該用)。"""
+    rows = _evidence().daily.rows
+    daily = rules.DailyTrend((replace(rows[0], clicks=-1), *rows[1:]),
+                             read_at=NOW - timedelta(days=1))
+    outcome = rules.decide(_worth(), _evidence(daily=daily), NOW)
+    assert (outcome.cell, outcome.reason, outcome.query) == (
+        None, rules.RuleReason.DAY_BOUNDARY, rules.QueryKind.DAILY)

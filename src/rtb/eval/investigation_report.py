@@ -32,7 +32,7 @@ from rtb.eval.adoption import (
     operational_problems,
     threshold_marks,
 )
-from rtb.eval.investigation_cases import VERDICT, Case, Cell, worth_input
+from rtb.eval.investigation_cases import NOW, VERDICT, Case, Cell, rule_evidence, worth_input
 
 # 本計劃給調查決策點的門檻(〈花費帳與採用判定〉):成本不設門檻;延遲 p95 3 秒、失敗率 1% 沿用使用者
 # 裁定,延遲中位 3 秒沿用 Phase 11B 協調者補的同一個值
@@ -56,9 +56,10 @@ def eval_set_sha256() -> str:
 
 
 def rule_verdict(case: Case) -> WorthVerdict:
-    """現行程式規則的答案:同一個判斷點輸入走 Phase 10 的現行規則(正式路徑沒有候選、允許清單是空的,
-    所以就是這一支)。"""
-    return policy.code_rule(worth_input(case))
+    """正式程式規則的答案(Phase 14 起是九條):
+    同一個判斷點輸入加案例存的四種查詢結果(轉成正式領域型別),
+    以案例固定 NOW 判。標準答案也由同一支領域規則產生,所以這一列跟標準答案同源,不作品質證據。"""
+    return policy.code_rule(worth_input(case), rule_evidence(case), NOW)
 
 
 # ---- 評估執行器逐筆跑出來的結果(執行器建、報告讀)----

@@ -120,6 +120,17 @@ def _rule_daily_row(row: Mapping[str, Any]) -> rules.DailyRow:
                           row["no_data"])
 
 
+def _moment(text: Any) -> datetime | None:
+    return datetime.fromisoformat(text) if isinstance(text, str) and text else None
+
+
+def _recent_flag(history: Mapping[str, Any]) -> bool:
+    """截斷歷史帶的完整集合近期旗標(正式讀取層同形狀);沒截斷的回應沒有摘要。"""
+    summary = history.get("summary")
+    return (history.get("truncated") is True and isinstance(summary, Mapping)
+            and summary.get("has_recent_budget_change") is True)
+
+
 def rule_evidence(case: Case) -> rules.RuleEvidence:
     """評估案例在此邊界轉為正式查詢形狀,領域層不認識 Case 字典。"""
     raw = case.results
@@ -131,14 +142,15 @@ def rule_evidence(case: Case) -> rules.RuleEvidence:
         longer=(rules.LongerWindow(_rule_window(longer["1d"]), _rule_window(longer["7d"]))
                 if longer is not None else None),
         history=(rules.ChangeHistory(tuple(
-            rules.HistoryRow(row.get("action"), datetime.fromisoformat(row["committed_at"])
-                             if row.get("committed_at") else None)
-            for row in history["history"])) if history is not None else None),
+            rules.HistoryRow(row.get("action"), _moment(row.get("committed_at")))
+            for row in history["history"]), _recent_flag(history))
+            if history is not None else None),
         daily=(rules.DailyTrend(tuple(_rule_daily_row(row) for row in daily["rows"]))
                if daily is not None else None),
         past=(rules.PastAdjustments(tuple(rules.AdjustmentRow(
             row["days_ago"], row.get("budget_before"), row.get("budget_after"),
-            row.get("before_conversions"), row.get("after_conversions"))
+            row.get("before_conversions"), row.get("after_conversions"),
+            _moment(row.get("committed_at")))
             for row in past["rows"])) if past is not None else None),
     )
 

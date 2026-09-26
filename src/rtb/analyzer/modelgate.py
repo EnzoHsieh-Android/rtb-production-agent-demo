@@ -1,7 +1,8 @@
 """分析端模型閘道(Phase 13 增量 1,計劃〈共用模型入口與行程〉):分析端唯一准匯入模型用戶端的地方。
 
 使用者裁定「共用同一個模型入口」落在這裡:分析端要呼叫模型的地方(模型說明命令列、AI 決策函式所在
-模組與分析端驅動命令列)都經它,准匯入它的分析端模組寫死在邊界測試([S1100])。流程推進與
+模組;Phase 14 增量 3 起分析端驅動命令列不再開閘道,AI 決策模組只給評估執行器用)都經它,
+准匯入它的分析端模組寫死在邊界測試([S1100])。流程推進與
 決策規則的匯入閉包不含模型用戶端的任何一支模組。
 
 閘道負責入口該判的事,判一次、之後沿用:
@@ -16,7 +17,7 @@
 """
 
 import shutil
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +47,7 @@ from rtb.modelclient import Preflight as Preflight
 from rtb.modelclient import Source as Source
 from rtb.modelclient import UnknownModel as UnknownModel
 from rtb.modelclient import preflight_login as _preflight_login
+from rtb.modelclient import recorded_ledger as _resolve_recorded_ledger
 from rtb.modelclient import traceable_sentences as traceable_sentences
 
 
@@ -105,7 +107,8 @@ class Gate:
 
 def open_gate(environ: Mapping[str, str], *, caller: Caller, demo_id: str | None,  # noqa: PLR0913 - 入口判模式要的每一樣
               ledger: Path | None, recordings: Path | None, batch_id: str | None = None,
-              recorded_ledger: Path | None = None) -> Gate:
+              recorded_ledger: Path | None = None,
+              notify: Callable[[str], None] | None = None) -> Gate:
     """在入口判一次模式。RTB_MODEL 指定的模型不在價目表丟 UnknownModel;即時模式給了帳檔路徑、
     或即時加錄製卻沒帶批次、錄製目錄不是新的(空的或只有同一批的錄製檔),丟 GateRefused:
     在入口拒絕,不等到第一次呼叫才失敗(代碼審 r1,比照 [S1142])。
@@ -123,7 +126,12 @@ def open_gate(environ: Mapping[str, str], *, caller: Caller, demo_id: str | None
             raise GateRefused(f"即時加錄製模式拒絕啟動:{mixed}") from mixed
     if not isinstance(caller, Caller):
         raise GateRefused("呼叫者必須是封閉列舉的成員")
-    chosen = ledger if ledger is not None else (
-        recorded_ledger if settings.mode is Mode.RECORDED else None)
+    given = ledger if ledger is not None else recorded_ledger
+    if settings.mode is Mode.RECORDED and given is None and notify is None:
+        # 錄製模式不退回帳號家目錄那一本(Phase 14 代碼審 r2):入口要給帳本,或給 notify 讓這裡(判出
+        # 模式之後)照共用的 recorded_ledger 建暫存帳本並通知(代碼審 r3)
+        raise GateRefused("錄製模式要指定帳本(--ledger 或 --recorded-ledger),不寫帳號家目錄那一本")
+    chosen = ledger if ledger is not None else _resolve_recorded_ledger(
+        settings.mode, recorded_ledger, notify or (lambda _text: None))
     return Gate(settings, caller, demo_id,
                 Path(chosen) if chosen is not None else live_ledger_path(), folder, batch_id)

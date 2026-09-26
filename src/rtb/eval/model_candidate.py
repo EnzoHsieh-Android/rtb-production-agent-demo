@@ -30,14 +30,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from rtb import modelclient as mc
-from rtb.analyzer.policy import CandidateCall, TrialCells, route
+from rtb.analyzer.policy import MISSING_FOUR_QUERIES, CandidateCall, TrialCells, route
 from rtb.domain.worth import WorthCell, WorthInput, WorthVerdict
 from rtb.eval.adoption import MARKED as MARKED  # 逐欄判定與沒送出類別放在採用判定模組共用
 from rtb.eval.adoption import UNSENT as UNSENT
 from rtb.eval.adoption import ComparisonRow, Measure, OperationalLimits
 from rtb.eval.adoption import threshold_marks as threshold_marks
 from rtb.eval.generator import Scenario
-from rtb.eval.scoring import ScoredCase
+from rtb.eval.scoring import RULE_NOW, ScoredCase
 
 FIELDS = ("status", "budget", "spend", "impressions", "clicks", "conversions", "revenue")
 SYSTEM_PROMPT = (
@@ -363,7 +363,8 @@ def run_subset(scenarios: Sequence[Scenario], candidate: ModelCandidate,
     trial = TrialCells(frozenset(WorthCell))
     for scenario in scenarios:
         before = len(candidate.attempts)
-        result = route(scenario.worth_input, CandidateCall(candidate, timeout_seconds), trial)
+        result = route(scenario.worth_input, CandidateCall(candidate, timeout_seconds), trial,
+                       queries=MISSING_FOUR_QUERIES, now=RULE_NOW)
         scored.append(ScoredCase(scenario, result.verdict, result.path))
         if len(candidate.attempts) == before:  # 候選沒留下這次的列(不該發生):補一列、停下
             candidate.attempts.append(UNEXPECTED_ATTEMPT)

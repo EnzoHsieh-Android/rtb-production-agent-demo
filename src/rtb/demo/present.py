@@ -25,7 +25,6 @@ from rtb.demo.state import (
     Comparison,
     ComparisonRow,
     CurrentStep,
-    DecidedBy,
     Decision,
     DecisionBasis,
     DecisionKind,
@@ -48,7 +47,6 @@ from rtb.demo.state import (
 )
 from rtb.demo.state_store import (
     Basis,
-    BasisCode,
     ComparisonRun,
     ConfirmationRequest,
     DecisionRow,
@@ -57,10 +55,8 @@ from rtb.demo.state_store import (
     StateReader,
 )
 
-AI_ACTOR = "AI"  # 判斷紀錄裡 AI 判的那一列(觀察器照調查紀錄寫)
 MODEL_MODE_REASON = "錄製回應,不是即時呼叫"
-NOTHING_RECORDED = "這次一筆對得上的錄製回應都沒有,AI 那一步全部改由程式規則決定"
-NOT_CALLED_REASON = "還沒有開了 AI 決策的情境跑過,這次沒有呼叫 AI"
+NOT_CALLED_REASON = "這次還沒有情境請 AI 寫說明或推測告警原因,沒有呼叫 AI"
 def known_limits() -> tuple[str, ...]:
     """這次示範的範圍與限制;F7 的規模取自驅動程式當下的常數(代碼審 r2 d2:不寫死)。"""
     from rtb.demo import driver
@@ -69,9 +65,8 @@ def known_limits() -> tuple[str, ...]:
         "這次只用本機模擬的廣告平台,沒有連到正式平台。",
         f"F7 是等比例縮小的規模({driver.F7_CAMPAIGNS} 個廣告、{driver.F7_WORKERS} 個工作者);"
         "完整規模由自動查核跑的 F7 測試證明。",
-        "分析那一步讓 AI 參與決定下一步:金額、廣告與動作照舊由程式決定,"
-        "AI 只選下一步(查哪種唯讀資料、值不值得加);AI 答不出或答錯格式時改由"
-        "程式規則決定。",
+        "要不要加預算、加多少都由程式照九條規則決定;AI 只寫提案說明給確認的人看、"
+        "在服務水準告警時推測可能原因,都僅供參考。",
         "判斷的根據裡,分析程式那幾組是用存下的資料重算的,不是當時記下的。",
     )
 
@@ -80,10 +75,13 @@ _STATUS = {"running": ScenarioStatus.RUNNING, "done": ScenarioStatus.DONE,
            "incomplete": ScenarioStatus.INCOMPLETE,
            "awaiting_confirmation": ScenarioStatus.AWAITING_APPROVAL,
            "not_exercised": ScenarioStatus.NOT_EXERCISED}
-_DECIDED_BY = {"rule": DecidedBy.RULE, "ai": DecidedBy.AI_DEMO,
-               "ai_fallback": DecidedBy.AI_FALLBACK}
-# 分析端模式行的「rule」:即時的登入預檢沒過,整趟改由程式規則決定(沒有呼叫 AI)
-_MODES = {"recorded": ModelMode.RECORDED, "live": ModelMode.LIVE, "rule": ModelMode.NOT_CALLED}
+# 「這次誰決定」(增量 3 代碼審 r1 外家finder-2):增量 3 起一律九條規則;舊展示狀態庫的 AI 決定照實標
+# 已撤除的舊流程,不寫成九條;沒記錄的留空,頁面寫「這次沒有記錄」
+DECIDED_BY_TEXT = {"nine_rules": "程式規則(九條)", "ai": "AI(已撤除的舊流程)",
+                   "ai_fallback": "AI 退回程式規則(已撤除的舊流程)",
+                   "rule": "程式規則(舊版記錄,早於九條)"}
+# 說明與假說入口回報的模式(Phase 14 增量 3 起不再讀分析端的模式行)
+_MODES = {"recorded": ModelMode.RECORDED, "live": ModelMode.LIVE}
 _STAGE = {
     "a_receive": Stage.RECEIVE, "a_collect": Stage.ANALYZE, "a_fresh": Stage.ANALYZE,
     "a_recollect": Stage.ANALYZE, "a_propose": Stage.PROPOSE, "x_pending": Stage.SUBMIT,
@@ -122,26 +120,6 @@ def _step(node: str, target: str, row: DecisionRow, items: Sequence[Basis],
                     kind=_kind(node), task_id=row.task)
 
 
-_AI_ITEMS = frozenset({BasisCode.AI_ROUND, BasisCode.AI_CITED, BasisCode.AI_FALLBACK})
-
-
-def _ai_steps(row: DecisionRow) -> tuple[Decision, ...]:
-    """AI 那一步(Phase 13 增量 4):先補 AI 之前的程式判斷點(新鮮度 → 齊全 → 花太慢),再放「AI 判斷」
-    那一張(退回時是「改由程式規則決定」那一張,種類是判斷,不是 AI 判斷)。"""
-    before = [b for b in row.basis if b.code not in _AI_ITEMS]
-    steps = [_step(s.node, s.target, row, (s.basis,), s.basis.conclusion)
-             for s in basis_of.ai_route(before)]
-    edge = row.edge
-    if edge is None:
-        return tuple(steps)
-    kind = DecisionKind.AI_JUDGEMENT if row.actor == AI_ACTOR else DecisionKind.JUDGEMENT
-    outcome = row.reason if kind is DecisionKind.JUDGEMENT else _EDGE_LABEL.get(edge, row.reason)
-    steps.append(Decision(node=edge[0], taken_edge=edge, outcome=outcome, reason=row.reason,
-                          at=row.at, basis=_basis([b for b in row.basis if b.code in _AI_ITEMS]),
-                          operation_key=row.operation_key, kind=kind, task_id=row.task))
-    return tuple(steps)
-
-
 def _route(row: DecisionRow, route: Sequence[basis_of.RouteStep]) -> tuple[Decision, ...]:
     """照補出來的判斷點畫;最後一步接回這一列本身的節點,接不回就不補。"""
     used = {id(s.basis) for s in route}
@@ -154,22 +132,10 @@ def _route(row: DecisionRow, route: Sequence[basis_of.RouteStep]) -> tuple[Decis
 
 
 def _filled(row: DecisionRow) -> tuple[Decision, ...]:
-    """補上的判斷點(見檔頭);補不了就是空的。最後一步接回這一列本身的節點。"""
-    if row.edge is not None and row.edge[0] == "a_ai" and row.node in {"a_ai", "a_rule"}:
-        return _ai_steps(row)
-    held = basis_of.rule_route(row.basis, held=True) if row.node == "a_exam_hold" else ()
-    if held:  # 退回之後程式規則判值得加、只判不送(代碼審 r1 p3)
-        return _route(row, held)
-    if any(b.code is BasisCode.AI_TAKEOVER for b in row.basis):
-        # 程式接手那一列:狀態往前走(照 AI 的選擇做事),根據照樣列出做了什麼
-        return (Decision(node=row.node, taken_edge=None, outcome=row.reason, reason=row.reason,
-                         at=row.at, basis=_basis(row.basis), operation_key=row.operation_key,
-                         kind=DecisionKind.PROGRESS, task_id=row.task),)
+    """補上的判斷點(見檔頭);補不了就是空的。最後一步接回這一列本身的節點。Phase 13 的 AI 那一步、
+    程式接手與退回之後的補點隨 Phase 14 增量 3 撤除。"""
     if row.node not in {"a_propose", "a_no_action", "a_recollect"}:
         return _written(row)
-    rule = basis_of.rule_route(row.basis)  # 退回之後的程式規則那兩步
-    if rule:
-        return _route(row, rule)
     analysis = basis_of.analysis_route(row.basis)
     return _route(row, analysis) if analysis else ()
 
@@ -256,18 +222,18 @@ def _scenario(code: ScenarioCode, run: ScenarioRun | None, rows: Sequence[Decisi
         queue_wait_seconds=details.queue_wait_seconds,
         injected_faults=tuple(InjectedFault(n, d) for n, d in details.injected_faults),
         operation_key=details.operation_key, platform_apply_count=details.platform_apply_count,
-        ai_enabled=details.ai_enabled, decided_by=_DECIDED_BY.get(details.decided_by or ""),
+        ai_enabled=details.ai_enabled, decided_by=DECIDED_BY_TEXT.get(details.decided_by or ""),
         model_mode_reason=details.model_mode_reason, outcome_note=details.outcome_note,
-        exam=details.exam, answered_rounds=details.answered_rounds,
         hypothesis_note=hypothesis_note if details.ai_enabled else None,
     )
 
 
 def _mode(details: ScenarioDetails) -> ModelMode:
-    """這個情境分析端實際判出的模式(分析端就緒之後印的那一行);沒開 AI 決策是「這次沒有呼叫 AI」。"""
+    """這個情境模型入口(說明、原因假說)自己回報的模式;沒開入口、或入口一次都沒呼叫模型(例如 F4/F6
+    接續任務沒有提案)是「這次沒有呼叫 AI」。"""
     if not details.ai_enabled:
         return ModelMode.NOT_CALLED
-    return _MODES.get(details.model_mode or "", ModelMode.RECORDED)
+    return _MODES.get(details.model_mode or "", ModelMode.NOT_CALLED)
 
 
 def _json(text: str | None) -> dict[str, Any] | None:
@@ -380,14 +346,12 @@ def build_demo_state(  # noqa: PLR0913 - 伺服器依在跑的是哪一種展示
 
 
 def _demo_mode(scenarios: Sequence[Scenario]) -> tuple[ModelMode, str]:
-    """頂端摘要的模型模式:照各情境分析端實際判出的模式;有情境即時就寫哪幾個即時,其餘錄製;全部錄製寫
-    「錄製回應,不是即時呼叫」;還沒有開了 AI 的情境跑過就是沒有呼叫 AI。"""
+    """頂端摘要的模型模式:照各情境模型入口回報的模式;有情境即時就寫哪幾個即時,其餘錄製;全部錄製寫
+    「錄製回應,不是即時呼叫」;沒有情境呼叫過模型就是沒有呼叫 AI。"""
     ran = [s for s in scenarios if s.model_mode not in (None, ModelMode.NOT_CALLED)]
     if not ran:
         return ModelMode.NOT_CALLED, NOT_CALLED_REASON
     live = [s.code.value for s in ran if s.model_mode is ModelMode.LIVE]
     if live:
         return ModelMode.LIVE, f"{'、'.join(live)} 即時呼叫,其餘情境{MODEL_MODE_REASON}"
-    if all(s.answered_rounds == 0 for s in ran):  # 照實寫:一筆錄製都沒對上(代碼審 r1 t4)
-        return ModelMode.RECORDED, f"{MODEL_MODE_REASON};{NOTHING_RECORDED}"
     return ModelMode.RECORDED, MODEL_MODE_REASON

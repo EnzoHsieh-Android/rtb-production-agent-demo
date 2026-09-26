@@ -37,7 +37,7 @@ from urllib.parse import parse_qs, urlsplit
 from rtb import modelledger_view
 from rtb.capabilitykit import APPROVAL_KEY_ENV
 from rtb.demo import present
-from rtb.demo.driver import ALL_CODES, NEVER_LIVE, Driver
+from rtb.demo.driver import ALL_CODES, Driver
 from rtb.demo.keys import DemoKeys
 from rtb.demo.page import (
     CONTENT_SECURITY_POLICY,
@@ -538,18 +538,19 @@ def _arguments(argv: list[str] | None) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--reports", type=Path, default=None,
                         help="報告目錄(預設帳號家目錄下的 .rtb/demo-reports)")
     parser.add_argument("--live", default="",
-                        help="讓分析那一步即時呼叫 AI 的情境(逗號分隔,例如 F5;預設空的=全部錄製,"
-                             "F7 不准)")
+                        help="讓提案說明與告警推測即時呼叫 AI 的情境(逗號分隔,例如 F5;預設空的="
+                             "全部錄製)")
     args = parser.parse_args(argv)
     return args, _live_codes(parser, args.live)
 
 
 def _live_codes(parser: argparse.ArgumentParser, text: str) -> list[str]:
-    """--live 的情境清單;F7 或不認得的情境在啟動時就拒([S1145])。"""
+    """--live 的情境清單;不認得的情境在啟動時就拒。Phase 14 增量 3 起分析端不呼叫 AI,即時清單只控制
+    說明與假說兩支模型入口,F7 不再另外拒收(原 Phase 13 [S1145] 的 F7 限制撤除)。"""
     live = [code for code in text.split(",") if code]
-    refused = sorted((set(live) - set(ALL_CODES)) | (set(live) & NEVER_LIVE))
+    refused = sorted(set(live) - set(ALL_CODES))
     if refused:
-        parser.error(f"--live 不收 {', '.join(refused)}(F7 永遠只用錄製回應)")
+        parser.error(f"--live 不收不認得的情境:{', '.join(refused)}")
     return live
 
 

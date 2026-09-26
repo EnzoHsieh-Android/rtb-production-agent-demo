@@ -10,6 +10,7 @@
 
 import ast
 import inspect
+import io
 import json
 import os
 import subprocess
@@ -243,11 +244,15 @@ def test_the_gate_decides_mode_ledger_and_recordings_once(tmp_path, dirs):
                        timeout_seconds=5.0)
     assert (result.text, result.source) == ("錄好的", mc.Source.RECORDED)
     assert rows(ledger)[-1].demo_id == "demo-1"
-    # 沒給錄製目錄就用專案根的預設;沒給帳檔就是帳號家目錄那一本
+    # 沒給錄製目錄就用專案根的預設;錄製模式沒給帳檔就拒絕,不退回帳號家目錄那一本(Phase 14 代碼審 r2:
+    # 錄製重播寫進真帳本的事故,見 Issues/錄製模式的原因假說寫進真帳本)
     narrative = modelgate.Caller.NARRATIVE
-    default = modelgate.open_gate({}, caller=narrative, demo_id=None, ledger=None, recordings=None)
+    with pytest.raises(modelgate.GateRefused, match="帳本"):
+        modelgate.open_gate({}, caller=narrative, demo_id=None, ledger=None, recordings=None)
+    default = modelgate.open_gate({}, caller=narrative, demo_id=None, ledger=None,
+                                  recordings=None, recorded_ledger=ledger)
     assert default.recordings == mc.default_recordings_dir()
-    assert default.ledger == mc.live_ledger_path()
+    assert default.ledger == ledger
     # 即時模式的帳寫死家目錄那一本:給了 --ledger 就拒絕
     script = fake_claude(tmp_path / "bin")
     write_verification()
@@ -473,7 +478,10 @@ FABRICATED = ("目前只有一筆轉換。", "建議預算九十九萬九千。"
 
 def test_only_numeral_phrases_count_as_untraceable():
     """代碼審 r3(協調者改裁定):正常寫法保留,數詞一律當對不回。"""
-    evidence = "預算=100、新預算=110、點擊=12、轉換=1、花費=0.5、營收=5.0、1、5、10、24、3、500"
+    # 增量 3 代碼審 r1 外家否決-1 起百分比要對回證據裡的百分比:「加了 10%」照舊是正常寫法,對的是
+    # 提案固定的風險說明 budget +10%(真的說明證據就帶這一行)
+    evidence = ("預算=100、新預算=110、點擊=12、轉換=1、花費=0.5、營收=5.0、1、5、10、24、3、500、"
+                "budget +10%")
     for sentence in PLAIN:
         assert mc.traceable_sentences(sentence, evidence) == (sentence, 0), sentence
     for sentence in FABRICATED:
@@ -498,3 +506,159 @@ def test_a_live_gate_ignores_the_recorded_ledger(tmp_path):
                                      ledger=None, recordings=tmp_path / "rec",
                                      recorded_ledger=recorded)
         assert replay.mode is modelgate.Mode.RECORDED and replay.ledger == recorded
+
+
+# ---- Phase 14 代碼審 r2/r3:錄製模式沒帶帳本用暫存帳本,判出模式之後才決定(共用一支) ----
+NOTICE_WORD = "暫存帳本"
+
+
+def _scratch_path(text):
+    """從通知取出暫存帳本路徑;沒有通知回 None。"""
+    for line in text.splitlines():
+        if NOTICE_WORD in line and ":" in line:
+            return Path(line.rsplit(":", 1)[1].strip())
+    return None
+
+
+def _assert_scratch(text):
+    path = _scratch_path(text)
+    assert path is not None, text
+    assert not path.is_relative_to(view.account_home())  # 不是帳號家目錄那一本
+    assert path != mc.live_ledger_path()
+    return path
+
+
+def test_the_shared_resolver_decides_after_the_mode(tmp_path, monkeypatch):
+    """共用的 `mc.recorded_ledger`:錄製且沒帶帳本才建暫存帳本、才通知;即時模式不建暫存目錄、不通知;
+    暫存目錄在行程結束時清掉(登記在 atexit)。"""
+    import atexit
+    import tempfile
+
+    made, registered, told = [], [], []
+    real = tempfile.mkdtemp
+    monkeypatch.setattr(tempfile, "mkdtemp", lambda **kw: made.append(real(**kw)) or made[-1])
+    monkeypatch.setattr(atexit, "register", lambda *a: registered.append(a))
+    assert mc.recorded_ledger(mc.Mode.LIVE, None, told.append) is None
+    assert (made, told) == ([], [])
+    given = tmp_path / "given.sqlite"
+    assert mc.recorded_ledger(mc.Mode.RECORDED, given, told.append) == given and told == []
+    scratch = mc.recorded_ledger(mc.Mode.RECORDED, None, told.append)
+    assert len(made) == 1 and scratch.parent == Path(made[0]) and len(told) == 1
+    assert _assert_scratch(told[0]) == scratch
+    assert registered and registered[0][1] == Path(made[0])  # 行程結束清掉
+
+
+def test_recorded_entries_never_touch_the_account_ledger(tmp_path):
+    """Phase 10 評估與評估重播各用自己的輸出緩衝區驗:錄製模式沒帶帳本,各自印暫存帳本路徑,帳號家目錄
+    那一本不存在。"""
+    from rtb.eval import investigation_eval, record
+
+    real = mc.live_ledger_path()
+    record_err = io.StringIO()
+    assert record.run([], out=io.StringIO(), err=record_err) == record.EXIT_OK
+    _assert_scratch(record_err.getvalue())
+    eval_err = io.StringIO()
+    code = investigation_eval.run(["--recordings-dir", str(tmp_path / "none")],
+                                  out=io.StringIO(), err=eval_err, environ={})
+    assert code in (investigation_eval.EXIT_OK, investigation_eval.EXIT_VERIFY_FAILED)
+    _assert_scratch(eval_err.getvalue())
+    assert not real.exists()
+
+
+def test_the_gate_uses_the_shared_resolver_only_in_recorded_mode(tmp_path):
+    told = []
+    gate = modelgate.open_gate({}, caller=modelgate.Caller.NARRATIVE, demo_id=None, ledger=None,
+                               recordings=tmp_path, notify=told.append)
+    assert gate.mode is modelgate.Mode.RECORDED and len(told) == 1
+    assert gate.ledger == _assert_scratch(told[0])
+    script = fake_claude(tmp_path / "bin")
+    write_verification()
+    environ = {"RTB_MODEL_LIVE": "1", "PATH": str(script.parent)}
+    told.clear()
+    live_gate = modelgate.open_gate(environ, caller=modelgate.Caller.NARRATIVE, demo_id="d",
+                                    ledger=None, recordings=tmp_path, notify=told.append)
+    assert live_gate.mode is modelgate.Mode.LIVE and told == []  # 即時不印誤導的通知
+    assert live_gate.ledger == mc.live_ledger_path()
+
+
+def test_narrate_and_the_runner_book_recorded_replays_into_a_scratch_ledger(tmp_path):
+    """代碼審 r3 鏡頭A-2:說明命令列錄製模式沒帶帳本時,入口實際用的帳本是暫存帳本(路徑在標準
+    錯誤、不在帳號家目錄),帳號家目錄那一本不存在;改回寫真帳本就翻紅。Phase 14 增量 3:分析端驅動
+    拔掉 --ai-judge、不再開模型閘道,原本「開 AI 的分析端驅動」那半刪除(測試名保留,既有綁定照舊
+    可追)。"""
+    from rtb.analyzer import narrate
+    from rtb.analyzer.task_store import TaskStore
+
+    db = tmp_path / "analyzer.db"
+    TaskStore(db).close()
+    err = io.StringIO()
+    assert narrate.run(["--db", str(db), "--recordings-dir", str(tmp_path / "rec")],
+                       environ={}, out=io.StringIO(), err=err) == 0
+    _assert_scratch(err.getvalue())
+    assert not mc.live_ledger_path().exists()
+
+
+def test_a_percentage_must_trace_back_to_a_percentage():
+    """增量 3 代碼審 r1 外家否決-1:百分比要對回證據裡的百分比,不能借同值的計數過關(F5 的 1 小時曝光
+    剛好是 500,「加 500%」原本會被當成對得回);一般數字照舊對回任何同值的證據數字。"""
+    evidence = "- 證據甲 metrics:impressions=500、clicks=12\n- 風險說明(程式固定文字):budget +10%"
+    assert mc.traceable_sentences("請把預算加 500%。", evidence) == ("", 1)
+    assert mc.traceable_sentences("請把預算加 500 \uff05。", evidence) == ("", 1)
+    assert mc.traceable_sentences("曝光 500 次。", evidence) == ("曝光 500 次。", 0)
+    assert mc.traceable_sentences("預算加 10%。", evidence) == ("預算加 10%。", 0)
+    assert mc.traceable_sentences("點擊 12%。", evidence) == ("", 1)
+
+
+# 增量 3 代碼審 r2(鏡頭A、外家finder、資安 三席一致):百分比的各種寫法都要當百分比核對
+_PERCENT_EVIDENCE = ("- 證據甲 metrics:impressions=500、clicks=12\n"
+                     "- 風險說明(程式固定文字):budget +10%")
+PERCENT_BYPASSES = [
+    "請把預算加 500\ufe6a。",  # 小型百分號(NFKC 會變成 %)
+    "請把預算加 500\u066a。",  # 阿拉伯百分號
+    "請把預算加 \uff15\uff10\uff10%。",  # 全形數字
+    "請把預算加百分之500。",
+    "请把预算加百分之 500。",
+    "請把預算加 500 percent。",
+    "Raise the budget by 500 Percent.",
+    "Raise the budget by 500 per cent.",
+    "Raise the budget by 500 percentage points.",
+    "Raise the budget by 500 pct.",
+    "請把預算加 500 個百分點。",
+    "请把预算加 500 个百分点。",
+    "請把預算加 500 百分點。",
+    "請把預算加 500\u2030。",  # 千分號:對不回,整句拿掉
+    "請把預算加 10\u2030。",
+    "請把預算加 500\u2031。",  # 萬分號
+    # 代碼審 r3 鏡頭A:連字號與複數寫法
+    "Raise the budget by 500-percent.",
+    "Raise the budget by 500\u2010percent.",
+    "Raise the budget by 500 per-cent.",
+    "Raise the budget by 500pcts.",
+    "Raise the budget by 500 percents.",
+    # 代碼審 r3 資安:數字與百分號之間插不可見或空白樣字元(NFKC 刪不掉)
+    "建議加 500\ufe0f%。",  # 變體選擇符(Mn)
+    "建議加 500\ufe00%。",
+    "建議加 500\u034f%。",  # 組合字形連接符(Mn)
+    "建議加 500\u20dd%。",  # 圍住的組合符號(Me)
+    "建議加 500\u200b%。",  # 零寬空白(Cf)
+    "建議加 500\U000e0100%。",  # 補充變體選擇符(Mn)
+    "Raise by 500 per\ufe0fcent.",
+    "建議加百分之\ufe0f500。",
+    "建議加 500\u3164%。",  # 韓文填充字(Lo,看起來是空白)
+    "建議加 500\u2800%。",  # 點字空白(So,看起來是空白)
+]
+
+
+@pytest.mark.parametrize("sentence", PERCENT_BYPASSES)
+def test_every_way_of_writing_a_percentage_must_trace_back_to_a_percentage(sentence):
+    """F5 的曝光數剛好是 500:換個百分號或寫法,「加 500%」也不能借曝光數過關;千分號、萬分號
+    一律對不回。"""
+    assert mc.traceable_sentences(sentence, _PERCENT_EVIDENCE) == ("", 1)
+
+
+@pytest.mark.parametrize("sentence", ["預算加百分之10。", "預算加 10 個百分點。",
+                                      "Raise the budget by 10 percent.", "預算加 10\ufe6a。",
+                                      "Raise the budget by 10-percent.", "預算加 10\ufe0f%。"])
+def test_a_traceable_percentage_survives_any_spelling(sentence):
+    """對得回證據百分比(+10%)的寫法照留,不是一看到百分比就拿掉。"""
+    assert mc.traceable_sentences(sentence, _PERCENT_EVIDENCE) == (sentence, 0)

@@ -25,7 +25,7 @@ from rtb import modelledger as ledger_db
 from rtb import modelrecording as rec_module
 from rtb.analyzer import policy
 from rtb.domain.worth import CampaignStatus, WorthCell, WorthInput, WorthInputInvalid, WorthVerdict
-from rtb.eval import adoption, eval_set, generator, model_candidate, record
+from rtb.eval import adoption, eval_set, generator, model_candidate, record, scoring
 from tests.analyzer.test_boundaries import _imported_modules, _network_offenders, _source_of
 from tests.model.fakes import (
     FakeBackend,
@@ -92,10 +92,15 @@ def _batch(rows):
         recorded_on="2026-09-24", rows=tuple(rows))
 
 
+# Phase 10 情境沒有四查詢:經路由一律明傳缺四查詢(Phase 14 [S1417])
+RULE = {"queries": policy.MISSING_FOUR_QUERIES, "now": scoring.RULE_NOW}
+
+
 # ---- [S908] ----
 def test_a_bad_model_answer_falls_back_to_the_rule(tmp_path, monkeypatch):
-    worth_input = _worth_input()  # 有投放、有價值:現行規則答值得加
-    rule = policy.code_rule(worth_input)
+    # 有投放、有價值;Phase 10 情境沒有四查詢,正式規則(九條)明傳缺四查詢答證據不足(Phase 14 [S1417])
+    worth_input = _worth_input()
+    rule = policy.code_rule(worth_input, policy.MISSING_FOUR_QUERIES, scoring.RULE_NOW)
     cases = [
         (reply('{"verdict": "maybe"}'), "invalid_verdict"),
         (reply("值得加"), "invalid_verdict"),
@@ -110,19 +115,21 @@ def test_a_bad_model_answer_falls_back_to_the_rule(tmp_path, monkeypatch):
     ]
     for reaction, outcome in cases:
         candidate = _candidate(tmp_path, live(FakeBackend(reaction)))
-        result = policy.route(worth_input, policy.CandidateCall(candidate, 5.0), ALL_CELLS)
+        result = policy.route(worth_input, policy.CandidateCall(candidate, 5.0), ALL_CELLS, **RULE)
         assert result.verdict is rule and result.path is not policy.RoutePath.CANDIDATE, outcome
         assert [a.outcome for a in candidate.attempts] == [outcome]
     missing = _candidate(tmp_path, recorded())
-    assert policy.route(worth_input, policy.CandidateCall(missing, 5.0), ALL_CELLS).verdict is rule
+    assert policy.route(worth_input, policy.CandidateCall(missing, 5.0), ALL_CELLS,
+                        **RULE).verdict is rule
     assert missing.attempts[-1].outcome == "no_recording"
     monkeypatch.setattr(core, "MONTH_CAP_NANOUSD", 1)
     capped = _candidate(tmp_path, live())
-    assert policy.route(worth_input, policy.CandidateCall(capped, 5.0), ALL_CELLS).verdict is rule
+    assert policy.route(worth_input, policy.CandidateCall(capped, 5.0), ALL_CELLS,
+                        **RULE).verdict is rule
     assert capped.attempts[-1].outcome == "local_cap_refused"
     monkeypatch.setattr(core, "MONTH_CAP_NANOUSD", 20 * mc.NANOUSD_PER_USD)
     good = _candidate(tmp_path, live(FakeBackend(reply('{"verdict": "not_worth"}'))))
-    result = policy.route(worth_input, policy.CandidateCall(good, 5.0), ALL_CELLS)
+    result = policy.route(worth_input, policy.CandidateCall(good, 5.0), ALL_CELLS, **RULE)
     assert (result.verdict, result.path) == (WorthVerdict.NOT_WORTH, policy.RoutePath.CANDIDATE)
     assert good.attempts[-1].outcome == "ok"
 
@@ -803,7 +810,8 @@ def test_continued_output_falls_back_without_stopping_the_evaluation(tmp_path):
     assert {r.outcome for r in run.rows} == {"unreadable"}
     assert all(a.tool_use is False for a in candidate.attempts)
     for case in run.scored:
-        assert case.final is policy.code_rule(case.scenario.worth_input), case
+        assert case.final is policy.code_rule(case.scenario.worth_input,
+                                              policy.MISSING_FOUR_QUERIES, scoring.RULE_NOW), case
         assert case.path is not policy.RoutePath.CANDIDATE
 
 

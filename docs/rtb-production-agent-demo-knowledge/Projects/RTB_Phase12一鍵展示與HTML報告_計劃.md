@@ -266,7 +266,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 ## 合約候選
 
 - [S1000] 當分析端驅動命令列啟動時,它應只經正式的 DSP 用戶端與收件口用戶端呼叫流程推進函式,不帶任何故障注入手段。(合約文字不改;2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 在測試寫死的匯入名單加模型閘道、AI 決策模組、它的模型無關詞彙模組與小常數模組)[test:test_the_analyzer_runner_uses_only_production_collaborators]
-- [S1001] 當呼叫次數乘逾時乘 2 不小於租約時,分析端驅動命令列應拒絕啟動。[test:test_the_analyzer_runner_refuses_a_lease_too_short_for_its_calls]
+- [S1001] 當呼叫次數乘逾時乘 2 不小於租約時,分析端驅動命令列應拒絕啟動。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 補範圍:這條算式留給基本兩讀那一步;正式規則的規則輪 A/B/C 另立逐步守衛 [S1405],任一步不符也拒絕啟動,預設逾時 3 秒時 26/26/50 秒,4 秒時 C=55 秒仍可、5 秒時 C=60 秒拒絕。)[test:test_the_analyzer_runner_refuses_a_lease_too_short_for_its_calls]
 - [S1002] 正式程式與展示以外的套件應不匯入展示套件,而且展示專用的故障套件只准展示啟動器匯入。[test:test_nothing_outside_the_demo_package_imports_it]
 - [S1003] 當驅動程式啟動任何行程時,子行程環境的鍵應只在 PATH、HOME、LANG、USER、PYTHONPATH(值固定為專案 src 的絕對路徑)、該角色需要的金鑰,與有排故障的那一個子行程的 RTB_DEMO_FAULT_NONCE 之內,模型入口另外只多 RTB_MODEL_LIVE、RTB_MODEL、RTB_MODEL_RECORD(與即時模式的登入權杖 CLAUDE_CODE_OAUTH_TOKEN,使用者 2026-09-25 裁定;只在情境列在即時清單時帶),分析端只在那個情境列在即時清單、而且那次帶 --ai-judge 時多同樣三個(照 [[Projects/RTB_Phase13AI參與決策_計劃]] [S1145] 放寬),驗證器與比較表產生器另外只多 LC_ALL、LC_CTYPE。[test:test_demo_processes_get_only_whitelisted_environment]
 - [S1004] 展示伺服器每次展示產生的金鑰應是 secrets.token_urlsafe 的文字、UTF-8 長度不短於 MIN_KEY_BYTES、每次展示都不同,而且展示狀態資料庫、報告與收據檔裡都找不到金鑰的文字或它的 UTF-8 位元組。[test:test_demo_keys_are_random_and_long_enough]
@@ -293,7 +293,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - [S1025] 程式的任務狀態與嘗試狀態轉換表裡每一條往回走的轉換,以及執行端代表放回待處理的生命週期事件種類,都應列在流程圖定義的回頭轉換清單裡並展開成新節點。[test:test_every_known_back_transition_is_unrolled]
 - [S1026] 對應清單上每一個列舉的每一個成員,處置說明對照表都應有一句白話說明。[test:test_every_disposition_has_a_plain_explanation]
 - [S1027] 當模型說明有成功結果時,頁面應先列程式算的數字、再列只標「AI 產生、僅供參考」的模型文字,不標錄製或即時;沒有成功結果時應顯示結果類別,缺錄以「AI 這次沒有給出回答」顯示。(使用者 2026-09-25 裁定:頁面只標 AI 產生、僅供參考,不標來源。)[test:test_the_model_step_shows_computed_numbers_first_and_labels_the_text] [test:test_the_narrative_shows_computed_numbers_first_without_mode_source]
-- [S1028] 模型入口實際判出的模式與原因只供程式內部與紀錄使用,頁面不區分錄製或即時,也不顯示模式原因。(使用者 2026-09-25 裁定:錄製也使用了模型結果,頁面不再區分兩種方式。)[test:test_the_page_hides_model_mode_while_entries_keep_their_actual_choice] [test:test_a_listed_scenario_that_falls_back_books_into_its_temporary_ledger] [test:test_the_runner_prints_the_mode_it_chose_right_after_ready]
+- [S1028] 模型入口實際判出的模式與原因只供程式內部與紀錄使用,頁面不區分錄製或即時,也不顯示模式原因。(使用者 2026-09-25 裁定:錄製也使用了模型結果,頁面不再區分兩種方式。)(2026-09-26 代使用者裁定,[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3:分析端驅動不再印模式行,模型模式只由說明與假說兩支入口自己回報;原綁的分析端模式行測試隨入口刪除,改綁入口回報模式那一支。)[test:test_the_page_hides_model_mode_while_entries_keep_their_actual_choice] [test:test_a_listed_scenario_that_falls_back_books_into_its_temporary_ledger] [test:test_the_demo_uses_recordings_unless_live_is_switched_on]
 - [S1029] 每按一次觸發,驅動程式應產生一個新的展示編號,並把同一個編號傳給這次展示的每一個模型入口。[test:test_one_demo_id_per_trigger_reaches_every_model_entry](2026-09-25 健檢發現原綁的測試不存在,Phase 13 增量 4 補:經展示伺服器觸發兩次,兩個展示編號不同,每次的分析端、說明、假說命令列拿到的 --demo-id 相同)
 - [S1030] 當沒開即時開關時(用模型用戶端同一支判定,RTB_MODEL_LIVE=true 也算沒開),驅動程式應讓模型入口把花費帳記在這次展示的暫存目錄,不碰使用者家目錄下的真帳。[test:test_recorded_demos_book_into_a_temporary_ledger] [test:test_a_listed_scenario_that_falls_back_books_into_its_temporary_ledger] [test:test_the_demo_uses_recordings_unless_live_is_switched_on](2026-09-25 健檢發現原綁的測試不存在,Phase 13 增量 4 補:RTB_MODEL_LIVE=true、情境列在即時清單、有叫得到的假 claude 與啟用紀錄,三支模型入口都判成錄製、沒叫 claude,帳記在情境暫存目錄、帳號家目錄下沒有帳)
 - [S1031] 展示頁應原樣顯示驗證器的輸出,擋下時逐條列出原因。[test:test_the_page_shows_the_verifier_output_verbatim]

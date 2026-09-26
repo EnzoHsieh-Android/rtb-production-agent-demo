@@ -161,10 +161,13 @@ class DspHandler(JsonHandler):
         self, store: CampaignStore, campaign_id: str, _fault: str | None
     ) -> dict[str, Any]:
         rows, summary = store.history_limited(campaign_id)
-        if summary is None:  # 沒截斷:維持既有形狀
-            return {"history": [asdict(h) for h in rows]}
+        # 頂層帶廣告編號,讀取層核對是這件工作的廣告(Phase 14 代碼審 r1 資安-2:歷史進了正式規則
+        # 第 3 條;形狀同逐日與過去調整)
+        if summary is None:  # 沒截斷:列的形狀照舊
+            return {"campaign_id": campaign_id, "history": [asdict(h) for h in rows]}
         # 超過 50 筆才截斷:另帶完整集合的摘要與截斷旗標([S1422])
-        return {"history": [asdict(h) for h in rows], "summary": summary, "truncated": True}
+        return {"campaign_id": campaign_id, "history": [asdict(h) for h in rows],
+                "summary": summary, "truncated": True}
 
     def _get_metrics(
         self, store: CampaignStore, campaign_id: str, _fault: str | None

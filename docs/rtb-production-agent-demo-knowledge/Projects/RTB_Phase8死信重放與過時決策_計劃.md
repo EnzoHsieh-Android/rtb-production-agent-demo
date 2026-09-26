@@ -96,7 +96,7 @@ RETIRE-IF: 換成外部佇列服務且它自帶死信與重放(含稽核)時,撤
 - [S501] 最後卡在哪一步的每一種應分類為暫時失敗,擋下原因的每一種應分類為永久失敗;兩個列舉的每個成員都應有分類。[test:test_every_failure_kind_is_classified]
 - [S502] 當重放的提案還在收件表、處置是死信、還沒過期、而且同任務沒有更新的修訂,重放指令應把它放回待處理並寫一列稽核;任一條件不成立應拒絕並寫一列說明原因的稽核;兩次同時重放同一份應只有一次放回。[test:test_a_replay_requeues_only_a_live_dead_letter]
 - [S503] 當重放的提案被取件,執行端應照一般流程重跑執行前檢查、簽發、總曝險與核可,任一關不過應擋下並給原因,不呼叫 DSP 寫入。[test:test_a_replayed_proposal_goes_through_every_gate]
-- [S504] 當提案的政策版本不等於現行版本,執行前檢查應擋下並回「政策已變」。[test:test_a_proposal_from_another_policy_version_is_blocked]
+- [S504] 當提案的政策版本不等於現行版本,執行前檢查應擋下並回「政策已變」。(2026-09-26 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1416]:九條上線換政策版本 nine-rules-v1,舊 demo-pacing-v1 提案照本條擋;已知版本清單保留舊值只供指標分類,不參與擋件;回退也要換新版本,不直接恢復舊字串。)[test:test_a_proposal_from_another_policy_version_is_blocked]
 - [S505] 當現在減決策建立時間超過 15 分鐘,執行前檢查應擋下並回「決策已過時」;剛好等於 15 分鐘應通過;執行前檢查通過、進開始一筆的交易時才超過,也應擋下、不呼叫 DSP 寫入。[test:test_a_stale_decision_is_blocked]
 - [S506] 重放後開的嘗試應用跟信封相同的冪等鍵,信封、嘗試紀錄與收件表處置應能用這把鍵接起來。[test:test_a_replayed_attempt_links_back_to_its_envelope]
 - [S507] 當收件口回死信而決策還沒過期,分析端應把任務當成還在處理、不改任務;收件口回死信而決策已過期應結案、不建接續任務(收件表已清掉那一列時照 Phase 5 [S317],不在這條);收件口回「政策已變」或「決策已過時」應建接續任務重新規劃。[test:test_the_analyzer_waits_on_a_live_dead_letter_and_replans_on_stale_reasons]
