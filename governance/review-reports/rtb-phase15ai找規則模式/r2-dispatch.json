@@ -1,0 +1,44 @@
+[
+ {
+  "round": "r2",
+  "seat": "鏡頭1",
+  "lens": "評估統計與公平比較:誤報/召回定義、保留集判準、對照配對、樣本下限、排序鍵、防調參對稱、誠實度",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r2.md",
+   "/tmp/rtb-phase15ai找規則模式-r2-delta.diff",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "鏡頭2",
+  "lens": "模型邊界、單次呼叫的大小與預算算式、解析型別、回退與既有合約改寫",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r2.md",
+   "/tmp/rtb-phase15ai找規則模式-r2-delta.diff",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r2",
+  "seat": "架構對齊",
+  "lens": "模組邊界與既有做法",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r2.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r2",
+  "seat": "外家-codex",
+  "lens": "外家否決",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r2.md",
+   "src/rtb/"
+  ],
+  "auditor": "codex"
+ }
+]

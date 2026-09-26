@@ -1,0 +1,72 @@
+[
+ {
+  "round": "r1",
+  "seat": "鏡頭1",
+  "lens": "評估設計的統計陷阱:合成資料、配對對照、探索/保留集切分、多重比較、資料洩漏、誘餌設計",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r1.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭2",
+  "lens": "模型邊界與機械核對:封閉條件語彙、回覆解析、提示大小與分塊、錄製鍵、新呼叫者與花費上限、即時授權",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r1.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-opus"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭3",
+  "lens": "AI 與窮舉基準的公平比較、報告誠實度:能不能誠實回答「AI 在這裡帶來什麼」",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r1.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭4",
+  "lens": "既有合約與邊界測試改寫:[S712][S902][S903][S917][S918][S1100]、匯入邊界、錄製/帳本合約",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r1.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "鏡頭5",
+  "lens": "可執行性、拆增量、回退與實務隱患",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r1.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "架構對齊",
+  "lens": "模組邊界與既有做法",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r1.md",
+   "src/rtb/"
+  ],
+  "auditor": "claude-sonnet"
+ },
+ {
+  "round": "r1",
+  "seat": "外家-codex",
+  "lens": "外家否決",
+  "materials": [
+   "/tmp/rtb-phase15ai找規則模式-r1.md",
+   "src/rtb/"
+  ],
+  "auditor": "codex"
+ }
+]
