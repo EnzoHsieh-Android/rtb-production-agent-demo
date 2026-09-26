@@ -2,7 +2,7 @@
 type: system
 status: done
 created: 2026-09-24
-updated: 2026-09-25
+updated: 2026-09-27
 responsibility: 重畫 README 的 GIF 與 SVG 流程圖，不參與正式分析或執行流程。
 self_audit: gpt-5.6-sol/2026-09-25
 aliases: []
@@ -25,9 +25,13 @@ WHY: [2026-09-25 Phase 13 主線] 先前灰色「AI 說明規劃中」旁支已�
 
 展示流程定義把「AI 說明」列在提案與送件之間，作為提案旁的可選節點；實際展示驅動在情境結束後才讀已送出的提案、產生給人看的說明，告警假說也在那時獨立處理。本圖送件後的虛線旁支表現展示時點，不表示那段文字會跟提案一起進入收件或執行決策。
 
+WHY: [2026-09-25] F6/F7 回頭線用人工色虛線，AI 查詢回頭線用 AI 色虛線，與程式主線分辨；GIF 和 SVG 共用節點與路徑定義。出處：README 代碼審第 2 輪與本次 Phase 13 README 更新。
+
 WHY: [2026-09-26] 使用者指出舊圖的「蒐集資料」沒有連到廣告平台，讀者會以為分析端只看系統內部資料；實際上分析端的 DSP 用戶端在蒐集時讀廣告現況與成效指標，AI 追加查詢也回到蒐集再讀一次(見 [[Systems/Mock-DSP]])。平台列在蒐集下方另畫一格「Mock DSP 讀現況／指標」，用平台色虛線標「只讀」，跟執行端的實線寫入分開，保住「寫入只在執行端」這個重點；不拉長線接到右邊那一格，免得橫越整張圖。展示流程定義是狀態流程、不畫呼叫關係，這條線不在裡面，是這張 README 圖自己補的。
 
-WHY: [2026-09-25] F6/F7 回頭線用人工色虛線，AI 查詢回頭線用 AI 色虛線，與程式主線分辨；GIF 和 SVG 共用節點與路徑定義。出處：README 代碼審第 2 輪與本次 Phase 13 README 更新。
+WHY: [2026-09-27 Phase 14] 使用者要 README 圖跟正式決策路徑一致：分析端第一步 A 讀現況與 1h 成效，用 A 的資料初篩；配速偏低才續讀 B（歷史、過去調整）、C（逐日、1d／7d、重讀），由九條程式規則定案，值得加才算金額與送件。AI 決策與選查詢已退出正式及展示分析，圖只保留送件後給確認者看的提案說明，以及告警時的原因假說；兩支均不進加額決策。F6 人工重放及 F7 核可仍回佇列重驗。出處：[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉1–8、實際展示驅動與本次 README 工作；以 `python3 docs/assets/make_agent_flow_gif.py` 重畫並核對 [[Verification/README流程動圖驗證]]。
+
+本圖由同一份 `NODES`、`EDGES`、`CAPTIONS` 資料產 GIF 與 SVG，SVG 逐次輸出相同。上方 2026-09-24 至 26 日的 Phase 13 畫法及抽格紀錄是歷史脈絡，不能當成現行圖；目前兩條 AI 旁支的時點仍依展示驅動，而不是流程定義裡保留的候選模型節點。
 
 驗證入口：`python3 docs/assets/make_agent_flow_gif.py` 重畫 GIF 與 SVG；用 `--font` 或 `RTB_FLOW_FONT` 指定字型，未指定時才用 macOS Hiragino Sans GB，找不到字型會報錯退出。產出後抽格目視、解析 SVG XML，並跑 `ruff check docs/assets/make_agent_flow_gif.py`。
 

@@ -1,8 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" font-family="Hiragino Sans GB, sans-serif">
-<title id="title">RTB Agent 從 AI 調查到安全寫入</title>
-<desc id="desc">分析端向模擬平台唯讀讀取廣告現況與指標；資料太舊會重蒐集，缺資料或配速不慢會不提案；配速偏慢時，未開 AI 才交程式規則。AI 可選唯讀查詢或下結論，AI 失敗時改由程式規則判斷。程式計算提案，收件與執行端重查後才寫入模擬平台。說明與假說只給人參考；F6 重放與 F7 核可回到佇列重驗。</desc>
+<title id="title">RTB Agent 九條規則判斷到安全寫入</title>
+<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，程式用這批資料初篩新鮮度、配速、暫停與異常；只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。AI 在送件後寫提案說明，告警時推測原因，兩者都不參與決策。收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>
 <defs><marker id="arrow-read" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#89d0ac"/></marker></defs>
-<defs><marker id="arrow-query" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
 <defs><marker id="arrow-note" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
 <defs><marker id="arrow-main" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
 <defs><marker id="arrow-human" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#f1c875"/></marker></defs>
@@ -21,68 +20,68 @@
 <text x="20" y="596" fill="#f4f4f5" font-size="18">廣告平台</text>
 <rect x="95" y="640" width="1681" height="70" rx="10" fill="#171a22"/>
 <text x="20" y="681" fill="#f4f4f5" font-size="18">人工</text>
-<polyline points="165,180 190,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="215,209 215,561" fill="none" stroke="#89d0ac" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-read)"/>
-<polyline points="290,180 305,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="425,180 446,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="340,152 340,132 240,132 240,151" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-back)"/>
-<polyline points="425,196 435,196 435,230 580,230 580,275 599,275" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
-<polyline points="385,152 385,122 650,122 650,151" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
-<polyline points="564,180 600,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
-<polyline points="505,151 505,102 775,102 775,151" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="505,208 505,246" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-query)"/>
-<polyline points="446,275 240,275 240,209" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-query)"/>
-<polyline points="564,190 590,190 590,275 599,275" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
-<polyline points="700,180 719,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
-<polyline points="650,209 650,246" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
-<polyline points="831,180 860,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="910,208 910,246" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
-<polyline points="960,180 1045,180 1045,353" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="1095,382 1114,382" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="1170,410 1170,461" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="1220,490 1249,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="1361,490 1400,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="1450,518 1450,561" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="1500,590 1580,590 1580,519" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="1630,490 1661,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="1114,398 1100,398 1100,490 1091,490" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
-<polyline points="1035,519 1035,635 1060,635 1060,645" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
-<polyline points="1124,675 1110,675 1110,428 1126,428 1126,411" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
-<polyline points="1305,519 1305,645" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
-<polyline points="1374,675 1395,675 1395,430 1210,430 1210,411" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
+<polyline points="165,180 184,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="240,209 240,561" fill="none" stroke="#89d0ac" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-read)"/>
+<polyline points="296,180 325,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="475,180 509,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="400,151 400,125 240,125 240,151" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-back)"/>
+<polyline points="475,198 485,198 485,235 770,235 770,275 774,275" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
+<polyline points="621,180 651,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="779,180 833,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="885,208 885,226 830,226 830,246" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
+<polyline points="937,180 952,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1068,180 1080,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1130,208 1130,246" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
+<polyline points="1500,275 1554,275" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
+<polyline points="1180,180 1200,180 1200,340 1130,340 1130,353" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1180,382 1199,382" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1255,410 1255,461" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1305,490 1334,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1446,490 1485,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1535,518 1535,561" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1585,590 1650,590 1650,519" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1700,490 1715,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1199,398 1185,398 1185,490 1176,490" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
+<polyline points="1120,519 1120,635 1145,635 1145,645" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
+<polyline points="1209,675 1195,675 1195,428 1211,428 1211,411" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
+<polyline points="1390,519 1390,645" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
+<polyline points="1459,675 1480,675 1480,430 1295,430 1295,411" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
 <rect x="65" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="115" y="180" text-anchor="middle">收到工作</text></g>
-<rect x="190" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="240" y="180" text-anchor="middle">蒐集資料</text></g>
-<rect x="305" y="152" width="120" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="365" y="173" text-anchor="middle">新鮮齊全？</text><text x="365" y="196" text-anchor="middle">配速偏慢？</text></g>
-<rect x="446" y="152" width="118" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="505" y="180" text-anchor="middle">AI 選下一步</text></g>
-<rect x="600" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="650" y="173" text-anchor="middle">程式規則</text><text x="650" y="196" text-anchor="middle">接手判斷</text></g>
-<rect x="719" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="775" y="173" text-anchor="middle">程式算金額</text><text x="775" y="196" text-anchor="middle">寫好提案</text></g>
-<rect x="860" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="910" y="180" text-anchor="middle">送出提案</text></g>
-<rect x="446" y="247" width="118" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="505" y="268" text-anchor="middle">選唯讀查詢</text><text x="505" y="291" text-anchor="middle">再蒐證</text></g>
-<rect x="599" y="247" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="655" y="268" text-anchor="middle">不提案／</text><text x="655" y="291" text-anchor="middle">證據不足</text></g>
-<rect x="841" y="247" width="138" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="910" y="268" text-anchor="middle">AI 說明／假說</text><text x="910" y="291" text-anchor="middle">只給人參考</text></g>
-<rect x="995" y="354" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1045" y="382" text-anchor="middle">收件檢查</text></g>
-<rect x="1114" y="354" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1170" y="382" text-anchor="middle">待處理佇列</text></g>
-<rect x="979" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1035" y="483" text-anchor="middle">多次未啟動</text><text x="1035" y="506" text-anchor="middle">先停下</text></g>
-<rect x="1120" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1170" y="490" text-anchor="middle">寫前重查</text></g>
-<rect x="1249" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1305" y="483" text-anchor="middle">權限／版本</text><text x="1305" y="506" text-anchor="middle">單筆／總額</text></g>
-<rect x="1400" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1450" y="490" text-anchor="middle">憑證寫入</text></g>
-<rect x="1530" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1580" y="490" text-anchor="middle">核對結果</text></g>
-<rect x="1661" y="462" width="78" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1700" y="490" text-anchor="middle">完成</text></g>
-<rect x="1400" y="562" width="100" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="1450" y="583" text-anchor="middle">Mock DSP</text><text x="1450" y="606" text-anchor="middle">模擬平台</text></g>
+<rect x="184" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="240" y="173" text-anchor="middle">A 現況</text><text x="240" y="196" text-anchor="middle">＋1h 成效</text></g>
+<rect x="325" y="152" width="150" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="400" y="173" text-anchor="middle">初篩：新鮮／配速</text><text x="400" y="196" text-anchor="middle">暫停／異常</text></g>
+<rect x="509" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="565" y="173" text-anchor="middle">B 歷史</text><text x="565" y="196" text-anchor="middle">＋過去調整</text></g>
+<rect x="651" y="152" width="128" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="715" y="173" text-anchor="middle">C 逐日＋1d/7d</text><text x="715" y="196" text-anchor="middle">重讀現況</text></g>
+<rect x="833" y="152" width="104" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="885" y="180" text-anchor="middle">九條判定</text></g>
+<rect x="952" y="152" width="116" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1010" y="173" text-anchor="middle">值得加才</text><text x="1010" y="196" text-anchor="middle">程式算金額</text></g>
+<rect x="1080" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="180" text-anchor="middle">送出提案</text></g>
+<rect x="774" y="247" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="830" y="268" text-anchor="middle">不提案／</text><text x="830" y="291" text-anchor="middle">證據不足</text></g>
+<rect x="1059" y="247" width="142" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1130" y="275" text-anchor="middle">AI 寫提案說明</text></g>
+<rect x="1400" y="247" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1450" y="275" text-anchor="middle">告警</text></g>
+<rect x="1554" y="247" width="132" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1620" y="275" text-anchor="middle">AI 推測原因</text></g>
+<rect x="1080" y="354" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="382" text-anchor="middle">收件檢查</text></g>
+<rect x="1199" y="354" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="382" text-anchor="middle">待處理佇列</text></g>
+<rect x="1064" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1120" y="483" text-anchor="middle">多次未啟動</text><text x="1120" y="506" text-anchor="middle">先停下</text></g>
+<rect x="1205" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="490" text-anchor="middle">寫前重查</text></g>
+<rect x="1334" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1390" y="483" text-anchor="middle">權限／版本</text><text x="1390" y="506" text-anchor="middle">單筆／總額</text></g>
+<rect x="1485" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1535" y="490" text-anchor="middle">憑證寫入</text></g>
+<rect x="1600" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1650" y="490" text-anchor="middle">核對結果</text></g>
+<rect x="1715" y="462" width="60" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1745" y="490" text-anchor="middle">完成</text></g>
+<rect x="1485" y="562" width="100" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="1535" y="583" text-anchor="middle">Mock DSP</text><text x="1535" y="606" text-anchor="middle">模擬平台</text></g>
 <rect x="159" y="562" width="112" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="215" y="583" text-anchor="middle">Mock DSP</text><text x="215" y="606" text-anchor="middle">讀現況／指標</text></g>
-<rect x="996" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1060" y="675" text-anchor="middle">F6 人工重放</text></g>
-<rect x="1246" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1310" y="675" text-anchor="middle">F7 人工核可</text></g>
-<text x="540" y="312" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">太舊回蒐集；缺資料或不慢就不提案</text>
-<text x="925" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">送件後供人參考，不進決策</text>
+<rect x="1081" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1145" y="675" text-anchor="middle">F6 人工重放</text></g>
+<rect x="1331" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1395" y="675" text-anchor="middle">F7 人工核可</text></g>
+<text x="525" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">太舊回 A；缺資料或不慢就不提案</text>
+<text x="1130" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">送件後供確認者參考，不進決策</text>
+<text x="1570" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">告警原因只是假說，不進決策</text>
 <text x="1065" y="714" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">重放／核可後都回佇列，重新檢查</text>
-<text x="290" y="119" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>
-<text x="560" y="136" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">未開 AI 時</text>
-<text x="470" y="222" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">缺資料／不慢</text>
+<text x="300" y="119" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>
+<text x="535" y="222" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">缺資料／不慢</text>
+<text x="855" y="215" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">不值得／證據不足</text>
 <text x="240" y="430" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">只讀</text>
 <rect x="95" y="722" width="1681" height="28" rx="7" fill="#11141b" stroke="#424958"/>
 <text x="112" y="736" dominant-baseline="middle" fill="#93ccee" font-size="15">程式</text>
 <text x="180" y="736" dominant-baseline="middle" fill="#d5a4f0" font-size="15">AI</text>
 <text x="235" y="736" dominant-baseline="middle" fill="#f1c875" font-size="15">人工／回頭線</text>
 <text x="385" y="736" dominant-baseline="middle" fill="#89d0ac" font-size="15">模擬平台</text>
-<text x="585" y="736" dominant-baseline="middle" fill="#f4f4f5" font-size="15">AI 只選查詢或結論；所有寫入由程式與人工關卡決定</text>
+<text x="585" y="736" dominant-baseline="middle" fill="#f4f4f5" font-size="15">A／B／C 唯讀平台；九條規則決定提案，AI 只寫說明與告警假說</text>
 </svg>

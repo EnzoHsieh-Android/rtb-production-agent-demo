@@ -1,0 +1,1 @@
+[{"round":"r1","seat":"事實核對","lens":"README 每句宣稱與數字對得上程式、評估報告、截圖","materials":["governance/review-reports/code-readme-phase14/r1-snapshot.patch","README.md","governance/eval/","docs/assets/phase14/"],"auditor":"claude-opus"},{"round":"r1","seat":"架構對齊","lens":"跟既有寫法一致","materials":["governance/review-reports/code-readme-phase14/r1-snapshot.patch"],"auditor":"claude-sonnet"}]
