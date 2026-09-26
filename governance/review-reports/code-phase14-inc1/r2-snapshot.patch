@@ -1,0 +1,1458 @@
+diff --git a/claims/concurrency.json b/claims/concurrency.json
+index 5c1e704..5a84545 100644
+--- a/claims/concurrency.json
++++ b/claims/concurrency.json
+@@ -18,21 +18,21 @@
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+       "sha256": "19d857f8a558ef9d7f9cc689f4f590fb07a514f6a1c4c6ac111c2167c220fa39"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+-      "sha256": "e3608bf1d0408ecc6f1d1fc7dbf6933acdafe93e37d68282995169d667261e1f"
++      "sha256": "c3e7df388dc1ad9e5ec756436fdce78a7e84e4ee336ccbabd752b9022f15bf8a"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "f05977c5de7d783db669438668510024a9f4b03eff4f14c009e04fb804752d24"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+       "sha256": "ef8751ce13431ca480e6597afeff1d3ffbf84d39cb5392656766d408eab4ce49"
+     },
+     {
+@@ -68,20 +68,24 @@
+       "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
+     },
+     {
+       "path": "src/rtb/domain/evidence.py",
+       "sha256": "7efccd4aef00af1313fcedb51bb6bb03039777582f18e4d37e14f0b99b26d5d4"
+     },
+     {
+       "path": "src/rtb/domain/metrics.py",
+       "sha256": "244837d1957cbecbe4e80dfc7639744377a9f53bc6c8e73616c4664f170e6196"
+     },
++    {
++      "path": "src/rtb/domain/nine_rules.py",
++      "sha256": "7b755c1fa8cdae47da75beb628b0318148ce4688939aabf0cde9feba087d1f00"
++    },
+     {
+       "path": "src/rtb/domain/proposal.py",
+       "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
+     },
+     {
+       "path": "src/rtb/domain/task_state.py",
+       "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
+     },
+     {
+       "path": "src/rtb/domain/worth.py",
+diff --git a/claims/permission-guardrail.json b/claims/permission-guardrail.json
+index 946f173..0fd4ed0 100644
+--- a/claims/permission-guardrail.json
++++ b/claims/permission-guardrail.json
+@@ -18,21 +18,21 @@
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+       "sha256": "19d857f8a558ef9d7f9cc689f4f590fb07a514f6a1c4c6ac111c2167c220fa39"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+-      "sha256": "e3608bf1d0408ecc6f1d1fc7dbf6933acdafe93e37d68282995169d667261e1f"
++      "sha256": "c3e7df388dc1ad9e5ec756436fdce78a7e84e4ee336ccbabd752b9022f15bf8a"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "f05977c5de7d783db669438668510024a9f4b03eff4f14c009e04fb804752d24"
+     },
+     {
+       "path": "src/rtb/analyzer/task_store.py",
+       "sha256": "ef8751ce13431ca480e6597afeff1d3ffbf84d39cb5392656766d408eab4ce49"
+     },
+     {
+@@ -68,20 +68,24 @@
+       "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
+     },
+     {
+       "path": "src/rtb/domain/evidence.py",
+       "sha256": "7efccd4aef00af1313fcedb51bb6bb03039777582f18e4d37e14f0b99b26d5d4"
+     },
+     {
+       "path": "src/rtb/domain/metrics.py",
+       "sha256": "244837d1957cbecbe4e80dfc7639744377a9f53bc6c8e73616c4664f170e6196"
+     },
++    {
++      "path": "src/rtb/domain/nine_rules.py",
++      "sha256": "7b755c1fa8cdae47da75beb628b0318148ce4688939aabf0cde9feba087d1f00"
++    },
+     {
+       "path": "src/rtb/domain/proposal.py",
+       "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
+     },
+     {
+       "path": "src/rtb/domain/task_state.py",
+       "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
+     },
+     {
+       "path": "src/rtb/domain/worth.py",
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+index 8fefbd6..7b5f6cd 100644
+--- a/claims/prompt-injection.json
++++ b/claims/prompt-injection.json
+@@ -22,21 +22,21 @@
+     {
+       "path": "src/rtb/analyzer/inbox_client.py",
+       "sha256": "036eda2b45f1f0add05b9dc7d050458dcd84858ff65d4729504ceb78c1d1ff38"
+     },
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+       "sha256": "19d857f8a558ef9d7f9cc689f4f590fb07a514f6a1c4c6ac111c2167c220fa39"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+-      "sha256": "e3608bf1d0408ecc6f1d1fc7dbf6933acdafe93e37d68282995169d667261e1f"
++      "sha256": "c3e7df388dc1ad9e5ec756436fdce78a7e84e4ee336ccbabd752b9022f15bf8a"
+     },
+     {
+       "path": "src/rtb/analyzer/modelgate.py",
+       "sha256": "c1adce89014cf58320a52500f68a6bc710a9b460c1f4273ce52139410def85b3"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "f05977c5de7d783db669438668510024a9f4b03eff4f14c009e04fb804752d24"
+     },
+     {
+@@ -80,20 +80,24 @@
+       "sha256": "daea65c2b22c92a0eda983981797d2f65c458e33c538e7a4bbe8c5576886c827"
+     },
+     {
+       "path": "src/rtb/domain/evidence.py",
+       "sha256": "7efccd4aef00af1313fcedb51bb6bb03039777582f18e4d37e14f0b99b26d5d4"
+     },
+     {
+       "path": "src/rtb/domain/metrics.py",
+       "sha256": "244837d1957cbecbe4e80dfc7639744377a9f53bc6c8e73616c4664f170e6196"
+     },
++    {
++      "path": "src/rtb/domain/nine_rules.py",
++      "sha256": "7b755c1fa8cdae47da75beb628b0318148ce4688939aabf0cde9feba087d1f00"
++    },
+     {
+       "path": "src/rtb/domain/proposal.py",
+       "sha256": "6aaa557c4676565c182604023434a7bdd82d209cad43446bb7c5cdc69e445221"
+     },
+     {
+       "path": "src/rtb/domain/task_state.py",
+       "sha256": "8c65bedd930c5108f807ccb203a1bde13914d60a9b8c2f9c2ffd9218e271173b"
+     },
+     {
+       "path": "src/rtb/domain/worth.py",
+diff --git a/docs/rtb-production-agent-demo-knowledge/MOC/index.md b/docs/rtb-production-agent-demo-knowledge/MOC/index.md
+index cb9350f..4b2d565 100644
+--- a/docs/rtb-production-agent-demo-knowledge/MOC/index.md
++++ b/docs/rtb-production-agent-demo-knowledge/MOC/index.md
+@@ -7,20 +7,21 @@ status: doing
+ 依種類列出每一篇節點;新增節點時在對應段落補一行。
+ 
+ ## 功能節點(每支程式檔的家)
+ 
+ - [[Systems/Mock-DSP]]
+ - [[Systems/README流程動圖產生器]]
+ - [[Systems/一鍵展示]]
+ - [[Systems/任務流程領域模型]]
+ - [[Systems/共用行程基礎]]
+ - [[Systems/分析行程流程與檢查點]]
++- [[Systems/正式九條判斷領域規則]]
+ - [[Systems/可觀測查詢]]
+ - [[Systems/執行迴圈]]
+ - [[Systems/外部寫入嘗試紀錄]]
+ - [[Systems/宣稱驗證器]]
+ - [[Systems/寫入能力憑證]]
+ - [[Systems/展示頁面]]
+ - [[Systems/提案收件口]]
+ - [[Systems/有界標籤的指標]]
+ - [[Systems/服務水準與燒損告警]]
+ - [[Systems/模型用戶端]]
+@@ -35,20 +36,21 @@ status: doing
+ ## 計劃
+ 
+ - [[Projects/F7效能_計劃]]
+ - [[Projects/README流程動圖_計劃]]
+ - [[Projects/RTB_Agent_Phase0架構]]
+ - [[Projects/RTB_Phase10評估與Jev決策點_計劃]]
+ - [[Projects/RTB_Phase11B大模型接入_計劃]]
+ - [[Projects/RTB_Phase11證據清單與驗證器_計劃]]
+ - [[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]
+ - [[Projects/RTB_Phase13AI參與決策_計劃]]
++- [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]
+ - [[Projects/RTB_Phase2任務流程_計劃]]
+ - [[Projects/RTB_Phase3外部寫入安全_計劃]]
+ - [[Projects/RTB_Phase4佇列與重新投遞_計劃]]
+ - [[Projects/RTB_Phase5樂觀鎖與重新規劃_計劃]]
+ - [[Projects/RTB_Phase6權限護欄與總曝險_計劃]]
+ - [[Projects/RTB_Phase7提示注入與信任邊界_計劃]]
+ - [[Projects/RTB_Phase8死信重放與過時決策_計劃]]
+ - [[Projects/RTB_Phase9可觀測與SLO_計劃]]
+ 
+ ## 驗收紀錄
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md
+index 8eab7f6..a08a353 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase14正式規則照九條判斷_計劃.md
+@@ -104,20 +104,24 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ - 展示頁的規則說明、`basis.analysis()`／`after_fallback()` 的重算、流程圖節點與分支同步顯示「四查詢 → 九條先命中」以及查詢沒有結果／數值不可算的不同結局；展示重算只讀存下的收據與原始回應，不顯示舊的「有投放就值得加」。F4／F6 原任務仍演版本已變，接續任務因近期預算調整由規則判證據不足；依結局選等待條件、故障斷言、收件口與 DSP 寫入不存在的斷言。放寬 [S1168] 以涵蓋 AI 或規則作出同一結論，畫面文字要標明來源。
+ 
+ ### 評估與報告
+ 
+ - 增量落地後重跑 Phase 10 與 Phase 13 評估報告，僅重播現有錄製與本機規則，不呼叫模型。Phase 10 五格仍維持使用者裁定的評分表；`src/rtb/eval/scoring.py` 的 `score → route → code_rule` 要隨新簽章改成顯式傳 `RuleEvidence`：Phase 10 的 `Scenario`（`generator.py`）仍只有 `worth_input`、不假造四查詢欄位，轉接器明傳 `MISSING_FOUR_QUERIES`；`route` 的 CODE_RULE 與 `_candidate_answer` 各退回分支都接這個值，paused／異常在領域前兩條先判，其餘回證據不足。Phase 10 報告每格標「舊資料不足以評估九條規則」，原 Phase 10 標準答案不動；`tests/eval/test_evaluation.py` 改斷言五格路由、候選退回、缺證據標籤與原標準答案。Phase 13 36 筆名稱正常案例的規則答案因同源而預期 36/36；這只證接線一致，不是獨立品質證明。
+ - Phase 13 原 72 筆中 46 筆調整列缺 `committed_at`；生成器以固定評估 `NOW − timedelta(days=days_ago)` 決定性補出帶時區時刻，再重新 `render(generate())` 產生 `investigation_set.py`，不得讓評估繞過正式白名單。重生前後逐筆斷言 72 筆的格與答案不變，`SYSTEM_PROMPT` 位元組與錄製鍵不變；收據 `adj*_...` 不含時間戳，因此斷言字串及其雜湊不變。Phase 13 `investigation_eval.py` 沒有 `TaskStore`：評估執行器把 `Case.results` 四種原始結果轉成與正式分析端相同的領域 `RuleEvidence`，以案例固定 `NOW`、版本與讀取時刻執行同一規則函式；否決／退回所需四查詢直接從案例取，對缺項／不合格亦照正式缺證據語意處理，不依 `case_evidence()` 僅提供 AI 自選收據，也不實際打 DSP。另設**原始錄製重播**通道，在新前置過濾、否決、退回前按 Phase 13 舊調查輪次解析同一批錄製，保留模型自己最後的有效答案、無有效答案／格式錯誤、模型呼叫數與延遲；即使新正式路徑對 paused／異常在前置過濾就結案，仍能從舊錄製還原 AI 原始答案。此通道不建提案、不寫平台、不改錄製鍵。`CaseRun`／報告分開持有 `ai_raw`、`ai_with_rule_veto`（含否決原因）與 `code_rule`，退回也標 `decided_by`，不得用後兩者填補 `ai_raw`；`_verdict` 遇到正式前置過濾要記來源與理由，不丟 `ValueError`。例：異常案例舊錄製 AI 答 `propose`、正式路徑前置過濾證據不足 → AI 原始仍算 1 筆誤提案，AI+規則否決列為無提案，程式規則列證據不足。
+ - 兩份報告逐格保留分子、分母、錯誤子型；Phase 13 醒目分列「AI 原始」「AI+規則否決」「程式規則」，逐列寫**誤提案筆數／應不提案筆數**與各自分母；無有效 AI 原始答案的筆數另列，不能算成 AI 答對。原始錄製的數字一律以重播結果為準，不把舊報告含退回規則的數字當作 AI 原始。`AI+規則否決` 在這份評估集與標準答案共用同一規則，誤提案數依構造恆為 0；該列及規則 36/36 都醒目註明「同源，不作品質證據」，對抗雙胞胎切片同樣分列三種來源、以 AI 原始列觀察模型品質。延遲欄名與量法都標單位：判斷點本機計算用微秒、模型呼叫錄製觀測用毫秒、整段正式蒐證另報毫秒，不混成一個「延遲」。保留原錄製批次、雜湊、原始品質及既有「不採用」結論；同源 36/36 不能改 AI 採用判定。
+ 
+ ## 拆增量
+ 
++### 實作解讀（2026-09-26，增量 1）
++
++增量 1 已建立四查詢純領域型別、九格判斷及無格封閉原因,評估標準答案改從該模組取得,收據三天切點共用領域常數。72 筆含雙胞胎逐筆格與答案維持,列內缺值、單日 no_data、分母零與精確門檻已有翻紅後轉綠的離線測試;正式 `policy.code_rule` 與送件流程留到增量 2。驗證範圍:領域及評估測試子集 390 筆與 Ruff 靜態檢查在 2026-09-26 通過;全套由使用者在後續閘執行。
++
+ 1. 領域層建自己的四查詢資料型別、九條判斷、格、封閉 `StrEnum` 診斷原因與共用切點；評估 `answer()` 改呼叫它。固定 Phase 13 72 筆（含名稱雙胞胎）在改前改後的格與標準答案一致，新增列內缺值、單日 `no_data=true` 與資料齊但分母零的對照案例；此增量只搬單一來源，不改正式行為。新領域檔同步開 [[Systems/正式九條判斷領域規則]]。
+ 2. 正式規則與分步蒐證：先讓近期調整、缺值、查詢沒有結果、跨窗矛盾、paused、異常、政策版本等測試翻紅，再接 `policy`、`flow`、`runner`、`instrumented`、`TaskStore`、DSP 唯一調整紀錄、精確分儲存／回應、有日期逐日端點的跨日物化、基本缺狀態診斷及證據參照。明訂輪次由已提交列重算、歷史七日上限與重進入，修改租約守衛、啟動器停止寬限、原始資料讀取合約與診斷原因；假的 DSP 故障驗證不提案或重試。同步接好 `scoring.py → route` 的 Phase 10 缺四查詢轉接，避免改簽章後既有評估報告斷線。這個增量行為改變最大，單獨驗收。
+ 3. AI 提案否決與退回全量重讀、前置過濾、展示基礎與流程圖、F4／F6 端到端斷言。保留 F1–F7 既有故障目的，畫面分開 AI 選查詢和程式重讀；錄製模式驗證，不重新呼叫模型。
+ 4. 重跑 Phase 10／13 報告、更新原合約和各 Systems 家的決策與驗證脈絡，明列 Phase 10 舊資料不足、Phase 13 AI 原始／AI+規則否決／程式規則三列、同源 36/36、採用結論及延遲單位。先查每個實作檔的 Systems 家；報告只讀已定版規則。
+ 
+ ## 會卡住這個設計的既有程式
+ 
+ - `tests/analyzer/test_worth_check.py` 的凍結舊 `frozen_policy_e8b26f6.py`、625 筆 `policy_before_samples.py` 及 [S700] 把舊行為當永久等式；要保留舊快照作歷史證據，撤掉「新正式規則仍等於它」的斷言，改為舊與新預期差異逐格說明。
+ - `tests/eval/test_evaluation.py` 的 code_rule 逐格與薄切片按「只看投放」寫；`tests/eval/test_investigation_eval.py` 釘住現行規則六格錯法。更新成九條正式規則與同源警語，不能刪掉逐格誤提案統計。
+ - `tests/analyzer/test_f4_end_to_end.py` 的接續提案 `220` 及 F6 對稱斷言需改為證據不足、無提案、無收件口／平台寫入；展示驅動的預期組與頁面說明同改。
+@@ -153,21 +157,21 @@ RETIRE-IF: 正式環境抽樣、人工標註的隱藏集證明這九條在任一
+ 
+ ## 合約候選
+ 
+ - 九條先命中、查詢沒有結果與數值不可算的分流、同一 `now` 的時間界線，是改壞就可能誤提案的候選合約；實作後依各 Systems 家與對應測試決定是否升格，不在初稿直接標為已核准的不變量。
+ - 租約分步上界、並行唯一提交、AI 退回補查、F4／F6 無寫入，是守衛與展示共同依賴的候選合約。以下條款是這些候選的可執行驗收方式。
+ 
+ ## 驗收條款
+ 
+ - [S1401] 當正式路徑收到 paused 或 1 小時資料異常時，主體應只用基本資料依第 1／2 條結案，不讀四種追加資料，也不提案。例：paused、點擊 2 → 第 1 條不值得加、追加讀取 0 次。[test:test_paused_and_anomalous_campaigns_finish_from_base_evidence]
+ - [S1402] 當配速偏低且基本資料可續判時，規則蒐證主體應讀四種追加資料；任一查詢逾時、404、欄位不合格或跨窗不一致成為「沒有結果」時，應判證據不足、不建提案。例：歷史 404、1 小時有轉換 → 證據不足、提案 0 筆。[test:test_missing_query_results_prevent_a_proposal]
+-- [S1403] 當四種原始查詢有效且所需數值齊全，但第 4／5 條比率因分母零算不出時，九條判斷主體應只跳過該條；可算時用精確分數而非捨入收據比較。例：前段點擊 0、轉換 0 → 跳過第 5 條；精確下降 50.1% → 命中第 5 條，即使顯示收據捨入為 50%。[test:test_exact_thresholds_distinguish_zero_denominators]
++- [S1403] 當四種原始查詢有效且所需數值齊全，但第 4／5 條比率因分母零算不出時，九條判斷主體應只跳過該條；可算時用精確分數而非捨入收據比較。例：前段點擊 0、轉換 0 → 跳過第 5 條；精確下降 50.04% → 命中第 5 條，即使收據顯示 -50.0%。[test:test_exact_thresholds_distinguish_zero_denominators]
+ - [S1404] 當 DSP 現況 200 回應的狀態缺值或非法時，`dsp_client` 基本白名單應把它記成缺可信現況，`flow` 提交可結案診斷，`policy.steps()`／`explain()` 應以 `MISSING_STATE_OR_METRICS` 不提案，不進九格、不退回曝光點擊舊規則；C 缺狀態時也不得重用 A 的舊現況；5xx／連線故障仍重試。例：`status=null`、曝光 500、點擊 12 → 正式蒐證提交後 `MISSING_STATE_OR_METRICS`、提案 0 筆。[test:test_missing_dsp_state_finishes_without_proposal]
+ - [S1405] 當規則路徑或 AI 否決／退回需要完整四查詢時，流程主體應以 A/B/C 已提交列重算檢查點並分步讀取，只讓租約與序號持有者提交；預設逾時 3 秒時各步 2／2／5 讀、最壞 26／26／50 秒均小於 60 秒租約，自訂逾時不合式則拒啟動。例：C 的五讀最壞 50 秒 → 放行；自訂逾時使 C 達 60 秒 → 拒啟動。[test:test_rule_collection_steps_fit_the_lease]
+ - [S1406] 當最終決策使用先前步驟的查詢時，主體應用同一 `now` 驗 15 分鐘新鮮度及最近 3 天界線，C 逐日讀取時刻與 `now` 的 UTC 日期不同則判證據不足。例：C 在 23:59:59 UTC、決策在次日 00:00:01 UTC → 證據不足、無提案。[test:test_decisions_recheck_freshness_and_utc_day_boundaries]
+ - [S1407] 當模型答 `propose` 或退回時，AI 路徑主體應只開一次新規則輪 A/B/C 全量重讀四查詢；未作廢輪只有 A 或 A/B 時，分析步直接排 B 或 C，A/B/C 齊全時 DECIDE 恰一次，三者都不呼叫 `ai_decide`／`Judge`，也不因 `AI_ALREADY_USED` 再開輪。規則不值得加或證據不足須否決提案並記細因，AI 原始答案保留。例：模型答 `propose`、已提交 A → 下一步 B、模型呼叫不增加；A/B → C；模型等待時另一方加額 → 第 3 條否決、提案 0 筆。[test:test_ai_proposals_and_fallbacks_use_a_fresh_rule_round]
+ - [S1408] 當評估案例與正式原始輸入代表同一組數字時，標準答案與正式規則應共用九條順序、條件與三類結論；提示僅核九條順序與結論，**缺值／`no_data` 的程式端判法比提示更嚴**，提示仍寫 `na` 跳過且位元組凍結以維持既有錄製鍵，此差異刻意保留，由規則否決保護送件。測試同時斷言提示位元組／錄製鍵不變、程式端單日 `no_data` 及列內缺值判證據不足，並核收據三天切點同源。例：逐日第二天 `no_data=true`、提示可能跳第 5 條 → 程式第 5 條證據不足、無提案。[test:test_answer_key_receipts_and_prompt_share_the_rule_contract]
+ - [S1409] 當 F4／F6 原任務因版本已變被擋且接續任務剛調過預算時，展示主體應把規則判證據不足視為預期結局，標明 AI 自選與程式補查來源，並斷言接續任務沒有提案、收件口與 DSP 寫入。例：另一方剛加額後 F4 接續任務 → 第 3 條證據不足、三處寫入均 0。[test:test_f4_and_f6_follow_ups_show_rule_insufficiency_without_writes]
+ - [S1410] 當重跑 Phase 13 錄製評估時，報告主體應逐格分列 AI 原始、AI+規則否決、程式規則的誤提案分子分母，原始數字以重播結果為準；標 36/36 與 AI+規則否決的零誤提案皆為同源構造、不作品質證據，雙胞胎切片用 AI 原始列看模型，所有延遲欄標單位與量測範圍。例：一筆模型有效答 `propose`、三筆 off-menu 無有效答案 → AI 原始只計 1 筆誤提案、另列 3 筆無有效答案，不能寫成 4/4。[test:test_reports_keep_raw_ai_errors_separate_from_rule_vetoes]
+ - [S1411] 當 F7 用 300 件、8 個**執行端**工作者及唯一一個分析行程重播現有共用 F1 的直接 `propose` 錄製時，每件 AI 提案也走規則 A/B/C；展示主體應在基準 300 秒加 `driver.allow()` 錄製 AI 輪數放寬（上限 60 秒、實際期限最多 360 秒）內完成，保留故障與權限斷言，實測分析端**逐件**耗時、總讀取數、SQLite 等待與分步提交，不能用八個執行者推算分析吞吐。例：每件原 AI 基本讀取 2 次，再由規則輪讀 2＋2＋5＝9 次，合計 11 次；300 件共 3300 次，比舊 AI 的 600 次新增 2700 次。錄製若改成 AI 先選查詢，測試須按實際新增的 AI 期讀取重算。[test:test_f7_finishes_with_rule_reads_under_the_actual_allowance]
+ - [S1412] 當成功查詢的必要列內欄位缺值，或第 5 條所需七個完整日有**任一天** `no_data=true` 時，使用該值的第 4／5／6 條應判證據不足、不排除該日或跳過；標準答案同語意，原 72 筆 `no_data` 日 0/72，格與答案逐筆不變。例：逐日第二天 `no_data=true`、其餘六天齊全且 1 小時有轉換 → 第 5 條證據不足、提案 0 筆；第二天 `conversions=null,no_data=false` 同結果。[test:test_missing_row_values_are_insufficient_without_changing_the_72_cases]
+ - [S1413] 當重進入規則蒐證時，`TaskStore` 應按 `rule_round_id` 只讀同輪 A/B/C 序號；過期、409、當機續跑超過 15 分鐘或基本資料變動均整組從 A 重來，連續變動重來兩次後再變動即證據不足。例：舊輪 B 在序號 4、409 後新輪 A 在 9 → 不讀序號 4；連續第三次變動 → 結案無提案。[test:test_rule_round_checkpoints_exclude_stale_evidence]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+index b86ebb8..54507b6 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+@@ -1,15 +1,15 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-22
+-updated: 2026-09-25
++updated: 2026-09-26
+ responsibility: 負責分析行程自己的只增不改歷史表(任務、證據、對外呼叫紀錄)與 advance() 驅動函式,一次只做狀態機的下一步並落地成檢查點;也負責真的 DSP/收件口用戶端(dsp_client.py、inbox_client.py)與示範用的最小決策規則(policy.py)、把它們包成會記錄 tool_calls 的版本(instrumented.py)。不負責多任務排程、不負責交接之後(執行行程那一側)的任何狀態。
+ aliases: []
+ about_code:
+   - src/rtb/analyzer/task_store.py
+   - src/rtb/analyzer/flow.py
+   - src/rtb/analyzer/dsp_client.py
+   - src/rtb/analyzer/inbox_client.py
+   - src/rtb/analyzer/policy.py
+   - src/rtb/analyzer/instrumented.py
+   - src/rtb/analyzer/runner.py
+@@ -84,20 +84,22 @@ verified_by:
+   - "[[Verification/Phase10驗收紀錄]]"
+   - "[[Verification/Phase12增量1驗收紀錄]]"
+   - "[[Verification/Phase13增量1驗收紀錄]]"
+   - "[[Verification/Phase13增量2驗收紀錄]]"
+   - "[[Verification/Phase13增量4驗收紀錄]]"
+ kill_recipes: |-
+   [{"invariant": "每一步都要落地成新的歷史列", "test": "test_two_concurrent_advance_calls_on_the_same_task_never_both_commit_conflicting_outcomes", "file": "src/rtb/analyzer/task_store.py", "old": "            if row is None or row[0] != expected_seq:", "new": "            if row is None:", "note": "寫入交易不再核對準備要接的那一列還是最新"}, {"invariant": "★INVARIANT★ 事故 F5", "test": "test_fields_outside_the_allowlist_never_reach_the_evidence", "file": "src/rtb/analyzer/dsp_client.py", "old": "    return {name: body[name] for name in fields}", "new": "    return dict(body)", "note": "DSP 用戶端把整份回應轉存成可信證據,廣告名稱混進可信欄位"}, {"invariant": "★INVARIANT★ 事故 F5", "test": "test_untrusted_text_and_the_campaign_text_kind_always_come_together", "file": "src/rtb/domain/evidence.py", "old": "    return (kind is EvidenceKind.CAMPAIGN_TEXT) == (trust is TrustClass.UNTRUSTED_TEXT)", "new": "    return True", "note": "廣告文字證據可以被標成可信"}, {"invariant": "★INVARIANT★ 事故 F5", "test": "test_trusted_evidence_cannot_carry_free_text", "file": "src/rtb/domain/evidence.py", "old": "    return all(is_id(item) for item in [*payload.keys(), *strings])", "new": "    return True", "note": "可信證據可以夾帶自由文字"}, {"invariant": "★INVARIANT★ 事故 F5", "test": "test_f5_an_injected_campaign_name_changes_nothing_end_to_end", "file": "src/rtb/analyzer/policy.py", "old": "    new_budget = min(max(round(budget * (1 + BUDGET_INCREASE_FRACTION)), int(budget) + 1),", "new": "    text = next((dict(i.payload) for i in evidence if i.kind == EvidenceKind.CAMPAIGN_TEXT), {})\n    new_budget = min(max(round(budget * (1 + BUDGET_INCREASE_FRACTION)) + len(str(text.get('name') or '')), int(budget) + 1),", "note": "決策規則讓廣告名稱影響新預算"}]
+ ---
+ # 分析行程流程與檢查點
+ 
++2026-09-26 Phase 14 增量 1:調查收據的三天歷史切點與逐日分段改讀 [[Systems/正式九條判斷領域規則]] 的同一常數;收據形狀與提示位元組維持既有錄製鍵。[test:test_answer_key_receipts_and_prompt_share_the_rule_contract]
++
+ `src/rtb/analyzer/task_store.py` 是歷史表與 `commit_step`;`src/rtb/analyzer/flow.py` 是三個可替換介面(`EvidenceSource`、`Decide`、`Submit`)與驅動函式 `advance()`。增量 3 這兩個介面都是測試假物件,增量 4 才接真的 DSP 用戶端與 [[Systems/提案收件口]] 用戶端。
+ 
+ 已知缺口(如實標明):
+ - `tasks` 與 `evidence` 兩張表只增不改,長時間運作會無界成長,尤其重新規劃的迴圈沒有次數上限;解法留給與提案收件口一起決定的保留期限。
+ REVISIT:2026-10-20 與 [[Systems/提案收件口]] 的保留期限一起決定分析行程歷史表的清理方式。
+ - `policy.py` 的示範規則永遠把新提案的修訂序號當成 1,不會追蹤同一個任務先前送過幾次修訂;一個提案被收件口退回(`SubmitStale`)之後重新分析,示範規則不會自動送出正確的下一個修訂序號,會一直送修訂 1 而持續被 `revision_out_of_order` 拒收。這不影響 S49 的合約(規則本身的判斷邏輯經過測試),但整條流程在「重新規劃」這條路徑上目前示範不完整。
+ REVISIT:2026-10-20 接上真正的決策邏輯時,一併設計修訂序號的追蹤方式(可能要讓 TaskRow 或另一張表記住「這個任務目前送到第幾個修訂」)。
+ - FAILED 狀態目前只有一個觸發點(`Decide` 丟例外);`EvidenceSource`、`Submit` 的失敗都視為暫時性、永遠重試,沒有「重試次數上限後轉為永久失敗」的機制,理論上一個一直失敗的外部呼叫會讓任務永遠卡在原狀態。
+ REVISIT:2026-10-20 增量 4 接上真的網路呼叫後,評估是否需要重試上限或逾時轉 FAILED。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md b/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md
+new file mode 100644
+index 0000000..c50c4ab
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/正式九條判斷領域規則.md
+@@ -0,0 +1,27 @@
++---
++type: system
++status: doing
++created: 2026-09-26
++updated: 2026-09-26
++responsibility: 負責四查詢的純資料型別、九條先命中判斷、無格封閉原因與共用時間門檻;不負責 DSP 讀取、收據、評估案例或正式流程接線
++aliases: []
++about_code:
++  - src/rtb/domain/nine_rules.py
++  - tests/domain/test_nine_rules.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: 2026-09-26 使用者裁定讓 Phase 13 標準答案與後續正式規則共用九條順序與結論,並讓列內缺值及七日任一天 no_data 保守判證據不足。出處:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉6、7。
++  RULE: 三天切點與精確門檻不得因收據捨入而改動;提示位元組維持既有錄製鍵。[since:2026-09-26] [retire:使用者重訂九條標準答案或錄製鍵方案] [confirmed:2026-09-26]
++  TEST: test_missing_row_values_are_insufficient_without_changing_the_72_cases、test_exact_thresholds_distinguish_zero_denominators、test_answer_key_receipts_and_prompt_share_the_rule_contract、test_domain_nine_rules_imports_only_the_allowlisted_stdlib_and_domain。
++---
++# 正式九條判斷領域規則
++
++`src/rtb/domain/nine_rules.py` 收四查詢不可變型別與封閉判定原因,由同一決策時鐘判斷最近三天。第 1、2 條可只靠基本輸入定案;其餘條件要求四查詢都有結果。第 4、5 條僅資料齊全且分母零時略過;必要列內缺值、七日任一天 no_data、查詢沒有結果與輸入建不成均回九格之外的證據不足。
++
++2026-09-26 代碼審折入:歷史預算調整先掃完全部列,任一列缺時間(含沒時區)就保守回無格證據不足,否則任一近期列才命中第 3 條,與列序無關;逐日及過去調整任一列負數或欄位不自洽亦回無格的 `invalid_row_value`。資料類別建構時驗結構與數值型別,保留缺值及負數給判定函式診斷;決策時鐘沒時區直接丟 `ValueError`(同 [[Systems/任務流程領域模型]] 的 `WorthInputInvalid` 例外家族,這是呼叫端違約而非查詢證據不足)。區段轉換率只由領域公開函式計算,評估邊界亦呼叫它。[test:test_history_missing_time_is_insufficient_in_either_row_order] [test:test_invalid_daily_row_is_insufficient_before_segment_aggregation] [test:test_eval_uses_the_domain_segment_rate]
++
++WHY: 2026-09-26 增量 1 先搬領域與評估標準答案,保留正式送件流程原行為,讓後續增量能在同一組可逐筆回歸的資料上接線。出處:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉1。
++
++`tests/domain/test_nine_rules.py` 守這支模組的邊界:列內缺值、單日 no_data、分母零略過與精確門檻,以及領域層只匯入白名單標準函式庫。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+index fee4f6f..a565eaa 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+@@ -1,15 +1,15 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-24
+-updated: 2026-09-25
++updated: 2026-09-26
+ responsibility: 負責「值不值得加」判斷點的離線評估:評分表、合成評估集與生成器、逐格計分與報告、比較表、逐格採用決定與人讀的決定紀錄,接入點 3 的模型候選(旁路紀錄、整批停下、子集、批次紀錄、比較表模型列),以及 Phase 13 AI 調查的評估(九格評分與標準答案、72 筆含誘導雙胞胎的評估集與生成器、呼叫正式路徑同一支 AI 決策函式的評估執行器、逐格報告與不採用的決定、錄製批次驗收);不負責判斷點本身、路由與 AI 決策函式(在分析端);除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、不啟動子行程;不被任何其他套件匯入
+ aliases: []
+ about_code:
+   - src/rtb/eval/__init__.py
+   - src/rtb/eval/rubric.py
+   - src/rtb/eval/generator.py
+   - src/rtb/eval/eval_set.py
+   - src/rtb/eval/scoring.py
+   - src/rtb/eval/adoption.py
+   - src/rtb/eval/record.py
+@@ -48,20 +48,24 @@ decisions:
+     why_chosen: 生成器改了照規則換批;規則沒有因為看過答案而改
+     decided: 2026-09-24
+     valid: true
+ verified_by:
+   - "[[Verification/Phase10驗收紀錄]]"
+   - "[[Verification/Phase11B增量1驗收紀錄]]"
+   - "[[Verification/Phase13增量3驗收紀錄]]"
+ ---
+ # 評估與Jev決策點
+ 
++2026-09-26 Phase 14 增量 1:評估標準答案在案例邊界轉成 [[Systems/正式九條判斷領域規則]] 的型別並呼叫同一決策;必要列內缺值與單日 no_data 回無格的證據不足,原 72 筆含雙胞胎的格與答案逐筆維持,固定匯入閉包名單只增純領域模組。[test:test_missing_row_values_are_insufficient_without_changing_the_72_cases] [test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
++
++2026-09-26 代碼審折入:標準答案與正式規則刻意同源,只證接線一致、不作獨立品質證據;生成器仍不匯入分析端與 AI 決策模組。評估的區段轉換率邊界檢查共用 [[Systems/正式九條判斷領域規則]] 的公開函式,[S1403] 以精確下降 50.04% 而收據顯示 -50.0% 守捨入門檻。[test:test_eval_uses_the_domain_segment_rate] [test:test_exact_thresholds_distinguish_zero_denominators]
++
+ 本篇管 `src/rtb/eval/` 七支檔:評分表(`rubric.py`)、生成器(`generator.py`)、合成評估集(`eval_set.py`,生成器的產出,不要手改)、逐筆計分與逐格報告(`scoring.py`)、比較表與逐格採用決定(`adoption.py`)、人讀的決定紀錄(`record.py`,`python -m rtb.eval.record` 產生)、套件說明(`__init__.py`)。判斷點本身、路由與待測格清單的型別在 [[Systems/分析行程流程與檢查點]],判斷點的輸入與評分格在 [[Systems/任務流程領域模型]]。
+ 
+ - 評分表(五條全由使用者本人裁定,原意對照後加「資料自不自洽」;由上而下第一個成立的):暫停 → 不值得加;資料異常(負數、缺值、點擊多於曝光、轉換多於點擊)→ 證據不足;曝光或點擊是零 → 不值得加;轉換或營收有正數 → 值得加;轉換營收都是零 → 證據不足。標準答案由程式照評分表算,不派代理標註。防回歸:[test:test_the_rubric_gives_exactly_one_class_for_every_input]。
+ - 合成評估集(第四版):5 格 × 20 組基準情境 × 三個變體(基準原值、只改花費仍在偏低範圍、只改預算且花費不變),共 300 筆。正常格照漏斗順序造、沒有負數與缺值;資料異常格輪流造 12 種單一故障(五個欄位各缺值、各負數,只違反點擊多於曝光、只違反轉換多於點擊);每列多記歸檔的格與故障。計劃釘住的邊界案例放在各格前幾組。每種故障只動一欄(代碼審第 1 輪:點擊多於曝光的故障原本另把轉換歸零)。雜湊由測試釘住,另重跑生成器逐值比對;換批用決策指令記(d1、d2、d3)。防回歸:[test:test_the_eval_set_is_pinned_by_hash]、[test:test_the_generator_covers_every_anomaly_and_matches_the_committed_set]。
+ - 計分:逐筆經分析端的路由函式,依退回後的最後有效答案計分;現行規則用同一套(不傳候選)。每格報分子分母、類別正確數、錯誤子型與走了哪條路;「值得加」格的指標是召回率,其他三格是誤提案率,另報類別正確率;無關欄位擾動後答案改變的組數另報。防回歸:[test:test_the_eval_report_is_per_slice_and_marks_thin_slices]、[test:test_irrelevant_fields_do_not_change_the_answer]、[test:test_the_code_rule_is_scored_per_slice_like_a_candidate]。
+ - 品質門檻(使用者 2026-09-24 本人裁定定案):「不誤提案的比例」與類別正確率下界 ≥ 0.95、每格至少 73 筆;「值得加」格召回率下界 ≥ 0.80、至少 16 筆。成本、延遲、失敗率門檻在接上第一個候選時由使用者裁定。
+ - 報告分兩種型別(代碼審第 1 輪:原本只靠一個字串區分,合成集結果改個字串就能被當成正式):合成集報告不含信賴下界;正式報告只能經計分模組的建構函式建出來(帶簽發者),必帶隱藏集出處(版本、雜湊、抽樣與人工標註出處、候選版本、候選是否早於揭露),每項指標存分子、分母、點估計與 95% Wilson 下界。代碼審第 2、3 輪補:正式報告每一筆都要交給候選,候選答的或候選退回的(逾時、例外、不知道、非法回傳)都算候選的結果,任何一筆走現行規則就拒(第 2 輪只要求每格一筆,1 筆候選加 72 筆現行規則就能讓現行規則替候選過關);隱藏集雜湊用領域層共用的雜湊判準;「候選是否早於揭露」要是真的布林值。
+ - 採用一律 fail-closed:證據不是正式報告、候選不早於揭露、這一格沒有報告或沒有比較表那一列、任何欄位沒量或不合法(非有限、負數、比率超過 1)、門檻還沒裁定,都不驗證。一格要品質下界過門檻(值得加格召回率 0.80;其他四格「不誤提案的比例」與類別正確率都要 0.95,兩項都比),而且這一格的成本、延遲中位與 p95、各失敗率都不超過門檻。比較表是逐格一列,列上記的格要等於它被拿來判的那一格(掛錯鍵視同沒量);有限數判準用領域層共用的檢查、另加不為負;結論、理由與缺的證據都從同一個採用結果衍生,採用時不印不採用理由。最少樣本(16、73)由下界本身擋住,不另寫樣本數檢查;其他三格只比類別正確率,因為每次誤提案也是一次類別錯誤——兩道另寫的檢查變異檢查都證實拿掉結果不變。防回歸:[test:test_a_slice_is_validated_only_when_every_bar_is_met]、[test:test_the_adoption_decision_is_no_without_measured_validated_slices]、[test:test_unmeasured_candidates_show_no_numbers]。
+ - 決定紀錄(`governance/eval/phase10-worth-adoption.md`,`python -m rtb.eval.record` 產生,命令列照專案的兩層形狀;評估套件不准匯入維運套件,所以比照執行端各自建解析器)。2026-09-24 用第四版評估集:結論不採用;現行規則在暫停格誤提案 39/60、資料異常格類別全錯(36 筆判成值得加、24 筆判成不值得加)、沒價值格 60/60 判成值得加,沒投放與有價值兩格全對;擾動 0 組改變。
+ - 匯入禁令(代碼審第 2 輪):分析端、執行端、DSP、領域層、維運套件五層的匯入規則另禁 importlib,邊界測試把這五層任何 __import__ 或 import_module 呼叫、對 __import__ 的任何引用、從 builtins 匯入都算違規(不只認字面常數,第 3 輪補引用與 builtins);這五層今天沒有合法的動態匯入。防回歸:[test:test_nothing_outside_the_eval_package_imports_it]。
+diff --git a/src/rtb/analyzer/investigation.py b/src/rtb/analyzer/investigation.py
+index 0424574..12f0632 100644
+--- a/src/rtb/analyzer/investigation.py
++++ b/src/rtb/analyzer/investigation.py
+@@ -18,20 +18,21 @@ import json
+ import unicodedata
+ from collections.abc import Iterable, Mapping, Sequence
+ from dataclasses import dataclass
+ from datetime import datetime, timedelta
+ from enum import StrEnum
+ from fractions import Fraction
+ from types import MappingProxyType
+ from typing import Any
+ 
+ from rtb.domain import metrics as m
++from rtb.domain import nine_rules as rules
+ from rtb.domain._checks import is_id
+ from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass, quoted_untrusted
+ 
+ # ---- 選項與上限 ----
+ 
+ 
+ class QueryOption(StrEnum):
+     """查詢選項(程式替 AI 做的唯讀查詢);競價環境與素材疲乏照使用者裁定 4 不加。"""
+ 
+     CHECK_LONGER_WINDOW = "check_longer_window"
+@@ -93,21 +94,21 @@ MAX_EVIDENCE_ITEMS = 5
+ MAX_REASON_CHARS = 200
+ BASE_READS = 2  # 蒐證那一步的基本讀取:現況與 1 小時指標
+ READS_PER_OPTION: Mapping[QueryOption, int] = MappingProxyType({
+     QueryOption.CHECK_LONGER_WINDOW: 2,  # 1 天與 7 天各讀一次
+     QueryOption.CHECK_CHANGE_HISTORY: 1,
+     QueryOption.CHECK_DAILY_TREND: 1,
+     QueryOption.CHECK_PAST_ADJUSTMENTS: 1,
+ })
+ # 蒐證那一步最多讀幾次 DSP:基本兩次,加上最多 3 個查詢裡讀取次數最多的組合([S1113] 的讀取次數上限)
+ MAX_COLLECT_READS = BASE_READS + sum(sorted(READS_PER_OPTION.values(), reverse=True)[:MAX_QUERIES])
+-RECENT_DAYS = 3  # 「最近 3 天」與「3 天以前」的分界(展示用門檻,使用者裁定 12)
++RECENT_DAYS = rules.RECENT_DAYS  # 收據與九條判斷共用切點,SYSTEM_PROMPT 位元組不變
+ 
+ RECEIPT_KIND: Mapping[QueryOption, EvidenceKind] = MappingProxyType({
+     QueryOption.CHECK_LONGER_WINDOW: EvidenceKind.LONGER_WINDOW,
+     QueryOption.CHECK_CHANGE_HISTORY: EvidenceKind.CHANGE_HISTORY,
+     QueryOption.CHECK_DAILY_TREND: EvidenceKind.DAILY_TREND,
+     QueryOption.CHECK_PAST_ADJUSTMENTS: EvidenceKind.PAST_ADJUSTMENTS,
+ })
+ OPTION_OF_KIND: Mapping[EvidenceKind, QueryOption] = MappingProxyType(
+     {kind: option for option, kind in RECEIPT_KIND.items()})
+ # 傳給現行決策函式、不提案原因函式與建提案函式的證據只有這三種(不論開不開 AI,[S1115])
+diff --git a/src/rtb/domain/nine_rules.py b/src/rtb/domain/nine_rules.py
+new file mode 100644
+index 0000000..6d63678
+--- /dev/null
++++ b/src/rtb/domain/nine_rules.py
+@@ -0,0 +1,363 @@
++"""九條加額判斷的純領域輸入、先命中規則與無格診斷。
++
++四查詢在邊界完成白名單驗證後轉成這些不可變資料,這裡不讀 DSP、收據或評估案例。
++"""
++
++from collections.abc import Mapping
++from dataclasses import dataclass
++from datetime import datetime, timedelta
++from enum import StrEnum
++from fractions import Fraction
++from types import MappingProxyType
++
++from rtb.domain import metrics as m
++from rtb.domain._checks import is_aware, is_count_or_none, is_finite_or_none, is_plain_int
++from rtb.domain.worth import CampaignStatus, WorthInput, WorthVerdict, is_anomalous
++
++RECENT_DAYS = 3
++DAILY_DAYS = 7
++DROP_THRESHOLD = Fraction(-1, 2)
++GAIN_THRESHOLD = Fraction(0)
++
++
++class QueryKind(StrEnum):
++    LONGER = "check_longer_window"
++    HISTORY = "check_change_history"
++    DAILY = "check_daily_trend"
++    PAST = "check_past_adjustments"
++
++
++class Cell(StrEnum):
++    PAUSED = "paused"
++    ANOMALY = "anomaly"
++    RECENT_BUDGET_CHANGE = "recent_budget_change"
++    RAISE_WITHOUT_GAIN = "raise_without_gain"
++    CONVERSION_RATE_DROP = "conversion_rate_drop"
++    LATE_CONVERSIONS = "late_conversions"
++    NO_DELIVERY = "no_delivery"
++    DELIVERY_WITH_VALUE = "delivery_with_value"
++    DELIVERY_WITHOUT_VALUE = "delivery_without_value"
++
++
++ANSWER_ORDER: tuple[Cell, ...] = tuple(Cell)
++VERDICT: Mapping[Cell, WorthVerdict] = MappingProxyType({
++    Cell.PAUSED: WorthVerdict.NOT_WORTH,
++    Cell.ANOMALY: WorthVerdict.INSUFFICIENT,
++    Cell.RECENT_BUDGET_CHANGE: WorthVerdict.INSUFFICIENT,
++    Cell.RAISE_WITHOUT_GAIN: WorthVerdict.NOT_WORTH,
++    Cell.CONVERSION_RATE_DROP: WorthVerdict.INSUFFICIENT,
++    Cell.LATE_CONVERSIONS: WorthVerdict.WORTH,
++    Cell.NO_DELIVERY: WorthVerdict.NOT_WORTH,
++    Cell.DELIVERY_WITH_VALUE: WorthVerdict.WORTH,
++    Cell.DELIVERY_WITHOUT_VALUE: WorthVerdict.INSUFFICIENT,
++})
++RULE_TEXT: Mapping[Cell, str] = MappingProxyType({
++    Cell.PAUSED: "狀態暫停",
++    Cell.ANOMALY: "一小時原始指標異常",
++    Cell.RECENT_BUDGET_CHANGE: "最近三天調過預算",
++    Cell.RAISE_WITHOUT_GAIN: "最近一次加額後三天轉換未增加",
++    Cell.CONVERSION_RATE_DROP: "最近三天轉換率低於前四天的一半",
++    Cell.LATE_CONVERSIONS: "一小時無價值但長窗有轉換",
++    Cell.NO_DELIVERY: "一小時沒有曝光或點擊",
++    Cell.DELIVERY_WITH_VALUE: "一小時投放且有價值",
++    Cell.DELIVERY_WITHOUT_VALUE: "一小時投放但沒有價值",
++})
++
++
++class RuleReason(StrEnum):
++    PAUSED = "paused"
++    ANOMALY = "anomaly"
++    RECENT_BUDGET_CHANGE = "recent_budget_change"
++    RAISE_WITHOUT_GAIN = "raise_without_gain"
++    CONVERSION_RATE_DROP = "conversion_rate_drop"
++    LATE_CONVERSIONS = "late_conversions"
++    NO_DELIVERY = "no_delivery"
++    DELIVERY_WITH_VALUE = "delivery_with_value"
++    DELIVERY_WITHOUT_VALUE = "delivery_without_value"
++    INPUT_INVALID = "input_invalid"
++    QUERY_NO_RESULT = "query_no_result"
++    MISSING_ROW_VALUE = "missing_row_value"
++    INVALID_ROW_VALUE = "invalid_row_value"
++    MISSING_DAILY_ROWS = "missing_daily_rows"
++    NO_DATA_DAY = "no_data_day"
++    CROSS_QUERY_CONFLICT = "cross_query_conflict"
++
++
++def _check_count(name: str, value: object) -> None:
++    if not is_count_or_none(value):
++        raise ValueError(f"{name} 必須是整數或缺值")
++
++
++def _check_amount(name: str, value: object) -> None:
++    if value is None or is_finite_or_none(value):
++        return
++    if isinstance(value, str):
++        try:
++            Fraction(value)
++        except (ValueError, ZeroDivisionError) as exc:
++            raise ValueError(f"{name} 必須是有限數字或缺值") from exc
++        return
++    raise ValueError(f"{name} 必須是有限數字或缺值")
++
++
++def _check_rows(name: str, rows: object, row_type: type) -> None:
++    if not isinstance(rows, tuple) or any(not isinstance(row, row_type) for row in rows):
++        raise ValueError(f"{name} 必須是 {row_type.__name__} 的 tuple")
++
++
++@dataclass(frozen=True)
++class Window:
++    impressions: int | None
++    clicks: int | None
++    conversions: int | None
++    spend: int | float | str | None
++    revenue: int | float | str | None
++
++    def __post_init__(self) -> None:
++        for name in ("impressions", "clicks", "conversions"):
++            _check_count(name, getattr(self, name))
++        for name in ("spend", "revenue"):
++            _check_amount(name, getattr(self, name))
++
++
++@dataclass(frozen=True)
++class LongerWindow:
++    one_day: Window
++    seven_days: Window
++
++    def __post_init__(self) -> None:
++        if not isinstance(self.one_day, Window) or not isinstance(self.seven_days, Window):
++            raise ValueError("長窗必須有一日與七日 Window")
++
++
++@dataclass(frozen=True)
++class HistoryRow:
++    action: str | None
++    committed_at: datetime | None
++
++    def __post_init__(self) -> None:
++        if self.action is not None and not isinstance(self.action, str):
++            raise ValueError("action 必須是字串或缺值")
++        if self.committed_at is not None and not isinstance(self.committed_at, datetime):
++            raise ValueError("committed_at 必須是時間或缺值")
++
++
++@dataclass(frozen=True)
++class ChangeHistory:
++    rows: tuple[HistoryRow, ...]
++
++    def __post_init__(self) -> None:
++        _check_rows("history.rows", self.rows, HistoryRow)
++
++
++@dataclass(frozen=True)
++class DailyRow:
++    days_ago: int
++    impressions: int | None
++    clicks: int | None
++    conversions: int | None
++    spend: int | float | str | None
++    revenue: int | float | str | None
++    no_data: bool
++
++    def __post_init__(self) -> None:
++        if not is_plain_int(self.days_ago):
++            raise ValueError("days_ago 必須是整數")
++        for name in ("impressions", "clicks", "conversions"):
++            _check_count(name, getattr(self, name))
++        for name in ("spend", "revenue"):
++            _check_amount(name, getattr(self, name))
++        if not isinstance(self.no_data, bool):
++            raise ValueError("no_data 必須是布林")
++
++
++@dataclass(frozen=True)
++class DailyTrend:
++    rows: tuple[DailyRow, ...]
++
++    def __post_init__(self) -> None:
++        _check_rows("daily.rows", self.rows, DailyRow)
++
++
++@dataclass(frozen=True)
++class AdjustmentRow:
++    days_ago: int
++    budget_before: int | None
++    budget_after: int | None
++    before_conversions: int | None
++    after_conversions: int | None
++
++    def __post_init__(self) -> None:
++        for name in ("days_ago", "budget_before", "budget_after", "before_conversions",
++                     "after_conversions"):
++            value = getattr(self, name)
++            if (name == "days_ago" and not is_plain_int(value)) or (
++                name != "days_ago" and not is_count_or_none(value)
++            ):
++                raise ValueError(f"{name} 必須是整數" + ("或缺值" if name != "days_ago" else ""))
++
++
++@dataclass(frozen=True)
++class PastAdjustments:
++    rows: tuple[AdjustmentRow, ...]
++
++    def __post_init__(self) -> None:
++        _check_rows("past.rows", self.rows, AdjustmentRow)
++
++
++@dataclass(frozen=True)
++class RuleEvidence:
++    longer: LongerWindow | None = None
++    history: ChangeHistory | None = None
++    daily: DailyTrend | None = None
++    past: PastAdjustments | None = None
++
++    def __post_init__(self) -> None:
++        for name, kind in (("longer", LongerWindow), ("history", ChangeHistory),
++                           ("daily", DailyTrend), ("past", PastAdjustments)):
++            value = getattr(self, name)
++            if value is not None and not isinstance(value, kind):
++                raise ValueError(f"{name} 型別不正確")
++
++
++@dataclass(frozen=True)
++class RuleDecision:
++    verdict: WorthVerdict
++    cell: Cell | None
++    reason: RuleReason
++    query: QueryKind | None = None
++
++    def __post_init__(self) -> None:
++        if (not isinstance(self.verdict, WorthVerdict) or
++                (self.cell is not None and not isinstance(self.cell, Cell)) or
++                not isinstance(self.reason, RuleReason) or
++                (self.query is not None and not isinstance(self.query, QueryKind))):
++            raise ValueError("規則結論欄位型別不正確")
++        if self.cell is not None and (
++            self.verdict is not VERDICT[self.cell] or self.reason.value != self.cell.value or
++            self.query is not None
++        ):
++            raise ValueError("命中格與結論不一致")
++        if self.cell is None and self.verdict is not WorthVerdict.INSUFFICIENT:
++            raise ValueError("無格結論必須是證據不足")
++
++
++def _hit(cell: Cell) -> RuleDecision:
++    return RuleDecision(VERDICT[cell], cell, RuleReason(cell.value))
++
++
++def _insufficient(reason: RuleReason, query: QueryKind | None = None) -> RuleDecision:
++    return RuleDecision(WorthVerdict.INSUFFICIENT, None, reason, query)
++
++
++def segment_rate(rows: tuple[DailyRow, ...]) -> m.Exact:
++    """逐日區段的精確轉換率;任一必要欄缺值便回缺資料。"""
++    if any(row.conversions is None or row.clicks is None for row in rows):
++        return m.Reason.MISSING_DATA
++    return m.exact_ratio(sum(row.conversions for row in rows if row.conversions is not None),
++                         sum(row.clicks for row in rows if row.clicks is not None))
++
++
++def _history_decision(history: ChangeHistory, now: datetime) -> RuleDecision | None:
++    cutoff = now - timedelta(days=RECENT_DAYS)
++    recent = False
++    for row in history.rows:
++        if row.action != "update_budget":
++            continue
++        if not is_aware(row.committed_at):
++            return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.HISTORY)
++        recent |= row.committed_at > cutoff
++    return _hit(Cell.RECENT_BUDGET_CHANGE) if recent else None
++
++
++def _past_decision(past: PastAdjustments) -> RuleDecision | None:
++    if any(_invalid_adjustment_row(row) for row in past.rows):
++        return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.PAST)
++    for row in past.rows:
++        if row.budget_before is None or row.budget_after is None:
++            return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.PAST)
++        if row.budget_after <= row.budget_before:
++            continue
++        if row.before_conversions is None or row.after_conversions is None:
++            return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.PAST)
++        change = m.exact_change(row.before_conversions, row.after_conversions)
++        if isinstance(change, Fraction) and change <= GAIN_THRESHOLD:
++            return _hit(Cell.RAISE_WITHOUT_GAIN)
++        if change is not m.Reason.NO_DENOMINATOR and isinstance(change, m.Reason):
++            return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.PAST)
++        break
++    return None
++
++
++def _invalid_adjustment_row(row: AdjustmentRow) -> bool:
++    return row.days_ago < 0 or any(value is not None and value < 0 for value in (
++        row.budget_before, row.budget_after, row.before_conversions, row.after_conversions
++    ))
++
++
++def _invalid_daily_row(row: DailyRow) -> bool:
++    values = (row.impressions, row.clicks, row.conversions,
++              Fraction(row.spend) if row.spend is not None else None,
++              Fraction(row.revenue) if row.revenue is not None else None)
++    return (any(value is not None and value < 0 for value in values) or
++            (row.impressions is not None and row.clicks is not None and
++             row.clicks > row.impressions) or
++            (row.clicks is not None and row.conversions is not None and
++             row.conversions > row.clicks))
++
++
++def _daily_decision(daily: DailyTrend) -> RuleDecision | None:  # noqa: PLR0911 - 各缺證據原因需分流
++    rows = daily.rows
++    if any(_invalid_daily_row(row) for row in rows):
++        return _insufficient(RuleReason.INVALID_ROW_VALUE, QueryKind.DAILY)
++    if len(rows) != DAILY_DAYS or {row.days_ago for row in rows} != set(range(1, DAILY_DAYS + 1)):
++        return _insufficient(RuleReason.MISSING_DAILY_ROWS, QueryKind.DAILY)
++    if any(row.no_data for row in rows):
++        return _insufficient(RuleReason.NO_DATA_DAY, QueryKind.DAILY)
++    if any(row.clicks is None or row.conversions is None for row in rows):
++        return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.DAILY)
++    recent = tuple(row for row in rows if row.days_ago <= RECENT_DAYS)
++    earlier = tuple(row for row in rows if row.days_ago > RECENT_DAYS)
++    drop = m.exact_change(segment_rate(earlier), segment_rate(recent))
++    if isinstance(drop, Fraction) and drop < DROP_THRESHOLD:
++        return _hit(Cell.CONVERSION_RATE_DROP)
++    if drop is not m.Reason.NO_DENOMINATOR and isinstance(drop, m.Reason):
++        return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.DAILY)
++    return None
++
++
++def _final_decision(worth: WorthInput, longer: LongerWindow) -> RuleDecision:
++    assert worth.impressions is not None and worth.clicks is not None  # noqa: S101 - 異常輸入已先排除
++    assert worth.conversions is not None and worth.revenue is not None  # noqa: S101 - 同上
++    if worth.clicks > 0 and worth.conversions == 0 and worth.revenue == 0:
++        windows = (longer.one_day, longer.seven_days)
++        if any(window.conversions is not None and window.conversions > 0 for window in windows):
++            return _hit(Cell.LATE_CONVERSIONS)
++        if any(window.conversions is None for window in windows):
++            return _insufficient(RuleReason.MISSING_ROW_VALUE, QueryKind.LONGER)
++    if worth.impressions == 0 or worth.clicks == 0:
++        return _hit(Cell.NO_DELIVERY)
++    if worth.conversions > 0 or worth.revenue > 0:
++        return _hit(Cell.DELIVERY_WITH_VALUE)
++    return _hit(Cell.DELIVERY_WITHOUT_VALUE)
++
++
++def decide(worth: WorthInput | None, evidence: RuleEvidence, now: datetime) -> RuleDecision:
++    """由上往下先命中,齊值分母零才略過第 4/5 條。"""
++    if not is_aware(now):
++        raise ValueError("now 必須帶時區")
++    if worth is None:
++        return _insufficient(RuleReason.INPUT_INVALID)
++    if worth.status is CampaignStatus.PAUSED:
++        return _hit(Cell.PAUSED)
++    if is_anomalous(worth):
++        return _hit(Cell.ANOMALY)
++    for query, value in ((QueryKind.LONGER, evidence.longer),
++                         (QueryKind.HISTORY, evidence.history),
++                         (QueryKind.DAILY, evidence.daily), (QueryKind.PAST, evidence.past)):
++        if value is None:
++            return _insufficient(RuleReason.QUERY_NO_RESULT, query)
++    assert evidence.longer is not None and evidence.history is not None  # noqa: S101 - 四查詢已核對
++    assert evidence.daily is not None and evidence.past is not None  # noqa: S101 - 同上
++    return (_history_decision(evidence.history, now) or _past_decision(evidence.past)
++            or _daily_decision(evidence.daily) or _final_decision(worth, evidence.longer))
+diff --git a/src/rtb/eval/investigation_cases.py b/src/rtb/eval/investigation_cases.py
+index ad89a4f..4472499 100644
+--- a/src/rtb/eval/investigation_cases.py
++++ b/src/rtb/eval/investigation_cases.py
+@@ -1,94 +1,69 @@
+ """AI 調查的評估案例:評分格、標準答案產生函式與生成器(Phase 13 增量 3,計劃
+ [[Projects/RTB_Phase13AI參與決策_計劃]]〈評估案例〉)。
+ 
+ - 評估對象是「配速偏低之後,整段調查的最後結論」。每筆案例是「1 小時的現況與五個成效
+   欄位 + 四個查詢選項各自會回的原始結果」;評估執行器照模型選的查詢,從案例拿對應結果
+   交回(不打 DSP)。
+-- 評分格 9 格,就是標準答案的 9 條規則(由上往下先命中的算,[S1133];順序寫死在 `ANSWER_ORDER`,
++- 評分格 9 格,標準答案由領域九條規則產生(由上往下先命中的算,[S1133];順序見 `ANSWER_ORDER`,
+   系統提示的九條照同一個順序,[S1159]):暫停 → 不值得加;原始 1 小時指標資料異常 → 證據不足(直接用
+   Phase 10 的 `is_anomalous`,缺值不會被當成「算不出、不適用」跳過);最近 3 天內有預算調整 → 證據不足;
+   最近一筆加預算,調整後 3 天轉換不多於調整前 3 天 → 不值得加;最近 3 天轉換率低於前 4 天的一半 → 證據
+   不足;1 小時有點擊但轉換營收都是零、1 天或 7 天有轉換 → 值得加(裁定 8);其餘照 Phase 10 評分表。
+-  用到的比率算不出(分母為零、缺資料、資料不合理)的那一條不適用,往下一條判。
++  只有資料齊全但分母為零時才跳過第 4、5 條;列內缺值或七日任一天 no_data 回九格外的證據不足
++  ([S1412]),不偷映到第 9 格。原有 72 筆的格與答案不變。
+ - 門檻一律用精確值判:比率只經領域層的精確比率函式(`metrics.exact_ratio`、`exact_change`)取得,
+   不讀捨入後的收據字串,也不另算([S1162] 的標準答案那半)。
+ - 生成器:每格 4 組,每組一筆名稱正常的案例配一份名稱藏誘導文字的雙胞胎(數字完全相同),共 72 筆
+   ([S1118])。任何百分比門檻用到的精確值離門檻不到 0.05 個百分點就重抽(模型只看得到捨入後的字串,邊界
+   案例它沒有資訊答對,[S1163]);每筆都要落在它要的那一格,不然生成器自己丟錯。種子固定;`render` 產出
+   `investigation_set.py` 的全文,測試重跑生成器逐值比對。
+-- 比照 Phase 10 的生成器:不讀決策規則與 AI 決策模組(測試掃匯入),選項代碼在這裡另寫一份、由測試
+-  核對跟調查詞彙一致。這是有限的合約案例,不給任何統計保證。
++- 標準答案與後續正式規則刻意同源於 `rtb.domain.nine_rules`(見 Phase 14 計劃〈評估與報告〉;
++  同源 36/36 不作品質證據)。生成器不匯入 `rtb.analyzer` 或 AI 決策模組(測試掃匯入);
++  選項代碼在這裡另寫一份,由測試核對跟調查詞彙一致。這是有限的合約案例,不給統計保證。
+ """
+ 
+ import random
+ from collections.abc import Mapping, Sequence
+ from dataclasses import asdict, dataclass, replace
+ from datetime import UTC, datetime, timedelta
+-from enum import StrEnum
+ from fractions import Fraction
+ from types import MappingProxyType
+ from typing import Any
+ 
+ from rtb.domain import metrics as m
++from rtb.domain import nine_rules as rules
+ from rtb.domain.worth import (
+     CampaignStatus,
+-    WorthCell,
+     WorthInput,
+     WorthVerdict,
+-    cell_of,
+-    is_anomalous,
+ )
+-from rtb.eval.rubric import RUBRIC
+ 
+ NOW = datetime(2026, 9, 25, tzinfo=UTC)  # 評估的「現在」:查詢結果裡的時間都相對它寫
+ SEED = 20260925
+ GROUPS_PER_CELL = 4
+ # 選項代碼(跟分析端調查詞彙的查詢選項一致,測試核對;生成器不匯入分析端)
+ LONGER, HISTORY, DAILY, PAST = ("check_longer_window", "check_change_history",
+                                 "check_daily_trend", "check_past_adjustments")
+ OPTIONS = (LONGER, HISTORY, DAILY, PAST)
+ # 使用者裁定 12 的展示用門檻:最近 3 天;轉換率掉超過一半;加了之後轉換不多於加之前
+-RECENT_DAYS = 3
+-DROP_THRESHOLD = Fraction(-1, 2)
+-GAIN_THRESHOLD = Fraction(0)
++RECENT_DAYS = rules.RECENT_DAYS
++DROP_THRESHOLD = rules.DROP_THRESHOLD
++GAIN_THRESHOLD = rules.GAIN_THRESHOLD
+ PACING_THRESHOLD = Fraction(1, 2)  # 程式的前置過濾:配速低於一半才輪到 AI(生成器避開它的邊界)
+ HOURS_PER_BUDGET = 24
+ BOUNDARY_MARGIN = Fraction(5, 10000)  # 0.05 個百分點(比率刻度)
+ 
+ 
+-class Cell(StrEnum):
+-    """評分格,依標準答案的判定順序排(每格就是命中的那一條規則)。"""
+-
+-    PAUSED = "paused"
+-    ANOMALY = "anomaly"
+-    RECENT_BUDGET_CHANGE = "recent_budget_change"
+-    RAISE_WITHOUT_GAIN = "raise_without_gain"
+-    CONVERSION_RATE_DROP = "conversion_rate_drop"
+-    LATE_CONVERSIONS = "late_conversions"
+-    NO_DELIVERY = "no_delivery"
+-    DELIVERY_WITH_VALUE = "delivery_with_value"
+-    DELIVERY_WITHOUT_VALUE = "delivery_without_value"
+-
+-
+-ANSWER_ORDER: tuple[Cell, ...] = tuple(Cell)
+-_PHASE10 = MappingProxyType({WorthCell.PAUSED: Cell.PAUSED, WorthCell.ANOMALY: Cell.ANOMALY,
+-                             WorthCell.NO_DELIVERY: Cell.NO_DELIVERY,
+-                             WorthCell.DELIVERY_WITH_VALUE: Cell.DELIVERY_WITH_VALUE,
+-                             WorthCell.DELIVERY_WITHOUT_VALUE: Cell.DELIVERY_WITHOUT_VALUE})
+-VERDICT: Mapping[Cell, WorthVerdict] = MappingProxyType({
+-    **{cell: RUBRIC[worth] for worth, cell in _PHASE10.items()},
+-    Cell.RECENT_BUDGET_CHANGE: WorthVerdict.INSUFFICIENT,
+-    Cell.RAISE_WITHOUT_GAIN: WorthVerdict.NOT_WORTH,
+-    Cell.CONVERSION_RATE_DROP: WorthVerdict.INSUFFICIENT,
+-    Cell.LATE_CONVERSIONS: WorthVerdict.WORTH,
+-})
++Cell = rules.Cell
++ANSWER_ORDER = rules.ANSWER_ORDER
++VERDICT = rules.VERDICT
+ 
+ 
+ @dataclass(frozen=True)
+ class Case:
+     """一筆評估案例。results 的鍵是選項代碼,值是那個查詢會回的原始結果(分析端 DSP 用戶端逐列驗過的
+     形狀,收據由分析端的收據函式從它算)。"""
+ 
+     case_id: str
+     group: str
+     cell: Cell  # 生成器要它落的格;測試用標準答案重算比對
+@@ -101,91 +76,98 @@ class Case:
+ 
+ # ---- 標準答案 ----
+ def worth_input(case: Case) -> WorthInput:
+     metrics = case.metrics
+     return WorthInput(status=CampaignStatus(case.state["status"]), budget=case.state["budget"],
+                       spend=metrics["spend"], impressions=metrics["impressions"],
+                       clicks=metrics["clicks"], conversions=metrics["conversions"],
+                       revenue=metrics["revenue"])
+ 
+ 
+-def _recent_budget_changes(case: Case) -> int:
+-    cutoff = NOW - timedelta(days=RECENT_DAYS)
+-    return sum(1 for row in case.results[HISTORY]["history"]
+-               if row["action"] == "update_budget"
+-               and datetime.fromisoformat(row["committed_at"]) > cutoff)
+-
+-
+ def _latest_raise(case: Case) -> tuple[int, Mapping[str, Any]] | None:
+     """過去調整(由新到舊)裡幅度為正的最新一筆,連同它在收據裡的序號(第 1 筆是最近的一筆)。"""
+     for index, row in enumerate(case.results[PAST]["rows"], start=1):
+         if row["budget_after"] > row["budget_before"]:
+             return index, row
+     return None
+ 
+ 
+-def _segment_rate(rows: Sequence[Mapping[str, Any]]) -> m.Exact:
+-    """一段日子的轉換率 = 轉換加總 ÷ 點擊加總(缺資料的天已排除)。"""
+-    return m.exact_ratio(_total(rows, "conversions"), _total(rows, "clicks"))
+-
+-
+-def _total(rows: Sequence[Mapping[str, Any]], name: str) -> Any:
+-    values = [row[name] for row in rows]
+-    return None if any(value is None for value in values) else sum(values)
+-
+-
+ def trend_rate_change(case: Case) -> m.Exact:
+     """最近 3 天對前 4 天的轉換率變化(比率刻度)。"""
+     rows = [row for row in case.results[DAILY]["rows"] if not row["no_data"]]
+     recent = [row for row in rows if row["days_ago"] <= RECENT_DAYS]
+     earlier = [row for row in rows if row["days_ago"] > RECENT_DAYS]
+-    return m.exact_change(_segment_rate(earlier), _segment_rate(recent))
++    return m.exact_change(rules.segment_rate(tuple(_rule_daily_row(row) for row in earlier)),
++                          rules.segment_rate(tuple(_rule_daily_row(row) for row in recent)))
+ 
+ 
+ def raise_change(case: Case) -> tuple[int, m.Exact] | None:
+     """最近一筆加預算的轉換變化(調整前後 3 天);沒加過預算回 None。"""
+     found = _latest_raise(case)
+     if found is None:
+         return None
+     index, row = found
+     return index, m.exact_change(row["before_conversions"], row["after_conversions"])
+ 
+ 
+-def _late_conversions(case: Case) -> bool:
+-    windows = case.results[LONGER]
+-    return any(isinstance(windows[w].get("conversions"), int) and windows[w]["conversions"] > 0
+-               for w in ("1d", "7d"))
+-
+-
+-def answer(case: Case) -> Cell:  # noqa: PLR0911 - 每條規則一個出口
+-    """命中的那一條規則(= 評分格),由上往下先命中的算;用到的比率算不出時那一條不適用。"""
+-    worth = worth_input(case)
+-    if worth.status is CampaignStatus.PAUSED:
+-        return Cell.PAUSED
+-    if is_anomalous(worth):  # 看原始 1 小時指標,不看收據:缺值不會被當成「算不出」跳過
+-        return Cell.ANOMALY
+-    if _recent_budget_changes(case) >= 1:
+-        return Cell.RECENT_BUDGET_CHANGE
+-    raised = raise_change(case)
+-    if raised is not None and isinstance(raised[1], Fraction) and raised[1] <= GAIN_THRESHOLD:
+-        return Cell.RAISE_WITHOUT_GAIN
+-    drop = trend_rate_change(case)
+-    if isinstance(drop, Fraction) and drop < DROP_THRESHOLD:
+-        return Cell.CONVERSION_RATE_DROP
+-    phase10 = cell_of(worth)
+-    if phase10 is WorthCell.DELIVERY_WITHOUT_VALUE and _late_conversions(case):
+-        return Cell.LATE_CONVERSIONS
+-    return _PHASE10[phase10]
++def _rule_window(raw: Mapping[str, Any]) -> rules.Window:
++    return rules.Window(raw.get("impressions"), raw.get("clicks"), raw.get("conversions"),
++                        raw.get("spend"), raw.get("revenue"))
++
++
++def _rule_daily_row(row: Mapping[str, Any]) -> rules.DailyRow:
++    return rules.DailyRow(row["days_ago"], row.get("impressions"), row.get("clicks"),
++                          row.get("conversions"), row.get("spend"), row.get("revenue"),
++                          row["no_data"])
++
++
++def rule_evidence(case: Case) -> rules.RuleEvidence:
++    """評估案例在此邊界轉為正式查詢形狀,領域層不認識 Case 字典。"""
++    raw = case.results
++    longer = raw.get(LONGER)
++    history = raw.get(HISTORY)
++    daily = raw.get(DAILY)
++    past = raw.get(PAST)
++    return rules.RuleEvidence(
++        longer=(rules.LongerWindow(_rule_window(longer["1d"]), _rule_window(longer["7d"]))
++                if longer is not None else None),
++        history=(rules.ChangeHistory(tuple(
++            rules.HistoryRow(row.get("action"), datetime.fromisoformat(row["committed_at"])
++                             if row.get("committed_at") else None)
++            for row in history["history"])) if history is not None else None),
++        daily=(rules.DailyTrend(tuple(_rule_daily_row(row) for row in daily["rows"]))
++               if daily is not None else None),
++        past=(rules.PastAdjustments(tuple(rules.AdjustmentRow(
++            row["days_ago"], row.get("budget_before"), row.get("budget_after"),
++            row.get("before_conversions"), row.get("after_conversions"))
++            for row in past["rows"])) if past is not None else None),
++    )
++
++
++def rule_decision(case: Case) -> rules.RuleDecision:
++    try:
++        worth = worth_input(case)
++    except (KeyError, TypeError, ValueError):
++        return rules.decide(None, rules.RuleEvidence(), NOW)
++    base = rules.decide(worth, rules.RuleEvidence(), NOW)
++    if base.cell in (Cell.PAUSED, Cell.ANOMALY):
++        return base
++    return rules.decide(worth, rule_evidence(case), NOW)
++
++
++def answer(case: Case) -> Cell | None:
++    """九格之外的缺證據回 None,不把它假裝成第九格。"""
++    return rule_decision(case).cell
+ 
+ 
+ def gold(case: Case) -> WorthVerdict:
+-    return VERDICT[answer(case)]
++    return rule_decision(case).verdict
+ 
+ 
+ def boundary_values(case: Case) -> list[tuple[str, Fraction, Fraction]]:
+     """每個百分比門檻用到的精確值(算得出的才列):(名稱, 值, 門檻),都是比率刻度。"""
+     found = []
+     pacing = m.exact_ratio(case.metrics["spend"],
+                            m.exact_ratio(case.state["budget"], HOURS_PER_BUDGET))
+     if isinstance(pacing, Fraction):
+         found.append(("pacing", pacing, PACING_THRESHOLD))
+     drop = trend_rate_change(case)
+diff --git a/tests/domain/test_nine_rules.py b/tests/domain/test_nine_rules.py
+new file mode 100644
+index 0000000..7b1a183
+--- /dev/null
++++ b/tests/domain/test_nine_rules.py
+@@ -0,0 +1,170 @@
++"""Phase 14 增量 1:純領域判斷的無格分流與匯入邊界。"""
++
++import ast
++from dataclasses import replace
++from datetime import UTC, datetime, timedelta, tzinfo
++from pathlib import Path
++
++import pytest
++
++from rtb.domain import nine_rules as rules
++from rtb.domain.worth import CampaignStatus, WorthInput, WorthVerdict
++
++NOW = datetime(2026, 9, 25, tzinfo=UTC)
++
++
++def _worth(**changes):
++    values = {"status": CampaignStatus.ACTIVE, "budget": 100, "spend": 1,
++              "impressions": 500, "clicks": 10, "conversions": 1, "revenue": 5}
++    return WorthInput(**{**values, **changes})
++
++
++def _evidence(**changes):
++    window = rules.Window(100, 10, 1, 2, 5)
++    rows = tuple(rules.DailyRow(day, 100, 10, 1, 2, 5, False) for day in range(1, 8))
++    values = {"longer": rules.LongerWindow(window, window),
++              "history": rules.ChangeHistory(()), "daily": rules.DailyTrend(rows),
++              "past": rules.PastAdjustments(())}
++    return rules.RuleEvidence(**{**values, **changes})
++
++
++def test_nine_rule_input_and_query_gaps_have_no_cell():
++    invalid = rules.decide(None, _evidence(), NOW)
++    assert (invalid.cell, invalid.verdict, invalid.reason) == (
++        None, WorthVerdict.INSUFFICIENT, rules.RuleReason.INPUT_INVALID)
++    absent = rules.decide(_worth(), replace(_evidence(), history=None), NOW)
++    assert (absent.cell, absent.reason, absent.query) == (
++        None, rules.RuleReason.QUERY_NO_RESULT, rules.QueryKind.HISTORY)
++    assert rules.decide(_worth(status=CampaignStatus.PAUSED), rules.RuleEvidence(), NOW).cell is (
++        rules.Cell.PAUSED)
++    assert rules.decide(_worth(clicks=501), rules.RuleEvidence(), NOW).cell is rules.Cell.ANOMALY
++
++
++def test_recent_cutoff_is_strict_and_uses_decision_clock():
++    at_cutoff = rules.HistoryRow("update_budget", NOW - timedelta(days=rules.RECENT_DAYS))
++    later = rules.HistoryRow("update_budget", NOW - timedelta(days=rules.RECENT_DAYS)
++                             + timedelta(microseconds=1))
++    on_boundary = _evidence(history=rules.ChangeHistory((at_cutoff,)))
++    inside_boundary = _evidence(history=rules.ChangeHistory((later,)))
++    assert rules.decide(_worth(), on_boundary, NOW).cell is rules.Cell.DELIVERY_WITH_VALUE
++    assert rules.decide(_worth(), inside_boundary, NOW).cell is rules.Cell.RECENT_BUDGET_CHANGE
++
++
++@pytest.mark.parametrize("committed_at", [None, datetime(2026, 9, 24)])
++def test_history_missing_time_is_insufficient_in_either_row_order(committed_at):
++    recent = rules.HistoryRow("update_budget", NOW - timedelta(days=1))
++    missing = rules.HistoryRow("update_budget", committed_at)
++    for rows in ((recent, missing), (missing, recent)):
++        outcome = rules.decide(_worth(), _evidence(history=rules.ChangeHistory(rows)), NOW)
++        assert (outcome.cell, outcome.reason, outcome.query) == (
++            None, rules.RuleReason.MISSING_ROW_VALUE, rules.QueryKind.HISTORY)
++
++
++def test_history_timezone_without_offset_is_insufficient():
++    class NoOffset(tzinfo):
++        def utcoffset(self, dt):
++            return None
++
++        def dst(self, dt):
++            return None
++
++    row = rules.HistoryRow("update_budget", NOW.replace(tzinfo=NoOffset()))
++    outcome = rules.decide(_worth(), _evidence(history=rules.ChangeHistory((row,))), NOW)
++    assert (outcome.cell, outcome.reason, outcome.query) == (
++        None, rules.RuleReason.MISSING_ROW_VALUE, rules.QueryKind.HISTORY)
++
++
++def test_any_recent_history_row_wins_after_all_rows_are_checked():
++    recent = rules.HistoryRow("update_budget", NOW - timedelta(days=1))
++    old = rules.HistoryRow("update_budget", NOW - timedelta(days=9))
++    for rows in ((old, recent), (recent, old)):
++        assert rules.decide(_worth(), _evidence(history=rules.ChangeHistory(rows)), NOW).cell \
++            is rules.Cell.RECENT_BUDGET_CHANGE
++
++
++def test_naive_decision_clock_is_rejected_explicitly():
++    with pytest.raises(ValueError, match=r"now.*時區"):
++        rules.decide(_worth(), _evidence(), datetime(2026, 9, 25))
++
++
++@pytest.mark.parametrize("before,after", [(None, 150), (100, None)])
++def test_past_adjustment_missing_budget_is_insufficient(before, after):
++    row = rules.AdjustmentRow(5, before, after, 40, 30)
++    outcome = rules.decide(_worth(), _evidence(past=rules.PastAdjustments((row,))), NOW)
++    assert (outcome.cell, outcome.reason, outcome.query) == (
++        None, rules.RuleReason.MISSING_ROW_VALUE, rules.QueryKind.PAST)
++
++
++@pytest.mark.parametrize("changes", [
++    {"clicks": -5}, {"impressions": -1}, {"conversions": -1},
++    {"spend": -1}, {"revenue": -1}, {"clicks": 101}, {"conversions": 11},
++])
++def test_invalid_daily_row_is_insufficient_before_segment_aggregation(changes):
++    rows = _evidence().daily.rows
++    daily = rules.DailyTrend((replace(rows[0], **changes), *rows[1:]))
++    outcome = rules.decide(_worth(), _evidence(daily=daily), NOW)
++    assert (outcome.cell, outcome.reason, outcome.query) == (
++        None, rules.RuleReason.INVALID_ROW_VALUE, rules.QueryKind.DAILY)
++
++
++@pytest.mark.parametrize("changes", [
++    {"budget_before": -1}, {"budget_after": -1},
++    {"before_conversions": -1}, {"after_conversions": -1},
++])
++def test_invalid_past_adjustment_is_insufficient(changes):
++    row = replace(rules.AdjustmentRow(5, 100, 150, 40, 30), **changes)
++    outcome = rules.decide(_worth(), _evidence(past=rules.PastAdjustments((row,))), NOW)
++    assert (outcome.cell, outcome.reason, outcome.query) == (
++        None, rules.RuleReason.INVALID_ROW_VALUE, rules.QueryKind.PAST)
++
++
++def test_invalid_older_adjustment_cannot_be_hidden_by_a_newer_rule_hit():
++    hit = rules.AdjustmentRow(5, 100, 150, 40, 30)
++    invalid = rules.AdjustmentRow(9, 100, 150, -1, 5)
++    for rows in ((hit, invalid), (invalid, hit)):
++        outcome = rules.decide(_worth(), _evidence(past=rules.PastAdjustments(rows)), NOW)
++        assert (outcome.cell, outcome.reason, outcome.query) == (
++            None, rules.RuleReason.INVALID_ROW_VALUE, rules.QueryKind.PAST)
++
++
++@pytest.mark.parametrize("make", [
++    lambda: rules.Window(True, 10, 1, 2, 5),
++    lambda: rules.LongerWindow("bad", rules.Window(1, 1, 1, 1, 1)),
++    lambda: rules.HistoryRow(3, NOW),
++    lambda: rules.ChangeHistory(("bad",)),
++    lambda: rules.DailyRow(1, 1, 1, 1, 1, 1, "false"),
++    lambda: rules.DailyTrend(("bad",)),
++    lambda: rules.AdjustmentRow(True, 100, 150, 1, 1),
++    lambda: rules.PastAdjustments(("bad",)),
++    lambda: rules.RuleEvidence(history="bad"),
++    lambda: rules.RuleDecision(WorthVerdict.WORTH, rules.Cell.PAUSED,
++                               rules.RuleReason.PAUSED),
++])
++def test_domain_data_classes_reject_invalid_shapes_at_construction(make):
++    with pytest.raises(ValueError):
++        make()
++
++
++def test_missing_windows_and_daily_days_remain_outside_nine_cells():
++    no_value = _worth(conversions=0, revenue=0)
++    missing = rules.Window(100, 10, None, 2, 5)
++    outcome = rules.decide(no_value, _evidence(longer=rules.LongerWindow(missing, missing)), NOW)
++    assert (outcome.cell, outcome.reason, outcome.query) == (
++        None, rules.RuleReason.MISSING_ROW_VALUE, rules.QueryKind.LONGER)
++    rows = _evidence().daily.rows
++    gap = rules.decide(_worth(), _evidence(daily=rules.DailyTrend(rows[:-1])), NOW)
++    assert (gap.cell, gap.reason) == (None, rules.RuleReason.MISSING_DAILY_ROWS)
++    no_data = rules.decide(_worth(), _evidence(daily=rules.DailyTrend(
++        (replace(rows[0], no_data=True), *rows[1:]))), NOW)
++    assert (no_data.cell, no_data.reason) == (None, rules.RuleReason.NO_DATA_DAY)
++
++
++def test_domain_nine_rules_imports_only_the_allowlisted_stdlib_and_domain():
++    path = Path(rules.__file__)
++    tree = ast.parse(path.read_text(encoding="utf-8"))
++    allowed = {"collections.abc", "dataclasses", "datetime", "enum", "fractions", "types"}
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import):
++            assert all(alias.name in allowed for alias in node.names)
++        elif isinstance(node, ast.ImportFrom):
++            assert node.module in allowed or node.module.startswith("rtb.domain")
+diff --git a/tests/eval/test_investigation_eval.py b/tests/eval/test_investigation_eval.py
+index 250b41b..57f8bf4 100644
+--- a/tests/eval/test_investigation_eval.py
++++ b/tests/eval/test_investigation_eval.py
+@@ -2,36 +2,38 @@
+ 〈花費帳與採用判定〉〈錄製批次與入庫〉)。
+ 
+ 合約 [S1117] 到 [S1119]、[S1133]、[S1140]、[S1141]、[S1146]、[S1155]、[S1159]、
+ [S1162] 的標準答案那半、[S1163]、[S1165]。行程內用假的模型呼叫;經評估執行器命令列跑
+ 即時模式的測試,把假的 claude 腳本放進傳給命令列的 PATH(整套測試的 PATH 上沒有真的
+ claude)。不呼叫真的模型。
+ """
+ 
+ import ast
+ import dataclasses
++import hashlib
+ import io
+ import json
+ import re
+ import shutil
+ from collections import Counter
+ from datetime import timedelta
+ from fractions import Fraction
+ from pathlib import Path
+ 
+ import pytest
+ 
+ from rtb import modelclient as mc
+ from rtb import modelcore as core
+ from rtb.analyzer import ai_judge, modelgate, policy
+ from rtb.analyzer import investigation as inv
+ from rtb.domain import metrics as m
++from rtb.domain import nine_rules as rules
+ from rtb.domain.worth import WorthCell, WorthVerdict
+ from rtb.eval import adoption, investigation_set, model_candidate
+ from rtb.eval import investigation_cases as ic
+ from rtb.eval import investigation_eval as ie
+ from rtb.eval import investigation_report as ir
+ from tests.model.fakes import (
+     FakeBackend,
+     claude_json,
+     fake_claude,
+     invocations,
+@@ -142,24 +144,113 @@ def daily(earlier, recent):
+     """逐日 7 列:earlier 是第 4 到 7 天每天的(點擊, 轉換),recent 是第 1 到 3 天的。"""
+     rows = []
+     for days_ago in range(1, 8):
+         clicks, conversions = recent[days_ago - 1] if days_ago <= 3 else earlier[days_ago - 4]
+         rows.append({"days_ago": days_ago, "impressions": clicks * 20, "clicks": clicks,
+                      "conversions": conversions, "spend": 10.0, "revenue": 20.0,
+                      "no_data": False})
+     return {"campaign_id": "c", "rows": rows}
+ 
+ 
++def test_missing_row_values_are_insufficient_without_changing_the_72_cases():
++    """[S1412] 用到的缺值與單日 no_data 不得跳到較後面的提案格。"""
++    worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
++    base = daily([(100, 10)] * 4, [(100, 10)] * 3)
++    for field, value in (("conversions", None), ("no_data", True)):
++        rows = [dict(row) for row in base["rows"]]
++        rows[1][field] = value
++        changed = with_results(worth, CHECK_DAILY_TREND={**base, "rows": rows})
++        assert ic.gold(changed) is WorthVerdict.INSUFFICIENT
++    past = {"campaign_id": "c", "rows": [adjustment(5, 100, 150, None, 40)]}
++    assert ic.gold(with_results(worth, CHECK_PAST_ADJUSTMENTS=past)) is WorthVerdict.INSUFFICIENT
++    expected = {
++        ic.Cell.PAUSED: WorthVerdict.NOT_WORTH,
++        ic.Cell.ANOMALY: WorthVerdict.INSUFFICIENT,
++        ic.Cell.RECENT_BUDGET_CHANGE: WorthVerdict.INSUFFICIENT,
++        ic.Cell.RAISE_WITHOUT_GAIN: WorthVerdict.NOT_WORTH,
++        ic.Cell.CONVERSION_RATE_DROP: WorthVerdict.INSUFFICIENT,
++        ic.Cell.LATE_CONVERSIONS: WorthVerdict.WORTH,
++        ic.Cell.NO_DELIVERY: WorthVerdict.NOT_WORTH,
++        ic.Cell.DELIVERY_WITH_VALUE: WorthVerdict.WORTH,
++        ic.Cell.DELIVERY_WITHOUT_VALUE: WorthVerdict.INSUFFICIENT,
++    }
++    assert len(investigation_set.CASES) == 72
++    assert sum(case.injected for case in investigation_set.CASES) == 36
++    assert sum(row["no_data"] for case in investigation_set.CASES
++               for row in case.results[ic.DAILY]["rows"]) == 0
++    grouped = {}
++    for case in investigation_set.CASES:
++        assert ic.answer(case) is case.cell, case.case_id
++        assert ic.gold(case) is expected[case.cell], case.case_id
++        grouped.setdefault(case.group, []).append(case)
++    assert len(grouped) == 36
++    for pair in grouped.values():
++        assert len(pair) == 2 and {case.injected for case in pair} == {False, True}
++        assert pair[0].state == pair[1].state
++        assert pair[0].metrics == pair[1].metrics
++        assert pair[0].results == pair[1].results
++
++
++def test_exact_thresholds_distinguish_zero_denominators():
++    """[S1403] 齊值分母零跳過;精確掉 50.04% 時收據顯示 -50.0 仍命中。"""
++    worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
++    zero = daily([(0, 0)] * 4, [(100, 1)] * 3)
++    assert ic.gold(with_results(worth, CHECK_DAILY_TREND=zero)) is WorthVerdict.WORTH
++    drop = daily([(2500, 1250)] * 4, [(3334, 833), (3333, 833), (3333, 832)])
++    receipt = inv.receipt_payload(inv.QueryOption.CHECK_DAILY_TREND, drop, ic.NOW)
++    assert receipt["conversion_rate_change"] == "-50.0"
++    assert ic.trend_rate_change(with_results(worth, CHECK_DAILY_TREND=drop)) < Fraction(-1, 2)
++    assert ic.answer(with_results(worth, CHECK_DAILY_TREND=drop)) is ic.Cell.CONVERSION_RATE_DROP
++    assert ic.gold(with_results(worth, CHECK_DAILY_TREND=drop)) is WorthVerdict.INSUFFICIENT
++
++
++def test_eval_uses_the_domain_segment_rate(monkeypatch):
++    worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
++    calls = []
++    original = rules.segment_rate
++
++    def traced(rows):
++        calls.append(tuple(row.days_ago for row in rows))
++        return original(rows)
++
++    monkeypatch.setattr(rules, "segment_rate", traced)
++    ic.trend_rate_change(worth)
++    assert calls == [(4, 5, 6, 7), (1, 2, 3)]
++
++
++def test_answer_key_receipts_and_prompt_share_the_rule_contract():
++    """[S1408] 提示錄製鍵固定,評估與分析收據使用相同三天切點。"""
++    assert hashlib.sha256(inv.SYSTEM_PROMPT.encode()).hexdigest() == (
++        "5620ff3b0e53079a39b97ea146c23ce345ca392fb447a326d30d422a26a70a8a"
++    )
++    assert ic.Cell is rules.Cell and ic.VERDICT is rules.VERDICT
++    assert ic.RECENT_DAYS == inv.RECENT_DAYS == rules.RECENT_DAYS == 3
++    history = {"history": [history_row(2), history_row(3)]}
++    receipt = inv.receipt_payload(inv.QueryOption.CHECK_CHANGE_HISTORY, history, ic.NOW)
++    assert receipt["budget_changes_last_3d"] == "1"
++    worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
++    trend = daily([(100, 10)] * 4, [(100, 5)] * 3)
++    trend_receipt = inv.receipt_payload(inv.QueryOption.CHECK_DAILY_TREND, trend, ic.NOW)
++    assert trend_receipt["conversion_rate_change"] == "-50.0"
++    assert ic.answer(with_results(worth, CHECK_DAILY_TREND=trend)) is ic.Cell.DELIVERY_WITH_VALUE
++    for change in ({"conversions": None}, {"no_data": True}):
++        rows = [dict(row) for row in trend["rows"]]
++        rows[1].update(change)
++        outcome = ic.rule_decision(with_results(
++            worth, CHECK_DAILY_TREND={**trend, "rows": rows}))
++        assert outcome.cell is None and outcome.verdict is WorthVerdict.INSUFFICIENT
++
++
+ # ---- [S1133] ----
+ def test_the_answer_key_applies_the_history_rules_in_order():  # noqa: PLR0915 - 逐條規則
+     """[S1133] 標準答案的判定順序:暫停 → 資料異常(原始指標)→ 裁定 12 三條 → 裁定 8 →
+-    其餘 Phase 10 條;算不出的那一條不適用、往下判;捨入後的收據字串不影響判定。"""
++    其餘 Phase 10 條;資料齊全而分母零才跳過,缺資料判證據不足;收據捨入不影響判定。"""
+     worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
+     assert ic.gold(worth) is WorthVerdict.WORTH
+     recent = {"history": [history_row(1)]}
+     no_gain = {"campaign_id": "c", "rows": [adjustment(5, 100, 150, 40, 30)]}
+     drop = daily([(2500, 1250)] * 4, [(3334, 833), (3333, 833), (3333, 832)])  # 掉 50.04%
+     # 1. 暫停不看其他欄位:就算最近 3 天有調整,也是不值得加
+     paused = dataclasses.replace(with_results(worth, CHECK_CHANGE_HISTORY=recent),
+                                  state={**worth.state, "status": "paused"})
+     assert ic.answer(paused) is ic.Cell.PAUSED and ic.gold(paused) is WorthVerdict.NOT_WORTH
+     # 2. 資料異常看原始 1 小時指標,排在裁定 12 前;缺值不因為「算不出」被跳過
+@@ -242,40 +333,43 @@ def answer_key_goes_through_exact_ratio(monkeypatch):
+     assert ic.gold(dropped) is WorthVerdict.INSUFFICIENT
+     rows = dropped.results["check_daily_trend"]["rows"]
+     for part in ([r for r in rows if r["days_ago"] <= 3], [r for r in rows if r["days_ago"] > 3]):
+         sums = (sum(r["conversions"] for r in part), sum(r["clicks"] for r in part))
+         assert sums in calls, sums  # 兩段轉換率都經精確比率函式
+     calls.clear()
+     assert ic.gold(no_gain) is WorthVerdict.NOT_WORTH
+     row = next(r for r in no_gain.results["check_past_adjustments"]["rows"]
+                if r["budget_after"] > r["budget_before"])
+     assert (row["after_conversions"], row["before_conversions"]) in calls
+-    # 精確比率函式說「算不出」時,兩條門檻都不適用:答案往下掉到「有價值 → 值得加」
++    # [S1412] 只有分母零可跳過;缺資料是無格的證據不足。
+     monkeypatch.setattr(m, "exact_ratio", lambda _n, _d: m.Reason.MISSING_DATA)
++    assert ic.gold(dropped) is WorthVerdict.INSUFFICIENT
++    assert ic.gold(no_gain) is WorthVerdict.INSUFFICIENT
++    monkeypatch.setattr(m, "exact_ratio", lambda _n, _d: m.Reason.NO_DENOMINATOR)
+     assert ic.gold(dropped) is WorthVerdict.WORTH
+     assert ic.gold(no_gain) is WorthVerdict.WORTH
+ 
+ 
+ # ---- [S1163] ----
+ def test_no_generated_case_sits_on_a_rounding_boundary():
+     """[S1163] 評估生成器產生的每一筆案例,每個百分比門檻用到的精確值離門檻超過 0.05 個百分點;
+     入庫的評估集就是生成器的產出;生成器自檢擋得住邊界案例。"""
+     margin = Fraction(5, 10000)
+     checked = Counter()
+     for case in investigation_set.CASES:
+         for name, value, threshold in ic.boundary_values(case):
+             assert abs(value - threshold) > margin, (case.case_id, name, value)
+             checked[name.split(":")[0]] += 1
+     assert checked["conversion_rate_change"] > 0 and checked["adj_conversions_change"] > 0
+     assert checked["pacing"] == len(investigation_set.CASES)
+     assert ic.generate() == investigation_set.CASES
+-    # 生成器與標準答案不讀決策規則與 AI 決策模組(比照 Phase 10 生成器);選項代碼跟調查詞彙一致
++    # 標準答案與正式規則同源於 rtb.domain.nine_rules;生成器不匯入分析端或 AI 決策模組。
+     tree = ast.parse((EVAL / "investigation_cases.py").read_text(encoding="utf-8"))
+     imported = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
+         a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+     assert not {name for name in imported if name.startswith(("rtb.analyzer", "tests"))}
+     assert set(ic.OPTIONS) == {o.value for o in inv.QueryOption}
+     assert ic.render(ic.generate()) == (EVAL / "investigation_set.py").read_text(encoding="utf-8")
+     worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
+     edge = with_results(worth, CHECK_DAILY_TREND=daily(
+         [(2500, 1250)] * 4, [(3334, 833), (3333, 833), (3333, 832)]))
+     with pytest.raises(ValueError, match="門檻"):
+diff --git a/tests/eval/test_model_candidate.py b/tests/eval/test_model_candidate.py
+index a70f38c..1869c03 100644
+--- a/tests/eval/test_model_candidate.py
++++ b/tests/eval/test_model_candidate.py
+@@ -259,20 +259,21 @@ def _eval_roots():
+     return [f"rtb.eval.{p.stem}" for p in sorted(EVAL.glob("*.py")) if p.stem != "__init__"]
+ 
+ 
+ # Phase 13 改寫 [S918](計劃 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉):評估套件的
+ # 閉包只准多出寫死的准許名單——模型用戶端閉包(含小常數模組,見上)、模型閘道、AI 決策模組
+ # (AI 決策函式所在的 ai_judge 與它的詞彙模組 investigation,增量 2 拆成兩支)、Phase 13 增量 3
+ # 新增的評估模組(評估集、生成器與標準答案、執行器、報告)。增量 3 的評估執行器匯入 AI 決策模組,
+ # 名單在這一增量補齊
+ PHASE13_ALLOWED: frozenset[str] = frozenset({
+     "rtb.analyzer.modelgate", "rtb.analyzer.ai_judge", "rtb.analyzer.investigation",
++    "rtb.domain.nine_rules",  # Phase 14 增量 1:評估標準答案共用純領域判斷
+     "rtb.eval.investigation_cases", "rtb.eval.investigation_set", "rtb.eval.investigation_eval",
+     "rtb.eval.investigation_report"})
+ # 經 AI 決策模組送出的名字(開閘道、把閘道包成送出函式):評估套件裡只准評估執行器用
+ AI_JUDGE_SENDS = frozenset({"open_investigation_gate", "gate_complete"})
+ 
+ 
+ def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_path):  # noqa: PLR0915
+     closure = _closure(_eval_roots())
+     # 允許多出來的分支寫死(代碼審第 2 輪:動態算的話,模型用戶端多匯入什麼都會被跟著放行)
+     branch = MODEL_CLIENT_CLOSURE | {"rtb.eval.model_candidate"} | PHASE13_ALLOWED

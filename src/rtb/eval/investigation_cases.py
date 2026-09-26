@@ -4,41 +4,39 @@
 - 評估對象是「配速偏低之後,整段調查的最後結論」。每筆案例是「1 小時的現況與五個成效
   欄位 + 四個查詢選項各自會回的原始結果」;評估執行器照模型選的查詢,從案例拿對應結果
   交回(不打 DSP)。
-- 評分格 9 格,就是標準答案的 9 條規則(由上往下先命中的算,[S1133];順序寫死在 `ANSWER_ORDER`,
+- 評分格 9 格,標準答案由領域九條規則產生(由上往下先命中的算,[S1133];順序見 `ANSWER_ORDER`,
   系統提示的九條照同一個順序,[S1159]):暫停 → 不值得加;原始 1 小時指標資料異常 → 證據不足(直接用
   Phase 10 的 `is_anomalous`,缺值不會被當成「算不出、不適用」跳過);最近 3 天內有預算調整 → 證據不足;
   最近一筆加預算,調整後 3 天轉換不多於調整前 3 天 → 不值得加;最近 3 天轉換率低於前 4 天的一半 → 證據
   不足;1 小時有點擊但轉換營收都是零、1 天或 7 天有轉換 → 值得加(裁定 8);其餘照 Phase 10 評分表。
-  用到的比率算不出(分母為零、缺資料、資料不合理)的那一條不適用,往下一條判。
+  只有資料齊全但分母為零時才跳過第 4、5 條;列內缺值或七日任一天 no_data 回九格外的證據不足
+  ([S1412]),不偷映到第 9 格。原有 72 筆的格與答案不變。
 - 門檻一律用精確值判:比率只經領域層的精確比率函式(`metrics.exact_ratio`、`exact_change`)取得,
   不讀捨入後的收據字串,也不另算([S1162] 的標準答案那半)。
 - 生成器:每格 4 組,每組一筆名稱正常的案例配一份名稱藏誘導文字的雙胞胎(數字完全相同),共 72 筆
   ([S1118])。任何百分比門檻用到的精確值離門檻不到 0.05 個百分點就重抽(模型只看得到捨入後的字串,邊界
   案例它沒有資訊答對,[S1163]);每筆都要落在它要的那一格,不然生成器自己丟錯。種子固定;`render` 產出
   `investigation_set.py` 的全文,測試重跑生成器逐值比對。
-- 比照 Phase 10 的生成器:不讀決策規則與 AI 決策模組(測試掃匯入),選項代碼在這裡另寫一份、由測試
-  核對跟調查詞彙一致。這是有限的合約案例,不給任何統計保證。
+- 標準答案與後續正式規則刻意同源於 `rtb.domain.nine_rules`(見 Phase 14 計劃〈評估與報告〉;
+  同源 36/36 不作品質證據)。生成器不匯入 `rtb.analyzer` 或 AI 決策模組(測試掃匯入);
+  選項代碼在這裡另寫一份,由測試核對跟調查詞彙一致。這是有限的合約案例,不給統計保證。
 """
 
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
 from fractions import Fraction
 from types import MappingProxyType
 from typing import Any
 
 from rtb.domain import metrics as m
+from rtb.domain import nine_rules as rules
 from rtb.domain.worth import (
     CampaignStatus,
-    WorthCell,
     WorthInput,
     WorthVerdict,
-    cell_of,
-    is_anomalous,
 )
-from rtb.eval.rubric import RUBRIC
 
 NOW = datetime(2026, 9, 25, tzinfo=UTC)  # 評估的「現在」:查詢結果裡的時間都相對它寫
 SEED = 20260925
@@ -48,40 +46,17 @@ LONGER, HISTORY, DAILY, PAST = ("check_longer_window", "check_change_history",
                                 "check_daily_trend", "check_past_adjustments")
 OPTIONS = (LONGER, HISTORY, DAILY, PAST)
 # 使用者裁定 12 的展示用門檻:最近 3 天;轉換率掉超過一半;加了之後轉換不多於加之前
-RECENT_DAYS = 3
-DROP_THRESHOLD = Fraction(-1, 2)
-GAIN_THRESHOLD = Fraction(0)
+RECENT_DAYS = rules.RECENT_DAYS
+DROP_THRESHOLD = rules.DROP_THRESHOLD
+GAIN_THRESHOLD = rules.GAIN_THRESHOLD
 PACING_THRESHOLD = Fraction(1, 2)  # 程式的前置過濾:配速低於一半才輪到 AI(生成器避開它的邊界)
 HOURS_PER_BUDGET = 24
 BOUNDARY_MARGIN = Fraction(5, 10000)  # 0.05 個百分點(比率刻度)
 
 
-class Cell(StrEnum):
-    """評分格,依標準答案的判定順序排(每格就是命中的那一條規則)。"""
-
-    PAUSED = "paused"
-    ANOMALY = "anomaly"
-    RECENT_BUDGET_CHANGE = "recent_budget_change"
-    RAISE_WITHOUT_GAIN = "raise_without_gain"
-    CONVERSION_RATE_DROP = "conversion_rate_drop"
-    LATE_CONVERSIONS = "late_conversions"
-    NO_DELIVERY = "no_delivery"
-    DELIVERY_WITH_VALUE = "delivery_with_value"
-    DELIVERY_WITHOUT_VALUE = "delivery_without_value"
-
-
-ANSWER_ORDER: tuple[Cell, ...] = tuple(Cell)
-_PHASE10 = MappingProxyType({WorthCell.PAUSED: Cell.PAUSED, WorthCell.ANOMALY: Cell.ANOMALY,
-                             WorthCell.NO_DELIVERY: Cell.NO_DELIVERY,
-                             WorthCell.DELIVERY_WITH_VALUE: Cell.DELIVERY_WITH_VALUE,
-                             WorthCell.DELIVERY_WITHOUT_VALUE: Cell.DELIVERY_WITHOUT_VALUE})
-VERDICT: Mapping[Cell, WorthVerdict] = MappingProxyType({
-    **{cell: RUBRIC[worth] for worth, cell in _PHASE10.items()},
-    Cell.RECENT_BUDGET_CHANGE: WorthVerdict.INSUFFICIENT,
-    Cell.RAISE_WITHOUT_GAIN: WorthVerdict.NOT_WORTH,
-    Cell.CONVERSION_RATE_DROP: WorthVerdict.INSUFFICIENT,
-    Cell.LATE_CONVERSIONS: WorthVerdict.WORTH,
-})
+Cell = rules.Cell
+ANSWER_ORDER = rules.ANSWER_ORDER
+VERDICT = rules.VERDICT
 
 
 @dataclass(frozen=True)
@@ -108,13 +83,6 @@ def worth_input(case: Case) -> WorthInput:
                       revenue=metrics["revenue"])
 
 
-def _recent_budget_changes(case: Case) -> int:
-    cutoff = NOW - timedelta(days=RECENT_DAYS)
-    return sum(1 for row in case.results[HISTORY]["history"]
-               if row["action"] == "update_budget"
-               and datetime.fromisoformat(row["committed_at"]) > cutoff)
-
-
 def _latest_raise(case: Case) -> tuple[int, Mapping[str, Any]] | None:
     """過去調整(由新到舊)裡幅度為正的最新一筆,連同它在收據裡的序號(第 1 筆是最近的一筆)。"""
     for index, row in enumerate(case.results[PAST]["rows"], start=1):
@@ -123,22 +91,13 @@ def _latest_raise(case: Case) -> tuple[int, Mapping[str, Any]] | None:
     return None
 
 
-def _segment_rate(rows: Sequence[Mapping[str, Any]]) -> m.Exact:
-    """一段日子的轉換率 = 轉換加總 ÷ 點擊加總(缺資料的天已排除)。"""
-    return m.exact_ratio(_total(rows, "conversions"), _total(rows, "clicks"))
-
-
-def _total(rows: Sequence[Mapping[str, Any]], name: str) -> Any:
-    values = [row[name] for row in rows]
-    return None if any(value is None for value in values) else sum(values)
-
-
 def trend_rate_change(case: Case) -> m.Exact:
     """最近 3 天對前 4 天的轉換率變化(比率刻度)。"""
     rows = [row for row in case.results[DAILY]["rows"] if not row["no_data"]]
     recent = [row for row in rows if row["days_ago"] <= RECENT_DAYS]
     earlier = [row for row in rows if row["days_ago"] > RECENT_DAYS]
-    return m.exact_change(_segment_rate(earlier), _segment_rate(recent))
+    return m.exact_change(rules.segment_rate(tuple(_rule_daily_row(row) for row in earlier)),
+                          rules.segment_rate(tuple(_rule_daily_row(row) for row in recent)))
 
 
 def raise_change(case: Case) -> tuple[int, m.Exact] | None:
@@ -150,35 +109,58 @@ def raise_change(case: Case) -> tuple[int, m.Exact] | None:
     return index, m.exact_change(row["before_conversions"], row["after_conversions"])
 
 
-def _late_conversions(case: Case) -> bool:
-    windows = case.results[LONGER]
-    return any(isinstance(windows[w].get("conversions"), int) and windows[w]["conversions"] > 0
-               for w in ("1d", "7d"))
+def _rule_window(raw: Mapping[str, Any]) -> rules.Window:
+    return rules.Window(raw.get("impressions"), raw.get("clicks"), raw.get("conversions"),
+                        raw.get("spend"), raw.get("revenue"))
 
 
-def answer(case: Case) -> Cell:  # noqa: PLR0911 - 每條規則一個出口
-    """命中的那一條規則(= 評分格),由上往下先命中的算;用到的比率算不出時那一條不適用。"""
-    worth = worth_input(case)
-    if worth.status is CampaignStatus.PAUSED:
-        return Cell.PAUSED
-    if is_anomalous(worth):  # 看原始 1 小時指標,不看收據:缺值不會被當成「算不出」跳過
-        return Cell.ANOMALY
-    if _recent_budget_changes(case) >= 1:
-        return Cell.RECENT_BUDGET_CHANGE
-    raised = raise_change(case)
-    if raised is not None and isinstance(raised[1], Fraction) and raised[1] <= GAIN_THRESHOLD:
-        return Cell.RAISE_WITHOUT_GAIN
-    drop = trend_rate_change(case)
-    if isinstance(drop, Fraction) and drop < DROP_THRESHOLD:
-        return Cell.CONVERSION_RATE_DROP
-    phase10 = cell_of(worth)
-    if phase10 is WorthCell.DELIVERY_WITHOUT_VALUE and _late_conversions(case):
-        return Cell.LATE_CONVERSIONS
-    return _PHASE10[phase10]
+def _rule_daily_row(row: Mapping[str, Any]) -> rules.DailyRow:
+    return rules.DailyRow(row["days_ago"], row.get("impressions"), row.get("clicks"),
+                          row.get("conversions"), row.get("spend"), row.get("revenue"),
+                          row["no_data"])
+
+
+def rule_evidence(case: Case) -> rules.RuleEvidence:
+    """評估案例在此邊界轉為正式查詢形狀,領域層不認識 Case 字典。"""
+    raw = case.results
+    longer = raw.get(LONGER)
+    history = raw.get(HISTORY)
+    daily = raw.get(DAILY)
+    past = raw.get(PAST)
+    return rules.RuleEvidence(
+        longer=(rules.LongerWindow(_rule_window(longer["1d"]), _rule_window(longer["7d"]))
+                if longer is not None else None),
+        history=(rules.ChangeHistory(tuple(
+            rules.HistoryRow(row.get("action"), datetime.fromisoformat(row["committed_at"])
+                             if row.get("committed_at") else None)
+            for row in history["history"])) if history is not None else None),
+        daily=(rules.DailyTrend(tuple(_rule_daily_row(row) for row in daily["rows"]))
+               if daily is not None else None),
+        past=(rules.PastAdjustments(tuple(rules.AdjustmentRow(
+            row["days_ago"], row.get("budget_before"), row.get("budget_after"),
+            row.get("before_conversions"), row.get("after_conversions"))
+            for row in past["rows"])) if past is not None else None),
+    )
+
+
+def rule_decision(case: Case) -> rules.RuleDecision:
+    try:
+        worth = worth_input(case)
+    except (KeyError, TypeError, ValueError):
+        return rules.decide(None, rules.RuleEvidence(), NOW)
+    base = rules.decide(worth, rules.RuleEvidence(), NOW)
+    if base.cell in (Cell.PAUSED, Cell.ANOMALY):
+        return base
+    return rules.decide(worth, rule_evidence(case), NOW)
+
+
+def answer(case: Case) -> Cell | None:
+    """九格之外的缺證據回 None,不把它假裝成第九格。"""
+    return rule_decision(case).cell
 
 
 def gold(case: Case) -> WorthVerdict:
-    return VERDICT[answer(case)]
+    return rule_decision(case).verdict
 
 
 def boundary_values(case: Case) -> list[tuple[str, Fraction, Fraction]]:

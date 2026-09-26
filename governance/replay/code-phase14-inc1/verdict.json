@@ -1,0 +1,32 @@
+{
+ "loop": "code-phase14-inc1",
+ "round": "r2",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-26T14:48:10+08:00",
+ "spec_path": "governance/review-reports/code-phase14-inc1/r2-snapshot.patch",
+ "spec_sha": "b7bdc129a92d948cea02cb985e4369f0e40873437d319869577f54e0f9a3cf7f",
+ "rows": [
+  "{\"ts\": \"2026-09-26T14:31:36+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-26f2109c\", \"note\": \"\", \"loop\": \"code-phase14-inc1\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 4, \"result_sha256\": \"8f8b3a9e99aab3ca504e9609915206498925332694c3966beb5842eb08e09d84\", \"reviewed_sha256\": \"8f8b3a9e99aab3ca504e9609915206498925332694c3966beb5842eb08e09d84\", \"spec_path\": \"governance/review-reports/code-phase14-inc1/r1-snapshot.patch\", \"scope_lines\": 1171, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"reported\": 4, \"report_path\": \"governance/review-reports/code-phase14-inc1/r1-架構對齊.md\", \"report_sha256\": \"e2115ecc753dfe562b3b76401512ffa3c51e922153983a5eeb6800689d8cb7e0\", \"snapshot_path\": \"governance/review-reports/code-phase14-inc1/r1-snapshot.patch\", \"snapshot_sha256\": \"8f8b3a9e99aab3ca504e9609915206498925332694c3966beb5842eb08e09d84\"}",
+  "{\"ts\": \"2026-09-26T14:32:25+08:00\", \"kind\": \"none\", \"auditor\": \"單reviewer\", \"token\": \"CANARY-438e7465\", \"note\": \"\", \"loop\": \"code-phase14-inc1\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 5, \"result_sha256\": \"8f8b3a9e99aab3ca504e9609915206498925332694c3966beb5842eb08e09d84\", \"reviewed_sha256\": \"8f8b3a9e99aab3ca504e9609915206498925332694c3966beb5842eb08e09d84\", \"spec_path\": \"governance/review-reports/code-phase14-inc1/r1-snapshot.patch\", \"scope_lines\": 1171, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"r1\", \"r2\", \"r3\", \"r4\", \"r5\", \"a1\", \"a2\", \"a3\", \"a4\"], \"folded_set\": [\"r1\", \"r2\", \"r3\", \"r4\", \"r5\", \"a1\", \"a2\", \"a3\", \"a4\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"r1\": \"code\", \"r2\": \"code\", \"r3\": \"code\", \"r4\": \"code\", \"r5\": \"code\", \"a1\": \"code\", \"a2\": \"code\", \"a3\": \"code\", \"a4\": \"code\"}, \"reported\": 5, \"report_path\": \"governance/review-reports/code-phase14-inc1/r1-單reviewer.md\", \"report_sha256\": \"5db982ec834223e7ee86be312e8b925814914bc2507da8546c63133013d2497e\", \"snapshot_path\": \"governance/review-reports/code-phase14-inc1/r1-snapshot.patch\", \"snapshot_sha256\": \"8f8b3a9e99aab3ca504e9609915206498925332694c3966beb5842eb08e09d84\"}",
+  "{\"ts\": \"2026-09-26T14:42:13+08:00\", \"kind\": \"none\", \"auditor\": \"單reviewer\", \"token\": \"CANARY-1f672f54\", \"note\": \"\", \"loop\": \"code-phase14-inc1\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 1, \"result_sha256\": \"b7bdc129a92d948cea02cb985e4369f0e40873437d319869577f54e0f9a3cf7f\", \"reviewed_sha256\": \"b7bdc129a92d948cea02cb985e4369f0e40873437d319869577f54e0f9a3cf7f\", \"spec_path\": \"governance/review-reports/code-phase14-inc1/r2-snapshot.patch\", \"scope_lines\": 826, \"tier\": \"standard\", \"orchestrator\": \"claude\", \"findings_set\": [\"n1\"], \"folded_set\": [], \"accepted_set\": [\"n1\"], \"refuted_set\": [], \"accept_reasons\": {\"n1\": \"字串金額分支是給增量 2 [S1414] 固定兩位小數金額預留;增量 2 收緊成只收固定兩位小數字串並補測試\"}, \"finding_kinds\": {\"n1\": \"code\"}, \"reported\": 1, \"report_path\": \"governance/review-reports/code-phase14-inc1/r2-單reviewer.md\", \"report_sha256\": \"f5411972d36ee4d276dcc511c5973a5a61074ff3a02bede8c76a3f92176ecd05\", \"snapshot_path\": \"governance/review-reports/code-phase14-inc1/r2-snapshot.patch\", \"snapshot_sha256\": \"b7bdc129a92d948cea02cb985e4369f0e40873437d319869577f54e0f9a3cf7f\"}"
+ ],
+ "all_row_shas": [
+  "3f8be6c0468daad56ca74bfcdb360ea90a11a8c2713978db0b9da2aec48e8282",
+  "bf79cb448c5db1718994b96361e17114b2fbd8e965214885f93ac1d6b8230951",
+  "e0adaeb74c5c1183ded4c5078a1cf8b69bf13e429c443418b5ddb8b1474ddab7"
+ ],
+ "files": {
+  "governance/review-reports/code-phase14-inc1/r2-單reviewer.md": {
+   "sha256": "f5411972d36ee4d276dcc511c5973a5a61074ff3a02bede8c76a3f92176ecd05",
+   "git_blob": "4ad588a5e46b4981f9d4e1c6a3db218711592769"
+  },
+  "governance/review-reports/code-phase14-inc1/r2-snapshot.patch": {
+   "sha256": "b7bdc129a92d948cea02cb985e4369f0e40873437d319869577f54e0f9a3cf7f",
+   "git_blob": "cbaa20c0ad75d65a2e134b86a30c6084c3aefdbb"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

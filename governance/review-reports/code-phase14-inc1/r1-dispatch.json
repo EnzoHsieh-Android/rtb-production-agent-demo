@@ -1,0 +1,2 @@
+[{"round":"r1","seat":"單reviewer","lens":"正確性、邊界與合約(九條領域判斷與評估標準答案)","materials":["governance/review-reports/code-phase14-inc1/r1-snapshot.patch","src/rtb/domain/","src/rtb/eval/","tests/"],"auditor":"claude-opus"},
+{"round":"r1","seat":"架構對齊","lens":"跟既有寫法一致","materials":["governance/review-reports/code-phase14-inc1/r1-snapshot.patch","src/rtb/domain/","src/rtb/eval/"],"auditor":"claude-sonnet"}]

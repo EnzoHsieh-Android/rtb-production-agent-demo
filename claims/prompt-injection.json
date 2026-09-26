@@ -29,7 +29,7 @@
     },
     {
       "path": "src/rtb/analyzer/investigation.py",
-      "sha256": "e3608bf1d0408ecc6f1d1fc7dbf6933acdafe93e37d68282995169d667261e1f"
+      "sha256": "c3e7df388dc1ad9e5ec756436fdce78a7e84e4ee336ccbabd752b9022f15bf8a"
     },
     {
       "path": "src/rtb/analyzer/modelgate.py",
@@ -86,6 +86,10 @@
     {
       "path": "src/rtb/domain/metrics.py",
       "sha256": "244837d1957cbecbe4e80dfc7639744377a9f53bc6c8e73616c4664f170e6196"
+    },
+    {
+      "path": "src/rtb/domain/nine_rules.py",
+      "sha256": "7b755c1fa8cdae47da75beb628b0318148ce4688939aabf0cde9feba087d1f00"
     },
     {
       "path": "src/rtb/domain/proposal.py",

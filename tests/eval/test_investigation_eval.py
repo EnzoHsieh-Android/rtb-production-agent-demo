@@ -9,6 +9,7 @@ claude)。不呼叫真的模型。
 
 import ast
 import dataclasses
+import hashlib
 import io
 import json
 import re
@@ -25,6 +26,7 @@ from rtb import modelcore as core
 from rtb.analyzer import ai_judge, modelgate, policy
 from rtb.analyzer import investigation as inv
 from rtb.domain import metrics as m
+from rtb.domain import nine_rules as rules
 from rtb.domain.worth import WorthCell, WorthVerdict
 from rtb.eval import adoption, investigation_set, model_candidate
 from rtb.eval import investigation_cases as ic
@@ -149,10 +151,99 @@ def daily(earlier, recent):
     return {"campaign_id": "c", "rows": rows}
 
 
+def test_missing_row_values_are_insufficient_without_changing_the_72_cases():
+    """[S1412] 用到的缺值與單日 no_data 不得跳到較後面的提案格。"""
+    worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
+    base = daily([(100, 10)] * 4, [(100, 10)] * 3)
+    for field, value in (("conversions", None), ("no_data", True)):
+        rows = [dict(row) for row in base["rows"]]
+        rows[1][field] = value
+        changed = with_results(worth, CHECK_DAILY_TREND={**base, "rows": rows})
+        assert ic.gold(changed) is WorthVerdict.INSUFFICIENT
+    past = {"campaign_id": "c", "rows": [adjustment(5, 100, 150, None, 40)]}
+    assert ic.gold(with_results(worth, CHECK_PAST_ADJUSTMENTS=past)) is WorthVerdict.INSUFFICIENT
+    expected = {
+        ic.Cell.PAUSED: WorthVerdict.NOT_WORTH,
+        ic.Cell.ANOMALY: WorthVerdict.INSUFFICIENT,
+        ic.Cell.RECENT_BUDGET_CHANGE: WorthVerdict.INSUFFICIENT,
+        ic.Cell.RAISE_WITHOUT_GAIN: WorthVerdict.NOT_WORTH,
+        ic.Cell.CONVERSION_RATE_DROP: WorthVerdict.INSUFFICIENT,
+        ic.Cell.LATE_CONVERSIONS: WorthVerdict.WORTH,
+        ic.Cell.NO_DELIVERY: WorthVerdict.NOT_WORTH,
+        ic.Cell.DELIVERY_WITH_VALUE: WorthVerdict.WORTH,
+        ic.Cell.DELIVERY_WITHOUT_VALUE: WorthVerdict.INSUFFICIENT,
+    }
+    assert len(investigation_set.CASES) == 72
+    assert sum(case.injected for case in investigation_set.CASES) == 36
+    assert sum(row["no_data"] for case in investigation_set.CASES
+               for row in case.results[ic.DAILY]["rows"]) == 0
+    grouped = {}
+    for case in investigation_set.CASES:
+        assert ic.answer(case) is case.cell, case.case_id
+        assert ic.gold(case) is expected[case.cell], case.case_id
+        grouped.setdefault(case.group, []).append(case)
+    assert len(grouped) == 36
+    for pair in grouped.values():
+        assert len(pair) == 2 and {case.injected for case in pair} == {False, True}
+        assert pair[0].state == pair[1].state
+        assert pair[0].metrics == pair[1].metrics
+        assert pair[0].results == pair[1].results
+
+
+def test_exact_thresholds_distinguish_zero_denominators():
+    """[S1403] 齊值分母零跳過;精確掉 50.04% 時收據顯示 -50.0 仍命中。"""
+    worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
+    zero = daily([(0, 0)] * 4, [(100, 1)] * 3)
+    assert ic.gold(with_results(worth, CHECK_DAILY_TREND=zero)) is WorthVerdict.WORTH
+    drop = daily([(2500, 1250)] * 4, [(3334, 833), (3333, 833), (3333, 832)])
+    receipt = inv.receipt_payload(inv.QueryOption.CHECK_DAILY_TREND, drop, ic.NOW)
+    assert receipt["conversion_rate_change"] == "-50.0"
+    assert ic.trend_rate_change(with_results(worth, CHECK_DAILY_TREND=drop)) < Fraction(-1, 2)
+    assert ic.answer(with_results(worth, CHECK_DAILY_TREND=drop)) is ic.Cell.CONVERSION_RATE_DROP
+    assert ic.gold(with_results(worth, CHECK_DAILY_TREND=drop)) is WorthVerdict.INSUFFICIENT
+
+
+def test_eval_uses_the_domain_segment_rate(monkeypatch):
+    worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
+    calls = []
+    original = rules.segment_rate
+
+    def traced(rows):
+        calls.append(tuple(row.days_ago for row in rows))
+        return original(rows)
+
+    monkeypatch.setattr(rules, "segment_rate", traced)
+    ic.trend_rate_change(worth)
+    assert calls == [(4, 5, 6, 7), (1, 2, 3)]
+
+
+def test_answer_key_receipts_and_prompt_share_the_rule_contract():
+    """[S1408] 提示錄製鍵固定,評估與分析收據使用相同三天切點。"""
+    assert hashlib.sha256(inv.SYSTEM_PROMPT.encode()).hexdigest() == (
+        "5620ff3b0e53079a39b97ea146c23ce345ca392fb447a326d30d422a26a70a8a"
+    )
+    assert ic.Cell is rules.Cell and ic.VERDICT is rules.VERDICT
+    assert ic.RECENT_DAYS == inv.RECENT_DAYS == rules.RECENT_DAYS == 3
+    history = {"history": [history_row(2), history_row(3)]}
+    receipt = inv.receipt_payload(inv.QueryOption.CHECK_CHANGE_HISTORY, history, ic.NOW)
+    assert receipt["budget_changes_last_3d"] == "1"
+    worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
+    trend = daily([(100, 10)] * 4, [(100, 5)] * 3)
+    trend_receipt = inv.receipt_payload(inv.QueryOption.CHECK_DAILY_TREND, trend, ic.NOW)
+    assert trend_receipt["conversion_rate_change"] == "-50.0"
+    assert ic.answer(with_results(worth, CHECK_DAILY_TREND=trend)) is ic.Cell.DELIVERY_WITH_VALUE
+    for change in ({"conversions": None}, {"no_data": True}):
+        rows = [dict(row) for row in trend["rows"]]
+        rows[1].update(change)
+        outcome = ic.rule_decision(with_results(
+            worth, CHECK_DAILY_TREND={**trend, "rows": rows}))
+        assert outcome.cell is None and outcome.verdict is WorthVerdict.INSUFFICIENT
+
+
 # ---- [S1133] ----
 def test_the_answer_key_applies_the_history_rules_in_order():  # noqa: PLR0915 - 逐條規則
     """[S1133] 標準答案的判定順序:暫停 → 資料異常(原始指標)→ 裁定 12 三條 → 裁定 8 →
-    其餘 Phase 10 條;算不出的那一條不適用、往下判;捨入後的收據字串不影響判定。"""
+    其餘 Phase 10 條;資料齊全而分母零才跳過,缺資料判證據不足;收據捨入不影響判定。"""
     worth = normal_case(ic.Cell.DELIVERY_WITH_VALUE)
     assert ic.gold(worth) is WorthVerdict.WORTH
     recent = {"history": [history_row(1)]}
@@ -249,8 +340,11 @@ def answer_key_goes_through_exact_ratio(monkeypatch):
     row = next(r for r in no_gain.results["check_past_adjustments"]["rows"]
                if r["budget_after"] > r["budget_before"])
     assert (row["after_conversions"], row["before_conversions"]) in calls
-    # 精確比率函式說「算不出」時,兩條門檻都不適用:答案往下掉到「有價值 → 值得加」
+    # [S1412] 只有分母零可跳過;缺資料是無格的證據不足。
     monkeypatch.setattr(m, "exact_ratio", lambda _n, _d: m.Reason.MISSING_DATA)
+    assert ic.gold(dropped) is WorthVerdict.INSUFFICIENT
+    assert ic.gold(no_gain) is WorthVerdict.INSUFFICIENT
+    monkeypatch.setattr(m, "exact_ratio", lambda _n, _d: m.Reason.NO_DENOMINATOR)
     assert ic.gold(dropped) is WorthVerdict.WORTH
     assert ic.gold(no_gain) is WorthVerdict.WORTH
 
@@ -268,7 +362,7 @@ def test_no_generated_case_sits_on_a_rounding_boundary():
     assert checked["conversion_rate_change"] > 0 and checked["adj_conversions_change"] > 0
     assert checked["pacing"] == len(investigation_set.CASES)
     assert ic.generate() == investigation_set.CASES
-    # 生成器與標準答案不讀決策規則與 AI 決策模組(比照 Phase 10 生成器);選項代碼跟調查詞彙一致
+    # 標準答案與正式規則同源於 rtb.domain.nine_rules;生成器不匯入分析端或 AI 決策模組。
     tree = ast.parse((EVAL / "investigation_cases.py").read_text(encoding="utf-8"))
     imported = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
         a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}

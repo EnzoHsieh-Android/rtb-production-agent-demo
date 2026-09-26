@@ -266,6 +266,7 @@ def _eval_roots():
 # 名單在這一增量補齊
 PHASE13_ALLOWED: frozenset[str] = frozenset({
     "rtb.analyzer.modelgate", "rtb.analyzer.ai_judge", "rtb.analyzer.investigation",
+    "rtb.domain.nine_rules",  # Phase 14 增量 1:評估標準答案共用純領域判斷
     "rtb.eval.investigation_cases", "rtb.eval.investigation_set", "rtb.eval.investigation_eval",
     "rtb.eval.investigation_report"})
 # 經 AI 決策模組送出的名字(開閘道、把閘道包成送出函式):評估套件裡只准評估執行器用

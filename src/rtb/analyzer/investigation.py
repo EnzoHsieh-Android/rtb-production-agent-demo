@@ -25,6 +25,7 @@ from types import MappingProxyType
 from typing import Any
 
 from rtb.domain import metrics as m
+from rtb.domain import nine_rules as rules
 from rtb.domain._checks import is_id
 from rtb.domain.evidence import Evidence, EvidenceKind, TrustClass, quoted_untrusted
 
@@ -100,7 +101,7 @@ READS_PER_OPTION: Mapping[QueryOption, int] = MappingProxyType({
 })
 # 蒐證那一步最多讀幾次 DSP:基本兩次,加上最多 3 個查詢裡讀取次數最多的組合([S1113] 的讀取次數上限)
 MAX_COLLECT_READS = BASE_READS + sum(sorted(READS_PER_OPTION.values(), reverse=True)[:MAX_QUERIES])
-RECENT_DAYS = 3  # 「最近 3 天」與「3 天以前」的分界(展示用門檻,使用者裁定 12)
+RECENT_DAYS = rules.RECENT_DAYS  # 收據與九條判斷共用切點,SYSTEM_PROMPT 位元組不變
 
 RECEIPT_KIND: Mapping[QueryOption, EvidenceKind] = MappingProxyType({
     QueryOption.CHECK_LONGER_WINDOW: EvidenceKind.LONGER_WINDOW,
