@@ -227,13 +227,17 @@ def exact_click_rate(clicks: object, impressions: object) -> Exact:
     return exact_ratio(top, bottom)
 
 
-def percent_text(value: Exact) -> str:
-    """分數寫成百分比刻度、固定 1 位小數、四捨五入到偶數;負零寫 0.0;原因代碼寫 na。"""
+def percent_text(value: Exact, places: int = 1) -> str:
+    """分數寫成百分比刻度、固定 places 位小數(預設 1)、四捨五入到偶數;負零寫 0.0;原因代碼寫 na。
+    Phase 15 規則探勘的平均差值(百分點、4 位小數)也用這一支,不另寫捨入(代碼審 a_2)。"""
     if isinstance(value, Reason):
         return NA
-    tenths = round(value * 1000)  # 分數的 round 是四捨五入到偶數
-    sign = "-" if tenths < 0 else ""
-    return _fits(f"{sign}{abs(tenths) // 10}.{abs(tenths) % 10}")
+    if isinstance(places, bool) or not isinstance(places, int) or places < 1:
+        raise ValueError("小數位數要是正整數")
+    unit = 10 ** places
+    scaled = round(value * 100 * unit)  # 分數的 round 是四捨五入到偶數
+    sign = "-" if scaled < 0 else ""
+    return _fits(f"{sign}{abs(scaled) // unit}.{abs(scaled) % unit:0{places}d}")
 
 
 def _fits(text: str) -> str:

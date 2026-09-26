@@ -1,0 +1,988 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+index 8cc0361..e3e4953 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+@@ -53,34 +53,38 @@ RETIRE-IF: 固定種子 15001、15002、15003 各以第一次 `outcome=ok` 且
+ - 三個評估種子現在固定為整數 `15001`、`15002`、`15003`，任一批不得替換，報告須全列。理由：封住看生成結果後挑三批的空間。
+ - 探索／保留按廣告編號的 SHA-256 排序固定前半／後半（奇數多出者進保留），投放規模以調整前三日花費整數分分成 `<10000`、`10000–49999`、`≥50000`；配對搶用對照時按固定鍵先後決定。轉換率變化為後三日率減前三日率的絕對差，平均差值只除有方向配對數；可達性預檢只在**建立或更換評估版本**時做，結果寫入版本理由。理由：這些選擇都會改變排名及保留結果，須與語彙一同凍結。
+ - 提示中的比例採百分比一位小數、差值四位小數，均以十進位 half-even 捨入；精確分數留程式端核對。增量 1 先以固定三種子量完整提示位元組，任何一批超過單次上限即失敗。理由：精確分數可能膨脹到使單次呼叫不可行。
+ - 離線呼叫逾時為 60 秒；錄製入庫還要該次呼叫結果 `ok`，逾時、額度、超支及暫時性錯誤記「呼叫失敗」，不入庫、不算 RETIRE-IF。信心說明最多 80 字；非有限數含 `1e400` 與任何物件層未知鍵整份拒絕。理由：避免失敗批次被當成模型輸、輸出撞頂或解析口徑分裂。
+ - 同名額任一方分母為零（含前 n 全是相關誘餌或保留側全被刷掉）即判該批「窮舉勝」；先取名單再篩保留側，不遞補。AI 所有不合格單條提交，包括未知門檻、兩方向都押、數字不符、未達下限、重複與格式錯誤，均計 AI 誤報；整份回覆因頂層格式或解析錯誤拒絕時，記 1 筆無效提交及 AI 誤報，n=0 仍判窮舉勝。理由：比較必能終止，且不能藉剔除洗掉錯選。
+ - 三種子各用專屬 `phase15-seed-<種子>-<序號>` 展示編號，從 1 遞增，每次重錄換新序號；每種子只准第一次成功錄製入庫，清單記編號與時間，替換須換評估版本並記理由。6144 輸出下每展示上限約剩 0.058 美元，失敗呼叫整筆預留扣帳，不在同一展示編號重試。理由：防重抽挑好結果，並避免展示額度卡住後續種子。
+ - Phase 14 前置條件同時驗 runner 已無 AI 判斷開關、展示驅動不再組 `--ai-judge` 且 F7 走規則路徑。Wilson 下界直接用 `rtb.eval.scoring.wilson_lower()`；百分比用 `rtb.domain.metrics.percent_text` 等既有函式，精度與格式以程式碼為準。理由：不能只移除參數接收端，也不另造統計或格式化做法。
+ - 門檻代碼一律用「欄位:區間」全名（如 `raise_pct:band_2`），未改善方向代碼為 `not_improve`，兩側相異廣告數只數有方向配對。模型提示要求 UTF-8 原字、不用 `\uXXXX`；回覆大小按實際 JSON 逸出後位元組計，解析超長整數的 `ValueError` 與非有限數同樣整份拒絕。理由：讓真相鍵、下限及輸出界一致，解析失敗不使命令列崩潰。
+ - 回退保留 `Caller.RULE_MINING` 的值 `rule_mining`、`CAPPED_CALLERS`、`CALLER_USERS` 鍵及歷史驗證模組的值、值→成員名對照及 [S918] 精確等式；只撤命令列與分析端送出入口及其白名單新增項，更新 [S918] 窄入口等式。理由：歷史錄製鍵仍可重算，邊界測試仍能守住精確集合。
+ 
++### 代使用者裁定(2026-09-27，代碼審 c_4/c_5)
++
++- 重疊調整改為「兩筆調整的 D±3 視窗相交（相距 ≤6 天）即排除」，任何調整（含降額）都算；對照池改為「整期沒有任何預算調整（含降額）」，和事件側對稱。本節與條款中「整期從未加額」「整期未加額對照」的寫法照此收緊（更嚴的池仍滿足原字面），不另改條款句。理由：代碼審 c_4 指出照字面取相距 ≤3 天時，前一筆加額的後三日會落進本事件的前三日、汙染前三日轉換率與配對桶；c_5 指出對照側對降額不檢查、和事件側不對稱。兩項改動同時作用於 AI 與窮舉兩方、同一資料與同一候選全集，預期不偏袒任一方；是看過評估版本 v1 的窮舉前 K 之後才改的，故換評估版本 `phase15-rule-mining-v2` 並重跑三種子可達性預檢，結果記在 [[Systems/規則模式探索評估]]〈評估版本理由〉。
++
+ ## 現況（2026-09-26，分支 `phase15-rule-mining` 的 main 基底 `71b04d5`；以程式碼為準）
+ 
+-- 2026-09-27 增量 1 實作：分支 `phase15-inc1`，main 基底 `61bbb31`（含 Phase 14 增量 3）。開工前核對 Phase 14 前置條件：分析端驅動的參數只剩資料庫、DSP、收件口、逾時與間隔（無 AI 判斷開關），展示驅動組分析端參數時只給這幾項，[S1429] 的閉包測試通過；F7 未另實跑，依展示驅動只組規則參數推得走規則路徑。重新核對：`rg -n "add_argument" src/rtb/analyzer/runner.py`、`rg -n "def analyzer_args" -A5 src/rtb/demo/driver.py`。增量 1 的四支純離線模組與評估版本 v1 的可達性預檢記在 [[Systems/規則模式探索評估]]；未新增模型呼叫或通往提案的路徑。
++- 2026-09-27 增量 1 實作：分支 `phase15-inc1`，main 基底 `61bbb31`（含 Phase 14 增量 3；代碼審 r1 時已 rebase 到 `7bd062a`）。開工前核對 Phase 14 前置條件：分析端驅動的參數只剩資料庫、DSP、收件口、逾時與間隔（無 AI 判斷開關），展示驅動組分析端參數時只給這幾項，[S1429] 的閉包測試通過；F7 重跑（[S1518] 的「F7 重跑走規則路徑」證據）：協調者 2026-09-27 在基底 `7bd062a` 實跑 `tests/demo/test_driver.py` 與 `tests/demo/test_server.py` 裡的 F7 端到端（縮小版 30 支廣告，`-k "f7 or F7"`），12 passed；這是縮小版，不是完整幾千筆的 F7 展示。重新核對：`rg -n "add_argument" src/rtb/analyzer/runner.py`、`rg -n "def analyzer_args" -A5 src/rtb/demo/driver.py`。增量 1 的四支純離線模組與評估版本 v1 的可達性預檢記在 [[Systems/規則模式探索評估]]；未新增模型呼叫或通往提案的路徑。
+ - `src/rtb/analyzer/modelgate.py` 的 `open_gate()` 在入口判錄製或即時、綁死 `Caller`、錄製目錄及花費帳；`Gate.complete()` 把請求交給 `src/rtb/modelclient.py`。即時要 `RTB_MODEL_LIVE=1`、展示編號、可用後端與有效啟用紀錄，重播缺錄製會報錯，不會默默轉即時。重新核對：`rg -n 'def open_gate|def complete|def settings_from_env|def call_model' src/rtb/analyzer/modelgate.py src/rtb/modelclient.py`。
+ - `src/rtb/modelledger_view.py` 的 `Caller` 是封閉列舉；`src/rtb/modelledger.py` 的 `CAPPED_CALLERS` 現只含評估候選與實測，花費帳有按呼叫者的上限與估算。錄製鍵含呼叫者、模型、系統提示、使用者內容與輸出上限，批次與目錄有驗收。重新核對：`rg -n 'class Caller|CAPPED_CALLERS|def recording_key|def batch_file_problems' src/rtb/modelledger_view.py src/rtb/modelledger.py src/rtb/modelrecording.py src/rtb/modelclient.py`。
+ - `src/rtb/eval/investigation_cases.py` 固定種子產 Phase 13 案例，`investigation_eval.py` 以同一 AI 函式重播／即時執行並驗批次，`investigation_report.py` 把結果寫成人讀報告。`src/rtb/eval/ruff.toml` 禁直接匯入模型閘道與 DSP，`src/rtb/analyzer/ruff.toml` 禁匯入評估套件；Phase 10 [S712] 的反向匯入界線仍成立。重新核對：`rg -n 'SEED|def generate|def run|def batch_problems|modelgate|rtb.eval' src/rtb/eval/investigation_cases.py src/rtb/eval/investigation_eval.py src/rtb/eval/ruff.toml src/rtb/analyzer/ruff.toml`。
+ - `src/rtb/dsp/store.py` 的逐日成效以 UTC 日期桶保存，金額用整數分，最近加額由正常操作紀錄連同調整前預算與提交時刻推得；`src/rtb/domain/nine_rules.py` 有正式九條的純領域詞彙與順序，`src/rtb/domain/metrics.py` 有 `exact_ratio`／`exact_change`。本案只仿照歷史資料語意建離線案例，不從 DSP 讀取，不匯入九條規則來生成答案。重新核對：`rg -n 'daily_metrics|_latest_raise|def get_past_adjustments|ANSWER_ORDER|def exact_ratio|def exact_change' src/rtb/dsp/store.py src/rtb/domain/nine_rules.py src/rtb/domain/metrics.py`。
+ 
+ ## 設計
+ 
+ ### 合成歷史與可觀察效果
+ 
+ - 評估套件新增純生成器與資料型別：固定種子、固定評估時鐘，至少 300 支虛構廣告、至少 28 個連續 UTC 日。每支有每天曝光、點擊、轉換、花費、營收的完整日桶，另有零或多筆含加額前後預算及 `committed_at` 的操作；計數遵守資料自洽，金額先以整數分生成。生成器可 `render(generate(seed))` 得到位元組一致的評估集與雜湊；另存只給評估器的埋入真相清單（真模式、誘餌、生成版本），不能放進模型提示。
+-- 每個可評估的加額事件以操作發生的 UTC 日為 D，只取 D−3 至 D−1 與 D＋1 至 D＋3 六個**完整**日；D 本身排除，未滿後三日、缺值、`no_data`、資料異常或視窗重疊另一筆調整時不推斷成效，另報排除筆數與原因。對照池只收**整個 28 日以上觀察期從未加額**的廣告。按廣告編號的 UTF-8 位元組算 SHA-256、依 `(雜湊,編號)` 升序排列，前 `floor(N/2)` 支為探索，其餘為保留；同一廣告的全部日期與對照資格不跨側。配對須同一側、同一 UTC 日 D、同一調整前三日轉換率語彙區間及同一投放規模桶；投放規模取調整前三日花費整數分，固定桶為 `<10000`、`10000–49999`、`≥50000`。每條條件先按 `(D,加額廣告編號,committed_at,操作識別碼)` 升序處理加額事件；合格對照按廣告編號 UTF-8 位元組升序取第一支未用者，每支對照在該條件中至多使用一次；找不到就排除並計數。這是可重算的合成比較，不稱因果證明。
++- 每個可評估的加額事件以操作發生的 UTC 日為 D，只取 D−3 至 D−1 與 D＋1 至 D＋3 六個**完整**日；D 本身排除，未滿後三日、缺值、`no_data`、資料異常，或同一廣告另一筆調整（加額或降額）的 D±3 視窗與本事件的 D±3 視窗相交（相距 ≤6 天）時不推斷成效，另報排除筆數與原因（代使用者裁定(2026-09-27，代碼審 c_4)）。對照池只收**整個 28 日以上觀察期沒有任何預算調整（加額或降額）**的廣告（代使用者裁定(2026-09-27，代碼審 c_5)）。按廣告編號的 UTF-8 位元組算 SHA-256、依 `(雜湊,編號)` 升序排列，前 `floor(N/2)` 支為探索，其餘為保留；同一廣告的全部日期與對照資格不跨側。配對須同一側、同一 UTC 日 D、同一調整前三日轉換率語彙區間及同一投放規模桶；投放規模取調整前三日花費整數分，固定桶為 `<10000`、`10000–49999`、`≥50000`。每條條件先按 `(D,加額廣告編號,committed_at,操作識別碼)` 升序處理加額事件；合格對照按廣告編號 UTF-8 位元組升序取第一支未用者，每支對照在該條件中至多使用一次；找不到就排除並計數。這是可重算的合成比較，不稱因果證明。
+ - 對每對加額／未加額事件，用 `rtb.domain.metrics.exact_ratio` 的精確分數算前三日與後三日轉換率（轉換／點擊）；各組「轉換率變化」固定為**後三日轉換率 − 前三日轉換率**的絕對差（百分點，不用 `exact_change` 的相對變化），配對差值為加額組變化 − 對照組變化。分母為零或不可算就排除，絕不當零。改善方向的支持是差值 > 0、反例是 < 0；未改善方向相反。差值 = 0 另列平手，兩方向支持與反例都不計；**有方向配對數 = 正差 + 負差 = 支持 + 反例**，支持比例、精確平均差值的分母及樣本下限都只用此數，平均的分子也只加有方向差值。同一條條件須至少 20 個有方向配對，且其中分別涉及至少 20 支相異加額與 20 支相異對照廣告；探索、保留、AI 重算與星期條件同口徑。19 平手＋1 正差 → 只有 1 個有方向配對，無效。另列總配對、平手與相異 UTC 日期數，不能把 20 對說成 20 個獨立日期。金額、比例顯示可捨入，判斷與核對不讀捨入字串；另列加額幅度、加額前後轉換與樣本數。
+ - 真模式至少各有一個改善與未改善，透過生成器在條件下改變後三天成效；誘餌至少一個只在探索集與結果偶合、一個與真條件相關但本身無獨立效果，預先寫在真相清單。後者若保留側也成立，標成「觀察成立的相關規律」，不把它當獨立因果效果或精確真模式。三個評估種子固定為 `15001`、`15002`、`15003`，在第一次生成前列入評估版本與雜湊；任何批次不得換種子，報告須列三批。同一廣告所有日期與對照資格只在同一邊；保留集與真相清單不餵模型或用來調提示／門檻。真模式與切點精確對齊，故召回只量「真相可由語彙精確表示」時的上界，不代表未知實際門檻的召回。若改生成器規律，連資料雜湊、錄製鍵與報告版本一起換並記原因；三個固定種子仍不換，不挑最好看的批次。
+ 
+ ### 封閉條件語彙、彙總與窮舉基準
+ 
+ - 條件只用有限列舉和事先固定的門檻：加額日的 UTC 星期／平假日、加額幅度區間、調整前三日轉換率區間、前三日花費相對原預算區間；每條最多兩個不同欄位條件，邏輯只有 AND，方向代碼只有改善 `improve`／未改善 `not_improve`。**條件代碼**是欄位代碼，例如 `raise_pct`；**門檻代碼**一律是「欄位:區間」全名，例如 `raise_pct:band_2`，不能拿別欄位的門檻代碼套用。子句鍵是 `(條件代碼,門檻代碼全名)`；把一或兩個不同欄位的子句按欄位／門檻代碼排序，再接方向，才是去重、真相及誘餌精確比對的正規化鍵。所有切點在看任何基準或模型結果前寫死於評估版本，百分比用分數或整數基點；同欄位重複或矛盾、未知欄位、任意自然語言條件一律無效。九條正式規則的 `Cell`、`RuleReason` 不被擴充成探勘語彙。
+ - 程式先從探索集逐條件組合算彙總表：符合條件的加額事件數、總配對數、**有方向配對數**、只由有方向配對計得的兩側相異廣告數、相異 UTC 日期數、正差筆數、負差筆數、平手筆數、精確差值合計／有方向配對數、排除原因；`總配對數 = 正差 + 負差 + 平手`，`有方向配對數 = 正差 + 負差`，改善的支持／反例 = 正差／負差，未改善則相反。先用同一有方向樣本下限剔除列，再把所有剩餘條件的完整表給模型。送模型的百分比一位小數沿用 `rtb.domain.metrics.percent_text` 等既有格式化函式（以程式碼為準）；平均差值小數四位用精確分數 half-even 捨入，不另寫百分比捨入函式。精確分數及分子／分母只留程式端作判斷與核對，模型只轉錄整數支持與反例，不以捨入值核算真假。不送原始逐日列、廣告名稱、編號、操作識別碼、原始時間戳或真相標籤。彙總表規格、欄序、捨入規則、版本、雜湊與提示文字固定，位元組變動會換錄製鍵。
+ - 每批只用一次模型呼叫、一次完整提示、一次至多 K 條回覆，不分塊；離線命令列沒有分析租約，單次模型呼叫逾時固定 60 秒。輸出採緊湊 UTF-8 JSON，固定 `max_output_tokens = 6144`；每條說明至多 80 個 Unicode 字元且至多 240 UTF-8 位元組，說明不得含控制字元或需 JSON 逸出的引號、反斜線；條件及門檻代碼限 `[a-z0-9_:]{1,24}`，整數筆數最多九位。以十條、每條兩子句、兩個 24 位元組代碼與九位數筆數、80 個三位元組中文字說明的緊湊 JSON 實算為 5139 位元組；即使保留至 6000 位元組的回覆界，仍低於 6144 token 輸出上限的保守位元組界。提示要求緊湊 JSON、UTF-8 原字而非 `\uXXXX` 逸出；回覆大小以實際 JSON 逸出後的 UTF-8 位元組計，超過 6000 位元組整份拒絕，不依賴續寫。系統提示加使用者內容的 UTF-8 位元組數 `B ≤ 20480` 且 `B < 48×1024`；以現行 `modelcore.call_budget_nanousd` 的 `F=4000`、`R=1+3=4`、`Pᵢ=4000`、`Pₒ=10000` nanousd/token 及安全係數 `6/5`，預留 `ceil(6/5 × [R×((B+F)×Pᵢ+6144×Pₒ)+R×(R−1)/2×6144×Pᵢ])`。以這組現行常數及 `B=20480` 算得 `941875200` nanousd，每展示 1 美元上限尚餘 `58124800` nanousd（約 0.058 美元）；非 `ok` 呼叫依既有帳本整筆預留扣帳、每月 20 美元與其他計入上限者共用，重錄不得沿用該展示編號；呼叫前仍用 repo 預留函式與當時實際價目、已用額重算，須 ≤ 每展示及每月剩餘上限，無餘裕就拒絕即時呼叫。輸出不足、提示或預留額超限不截列、不加第二次呼叫；只在換評估／提示版本時縮固定語彙並重算完整表，仍裝不下就拒跑。錄製模式也用同一提示／輸出界限。
+ - 不用 AI 的基準在同一有限條件全集、同一探索集與同一有方向樣本下限逐條窮舉。先凍結 `K=10`、20 個有方向配對及兩側各 20 支相異廣告、保留比例 `3/5` 與排序鍵：兩方向合併先依支持比例的 **Wilson 95% 下界**降序，直接呼叫既有 `rtb.eval.scoring.wilson_lower(支持, 支持+反例)`（含該函式的 `Z_95` 常數及 float 行為），n<20 不入選，不另寫 Decimal 版。再依方向化的精確平均差值降序（改善取平均差值，未改善取相反數）、再依有方向配對數降序、最後依正規化條件鍵及方向代碼升序。同一條件兩方向至多留排序較高者，從全域排序取前 K。AI 清單不得對同一條件同時押兩方向；可少於 K，基準只在合格候選不足時少於 K。模型可選的候選全集與基準掃的全集一致。K、三個種子、生成版本、切分雜湊及 50/50 規則、對照池、配對欄位及切點、搶用排序、效果與平均公式、下限、語彙、既有 Wilson 函式版本、兩方向合併規則、格式化規則及輸入輸出上限，都在看**任何**基準或 AI 結果前寫入評估版本與雜湊；看結果後須先換評估版本並記理由、可達性預檢結果及對雙方的預期影響，不能直接調參。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md b/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md
+index 36d5112..4c8b448 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/確定性指標計算.md
+@@ -46,20 +46,20 @@ REVISIT:2026-11-21 或新增第二個受限層時,決定是複製清單還是抽
+ - `cvr` 允許轉換多於點擊(瀏覽後轉換是合理情況),所以不像 `ctr` 那樣把它視為不合理;`pacing` 在時間比例為 0 時回分母為零,即使已經花了錢,不另立「不合理」類別。這兩個是語意取捨。
+ REVISIT:2026-11-21 決策端開始使用這些指標時,回頭確認這兩個取捨是否符合實際需求。
+ - `MetricResult` 只擋了排序比較與真值判斷,`==` 與 `hash` 仍可用;兩個「沒有值」的結果若原因相同會相等,這是刻意的。
+ 
+ 型別檢查:2026-09-22 起通過 mypy 嚴格模式。四個指標函式內部改用 `_checked` 一次回傳「已確定非空的數字或問題原因」,取代原本的 `_classify` 加空值假設,型別檢查因此能驗證;對外行為與所有測試結果不變。
+ 
+ ## 收據的精確比率與固定字串(Phase 13 增量 2,2026-09-25)
+ 
+ 出處 [[Projects/RTB_Phase13AI參與決策_計劃]]〈收據的算法與格式〉。
+ 
+-- `exact_ratio` 回分數或三態原因代碼之一(不合理 > 缺漏 > 分母為零,輸入可以是前一次比率的結果);`exact_change`、`exact_click_rate` 都經它。收據格式化(`receipt_ratio`、`receipt_change`、`receipt_click_rate`、`percent_text`)把分數寫成百分比刻度 1 位小數、四捨五入到偶數,負零寫 `0.0`;金額 `receipt_amount` 先 `Decimal(repr(x))` 再量化到 2 位,溢位歸資料不合理;計數 `receipt_count` 照寫整數;算不出一律寫 `na`。
++- `exact_ratio` 回分數或三態原因代碼之一(不合理 > 缺漏 > 分母為零,輸入可以是前一次比率的結果);`exact_change`、`exact_click_rate` 都經它。收據格式化(`receipt_ratio`、`receipt_change`、`receipt_click_rate`、`percent_text`)把分數寫成百分比刻度 1 位小數、四捨五入到偶數,負零寫 `0.0`(2026-09-27 起 `percent_text` 多一個小數位數參數,預設 1、行為不變;[[Systems/規則模式探索評估]] 的平均差值用 4 位,共用同一套捨入,不另寫。[test:test_percent_text_places_share_one_half_even_rounding]);金額 `receipt_amount` 先 `Decimal(repr(x))` 再量化到 2 位,溢位歸資料不合理;計數 `receipt_count` 照寫整數;算不出一律寫 `na`。
+ - 既有的 `MetricResult` 不動(它只收整數與浮點);既有 `ctr`、`cvr` 用浮點除法,247/2000 會捨成 `12.3`,收據要的是 `12.4`,所以另開精確的一支。標準答案產生函式(Phase 13 增量 3)也要經 `exact_ratio`,不另算。
+ 
+ WHY: 收據一律是字串、算不出寫 `na` 而不是 `n/a`:可信證據的字串只准識別碼字元,斜線過不了既有驗證。出處:[[Projects/RTB_Phase13AI參與決策_計劃]] 代使用者裁定 R2-3、R2-4、R2-5、R3-6。防回歸:[test:test_receipt_values_are_fixed_strings_computed_in_the_domain]、[test:test_one_exact_ratio_function_feeds_receipts_and_the_answer_key]。
+ 
+ WHY: [2026-09-25 Phase 13 增量 2 代碼審 r1] 收據字串寫出來超過可信證據的上限(領域層識別碼長度 `MAX_ID_LENGTH`,128 字)就歸資料不合理、寫 `na`(極端但有限的金額會算出幾百位數,建證據時丟例外、整步卡住);比率的浮點輸入先照收據金額的寫法 `Decimal(repr(x))` 轉十進位再轉分數,0.16 到 0.17 得 `6.2`、跟收據上的金額推得的一致;(r2)另開 `exact_value` 給收據的加總、平均與大小比較用,不經浮點;`exact_click_rate` 收加總出來的分數也照擋點擊多於曝光。r1 加的 `exact_conversion_rate` 在 r2 撤回:轉換多於點擊是瀏覽後轉換,合法(同 `cvr`)。防回歸:[test:test_a_receipt_value_too_long_for_trusted_evidence_is_na]、[test:test_money_ratios_use_the_decimal_value_written_on_the_receipt]。
+ 
+ ## Phase 14 增量 2a 金額收據（2026-09-26）
+ 
+ 出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1414]。DSP 對外的固定兩位小數字串由領域收據函式以精確數值解析；不接受任意 Fraction 字面形式，避免跨窗核對後再由浮點引入不同捨入。舊收據字串保持不變。2a 代碼審 r1：判準改用 [[任務流程領域模型]] 家的 `_checks.is_fixed_amount`（ASCII、整數 13 位、可帶負號）一份；負的固定字串跟負浮點一樣是資料不合理（`exact_value` 回 INVALID_DATA、收據 na），有測試守門，避免日後一致化時把負數放成合法分數。[test:test_fixed_amount_strings_have_one_definition_everywhere]防回歸：[test:test_daily_rows_must_match_the_longer_windows]、[test:test_adjustment_timestamp_preserves_recorded_receipts_for_all_72_cases]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+index 3b8bde0..b017bfe 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+@@ -9,75 +9,89 @@ about_code:
+   - src/rtb/eval/rule_mining_vocab.py
+   - src/rtb/eval/rule_mining_history.py
+   - src/rtb/eval/rule_mining_baseline.py
+   - src/rtb/eval/rule_mining_prompt.py
+   - tests/eval/test_rule_mining.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: [2026-09-27 Phase 15 增量 1] AI 退出加額決策後保留的第三個角色是「離線提候選規則、靠證據取得採用資格」;這一篇先做不接模型的一半:固定種子合成歷史、可重算的配對效果、封閉語彙彙總與不用 AI 的窮舉前 K,讓之後的模型建議有同口徑的對照組。出處 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈拆增量〉1 與〈使用者裁定〉5。
+-  RULE: 評估版本參數(三種子、K、有方向下限與兩側相異廣告下限、保留 3/5、切點、SHA-256 切側、整期未加額對照池、配對欄位、搶用次序、絕對差效果與平均公式、Wilson 排序鍵、格式化、輸入輸出上限)在看任何基準或模型結果前凍結;改任何一項先換評估版本並記理由、可達性預檢與對 AI、窮舉雙方的預期影響,三個種子永不替換。[since:2026-09-27] [retire:Phase 15 依 RETIRE-IF 停用模型探勘且不再重跑基準時] [test:test_rule_mining_pairing_parameters_are_frozen] [test:test_rule_mining_preflight_checks_all_fixed_seed_prompts]
++  RULE: 評估版本參數(三種子、K、有方向下限與兩側相異廣告下限、保留 3/5、切點、SHA-256 切側、整期沒有任何調整的對照池、重疊判準、配對欄位、搶用次序、絕對差效果與平均公式、Wilson 排序鍵、格式化、輸入輸出上限)在看任何基準或模型結果前凍結;改任何一項先換評估版本並記理由、可達性預檢與對 AI、窮舉雙方的預期影響,三個種子永不替換。[since:2026-09-27] [retire:Phase 15 依 RETIRE-IF 停用模型探勘且不再重跑基準時] [test:test_rule_mining_pairing_parameters_are_frozen] [test:test_rule_mining_preflight_checks_all_fixed_seed_prompts]
+   RULE: 真相清單與保留側只給評估器,不能進送模型的彙總表或系統提示;彙總表只列探索側達下限的條件,不送逐日列、識別、時間戳或精確分數。[since:2026-09-27] [retire:改用真實歷史與人工標註另開案時] [test:test_rule_mining_prompt_contains_only_bounded_aggregates]
+-  FLOW: 生成歷史 → SHA-256 切側 → 每側加額事件與排除計數 → 整期未加額對照索引 → 每條件不放回配對 → 彙總 → 下限 → 彙總表與位元組閘 → 三種子預檢;保留側判定與窮舉前 K 用同一份每條件彙總。以程式碼為準:`rg -n "^def " src/rtb/eval/rule_mining_baseline.py src/rtb/eval/rule_mining_prompt.py`
++  FLOW: 生成歷史 → SHA-256 切側 → 每側加額事件與排除計數 → 整期沒有任何調整的對照索引 → 每條件不放回配對 → 彙總 → 下限 → 彙總表與位元組閘 → 三種子預檢;保留側判定與窮舉前 K 用同一份每條件彙總。以程式碼為準:`rg -n "^def " src/rtb/eval/rule_mining_baseline.py src/rtb/eval/rule_mining_prompt.py`
+   DEP: 轉換率與比例格式用 [[Systems/確定性指標計算]] 的精確比率與百分比字串;Wilson 下界直接用 [[Systems/評估與Jev決策點]] 計分模組的既有函式;評估套件匯入閉包白名單在 [[Systems/評估與Jev決策點]] 的測試精確新增這四支。
+ decisions:
+   - content: 建立評估版本 phase15-rule-mining-v1(生成版本 rule-mining-history-1)
+     id: d1
+     context: 首版;參數照計劃逐字凍結於語彙模組與提示模組,看任何窮舉排名前寫死;三種子可達性預檢全過(見正文〈評估版本理由〉)
+     why_chosen: 計劃要求建立評估版本時預檢完整提示位元組與真模式/誘餌分母;預檢只看分母與位元組,不看正負差或排名;首版無前版可比
+     decided: 2026-09-27
+     valid: true
+ ---
+ # 規則模式探索評估
+ 
+ Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不呼叫模型、沒有命令列;四支純函式模組加一支測試。合成資料只證流程可運作,不給統計或因果保證。
+ 
+ ## 四支模組
+ 
+ - `src/rtb/eval/rule_mining_vocab.py`:評估版本的單一出處(`EVAL_VERSION`、`SEEDS`、`K`、下限、保留比例、切點、規模桶、上限、`version_params()`),以及封閉條件語彙:四欄 day_type(平日/週末)、pre_cvr、raise_pct、spend_ratio(各三區間),一條條件是一或兩個不同欄位的子句 AND;門檻代碼一律「欄位:區間」全名;`condition_key` / `normalized_key` 對語彙外、同欄重複、子句數錯、未知方向丟 `VocabularyError`(帶原因代碼,給增量 2 的解析器逐條記)。全集 56 條(11 單欄 + 45 兩欄)。
+ - `src/rtb/eval/rule_mining_history.py`:型別(日桶、操作、廣告、歷史、真相項)、`generate(seed)`(只收三個固定種子)、`render` / `data_sha256` 與寫死的三批預期雜湊、`split`。720 支廣告、35 個連續 UTC 日、一半廣告各兩次加額;另刻意放少量前後視窗出界、視窗重疊與 no_data,讓排除計數有東西可數。
+-- `src/rtb/eval/rule_mining_baseline.py`:事件與排除(判斷先後:視窗出界 > 視窗內另有調整 > 資料異常 > 缺值 > 分母為零)、對照索引、`pair_condition`、`stats_of`、`summarize`、`meets_floor`、`directional`、`holdout_verdict`、`rank` / `top_k`、分母可達性 `Reach`。
+-- `src/rtb/eval/rule_mining_prompt.py`:定稿的系統提示與表頭、`summary_table`、`diff_text`(百分點四位小數 half-even)、`gate_problem`(B>20480 或達 48 KiB 拒)、`version_sha256` 與寫死的 `EXPECTED_VERSION_SHA256`、預檢 `preflight` / `preflight_problems` / `preflight_record` 與寫死的 `PREFLIGHT_RECORD`。
++- `src/rtb/eval/rule_mining_baseline.py`:事件與排除(判斷先後:視窗出界 > 另一筆調整的 D±3 視窗相交 > 資料異常 > 缺值 > 分母為零)、對照索引、`pair_condition`、`stats_of`、`summarize`、`meets_floor`、`directional`、`holdout_verdict`、`rank` / `top_k`、分母可達性 `Reach`。
++- `src/rtb/eval/rule_mining_prompt.py`:定稿的系統提示與表頭、`summary_table`(平均差值以百分點四位小數寫,共用 [[Systems/確定性指標計算]] 的百分比字串函式、只多傳小數位數,不另寫捨入;代碼審 a_2)、`gate_problem`(B>20480 或達 48 KiB 拒)、`version_sha256`(雜湊用的正規化 JSON 共用評估套件已在用的那一支,見 [[Systems/分析行程流程與檢查點]] 調查詞彙模組;代碼審 a_1)與寫死的 `EXPECTED_VERSION_SHA256`、預檢 `preflight` / `preflight_problems` / `preflight_record` 與寫死的 `PREFLIGHT_RECORD`。
+ 
+-- `tests/eval/test_rule_mining.py`:本增量九條驗收條款 [S1501] [S1502] [S1503] [S1511] [S1512] [S1513] [S1515] [S1519] [S1520] 的測試;手造小歷史驗單一規則,固定三種子整批只生成一次;[S1503] 只驗彙總內容與位元組閘,不接模型。另以十種變異(對照重用、效果改尺度、平手算方向、原始比例排序、對照池收加額廣告、不查重疊、保留比例 1/2、平均為零算保留、不配規模桶、奇數多出者進探索)各跑一次,全數翻紅。
++- `tests/eval/test_rule_mining.py`:本增量九條驗收條款 [S1501] [S1502] [S1503] [S1511] [S1512] [S1513] [S1515] [S1519] [S1520] 的測試;手造小歷史驗單一規則,固定三種子整批用模組範圍的 pytest fixture 只生成一次(代碼審 a_3);[S1503] 只驗彙總內容與位元組閘,不接模型。另以十種變異(對照重用、效果改尺度、平手算方向、原始比例排序、對照池收加額廣告、不查重疊、保留比例 1/2、平均為零算保留、不配規模桶、奇數多出者進探索)各跑一次,全數翻紅;代碼審 r1 再補九種(Wilson/第三鍵/保留比例分母改用總配對、重疊改 <6 或 ≤3、只看加額的重疊、v1 對照池、搶用第二三鍵對調、日期數含平手),也全數翻紅。
+ 
+ ## 埋入的真相(只給評估器)
+ 
+ - 真模式・改善:raise_pct:band_2 且 spend_ratio:band_3(預算幾乎花滿的廣告中度加額),後三天轉換率乘 1.6。
+ - 真模式・未改善:raise_pct:band_3(加額 50% 以上),後三天轉換率乘 0.5。
+ - 誘餌・只探索側偶合:day_type:weekend 且 raise_pct:band_1 改善——生成器只對探索側廣告埋 1.6 倍,保留側沒有。
+ - 誘餌・相關無獨立效果:spend_ratio:band_1 未改善——花費比低的廣告有七成被大幅加額,所以看似變差,本身不改轉換率。
+ - 生成器用評估器同一套語彙函式,從已生成的前三日資料算事件的欄位值再決定埋不埋效果,真模式與切點精確對齊;所以之後報告的召回只是「可精確表示時」的上界。
+ 
+ ## 口徑(計劃逐字,實作選擇另記)
+ 
+ - 效果:組變化 = 後三日轉換率 − 前三日轉換率(絕對差,精確分數),配對差值 = 加額組變化 − 對照組變化;D 本身不算。
+-- 對照:同側、整期從未加額(只看加額;純降額操作不取消對照資格,但會讓視窗重疊的事件排除)、同 D、同前三日轉換率區間、同規模桶;每條件每支至多一次。事件按 (D, 加額廣告編號位元組, committed_at, 操作識別碼) 先後搶用,對照按編號位元組升序。
++- 重疊(v2):同一廣告另一筆調整(加額或降額)的 D±3 視窗與本事件的 D±3 視窗相交,即相距 ≤ 6 天就排除;這樣前一筆加額的後三日不會落進本事件的前三日(代碼審 c_4)。
++- 對照(v2):同側、整期沒有任何預算調整(加額或降額,和事件側對稱;代碼審 c_5)、同 D、同前三日轉換率區間、同規模桶;每條件每支至多一次。事件按 (D, 加額廣告編號位元組, committed_at, 操作識別碼) 先後搶用,對照按編號位元組升序。
+ - 實作選擇:相異 UTC 日期數與兩側相異廣告數一樣只數有方向配對;事件層排除(出界、重疊、異常、缺值、分母為零)在分條件前計一次,放在彙總表的一行;「無對照」逐條件計,是表的最後一欄。
+ - 保留側:有方向配對 ≥20 且其中相異加額、相異對照各 ≥20,支持/有方向 ≥ 3/5,方向化平均差值 >0;分母為零記「未量」。
+ - 窮舉:兩方向合併,Wilson 下界(既有函式)→ 方向化平均 → 有方向數 → 條件鍵 → 方向代碼;同條件只留排序較高的方向;取前 K=10。
+ 
++## Phase 14 前置條件核對
++
++- 分析端驅動的參數沒有 AI 判斷開關,展示驅動組分析端參數時只給規則參數([S1429] 閉包測試綠)。
++- F7 重跑([S1518] 的「F7 重跑走規則路徑」證據):協調者 2026-09-27 在基底 7bd062a 實跑 tests/demo/test_driver.py 與 tests/demo/test_server.py 的 F7 端到端(縮小版 30 支廣告,`-k "f7 or F7"`),12 passed。這是縮小版,不是完整幾千筆的展示;兩支測試檔的家見 [[Systems/一鍵展示]]。
++
+ ## 評估版本理由
+ 
+-### phase15-rule-mining-v1(2026-09-27 建立)
++### phase15-rule-mining-v2(2026-09-27,代碼審 r1 c_4/c_5)
++
++- 改動:重疊判準從「另一筆調整日落在 D±3」改成「兩筆的 D±3 視窗相交(相距 ≤ 6 天)」;對照池從「整期從未加額」改成「整期沒有任何預算調整」;系統提示裡對照池那一句同步改寫。生成器、種子、K、下限、切點、排序都沒動,三批資料雜湊不變。
++- 理由與時點:看過 v1 的窮舉前 K 之後才改;理由是代碼審發現(c_4 前一筆加額的效果會汙染本事件前三日;c_5 對照側不檢查降額、和事件側不對稱),不是看了排名要調。計劃〈代使用者裁定(2026-09-27,代碼審 c_4/c_5)〉同步改兩句定義。
++- 對雙方的預期影響:改動同時作用於 AI 與窮舉兩方、同一資料與同一候選全集,預期不偏袒任一方。
++- 同時併入的非語意改動(代碼審 a_1/a_2):版本雜湊改用共用的正規化 JSON、平均差值改用共用百分比函式,字串結果不變;但雜湊輸入改了,版本雜湊本來就要換。
++- 可達性預檢(三種子全過):現行三批生成資料沒有相距 4 到 6 天的調整,也沒有降額,所以排除計數與四項真相分母和 v1 完全相同(見下節表);完整提示 B 因系統提示改一句各多 12 位元組:15001 6057、15002 5975、15003 6044,仍遠低於 20480 與 48 KiB。逐字版本是提示模組的 `PREFLIGHT_RECORD`,版本雜湊 77b76d93a06d4690…。
++
++### phase15-rule-mining-v1(2026-09-27 建立,已由 v2 取代)
+ 
+ - 首版,無前版可比,對 AI 與窮舉雙方沒有「改動前後」的影響可記;參數在看任何窮舉排名前寫進程式常數,評估版本雜湊 831dc0dc4736cce9…(全文見提示模組的 `EXPECTED_VERSION_SHA256`)。
+ - 可達性預檢(三種子全過,不看正負差或排名;逐字版本是提示模組的 `PREFLIGHT_RECORD`,測試重算比對):
+ 
+ | 種子 | 資料雜湊(前 16) | 可推斷事件 探索/保留 | 表列 | 完整提示 B |
+ |---|---|---|---|---|
+ | 15001 | f820e1a486d8b35d | 340/301 | 50 | 6045 |
+ | 15002 | 2a9e4aac0f4ec020 | 318/339 | 49 | 5963 |
+ | 15003 | ba7d6ebc8a3a8b4d | 333/324 | 50 | 6032 |
+ 
+ - 排除原因(探索/保留):15001 出界 18/17、缺值 11/9、重疊 18/32;15002 出界 13/18、缺值 12/7、重疊 16/13;15003 出界 14/10、缺值 7/8、重疊 21/28。資料異常與分母為零三批都是 0(生成器照漏斗造、點擊至少 1)。
+ - 真相分母(有方向配對/相異加額廣告/相異對照廣告,探索 → 保留),四項在三批兩側都達 20/20/20:
+   - 真模式改善:15001 48/40/48 → 57/45/57;15002 49/37/49 → 60/45/60;15003 62/49/62 → 53/39/53。
+   - 真模式未改善:15001 113/88/113 → 84/66/84;15002 101/74/101 → 116/88/116;15003 109/80/109 → 118/82/118。
+   - 只探索側誘餌:15001 45/44/45 → 40/38/40;15002 34/34/34 → 39/38/39;15003 48/46/48 → 27/27/27(最接近下限的一格)。
+   - 相關誘餌:15001 138/81/138 → 83/45/83;15002 109/60/109 → 112/67/112;15003 96/54/96 → 117/65/117。
+ - 位元組:三批 B 約 6 KB,遠低於 20480 與 48 KiB;表列 49–50 條(56 條全集裡有 6–7 條未達下限)。
+ 
+-- 首次看窮舉前 K 是在凍結提交 98d436c 之後,未因結果調任何參數。只作描述(正式召回/誤報表是增量 3 的報告):三批前 10 都含兩個真模式(名次 15001 第 4、6;15002 第 2、9;15003 第 4、5);只探索側誘餌三批都進前 10(第 7、1、8),保留側在 15001、15002 判不保留,15003 保留側 27 個有方向配對碰巧也過 3/5 而判保留;相關誘餌只在 15001 進前 10(第 8),三批保留側都成立;其餘名額多是真模式 raise_pct:band_3 加一欄的細分(依計劃計誤報)。
++- 首次看窮舉前 K 是在 v1 凍結提交(rebase 後為 347b8cc)之後,未因結果調任何參數;v2 也是先凍結提交(b130e68)再看。v2 的前 10 與 v1 逐條相同(現行生成資料沒有相距 4 到 6 天的調整或降額,兩項定義改動不影響這三批)。只作描述(正式召回/誤報表是增量 3 的報告):三批前 10 都含兩個真模式(名次 15001 第 4、6;15002 第 2、9;15003 第 4、5);只探索側誘餌三批都進前 10(第 7、1、8),保留側在 15001、15002 判不保留,15003 保留側 27 個有方向配對碰巧過 3/5 而判保留——依計劃仍計誤報,不調門檻、不換種子;代碼審 r1 用 60 個種子實驗量到這種「無效果條件在保留側偶然過關」約 7%,是 20 對與 3/5 門檻的設計面代價,增量 3 報告要照實揭露;相關誘餌只在 15001 進前 10(第 8,另兩批第 12、13),三批保留側都成立;其餘名額多是真模式 raise_pct:band_3 加一欄的細分(依計劃計誤報,增量 3 報告應逐條標部分重疊)。
+ 
+ 重跑預檢:`PYTHONPATH=src python -c "from rtb.eval import rule_mining_prompt as p; print('\n'.join(p.preflight_record(p.preflight())), p.preflight_problems(p.preflight()))"`
+diff --git a/src/rtb/domain/metrics.py b/src/rtb/domain/metrics.py
+index 07557c6..d669959 100644
+--- a/src/rtb/domain/metrics.py
++++ b/src/rtb/domain/metrics.py
+@@ -220,27 +220,31 @@ def exact_change(before: object, after: object) -> Exact:
+ 
+ 
+ def exact_click_rate(clicks: object, impressions: object) -> Exact:
+     """點擊率;點擊多於曝光是資料不合理(跟既有 ctr 同一條)。輸入可以是加總出來的分數。"""
+     top, bottom = _exact_input(clicks), _exact_input(impressions)
+     if isinstance(top, Fraction) and isinstance(bottom, Fraction) and top > bottom:
+         return Reason.INVALID_DATA
+     return exact_ratio(top, bottom)
+ 
+ 
+-def percent_text(value: Exact) -> str:
+-    """分數寫成百分比刻度、固定 1 位小數、四捨五入到偶數;負零寫 0.0;原因代碼寫 na。"""
++def percent_text(value: Exact, places: int = 1) -> str:
++    """分數寫成百分比刻度、固定 places 位小數(預設 1)、四捨五入到偶數;負零寫 0.0;原因代碼寫 na。
++    Phase 15 規則探勘的平均差值(百分點、4 位小數)也用這一支,不另寫捨入(代碼審 a_2)。"""
+     if isinstance(value, Reason):
+         return NA
+-    tenths = round(value * 1000)  # 分數的 round 是四捨五入到偶數
+-    sign = "-" if tenths < 0 else ""
+-    return _fits(f"{sign}{abs(tenths) // 10}.{abs(tenths) % 10}")
++    if isinstance(places, bool) or not isinstance(places, int) or places < 1:
++        raise ValueError("小數位數要是正整數")
++    unit = 10 ** places
++    scaled = round(value * 100 * unit)  # 分數的 round 是四捨五入到偶數
++    sign = "-" if scaled < 0 else ""
++    return _fits(f"{sign}{abs(scaled) // unit}.{abs(scaled) % unit:0{places}d}")
+ 
+ 
+ def _fits(text: str) -> str:
+     """收據字串要放得進可信證據(識別碼格式,最多 MAX_RECEIPT_CHARS 字);寫不下就是資料不合理,寫 na
+     (代碼審 r1 d1:極端但有限的金額會算出幾百位數,建證據時丟例外、整步卡住)。"""
+     return text if len(text) <= MAX_RECEIPT_CHARS else NA
+ 
+ 
+ def receipt_ratio(numerator: object, denominator: object) -> str:
+     return percent_text(exact_ratio(numerator, denominator))
+diff --git a/src/rtb/eval/rule_mining_baseline.py b/src/rtb/eval/rule_mining_baseline.py
+index b137795..468c4a8 100644
+--- a/src/rtb/eval/rule_mining_baseline.py
++++ b/src/rtb/eval/rule_mining_baseline.py
+@@ -1,19 +1,21 @@
+ """規則模式探索的效果計算、配對、彙總、保留側判定與窮舉前 K(Phase 15 增量 1,計劃
+ [[Projects/RTB_Phase15AI找規則模式_計劃]]〈合成歷史與可觀察效果〉〈封閉條件語彙、彙總與窮舉基準〉)。
+ 
+ - 每個加額事件以操作的 UTC 日為 D,只取 D-3..D-1 與 D+1..D+3 六個完整日(D 本身不算)。視窗超出
+-  觀察期、視窗內另有調整、資料異常、缺值(含 no_data)、轉換率分母為零都不推斷,逐原因計數。
++  觀察期、同一廣告另一筆調整(加額或降額)的 D±3 視窗與本事件相交(相距 ≤ 6 天)、資料異常、缺值
++  (含 no_data)、轉換率分母為零都不推斷,逐原因計數。
+ - 轉換率 = 轉換 / 點擊,一律經 `rtb.domain.metrics.exact_ratio` 取精確分數;組的變化是後三日率減
+   前三日率的**絕對差**,配對差值是加額組變化減對照組變化。判斷與核對不讀任何捨入字串。
+-- 對照只取同一側、**整個觀察期從未加額**的廣告;配對須同側、同 UTC 日 D、同前三日轉換率區間、同投放
+-  規模桶。每條條件先按 `(D, 加額廣告編號位元組, committed_at, 操作識別碼)` 處理事件,對照按編號位元組
++- 對照只取同一側、**整個觀察期沒有任何預算調整**(加額或降額,和事件側對稱)的廣告;
++  配對須同側、同 UTC 日 D、同前三日轉換率區間、同投放規模桶。每條條件先按
++  `(D, 加額廣告編號位元組, committed_at, 操作識別碼)` 處理事件,對照按編號位元組
+   升序取第一支未用者,每支對照在該條件至多用一次;找不到記「無對照」。
+ - 差值為零是平手:不算支持也不算反例。有方向配對數 = 正差 + 負差;支持比例、平均差值分母、樣本下限、
+   兩側相異廣告數與相異日期數都只看有方向配對。
+ - 窮舉基準:兩方向合併,依 Wilson 95% 下界(直接呼叫 `rtb.eval.scoring.wilson_lower`)、方向化平均
+   差值、有方向配對數、條件鍵、方向代碼排序;同條件兩方向只留較高者,取前 K。
+ - 純函式、標準函式庫;不匯入 DSP、模型閘道或模型用戶端。這是可重算的合成比較,不是因果證明。
+ """
+ 
+ from collections import Counter
+ from collections.abc import Collection, Iterable, Mapping, Sequence
+@@ -192,21 +194,21 @@ def _window(days: Mapping[date, DayBucket], day: date) -> _Window | str:
+     assert isinstance(pre_rate, Fraction) and isinstance(post_rate, Fraction)  # noqa: S101
+     return _Window(pre_rate, post_rate - pre_rate, sum(b.spend_cents or 0 for b in before))
+ 
+ 
+ def _event(history: History, ad: Ad, adjustment: Adjustment,
+            days: Mapping[date, DayBucket]) -> RaiseEvent | str:
+     day = _utc_day(adjustment.committed_at)
+     if not _complete(history, day):
+         return INCOMPLETE_WINDOW
+     if any(other is not adjustment and abs((_utc_day(other.committed_at) - day).days)
+-           <= v.WINDOW_DAYS for other in ad.adjustments):
++           <= v.OVERLAP_DAYS for other in ad.adjustments):
+         return OVERLAPPING_ADJUSTMENT
+     window = _window(days, day)
+     if isinstance(window, str):
+         return window
+     before = adjustment.budget_before_cents
+     raise_pct = m.exact_ratio(adjustment.budget_after_cents - before, before)
+     spend_ratio = m.exact_ratio(window.pre_spend, v.WINDOW_DAYS * before)
+     if not (isinstance(raise_pct, Fraction) and isinstance(spend_ratio, Fraction)):
+         return ANOMALOUS_DATA
+     pre_band = v.band(v.PRE_CVR, window.pre_rate)
+@@ -234,26 +236,26 @@ def side_events(history: History, side: Collection[str]
+             else:
+                 events.append(result)
+     return tuple(sorted(events, key=lambda e: e.order)), dict(sorted(excluded.items()))
+ 
+ 
+ ControlIndex = Mapping[tuple[date, str, str], tuple[Control, ...]]
+ 
+ 
+ def control_index(history: History, side: Collection[str],
+                   days: Iterable[date] | None = None) -> ControlIndex:
+-    """同側、整期從未加額的對照:(D, 前三日轉換率區間, 規模桶) → 按編號位元組升序的對照。"""
++    """同側、整期沒有任何調整的對照:(D, 前三日轉換率區間, 規模桶) → 按編號位元組升序的對照。"""
+     wanted = sorted(set(days) if days is not None else {
+         history.start + timedelta(days=i) for i in range(history.day_count)})
+     index: dict[tuple[date, str, str], list[Control]] = {}
+     for ad in _side_ads(history, side):
+-        if any(_is_raise(a) for a in ad.adjustments):
++        if ad.adjustments:  # 整期有任何調整(加額或降額)都不當對照(v2,代碼審 c_5)
+             continue
+         by_day = {bucket.day: bucket for bucket in ad.days}
+         for day in wanted:
+             window = _window(by_day, day) if _complete(history, day) else INCOMPLETE_WINDOW
+             if isinstance(window, str):
+                 continue
+             slot = (day, v.band(v.PRE_CVR, window.pre_rate), v.scale_bucket(window.pre_spend))
+             index.setdefault(slot, []).append(Control(ad.ad_id, window.change))
+     return {slot: tuple(controls) for slot, controls in index.items()}
+ 
+diff --git a/src/rtb/eval/rule_mining_prompt.py b/src/rtb/eval/rule_mining_prompt.py
+index de788bb..897669b 100644
+--- a/src/rtb/eval/rule_mining_prompt.py
++++ b/src/rtb/eval/rule_mining_prompt.py
+@@ -1,40 +1,41 @@
+ """規則模式探索的固定系統提示、探索集彙總表、位元組閘與可達性預檢(Phase 15 增量 1,計劃
+ [[Projects/RTB_Phase15AI找規則模式_計劃]]〈封閉條件語彙、彙總與窮舉基準〉〈拆增量〉第 1 項)。
+ 
+ - 這一增量**不呼叫模型**:只把系統提示文字定稿、建出要送的完整彙總表,量「系統提示 + 彙總表」的 UTF-8
+   位元組數。完整表只列探索側達樣本下限的條件,欄序、捨入固定;比例沿用 `metrics.percent_text`(一位
+-  小數),平均差值以百分點、精確分數 half-even 捨入四位小數;精確分數、保留側、逐日列、識別、時間戳與
+-  真相標籤都不進表。一批只准一次完整提示,不分塊、不截列:`B > 20480` 或達既有 48 KiB 就拒跑。
++  小數),平均差值以百分點四位小數(同一支 `percent_text`,精確分數 half-even);
++  精確分數、保留側、逐日列、識別、時間戳與真相標籤都不進表。一批只准一次完整提示,
++  不分塊、不截列:`B > 20480` 或達既有 48 KiB 就拒跑。
+ - 可達性預檢只在建立或更換評估版本時跑:固定三種子逐批記資料雜湊、兩側加額事件與排除原因、每個真模式
+   與誘餌在探索/保留兩側的分母(有方向配對數與兩側相異廣告數,不看正負差)、完整提示位元組數;任一批
+   超限或任一真相分母不可達就整體失敗,不得換種子或截列通過。結果寫死在 `PREFLIGHT_RECORD`(評估版本
+   理由的機器可核對那份),測試重算比對。
+ - 評估版本雜湊涵蓋語彙模組的參數清單、系統提示、表頭、真相清單與三批資料雜湊;任何一項改動都要換
+   `EVAL_VERSION` 並記理由與對 AI、窮舉雙方的預期影響。
+ """
+ 
+ import hashlib
+-import json
+ from collections.abc import Mapping, Sequence
+ from dataclasses import dataclass
+-from fractions import Fraction
+ 
++from rtb.analyzer import investigation as inv
+ from rtb.domain import metrics as m
+ from rtb.eval import rule_mining_baseline as b
+ from rtb.eval import rule_mining_history as h
+ from rtb.eval import rule_mining_vocab as v
+ 
+ SYSTEM_PROMPT = (
+     "你是離線規則探勘助手。使用者內容是一份固定種子合成歷史的探索集彙總表。每列是一條封閉條件"
+     "(一或兩個不同欄位的門檻代碼,以 & 相連),數字來自加額事件與對照廣告的配對:對照是同一側、"
+-    "同一 UTC 日、同一調整前三日轉換率區間、同一投放規模桶、整個觀察期從未加額的廣告。配對差值是"
++    "同一 UTC 日、同一調整前三日轉換率區間、同一投放規模桶、整個觀察期沒有任何預算調整的廣告。"
++    "配對差值是"
+     "「加額組後三日轉換率減前三日轉換率」減去「對照組同樣的變化」,單位是百分點。\n"
+     "任務:從表中挑出至多 10 條你認為在未見資料上最可能也成立的條件與方向,"
+     "只能用表中出現的門檻代碼。\n"
+     "方向:improve 表示加額後相對對照較可能改善,支持是正差筆數、反例是負差筆數;not_improve 相反,"
+     "支持是負差筆數、反例是正差筆數。平手既不是支持也不是反例。\n"
+     "輸出:只輸出一行緊湊的 UTF-8 JSON,直接寫中文原字,不要用 \\uXXXX 逸出,不要 Markdown,總長不超過"
+     " 6000 位元組。格式:"
+     '{"version":1,"suggestions":[{"clauses":[{"condition":"raise_pct",'
+     '"threshold":"raise_pct:band_2"}],"direction":"improve","support":24,"counterexample":6,'
+     '"confidence_note":"一句話"}]}\n'
+@@ -49,80 +50,74 @@ SYSTEM_PROMPT = (
+     "pre_cvr:band_3 5% 以上\n"
+     "spend_ratio:band_1 調整前三日花費除以三天原日預算未滿 60%;spend_ratio:band_2 60% 以上未滿"
+     " 90%;spend_ratio:band_3 90% 以上\n"
+ )
+ TABLE_HEADER = (
+     f"彙總表 {v.EVAL_VERSION}:探索集;只列有方向配對至少 20 且其中相異加額廣告、相異對照廣告"
+     "各至少 20 的條件;有方向配對 = 正差 + 負差,平手不計;相異廣告與日期只數有方向配對",
+     "欄位:條件|加額事件|總配對|有方向配對|正差|負差|平手|相異加額廣告|相異對照廣告|相異日期|"
+     "正差占有方向比例%|平均差值pp|無對照事件",
+ )
+-DIFF_PLACES = 10 ** 4
++DIFF_PLACES = 4  # 平均差值:百分點四位小數,用 metrics.percent_text 同一套 half-even 捨入
+ 
+ # 首次預檢後寫死(評估版本理由的機器可核對那份);重跑須逐字相同
+ PREFLIGHT_RECORD: tuple[str, ...] = (
+     '15001 資料 f820e1a486d8b35d 廣告 探索360/保留360 可推斷事件 探索340/保留301 '
+-     '表列 50 B=6045',
++     '表列 50 B=6057',
+     '15001 排除 探索[incomplete_window=18 missing_value=11 '
+      'overlapping_adjustment=18] 保留[incomplete_window=17 '
+      'missing_value=9 overlapping_adjustment=32]',
+     '15001 true_pattern raise_pct:band_2&spend_ratio:band_3 '
+      'improve 探索[有方向48/加額廣告40/對照廣告48] 保留[有方向57/加額廣告45/對照廣告57]',
+     '15001 true_pattern raise_pct:band_3 not_improve '
+      '探索[有方向113/加額廣告88/對照廣告113] 保留[有方向84/加額廣告66/對照廣告84]',
+     '15001 decoy_explore_only day_type:weekend&raise_pct:band_1 '
+      'improve 探索[有方向45/加額廣告44/對照廣告45] 保留[有方向40/加額廣告38/對照廣告40]',
+     '15001 decoy_correlated spend_ratio:band_1 not_improve '
+      '探索[有方向138/加額廣告81/對照廣告138] 保留[有方向83/加額廣告45/對照廣告83]',
+     '15002 資料 2a9e4aac0f4ec020 廣告 探索360/保留360 可推斷事件 探索318/保留339 '
+-     '表列 49 B=5963',
++     '表列 49 B=5975',
+     '15002 排除 探索[incomplete_window=13 missing_value=12 '
+      'overlapping_adjustment=16] 保留[incomplete_window=18 '
+      'missing_value=7 overlapping_adjustment=13]',
+     '15002 true_pattern raise_pct:band_2&spend_ratio:band_3 '
+      'improve 探索[有方向49/加額廣告37/對照廣告49] 保留[有方向60/加額廣告45/對照廣告60]',
+     '15002 true_pattern raise_pct:band_3 not_improve '
+      '探索[有方向101/加額廣告74/對照廣告101] 保留[有方向116/加額廣告88/對照廣告116]',
+     '15002 decoy_explore_only day_type:weekend&raise_pct:band_1 '
+      'improve 探索[有方向34/加額廣告34/對照廣告34] 保留[有方向39/加額廣告38/對照廣告39]',
+     '15002 decoy_correlated spend_ratio:band_1 not_improve '
+      '探索[有方向109/加額廣告60/對照廣告109] 保留[有方向112/加額廣告67/對照廣告112]',
+     '15003 資料 ba7d6ebc8a3a8b4d 廣告 探索360/保留360 可推斷事件 探索333/保留324 '
+-     '表列 50 B=6032',
++     '表列 50 B=6044',
+     '15003 排除 探索[incomplete_window=14 missing_value=7 '
+      'overlapping_adjustment=21] 保留[incomplete_window=10 '
+      'missing_value=8 overlapping_adjustment=28]',
+     '15003 true_pattern raise_pct:band_2&spend_ratio:band_3 '
+      'improve 探索[有方向62/加額廣告49/對照廣告62] 保留[有方向53/加額廣告39/對照廣告53]',
+     '15003 true_pattern raise_pct:band_3 not_improve '
+      '探索[有方向109/加額廣告80/對照廣告109] 保留[有方向118/加額廣告82/對照廣告118]',
+     '15003 decoy_explore_only day_type:weekend&raise_pct:band_1 '
+      'improve 探索[有方向48/加額廣告46/對照廣告48] 保留[有方向27/加額廣告27/對照廣告27]',
+     '15003 decoy_correlated spend_ratio:band_1 not_improve '
+      '探索[有方向96/加額廣告54/對照廣告96] 保留[有方向117/加額廣告65/對照廣告117]',
+ )
+-EXPECTED_VERSION_SHA256 = "831dc0dc4736cce90e04ff7cc1d7ad6336d77497f4d0c28495b02cff27c7ba9f"
+-
+-
+-def diff_text(mean: Fraction) -> str:
+-    """平均差值:比率刻度 → 百分點,精確分數 half-even 捨入到四位小數;負零寫 0。"""
+-    scaled = round(mean * 100 * DIFF_PLACES)  # Fraction 的 round 是四捨五入到偶數
+-    sign = "-" if scaled < 0 else ""
+-    return f"{sign}{abs(scaled) // DIFF_PLACES}.{abs(scaled) % DIFF_PLACES:04d}"
++EXPECTED_VERSION_SHA256 = "77b76d93a06d4690ab953c66d875feb12696c27e75cf37034d6b067b38162788"
+ 
+ 
+ def _row(stats: b.ConditionStats) -> str:
+     counts = (stats.events, stats.pairs, stats.directed, stats.positive, stats.negative,
+               stats.ties, stats.raised_ads, stats.control_ads, stats.dates)
+     share = m.percent_text(m.exact_ratio(stats.positive, stats.directed))
+     return "|".join([v.key_text(stats.key), *(str(c) for c in counts), share,
+-                     diff_text(stats.diff_sum / stats.directed), str(stats.no_control)])
++                     m.percent_text(stats.diff_sum / stats.directed, places=DIFF_PLACES),
++                     str(stats.no_control)])
+ 
+ 
+ def summary_table(summary: b.SideSummary) -> str:
+     """送模型的完整彙總表(使用者內容):表頭、事件層排除計數、達下限的每一條條件一列。"""
+     excluded = " ".join(f"{reason}={count}" for reason, count in summary.exclusions.items())
+     lines = [*TABLE_HEADER, f"可推斷加額事件 {summary.events};事件層排除:{excluded or '無'}"]
+     lines += [_row(summary.stats[key]) for key in v.all_conditions()
+               if b.meets_floor(summary.stats[key])]
+     return "\n".join(lines) + "\n"
+ 
+@@ -142,22 +137,22 @@ def gate_problem(size: int) -> str | None:
+ 
+ 
+ def version_sha256() -> str:
+     """評估版本雜湊:參數清單、系統提示、表頭、真相清單與三批預期資料雜湊。"""
+     document = {
+         "params": v.version_params(), "system_prompt": SYSTEM_PROMPT,
+         "table_header": list(TABLE_HEADER),
+         "truth": [[t.kind, [list(c) for c in t.clauses], t.direction] for t in h.TRUTH],
+         "data_sha256": {str(seed): h.EXPECTED_DATA_SHA256[seed] for seed in v.SEEDS},
+     }
+-    text = json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+-    return hashlib.sha256(text.encode()).hexdigest()
++    # 雜湊用的正規化 JSON 共用評估套件已在用的那一支(代碼審 a_1),不另拼參數
++    return hashlib.sha256(inv.canonical_json(document).encode("ascii")).hexdigest()
+ 
+ 
+ # ---- 可達性預檢 ----
+ @dataclass(frozen=True)
+ class TruthReach:
+     kind: str
+     key: v.NormalizedKey
+     explore: b.Reach
+     holdout: b.Reach
+ 
+diff --git a/src/rtb/eval/rule_mining_vocab.py b/src/rtb/eval/rule_mining_vocab.py
+index 412597d..d795bcd 100644
+--- a/src/rtb/eval/rule_mining_vocab.py
++++ b/src/rtb/eval/rule_mining_vocab.py
+@@ -12,29 +12,31 @@
+ """
+ 
+ import re
+ from collections.abc import Iterable, Mapping
+ from datetime import date
+ from fractions import Fraction
+ from itertools import combinations
+ from types import MappingProxyType
+ from typing import Any
+ 
+-EVAL_VERSION = "phase15-rule-mining-v1"
++EVAL_VERSION = "phase15-rule-mining-v2"  # v1 → v2:代碼審 c_4/c_5 改重疊與對照池定義
+ GENERATOR_VERSION = "rule-mining-history-1"
+ SEEDS = (15001, 15002, 15003)  # 固定,任一批不得替換;報告全列
+ 
+ K = 10
+ MIN_DIRECTED = 20  # 有方向配對(正差 + 負差)下限
+ MIN_DISTINCT_ADS = 20  # 有方向配對裡相異加額廣告、相異對照廣告各自的下限
+ HOLDOUT_SUPPORT = Fraction(3, 5)
+ WINDOW_DAYS = 3  # D-3..D-1 與 D+1..D+3,D 本身不算
++# 兩筆調整的 D±3 視窗相交就算重疊(v2,代碼審 c_4):前一筆加額的後三日不會落進本事件的前三日
++OVERLAP_DAYS = 2 * WINDOW_DAYS
+ 
+ PROMPT_BYTES_LIMIT = 20480  # 本案:系統提示加使用者內容的 UTF-8 位元組
+ GATEWAY_PROMPT_BYTES = 48 * 1024  # 既有模型用戶端的上限(測試核對 modelcore.MAX_PROMPT_BYTES)
+ MAX_OUTPUT_TOKENS = 6144
+ REPLY_BYTES_LIMIT = 6000
+ NOTE_CHARS = 80
+ NOTE_BYTES = 240
+ CALL_TIMEOUT_SECONDS = 60
+ 
+ IMPROVE, NOT_IMPROVE = "improve", "not_improve"
+@@ -137,35 +139,37 @@ def key_text(key: ConditionKey) -> str:
+ 
+ 
+ def version_params() -> dict[str, Any]:
+     """評估版本的完整參數清單(JSON 可序列化);雜湊由提示模組連同系統提示一起算。"""
+     return {
+         "eval_version": EVAL_VERSION, "generator_version": GENERATOR_VERSION,
+         "seeds": list(SEEDS), "k": K, "min_directed": MIN_DIRECTED,
+         "min_distinct_ads": MIN_DISTINCT_ADS, "holdout_support": str(HOLDOUT_SUPPORT),
+         "window_days": WINDOW_DAYS,
+         "split": "sha256(ad_id utf-8) 升序,同雜湊再比編號位元組;前 floor(N/2) 探索,其餘保留",
+-        "control_pool": "同側、整個觀察期從未加額的廣告;每條件每支至多一次",
++        "control_pool": "同側、整個觀察期沒有任何預算調整(加額或降額)的廣告;每條件每支至多一次",
+         "pair_fields": ["side", "utc_day", "pre_cvr_band", "scale_bucket"],
+         "scale_cuts_cents": list(SCALE_CUTS_CENTS), "scale_buckets": list(SCALE_BUCKETS),
+         "cuts": {name: [str(c) for c in CUTS[name]] for name in sorted(CUTS)},
+         "thresholds": {name: list(THRESHOLDS[name]) for name in FIELDS},
+         "day_type": "UTC 星期六、日為 weekend,其餘 weekday",
++        "overlap": "同一廣告另一筆調整(加額或降額)的 D±3 視窗與本事件的 D±3 視窗相交,"
++                   "即相距 ≤ 2 x 3 = 6 天,就排除",
+         "event_order": ["utc_day", "raised_ad_id_utf8", "committed_at", "op_id"],
+         "control_order": "ad_id utf-8 位元組升序,取第一支未用者",
+         "exclusions": ["incomplete_window", "overlapping_adjustment", "anomalous_data",
+                        "missing_value", "zero_denominator", "no_control"],  # 判斷先後
+         "effect": "(加額後三日率-加額前三日率)-(對照後三日率-對照前三日率),"
+                   "率=轉換/點擊,rtb.domain.metrics.exact_ratio 精確分數",
+         "mean": "有方向差值合計 / 有方向配對數;平手不計支持與反例",
+         "distinct_counts": "兩側相異廣告數與相異 UTC 日期數只數有方向配對",
+         "ranking": ["wilson_lower(支持, 支持+反例) 降序", "方向化精確平均差值降序",
+                     "有方向配對數降序", "正規化條件鍵升序", "方向代碼升序"],
+         "wilson": "rtb.eval.scoring.wilson_lower,Z_95=1.959963984540054",
+         "directions_merge": "同一條件兩方向只留排序較高者,再取全域前 K",
+         "formats": {"percent": "rtb.domain.metrics.percent_text(一位小數 half-even)",
+-                    "diff": "百分點四位小數,精確分數 half-even"},
++                    "diff": "rtb.domain.metrics.percent_text(places=4):百分點四位小數 half-even"},
+         "prompt_bytes_limit": PROMPT_BYTES_LIMIT, "gateway_prompt_bytes": GATEWAY_PROMPT_BYTES,
+         "max_output_tokens": MAX_OUTPUT_TOKENS, "reply_bytes_limit": REPLY_BYTES_LIMIT,
+         "note_chars": NOTE_CHARS, "note_bytes": NOTE_BYTES,
+         "call_timeout_seconds": CALL_TIMEOUT_SECONDS,
+     }
+diff --git a/tests/domain/test_metrics.py b/tests/domain/test_metrics.py
+index 573a5aa..b4e7a05 100644
+--- a/tests/domain/test_metrics.py
++++ b/tests/domain/test_metrics.py
+@@ -372,10 +372,25 @@ def test_money_ratios_use_the_decimal_value_written_on_the_receipt():
+     """d2:涉及金額的比率先照收據金額的 Decimal(repr(x)) 轉十進位再算,跟收據上的金額一致。"""
+     assert m.receipt_change(0.16, 0.17) == "6.2"
+     assert m.receipt_change(0.16, 0.15) == "-6.2"
+     assert m.exact_ratio(1.15, 100) == Fraction(115, 10000)
+     from rtb.analyzer import investigation as inv
+ 
+     base = inv.base_receipt({"status": "active", "budget": 2400},
+                             {"impressions": 10, "clicks": 1, "conversions": 0, "spend": 1.15,
+                              "revenue": 0.0}, 24)
+     assert base["pacing"] == "1.2"
++
++
++def test_percent_text_places_share_one_half_even_rounding():
++    """Phase 15 代碼審 a_2:規則探勘的平均差值(百分點四位小數)共用 percent_text,不另寫捨入;
++    預設一位小數的既有行為不變。"""
++    assert m.percent_text(Fraction(1234567, 10**7)) == "12.3"
++    assert m.percent_text(Fraction(1234567, 10**7), places=4) == "12.3457"
++    assert m.percent_text(Fraction(1, 2_000_000), places=4) == "0.0000"  # 0.00005 → 偶數 0
++    assert m.percent_text(Fraction(3, 2_000_000), places=4) == "0.0002"  # 0.00015 → 偶數 2
++    assert m.percent_text(Fraction(-1, 50), places=4) == "-2.0000"
++    assert m.percent_text(Fraction(-1, 3_000_000), places=4) == "0.0000"  # 負零寫 0
++    assert m.percent_text(Reason.NO_DENOMINATOR, places=4) == m.NA
++    for bad in (0, -1, True, 1.0):
++        with pytest.raises(ValueError, match="小數位數"):
++            m.percent_text(Fraction(1, 2), places=bad)
+diff --git a/tests/eval/test_rule_mining.py b/tests/eval/test_rule_mining.py
+index fdcefdc..7a2e1a4 100644
+--- a/tests/eval/test_rule_mining.py
++++ b/tests/eval/test_rule_mining.py
+@@ -1,20 +1,19 @@
+ """Phase 15 增量 1:規則模式探索的合成歷史與無模型基準(計劃
+ [[Projects/RTB_Phase15AI找規則模式_計劃]]〈合成歷史與可觀察效果〉〈封閉條件語彙、彙總與窮舉基準〉)。
+ 
+ 合約 [S1501] [S1502] [S1503](只驗彙總內容與位元組閘,不接模型) [S1511] [S1512] [S1513] [S1515]
+ [S1519] [S1520]。純離線:不呼叫任何模型、不讀寫 ~/.rtb。手造的小歷史只用來驗單一規則;固定三種子
+-的整批生成用模組層快取,整個檔只各生成一次。
++的整批生成用模組範圍的 fixture,整個檔只各生成一次。
+ """
+ 
+ import dataclasses
+-import functools
+ import hashlib
+ from collections import Counter
+ from datetime import UTC, date, datetime, timedelta
+ from fractions import Fraction
+ 
+ import pytest
+ 
+ from rtb import modelcore
+ from rtb.domain import metrics as m
+ from rtb.eval import rule_mining_baseline as rb
+@@ -28,37 +27,43 @@ START = date(2026, 8, 3)
+ 
+ # ---- 手造歷史的小工具 ----
+ def _bucket(day, clicks=100, conv=3, spend=3000, impressions=None):
+     return rh.DayBucket(day=day, impressions=clicks * 30 if impressions is None else impressions,
+                         clicks=clicks, conversions=conv, spend_cents=spend,
+                         revenue_cents=conv * 4000, no_data=False)
+ 
+ 
+ def _ad(ad_id, days=10,  # noqa: PLR0913 - 造資料的小工具,各參數都有預設
+         pre=3, post=3, clicks=100, spend=3000, raise_at=None, budget=2000,
+-        after=2600, changes=None, extra_raises=()):
+-    """一支廣告:raise_at 之前每天 pre 筆轉換、之後每天 post 筆;changes 覆寫某天的桶。"""
++        after=2600, changes=None, extra_raises=(), decreases=()):
++    """一支廣告:raise_at 之前每天 pre 筆轉換、之後每天 post 筆;changes 覆寫某天的桶;
++    extra_raises 另加幾筆加額,decreases 另加幾筆降額(日預算砍半)。"""
+     buckets = []
+     for index in range(days):
+         conv = post if raise_at is not None and index > raise_at else pre
+         if raise_at is None and index >= 5:
+             conv = post
+         buckets.append(_bucket(START + timedelta(days=index), clicks=clicks, conv=conv,
+                                spend=spend))
+     for index, bucket in (changes or {}).items():
+         buckets[index] = bucket
+     adjustments = []
+     for k, at in enumerate(([] if raise_at is None else [raise_at]) + list(extra_raises)):
+         adjustments.append(rh.Adjustment(
+             op_id=f"{ad_id}-op{k}", committed_at=datetime.combine(
+                 START + timedelta(days=at), datetime.min.time(), tzinfo=UTC) + timedelta(hours=9),
+             budget_before_cents=budget, budget_after_cents=after))
++    for k, at in enumerate(decreases):
++        adjustments.append(rh.Adjustment(
++            op_id=f"{ad_id}-cut{k}", committed_at=datetime.combine(
++                START + timedelta(days=at), datetime.min.time(), tzinfo=UTC) + timedelta(hours=9),
++            budget_before_cents=budget, budget_after_cents=budget // 2))
+     return rh.Ad(ad_id=ad_id, daily_budget_cents=budget, days=tuple(buckets),
+                  adjustments=tuple(adjustments))
+ 
+ 
+ def _history(ads, days=10):
+     return rh.History(seed=0, generator_version="test", start=START, day_count=days,
+                       ads=tuple(ads))
+ 
+ 
+ def _summary(history, ids=None, key=None):
+@@ -74,37 +79,45 @@ WEEKEND = ((rv.DAY_TYPE, "day_type:weekend"),)  # 第 5 天是週六
+ def _pair(k, diff, raised=None, control=None, day=START):
+     return rb.Pair(op_id=f"op{k}", raised_ad=raised or f"a{k:02d}",
+                    control_ad=control or f"c{k:02d}", day=day, diff=Fraction(diff))
+ 
+ 
+ def _stats(pairs, events=None):
+     return rb.stats_of(RAISE_2, len(pairs) if events is None else events, tuple(pairs), 0)
+ 
+ 
+ # ---- 固定三種子(整個檔只生成一次) ----
+-@functools.cache
+-def _generated(seed):
+-    return rh.generate(seed)
++@pytest.fixture(scope="module")
++def generated():
++    """種子 → 合成歷史;同一個測試檔裡每個種子只生成一次。"""
++    cache = {}
++
++    def get(seed):
++        if seed not in cache:
++            cache[seed] = rh.generate(seed)
++        return cache[seed]
+ 
++    return get
+ 
+-@functools.cache
+-def _preflight():
++
++@pytest.fixture(scope="module")
++def preflight_results():
+     return rp.preflight()
+ 
+ 
+ # ---- [S1501] ----
+-def test_rule_mining_history_is_reproducible_and_consistent():  # noqa: PLR0915 - 逐項自洽檢查
++def test_rule_mining_history_is_reproducible_and_consistent(generated):  # noqa: PLR0915 - 逐項自洽檢查
+     assert rv.SEEDS == (15001, 15002, 15003)
+     with pytest.raises(ValueError, match="固定種子"):
+         rh.generate(15004)  # 任一批不得換種子
+     for seed in rv.SEEDS:
+-        history = _generated(seed)
++        history = generated(seed)
+         again = rh.generate(seed)
+         text = rh.render(history)
+         assert text == rh.render(again)  # 位元組一致
+         assert rh.data_sha256(history) == hashlib.sha256(text.encode()).hexdigest()
+         assert rh.data_sha256(history) == rh.EXPECTED_DATA_SHA256[seed]
+         assert history.seed == seed and history.generator_version == rv.GENERATOR_VERSION
+         assert len(history.ads) >= 300 and history.day_count >= 28
+         assert len({a.ad_id for a in history.ads}) == len(history.ads)
+         expected_days = [history.start + timedelta(days=i) for i in range(history.day_count)]
+         for ad in history.ads:
+@@ -130,21 +143,21 @@ def test_rule_mining_history_is_reproducible_and_consistent():  # noqa: PLR0915
+     # 真相清單同一生成版本固定;真模式改善/未改善各一,誘餌兩類各一,鍵都是語彙內的正規化鍵
+     kinds = Counter((t.kind, t.direction) for t in rh.TRUTH)
+     assert kinds[(rh.TRUE_PATTERN, rv.IMPROVE)] >= 1
+     assert kinds[(rh.TRUE_PATTERN, rv.NOT_IMPROVE)] >= 1
+     assert sum(n for (kind, _), n in kinds.items() if kind == rh.DECOY_EXPLORE_ONLY) >= 1
+     assert sum(n for (kind, _), n in kinds.items() if kind == rh.DECOY_CORRELATED) >= 1
+     for item in rh.TRUTH:
+         assert rv.normalized_key(item.clauses, item.direction) == item.key
+         assert item.key[0] in rv.all_conditions()
+     # 真相清單不在評估集裡(評估集的文字不含類別名)
+-    text = rh.render(_generated(rv.SEEDS[0]))
++    text = rh.render(generated(rv.SEEDS[0]))
+     assert rh.TRUE_PATTERN not in text and rh.DECOY_CORRELATED not in text
+ 
+ 
+ # ---- [S1502] ----
+ def _two_ads(**raised):
+     raised_ad = _ad("a1", raise_at=5, pre=3, post=6, **raised)
+     control = _ad("c1", pre=3, post=4)  # 未加額:第 5 天以後每天 4 筆
+     return raised_ad, control
+ 
+ 
+@@ -169,20 +182,33 @@ def test_rule_mining_effects_use_complete_utc_days_and_exact_ratios():  # noqa:
+     assert _summary(_history([wild, control]), key=RAISE_2).diff_sum == Fraction(1, 50)
+ 
+     def reasons(*ads):
+         return rb.side_events(_history(ads), frozenset(a.ad_id for a in ads))[1]
+ 
+     # 未滿後三日 / 前三日不在觀察期內
+     assert reasons(_ad("a1", raise_at=7)) == {rb.INCOMPLETE_WINDOW: 1}
+     assert reasons(_ad("a1", raise_at=2)) == {rb.INCOMPLETE_WINDOW: 1}
+     # 視窗內另有調整:兩筆都不推斷
+     assert reasons(_ad("a1", raise_at=4, extra_raises=(6,))) == {rb.OVERLAPPING_ADJUSTMENT: 2}
++
++    # 重疊判準(v2,代碼審 c_2/c_4):另一筆調整(加額或降額)的 D±3 視窗與本筆相交,即相距 ≤ 6 天
++    def overlap(others=(), decreases=()):
++        ad = _ad("a1", days=16, raise_at=5, extra_raises=others, decreases=decreases)
++        return rb.side_events(_history([ad], days=16), frozenset({"a1"}))
++
++    assert overlap((8,))[1] == {rb.OVERLAPPING_ADJUSTMENT: 2}  # 相距恰好 3
++    assert overlap((11,))[1] == {rb.OVERLAPPING_ADJUSTMENT: 2}  # 相距 6:前一筆後三日落進本筆前三日
++    events, excluded = overlap((12,))  # 相距 7:視窗不相交,兩筆都推斷
++    assert excluded == {} and len(events) == 2
++    assert overlap(decreases=(7,))[1] == {rb.OVERLAPPING_ADJUSTMENT: 1}  # 重疊的是降額也排除
++    assert overlap(decreases=(11,))[1] == {rb.OVERLAPPING_ADJUSTMENT: 1}
++    assert overlap(decreases=(12,))[1] == {}
+     # no_data、缺值
+     gap = rh.DayBucket(day=START + timedelta(days=6), impressions=None, clicks=None,
+                        conversions=None, spend_cents=None, revenue_cents=None, no_data=True)
+     assert reasons(_ad("a1", raise_at=5, changes={6: gap})) == {rb.MISSING_VALUE: 1}
+     none_clicks = dataclasses.replace(_bucket(START + timedelta(days=3)), clicks=None)
+     assert reasons(_ad("a1", raise_at=5, changes={3: none_clicks})) == {rb.MISSING_VALUE: 1}
+     # 資料異常:點擊比曝光多、浮點金額
+     odd = _bucket(START + timedelta(days=7), clicks=100, impressions=50)
+     assert reasons(_ad("a1", raise_at=5, changes={7: odd})) == {rb.ANOMALOUS_DATA: 1}
+     floaty = dataclasses.replace(_bucket(START + timedelta(days=4)), spend_cents=30.5)
+@@ -195,45 +221,42 @@ def test_rule_mining_effects_use_complete_utc_days_and_exact_ratios():  # noqa:
+     summary = _summary(_history([raised_ad, raised_c]))
+     assert summary.stats[RAISE_2].pairs == 0 and summary.stats[RAISE_2].no_control == 1
+     assert summary.exclusions == {rb.INCOMPLETE_WINDOW: 1}
+     # 對照的視窗不可算(分母為零)也不能用
+     zero_control = _ad("c1", changes={i: _bucket(START + timedelta(days=i), clicks=0, conv=0)
+                                       for i in (2, 3, 4)})
+     assert _summary(_history([raised_ad, zero_control]), key=RAISE_2).no_control == 1
+ 
+ 
+ # ---- [S1503] ----
+-def test_rule_mining_prompt_contains_only_bounded_aggregates():  # noqa: PLR0915
++def test_rule_mining_prompt_contains_only_bounded_aggregates(generated):  # noqa: PLR0915
+     seed = rv.SEEDS[0]
+-    history = _generated(seed)
++    history = generated(seed)
+     sides = rh.split(a.ad_id for a in history.ads)
+     summary = rb.summarize(history, sides.explore)
+     table = rp.summary_table(summary)
+     rows = [line for line in table.splitlines() if line and line[0].islower()]
+     passing = [k for k in rv.all_conditions() if rb.meets_floor(summary.stats[k])]
+     assert len(rows) == len(passing) > 0  # 完整表,不截列
+     assert [r.split("|")[0] for r in rows] == [rv.key_text(k) for k in passing]
+     for row, key in zip(rows, passing, strict=True):
+         stats = summary.stats[key]
+         cells = row.split("|")
+         assert stats.directed >= 20 and stats.raised_ads >= 20 and stats.control_ads >= 20
+         assert cells[1:10] == [str(v) for v in (
+             stats.events, stats.pairs, stats.directed, stats.positive, stats.negative,
+             stats.ties, stats.raised_ads, stats.control_ads, stats.dates)]
+         assert cells[10] == m.percent_text(m.exact_ratio(stats.positive, stats.directed))
+         mean = stats.diff_sum / stats.directed
+-        assert cells[11] == rp.diff_text(mean)
+-    # 差值:百分點四位小數、精確分數 half-even;精確分數不外送
+-    assert rp.diff_text(Fraction(1, 2_000_000)) == "0.0000"  # 0.00005 → 偶數 0
+-    assert rp.diff_text(Fraction(3, 2_000_000)) == "0.0002"  # 0.00015 → 偶數 2
+-    assert rp.diff_text(Fraction(-1, 50)) == "-2.0000"
+-    assert rp.diff_text(Fraction(-1, 3_000_000)) == "0.0000"  # 負零寫 0
++        # 差值:百分點四位小數,共用既有 percent_text 的 half-even(代碼審 a_2);精確分數不外送
++        assert cells[11] == m.percent_text(mean, places=4)
++    assert rp.DIFF_PLACES == 4
+     assert "/" not in table.replace("pp", "")
+     # 不送保留側、逐日列、識別、時間戳或真相標籤
+     prompt = rp.SYSTEM_PROMPT + table
+     for ad in history.ads:
+         assert ad.ad_id not in prompt
+         assert all(a.op_id not in prompt for a in ad.adjustments)
+     assert "2026-" not in prompt and "T0" not in prompt
+     for label in (rh.TRUE_PATTERN, rh.DECOY_CORRELATED, rh.DECOY_EXPLORE_ONLY, "真模式", "誘餌"):
+         assert label not in prompt
+     holdout_changed = dataclasses.replace(history, ads=tuple(
+@@ -281,40 +304,50 @@ def test_rule_mining_pairs_stay_within_split_and_use_distinct_ads():
+             _history(raised + controls), frozenset(a.ad_id for a in raised + controls)))[0]]
+     assert len(used) == len(set(used)) == 20
+     # 探索側只找得到保留側的對照:不跨側
+     history = _history([_ad("a1", raise_at=5, pre=3, post=6), _ad("c1", pre=3, post=4)])
+     stats = _summary(history, ids={"a1"}, key=RAISE_2)
+     assert stats.pairs == 0 and stats.no_control == 1
+     # 對照在觀察期曾加額(即使視窗外):不入池
+     history = _history([_ad("a1", raise_at=5, pre=3, post=6),
+                         _ad("c1", pre=3, post=4, raise_at=0)])
+     assert _summary(history, key=RAISE_2).no_control == 1
++    # 對照整期只有降額也不入池(v2,代碼審 c_5:和事件側「任何調整都算」對稱)
++    for day in (0, 6):
++        cut = _ad("c1", pre=3, post=4, decreases=(day,))
++        history = _history([_ad("a1", raise_at=5, pre=3, post=6), cut])
++        assert _summary(history, key=RAISE_2).no_control == 1
++        assert rb.control_index(history, frozenset({"c1"})) == {}
+ 
+ 
+ # ---- [S1512] ----
+ def test_rule_mining_ties_are_neutral_in_summary_and_recount():
+     pairs = [_pair(k, Fraction(1, 100)) for k in range(12)]
+     pairs += [_pair(k, Fraction(-1, 200)) for k in range(12, 20)]
+     pairs += [_pair(20, 0)]
+     stats = _stats(pairs)
+     assert (stats.positive, stats.negative, stats.ties, stats.pairs) == (12, 8, 1, 21)
+     assert stats.directed == 20 == stats.positive + stats.negative
+     assert stats.pairs == stats.positive + stats.negative + stats.ties
+     assert rb.directional(stats, rv.IMPROVE) == (12, 8, (Fraction(12, 100) - Fraction(8, 200)) / 20)
+     assert rb.directional(stats, rv.NOT_IMPROVE) == (
+         8, 12, -(Fraction(12, 100) - Fraction(8, 200)) / 20)
+     # 平手的廣告不算相異廣告
+     assert (stats.raised_ads, stats.control_ads) == (20, 20)
+     # 19 平手 + 1 正差:有方向數 1,不達下限(即使總配對 20、涉及 20 支廣告)
+     stats = _stats([_pair(k, 0) for k in range(19)] + [_pair(19, 1)])
+     assert (stats.pairs, stats.directed, stats.raised_ads) == (20, 1, 1)
+     assert not rb.meets_floor(stats)
++    # 相異日期只數有方向配對:平手那天不算(代碼審 c_6)
++    stats = _stats([_pair(0, 1, day=START + timedelta(days=5)),
++                    _pair(1, 0, day=START + timedelta(days=6))])
++    assert (stats.pairs, stats.directed, stats.dates) == (2, 1, 1)
+     # 重算:實際配對的平手也不進支持/反例
+     raised, controls = _crowd(3, 3)
+     tie = _ad("a09", raise_at=5, pre=3, post=4)  # 變化同對照 → 差值 0
+     stats = _summary(_history([*raised, tie, *controls, _ad("c09", pre=3, post=4)]), key=RAISE_2)
+     assert (stats.positive, stats.negative, stats.ties) == (3, 0, 1)
+ 
+ 
+ # ---- [S1513] ----
+ def _holdout(n_pos, n_neg, n_tie=0, pos=Fraction(1, 100), neg=Fraction(-1, 100)):
+     pairs = [_pair(k, pos) for k in range(n_pos)]
+@@ -324,47 +357,50 @@ def _holdout(n_pos, n_neg, n_tie=0, pos=Fraction(1, 100), neg=Fraction(-1, 100))
+ 
+ 
+ def test_rule_mining_holdout_rule_is_frozen_and_recounted():
+     frozen = (rv.MIN_DIRECTED, rv.MIN_DISTINCT_ADS, rv.HOLDOUT_SUPPORT)
+     assert frozen == (20, 20, Fraction(3, 5))
+     verdict = rb.holdout_verdict(_holdout(12, 7), rv.IMPROVE)  # 19 個有方向
+     assert not verdict.kept and rb.INSUFFICIENT_SAMPLE in verdict.reasons
+     verdict = rb.holdout_verdict(_holdout(11, 9), rv.IMPROVE)  # 11/20 < 3/5
+     assert not verdict.kept and verdict.reasons == (rb.LOW_SUPPORT,)
+     assert rb.holdout_verdict(_holdout(12, 8), rv.IMPROVE).kept  # 12/20 且平均差值正
++    # 平手不進保留比例分母:12 正 8 負 3 平手是 12/20 保留,不是 12/23(代碼審 c_1)
++    assert rb.holdout_verdict(_holdout(12, 8, n_tie=3), rv.IMPROVE).kept
+     # 12/20 但平均差值 ≤ 0:方向不符
+     verdict = rb.holdout_verdict(_holdout(12, 8, neg=Fraction(-2, 100)), rv.IMPROVE)
+     assert not verdict.kept and verdict.reasons == (rb.WRONG_SIGN,)
+     verdict = rb.holdout_verdict(_holdout(12, 8, neg=Fraction(-3, 200)), rv.IMPROVE)
+     assert not verdict.kept and verdict.reasons == (rb.WRONG_SIGN,)  # 平均剛好 0
+     # 19 平手 + 1 正差:總配對 20 仍不保留
+     verdict = rb.holdout_verdict(_holdout(1, 0, n_tie=19), rv.IMPROVE)
+     assert not verdict.kept and rb.INSUFFICIENT_SAMPLE in verdict.reasons
+     # 未改善方向對稱
+     assert rb.holdout_verdict(_holdout(8, 12), rv.NOT_IMPROVE).kept
+     assert not rb.holdout_verdict(_holdout(8, 12), rv.IMPROVE).kept
+     # 分母為零:未量
+     verdict = rb.holdout_verdict(_stats([]), rv.IMPROVE)
+     assert not verdict.kept and verdict.reasons == (rb.INSUFFICIENT_SAMPLE, rb.UNMEASURED)
+     # 相異廣告不足也不保留
+     few = _stats([_pair(k, 1, control="c00") for k in range(20)])
+     assert rb.INSUFFICIENT_SAMPLE in rb.holdout_verdict(few, rv.IMPROVE).reasons
+ 
+ 
+ # ---- [S1515] ----
+-def _ranked_stats(key, n_pos, n_neg, pos=Fraction(1, 100), neg=Fraction(-1, 100)):
++def _ranked_stats(key, n_pos, n_neg, pos=Fraction(1, 100), neg=Fraction(-1, 100), n_tie=0):
+     pairs = [_pair(k, pos) for k in range(n_pos)] + [
+-        _pair(n_pos + k, neg) for k in range(n_neg)]
++        _pair(n_pos + k, neg) for k in range(n_neg)] + [
++        _pair(n_pos + n_neg + k, 0) for k in range(n_tie)]
+     return rb.stats_of(key, len(pairs), tuple(pairs), 0)
+ 
+ 
+-def test_rule_mining_exhaustive_order_is_frozen_and_symmetric():
++def test_rule_mining_exhaustive_order_is_frozen_and_symmetric():  # noqa: PLR0915 - 逐鍵情境
+     assert rv.K == 10
+     a, b = ((rv.PRE_CVR, "pre_cvr:band_1"),), ((rv.PRE_CVR, "pre_cvr:band_2"),)
+     # 17/21 比例較高,但 Wilson 下界 70/100 較高 → 70/100 先
+     table = {a: _ranked_stats(a, 17, 4), b: _ranked_stats(b, 70, 30)}
+     ranked = rb.rank(table)
+     assert [r.key for r in ranked] == [b, a]
+     assert ranked[0].wilson == scoring.wilson_lower(70, 100)  # 直接用既有函式與 Z_95
+     assert ranked[1].wilson == scoring.wilson_lower(17, 21)
+     # 兩方向對稱:鏡像的未改善得到同一下界與方向化平均
+     mirrored = {a: _ranked_stats(a, 4, 17), b: _ranked_stats(b, 30, 70)}
+@@ -375,36 +411,46 @@ def test_rule_mining_exhaustive_order_is_frozen_and_symmetric():
+     # 同鍵兩方向只留較高者;下界相同時依方向化平均、有方向數、鍵、方向代碼
+     c = ((rv.SPEND_RATIO, "spend_ratio:band_1"),)
+     d = ((rv.DAY_TYPE, "day_type:weekend"),)
+     table = {c: _ranked_stats(c, 15, 10, pos=Fraction(1, 100)),
+              d: _ranked_stats(d, 15, 10, pos=Fraction(2, 100))}
+     ranked = rb.rank(table)
+     assert [r.key for r in ranked] == [d, c] and len(ranked) == 2
+     even = {c: _ranked_stats(c, 10, 10), d: _ranked_stats(d, 10, 10)}
+     ranked = rb.rank(even)  # 下界、平均(0)、數量都相同 → 鍵升序、方向代碼升序
+     assert [(r.key, r.direction) for r in ranked] == [(d, rv.IMPROVE), (c, rv.IMPROVE)]
++    # 平手不進 Wilson 分母、也不進第三鍵的有方向數(代碼審 c_1):除平手外相同 → 依鍵
++    tied = {a: _ranked_stats(a, 14, 6, n_tie=10), b: _ranked_stats(b, 14, 6)}
++    ranked = rb.rank(tied)
++    assert [r.key for r in ranked] == [a, b]
++    assert ranked[0].wilson == ranked[1].wilson == scoring.wilson_lower(14, 20)
++    assert [(r.support, r.counter, r.directed) for r in ranked] == [(14, 6, 20)] * 2
++    # 第三鍵:下界與方向化平均相同時,有方向配對數多者先
++    same = [rb.Ranked(a, rv.IMPROVE, 1, 0, 0.5, Fraction(1), 20),
++            rb.Ranked(b, rv.IMPROVE, 1, 0, 0.5, Fraction(1), 30)]
++    assert [r.key for r in sorted(same, key=lambda r: r.sort_key)] == [b, a]
+     # 未達下限不入選;前 K 至多 K 條
+     small = {a: _ranked_stats(a, 19, 0)}
+     assert rb.rank(small) == ()
+     many = {k: _ranked_stats(k, 20 + i, 5) for i, k in enumerate(rv.all_conditions())}
+     top = rb.top_k(many)
+     assert len(top) == rv.K
+     assert top == rb.rank(many)[: rv.K]
+     assert rb.top_k(many, 3) == top[:3]
+ 
+ 
+ # ---- [S1519] ----
+-def test_rule_mining_preflight_checks_all_fixed_seed_prompts():
+-    results = _preflight()
++def test_rule_mining_preflight_checks_all_fixed_seed_prompts(generated, preflight_results):
++    results = preflight_results
+     assert tuple(r.seed for r in results) == rv.SEEDS  # 三批全列,不換種子
+     for result in results:
+-        history = _generated(result.seed)
++        history = generated(result.seed)
+         sides = rh.split(a.ad_id for a in history.ads)
+         table = rp.summary_table(rb.summarize(history, sides.explore))
+         # 量的是完整系統提示加彙總表
+         assert result.prompt_bytes == len(rp.SYSTEM_PROMPT.encode()) + len(table.encode())
+         assert result.data_sha256 == rh.EXPECTED_DATA_SHA256[result.seed]
+         assert [t.key for t in result.truths] == [t.key for t in rh.TRUTH]
+         assert (result.explore_ads, result.holdout_ads) == (len(sides.explore),
+                                                             len(sides.holdout))
+     assert rp.preflight_problems(results) == ()
+     assert rp.preflight_record(results) == rp.PREFLIGHT_RECORD  # 版本理由記的數字與重算一致
+@@ -443,26 +489,32 @@ def test_rule_mining_pairing_parameters_are_frozen():
+                                            rb.control_index(history, side))
+         return [(p.raised_ad, p.control_ad) for p in pairs], missing
+ 
+     assert winners([first, second, c]) == ([("a1", "c1")], 1)
+     assert winners([c, second, first]) == ([("a1", "c1")], 1)
+     # 次序鍵先比 D 再比加額廣告編號(a0 < a1),不看輸入順序或操作識別碼
+     early = dataclasses.replace(second, ad_id="a0", adjustments=(dataclasses.replace(
+         second.adjustments[0], op_id="z", committed_at=second.adjustments[0].committed_at
+         - timedelta(hours=1)),))
+     assert winners([first, early, c]) == ([("a0", "c1")], 1)
++    # 第二鍵(編號)先於第三鍵(committed_at):a0 比 a1 晚一小時提交,仍先拿到 C(代碼審 c_6)
++    late = dataclasses.replace(second, ad_id="a0", adjustments=(dataclasses.replace(
++        second.adjustments[0], op_id="a0-op0", committed_at=second.adjustments[0].committed_at
++        + timedelta(hours=1)),))
++    assert winners([first, late, c]) == ([("a0", "c1")], 1)
+     # 對照按編號 UTF-8 位元組升序取第一支未用者
+     assert winners([first, _ad("c2", pre=3, post=4), c])[0] == [("a1", "c1")]
+     # 不同規模桶或不同前三日轉換率區間的對照不配
+     big = _ad("c1", pre=3, post=4, spend=20000)
+     assert winners([first, big]) == ([], 1)
+     other_band = _ad("c1", pre=9, post=9)  # 9/100 ≥ 5%,前三日率落在別區
+     assert winners([first, other_band]) == ([], 1)
+     # 凍結:評估版本雜湊涵蓋切分、對照池、配對欄位與切點、搶用次序、效果公式、K 與下限
+     params = rv.version_params()
+-    for name in ("split", "control_pool", "pair_fields", "scale_cuts_cents", "event_order",
++    for name in ("split", "control_pool", "overlap", "pair_fields", "scale_cuts_cents",
++                 "event_order",
+                  "control_order", "effect", "mean", "k", "min_directed", "min_distinct_ads",
+                  "holdout_support", "ranking", "seeds", "cuts", "formats"):
+         assert name in params, name
+     assert params["seeds"] == list(rv.SEEDS)
+     assert params["scale_cuts_cents"] == [10000, 50000]
+     assert rp.version_sha256() == rp.EXPECTED_VERSION_SHA256

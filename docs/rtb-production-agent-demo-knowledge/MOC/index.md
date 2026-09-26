@@ -28,6 +28,7 @@ updated: 2026-09-27
 - [[Systems/模型用戶端]]
 - [[Systems/死信重放指令]]
 - [[Systems/確定性指標計算]]
+- [[Systems/規則模式探索評估]]
 - [[Systems/稽核表只增不改守衛]]
 - [[Systems/評估與Jev決策點]]
 - [[Systems/調查實演]]

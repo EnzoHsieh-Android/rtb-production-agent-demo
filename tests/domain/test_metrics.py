@@ -379,3 +379,18 @@ def test_money_ratios_use_the_decimal_value_written_on_the_receipt():
                             {"impressions": 10, "clicks": 1, "conversions": 0, "spend": 1.15,
                              "revenue": 0.0}, 24)
     assert base["pacing"] == "1.2"
+
+
+def test_percent_text_places_share_one_half_even_rounding():
+    """Phase 15 代碼審 a_2:規則探勘的平均差值(百分點四位小數)共用 percent_text,不另寫捨入;
+    預設一位小數的既有行為不變。"""
+    assert m.percent_text(Fraction(1234567, 10**7)) == "12.3"
+    assert m.percent_text(Fraction(1234567, 10**7), places=4) == "12.3457"
+    assert m.percent_text(Fraction(1, 2_000_000), places=4) == "0.0000"  # 0.00005 → 偶數 0
+    assert m.percent_text(Fraction(3, 2_000_000), places=4) == "0.0002"  # 0.00015 → 偶數 2
+    assert m.percent_text(Fraction(-1, 50), places=4) == "-2.0000"
+    assert m.percent_text(Fraction(-1, 3_000_000), places=4) == "0.0000"  # 負零寫 0
+    assert m.percent_text(Reason.NO_DENOMINATOR, places=4) == m.NA
+    for bad in (0, -1, True, 1.0):
+        with pytest.raises(ValueError, match="小數位數"):
+            m.percent_text(Fraction(1, 2), places=bad)

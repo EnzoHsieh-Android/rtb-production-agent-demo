@@ -1,0 +1,1 @@
+[{"round":"r3","seat":"正確性","lens":"第2輪修正驗收+delta回歸","materials":["governance/review-reports/code-phase15-inc1/r3-delta.patch","governance/review-reports/code-phase15-inc1/r2-正確性.md","tests/eval/test_rule_mining.py","src/rtb/eval/rule_mining_baseline.py"],"auditor":"claude-opus"}]

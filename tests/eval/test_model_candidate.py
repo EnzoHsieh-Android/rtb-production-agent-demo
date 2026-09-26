@@ -276,6 +276,12 @@ PHASE13_ALLOWED: frozenset[str] = frozenset({
     "rtb.domain.nine_rules",  # Phase 14 增量 1:評估標準答案共用純領域判斷
     "rtb.eval.investigation_cases", "rtb.eval.investigation_set", "rtb.eval.investigation_eval",
     "rtb.eval.investigation_report"})
+# Phase 15 增量 1 改寫 [S918](計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉):
+# 規則模式探索的純離線生成/彙總/基準/預檢四支,精確新增;它們不碰模型用戶端與閘道(下面的
+# importers、senders、judge_* 等式照舊)。增量 2 的分析端窄函式另行逐項加
+PHASE15_ALLOWED: frozenset[str] = frozenset({
+    "rtb.eval.rule_mining_vocab", "rtb.eval.rule_mining_history", "rtb.eval.rule_mining_baseline",
+    "rtb.eval.rule_mining_prompt"})
 # 經 AI 決策模組送出的名字(開閘道、把閘道包成送出函式):評估套件裡只准評估執行器用
 AI_JUDGE_SENDS = frozenset({"open_investigation_gate", "gate_complete"})
 
@@ -283,7 +289,8 @@ AI_JUDGE_SENDS = frozenset({"open_investigation_gate", "gate_complete"})
 def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_path):  # noqa: PLR0915
     closure = _closure(_eval_roots())
     # 允許多出來的分支寫死(代碼審第 2 輪:動態算的話,模型用戶端多匯入什麼都會被跟著放行)
-    branch = MODEL_CLIENT_CLOSURE | {"rtb.eval.model_candidate"} | PHASE13_ALLOWED
+    branch = (MODEL_CLIENT_CLOSURE | {"rtb.eval.model_candidate"} | PHASE13_ALLOWED
+              | PHASE15_ALLOWED)
     assert set(_closure(["rtb.modelclient"])) == MODEL_CLIENT_CLOSURE
     assert "rtb.modelclient" in closure
     assert set(closure) - BASELINE <= branch, sorted(set(closure) - BASELINE - branch)
