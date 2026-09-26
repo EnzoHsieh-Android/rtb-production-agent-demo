@@ -77,7 +77,7 @@
     },
     {
       "path": "src/rtb/domain/metrics.py",
-      "sha256": "e3e5f919ead8f54b4837a30ee7cf4dd54e787b75e6777423c6cd1812b93066d5"
+      "sha256": "44b0082785a62fd02fa0c8f7f63b40671db038e8df82fafb1951117e8b8994fb"
     },
     {
       "path": "src/rtb/domain/nine_rules.py",
