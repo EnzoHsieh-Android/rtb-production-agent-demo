@@ -387,10 +387,9 @@ def test_rule_mining_report_is_reviewable_and_linked_from_readme(tmp_path, prepa
     stored = next((root / "15001").iterdir()).read_text(encoding="utf-8")
     assert "偽造標題" in json.loads(stored)["text"]
 
-    # README 在「AI 找到的新規則」那一點連到報告;一鍵展示頁不連
+    # README 連到報告([S1509] 只要求有連,不綁在哪一段);一鍵展示頁不連
     readme = (REPO / "README.md").read_text(encoding="utf-8")
-    [bullet] = [line for line in readme.splitlines() if line.startswith("- **AI 找到的新規則")]
-    assert "(governance/eval/phase15-rule-mining.md)" in bullet
+    assert "(governance/eval/phase15-rule-mining.md)" in readme
     demo_sources = [p for p in (SRC / "rtb" / "demo").rglob("*") if p.is_file()]
     assert not [p for p in demo_sources if b"phase15-rule-mining" in p.read_bytes()]
     assert COMMITTED_REPORT.is_file()
