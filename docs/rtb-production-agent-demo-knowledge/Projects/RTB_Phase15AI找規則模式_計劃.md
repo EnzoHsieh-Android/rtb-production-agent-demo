@@ -1,6 +1,6 @@
 ---
 type: project
-status: doing
+status: done
 created: 2026-09-26
 updated: 2026-09-26
 plan_risk: high
@@ -9,7 +9,7 @@ summary: |-
   VERIFY: 本文重驗入口與預定報告指標是 --ai-judge、--batch-id、--demo-id、--ledger、--recordings-dir、--verify、governance/eval/ 下的 phase15-rule-mining.md；涉及的程式路徑以程式碼為準，開場用 `rg --files src/rtb tests` 重驗：investigation_eval.py、investigation_report.py、src/rtb/analyzer/modelgate.py、src/rtb/domain/metrics.py、src/rtb/domain/nine_rules.py、src/rtb/dsp/store.py、src/rtb/eval/investigation_cases.py、src/rtb/eval/investigation_eval.py、src/rtb/modelclient.py、src/rtb/modelledger.py、src/rtb/modelledger_view.py、src/rtb/modelrecording.py、tests/test_spawn_boundary.py、tests/eval/test_model_candidate.py、tests/model/test_shared_entry.py。
 tags:
   - type/project
-  - status/doing
+  - status/done
 lands_in:
   - Systems/評估與Jev決策點
   - Systems/模型用戶端

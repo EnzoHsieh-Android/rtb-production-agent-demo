@@ -587,8 +587,12 @@ def _interrupt(_call):
 
 
 def _hold_lock(root):
-    """另一個行程建好鎖並一直握著(模擬正在錄製的行程);關掉它的標準輸入就結束、鎖跟著放掉。"""
+    """另一個行程建好鎖並一直握著(模擬正在錄製的行程);關掉它的標準輸入就結束、鎖跟著放掉。
+    子行程先換掉帳號家目錄(共用 child_prelude),不碰真的帳號資料。"""
+    from tests.conftest import child_prelude
+
     script = (f"import sys\nfrom pathlib import Path\nsys.path.insert(0, {str(SRC)!r})\n"
+              + child_prelude(root / "account-home") +
               "from rtb.eval import rule_mining_eval as rme\n"
               f"with rme._locked(Path({str(root)!r}), 'record elsewhere'):\n"
               "    print('held', flush=True)\n    sys.stdin.read()\n")
