@@ -79,18 +79,16 @@ def test_paths_use_only_real_edges_and_may_break_off(ran):
 
 def test_the_analysis_checks_are_filled_in_from_the_recomputed_basis(ran):
     """[協調者裁定 2] 分析端的中間判斷點用重算補上,每一筆標重算。Phase 14 增量 3:分析端不經 AI,
-    照「花得慢 → 交給程式規則 → 值得加嗎」補(交給誰判斷那一步是固定說明,不是重算)。"""
+    照「花得慢 → 程式規則(九條)→ 值得加嗎」補;2026-09-27 起中間沒有「交給誰判斷」那一步。"""
     tmp_path, _ = ran
     f2 = next(s for s in _state(tmp_path).scenarios if s.code is ScenarioCode.F2)
     filled = {d.node: d for d in f2.path if d.node in {
-        "a_fresh", "a_complete", "a_pacing", "a_route", "a_rule", "a_worth"}}
-    assert set(filled) == {"a_fresh", "a_complete", "a_pacing", "a_route", "a_rule", "a_worth"}
-    assert all(b.source == "依存下的證據重算" for n, d in filled.items() if n != "a_route"
-               for b in d.basis)
-    assert filled["a_pacing"].taken_edge == ("a_pacing", "a_route")
-    assert filled["a_route"].taken_edge == ("a_route", "a_rule")
+        "a_fresh", "a_complete", "a_pacing", "a_rule", "a_worth"}}
+    assert set(filled) == {"a_fresh", "a_complete", "a_pacing", "a_rule", "a_worth"}
+    assert all(b.source == "依存下的證據重算" for d in filled.values() for b in d.basis)
+    assert filled["a_pacing"].taken_edge == ("a_pacing", "a_rule")
     assert filled["a_rule"].taken_edge == ("a_rule", "a_worth")
-    assert not any(d.node in {"a_ai", "a_ai_query"} for d in f2.path)
+    assert not any(d.node in {"a_ai", "a_ai_query", "a_route", "a_candidate"} for d in f2.path)
     write_checks = [d for d in f2.path if d.node in {"x_guard", "x_total"}]
     assert [d.taken_edge for d in write_checks] == [("x_guard", "x_total"), ("x_total", "x_write")]
     assert all(b.source == "執行端當下記下" for d in write_checks for b in d.basis)

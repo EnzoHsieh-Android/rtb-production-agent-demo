@@ -61,8 +61,8 @@ _GROUP_IDS: Final = frozenset({_GROUP_ID, _SECOND_GROUP_ID})
 
 SHORT_LABELS: Final[dict[str, str]] = {
     "a_receive": "收到工作", "a_collect": "蒐集資料", "a_fresh": "資料夠新？",
-    "a_complete": "資料齊全？", "a_pacing": "花費偏慢？", "a_route": "選擇判法",
-    "a_candidate": "候選判斷", "a_rule": "規則判斷", "a_worth": "值得加？",
+    "a_complete": "資料齊全？", "a_pacing": "花費偏慢？",
+    "a_rule": "規則判斷", "a_worth": "值得加？",
     "a_no_action": "不調整", "a_failed": "工作失敗", "a_propose": "寫好建議",
     "a_narrate": "撰寫說明", "a_submit": "送出建議",
     "i_check": "收件檢查", "i_superseded": "舊建議停下", "x_pending": "等待執行",
@@ -120,7 +120,7 @@ def _ai_boundary(scenario: Scenario) -> str:
     if scenario.ai_enabled:
         return ("要不要加預算、加多少由程式照九條規則決定；"
                 "AI 只寫提案說明與告警原因推測，都只供參考。")
-    return "目前正式預算決策由程式規則執行；AI 候選另行評估，AI 說明與推測供參考。"
+    return "目前正式預算決策由程式規則執行；AI 說明與推測只供參考。"
 
 
 def render_flow(  # noqa: PLR0915 - 流程圖組裝包含泳道、邊、節點與判斷框
@@ -482,7 +482,7 @@ def _render_active_edge(
 
 def _edge_start_offset(node_id: str) -> int:
     return (_GROUP_WIDTH if node_id in _GROUP_IDS else
-            _AI_WIDTH if node_id in {"a_candidate", "a_narrate"} else _NODE_WIDTH)
+            _AI_WIDTH if node_id == "a_narrate" else _NODE_WIDTH)
 
 
 def _node_width(node: FlowNode) -> int:

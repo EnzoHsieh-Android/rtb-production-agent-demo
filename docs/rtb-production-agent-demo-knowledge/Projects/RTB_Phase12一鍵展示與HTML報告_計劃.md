@@ -2,7 +2,7 @@
 type: project
 status: done
 created: 2026-09-24
-updated: 2026-09-25
+updated: 2026-09-27
 self_audit: gpt-5.6-sol/2026-09-24
 tags:
   - type/project
@@ -289,7 +289,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - [S1021] 當單一情境重跑時,伺服器應不啟動驗證器,頁面的驗證器結果應標明取自哪一次全部跑一次(時間與展示編號)。[test:test_a_single_scenario_rerun_does_not_run_the_verifier_and_labels_the_old_result]
 - [S1022] 當頁面插入模型文字、廣告名稱、節點標籤、判斷原因或驗證器輸出時,腳本標籤、事件屬性、網址、實體編碼與雙向控制字元都應以看得見的文字出現,不形成任何標籤、屬性或連結。[test:test_untrusted_text_never_becomes_markup]
 - [S1023] 展示伺服器的每個 HTML 回應(含錯誤頁)應帶內容安全政策標頭,只允許雜湊固定的流程格顯示腳本;頁面與流程圖不應有事件屬性、外部資源與 foreignObject,外來文字仍須跳脫。(使用者 2026-09-25 裁定:流程格桌機 hover、觸控點擊、鍵盤操作及靜態報告都要可用,腳本只切換顯示與位置。)[test:test_every_page_allows_only_the_hashed_flow_script] [test:test_flow_nodes_contain_escaped_step_details_for_hover_touch_and_keyboard]
-- [S1024] 流程圖定義應是有向無環圖,而且對應清單上每一個列舉(十九個,多了 Phase 13 的退回原因列舉)的每一個成員(以列舉類別加成員名為鍵)都對得到流程圖裡的一條邊或一個節點。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉改寫)[test:test_every_system_outcome_maps_onto_the_flow_graph]
+- [S1024] 流程圖定義應是有向無環圖,而且對應清單上每一個列舉(十九個,多了 Phase 13 的退回原因列舉)的每一個成員(以列舉類別加成員名為鍵)都對得到流程圖裡的一條邊或一個節點。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]]〈要改寫的既有合約〉改寫;列舉數後來兩度改變:Phase 14 增量 3 撤退回原因列舉回到十八個,2026-09-27 代使用者裁定撤 Phase 10 候選分支、分析端路由只剩評估在用不再對到圖,剩十七個,見 [[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]]。「每個成員都對得到圖」本身不變)[test:test_every_system_outcome_maps_onto_the_flow_graph]
 - [S1025] 程式的任務狀態與嘗試狀態轉換表裡每一條往回走的轉換,以及執行端代表放回待處理的生命週期事件種類,都應列在流程圖定義的回頭轉換清單裡並展開成新節點。[test:test_every_known_back_transition_is_unrolled]
 - [S1026] 對應清單上每一個列舉的每一個成員,處置說明對照表都應有一句白話說明。[test:test_every_disposition_has_a_plain_explanation]
 - [S1027] 當模型說明有成功結果時,頁面應先列程式算的數字、再列只標「AI 產生、僅供參考」的模型文字,不標錄製或即時;沒有成功結果時應顯示結果類別,缺錄以「AI 這次沒有給出回答」顯示。(使用者 2026-09-25 裁定:頁面只標 AI 產生、僅供參考,不標來源。)[test:test_the_model_step_shows_computed_numbers_first_and_labels_the_text] [test:test_the_narrative_shows_computed_numbers_first_without_mode_source]

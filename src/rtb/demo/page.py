@@ -655,7 +655,7 @@ _INCIDENT_NODE: Final = {
     ScenarioCode.F2: "x_reclaimed",
     ScenarioCode.F3: "i_check",
     ScenarioCode.F4: "x_precheck",
-    ScenarioCode.F5: "a_candidate",
+    ScenarioCode.F5: "a_rule",  # 名稱誘導不影響九條看數字判(2026-09-27 起;原為候選節點)
     ScenarioCode.F6: "x_deadletter",
     ScenarioCode.F7: "x_total",
 }

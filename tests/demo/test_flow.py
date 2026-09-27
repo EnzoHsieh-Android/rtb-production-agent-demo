@@ -85,12 +85,12 @@ def test_every_system_outcome_maps_onto_the_flow_graph(enum: type[StrEnum]) -> N
             assert place.node in NODES, f"{enum.__name__}.{member.name} 對到不存在的節點"
 
 
-def test_the_mapped_enums_are_the_eighteen_in_the_plan() -> None:
+def test_the_mapped_enums_are_the_seventeen_in_the_plan() -> None:
     """計劃第 4 版的十八個:第 3 版的十二個,加設計審 r2 補的處理待確認的結果、最後失敗原因、
     證據新鮮度、值不值得加的判定、沒提案原因、路由路徑。Phase 13 增量 2 照 Phase 13 計劃改寫
      [S1024]:
     再加 AI 決策退回程式規則的原因,共十九個。Phase 14 增量 3 撤除 AI 決策那一步,退回原因跟著拿掉,
-    回到十八個。"""
+    回到十八個。2026-09-27 撤 Phase 10 候選分支:路由路徑只剩評估在用,拿掉,剩十七個。"""
     assert {f"{e.__module__}.{e.__name__}" for e in flow.MAPPED_ENUMS} == {
         "rtb.executor.inbox_store.Disposition", "rtb.executor.inbox_store.BlockCode",
         "rtb.executor.inbox_store.DeadLetterReason", "rtb.executor.inbox_store.StopKind",
@@ -98,11 +98,11 @@ def test_the_mapped_enums_are_the_eighteen_in_the_plan() -> None:
         "rtb.domain.attempt.AttemptState", "rtb.domain.attempt.OutcomeCode",
         "rtb.executor.execution.VoidOutcome", "rtb.executor.execution.Result",
         "rtb.domain.task_state.TaskState", "rtb.analyzer.task_store.ReplanReason",
-        "rtb.analyzer.policy.RoutePath", "rtb.analyzer.policy.NoActionReason",
+        "rtb.analyzer.policy.NoActionReason",
         "rtb.executor.inbox_store.AwaitingOutcome", "rtb.executor.inbox_store.LastFailure",
         "rtb.domain.evidence.Freshness", "rtb.domain.worth.WorthVerdict",
     }
-    assert len(flow.MAPPED_ENUMS) == 18
+    assert len(flow.MAPPED_ENUMS) == 17
     mapped = {key[0] for key in flow.OUTCOMES}
     assert mapped == set(flow.MAPPED_ENUMS), "對應表裡有清單外的列舉"
 
@@ -336,3 +336,17 @@ def test_every_edge_into_an_analyzer_exit_is_one_the_program_takes():
     known = {e for e in _INBOX_EXITS.values() if e[1] in exits} | set(_OTHER_EXITS)
     into = {e for e in EDGES if e[1] in exits}
     assert into == known
+
+
+def test_the_phase10_candidate_branch_is_gone():
+    """2026-09-27(代使用者裁定,Issues/展示還留著AI參考判斷分支與說明看不到四查詢):Phase 10 的候選
+    判斷分支正式與展示都不走,流程圖不畫:沒有「由誰判斷值不值得加預算?」分流與「請模型候選判斷」,
+    花得偏慢直接進程式規則;AI 節點只剩模型說明。候選才會答的「拿不定」照程式實際結局對到不調整。"""
+    assert not {"a_route", "a_candidate"} & set(NODES)
+    assert ("a_pacing", "a_rule") in EDGES
+    assert {t for s, t in EDGES if s == "a_pacing"} == {"a_no_action", "a_rule"}
+    assert frozenset({"a_narrate"}) == flow.AI_NODES
+    assert not any("候選" in text or "參考判斷" in text for text in _display_texts())
+    from rtb.domain.worth import WorthVerdict
+
+    assert flow.OUTCOMES[(WorthVerdict, "UNSURE")].node == "a_rule"  # 退回九條再判,不是直接不調整

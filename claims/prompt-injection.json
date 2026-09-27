@@ -33,7 +33,7 @@
     },
     {
       "path": "src/rtb/analyzer/narrate.py",
-      "sha256": "0f1749e1d4c1a563f103ad7431416d73106f7e689fb42647fb444a6400528d56"
+      "sha256": "2737a6890d7a0f0c401ae0b4421f23dd2b088ce3ab9c87e722a2127dca849102"
     },
     {
       "path": "src/rtb/analyzer/policy.py",

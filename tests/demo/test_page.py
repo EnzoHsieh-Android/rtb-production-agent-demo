@@ -152,6 +152,9 @@ def test_page_and_report_remove_demo_mode_from_every_flow_label() -> None:
         # Phase 14 增量 3:流程圖沒有 AI 決策節點、AI 要再查與考題終點
         assert "AI 選下一步" not in text and "AI 要再查" not in text and "只判不送" not in text
         assert 'flow-detail-F1-a_ai"' not in markup
+        # 2026-09-27:Phase 10 候選判斷分支(交給誰判斷、請 AI 提供參考判斷)正式與展示都不走,撤除
+        assert "候選" not in text and "參考判斷" not in text and "由誰判斷" not in text
+        assert "選擇判法" not in text
 
 
 def test_missing_ai_answer_is_plain_in_popover_values_and_comparisons() -> None:
@@ -346,7 +349,7 @@ def test_ai_narrative_is_in_its_step_card_and_missing_ai_is_explained() -> None:
     assert "近期帶來的成果穩定" in report
     assert "這次沒有請 AI 寫說明" in report
     assert "沒有候選或不在允許範圍" not in report
-    assert "用程式規則判斷(這次不交給 AI)" in report
+    assert "(這次不交給 AI)" not in report  # 2026-09-27 起沒有「交給誰判斷」的分流
 
 
 def _verifier_cell(markup: str) -> str:
@@ -1007,8 +1010,8 @@ def test_each_sample_keeps_ai_and_human_steps_as_separate_coloured_nodes() -> No
         drawn = [group for group in root.findall('.//g[@class]')
                  if "flow-node" in group.get("class", "")]
         routed_ids = {item for edge in scenario.traversed_edges for item in edge}
-        expected_ai_ids = ({"a_candidate"} if scenario.code is ScenarioCode.F5
-                           else {"a_narrate"})
+        # 範例 F5 沒有說明(走「不需 AI 說明,送出」),其餘走模型說明;Phase 10 候選節點已撤
+        expected_ai_ids = set() if scenario.code is ScenarioCode.F5 else {"a_narrate"}
         expected_human_ids = (
             {"h_replay", "r_requeued"} if scenario.code is ScenarioCode.F6 else
             {"h_approve"} if scenario.code is ScenarioCode.F7 else set()
@@ -1175,9 +1178,10 @@ def test_formal_flow_map_and_every_sample_route_match() -> None:
     state = make_demo_state()
     assert state.flow is FLOW_GRAPH
     # Phase 13 增量 2 加的 AI 選下一步、AI 要再查(回頭)、只判不送三個節點與六條邊,Phase 14 增量 3
-    # 撤除:51 → 48、78 → 72(代碼審 r1 d2/d3 修過流程圖的邊:68 → 72)
-    assert len(state.flow.nodes) == 48
-    assert len(state.flow.edges) == 72
+    # 撤除:51 → 48、78 → 72(代碼審 r1 d2/d3 修過流程圖的邊:68 → 72)。2026-09-27 撤 Phase 10 候選
+    # 分支(交給誰判斷、模型候選兩個節點,五條邊換成「偏慢 → 程式規則」一條):48 → 46、72 → 68
+    assert len(state.flow.nodes) == 46
+    assert len(state.flow.edges) == 68
     markup = render_page(state, form_token="token")
     assert markup.count('class="role-card"') == len(LANES)
     assert "分析行程提出建議" in markup

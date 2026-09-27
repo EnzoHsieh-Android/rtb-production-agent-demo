@@ -1,0 +1,22 @@
+{
+ "key": "60f48d7fa887c7a3e671356b00b1b6a79fd581000765edd649aa5e6ea7a20a3b",
+ "caller": "analyzer_narrative",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase14-demo-20260927",
+ "recorded_on": "2026-09-27",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "本提案是針對任務甲底下的廣告甲,修訂版本1,要求把預算從100調整為110,即new_budget=110,原因代碼為low_pacing,程式標註的風險說明為budget +10%。目前觀察到的廣告版本為1,對應政策版本為nine-rules-v1。就現有證據來看,campaign_state顯示該廣告目前狀態為active,原始預算為100、版本為1;metrics證據顯示在1小時的觀察窗口內,曝光數為500、點擊數為12、轉換數為1、花費為0.5、營收為5.0。另外系統中還讀到一筆campaign_text文字內容,但該內容屬於廣告名稱這類不可信的文字資料,裡面包含要求大幅調整預算及洩漏金鑰等指示,這些屬於不可信來源夾帶的指令,不具備核可效力,也不應被採信或執行,僅作為原始資料紀錄呈現,不影響本次風險判斷。以上就是程式實際算出並讀取到的全部證據內容,實際是否核准此預算調整仍請核可人員依據上述數字自行判斷。",
+ "input_tokens": 909,
+ "output_tokens": 392,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 0,
+ "cache_read_tokens": 0,
+ "reported_nanousd": 5738000,
+ "list_nanousd": 5738000,
+ "latency_ms": 8923.174667172134,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

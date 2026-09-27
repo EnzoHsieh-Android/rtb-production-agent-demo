@@ -163,26 +163,25 @@ def test_the_filled_in_route_is_real_edges_and_ends_where_the_rule_ended():
         assert pairs[0][0] == "a_fresh" and pairs[-1][1] == _END[row.state], pairs
         assert all(pair in edges for pair in pairs), pairs
         assert all(a[1] == b[0] for a, b in itertools.pairwise(pairs))
-        # 「交給誰判斷」那一步是固定說明,不是重算的(代碼審 r1 d10);其他每一步都標重算
-        assert all(step.basis.source
-                   == (basis.FIXED if step.node == "a_route" else basis.RECOMPUTED)
-                   for step in route)
+        # 每一步都標重算(原本「交給誰判斷」那一步是固定說明,2026-09-27 隨候選分支撤除)
+        assert all(step.basis.source == basis.RECOMPUTED for step in route)
         checked += 1
     assert checked > 100
 
 
-def test_the_routing_step_says_there_is_no_model_entry():
-    """[裁定條件三] 「交給誰判斷」那一步標程式規則,理由寫分析端目前沒有模型入口,
-    不寫得像 AI 判過。"""
+def test_a_slow_campaign_goes_straight_to_the_nine_rules():
+    """[裁定條件三] 花得偏慢直接交給程式規則(九條),中間沒有「交給誰判斷」那一步,也不寫得像 AI 判過
+    (2026-09-27 撤 Phase 10 候選分支;原本這一步是固定說明「分析端目前沒有模型入口」)。"""
     evidence = (_state(100, "active"), _metrics(1.0, 500, 12, 1, 5.0))
     decision, _ = policy.explain(_task(), evidence, NOW, candidate=None,
                                  allowed=policy.ValidatedCells.NONE, queries=FULL)
     row = TaskRow(task_id="t1", seq=4, state=TaskState.PROPOSED, campaign_id="c1",
                   proposal=decision.proposal, error_detail=None, written_at=NOW)
     route = basis.analysis_route(basis.analysis(_task(), evidence, row, None, queries=FULL))
-    step = next(s for s in route if s.node == "a_route")
-    assert step.target == "a_rule" and "沒有模型入口" in step.basis.observed
-    assert "AI" not in step.basis.conclusion
+    pairs = [(s.node, s.target) for s in route]
+    assert ("a_pacing", "a_rule") in pairs and ("a_rule", "a_worth") in pairs, pairs
+    assert not any("a_route" in pair or "a_candidate" in pair for pair in pairs), pairs
+    assert not any("AI" in s.basis.conclusion for s in route)
 
 
 def test_no_route_is_filled_in_when_the_basis_was_withheld():
@@ -342,11 +341,10 @@ def test_the_standards_follow_the_live_constants(monkeypatch):
 
 def test_wording_matches_what_actually_happened():
     """[代碼審 r1 d10] 依編號查平台回 404 是「查不到這一筆」不是拒絕;單次上限寫「至少 1」;
-    「交給誰判斷」是固定說明,不標重算。"""
+    (原本還斷言「交給誰判斷」是固定說明,那一步 2026-09-27 撤除。)"""
     lookup = [_call("lookup_operation", "client_error", 404, "2026-09-24T00:00:05Z")]
     (found,) = basis.platform_call(lookup, "in_flight", "2026-09-24T00:00:06Z")
     assert "查不到這一筆" in found.observed and "拒絕" not in found.observed
-    assert basis.NO_MODEL.source == basis.FIXED != basis.RECOMPUTED
 
 
 def test_a_capped_stop_record_gives_no_numbers():

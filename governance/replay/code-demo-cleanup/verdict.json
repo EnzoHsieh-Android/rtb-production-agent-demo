@@ -1,0 +1,40 @@
+{
+ "loop": "code-demo-cleanup",
+ "round": "r1",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-27T12:27:12+08:00",
+ "spec_path": "governance/review-reports/code-demo-cleanup/r1-snapshot.patch",
+ "spec_sha": "0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00",
+ "rows": [
+  "{\"ts\": \"2026-09-27T12:08:57+08:00\", \"kind\": \"none\", \"auditor\": \"資安-opus\", \"token\": \"CANARY-f9a6d4eb\", \"note\": \"\", \"loop\": \"code-demo-cleanup\", \"round\": \"r1\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00\", \"reviewed_sha256\": \"0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00\", \"spec_path\": \"governance/review-reports/code-demo-cleanup/r1-snapshot.patch\", \"scope_lines\": 1260, \"reported\": 0, \"report_path\": \"governance/review-reports/code-demo-cleanup/r1-資安-opus.md\", \"report_sha256\": \"3181b7a9bd08d2a0d88e218246f4605b850c282980532f265ad4e1a687c336ba\", \"snapshot_path\": \"governance/review-reports/code-demo-cleanup/r1-snapshot.patch\", \"snapshot_sha256\": \"0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00\"}",
+  "{\"ts\": \"2026-09-27T12:08:58+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-73df7b9e\", \"note\": \"\", \"loop\": \"code-demo-cleanup\", \"round\": \"r1\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00\", \"reviewed_sha256\": \"0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00\", \"spec_path\": \"governance/review-reports/code-demo-cleanup/r1-snapshot.patch\", \"scope_lines\": 1260, \"reported\": 0, \"report_path\": \"governance/review-reports/code-demo-cleanup/r1-架構對齊.md\", \"report_sha256\": \"d6efd61241f7198a35ee0e293bec7ca56b0d023e218c4882510b2388bc412258\", \"snapshot_path\": \"governance/review-reports/code-demo-cleanup/r1-snapshot.patch\", \"snapshot_sha256\": \"0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00\"}",
+  "{\"ts\": \"2026-09-27T12:08:58+08:00\", \"kind\": \"none\", \"auditor\": \"正確性\", \"token\": \"CANARY-138523d5\", \"note\": \"\", \"loop\": \"code-demo-cleanup\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 1, \"result_sha256\": \"0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00\", \"reviewed_sha256\": \"0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00\", \"spec_path\": \"governance/review-reports/code-demo-cleanup/r1-snapshot.patch\", \"scope_lines\": 1260, \"findings_set\": [\"f1\"], \"folded_set\": [\"f1\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"f1\": \"code\"}, \"reported\": 1, \"report_path\": \"governance/review-reports/code-demo-cleanup/r1-正確性.md\", \"report_sha256\": \"07daac7526e0b94f47c2362dbbb489267abca7a99df485c736655414598c7196\", \"snapshot_path\": \"governance/review-reports/code-demo-cleanup/r1-snapshot.patch\", \"snapshot_sha256\": \"0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00\"}"
+ ],
+ "all_row_shas": [
+  "325f34d6c0bb87e1df13579bb5579e48e6244e68d637657d3b874b7d1f9e08c4",
+  "b59755042ddb785dcf9746689e787731f47d2bd2fb2167376817557f82b47b28",
+  "fc7a859522f83b545422ed2a54757598851d34a58ec133376efe318f7ca7e2df"
+ ],
+ "files": {
+  "governance/review-reports/code-demo-cleanup/r1-資安-opus.md": {
+   "sha256": "3181b7a9bd08d2a0d88e218246f4605b850c282980532f265ad4e1a687c336ba",
+   "git_blob": "95a59960a6b10dea49f0c092120517757a130a51"
+  },
+  "governance/review-reports/code-demo-cleanup/r1-snapshot.patch": {
+   "sha256": "0410f448970b1b046adb9d66b642ed8c1af8724eded7b80d35cfcb1ea37cef00",
+   "git_blob": "421fb3c6b2fe3fbb26db827699e5bcac62535430"
+  },
+  "governance/review-reports/code-demo-cleanup/r1-架構對齊.md": {
+   "sha256": "d6efd61241f7198a35ee0e293bec7ca56b0d023e218c4882510b2388bc412258",
+   "git_blob": "e9d570359248c35281013b6eb6863b13b1309856"
+  },
+  "governance/review-reports/code-demo-cleanup/r1-正確性.md": {
+   "sha256": "07daac7526e0b94f47c2362dbbb489267abca7a99df485c736655414598c7196",
+   "git_blob": "9550c8e1d68422d8bde456ef4ad9aa396461b1a3"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

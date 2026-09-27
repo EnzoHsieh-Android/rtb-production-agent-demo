@@ -76,7 +76,6 @@ RTB_MODEL_LIVE=1 PYTHONPATH=src .venv/bin/python -m rtb.demo.server --work-dir /
 
 這是單機示範，不具備正式環境的行程隔離與訊息服務。
 
-提案說明目前只拿得到基本三筆證據，截圖裡說「其他證據為空」是[已知問題](docs/rtb-production-agent-demo-knowledge/Issues/展示還留著AI參考判斷分支與說明看不到四查詢.md)。
 
 ## repo 地圖
 

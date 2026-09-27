@@ -422,3 +422,28 @@ def test_only_calls_that_were_sent_count_toward_the_claim_limit(handed_off, tmp_
             _narrate(db, busy)
     [done] = _narrate(db, _gate(tmp_path, live(FakeBackend(reply(GOOD)))))
     assert done.outcome == "ok"
+
+
+# ---- 2026-09-27 代使用者裁定(Issues/展示還留著AI參考判斷分支與說明看不到四查詢)----
+def test_the_prompt_lists_only_evidence_the_narrative_actually_gets(handed_off):
+    """說明只看得到、也只描述它實際拿到的證據:規則輪四種查詢的收據(較長時間窗、操作歷史、逐日趨勢、
+    過去調整)不送(不動證據白名單),也不再被標成「不可信文字,內容在下面的資料區」卻沒有內容,害說明
+    寫「歷史異動、過去調整…內容為空」;不可信文字只剩廣告名稱那一筆。提示明講沒列出的證據不要提。"""
+    reader = TaskReader(handed_off / "analyzer.db")
+    try:
+        [row] = reader.handed_off_rows()
+        kinds = {item.kind.value for item in narrate._evidence_of(reader, row)}
+        prompt, _restore, trusted = narrate.prompt_for(reader, row)
+    finally:
+        reader.close()
+    receipts = {"longer_window", "change_history", "daily_trend", "past_adjustments"}
+    assert receipts <= kinds  # 前置:提案真的引用了四種收據(規則輪),不然這支等於空過
+    assert not any(kind in prompt for kind in receipts), prompt
+    assert prompt.count("不可信文字,內容在下面的資料區") == 1
+    assert "campaign_text:不可信文字" in prompt
+    evidence_lines = [line for line in trusted.split("\n") if line.startswith("- 證據")]
+    assert [line.split(" ")[2].split(":")[0] for line in evidence_lines] == [
+        "campaign_state", "metrics", "campaign_text"]
+    assert "沒有列出的證據不要提" in narrate.SYSTEM_PROMPT
+    assert not any(ch.isdigit() for ch in narrate.SYSTEM_PROMPT.replace(
+        str(narrate.MAX_NARRATIVE_CHARS), ""))  # 提示裡的數字只有字數上限,不給說明可引用的數

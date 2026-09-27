@@ -26,7 +26,6 @@ RECOMPUTED = "依存下的證據重算"
 RECORDED = "執行端當下記下"
 RECORDED_INBOX = "收件口當下記下"
 RECORDED_ANALYZER = "分析端當下記下"
-FIXED = "固定說明(分析端目前的設定)"  # 不是量出來也不是重算的:代碼審 r1 d10
 
 STALE = "太舊,重新蒐集"
 PROPOSE = "照規則算出建議金額"
@@ -230,14 +229,11 @@ class RouteStep:
     more: tuple[Basis, ...] = ()  # 同一個判斷點的其他根據(範圍檢查也看單一廣告上限)
 
 
-NO_MODEL = Basis("分析端目前沒有模型入口", "有模型入口、而且這件工作在允許範圍內,才交給 AI 參考",
-                 "用程式規則判斷", FIXED, BasisCode.ROUTE_RULE)
-
-
 def analysis_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:  # noqa: PLR0911 - 每個判斷點一個出口
-    """把分析那一步重算出的根據,換成它依序走過的判斷點:新鮮度 → 資料齊不齊 → 花得慢不慢 → 交給誰
-    判斷 → 值不值得加。根據是 analysis() 在跟當時結果一致時才給的(不一致就是空的,這裡也就不補);
-    每一步都照結論代碼走(代碼審 r1 a6:不看顯示文字),停在做出決定的那一步。"""
+    """把分析那一步重算出的根據,換成它依序走過的判斷點:新鮮度 → 資料齊不齊 → 花得慢不慢 → 程式規則
+    (九條)→ 值不值得加。原本花得慢之後還有一步固定說明的「交給誰判斷」(Phase 10 候選分流),
+    2026-09-27 隨流程圖撤除候選分支拿掉。根據是 analysis() 在跟當時結果一致時才給的(不一致就是空的,
+    這裡也就不補);每一步都照結論代碼走(代碼審 r1 a6:不看顯示文字),停在做出決定的那一步。"""
     items = list(found)
     if not items:
         return ()
@@ -258,8 +254,7 @@ def analysis_route(found: Sequence[Basis]) -> tuple[RouteStep, ...]:  # noqa: PL
                                  BasisCode.COMPLETE)))
     if second.code is not BasisCode.UNDERPACING:
         return (*steps, RouteStep("a_pacing", "a_no_action", second))
-    steps.append(RouteStep("a_pacing", "a_route", second))
-    steps.append(RouteStep("a_route", "a_rule", NO_MODEL))
+    steps.append(RouteStep("a_pacing", "a_rule", second))
     if not items:
         return ()
     worth = items.pop(0)

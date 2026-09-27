@@ -76,7 +76,7 @@ class BasisCode(StrEnum):
     UNDERPACING = "underpacing"
     NOT_UNDERPACING = "not_underpacing"
     PACING_UNKNOWN = "pacing_unknown"
-    ROUTE_RULE = "route_rule"
+    ROUTE_RULE = "route_rule"  # 不再產生(2026-09-27 撤「交給誰判斷」那一步);留著讓舊值讀得回來
     WORTH = "worth"
     NOT_WORTH = "not_worth"
     INSUFFICIENT = "insufficient"

@@ -88,7 +88,6 @@ def _decision(node: str, target: str, index: int) -> Decision:
         ("x_write", "x_reclaimed"): "處理者中途停止；等處理權到期後由另一位接手。",
         ("i_check", "i_superseded"): "同一工作已有更新的建議，這份舊建議不再排入寫入。",
         ("x_precheck", "x_blocked"): "平台資料版本已改變，舊建議不能寫入。",
-        ("a_candidate", "a_rule"): "候選文字不可信，改由程式規則決定。",
         ("x_pick", "x_deadletter"): "已嘗試多次，停止自動處理並交給人。",
         ("h_replay", "r_requeued"): "人同意重送同一份建議，重新排隊前仍要走一般檢查。",
         ("x_total", "x_blocked"): "這次加額會碰到帳戶總上限，停止寫入。",
@@ -99,8 +98,6 @@ def _decision(node: str, target: str, index: int) -> Decision:
         "a_fresh": ("資料是 3 分鐘前的", "上限 15 分鐘", "在時限內"),
         "a_complete": ("廣告狀態與花費資料各 1 份", "兩種資料都要有", "資料齊全"),
         "a_pacing": ("預算花了 42%", "此時預期 60%", "落後 18 個百分點"),
-        "a_route": ("廣告在程式規則允許名單內", "允許名單內才使用這條規則", "交由程式規則"),
-        "a_candidate": ("AI 候選回覆 1 筆", "只接受可核對的候選", "改用程式規則"),
         "a_worth": ("建議 500→600 元", "單次上限 +25%", "+20%，在上限內"),
         "i_check": ("這份建議版本 7", "收件紀錄最新版本 7", "可收下"),
         "x_pick": ("已嘗試 1 次", "最多 3 次", "仍可處理"),
@@ -114,7 +111,6 @@ def _decision(node: str, target: str, index: int) -> Decision:
         "h_approve": ("人工確認 1 次", "確認後仍須重新檢查", "同意重新排隊"),
     }
     case_measurements = {
-        ("a_route", "a_candidate"): ("AI 候選功能已啟用", "只在允許的工作試用", "先取參考候選"),
         ("i_check", "i_superseded"): ("這份建議版本 7", "收件紀錄最新版本 8", "舊建議停止"),
         ("x_precheck", "x_blocked"): ("廣告資料版本 8", "建議依據版本 7", "版本不同，停止寫入"),
         ("x_pick", "x_deadletter"): ("已嘗試 3 次", "最多 3 次", "停止自動處理"),
@@ -122,7 +118,6 @@ def _decision(node: str, target: str, index: int) -> Decision:
         ("x_total", "x_wait_approval"): (
             "本次加額 100 元", "帳戶剩餘額度 50 元", "超過總上限，等待人確認"
         ),
-        ("a_candidate", "a_rule"): ("候選無可核對數值", "需提供可核對的候選", "用程式規則"),
         ("p_reply", "x_verify"): ("平台明確回覆成功", "需要明確成功回覆", "核對實際預算"),
     }
     observed, standard, conclusion = case_measurements.get(
@@ -171,7 +166,7 @@ _CASE_FACTS: dict[ScenarioCode, tuple[Stage, str, tuple[Disposition, ...], tuple
         ("廣告資料版本由 7 變成 8", "舊建議沒有寫入"),
     ),
     ScenarioCode.F5: (
-        Stage.COMPLETE, "廣告名稱中的可疑指令只當資料，改用程式規則",
+        Stage.COMPLETE, "廣告名稱中的可疑指令只當資料，照程式規則判斷",
         (), ("可疑文字沒有取得權限", "依程式規則完成一次寫入"),
     ),
     ScenarioCode.F6: (
@@ -269,18 +264,18 @@ def _scenario(
 
 def make_demo_state(*, running: bool = False) -> DemoState:
     observed_at = datetime.now(UTC)
-    lead = ("a_receive", "a_collect", "a_fresh", "a_complete", "a_pacing", "a_route")
+    lead = ("a_receive", "a_collect", "a_fresh", "a_complete", "a_pacing")
     via_rule = (*lead, "a_rule", "a_worth", "a_propose", "a_narrate", "a_submit", "i_check")
     accepted = (*via_rule, "x_pending", "x_pick", "x_precheck", "x_guard", "x_total")
     routes = (
         (*accepted, "x_write", "p_reply", "x_unknown", "x_verify", "x_done"),
         (*accepted, "x_write", "x_reclaimed"),
         (*via_rule, "i_superseded"),
-        (*accepted[:15], "x_blocked", "a_followup"),
-        (*lead, "a_candidate", "a_rule", "a_worth", "a_propose", "a_submit", "i_check",
+        (*accepted[:14], "x_blocked", "a_followup"),
+        (*lead, "a_rule", "a_worth", "a_propose", "a_submit", "i_check",
          "x_pending", "x_pick", "x_precheck", "x_guard", "x_total", "x_write",
          "p_reply", "x_verify", "x_done"),
-        (*accepted[:14], "x_deadletter", "h_replay", "r_requeued"),
+        (*accepted[:13], "x_deadletter", "h_replay", "r_requeued"),
         (*accepted, "x_wait_approval", "h_approve", "x_approved"),
     )
     statuses = (
@@ -297,7 +292,7 @@ def make_demo_state(*, running: bool = False) -> DemoState:
         "中途停止後，交由下一位處理者重新領取",
         "舊建議被收件檢查攔下，沒有第二次寫入",
         "資料更新；舊建議停止，開新工作重新分析",
-        "可疑文字未改變權限；改用程式規則後完成寫入",
+        "可疑文字未改變權限；照程式規則完成寫入",
         "自動處理已停；人工同意後，原建議重新排隊",
         "加額超過總上限；人工確認後重新排隊，這一輪沒有寫入",
     )
@@ -370,7 +365,7 @@ def write_examples() -> None:
     )
     awaiting_state = make_demo_state(running=True)
     waiting_route = (
-        "a_receive", "a_collect", "a_fresh", "a_complete", "a_pacing", "a_route",
+        "a_receive", "a_collect", "a_fresh", "a_complete", "a_pacing",
         "a_rule", "a_worth", "a_propose", "a_narrate", "a_submit", "i_check",
         "x_pending", "x_pick", "x_precheck", "x_guard", "x_total", "x_wait_approval",
     )

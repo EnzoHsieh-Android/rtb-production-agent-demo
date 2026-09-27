@@ -10,13 +10,19 @@
 Phase 14 增量 3(計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3):AI 不參與加額決策,
 「AI 選下一步」節點與它的出入邊、「AI 要再查」回頭節點、「只判不送(考題用)」終點,以及退回原因對到
 AI → 程式規則那 12 筆映射一併撤除;模型說明節點(a_narrate)照舊。
+
+2026-09-27(代使用者裁定,[[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]]):
+Phase 10 的候選判斷分支(「由誰判斷值不值得加預算?」分流、「請模型候選判斷」節點與它的出入邊)
+正式與展示都不走,一併撤除:花得偏慢直接進程式規則(九條)。分析端路由(RoutePath)只剩 Phase 10
+評估在用,不再對到展示圖;候選才會答的「拿不定」照程式實際的結局對到「用程式規則判斷」:
+路由收到它就退回九條規則再判。
 """
 
 import re
 from dataclasses import dataclass
 from enum import StrEnum
 
-from rtb.analyzer.policy import NoActionReason, RoutePath
+from rtb.analyzer.policy import NoActionReason
 from rtb.analyzer.task_store import ReplanReason
 from rtb.demo.state import FlowEdge, FlowGraph, FlowNode, NodeKind, NodeOwner
 from rtb.domain.attempt import AttemptState, OutcomeCode
@@ -49,8 +55,9 @@ def unexplained_terms(text: str) -> list[str]:
 ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN = "分析", "收件", "執行", "廣告平台", "人工"
 LANES = (ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN)
 START = "a_receive"
-# 節點歸屬是 AI 的:模型候選(Phase 10)與模型說明;Phase 14 增量 3 撤除「AI 選下一步」(a_ai)節點
-AI_NODES = frozenset({"a_candidate", "a_narrate"})
+# 節點歸屬是 AI 的:只剩模型說明。Phase 14 增量 3 撤除「AI 選下一步」(a_ai),2026-09-27 撤除 Phase 10
+# 的模型候選(a_candidate)
+AI_NODES = frozenset({"a_narrate"})
 
 S, D, T = NodeKind.STEP, NodeKind.DECISION, NodeKind.TERMINAL
 _NODES: tuple[tuple[str, str, NodeKind, str], ...] = (
@@ -59,8 +66,6 @@ _NODES: tuple[tuple[str, str, NodeKind, str], ...] = (
     ("a_fresh", "資料夠新嗎?", D, ANALYZE),
     ("a_complete", "廣告狀態和成效資料都齊全嗎?", D, ANALYZE),
     ("a_pacing", "預算花得比預期慢嗎?", D, ANALYZE),
-    ("a_route", "由誰判斷值不值得加預算?", D, ANALYZE),
-    ("a_candidate", "請模型候選判斷", D, ANALYZE),
     ("a_rule", "用程式規則判斷", S, ANALYZE),
     ("a_worth", "值得加預算嗎?", D, ANALYZE),
     ("a_no_action", "不調整,結束", T, ANALYZE),
@@ -137,11 +142,7 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
     ("a_complete", "a_no_action", "缺資料"),
     ("a_complete", "a_pacing", "齊全"),
     ("a_pacing", "a_no_action", "不慢或算不出來"),
-    ("a_pacing", "a_route", "偏慢"),
-    ("a_route", "a_rule", "用程式規則判斷(這次不交給 AI)"),
-    ("a_route", "a_candidate", "請 AI 提供參考判斷"),
-    ("a_candidate", "a_worth", "候選給出答案"),
-    ("a_candidate", "a_rule", "候選出狀況,改用程式規則"),
+    ("a_pacing", "a_rule", "偏慢"),
     ("a_rule", "a_worth", "程式規則已算出結果"),
     ("a_worth", "a_no_action", "不值得或資料不夠判斷"),
     ("a_worth", "a_propose", "值得"),
@@ -242,7 +243,7 @@ def _on(source: str, target: str, text: str) -> Place:
 
 MAPPED_ENUMS: tuple[type[StrEnum], ...] = (
     Disposition, BlockCode, DeadLetterReason, StopKind, LifecycleKind, ReplayOutcome,
-    AttemptState, OutcomeCode, VoidOutcome, Result, TaskState, ReplanReason, RoutePath,
+    AttemptState, OutcomeCode, VoidOutcome, Result, TaskState, ReplanReason,
     NoActionReason, AwaitingOutcome, LastFailure, Freshness, WorthVerdict,
 )
 
@@ -357,14 +358,6 @@ _PLACES: dict[type[StrEnum], dict[str, Place]] = {
         "POLICY_VERSION_CHANGED": _on("x_blocked", "a_followup", "規則改了,照新規則重新分析"),
         "DECISION_STALE": _on("x_blocked", "a_followup", "建議放太久,重新分析"),
     },
-    RoutePath: {
-        "CODE_RULE": _on("a_route", "a_rule", "用程式規則判斷"),
-        "CANDIDATE": _on("a_candidate", "a_worth", "模型候選給出答案"),
-        "FALLBACK_EXCEPTION": _on("a_candidate", "a_rule", "模型候選出錯,改用程式規則"),
-        "FALLBACK_TIMEOUT": _on("a_candidate", "a_rule", "模型候選太慢,改用程式規則"),
-        "FALLBACK_INVALID": _on("a_candidate", "a_rule", "模型候選的答案看不懂,改用程式規則"),
-        "FALLBACK_UNSURE": _on("a_candidate", "a_rule", "模型候選沒把握,改用程式規則"),
-    },
     NoActionReason: {
         "STALE_EVIDENCE": _on("a_fresh", "a_recollect", "資料太舊,要重新蒐集"),
         "MISSING_STATE_OR_METRICS": _on("a_complete", "a_no_action", "缺廣告狀態或成效資料"),
@@ -396,7 +389,8 @@ _PLACES.update({
         "WORTH": _on("a_worth", "a_propose", "值得加"),
         "NOT_WORTH": _on("a_worth", "a_no_action", "不值得加"),
         "INSUFFICIENT": _on("a_worth", "a_no_action", "資料不夠判斷"),
-        "UNSURE": _on("a_candidate", "a_rule", "模型候選沒把握,改用程式規則"),
+        # 只有 Phase 10 評估的模型候選會答;路由收到就退回九條規則再判,不是直接不調整
+        "UNSURE": _at("a_rule", "拿不定主意,改用程式規則判斷"),
     },
 })
 
@@ -408,9 +402,7 @@ OUTCOMES: dict[tuple[type[StrEnum], str], Place] = {
 DECISION_ENUMS: dict[str, tuple[type[StrEnum], tuple[str, ...]]] = {
     "a_fresh": (Freshness, ()),
     "a_complete": (NoActionReason, ("a_pacing",)),  # 齊全:往下走
-    "a_pacing": (NoActionReason, ("a_route",)),  # 偏慢:往下走(交給規則路由)
-    "a_route": (RoutePath, ("a_candidate",)),  # 交給候選:路由結果在候選那一步才定
-    "a_candidate": (RoutePath, ()),
+    "a_pacing": (NoActionReason, ("a_rule",)),  # 偏慢:往下走(交給程式規則)
     "a_worth": (WorthVerdict, ("a_failed",)),  # 分析出錯:任務狀態記成失敗
     # 送件時過時、拒收、交出去之後重送被拒:任務狀態記
     "i_check": (LifecycleKind, ("a_restale", "a_failed", "a_blocked_end")),
