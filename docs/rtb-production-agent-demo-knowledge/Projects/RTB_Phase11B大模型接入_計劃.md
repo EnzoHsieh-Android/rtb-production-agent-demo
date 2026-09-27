@@ -1,11 +1,11 @@
 ---
 type: project
-status: doing
+status: done
 created: 2026-09-24
 updated: 2026-09-27
 tags:
   - type/project
-  - status/doing
+  - status/done
 lands_in:
   - Systems/模型用戶端
 ---

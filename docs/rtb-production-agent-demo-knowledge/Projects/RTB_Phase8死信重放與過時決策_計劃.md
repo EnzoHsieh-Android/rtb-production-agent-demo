@@ -1,11 +1,11 @@
 ---
 type: project
-status: doing
+status: done
 created: 2026-09-23
 updated: 2026-09-23
 tags:
   - type/project
-  - status/doing
+  - status/done
 lands_in:
   - Systems/提案收件口
   - Systems/執行迴圈
