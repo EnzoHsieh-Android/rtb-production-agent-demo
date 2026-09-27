@@ -1,0 +1,205 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+index 51283c2..68e0957 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+@@ -154,20 +154,22 @@ PITFALL: 起展示伺服器子行程的測試要把 src 放進子行程的 PYTHO
+ 
+ ## 前後比較表(Phase 12 增量 3,2026-09-25)
+ 
+ WHY: 全部跑一次的最後一步(驗證器之後)用子行程跑前後比較表產生器(它的家是 [[Systems/宣稱驗證器]]),讀它印的一行 JSON 記進展示狀態庫的比較表(每列造假手法、沒有驗證器、有驗證器;說明;產生花了幾秒)。產生器跑在自己的行程群組,逾時(外層 600 秒)或整次展示被取消先 SIGTERM 整組再硬殺;起不來、逾時、結束代碼不是 0、輸出讀不懂都記「這次沒產生:原因」、列是空的,整次展示照樣跑完。產生時間算在全部跑一次裡(本機約 2.4 秒)。頁面的比較表取自跟自動查核同一次完整執行,說明後面標明取自哪一次、花了幾秒;單一情境重跑沿用上一次完整執行的那一份。只放在報告(使用者裁定補充資訊只留在報告)。設計出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]] 增量 3 實作計劃。防回歸:`test_a_full_run_records_the_comparison_after_the_verifier`、`test_a_comparison_that_fails_or_hangs_does_not_break_the_demo`、`test_a_cancelled_demo_generates_no_comparison`、`test_the_comparison_comes_from_the_same_full_run_as_the_verifier`、`test_a_rerun_keeps_the_comparison_from_the_last_full_run`、`test_the_report_shows_the_comparison_side_by_side`。
+ 
+ PITFALL: 測試裡的全部跑一次會真的跑比較表產生器(每次約 2.4 秒、再起一串子行程);驅動程式與伺服器的全部跑一次測試換上一瞬間跑完的假產生器(`QUICK_COMPARISON`),真的產生器只由它自己的測試跑。
+ PITFALL: 測試用 `ps` 找子行程時要加 `ww`:Linux(procps)的 ps 輸出不是終端機時預設截在 80 欄,命令列裡的工作目錄路徑被截掉,測試找不到子行程、也收不掉它們(macOS 不截,本機看不出來)。2026-09-25 主線 CI 因此 6 支展示伺服器測試失敗,留下的子行程拖慢機器,連帶 4 支執行端時序測試紅。重現:在 Linux 上 `ps -axo pid=,command= | cat` 看長命令列被截斷。
+ 
+ PITFALL: 增量 3 第一版把整份使用者環境交給比較表產生器(金鑰會帶進去,違反 [S1003]),又用 `-m` 跑命名空間套件裡的產生器(外面同名套件頂替得了)。現在驗證器與產生器共用一支白名單環境 `tool_environment`,產生器用檔案路徑加 -E -s 跑(已由 r2 訂正:tools 成為正式套件,從 repo 根以 `-E -s -X utf8 -m tools.forgery_comparison` 跑,見 [[Systems/宣稱驗證器]]);產生器的輸出設 1MB 上限、任何讀不懂都照實記、花了幾秒用驅動程式自己量的。出處:增量 3 代碼審 r1 s1/a2/s3。防回歸:`test_the_comparison_generator_gets_only_the_whitelisted_environment`、`test_the_comparison_generator_is_the_repos_own_even_if_another_tools_package_exists`、`test_an_oversized_or_odd_generator_output_is_recorded_not_raised`。
+ 
++PITFALL: [2026-09-27 代碼審] 確認請求原本只在等確認的 finally 裡清:寫下確認請求後、進 try 之前改狀態那一步出錯,或驅動程式自己出事走中止收尾,確認請求都會留在暫存資料庫;重跑時伺服器把上一次的確認請求合併進來,主頁就停在「等你確認」、確認頁給舊表單。現在改狀態放進 try、中止收尾在同一筆交易裡清確認請求並關窗;頁面那一側的判準見 [[Systems/展示頁面]]。防回歸:`test_an_abandoned_demo_leaves_no_confirmation_behind`、`test_a_failure_right_after_asking_leaves_no_confirmation_behind`。
++
+ WHY: 增量 3 代碼審 r2 s2:白名單環境只照抄 LANG,伺服器的 LC_ALL 跟它不一致時,子行程用 latin-1 印中文會出錯、驅動程式照自己的語系解碼會亂碼,嚴格解碼遇到不合法位元組還會讓讀取執行緒死掉、子行程卡到外層逾時。驗證器與產生器的指令都加 -X utf8,驅動程式照 UTF-8 讀、讀不懂的換成替代字元。防回歸:`test_the_tools_run_in_utf8_whatever_the_locale_says`、`test_bytes_that_are_not_utf8_do_not_stall_the_reader`、`test_the_comparison_generator_is_the_repos_own_even_if_another_tools_package_exists`。
+ 
+ ## AI 參與決策的前置(Phase 13 增量 2,2026-09-25)
+ 
+ (Phase 14 增量 3 起撤除或改寫,見文末〈AI 退出加額決策〉)
+ 
+ 出處 [[Projects/RTB_Phase13AI參與決策_計劃]]〈展示頁怎麼顯示〉〈要改寫的既有合約〉。展示驅動接 AI 是增量 4 的事,這一增量只補「不補主線 CI 會紅」與前置的部分:
+ 
+ - 流程圖加 AI 判斷點「AI 選下一步」(出邊:AI 選了查詢的回頭節點、AI 判值得加、AI 判不提案、改由程式規則)與終點「只判不送(考題用)」;對應清單加退回原因列舉,共十九個([S1024] 照 Phase 13 改寫)。不提案原因加「考題結束」,對到那個終點。
+ - 回頭節點用(轉換, 原因代碼)查:「AI 要再查」與「資料太舊重蒐證」是同一個轉換,觀察器讀同序號調查紀錄列的原因代碼 `ai_query` 分開(調查紀錄表不在時當沒有,不列進唯讀開法必備的表)。防回歸:[test:test_ai_query_and_stale_recollect_map_to_different_back_nodes]。
+diff --git a/src/rtb/demo/driver.py b/src/rtb/demo/driver.py
+index befe1bc..42d18a3 100644
+--- a/src/rtb/demo/driver.py
++++ b/src/rtb/demo/driver.py
+@@ -1176,23 +1176,24 @@ def _confirmed_one_written(world: World, request: ConfirmationRequest) -> bool:
+ 
+ 
+ def _wait_for_confirmation(world: World, request: ConfirmationRequest, cap_seconds: float) -> bool:
+     """驅動程式指定最早停下的那一筆做確認展示,情境進「等你確認」;上限見 _confirm_limit。確認成立要
+     平台上出現寫入、而且收件口記下這筆完成(第 2 輪代碼審 f2)。到期就清掉確認表單、繼續跑自動查核
+     (鎖照樣握著)。"""
+     if world.stop.is_set():
+         raise ScenarioStopped(f"{world.code} 已經收掉,不再請人確認")
+     limit = _confirm_limit(request, cap_seconds)
+     world.state.set_confirmation(world.code, request, _now() + timedelta(seconds=limit))
+-    world.state.mark_status(world.code, AWAITING_CONFIRMATION)
+     approved = False
+     try:
++        # 改狀態也放進 try:這一步出錯,finally 照樣清掉確認請求,不留給下一次展示或重跑(代碼審)
++        world.state.mark_status(world.code, AWAITING_CONFIRMATION)
+         written = world.wait_paused(lambda: _confirmed_one_written(world, request), limit,
+                                     lambda: _node_counts(world))
+     finally:
+         # 關窗跟伺服器簽發互斥(代碼審 r1 x3):關窗之前已經簽了,就算等到期限也還在等它寫進去
+         approved = world.state.clear_confirmation(_now())
+         if not world.stop.is_set():  # 已經被收掉的情境不能把「沒跑完」改寫回進行中
+             world.state.mark_status(world.code, "running")
+     if not written and approved:
+         # 關窗前一刻有人正在簽:等它寫進平台;簽發失敗就不再等(代碼審 r3 v3)
+         written = world.wait_paused(
+diff --git a/src/rtb/demo/state_store.py b/src/rtb/demo/state_store.py
+index 682bcc3..7a2c322 100644
+--- a/src/rtb/demo/state_store.py
++++ b/src/rtb/demo/state_store.py
+@@ -333,20 +333,24 @@ class StateWriter:
+         with self._write() as conn:
+             for code in codes:
+                 conn.execute(
+                     "INSERT OR IGNORE INTO scenario_runs "
+                     "VALUES (?, ?, 'running', NULL, NULL, ?, NULL)",
+                     (self.demo_id, code, _iso(at)))
+                 conn.execute(
+                     "UPDATE scenario_runs SET status = 'incomplete', reason = ?, finished_at = ? "
+                     "WHERE demo_id = ? AND code = ? AND status IN ('running', "
+                     "'awaiting_confirmation')", (reason, _iso(at), self.demo_id, code))
++            # 同一筆交易清掉確認請求並關窗:中止的展示不能把確認請求留給頁面或之後的重跑(代碼審)
++            conn.execute("DELETE FROM confirmations WHERE demo_id = ?", (self.demo_id,))
++            conn.execute("UPDATE confirmation_windows SET closed_at = ? "
++                         "WHERE demo_id = ? AND closed_at IS NULL", (_iso(at), self.demo_id))
+ 
+     def mark_status(self, code: str, status: str, reason: str | None = None) -> None:
+         with self._write() as conn:
+             conn.execute(
+                 "UPDATE scenario_runs SET status = ?, reason = ? WHERE demo_id = ? AND code = ?",
+                 (status, reason, self.demo_id, code))
+ 
+     def record_decision(self, code: str, row: DecisionRow) -> None:
+         edge = None if row.edge is None else json.dumps(list(row.edge))
+         with self._write() as conn:
+diff --git a/tests/demo/test_server.py b/tests/demo/test_server.py
+index 8ac7910..c7a4b07 100644
+--- a/tests/demo/test_server.py
++++ b/tests/demo/test_server.py
+@@ -343,30 +343,31 @@ def test_a_finished_demo_saves_a_static_report_and_keeps_twenty(service):
+     assert len(full) == 20 and len(reruns) == 1
+     assert notes.exists() and link.is_symlink() and target.exists()
+     newest = full[-1].read_text(encoding="utf-8")
+     assert "<form" not in newest and 'http-equiv="refresh"' not in newest and "<style>" in newest
+     assert stat.S_IMODE(full[-1].stat().st_mode) == 0o600
+     assert stat.S_IMODE(service.reports.stat().st_mode) == 0o700
+     assert not list(service.reports.glob(".*.tmp"))  # 先寫暫存檔再換名,沒留下半成品
+ 
+ 
+ # ---- 確認:真跑縮小版 F7 ----
++def _small_f7_driver(base, demo_id, keys, state):
++    made = Driver(base, demo_id, keys, state, user_env=os.environ, scenarios={
++        "F7": Scenario("F7", "F7", 60, driver_module.make_f7(
++            campaigns=30, limit=124, workers=3, confirm_cap_seconds=60))})
++    made.verifier_command = ["true"]
++    return made
++
++
+ @pytest.fixture
+ def f7(service):
+-    def make(base, demo_id, keys, state):
+-        made = Driver(base, demo_id, keys, state, user_env=os.environ, scenarios={
+-            "F7": Scenario("F7", "F7", 60, driver_module.make_f7(
+-                campaigns=30, limit=124, workers=3, confirm_cap_seconds=60))})
+-        made.verifier_command = ["true"]
+-        return made
+-
+-    service.driver_factory = make
++    service.driver_factory = _small_f7_driver
+     service.start(("F7",), full=False)
+     assert _wait(lambda: service.state().approval is not None, 120)
+     yield service
+     assert _wait(lambda: not service.running, 120)
+ 
+ 
+ def _approval_fields(service, **changes):
+     reader = StateReader(service.state_db)
+     try:
+         _, request = reader.confirmation(service.current.demo_id)
+@@ -420,20 +421,36 @@ def test_nothing_refreshes_between_the_request_and_the_status(running, status_ga
+         before = [s.status for s in f7.state().scenarios]
+         pages = {path: _request(running, "GET", path) for path in ("/", "/approve")}
+     finally:
+         status_gate.set()
+         _post(running, "/approve", _approval_fields(f7)[0])  # 失敗也送:不讓驅動程式等滿上限
+     assert ScenarioStatus.AWAITING_APPROVAL not in before
+     for path, (status, _, body) in pages.items():
+         assert status == 200 and 'http-equiv="refresh"' not in body, path
+ 
+ 
++def test_a_failure_right_after_asking_leaves_no_confirmation_behind(service, monkeypatch):
++    """確認請求寫下後、改狀態那一步出錯:驅動程式照樣清掉確認請求,主頁不會卡在等你確認(代碼審)。"""
++    real = StateWriter.mark_status
++
++    def mark_status(self, code, status, reason=None):
++        if status == driver_module.AWAITING_CONFIRMATION:
++            raise RuntimeError("改狀態失敗")
++        return real(self, code, status, reason)
++
++    monkeypatch.setattr(StateWriter, "mark_status", mark_status)
++    service.driver_factory = _small_f7_driver
++    service.start(("F7",), full=False)
++    assert _wait(lambda: not service.running, 120)
++    assert service.state().approval is None
++
++
+ @pytest.mark.parametrize("change", [
+     {"confirm_0": None},  # 少勾一個
+     {"numbers_digest": "0" * 64},  # 數字摘要不是驅動程式記下的那一份
+     {"proposal_hash": "f" * 64},
+     {"demo_id": "another-demo"},
+ ])
+ def test_an_approval_needs_every_computed_number_confirmed(running, f7, change):
+     """[S1032] 每個數字都勾了、展示編號與提案雜湊與數字摘要都對得上才簽,否則拒,不簽。"""
+     fields, _ = _approval_fields(f7, **change)
+     status, _, _ = _post(running, "/approve", fields)
+diff --git a/tests/demo/test_state_store.py b/tests/demo/test_state_store.py
+index 4d849e9..1d293a8 100644
+--- a/tests/demo/test_state_store.py
++++ b/tests/demo/test_state_store.py
+@@ -205,20 +205,33 @@ def test_a_failed_signing_leaves_the_confirmation_window_open(tmp_path, writer):
+     finally:
+         reader.close()
+     signed = []
+     writer.answer_confirmation(datetime.now(UTC), lambda code, _req: signed.append(code))
+     with pytest.raises(ConfirmationClosed) as again:
+         writer.answer_confirmation(datetime.now(UTC), lambda code, _req: signed.append(code))
+     assert again.value.code == ALREADY_CONFIRMED and signed == ["F7"]
+     assert writer.clear_confirmation() is True
+ 
+ 
++def test_an_abandoned_demo_leaves_no_confirmation_behind(tmp_path, writer):
++    """驅動程式自己出事中止時,確認請求跟情境一起收掉、確認窗關上:不留給頁面或之後的重跑(代碼審)。"""
++    writer.set_confirmation("F7", _request(), datetime.now(UTC) + timedelta(minutes=5))
++    writer.abandon(("F7",), "驅動程式出錯", T0)
++
++    reader = _reader(tmp_path)
++    try:
++        assert reader.confirmation("demo-1") is None
++    finally:
++        reader.close()
++    assert writer.clear_confirmation() is False
++
++
+ def test_a_confirmation_past_its_window_is_refused(writer):
+     from rtb.demo.state_store import CONFIRMATION_TIMED_OUT, ConfirmationClosed
+ 
+     writer.set_confirmation("F7", _request(), datetime.now(UTC) - timedelta(seconds=1))
+     with pytest.raises(ConfirmationClosed) as closed:
+         writer.answer_confirmation(datetime.now(UTC), lambda _code, _req: None)
+     assert closed.value.code == CONFIRMATION_TIMED_OUT
+     assert writer.clear_confirmation() is False
+ 
+ 

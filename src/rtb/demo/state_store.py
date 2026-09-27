@@ -340,6 +340,10 @@ class StateWriter:
                     "UPDATE scenario_runs SET status = 'incomplete', reason = ?, finished_at = ? "
                     "WHERE demo_id = ? AND code = ? AND status IN ('running', "
                     "'awaiting_confirmation')", (reason, _iso(at), self.demo_id, code))
+            # 同一筆交易清掉確認請求並關窗:中止的展示不能把確認請求留給頁面或之後的重跑(代碼審)
+            conn.execute("DELETE FROM confirmations WHERE demo_id = ?", (self.demo_id,))
+            conn.execute("UPDATE confirmation_windows SET closed_at = ? "
+                         "WHERE demo_id = ? AND closed_at IS NULL", (_iso(at), self.demo_id))
 
     def mark_status(self, code: str, status: str, reason: str | None = None) -> None:
         with self._write() as conn:

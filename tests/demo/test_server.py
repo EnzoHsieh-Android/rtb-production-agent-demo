@@ -24,7 +24,8 @@ from rtb.demo.driver import Driver, Scenario
 from rtb.demo.page import FLOW_SCRIPT
 from rtb.demo.present import numbers_digest
 from rtb.demo.server import DemoService, serve
-from rtb.demo.state_store import ConfirmationRequest, DecisionRow, StateReader
+from rtb.demo.state import ScenarioStatus
+from rtb.demo.state_store import ConfirmationRequest, DecisionRow, StateReader, StateWriter
 from tests.conftest import demo_server_command
 
 # 起伺服器子行程要把 src 放進 PYTHONPATH:CI 沒有安裝這個套件,pytest 的 pythonpath 設定只影響測試
@@ -349,16 +350,17 @@ def test_a_finished_demo_saves_a_static_report_and_keeps_twenty(service):
 
 
 # ---- 確認:真跑縮小版 F7 ----
+def _small_f7_driver(base, demo_id, keys, state):
+    made = Driver(base, demo_id, keys, state, user_env=os.environ, scenarios={
+        "F7": Scenario("F7", "F7", 60, driver_module.make_f7(
+            campaigns=30, limit=124, workers=3, confirm_cap_seconds=60))})
+    made.verifier_command = ["true"]
+    return made
+
+
 @pytest.fixture
 def f7(service):
-    def make(base, demo_id, keys, state):
-        made = Driver(base, demo_id, keys, state, user_env=os.environ, scenarios={
-            "F7": Scenario("F7", "F7", 60, driver_module.make_f7(
-                campaigns=30, limit=124, workers=3, confirm_cap_seconds=60))})
-        made.verifier_command = ["true"]
-        return made
-
-    service.driver_factory = make
+    service.driver_factory = _small_f7_driver
     service.start(("F7",), full=False)
     assert _wait(lambda: service.state().approval is not None, 120)
     yield service
@@ -394,6 +396,52 @@ def test_nothing_refreshes_while_waiting_for_confirmation(running, f7):
         status, _, body = _request(running, "GET", path)
         assert status == 200 and 'http-equiv="refresh"' not in body, path
     _post(running, "/approve", _approval_fields(f7)[0])
+
+
+@pytest.fixture
+def status_gate(monkeypatch):
+    """F7 寫下確認請求之後、把情境狀態改成等你確認之前,讓驅動程式停住(CI 慢機器上撞到的那一刻);
+    測試看完再放行。要在 f7 之前宣告,先換掉寫狀態那一步才起 F7。"""
+    release = threading.Event()
+    real = StateWriter.mark_status
+
+    def mark_status(self, code, status, reason=None):
+        if status == driver_module.AWAITING_CONFIRMATION:
+            release.wait(30)
+        return real(self, code, status, reason)
+
+    monkeypatch.setattr(StateWriter, "mark_status", mark_status)
+    yield release
+    release.set()
+
+
+def test_nothing_refreshes_between_the_request_and_the_status(running, status_gate, f7):
+    """[S1046] 確認請求已寫、情境狀態還沒改的那一刻,主頁與確認頁照樣不自動重讀。"""
+    try:
+        before = [s.status for s in f7.state().scenarios]
+        pages = {path: _request(running, "GET", path) for path in ("/", "/approve")}
+    finally:
+        status_gate.set()
+        _post(running, "/approve", _approval_fields(f7)[0])  # 失敗也送:不讓驅動程式等滿上限
+    assert ScenarioStatus.AWAITING_APPROVAL not in before
+    for path, (status, _, body) in pages.items():
+        assert status == 200 and 'http-equiv="refresh"' not in body, path
+
+
+def test_a_failure_right_after_asking_leaves_no_confirmation_behind(service, monkeypatch):
+    """確認請求寫下後、改狀態那一步出錯:驅動程式照樣清掉確認請求,主頁不會卡在等你確認(代碼審)。"""
+    real = StateWriter.mark_status
+
+    def mark_status(self, code, status, reason=None):
+        if status == driver_module.AWAITING_CONFIRMATION:
+            raise RuntimeError("改狀態失敗")
+        return real(self, code, status, reason)
+
+    monkeypatch.setattr(StateWriter, "mark_status", mark_status)
+    service.driver_factory = _small_f7_driver
+    service.start(("F7",), full=False)
+    assert _wait(lambda: not service.running, 120)
+    assert service.state().approval is None
 
 
 @pytest.mark.parametrize("change", [

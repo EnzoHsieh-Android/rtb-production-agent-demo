@@ -583,7 +583,11 @@ def _render_actions(state: DemoState, token: str | None, focus: Scenario) -> str
 
 
 def _is_awaiting_approval(state: DemoState) -> bool:
-    return any(item.status is ScenarioStatus.AWAITING_APPROVAL for item in state.scenarios)
+    """[S1046] 跟確認頁同一個判準:有確認表單(驅動程式寫下的確認請求)就是在等你確認。不看情境狀態:
+    驅動程式先寫確認請求、另一筆交易才改狀態,送出確認後也是先清請求、晚一點才改回進行中,兩個來源
+    之間各有一小段對不上(CI 慢機器上撞到過)。展示不在跑時一律不算:驅動程式在兩步之間出錯中止,
+    確認請求可能留著沒人清,只看請求會讓主頁卡在等你確認、連重跑按鈕都不畫。"""
+    return state.running and state.approval is not None
 
 
 def _form(action: str, label: str, token: str, scenario: str | None) -> str:

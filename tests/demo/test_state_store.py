@@ -212,6 +212,19 @@ def test_a_failed_signing_leaves_the_confirmation_window_open(tmp_path, writer):
     assert writer.clear_confirmation() is True
 
 
+def test_an_abandoned_demo_leaves_no_confirmation_behind(tmp_path, writer):
+    """驅動程式自己出事中止時,確認請求跟情境一起收掉、確認窗關上:不留給頁面或之後的重跑(代碼審)。"""
+    writer.set_confirmation("F7", _request(), datetime.now(UTC) + timedelta(minutes=5))
+    writer.abandon(("F7",), "驅動程式出錯", T0)
+
+    reader = _reader(tmp_path)
+    try:
+        assert reader.confirmation("demo-1") is None
+    finally:
+        reader.close()
+    assert writer.clear_confirmation() is False
+
+
 def test_a_confirmation_past_its_window_is_refused(writer):
     from rtb.demo.state_store import CONFIRMATION_TIMED_OUT, ConfirmationClosed
 

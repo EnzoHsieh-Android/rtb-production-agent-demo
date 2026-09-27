@@ -421,13 +421,45 @@ def test_awaiting_approval_main_page_has_link_and_no_refresh_or_form() -> None:
         else item
         for item in state.scenarios
     )
-    html = render_page(replace(state, scenarios=scenarios), form_token="token")
+    html = render_page(replace(state, scenarios=scenarios, approval=_PENDING), form_token="token")
 
     assert 'http-equiv="refresh"' not in html
     assert 'href="/approve"' in html
     assert "重新整理" in html
     assert "等你確認" in html
     assert 'action="/approve"' not in html
+
+
+_PENDING = ApprovalForm(proposal_hash="h", numbers=(("建議增加", "100"),), narrative=None,
+                        source=None, demo_id="demo", numbers_digest="d" * 64)
+
+
+def test_main_page_waits_whenever_the_approval_page_has_a_form() -> None:
+    """[S1046] 主頁跟確認頁用同一個判準:確認頁有表單(確認請求已寫)就算情境狀態還沒改成等你確認,
+    主頁也不自動重讀、放去確認的連結(CI 間歇失敗:驅動程式兩筆交易之間的那一刻)。"""
+    html = render_page(replace(make_demo_state(running=True), approval=_PENDING), form_token="t")
+
+    assert 'http-equiv="refresh"' not in html
+    assert 'href="/approve"' in html
+
+
+def test_a_leftover_request_after_the_demo_stopped_does_not_hold_the_main_page() -> None:
+    """驅動程式在兩步之間出錯中止時確認請求可能沒人清:展示不在跑就不算等你確認,
+    主頁照常給「全部跑一次」與「重跑」(代碼審 r1 正確性席)。"""
+    html = render_page(replace(make_demo_state(running=False), approval=_PENDING), form_token="t")
+
+    assert "全部跑一次" in html and "重跑" in html
+    assert 'href="/approve"' not in html
+
+
+def test_main_page_resumes_refreshing_once_the_form_is_gone() -> None:
+    """確認送出後(確認請求已清)情境狀態還留在等你確認的那一小段,主頁照常重讀,不停在舊畫面。"""
+    state = make_demo_state(running=True)
+    scenarios = tuple(replace(item, status=ScenarioStatus.AWAITING_APPROVAL)
+                      if item.code is ScenarioCode.F7 else item for item in state.scenarios)
+    html = render_page(replace(state, scenarios=scenarios, approval=None), form_token="t")
+
+    assert 'http-equiv="refresh"' in html
 
 
 def test_content_security_policy_contains_every_required_directive() -> None:

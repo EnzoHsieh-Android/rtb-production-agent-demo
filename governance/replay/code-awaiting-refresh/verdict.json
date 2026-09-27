@@ -1,0 +1,34 @@
+{
+ "loop": "code-awaiting-refresh",
+ "round": "r3",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-27T09:38:17+08:00",
+ "spec_path": "governance/review-reports/code-awaiting-refresh/r3-delta.patch",
+ "spec_sha": "b59088e6a8bd3c8f4e84f85cce2662278a33aafd2764aebe03d347856dbce68e",
+ "rows": [
+  "{\"ts\": \"2026-09-27T09:11:36+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-e29c04b9\", \"note\": \"\", \"loop\": \"code-awaiting-refresh\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"64fb9697f5934cc37580180f08d27f198c117313eadec0247fc71ef60e198697\", \"reviewed_sha256\": \"64fb9697f5934cc37580180f08d27f198c117313eadec0247fc71ef60e198697\", \"spec_path\": \"governance/review-reports/code-awaiting-refresh/r1-snapshot.patch\", \"scope_lines\": 237, \"reported\": 1, \"report_path\": \"governance/review-reports/code-awaiting-refresh/r1-架構對齊.md\", \"report_sha256\": \"3953295ec1f7093a8d98c07febc8ce7cf91d6e97a104c3219b8f701375804a1d\", \"snapshot_path\": \"governance/review-reports/code-awaiting-refresh/r1-snapshot.patch\", \"snapshot_sha256\": \"64fb9697f5934cc37580180f08d27f198c117313eadec0247fc71ef60e198697\"}",
+  "{\"ts\": \"2026-09-27T09:11:37+08:00\", \"kind\": \"none\", \"auditor\": \"正確性\", \"token\": \"CANARY-18276820\", \"note\": \"\", \"loop\": \"code-awaiting-refresh\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"64fb9697f5934cc37580180f08d27f198c117313eadec0247fc71ef60e198697\", \"reviewed_sha256\": \"64fb9697f5934cc37580180f08d27f198c117313eadec0247fc71ef60e198697\", \"spec_path\": \"governance/review-reports/code-awaiting-refresh/r1-snapshot.patch\", \"scope_lines\": 237, \"findings_set\": [\"c_1\", \"c_2\", \"a_1\"], \"folded_set\": [\"c_1\", \"c_2\", \"a_1\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"c_1\": \"code\", \"c_2\": \"code\", \"a_1\": \"code\"}, \"reported\": 2, \"report_path\": \"governance/review-reports/code-awaiting-refresh/r1-正確性.md\", \"report_sha256\": \"75ff6dc1ae1f8afeffe2c022491c98134cca6153af38e9669bf18e028745e07a\", \"snapshot_path\": \"governance/review-reports/code-awaiting-refresh/r1-snapshot.patch\", \"snapshot_sha256\": \"64fb9697f5934cc37580180f08d27f198c117313eadec0247fc71ef60e198697\"}",
+  "{\"ts\": \"2026-09-27T09:29:02+08:00\", \"kind\": \"none\", \"auditor\": \"正確性\", \"token\": \"CANARY-d2503834\", \"note\": \"\", \"loop\": \"code-awaiting-refresh\", \"round\": \"r2\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"4a260bacc6d7a50e1151d37f93a529eda185b5f6ee78936bf818270fd27454da\", \"reviewed_sha256\": \"4a260bacc6d7a50e1151d37f93a529eda185b5f6ee78936bf818270fd27454da\", \"spec_path\": \"governance/review-reports/code-awaiting-refresh/r2-delta.patch\", \"scope_lines\": 149, \"findings_set\": [\"r2_1\"], \"folded_set\": [\"r2_1\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"r2_1\": \"code\"}, \"reported\": 1, \"report_path\": \"governance/review-reports/code-awaiting-refresh/r2-正確性.md\", \"report_sha256\": \"1a33b3cc55033a7863da7ae6b32df4e570dce1096792f85892b5bfbeee98e956\", \"snapshot_path\": \"governance/review-reports/code-awaiting-refresh/r2-delta.patch\", \"snapshot_sha256\": \"4a260bacc6d7a50e1151d37f93a529eda185b5f6ee78936bf818270fd27454da\"}",
+  "{\"ts\": \"2026-09-27T09:37:59+08:00\", \"kind\": \"none\", \"auditor\": \"正確性\", \"token\": \"CANARY-7f1d8657\", \"note\": \"\", \"loop\": \"code-awaiting-refresh\", \"round\": \"r3\", \"severity\": \"minor\", \"findings\": 1, \"result_sha256\": \"b59088e6a8bd3c8f4e84f85cce2662278a33aafd2764aebe03d347856dbce68e\", \"reviewed_sha256\": \"b59088e6a8bd3c8f4e84f85cce2662278a33aafd2764aebe03d347856dbce68e\", \"spec_path\": \"governance/review-reports/code-awaiting-refresh/r3-delta.patch\", \"scope_lines\": 205, \"findings_set\": [\"r3_1\"], \"folded_set\": [], \"accepted_set\": [\"r3_1\"], \"refuted_set\": [], \"accept_reasons\": {\"r3_1\": \"收尾清除本身寫入失敗才觸發、機率低;末輪已無驗證輪,記入一鍵展示筆記並附事件入口\"}, \"finding_kinds\": {\"r3_1\": \"code\"}, \"reported\": 1, \"report_path\": \"governance/review-reports/code-awaiting-refresh/r3-正確性.md\", \"report_sha256\": \"ac3fa3d26e2c63ff80788a19f5ebab8fd9649b76a1524f8868ad6e71415b2fde\", \"snapshot_path\": \"governance/review-reports/code-awaiting-refresh/r3-delta.patch\", \"snapshot_sha256\": \"b59088e6a8bd3c8f4e84f85cce2662278a33aafd2764aebe03d347856dbce68e\"}"
+ ],
+ "all_row_shas": [
+  "4f936c4c5944416ad20839a4959004e938c810ab1b07c339a6540f1d45fbc88d",
+  "56c75c6be7ae3ed4347e2a2eff463feb77c915284c69c2e84b85e3790e77ce1e",
+  "c249bfb65ffeef01537241908ea76024f58bb8a91a84ba02169aef1605350d92",
+  "d7b0928d176c9f5316461981f85f77d3488c50ccc6ac14f86c3947b9b7c8b2e9"
+ ],
+ "files": {
+  "governance/review-reports/code-awaiting-refresh/r3-正確性.md": {
+   "sha256": "ac3fa3d26e2c63ff80788a19f5ebab8fd9649b76a1524f8868ad6e71415b2fde",
+   "git_blob": "44eb76bc8c8798438a146c4a452fb001789fac07"
+  },
+  "governance/review-reports/code-awaiting-refresh/r3-delta.patch": {
+   "sha256": "b59088e6a8bd3c8f4e84f85cce2662278a33aafd2764aebe03d347856dbce68e",
+   "git_blob": "5c2fe5c671053eb5ab63e6e9b5dcfda47502af35"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

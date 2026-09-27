@@ -1,0 +1,1 @@
+[{"round":"r2","seat":"正確性","lens":"前輪修正驗收+delta回歸","materials":["governance/review-reports/code-awaiting-refresh/r2-delta.patch","governance/review-reports/code-awaiting-refresh/r1-正確性.md","governance/review-reports/code-awaiting-refresh/r1-架構對齊.md","src/rtb/demo/page.py","tests/demo/test_page.py","tests/demo/test_server.py"],"auditor":"claude-opus"}]

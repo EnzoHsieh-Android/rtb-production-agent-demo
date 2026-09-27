@@ -1183,9 +1183,10 @@ def _wait_for_confirmation(world: World, request: ConfirmationRequest, cap_secon
         raise ScenarioStopped(f"{world.code} 已經收掉,不再請人確認")
     limit = _confirm_limit(request, cap_seconds)
     world.state.set_confirmation(world.code, request, _now() + timedelta(seconds=limit))
-    world.state.mark_status(world.code, AWAITING_CONFIRMATION)
     approved = False
     try:
+        # 改狀態也放進 try:這一步出錯,finally 照樣清掉確認請求,不留給下一次展示或重跑(代碼審)
+        world.state.mark_status(world.code, AWAITING_CONFIRMATION)
         written = world.wait_paused(lambda: _confirmed_one_written(world, request), limit,
                                     lambda: _node_counts(world))
     finally:
