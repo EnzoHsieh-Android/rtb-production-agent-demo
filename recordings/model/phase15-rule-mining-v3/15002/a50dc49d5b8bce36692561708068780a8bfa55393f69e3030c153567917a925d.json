@@ -1,0 +1,22 @@
+{
+ "key": "a50dc49d5b8bce36692561708068780a8bfa55393f69e3030c153567917a925d",
+ "caller": "rule_mining",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase15-rule-mining-15002-20260927",
+ "recorded_on": "2026-09-27",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"version\":1,\"suggestions\":[{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_3\"}],\"direction\":\"not_improve\",\"support\":91,\"counterexample\":10,\"confidence_note\":\"大幅加額幾乎一致轉差,樣本量大最可靠\"},{\"clauses\":[{\"condition\":\"day_type\",\"threshold\":\"day_type:weekend\"},{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_1\"}],\"direction\":\"improve\",\"support\":33,\"counterexample\":1,\"confidence_note\":\"週末小幅加額幾乎全數改善\"},{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_3\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_1\"}],\"direction\":\"not_improve\",\"support\":63,\"counterexample\":10,\"confidence_note\":\"大幅加額且花費率低更確定轉差\"},{\"clauses\":[{\"condition\":\"pre_cvr\",\"threshold\":\"pre_cvr:band_3\"},{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_3\"}],\"direction\":\"not_improve\",\"support\":35,\"counterexample\":4,\"confidence_note\":\"高前期轉換率下大幅加額仍明顯轉差\"},{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_2\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_3\"}],\"direction\":\"improve\",\"support\":39,\"counterexample\":10,\"confidence_note\":\"中幅加額搭配高花費率改善比例高\"},{\"clauses\":[{\"condition\":\"day_type\",\"threshold\":\"day_type:weekend\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_3\"}],\"direction\":\"improve\",\"support\":23,\"counterexample\":5,\"confidence_note\":\"週末高花費率下改善占比高\"},{\"clauses\":[{\"condition\":\"pre_cvr\",\"threshold\":\"pre_cvr:band_3\"},{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_1\"}],\"direction\":\"improve\",\"support\":30,\"counterexample\":17,\"confidence_note\":\"高前期轉換率搭配小幅加額平均差值明顯為正\"},{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_1\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_3\"}],\"direction\":\"improve\",\"support\":30,\"counterexample\":16,\"confidence_note\":\"小幅加額且高花費率傾向改善\"},{\"clauses\":[{\"condition\":\"pre_cvr\",\"threshold\":\"pre_cvr:band_1\"},{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_3\"}],\"direction\":\"not_improve\",\"support\":29,\"counterexample\":4,\"confidence_note\":\"低前期轉換率大幅加額幾乎一致轉差\"},{\"clauses\":[{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_1\"}],\"direction\":\"not_improve\",\"support\":79,\"counterexample\":30,\"confidence_note\":\"整體花費率低者較多轉差,樣本量大\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 1102,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 3782,
+ "cache_read_tokens": 0,
+ "reported_nanousd": 26152000,
+ "list_nanousd": 26152000,
+ "latency_ms": 11091.253874823451,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

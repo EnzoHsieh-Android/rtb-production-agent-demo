@@ -1,0 +1,1552 @@
+diff --git a/.gitignore b/.gitignore
+index e8392c3..93ba03f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,9 +1,12 @@
+ .venv/
+ __pycache__/
+ .pytest_cache/
+ .ruff_cache/
+ *.pyc
+ 
+ # Phase 13 增量 4:三種標示截圖用的假錄製與展示暫存(不入庫)
+ .demo-fake-recordings/
+ .demo-work/
++
++# Phase 15 增量 3:規則模式探索即時錄製的暫存錄製目錄(判定、手動搬完之前要一直留著;不入庫)
++.rule-mining-staging/
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+index f048ef4..446efd4 100644
+--- a/claims/prompt-injection.json
++++ b/claims/prompt-injection.json
+@@ -166,21 +166,21 @@
+     {
+       "path": "src/rtb/httpkit.py",
+       "sha256": "307480d888cf37489ec3f876ff9124d55dcf0ad877ca70887749a292e2e0e885"
+     },
+     {
+       "path": "src/rtb/modelclaude.py",
+       "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
+     },
+     {
+       "path": "src/rtb/modelclient.py",
+-      "sha256": "1c880fab4298e2068ddadebbb5380480ddaa895fc9215c86f7541761ee4d3a2f"
++      "sha256": "0a6475e0165f5289d181ebd4113f19a36142c32e26f2c12e3174ae98d49dafb5"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger.py",
+       "sha256": "40c55c002e0aab8ea85fd1c5b172cdcb59a44a8ea0f44fd8694e4b4c9d793e44"
+     },
+     {
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+index fcf3526..d351d35 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+@@ -66,20 +66,24 @@ RETIRE-IF: 固定種子 15001、15002、15003 各以第一次 `outcome=ok` 且
+ 
+ ### 代使用者裁定(2026-09-27，增量 2 代碼審 r1，協調者)
+ 
+ - 解析器對說明欄另擋格式字元(Cf)與代理字元(Cs)，連同原有的控制字元、引號、反斜線，寫進系統提示與評估版本參數，換評估版本 `phase15-rule-mining-v3`；只改提示一句與參數清單，配對、排序、門檻、語彙與資料都不動，三種子預檢照過(B 各多 47 位元組)。理由：代碼審 r1 指出沒公告就記 AI 誤報；對 AI 是公告更完整(有利或中性)，窮舉不讀說明欄、不受影響；此時沒有入庫錄製。細節見 [[Systems/規則模式探索評估]]〈評估版本理由〉v3。
+ - 解析期任何例外(含平衡深巢狀與孤立代理字元)一律收成「整份拒絕、記 1 筆無效提交」，逐條檢查途中的例外只丟該條；括號巢狀(`{`、`[` 合計,字串內不算)超過 64 層在解析前就整份拒絕,64 層以內出現在單條欄位裡的照「型別錯只丟該條」處理(代碼審 r2 改:原本整份/單條分界要看 json 解析器吃不吃得下,會隨執行緒堆疊大小漂移;合法回覆最深 5 層,64 遠高於它、又遠低於小堆疊執行緒的解析極限;只是解析器常數,不改提示與評估版本)。超過 4300 位的整數由解析器自己數位數整份拒絕，不隨直譯器的整數位數設定改變。理由：計劃要求不讓命令列崩潰，且整份/單條分界不能隨環境漂移。
+ 
+ ### 代使用者裁定(2026-09-27，增量 3 代碼審 r1，協調者)
+ 
+ - 錄製當下就綁定:即時錄製收尾把暫存錄製目錄(絕對路徑)、錄製鍵、每個錄製檔的 SHA-256 記進批次清單。`--check-in` 只判定、不搬檔(比照 Phase 13/14 由協調者手動搬):目錄不符、雜湊不符、找不到或重播環境壞一律是參數錯、拒絕、不改清單;只有錄製內容本身沒過才記「驗收沒過」;通過就標「可入庫」並印搬檔指令,重跑時入庫目錄已等於清單就算完成。`--verify` 要求入庫檔的雜湊等於清單記的(同版本替換可機檢)。同一時間只准一個錄製或判定(排他鎖檔);停在「呼叫中」要用 `--abandon` 明確判成呼叫失敗並記原因。報告的比較與撤除判斷只用驗收通過的批次、列預期鍵與錄製鍵、清單欄位先驗格式再逸出;預檢與送出共用同一個閘道。理由:代碼審 r1 正確性 1–7、資安 F1–F4、架構對齊 1 條(打錯目錄可作廢第一次成功錄製再重抽、入庫搬檔中斷死結、內容沒綁可換檔、併行可重抽、清單欄位可注入報告、程式自己搬檔跟既有流程不一致)。評估版本語意不動。細節見 [[Systems/規則模式探索評估]]〈增量 3〉。
+ 
++### 代使用者裁定(2026-09-27，增量 3 代碼審 r2，協調者)
++
++- 判定只在快照上做:不收符號連結(目錄本身與錄製檔都 lstat),清單記的錄製檔讀一次、核對雜湊後只在行程自己的 0700 暫存目錄上重播;目錄層級問題一律參數錯、不改清單。錄製收尾與 `--abandon` 只記預期鍵那一份錄製檔,雜檔忽略,寫得出去的清單一定讀得回來。`--abandon` 遇到呼叫中但已有可用成功錄製就轉待驗收,真的沒有才判呼叫失敗。第一次成功錄製遺失(暫存目錄或錄製檔不見)不准用下一個序號重抽,命令列明講須換評估版本並記理由;範例暫存目錄改成 repo 忽略的持久路徑。`--verify --demo-id` 入庫目錄不符回非 0。鎖的主人以檔鎖判定。即時錄製前唯讀查帳號家目錄花費帳,這個種子有清單沒記的呼叫就拒絕。暫存目錄錄前建成 0700,錄製一回來就從同一次讀到的位元組算雜湊。理由:代碼審 r2 正確性 1–5、資安 N1–N4。評估版本語意不動。
++
+ ## 現況（2026-09-26，分支 `phase15-rule-mining` 的 main 基底 `71b04d5`；以程式碼為準）
+ 
+ - 2026-09-27 增量 1 實作：分支 `phase15-inc1`，main 基底 `61bbb31`（含 Phase 14 增量 3；代碼審 r1 時已 rebase 到 `7bd062a`）。開工前核對 Phase 14 前置條件：分析端驅動的參數只剩資料庫、DSP、收件口、逾時與間隔（無 AI 判斷開關），展示驅動組分析端參數時只給這幾項，[S1429] 的閉包測試通過；F7 重跑（[S1518] 的「F7 重跑走規則路徑」證據）：協調者 2026-09-27 在基底 `7bd062a` 實跑 `tests/demo/test_driver.py` 與 `tests/demo/test_server.py` 裡的 F7 端到端（縮小版 30 支廣告，`-k "f7 or F7"`），12 passed；這是縮小版，不是完整幾千筆的 F7 展示。重新核對：`rg -n "add_argument" src/rtb/analyzer/runner.py`、`rg -n "def analyzer_args" -A5 src/rtb/demo/driver.py`。增量 1 的四支純離線模組與評估版本 v1 的可達性預檢記在 [[Systems/規則模式探索評估]]；未新增模型呼叫或通往提案的路徑。
+ - 2026-09-27 增量 2 實作:分支 `phase15-inc2`,main 基底 `4e70f92`。分析端窄入口 `rtb.analyzer.rule_mining_model`(家 [[Systems/規則模式探索模型入口]])、評估端回覆核對 `rule_mining_check`、歷史錄製鍵 `rule_mining_recordings`、單一種子執行 `rule_mining_eval`(家 [[Systems/規則模式探索評估]]);`Caller.RULE_MINING` 與計入上限名單、[S1100]/[S1103]/[S1134]/[S918] 與送出邊界名單的精確新增記在 [[Systems/模型用戶端]]、[[Systems/評估與Jev決策點]] 與原計劃條款下的改寫註記。代碼審 r1 後評估版本換成 `phase15-rule-mining-v3`(見上方裁定)。沒有命令列、沒有真錄製、沒有呼叫真模型;[S1506] [S1508] [S1509] [S1516] 留給增量 3。實作者解讀:預留額檢查沿用花費帳預留交易(它本來就用 `reservation_nanousd` 照當時價目與已用判兩個上限),不在窄入口另寫一份;十條填滿的最大回覆實算 5109 位元組(計劃寫 5139),仍低於 6000。重新核對:`rg -n "RULE_MINING" src tests`。
+ - 2026-09-27 增量 3 實作:分支 `phase15-inc3`,main 基底 `33daf62`。命令列、批次清單與驗收入庫、比較與人讀報告、README 連結,落點與實作者解讀記在 [[Systems/規則模式探索評估]]〈增量 3〉,不送出的閘道預檢記在 [[Systems/規則模式探索模型入口]];評估版本語意沒動(仍是 v3)。沒有呼叫真模型、沒有入庫錄製:報告是「等錄製」那一版,入庫錄製由協調者之後用真模型錄,錄前 CI 的入庫重播測試是紅的。重新核對:`rg -n "def command|def _record|def _check_in" src/rtb/eval/rule_mining_eval.py`。
+ - `src/rtb/analyzer/modelgate.py` 的 `open_gate()` 在入口判錄製或即時、綁死 `Caller`、錄製目錄及花費帳；`Gate.complete()` 把請求交給 `src/rtb/modelclient.py`。即時要 `RTB_MODEL_LIVE=1`、展示編號、可用後端與有效啟用紀錄，重播缺錄製會報錯，不會默默轉即時。重新核對：`rg -n 'def open_gate|def complete|def settings_from_env|def call_model' src/rtb/analyzer/modelgate.py src/rtb/modelclient.py`。
+ - `src/rtb/modelledger_view.py` 的 `Caller` 是封閉列舉；`src/rtb/modelledger.py` 的 `CAPPED_CALLERS` 現只含評估候選與實測，花費帳有按呼叫者的上限與估算。錄製鍵含呼叫者、模型、系統提示、使用者內容與輸出上限，批次與目錄有驗收。重新核對：`rg -n 'class Caller|CAPPED_CALLERS|def recording_key|def batch_file_problems' src/rtb/modelledger_view.py src/rtb/modelledger.py src/rtb/modelrecording.py src/rtb/modelclient.py`。
+ - `src/rtb/eval/investigation_cases.py` 固定種子產 Phase 13 案例，`investigation_eval.py` 以同一 AI 函式重播／即時執行並驗批次，`investigation_report.py` 把結果寫成人讀報告。`src/rtb/eval/ruff.toml` 禁直接匯入模型閘道與 DSP，`src/rtb/analyzer/ruff.toml` 禁匯入評估套件；Phase 10 [S712] 的反向匯入界線仍成立。重新核對：`rg -n 'SEED|def generate|def run|def batch_problems|modelgate|rtb.eval' src/rtb/eval/investigation_cases.py src/rtb/eval/investigation_eval.py src/rtb/eval/ruff.toml src/rtb/analyzer/ruff.toml`。
+ - `src/rtb/dsp/store.py` 的逐日成效以 UTC 日期桶保存，金額用整數分，最近加額由正常操作紀錄連同調整前預算與提交時刻推得；`src/rtb/domain/nine_rules.py` 有正式九條的純領域詞彙與順序，`src/rtb/domain/metrics.py` 有 `exact_ratio`／`exact_change`。本案只仿照歷史資料語意建離線案例，不從 DSP 讀取，不匯入九條規則來生成答案。重新核對：`rg -n 'daily_metrics|_latest_raise|def get_past_adjustments|ANSWER_ORDER|def exact_ratio|def exact_change' src/rtb/dsp/store.py src/rtb/domain/nine_rules.py src/rtb/domain/metrics.py`。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+index 949814d..65bdef9 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+@@ -273,10 +273,14 @@ WHY: [2026-09-25 Phase 13 增量 2 代碼審 r3] `ai_step_worst_seconds` 多算
+ - PITFALL(代碼審 r1 外家否決-1,2026-09-27,已修):`traceable_sentences` 原本只比數值,「把預算加 500%」借曝光數 500 過關。現在寫成百分比的數字另外要對回證據裡也是百分比的同值數字。代碼審 r2 三席指出 r1 只認半形與全形百分號,換 `﹪`、`٪`、「百分之500」「500 percent」「500 個百分點」照樣過關;r2 起百分比的寫法先 NFKC 正規化再認:%(含全形與小型百分號)、阿拉伯百分號、percent/per cent/pct、(個)百分點、百分之N(視同 N%);千分號、萬分號整句拿掉。沒列到的寫法仍只比數值,不含數字的句子不做語意過濾(`_PERCENT_AFTER`、`_PERCENT_BEFORE`、`_PER_MILLE`)。擋得住的就是這張列舉;不含數字的句子仍不做語意過濾,靠「AI 產生、僅供參考」標示與人工確認(宣稱 prompt-injection 照實寫)。代碼審 r3(2026-09-27):「500-percent」「500 per-cent」「500pcts」這類連字號與複數寫法原本認不出來,現在數字與單位、per 與 cent 之間可隔空白或各種連字號,pct 可帶複數;另外數字與百分號之間插看不見的字元(變體選擇符、組合字形連接符、零寬空白,NFKC 刪不掉)也能繞過,而且頁面上看起來就是「500%」,現在所有核對之前先用 `_visible` 拿掉 Unicode 類別 Mn、Me、Cf 與韓文填充字、點字空白,核對看到的字跟核可人看到的一樣,留下的句子照原文。WHY:只改核對這一端、不改頁面逸出(`escape_text` 不把這類字元顯示成代碼):核對已經照「人看得到的字」判,這類字元不再能改變判決;頁面逸出是所有頁面文字共用的一支,改它會牽動評估報告與舊展示的顯示,範圍比這個問題大。防回歸:[test:test_a_percentage_must_trace_back_to_a_percentage]、[test:test_every_way_of_writing_a_percentage_must_trace_back_to_a_percentage]、[test:test_a_traceable_percentage_survives_any_spelling]。`recorded_ledger` 說明改成實際的四項。
+ 
+ ## 規則模式探索的呼叫者與窄入口(Phase 15 增量 2,2026-09-27)
+ 
+ 出處 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉〈拆增量〉2;窄入口本身的家是 [[Systems/規則模式探索模型入口]]。
+ 
+ - 呼叫者列舉(`modelledger_view.Caller`)精確新增 `RULE_MINING = "rule_mining"`,花費帳的計入上限名單(`modelledger.CAPPED_CALLERS`)也加它:探勘的即時呼叫與評估候選、實測共用每展示 1 美元、每月 20 美元;Phase 13 三個不計入上限的呼叫者語意不變([S902]/[S903] 不改)。停用模型探勘時列舉成員與上限名單成員**照留**:歷史錄製鍵要重算得回、歷史帳列要繼續計上限([S1517])。防回歸:[test:test_the_investigation_caller_is_a_bounded_label](全體成員等式)、[test:test_the_phase13_callers_are_not_capped_but_still_booked](上限名單等式)、[test:test_rule_mining_single_call_respects_reservation](上限剛好/差一、價目變動、展示與每月已用、併行預留)。
+ - [S1100] 准匯入模型閘道的分析端模組窄增「規則模式探索的模型窄入口」一支(`GATE_USERS`;家是 [[Systems/規則模式探索模型入口]]);它只收已組好的彙總文字、用字面 `Caller.RULE_MINING` 開閘道。邊界測試同步精確新增:`CALL_MODEL_USERS` 與 `SENDING_ENTRIES` 加窄入口與評估端探勘執行器兩支(匯入它們也算送出點);`CALLER_USERS["RULE_MINING"]` 是窄入口與評估端的歷史錄製鍵模組;呼叫者的值→成員名對照從函式裡的區域字典抽成模組常數 `CALLER_VALUES`,並新增斷言它等於列舉本身(原本新成員漏列不會紅)。撤除模型段時只撤前兩組的兩項,`CALLER_USERS` 那格因為歷史錄製鍵模組而不會變空。
+ - 靜態檢查規則:凡是禁匯入 AI 決策模組的地方(分析端、展示三份、執行端、領域層、DSP、根 `pyproject.toml`)同樣禁匯入窄入口;評估端的規則不禁(探勘執行器要用它),評估端照舊禁直接匯入模型閘道。
+ - 閘道本身沒改行為,只在檔頭把窄入口列進「經它的分析端模組」。
++
++## 門面轉手花費帳的唯讀開法(Phase 15 增量 3 代碼審 r2,2026-09-27)
++
++- 門面多轉手花費帳的唯讀開法(`ModelLedgerView`),只多一行轉手、沒改任何行為。WHY:規則模式探索即時錄製前要唯讀查帳號家目錄那本花費帳,看這個種子有沒有批次清單沒記的呼叫(跨 checkout 唯一的共同紀錄);評估套件只准經門面碰模型用戶端,不能直接匯入唯讀開法所在的模組。用法在 [[Systems/規則模式探索評估]]。宣稱清單 prompt-injection 對這支檔的指紋跟著更新(照 [[Systems/宣稱驗證器]] 的 PITFALL:先跑驗證器確認證據仍成立再貼新雜湊)。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+index 2a3bfbe..b9722f9 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+@@ -85,26 +85,32 @@ Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不
+ - `src/rtb/eval/rule_mining_recordings.py` 多了批次清單(`manifest.json`)的讀(含值域驗證)、機檢、目錄內容雜湊與一批的驗收;它是撤除後**留下**的歷史驗證那一半,所以不寫檔(寫清單在命令列;入庫的錄製檔程式一律不寫)。
+ - `src/rtb/eval/rule_mining_report.py`(純函式):真相類別、保留前/後計分、同名額判定、重疊、人讀報告;撤除後照留,純程式報告仍可重產。只吃結構化欄位與重算數字,`Checked` 本來就不帶說明欄,報告碰不到 `confidence_note`。
+ - 人讀報告固定在 `governance/eval/phase15-rule-mining.md`,內容 = 命令列預設重播入庫目錄的輸出(測試逐字比對);錄製入庫前它是「等錄製」那一版:AI 欄整列未量、撤除條件未判,窮舉那一半照算。README「AI 找到的新規則」那一點連到它;一鍵展示頁不連。
+ - WHY 入庫目錄以評估版本命名(`recordings/model/<評估版本>/`):計劃要求換批必換評估版本且舊批保留,目錄名綁版本就不用在清單裡管跨版本,換版自然是新目錄。一個固定種子一批、一個子目錄、一次呼叫;批次清單跟子目錄並列(共用的單批目錄檢查不收錄製檔以外的檔,所以清單不能放進種子子目錄)。
+ - WHY 即時錄製先過閘道預檢、再記嘗試、再送出:預檢(判模式、登入預檢)用分析端窄入口的不送出函式,判成錄製就拒絕、不用掉序號;預檢過的閘道原樣拿去送出(代碼審 r1 正確性 6:另開新閘道會換一個沒登入預檢過的後端,送出時在 60 秒期限裡再查一次登入)。記下「呼叫中」之後才送,行程中斷也不會重用那個序號。成功但還沒判定、或停在呼叫中時不准再錄同種子,入庫只收該種子第一次 ok 且內容沒被驗收退回的那次——防重抽挑好結果。
+ - WHY 錄製當下就綁定、判定不搬檔(代碼審 r1 正確性 1/2/4、資安 F1/F3、架構對齊,協調者代使用者裁定):原本 `--check-in` 自己搬檔,而且任何驗收問題都記「驗收沒過」——打錯目錄就能作廢第一次成功的錄製、再重錄挑結果,複製一半中斷還會卡死;清單也沒綁內容,入庫後換檔或改回覆文字 `--verify` 看不出。現在錄製收尾就把暫存目錄絕對路徑、錄製鍵、每個檔的 SHA-256 記進清單;`--check-in` 只判定:目錄或雜湊對不上、找不到、重播環境壞(內容一致卻讀不到)都是參數錯,拒絕、清單不動;只有錄製內容本身沒過(失敗類、非正式後端、鍵集合、呼叫者或結果)才記「驗收沒過」。通過就標「可入庫」、印 `mkdir`/`cp` 讓協調者手動搬(比照 Phase 13/14,程式不寫入庫的錄製檔);重跑判定時入庫目錄內容已等於清單就算完成。`--verify` 要求入庫目錄每個檔的雜湊恰等於清單記的,入庫目錄只准有清單與可入庫種子的子目錄。
+ - WHY 同時只准一個錄製或判定(代碼審 r1 正確性 5、資安 F2):入庫目錄裡用 O_CREAT|O_EXCL 建 `.recording.lock`,包住「讀清單 → 檢查 → 記呼叫中 → 送出 → 記結果」與整個判定;另一個終端同時錄同種子會被擋下、不送出。殘留的東西要明確處理並留紀錄:`--abandon` 只在鎖檔主人已不在時清鎖,帶 `--demo-id` 時把停在呼叫中的那次判成呼叫失敗、原因與時間寫進清單。
+ - 實作者解讀:計劃的「錄製模式專用 `--ledger`」照閘道既有行為(即時給帳檔就拒絕)。「缺錄製不轉即時」在命令列多加兩層:重播一律拿掉即時與錄製開關、不給展示編號;即時錄製要環境兩個開關都是 1 且帶展示編號,缺一就拒絕,不退回重播。
+ - 實作者解讀:判定用詞分「窮舉勝」(n=0 或同名額任一方分母為零)與「窮舉不輸 AI」(一般比較,召回與精確度都不低於 AI);兩者都算該批撤除比較成立。撤除條件的最後一步(AI 有沒有提供經人確認的額外可核對條件)程式判不了,報告只寫「程式可判的部分成立」。
+ - 實作者解讀:相關誘餌的類別看它自己的保留側判定——保留側成立才列「觀察成立的相關規律」(不進分母),不成立就計誤報;這個判定在保留前、保留後兩欄一致,不隨名單過濾改變。部分重疊 = 跟任一預埋項共用至少一個子句(含方向不同)。
+-- RULE: 序號不重用只靠批次清單與鎖把關(沒有去讀帳號家目錄的花費帳):錄完每一步都要把 `manifest.json` 留在入庫目錄、跟錄製一起提交,不能在別的 checkout 另錄。[since:2026-09-27] [retire:命令列改成也核對花費帳裡用過的展示編號時] 事件入口:recordings/model/README.md 的錄製步驟;批次清單被手改時 `--verify` 的清單機檢(序號、入庫規則)會紅。
++- RULE: 序號不重用靠批次清單、鎖,以及錄前唯讀查帳號家目錄那本花費帳(這個種子有清單沒記的規則模式探索呼叫就拒絕,代碼審 r2 資安 N3):錄完每一步都要把 `manifest.json` 留在入庫目錄、跟錄製一起提交。[since:2026-09-27] [retire:改成不用帳號家目錄花費帳、或規則模式探索撤掉即時錄製時] 事件入口:recordings/model/README.md 的錄製步驟;批次清單被手改時 `--verify` 的清單機檢(序號、入庫規則)會紅。
++- WHY 判定只在快照上做(代碼審 r2 資安 N1,協調者代使用者裁定):r1 版先 `resolve` 再比目錄,指向同一目錄的符號連結會放行,接著共用的單批檢查看到連結就判「內容沒過」,好錄製被記成驗收沒過、可以重抽;判定途中往暫存目錄丟檔也一樣。現在暫存目錄的上層解開、最後一段照字面比,最後一段用 lstat 拒絕符號連結;只讀清單記的那一份錄製檔(lstat 確認一般檔、O_NOFOLLOW 開、讀前讀後大小與修改時間不變),雜湊對了就寫進行程自己的 0700 暫存目錄,內容驗收與重播都只看這份快照。目錄層級的問題一律參數錯、清單不動。
++- WHY 清單只記預期鍵那一份錄製檔(代碼審 r2 正確性 1、資安 N4):r1 版把暫存目錄裡每個一般檔都寫進清單,讀回時卻只收錄製檔名,一個 `.DS_Store` 就讓清單讀不回來、所有命令卡死。現在錄製收尾、`--abandon` 都只記預期鍵那份;雜檔不記、判定時忽略(印提醒)。寫清單前先用讀取的同一套規則讀回一次,讀不回來就不寫。
++- WHY 錄製一回來就綁位元組、暫存目錄 0700(代碼審 r2 資安 N2):暫存目錄預檢過了才建(或把既有空目錄改成)0700;送出一回來就只讀一次預期錄製檔、從那次讀到的位元組算雜湊,之後才解析、核對。`--abandon` 看到暫存目錄裡已有可用的成功錄製(讀得懂、預期鍵、rule_mining、ok、模型與批次相符)就轉待驗收,真的沒有可用錄製檔才判呼叫失敗——不能藉中斷作廢成功的錄製。
++- WHY 第一次成功錄製遺失要換評估版本(代碼審 r2 正確性 3,依計劃「每種子只准第一次成功、不得同版本另批取代」):結果 ok 的嘗試,暫存錄製檔不見了(或收尾時就沒讀到),判定、再錄、還沒搬的重跑判定都明講「須換評估版本並記理由」,報告該種子寫第一次成功錄製已遺失。
++- WHY 鎖的主人看檔鎖、不看 pid(代碼審 r2 正確性 5):鎖內容先寫進暫存檔並 flock,再用 os.link 原子地放上去;主人死了作業系統自動放掉 flock,`--abandon` 拿得到 flock 才清(清之前確認還是同一個檔)。協調者要求「pid 加啟動時間」是為了不被 pid 重用誤判,檔鎖直接綁在持有的行程上,不需要比 pid。`--verify --demo-id` 驗一次可入庫的嘗試時,入庫目錄缺檔或內容不符回非 0,打錯目錄照樣拒絕(正確性 4)。
+ - 報告只用驗收通過的批次做比較與撤除判斷:入庫目錄或清單有任何問題,那一批 AI 欄寫「驗收沒過,未量」,撤除條件「未判」(代碼審 r1 正確性 3)。清單會進報告的欄位讀取時先驗格式(列舉、UTC 時間、模型名樣式、鍵、絕對路徑),輸出時再逸出 Markdown/HTML;讀不懂的清單直接拒絕產報告(資安 F4)。嘗試表列預期鍵與錄製鍵前 12 碼(正確性 7)。
+-- 測試:`tests/eval/test_rule_mining_report.py`([S1506] [S1516],另一支驗等錄製時 AI 欄整列未量);`tests/eval/test_rule_mining_cli.py`([S1508] [S1509]、入庫報告逐字比對、代碼審 r1 的 [test:test_rule_mining_recording_is_serialized_and_interruptions_are_recorded]、[test:test_rule_mining_preflight_and_send_share_one_gate]、[test:test_rule_mining_only_content_failures_are_recorded_as_rejected],以及 [S1507]/[S1514] 的命令列補強 [test:test_rule_mining_cli_never_goes_live_for_a_missing_recording]、[test:test_rule_mining_cli_demo_ids_count_up_per_seed_and_are_never_reused])。`test_committed_rule_mining_recordings_replay_all_three_seeds` 在協調者錄製入庫前是紅的,不跳過(比照一鍵展示批次的做法),入庫後它就是 CI 的重播驗收。
++- 測試:`tests/eval/test_rule_mining_report.py`([S1506] [S1516],另一支驗等錄製時 AI 欄整列未量);`tests/eval/test_rule_mining_cli.py`([S1508] [S1509]、入庫報告逐字比對、代碼審 r1/r2 的 [test:test_rule_mining_recording_is_serialized_and_interruptions_are_recorded]、[test:test_rule_mining_stray_files_never_break_the_manifest]、[test:test_rule_mining_abandon_keeps_a_successful_recording]、[test:test_rule_mining_lost_first_success_needs_a_new_eval_version]、[test:test_rule_mining_verify_one_attempt_fails_until_the_committed_files_match]、[test:test_rule_mining_judgement_uses_a_private_snapshot]、[test:test_rule_mining_recording_binds_its_bytes_before_parsing]、[test:test_rule_mining_refuses_demo_ids_already_used_in_the_ledger]、[test:test_rule_mining_preflight_and_send_share_one_gate]、[test:test_rule_mining_only_content_failures_are_recorded_as_rejected],以及 [S1507]/[S1514] 的命令列補強 [test:test_rule_mining_cli_never_goes_live_for_a_missing_recording]、[test:test_rule_mining_cli_demo_ids_count_up_per_seed_and_are_never_reused])。`test_committed_rule_mining_recordings_replay_all_three_seeds` 在協調者錄製入庫前是紅的,不跳過(比照一鍵展示批次的做法),入庫後它就是 CI 的重播驗收。
+ - 邊界名單只精確加報告模組:[S918] 評估閉包准許名單(見 [[Systems/評估與Jev決策點]])與 [S1510] 探勘閉包檢查各加這一支;[S1510] 准許歷史錄製鍵模組多取的門面名字只有入庫根、模式開關名與錄製檔的共用驗收(唯讀)。送出點、呼叫者與閘道使用者名單都沒動。評估套件裡不准出現送出相關的名字(含 `open_gate`),所以命令列給測試換閘道的參數叫 `opener`。
+ - 紅綠:新測試在基底 33daf62 的原始碼副本上跑,報告模組缺席(匯入錯)全紅;實作後除入庫重播那支(等錄製)全綠。另以二十七種變異各跑一次(相關規律進分母、無效提交不計或保留後不計、窮舉前 n 保留後遞補、召回改用前 n、零分母或 n=0 不判窮舉勝、平手算 AI 勝、相關誘餌保留側不成立也不計、完全落在前 K 恆真、固定句不看 AI 獨有、核對警示用 ≥、批次驗收不比鍵集合或不看結果類別、清單不查第一次成功/序號/評估版本、命令列不查序號、待驗收或入庫後仍准再錄、不要求兩個開關、閘道判錄製也送、失敗的嘗試也能入庫、不要求全新目錄、驗收沒過照樣入庫、重播不拿掉即時開關、先送再記嘗試),首輪四種存活(遞補、召回用前 n、重播環境、先送再記),補測試後全數翻紅。
+ - 代碼審 r1 修正的紅綠:新改的測試在修正前的提交(d1f8476)上跑,命令列那支檔 8 支紅;修正後除入庫重播那支(等錄製)全綠。另以三十一種變異各跑一次(判定不核目錄/雜湊/目錄在不在、重播環境壞記成驗收沒過、錄製不記雜湊或目錄、驗收不核入庫雜湊或多餘項目、沒過的批次照樣量分、清單問題不擋比較、已判定重跑算錯、不上鎖、不放鎖、呼叫中不擋再錄、清掉活著的鎖、放棄不記原因、預檢閘道不共用、外來閘道照送、清單不驗值域或時區、報告不逸出、嘗試表不列鍵、清單不驗鍵與檔,以及沿用的第一次成功、再錄、內容沒過、失敗能判定、先送再記、重播開關),首輪三種存活(目錄不見只換訊息、報告逸出、可入庫的鍵與檔),補測試後全數翻紅。報告逸出的第二道在 `tests/eval/test_rule_mining_report.py` 的 [test:test_rule_mining_report_escapes_manifest_fields]。
++- 代碼審 r2 修正的紅綠:命令列測試檔在上一版(3f9d7da)上跑 10 支紅;修正後除入庫重播那支(等錄製)全綠。二十一種新變異(判定收目錄符號連結、比目錄前整條解開、讀檔跟隨符號連結、讀檔不查途中被改、判定在原目錄上做、清單記所有檔、寫前不讀回、放棄時不看成功錄製、可用錄製不看結果類別、遺失可重抽、判定不講遺失、單次驗收不回非 0、已完成不核目錄、清鎖只看 pid、持鎖不 flock、不查花費帳、花費帳讀不了照送、暫存目錄不改 0700、雜湊在核對後才算、收尾不確認是自己的、錄前不重讀清單)首輪四種存活(讀取途中被改、可用錄製不看結果類別、收尾與錄前的清單重讀),補 [test:test_rule_mining_abandon_fails_an_unsuccessful_recording] 與 [test:test_rule_mining_record_rechecks_the_manifest_around_the_call] 後全數翻紅;r1 的變異在新程式上重跑(字面改了的十種改寫後重跑),也全數翻紅。
+ 
+ ## 埋入的真相(只給評估器)
+ 
+ - 真模式・改善:raise_pct:band_2 且 spend_ratio:band_3(預算幾乎花滿的廣告中度加額),後三天轉換率乘 1.6。
+ - 真模式・未改善:raise_pct:band_3(加額 50% 以上),後三天轉換率乘 0.5。
+ - 誘餌・只探索側偶合:day_type:weekend 且 raise_pct:band_1 改善——生成器只對探索側廣告埋 1.6 倍,保留側沒有。
+ - 誘餌・相關無獨立效果:spend_ratio:band_1 未改善——花費比低的廣告有七成被大幅加額,所以看似變差,本身不改轉換率。
+ - 生成器用評估器同一套語彙函式,從已生成的前三日資料算事件的欄位值再決定埋不埋效果,真模式與切點精確對齊;所以之後報告的召回只是「可精確表示時」的上界。
+ 
+ ## 口徑(計劃逐字,實作選擇另記)
+diff --git a/recordings/model/README.md b/recordings/model/README.md
+index e413dee..9b7cb72 100644
+--- a/recordings/model/README.md
++++ b/recordings/model/README.md
+@@ -22,42 +22,49 @@
+ 入庫位置是這一層底下的 `phase13-investigation-eval/`(整個目錄只放同一批 `phase13-eval-YYYYMMDD` 的錄製檔,
+ 不放批次紀錄或其他檔)。CI 只重播它、不啟動 claude;目錄存在時,找不到錄製或失敗類錄製都會讓測試紅。
+ 錄製由協調者用真的 Claude Code 產生:先錄進全新目錄、用 `--verify` 重播驗收、驗過才整個搬進來(重錄時整個
+ 替換,不在舊目錄上疊錄)。指令見 [Phase 13 計劃](../../docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md)
+ 〈實作解讀〉增量 3 的最後一條。
+ 
+ ## 規則模式探索的評估錄製(Phase 15 增量 3)
+ 
+ 入庫位置是這一層底下以評估版本命名的目錄(現行 `phase15-rule-mining-v3/`):`manifest.json` 是批次清單
+ (三種子、資料雜湊、評估版本與版本雜湊、每一次嘗試的展示編號、批次、模型、預期鍵、錄製鍵、暫存錄製目錄、
+-錄製檔的 SHA-256、時間、結果與狀態),每個固定種子一個子目錄,只放那一批唯一一次呼叫的錄製檔,內容雜湊要
+-等於清單記的。CI 只重播它、不啟動 claude;錄製入庫前,`tests/eval/test_rule_mining_cli.py` 的
++預期錄製檔的 SHA-256、時間、結果與狀態),每個固定種子一個子目錄,只放那一批唯一一次呼叫的錄製檔,內容雜湊
++要等於清單記的。CI 只重播它、不啟動 claude;錄製入庫前,`tests/eval/test_rule_mining_cli.py` 的
+ `test_committed_rule_mining_recordings_replay_all_three_seeds` 是紅的。換評估版本就是換目錄,舊批原地保留。
+ 
+ 錄製由協調者用真的 Claude Code 產生,一個種子一次呼叫;命令列只在使用者環境明確設兩個開關時才即時,
+ 缺錄製絕不自動改走即時。程式只寫批次清單,**不寫入庫的錄製檔**:判定通過後由協調者照印出的指令手動搬
+-(比照上面兩節)。同一時間只准一個錄製或判定(入庫目錄裡的 `.recording.lock`)。
++(比照上面兩節)。同一時間只准一個錄製或判定(入庫目錄裡的 `.recording.lock`,主人握著檔鎖)。錄前會
++唯讀查帳號家目錄的花費帳,這個種子有清單沒記的呼叫(例如在別的 checkout 錄過)就拒絕。
++
++暫存錄製目錄要用**持久的**路徑:下面用 repo 根的 `.rule-mining-staging/`(已在 `.gitignore`),不要放
++`/tmp`(系統可能清掉)。錄完到手動搬完之前,不要刪、不要改裡面的錄製檔;第一次成功的錄製一旦遺失,依計劃
++不准用下一個序號重抽,要換評估版本並記理由。暫存目錄裡多出的雜檔(例如 `.DS_Store`)會被忽略。
+ 
+ 1. 錄前預檢:`PYTHONPATH=src .venv/bin/python -m rtb.modelverify` 的啟用紀錄有效、價目表查核未過 90 天;
+    先跑一次 `PYTHONPATH=src .venv/bin/python -m rtb.eval.rule_mining_eval --baseline-only` 確認純基準照常。
+-2. 錄一個種子(展示編號序號從 1 起、每次嘗試加一、不重用;錄製目錄要是入庫目錄以外的全新空目錄):
++2. 錄一個種子(展示編號序號從 1 起、每次嘗試加一、不重用;錄製目錄要是全新的空目錄,程式建成 0700):
+ 
+        RTB_MODEL_LIVE=1 RTB_MODEL_RECORD=1 PYTHONPATH=src .venv/bin/python -m rtb.eval.rule_mining_eval \
+          --demo-id phase15-seed-15001-1 --batch-id phase15-rule-mining-15001-$(date -u +%Y%m%d) \
+-         --recordings-dir /tmp/rtb-p15/15001-1
++         --recordings-dir .rule-mining-staging/15001-1
+ 
+    結果不是 ok 就記「呼叫失敗」、不入庫;同種子改用 `phase15-seed-15001-2` 與新目錄重錄,不換種子。
+-   行程被中斷而停在「呼叫中」時,先 `--abandon --demo-id phase15-seed-15001-1` 明確判成呼叫失敗(會記原因),
+-   再用下一個序號重錄。
+-3. 驗收判定(只重播、不搬檔;目錄與檔案雜湊要跟錄製當下記的一致,對不上是參數錯、清單不動):
++   行程被中斷而停在「呼叫中」時,先 `--abandon --demo-id phase15-seed-15001-1`:暫存目錄裡已有可用的成功
++   錄製就轉「待驗收」(接著照常判定),沒有才判成呼叫失敗;兩種都會記原因。`--abandon` 也清主人已不在的
++   鎖檔(主人還握著鎖就不清)。
++3. 驗收判定(只重播、不搬檔;目錄要是錄製時記的那個真目錄,錄製檔雜湊要跟錄製當下一樣,對不上是參數錯、
++   清單不動;判定只在讀進來的快照上做):
+ 
+        PYTHONPATH=src .venv/bin/python -m rtb.eval.rule_mining_eval --check-in \
+-         --demo-id phase15-seed-15001-1 --recordings-dir /tmp/rtb-p15/15001-1
++         --demo-id phase15-seed-15001-1 --recordings-dir .rule-mining-staging/15001-1
+ 
+    通過就在清單標成「可入庫」並印出搬檔指令;照印出的 `mkdir`、`cp` 手動搬進 `phase15-rule-mining-v3/15001/`。
+    錄製內容本身沒過才記「驗收沒過」,同種子用下一個序號重錄。
+ 4. 三個種子(15001、15002、15003)都搬好後,驗收並重產報告,連同 `manifest.json` 與錄製一起提交:
+ 
+        PYTHONPATH=src .venv/bin/python -m rtb.eval.rule_mining_eval --verify > governance/eval/phase15-rule-mining.md
+ 
+ 每種子只准第一次成功錄製入庫;判定可入庫後不得同版本重錄替換(入庫檔的雜湊綁在清單上),要換就換評估版本
+ 並記理由。
+diff --git a/src/rtb/eval/rule_mining_eval.py b/src/rtb/eval/rule_mining_eval.py
+index 685b5ae..7ec551f 100644
+--- a/src/rtb/eval/rule_mining_eval.py
++++ b/src/rtb/eval/rule_mining_eval.py
+@@ -19,24 +19,28 @@
+ - `--baseline-only`:只產純基準報告(不開閘道、不讀錄製)。
+ - 即時錄製一個種子:使用者環境明確設 `RTB_MODEL_LIVE=1`、`RTB_MODEL_RECORD=1`,帶 `--demo-id
+   phase15-seed-<種子>-<序號>`、`--batch-id`、`--recordings-dir <全新空目錄>`;先過閘道預檢(判成
+   錄製就拒絕,不用掉序號),再把這次嘗試記進批次清單、送出一次、記下結果。缺錄製絕不改走即時。
+ - 驗收與入庫:`--verify` 或 `--check-in` 加同一個 `--demo-id` 與 `--recordings-dir`,只准重播;入庫要
+   唯一呼叫 `outcome=ok`、批次驗收過、重播找不到錄製 0 筆,每種子只准第一次成功錄製入庫。
+ - `--ledger` 只在錄製(重播)模式能用;即時模式的花費帳寫死在帳號家目錄那一本(閘道擋)。
+ """
+ 
+ import argparse
++import fcntl
+ import json
+ import os
+ import shlex
++import stat
+ import sys
++import tempfile
++import uuid
+ from collections.abc import Callable, Iterator, Mapping
+ from contextlib import contextmanager, nullcontext, suppress
+ from dataclasses import dataclass, replace
+ from datetime import UTC, datetime
+ from functools import partial
+ from pathlib import Path
+ from typing import TextIO
+ 
+ from rtb.analyzer import rule_mining_model as rmm
+ from rtb.eval import rule_mining_check as c
+@@ -164,26 +168,32 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
+ def _shown(folder: Path) -> str:
+     base = r.default_root().parent.parent.parent  # 專案根
+     return str(folder.relative_to(base)) if folder.is_relative_to(base) else str(folder)
+ 
+ 
+ def _now() -> str:
+     return datetime.now(UTC).isoformat(timespec="seconds")
+ 
+ 
+ def _save(root: Path, manifest: r.Manifest) -> None:
+-    """批次清單原子地寫回(先寫暫存檔再改名)。"""
++    """批次清單原子地寫回(先寫暫存檔再改名)。寫之前先用讀取的同一套規則讀回一次:寫得出去的清單一定
++    讀得回來(代碼審 r2:不能寫進自己讀不懂的值,讓所有命令都卡死)。"""
++    text = r.dumps(manifest)
++    try:
++        r.loads(text)
++    except r.ManifestUnreadable as bad:
++        raise Refused(f"要寫的批次清單自己讀不回來({bad}):不寫") from bad
+     root.mkdir(parents=True, exist_ok=True)
+     target = root / r.MANIFEST_NAME
+     temporary = root / f".{r.MANIFEST_NAME}.{os.getpid()}.tmp"
+     try:
+-        temporary.write_text(r.dumps(manifest), encoding="utf-8")
++        temporary.write_text(text, encoding="utf-8")
+         os.replace(temporary, target)
+     finally:
+         temporary.unlink(missing_ok=True)
+ 
+ 
+ def _load(root: Path) -> r.Manifest | None:
+     try:
+         return r.load(root)
+     except r.ManifestUnreadable as bad:
+         raise Refused(f"批次清單讀不懂:{bad}") from bad
+@@ -280,22 +290,24 @@ def _committed_problems(folder: Path, attempt: r.Attempt) -> list[str]:
+ 
+ 
+ def _seed_ai(inputs: p.SeedInputs, root: Path, manifest: r.Manifest | None,
+              args: argparse.Namespace, io: _Io, blocked: bool
+              ) -> tuple[report.AiResult, list[str]]:
+     if args.baseline_only:
+         return report.AiResult(report.BASELINE_ONLY), []
+     seed = inputs.history.seed
+     attempt = r.accepted(manifest, seed)
+     if attempt is None:
+-        tried = len(r.attempts_of(manifest, seed)) if manifest is not None else 0
+-        detail = f"已試 {tried} 次、沒有判定可入庫" if tried else None
++        tried = r.attempts_of(manifest, seed) if manifest is not None else ()
++        lost = [a for a in tried if a.status == r.PENDING and _lost(a)]
++        detail = ("第一次成功錄製已遺失,須換評估版本" if lost
++                  else f"已試 {len(tried)} 次、沒有判定可入庫" if tried else None)
+         return report.AiResult(report.WAITING, detail=detail), [report.WAITING]
+     folder = root / str(seed)
+     problems = _committed_problems(folder, attempt)
+     if problems:
+         return report.AiResult(report.UNVERIFIED, detail="入庫目錄跟清單不符"), problems
+     prepared = prepare_from(inputs)
+     expected = r.expected_key(p.SYSTEM_PROMPT, prepared.table, attempt.model)
+     problems = r.batch_problems(folder, attempt, expected)
+     done = _replay(prepared, folder, attempt, args, io)
+     if done.verification is None:
+@@ -305,281 +317,424 @@ def _seed_ai(inputs: p.SeedInputs, root: Path, manifest: r.Manifest | None,
+     return report.AiResult(report.MEASURED, done.verification, _source(attempt, done)), problems
+ 
+ 
+ def _attempt_for(demo_id: str) -> tuple[int, int]:
+     parts = r.demo_parts(demo_id)
+     if parts is None or parts[0] not in v.SEEDS:
+         raise Refused(f"展示編號要是 phase15-seed-<固定種子>-<序號>(種子 {v.SEEDS}):{demo_id!r}")
+     return parts
+ 
+ 
+-def _fresh(folder: Path | None) -> Path:
+-    if folder is None:
+-        raise Refused("即時錄製要明寫 --recordings-dir,給一個全新的空目錄(不在入庫目錄底下)")
+-    if folder.exists() and (not folder.is_dir() or any(folder.iterdir())):
+-        raise Refused(f"錄製目錄要是全新的空目錄:{folder}")
++LOST = ("種子 {seed} 的第一次成功錄製({demo})已遺失(暫存錄製目錄或錄製檔不見):依計劃不准用下一個"
++        "序號重抽,也不得同版本另批取代,須換評估版本並記理由")
++
++
++def _lost(attempt: r.Attempt) -> bool:
++    """結果 ok 的嘗試,錄製檔卻已不在暫存目錄(或收尾時就沒讀到)。"""
++    if not attempt.files:
++        return True
++    folder = Path(attempt.staging_dir)
++    try:
++        return r.read_regular(folder / attempt.files[0][0]) is None
++    except r.Unhashable:
++        return False  # 還在,只是被換成別的東西:判定時當參數錯
++
++
++def _fresh(folder: Path) -> Path:
++    """即時錄製的暫存目錄:不存在就建成 0700;已存在要是真的目錄(不是符號連結)而且是空的,並改成
++    0700(代碼審 r2 資安 N2:錄製檔寫下到算雜湊之間,別人不能往裡面讀寫)。"""
++    try:
++        found = os.lstat(folder)
++    except FileNotFoundError:
++        folder.parent.mkdir(parents=True, exist_ok=True)
++        os.mkdir(folder, 0o700)
++        found = os.lstat(folder)
++    if not stat.S_ISDIR(found.st_mode) or any(folder.iterdir()):
++        raise Refused(f"錄製目錄要是全新的空目錄(不收符號連結):{folder}")
++    os.chmod(folder, 0o700)
+     return folder
+ 
+ 
+-# ---- 鎖:同一時間只准一個錄製或判定寫批次清單(代碼審 r1 正確性 5、資安 F2) ----
+-def _lock_owner(path: Path) -> tuple[int | None, str]:
++# ---- 鎖:同一時間只准一個錄製或判定寫批次清單(代碼審 r1 正確性 5、資安 F2;r2 正確性 5) ----
++def _lock_owner(path: Path) -> str:
+     try:
+         data = json.loads(path.read_text(encoding="utf-8"))
+-        return int(data["pid"]), f"pid {int(data['pid'])}、{data['what']}、{data['since']}"
++        return f"pid {int(data['pid'])}、{data['what']}、{data['since']}"
+     except (OSError, ValueError, KeyError, TypeError):
+-        return None, "讀不懂"
++        return "讀不懂"
+ 
+ 
+ @contextmanager
+ def _locked(root: Path, what: str) -> Iterator[None]:
+-    """在入庫目錄建排他鎖檔(O_CREAT|O_EXCL),包住「讀清單 → 檢查 → 記呼叫中 → 送出 → 記結果」或整個
+-    判定;已有鎖就拒絕。正常結束或例外都放掉自己的鎖;行程被硬殺留下的鎖用 --abandon 明確清。"""
++    """入庫目錄的排他鎖。內容(pid、隨機碼、做什麼、何時)先寫進暫存檔並對它 flock,再用 os.link 原子地
++    放到鎖的路徑:鎖一出現就帶著內容,而且持有者活著時 flock 一直在。主人死了作業系統自動放掉 flock,
++    所以判斷主人還在不在看 flock、不看 pid(pid 被重用也不會誤判)。已有鎖就拒絕。"""
+     root.mkdir(parents=True, exist_ok=True)
+     path = root / r.LOCK_NAME
+-    token = json.dumps({"pid": os.getpid(), "what": what, "since": _now()}, ensure_ascii=False)
+-    try:
+-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+-    except FileExistsError as busy:
+-        raise Refused(f"另一個錄製或判定正在進行(鎖檔 {path}:{_lock_owner(path)[1]});"
+-                      "確定沒有行程在跑,用 --abandon 清掉並記錄") from busy
+-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+-        handle.write(token)
++    token = json.dumps({"pid": os.getpid(), "nonce": uuid.uuid4().hex, "what": what,
++                        "since": _now()}, ensure_ascii=False)
++    temporary = root / f".{r.LOCK_NAME}.{uuid.uuid4().hex}.tmp"
++    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+     try:
+-        yield
++        os.write(fd, token.encode("utf-8"))
++        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
++        try:
++            os.link(temporary, path)
++        except FileExistsError as busy:
++            raise Refused(f"另一個錄製或判定正在進行(鎖檔 {path}:{_lock_owner(path)});"
++                          "確定沒有行程在跑,用 --abandon 清掉並記錄") from busy
++        finally:
++            temporary.unlink(missing_ok=True)
++        try:
++            yield
++        finally:
++            with suppress(OSError):
++                if os.stat(path).st_ino == os.fstat(fd).st_ino:
++                    path.unlink()
+     finally:
+-        with suppress(OSError):
+-            if path.read_text(encoding="utf-8") == token:
+-                path.unlink()
++        os.close(fd)
+ 
+ 
+-def _alive(pid: int) -> bool:
++def _clear_stale_lock(path: Path) -> str | None:
++    """鎖的主人已不在(拿得到 flock)才清,而且清的是剛驗過的同一個檔;主人還在就拒絕。"""
+     try:
+-        os.kill(pid, 0)
+-    except ProcessLookupError:
+-        return False
+-    except PermissionError:
+-        return True
+-    return True
++        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
++    except FileNotFoundError:
++        return None
++    try:
++        owner = _lock_owner(path)
++        try:
++            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
++        except BlockingIOError as held:
++            raise Refused(f"鎖檔的主人還在執行({owner}):不清") from held
++        if os.stat(path).st_ino == os.fstat(fd).st_ino:
++            path.unlink()
++        return f"清掉殘留鎖檔({owner})"
++    finally:
++        os.close(fd)
+ 
+ 
+ def _abandon(args: argparse.Namespace, io: _Io) -> int:
+-    """明確處理中斷留下的東西,並記錄:鎖檔的主人已不在就清掉;帶 --demo-id 時把那次停在「呼叫中」的
+-    嘗試判成呼叫失敗(記原因與時間)。鎖的主人還活著就拒絕。"""
+-    path = io.root / r.LOCK_NAME
+-    notes = []
+-    if path.exists():
+-        pid, owner = _lock_owner(path)
+-        if pid is not None and _alive(pid):
+-            raise Refused(f"鎖檔的主人還在執行({owner}):不清")
+-        path.unlink()
+-        notes.append(f"清掉殘留鎖檔({owner})")
++    """明確處理中斷留下的東西,並記錄:鎖檔主人已不在就清掉;帶 --demo-id 時處理那次停在「呼叫中」的
++    嘗試——暫存目錄裡已有可用的成功錄製就轉「待驗收」(照常判定,不能藉此作廢成功的錄製),真的沒有
++    可用錄製檔才判成呼叫失敗;原因與時間都寫進清單。"""
++    notes = [note for note in (_clear_stale_lock(io.root / r.LOCK_NAME),) if note]
+     if args.demo_id is not None:
+         with _locked(io.root, f"abandon {args.demo_id}"):
+-            manifest = _load(io.root)
+-            attempt = next((a for a in (manifest.attempts if manifest else ())
+-                            if a.demo_id == args.demo_id), None)
+-            if manifest is None or attempt is None or attempt.status != r.CALLING:
+-                raise Refused(f"批次清單裡 {args.demo_id} 不是「呼叫中」:沒有要判成呼叫失敗的")
+-            try:
+-                files = r.file_hashes(Path(attempt.staging_dir))
+-            except r.Unhashable:
+-                files = ()
+-            reason = f"中斷:{_now()} 以 --abandon 判成呼叫失敗" + (
+-                f"({notes[0]})" if notes else "")
+-            _save(io.root, _with(manifest, replace(
+-                attempt, finished_at=_now(), status=r.FAILED, files=files,
+-                problems=(*attempt.problems, reason))))
+-            notes.append(f"{args.demo_id} 判成呼叫失敗;同種子下一次用 "
+-                         f"{r.demo_id_of(attempt.seed, attempt.sequence + 1)}")
++            notes.append(_abandon_attempt(args.demo_id, io, notes[0] if notes else None))
+     print("\n".join(notes or ["沒有要處理的鎖檔或嘗試"]), file=io.out)
+     return EXIT_OK
+ 
+ 
++def _abandon_attempt(demo_id: str, io: _Io, lock_note: str | None) -> str:
++    manifest = _load(io.root)
++    attempt = next((a for a in (manifest.attempts if manifest else ()) if a.demo_id == demo_id),
++                   None)
++    if manifest is None or attempt is None or attempt.status != r.CALLING:
++        raise Refused(f"批次清單裡 {demo_id} 不是「呼叫中」:沒有要處理的")
++    try:
++        data, files = r.recorded_file(Path(attempt.staging_dir), attempt.expected_key)
++    except r.Unhashable:
++        data, files = None, ()
++    recording = r.usable_recording(data, attempt)
++    when = f"中斷:{_now()} 以 --abandon 處理" + (f"({lock_note})" if lock_note else "")
++    if recording is not None:
++        outcome = CALL_OK
++        changed = replace(attempt, finished_at=_now(), outcome=outcome,
++                          recording_key=attempt.expected_key,
++                          list_nanousd=getattr(recording, "list_nanousd", 0), status=r.PENDING,
++                          files=files,
++                          problems=(*attempt.problems, when + ";暫存目錄已有成功的錄製,轉待驗收"))
++        note = f"{demo_id} 的暫存目錄已有成功的錄製:轉待驗收,接著用 --check-in 判定"
++    else:
++        changed = replace(attempt, finished_at=_now(), status=r.FAILED, files=files,
++                          problems=(*attempt.problems, when + ";沒有可用的錄製,判成呼叫失敗"))
++        note = (f"{demo_id} 判成呼叫失敗;同種子下一次用 "
++                f"{r.demo_id_of(attempt.seed, attempt.sequence + 1)}")
++    _save(io.root, _with(manifest, changed))
++    return note
++
++
+ def _manifest_for(seed: int, sequence: int, root: Path) -> r.Manifest:
+     """即時錄製前對批次清單的檢查:清單本身沒問題、種子還沒判定可入庫、沒有待驗收或呼叫中的嘗試、
+-    序號是下一個。"""
++    序號是下一個。第一次成功的錄製遺失時明講要換評估版本。"""
+     manifest = _load(root) or r.new_manifest()
+     problems = r.manifest_problems(manifest)
+     if problems:
+         raise Refused("批次清單有問題,先處理:" + ";".join(problems))
+     if r.accepted(manifest, seed) is not None:
+         raise Refused(f"種子 {seed} 已判定可入庫:每種子只准第一次成功錄製入庫,換批要換評估版本")
++    for attempt in r.attempts_of(manifest, seed):
++        if attempt.status == r.PENDING and _lost(attempt):
++            raise Refused(LOST.format(seed=seed, demo=attempt.demo_id))
+     for status, hint in ((r.PENDING, "先用 --check-in 做驗收判定"),
+-                         (r.CALLING, "上一次還沒有結果;確定中斷了就用 --abandon 判成呼叫失敗")):
++                         (r.CALLING, "上一次還沒有結果;確定中斷了就用 --abandon 處理")):
+         waiting = [a.demo_id for a in r.attempts_of(manifest, seed) if a.status == status]
+         if waiting:
+             raise Refused(f"種子 {seed} 有{status}的嘗試 {waiting}:{hint}")
+     wanted = r.next_sequence(manifest, seed)
+     if sequence != wanted:
+         raise Refused(f"種子 {seed} 下一次要用序號 {wanted}({r.demo_id_of(seed, wanted)});"
+                       "序號逐次加一、不重用")
+     return manifest
+ 
+ 
++def _ledger_clean(check: rmm.GateCheck, manifest: r.Manifest, seed: int) -> None:
++    """跨 checkout 的防線(代碼審 r2 資安 N3):即時模式寫的那本花費帳(帳號家目錄)唯讀查一次,這個種子
++    有清單沒記的規則模式探索呼叫(含這次要用的展示編號)就拒絕。"""
++    try:
++        used = r.ledger_demo_ids(Path(check.gate.ledger))
++    except r.LedgerProblem as bad:
++        raise Refused(f"花費帳讀不了({type(bad).__name__}),無法確認展示編號沒用過:不送出") from bad
++    known = {a.demo_id for a in r.attempts_of(manifest, seed)}
++    stray = [demo for demo in used if (r.demo_parts(demo) or (0, 0))[0] == seed
++             and demo not in known]
++    if stray:
++        raise Refused(f"花費帳顯示種子 {seed} 有批次清單沒記的呼叫 {stray}"
++                      "(可能在別的 checkout 錄過):不送出")
++
++
+ def _gate_ready(config: rmm.GateConfig, io: _Io) -> rmm.GateCheck:
+     """閘道預檢:判成即時、登入預檢過了才准記嘗試;否則拒絕,沒有送出、沒有用掉序號。回傳的閘道就是
+     之後送出用的那一個(不另開)。"""
+     try:
+         check = (rmm.check_gate(config, notify=io.notify) if io.opener is None
+                  else rmm.check_gate(config, notify=io.notify, open_gate=io.opener))
+     except ValueError as refused:  # 閘道拒絕、不認得的模型
+         raise Refused(f"閘道拒絕:{refused}") from refused
+     for notice in check.notices:
+         io.notify(notice)
+     if check.mode != "live" or check.login_problem is not None:
+         why = check.mode if check.login_problem is None else check.login_problem
+         raise Refused(f"閘道預檢沒過({why}):沒有送出,也沒有用掉序號")
+     return check
+ 
+ 
+-def _finished(started: r.Attempt, done: SeedRun, folder: Path) -> r.Attempt:
+-    """記結果:結果類別、錄製鍵、原價,以及錄製目錄裡每個檔的 SHA-256(錄製當下綁定內容)。"""
+-    problems: list[str] = []
+-    try:
+-        files = r.file_hashes(folder)
+-    except r.Unhashable as bad:
+-        files, problems = (), [f"錄製目錄:{bad}"]
++class _Snapshot:
++    """送出一回來就讀一次預期鍵的錄製檔,位元組留在記憶體;雜湊只從這次讀到的位元組算
++    (代碼審 r2 資安 N2:不在解析、核對之後才回頭再開檔)。"""
++
++    def __init__(self, ask: Ask, folder: Path, expected: str) -> None:
++        self._ask, self._folder, self._expected = ask, folder, expected
++        self.files: tuple[tuple[str, str], ...] = ()
++        self.problem: str | None = None
++
++    def __call__(self, system: str, table: str) -> rmm.Reply:
++        reply = self._ask(system, table)
++        try:
++            _data, self.files = r.recorded_file(self._folder, self._expected)
++        except r.Unhashable as bad:
++            self.problem = f"錄製檔讀不到可靠內容:{bad}"
++        return reply
++
++
++def _finished(started: r.Attempt, done: SeedRun, snapshot: _Snapshot) -> r.Attempt:
++    """記結果:結果類別、錄製鍵、原價,以及預期鍵那一份錄製檔的 SHA-256(錄製當下綁定內容)。暫存目錄
++    裡的其他項目不看、不記。呼叫成功卻沒讀到錄製檔時照記待驗收(沒有檔):第一次成功錄製遺失。"""
++    problems = [x for x in (snapshot.problem,) if x]
+     reply = done.reply
+     if not (reply.ok and reply.mode == "live"):
+         status = r.FAILED
+         problems.append(reply.problem or reply.outcome)
+-    elif reply.key != started.expected_key or [n for n, _ in files] != [
+-            f"{started.expected_key}.json"]:
+-        status = r.REJECTED  # 呼叫成功但錄到的不是恰好一份預期的錄製
+-        problems.append("錄製目錄不是恰好一份預期鍵的錄製")
++    elif reply.key != started.expected_key:
++        status = r.REJECTED  # 呼叫成功但錄到的不是預期鍵(提示或模型對不上),內容本身不能入庫
++        problems.append("錄製鍵跟預期鍵不符")
+     else:
+         status = r.PENDING
+     return replace(started, finished_at=_now(), outcome=reply.outcome, recording_key=reply.key,
+-                   list_nanousd=reply.list_nanousd, status=status, files=files,
++                   list_nanousd=reply.list_nanousd, status=status, files=snapshot.files,
+                    problems=tuple(problems))
+ 
+ 
+ def _record(args: argparse.Namespace, io: _Io) -> int:
+     """即時錄製一個種子:持鎖,預檢全過才記嘗試、用同一個閘道送出一次、記結果與錄製內容雜湊。"""
+     seed, sequence = _attempt_for(args.demo_id)
+     if args.batch_id is None or r.batch_seed(args.batch_id) != seed:
+         raise Refused(f"即時錄製要帶這個種子的批次編號 {r.BATCH_SHAPE}:{args.batch_id!r}")
+     if not r.live_recording_requested(io.environ):
+         raise Refused("即時錄製要使用者在環境明確設 RTB_MODEL_LIVE=1 與 RTB_MODEL_RECORD=1;"
+                       "缺錄製不會自動改走即時")
+-    folder = _fresh(args.recordings_dir)
+     with _locked(io.root, f"record {args.demo_id}"):
+         manifest = _manifest_for(seed, sequence, io.root)
+         prepared = prepare(seed)
+         gate = p.gate_problem(prepared.prompt_bytes)
+         if gate is not None:
+             raise Refused(f"拒跑:{gate}")
+-        config = rmm.GateConfig(io.environ, args.demo_id, args.ledger, folder, args.batch_id)
++        if args.recordings_dir is None:
++            raise Refused("即時錄製要明寫 --recordings-dir,給一個持久的全新空目錄"
++                          "(不在入庫目錄底下)")
++        config = rmm.GateConfig(io.environ, args.demo_id, args.ledger, args.recordings_dir,
++                                args.batch_id)
+         check = _gate_ready(config, io)
++        _ledger_clean(check, manifest, seed)
++        folder = _fresh(args.recordings_dir)  # 預檢都過了才建(0700)
+         model = r.model_of(io.environ)
+-        started = r.Attempt(seed, sequence, args.demo_id, args.batch_id, model,
+-                            r.expected_key(p.SYSTEM_PROMPT, prepared.table, model), _now(), None,
+-                            None, None, 0, r.CALLING, str(folder.resolve()))
+-        _save(io.root, _with(manifest, started))  # 先記再送:行程中斷也不會重用這個序號
+-        done = run(prepared, gate_ask(config, io.notify, gate=check.gate), model=model)
+-        finished = _finished(started, done, folder)
+-        _save(io.root, _with(_load(io.root) or manifest, finished))
+-    lines = [f"種子 {seed} 第 {sequence} 次({args.demo_id}):結果 {done.reply.outcome},"
++        expected = r.expected_key(p.SYSTEM_PROMPT, prepared.table, model)
++        started = r.Attempt(seed, sequence, args.demo_id, args.batch_id, model, expected, _now(),
++                            None, None, None, 0, r.CALLING, r.canonical_dir(folder))
++        _save(io.root, _with(_manifest_for(seed, sequence, io.root), started))  # 先記再送
++        snapshot = _Snapshot(gate_ask(config, io.notify, gate=check.gate), folder, expected)
++        done = run(prepared, snapshot, model=model)
++        finished = _finished(started, done, snapshot)
++        _save(io.root, _with(_still_mine(io.root, started), finished))
++    return _recorded(finished, done, folder, io)
++
++
++def _recorded(finished: r.Attempt, done: SeedRun, folder: Path, io: _Io) -> int:
++    seed, sequence = finished.seed, finished.sequence
++    extra = r.other_entries(folder, finished.expected_key)
++    lines = [f"種子 {seed} 第 {sequence} 次({finished.demo_id}):結果 {done.reply.outcome},"
+              f"狀態 {finished.status};估算花費(原價)"
+              f"{done.reply.list_nanousd / 10**9:.6f} 美元"]
+-    if finished.status == r.PENDING:
+-        lines.append(f"下一步:--check-in --demo-id {args.demo_id} --recordings-dir "
+-                     f"{shlex.quote(started.staging_dir)}")
++    if extra:
++        lines.append(f"提醒:暫存目錄還有 {extra} 個別的項目,不記進清單、判定時忽略")
++    if finished.status == r.PENDING and finished.files:
++        lines.append(f"下一步:--check-in --demo-id {finished.demo_id} --recordings-dir "
++                     f"{shlex.quote(finished.staging_dir)}")
++    elif finished.status == r.PENDING:
++        lines.append(LOST.format(seed=seed, demo=finished.demo_id))
+     else:
+         lines.append(f"不入庫、不算撤除判斷;重錄用 {r.demo_id_of(seed, sequence + 1)}(新目錄)")
+     print("\n".join(lines), file=io.out)
+-    return EXIT_OK if finished.status == r.PENDING else EXIT_FAILED
++    return EXIT_OK if finished.status == r.PENDING and finished.files else EXIT_FAILED
++
++
++def _still_mine(root: Path, started: r.Attempt) -> r.Manifest:
++    """收尾前重讀清單:同一個展示編號還是自己記的那筆(開始時間與暫存目錄都對)才准寫結果。"""
++    manifest = _load(root)
++    mine = next((a for a in (manifest.attempts if manifest else ())
++                 if a.demo_id == started.demo_id), None)
++    if manifest is None or mine is None or (mine.started_at, mine.staging_dir, mine.status) != (
++            started.started_at, started.staging_dir, r.CALLING):
++        raise Refused(f"批次清單裡 {started.demo_id} 已經不是這個行程記的那筆:不覆蓋,請人工查")
++    return manifest
+ 
+ 
+ def _move_steps(root: Path, attempt: r.Attempt) -> list[str]:
+     """判定通過後給協調者手動搬的指令(程式不寫入庫目錄的錄製檔,比照 Phase 13/14)。"""
+     target = shlex.quote(_shown(root / str(attempt.seed)))
+     staging = Path(attempt.staging_dir)
+     return ["下一步(協調者手動搬;程式不寫入庫目錄的錄製檔):", f"  mkdir {target}",
+             *(f"  cp {shlex.quote(str(staging / name))} {target}/" for name, _ in attempt.files),
+             "  PYTHONPATH=src .venv/bin/python -m rtb.eval.rule_mining_eval --verify"]
+ 
+ 
+-def _bound(staging: Path, attempt: r.Attempt) -> None:
+-    """驗收只收錄製當下記的那個目錄、同樣的檔與雜湊;對不上是參數錯,拒絕、不改清單。"""
+-    if staging.resolve() != Path(attempt.staging_dir):
++def _same_dir(staging: Path, attempt: r.Attempt) -> None:
++    if r.canonical_dir(staging) != attempt.staging_dir:
+         raise Refused(f"--recordings-dir 不是 {attempt.demo_id} 錄製時記的目錄 "
+                       f"{attempt.staging_dir}:清單沒動")
+-    if not staging.is_dir():
+-        raise Refused(f"找不到 {attempt.demo_id} 的錄製目錄 {staging}:清單沒動")
++
++
++def _snapshot_of(staging: Path, attempt: r.Attempt) -> bytes:
++    """判定的快照(代碼審 r2 資安 N1):目錄本身要是錄製時記的那個真目錄(不收符號連結),預期錄製檔用
++    lstat 確認是一般檔、只讀一次進記憶體、雜湊等於清單記的。之後只在這份快照上判定;目錄層級的問題
++    (連結、缺檔、型別不對、讀取途中被改、雜湊不符)一律是參數錯,拒絕、清單不動。"""
++    _same_dir(staging, attempt)
++    try:
++        found = os.lstat(staging)
++    except FileNotFoundError:
++        found = None
++    if found is None or not attempt.files:
++        raise Refused(LOST.format(seed=attempt.seed, demo=attempt.demo_id))
++    if not stat.S_ISDIR(found.st_mode):
++        raise Refused(f"錄製目錄 {staging} 不是真的目錄(不收符號連結):清單沒動")
++    [(name, sha)] = attempt.files
+     try:
+-        found = r.file_hashes(staging)
++        data = r.read_regular(staging / name)
+     except r.Unhashable as bad:
+         raise Refused(f"錄製目錄 {staging}:{bad};清單沒動") from bad
+-    if found != attempt.files:
+-        raise Refused(f"錄製目錄 {staging} 的檔案或 SHA-256 跟錄製當下記的不符:清單沒動")
++    if data is None:
++        raise Refused(LOST.format(seed=attempt.seed, demo=attempt.demo_id))
++    if r.sha256_of(data) != sha:
++        raise Refused(f"錄製目錄 {staging} 的錄製檔 SHA-256 跟錄製當下記的不符:清單沒動")
++    return data
+ 
+ 
+ def _check_in(args: argparse.Namespace, io: _Io) -> int:
+     """驗收判定一次嘗試(只重播,不搬檔):`--check-in` 且通過就把那次標成可入庫、印手動搬的指令;
+     `--verify --demo-id` 只判、不寫。"""
+     _attempt_for(args.demo_id)
+     staging = args.recordings_dir
+     if staging is None:
+         raise Refused("驗收要帶這次嘗試的 --recordings-dir(錄製時記的那個目錄)")
+     with _locked(io.root, f"check-in {args.demo_id}") if args.check_in else nullcontext():
+         return _judge(args, io, staging)
+ 
+ 
+-def _already_accepted(attempt: r.Attempt, io: _Io) -> int:
+-    """重跑判定:已判定可入庫不算錯;入庫目錄內容等於清單記錄就是已完成,否則再印一次搬的指令。"""
+-    done = not _committed_problems(io.root / str(attempt.seed), attempt)
+-    lines = [f"{attempt.demo_id} 已判定可入庫" + (",入庫目錄內容也等於清單記錄:已完成"
+-                                                  if done else "")]
+-    print("\n".join(lines if done else [*lines, *_move_steps(io.root, attempt)]), file=io.out)
+-    return EXIT_OK
++def _already_accepted(attempt: r.Attempt, args: argparse.Namespace, io: _Io) -> int:
++    """重跑判定:入庫目錄內容等於清單記錄就是已完成;還沒搬就再印一次搬的指令(`--check-in` 回 0,
++    `--verify` 回 1:入庫目錄缺檔或內容不符都不算過)。暫存錄製已不見又還沒搬,明講遺失。"""
++    _same_dir(args.recordings_dir, attempt)
++    problems = _committed_problems(io.root / str(attempt.seed), attempt)
++    if not problems:
++        print(f"{attempt.demo_id} 已判定可入庫,入庫目錄內容也等於清單記錄:已完成", file=io.out)
++        return EXIT_OK
++    if _lost(attempt):
++        raise Refused(LOST.format(seed=attempt.seed, demo=attempt.demo_id))
++    lines = [f"{attempt.demo_id} 已判定可入庫,但入庫目錄還沒好:", *(f"- {x}" for x in problems),
++             *_move_steps(io.root, attempt)]
++    print("\n".join(lines), file=io.out)
++    return EXIT_FAILED if args.verify else EXIT_OK
+ 
+ 
+ def _judge(args: argparse.Namespace, io: _Io, staging: Path) -> int:
+     manifest = _load(io.root)
+     attempt = next((a for a in (manifest.attempts if manifest else ())
+                     if a.demo_id == args.demo_id), None)
+     if manifest is None or attempt is None:
+         raise Refused(f"批次清單沒有 {args.demo_id} 這次嘗試(要先用即時錄製記下)")
+     if attempt.status == r.ACCEPTED:
+-        return _already_accepted(attempt, io)
++        return _already_accepted(attempt, args, io)
+     if attempt.status != r.PENDING:
+         raise Refused(f"{args.demo_id} 的狀態是{attempt.status}:只有結果 ok、待驗收的嘗試能判定")
+     if r.accepted(manifest, attempt.seed) is not None:
+         raise Refused(f"種子 {attempt.seed} 已判定可入庫:每種子只准第一次成功錄製入庫")
+-    _bound(staging, attempt)
+-    prepared = prepare(attempt.seed)
+-    expected = r.expected_key(p.SYSTEM_PROMPT, prepared.table, attempt.model)
+-    problems = r.batch_problems(staging, attempt, expected)
+-    done = _replay(prepared, staging, attempt, args, io)
+-    if done.verification is None:
+-        if not problems:  # 內容跟錄製當下一致卻讀不到:是重播環境的問題,不是錄製的
+-            raise Refused(f"重播讀不到錄製({done.reply.outcome}),但內容跟清單記的一致:"
+-                          "多半是重播環境的問題,清單沒動")
+-        problems.append(f"重播沒有讀到可用的錄製({done.reply.outcome})")
++    data = _snapshot_of(staging, attempt)
++    extra = r.other_entries(staging, attempt.expected_key)
++    with tempfile.TemporaryDirectory(prefix="rule-mining-judge-") as private:  # 0700
++        snapshot = Path(private) / attempt.files[0][0]
++        snapshot.write_bytes(data)
++        problems, done = _judge_snapshot(snapshot.parent, attempt, args, io)
+     lines = [f"種子 {attempt.seed}({args.demo_id})驗收判定:{'沒過' if problems else '通過'}",
+              *(f"- {problem}" for problem in problems)]
++    if extra:
++        lines.append(f"- 提醒:暫存目錄還有 {extra} 個別的項目,已忽略(判定只看清單記的那份錄製)")
+     if done.verification is not None:
+         ver = done.verification
+         lines.append(f"- AI 有效 {ver.n} 條、無效提交 {ver.invalid_count} 筆、核對失敗 "
+                      f"{ver.mismatches} 筆")
+     if args.check_in and problems:
+         _save(io.root, _with(manifest, replace(attempt, status=r.REJECTED,
+                                                problems=tuple(problems))))
+         lines.append("錄製內容沒過驗收:這次記成驗收沒過,同種子用下一個序號重錄")
+     elif args.check_in:
+         _save(io.root, _with(manifest, replace(attempt, status=r.ACCEPTED)))
+         lines += _move_steps(io.root, attempt)
+     print("\n".join(lines), file=io.out)
+     return EXIT_FAILED if problems else EXIT_OK
+ 
+ 
++def _judge_snapshot(folder: Path, attempt: r.Attempt, args: argparse.Namespace,
++                    io: _Io) -> tuple[list[str], SeedRun]:
++    """只在行程自己的 0700 快照目錄上做內容驗收與重播;內容一致卻讀不到是重播環境的問題,拒絕。"""
++    prepared = prepare(attempt.seed)
++    expected = r.expected_key(p.SYSTEM_PROMPT, prepared.table, attempt.model)
++    problems = r.batch_problems(folder, attempt, expected)
++    done = _replay(prepared, folder, attempt, args, io)
++    if done.verification is None:
++        if not problems:
++            raise Refused(f"重播讀不到錄製({done.reply.outcome}),但內容跟清單記的一致:"
++                          "多半是重播環境的問題,清單沒動")
++        problems.append(f"重播沒有讀到可用的錄製({done.reply.outcome})")
++    return problems, done
++
++
+ def command(argv: list[str] | None = None, *, out: TextIO | None = None,
+             err: TextIO | None = None, environ: Mapping[str, str] | None = None,
+             root: Path | None = None, opener: rmm.GateOpener | None = None) -> int:
+     """命令列本體。root(入庫目錄)與 opener(即時錄製用的閘道)只給測試換;產品碼用預設。"""
+     args = _parse(argv)
+     io = _Io(out or sys.stdout, err or sys.stderr, os.environ if environ is None else environ,
+              root or r.default_root(), opener)
+     try:
+         return _dispatch(args, io)
+     except (Refused, PromptRefused) as refused:
+diff --git a/src/rtb/eval/rule_mining_recordings.py b/src/rtb/eval/rule_mining_recordings.py
+index fa85cb7..c78ac6d 100644
+--- a/src/rtb/eval/rule_mining_recordings.py
++++ b/src/rtb/eval/rule_mining_recordings.py
+@@ -19,21 +19,23 @@
+   錄製鍵集合恰等於依當次資料/提示/模型/輸出上限重算的預期集合(一個鍵),每份 `caller=rule_mining`、
+   `outcome=ok`、模型與批次跟清單相符;重播找不到錄製 0 筆由命令列另查。
+ 
+ 這支是**歷史驗證**的一半:停用模型探勘或回退增量 2/3 時,送出路徑(分析端窄入口與評估端的探勘
+ 執行器)撤掉,這支照留,舊錄製的鍵仍能重算、舊批仍能驗收、舊帳仍計上限([S1517]);所以它只經模型
+ 用戶端門面取錄製鍵、錄製檔驗收與呼叫者列舉,不匯入模型閘道或任何送出入口,也不寫任何檔。
+ """
+ 
+ import hashlib
+ import json
++import os
+ import re
++import stat
+ import unicodedata
+ from collections.abc import Mapping
+ from dataclasses import asdict, dataclass
+ from datetime import datetime, timedelta
+ from pathlib import Path
+ from typing import Any
+ 
+ from rtb import modelclient as mc
+ from rtb.eval import rule_mining_history as h
+ from rtb.eval import rule_mining_prompt as p
+@@ -262,24 +264,29 @@ def _attempt_problems(seed: int, a: Attempt) -> list[str]:
+     problems = []
+     if a.demo_id != demo_id_of(seed, a.sequence):
+         problems.append(f"{seed}:展示編號 {a.demo_id} 跟序號 {a.sequence} 不符")
+     if batch_seed(a.batch_id) != seed:
+         problems.append(f"{seed}:批次 {a.batch_id} 不是 {BATCH_SHAPE}")
+     ok = a.outcome == mc.Outcome.OK.value
+     if a.status in (PENDING, ACCEPTED, REJECTED) and not ok:
+         problems.append(f"{seed}:第 {a.sequence} 次結果是 {a.outcome},不能是{a.status}")
+     if a.status == FAILED and ok:
+         problems.append(f"{seed}:第 {a.sequence} 次結果是 ok,不能記呼叫失敗")
++    names = [name for name, _ in a.files]
++    expected_file = f"{a.expected_key}.json"
++    # 待驗收可以沒有檔(收尾時錄製檔已不見:第一次成功錄製遺失,判定與再錄都會明講要換評估版本)
+     if a.status in (PENDING, ACCEPTED) and (
+             a.recording_key != a.expected_key
+-            or [name for name, _ in a.files] != [f"{a.expected_key}.json"]):
++            or names not in ([expected_file], [] if a.status == PENDING else [expected_file])):
+         problems.append(f"{seed}:第 {a.sequence} 次的錄製鍵或檔案跟預期鍵不符")
++    if names not in ([], [expected_file]):  # 清單只記預期鍵那一份錄製檔(代碼審 r2)
++        problems.append(f"{seed}:第 {a.sequence} 次記了預期鍵以外的檔")
+     return problems
+ 
+ 
+ def _seed_problems(seed: int, attempts: tuple[Attempt, ...]) -> list[str]:
+     problems = []
+     if [a.sequence for a in attempts] != list(range(1, len(attempts) + 1)):
+         problems.append(f"{seed}:序號要從 1 起逐次加一、不重用")
+     for attempt in attempts:
+         problems += _attempt_problems(seed, attempt)
+     done = [a for a in attempts if a.status == ACCEPTED]
+@@ -307,35 +314,132 @@ def manifest_problems(manifest: Manifest) -> list[str]:
+     stray = sorted({a.seed for a in manifest.attempts} - set(v.SEEDS))
+     if stray:
+         problems.append(f"批次清單有固定種子以外的嘗試:{stray}")
+     for seed in v.SEEDS:
+         problems += _seed_problems(seed, attempts_of(manifest, seed))
+     return problems
+ 
+ 
+ # ---- 目錄內容與一批的驗收 ----
+ class Unhashable(ValueError):
+-    """目錄裡有一般檔以外的東西(子目錄、符號連結…),算不出內容雜湊。"""
++    """目錄或檔不是一般的目錄/一般檔(符號連結、子目錄…),或讀取途中被改:算不出可靠的內容雜湊。"""
+ 
+ 
+ def file_hashes(directory: Path) -> tuple[tuple[str, str], ...]:
+-    """目錄裡每個一般檔的 (檔名, SHA-256),依檔名排序;目錄不存在回空。"""
++    """(入庫目錄用)目錄裡每個一般檔的 (檔名, SHA-256),依檔名排序;目錄不存在回空。入庫目錄要恰等於
++    清單記的,所以任何非一般檔都丟 `Unhashable`。"""
+     if not directory.is_dir():
+         return ()
+     found = []
+     for path in sorted(directory.iterdir()):
+-        if path.is_symlink() or not path.is_file():
++        data = read_regular(path)
++        if data is None:
+             raise Unhashable(f"{path.name} 不是一般檔")
+-        found.append((path.name, hashlib.sha256(path.read_bytes()).hexdigest()))
++        found.append((path.name, sha256_of(data)))
+     return tuple(found)
+ 
+ 
++def sha256_of(data: bytes) -> str:
++    return hashlib.sha256(data).hexdigest()
++
++
++def read_regular(path: Path) -> bytes | None:
++    """讀一個一般檔的全部位元組(只開一次檔):不存在回 None;符號連結、不是一般檔、讀取途中大小或
++    修改時間變了,丟 `Unhashable`。判定與收尾都只用這一次讀到的位元組算雜湊、做快照(代碼審 r2)。"""
++    try:
++        before = os.lstat(path)
++    except FileNotFoundError:
++        return None
++    if not stat.S_ISREG(before.st_mode):
++        raise Unhashable(f"{path.name} 不是一般檔(符號連結或目錄)")
++    try:
++        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
++    except FileNotFoundError:
++        return None
++    except OSError as bad:
++        raise Unhashable(f"{path.name} 打不開({type(bad).__name__})") from bad
++    with os.fdopen(fd, "rb") as handle:
++        opened = os.fstat(handle.fileno())
++        data = handle.read()
++        after = os.fstat(handle.fileno())
++    if ((opened.st_ino, opened.st_size, opened.st_mtime_ns) != (before.st_ino, before.st_size,
++                                                                 before.st_mtime_ns)
++            or (after.st_size, after.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns)
++            or len(data) != opened.st_size):
++        raise Unhashable(f"{path.name} 讀取途中被改")
++    return data
++
++
++def canonical_dir(folder: Path) -> str:
++    """暫存錄製目錄的正規寫法:上層目錄解開(macOS 的 /tmp 之類),最後一段照字面;最後一段本身是符號
++    連結的,比對時另外用 lstat 拒絕。"""
++    absolute = Path(os.path.abspath(folder))
++    return str(absolute.parent.resolve() / absolute.name)
++
++
++def recorded_file(folder: Path, expected: str) -> tuple[bytes | None, tuple[tuple[str, str], ...]]:
++    """暫存目錄裡預期鍵那一份錄製檔:讀一次,回(位元組, 清單要記的檔與雜湊)。其他項目一律不看、
++    不記(代碼審 r2:.DS_Store 之類的雜檔不能讓清單寫進自己讀不懂的值)。"""
++    name = f"{expected}.json"
++    data = read_regular(folder / name)
++    return data, (() if data is None else ((name, sha256_of(data)),))
++
++
++def usable_recording(data: bytes | None, attempt: Attempt) -> object | None:
++    """位元組是不是一份可用的錄製:讀得懂、預期鍵、rule_mining、ok、模型與批次跟這次嘗試相符。"""
++    if data is None:
++        return None
++    try:
++        recording = mc.validated(Path(f"{attempt.expected_key}.json"), json.loads(data))
++    except (mc.NoRecording, ValueError):
++        return None
++    wanted = (attempt.expected_key, mc.Caller.RULE_MINING.value, mc.Outcome.OK.value,
++              attempt.model, attempt.batch_id)
++    got = (recording.key, recording.caller, recording.outcome, recording.model,
++           recording.batch_id)
++    return recording if got == wanted else None
++
++
++def other_entries(folder: Path, expected: str) -> int:
++    """暫存目錄裡預期錄製檔以外的項目數(只給提醒用,不影響結果)。"""
++    try:
++        return sum(1 for entry in folder.iterdir() if entry.name != f"{expected}.json")
++    except OSError:
++        return 0
++
++
++class LedgerProblem(ValueError):
++    """花費帳讀不了(壞檔、表沒建齊、SQLite 錯誤):無法確認展示編號沒用過。"""
++
++
++def ledger_demo_ids(ledger: Path) -> tuple[str, ...]:
++    """唯讀查一本花費帳裡規則模式探索用過的展示編號(用花費帳既有的唯讀開法,不自己開 SQL);帳本
++    不存在回空,讀不了丟 `LedgerProblem`。跨 checkout 唯一的共同紀錄就是帳號家目錄那一本(代碼審 r2
++    資安 N3)。"""
++    if not ledger.exists():
++        return ()
++    try:
++        reader = mc.ModelLedgerView(ledger)
++        try:
++            with reader.read_transaction():
++                calls = reader.calls_between("0000", "9999")
++        finally:
++            reader.close()
++    except FileNotFoundError:
++        return ()
++    except Exception as bad:  # 唯讀開法的各類錯誤(含表沒建齊)一律當讀不了
++        raise LedgerProblem(type(bad).__name__) from bad
++    mining = mc.Caller.RULE_MINING.value
++    used = {c.demo_id for c in calls if c.caller == mining and c.demo_id}
++    return tuple(sorted(used))
++
++
+ def batch_problems(directory: Path, attempt: Attempt, expected: str) -> list[str]:
+     """一個種子一批的錄製內容能不能入庫(或入庫後仍然成立)。目錄與雜湊跟清單的核對、重播找不到
+     錄製,由命令列另查。"""
+     problems = mc.batch_file_problems(directory, BATCH_PATTERN, BATCH_SHAPE)
+     if not directory.is_dir():
+         return problems
+     found: dict[str, object] = {}
+     for path, data in mc.recording_files(directory):
+         try:
+             recording = mc.validated(path, data)
+diff --git a/src/rtb/modelclient.py b/src/rtb/modelclient.py
+index 3c52905..7741d03 100644
+--- a/src/rtb/modelclient.py
++++ b/src/rtb/modelclient.py
+@@ -73,20 +73,21 @@ from rtb.modelcore import NoRecording as NoRecording
+ from rtb.modelcore import Outcome as Outcome
+ from rtb.modelcore import Overrun as Overrun
+ from rtb.modelcore import QuotaExhausted as QuotaExhausted
+ from rtb.modelcore import RecordingConflict as RecordingConflict
+ from rtb.modelcore import RecordingWriteFailed as RecordingWriteFailed
+ from rtb.modelcore import SettlementState as SettlementState
+ from rtb.modelcore import Source as Source
+ from rtb.modelcore import TransientServiceError as TransientServiceError
+ from rtb.modelcore import UnknownModel as UnknownModel
+ from rtb.modelcore import UnreadableModelResponse as UnreadableModelResponse
++from rtb.modelledger_view import ModelLedgerView as ModelLedgerView  # 唯讀開法:評估查用過的展示編號
+ from rtb.modelledger_view import ledger_path
+ from rtb.modelrecording import MixedRecordingsDir as MixedRecordingsDir
+ from rtb.modelrecording import Placeholders as Placeholders
+ from rtb.modelrecording import batch_file_problems as batch_file_problems  # 入庫前驗收(共用)
+ from rtb.modelrecording import check_one_batch as check_one_batch
+ from rtb.modelrecording import check_recordings_dir as check_recordings_dir
+ from rtb.modelrecording import default_recordings_dir as default_recordings_dir  # 入庫根只算這一處
+ from rtb.modelrecording import recording_files as recording_files
+ from rtb.modelrecording import recording_key as recording_key
+ from rtb.modelrecording import validated as validated  # 錄製檔的共用驗證(評估批次驗收用)
+diff --git a/tests/eval/test_rule_mining_cli.py b/tests/eval/test_rule_mining_cli.py
+index baacbe9..b7258d9 100644
+--- a/tests/eval/test_rule_mining_cli.py
++++ b/tests/eval/test_rule_mining_cli.py
+@@ -5,24 +5,26 @@
+ 代碼審 r1 後的流程:錄製當下把暫存目錄、錄製鍵與檔案雜湊綁進批次清單 → `--check-in` 只做驗收判定、
+ 不搬檔 → 協調者照印出的指令手動搬 → `--verify` 核入庫內容等於清單記的雜湊。
+ 不呼叫真的 claude、不設行程環境的即時開關、不碰 ~/.rtb:即時一律是行程內的假後端,入庫目錄、錄製目錄
+ 與帳本都在 tmp_path;重播走真的模型閘道(錄製模式只讀錄製),PATH 上放一支會留記號的假 claude,
+ 斷言它沒被執行。
+ 
+ 入庫錄製由協調者用真模型錄:`test_committed_rule_mining_recordings_replay_all_three_seeds`
+ 在錄製入庫前是紅的(不跳過,免得忘了錄)。
+ """
+ 
++import dataclasses
+ import io
+ import json
+ import os
+ import shutil
++import stat
+ import subprocess
+ import sys
+ from pathlib import Path
+ 
+ import pytest
+ 
+ from rtb import modelclient as mc
+ from rtb import modelcore as core
+ from rtb.analyzer import modelgate
+ from rtb.eval import rule_mining_eval as rme
+@@ -212,73 +214,87 @@ def test_rule_mining_recordings_verify_before_check_in(tmp_path, prepared):  # n
+     assert saved.seeds == tuple((s, rr.h.EXPECTED_DATA_SHA256[s]) for s in rv.SEEDS)
+     assert (saved.eval_version, saved.version_sha256) == (rv.EVAL_VERSION, rp.version_sha256())
+     assert [(a.demo_id, a.status) for a in saved.attempts] == [
+         (demo(15001, 1), rr.FAILED), (demo(15001, 2), rr.ACCEPTED),
+         (demo(15002, 1), rr.ACCEPTED), (demo(15003, 1), rr.ACCEPTED)]
+     assert rr.manifest_problems(saved) == []
+     _committed_content_is_bound_to_the_manifest(tmp_path, root, prepared)
+     _manifest_rules_are_machine_checked(tmp_path, root)
+ 
+ 
+-def _tampered_or_wrong_directories_are_refused(tmp_path, root, prepared, staging):
+-    """代碼審 r1 正確性 1、資安 F1/F3:判定只收錄製時記的那個目錄、同樣的檔與雜湊;打錯目錄、
+-    目錄不見、改過內容(多一份、改呼叫者、改回覆文字、多一個檔)都是參數錯,拒絕、清單不動,
+-    不會把第一次成功的錄製記成驗收沒過。"""
++def _tampered_or_wrong_directories_are_refused(tmp_path, root, prepared, staging):  # noqa: PLR0915
++    """代碼審 r1 正確性 1、資安 F1/F3;r2 資安 N1:判定只收錄製時記的那個真目錄,只看清單記的那份
++    錄製檔、雜湊要相同;打錯目錄、指向它的符號連結、目錄或錄製檔換成符號連結、改過內容、檔不見都是參數錯,
++    拒絕、清單不動;暫存目錄裡的雜檔(多一份別的鍵、筆記檔)忽略,不影響判定。"""
+     before = (root / rr.MANIFEST_NAME).read_text(encoding="utf-8")
+     [original] = staging.iterdir()
+     data = json.loads(original.read_text(encoding="utf-8"))
+     copy = tmp_path / "copy-of-staging"
+     shutil.copytree(staging, copy)
++    link = tmp_path / "link-to-staging"
++    link.symlink_to(staging, target_is_directory=True)
+     for flag in ("--check-in", "--verify"):
+-        for folder, needle in ((tmp_path / "typo-dir", "錄製時記的目錄"), (copy, "錄製時記的目錄"),
+-                               (tmp_path / "empty", "錄製時記的目錄")):
++        for folder in (tmp_path / "typo-dir", copy, tmp_path / "empty", link):
+             code, _, err = check_in(tmp_path, root, 15001, 2, folder, flag=flag)
+-            assert code == rme.EXIT_REFUSED and needle in err, err
+-    other_key = rr.expected_key(rp.SYSTEM_PROMPT, prepared[15001].table + "\n")
++            assert code == rme.EXIT_REFUSED and "錄製時記的目錄" in err, err
+     backup = original.read_bytes()
+-    edits = [
+-        lambda: (staging / f"{other_key}.json").write_text(
+-            json.dumps({**data, "key": other_key}), encoding="utf-8"),
+-        lambda: original.write_text(json.dumps({**data, "caller": "eval_candidate"}),
+-                                    encoding="utf-8"),
+-        lambda: original.write_text(json.dumps({**data, "text": data["text"].replace(
+-            '"照表抄"', '"改過"')}), encoding="utf-8"),
+-        lambda: (staging / "notes.txt").write_text("x", encoding="utf-8"),
+-        lambda: original.unlink(),
++    decoy = tmp_path / "decoy.json"
++    decoy.write_bytes(backup)
++    refused = [
++        (lambda: original.write_text(json.dumps({**data, "caller": "eval_candidate"}),
++                                     encoding="utf-8"), "SHA-256"),
++        (lambda: original.write_text(json.dumps({**data, "text": data["text"].replace(
++            '"照表抄"', '"改過"')}), encoding="utf-8"), "SHA-256"),
++        (lambda: (original.unlink(), original.symlink_to(decoy)), "不是一般檔"),
++        (lambda: original.unlink(), "已遺失"),
+     ]
+-    for edit in edits:
++    for edit, needle in refused:
+         edit()
+         for flag in ("--check-in", "--verify"):
+             code, _, err = check_in(tmp_path, root, 15001, 2, staging, flag=flag)
+-            assert code == rme.EXIT_REFUSED and "清單沒動" in err, err
+-        for extra in staging.iterdir():
+-            extra.unlink()
++            assert code == rme.EXIT_REFUSED and needle in err, (needle, err)
++        original.unlink(missing_ok=True)
+         original.write_bytes(backup)
+-    # 錄製時記的目錄整個不見:找不到,拒絕
+-    moved = tmp_path / "moved-away"
+-    staging.rename(moved)
+-    code, _, err = check_in(tmp_path, root, 15001, 2, staging)
+-    assert code == rme.EXIT_REFUSED and "找不到" in err, err
+-    moved.rename(staging)
++    # 暫存目錄本身被換成指向真目錄的符號連結(路徑字面一樣):不收
++    real = tmp_path / "real-staging"
++    staging.rename(real)
++    staging.symlink_to(real, target_is_directory=True)
++    code, _, err = check_in(tmp_path, root, 15001, 2, staging, flag="--check-in")
++    assert code == rme.EXIT_REFUSED and "不收符號連結" in err, err
++    staging.unlink()
++    real.rename(staging)
++    # 雜檔忽略:多一份別的鍵、一個筆記檔、一個子目錄,只判清單記的那份,照樣通過(只判不寫)
++    other_key = rr.expected_key(rp.SYSTEM_PROMPT, prepared[15001].table + "\n")
++    (staging / f"{other_key}.json").write_text(json.dumps({**data, "key": other_key}),
++                                              encoding="utf-8")
++    (staging / "notes.txt").write_text("x", encoding="utf-8")
++    (staging / "sub").mkdir()
++    code, out, err = check_in(tmp_path, root, 15001, 2, staging, flag="--verify")
++    assert code == rme.EXIT_OK and "3 個別的項目,已忽略" in out, out + err
++    for extra in (staging / f"{other_key}.json", staging / "notes.txt"):
++        extra.unlink()
++    (staging / "sub").rmdir()
+     assert (root / rr.MANIFEST_NAME).read_text(encoding="utf-8") == before
+     assert attempt(root, 15001, 2).status == rr.PENDING
+ 
+ 
+ def _committed_content_is_bound_to_the_manifest(tmp_path, root, prepared):
+     """代碼審 r1 正確性 3/4、資安 F3:入庫目錄的檔要恰等於清單記的 SHA-256;同版本另錄一份替換、
+     改回覆文字、多放檔、殘留鎖檔或沒有判定紀錄的種子目錄,--verify 都沒過;沒過的批次不進比較與
+     撤除判斷(AI 欄寫驗收沒過、未量)。"""
+     [committed] = (root / "15002").iterdir()
+     backup = committed.read_bytes()
+     data = json.loads(backup)
+     other_root = tmp_path / "other-root"
+-    replacement = record_judge_move(tmp_path, other_root, prepared, 15002,
++    elsewhere = tmp_path / "another-account"  # 另一本花費帳:同一本會被跨 checkout 的檢查擋下
++    elsewhere.mkdir()
++    replacement = record_judge_move(elsewhere, other_root, prepared, 15002,
+                                     honest_answer(prepared[15002], count=6))
+     [same_key] = replacement.iterdir()
+     assert same_key.name == committed.name  # 同版本、同種子、同模型:錄製鍵一樣,只能靠雜湊分辨
+     edits = [
+         (lambda: shutil.copyfile(same_key, committed), "SHA-256 跟批次清單記的不符"),
+         (lambda: committed.write_text(json.dumps({**data, "text": data["text"].replace(
+             '"照表抄"', '"改過"')}), encoding="utf-8"), "SHA-256 跟批次清單記的不符"),
+         (lambda: (root / "15002" / "notes.txt").write_text("x", encoding="utf-8"),
+          "SHA-256 跟批次清單記的不符"),
+         (lambda: (root / rr.LOCK_NAME).write_text("{}", encoding="utf-8"),
+@@ -534,47 +550,61 @@ def test_rule_mining_recording_is_serialized_and_interruptions_are_recorded(tmp_
+     assert not (root / rr.LOCK_NAME).exists()  # 結束就放掉鎖
+     assert [a.demo_id for a in manifest(root).attempts] == [demo(15001, 1)]
+ 
+     # 送出途中被中斷:停在「呼叫中」;同種子不准再錄,要先用 --abandon 明確判成呼叫失敗
+     with pytest.raises(KeyboardInterrupt):
+         record(tmp_path, root, 15002, 1, None, response=_interrupt)
+     assert attempt_status(root, demo(15002, 1)) == rr.CALLING
+     assert not (root / rr.LOCK_NAME).exists()
+     code, _, err, _, opener = record(tmp_path, root, 15002, 2, answer)
+     assert code == rme.EXIT_REFUSED and "--abandon" in err and opener.backend.calls == []
+-    # 硬殺留下的鎖:主人還在就不准清;主人不在了 --abandon 清掉並記錄
+-    (root / rr.LOCK_NAME).write_text(json.dumps({"pid": os.getpid(), "what": "x",
+-                                                  "since": "t"}), encoding="utf-8")
+-    code, _, err = cli(["--abandon"], root, {})
+-    assert code == rme.EXIT_REFUSED and "還在執行" in err
+-    dead = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"],
+-                          capture_output=True, text=True, check=True).stdout.strip()
+-    (root / rr.LOCK_NAME).write_text(json.dumps({"pid": int(dead), "what": "record",
++    # 硬殺留下的鎖:主人還在(握著鎖)就不准清;主人不在了 --abandon 清掉並記錄。判斷看鎖本身、
++    # 不看 pid:記的 pid 就算還活著(被別的行程重用),沒人握著鎖就是殘留(代碼審 r2 正確性 5)
++    holder = _hold_lock(root)
++    try:
++        code, _, err = cli(["--abandon"], root, {})
++        assert code == rme.EXIT_REFUSED and "還在執行" in err
++        code, _, err, _, opener = record(tmp_path, root, 15003, 1, answer)
++        assert code == rme.EXIT_REFUSED and "--abandon" in err and opener.backend.calls == []
++    finally:
++        holder.stdin.close()
++        holder.wait(10)
++    (root / rr.LOCK_NAME).write_text(json.dumps({"pid": os.getpid(), "what": "reused pid",
+                                                   "since": "t"}), encoding="utf-8")
+-    code, _, err, _, opener = record(tmp_path, root, 15003, 1, answer)
+-    assert code == rme.EXIT_REFUSED and "--abandon" in err and opener.backend.calls == []
+     code, out, _ = cli(["--abandon", "--demo-id", demo(15002, 1)], root, {})
+     assert code == rme.EXIT_OK and "清掉殘留鎖檔" in out and not (root / rr.LOCK_NAME).exists()
+     abandoned = attempt(root, 15002, 1)
+     assert abandoned.status == rr.FAILED and "--abandon" in abandoned.problems[-1]
+     assert abandoned.finished_at is not None
+     code, *_ = record(tmp_path, root, 15002, 2, answer)
+     assert code == rme.EXIT_OK
+     code, _, err = cli(["--abandon", "--demo-id", demo(15002, 2)], root, {})
+     assert code == rme.EXIT_REFUSED and "不是「呼叫中」" in err
+     assert rr.manifest_problems(manifest(root)) == []
+ 
+ 
+ def _interrupt(_call):
+     raise KeyboardInterrupt
+ 
+ 
++def _hold_lock(root):
++    """另一個行程建好鎖並一直握著(模擬正在錄製的行程);關掉它的標準輸入就結束、鎖跟著放掉。"""
++    script = (f"import sys\nfrom pathlib import Path\nsys.path.insert(0, {str(SRC)!r})\n"
++              "from rtb.eval import rule_mining_eval as rme\n"
++              f"with rme._locked(Path({str(root)!r}), 'record elsewhere'):\n"
++              "    print('held', flush=True)\n    sys.stdin.read()\n")
++    holder = subprocess.Popen([sys.executable, "-c", script], stdin=subprocess.PIPE,
++                              stdout=subprocess.PIPE, text=True)
++    assert holder.stdout.readline().strip() == "held"
++    return holder
++
++
+ # ---- 代碼審 r1 正確性 6:預檢與送出共用同一個閘道(不在 60 秒呼叫期限裡再做一次登入檢查) ----
+ def test_rule_mining_preflight_and_send_share_one_gate(tmp_path, prepared):
+     opener = Live(tmp_path, reply("{}", input_tokens=10, output_tokens=10))
+     folder = tmp_path / "staging"
+     config = rme.rmm.GateConfig({**LIVE_ENV}, demo(15001, 1), None, folder, batch(15001))
+     check = rme.rmm.check_gate(config, open_gate=opener)
+     assert check.mode == "live" and check.login_problem is None
+ 
+     def refuse(*_args, **_kwargs):
+         raise AssertionError("送出時不該再開閘道")
+@@ -614,10 +644,257 @@ def test_rule_mining_only_content_failures_are_recorded_as_rejected(tmp_path, pr
+     broken.mkdir()
+     code, out, err = cli(["--check-in", "--demo-id", demo(15001, 2), "--recordings-dir",
+                           str(folder), "--ledger", str(broken)], root, env)
+     assert code == rme.EXIT_REFUSED and "重播環境" in err, out + err
+     assert (root / rr.MANIFEST_NAME).read_text(encoding="utf-8") == before
+     code, out, _ = check_in(tmp_path, root, 15001, 2, folder)
+     assert code == rme.EXIT_OK, out
+     move(root, 15001, 2, out)
+     assert [a.status for a in manifest(root).attempts] == [rr.REJECTED, rr.ACCEPTED]
+     assert rr.manifest_problems(manifest(root)) == []
++
++
++# ---- 代碼審 r2 ----
++def test_rule_mining_stray_files_never_break_the_manifest(tmp_path, prepared):
++    """r2 正確性 1、資安 N4:錄製途中或 --abandon 前,暫存目錄冒出 .DS_Store、子目錄之類的雜項,
++    清單只記預期鍵那一份錄製檔,照樣讀得回來,流程照走;寫得出去的清單一定讀得回來。"""
++    root = tmp_path / "committed"
++    answer = honest_answer(prepared[15001])
++    folder = tmp_path / f"staging-{root.name}-15001-1"
++
++    def answer_with_litter(_call):
++        (folder / ".DS_Store").write_bytes(b"\x00finder")
++        (folder / "sub").mkdir()
++        return reply(answer, input_tokens=10, output_tokens=10)
++
++    code, out, err, _, _ = record(tmp_path, root, 15001, 1, None, response=answer_with_litter)
++    assert code == rme.EXIT_OK and "2 個別的項目" in out, out + err
++    pending = attempt(root, 15001, 1)
++    assert pending.status == rr.PENDING and [n for n, _ in pending.files] == [
++        f"{pending.expected_key}.json"]
++    # 停在呼叫中、暫存目錄只有雜檔:--abandon 判呼叫失敗,清單照樣讀得回來
++    with pytest.raises(KeyboardInterrupt):
++        record(tmp_path, root, 15002, 1, None, response=_interrupt)
++    (tmp_path / f"staging-{root.name}-15002-1" / ".DS_Store").write_bytes(b"x")
++    code, _, _ = cli(["--abandon", "--demo-id", demo(15002, 1)], root, {})
++    assert code == rme.EXIT_OK and attempt(root, 15002, 1).files == ()
++    assert rr.manifest_problems(manifest(root)) == []
++    # 判定照走(雜檔忽略),其他命令也都讀得懂清單
++    code, out, _ = check_in(tmp_path, root, 15001, 1, folder)
++    assert code == rme.EXIT_OK and "已忽略" in out
++    assert verify(tmp_path, root)[0] == rme.EXIT_FAILED  # 還沒搬、還在等錄製,但清單讀得懂
++    # 寫之前先讀回:讀不回來的清單不寫
++    bad = dataclasses.replace(manifest(root), attempts=(dataclasses.replace(
++        manifest(root).attempts[0], files=(("notes.txt", "0" * 64),)),))
++    before = (root / rr.MANIFEST_NAME).read_text(encoding="utf-8")
++    with pytest.raises(rme.Refused):
++        rme._save(root, bad)
++    assert (root / rr.MANIFEST_NAME).read_text(encoding="utf-8") == before
++
++
++def test_rule_mining_abandon_keeps_a_successful_recording(tmp_path, prepared, monkeypatch):
++    """r2 正確性 2、資安 N2:模型已回 ok、錄製檔已寫進暫存目錄,收尾前行程被中斷;--abandon 看到可用的
++    成功錄製就轉待驗收(照常判定),不准藉此作廢它、改錄下一次。"""
++    root = tmp_path / "committed"
++
++    def interrupted(*_args, **_kwargs):
++        raise KeyboardInterrupt
++
++    monkeypatch.setattr(rme.c, "verify", interrupted)
++    with pytest.raises(KeyboardInterrupt):
++        record(tmp_path, root, 15001, 1, honest_answer(prepared[15001]))
++    monkeypatch.undo()
++    assert attempt_status(root, demo(15001, 1)) == rr.CALLING
++    code, out, _ = cli(["--abandon", "--demo-id", demo(15001, 1)], root, {})
++    assert code == rme.EXIT_OK and "轉待驗收" in out
++    kept = attempt(root, 15001, 1)
++    assert (kept.status, kept.outcome, kept.recording_key) == (rr.PENDING, "ok", kept.expected_key)
++    assert kept.files == rr.file_hashes(Path(kept.staging_dir)) and kept.list_nanousd > 0
++    code, _, err, _, opener = record(tmp_path, root, 15001, 2, honest_answer(prepared[15001], 1))
++    assert code == rme.EXIT_REFUSED and "待驗收" in err and opener.backend.calls == []
++    code, out, _ = check_in(tmp_path, root, 15001, 1, Path(kept.staging_dir))
++    assert code == rme.EXIT_OK and attempt(root, 15001, 1).status == rr.ACCEPTED
++
++
++def test_rule_mining_lost_first_success_needs_a_new_eval_version(tmp_path, prepared):
++    """r2 正確性 3:第一次成功的錄製在判定或搬檔前不見了,不准用下一個序號重抽;每一條路都明講
++    「須換評估版本並記理由」,不在互相指的拒絕之間打轉。"""
++    root = tmp_path / "committed"
++    code, _, _, folder, _ = record(tmp_path, root, 15001, 1, honest_answer(prepared[15001]))
++    assert code == rme.EXIT_OK
++    shutil.rmtree(folder)
++    for argv in (["--check-in", "--demo-id", demo(15001, 1), "--recordings-dir", str(folder)],
++                 ["--demo-id", demo(15001, 2), "--batch-id", batch(15001), "--recordings-dir",
++                  str(tmp_path / "again")]):
++        code, _, err = cli(argv, root, {**LIVE_ENV}, Live(tmp_path, reply("不該送出")))
++        assert code == rme.EXIT_REFUSED and "須換評估版本並記理由" in err, err
++    code, out, _ = verify(tmp_path, root)
++    assert "第一次成功錄製已遺失,須換評估版本" in out
++    # 判定可入庫、還沒搬,暫存目錄就不見:同樣明講
++    code, _, _, folder, _ = record(tmp_path, root, 15002, 1, honest_answer(prepared[15002]))
++    assert check_in(tmp_path, root, 15002, 1, folder)[0] == rme.EXIT_OK
++    shutil.rmtree(folder)
++    code, _, err = check_in(tmp_path, root, 15002, 1, folder)
++    assert code == rme.EXIT_REFUSED and "須換評估版本並記理由" in err
++
++
++def test_rule_mining_verify_one_attempt_fails_until_the_committed_files_match(tmp_path, prepared):
++    """r2 正確性 4:`--verify --demo-id` 驗一次可入庫的嘗試,入庫目錄缺檔或內容不符都回非 0;
++    打錯目錄照樣拒絕,不會說已完成。"""
++    root = tmp_path / "committed"
++    code, _, _, folder, _ = record(tmp_path, root, 15003, 1, honest_answer(prepared[15003]))
++    code, out, _ = check_in(tmp_path, root, 15003, 1, folder)
++    assert code == rme.EXIT_OK
++    code, _, _ = check_in(tmp_path, root, 15003, 1, folder, flag="--verify")
++    assert code == rme.EXIT_FAILED  # 還沒搬
++    move(root, 15003, 1, out)
++    assert check_in(tmp_path, root, 15003, 1, folder, flag="--verify")[0] == rme.EXIT_OK
++    (root / "15003" / "junk.json").write_text("{}", encoding="utf-8")
++    assert check_in(tmp_path, root, 15003, 1, folder, flag="--verify")[0] == rme.EXIT_FAILED
++    (root / "15003" / "junk.json").unlink()
++    for flag in ("--verify", "--check-in"):
++        code, _, err = check_in(tmp_path, root, 15003, 1, tmp_path / "typo", flag=flag)
++        assert code == rme.EXIT_REFUSED and "錄製時記的目錄" in err
++
++
++def test_rule_mining_judgement_uses_a_private_snapshot(tmp_path, prepared, monkeypatch):
++    """r2 資安 N1b:判定途中有人改暫存目錄(換錄製檔、丟雜檔),判定只看開頭讀進來的快照,結果不變。"""
++    root = tmp_path / "committed"
++    code, _, _, folder, _ = record(tmp_path, root, 15001, 1, honest_answer(prepared[15001]))
++    [recording] = folder.iterdir()
++    real_prepare = rme.prepare
++
++    def meddle(seed):
++        recording.write_text("{}", encoding="utf-8")
++        (folder / "late.txt").write_text("x", encoding="utf-8")
++        return real_prepare(seed)
++
++    monkeypatch.setattr(rme, "prepare", meddle)
++    code, out, err = check_in(tmp_path, root, 15001, 1, folder, flag="--verify")
++    assert code == rme.EXIT_OK and "驗收判定:通過" in out, out + err
++
++
++def test_rule_mining_recording_binds_its_bytes_before_parsing(tmp_path, prepared, monkeypatch):
++    """r2 資安 N2:暫存目錄在錄前建成 0700;送出一回來就讀一次錄製檔、從那次讀到的位元組算雜湊,
++    之後(解析、核對時)再改檔,清單記的仍是原本的雜湊,判定時抓得到。"""
++    root = tmp_path / "committed"
++    folder = tmp_path / "pre-existing"
++    folder.mkdir(mode=0o755)
++    real_verify = rme.c.verify
++    original = {}
++
++    def tamper_then_verify(*args, **kwargs):
++        [path] = folder.iterdir()
++        original["bytes"] = path.read_bytes()
++        path.write_text("{}", encoding="utf-8")
++        return real_verify(*args, **kwargs)
++
++    monkeypatch.setattr(rme.c, "verify", tamper_then_verify)
++    code, _, _, _, _ = record(tmp_path, root, 15001, 1, honest_answer(prepared[15001]),
++                              name="pre-existing")
++    monkeypatch.undo()
++    assert code == rme.EXIT_OK
++    assert stat.S_IMODE(os.stat(folder).st_mode) == 0o700
++    [(_, sha)] = attempt(root, 15001, 1).files
++    assert sha == rr.sha256_of(original["bytes"])
++    code, _, err = check_in(tmp_path, root, 15001, 1, folder)
++    assert code == rme.EXIT_REFUSED and "SHA-256" in err
++
++
++def test_rule_mining_refuses_demo_ids_already_used_in_the_ledger(tmp_path, prepared):
++    """r2 資安 N3:兩個 checkout 共用帳號家目錄那本花費帳;另一邊已經用過的展示編號(或這個種子清單沒記
++    的呼叫),這邊即時錄製前唯讀查帳就拒絕、不送出。帳在 tmp,不碰真的 ~/.rtb。"""
++    answer = honest_answer(prepared[15001])
++    first, second = tmp_path / "worktree-a", tmp_path / "worktree-b"
++    code, *_ = record(tmp_path, first, 15001, 1, answer)
++    assert code == rme.EXIT_OK
++    code, _, err, _, opener = record(tmp_path, second, 15001, 1, answer)
++    assert code == rme.EXIT_REFUSED and "phase15-seed-15001-1" in err and "花費帳" in err
++    assert opener.backend.calls == [] and rr.load(second) is None
++    # 別的種子不受影響
++    code, *_ = record(tmp_path, second, 15002, 1, honest_answer(prepared[15002]))
++    assert code == rme.EXIT_OK
++    assert rr.ledger_demo_ids(tmp_path / "home-ledger.sqlite") == (
++        demo(15001, 1), demo(15002, 1))
++    # 帳本讀不了:無法確認就不送
++    broken = tmp_path / "broken"
++    broken.mkdir()
++    (broken / "home-ledger.sqlite").write_text("not a database", encoding="utf-8")
++    code, _, err, _, opener = record(broken, tmp_path / "worktree-c", 15003, 1, answer)
++    assert code == rme.EXIT_REFUSED and "花費帳讀不了" in err and opener.backend.calls == []
++
++
++def test_rule_mining_abandon_fails_an_unsuccessful_recording(tmp_path, monkeypatch):
++    """r2:暫存目錄裡的錄製是逾時(不是 ok)時,--abandon 照判呼叫失敗;錄製檔讀取途中被改,讀的一方
++    拒絕(不拿半新半舊的位元組算雜湊)。"""
++    root = tmp_path / "committed"
++
++    def interrupted(*_args, **_kwargs):
++        raise KeyboardInterrupt
++
++    monkeypatch.setattr(rme, "_finished", interrupted)
++    with pytest.raises(KeyboardInterrupt):
++        record(tmp_path, root, 15001, 1, mc.ModelTimeout("逾時"))
++    monkeypatch.undo()
++    stuck = attempt(root, 15001, 1)
++    [timeout] = Path(stuck.staging_dir).iterdir()
++    assert json.loads(timeout.read_text(encoding="utf-8"))["outcome"] == "timeout"
++    code, out, _ = cli(["--abandon", "--demo-id", demo(15001, 1)], root, {})
++    assert code == rme.EXIT_OK and "判成呼叫失敗" in out
++    assert attempt(root, 15001, 1).status == rr.FAILED
++
++    real_fstat = rr.os.fstat
++    calls = []
++
++    def growing(fd):
++        calls.append(fd)
++        if len(calls) == 2:  # 讀完之後、比對之前,檔被人加長
++            timeout.write_bytes(timeout.read_bytes() + b" ")
++        return real_fstat(fd)
++
++    monkeypatch.setattr(rr.os, "fstat", growing)
++    with pytest.raises(rr.Unhashable, match="讀取途中被改"):
++        rr.read_regular(timeout)
++
++
++def test_rule_mining_record_rechecks_the_manifest_around_the_call(tmp_path, prepared):
++    """r2 資安 N3(同一個 checkout 裡鎖檔被人刪掉):記「呼叫中」之前重讀清單,序號已被別人記走就不送;
++    收尾前再確認那筆還是自己記的,被改過就不覆蓋。"""
++    root = tmp_path / "committed"
++    answer = honest_answer(prepared[15001])
++    code, *_ = record(tmp_path, root, 15002, 1, honest_answer(prepared[15002]))
++    assert code == rme.EXIT_OK
++    base = attempt(root, 15002, 1)
++
++    def someone_else(sequence, **changes):
++        """另一個行程(刪了鎖檔)把同種子這一號記進清單。"""
++        now = manifest(root)
++        other = dataclasses.replace(base, seed=15001, sequence=sequence,
++                                    demo_id=demo(15001, sequence), batch_id=batch(15001),
++                                    status=rr.CALLING, outcome=None, recording_key=None,
++                                    files=(), finished_at=None, **changes)
++        rme._save(root, dataclasses.replace(now, attempts=(*now.attempts, other)))
++
++    class SneakyGate(Live):
++        def __call__(self, *args, **kwargs):
++            someone_else(1)  # 預檢的那幾秒裡被搶先
++            return super().__call__(*args, **kwargs)
++
++    opener = SneakyGate(tmp_path, reply(answer))
++    code, _, err = cli(["--demo-id", demo(15001, 1), "--batch-id", batch(15001),
++                        "--recordings-dir", str(tmp_path / "s1")], root, {**LIVE_ENV}, opener)
++    assert code == rme.EXIT_REFUSED and opener.backend.calls == [], err
++
++    def overwrite_during_call(_call):
++        now = manifest(root)
++        mine = next(a for a in now.attempts if a.demo_id == demo(15001, 2))
++        changed = dataclasses.replace(mine, started_at="2026-01-01T00:00:00+00:00")
++        rme._save(root, dataclasses.replace(now, attempts=tuple(
++            changed if a is mine else a for a in now.attempts)))
++        return reply(answer, input_tokens=10, output_tokens=10)
++
++    rme._save(root, dataclasses.replace(manifest(root), attempts=tuple(
++        dataclasses.replace(a, status=rr.FAILED, finished_at=a.started_at)
++        if a.demo_id == demo(15001, 1) else a for a in manifest(root).attempts)))
++    code, _, err, _, _ = record(tmp_path, root, 15001, 2, None, response=overwrite_during_call)
++    assert code == rme.EXIT_REFUSED and "不覆蓋" in err, err
++    assert attempt(root, 15001, 2).started_at == "2026-01-01T00:00:00+00:00"
+diff --git a/tests/eval/test_rule_mining_model.py b/tests/eval/test_rule_mining_model.py
+index fc9481e..3b822e5 100644
+--- a/tests/eval/test_rule_mining_model.py
++++ b/tests/eval/test_rule_mining_model.py
+@@ -395,21 +395,23 @@ FORBIDDEN_MODULES = frozenset({
+ NETWORK_ROOTS = frozenset({"urllib", "http", "socket", "ssl", "smtplib", "ftplib", "xmlrpc",
+                            "requests", "httpx", "aiohttp", "webbrowser", "email"})
+ # 探勘模組各自准直接取用的專案模組與名字(寫死;取用的名字不含任何決策、提案、寫入或送件)
+ MINING_USES = {
+     "rtb.analyzer.investigation": {"canonical_json"},
+     "rtb.eval.scoring": {"wilson_lower"},
+     "rtb.analyzer.modelgate": {"Caller", "Gate", "ModelCallFailed", "Outcome", "open_gate"},
+     # 增量 3:歷史錄製鍵模組多取入庫根、模式開關名(只讀,給重播拿掉即時開關)與錄製檔的共用驗收
+     "rtb.modelclient": {"Caller", "recording_key", "DEFAULT_MODEL", "default_recordings_dir",
+                         "MODEL_ENV", "LIVE_ENV", "RECORD_ENV", "Outcome", "batch_file_problems",
+-                        "recording_files", "validated", "NoRecording"},
++                        "recording_files", "validated", "NoRecording",
++                        # 代碼審 r2:唯讀查帳號家目錄花費帳裡用過的展示編號(花費帳既有的唯讀開法)
++                        "ModelLedgerView"},
+ }
+ MINING_SOURCES = ("rtb.eval.rule_mining", NARROW, "rtb.domain.metrics")
+ 
+ 
+ def forbidden_reach(roots, src=SRC):
+     """閉包裡碰到的禁區:送件、DSP、執行端、分析端驅動等專案模組,以及任一支閉包模組匯入的網路模組。"""
+     reached = closure_of(list(roots), src)
+     found = [m for m in reached if m in FORBIDDEN_MODULES or m.startswith(FORBIDDEN_PREFIXES)]
+     for module in reached:
+         path = _source_of(src, module)

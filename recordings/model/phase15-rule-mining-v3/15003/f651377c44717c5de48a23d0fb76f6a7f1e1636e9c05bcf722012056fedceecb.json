@@ -1,0 +1,22 @@
+{
+ "key": "f651377c44717c5de48a23d0fb76f6a7f1e1636e9c05bcf722012056fedceecb",
+ "caller": "rule_mining",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase15-rule-mining-15003-20260927",
+ "recorded_on": "2026-09-27",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"version\":1,\"suggestions\":[{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_2\"}],\"direction\":\"improve\",\"support\":85,\"counterexample\":22,\"confidence_note\":\"加額幅度20-50%整體改善比例高且樣本大\"},{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_3\"}],\"direction\":\"not_improve\",\"support\":94,\"counterexample\":15,\"confidence_note\":\"加額幅度超過50%明顯偏向惡化\"},{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_2\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_3\"}],\"direction\":\"improve\",\"support\":55,\"counterexample\":7,\"confidence_note\":\"中幅加額且花費比高時改善比例極高\"},{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_3\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_1\"}],\"direction\":\"not_improve\",\"support\":67,\"counterexample\":7,\"confidence_note\":\"高幅加額且花費比低時幾乎必然惡化\"},{\"clauses\":[{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_3\"}],\"direction\":\"improve\",\"support\":89,\"counterexample\":29,\"confidence_note\":\"花費比高於90%時改善比例高\"},{\"clauses\":[{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_1\"}],\"direction\":\"not_improve\",\"support\":72,\"counterexample\":24,\"confidence_note\":\"花費比低於60%時明顯偏向惡化\"},{\"clauses\":[{\"condition\":\"day_type\",\"threshold\":\"day_type:weekday\"},{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_2\"}],\"direction\":\"improve\",\"support\":61,\"counterexample\":16,\"confidence_note\":\"平日中幅加額改善比例很高\"},{\"clauses\":[{\"condition\":\"day_type\",\"threshold\":\"day_type:weekend\"},{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_1\"}],\"direction\":\"improve\",\"support\":40,\"counterexample\":8,\"confidence_note\":\"週末小幅加額改善比例很高\"},{\"clauses\":[{\"condition\":\"pre_cvr\",\"threshold\":\"pre_cvr:band_3\"},{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_3\"}],\"direction\":\"not_improve\",\"support\":40,\"counterexample\":2,\"confidence_note\":\"高轉換率下大幅加額幾乎必然惡化\"},{\"clauses\":[{\"condition\":\"pre_cvr\",\"threshold\":\"pre_cvr:band_3\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_3\"}],\"direction\":\"improve\",\"support\":31,\"counterexample\":11,\"confidence_note\":\"高轉換率且花費比高時改善比例較高\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 1028,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 3828,
+ "cache_read_tokens": 0,
+ "reported_nanousd": 25596000,
+ "list_nanousd": 25596000,
+ "latency_ms": 10265.09116590023,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

@@ -173,7 +173,7 @@
     },
     {
       "path": "src/rtb/modelclient.py",
-      "sha256": "1c880fab4298e2068ddadebbb5380480ddaa895fc9215c86f7541761ee4d3a2f"
+      "sha256": "0a6475e0165f5289d181ebd4113f19a36142c32e26f2c12e3174ae98d49dafb5"
     },
     {
       "path": "src/rtb/modelcore.py",

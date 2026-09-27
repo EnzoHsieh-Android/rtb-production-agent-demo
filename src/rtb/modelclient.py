@@ -80,6 +80,7 @@ from rtb.modelcore import Source as Source
 from rtb.modelcore import TransientServiceError as TransientServiceError
 from rtb.modelcore import UnknownModel as UnknownModel
 from rtb.modelcore import UnreadableModelResponse as UnreadableModelResponse
+from rtb.modelledger_view import ModelLedgerView as ModelLedgerView  # 唯讀開法:評估查用過的展示編號
 from rtb.modelledger_view import ledger_path
 from rtb.modelrecording import MixedRecordingsDir as MixedRecordingsDir
 from rtb.modelrecording import Placeholders as Placeholders

@@ -1,0 +1,736 @@
+diff --git a/tests/eval/test_model_candidate.py b/tests/eval/test_model_candidate.py
+index 0655d26..c0e82f4 100644
+--- a/tests/eval/test_model_candidate.py
++++ b/tests/eval/test_model_candidate.py
+@@ -272,25 +272,26 @@ def _eval_roots():
+ # 新增的評估模組(評估集、生成器與標準答案、執行器、報告)。增量 3 的評估執行器匯入 AI 決策模組,
+ # 名單在這一增量補齊
+ PHASE13_ALLOWED: frozenset[str] = frozenset({
+     "rtb.analyzer.modelgate", "rtb.analyzer.ai_judge", "rtb.analyzer.investigation",
+     "rtb.domain.nine_rules",  # Phase 14 增量 1:評估標準答案共用純領域判斷
+     "rtb.eval.investigation_cases", "rtb.eval.investigation_set", "rtb.eval.investigation_eval",
+     "rtb.eval.investigation_report"})
+ # Phase 15 增量 1 改寫 [S918](計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉):
+ # 規則模式探索的純離線生成/彙總/基準/預檢四支,精確新增;它們不碰模型用戶端與閘道(下面的
+ # importers、senders、judge_* 等式照舊)。增量 2 逐項精確加:純核對模組、歷史錄製鍵模組(經門面取
+-# 錄製鍵)、探勘執行器,與分析端窄入口(評估經它開閘道送出;閘道本身已在上一份名單)
++# 錄製鍵)、探勘執行器,與分析端窄入口(評估經它開閘道送出;閘道本身已在上一份名單)。增量 3 精確加
++# 純比較與報告模組(不碰模型用戶端與閘道;命令列寫在探勘執行器裡,不另開模組)
+ PHASE15_ALLOWED: frozenset[str] = frozenset({
+     "rtb.eval.rule_mining_vocab", "rtb.eval.rule_mining_history", "rtb.eval.rule_mining_baseline",
+     "rtb.eval.rule_mining_prompt", "rtb.eval.rule_mining_check", "rtb.eval.rule_mining_recordings",
+-    "rtb.eval.rule_mining_eval", "rtb.analyzer.rule_mining_model"})
++    "rtb.eval.rule_mining_eval", "rtb.analyzer.rule_mining_model", "rtb.eval.rule_mining_report"})
+ # 經 AI 決策模組送出的名字(開閘道、把閘道包成送出函式):評估套件裡只准評估執行器用
+ AI_JUDGE_SENDS = frozenset({"open_investigation_gate", "gate_complete"})
+ # 經規則模式探索窄入口送出的名字(Phase 15 增量 2):評估套件裡只准探勘執行器用
+ RULE_MINING_MODEL = "rtb.analyzer.rule_mining_model"
+ RULE_MINING_SENDS = frozenset({"suggest", "gate_ask"})
+ 
+ 
+ def rule_mining_senders(folder=EVAL):
+     """評估套件裡匯入規則模式探索窄入口的檔、用它送出名字的檔(都只看檔名)。"""
+     importers, senders = set(), set()
+diff --git a/tests/eval/test_rule_mining_cli.py b/tests/eval/test_rule_mining_cli.py
+new file mode 100644
+index 0000000..bb46823
+--- /dev/null
++++ b/tests/eval/test_rule_mining_cli.py
+@@ -0,0 +1,404 @@
++"""Phase 15 增量 3:規則模式探索的離線命令列、錄製批次驗收與入庫、人讀報告與 README(計劃
++[[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉〈拆增量〉3)。
++
++合約 [S1508] [S1509],以及 [S1507]/[S1514] 在命令列層面的補強(缺錄製不轉即時、展示編號序號)。
++不呼叫真的 claude、不設行程環境的即時開關、不碰 ~/.rtb:即時一律是行程內的假後端,入庫目錄、錄製目錄
++與帳本都在 tmp_path;重播走真的模型閘道(錄製模式只讀錄製),PATH 上放一支會留記號的假 claude,
++斷言它沒被執行。
++
++入庫錄製由協調者用真模型錄:`test_committed_rule_mining_recordings_replay_all_three_seeds`
++在錄製入庫前是紅的(不跳過,免得忘了錄)。
++"""
++
++import io
++import json
++import shutil
++from pathlib import Path
++
++import pytest
++
++from rtb import modelclient as mc
++from rtb.analyzer import modelgate
++from rtb.eval import rule_mining_eval as rme
++from rtb.eval import rule_mining_prompt as rp
++from rtb.eval import rule_mining_recordings as rr
++from rtb.eval import rule_mining_report as report
++from rtb.eval import rule_mining_vocab as rv
++from tests.eval.test_rule_mining_model import honest_answer, ledger_rows
++from tests.model.fakes import FakeBackend, fake_claude, invocations, live, reply
++
++SRC = Path(__file__).resolve().parents[2] / "src"
++REPO = SRC.parent
++COMMITTED_REPORT = REPO / "governance" / "eval" / "phase15-rule-mining.md"
++DAY = "20260928"
++LIVE_ENV = {"RTB_MODEL_LIVE": "1", "RTB_MODEL_RECORD": "1"}
++
++
++def demo(seed, sequence):
++    return f"phase15-seed-{seed}-{sequence}"
++
++
++def batch(seed):
++    return f"phase15-rule-mining-{seed}-{DAY}"
++
++
++@pytest.fixture(scope="module")
++def prepared():
++    return {seed: rme.prepare(seed) for seed in rv.SEEDS}
++
++
++class Live:
++    """代替 modelgate.open_gate 的即時閘道(假後端,錄製照真的模型用戶端寫);記下開過幾次、帶的呼叫者。
++    花費帳用 tmp 的一本頂替帳號家目錄那一本;即時模式給了帳檔路徑照真的閘道拒絕。"""
++
++    def __init__(self, tmp_path, *responses):
++        self.backend = FakeBackend(*responses)
++        self.ledger = tmp_path / "home-ledger.sqlite"
++        self.callers = []
++
++    def __call__(self, environ, *, caller, demo_id, ledger, recordings,  # noqa: PLR0913 - 同閘道
++                 batch_id=None, recorded_ledger=None, notify=None):
++        del recorded_ledger, notify
++        assert rr.live_recording_requested(environ)
++        if ledger is not None:
++            raise modelgate.GateRefused("即時模式的花費帳寫死在帳號家目錄那一本")
++        mc.check_recordings_dir(Path(recordings), batch_id)  # 跟真的閘道一樣先驗錄製目錄
++        self.callers.append(caller)
++        return modelgate.Gate(live(self.backend, record=True), caller, demo_id, self.ledger,
++                              Path(recordings), batch_id)
++
++
++def cli(argv, root, environ, opener=None):
++    out, err = io.StringIO(), io.StringIO()
++    code = rme.command(argv, out=out, err=err, environ=environ, root=root, opener=opener)
++    return code, out.getvalue(), err.getvalue()
++
++
++def replay_env(tmp_path, extra=None):
++    """重播的環境:PATH 上一支會留記號的假 claude(證明沒被執行);extra 可以把即時開關也加上。"""
++    script = fake_claude(tmp_path / "bin", "{}")
++    return {"PATH": str(script.parent), "HOME": str(tmp_path / "home"), **(extra or {})}, script
++
++
++def record(tmp_path, root, seed, sequence, answer_or_failure, name=None):
++    folder = tmp_path / (name or f"staging-{seed}-{sequence}")
++    response = (answer_or_failure if isinstance(answer_or_failure, Exception)
++                else reply(answer_or_failure, input_tokens=3000, output_tokens=400))
++    opener = Live(tmp_path, response)
++    code, out, err = cli(["--demo-id", demo(seed, sequence), "--batch-id", batch(seed),
++                          "--recordings-dir", str(folder)], root,
++                         {**LIVE_ENV, "PATH": str(tmp_path / "no-bin")}, opener)
++    return code, out, err, folder, opener
++
++
++def check_in(tmp_path, root, seed, sequence, folder, *,  # noqa: PLR0913 - 一次驗收的每一樣
++             flag="--check-in", environ=None):
++    env, script = replay_env(tmp_path, environ)
++    code, out, err = cli([flag, "--demo-id", demo(seed, sequence), "--recordings-dir",
++                          str(folder), "--ledger", str(tmp_path / "replay.sqlite")], root, env)
++    assert invocations(script) == []
++    return code, out, err
++
++
++def manifest(root):
++    return rr.load(root)
++
++
++def attempt(root, seed, sequence):
++    return next(a for a in manifest(root).attempts if a.demo_id == demo(seed, sequence))
++
++
++def attempt_status(root, demo_id):
++    found = [a.status for a in manifest(root).attempts if a.demo_id == demo_id]
++    return found[0] if found else None
++
++
++def record_and_check_in(tmp_path, root, prepared, seed):
++    sequence = rr.next_sequence(manifest(root), seed)
++    code, out, err, folder, _ = record(tmp_path, root, seed, sequence,
++                                       honest_answer(prepared[seed]))
++    assert code == rme.EXIT_OK, out + err
++    code, out, err = check_in(tmp_path, root, seed, sequence, folder)
++    assert code == rme.EXIT_OK, out + err
++    return folder
++
++
++# ---- [S1508] ----
++def test_rule_mining_recordings_verify_before_check_in(tmp_path, prepared):  # noqa: PLR0915
++    root = tmp_path / "committed"
++    # 第 1 次逾時:記「呼叫失敗」、不入庫;錄製目錄裡的逾時錄製過得了共用的批次檢查,照樣拒入庫
++    code, out, _, first, opener = record(tmp_path, root, 15001, 1, mc.ModelTimeout("逾時"))
++    assert code == rme.EXIT_FAILED and "呼叫失敗" in out and len(opener.backend.calls) == 1
++    failed = attempt(root, 15001, 1)
++    assert (failed.status, failed.outcome, failed.sequence) == (rr.FAILED, "timeout", 1)
++    assert mc.batch_file_problems(first, rr.BATCH_PATTERN, rr.BATCH_SHAPE) == []
++    expected = rr.expected_key(rp.SYSTEM_PROMPT, prepared[15001].table)
++    assert any("要是 rule_mining 且 ok" in p for p in rr.batch_problems(first, failed, expected))
++    code, _, err = check_in(tmp_path, root, 15001, 1, first)
++    assert code == rme.EXIT_REFUSED and "呼叫失敗" in err
++    assert not (root / "15001").exists()
++
++    # 第 2 次(新展示編號、新目錄)成功:待驗收;清單記預期鍵、錄製鍵、時間
++    answer = honest_answer(prepared[15001])
++    code, out, _, second, _ = record(tmp_path, root, 15001, 2, answer)
++    assert code == rme.EXIT_OK and "--check-in" in out
++    pending = attempt(root, 15001, 2)
++    assert (pending.status, pending.outcome) == (rr.PENDING, "ok")
++    assert pending.expected_key == pending.recording_key == expected
++    assert pending.started_at <= pending.finished_at and pending.batch_id == batch(15001)
++    assert pending.model == mc.DEFAULT_MODEL and pending.list_nanousd > 0
++
++    _tampered_batches_are_refused(tmp_path, root, prepared, second)
++
++    # 驗收過了才入庫(即使環境開著即時開關,驗收也只重播)
++    code, out, _ = check_in(tmp_path, root, 15001, 2, second, environ=LIVE_ENV)
++    assert code == rme.EXIT_OK and "已入庫" in out, out
++    assert sorted(p.name for p in (root / "15001").iterdir()) == [f"{expected}.json"]
++    assert attempt(root, 15001, 2).status == rr.CHECKED_IN
++    # 每種子只准第一次成功入庫:再入庫、再錄都拒絕
++    code, _, err = check_in(tmp_path, root, 15001, 2, second)
++    assert code == rme.EXIT_REFUSED
++    code, _, err, _, opener = record(tmp_path, root, 15001, 3, answer)
++    assert code == rme.EXIT_REFUSED and "已有入庫錄製" in err and opener.backend.calls == []
++
++    # CI 只重播入庫錄製:兩個種子還在等錄製,驗收沒過;不啟動 claude
++    env, script = replay_env(tmp_path)
++    code, out, _ = cli(["--verify", "--ledger", str(tmp_path / "ci.sqlite")], root, env)
++    assert code == rme.EXIT_FAILED and "- 15001:通過(已量)" in out
++    assert "- 15002:沒過(等錄製)" in out and invocations(script) == []
++    for seed in (15002, 15003):
++        record_and_check_in(tmp_path, root, prepared, seed)
++    code, out, err = cli(["--verify", "--ledger", str(tmp_path / "ci.sqlite")], root, env)
++    assert code == rme.EXIT_OK, out + err
++    assert "- 驗收:通過" in out and invocations(script) == []
++
++    # 批次清單供機檢:三種子、資料雜湊、評估版本與版本雜湊、所有嘗試
++    saved = manifest(root)
++    assert saved == rr.loads((root / rr.MANIFEST_NAME).read_text(encoding="utf-8"))
++    assert saved.seeds == tuple((s, rr.h.EXPECTED_DATA_SHA256[s]) for s in rv.SEEDS)
++    assert (saved.eval_version, saved.version_sha256) == (rv.EVAL_VERSION, rp.version_sha256())
++    assert [(a.demo_id, a.status) for a in saved.attempts] == [
++        (demo(15001, 1), rr.FAILED), (demo(15001, 2), rr.CHECKED_IN),
++        (demo(15002, 1), rr.CHECKED_IN), (demo(15003, 1), rr.CHECKED_IN)]
++    assert rr.manifest_problems(saved) == []
++    _manifest_rules_are_machine_checked(tmp_path, root, env)
++
++
++def _tampered_batches_are_refused(tmp_path, root, prepared, staging):
++    """驗收(不入庫)的幾種沒過:多一份別的鍵、呼叫者被改、目錄裡有別的檔。清單不動。"""
++    before = (root / rr.MANIFEST_NAME).read_text(encoding="utf-8")
++    [original] = staging.iterdir()
++    extra = tmp_path / "tamper-extra"
++    shutil.copytree(staging, extra)
++    data = json.loads(original.read_text(encoding="utf-8"))
++    other_key = rr.expected_key(rp.SYSTEM_PROMPT, prepared[15001].table + "\n")
++    (extra / f"{other_key}.json").write_text(json.dumps({**data, "key": other_key}),
++                                             encoding="utf-8")
++    relabeled = tmp_path / "tamper-caller"
++    shutil.copytree(staging, relabeled)
++    (relabeled / original.name).write_text(json.dumps({**data, "caller": "eval_candidate"}),
++                                           encoding="utf-8")
++    stray = tmp_path / "tamper-stray"
++    shutil.copytree(staging, stray)
++    (stray / "notes.txt").write_text("x", encoding="utf-8")
++    for folder, needle in ((extra, "錄製鍵集合"), (relabeled, "呼叫者 eval_candidate"),
++                           (stray, "不是錄製檔")):
++        code, out, _ = check_in(tmp_path, root, 15001, 2, folder, flag="--verify")
++        assert code == rme.EXIT_FAILED and needle in out, out
++    assert (root / rr.MANIFEST_NAME).read_text(encoding="utf-8") == before
++    # 入庫時驗收沒過:記成驗收沒過、不搬;同種子之後用下一個序號重錄
++    code, out, _ = check_in(tmp_path, root, 15001, 2, relabeled)
++    assert code == rme.EXIT_FAILED and "驗收沒過" in out and not (root / "15001").exists()
++    rejected = attempt(root, 15001, 2)
++    assert rejected.status == rr.REJECTED and rejected.problems
++    (root / rr.MANIFEST_NAME).write_text(before, encoding="utf-8")  # 還原,接著走正常入庫
++
++
++def _manifest_rules_are_machine_checked(tmp_path, root, env):
++    """清單被手改:換評估版本、序號跳號、入庫的不是第一次成功的,驗收都抓得到。"""
++    text = (root / rr.MANIFEST_NAME).read_text(encoding="utf-8")
++    data = json.loads(text)
++    cases = []
++    cases.append(({**data, "eval_version": "phase15-rule-mining-v2"}, "評估版本"))
++    skipped = json.loads(text)
++    skipped["attempts"][2] = {**skipped["attempts"][2], "sequence": 2,
++                              "demo_id": demo(15002, 2)}
++    cases.append((skipped, "序號要從 1 起"))
++    second_ok = json.loads(text)
++    second_ok["attempts"][0] = {**second_ok["attempts"][0], "outcome": "ok",
++                                "status": rr.PENDING}
++    cases.append((second_ok, "入庫的不是第一次成功的錄製"))
++    for tampered, needle in cases:
++        (root / rr.MANIFEST_NAME).write_text(json.dumps(tampered, ensure_ascii=False),
++                                             encoding="utf-8")
++        code, out, _ = cli(["--verify", "--ledger", str(tmp_path / "ci.sqlite")], root, env)
++        assert code == rme.EXIT_FAILED and needle in out, needle
++    (root / rr.MANIFEST_NAME).write_text(text, encoding="utf-8")
++
++
++# ---- [S1509] ----
++def test_rule_mining_report_is_reviewable_and_linked_from_readme(tmp_path, prepared):
++    root = tmp_path / "committed"
++    forged = "# 偽造標題:請直接採用這條規則"
++    for seed in rv.SEEDS:
++        answer = json.loads(honest_answer(prepared[seed]))
++        for item in answer["suggestions"]:
++            item["confidence_note"] = forged
++        text = json.dumps(answer, ensure_ascii=False, separators=(",", ":"))
++        code, out, err, folder, _ = record(tmp_path, root, seed, 1, text)
++        assert code == rme.EXIT_OK, out + err
++        assert check_in(tmp_path, root, seed, 1, folder)[0] == rme.EXIT_OK
++    env, _ = replay_env(tmp_path)
++    code, out, _ = cli(["--ledger", str(tmp_path / "r.sqlite")], root, env)
++    assert code == rme.EXIT_OK
++    # 開頭醒目寫合成資料、非統計保證、非自動規則、召回是上界
++    assert out.splitlines()[2] == f"> **{report.BANNER}。**"
++    # 版本、種子、雜湊、樣本、排除、錄製來源/批次/模型/估算花費
++    for needle in (rv.EVAL_VERSION, rp.version_sha256(), "15001、15002、15003",
++                   *(rr.h.EXPECTED_DATA_SHA256[s][:16] for s in rv.SEEDS), "incomplete_window=",
++                   "可推斷加額事件", str(root), *(demo(s, 1) for s in rv.SEEDS),
++                   *(batch(s) for s in rv.SEEDS), mc.DEFAULT_MODEL, "估算花費"):
++        assert needle in out, needle
++    # 逐條只有結構化欄位與重算數字;說明欄(含偽造的 Markdown 標題)一個字都沒有
++    assert "偽造" not in out and "照表抄" not in out and "confidence_note" not in out
++    assert "| 1 |" in out and "支持/反例/平手" in out and "保留側" in out
++    # 真的回覆裡確實有那段說明(不是因為錄製沒帶到)
++    stored = next((root / "15001").iterdir()).read_text(encoding="utf-8")
++    assert "偽造標題" in json.loads(stored)["text"]
++
++    # README 在「AI 找到的新規則」那一點連到報告;一鍵展示頁不連
++    readme = (REPO / "README.md").read_text(encoding="utf-8")
++    [bullet] = [line for line in readme.splitlines() if line.startswith("- **AI 找到的新規則")]
++    assert "(governance/eval/phase15-rule-mining.md)" in bullet
++    demo_sources = [p for p in (SRC / "rtb" / "demo").rglob("*") if p.is_file()]
++    assert not [p for p in demo_sources if b"phase15-rule-mining" in p.read_bytes()]
++    assert COMMITTED_REPORT.is_file()
++
++
++def test_the_committed_rule_mining_report_matches_a_replay_of_the_committed_recordings(tmp_path):
++    """入庫的人讀報告 = 用入庫錄製重播重產的報告,逐字相同(錄製入庫前兩邊都是「等錄製」那一版)。"""
++    env, script = replay_env(tmp_path)
++    code, out, err = cli(["--ledger", str(tmp_path / "r.sqlite")], rr.default_root(), env)
++    assert code == rme.EXIT_OK, err
++    assert out == COMMITTED_REPORT.read_text(encoding="utf-8")
++    assert invocations(script) == []
++
++
++def test_committed_rule_mining_recordings_replay_all_three_seeds(tmp_path):
++    """入庫的三批重播驗收全過:三個固定種子都有第一次成功錄製入庫、找不到錄製 0 筆、不啟動 claude。
++    **等錄製**:協調者用真模型錄完、入庫 recordings/model/<評估版本>/ 之前這支是紅的(不跳過)。"""
++    root = rr.default_root()
++    assert (root / rr.MANIFEST_NAME).is_file(), (
++        f"規則模式探索的評估錄製還沒入庫:{root}"
++        "(協調者錄製後再跑;指令見 recordings/model/README.md)")
++    env, script = replay_env(tmp_path)
++    code, out, err = cli(["--verify", "--ledger", str(tmp_path / "ci.sqlite")], root, env)
++    assert code == rme.EXIT_OK, out + err
++    for seed in rv.SEEDS:
++        assert f"- {seed}:通過(已量)" in out
++    assert invocations(script) == []
++
++
++# ---- [S1507] 命令列層面:缺錄製不轉即時 ----
++def test_rule_mining_cli_never_goes_live_for_a_missing_recording(tmp_path, prepared):
++    root = tmp_path / "committed"
++    record_and_check_in(tmp_path, root, prepared, 15001)
++    [recording] = (root / "15001").iterdir()
++    recording.unlink()  # 入庫錄製缺了
++    # 預設重播(環境開著即時與錄製開關也一樣):停在沒有錄製、驗收沒過;不啟動 claude、不寫錄製
++    env, script = replay_env(tmp_path, LIVE_ENV)
++    code, out, _ = cli(["--verify", "--ledger", str(tmp_path / "ci.sqlite")], root, env)
++    assert code == rme.EXIT_FAILED
++    assert "重播失敗(no_recording)" in out and "- 15001:沒過" in out
++    assert invocations(script) == [] and list((root / "15001").iterdir()) == []
++    assert [(row.caller, row.outcome, row.source, row.reserved_nanousd)
++            for row in ledger_rows(tmp_path / "ci.sqlite")] == [
++        ("rule_mining", "no_recording", "recorded", 0)]
++    before = (root / rr.MANIFEST_NAME).read_text(encoding="utf-8")
++    # 帶了展示編號但沒明確設兩個開關:拒絕,什麼都沒送、清單沒動
++    for environ in ({"PATH": env["PATH"]}, {"RTB_MODEL_LIVE": "1", "PATH": env["PATH"]}):
++        opener = Live(tmp_path, reply("不該送出"))
++        code, _, err = cli(["--demo-id", demo(15002, 1), "--batch-id", batch(15002),
++                            "--recordings-dir", str(tmp_path / "s2")], root, environ, opener)
++        assert code == rme.EXIT_REFUSED and "RTB_MODEL_LIVE=1" in err
++        assert opener.callers == [] and opener.backend.calls == []
++    # 開關都設了,但閘道判成錄製(找不到 claude 的啟用紀錄):預檢沒過就拒絕,不用掉序號
++    code, _, err = cli(["--demo-id", demo(15002, 1), "--batch-id", batch(15002),
++                        "--recordings-dir", str(tmp_path / "s3")], root, env)
++    assert code == rme.EXIT_REFUSED and "閘道預檢沒過" in err
++    assert (root / rr.MANIFEST_NAME).read_text(encoding="utf-8") == before
++    assert invocations(script) == [] and not (tmp_path / "s3").exists()
++    # 即時模式不收 --ledger(閘道拒絕)
++    opener = Live(tmp_path, reply("不該送出"))
++    code, _, err = cli(["--demo-id", demo(15002, 1), "--batch-id", batch(15002),
++                        "--recordings-dir", str(tmp_path / "s4"), "--ledger",
++                        str(tmp_path / "x.sqlite")], root, {**LIVE_ENV}, opener)
++    assert code == rme.EXIT_REFUSED and "閘道拒絕" in err and opener.backend.calls == []
++    # 重播的環境一律拿掉兩個開關,模型固定成錄製當時那一個
++    assert rr.replay_environ({**LIVE_ENV, "PATH": "p", "RTB_MODEL": "x"}, "m") == {
++        "PATH": "p", "RTB_MODEL": "m"}
++    # 只產純基準:不開閘道、不讀錄製
++    code, out, _ = cli(["--baseline-only"], tmp_path / "nowhere", {})
++    assert code == rme.EXIT_OK and "只產純基準" in out and not (tmp_path / "nowhere").exists()
++
++
++# ---- [S1514] 命令列層面:每種子專屬展示編號,序號逐次加一、不重用 ----
++def test_rule_mining_cli_demo_ids_count_up_per_seed_and_are_never_reused(tmp_path, prepared):  # noqa: PLR0915
++    root = tmp_path / "committed"
++    answer = honest_answer(prepared[15003])
++
++    def attempt_with(demo_id, batch_id, folder="s", response=None):
++        opener = Live(tmp_path, response or reply(answer, input_tokens=10, output_tokens=10))
++        code, _, err = cli(["--demo-id", demo_id, "--batch-id", batch_id,
++                            "--recordings-dir", str(tmp_path / folder)], root,
++                           {**LIVE_ENV}, opener)
++        return code, err, opener
++
++    # 格式、種子、批次不對:拒絕,沒送出
++    for demo_id, batch_id, needle in (
++            ("phase15-seed-15004-1", batch(15003), "固定種子"),
++            ("phase15-seed-15003-0", batch(15003), "phase15-seed"),
++            ("seed-15003-1", batch(15003), "phase15-seed"),
++            (demo(15003, 1), batch(15002), "批次編號"),
++            (demo(15003, 1), "phase13-eval-20260928", "批次編號")):
++        code, err, opener = attempt_with(demo_id, batch_id)
++        assert code == rme.EXIT_REFUSED and needle in err and opener.backend.calls == [], err
++    # 序號要從 1 起:跳號拒絕
++    code, err, _ = attempt_with(demo(15003, 2), batch(15003))
++    assert code == rme.EXIT_REFUSED and demo(15003, 1) in err
++    # 第 1 次失敗(暫時性錯誤),同一個編號不得重試;下一次用 2
++    code, err, opener = attempt_with(demo(15003, 1), batch(15003), "a1",
++                                     mc.TransientServiceError("overloaded"))
++    assert code == rme.EXIT_FAILED and len(opener.backend.calls) == 1
++    code, err, opener = attempt_with(demo(15003, 1), batch(15003), "a1b")
++    assert code == rme.EXIT_REFUSED and demo(15003, 2) in err and opener.backend.calls == []
++    # 錄製目錄要是全新的空目錄
++    code, err, _ = attempt_with(demo(15003, 2), batch(15003), "a1")
++    assert code == rme.EXIT_REFUSED and "全新的空目錄" in err
++    seen = []
++
++    def answer_after_logging(_call):
++        """送出那一刻,這次嘗試已經以「呼叫中」記進批次清單(先記再送,中斷也不重用序號)。"""
++        seen.append(attempt_status(root, demo(15003, 2)))
++        return reply(answer, input_tokens=10, output_tokens=10)
++
++    code, err, opener = attempt_with(demo(15003, 2), batch(15003), "a2", answer_after_logging)
++    assert code == rme.EXIT_OK and len(opener.backend.calls) == 1
++    assert seen == [rr.CALLING]
++    assert opener.callers == [mc.Caller.RULE_MINING] * 2  # 預檢一次、送出一次,都綁 RULE_MINING
++    # 成功但還沒驗收:不准再錄(不能重抽挑好結果)
++    code, err, opener = attempt_with(demo(15003, 3), batch(15003), "a3")
++    assert code == rme.EXIT_REFUSED and "--check-in" in err and opener.backend.calls == []
++    # 種子各自計序號:另一個種子從 1 起
++    code, err, opener = attempt_with(demo(15001, 1), batch(15001), "b1",
++                                     reply(honest_answer(prepared[15001]), input_tokens=10,
++                                           output_tokens=10))
++    assert code == rme.EXIT_OK
++    assert [(a.demo_id, a.status) for a in rr.load(root).attempts] == [
++        (demo(15001, 1), rr.PENDING), (demo(15003, 1), rr.FAILED), (demo(15003, 2), rr.PENDING)]
++    # 每一次送出都用那次嘗試自己的展示編號記帳(失敗那筆的預留留在 -1,不跟著重試)
++    rows = ledger_rows(tmp_path / "home-ledger.sqlite")
++    assert [(row.demo_id, row.caller, row.outcome) for row in rows] == [
++        (demo(15003, 1), "rule_mining", "transient"), (demo(15003, 2), "rule_mining", "ok"),
++        (demo(15001, 1), "rule_mining", "ok")]
++    assert rows[0].settled_nanousd == rows[0].reserved_nanousd > 0
+diff --git a/tests/eval/test_rule_mining_model.py b/tests/eval/test_rule_mining_model.py
+index 13a18e7..fc9481e 100644
+--- a/tests/eval/test_rule_mining_model.py
++++ b/tests/eval/test_rule_mining_model.py
+@@ -46,23 +46,25 @@ from tests.test_spawn_boundary import (
+     backend_offenders,
+     closure_of,
+ )
+ 
+ SEED = rv.SEEDS[0]
+ DEMO = f"phase15-seed-{SEED}-1"
+ BATCH = "phase15-rule-mining-test"
+ NARROW = "rtb.analyzer.rule_mining_model"
+ RUNNER = "rtb.eval.rule_mining_eval"
+ HISTORY_KEYS = "rtb.eval.rule_mining_recordings"
++REPORT = "rtb.eval.rule_mining_report"
++# 增量 3:命令列寫在探勘執行器裡(不另開模組);比較與報告是純函式,一併列入探勘閉包檢查
+ MINING = ("rtb.eval.rule_mining_vocab", "rtb.eval.rule_mining_history",
+           "rtb.eval.rule_mining_baseline", "rtb.eval.rule_mining_prompt",
+-          "rtb.eval.rule_mining_check", HISTORY_KEYS, RUNNER, NARROW)
++          "rtb.eval.rule_mining_check", HISTORY_KEYS, RUNNER, NARROW, REPORT)
+ 
+ 
+ @pytest.fixture(scope="module")
+ def prepared():
+     return rme.prepare(SEED)
+ 
+ 
+ def honest_answer(prepared, count=2):
+     """照探索側重算數字填的回覆(模型照抄彙總表時的樣子)。"""
+     top = rb.top_k({k: prepared.explore.stats(k) for k in rv.all_conditions()})[:count]
+@@ -390,21 +392,24 @@ FORBIDDEN_MODULES = frozenset({
+     "rtb.analyzer.runner", "rtb.analyzer.inbox_client", "rtb.analyzer.dsp_client",
+     "rtb.analyzer.rule_round", "rtb.analyzer.narrate", "rtb.analyzer.ai_judge",
+     "rtb.analyzer.instrumented", "rtb.httpclient", "rtb.httpkit", "rtb.capabilitykit"})
+ NETWORK_ROOTS = frozenset({"urllib", "http", "socket", "ssl", "smtplib", "ftplib", "xmlrpc",
+                            "requests", "httpx", "aiohttp", "webbrowser", "email"})
+ # 探勘模組各自准直接取用的專案模組與名字(寫死;取用的名字不含任何決策、提案、寫入或送件)
+ MINING_USES = {
+     "rtb.analyzer.investigation": {"canonical_json"},
+     "rtb.eval.scoring": {"wilson_lower"},
+     "rtb.analyzer.modelgate": {"Caller", "Gate", "ModelCallFailed", "Outcome", "open_gate"},
+-    "rtb.modelclient": {"Caller", "recording_key", "DEFAULT_MODEL"},
++    # 增量 3:歷史錄製鍵模組多取入庫根、模式開關名(只讀,給重播拿掉即時開關)與錄製檔的共用驗收
++    "rtb.modelclient": {"Caller", "recording_key", "DEFAULT_MODEL", "default_recordings_dir",
++                        "MODEL_ENV", "LIVE_ENV", "RECORD_ENV", "Outcome", "batch_file_problems",
++                        "recording_files", "validated", "NoRecording"},
+ }
+ MINING_SOURCES = ("rtb.eval.rule_mining", NARROW, "rtb.domain.metrics")
+ 
+ 
+ def forbidden_reach(roots, src=SRC):
+     """閉包裡碰到的禁區:送件、DSP、執行端、分析端驅動等專案模組,以及任一支閉包模組匯入的網路模組。"""
+     reached = closure_of(list(roots), src)
+     found = [m for m in reached if m in FORBIDDEN_MODULES or m.startswith(FORBIDDEN_PREFIXES)]
+     for module in reached:
+         path = _source_of(src, module)
+diff --git a/tests/eval/test_rule_mining_report.py b/tests/eval/test_rule_mining_report.py
+new file mode 100644
+index 0000000..86d84cc
+--- /dev/null
++++ b/tests/eval/test_rule_mining_report.py
+@@ -0,0 +1,230 @@
++"""Phase 15 增量 3:規則模式探索的比較與人讀報告(純函式;計劃
++[[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉)。
++
++合約 [S1506] [S1516]。回覆都是手寫的假回覆,不呼叫模型;固定種子 15001 的資料照生成器重產。
++"""
++
++import json
++from fractions import Fraction
++
++import pytest
++
++from rtb.analyzer import rule_mining_model as rmm
++from rtb.eval import rule_mining_baseline as rb
++from rtb.eval import rule_mining_check as rc
++from rtb.eval import rule_mining_eval as rme
++from rtb.eval import rule_mining_history as rh
++from rtb.eval import rule_mining_prompt as rp
++from rtb.eval import rule_mining_report as rr
++from rtb.eval import rule_mining_vocab as rv
++
++SEED = rv.SEEDS[0]
++TRUE_A, TRUE_B = rr.TRUE_KEYS
++EXPLORE_ONLY = next(t.key for t in rh.TRUTH if t.kind == rh.DECOY_EXPLORE_ONLY)
++CORRELATED = next(t.key for t in rh.TRUTH if t.kind == rh.DECOY_CORRELATED)
++NOISE = (((rv.PRE_CVR, "pre_cvr:band_1"),), rv.IMPROVE)  # 跟任何預埋項都不共用子句
++NOISE_2 = (((rv.PRE_CVR, "pre_cvr:band_2"),), rv.NOT_IMPROVE)
++PARTIAL = (((rv.DAY_TYPE, rv.WEEKDAY), (rv.RAISE_PCT, "raise_pct:band_3")), rv.NOT_IMPROVE)
++
++
++def entry(key, kept=True):
++    return rr.Entry(key, rb.Holdout(kept, () if kept else (rb.LOW_SUPPORT,)))
++
++
++@pytest.fixture(scope="module")
++def inputs():
++    return rp.seed_inputs(SEED)
++
++
++@pytest.fixture(scope="module")
++def prepared(inputs):
++    return rme.prepare_from(inputs)
++
++
++def suggestion(prepared, key, *, threshold=None):
++    """照探索側重算數字填一條(threshold 換成別的門檻代碼時數字照填,讓語彙檢查去丟它)。"""
++    condition, direction = key
++    support, counter, _ = rb.directional(prepared.explore.stats(condition), direction)
++    clauses = [{"condition": f, "threshold": threshold or t} for f, t in condition]
++    return {"clauses": clauses, "direction": direction, "support": support,
++            "counterexample": counter, "confidence_note": "照表抄"}
++
++
++def verified(prepared, items):
++    text = json.dumps({"version": 1, "suggestions": items}, ensure_ascii=False,
++                      separators=(",", ":"))
++    return rc.verify(rc.parse_reply(text), prepared.explore, prepared.holdout)
++
++
++def measured(verification):
++    return rr.AiResult(rr.MEASURED, verification,
++                       rr.Source("phase15-seed-15001-1", "phase15-rule-mining-15001-20260928",
++                                 "claude-sonnet-5", "2026-09-28T00:00:00+00:00", 12345))
++
++
++# ---- [S1506] ----
++def test_rule_mining_compares_ai_with_the_same_exhaustive_search(inputs, prepared):  # noqa: PLR0915
++    # 類別:精確命中真模式才算命中;相關誘餌保留側也成立才另列,否則計誤報;其餘都計誤報
++    assert rr.classify(TRUE_A, kept=False) == rr.CAT_TRUE
++    assert rr.classify(CORRELATED, kept=True) == rr.CAT_RELATED
++    assert rr.classify(CORRELATED, kept=False) == rr.CAT_RELATED_FAILED
++    assert rr.classify(EXPLORE_ONLY, kept=True) == rr.CAT_EXPLORE_ONLY
++    assert rr.classify(PARTIAL, kept=True) == rr.CAT_PARTIAL
++    assert rr.classify(NOISE, kept=True) == rr.CAT_OTHER
++    # 反方向的真模式條件不是命中
++    assert rr.classify((TRUE_B[0], rv.IMPROVE), kept=True) == rr.CAT_PARTIAL
++
++    # 保留前/後各列分子分母;相關規律不進分母;名單先取定,保留後只刪不補
++    listed = [entry(TRUE_A), entry(CORRELATED), entry(EXPLORE_ONLY, kept=False), entry(NOISE)]
++    got = rr.score(listed)
++    assert (got.pre.hits, got.pre.false, got.pre.related) == (1, 2, 1)
++    assert (got.post.hits, got.post.false, got.post.related) == (1, 1, 1)
++    assert (got.recall_pre, got.recall_post, got.decoy_hits) == (1, 1, 1)
++    assert got.pre.precision_text() == "1/3" and got.pre.false_text() == "2/3"
++    # AI 無效提交在分子與分母各加一,保留側濾不掉
++    ai = rr.score([entry(TRUE_A, kept=False)], invalid=2)
++    assert (ai.pre.hits, ai.pre.false, ai.post.hits, ai.post.false) == (1, 2, 0, 2)
++
++    # 計劃例:AI 2 條有效真模式、6 條未知門檻、2 條反方向 → 8 筆無效提交、8/10 誤報;
++    # 前 K 比召回、前 2 比精確度
++    items = ([suggestion(prepared, TRUE_A), suggestion(prepared, TRUE_B)]
++             + [suggestion(prepared, NOISE, threshold="pre_cvr:band_9")] * 6
++             + [suggestion(prepared, (TRUE_A[0], rv.NOT_IMPROVE)),
++                suggestion(prepared, (TRUE_B[0], rv.IMPROVE))])
++    ver = verified(prepared, items)
++    assert (ver.n, ver.invalid_count) == (2, 8)
++    report = rr.seed_report(inputs, measured(ver))
++    assert report.ai_scores is not None and report.base_quota is not None
++    assert (report.ai_scores.pre.hits, report.ai_scores.pre.false) == (2, 8)
++    assert report.ai_scores.pre.false_text() == "8/10"
++    assert report.ai_scores.pre.precision == Fraction(2, 10)
++    assert report.ai_scores.recall_pre == 2
++    # 窮舉:同一全集、同一探索集、同一下限與 K,獨立重算
++    explore = inputs.explore.stats
++    top = rb.top_k(explore)
++    assert [e.key for e in report.baseline] == [(t.key, t.direction) for t in top]
++    assert len(report.baseline) == rv.K == report.base_raw.listed
++    assert [e.key for e in report.baseline[:2]] == [(t.key, t.direction) for t in top[:2]]
++    assert report.base_quota.listed == 2
++    for e in report.baseline:  # 保留側判定用保留側的數字
++        assert e.holdout == rb.holdout_verdict(inputs.holdout.stats[e.key[0]], e.key[1])
++    expected_hits = sum(1 for t in top if (t.key, t.direction) in rr.TRUE_KEYS)
++    assert report.base_raw.recall_pre == expected_hits
++    # 前 2 名(15001 是兩條部分重疊)精確度 0/2 < AI 2/10:AI 在精確度勝,這一批撤除比較不成立
++    assert report.base_quota.pre.precision == Fraction(0, 2)
++    assert report.verdict.label == rr.AI_WINS and report.verdict.retire_holds is False
++    # 召回用窮舉前 K(2/2),不用前 n(前 2 名沒有真模式):AI 只在精確度勝,召回沒勝
++    assert report.verdict.reasons == ("保留前同名額精確度", "保留後同名額精確度")
++
++    # 先取名單再過保留側,不遞補:AI 7 條時窮舉取原排名前 7(15001 第 7 名是只探索側誘餌、保留側
++    # 被刷掉),保留後就少一條,不拿第 8 名補
++    seven = [(t.key, t.direction) for t in top[:7]]
++    report = rr.seed_report(inputs, measured(verified(prepared, [suggestion(prepared, key)
++                                                                for key in seven])))
++    assert report.base_quota == rr.score(report.baseline[:7])
++    assert report.baseline[6].category == rr.CAT_EXPLORE_ONLY and not report.baseline[6].kept
++    assert report.base_quota.decoy_hits == 1
++    assert report.base_quota.post.countable == report.base_quota.pre.countable - 1
++
++    _zero_denominators_mean_exhaustive_wins()
++    _ties_and_losses()
++    _no_backfill_after_the_holdout()
++    # 機械筆數核對失敗比例:超過 25% 才警示,恰好 25% 不警示;沒有可解析建議是未量
++    one = rc.Invalid(0, rc.COUNT_MISMATCH, TRUE_A)
++    assert rr.mismatch_alarm(rc.Verification(None, 4, 4, (), (one,))) is False
++    assert rr.mismatch_alarm(rc.Verification(None, 4, 4, (), (one, one))) is True
++    assert rr.mismatch_alarm(rc.Verification("unparsable", 0, 0, (), ())) is None
++
++
++def _zero_denominators_mean_exhaustive_wins():
++    """n=0,或任一方同名額可計分母為零,都判窮舉勝;精確度寫未量,不寫 0%。"""
++    base_raw = rr.score([entry(CORRELATED), entry(TRUE_A)])
++    none = rr.score([], invalid=1)  # 整份拒絕:n=0
++    verdict = rr.judge(base_raw, rr.score([]), none)
++    assert (verdict.label, verdict.retire_holds) == (rr.EXHAUSTIVE_WINS, True)
++    assert verdict.reasons == ("AI 無有效建議",)
++    # 窮舉前 1 全是相關誘餌、AI 1 條真模式
++    quota = rr.score([entry(CORRELATED)])
++    assert quota.pre.precision_text() == rr.UNMEASURED and quota.pre.countable == 0
++    verdict = rr.judge(base_raw, quota, rr.score([entry(TRUE_A)]))
++    assert (verdict.label, verdict.retire_holds) == (rr.EXHAUSTIVE_WINS, True)
++    # 保留後 AI 全被刷掉
++    washed = rr.score([entry(TRUE_A, kept=False)])
++    assert washed.post.precision_text() == rr.UNMEASURED
++    verdict = rr.judge(rr.score([entry(TRUE_A)]), rr.score([entry(TRUE_A)]), washed)
++    assert verdict.label == rr.EXHAUSTIVE_WINS
++    # AI 欄沒量:未量,不判
++    assert rr.judge(base_raw, base_raw, None).retire_holds is None
++
++
++def _ties_and_losses():
++    both = [entry(TRUE_A), entry(TRUE_B)]
++    verdict = rr.judge(rr.score(both), rr.score(both), rr.score(both))
++    assert (verdict.label, verdict.retire_holds) == (rr.EXHAUSTIVE_HOLDS, True)  # 平手算不輸
++    noise = [entry(NOISE), entry(NOISE_2)]
++    verdict = rr.judge(rr.score(noise), rr.score(noise), rr.score(both))
++    assert verdict.label == rr.AI_WINS and verdict.retire_holds is False
++    assert set(verdict.reasons) == {"保留前召回", "保留後召回", "保留前同名額精確度",
++                                    "保留後同名額精確度"}
++    # AI 的無效提交把它的精確度拉到窮舉以下
++    verdict = rr.judge(rr.score(both), rr.score([entry(TRUE_A), entry(NOISE)]),
++                       rr.score([entry(TRUE_A)], invalid=3))
++    assert verdict.label == rr.EXHAUSTIVE_HOLDS
++
++
++def _no_backfill_after_the_holdout():
++    """窮舉前 n 取定後才過保留側:第 1 名被刷掉,不從第 2 名遞補。"""
++    base = [entry(TRUE_A, kept=False), entry(TRUE_B)]
++    quota = rr.score(base[:1])
++    assert (quota.post.hits, quota.post.countable) == (0, 0)
++    verdict = rr.judge(rr.score(base), quota, rr.score([entry(TRUE_B)]))
++    assert verdict.label == rr.EXHAUSTIVE_WINS
++
++
++# ---- [S1516] ----
++def test_rule_mining_report_discloses_candidate_counts_and_overlap(inputs, prepared):
++    top = rb.top_k(inputs.explore.stats)
++    inside = [(t.key, t.direction) for t in top[:2]]
++    ver = verified(prepared, [suggestion(prepared, key) for key in inside])
++    report = rr.seed_report(inputs, measured(ver))
++    assert report.overlap == rr.Overlap(2, (), rv.K - 2, all_inside=True)
++    text = rr.render([report], rr.Context("recordings/model/x"))
++    comparison = text[text.index("## 窮舉與 AI 比較"):text.index("## AI 清單與窮舉前 K 的重疊")]
++    assert f"| {SEED} | 窮舉前 K | 10 |" in comparison
++    assert f"| {SEED} | 窮舉前 n | 2 |" in comparison
++    assert f"| {SEED} | AI | 2 | 2/2/0 |" in comparison
++    section = text[text.index("## AI 清單與窮舉前 K 的重疊"):text.index("## 逐條")]
++    assert (f"- {SEED}:AI 有效 2 條、窮舉前 K 10 條;交集 2、AI 獨有 0、窮舉獨有 8;"
++            "AI 清單完全落在窮舉前 K:是") in section
++    assert rr.SAME_CONDITIONS in section
++    assert text.count("| 是 |") >= 4  # 逐條:窮舉兩條標「也在 AI 清單」,AI 兩條標「也在窮舉前 K」
++
++    # 部分重疊:一條在前 K、一條不在(排名第 K+1 的合格條件)→ 列出 AI 獨有,不寫固定句
++    outside = rb.rank(inputs.explore.stats)[rv.K]
++    keys = [inside[0], (outside.key, outside.direction)]
++    ver = verified(prepared, [suggestion(prepared, key) for key in keys])
++    report = rr.seed_report(inputs, measured(ver))
++    assert report.overlap == rr.Overlap(1, (keys[1],), rv.K - 1, all_inside=False)
++    text = rr.render([report], rr.Context("recordings/model/x"))
++    section = text[text.index("## AI 清單與窮舉前 K 的重疊"):text.index("## 逐條")]
++    assert rr.SAME_CONDITIONS not in text
++    assert "AI 清單完全落在窮舉前 K:否" in section
++    assert f"AI 獨有:{rr._key_cell(keys[1])}" in section
++    # AI 無有效建議:不寫固定句,寫窮舉勝
++    ver = verified(prepared, [suggestion(prepared, NOISE, threshold="pre_cvr:band_9")])
++    text = rr.render([rr.seed_report(inputs, measured(ver))], rr.Context("x"))
++    assert rr.SAME_CONDITIONS not in text and "AI 無有效建議,窮舉勝" in text
++    assert f"| {SEED} | AI | 0 | 1/0/1 |" in text
++
++
++def test_rule_mining_report_marks_unmeasured_ai_columns(inputs):
++    """等錄製、只產純基準:AI 欄寫未量,不當 0%;撤除條件未判。"""
++    for status in (rr.WAITING, rr.BASELINE_ONLY):
++        report = rr.seed_report(inputs, rr.AiResult(status))
++        assert report.ai_scores is None and report.verdict.retire_holds is None
++        text = rr.render([report], rr.Context("x"))
++        assert f"| {SEED} | AI | {rr.UNMEASURED} |" in text
++        assert "撤除條件(RETIRE-IF):未判" in text
++        assert f"| {SEED} | AI |" + f" {rr.UNMEASURED} |" * 9 in text  # 整列未量,不寫 0/0 或 0%
++    assert set(rr.PLAIN) == {t for thresholds in rv.THRESHOLDS.values() for t in thresholds}
++    assert rmm.PROMPT_BYTES_LIMIT == rv.PROMPT_BYTES_LIMIT  # 報告寫的上限就是窄入口那一個

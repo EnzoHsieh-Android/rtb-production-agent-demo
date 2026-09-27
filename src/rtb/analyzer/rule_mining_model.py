@@ -28,10 +28,15 @@ TIMEOUT_SECONDS = 60.0
 PROMPT_BYTES_LIMIT = 20480  # 本案:系統提示加使用者內容的 UTF-8 位元組
 
 GateOpener = Callable[..., modelgate.Gate]
+OpenedGate = modelgate.Gate  # 型別別名:評估端不准匯入閘道,只經這裡轉手已預檢的閘道
 
 
 class PromptTooLarge(ValueError):
     """完整提示超過本案上限:呼叫前拒絕,沒有開閘道、沒有記帳。"""
+
+
+class ForeignGate(ValueError):
+    """交給 `suggest` 的閘道不是用規則模式探索呼叫者開的:拒絕,什麼都沒送。"""
 
 
 @dataclass(frozen=True)
@@ -64,22 +69,52 @@ class Reply:
         return self.outcome == modelgate.Outcome.OK.value and self.text is not None
 
 
+@dataclass(frozen=True)
+class GateCheck:
+    """呼叫前的閘道預檢結果:已預檢的閘道本身、它判出的模式與通知、即時模式登入預檢沒過的原因。"""
+
+    gate: modelgate.Gate
+    mode: str
+    notices: tuple[str, ...]
+    login_problem: str | None = None
+
+
+def check_gate(config: GateConfig, *, open_gate: GateOpener = modelgate.open_gate,
+               notify: Callable[[str], None] | None = None) -> GateCheck:
+    """(Phase 15 增量 3)命令列在記下一次嘗試**之前**先開規則模式探索的閘道:判模式、做即時模式的
+    登入預檢,**不送出、不記帳**。即時前置不齊時閘道判成錄製,命令列就拒絕開錄、不用掉展示編號序號。
+    回傳的閘道要原樣交給 `suggest(gate=…)` 送出(代碼審 r1:另開新閘道會換一個還沒登入預檢過的後端,
+    送出時再做一次登入檢查,時間從 60 秒呼叫期限裡扣)。閘道拒絕照原樣丟 `modelgate.GateRefused`。"""
+    gate = open_gate(config.environ, caller=modelgate.Caller.RULE_MINING, demo_id=config.demo_id,
+                     ledger=config.ledger, recordings=config.recordings,
+                     batch_id=config.batch_id, recorded_ledger=config.recorded_ledger,
+                     notify=notify)
+    login = gate.preflight_login()
+    problem = (login.reason or "登入預檢沒過") if login.outcome.value == "failed" else None
+    return GateCheck(gate, gate.mode.value, gate.notices, problem)
+
+
 def prompt_bytes(system: str, table: str) -> int:
     return len(system.encode("utf-8")) + len(table.encode("utf-8"))
 
 
 def suggest(system: str, table: str, config: GateConfig, *,
             open_gate: GateOpener = modelgate.open_gate,
-            notify: Callable[[str], None] | None = None) -> Reply:
-    """開規則模式探索的閘道、送出一次(或讀一次錄製)。完整提示過大丟 `PromptTooLarge`;閘道拒絕丟
-    `modelgate.GateRefused`;模型呼叫的每一類失敗都收成 `Reply`(outcome 不是 ok),不重試。"""
+            notify: Callable[[str], None] | None = None,
+            gate: modelgate.Gate | None = None) -> Reply:
+    """開規則模式探索的閘道、送出一次(或讀一次錄製)。gate 是 `check_gate` 已預檢過的閘道:給了就
+    直接用它送出、不再開新閘道(它必須是規則模式探索的閘道)。完整提示過大丟 `PromptTooLarge`;閘道
+    拒絕丟 `modelgate.GateRefused`;模型呼叫的每一類失敗都收成 `Reply`(outcome 不是 ok),不重試。"""
     size = prompt_bytes(system, table)
     if size > PROMPT_BYTES_LIMIT:
         raise PromptTooLarge(f"完整提示 {size} 位元組超過上限 {PROMPT_BYTES_LIMIT},不呼叫")
-    gate = open_gate(config.environ, caller=modelgate.Caller.RULE_MINING, demo_id=config.demo_id,
-                     ledger=config.ledger, recordings=config.recordings,
-                     batch_id=config.batch_id, recorded_ledger=config.recorded_ledger,
-                     notify=notify)
+    if gate is None:
+        gate = open_gate(config.environ, caller=modelgate.Caller.RULE_MINING,
+                         demo_id=config.demo_id, ledger=config.ledger,
+                         recordings=config.recordings, batch_id=config.batch_id,
+                         recorded_ledger=config.recorded_ledger, notify=notify)
+    elif gate.caller is not modelgate.Caller.RULE_MINING:
+        raise ForeignGate("給的閘道不是規則模式探索開的:呼叫者標籤在開閘道時綁死")
     try:
         result = gate.complete(system, table, max_output_tokens=MAX_OUTPUT_TOKENS,
                                timeout_seconds=TIMEOUT_SECONDS)

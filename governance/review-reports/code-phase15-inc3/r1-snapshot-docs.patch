@@ -1,0 +1,339 @@
+diff --git a/README.md b/README.md
+index 6327e43..80f62d9 100644
+--- a/README.md
++++ b/README.md
+@@ -8,11 +8,11 @@
+ 
+ - **要不要加預算，由程式規則決定。**規則依序看九件事：暫停、資料異常、剛調過預算、上次加額沒帶來轉換、轉換率大跌、延遲轉換、沒投放、有投放且有價值、其餘。只有預算花得偏慢才往下查資料、走後面七條；沒偏慢就在第一步結束。
+ - **規則按需要查資料。**第一步讀現況與近一小時成效，初篩通過才再讀歷史、過去調整與逐日成效；資料有問題就判證據不足、不提案。
+ - **金額由程式算，寫入前再過一次關。**執行端重查權限、版本、時效與金額，必要時等人工核可，才寫入模擬平台。
+ - **AI 不參與決定。**[評估結果](governance/eval/phase13-investigation-adoption.md)沒通過，所以拿掉了它的決策權，只留兩件事：把提案寫成給確認者看的說明、在告警時推測原因。
+-- **AI 找到的新規則，要驗證過才可能寫成程式。**[AI 找規則計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md)讓 AI 離線從固定種子的合成歷史（事先埋好真規律與誘餌）找候選規則，先由程式重算、跟窮舉掃描比較，再由人確認，才可能經審查寫進規則；比不過窮舉就撤掉 AI、只留程式掃描。實作中。
++- **AI 找到的新規則，要驗證過才可能寫成程式。**[AI 找規則計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md)讓 AI 離線從固定種子的合成歷史（事先埋好真規律與誘餌）找候選規則，先由程式重算、跟窮舉掃描比較，再由人確認，才可能經審查寫進規則；比不過窮舉就撤掉 AI、只留程式掃描。[評估報告](governance/eval/phase15-rule-mining.md)逐批列出程式掃描與 AI 的比較。
+ 
+ ## 做了哪些把關
+ 
+ - 寫入結果不明時，用同一個識別碼查證，不另發一筆。
+ - 多個工作者同時處理同一份提案，平台也只會改一次。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+index ee2404c..aa1b656 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+@@ -71,10 +71,11 @@ RETIRE-IF: 固定種子 15001、15002、15003 各以第一次 `outcome=ok` 且
+ 
+ ## 現況（2026-09-26，分支 `phase15-rule-mining` 的 main 基底 `71b04d5`；以程式碼為準）
+ 
+ - 2026-09-27 增量 1 實作：分支 `phase15-inc1`，main 基底 `61bbb31`（含 Phase 14 增量 3；代碼審 r1 時已 rebase 到 `7bd062a`）。開工前核對 Phase 14 前置條件：分析端驅動的參數只剩資料庫、DSP、收件口、逾時與間隔（無 AI 判斷開關），展示驅動組分析端參數時只給這幾項，[S1429] 的閉包測試通過；F7 重跑（[S1518] 的「F7 重跑走規則路徑」證據）：協調者 2026-09-27 在基底 `7bd062a` 實跑 `tests/demo/test_driver.py` 與 `tests/demo/test_server.py` 裡的 F7 端到端（縮小版 30 支廣告，`-k "f7 or F7"`），12 passed；這是縮小版，不是完整幾千筆的 F7 展示。重新核對：`rg -n "add_argument" src/rtb/analyzer/runner.py`、`rg -n "def analyzer_args" -A5 src/rtb/demo/driver.py`。增量 1 的四支純離線模組與評估版本 v1 的可達性預檢記在 [[Systems/規則模式探索評估]]；未新增模型呼叫或通往提案的路徑。
+ - 2026-09-27 增量 2 實作:分支 `phase15-inc2`,main 基底 `4e70f92`。分析端窄入口 `rtb.analyzer.rule_mining_model`(家 [[Systems/規則模式探索模型入口]])、評估端回覆核對 `rule_mining_check`、歷史錄製鍵 `rule_mining_recordings`、單一種子執行 `rule_mining_eval`(家 [[Systems/規則模式探索評估]]);`Caller.RULE_MINING` 與計入上限名單、[S1100]/[S1103]/[S1134]/[S918] 與送出邊界名單的精確新增記在 [[Systems/模型用戶端]]、[[Systems/評估與Jev決策點]] 與原計劃條款下的改寫註記。代碼審 r1 後評估版本換成 `phase15-rule-mining-v3`(見上方裁定)。沒有命令列、沒有真錄製、沒有呼叫真模型;[S1506] [S1508] [S1509] [S1516] 留給增量 3。實作者解讀:預留額檢查沿用花費帳預留交易(它本來就用 `reservation_nanousd` 照當時價目與已用判兩個上限),不在窄入口另寫一份;十條填滿的最大回覆實算 5109 位元組(計劃寫 5139),仍低於 6000。重新核對:`rg -n "RULE_MINING" src tests`。
++- 2026-09-27 增量 3 實作:分支 `phase15-inc3`,main 基底 `33daf62`。命令列、批次清單與驗收入庫、比較與人讀報告、README 連結,落點與實作者解讀記在 [[Systems/規則模式探索評估]]〈增量 3〉,不送出的閘道預檢記在 [[Systems/規則模式探索模型入口]];評估版本語意沒動(仍是 v3)。沒有呼叫真模型、沒有入庫錄製:報告是「等錄製」那一版,入庫錄製由協調者之後用真模型錄,錄前 CI 的入庫重播測試是紅的。重新核對:`rg -n "def command|def _record|def _check_in" src/rtb/eval/rule_mining_eval.py`。
+ - `src/rtb/analyzer/modelgate.py` 的 `open_gate()` 在入口判錄製或即時、綁死 `Caller`、錄製目錄及花費帳；`Gate.complete()` 把請求交給 `src/rtb/modelclient.py`。即時要 `RTB_MODEL_LIVE=1`、展示編號、可用後端與有效啟用紀錄，重播缺錄製會報錯，不會默默轉即時。重新核對：`rg -n 'def open_gate|def complete|def settings_from_env|def call_model' src/rtb/analyzer/modelgate.py src/rtb/modelclient.py`。
+ - `src/rtb/modelledger_view.py` 的 `Caller` 是封閉列舉；`src/rtb/modelledger.py` 的 `CAPPED_CALLERS` 現只含評估候選與實測，花費帳有按呼叫者的上限與估算。錄製鍵含呼叫者、模型、系統提示、使用者內容與輸出上限，批次與目錄有驗收。重新核對：`rg -n 'class Caller|CAPPED_CALLERS|def recording_key|def batch_file_problems' src/rtb/modelledger_view.py src/rtb/modelledger.py src/rtb/modelrecording.py src/rtb/modelclient.py`。
+ - `src/rtb/eval/investigation_cases.py` 固定種子產 Phase 13 案例，`investigation_eval.py` 以同一 AI 函式重播／即時執行並驗批次，`investigation_report.py` 把結果寫成人讀報告。`src/rtb/eval/ruff.toml` 禁直接匯入模型閘道與 DSP，`src/rtb/analyzer/ruff.toml` 禁匯入評估套件；Phase 10 [S712] 的反向匯入界線仍成立。重新核對：`rg -n 'SEED|def generate|def run|def batch_problems|modelgate|rtb.eval' src/rtb/eval/investigation_cases.py src/rtb/eval/investigation_eval.py src/rtb/eval/ruff.toml src/rtb/analyzer/ruff.toml`。
+ - `src/rtb/dsp/store.py` 的逐日成效以 UTC 日期桶保存，金額用整數分，最近加額由正常操作紀錄連同調整前預算與提交時刻推得；`src/rtb/domain/nine_rules.py` 有正式九條的純領域詞彙與順序，`src/rtb/domain/metrics.py` 有 `exact_ratio`／`exact_change`。本案只仿照歷史資料語意建離線案例，不從 DSP 讀取，不匯入九條規則來生成答案。重新核對：`rg -n 'daily_metrics|_latest_raise|def get_past_adjustments|ANSWER_ORDER|def exact_ratio|def exact_change' src/rtb/dsp/store.py src/rtb/domain/nine_rules.py src/rtb/domain/metrics.py`。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md
+index 0b12c7d..c9e6fcc 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md
+@@ -26,10 +26,11 @@ Phase 15 增量 2(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈拆
+ 
+ ## 這支檔
+ 
+ - `src/rtb/analyzer/rule_mining_model.py`:`suggest(system, table, config)` 開閘道、送一次;`GateConfig` 是閘道設定(環境、展示編號、帳本、錄製目錄、批次、錄製帳本);`Reply` 帶結果類別、模式、原始文字(成功才有)、來源、錄製鍵、原價與失敗原因;`PromptTooLarge` 是呼叫前的位元組拒絕。
+ - 常數:輸出上限 6144 token、逾時 60 秒、完整提示 20480 位元組。評估版本的同名常數在評估端的語彙模組([[Systems/規則模式探索評估]]),兩邊由 [S1514] 的測試核對一致;分析端不准匯入評估套件,所以只能各寫一份。
++- 增量 3 加 `check_gate(config)`:開一次閘道判模式、做即時模式的登入預檢,**不送出、不記帳**,回 `GateCheck`;命令列在記下一次嘗試之前先呼叫它,判成錄製就拒絕、不用掉展示編號序號。WHY 放在窄入口:評估端不准匯入模型閘道,而模式只有閘道判得出來。
+ - 閘道注入點 `open_gate=`:測試用它換成綁假後端的閘道(不呼叫真的 claude);產品碼一律用閘道本身。
+ 
+ ## 實作者解讀(2026-09-27)
+ 
+ - 預留額檢查不另寫一份算式:計劃要求「呼叫前用 repo 預留函式與當時價目、已用額重算,須 ≤ 每展示及每月剩餘上限」,花費帳的預留本來就在單一寫入交易裡做這件事(用 `reservation_nanousd`、讀已用、判兩個上限),只要 `RULE_MINING` 列進計入上限名單。另在窄入口重算一次既會重複、也有「先查後寫」的競爭空窗;併行預留由 [S1514] 的測試證明也守得住。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+index 3744d65..b6bf72f 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+@@ -1,11 +1,11 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-27
+ updated: 2026-09-27
+-responsibility: 負責 Phase 15 規則模式探索的評估端:封閉條件語彙與評估版本常數、固定三種子合成歷史與真相清單、D±3 完整日效果與同側配對、彙總表、樣本下限、保留側判定、窮舉前 K、固定系統提示與完整提示位元組閘、可達性預檢(增量 1);模型回覆的封閉 JSON 解析、去重、同探索集重算、保留側判定、歷史錄製鍵重算與單一種子執行(增量 2);不負責開模型閘道或送出(經分析端窄入口)、命令列、錄製驗收與人讀報告(增量 3),不匯入模型閘道或 DSP,不通往提案或正式九條
++responsibility: 負責 Phase 15 規則模式探索的評估端:封閉條件語彙與評估版本常數、固定三種子合成歷史與真相清單、D±3 完整日效果與同側配對、彙總表、樣本下限、保留側判定、窮舉前 K、固定系統提示與完整提示位元組閘、可達性預檢(增量 1);模型回覆的封閉 JSON 解析、去重、同探索集重算、保留側判定、歷史錄製鍵重算與單一種子執行(增量 2);離線命令列、批次清單與錄製批次驗收入庫、窮舉與 AI 的同名額比較與人讀報告(增量 3);不負責開模型閘道或送出(經分析端窄入口),不匯入模型閘道或 DSP,不通往提案、正式九條或 Issue
+ aliases: []
+ about_code:
+   - src/rtb/eval/rule_mining_vocab.py
+   - src/rtb/eval/rule_mining_history.py
+   - src/rtb/eval/rule_mining_baseline.py
+@@ -13,10 +13,13 @@ about_code:
+   - tests/eval/test_rule_mining.py
+   - src/rtb/eval/rule_mining_check.py
+   - src/rtb/eval/rule_mining_recordings.py
+   - src/rtb/eval/rule_mining_eval.py
+   - tests/eval/test_rule_mining_check.py
++  - src/rtb/eval/rule_mining_report.py
++  - tests/eval/test_rule_mining_report.py
++  - tests/eval/test_rule_mining_cli.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: [2026-09-27 Phase 15 增量 1] AI 退出加額決策後保留的第三個角色是「離線提候選規則、靠證據取得採用資格」;這一篇先做不接模型的一半:固定種子合成歷史、可重算的配對效果、封閉語彙彙總與不用 AI 的窮舉前 K,讓之後的模型建議有同口徑的對照組。出處 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈拆增量〉1 與〈使用者裁定〉5。
+@@ -49,11 +52,11 @@ decisions:
+     decided: 2026-09-27
+     valid: true
+ ---
+ # 規則模式探索評估
+ 
+-Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不呼叫模型、沒有命令列;四支純函式模組加一支測試。增量 2 加回覆解析與重算、歷史錄製鍵與單一種子執行三支(見下方〈增量 2〉)。合成資料只證流程可運作,不給統計或因果保證。
++Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不呼叫模型;四支純函式模組加一支測試。增量 2 加回覆解析與重算、歷史錄製鍵與單一種子執行三支(見下方〈增量 2〉);增量 3 加命令列、批次清單、比較與報告(見〈增量 3〉)。合成資料只證流程可運作,不給統計或因果保證。
+ 
+ ## 四支模組
+ 
+ - `src/rtb/eval/rule_mining_vocab.py`:評估版本的單一出處(`EVAL_VERSION`、`SEEDS`、`K`、下限、保留比例、切點、規模桶、上限、`version_params()`),以及封閉條件語彙:四欄 day_type(平日/週末)、pre_cvr、raise_pct、spend_ratio(各三區間),一條條件是一或兩個不同欄位的子句 AND;門檻代碼一律「欄位:區間」全名;`condition_key` / `normalized_key` 對語彙外、同欄重複、子句數錯、未知方向丟 `VocabularyError`(帶原因代碼,給增量 2 的解析器逐條記)。全集 56 條(11 單欄 + 45 兩欄)。
+ - `src/rtb/eval/rule_mining_history.py`:型別(日桶、操作、廣告、歷史、真相項)、`generate(seed)`(只收三個固定種子)、`render` / `data_sha256` 與寫死的三批預期雜湊、`split`。720 支廣告、35 個連續 UTC 日、一半廣告各兩次加額;另刻意放少量前後視窗出界、視窗重疊與 no_data,讓排除計數有東西可數。
+@@ -74,10 +77,26 @@ Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不
+ - 紅綠:新測試先在基底 4e70f92 的原始碼副本上跑,新模組缺席(匯入錯)、列舉與四組精確等式全紅;實作後全綠。另以二十種變異各跑一次(上限名單拿掉探勘、窄入口不擋過大提示、輸出上限或逾時改值、冒用別的呼叫者、不拒重複鍵、位元組界改量字數、子句未知鍵不整份拒、布林當整數、不去重、超 K 截前 K、不比對自報筆數、不看下限、保留側用探索側算、失敗後重試、執行器不過位元組閘、錄製鍵用錯輸出上限、失敗往外丟、窄入口多匯入收件口),十九種翻紅;「只拿掉解析時的非有限數檢查」不紅,因為解析後還有一層遞迴檢查(兩層都拿掉就紅),是刻意的雙層。
+ - PITFALL:[2026-09-27 增量 2 代碼審 r1,正確性與資安兩席重複] 解析器曾有兩個崩潰:(1) 解析後的非有限數檢查是遞迴函式、又在 try 外面,平衡的 500 層巢狀(1000 位元組)就丟 RecursionError 穿出執行器;原本的測試用不平衡的 `[`×5000,在 `json.loads` 就被接住,走不到那條路。(2) 說明欄是 `\ud800` 逸出時,量位元組的 `encode` 丟 UnicodeEncodeError。修法:非有限數檢查改顯式堆疊;量原始文字位元組包進 try;說明欄先擋代理字元再量位元組;整份與逐條各加一道「任何意外都收成拒絕或丟該條」的防線;超過 4300 位的整數由解析器自己數位數整份拒絕,不看直譯器的整數位數上限設定。錄製重播路徑也驗過(假後端錄進去、重播出來不崩,竄改錄製文字為孤立代理字元時整份拒絕)。防回歸:[test:test_rule_mining_hostile_replies_never_crash_the_parser]、[test:test_rule_mining_hostile_recordings_replay_without_crashing]、[test:test_rule_mining_rejects_out_of_vocabulary_suggestions]。
+ - PITFALL:[2026-09-27 增量 2 代碼審 r2 正確性席] r1 修完後,深巢狀要整份拒絕還是只丟該條,仍取決於 json 解析器吃不吃得下那個深度,而 Python 3.14 的 C 解析器看的是實際剩餘 C 堆疊(256 KiB 執行緒約 1647 層就丟 RecursionError,`sys.setrecursionlimit` 管不到),同一份回覆換執行緒就換判決。現在解析前先線性掃一次括號深度(字串內容與逸出的引號跳過),超過解析器常數 `MAX_NESTING = 64` 就整份拒絕(原因 `nesting_too_deep`);合法回覆最深 5 層。這是解析器常數,不在評估版本參數、不改提示,版本雜湊不變。同輪補「負號加 4300 位整數只丟該條」測例(位數不算負號)。變異:拿掉深度閘、上限改 65、比較改成 ≥、字串內括號也算、不處理逸出、只算方括號、負號也算位數,七種全紅。防回歸:[test:test_rule_mining_nesting_limit_is_fixed_by_the_parser]、[test:test_rule_mining_rejects_out_of_vocabulary_suggestions]。
+ - PITFALL:[2026-09-27 增量 2 代碼審 r1 正確性席] 探勘執行器原本自己組表,把表改用保留側、兩個重算器對調,測試仍全綠(測試的假回覆也從同一個執行器取數字,跟著一起錯)。現在組表與預檢共用提示模組同一支 `seed_inputs`,測試另把送出的表、兩個重算器綁回獨立算的探索/保留彙總與預檢位元組數。防回歸:[test:test_rule_mining_runner_sends_the_explore_table_and_recounts_both_sides]。代碼審 r1 修正後另以十一種變異驗證(回到遞迴檢查、說明不擋代理字元、拿掉兩道防線任一、整數位數改靠直譯器或上限改 4301、只比支持、保留重算器用探索側、表與重算器對調、提示拿掉格式字元)全數翻紅;「量原始文字位元組時不接編碼錯」單獨拿掉不紅(整份防線接住),連同整份防線一起拿掉就紅。以固定種子 15001 做的端到端(假後端)在 [[Systems/規則模式探索模型入口]] 的測試。
+ 
++## 增量 3:命令列、批次清單、比較與報告(2026-09-27)
++
++- 命令列寫在探勘執行器 `src/rtb/eval/rule_mining_eval.py` 裡(`python -m rtb.eval.rule_mining_eval`),不另開模組:它本來就是送出點,另開一支會多一個要進 `SENDING_ENTRIES`/`CALL_MODEL_USERS` 與 [S918] 等式的名字;撤除模型段時命令列跟著執行器一起撤,正合計劃〈回退〉「移除命令列」。用法與錄製步驟見 recordings/model/README.md〈規則模式探索的評估錄製〉。
++- `src/rtb/eval/rule_mining_recordings.py` 多了批次清單(`manifest.json`)的讀、機檢與一批的驗收;它是撤除後**留下**的歷史驗證那一半,所以不寫檔(寫清單與搬錄製在命令列)。
++- `src/rtb/eval/rule_mining_report.py`(純函式):真相類別、保留前/後計分、同名額判定、重疊、人讀報告;撤除後照留,純程式報告仍可重產。只吃結構化欄位與重算數字,`Checked` 本來就不帶說明欄,報告碰不到 `confidence_note`。
++- 人讀報告固定在 `governance/eval/phase15-rule-mining.md`,內容 = 命令列預設重播入庫目錄的輸出(測試逐字比對);錄製入庫前它是「等錄製」那一版:AI 欄整列未量、撤除條件未判,窮舉那一半照算。README「AI 找到的新規則」那一點連到它;一鍵展示頁不連。
++- WHY 入庫目錄以評估版本命名(`recordings/model/<評估版本>/`):計劃要求換批必換評估版本且舊批保留,目錄名綁版本就不用在清單裡管跨版本,換版自然是新目錄。一個固定種子一批、一個子目錄、一次呼叫;批次清單跟子目錄並列(共用的單批目錄檢查不收錄製檔以外的檔,所以清單不能放進種子子目錄)。
++- WHY 即時錄製先過閘道預檢、再記嘗試、再送出:預檢(判模式、登入預檢)用分析端窄入口新加的不送出函式,判成錄製就拒絕、不用掉序號;記下「呼叫中」之後才送,行程中斷也不會重用那個序號(停在「呼叫中」視同呼叫失敗)。成功但還沒驗收時不准再錄同種子,入庫只收該種子第一次 ok 且沒被驗收退回的那次——防重抽挑好結果。
++- 實作者解讀:計劃的「錄製模式專用 `--ledger`」照閘道既有行為(即時給帳檔就拒絕)。「缺錄製不轉即時」在命令列多加兩層:重播一律拿掉即時與錄製開關、不給展示編號;即時錄製要環境兩個開關都是 1 且帶展示編號,缺一就拒絕,不退回重播。
++- 實作者解讀:判定用詞分「窮舉勝」(n=0 或同名額任一方分母為零)與「窮舉不輸 AI」(一般比較,召回與精確度都不低於 AI);兩者都算該批撤除比較成立。撤除條件的最後一步(AI 有沒有提供經人確認的額外可核對條件)程式判不了,報告只寫「程式可判的部分成立」。
++- 實作者解讀:相關誘餌的類別看它自己的保留側判定——保留側成立才列「觀察成立的相關規律」(不進分母),不成立就計誤報;這個判定在保留前、保留後兩欄一致,不隨名單過濾改變。部分重疊 = 跟任一預埋項共用至少一個子句(含方向不同)。
++- RULE: 序號不重用只靠批次清單把關(沒有去讀帳號家目錄的花費帳):錄完每一步都要把 `manifest.json` 留在入庫目錄、跟錄製一起提交,不能在別的 checkout 另錄。[since:2026-09-27] [retire:命令列改成也核對花費帳裡用過的展示編號時] 事件入口:recordings/model/README.md 的錄製步驟;批次清單被手改時 `--verify` 的清單機檢(序號、入庫規則)會紅。
++- 測試:`tests/eval/test_rule_mining_report.py`([S1506] [S1516],另一支驗等錄製時 AI 欄整列未量);`tests/eval/test_rule_mining_cli.py`([S1508] [S1509]、入庫報告逐字比對,以及 [S1507]/[S1514] 的命令列補強 [test:test_rule_mining_cli_never_goes_live_for_a_missing_recording]、[test:test_rule_mining_cli_demo_ids_count_up_per_seed_and_are_never_reused])。`test_committed_rule_mining_recordings_replay_all_three_seeds` 在協調者錄製入庫前是紅的,不跳過(比照一鍵展示批次的做法),入庫後它就是 CI 的重播驗收。
++- 邊界名單只精確加報告模組:[S918] 評估閉包准許名單(見 [[Systems/評估與Jev決策點]])與 [S1510] 探勘閉包檢查各加這一支;[S1510] 准許歷史錄製鍵模組多取的門面名字只有入庫根、模式開關名與錄製檔的共用驗收(唯讀)。送出點、呼叫者與閘道使用者名單都沒動。評估套件裡不准出現送出相關的名字(含 `open_gate`),所以命令列給測試換閘道的參數叫 `opener`。
++- 紅綠:新測試在基底 33daf62 的原始碼副本上跑,報告模組缺席(匯入錯)全紅;實作後除入庫重播那支(等錄製)全綠。另以二十七種變異各跑一次(相關規律進分母、無效提交不計或保留後不計、窮舉前 n 保留後遞補、召回改用前 n、零分母或 n=0 不判窮舉勝、平手算 AI 勝、相關誘餌保留側不成立也不計、完全落在前 K 恆真、固定句不看 AI 獨有、核對警示用 ≥、批次驗收不比鍵集合或不看結果類別、清單不查第一次成功/序號/評估版本、命令列不查序號、待驗收或入庫後仍准再錄、不要求兩個開關、閘道判錄製也送、失敗的嘗試也能入庫、不要求全新目錄、驗收沒過照樣入庫、重播不拿掉即時開關、先送再記嘗試),首輪四種存活(遞補、召回用前 n、重播環境、先送再記),補測試後全數翻紅。
++
+ ## 埋入的真相(只給評估器)
+ 
+ - 真模式・改善:raise_pct:band_2 且 spend_ratio:band_3(預算幾乎花滿的廣告中度加額),後三天轉換率乘 1.6。
+ - 真模式・未改善:raise_pct:band_3(加額 50% 以上),後三天轉換率乘 0.5。
+ - 誘餌・只探索側偶合:day_type:weekend 且 raise_pct:band_1 改善——生成器只對探索側廣告埋 1.6 倍,保留側沒有。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+index 9d9a312..69f2395 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+@@ -62,10 +62,12 @@ verified_by:
+ 
+ 2026-09-27 Phase 15 增量 1:[S918] 評估套件匯入閉包的准許名單精確新增規則模式探索的四支純離線模組(另立 `PHASE15_ALLOWED`,不放寬既有名單);它們不經模型用戶端、不送出,經門面、送出與 AI 決策模組的精確等式都沒變。套件說明(`__init__.py`)的准許名單段同步加註這四支。模組本身的家是 [[Systems/規則模式探索評估]]。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+ 
+ 2026-09-27 Phase 15 增量 2:[S918] 再逐項精確新增(`PHASE15_ALLOWED`):規則模式探索的回覆核對、歷史錄製鍵與單一種子探勘執行器三支評估模組(家是 [[Systems/規則模式探索評估]]),以及探勘執行器經它開閘道送出的分析端模型窄入口(家是 [[Systems/規則模式探索模型入口]];閘道本身早在 Phase 13 名單);`PHASE13_ALLOWED` 不動。經門面的精確名單多歷史錄製鍵那一支(只取錄製鍵函式與呼叫者列舉);直接送出仍只有模型候選;AI 決策模組的匯入與送出等式照舊只有調查評估執行器;另立一組等式:匯入窄入口、用它的送出名字(`suggest`、`gate_ask`)的評估模組都精確等於探勘執行器一支(`rule_mining_senders()`)。套件說明(`__init__.py`)同步。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+ 
++2026-09-27 Phase 15 增量 3:[S918] `PHASE15_ALLOWED` 只精確加規則模式探索的純比較與報告模組(家是 [[Systems/規則模式探索評估]]);命令列寫在既有的探勘執行器裡,經門面、送出、AI 決策模組與窄入口的精確等式都沒變(歷史錄製鍵那一支多取錄製檔的唯讀驗收,仍在同一個經門面名單裡)。套件說明(`__init__.py`)同步。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
++
+ 2026-09-26 Phase 14 增量 1:評估標準答案在案例邊界轉成 [[Systems/正式九條判斷領域規則]] 的型別並呼叫同一決策;必要列內缺值與單日 no_data 回無格的證據不足,原 72 筆含雙胞胎的格與答案逐筆維持,固定匯入閉包名單只增純領域模組。[test:test_missing_row_values_are_insufficient_without_changing_the_72_cases] [test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+ 
+ 2026-09-26 代碼審折入:標準答案與正式規則刻意同源,只證接線一致、不作獨立品質證據;生成器仍不匯入分析端與 AI 決策模組。評估的區段轉換率邊界檢查共用 [[Systems/正式九條判斷領域規則]] 的公開函式,[S1403] 以精確下降 50.04% 而收據顯示 -50.0% 守捨入門檻。[test:test_eval_uses_the_domain_segment_rate] [test:test_exact_thresholds_distinguish_zero_denominators]
+ 
+ 本篇管 `src/rtb/eval/` 七支檔:評分表(`rubric.py`)、生成器(`generator.py`)、合成評估集(`eval_set.py`,生成器的產出,不要手改)、逐筆計分與逐格報告(`scoring.py`)、比較表與逐格採用決定(`adoption.py`)、人讀的決定紀錄(`record.py`,`python -m rtb.eval.record` 產生)、套件說明(`__init__.py`)。判斷點本身、路由與待測格清單的型別在 [[Systems/分析行程流程與檢查點]],判斷點的輸入與評分格在 [[Systems/任務流程領域模型]]。
+diff --git a/governance/eval/phase15-rule-mining.md b/governance/eval/phase15-rule-mining.md
+new file mode 100644
+index 0000000..63baf37
+--- /dev/null
++++ b/governance/eval/phase15-rule-mining.md
+@@ -0,0 +1,155 @@
++# AI 找規則模式:評估報告(Phase 15)
++
++> **固定種子合成資料、非統計保證、非自動規則;真模式在語彙切點上,召回只是可精確表示時的上界。**
++> 這份報告只列給人看的候選;任何一條要變成正式規則,都要人確認、開 Issue,再經設計審與代碼審。
++
++## 結論
++
++- 撤除條件(RETIRE-IF):未判——三批 AI 欄未齊(0/3 批已量);未量的批次 AI 欄一律寫「未量」,不當 0%
++- 15001:窮舉前 10 真模式召回(保留前 → 後)2/2 → 2/2;AI 等錄製,未量
++- 15002:窮舉前 10 真模式召回(保留前 → 後)2/2 → 2/2;AI 等錄製,未量
++- 15003:窮舉前 10 真模式召回(保留前 → 後)2/2 → 2/2;AI 等錄製,未量
++
++## 版本與資料
++
++- 評估版本 phase15-rule-mining-v3(版本雜湊 d7b40b48e3ccd004dfc6e1ba5536a12ed34e07c774693a501c8cec708fe55582;系統提示、表頭、語彙與全部參數都在雜湊內)、生成版本 rule-mining-history-1
++- 固定種子 15001、15002、15003(不得替換,三批全列);K=10、有方向配對下限 20 且兩側相異廣告各 20、保留側支持比例至少 3/5
++- 錄製來源:`recordings/model/phase15-rule-mining-v3`(CI 只重播入庫錄製,不呼叫即時模型)
++
++| 種子 | 資料雜湊 | 廣告 探索/保留 | 可推斷加額事件 探索/保留 | 事件層排除 探索 | 事件層排除 保留 | 送模型表列 | 完整提示位元組 |
++|---|---|---|---|---|---|---|---|
++| 15001 | f820e1a486d8b35d | 360/360 | 340/301 | incomplete_window=18 missing_value=11 overlapping_adjustment=18 | incomplete_window=17 missing_value=9 overlapping_adjustment=32 | 50 | 6104 |
++| 15002 | 2a9e4aac0f4ec020 | 360/360 | 318/339 | incomplete_window=13 missing_value=12 overlapping_adjustment=16 | incomplete_window=18 missing_value=7 overlapping_adjustment=13 | 49 | 6022 |
++| 15003 | ba7d6ebc8a3a8b4d | 360/360 | 333/324 | incomplete_window=14 missing_value=7 overlapping_adjustment=21 | incomplete_window=10 missing_value=8 overlapping_adjustment=28 | 50 | 6091 |
++
++| 種子 | AI 欄 | 展示編號 | 批次 | 模型 | 錄製時間 | 估算花費(美元,原價) |
++|---|---|---|---|---|---|---|
++| 15001 | 等錄製,未量 | — | — | — | — | — |
++| 15002 | 等錄製,未量 | — | — | — | — | — |
++| 15003 | 等錄製,未量 | — | — | — | — | — |
++
++## 窮舉與 AI 比較(三批全列)
++
++- 召回:命中預埋真模式數 / 真模式總數(2);窮舉一律用前 K。
++- 同名額:n = AI 有效建議數,窮舉取前 n 條比精確度;精確度 = 命中 /(命中 + 可計誤報)。
++- AI 的無效提交在 AI 可計誤報的分子與分母各加一,保留側濾不掉它。
++- 名單先取定再過保留側,不遞補;「保留前 → 後」兩欄各自列分子分母。
++- 「觀察成立的相關規律」不進召回、誤報分子或精確度分母,另欄列出。
++
++| 種子 | 來源 | 有效候選 | 原回覆/可解析/無效提交 | 真模式召回 前K(保留前 → 後) | 名額 | 精確度(保留前 → 後) | 可計誤報(保留前 → 後) | 相關規律 | 只探索側誘餌命中 | 核對失敗 |
++|---|---|---|---|---|---|---|---|---|---|---|
++| 15001 | 窮舉前 K | 10 | — | 2/2 → 2/2 | 10 | 2/9 → 2/7 | 7/9 → 5/7 | 1 | 1 | — |
++| 15001 | AI | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 |
++| 15002 | 窮舉前 K | 10 | — | 2/2 → 2/2 | 10 | 2/10 → 2/9 | 8/10 → 7/9 | 0 | 1 | — |
++| 15002 | AI | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 |
++| 15003 | 窮舉前 K | 10 | — | 2/2 → 2/2 | 10 | 2/10 → 2/10 | 8/10 → 8/10 | 0 | 1 | — |
++| 15003 | AI | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 | 未量 |
++
++## AI 清單與窮舉前 K 的重疊
++
++- 15001:AI 欄未量
++- 15002:AI 欄未量
++- 15003:AI 欄未量
++
++## 逐條(程式重算的數字)
++
++### 種子 15001
++
++窮舉前 K(10 條,依 Wilson 下界排序):
++
++| # | 條件 → 方向 | 支持/反例/平手 | 相異加額/對照廣告 | 相異日期 | 平均差值(百分點) | 保留側 | 類別 | 也在 AI 清單 |
++|---|---|---|---|---|---|---|---|---|
++| 1 | 調整前三日轉換率 5% 以上且加額 50% 以上→加額後較可能沒改善(`pre_cvr:band_3&raise_pct:band_3` not_improve) | 41/2/0 | 35/43 | 21 | 3.5294 | 保留(支持 33/反例 1/有方向 34) | 部分重疊(與 `raise_pct:band_3`) | 否 |
++| 2 | 加額日是週末且加額 50% 以上→加額後較可能沒改善(`day_type:weekend&raise_pct:band_3` not_improve) | 37/3/0 | 39/40 | 8 | 2.1989 | 保留(支持 22/反例 0/有方向 22) | 部分重疊(與 `raise_pct:band_3`、`day_type:weekend&raise_pct:band_1`) | 否 |
++| 3 | 加額 50% 以上且調整前三日花費不到原預算 60%→加額後較可能沒改善(`raise_pct:band_3&spend_ratio:band_1` not_improve) | 86/15/0 | 73/101 | 27 | 1.9683 | 保留(支持 54/反例 3/有方向 57) | 部分重疊(與 `raise_pct:band_3`、`spend_ratio:band_1`) | 否 |
++| 4 | 加額 20% 以上未滿 50%且調整前三日花費占原預算 90% 以上→加額後較可能改善(`raise_pct:band_2&spend_ratio:band_3` improve) | 42/6/0 | 40/48 | 21 | 2.3811 | 保留(支持 52/反例 5/有方向 57) | 真模式 | 否 |
++| 5 | 加額日是平日且加額 50% 以上→加額後較可能沒改善(`day_type:weekday&raise_pct:band_3` not_improve) | 69/13/0 | 70/82 | 20 | 1.9123 | 保留(支持 58/反例 4/有方向 62) | 部分重疊(與 `raise_pct:band_3`) | 否 |
++| 6 | 加額 50% 以上→加額後較可能沒改善(`raise_pct:band_3` not_improve) | 93/20/0 | 88/113 | 28 | 1.7277 | 保留(支持 82/反例 2/有方向 84) | 真模式 | 否 |
++| 7 | 加額日是週末且加額不到 20%→加額後較可能改善(`day_type:weekend&raise_pct:band_1` improve) | 38/7/0 | 44/45 | 8 | 2.1464 | 不保留:支持比例不足、方向不符(支持 17/反例 23/有方向 40) | 只探索側誘餌 | 否 |
++| 8 | 調整前三日花費不到原預算 60%→加額後較可能沒改善(`spend_ratio:band_1` not_improve) | 104/34/0 | 81/138 | 26 | 1.0735 | 保留(支持 69/反例 14/有方向 83) | 觀察成立的相關規律 | 否 |
++| 9 | 加額 20% 以上未滿 50%→加額後較可能改善(`raise_pct:band_2` improve) | 77/25/0 | 88/102 | 27 | 1.0895 | 保留(支持 82/反例 22/有方向 104) | 部分重疊(與 `raise_pct:band_2&spend_ratio:band_3`) | 否 |
++| 10 | 調整前三日轉換率 2% 以上未滿 5%且加額 50% 以上→加額後較可能沒改善(`pre_cvr:band_2&raise_pct:band_3` not_improve) | 36/9/0 | 37/45 | 19 | 1.3549 | 不保留:樣本不足(支持 21/反例 0/有方向 21) | 部分重疊(與 `raise_pct:band_3`) | 否 |
++
++AI 有效建議:等錄製,未量
++
++### 種子 15002
++
++窮舉前 K(10 條,依 Wilson 下界排序):
++
++| # | 條件 → 方向 | 支持/反例/平手 | 相異加額/對照廣告 | 相異日期 | 平均差值(百分點) | 保留側 | 類別 | 也在 AI 清單 |
++|---|---|---|---|---|---|---|---|---|
++| 1 | 加額日是週末且加額不到 20%→加額後較可能改善(`day_type:weekend&raise_pct:band_1` improve) | 33/1/0 | 34/34 | 7 | 2.8797 | 不保留:支持比例不足、方向不符(支持 18/反例 21/有方向 39) | 只探索側誘餌 | 否 |
++| 2 | 加額 50% 以上→加額後較可能沒改善(`raise_pct:band_3` not_improve) | 91/10/0 | 74/101 | 27 | 2.2585 | 保留(支持 96/反例 20/有方向 116) | 真模式 | 否 |
++| 3 | 加額日是平日且加額 50% 以上→加額後較可能沒改善(`day_type:weekday&raise_pct:band_3` not_improve) | 68/9/0 | 60/77 | 19 | 2.0096 | 保留(支持 62/反例 14/有方向 76) | 部分重疊(與 `raise_pct:band_3`) | 否 |
++| 4 | 調整前三日轉換率 2% 以上未滿 5%且加額 50% 以上→加額後較可能沒改善(`pre_cvr:band_2&raise_pct:band_3` not_improve) | 27/2/0 | 22/29 | 15 | 1.6614 | 保留(支持 37/反例 4/有方向 41) | 部分重疊(與 `raise_pct:band_3`) | 否 |
++| 5 | 加額 50% 以上且調整前三日花費不到原預算 60%→加額後較可能沒改善(`raise_pct:band_3&spend_ratio:band_1` not_improve) | 63/10/0 | 50/73 | 26 | 2.1897 | 保留(支持 73/反例 14/有方向 87) | 部分重疊(與 `raise_pct:band_3`、`spend_ratio:band_1`) | 否 |
++| 6 | 調整前三日轉換率 5% 以上且加額 50% 以上→加額後較可能沒改善(`pre_cvr:band_3&raise_pct:band_3` not_improve) | 35/4/0 | 31/39 | 22 | 3.4113 | 保留(支持 35/反例 3/有方向 38) | 部分重疊(與 `raise_pct:band_3`) | 否 |
++| 7 | 加額日是週末且加額 50% 以上→加額後較可能沒改善(`day_type:weekend&raise_pct:band_3` not_improve) | 22/2/0 | 22/24 | 8 | 2.4691 | 保留(支持 36/反例 4/有方向 40) | 部分重疊(與 `raise_pct:band_3`、`day_type:weekend&raise_pct:band_1`) | 否 |
++| 8 | 調整前三日轉換率不到 2%且加額 50% 以上→加額後較可能沒改善(`pre_cvr:band_1&raise_pct:band_3` not_improve) | 29/4/0 | 22/33 | 21 | 1.0400 | 保留(支持 28/反例 9/有方向 37) | 部分重疊(與 `raise_pct:band_3`) | 否 |
++| 9 | 加額 20% 以上未滿 50%且調整前三日花費占原預算 90% 以上→加額後較可能改善(`raise_pct:band_2&spend_ratio:band_3` improve) | 39/10/0 | 37/49 | 20 | 1.8123 | 保留(支持 54/反例 6/有方向 60) | 真模式 | 否 |
++| 10 | 加額日是平日且調整前三日花費不到原預算 60%→加額後較可能沒改善(`day_type:weekday&spend_ratio:band_1` not_improve) | 57/18/0 | 51/75 | 20 | 1.3851 | 保留(支持 53/反例 18/有方向 71) | 部分重疊(與 `spend_ratio:band_1`) | 否 |
++
++AI 有效建議:等錄製,未量
++
++### 種子 15003
++
++窮舉前 K(10 條,依 Wilson 下界排序):
++
++| # | 條件 → 方向 | 支持/反例/平手 | 相異加額/對照廣告 | 相異日期 | 平均差值(百分點) | 保留側 | 類別 | 也在 AI 清單 |
++|---|---|---|---|---|---|---|---|---|
++| 1 | 調整前三日轉換率 5% 以上且加額 50% 以上→加額後較可能沒改善(`pre_cvr:band_3&raise_pct:band_3` not_improve) | 40/2/0 | 31/42 | 21 | 3.3182 | 保留(支持 41/反例 4/有方向 45) | 部分重疊(與 `raise_pct:band_3`) | 否 |
++| 2 | 加額日是週末且加額 50% 以上→加額後較可能沒改善(`day_type:weekend&raise_pct:band_3` not_improve) | 35/2/0 | 32/37 | 7 | 2.1332 | 保留(支持 33/反例 6/有方向 39) | 部分重疊(與 `raise_pct:band_3`、`day_type:weekend&raise_pct:band_1`) | 否 |
++| 3 | 加額 50% 以上且調整前三日花費不到原預算 60%→加額後較可能沒改善(`raise_pct:band_3&spend_ratio:band_1` not_improve) | 67/7/0 | 50/74 | 25 | 2.1876 | 保留(支持 78/反例 13/有方向 91) | 部分重疊(與 `raise_pct:band_3`、`spend_ratio:band_1`) | 否 |
++| 4 | 加額 50% 以上→加額後較可能沒改善(`raise_pct:band_3` not_improve) | 94/15/0 | 80/109 | 27 | 1.7463 | 保留(支持 106/反例 12/有方向 118) | 真模式 | 否 |
++| 5 | 加額 20% 以上未滿 50%且調整前三日花費占原預算 90% 以上→加額後較可能改善(`raise_pct:band_2&spend_ratio:band_3` improve) | 55/7/0 | 49/62 | 27 | 2.4923 | 保留(支持 42/反例 11/有方向 53) | 真模式 | 否 |
++| 6 | 加額日是平日且加額 50% 以上→加額後較可能沒改善(`day_type:weekday&raise_pct:band_3` not_improve) | 59/13/0 | 60/72 | 20 | 1.6952 | 保留(支持 71/反例 9/有方向 80) | 部分重疊(與 `raise_pct:band_3`) | 否 |
++| 7 | 加額 20% 以上未滿 50%→加額後較可能改善(`raise_pct:band_2` improve) | 85/22/0 | 88/107 | 29 | 1.4517 | 保留(支持 62/反例 39/有方向 101) | 部分重疊(與 `raise_pct:band_2&spend_ratio:band_3`) | 否 |
++| 8 | 加額日是週末且加額不到 20%→加額後較可能改善(`day_type:weekend&raise_pct:band_1` improve) | 40/8/0 | 46/48 | 8 | 1.9144 | 保留(支持 19/反例 8/有方向 27) | 只探索側誘餌 | 否 |
++| 9 | 加額日是平日且加額 20% 以上未滿 50%→加額後較可能改善(`day_type:weekday&raise_pct:band_2` improve) | 61/16/0 | 63/77 | 21 | 1.4097 | 保留(支持 44/反例 28/有方向 72) | 部分重疊(與 `raise_pct:band_2&spend_ratio:band_3`) | 否 |
++| 10 | 調整前三日轉換率不到 2%且加額 50% 以上→加額後較可能沒改善(`pre_cvr:band_1&raise_pct:band_3` not_improve) | 35/8/0 | 32/43 | 22 | 0.6250 | 保留(支持 27/反例 4/有方向 31) | 部分重疊(與 `raise_pct:band_3`) | 否 |
++
++AI 有效建議:等錄製,未量
++
++## 誘餌與觀察成立的相關規律
++
++- 預埋真模式:加額 20% 以上未滿 50%且調整前三日花費占原預算 90% 以上→加額後較可能改善(`raise_pct:band_2&spend_ratio:band_3` improve);加額 50% 以上→加額後較可能沒改善(`raise_pct:band_3` not_improve)。
++- 相關誘餌:調整前三日花費不到原預算 60%→加額後較可能沒改善(`spend_ratio:band_1` not_improve)——花費比低的廣告多半被大幅加額而看似變差;本身沒有獨立效果。保留側也成立時列為「觀察成立的相關規律」,照實列出但不是獨立的因果規則,不計召回、不計誤報;保留側不成立就計誤報。
++- 只探索側誘餌:加額日是週末且加額不到 20%→加額後較可能改善(`day_type:weekend&raise_pct:band_1` improve)——只在探索側埋入的偶合:保留側沒有這個效果;進了名單就計誤報。
++
++| 種子 | 預埋項 | 探索側 支持/反例 | 保留側 | 在窮舉前 K | 在 AI 清單 |
++|---|---|---|---|---|---|
++| 15001 | 真模式 `raise_pct:band_2&spend_ratio:band_3` improve | 42/6 | 保留(支持 52/反例 5/有方向 57) | 是 | 未量 |
++| 15001 | 真模式 `raise_pct:band_3` not_improve | 93/20 | 保留(支持 82/反例 2/有方向 84) | 是 | 未量 |
++| 15001 | 只探索側誘餌 `day_type:weekend&raise_pct:band_1` improve | 38/7 | 不保留:支持比例不足、方向不符(支持 17/反例 23/有方向 40) | 是 | 未量 |
++| 15001 | 相關誘餌 `spend_ratio:band_1` not_improve | 104/34 | 保留(支持 69/反例 14/有方向 83) | 是 | 未量 |
++| 15002 | 真模式 `raise_pct:band_2&spend_ratio:band_3` improve | 39/10 | 保留(支持 54/反例 6/有方向 60) | 是 | 未量 |
++| 15002 | 真模式 `raise_pct:band_3` not_improve | 91/10 | 保留(支持 96/反例 20/有方向 116) | 是 | 未量 |
++| 15002 | 只探索側誘餌 `day_type:weekend&raise_pct:band_1` improve | 33/1 | 不保留:支持比例不足、方向不符(支持 18/反例 21/有方向 39) | 是 | 未量 |
++| 15002 | 相關誘餌 `spend_ratio:band_1` not_improve | 79/30 | 保留(支持 81/反例 31/有方向 112) | 否 | 未量 |
++| 15003 | 真模式 `raise_pct:band_2&spend_ratio:band_3` improve | 55/7 | 保留(支持 42/反例 11/有方向 53) | 是 | 未量 |
++| 15003 | 真模式 `raise_pct:band_3` not_improve | 94/15 | 保留(支持 106/反例 12/有方向 118) | 是 | 未量 |
++| 15003 | 只探索側誘餌 `day_type:weekend&raise_pct:band_1` improve | 40/8 | 保留(支持 19/反例 8/有方向 27) | 是 | 未量 |
++| 15003 | 相關誘餌 `spend_ratio:band_1` not_improve | 72/24 | 保留(支持 88/反例 29/有方向 117) | 否 | 未量 |
++
++## 已知限制
++
++- 這是固定三種子的合成資料,只證明流程可運作,不給統計保證,也不代表真實投放有因果效果。
++- 真模式與語彙切點精確對齊,所以召回只是「可精確表示時」的上界,不代表未知門檻下的召回。
++- 保留側門檻(有方向 20 對、支持比例 3/5)會讓沒有效果的條件偶爾碰巧過關:代碼審以 60 個種子量到約 7%。只探索側誘餌若在保留側碰巧過關,照計劃仍計誤報,不調門檻、不換種子。
++- 機械核對只證條件與筆數相符,不證規律普遍成立;人仍要看樣本、日期群聚、對照選法、差值、誘餌與實務可不可解釋。
++- 對照是同側、同日、同轉換率區間、同規模桶、整期沒有任何預算調整的廣告;即使有對照,仍可能有選擇偏差,結論只稱「可觀察關聯」,不稱加額造成效果。
++- 報告只列結構化條件與程式重算的數字;模型的信心說明與任何未核對的自由文字都不顯示。
++- 採用任何一條都要人確認、開 Issue,再經設計審與代碼審;這份報告不替正式規則宣布生效。
++
++## 錄製嘗試(批次清單)
++
++- 尚無嘗試
++
++## 錄製批次驗收
++
++- 驗收:沒過(目錄 recordings/model/phase15-rule-mining-v3)
++- 批次清單不存在:三批都等錄製
++- 15001:沒過(等錄製)
++- 15002:沒過(等錄製)
++- 15003:沒過(等錄製)
++- 等錄製的種子由協調者用真模型錄製;指令見 recordings/model/README.md〈規則模式探索的評估錄製〉
+diff --git a/recordings/model/README.md b/recordings/model/README.md
+index 86c3c28..26d1260 100644
+--- a/recordings/model/README.md
++++ b/recordings/model/README.md
+@@ -22,5 +22,36 @@
+ 入庫位置是這一層底下的 `phase13-investigation-eval/`(整個目錄只放同一批 `phase13-eval-YYYYMMDD` 的錄製檔,
+ 不放批次紀錄或其他檔)。CI 只重播它、不啟動 claude;目錄存在時,找不到錄製或失敗類錄製都會讓測試紅。
+ 錄製由協調者用真的 Claude Code 產生:先錄進全新目錄、用 `--verify` 重播驗收、驗過才整個搬進來(重錄時整個
+ 替換,不在舊目錄上疊錄)。指令見 [Phase 13 計劃](../../docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md)
+ 〈實作解讀〉增量 3 的最後一條。
++
++## 規則模式探索的評估錄製(Phase 15 增量 3)
++
++入庫位置是這一層底下以評估版本命名的目錄(現行 `phase15-rule-mining-v3/`):`manifest.json` 是批次清單
++(三種子、資料雜湊、評估版本與版本雜湊、每一次嘗試的展示編號、批次、模型、預期鍵、錄製鍵、時間、結果與
++狀態),每個固定種子一個子目錄,只放那一批唯一一次呼叫的錄製檔。CI 只重播它、不啟動 claude;錄製入庫前,
++`tests/eval/test_rule_mining_cli.py` 的 `test_committed_rule_mining_recordings_replay_all_three_seeds` 是紅的。
++換評估版本就是換目錄,舊批原地保留。
++
++錄製由協調者用真的 Claude Code 產生,一個種子一次呼叫;命令列只在使用者環境明確設兩個開關時才即時,
++缺錄製絕不自動改走即時:
++
++1. 錄前預檢:`PYTHONPATH=src .venv/bin/python -m rtb.modelverify` 的啟用紀錄有效、價目表查核未過 90 天;
++   先跑一次 `PYTHONPATH=src .venv/bin/python -m rtb.eval.rule_mining_eval --baseline-only` 確認純基準照常。
++2. 錄一個種子(展示編號序號從 1 起、每次嘗試加一、不重用;錄製目錄要是入庫目錄以外的全新空目錄):
++
++       RTB_MODEL_LIVE=1 RTB_MODEL_RECORD=1 PYTHONPATH=src .venv/bin/python -m rtb.eval.rule_mining_eval \
++         --demo-id phase15-seed-15001-1 --batch-id phase15-rule-mining-15001-$(date -u +%Y%m%d) \
++         --recordings-dir /tmp/rtb-p15/15001-1
++
++   結果不是 ok 就記「呼叫失敗」、不入庫;同種子改用 `phase15-seed-15001-2` 與新目錄重錄,不換種子。
++3. 驗收並入庫(只重播;唯一呼叫 ok、批次驗收過、重播找不到錄製 0 筆才搬進來):
++
++       PYTHONPATH=src .venv/bin/python -m rtb.eval.rule_mining_eval --check-in \
++         --demo-id phase15-seed-15001-1 --recordings-dir /tmp/rtb-p15/15001-1
++
++4. 三個種子(15001、15002、15003)都入庫後,重產報告並連同 `manifest.json` 與錄製一起提交:
++
++       PYTHONPATH=src .venv/bin/python -m rtb.eval.rule_mining_eval --verify > governance/eval/phase15-rule-mining.md
++
++每種子只准第一次成功錄製入庫;成功後不得同版本重錄替換,要換就換評估版本並記理由。

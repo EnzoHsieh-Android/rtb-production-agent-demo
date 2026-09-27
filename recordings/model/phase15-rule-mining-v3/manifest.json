@@ -1,0 +1,78 @@
+{
+ "manifest_version": 1,
+ "eval_version": "phase15-rule-mining-v3",
+ "version_sha256": "d7b40b48e3ccd004dfc6e1ba5536a12ed34e07c774693a501c8cec708fe55582",
+ "seeds": [
+  {
+   "seed": 15001,
+   "data_sha256": "f820e1a486d8b35d1d81b55c37ce6ed5bb96a9701b0d898020f559fd1adb9f98"
+  },
+  {
+   "seed": 15002,
+   "data_sha256": "2a9e4aac0f4ec0209bfa6e4f7124e5cefb8bcdb259d89886d0a3e856a5c0a9e3"
+  },
+  {
+   "seed": 15003,
+   "data_sha256": "ba7d6ebc8a3a8b4d9c79334a1e2ab5844842eca74ab2c7fdecec90a529c44a2f"
+  }
+ ],
+ "attempts": [
+  {
+   "seed": 15001,
+   "sequence": 1,
+   "demo_id": "phase15-seed-15001-1",
+   "batch_id": "phase15-rule-mining-15001-20260927",
+   "model": "claude-sonnet-5",
+   "expected_key": "e17e5369cdafb0346b1e0bd340d6c5445e2b81a1c1e49cf9271f5150c63f7d40",
+   "started_at": "2026-09-27T07:32:34+00:00",
+   "finished_at": "2026-09-27T07:32:45+00:00",
+   "outcome": "ok",
+   "recording_key": "e17e5369cdafb0346b1e0bd340d6c5445e2b81a1c1e49cf9271f5150c63f7d40",
+   "list_nanousd": 25978000,
+   "status": "可入庫",
+   "staging_dir": "/Users/enzo/rtb-p15i3/.rule-mining-staging/15001-1",
+   "files": {
+    "e17e5369cdafb0346b1e0bd340d6c5445e2b81a1c1e49cf9271f5150c63f7d40.json": "8810128df84f06467ac2951fde43ac1d1cad84b0e299700f2d9c1bd048609750"
+   },
+   "problems": []
+  },
+  {
+   "seed": 15002,
+   "sequence": 1,
+   "demo_id": "phase15-seed-15002-1",
+   "batch_id": "phase15-rule-mining-15002-20260927",
+   "model": "claude-sonnet-5",
+   "expected_key": "a50dc49d5b8bce36692561708068780a8bfa55393f69e3030c153567917a925d",
+   "started_at": "2026-09-27T07:32:56+00:00",
+   "finished_at": "2026-09-27T07:33:07+00:00",
+   "outcome": "ok",
+   "recording_key": "a50dc49d5b8bce36692561708068780a8bfa55393f69e3030c153567917a925d",
+   "list_nanousd": 26152000,
+   "status": "可入庫",
+   "staging_dir": "/Users/enzo/rtb-p15i3/.rule-mining-staging/15002-1",
+   "files": {
+    "a50dc49d5b8bce36692561708068780a8bfa55393f69e3030c153567917a925d.json": "8bfe6ace330a8cf7bb5e12db26541213b11fe64f3476c2977a2dd47113c7069b"
+   },
+   "problems": []
+  },
+  {
+   "seed": 15003,
+   "sequence": 1,
+   "demo_id": "phase15-seed-15003-1",
+   "batch_id": "phase15-rule-mining-15003-20260927",
+   "model": "claude-sonnet-5",
+   "expected_key": "f651377c44717c5de48a23d0fb76f6a7f1e1636e9c05bcf722012056fedceecb",
+   "started_at": "2026-09-27T07:33:09+00:00",
+   "finished_at": "2026-09-27T07:33:19+00:00",
+   "outcome": "ok",
+   "recording_key": "f651377c44717c5de48a23d0fb76f6a7f1e1636e9c05bcf722012056fedceecb",
+   "list_nanousd": 25596000,
+   "status": "可入庫",
+   "staging_dir": "/Users/enzo/rtb-p15i3/.rule-mining-staging/15003-1",
+   "files": {
+    "f651377c44717c5de48a23d0fb76f6a7f1e1636e9c05bcf722012056fedceecb.json": "56cfd815704601e6ba2cd5867d6bf8d098590362416f4eff1893f657da56dfbf"
+   },
+   "problems": []
+  }
+ ]
+}

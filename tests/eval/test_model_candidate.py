@@ -279,11 +279,12 @@ PHASE13_ALLOWED: frozenset[str] = frozenset({
 # Phase 15 增量 1 改寫 [S918](計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉):
 # 規則模式探索的純離線生成/彙總/基準/預檢四支,精確新增;它們不碰模型用戶端與閘道(下面的
 # importers、senders、judge_* 等式照舊)。增量 2 逐項精確加:純核對模組、歷史錄製鍵模組(經門面取
-# 錄製鍵)、探勘執行器,與分析端窄入口(評估經它開閘道送出;閘道本身已在上一份名單)
+# 錄製鍵)、探勘執行器,與分析端窄入口(評估經它開閘道送出;閘道本身已在上一份名單)。增量 3 精確加
+# 純比較與報告模組(不碰模型用戶端與閘道;命令列寫在探勘執行器裡,不另開模組)
 PHASE15_ALLOWED: frozenset[str] = frozenset({
     "rtb.eval.rule_mining_vocab", "rtb.eval.rule_mining_history", "rtb.eval.rule_mining_baseline",
     "rtb.eval.rule_mining_prompt", "rtb.eval.rule_mining_check", "rtb.eval.rule_mining_recordings",
-    "rtb.eval.rule_mining_eval", "rtb.analyzer.rule_mining_model"})
+    "rtb.eval.rule_mining_eval", "rtb.analyzer.rule_mining_model", "rtb.eval.rule_mining_report"})
 # 經 AI 決策模組送出的名字(開閘道、把閘道包成送出函式):評估套件裡只准評估執行器用
 AI_JUDGE_SENDS = frozenset({"open_investigation_gate", "gate_complete"})
 # 經規則模式探索窄入口送出的名字(Phase 15 增量 2):評估套件裡只准探勘執行器用

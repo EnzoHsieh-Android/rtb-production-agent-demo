@@ -1,0 +1,1459 @@
+diff --git a/src/rtb/analyzer/rule_mining_model.py b/src/rtb/analyzer/rule_mining_model.py
+index d6dbedd..f80b730 100644
+--- a/src/rtb/analyzer/rule_mining_model.py
++++ b/src/rtb/analyzer/rule_mining_model.py
+@@ -57,20 +57,43 @@ class Reply:
+     key: str | None  # 錄製鍵(成功時由模型用戶端回報)
+     batch_id: str | None
+     list_nanousd: int
+     problem: str | None = None
+ 
+     @property
+     def ok(self) -> bool:
+         return self.outcome == modelgate.Outcome.OK.value and self.text is not None
+ 
+ 
++@dataclass(frozen=True)
++class GateCheck:
++    """呼叫前的閘道預檢結果:閘道判出的模式、它的通知、即時模式登入預檢沒過的原因。"""
++
++    mode: str
++    notices: tuple[str, ...]
++    login_problem: str | None = None
++
++
++def check_gate(config: GateConfig, *, open_gate: GateOpener = modelgate.open_gate,
++               notify: Callable[[str], None] | None = None) -> GateCheck:
++    """(Phase 15 增量 3)命令列在記下一次嘗試**之前**先開一次規則模式探索的閘道:判模式、做即時模式的
++    登入預檢,**不送出、不記帳**。即時前置不齊時閘道判成錄製,命令列就拒絕開錄、不用掉展示編號序號;
++    閘道拒絕(入口參數跟模式對不上、錄製目錄不能開錄)照原樣丟 `modelgate.GateRefused`。"""
++    gate = open_gate(config.environ, caller=modelgate.Caller.RULE_MINING, demo_id=config.demo_id,
++                     ledger=config.ledger, recordings=config.recordings,
++                     batch_id=config.batch_id, recorded_ledger=config.recorded_ledger,
++                     notify=notify)
++    login = gate.preflight_login()
++    problem = (login.reason or "登入預檢沒過") if login.outcome.value == "failed" else None
++    return GateCheck(gate.mode.value, gate.notices, problem)
++
++
+ def prompt_bytes(system: str, table: str) -> int:
+     return len(system.encode("utf-8")) + len(table.encode("utf-8"))
+ 
+ 
+ def suggest(system: str, table: str, config: GateConfig, *,
+             open_gate: GateOpener = modelgate.open_gate,
+             notify: Callable[[str], None] | None = None) -> Reply:
+     """開規則模式探索的閘道、送出一次(或讀一次錄製)。完整提示過大丟 `PromptTooLarge`;閘道拒絕丟
+     `modelgate.GateRefused`;模型呼叫的每一類失敗都收成 `Reply`(outcome 不是 ok),不重試。"""
+     size = prompt_bytes(system, table)
+diff --git a/src/rtb/eval/__init__.py b/src/rtb/eval/__init__.py
+index ad16084..a882304 100644
+--- a/src/rtb/eval/__init__.py
++++ b/src/rtb/eval/__init__.py
+@@ -1,16 +1,17 @@
+ """「值不值得加」判斷點的離線評估(Phase 10 增量 2)。
+ 
+ 評估套件可以匯入分析端的判斷點與路由、領域層的型別;分析端、執行端、DSP、領域層、維運套件都不准
+ 匯入這裡(各目錄匯入規則的禁令加邊界測試,[S712])——規則作者的程式在結構上讀不到評估集。
+ 
+ 資料庫與子行程:除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、不啟動子行程(Phase 11B
+ 增量 1 有意識地放寬,計劃〈既有邊界怎麼改〉)。評估套件的匯入閉包跟 Phase 11B 開工前的基準相比,只准
+ 多出寫死的准許名單:模型用戶端閉包、分析端模型閘道與 AI 決策模組、Phase 13 的調查評估模組([S918],
+ Phase 13 改寫),以及 Phase 15 規則模式探索的評估模組(增量 1 四支純離線模組;增量 2 的回覆核對、
+-歷史錄製鍵與單一種子探勘執行器)與探勘執行器經它送出的分析端模型窄入口。
++歷史錄製鍵與單一種子探勘執行器;增量 3 的純比較與報告模組)與探勘執行器經它送出的分析端模型窄入口。
+ 模型用戶端是 src/rtb/ 底下每一支 model 開頭的檔,評估套件只准經門面
+ `rtb.modelclient` 碰它,不直接匯入內部模組;經門面的只有模型候選、評估紀錄命令列、調查評估執行器、
+-調查評估報告(Phase 13 代碼審 r1)與規則模式探索的歷史錄製鍵(只取錄製鍵函式與呼叫者列舉)五支。
++調查評估報告(Phase 13 代碼審 r1)與規則模式探索的歷史錄製鍵(取錄製鍵函式、呼叫者列舉與錄製檔的
++唯讀驗收)五支。
+ 直接送出呼叫只准模型候選用;經 AI 決策模組開閘道送出的只准調查評估執行器(它呼叫正式路徑同一支
+ AI 決策函式,Phase 13 [S1146]);經規則模式探索窄入口送出的只准探勘執行器;匯入這兩支執行器也算送出點。
+ """
+diff --git a/src/rtb/eval/rule_mining_eval.py b/src/rtb/eval/rule_mining_eval.py
+index 666d314..aabfa5f 100644
+--- a/src/rtb/eval/rule_mining_eval.py
++++ b/src/rtb/eval/rule_mining_eval.py
+@@ -1,64 +1,93 @@
+-"""規則模式探索的單一種子執行(Phase 15 增量 2,計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]
+-〈模型建議、機械核對與人讀報告〉〈拆增量〉2)。命令列、批次驗收與報告是增量 3。
++"""規則模式探索的單一種子執行與離線命令列(Phase 15 增量 2/3,計劃
++[[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉〈拆增量〉2、3)。
+ 
+ 一個固定種子一批:生成歷史 → 探索集彙總表(增量 1)→ 完整提示位元組閘 → 經分析端窄入口
+ `rtb.analyzer.rule_mining_model` 呼叫模型**一次**(方向同 Phase 13 評估執行器依賴 AI 決策函式;
+ 評估端不直接匯入模型閘道)→ 封閉 JSON 解析、去重、同探索集重算、保留側判定。
+ 
+ - 非 `ok` 的呼叫(缺錄製、逾時、上限拒絕、額度、超支、暫時性錯誤、花費帳忙碌…)一律記「呼叫失敗」,
+-  不解析、不計分、不重試;同種子要重錄換新展示編號(增量 3 的命令列管)。
++  不解析、不計分、不重試;同種子要重錄換新展示編號。
+ - 提示超過本案上限就在呼叫前拒跑(不分塊、不截列)。
+-- 輸出只有這一批的核對結果;沒有正式決策、提案、DSP 寫入或 Issue 的路徑。匯入它就算送出點
+-  (邊界測試 `SENDING_ENTRIES`)。停用模型探勘時連同分析端窄入口一起撤,歷史錄製鍵留在
+-  `rule_mining_recordings`。
++- 輸出只有核對結果與人讀報告;沒有正式決策、提案、DSP 寫入或 Issue 的路徑。匯入它就算送出點
++  (邊界測試 `SENDING_ENTRIES`)。停用模型探勘時連同分析端窄入口一起撤(命令列在這支裡,一起撤),
++  歷史錄製鍵與批次驗收留在 `rule_mining_recordings`,比較與報告留在 `rule_mining_report`。
++
++命令列 `python -m rtb.eval.rule_mining_eval`(增量 3):
++- 預設:重播入庫目錄(`recordings/model/<評估版本>/`,批次清單 `manifest.json` 加每種子一個子目錄)
++  的三批,印人讀報告(含錄製批次驗收);還沒入庫的種子 AI 欄寫「等錄製」、未量,不呼叫模型。
++- `--verify`:同上,驗收有任何問題(含等錄製)以結束代碼 1 結束;CI 用它,只重播。
++- `--baseline-only`:只產純基準報告(不開閘道、不讀錄製)。
++- 即時錄製一個種子:使用者環境明確設 `RTB_MODEL_LIVE=1`、`RTB_MODEL_RECORD=1`,帶 `--demo-id
++  phase15-seed-<種子>-<序號>`、`--batch-id`、`--recordings-dir <全新空目錄>`;先過閘道預檢(判成
++  錄製就拒絕,不用掉序號),再把這次嘗試記進批次清單、送出一次、記下結果。缺錄製絕不改走即時。
++- 驗收與入庫:`--verify` 或 `--check-in` 加同一個 `--demo-id` 與 `--recordings-dir`,只准重播;入庫要
++  唯一呼叫 `outcome=ok`、批次驗收過、重播找不到錄製 0 筆,每種子只准第一次成功錄製入庫。
++- `--ledger` 只在錄製(重播)模式能用;即時模式的花費帳寫死在帳號家目錄那一本(閘道擋)。
+ """
+ 
+-from collections.abc import Callable
+-from dataclasses import dataclass
++import argparse
++import os
++import shutil
++import sys
++from collections.abc import Callable, Mapping
++from dataclasses import dataclass, replace
++from datetime import UTC, datetime
+ from functools import partial
++from pathlib import Path
++from typing import TextIO
+ 
+ from rtb.analyzer import rule_mining_model as rmm
+ from rtb.eval import rule_mining_check as c
+ from rtb.eval import rule_mining_history as h
+ from rtb.eval import rule_mining_prompt as p
+ from rtb.eval import rule_mining_recordings as r
++from rtb.eval import rule_mining_report as report
++from rtb.eval import rule_mining_vocab as v
+ 
+ CALL_OK = "ok"
+ CALL_FAILED = "呼叫失敗"
+ Ask = Callable[[str, str], rmm.Reply]
+ 
++EXIT_OK = 0
++EXIT_FAILED = 1  # 驗收沒過、呼叫失敗
++EXIT_REFUSED = 2  # 參數錯、閘道拒絕、前置條件不齊(什麼都沒送)
++
+ 
+ class PromptRefused(ValueError):
+     """完整提示過大:拒跑,不呼叫。"""
+ 
+ 
+ @dataclass(frozen=True)
+ class Prepared:
+     """一個種子送出前的一切:歷史、兩側重算器、完整彙總表與位元組數。"""
+ 
+     seed: int
+     history: h.History
+     explore: c.Recounter
+     holdout: c.Recounter
+     table: str
+     prompt_bytes: int
+ 
+ 
+-def prepare(seed: int) -> Prepared:
++def prepare_from(inputs: p.SeedInputs) -> Prepared:
+     """組表走預檢同一支(`seed_inputs`,探索側建表);重算器照同一份切側各建一個。"""
+-    inputs = p.seed_inputs(seed)
+-    return Prepared(seed, inputs.history, c.Recounter(inputs.history, inputs.sides.explore),
++    return Prepared(inputs.history.seed, inputs.history,
++                    c.Recounter(inputs.history, inputs.sides.explore),
+                     c.Recounter(inputs.history, inputs.sides.holdout), inputs.table,
+                     p.prompt_bytes(inputs.table))
+ 
+ 
++def prepare(seed: int) -> Prepared:
++    return prepare_from(p.seed_inputs(seed))
++
++
+ @dataclass(frozen=True)
+ class SeedRun:
+     seed: int
+     expected_key: str  # 依這份提示重算的錄製鍵(缺錄製時給人對)
+     reply: rmm.Reply
+     verification: c.Verification | None  # 呼叫失敗時沒有
+ 
+     @property
+     def status(self) -> str:
+         return CALL_OK if self.reply.ok else CALL_FAILED
+@@ -70,13 +99,341 @@ def run(prepared: Prepared, ask: Ask, *, model: str | None = None) -> SeedRun:
+     if problem is not None:
+         raise PromptRefused(problem)
+     expected = r.expected_key(p.SYSTEM_PROMPT, prepared.table, model)
+     reply = ask(p.SYSTEM_PROMPT, prepared.table)
+     if not reply.ok or reply.text is None:
+         return SeedRun(prepared.seed, expected, reply, None)
+     verification = c.verify(c.parse_reply(reply.text), prepared.explore, prepared.holdout)
+     return SeedRun(prepared.seed, expected, reply, verification)
+ 
+ 
+-def gate_ask(config: rmm.GateConfig, notify: Callable[[str], None] | None = None) -> Ask:
+-    """經分析端窄入口送出:每呼叫一次就開一次規則模式探索的閘道、送一次。"""
+-    return partial(rmm.suggest, config=config, notify=notify)
++def gate_ask(config: rmm.GateConfig, notify: Callable[[str], None] | None = None,
++             opener: rmm.GateOpener | None = None) -> Ask:
++    """經分析端窄入口送出:每呼叫一次就開一次規則模式探索的閘道、送一次。opener 只給測試換成綁
++    假後端的閘道;產品碼一律用閘道本身。"""
++    if opener is None:
++        return partial(rmm.suggest, config=config, notify=notify)
++    return partial(rmm.suggest, config=config, notify=notify, open_gate=opener)
++
++
++# ---- 命令列 ----
++class Refused(Exception):
++    """參數或前置條件不對:什麼都沒送、批次清單沒動。"""
++
++
++@dataclass(frozen=True)
++class _Io:
++    out: TextIO
++    err: TextIO
++    environ: Mapping[str, str]
++    root: Path
++    opener: rmm.GateOpener | None
++
++    def notify(self, text: str) -> None:
++        print(text, file=self.err)
++
++
++def _parse(argv: list[str] | None) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(
++        allow_abbrev=False,
++        description="AI 找規則模式的離線評估:預設重播入庫錄製、印人讀報告(不呼叫模型)")
++    parser.add_argument("--baseline-only", action="store_true",
++                        help="只產純基準報告:不開模型閘道、不讀錄製")
++    parser.add_argument("--verify", action="store_true",
++                        help="驗收(只准重播):沒過以結束代碼 1 結束;"
++                             "帶 --demo-id 時驗那一次嘗試的目錄")
++    parser.add_argument("--check-in", action="store_true",
++                        help="驗收一次嘗試的錄製目錄,過了就搬進入庫目錄並記進批次清單")
++    parser.add_argument("--demo-id", help="這次嘗試的展示編號 phase15-seed-<種子>-<序號>")
++    parser.add_argument("--batch-id", help="即時錄製的批次編號 phase15-rule-mining-<種子>-YYYYMMDD")
++    parser.add_argument("--recordings-dir", type=Path,
++                        help="即時錄製、驗收、入庫時:這次嘗試的全新目錄(只放這一個種子);"
++                             "重播報告時:入庫目錄(預設 recordings/model/<評估版本>)")
++    parser.add_argument("--ledger", type=Path, help="只在錄製(重播)模式能用:花費帳換到別的路徑")
++    return parser.parse_args(argv)
++
++
++def _shown(folder: Path) -> str:
++    base = r.default_root().parent.parent.parent  # 專案根
++    return str(folder.relative_to(base)) if folder.is_relative_to(base) else str(folder)
++
++
++def _now() -> str:
++    return datetime.now(UTC).isoformat(timespec="seconds")
++
++
++def _save(root: Path, manifest: r.Manifest) -> None:
++    """批次清單原子地寫回(先寫暫存檔再改名)。"""
++    root.mkdir(parents=True, exist_ok=True)
++    target = root / r.MANIFEST_NAME
++    temporary = root / f".{r.MANIFEST_NAME}.{os.getpid()}.tmp"
++    try:
++        temporary.write_text(r.dumps(manifest), encoding="utf-8")
++        os.replace(temporary, target)
++    finally:
++        temporary.unlink(missing_ok=True)
++
++
++def _load(root: Path) -> r.Manifest | None:
++    try:
++        return r.load(root)
++    except r.ManifestUnreadable as bad:
++        raise Refused(f"批次清單讀不懂:{bad}") from bad
++
++
++def _with(manifest: r.Manifest, attempt: r.Attempt) -> r.Manifest:
++    """換掉(或加上)同一個展示編號的那次嘗試。"""
++    others = [a for a in manifest.attempts if a.demo_id != attempt.demo_id]
++    ordered = sorted([*others, attempt], key=lambda a: (a.seed, a.sequence))
++    return replace(manifest, attempts=tuple(ordered))
++
++
++def _rows(manifest: r.Manifest | None) -> tuple[report.AttemptRow, ...]:
++    if manifest is None:
++        return ()
++    return tuple(report.AttemptRow(a.seed, a.sequence, a.demo_id, a.batch_id, a.model,
++                                   a.started_at, a.finished_at, a.outcome, a.status)
++                 for a in manifest.attempts)
++
++
++def _replay(prepared: Prepared, folder: Path, attempt: r.Attempt, args: argparse.Namespace,
++            io: _Io) -> SeedRun:
++    """重播一次嘗試的錄製(閘道一定判錄製:拿掉即時開關、不給展示編號)。"""
++    config = rmm.GateConfig(r.replay_environ(io.environ, attempt.model), None, args.ledger,
++                            folder)
++    return run(prepared, gate_ask(config, io.notify), model=attempt.model)
++
++
++def _source(attempt: r.Attempt, done: SeedRun) -> report.Source:
++    return report.Source(attempt.demo_id, done.reply.batch_id or attempt.batch_id, attempt.model,
++                         attempt.finished_at, done.reply.list_nanousd)
++
++
++def _report_all(args: argparse.Namespace, io: _Io) -> int:
++    """重播入庫目錄的三批,印人讀報告(驗收結果在最後一節)。"""
++    root = args.recordings_dir or io.root
++    manifest = None if args.baseline_only else _load(root)
++    if args.baseline_only:
++        overall: list[str] = []
++    elif manifest is None:
++        overall = ["批次清單不存在:三批都等錄製"]
++    else:
++        overall = r.manifest_problems(manifest)
++    reports, per_seed = [], []
++    for seed in v.SEEDS:
++        inputs = p.seed_inputs(seed)
++        ai, problems = _seed_ai(inputs, root, manifest, args, io)
++        reports.append(report.seed_report(inputs, ai))
++        per_seed.append((seed, ai, problems))
++    if args.baseline_only:
++        checks = ["- 只產純基準:沒有讀錄製、沒有開模型閘道"]
++        failed = False
++    else:
++        failed = bool(overall) or any(problems for _, _, problems in per_seed)
++        checks = [f"- 驗收:{'沒過' if failed else '通過'}(目錄 {_shown(root)})"]
++        checks += [f"- {problem}" for problem in overall]
++        for seed, ai, problems in per_seed:
++            checks.append(f"- {seed}:{'沒過' if problems else '通過'}({_ai_status_text(ai)})")
++            checks += [f"  - {problem}" for problem in problems if problem != report.WAITING]
++        if any(ai.status == report.WAITING for _, ai, _ in per_seed):
++            checks.append("- 等錄製的種子由協調者用真模型錄製;指令見 recordings/model/README.md"
++                          "〈規則模式探索的評估錄製〉")
++    context = report.Context(_shown(root), _rows(manifest), tuple(checks))
++    print(report.render(reports, context), end="", file=io.out)
++    return EXIT_FAILED if args.verify and failed else EXIT_OK
++
++
++def _ai_status_text(ai: report.AiResult) -> str:
++    return ai.status if ai.detail is None else f"{ai.status}:{ai.detail}"
++
++
++def _seed_ai(inputs: p.SeedInputs, root: Path, manifest: r.Manifest | None,
++             args: argparse.Namespace, io: _Io) -> tuple[report.AiResult, list[str]]:
++    if args.baseline_only:
++        return report.AiResult(report.BASELINE_ONLY), []
++    seed = inputs.history.seed
++    attempt = r.checked_in(manifest, seed)
++    if attempt is None:
++        tried = len(r.attempts_of(manifest, seed)) if manifest is not None else 0
++        detail = f"已試 {tried} 次、沒有入庫" if tried else None
++        return report.AiResult(report.WAITING, detail=detail), [report.WAITING]
++    folder = root / str(seed)
++    prepared = prepare_from(inputs)
++    expected = r.expected_key(p.SYSTEM_PROMPT, prepared.table, attempt.model)
++    problems = r.batch_problems(folder, attempt, expected)
++    done = _replay(prepared, folder, attempt, args, io)
++    if done.verification is None:
++        problems.append(f"重播沒有讀到可用的錄製({done.reply.outcome})")
++        return report.AiResult(report.REPLAY_FAILED, detail=done.reply.outcome), problems
++    return report.AiResult(report.MEASURED, done.verification, _source(attempt, done)), problems
++
++
++def _attempt_for(demo_id: str) -> tuple[int, int]:
++    parts = r.demo_parts(demo_id)
++    if parts is None or parts[0] not in v.SEEDS:
++        raise Refused(f"展示編號要是 phase15-seed-<固定種子>-<序號>(種子 {v.SEEDS}):{demo_id!r}")
++    return parts
++
++
++def _fresh(folder: Path | None) -> Path:
++    if folder is None:
++        raise Refused("即時錄製要明寫 --recordings-dir,給一個全新的空目錄(不在入庫目錄底下)")
++    if folder.exists() and (not folder.is_dir() or any(folder.iterdir())):
++        raise Refused(f"錄製目錄要是全新的空目錄:{folder}")
++    return folder
++
++
++def _manifest_for(seed: int, sequence: int, root: Path) -> r.Manifest:
++    """即時錄製前對批次清單的檢查:清單本身沒問題、種子還沒入庫、沒有待驗收的成功錄製、序號是下一個。"""
++    manifest = _load(root) or r.new_manifest()
++    problems = r.manifest_problems(manifest)
++    if problems:
++        raise Refused("批次清單有問題,先處理:" + ";".join(problems))
++    if r.checked_in(manifest, seed) is not None:
++        raise Refused(f"種子 {seed} 已有入庫錄製:每種子只准第一次成功錄製入庫,換批要換評估版本")
++    pending = [a.demo_id for a in r.attempts_of(manifest, seed) if a.status == r.PENDING]
++    if pending:
++        raise Refused(f"種子 {seed} 有成功但還沒驗收的錄製 {pending}:先用 --check-in 驗收入庫")
++    wanted = r.next_sequence(manifest, seed)
++    if sequence != wanted:
++        raise Refused(f"種子 {seed} 下一次要用序號 {wanted}({r.demo_id_of(seed, wanted)});"
++                      "序號逐次加一、不重用")
++    return manifest
++
++
++def _gate_ready(config: rmm.GateConfig, io: _Io) -> None:
++    """閘道預檢:判成即時、登入預檢過了才准記嘗試;否則拒絕,沒有送出、沒有用掉序號。"""
++    try:
++        check = (rmm.check_gate(config, notify=io.notify) if io.opener is None
++                 else rmm.check_gate(config, notify=io.notify, open_gate=io.opener))
++    except ValueError as refused:  # 閘道拒絕、不認得的模型
++        raise Refused(f"閘道拒絕:{refused}") from refused
++    for notice in check.notices:
++        io.notify(notice)
++    if check.mode != "live" or check.login_problem is not None:
++        why = check.mode if check.login_problem is None else check.login_problem
++        raise Refused(f"閘道預檢沒過({why}):沒有送出,也沒有用掉序號")
++
++
++def _record(args: argparse.Namespace, io: _Io) -> int:
++    """即時錄製一個種子:預檢全過才記嘗試、送出一次、記結果。"""
++    seed, sequence = _attempt_for(args.demo_id)
++    if args.batch_id is None or r.batch_seed(args.batch_id) != seed:
++        raise Refused(f"即時錄製要帶這個種子的批次編號 {r.BATCH_SHAPE}:{args.batch_id!r}")
++    if not r.live_recording_requested(io.environ):
++        raise Refused("即時錄製要使用者在環境明確設 RTB_MODEL_LIVE=1 與 RTB_MODEL_RECORD=1;"
++                      "缺錄製不會自動改走即時")
++    folder = _fresh(args.recordings_dir)
++    manifest = _manifest_for(seed, sequence, io.root)
++    prepared = prepare(seed)
++    gate = p.gate_problem(prepared.prompt_bytes)
++    if gate is not None:
++        raise Refused(f"拒跑:{gate}")
++    config = rmm.GateConfig(io.environ, args.demo_id, args.ledger, folder, args.batch_id)
++    _gate_ready(config, io)
++    model = r.model_of(io.environ)
++    started = r.Attempt(seed, sequence, args.demo_id, args.batch_id, model,
++                        r.expected_key(p.SYSTEM_PROMPT, prepared.table, model), _now(), None,
++                        None, None, 0, r.CALLING)
++    _save(io.root, _with(manifest, started))  # 先記再送:行程中斷也不會重用這個序號
++    done = run(prepared, gate_ask(config, io.notify, io.opener), model=model)
++    ok = done.reply.ok and done.reply.mode == "live"
++    finished = replace(started, finished_at=_now(), outcome=done.reply.outcome,
++                       recording_key=done.reply.key, list_nanousd=done.reply.list_nanousd,
++                       status=r.PENDING if ok else r.FAILED,
++                       problems=() if ok else (done.reply.problem or done.reply.outcome,))
++    _save(io.root, _with(_load(io.root) or manifest, finished))
++    lines = [f"種子 {seed} 第 {sequence} 次({args.demo_id}):結果 {done.reply.outcome},"
++             f"狀態 {finished.status};估算花費(原價)"
++             f"{done.reply.list_nanousd / 10**9:.6f} 美元"]
++    if ok:
++        lines.append(f"下一步:--check-in --demo-id {args.demo_id} --recordings-dir {folder}")
++    else:
++        lines.append(f"呼叫失敗不入庫、不算撤除判斷;重錄用 {r.demo_id_of(seed, sequence + 1)}"
++                     "(新批次目錄)")
++    print("\n".join(lines), file=io.out)
++    return EXIT_OK if ok else EXIT_FAILED
++
++
++def _pending_attempt(args: argparse.Namespace, root: Path) -> tuple[r.Manifest, r.Attempt]:
++    manifest = _load(root)
++    attempt = next((a for a in (manifest.attempts if manifest else ())
++                    if a.demo_id == args.demo_id), None)
++    if manifest is None or attempt is None:
++        raise Refused(f"批次清單沒有 {args.demo_id} 這次嘗試(要先用即時錄製記下)")
++    if attempt.status != r.PENDING:
++        raise Refused(f"{args.demo_id} 的狀態是{attempt.status}:"
++                      "只有結果 ok、待驗收的嘗試能驗收入庫")
++    if args.check_in and r.checked_in(manifest, attempt.seed) is not None:
++        raise Refused(f"種子 {attempt.seed} 已有入庫錄製:每種子只准第一次成功錄製入庫")
++    return manifest, attempt
++
++
++def _check_in(args: argparse.Namespace, io: _Io) -> int:
++    """驗收一次嘗試的錄製目錄(只重播);`--check-in` 且過了就搬進入庫目錄。"""
++    seed, _ = _attempt_for(args.demo_id)
++    staging = args.recordings_dir
++    if staging is None:
++        raise Refused("驗收要帶這次嘗試的 --recordings-dir")
++    manifest, attempt = _pending_attempt(args, io.root)
++    prepared = prepare(seed)
++    expected = r.expected_key(p.SYSTEM_PROMPT, prepared.table, attempt.model)
++    problems = r.batch_problems(staging, attempt, expected)
++    done = _replay(prepared, staging, attempt, args, io)
++    if done.verification is None:
++        problems.append(f"重播沒有讀到可用的錄製({done.reply.outcome})")
++    target = io.root / str(seed)
++    if args.check_in and target.exists():
++        problems.append(f"入庫目錄 {_shown(target)} 已經存在")
++    lines = [f"種子 {seed}({args.demo_id})驗收:{'沒過' if problems else '通過'}",
++             *(f"- {problem}" for problem in problems)]
++    if done.verification is not None:
++        ver = done.verification
++        lines.append(f"- AI 有效 {ver.n} 條、無效提交 {ver.invalid_count} 筆、核對失敗 "
++                     f"{ver.mismatches} 筆")
++    if args.check_in and problems:
++        _save(io.root, _with(manifest, replace(attempt, status=r.REJECTED,
++                                               problems=tuple(problems))))
++        lines.append("沒有入庫;這次記成驗收沒過,同種子用下一個序號重錄")
++    elif args.check_in:
++        target.mkdir(parents=True)
++        for path in sorted(staging.iterdir()):
++            shutil.copyfile(path, target / path.name)
++        _save(io.root, _with(manifest, replace(attempt, status=r.CHECKED_IN)))
++        lines.append(f"已入庫:{_shown(target)};重產報告後一起提交")
++    print("\n".join(lines), file=io.out)
++    return EXIT_FAILED if problems else EXIT_OK
++
++
++def command(argv: list[str] | None = None, *, out: TextIO | None = None,
++             err: TextIO | None = None, environ: Mapping[str, str] | None = None,
++             root: Path | None = None, opener: rmm.GateOpener | None = None) -> int:
++    """命令列本體。root(入庫目錄)與 opener(即時錄製用的閘道)只給測試換;產品碼用預設。"""
++    args = _parse(argv)
++    io = _Io(out or sys.stdout, err or sys.stderr, os.environ if environ is None else environ,
++             root or r.default_root(), opener)
++    try:
++        if args.baseline_only and any((args.verify, args.check_in, args.demo_id, args.batch_id,
++                                       args.recordings_dir, args.ledger)):
++            raise Refused("--baseline-only 不接其他參數")
++        if args.check_in and args.verify:
++            raise Refused("--check-in 已含驗收,不要再帶 --verify")
++        if args.demo_id is None:
++            if args.check_in or args.batch_id is not None:
++                raise Refused("--check-in 與 --batch-id 要跟 --demo-id 一起用")
++            return _report_all(args, io)
++        if args.verify or args.check_in:
++            if args.batch_id is not None:
++                raise Refused("驗收只准重播:不要帶 --batch-id")
++            return _check_in(args, io)
++        return _record(args, io)
++    except (Refused, PromptRefused) as refused:
++        print(f"拒絕開始:{refused}", file=io.err)
++        return EXIT_REFUSED
++
++
++def main(argv: list[str] | None = None) -> None:
++    raise SystemExit(command(argv))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/rtb/eval/rule_mining_recordings.py b/src/rtb/eval/rule_mining_recordings.py
+index ba0fd2d..a9c5b51 100644
+--- a/src/rtb/eval/rule_mining_recordings.py
++++ b/src/rtb/eval/rule_mining_recordings.py
+@@ -1,19 +1,282 @@
+-"""規則模式探索的歷史錄製鍵(Phase 15 增量 2,計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]
+-〈模型建議、機械核對與人讀報告〉〈回退〉)。
++"""規則模式探索的歷史錄製鍵、批次清單與錄製批次驗收(Phase 15 增量 2/3,計劃
++[[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉〈回退〉)。
+ 
+ 用字面 `Caller.RULE_MINING` 與評估版本的輸出上限,照模型用戶端的錄製鍵函式重算「這份系統提示加這張
+-彙總表」應有的錄製鍵;缺錄製時給人看預期鍵,批次驗收(增量 3)比對目錄鍵集合也用它。
++彙總表」應有的錄製鍵;缺錄製時給人看預期鍵,批次驗收比對目錄鍵集合也用它。
++
++增量 3 加批次清單(`manifest.json`,放在入庫根底下這一版評估的目錄,跟各種子的錄製子目錄並列)與
++驗收:
++- 一個固定種子一批、一批只有一次模型呼叫;展示編號 `phase15-seed-<種子>-<序號>`,序號從 1 起逐次加一、
++  不重用;批次編號 `phase15-rule-mining-<種子>-YYYYMMDD`。
++- 清單記三種子、資料雜湊、評估版本與版本雜湊(系統提示在雜湊內)、每次嘗試的展示編號、批次、模型、
++  預期鍵、錄製鍵、開始/結束時間、結果類別與狀態;非 `ok` 記「呼叫失敗」、不入庫、不算撤除判斷。
++- 每種子只准第一次成功錄製入庫:入庫的那次必須是該種子第一次 `outcome=ok` 且沒被驗收退回的嘗試,
++  入庫後不得再錄;換批要換評估版本(目錄名跟著換,舊批保留)。
++- 一批的驗收:目錄裡只有同一批的錄製檔、失敗類 0 份、正式後端錄的(模型用戶端門面的共用驗收),
++  錄製鍵集合恰等於依當次資料/提示/模型/輸出上限重算的預期集合(一個鍵),每份 `caller=rule_mining`、
++  `outcome=ok`、模型與批次跟清單相符;重播找不到錄製 0 筆由命令列另查。
+ 
+ 這支是**歷史驗證**的一半:停用模型探勘或回退增量 2/3 時,送出路徑(分析端窄入口與評估端的探勘
+-執行器)撤掉,這支照留,舊錄製的鍵仍能重算、舊帳仍計上限([S1517]);所以它只經模型用戶端門面取
+-錄製鍵函式與呼叫者列舉,不匯入模型閘道或任何送出入口。
++執行器)撤掉,這支照留,舊錄製的鍵仍能重算、舊批仍能驗收、舊帳仍計上限([S1517]);所以它只經模型
++用戶端門面取錄製鍵、錄製檔驗收與呼叫者列舉,不匯入模型閘道或任何送出入口,也不寫任何檔。
+ """
+ 
++import json
++import re
++from collections.abc import Mapping
++from dataclasses import asdict, dataclass
++from pathlib import Path
++from typing import Any
++
+ from rtb import modelclient as mc
++from rtb.eval import rule_mining_history as h
++from rtb.eval import rule_mining_prompt as p
+ from rtb.eval import rule_mining_vocab as v
+ 
++MANIFEST_NAME = "manifest.json"
++MANIFEST_VERSION = 1
++DEMO_PATTERN = re.compile(r"phase15-seed-(\d{5})-([1-9]\d{0,5})")
++BATCH_PATTERN = re.compile(r"phase15-rule-mining-(\d{5})-(\d{8})")
++BATCH_SHAPE = "phase15-rule-mining-<種子>-YYYYMMDD"
++
++# 一次嘗試的狀態
++CALLING = "呼叫中"  # 送出前先記;行程中斷就停在這裡,視同呼叫失敗
++FAILED = "呼叫失敗"
++PENDING = "待驗收"
++CHECKED_IN = "已入庫"
++REJECTED = "驗收沒過"
++STATUSES = frozenset({CALLING, FAILED, PENDING, CHECKED_IN, REJECTED})
++
+ 
+ def expected_key(system: str, table: str, model: str | None = None) -> str:
+     """這份提示在規則模式探索呼叫者、評估版本輸出上限下的錄製鍵(模型預設模型用戶端的預設模型)。"""
+     return mc.recording_key(mc.Caller.RULE_MINING, model or mc.DEFAULT_MODEL, system, table,
+                             v.MAX_OUTPUT_TOKENS)
++
++
++def default_root() -> Path:
++    """這一版評估的入庫目錄:入庫根底下以評估版本命名(換版就是新目錄,舊批原地保留)。"""
++    return mc.default_recordings_dir() / v.EVAL_VERSION
++
++
++def model_of(environ: Mapping[str, str]) -> str:
++    """這一趟要用的模型(跟閘道判模式時讀同一個環境變數)。"""
++    return environ.get(mc.MODEL_ENV) or mc.DEFAULT_MODEL
++
++
++def live_recording_requested(environ: Mapping[str, str]) -> bool:
++    """使用者在環境明確要了即時加錄製(兩個開關都是 1);閘道另判其餘前置條件。"""
++    return environ.get(mc.LIVE_ENV) == "1" and environ.get(mc.RECORD_ENV) == "1"
++
++
++def replay_environ(environ: Mapping[str, str], model: str) -> dict[str, str]:
++    """重播用的環境:拿掉即時與錄製開關(缺錄製絕不改走即時),模型固定成錄製當時那一個。"""
++    kept = {k: val for k, val in environ.items() if k not in (mc.LIVE_ENV, mc.RECORD_ENV)}
++    kept[mc.MODEL_ENV] = model
++    return kept
++
++
++def demo_parts(demo_id: str) -> tuple[int, int] | None:
++    """展示編號 → (種子, 序號);格式不對回 None。"""
++    found = DEMO_PATTERN.fullmatch(demo_id)
++    return (int(found.group(1)), int(found.group(2))) if found else None
++
++
++def demo_id_of(seed: int, sequence: int) -> str:
++    return f"phase15-seed-{seed}-{sequence}"
++
++
++def batch_seed(batch_id: str) -> int | None:
++    found = BATCH_PATTERN.fullmatch(batch_id)
++    return int(found.group(1)) if found else None
++
++
++# ---- 批次清單 ----
++@dataclass(frozen=True)
++class Attempt:
++    seed: int
++    sequence: int
++    demo_id: str
++    batch_id: str
++    model: str
++    expected_key: str
++    started_at: str  # UTC ISO 8601
++    finished_at: str | None
++    outcome: str | None  # 模型呼叫的結果類別(ok、timeout…);呼叫中是 None
++    recording_key: str | None
++    list_nanousd: int
++    status: str
++    problems: tuple[str, ...] = ()
++
++
++@dataclass(frozen=True)
++class Manifest:
++    eval_version: str
++    version_sha256: str
++    seeds: tuple[tuple[int, str], ...]  # (種子, 資料雜湊)
++    attempts: tuple[Attempt, ...] = ()
++
++
++class ManifestUnreadable(ValueError):
++    """批次清單讀不懂(格式或型別不對)。"""
++
++
++def new_manifest() -> Manifest:
++    return Manifest(v.EVAL_VERSION, p.version_sha256(),
++                    tuple((seed, h.EXPECTED_DATA_SHA256[seed]) for seed in v.SEEDS))
++
++
++def dumps(manifest: Manifest) -> str:
++    data: dict[str, Any] = {
++        "manifest_version": MANIFEST_VERSION, "eval_version": manifest.eval_version,
++        "version_sha256": manifest.version_sha256,
++        "seeds": [{"seed": seed, "data_sha256": sha} for seed, sha in manifest.seeds],
++        "attempts": [{**asdict(a), "problems": list(a.problems)} for a in manifest.attempts]}
++    return json.dumps(data, ensure_ascii=False, indent=1) + "\n"
++
++
++_OPTIONAL = (str, type(None))
++_ATTEMPT_FIELDS: dict[str, type | tuple[type, ...]] = {
++    "seed": int, "sequence": int, "demo_id": str, "batch_id": str, "model": str,
++    "expected_key": str, "started_at": str, "finished_at": _OPTIONAL, "outcome": _OPTIONAL,
++    "recording_key": _OPTIONAL, "list_nanousd": int, "status": str, "problems": list}
++
++
++def _attempt(raw: object) -> Attempt:
++    if not isinstance(raw, dict) or set(raw) != set(_ATTEMPT_FIELDS):
++        raise ManifestUnreadable("嘗試的欄位不對")
++    for name, kind in _ATTEMPT_FIELDS.items():
++        value = raw[name]
++        if isinstance(value, bool) or not isinstance(value, kind):
++            raise ManifestUnreadable(f"嘗試的 {name} 型別不對")
++    if not all(isinstance(x, str) for x in raw["problems"]):
++        raise ManifestUnreadable("嘗試的 problems 型別不對")
++    return Attempt(**{**raw, "problems": tuple(raw["problems"])})
++
++
++def loads(text: str) -> Manifest:
++    try:
++        data = json.loads(text)
++    except ValueError as bad:
++        raise ManifestUnreadable("批次清單不是 JSON") from bad
++    if not isinstance(data, dict) or set(data) != {
++            "manifest_version", "eval_version", "version_sha256", "seeds", "attempts"}:
++        raise ManifestUnreadable("批次清單的頂層欄位不對")
++    if data["manifest_version"] != MANIFEST_VERSION:
++        raise ManifestUnreadable("批次清單版本不對")
++    seeds, attempts = data["seeds"], data["attempts"]
++    if not (isinstance(data["eval_version"], str) and isinstance(data["version_sha256"], str)
++            and isinstance(seeds, list) and isinstance(attempts, list)):
++        raise ManifestUnreadable("批次清單的型別不對")
++    if not all(isinstance(s, dict) and set(s) == {"seed", "data_sha256"}
++               and type(s["seed"]) is int and isinstance(s["data_sha256"], str) for s in seeds):
++        raise ManifestUnreadable("批次清單的種子列不對")
++    return Manifest(data["eval_version"], data["version_sha256"],
++                    tuple((s["seed"], s["data_sha256"]) for s in seeds),
++                    tuple(_attempt(a) for a in attempts))
++
++
++def load(root: Path) -> Manifest | None:
++    """讀入庫目錄的批次清單;不存在回 None(等錄製),讀不懂丟 `ManifestUnreadable`。"""
++    path = root / MANIFEST_NAME
++    if not path.is_file():
++        return None
++    try:
++        return loads(path.read_text(encoding="utf-8"))
++    except (OSError, UnicodeDecodeError) as bad:
++        raise ManifestUnreadable("批次清單讀不到") from bad
++
++
++def attempts_of(manifest: Manifest, seed: int) -> tuple[Attempt, ...]:
++    return tuple(a for a in manifest.attempts if a.seed == seed)
++
++
++def checked_in(manifest: Manifest | None, seed: int) -> Attempt | None:
++    if manifest is None:
++        return None
++    return next((a for a in attempts_of(manifest, seed) if a.status == CHECKED_IN), None)
++
++
++def next_sequence(manifest: Manifest | None, seed: int) -> int:
++    """這個種子下一次嘗試要用的序號(從 1 起逐次加一)。"""
++    return 1 + (max((a.sequence for a in attempts_of(manifest, seed)), default=0)
++                if manifest is not None else 0)
++
++
++def _attempt_problems(seed: int, a: Attempt) -> list[str]:
++    problems = []
++    if a.demo_id != demo_id_of(seed, a.sequence):
++        problems.append(f"{seed}:展示編號 {a.demo_id} 跟序號 {a.sequence} 不符")
++    if batch_seed(a.batch_id) != seed:
++        problems.append(f"{seed}:批次 {a.batch_id} 不是 {BATCH_SHAPE}")
++    if a.status not in STATUSES:
++        problems.append(f"{seed}:第 {a.sequence} 次的狀態 {a.status} 不認得")
++    ok = a.outcome == mc.Outcome.OK.value
++    if a.status in (PENDING, CHECKED_IN) and not ok:
++        problems.append(f"{seed}:第 {a.sequence} 次結果是 {a.outcome},不能是{a.status}")
++    if a.status == FAILED and ok:
++        problems.append(f"{seed}:第 {a.sequence} 次結果是 ok,不能記呼叫失敗")
++    return problems
++
++
++def _seed_problems(seed: int, attempts: tuple[Attempt, ...]) -> list[str]:
++    problems = []
++    if [a.sequence for a in attempts] != list(range(1, len(attempts) + 1)):
++        problems.append(f"{seed}:序號要從 1 起逐次加一、不重用")
++    for attempt in attempts:
++        problems += _attempt_problems(seed, attempt)
++    done = [a for a in attempts if a.status == CHECKED_IN]
++    if len(done) > 1:
++        problems.append(f"{seed}:入庫 {len(done)} 次(每種子只准一次)")
++    first_ok = next((a for a in attempts if a.outcome == mc.Outcome.OK.value
++                     and a.status != REJECTED), None)
++    if done and done[0] is not first_ok:
++        problems.append(f"{seed}:入庫的不是第一次成功的錄製")
++    if done and attempts[-1] is not done[0]:
++        problems.append(f"{seed}:入庫後又錄了一次(換批要換評估版本)")
++    return problems
++
++
++def manifest_problems(manifest: Manifest) -> list[str]:
++    """批次清單本身的機檢:評估版本與版本雜湊是現行的、三個固定種子與資料雜湊、每種子的序號與入庫規則。
++    """
++    problems = []
++    if (manifest.eval_version, manifest.version_sha256) != (v.EVAL_VERSION, p.version_sha256()):
++        problems.append(f"批次清單的評估版本 {manifest.eval_version} 或版本雜湊不是現行的"
++                        f" {v.EVAL_VERSION}:舊批只作歷史核對,現行版本要另錄")
++    expected = tuple((seed, h.EXPECTED_DATA_SHA256[seed]) for seed in v.SEEDS)
++    if manifest.seeds != expected:
++        problems.append("批次清單的種子或資料雜湊不是固定三種子")
++    stray = sorted({a.seed for a in manifest.attempts} - set(v.SEEDS))
++    if stray:
++        problems.append(f"批次清單有固定種子以外的嘗試:{stray}")
++    for seed in v.SEEDS:
++        problems += _seed_problems(seed, attempts_of(manifest, seed))
++    return problems
++
++
++# ---- 一批的驗收 ----
++def batch_problems(directory: Path, attempt: Attempt, expected: str) -> list[str]:
++    """一個種子一批的錄製目錄能不能入庫(或入庫後仍然成立)。重播找不到錄製由命令列另查。"""
++    problems = mc.batch_file_problems(directory, BATCH_PATTERN, BATCH_SHAPE)
++    if not directory.is_dir():
++        return problems
++    found: dict[str, object] = {}
++    for path, data in mc.recording_files(directory):
++        try:
++            recording = mc.validated(path, data)
++        except mc.NoRecording:
++            continue  # 讀不懂的檔:上面的共用驗收已算進問題
++        found[path.stem] = recording
++        if (recording.caller, recording.outcome) != (mc.Caller.RULE_MINING.value,
++                                                     mc.Outcome.OK.value):
++            problems.append(f"{path.name}:呼叫者 {recording.caller}、結果 {recording.outcome},"
++                            "要是 rule_mining 且 ok")
++        if (recording.model, recording.batch_id) != (attempt.model, attempt.batch_id):
++            problems.append(f"{path.name}:模型或批次跟批次清單不符")
++    if set(found) != {expected}:
++        problems.append(f"錄製鍵集合要恰等於預期的 {{{expected[:12]}…}},"
++                        f"實際 {sorted(k[:12] for k in found)}")
++    if attempt.recording_key not in (None, expected):
++        problems.append("批次清單記的錄製鍵跟預期鍵不符")
++    return problems
+diff --git a/src/rtb/eval/rule_mining_report.py b/src/rtb/eval/rule_mining_report.py
+new file mode 100644
+index 0000000..282aeb9
+--- /dev/null
++++ b/src/rtb/eval/rule_mining_report.py
+@@ -0,0 +1,635 @@
++"""規則模式探索的比較與人讀報告(Phase 15 增量 3,計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]
++〈模型建議、機械核對與人讀報告〉〈拆增量〉第 3 項)。
++
++- 比較:同一條件全集、同一探索集、同一下限與 K。窮舉取前 K 報真模式召回,再取前 n(n = AI 有效建議數)
++  跟 AI 比同名額精確度/誤報;兩邊**先取定名單再過保留側,不遞補**。AI 的無效提交(單條剔除、去重、
++  反方向、核對不符、未達下限;整份拒絕記 1 筆)在 AI 可計誤報的分子與分母各加一,保留側濾不掉它。
++- 類別:精確命中預埋真模式才算命中;預埋的相關誘餌若保留側也成立,另列「觀察成立的相關規律」,
++  不進召回、誤報分子或精確度分母;其餘(純噪音、只探索側偶合、誘餌變形、部分重疊、保留側不成立的相關
++  誘餌)都計誤報。
++- 判定:n=0,或任一方同名額可計分母為零(保留前或保留後),該批判「窮舉勝」,精確度寫「未量」不寫 0%。
++- 報告只顯示結構化條件與程式重算的數字;**不讀也不顯示**模型的 `confidence_note` 或任何未核對的
++  自由文字(有效條目 `Checked` 本來就不帶說明)。
++- 純函式、標準函式庫;不匯入模型用戶端、模型閘道或 DSP。停用模型探勘時這支照留(純程式報告仍可重產)。
++"""
++
++from collections.abc import Iterable, Sequence
++from dataclasses import dataclass
++from decimal import Decimal
++from fractions import Fraction
++
++from rtb.domain import metrics as m
++from rtb.eval import rule_mining_baseline as b
++from rtb.eval import rule_mining_check as c
++from rtb.eval import rule_mining_history as h
++from rtb.eval import rule_mining_prompt as p
++from rtb.eval import rule_mining_vocab as v
++
++TITLE = "# AI 找規則模式:評估報告(Phase 15)"
++BANNER = ("固定種子合成資料、非統計保證、非自動規則;真模式在語彙切點上,"
++          "召回只是可精確表示時的上界")
++SAME_CONDITIONS = "程式掃描已找到 AI 清單中的全部條件"
++UNMEASURED = "未量"
++
++# AI 欄的狀態
++MEASURED = "已量"
++WAITING = "等錄製"
++BASELINE_ONLY = "只產純基準"
++REPLAY_FAILED = "重播失敗"
++
++# 條目類別
++CAT_TRUE = "真模式"
++CAT_RELATED = "觀察成立的相關規律"
++CAT_RELATED_FAILED = "相關誘餌(保留側不成立)"
++CAT_EXPLORE_ONLY = "只探索側誘餌"
++CAT_PARTIAL = "部分重疊"
++CAT_OTHER = "其他"
++
++# 判定
++EXHAUSTIVE_WINS = "窮舉勝"
++EXHAUSTIVE_HOLDS = "窮舉不輸 AI"
++AI_WINS = "AI 勝過窮舉"
++
++MISMATCH_ALARM = Fraction(1, 4)  # 可解析建議的機械筆數核對失敗比例超過它,先停用模型段
++
++TRUE_KEYS = tuple(t.key for t in h.TRUTH if t.kind == h.TRUE_PATTERN)
++_TRUTH_BY_KEY = {t.key: t for t in h.TRUTH}
++
++PLAIN: dict[str, str] = {
++    v.WEEKDAY: "加額日是平日", v.WEEKEND: "加額日是週末",
++    "raise_pct:band_1": "加額不到 20%", "raise_pct:band_2": "加額 20% 以上未滿 50%",
++    "raise_pct:band_3": "加額 50% 以上",
++    "pre_cvr:band_1": "調整前三日轉換率不到 2%",
++    "pre_cvr:band_2": "調整前三日轉換率 2% 以上未滿 5%",
++    "pre_cvr:band_3": "調整前三日轉換率 5% 以上",
++    "spend_ratio:band_1": "調整前三日花費不到原預算 60%",
++    "spend_ratio:band_2": "調整前三日花費占原預算 60% 以上未滿 90%",
++    "spend_ratio:band_3": "調整前三日花費占原預算 90% 以上",
++}
++PLAIN_DIRECTION = {v.IMPROVE: "加額後較可能改善", v.NOT_IMPROVE: "加額後較可能沒改善"}
++HOLDOUT_REASONS = {b.INSUFFICIENT_SAMPLE: "樣本不足", b.LOW_SUPPORT: "支持比例不足",
++                   b.WRONG_SIGN: "方向不符", b.UNMEASURED: UNMEASURED}
++# 無效提交的原因(原因代碼來自核對模組與語彙模組;沒列到的照代碼顯示)
++INVALID_REASONS = {
++    c.TOO_LARGE: "回覆超過 6000 位元組(整份拒絕)", c.UNPARSABLE: "解析錯(整份拒絕)",
++    c.TOO_DEEP: "巢狀太深(整份拒絕)", c.DUPLICATE_KEY: "重複鍵(整份拒絕)",
++    c.NON_FINITE: "非有限數(整份拒絕)", c.NOT_OBJECT: "頂層不是物件(整份拒絕)",
++    c.UNKNOWN_KEY: "未知鍵(整份拒絕)", c.MISSING_KEY: "頂層缺鍵(整份拒絕)",
++    c.WRONG_VERSION: "版本錯(整份拒絕)", c.NOT_LIST: "建議不是陣列(整份拒絕)",
++    c.TOO_MANY: "超過 K 條(整份拒絕)",
++    c.BAD_SUGGESTION: "建議不是物件", c.MISSING_FIELD: "缺欄或多欄", c.BAD_CLAUSES: "子句格式錯",
++    c.BAD_COUNT: "筆數不是合法整數", c.BAD_NOTE: "說明欄不合規", c.UNREADABLE_SUGGESTION: "讀不懂",
++    c.DUPLICATE: "同條件同方向重複", c.OPPOSITE: "同條件押相反方向",
++    c.COUNT_MISMATCH: "無法核對(自報筆數與重算不符)", c.BELOW_FLOOR: "未達樣本下限",
++    "unknown_condition": "未知欄位", "threshold_not_in_condition": "門檻不屬該欄位",
++    "clause_count": "子句數不是一或二", "duplicate_condition": "同欄位重複",
++    "unknown_direction": "未知方向", "bad_code": "代碼格式錯", "bad_clause": "子句格式錯",
++}
++
++
++def classify(key: v.NormalizedKey, kept: bool) -> str:
++    """條目的真相類別(只看正規化鍵與保留側判定)。"""
++    truth = _TRUTH_BY_KEY.get(key)
++    if truth is not None and truth.kind == h.TRUE_PATTERN:
++        return CAT_TRUE
++    if truth is not None and truth.kind == h.DECOY_CORRELATED:
++        return CAT_RELATED if kept else CAT_RELATED_FAILED
++    if truth is not None and truth.kind == h.DECOY_EXPLORE_ONLY:
++        return CAT_EXPLORE_ONLY
++    if any(set(key[0]) & set(t.clauses) for t in h.TRUTH):
++        return CAT_PARTIAL
++    return CAT_OTHER
++
++
++def partial_of(key: v.NormalizedKey) -> tuple[str, ...]:
++    """部分重疊時跟哪幾條預埋條件共用子句(給人看的條件寫法)。"""
++    return tuple(v.key_text(t.clauses) for t in h.TRUTH if set(key[0]) & set(t.clauses)
++                 and t.key != key)
++
++
++@dataclass(frozen=True)
++class Entry:
++    """名單裡的一條:正規化鍵、保留側判定與程式重算的數字(探索側與保留側)。"""
++
++    key: v.NormalizedKey
++    holdout: b.Holdout
++    support: int = 0
++    counter: int = 0
++    ties: int = 0
++    directed: int = 0
++    raised_ads: int = 0
++    control_ads: int = 0
++    dates: int = 0
++    mean: Fraction = Fraction(0)
++    holdout_support: int = 0
++    holdout_counter: int = 0
++    holdout_directed: int = 0
++
++    @property
++    def kept(self) -> bool:
++        return self.holdout.kept
++
++    @property
++    def category(self) -> str:
++        return classify(self.key, self.kept)
++
++
++def baseline_entry(ranked: b.Ranked, explore: b.ConditionStats,
++                   holdout: b.ConditionStats) -> Entry:
++    held_support, held_counter, _ = b.directional(holdout, ranked.direction)
++    return Entry((ranked.key, ranked.direction), b.holdout_verdict(holdout, ranked.direction),
++                 ranked.support, ranked.counter, explore.ties, explore.directed,
++                 explore.raised_ads, explore.control_ads, explore.dates,
++                 ranked.directional_mean, held_support, held_counter, holdout.directed)
++
++
++def stats_entry(key: v.NormalizedKey, explore: b.ConditionStats,
++                holdout: b.ConditionStats) -> Entry:
++    """任一條件與方向在兩側重算的樣子(給預埋項的說明用;不必達下限)。"""
++    direction = key[1]
++    support, counter, mean = b.directional(explore, direction)
++    held_support, held_counter, _ = b.directional(holdout, direction)
++    return Entry(key, b.holdout_verdict(holdout, direction), support, counter, explore.ties,
++                 explore.directed, explore.raised_ads, explore.control_ads, explore.dates,
++                 mean if mean is not None else Fraction(0), held_support, held_counter,
++                 holdout.directed)
++
++
++def ai_entry(checked: c.Checked) -> Entry:
++    held_support, held_counter, _ = b.directional(checked.holdout_stats, checked.key[1])
++    return Entry(checked.key, checked.holdout, checked.support, checked.counter, checked.ties,
++                 checked.directed, checked.raised_ads, checked.control_ads, checked.dates,
++                 checked.directional_mean, held_support, held_counter,
++                 checked.holdout_stats.directed)
++
++
++# ---- 計分 ----
++@dataclass(frozen=True)
++class Tally:
++    """一份名單的命中、可計誤報(AI 含無效提交)與另列的相關規律。"""
++
++    hits: int
++    false: int
++    related: int
++
++    @property
++    def countable(self) -> int:
++        return self.hits + self.false
++
++    @property
++    def precision(self) -> Fraction | None:
++        return Fraction(self.hits, self.countable) if self.countable else None
++
++    def precision_text(self) -> str:
++        return f"{self.hits}/{self.countable}" if self.countable else UNMEASURED
++
++    def false_text(self) -> str:
++        return f"{self.false}/{self.countable}" if self.countable else UNMEASURED
++
++
++@dataclass(frozen=True)
++class Scores:
++    """一份名單在保留前/後的計分;名單先取定,保留後只從原名單刪、不遞補。"""
++
++    listed: int
++    invalid: int
++    pre: Tally
++    post: Tally
++    recall_pre: int
++    recall_post: int
++    decoy_hits: int  # 只探索側誘餌的精確命中
++
++    def recall_text(self) -> str:
++        return f"{self.recall_pre}/{len(TRUE_KEYS)} → {self.recall_post}/{len(TRUE_KEYS)}"
++
++
++def _tally(entries: Iterable[Entry], invalid: int) -> Tally:
++    cats = [e.category for e in entries]
++    hits = cats.count(CAT_TRUE)
++    related = cats.count(CAT_RELATED)
++    return Tally(hits, len(cats) - hits - related + invalid, related)
++
++
++def score(entries: Sequence[Entry], invalid: int = 0) -> Scores:
++    kept = [e for e in entries if e.kept]
++    return Scores(len(entries), invalid, _tally(entries, invalid), _tally(kept, invalid),
++                  sum(1 for e in entries if e.category == CAT_TRUE),
++                  sum(1 for e in kept if e.category == CAT_TRUE),
++                  sum(1 for e in entries if e.category == CAT_EXPLORE_ONLY))
++
++
++@dataclass(frozen=True)
++class Verdict:
++    label: str
++    reasons: tuple[str, ...]
++    retire_holds: bool | None  # 這一批的撤除比較成立(窮舉不輸);None = 未量
++
++
++def judge(base_raw: Scores, base_quota: Scores, ai: Scores | None) -> Verdict:
++    """單一種子的撤除比較。召回用窮舉前 K,精確度用同名額前 n。"""
++    if ai is None:
++        return Verdict(UNMEASURED, ("AI 欄未量",), None)
++    if ai.listed == 0:
++        return Verdict(EXHAUSTIVE_WINS, ("AI 無有效建議",), True)
++    tallies = (base_quota.pre, base_quota.post, ai.pre, ai.post)
++    if any(t.countable == 0 for t in tallies):
++        return Verdict(EXHAUSTIVE_WINS, ("同名額有一方可計分母為零,精確度未量",), True)
++    wins = []
++    if ai.recall_pre > base_raw.recall_pre:
++        wins.append("保留前召回")
++    if ai.recall_post > base_raw.recall_post:
++        wins.append("保留後召回")
++    for side, mine, theirs in (("保留前", ai.pre, base_quota.pre),
++                               ("保留後", ai.post, base_quota.post)):
++        assert mine.precision is not None and theirs.precision is not None  # noqa: S101 - 上面已排除零分母
++        if mine.precision > theirs.precision:
++            wins.append(f"{side}同名額精確度")
++    if wins:
++        return Verdict(AI_WINS, tuple(wins), False)
++    return Verdict(EXHAUSTIVE_HOLDS, (), True)
++
++
++@dataclass(frozen=True)
++class Overlap:
++    shared: int
++    ai_only: tuple[v.NormalizedKey, ...]
++    base_only: int
++    all_inside: bool
++
++
++def overlap(base: Sequence[Entry], ai: Sequence[Entry]) -> Overlap:
++    base_keys = {e.key for e in base}
++    ai_keys = [e.key for e in ai]
++    ai_only = tuple(k for k in ai_keys if k not in base_keys)
++    shared = len(ai_keys) - len(ai_only)
++    return Overlap(shared, ai_only, len(base_keys) - shared, not ai_only)
++
++
++def mismatch_alarm(verification: c.Verification) -> bool | None:
++    """可解析建議裡機械筆數核對失敗的比例超過 25%;沒有可解析建議回 None(未量)。
++    只量數字轉錄一致性。"""
++    if verification.recounted == 0:
++        return None
++    return Fraction(verification.mismatches, verification.recounted) > MISMATCH_ALARM
++
++
++# ---- 單一種子 ----
++@dataclass(frozen=True)
++class Source:
++    """AI 欄的錄製來源(入庫批次清單與重播帶回的錄製當時數字)。"""
++
++    demo_id: str
++    batch_id: str | None
++    model: str
++    recorded_at: str | None
++    list_nanousd: int
++
++
++@dataclass(frozen=True)
++class AiResult:
++    status: str
++    verification: c.Verification | None = None
++    source: Source | None = None
++    detail: str | None = None  # 程式產生的狀態細節(例如重播的結果類別),不是模型文字
++
++
++@dataclass(frozen=True)
++class SeedReport:
++    seed: int
++    data_sha256: str
++    explore_ads: int
++    holdout_ads: int
++    explore_events: int
++    holdout_events: int
++    explore_exclusions: tuple[tuple[str, int], ...]
++    holdout_exclusions: tuple[tuple[str, int], ...]
++    prompt_bytes: int
++    table_rows: int
++    baseline: tuple[Entry, ...]
++    ai: AiResult
++    ai_entries: tuple[Entry, ...]
++    base_raw: Scores
++    base_quota: Scores | None
++    ai_scores: Scores | None
++    verdict: Verdict
++    overlap: Overlap | None
++    truths: tuple[Entry, ...]  # 每個預埋項在兩側重算的樣子(不論有沒有進名單)
++
++
++def seed_report(inputs: p.SeedInputs, ai: AiResult) -> SeedReport:
++    explore, holdout = inputs.explore.stats, inputs.holdout.stats
++    baseline = tuple(baseline_entry(r, explore[r.key], holdout[r.key])
++                     for r in b.top_k(explore))
++    base_raw = score(baseline)
++    verification = ai.verification if ai.status == MEASURED else None
++    if verification is None:
++        ai_entries: tuple[Entry, ...] = ()
++        base_quota, ai_scores, joined = None, None, None
++    else:
++        ai_entries = tuple(ai_entry(checked) for checked in verification.valid)
++        base_quota = score(baseline[:verification.n])
++        ai_scores = score(ai_entries, verification.invalid_count)
++        joined = overlap(baseline, ai_entries)
++    truths = tuple(stats_entry(t.key, explore[t.key[0]], holdout[t.key[0]]) for t in h.TRUTH)
++    return SeedReport(
++        inputs.history.seed, h.data_sha256(inputs.history), len(inputs.sides.explore),
++        len(inputs.sides.holdout), inputs.explore.events, inputs.holdout.events,
++        tuple(inputs.explore.exclusions.items()), tuple(inputs.holdout.exclusions.items()),
++        p.prompt_bytes(inputs.table),
++        sum(1 for s in explore.values() if b.meets_floor(s)), baseline, ai, ai_entries,
++        base_raw, base_quota, ai_scores,
++        judge(base_raw, base_quota or base_raw, ai_scores), joined, truths)
++
++
++# ---- 人讀報告 ----
++@dataclass(frozen=True)
++class AttemptRow:
++    """批次清單裡的一次嘗試(命令列從批次清單轉來;報告只照列)。"""
++
++    seed: int
++    sequence: int
++    demo_id: str
++    batch_id: str
++    model: str
++    started_at: str
++    finished_at: str | None
++    outcome: str | None
++    status: str
++
++
++@dataclass(frozen=True)
++class Context:
++    recordings: str  # 錄製來源目錄(給人看的相對路徑)
++    attempts: tuple[AttemptRow, ...] = ()
++    checks: tuple[str, ...] = ()  # 錄製批次驗收的逐行結果(已排好版)
++
++
++def condition_text(key: v.ConditionKey) -> str:
++    return "且".join(PLAIN.get(threshold, threshold) for _, threshold in key)
++
++
++def _key_cell(key: v.NormalizedKey) -> str:
++    return f"{condition_text(key[0])}→{PLAIN_DIRECTION[key[1]]}(`{v.key_text(key[0])}` {key[1]})"
++
++
++def _pp(value: Fraction) -> str:
++    return m.percent_text(value, places=p.DIFF_PLACES)
++
++
++def _holdout_cell(entry: Entry) -> str:
++    counts = (f"支持 {entry.holdout_support}/反例 {entry.holdout_counter}/"
++              f"有方向 {entry.holdout_directed}")
++    if entry.kept:
++        return f"保留({counts})"
++    reasons = "、".join(HOLDOUT_REASONS.get(r, r) for r in entry.holdout.reasons)
++    return f"不保留:{reasons}({counts})"
++
++
++def _category_cell(entry: Entry) -> str:
++    if entry.category == CAT_PARTIAL:
++        return f"{CAT_PARTIAL}(與 {'、'.join(f'`{t}`' for t in partial_of(entry.key))})"
++    return entry.category
++
++
++def _entry_rows(entries: Sequence[Entry], others: set[v.NormalizedKey], other_label: str
++                ) -> list[str]:
++    head = ("| # | 條件 → 方向 | 支持/反例/平手 | 相異加額/對照廣告 | 相異日期 | 平均差值(百分點) "
++            f"| 保留側 | 類別 | {other_label} |")
++    rows = [head, "|" + "---|" * 9]
++    for number, e in enumerate(entries, 1):
++        rows.append(
++            f"| {number} | {_key_cell(e.key)} | {e.support}/{e.counter}/{e.ties} "
++            f"| {e.raised_ads}/{e.control_ads} | {e.dates} | {_pp(e.mean)} | {_holdout_cell(e)} "
++            f"| {_category_cell(e)} | {'是' if e.key in others else '否'} |")
++    return rows
++
++
++def _usd(nanousd: int) -> str:
++    return f"{Decimal(nanousd) / 10**9:.6f}"
++
++
++def _ai_label(report: SeedReport) -> str:
++    ai = report.ai
++    if ai.status == MEASURED:
++        return MEASURED
++    if ai.status == REPLAY_FAILED:
++        return f"{REPLAY_FAILED}({ai.detail}),{UNMEASURED}"
++    return f"{ai.status},{UNMEASURED}"
++
++
++def _summary(reports: Sequence[SeedReport]) -> list[str]:
++    lines = ["## 結論", ""]
++    measured = [r for r in reports if r.ai_scores is not None]
++    if len(measured) < len(reports):
++        lines.append(f"- 撤除條件(RETIRE-IF):未判——三批 AI 欄未齊({len(measured)}/{len(reports)} "
++                     "批已量);未量的批次 AI 欄一律寫「未量」,不當 0%")
++    elif all(r.verdict.retire_holds for r in reports):
++        lines.append("- 撤除條件(RETIRE-IF):程式可判的部分成立——三批窮舉都不輸 AI;"
++                     "還要人確認 AI 有沒有提供經人確認的額外可核對條件,才停用模型探勘")
++    else:
++        lost = "、".join(str(r.seed) for r in reports if r.verdict.retire_holds is False)
++        lines.append(f"- 撤除條件(RETIRE-IF):不成立——種子 {lost} AI 至少一項勝過窮舉")
++    for r in reports:
++        base = f"窮舉前 {r.base_raw.listed} 真模式召回(保留前 → 後){r.base_raw.recall_text()}"
++        if r.ai_scores is None:
++            lines.append(f"- {r.seed}:{base};AI {_ai_label(r)}")
++            continue
++        verdict = r.verdict.label + (f"({'、'.join(r.verdict.reasons)})"
++                                     if r.verdict.reasons else "")
++        lines.append(f"- {r.seed}:{base};AI 有效 {r.ai_scores.listed} 條、無效提交 "
++                     f"{r.ai_scores.invalid} 筆;判定 {verdict}")
++        assert r.ai.verification is not None  # noqa: S101 - 已量才有分數
++        alarm = mismatch_alarm(r.ai.verification)
++        if alarm:
++            lines.append(f"  - 機械筆數核對失敗 {r.ai.verification.mismatches}/"
++                         f"{r.ai.verification.recounted} 超過 25%:先停用模型段並重審輸出契約")
++    return [*lines, ""]
++
++
++def _versions(reports: Sequence[SeedReport], context: Context) -> list[str]:
++    lines = [
++        "## 版本與資料", "",
++        f"- 評估版本 {v.EVAL_VERSION}(版本雜湊 {p.version_sha256()};系統提示、表頭、語彙與全部參數"
++        f"都在雜湊內)、生成版本 {v.GENERATOR_VERSION}",
++        f"- 固定種子 {'、'.join(map(str, v.SEEDS))}(不得替換,三批全列);K={v.K}、有方向配對下限 "
++        f"{v.MIN_DIRECTED} 且兩側相異廣告各 {v.MIN_DISTINCT_ADS}、保留側支持比例至少 "
++        f"{v.HOLDOUT_SUPPORT.numerator}/{v.HOLDOUT_SUPPORT.denominator}",
++        f"- 錄製來源:`{context.recordings}`(CI 只重播入庫錄製,不呼叫即時模型)", "",
++        "| 種子 | 資料雜湊 | 廣告 探索/保留 | 可推斷加額事件 探索/保留 | 事件層排除 探索 "
++        "| 事件層排除 保留 | 送模型表列 | 完整提示位元組 |",
++        "|" + "---|" * 8,
++    ]
++    for r in reports:
++        lines.append(
++            f"| {r.seed} | {r.data_sha256[:16]} | {r.explore_ads}/{r.holdout_ads} "
++            f"| {r.explore_events}/{r.holdout_events} | {_counts(r.explore_exclusions)} "
++            f"| {_counts(r.holdout_exclusions)} | {r.table_rows} | {r.prompt_bytes} |")
++    lines += ["", "| 種子 | AI 欄 | 展示編號 | 批次 | 模型 | 錄製時間 | 估算花費(美元,原價) |",
++              "|" + "---|" * 7]
++    for r in reports:
++        s = r.ai.source
++        if s is None:
++            lines.append(f"| {r.seed} | {_ai_label(r)} | — | — | — | — | — |")
++        else:
++            lines.append(f"| {r.seed} | {_ai_label(r)} | {s.demo_id} | {s.batch_id or '—'} "
++                         f"| {s.model} | {s.recorded_at or '—'} | {_usd(s.list_nanousd)} |")
++    return [*lines, ""]
++
++
++def _counts(pairs: Sequence[tuple[str, int]]) -> str:
++    return " ".join(f"{reason}={count}" for reason, count in pairs) or "無"
++
++
++def _comparison(reports: Sequence[SeedReport]) -> list[str]:
++    lines = [
++        "## 窮舉與 AI 比較(三批全列)", "",
++        "- 召回:命中預埋真模式數 / 真模式總數(2);窮舉一律用前 K。",
++        "- 同名額:n = AI 有效建議數,窮舉取前 n 條比精確度;精確度 = 命中 /(命中 + 可計誤報)。",
++        "- AI 的無效提交在 AI 可計誤報的分子與分母各加一,保留側濾不掉它。",
++        "- 名單先取定再過保留側,不遞補;「保留前 → 後」兩欄各自列分子分母。",
++        f"- 「{CAT_RELATED}」不進召回、誤報分子或精確度分母,另欄列出。", "",
++        "| 種子 | 來源 | 有效候選 | 原回覆/可解析/無效提交 | 真模式召回 前K(保留前 → 後) | 名額 "
++        "| 精確度(保留前 → 後) | 可計誤報(保留前 → 後) | 相關規律 | 只探索側誘餌命中 | 核對失敗 |",
++        "|" + "---|" * 11,
++    ]
++    for r in reports:
++        base = r.base_raw
++        lines.append(
++            f"| {r.seed} | 窮舉前 K | {base.listed} | — | {base.recall_text()} | {base.listed} "
++            f"| {base.pre.precision_text()} → {base.post.precision_text()} "
++            f"| {base.pre.false_text()} → {base.post.false_text()} | {base.pre.related} "
++            f"| {base.decoy_hits} | — |")
++        if r.ai_scores is None or r.base_quota is None:
++            lines.append(f"| {r.seed} | AI | {UNMEASURED} | {UNMEASURED} | {UNMEASURED} "
++                         f"| {UNMEASURED} | {UNMEASURED} | {UNMEASURED} | {UNMEASURED} "
++                         f"| {UNMEASURED} | {UNMEASURED} |")
++            continue
++        quota, ai = r.base_quota, r.ai_scores
++        assert r.ai.verification is not None  # noqa: S101 - 已量才有分數
++        ver = r.ai.verification
++        raw = "整份拒絕/0/1" if ver.rejected is not None else (
++            f"{ver.submitted}/{ver.recounted}/{ver.invalid_count}")
++        lines.append(
++            f"| {r.seed} | 窮舉前 n | {quota.listed} | — | — | {ai.listed} "
++            f"| {quota.pre.precision_text()} → {quota.post.precision_text()} "
++            f"| {quota.pre.false_text()} → {quota.post.false_text()} | {quota.pre.related} "
++            f"| {quota.decoy_hits} | — |")
++        lines.append(
++            f"| {r.seed} | AI | {ai.listed} | {raw} | {ai.recall_text()} | {ai.listed} "
++            f"| {ai.pre.precision_text()} → {ai.post.precision_text()} "
++            f"| {ai.pre.false_text()} → {ai.post.false_text()} | {ai.pre.related} "
++            f"| {ai.decoy_hits} | {ver.mismatches} |")
++    return [*lines, ""]
++
++
++def _overlap_lines(reports: Sequence[SeedReport]) -> list[str]:
++    lines = ["## AI 清單與窮舉前 K 的重疊", ""]
++    for r in reports:
++        if r.overlap is None or r.ai_scores is None:
++            lines.append(f"- {r.seed}:AI 欄{UNMEASURED}")
++            continue
++        o = r.overlap
++        lines.append(f"- {r.seed}:AI 有效 {r.ai_scores.listed} 條、窮舉前 K {r.base_raw.listed} "
++                     f"條;交集 {o.shared}、AI 獨有 {len(o.ai_only)}、窮舉獨有 {o.base_only};"
++                     f"AI 清單完全落在窮舉前 K:{'是' if o.all_inside else '否'}")
++        if r.ai_scores.listed == 0:
++            lines.append("  - AI 無有效建議,窮舉勝")
++        elif not o.ai_only:
++            lines.append(f"  - {SAME_CONDITIONS}")
++        by_key = {e.key: e for e in r.ai_entries}
++        lines += [f"  - AI 獨有:{_key_cell(k)};{_category_cell(by_key[k])};"
++                  f"{_holdout_cell(by_key[k])}" for k in o.ai_only]
++    return [*lines, ""]
++
++
++def _details(r: SeedReport) -> list[str]:
++    lines = [f"### 種子 {r.seed}", "", f"窮舉前 K({r.base_raw.listed} 條,依 Wilson 下界排序):", ""]
++    ai_keys = {e.key for e in r.ai_entries}
++    lines += _entry_rows(r.baseline, ai_keys, "也在 AI 清單")
++    lines.append("")
++    verification = r.ai.verification if r.ai.status == MEASURED else None
++    if verification is None:
++        return [*lines, f"AI 有效建議:{_ai_label(r)}", ""]
++    lines += [f"AI 有效建議({verification.n} 條,照回覆順序):", ""]
++    if r.ai_entries:
++        lines += _entry_rows(r.ai_entries, {e.key for e in r.baseline}, "也在窮舉前 K")
++    else:
++        lines.append("(無)")
++    lines += ["", f"AI 無效提交({verification.invalid_count} 筆,計入 AI 可計誤報):", ""]
++    if verification.rejected is not None:
++        reason = INVALID_REASONS.get(verification.rejected, verification.rejected)
++        lines.append(f"- 整份回覆:{reason}")
++    for item in verification.invalid:
++        where = f"第 {item.index + 1} 條" if item.index is not None else "整份回覆"
++        what = f"(條件 {_key_cell(item.key)})" if item.key is not None else ""
++        lines.append(f"- {where}:{INVALID_REASONS.get(item.reason, item.reason)}{what}")
++    if not verification.invalid and verification.rejected is None:
++        lines.append("(無)")
++    return [*lines, ""]
++
++
++def _explanations(reports: Sequence[SeedReport]) -> list[str]:
++    related = next(t for t in h.TRUTH if t.kind == h.DECOY_CORRELATED)
++    explore_only = next(t for t in h.TRUTH if t.kind == h.DECOY_EXPLORE_ONLY)
++    lines = [
++        "## 誘餌與觀察成立的相關規律", "",
++        f"- 預埋真模式:{';'.join(_key_cell(k) for k in TRUE_KEYS)}。",
++        f"- 相關誘餌:{_key_cell(related.key)}——{related.note}。保留側也成立時列為"
++        f"「{CAT_RELATED}」,照實列出但不是獨立的因果規則,不計召回、不計誤報;保留側不成立就計誤報。",
++        f"- {CAT_EXPLORE_ONLY}:{_key_cell(explore_only.key)}——{explore_only.note};"
++        "進了名單就計誤報。", "",
++        "| 種子 | 預埋項 | 探索側 支持/反例 | 保留側 | 在窮舉前 K | 在 AI 清單 |", "|" + "---|" * 6,
++    ]
++    for r in reports:
++        base_keys = {e.key for e in r.baseline}
++        ai_keys = {e.key for e in r.ai_entries}
++        for truth, e in zip(h.TRUTH, r.truths, strict=True):
++            in_ai = ("是" if e.key in ai_keys else "否") if r.ai_scores is not None else UNMEASURED
++            lines.append(f"| {r.seed} | {_KIND_TEXT[truth.kind]} `{v.key_text(truth.clauses)}` "
++                         f"{truth.direction} | {e.support}/{e.counter} | {_holdout_cell(e)} "
++                         f"| {'是' if e.key in base_keys else '否'} | {in_ai} |")
++    return [*lines, ""]
++
++
++_KIND_TEXT = {h.TRUE_PATTERN: "真模式", h.DECOY_CORRELATED: "相關誘餌",
++              h.DECOY_EXPLORE_ONLY: "只探索側誘餌"}
++
++
++LIMITS = (
++    "- 這是固定三種子的合成資料,只證明流程可運作,不給統計保證,也不代表真實投放有因果效果。",
++    "- 真模式與語彙切點精確對齊,所以召回只是「可精確表示時」的上界,不代表未知門檻下的召回。",
++    "- 保留側門檻(有方向 20 對、支持比例 3/5)會讓沒有效果的條件偶爾碰巧過關:代碼審以 60 個種子"
++    "量到約 7%。只探索側誘餌若在保留側碰巧過關,照計劃仍計誤報,不調門檻、不換種子。",
++    "- 機械核對只證條件與筆數相符,不證規律普遍成立;人仍要看樣本、日期群聚、對照選法、差值、"
++    "誘餌與實務可不可解釋。",
++    "- 對照是同側、同日、同轉換率區間、同規模桶、整期沒有任何預算調整的廣告;即使有對照,仍可能有"
++    "選擇偏差,結論只稱「可觀察關聯」,不稱加額造成效果。",
++    "- 報告只列結構化條件與程式重算的數字;模型的信心說明與任何未核對的自由文字都不顯示。",
++    "- 採用任何一條都要人確認、開 Issue,再經設計審與代碼審;這份報告不替正式規則宣布生效。",
++)
++
++
++def _attempts(context: Context) -> list[str]:
++    lines = ["## 錄製嘗試(批次清單)", ""]
++    if not context.attempts:
++        return [*lines, "- 尚無嘗試", ""]
++    lines += ["| 種子 | 序號 | 展示編號 | 批次 | 模型 | 開始 | 結束 | 結果 | 狀態 |",
++              "|" + "---|" * 9]
++    lines += [f"| {a.seed} | {a.sequence} | {a.demo_id} | {a.batch_id} | {a.model} "
++              f"| {a.started_at} | {a.finished_at or '—'} | {a.outcome or '—'} | {a.status} |"
++              for a in context.attempts]
++    return [*lines, ""]
++
++
++def render(reports: Sequence[SeedReport], context: Context) -> str:
++    lines = [TITLE, "", f"> **{BANNER}。**",
++             "> 這份報告只列給人看的候選;任何一條要變成正式規則,都要人確認、開 Issue,"
++             "再經設計審與代碼審。", ""]
++    lines += _summary(reports) + _versions(reports, context) + _comparison(reports)
++    lines += _overlap_lines(reports)
++    lines += ["## 逐條(程式重算的數字)", ""]
++    for r in reports:
++        lines += _details(r)
++    lines += [*_explanations(reports), "## 已知限制", "", *LIMITS, "", *_attempts(context),
++              "## 錄製批次驗收", "", *context.checks]
++    return "\n".join(lines).rstrip("\n") + "\n"

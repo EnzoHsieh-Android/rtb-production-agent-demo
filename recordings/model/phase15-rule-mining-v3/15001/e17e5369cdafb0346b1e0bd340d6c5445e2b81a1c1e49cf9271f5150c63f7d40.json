@@ -1,0 +1,22 @@
+{
+ "key": "e17e5369cdafb0346b1e0bd340d6c5445e2b81a1c1e49cf9271f5150c63f7d40",
+ "caller": "rule_mining",
+ "model": "claude-sonnet-5",
+ "backend": "claude_code",
+ "batch_id": "phase15-rule-mining-15001-20260927",
+ "recorded_on": "2026-09-27",
+ "outcome": "ok",
+ "sub_reason": null,
+ "text": "{\"version\":1,\"suggestions\":[{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_2\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_3\"}],\"direction\":\"improve\",\"support\":42,\"counterexample\":6,\"confidence_note\":\"加額幅度中等且前期花費接近或超預算時改善比例最高\"},{\"clauses\":[{\"condition\":\"day_type\",\"threshold\":\"day_type:weekend\"},{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_1\"}],\"direction\":\"improve\",\"support\":38,\"counterexample\":7,\"confidence_note\":\"週末小幅加額改善比例高\"},{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_2\"}],\"direction\":\"improve\",\"support\":77,\"counterexample\":25,\"confidence_note\":\"中等加額幅度整體偏向改善\"},{\"clauses\":[{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_3\"}],\"direction\":\"improve\",\"support\":74,\"counterexample\":30,\"confidence_note\":\"前期花費比例高的廣告加額後較常改善\"},{\"clauses\":[{\"condition\":\"pre_cvr\",\"threshold\":\"pre_cvr:band_3\"},{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_1\"}],\"direction\":\"improve\",\"support\":28,\"counterexample\":8,\"confidence_note\":\"高轉換率廣告搭配小幅加額改善比例高\"},{\"clauses\":[{\"condition\":\"pre_cvr\",\"threshold\":\"pre_cvr:band_3\"},{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_2\"}],\"direction\":\"improve\",\"support\":26,\"counterexample\":8,\"confidence_note\":\"高轉換率廣告搭配中幅加額改善比例高\"},{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_3\"}],\"direction\":\"not_improve\",\"support\":93,\"counterexample\":20,\"confidence_note\":\"大幅加額明顯偏向惡化\"},{\"clauses\":[{\"condition\":\"raise_pct\",\"threshold\":\"raise_pct:band_3\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_1\"}],\"direction\":\"not_improve\",\"support\":86,\"counterexample\":15,\"confidence_note\":\"大幅加額且前期花費不足時惡化比例極高\"},{\"clauses\":[{\"condition\":\"pre_cvr\",\"threshold\":\"pre_cvr:band_2\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_1\"}],\"direction\":\"not_improve\",\"support\":43,\"counterexample\":15,\"confidence_note\":\"中轉換率且花費不足時偏向惡化\"},{\"clauses\":[{\"condition\":\"day_type\",\"threshold\":\"day_type:weekday\"},{\"condition\":\"spend_ratio\",\"threshold\":\"spend_ratio:band_1\"}],\"direction\":\"not_improve\",\"support\":69,\"counterexample\":27,\"confidence_note\":\"平日且前期花費不足時偏向惡化\"}]}",
+ "input_tokens": 2,
+ "output_tokens": 1067,
+ "cache_write_5m_tokens": 0,
+ "cache_write_1h_tokens": 3826,
+ "cache_read_tokens": 0,
+ "reported_nanousd": 25978000,
+ "list_nanousd": 25978000,
+ "latency_ms": 10880.559000186622,
+ "tool_use": false,
+ "unclassified": false,
+ "settlement": "settled"
+}

@@ -53,9 +53,11 @@ BATCH = "phase15-rule-mining-test"
 NARROW = "rtb.analyzer.rule_mining_model"
 RUNNER = "rtb.eval.rule_mining_eval"
 HISTORY_KEYS = "rtb.eval.rule_mining_recordings"
+REPORT = "rtb.eval.rule_mining_report"
+# 增量 3:命令列寫在探勘執行器裡(不另開模組);比較與報告是純函式,一併列入探勘閉包檢查
 MINING = ("rtb.eval.rule_mining_vocab", "rtb.eval.rule_mining_history",
           "rtb.eval.rule_mining_baseline", "rtb.eval.rule_mining_prompt",
-          "rtb.eval.rule_mining_check", HISTORY_KEYS, RUNNER, NARROW)
+          "rtb.eval.rule_mining_check", HISTORY_KEYS, RUNNER, NARROW, REPORT)
 
 
 @pytest.fixture(scope="module")
@@ -397,7 +399,12 @@ MINING_USES = {
     "rtb.analyzer.investigation": {"canonical_json"},
     "rtb.eval.scoring": {"wilson_lower"},
     "rtb.analyzer.modelgate": {"Caller", "Gate", "ModelCallFailed", "Outcome", "open_gate"},
-    "rtb.modelclient": {"Caller", "recording_key", "DEFAULT_MODEL"},
+    # 增量 3:歷史錄製鍵模組多取入庫根、模式開關名(只讀,給重播拿掉即時開關)與錄製檔的共用驗收
+    "rtb.modelclient": {"Caller", "recording_key", "DEFAULT_MODEL", "default_recordings_dir",
+                        "MODEL_ENV", "LIVE_ENV", "RECORD_ENV", "Outcome", "batch_file_problems",
+                        "recording_files", "validated", "NoRecording",
+                        # 代碼審 r2:唯讀查帳號家目錄花費帳裡用過的展示編號(花費帳既有的唯讀開法)
+                        "ModelLedgerView"},
 }
 MINING_SOURCES = ("rtb.eval.rule_mining", NARROW, "rtb.domain.metrics")
 

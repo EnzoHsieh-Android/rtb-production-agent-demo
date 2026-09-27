@@ -10,7 +10,7 @@
 - **規則按需要查資料。**第一步讀現況與近一小時成效，初篩通過才再讀歷史、過去調整與逐日成效；資料有問題就判證據不足、不提案。
 - **金額由程式算，寫入前再過一次關。**執行端重查權限、版本、時效與金額，必要時等人工核可，才寫入模擬平台。
 - **AI 不參與決定。**[評估結果](governance/eval/phase13-investigation-adoption.md)沒通過，所以拿掉了它的決策權，只留兩件事：把提案寫成給確認者看的說明、在告警時推測原因。
-- **AI 找到的新規則，要驗證過才可能寫成程式。**[AI 找規則計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md)讓 AI 離線從固定種子的合成歷史（事先埋好真規律與誘餌）找候選規則，先由程式重算、跟窮舉掃描比較，再由人確認，才可能經審查寫進規則；比不過窮舉就撤掉 AI、只留程式掃描。實作中。
+- **AI 找到的新規則，要驗證過才可能寫成程式。**[AI 找規則計劃](docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md)讓 AI 離線從固定種子的合成歷史（事先埋好真規律與誘餌）找候選規則，先由程式重算、跟窮舉掃描比較，再由人確認，才可能經審查寫進規則；比不過窮舉就撤掉 AI、只留程式掃描。[評估報告](governance/eval/phase15-rule-mining.md)逐批列出程式掃描與 AI 的比較。
 
 ## 做了哪些把關
 
@@ -21,6 +21,7 @@
 - 廣告名稱裡藏的誘導文字，改不了提案金額、目標廣告或動作。
 - 寫入後就算當機，也能依紀錄恢復，不會再寫一次。
 - 播放錄製回答時，花費紀錄不會寫進帳號家目錄的花費帳。
+- AI 找規則的每批錄製在錄下當時就記下內容雜湊，入庫後被換檔，檢查會擋下。
 - [安全宣稱清單](claims/)連到程式與測試證據，並由檢查工具自動核對。
 
 展示備有七種故障情境：
@@ -65,6 +66,14 @@ PYTHONPATH=src .venv/bin/python -m rtb.modelverify
 RTB_MODEL_LIVE=1 PYTHONPATH=src .venv/bin/python -m rtb.demo.server --work-dir /tmp/rtb-demo --reports /tmp/rtb-demo-reports --live F1,F5
 ```
 
+重算 AI 找規則的評估報告（只重播入庫錄製，不呼叫模型）：
+
+```sh
+PYTHONPATH=src .venv/bin/python -m rtb.eval.rule_mining_eval --verify
+```
+
+錄一批新的步驟見[錄製說明](recordings/model/README.md)。
+
 ## AI 表現與限制
 
 我們試過讓 AI 決定要不要加預算，最後沒採用。[評估結果](governance/eval/phase13-investigation-adoption.md)
@@ -73,6 +82,13 @@ RTB_MODEL_LIVE=1 PYTHONPATH=src .venv/bin/python -m rtb.demo.server --work-dir /
 - **會亂加預算。**應該不加、而 AI 有給出有效答案的 19 筆裡，它仍建議加 11 筆。
 - **太慢。**回應中位 4.2 秒，門檻 3 秒。
 - **所以花錢的事交給程式規則。**規則在這批案例 36/36 全對，但標準答案跟規則是同一套算出來的，全對是必然結果，不能當成規則聰明的證據。
+
+AI 改去離線找新規則，三批合成資料的結果（[評估報告](governance/eval/phase15-rule-mining.md)）：
+
+- **真規律 AI 和程式掃描都找得回來。**事先埋的 2 條真規律，兩邊的前 10 條都找回。
+- **誤報仍多。**AI 的前 10 條過了另一半資料的驗證，仍有 5 到 7 條是誤報，所以候選一律要人確認，不會自動變成規則。
+- **AI 只小贏一格。**有兩批 AI 的精確度高一點，是因為它多挑到一條「真的相關、但本身沒效果」的規律（依事先的規定不算誤報），不是多找到真規律；照事先訂好的撤除條件，AI 保留在找規則這個角色。
+- **資料是合成的。**真規律是我們埋的，只說明這套流程找得到，不是統計保證。
 
 這是單機示範，不具備正式環境的行程隔離與訊息服務。
 
