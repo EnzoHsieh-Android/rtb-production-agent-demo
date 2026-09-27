@@ -19,7 +19,8 @@ from itertools import combinations
 from types import MappingProxyType
 from typing import Any
 
-EVAL_VERSION = "phase15-rule-mining-v2"  # v1 → v2:代碼審 c_4/c_5 改重疊與對照池定義
+# v1 → v2:代碼審 c_4/c_5 改重疊與對照池定義;v2 → v3:增量 2 代碼審 r1,說明欄字元規則寫進系統提示
+EVAL_VERSION = "phase15-rule-mining-v3"
 GENERATOR_VERSION = "rule-mining-history-1"
 SEEDS = (15001, 15002, 15003)  # 固定,任一批不得替換;報告全列
 
@@ -171,5 +172,7 @@ def version_params() -> dict[str, Any]:
         "prompt_bytes_limit": PROMPT_BYTES_LIMIT, "gateway_prompt_bytes": GATEWAY_PROMPT_BYTES,
         "max_output_tokens": MAX_OUTPUT_TOKENS, "reply_bytes_limit": REPLY_BYTES_LIMIT,
         "note_chars": NOTE_CHARS, "note_bytes": NOTE_BYTES,
+        "note_rule": "說明不含引號、反斜線與 Unicode 類別 Cc、Cf、Cs 的字元;"
+                     "違反只丟該條、計無效提交",
         "call_timeout_seconds": CALL_TIMEOUT_SECONDS,
     }

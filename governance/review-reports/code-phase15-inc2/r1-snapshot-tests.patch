@@ -1,0 +1,1328 @@
+diff --git a/claims/aggregate-blast-radius.json b/claims/aggregate-blast-radius.json
+index fa4148e..66cdbed 100644
+--- a/claims/aggregate-blast-radius.json
++++ b/claims/aggregate-blast-radius.json
+@@ -126,35 +126,35 @@
+     {
+       "path": "src/rtb/modelclaude.py",
+       "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
++      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
++      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/capability_samples.py",
+       "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
+     },
+     {
+diff --git a/claims/concurrency.json b/claims/concurrency.json
+index cd84c2f..3a412dd 100644
+--- a/claims/concurrency.json
++++ b/claims/concurrency.json
+@@ -162,35 +162,35 @@
+     {
+       "path": "src/rtb/modelclaude.py",
+       "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
++      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
++      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/analyzer/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+diff --git a/claims/idempotency-unknown-outcome.json b/claims/idempotency-unknown-outcome.json
+index 89830e5..952af3b 100644
+--- a/claims/idempotency-unknown-outcome.json
++++ b/claims/idempotency-unknown-outcome.json
+@@ -102,35 +102,35 @@
+     {
+       "path": "src/rtb/modelclaude.py",
+       "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
++      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
++      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/capability_samples.py",
+       "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
+     },
+     {
+diff --git a/claims/permission-guardrail.json b/claims/permission-guardrail.json
+index 8842ff8..53ac493 100644
+--- a/claims/permission-guardrail.json
++++ b/claims/permission-guardrail.json
+@@ -170,35 +170,35 @@
+     {
+       "path": "src/rtb/modelclaude.py",
+       "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
++      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
++      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/analyzer/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+index 7c38294..f57ee6b 100644
+--- a/claims/prompt-injection.json
++++ b/claims/prompt-injection.json
+@@ -22,21 +22,21 @@
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+       "sha256": "4bb7812d09ea593bb08d01c0e02ff114d1b83378f098fe8756c893454ba3e370"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+       "sha256": "93353f3bdbdc9f7df828cff7f40b75b11407c5e654efef477af2e38bc00f368e"
+     },
+     {
+       "path": "src/rtb/analyzer/modelgate.py",
+-      "sha256": "05b0984894662b3ba7d4b31facde1924613114df584e34b41cdbfa737ef7e435"
++      "sha256": "7264e11edc722f2679b329e4fa2df462dc0545c65b03b205592b0c7a2664ed37"
+     },
+     {
+       "path": "src/rtb/analyzer/narrate.py",
+       "sha256": "0f1749e1d4c1a563f103ad7431416d73106f7e689fb42647fb444a6400528d56"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "aa8b5b09a9deda2ffdf58c6509cb13f3966d6d785d9504431d5462aaa15030e1"
+     },
+     {
+@@ -174,43 +174,43 @@
+     {
+       "path": "src/rtb/modelclient.py",
+       "sha256": "1c880fab4298e2068ddadebbb5380480ddaa895fc9215c86f7541761ee4d3a2f"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger.py",
+-      "sha256": "722663e03a97525e7ea7b0694a498a164741d7ad18de1bf9e57647bb952b3000"
++      "sha256": "40c55c002e0aab8ea85fd1c5b172cdcb59a44a8ea0f44fd8694e4b4c9d793e44"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
++      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
+     },
+     {
+       "path": "src/rtb/modelrecording.py",
+       "sha256": "09f03583198e52f00b648d14d553b88313c7f98c48ba0b9597cba7056efb7f21"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
++      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/adversarial_samples.py",
+       "sha256": "0bf3bdbac7edd45cfa7a7b074ae4b7dd795388af0bd45bd3cfb1c140bb9c5161"
+     },
+     {
+diff --git a/pyproject.toml b/pyproject.toml
+index c2c0ba6..51ac79d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,20 +18,21 @@ select = [
+ 
+ [tool.ruff.lint.flake8-tidy-imports.banned-api]
+ # 最上層共用模組(sqlitekit、httpkit、httpclient、capabilitykit)吃的是這一份;各層與展示套件的
+ # ruff.toml 整張重列自己的禁令表(子目錄設定會蓋掉這張表)。Phase 12 代碼審 r1 s2
+ "rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+ # 最上層共用模組不准碰會送出模型呼叫的入口(Phase 13 代碼審 r3:各層准匯入共用模組,共用模組若轉手就繞過)
+ "rtb.analyzer.modelgate".msg = "分析端模型閘道是送出模型呼叫的入口:只准分析端寫死的幾支模組用(Phase 13 [S1100])"
+ "rtb.analyzer.narrate".msg = "模型說明命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r3)"
+ "rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r3)"
+ "rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准評估執行器用(Phase 14 增量 3 [S1429];分析端驅動與展示都不准)"
++"rtb.analyzer.rule_mining_model".msg = "規則模式探索的模型窄入口會開模型閘道送出模型呼叫:只准評估端的探勘執行器用(Phase 15 增量 2)"
+ "rtb.analyzer.runner".msg = "分析端驅動命令列開了 AI 決策會送出模型呼叫:只准用子行程起它,不准匯入(Phase 13 增量 2)"
+ 
+ [tool.ruff.lint.per-file-ignores]
+ # 測試裡本來就會 assert、啟動子行程、開連線到本機、用固定種子的亂數
+ # TID251:上面那張禁令表是給正式程式的;測試本來就要匯入各層與展示套件(禁令表加上之前測試也不受限)
+ "tests/**" = ["S101", "S603", "S310", "S311", "ARG002", "TID251"]
+ 
+ # lumos 會把檔案抽到 .lumos/lintbase-*/ 臨時目錄再跑 ruff;明寫第一方套件,匯入排序才不會因目錄不同而判斷不一樣
+ [tool.ruff.lint.isort]
+ known-first-party = ["rtb", "tests"]
+diff --git a/tests/eval/test_model_candidate.py b/tests/eval/test_model_candidate.py
+index 7424573..0655d26 100644
+--- a/tests/eval/test_model_candidate.py
++++ b/tests/eval/test_model_candidate.py
+@@ -271,26 +271,46 @@ def _eval_roots():
+ # (AI 決策函式所在的 ai_judge 與它的詞彙模組 investigation,增量 2 拆成兩支)、Phase 13 增量 3
+ # 新增的評估模組(評估集、生成器與標準答案、執行器、報告)。增量 3 的評估執行器匯入 AI 決策模組,
+ # 名單在這一增量補齊
+ PHASE13_ALLOWED: frozenset[str] = frozenset({
+     "rtb.analyzer.modelgate", "rtb.analyzer.ai_judge", "rtb.analyzer.investigation",
+     "rtb.domain.nine_rules",  # Phase 14 增量 1:評估標準答案共用純領域判斷
+     "rtb.eval.investigation_cases", "rtb.eval.investigation_set", "rtb.eval.investigation_eval",
+     "rtb.eval.investigation_report"})
+ # Phase 15 增量 1 改寫 [S918](計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉):
+ # 規則模式探索的純離線生成/彙總/基準/預檢四支,精確新增;它們不碰模型用戶端與閘道(下面的
+-# importers、senders、judge_* 等式照舊)。增量 2 的分析端窄函式另行逐項加
++# importers、senders、judge_* 等式照舊)。增量 2 逐項精確加:純核對模組、歷史錄製鍵模組(經門面取
++# 錄製鍵)、探勘執行器,與分析端窄入口(評估經它開閘道送出;閘道本身已在上一份名單)
+ PHASE15_ALLOWED: frozenset[str] = frozenset({
+     "rtb.eval.rule_mining_vocab", "rtb.eval.rule_mining_history", "rtb.eval.rule_mining_baseline",
+-    "rtb.eval.rule_mining_prompt"})
++    "rtb.eval.rule_mining_prompt", "rtb.eval.rule_mining_check", "rtb.eval.rule_mining_recordings",
++    "rtb.eval.rule_mining_eval", "rtb.analyzer.rule_mining_model"})
+ # 經 AI 決策模組送出的名字(開閘道、把閘道包成送出函式):評估套件裡只准評估執行器用
+ AI_JUDGE_SENDS = frozenset({"open_investigation_gate", "gate_complete"})
++# 經規則模式探索窄入口送出的名字(Phase 15 增量 2):評估套件裡只准探勘執行器用
++RULE_MINING_MODEL = "rtb.analyzer.rule_mining_model"
++RULE_MINING_SENDS = frozenset({"suggest", "gate_ask"})
++
++
++def rule_mining_senders(folder=EVAL):
++    """評估套件裡匯入規則模式探索窄入口的檔、用它送出名字的檔(都只看檔名)。"""
++    importers, senders = set(), set()
++    for path in sorted(folder.glob("*.py")):
++        tree = ast.parse(path.read_text(encoding="utf-8"))
++        imported = _imported_modules(SRC, f"rtb.eval.{path.stem}", tree) | _top_imports(tree)
++        if RULE_MINING_MODEL in imported:
++            importers.add(path.stem)
++        used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {
++            n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
++            a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
++        senders |= {path.stem} if used & RULE_MINING_SENDS else set()
++    return importers, senders
+ 
+ 
+ def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_path):  # noqa: PLR0915
+     closure = _closure(_eval_roots())
+     # 允許多出來的分支寫死(代碼審第 2 輪:動態算的話,模型用戶端多匯入什麼都會被跟著放行)
+     branch = (MODEL_CLIENT_CLOSURE | {"rtb.eval.model_candidate"} | PHASE13_ALLOWED
+               | PHASE15_ALLOWED)
+     assert set(_closure(["rtb.modelclient"])) == MODEL_CLIENT_CLOSURE
+     assert "rtb.modelclient" in closure
+     assert set(closure) - BASELINE <= branch, sorted(set(closure) - BASELINE - branch)
+@@ -305,21 +325,21 @@ def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_pa
+     result = subprocess.run(
+         [sys.executable, "-m", "ruff", "check", "--config", str(EVAL / "ruff.toml"),
+          "--stdin-filename", str(EVAL / "probe.py"), "-"],
+         input="import subprocess\n", capture_output=True, text=True, timeout=60, check=False)
+     assert result.returncode == 1 and "TID251" in result.stdout
+     # 評估套件碰模型用戶端一律經門面 rtb.modelclient(Phase 13 代碼審 r1:模型用戶端是 src/rtb/
+     # 底下每一支 model 開頭的檔,只比對門面一個名字擋不住直接匯入內部模組);准經門面的只有下面四支
+     importers, offenders = eval_model_imports()
+     assert offenders == []
+     assert importers == {"model_candidate", "record", "investigation_eval",
+-                         "investigation_report"}
++                         "investigation_report", "rule_mining_recordings"}
+     # 殺傷力:准許的評估模組直接匯入模型用戶端的內部模組(例如會寫錄製的函式)也抓得到
+     for probe in ("from rtb.modelrecording import claim, save_recording\n",
+                   "import rtb.modelcore\n", "from rtb import modelledger\n"):
+         copy = tmp_path / f"e{abs(hash(probe))}"
+         copy.mkdir()
+         source = (EVAL / "investigation_report.py").read_text(encoding="utf-8")
+         (copy / "investigation_report.py").write_text(probe + source, encoding="utf-8")
+         assert eval_model_imports(copy)[1], probe
+     # 送出呼叫只准模型候選用
+     senders, bypass = set(), set()
+@@ -334,20 +354,22 @@ def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_pa
+     for path in sorted(EVAL.glob("*.py")):
+         tree = ast.parse(path.read_text(encoding="utf-8"))
+         if "rtb.analyzer.ai_judge" in _imported_modules(SRC, f"rtb.eval.{path.stem}", tree):
+             judge_importers.add(path.stem)
+         used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {
+             n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
+             a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
+         judge_senders |= {path.stem} if used & AI_JUDGE_SENDS else set()
+     assert judge_importers == {"investigation_eval"}
+     assert judge_senders == {"investigation_eval"}
++    # Phase 15 增量 2:匯入規則模式探索窄入口、經它送出的,只有探勘執行器
++    assert rule_mining_senders() == ({"rule_mining_eval"}, {"rule_mining_eval"})
+     for probe in ("def f(s):\n    return s.backend.send(1)\n",
+                   "from rtb import modelclient as mc\nmc.BackendCall('m', 's', 'u', 1, 1.0, 1)\n",
+                   "def f(b):\n    g = b.send\n    return g\n",
+                   # 代碼審 r1:經分析端模型閘道送出
+                   "from rtb.analyzer import modelgate as g\n"
+                   "g.open_gate({}, demo_id=None, ledger=None, recordings=None)\n",
+                   "def f(gate):\n    return gate.complete(1, 's', 'u', max_output_tokens=1, "
+                   "timeout_seconds=1.0)\n"):
+         assert send_names(ast.parse(probe)) - {"call_model"}, probe
+     for banned in ("from rtb.analyzer import modelgate\n", "import rtb.analyzer.modelgate\n",
+diff --git a/tests/eval/test_rule_mining_check.py b/tests/eval/test_rule_mining_check.py
+new file mode 100644
+index 0000000..95a2c9c
+--- /dev/null
++++ b/tests/eval/test_rule_mining_check.py
+@@ -0,0 +1,227 @@
++"""Phase 15 增量 2:規則模式探索的模型回覆解析與機械核對(計劃
++[[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉)。
++
++合約 [S1504] [S1505]。純離線:不呼叫任何模型、不開閘道;回覆是手寫的假回覆,探索集是固定種子
++15001 的合成歷史或手造小歷史。
++"""
++
++import dataclasses
++import json
++import sys
++
++import pytest
++
++from rtb.eval import rule_mining_baseline as rb
++from rtb.eval import rule_mining_check as rc
++from rtb.eval import rule_mining_history as rh
++from rtb.eval import rule_mining_vocab as rv
++from tests.eval.test_rule_mining import RAISE_2, _ad, _history
++
++SEED = rv.SEEDS[0]
++RAISE_BAND_2 = [{"condition": "raise_pct", "threshold": "raise_pct:band_2"}]
++
++
++@pytest.fixture(scope="module")
++def sides():
++    """種子 15001 的兩側重算器與彙總(整個檔只生成一次)。"""
++    history = rh.generate(SEED)
++    split = rh.split(a.ad_id for a in history.ads)
++    return (history, split, rc.Recounter(history, split.explore),
++            rc.Recounter(history, split.holdout), rb.summarize(history, split.explore))
++
++
++def _clauses(key):
++    return [{"condition": c, "threshold": t} for c, t in key]
++
++
++def _s(clauses=None, direction="improve", support=24, counter=6, note="待核對", **extra):
++    item = {"clauses": RAISE_BAND_2 if clauses is None else clauses, "direction": direction,
++            "support": support, "counterexample": counter, "confidence_note": note}
++    return {**item, **extra}
++
++
++def _reply(*suggestions, **top):
++    body = {"version": 1, "suggestions": list(suggestions), **top}
++    return json.dumps(body, ensure_ascii=False, separators=(",", ":"))
++
++
++def _normalized(ranked):
++    return ranked.key, ranked.direction
++
++
++def _honest(ranked):
++    """照探索側重算數字填的一條建議(模型照抄彙總表時的樣子)。"""
++    return _s(_clauses(ranked.key), ranked.direction, ranked.support, ranked.counter)
++
++
++# ---- [S1504] ----
++def test_rule_mining_rejects_out_of_vocabulary_suggestions(sides):  # noqa: PLR0915 - 逐種情境
++    _, _, explore, holdout, summary = sides
++    top = rb.top_k(summary.stats)
++    good = _honest(top[0])
++
++    def verified(text):
++        return rc.verify(rc.parse_reply(text), explore, holdout)
++
++    baseline = verified(_reply(good))
++    assert (baseline.rejected, baseline.n, baseline.invalid_count) == (None, 1, 0)
++
++    # 整份拒絕:記 1 筆無效提交、0 條有效,不截前 K、不讓命令列崩潰
++    whole = {
++        rc.DUPLICATE_KEY: ['{"version":1,"version":1,"suggestions":[]}',
++                           _reply(good).replace('"direction":', '"direction":"improve",'
++                                                '"direction":', 1),
++                           _reply(good).replace('"condition":', '"condition":"x","condition":', 1)],
++        rc.UNKNOWN_KEY: [_reply(good, rationale="x"), _reply(_s(rationale="x")),
++                         _reply(_s([{**RAISE_BAND_2[0], "rationale": "因為"}]))],
++        rc.NON_FINITE: [_reply(good).replace(f'"support":{top[0].support}', '"support":1e400'),
++                        _reply(good).replace(f'"support":{top[0].support}', '"support":NaN'),
++                        _reply(good).replace(f'"support":{top[0].support}',
++                                             '"support":-Infinity'),
++                        _reply(good).replace('"version":1', '"version":Infinity')],
++        rc.UNPARSABLE: [_reply(good).replace(f'"support":{top[0].support}',
++                                             '"support":' + "9" * 4301),
++                        "```json\n" + _reply(good) + "\n```", "", "[" * 5000],
++        rc.TOO_MANY: [_reply(*[_honest(r) for r in top] + [good])],
++        rc.TOO_LARGE: [_reply(good) + " " * (rv.REPLY_BYTES_LIMIT - len(_reply(good)) + 1)],
++        rc.WRONG_VERSION: [_reply(good, version=2), _reply(good, version=True),
++                           _reply(good, version="1"), _reply(good).replace('"version":1',
++                                                                           '"version":1.0')],
++        rc.NOT_OBJECT: ["[]", '"x"'],
++        rc.MISSING_KEY: ['{"version":1}'],
++        rc.NOT_LIST: ['{"version":1,"suggestions":{}}'],
++    }
++    assert sys.get_int_max_str_digits() in (0, 4300)  # 超長整數由標準函式庫丟 ValueError
++    for reason, texts in whole.items():
++        for text in texts:
++            result = verified(text)
++            assert (result.rejected, result.n, result.invalid_count) == (reason, 0, 1), (
++                reason, text[:120])
++            assert rc.reasons(result) == {reason: 1}
++    # 4300 位整數解析得了,但筆數超過九位:只丟該條
++    long_ok = verified(_reply(good, _s(support=int("9" * 4300))))
++    assert long_ok.rejected is None and long_ok.n == 1
++    assert [(i.index, i.reason) for i in long_ok.invalid] == [(1, rc.BAD_COUNT)]
++    # 位元組照實際 JSON 逸出後量:同一份內容寫原字過、寫 \uXXXX 就超過 6000
++    full = [_s(_clauses(r.key), r.direction, 0, 0, "中" * 80) for r in top]
++    raw = json.dumps({"version": 1, "suggestions": full}, ensure_ascii=False,
++                     separators=(",", ":"))
++    escaped = json.dumps({"version": 1, "suggestions": full}, separators=(",", ":"))
++    assert len(raw.encode()) <= rv.REPLY_BYTES_LIMIT < len(escaped.encode())
++    assert rc.parse_reply(raw).rejected is None
++    assert rc.parse_reply(escaped).rejected == rc.TOO_LARGE
++    # 界量的是 UTF-8 位元組不是字數:6001 位元組但不到 6000 字,照樣整份拒絕
++    padded = raw + " " * (rv.REPLY_BYTES_LIMIT + 1 - len(raw.encode()))
++    assert len(padded) < rv.REPLY_BYTES_LIMIT < len(padded.encode())
++    assert rc.parse_reply(padded).rejected == rc.TOO_LARGE
++    assert rc.parse_reply(padded[:-1]).rejected is None
++
++    # 只丟該條:記原因、計無效提交(AI 誤報),其餘照常
++    single = [
++        (_s(support=True), rc.BAD_COUNT), (_s(counter=6.0), rc.BAD_COUNT),
++        (_s(support=-1), rc.BAD_COUNT), (_s(support=10**9), rc.BAD_COUNT),
++        (_s([{"condition": "raise_pct", "threshold": "raise_pct:band_9"}]),
++         "threshold_not_in_condition"),
++        (_s([{"condition": "raise_pct", "threshold": "pre_cvr:band_1"}]),
++         "threshold_not_in_condition"),
++        (_s([{"condition": "ctr", "threshold": "ctr:band_1"}]), "unknown_condition"),
++        (_s([{"condition": "Raise_pct", "threshold": "raise_pct:band_2"}]), "bad_code"),
++        (_s([{"condition": "raise_pct", "threshold": "r" * 25}]), "bad_code"),
++        (_s([{"condition": 1, "threshold": "raise_pct:band_2"}]), "bad_code"),
++        (_s([]), "clause_count"),
++        (_s([*RAISE_BAND_2, {"condition": "pre_cvr", "threshold": "pre_cvr:band_1"},
++             {"condition": "day_type", "threshold": "day_type:weekday"}]),
++         "clause_count"),
++        (_s([*RAISE_BAND_2, {"condition": "raise_pct", "threshold": "raise_pct:band_3"}]),
++         "duplicate_condition"),
++        (_s(direction="up"), "unknown_direction"), (_s(direction=None), "unknown_direction"),
++        (_s(note="字" * 81), rc.BAD_NOTE), (_s(note="😀" * 61), rc.BAD_NOTE),
++        (_s(note='含"引號'), rc.BAD_NOTE), (_s(note="反\\斜線"), rc.BAD_NOTE),
++        (_s(note="換\n行"), rc.BAD_NOTE), (_s(note=3), rc.BAD_NOTE),
++        ("不是物件", rc.BAD_SUGGESTION),
++        ({k: v for k, v in _s().items() if k != "confidence_note"}, rc.MISSING_FIELD),
++        (_s(clauses="raise_pct:band_2"), rc.BAD_CLAUSES),
++        (_s([{"condition": "raise_pct"}]), rc.BAD_CLAUSES),
++    ]
++    for item, reason in single:
++        result = verified(_reply(good, item))
++        assert result.rejected is None and result.submitted == 2, (item, reason)
++        assert [r.key for r in result.valid] == [_normalized(top[0])], (item, reason)
++        assert [(i.index, i.reason) for i in result.invalid] == [(1, reason)], (item, reason)
++        assert result.invalid_count == 1
++    # 說明的界:80 字、240 位元組都剛好可以
++    for note in ("字" * 80, "😀" * 60):
++        assert verified(_reply(good, _honest(top[1]) | {"confidence_note": note})).n == 2
++    # 例子:support:true 與未知 raise_pct:band_9 各只丟該條、各計 1 筆
++    mixed = verified(_reply(good, _s(support=True),
++                            _s([{"condition": "raise_pct", "threshold": "raise_pct:band_9"}])))
++    assert (mixed.n, mixed.invalid_count) == (1, 2)
++    assert rc.reasons(mixed) == {"bad_count": 1, "threshold_not_in_condition": 1}
++
++    # 去重:同一正規化鍵(子句順序不同)與同條件反方向,留先出現的合法條
++    two = next(r for r in top if len(r.key) == 2)
++    reordered = _s(list(reversed(_clauses(two.key))), two.direction, two.support, two.counter)
++    flipped = _s(_clauses(two.key), rv.IMPROVE if two.direction == rv.NOT_IMPROVE
++                 else rv.NOT_IMPROVE, two.counter, two.support)
++    result = verified(_reply(_honest(two), reordered, flipped))
++    assert [r.key for r in result.valid] == [_normalized(two)]
++    assert [(i.index, i.reason) for i in result.invalid] == [(1, rc.DUPLICATE),
++                                                             (2, rc.OPPOSITE)]
++    assert result.invalid_count == 2
++    # 先出現的那條不合法時,後面同鍵的合法條留下(不因不合法的條目丟掉合法的)
++    result = verified(_reply(_honest(two) | {"support": True}, _honest(two)))
++    assert [r.key for r in result.valid] == [_normalized(two)]
++    assert [(i.index, i.reason) for i in result.invalid] == [(0, rc.BAD_COUNT)]
++
++
++# ---- [S1505] ----
++def test_rule_mining_recounts_every_suggestion_before_reporting(sides):  # noqa: PLR0915
++    history, split, explore, holdout, summary = sides
++    # 重算沿用增量 1 的配對與彙總:對封閉全集的每一條都跟探索側彙總一致
++    for key in rv.all_conditions():
++        assert explore.stats(key) == summary.stats[key], key
++    held_summary = rb.summarize(history, split.holdout)
++    top = rb.top_k(summary.stats)
++    note = "模型的信心說明"
++    honest = [_honest(r) | {"confidence_note": note} for r in top[:3]]
++    lied = _honest(top[3]) | {"support": top[3].support + 1}
++    swapped = _honest(top[4]) | {"support": top[4].counter, "counterexample": top[4].support}
++    low_key = next(k for k in rv.all_conditions() if not rb.meets_floor(summary.stats[k]))
++    low_support, low_counter, _ = rb.directional(summary.stats[low_key], rv.IMPROVE)
++    low = _s(_clauses(low_key), rv.IMPROVE, low_support, low_counter)  # 照實抄、但樣本不夠
++    result = rc.verify(rc.parse_reply(_reply(*honest, lied, swapped, low)), explore, holdout)
++    assert result.submitted == 6 and result.recounted == 6
++    assert [c.key for c in result.valid] == [_normalized(r) for r in top[:3]]
++    assert [(i.index, i.reason) for i in result.invalid] == [
++        (3, rc.COUNT_MISMATCH), (4, rc.COUNT_MISMATCH), (5, rc.BELOW_FLOOR)]
++    assert (result.n, result.invalid_count, result.mismatches) == (3, 3, 2)
++    # 有效條目只帶程式重算的數字與保留側判定;模型的說明不在任何欄位
++    for checked, ranked in zip(result.valid, top[:3], strict=True):
++        condition, direction = checked.key
++        stats = summary.stats[condition]
++        support, counter, mean = rb.directional(stats, direction)
++        assert (checked.support, checked.counter, checked.directional_mean) == (
++            support, counter, mean)
++        assert (checked.ties, checked.directed, checked.raised_ads, checked.control_ads,
++                checked.dates) == (stats.ties, stats.directed, stats.raised_ads,
++                                   stats.control_ads, stats.dates)
++        assert checked.holdout == rb.holdout_verdict(held_summary.stats[condition], direction)
++        assert checked.holdout_stats == held_summary.stats[condition]
++        assert ranked.support == support
++    fields = {f.name for f in dataclasses.fields(rc.Checked)}
++    assert not fields & {"confidence_note", "note", "reported_support", "text"}
++    assert note not in repr(result)
++
++    # 19 平手 + 1 正差、模型照實報 1/0:數字相符,但重算只有 1 個有方向配對,仍無效
++    raised = [_ad(f"a{i:02d}", raise_at=5, pre=3, post=4) for i in range(19)]
++    raised.append(_ad("a19", raise_at=5, pre=3, post=6))
++    controls = [_ad(f"c{i:02d}", pre=3, post=4) for i in range(20)]
++    tiny = _history(raised + controls)
++    everyone = frozenset(a.ad_id for a in tiny.ads)
++    stats = rc.Recounter(tiny, everyone).stats(RAISE_2)
++    assert (stats.pairs, stats.ties, stats.directed) == (20, 19, 1)
++    tiny_recounter = rc.Recounter(tiny, everyone)
++    result = rc.verify(rc.parse_reply(_reply(_s(support=1, counter=0))), tiny_recounter,
++                       tiny_recounter)
++    assert (result.n, result.invalid_count) == (0, 1)
++    assert [i.reason for i in result.invalid] == [rc.BELOW_FLOOR]
+diff --git a/tests/eval/test_rule_mining_model.py b/tests/eval/test_rule_mining_model.py
+new file mode 100644
+index 0000000..0ee4a34
+--- /dev/null
++++ b/tests/eval/test_rule_mining_model.py
+@@ -0,0 +1,533 @@
++"""Phase 15 增量 2:規則模式探索經分析端窄入口呼叫模型、花費上限與送出邊界(計劃
++[[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉〈要改寫的既有合約〉)。
++
++合約 [S1507] [S1510](匯入邊界) [S1514] [S1517] [S1518](匯入邊界)。不呼叫真的 claude、不設行程環境的
++即時開關、不碰 ~/.rtb:即時一律是行程內的假後端(`tests/model/fakes.py`),帳本與錄製都在 tmp_path;
++預設路徑用真的 `modelgate.open_gate`,它在錄製模式下只讀錄製。
++"""
++
++import ast
++import dataclasses
++import json
++import os
++import shutil
++import sqlite3
++import subprocess
++import sys
++import threading
++import time
++
++import pytest
++
++from rtb import modelclient as mc
++from rtb import modelcore as core
++from rtb import modelledger as ledger_db
++from rtb import modelledger_view as view
++from rtb import sqlitekit
++from rtb.analyzer import modelgate
++from rtb.analyzer import rule_mining_model as rmm
++from rtb.eval import rule_mining_baseline as rb
++from rtb.eval import rule_mining_eval as rme
++from rtb.eval import rule_mining_prompt as rp
++from rtb.eval import rule_mining_recordings as rr
++from rtb.eval import rule_mining_vocab as rv
++from tests.analyzer.test_boundaries import _source_of
++from tests.conftest import child_prelude
++from tests.model.fakes import FakeBackend, live, reply, request
++from tests.test_spawn_boundary import (
++    CALL_MODEL_USERS,
++    CALLER_USERS,
++    CALLER_VALUES,
++    GATE_USERS,
++    SENDING_ENTRIES,
++    SRC,
++    backend_offenders,
++    closure_of,
++)
++
++SEED = rv.SEEDS[0]
++DEMO = f"phase15-seed-{SEED}-1"
++BATCH = "phase15-rule-mining-test"
++NARROW = "rtb.analyzer.rule_mining_model"
++RUNNER = "rtb.eval.rule_mining_eval"
++HISTORY_KEYS = "rtb.eval.rule_mining_recordings"
++MINING = ("rtb.eval.rule_mining_vocab", "rtb.eval.rule_mining_history",
++          "rtb.eval.rule_mining_baseline", "rtb.eval.rule_mining_prompt",
++          "rtb.eval.rule_mining_check", HISTORY_KEYS, RUNNER, NARROW)
++
++
++@pytest.fixture(scope="module")
++def prepared():
++    return rme.prepare(SEED)
++
++
++def honest_answer(prepared, count=2):
++    """照探索側重算數字填的回覆(模型照抄彙總表時的樣子)。"""
++    top = rb.top_k({k: prepared.explore.stats(k) for k in rv.all_conditions()})[:count]
++    return json.dumps({"version": 1, "suggestions": [
++        {"clauses": [{"condition": c, "threshold": t} for c, t in r.key],
++         "direction": r.direction, "support": r.support, "counterexample": r.counter,
++         "confidence_note": "照表抄"} for r in top]}, ensure_ascii=False, separators=(",", ":"))
++
++
++def fake_opener(settings, seen=None):
++    """代替 modelgate.open_gate:收同樣的參數,回綁好假設定的閘道(記下開閘道時帶的呼叫者)。"""
++
++    def open_gate(environ, *, caller, demo_id, ledger, recordings, **rest):
++        del environ
++        if seen is not None:
++            seen.append(caller)
++        return modelgate.Gate(settings, caller, demo_id, ledger or rest.get("recorded_ledger"),
++                              recordings, rest.get("batch_id"))
++
++    return open_gate
++
++
++def config(tmp_path, *, environ=None, demo_id=DEMO, batch_id=None, recordings=None):
++    empty = tmp_path / "no-bin"
++    empty.mkdir(exist_ok=True)
++    return rmm.GateConfig(environ={"PATH": str(empty)} if environ is None else environ,
++                          demo_id=demo_id, ledger=tmp_path / "ledger.sqlite",
++                          recordings=recordings or tmp_path / "recordings", batch_id=batch_id)
++
++
++def fake_ask(settings, cfg, seen=None):
++    def ask(system, table):
++        return rmm.suggest(system, table, cfg, open_gate=fake_opener(settings, seen))
++
++    return ask
++
++
++def ledger_rows(ledger):
++    reader = view.ModelLedgerView(ledger)
++    try:
++        with reader.read_transaction():
++            return reader.calls_between("0000", "9999")
++    finally:
++        reader.close()
++
++
++def mining_request(prepared, demo_id=DEMO):
++    return mc.ModelRequest(caller=mc.Caller.RULE_MINING, system=rp.SYSTEM_PROMPT,
++                           user=prepared.table, max_output_tokens=rmm.MAX_OUTPUT_TOKENS,
++                           timeout_seconds=rmm.TIMEOUT_SECONDS, demo_id=demo_id)
++
++
++# ---- [S1507] ----
++def test_rule_mining_live_calls_require_the_gateway_and_count_toward_caps(  # noqa: PLR0915
++        prepared, tmp_path, monkeypatch):
++    rec_dir = tmp_path / "recordings"
++    rec_dir.mkdir()
++    # 預設重播:缺錄製就停在「沒有錄製」、記呼叫失敗,不改走即時;帳記在指定的暫存帳本
++    run = rme.run(prepared, rme.gate_ask(config(tmp_path)))
++    assert run.status == rme.CALL_FAILED and run.verification is None
++    assert (run.reply.outcome, run.reply.mode, run.reply.text) == ("no_recording", "recorded", None)
++    assert "錄製" in (run.reply.problem or "")
++    assert run.expected_key == rr.expected_key(rp.SYSTEM_PROMPT, prepared.table)
++    booked = ledger_rows(tmp_path / "ledger.sqlite")
++    assert [(r.caller, r.outcome, r.source, r.reserved_nanousd) for r in booked] == [
++        ("rule_mining", "no_recording", "recorded", 0)]
++    # 即時前置條件不齊(這個字典開了開關,但找不到 claude,或沒有展示編號):閘道判錄製、停在沒有錄製。
++    # 第二種放一支假的 claude 在 PATH 上,被執行就留記號(展示編號先檢查,根本不會跑到它)
++    fake_bin, marker = tmp_path / "fake-bin", tmp_path / "fake-claude-ran"
++    fake_bin.mkdir()
++    (fake_bin / "claude").write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n", encoding="utf-8")
++    (fake_bin / "claude").chmod(0o755)
++    for environ, demo_id in (({"RTB_MODEL_LIVE": "1", "PATH": str(tmp_path / "no-bin")}, DEMO),
++                             ({"RTB_MODEL_LIVE": "1", "PATH": str(fake_bin)}, None)):
++        run = rme.run(prepared, rme.gate_ask(config(tmp_path, environ=environ, demo_id=demo_id)))
++        assert (run.status, run.reply.mode, run.reply.outcome) == (
++            rme.CALL_FAILED, "recorded", "no_recording")
++    assert not marker.exists()
++    # 錄製模式不給帳本:閘道在入口拒絕,什麼都沒呼叫
++    with pytest.raises(modelgate.GateRefused):
++        rmm.suggest(rp.SYSTEM_PROMPT, prepared.table, rmm.GateConfig(
++            {"PATH": str(tmp_path / "no-bin")}, DEMO, None, rec_dir))
++
++    # 明確授權的即時(假後端)加錄製:經閘道送出合成彙總,呼叫者綁死 RULE_MINING,計入上限
++    answer = honest_answer(prepared)
++    backend = FakeBackend(reply(answer, input_tokens=3000, output_tokens=400))
++    seen = []
++    live_cfg = config(tmp_path, batch_id=BATCH)
++    run = rme.run(prepared, fake_ask(live(backend, record=True), live_cfg, seen))
++    assert seen == [mc.Caller.RULE_MINING]
++    assert run.status == rme.CALL_OK and run.reply.source == "live"
++    assert len(backend.calls) == 1
++    sent = backend.calls[0]
++    assert (sent.system, sent.user) == (rp.SYSTEM_PROMPT, prepared.table)
++    assert (sent.max_output_tokens, sent.timeout_seconds) == (6144, 60.0)
++    assert run.reply.key == run.expected_key  # 歷史錄製鍵模組重算的鍵就是模型用戶端存的鍵
++    assert (rec_dir / f"{run.expected_key}.json").is_file()
++    assert run.verification is not None
++    assert (run.verification.n, run.verification.invalid_count) == (2, 0)
++    live_row = ledger_rows(tmp_path / "ledger.sqlite")[-1]
++    assert (live_row.caller, live_row.source, live_row.outcome) == ("rule_mining", "live", "ok")
++    assert live_row.reserved_nanousd == core.reservation_nanousd(mining_request(prepared),
++                                                                 mc.DEFAULT_MODEL)
++    spent = ledger_db.used_so_far(tmp_path / "ledger.sqlite", DEMO)
++    assert spent.demo_nanousd == live_row.settled_nanousd > 0  # 計入上限的已用
++    # 之後的預設重播讀回同一份,答案與核對結果相同
++    replay = rme.run(prepared, rme.gate_ask(config(tmp_path, recordings=rec_dir)))
++    assert replay.status == rme.CALL_OK and replay.reply.source == "recorded"
++    assert replay.reply.text == answer and replay.verification == run.verification
++
++    # 花費帳忙碌:預留寫不進去,沒有送出,記呼叫失敗
++    monkeypatch.setattr(ledger_db, "connect", lambda path: sqlitekit.connect(path, 0.05))
++    holder = sqlite3.connect(tmp_path / "ledger.sqlite", isolation_level=None)
++    try:
++        holder.execute("BEGIN IMMEDIATE")
++        busy_backend = FakeBackend(reply("不該送出"))
++        run = rme.run(prepared, fake_ask(live(busy_backend), config(tmp_path)))
++    finally:
++        holder.execute("ROLLBACK")
++        holder.close()
++    assert (run.status, run.reply.outcome) == (rme.CALL_FAILED, "ledger_busy")
++    assert busy_backend.calls == [] and run.verification is None
++    # 探勘只寫帳本與錄製:沒有別的檔(沒有分析端資料庫、提案或設定)
++    written = {p.name for p in tmp_path.iterdir()}
++    assert written <= {"no-bin", "fake-bin", "recordings", "ledger.sqlite", "ledger.sqlite-wal",
++                       "ledger.sqlite-shm"}, written
++
++
++# ---- [S1514] ----
++def test_rule_mining_single_call_respects_reservation(prepared, tmp_path, monkeypatch):
++    assert (rmm.MAX_OUTPUT_TOKENS, rmm.TIMEOUT_SECONDS, rmm.PROMPT_BYTES_LIMIT) == (
++        rv.MAX_OUTPUT_TOKENS, rv.CALL_TIMEOUT_SECONDS, rv.PROMPT_BYTES_LIMIT) == (6144, 60, 20480)
++    # 20480 位元組的完整提示、6144 輸出:repo 的預留函式算得 941875200,每展示 1 美元還剩 58124800
++    widest = mc.ModelRequest(caller=mc.Caller.RULE_MINING, system="s" * 480, user="u" * 20000,
++                             max_output_tokens=6144, timeout_seconds=60.0, demo_id=DEMO)
++    assert core.reservation_nanousd(widest, mc.DEFAULT_MODEL) == 941_875_200
++    assert core.DEMO_CAP_NANOUSD - 941_875_200 == 58_124_800
++    # 十條填滿(兩子句、24 位元組代碼、九位數筆數、80 個三位元組字)的緊湊回覆仍在 6000 位元組內
++    code = "a" * 24
++    full = {"clauses": [{"condition": code, "threshold": code}] * 2, "direction": "not_improve",
++            "support": 999_999_999, "counterexample": 999_999_999, "confidence_note": "中" * 80}
++    widest_reply = json.dumps({"version": 1, "suggestions": [full] * rv.K}, ensure_ascii=False,
++                              separators=(",", ":"))
++    assert len(widest_reply.encode()) <= rv.REPLY_BYTES_LIMIT <= rv.MAX_OUTPUT_TOKENS
++    _oversized_prompts_are_refused_before_the_gate(prepared, tmp_path)
++    need = core.reservation_nanousd(mining_request(prepared), mc.DEFAULT_MODEL)
++    assert 600_000_000 < need < core.DEMO_CAP_NANOUSD
++    _reservation_must_fit_the_remaining_caps(prepared, tmp_path, monkeypatch, need)
++    _failures_are_booked_once_without_retry(prepared, tmp_path, need)
++    _concurrent_reservations_count_toward_the_cap(prepared, tmp_path, monkeypatch, need)
++
++
++def _oversized_prompts_are_refused_before_the_gate(prepared, tmp_path):
++    """提示過大:評估端與窄入口都在呼叫前拒絕,不開閘道、不記帳;剛好 20480 可以。"""
++    opened = []
++
++    def refuse_to_open(*_args, **_kwargs):
++        opened.append("refused")
++
++    for pad in (20480 - prepared.prompt_bytes, 20481 - prepared.prompt_bytes):
++        table = prepared.table + "x" * pad
++        size = rmm.prompt_bytes(rp.SYSTEM_PROMPT, table)
++        if size > rmm.PROMPT_BYTES_LIMIT:
++            with pytest.raises(rmm.PromptTooLarge):
++                rmm.suggest(rp.SYSTEM_PROMPT, table, config(tmp_path), open_gate=refuse_to_open)
++            asked = []
++            too_big = dataclasses.replace(prepared, table=table, prompt_bytes=size)
++            with pytest.raises(rme.PromptRefused):
++                rme.run(too_big, lambda _system, user, asked=asked: asked.append(user))
++            assert asked == []
++        else:
++            assert size == 20480
++            rmm.suggest(rp.SYSTEM_PROMPT, table, config(tmp_path), open_gate=fake_opener(
++                live(FakeBackend(reply("{}")), record=False)))
++            opened.append("allowed")
++    assert opened == ["allowed"]
++    assert not (tmp_path / "recordings").exists()
++
++
++def _reservation_must_fit_the_remaining_caps(prepared, tmp_path, monkeypatch, need):
++    """預留額用 repo 預留函式照當時價目重算,須 ≤ 每展示與每月剩餘上限;無餘裕就拒絕即時呼叫。"""
++    ledger = tmp_path / "caps.sqlite"
++
++    def attempt(demo_id):
++        backend = FakeBackend(reply("{}", input_tokens=10, output_tokens=10))
++        cfg = rmm.GateConfig({}, demo_id, ledger, tmp_path / "recordings")
++        return rme.run(prepared, fake_ask(live(backend), cfg)).reply.outcome, backend.calls
++
++    monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", need)  # 剛好放得下
++    outcome, calls = attempt("d-exact")
++    assert outcome == "ok" and len(calls) == 1
++    monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", need - 1)  # 差一
++    assert attempt("d-short") == ("local_cap_refused", [])
++    monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", need)
++    price = core.PRICES[mc.DEFAULT_MODEL]
++    doubled = dataclasses.replace(price, output_nanousd=2 * price.output_nanousd)
++    monkeypatch.setitem(core.PRICES, mc.DEFAULT_MODEL, doubled)  # 價目一變,同一上限就放不下
++    assert attempt("d-price") == ("local_cap_refused", [])
++    monkeypatch.undo()
++    # 展示已用額(別的計入上限呼叫者)使重算預留超過剩餘 → 拒絕;每月上限同理
++    spent_before = core.DEMO_CAP_NANOUSD - need + 1
++    output_tokens = -(-spent_before * 5 // 6 // core.PRICES[mc.DEFAULT_MODEL].output_nanousd)
++    mc.call_model(request("先花", demo_id="d-used", max_output_tokens=50),
++                  live(FakeBackend(reply("x", input_tokens=0, output_tokens=output_tokens))),
++                  recordings_dir=tmp_path / "recordings", ledger=ledger)
++    assert ledger_db.used_so_far(ledger, "d-used").demo_nanousd >= spent_before
++    assert attempt("d-used") == ("local_cap_refused", [])
++    monkeypatch.setattr(core, "MONTH_CAP_NANOUSD", ledger_db.used_so_far(
++        ledger, None).month_nanousd + need - 1)
++    assert attempt("d-month") == ("local_cap_refused", [])
++    monkeypatch.undo()
++
++
++def _failures_are_booked_once_without_retry(prepared, tmp_path, need):
++    """60 秒逾時:記呼叫失敗、整筆預留入帳、不重試;暫時性錯誤同樣只送一次。"""
++    for failure, outcome in ((mc.ModelTimeout("逾時"), "timeout"),
++                             (mc.TransientServiceError("overloaded"), "transient")):
++        backend = FakeBackend(failure, reply("第二次不該發生"))
++        cfg = rmm.GateConfig({}, f"d-{outcome}", tmp_path / "fail.sqlite", tmp_path / "recordings")
++        run = rme.run(prepared, fake_ask(live(backend), cfg))
++        assert (run.status, run.reply.outcome, len(backend.calls)) == (rme.CALL_FAILED, outcome, 1)
++        row = ledger_rows(tmp_path / "fail.sqlite")[-1]
++        assert row.outcome == outcome and row.settled_nanousd == row.reserved_nanousd == need
++        assert row.by_reservation
++
++
++def _concurrent_reservations_count_toward_the_cap(prepared, tmp_path, monkeypatch, need):
++    """併行預留也計入上限:上限放得下兩筆時,四條同時送,至多兩條送出。"""
++    release = threading.Event()
++
++    def slow(_call):
++        release.wait(30)
++        return reply("{}", input_tokens=0, output_tokens=0)
++
++    monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", 2 * need + need // 2)
++    slow_backend, outcomes = FakeBackend(slow), []
++    barrier = threading.Barrier(4)
++    cfg = rmm.GateConfig({}, "d-race", tmp_path / "race.sqlite", tmp_path / "recordings")
++
++    def worker():
++        barrier.wait()
++        outcomes.append(rme.run(prepared, fake_ask(live(slow_backend), cfg)).reply.outcome)
++
++    threads = [threading.Thread(target=worker) for _ in range(4)]
++    for thread in threads:
++        thread.start()
++    deadline = time.monotonic() + 30
++    while len(slow_backend.calls) + len(outcomes) < 4 and time.monotonic() < deadline:
++        time.sleep(0.01)
++    in_flight = ledger_db.used_so_far(tmp_path / "race.sqlite", "d-race").demo_nanousd
++    release.set()
++    for thread in threads:
++        thread.join(10)
++    assert len(outcomes) == 4 and len(slow_backend.calls) <= 2
++    assert set(outcomes) <= {"ledger_busy", "local_cap_refused", "ok"}
++    assert in_flight == len(slow_backend.calls) * need <= core.DEMO_CAP_NANOUSD
++
++
++# ---- [S1510] ----
++FORBIDDEN_PREFIXES = ("rtb.dsp", "rtb.executor", "rtb.ops", "rtb.demo")
++FORBIDDEN_MODULES = frozenset({
++    "rtb.analyzer.runner", "rtb.analyzer.inbox_client", "rtb.analyzer.dsp_client",
++    "rtb.analyzer.rule_round", "rtb.analyzer.narrate", "rtb.analyzer.ai_judge",
++    "rtb.analyzer.instrumented", "rtb.httpclient", "rtb.httpkit", "rtb.capabilitykit"})
++NETWORK_ROOTS = frozenset({"urllib", "http", "socket", "ssl", "smtplib", "ftplib", "xmlrpc",
++                           "requests", "httpx", "aiohttp", "webbrowser", "email"})
++# 探勘模組各自准直接取用的專案模組與名字(寫死;取用的名字不含任何決策、提案、寫入或送件)
++MINING_USES = {
++    "rtb.analyzer.investigation": {"canonical_json"},
++    "rtb.eval.scoring": {"wilson_lower"},
++    "rtb.analyzer.modelgate": {"Caller", "Gate", "ModelCallFailed", "Outcome", "open_gate"},
++    "rtb.modelclient": {"Caller", "recording_key", "DEFAULT_MODEL"},
++}
++MINING_SOURCES = ("rtb.eval.rule_mining", NARROW, "rtb.domain.metrics")
++
++
++def forbidden_reach(roots, src=SRC):
++    """閉包裡碰到的禁區:送件、DSP、執行端、分析端驅動等專案模組,以及任一支閉包模組匯入的網路模組。"""
++    reached = closure_of(list(roots), src)
++    found = [m for m in reached if m in FORBIDDEN_MODULES or m.startswith(FORBIDDEN_PREFIXES)]
++    for module in reached:
++        path = _source_of(src, module)
++        if path is None:
++            continue
++        tree = ast.parse(path.read_text(encoding="utf-8"))
++        names = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names} | {
++            n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
++        found += [f"{module}: {n}" for n in names if n.split(".")[0] in NETWORK_ROOTS]
++    return sorted(found)
++
++
++def _module_path(module, src=SRC):
++    return src.joinpath(*module.split(".")).with_suffix(".py")
++
++
++def foreign_uses(module, src=SRC):
++    """探勘模組從探勘家族以外的專案模組取用的名字,超出 MINING_USES 的就列出。"""
++    tree = ast.parse(_module_path(module, src).read_text(encoding="utf-8"))
++    aliases, found = {}, []
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import):
++            found += [f"{module}: import {a.name}" for a in node.names if a.name.startswith("rtb")]
++        if not (isinstance(node, ast.ImportFrom) and (node.module or "").startswith("rtb")):
++            continue
++        for alias in node.names:
++            full = f"{node.module}.{alias.name}"
++            if full.startswith(MINING_SOURCES) or str(node.module).startswith(MINING_SOURCES):
++                continue
++            if full in MINING_USES:
++                aliases[alias.asname or alias.name] = full
++            elif alias.name not in MINING_USES.get(str(node.module), ()):
++                found.append(f"{module}: from {node.module} import {alias.name}")
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and (
++                node.value.id in aliases and node.attr not in MINING_USES[aliases[node.value.id]]):
++            found.append(f"{module}:{node.lineno} {aliases[node.value.id]}.{node.attr}")
++    return found
++
++
++def test_rule_mining_cannot_write_policy_proposals_or_issues(tmp_path):
++    # 探勘的匯入閉包(含評估端執行器與分析端窄入口)碰不到送件、DSP、執行端、分析端驅動或網路
++    assert forbidden_reach(MINING) == []
++    assert "rtb.modelclaude" in closure_of([NARROW])  # 只經模型用戶端(唯一起 claude 的地方)
++    # 探勘模組取用別的模組只准寫死的幾個名字(不呼叫流程推進、決策規則、提案、寫入或送件)
++    offenders = [line for module in MINING for line in foreign_uses(module)]
++    assert offenders == []
++    # 窄入口只匯入模型閘道
++    tree = ast.parse(_module_path(NARROW).read_text(encoding="utf-8"))
++    imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
++        a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
++    assert {m for m in imported if m.startswith("rtb")} == {"rtb.analyzer"}
++    assert [a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
++            and n.module == "rtb.analyzer" for a in n.names] == ["modelgate"]
++    # 殺傷力:探勘模組多匯入收件口、DSP 用戶端或網路,都抓得到;多取用閘道以外的名字也抓得到
++    shadow = tmp_path / "src"
++    shutil.copytree(SRC, shadow)
++    target = _module_path(RUNNER, shadow)
++    for probe in ("from rtb.analyzer import inbox_client\n", "import rtb.dsp.store\n",
++                  "import urllib.request\n", "from rtb.analyzer import runner\n"):
++        target.write_text(probe + _module_path(RUNNER).read_text(encoding="utf-8"),
++                          encoding="utf-8")
++        assert forbidden_reach([RUNNER], shadow), probe
++    target.write_text(_module_path(RUNNER).read_text(encoding="utf-8")
++                      + "\nfrom rtb.analyzer import investigation as _inv\n_inv.Progress\n",
++                      encoding="utf-8")
++    assert foreign_uses(RUNNER, shadow)
++
++
++# ---- [S1517] ----
++def test_rule_mining_retirement_preserves_recordings_and_caps(prepared, tmp_path):  # noqa: PLR0915
++    # 呼叫者列舉、上限集合、錄製鍵對照:值與成員名寫死、鍵集合等於列舉成員名
++    assert mc.Caller.RULE_MINING.value == "rule_mining"
++    assert mc.Caller.RULE_MINING in ledger_db.CAPPED_CALLERS
++    assert set(CALLER_USERS) == {c.name for c in mc.Caller}
++    assert CALLER_VALUES["rule_mining"] == "RULE_MINING"
++    # 撤除模型段只撤兩支送出入口;歷史錄製鍵模組留在 CALLER_USERS["RULE_MINING"],這格不會變空
++    retired = {NARROW, RUNNER}
++    assert retired <= SENDING_ENTRIES and retired <= CALL_MODEL_USERS
++    assert NARROW in GATE_USERS
++    assert CALLER_USERS["RULE_MINING"] - retired == {HISTORY_KEYS}
++    assert HISTORY_KEYS not in SENDING_ENTRIES | CALL_MODEL_USERS
++    history_tree = ast.parse(_module_path(HISTORY_KEYS).read_text(encoding="utf-8"))
++    assert backend_offenders(history_tree, HISTORY_KEYS, HISTORY_KEYS) == []
++    assert not closure_of([HISTORY_KEYS]) & (retired | {"rtb.analyzer.modelgate"})
++
++    # 先錄一批(假後端)並記帳
++    folder, ledger = tmp_path / "recordings", tmp_path / "ledger.sqlite"
++    answer = reply(honest_answer(prepared), input_tokens=0, output_tokens=30_000)
++    run = rme.run(prepared, fake_ask(live(FakeBackend(answer), record=True),
++                                     config(tmp_path, batch_id=BATCH, recordings=folder)))
++    assert run.status == rme.CALL_OK
++    spent = ledger_db.used_so_far(ledger, DEMO).demo_nanousd
++    assert spent > 0
++    table_file = tmp_path / "table.txt"
++    table_file.write_text(prepared.table, encoding="utf-8")
++    # 演練撤除:原始碼副本刪掉兩支送出入口,另開行程只用留下的模組讀回舊錄製、重算鍵、查上限
++    shadow = tmp_path / "shadow"
++    shutil.copytree(SRC, shadow)
++    for module in retired:
++        _module_path(module, shadow).unlink()
++    script = child_prelude(tmp_path / "home") + f"""
++import json
++from pathlib import Path
++from rtb import modelclient as mc, modelledger as ledger_db, modelrecording as rec
++from rtb.eval import rule_mining_prompt as rp, rule_mining_recordings as rr
++for gone in ({NARROW!r}, {RUNNER!r}):
++    try:
++        __import__(gone)
++    except ModuleNotFoundError:
++        pass
++    else:
++        raise SystemExit("撤除後還匯入得到 " + gone)
++table = Path({str(table_file)!r}).read_text(encoding="utf-8")
++key = rr.expected_key(rp.SYSTEM_PROMPT, table)
++found = rec.load_recording(Path({str(folder)!r}) / f"{{key}}.json", key=key,
++                           caller=mc.Caller.RULE_MINING, model=mc.DEFAULT_MODEL)
++print(json.dumps({{"key": key, "outcome": found.outcome, "caller": found.caller,
++                  "demo": ledger_db.used_so_far(Path({str(ledger)!r}), {DEMO!r}).demo_nanousd,
++                  "capped": mc.Caller.RULE_MINING in ledger_db.CAPPED_CALLERS}}))
++"""
++    done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
++                          timeout=60, check=False,
++                          env={**os.environ, "PYTHONPATH": str(shadow)})
++    assert done.returncode == 0, done.stderr
++    seen = json.loads(done.stdout)
++    assert seen == {"key": run.expected_key, "outcome": "ok", "caller": "rule_mining",
++                    "demo": spent, "capped": True}
++    # 舊帳照樣計上限:同一展示再來一筆計入上限的呼叫,會被已用的探勘花費擋下
++    other = request("評估", demo_id=DEMO, max_output_tokens=12_000)
++    need = core.reservation_nanousd(other, mc.DEFAULT_MODEL)
++    assert need <= core.DEMO_CAP_NANOUSD < spent + need  # 單獨放得下,加上探勘舊帳就放不下
++    blocked = FakeBackend(reply("不該送出"))
++    with pytest.raises(mc.LocalCapRefused):
++        mc.call_model(other, live(blocked), recordings_dir=tmp_path / "other", ledger=ledger)
++    assert blocked.calls == []
++    # 舊錄製照樣能在錄製模式重播(不經即時)
++    replay = rme.run(prepared, rme.gate_ask(config(tmp_path, recordings=folder)))
++    assert replay.reply.source == "recorded" and replay.reply.key == run.expected_key
++
++
++# ---- [S1518] ----
++def test_rule_mining_waits_for_phase14_and_keeps_import_boundaries():
++    from rtb.demo import driver
++    from tests.eval import test_model_candidate as candidate
++
++    # Phase 14 增量 3 已合入:分析端驅動沒有 AI 判斷開關、展示驅動不再組它
++    runner_tree = ast.parse((SRC / "rtb" / "analyzer" / "runner.py").read_text(encoding="utf-8"))
++    flags = {a.value for n in ast.walk(runner_tree) if isinstance(n, ast.Call)
++             and getattr(n.func, "attr", None) == "add_argument" for a in n.args
++             if isinstance(a, ast.Constant)}
++    assert flags == {"--db", "--dsp-url", "--inbox-url", "--timeout-seconds",
++                     "--interval-seconds", "--owner"}
++    assert "--ai-judge" not in driver.World.analyzer_args.__code__.co_consts
++    # AI 決策模組只給評估執行器;探勘閉包碰不到它、分析端驅動、收件口或 DSP
++    judge_users = set()
++    for path in sorted((SRC / "rtb").rglob("*.py")):
++        tree = ast.parse(path.read_text(encoding="utf-8"))
++        names = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
++            f"{n.module}.{a.name}" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
++            for a in n.names} | {a.name for n in ast.walk(tree) if isinstance(n, ast.Import)
++                                 for a in n.names}
++        if "rtb.analyzer.ai_judge" in names:
++            judge_users.add(".".join(path.relative_to(SRC).with_suffix("").parts))
++    assert judge_users == {"rtb.eval.investigation_eval"}
++    assert forbidden_reach(MINING) == []
++    # 精確集合隨新列舉與窄入口同步更新(只加窄入口與探勘模組,不放寬整個套件)
++    assert {c.value for c in mc.Caller} >= {"rule_mining"}
++    assert {"rtb.analyzer.narrate", "rtb.analyzer.ai_judge", NARROW} == GATE_USERS
++    assert {m for m in candidate.PHASE15_ALLOWED if not m.startswith("rtb.eval.")} == {NARROW}
++    assert candidate.RULE_MINING_MODEL == NARROW
++    assert candidate.rule_mining_senders() == ({"rule_mining_eval"}, {"rule_mining_eval"})
++    # 匯入探勘執行器或窄入口就算送出點:既有評估模組匯入它們會被擋
++    for probe in ("from rtb.eval import rule_mining_eval\n", "import rtb.eval.rule_mining_eval\n",
++                  "from rtb.analyzer import rule_mining_model\n",
++                  "from rtb.analyzer.rule_mining_model import suggest\n"):
++        assert backend_offenders(ast.parse(probe), "scoring.py", "rtb.eval.scoring"), probe
++    # 各層的靜態檢查規則也禁匯入窄入口(評估端除外)
++    rtb = SRC / "rtb"
++    for config_file, where in ((rtb / "analyzer" / "ruff.toml", rtb / "analyzer"),
++                               (rtb / "demo" / "ruff.toml", rtb / "demo"),
++                               (rtb / "dsp" / "ruff.toml", rtb / "dsp"),
++                               (rtb / "executor" / "ruff.toml", rtb / "executor"),
++                               (rtb / "domain" / "ruff.toml", rtb / "domain"),
++                               (SRC.parent / "pyproject.toml", rtb)):
++        result = subprocess.run(
++            [sys.executable, "-m", "ruff", "check", "--config", str(config_file),
++             "--stdin-filename", str(where / "probe.py"), "-"],
++            input="from rtb.analyzer import rule_mining_model\n", capture_output=True, text=True,
++            timeout=60, check=False)
++        assert result.returncode == 1 and "TID251" in result.stdout, config_file
+diff --git a/tests/model/test_shared_entry.py b/tests/model/test_shared_entry.py
+index 8e153a9..91b17b2 100644
+--- a/tests/model/test_shared_entry.py
++++ b/tests/model/test_shared_entry.py
+@@ -73,41 +73,44 @@ def demo_used(ledger, demo_id):
+     try:
+         with reader.read_transaction():
+             return reader.used_by_demo(demo_id)
+     finally:
+         reader.close()
+ 
+ 
+ # ---- [S1103] ----
+ def test_the_investigation_caller_is_a_bounded_label(dirs, tmp_path):
+     assert mc.Caller.INVESTIGATION.value == "analyzer_investigation"
++    # Phase 15 增量 2 精確新增規則模式探索(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]])
+     assert {c.value for c in mc.Caller} == {"eval_candidate", "ops_hypothesis",
+                                            "analyzer_narrative", "live_verification",
+-                                           "analyzer_investigation"}
++                                           "analyzer_investigation", "rule_mining"}
+     call(live(FakeBackend(reply("x"))), request(caller=mc.Caller.INVESTIGATION), dirs)
+     call(live(FakeBackend(reply("y"))), request("u2", caller=mc.Caller.NARRATIVE), dirs)
+     data = Rows(tmp_path)
+     try:
+         now = datetime.now(UTC)
+         report = metrics.collect_window(
+             now - timedelta(hours=1), now + timedelta(hours=1), executor_db=data.executor_db,
+             analyzer_db=data.analyzer_db, tenants=TENANTS, model_ledger=dirs[1])
+     finally:
+         data.close()
+     callers = {s.label_map()["model_caller"] for s in report.samples if s.name == "model_and_jev"}
+     assert callers == {"analyzer_investigation", "analyzer_narrative"}
+     assert callers <= {c.value for c in mc.Caller} | {metrics.OTHER}  # 標籤是封閉集合
+ 
+ 
+ # ---- [S1134] ----
+ def test_the_phase13_callers_are_not_capped_but_still_booked(dirs, monkeypatch):
+-    capped = frozenset({mc.Caller.EVAL_CANDIDATE, mc.Caller.VERIFICATION})
++    # Phase 15 增量 2 精確新增規則模式探索:它計入上限(併行預留見
++    # tests/eval/test_rule_mining_model.py 的 [S1514]),Phase 13 的三個呼叫者照舊不計入
++    capped = frozenset({mc.Caller.EVAL_CANDIDATE, mc.Caller.VERIFICATION, mc.Caller.RULE_MINING})
+     assert capped == ledger_db.CAPPED_CALLERS
+     before = {table: tuple(columns) for table, columns in view.TABLES.items()}
+     # 上限縮到一次都放不下:三個呼叫者照樣送出、照樣各記一筆估算成本
+     monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", 1)
+     monkeypatch.setattr(core, "MONTH_CAP_NANOUSD", 1)
+     callers = [mc.Caller[name] for name in PHASE13_CALLERS]
+     for n, caller in enumerate(callers):
+         backend = FakeBackend(reply("說明", input_tokens=100, output_tokens=10))
+         result = call(live(backend), request(f"u{n}", caller=caller), dirs)
+         assert result.source is mc.Source.LIVE and len(backend.calls) == 1
+diff --git a/tests/test_spawn_boundary.py b/tests/test_spawn_boundary.py
+index e6dfb1a..1632518 100644
+--- a/tests/test_spawn_boundary.py
++++ b/tests/test_spawn_boundary.py
+@@ -30,22 +30,24 @@ from tests.analyzer.test_boundaries import (
+ SRC = Path(__file__).resolve().parents[1] / "src"
+ RTB = SRC / "rtb"
+ ALLOWED = frozenset({"rtb.modelclaude"})  # 模型用戶端的 Claude Code 後端那一支
+ # 一鍵展示(Phase 12)的啟動器與驅動程式也起子行程,但起的是本專案自己的模組(DSP、收件口、執行迴圈、
+ # 分析端)與專案內的驗證器,不是 claude;[S917] 的原意由下面那支測試守:它們的原始碼不准提到 claude,
+ # 也不准匯入模型用戶端
+ PROJECT_STARTERS = frozenset({"rtb.demo.launcher", "rtb.demo.driver"})
+ MODEL_CLIENTS = frozenset({"rtb.modelclaude", "rtb.modelclient"})
+ GATE = "rtb.analyzer.modelgate"  # 分析端唯一准匯入模型用戶端的模組(Phase 13)
+ # 准匯入模型閘道的分析端模組(寫死,[S1100]):模型說明命令列、AI 決策函式所在模組(Phase 13 增量 2
+-# 開檔)。Phase 14 增量 3([S1429]):分析端驅動命令列拔掉 --ai-judge,移出名單
+-GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.ai_judge"})
++# 開檔)。Phase 14 增量 3([S1429]):分析端驅動命令列拔掉 --ai-judge,移出名單。Phase 15 增量 2 窄增
++# 規則模式探索的分析端模型入口(只收已組好的彙總文字,[S1100] 照 Phase 15 計劃改寫)
++GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.ai_judge",
++                        "rtb.analyzer.rule_mining_model"})
+ # 匯入閉包不准含模型用戶端任何一支模組的分析端模組([S1100]);調查詞彙模組與證據來源包裝也不准
+ # (展示流程圖與觀察器讀調查詞彙,展示伺服器行程不能因此載入模型用戶端)
+ MODEL_FREE = ("rtb.analyzer.flow", "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
+               "rtb.analyzer.investigation", "rtb.analyzer.instrumented", "rtb.demo.flow",
+               "rtb.demo.observe", "rtb.demo.launcher")
+ SPAWN_MODULES = frozenset({"subprocess", "multiprocessing", "pty", "webbrowser",
+                            "_posixsubprocess"})
+ OS_SPAWNERS = ("system", "popen", "exec", "spawn", "posix_spawn", "fork", "forkpty")
+ ASYNC_SPAWNERS = ("create_subprocess_exec", "create_subprocess_shell")
+ LOOP_SPAWNERS = ("subprocess_exec", "subprocess_shell")  # 事件迴圈物件的方法(名字不管接在誰後面)
+@@ -259,25 +261,30 @@ def test_the_analyzer_reaches_the_model_only_through_the_gateway(tmp_path):
+     (copy / "flow.py").write_text("from rtb.analyzer import modelgate\n", encoding="utf-8")
+     assert gate_offenders(copy)
+     # 經說明命令列轉手:別支分析端模組匯入它,閉包就含閘道
+     shadow = tmp_path / "src"
+     shutil.copytree(SRC, shadow)
+     with (shadow / "rtb" / "analyzer" / "instrumented.py").open("a", encoding="utf-8") as file:
+         file.write("\nfrom rtb.analyzer.narrate import modelgate as _mg  # noqa: E402,F401\n")
+     assert closure_offenders(shadow)
+ 
+ 
++# 呼叫者的值 → 成員名(寫死;測試核對它等於列舉本身,新成員漏列就紅)。Phase 15 增量 2 加規則模式探索;
++# 停用模型探勘時照留([S1517])
++CALLER_VALUES = {"eval_candidate": "EVAL_CANDIDATE", "ops_hypothesis": "HYPOTHESIS",
++                 "analyzer_narrative": "NARRATIVE", "live_verification": "VERIFICATION",
++                 "analyzer_investigation": "INVESTIGATION", "rule_mining": "RULE_MINING"}
++
++
+ def caller_offenders(tree, module):
+     """用了不屬於自己的呼叫者標籤:Caller.成員(不論接在誰後面)、Caller("值")、Caller["成員"]。"""
+-    values = {"eval_candidate": "EVAL_CANDIDATE", "ops_hypothesis": "HYPOTHESIS",
+-              "analyzer_narrative": "NARRATIVE", "live_verification": "VERIFICATION",
+-              "analyzer_investigation": "INVESTIGATION"}
++    values = CALLER_VALUES
+     used = set()
+     for node in ast.walk(tree):
+         if isinstance(node, ast.Attribute) and node.attr in CALLER_USERS and (
+                 isinstance(node.value, ast.Name | ast.Attribute)
+                 and (getattr(node.value, "id", None) or getattr(node.value, "attr", None))
+                 == "Caller"):
+             used.add(node.attr)
+         elif isinstance(node, ast.Call) and getattr(node.func, "id", getattr(
+                 node.func, "attr", None)) == "Caller" and node.args and isinstance(
+                 node.args[0], ast.Constant) and node.args[0].value in values:
+@@ -369,20 +376,21 @@ def caller_argument_offenders(tree, module):
+         if name in CALLER_TAKERS:
+             found += _taker_offenders(node, name, module)
+     return found
+ 
+ 
+ def test_each_caller_label_is_used_only_by_its_own_module():
+     """代碼審 r1:花費上限依請求自報的呼叫者判,每個呼叫者標籤只准它自己的那支模組用。"""
+     from rtb.modelledger_view import Caller
+ 
+     assert set(CALLER_USERS) == {member.name for member in Caller}
++    assert {member.value: member.name for member in Caller} == CALLER_VALUES
+     offenders = []
+     for path in sorted(RTB.rglob("*.py")):
+         module = _module_name(path)
+         if module not in CALLER_EXEMPT:
+             offenders += caller_offenders(ast.parse(path.read_text(encoding="utf-8")), module)
+     assert offenders == []
+     arguments = []
+     for path in sorted(RTB.rglob("*.py")):
+         module = _module_name(path)
+         if module not in CALLER_EXEMPT and module != GATE:
+@@ -430,39 +438,47 @@ def test_layer_rules_ban_starting_subprocesses(layer):
+ # ---- 代碼審第 1 輪補強 ----
+ BACKEND_NAMES = frozenset({"run_claude", "ClaudeCodeBackend", "check_login", "claude_version",
+                            "judge_output"})
+ BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverify"})
+ 
+ 
+ # 送出呼叫的地方:模型用戶端本身、評估的模型候選、分析端模型閘道(Phase 13 改寫)、經閘道送出的模型說明
+ # 命令列與維運的假說命令列(Phase 11B [S912])。送出的名字除了 call_model,還有閘道的 open_gate 與
+ # complete(代碼審 r1:閘道是第二個送出入口)
+ # Phase 13 增量 2 加:AI 決策模組(開閘道、送出);Phase 13 增量 3 加:調查評估執行器(呼叫同一支 AI
+-# 決策函式,[S1146];[S918] 照計劃改寫)。Phase 14 增量 3 撤掉分析端驅動命令列([S1429])
++# 決策函式,[S1146];[S918] 照計劃改寫)。Phase 14 增量 3 撤掉分析端驅動命令列([S1429])。
++# Phase 15 增量 2 加:規則模式探索的分析端窄入口(開閘道、送出)與評估端的探勘執行器(經窄入口送出);
++# 停用模型探勘時這兩項撤掉([S1517])
+ CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate",
+                               "rtb.analyzer.modelgate", "rtb.analyzer.narrate",
+                               "rtb.ops.hypothesis", "rtb.analyzer.ai_judge",
+-                              "rtb.eval.investigation_eval"})
++                              "rtb.eval.investigation_eval", "rtb.analyzer.rule_mining_model",
++                              "rtb.eval.rule_mining_eval"})
+ SEND_CALLS = frozenset({"call_model", "open_gate", "complete"})
+ # 會送出模型呼叫的命令列模組:匯入它就能經它的 run 轉手送出,匯入本身就算送出點(代碼審 r2)
+ # Phase 13 增量 3 代碼審 r1:調查評估執行器的 run 即時模式會送出,匯入它也算送出點
++# Phase 15 增量 2:規則模式探索的分析端窄入口與評估端探勘執行器,匯入它們也算送出點
+ SENDING_ENTRIES = frozenset({"rtb.analyzer.narrate", "rtb.ops.hypothesis",
+-                             "rtb.analyzer.ai_judge", "rtb.eval.investigation_eval"})
++                             "rtb.analyzer.ai_judge", "rtb.eval.investigation_eval",
++                             "rtb.analyzer.rule_mining_model", "rtb.eval.rule_mining_eval"})
+ # 每個呼叫者標籤只准哪幾支模組用(代碼審 r1:花費上限看請求自報的呼叫者,標籤要綁住模組才守得住
+ # 「誰都不能自稱不計入」)。定義它的唯讀開法與只拿來列上限清單的花費帳寫入不算使用;Phase 13 增量 2 的
+ # AI 決策模組開檔時把它加進「分析端調查」那一格
+ CALLER_USERS: dict[str, frozenset[str]] = {
+     "EVAL_CANDIDATE": frozenset({"rtb.eval.model_candidate"}),
+     "HYPOTHESIS": frozenset({"rtb.ops.hypothesis"}),
+     "NARRATIVE": frozenset({"rtb.analyzer.narrate"}),
+     "VERIFICATION": frozenset({"rtb.modelverify"}),
+     "INVESTIGATION": frozenset({"rtb.analyzer.ai_judge"}),  # Phase 13 增量 2:AI 決策模組開閘道
++    # Phase 15 增量 2:分析端窄入口開閘道;歷史錄製鍵模組用它重算錄製鍵(停用模型探勘時只撤前者,
++    # 後者照留,這一格不會變空,[S1517])
++    "RULE_MINING": frozenset({"rtb.analyzer.rule_mining_model", "rtb.eval.rule_mining_recordings"}),
+ }
+ CALLER_EXEMPT = frozenset({"rtb.modelledger_view", "rtb.modelledger"})
+ 
+ 
+ def backend_offenders(tree, label, module=None):
+     """匯入或取用 Claude Code 後端(模組本身或它的啟動函式、後端類別)的地方;另抓送出呼叫的函式
+     (call_model,只准模型用戶端本身與接入點)與經別的模組轉手的模型用戶端屬性鏈(x.modelclient)。"""
+     found = []
+     for node in ast.walk(tree):
+         if isinstance(node, ast.Import):

@@ -666,10 +666,12 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
 
 - [S1100] 當分析端任何模組要呼叫模型時,應只經分析端模型閘道匯入模型用戶端;准匯入模型閘道的分析端模組應只有 AI 決策函式所在模組、分析端驅動命令列與模型說明命令列,流程推進函式、決策規則與 DSP 用戶端的匯入閉包應不含模型用戶端的任何一支模組。[test:test_the_analyzer_reaches_the_model_only_through_the_gateway]
   - 2026-09-26 代使用者裁定：改寫：正式 runner 與展示不再准匯入 ai_judge／模型閘道；ai_judge 只供評估，narrate 仍為模型說明入口。匯入白名單測試依新邊界改綁。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉窄增(Phase 15 增量 2):准匯入模型閘道的分析端模組多「規則模式探索的模型窄入口」一支(只收已組好的彙總文字、用字面 `Caller.RULE_MINING` 開閘道、呼叫一次;不讀評估集、不碰流程推進/決策規則/分析端驅動);流程推進、正式規則與 DSP 用戶端的閉包照舊不得碰模型。新入口的責任記在 [[Systems/規則模式探索模型入口]] 與 [[Systems/模型用戶端]];`GATE_USERS` 精確新增這一支,綁定測試不變。
 - [S1101] 當給定一個展示編號時,花費帳唯讀開法應回這個展示編號的已用,包含已結算金額與還沒結算的預留。[test:test_the_ledger_sums_one_demo_including_open_reservations]
 - [S1102] 當說明命令列、假說命令列或開了 AI 決策的分析端驅動命令列在錄製模式收到帳檔參數時,花費帳應記在指定路徑,家目錄下的真帳應不被建立或修改。[test:test_recorded_entries_book_into_the_given_ledger]
   - 2026-09-26 代使用者裁定：改寫：刪「開 AI 決策的分析端驅動」那半；說明、假說的錄製帳仍須隔離。舊測試中帶 `--ai-judge` 跑 runner 的分支刪除，兩個保留入口改綁。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
 - [S1103] 呼叫者列舉應含「分析端調查」成員,模型與 Jev 指標應照呼叫者分且標籤仍是封閉集合。[test:test_the_investigation_caller_is_a_bounded_label]
+  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉(Phase 15 增量 2):列舉仍封閉,全體成員值的精確等式新增 `rule_mining`;標籤照舊是封閉集合。停用模型探勘時這個成員照留(歷史錄製鍵與帳列要讀得回)。
 - [S1104] 當現況或 1 小時指標過期、缺現況或指標、配速算不出或配速不偏低時,分析端應不呼叫模型,決策應等於現行決策函式對現況、1 小時指標與廣告文字三種證據的結果;追加查詢的收據過期應不影響這個判定。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 代碼審 r1 改寫:前置過濾另含九條第 1/2 條(暫停、1 小時異常、判斷點輸入建不成),直接由規則結案、不呼叫模型;評估的原始錄製重播通道沿用舊過濾只為還原模型原始答案。) [test:test_code_prefilters_run_before_any_model_call] [test:test_paused_and_anomalous_campaigns_finish_from_base_evidence]
   - 2026-09-26 代使用者裁定：改寫：正式前置判斷一律走九條規則；評估舊錄製可直接用 Judge 還原原始答案，不保留 runner AI 前置過濾。原 `test_code_prefilters_run_before_any_model_call`、`test_paused_and_anomalous_campaigns_never_reach_the_model` 的 runner AI 斷言刪除，正式早停改綁 [S1401]，評估原始答案改綁 [S1410]。理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
 - [S1105] 當模型的回答不是恰好含 choice、reason、evidence 三欄的 JSON、選項不在這一輪允許清單、或理由超過 200 字或含換行與不可列印字元時,分析端應丟掉這個回答並改由現行規則決定,這一輪應記成選項外答案。[test:test_an_answer_outside_the_fixed_options_falls_back_to_the_rule]
@@ -719,6 +721,7 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
 - [S1132] 當逐日趨勢或過去調整的端點查不到這個廣告的資料時,分析端應把它記成一筆「這個查詢沒有結果」的證據交給模型,整步應不失敗。[test:test_a_missing_daily_or_adjustment_result_does_not_fail_the_step]
 - [S1133] 標準答案產生函式應用精確值判定,依序:暫停中 → 不值得加;原始 1 小時指標資料異常 → 證據不足;最近 3 天內有預算調整 → 證據不足;上次加預算後 3 天轉換不多於加之前 3 天 → 不值得加;最近 3 天轉換率低於前 4 天的一半 → 證據不足;1 小時零轉換零營收而較長窗有轉換 → 值得加;之後才套其餘 Phase 10 條;用到的值算不出時那一條應不適用、往下一條判,捨入後的收據字串應不影響判定。[test:test_the_answer_key_applies_the_history_rules_in_order]
 - [S1134] 分析端調查、說明、假說三個呼叫者應不因每次展示或每月的花費上限被拒絕或退回;每次呼叫應照樣在花費帳記一筆估算成本,判上限時的加總應只含花費帳模組寫死的計入上限呼叫者,花費帳應不新增欄位。[test:test_the_phase13_callers_are_not_capped_but_still_booked]
+  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉(Phase 15 增量 2):計入上限名單的精確等式新增 `RULE_MINING`(探勘的即時呼叫與評估候選、實測共用每展示/每月上限;併行預留也計入,見 Phase 15 [S1514]);本條三個呼叫者不計入的語意不變,花費帳不加欄位。
 - [S1135] 當開了 AI 決策的分析那一步要呼叫模型時,應先續租:在一個交易裡、目前最新租約列正是手上收據的序號與擁有者時,新增一列序號加 1、擁有者相同的租約並回傳新的租約收據;條件不符時應不呼叫模型、這一步不寫入。 [test:test_rule_collection_steps_fit_the_lease] [test:test_rule_round_checkpoints_exclude_stale_evidence]
   - 2026-09-26 代使用者裁定：撤除 runner AI 步續租與 `test_the_ai_step_renews_its_lease_before_calling_the_model`；評估 Judge 沒有租約，正式 A/B/C 續步租約由 [S1405][S1413] 驗。 見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
 - [S1136] 當分析端驅動命令列帶 --ai-judge 時,展示啟動器停它的寬限時間應用跟守衛同一組匯入的常數算出,而且不小於續租等鎖加上續租後 AI 那一步的最壞耗時。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1419] 改寫:沒帶 --ai-judge 的舊 7 秒寬限撤掉,改取 max(舊兩讀寬限, 規則輪 A/B/C 最壞秒數),預設 50 秒;帶 --ai-judge 再跟 AI 步取最大值。) [test:test_stop_grace_covers_the_longest_rule_step]

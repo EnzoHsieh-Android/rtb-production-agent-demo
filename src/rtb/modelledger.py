@@ -30,8 +30,12 @@ from rtb.sqlitekit import DatabaseBusy, connect, immediate_transaction, read_sna
 SETTLE_ATTEMPTS = stepbudget.SETTLE_ATTEMPTS
 # 計入花費上限的呼叫者(Phase 13 裁定 13 與〈花費帳與採用判定〉,[S1134]):寫死在這裡、不是請求參數,
 # 誰都不能自稱不計入。Phase 13 的三個呼叫者(分析端調查、說明、假說)照記估算成本但不在清單裡,不會被
-# 上限拒絕,也不會把這兩個呼叫者的已用推過上限。舊帳的列全是這兩個呼叫者,依呼叫者過濾不必遷移。
-CAPPED_CALLERS: frozenset[Caller] = frozenset({Caller.EVAL_CANDIDATE, Caller.VERIFICATION})
+# 上限拒絕,也不會把計入者的已用推過上限。舊帳的列全是計入者,依呼叫者過濾不必遷移。
+# Phase 15 增量 2 加離線規則模式探索(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]
+# 〈要改寫的既有合約〉):它的即時呼叫與評估候選、實測共用每展示與每月上限;停用模型探勘時成員照留,
+# 歷史帳列繼續計上限。
+CAPPED_CALLERS: frozenset[Caller] = frozenset({Caller.EVAL_CANDIDATE, Caller.VERIFICATION,
+                                               Caller.RULE_MINING})
 
 # ---- 花費帳 ----
 _NO_CHANGE = "SELECT RAISE(ABORT, '花費帳只增不改')"

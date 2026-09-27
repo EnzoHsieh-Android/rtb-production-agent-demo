@@ -278,12 +278,32 @@ PHASE13_ALLOWED: frozenset[str] = frozenset({
     "rtb.eval.investigation_report"})
 # Phase 15 增量 1 改寫 [S918](計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉):
 # 規則模式探索的純離線生成/彙總/基準/預檢四支,精確新增;它們不碰模型用戶端與閘道(下面的
-# importers、senders、judge_* 等式照舊)。增量 2 的分析端窄函式另行逐項加
+# importers、senders、judge_* 等式照舊)。增量 2 逐項精確加:純核對模組、歷史錄製鍵模組(經門面取
+# 錄製鍵)、探勘執行器,與分析端窄入口(評估經它開閘道送出;閘道本身已在上一份名單)
 PHASE15_ALLOWED: frozenset[str] = frozenset({
     "rtb.eval.rule_mining_vocab", "rtb.eval.rule_mining_history", "rtb.eval.rule_mining_baseline",
-    "rtb.eval.rule_mining_prompt"})
+    "rtb.eval.rule_mining_prompt", "rtb.eval.rule_mining_check", "rtb.eval.rule_mining_recordings",
+    "rtb.eval.rule_mining_eval", "rtb.analyzer.rule_mining_model"})
 # 經 AI 決策模組送出的名字(開閘道、把閘道包成送出函式):評估套件裡只准評估執行器用
 AI_JUDGE_SENDS = frozenset({"open_investigation_gate", "gate_complete"})
+# 經規則模式探索窄入口送出的名字(Phase 15 增量 2):評估套件裡只准探勘執行器用
+RULE_MINING_MODEL = "rtb.analyzer.rule_mining_model"
+RULE_MINING_SENDS = frozenset({"suggest", "gate_ask"})
+
+
+def rule_mining_senders(folder=EVAL):
+    """評估套件裡匯入規則模式探索窄入口的檔、用它送出名字的檔(都只看檔名)。"""
+    importers, senders = set(), set()
+    for path in sorted(folder.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        imported = _imported_modules(SRC, f"rtb.eval.{path.stem}", tree) | _top_imports(tree)
+        if RULE_MINING_MODEL in imported:
+            importers.add(path.stem)
+        used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {
+            n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
+            a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
+        senders |= {path.stem} if used & RULE_MINING_SENDS else set()
+    return importers, senders
 
 
 def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_path):  # noqa: PLR0915
@@ -312,7 +332,7 @@ def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_pa
     importers, offenders = eval_model_imports()
     assert offenders == []
     assert importers == {"model_candidate", "record", "investigation_eval",
-                         "investigation_report"}
+                         "investigation_report", "rule_mining_recordings"}
     # 殺傷力:准許的評估模組直接匯入模型用戶端的內部模組(例如會寫錄製的函式)也抓得到
     for probe in ("from rtb.modelrecording import claim, save_recording\n",
                   "import rtb.modelcore\n", "from rtb import modelledger\n"):
@@ -341,6 +361,8 @@ def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_pa
         judge_senders |= {path.stem} if used & AI_JUDGE_SENDS else set()
     assert judge_importers == {"investigation_eval"}
     assert judge_senders == {"investigation_eval"}
+    # Phase 15 增量 2:匯入規則模式探索窄入口、經它送出的,只有探勘執行器
+    assert rule_mining_senders() == ({"rule_mining_eval"}, {"rule_mining_eval"})
     for probe in ("def f(s):\n    return s.backend.send(1)\n",
                   "from rtb import modelclient as mc\nmc.BackendCall('m', 's', 'u', 1, 1.0, 1)\n",
                   "def f(b):\n    g = b.send\n    return g\n",

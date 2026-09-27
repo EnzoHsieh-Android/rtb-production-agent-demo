@@ -1,0 +1,994 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+index 6f65db0..c0feabd 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+@@ -57,24 +57,29 @@ RETIRE-IF: 固定種子 15001、15002、15003 各以第一次 `outcome=ok` 且
+ - 同名額任一方分母為零（含前 n 全是相關誘餌或保留側全被刷掉）即判該批「窮舉勝」；先取名單再篩保留側，不遞補。AI 所有不合格單條提交，包括未知門檻、兩方向都押、數字不符、未達下限、重複與格式錯誤，均計 AI 誤報；整份回覆因頂層格式或解析錯誤拒絕時，記 1 筆無效提交及 AI 誤報，n=0 仍判窮舉勝。理由：比較必能終止，且不能藉剔除洗掉錯選。
+ - 三種子各用專屬 `phase15-seed-<種子>-<序號>` 展示編號，從 1 遞增，每次重錄換新序號；每種子只准第一次成功錄製入庫，清單記編號與時間，替換須換評估版本並記理由。6144 輸出下每展示上限約剩 0.058 美元，失敗呼叫整筆預留扣帳，不在同一展示編號重試。理由：防重抽挑好結果，並避免展示額度卡住後續種子。
+ - Phase 14 前置條件同時驗 runner 已無 AI 判斷開關、展示驅動不再組 `--ai-judge` 且 F7 走規則路徑。Wilson 下界直接用 `rtb.eval.scoring.wilson_lower()`；百分比用 `rtb.domain.metrics.percent_text` 等既有函式，精度與格式以程式碼為準。理由：不能只移除參數接收端，也不另造統計或格式化做法。
+ - 門檻代碼一律用「欄位:區間」全名（如 `raise_pct:band_2`），未改善方向代碼為 `not_improve`，兩側相異廣告數只數有方向配對。模型提示要求 UTF-8 原字、不用 `\uXXXX`；回覆大小按實際 JSON 逸出後位元組計，解析超長整數的 `ValueError` 與非有限數同樣整份拒絕。理由：讓真相鍵、下限及輸出界一致，解析失敗不使命令列崩潰。
+ - 回退保留 `Caller.RULE_MINING` 的值 `rule_mining`、`CAPPED_CALLERS`、`CALLER_USERS` 鍵及歷史驗證模組的值、值→成員名對照及 [S918] 精確等式；只撤命令列與分析端送出入口及其白名單新增項，更新 [S918] 窄入口等式。理由：歷史錄製鍵仍可重算，邊界測試仍能守住精確集合。
+ 
+ ### 代使用者裁定(2026-09-27，代碼審 c_4/c_5)
+ 
+ - 重疊調整改為「兩筆調整的 D±3 視窗相交（相距 ≤6 天）即排除」，任何調整（含降額）都算；對照池改為「整期沒有任何預算調整（含降額）」，和事件側對稱。本節與條款中「整期從未加額」「整期未加額對照」的寫法照此收緊（更嚴的池仍滿足原字面），不另改條款句。理由：代碼審 c_4 指出照字面取相距 ≤3 天時，前一筆加額的後三日會落進本事件的前三日、汙染前三日轉換率與配對桶；c_5 指出對照側對降額不檢查、和事件側不對稱。兩項改動同時作用於 AI 與窮舉兩方、同一資料與同一候選全集，預期不偏袒任一方；是看過評估版本 v1 的窮舉前 K 之後才改的，故換評估版本 `phase15-rule-mining-v2` 並重跑三種子可達性預檢，結果記在 [[Systems/規則模式探索評估]]〈評估版本理由〉。
+ 
++### 代使用者裁定(2026-09-27，增量 2 代碼審 r1，協調者)
++
++- 解析器對說明欄另擋格式字元(Cf)與代理字元(Cs)，連同原有的控制字元、引號、反斜線，寫進系統提示與評估版本參數，換評估版本 `phase15-rule-mining-v3`；只改提示一句與參數清單，配對、排序、門檻、語彙與資料都不動，三種子預檢照過(B 各多 47 位元組)。理由：代碼審 r1 指出沒公告就記 AI 誤報；對 AI 是公告更完整(有利或中性)，窮舉不讀說明欄、不受影響；此時沒有入庫錄製。細節見 [[Systems/規則模式探索評估]]〈評估版本理由〉v3。
++- 解析期任何例外(含平衡深巢狀與孤立代理字元)一律收成「整份拒絕、記 1 筆無效提交」，逐條檢查途中的例外只丟該條；深巢狀出現在單條欄位裡時照「型別錯只丟該條」處理。超過 4300 位的整數由解析器自己數位數整份拒絕，不隨直譯器的整數位數設定改變。理由：計劃要求不讓命令列崩潰，且整份/單條分界不能隨環境漂移。
++
+ ## 現況（2026-09-26，分支 `phase15-rule-mining` 的 main 基底 `71b04d5`；以程式碼為準）
+ 
+ - 2026-09-27 增量 1 實作：分支 `phase15-inc1`，main 基底 `61bbb31`（含 Phase 14 增量 3；代碼審 r1 時已 rebase 到 `7bd062a`）。開工前核對 Phase 14 前置條件：分析端驅動的參數只剩資料庫、DSP、收件口、逾時與間隔（無 AI 判斷開關），展示驅動組分析端參數時只給這幾項，[S1429] 的閉包測試通過；F7 重跑（[S1518] 的「F7 重跑走規則路徑」證據）：協調者 2026-09-27 在基底 `7bd062a` 實跑 `tests/demo/test_driver.py` 與 `tests/demo/test_server.py` 裡的 F7 端到端（縮小版 30 支廣告，`-k "f7 or F7"`），12 passed；這是縮小版，不是完整幾千筆的 F7 展示。重新核對：`rg -n "add_argument" src/rtb/analyzer/runner.py`、`rg -n "def analyzer_args" -A5 src/rtb/demo/driver.py`。增量 1 的四支純離線模組與評估版本 v1 的可達性預檢記在 [[Systems/規則模式探索評估]]；未新增模型呼叫或通往提案的路徑。
+-- 2026-09-27 增量 2 實作:分支 `phase15-inc2`,main 基底 `4e70f92`。分析端窄入口 `rtb.analyzer.rule_mining_model`(家 [[Systems/規則模式探索模型入口]])、評估端回覆核對 `rule_mining_check`、歷史錄製鍵 `rule_mining_recordings`、單一種子執行 `rule_mining_eval`(家 [[Systems/規則模式探索評估]]);`Caller.RULE_MINING` 與計入上限名單、[S1100]/[S1103]/[S1134]/[S918] 與送出邊界名單的精確新增記在 [[Systems/模型用戶端]]、[[Systems/評估與Jev決策點]] 與原計劃條款下的改寫註記。沒有命令列、沒有真錄製、沒有呼叫真模型;[S1506] [S1508] [S1509] [S1516] 留給增量 3。實作者解讀:預留額檢查沿用花費帳預留交易(它本來就用 `reservation_nanousd` 照當時價目與已用判兩個上限),不在窄入口另寫一份;十條填滿的最大回覆實算 5109 位元組(計劃寫 5139),仍低於 6000。重新核對:`rg -n "RULE_MINING" src tests`。
++- 2026-09-27 增量 2 實作:分支 `phase15-inc2`,main 基底 `4e70f92`。分析端窄入口 `rtb.analyzer.rule_mining_model`(家 [[Systems/規則模式探索模型入口]])、評估端回覆核對 `rule_mining_check`、歷史錄製鍵 `rule_mining_recordings`、單一種子執行 `rule_mining_eval`(家 [[Systems/規則模式探索評估]]);`Caller.RULE_MINING` 與計入上限名單、[S1100]/[S1103]/[S1134]/[S918] 與送出邊界名單的精確新增記在 [[Systems/模型用戶端]]、[[Systems/評估與Jev決策點]] 與原計劃條款下的改寫註記。代碼審 r1 後評估版本換成 `phase15-rule-mining-v3`(見上方裁定)。沒有命令列、沒有真錄製、沒有呼叫真模型;[S1506] [S1508] [S1509] [S1516] 留給增量 3。實作者解讀:預留額檢查沿用花費帳預留交易(它本來就用 `reservation_nanousd` 照當時價目與已用判兩個上限),不在窄入口另寫一份;十條填滿的最大回覆實算 5109 位元組(計劃寫 5139),仍低於 6000。重新核對:`rg -n "RULE_MINING" src tests`。
+ - `src/rtb/analyzer/modelgate.py` 的 `open_gate()` 在入口判錄製或即時、綁死 `Caller`、錄製目錄及花費帳；`Gate.complete()` 把請求交給 `src/rtb/modelclient.py`。即時要 `RTB_MODEL_LIVE=1`、展示編號、可用後端與有效啟用紀錄，重播缺錄製會報錯，不會默默轉即時。重新核對：`rg -n 'def open_gate|def complete|def settings_from_env|def call_model' src/rtb/analyzer/modelgate.py src/rtb/modelclient.py`。
+ - `src/rtb/modelledger_view.py` 的 `Caller` 是封閉列舉；`src/rtb/modelledger.py` 的 `CAPPED_CALLERS` 現只含評估候選與實測，花費帳有按呼叫者的上限與估算。錄製鍵含呼叫者、模型、系統提示、使用者內容與輸出上限，批次與目錄有驗收。重新核對：`rg -n 'class Caller|CAPPED_CALLERS|def recording_key|def batch_file_problems' src/rtb/modelledger_view.py src/rtb/modelledger.py src/rtb/modelrecording.py src/rtb/modelclient.py`。
+ - `src/rtb/eval/investigation_cases.py` 固定種子產 Phase 13 案例，`investigation_eval.py` 以同一 AI 函式重播／即時執行並驗批次，`investigation_report.py` 把結果寫成人讀報告。`src/rtb/eval/ruff.toml` 禁直接匯入模型閘道與 DSP，`src/rtb/analyzer/ruff.toml` 禁匯入評估套件；Phase 10 [S712] 的反向匯入界線仍成立。重新核對：`rg -n 'SEED|def generate|def run|def batch_problems|modelgate|rtb.eval' src/rtb/eval/investigation_cases.py src/rtb/eval/investigation_eval.py src/rtb/eval/ruff.toml src/rtb/analyzer/ruff.toml`。
+ - `src/rtb/dsp/store.py` 的逐日成效以 UTC 日期桶保存，金額用整數分，最近加額由正常操作紀錄連同調整前預算與提交時刻推得；`src/rtb/domain/nine_rules.py` 有正式九條的純領域詞彙與順序，`src/rtb/domain/metrics.py` 有 `exact_ratio`／`exact_change`。本案只仿照歷史資料語意建離線案例，不從 DSP 讀取，不匯入九條規則來生成答案。重新核對：`rg -n 'daily_metrics|_latest_raise|def get_past_adjustments|ANSWER_ORDER|def exact_ratio|def exact_change' src/rtb/dsp/store.py src/rtb/domain/nine_rules.py src/rtb/domain/metrics.py`。
+ 
+ ## 設計
+ 
+ ### 合成歷史與可觀察效果
+ 
+ - 評估套件新增純生成器與資料型別：固定種子、固定評估時鐘，至少 300 支虛構廣告、至少 28 個連續 UTC 日。每支有每天曝光、點擊、轉換、花費、營收的完整日桶，另有零或多筆含加額前後預算及 `committed_at` 的操作；計數遵守資料自洽，金額先以整數分生成。生成器可 `render(generate(seed))` 得到位元組一致的評估集與雜湊；另存只給評估器的埋入真相清單（真模式、誘餌、生成版本），不能放進模型提示。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+index 9c3fe50..949814d 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+@@ -270,13 +270,13 @@ WHY: [2026-09-25 Phase 13 增量 2 代碼審 r3] `ai_step_worst_seconds` 多算
+ 
+ - WHY:`stepbudget.ai_step_worst_seconds`、`ai_stop_grace_seconds`、`preflight_worst_seconds` 撤除:三支只給分析端 AI 那一步的租約守衛、啟動器的 AI 寬限與展示等模式行用,入口都拔了。`MODEL_TIMEOUT_SECONDS` 留給評估的調查呼叫,`collect_step_worst_seconds` 留給規則輪各步([S1405])。上面 2026-09-25「多算一次記次等鎖(55/60)」那段是當時的數字,現在已沒有使用者。
+ - 模型閘道的呼叫者只剩說明、評估(調查)、假說;分析端驅動不再開閘道,所以「錄製模式沒帶帳本用暫存帳本」那五個入口少了分析端驅動一個(說明、評估重播、Phase 10 評估、原因假說照舊)。
+ - PITFALL(代碼審 r1 外家否決-1,2026-09-27,已修):`traceable_sentences` 原本只比數值,「把預算加 500%」借曝光數 500 過關。現在寫成百分比的數字另外要對回證據裡也是百分比的同值數字。代碼審 r2 三席指出 r1 只認半形與全形百分號,換 `﹪`、`٪`、「百分之500」「500 percent」「500 個百分點」照樣過關;r2 起百分比的寫法先 NFKC 正規化再認:%(含全形與小型百分號)、阿拉伯百分號、percent/per cent/pct、(個)百分點、百分之N(視同 N%);千分號、萬分號整句拿掉。沒列到的寫法仍只比數值,不含數字的句子不做語意過濾(`_PERCENT_AFTER`、`_PERCENT_BEFORE`、`_PER_MILLE`)。擋得住的就是這張列舉;不含數字的句子仍不做語意過濾,靠「AI 產生、僅供參考」標示與人工確認(宣稱 prompt-injection 照實寫)。代碼審 r3(2026-09-27):「500-percent」「500 per-cent」「500pcts」這類連字號與複數寫法原本認不出來,現在數字與單位、per 與 cent 之間可隔空白或各種連字號,pct 可帶複數;另外數字與百分號之間插看不見的字元(變體選擇符、組合字形連接符、零寬空白,NFKC 刪不掉)也能繞過,而且頁面上看起來就是「500%」,現在所有核對之前先用 `_visible` 拿掉 Unicode 類別 Mn、Me、Cf 與韓文填充字、點字空白,核對看到的字跟核可人看到的一樣,留下的句子照原文。WHY:只改核對這一端、不改頁面逸出(`escape_text` 不把這類字元顯示成代碼):核對已經照「人看得到的字」判,這類字元不再能改變判決;頁面逸出是所有頁面文字共用的一支,改它會牽動評估報告與舊展示的顯示,範圍比這個問題大。防回歸:[test:test_a_percentage_must_trace_back_to_a_percentage]、[test:test_every_way_of_writing_a_percentage_must_trace_back_to_a_percentage]、[test:test_a_traceable_percentage_survives_any_spelling]。`recorded_ledger` 說明改成實際的四項。
+ 
+ ## 規則模式探索的呼叫者與窄入口(Phase 15 增量 2,2026-09-27)
+ 
+ 出處 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉〈拆增量〉2;窄入口本身的家是 [[Systems/規則模式探索模型入口]]。
+ 
+ - 呼叫者列舉(`modelledger_view.Caller`)精確新增 `RULE_MINING = "rule_mining"`,花費帳的計入上限名單(`modelledger.CAPPED_CALLERS`)也加它:探勘的即時呼叫與評估候選、實測共用每展示 1 美元、每月 20 美元;Phase 13 三個不計入上限的呼叫者語意不變([S902]/[S903] 不改)。停用模型探勘時列舉成員與上限名單成員**照留**:歷史錄製鍵要重算得回、歷史帳列要繼續計上限([S1517])。防回歸:[test:test_the_investigation_caller_is_a_bounded_label](全體成員等式)、[test:test_the_phase13_callers_are_not_capped_but_still_booked](上限名單等式)、[test:test_rule_mining_single_call_respects_reservation](上限剛好/差一、價目變動、展示與每月已用、併行預留)。
+-- [S1100] 准匯入模型閘道的分析端模組窄增 `rtb.analyzer.rule_mining_model` 一支(`GATE_USERS`);它只收已組好的彙總文字、用字面 `Caller.RULE_MINING` 開閘道。邊界測試同步精確新增:`CALL_MODEL_USERS` 與 `SENDING_ENTRIES` 加窄入口與評估端探勘執行器兩支(匯入它們也算送出點);`CALLER_USERS["RULE_MINING"]` 是窄入口與評估端的歷史錄製鍵模組;呼叫者的值→成員名對照從函式裡的區域字典抽成模組常數 `CALLER_VALUES`,並新增斷言它等於列舉本身(原本新成員漏列不會紅)。撤除模型段時只撤前兩組的兩項,`CALLER_USERS` 那格因為歷史錄製鍵模組而不會變空。
++- [S1100] 准匯入模型閘道的分析端模組窄增「規則模式探索的模型窄入口」一支(`GATE_USERS`;家是 [[Systems/規則模式探索模型入口]]);它只收已組好的彙總文字、用字面 `Caller.RULE_MINING` 開閘道。邊界測試同步精確新增:`CALL_MODEL_USERS` 與 `SENDING_ENTRIES` 加窄入口與評估端探勘執行器兩支(匯入它們也算送出點);`CALLER_USERS["RULE_MINING"]` 是窄入口與評估端的歷史錄製鍵模組;呼叫者的值→成員名對照從函式裡的區域字典抽成模組常數 `CALLER_VALUES`,並新增斷言它等於列舉本身(原本新成員漏列不會紅)。撤除模型段時只撤前兩組的兩項,`CALLER_USERS` 那格因為歷史錄製鍵模組而不會變空。
+ - 靜態檢查規則:凡是禁匯入 AI 決策模組的地方(分析端、展示三份、執行端、領域層、DSP、根 `pyproject.toml`)同樣禁匯入窄入口;評估端的規則不禁(探勘執行器要用它),評估端照舊禁直接匯入模型閘道。
+ - 閘道本身沒改行為,只在檔頭把窄入口列進「經它的分析端模組」。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md
+index 69fedd3..0b12c7d 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md
+@@ -30,12 +30,12 @@ Phase 15 增量 2(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈拆
+ - 常數:輸出上限 6144 token、逾時 60 秒、完整提示 20480 位元組。評估版本的同名常數在評估端的語彙模組([[Systems/規則模式探索評估]]),兩邊由 [S1514] 的測試核對一致;分析端不准匯入評估套件,所以只能各寫一份。
+ - 閘道注入點 `open_gate=`:測試用它換成綁假後端的閘道(不呼叫真的 claude);產品碼一律用閘道本身。
+ 
+ ## 實作者解讀(2026-09-27)
+ 
+ - 預留額檢查不另寫一份算式:計劃要求「呼叫前用 repo 預留函式與當時價目、已用額重算,須 ≤ 每展示及每月剩餘上限」,花費帳的預留本來就在單一寫入交易裡做這件事(用 `reservation_nanousd`、讀已用、判兩個上限),只要 `RULE_MINING` 列進計入上限名單。另在窄入口重算一次既會重複、也有「先查後寫」的競爭空窗;併行預留由 [S1514] 的測試證明也守得住。
+ - 失敗一律收成 `Reply`、不往外丟:評估端要把非 ok 記成「呼叫失敗」而且不重試,收成值比每個呼叫端各自接例外不容易漏。閘道拒絕(入口參數跟模式對不上)、不認得的模型與停止訊號不是模型呼叫的結果類別,照原樣往外丟。
+ 
+ ## 測試
+ 
+-- `tests/eval/test_rule_mining_model.py`:[S1507] [S1510](匯入邊界) [S1514] [S1517] [S1518](匯入邊界)。即時一律是行程內假後端,帳本與錄製都在 tmp;「即時前置不齊」那格放一支假的 claude,被執行就留記號,斷言沒被執行。
++- `tests/eval/test_rule_mining_model.py`:[S1507] [S1510](匯入邊界) [S1514] [S1517] [S1518](匯入邊界);代碼審 r1 另補兩支:送出路徑綁回探索側的表與兩側重算([test:test_rule_mining_runner_sends_the_explore_table_and_recounts_both_sides]),以及崩潰型回覆經假後端錄進去、錄製模式重播出來都不崩([test:test_rule_mining_hostile_recordings_replay_without_crashing];解析器本身的修法記在 [[Systems/規則模式探索評估]])。即時一律是行程內假後端,帳本與錄製都在 tmp;「即時前置不齊」那格放一支假的 claude,被執行就留記號,斷言沒被執行。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+index 20364a0..4c6a170 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+@@ -32,45 +32,55 @@ decisions:
+     why_chosen: 計劃要求建立評估版本時預檢完整提示位元組與真模式/誘餌分母;預檢只看分母與位元組,不看正負差或排名;首版無前版可比
+     decided: 2026-09-27
+     valid: false
+     superseded_by: d2
+     ended: 2026-09-27
+   - content: 換評估版本 phase15-rule-mining-v2(代碼審 c_4/c_5:重疊改兩筆 D±3 視窗相交、對照池改整期無任何調整)
+     id: d2
+     context: 看過 v1 窮舉前 K 後,代碼審 r1 c_4 指出前一筆加額的後三日會汙染本事件前三日、c_5 指出對照側不檢查降額與事件側不對稱;三種子不換、生成器不動
+     why_chosen: 計劃規定改排除或配對語意須換評估版本並記理由與可達性預檢;改動同時作用於 AI 與窮舉兩方、同一資料與同一候選全集,預期不偏袒任一方;可達性預檢與理由見正文〈評估版本理由〉phase15-rule-mining-v2 一節
+     decided: 2026-09-27
++    valid: false
++    superseded_by: d3
++    ended: 2026-09-27
++  - content: 換評估版本 phase15-rule-mining-v3(增量 2 代碼審 r1:說明欄字元規則寫進系統提示與版本參數)
++    id: d3
++    context: 增量 2 解析器另擋格式字元(Cf)與代理字元(Cs),但系統提示只寫控制字元、版本參數沒列;代碼審 r1 指出等於沒公告就記 AI 誤報;協調者裁定寫進提示
++    why_chosen: 系統提示位元組一變,評估版本雜湊與錄製鍵都要換;計劃規定改任何凍結項先換版本並記理由與預檢。只改提示一句與版本參數,配對、排序、門檻、語彙與資料都不動;規則對 AI 更透明,窮舉不受影響;此時尚無入庫錄製,沒有舊批要作廢
++    decided: 2026-09-27
+     valid: true
+ ---
+ # 規則模式探索評估
+ 
+ Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不呼叫模型、沒有命令列;四支純函式模組加一支測試。增量 2 加回覆解析與重算、歷史錄製鍵與單一種子執行三支(見下方〈增量 2〉)。合成資料只證流程可運作,不給統計或因果保證。
+ 
+ ## 四支模組
+ 
+ - `src/rtb/eval/rule_mining_vocab.py`:評估版本的單一出處(`EVAL_VERSION`、`SEEDS`、`K`、下限、保留比例、切點、規模桶、上限、`version_params()`),以及封閉條件語彙:四欄 day_type(平日/週末)、pre_cvr、raise_pct、spend_ratio(各三區間),一條條件是一或兩個不同欄位的子句 AND;門檻代碼一律「欄位:區間」全名;`condition_key` / `normalized_key` 對語彙外、同欄重複、子句數錯、未知方向丟 `VocabularyError`(帶原因代碼,給增量 2 的解析器逐條記)。全集 56 條(11 單欄 + 45 兩欄)。
+ - `src/rtb/eval/rule_mining_history.py`:型別(日桶、操作、廣告、歷史、真相項)、`generate(seed)`(只收三個固定種子)、`render` / `data_sha256` 與寫死的三批預期雜湊、`split`。720 支廣告、35 個連續 UTC 日、一半廣告各兩次加額;另刻意放少量前後視窗出界、視窗重疊與 no_data,讓排除計數有東西可數。
+ - `src/rtb/eval/rule_mining_baseline.py`:事件與排除(判斷先後:視窗出界 > 另一筆調整的 D±3 視窗相交 > 資料異常 > 缺值 > 分母為零)、對照索引、`pair_condition`、`stats_of`、`summarize`、`meets_floor`、`directional`、`holdout_verdict`、`rank` / `top_k`、分母可達性 `Reach`。
+ - `src/rtb/eval/rule_mining_prompt.py`:定稿的系統提示與表頭、`summary_table`(平均差值以百分點四位小數寫,共用 [[Systems/確定性指標計算]] 的百分比字串函式、只多傳小數位數,不另寫捨入;代碼審 a_2)、`gate_problem`(B>20480 或達 48 KiB 拒)、`version_sha256`(雜湊用的正規化 JSON 共用評估套件已在用的那一支,見 [[Systems/分析行程流程與檢查點]] 調查詞彙模組;代碼審 a_1)與寫死的 `EXPECTED_VERSION_SHA256`、預檢 `preflight` / `preflight_problems` / `preflight_record` 與寫死的 `PREFLIGHT_RECORD`。
+ 
+ - `tests/eval/test_rule_mining.py`:本增量九條驗收條款 [S1501] [S1502] [S1503] [S1511] [S1512] [S1513] [S1515] [S1519] [S1520] 的測試;手造小歷史驗單一規則,固定三種子整批用模組範圍的 pytest fixture 只生成一次(代碼審 a_3);[S1503] 只驗彙總內容與位元組閘,不接模型。另以十種變異(對照重用、效果改尺度、平手算方向、原始比例排序、對照池收加額廣告、不查重疊、保留比例 1/2、平均為零算保留、不配規模桶、奇數多出者進探索)各跑一次,全數翻紅;代碼審 r1 再補九種(Wilson/第三鍵/保留比例分母改用總配對、重疊改 <6 或 ≤3、只看加額的重疊、v1 對照池、搶用第二三鍵對調、日期數含平手),也全數翻紅。代碼審 r2 再補:對照在距 D 12 天處降額或加額仍不入池(守「整期」而非「D±6」),以及「前一筆是降額」的重疊(相距 6 排除、7 推斷);對應的三種變異(降額只看 D±6、兩類都只看 D±6、降額只看 D 之後)都翻紅。
+ 
+ ## 增量 2:回覆解析、重算與單一種子執行(2026-09-27)
+ 
+ - `src/rtb/eval/rule_mining_check.py`(純函式):`parse_reply` 封閉 JSON 解析(拒重複鍵的 `object_pairs_hook`、拒 NaN/Infinity 的 `parse_constant`、`parse_float` 擋溢位成 inf、解析後遞迴再驗有限;`ValueError` 與 `RecursionError` 都收成整份拒絕)、逐條驗、去重(留先出現的**合法**條);`Recounter` 用增量 1 的事件、對照索引、不放回配對與彙總函式逐條件重算(測試核對它對 56 條全集都等於增量 1 的探索側彙總);`verify` 先比模型自報的支持/反例(不符記「無法核對」),再看樣本下限(不足記「未達樣本下限」),有效的才在保留側獨立重算並照凍結門檻判定;`Checked` 只帶程式重算的數字,沒有說明欄。
+ - `src/rtb/eval/rule_mining_recordings.py`(歷史錄製鍵):用字面 `Caller.RULE_MINING` 與評估版本輸出上限,經模型用戶端門面的錄製鍵函式重算「這份提示」的鍵。它是撤除模型段時**留下**的那一半([S1517]):不匯入模型閘道或送出入口,邊界測試的 `CALLER_USERS["RULE_MINING"]` 因為它而不會在撤除後變空。
+ - `src/rtb/eval/rule_mining_eval.py`(單一種子執行,送出點):`prepare(seed)` 生成歷史、兩側重算器、完整彙總表與位元組數;`run(prepared, ask)` 先過位元組閘(過大丟 `PromptRefused`、不呼叫)、經 [[Systems/規則模式探索模型入口]] 呼叫**一次**、非 ok 記「呼叫失敗」不解析不重試、ok 才解析核對;`gate_ask(config)` 把窄入口包成送出函式。匯入它就算送出點;撤除模型段時連同窄入口一起撤。命令列、展示編號序號與批次驗收是增量 3。
+-- `tests/eval/test_rule_mining_check.py`:[S1504](整份拒絕與單條剔除的每一類、位元組照 UTF-8 量、去重留先出現的合法條)與 [S1505](重算與探索側彙總一致、核對不符與未達下限、19 平手＋1 正差的例子、有效條目不帶說明)的測試,回覆都是手寫的假回覆。
++- `tests/eval/test_rule_mining_check.py`:另有 `test_rule_mining_hostile_replies_never_crash_the_parser`(代碼審 r1 的崩潰輸入原樣:平衡 500/2900 層巢狀、說明 `\ud800` 逸出、原始文字含孤立代理字元,以及兩道防線);[S1504](整份拒絕與單條剔除的每一類、位元組照 UTF-8 量、去重留先出現的合法條)與 [S1505](重算與探索側彙總一致、核對不符與未達下限、19 平手＋1 正差的例子、有效條目不帶說明)的測試,回覆都是手寫的假回覆。
+ - 評估套件閉包的准許名單([S918])在 [[Systems/評估與Jev決策點]] 精確新增上面三支與分析端窄入口;經門面的名單多一支歷史錄製鍵模組;匯入窄入口與用它送出的,精確等於探勘執行器一支。
+-- 實作者解讀:「無效提交」的原因代碼沿用語彙模組的 `VocabularyError`(未知欄位、門檻不屬欄位、子句數、同欄重複、未知方向、代碼格式),解析器自己另加形狀、筆數、說明、去重、核對與下限幾類;說明除了 80 字/240 位元組,也擋控制字元與 Unicode 格式字元(Cf,例如零寬字元),以及需要 JSON 逸出的引號與反斜線(計劃的輸出契約)。
++- 實作者解讀:「無效提交」的原因代碼沿用語彙模組的 `VocabularyError`(未知欄位、門檻不屬欄位、子句數、同欄重複、未知方向、代碼格式),解析器自己另加形狀、筆數、說明、去重、核對與下限幾類;說明除了 80 字/240 位元組,也擋控制字元、格式字元(Cf,例如零寬字元)、代理字元(Cs),以及需要 JSON 逸出的引號與反斜線;這條規則在 v3 起寫進系統提示與版本參數(見〈評估版本理由〉v3)。
+ - 實作者解讀:計劃說十條填滿的最大緊湊回覆「實算為 5139 位元組」;本增量用同一組假設(兩子句、24 位元組代碼、九位數筆數、80 個三位元組字、方向取較長的 `not_improve`)實算為 5109,仍低於 6000,結論不變;測試斷言「≤ 6000」而不寫死 5139。
+-- 紅綠:新測試先在基底 4e70f92 的原始碼副本上跑,新模組缺席(匯入錯)、列舉與四組精確等式全紅;實作後全綠。另以二十種變異各跑一次(上限名單拿掉探勘、窄入口不擋過大提示、輸出上限或逾時改值、冒用別的呼叫者、不拒重複鍵、位元組界改量字數、子句未知鍵不整份拒、布林當整數、不去重、超 K 截前 K、不比對自報筆數、不看下限、保留側用探索側算、失敗後重試、執行器不過位元組閘、錄製鍵用錯輸出上限、失敗往外丟、窄入口多匯入收件口),十九種翻紅;「只拿掉解析時的非有限數檢查」不紅,因為解析後還有一層遞迴檢查(兩層都拿掉就紅),是刻意的雙層。以固定種子 15001 做的端到端(假後端)在 [[Systems/規則模式探索模型入口]] 的測試。
++- 紅綠:新測試先在基底 4e70f92 的原始碼副本上跑,新模組缺席(匯入錯)、列舉與四組精確等式全紅;實作後全綠。另以二十種變異各跑一次(上限名單拿掉探勘、窄入口不擋過大提示、輸出上限或逾時改值、冒用別的呼叫者、不拒重複鍵、位元組界改量字數、子句未知鍵不整份拒、布林當整數、不去重、超 K 截前 K、不比對自報筆數、不看下限、保留側用探索側算、失敗後重試、執行器不過位元組閘、錄製鍵用錯輸出上限、失敗往外丟、窄入口多匯入收件口),十九種翻紅;「只拿掉解析時的非有限數檢查」不紅,因為解析後還有一層遞迴檢查(兩層都拿掉就紅),是刻意的雙層。
++- PITFALL:[2026-09-27 增量 2 代碼審 r1,正確性與資安兩席重複] 解析器曾有兩個崩潰:(1) 解析後的非有限數檢查是遞迴函式、又在 try 外面,平衡的 500 層巢狀(1000 位元組)就丟 RecursionError 穿出執行器;原本的測試用不平衡的 `[`×5000,在 `json.loads` 就被接住,走不到那條路。(2) 說明欄是 `\ud800` 逸出時,量位元組的 `encode` 丟 UnicodeEncodeError。修法:非有限數檢查改顯式堆疊;量原始文字位元組包進 try;說明欄先擋代理字元再量位元組;整份與逐條各加一道「任何意外都收成拒絕或丟該條」的防線;超過 4300 位的整數由解析器自己數位數整份拒絕,不看直譯器的整數位數上限設定。錄製重播路徑也驗過(假後端錄進去、重播出來不崩,竄改錄製文字為孤立代理字元時整份拒絕)。防回歸:[test:test_rule_mining_hostile_replies_never_crash_the_parser]、[test:test_rule_mining_hostile_recordings_replay_without_crashing]、[test:test_rule_mining_rejects_out_of_vocabulary_suggestions]。
++- PITFALL:[2026-09-27 增量 2 代碼審 r1 正確性席] 探勘執行器原本自己組表,把表改用保留側、兩個重算器對調,測試仍全綠(測試的假回覆也從同一個執行器取數字,跟著一起錯)。現在組表與預檢共用提示模組同一支 `seed_inputs`,測試另把送出的表、兩個重算器綁回獨立算的探索/保留彙總與預檢位元組數。防回歸:[test:test_rule_mining_runner_sends_the_explore_table_and_recounts_both_sides]。代碼審 r1 修正後另以十一種變異驗證(回到遞迴檢查、說明不擋代理字元、拿掉兩道防線任一、整數位數改靠直譯器或上限改 4301、只比支持、保留重算器用探索側、表與重算器對調、提示拿掉格式字元)全數翻紅;「量原始文字位元組時不接編碼錯」單獨拿掉不紅(整份防線接住),連同整份防線一起拿掉就紅。以固定種子 15001 做的端到端(假後端)在 [[Systems/規則模式探索模型入口]] 的測試。
+ 
+ ## 埋入的真相(只給評估器)
+ 
+ - 真模式・改善:raise_pct:band_2 且 spend_ratio:band_3(預算幾乎花滿的廣告中度加額),後三天轉換率乘 1.6。
+ - 真模式・未改善:raise_pct:band_3(加額 50% 以上),後三天轉換率乘 0.5。
+ - 誘餌・只探索側偶合:day_type:weekend 且 raise_pct:band_1 改善——生成器只對探索側廣告埋 1.6 倍,保留側沒有。
+ - 誘餌・相關無獨立效果:spend_ratio:band_1 未改善——花費比低的廣告有七成被大幅加額,所以看似變差,本身不改轉換率。
+ - 生成器用評估器同一套語彙函式,從已生成的前三日資料算事件的欄位值再決定埋不埋效果,真模式與切點精確對齊;所以之後報告的召回只是「可精確表示時」的上界。
+ 
+ ## 口徑(計劃逐字,實作選擇另記)
+@@ -82,20 +92,27 @@ Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不
+ - 保留側:有方向配對 ≥20 且其中相異加額、相異對照各 ≥20,支持/有方向 ≥ 3/5,方向化平均差值 >0;分母為零記「未量」。
+ - 窮舉:兩方向合併,Wilson 下界(既有函式)→ 方向化平均 → 有方向數 → 條件鍵 → 方向代碼;同條件只留排序較高的方向;取前 K=10。
+ 
+ ## Phase 14 前置條件核對
+ 
+ - 分析端驅動的參數沒有 AI 判斷開關,展示驅動組分析端參數時只給規則參數([S1429] 閉包測試綠)。
+ - F7 重跑([S1518] 的「F7 重跑走規則路徑」證據):協調者 2026-09-27 在基底 7bd062a 實跑 tests/demo/test_driver.py 與 tests/demo/test_server.py 的 F7 端到端(縮小版 30 支廣告,`-k "f7 or F7"`),12 passed。這是縮小版,不是完整幾千筆的展示;兩支測試檔的家見 [[Systems/一鍵展示]]。
+ 
+ ## 評估版本理由
+ 
++### phase15-rule-mining-v3(2026-09-27,增量 2 代碼審 r1)
++
++- 改動:系統提示裡說明欄那一句從「不含引號、反斜線或控制字元」改成「不含引號、反斜線、控制字元或格式字元(零寬字元、方向標記等)」;版本參數多一項 `note_rule`(說明不含引號、反斜線與 Unicode 類別 Cc、Cf、Cs 的字元,違反只丟該條、計無效提交)。表頭跟著版本名改一個字。生成器、種子、K、下限、切點、配對、排序、語彙都沒動,三批資料雜湊不變。
++- 理由與時點:增量 2 的解析器另外擋格式字元與代理字元,當時提示只講控制字元,代碼審 r1 正確性席指出這等於沒告訴模型就記誤報;協調者裁定寫進提示。沒有看任何 AI 結果(本增量還沒有真錄製),也沒有因窮舉排名調參。
++- 對雙方的預期影響:只影響 AI 說明欄的合法範圍公告,讓 AI 少踩一個沒公告的坑(對 AI 有利或中性);窮舉不讀說明欄,不受影響。尚無入庫錄製,沒有舊批要作廢;之後的錄製鍵照新提示算。
++- 可達性預檢(三種子全過):排除計數與四項真相分母與 v2 完全相同;完整提示 B 各多 47 位元組:15001 6104、15002 6022、15003 6091,仍遠低於 20480 與 48 KiB。逐字版本是提示模組的 `PREFLIGHT_RECORD`,版本雜湊 d7b40b48e3ccd004…。
++
+ ### phase15-rule-mining-v2(2026-09-27,代碼審 r1 c_4/c_5)
+ 
+ - 改動:重疊判準從「另一筆調整日落在 D±3」改成「兩筆的 D±3 視窗相交(相距 ≤ 6 天)」;對照池從「整期從未加額」改成「整期沒有任何預算調整」;系統提示裡對照池那一句同步改寫。生成器、種子、K、下限、切點、排序都沒動,三批資料雜湊不變。
+ - 理由與時點:看過 v1 的窮舉前 K 之後才改;理由是代碼審發現(c_4 前一筆加額的效果會汙染本事件前三日;c_5 對照側不檢查降額、和事件側不對稱),不是看了排名要調。計劃〈代使用者裁定(2026-09-27,代碼審 c_4/c_5)〉同步改兩句定義。
+ - 對雙方的預期影響:改動同時作用於 AI 與窮舉兩方、同一資料與同一候選全集,預期不偏袒任一方。
+ - 同時併入的非語意改動(代碼審 a_1/a_2):版本雜湊改用共用的正規化 JSON、平均差值改用共用百分比函式,字串結果不變;但雜湊輸入改了,版本雜湊本來就要換。
+ - 可達性預檢(三種子全過):現行三批生成資料沒有相距 4 到 6 天的調整,也沒有降額,所以排除計數與四項真相分母和 v1 完全相同(見下節表);完整提示 B 因系統提示改一句各多 12 位元組:15001 6057、15002 5975、15003 6044,仍遠低於 20480 與 48 KiB。逐字版本是提示模組的 `PREFLIGHT_RECORD`,版本雜湊 77b76d93a06d4690…。
+ 
+ ### phase15-rule-mining-v1(2026-09-27 建立,已由 v2 取代)
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+index 255bad6..9d9a312 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+@@ -55,21 +55,21 @@ verified_by:
+   - "[[Verification/Phase13增量3驗收紀錄]]"
+   - "[[Verification/Phase14增量2a離線驗證]]"
+   - "[[Verification/Phase14增量2b驗證紀錄]]"
+   - "[[Verification/Phase14增量3驗證紀錄]]"
+   - "[[Verification/Phase14增量4驗證紀錄]]"
+ ---
+ # 評估與Jev決策點
+ 
+ 2026-09-27 Phase 15 增量 1:[S918] 評估套件匯入閉包的准許名單精確新增規則模式探索的四支純離線模組(另立 `PHASE15_ALLOWED`,不放寬既有名單);它們不經模型用戶端、不送出,經門面、送出與 AI 決策模組的精確等式都沒變。套件說明(`__init__.py`)的准許名單段同步加註這四支。模組本身的家是 [[Systems/規則模式探索評估]]。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+ 
+-2026-09-27 Phase 15 增量 2:[S918] 再逐項精確新增(`PHASE15_ALLOWED`):純核對模組 `rule_mining_check`、歷史錄製鍵模組 `rule_mining_recordings`、單一種子探勘執行器 `rule_mining_eval`,以及評估經它開閘道送出的分析端窄入口 `rtb.analyzer.rule_mining_model`(閘道本身早在 Phase 13 名單);`PHASE13_ALLOWED` 不動。經門面 `rtb.modelclient` 的精確名單多 `rule_mining_recordings` 一支(只取錄製鍵函式與呼叫者列舉);直接送出仍只有模型候選;AI 決策模組的匯入與送出等式照舊只有調查評估執行器;另立一組等式:匯入窄入口、用它的送出名字(`suggest`、`gate_ask`)的評估模組都精確等於 `rule_mining_eval`。套件說明(`__init__.py`)同步。三支模組的家是 [[Systems/規則模式探索評估]],窄入口的家是 [[Systems/規則模式探索模型入口]]。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
++2026-09-27 Phase 15 增量 2:[S918] 再逐項精確新增(`PHASE15_ALLOWED`):規則模式探索的回覆核對、歷史錄製鍵與單一種子探勘執行器三支評估模組(家是 [[Systems/規則模式探索評估]]),以及探勘執行器經它開閘道送出的分析端模型窄入口(家是 [[Systems/規則模式探索模型入口]];閘道本身早在 Phase 13 名單);`PHASE13_ALLOWED` 不動。經門面的精確名單多歷史錄製鍵那一支(只取錄製鍵函式與呼叫者列舉);直接送出仍只有模型候選;AI 決策模組的匯入與送出等式照舊只有調查評估執行器;另立一組等式:匯入窄入口、用它的送出名字(`suggest`、`gate_ask`)的評估模組都精確等於探勘執行器一支(`rule_mining_senders()`)。套件說明(`__init__.py`)同步。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+ 
+ 2026-09-26 Phase 14 增量 1:評估標準答案在案例邊界轉成 [[Systems/正式九條判斷領域規則]] 的型別並呼叫同一決策;必要列內缺值與單日 no_data 回無格的證據不足,原 72 筆含雙胞胎的格與答案逐筆維持,固定匯入閉包名單只增純領域模組。[test:test_missing_row_values_are_insufficient_without_changing_the_72_cases] [test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+ 
+ 2026-09-26 代碼審折入:標準答案與正式規則刻意同源,只證接線一致、不作獨立品質證據;生成器仍不匯入分析端與 AI 決策模組。評估的區段轉換率邊界檢查共用 [[Systems/正式九條判斷領域規則]] 的公開函式,[S1403] 以精確下降 50.04% 而收據顯示 -50.0% 守捨入門檻。[test:test_eval_uses_the_domain_segment_rate] [test:test_exact_thresholds_distinguish_zero_denominators]
+ 
+ 本篇管 `src/rtb/eval/` 七支檔:評分表(`rubric.py`)、生成器(`generator.py`)、合成評估集(`eval_set.py`,生成器的產出,不要手改)、逐筆計分與逐格報告(`scoring.py`)、比較表與逐格採用決定(`adoption.py`)、人讀的決定紀錄(`record.py`,`python -m rtb.eval.record` 產生)、套件說明(`__init__.py`)。判斷點本身、路由與待測格清單的型別在 [[Systems/分析行程流程與檢查點]],判斷點的輸入與評分格在 [[Systems/任務流程領域模型]]。
+ 
+ - 評分表(五條全由使用者本人裁定,原意對照後加「資料自不自洽」;由上而下第一個成立的):暫停 → 不值得加;資料異常(負數、缺值、點擊多於曝光、轉換多於點擊)→ 證據不足;曝光或點擊是零 → 不值得加;轉換或營收有正數 → 值得加;轉換營收都是零 → 證據不足。標準答案由程式照評分表算,不派代理標註。防回歸:[test:test_the_rubric_gives_exactly_one_class_for_every_input]。
+ - 合成評估集(第四版):5 格 × 20 組基準情境 × 三個變體(基準原值、只改花費仍在偏低範圍、只改預算且花費不變),共 300 筆。正常格照漏斗順序造、沒有負數與缺值;資料異常格輪流造 12 種單一故障(五個欄位各缺值、各負數,只違反點擊多於曝光、只違反轉換多於點擊);每列多記歸檔的格與故障。計劃釘住的邊界案例放在各格前幾組。每種故障只動一欄(代碼審第 1 輪:點擊多於曝光的故障原本另把轉換歸零)。雜湊由測試釘住,另重跑生成器逐值比對;換批用決策指令記(d1、d2、d3)。防回歸:[test:test_the_eval_set_is_pinned_by_hash]、[test:test_the_generator_covers_every_anomaly_and_matches_the_committed_set]。
+ - 計分:逐筆經分析端的路由函式,依退回後的最後有效答案計分;現行規則用同一套(不傳候選)。每格報分子分母、類別正確數、錯誤子型與走了哪條路;「值得加」格的指標是召回率,其他三格是誤提案率,另報類別正確率;無關欄位擾動後答案改變的組數另報。防回歸:[test:test_the_eval_report_is_per_slice_and_marks_thin_slices]、[test:test_irrelevant_fields_do_not_change_the_answer]、[test:test_the_code_rule_is_scored_per_slice_like_a_candidate]。
+diff --git a/src/rtb/eval/rule_mining_check.py b/src/rtb/eval/rule_mining_check.py
+index 489b1f7..7bdb442 100644
+--- a/src/rtb/eval/rule_mining_check.py
++++ b/src/rtb/eval/rule_mining_check.py
+@@ -1,66 +1,77 @@
+ """規則模式探索的模型回覆解析、去重、同探索集重算與保留側判定(Phase 15 增量 2,計劃
+ [[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉)。
+ 
+ - 封閉 JSON:頂層只有 `version`、`suggestions`;每條只有 `clauses`、`direction`、`support`、
+   `counterexample`、`confidence_note`;子句只有 `condition`、`threshold`。
+ - **整份拒絕**(記 1 筆無效提交):回覆超過 6000 UTF-8 位元組(照收到的字串量,`\\uXXXX` 逸出照六個
+-  位元組算)、解析錯(含超長整數的 `ValueError`、巢狀過深)、任一物件層重複鍵、`NaN`/`Infinity`/
+-  `1e400` 等非有限數、頂層/建議/子句任一物件層未知鍵、頂層缺鍵或不是物件、錯版本、`suggestions`
+-  不是陣列或超過 K 條。整份拒絕不截前 K。
++  位元組算)、原始文字編不成 UTF-8(孤立代理字元)、解析錯(含超過 4300 位的整數——位數自己數,不看
++  直譯器的整數位數上限設定——與任何深度的巢狀)、任一物件層重複鍵、`NaN`/`Infinity`/`1e400` 等
++  非有限數、頂層/建議/子句任一物件層未知鍵、頂層缺鍵或不是物件、錯版本、`suggestions` 不是陣列或
++  超過 K 條。整份拒絕不截前 K。解析期任何例外都收成整份拒絕,不往外丟(代碼審 r1:平衡的 500 層
++  巢狀曾讓遞迴檢查爆掉)。
+ - **只丟該條**(記原因、計一筆無效提交):建議不是物件或缺欄、子句不是陣列或子句不是完整物件、代碼
+   型別或格式錯、未知欄位、門檻不屬該欄、零或三個以上子句、同欄重複、未知方向、筆數不是 0 到九位數的
+-  整數(布林、`1.0` 都不算)、說明型別錯或超過 80 字/240 位元組或含控制字元、引號、反斜線;同一正規化
+-  鍵重複或同條件押相反方向時留先出現的合法條、後條丟。
++  整數(布林、`1.0` 都不算)、說明型別錯或超過 80 字/240 位元組或含控制字元、格式字元(零寬、方向
++  標記)、代理字元、引號、反斜線(系統提示照同一份規則告訴模型);同一正規化鍵重複或同條件押相反方向
++  時留先出現的合法條、後條丟。逐條檢查途中的任何例外只丟該條,不往外丟。
+ - 重算:每條語法合法的建議,在模型看到的同一探索集原資料上,用增量 1 的事件、對照索引、不放回配對與
+   彙總函式重算;支持或反例跟模型自報不同記「無法核對」,重算未達有方向 20 對且兩側各 20 支相異廣告
+   記「未達樣本下限」,兩者都排出有效清單、計無效提交。有效條目只帶程式重算的數字,不帶模型的說明。
+ - 保留側:有效條目在保留側獨立重算,照增量 1 凍結的門檻判可保留/不保留;結果不回饋模型。
+ - 純函式、標準函式庫;不匯入模型用戶端、模型閘道或 DSP。不執行模型文字。
+ """
+ 
+ import json
+ import math
+ import unicodedata
+ from collections.abc import Collection, Iterable, Mapping
+ from dataclasses import dataclass
++from decimal import Decimal
+ from fractions import Fraction
+ from typing import Any
+ 
+ from rtb.eval import rule_mining_baseline as b
+ from rtb.eval import rule_mining_vocab as v
+ from rtb.eval.rule_mining_history import History
+ 
+ REPLY_VERSION = 1
+ TOP_KEYS = frozenset({"version", "suggestions"})
+ SUGGESTION_KEYS = frozenset({"clauses", "direction", "support", "counterexample",
+                              "confidence_note"})
+ CLAUSE_KEYS = frozenset({"condition", "threshold"})
+ MAX_COUNT = 999_999_999  # 筆數至多九位
++# 整數位數上限:照標準函式庫預設的整數字串位數上限(4300)寫死,超過就整份拒絕;不讀直譯器當下的設定
++# (代碼審 r1:設成 0 時同一份回覆會變成單條剔除)
++MAX_INT_DIGITS = 4300
++_SAFE_INT_DIGITS = 640  # 直譯器能設的最小位數上限;不超過它的整數直接 int() 一定轉得動
++# 說明欄不准的 Unicode 類別:控制(Cc)、格式(Cf,零寬與方向標記)、代理(Cs)。規則也寫在系統提示
++NOTE_BANNED_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
+ 
+ # 整份拒絕的原因
+ TOO_LARGE = "reply_too_large"
+ UNPARSABLE = "unparsable"  # JSON 解析錯,含超長整數與巢狀過深
+ DUPLICATE_KEY = "duplicate_key"
+ NON_FINITE = "non_finite"
+ NOT_OBJECT = "top_not_object"
+ UNKNOWN_KEY = "unknown_key"
+ MISSING_KEY = "missing_top_key"
+ WRONG_VERSION = "wrong_version"
+ NOT_LIST = "suggestions_not_list"
+ TOO_MANY = "too_many_suggestions"
+ # 只丟該條的原因(另有語彙模組 VocabularyError 的原因代碼)
+ BAD_SUGGESTION = "suggestion_not_object"
+ MISSING_FIELD = "missing_field"
+ BAD_CLAUSES = "bad_clauses"
+ BAD_COUNT = "bad_count"
+ BAD_NOTE = "bad_note"
++UNREADABLE_SUGGESTION = "unreadable_suggestion"  # 逐條檢查途中出意外(防線,正常走不到)
+ DUPLICATE = "duplicate_suggestion"
+ OPPOSITE = "opposite_direction"
+ COUNT_MISMATCH = "count_mismatch"  # 無法核對
+ BELOW_FLOOR = "below_floor"  # 未達樣本下限
+ 
+ 
+ class _Rejected(Exception):
+     def __init__(self, reason: str) -> None:
+         super().__init__(reason)
+         self.reason = reason
+@@ -107,37 +118,53 @@ def _constant(_name: str) -> float:
+     raise _Rejected(NON_FINITE)  # NaN、Infinity、-Infinity
+ 
+ 
+ def _float(text: str) -> float:
+     value = float(text)
+     if not math.isfinite(value):  # 1e400 這類溢位成 inf
+         raise _Rejected(NON_FINITE)
+     return value
+ 
+ 
+-def _finite(value: object) -> bool:
+-    if isinstance(value, float):
+-        return math.isfinite(value)
+-    if isinstance(value, dict):
+-        return all(_finite(item) for item in value.values())
+-    if isinstance(value, list):
+-        return all(_finite(item) for item in value)
++def _int(text: str) -> int:
++    digits = len(text.lstrip("-"))
++    if digits > MAX_INT_DIGITS:
++        raise _Rejected(UNPARSABLE)
++    # 不超過直譯器最小可設上限的直接轉;更長的經十進位轉,不受直譯器的整數位數設定影響
++    return int(text) if digits <= _SAFE_INT_DIGITS else int(Decimal(text))
++
++
++def _finite(data: object) -> bool:
++    """解析後再驗一次沒有非有限數(第二道;第一道在解析時)。用顯式堆疊,不遞迴:任何深度都不爆。"""
++    pending = [data]
++    while pending:
++        value = pending.pop()
++        if isinstance(value, float) and not math.isfinite(value):
++            return False
++        if isinstance(value, dict):
++            pending.extend(value.values())
++        elif isinstance(value, list):
++            pending.extend(value)
+     return True
+ 
+ 
+ def _load(text: str) -> object:
+-    if len(text.encode("utf-8")) > v.REPLY_BYTES_LIMIT:
++    try:
++        size = len(text.encode("utf-8"))
++    except UnicodeEncodeError as broken:  # 孤立代理字元:不是合法的 UTF-8 文字
++        raise _Rejected(UNPARSABLE) from broken
++    if size > v.REPLY_BYTES_LIMIT:
+         raise _Rejected(TOO_LARGE)
+     try:
+         data = json.loads(text, object_pairs_hook=_pairs, parse_constant=_constant,
+-                          parse_float=_float)
+-    except (ValueError, RecursionError) as broken:  # 解析錯、超長整數(ValueError)、巢狀過深
++                          parse_float=_float, parse_int=_int)
++    except (ValueError, RecursionError, MemoryError) as broken:  # 解析錯、巢狀過深
+         raise _Rejected(UNPARSABLE) from broken
+     if not _finite(data):
+         raise _Rejected(NON_FINITE)
+     return data
+ 
+ 
+ def _structure(data: object) -> list[object]:
+     """整份拒絕的結構檢查:三個物件層的未知鍵、頂層缺鍵、版本、陣列與條數。"""
+     if not isinstance(data, dict):
+         raise _Rejected(NOT_OBJECT)
+@@ -165,39 +192,47 @@ def _unknown_keys(item: object) -> bool:
+     clauses = item.get("clauses")
+     return bool(set(item) - SUGGESTION_KEYS) or (isinstance(clauses, list) and any(
+         isinstance(c, dict) and bool(set(c) - CLAUSE_KEYS) for c in clauses))
+ 
+ 
+ def _count(value: object) -> bool:
+     return type(value) is int and 0 <= value <= MAX_COUNT
+ 
+ 
+ def _note(value: object) -> bool:
++    """字元先驗(代理字元在這裡就擋掉),再量 UTF-8 位元組。"""
+     return (isinstance(value, str) and len(value) <= v.NOTE_CHARS
+-            and len(value.encode("utf-8")) <= v.NOTE_BYTES
+-            and not any(ch in '"\\' or unicodedata.category(ch) in ("Cc", "Cf")
+-                        for ch in value))
++            and not any(ch in '"\\' or unicodedata.category(ch) in NOTE_BANNED_CATEGORIES
++                        for ch in value)
++            and len(value.encode("utf-8")) <= v.NOTE_BYTES)
+ 
+ 
+ def _shape_problem(raw: object) -> str | None:
+     if not isinstance(raw, dict):
+         return BAD_SUGGESTION
+     if set(raw) != SUGGESTION_KEYS:
+         return MISSING_FIELD
+     clauses = raw["clauses"]
+     if not isinstance(clauses, list) or not all(
+             isinstance(c, dict) and set(c) == CLAUSE_KEYS for c in clauses):
+         return BAD_CLAUSES
+     return None
+ 
+ 
+ def _suggestion(index: int, raw: object) -> Suggestion | Invalid:
++    try:
++        return _checked_suggestion(index, raw)
++    except (ValueError, TypeError, RecursionError):  # 防線:單條出意外只丟該條
++        return Invalid(index, UNREADABLE_SUGGESTION)
++
++
++def _checked_suggestion(index: int, raw: object) -> Suggestion | Invalid:
+     problem = _shape_problem(raw)
+     if problem is not None or not isinstance(raw, dict):
+         return Invalid(index, problem or BAD_SUGGESTION)
+     clauses = raw["clauses"]
+     try:
+         key = v.normalized_key([(c["condition"], c["threshold"]) for c in clauses],
+                                raw["direction"])
+     except v.VocabularyError as bad:
+         return Invalid(index, bad.reason)
+     if not (_count(raw["support"]) and _count(raw["counterexample"])):
+@@ -224,20 +259,22 @@ def _deduplicated(items: Iterable[Suggestion | Invalid]
+             dropped.append(Invalid(item.index, reason, item.key))
+     return tuple(kept.values()), tuple(dropped)
+ 
+ 
+ def parse_reply(text: str) -> Parsed:
+     """解析一份模型回覆。整份拒絕回 `rejected` 原因;否則逐條驗、去重。"""
+     try:
+         suggestions = _structure(_load(text))
+     except _Rejected as rejected:
+         return Parsed(rejected.reason, 0, (), ())
++    except (ValueError, TypeError, RecursionError, MemoryError):  # 防線:解析期意外一律整份拒絕
++        return Parsed(UNPARSABLE, 0, (), ())
+     accepted, dropped = _deduplicated(_suggestion(i, raw) for i, raw in enumerate(suggestions))
+     return Parsed(None, len(suggestions), accepted,
+                   tuple(sorted(dropped, key=lambda d: d.index or 0)))
+ 
+ 
+ # ---- 重算與保留側 ----
+ class Recounter:
+     """一側的重算器:用增量 1 的事件、對照索引、不放回配對與彙總函式,逐條件重算(不讀彙總表)。"""
+ 
+     def __init__(self, history: History, side: Collection[str]) -> None:
+diff --git a/src/rtb/eval/rule_mining_eval.py b/src/rtb/eval/rule_mining_eval.py
+index 0cc6b6f..666d314 100644
+--- a/src/rtb/eval/rule_mining_eval.py
++++ b/src/rtb/eval/rule_mining_eval.py
+@@ -11,21 +11,20 @@
+ - 輸出只有這一批的核對結果;沒有正式決策、提案、DSP 寫入或 Issue 的路徑。匯入它就算送出點
+   (邊界測試 `SENDING_ENTRIES`)。停用模型探勘時連同分析端窄入口一起撤,歷史錄製鍵留在
+   `rule_mining_recordings`。
+ """
+ 
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from functools import partial
+ 
+ from rtb.analyzer import rule_mining_model as rmm
+-from rtb.eval import rule_mining_baseline as b
+ from rtb.eval import rule_mining_check as c
+ from rtb.eval import rule_mining_history as h
+ from rtb.eval import rule_mining_prompt as p
+ from rtb.eval import rule_mining_recordings as r
+ 
+ CALL_OK = "ok"
+ CALL_FAILED = "呼叫失敗"
+ Ask = Callable[[str, str], rmm.Reply]
+ 
+ 
+@@ -39,25 +38,25 @@ class Prepared:
+ 
+     seed: int
+     history: h.History
+     explore: c.Recounter
+     holdout: c.Recounter
+     table: str
+     prompt_bytes: int
+ 
+ 
+ def prepare(seed: int) -> Prepared:
+-    history = h.generate(seed)
+-    sides = h.split(ad.ad_id for ad in history.ads)
+-    table = p.summary_table(b.summarize(history, sides.explore))
+-    return Prepared(seed, history, c.Recounter(history, sides.explore),
+-                    c.Recounter(history, sides.holdout), table, p.prompt_bytes(table))
++    """組表走預檢同一支(`seed_inputs`,探索側建表);重算器照同一份切側各建一個。"""
++    inputs = p.seed_inputs(seed)
++    return Prepared(seed, inputs.history, c.Recounter(inputs.history, inputs.sides.explore),
++                    c.Recounter(inputs.history, inputs.sides.holdout), inputs.table,
++                    p.prompt_bytes(inputs.table))
+ 
+ 
+ @dataclass(frozen=True)
+ class SeedRun:
+     seed: int
+     expected_key: str  # 依這份提示重算的錄製鍵(缺錄製時給人對)
+     reply: rmm.Reply
+     verification: c.Verification | None  # 呼叫失敗時沒有
+ 
+     @property
+diff --git a/src/rtb/eval/rule_mining_prompt.py b/src/rtb/eval/rule_mining_prompt.py
+index 897669b..a38f30d 100644
+--- a/src/rtb/eval/rule_mining_prompt.py
++++ b/src/rtb/eval/rule_mining_prompt.py
+@@ -34,81 +34,82 @@ SYSTEM_PROMPT = (
+     "只能用表中出現的門檻代碼。\n"
+     "方向:improve 表示加額後相對對照較可能改善,支持是正差筆數、反例是負差筆數;not_improve 相反,"
+     "支持是負差筆數、反例是正差筆數。平手既不是支持也不是反例。\n"
+     "輸出:只輸出一行緊湊的 UTF-8 JSON,直接寫中文原字,不要用 \\uXXXX 逸出,不要 Markdown,總長不超過"
+     " 6000 位元組。格式:"
+     '{"version":1,"suggestions":[{"clauses":[{"condition":"raise_pct",'
+     '"threshold":"raise_pct:band_2"}],"direction":"improve","support":24,"counterexample":6,'
+     '"confidence_note":"一句話"}]}\n'
+     "規則:suggestions 至多 10 條;clauses 是一或兩個不同的 condition,condition 是門檻代碼冒號前的"
+     "欄位代碼;同一條件不得同時押兩個方向,也不得重複;support 與 counterexample 照抄表中該方向的整數;"
+-    "confidence_note 至多 80 字,不含引號、反斜線或控制字元;不要加任何其他鍵。\n"
++    "confidence_note 至多 80 字,不含引號、反斜線、控制字元或格式字元(零寬字元、方向標記等);"
++    "不要加任何其他鍵。\n"
+     "門檻代碼:\n"
+     "day_type:weekday 加額 UTC 日是平日;day_type:weekend 是週六或週日\n"
+     "raise_pct:band_1 加額幅度未滿 20%;raise_pct:band_2 20% 以上未滿 50%;"
+     "raise_pct:band_3 50% 以上\n"
+     "pre_cvr:band_1 調整前三日轉換率未滿 2%;pre_cvr:band_2 2% 以上未滿 5%;"
+     "pre_cvr:band_3 5% 以上\n"
+     "spend_ratio:band_1 調整前三日花費除以三天原日預算未滿 60%;spend_ratio:band_2 60% 以上未滿"
+     " 90%;spend_ratio:band_3 90% 以上\n"
+ )
+ TABLE_HEADER = (
+     f"彙總表 {v.EVAL_VERSION}:探索集;只列有方向配對至少 20 且其中相異加額廣告、相異對照廣告"
+     "各至少 20 的條件;有方向配對 = 正差 + 負差,平手不計;相異廣告與日期只數有方向配對",
+     "欄位:條件|加額事件|總配對|有方向配對|正差|負差|平手|相異加額廣告|相異對照廣告|相異日期|"
+     "正差占有方向比例%|平均差值pp|無對照事件",
+ )
+ DIFF_PLACES = 4  # 平均差值:百分點四位小數,用 metrics.percent_text 同一套 half-even 捨入
+ 
+ # 首次預檢後寫死(評估版本理由的機器可核對那份);重跑須逐字相同
+ PREFLIGHT_RECORD: tuple[str, ...] = (
+     '15001 資料 f820e1a486d8b35d 廣告 探索360/保留360 可推斷事件 探索340/保留301 '
+-     '表列 50 B=6057',
++     '表列 50 B=6104',
+     '15001 排除 探索[incomplete_window=18 missing_value=11 '
+      'overlapping_adjustment=18] 保留[incomplete_window=17 '
+      'missing_value=9 overlapping_adjustment=32]',
+     '15001 true_pattern raise_pct:band_2&spend_ratio:band_3 '
+      'improve 探索[有方向48/加額廣告40/對照廣告48] 保留[有方向57/加額廣告45/對照廣告57]',
+     '15001 true_pattern raise_pct:band_3 not_improve '
+      '探索[有方向113/加額廣告88/對照廣告113] 保留[有方向84/加額廣告66/對照廣告84]',
+     '15001 decoy_explore_only day_type:weekend&raise_pct:band_1 '
+      'improve 探索[有方向45/加額廣告44/對照廣告45] 保留[有方向40/加額廣告38/對照廣告40]',
+     '15001 decoy_correlated spend_ratio:band_1 not_improve '
+      '探索[有方向138/加額廣告81/對照廣告138] 保留[有方向83/加額廣告45/對照廣告83]',
+     '15002 資料 2a9e4aac0f4ec020 廣告 探索360/保留360 可推斷事件 探索318/保留339 '
+-     '表列 49 B=5975',
++     '表列 49 B=6022',
+     '15002 排除 探索[incomplete_window=13 missing_value=12 '
+      'overlapping_adjustment=16] 保留[incomplete_window=18 '
+      'missing_value=7 overlapping_adjustment=13]',
+     '15002 true_pattern raise_pct:band_2&spend_ratio:band_3 '
+      'improve 探索[有方向49/加額廣告37/對照廣告49] 保留[有方向60/加額廣告45/對照廣告60]',
+     '15002 true_pattern raise_pct:band_3 not_improve '
+      '探索[有方向101/加額廣告74/對照廣告101] 保留[有方向116/加額廣告88/對照廣告116]',
+     '15002 decoy_explore_only day_type:weekend&raise_pct:band_1 '
+      'improve 探索[有方向34/加額廣告34/對照廣告34] 保留[有方向39/加額廣告38/對照廣告39]',
+     '15002 decoy_correlated spend_ratio:band_1 not_improve '
+      '探索[有方向109/加額廣告60/對照廣告109] 保留[有方向112/加額廣告67/對照廣告112]',
+     '15003 資料 ba7d6ebc8a3a8b4d 廣告 探索360/保留360 可推斷事件 探索333/保留324 '
+-     '表列 50 B=6044',
++     '表列 50 B=6091',
+     '15003 排除 探索[incomplete_window=14 missing_value=7 '
+      'overlapping_adjustment=21] 保留[incomplete_window=10 '
+      'missing_value=8 overlapping_adjustment=28]',
+     '15003 true_pattern raise_pct:band_2&spend_ratio:band_3 '
+      'improve 探索[有方向62/加額廣告49/對照廣告62] 保留[有方向53/加額廣告39/對照廣告53]',
+     '15003 true_pattern raise_pct:band_3 not_improve '
+      '探索[有方向109/加額廣告80/對照廣告109] 保留[有方向118/加額廣告82/對照廣告118]',
+     '15003 decoy_explore_only day_type:weekend&raise_pct:band_1 '
+      'improve 探索[有方向48/加額廣告46/對照廣告48] 保留[有方向27/加額廣告27/對照廣告27]',
+     '15003 decoy_correlated spend_ratio:band_1 not_improve '
+      '探索[有方向96/加額廣告54/對照廣告96] 保留[有方向117/加額廣告65/對照廣告117]',
+ )
+-EXPECTED_VERSION_SHA256 = "77b76d93a06d4690ab953c66d875feb12696c27e75cf37034d6b067b38162788"
++EXPECTED_VERSION_SHA256 = "d7b40b48e3ccd004dfc6e1ba5536a12ed34e07c774693a501c8cec708fe55582"
+ 
+ 
+ def _row(stats: b.ConditionStats) -> str:
+     counts = (stats.events, stats.pairs, stats.directed, stats.positive, stats.negative,
+               stats.ties, stats.raised_ads, stats.control_ads, stats.dates)
+     share = m.percent_text(m.exact_ratio(stats.positive, stats.directed))
+     return "|".join([v.key_text(stats.key), *(str(c) for c in counts), share,
+                      m.percent_text(stats.diff_sum / stats.directed, places=DIFF_PLACES),
+                      str(stats.no_control)])
+ 
+@@ -165,25 +166,43 @@ class SeedPreflight:
+     holdout_ads: int
+     explore_events: int
+     holdout_events: int
+     explore_exclusions: Mapping[str, int]
+     holdout_exclusions: Mapping[str, int]
+     table_rows: int
+     prompt_bytes: int
+     truths: tuple[TruthReach, ...]
+ 
+ 
+-def preflight_seed(seed: int) -> SeedPreflight:
++@dataclass(frozen=True)
++class SeedInputs:
++    """一個固定種子送模型前的共同材料:歷史、兩側、兩側彙總與**探索側**建的完整彙總表。預檢與探勘
++    執行器(增量 2)都從這裡取,組表只有這一份實作(代碼審 r1:兩份實作曾可能分歧而測不出)。"""
++
++    history: h.History
++    sides: h.Split
++    explore: b.SideSummary
++    holdout: b.SideSummary
++    table: str
++
++
++def seed_inputs(seed: int) -> SeedInputs:
+     history = h.generate(seed)
+     sides = h.split(ad.ad_id for ad in history.ads)
+     explore, holdout = b.summarize(history, sides.explore), b.summarize(history, sides.holdout)
+-    table = summary_table(explore)
++    return SeedInputs(history, sides, explore, holdout, summary_table(explore))
++
++
++def preflight_seed(seed: int) -> SeedPreflight:
++    inputs = seed_inputs(seed)
++    history, sides, explore, holdout, table = (inputs.history, inputs.sides, inputs.explore,
++                                               inputs.holdout, inputs.table)
+     truths = tuple(TruthReach(t.kind, t.key, b.reach_of(explore.stats[t.key[0]]),
+                               b.reach_of(holdout.stats[t.key[0]])) for t in h.TRUTH)
+     return SeedPreflight(
+         seed=seed, data_sha256=h.data_sha256(history), explore_ads=len(sides.explore),
+         holdout_ads=len(sides.holdout), explore_events=explore.events,
+         holdout_events=holdout.events, explore_exclusions=explore.exclusions,
+         holdout_exclusions=holdout.exclusions,
+         table_rows=sum(1 for s in explore.stats.values() if b.meets_floor(s)),
+         prompt_bytes=prompt_bytes(table), truths=truths)
+ 
+diff --git a/src/rtb/eval/rule_mining_vocab.py b/src/rtb/eval/rule_mining_vocab.py
+index d795bcd..b8ceea7 100644
+--- a/src/rtb/eval/rule_mining_vocab.py
++++ b/src/rtb/eval/rule_mining_vocab.py
+@@ -12,21 +12,22 @@
+ """
+ 
+ import re
+ from collections.abc import Iterable, Mapping
+ from datetime import date
+ from fractions import Fraction
+ from itertools import combinations
+ from types import MappingProxyType
+ from typing import Any
+ 
+-EVAL_VERSION = "phase15-rule-mining-v2"  # v1 → v2:代碼審 c_4/c_5 改重疊與對照池定義
++# v1 → v2:代碼審 c_4/c_5 改重疊與對照池定義;v2 → v3:增量 2 代碼審 r1,說明欄字元規則寫進系統提示
++EVAL_VERSION = "phase15-rule-mining-v3"
+ GENERATOR_VERSION = "rule-mining-history-1"
+ SEEDS = (15001, 15002, 15003)  # 固定,任一批不得替換;報告全列
+ 
+ K = 10
+ MIN_DIRECTED = 20  # 有方向配對(正差 + 負差)下限
+ MIN_DISTINCT_ADS = 20  # 有方向配對裡相異加額廣告、相異對照廣告各自的下限
+ HOLDOUT_SUPPORT = Fraction(3, 5)
+ WINDOW_DAYS = 3  # D-3..D-1 與 D+1..D+3,D 本身不算
+ # 兩筆調整的 D±3 視窗相交就算重疊(v2,代碼審 c_4):前一筆加額的後三日不會落進本事件的前三日
+ OVERLAP_DAYS = 2 * WINDOW_DAYS
+@@ -164,12 +165,14 @@ def version_params() -> dict[str, Any]:
+         "distinct_counts": "兩側相異廣告數與相異 UTC 日期數只數有方向配對",
+         "ranking": ["wilson_lower(支持, 支持+反例) 降序", "方向化精確平均差值降序",
+                     "有方向配對數降序", "正規化條件鍵升序", "方向代碼升序"],
+         "wilson": "rtb.eval.scoring.wilson_lower,Z_95=1.959963984540054",
+         "directions_merge": "同一條件兩方向只留排序較高者,再取全域前 K",
+         "formats": {"percent": "rtb.domain.metrics.percent_text(一位小數 half-even)",
+                     "diff": "rtb.domain.metrics.percent_text(places=4):百分點四位小數 half-even"},
+         "prompt_bytes_limit": PROMPT_BYTES_LIMIT, "gateway_prompt_bytes": GATEWAY_PROMPT_BYTES,
+         "max_output_tokens": MAX_OUTPUT_TOKENS, "reply_bytes_limit": REPLY_BYTES_LIMIT,
+         "note_chars": NOTE_CHARS, "note_bytes": NOTE_BYTES,
++        "note_rule": "說明不含引號、反斜線與 Unicode 類別 Cc、Cf、Cs 的字元;"
++                     "違反只丟該條、計無效提交",
+         "call_timeout_seconds": CALL_TIMEOUT_SECONDS,
+     }
+diff --git a/tests/eval/test_rule_mining_check.py b/tests/eval/test_rule_mining_check.py
+index 95a2c9c..d64fa46 100644
+--- a/tests/eval/test_rule_mining_check.py
++++ b/tests/eval/test_rule_mining_check.py
+@@ -7,20 +7,21 @@
+ 
+ import dataclasses
+ import json
+ import sys
+ 
+ import pytest
+ 
+ from rtb.eval import rule_mining_baseline as rb
+ from rtb.eval import rule_mining_check as rc
+ from rtb.eval import rule_mining_history as rh
++from rtb.eval import rule_mining_prompt as rp
+ from rtb.eval import rule_mining_vocab as rv
+ from tests.eval.test_rule_mining import RAISE_2, _ad, _history
+ 
+ SEED = rv.SEEDS[0]
+ RAISE_BAND_2 = [{"condition": "raise_pct", "threshold": "raise_pct:band_2"}]
+ 
+ 
+ @pytest.fixture(scope="module")
+ def sides():
+     """種子 15001 的兩側重算器與彙總(整個檔只生成一次)。"""
+@@ -34,22 +35,28 @@ def _clauses(key):
+     return [{"condition": c, "threshold": t} for c, t in key]
+ 
+ 
+ def _s(clauses=None, direction="improve", support=24, counter=6, note="待核對", **extra):
+     item = {"clauses": RAISE_BAND_2 if clauses is None else clauses, "direction": direction,
+             "support": support, "counterexample": counter, "confidence_note": note}
+     return {**item, **extra}
+ 
+ 
+ def _reply(*suggestions, **top):
++    """緊湊 JSON、寫原字;內容有孤立代理字元時改寫成 \\uXXXX 逸出(模型只能這樣送出它)。"""
+     body = {"version": 1, "suggestions": list(suggestions), **top}
+-    return json.dumps(body, ensure_ascii=False, separators=(",", ":"))
++    text = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
++    try:
++        text.encode("utf-8")
++    except UnicodeEncodeError:
++        return json.dumps(body, separators=(",", ":"))
++    return text
+ 
+ 
+ def _normalized(ranked):
+     return ranked.key, ranked.direction
+ 
+ 
+ def _honest(ranked):
+     """照探索側重算數字填的一條建議(模型照抄彙總表時的樣子)。"""
+     return _s(_clauses(ranked.key), ranked.direction, ranked.support, ranked.counter)
+ 
+@@ -84,31 +91,44 @@ def test_rule_mining_rejects_out_of_vocabulary_suggestions(sides):  # noqa: PLR0
+                         "```json\n" + _reply(good) + "\n```", "", "[" * 5000],
+         rc.TOO_MANY: [_reply(*[_honest(r) for r in top] + [good])],
+         rc.TOO_LARGE: [_reply(good) + " " * (rv.REPLY_BYTES_LIMIT - len(_reply(good)) + 1)],
+         rc.WRONG_VERSION: [_reply(good, version=2), _reply(good, version=True),
+                            _reply(good, version="1"), _reply(good).replace('"version":1',
+                                                                            '"version":1.0')],
+         rc.NOT_OBJECT: ["[]", '"x"'],
+         rc.MISSING_KEY: ['{"version":1}'],
+         rc.NOT_LIST: ['{"version":1,"suggestions":{}}'],
+     }
+-    assert sys.get_int_max_str_digits() in (0, 4300)  # 超長整數由標準函式庫丟 ValueError
+     for reason, texts in whole.items():
+         for text in texts:
+             result = verified(text)
+             assert (result.rejected, result.n, result.invalid_count) == (reason, 0, 1), (
+                 reason, text[:120])
+             assert rc.reasons(result) == {reason: 1}
+     # 4300 位整數解析得了,但筆數超過九位:只丟該條
+     long_ok = verified(_reply(good, _s(support=int("9" * 4300))))
+     assert long_ok.rejected is None and long_ok.n == 1
+     assert [(i.index, i.reason) for i in long_ok.invalid] == [(1, rc.BAD_COUNT)]
++    assert rc.MAX_INT_DIGITS == 4300
++    # 分界不看直譯器的整數位數設定:設成不限(0)或最小(640)都一樣(代碼審 r1)
++    too_long = _reply(good).replace(f'"support":{top[0].support}', '"support":-' + "9" * 4301)
++    ok_long = _reply(good, _s(support=int("9" * 4300)))
++    for limit in (0, 640, 4300):
++        before = sys.get_int_max_str_digits()
++        sys.set_int_max_str_digits(limit)
++        try:
++            assert rc.parse_reply(too_long).rejected == rc.UNPARSABLE, limit
++            parsed = rc.parse_reply(ok_long)
++            assert parsed.rejected is None and len(parsed.accepted) == 1, limit
++            assert [(d.index, d.reason) for d in parsed.dropped] == [(1, rc.BAD_COUNT)], limit
++        finally:
++            sys.set_int_max_str_digits(before)
+     # 位元組照實際 JSON 逸出後量:同一份內容寫原字過、寫 \uXXXX 就超過 6000
+     full = [_s(_clauses(r.key), r.direction, 0, 0, "中" * 80) for r in top]
+     raw = json.dumps({"version": 1, "suggestions": full}, ensure_ascii=False,
+                      separators=(",", ":"))
+     escaped = json.dumps({"version": 1, "suggestions": full}, separators=(",", ":"))
+     assert len(raw.encode()) <= rv.REPLY_BYTES_LIMIT < len(escaped.encode())
+     assert rc.parse_reply(raw).rejected is None
+     assert rc.parse_reply(escaped).rejected == rc.TOO_LARGE
+     # 界量的是 UTF-8 位元組不是字數:6001 位元組但不到 6000 字,照樣整份拒絕
+     padded = raw + " " * (rv.REPLY_BYTES_LIMIT + 1 - len(raw.encode()))
+@@ -131,31 +151,38 @@ def test_rule_mining_rejects_out_of_vocabulary_suggestions(sides):  # noqa: PLR0
+         (_s([]), "clause_count"),
+         (_s([*RAISE_BAND_2, {"condition": "pre_cvr", "threshold": "pre_cvr:band_1"},
+              {"condition": "day_type", "threshold": "day_type:weekday"}]),
+          "clause_count"),
+         (_s([*RAISE_BAND_2, {"condition": "raise_pct", "threshold": "raise_pct:band_3"}]),
+          "duplicate_condition"),
+         (_s(direction="up"), "unknown_direction"), (_s(direction=None), "unknown_direction"),
+         (_s(note="字" * 81), rc.BAD_NOTE), (_s(note="😀" * 61), rc.BAD_NOTE),
+         (_s(note='含"引號'), rc.BAD_NOTE), (_s(note="反\\斜線"), rc.BAD_NOTE),
+         (_s(note="換\n行"), rc.BAD_NOTE), (_s(note=3), rc.BAD_NOTE),
++        # 孤立代理字元(模型寫成 \ud800 逸出)與格式字元只丟該條,不讓解析器崩潰(代碼審 r1)
++        (_s(note="\ud800"), rc.BAD_NOTE), (_s(note="a\udfffb"), rc.BAD_NOTE),
++        (_s(note="零\u200b寬"), rc.BAD_NOTE), (_s(note="\u200f方向"), rc.BAD_NOTE),
+         ("不是物件", rc.BAD_SUGGESTION),
+         ({k: v for k, v in _s().items() if k != "confidence_note"}, rc.MISSING_FIELD),
+         (_s(clauses="raise_pct:band_2"), rc.BAD_CLAUSES),
+         (_s([{"condition": "raise_pct"}]), rc.BAD_CLAUSES),
+     ]
+     for item, reason in single:
+         result = verified(_reply(good, item))
+         assert result.rejected is None and result.submitted == 2, (item, reason)
+         assert [r.key for r in result.valid] == [_normalized(top[0])], (item, reason)
+         assert [(i.index, i.reason) for i in result.invalid] == [(1, reason)], (item, reason)
+         assert result.invalid_count == 1
++    # 說明的字元規則跟系統提示、評估版本參數同一份(代碼審 r1:另擋的格式字元要告訴模型)
++    assert {"Cc", "Cf", "Cs"} == rc.NOTE_BANNED_CATEGORIES
++    assert "格式字元" in rp.SYSTEM_PROMPT and "控制字元" in rp.SYSTEM_PROMPT
++    assert "Cc、Cf、Cs" in rv.version_params()["note_rule"]
+     # 說明的界:80 字、240 位元組都剛好可以
+     for note in ("字" * 80, "😀" * 60):
+         assert verified(_reply(good, _honest(top[1]) | {"confidence_note": note})).n == 2
+     # 例子:support:true 與未知 raise_pct:band_9 各只丟該條、各計 1 筆
+     mixed = verified(_reply(good, _s(support=True),
+                             _s([{"condition": "raise_pct", "threshold": "raise_pct:band_9"}])))
+     assert (mixed.n, mixed.invalid_count) == (1, 2)
+     assert rc.reasons(mixed) == {"bad_count": 1, "threshold_not_in_condition": 1}
+ 
+     # 去重:同一正規化鍵(子句順序不同)與同條件反方向,留先出現的合法條
+@@ -179,29 +206,32 @@ def test_rule_mining_recounts_every_suggestion_before_reporting(sides):  # noqa:
+     history, split, explore, holdout, summary = sides
+     # 重算沿用增量 1 的配對與彙總:對封閉全集的每一條都跟探索側彙總一致
+     for key in rv.all_conditions():
+         assert explore.stats(key) == summary.stats[key], key
+     held_summary = rb.summarize(history, split.holdout)
+     top = rb.top_k(summary.stats)
+     note = "模型的信心說明"
+     honest = [_honest(r) | {"confidence_note": note} for r in top[:3]]
+     lied = _honest(top[3]) | {"support": top[3].support + 1}
+     swapped = _honest(top[4]) | {"support": top[4].counter, "counterexample": top[4].support}
++    counter_only = _honest(top[5]) | {"counterexample": top[5].counter + 1}  # 只有反例不符
+     low_key = next(k for k in rv.all_conditions() if not rb.meets_floor(summary.stats[k]))
+     low_support, low_counter, _ = rb.directional(summary.stats[low_key], rv.IMPROVE)
+     low = _s(_clauses(low_key), rv.IMPROVE, low_support, low_counter)  # 照實抄、但樣本不夠
+-    result = rc.verify(rc.parse_reply(_reply(*honest, lied, swapped, low)), explore, holdout)
+-    assert result.submitted == 6 and result.recounted == 6
++    result = rc.verify(rc.parse_reply(_reply(*honest, lied, swapped, counter_only, low)),
++                       explore, holdout)
++    assert result.submitted == 7 and result.recounted == 7
+     assert [c.key for c in result.valid] == [_normalized(r) for r in top[:3]]
+     assert [(i.index, i.reason) for i in result.invalid] == [
+-        (3, rc.COUNT_MISMATCH), (4, rc.COUNT_MISMATCH), (5, rc.BELOW_FLOOR)]
+-    assert (result.n, result.invalid_count, result.mismatches) == (3, 3, 2)
++        (3, rc.COUNT_MISMATCH), (4, rc.COUNT_MISMATCH), (5, rc.COUNT_MISMATCH),
++        (6, rc.BELOW_FLOOR)]
++    assert (result.n, result.invalid_count, result.mismatches) == (3, 4, 3)
+     # 有效條目只帶程式重算的數字與保留側判定;模型的說明不在任何欄位
+     for checked, ranked in zip(result.valid, top[:3], strict=True):
+         condition, direction = checked.key
+         stats = summary.stats[condition]
+         support, counter, mean = rb.directional(stats, direction)
+         assert (checked.support, checked.counter, checked.directional_mean) == (
+             support, counter, mean)
+         assert (checked.ties, checked.directed, checked.raised_ads, checked.control_ads,
+                 checked.dates) == (stats.ties, stats.directed, stats.raised_ads,
+                                    stats.control_ads, stats.dates)
+@@ -218,10 +248,50 @@ def test_rule_mining_recounts_every_suggestion_before_reporting(sides):  # noqa:
+     controls = [_ad(f"c{i:02d}", pre=3, post=4) for i in range(20)]
+     tiny = _history(raised + controls)
+     everyone = frozenset(a.ad_id for a in tiny.ads)
+     stats = rc.Recounter(tiny, everyone).stats(RAISE_2)
+     assert (stats.pairs, stats.ties, stats.directed) == (20, 19, 1)
+     tiny_recounter = rc.Recounter(tiny, everyone)
+     result = rc.verify(rc.parse_reply(_reply(_s(support=1, counter=0))), tiny_recounter,
+                        tiny_recounter)
+     assert (result.n, result.invalid_count) == (0, 1)
+     assert [i.reason for i in result.invalid] == [rc.BELOW_FLOOR]
++
++
++# ---- [S1504] 代碼審 r1:崩潰輸入(報告原樣)一律收成整份拒絕或只丟該條,不往外丟 ----
++def test_rule_mining_hostile_replies_never_crash_the_parser(sides, monkeypatch):
++    _, _, explore, holdout, _ = sides
++    wrap = '{{"version":1,"suggestions":[{{"clauses":[],"direction":{},"support":1,' \
++           '"counterexample":0,"confidence_note":"a"}}]}}'
++    for depth in (500, 2900):
++        nested = "[" * depth + "]" * depth
++        top_level = rc.parse_reply(nested)  # 報告 F1 的原始輸入(平衡巢狀)
++        assert top_level.rejected == rc.NOT_OBJECT
++        inside = rc.parse_reply('{"version":1,"suggestions":' + nested + "}")
++        assert inside.rejected is None and [d.reason for d in inside.dropped] == [
++            rc.BAD_SUGGESTION]
++        field = wrap.format(nested)
++        assert len(field.encode()) <= rv.REPLY_BYTES_LIMIT or depth == 2900
++        result = rc.verify(rc.parse_reply(field), explore, holdout)
++        assert result.n == 0 and result.invalid_count == 1
++    assert rc.verify(rc.parse_reply("[" * 500 + "]" * 500), explore, holdout).invalid_count == 1
++    # 報告 F2 輸入 A:說明是 \ud800 逸出 → 只丟該條
++    attack_a = ('{"version":1,"suggestions":[{"clauses":[{"condition":"day_type","threshold":'
++                '"day_type:weekday"}],"direction":"improve","support":1,"counterexample":0,'
++                '"confidence_note":"\\ud800"}]}')
++    parsed = rc.parse_reply(attack_a)
++    assert parsed.rejected is None and [d.reason for d in parsed.dropped] == [rc.BAD_NOTE]
++    # 報告 F2 輸入 B:原始文字本身含孤立代理字元 → 整份拒絕
++    for text in ("\ud800", _reply() + "\ud800", attack_a.replace("\\ud800", "\ud800")):
++        assert "\ud800" in text
++        assert rc.parse_reply(text).rejected == rc.UNPARSABLE
++    # 防線:解析或逐條檢查途中任何意外都收成整份拒絕/只丟該條
++    def boom(*_args):
++        raise RecursionError("深")
++
++    monkeypatch.setattr(rc, "_structure", boom)
++    assert rc.parse_reply(_reply()).rejected == rc.UNPARSABLE
++    monkeypatch.undo()
++    monkeypatch.setattr(rc, "_checked_suggestion", boom)
++    parsed = rc.parse_reply(_reply(_s()))
++    assert parsed.rejected is None and [d.reason for d in parsed.dropped] == [
++        rc.UNREADABLE_SUGGESTION]
+diff --git a/tests/eval/test_rule_mining_model.py b/tests/eval/test_rule_mining_model.py
+index 0ee4a34..f013a88 100644
+--- a/tests/eval/test_rule_mining_model.py
++++ b/tests/eval/test_rule_mining_model.py
+@@ -20,21 +20,23 @@ import time
+ import pytest
+ 
+ from rtb import modelclient as mc
+ from rtb import modelcore as core
+ from rtb import modelledger as ledger_db
+ from rtb import modelledger_view as view
+ from rtb import sqlitekit
+ from rtb.analyzer import modelgate
+ from rtb.analyzer import rule_mining_model as rmm
+ from rtb.eval import rule_mining_baseline as rb
++from rtb.eval import rule_mining_check as rc
+ from rtb.eval import rule_mining_eval as rme
++from rtb.eval import rule_mining_history as rh
+ from rtb.eval import rule_mining_prompt as rp
+ from rtb.eval import rule_mining_recordings as rr
+ from rtb.eval import rule_mining_vocab as rv
+ from tests.analyzer.test_boundaries import _source_of
+ from tests.conftest import child_prelude
+ from tests.model.fakes import FakeBackend, live, reply, request
+ from tests.test_spawn_boundary import (
+     CALL_MODEL_USERS,
+     CALLER_USERS,
+     CALLER_VALUES,
+@@ -182,20 +184,83 @@ def test_rule_mining_live_calls_require_the_gateway_and_count_toward_caps(  # no
+         holder.execute("ROLLBACK")
+         holder.close()
+     assert (run.status, run.reply.outcome) == (rme.CALL_FAILED, "ledger_busy")
+     assert busy_backend.calls == [] and run.verification is None
+     # 探勘只寫帳本與錄製:沒有別的檔(沒有分析端資料庫、提案或設定)
+     written = {p.name for p in tmp_path.iterdir()}
+     assert written <= {"no-bin", "fake-bin", "recordings", "ledger.sqlite", "ledger.sqlite-wal",
+                        "ledger.sqlite-shm"}, written
+ 
+ 
++# ---- [S1503]/[S1505] 送出路徑(代碼審 r1):執行器送的是探索側建的表,兩個重算器各對一側 ----
++def test_rule_mining_runner_sends_the_explore_table_and_recounts_both_sides(prepared):
++    history = prepared.history
++    split = rh.split(a.ad_id for a in history.ads)
++    explore, holdout = rb.summarize(history, split.explore), rb.summarize(history, split.holdout)
++    assert prepared.table == rp.summary_table(explore)
++    assert prepared.table != rp.summary_table(holdout)
++    assert f"B={prepared.prompt_bytes}" in rp.PREFLIGHT_RECORD[0]  # 預檢記的同一個位元組數
++    assert prepared.prompt_bytes == rp.preflight_seed(SEED).prompt_bytes
++    for key in rv.all_conditions():
++        assert prepared.explore.stats(key) == explore.stats[key], key
++        assert prepared.holdout.stats(key) == holdout.stats[key], key
++    # 端到端:照探索側填的回覆有效,保留側判定用的是保留側的數字
++    run = rme.run(prepared, lambda _s, _u: rmm.Reply("ok", "recorded", honest_answer(prepared),
++                                                     "recorded", "k", None, 0))
++    assert run.verification is not None and run.verification.n == 2
++    for checked in run.verification.valid:
++        condition, direction = checked.key
++        assert checked.holdout == rb.holdout_verdict(holdout.stats[condition], direction)
++        assert checked.holdout_stats == holdout.stats[condition]
++
++
++# ---- [S1504] 錄製重播路徑(代碼審 r1):崩潰型回覆錄進去、重播出來都不崩 ----
++def test_rule_mining_hostile_recordings_replay_without_crashing(prepared, tmp_path):
++    folder = tmp_path / "recordings"
++    nested = "[" * 500 + "]" * 500
++    hostile = [
++        nested,  # 報告 F1:平衡 500 層
++        honest_answer(prepared).replace('"照表抄"', '"\\ud800"', 1),  # 報告 F2 輸入 A
++        '{"version":1,"suggestions":[{"clauses":[],"direction":' + nested
++        + ',"support":1,"counterexample":0,"confidence_note":"a"}]}',
++    ]
++    runs = []
++    for n, text in enumerate(hostile):
++        table = prepared.table + f"\n{n}"  # 每份各一個錄製鍵
++        case = dataclasses.replace(prepared, table=table,
++                                   prompt_bytes=rmm.prompt_bytes(rp.SYSTEM_PROMPT, table))
++        backend = FakeBackend(reply(text, input_tokens=100, output_tokens=100))
++        live_run = rme.run(case, fake_ask(live(backend, record=True),
++                                          config(tmp_path, batch_id=BATCH, recordings=folder)))
++        replayed = rme.run(case, rme.gate_ask(config(tmp_path, recordings=folder)))
++        assert replayed.reply.source == "recorded" and replayed.reply.text == text
++        assert replayed.verification == live_run.verification
++        runs.append(replayed.verification)
++    assert [(v.rejected, v.invalid_count) for v in runs] == [
++        (rc.NOT_OBJECT, 1), (None, 1), (None, 1)]
++    assert [i.reason for i in runs[1].invalid] == [rc.BAD_NOTE]
++    # 報告 F2 輸入 B:錄製檔的文字被竄改成孤立代理字元,重播整份拒絕、不崩
++    target = next(folder.glob("*.json"))
++    data = json.loads(target.read_text(encoding="utf-8"))
++    data["text"] = "\ud800"
++    target.write_text(json.dumps(data), encoding="utf-8")
++    table = next(prepared.table + f"\n{n}" for n in range(3) if rr.expected_key(
++        rp.SYSTEM_PROMPT, prepared.table + f"\n{n}") == target.stem)
++    case = dataclasses.replace(prepared, table=table,
++                               prompt_bytes=rmm.prompt_bytes(rp.SYSTEM_PROMPT, table))
++    tampered = rme.run(case, rme.gate_ask(config(tmp_path, recordings=folder)))
++    assert tampered.reply.text == "\ud800"
++    assert tampered.verification is not None
++    assert (tampered.verification.rejected, tampered.verification.invalid_count) == (
++        rc.UNPARSABLE, 1)
++
++
+ # ---- [S1514] ----
+ def test_rule_mining_single_call_respects_reservation(prepared, tmp_path, monkeypatch):
+     assert (rmm.MAX_OUTPUT_TOKENS, rmm.TIMEOUT_SECONDS, rmm.PROMPT_BYTES_LIMIT) == (
+         rv.MAX_OUTPUT_TOKENS, rv.CALL_TIMEOUT_SECONDS, rv.PROMPT_BYTES_LIMIT) == (6144, 60, 20480)
+     # 20480 位元組的完整提示、6144 輸出:repo 的預留函式算得 941875200,每展示 1 美元還剩 58124800
+     widest = mc.ModelRequest(caller=mc.Caller.RULE_MINING, system="s" * 480, user="u" * 20000,
+                              max_output_tokens=6144, timeout_seconds=60.0, demo_id=DEMO)
+     assert core.reservation_nanousd(widest, mc.DEFAULT_MODEL) == 941_875_200
+     assert core.DEMO_CAP_NANOUSD - 941_875_200 == 58_124_800
+     # 十條填滿(兩子句、24 位元組代碼、九位數筆數、80 個三位元組字)的緊湊回覆仍在 6000 位元組內

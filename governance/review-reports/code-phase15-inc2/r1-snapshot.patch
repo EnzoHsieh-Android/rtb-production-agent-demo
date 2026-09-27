@@ -1,0 +1,2431 @@
+diff --git a/claims/aggregate-blast-radius.json b/claims/aggregate-blast-radius.json
+index fa4148e..66cdbed 100644
+--- a/claims/aggregate-blast-radius.json
++++ b/claims/aggregate-blast-radius.json
+@@ -126,35 +126,35 @@
+     {
+       "path": "src/rtb/modelclaude.py",
+       "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
++      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
++      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/capability_samples.py",
+       "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
+     },
+     {
+diff --git a/claims/concurrency.json b/claims/concurrency.json
+index cd84c2f..3a412dd 100644
+--- a/claims/concurrency.json
++++ b/claims/concurrency.json
+@@ -162,35 +162,35 @@
+     {
+       "path": "src/rtb/modelclaude.py",
+       "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
++      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
++      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/analyzer/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+diff --git a/claims/idempotency-unknown-outcome.json b/claims/idempotency-unknown-outcome.json
+index 89830e5..952af3b 100644
+--- a/claims/idempotency-unknown-outcome.json
++++ b/claims/idempotency-unknown-outcome.json
+@@ -102,35 +102,35 @@
+     {
+       "path": "src/rtb/modelclaude.py",
+       "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
++      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
++      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/capability_samples.py",
+       "sha256": "2955271950c200e2d8858f2ae175298cc5cbe6ebb2d3e6fbe4896850c22dacf5"
+     },
+     {
+diff --git a/claims/permission-guardrail.json b/claims/permission-guardrail.json
+index 8842ff8..53ac493 100644
+--- a/claims/permission-guardrail.json
++++ b/claims/permission-guardrail.json
+@@ -170,35 +170,35 @@
+     {
+       "path": "src/rtb/modelclaude.py",
+       "sha256": "f61c696b0338a643bcfbadd33a99d6ef4b68a7b3738382c08c077cc5f7d44e5e"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
++      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
++      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/analyzer/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+diff --git a/claims/prompt-injection.json b/claims/prompt-injection.json
+index 7c38294..f57ee6b 100644
+--- a/claims/prompt-injection.json
++++ b/claims/prompt-injection.json
+@@ -22,21 +22,21 @@
+     {
+       "path": "src/rtb/analyzer/instrumented.py",
+       "sha256": "4bb7812d09ea593bb08d01c0e02ff114d1b83378f098fe8756c893454ba3e370"
+     },
+     {
+       "path": "src/rtb/analyzer/investigation.py",
+       "sha256": "93353f3bdbdc9f7df828cff7f40b75b11407c5e654efef477af2e38bc00f368e"
+     },
+     {
+       "path": "src/rtb/analyzer/modelgate.py",
+-      "sha256": "05b0984894662b3ba7d4b31facde1924613114df584e34b41cdbfa737ef7e435"
++      "sha256": "7264e11edc722f2679b329e4fa2df462dc0545c65b03b205592b0c7a2664ed37"
+     },
+     {
+       "path": "src/rtb/analyzer/narrate.py",
+       "sha256": "0f1749e1d4c1a563f103ad7431416d73106f7e689fb42647fb444a6400528d56"
+     },
+     {
+       "path": "src/rtb/analyzer/policy.py",
+       "sha256": "aa8b5b09a9deda2ffdf58c6509cb13f3966d6d785d9504431d5462aaa15030e1"
+     },
+     {
+@@ -174,43 +174,43 @@
+     {
+       "path": "src/rtb/modelclient.py",
+       "sha256": "1c880fab4298e2068ddadebbb5380480ddaa895fc9215c86f7541761ee4d3a2f"
+     },
+     {
+       "path": "src/rtb/modelcore.py",
+       "sha256": "6013e3ce71acdab45506cb284aff6c187876de01f4ec60074452e0478cdf3410"
+     },
+     {
+       "path": "src/rtb/modelledger.py",
+-      "sha256": "722663e03a97525e7ea7b0694a498a164741d7ad18de1bf9e57647bb952b3000"
++      "sha256": "40c55c002e0aab8ea85fd1c5b172cdcb59a44a8ea0f44fd8694e4b4c9d793e44"
+     },
+     {
+       "path": "src/rtb/modelledger_view.py",
+-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
++      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
+     },
+     {
+       "path": "src/rtb/modelrecording.py",
+       "sha256": "09f03583198e52f00b648d14d553b88313c7f98c48ba0b9597cba7056efb7f21"
+     },
+     {
+       "path": "src/rtb/sqlitekit.py",
+       "sha256": "779ba9fbf6927af31210eb158013fc1121ab7b42121da5ad727eeaddaeb0ad55"
+     },
+     {
+       "path": "src/rtb/stepbudget.py",
+       "sha256": "e8a8301258a90ce83ca8c734b8f4c58b6549105902e22663bd161b84bd05df19"
+     }
+   ],
+   "harness": [
+     {
+       "path": "pyproject.toml",
+-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
++      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
+     },
+     {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     {
+       "path": "tests/adversarial_samples.py",
+       "sha256": "0bf3bdbac7edd45cfa7a7b074ae4b7dd795388af0bd45bd3cfb1c140bb9c5161"
+     },
+     {
+diff --git a/docs/rtb-production-agent-demo-knowledge/MOC/index.md b/docs/rtb-production-agent-demo-knowledge/MOC/index.md
+index 0d3acd4..abc0bdf 100644
+--- a/docs/rtb-production-agent-demo-knowledge/MOC/index.md
++++ b/docs/rtb-production-agent-demo-knowledge/MOC/index.md
+@@ -22,20 +22,21 @@ updated: 2026-09-27
+ - [[Systems/宣稱驗證器]]
+ - [[Systems/寫入能力憑證]]
+ - [[Systems/展示頁面]]
+ - [[Systems/提案收件口]]
+ - [[Systems/有界標籤的指標]]
+ - [[Systems/服務水準與燒損告警]]
+ - [[Systems/模型用戶端]]
+ - [[Systems/死信重放指令]]
+ - [[Systems/確定性指標計算]]
+ - [[Systems/規則模式探索評估]]
++- [[Systems/規則模式探索模型入口]]
+ - [[Systems/稽核表只增不改守衛]]
+ - [[Systems/評估與Jev決策點]]
+ - [[Systems/調查實演]]
+ - [[Systems/追蹤檢視]]
+ - [[Systems/靜態檢查閘]]
+ 
+ ## 計劃
+ 
+ - [[Projects/F7效能_計劃]]
+ - [[Projects/README流程動圖_計劃]]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
+index a5d8d46..5b79b07 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
+@@ -298,20 +298,21 @@ RETIRE-IF: 使用者決定整個 Demo 不再展示模型(三個接入點都拔
+ - [S909] 評估比較表的模型列應從錄製批次紀錄算出(含當時的失敗與原價),依使用者裁定的門檻逐欄標過或沒過並標「歷史觀測」與錄製日期;錄製檔與批次紀錄的批次編號不一致時應標「批次不一致」並不採用;合成集的結論應是不採用。[test:test_the_comparison_row_for_the_model_is_measured_and_judged]
+ - [S910] 沒有任何服務水準告警響時,假說命令列應不呼叫模型、不記帳。[test:test_no_alert_means_no_model_call]
+ - [S911] 模型回的下一步不在固定清單裡、或假說超過 3 條、超過 500 字、含換行或不可列印字元時,假說命令列應整份作廢並印「模型沒有給出假說」,告警照常印、結束代碼不變。[test:test_an_invalid_hypothesis_is_discarded_and_the_alert_still_prints]
+ - [S912] 維運套件裡,模型用戶端的送出呼叫與花費帳寫入函式應只由假說命令列呼叫;指標與追蹤應只呼叫花費帳唯讀開法的讀取方法;維運套件應不寫分析端、收件口或 DSP 的任何資料庫。[test:test_only_the_hypothesis_command_calls_the_model_or_writes_the_ledger]
+ - [S913] 不管模型說明有沒有產生、成功或失敗,送進收件口的提案應逐位元組相同。[test:test_the_model_narrative_never_changes_the_submitted_proposal]
+ - [S914] 模型說明應不進收件口、能力憑證與 DSP 請求,執行端應不讀它。[test:test_the_model_narrative_never_reaches_the_executor]
+ - [S915] 追蹤檢視顯示模型說明文字時,應標「模型產生、僅供參考」與來源,並放在程式算的數字之後。[test:test_the_trace_labels_the_model_narrative]
+ - [S916] 廣告名稱裡藏誘導文字(例如要求改預算或要求改下一步)時,接入點 1 與 2 的提案內容、送件結果與執行端行為應跟名稱無害時相同,模型輸出只影響給人看的文字。[test:test_injected_campaign_names_cannot_change_any_program_decision]
+ - [S917] 整個 rtb 裡應只有模型用戶端啟動 claude 子行程;分析端只有模型閘道准匯入模型用戶端的任何一支模組,分析端目錄應不直接匯入網路或子行程模組。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 改寫:原文是「只有模型說明命令列准匯入模型用戶端」,有意識放寬成經分析端模型閘道)[test:test_only_the_model_client_starts_claude]
+ - [S918] 評估套件的匯入閉包跟現況基準相比,應只多出寫死的准許名單——模型用戶端閉包(含小常數模組)、模型閘道、AI 決策模組、Phase 13 新增的評估模組(評估集、生成器、執行器、報告);評估套件裡模型用戶端的送出呼叫應只由模型候選呼叫。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 改寫;送出呼叫的全庫准許名單在 tests/test_spawn_boundary.py 的 `CALL_MODEL_USERS`)[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
++  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉改寫(Phase 15 增量 1、2):准許名單另立一組逐項精確新增規則模式探索的評估模組(增量 1 四支純離線模組;增量 2 加回覆核對、歷史錄製鍵、單一種子探勘執行器三支),以及評估經它送出的分析端模型窄入口;經模型用戶端門面的評估模組多歷史錄製鍵一支;「直接送出只由模型候選」不變,經窄入口送出的只准探勘執行器(另一組精確等式)。Phase 10 [S712] 反向匯入界線與 [S917] 不放寬。細節見 [[Systems/評估與Jev決策點]]。
+ - [S919] 候選介面的輸入型別應只有七個數字與狀態欄位,建構時拒收任何字串型的額外欄位。[test:test_the_candidate_input_cannot_carry_campaign_text]
+ - [S920] 從專案根以外的目錄啟動入口時,錄製回應應照樣找得到。[test:test_recordings_are_found_from_any_working_directory]
+ - [S921] 同一個示範情境用真的執行迴圈(預設輪詢間隔)完整跑多次時,送給模型的內容與錄製鍵應逐位元組相同。[test:test_the_same_scenario_twice_gives_the_same_prompt_and_key]
+ - [S922] 預留後、結算前中止的呼叫,應照預留金額算進它預留時所在月份的已用,不算進之後的月份。[test:test_an_unsettled_reservation_counts_in_its_own_month]
+ - [S923] 核銷命令列應只追加核銷列、原因必填,只接受已照預留結算或超過最長請求期限的列;已用應照核銷後的金額算,原列不變;核銷後又來的結算應讓已用改算較高的金額。[test:test_a_write_off_is_appended_and_changes_the_used_amount]
+ - [S924] 模型候選的旁路紀錄出現本地上限拒絕、訂閱額度用完、設定錯誤、超支、花費帳忙碌、無法可靠分類的錯誤或偵測到工具使用時,評估紀錄命令列應在該情境後停止呼叫,報告標「未跑完」並不採用;沒有呼叫模型的結果應不算進四種比率,訂閱額度用完應算進例外率。[test:test_the_evaluation_stops_at_the_cap_or_a_setup_error]
+ - [S925] 即時模式從兩份不同的簽出、任何工作目錄、任何入口呼叫時,應寫進家目錄固定位置的同一本花費帳,入口沒有參數能改成別本。[test:test_live_calls_always_book_into_the_one_ledger]
+ - [S926] 入口帶了過去的「現在」參數時,花費帳的月份與價目表期限應照系統時鐘判定。[test:test_the_ledger_ignores_the_command_line_now]
+ - [S927] 價目表查核日期超過 90 天時,即時模式應拒絕啟動並改用錄製。[test:test_a_stale_price_table_refuses_live_mode]
+ - [S928] 比較表的每次呼叫成本應取該格最高一次的原價;平均通過但有一次超過 0.002 美元時,成本欄應標沒過。[test:test_the_cost_per_call_is_the_most_expensive_call]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
+index b254ec2..de664cd 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
+@@ -659,24 +659,26 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
+ - 現有 F5 斷言寫死「c1 加到 110」,AI 判不提案就會標沒跑完;F1–F4、F6、F7 的等待條件、路徑核對與事後斷言也寫死要等到寫入、猝死或核可,三處一起分兩層(見〈展示情境怎麼接 AI〉)。
+ - [[Systems/分析行程流程與檢查點]] 的 F5 不變量合約行綁了「對抗名稱不改變決策」的測試(規格閘相依回歸 R1 點名)。那些測試跑的是沒開 AI 的正式路徑,照樣會綠;但開了 AI 之後,名稱**可以**翻轉「提不提案」,只是翻不動金額、廣告、動作與權限([S1112])。實作時要在那篇補一句:這條不變量的「決策不變」只對程式規則路徑成立,AI 路徑的保證是 [S1112],不能讓讀者以為 AI 路徑也被那組測試保證。
+ - 展示流程圖的列舉覆蓋測試:只掃 `MAPPED_ENUMS` 裡的十八個列舉;新的不提案原因(`EXAM_HOLD`)在其中一個列舉裡,沒補圖主線 CI 會紅,新的退回原因列舉要先加進清單才會被擋([S1024] 的「十八個」跟著改)。Phase 10 [S705] 要求現行規則走得到 `NoActionReason` 每個成員,加 `EXAM_HOLD` 會紅,要改寫(見〈調查紀錄與狀態同一交易〉)。
+ - 判斷紀錄的 basis、kind、operation_key 只在 Phase 12 頁面分支,main 還沒有;頁面介面由 Codex 實作,改介面要先跟協調者說。
+ - 採用門檻的成本數字:Claude Code 後端每次呼叫的固定附加輸入就超過 0.002 美元,AI 決策在這個後端上結構性地過不了成本門檻。
+ 
+ ## 合約候選
+ 
+ - [S1100] 當分析端任何模組要呼叫模型時,應只經分析端模型閘道匯入模型用戶端;准匯入模型閘道的分析端模組應只有 AI 決策函式所在模組、分析端驅動命令列與模型說明命令列,流程推進函式、決策規則與 DSP 用戶端的匯入閉包應不含模型用戶端的任何一支模組。[test:test_the_analyzer_reaches_the_model_only_through_the_gateway]
+   - 2026-09-26 代使用者裁定：改寫：正式 runner 與展示不再准匯入 ai_judge／模型閘道；ai_judge 只供評估，narrate 仍為模型說明入口。匯入白名單測試依新邊界改綁。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
++  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉窄增(Phase 15 增量 2):准匯入模型閘道的分析端模組多「規則模式探索的模型窄入口」一支(只收已組好的彙總文字、用字面 `Caller.RULE_MINING` 開閘道、呼叫一次;不讀評估集、不碰流程推進/決策規則/分析端驅動);流程推進、正式規則與 DSP 用戶端的閉包照舊不得碰模型。新入口的責任記在 [[Systems/規則模式探索模型入口]] 與 [[Systems/模型用戶端]];`GATE_USERS` 精確新增這一支,綁定測試不變。
+ - [S1101] 當給定一個展示編號時,花費帳唯讀開法應回這個展示編號的已用,包含已結算金額與還沒結算的預留。[test:test_the_ledger_sums_one_demo_including_open_reservations]
+ - [S1102] 當說明命令列、假說命令列或開了 AI 決策的分析端驅動命令列在錄製模式收到帳檔參數時,花費帳應記在指定路徑,家目錄下的真帳應不被建立或修改。[test:test_recorded_entries_book_into_the_given_ledger]
+   - 2026-09-26 代使用者裁定：改寫：刪「開 AI 決策的分析端驅動」那半；說明、假說的錄製帳仍須隔離。舊測試中帶 `--ai-judge` 跑 runner 的分支刪除，兩個保留入口改綁。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
+ - [S1103] 呼叫者列舉應含「分析端調查」成員,模型與 Jev 指標應照呼叫者分且標籤仍是封閉集合。[test:test_the_investigation_caller_is_a_bounded_label]
++  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉(Phase 15 增量 2):列舉仍封閉,全體成員值的精確等式新增 `rule_mining`;標籤照舊是封閉集合。停用模型探勘時這個成員照留(歷史錄製鍵與帳列要讀得回)。
+ - [S1104] 當現況或 1 小時指標過期、缺現況或指標、配速算不出或配速不偏低時,分析端應不呼叫模型,決策應等於現行決策函式對現況、1 小時指標與廣告文字三種證據的結果;追加查詢的收據過期應不影響這個判定。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 代碼審 r1 改寫:前置過濾另含九條第 1/2 條(暫停、1 小時異常、判斷點輸入建不成),直接由規則結案、不呼叫模型;評估的原始錄製重播通道沿用舊過濾只為還原模型原始答案。) [test:test_code_prefilters_run_before_any_model_call] [test:test_paused_and_anomalous_campaigns_finish_from_base_evidence]
+   - 2026-09-26 代使用者裁定：改寫：正式前置判斷一律走九條規則；評估舊錄製可直接用 Judge 還原原始答案，不保留 runner AI 前置過濾。原 `test_code_prefilters_run_before_any_model_call`、`test_paused_and_anomalous_campaigns_never_reach_the_model` 的 runner AI 斷言刪除，正式早停改綁 [S1401]，評估原始答案改綁 [S1410]。理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1105] 當模型的回答不是恰好含 choice、reason、evidence 三欄的 JSON、選項不在這一輪允許清單、或理由超過 200 字或含換行與不可列印字元時,分析端應丟掉這個回答並改由現行規則決定,這一輪應記成選項外答案。[test:test_an_answer_outside_the_fixed_options_falls_back_to_the_rule]
+   - 2026-09-26 代使用者裁定：改寫為評估 Judge 的格式／選項解析；`RuleContinue` 在 `investigation_eval.run_case` 當場回傳，不開規則輪。原 runner 退回測試刪除，解析與評估結論改綁 `tests/analyzer/test_ai_judge.py`、`tests/eval/test_investigation_eval.py`。理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1106] 當模型用戶端丟出模型呼叫失敗類別的子類別、或我方本地驗證不過時,分析端應改由現行規則決定並記下退回原因類別,流程應不轉失敗(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b 改寫:程式規則是九條,暫停/異常用基本三筆當場結案,其餘退回開一次新規則輪 A/B/C 全量重讀四查詢再定案,不沿用 AI 期查詢);當丟出的是停止訊號轉成的例外或 KeyboardInterrupt 時,AI 決策函式應不接住、讓它往外丟。[test:test_model_call_failures_fall_back_but_stop_signals_propagate]
+   - 2026-09-26 代使用者裁定：改寫為評估 Judge 的故障／停止例外語意；`RuleContinue` 在評估當場回傳，不開 A/B/C 輪。原 runner 故障退回測試刪除，Judge 與評估結果測試改綁。理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1107] 當模型選了值得加時,產生的提案應跟沒開 AI 時現行規則對同一批現況、1 小時指標與廣告文字產生的提案逐欄相同,包含證據參照與內容雜湊。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 改寫:程式規則判值得加的提案,證據參照另列四種成功查詢的收據;兩條路徑除證據參照外逐欄相同,只有用同一批完整證據建的才連參照都相同。代碼審 r1 後改為:AI 答 propose 不再直接建提案,一律開規則輪、九條也判值得加才由規則輪建提案,見 Phase 14 [S1407]。) [test:test_underpacing_campaign_reads_three_steps_and_proposes_with_query_receipts] [test:test_an_ai_propose_is_kept_as_the_raw_answer_without_a_proposal]
+   - 2026-09-26 代使用者裁定：撤除 AI `propose` 開規則輪及送件前否決；正式提案完全由九條決定，評估只在報告層比較 AI 原始答案與 `rule_verdict(case)`。原 `test_a_model_chosen_proposal_equals_the_formula_proposal` 的 runner 端到端部分刪除，規則提案改綁 [S1401][S1402]，派生比較改綁 [S1410]。理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1108] 當模型選查詢選項時,分析端只呼叫該選項需要的唯讀端點、不呼叫寫入端點;Phase 14 增量 2a 起單查逐日仍只讀逐日一次;同一步也選了較長時間窗時,才用已讀到的 1d/7d 在讀取層核對跨窗,不為核對另打 DSP(2a 代碼審 r1 改正:先前這裡誤寫成逐日另讀 1d、7d 共三讀,與程式、`READS_PER_OPTION` 及租約算式不符),其餘對應不變。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1414]。[test:test_each_query_option_maps_to_its_read_only_endpoints]
+ - [S1109] 當一件工作的調查紀錄累計已有 2 輪模型呼叫、或已經查滿 3 個查詢選項時,下一輪的允許清單應只剩三個結論選項,模型再選查詢應當成選項外答案退回現行規則。[test:test_the_round_cap_leaves_only_final_choices]
+@@ -712,20 +714,21 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
+ - [S1126] 模擬 DSP 的逐日與過去調整端點只接受 GET;跨 UTC 日界的首次讀取可同交易物化完整日桶與 1d/7d,之後重讀冪等。逐日回應仍只列相對日數,過去調整列須帶 `committed_at`;操作紀錄不得因讀取改動。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1425][S1426]。[test:test_the_daily_and_past_adjustment_endpoints_are_get_only_and_idempotent]
+ - [S1127] 展示種子逐日與 1d/7d 由同一批整數分推算;過去調整由同一操作紀錄與 UTC 日桶投影,含正常寫入,不再另種調整快照或用「三天前操作筆數等於快照筆數」核對。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1414][S1415]。[test:test_seeded_daily_and_adjustment_data_agree_with_windows_and_history]
+ - [S1128] 當模型在同一輪選了多個查詢時,分析端應在同一步查完全部、只呼叫一次模型交回結果,查詢之間應不呼叫模型。 [test:test_several_queries_chosen_in_one_round_are_one_query_step]
+   - 2026-09-26 代使用者裁定：AI 選多查詢的 runner 整條路徑撤除；若評估 Judge 解析仍接受多選項，改綁評估側案例收據測試，不保留 flow／DSP 加查入口。原 `test_several_queries_chosen_in_one_round_are_fetched_in_one_step` 刪 runner 部分。 見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
+ - [S1129] 送給模型的內容應只含 base 收據、已查選項代碼與每個查詢的參照代號、原始筆數與收據欄位;原始列、先前各輪理由、廣告編號與日期應不出現。[test:test_the_prompt_carries_receipts_and_references_not_raw_rows]
+ - [S1130] 每次查詢的原始回應應只增不改地存進調查原始資料表,用(任務、那一輪分析列的序號、選項代碼)取回的應跟那一次寫入的正規化 JSON 逐位元組相同;那一輪查詢沒有結果時應取不到任何列。AI 決策函式與提示不讀原始表;Phase 14 後續正式規則輪只可讀本次白名單驗過的四查詢,不得讀別輪或未驗證列。2a 只更新 DSP/讀取層,尚未接正式判斷。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1414]。[test:test_every_query_result_is_archived_under_its_option_code]
+ - [S1131] 當模型回答的證據項有任一項的參照不是 base 也不是這件工作已查過的選項代碼、欄位不在那份收據、數值字串跟收據不同、引用的值是 na、或引用的是沒有結果收據裡的欄位時,分析端應把這個回答當成選項外答案、改由現行規則決定;選結論而證據項是空的也一樣。[test:test_a_conclusion_whose_evidence_does_not_match_the_receipts_falls_back]
+ - [S1132] 當逐日趨勢或過去調整的端點查不到這個廣告的資料時,分析端應把它記成一筆「這個查詢沒有結果」的證據交給模型,整步應不失敗。[test:test_a_missing_daily_or_adjustment_result_does_not_fail_the_step]
+ - [S1133] 標準答案產生函式應用精確值判定,依序:暫停中 → 不值得加;原始 1 小時指標資料異常 → 證據不足;最近 3 天內有預算調整 → 證據不足;上次加預算後 3 天轉換不多於加之前 3 天 → 不值得加;最近 3 天轉換率低於前 4 天的一半 → 證據不足;1 小時零轉換零營收而較長窗有轉換 → 值得加;之後才套其餘 Phase 10 條;用到的值算不出時那一條應不適用、往下一條判,捨入後的收據字串應不影響判定。[test:test_the_answer_key_applies_the_history_rules_in_order]
+ - [S1134] 分析端調查、說明、假說三個呼叫者應不因每次展示或每月的花費上限被拒絕或退回;每次呼叫應照樣在花費帳記一筆估算成本,判上限時的加總應只含花費帳模組寫死的計入上限呼叫者,花費帳應不新增欄位。[test:test_the_phase13_callers_are_not_capped_but_still_booked]
++  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉(Phase 15 增量 2):計入上限名單的精確等式新增 `RULE_MINING`(探勘的即時呼叫與評估候選、實測共用每展示/每月上限;併行預留也計入,見 Phase 15 [S1514]);本條三個呼叫者不計入的語意不變,花費帳不加欄位。
+ - [S1135] 當開了 AI 決策的分析那一步要呼叫模型時,應先續租:在一個交易裡、目前最新租約列正是手上收據的序號與擁有者時,新增一列序號加 1、擁有者相同的租約並回傳新的租約收據;條件不符時應不呼叫模型、這一步不寫入。 [test:test_rule_collection_steps_fit_the_lease] [test:test_rule_round_checkpoints_exclude_stale_evidence]
+   - 2026-09-26 代使用者裁定：撤除 runner AI 步續租與 `test_the_ai_step_renews_its_lease_before_calling_the_model`；評估 Judge 沒有租約，正式 A/B/C 續步租約由 [S1405][S1413] 驗。 見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
+ - [S1136] 當分析端驅動命令列帶 --ai-judge 時,展示啟動器停它的寬限時間應用跟守衛同一組匯入的常數算出,而且不小於續租等鎖加上續租後 AI 那一步的最壞耗時。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1419] 改寫:沒帶 --ai-judge 的舊 7 秒寬限撤掉,改取 max(舊兩讀寬限, 規則輪 A/B/C 最壞秒數),預設 50 秒;帶 --ai-judge 再跟 AI 步取最大值。) [test:test_stop_grace_covers_the_longest_rule_step]
+   - 2026-09-26 代使用者裁定：撤除 `--ai-judge` 停止寬限及 AI 步常數；啟動器只依 [S1419] 的規則步算寬限。刪 `test_the_stop_grace_covers_one_ai_step_from_the_shared_constants`，規則分支改綁 `test_stop_grace_covers_the_longest_rule_step`。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
+ - [S1137] 開了 AI 決策的分析端驅動命令列應只在啟動時判一次模型模式,之後每一輪應沿用同一個判定、不再執行 claude 版本檢查。 [test:test_the_demo_uses_recordings_unless_live_is_switched_on]
+   - 2026-09-26 代使用者裁定：撤除 runner 的模型模式判定與綁定測試；評估 Judge、說明／假說各在自己的模型入口判模式。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
+ - [S1138] 當一件工作的調查紀錄已有一輪退回或一個結論時,這件工作之後的蒐證應只讀基本兩樣、不重讀查詢,再進分析應直接用現行規則、不呼叫模型,並在調查紀錄記一列「AI 已用過,改由程式規則」。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b 改寫:「只讀基本兩樣」撤除;AI 用過之後的蒐證改讀規則輪下一步(A 是基本兩樣,B/C 讀四查詢),規則輪那幾步的分析直接問規則輪、不經 AI 決策函式;AI 期查詢照舊不沿用。) [test:test_rule_round_checkpoints_exclude_stale_evidence] [test:test_a_case_that_already_used_the_ai_falls_back_without_calling_the_model]
+   - 2026-09-26 代使用者裁定：撤除 AI 已用過之後開規則輪的流程分支；評估執行器直接用 Judge／`rule_verdict(case)`，沒有規則輪入口。原 `test_a_task_that_already_used_the_ai_goes_straight_to_the_rule` 刪除，正式重入改綁 [S1413]。理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1139] 展示觀察器應用轉換加同序號調查紀錄列的原因代碼查回頭節點,調查紀錄表不在時應當成沒有原因代碼;帶 ai_query 的「分析中 → 蒐集證據」與不帶的同一個轉換應各自對到自己的節點,兩個節點應不互蓋。[test:test_a_return_to_collecting_always_maps_to_recollect]
+   - 2026-09-26 代使用者裁定：撤除 `a_ai_query` 與同序號 AI 原因對照，保留一般 stale recollect 的 `a_recollect` 回頭映射；原測試刪 AI 半並改綁一般回頭節點。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+index e3e4953..6f65db0 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+@@ -60,20 +60,21 @@ RETIRE-IF: 固定種子 15001、15002、15003 各以第一次 `outcome=ok` 且
+ - 門檻代碼一律用「欄位:區間」全名（如 `raise_pct:band_2`），未改善方向代碼為 `not_improve`，兩側相異廣告數只數有方向配對。模型提示要求 UTF-8 原字、不用 `\uXXXX`；回覆大小按實際 JSON 逸出後位元組計，解析超長整數的 `ValueError` 與非有限數同樣整份拒絕。理由：讓真相鍵、下限及輸出界一致，解析失敗不使命令列崩潰。
+ - 回退保留 `Caller.RULE_MINING` 的值 `rule_mining`、`CAPPED_CALLERS`、`CALLER_USERS` 鍵及歷史驗證模組的值、值→成員名對照及 [S918] 精確等式；只撤命令列與分析端送出入口及其白名單新增項，更新 [S918] 窄入口等式。理由：歷史錄製鍵仍可重算，邊界測試仍能守住精確集合。
+ 
+ ### 代使用者裁定(2026-09-27，代碼審 c_4/c_5)
+ 
+ - 重疊調整改為「兩筆調整的 D±3 視窗相交（相距 ≤6 天）即排除」，任何調整（含降額）都算；對照池改為「整期沒有任何預算調整（含降額）」，和事件側對稱。本節與條款中「整期從未加額」「整期未加額對照」的寫法照此收緊（更嚴的池仍滿足原字面），不另改條款句。理由：代碼審 c_4 指出照字面取相距 ≤3 天時，前一筆加額的後三日會落進本事件的前三日、汙染前三日轉換率與配對桶；c_5 指出對照側對降額不檢查、和事件側不對稱。兩項改動同時作用於 AI 與窮舉兩方、同一資料與同一候選全集，預期不偏袒任一方；是看過評估版本 v1 的窮舉前 K 之後才改的，故換評估版本 `phase15-rule-mining-v2` 並重跑三種子可達性預檢，結果記在 [[Systems/規則模式探索評估]]〈評估版本理由〉。
+ 
+ ## 現況（2026-09-26，分支 `phase15-rule-mining` 的 main 基底 `71b04d5`；以程式碼為準）
+ 
+ - 2026-09-27 增量 1 實作：分支 `phase15-inc1`，main 基底 `61bbb31`（含 Phase 14 增量 3；代碼審 r1 時已 rebase 到 `7bd062a`）。開工前核對 Phase 14 前置條件：分析端驅動的參數只剩資料庫、DSP、收件口、逾時與間隔（無 AI 判斷開關），展示驅動組分析端參數時只給這幾項，[S1429] 的閉包測試通過；F7 重跑（[S1518] 的「F7 重跑走規則路徑」證據）：協調者 2026-09-27 在基底 `7bd062a` 實跑 `tests/demo/test_driver.py` 與 `tests/demo/test_server.py` 裡的 F7 端到端（縮小版 30 支廣告，`-k "f7 or F7"`），12 passed；這是縮小版，不是完整幾千筆的 F7 展示。重新核對：`rg -n "add_argument" src/rtb/analyzer/runner.py`、`rg -n "def analyzer_args" -A5 src/rtb/demo/driver.py`。增量 1 的四支純離線模組與評估版本 v1 的可達性預檢記在 [[Systems/規則模式探索評估]]；未新增模型呼叫或通往提案的路徑。
++- 2026-09-27 增量 2 實作:分支 `phase15-inc2`,main 基底 `4e70f92`。分析端窄入口 `rtb.analyzer.rule_mining_model`(家 [[Systems/規則模式探索模型入口]])、評估端回覆核對 `rule_mining_check`、歷史錄製鍵 `rule_mining_recordings`、單一種子執行 `rule_mining_eval`(家 [[Systems/規則模式探索評估]]);`Caller.RULE_MINING` 與計入上限名單、[S1100]/[S1103]/[S1134]/[S918] 與送出邊界名單的精確新增記在 [[Systems/模型用戶端]]、[[Systems/評估與Jev決策點]] 與原計劃條款下的改寫註記。沒有命令列、沒有真錄製、沒有呼叫真模型;[S1506] [S1508] [S1509] [S1516] 留給增量 3。實作者解讀:預留額檢查沿用花費帳預留交易(它本來就用 `reservation_nanousd` 照當時價目與已用判兩個上限),不在窄入口另寫一份;十條填滿的最大回覆實算 5109 位元組(計劃寫 5139),仍低於 6000。重新核對:`rg -n "RULE_MINING" src tests`。
+ - `src/rtb/analyzer/modelgate.py` 的 `open_gate()` 在入口判錄製或即時、綁死 `Caller`、錄製目錄及花費帳；`Gate.complete()` 把請求交給 `src/rtb/modelclient.py`。即時要 `RTB_MODEL_LIVE=1`、展示編號、可用後端與有效啟用紀錄，重播缺錄製會報錯，不會默默轉即時。重新核對：`rg -n 'def open_gate|def complete|def settings_from_env|def call_model' src/rtb/analyzer/modelgate.py src/rtb/modelclient.py`。
+ - `src/rtb/modelledger_view.py` 的 `Caller` 是封閉列舉；`src/rtb/modelledger.py` 的 `CAPPED_CALLERS` 現只含評估候選與實測，花費帳有按呼叫者的上限與估算。錄製鍵含呼叫者、模型、系統提示、使用者內容與輸出上限，批次與目錄有驗收。重新核對：`rg -n 'class Caller|CAPPED_CALLERS|def recording_key|def batch_file_problems' src/rtb/modelledger_view.py src/rtb/modelledger.py src/rtb/modelrecording.py src/rtb/modelclient.py`。
+ - `src/rtb/eval/investigation_cases.py` 固定種子產 Phase 13 案例，`investigation_eval.py` 以同一 AI 函式重播／即時執行並驗批次，`investigation_report.py` 把結果寫成人讀報告。`src/rtb/eval/ruff.toml` 禁直接匯入模型閘道與 DSP，`src/rtb/analyzer/ruff.toml` 禁匯入評估套件；Phase 10 [S712] 的反向匯入界線仍成立。重新核對：`rg -n 'SEED|def generate|def run|def batch_problems|modelgate|rtb.eval' src/rtb/eval/investigation_cases.py src/rtb/eval/investigation_eval.py src/rtb/eval/ruff.toml src/rtb/analyzer/ruff.toml`。
+ - `src/rtb/dsp/store.py` 的逐日成效以 UTC 日期桶保存，金額用整數分，最近加額由正常操作紀錄連同調整前預算與提交時刻推得；`src/rtb/domain/nine_rules.py` 有正式九條的純領域詞彙與順序，`src/rtb/domain/metrics.py` 有 `exact_ratio`／`exact_change`。本案只仿照歷史資料語意建離線案例，不從 DSP 讀取，不匯入九條規則來生成答案。重新核對：`rg -n 'daily_metrics|_latest_raise|def get_past_adjustments|ANSWER_ORDER|def exact_ratio|def exact_change' src/rtb/dsp/store.py src/rtb/domain/nine_rules.py src/rtb/domain/metrics.py`。
+ 
+ ## 設計
+ 
+ ### 合成歷史與可觀察效果
+ 
+ - 評估套件新增純生成器與資料型別：固定種子、固定評估時鐘，至少 300 支虛構廣告、至少 28 個連續 UTC 日。每支有每天曝光、點擊、轉換、花費、營收的完整日桶，另有零或多筆含加額前後預算及 `committed_at` 的操作；計數遵守資料自洽，金額先以整數分生成。生成器可 `render(generate(seed))` 得到位元組一致的評估集與雜湊；另存只給評估器的埋入真相清單（真模式、誘餌、生成版本），不能放進模型提示。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+index f7089c5..9c3fe50 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+@@ -264,10 +264,19 @@ WHY: [2026-09-25 Phase 13 增量 2 代碼審 r3] `ai_step_worst_seconds` 多算
+ 
+ - `recorded_ledger(mode, given, notify)`:四個模型入口(說明、評估重播、Phase 10 評估、原因假說;原本第五個分析端驅動在 Phase 14 增量 3 撤除)與模型閘道共用。**模式判出之後**才呼叫:即時回 None(不建暫存目錄、不通知,即時的帳照舊是帳號家目錄那一本);錄製有給帳本就用它;錄製沒給才建暫存帳本、用 notify 印路徑,暫存目錄登記在 atexit、行程結束清掉。模型閘道收 `notify`:沒給帳本也沒給 notify 就拒絕。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈實作解讀〉增量 2b 代碼審 r3、[[Issues/錄製模式的原因假說寫進真帳本]]。防回歸:[test:test_the_shared_resolver_decides_after_the_mode]、[test:test_the_gate_uses_the_shared_resolver_only_in_recorded_mode]、[test:test_recorded_entries_never_touch_the_account_ledger]、[test:test_narrate_and_the_runner_book_recorded_replays_into_a_scratch_ledger]。
+ 
+ ## AI 退出加額決策(Phase 14 增量 3,2026-09-26)
+ 
+ 出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3;驗證見 [[Verification/Phase14增量3驗證紀錄]]。
+ 
+ - WHY:`stepbudget.ai_step_worst_seconds`、`ai_stop_grace_seconds`、`preflight_worst_seconds` 撤除:三支只給分析端 AI 那一步的租約守衛、啟動器的 AI 寬限與展示等模式行用,入口都拔了。`MODEL_TIMEOUT_SECONDS` 留給評估的調查呼叫,`collect_step_worst_seconds` 留給規則輪各步([S1405])。上面 2026-09-25「多算一次記次等鎖(55/60)」那段是當時的數字,現在已沒有使用者。
+ - 模型閘道的呼叫者只剩說明、評估(調查)、假說;分析端驅動不再開閘道,所以「錄製模式沒帶帳本用暫存帳本」那五個入口少了分析端驅動一個(說明、評估重播、Phase 10 評估、原因假說照舊)。
+ - PITFALL(代碼審 r1 外家否決-1,2026-09-27,已修):`traceable_sentences` 原本只比數值,「把預算加 500%」借曝光數 500 過關。現在寫成百分比的數字另外要對回證據裡也是百分比的同值數字。代碼審 r2 三席指出 r1 只認半形與全形百分號,換 `﹪`、`٪`、「百分之500」「500 percent」「500 個百分點」照樣過關;r2 起百分比的寫法先 NFKC 正規化再認:%(含全形與小型百分號)、阿拉伯百分號、percent/per cent/pct、(個)百分點、百分之N(視同 N%);千分號、萬分號整句拿掉。沒列到的寫法仍只比數值,不含數字的句子不做語意過濾(`_PERCENT_AFTER`、`_PERCENT_BEFORE`、`_PER_MILLE`)。擋得住的就是這張列舉;不含數字的句子仍不做語意過濾,靠「AI 產生、僅供參考」標示與人工確認(宣稱 prompt-injection 照實寫)。代碼審 r3(2026-09-27):「500-percent」「500 per-cent」「500pcts」這類連字號與複數寫法原本認不出來,現在數字與單位、per 與 cent 之間可隔空白或各種連字號,pct 可帶複數;另外數字與百分號之間插看不見的字元(變體選擇符、組合字形連接符、零寬空白,NFKC 刪不掉)也能繞過,而且頁面上看起來就是「500%」,現在所有核對之前先用 `_visible` 拿掉 Unicode 類別 Mn、Me、Cf 與韓文填充字、點字空白,核對看到的字跟核可人看到的一樣,留下的句子照原文。WHY:只改核對這一端、不改頁面逸出(`escape_text` 不把這類字元顯示成代碼):核對已經照「人看得到的字」判,這類字元不再能改變判決;頁面逸出是所有頁面文字共用的一支,改它會牽動評估報告與舊展示的顯示,範圍比這個問題大。防回歸:[test:test_a_percentage_must_trace_back_to_a_percentage]、[test:test_every_way_of_writing_a_percentage_must_trace_back_to_a_percentage]、[test:test_a_traceable_percentage_survives_any_spelling]。`recorded_ledger` 說明改成實際的四項。
++
++## 規則模式探索的呼叫者與窄入口(Phase 15 增量 2,2026-09-27)
++
++出處 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉〈拆增量〉2;窄入口本身的家是 [[Systems/規則模式探索模型入口]]。
++
++- 呼叫者列舉(`modelledger_view.Caller`)精確新增 `RULE_MINING = "rule_mining"`,花費帳的計入上限名單(`modelledger.CAPPED_CALLERS`)也加它:探勘的即時呼叫與評估候選、實測共用每展示 1 美元、每月 20 美元;Phase 13 三個不計入上限的呼叫者語意不變([S902]/[S903] 不改)。停用模型探勘時列舉成員與上限名單成員**照留**:歷史錄製鍵要重算得回、歷史帳列要繼續計上限([S1517])。防回歸:[test:test_the_investigation_caller_is_a_bounded_label](全體成員等式)、[test:test_the_phase13_callers_are_not_capped_but_still_booked](上限名單等式)、[test:test_rule_mining_single_call_respects_reservation](上限剛好/差一、價目變動、展示與每月已用、併行預留)。
++- [S1100] 准匯入模型閘道的分析端模組窄增 `rtb.analyzer.rule_mining_model` 一支(`GATE_USERS`);它只收已組好的彙總文字、用字面 `Caller.RULE_MINING` 開閘道。邊界測試同步精確新增:`CALL_MODEL_USERS` 與 `SENDING_ENTRIES` 加窄入口與評估端探勘執行器兩支(匯入它們也算送出點);`CALLER_USERS["RULE_MINING"]` 是窄入口與評估端的歷史錄製鍵模組;呼叫者的值→成員名對照從函式裡的區域字典抽成模組常數 `CALLER_VALUES`,並新增斷言它等於列舉本身(原本新成員漏列不會紅)。撤除模型段時只撤前兩組的兩項,`CALLER_USERS` 那格因為歷史錄製鍵模組而不會變空。
++- 靜態檢查規則:凡是禁匯入 AI 決策模組的地方(分析端、展示三份、執行端、領域層、DSP、根 `pyproject.toml`)同樣禁匯入窄入口;評估端的規則不禁(探勘執行器要用它),評估端照舊禁直接匯入模型閘道。
++- 閘道本身沒改行為,只在檔頭把窄入口列進「經它的分析端模組」。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md
+new file mode 100644
+index 0000000..69fedd3
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md
+@@ -0,0 +1,41 @@
++---
++type: system
++status: doing
++created: 2026-09-27
++updated: 2026-09-27
++responsibility: 負責規則模式探索的分析端模型窄入口:收已組好的系統提示與彙總表文字加閘道設定,用字面 RULE_MINING 開既有模型閘道呼叫一次模型、回原始回覆或失敗類別;不負責讀評估集、解析或核對回覆、錄製驗收與報告,不碰流程推進、決策規則、分析端驅動、DSP 或收件口
++aliases: []
++about_code:
++  - src/rtb/analyzer/rule_mining_model.py
++  - tests/eval/test_rule_mining_model.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: [2026-09-27 Phase 15 增量 2] 評估端不准直接匯入模型閘道,AI 探勘又要經既有閘道(模式判定、花費帳、錄製),所以比照 Phase 13 評估執行器依賴 AI 決策函式的方向,在分析端開一支只收「已組好的彙總文字」的窄入口;[S1100] 准匯入閘道的名單只窄增這一支,不放寬整個分析端或評估套件。出處 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉〈要改寫的既有合約〉。
++  RULE: 一批只准一次完整提示:系統提示加彙總表超過 20480 位元組就在開閘道前拒絕,不分塊、不截列;任何非 ok 結果(缺錄製、逾時、上限拒絕、額度、超支、暫時性錯誤、花費帳忙碌)都收成失敗類別交回、不重試,評估端記「呼叫失敗」。[since:2026-09-27] [retire:Phase 15 依 RETIRE-IF 停用模型探勘、撤掉這支入口時] [test:test_rule_mining_single_call_respects_reservation] [test:test_rule_mining_live_calls_require_the_gateway_and_count_toward_caps]
++  RULE: 呼叫者標籤在開閘道時寫死 `RULE_MINING`,它在花費帳的計入上限名單;預留額由花費帳在單一寫入交易裡用模型用戶端的預留函式照當時價目與已用重算,超過每展示或每月剩餘上限就不呼叫。停用模型探勘時列舉成員與上限名單成員照留(歷史帳列繼續計上限)。[since:2026-09-27] [retire:花費帳或上限改成不看呼叫者時] [test:test_rule_mining_single_call_respects_reservation] [test:test_rule_mining_retirement_preserves_recordings_and_caps]
++  FLOW: 評估端探勘執行器(見 [[Systems/規則模式探索評估]])組好系統提示與探索集彙總表 → 這支檢查位元組 → 開閘道(錄製重播為預設;即時要 RTB_MODEL_LIVE=1 與閘道其餘前置)→ 呼叫一次 → 回原始文字或失敗類別。以程式碼為準:`rg -n "^def |^class |^[A-Z_]+ = " src/rtb/analyzer/rule_mining_model.py`
++  DEP: 只匯入 [[Systems/模型用戶端]] 的分析端模型閘道;准匯入閘道、送出點與呼叫者標籤的精確名單在邊界測試(見 [[Systems/模型用戶端]]),評估套件閉包的准許名單在 [[Systems/評估與Jev決策點]]。
++related:
++  - Systems/規則模式探索評估
++---
++# 規則模式探索模型入口
++
++Phase 15 增量 2(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈拆增量〉2)。AI 在這裡的角色只是「離線提候選規則」:回覆只到評估端的核對與(增量 3 的)人讀報告,不進分析行程、提案、收件口、執行端或 DSP。
++
++## 這支檔
++
++- `src/rtb/analyzer/rule_mining_model.py`:`suggest(system, table, config)` 開閘道、送一次;`GateConfig` 是閘道設定(環境、展示編號、帳本、錄製目錄、批次、錄製帳本);`Reply` 帶結果類別、模式、原始文字(成功才有)、來源、錄製鍵、原價與失敗原因;`PromptTooLarge` 是呼叫前的位元組拒絕。
++- 常數:輸出上限 6144 token、逾時 60 秒、完整提示 20480 位元組。評估版本的同名常數在評估端的語彙模組([[Systems/規則模式探索評估]]),兩邊由 [S1514] 的測試核對一致;分析端不准匯入評估套件,所以只能各寫一份。
++- 閘道注入點 `open_gate=`:測試用它換成綁假後端的閘道(不呼叫真的 claude);產品碼一律用閘道本身。
++
++## 實作者解讀(2026-09-27)
++
++- 預留額檢查不另寫一份算式:計劃要求「呼叫前用 repo 預留函式與當時價目、已用額重算,須 ≤ 每展示及每月剩餘上限」,花費帳的預留本來就在單一寫入交易裡做這件事(用 `reservation_nanousd`、讀已用、判兩個上限),只要 `RULE_MINING` 列進計入上限名單。另在窄入口重算一次既會重複、也有「先查後寫」的競爭空窗;併行預留由 [S1514] 的測試證明也守得住。
++- 失敗一律收成 `Reply`、不往外丟:評估端要把非 ok 記成「呼叫失敗」而且不重試,收成值比每個呼叫端各自接例外不容易漏。閘道拒絕(入口參數跟模式對不上)、不認得的模型與停止訊號不是模型呼叫的結果類別,照原樣往外丟。
++
++## 測試
++
++- `tests/eval/test_rule_mining_model.py`:[S1507] [S1510](匯入邊界) [S1514] [S1517] [S1518](匯入邊界)。即時一律是行程內假後端,帳本與錄製都在 tmp;「即時前置不齊」那格放一支假的 claude,被執行就留記號,斷言沒被執行。
++
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+index 132c0cb..20364a0 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+@@ -1,61 +1,77 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-27
+ updated: 2026-09-27
+-responsibility: 負責 Phase 15 規則模式探索的純離線評估:封閉條件語彙與評估版本常數、固定三種子合成歷史與真相清單、D±3 完整日效果與同側配對、彙總表、樣本下限、保留側判定、窮舉前 K、固定系統提示與完整提示位元組閘、可達性預檢;不負責模型呼叫、回覆解析、錄製與人讀報告(增量 2/3),不匯入模型閘道、模型用戶端或 DSP,不通往提案或正式九條
++responsibility: 負責 Phase 15 規則模式探索的評估端:封閉條件語彙與評估版本常數、固定三種子合成歷史與真相清單、D±3 完整日效果與同側配對、彙總表、樣本下限、保留側判定、窮舉前 K、固定系統提示與完整提示位元組閘、可達性預檢(增量 1);模型回覆的封閉 JSON 解析、去重、同探索集重算、保留側判定、歷史錄製鍵重算與單一種子執行(增量 2);不負責開模型閘道或送出(經分析端窄入口)、命令列、錄製驗收與人讀報告(增量 3),不匯入模型閘道或 DSP,不通往提案或正式九條
+ aliases: []
+ about_code:
+   - src/rtb/eval/rule_mining_vocab.py
+   - src/rtb/eval/rule_mining_history.py
+   - src/rtb/eval/rule_mining_baseline.py
+   - src/rtb/eval/rule_mining_prompt.py
+   - tests/eval/test_rule_mining.py
++  - src/rtb/eval/rule_mining_check.py
++  - src/rtb/eval/rule_mining_recordings.py
++  - src/rtb/eval/rule_mining_eval.py
++  - tests/eval/test_rule_mining_check.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: [2026-09-27 Phase 15 增量 1] AI 退出加額決策後保留的第三個角色是「離線提候選規則、靠證據取得採用資格」;這一篇先做不接模型的一半:固定種子合成歷史、可重算的配對效果、封閉語彙彙總與不用 AI 的窮舉前 K,讓之後的模型建議有同口徑的對照組。出處 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈拆增量〉1 與〈使用者裁定〉5。
+   RULE: 評估版本參數(三種子、K、有方向下限與兩側相異廣告下限、保留 3/5、切點、SHA-256 切側、整期沒有任何調整的對照池、重疊判準、配對欄位、搶用次序、絕對差效果與平均公式、Wilson 排序鍵、格式化、輸入輸出上限)在看任何基準或模型結果前凍結;改任何一項先換評估版本並記理由、可達性預檢與對 AI、窮舉雙方的預期影響,三個種子永不替換。[since:2026-09-27] [retire:Phase 15 依 RETIRE-IF 停用模型探勘且不再重跑基準時] [test:test_rule_mining_pairing_parameters_are_frozen] [test:test_rule_mining_preflight_checks_all_fixed_seed_prompts]
+   RULE: 真相清單與保留側只給評估器,不能進送模型的彙總表或系統提示;彙總表只列探索側達下限的條件,不送逐日列、識別、時間戳或精確分數。[since:2026-09-27] [retire:改用真實歷史與人工標註另開案時] [test:test_rule_mining_prompt_contains_only_bounded_aggregates]
+   FLOW: 生成歷史 → SHA-256 切側 → 每側加額事件與排除計數 → 整期沒有任何調整的對照索引 → 每條件不放回配對 → 彙總 → 下限 → 彙總表與位元組閘 → 三種子預檢;保留側判定與窮舉前 K 用同一份每條件彙總。以程式碼為準:`rg -n "^def " src/rtb/eval/rule_mining_baseline.py src/rtb/eval/rule_mining_prompt.py`
++  RULE: 模型回覆整份拒絕與單條剔除的界線照計劃逐字:重複鍵、任一物件層未知鍵、非有限數(含 1e400)、超長整數解析錯、超 K、超 6000 UTF-8 位元組(照收到的字串量)、錯版本整份拒絕並記 1 筆無效提交;單條型別、語彙、子句數、說明長度錯與同鍵重複、同條件反方向只丟該條;核對不符與未達樣本下限也是無效提交。所有無效提交都要進 AI 同名額誤報的分子與分母(增量 3 的比較用 `invalid_count`)。[since:2026-09-27] [retire:改用別的回覆格式、換評估版本時] [test:test_rule_mining_rejects_out_of_vocabulary_suggestions] [test:test_rule_mining_recounts_every_suggestion_before_reporting]
+   DEP: 轉換率與比例格式用 [[Systems/確定性指標計算]] 的精確比率與百分比字串;Wilson 下界直接用 [[Systems/評估與Jev決策點]] 計分模組的既有函式;評估套件匯入閉包白名單在 [[Systems/評估與Jev決策點]] 的測試精確新增這四支。
+ decisions:
+   - content: 建立評估版本 phase15-rule-mining-v1(生成版本 rule-mining-history-1)
+     id: d1
+     context: 首版;參數照計劃逐字凍結於語彙模組與提示模組,看任何窮舉排名前寫死;三種子可達性預檢全過(見正文〈評估版本理由〉)
+     why_chosen: 計劃要求建立評估版本時預檢完整提示位元組與真模式/誘餌分母;預檢只看分母與位元組,不看正負差或排名;首版無前版可比
+     decided: 2026-09-27
+     valid: false
+     superseded_by: d2
+     ended: 2026-09-27
+   - content: 換評估版本 phase15-rule-mining-v2(代碼審 c_4/c_5:重疊改兩筆 D±3 視窗相交、對照池改整期無任何調整)
+     id: d2
+     context: 看過 v1 窮舉前 K 後,代碼審 r1 c_4 指出前一筆加額的後三日會汙染本事件前三日、c_5 指出對照側不檢查降額與事件側不對稱;三種子不換、生成器不動
+     why_chosen: 計劃規定改排除或配對語意須換評估版本並記理由與可達性預檢;改動同時作用於 AI 與窮舉兩方、同一資料與同一候選全集,預期不偏袒任一方;可達性預檢與理由見正文〈評估版本理由〉phase15-rule-mining-v2 一節
+     decided: 2026-09-27
+     valid: true
+ ---
+ # 規則模式探索評估
+ 
+-Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不呼叫模型、沒有命令列;四支純函式模組加一支測試。合成資料只證流程可運作,不給統計或因果保證。
++Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不呼叫模型、沒有命令列;四支純函式模組加一支測試。增量 2 加回覆解析與重算、歷史錄製鍵與單一種子執行三支(見下方〈增量 2〉)。合成資料只證流程可運作,不給統計或因果保證。
+ 
+ ## 四支模組
+ 
+ - `src/rtb/eval/rule_mining_vocab.py`:評估版本的單一出處(`EVAL_VERSION`、`SEEDS`、`K`、下限、保留比例、切點、規模桶、上限、`version_params()`),以及封閉條件語彙:四欄 day_type(平日/週末)、pre_cvr、raise_pct、spend_ratio(各三區間),一條條件是一或兩個不同欄位的子句 AND;門檻代碼一律「欄位:區間」全名;`condition_key` / `normalized_key` 對語彙外、同欄重複、子句數錯、未知方向丟 `VocabularyError`(帶原因代碼,給增量 2 的解析器逐條記)。全集 56 條(11 單欄 + 45 兩欄)。
+ - `src/rtb/eval/rule_mining_history.py`:型別(日桶、操作、廣告、歷史、真相項)、`generate(seed)`(只收三個固定種子)、`render` / `data_sha256` 與寫死的三批預期雜湊、`split`。720 支廣告、35 個連續 UTC 日、一半廣告各兩次加額;另刻意放少量前後視窗出界、視窗重疊與 no_data,讓排除計數有東西可數。
+ - `src/rtb/eval/rule_mining_baseline.py`:事件與排除(判斷先後:視窗出界 > 另一筆調整的 D±3 視窗相交 > 資料異常 > 缺值 > 分母為零)、對照索引、`pair_condition`、`stats_of`、`summarize`、`meets_floor`、`directional`、`holdout_verdict`、`rank` / `top_k`、分母可達性 `Reach`。
+ - `src/rtb/eval/rule_mining_prompt.py`:定稿的系統提示與表頭、`summary_table`(平均差值以百分點四位小數寫,共用 [[Systems/確定性指標計算]] 的百分比字串函式、只多傳小數位數,不另寫捨入;代碼審 a_2)、`gate_problem`(B>20480 或達 48 KiB 拒)、`version_sha256`(雜湊用的正規化 JSON 共用評估套件已在用的那一支,見 [[Systems/分析行程流程與檢查點]] 調查詞彙模組;代碼審 a_1)與寫死的 `EXPECTED_VERSION_SHA256`、預檢 `preflight` / `preflight_problems` / `preflight_record` 與寫死的 `PREFLIGHT_RECORD`。
+ 
+ - `tests/eval/test_rule_mining.py`:本增量九條驗收條款 [S1501] [S1502] [S1503] [S1511] [S1512] [S1513] [S1515] [S1519] [S1520] 的測試;手造小歷史驗單一規則,固定三種子整批用模組範圍的 pytest fixture 只生成一次(代碼審 a_3);[S1503] 只驗彙總內容與位元組閘,不接模型。另以十種變異(對照重用、效果改尺度、平手算方向、原始比例排序、對照池收加額廣告、不查重疊、保留比例 1/2、平均為零算保留、不配規模桶、奇數多出者進探索)各跑一次,全數翻紅;代碼審 r1 再補九種(Wilson/第三鍵/保留比例分母改用總配對、重疊改 <6 或 ≤3、只看加額的重疊、v1 對照池、搶用第二三鍵對調、日期數含平手),也全數翻紅。代碼審 r2 再補:對照在距 D 12 天處降額或加額仍不入池(守「整期」而非「D±6」),以及「前一筆是降額」的重疊(相距 6 排除、7 推斷);對應的三種變異(降額只看 D±6、兩類都只看 D±6、降額只看 D 之後)都翻紅。
+ 
++## 增量 2:回覆解析、重算與單一種子執行(2026-09-27)
++
++- `src/rtb/eval/rule_mining_check.py`(純函式):`parse_reply` 封閉 JSON 解析(拒重複鍵的 `object_pairs_hook`、拒 NaN/Infinity 的 `parse_constant`、`parse_float` 擋溢位成 inf、解析後遞迴再驗有限;`ValueError` 與 `RecursionError` 都收成整份拒絕)、逐條驗、去重(留先出現的**合法**條);`Recounter` 用增量 1 的事件、對照索引、不放回配對與彙總函式逐條件重算(測試核對它對 56 條全集都等於增量 1 的探索側彙總);`verify` 先比模型自報的支持/反例(不符記「無法核對」),再看樣本下限(不足記「未達樣本下限」),有效的才在保留側獨立重算並照凍結門檻判定;`Checked` 只帶程式重算的數字,沒有說明欄。
++- `src/rtb/eval/rule_mining_recordings.py`(歷史錄製鍵):用字面 `Caller.RULE_MINING` 與評估版本輸出上限,經模型用戶端門面的錄製鍵函式重算「這份提示」的鍵。它是撤除模型段時**留下**的那一半([S1517]):不匯入模型閘道或送出入口,邊界測試的 `CALLER_USERS["RULE_MINING"]` 因為它而不會在撤除後變空。
++- `src/rtb/eval/rule_mining_eval.py`(單一種子執行,送出點):`prepare(seed)` 生成歷史、兩側重算器、完整彙總表與位元組數;`run(prepared, ask)` 先過位元組閘(過大丟 `PromptRefused`、不呼叫)、經 [[Systems/規則模式探索模型入口]] 呼叫**一次**、非 ok 記「呼叫失敗」不解析不重試、ok 才解析核對;`gate_ask(config)` 把窄入口包成送出函式。匯入它就算送出點;撤除模型段時連同窄入口一起撤。命令列、展示編號序號與批次驗收是增量 3。
++- `tests/eval/test_rule_mining_check.py`:[S1504](整份拒絕與單條剔除的每一類、位元組照 UTF-8 量、去重留先出現的合法條)與 [S1505](重算與探索側彙總一致、核對不符與未達下限、19 平手＋1 正差的例子、有效條目不帶說明)的測試,回覆都是手寫的假回覆。
++- 評估套件閉包的准許名單([S918])在 [[Systems/評估與Jev決策點]] 精確新增上面三支與分析端窄入口;經門面的名單多一支歷史錄製鍵模組;匯入窄入口與用它送出的,精確等於探勘執行器一支。
++- 實作者解讀:「無效提交」的原因代碼沿用語彙模組的 `VocabularyError`(未知欄位、門檻不屬欄位、子句數、同欄重複、未知方向、代碼格式),解析器自己另加形狀、筆數、說明、去重、核對與下限幾類;說明除了 80 字/240 位元組,也擋控制字元與 Unicode 格式字元(Cf,例如零寬字元),以及需要 JSON 逸出的引號與反斜線(計劃的輸出契約)。
++- 實作者解讀:計劃說十條填滿的最大緊湊回覆「實算為 5139 位元組」;本增量用同一組假設(兩子句、24 位元組代碼、九位數筆數、80 個三位元組字、方向取較長的 `not_improve`)實算為 5109,仍低於 6000,結論不變;測試斷言「≤ 6000」而不寫死 5139。
++- 紅綠:新測試先在基底 4e70f92 的原始碼副本上跑,新模組缺席(匯入錯)、列舉與四組精確等式全紅;實作後全綠。另以二十種變異各跑一次(上限名單拿掉探勘、窄入口不擋過大提示、輸出上限或逾時改值、冒用別的呼叫者、不拒重複鍵、位元組界改量字數、子句未知鍵不整份拒、布林當整數、不去重、超 K 截前 K、不比對自報筆數、不看下限、保留側用探索側算、失敗後重試、執行器不過位元組閘、錄製鍵用錯輸出上限、失敗往外丟、窄入口多匯入收件口),十九種翻紅;「只拿掉解析時的非有限數檢查」不紅,因為解析後還有一層遞迴檢查(兩層都拿掉就紅),是刻意的雙層。以固定種子 15001 做的端到端(假後端)在 [[Systems/規則模式探索模型入口]] 的測試。
++
+ ## 埋入的真相(只給評估器)
+ 
+ - 真模式・改善:raise_pct:band_2 且 spend_ratio:band_3(預算幾乎花滿的廣告中度加額),後三天轉換率乘 1.6。
+ - 真模式・未改善:raise_pct:band_3(加額 50% 以上),後三天轉換率乘 0.5。
+ - 誘餌・只探索側偶合:day_type:weekend 且 raise_pct:band_1 改善——生成器只對探索側廣告埋 1.6 倍,保留側沒有。
+ - 誘餌・相關無獨立效果:spend_ratio:band_1 未改善——花費比低的廣告有七成被大幅加額,所以看似變差,本身不改轉換率。
+ - 生成器用評估器同一套語彙函式,從已生成的前三日資料算事件的欄位值再決定埋不埋效果,真模式與切點精確對齊;所以之後報告的召回只是「可精確表示時」的上界。
+ 
+ ## 口徑(計劃逐字,實作選擇另記)
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+index 21caf0d..255bad6 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+@@ -55,20 +55,22 @@ verified_by:
+   - "[[Verification/Phase13增量3驗收紀錄]]"
+   - "[[Verification/Phase14增量2a離線驗證]]"
+   - "[[Verification/Phase14增量2b驗證紀錄]]"
+   - "[[Verification/Phase14增量3驗證紀錄]]"
+   - "[[Verification/Phase14增量4驗證紀錄]]"
+ ---
+ # 評估與Jev決策點
+ 
+ 2026-09-27 Phase 15 增量 1:[S918] 評估套件匯入閉包的准許名單精確新增規則模式探索的四支純離線模組(另立 `PHASE15_ALLOWED`,不放寬既有名單);它們不經模型用戶端、不送出,經門面、送出與 AI 決策模組的精確等式都沒變。套件說明(`__init__.py`)的准許名單段同步加註這四支。模組本身的家是 [[Systems/規則模式探索評估]]。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+ 
++2026-09-27 Phase 15 增量 2:[S918] 再逐項精確新增(`PHASE15_ALLOWED`):純核對模組 `rule_mining_check`、歷史錄製鍵模組 `rule_mining_recordings`、單一種子探勘執行器 `rule_mining_eval`,以及評估經它開閘道送出的分析端窄入口 `rtb.analyzer.rule_mining_model`(閘道本身早在 Phase 13 名單);`PHASE13_ALLOWED` 不動。經門面 `rtb.modelclient` 的精確名單多 `rule_mining_recordings` 一支(只取錄製鍵函式與呼叫者列舉);直接送出仍只有模型候選;AI 決策模組的匯入與送出等式照舊只有調查評估執行器;另立一組等式:匯入窄入口、用它的送出名字(`suggest`、`gate_ask`)的評估模組都精確等於 `rule_mining_eval`。套件說明(`__init__.py`)同步。三支模組的家是 [[Systems/規則模式探索評估]],窄入口的家是 [[Systems/規則模式探索模型入口]]。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
++
+ 2026-09-26 Phase 14 增量 1:評估標準答案在案例邊界轉成 [[Systems/正式九條判斷領域規則]] 的型別並呼叫同一決策;必要列內缺值與單日 no_data 回無格的證據不足,原 72 筆含雙胞胎的格與答案逐筆維持,固定匯入閉包名單只增純領域模組。[test:test_missing_row_values_are_insufficient_without_changing_the_72_cases] [test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+ 
+ 2026-09-26 代碼審折入:標準答案與正式規則刻意同源,只證接線一致、不作獨立品質證據;生成器仍不匯入分析端與 AI 決策模組。評估的區段轉換率邊界檢查共用 [[Systems/正式九條判斷領域規則]] 的公開函式,[S1403] 以精確下降 50.04% 而收據顯示 -50.0% 守捨入門檻。[test:test_eval_uses_the_domain_segment_rate] [test:test_exact_thresholds_distinguish_zero_denominators]
+ 
+ 本篇管 `src/rtb/eval/` 七支檔:評分表(`rubric.py`)、生成器(`generator.py`)、合成評估集(`eval_set.py`,生成器的產出,不要手改)、逐筆計分與逐格報告(`scoring.py`)、比較表與逐格採用決定(`adoption.py`)、人讀的決定紀錄(`record.py`,`python -m rtb.eval.record` 產生)、套件說明(`__init__.py`)。判斷點本身、路由與待測格清單的型別在 [[Systems/分析行程流程與檢查點]],判斷點的輸入與評分格在 [[Systems/任務流程領域模型]]。
+ 
+ - 評分表(五條全由使用者本人裁定,原意對照後加「資料自不自洽」;由上而下第一個成立的):暫停 → 不值得加;資料異常(負數、缺值、點擊多於曝光、轉換多於點擊)→ 證據不足;曝光或點擊是零 → 不值得加;轉換或營收有正數 → 值得加;轉換營收都是零 → 證據不足。標準答案由程式照評分表算,不派代理標註。防回歸:[test:test_the_rubric_gives_exactly_one_class_for_every_input]。
+ - 合成評估集(第四版):5 格 × 20 組基準情境 × 三個變體(基準原值、只改花費仍在偏低範圍、只改預算且花費不變),共 300 筆。正常格照漏斗順序造、沒有負數與缺值;資料異常格輪流造 12 種單一故障(五個欄位各缺值、各負數,只違反點擊多於曝光、只違反轉換多於點擊);每列多記歸檔的格與故障。計劃釘住的邊界案例放在各格前幾組。每種故障只動一欄(代碼審第 1 輪:點擊多於曝光的故障原本另把轉換歸零)。雜湊由測試釘住,另重跑生成器逐值比對;換批用決策指令記(d1、d2、d3)。防回歸:[test:test_the_eval_set_is_pinned_by_hash]、[test:test_the_generator_covers_every_anomaly_and_matches_the_committed_set]。
+ - 計分:逐筆經分析端的路由函式,依退回後的最後有效答案計分;現行規則用同一套(不傳候選)。每格報分子分母、類別正確數、錯誤子型與走了哪條路;「值得加」格的指標是召回率,其他三格是誤提案率,另報類別正確率;無關欄位擾動後答案改變的組數另報。防回歸:[test:test_the_eval_report_is_per_slice_and_marks_thin_slices]、[test:test_irrelevant_fields_do_not_change_the_answer]、[test:test_the_code_rule_is_scored_per_slice_like_a_candidate]。
+ - 品質門檻(使用者 2026-09-24 本人裁定定案):「不誤提案的比例」與類別正確率下界 ≥ 0.95、每格至少 73 筆;「值得加」格召回率下界 ≥ 0.80、至少 16 筆。成本、延遲、失敗率門檻在接上第一個候選時由使用者裁定。
+diff --git a/pyproject.toml b/pyproject.toml
+index c2c0ba6..51ac79d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,20 +18,21 @@ select = [
+ 
+ [tool.ruff.lint.flake8-tidy-imports.banned-api]
+ # 最上層共用模組(sqlitekit、httpkit、httpclient、capabilitykit)吃的是這一份;各層與展示套件的
+ # ruff.toml 整張重列自己的禁令表(子目錄設定會蓋掉這張表)。Phase 12 代碼審 r1 s2
+ "rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+ # 最上層共用模組不准碰會送出模型呼叫的入口(Phase 13 代碼審 r3:各層准匯入共用模組,共用模組若轉手就繞過)
+ "rtb.analyzer.modelgate".msg = "分析端模型閘道是送出模型呼叫的入口:只准分析端寫死的幾支模組用(Phase 13 [S1100])"
+ "rtb.analyzer.narrate".msg = "模型說明命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r3)"
+ "rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r3)"
+ "rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准評估執行器用(Phase 14 增量 3 [S1429];分析端驅動與展示都不准)"
++"rtb.analyzer.rule_mining_model".msg = "規則模式探索的模型窄入口會開模型閘道送出模型呼叫:只准評估端的探勘執行器用(Phase 15 增量 2)"
+ "rtb.analyzer.runner".msg = "分析端驅動命令列開了 AI 決策會送出模型呼叫:只准用子行程起它,不准匯入(Phase 13 增量 2)"
+ 
+ [tool.ruff.lint.per-file-ignores]
+ # 測試裡本來就會 assert、啟動子行程、開連線到本機、用固定種子的亂數
+ # TID251:上面那張禁令表是給正式程式的;測試本來就要匯入各層與展示套件(禁令表加上之前測試也不受限)
+ "tests/**" = ["S101", "S603", "S310", "S311", "ARG002", "TID251"]
+ 
+ # lumos 會把檔案抽到 .lumos/lintbase-*/ 臨時目錄再跑 ruff;明寫第一方套件,匯入排序才不會因目錄不同而判斷不一樣
+ [tool.ruff.lint.isort]
+ known-first-party = ["rtb", "tests"]
+diff --git a/src/rtb/analyzer/modelgate.py b/src/rtb/analyzer/modelgate.py
+index d7b8c0d..91998af 100644
+--- a/src/rtb/analyzer/modelgate.py
++++ b/src/rtb/analyzer/modelgate.py
+@@ -1,14 +1,15 @@
+ """分析端模型閘道(Phase 13 增量 1,計劃〈共用模型入口與行程〉):分析端唯一准匯入模型用戶端的地方。
+ 
+ 使用者裁定「共用同一個模型入口」落在這裡:分析端要呼叫模型的地方(模型說明命令列、AI 決策函式所在
+-模組;Phase 14 增量 3 起分析端驅動命令列不再開閘道,AI 決策模組只給評估執行器用)都經它,
++模組;Phase 14 增量 3 起分析端驅動命令列不再開閘道,AI 決策模組只給評估執行器用;Phase 15 增量 2
++加規則模式探索的窄入口 `rule_mining_model`,只給評估端的探勘執行器用)都經它,
+ 准匯入它的分析端模組寫死在邊界測試([S1100])。流程推進與
+ 決策規則的匯入閉包不含模型用戶端的任何一支模組。
+ 
+ 閘道負責入口該判的事,判一次、之後沿用:
+ - 模式:照 Phase 11B 的 `settings_from_env`(即時開關、展示編號、找得到 claude、啟用紀錄有效,
+ 全齊才即時,
+   否則錄製並帶原因)。claude 的絕對路徑在這裡用呼叫端給的環境的 PATH 找,模型用戶端自己不查 PATH。
+ - 帳檔:即時模式寫死帳號家目錄那一本,不接受換路徑;錄製模式可以換(一鍵展示把錄製重播的 0 元紀錄導到
+   這次展示的暫存目錄,Phase 12 [S1030];Phase 13 [S1102])。
+ - 錄製目錄:沒給就用專案根的 recordings/model/。
+diff --git a/src/rtb/analyzer/ruff.toml b/src/rtb/analyzer/ruff.toml
+index 80f941d..e962afa 100644
+--- a/src/rtb/analyzer/ruff.toml
++++ b/src/rtb/analyzer/ruff.toml
+@@ -2,10 +2,11 @@
+ extend = "../../../pyproject.toml"
+ 
+ [lint.flake8-tidy-imports.banned-api]
+ "rtb.demo".msg = "展示套件(Phase 12)在最外層、只給本機展示:正式程式不得依賴它([S1002])"
+ "rtb.dsp".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.executor".msg = "兩個行程的程式碼不得互相依賴,共用的東西放在 rtb.httpkit、rtb.sqlitekit 或領域層"
+ "rtb.ops".msg = "維運套件(追蹤檢視等)只讀、在最外層:其他層不得依賴它,依賴方向只有維運套件 → 分析端與執行端"
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+ "rtb.analyzer.ai_judge".msg = "AI 決策模組只准評估執行器用(Phase 14 增量 3 [S1429]):分析端驅動、流程層與其他分析端模組都不准匯入"
++"rtb.analyzer.rule_mining_model".msg = "規則模式探索的模型窄入口只准評估端的探勘執行器用(Phase 15 增量 2):分析端其他模組都不准匯入"
+diff --git a/src/rtb/analyzer/rule_mining_model.py b/src/rtb/analyzer/rule_mining_model.py
+new file mode 100644
+index 0000000..d6dbedd
+--- /dev/null
++++ b/src/rtb/analyzer/rule_mining_model.py
+@@ -0,0 +1,92 @@
++"""規則模式探索的分析端模型窄入口(Phase 15 增量 2,計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]
++〈模型建議、機械核對與人讀報告〉〈拆增量〉2)。
++
++只做一件事:收**已經組好的**系統提示與探索集彙總表文字,加上閘道設定,用字面 `Caller.RULE_MINING`
++開既有模型閘道、呼叫模型**一次**,把原始回覆或失敗類別交回呼叫端。
++
++- 不讀評估集、不解析回覆、不核對數字(那些在評估端的純函式);不匯入流程推進、決策規則、分析端驅動、
++  DSP 或收件口用戶端。准匯入模型閘道的分析端模組寫死在邊界測試(`GATE_USERS`,[S1100] 窄增這一支)。
++- 模式、帳本、錄製目錄都在閘道判一次:預設錄製重播,缺錄製就是「沒有錄製」,不會改走即時;即時要
++  使用者明確設 `RTB_MODEL_LIVE=1` 並過閘道的其餘前置條件。
++- 一批只准一次完整提示:系統提示加彙總表超過本案 20480 位元組就在呼叫前拒絕(不分塊、不截列、不記帳)。
++  輸出上限 6144 token、逾時 60 秒,寫死在這裡,評估端的同名常數由測試核對一致。
++- 預留額不另寫算式:`RULE_MINING` 列在花費帳的計入上限呼叫者,送出前由花費帳在單一寫入交易裡用模型
++  用戶端的預留函式(`modelcore.reservation_nanousd`)照當時價目與已用重算,超過每展示或每月剩餘上限
++  就記「本地上限拒絕」、不呼叫([S1514])。
++- 任何非 `ok` 結果(逾時、上限拒絕、額度用完、超支、暫時性錯誤、花費帳忙碌、沒有錄製…)都以失敗類別
++  交回,**不重試**;評估端記「呼叫失敗」。閘道拒絕(`GateRefused`)、不認得的模型與停止訊號照原樣往外丟。
++"""
++
++from collections.abc import Callable, Mapping
++from dataclasses import dataclass
++from pathlib import Path
++
++from rtb.analyzer import modelgate
++
++MAX_OUTPUT_TOKENS = 6144
++TIMEOUT_SECONDS = 60.0
++PROMPT_BYTES_LIMIT = 20480  # 本案:系統提示加使用者內容的 UTF-8 位元組
++
++GateOpener = Callable[..., modelgate.Gate]
++
++
++class PromptTooLarge(ValueError):
++    """完整提示超過本案上限:呼叫前拒絕,沒有開閘道、沒有記帳。"""
++
++
++@dataclass(frozen=True)
++class GateConfig:
++    """開閘道要的設定(沿用 `modelgate.open_gate` 的參數;評估端從命令列組好傳進來)。"""
++
++    environ: Mapping[str, str]
++    demo_id: str | None
++    ledger: Path | None
++    recordings: Path | None
++    batch_id: str | None = None
++    recorded_ledger: Path | None = None
++
++
++@dataclass(frozen=True)
++class Reply:
++    """一次呼叫的結果:成功帶原始回覆文字,失敗帶失敗類別與原因(不帶文字)。"""
++
++    outcome: str  # modelgate.Outcome 的值
++    mode: str  # 閘道判出的模式
++    text: str | None
++    source: str | None
++    key: str | None  # 錄製鍵(成功時由模型用戶端回報)
++    batch_id: str | None
++    list_nanousd: int
++    problem: str | None = None
++
++    @property
++    def ok(self) -> bool:
++        return self.outcome == modelgate.Outcome.OK.value and self.text is not None
++
++
++def prompt_bytes(system: str, table: str) -> int:
++    return len(system.encode("utf-8")) + len(table.encode("utf-8"))
++
++
++def suggest(system: str, table: str, config: GateConfig, *,
++            open_gate: GateOpener = modelgate.open_gate,
++            notify: Callable[[str], None] | None = None) -> Reply:
++    """開規則模式探索的閘道、送出一次(或讀一次錄製)。完整提示過大丟 `PromptTooLarge`;閘道拒絕丟
++    `modelgate.GateRefused`;模型呼叫的每一類失敗都收成 `Reply`(outcome 不是 ok),不重試。"""
++    size = prompt_bytes(system, table)
++    if size > PROMPT_BYTES_LIMIT:
++        raise PromptTooLarge(f"完整提示 {size} 位元組超過上限 {PROMPT_BYTES_LIMIT},不呼叫")
++    gate = open_gate(config.environ, caller=modelgate.Caller.RULE_MINING, demo_id=config.demo_id,
++                     ledger=config.ledger, recordings=config.recordings,
++                     batch_id=config.batch_id, recorded_ledger=config.recorded_ledger,
++                     notify=notify)
++    try:
++        result = gate.complete(system, table, max_output_tokens=MAX_OUTPUT_TOKENS,
++                               timeout_seconds=TIMEOUT_SECONDS)
++    except modelgate.ModelCallFailed as failed:
++        return Reply(outcome=failed.outcome.value, mode=gate.mode.value, text=None, source=None,
++                     key=None, batch_id=failed.recording_batch_id,
++                     list_nanousd=failed.list_nanousd, problem=str(failed))
++    return Reply(outcome=modelgate.Outcome.OK.value, mode=gate.mode.value, text=result.text,
++                 source=result.source.value, key=result.key, batch_id=result.batch_id,
++                 list_nanousd=result.list_nanousd)
+diff --git a/src/rtb/demo/faults/ruff.toml b/src/rtb/demo/faults/ruff.toml
+index 8ffafab..3985556 100644
+--- a/src/rtb/demo/faults/ruff.toml
++++ b/src/rtb/demo/faults/ruff.toml
+@@ -4,14 +4,15 @@ extend = "../../../../pyproject.toml"
+ 
+ # 維運套件(rtb.ops)准匯入:展示要讀追蹤檢視這類唯讀出口(計劃〈驅動程式〉);只准唯讀出口由維運套件自己守
+ [lint.flake8-tidy-imports.banned-api]
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "sqlite3".msg = "展示套件讀別的系統的資料庫只准經唯讀出口(同維運套件,Phase 12 代碼審 r2 a1);展示狀態庫在那支檔逐行放行"
+ "rtb.sqlitekit".msg = "展示套件讀別的系統的資料庫只准經唯讀出口(同維運套件,Phase 12 代碼審 r2 a1);展示狀態庫在那支檔逐行放行"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+ "rtb.analyzer.modelgate".msg = "分析端模型閘道是送出模型呼叫的入口:只准分析端寫死的幾支模組用(Phase 13 [S1100],代碼審 r1)"
+ "rtb.analyzer.narrate".msg = "模型說明命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出,只准分析端自己用(Phase 13 代碼審 r2)"
+ "rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准評估執行器用(Phase 14 增量 3 [S1429];分析端驅動與展示都不准)"
++"rtb.analyzer.rule_mining_model".msg = "規則模式探索的模型窄入口會開模型閘道送出模型呼叫:只准評估端的探勘執行器用(Phase 15 增量 2)"
+ "rtb.analyzer.runner".msg = "分析端驅動命令列開了 AI 決策會送出模型呼叫:展示只准用子行程起它,不准匯入(Phase 13 增量 2)"
+ "rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r2)"
+ "rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用;展示的批次檢查經模型用戶端門面(Phase 13 增量 4 代碼審 r1 h2)"
+ "rtb.modelclient".msg = "展示伺服器與驅動不准載入模型用戶端([S1143]);只有批次檢查那一支經門面,見下面的逐檔設定"
+diff --git a/src/rtb/demo/launcher/ruff.toml b/src/rtb/demo/launcher/ruff.toml
+index 4010831..7e9d6e8 100644
+--- a/src/rtb/demo/launcher/ruff.toml
++++ b/src/rtb/demo/launcher/ruff.toml
+@@ -4,14 +4,15 @@ extend = "../../../../pyproject.toml"
+ 
+ # 維運套件(rtb.ops)准匯入:展示要讀追蹤檢視這類唯讀出口(計劃〈驅動程式〉);只准唯讀出口由維運套件自己守
+ [lint.flake8-tidy-imports.banned-api]
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "sqlite3".msg = "展示套件讀別的系統的資料庫只准經唯讀出口(同維運套件,Phase 12 代碼審 r2 a1);展示狀態庫在那支檔逐行放行"
+ "rtb.sqlitekit".msg = "展示套件讀別的系統的資料庫只准經唯讀出口(同維運套件,Phase 12 代碼審 r2 a1);展示狀態庫在那支檔逐行放行"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+ "rtb.analyzer.modelgate".msg = "分析端模型閘道是送出模型呼叫的入口:只准分析端寫死的幾支模組用(Phase 13 [S1100],代碼審 r1)"
+ "rtb.analyzer.narrate".msg = "模型說明命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出,只准分析端自己用(Phase 13 代碼審 r2)"
+ "rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准評估執行器用(Phase 14 增量 3 [S1429];分析端驅動與展示都不准)"
++"rtb.analyzer.rule_mining_model".msg = "規則模式探索的模型窄入口會開模型閘道送出模型呼叫:只准評估端的探勘執行器用(Phase 15 增量 2)"
+ "rtb.analyzer.runner".msg = "分析端驅動命令列開了 AI 決策會送出模型呼叫:展示只准用子行程起它,不准匯入(Phase 13 增量 2)"
+ "rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r2)"
+ "rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用;展示的批次檢查經模型用戶端門面(Phase 13 增量 4 代碼審 r1 h2)"
+ "rtb.modelclient".msg = "展示伺服器與驅動不准載入模型用戶端([S1143]);只有批次檢查那一支經門面,見下面的逐檔設定"
+diff --git a/src/rtb/demo/ruff.toml b/src/rtb/demo/ruff.toml
+index 5fcb564..fa3f3f4 100644
+--- a/src/rtb/demo/ruff.toml
++++ b/src/rtb/demo/ruff.toml
+@@ -6,19 +6,20 @@ extend = "../../../pyproject.toml"
+ # 維運套件(rtb.ops)准匯入:展示要讀追蹤檢視這類唯讀出口(計劃〈驅動程式〉);只准唯讀出口由維運套件自己守
+ [lint.flake8-tidy-imports.banned-api]
+ "rtb.demo.faults".msg = "故障手段只准展示啟動器匯入(Phase 12 [S1050]);其他展示模組經啟動器排故障"
+ "rtb.eval".msg = "評估套件在最外層、離線:其他層不得依賴它,規則作者的程式讀不到評估集(Phase 10 [S712])"
+ "sqlite3".msg = "展示套件讀別的系統的資料庫只准經唯讀出口(同維運套件,Phase 12 代碼審 r2 a1);展示狀態庫在那支檔逐行放行"
+ "rtb.sqlitekit".msg = "展示套件讀別的系統的資料庫只准經唯讀出口(同維運套件,Phase 12 代碼審 r2 a1);展示狀態庫在那支檔逐行放行"
+ "importlib".msg = "不准動態匯入:會繞過匯入禁令與邊界掃描(Phase 10 增量 2 代碼審第 2 輪)"
+ "rtb.analyzer.modelgate".msg = "分析端模型閘道是送出模型呼叫的入口:只准分析端寫死的幾支模組用(Phase 13 [S1100],代碼審 r1)"
+ "rtb.analyzer.narrate".msg = "模型說明命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出,只准分析端自己用(Phase 13 代碼審 r2)"
+ "rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准評估執行器用(Phase 14 增量 3 [S1429];分析端驅動與展示都不准)"
++"rtb.analyzer.rule_mining_model".msg = "規則模式探索的模型窄入口會開模型閘道送出模型呼叫:只准評估端的探勘執行器用(Phase 15 增量 2)"
+ "rtb.analyzer.runner".msg = "分析端驅動命令列開了 AI 決策會送出模型呼叫:展示只准用子行程起它,不准匯入(Phase 13 增量 2)"
+ "rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r2)"
+ "rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用;展示的批次檢查經模型用戶端門面(Phase 13 增量 4 代碼審 r1 h2)"
+ "rtb.modelclient".msg = "展示伺服器與驅動不准載入模型用戶端([S1143]);只有批次檢查那一支經門面,見下面的逐檔設定"
+ 
+ # 展示錄製批次的入庫前檢查(Phase 13 增量 4)要經模型用戶端門面讀錄製檔:ruff 的匯入禁令只能整檔關,
+ # 其餘禁令改由 tests/demo/test_ai_demo.py 逐條核對這支的匯入(只多 rtb.modelclient 一條)
+ [lint.per-file-ignores]
+ "recordings.py" = ["TID251"]
+diff --git a/src/rtb/domain/ruff.toml b/src/rtb/domain/ruff.toml
+index 6f742e7..e2260e5 100644
+--- a/src/rtb/domain/ruff.toml
++++ b/src/rtb/domain/ruff.toml
+@@ -33,12 +33,13 @@ extend = "../../../pyproject.toml"
+ "rtb.modelclient".msg = "只有接入點與實測命令列能用模型用戶端(Phase 11B [S917];維運的假說命令列在增量 2 另開例外)"
+ "rtb.modelclaude".msg = "Claude Code 後端只准模型用戶端與實測命令列匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelverify".msg = "實測命令列會真的呼叫 claude、寫啟用紀錄:不准被別的層匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelcore".msg = "模型用戶端的共用詞彙只給模型用戶端各模組與接入點用(Phase 11B 代碼審第 2 輪)"
+ "rtb.modelledger".msg = "花費帳寫入(預留、結算、核銷)只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
+ "rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
+ "rtb.modelledger_writeoff".msg = "核銷命令列會寫花費帳、經它還拿得到模型用戶端:不准匯入(Phase 11B 代碼審第 2 輪)"
+ "rtb.analyzer.modelgate".msg = "分析端模型閘道是送出模型呼叫的入口:只准分析端寫死的幾支模組用(Phase 13 [S1100],代碼審 r1)"
+ "rtb.analyzer.narrate".msg = "模型說明命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出,只准分析端自己用(Phase 13 代碼審 r2)"
+ "rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准評估執行器用(Phase 14 增量 3 [S1429];分析端驅動與展示都不准)"
++"rtb.analyzer.rule_mining_model".msg = "規則模式探索的模型窄入口會開模型閘道送出模型呼叫:只准評估端的探勘執行器用(Phase 15 增量 2)"
+ "rtb.analyzer.runner".msg = "分析端驅動命令列開了 AI 決策會送出模型呼叫:展示只准用子行程起它,不准匯入(Phase 13 增量 2)"
+ "rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r2)"
+diff --git a/src/rtb/dsp/ruff.toml b/src/rtb/dsp/ruff.toml
+index 6706bc5..bd21eee 100644
+--- a/src/rtb/dsp/ruff.toml
++++ b/src/rtb/dsp/ruff.toml
+@@ -11,12 +11,13 @@ extend = "../../../pyproject.toml"
+ "rtb.modelclient".msg = "只有接入點與實測命令列能用模型用戶端(Phase 11B [S917];維運的假說命令列在增量 2 另開例外)"
+ "rtb.modelclaude".msg = "Claude Code 後端只准模型用戶端與實測命令列匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelverify".msg = "實測命令列會真的呼叫 claude、寫啟用紀錄:不准被別的層匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelcore".msg = "模型用戶端的共用詞彙只給模型用戶端各模組與接入點用(Phase 11B 代碼審第 2 輪)"
+ "rtb.modelledger".msg = "花費帳寫入(預留、結算、核銷)只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
+ "rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
+ "rtb.modelledger_writeoff".msg = "核銷命令列會寫花費帳、經它還拿得到模型用戶端:不准匯入(Phase 11B 代碼審第 2 輪)"
+ "rtb.analyzer.modelgate".msg = "分析端模型閘道是送出模型呼叫的入口:只准分析端寫死的幾支模組用(Phase 13 [S1100],代碼審 r1)"
+ "rtb.analyzer.narrate".msg = "模型說明命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出,只准分析端自己用(Phase 13 代碼審 r2)"
+ "rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准評估執行器用(Phase 14 增量 3 [S1429];分析端驅動與展示都不准)"
++"rtb.analyzer.rule_mining_model".msg = "規則模式探索的模型窄入口會開模型閘道送出模型呼叫:只准評估端的探勘執行器用(Phase 15 增量 2)"
+ "rtb.analyzer.runner".msg = "分析端驅動命令列開了 AI 決策會送出模型呼叫:展示只准用子行程起它,不准匯入(Phase 13 增量 2)"
+ "rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r2)"
+diff --git a/src/rtb/eval/__init__.py b/src/rtb/eval/__init__.py
+index a506a1e..ad16084 100644
+--- a/src/rtb/eval/__init__.py
++++ b/src/rtb/eval/__init__.py
+@@ -1,14 +1,16 @@
+ """「值不值得加」判斷點的離線評估(Phase 10 增量 2)。
+ 
+ 評估套件可以匯入分析端的判斷點與路由、領域層的型別;分析端、執行端、DSP、領域層、維運套件都不准
+ 匯入這裡(各目錄匯入規則的禁令加邊界測試,[S712])——規則作者的程式在結構上讀不到評估集。
+ 
+ 資料庫與子行程:除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、不啟動子行程(Phase 11B
+ 增量 1 有意識地放寬,計劃〈既有邊界怎麼改〉)。評估套件的匯入閉包跟 Phase 11B 開工前的基準相比,只准
+ 多出寫死的准許名單:模型用戶端閉包、分析端模型閘道與 AI 決策模組、Phase 13 的調查評估模組([S918],
+-Phase 13 改寫),以及 Phase 15 規則模式探索的四支純離線模組(不碰模型用戶端)。
++Phase 13 改寫),以及 Phase 15 規則模式探索的評估模組(增量 1 四支純離線模組;增量 2 的回覆核對、
++歷史錄製鍵與單一種子探勘執行器)與探勘執行器經它送出的分析端模型窄入口。
+ 模型用戶端是 src/rtb/ 底下每一支 model 開頭的檔,評估套件只准經門面
+-`rtb.modelclient` 碰它,不直接匯入內部模組;經門面的只有模型候選、評估紀錄命令列、調查評估執行器與
+-調查評估報告四支(Phase 13 代碼審 r1)。直接送出呼叫只准模型候選用;經 AI 決策模組開閘道送出的只准
+-調查評估執行器(它呼叫正式路徑同一支 AI 決策函式,Phase 13 [S1146]),匯入它也算送出點。
++`rtb.modelclient` 碰它,不直接匯入內部模組;經門面的只有模型候選、評估紀錄命令列、調查評估執行器、
++調查評估報告(Phase 13 代碼審 r1)與規則模式探索的歷史錄製鍵(只取錄製鍵函式與呼叫者列舉)五支。
++直接送出呼叫只准模型候選用;經 AI 決策模組開閘道送出的只准調查評估執行器(它呼叫正式路徑同一支
++AI 決策函式,Phase 13 [S1146]);經規則模式探索窄入口送出的只准探勘執行器;匯入這兩支執行器也算送出點。
+ """
+diff --git a/src/rtb/eval/rule_mining_check.py b/src/rtb/eval/rule_mining_check.py
+new file mode 100644
+index 0000000..489b1f7
+--- /dev/null
++++ b/src/rtb/eval/rule_mining_check.py
+@@ -0,0 +1,323 @@
++"""規則模式探索的模型回覆解析、去重、同探索集重算與保留側判定(Phase 15 增量 2,計劃
++[[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉)。
++
++- 封閉 JSON:頂層只有 `version`、`suggestions`;每條只有 `clauses`、`direction`、`support`、
++  `counterexample`、`confidence_note`;子句只有 `condition`、`threshold`。
++- **整份拒絕**(記 1 筆無效提交):回覆超過 6000 UTF-8 位元組(照收到的字串量,`\\uXXXX` 逸出照六個
++  位元組算)、解析錯(含超長整數的 `ValueError`、巢狀過深)、任一物件層重複鍵、`NaN`/`Infinity`/
++  `1e400` 等非有限數、頂層/建議/子句任一物件層未知鍵、頂層缺鍵或不是物件、錯版本、`suggestions`
++  不是陣列或超過 K 條。整份拒絕不截前 K。
++- **只丟該條**(記原因、計一筆無效提交):建議不是物件或缺欄、子句不是陣列或子句不是完整物件、代碼
++  型別或格式錯、未知欄位、門檻不屬該欄、零或三個以上子句、同欄重複、未知方向、筆數不是 0 到九位數的
++  整數(布林、`1.0` 都不算)、說明型別錯或超過 80 字/240 位元組或含控制字元、引號、反斜線;同一正規化
++  鍵重複或同條件押相反方向時留先出現的合法條、後條丟。
++- 重算:每條語法合法的建議,在模型看到的同一探索集原資料上,用增量 1 的事件、對照索引、不放回配對與
++  彙總函式重算;支持或反例跟模型自報不同記「無法核對」,重算未達有方向 20 對且兩側各 20 支相異廣告
++  記「未達樣本下限」,兩者都排出有效清單、計無效提交。有效條目只帶程式重算的數字,不帶模型的說明。
++- 保留側:有效條目在保留側獨立重算,照增量 1 凍結的門檻判可保留/不保留;結果不回饋模型。
++- 純函式、標準函式庫;不匯入模型用戶端、模型閘道或 DSP。不執行模型文字。
++"""
++
++import json
++import math
++import unicodedata
++from collections.abc import Collection, Iterable, Mapping
++from dataclasses import dataclass
++from fractions import Fraction
++from typing import Any
++
++from rtb.eval import rule_mining_baseline as b
++from rtb.eval import rule_mining_vocab as v
++from rtb.eval.rule_mining_history import History
++
++REPLY_VERSION = 1
++TOP_KEYS = frozenset({"version", "suggestions"})
++SUGGESTION_KEYS = frozenset({"clauses", "direction", "support", "counterexample",
++                             "confidence_note"})
++CLAUSE_KEYS = frozenset({"condition", "threshold"})
++MAX_COUNT = 999_999_999  # 筆數至多九位
++
++# 整份拒絕的原因
++TOO_LARGE = "reply_too_large"
++UNPARSABLE = "unparsable"  # JSON 解析錯,含超長整數與巢狀過深
++DUPLICATE_KEY = "duplicate_key"
++NON_FINITE = "non_finite"
++NOT_OBJECT = "top_not_object"
++UNKNOWN_KEY = "unknown_key"
++MISSING_KEY = "missing_top_key"
++WRONG_VERSION = "wrong_version"
++NOT_LIST = "suggestions_not_list"
++TOO_MANY = "too_many_suggestions"
++# 只丟該條的原因(另有語彙模組 VocabularyError 的原因代碼)
++BAD_SUGGESTION = "suggestion_not_object"
++MISSING_FIELD = "missing_field"
++BAD_CLAUSES = "bad_clauses"
++BAD_COUNT = "bad_count"
++BAD_NOTE = "bad_note"
++DUPLICATE = "duplicate_suggestion"
++OPPOSITE = "opposite_direction"
++COUNT_MISMATCH = "count_mismatch"  # 無法核對
++BELOW_FLOOR = "below_floor"  # 未達樣本下限
++
++
++class _Rejected(Exception):
++    def __init__(self, reason: str) -> None:
++        super().__init__(reason)
++        self.reason = reason
++
++
++@dataclass(frozen=True)
++class Suggestion:
++    """語法合法的一條建議:正規化鍵與模型自報的支持/反例(說明不留,只在原始回覆)。"""
++
++    index: int  # 在回覆 suggestions 裡的位置(0 起)
++    key: v.NormalizedKey
++    support: int
++    counter: int
++
++
++@dataclass(frozen=True)
++class Invalid:
++    """一筆無效提交;index 是 None 表示整份回覆被拒絕。"""
++
++    index: int | None
++    reason: str
++    key: v.NormalizedKey | None = None
++
++
++@dataclass(frozen=True)
++class Parsed:
++    rejected: str | None  # 整份拒絕的原因
++    submitted: int  # 回覆裡的建議條數(整份拒絕時 0)
++    accepted: tuple[Suggestion, ...]  # 語法合法且去重後
++    dropped: tuple[Invalid, ...]
++
++
++# ---- 解析 ----
++def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
++    result: dict[str, Any] = {}
++    for key, value in pairs:
++        if key in result:
++            raise _Rejected(DUPLICATE_KEY)
++        result[key] = value
++    return result
++
++
++def _constant(_name: str) -> float:
++    raise _Rejected(NON_FINITE)  # NaN、Infinity、-Infinity
++
++
++def _float(text: str) -> float:
++    value = float(text)
++    if not math.isfinite(value):  # 1e400 這類溢位成 inf
++        raise _Rejected(NON_FINITE)
++    return value
++
++
++def _finite(value: object) -> bool:
++    if isinstance(value, float):
++        return math.isfinite(value)
++    if isinstance(value, dict):
++        return all(_finite(item) for item in value.values())
++    if isinstance(value, list):
++        return all(_finite(item) for item in value)
++    return True
++
++
++def _load(text: str) -> object:
++    if len(text.encode("utf-8")) > v.REPLY_BYTES_LIMIT:
++        raise _Rejected(TOO_LARGE)
++    try:
++        data = json.loads(text, object_pairs_hook=_pairs, parse_constant=_constant,
++                          parse_float=_float)
++    except (ValueError, RecursionError) as broken:  # 解析錯、超長整數(ValueError)、巢狀過深
++        raise _Rejected(UNPARSABLE) from broken
++    if not _finite(data):
++        raise _Rejected(NON_FINITE)
++    return data
++
++
++def _structure(data: object) -> list[object]:
++    """整份拒絕的結構檢查:三個物件層的未知鍵、頂層缺鍵、版本、陣列與條數。"""
++    if not isinstance(data, dict):
++        raise _Rejected(NOT_OBJECT)
++    if set(data) - TOP_KEYS:
++        raise _Rejected(UNKNOWN_KEY)
++    if set(data) != TOP_KEYS:
++        raise _Rejected(MISSING_KEY)
++    version = data["version"]
++    if type(version) is not int or version != REPLY_VERSION:
++        raise _Rejected(WRONG_VERSION)
++    suggestions = data["suggestions"]
++    if not isinstance(suggestions, list):
++        raise _Rejected(NOT_LIST)
++    if any(_unknown_keys(item) for item in suggestions):
++        raise _Rejected(UNKNOWN_KEY)
++    if len(suggestions) > v.K:
++        raise _Rejected(TOO_MANY)
++    return suggestions
++
++
++def _unknown_keys(item: object) -> bool:
++    """建議物件或它的子句物件有未知鍵(不是物件的另在逐條檢查丟)。"""
++    if not isinstance(item, dict):
++        return False
++    clauses = item.get("clauses")
++    return bool(set(item) - SUGGESTION_KEYS) or (isinstance(clauses, list) and any(
++        isinstance(c, dict) and bool(set(c) - CLAUSE_KEYS) for c in clauses))
++
++
++def _count(value: object) -> bool:
++    return type(value) is int and 0 <= value <= MAX_COUNT
++
++
++def _note(value: object) -> bool:
++    return (isinstance(value, str) and len(value) <= v.NOTE_CHARS
++            and len(value.encode("utf-8")) <= v.NOTE_BYTES
++            and not any(ch in '"\\' or unicodedata.category(ch) in ("Cc", "Cf")
++                        for ch in value))
++
++
++def _shape_problem(raw: object) -> str | None:
++    if not isinstance(raw, dict):
++        return BAD_SUGGESTION
++    if set(raw) != SUGGESTION_KEYS:
++        return MISSING_FIELD
++    clauses = raw["clauses"]
++    if not isinstance(clauses, list) or not all(
++            isinstance(c, dict) and set(c) == CLAUSE_KEYS for c in clauses):
++        return BAD_CLAUSES
++    return None
++
++
++def _suggestion(index: int, raw: object) -> Suggestion | Invalid:
++    problem = _shape_problem(raw)
++    if problem is not None or not isinstance(raw, dict):
++        return Invalid(index, problem or BAD_SUGGESTION)
++    clauses = raw["clauses"]
++    try:
++        key = v.normalized_key([(c["condition"], c["threshold"]) for c in clauses],
++                               raw["direction"])
++    except v.VocabularyError as bad:
++        return Invalid(index, bad.reason)
++    if not (_count(raw["support"]) and _count(raw["counterexample"])):
++        return Invalid(index, BAD_COUNT, key)
++    if not _note(raw["confidence_note"]):
++        return Invalid(index, BAD_NOTE, key)
++    return Suggestion(index, key, raw["support"], raw["counterexample"])
++
++
++def _deduplicated(items: Iterable[Suggestion | Invalid]
++                  ) -> tuple[tuple[Suggestion, ...], tuple[Invalid, ...]]:
++    """留先出現的合法條;同鍵重複、同條件押相反方向的後條丟。"""
++    kept: dict[v.ConditionKey, Suggestion] = {}
++    dropped: list[Invalid] = []
++    for item in items:
++        if isinstance(item, Invalid):
++            dropped.append(item)
++            continue
++        first = kept.get(item.key[0])
++        if first is None:
++            kept[item.key[0]] = item
++        else:
++            reason = DUPLICATE if first.key == item.key else OPPOSITE
++            dropped.append(Invalid(item.index, reason, item.key))
++    return tuple(kept.values()), tuple(dropped)
++
++
++def parse_reply(text: str) -> Parsed:
++    """解析一份模型回覆。整份拒絕回 `rejected` 原因;否則逐條驗、去重。"""
++    try:
++        suggestions = _structure(_load(text))
++    except _Rejected as rejected:
++        return Parsed(rejected.reason, 0, (), ())
++    accepted, dropped = _deduplicated(_suggestion(i, raw) for i, raw in enumerate(suggestions))
++    return Parsed(None, len(suggestions), accepted,
++                  tuple(sorted(dropped, key=lambda d: d.index or 0)))
++
++
++# ---- 重算與保留側 ----
++class Recounter:
++    """一側的重算器:用增量 1 的事件、對照索引、不放回配對與彙總函式,逐條件重算(不讀彙總表)。"""
++
++    def __init__(self, history: History, side: Collection[str]) -> None:
++        self._events, _ = b.side_events(history, side)
++        self._index = b.control_index(history, side, {e.day for e in self._events})
++
++    def stats(self, key: v.ConditionKey) -> b.ConditionStats:
++        matching = [e for e in self._events if e.matches(key)]
++        pairs, missing = b.pair_condition(key, matching, self._index)
++        return b.stats_of(key, len(matching), pairs, missing)
++
++
++@dataclass(frozen=True)
++class Checked:
++    """有效建議:只帶程式重算的數字與保留側判定。"""
++
++    key: v.NormalizedKey
++    support: int
++    counter: int
++    ties: int
++    directed: int
++    raised_ads: int
++    control_ads: int
++    dates: int
++    directional_mean: Fraction
++    holdout: b.Holdout
++    holdout_stats: b.ConditionStats
++
++
++@dataclass(frozen=True)
++class Verification:
++    rejected: str | None
++    submitted: int  # 原回覆條數
++    recounted: int  # 進到重算的條數(語法合法且去重後)
++    valid: tuple[Checked, ...]
++    invalid: tuple[Invalid, ...]
++
++    @property
++    def n(self) -> int:
++        """AI 有效建議數。"""
++        return len(self.valid)
++
++    @property
++    def invalid_count(self) -> int:
++        """無效提交數:整份拒絕記 1 筆;否則每條單條剔除、去重、核對不符、未達下限各記 1 筆。"""
++        return 1 if self.rejected is not None else len(self.invalid)
++
++    @property
++    def mismatches(self) -> int:
++        """機械筆數核對失敗數(只量數字轉錄一致性)。"""
++        return sum(1 for i in self.invalid if i.reason == COUNT_MISMATCH)
++
++
++def _check(item: Suggestion, explore: Recounter, holdout: Recounter) -> Checked | Invalid:
++    condition, direction = item.key
++    stats = explore.stats(condition)
++    support, counter, mean = b.directional(stats, direction)
++    if (support, counter) != (item.support, item.counter):
++        return Invalid(item.index, COUNT_MISMATCH, item.key)
++    if not b.meets_floor(stats) or mean is None:
++        return Invalid(item.index, BELOW_FLOOR, item.key)
++    held = holdout.stats(condition)
++    return Checked(item.key, support, counter, stats.ties, stats.directed, stats.raised_ads,
++                   stats.control_ads, stats.dates, mean, b.holdout_verdict(held, direction), held)
++
++
++def verify(parsed: Parsed, explore: Recounter, holdout: Recounter) -> Verification:
++    """核對一份已解析的回覆:逐條在探索側重算、有效的再判保留側。"""
++    checked = [_check(item, explore, holdout) for item in parsed.accepted]
++    valid = tuple(c for c in checked if isinstance(c, Checked))
++    failed = [c for c in checked if isinstance(c, Invalid)]
++    invalid = tuple(sorted([*parsed.dropped, *failed], key=lambda d: d.index or 0))
++    return Verification(parsed.rejected, parsed.submitted, len(parsed.accepted), valid, invalid)
++
++
++def reasons(verification: Verification) -> Mapping[str, int]:
++    """無效提交逐原因計數(整份拒絕時只有那一個原因)。"""
++    if verification.rejected is not None:
++        return {verification.rejected: 1}
++    counts: dict[str, int] = {}
++    for item in verification.invalid:
++        counts[item.reason] = counts.get(item.reason, 0) + 1
++    return dict(sorted(counts.items()))
+diff --git a/src/rtb/eval/rule_mining_eval.py b/src/rtb/eval/rule_mining_eval.py
+new file mode 100644
+index 0000000..0cc6b6f
+--- /dev/null
++++ b/src/rtb/eval/rule_mining_eval.py
+@@ -0,0 +1,83 @@
++"""規則模式探索的單一種子執行(Phase 15 增量 2,計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]
++〈模型建議、機械核對與人讀報告〉〈拆增量〉2)。命令列、批次驗收與報告是增量 3。
++
++一個固定種子一批:生成歷史 → 探索集彙總表(增量 1)→ 完整提示位元組閘 → 經分析端窄入口
++`rtb.analyzer.rule_mining_model` 呼叫模型**一次**(方向同 Phase 13 評估執行器依賴 AI 決策函式;
++評估端不直接匯入模型閘道)→ 封閉 JSON 解析、去重、同探索集重算、保留側判定。
++
++- 非 `ok` 的呼叫(缺錄製、逾時、上限拒絕、額度、超支、暫時性錯誤、花費帳忙碌…)一律記「呼叫失敗」,
++  不解析、不計分、不重試;同種子要重錄換新展示編號(增量 3 的命令列管)。
++- 提示超過本案上限就在呼叫前拒跑(不分塊、不截列)。
++- 輸出只有這一批的核對結果;沒有正式決策、提案、DSP 寫入或 Issue 的路徑。匯入它就算送出點
++  (邊界測試 `SENDING_ENTRIES`)。停用模型探勘時連同分析端窄入口一起撤,歷史錄製鍵留在
++  `rule_mining_recordings`。
++"""
++
++from collections.abc import Callable
++from dataclasses import dataclass
++from functools import partial
++
++from rtb.analyzer import rule_mining_model as rmm
++from rtb.eval import rule_mining_baseline as b
++from rtb.eval import rule_mining_check as c
++from rtb.eval import rule_mining_history as h
++from rtb.eval import rule_mining_prompt as p
++from rtb.eval import rule_mining_recordings as r
++
++CALL_OK = "ok"
++CALL_FAILED = "呼叫失敗"
++Ask = Callable[[str, str], rmm.Reply]
++
++
++class PromptRefused(ValueError):
++    """完整提示過大:拒跑,不呼叫。"""
++
++
++@dataclass(frozen=True)
++class Prepared:
++    """一個種子送出前的一切:歷史、兩側重算器、完整彙總表與位元組數。"""
++
++    seed: int
++    history: h.History
++    explore: c.Recounter
++    holdout: c.Recounter
++    table: str
++    prompt_bytes: int
++
++
++def prepare(seed: int) -> Prepared:
++    history = h.generate(seed)
++    sides = h.split(ad.ad_id for ad in history.ads)
++    table = p.summary_table(b.summarize(history, sides.explore))
++    return Prepared(seed, history, c.Recounter(history, sides.explore),
++                    c.Recounter(history, sides.holdout), table, p.prompt_bytes(table))
++
++
++@dataclass(frozen=True)
++class SeedRun:
++    seed: int
++    expected_key: str  # 依這份提示重算的錄製鍵(缺錄製時給人對)
++    reply: rmm.Reply
++    verification: c.Verification | None  # 呼叫失敗時沒有
++
++    @property
++    def status(self) -> str:
++        return CALL_OK if self.reply.ok else CALL_FAILED
++
++
++def run(prepared: Prepared, ask: Ask, *, model: str | None = None) -> SeedRun:
++    """送出這一批(至多一次)並核對。提示過大丟 `PromptRefused`,什麼都沒送。"""
++    problem = p.gate_problem(prepared.prompt_bytes)
++    if problem is not None:
++        raise PromptRefused(problem)
++    expected = r.expected_key(p.SYSTEM_PROMPT, prepared.table, model)
++    reply = ask(p.SYSTEM_PROMPT, prepared.table)
++    if not reply.ok or reply.text is None:
++        return SeedRun(prepared.seed, expected, reply, None)
++    verification = c.verify(c.parse_reply(reply.text), prepared.explore, prepared.holdout)
++    return SeedRun(prepared.seed, expected, reply, verification)
++
++
++def gate_ask(config: rmm.GateConfig, notify: Callable[[str], None] | None = None) -> Ask:
++    """經分析端窄入口送出:每呼叫一次就開一次規則模式探索的閘道、送一次。"""
++    return partial(rmm.suggest, config=config, notify=notify)
+diff --git a/src/rtb/eval/rule_mining_recordings.py b/src/rtb/eval/rule_mining_recordings.py
+new file mode 100644
+index 0000000..ba0fd2d
+--- /dev/null
++++ b/src/rtb/eval/rule_mining_recordings.py
+@@ -0,0 +1,19 @@
++"""規則模式探索的歷史錄製鍵(Phase 15 增量 2,計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]
++〈模型建議、機械核對與人讀報告〉〈回退〉)。
++
++用字面 `Caller.RULE_MINING` 與評估版本的輸出上限,照模型用戶端的錄製鍵函式重算「這份系統提示加這張
++彙總表」應有的錄製鍵;缺錄製時給人看預期鍵,批次驗收(增量 3)比對目錄鍵集合也用它。
++
++這支是**歷史驗證**的一半:停用模型探勘或回退增量 2/3 時,送出路徑(分析端窄入口與評估端的探勘
++執行器)撤掉,這支照留,舊錄製的鍵仍能重算、舊帳仍計上限([S1517]);所以它只經模型用戶端門面取
++錄製鍵函式與呼叫者列舉,不匯入模型閘道或任何送出入口。
++"""
++
++from rtb import modelclient as mc
++from rtb.eval import rule_mining_vocab as v
++
++
++def expected_key(system: str, table: str, model: str | None = None) -> str:
++    """這份提示在規則模式探索呼叫者、評估版本輸出上限下的錄製鍵(模型預設模型用戶端的預設模型)。"""
++    return mc.recording_key(mc.Caller.RULE_MINING, model or mc.DEFAULT_MODEL, system, table,
++                            v.MAX_OUTPUT_TOKENS)
+diff --git a/src/rtb/executor/ruff.toml b/src/rtb/executor/ruff.toml
+index 5462308..52ac5e3 100644
+--- a/src/rtb/executor/ruff.toml
++++ b/src/rtb/executor/ruff.toml
+@@ -11,12 +11,13 @@ extend = "../../../pyproject.toml"
+ "rtb.modelclient".msg = "只有接入點與實測命令列能用模型用戶端(Phase 11B [S917];維運的假說命令列在增量 2 另開例外)"
+ "rtb.modelclaude".msg = "Claude Code 後端只准模型用戶端與實測命令列匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelverify".msg = "實測命令列會真的呼叫 claude、寫啟用紀錄:不准被別的層匯入(Phase 11B 代碼審第 1 輪)"
+ "rtb.modelcore".msg = "模型用戶端的共用詞彙只給模型用戶端各模組與接入點用(Phase 11B 代碼審第 2 輪)"
+ "rtb.modelledger".msg = "花費帳寫入(預留、結算、核銷)只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
+ "rtb.modelrecording".msg = "錄製讀寫只准模型用戶端用(Phase 11B 代碼審第 2 輪)"
+ "rtb.modelledger_writeoff".msg = "核銷命令列會寫花費帳、經它還拿得到模型用戶端:不准匯入(Phase 11B 代碼審第 2 輪)"
+ "rtb.analyzer.modelgate".msg = "分析端模型閘道是送出模型呼叫的入口:只准分析端寫死的幾支模組用(Phase 13 [S1100],代碼審 r1)"
+ "rtb.analyzer.narrate".msg = "模型說明命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出,只准分析端自己用(Phase 13 代碼審 r2)"
+ "rtb.analyzer.ai_judge".msg = "AI 決策模組會開模型閘道送出模型呼叫:只准評估執行器用(Phase 14 增量 3 [S1429];分析端驅動與展示都不准)"
++"rtb.analyzer.rule_mining_model".msg = "規則模式探索的模型窄入口會開模型閘道送出模型呼叫:只准評估端的探勘執行器用(Phase 15 增量 2)"
+ "rtb.analyzer.runner".msg = "分析端驅動命令列開了 AI 決策會送出模型呼叫:展示只准用子行程起它,不准匯入(Phase 13 增量 2)"
+ "rtb.ops.hypothesis".msg = "假說命令列會送出模型呼叫:匯入它就能經它的 run 轉手送出(Phase 13 代碼審 r2)"
+diff --git a/src/rtb/modelledger.py b/src/rtb/modelledger.py
+index 569698f..6bbe7a5 100644
+--- a/src/rtb/modelledger.py
++++ b/src/rtb/modelledger.py
+@@ -23,22 +23,26 @@ from rtb.modelcore import (
+     Source,
+ )
+ from rtb.modelledger_view import CALLS_SELECT, LedgerCall
+ from rtb.sqlitekit import DatabaseBusy, connect, immediate_transaction, read_snapshot
+ 
+ # 結算寫不進去時的嘗試次數(含第一次);仍失敗就把金額印到標準錯誤。數字住在小常數模組(Phase 13
+ # 增量 2):分析端的租約守衛逐項加總要用它,不能從這支模型用戶端模組匯入
+ SETTLE_ATTEMPTS = stepbudget.SETTLE_ATTEMPTS
+ # 計入花費上限的呼叫者(Phase 13 裁定 13 與〈花費帳與採用判定〉,[S1134]):寫死在這裡、不是請求參數,
+ # 誰都不能自稱不計入。Phase 13 的三個呼叫者(分析端調查、說明、假說)照記估算成本但不在清單裡,不會被
+-# 上限拒絕,也不會把這兩個呼叫者的已用推過上限。舊帳的列全是這兩個呼叫者,依呼叫者過濾不必遷移。
+-CAPPED_CALLERS: frozenset[Caller] = frozenset({Caller.EVAL_CANDIDATE, Caller.VERIFICATION})
++# 上限拒絕,也不會把計入者的已用推過上限。舊帳的列全是計入者,依呼叫者過濾不必遷移。
++# Phase 15 增量 2 加離線規則模式探索(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]
++# 〈要改寫的既有合約〉):它的即時呼叫與評估候選、實測共用每展示與每月上限;停用模型探勘時成員照留,
++# 歷史帳列繼續計上限。
++CAPPED_CALLERS: frozenset[Caller] = frozenset({Caller.EVAL_CANDIDATE, Caller.VERIFICATION,
++                                               Caller.RULE_MINING})
+ 
+ # ---- 花費帳 ----
+ _NO_CHANGE = "SELECT RAISE(ABORT, '花費帳只增不改')"
+ SCHEMA = "\n".join([
+     "CREATE TABLE IF NOT EXISTS model_reservations (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+     "reserved_at TEXT NOT NULL, month TEXT NOT NULL, demo_id TEXT, batch_id TEXT, "
+     "caller TEXT NOT NULL, model TEXT NOT NULL, backend TEXT NOT NULL, source TEXT NOT NULL, "
+     "reserved_nanousd INTEGER NOT NULL, timeout_seconds REAL NOT NULL, "
+     "owner_pid INTEGER NOT NULL, owner_boot TEXT NOT NULL, reserved_monotonic REAL NOT NULL);",
+     "CREATE TABLE IF NOT EXISTS model_settlements (reservation_id INTEGER PRIMARY KEY "
+diff --git a/src/rtb/modelledger_view.py b/src/rtb/modelledger_view.py
+index 47ac94e..30564ec 100644
+--- a/src/rtb/modelledger_view.py
++++ b/src/rtb/modelledger_view.py
+@@ -31,27 +31,29 @@ def account_home() -> Path:
+ 
+ 
+ def ledger_path() -> Path:
+     """即時模式唯一的一本帳:帳號家目錄下的固定位置,不論從哪一份簽出、哪個工作目錄啟動、HOME 指到
+     哪裡([S925])。"""
+     return account_home() / LEDGER_RELATIVE
+ 
+ 
+ class Caller(StrEnum):
+     """會呼叫模型的地方(封閉列舉):Phase 11B 的三個接入點與即時模式實測命令列,加上 Phase 13 的分析端
+-    調查。哪幾個計入花費上限寫死在花費帳寫入模組(`modelledger.CAPPED_CALLERS`),不看這裡。"""
++    調查與 Phase 15 的離線規則模式探索。哪幾個計入花費上限寫死在花費帳寫入模組
++    (`modelledger.CAPPED_CALLERS`),不看這裡。停用模型探勘時也不刪成員:歷史錄製鍵與帳列要讀得回。"""
+ 
+     EVAL_CANDIDATE = "eval_candidate"
+     HYPOTHESIS = "ops_hypothesis"
+     NARRATIVE = "analyzer_narrative"
+     VERIFICATION = "live_verification"
+     INVESTIGATION = "analyzer_investigation"  # Phase 13:AI 在分析端主導的有上限調查
++    RULE_MINING = "rule_mining"  # Phase 15:離線規則模式探索(一批一次呼叫,計入上限)
+ 
+ 
+ class Source(StrEnum):
+     LIVE = "live"
+     RECORDED = "recorded"
+ 
+ 
+ class Outcome(StrEnum):
+     """一次呼叫的結果類別:成功加九類失敗(計劃第 7 版;預留時的花費帳忙碌寫不進帳,只在標準錯誤與結束
+     代碼看得到)。"""
+diff --git a/tests/eval/test_model_candidate.py b/tests/eval/test_model_candidate.py
+index 7424573..0655d26 100644
+--- a/tests/eval/test_model_candidate.py
++++ b/tests/eval/test_model_candidate.py
+@@ -271,26 +271,46 @@ def _eval_roots():
+ # (AI 決策函式所在的 ai_judge 與它的詞彙模組 investigation,增量 2 拆成兩支)、Phase 13 增量 3
+ # 新增的評估模組(評估集、生成器與標準答案、執行器、報告)。增量 3 的評估執行器匯入 AI 決策模組,
+ # 名單在這一增量補齊
+ PHASE13_ALLOWED: frozenset[str] = frozenset({
+     "rtb.analyzer.modelgate", "rtb.analyzer.ai_judge", "rtb.analyzer.investigation",
+     "rtb.domain.nine_rules",  # Phase 14 增量 1:評估標準答案共用純領域判斷
+     "rtb.eval.investigation_cases", "rtb.eval.investigation_set", "rtb.eval.investigation_eval",
+     "rtb.eval.investigation_report"})
+ # Phase 15 增量 1 改寫 [S918](計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉):
+ # 規則模式探索的純離線生成/彙總/基準/預檢四支,精確新增;它們不碰模型用戶端與閘道(下面的
+-# importers、senders、judge_* 等式照舊)。增量 2 的分析端窄函式另行逐項加
++# importers、senders、judge_* 等式照舊)。增量 2 逐項精確加:純核對模組、歷史錄製鍵模組(經門面取
++# 錄製鍵)、探勘執行器,與分析端窄入口(評估經它開閘道送出;閘道本身已在上一份名單)
+ PHASE15_ALLOWED: frozenset[str] = frozenset({
+     "rtb.eval.rule_mining_vocab", "rtb.eval.rule_mining_history", "rtb.eval.rule_mining_baseline",
+-    "rtb.eval.rule_mining_prompt"})
++    "rtb.eval.rule_mining_prompt", "rtb.eval.rule_mining_check", "rtb.eval.rule_mining_recordings",
++    "rtb.eval.rule_mining_eval", "rtb.analyzer.rule_mining_model"})
+ # 經 AI 決策模組送出的名字(開閘道、把閘道包成送出函式):評估套件裡只准評估執行器用
+ AI_JUDGE_SENDS = frozenset({"open_investigation_gate", "gate_complete"})
++# 經規則模式探索窄入口送出的名字(Phase 15 增量 2):評估套件裡只准探勘執行器用
++RULE_MINING_MODEL = "rtb.analyzer.rule_mining_model"
++RULE_MINING_SENDS = frozenset({"suggest", "gate_ask"})
++
++
++def rule_mining_senders(folder=EVAL):
++    """評估套件裡匯入規則模式探索窄入口的檔、用它送出名字的檔(都只看檔名)。"""
++    importers, senders = set(), set()
++    for path in sorted(folder.glob("*.py")):
++        tree = ast.parse(path.read_text(encoding="utf-8"))
++        imported = _imported_modules(SRC, f"rtb.eval.{path.stem}", tree) | _top_imports(tree)
++        if RULE_MINING_MODEL in imported:
++            importers.add(path.stem)
++        used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {
++            n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
++            a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
++        senders |= {path.stem} if used & RULE_MINING_SENDS else set()
++    return importers, senders
+ 
+ 
+ def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_path):  # noqa: PLR0915
+     closure = _closure(_eval_roots())
+     # 允許多出來的分支寫死(代碼審第 2 輪:動態算的話,模型用戶端多匯入什麼都會被跟著放行)
+     branch = (MODEL_CLIENT_CLOSURE | {"rtb.eval.model_candidate"} | PHASE13_ALLOWED
+               | PHASE15_ALLOWED)
+     assert set(_closure(["rtb.modelclient"])) == MODEL_CLIENT_CLOSURE
+     assert "rtb.modelclient" in closure
+     assert set(closure) - BASELINE <= branch, sorted(set(closure) - BASELINE - branch)
+@@ -305,21 +325,21 @@ def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_pa
+     result = subprocess.run(
+         [sys.executable, "-m", "ruff", "check", "--config", str(EVAL / "ruff.toml"),
+          "--stdin-filename", str(EVAL / "probe.py"), "-"],
+         input="import subprocess\n", capture_output=True, text=True, timeout=60, check=False)
+     assert result.returncode == 1 and "TID251" in result.stdout
+     # 評估套件碰模型用戶端一律經門面 rtb.modelclient(Phase 13 代碼審 r1:模型用戶端是 src/rtb/
+     # 底下每一支 model 開頭的檔,只比對門面一個名字擋不住直接匯入內部模組);准經門面的只有下面四支
+     importers, offenders = eval_model_imports()
+     assert offenders == []
+     assert importers == {"model_candidate", "record", "investigation_eval",
+-                         "investigation_report"}
++                         "investigation_report", "rule_mining_recordings"}
+     # 殺傷力:准許的評估模組直接匯入模型用戶端的內部模組(例如會寫錄製的函式)也抓得到
+     for probe in ("from rtb.modelrecording import claim, save_recording\n",
+                   "import rtb.modelcore\n", "from rtb import modelledger\n"):
+         copy = tmp_path / f"e{abs(hash(probe))}"
+         copy.mkdir()
+         source = (EVAL / "investigation_report.py").read_text(encoding="utf-8")
+         (copy / "investigation_report.py").write_text(probe + source, encoding="utf-8")
+         assert eval_model_imports(copy)[1], probe
+     # 送出呼叫只准模型候選用
+     senders, bypass = set(), set()
+@@ -334,20 +354,22 @@ def test_the_eval_package_reaches_the_model_only_through_the_model_client(tmp_pa
+     for path in sorted(EVAL.glob("*.py")):
+         tree = ast.parse(path.read_text(encoding="utf-8"))
+         if "rtb.analyzer.ai_judge" in _imported_modules(SRC, f"rtb.eval.{path.stem}", tree):
+             judge_importers.add(path.stem)
+         used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {
+             n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
+             a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
+         judge_senders |= {path.stem} if used & AI_JUDGE_SENDS else set()
+     assert judge_importers == {"investigation_eval"}
+     assert judge_senders == {"investigation_eval"}
++    # Phase 15 增量 2:匯入規則模式探索窄入口、經它送出的,只有探勘執行器
++    assert rule_mining_senders() == ({"rule_mining_eval"}, {"rule_mining_eval"})
+     for probe in ("def f(s):\n    return s.backend.send(1)\n",
+                   "from rtb import modelclient as mc\nmc.BackendCall('m', 's', 'u', 1, 1.0, 1)\n",
+                   "def f(b):\n    g = b.send\n    return g\n",
+                   # 代碼審 r1:經分析端模型閘道送出
+                   "from rtb.analyzer import modelgate as g\n"
+                   "g.open_gate({}, demo_id=None, ledger=None, recordings=None)\n",
+                   "def f(gate):\n    return gate.complete(1, 's', 'u', max_output_tokens=1, "
+                   "timeout_seconds=1.0)\n"):
+         assert send_names(ast.parse(probe)) - {"call_model"}, probe
+     for banned in ("from rtb.analyzer import modelgate\n", "import rtb.analyzer.modelgate\n",
+diff --git a/tests/eval/test_rule_mining_check.py b/tests/eval/test_rule_mining_check.py
+new file mode 100644
+index 0000000..95a2c9c
+--- /dev/null
++++ b/tests/eval/test_rule_mining_check.py
+@@ -0,0 +1,227 @@
++"""Phase 15 增量 2:規則模式探索的模型回覆解析與機械核對(計劃
++[[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉)。
++
++合約 [S1504] [S1505]。純離線:不呼叫任何模型、不開閘道;回覆是手寫的假回覆,探索集是固定種子
++15001 的合成歷史或手造小歷史。
++"""
++
++import dataclasses
++import json
++import sys
++
++import pytest
++
++from rtb.eval import rule_mining_baseline as rb
++from rtb.eval import rule_mining_check as rc
++from rtb.eval import rule_mining_history as rh
++from rtb.eval import rule_mining_vocab as rv
++from tests.eval.test_rule_mining import RAISE_2, _ad, _history
++
++SEED = rv.SEEDS[0]
++RAISE_BAND_2 = [{"condition": "raise_pct", "threshold": "raise_pct:band_2"}]
++
++
++@pytest.fixture(scope="module")
++def sides():
++    """種子 15001 的兩側重算器與彙總(整個檔只生成一次)。"""
++    history = rh.generate(SEED)
++    split = rh.split(a.ad_id for a in history.ads)
++    return (history, split, rc.Recounter(history, split.explore),
++            rc.Recounter(history, split.holdout), rb.summarize(history, split.explore))
++
++
++def _clauses(key):
++    return [{"condition": c, "threshold": t} for c, t in key]
++
++
++def _s(clauses=None, direction="improve", support=24, counter=6, note="待核對", **extra):
++    item = {"clauses": RAISE_BAND_2 if clauses is None else clauses, "direction": direction,
++            "support": support, "counterexample": counter, "confidence_note": note}
++    return {**item, **extra}
++
++
++def _reply(*suggestions, **top):
++    body = {"version": 1, "suggestions": list(suggestions), **top}
++    return json.dumps(body, ensure_ascii=False, separators=(",", ":"))
++
++
++def _normalized(ranked):
++    return ranked.key, ranked.direction
++
++
++def _honest(ranked):
++    """照探索側重算數字填的一條建議(模型照抄彙總表時的樣子)。"""
++    return _s(_clauses(ranked.key), ranked.direction, ranked.support, ranked.counter)
++
++
++# ---- [S1504] ----
++def test_rule_mining_rejects_out_of_vocabulary_suggestions(sides):  # noqa: PLR0915 - 逐種情境
++    _, _, explore, holdout, summary = sides
++    top = rb.top_k(summary.stats)
++    good = _honest(top[0])
++
++    def verified(text):
++        return rc.verify(rc.parse_reply(text), explore, holdout)
++
++    baseline = verified(_reply(good))
++    assert (baseline.rejected, baseline.n, baseline.invalid_count) == (None, 1, 0)
++
++    # 整份拒絕:記 1 筆無效提交、0 條有效,不截前 K、不讓命令列崩潰
++    whole = {
++        rc.DUPLICATE_KEY: ['{"version":1,"version":1,"suggestions":[]}',
++                           _reply(good).replace('"direction":', '"direction":"improve",'
++                                                '"direction":', 1),
++                           _reply(good).replace('"condition":', '"condition":"x","condition":', 1)],
++        rc.UNKNOWN_KEY: [_reply(good, rationale="x"), _reply(_s(rationale="x")),
++                         _reply(_s([{**RAISE_BAND_2[0], "rationale": "因為"}]))],
++        rc.NON_FINITE: [_reply(good).replace(f'"support":{top[0].support}', '"support":1e400'),
++                        _reply(good).replace(f'"support":{top[0].support}', '"support":NaN'),
++                        _reply(good).replace(f'"support":{top[0].support}',
++                                             '"support":-Infinity'),
++                        _reply(good).replace('"version":1', '"version":Infinity')],
++        rc.UNPARSABLE: [_reply(good).replace(f'"support":{top[0].support}',
++                                             '"support":' + "9" * 4301),
++                        "```json\n" + _reply(good) + "\n```", "", "[" * 5000],
++        rc.TOO_MANY: [_reply(*[_honest(r) for r in top] + [good])],
++        rc.TOO_LARGE: [_reply(good) + " " * (rv.REPLY_BYTES_LIMIT - len(_reply(good)) + 1)],
++        rc.WRONG_VERSION: [_reply(good, version=2), _reply(good, version=True),
++                           _reply(good, version="1"), _reply(good).replace('"version":1',
++                                                                           '"version":1.0')],
++        rc.NOT_OBJECT: ["[]", '"x"'],
++        rc.MISSING_KEY: ['{"version":1}'],
++        rc.NOT_LIST: ['{"version":1,"suggestions":{}}'],
++    }
++    assert sys.get_int_max_str_digits() in (0, 4300)  # 超長整數由標準函式庫丟 ValueError
++    for reason, texts in whole.items():
++        for text in texts:
++            result = verified(text)
++            assert (result.rejected, result.n, result.invalid_count) == (reason, 0, 1), (
++                reason, text[:120])
++            assert rc.reasons(result) == {reason: 1}
++    # 4300 位整數解析得了,但筆數超過九位:只丟該條
++    long_ok = verified(_reply(good, _s(support=int("9" * 4300))))
++    assert long_ok.rejected is None and long_ok.n == 1
++    assert [(i.index, i.reason) for i in long_ok.invalid] == [(1, rc.BAD_COUNT)]
++    # 位元組照實際 JSON 逸出後量:同一份內容寫原字過、寫 \uXXXX 就超過 6000
++    full = [_s(_clauses(r.key), r.direction, 0, 0, "中" * 80) for r in top]
++    raw = json.dumps({"version": 1, "suggestions": full}, ensure_ascii=False,
++                     separators=(",", ":"))
++    escaped = json.dumps({"version": 1, "suggestions": full}, separators=(",", ":"))
++    assert len(raw.encode()) <= rv.REPLY_BYTES_LIMIT < len(escaped.encode())
++    assert rc.parse_reply(raw).rejected is None
++    assert rc.parse_reply(escaped).rejected == rc.TOO_LARGE
++    # 界量的是 UTF-8 位元組不是字數:6001 位元組但不到 6000 字,照樣整份拒絕
++    padded = raw + " " * (rv.REPLY_BYTES_LIMIT + 1 - len(raw.encode()))
++    assert len(padded) < rv.REPLY_BYTES_LIMIT < len(padded.encode())
++    assert rc.parse_reply(padded).rejected == rc.TOO_LARGE
++    assert rc.parse_reply(padded[:-1]).rejected is None
++
++    # 只丟該條:記原因、計無效提交(AI 誤報),其餘照常
++    single = [
++        (_s(support=True), rc.BAD_COUNT), (_s(counter=6.0), rc.BAD_COUNT),
++        (_s(support=-1), rc.BAD_COUNT), (_s(support=10**9), rc.BAD_COUNT),
++        (_s([{"condition": "raise_pct", "threshold": "raise_pct:band_9"}]),
++         "threshold_not_in_condition"),
++        (_s([{"condition": "raise_pct", "threshold": "pre_cvr:band_1"}]),
++         "threshold_not_in_condition"),
++        (_s([{"condition": "ctr", "threshold": "ctr:band_1"}]), "unknown_condition"),
++        (_s([{"condition": "Raise_pct", "threshold": "raise_pct:band_2"}]), "bad_code"),
++        (_s([{"condition": "raise_pct", "threshold": "r" * 25}]), "bad_code"),
++        (_s([{"condition": 1, "threshold": "raise_pct:band_2"}]), "bad_code"),
++        (_s([]), "clause_count"),
++        (_s([*RAISE_BAND_2, {"condition": "pre_cvr", "threshold": "pre_cvr:band_1"},
++             {"condition": "day_type", "threshold": "day_type:weekday"}]),
++         "clause_count"),
++        (_s([*RAISE_BAND_2, {"condition": "raise_pct", "threshold": "raise_pct:band_3"}]),
++         "duplicate_condition"),
++        (_s(direction="up"), "unknown_direction"), (_s(direction=None), "unknown_direction"),
++        (_s(note="字" * 81), rc.BAD_NOTE), (_s(note="😀" * 61), rc.BAD_NOTE),
++        (_s(note='含"引號'), rc.BAD_NOTE), (_s(note="反\\斜線"), rc.BAD_NOTE),
++        (_s(note="換\n行"), rc.BAD_NOTE), (_s(note=3), rc.BAD_NOTE),
++        ("不是物件", rc.BAD_SUGGESTION),
++        ({k: v for k, v in _s().items() if k != "confidence_note"}, rc.MISSING_FIELD),
++        (_s(clauses="raise_pct:band_2"), rc.BAD_CLAUSES),
++        (_s([{"condition": "raise_pct"}]), rc.BAD_CLAUSES),
++    ]
++    for item, reason in single:
++        result = verified(_reply(good, item))
++        assert result.rejected is None and result.submitted == 2, (item, reason)
++        assert [r.key for r in result.valid] == [_normalized(top[0])], (item, reason)
++        assert [(i.index, i.reason) for i in result.invalid] == [(1, reason)], (item, reason)
++        assert result.invalid_count == 1
++    # 說明的界:80 字、240 位元組都剛好可以
++    for note in ("字" * 80, "😀" * 60):
++        assert verified(_reply(good, _honest(top[1]) | {"confidence_note": note})).n == 2
++    # 例子:support:true 與未知 raise_pct:band_9 各只丟該條、各計 1 筆
++    mixed = verified(_reply(good, _s(support=True),
++                            _s([{"condition": "raise_pct", "threshold": "raise_pct:band_9"}])))
++    assert (mixed.n, mixed.invalid_count) == (1, 2)
++    assert rc.reasons(mixed) == {"bad_count": 1, "threshold_not_in_condition": 1}
++
++    # 去重:同一正規化鍵(子句順序不同)與同條件反方向,留先出現的合法條
++    two = next(r for r in top if len(r.key) == 2)
++    reordered = _s(list(reversed(_clauses(two.key))), two.direction, two.support, two.counter)
++    flipped = _s(_clauses(two.key), rv.IMPROVE if two.direction == rv.NOT_IMPROVE
++                 else rv.NOT_IMPROVE, two.counter, two.support)
++    result = verified(_reply(_honest(two), reordered, flipped))
++    assert [r.key for r in result.valid] == [_normalized(two)]
++    assert [(i.index, i.reason) for i in result.invalid] == [(1, rc.DUPLICATE),
++                                                             (2, rc.OPPOSITE)]
++    assert result.invalid_count == 2
++    # 先出現的那條不合法時,後面同鍵的合法條留下(不因不合法的條目丟掉合法的)
++    result = verified(_reply(_honest(two) | {"support": True}, _honest(two)))
++    assert [r.key for r in result.valid] == [_normalized(two)]
++    assert [(i.index, i.reason) for i in result.invalid] == [(0, rc.BAD_COUNT)]
++
++
++# ---- [S1505] ----
++def test_rule_mining_recounts_every_suggestion_before_reporting(sides):  # noqa: PLR0915
++    history, split, explore, holdout, summary = sides
++    # 重算沿用增量 1 的配對與彙總:對封閉全集的每一條都跟探索側彙總一致
++    for key in rv.all_conditions():
++        assert explore.stats(key) == summary.stats[key], key
++    held_summary = rb.summarize(history, split.holdout)
++    top = rb.top_k(summary.stats)
++    note = "模型的信心說明"
++    honest = [_honest(r) | {"confidence_note": note} for r in top[:3]]
++    lied = _honest(top[3]) | {"support": top[3].support + 1}
++    swapped = _honest(top[4]) | {"support": top[4].counter, "counterexample": top[4].support}
++    low_key = next(k for k in rv.all_conditions() if not rb.meets_floor(summary.stats[k]))
++    low_support, low_counter, _ = rb.directional(summary.stats[low_key], rv.IMPROVE)
++    low = _s(_clauses(low_key), rv.IMPROVE, low_support, low_counter)  # 照實抄、但樣本不夠
++    result = rc.verify(rc.parse_reply(_reply(*honest, lied, swapped, low)), explore, holdout)
++    assert result.submitted == 6 and result.recounted == 6
++    assert [c.key for c in result.valid] == [_normalized(r) for r in top[:3]]
++    assert [(i.index, i.reason) for i in result.invalid] == [
++        (3, rc.COUNT_MISMATCH), (4, rc.COUNT_MISMATCH), (5, rc.BELOW_FLOOR)]
++    assert (result.n, result.invalid_count, result.mismatches) == (3, 3, 2)
++    # 有效條目只帶程式重算的數字與保留側判定;模型的說明不在任何欄位
++    for checked, ranked in zip(result.valid, top[:3], strict=True):
++        condition, direction = checked.key
++        stats = summary.stats[condition]
++        support, counter, mean = rb.directional(stats, direction)
++        assert (checked.support, checked.counter, checked.directional_mean) == (
++            support, counter, mean)
++        assert (checked.ties, checked.directed, checked.raised_ads, checked.control_ads,
++                checked.dates) == (stats.ties, stats.directed, stats.raised_ads,
++                                   stats.control_ads, stats.dates)
++        assert checked.holdout == rb.holdout_verdict(held_summary.stats[condition], direction)
++        assert checked.holdout_stats == held_summary.stats[condition]
++        assert ranked.support == support
++    fields = {f.name for f in dataclasses.fields(rc.Checked)}
++    assert not fields & {"confidence_note", "note", "reported_support", "text"}
++    assert note not in repr(result)
++
++    # 19 平手 + 1 正差、模型照實報 1/0:數字相符,但重算只有 1 個有方向配對,仍無效
++    raised = [_ad(f"a{i:02d}", raise_at=5, pre=3, post=4) for i in range(19)]
++    raised.append(_ad("a19", raise_at=5, pre=3, post=6))
++    controls = [_ad(f"c{i:02d}", pre=3, post=4) for i in range(20)]
++    tiny = _history(raised + controls)
++    everyone = frozenset(a.ad_id for a in tiny.ads)
++    stats = rc.Recounter(tiny, everyone).stats(RAISE_2)
++    assert (stats.pairs, stats.ties, stats.directed) == (20, 19, 1)
++    tiny_recounter = rc.Recounter(tiny, everyone)
++    result = rc.verify(rc.parse_reply(_reply(_s(support=1, counter=0))), tiny_recounter,
++                       tiny_recounter)
++    assert (result.n, result.invalid_count) == (0, 1)
++    assert [i.reason for i in result.invalid] == [rc.BELOW_FLOOR]
+diff --git a/tests/eval/test_rule_mining_model.py b/tests/eval/test_rule_mining_model.py
+new file mode 100644
+index 0000000..0ee4a34
+--- /dev/null
++++ b/tests/eval/test_rule_mining_model.py
+@@ -0,0 +1,533 @@
++"""Phase 15 增量 2:規則模式探索經分析端窄入口呼叫模型、花費上限與送出邊界(計劃
++[[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉〈要改寫的既有合約〉)。
++
++合約 [S1507] [S1510](匯入邊界) [S1514] [S1517] [S1518](匯入邊界)。不呼叫真的 claude、不設行程環境的
++即時開關、不碰 ~/.rtb:即時一律是行程內的假後端(`tests/model/fakes.py`),帳本與錄製都在 tmp_path;
++預設路徑用真的 `modelgate.open_gate`,它在錄製模式下只讀錄製。
++"""
++
++import ast
++import dataclasses
++import json
++import os
++import shutil
++import sqlite3
++import subprocess
++import sys
++import threading
++import time
++
++import pytest
++
++from rtb import modelclient as mc
++from rtb import modelcore as core
++from rtb import modelledger as ledger_db
++from rtb import modelledger_view as view
++from rtb import sqlitekit
++from rtb.analyzer import modelgate
++from rtb.analyzer import rule_mining_model as rmm
++from rtb.eval import rule_mining_baseline as rb
++from rtb.eval import rule_mining_eval as rme
++from rtb.eval import rule_mining_prompt as rp
++from rtb.eval import rule_mining_recordings as rr
++from rtb.eval import rule_mining_vocab as rv
++from tests.analyzer.test_boundaries import _source_of
++from tests.conftest import child_prelude
++from tests.model.fakes import FakeBackend, live, reply, request
++from tests.test_spawn_boundary import (
++    CALL_MODEL_USERS,
++    CALLER_USERS,
++    CALLER_VALUES,
++    GATE_USERS,
++    SENDING_ENTRIES,
++    SRC,
++    backend_offenders,
++    closure_of,
++)
++
++SEED = rv.SEEDS[0]
++DEMO = f"phase15-seed-{SEED}-1"
++BATCH = "phase15-rule-mining-test"
++NARROW = "rtb.analyzer.rule_mining_model"
++RUNNER = "rtb.eval.rule_mining_eval"
++HISTORY_KEYS = "rtb.eval.rule_mining_recordings"
++MINING = ("rtb.eval.rule_mining_vocab", "rtb.eval.rule_mining_history",
++          "rtb.eval.rule_mining_baseline", "rtb.eval.rule_mining_prompt",
++          "rtb.eval.rule_mining_check", HISTORY_KEYS, RUNNER, NARROW)
++
++
++@pytest.fixture(scope="module")
++def prepared():
++    return rme.prepare(SEED)
++
++
++def honest_answer(prepared, count=2):
++    """照探索側重算數字填的回覆(模型照抄彙總表時的樣子)。"""
++    top = rb.top_k({k: prepared.explore.stats(k) for k in rv.all_conditions()})[:count]
++    return json.dumps({"version": 1, "suggestions": [
++        {"clauses": [{"condition": c, "threshold": t} for c, t in r.key],
++         "direction": r.direction, "support": r.support, "counterexample": r.counter,
++         "confidence_note": "照表抄"} for r in top]}, ensure_ascii=False, separators=(",", ":"))
++
++
++def fake_opener(settings, seen=None):
++    """代替 modelgate.open_gate:收同樣的參數,回綁好假設定的閘道(記下開閘道時帶的呼叫者)。"""
++
++    def open_gate(environ, *, caller, demo_id, ledger, recordings, **rest):
++        del environ
++        if seen is not None:
++            seen.append(caller)
++        return modelgate.Gate(settings, caller, demo_id, ledger or rest.get("recorded_ledger"),
++                              recordings, rest.get("batch_id"))
++
++    return open_gate
++
++
++def config(tmp_path, *, environ=None, demo_id=DEMO, batch_id=None, recordings=None):
++    empty = tmp_path / "no-bin"
++    empty.mkdir(exist_ok=True)
++    return rmm.GateConfig(environ={"PATH": str(empty)} if environ is None else environ,
++                          demo_id=demo_id, ledger=tmp_path / "ledger.sqlite",
++                          recordings=recordings or tmp_path / "recordings", batch_id=batch_id)
++
++
++def fake_ask(settings, cfg, seen=None):
++    def ask(system, table):
++        return rmm.suggest(system, table, cfg, open_gate=fake_opener(settings, seen))
++
++    return ask
++
++
++def ledger_rows(ledger):
++    reader = view.ModelLedgerView(ledger)
++    try:
++        with reader.read_transaction():
++            return reader.calls_between("0000", "9999")
++    finally:
++        reader.close()
++
++
++def mining_request(prepared, demo_id=DEMO):
++    return mc.ModelRequest(caller=mc.Caller.RULE_MINING, system=rp.SYSTEM_PROMPT,
++                           user=prepared.table, max_output_tokens=rmm.MAX_OUTPUT_TOKENS,
++                           timeout_seconds=rmm.TIMEOUT_SECONDS, demo_id=demo_id)
++
++
++# ---- [S1507] ----
++def test_rule_mining_live_calls_require_the_gateway_and_count_toward_caps(  # noqa: PLR0915
++        prepared, tmp_path, monkeypatch):
++    rec_dir = tmp_path / "recordings"
++    rec_dir.mkdir()
++    # 預設重播:缺錄製就停在「沒有錄製」、記呼叫失敗,不改走即時;帳記在指定的暫存帳本
++    run = rme.run(prepared, rme.gate_ask(config(tmp_path)))
++    assert run.status == rme.CALL_FAILED and run.verification is None
++    assert (run.reply.outcome, run.reply.mode, run.reply.text) == ("no_recording", "recorded", None)
++    assert "錄製" in (run.reply.problem or "")
++    assert run.expected_key == rr.expected_key(rp.SYSTEM_PROMPT, prepared.table)
++    booked = ledger_rows(tmp_path / "ledger.sqlite")
++    assert [(r.caller, r.outcome, r.source, r.reserved_nanousd) for r in booked] == [
++        ("rule_mining", "no_recording", "recorded", 0)]
++    # 即時前置條件不齊(這個字典開了開關,但找不到 claude,或沒有展示編號):閘道判錄製、停在沒有錄製。
++    # 第二種放一支假的 claude 在 PATH 上,被執行就留記號(展示編號先檢查,根本不會跑到它)
++    fake_bin, marker = tmp_path / "fake-bin", tmp_path / "fake-claude-ran"
++    fake_bin.mkdir()
++    (fake_bin / "claude").write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n", encoding="utf-8")
++    (fake_bin / "claude").chmod(0o755)
++    for environ, demo_id in (({"RTB_MODEL_LIVE": "1", "PATH": str(tmp_path / "no-bin")}, DEMO),
++                             ({"RTB_MODEL_LIVE": "1", "PATH": str(fake_bin)}, None)):
++        run = rme.run(prepared, rme.gate_ask(config(tmp_path, environ=environ, demo_id=demo_id)))
++        assert (run.status, run.reply.mode, run.reply.outcome) == (
++            rme.CALL_FAILED, "recorded", "no_recording")
++    assert not marker.exists()
++    # 錄製模式不給帳本:閘道在入口拒絕,什麼都沒呼叫
++    with pytest.raises(modelgate.GateRefused):
++        rmm.suggest(rp.SYSTEM_PROMPT, prepared.table, rmm.GateConfig(
++            {"PATH": str(tmp_path / "no-bin")}, DEMO, None, rec_dir))
++
++    # 明確授權的即時(假後端)加錄製:經閘道送出合成彙總,呼叫者綁死 RULE_MINING,計入上限
++    answer = honest_answer(prepared)
++    backend = FakeBackend(reply(answer, input_tokens=3000, output_tokens=400))
++    seen = []
++    live_cfg = config(tmp_path, batch_id=BATCH)
++    run = rme.run(prepared, fake_ask(live(backend, record=True), live_cfg, seen))
++    assert seen == [mc.Caller.RULE_MINING]
++    assert run.status == rme.CALL_OK and run.reply.source == "live"
++    assert len(backend.calls) == 1
++    sent = backend.calls[0]
++    assert (sent.system, sent.user) == (rp.SYSTEM_PROMPT, prepared.table)
++    assert (sent.max_output_tokens, sent.timeout_seconds) == (6144, 60.0)
++    assert run.reply.key == run.expected_key  # 歷史錄製鍵模組重算的鍵就是模型用戶端存的鍵
++    assert (rec_dir / f"{run.expected_key}.json").is_file()
++    assert run.verification is not None
++    assert (run.verification.n, run.verification.invalid_count) == (2, 0)
++    live_row = ledger_rows(tmp_path / "ledger.sqlite")[-1]
++    assert (live_row.caller, live_row.source, live_row.outcome) == ("rule_mining", "live", "ok")
++    assert live_row.reserved_nanousd == core.reservation_nanousd(mining_request(prepared),
++                                                                 mc.DEFAULT_MODEL)
++    spent = ledger_db.used_so_far(tmp_path / "ledger.sqlite", DEMO)
++    assert spent.demo_nanousd == live_row.settled_nanousd > 0  # 計入上限的已用
++    # 之後的預設重播讀回同一份,答案與核對結果相同
++    replay = rme.run(prepared, rme.gate_ask(config(tmp_path, recordings=rec_dir)))
++    assert replay.status == rme.CALL_OK and replay.reply.source == "recorded"
++    assert replay.reply.text == answer and replay.verification == run.verification
++
++    # 花費帳忙碌:預留寫不進去,沒有送出,記呼叫失敗
++    monkeypatch.setattr(ledger_db, "connect", lambda path: sqlitekit.connect(path, 0.05))
++    holder = sqlite3.connect(tmp_path / "ledger.sqlite", isolation_level=None)
++    try:
++        holder.execute("BEGIN IMMEDIATE")
++        busy_backend = FakeBackend(reply("不該送出"))
++        run = rme.run(prepared, fake_ask(live(busy_backend), config(tmp_path)))
++    finally:
++        holder.execute("ROLLBACK")
++        holder.close()
++    assert (run.status, run.reply.outcome) == (rme.CALL_FAILED, "ledger_busy")
++    assert busy_backend.calls == [] and run.verification is None
++    # 探勘只寫帳本與錄製:沒有別的檔(沒有分析端資料庫、提案或設定)
++    written = {p.name for p in tmp_path.iterdir()}
++    assert written <= {"no-bin", "fake-bin", "recordings", "ledger.sqlite", "ledger.sqlite-wal",
++                       "ledger.sqlite-shm"}, written
++
++
++# ---- [S1514] ----
++def test_rule_mining_single_call_respects_reservation(prepared, tmp_path, monkeypatch):
++    assert (rmm.MAX_OUTPUT_TOKENS, rmm.TIMEOUT_SECONDS, rmm.PROMPT_BYTES_LIMIT) == (
++        rv.MAX_OUTPUT_TOKENS, rv.CALL_TIMEOUT_SECONDS, rv.PROMPT_BYTES_LIMIT) == (6144, 60, 20480)
++    # 20480 位元組的完整提示、6144 輸出:repo 的預留函式算得 941875200,每展示 1 美元還剩 58124800
++    widest = mc.ModelRequest(caller=mc.Caller.RULE_MINING, system="s" * 480, user="u" * 20000,
++                             max_output_tokens=6144, timeout_seconds=60.0, demo_id=DEMO)
++    assert core.reservation_nanousd(widest, mc.DEFAULT_MODEL) == 941_875_200
++    assert core.DEMO_CAP_NANOUSD - 941_875_200 == 58_124_800
++    # 十條填滿(兩子句、24 位元組代碼、九位數筆數、80 個三位元組字)的緊湊回覆仍在 6000 位元組內
++    code = "a" * 24
++    full = {"clauses": [{"condition": code, "threshold": code}] * 2, "direction": "not_improve",
++            "support": 999_999_999, "counterexample": 999_999_999, "confidence_note": "中" * 80}
++    widest_reply = json.dumps({"version": 1, "suggestions": [full] * rv.K}, ensure_ascii=False,
++                              separators=(",", ":"))
++    assert len(widest_reply.encode()) <= rv.REPLY_BYTES_LIMIT <= rv.MAX_OUTPUT_TOKENS
++    _oversized_prompts_are_refused_before_the_gate(prepared, tmp_path)
++    need = core.reservation_nanousd(mining_request(prepared), mc.DEFAULT_MODEL)
++    assert 600_000_000 < need < core.DEMO_CAP_NANOUSD
++    _reservation_must_fit_the_remaining_caps(prepared, tmp_path, monkeypatch, need)
++    _failures_are_booked_once_without_retry(prepared, tmp_path, need)
++    _concurrent_reservations_count_toward_the_cap(prepared, tmp_path, monkeypatch, need)
++
++
++def _oversized_prompts_are_refused_before_the_gate(prepared, tmp_path):
++    """提示過大:評估端與窄入口都在呼叫前拒絕,不開閘道、不記帳;剛好 20480 可以。"""
++    opened = []
++
++    def refuse_to_open(*_args, **_kwargs):
++        opened.append("refused")
++
++    for pad in (20480 - prepared.prompt_bytes, 20481 - prepared.prompt_bytes):
++        table = prepared.table + "x" * pad
++        size = rmm.prompt_bytes(rp.SYSTEM_PROMPT, table)
++        if size > rmm.PROMPT_BYTES_LIMIT:
++            with pytest.raises(rmm.PromptTooLarge):
++                rmm.suggest(rp.SYSTEM_PROMPT, table, config(tmp_path), open_gate=refuse_to_open)
++            asked = []
++            too_big = dataclasses.replace(prepared, table=table, prompt_bytes=size)
++            with pytest.raises(rme.PromptRefused):
++                rme.run(too_big, lambda _system, user, asked=asked: asked.append(user))
++            assert asked == []
++        else:
++            assert size == 20480
++            rmm.suggest(rp.SYSTEM_PROMPT, table, config(tmp_path), open_gate=fake_opener(
++                live(FakeBackend(reply("{}")), record=False)))
++            opened.append("allowed")
++    assert opened == ["allowed"]
++    assert not (tmp_path / "recordings").exists()
++
++
++def _reservation_must_fit_the_remaining_caps(prepared, tmp_path, monkeypatch, need):
++    """預留額用 repo 預留函式照當時價目重算,須 ≤ 每展示與每月剩餘上限;無餘裕就拒絕即時呼叫。"""
++    ledger = tmp_path / "caps.sqlite"
++
++    def attempt(demo_id):
++        backend = FakeBackend(reply("{}", input_tokens=10, output_tokens=10))
++        cfg = rmm.GateConfig({}, demo_id, ledger, tmp_path / "recordings")
++        return rme.run(prepared, fake_ask(live(backend), cfg)).reply.outcome, backend.calls
++
++    monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", need)  # 剛好放得下
++    outcome, calls = attempt("d-exact")
++    assert outcome == "ok" and len(calls) == 1
++    monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", need - 1)  # 差一
++    assert attempt("d-short") == ("local_cap_refused", [])
++    monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", need)
++    price = core.PRICES[mc.DEFAULT_MODEL]
++    doubled = dataclasses.replace(price, output_nanousd=2 * price.output_nanousd)
++    monkeypatch.setitem(core.PRICES, mc.DEFAULT_MODEL, doubled)  # 價目一變,同一上限就放不下
++    assert attempt("d-price") == ("local_cap_refused", [])
++    monkeypatch.undo()
++    # 展示已用額(別的計入上限呼叫者)使重算預留超過剩餘 → 拒絕;每月上限同理
++    spent_before = core.DEMO_CAP_NANOUSD - need + 1
++    output_tokens = -(-spent_before * 5 // 6 // core.PRICES[mc.DEFAULT_MODEL].output_nanousd)
++    mc.call_model(request("先花", demo_id="d-used", max_output_tokens=50),
++                  live(FakeBackend(reply("x", input_tokens=0, output_tokens=output_tokens))),
++                  recordings_dir=tmp_path / "recordings", ledger=ledger)
++    assert ledger_db.used_so_far(ledger, "d-used").demo_nanousd >= spent_before
++    assert attempt("d-used") == ("local_cap_refused", [])
++    monkeypatch.setattr(core, "MONTH_CAP_NANOUSD", ledger_db.used_so_far(
++        ledger, None).month_nanousd + need - 1)
++    assert attempt("d-month") == ("local_cap_refused", [])
++    monkeypatch.undo()
++
++
++def _failures_are_booked_once_without_retry(prepared, tmp_path, need):
++    """60 秒逾時:記呼叫失敗、整筆預留入帳、不重試;暫時性錯誤同樣只送一次。"""
++    for failure, outcome in ((mc.ModelTimeout("逾時"), "timeout"),
++                             (mc.TransientServiceError("overloaded"), "transient")):
++        backend = FakeBackend(failure, reply("第二次不該發生"))
++        cfg = rmm.GateConfig({}, f"d-{outcome}", tmp_path / "fail.sqlite", tmp_path / "recordings")
++        run = rme.run(prepared, fake_ask(live(backend), cfg))
++        assert (run.status, run.reply.outcome, len(backend.calls)) == (rme.CALL_FAILED, outcome, 1)
++        row = ledger_rows(tmp_path / "fail.sqlite")[-1]
++        assert row.outcome == outcome and row.settled_nanousd == row.reserved_nanousd == need
++        assert row.by_reservation
++
++
++def _concurrent_reservations_count_toward_the_cap(prepared, tmp_path, monkeypatch, need):
++    """併行預留也計入上限:上限放得下兩筆時,四條同時送,至多兩條送出。"""
++    release = threading.Event()
++
++    def slow(_call):
++        release.wait(30)
++        return reply("{}", input_tokens=0, output_tokens=0)
++
++    monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", 2 * need + need // 2)
++    slow_backend, outcomes = FakeBackend(slow), []
++    barrier = threading.Barrier(4)
++    cfg = rmm.GateConfig({}, "d-race", tmp_path / "race.sqlite", tmp_path / "recordings")
++
++    def worker():
++        barrier.wait()
++        outcomes.append(rme.run(prepared, fake_ask(live(slow_backend), cfg)).reply.outcome)
++
++    threads = [threading.Thread(target=worker) for _ in range(4)]
++    for thread in threads:
++        thread.start()
++    deadline = time.monotonic() + 30
++    while len(slow_backend.calls) + len(outcomes) < 4 and time.monotonic() < deadline:
++        time.sleep(0.01)
++    in_flight = ledger_db.used_so_far(tmp_path / "race.sqlite", "d-race").demo_nanousd
++    release.set()
++    for thread in threads:
++        thread.join(10)
++    assert len(outcomes) == 4 and len(slow_backend.calls) <= 2
++    assert set(outcomes) <= {"ledger_busy", "local_cap_refused", "ok"}
++    assert in_flight == len(slow_backend.calls) * need <= core.DEMO_CAP_NANOUSD
++
++
++# ---- [S1510] ----
++FORBIDDEN_PREFIXES = ("rtb.dsp", "rtb.executor", "rtb.ops", "rtb.demo")
++FORBIDDEN_MODULES = frozenset({
++    "rtb.analyzer.runner", "rtb.analyzer.inbox_client", "rtb.analyzer.dsp_client",
++    "rtb.analyzer.rule_round", "rtb.analyzer.narrate", "rtb.analyzer.ai_judge",
++    "rtb.analyzer.instrumented", "rtb.httpclient", "rtb.httpkit", "rtb.capabilitykit"})
++NETWORK_ROOTS = frozenset({"urllib", "http", "socket", "ssl", "smtplib", "ftplib", "xmlrpc",
++                           "requests", "httpx", "aiohttp", "webbrowser", "email"})
++# 探勘模組各自准直接取用的專案模組與名字(寫死;取用的名字不含任何決策、提案、寫入或送件)
++MINING_USES = {
++    "rtb.analyzer.investigation": {"canonical_json"},
++    "rtb.eval.scoring": {"wilson_lower"},
++    "rtb.analyzer.modelgate": {"Caller", "Gate", "ModelCallFailed", "Outcome", "open_gate"},
++    "rtb.modelclient": {"Caller", "recording_key", "DEFAULT_MODEL"},
++}
++MINING_SOURCES = ("rtb.eval.rule_mining", NARROW, "rtb.domain.metrics")
++
++
++def forbidden_reach(roots, src=SRC):
++    """閉包裡碰到的禁區:送件、DSP、執行端、分析端驅動等專案模組,以及任一支閉包模組匯入的網路模組。"""
++    reached = closure_of(list(roots), src)
++    found = [m for m in reached if m in FORBIDDEN_MODULES or m.startswith(FORBIDDEN_PREFIXES)]
++    for module in reached:
++        path = _source_of(src, module)
++        if path is None:
++            continue
++        tree = ast.parse(path.read_text(encoding="utf-8"))
++        names = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names} | {
++            n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
++        found += [f"{module}: {n}" for n in names if n.split(".")[0] in NETWORK_ROOTS]
++    return sorted(found)
++
++
++def _module_path(module, src=SRC):
++    return src.joinpath(*module.split(".")).with_suffix(".py")
++
++
++def foreign_uses(module, src=SRC):
++    """探勘模組從探勘家族以外的專案模組取用的名字,超出 MINING_USES 的就列出。"""
++    tree = ast.parse(_module_path(module, src).read_text(encoding="utf-8"))
++    aliases, found = {}, []
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import):
++            found += [f"{module}: import {a.name}" for a in node.names if a.name.startswith("rtb")]
++        if not (isinstance(node, ast.ImportFrom) and (node.module or "").startswith("rtb")):
++            continue
++        for alias in node.names:
++            full = f"{node.module}.{alias.name}"
++            if full.startswith(MINING_SOURCES) or str(node.module).startswith(MINING_SOURCES):
++                continue
++            if full in MINING_USES:
++                aliases[alias.asname or alias.name] = full
++            elif alias.name not in MINING_USES.get(str(node.module), ()):
++                found.append(f"{module}: from {node.module} import {alias.name}")
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and (
++                node.value.id in aliases and node.attr not in MINING_USES[aliases[node.value.id]]):
++            found.append(f"{module}:{node.lineno} {aliases[node.value.id]}.{node.attr}")
++    return found
++
++
++def test_rule_mining_cannot_write_policy_proposals_or_issues(tmp_path):
++    # 探勘的匯入閉包(含評估端執行器與分析端窄入口)碰不到送件、DSP、執行端、分析端驅動或網路
++    assert forbidden_reach(MINING) == []
++    assert "rtb.modelclaude" in closure_of([NARROW])  # 只經模型用戶端(唯一起 claude 的地方)
++    # 探勘模組取用別的模組只准寫死的幾個名字(不呼叫流程推進、決策規則、提案、寫入或送件)
++    offenders = [line for module in MINING for line in foreign_uses(module)]
++    assert offenders == []
++    # 窄入口只匯入模型閘道
++    tree = ast.parse(_module_path(NARROW).read_text(encoding="utf-8"))
++    imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
++        a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
++    assert {m for m in imported if m.startswith("rtb")} == {"rtb.analyzer"}
++    assert [a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
++            and n.module == "rtb.analyzer" for a in n.names] == ["modelgate"]
++    # 殺傷力:探勘模組多匯入收件口、DSP 用戶端或網路,都抓得到;多取用閘道以外的名字也抓得到
++    shadow = tmp_path / "src"
++    shutil.copytree(SRC, shadow)
++    target = _module_path(RUNNER, shadow)
++    for probe in ("from rtb.analyzer import inbox_client\n", "import rtb.dsp.store\n",
++                  "import urllib.request\n", "from rtb.analyzer import runner\n"):
++        target.write_text(probe + _module_path(RUNNER).read_text(encoding="utf-8"),
++                          encoding="utf-8")
++        assert forbidden_reach([RUNNER], shadow), probe
++    target.write_text(_module_path(RUNNER).read_text(encoding="utf-8")
++                      + "\nfrom rtb.analyzer import investigation as _inv\n_inv.Progress\n",
++                      encoding="utf-8")
++    assert foreign_uses(RUNNER, shadow)
++
++
++# ---- [S1517] ----
++def test_rule_mining_retirement_preserves_recordings_and_caps(prepared, tmp_path):  # noqa: PLR0915
++    # 呼叫者列舉、上限集合、錄製鍵對照:值與成員名寫死、鍵集合等於列舉成員名
++    assert mc.Caller.RULE_MINING.value == "rule_mining"
++    assert mc.Caller.RULE_MINING in ledger_db.CAPPED_CALLERS
++    assert set(CALLER_USERS) == {c.name for c in mc.Caller}
++    assert CALLER_VALUES["rule_mining"] == "RULE_MINING"
++    # 撤除模型段只撤兩支送出入口;歷史錄製鍵模組留在 CALLER_USERS["RULE_MINING"],這格不會變空
++    retired = {NARROW, RUNNER}
++    assert retired <= SENDING_ENTRIES and retired <= CALL_MODEL_USERS
++    assert NARROW in GATE_USERS
++    assert CALLER_USERS["RULE_MINING"] - retired == {HISTORY_KEYS}
++    assert HISTORY_KEYS not in SENDING_ENTRIES | CALL_MODEL_USERS
++    history_tree = ast.parse(_module_path(HISTORY_KEYS).read_text(encoding="utf-8"))
++    assert backend_offenders(history_tree, HISTORY_KEYS, HISTORY_KEYS) == []
++    assert not closure_of([HISTORY_KEYS]) & (retired | {"rtb.analyzer.modelgate"})
++
++    # 先錄一批(假後端)並記帳
++    folder, ledger = tmp_path / "recordings", tmp_path / "ledger.sqlite"
++    answer = reply(honest_answer(prepared), input_tokens=0, output_tokens=30_000)
++    run = rme.run(prepared, fake_ask(live(FakeBackend(answer), record=True),
++                                     config(tmp_path, batch_id=BATCH, recordings=folder)))
++    assert run.status == rme.CALL_OK
++    spent = ledger_db.used_so_far(ledger, DEMO).demo_nanousd
++    assert spent > 0
++    table_file = tmp_path / "table.txt"
++    table_file.write_text(prepared.table, encoding="utf-8")
++    # 演練撤除:原始碼副本刪掉兩支送出入口,另開行程只用留下的模組讀回舊錄製、重算鍵、查上限
++    shadow = tmp_path / "shadow"
++    shutil.copytree(SRC, shadow)
++    for module in retired:
++        _module_path(module, shadow).unlink()
++    script = child_prelude(tmp_path / "home") + f"""
++import json
++from pathlib import Path
++from rtb import modelclient as mc, modelledger as ledger_db, modelrecording as rec
++from rtb.eval import rule_mining_prompt as rp, rule_mining_recordings as rr
++for gone in ({NARROW!r}, {RUNNER!r}):
++    try:
++        __import__(gone)
++    except ModuleNotFoundError:
++        pass
++    else:
++        raise SystemExit("撤除後還匯入得到 " + gone)
++table = Path({str(table_file)!r}).read_text(encoding="utf-8")
++key = rr.expected_key(rp.SYSTEM_PROMPT, table)
++found = rec.load_recording(Path({str(folder)!r}) / f"{{key}}.json", key=key,
++                           caller=mc.Caller.RULE_MINING, model=mc.DEFAULT_MODEL)
++print(json.dumps({{"key": key, "outcome": found.outcome, "caller": found.caller,
++                  "demo": ledger_db.used_so_far(Path({str(ledger)!r}), {DEMO!r}).demo_nanousd,
++                  "capped": mc.Caller.RULE_MINING in ledger_db.CAPPED_CALLERS}}))
++"""
++    done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
++                          timeout=60, check=False,
++                          env={**os.environ, "PYTHONPATH": str(shadow)})
++    assert done.returncode == 0, done.stderr
++    seen = json.loads(done.stdout)
++    assert seen == {"key": run.expected_key, "outcome": "ok", "caller": "rule_mining",
++                    "demo": spent, "capped": True}
++    # 舊帳照樣計上限:同一展示再來一筆計入上限的呼叫,會被已用的探勘花費擋下
++    other = request("評估", demo_id=DEMO, max_output_tokens=12_000)
++    need = core.reservation_nanousd(other, mc.DEFAULT_MODEL)
++    assert need <= core.DEMO_CAP_NANOUSD < spent + need  # 單獨放得下,加上探勘舊帳就放不下
++    blocked = FakeBackend(reply("不該送出"))
++    with pytest.raises(mc.LocalCapRefused):
++        mc.call_model(other, live(blocked), recordings_dir=tmp_path / "other", ledger=ledger)
++    assert blocked.calls == []
++    # 舊錄製照樣能在錄製模式重播(不經即時)
++    replay = rme.run(prepared, rme.gate_ask(config(tmp_path, recordings=folder)))
++    assert replay.reply.source == "recorded" and replay.reply.key == run.expected_key
++
++
++# ---- [S1518] ----
++def test_rule_mining_waits_for_phase14_and_keeps_import_boundaries():
++    from rtb.demo import driver
++    from tests.eval import test_model_candidate as candidate
++
++    # Phase 14 增量 3 已合入:分析端驅動沒有 AI 判斷開關、展示驅動不再組它
++    runner_tree = ast.parse((SRC / "rtb" / "analyzer" / "runner.py").read_text(encoding="utf-8"))
++    flags = {a.value for n in ast.walk(runner_tree) if isinstance(n, ast.Call)
++             and getattr(n.func, "attr", None) == "add_argument" for a in n.args
++             if isinstance(a, ast.Constant)}
++    assert flags == {"--db", "--dsp-url", "--inbox-url", "--timeout-seconds",
++                     "--interval-seconds", "--owner"}
++    assert "--ai-judge" not in driver.World.analyzer_args.__code__.co_consts
++    # AI 決策模組只給評估執行器;探勘閉包碰不到它、分析端驅動、收件口或 DSP
++    judge_users = set()
++    for path in sorted((SRC / "rtb").rglob("*.py")):
++        tree = ast.parse(path.read_text(encoding="utf-8"))
++        names = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
++            f"{n.module}.{a.name}" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
++            for a in n.names} | {a.name for n in ast.walk(tree) if isinstance(n, ast.Import)
++                                 for a in n.names}
++        if "rtb.analyzer.ai_judge" in names:
++            judge_users.add(".".join(path.relative_to(SRC).with_suffix("").parts))
++    assert judge_users == {"rtb.eval.investigation_eval"}
++    assert forbidden_reach(MINING) == []
++    # 精確集合隨新列舉與窄入口同步更新(只加窄入口與探勘模組,不放寬整個套件)
++    assert {c.value for c in mc.Caller} >= {"rule_mining"}
++    assert {"rtb.analyzer.narrate", "rtb.analyzer.ai_judge", NARROW} == GATE_USERS
++    assert {m for m in candidate.PHASE15_ALLOWED if not m.startswith("rtb.eval.")} == {NARROW}
++    assert candidate.RULE_MINING_MODEL == NARROW
++    assert candidate.rule_mining_senders() == ({"rule_mining_eval"}, {"rule_mining_eval"})
++    # 匯入探勘執行器或窄入口就算送出點:既有評估模組匯入它們會被擋
++    for probe in ("from rtb.eval import rule_mining_eval\n", "import rtb.eval.rule_mining_eval\n",
++                  "from rtb.analyzer import rule_mining_model\n",
++                  "from rtb.analyzer.rule_mining_model import suggest\n"):
++        assert backend_offenders(ast.parse(probe), "scoring.py", "rtb.eval.scoring"), probe
++    # 各層的靜態檢查規則也禁匯入窄入口(評估端除外)
++    rtb = SRC / "rtb"
++    for config_file, where in ((rtb / "analyzer" / "ruff.toml", rtb / "analyzer"),
++                               (rtb / "demo" / "ruff.toml", rtb / "demo"),
++                               (rtb / "dsp" / "ruff.toml", rtb / "dsp"),
++                               (rtb / "executor" / "ruff.toml", rtb / "executor"),
++                               (rtb / "domain" / "ruff.toml", rtb / "domain"),
++                               (SRC.parent / "pyproject.toml", rtb)):
++        result = subprocess.run(
++            [sys.executable, "-m", "ruff", "check", "--config", str(config_file),
++             "--stdin-filename", str(where / "probe.py"), "-"],
++            input="from rtb.analyzer import rule_mining_model\n", capture_output=True, text=True,
++            timeout=60, check=False)
++        assert result.returncode == 1 and "TID251" in result.stdout, config_file
+diff --git a/tests/model/test_shared_entry.py b/tests/model/test_shared_entry.py
+index 8e153a9..91b17b2 100644
+--- a/tests/model/test_shared_entry.py
++++ b/tests/model/test_shared_entry.py
+@@ -73,41 +73,44 @@ def demo_used(ledger, demo_id):
+     try:
+         with reader.read_transaction():
+             return reader.used_by_demo(demo_id)
+     finally:
+         reader.close()
+ 
+ 
+ # ---- [S1103] ----
+ def test_the_investigation_caller_is_a_bounded_label(dirs, tmp_path):
+     assert mc.Caller.INVESTIGATION.value == "analyzer_investigation"
++    # Phase 15 增量 2 精確新增規則模式探索(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]])
+     assert {c.value for c in mc.Caller} == {"eval_candidate", "ops_hypothesis",
+                                            "analyzer_narrative", "live_verification",
+-                                           "analyzer_investigation"}
++                                           "analyzer_investigation", "rule_mining"}
+     call(live(FakeBackend(reply("x"))), request(caller=mc.Caller.INVESTIGATION), dirs)
+     call(live(FakeBackend(reply("y"))), request("u2", caller=mc.Caller.NARRATIVE), dirs)
+     data = Rows(tmp_path)
+     try:
+         now = datetime.now(UTC)
+         report = metrics.collect_window(
+             now - timedelta(hours=1), now + timedelta(hours=1), executor_db=data.executor_db,
+             analyzer_db=data.analyzer_db, tenants=TENANTS, model_ledger=dirs[1])
+     finally:
+         data.close()
+     callers = {s.label_map()["model_caller"] for s in report.samples if s.name == "model_and_jev"}
+     assert callers == {"analyzer_investigation", "analyzer_narrative"}
+     assert callers <= {c.value for c in mc.Caller} | {metrics.OTHER}  # 標籤是封閉集合
+ 
+ 
+ # ---- [S1134] ----
+ def test_the_phase13_callers_are_not_capped_but_still_booked(dirs, monkeypatch):
+-    capped = frozenset({mc.Caller.EVAL_CANDIDATE, mc.Caller.VERIFICATION})
++    # Phase 15 增量 2 精確新增規則模式探索:它計入上限(併行預留見
++    # tests/eval/test_rule_mining_model.py 的 [S1514]),Phase 13 的三個呼叫者照舊不計入
++    capped = frozenset({mc.Caller.EVAL_CANDIDATE, mc.Caller.VERIFICATION, mc.Caller.RULE_MINING})
+     assert capped == ledger_db.CAPPED_CALLERS
+     before = {table: tuple(columns) for table, columns in view.TABLES.items()}
+     # 上限縮到一次都放不下:三個呼叫者照樣送出、照樣各記一筆估算成本
+     monkeypatch.setattr(core, "DEMO_CAP_NANOUSD", 1)
+     monkeypatch.setattr(core, "MONTH_CAP_NANOUSD", 1)
+     callers = [mc.Caller[name] for name in PHASE13_CALLERS]
+     for n, caller in enumerate(callers):
+         backend = FakeBackend(reply("說明", input_tokens=100, output_tokens=10))
+         result = call(live(backend), request(f"u{n}", caller=caller), dirs)
+         assert result.source is mc.Source.LIVE and len(backend.calls) == 1
+diff --git a/tests/test_spawn_boundary.py b/tests/test_spawn_boundary.py
+index e6dfb1a..1632518 100644
+--- a/tests/test_spawn_boundary.py
++++ b/tests/test_spawn_boundary.py
+@@ -30,22 +30,24 @@ from tests.analyzer.test_boundaries import (
+ SRC = Path(__file__).resolve().parents[1] / "src"
+ RTB = SRC / "rtb"
+ ALLOWED = frozenset({"rtb.modelclaude"})  # 模型用戶端的 Claude Code 後端那一支
+ # 一鍵展示(Phase 12)的啟動器與驅動程式也起子行程,但起的是本專案自己的模組(DSP、收件口、執行迴圈、
+ # 分析端)與專案內的驗證器,不是 claude;[S917] 的原意由下面那支測試守:它們的原始碼不准提到 claude,
+ # 也不准匯入模型用戶端
+ PROJECT_STARTERS = frozenset({"rtb.demo.launcher", "rtb.demo.driver"})
+ MODEL_CLIENTS = frozenset({"rtb.modelclaude", "rtb.modelclient"})
+ GATE = "rtb.analyzer.modelgate"  # 分析端唯一准匯入模型用戶端的模組(Phase 13)
+ # 准匯入模型閘道的分析端模組(寫死,[S1100]):模型說明命令列、AI 決策函式所在模組(Phase 13 增量 2
+-# 開檔)。Phase 14 增量 3([S1429]):分析端驅動命令列拔掉 --ai-judge,移出名單
+-GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.ai_judge"})
++# 開檔)。Phase 14 增量 3([S1429]):分析端驅動命令列拔掉 --ai-judge,移出名單。Phase 15 增量 2 窄增
++# 規則模式探索的分析端模型入口(只收已組好的彙總文字,[S1100] 照 Phase 15 計劃改寫)
++GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.ai_judge",
++                        "rtb.analyzer.rule_mining_model"})
+ # 匯入閉包不准含模型用戶端任何一支模組的分析端模組([S1100]);調查詞彙模組與證據來源包裝也不准
+ # (展示流程圖與觀察器讀調查詞彙,展示伺服器行程不能因此載入模型用戶端)
+ MODEL_FREE = ("rtb.analyzer.flow", "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
+               "rtb.analyzer.investigation", "rtb.analyzer.instrumented", "rtb.demo.flow",
+               "rtb.demo.observe", "rtb.demo.launcher")
+ SPAWN_MODULES = frozenset({"subprocess", "multiprocessing", "pty", "webbrowser",
+                            "_posixsubprocess"})
+ OS_SPAWNERS = ("system", "popen", "exec", "spawn", "posix_spawn", "fork", "forkpty")
+ ASYNC_SPAWNERS = ("create_subprocess_exec", "create_subprocess_shell")
+ LOOP_SPAWNERS = ("subprocess_exec", "subprocess_shell")  # 事件迴圈物件的方法(名字不管接在誰後面)
+@@ -259,25 +261,30 @@ def test_the_analyzer_reaches_the_model_only_through_the_gateway(tmp_path):
+     (copy / "flow.py").write_text("from rtb.analyzer import modelgate\n", encoding="utf-8")
+     assert gate_offenders(copy)
+     # 經說明命令列轉手:別支分析端模組匯入它,閉包就含閘道
+     shadow = tmp_path / "src"
+     shutil.copytree(SRC, shadow)
+     with (shadow / "rtb" / "analyzer" / "instrumented.py").open("a", encoding="utf-8") as file:
+         file.write("\nfrom rtb.analyzer.narrate import modelgate as _mg  # noqa: E402,F401\n")
+     assert closure_offenders(shadow)
+ 
+ 
++# 呼叫者的值 → 成員名(寫死;測試核對它等於列舉本身,新成員漏列就紅)。Phase 15 增量 2 加規則模式探索;
++# 停用模型探勘時照留([S1517])
++CALLER_VALUES = {"eval_candidate": "EVAL_CANDIDATE", "ops_hypothesis": "HYPOTHESIS",
++                 "analyzer_narrative": "NARRATIVE", "live_verification": "VERIFICATION",
++                 "analyzer_investigation": "INVESTIGATION", "rule_mining": "RULE_MINING"}
++
++
+ def caller_offenders(tree, module):
+     """用了不屬於自己的呼叫者標籤:Caller.成員(不論接在誰後面)、Caller("值")、Caller["成員"]。"""
+-    values = {"eval_candidate": "EVAL_CANDIDATE", "ops_hypothesis": "HYPOTHESIS",
+-              "analyzer_narrative": "NARRATIVE", "live_verification": "VERIFICATION",
+-              "analyzer_investigation": "INVESTIGATION"}
++    values = CALLER_VALUES
+     used = set()
+     for node in ast.walk(tree):
+         if isinstance(node, ast.Attribute) and node.attr in CALLER_USERS and (
+                 isinstance(node.value, ast.Name | ast.Attribute)
+                 and (getattr(node.value, "id", None) or getattr(node.value, "attr", None))
+                 == "Caller"):
+             used.add(node.attr)
+         elif isinstance(node, ast.Call) and getattr(node.func, "id", getattr(
+                 node.func, "attr", None)) == "Caller" and node.args and isinstance(
+                 node.args[0], ast.Constant) and node.args[0].value in values:
+@@ -369,20 +376,21 @@ def caller_argument_offenders(tree, module):
+         if name in CALLER_TAKERS:
+             found += _taker_offenders(node, name, module)
+     return found
+ 
+ 
+ def test_each_caller_label_is_used_only_by_its_own_module():
+     """代碼審 r1:花費上限依請求自報的呼叫者判,每個呼叫者標籤只准它自己的那支模組用。"""
+     from rtb.modelledger_view import Caller
+ 
+     assert set(CALLER_USERS) == {member.name for member in Caller}
++    assert {member.value: member.name for member in Caller} == CALLER_VALUES
+     offenders = []
+     for path in sorted(RTB.rglob("*.py")):
+         module = _module_name(path)
+         if module not in CALLER_EXEMPT:
+             offenders += caller_offenders(ast.parse(path.read_text(encoding="utf-8")), module)
+     assert offenders == []
+     arguments = []
+     for path in sorted(RTB.rglob("*.py")):
+         module = _module_name(path)
+         if module not in CALLER_EXEMPT and module != GATE:
+@@ -430,39 +438,47 @@ def test_layer_rules_ban_starting_subprocesses(layer):
+ # ---- 代碼審第 1 輪補強 ----
+ BACKEND_NAMES = frozenset({"run_claude", "ClaudeCodeBackend", "check_login", "claude_version",
+                            "judge_output"})
+ BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverify"})
+ 
+ 
+ # 送出呼叫的地方:模型用戶端本身、評估的模型候選、分析端模型閘道(Phase 13 改寫)、經閘道送出的模型說明
+ # 命令列與維運的假說命令列(Phase 11B [S912])。送出的名字除了 call_model,還有閘道的 open_gate 與
+ # complete(代碼審 r1:閘道是第二個送出入口)
+ # Phase 13 增量 2 加:AI 決策模組(開閘道、送出);Phase 13 增量 3 加:調查評估執行器(呼叫同一支 AI
+-# 決策函式,[S1146];[S918] 照計劃改寫)。Phase 14 增量 3 撤掉分析端驅動命令列([S1429])
++# 決策函式,[S1146];[S918] 照計劃改寫)。Phase 14 增量 3 撤掉分析端驅動命令列([S1429])。
++# Phase 15 增量 2 加:規則模式探索的分析端窄入口(開閘道、送出)與評估端的探勘執行器(經窄入口送出);
++# 停用模型探勘時這兩項撤掉([S1517])
+ CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate",
+                               "rtb.analyzer.modelgate", "rtb.analyzer.narrate",
+                               "rtb.ops.hypothesis", "rtb.analyzer.ai_judge",
+-                              "rtb.eval.investigation_eval"})
++                              "rtb.eval.investigation_eval", "rtb.analyzer.rule_mining_model",
++                              "rtb.eval.rule_mining_eval"})
+ SEND_CALLS = frozenset({"call_model", "open_gate", "complete"})
+ # 會送出模型呼叫的命令列模組:匯入它就能經它的 run 轉手送出,匯入本身就算送出點(代碼審 r2)
+ # Phase 13 增量 3 代碼審 r1:調查評估執行器的 run 即時模式會送出,匯入它也算送出點
++# Phase 15 增量 2:規則模式探索的分析端窄入口與評估端探勘執行器,匯入它們也算送出點
+ SENDING_ENTRIES = frozenset({"rtb.analyzer.narrate", "rtb.ops.hypothesis",
+-                             "rtb.analyzer.ai_judge", "rtb.eval.investigation_eval"})
++                             "rtb.analyzer.ai_judge", "rtb.eval.investigation_eval",
++                             "rtb.analyzer.rule_mining_model", "rtb.eval.rule_mining_eval"})
+ # 每個呼叫者標籤只准哪幾支模組用(代碼審 r1:花費上限看請求自報的呼叫者,標籤要綁住模組才守得住
+ # 「誰都不能自稱不計入」)。定義它的唯讀開法與只拿來列上限清單的花費帳寫入不算使用;Phase 13 增量 2 的
+ # AI 決策模組開檔時把它加進「分析端調查」那一格
+ CALLER_USERS: dict[str, frozenset[str]] = {
+     "EVAL_CANDIDATE": frozenset({"rtb.eval.model_candidate"}),
+     "HYPOTHESIS": frozenset({"rtb.ops.hypothesis"}),
+     "NARRATIVE": frozenset({"rtb.analyzer.narrate"}),
+     "VERIFICATION": frozenset({"rtb.modelverify"}),
+     "INVESTIGATION": frozenset({"rtb.analyzer.ai_judge"}),  # Phase 13 增量 2:AI 決策模組開閘道
++    # Phase 15 增量 2:分析端窄入口開閘道;歷史錄製鍵模組用它重算錄製鍵(停用模型探勘時只撤前者,
++    # 後者照留,這一格不會變空,[S1517])
++    "RULE_MINING": frozenset({"rtb.analyzer.rule_mining_model", "rtb.eval.rule_mining_recordings"}),
+ }
+ CALLER_EXEMPT = frozenset({"rtb.modelledger_view", "rtb.modelledger"})
+ 
+ 
+ def backend_offenders(tree, label, module=None):
+     """匯入或取用 Claude Code 後端(模組本身或它的啟動函式、後端類別)的地方;另抓送出呼叫的函式
+     (call_model,只准模型用戶端本身與接入點)與經別的模組轉手的模型用戶端屬性鏈(x.modelclient)。"""
+     found = []
+     for node in ast.walk(tree):
+         if isinstance(node, ast.Import):

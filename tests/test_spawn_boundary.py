@@ -37,8 +37,10 @@ PROJECT_STARTERS = frozenset({"rtb.demo.launcher", "rtb.demo.driver"})
 MODEL_CLIENTS = frozenset({"rtb.modelclaude", "rtb.modelclient"})
 GATE = "rtb.analyzer.modelgate"  # 分析端唯一准匯入模型用戶端的模組(Phase 13)
 # 准匯入模型閘道的分析端模組(寫死,[S1100]):模型說明命令列、AI 決策函式所在模組(Phase 13 增量 2
-# 開檔)。Phase 14 增量 3([S1429]):分析端驅動命令列拔掉 --ai-judge,移出名單
-GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.ai_judge"})
+# 開檔)。Phase 14 增量 3([S1429]):分析端驅動命令列拔掉 --ai-judge,移出名單。Phase 15 增量 2 窄增
+# 規則模式探索的分析端模型入口(只收已組好的彙總文字,[S1100] 照 Phase 15 計劃改寫)
+GATE_USERS = frozenset({"rtb.analyzer.narrate", "rtb.analyzer.ai_judge",
+                        "rtb.analyzer.rule_mining_model"})
 # 匯入閉包不准含模型用戶端任何一支模組的分析端模組([S1100]);調查詞彙模組與證據來源包裝也不准
 # (展示流程圖與觀察器讀調查詞彙,展示伺服器行程不能因此載入模型用戶端)
 MODEL_FREE = ("rtb.analyzer.flow", "rtb.analyzer.policy", "rtb.analyzer.dsp_client",
@@ -266,11 +268,16 @@ def test_the_analyzer_reaches_the_model_only_through_the_gateway(tmp_path):
     assert closure_offenders(shadow)
 
 
+# 呼叫者的值 → 成員名(寫死;測試核對它等於列舉本身,新成員漏列就紅)。Phase 15 增量 2 加規則模式探索;
+# 停用模型探勘時照留([S1517])
+CALLER_VALUES = {"eval_candidate": "EVAL_CANDIDATE", "ops_hypothesis": "HYPOTHESIS",
+                 "analyzer_narrative": "NARRATIVE", "live_verification": "VERIFICATION",
+                 "analyzer_investigation": "INVESTIGATION", "rule_mining": "RULE_MINING"}
+
+
 def caller_offenders(tree, module):
     """用了不屬於自己的呼叫者標籤:Caller.成員(不論接在誰後面)、Caller("值")、Caller["成員"]。"""
-    values = {"eval_candidate": "EVAL_CANDIDATE", "ops_hypothesis": "HYPOTHESIS",
-              "analyzer_narrative": "NARRATIVE", "live_verification": "VERIFICATION",
-              "analyzer_investigation": "INVESTIGATION"}
+    values = CALLER_VALUES
     used = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in CALLER_USERS and (
@@ -376,6 +383,7 @@ def test_each_caller_label_is_used_only_by_its_own_module():
     from rtb.modelledger_view import Caller
 
     assert set(CALLER_USERS) == {member.name for member in Caller}
+    assert {member.value: member.name for member in Caller} == CALLER_VALUES
     offenders = []
     for path in sorted(RTB.rglob("*.py")):
         module = _module_name(path)
@@ -437,16 +445,21 @@ BACKEND_USERS = frozenset({"rtb.modelclaude", "rtb.modelclient", "rtb.modelverif
 # 命令列與維運的假說命令列(Phase 11B [S912])。送出的名字除了 call_model,還有閘道的 open_gate 與
 # complete(代碼審 r1:閘道是第二個送出入口)
 # Phase 13 增量 2 加:AI 決策模組(開閘道、送出);Phase 13 增量 3 加:調查評估執行器(呼叫同一支 AI
-# 決策函式,[S1146];[S918] 照計劃改寫)。Phase 14 增量 3 撤掉分析端驅動命令列([S1429])
+# 決策函式,[S1146];[S918] 照計劃改寫)。Phase 14 增量 3 撤掉分析端驅動命令列([S1429])。
+# Phase 15 增量 2 加:規則模式探索的分析端窄入口(開閘道、送出)與評估端的探勘執行器(經窄入口送出);
+# 停用模型探勘時這兩項撤掉([S1517])
 CALL_MODEL_USERS = frozenset({"rtb.modelclient", "rtb.eval.model_candidate",
                               "rtb.analyzer.modelgate", "rtb.analyzer.narrate",
                               "rtb.ops.hypothesis", "rtb.analyzer.ai_judge",
-                              "rtb.eval.investigation_eval"})
+                              "rtb.eval.investigation_eval", "rtb.analyzer.rule_mining_model",
+                              "rtb.eval.rule_mining_eval"})
 SEND_CALLS = frozenset({"call_model", "open_gate", "complete"})
 # 會送出模型呼叫的命令列模組:匯入它就能經它的 run 轉手送出,匯入本身就算送出點(代碼審 r2)
 # Phase 13 增量 3 代碼審 r1:調查評估執行器的 run 即時模式會送出,匯入它也算送出點
+# Phase 15 增量 2:規則模式探索的分析端窄入口與評估端探勘執行器,匯入它們也算送出點
 SENDING_ENTRIES = frozenset({"rtb.analyzer.narrate", "rtb.ops.hypothesis",
-                             "rtb.analyzer.ai_judge", "rtb.eval.investigation_eval"})
+                             "rtb.analyzer.ai_judge", "rtb.eval.investigation_eval",
+                             "rtb.analyzer.rule_mining_model", "rtb.eval.rule_mining_eval"})
 # 每個呼叫者標籤只准哪幾支模組用(代碼審 r1:花費上限看請求自報的呼叫者,標籤要綁住模組才守得住
 # 「誰都不能自稱不計入」)。定義它的唯讀開法與只拿來列上限清單的花費帳寫入不算使用;Phase 13 增量 2 的
 # AI 決策模組開檔時把它加進「分析端調查」那一格
@@ -456,6 +469,9 @@ CALLER_USERS: dict[str, frozenset[str]] = {
     "NARRATIVE": frozenset({"rtb.analyzer.narrate"}),
     "VERIFICATION": frozenset({"rtb.modelverify"}),
     "INVESTIGATION": frozenset({"rtb.analyzer.ai_judge"}),  # Phase 13 增量 2:AI 決策模組開閘道
+    # Phase 15 增量 2:分析端窄入口開閘道;歷史錄製鍵模組用它重算錄製鍵(停用模型探勘時只撤前者,
+    # 後者照留,這一格不會變空,[S1517])
+    "RULE_MINING": frozenset({"rtb.analyzer.rule_mining_model", "rtb.eval.rule_mining_recordings"}),
 }
 CALLER_EXEMPT = frozenset({"rtb.modelledger_view", "rtb.modelledger"})
 

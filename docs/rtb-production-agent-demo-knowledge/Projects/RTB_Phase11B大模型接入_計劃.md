@@ -305,6 +305,7 @@ RETIRE-IF: 使用者決定整個 Demo 不再展示模型(三個接入點都拔�
 - [S916] 廣告名稱裡藏誘導文字(例如要求改預算或要求改下一步)時,接入點 1 與 2 的提案內容、送件結果與執行端行為應跟名稱無害時相同,模型輸出只影響給人看的文字。[test:test_injected_campaign_names_cannot_change_any_program_decision]
 - [S917] 整個 rtb 裡應只有模型用戶端啟動 claude 子行程;分析端只有模型閘道准匯入模型用戶端的任何一支模組,分析端目錄應不直接匯入網路或子行程模組。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 改寫:原文是「只有模型說明命令列准匯入模型用戶端」,有意識放寬成經分析端模型閘道)[test:test_only_the_model_client_starts_claude]
 - [S918] 評估套件的匯入閉包跟現況基準相比,應只多出寫死的准許名單——模型用戶端閉包(含小常數模組)、模型閘道、AI 決策模組、Phase 13 新增的評估模組(評估集、生成器、執行器、報告);評估套件裡模型用戶端的送出呼叫應只由模型候選呼叫。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 改寫;送出呼叫的全庫准許名單在 tests/test_spawn_boundary.py 的 `CALL_MODEL_USERS`)[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉改寫(Phase 15 增量 1、2):准許名單另立一組逐項精確新增規則模式探索的評估模組(增量 1 四支純離線模組;增量 2 加回覆核對、歷史錄製鍵、單一種子探勘執行器三支),以及評估經它送出的分析端模型窄入口;經模型用戶端門面的評估模組多歷史錄製鍵一支;「直接送出只由模型候選」不變,經窄入口送出的只准探勘執行器(另一組精確等式)。Phase 10 [S712] 反向匯入界線與 [S917] 不放寬。細節見 [[Systems/評估與Jev決策點]]。
 - [S919] 候選介面的輸入型別應只有七個數字與狀態欄位,建構時拒收任何字串型的額外欄位。[test:test_the_candidate_input_cannot_carry_campaign_text]
 - [S920] 從專案根以外的目錄啟動入口時,錄製回應應照樣找得到。[test:test_recordings_are_found_from_any_working_directory]
 - [S921] 同一個示範情境用真的執行迴圈(預設輪詢間隔)完整跑多次時,送給模型的內容與錄製鍵應逐位元組相同。[test:test_the_same_scenario_twice_gives_the_same_prompt_and_key]

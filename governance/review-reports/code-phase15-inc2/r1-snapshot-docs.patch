@@ -1,0 +1,235 @@
+diff --git a/docs/rtb-production-agent-demo-knowledge/MOC/index.md b/docs/rtb-production-agent-demo-knowledge/MOC/index.md
+index 0d3acd4..abc0bdf 100644
+--- a/docs/rtb-production-agent-demo-knowledge/MOC/index.md
++++ b/docs/rtb-production-agent-demo-knowledge/MOC/index.md
+@@ -27,10 +27,11 @@ updated: 2026-09-27
+ - [[Systems/服務水準與燒損告警]]
+ - [[Systems/模型用戶端]]
+ - [[Systems/死信重放指令]]
+ - [[Systems/確定性指標計算]]
+ - [[Systems/規則模式探索評估]]
++- [[Systems/規則模式探索模型入口]]
+ - [[Systems/稽核表只增不改守衛]]
+ - [[Systems/評估與Jev決策點]]
+ - [[Systems/調查實演]]
+ - [[Systems/追蹤檢視]]
+ - [[Systems/靜態檢查閘]]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
+index a5d8d46..5b79b07 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase11B大模型接入_計劃.md
+@@ -303,10 +303,11 @@ RETIRE-IF: 使用者決定整個 Demo 不再展示模型(三個接入點都拔
+ - [S914] 模型說明應不進收件口、能力憑證與 DSP 請求,執行端應不讀它。[test:test_the_model_narrative_never_reaches_the_executor]
+ - [S915] 追蹤檢視顯示模型說明文字時,應標「模型產生、僅供參考」與來源,並放在程式算的數字之後。[test:test_the_trace_labels_the_model_narrative]
+ - [S916] 廣告名稱裡藏誘導文字(例如要求改預算或要求改下一步)時,接入點 1 與 2 的提案內容、送件結果與執行端行為應跟名稱無害時相同,模型輸出只影響給人看的文字。[test:test_injected_campaign_names_cannot_change_any_program_decision]
+ - [S917] 整個 rtb 裡應只有模型用戶端啟動 claude 子行程;分析端只有模型閘道准匯入模型用戶端的任何一支模組,分析端目錄應不直接匯入網路或子行程模組。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 改寫:原文是「只有模型說明命令列准匯入模型用戶端」,有意識放寬成經分析端模型閘道)[test:test_only_the_model_client_starts_claude]
+ - [S918] 評估套件的匯入閉包跟現況基準相比,應只多出寫死的准許名單——模型用戶端閉包(含小常數模組)、模型閘道、AI 決策模組、Phase 13 新增的評估模組(評估集、生成器、執行器、報告);評估套件裡模型用戶端的送出呼叫應只由模型候選呼叫。(2026-09-25 照 [[Projects/RTB_Phase13AI參與決策_計劃]] 改寫;送出呼叫的全庫准許名單在 tests/test_spawn_boundary.py 的 `CALL_MODEL_USERS`)[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
++  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉改寫(Phase 15 增量 1、2):准許名單另立一組逐項精確新增規則模式探索的評估模組(增量 1 四支純離線模組;增量 2 加回覆核對、歷史錄製鍵、單一種子探勘執行器三支),以及評估經它送出的分析端模型窄入口;經模型用戶端門面的評估模組多歷史錄製鍵一支;「直接送出只由模型候選」不變,經窄入口送出的只准探勘執行器(另一組精確等式)。Phase 10 [S712] 反向匯入界線與 [S917] 不放寬。細節見 [[Systems/評估與Jev決策點]]。
+ - [S919] 候選介面的輸入型別應只有七個數字與狀態欄位,建構時拒收任何字串型的額外欄位。[test:test_the_candidate_input_cannot_carry_campaign_text]
+ - [S920] 從專案根以外的目錄啟動入口時,錄製回應應照樣找得到。[test:test_recordings_are_found_from_any_working_directory]
+ - [S921] 同一個示範情境用真的執行迴圈(預設輪詢間隔)完整跑多次時,送給模型的內容與錄製鍵應逐位元組相同。[test:test_the_same_scenario_twice_gives_the_same_prompt_and_key]
+ - [S922] 預留後、結算前中止的呼叫,應照預留金額算進它預留時所在月份的已用,不算進之後的月份。[test:test_an_unsettled_reservation_counts_in_its_own_month]
+ - [S923] 核銷命令列應只追加核銷列、原因必填,只接受已照預留結算或超過最長請求期限的列;已用應照核銷後的金額算,原列不變;核銷後又來的結算應讓已用改算較高的金額。[test:test_a_write_off_is_appended_and_changes_the_used_amount]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
+index b254ec2..de664cd 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase13AI參與決策_計劃.md
+@@ -664,14 +664,16 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
+ 
+ ## 合約候選
+ 
+ - [S1100] 當分析端任何模組要呼叫模型時,應只經分析端模型閘道匯入模型用戶端;准匯入模型閘道的分析端模組應只有 AI 決策函式所在模組、分析端驅動命令列與模型說明命令列,流程推進函式、決策規則與 DSP 用戶端的匯入閉包應不含模型用戶端的任何一支模組。[test:test_the_analyzer_reaches_the_model_only_through_the_gateway]
+   - 2026-09-26 代使用者裁定：改寫：正式 runner 與展示不再准匯入 ai_judge／模型閘道；ai_judge 只供評估，narrate 仍為模型說明入口。匯入白名單測試依新邊界改綁。 理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
++  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉窄增(Phase 15 增量 2):准匯入模型閘道的分析端模組多「規則模式探索的模型窄入口」一支(只收已組好的彙總文字、用字面 `Caller.RULE_MINING` 開閘道、呼叫一次;不讀評估集、不碰流程推進/決策規則/分析端驅動);流程推進、正式規則與 DSP 用戶端的閉包照舊不得碰模型。新入口的責任記在 [[Systems/規則模式探索模型入口]] 與 [[Systems/模型用戶端]];`GATE_USERS` 精確新增這一支,綁定測試不變。
+ - [S1101] 當給定一個展示編號時,花費帳唯讀開法應回這個展示編號的已用,包含已結算金額與還沒結算的預留。[test:test_the_ledger_sums_one_demo_including_open_reservations]
+ - [S1102] 當說明命令列、假說命令列或開了 AI 決策的分析端驅動命令列在錄製模式收到帳檔參數時,花費帳應記在指定路徑,家目錄下的真帳應不被建立或修改。[test:test_recorded_entries_book_into_the_given_ledger]
+   - 2026-09-26 代使用者裁定：改寫：刪「開 AI 決策的分析端驅動」那半；說明、假說的錄製帳仍須隔離。舊測試中帶 `--ai-judge` 跑 runner 的分支刪除，兩個保留入口改綁。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
+ - [S1103] 呼叫者列舉應含「分析端調查」成員,模型與 Jev 指標應照呼叫者分且標籤仍是封閉集合。[test:test_the_investigation_caller_is_a_bounded_label]
++  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉(Phase 15 增量 2):列舉仍封閉,全體成員值的精確等式新增 `rule_mining`;標籤照舊是封閉集合。停用模型探勘時這個成員照留(歷史錄製鍵與帳列要讀得回)。
+ - [S1104] 當現況或 1 小時指標過期、缺現況或指標、配速算不出或配速不偏低時,分析端應不呼叫模型,決策應等於現行決策函式對現況、1 小時指標與廣告文字三種證據的結果;追加查詢的收據過期應不影響這個判定。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 代碼審 r1 改寫:前置過濾另含九條第 1/2 條(暫停、1 小時異常、判斷點輸入建不成),直接由規則結案、不呼叫模型;評估的原始錄製重播通道沿用舊過濾只為還原模型原始答案。) [test:test_code_prefilters_run_before_any_model_call] [test:test_paused_and_anomalous_campaigns_finish_from_base_evidence]
+   - 2026-09-26 代使用者裁定：改寫：正式前置判斷一律走九條規則；評估舊錄製可直接用 Judge 還原原始答案，不保留 runner AI 前置過濾。原 `test_code_prefilters_run_before_any_model_call`、`test_paused_and_anomalous_campaigns_never_reach_the_model` 的 runner AI 斷言刪除，正式早停改綁 [S1401]，評估原始答案改綁 [S1410]。理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1105] 當模型的回答不是恰好含 choice、reason、evidence 三欄的 JSON、選項不在這一輪允許清單、或理由超過 200 字或含換行與不可列印字元時,分析端應丟掉這個回答並改由現行規則決定,這一輪應記成選項外答案。[test:test_an_answer_outside_the_fixed_options_falls_back_to_the_rule]
+   - 2026-09-26 代使用者裁定：改寫為評估 Judge 的格式／選項解析；`RuleContinue` 在 `investigation_eval.run_case` 當場回傳，不開規則輪。原 runner 退回測試刪除，解析與評估結論改綁 `tests/analyzer/test_ai_judge.py`、`tests/eval/test_investigation_eval.py`。理由與落地測試見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3。
+ - [S1106] 當模型用戶端丟出模型呼叫失敗類別的子類別、或我方本地驗證不過時,分析端應改由現行規則決定並記下退回原因類別,流程應不轉失敗(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b 改寫:程式規則是九條,暫停/異常用基本三筆當場結案,其餘退回開一次新規則輪 A/B/C 全量重讀四查詢再定案,不沿用 AI 期查詢);當丟出的是停止訊號轉成的例外或 KeyboardInterrupt 時,AI 決策函式應不接住、讓它往外丟。[test:test_model_call_failures_fall_back_but_stop_signals_propagate]
+@@ -717,10 +719,11 @@ REVISIT:2026-12-31 用花費帳的實際估算重算這一節;換成自研模型
+ - [S1130] 每次查詢的原始回應應只增不改地存進調查原始資料表,用(任務、那一輪分析列的序號、選項代碼)取回的應跟那一次寫入的正規化 JSON 逐位元組相同;那一輪查詢沒有結果時應取不到任何列。AI 決策函式與提示不讀原始表;Phase 14 後續正式規則輪只可讀本次白名單驗過的四查詢,不得讀別輪或未驗證列。2a 只更新 DSP/讀取層,尚未接正式判斷。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1414]。[test:test_every_query_result_is_archived_under_its_option_code]
+ - [S1131] 當模型回答的證據項有任一項的參照不是 base 也不是這件工作已查過的選項代碼、欄位不在那份收據、數值字串跟收據不同、引用的值是 na、或引用的是沒有結果收據裡的欄位時,分析端應把這個回答當成選項外答案、改由現行規則決定;選結論而證據項是空的也一樣。[test:test_a_conclusion_whose_evidence_does_not_match_the_receipts_falls_back]
+ - [S1132] 當逐日趨勢或過去調整的端點查不到這個廣告的資料時,分析端應把它記成一筆「這個查詢沒有結果」的證據交給模型,整步應不失敗。[test:test_a_missing_daily_or_adjustment_result_does_not_fail_the_step]
+ - [S1133] 標準答案產生函式應用精確值判定,依序:暫停中 → 不值得加;原始 1 小時指標資料異常 → 證據不足;最近 3 天內有預算調整 → 證據不足;上次加預算後 3 天轉換不多於加之前 3 天 → 不值得加;最近 3 天轉換率低於前 4 天的一半 → 證據不足;1 小時零轉換零營收而較長窗有轉換 → 值得加;之後才套其餘 Phase 10 條;用到的值算不出時那一條應不適用、往下一條判,捨入後的收據字串應不影響判定。[test:test_the_answer_key_applies_the_history_rules_in_order]
+ - [S1134] 分析端調查、說明、假說三個呼叫者應不因每次展示或每月的花費上限被拒絕或退回;每次呼叫應照樣在花費帳記一筆估算成本,判上限時的加總應只含花費帳模組寫死的計入上限呼叫者,花費帳應不新增欄位。[test:test_the_phase13_callers_are_not_capped_but_still_booked]
++  - 2026-09-27 照 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉(Phase 15 增量 2):計入上限名單的精確等式新增 `RULE_MINING`(探勘的即時呼叫與評估候選、實測共用每展示/每月上限;併行預留也計入,見 Phase 15 [S1514]);本條三個呼叫者不計入的語意不變,花費帳不加欄位。
+ - [S1135] 當開了 AI 決策的分析那一步要呼叫模型時,應先續租:在一個交易裡、目前最新租約列正是手上收據的序號與擁有者時,新增一列序號加 1、擁有者相同的租約並回傳新的租約收據;條件不符時應不呼叫模型、這一步不寫入。 [test:test_rule_collection_steps_fit_the_lease] [test:test_rule_round_checkpoints_exclude_stale_evidence]
+   - 2026-09-26 代使用者裁定：撤除 runner AI 步續租與 `test_the_ai_step_renews_its_lease_before_calling_the_model`；評估 Judge 沒有租約，正式 A/B/C 續步租約由 [S1405][S1413] 驗。 見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
+ - [S1136] 當分析端驅動命令列帶 --ai-judge 時,展示啟動器停它的寬限時間應用跟守衛同一組匯入的常數算出,而且不小於續租等鎖加上續租後 AI 那一步的最壞耗時。(2026-09-26 照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] [S1419] 改寫:沒帶 --ai-judge 的舊 7 秒寬限撤掉,改取 max(舊兩讀寬限, 規則輪 A/B/C 最壞秒數),預設 50 秒;帶 --ai-judge 再跟 AI 步取最大值。) [test:test_stop_grace_covers_the_longest_rule_step]
+   - 2026-09-26 代使用者裁定：撤除 `--ai-judge` 停止寬限及 AI 步常數；啟動器只依 [S1419] 的規則步算寬限。刪 `test_the_stop_grace_covers_one_ai_step_from_the_shared_constants`，規則分支改綁 `test_stop_grace_covers_the_longest_rule_step`。見 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3 翻案索引。
+ - [S1137] 開了 AI 決策的分析端驅動命令列應只在啟動時判一次模型模式,之後每一輪應沿用同一個判定、不再執行 claude 版本檢查。 [test:test_the_demo_uses_recordings_unless_live_is_switched_on]
+diff --git a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+index e3e4953..6f65db0 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
++++ b/docs/rtb-production-agent-demo-knowledge/Projects/RTB_Phase15AI找規則模式_計劃.md
+@@ -65,10 +65,11 @@ RETIRE-IF: 固定種子 15001、15002、15003 各以第一次 `outcome=ok` 且
+ - 重疊調整改為「兩筆調整的 D±3 視窗相交（相距 ≤6 天）即排除」，任何調整（含降額）都算；對照池改為「整期沒有任何預算調整（含降額）」，和事件側對稱。本節與條款中「整期從未加額」「整期未加額對照」的寫法照此收緊（更嚴的池仍滿足原字面），不另改條款句。理由：代碼審 c_4 指出照字面取相距 ≤3 天時，前一筆加額的後三日會落進本事件的前三日、汙染前三日轉換率與配對桶；c_5 指出對照側對降額不檢查、和事件側不對稱。兩項改動同時作用於 AI 與窮舉兩方、同一資料與同一候選全集，預期不偏袒任一方；是看過評估版本 v1 的窮舉前 K 之後才改的，故換評估版本 `phase15-rule-mining-v2` 並重跑三種子可達性預檢，結果記在 [[Systems/規則模式探索評估]]〈評估版本理由〉。
+ 
+ ## 現況（2026-09-26，分支 `phase15-rule-mining` 的 main 基底 `71b04d5`；以程式碼為準）
+ 
+ - 2026-09-27 增量 1 實作：分支 `phase15-inc1`，main 基底 `61bbb31`（含 Phase 14 增量 3；代碼審 r1 時已 rebase 到 `7bd062a`）。開工前核對 Phase 14 前置條件：分析端驅動的參數只剩資料庫、DSP、收件口、逾時與間隔（無 AI 判斷開關），展示驅動組分析端參數時只給這幾項，[S1429] 的閉包測試通過；F7 重跑（[S1518] 的「F7 重跑走規則路徑」證據）：協調者 2026-09-27 在基底 `7bd062a` 實跑 `tests/demo/test_driver.py` 與 `tests/demo/test_server.py` 裡的 F7 端到端（縮小版 30 支廣告，`-k "f7 or F7"`），12 passed；這是縮小版，不是完整幾千筆的 F7 展示。重新核對：`rg -n "add_argument" src/rtb/analyzer/runner.py`、`rg -n "def analyzer_args" -A5 src/rtb/demo/driver.py`。增量 1 的四支純離線模組與評估版本 v1 的可達性預檢記在 [[Systems/規則模式探索評估]]；未新增模型呼叫或通往提案的路徑。
++- 2026-09-27 增量 2 實作:分支 `phase15-inc2`,main 基底 `4e70f92`。分析端窄入口 `rtb.analyzer.rule_mining_model`(家 [[Systems/規則模式探索模型入口]])、評估端回覆核對 `rule_mining_check`、歷史錄製鍵 `rule_mining_recordings`、單一種子執行 `rule_mining_eval`(家 [[Systems/規則模式探索評估]]);`Caller.RULE_MINING` 與計入上限名單、[S1100]/[S1103]/[S1134]/[S918] 與送出邊界名單的精確新增記在 [[Systems/模型用戶端]]、[[Systems/評估與Jev決策點]] 與原計劃條款下的改寫註記。沒有命令列、沒有真錄製、沒有呼叫真模型;[S1506] [S1508] [S1509] [S1516] 留給增量 3。實作者解讀:預留額檢查沿用花費帳預留交易(它本來就用 `reservation_nanousd` 照當時價目與已用判兩個上限),不在窄入口另寫一份;十條填滿的最大回覆實算 5109 位元組(計劃寫 5139),仍低於 6000。重新核對:`rg -n "RULE_MINING" src tests`。
+ - `src/rtb/analyzer/modelgate.py` 的 `open_gate()` 在入口判錄製或即時、綁死 `Caller`、錄製目錄及花費帳；`Gate.complete()` 把請求交給 `src/rtb/modelclient.py`。即時要 `RTB_MODEL_LIVE=1`、展示編號、可用後端與有效啟用紀錄，重播缺錄製會報錯，不會默默轉即時。重新核對：`rg -n 'def open_gate|def complete|def settings_from_env|def call_model' src/rtb/analyzer/modelgate.py src/rtb/modelclient.py`。
+ - `src/rtb/modelledger_view.py` 的 `Caller` 是封閉列舉；`src/rtb/modelledger.py` 的 `CAPPED_CALLERS` 現只含評估候選與實測，花費帳有按呼叫者的上限與估算。錄製鍵含呼叫者、模型、系統提示、使用者內容與輸出上限，批次與目錄有驗收。重新核對：`rg -n 'class Caller|CAPPED_CALLERS|def recording_key|def batch_file_problems' src/rtb/modelledger_view.py src/rtb/modelledger.py src/rtb/modelrecording.py src/rtb/modelclient.py`。
+ - `src/rtb/eval/investigation_cases.py` 固定種子產 Phase 13 案例，`investigation_eval.py` 以同一 AI 函式重播／即時執行並驗批次，`investigation_report.py` 把結果寫成人讀報告。`src/rtb/eval/ruff.toml` 禁直接匯入模型閘道與 DSP，`src/rtb/analyzer/ruff.toml` 禁匯入評估套件；Phase 10 [S712] 的反向匯入界線仍成立。重新核對：`rg -n 'SEED|def generate|def run|def batch_problems|modelgate|rtb.eval' src/rtb/eval/investigation_cases.py src/rtb/eval/investigation_eval.py src/rtb/eval/ruff.toml src/rtb/analyzer/ruff.toml`。
+ - `src/rtb/dsp/store.py` 的逐日成效以 UTC 日期桶保存，金額用整數分，最近加額由正常操作紀錄連同調整前預算與提交時刻推得；`src/rtb/domain/nine_rules.py` 有正式九條的純領域詞彙與順序，`src/rtb/domain/metrics.py` 有 `exact_ratio`／`exact_change`。本案只仿照歷史資料語意建離線案例，不從 DSP 讀取，不匯入九條規則來生成答案。重新核對：`rg -n 'daily_metrics|_latest_raise|def get_past_adjustments|ANSWER_ORDER|def exact_ratio|def exact_change' src/rtb/dsp/store.py src/rtb/domain/nine_rules.py src/rtb/domain/metrics.py`。
+ 
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+index f7089c5..9c3fe50 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/模型用戶端.md
+@@ -269,5 +269,14 @@ WHY: [2026-09-25 Phase 13 增量 2 代碼審 r3] `ai_step_worst_seconds` 多算
+ 出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3;驗證見 [[Verification/Phase14增量3驗證紀錄]]。
+ 
+ - WHY:`stepbudget.ai_step_worst_seconds`、`ai_stop_grace_seconds`、`preflight_worst_seconds` 撤除:三支只給分析端 AI 那一步的租約守衛、啟動器的 AI 寬限與展示等模式行用,入口都拔了。`MODEL_TIMEOUT_SECONDS` 留給評估的調查呼叫,`collect_step_worst_seconds` 留給規則輪各步([S1405])。上面 2026-09-25「多算一次記次等鎖(55/60)」那段是當時的數字,現在已沒有使用者。
+ - 模型閘道的呼叫者只剩說明、評估(調查)、假說;分析端驅動不再開閘道,所以「錄製模式沒帶帳本用暫存帳本」那五個入口少了分析端驅動一個(說明、評估重播、Phase 10 評估、原因假說照舊)。
+ - PITFALL(代碼審 r1 外家否決-1,2026-09-27,已修):`traceable_sentences` 原本只比數值,「把預算加 500%」借曝光數 500 過關。現在寫成百分比的數字另外要對回證據裡也是百分比的同值數字。代碼審 r2 三席指出 r1 只認半形與全形百分號,換 `﹪`、`٪`、「百分之500」「500 percent」「500 個百分點」照樣過關;r2 起百分比的寫法先 NFKC 正規化再認:%(含全形與小型百分號)、阿拉伯百分號、percent/per cent/pct、(個)百分點、百分之N(視同 N%);千分號、萬分號整句拿掉。沒列到的寫法仍只比數值,不含數字的句子不做語意過濾(`_PERCENT_AFTER`、`_PERCENT_BEFORE`、`_PER_MILLE`)。擋得住的就是這張列舉;不含數字的句子仍不做語意過濾,靠「AI 產生、僅供參考」標示與人工確認(宣稱 prompt-injection 照實寫)。代碼審 r3(2026-09-27):「500-percent」「500 per-cent」「500pcts」這類連字號與複數寫法原本認不出來,現在數字與單位、per 與 cent 之間可隔空白或各種連字號,pct 可帶複數;另外數字與百分號之間插看不見的字元(變體選擇符、組合字形連接符、零寬空白,NFKC 刪不掉)也能繞過,而且頁面上看起來就是「500%」,現在所有核對之前先用 `_visible` 拿掉 Unicode 類別 Mn、Me、Cf 與韓文填充字、點字空白,核對看到的字跟核可人看到的一樣,留下的句子照原文。WHY:只改核對這一端、不改頁面逸出(`escape_text` 不把這類字元顯示成代碼):核對已經照「人看得到的字」判,這類字元不再能改變判決;頁面逸出是所有頁面文字共用的一支,改它會牽動評估報告與舊展示的顯示,範圍比這個問題大。防回歸:[test:test_a_percentage_must_trace_back_to_a_percentage]、[test:test_every_way_of_writing_a_percentage_must_trace_back_to_a_percentage]、[test:test_a_traceable_percentage_survives_any_spelling]。`recorded_ledger` 說明改成實際的四項。
++
++## 規則模式探索的呼叫者與窄入口(Phase 15 增量 2,2026-09-27)
++
++出處 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈要改寫的既有合約〉〈拆增量〉2;窄入口本身的家是 [[Systems/規則模式探索模型入口]]。
++
++- 呼叫者列舉(`modelledger_view.Caller`)精確新增 `RULE_MINING = "rule_mining"`,花費帳的計入上限名單(`modelledger.CAPPED_CALLERS`)也加它:探勘的即時呼叫與評估候選、實測共用每展示 1 美元、每月 20 美元;Phase 13 三個不計入上限的呼叫者語意不變([S902]/[S903] 不改)。停用模型探勘時列舉成員與上限名單成員**照留**:歷史錄製鍵要重算得回、歷史帳列要繼續計上限([S1517])。防回歸:[test:test_the_investigation_caller_is_a_bounded_label](全體成員等式)、[test:test_the_phase13_callers_are_not_capped_but_still_booked](上限名單等式)、[test:test_rule_mining_single_call_respects_reservation](上限剛好/差一、價目變動、展示與每月已用、併行預留)。
++- [S1100] 准匯入模型閘道的分析端模組窄增 `rtb.analyzer.rule_mining_model` 一支(`GATE_USERS`);它只收已組好的彙總文字、用字面 `Caller.RULE_MINING` 開閘道。邊界測試同步精確新增:`CALL_MODEL_USERS` 與 `SENDING_ENTRIES` 加窄入口與評估端探勘執行器兩支(匯入它們也算送出點);`CALLER_USERS["RULE_MINING"]` 是窄入口與評估端的歷史錄製鍵模組;呼叫者的值→成員名對照從函式裡的區域字典抽成模組常數 `CALLER_VALUES`,並新增斷言它等於列舉本身(原本新成員漏列不會紅)。撤除模型段時只撤前兩組的兩項,`CALLER_USERS` 那格因為歷史錄製鍵模組而不會變空。
++- 靜態檢查規則:凡是禁匯入 AI 決策模組的地方(分析端、展示三份、執行端、領域層、DSP、根 `pyproject.toml`)同樣禁匯入窄入口;評估端的規則不禁(探勘執行器要用它),評估端照舊禁直接匯入模型閘道。
++- 閘道本身沒改行為,只在檔頭把窄入口列進「經它的分析端模組」。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md
+new file mode 100644
+index 0000000..69fedd3
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索模型入口.md
+@@ -0,0 +1,41 @@
++---
++type: system
++status: doing
++created: 2026-09-27
++updated: 2026-09-27
++responsibility: 負責規則模式探索的分析端模型窄入口:收已組好的系統提示與彙總表文字加閘道設定,用字面 RULE_MINING 開既有模型閘道呼叫一次模型、回原始回覆或失敗類別;不負責讀評估集、解析或核對回覆、錄製驗收與報告,不碰流程推進、決策規則、分析端驅動、DSP 或收件口
++aliases: []
++about_code:
++  - src/rtb/analyzer/rule_mining_model.py
++  - tests/eval/test_rule_mining_model.py
++tags:
++  - type/system
++  - status/doing
++summary: |-
++  WHY: [2026-09-27 Phase 15 增量 2] 評估端不准直接匯入模型閘道,AI 探勘又要經既有閘道(模式判定、花費帳、錄製),所以比照 Phase 13 評估執行器依賴 AI 決策函式的方向,在分析端開一支只收「已組好的彙總文字」的窄入口;[S1100] 准匯入閘道的名單只窄增這一支,不放寬整個分析端或評估套件。出處 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈模型建議、機械核對與人讀報告〉〈要改寫的既有合約〉。
++  RULE: 一批只准一次完整提示:系統提示加彙總表超過 20480 位元組就在開閘道前拒絕,不分塊、不截列;任何非 ok 結果(缺錄製、逾時、上限拒絕、額度、超支、暫時性錯誤、花費帳忙碌)都收成失敗類別交回、不重試,評估端記「呼叫失敗」。[since:2026-09-27] [retire:Phase 15 依 RETIRE-IF 停用模型探勘、撤掉這支入口時] [test:test_rule_mining_single_call_respects_reservation] [test:test_rule_mining_live_calls_require_the_gateway_and_count_toward_caps]
++  RULE: 呼叫者標籤在開閘道時寫死 `RULE_MINING`,它在花費帳的計入上限名單;預留額由花費帳在單一寫入交易裡用模型用戶端的預留函式照當時價目與已用重算,超過每展示或每月剩餘上限就不呼叫。停用模型探勘時列舉成員與上限名單成員照留(歷史帳列繼續計上限)。[since:2026-09-27] [retire:花費帳或上限改成不看呼叫者時] [test:test_rule_mining_single_call_respects_reservation] [test:test_rule_mining_retirement_preserves_recordings_and_caps]
++  FLOW: 評估端探勘執行器(見 [[Systems/規則模式探索評估]])組好系統提示與探索集彙總表 → 這支檢查位元組 → 開閘道(錄製重播為預設;即時要 RTB_MODEL_LIVE=1 與閘道其餘前置)→ 呼叫一次 → 回原始文字或失敗類別。以程式碼為準:`rg -n "^def |^class |^[A-Z_]+ = " src/rtb/analyzer/rule_mining_model.py`
++  DEP: 只匯入 [[Systems/模型用戶端]] 的分析端模型閘道;准匯入閘道、送出點與呼叫者標籤的精確名單在邊界測試(見 [[Systems/模型用戶端]]),評估套件閉包的准許名單在 [[Systems/評估與Jev決策點]]。
++related:
++  - Systems/規則模式探索評估
++---
++# 規則模式探索模型入口
++
++Phase 15 增量 2(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈拆增量〉2)。AI 在這裡的角色只是「離線提候選規則」:回覆只到評估端的核對與(增量 3 的)人讀報告,不進分析行程、提案、收件口、執行端或 DSP。
++
++## 這支檔
++
++- `src/rtb/analyzer/rule_mining_model.py`:`suggest(system, table, config)` 開閘道、送一次;`GateConfig` 是閘道設定(環境、展示編號、帳本、錄製目錄、批次、錄製帳本);`Reply` 帶結果類別、模式、原始文字(成功才有)、來源、錄製鍵、原價與失敗原因;`PromptTooLarge` 是呼叫前的位元組拒絕。
++- 常數:輸出上限 6144 token、逾時 60 秒、完整提示 20480 位元組。評估版本的同名常數在評估端的語彙模組([[Systems/規則模式探索評估]]),兩邊由 [S1514] 的測試核對一致;分析端不准匯入評估套件,所以只能各寫一份。
++- 閘道注入點 `open_gate=`:測試用它換成綁假後端的閘道(不呼叫真的 claude);產品碼一律用閘道本身。
++
++## 實作者解讀(2026-09-27)
++
++- 預留額檢查不另寫一份算式:計劃要求「呼叫前用 repo 預留函式與當時價目、已用額重算,須 ≤ 每展示及每月剩餘上限」,花費帳的預留本來就在單一寫入交易裡做這件事(用 `reservation_nanousd`、讀已用、判兩個上限),只要 `RULE_MINING` 列進計入上限名單。另在窄入口重算一次既會重複、也有「先查後寫」的競爭空窗;併行預留由 [S1514] 的測試證明也守得住。
++- 失敗一律收成 `Reply`、不往外丟:評估端要把非 ok 記成「呼叫失敗」而且不重試,收成值比每個呼叫端各自接例外不容易漏。閘道拒絕(入口參數跟模式對不上)、不認得的模型與停止訊號不是模型呼叫的結果類別,照原樣往外丟。
++
++## 測試
++
++- `tests/eval/test_rule_mining_model.py`:[S1507] [S1510](匯入邊界) [S1514] [S1517] [S1518](匯入邊界)。即時一律是行程內假後端,帳本與錄製都在 tmp;「即時前置不齊」那格放一支假的 claude,被執行就留記號,斷言沒被執行。
++
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+index 132c0cb..20364a0 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/規則模式探索評估.md
+@@ -1,26 +1,31 @@
+ ---
+ type: system
+ status: doing
+ created: 2026-09-27
+ updated: 2026-09-27
+-responsibility: 負責 Phase 15 規則模式探索的純離線評估:封閉條件語彙與評估版本常數、固定三種子合成歷史與真相清單、D±3 完整日效果與同側配對、彙總表、樣本下限、保留側判定、窮舉前 K、固定系統提示與完整提示位元組閘、可達性預檢;不負責模型呼叫、回覆解析、錄製與人讀報告(增量 2/3),不匯入模型閘道、模型用戶端或 DSP,不通往提案或正式九條
++responsibility: 負責 Phase 15 規則模式探索的評估端:封閉條件語彙與評估版本常數、固定三種子合成歷史與真相清單、D±3 完整日效果與同側配對、彙總表、樣本下限、保留側判定、窮舉前 K、固定系統提示與完整提示位元組閘、可達性預檢(增量 1);模型回覆的封閉 JSON 解析、去重、同探索集重算、保留側判定、歷史錄製鍵重算與單一種子執行(增量 2);不負責開模型閘道或送出(經分析端窄入口)、命令列、錄製驗收與人讀報告(增量 3),不匯入模型閘道或 DSP,不通往提案或正式九條
+ aliases: []
+ about_code:
+   - src/rtb/eval/rule_mining_vocab.py
+   - src/rtb/eval/rule_mining_history.py
+   - src/rtb/eval/rule_mining_baseline.py
+   - src/rtb/eval/rule_mining_prompt.py
+   - tests/eval/test_rule_mining.py
++  - src/rtb/eval/rule_mining_check.py
++  - src/rtb/eval/rule_mining_recordings.py
++  - src/rtb/eval/rule_mining_eval.py
++  - tests/eval/test_rule_mining_check.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: [2026-09-27 Phase 15 增量 1] AI 退出加額決策後保留的第三個角色是「離線提候選規則、靠證據取得採用資格」;這一篇先做不接模型的一半:固定種子合成歷史、可重算的配對效果、封閉語彙彙總與不用 AI 的窮舉前 K,讓之後的模型建議有同口徑的對照組。出處 [[Projects/RTB_Phase15AI找規則模式_計劃]]〈拆增量〉1 與〈使用者裁定〉5。
+   RULE: 評估版本參數(三種子、K、有方向下限與兩側相異廣告下限、保留 3/5、切點、SHA-256 切側、整期沒有任何調整的對照池、重疊判準、配對欄位、搶用次序、絕對差效果與平均公式、Wilson 排序鍵、格式化、輸入輸出上限)在看任何基準或模型結果前凍結;改任何一項先換評估版本並記理由、可達性預檢與對 AI、窮舉雙方的預期影響,三個種子永不替換。[since:2026-09-27] [retire:Phase 15 依 RETIRE-IF 停用模型探勘且不再重跑基準時] [test:test_rule_mining_pairing_parameters_are_frozen] [test:test_rule_mining_preflight_checks_all_fixed_seed_prompts]
+   RULE: 真相清單與保留側只給評估器,不能進送模型的彙總表或系統提示;彙總表只列探索側達下限的條件,不送逐日列、識別、時間戳或精確分數。[since:2026-09-27] [retire:改用真實歷史與人工標註另開案時] [test:test_rule_mining_prompt_contains_only_bounded_aggregates]
+   FLOW: 生成歷史 → SHA-256 切側 → 每側加額事件與排除計數 → 整期沒有任何調整的對照索引 → 每條件不放回配對 → 彙總 → 下限 → 彙總表與位元組閘 → 三種子預檢;保留側判定與窮舉前 K 用同一份每條件彙總。以程式碼為準:`rg -n "^def " src/rtb/eval/rule_mining_baseline.py src/rtb/eval/rule_mining_prompt.py`
++  RULE: 模型回覆整份拒絕與單條剔除的界線照計劃逐字:重複鍵、任一物件層未知鍵、非有限數(含 1e400)、超長整數解析錯、超 K、超 6000 UTF-8 位元組(照收到的字串量)、錯版本整份拒絕並記 1 筆無效提交;單條型別、語彙、子句數、說明長度錯與同鍵重複、同條件反方向只丟該條;核對不符與未達樣本下限也是無效提交。所有無效提交都要進 AI 同名額誤報的分子與分母(增量 3 的比較用 `invalid_count`)。[since:2026-09-27] [retire:改用別的回覆格式、換評估版本時] [test:test_rule_mining_rejects_out_of_vocabulary_suggestions] [test:test_rule_mining_recounts_every_suggestion_before_reporting]
+   DEP: 轉換率與比例格式用 [[Systems/確定性指標計算]] 的精確比率與百分比字串;Wilson 下界直接用 [[Systems/評估與Jev決策點]] 計分模組的既有函式;評估套件匯入閉包白名單在 [[Systems/評估與Jev決策點]] 的測試精確新增這四支。
+ decisions:
+   - content: 建立評估版本 phase15-rule-mining-v1(生成版本 rule-mining-history-1)
+     id: d1
+     context: 首版;參數照計劃逐字凍結於語彙模組與提示模組,看任何窮舉排名前寫死;三種子可達性預檢全過(見正文〈評估版本理由〉)
+@@ -36,21 +41,32 @@ decisions:
+     decided: 2026-09-27
+     valid: true
+ ---
+ # 規則模式探索評估
+ 
+-Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不呼叫模型、沒有命令列;四支純函式模組加一支測試。合成資料只證流程可運作,不給統計或因果保證。
++Phase 15 增量 1(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]]):不呼叫模型、沒有命令列;四支純函式模組加一支測試。增量 2 加回覆解析與重算、歷史錄製鍵與單一種子執行三支(見下方〈增量 2〉)。合成資料只證流程可運作,不給統計或因果保證。
+ 
+ ## 四支模組
+ 
+ - `src/rtb/eval/rule_mining_vocab.py`:評估版本的單一出處(`EVAL_VERSION`、`SEEDS`、`K`、下限、保留比例、切點、規模桶、上限、`version_params()`),以及封閉條件語彙:四欄 day_type(平日/週末)、pre_cvr、raise_pct、spend_ratio(各三區間),一條條件是一或兩個不同欄位的子句 AND;門檻代碼一律「欄位:區間」全名;`condition_key` / `normalized_key` 對語彙外、同欄重複、子句數錯、未知方向丟 `VocabularyError`(帶原因代碼,給增量 2 的解析器逐條記)。全集 56 條(11 單欄 + 45 兩欄)。
+ - `src/rtb/eval/rule_mining_history.py`:型別(日桶、操作、廣告、歷史、真相項)、`generate(seed)`(只收三個固定種子)、`render` / `data_sha256` 與寫死的三批預期雜湊、`split`。720 支廣告、35 個連續 UTC 日、一半廣告各兩次加額;另刻意放少量前後視窗出界、視窗重疊與 no_data,讓排除計數有東西可數。
+ - `src/rtb/eval/rule_mining_baseline.py`:事件與排除(判斷先後:視窗出界 > 另一筆調整的 D±3 視窗相交 > 資料異常 > 缺值 > 分母為零)、對照索引、`pair_condition`、`stats_of`、`summarize`、`meets_floor`、`directional`、`holdout_verdict`、`rank` / `top_k`、分母可達性 `Reach`。
+ - `src/rtb/eval/rule_mining_prompt.py`:定稿的系統提示與表頭、`summary_table`(平均差值以百分點四位小數寫,共用 [[Systems/確定性指標計算]] 的百分比字串函式、只多傳小數位數,不另寫捨入;代碼審 a_2)、`gate_problem`(B>20480 或達 48 KiB 拒)、`version_sha256`(雜湊用的正規化 JSON 共用評估套件已在用的那一支,見 [[Systems/分析行程流程與檢查點]] 調查詞彙模組;代碼審 a_1)與寫死的 `EXPECTED_VERSION_SHA256`、預檢 `preflight` / `preflight_problems` / `preflight_record` 與寫死的 `PREFLIGHT_RECORD`。
+ 
+ - `tests/eval/test_rule_mining.py`:本增量九條驗收條款 [S1501] [S1502] [S1503] [S1511] [S1512] [S1513] [S1515] [S1519] [S1520] 的測試;手造小歷史驗單一規則,固定三種子整批用模組範圍的 pytest fixture 只生成一次(代碼審 a_3);[S1503] 只驗彙總內容與位元組閘,不接模型。另以十種變異(對照重用、效果改尺度、平手算方向、原始比例排序、對照池收加額廣告、不查重疊、保留比例 1/2、平均為零算保留、不配規模桶、奇數多出者進探索)各跑一次,全數翻紅;代碼審 r1 再補九種(Wilson/第三鍵/保留比例分母改用總配對、重疊改 <6 或 ≤3、只看加額的重疊、v1 對照池、搶用第二三鍵對調、日期數含平手),也全數翻紅。代碼審 r2 再補:對照在距 D 12 天處降額或加額仍不入池(守「整期」而非「D±6」),以及「前一筆是降額」的重疊(相距 6 排除、7 推斷);對應的三種變異(降額只看 D±6、兩類都只看 D±6、降額只看 D 之後)都翻紅。
+ 
++## 增量 2:回覆解析、重算與單一種子執行(2026-09-27)
++
++- `src/rtb/eval/rule_mining_check.py`(純函式):`parse_reply` 封閉 JSON 解析(拒重複鍵的 `object_pairs_hook`、拒 NaN/Infinity 的 `parse_constant`、`parse_float` 擋溢位成 inf、解析後遞迴再驗有限;`ValueError` 與 `RecursionError` 都收成整份拒絕)、逐條驗、去重(留先出現的**合法**條);`Recounter` 用增量 1 的事件、對照索引、不放回配對與彙總函式逐條件重算(測試核對它對 56 條全集都等於增量 1 的探索側彙總);`verify` 先比模型自報的支持/反例(不符記「無法核對」),再看樣本下限(不足記「未達樣本下限」),有效的才在保留側獨立重算並照凍結門檻判定;`Checked` 只帶程式重算的數字,沒有說明欄。
++- `src/rtb/eval/rule_mining_recordings.py`(歷史錄製鍵):用字面 `Caller.RULE_MINING` 與評估版本輸出上限,經模型用戶端門面的錄製鍵函式重算「這份提示」的鍵。它是撤除模型段時**留下**的那一半([S1517]):不匯入模型閘道或送出入口,邊界測試的 `CALLER_USERS["RULE_MINING"]` 因為它而不會在撤除後變空。
++- `src/rtb/eval/rule_mining_eval.py`(單一種子執行,送出點):`prepare(seed)` 生成歷史、兩側重算器、完整彙總表與位元組數;`run(prepared, ask)` 先過位元組閘(過大丟 `PromptRefused`、不呼叫)、經 [[Systems/規則模式探索模型入口]] 呼叫**一次**、非 ok 記「呼叫失敗」不解析不重試、ok 才解析核對;`gate_ask(config)` 把窄入口包成送出函式。匯入它就算送出點;撤除模型段時連同窄入口一起撤。命令列、展示編號序號與批次驗收是增量 3。
++- `tests/eval/test_rule_mining_check.py`:[S1504](整份拒絕與單條剔除的每一類、位元組照 UTF-8 量、去重留先出現的合法條)與 [S1505](重算與探索側彙總一致、核對不符與未達下限、19 平手＋1 正差的例子、有效條目不帶說明)的測試,回覆都是手寫的假回覆。
++- 評估套件閉包的准許名單([S918])在 [[Systems/評估與Jev決策點]] 精確新增上面三支與分析端窄入口;經門面的名單多一支歷史錄製鍵模組;匯入窄入口與用它送出的,精確等於探勘執行器一支。
++- 實作者解讀:「無效提交」的原因代碼沿用語彙模組的 `VocabularyError`(未知欄位、門檻不屬欄位、子句數、同欄重複、未知方向、代碼格式),解析器自己另加形狀、筆數、說明、去重、核對與下限幾類;說明除了 80 字/240 位元組,也擋控制字元與 Unicode 格式字元(Cf,例如零寬字元),以及需要 JSON 逸出的引號與反斜線(計劃的輸出契約)。
++- 實作者解讀:計劃說十條填滿的最大緊湊回覆「實算為 5139 位元組」;本增量用同一組假設(兩子句、24 位元組代碼、九位數筆數、80 個三位元組字、方向取較長的 `not_improve`)實算為 5109,仍低於 6000,結論不變;測試斷言「≤ 6000」而不寫死 5139。
++- 紅綠:新測試先在基底 4e70f92 的原始碼副本上跑,新模組缺席(匯入錯)、列舉與四組精確等式全紅;實作後全綠。另以二十種變異各跑一次(上限名單拿掉探勘、窄入口不擋過大提示、輸出上限或逾時改值、冒用別的呼叫者、不拒重複鍵、位元組界改量字數、子句未知鍵不整份拒、布林當整數、不去重、超 K 截前 K、不比對自報筆數、不看下限、保留側用探索側算、失敗後重試、執行器不過位元組閘、錄製鍵用錯輸出上限、失敗往外丟、窄入口多匯入收件口),十九種翻紅;「只拿掉解析時的非有限數檢查」不紅,因為解析後還有一層遞迴檢查(兩層都拿掉就紅),是刻意的雙層。以固定種子 15001 做的端到端(假後端)在 [[Systems/規則模式探索模型入口]] 的測試。
++
+ ## 埋入的真相(只給評估器)
+ 
+ - 真模式・改善:raise_pct:band_2 且 spend_ratio:band_3(預算幾乎花滿的廣告中度加額),後三天轉換率乘 1.6。
+ - 真模式・未改善:raise_pct:band_3(加額 50% 以上),後三天轉換率乘 0.5。
+ - 誘餌・只探索側偶合:day_type:weekend 且 raise_pct:band_1 改善——生成器只對探索側廣告埋 1.6 倍,保留側沒有。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+index 21caf0d..255bad6 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/評估與Jev決策點.md
+@@ -60,10 +60,12 @@ verified_by:
+ ---
+ # 評估與Jev決策點
+ 
+ 2026-09-27 Phase 15 增量 1:[S918] 評估套件匯入閉包的准許名單精確新增規則模式探索的四支純離線模組(另立 `PHASE15_ALLOWED`,不放寬既有名單);它們不經模型用戶端、不送出,經門面、送出與 AI 決策模組的精確等式都沒變。套件說明(`__init__.py`)的准許名單段同步加註這四支。模組本身的家是 [[Systems/規則模式探索評估]]。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+ 
++2026-09-27 Phase 15 增量 2:[S918] 再逐項精確新增(`PHASE15_ALLOWED`):純核對模組 `rule_mining_check`、歷史錄製鍵模組 `rule_mining_recordings`、單一種子探勘執行器 `rule_mining_eval`,以及評估經它開閘道送出的分析端窄入口 `rtb.analyzer.rule_mining_model`(閘道本身早在 Phase 13 名單);`PHASE13_ALLOWED` 不動。經門面 `rtb.modelclient` 的精確名單多 `rule_mining_recordings` 一支(只取錄製鍵函式與呼叫者列舉);直接送出仍只有模型候選;AI 決策模組的匯入與送出等式照舊只有調查評估執行器;另立一組等式:匯入窄入口、用它的送出名字(`suggest`、`gate_ask`)的評估模組都精確等於 `rule_mining_eval`。套件說明(`__init__.py`)同步。三支模組的家是 [[Systems/規則模式探索評估]],窄入口的家是 [[Systems/規則模式探索模型入口]]。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
++
+ 2026-09-26 Phase 14 增量 1:評估標準答案在案例邊界轉成 [[Systems/正式九條判斷領域規則]] 的型別並呼叫同一決策;必要列內缺值與單日 no_data 回無格的證據不足,原 72 筆含雙胞胎的格與答案逐筆維持,固定匯入閉包名單只增純領域模組。[test:test_missing_row_values_are_insufficient_without_changing_the_72_cases] [test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+ 
+ 2026-09-26 代碼審折入:標準答案與正式規則刻意同源,只證接線一致、不作獨立品質證據;生成器仍不匯入分析端與 AI 決策模組。評估的區段轉換率邊界檢查共用 [[Systems/正式九條判斷領域規則]] 的公開函式,[S1403] 以精確下降 50.04% 而收據顯示 -50.0% 守捨入門檻。[test:test_eval_uses_the_domain_segment_rate] [test:test_exact_thresholds_distinguish_zero_denominators]
+ 
+ 本篇管 `src/rtb/eval/` 七支檔:評分表(`rubric.py`)、生成器(`generator.py`)、合成評估集(`eval_set.py`,生成器的產出,不要手改)、逐筆計分與逐格報告(`scoring.py`)、比較表與逐格採用決定(`adoption.py`)、人讀的決定紀錄(`record.py`,`python -m rtb.eval.record` 產生)、套件說明(`__init__.py`)。判斷點本身、路由與待測格清單的型別在 [[Systems/分析行程流程與檢查點]],判斷點的輸入與評分格在 [[Systems/任務流程領域模型]]。

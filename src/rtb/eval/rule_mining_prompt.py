@@ -41,7 +41,8 @@ SYSTEM_PROMPT = (
     '"confidence_note":"一句話"}]}\n'
     "規則:suggestions 至多 10 條;clauses 是一或兩個不同的 condition,condition 是門檻代碼冒號前的"
     "欄位代碼;同一條件不得同時押兩個方向,也不得重複;support 與 counterexample 照抄表中該方向的整數;"
-    "confidence_note 至多 80 字,不含引號、反斜線或控制字元;不要加任何其他鍵。\n"
+    "confidence_note 至多 80 字,不含引號、反斜線、控制字元或格式字元(零寬字元、方向標記等);"
+    "不要加任何其他鍵。\n"
     "門檻代碼:\n"
     "day_type:weekday 加額 UTC 日是平日;day_type:weekend 是週六或週日\n"
     "raise_pct:band_1 加額幅度未滿 20%;raise_pct:band_2 20% 以上未滿 50%;"
@@ -62,7 +63,7 @@ DIFF_PLACES = 4  # 平均差值:百分點四位小數,用 metrics.percent_text �
 # 首次預檢後寫死(評估版本理由的機器可核對那份);重跑須逐字相同
 PREFLIGHT_RECORD: tuple[str, ...] = (
     '15001 資料 f820e1a486d8b35d 廣告 探索360/保留360 可推斷事件 探索340/保留301 '
-     '表列 50 B=6057',
+     '表列 50 B=6104',
     '15001 排除 探索[incomplete_window=18 missing_value=11 '
      'overlapping_adjustment=18] 保留[incomplete_window=17 '
      'missing_value=9 overlapping_adjustment=32]',
@@ -75,7 +76,7 @@ PREFLIGHT_RECORD: tuple[str, ...] = (
     '15001 decoy_correlated spend_ratio:band_1 not_improve '
      '探索[有方向138/加額廣告81/對照廣告138] 保留[有方向83/加額廣告45/對照廣告83]',
     '15002 資料 2a9e4aac0f4ec020 廣告 探索360/保留360 可推斷事件 探索318/保留339 '
-     '表列 49 B=5975',
+     '表列 49 B=6022',
     '15002 排除 探索[incomplete_window=13 missing_value=12 '
      'overlapping_adjustment=16] 保留[incomplete_window=18 '
      'missing_value=7 overlapping_adjustment=13]',
@@ -88,7 +89,7 @@ PREFLIGHT_RECORD: tuple[str, ...] = (
     '15002 decoy_correlated spend_ratio:band_1 not_improve '
      '探索[有方向109/加額廣告60/對照廣告109] 保留[有方向112/加額廣告67/對照廣告112]',
     '15003 資料 ba7d6ebc8a3a8b4d 廣告 探索360/保留360 可推斷事件 探索333/保留324 '
-     '表列 50 B=6044',
+     '表列 50 B=6091',
     '15003 排除 探索[incomplete_window=14 missing_value=7 '
      'overlapping_adjustment=21] 保留[incomplete_window=10 '
      'missing_value=8 overlapping_adjustment=28]',
@@ -101,7 +102,7 @@ PREFLIGHT_RECORD: tuple[str, ...] = (
     '15003 decoy_correlated spend_ratio:band_1 not_improve '
      '探索[有方向96/加額廣告54/對照廣告96] 保留[有方向117/加額廣告65/對照廣告117]',
 )
-EXPECTED_VERSION_SHA256 = "77b76d93a06d4690ab953c66d875feb12696c27e75cf37034d6b067b38162788"
+EXPECTED_VERSION_SHA256 = "d7b40b48e3ccd004dfc6e1ba5536a12ed34e07c774693a501c8cec708fe55582"
 
 
 def _row(stats: b.ConditionStats) -> str:
@@ -172,11 +173,29 @@ class SeedPreflight:
     truths: tuple[TruthReach, ...]
 
 
-def preflight_seed(seed: int) -> SeedPreflight:
+@dataclass(frozen=True)
+class SeedInputs:
+    """一個固定種子送模型前的共同材料:歷史、兩側、兩側彙總與**探索側**建的完整彙總表。預檢與探勘
+    執行器(增量 2)都從這裡取,組表只有這一份實作(代碼審 r1:兩份實作曾可能分歧而測不出)。"""
+
+    history: h.History
+    sides: h.Split
+    explore: b.SideSummary
+    holdout: b.SideSummary
+    table: str
+
+
+def seed_inputs(seed: int) -> SeedInputs:
     history = h.generate(seed)
     sides = h.split(ad.ad_id for ad in history.ads)
     explore, holdout = b.summarize(history, sides.explore), b.summarize(history, sides.holdout)
-    table = summary_table(explore)
+    return SeedInputs(history, sides, explore, holdout, summary_table(explore))
+
+
+def preflight_seed(seed: int) -> SeedPreflight:
+    inputs = seed_inputs(seed)
+    history, sides, explore, holdout, table = (inputs.history, inputs.sides, inputs.explore,
+                                               inputs.holdout, inputs.table)
     truths = tuple(TruthReach(t.kind, t.key, b.reach_of(explore.stats[t.key[0]]),
                               b.reach_of(holdout.stats[t.key[0]])) for t in h.TRUTH)
     return SeedPreflight(

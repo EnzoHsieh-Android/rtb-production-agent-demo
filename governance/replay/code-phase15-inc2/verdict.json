@@ -1,0 +1,38 @@
+{
+ "loop": "code-phase15-inc2",
+ "round": "r3",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-27T12:37:22+08:00",
+ "spec_path": "governance/review-reports/code-phase15-inc2/r3-delta.patch",
+ "spec_sha": "e59b32d3d86f03d22a0205d23b7e11169ffb4a3201954e446aae261ecf6fea13",
+ "rows": [
+  "{\"ts\": \"2026-09-27T12:12:56+08:00\", \"kind\": \"none\", \"auditor\": \"資安-opus\", \"token\": \"CANARY-206e74e9\", \"note\": \"\", \"loop\": \"code-phase15-inc2\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"2857d249dc0df6583487581606f7825bfee5a5bb62432c115142e76bc30dfb2f\", \"reviewed_sha256\": \"2857d249dc0df6583487581606f7825bfee5a5bb62432c115142e76bc30dfb2f\", \"spec_path\": \"governance/review-reports/code-phase15-inc2/r1-snapshot.patch\", \"scope_lines\": 2431, \"scope_oversize\": true, \"reported\": 2, \"report_path\": \"governance/review-reports/code-phase15-inc2/r1-資安-opus.md\", \"report_sha256\": \"4666ced263be804eee4ef31f57a265591f576b4e696b8a1f1e3edce91cb79267\", \"snapshot_path\": \"governance/review-reports/code-phase15-inc2/r1-snapshot.patch\", \"snapshot_sha256\": \"2857d249dc0df6583487581606f7825bfee5a5bb62432c115142e76bc30dfb2f\"}",
+  "{\"ts\": \"2026-09-27T12:12:57+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-8ac60fc3\", \"note\": \"\", \"loop\": \"code-phase15-inc2\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 2, \"result_sha256\": \"2857d249dc0df6583487581606f7825bfee5a5bb62432c115142e76bc30dfb2f\", \"reviewed_sha256\": \"2857d249dc0df6583487581606f7825bfee5a5bb62432c115142e76bc30dfb2f\", \"spec_path\": \"governance/review-reports/code-phase15-inc2/r1-snapshot.patch\", \"scope_lines\": 2431, \"scope_oversize\": true, \"reported\": 2, \"report_path\": \"governance/review-reports/code-phase15-inc2/r1-架構對齊.md\", \"report_sha256\": \"1f697bd4b0806f8ad3d5015f8a7f0bce5b06af688b0114031127e56a02736745\", \"snapshot_path\": \"governance/review-reports/code-phase15-inc2/r1-snapshot.patch\", \"snapshot_sha256\": \"2857d249dc0df6583487581606f7825bfee5a5bb62432c115142e76bc30dfb2f\"}",
+  "{\"ts\": \"2026-09-27T12:12:57+08:00\", \"kind\": \"none\", \"auditor\": \"正確性\", \"token\": \"CANARY-7d082798\", \"note\": \"\", \"loop\": \"code-phase15-inc2\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 6, \"result_sha256\": \"2857d249dc0df6583487581606f7825bfee5a5bb62432c115142e76bc30dfb2f\", \"reviewed_sha256\": \"2857d249dc0df6583487581606f7825bfee5a5bb62432c115142e76bc30dfb2f\", \"spec_path\": \"governance/review-reports/code-phase15-inc2/r1-snapshot.patch\", \"scope_lines\": 2431, \"scope_oversize\": true, \"findings_set\": [\"c_1\", \"c_2\", \"c_3\", \"c_4\", \"c_5\", \"c_6\", \"s_1\", \"s_2\", \"a_1\", \"a_2\"], \"folded_set\": [\"c_1\", \"c_2\", \"c_3\", \"c_4\", \"c_5\", \"c_6\", \"s_1\", \"s_2\", \"a_1\", \"a_2\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"c_1\": \"code\", \"c_2\": \"code\", \"c_3\": \"code\", \"c_4\": \"code\", \"c_5\": \"code\", \"c_6\": \"code\", \"s_1\": \"code\", \"s_2\": \"code\", \"a_1\": \"spec\", \"a_2\": \"spec\"}, \"reported\": 6, \"report_path\": \"governance/review-reports/code-phase15-inc2/r1-正確性.md\", \"report_sha256\": \"e324c3a105edf73d2f5bf94c6b7363b9225847908f17ca9d06059a3d63871bf4\", \"snapshot_path\": \"governance/review-reports/code-phase15-inc2/r1-snapshot.patch\", \"snapshot_sha256\": \"2857d249dc0df6583487581606f7825bfee5a5bb62432c115142e76bc30dfb2f\"}",
+  "{\"ts\": \"2026-09-27T12:25:25+08:00\", \"kind\": \"none\", \"auditor\": \"資安-opus\", \"token\": \"CANARY-f59b7c97\", \"note\": \"\", \"loop\": \"code-phase15-inc2\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 1, \"result_sha256\": \"ac2c87edeb4a5c63e981a08e9417765c81ecb9334ec92691aa9e00d140faed1b\", \"reviewed_sha256\": \"ac2c87edeb4a5c63e981a08e9417765c81ecb9334ec92691aa9e00d140faed1b\", \"spec_path\": \"governance/review-reports/code-phase15-inc2/r2-delta.patch\", \"scope_lines\": 994, \"reported\": 1, \"report_path\": \"governance/review-reports/code-phase15-inc2/r2-資安-opus.md\", \"report_sha256\": \"59d6d99c860d6cfade45fb861f139f7cec798b116ce7956e499c19c72071b6f2\", \"snapshot_path\": \"governance/review-reports/code-phase15-inc2/r2-delta.patch\", \"snapshot_sha256\": \"ac2c87edeb4a5c63e981a08e9417765c81ecb9334ec92691aa9e00d140faed1b\"}",
+  "{\"ts\": \"2026-09-27T12:25:25+08:00\", \"kind\": \"none\", \"auditor\": \"正確性\", \"token\": \"CANARY-e27f679b\", \"note\": \"\", \"loop\": \"code-phase15-inc2\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 2, \"result_sha256\": \"ac2c87edeb4a5c63e981a08e9417765c81ecb9334ec92691aa9e00d140faed1b\", \"reviewed_sha256\": \"ac2c87edeb4a5c63e981a08e9417765c81ecb9334ec92691aa9e00d140faed1b\", \"spec_path\": \"governance/review-reports/code-phase15-inc2/r2-delta.patch\", \"scope_lines\": 994, \"findings_set\": [\"r2_c1\", \"r2_c2\", \"r2_s1\"], \"folded_set\": [\"r2_c1\", \"r2_c2\"], \"accepted_set\": [\"r2_s1\"], \"refuted_set\": [], \"accept_reasons\": {\"r2_s1\": \"在 Phase 13 共用錄製讀取、不在本次改動;利用前提是能改 repo 錄製檔,等同能改程式;已開 Issues/竄改錄製檔外殼深巢狀讓錄製讀取當掉 附事件入口與 REVISIT\"}, \"finding_kinds\": {\"r2_c1\": \"code\", \"r2_c2\": \"code\", \"r2_s1\": \"code\"}, \"reported\": 2, \"report_path\": \"governance/review-reports/code-phase15-inc2/r2-正確性.md\", \"report_sha256\": \"0fba540f3636b5bb13f90ea8706f164e460313f21309ff9989eb53997edb1ec8\", \"snapshot_path\": \"governance/review-reports/code-phase15-inc2/r2-delta.patch\", \"snapshot_sha256\": \"ac2c87edeb4a5c63e981a08e9417765c81ecb9334ec92691aa9e00d140faed1b\"}",
+  "{\"ts\": \"2026-09-27T12:30:46+08:00\", \"kind\": \"none\", \"auditor\": \"正確性\", \"token\": \"CANARY-6b892d00\", \"note\": \"\", \"loop\": \"code-phase15-inc2\", \"round\": \"r3\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"e59b32d3d86f03d22a0205d23b7e11169ffb4a3201954e446aae261ecf6fea13\", \"reviewed_sha256\": \"e59b32d3d86f03d22a0205d23b7e11169ffb4a3201954e446aae261ecf6fea13\", \"spec_path\": \"governance/review-reports/code-phase15-inc2/r3-delta.patch\", \"scope_lines\": 382, \"reported\": 0, \"report_path\": \"governance/review-reports/code-phase15-inc2/r3-正確性.md\", \"report_sha256\": \"b67971d6d67194ed9961a99fc8e826a369107910cfd9bed275845bdff2b748a5\", \"snapshot_path\": \"governance/review-reports/code-phase15-inc2/r3-delta.patch\", \"snapshot_sha256\": \"e59b32d3d86f03d22a0205d23b7e11169ffb4a3201954e446aae261ecf6fea13\"}"
+ ],
+ "all_row_shas": [
+  "1b148e295e5ad6bc1e6b177ac4e9be5e2889346fb7fb09499332b2573620ebc7",
+  "3501ee9754084356de8cb32006d11ec57f2523953bce490f77ddf5c1068c2358",
+  "c5777c083826fb07b120edd1c761c65d652896f000b51f7d64d46bb34e356b62",
+  "c952dd496e1c790fe09e869403c3a12372f7748f559cc93592559c0bea3c8fa3",
+  "d5b32350140aa96657a5065d433955c91373b5d5ca275f0a0b76c5f44b71a8a3",
+  "e7e95e655e66344249ef6f1ad7cb3fef9634926be9b3ee4571d4450324b2ee9f"
+ ],
+ "files": {
+  "governance/review-reports/code-phase15-inc2/r3-正確性.md": {
+   "sha256": "b67971d6d67194ed9961a99fc8e826a369107910cfd9bed275845bdff2b748a5",
+   "git_blob": "c535e9f3a38d8217b05dff4dc3c27fdf1dc9e9be"
+  },
+  "governance/review-reports/code-phase15-inc2/r3-delta.patch": {
+   "sha256": "e59b32d3d86f03d22a0205d23b7e11169ffb4a3201954e446aae261ecf6fea13",
+   "git_blob": "1b4fb709cb4003ba98721b1d30676920c25f353e"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

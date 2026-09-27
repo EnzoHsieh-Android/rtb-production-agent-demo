@@ -62,6 +62,8 @@ verified_by:
 
 2026-09-27 Phase 15 增量 1:[S918] 評估套件匯入閉包的准許名單精確新增規則模式探索的四支純離線模組(另立 `PHASE15_ALLOWED`,不放寬既有名單);它們不經模型用戶端、不送出,經門面、送出與 AI 決策模組的精確等式都沒變。套件說明(`__init__.py`)的准許名單段同步加註這四支。模組本身的家是 [[Systems/規則模式探索評估]]。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
 
+2026-09-27 Phase 15 增量 2:[S918] 再逐項精確新增(`PHASE15_ALLOWED`):規則模式探索的回覆核對、歷史錄製鍵與單一種子探勘執行器三支評估模組(家是 [[Systems/規則模式探索評估]]),以及探勘執行器經它開閘道送出的分析端模型窄入口(家是 [[Systems/規則模式探索模型入口]];閘道本身早在 Phase 13 名單);`PHASE13_ALLOWED` 不動。經門面的精確名單多歷史錄製鍵那一支(只取錄製鍵函式與呼叫者列舉);直接送出仍只有模型候選;AI 決策模組的匯入與送出等式照舊只有調查評估執行器;另立一組等式:匯入窄入口、用它的送出名字(`suggest`、`gate_ask`)的評估模組都精確等於探勘執行器一支(`rule_mining_senders()`)。套件說明(`__init__.py`)同步。[test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
+
 2026-09-26 Phase 14 增量 1:評估標準答案在案例邊界轉成 [[Systems/正式九條判斷領域規則]] 的型別並呼叫同一決策;必要列內缺值與單日 no_data 回無格的證據不足,原 72 筆含雙胞胎的格與答案逐筆維持,固定匯入閉包名單只增純領域模組。[test:test_missing_row_values_are_insufficient_without_changing_the_72_cases] [test:test_the_eval_package_reaches_the_model_only_through_the_model_client]
 
 2026-09-26 代碼審折入:標準答案與正式規則刻意同源,只證接線一致、不作獨立品質證據;生成器仍不匯入分析端與 AI 決策模組。評估的區段轉換率邊界檢查共用 [[Systems/正式九條判斷領域規則]] 的公開函式,[S1403] 以精確下降 50.04% 而收據顯示 -50.0% 守捨入門檻。[test:test_eval_uses_the_domain_segment_rate] [test:test_exact_thresholds_distinguish_zero_denominators]

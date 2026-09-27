@@ -109,7 +109,7 @@
     },
     {
       "path": "src/rtb/modelledger_view.py",
-      "sha256": "c3b783a733b0b17bf91de93fb5d8278fe88c74dab30127f329a6c9ff27dc4bb1"
+      "sha256": "1fb87e0c186433e4c22fe8038aeee6dbe2911974fd073c69ba7112b92e143775"
     },
     {
       "path": "src/rtb/sqlitekit.py",
@@ -123,7 +123,7 @@
   "harness": [
     {
       "path": "pyproject.toml",
-      "sha256": "7f105075e3a2f9a2ae568c0028a22bab974f6d4f220937570a07df70fc08e88a"
+      "sha256": "ae9c553a2bfabc227c2c9e574b9737853c85582a60f3a7adfca83b2242e70d76"
     },
     {
       "path": "tests/__init__.py",

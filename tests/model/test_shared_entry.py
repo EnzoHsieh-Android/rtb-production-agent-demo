@@ -80,9 +80,10 @@ def demo_used(ledger, demo_id):
 # ---- [S1103] ----
 def test_the_investigation_caller_is_a_bounded_label(dirs, tmp_path):
     assert mc.Caller.INVESTIGATION.value == "analyzer_investigation"
+    # Phase 15 增量 2 精確新增規則模式探索(計劃 [[Projects/RTB_Phase15AI找規則模式_計劃]])
     assert {c.value for c in mc.Caller} == {"eval_candidate", "ops_hypothesis",
                                            "analyzer_narrative", "live_verification",
-                                           "analyzer_investigation"}
+                                           "analyzer_investigation", "rule_mining"}
     call(live(FakeBackend(reply("x"))), request(caller=mc.Caller.INVESTIGATION), dirs)
     call(live(FakeBackend(reply("y"))), request("u2", caller=mc.Caller.NARRATIVE), dirs)
     data = Rows(tmp_path)
@@ -100,7 +101,9 @@ def test_the_investigation_caller_is_a_bounded_label(dirs, tmp_path):
 
 # ---- [S1134] ----
 def test_the_phase13_callers_are_not_capped_but_still_booked(dirs, monkeypatch):
-    capped = frozenset({mc.Caller.EVAL_CANDIDATE, mc.Caller.VERIFICATION})
+    # Phase 15 增量 2 精確新增規則模式探索:它計入上限(併行預留見
+    # tests/eval/test_rule_mining_model.py 的 [S1514]),Phase 13 的三個呼叫者照舊不計入
+    capped = frozenset({mc.Caller.EVAL_CANDIDATE, mc.Caller.VERIFICATION, mc.Caller.RULE_MINING})
     assert capped == ledger_db.CAPPED_CALLERS
     before = {table: tuple(columns) for table, columns in view.TABLES.items()}
     # 上限縮到一次都放不下:三個呼叫者照樣送出、照樣各記一筆估算成本

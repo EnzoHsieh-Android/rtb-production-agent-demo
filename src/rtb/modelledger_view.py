@@ -38,13 +38,15 @@ def ledger_path() -> Path:
 
 class Caller(StrEnum):
     """會呼叫模型的地方(封閉列舉):Phase 11B 的三個接入點與即時模式實測命令列,加上 Phase 13 的分析端
-    調查。哪幾個計入花費上限寫死在花費帳寫入模組(`modelledger.CAPPED_CALLERS`),不看這裡。"""
+    調查與 Phase 15 的離線規則模式探索。哪幾個計入花費上限寫死在花費帳寫入模組
+    (`modelledger.CAPPED_CALLERS`),不看這裡。停用模型探勘時也不刪成員:歷史錄製鍵與帳列要讀得回。"""
 
     EVAL_CANDIDATE = "eval_candidate"
     HYPOTHESIS = "ops_hypothesis"
     NARRATIVE = "analyzer_narrative"
     VERIFICATION = "live_verification"
     INVESTIGATION = "analyzer_investigation"  # Phase 13:AI 在分析端主導的有上限調查
+    RULE_MINING = "rule_mining"  # Phase 15:離線規則模式探索(一批一次呼叫,計入上限)
 
 
 class Source(StrEnum):
