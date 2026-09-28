@@ -7719,3 +7719,4 @@
 {"ts": "2026-09-27T21:43:36+08:00", "commit": "0d41029", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-readme-final"], "note": "disposal gate PASS"}
 {"ts": "2026-09-27T21:43:41+08:00", "commit": "e4e0d9f", "gate": "code-loop", "kind": "dispositions", "hard": false, "nodes": [], "detail": "表態 0 題", "branch": "main", "head_sha": "e4e0d9fd390259d992a7c3a4169849ce1621f8d2", "dispositions": {}, "candidates": 0, "written_at": "2026-09-27T21:43:51.458105+08:00"}
 {"ts": "2026-09-27T21:43:41+08:00", "commit": "e4e0d9f", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "README 最終微調(照使用者提供的最終 review 建議):light 兩輪(事實核對 opus、架構對齊 sonnet),r1 5 條全數修入,r2 雙席 clean", "branch": "main", "head_sha": "e4e0d9fd390259d992a7c3a4169849ce1621f8d2"}
+{"ts": "2026-09-28T12:49:06+08:00", "commit": "e9ea72a", "gate": "design-loop", "kind": "converged", "hard": false, "nodes": ["code-readme-msi"], "note": "disposal gate PASS"}
