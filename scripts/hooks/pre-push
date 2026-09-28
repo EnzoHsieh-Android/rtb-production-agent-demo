@@ -242,6 +242,17 @@ for _ppl in ${_PP_LINES+"${_PP_LINES[@]}"}; do
       } >&2
       exit 1
     fi
+    # 筆記形狀擋(Projects/筆記形狀擋_計劃):同一段範圍再查一次,接住 --no-verify 跳過提交前那道的;範圍算法同上(不用空樹兜底)
+    ns_rc=0
+    "$PY" "$GRAPHCTL" note-shape --diff "$_hrange" --repo "$REPO_ROOT" || ns_rc=$?
+    if [[ "$ns_rc" -eq 1 ]]; then
+      {
+        echo ""
+        echo "逃生:照上面改寫(行號改成函式名或測試名、或釘版本 路徑@<提交編號>:行號;現況描述刪掉或帶 [來源:…]);誤擋就 LUMOS_SKIP_NOTE_SHAPE=1 單次跳過(會留帳);整個專案先只提醒 → .lumos/config.json 的 note_shape.gate 設成 warn。"
+        echo ""
+      } >&2
+      exit 1
+    fi
   fi
 
   impact_once "$_range"

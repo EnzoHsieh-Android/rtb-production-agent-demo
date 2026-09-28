@@ -125,6 +125,15 @@ if [[ -n "${CC_PY:-}" && -f "$REPO_ROOT/scripts/lumos" ]]; then
   [[ "$nh_rc" -eq 1 ]] && exit 1
 fi
 
+# Gate NS: 筆記形狀擋(2026-09-27,Projects/筆記形狀擋_計劃):筆記新寫的程式行號引用、沒寫來源的 FACT/FLOW/DEP 擋下。
+# 判定全在 lumos 裡,這裡只呼叫;rc1=擋,其他非零放行(環境壞了不擋人)。
+# ★下一行的「note-shape --staged」字樣是上線點標記★:lumos 用 git log -S 找這串第一次出現的提交,那之前的筆記算舊帳。
+if [[ -n "${CC_PY:-}" && -f "$REPO_ROOT/scripts/lumos" ]]; then
+  ns_rc=0
+  "$CC_PY" "$REPO_ROOT/scripts/lumos" note-shape --staged --repo "$REPO_ROOT" || ns_rc=$?
+  [[ "$ns_rc" -eq 1 ]] && exit 1
+fi
+
 # Gate 2: code 副檔名 (對齊 check-graph-sync.py CODE_EXTS)
 CODE_EXTS_RE='\.(cs|vue|js|ts|tsx|jsx|mjs|sql|py|kt|kts|java|swift|go|rs|c|cc|cpp|h|hpp|sh|ps1)$'  # sh/ps1 2026-08-21 補(體檢 #7);各份清單由 t_code_exts_lists_agree 釘
 

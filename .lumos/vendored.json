@@ -12,11 +12,11 @@
   "scripts/hooks/claude/lumos-entry-hook.py": "57697cd0e456ffd0ff27dba052999e8aef16fea61d935d0eada51b8ead43e8ba",
   "scripts/hooks/claude/memory-sweep.py": "6bc21768296f6b858e0f5965206ad8c487500c79c7fd5a02bab2396105f9c634",
   "scripts/hooks/post-commit": "754a88db17add2493587bc51e5891b8f810342d10bbddf6f7d97d6c05d3b9651",
-  "scripts/hooks/pre-commit": "470f20b9b21f05078adf307ea739022c567f75aab0e91be4a94f1ec4121bb63a",
-  "scripts/hooks/pre-push": "10f1b24c65f9fc8d6f221b3c18a2b659a4626fd71c217186c3de8de33b201525",
-  "scripts/lumos": "6e7223662f31e30df93f14f512c5ec1756faa3bc590c506ae8428be39bd7971d",
+  "scripts/hooks/pre-commit": "1e5e6645dff0c31e774a0761430f96e14e45dcca9d311d4086f80e5fc8208cfe",
+  "scripts/hooks/pre-push": "b09a2357a90f27782bd0ca616c6f90af699f41e62e9237293c7d143713c431ff",
+  "scripts/lumos": "034fbb0f7863b92ba055c6c0066e58738ef21c51b0f53a8e1a89949637448849",
   "scripts/merge-claude-settings.py": "69e9f960f1fea34a443bd0b45ad964856047bd92f646d0335c5d5360d3b454e8",
-  "scripts/templates/graph-discipline.md": "f61eebf1537b7834fa48c8f92e5444d8918248dcbd017c62b0a2bd1752b60ceb",
-  "scripts/test_lumos.py": "9bc780446ff67a9335752b467130f410525a1cc15c91eb2d6584dba5b46d72b1"
+  "scripts/templates/graph-discipline.md": "c0526500f1a339b913dcfa9a41cf2f082d63c5b2afb0bfcd8ea8caf8f87ff10f",
+  "scripts/test_lumos.py": "305d76026513b43e7d6a613d90171ca1edc5b492470b9ccae5286faa5b330412"
  }
 }
