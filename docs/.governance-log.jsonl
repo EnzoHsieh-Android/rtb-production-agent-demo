@@ -7724,3 +7724,60 @@
 {"ts": "2026-09-28T12:49:11+08:00", "commit": "31f3c2c", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "README 核心主張更新(照使用者提供的 Minimum Sufficient Intelligence 建議):light 兩輪(事實核對 opus、架構對齊 sonnet),r1 6 條、r2 2 條全數修入", "branch": "main", "head_sha": "31f3c2c2bc55c5e4888462f9bc27a2f5eb919053"}
 {"ts": "2026-09-28T14:04:47+08:00", "commit": "26c0f8d", "gate": "code-loop", "kind": "dispositions", "hard": false, "nodes": [], "detail": "表態 0 題", "branch": "main", "head_sha": "26c0f8ddab7a5d9c06882a22f3e1d00965760b48", "dispositions": {}, "candidates": 0, "written_at": "2026-09-28T14:04:57.293506+08:00"}
 {"ts": "2026-09-28T14:04:47+08:00", "commit": "26c0f8d", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "README 換成使用者提供的白話版:light 兩輪(事實核對 opus、架構對齊 sonnet),r1 7 條全數修入,r2 雙席 clean", "branch": "main", "head_sha": "26c0f8ddab7a5d9c06882a22f3e1d00965760b48"}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["README流程動圖產生器"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["一鍵展示"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["任務流程領域模型"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["共用行程基礎"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["可觀測查詢"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["執行迴圈"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["外部寫入嘗試紀錄"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["宣稱驗證器"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["寫入能力憑證"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["展示頁面"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["提案收件口"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["有界標籤的指標"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["服務水準與燒損告警"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["模型用戶端"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["正式九條判斷領域規則"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["死信重放指令"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["稽核表只增不改守衛"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["規則模式探索模型入口"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["規則模式探索評估"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["評估與Jev決策點"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["調查實演"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["追蹤檢視"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s", "kind": "warned", "hard": false, "nodes": ["靜態檢查閘"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-cascade", "kind": "warned", "hard": false, "nodes": [], "note": "unseen=2 broken=0"}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["確定性指標計算"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["Phase1驗收紀錄"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["Phase1驗收紀錄"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F1_結果不明只用原鍵對帳"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F1_結果不明只用原鍵對帳"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F2_確認前當機不重複副作用"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F2_確認前當機不重複副作用"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F3_重複投遞不重複分析與副作用"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F3_重複投遞不重複分析與副作用"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F4_舊版本寫入被拒不覆蓋"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F4_舊版本寫入被拒不覆蓋"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F5_不可信文字不能擴權"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F5_不可信文字不能擴權"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F6_死信重放必須重新驗證"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F6_死信重放必須重新驗證"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F7_總曝險到門檻就停"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-e3", "kind": "warned", "hard": false, "nodes": ["事故F7_總曝險到門檻就停"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s5", "kind": "warned", "hard": false, "nodes": ["RTB_Phase12一鍵展示與HTML報告_計劃"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["展示還留著AI參考判斷分支與說明看不到四查詢"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["流程圖把AI說明畫在送出建議之前"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["竄改錄製檔外殼深巢狀讓錄製讀取當掉"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s6", "kind": "warned", "hard": false, "nodes": ["錄製模式的原因假說寫進真帳本"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s11", "kind": "warned", "hard": false, "nodes": ["Mock-DSP"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s11", "kind": "warned", "hard": false, "nodes": ["分析行程流程與檢查點"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s11", "kind": "warned", "hard": false, "nodes": ["展示頁面"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "check-s11", "kind": "warned", "hard": false, "nodes": ["展示頁面"]}
+{"ts": "2026-09-28T15:53:11+08:00", "commit": "7f17514", "gate": "doctor-run", "kind": "ran", "hard": false, "nodes": [], "note": "issues=0 gates=6 soft=13"}
+{"ts": "2026-09-28T16:48:18+08:00", "commit": "da9a5d9", "gate": "code-loop", "kind": "dispositions", "hard": false, "nodes": [], "detail": "表態 0 題", "branch": "main", "head_sha": "da9a5d945441c78fcf63a67c0ab97740b7c5f0bc", "dispositions": {}, "candidates": 0, "written_at": "2026-09-28T16:48:28.682486+08:00"}
+{"ts": "2026-09-28T16:48:18+08:00", "commit": "da9a5d9", "gate": "code-loop", "kind": "passed", "hard": false, "nodes": [], "detail": "展示流程圖與 README 動圖把 AI 說明改成收件收下之後的旁支、核可表單照實寫:standard 兩輪(正確性 opus、架構對齊 sonnet),r1 5 條修入,r2 1 條修入 2 條 minor 附理由放行", "branch": "main", "head_sha": "da9a5d945441c78fcf63a67c0ab97740b7c5f0bc"}
