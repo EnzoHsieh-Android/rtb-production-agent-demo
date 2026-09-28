@@ -15,6 +15,7 @@ tags:
 summary: |-
   WHY: [2026-09-24] 使用者裁定 README 產圖腳本只作文件產出物，移到 docs/assets，不增加正式或開發依賴。出處：README 代碼審第 1 輪後的使用者裁定。
   TEST: python3 docs/assets/make_agent_flow_gif.py；ruff check .；mypy；pytest -q tests/tools tests/test_static_checks.py；GIF 抽格及 SVG XML 解析。
+  PITFALL: [2026-09-28 白話化推送後 CI 紅] 產生器雖然放在 docs/assets,仍在 ruff 檢查範圍內;中文長字串超過行長上限,本機只跑了守衛測試沒跑 ruff,推上去才被 CI 擋。改完圖上文字要先跑 `ruff check .`,長字串用相鄰字串字面值拆行(輸出不變)。
 verified_by:
   - "[[Verification/README流程動圖驗證]]"
 ---
