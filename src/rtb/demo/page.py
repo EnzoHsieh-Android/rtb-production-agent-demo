@@ -991,7 +991,7 @@ def _render_outcome_note(scenario: Scenario) -> str:
 
 
 def _render_ai_node_card(scenario: Scenario) -> str:
-    """[S1027] AI 寫給確認的人看的說明:程式算的數字在前,AI 文字標「AI 產生、僅供參考」;
+    """[S1027] AI 寫給人看的說明:程式算的數字在前,AI 文字標「AI 產生、僅供參考」;
     沒有成功結果就寫結果類別。另一張是服務水準告警時 AI 推測的可能原因。說明在建議送出之後才寫
     (不在流程圖的判斷路徑上),所以不看流程圖走過哪些節點。"""
     step = scenario.model_step
@@ -1008,7 +1008,7 @@ def _render_ai_node_card(scenario: Scenario) -> str:
         narrative = (f'<p>程式算的數字</p><ul class="ai-numbers">{numbers}</ul>{text}'
                      if numbers else text)
     return (
-        '<div class="ai-node-card"><strong>AI 寫說明（給確認的人看）</strong>'
+        '<div class="ai-node-card"><strong>AI 寫說明（建議送出後才寫，只給人看）</strong>'
         f"{narrative}</div>{_render_hypothesis(scenario)}"
     )
 
@@ -1105,8 +1105,9 @@ def _plain_lines(lines: tuple[str, ...]) -> str:
 
 
 def _model_text(text: str | None, _source: ModelSource | None) -> str:
-    if text is None:
-        return '<p class="empty">沒有 AI 說明。</p>'
+    if text is None:  # 展示狀態轉換組表單時就不帶說明;一鍵展示也要等情境整段跑完才產說明
+        return ('<p class="empty">這張表單不帶 AI 說明：同意與否只看程式算出的數字；'
+                '展示要等情境整段跑完才產生說明，執行時也不讀、不等它。</p>')
     return (
         f'<div class="model-note"><p class="model-warning">{MODEL_LABEL}・不會控制系統'
         f'</p><p>{escape_text(text)}</p></div>'
@@ -1122,7 +1123,7 @@ def _render_approval_form(approval: ApprovalForm, token: str) -> str:
     return (
         '<section class="approval" aria-labelledby="approval-title">'
         '<p class="section-kicker">需要人工確認</p><h2 id="approval-title">請確認這次調整</h2>'
-        "<p>先逐項確認程式算出的數字，再閱讀 AI 產生的參考說明。</p>"
+        "<p>逐項確認程式算出的數字；同意後建議回到排隊，寫入前照樣重新檢查。</p>"
         f'<p class="source-note">當次數字摘要識別值：{escape_text(approval.numbers_digest)}</p>'
         f'<form method="post" action="/approve"><input type="hidden" name="token" '
         f'value="{escape_text(token)}"><input type="hidden" name="proposal_hash" '

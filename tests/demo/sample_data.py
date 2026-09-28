@@ -265,17 +265,18 @@ def _scenario(
 def make_demo_state(*, running: bool = False) -> DemoState:
     observed_at = datetime.now(UTC)
     lead = ("a_receive", "a_collect", "a_fresh", "a_complete", "a_pacing")
-    via_rule = (*lead, "a_rule", "a_worth", "a_propose", "a_narrate", "a_submit", "i_check")
+    # 說明是送出之後的旁支,不在路上(Issues/流程圖把AI說明畫在送出建議之前)
+    via_rule = (*lead, "a_rule", "a_worth", "a_propose", "a_submit", "i_check")
     accepted = (*via_rule, "x_pending", "x_pick", "x_precheck", "x_guard", "x_total")
     routes = (
         (*accepted, "x_write", "p_reply", "x_unknown", "x_verify", "x_done"),
         (*accepted, "x_write", "x_reclaimed"),
         (*via_rule, "i_superseded"),
-        (*accepted[:14], "x_blocked", "a_followup"),
+        (*accepted[:13], "x_blocked", "a_followup"),
         (*lead, "a_rule", "a_worth", "a_propose", "a_submit", "i_check",
          "x_pending", "x_pick", "x_precheck", "x_guard", "x_total", "x_write",
          "p_reply", "x_verify", "x_done"),
-        (*accepted[:13], "x_deadletter", "h_replay", "r_requeued"),
+        (*accepted[:12], "x_deadletter", "h_replay", "r_requeued"),
         (*accepted, "x_wait_approval", "h_approve", "x_approved"),
     )
     statuses = (
@@ -366,7 +367,7 @@ def write_examples() -> None:
     awaiting_state = make_demo_state(running=True)
     waiting_route = (
         "a_receive", "a_collect", "a_fresh", "a_complete", "a_pacing",
-        "a_rule", "a_worth", "a_propose", "a_narrate", "a_submit", "i_check",
+        "a_rule", "a_worth", "a_propose", "a_submit", "i_check",
         "x_pending", "x_pick", "x_precheck", "x_guard", "x_total", "x_wait_approval",
     )
     waiting_trace, waiting_decisions = _route(*waiting_route)

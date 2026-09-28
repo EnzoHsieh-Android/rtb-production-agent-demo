@@ -1389,7 +1389,7 @@ def _entry_args(world: World) -> list[str]:
 
 
 def run_model_entries(world: World, stop: threading.Event | None = None) -> ModelEntries:
-    """情境結束時跑一次模型說明(替已送出的建議寫給確認的人看的說明)與原因假說(服務水準告警時);
+    """情境結束時跑一次模型說明(替收件收下的建議寫一段只給人看的說明)與原因假說(服務水準告警時);
     錄製模式讀展示錄製,找不到就照實記結果類別。展示自己的失敗(起不來、逾時、輸出讀不懂)記成原因,
     不影響情境結果。整次展示被取消(stop)就不跑、跑到一半也收掉(代碼審 r1 l1);假說沒跑是空的。"""
     stop = stop or threading.Event()

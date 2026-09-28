@@ -16,6 +16,12 @@ Phase 10 的候選判斷分支(「由誰判斷值不值得加預算?」分流、
 正式與展示都不走,一併撤除:花得偏慢直接進程式規則(九條)。分析端路由(RoutePath)只剩 Phase 10
 評估在用,不再對到展示圖;候選才會答的「拿不定」照程式實際的結局對到「用程式規則判斷」:
 路由收到它就退回九條規則再判。
+
+2026-09-28([[Issues/流程圖把AI說明畫在送出建議之前]]):模型說明節點從「寫好調整建議 → 送去執行」
+之間拿出來,改成收件收下(排隊等執行)之後的旁支(`SIDE_BRANCHES`,跟回頭節點一樣用結構化宣告展開成
+節點與邊):說明命令列只讀收件收下、交給執行的提案(被拒收或送到時已過時的不寫),
+說明不進收件口、能力憑證與 DSP 請求,執行端不讀、不等它;一鍵展示也是情境跑完才產說明。旁支節點
+沒有出去的邊,不在任何通往寫入的路上。
 """
 
 import re
@@ -71,7 +77,6 @@ _NODES: tuple[tuple[str, str, NodeKind, str], ...] = (
     ("a_no_action", "不調整,結束", T, ANALYZE),
     ("a_failed", "這件工作出錯,結束", T, ANALYZE),
     ("a_propose", "寫好調整建議", S, ANALYZE),
-    ("a_narrate", "請模型寫一段說明給確認的人看(僅供參考)", S, ANALYZE),
     ("a_submit", "把建議送去執行", S, ANALYZE),
     ("a_blocked_end", "被擋下,這件工作結束", T, ANALYZE),
     ("i_check", "收件檢查:這份建議能收嗎?", D, INBOX),
@@ -134,6 +139,27 @@ BACK_TRANSITIONS = (
     BackTransition("x_recheck", "這次查不出結論,稍後再查", EXECUTE, "x_unknown"),
 )
 
+@dataclass(frozen=True, slots=True)
+class SideBranch:
+    """一條不在通往寫入的路上的旁支,展開成一個節點與一條進來的邊(跟 `BackTransition` 同一套寫法:
+    沒有出去的邊的節點,都用結構化宣告寫明為什麼)。`node` 從 `branches_from` 岔出去、沒有出去的邊;
+    `when` 是岔出去的時機(邊的標籤),`why` 寫明為什麼不接回主線(誰不讀、不等它)。"""
+
+    node: str
+    what: str
+    lane: str
+    branches_from: str
+    when: str
+    why: str
+
+
+SIDE_BRANCHES = (
+    # 說明命令列只讀收件收下、交給執行的建議:從「排隊等執行」岔出去,被拒收或過時的不會有說明
+    SideBranch("a_narrate", "建議收下之後,另外請模型寫一段說明給人看(僅供參考)", ANALYZE,
+               "x_pending", "收下之後另外寫說明", "只給人看,執行時不讀、不等它"),
+)
+
+
 _EDGES: tuple[tuple[str, str, str], ...] = (
     ("a_receive", "a_collect", "開始"),
     ("a_collect", "a_fresh", "拿到資料"),
@@ -147,9 +173,7 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
     ("a_worth", "a_no_action", "不值得或資料不夠判斷"),
     ("a_worth", "a_propose", "值得"),
     ("a_worth", "a_failed", "分析出錯"),
-    ("a_propose", "a_narrate", "附上模型說明"),
-    ("a_propose", "a_submit", "不需 AI 說明,送出"),
-    ("a_narrate", "a_submit", "送出"),
+    ("a_propose", "a_submit", "送出"),
     ("a_submit", "i_check", "送到收件"),
     ("i_check", "x_pending", "收下"),
     ("i_check", "a_restale", "資料已過時或送到時已過期"),
@@ -212,13 +236,16 @@ def _graph() -> FlowGraph:
         FlowNode(b.node, f"{b.what}(回到「{labels[b.returns_to]}」)", S, b.lane,
                  NodeOwner.HUMAN if b.lane == HUMAN else NodeOwner.CODE)
         for b in BACK_TRANSITIONS)
+    side_rows = tuple((b.node, b.what, S, b.lane) for b in SIDE_BRANCHES)
     nodes = tuple(
         FlowNode(*row, NodeOwner.AI if row[0] in AI_NODES else
                  NodeOwner.HUMAN if row[3] == HUMAN else
                  NodeOwner.EXTERNAL if row[3] == PLATFORM else NodeOwner.CODE)
-        for row in _NODES
+        for row in (*_NODES, *side_rows)
     ) + back_nodes
-    return FlowGraph(nodes, tuple(FlowEdge(*row) for row in _EDGES))
+    side_edges = tuple(FlowEdge(b.branches_from, b.node, f"{b.when}({b.why})")
+                       for b in SIDE_BRANCHES)
+    return FlowGraph(nodes, tuple(FlowEdge(*row) for row in _EDGES) + side_edges)
 
 
 FLOW_GRAPH = _graph()

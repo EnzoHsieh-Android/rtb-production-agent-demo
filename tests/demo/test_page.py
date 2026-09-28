@@ -416,6 +416,17 @@ def test_approval_has_one_required_checkbox_per_number_without_number_in_attribu
     assert 'http-equiv="refresh"' not in html
 
 
+def test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets() -> None:
+    """Issues/流程圖把AI說明畫在送出建議之前(代碼審 r1 正確性 F2 改寫理由):組表單時就不帶說明,
+    一鍵展示也要等情境整段跑完才產說明——表單出現時建議早已送出,所以不能寫成「送出之後才寫」。
+    表單不准再叫人「閱讀 AI 產生的參考說明」,要照實寫這兩個原因。"""
+    html = render_approval(replace(make_demo_state(), approval=_PENDING), form_token="token")
+    assert "閱讀 AI" not in html and "參考說明" not in html
+    assert "這張表單不帶 AI 說明" in html and "同意與否只看程式算出的數字" in html
+    assert "情境整段跑完才產生說明" in html and "送出之後才另外寫" not in html
+    assert "寫入前照樣重新檢查" in html
+
+
 def test_awaiting_approval_main_page_has_link_and_no_refresh_or_form() -> None:
     state = make_demo_state(running=True)
     scenarios = tuple(
@@ -1010,8 +1021,9 @@ def test_each_sample_keeps_ai_and_human_steps_as_separate_coloured_nodes() -> No
         drawn = [group for group in root.findall('.//g[@class]')
                  if "flow-node" in group.get("class", "")]
         routed_ids = {item for edge in scenario.traversed_edges for item in edge}
-        # 範例 F5 沒有說明(走「不需 AI 說明,送出」),其餘走模型說明;Phase 10 候選節點已撤
-        expected_ai_ids = set() if scenario.code is ScenarioCode.F5 else {"a_narrate"}
+        # 說明是送出之後的旁支(Issues/流程圖把AI說明畫在送出建議之前),走過的路上沒有 AI 節點;
+        # Phase 10 候選節點已撤。F1 畫得出的 AI 格只有告警原因推測
+        expected_ai_ids: set[str] = set()
         expected_human_ids = (
             {"h_replay", "r_requeued"} if scenario.code is ScenarioCode.F6 else
             {"h_approve"} if scenario.code is ScenarioCode.F7 else set()
@@ -1035,10 +1047,8 @@ def test_each_sample_keeps_ai_and_human_steps_as_separate_coloured_nodes() -> No
         ai_nodes = [group for group in drawn if "owner-ai" in group.get("class", "")]
         assert all(group.find('text[@class="node-owner"]') is None for group in drawn)
         if scenario.code is ScenarioCode.F1:
-            assert {group.findtext("title") for group in ai_nodes} >= {
-                official["a_narrate"].label.replace("模型", "AI"),
-                "AI 推測可能原因(只供參考)"
-            }
+            assert {group.findtext("title") for group in ai_nodes} == {
+                "AI 推測可能原因(只供參考)"}
 
     f7 = state.scenarios[-1]
     assert f7.code is ScenarioCode.F7
@@ -1179,9 +1189,11 @@ def test_formal_flow_map_and_every_sample_route_match() -> None:
     assert state.flow is FLOW_GRAPH
     # Phase 13 增量 2 加的 AI 選下一步、AI 要再查(回頭)、只判不送三個節點與六條邊,Phase 14 增量 3
     # 撤除:51 → 48、78 → 72(代碼審 r1 d2/d3 修過流程圖的邊:68 → 72)。2026-09-27 撤 Phase 10 候選
-    # 分支(交給誰判斷、模型候選兩個節點,五條邊換成「偏慢 → 程式規則」一條):48 → 46、72 → 68
+    # 分支(交給誰判斷、模型候選兩個節點,五條邊換成「偏慢 → 程式規則」一條):48 → 46、72 → 68。
+    # 2026-09-28 說明改成送出之後的旁支(寫好建議 → 說明 → 送出、寫好建議 → 送出兩條路併成
+    # 寫好建議 → 送出,另加送出 → 說明):68 → 67
     assert len(state.flow.nodes) == 46
-    assert len(state.flow.edges) == 68
+    assert len(state.flow.edges) == 67
     markup = render_page(state, form_token="token")
     assert markup.count('class="role-card"') == len(LANES)
     assert "分析行程提出建議" in markup

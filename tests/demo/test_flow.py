@@ -50,11 +50,13 @@ def test_every_node_is_reachable_from_the_start_and_every_end_is_a_dead_end() ->
             reached.add(node)
             pending += [t for s, t in EDGES if s == node]
     assert reached == set(NODES)
-    loop_nodes = {back.node for back in flow.BACK_TRANSITIONS}
+    # 沒有出去的邊的節點:結束點,或由結構化宣告(回頭轉換、旁支)展開出來、自帶理由的節點
+    unrolled = ({back.node for back in flow.BACK_TRANSITIONS}
+                | {side.node for side in flow.SIDE_BRANCHES})
     for graph_node in GRAPH.nodes:
         leaves = [t for s, t in EDGES if s == graph_node.id]
-        if graph_node.kind is NodeKind.TERMINAL or graph_node.id in loop_nodes:
-            assert not leaves, f"{graph_node.id} 是結束點或回頭節點,不該再有出去的邊"
+        if graph_node.kind is NodeKind.TERMINAL or graph_node.id in unrolled:
+            assert not leaves, f"{graph_node.id} 是結束點或展開出來的回頭/旁支節點,不該再有出去的邊"
         else:
             assert leaves, f"{graph_node.id} 走不下去"
         if graph_node.kind is NodeKind.DECISION:
@@ -350,3 +352,40 @@ def test_the_phase10_candidate_branch_is_gone():
     from rtb.domain.worth import WorthVerdict
 
     assert flow.OUTCOMES[(WorthVerdict, "UNSURE")].node == "a_rule"  # 退回九條再判,不是直接不調整
+
+
+def test_the_narrative_is_a_side_branch_after_the_proposal_is_accepted():
+    """2026-09-28(Issues/流程圖把AI說明畫在送出建議之前;代碼審 r1 架構對齊 a_1、正確性 F1):
+    說明命令列只讀收件收下、交給執行的建議(任務狀態記成交給執行),被拒收或送到時已過時的不寫;執行端不讀、
+    不等它。所以說明是從「排隊等執行」(交給執行在圖上落的那一格)岔出去的旁支:寫好建議直接送出,
+    送出只接收件檢查;說明節點由結構化宣告展開,只有一條進來的邊、沒有出去的邊。"""
+    [side] = flow.SIDE_BRANCHES
+    assert side.node == "a_narrate"
+    assert frozenset({side.node}) == flow.AI_NODES
+    handed_off = flow.OUTCOMES[(TaskState, "HANDED_OFF")]
+    assert handed_off.edge is not None and side.branches_from == handed_off.edge[1] == "x_pending"
+    assert {s for s, t in EDGES if t == "a_narrate"} == {"x_pending"}
+    assert not [t for s, t in EDGES if s == "a_narrate"]
+    assert {t for s, t in EDGES if s == "a_propose"} == {"a_submit"}
+    assert {t for s, t in EDGES if s == "a_submit"} == {"i_check"}
+    label = NODES["a_narrate"].label + EDGES[("x_pending", "a_narrate")].label
+    assert "確認的人" not in label and "收下之後" in label and "執行時不讀" in label
+
+
+def test_the_side_branch_is_not_listed_as_an_untaken_branch():
+    """旁支不是判斷的分支:排隊等執行出現在判斷紀錄裡時,「這次沒走的分支」不列說明,也不經過它。"""
+    from dataclasses import replace
+    from datetime import UTC, datetime
+
+    from rtb.demo.flow_svg import SHORT_LABELS, render_untaken_branches
+    from rtb.demo.state import Decision
+    from tests.demo.sample_data import make_demo_state
+
+    # 範例資料沒有落在排隊等執行的判斷;真跑時觀察器會記(輪到它、沒有要處理的建議),所以自己造一筆
+    queued = Decision(node="x_pending", taken_edge=("x_pending", "x_pick"), outcome="DELIVERED",
+                      reason="輪到它", at=datetime(2026, 9, 28, tzinfo=UTC))
+    expired = SHORT_LABELS.get("x_expired", "x_expired")
+    for scenario in make_demo_state().scenarios:
+        html = render_untaken_branches(GRAPH, replace(scenario, path=(*scenario.path, queued)))
+        assert "寫說明" not in html, scenario.code
+        assert expired in html, scenario.code  # 同一格的其他沒走分支照列:測試真的走到了排隊等執行

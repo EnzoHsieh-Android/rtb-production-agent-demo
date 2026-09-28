@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
-from rtb.demo.flow import PLATFORM
+from rtb.demo.flow import PLATFORM, SIDE_BRANCHES
 from rtb.demo.state import (
     Decision,
     FlowEdge,
@@ -64,7 +64,7 @@ SHORT_LABELS: Final[dict[str, str]] = {
     "a_complete": "資料齊全？", "a_pacing": "花費偏慢？",
     "a_rule": "規則判斷", "a_worth": "值得加？",
     "a_no_action": "不調整", "a_failed": "工作失敗", "a_propose": "寫好建議",
-    "a_narrate": "撰寫說明", "a_submit": "送出建議",
+    "a_narrate": "收下後寫說明", "a_submit": "送出建議",
     "i_check": "收件檢查", "i_superseded": "舊建議停下", "x_pending": "等待執行",
     "x_pick": "領取建議", "x_precheck": "寫入前檢查", "x_guard": "權限與加幅",
     "x_total": "帳戶總上限", "x_write": "送去寫入", "p_reply": "平台回覆",
@@ -270,11 +270,14 @@ def _render_handoff(positions: dict[str, tuple[int, int]], *, queued: bool) -> s
 
 
 def render_untaken_branches(flow: FlowGraph, scenario: Scenario) -> str:
-    """每條未走分支只畫到最近的結束點或這次已走過的節點。"""
+    """每條未走分支只畫到最近的結束點或這次已走過的節點。旁支(收下之後另外寫說明)不是分支:
+    判斷紀錄不會落在它上面,列成「沒走」會讓每個情境都多一條假的沒走分支,所以不列也不經過。"""
     nodes = node_map(flow)
+    side = {branch.node for branch in SIDE_BRANCHES}
     outgoing: dict[str, list[FlowEdge]] = defaultdict(list)
     for edge in flow.edges:
-        outgoing[edge.source].append(edge)
+        if edge.target not in side:
+            outgoing[edge.source].append(edge)
     visited = {item for pair in scenario.traversed_edges for item in pair}
     rows: list[str] = []
     taken = {decision.taken_edge for decision in scenario.path}
