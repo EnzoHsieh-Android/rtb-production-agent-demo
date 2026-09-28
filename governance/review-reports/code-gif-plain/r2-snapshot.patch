@@ -1,0 +1,313 @@
+diff --git a/docs/assets/agent-flow.svg b/docs/assets/agent-flow.svg
+index 0cb28d5..143bb62 100644
+--- a/docs/assets/agent-flow.svg
++++ b/docs/assets/agent-flow.svg
+@@ -1,8 +1,8 @@
+ <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" font-family="Hiragino Sans GB, sans-serif">
+ <title id="title">RTB Agent 九條規則判斷到安全寫入</title>
+-<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，程式用這批資料初篩新鮮度、配速、暫停與異常；只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。收件收下後，AI 另外寫給人看的提案說明，執行端不讀、不等；告警時另外請 AI 推測原因；兩者都不參與決策。收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>
++<desc id="desc">第一步只讀目前狀態和近一小時成效，先檢查資料是否太舊，再看有沒有暫停或資料異常；只有預算花得偏慢，才繼續讀調整紀錄、過去加預算的結果、每日與近一天七天成效，並再確認一次現況。程式依九條規則決定要不要加，證據不夠就不調整，值得加才算金額。建議被收下後，AI 另外寫一段說明給人看，執行時不看它、也不等它；出現告警時另外請 AI 猜可能原因；兩者都不影響決定。收下的建議排隊，寫入前再檢查一次才寫進模擬廣告平台；試很多次都沒能開始寫入就先停下等人（故障情境 F6），人工重送或總額超限時的人工核可（F7）後都重新排隊再檢查。</desc>
+ <defs><marker id="arrow-read" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#89d0ac"/></marker></defs>
+ <defs><marker id="arrow-note" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
+ <defs><marker id="arrow-main" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
+ <defs><marker id="arrow-human" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#f1c875"/></marker></defs>
+ <defs><marker id="arrow-branch" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
+@@ -45,43 +45,43 @@
+ <polyline points="1120,519 1120,635 1145,635 1145,645" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
+ <polyline points="1209,675 1195,675 1195,428 1211,428 1211,411" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
+ <polyline points="1390,519 1390,645" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
+ <polyline points="1459,675 1480,675 1480,430 1295,430 1295,411" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
+ <rect x="65" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="115" y="180" text-anchor="middle">收到工作</text></g>
+-<rect x="184" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="240" y="173" text-anchor="middle">A 現況</text><text x="240" y="196" text-anchor="middle">＋1h 成效</text></g>
+-<rect x="325" y="152" width="150" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="400" y="173" text-anchor="middle">初篩：新鮮／配速</text><text x="400" y="196" text-anchor="middle">暫停／異常</text></g>
+-<rect x="509" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="565" y="173" text-anchor="middle">B 歷史</text><text x="565" y="196" text-anchor="middle">＋過去調整</text></g>
+-<rect x="651" y="152" width="128" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="715" y="173" text-anchor="middle">C 逐日＋1d/7d</text><text x="715" y="196" text-anchor="middle">重讀現況</text></g>
+-<rect x="833" y="152" width="104" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="885" y="180" text-anchor="middle">九條判定</text></g>
+-<rect x="952" y="152" width="116" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1010" y="173" text-anchor="middle">值得加才</text><text x="1010" y="196" text-anchor="middle">程式算金額</text></g>
+-<rect x="1080" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="180" text-anchor="middle">送出提案</text></g>
+-<rect x="774" y="247" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="830" y="268" text-anchor="middle">不提案／</text><text x="830" y="291" text-anchor="middle">證據不足</text></g>
+-<rect x="1219" y="247" width="142" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1290" y="275" text-anchor="middle">AI 寫提案說明</text></g>
+-<rect x="1400" y="247" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1450" y="275" text-anchor="middle">告警</text></g>
+-<rect x="1554" y="247" width="132" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1620" y="275" text-anchor="middle">AI 推測原因</text></g>
+-<rect x="1080" y="354" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="382" text-anchor="middle">收件檢查</text></g>
+-<rect x="1199" y="354" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="382" text-anchor="middle">待處理佇列</text></g>
+-<rect x="1064" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1120" y="483" text-anchor="middle">多次未啟動</text><text x="1120" y="506" text-anchor="middle">先停下</text></g>
+-<rect x="1205" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="490" text-anchor="middle">寫前重查</text></g>
+-<rect x="1334" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1390" y="483" text-anchor="middle">權限／版本</text><text x="1390" y="506" text-anchor="middle">單筆／總額</text></g>
+-<rect x="1485" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1535" y="490" text-anchor="middle">憑證寫入</text></g>
+-<rect x="1600" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1650" y="490" text-anchor="middle">核對結果</text></g>
++<rect x="184" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="240" y="173" text-anchor="middle">讀目前狀態</text><text x="240" y="196" text-anchor="middle">近一小時成效</text></g>
++<rect x="325" y="152" width="150" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="400" y="173" text-anchor="middle">先查：太舊、暫停</text><text x="400" y="196" text-anchor="middle">異常、花太慢</text></g>
++<rect x="509" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="565" y="173" text-anchor="middle">讀調整紀錄</text><text x="565" y="196" text-anchor="middle">過去加額結果</text></g>
++<rect x="651" y="152" width="128" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="715" y="173" text-anchor="middle">每日與長期成效</text><text x="715" y="196" text-anchor="middle">再看一次現況</text></g>
++<rect x="833" y="152" width="104" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="885" y="180" text-anchor="middle">九條規則判斷</text></g>
++<rect x="952" y="152" width="116" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1010" y="173" text-anchor="middle">值得加才提出</text><text x="1010" y="196" text-anchor="middle">金額由程式算</text></g>
++<rect x="1080" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="180" text-anchor="middle">送出建議</text></g>
++<rect x="774" y="247" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="830" y="268" text-anchor="middle">不調整／</text><text x="830" y="291" text-anchor="middle">證據不夠</text></g>
++<rect x="1219" y="247" width="142" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1290" y="275" text-anchor="middle">AI 寫說明給人看</text></g>
++<rect x="1400" y="247" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1450" y="275" text-anchor="middle">出現告警</text></g>
++<rect x="1554" y="247" width="132" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1620" y="275" text-anchor="middle">AI 猜可能原因</text></g>
++<rect x="1080" y="354" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="382" text-anchor="middle">檢查後收下</text></g>
++<rect x="1199" y="354" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="382" text-anchor="middle">排隊等執行</text></g>
++<rect x="1064" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1120" y="483" text-anchor="middle">多次沒能開始</text><text x="1120" y="506" text-anchor="middle">先停下等人</text></g>
++<rect x="1205" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="490" text-anchor="middle">寫入前重讀</text></g>
++<rect x="1334" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1390" y="483" text-anchor="middle">查權限、版本</text><text x="1390" y="506" text-anchor="middle">與金額上限</text></g>
++<rect x="1485" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1535" y="490" text-anchor="middle">寫入平台</text></g>
++<rect x="1600" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1650" y="490" text-anchor="middle">確認結果</text></g>
+ <rect x="1715" y="462" width="60" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1745" y="490" text-anchor="middle">完成</text></g>
+-<rect x="1485" y="562" width="100" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="1535" y="583" text-anchor="middle">Mock DSP</text><text x="1535" y="606" text-anchor="middle">模擬平台</text></g>
+-<rect x="159" y="562" width="112" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="215" y="583" text-anchor="middle">Mock DSP</text><text x="215" y="606" text-anchor="middle">讀現況／指標</text></g>
+-<rect x="1081" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1145" y="675" text-anchor="middle">F6 人工重放</text></g>
+-<rect x="1331" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1395" y="675" text-anchor="middle">F7 人工核可</text></g>
+-<text x="525" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">太舊回 A；缺資料或不慢就不提案</text>
+-<text x="1290" y="228" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">收件收下後另寫，只給人看，執行端不讀</text>
+-<text x="1570" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">告警原因只是假說，不進決策</text>
+-<text x="1065" y="714" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">重放／核可後都回佇列，重新檢查</text>
+-<text x="300" y="119" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>
+-<text x="535" y="222" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">缺資料／不慢</text>
+-<text x="855" y="215" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">不值得／證據不足</text>
+-<text x="240" y="430" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">只讀</text>
++<rect x="1477" y="562" width="116" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="1535" y="590" text-anchor="middle">模擬廣告平台</text></g>
++<rect x="159" y="562" width="112" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="215" y="583" text-anchor="middle">模擬廣告平台</text><text x="215" y="606" text-anchor="middle">只讀資料</text></g>
++<rect x="1081" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1145" y="675" text-anchor="middle">人工重送</text></g>
++<rect x="1331" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1395" y="675" text-anchor="middle">人工核可</text></g>
++<text x="525" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">資料太舊就重讀；暫停、異常、沒花太慢或缺資料就不調整</text>
++<text x="1290" y="228" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">建議被收下後另寫，只給人看，執行時不看</text>
++<text x="1570" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">AI 猜的原因只是參考，不影響決定</text>
++<text x="930" y="708" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">人工重送或核可後，重新排隊、再檢查一次</text>
++<text x="300" y="110" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>
++<text x="535" y="222" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">不必往下查</text>
++<text x="945" y="226" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">不值得／證據不夠</text>
++<text x="270" y="430" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">只讀</text>
+ <rect x="95" y="722" width="1681" height="28" rx="7" fill="#11141b" stroke="#424958"/>
+ <text x="112" y="736" dominant-baseline="middle" fill="#93ccee" font-size="15">程式</text>
+ <text x="180" y="736" dominant-baseline="middle" fill="#d5a4f0" font-size="15">AI</text>
+ <text x="235" y="736" dominant-baseline="middle" fill="#f1c875" font-size="15">人工／回頭線</text>
+-<text x="385" y="736" dominant-baseline="middle" fill="#89d0ac" font-size="15">模擬平台</text>
+-<text x="585" y="736" dominant-baseline="middle" fill="#f4f4f5" font-size="15">A／B／C 唯讀平台；九條規則決定提案，AI 只寫說明與告警假說</text>
++<text x="385" y="736" dominant-baseline="middle" fill="#89d0ac" font-size="15">模擬廣告平台</text>
++<text x="585" y="736" dominant-baseline="middle" fill="#f4f4f5" font-size="15">分析時只讀平台；要不要加由九條規則決定，AI 只寫說明、猜告警原因；F6、F7 是 README 故障情境的編號</text>
+ </svg>
+\ No newline at end of file
+diff --git a/docs/assets/make_agent_flow_gif.py b/docs/assets/make_agent_flow_gif.py
+index 6e7dad5..2d01954 100644
+--- a/docs/assets/make_agent_flow_gif.py
++++ b/docs/assets/make_agent_flow_gif.py
+@@ -29,24 +29,24 @@ COLORS = {
+     "平台": ("#173a2b", "#89d0ac", "#e8fff1"),
+ }
+ LANES = (("分析", 110, 320), ("收件", 340, 425), ("執行", 440, 540),
+          ("廣告平台", 555, 625), ("人工", 640, 710))
+ NOTES = (
+-    (525, 313, "太舊回 A；缺資料或不慢就不提案"),
+-    (1290, 228, "收件收下後另寫，只給人看，執行端不讀"),
+-    (1570, 313, "告警原因只是假說，不進決策"),
+-    (1065, 714, "重放／核可後都回佇列，重新檢查"),
++    (525, 313, "資料太舊就重讀；暫停、異常、沒花太慢或缺資料就不調整"),
++    (1290, 228, "建議被收下後另寫，只給人看，執行時不看"),
++    (1570, 313, "AI 猜的原因只是參考，不影響決定"),
++    (930, 708, "人工重送或核可後，重新排隊、再檢查一次"),
+ )
+ LEGEND = (
+     (112, "程式", COLORS["程式"][1]),
+     (180, "AI", COLORS["AI"][1]),
+     (235, "人工／回頭線", HUMAN),
+-    (385, "模擬平台", COLORS["平台"][1]),
+-    (585, "A／B／C 唯讀平台；九條規則決定提案，AI 只寫說明與告警假說", TEXT),
++    (385, "模擬廣告平台", COLORS["平台"][1]),
++    (585, "分析時只讀平台；要不要加由九條規則決定，AI 只寫說明、猜告警原因；F6、F7 是 README 故障情境的編號", TEXT),
+ )
+-EDGE_LABELS = ((300, 119, "太舊"), (535, 222, "缺資料／不慢"),
+-               (855, 215, "不值得／證據不足"), (240, 430, "只讀"))
++EDGE_LABELS = ((300, 110, "太舊"), (535, 222, "不必往下查"),
++               (945, 226, "不值得／證據不夠"), (270, 430, "只讀"))
+ 
+ 
+ @dataclass(frozen=True)
+ class Node:
+     key: str
+@@ -57,66 +57,66 @@ class Node:
+     width: int = 100
+ 
+ 
+ NODES = (
+     Node("receive", 115, 180, ("收到工作",), "程式"),
+-    Node("step_a", 240, 180, ("A 現況", "＋1h 成效"), "程式", 112),
+-    Node("filter", 400, 180, ("初篩：新鮮／配速", "暫停／異常"), "程式", 150),
+-    Node("step_b", 565, 180, ("B 歷史", "＋過去調整"), "程式", 112),
+-    Node("step_c", 715, 180, ("C 逐日＋1d/7d", "重讀現況"), "程式", 128),
+-    Node("rule", 885, 180, ("九條判定",), "程式", 104),
+-    Node("proposal", 1010, 180, ("值得加才", "程式算金額"), "程式", 116),
+-    Node("submit", 1130, 180, ("送出提案",), "程式"),
+-    Node("stop", 830, 275, ("不提案／", "證據不足"), "程式", 112),
++    Node("step_a", 240, 180, ("讀目前狀態", "近一小時成效"), "程式", 112),
++    Node("filter", 400, 180, ("先查：太舊、暫停", "異常、花太慢"), "程式", 150),
++    Node("step_b", 565, 180, ("讀調整紀錄", "過去加額結果"), "程式", 112),
++    Node("step_c", 715, 180, ("每日與長期成效", "再看一次現況"), "程式", 128),
++    Node("rule", 885, 180, ("九條規則判斷",), "程式", 104),
++    Node("proposal", 1010, 180, ("值得加才提出", "金額由程式算"), "程式", 116),
++    Node("submit", 1130, 180, ("送出建議",), "程式"),
++    Node("stop", 830, 275, ("不調整／", "證據不夠"), "程式", 112),
+     # AI 說明是收件收下後的旁支：從待處理佇列往上岔出，不擋在送出與收件之間；
+     # 被拒收或過時的提案不會有說明
+-    Node("narrate", 1290, 275, ("AI 寫提案說明",), "AI", 142),
+-    Node("alert", 1450, 275, ("告警",), "程式"),
+-    Node("hypothesis", 1620, 275, ("AI 推測原因",), "AI", 132),
+-    Node("inbox", 1130, 382, ("收件檢查",), "程式"),
+-    Node("queue", 1255, 382, ("待處理佇列",), "程式", 112),
+-    Node("deadletter", 1120, 490, ("多次未啟動", "先停下"), "程式", 112),
+-    Node("recheck", 1255, 490, ("寫前重查",), "程式"),
+-    Node("limits", 1390, 490, ("權限／版本", "單筆／總額"), "程式", 112),
+-    Node("write", 1535, 490, ("憑證寫入",), "程式"),
+-    Node("verify", 1650, 490, ("核對結果",), "程式"),
++    Node("narrate", 1290, 275, ("AI 寫說明給人看",), "AI", 142),
++    Node("alert", 1450, 275, ("出現告警",), "程式"),
++    Node("hypothesis", 1620, 275, ("AI 猜可能原因",), "AI", 132),
++    Node("inbox", 1130, 382, ("檢查後收下",), "程式"),
++    Node("queue", 1255, 382, ("排隊等執行",), "程式", 112),
++    Node("deadletter", 1120, 490, ("多次沒能開始", "先停下等人"), "程式", 112),
++    Node("recheck", 1255, 490, ("寫入前重讀",), "程式"),
++    Node("limits", 1390, 490, ("查權限、版本", "與金額上限"), "程式", 112),
++    Node("write", 1535, 490, ("寫入平台",), "程式"),
++    Node("verify", 1650, 490, ("確認結果",), "程式"),
+     Node("done", 1745, 490, ("完成",), "程式", 60),
+-    Node("platform", 1535, 590, ("Mock DSP", "模擬平台"), "平台"),
++    Node("platform", 1535, 590, ("模擬廣告平台",), "平台", 116),
+     # 分析端的 A／B／C 都向平台唯讀取證；寫入只在執行端。
+-    Node("platform_read", 215, 590, ("Mock DSP", "讀現況／指標"), "平台", 112),
+-    Node("replay", 1145, 675, ("F6 人工重放",), "人工", 128),
+-    Node("approve", 1395, 675, ("F7 人工核可",), "人工", 128),
++    Node("platform_read", 215, 590, ("模擬廣告平台", "只讀資料"), "平台", 112),
++    Node("replay", 1145, 675, ("人工重送",), "人工", 128),
++    Node("approve", 1395, 675, ("人工核可",), "人工", 128),
+ )
+ BY_KEY = {node.key: node for node in NODES}
+ MAIN = ("receive", "step_a", "filter", "step_b", "step_c", "rule",
+         "proposal", "submit", "inbox", "queue",
+         "recheck", "limits", "write", "platform", "verify", "done")
+ CAPTIONS = {
+     "receive": "收到一件工作，開始分析。",
+-    "step_a": "A：先讀現況與近一小時成效。",
+-    "platform_read": "分析端三步只讀平台；寫入只在執行端。",
+-    "filter": "用 A 讀回的資料初篩；不偏慢就不往下查。",
+-    "step_b": "B：讀操作歷史與過去預算調整。",
+-    "step_c": "C：讀逐日、近一天／七天成效，再重讀現況。",
+-    "rule": "程式依序判九條；查詢有問題就判證據不足。",
+-    "stop": "不值得加或證據不足，就不提案。",
+-    "proposal": "若判值得加，金額、廣告與動作由程式決定。",
+-    "submit": "提案送往獨立收件口。",
+-    "narrate": "收件收下後，AI 另外寫給人看的說明；執行端不讀、不等。",
+-    "alert": "發生告警時，另外請 AI 推測原因。",
+-    "hypothesis": "AI 只提供告警原因假說，不參與決策。",
+-    "inbox": "收件口檢查並保存提案。",
+-    "queue": "提案進入待處理佇列。",
+-    "deadletter": "F6：多次未能開始處理，先停下等人。",
+-    "recheck": "執行端寫入前重新讀現況。",
+-    "limits": "程式重查權限、版本、單筆與總額限制。",
+-    "write": "通過檢查才用受限憑證寫入。",
+-    "platform": "Mock DSP 模擬廣告平台回覆。",
+-    "verify": "程式核對平台的實際結果。",
+-    "done": "確認一致，工作才算完成。",
+-    "replay": "F6：人工重放後回佇列重驗。",
+-    "approve": "F7：人工核可後回佇列重驗。",
++    "step_a": "第一步：讀目前狀態和近一小時的成效。",
++    "platform_read": "分析時只讀模擬廣告平台；真正寫入只在執行那一段。",
++    "filter": "先檢查資料是否太舊，再看有沒有暫停或資料異常；預算沒花太慢就不往下查。",
++    "step_b": "第二步：讀調整紀錄和過去加預算後的結果。",
++    "step_c": "第三步：讀每日與近一天、七天的成效，再確認一次目前狀態。",
++    "rule": "程式依序看九條規則；資料有問題就判證據不夠。",
++    "stop": "不值得加，或證據不夠下判斷（例如剛調過預算），就不調整。",
++    "proposal": "值得加才提出建議；金額、廣告和動作都由程式算。",
++    "submit": "建議送去做收件檢查。",
++    "narrate": "建議被收下後，AI 另外寫一段說明給人看；執行時不看它、也不等它。",
++    "alert": "出現告警時，另外請 AI 猜可能的原因。",
++    "hypothesis": "AI 猜的原因只是參考，不影響任何決定。",
++    "inbox": "檢查建議沒問題，才收下保存。",
++    "queue": "收下的建議排隊等執行。",
++    "deadletter": "故障情境 F6：試了很多次都沒能開始寫入，就先停下等人。",
++    "recheck": "寫入前再讀一次平台的現況。",
++    "limits": "程式再檢查權限、資料版本、單筆與總額上限。",
++    "write": "都通過才用權限受限的憑證寫入平台。",
++    "platform": "模擬廣告平台回覆結果。",
++    "verify": "程式確認平台真的改成預期的數字。",
++    "done": "確認一致，這件工作才算完成。",
++    "replay": "故障情境 F6：人工重送後重新排隊，再檢查一次。",
++    "approve": "故障情境 F7：總額超過上限時人工核可，之後重新排隊再檢查一次。",
+ }
+ # 每條路徑的折點在節點框之外；回頭線以虛線標示。
+ EDGES = (
+     ("receive", "step_a", ((165, 180), (184, 180)), "main"),
+     ("step_a", "platform_read", ((240, 209), (240, 561)), "read"),
+@@ -243,17 +243,17 @@ def _write_svg() -> None:
+     parts = [
+         '<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" '
+         'viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" '
+         'font-family="Hiragino Sans GB, sans-serif">',
+         '<title id="title">RTB Agent 九條規則判斷到安全寫入</title>',
+-        '<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，'
+-        '程式用這批資料初篩新鮮度、配速、暫停與異常；'
+-        '只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。'
+-        '程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。'
+-        '收件收下後，AI 另外寫給人看的提案說明，執行端不讀、不等；'
+-        '告警時另外請 AI 推測原因；兩者都不參與決策。'
+-        '收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>',
++        '<desc id="desc">第一步只讀目前狀態和近一小時成效，'
++        '先檢查資料是否太舊，再看有沒有暫停或資料異常；'
++        '只有預算花得偏慢，才繼續讀調整紀錄、過去加預算的結果、每日與近一天七天成效，並再確認一次現況。'
++        '程式依九條規則決定要不要加，證據不夠就不調整，值得加才算金額。'
++        '建議被收下後，AI 另外寫一段說明給人看，執行時不看它、也不等它；'
++        '出現告警時另外請 AI 猜可能原因；兩者都不影響決定。'
++        '收下的建議排隊，寫入前再檢查一次才寫進模擬廣告平台；試很多次都沒能開始寫入就先停下等人（故障情境 F6），人工重送或總額超限時的人工核可（F7）後都重新排隊再檢查。</desc>',
+         f'<rect width="1800" height="760" fill="{BG}"/>',
+         f'<rect x="24" y="17" width="1752" height="66" rx="16" fill="{SURFACE}" '
+         f'stroke="{BORDER}"/>',
+         f'<text x="900" y="58" text-anchor="middle" fill="{TEXT}" font-size="25" '
+         'font-weight="700">RTB Agent：從調查到確認寫入</text>',
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md b/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
+index 679f813..be92533 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
+@@ -39,5 +39,10 @@ WHY: [2026-09-28 代碼審 r1 正確性 F3] 這張圖原本沒有任何測試守
+ 本圖由同一份 `NODES`、`EDGES`、`CAPTIONS` 資料產 GIF 與 SVG，同一環境連續重畫兩次 GIF 與 SVG 的雜湊都相同。上方 2026-09-24 至 26 日的 Phase 13 畫法及抽格紀錄是歷史脈絡，不能當成現行圖；兩條 AI 旁支的時點依展示驅動（說明在送出之後、告警假說另外處理），流程定義 2026-09-28 起也把說明畫成送出後的旁支。
+ 
+ 驗證入口：`python3 docs/assets/make_agent_flow_gif.py` 重畫 GIF 與 SVG；用 `--font` 或 `RTB_FLOW_FONT` 指定字型，未指定時才用 macOS Hiragino Sans GB，找不到字型會報錯退出。產出後抽格目視、解析 SVG XML，並跑 `ruff check docs/assets/make_agent_flow_gif.py`。
+ 
+ PITFALL: GIF 各格共用一張調色盤；舊圖曾只從圖例格取色，把當時的「目前步驟」青色併成程式藍，人工格看起來像程式處理(README 代碼審第 3 輪)。現行圖仍把全部影格拼成一張再取色；目前高亮色依展示 CSS 為黃色。重驗：抽人工重放與核可的最後兩格，亮黃色像素都應大於 0；可用 Pillow 逐格讀取 RGB 數值。
++
++
++## 2026-09-28 圖上文字改白話
++
++- WHY: 使用者反映動圖裡的敘述文字太像內部術語(A／B／C 步驟代號、1h/1d/7d、配速、收件口、執行端、憑證、Mock DSP、假說),讀的人看不懂。節點名、旁註、每格標題與 SVG 描述都改成白話;加長的字另外縮短到放得進原本的格子寬度,位置不動。說明那一格的標題與旁註一起改成「建議被收下後」開頭,守衛測試跟著改,守的仍是「兩處同一個說法、不寫確認者」。出處:本次對話使用者回饋。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md b/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
+index a250932..a7c0fde 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
++++ b/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
+@@ -55,5 +55,10 @@ plan_refs:
+ ## 2026-09-27 README 故障表截圖改用 Phase 14 版
+ 
+ README 的 F1–F7 截圖改指 `docs/assets/phase14/full-F*.jpg`(舊的 phase13-inc4 截圖保留當歷史)。做法同 Phase 13 增量 4 驗收紀錄〈截圖〉段:pytest 隔離(帳號家目錄與 HOME 換成暫存目錄、沒起展示伺服器)跑展示驅動,讀入庫錄製 phase14-demo-20260927 全部重播,靜態頁面以 Playwright chromium 開 file:// 截圖,1280 寬、深色、流程圖完整總覽;為了驗到 AI 說明的標示,只展開「其餘明細」一層。前後只 stat 真帳 `~/.rtb/model-ledger.sqlite`,修改時間與大小不變。七張逐張目視:這次誰決定都是「程式規則(九條)」、沒有 AI 調查格;F4/F6 接續任務「剛被調過預算,先不動」、平台沒寫入;F5 名稱誘導不影響判定、照公式 100 → 110;AI 說明卡分程式算的數字與「AI 產生、僅供參考」文字。發現的兩個問題(流程圖留著 Phase 10 候選判斷分支、說明看不到四查詢)記在 [[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]]。
+ 
+ 2026-09-27 同日稍晚,那兩個問題修掉後用重錄的 phase14-demo-20260927 批次以同一做法重拍七張(只重播、不呼叫模型,帳本前後 stat 不變)。流程圖已無候選判斷分支,說明卡只描述實際拿到的證據、不再寫其他證據為空。
++
++
++## 2026-09-28 圖上文字改白話
++
++重畫後抽第 3、13、19、23 格目視:各節點文字都在格子內,底部旁註移開後不再壓到 F6 虛線或圖例;產生器連續重畫兩次,GIF 與 SVG 雜湊相同;README 流程圖守衛測試通過。
+diff --git a/tests/test_readme_flow_diagram.py b/tests/test_readme_flow_diagram.py
+index fb98ce0..84696c3 100644
+--- a/tests/test_readme_flow_diagram.py
++++ b/tests/test_readme_flow_diagram.py
+@@ -31,11 +31,11 @@ def test_the_readme_diagram_keeps_the_narrative_off_the_main_line() -> None:
+     # 說明命令列只讀收件收下、交給執行的提案:旁支從待處理佇列岔出,畫成 AI 色虛線
+     assert into == {("queue", "narrate"): "note"}, into
+ 
+ 
+ def test_the_readme_diagram_says_the_narrative_comes_after_intake_the_same_way() -> None:
+-    """格子標題與註記用同一個說法(收件收下後),不再寫「送件後供確認者參考」。"""
++    """格子標題與註記用同一個說法(建議被收下後),不再寫「送件後供確認者參考」。"""
+     caption = _literal("CAPTIONS")["narrate"]
+     notes = [text for _x, _y, text in _literal("NOTES")]
+     [note] = [text for text in notes if "只給人看" in text]
+-    assert caption.startswith("收件收下後") and note.startswith("收件收下後")
++    assert caption.startswith("建議被收下後") and note.startswith("建議被收下後")
+     assert not any("確認者" in text for text in (*notes, caption))

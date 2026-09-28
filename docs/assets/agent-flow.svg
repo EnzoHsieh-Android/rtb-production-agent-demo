@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" font-family="Hiragino Sans GB, sans-serif">
 <title id="title">RTB Agent 九條規則判斷到安全寫入</title>
-<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，程式用這批資料初篩新鮮度、配速、暫停與異常；只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。收件收下後，AI 另外寫給人看的提案說明，執行端不讀、不等；告警時另外請 AI 推測原因；兩者都不參與決策。收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>
+<desc id="desc">第一步只讀目前狀態和近一小時成效，先檢查資料是否太舊，再看有沒有暫停或資料異常；只有預算花得偏慢，才繼續讀調整紀錄、過去加預算的結果、每日與近一天七天成效，並再確認一次現況。程式依九條規則決定要不要加，證據不夠就不調整，值得加才算金額。建議被收下後，AI 另外寫一段說明給人看，執行時不看它、也不等它；出現告警時另外請 AI 猜可能原因；兩者都不影響決定。收下的建議排隊，寫入前再檢查一次才寫進模擬廣告平台；試很多次都沒能開始寫入就先停下等人（故障情境 F6），人工重送、或超過上限時的人工核可（F7）後都重新排隊再檢查。</desc>
 <defs><marker id="arrow-read" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#89d0ac"/></marker></defs>
 <defs><marker id="arrow-note" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
 <defs><marker id="arrow-main" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
@@ -47,41 +47,41 @@
 <polyline points="1390,519 1390,645" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
 <polyline points="1459,675 1480,675 1480,430 1295,430 1295,411" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
 <rect x="65" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="115" y="180" text-anchor="middle">收到工作</text></g>
-<rect x="184" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="240" y="173" text-anchor="middle">A 現況</text><text x="240" y="196" text-anchor="middle">＋1h 成效</text></g>
-<rect x="325" y="152" width="150" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="400" y="173" text-anchor="middle">初篩：新鮮／配速</text><text x="400" y="196" text-anchor="middle">暫停／異常</text></g>
-<rect x="509" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="565" y="173" text-anchor="middle">B 歷史</text><text x="565" y="196" text-anchor="middle">＋過去調整</text></g>
-<rect x="651" y="152" width="128" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="715" y="173" text-anchor="middle">C 逐日＋1d/7d</text><text x="715" y="196" text-anchor="middle">重讀現況</text></g>
-<rect x="833" y="152" width="104" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="885" y="180" text-anchor="middle">九條判定</text></g>
-<rect x="952" y="152" width="116" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1010" y="173" text-anchor="middle">值得加才</text><text x="1010" y="196" text-anchor="middle">程式算金額</text></g>
-<rect x="1080" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="180" text-anchor="middle">送出提案</text></g>
-<rect x="774" y="247" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="830" y="268" text-anchor="middle">不提案／</text><text x="830" y="291" text-anchor="middle">證據不足</text></g>
-<rect x="1219" y="247" width="142" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1290" y="275" text-anchor="middle">AI 寫提案說明</text></g>
-<rect x="1400" y="247" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1450" y="275" text-anchor="middle">告警</text></g>
-<rect x="1554" y="247" width="132" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1620" y="275" text-anchor="middle">AI 推測原因</text></g>
-<rect x="1080" y="354" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="382" text-anchor="middle">收件檢查</text></g>
-<rect x="1199" y="354" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="382" text-anchor="middle">待處理佇列</text></g>
-<rect x="1064" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1120" y="483" text-anchor="middle">多次未啟動</text><text x="1120" y="506" text-anchor="middle">先停下</text></g>
-<rect x="1205" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="490" text-anchor="middle">寫前重查</text></g>
-<rect x="1334" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1390" y="483" text-anchor="middle">權限／版本</text><text x="1390" y="506" text-anchor="middle">單筆／總額</text></g>
-<rect x="1485" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1535" y="490" text-anchor="middle">憑證寫入</text></g>
-<rect x="1600" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1650" y="490" text-anchor="middle">核對結果</text></g>
+<rect x="184" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="240" y="173" text-anchor="middle">讀目前狀態</text><text x="240" y="196" text-anchor="middle">近一小時成效</text></g>
+<rect x="325" y="152" width="150" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="400" y="173" text-anchor="middle">先查：太舊、暫停</text><text x="400" y="196" text-anchor="middle">異常、花太慢</text></g>
+<rect x="509" y="152" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="565" y="173" text-anchor="middle">讀調整紀錄</text><text x="565" y="196" text-anchor="middle">過去加額結果</text></g>
+<rect x="651" y="152" width="128" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="715" y="173" text-anchor="middle">每日與長期成效</text><text x="715" y="196" text-anchor="middle">再看一次現況</text></g>
+<rect x="833" y="152" width="104" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="885" y="180" text-anchor="middle">九條規則判斷</text></g>
+<rect x="952" y="152" width="116" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1010" y="173" text-anchor="middle">值得加才提出</text><text x="1010" y="196" text-anchor="middle">金額由程式算</text></g>
+<rect x="1080" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="180" text-anchor="middle">送出建議</text></g>
+<rect x="774" y="247" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="830" y="268" text-anchor="middle">不調整／</text><text x="830" y="291" text-anchor="middle">證據不夠</text></g>
+<rect x="1219" y="247" width="142" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1290" y="275" text-anchor="middle">AI 寫說明給人看</text></g>
+<rect x="1400" y="247" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1450" y="275" text-anchor="middle">出現告警</text></g>
+<rect x="1554" y="247" width="132" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1620" y="275" text-anchor="middle">AI 猜可能原因</text></g>
+<rect x="1080" y="354" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="382" text-anchor="middle">檢查後收下</text></g>
+<rect x="1199" y="354" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="382" text-anchor="middle">排隊等執行</text></g>
+<rect x="1064" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1120" y="483" text-anchor="middle">多次沒能開始</text><text x="1120" y="506" text-anchor="middle">先停下等人</text></g>
+<rect x="1205" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="490" text-anchor="middle">寫入前重讀</text></g>
+<rect x="1334" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1390" y="483" text-anchor="middle">查權限、版本</text><text x="1390" y="506" text-anchor="middle">與金額上限</text></g>
+<rect x="1485" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1535" y="490" text-anchor="middle">寫入平台</text></g>
+<rect x="1600" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1650" y="490" text-anchor="middle">確認結果</text></g>
 <rect x="1715" y="462" width="60" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1745" y="490" text-anchor="middle">完成</text></g>
-<rect x="1485" y="562" width="100" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="1535" y="583" text-anchor="middle">Mock DSP</text><text x="1535" y="606" text-anchor="middle">模擬平台</text></g>
-<rect x="159" y="562" width="112" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="215" y="583" text-anchor="middle">Mock DSP</text><text x="215" y="606" text-anchor="middle">讀現況／指標</text></g>
-<rect x="1081" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1145" y="675" text-anchor="middle">F6 人工重放</text></g>
-<rect x="1331" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1395" y="675" text-anchor="middle">F7 人工核可</text></g>
-<text x="525" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">太舊回 A；缺資料或不慢就不提案</text>
-<text x="1290" y="228" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">收件收下後另寫，只給人看，執行端不讀</text>
-<text x="1570" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">告警原因只是假說，不進決策</text>
-<text x="1065" y="714" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">重放／核可後都回佇列，重新檢查</text>
-<text x="300" y="119" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>
-<text x="535" y="222" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">缺資料／不慢</text>
-<text x="855" y="215" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">不值得／證據不足</text>
-<text x="240" y="430" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">只讀</text>
+<rect x="1477" y="562" width="116" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="1535" y="590" text-anchor="middle">模擬廣告平台</text></g>
+<rect x="159" y="562" width="112" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="215" y="583" text-anchor="middle">模擬廣告平台</text><text x="215" y="606" text-anchor="middle">只讀資料</text></g>
+<rect x="1081" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1145" y="675" text-anchor="middle">人工重送</text></g>
+<rect x="1331" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1395" y="675" text-anchor="middle">人工核可</text></g>
+<text x="525" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">資料太舊就重讀；暫停、異常、沒花太慢或缺資料就不調整</text>
+<text x="1290" y="228" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">建議被收下後另寫，只給人看，執行時不看</text>
+<text x="1570" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">AI 猜的原因只是參考，不影響決定</text>
+<text x="930" y="708" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">人工重送或核可後，重新排隊、再檢查一次</text>
+<text x="300" y="110" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>
+<text x="535" y="222" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">不必往下查</text>
+<text x="945" y="226" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">不值得／證據不夠</text>
+<text x="270" y="430" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">只讀</text>
 <rect x="95" y="722" width="1681" height="28" rx="7" fill="#11141b" stroke="#424958"/>
 <text x="112" y="736" dominant-baseline="middle" fill="#93ccee" font-size="15">程式</text>
 <text x="180" y="736" dominant-baseline="middle" fill="#d5a4f0" font-size="15">AI</text>
 <text x="235" y="736" dominant-baseline="middle" fill="#f1c875" font-size="15">人工／回頭線</text>
-<text x="385" y="736" dominant-baseline="middle" fill="#89d0ac" font-size="15">模擬平台</text>
-<text x="585" y="736" dominant-baseline="middle" fill="#f4f4f5" font-size="15">A／B／C 唯讀平台；九條規則決定提案，AI 只寫說明與告警假說</text>
+<text x="385" y="736" dominant-baseline="middle" fill="#89d0ac" font-size="15">模擬廣告平台</text>
+<text x="585" y="736" dominant-baseline="middle" fill="#f4f4f5" font-size="15">分析時只讀平台；要不要加由九條規則決定，AI 只寫說明、猜告警原因；F6、F7 是 README 故障情境的編號</text>
 </svg>

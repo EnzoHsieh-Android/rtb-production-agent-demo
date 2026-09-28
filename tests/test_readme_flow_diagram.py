@@ -33,9 +33,9 @@ def test_the_readme_diagram_keeps_the_narrative_off_the_main_line() -> None:
 
 
 def test_the_readme_diagram_says_the_narrative_comes_after_intake_the_same_way() -> None:
-    """格子標題與註記用同一個說法(收件收下後),不再寫「送件後供確認者參考」。"""
+    """格子標題與註記用同一個說法(建議被收下後),不再寫「送件後供確認者參考」。"""
     caption = _literal("CAPTIONS")["narrate"]
     notes = [text for _x, _y, text in _literal("NOTES")]
     [note] = [text for text in notes if "只給人看" in text]
-    assert caption.startswith("收件收下後") and note.startswith("收件收下後")
+    assert caption.startswith("建議被收下後") and note.startswith("建議被收下後")
     assert not any("確認者" in text for text in (*notes, caption))

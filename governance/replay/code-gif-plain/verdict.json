@@ -1,0 +1,42 @@
+{
+ "loop": "code-gif-plain",
+ "round": "r2",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-28T20:55:44+08:00",
+ "spec_path": "governance/review-reports/code-gif-plain/r2-snapshot.patch",
+ "spec_sha": "650f75bc9a49e1c9d45d096370c8db8fb610f51ba99cfa9b9d3cb9c08faf4511",
+ "rows": [
+  "{\"ts\": \"2026-09-28T20:50:47+08:00\", \"kind\": \"none\", \"auditor\": \"白話可讀性\", \"token\": \"CANARY-bcafe3a8\", \"note\": \"\", \"loop\": \"code-gif-plain\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 6, \"result_sha256\": \"064d40a6f9cec33942b1bc649733491807a23e0ed55041620d2761a1ae407b2d\", \"reviewed_sha256\": \"064d40a6f9cec33942b1bc649733491807a23e0ed55041620d2761a1ae407b2d\", \"spec_path\": \"governance/review-reports/code-gif-plain/r1-snapshot.patch\", \"scope_lines\": 307, \"reported\": 6, \"report_path\": \"governance/review-reports/code-gif-plain/r1-白話可讀性.md\", \"report_sha256\": \"55821b481bd6c34f36e817040c1036e951599e672f6f80fe836dd469d5d19e74\", \"snapshot_path\": \"governance/review-reports/code-gif-plain/r1-snapshot.patch\", \"snapshot_sha256\": \"064d40a6f9cec33942b1bc649733491807a23e0ed55041620d2761a1ae407b2d\"}",
+  "{\"ts\": \"2026-09-28T20:50:48+08:00\", \"kind\": \"none\", \"auditor\": \"事實核對\", \"token\": \"CANARY-931d46d0\", \"note\": \"\", \"loop\": \"code-gif-plain\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 5, \"result_sha256\": \"064d40a6f9cec33942b1bc649733491807a23e0ed55041620d2761a1ae407b2d\", \"reviewed_sha256\": \"064d40a6f9cec33942b1bc649733491807a23e0ed55041620d2761a1ae407b2d\", \"spec_path\": \"governance/review-reports/code-gif-plain/r1-snapshot.patch\", \"scope_lines\": 307, \"findings_set\": [\"f_1\", \"f_2\", \"f_3\", \"f_4\", \"f_5\", \"p_1\", \"p_2\", \"p_3\", \"p_4\", \"p_5\", \"p_6\"], \"folded_set\": [\"f_1\", \"f_2\", \"f_3\", \"f_4\", \"f_5\", \"p_1\", \"p_2\", \"p_3\", \"p_4\", \"p_5\", \"p_6\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"f_1\": \"spec\", \"f_2\": \"spec\", \"f_3\": \"spec\", \"f_4\": \"spec\", \"f_5\": \"spec\", \"p_1\": \"spec\", \"p_2\": \"spec\", \"p_3\": \"spec\", \"p_4\": \"spec\", \"p_5\": \"spec\", \"p_6\": \"spec\"}, \"reported\": 5, \"report_path\": \"governance/review-reports/code-gif-plain/r1-事實核對.md\", \"report_sha256\": \"0dc16c49e8e98dc0e5c1dd569fad16bbc1319dd10b432c082777df9930781271\", \"snapshot_path\": \"governance/review-reports/code-gif-plain/r1-snapshot.patch\", \"snapshot_sha256\": \"064d40a6f9cec33942b1bc649733491807a23e0ed55041620d2761a1ae407b2d\"}",
+  "{\"ts\": \"2026-09-28T20:55:29+08:00\", \"kind\": \"none\", \"auditor\": \"白話可讀性\", \"token\": \"CANARY-2f41bda3\", \"note\": \"\", \"loop\": \"code-gif-plain\", \"round\": \"r2\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"650f75bc9a49e1c9d45d096370c8db8fb610f51ba99cfa9b9d3cb9c08faf4511\", \"reviewed_sha256\": \"650f75bc9a49e1c9d45d096370c8db8fb610f51ba99cfa9b9d3cb9c08faf4511\", \"spec_path\": \"governance/review-reports/code-gif-plain/r2-snapshot.patch\", \"scope_lines\": 313, \"reported\": 0, \"report_path\": \"governance/review-reports/code-gif-plain/r2-白話可讀性.md\", \"report_sha256\": \"76f9c318bf95627f633068707fac8f4a737e939158d679570d47e7955c783887\", \"snapshot_path\": \"governance/review-reports/code-gif-plain/r2-delta.patch\", \"snapshot_sha256\": \"b54fd9a55607a47a7ef86eb0da92cdf8825779cef15baed43fe1264b633984e3\"}",
+  "{\"ts\": \"2026-09-28T20:55:30+08:00\", \"kind\": \"none\", \"auditor\": \"事實核對\", \"token\": \"CANARY-d88888e6\", \"note\": \"\", \"loop\": \"code-gif-plain\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 1, \"result_sha256\": \"650f75bc9a49e1c9d45d096370c8db8fb610f51ba99cfa9b9d3cb9c08faf4511\", \"reviewed_sha256\": \"650f75bc9a49e1c9d45d096370c8db8fb610f51ba99cfa9b9d3cb9c08faf4511\", \"spec_path\": \"governance/review-reports/code-gif-plain/r2-snapshot.patch\", \"scope_lines\": 313, \"findings_set\": [\"r2_f1\"], \"folded_set\": [\"r2_f1\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"r2_f1\": \"spec\"}, \"reported\": 1, \"report_path\": \"governance/review-reports/code-gif-plain/r2-事實核對.md\", \"report_sha256\": \"508cc345d75d90b970eb95429acfa511f8afdeeee1e15344326c3f0fc2cb33de\", \"snapshot_path\": \"governance/review-reports/code-gif-plain/r2-snapshot.patch\", \"snapshot_sha256\": \"650f75bc9a49e1c9d45d096370c8db8fb610f51ba99cfa9b9d3cb9c08faf4511\"}"
+ ],
+ "all_row_shas": [
+  "3303193a7bb6a26a3ace6e622cf9f8e13be35fd3e214970c9a5d0b3766f3800f",
+  "46cc20811af0535f87506f53ff0a342db108b710f07ef0d1a885c9456d9327ca",
+  "f7152f3ca413b864685d6ba56964e48d84a5227903492fc379845da627bcd363",
+  "fc9450ead7516ce5a8bc797af6da697c876d1985edd636f8f75f261048a7d8c3"
+ ],
+ "files": {
+  "governance/review-reports/code-gif-plain/r2-白話可讀性.md": {
+   "sha256": "76f9c318bf95627f633068707fac8f4a737e939158d679570d47e7955c783887",
+   "git_blob": "2fe9789796d136b824b9b91bd119090e3daa9557"
+  },
+  "governance/review-reports/code-gif-plain/r2-delta.patch": {
+   "sha256": "b54fd9a55607a47a7ef86eb0da92cdf8825779cef15baed43fe1264b633984e3",
+   "git_blob": "727aeb716be103b0e939eeb533ae66c62694f8e5"
+  },
+  "governance/review-reports/code-gif-plain/r2-事實核對.md": {
+   "sha256": "508cc345d75d90b970eb95429acfa511f8afdeeee1e15344326c3f0fc2cb33de",
+   "git_blob": "acc8f7c46a62f6d8268f07ef496150c99d57d14e"
+  },
+  "governance/review-reports/code-gif-plain/r2-snapshot.patch": {
+   "sha256": "650f75bc9a49e1c9d45d096370c8db8fb610f51ba99cfa9b9d3cb9c08faf4511",
+   "git_blob": "24a052746e1515f0df65bedcfd28c536f14a56ad"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}
