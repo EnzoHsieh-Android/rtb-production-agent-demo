@@ -32,7 +32,7 @@ LANES = (("分析", 110, 320), ("收件", 340, 425), ("執行", 440, 540),
          ("廣告平台", 555, 625), ("人工", 640, 710))
 NOTES = (
     (525, 313, "太舊回 A；缺資料或不慢就不提案"),
-    (1130, 313, "送件後供確認者參考，不進決策"),
+    (1290, 228, "收件收下後另寫，只給人看，執行端不讀"),
     (1570, 313, "告警原因只是假說，不進決策"),
     (1065, 714, "重放／核可後都回佇列，重新檢查"),
 )
@@ -67,7 +67,9 @@ NODES = (
     Node("proposal", 1010, 180, ("值得加才", "程式算金額"), "程式", 116),
     Node("submit", 1130, 180, ("送出提案",), "程式"),
     Node("stop", 830, 275, ("不提案／", "證據不足"), "程式", 112),
-    Node("narrate", 1130, 275, ("AI 寫提案說明",), "AI", 142),
+    # AI 說明是收件收下後的旁支：從待處理佇列往上岔出，不擋在送出與收件之間；
+    # 被拒收或過時的提案不會有說明
+    Node("narrate", 1290, 275, ("AI 寫提案說明",), "AI", 142),
     Node("alert", 1450, 275, ("告警",), "程式"),
     Node("hypothesis", 1620, 275, ("AI 推測原因",), "AI", 132),
     Node("inbox", 1130, 382, ("收件檢查",), "程式"),
@@ -99,7 +101,7 @@ CAPTIONS = {
     "stop": "不值得加或證據不足，就不提案。",
     "proposal": "若判值得加，金額、廣告與動作由程式決定。",
     "submit": "提案送往獨立收件口。",
-    "narrate": "AI 把提案寫成給人看的說明，不參與決策。",
+    "narrate": "收件收下後，AI 另外寫給人看的說明；執行端不讀、不等。",
     "alert": "發生告警時，另外請 AI 推測原因。",
     "hypothesis": "AI 只提供告警原因假說，不參與決策。",
     "inbox": "收件口檢查並保存提案。",
@@ -128,10 +130,9 @@ EDGES = (
     ("rule", "stop", ((885, 208), (885, 226), (830, 226), (830, 246)), "branch"),
     ("rule", "proposal", ((937, 180), (952, 180)), "main"),
     ("proposal", "submit", ((1068, 180), (1080, 180)), "main"),
-    ("submit", "narrate", ((1130, 208), (1130, 246)), "note"),
+    ("queue", "narrate", ((1290, 353), (1290, 304)), "note"),
     ("alert", "hypothesis", ((1500, 275), (1554, 275)), "note"),
-    ("submit", "inbox", ((1180, 180), (1200, 180), (1200, 340),
-                         (1130, 340), (1130, 353)), "main"),
+    ("submit", "inbox", ((1130, 208), (1130, 353)), "main"),
     ("inbox", "queue", ((1180, 382), (1199, 382)), "main"),
     ("queue", "recheck", ((1255, 410), (1255, 461)), "main"),
     ("recheck", "limits", ((1305, 490), (1334, 490)), "main"),
@@ -211,7 +212,7 @@ def _frame(path: Path, key: str) -> Image.Image:
         draw.text((20, (top + bottom) // 2), name, font=_font(path, 18), fill=TEXT, anchor="lm")
     for first, _second, points, kind in EDGES:
         color = _edge_color(kind)
-        if kind == "main" and key in MAIN and first in MAIN \
+        if kind in ("main", "note") and key in MAIN and first in MAIN \
                 and MAIN.index(first) >= MAIN.index(key):
             color = BORDER
         _arrow(draw, points, color, dashed=kind in DASHED)
@@ -248,7 +249,8 @@ def _write_svg() -> None:
         '程式用這批資料初篩新鮮度、配速、暫停與異常；'
         '只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。'
         '程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。'
-        'AI 在送件後寫提案說明，告警時推測原因，兩者都不參與決策。'
+        '收件收下後，AI 另外寫給人看的提案說明，執行端不讀、不等；'
+        '告警時另外請 AI 推測原因；兩者都不參與決策。'
         '收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>',
         f'<rect width="1800" height="760" fill="{BG}"/>',
         f'<rect x="24" y="17" width="1752" height="66" rx="16" fill="{SURFACE}" '

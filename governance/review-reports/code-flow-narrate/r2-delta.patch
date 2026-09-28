@@ -1,0 +1,961 @@
+diff --git a/docs/assets/agent-flow.svg b/docs/assets/agent-flow.svg
+index 629641e..0cb28d5 100644
+--- a/docs/assets/agent-flow.svg
++++ b/docs/assets/agent-flow.svg
+@@ -1,13 +1,13 @@
+ <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" font-family="Hiragino Sans GB, sans-serif">
+ <title id="title">RTB Agent 九條規則判斷到安全寫入</title>
+-<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，程式用這批資料初篩新鮮度、配速、暫停與異常；只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。提案送進收件口後，AI 另外寫給人看的提案說明，執行端不讀、不等；告警時另外請 AI 推測原因；兩者都不參與決策。收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>
++<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，程式用這批資料初篩新鮮度、配速、暫停與異常；只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。收件收下後，AI 另外寫給人看的提案說明，執行端不讀、不等；告警時另外請 AI 推測原因；兩者都不參與決策。收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>
+ <defs><marker id="arrow-read" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#89d0ac"/></marker></defs>
+ <defs><marker id="arrow-note" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
+ <defs><marker id="arrow-main" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
+ <defs><marker id="arrow-human" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#f1c875"/></marker></defs>
+ <defs><marker id="arrow-branch" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
+ <defs><marker id="arrow-back" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#f1c875"/></marker></defs>
+ <rect width="1800" height="760" fill="#0b0d12"/>
+ <rect x="24" y="17" width="1752" height="66" rx="16" fill="#11141b" stroke="#424958"/>
+ <text x="900" y="58" text-anchor="middle" fill="#f4f4f5" font-size="25" font-weight="700">RTB Agent：從調查到確認寫入</text>
+ <rect x="95" y="110" width="1681" height="210" rx="10" fill="#171a22"/>
+@@ -24,21 +24,21 @@
+ <polyline points="240,209 240,561" fill="none" stroke="#89d0ac" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-read)"/>
+ <polyline points="296,180 325,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="475,180 509,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="400,151 400,125 240,125 240,151" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-back)"/>
+ <polyline points="475,198 485,198 485,235 770,235 770,275 774,275" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
+ <polyline points="621,180 651,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="779,180 833,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="885,208 885,226 830,226 830,246" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
+ <polyline points="937,180 952,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1068,180 1080,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+-<polyline points="1180,170 1290,170 1290,246" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
++<polyline points="1290,353 1290,304" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
+ <polyline points="1500,275 1554,275" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
+ <polyline points="1130,208 1130,353" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1180,382 1199,382" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1255,410 1255,461" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1305,490 1334,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1446,490 1485,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1535,518 1535,561" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1585,590 1650,590 1650,519" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1700,490 1715,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1199,398 1185,398 1185,490 1176,490" fill="none" stroke="#f1c875" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-human)"/>
+@@ -64,21 +64,21 @@
+ <rect x="1205" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="490" text-anchor="middle">寫前重查</text></g>
+ <rect x="1334" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1390" y="483" text-anchor="middle">權限／版本</text><text x="1390" y="506" text-anchor="middle">單筆／總額</text></g>
+ <rect x="1485" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1535" y="490" text-anchor="middle">憑證寫入</text></g>
+ <rect x="1600" y="462" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1650" y="490" text-anchor="middle">核對結果</text></g>
+ <rect x="1715" y="462" width="60" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1745" y="490" text-anchor="middle">完成</text></g>
+ <rect x="1485" y="562" width="100" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="1535" y="583" text-anchor="middle">Mock DSP</text><text x="1535" y="606" text-anchor="middle">模擬平台</text></g>
+ <rect x="159" y="562" width="112" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="215" y="583" text-anchor="middle">Mock DSP</text><text x="215" y="606" text-anchor="middle">讀現況／指標</text></g>
+ <rect x="1081" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1145" y="675" text-anchor="middle">F6 人工重放</text></g>
+ <rect x="1331" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1395" y="675" text-anchor="middle">F7 人工核可</text></g>
+ <text x="525" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">太舊回 A；缺資料或不慢就不提案</text>
+-<text x="1290" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">送出後另寫，只給人看，執行端不讀</text>
++<text x="1290" y="228" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">收件收下後另寫，只給人看，執行端不讀</text>
+ <text x="1570" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">告警原因只是假說，不進決策</text>
+ <text x="1065" y="714" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">重放／核可後都回佇列，重新檢查</text>
+ <text x="300" y="119" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>
+ <text x="535" y="222" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">缺資料／不慢</text>
+ <text x="855" y="215" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">不值得／證據不足</text>
+ <text x="240" y="430" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">只讀</text>
+ <rect x="95" y="722" width="1681" height="28" rx="7" fill="#11141b" stroke="#424958"/>
+ <text x="112" y="736" dominant-baseline="middle" fill="#93ccee" font-size="15">程式</text>
+ <text x="180" y="736" dominant-baseline="middle" fill="#d5a4f0" font-size="15">AI</text>
+ <text x="235" y="736" dominant-baseline="middle" fill="#f1c875" font-size="15">人工／回頭線</text>
+diff --git a/docs/assets/make_agent_flow_gif.py b/docs/assets/make_agent_flow_gif.py
+index 691615b..6e7dad5 100644
+--- a/docs/assets/make_agent_flow_gif.py
++++ b/docs/assets/make_agent_flow_gif.py
+@@ -25,21 +25,21 @@ ACCENT, CURRENT, HUMAN = "#9aa8ff", "#ffd166", "#f1c875"
+ COLORS = {
+     "程式": ("#193a50", "#93ccee", "#ecf8ff"),
+     "AI": ("#39254b", "#d5a4f0", "#f8eeff"),
+     "人工": ("#493614", HUMAN, "#fff6df"),
+     "平台": ("#173a2b", "#89d0ac", "#e8fff1"),
+ }
+ LANES = (("分析", 110, 320), ("收件", 340, 425), ("執行", 440, 540),
+          ("廣告平台", 555, 625), ("人工", 640, 710))
+ NOTES = (
+     (525, 313, "太舊回 A；缺資料或不慢就不提案"),
+-    (1290, 313, "送出後另寫，只給人看，執行端不讀"),
++    (1290, 228, "收件收下後另寫，只給人看，執行端不讀"),
+     (1570, 313, "告警原因只是假說，不進決策"),
+     (1065, 714, "重放／核可後都回佇列，重新檢查"),
+ )
+ LEGEND = (
+     (112, "程式", COLORS["程式"][1]),
+     (180, "AI", COLORS["AI"][1]),
+     (235, "人工／回頭線", HUMAN),
+     (385, "模擬平台", COLORS["平台"][1]),
+     (585, "A／B／C 唯讀平台；九條規則決定提案，AI 只寫說明與告警假說", TEXT),
+ )
+@@ -60,21 +60,22 @@ class Node:
+ NODES = (
+     Node("receive", 115, 180, ("收到工作",), "程式"),
+     Node("step_a", 240, 180, ("A 現況", "＋1h 成效"), "程式", 112),
+     Node("filter", 400, 180, ("初篩：新鮮／配速", "暫停／異常"), "程式", 150),
+     Node("step_b", 565, 180, ("B 歷史", "＋過去調整"), "程式", 112),
+     Node("step_c", 715, 180, ("C 逐日＋1d/7d", "重讀現況"), "程式", 128),
+     Node("rule", 885, 180, ("九條判定",), "程式", 104),
+     Node("proposal", 1010, 180, ("值得加才", "程式算金額"), "程式", 116),
+     Node("submit", 1130, 180, ("送出提案",), "程式"),
+     Node("stop", 830, 275, ("不提案／", "證據不足"), "程式", 112),
+-    # AI 說明是送出後的旁支：畫在送出提案右下，不擋在送出與收件之間
++    # AI 說明是收件收下後的旁支：從待處理佇列往上岔出，不擋在送出與收件之間；
++    # 被拒收或過時的提案不會有說明
+     Node("narrate", 1290, 275, ("AI 寫提案說明",), "AI", 142),
+     Node("alert", 1450, 275, ("告警",), "程式"),
+     Node("hypothesis", 1620, 275, ("AI 推測原因",), "AI", 132),
+     Node("inbox", 1130, 382, ("收件檢查",), "程式"),
+     Node("queue", 1255, 382, ("待處理佇列",), "程式", 112),
+     Node("deadletter", 1120, 490, ("多次未啟動", "先停下"), "程式", 112),
+     Node("recheck", 1255, 490, ("寫前重查",), "程式"),
+     Node("limits", 1390, 490, ("權限／版本", "單筆／總額"), "程式", 112),
+     Node("write", 1535, 490, ("憑證寫入",), "程式"),
+     Node("verify", 1650, 490, ("核對結果",), "程式"),
+@@ -93,21 +94,21 @@ CAPTIONS = {
+     "receive": "收到一件工作，開始分析。",
+     "step_a": "A：先讀現況與近一小時成效。",
+     "platform_read": "分析端三步只讀平台；寫入只在執行端。",
+     "filter": "用 A 讀回的資料初篩；不偏慢就不往下查。",
+     "step_b": "B：讀操作歷史與過去預算調整。",
+     "step_c": "C：讀逐日、近一天／七天成效，再重讀現況。",
+     "rule": "程式依序判九條；查詢有問題就判證據不足。",
+     "stop": "不值得加或證據不足，就不提案。",
+     "proposal": "若判值得加，金額、廣告與動作由程式決定。",
+     "submit": "提案送往獨立收件口。",
+-    "narrate": "提案送進收件口後，AI 另外寫給人看的說明；執行端不讀、不等。",
++    "narrate": "收件收下後，AI 另外寫給人看的說明；執行端不讀、不等。",
+     "alert": "發生告警時，另外請 AI 推測原因。",
+     "hypothesis": "AI 只提供告警原因假說，不參與決策。",
+     "inbox": "收件口檢查並保存提案。",
+     "queue": "提案進入待處理佇列。",
+     "deadletter": "F6：多次未能開始處理，先停下等人。",
+     "recheck": "執行端寫入前重新讀現況。",
+     "limits": "程式重查權限、版本、單筆與總額限制。",
+     "write": "通過檢查才用受限憑證寫入。",
+     "platform": "Mock DSP 模擬廣告平台回覆。",
+     "verify": "程式核對平台的實際結果。",
+@@ -122,21 +123,21 @@ EDGES = (
+     ("step_a", "filter", ((296, 180), (325, 180)), "main"),
+     ("filter", "step_b", ((475, 180), (509, 180)), "main"),
+     ("filter", "step_a", ((400, 151), (400, 125), (240, 125), (240, 151)), "back"),
+     ("filter", "stop", ((475, 198), (485, 198), (485, 235), (770, 235),
+                         (770, 275), (774, 275)), "branch"),
+     ("step_b", "step_c", ((621, 180), (651, 180)), "main"),
+     ("step_c", "rule", ((779, 180), (833, 180)), "main"),
+     ("rule", "stop", ((885, 208), (885, 226), (830, 226), (830, 246)), "branch"),
+     ("rule", "proposal", ((937, 180), (952, 180)), "main"),
+     ("proposal", "submit", ((1068, 180), (1080, 180)), "main"),
+-    ("submit", "narrate", ((1180, 170), (1290, 170), (1290, 246)), "note"),
++    ("queue", "narrate", ((1290, 353), (1290, 304)), "note"),
+     ("alert", "hypothesis", ((1500, 275), (1554, 275)), "note"),
+     ("submit", "inbox", ((1130, 208), (1130, 353)), "main"),
+     ("inbox", "queue", ((1180, 382), (1199, 382)), "main"),
+     ("queue", "recheck", ((1255, 410), (1255, 461)), "main"),
+     ("recheck", "limits", ((1305, 490), (1334, 490)), "main"),
+     ("limits", "write", ((1446, 490), (1485, 490)), "main"),
+     ("write", "platform", ((1535, 518), (1535, 561)), "main"),
+     ("platform", "verify", ((1585, 590), (1650, 590), (1650, 519)), "main"),
+     ("verify", "done", ((1700, 490), (1715, 490)), "main"),
+     ("queue", "deadletter", ((1199, 398), (1185, 398), (1185, 490), (1176, 490)), "human"),
+@@ -204,21 +205,21 @@ def _node(draw: ImageDraw.ImageDraw, path: Path, node: Node, current: bool) -> N
+ def _frame(path: Path, key: str) -> Image.Image:
+     frame = Image.new("RGB", SIZE, BG)
+     draw = ImageDraw.Draw(frame)
+     draw.rounded_rectangle((24, 17, 1776, 83), radius=16, fill=SURFACE, outline=BORDER)
+     draw.text((900, 50), CAPTIONS[key], font=_font(path, 25), fill=TEXT, anchor="mm")
+     for name, top, bottom in LANES:
+         draw.rounded_rectangle((95, top, 1776, bottom), radius=10, fill=RAISED)
+         draw.text((20, (top + bottom) // 2), name, font=_font(path, 18), fill=TEXT, anchor="lm")
+     for first, _second, points, kind in EDGES:
+         color = _edge_color(kind)
+-        if kind == "main" and key in MAIN and first in MAIN \
++        if kind in ("main", "note") and key in MAIN and first in MAIN \
+                 and MAIN.index(first) >= MAIN.index(key):
+             color = BORDER
+         _arrow(draw, points, color, dashed=kind in DASHED)
+     for node in NODES:
+         _node(draw, path, node, node.key == key)
+     for x, y, value in NOTES:
+         draw.text((x, y), value, font=_font(path, 15), fill=MUTED, anchor="mm")
+     for x, y, value in EDGE_LABELS:
+         draw.text((x, y), value, font=_font(path, 13), fill=ACCENT, anchor="mm")
+     draw.rounded_rectangle((95, 722, 1776, 750), radius=7, fill=SURFACE, outline=BORDER)
+@@ -241,21 +242,21 @@ def _svg_node(node: Node) -> str:
+ def _write_svg() -> None:
+     parts = [
+         '<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" '
+         'viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" '
+         'font-family="Hiragino Sans GB, sans-serif">',
+         '<title id="title">RTB Agent 九條規則判斷到安全寫入</title>',
+         '<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，'
+         '程式用這批資料初篩新鮮度、配速、暫停與異常；'
+         '只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。'
+         '程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。'
+-        '提案送進收件口後，AI 另外寫給人看的提案說明，執行端不讀、不等；'
++        '收件收下後，AI 另外寫給人看的提案說明，執行端不讀、不等；'
+         '告警時另外請 AI 推測原因；兩者都不參與決策。'
+         '收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>',
+         f'<rect width="1800" height="760" fill="{BG}"/>',
+         f'<rect x="24" y="17" width="1752" height="66" rx="16" fill="{SURFACE}" '
+         f'stroke="{BORDER}"/>',
+         f'<text x="900" y="58" text-anchor="middle" fill="{TEXT}" font-size="25" '
+         'font-weight="700">RTB Agent：從調查到確認寫入</text>',
+     ]
+     for name, top, bottom in LANES:
+         parts.append(f'<rect x="95" y="{top}" width="1681" height="{bottom - top}" '
+diff --git a/docs/rtb-production-agent-demo-knowledge/Issues/流程圖把AI說明畫在送出建議之前.md b/docs/rtb-production-agent-demo-knowledge/Issues/流程圖把AI說明畫在送出建議之前.md
+index fff478e..ae727f4 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Issues/流程圖把AI說明畫在送出建議之前.md
++++ b/docs/rtb-production-agent-demo-knowledge/Issues/流程圖把AI說明畫在送出建議之前.md
+@@ -4,33 +4,34 @@ status: resolved
+ created: 2026-09-27
+ updated: 2026-09-28
+ aliases: []
+ about_code:
+   - src/rtb/demo/flow.py
+ tags:
+   - type/issue
+   - status/resolved
+ summary: |-
+   FLAG:TECHNICAL
+-  DECISION: 已修(2026-09-28):展示流程圖與 README 動圖把 AI 說明改成送出之後的旁支,核可表單拿掉「再閱讀 AI 產生的參考說明」改寫成事實,README 截圖重拍;見下方〈結案〉。
++  DECISION: 已修(2026-09-28,含代碼審 r1):展示流程圖與 README 動圖把 AI 說明改成收件收下之後的旁支,核可表單拿掉「再閱讀 AI 產生的參考說明」改寫成事實,README 截圖重拍;見下方〈結案〉。
+   KEY: 來源=governance/review-reports/code-readme-restructure/r1-事實核對.md 第 1 條
+ ---
+ # 流程圖把AI說明畫在送出建議之前
+ 
+ 
+ ## 現象
+ 展示流程圖與 README 動圖把「AI 寫說明」畫在「提出建議」與「送進收件口」之間;程式實際上是建議送進收件口之後,由說明命令列另外讀已送出的提案寫說明,執行端不讀、不等它(見 [[Systems/分析行程流程與檢查點]] 的說明段與一鍵展示在情境跑完後才產說明)。讀圖的人會以為 AI 在寫入的關鍵路徑上。
+ 
+ ## 要做的
+ - 展示流程圖把說明節點改成送出後的旁支,對應測試與頁面說明同步。
+ - README 動圖產生器同步改畫,重產 GIF/SVG。
+ 
+ ## 補充(2026-09-27 README 最終審查的事實核對)
+ - 人工核可表單看不到說明:表單組裝時說明欄固定是空的,頁面卻寫「再閱讀 AI 產生的參考說明」。要嘛讓表單拿到說明,要嘛改掉這句提示。
+ - README 連到的靜態流程圖寫「送件後供確認者參考」,確認者在核可當下其實看不到,跟上一條一起改。
+ - 來源:governance/review-reports/code-readme-final/r1-事實核對.md
+ 
+-## 結案(2026-09-28)
+-- 展示流程圖:說明節點從「寫好調整建議 → 送去執行」之間拿出來,改成「把建議送去執行」岔出去的旁支(新 `SIDE_BRANCHES`,沒有出去的邊);寫好建議 → 送出只剩一條邊,邊數 68 → 67;節點與邊的文字改成「收件之後另外寫、只給人看、執行時不讀」。觀察器與 F1–F7 實際路徑不變(說明與送出都沒有系統結果對到,判斷紀錄本來就不落在上面)。細節見 [[Systems/一鍵展示]] 與 [[Systems/展示頁面]] 同日一節。防回歸:[test:test_the_narrative_is_a_side_branch_after_the_proposal_is_sent]。
+-- 人工核可表單:照交辦只改提示、不改資料流——拿掉「再閱讀 AI 產生的參考說明」,改成「逐項確認程式算出的數字;同意後建議回到排隊,寫入前照樣重新檢查」,沒有說明時照實寫「這張表單沒有附 AI 說明」。讓表單拿到說明是另一件事,這次不做。防回歸:[test:test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets]。
+-- README 動圖與靜態圖:送出提案直下接收件檢查,AI 說明挪到右下旁支;「送件後供確認者參考」改成「送出後另寫,只給人看,執行端不讀」;重產 GIF/SVG,連續兩次雜湊相同。見 [[Systems/README流程動圖產生器]]、[[Verification/README流程動圖驗證]]。
+-- README 的 F1–F7 截圖照同一做法重播入庫錄製重拍,帳本前後 stat 不變,見 [[Verification/README流程動圖驗證]] 同日一節。README 本文沒動。
++## 結案(2026-09-28,含代碼審 r1 修正)
++- 展示流程圖:說明節點從「寫好調整建議 → 送去執行」之間拿出來,改成從「排隊等執行」(收件收下、交給執行落的那一格)岔出去的旁支;被拒收或過時的建議不會有說明。旁支用 `SideBranch` 結構化宣告展開(跟回頭轉換同一套,不另開裸清單,代碼審 r1 a_1);寫好建議 → 送出只剩一條邊,邊數 68 → 67。觀察器與 F1–F7 實際路徑不變。細節見 [[Systems/一鍵展示]] 與 [[Systems/展示頁面]] 同日一節。防回歸:[test:test_the_narrative_is_a_side_branch_after_the_proposal_is_accepted]、[test:test_the_side_branch_is_not_listed_as_an_untaken_branch]。
++- 人工核可表單:照交辦只改提示、不改資料流——拿掉「再閱讀 AI 產生的參考說明」,改成「逐項確認程式算出的數字;同意後建議回到排隊,寫入前照樣重新檢查」;沒有說明時照實寫原因:組表單時不帶說明、一鍵展示要等情境整段跑完才產說明。讓表單拿到說明是另一件事,這次不做。防回歸:[test:test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets]。
++- README 動圖與靜態圖:送出提案直下接收件檢查,AI 說明從待處理佇列往上的旁支;標題、註記、描述統一用「收件收下後」;重產 GIF/SVG,連續兩次雜湊相同;新增產生器守衛測試,四種變異都會翻紅。見 [[Systems/README流程動圖產生器]]、[[Verification/README流程動圖驗證]]。
++- README 的 F1–F7 截圖照同一做法重播入庫錄製重拍,帳本前後 stat 不變;r1 修正後再重播比對情境詳情,不需重拍。README 本文沒動。
++- 驅動與說明模組的註解不再寫「給核可的人看」;送給模型的系統提示沒改(會讓錄製失效),另開 [[Issues/說明提示仍寫給核可的人看]],等下次重錄一起改。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Issues/說明提示仍寫給核可的人看.md b/docs/rtb-production-agent-demo-knowledge/Issues/說明提示仍寫給核可的人看.md
+new file mode 100644
+index 0000000..dcdfce4
+--- /dev/null
++++ b/docs/rtb-production-agent-demo-knowledge/Issues/說明提示仍寫給核可的人看.md
+@@ -0,0 +1,28 @@
++---
++type: issue
++status: open
++created: 2026-09-28
++updated: 2026-09-28
++aliases: []
++about_code:
++  - src/rtb/analyzer/narrate.py
++tags:
++  - type/issue
++  - status/open
++summary: |-
++  FLAG:TECHNICAL
++  DECISION: 暫不改(2026-09-28,協調者裁定):系統提示算在說明錄製鍵裡,現在改會讓入庫的 phase14-demo 說明錄製全部對不上;等下次因別的原因重錄時一起改。
++  WHY: 出處 governance/review-reports/code-flow-narrate/r1-正確性.md F4;[[Issues/流程圖把AI說明畫在送出建議之前]] 已把頁面、流程圖與註解改成「只給人看」,只剩送給模型的提示還寫讀者是核可者。
++---
++# 說明提示仍寫給核可的人看
++
++## 現象
++說明命令列的系統提示(`src/rtb/analyzer/narrate.py` 的 `SYSTEM_PROMPT`)開頭寫「你替人工核可預算調整的人寫一段提案風險說明」。實際上人工核可表單組表單時不帶說明(見 [[Systems/展示頁面]] 2026-09-28 一節),一鍵展示也要等情境整段跑完才產說明,核可的人在核可當下看不到它;說明只出現在展示頁「其餘明細」的說明卡。頁面、流程圖、驅動與說明模組的註解都已改成「只給人看」,提示是唯一還這樣寫的地方。
++
++## 為什麼這次不改
++提示逐字算進說明的錄製鍵。改一個字,入庫的 `recordings/model/phase14-demo` 說明錄製就全部找不到,展示重播會退成「AI 這次沒有給出回答」,要協調者用真模型重錄。只為了改讀者稱呼去重錄不划算。
++
++## 要做的(事件觸發)
++- 觸發事件:下一次因為任何原因要重錄展示說明錄製時——系統提示、證據白名單、政策版本或錄製鍵格式改動都會讓錄製鍵失效。入口:重播守衛 `test_committed_demo_recordings_replay_f1_to_f6_with_narratives` 翻紅,或協調者跑 `python -m rtb.demo.recordings` 做入庫前檢查時。
++- 那時把提示的讀者改成「看展示頁的人」(不要寫成核可者),跟著重錄、重跑入庫前檢查,並把本篇標 resolved。
++- 不要單獨為這件事重錄。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md b/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
+index 5eacc83..679f813 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
+@@ -1,20 +1,21 @@
+ ---
+ type: system
+ status: done
+ created: 2026-09-24
+ updated: 2026-09-27
+ responsibility: 重畫 README 的 GIF 與 SVG 流程圖，不參與正式分析或執行流程。
+ self_audit: gpt-5.6-sol/2026-09-25
+ aliases: []
+ about_code:
+   - docs/assets/make_agent_flow_gif.py
++  - tests/test_readme_flow_diagram.py
+ tags:
+   - type/system
+   - status/done
+ summary: |-
+   WHY: [2026-09-24] 使用者裁定 README 產圖腳本只作文件產出物，移到 docs/assets，不增加正式或開發依賴。出處：README 代碼審第 1 輪後的使用者裁定。
+   TEST: python3 docs/assets/make_agent_flow_gif.py；ruff check .；mypy；pytest -q tests/tools tests/test_static_checks.py；GIF 抽格及 SVG XML 解析。
+ verified_by:
+   - "[[Verification/README流程動圖驗證]]"
+ ---
+ # README流程動圖產生器
+@@ -24,17 +25,19 @@ WHY: [2026-09-24] 使用者裁定產圖腳本移到 `docs/assets/make_agent_flow
+ WHY: [2026-09-25 Phase 13 主線] 先前灰色「AI 說明規劃中」旁支已誤導讀者：開啟 AI 判斷的展示流程會在程式初篩後讓 AI 選唯讀查詢或結論，查詢回蒐證、失敗改由程式規則決定；此路徑未通過正式採用門檻。給人看的說明與告警假說已接入展示，不影響決策。重畫時把這三種去向及 F6/F7 回佇列重查畫出，節點與分支以 [[Systems/一鍵展示]] 所管的展示流程定義為準，深色配色以 [[Systems/展示頁面]] 的 CSS 為準。出處：Phase 13 已合主線的程式與 [[Projects/RTB_Phase13AI參與決策_計劃]]，可重跑 `python3 docs/assets/make_agent_flow_gif.py` 並對照圖及流程定義。
+ 
+ （2026-09-25 當時的寫法，已過時：展示流程定義那時把「AI 說明」列在提案與送件之間；2026-09-28 起流程定義與本圖都改成送出後的旁支，見文末同日一段。）實際展示驅動在情境結束後才讀已送出的提案、產生給人看的說明，告警假說也在那時獨立處理；兩段文字都不進收件或執行決策。
+ 
+ WHY: [2026-09-25] F6/F7 回頭線用人工色虛線，AI 查詢回頭線用 AI 色虛線，與程式主線分辨；GIF 和 SVG 共用節點與路徑定義。出處：README 代碼審第 2 輪與本次 Phase 13 README 更新。
+ 
+ WHY: [2026-09-26] 使用者指出舊圖的「蒐集資料」沒有連到廣告平台，讀者會以為分析端只看系統內部資料；實際上分析端的 DSP 用戶端在蒐集時讀廣告現況與成效指標，AI 追加查詢也回到蒐集再讀一次(見 [[Systems/Mock-DSP]])。平台列在蒐集下方另畫一格「Mock DSP 讀現況／指標」，用平台色虛線標「只讀」，跟執行端的實線寫入分開，保住「寫入只在執行端」這個重點；不拉長線接到右邊那一格，免得橫越整張圖。展示流程定義是狀態流程、不畫呼叫關係，這條線不在裡面，是這張 README 圖自己補的。
+ 
+ WHY: [2026-09-27 Phase 14] 使用者要 README 圖跟正式決策路徑一致：分析端第一步 A 讀現況與 1h 成效，用 A 的資料初篩；配速偏低才續讀 B（歷史、過去調整）、C（逐日、1d／7d、重讀），由九條程式規則定案，值得加才算金額與送件。AI 決策與選查詢已退出正式及展示分析，圖只保留送件後給確認者看的提案說明，以及告警時的原因假說；兩支均不進加額決策。F6 人工重放及 F7 核可仍回佇列重驗。出處：[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉1–8、實際展示驅動與本次 README 工作；以 `python3 docs/assets/make_agent_flow_gif.py` 重畫並核對 [[Verification/README流程動圖驗證]]。
+ 
+-WHY: [2026-09-28] [[Issues/流程圖把AI說明畫在送出建議之前]]：舊圖把「AI 寫提案說明」放在「送出提案」正下方、夾在送出與「收件檢查」之間，主線還得繞過它，讀的人會以為提案要先經過 AI 才進收件。改成送出提案往下直接一條實線接收件檢查；AI 說明挪到送出提案右下方，從送出提案右側拉一條 AI 色虛線過去，跟 README 文字圖「提出建議 ─→ AI 寫說明（只給人看）」同一個意思。舊註記「送件後供確認者參考，不進決策」不符事實（人工核可表單看不到說明，見 [[Systems/展示頁面]] 同日一節），改成「送出後另寫，只給人看，執行端不讀」；說明那一格的標題與 SVG 描述改成「提案送進收件口後，AI 另外寫給人看的說明；執行端不讀、不等」。出處：協調者交辦與本次重畫，驗證見 [[Verification/README流程動圖驗證]] 同日一節。
++WHY: [2026-09-28] [[Issues/流程圖把AI說明畫在送出建議之前]]：舊圖把「AI 寫提案說明」放在「送出提案」正下方、夾在送出與「收件檢查」之間，主線還得繞過它，讀的人會以為提案要先經過 AI 才進收件。改成送出提案往下直接一條實線接收件檢查；AI 說明畫在待處理佇列正上方，由佇列往上一條 AI 色虛線接過去——說明命令列只讀收件收下、交給執行的提案，被拒收或過時的不會有說明（代碼審 r1 正確性 F1：初版從送出提案岔出，跟「收件收下後」的說法矛盾，且送出那一格旁支就先亮了）。AI 色虛線的旁支跟主線一樣，走到它的起點之前畫成暗色。舊註記「送件後供確認者參考，不進決策」不符事實（人工核可表單看不到說明，見 [[Systems/展示頁面]] 同日一節），格子標題、註記與 SVG 描述統一用「收件收下後」起頭：標題「收件收下後，AI 另外寫給人看的說明；執行端不讀、不等」，註記「收件收下後另寫，只給人看，執行端不讀」（註記挪到說明格上方，免得壓到往上的虛線）。出處：協調者交辦、代碼審 r1 與本次重畫，驗證見 [[Verification/README流程動圖驗證]] 同日一節。
++
++WHY: [2026-09-28 代碼審 r1 正確性 F3] 這張圖原本沒有任何測試守著，說明被畫回主線不會翻紅。`tests/test_readme_flow_diagram.py` 用語法樹讀產生器模組層的 `EDGES`、`NOTES`、`CAPTIONS` 字面值（不匯入產生器：Pillow 不是專案依賴，匯入就得在 CI 跳過），斷言送出提案 → 收件檢查是主線、說明沒有出去的邊、進說明的只有佇列來的一條 AI 虛線，以及標題與註記都用「收件收下後」、不寫「確認者」。四種變異（畫回送出 → 說明 → 收件、旁支改回從送出岔出、註記改回舊說法、旁支改成實線）各自讓它翻紅。代價：`EDGES` 等要維持字面值寫法，改成用函式算出來時測試會先紅、要跟著改。防回歸：[test:test_the_readme_diagram_keeps_the_narrative_off_the_main_line]、[test:test_the_readme_diagram_says_the_narrative_comes_after_intake_the_same_way]。
+ 
+ 本圖由同一份 `NODES`、`EDGES`、`CAPTIONS` 資料產 GIF 與 SVG，同一環境連續重畫兩次 GIF 與 SVG 的雜湊都相同。上方 2026-09-24 至 26 日的 Phase 13 畫法及抽格紀錄是歷史脈絡，不能當成現行圖；兩條 AI 旁支的時點依展示驅動（說明在送出之後、告警假說另外處理），流程定義 2026-09-28 起也把說明畫成送出後的旁支。
+ 
+ 驗證入口：`python3 docs/assets/make_agent_flow_gif.py` 重畫 GIF 與 SVG；用 `--font` 或 `RTB_FLOW_FONT` 指定字型，未指定時才用 macOS Hiragino Sans GB，找不到字型會報錯退出。產出後抽格目視、解析 SVG XML，並跑 `ruff check docs/assets/make_agent_flow_gif.py`。
+ 
+ PITFALL: GIF 各格共用一張調色盤；舊圖曾只從圖例格取色，把當時的「目前步驟」青色併成程式藍，人工格看起來像程式處理(README 代碼審第 3 輪)。現行圖仍把全部影格拼成一張再取色；目前高亮色依展示 CSS 為黃色。重驗：抽人工重放與核可的最後兩格，亮黃色像素都應大於 0；可用 Pillow 逐格讀取 RGB 數值。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+index 806d921..2dce235 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+@@ -16,20 +16,21 @@ about_code:
+   - src/rtb/demo/faults/delivery.py
+   - src/rtb/demo/faults/dsp.py
+   - src/rtb/demo/faults/executor.py
+   - src/rtb/demo/state_store.py
+   - src/rtb/demo/observe.py
+   - src/rtb/demo/driver.py
+   - src/rtb/demo/basis.py
+   - src/rtb/demo/present.py
+   - src/rtb/demo/server.py
+   - src/rtb/demo/recordings.py
++  - tests/demo/test_flow.py
+ tags:
+   - type/system
+   - status/doing
+ summary: |-
+   WHY: [2026-09-26 Phase 14 增量 3] AI 退出「要不要加預算」(使用者裁定 8):展示的分析端永遠只用九條規則(不帶 --ai-judge、--hold-submit、模型參數與模型變數);AI 只剩提案說明與告警原因假說兩支入口,模型模式由入口自己回報;流程圖撤掉 AI 選下一步、AI 要再查與只判不送;F4/F6 接續任務照規則第 3 條「剛被調過預算,先不動」;F5 撤雙胞胎與考題;新展示錄製批次 phase14-demo-YYYYMMDD 只含說明/假說。出處 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3、[S1409][S1411][S1427][S1428]。
+   WHY: [2026-09-24 Phase 12 增量 1] 流程圖要能直接交給頁面畫成有向無環圖,但程式裡有往回走的轉換(重新蒐集資料、同鍵重送、放回排隊、人工重新送入、開新工作)。每一條展開成一個「回頭」節點,標籤寫明回到哪一步,不畫回原節點;展示走了不只一次時由判斷紀錄表逐次列出。否決過把回頭畫成環:頁面的分層排版要求無環,有環就丟例外。出處:[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]〈流程圖與判斷路徑〉(設計審 r1 f1)。防回歸:[test:test_every_known_back_transition_is_unrolled]、[test:test_the_flow_graph_is_a_well_formed_dag]。
+   WHY: [2026-09-24 設計審 r1 f2] 系統結果對應表的鍵是(列舉類別, 成員名),不用成員名或值:擋下原因與停下種類都有總上限已滿、一次加太多,單用名字會互相蓋掉。防回歸:[test:test_same_named_members_of_different_enums_are_kept_apart]。
+   WHY: [2026-09-24 設計審 r1 x4、r2 n9] 對應清單是十八個列舉:計劃第 3 版的十二個(處置、擋下原因、死信原因、停下種類、生命週期事件、重放結果、嘗試狀態、結果代碼、作廢結果、執行迴圈結果、任務狀態、重新規劃原因),加設計審 r2 補的六個真正決定分支的列舉(分析端路由、不提案原因、證據新鮮度、值不值得加的判定、處理待確認的結果、最後失敗原因);任務狀態只看得到「不調整」這種終點,看不出為什麼。系統新增一個成員卻沒補圖或白話,測試會紅。2026-09-27 撤 Phase 10 候選分支後分析端路由不再對到圖,剩十七個(見文末〈撤 Phase 10 候選判斷分支〉)。防回歸:[test:test_every_system_outcome_maps_onto_the_flow_graph]、[test:test_every_disposition_has_a_plain_explanation]、[test:test_the_mapped_enums_are_the_seventeen_in_the_plan]。
+   WHY: [2026-09-24 設計審 r2 n9] 流程圖上每個判斷點綁一個列舉(DECISION_ENUMS):每條分支都要有那個列舉的成員對到這條邊或它通往的節點;「檢查通過、往下走」或由別的紀錄決定的分支明列成例外並寫理由。有的判斷點綁的是執行迴圈結果而不是擋下原因,因為擋下原因只標得出「擋下」那條分支,執行迴圈結果連過期、先放回、等人確認都分得出來。防回歸:[test:test_every_decision_node_is_bound_to_an_enum]。
+   WHY: [2026-09-24 設計審 r2 n8] 執行端四種「放回待處理」的生命週期事件(確認後放回、重放放回、被接手、放掉處理權)各展開成一個回頭節點,對應表也指到那個節點;重放放回的是同一份建議,不是新的一版。防回歸:[test:test_every_put_back_event_is_an_unrolled_back_node]。
+@@ -260,17 +261,18 @@ WHY: 增量 3 代碼審 r2 s2:白名單環境只照抄 LANG,伺服器的 LC_ALL
+ 
+ 
+ ## 撤 Phase 10 候選判斷分支(2026-09-27,代使用者裁定)
+ 
+ 出處 [[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]](協調者交辦,代使用者裁定;依據是 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉8:AI 退出決策)。頁面那一半見 [[Systems/展示頁面]] 同名一節。
+ 
+ - WHY:流程圖的「由誰判斷值不值得加預算?」(`a_route`)分流與「請模型候選判斷」(`a_candidate`)是 Phase 10 的候選判斷,正式分析(`runner` 只走規則輪)與展示都走不到,增量 3 只撤了 AI 決策那一步、漏了這一支。撤除兩個節點與五條邊(偏慢 → 分流、分流 → 規則、分流 → 候選、候選 → 值得加、候選 → 規則),換成「偏慢 → 用程式規則判斷」一條;`AI_NODES` 只剩模型說明;`a_pacing` 的例外分支改成程式規則。撤除前核對過 F1–F7 實際走的路:分析端補點(`basis.analysis_route`)原本走 偏慢 → 分流 → 規則,分流那一步是固定說明「分析端目前沒有模型入口」,不是量出來的,所以直接接規則不丟任何根據;驅動與觀察器沒有引用這兩個節點。防回歸:[test:test_the_phase10_candidate_branch_is_gone]、[test:test_a_slow_campaign_goes_straight_to_the_nine_rules]、[test:test_the_analysis_checks_are_filled_in_from_the_recomputed_basis]、[test:test_the_filled_in_route_is_real_edges_and_ends_where_the_rule_ended]。
+ - 對應清單拿掉分析端路由(`RoutePath`,只剩 Phase 10 評估在用、正式路徑只會產生程式規則那一種),剩十七個;[S1024] 的列舉數同步註記。值不值得加的判定裡只有候選會答的「拿不定」,照程式實際的結局對到「用程式規則判斷」那一格:路由收到「拿不定」就退回九條規則再判,九條判值得加照樣提案(代碼審 r1 正確性席更正;原先誤對到「不調整」)。防回歸:[test:test_the_mapped_enums_are_the_seventeen_in_the_plan]、[test:test_every_system_outcome_maps_onto_the_flow_graph]、[test:test_every_decision_node_is_bound_to_an_enum]。
+ - `basis.NO_MODEL` 與只有它用的來源字樣 `FIXED` 刪除;根據代碼 `ROUTE_RULE` 照留(不再產生,留著讓舊值讀得回來;那一步是顯示時才補、沒寫進展示狀態庫,留著只是保守)。
+ 
+-## 說明節點改成送出之後的旁支(2026-09-28)
++## 說明節點改成收件收下之後的旁支(2026-09-28)
+ 
+-出處 [[Issues/流程圖把AI說明畫在送出建議之前]](協調者交辦;README 重排事實核對發現)。頁面那一半見 [[Systems/展示頁面]] 同名一節,README 動圖見 [[Systems/README流程動圖產生器]]。
++出處 [[Issues/流程圖把AI說明畫在送出建議之前]](協調者交辦;README 重排事實核對發現),代碼審 r1(governance/review-reports/code-flow-narrate/)架構對齊 a_1、正確性 F1/F4 已修入。頁面那一半見 [[Systems/展示頁面]] 同名一節,README 動圖見 [[Systems/README流程動圖產生器]]。
+ 
+-- WHY:流程圖原本把「請模型寫說明」畫在「寫好調整建議」與「把建議送去執行」之間(寫好建議 → 說明 → 送出,另一條「不需 AI 說明,送出」),讀的人會以為 AI 在寫入的關鍵路徑上。程式實際是說明命令列讀已送進收件口、交給執行的那幾列提案才寫(見 [[Systems/分析行程流程與檢查點]] 的說明段),說明不進收件口、能力憑證與 DSP 請求,執行端不讀、不等它;一鍵展示也是情境跑完、驅動的模型入口那一段才產說明。改成:寫好建議 → 送出只剩一條邊,說明節點改從「把建議送去執行」岔出去的旁支,自己沒有出去的邊;新增 `SIDE_BRANCHES` 標旁支(跟結束點、回頭節點一樣不准有出去的邊)。節點排在送出之後,角色分工卡列節點的順序也跟著變。節點與邊的文字改成「收件之後另外寫、只給人看、執行時不讀」,不再寫「給確認的人看」(核可表單上看不到說明,見 [[Systems/展示頁面]])。邊數 68 → 67。防回歸:[test:test_the_narrative_is_a_side_branch_after_the_proposal_is_sent]、[test:test_every_node_is_reachable_from_the_start_and_every_end_is_a_dead_end]、[test:test_formal_flow_map_and_every_sample_route_match]。
+-- 觀察器與實際路徑不受影響:說明與送出兩個節點都沒有系統結果對到(不在 `OUTCOMES`),判斷紀錄本來就不會落在它們上面;觀察器替「寫好建議」之後的回頭節點找進入邊時,經過看不到的節點往下找,原本走「寫好建議 → 說明/送出 → 收件檢查」,現在走「寫好建議 → 送出 → 收件檢查」,找到的邊相同(說明旁支沒有出去的邊,不會多出候選)。F1–F7 的驅動與觀察器測試照舊通過。
+-- 展示狀態轉換(`present.py`)的已知限制那句改成「AI 只在建議送出後寫提案說明給人看」,不再寫「給確認的人看」。
++- WHY:流程圖原本把「請模型寫說明」畫在「寫好調整建議」與「把建議送去執行」之間(寫好建議 → 說明 → 送出,另一條「不需 AI 說明,送出」),讀的人會以為 AI 在寫入的關鍵路徑上。程式實際是說明命令列只讀任務狀態記成交給執行的那幾列(收件收下之後;被拒收或送到時已過時的建議不會有說明,見 [[Systems/分析行程流程與檢查點]] 的說明段),說明不進收件口、能力憑證與 DSP 請求,執行端不讀、不等它;一鍵展示也是情境整段跑完、驅動的模型入口那一段才產說明。改成:寫好建議 → 送出只剩一條邊,送出只接收件檢查;說明節點改從「排隊等執行」(交給執行在圖上落的那一格)岔出去的旁支,自己沒有出去的邊。邊數 68 → 67(拿掉三條、加兩條)。防回歸:[test:test_the_narrative_is_a_side_branch_after_the_proposal_is_accepted](起點綁在任務狀態「交給執行」對到的那條邊的終點,不是寫死)、[test:test_every_node_is_reachable_from_the_start_and_every_end_is_a_dead_end]、[test:test_formal_flow_map_and_every_sample_route_match]。
++- WHY(代碼審 r1 架構對齊 a_1):旁支初版用一個裸 frozenset 宣告「這個節點沒有出去的邊」,照抄的是標節點歸屬的 `AI_NODES`,跟「沒有出邊」這個結構性質無關,等於另開第三套宣告。改成跟回頭轉換 `BackTransition` 同一套寫法:`SideBranch` 結構化宣告(節點、白話、泳道、從哪裡岔出、岔出的時機、為什麼不接回主線),由 `_graph()` 展開成節點與那條進來的邊,不再寫在 `_NODES`/`_EDGES`。選它不選新增一種 `NodeKind`:`NodeKind` 是頁面介面的一部分(決定節點形狀與樣式類別、「沒走的分支」畫到結束點為止),加一種會動到頁面畫法;旁支的語意跟回頭節點一樣是「沒有出邊、但有明確理由」,沿用那一套最貼。測試裡「可以沒有出邊」只剩兩種來源:結束點,或由結構化宣告(回頭、旁支)展開出來的節點。流程圖定義本身的結構測試(有向無環、每個結果都對得到圖、回頭與旁支展開、白話顯示字)都在 `tests/demo/test_flow.py`,這篇管它。
++- 觀察器與實際路徑不受影響:說明節點沒有系統結果對到(不在 `OUTCOMES`),判斷紀錄不會落在它上面;觀察器從排隊等執行往下找進入邊時,說明節點沒有出去的邊,不會多出候選。重播 F1–F7 前後的情境詳情逐段比對相同(只差時間與 F7 哪一筆被人確認,後者本來就依併發順序而定),驅動與觀察器測試照舊通過。
++- 展示狀態轉換(`present.py`)的已知限制那句改成「AI 只在建議送出後寫提案說明給人看」;驅動的模型入口說明文字改成「替收件收下的建議寫一段只給人看的說明」,不再寫「給確認的人看」(代碼審 r1 正確性 F4)。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+index 3fec213..8f51a7f 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/分析行程流程與檢查點.md
+@@ -373,10 +373,17 @@ PITFALL: 系統提示的回答格式原本寫「"choice": 一個結論代碼,或
+ 
+ ## 說明只列實際拿到的證據(2026-09-27,代使用者裁定)
+ 
+ 出處 [[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]](協調者交辦的最小修法,代使用者裁定)。
+ 
+ - PITFALL:規則輪建提案時,證據參照列了基本三筆加四種查詢收據(較長時間窗、操作歷史、逐日趨勢、過去調整);`narrate.prompt_for` 對欄位白名單外的證據一律當不可信文字,列成「證據丁 change_history:不可信文字,內容在下面的資料區」,資料區裡卻只有廣告名稱。模型於是寫「歷史異動、過去調整、較長時間窗、每日趨勢內容為空」,讀者以為系統沒查這四樣。2026-09-27 重拍 README 截圖時發現(入庫錄製 phase14-demo-20260927 兩份說明都這樣寫)。重現:`narrate.prompt_for` 對 F5 端到端跑出的提案組送出內容,看證據段落。防回歸:[test:test_the_prompt_lists_only_evidence_the_narrative_actually_gets]。
+ - 改法:白名單外、又不是廣告名稱(`campaign_text`)的證據整筆不送、不列,佔位符編號也不佔;系統提示加一句「只描述使用者訊息裡列出的證據;沒有列出的證據不要提,也不要評論缺了什麼、是不是空的」。改前 → 改後(F5 端到端的正常名稱提案):證據段落從「甲 campaign_state、乙 metrics、丙 campaign_text、丁 change_history、戊 past_adjustments、己 longer_window、庚 daily_trend(後四筆都寫不可信文字)」變成只有甲、乙、丙三行。
+ - WHY:不把四種收據加進說明輸入——那要動證據白名單與既有的提示注入安全測試,本次不做(交辦範圍);數字與百分比過濾、名稱只在資料區逸出引述、錄製模式把帳記到暫存帳本這幾條合約都沒動:說明核對用的程式段落本來就不含收據的數字,拿掉那四行不改變哪些數字對得回。
+ - 改提示與送出內容會讓說明的錄製鍵全換:入庫展示批次 `recordings/model/phase14-demo/`(phase14-demo-20260927)要由協調者重錄,錄好前 `test_committed_demo_recordings_replay_f1_to_f6_with_narratives` 照設計是紅的。重錄指令見 Issue。
+ - 宣稱清單 `prompt-injection` 的範圍含這支檔:照 [[Systems/宣稱驗證器]] 的 PITFALL 先跑驗證器(判指紋不一致),確認政策敘述不變、證據測試(含 F5 說明數字可追溯那支)仍通過後,只換這支檔的指紋;重跑驗證器 5 條宣稱、78 支證據全過。
++
++## 說明命令列的讀者寫法(2026-09-28)
++
++出處 [[Issues/流程圖把AI說明畫在送出建議之前]] 代碼審 r1(governance/review-reports/code-flow-narrate/r1-正確性.md F4)。
++
++- WHY:人工核可表單組表單時不帶說明,一鍵展示也要等情境整段跑完才產說明,核可的人在核可當下看不到它;說明模組的檔頭說明從「給人工核可的人看」改成「只給人看」,並註明核可表單不帶說明。系統提示(`SYSTEM_PROMPT`)照舊寫「替人工核可預算調整的人寫」**不改**:提示逐字算進說明錄製鍵,改了入庫的 phase14-demo 說明錄製全部對不上;登記成 [[Issues/說明提示仍寫給核可的人看]],等下次因別的原因重錄時一起改。
++- 宣稱清單 `prompt-injection` 的範圍含這支檔:照 [[Systems/宣稱驗證器]] 的 PITFALL 先跑驗證器(只有這支檔指紋不一致),確認改動只在檔頭說明、系統提示與送出內容沒動後,只換這支檔的指紋;重跑驗證器 5 條宣稱、78 支證據全過。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md b/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md
+index 9b2ccf3..4e591c9 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md
+@@ -135,17 +135,18 @@ PITFALL: [2026-09-27 CI 間歇失敗] 主頁要不要自動重讀原本看情境
+ - WHY:結局標示(`_render_outcome_note`)只留一行,F4/F6 接續任務寫「故障照預期;接續任務照九條規則第 3 條:剛被調過預算,先不動」,不寫 AI;驅動寫的結果摘要照白話規則不留裸詞「提案」(寫「沒有提出調整建議」)。防回歸:[test:test_f4_follow_up_shows_rule_three_without_ai]、[test:test_the_new_page_text_explains_its_jargon_on_real_runs]。
+ - WHY:「故障沒走到」(`ScenarioStatus.NOT_EXERCISED`)與摘要的「其中 N 個 AI 判不提案」只為舊展示狀態庫唯讀留著,驅動不再產生。CSS 的 `.ai-exam`、`.exam-verdict`、`.ai-round*` 樣式沒有頁面產生了,留著無害,之後整理樣式表時一併拿掉。
+ - PITFALL(代碼審 r1 外家否決,2026-09-27,已修):增量 3 初版把「誰決定」寫死成「程式規則(九條)」,舊展示狀態庫裡 AI 決定的記錄也被標成九條。現在展示狀態留 `decided_by`,呈現層照值對應:`nine_rules` → 程式規則(九條)、`ai` → AI(已撤除的舊流程)、`ai_fallback` → AI 退回程式規則(已撤除的舊流程)、`rule` → 程式規則(舊版記錄,早於九條),沒記錄寫「(這次沒有記錄)」。防回歸:[test:test_old_records_keep_who_decided]。
+ 
+ ## 撤 Phase 10 候選判斷分支(2026-09-27,代使用者裁定)
+ 
+ 出處 [[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]];流程圖定義的改動記在 [[Systems/一鍵展示]] 同名一節。
+ 
+ - WHY:流程圖「選擇判法」與「候選判斷」兩格(請 AI 提供參考判斷 → 候選判斷)正式與展示都不走,留在「這次沒走的分支」裡跟「AI 不參與決定」矛盾。流程圖短標籤拿掉這兩格,AI 寬度只給模型說明;沒開 AI 時的邊界說明改成「目前正式預算決策由程式規則執行;AI 說明與推測只供參考」(不再寫「AI 候選另行評估」);F5 情境列表的「轉向」從候選節點改指「用程式規則判斷」(名稱誘導不影響九條看數字判)。範例資料的路徑同步:花得偏慢直接接程式規則;範例 F5 照舊不附說明(走「不需 AI 說明,送出」那條邊),其餘情境走模型說明。頁面測試寫死的節點與邊數 48 → 46、72 → 68。防回歸:[test:test_page_and_report_remove_demo_mode_from_every_flow_label]、[test:test_formal_flow_map_and_every_sample_route_match]、[test:test_each_sample_keeps_ai_and_human_steps_as_separate_coloured_nodes]。
+ 
+-## 說明節點改成送出之後的旁支、核可表單不再叫人讀說明(2026-09-28)
++## 說明節點改成收件收下之後的旁支、核可表單不再叫人讀說明(2026-09-28)
+ 
+-出處 [[Issues/流程圖把AI說明畫在送出建議之前]];流程圖定義的改動記在 [[Systems/一鍵展示]] 同名一節。
++出處 [[Issues/流程圖把AI說明畫在送出建議之前]],代碼審 r1(governance/review-reports/code-flow-narrate/)正確性 F1/F2 已修入;流程圖定義的改動記在 [[Systems/一鍵展示]] 同名一節。
+ 
+-- WHY:核可表單組裝時說明欄固定是空的(展示狀態轉換組表單時照實不帶說明:說明在建議送出後另外寫、執行端不讀),表單卻寫「先逐項確認程式算出的數字,再閱讀 AI 產生的參考說明」,下面只出現「沒有 AI 說明。」。照協調者交辦只改提示、不改資料流(讓表單拿到說明是另一件事):提示改成「逐項確認程式算出的數字;同意後建議回到排隊,寫入前照樣重新檢查」,沒有說明時寫「這張表單沒有附 AI 說明:說明在建議送出之後才另外寫、只給人看,執行時不讀也不等它」;有說明的那一路(只在測試裡構造)照舊顯示。其餘明細裡的說明卡標題從「給確認的人看」改成「建議送出後才寫,只給人看」。防回歸:[test:test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets]。
+-- WHY:流程圖短標籤「撰寫說明」改「送出後寫說明」。實際展示的流程圖只畫判斷紀錄真的走過的邊,說明節點沒有系統結果對到,本來就不會畫出來(說明內容在「其餘明細」的說明卡);範例資料原本把說明畫在寫好建議與送出之間,改成全部情境走「寫好建議 → 送出」,說明不在路上;走過的路上沒有 AI 節點,F1 範例畫得出的 AI 格只剩告警原因推測。頁面測試寫死的邊數 68 → 67,範例路徑切片的索引跟著少一格。`flow_svg` 裡「AI 格之後第二個程式群組」的分組邏輯(`_SECOND_GROUP_ID`)在說明離開主路後不會再觸發,留著無害。防回歸:[test:test_each_sample_keeps_ai_and_human_steps_as_separate_coloured_nodes]、[test:test_formal_flow_map_and_every_sample_route_match]。
+-- 工作用字避開頁面禁用清單:節點與邊的文字用「收件」「執行時」,不用「收件口」「執行端」「提案」(這幾個是 `JARGON_TERMS`,主頁出現要緊接括號解釋)。防回歸:[test:test_example_pages_explain_or_confine_internal_jargon_to_the_glossary]。
++- WHY:核可表單組裝時說明欄固定是空的(展示狀態轉換組表單時就不帶說明),表單卻寫「先逐項確認程式算出的數字,再閱讀 AI 產生的參考說明」,下面只出現「沒有 AI 說明。」。照協調者交辦只改提示、不改資料流(讓表單拿到說明是另一件事):提示改成「逐項確認程式算出的數字;同意後建議回到排隊,寫入前照樣重新檢查」,沒有說明時寫「這張表單不帶 AI 說明:同意與否只看程式算出的數字;展示要等情境整段跑完才產生說明,執行時也不讀、不等它」。初版寫的理由是「說明在建議送出之後才另外寫」,不對:表單出現時建議早已送出、收件收下(代碼審 r1 F2);真正的原因是組表單不帶說明、一鍵展示要等情境整段跑完才產說明。有說明的那一路(只在測試裡構造)照舊顯示。其餘明細裡的說明卡標題從「給確認的人看」改成「建議送出後才寫,只給人看」。防回歸:[test:test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets]。
++- WHY:流程圖短標籤「撰寫說明」改「收下後寫說明」。實際展示的流程圖只畫判斷紀錄真的走過的邊,說明節點沒有系統結果對到,本來就不會畫出來(說明內容在「其餘明細」的說明卡);範例資料原本把說明畫在寫好建議與送出之間,改成全部情境走「寫好建議 → 送出」,說明不在路上;走過的路上沒有 AI 節點,F1 範例畫得出的 AI 格只剩告警原因推測。頁面測試寫死的邊數 68 → 67,範例路徑切片的索引跟著少一格。`flow_svg` 裡「AI 格之後第二個程式群組」的分組邏輯(`_SECOND_GROUP_ID`)在說明離開主路後不會再觸發,留著無害。防回歸:[test:test_each_sample_keeps_ai_and_human_steps_as_separate_coloured_nodes]、[test:test_formal_flow_map_and_every_sample_route_match]。
++- WHY:旁支從「排隊等執行」岔出,而排隊等執行會出現在判斷紀錄裡(收件收下落在那一格),「這次沒走的分支」原本會把說明列成每個情境都沒走的一條假分支。`render_untaken_branches` 建出邊表時跳過指向旁支的邊,不列、也不經過。防回歸:[test:test_the_side_branch_is_not_listed_as_an_untaken_branch]。
++- 工作用字避開頁面禁用清單:節點、邊與表單的文字用「收件」「執行時」,不用「收件口」「執行端」「提案」「核可」(這幾個是 `JARGON_TERMS`,主頁出現要緊接括號解釋)。防回歸:[test:test_example_pages_explain_or_confine_internal_jargon_to_the_glossary]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md b/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
+index e4076be..a250932 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
++++ b/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
+@@ -7,28 +7,31 @@ valid_under:
+   - 系統 Python 3.14.6、Pillow 12.2.0、字型 /System/Library/Fonts/Hiragino Sans GB.ttc；同一環境連續重畫的 GIF、SVG 雜湊相同。
+ revalidate_when: 展示分析的規則輪 A/B/C、九條判定、AI 說明或告警假說的時點、F6/F7 回佇列路徑、README 文案、產圖腳本、字型或 Pillow 版本改變時，重跑產圖、抽格及 SVG 解析。
+ tags:
+   - type/verification
+   - status/pass
+ plan_refs:
+   - "[[Projects/README流程動圖_計劃]]"
+ ---
+ # README流程動圖驗證
+ 
+-## 2026-09-28 AI 說明改成送出後的旁支（現行圖）
++## 2026-09-28 AI 說明改成收件收下後的旁支（現行圖，代碼審 r1 後）
+ 
+-出處 [[Issues/流程圖把AI說明畫在送出建議之前]]。改動：送出提案 → 收件檢查改成一條直下的實線；「AI 寫提案說明」從送出提案正下方（夾在送出與收件之間）挪到右下方，由送出提案右側一條 AI 色虛線接過去；註記「送件後供確認者參考，不進決策」改成「送出後另寫，只給人看，執行端不讀」；說明那一格標題與 SVG 描述改成「提案送進收件口後，AI 另外寫給人看的說明；執行端不讀、不等」。其餘節點、F6/F7 人工回線與格數不變。
++出處 [[Issues/流程圖把AI說明畫在送出建議之前]]、代碼審 r1（governance/review-reports/code-flow-narrate/）正確性 F1、F3。改動：送出提案 → 收件檢查改成一條直下的實線；「AI 寫提案說明」從送出提案正下方（夾在送出與收件之間）挪到待處理佇列正上方，由佇列往上一條 AI 色虛線接過去；AI 虛線跟主線一樣在走到起點之前畫成暗色；格子標題、註記與 SVG 描述統一用「收件收下後」起頭，舊註記「送件後供確認者參考，不進決策」拿掉。其餘節點、F6/F7 人工回線與格數不變。
+ 
+-系統 Python 3.14.6、Pillow 12.2.0、Hiragino Sans GB 重畫：GIF 1800×760、24 格；連續重畫兩次，GIF SHA-256 皆為 `fb98d75d…62fe6`、SVG 皆為 `3e684550…b7238`（改前為 `1782f3e6…796f`、`407cc8fa…a6d3`，改前的程式重畫一次也得到同樣的舊雜湊，確認產生器同輸入同輸出）。抽第 8 格（送出提案高亮）、第 9 格（收件檢查高亮）、第 19 格（AI 說明高亮）目視：送出直下接收件、AI 說明在右下旁支、註記沒有壓到主線或告警假說的註記。最後兩格（人工重放、核可）亮黃色像素 5278、5273 點（改前 5271、5267），調色盤沒有把高亮色併掉。SVG 用標準庫 XML 解析通過，舊註記字串已不存在、新註記存在。
++系統 Python 3.14.6、Pillow 12.2.0、Hiragino Sans GB 重畫：GIF 1800×760、24 格；連續重畫兩次，GIF SHA-256 皆為 `1d80fc08…fa82d226`、SVG 皆為 `447de869…573ab002a`（最初版為 `1782f3e6…796f`、`407cc8fa…a6d3`，改前的程式重畫一次也得到同樣的舊雜湊，確認產生器同輸入同輸出；r1 前的中間版 `fb98d75d…62fe6`、`3e684550…b7238` 已作廢）。抽第 9 格（收件檢查高亮：佇列往上的虛線還是暗的）、第 19 格（AI 說明高亮）目視：送出直下接收件、說明在佇列上方的旁支、註記沒有壓到虛線或其他格子。最後兩格（人工重放、核可）亮黃色像素 5265、5259 點，調色盤沒有把高亮色併掉。SVG 用標準庫 XML 解析通過，舊註記字串已不存在、新註記存在。守衛測試 `tests/test_readme_flow_diagram.py` 2 支通過，四種變異各翻紅一支（見 [[Systems/README流程動圖產生器]]）。
+ 
+ ## 2026-09-28 README 故障表截圖重拍（說明改成旁支之後）
+ 
++代碼審 r1 修正後（旁支起點改到收下之後、核可表單理由改寫、沒走分支清單跳過旁支）用同一做法再重播一次、不截圖：七個情境的情境詳情區塊跟截圖用的那一版逐段比對，F1–F6 相同，F7 只差人工確認的是哪一個廣告（t0154 與 t0143，同額的廣告誰先輪到依併發順序而定，不是這次改動造成的），所以截圖不重拍；重播前後 stat 帳本仍是修改時間 1790494399、大小 319488。[來源:人工]
++
++
+ 照下面〈2026-09-27 README 故障表截圖改用 Phase 14 版〉的做法重拍 `docs/assets/phase14/full-F1.jpg`–`full-F7.jpg`：pytest 隔離（帳號家目錄與 HOME 換成暫存目錄、沒起展示伺服器）用展示驅動跑 F1–F7，全部重播入庫錄製 `recordings/model/phase14-demo`（沒有即時清單、沒呼叫模型；F7 的人工確認在行程內代按，跟展示伺服器簽發同一條路），七個情境都「結果符合預期」，七份說明都重播成功（改流程圖不影響說明錄製鍵）。靜態頁以 Playwright chromium 開 file:// 截情境詳情：1280 寬、深色、流程圖切到完整總覽、只展開「其餘明細」一層（這次沒走的分支與操作識別維持收合）；七張寬高跟前一版逐張相同（906 寬）。拍前後 stat 真帳 `~/.rtb/model-ledger.sqlite`：修改時間 1790494399、大小 319488，前後相同。[來源:人工]
+ 
+ 逐張目視：實際展示的流程圖只畫判斷紀錄走過的邊，七張的分析列都是從程式判斷直接交給收件，送出與收件之間沒有 AI 格（說明節點沒有系統結果對到，本來就不畫）；說明卡在其餘明細，標題為「AI 寫說明（建議送出後才寫，只給人看）」，程式算的數字在前、AI 文字標「AI 產生、僅供參考」；這次誰決定都是程式規則（九條）；F4/F6 接續任務剛被調過預算先不動、F5 照公式 100 → 110、F7 放行 123 個、人工確認後寫入 1 個。
+ 
+ ## 2026-09-27 Phase 14 重畫（前一版）
+ 
+ 對照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 使用者裁定 1–8、正式九條規則、規則輪 A/B/C 與展示驅動 F1–F7，README 由 73 行變 84 行；「怎麼運作」改為配速偏低才續查、九條判定、按需唯讀查證與 AI 兩支非決策角色；F4/F6 接續任務改寫成「剛被調過預算，先不動」，F5 移除 AI 可左右加額的舊敘述；評估數字直接取 Phase 13 報告。動圖刪除 AI 選查詢、AI 結論、AI 退回規則，改畫 A 初次取證、用 A 資料初篩、B/C 續查、九條判定與值得加才提案；F6/F7 人工回佇列保留。
+ 
+ `python3 docs/assets/make_agent_flow_gif.py` 重畫成功；GIF 1800×760、24 格，抽第 1–5、8、19–21、23–24 格目視 A 初次取證、初篩、B/C、送件後 AI 說明、告警假說、F6/F7 人工回線及高亮，沒有文字溢出或路線遮住關鍵節點。SVG 用 Python 標準庫 XML 解析通過，確認 A 在初篩前、舊 AI 判斷文案不存在；README 相對連結皆存在。`pytest -q tests/test_static_wiring.py` 27 passed；`ruff check docs/assets/make_agent_flow_gif.py` 通過。同一環境連續重畫兩次，SVG 與 GIF 各自的 SHA-256 不變。出處：本次命令與抽格結果；若展示分析路徑、F6/F7 人工路徑、AI 角色、字型或 Pillow 改變，就重驗。
+ 
+diff --git a/src/rtb/analyzer/narrate.py b/src/rtb/analyzer/narrate.py
+index 728bba1..f7082bd 100644
+--- a/src/rtb/analyzer/narrate.py
++++ b/src/rtb/analyzer/narrate.py
+@@ -1,15 +1,17 @@
+ """提案的模型說明命令列(Phase 11B 增量 2 接入點 2,經 Phase 13 的分析端模型閘道)。
+ 
+-讀已送進收件口的提案(交給執行那幾列),對還沒有成功說明的逐一領取、請模型寫一段給人工核可的人看的白話
++讀已送進收件口的提案(交給執行那幾列),對還沒有成功說明的逐一領取、請模型寫一段只給人看的白話
+ 風險說明,結果追加進分析端資料庫的說明結果表。說明**不動提案**:提案的風險說明欄位照舊是程式的固定文字、
+-照舊算進內容雜湊;說明不進收件口、能力憑證與 DSP 請求,執行端不讀([S913]、[S914])。
++照舊算進內容雜湊;說明不進收件口、能力憑證與 DSP 請求,執行端不讀([S913]、[S914]);人工核可表單也
++不帶說明。系統提示仍寫「替人工核可的人寫」,那段算在錄製鍵裡,改了入庫錄製就失效,留待下次重錄一起改
++([[Issues/說明提示仍寫給核可的人看]])。
+ 不在流程推進函式裡、
+ 不佔流程的租約。
+ 
+ - 模型只經 `rtb.analyzer.modelgate`(分析端唯一准匯入模型用戶端的地方,[S1100]);模式、帳檔、錄製目錄
+   都在閘道判一次。錄製模式可以用 --ledger 把帳記到別的路徑([S1102]),即時模式寫死帳號家目錄那一本。
+ - 領取([S929]):領取與寫結果各是一個寫入交易,模型呼叫在交易外;啟動時斷言「模型呼叫的總期限加 1 分鐘
+   餘裕小於領取期限」,不成立就拒絕啟動。兩個說明命令列同時跑,同一份提案只呼叫一次模型;持有者在呼叫後、
+   寫結果前崩潰,期限過後接手的會再呼叫一次(至少一次,不是恰好一次)。
+ - 送出的內容用欄位白名單組:提案的數字欄位、證據的數值;任務、廣告、證據編號換成依出現順序的佔位符,
+   時間戳、冪等鍵、內容雜湊都不送;廣告名稱放在標明「資料」的區塊,提示寫明裡面的指示一律不照做
+diff --git a/src/rtb/demo/driver.py b/src/rtb/demo/driver.py
+index 42d18a3..c64af15 100644
+--- a/src/rtb/demo/driver.py
++++ b/src/rtb/demo/driver.py
+@@ -1382,21 +1382,21 @@ def _entry_args(world: World) -> list[str]:
+     # 錄製時用的帳本一律給這個情境自己的,不讓入口退回帳號家目錄那一本(Issues/錄製模式的原因假說
+     # 寫進真帳本;入口本身沒帶帳本也不會退回,見模型用戶端的 recorded_ledger)
+     args = ["--demo-id", ai.demo_id, "--recordings-dir", str(ai.recordings),
+             "--recorded-ledger", str(world.dir / "model-ledger.db")]
+     if ai.batch_id is not None:
+         args += ["--batch-id", ai.batch_id]
+     return args
+ 
+ 
+ def run_model_entries(world: World, stop: threading.Event | None = None) -> ModelEntries:
+-    """情境結束時跑一次模型說明(替已送出的建議寫給確認的人看的說明)與原因假說(服務水準告警時);
++    """情境結束時跑一次模型說明(替收件收下的建議寫一段只給人看的說明)與原因假說(服務水準告警時);
+     錄製模式讀展示錄製,找不到就照實記結果類別。展示自己的失敗(起不來、逾時、輸出讀不懂)記成原因,
+     不影響情境結果。整次展示被取消(stop)就不跑、跑到一半也收掉(代碼審 r1 l1);假說沒跑是空的。"""
+     stop = stop or threading.Event()
+     if world.ai is None or world.tracked is None or stop.is_set():
+         return ModelEntries()
+     try:
+         narrative = _narrate(world, stop)
+     except Exception as broken:  # 讀不到資料庫、行程已經停了:只記原因
+         return ModelEntries(json.dumps({"error": f"{type(broken).__name__}"}), None)
+     if stop.is_set():
+diff --git a/src/rtb/demo/flow.py b/src/rtb/demo/flow.py
+index ecc40f5..6f2ec40 100644
+--- a/src/rtb/demo/flow.py
++++ b/src/rtb/demo/flow.py
+@@ -11,21 +11,22 @@ Phase 14 增量 3(計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計
+ 「AI 選下一步」節點與它的出入邊、「AI 要再查」回頭節點、「只判不送(考題用)」終點,以及退回原因對到
+ AI → 程式規則那 12 筆映射一併撤除;模型說明節點(a_narrate)照舊。
+ 
+ 2026-09-27(代使用者裁定,[[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]]):
+ Phase 10 的候選判斷分支(「由誰判斷值不值得加預算?」分流、「請模型候選判斷」節點與它的出入邊)
+ 正式與展示都不走,一併撤除:花得偏慢直接進程式規則(九條)。分析端路由(RoutePath)只剩 Phase 10
+ 評估在用,不再對到展示圖;候選才會答的「拿不定」照程式實際的結局對到「用程式規則判斷」:
+ 路由收到它就退回九條規則再判。
+ 
+ 2026-09-28([[Issues/流程圖把AI說明畫在送出建議之前]]):模型說明節點從「寫好調整建議 → 送去執行」
+-之間拿出來,改成「送去執行」之後的旁支(`SIDE_BRANCHES`):說明命令列讀的是已送進收件口的提案,
++之間拿出來,改成收件收下(排隊等執行)之後的旁支(`SIDE_BRANCHES`,跟回頭節點一樣用結構化宣告展開成
++節點與邊):說明命令列只讀收件收下、交給執行的提案(被拒收或送到時已過時的不寫),
+ 說明不進收件口、能力憑證與 DSP 請求,執行端不讀、不等它;一鍵展示也是情境跑完才產說明。旁支節點
+ 沒有出去的邊,不在任何通往寫入的路上。
+ """
+ 
+ import re
+ from dataclasses import dataclass
+ from enum import StrEnum
+ 
+ from rtb.analyzer.policy import NoActionReason
+ from rtb.analyzer.task_store import ReplanReason
+@@ -56,38 +57,34 @@ def unexplained_terms(text: str) -> list[str]:
+     return [term for term in BANNED_TERMS
+             if any(not _EXPLAINED.match(text, m.end()) for m in re.finditer(term, text))]
+ 
+ 
+ ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN = "分析", "收件", "執行", "廣告平台", "人工"
+ LANES = (ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN)
+ START = "a_receive"
+ # 節點歸屬是 AI 的:只剩模型說明。Phase 14 增量 3 撤除「AI 選下一步」(a_ai),2026-09-27 撤除 Phase 10
+ # 的模型候選(a_candidate)
+ AI_NODES = frozenset({"a_narrate"})
+-# 旁支:送出之後另外做、只給人看的步驟,沒有出去的邊,不在通往寫入的路上(說明命令列讀已送進收件口
+-# 的提案,執行端不讀、不等它)
+-SIDE_BRANCHES = frozenset({"a_narrate"})
+ 
+ S, D, T = NodeKind.STEP, NodeKind.DECISION, NodeKind.TERMINAL
+ _NODES: tuple[tuple[str, str, NodeKind, str], ...] = (
+     ("a_receive", "收到工作", S, ANALYZE),
+     ("a_collect", "蒐集廣告的最新資料", S, ANALYZE),
+     ("a_fresh", "資料夠新嗎?", D, ANALYZE),
+     ("a_complete", "廣告狀態和成效資料都齊全嗎?", D, ANALYZE),
+     ("a_pacing", "預算花得比預期慢嗎?", D, ANALYZE),
+     ("a_rule", "用程式規則判斷", S, ANALYZE),
+     ("a_worth", "值得加預算嗎?", D, ANALYZE),
+     ("a_no_action", "不調整,結束", T, ANALYZE),
+     ("a_failed", "這件工作出錯,結束", T, ANALYZE),
+     ("a_propose", "寫好調整建議", S, ANALYZE),
+     ("a_submit", "把建議送去執行", S, ANALYZE),
+-    ("a_narrate", "建議收件之後,另外請模型寫一段說明給人看(僅供參考,執行時不讀)", S, ANALYZE),
+     ("a_blocked_end", "被擋下,這件工作結束", T, ANALYZE),
+     ("i_check", "收件檢查:這份建議能收嗎?", D, INBOX),
+     ("i_superseded", "已經有更新的建議,舊的不處理", T, INBOX),
+     ("x_pending", "排隊等執行", S, INBOX),
+     ("x_pick", "拿起下一份建議:是不是已經試太多次?", D, EXECUTE),
+     ("x_deadletter", "試太多次都沒能開始,先停下等人處理", S, EXECUTE),
+     ("x_existing", "同一筆已經有人在寫,交給那一筆", T, EXECUTE),
+     ("x_precheck", "寫入前再確認:廣告還在、版本沒變、規則沒變、建議沒放太久?", D, EXECUTE),
+     ("x_expired", "建議已經過期,不再處理", S, EXECUTE),
+     ("x_guard", "在允許的廣告、預算上限與單次加幅之內嗎?", D, EXECUTE),
+@@ -135,36 +132,56 @@ BACK_TRANSITIONS = (
+                    lifecycle=LifecycleKind.RECLAIMED),
+     BackTransition("x_approved", "人已同意,放回排隊", EXECUTE, "x_pending",
+                    lifecycle=LifecycleKind.APPROVAL_RELEASED),
+     BackTransition("r_requeued", "同一份建議重新放回排隊", HUMAN, "x_pending",
+                    lifecycle=LifecycleKind.REPLAY_REQUEUED),
+     BackTransition("x_resend", "用同一個編號再送一次", EXECUTE, "x_write",
+                    (AttemptState.UNKNOWN, AttemptState.IN_FLIGHT)),
+     BackTransition("x_recheck", "這次查不出結論,稍後再查", EXECUTE, "x_unknown"),
+ )
+ 
++@dataclass(frozen=True, slots=True)
++class SideBranch:
++    """一條不在通往寫入的路上的旁支,展開成一個節點與一條進來的邊(跟 `BackTransition` 同一套寫法:
++    沒有出去的邊的節點,都用結構化宣告寫明為什麼)。`node` 從 `branches_from` 岔出去、沒有出去的邊;
++    `when` 是岔出去的時機(邊的標籤),`why` 寫明為什麼不接回主線(誰不讀、不等它)。"""
++
++    node: str
++    what: str
++    lane: str
++    branches_from: str
++    when: str
++    why: str
++
++
++SIDE_BRANCHES = (
++    # 說明命令列只讀收件收下、交給執行的建議:從「排隊等執行」岔出去,被拒收或過時的不會有說明
++    SideBranch("a_narrate", "建議收下之後,另外請模型寫一段說明給人看(僅供參考)", ANALYZE,
++               "x_pending", "收下之後另外寫說明", "只給人看,執行時不讀、不等它"),
++)
++
++
+ _EDGES: tuple[tuple[str, str, str], ...] = (
+     ("a_receive", "a_collect", "開始"),
+     ("a_collect", "a_fresh", "拿到資料"),
+     ("a_fresh", "a_recollect", "太舊"),
+     ("a_fresh", "a_complete", "夠新"),
+     ("a_complete", "a_no_action", "缺資料"),
+     ("a_complete", "a_pacing", "齊全"),
+     ("a_pacing", "a_no_action", "不慢或算不出來"),
+     ("a_pacing", "a_rule", "偏慢"),
+     ("a_rule", "a_worth", "程式規則已算出結果"),
+     ("a_worth", "a_no_action", "不值得或資料不夠判斷"),
+     ("a_worth", "a_propose", "值得"),
+     ("a_worth", "a_failed", "分析出錯"),
+     ("a_propose", "a_submit", "送出"),
+     ("a_submit", "i_check", "送到收件"),
+-    ("a_submit", "a_narrate", "收件收下之後另外寫說明(只給人看,執行時不讀、不等它)"),
+     ("i_check", "x_pending", "收下"),
+     ("i_check", "a_restale", "資料已過時或送到時已過期"),
+     ("i_check", "a_failed", "拒收(內容有衝突或格式不對)"),
+     ("i_check", "i_superseded", "已有更新的建議"),
+     ("i_check", "a_blocked_end", "已交出去之後重送被拒收"),
+     ("x_pending", "x_pick", "輪到它"),
+     ("x_pending", "a_followup", "紀錄已清掉、平台也查不到"),
+     ("x_pending", "a_blocked_end", "紀錄已清掉、平台同編號卻是不同內容"),
+     ("x_pending", "x_expired", "排隊時已過期"),
+     ("x_pick", "x_deadletter", "試太多次了"),
+@@ -212,27 +229,30 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
+     ("x_expired", "a_followup", "照現況重新分析"),
+ )
+ 
+ 
+ def _graph() -> FlowGraph:
+     labels = {node_id: label for node_id, label, _, _ in _NODES}
+     back_nodes = tuple(
+         FlowNode(b.node, f"{b.what}(回到「{labels[b.returns_to]}」)", S, b.lane,
+                  NodeOwner.HUMAN if b.lane == HUMAN else NodeOwner.CODE)
+         for b in BACK_TRANSITIONS)
++    side_rows = tuple((b.node, b.what, S, b.lane) for b in SIDE_BRANCHES)
+     nodes = tuple(
+         FlowNode(*row, NodeOwner.AI if row[0] in AI_NODES else
+                  NodeOwner.HUMAN if row[3] == HUMAN else
+                  NodeOwner.EXTERNAL if row[3] == PLATFORM else NodeOwner.CODE)
+-        for row in _NODES
++        for row in (*_NODES, *side_rows)
+     ) + back_nodes
+-    return FlowGraph(nodes, tuple(FlowEdge(*row) for row in _EDGES))
++    side_edges = tuple(FlowEdge(b.branches_from, b.node, f"{b.when}({b.why})")
++                       for b in SIDE_BRANCHES)
++    return FlowGraph(nodes, tuple(FlowEdge(*row) for row in _EDGES) + side_edges)
+ 
+ 
+ FLOW_GRAPH = _graph()
+ 
+ 
+ @dataclass(frozen=True, slots=True)
+ class Place:
+     """一個列舉成員在圖上的位置(節點或邊,二擇一)與它的白話顯示字。"""
+ 
+     text: str
+diff --git a/src/rtb/demo/flow_svg.py b/src/rtb/demo/flow_svg.py
+index 37f2dc0..9252d0c 100644
+--- a/src/rtb/demo/flow_svg.py
++++ b/src/rtb/demo/flow_svg.py
+@@ -6,21 +6,21 @@
+ 與 SVG 產生都在這裡。行為照舊,只搬家。
+ """
+ 
+ import html
+ import unicodedata
+ from collections import defaultdict
+ from collections.abc import Mapping
+ from dataclasses import dataclass
+ from typing import Final
+ 
+-from rtb.demo.flow import PLATFORM
++from rtb.demo.flow import PLATFORM, SIDE_BRANCHES
+ from rtb.demo.state import (
+     Decision,
+     FlowEdge,
+     FlowGraph,
+     FlowNode,
+     NodeKind,
+     NodeOwner,
+     Scenario,
+ )
+ 
+@@ -57,21 +57,21 @@ _SECOND_GROUP_ID: Final = "analysis_after_ai"
+ 
+ 
+ _GROUP_IDS: Final = frozenset({_GROUP_ID, _SECOND_GROUP_ID})
+ 
+ 
+ SHORT_LABELS: Final[dict[str, str]] = {
+     "a_receive": "收到工作", "a_collect": "蒐集資料", "a_fresh": "資料夠新？",
+     "a_complete": "資料齊全？", "a_pacing": "花費偏慢？",
+     "a_rule": "規則判斷", "a_worth": "值得加？",
+     "a_no_action": "不調整", "a_failed": "工作失敗", "a_propose": "寫好建議",
+-    "a_narrate": "送出後寫說明", "a_submit": "送出建議",
++    "a_narrate": "收下後寫說明", "a_submit": "送出建議",
+     "i_check": "收件檢查", "i_superseded": "舊建議停下", "x_pending": "等待執行",
+     "x_pick": "領取建議", "x_precheck": "寫入前檢查", "x_guard": "權限與加幅",
+     "x_total": "帳戶總上限", "x_write": "送去寫入", "p_reply": "平台回覆",
+     "x_unknown": "查明結果", "x_verify": "核對預算", "x_done": "完成",
+     "x_reclaimed": "換人接手", "x_blocked": "擋下寫入", "a_followup": "開新工作",
+     "x_deadletter": "停下等人", "h_replay": "人工決定", "r_requeued": "重新排隊",
+     "a_blocked_end": "工作結束", "x_wait_approval": "等待確認",
+     "h_approve": "人工確認", "x_approved": "重新排隊", "x_deferred": "放回排隊",
+     "x_lease_lost": "放回排隊", "x_expired": "建議過期", "a_recollect": "重新蒐集",
+     "a_restale": "重新蒐集", "x_resend": "同筆重送", "x_recheck": "稍後再查",
+@@ -263,25 +263,28 @@ def _render_handoff(positions: dict[str, tuple[int, int]], *, queued: bool) -> s
+     y = positions[source][1] + 110
+     return (
+         '<g class="flow-handoff"><title>交給另一段程式</title>'
+         f'<rect x="{x - 25}" y="{y - 22}" width="50" height="44" rx="4"></rect>'
+         f'<text x="{x}" y="{y - 2}">∕∕</text>'
+         f'<text x="{x}" y="{y + 14}">{"佇列" if queued else "收件"}</text></g>'
+     )
+ 
+ 
+ def render_untaken_branches(flow: FlowGraph, scenario: Scenario) -> str:
+-    """每條未走分支只畫到最近的結束點或這次已走過的節點。"""
++    """每條未走分支只畫到最近的結束點或這次已走過的節點。旁支(收下之後另外寫說明)不是分支:
++    判斷紀錄不會落在它上面,列成「沒走」會讓每個情境都多一條假的沒走分支,所以不列也不經過。"""
+     nodes = node_map(flow)
++    side = {branch.node for branch in SIDE_BRANCHES}
+     outgoing: dict[str, list[FlowEdge]] = defaultdict(list)
+     for edge in flow.edges:
+-        outgoing[edge.source].append(edge)
++        if edge.target not in side:
++            outgoing[edge.source].append(edge)
+     visited = {item for pair in scenario.traversed_edges for item in pair}
+     rows: list[str] = []
+     taken = {decision.taken_edge for decision in scenario.path}
+     seen: set[tuple[str, str]] = set()
+     for decision in scenario.path:
+         for edge in outgoing[decision.node]:
+             pair = (edge.source, edge.target)
+             if pair == decision.taken_edge or pair in taken or pair in seen:
+                 continue  # 同一條沒走的分支只列一次;別的工作真的走過的不算沒走(代碼審 r1 p8)
+             seen.add(pair)
+diff --git a/src/rtb/demo/page.py b/src/rtb/demo/page.py
+index 18a75f5..35ac18e 100644
+--- a/src/rtb/demo/page.py
++++ b/src/rtb/demo/page.py
+@@ -1098,23 +1098,23 @@ def _detail(title: str, content: str) -> str:
+ 
+ def _format_time(value: datetime) -> str:
+     return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+ 
+ 
+ def _plain_lines(lines: tuple[str, ...]) -> str:
+     return "".join(f'<p class="raw-line">{escape_text(line)}</p>' for line in lines)
+ 
+ 
+ def _model_text(text: str | None, _source: ModelSource | None) -> str:
+-    if text is None:  # 核可表單組裝時說明欄固定是空的(說明在建議送出後才另外寫,見展示狀態轉換)
+-        return ('<p class="empty">這張表單沒有附 AI 說明：說明在建議送出之後才另外寫、只給人看，'
+-                '執行時不讀也不等它。</p>')
++    if text is None:  # 展示狀態轉換組表單時就不帶說明;一鍵展示也要等情境整段跑完才產說明
++        return ('<p class="empty">這張表單不帶 AI 說明：同意與否只看程式算出的數字；'
++                '展示要等情境整段跑完才產生說明，執行時也不讀、不等它。</p>')
+     return (
+         f'<div class="model-note"><p class="model-warning">{MODEL_LABEL}・不會控制系統'
+         f'</p><p>{escape_text(text)}</p></div>'
+     )
+ 
+ 
+ def _render_approval_form(approval: ApprovalForm, token: str) -> str:
+     confirmations = "".join(
+         f'<label><input type="checkbox" name="confirm_{index}" value="1" required>'
+         f"<span>{escape_text(label)}：{escape_text(value)}</span></label>"
+diff --git a/tests/demo/test_flow.py b/tests/demo/test_flow.py
+index 6263385..30167c1 100644
+--- a/tests/demo/test_flow.py
++++ b/tests/demo/test_flow.py
+@@ -43,26 +43,27 @@ def test_the_flow_graph_is_a_well_formed_dag() -> None:
+ 
+ 
+ def test_every_node_is_reachable_from_the_start_and_every_end_is_a_dead_end() -> None:
+     reached, pending = set(), [flow.START]
+     while pending:
+         node = pending.pop()
+         if node not in reached:
+             reached.add(node)
+             pending += [t for s, t in EDGES if s == node]
+     assert reached == set(NODES)
+-    loop_nodes = {back.node for back in flow.BACK_TRANSITIONS}
++    # 沒有出去的邊的節點:結束點,或由結構化宣告(回頭轉換、旁支)展開出來、自帶理由的節點
++    unrolled = ({back.node for back in flow.BACK_TRANSITIONS}
++                | {side.node for side in flow.SIDE_BRANCHES})
+     for graph_node in GRAPH.nodes:
+         leaves = [t for s, t in EDGES if s == graph_node.id]
+-        if (graph_node.kind is NodeKind.TERMINAL or graph_node.id in loop_nodes
+-                or graph_node.id in flow.SIDE_BRANCHES):
+-            assert not leaves, f"{graph_node.id} 是結束點、回頭節點或旁支,不該再有出去的邊"
++        if graph_node.kind is NodeKind.TERMINAL or graph_node.id in unrolled:
++            assert not leaves, f"{graph_node.id} 是結束點或展開出來的回頭/旁支節點,不該再有出去的邊"
+         else:
+             assert leaves, f"{graph_node.id} 走不下去"
+         if graph_node.kind is NodeKind.DECISION:
+             assert len(leaves) >= 2, f"判斷點 {graph_node.id} 至少要兩條分支"
+ 
+ 
+ def test_the_graph_is_the_type_the_page_draws() -> None:
+     assert isinstance(GRAPH, FlowGraph)
+     assert {node.lane for node in GRAPH.nodes} <= set(flow.LANES)
+ 
+@@ -346,23 +347,36 @@ def test_the_phase10_candidate_branch_is_gone():
+     assert not {"a_route", "a_candidate"} & set(NODES)
+     assert ("a_pacing", "a_rule") in EDGES
+     assert {t for s, t in EDGES if s == "a_pacing"} == {"a_no_action", "a_rule"}
+     assert frozenset({"a_narrate"}) == flow.AI_NODES
+     assert not any("候選" in text or "參考判斷" in text for text in _display_texts())
+     from rtb.domain.worth import WorthVerdict
+ 
+     assert flow.OUTCOMES[(WorthVerdict, "UNSURE")].node == "a_rule"  # 退回九條再判,不是直接不調整
+ 
+ 
+-def test_the_narrative_is_a_side_branch_after_the_proposal_is_sent():
+-    """2026-09-28(Issues/流程圖把AI說明畫在送出建議之前):說明命令列讀已送進收件口的提案,執行端
+-    不讀、不等它;一鍵展示在情境跑完才產說明。所以說明是「送去執行」之後的旁支:寫好建議直接送出,
+-    說明節點只從送出岔出去、沒有出去的邊,任何通往寫入的路都不經過它。"""
+-    assert flow.SIDE_BRANCHES == flow.AI_NODES == frozenset({"a_narrate"})
+-    assert {t for s, t in EDGES if s == "a_propose"} == {"a_submit"}
+-    assert {s for s, t in EDGES if t == "a_narrate"} == {"a_submit"}
++def test_the_narrative_is_a_side_branch_after_the_proposal_is_accepted():
++    """2026-09-28(Issues/流程圖把AI說明畫在送出建議之前;代碼審 r1 架構對齊 a_1、正確性 F1):
++    說明命令列只讀收件收下、交給執行的建議(任務狀態記成交給執行),被拒收或送到時已過時的不寫;執行端不讀、
++    不等它。所以說明是從「排隊等執行」(交給執行在圖上落的那一格)岔出去的旁支:寫好建議直接送出,
++    送出只接收件檢查;說明節點由結構化宣告展開,只有一條進來的邊、沒有出去的邊。"""
++    [side] = flow.SIDE_BRANCHES
++    assert side.node == "a_narrate"
++    assert frozenset({side.node}) == flow.AI_NODES
++    handed_off = flow.OUTCOMES[(TaskState, "HANDED_OFF")]
++    assert handed_off.edge is not None and side.branches_from == handed_off.edge[1] == "x_pending"
++    assert {s for s, t in EDGES if t == "a_narrate"} == {"x_pending"}
+     assert not [t for s, t in EDGES if s == "a_narrate"]
+-    assert ("a_submit", "i_check") in EDGES
+-    order = [node.id for node in GRAPH.nodes]  # 角色分工卡照這個順序列:說明排在送出之後
+-    assert order.index("a_propose") < order.index("a_submit") < order.index("a_narrate")
+-    label = NODES["a_narrate"].label + EDGES[("a_submit", "a_narrate")].label
+-    assert "確認的人" not in label and "執行時不讀" in label
++    assert {t for s, t in EDGES if s == "a_propose"} == {"a_submit"}
++    assert {t for s, t in EDGES if s == "a_submit"} == {"i_check"}
++    label = NODES["a_narrate"].label + EDGES[("x_pending", "a_narrate")].label
++    assert "確認的人" not in label and "收下之後" in label and "執行時不讀" in label
++
++
++def test_the_side_branch_is_not_listed_as_an_untaken_branch():
++    """旁支不是判斷的分支:排隊等執行出現在判斷紀錄裡時,「這次沒走的分支」不列說明,也不經過它。"""
++    from rtb.demo.flow_svg import render_untaken_branches
++    from tests.demo.sample_data import make_demo_state
++
++    for scenario in make_demo_state().scenarios:
++        html = render_untaken_branches(GRAPH, scenario)
++        assert "寫說明" not in html, scenario.code
+diff --git a/tests/demo/test_page.py b/tests/demo/test_page.py
+index d4c1fd0..efca774 100644
+--- a/tests/demo/test_page.py
++++ b/tests/demo/test_page.py
+@@ -410,25 +410,27 @@ def test_approval_has_one_required_checkbox_per_number_without_number_in_attribu
+     assert all(" required" in checkbox for checkbox in checkboxes)
+     assert 'name="confirm_0" value="1"' in html
+     assert 'name="confirm_1" value="1"' in html
+     assert all("秘密數字" not in checkbox for checkbox in checkboxes)
+     assert 'name="demo_id" value="demo&quot;&gt;&lt;img"' in html
+     assert 'name="numbers_digest" value="digest&quot;&gt;&lt;script"' in html
+     assert 'http-equiv="refresh"' not in html
+ 
+ 
+ def test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets() -> None:
+-    """Issues/流程圖把AI說明畫在送出建議之前:核可表單組裝時說明欄固定是空的(說明在建議送出後才另外
+-    寫),表單不准再叫人「閱讀 AI 產生的參考說明」,要照實寫這張表單沒有附說明。"""
++    """Issues/流程圖把AI說明畫在送出建議之前(代碼審 r1 正確性 F2 改寫理由):組表單時就不帶說明,
++    一鍵展示也要等情境整段跑完才產說明——表單出現時建議早已送出,所以不能寫成「送出之後才寫」。
++    表單不准再叫人「閱讀 AI 產生的參考說明」,要照實寫這兩個原因。"""
+     html = render_approval(replace(make_demo_state(), approval=_PENDING), form_token="token")
+     assert "閱讀 AI" not in html and "參考說明" not in html
+-    assert "這張表單沒有附 AI 說明" in html
++    assert "這張表單不帶 AI 說明" in html and "同意與否只看程式算出的數字" in html
++    assert "情境整段跑完才產生說明" in html and "送出之後才另外寫" not in html
+     assert "寫入前照樣重新檢查" in html
+ 
+ 
+ def test_awaiting_approval_main_page_has_link_and_no_refresh_or_form() -> None:
+     state = make_demo_state(running=True)
+     scenarios = tuple(
+         replace(item, status=ScenarioStatus.AWAITING_APPROVAL)
+         if item.code is ScenarioCode.F7
+         else item
+         for item in state.scenarios
+diff --git a/tests/test_readme_flow_diagram.py b/tests/test_readme_flow_diagram.py
+new file mode 100644
+index 0000000..fb98ce0
+--- /dev/null
++++ b/tests/test_readme_flow_diagram.py
+@@ -0,0 +1,41 @@
++"""README 流程動圖產生器(docs/assets/make_agent_flow_gif.py)的畫法守衛:AI 寫提案說明是收件收下之後的
++旁支,不准又被畫回送出與收件之間的主線(Issues/流程圖把AI說明畫在送出建議之前;代碼審 r1 正確性 F3)。
++
++產生器要 Pillow,Pillow 不是專案依賴;所以不匯入產生器,只用語法樹讀它模組層的 EDGES、NOTES、CAPTIONS
++字面值,CI 沒裝 Pillow 也照樣跑、不跳過。
++"""
++
++import ast
++from pathlib import Path
++from typing import Any
++
++ROOT = Path(__file__).resolve().parents[1]
++GENERATOR = ROOT / "docs" / "assets" / "make_agent_flow_gif.py"
++
++
++def _literal(name: str) -> Any:
++    tree = ast.parse(GENERATOR.read_text(encoding="utf-8"))
++    found = [node.value for node in tree.body
++             if isinstance(node, ast.Assign)
++             and any(isinstance(t, ast.Name) and t.id == name for t in node.targets)]
++    assert len(found) == 1, f"產生器模組層要剛好有一個 {name} = 字面值"
++    return ast.literal_eval(found[0])
++
++
++def test_the_readme_diagram_keeps_the_narrative_off_the_main_line() -> None:
++    edges = _literal("EDGES")
++    pairs = {(first, second): kind for first, second, _points, kind in edges}
++    assert pairs.get(("submit", "inbox")) == "main", "送出提案要直接接收件檢查"
++    assert not [p for p in pairs if p[0] == "narrate"], "AI 說明是旁支,不准有出去的邊"
++    into = {p: kind for p, kind in pairs.items() if p[1] == "narrate"}
++    # 說明命令列只讀收件收下、交給執行的提案:旁支從待處理佇列岔出,畫成 AI 色虛線
++    assert into == {("queue", "narrate"): "note"}, into
++
++
++def test_the_readme_diagram_says_the_narrative_comes_after_intake_the_same_way() -> None:
++    """格子標題與註記用同一個說法(收件收下後),不再寫「送件後供確認者參考」。"""
++    caption = _literal("CAPTIONS")["narrate"]
++    notes = [text for _x, _y, text in _literal("NOTES")]
++    [note] = [text for text in notes if "只給人看" in text]
++    assert caption.startswith("收件收下後") and note.startswith("收件收下後")
++    assert not any("確認者" in text for text in (*notes, caption))

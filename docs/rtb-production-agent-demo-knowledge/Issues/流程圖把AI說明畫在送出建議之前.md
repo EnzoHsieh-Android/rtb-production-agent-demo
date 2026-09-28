@@ -1,17 +1,17 @@
 ---
 type: issue
-status: open
+status: resolved
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-28
 aliases: []
 about_code:
   - src/rtb/demo/flow.py
 tags:
   - type/issue
-  - status/open
+  - status/resolved
 summary: |-
   FLAG:TECHNICAL
-  DECISION: 尚未處理;2026-09-27 README 重排的事實核對發現,README 文字已先照程式改成旁支,展示流程圖與 README 動圖另案修。
+  DECISION: 已修(2026-09-28,含代碼審 r1):展示流程圖與 README 動圖把 AI 說明改成收件收下之後的旁支,核可表單拿掉「再閱讀 AI 產生的參考說明」改寫成事實,README 截圖重拍;見下方〈結案〉。
   KEY: 來源=governance/review-reports/code-readme-restructure/r1-事實核對.md 第 1 條
 ---
 # 流程圖把AI說明畫在送出建議之前
@@ -28,3 +28,14 @@ summary: |-
 - 人工核可表單看不到說明:表單組裝時說明欄固定是空的,頁面卻寫「再閱讀 AI 產生的參考說明」。要嘛讓表單拿到說明,要嘛改掉這句提示。
 - README 連到的靜態流程圖寫「送件後供確認者參考」,確認者在核可當下其實看不到,跟上一條一起改。
 - 來源:governance/review-reports/code-readme-final/r1-事實核對.md
+
+## 結案(2026-09-28,含代碼審 r1 修正)
+- 展示流程圖:說明節點從「寫好調整建議 → 送去執行」之間拿出來,改成從「排隊等執行」(收件收下、交給執行落的那一格)岔出去的旁支;被拒收或過時的建議不會有說明。旁支用 `SideBranch` 結構化宣告展開(跟回頭轉換同一套,不另開裸清單,代碼審 r1 a_1);寫好建議 → 送出只剩一條邊,邊數 68 → 67。觀察器與 F1–F7 實際路徑不變。細節見 [[Systems/一鍵展示]] 與 [[Systems/展示頁面]] 同日一節。防回歸:[test:test_the_narrative_is_a_side_branch_after_the_proposal_is_accepted]、[test:test_the_side_branch_is_not_listed_as_an_untaken_branch]。
+- 人工核可表單:照交辦只改提示、不改資料流——拿掉「再閱讀 AI 產生的參考說明」,改成「逐項確認程式算出的數字;同意後建議回到排隊,寫入前照樣重新檢查」;沒有說明時照實寫原因:組表單時不帶說明、一鍵展示要等情境整段跑完才產說明。讓表單拿到說明是另一件事,這次不做。防回歸:[test:test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets]。
+- README 動圖與靜態圖:送出提案直下接收件檢查,AI 說明從待處理佇列往上的旁支;標題、註記、描述統一用「收件收下後」;重產 GIF/SVG,連續兩次雜湊相同;新增產生器守衛測試,四種變異都會翻紅。見 [[Systems/README流程動圖產生器]]、[[Verification/README流程動圖驗證]]。
+- README 的 F1–F7 截圖照同一做法重播入庫錄製重拍,帳本前後 stat 不變;r1 修正後再重播比對情境詳情,不需重拍。README 本文沒動。
+- 驅動與說明模組的註解不再寫「給核可的人看」;送給模型的系統提示沒改(會讓錄製失效),另開 [[Issues/說明提示仍寫給核可的人看]],等下次重錄一起改。
+
+## 已知限制(2026-09-28 代碼審第 2 輪正確性席)
+- 旁支畫成從「排隊等執行」岔出,只有一個方向精確:被更新建議取代的、交出去之後重送被拒收的建議,說明命令列照樣會寫說明(它們曾交給執行),圖上卻不經過排隊那一格。屬少見邊角,這次不為它改圖;展示流程圖只畫實際走過的路,不影響情境截圖。
+- README 動圖的守衛測試用語法樹讀產生器的字面值,防的是手滑把說明畫回主線;刻意用補邊或改座標繞過要改產生器程式,會在審查時被看到。

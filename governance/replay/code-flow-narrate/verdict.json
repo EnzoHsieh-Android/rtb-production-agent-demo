@@ -1,0 +1,38 @@
+{
+ "loop": "code-flow-narrate",
+ "round": "r2",
+ "engine_rev": "d5-2026-08-25",
+ "frozen_at": "2026-09-28T16:48:16+08:00",
+ "spec_path": "governance/review-reports/code-flow-narrate/r2-delta.patch",
+ "spec_sha": "6b5eb025bcae51c1c33ec7baa3cd28adb0490aa49b81cf40c678cedb92fcbb1f",
+ "rows": [
+  "{\"ts\": \"2026-09-28T16:35:52+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-35e09a51\", \"note\": \"\", \"loop\": \"code-flow-narrate\", \"round\": \"r1\", \"severity\": \"major\", \"findings\": 1, \"result_sha256\": \"9b2d45ce3f29151812e2ab56448e6f357d599a96cc40348e2648ad2b3da80170\", \"reviewed_sha256\": \"9b2d45ce3f29151812e2ab56448e6f357d599a96cc40348e2648ad2b3da80170\", \"spec_path\": \"governance/review-reports/code-flow-narrate/r1-snapshot.patch\", \"scope_lines\": 845, \"reported\": 1, \"report_path\": \"governance/review-reports/code-flow-narrate/r1-架構對齊.md\", \"report_sha256\": \"8ecb831bb417a61894ced6de55ec4f34fb52403d3299db438d94124969a74a18\", \"snapshot_path\": \"governance/review-reports/code-flow-narrate/r1-snapshot.patch\", \"snapshot_sha256\": \"9b2d45ce3f29151812e2ab56448e6f357d599a96cc40348e2648ad2b3da80170\"}",
+  "{\"ts\": \"2026-09-28T16:35:53+08:00\", \"kind\": \"none\", \"auditor\": \"正確性\", \"token\": \"CANARY-463d92b9\", \"note\": \"\", \"loop\": \"code-flow-narrate\", \"round\": \"r1\", \"severity\": \"minor\", \"findings\": 4, \"result_sha256\": \"9b2d45ce3f29151812e2ab56448e6f357d599a96cc40348e2648ad2b3da80170\", \"reviewed_sha256\": \"9b2d45ce3f29151812e2ab56448e6f357d599a96cc40348e2648ad2b3da80170\", \"spec_path\": \"governance/review-reports/code-flow-narrate/r1-snapshot.patch\", \"scope_lines\": 845, \"findings_set\": [\"f_1\", \"f_2\", \"f_3\", \"f_4\", \"a_1\"], \"folded_set\": [\"f_1\", \"f_2\", \"f_3\", \"f_4\", \"a_1\"], \"accepted_set\": [], \"refuted_set\": [], \"finding_kinds\": {\"f_1\": \"code\", \"f_2\": \"code\", \"f_3\": \"code\", \"f_4\": \"code\", \"a_1\": \"code\"}, \"reported\": 4, \"report_path\": \"governance/review-reports/code-flow-narrate/r1-正確性.md\", \"report_sha256\": \"ce8c4f7f2ce98c2b10a808bdc10e29007f8d6ff98fbad862eddb87f22e544cbc\", \"snapshot_path\": \"governance/review-reports/code-flow-narrate/r1-snapshot.patch\", \"snapshot_sha256\": \"9b2d45ce3f29151812e2ab56448e6f357d599a96cc40348e2648ad2b3da80170\"}",
+  "{\"ts\": \"2026-09-28T16:47:10+08:00\", \"kind\": \"none\", \"auditor\": \"架構對齊\", \"token\": \"CANARY-e9eee02f\", \"note\": \"\", \"loop\": \"code-flow-narrate\", \"round\": \"r2\", \"severity\": \"clean\", \"findings\": 0, \"result_sha256\": \"6b5eb025bcae51c1c33ec7baa3cd28adb0490aa49b81cf40c678cedb92fcbb1f\", \"reviewed_sha256\": \"6b5eb025bcae51c1c33ec7baa3cd28adb0490aa49b81cf40c678cedb92fcbb1f\", \"spec_path\": \"governance/review-reports/code-flow-narrate/r2-delta.patch\", \"scope_lines\": 961, \"reported\": 0, \"report_path\": \"governance/review-reports/code-flow-narrate/r2-架構對齊.md\", \"report_sha256\": \"2c5164f3f6451b1c1ca89d9f04900d1cf6eb3bf86d762fa7472659e00c75eac1\", \"snapshot_path\": \"governance/review-reports/code-flow-narrate/r2-delta.patch\", \"snapshot_sha256\": \"6b5eb025bcae51c1c33ec7baa3cd28adb0490aa49b81cf40c678cedb92fcbb1f\"}",
+  "{\"ts\": \"2026-09-28T16:47:11+08:00\", \"kind\": \"none\", \"auditor\": \"正確性\", \"token\": \"CANARY-34ca8ca5\", \"note\": \"\", \"loop\": \"code-flow-narrate\", \"round\": \"r2\", \"severity\": \"minor\", \"findings\": 3, \"result_sha256\": \"6b5eb025bcae51c1c33ec7baa3cd28adb0490aa49b81cf40c678cedb92fcbb1f\", \"reviewed_sha256\": \"6b5eb025bcae51c1c33ec7baa3cd28adb0490aa49b81cf40c678cedb92fcbb1f\", \"spec_path\": \"governance/review-reports/code-flow-narrate/r2-delta.patch\", \"scope_lines\": 961, \"findings_set\": [\"n1\", \"n2\", \"n3\"], \"folded_set\": [\"n1\"], \"accepted_set\": [\"n2\", \"n3\"], \"refuted_set\": [], \"accept_reasons\": {\"n2\": \"守衛測試防的是手滑畫回主線,刻意繞過要改產生器程式會在審查時被看到;已記進流程圖問題單\", \"n3\": \"被取代或重送被拒的建議屬少見邊角,展示流程圖只畫實際路徑、不影響截圖;已記進流程圖問題單的已知限制\"}, \"finding_kinds\": {\"n1\": \"code\", \"n2\": \"code\", \"n3\": \"spec\"}, \"reported\": 3, \"report_path\": \"governance/review-reports/code-flow-narrate/r2-正確性.md\", \"report_sha256\": \"1df2f22c9c5e65df36cade56475551900a6ba3e6ee584613a0688b0f0c5c1a95\", \"snapshot_path\": \"governance/review-reports/code-flow-narrate/r2-delta.patch\", \"snapshot_sha256\": \"6b5eb025bcae51c1c33ec7baa3cd28adb0490aa49b81cf40c678cedb92fcbb1f\"}"
+ ],
+ "all_row_shas": [
+  "6edad8ae8c1ea76df2e80ec9e417971503d2499cea73a99ca086f45841e29b04",
+  "8b47c4cd449e43267e55aa23276acaeb6f5b4d9b114de3c53473dfb76fbedf8a",
+  "96ba843e4d666961ffad29cd633f107ee83451bfd6192a628b486e6d4b85d374",
+  "b6a924d971ac6b903b339cd902143c697bc1388ad2cf4ddd94ed49f19ddd57d9"
+ ],
+ "files": {
+  "governance/review-reports/code-flow-narrate/r2-架構對齊.md": {
+   "sha256": "2c5164f3f6451b1c1ca89d9f04900d1cf6eb3bf86d762fa7472659e00c75eac1",
+   "git_blob": "76ae3049065d0f4655e5fe1c3dc98851d9a7e303"
+  },
+  "governance/review-reports/code-flow-narrate/r2-delta.patch": {
+   "sha256": "6b5eb025bcae51c1c33ec7baa3cd28adb0490aa49b81cf40c678cedb92fcbb1f",
+   "git_blob": "58dbfcd426c889b25e71ed525b3e5a329570c503"
+  },
+  "governance/review-reports/code-flow-narrate/r2-正確性.md": {
+   "sha256": "1df2f22c9c5e65df36cade56475551900a6ba3e6ee584613a0688b0f0c5c1a95",
+   "git_blob": "8915abcb54d6df6617f0d880fb947dd549acb3f8"
+  }
+ },
+ "verdict": {
+  "rc": 0,
+  "fails": []
+ }
+}

@@ -1,0 +1,263 @@
+diff --git a/docs/assets/agent-flow.svg b/docs/assets/agent-flow.svg
+index 2aa0e8c..629641e 100644
+--- a/docs/assets/agent-flow.svg
++++ b/docs/assets/agent-flow.svg
+@@ -1,8 +1,8 @@
+ <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" font-family="Hiragino Sans GB, sans-serif">
+ <title id="title">RTB Agent 九條規則判斷到安全寫入</title>
+-<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，程式用這批資料初篩新鮮度、配速、暫停與異常；只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。AI 在送件後寫提案說明，告警時推測原因，兩者都不參與決策。收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>
++<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，程式用這批資料初篩新鮮度、配速、暫停與異常；只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。提案送進收件口後，AI 另外寫給人看的提案說明，執行端不讀、不等；告警時另外請 AI 推測原因；兩者都不參與決策。收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>
+ <defs><marker id="arrow-read" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#89d0ac"/></marker></defs>
+ <defs><marker id="arrow-note" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
+ <defs><marker id="arrow-main" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
+ <defs><marker id="arrow-human" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#f1c875"/></marker></defs>
+ <defs><marker id="arrow-branch" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
+@@ -29,13 +29,13 @@
+ <polyline points="621,180 651,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="779,180 833,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="885,208 885,226 830,226 830,246" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
+ <polyline points="937,180 952,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1068,180 1080,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+-<polyline points="1130,208 1130,246" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
++<polyline points="1180,170 1290,170 1290,246" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
+ <polyline points="1500,275 1554,275" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
+-<polyline points="1180,180 1200,180 1200,340 1130,340 1130,353" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
++<polyline points="1130,208 1130,353" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1180,382 1199,382" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1255,410 1255,461" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1305,490 1334,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1446,490 1485,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+ <polyline points="1535,518 1535,561" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+@@ -53,11 +53,11 @@
+ <rect x="651" y="152" width="128" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="715" y="173" text-anchor="middle">C 逐日＋1d/7d</text><text x="715" y="196" text-anchor="middle">重讀現況</text></g>
+ <rect x="833" y="152" width="104" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="885" y="180" text-anchor="middle">九條判定</text></g>
+ <rect x="952" y="152" width="116" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1010" y="173" text-anchor="middle">值得加才</text><text x="1010" y="196" text-anchor="middle">程式算金額</text></g>
+ <rect x="1080" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="180" text-anchor="middle">送出提案</text></g>
+ <rect x="774" y="247" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="830" y="268" text-anchor="middle">不提案／</text><text x="830" y="291" text-anchor="middle">證據不足</text></g>
+-<rect x="1059" y="247" width="142" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1130" y="275" text-anchor="middle">AI 寫提案說明</text></g>
++<rect x="1219" y="247" width="142" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1290" y="275" text-anchor="middle">AI 寫提案說明</text></g>
+ <rect x="1400" y="247" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1450" y="275" text-anchor="middle">告警</text></g>
+ <rect x="1554" y="247" width="132" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1620" y="275" text-anchor="middle">AI 推測原因</text></g>
+ <rect x="1080" y="354" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="382" text-anchor="middle">收件檢查</text></g>
+ <rect x="1199" y="354" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1255" y="382" text-anchor="middle">待處理佇列</text></g>
+ <rect x="1064" y="462" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1120" y="483" text-anchor="middle">多次未啟動</text><text x="1120" y="506" text-anchor="middle">先停下</text></g>
+@@ -69,11 +69,11 @@
+ <rect x="1485" y="562" width="100" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="1535" y="583" text-anchor="middle">Mock DSP</text><text x="1535" y="606" text-anchor="middle">模擬平台</text></g>
+ <rect x="159" y="562" width="112" height="56" rx="11" fill="#173a2b" stroke="#89d0ac" stroke-width="2"/><g fill="#e8fff1" font-size="16" font-weight="700"><text x="215" y="583" text-anchor="middle">Mock DSP</text><text x="215" y="606" text-anchor="middle">讀現況／指標</text></g>
+ <rect x="1081" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1145" y="675" text-anchor="middle">F6 人工重放</text></g>
+ <rect x="1331" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1395" y="675" text-anchor="middle">F7 人工核可</text></g>
+ <text x="525" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">太舊回 A；缺資料或不慢就不提案</text>
+-<text x="1130" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">送件後供確認者參考，不進決策</text>
++<text x="1290" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">送出後另寫，只給人看，執行端不讀</text>
+ <text x="1570" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">告警原因只是假說，不進決策</text>
+ <text x="1065" y="714" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">重放／核可後都回佇列，重新檢查</text>
+ <text x="300" y="119" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>
+ <text x="535" y="222" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">缺資料／不慢</text>
+ <text x="855" y="215" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">不值得／證據不足</text>
+diff --git a/docs/assets/make_agent_flow_gif.py b/docs/assets/make_agent_flow_gif.py
+index 102200b..691615b 100644
+--- a/docs/assets/make_agent_flow_gif.py
++++ b/docs/assets/make_agent_flow_gif.py
+@@ -30,11 +30,11 @@ COLORS = {
+ }
+ LANES = (("分析", 110, 320), ("收件", 340, 425), ("執行", 440, 540),
+          ("廣告平台", 555, 625), ("人工", 640, 710))
+ NOTES = (
+     (525, 313, "太舊回 A；缺資料或不慢就不提案"),
+-    (1130, 313, "送件後供確認者參考，不進決策"),
++    (1290, 313, "送出後另寫，只給人看，執行端不讀"),
+     (1570, 313, "告警原因只是假說，不進決策"),
+     (1065, 714, "重放／核可後都回佇列，重新檢查"),
+ )
+ LEGEND = (
+     (112, "程式", COLORS["程式"][1]),
+@@ -65,11 +65,12 @@ NODES = (
+     Node("step_c", 715, 180, ("C 逐日＋1d/7d", "重讀現況"), "程式", 128),
+     Node("rule", 885, 180, ("九條判定",), "程式", 104),
+     Node("proposal", 1010, 180, ("值得加才", "程式算金額"), "程式", 116),
+     Node("submit", 1130, 180, ("送出提案",), "程式"),
+     Node("stop", 830, 275, ("不提案／", "證據不足"), "程式", 112),
+-    Node("narrate", 1130, 275, ("AI 寫提案說明",), "AI", 142),
++    # AI 說明是送出後的旁支：畫在送出提案右下，不擋在送出與收件之間
++    Node("narrate", 1290, 275, ("AI 寫提案說明",), "AI", 142),
+     Node("alert", 1450, 275, ("告警",), "程式"),
+     Node("hypothesis", 1620, 275, ("AI 推測原因",), "AI", 132),
+     Node("inbox", 1130, 382, ("收件檢查",), "程式"),
+     Node("queue", 1255, 382, ("待處理佇列",), "程式", 112),
+     Node("deadletter", 1120, 490, ("多次未啟動", "先停下"), "程式", 112),
+@@ -97,11 +98,11 @@ CAPTIONS = {
+     "step_c": "C：讀逐日、近一天／七天成效，再重讀現況。",
+     "rule": "程式依序判九條；查詢有問題就判證據不足。",
+     "stop": "不值得加或證據不足，就不提案。",
+     "proposal": "若判值得加，金額、廣告與動作由程式決定。",
+     "submit": "提案送往獨立收件口。",
+-    "narrate": "AI 把提案寫成給人看的說明，不參與決策。",
++    "narrate": "提案送進收件口後，AI 另外寫給人看的說明；執行端不讀、不等。",
+     "alert": "發生告警時，另外請 AI 推測原因。",
+     "hypothesis": "AI 只提供告警原因假說，不參與決策。",
+     "inbox": "收件口檢查並保存提案。",
+     "queue": "提案進入待處理佇列。",
+     "deadletter": "F6：多次未能開始處理，先停下等人。",
+@@ -126,14 +127,13 @@ EDGES = (
+     ("step_b", "step_c", ((621, 180), (651, 180)), "main"),
+     ("step_c", "rule", ((779, 180), (833, 180)), "main"),
+     ("rule", "stop", ((885, 208), (885, 226), (830, 226), (830, 246)), "branch"),
+     ("rule", "proposal", ((937, 180), (952, 180)), "main"),
+     ("proposal", "submit", ((1068, 180), (1080, 180)), "main"),
+-    ("submit", "narrate", ((1130, 208), (1130, 246)), "note"),
++    ("submit", "narrate", ((1180, 170), (1290, 170), (1290, 246)), "note"),
+     ("alert", "hypothesis", ((1500, 275), (1554, 275)), "note"),
+-    ("submit", "inbox", ((1180, 180), (1200, 180), (1200, 340),
+-                         (1130, 340), (1130, 353)), "main"),
++    ("submit", "inbox", ((1130, 208), (1130, 353)), "main"),
+     ("inbox", "queue", ((1180, 382), (1199, 382)), "main"),
+     ("queue", "recheck", ((1255, 410), (1255, 461)), "main"),
+     ("recheck", "limits", ((1305, 490), (1334, 490)), "main"),
+     ("limits", "write", ((1446, 490), (1485, 490)), "main"),
+     ("write", "platform", ((1535, 518), (1535, 561)), "main"),
+@@ -246,11 +246,12 @@ def _write_svg() -> None:
+         '<title id="title">RTB Agent 九條規則判斷到安全寫入</title>',
+         '<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，'
+         '程式用這批資料初篩新鮮度、配速、暫停與異常；'
+         '只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。'
+         '程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。'
+-        'AI 在送件後寫提案說明，告警時推測原因，兩者都不參與決策。'
++        '提案送進收件口後，AI 另外寫給人看的提案說明，執行端不讀、不等；'
++        '告警時另外請 AI 推測原因；兩者都不參與決策。'
+         '收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>',
+         f'<rect width="1800" height="760" fill="{BG}"/>',
+         f'<rect x="24" y="17" width="1752" height="66" rx="16" fill="{SURFACE}" '
+         f'stroke="{BORDER}"/>',
+         f'<text x="900" y="58" text-anchor="middle" fill="{TEXT}" font-size="25" '
+diff --git a/docs/rtb-production-agent-demo-knowledge/Issues/流程圖把AI說明畫在送出建議之前.md b/docs/rtb-production-agent-demo-knowledge/Issues/流程圖把AI說明畫在送出建議之前.md
+index 3ec7ad3..fff478e 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Issues/流程圖把AI說明畫在送出建議之前.md
++++ b/docs/rtb-production-agent-demo-knowledge/Issues/流程圖把AI說明畫在送出建議之前.md
+@@ -1,19 +1,19 @@
+ ---
+ type: issue
+-status: open
++status: resolved
+ created: 2026-09-27
+-updated: 2026-09-27
++updated: 2026-09-28
+ aliases: []
+ about_code:
+   - src/rtb/demo/flow.py
+ tags:
+   - type/issue
+-  - status/open
++  - status/resolved
+ summary: |-
+   FLAG:TECHNICAL
+-  DECISION: 尚未處理;2026-09-27 README 重排的事實核對發現,README 文字已先照程式改成旁支,展示流程圖與 README 動圖另案修。
++  DECISION: 已修(2026-09-28):展示流程圖與 README 動圖把 AI 說明改成送出之後的旁支,核可表單拿掉「再閱讀 AI 產生的參考說明」改寫成事實,README 截圖重拍;見下方〈結案〉。
+   KEY: 來源=governance/review-reports/code-readme-restructure/r1-事實核對.md 第 1 條
+ ---
+ # 流程圖把AI說明畫在送出建議之前
+ 
+ 
+@@ -26,5 +26,11 @@ summary: |-
+ 
+ ## 補充(2026-09-27 README 最終審查的事實核對)
+ - 人工核可表單看不到說明:表單組裝時說明欄固定是空的,頁面卻寫「再閱讀 AI 產生的參考說明」。要嘛讓表單拿到說明,要嘛改掉這句提示。
+ - README 連到的靜態流程圖寫「送件後供確認者參考」,確認者在核可當下其實看不到,跟上一條一起改。
+ - 來源:governance/review-reports/code-readme-final/r1-事實核對.md
++
++## 結案(2026-09-28)
++- 展示流程圖:說明節點從「寫好調整建議 → 送去執行」之間拿出來,改成「把建議送去執行」岔出去的旁支(新 `SIDE_BRANCHES`,沒有出去的邊);寫好建議 → 送出只剩一條邊,邊數 68 → 67;節點與邊的文字改成「收件之後另外寫、只給人看、執行時不讀」。觀察器與 F1–F7 實際路徑不變(說明與送出都沒有系統結果對到,判斷紀錄本來就不落在上面)。細節見 [[Systems/一鍵展示]] 與 [[Systems/展示頁面]] 同日一節。防回歸:[test:test_the_narrative_is_a_side_branch_after_the_proposal_is_sent]。
++- 人工核可表單:照交辦只改提示、不改資料流——拿掉「再閱讀 AI 產生的參考說明」,改成「逐項確認程式算出的數字;同意後建議回到排隊,寫入前照樣重新檢查」,沒有說明時照實寫「這張表單沒有附 AI 說明」。讓表單拿到說明是另一件事,這次不做。防回歸:[test:test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets]。
++- README 動圖與靜態圖:送出提案直下接收件檢查,AI 說明挪到右下旁支;「送件後供確認者參考」改成「送出後另寫,只給人看,執行端不讀」;重產 GIF/SVG,連續兩次雜湊相同。見 [[Systems/README流程動圖產生器]]、[[Verification/README流程動圖驗證]]。
++- README 的 F1–F7 截圖照同一做法重播入庫錄製重拍,帳本前後 stat 不變,見 [[Verification/README流程動圖驗證]] 同日一節。README 本文沒動。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md b/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
+index e84e3b2..5eacc83 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/README流程動圖產生器.md
+@@ -21,18 +21,20 @@ verified_by:
+ 
+ WHY: [2026-09-24] 使用者裁定產圖腳本移到 `docs/assets/make_agent_flow_gif.py`，作為文件產出物工具，不列入 `tools/`、mypy 掃描與正式工具規範；用系統 Python 和 Pillow 12 重畫，不增加專案開發依賴。出處：README 代碼審第 1 輪後的使用者裁定。
+ 
+ WHY: [2026-09-25 Phase 13 主線] 先前灰色「AI 說明規劃中」旁支已誤導讀者：開啟 AI 判斷的展示流程會在程式初篩後讓 AI 選唯讀查詢或結論，查詢回蒐證、失敗改由程式規則決定；此路徑未通過正式採用門檻。給人看的說明與告警假說已接入展示，不影響決策。重畫時把這三種去向及 F6/F7 回佇列重查畫出，節點與分支以 [[Systems/一鍵展示]] 所管的展示流程定義為準，深色配色以 [[Systems/展示頁面]] 的 CSS 為準。出處：Phase 13 已合主線的程式與 [[Projects/RTB_Phase13AI參與決策_計劃]]，可重跑 `python3 docs/assets/make_agent_flow_gif.py` 並對照圖及流程定義。
+ 
+-展示流程定義把「AI 說明」列在提案與送件之間，作為提案旁的可選節點；實際展示驅動在情境結束後才讀已送出的提案、產生給人看的說明，告警假說也在那時獨立處理。本圖送件後的虛線旁支表現展示時點，不表示那段文字會跟提案一起進入收件或執行決策。
++（2026-09-25 當時的寫法，已過時：展示流程定義那時把「AI 說明」列在提案與送件之間；2026-09-28 起流程定義與本圖都改成送出後的旁支，見文末同日一段。）實際展示驅動在情境結束後才讀已送出的提案、產生給人看的說明，告警假說也在那時獨立處理；兩段文字都不進收件或執行決策。
+ 
+ WHY: [2026-09-25] F6/F7 回頭線用人工色虛線，AI 查詢回頭線用 AI 色虛線，與程式主線分辨；GIF 和 SVG 共用節點與路徑定義。出處：README 代碼審第 2 輪與本次 Phase 13 README 更新。
+ 
+ WHY: [2026-09-26] 使用者指出舊圖的「蒐集資料」沒有連到廣告平台，讀者會以為分析端只看系統內部資料；實際上分析端的 DSP 用戶端在蒐集時讀廣告現況與成效指標，AI 追加查詢也回到蒐集再讀一次(見 [[Systems/Mock-DSP]])。平台列在蒐集下方另畫一格「Mock DSP 讀現況／指標」，用平台色虛線標「只讀」，跟執行端的實線寫入分開，保住「寫入只在執行端」這個重點；不拉長線接到右邊那一格，免得橫越整張圖。展示流程定義是狀態流程、不畫呼叫關係，這條線不在裡面，是這張 README 圖自己補的。
+ 
+ WHY: [2026-09-27 Phase 14] 使用者要 README 圖跟正式決策路徑一致：分析端第一步 A 讀現況與 1h 成效，用 A 的資料初篩；配速偏低才續讀 B（歷史、過去調整）、C（逐日、1d／7d、重讀），由九條程式規則定案，值得加才算金額與送件。AI 決策與選查詢已退出正式及展示分析，圖只保留送件後給確認者看的提案說明，以及告警時的原因假說；兩支均不進加額決策。F6 人工重放及 F7 核可仍回佇列重驗。出處：[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉1–8、實際展示驅動與本次 README 工作；以 `python3 docs/assets/make_agent_flow_gif.py` 重畫並核對 [[Verification/README流程動圖驗證]]。
+ 
+-本圖由同一份 `NODES`、`EDGES`、`CAPTIONS` 資料產 GIF 與 SVG，SVG 逐次輸出相同。上方 2026-09-24 至 26 日的 Phase 13 畫法及抽格紀錄是歷史脈絡，不能當成現行圖；目前兩條 AI 旁支的時點仍依展示驅動，而不是流程定義裡保留的候選模型節點。
++WHY: [2026-09-28] [[Issues/流程圖把AI說明畫在送出建議之前]]：舊圖把「AI 寫提案說明」放在「送出提案」正下方、夾在送出與「收件檢查」之間，主線還得繞過它，讀的人會以為提案要先經過 AI 才進收件。改成送出提案往下直接一條實線接收件檢查；AI 說明挪到送出提案右下方，從送出提案右側拉一條 AI 色虛線過去，跟 README 文字圖「提出建議 ─→ AI 寫說明（只給人看）」同一個意思。舊註記「送件後供確認者參考，不進決策」不符事實（人工核可表單看不到說明，見 [[Systems/展示頁面]] 同日一節），改成「送出後另寫，只給人看，執行端不讀」；說明那一格的標題與 SVG 描述改成「提案送進收件口後，AI 另外寫給人看的說明；執行端不讀、不等」。出處：協調者交辦與本次重畫，驗證見 [[Verification/README流程動圖驗證]] 同日一節。
++
++本圖由同一份 `NODES`、`EDGES`、`CAPTIONS` 資料產 GIF 與 SVG，同一環境連續重畫兩次 GIF 與 SVG 的雜湊都相同。上方 2026-09-24 至 26 日的 Phase 13 畫法及抽格紀錄是歷史脈絡，不能當成現行圖；兩條 AI 旁支的時點依展示驅動（說明在送出之後、告警假說另外處理），流程定義 2026-09-28 起也把說明畫成送出後的旁支。
+ 
+ 驗證入口：`python3 docs/assets/make_agent_flow_gif.py` 重畫 GIF 與 SVG；用 `--font` 或 `RTB_FLOW_FONT` 指定字型，未指定時才用 macOS Hiragino Sans GB，找不到字型會報錯退出。產出後抽格目視、解析 SVG XML，並跑 `ruff check docs/assets/make_agent_flow_gif.py`。
+ 
+ PITFALL: GIF 各格共用一張調色盤；舊圖曾只從圖例格取色，把當時的「目前步驟」青色併成程式藍，人工格看起來像程式處理(README 代碼審第 3 輪)。現行圖仍把全部影格拼成一張再取色；目前高亮色依展示 CSS 為黃色。重驗：抽人工重放與核可的最後兩格，亮黃色像素都應大於 0；可用 Pillow 逐格讀取 RGB 數值。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+index 90887a6..806d921 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/一鍵展示.md
+@@ -264,5 +264,13 @@ WHY: 增量 3 代碼審 r2 s2:白名單環境只照抄 LANG,伺服器的 LC_ALL
+ 出處 [[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]](協調者交辦,代使用者裁定;依據是 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉8:AI 退出決策)。頁面那一半見 [[Systems/展示頁面]] 同名一節。
+ 
+ - WHY:流程圖的「由誰判斷值不值得加預算?」(`a_route`)分流與「請模型候選判斷」(`a_candidate`)是 Phase 10 的候選判斷,正式分析(`runner` 只走規則輪)與展示都走不到,增量 3 只撤了 AI 決策那一步、漏了這一支。撤除兩個節點與五條邊(偏慢 → 分流、分流 → 規則、分流 → 候選、候選 → 值得加、候選 → 規則),換成「偏慢 → 用程式規則判斷」一條;`AI_NODES` 只剩模型說明;`a_pacing` 的例外分支改成程式規則。撤除前核對過 F1–F7 實際走的路:分析端補點(`basis.analysis_route`)原本走 偏慢 → 分流 → 規則,分流那一步是固定說明「分析端目前沒有模型入口」,不是量出來的,所以直接接規則不丟任何根據;驅動與觀察器沒有引用這兩個節點。防回歸:[test:test_the_phase10_candidate_branch_is_gone]、[test:test_a_slow_campaign_goes_straight_to_the_nine_rules]、[test:test_the_analysis_checks_are_filled_in_from_the_recomputed_basis]、[test:test_the_filled_in_route_is_real_edges_and_ends_where_the_rule_ended]。
+ - 對應清單拿掉分析端路由(`RoutePath`,只剩 Phase 10 評估在用、正式路徑只會產生程式規則那一種),剩十七個;[S1024] 的列舉數同步註記。值不值得加的判定裡只有候選會答的「拿不定」,照程式實際的結局對到「用程式規則判斷」那一格:路由收到「拿不定」就退回九條規則再判,九條判值得加照樣提案(代碼審 r1 正確性席更正;原先誤對到「不調整」)。防回歸:[test:test_the_mapped_enums_are_the_seventeen_in_the_plan]、[test:test_every_system_outcome_maps_onto_the_flow_graph]、[test:test_every_decision_node_is_bound_to_an_enum]。
+ - `basis.NO_MODEL` 與只有它用的來源字樣 `FIXED` 刪除;根據代碼 `ROUTE_RULE` 照留(不再產生,留著讓舊值讀得回來;那一步是顯示時才補、沒寫進展示狀態庫,留著只是保守)。
++
++## 說明節點改成送出之後的旁支(2026-09-28)
++
++出處 [[Issues/流程圖把AI說明畫在送出建議之前]](協調者交辦;README 重排事實核對發現)。頁面那一半見 [[Systems/展示頁面]] 同名一節,README 動圖見 [[Systems/README流程動圖產生器]]。
++
++- WHY:流程圖原本把「請模型寫說明」畫在「寫好調整建議」與「把建議送去執行」之間(寫好建議 → 說明 → 送出,另一條「不需 AI 說明,送出」),讀的人會以為 AI 在寫入的關鍵路徑上。程式實際是說明命令列讀已送進收件口、交給執行的那幾列提案才寫(見 [[Systems/分析行程流程與檢查點]] 的說明段),說明不進收件口、能力憑證與 DSP 請求,執行端不讀、不等它;一鍵展示也是情境跑完、驅動的模型入口那一段才產說明。改成:寫好建議 → 送出只剩一條邊,說明節點改從「把建議送去執行」岔出去的旁支,自己沒有出去的邊;新增 `SIDE_BRANCHES` 標旁支(跟結束點、回頭節點一樣不准有出去的邊)。節點排在送出之後,角色分工卡列節點的順序也跟著變。節點與邊的文字改成「收件之後另外寫、只給人看、執行時不讀」,不再寫「給確認的人看」(核可表單上看不到說明,見 [[Systems/展示頁面]])。邊數 68 → 67。防回歸:[test:test_the_narrative_is_a_side_branch_after_the_proposal_is_sent]、[test:test_every_node_is_reachable_from_the_start_and_every_end_is_a_dead_end]、[test:test_formal_flow_map_and_every_sample_route_match]。
++- 觀察器與實際路徑不受影響:說明與送出兩個節點都沒有系統結果對到(不在 `OUTCOMES`),判斷紀錄本來就不會落在它們上面;觀察器替「寫好建議」之後的回頭節點找進入邊時,經過看不到的節點往下找,原本走「寫好建議 → 說明/送出 → 收件檢查」,現在走「寫好建議 → 送出 → 收件檢查」,找到的邊相同(說明旁支沒有出去的邊,不會多出候選)。F1–F7 的驅動與觀察器測試照舊通過。
++- 展示狀態轉換(`present.py`)的已知限制那句改成「AI 只在建議送出後寫提案說明給人看」,不再寫「給確認的人看」。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md b/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md
+index c48baf0..9b2ccf3 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md
++++ b/docs/rtb-production-agent-demo-knowledge/Systems/展示頁面.md
+@@ -139,5 +139,13 @@ PITFALL: [2026-09-27 CI 間歇失敗] 主頁要不要自動重讀原本看情境
+ ## 撤 Phase 10 候選判斷分支(2026-09-27,代使用者裁定)
+ 
+ 出處 [[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]];流程圖定義的改動記在 [[Systems/一鍵展示]] 同名一節。
+ 
+ - WHY:流程圖「選擇判法」與「候選判斷」兩格(請 AI 提供參考判斷 → 候選判斷)正式與展示都不走,留在「這次沒走的分支」裡跟「AI 不參與決定」矛盾。流程圖短標籤拿掉這兩格,AI 寬度只給模型說明;沒開 AI 時的邊界說明改成「目前正式預算決策由程式規則執行;AI 說明與推測只供參考」(不再寫「AI 候選另行評估」);F5 情境列表的「轉向」從候選節點改指「用程式規則判斷」(名稱誘導不影響九條看數字判)。範例資料的路徑同步:花得偏慢直接接程式規則;範例 F5 照舊不附說明(走「不需 AI 說明,送出」那條邊),其餘情境走模型說明。頁面測試寫死的節點與邊數 48 → 46、72 → 68。防回歸:[test:test_page_and_report_remove_demo_mode_from_every_flow_label]、[test:test_formal_flow_map_and_every_sample_route_match]、[test:test_each_sample_keeps_ai_and_human_steps_as_separate_coloured_nodes]。
++
++## 說明節點改成送出之後的旁支、核可表單不再叫人讀說明(2026-09-28)
++
++出處 [[Issues/流程圖把AI說明畫在送出建議之前]];流程圖定義的改動記在 [[Systems/一鍵展示]] 同名一節。
++
++- WHY:核可表單組裝時說明欄固定是空的(展示狀態轉換組表單時照實不帶說明:說明在建議送出後另外寫、執行端不讀),表單卻寫「先逐項確認程式算出的數字,再閱讀 AI 產生的參考說明」,下面只出現「沒有 AI 說明。」。照協調者交辦只改提示、不改資料流(讓表單拿到說明是另一件事):提示改成「逐項確認程式算出的數字;同意後建議回到排隊,寫入前照樣重新檢查」,沒有說明時寫「這張表單沒有附 AI 說明:說明在建議送出之後才另外寫、只給人看,執行時不讀也不等它」;有說明的那一路(只在測試裡構造)照舊顯示。其餘明細裡的說明卡標題從「給確認的人看」改成「建議送出後才寫,只給人看」。防回歸:[test:test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets]。
++- WHY:流程圖短標籤「撰寫說明」改「送出後寫說明」。實際展示的流程圖只畫判斷紀錄真的走過的邊,說明節點沒有系統結果對到,本來就不會畫出來(說明內容在「其餘明細」的說明卡);範例資料原本把說明畫在寫好建議與送出之間,改成全部情境走「寫好建議 → 送出」,說明不在路上;走過的路上沒有 AI 節點,F1 範例畫得出的 AI 格只剩告警原因推測。頁面測試寫死的邊數 68 → 67,範例路徑切片的索引跟著少一格。`flow_svg` 裡「AI 格之後第二個程式群組」的分組邏輯(`_SECOND_GROUP_ID`)在說明離開主路後不會再觸發,留著無害。防回歸:[test:test_each_sample_keeps_ai_and_human_steps_as_separate_coloured_nodes]、[test:test_formal_flow_map_and_every_sample_route_match]。
++- 工作用字避開頁面禁用清單:節點與邊的文字用「收件」「執行時」,不用「收件口」「執行端」「提案」(這幾個是 `JARGON_TERMS`,主頁出現要緊接括號解釋)。防回歸:[test:test_example_pages_explain_or_confine_internal_jargon_to_the_glossary]。
+diff --git a/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md b/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
+index eec45df..e4076be 100644
+--- a/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
++++ b/docs/rtb-production-agent-demo-knowledge/Verification/README流程動圖驗證.md
+@@ -12,11 +12,23 @@ tags:
+ plan_refs:
+   - "[[Projects/README流程動圖_計劃]]"
+ ---
+ # README流程動圖驗證
+ 
+-## 2026-09-27 Phase 14 重畫（現行圖）
++## 2026-09-28 AI 說明改成送出後的旁支（現行圖）
++
++出處 [[Issues/流程圖把AI說明畫在送出建議之前]]。改動：送出提案 → 收件檢查改成一條直下的實線；「AI 寫提案說明」從送出提案正下方（夾在送出與收件之間）挪到右下方，由送出提案右側一條 AI 色虛線接過去；註記「送件後供確認者參考，不進決策」改成「送出後另寫，只給人看，執行端不讀」；說明那一格標題與 SVG 描述改成「提案送進收件口後，AI 另外寫給人看的說明；執行端不讀、不等」。其餘節點、F6/F7 人工回線與格數不變。
++
++系統 Python 3.14.6、Pillow 12.2.0、Hiragino Sans GB 重畫：GIF 1800×760、24 格；連續重畫兩次，GIF SHA-256 皆為 `fb98d75d…62fe6`、SVG 皆為 `3e684550…b7238`（改前為 `1782f3e6…796f`、`407cc8fa…a6d3`，改前的程式重畫一次也得到同樣的舊雜湊，確認產生器同輸入同輸出）。抽第 8 格（送出提案高亮）、第 9 格（收件檢查高亮）、第 19 格（AI 說明高亮）目視：送出直下接收件、AI 說明在右下旁支、註記沒有壓到主線或告警假說的註記。最後兩格（人工重放、核可）亮黃色像素 5278、5273 點（改前 5271、5267），調色盤沒有把高亮色併掉。SVG 用標準庫 XML 解析通過，舊註記字串已不存在、新註記存在。
++
++## 2026-09-28 README 故障表截圖重拍（說明改成旁支之後）
++
++照下面〈2026-09-27 README 故障表截圖改用 Phase 14 版〉的做法重拍 `docs/assets/phase14/full-F1.jpg`–`full-F7.jpg`：pytest 隔離（帳號家目錄與 HOME 換成暫存目錄、沒起展示伺服器）用展示驅動跑 F1–F7，全部重播入庫錄製 `recordings/model/phase14-demo`（沒有即時清單、沒呼叫模型；F7 的人工確認在行程內代按，跟展示伺服器簽發同一條路），七個情境都「結果符合預期」，七份說明都重播成功（改流程圖不影響說明錄製鍵）。靜態頁以 Playwright chromium 開 file:// 截情境詳情：1280 寬、深色、流程圖切到完整總覽、只展開「其餘明細」一層（這次沒走的分支與操作識別維持收合）；七張寬高跟前一版逐張相同（906 寬）。拍前後 stat 真帳 `~/.rtb/model-ledger.sqlite`：修改時間 1790494399、大小 319488，前後相同。[來源:人工]
++
++逐張目視：實際展示的流程圖只畫判斷紀錄走過的邊，七張的分析列都是從程式判斷直接交給收件，送出與收件之間沒有 AI 格（說明節點沒有系統結果對到，本來就不畫）；說明卡在其餘明細，標題為「AI 寫說明（建議送出後才寫，只給人看）」，程式算的數字在前、AI 文字標「AI 產生、僅供參考」；這次誰決定都是程式規則（九條）；F4/F6 接續任務剛被調過預算先不動、F5 照公式 100 → 110、F7 放行 123 個、人工確認後寫入 1 個。
++
++## 2026-09-27 Phase 14 重畫（前一版）
+ 
+ 對照 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 使用者裁定 1–8、正式九條規則、規則輪 A/B/C 與展示驅動 F1–F7，README 由 73 行變 84 行；「怎麼運作」改為配速偏低才續查、九條判定、按需唯讀查證與 AI 兩支非決策角色；F4/F6 接續任務改寫成「剛被調過預算，先不動」，F5 移除 AI 可左右加額的舊敘述；評估數字直接取 Phase 13 報告。動圖刪除 AI 選查詢、AI 結論、AI 退回規則，改畫 A 初次取證、用 A 資料初篩、B/C 續查、九條判定與值得加才提案；F6/F7 人工回佇列保留。
+ 
+ `python3 docs/assets/make_agent_flow_gif.py` 重畫成功；GIF 1800×760、24 格，抽第 1–5、8、19–21、23–24 格目視 A 初次取證、初篩、B/C、送件後 AI 說明、告警假說、F6/F7 人工回線及高亮，沒有文字溢出或路線遮住關鍵節點。SVG 用 Python 標準庫 XML 解析通過，確認 A 在初篩前、舊 AI 判斷文案不存在；README 相對連結皆存在。`pytest -q tests/test_static_wiring.py` 27 passed；`ruff check docs/assets/make_agent_flow_gif.py` 通過。同一環境連續重畫兩次，SVG 與 GIF 各自的 SHA-256 不變。出處：本次命令與抽格結果；若展示分析路徑、F6/F7 人工路徑、AI 角色、字型或 Pillow 改變，就重驗。
+ 

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="760" viewBox="0 0 1800 760" role="img" aria-labelledby="title desc" font-family="Hiragino Sans GB, sans-serif">
 <title id="title">RTB Agent 九條規則判斷到安全寫入</title>
-<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，程式用這批資料初篩新鮮度、配速、暫停與異常；只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。AI 在送件後寫提案說明，告警時推測原因，兩者都不參與決策。收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>
+<desc id="desc">分析端第一步 A 唯讀現況與一小時成效，程式用這批資料初篩新鮮度、配速、暫停與異常；只有配速偏低才續讀 B 歷史與過去調整、C 逐日與一天七天並重讀現況。程式依九條規則決定是否提案，資料有問題就判證據不足，值得加才計算金額。收件收下後，AI 另外寫給人看的提案說明，執行端不讀、不等；告警時另外請 AI 推測原因；兩者都不參與決策。收件與執行端重查後才寫入模擬平台；F6 重放與 F7 核可回佇列重驗。</desc>
 <defs><marker id="arrow-read" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#89d0ac"/></marker></defs>
 <defs><marker id="arrow-note" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#d5a4f0"/></marker></defs>
 <defs><marker id="arrow-main" markerWidth="3" markerHeight="3" refX="8" refY="4" orient="auto" viewBox="0 0 8 8"><path d="M0 0L8 4L0 8Z" fill="#9aa8ff"/></marker></defs>
@@ -31,9 +31,9 @@
 <polyline points="885,208 885,226 830,226 830,246" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-branch)"/>
 <polyline points="937,180 952,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
 <polyline points="1068,180 1080,180" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
-<polyline points="1130,208 1130,246" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
+<polyline points="1290,353 1290,304" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
 <polyline points="1500,275 1554,275" fill="none" stroke="#d5a4f0" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#arrow-note)"/>
-<polyline points="1180,180 1200,180 1200,340 1130,340 1130,353" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
+<polyline points="1130,208 1130,353" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
 <polyline points="1180,382 1199,382" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
 <polyline points="1255,410 1255,461" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
 <polyline points="1305,490 1334,490" fill="none" stroke="#9aa8ff" stroke-width="3" marker-end="url(#arrow-main)"/>
@@ -55,7 +55,7 @@
 <rect x="952" y="152" width="116" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1010" y="173" text-anchor="middle">值得加才</text><text x="1010" y="196" text-anchor="middle">程式算金額</text></g>
 <rect x="1080" y="152" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="180" text-anchor="middle">送出提案</text></g>
 <rect x="774" y="247" width="112" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="830" y="268" text-anchor="middle">不提案／</text><text x="830" y="291" text-anchor="middle">證據不足</text></g>
-<rect x="1059" y="247" width="142" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1130" y="275" text-anchor="middle">AI 寫提案說明</text></g>
+<rect x="1219" y="247" width="142" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1290" y="275" text-anchor="middle">AI 寫提案說明</text></g>
 <rect x="1400" y="247" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1450" y="275" text-anchor="middle">告警</text></g>
 <rect x="1554" y="247" width="132" height="56" rx="11" fill="#39254b" stroke="#d5a4f0" stroke-width="2"/><g fill="#f8eeff" font-size="16" font-weight="700"><text x="1620" y="275" text-anchor="middle">AI 推測原因</text></g>
 <rect x="1080" y="354" width="100" height="56" rx="11" fill="#193a50" stroke="#93ccee" stroke-width="2"/><g fill="#ecf8ff" font-size="16" font-weight="700"><text x="1130" y="382" text-anchor="middle">收件檢查</text></g>
@@ -71,7 +71,7 @@
 <rect x="1081" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1145" y="675" text-anchor="middle">F6 人工重放</text></g>
 <rect x="1331" y="647" width="128" height="56" rx="11" fill="#493614" stroke="#f1c875" stroke-width="2"/><g fill="#fff6df" font-size="16" font-weight="700"><text x="1395" y="675" text-anchor="middle">F7 人工核可</text></g>
 <text x="525" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">太舊回 A；缺資料或不慢就不提案</text>
-<text x="1130" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">送件後供確認者參考，不進決策</text>
+<text x="1290" y="228" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">收件收下後另寫，只給人看，執行端不讀</text>
 <text x="1570" y="313" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">告警原因只是假說，不進決策</text>
 <text x="1065" y="714" text-anchor="middle" dominant-baseline="middle" fill="#a8adb9" font-size="15">重放／核可後都回佇列，重新檢查</text>
 <text x="300" y="119" text-anchor="middle" dominant-baseline="middle" fill="#9aa8ff" font-size="13">太舊</text>

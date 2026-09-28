@@ -1,0 +1,473 @@
+diff --git a/src/rtb/demo/flow.py b/src/rtb/demo/flow.py
+index 969c0fb..ecc40f5 100644
+--- a/src/rtb/demo/flow.py
++++ b/src/rtb/demo/flow.py
+@@ -9,20 +9,25 @@
+ 
+ Phase 14 增量 3(計劃 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈拆增量〉3):AI 不參與加額決策,
+ 「AI 選下一步」節點與它的出入邊、「AI 要再查」回頭節點、「只判不送(考題用)」終點,以及退回原因對到
+ AI → 程式規則那 12 筆映射一併撤除;模型說明節點(a_narrate)照舊。
+ 
+ 2026-09-27(代使用者裁定,[[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]]):
+ Phase 10 的候選判斷分支(「由誰判斷值不值得加預算?」分流、「請模型候選判斷」節點與它的出入邊)
+ 正式與展示都不走,一併撤除:花得偏慢直接進程式規則(九條)。分析端路由(RoutePath)只剩 Phase 10
+ 評估在用,不再對到展示圖;候選才會答的「拿不定」照程式實際的結局對到「用程式規則判斷」:
+ 路由收到它就退回九條規則再判。
++
++2026-09-28([[Issues/流程圖把AI說明畫在送出建議之前]]):模型說明節點從「寫好調整建議 → 送去執行」
++之間拿出來,改成「送去執行」之後的旁支(`SIDE_BRANCHES`):說明命令列讀的是已送進收件口的提案,
++說明不進收件口、能力憑證與 DSP 請求,執行端不讀、不等它;一鍵展示也是情境跑完才產說明。旁支節點
++沒有出去的邊,不在任何通往寫入的路上。
+ """
+ 
+ import re
+ from dataclasses import dataclass
+ from enum import StrEnum
+ 
+ from rtb.analyzer.policy import NoActionReason
+ from rtb.analyzer.task_store import ReplanReason
+ from rtb.demo.state import FlowEdge, FlowGraph, FlowNode, NodeKind, NodeOwner
+ from rtb.domain.attempt import AttemptState, OutcomeCode
+@@ -51,35 +56,38 @@ def unexplained_terms(text: str) -> list[str]:
+     return [term for term in BANNED_TERMS
+             if any(not _EXPLAINED.match(text, m.end()) for m in re.finditer(term, text))]
+ 
+ 
+ ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN = "分析", "收件", "執行", "廣告平台", "人工"
+ LANES = (ANALYZE, INBOX, EXECUTE, PLATFORM, HUMAN)
+ START = "a_receive"
+ # 節點歸屬是 AI 的:只剩模型說明。Phase 14 增量 3 撤除「AI 選下一步」(a_ai),2026-09-27 撤除 Phase 10
+ # 的模型候選(a_candidate)
+ AI_NODES = frozenset({"a_narrate"})
++# 旁支:送出之後另外做、只給人看的步驟,沒有出去的邊,不在通往寫入的路上(說明命令列讀已送進收件口
++# 的提案,執行端不讀、不等它)
++SIDE_BRANCHES = frozenset({"a_narrate"})
+ 
+ S, D, T = NodeKind.STEP, NodeKind.DECISION, NodeKind.TERMINAL
+ _NODES: tuple[tuple[str, str, NodeKind, str], ...] = (
+     ("a_receive", "收到工作", S, ANALYZE),
+     ("a_collect", "蒐集廣告的最新資料", S, ANALYZE),
+     ("a_fresh", "資料夠新嗎?", D, ANALYZE),
+     ("a_complete", "廣告狀態和成效資料都齊全嗎?", D, ANALYZE),
+     ("a_pacing", "預算花得比預期慢嗎?", D, ANALYZE),
+     ("a_rule", "用程式規則判斷", S, ANALYZE),
+     ("a_worth", "值得加預算嗎?", D, ANALYZE),
+     ("a_no_action", "不調整,結束", T, ANALYZE),
+     ("a_failed", "這件工作出錯,結束", T, ANALYZE),
+     ("a_propose", "寫好調整建議", S, ANALYZE),
+-    ("a_narrate", "請模型寫一段說明給確認的人看(僅供參考)", S, ANALYZE),
+     ("a_submit", "把建議送去執行", S, ANALYZE),
++    ("a_narrate", "建議收件之後,另外請模型寫一段說明給人看(僅供參考,執行時不讀)", S, ANALYZE),
+     ("a_blocked_end", "被擋下,這件工作結束", T, ANALYZE),
+     ("i_check", "收件檢查:這份建議能收嗎?", D, INBOX),
+     ("i_superseded", "已經有更新的建議,舊的不處理", T, INBOX),
+     ("x_pending", "排隊等執行", S, INBOX),
+     ("x_pick", "拿起下一份建議:是不是已經試太多次?", D, EXECUTE),
+     ("x_deadletter", "試太多次都沒能開始,先停下等人處理", S, EXECUTE),
+     ("x_existing", "同一筆已經有人在寫,交給那一筆", T, EXECUTE),
+     ("x_precheck", "寫入前再確認:廣告還在、版本沒變、規則沒變、建議沒放太久?", D, EXECUTE),
+     ("x_expired", "建議已經過期,不再處理", S, EXECUTE),
+     ("x_guard", "在允許的廣告、預算上限與單次加幅之內嗎?", D, EXECUTE),
+@@ -140,24 +148,23 @@ _EDGES: tuple[tuple[str, str, str], ...] = (
+     ("a_fresh", "a_recollect", "太舊"),
+     ("a_fresh", "a_complete", "夠新"),
+     ("a_complete", "a_no_action", "缺資料"),
+     ("a_complete", "a_pacing", "齊全"),
+     ("a_pacing", "a_no_action", "不慢或算不出來"),
+     ("a_pacing", "a_rule", "偏慢"),
+     ("a_rule", "a_worth", "程式規則已算出結果"),
+     ("a_worth", "a_no_action", "不值得或資料不夠判斷"),
+     ("a_worth", "a_propose", "值得"),
+     ("a_worth", "a_failed", "分析出錯"),
+-    ("a_propose", "a_narrate", "附上模型說明"),
+-    ("a_propose", "a_submit", "不需 AI 說明,送出"),
+-    ("a_narrate", "a_submit", "送出"),
++    ("a_propose", "a_submit", "送出"),
+     ("a_submit", "i_check", "送到收件"),
++    ("a_submit", "a_narrate", "收件收下之後另外寫說明(只給人看,執行時不讀、不等它)"),
+     ("i_check", "x_pending", "收下"),
+     ("i_check", "a_restale", "資料已過時或送到時已過期"),
+     ("i_check", "a_failed", "拒收(內容有衝突或格式不對)"),
+     ("i_check", "i_superseded", "已有更新的建議"),
+     ("i_check", "a_blocked_end", "已交出去之後重送被拒收"),
+     ("x_pending", "x_pick", "輪到它"),
+     ("x_pending", "a_followup", "紀錄已清掉、平台也查不到"),
+     ("x_pending", "a_blocked_end", "紀錄已清掉、平台同編號卻是不同內容"),
+     ("x_pending", "x_expired", "排隊時已過期"),
+     ("x_pick", "x_deadletter", "試太多次了"),
+diff --git a/src/rtb/demo/flow_svg.py b/src/rtb/demo/flow_svg.py
+index 704425f..37f2dc0 100644
+--- a/src/rtb/demo/flow_svg.py
++++ b/src/rtb/demo/flow_svg.py
+@@ -57,21 +57,21 @@ _SECOND_GROUP_ID: Final = "analysis_after_ai"
+ 
+ 
+ _GROUP_IDS: Final = frozenset({_GROUP_ID, _SECOND_GROUP_ID})
+ 
+ 
+ SHORT_LABELS: Final[dict[str, str]] = {
+     "a_receive": "收到工作", "a_collect": "蒐集資料", "a_fresh": "資料夠新？",
+     "a_complete": "資料齊全？", "a_pacing": "花費偏慢？",
+     "a_rule": "規則判斷", "a_worth": "值得加？",
+     "a_no_action": "不調整", "a_failed": "工作失敗", "a_propose": "寫好建議",
+-    "a_narrate": "撰寫說明", "a_submit": "送出建議",
++    "a_narrate": "送出後寫說明", "a_submit": "送出建議",
+     "i_check": "收件檢查", "i_superseded": "舊建議停下", "x_pending": "等待執行",
+     "x_pick": "領取建議", "x_precheck": "寫入前檢查", "x_guard": "權限與加幅",
+     "x_total": "帳戶總上限", "x_write": "送去寫入", "p_reply": "平台回覆",
+     "x_unknown": "查明結果", "x_verify": "核對預算", "x_done": "完成",
+     "x_reclaimed": "換人接手", "x_blocked": "擋下寫入", "a_followup": "開新工作",
+     "x_deadletter": "停下等人", "h_replay": "人工決定", "r_requeued": "重新排隊",
+     "a_blocked_end": "工作結束", "x_wait_approval": "等待確認",
+     "h_approve": "人工確認", "x_approved": "重新排隊", "x_deferred": "放回排隊",
+     "x_lease_lost": "放回排隊", "x_expired": "建議過期", "a_recollect": "重新蒐集",
+     "a_restale": "重新蒐集", "x_resend": "同筆重送", "x_recheck": "稍後再查",
+diff --git a/src/rtb/demo/page.py b/src/rtb/demo/page.py
+index e87a4bb..18a75f5 100644
+--- a/src/rtb/demo/page.py
++++ b/src/rtb/demo/page.py
+@@ -984,38 +984,38 @@ def _occurrence_label(decision: Decision, index: int, count: int, task_round: in
+ 
+ def _render_outcome_note(scenario: Scenario) -> str:
+     """結局的標示(例如 F4/F6 接續任務規則第 3 條,[S1409]):另列一行,不混進情境結果。Phase 13 的
+     F5 模型考題隨增量 3 撤除。"""
+     if not scenario.outcome_note:
+         return ""
+     return f'<p class="ai-outcome">{escape_text(_public_text(scenario.outcome_note))}</p>'
+ 
+ 
+ def _render_ai_node_card(scenario: Scenario) -> str:
+-    """[S1027] AI 寫給確認的人看的說明:程式算的數字在前,AI 文字標「AI 產生、僅供參考」;
++    """[S1027] AI 寫給人看的說明:程式算的數字在前,AI 文字標「AI 產生、僅供參考」;
+     沒有成功結果就寫結果類別。另一張是服務水準告警時 AI 推測的可能原因。說明在建議送出之後才寫
+     (不在流程圖的判斷路徑上),所以不看流程圖走過哪些節點。"""
+     step = scenario.model_step
+     if step is None:
+         narrative = '<blockquote>這次沒有請 AI 寫說明</blockquote>'
+     else:
+         numbers = "".join(f"<li>{escape_text(k)}：{escape_text(v)}</li>" for k, v in step.numbers)
+         text = (f'<p class="model-warning">{MODEL_LABEL}</p>'
+                 f"<blockquote>{escape_text(step.narrative)}</blockquote>"
+                 if step.narrative else
+                 f'<blockquote>AI 沒有寫出說明（結果：'
+                 f'{escape_text(_result_text(step.result_kind))}）'
+                 '</blockquote>')
+         narrative = (f'<p>程式算的數字</p><ul class="ai-numbers">{numbers}</ul>{text}'
+                      if numbers else text)
+     return (
+-        '<div class="ai-node-card"><strong>AI 寫說明（給確認的人看）</strong>'
++        '<div class="ai-node-card"><strong>AI 寫說明（建議送出後才寫，只給人看）</strong>'
+         f"{narrative}</div>{_render_hypothesis(scenario)}"
+     )
+ 
+ 
+ _RESULT_TEXT: Final = {
+     "no_recording": "AI 這次沒有給出回答", "timeout": "AI 太慢", "unreadable": "回應讀不懂",
+     "config_error": "設定有問題", "transient": "服務暫時出錯", "ledger_busy": "花費紀錄忙碌",
+     "quota_exhausted": "額度用完", "overrun": "單次花費超過上限",
+     "local_cap_refused": "已達花費上限",
+ }
+@@ -1098,38 +1098,39 @@ def _detail(title: str, content: str) -> str:
+ 
+ def _format_time(value: datetime) -> str:
+     return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+ 
+ 
+ def _plain_lines(lines: tuple[str, ...]) -> str:
+     return "".join(f'<p class="raw-line">{escape_text(line)}</p>' for line in lines)
+ 
+ 
+ def _model_text(text: str | None, _source: ModelSource | None) -> str:
+-    if text is None:
+-        return '<p class="empty">沒有 AI 說明。</p>'
++    if text is None:  # 核可表單組裝時說明欄固定是空的(說明在建議送出後才另外寫,見展示狀態轉換)
++        return ('<p class="empty">這張表單沒有附 AI 說明：說明在建議送出之後才另外寫、只給人看，'
++                '執行時不讀也不等它。</p>')
+     return (
+         f'<div class="model-note"><p class="model-warning">{MODEL_LABEL}・不會控制系統'
+         f'</p><p>{escape_text(text)}</p></div>'
+     )
+ 
+ 
+ def _render_approval_form(approval: ApprovalForm, token: str) -> str:
+     confirmations = "".join(
+         f'<label><input type="checkbox" name="confirm_{index}" value="1" required>'
+         f"<span>{escape_text(label)}：{escape_text(value)}</span></label>"
+         for index, (label, value) in enumerate(approval.numbers)
+     )
+     return (
+         '<section class="approval" aria-labelledby="approval-title">'
+         '<p class="section-kicker">需要人工確認</p><h2 id="approval-title">請確認這次調整</h2>'
+-        "<p>先逐項確認程式算出的數字，再閱讀 AI 產生的參考說明。</p>"
++        "<p>逐項確認程式算出的數字；同意後建議回到排隊，寫入前照樣重新檢查。</p>"
+         f'<p class="source-note">當次數字摘要識別值：{escape_text(approval.numbers_digest)}</p>'
+         f'<form method="post" action="/approve"><input type="hidden" name="token" '
+         f'value="{escape_text(token)}"><input type="hidden" name="proposal_hash" '
+         f'value="{escape_text(approval.proposal_hash)}"><input type="hidden" name="demo_id" '
+         f'value="{escape_text(approval.demo_id)}"><input type="hidden" '
+         f'name="numbers_digest" value="{escape_text(approval.numbers_digest)}">'
+         '<div class="confirmations">'
+         f"{confirmations}</div>{_model_text(approval.narrative, approval.source)}"
+         '<button type="submit">確認並送出</button></form></section>'
+     )
+diff --git a/src/rtb/demo/present.py b/src/rtb/demo/present.py
+index 3914547..4ae448f 100644
+--- a/src/rtb/demo/present.py
++++ b/src/rtb/demo/present.py
+@@ -59,21 +59,21 @@ from rtb.demo.state_store import (
+ MODEL_MODE_REASON = "錄製回應,不是即時呼叫"
+ NOT_CALLED_REASON = "這次還沒有情境請 AI 寫說明或推測告警原因,沒有呼叫 AI"
+ def known_limits() -> tuple[str, ...]:
+     """這次示範的範圍與限制;F7 的規模取自驅動程式當下的常數(代碼審 r2 d2:不寫死)。"""
+     from rtb.demo import driver
+ 
+     return (
+         "這次只用本機模擬的廣告平台,沒有連到正式平台。",
+         f"F7 是等比例縮小的規模({driver.F7_CAMPAIGNS} 個廣告、{driver.F7_WORKERS} 個工作者);"
+         "完整規模由自動查核跑的 F7 測試證明。",
+-        "要不要加預算、加多少都由程式照九條規則決定;AI 只寫提案說明給確認的人看、"
++        "要不要加預算、加多少都由程式照九條規則決定;AI 只在建議送出後寫提案說明給人看、"
+         "在服務水準告警時推測可能原因,都僅供參考。",
+         "判斷的根據裡,分析程式那幾組是用存下的資料重算的,不是當時記下的。",
+     )
+ 
+ 
+ _STATUS = {"running": ScenarioStatus.RUNNING, "done": ScenarioStatus.DONE,
+            "incomplete": ScenarioStatus.INCOMPLETE,
+            "awaiting_confirmation": ScenarioStatus.AWAITING_APPROVAL,
+            "not_exercised": ScenarioStatus.NOT_EXERCISED}
+ # 「這次誰決定」(增量 3 代碼審 r1 外家finder-2):增量 3 起一律九條規則;舊展示狀態庫的 AI 決定照實標
+diff --git a/tests/demo/sample_data.py b/tests/demo/sample_data.py
+index ec3602a..ee3a2bb 100644
+--- a/tests/demo/sample_data.py
++++ b/tests/demo/sample_data.py
+@@ -258,31 +258,32 @@ def _scenario(
+         injected_faults=(_FAULTS[code],),
+         operation_key=f"op-demo-{code.value.lower()}-001",
+         platform_apply_count=1 if code in {ScenarioCode.F1, ScenarioCode.F2,
+                                              ScenarioCode.F3, ScenarioCode.F5} else 0,
+     )
+ 
+ 
+ def make_demo_state(*, running: bool = False) -> DemoState:
+     observed_at = datetime.now(UTC)
+     lead = ("a_receive", "a_collect", "a_fresh", "a_complete", "a_pacing")
+-    via_rule = (*lead, "a_rule", "a_worth", "a_propose", "a_narrate", "a_submit", "i_check")
++    # 說明是送出之後的旁支,不在路上(Issues/流程圖把AI說明畫在送出建議之前)
++    via_rule = (*lead, "a_rule", "a_worth", "a_propose", "a_submit", "i_check")
+     accepted = (*via_rule, "x_pending", "x_pick", "x_precheck", "x_guard", "x_total")
+     routes = (
+         (*accepted, "x_write", "p_reply", "x_unknown", "x_verify", "x_done"),
+         (*accepted, "x_write", "x_reclaimed"),
+         (*via_rule, "i_superseded"),
+-        (*accepted[:14], "x_blocked", "a_followup"),
++        (*accepted[:13], "x_blocked", "a_followup"),
+         (*lead, "a_rule", "a_worth", "a_propose", "a_submit", "i_check",
+          "x_pending", "x_pick", "x_precheck", "x_guard", "x_total", "x_write",
+          "p_reply", "x_verify", "x_done"),
+-        (*accepted[:13], "x_deadletter", "h_replay", "r_requeued"),
++        (*accepted[:12], "x_deadletter", "h_replay", "r_requeued"),
+         (*accepted, "x_wait_approval", "h_approve", "x_approved"),
+     )
+     statuses = (
+         ScenarioStatus.DONE,
+         ScenarioStatus.RUNNING if running else ScenarioStatus.DONE,
+         ScenarioStatus.DONE,
+         ScenarioStatus.DONE,
+         ScenarioStatus.DONE,
+         ScenarioStatus.DONE,
+         ScenarioStatus.DONE,
+@@ -359,21 +360,21 @@ def write_examples() -> None:
+     report_html = render_report(make_demo_state(running=False))
+     idle_html = render_page(
+         make_demo_state(running=False),
+         form_token="example-token",
+         refresh_tick=1002,
+         selected=ScenarioCode.F3,
+     )
+     awaiting_state = make_demo_state(running=True)
+     waiting_route = (
+         "a_receive", "a_collect", "a_fresh", "a_complete", "a_pacing",
+-        "a_rule", "a_worth", "a_propose", "a_narrate", "a_submit", "i_check",
++        "a_rule", "a_worth", "a_propose", "a_submit", "i_check",
+         "x_pending", "x_pick", "x_precheck", "x_guard", "x_total", "x_wait_approval",
+     )
+     waiting_trace, waiting_decisions = _route(*waiting_route)
+     awaiting_scenarios = tuple(
+         replace(
+             item, status=ScenarioStatus.AWAITING_APPROVAL,
+             path=waiting_decisions, traversed_edges=waiting_trace,
+             current_node="x_wait_approval",
+             result_summary="等你確認：數字已算好，確認後才會繼續",
+             incomplete_reason=None,
+diff --git a/tests/demo/test_flow.py b/tests/demo/test_flow.py
+index 6dd513d..6263385 100644
+--- a/tests/demo/test_flow.py
++++ b/tests/demo/test_flow.py
+@@ -46,22 +46,23 @@ def test_every_node_is_reachable_from_the_start_and_every_end_is_a_dead_end() ->
+     reached, pending = set(), [flow.START]
+     while pending:
+         node = pending.pop()
+         if node not in reached:
+             reached.add(node)
+             pending += [t for s, t in EDGES if s == node]
+     assert reached == set(NODES)
+     loop_nodes = {back.node for back in flow.BACK_TRANSITIONS}
+     for graph_node in GRAPH.nodes:
+         leaves = [t for s, t in EDGES if s == graph_node.id]
+-        if graph_node.kind is NodeKind.TERMINAL or graph_node.id in loop_nodes:
+-            assert not leaves, f"{graph_node.id} 是結束點或回頭節點,不該再有出去的邊"
++        if (graph_node.kind is NodeKind.TERMINAL or graph_node.id in loop_nodes
++                or graph_node.id in flow.SIDE_BRANCHES):
++            assert not leaves, f"{graph_node.id} 是結束點、回頭節點或旁支,不該再有出去的邊"
+         else:
+             assert leaves, f"{graph_node.id} 走不下去"
+         if graph_node.kind is NodeKind.DECISION:
+             assert len(leaves) >= 2, f"判斷點 {graph_node.id} 至少要兩條分支"
+ 
+ 
+ def test_the_graph_is_the_type_the_page_draws() -> None:
+     assert isinstance(GRAPH, FlowGraph)
+     assert {node.lane for node in GRAPH.nodes} <= set(flow.LANES)
+ 
+@@ -343,10 +344,25 @@ def test_the_phase10_candidate_branch_is_gone():
+     判斷分支正式與展示都不走,流程圖不畫:沒有「由誰判斷值不值得加預算?」分流與「請模型候選判斷」,
+     花得偏慢直接進程式規則;AI 節點只剩模型說明。候選才會答的「拿不定」照程式實際結局對到不調整。"""
+     assert not {"a_route", "a_candidate"} & set(NODES)
+     assert ("a_pacing", "a_rule") in EDGES
+     assert {t for s, t in EDGES if s == "a_pacing"} == {"a_no_action", "a_rule"}
+     assert frozenset({"a_narrate"}) == flow.AI_NODES
+     assert not any("候選" in text or "參考判斷" in text for text in _display_texts())
+     from rtb.domain.worth import WorthVerdict
+ 
+     assert flow.OUTCOMES[(WorthVerdict, "UNSURE")].node == "a_rule"  # 退回九條再判,不是直接不調整
++
++
++def test_the_narrative_is_a_side_branch_after_the_proposal_is_sent():
++    """2026-09-28(Issues/流程圖把AI說明畫在送出建議之前):說明命令列讀已送進收件口的提案,執行端
++    不讀、不等它;一鍵展示在情境跑完才產說明。所以說明是「送去執行」之後的旁支:寫好建議直接送出,
++    說明節點只從送出岔出去、沒有出去的邊,任何通往寫入的路都不經過它。"""
++    assert flow.SIDE_BRANCHES == flow.AI_NODES == frozenset({"a_narrate"})
++    assert {t for s, t in EDGES if s == "a_propose"} == {"a_submit"}
++    assert {s for s, t in EDGES if t == "a_narrate"} == {"a_submit"}
++    assert not [t for s, t in EDGES if s == "a_narrate"]
++    assert ("a_submit", "i_check") in EDGES
++    order = [node.id for node in GRAPH.nodes]  # 角色分工卡照這個順序列:說明排在送出之後
++    assert order.index("a_propose") < order.index("a_submit") < order.index("a_narrate")
++    label = NODES["a_narrate"].label + EDGES[("a_submit", "a_narrate")].label
++    assert "確認的人" not in label and "執行時不讀" in label
+diff --git a/tests/demo/test_page.py b/tests/demo/test_page.py
+index 3c93cfd..d4c1fd0 100644
+--- a/tests/demo/test_page.py
++++ b/tests/demo/test_page.py
+@@ -409,20 +409,29 @@ def test_approval_has_one_required_checkbox_per_number_without_number_in_attribu
+     assert len(checkboxes) == len(approval.numbers)
+     assert all(" required" in checkbox for checkbox in checkboxes)
+     assert 'name="confirm_0" value="1"' in html
+     assert 'name="confirm_1" value="1"' in html
+     assert all("秘密數字" not in checkbox for checkbox in checkboxes)
+     assert 'name="demo_id" value="demo&quot;&gt;&lt;img"' in html
+     assert 'name="numbers_digest" value="digest&quot;&gt;&lt;script"' in html
+     assert 'http-equiv="refresh"' not in html
+ 
+ 
++def test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets() -> None:
++    """Issues/流程圖把AI說明畫在送出建議之前:核可表單組裝時說明欄固定是空的(說明在建議送出後才另外
++    寫),表單不准再叫人「閱讀 AI 產生的參考說明」,要照實寫這張表單沒有附說明。"""
++    html = render_approval(replace(make_demo_state(), approval=_PENDING), form_token="token")
++    assert "閱讀 AI" not in html and "參考說明" not in html
++    assert "這張表單沒有附 AI 說明" in html
++    assert "寫入前照樣重新檢查" in html
++
++
+ def test_awaiting_approval_main_page_has_link_and_no_refresh_or_form() -> None:
+     state = make_demo_state(running=True)
+     scenarios = tuple(
+         replace(item, status=ScenarioStatus.AWAITING_APPROVAL)
+         if item.code is ScenarioCode.F7
+         else item
+         for item in state.scenarios
+     )
+     html = render_page(replace(state, scenarios=scenarios, approval=_PENDING), form_token="token")
+ 
+@@ -1003,22 +1012,23 @@ def test_each_sample_keeps_ai_and_human_steps_as_separate_coloured_nodes() -> No
+     from rtb.demo.state import NodeOwner
+ 
+     state = make_demo_state()
+     official = {node.id: node for node in FLOW_GRAPH.nodes}
+     svgs = re.findall(r'<svg class="flow-graph".*?</svg>', render_report(state), re.DOTALL)
+     for scenario, svg in zip(state.scenarios, svgs, strict=True):
+         root = ET.fromstring(svg)  # noqa: S314 - renderer output, not untrusted XML
+         drawn = [group for group in root.findall('.//g[@class]')
+                  if "flow-node" in group.get("class", "")]
+         routed_ids = {item for edge in scenario.traversed_edges for item in edge}
+-        # 範例 F5 沒有說明(走「不需 AI 說明,送出」),其餘走模型說明;Phase 10 候選節點已撤
+-        expected_ai_ids = set() if scenario.code is ScenarioCode.F5 else {"a_narrate"}
++        # 說明是送出之後的旁支(Issues/流程圖把AI說明畫在送出建議之前),走過的路上沒有 AI 節點;
++        # Phase 10 候選節點已撤。F1 畫得出的 AI 格只有告警原因推測
++        expected_ai_ids: set[str] = set()
+         expected_human_ids = (
+             {"h_replay", "r_requeued"} if scenario.code is ScenarioCode.F6 else
+             {"h_approve"} if scenario.code is ScenarioCode.F7 else set()
+         )
+         assert {node_id for node_id in routed_ids
+                 if official[node_id].owner is NodeOwner.AI} == expected_ai_ids
+         assert {node_id for node_id in routed_ids
+                 if official[node_id].owner is NodeOwner.HUMAN} == expected_human_ids
+         for owner in (NodeOwner.AI, NodeOwner.HUMAN):
+             expected = {official[node_id].label.replace("模型", "AI") for node_id in routed_ids
+@@ -1028,24 +1038,22 @@ def test_each_sample_keeps_ai_and_human_steps_as_separate_coloured_nodes() -> No
+             assert expected <= shown, (scenario.code, owner, expected - shown)
+             assert all("is-group" not in group.get("class", "") for group in drawn
+                        if f"owner-{owner.name.lower()}" in group.get("class", ""))
+         for group in drawn:
+             if "is-group" in group.get("class", ""):
+                 assert "owner-code" in group.get("class", "")
+                 assert "AI" not in (group.findtext("title") or "")
+         ai_nodes = [group for group in drawn if "owner-ai" in group.get("class", "")]
+         assert all(group.find('text[@class="node-owner"]') is None for group in drawn)
+         if scenario.code is ScenarioCode.F1:
+-            assert {group.findtext("title") for group in ai_nodes} >= {
+-                official["a_narrate"].label.replace("模型", "AI"),
+-                "AI 推測可能原因(只供參考)"
+-            }
++            assert {group.findtext("title") for group in ai_nodes} == {
++                "AI 推測可能原因(只供參考)"}
+ 
+     f7 = state.scenarios[-1]
+     assert f7.code is ScenarioCode.F7
+     assert f7.traversed_edges[-3:] == (
+         ("x_total", "x_wait_approval"),
+         ("x_wait_approval", "h_approve"),
+         ("h_approve", "x_approved"),
+     )
+ 
+ 
+@@ -1172,23 +1180,25 @@ def test_the_glossary_explains_every_kept_term() -> None:
+     assert set(JARGON_TERMS) <= explained  # 禁用清單上的詞一律有解釋,之後新出現在頁面上也不會漏
+ 
+ 
+ def test_formal_flow_map_and_every_sample_route_match() -> None:
+     from rtb.demo.flow import FLOW_GRAPH, LANES
+ 
+     state = make_demo_state()
+     assert state.flow is FLOW_GRAPH
+     # Phase 13 增量 2 加的 AI 選下一步、AI 要再查(回頭)、只判不送三個節點與六條邊,Phase 14 增量 3
+     # 撤除:51 → 48、78 → 72(代碼審 r1 d2/d3 修過流程圖的邊:68 → 72)。2026-09-27 撤 Phase 10 候選
+-    # 分支(交給誰判斷、模型候選兩個節點,五條邊換成「偏慢 → 程式規則」一條):48 → 46、72 → 68
++    # 分支(交給誰判斷、模型候選兩個節點,五條邊換成「偏慢 → 程式規則」一條):48 → 46、72 → 68。
++    # 2026-09-28 說明改成送出之後的旁支(寫好建議 → 說明 → 送出、寫好建議 → 送出兩條路併成
++    # 寫好建議 → 送出,另加送出 → 說明):68 → 67
+     assert len(state.flow.nodes) == 46
+-    assert len(state.flow.edges) == 68
++    assert len(state.flow.edges) == 67
+     markup = render_page(state, form_token="token")
+     assert markup.count('class="role-card"') == len(LANES)
+     assert "分析行程提出建議" in markup
+     edge_pairs = {(edge.source, edge.target) for edge in FLOW_GRAPH.edges}
+     decision_nodes = {node.id for node in FLOW_GRAPH.nodes if node.kind.name == "DECISION"}
+     for scenario in state.scenarios:
+         assert scenario.traversed_edges
+         assert all(pair in edge_pairs for pair in scenario.traversed_edges)
+         assert all(a[1] == b[0] for a, b in pairwise(scenario.traversed_edges))
+         assert {item.node for item in scenario.path} == {
