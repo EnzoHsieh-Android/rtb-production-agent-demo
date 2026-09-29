@@ -1,0 +1,272 @@
+{
+ "at": "HEAD",
+ "vault": "docs/rtb-production-agent-demo-knowledge",
+ "unknown": [],
+ "problems": [],
+ "findings": [
+  {
+   "kind": "c2",
+   "path": "Issues/Phase11後接入大模型API的三個階段.md",
+   "line": 3,
+   "text": "status: open",
+   "related": [
+    "Projects/RTB_Phase11B大模型接入_計劃.md"
+   ],
+   "why": "連著已收尾的計劃:Projects/RTB_Phase11B大模型接入_計劃(計劃連到 Issue)",
+   "acked": false
+  },
+  {
+   "kind": "c2",
+   "path": "Issues/Phase12需要可看任務階段與處置的HTML報告.md",
+   "line": 3,
+   "text": "status: open",
+   "related": [
+    "Projects/RTB_Phase12一鍵展示與HTML報告_計劃.md"
+   ],
+   "why": "連著已收尾的計劃:Projects/RTB_Phase12一鍵展示與HTML報告_計劃(計劃連到 Issue)",
+   "acked": false
+  },
+  {
+   "kind": "c2",
+   "path": "Issues/Phase9代使用者裁定待覆核.md",
+   "line": 3,
+   "text": "status: open",
+   "related": [
+    "Projects/F7效能_計劃.md",
+    "Projects/RTB_Phase6權限護欄與總曝險_計劃.md",
+    "Projects/RTB_Phase9可觀測與SLO_計劃.md"
+   ],
+   "why": "連著已收尾的計劃:Projects/F7效能_計劃(Issue 連到計劃)、Projects/RTB_Phase6權限護欄與總曝險_計劃(Issue 連到計劃)、Projects/RTB_Phase9可觀測與SLO_計劃(Issue 連到計劃)",
+   "acked": false
+  },
+  {
+   "kind": "c2",
+   "path": "Issues/執行迴圈收到SIGTERM等於硬殺.md",
+   "line": 3,
+   "text": "status: open",
+   "related": [
+    "Projects/RTB_Phase12一鍵展示與HTML報告_計劃.md"
+   ],
+   "why": "連著已收尾的計劃:Projects/RTB_Phase12一鍵展示與HTML報告_計劃(Issue 連到計劃)",
+   "acked": false
+  },
+  {
+   "kind": "c3",
+   "path": "Verification/Phase14增量2b驗證紀錄.md",
+   "line": 3,
+   "text": "status: pending",
+   "related": [
+    "Projects/RTB_Phase14正式規則照九條判斷_計劃.md"
+   ],
+   "why": "plan_refs 指的計劃都已收尾:Projects/RTB_Phase14正式規則照九條判斷_計劃",
+   "acked": false
+  },
+  {
+   "kind": "c4",
+   "path": "Verification/Phase14增量2b驗證紀錄.md",
+   "line": 5,
+   "related": [],
+   "text": "valid_under: 僅 Phase 14 增量 2b 本工作樹(未提交、未過代碼審);全套測試、宣稱驗證器、ruff、mypy 與 Phase 13 評估 72 筆錄製離線重播;入庫展示錄製因政策升版有 8 筆模型說明找不到錄製",
+   "why": "前提寫的是還沒提交的狀態,提交之後這句就不成立了",
+   "acked": false
+  },
+  {
+   "kind": "c4",
+   "path": "Verification/Phase14增量3驗證紀錄.md",
+   "line": 5,
+   "related": [],
+   "text": "valid_under: 僅 Phase 14 增量 2b＋增量 3 本工作樹(未提交、合併差異未過代碼審);全套測試、ruff、mypy、宣稱驗證器;展示批次尚未錄製",
+   "why": "前提寫的是還沒提交的狀態,提交之後這句就不成立了",
+   "acked": false
+  },
+  {
+   "kind": "c4",
+   "path": "Verification/Phase14增量4驗證紀錄.md",
+   "line": 5,
+   "related": [],
+   "text": "valid_under: 僅 Phase 14 增量 4 本工作樹(未提交、未過代碼審);重播入庫批次 phase13-eval-20260925,不呼叫模型",
+   "why": "前提寫的是還沒提交的狀態,提交之後這句就不成立了",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F1_結果不明只用原鍵對帳.md",
+   "line": 18,
+   "text": "WHY:[2026-09-22]預告這條合約但還沒做:Phase 3 執行行程還沒開工,副作用閘與對帳的程式碼還不存在;DSP 側的保證已在 Phase 1 完成並另有合約",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F1_結果不明只用原鍵對帳.md",
+   "line": 19,
+   "text": "TEST:還沒有測試在守這條;最遲 2026-11-15 要做完,負責人 Enzo",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F1_結果不明只用原鍵對帳.md",
+   "line": 28,
+   "text": "為什麼還不做:Phase 3 執行行程還沒開工,副作用閘與對帳的程式碼還不存在;DSP 側的保證已在 Phase 1 完成並另有合約",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F1_結果不明只用原鍵對帳.md",
+   "line": 30,
+   "text": "做完之後跑 `lumos guard settle` 轉正,不要手改狀態。",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F2_確認前當機不重複副作用.md",
+   "line": 18,
+   "text": "WHY:[2026-09-22]預告這條合約但還沒做:Phase 4 的佇列、工作者生命週期與確認規則還沒開工,程式碼不存在",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F2_確認前當機不重複副作用.md",
+   "line": 19,
+   "text": "TEST:還沒有測試在守這條;最遲 2026-11-30 要做完,負責人 Enzo",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F2_確認前當機不重複副作用.md",
+   "line": 28,
+   "text": "為什麼還不做:Phase 4 的佇列、工作者生命週期與確認規則還沒開工,程式碼不存在",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F2_確認前當機不重複副作用.md",
+   "line": 30,
+   "text": "做完之後跑 `lumos guard settle` 轉正,不要手改狀態。",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F3_重複投遞不重複分析與副作用.md",
+   "line": 18,
+   "text": "WHY:[2026-09-22]預告這條合約但還沒做:Phase 4 的佇列與重新投遞還沒開工,程式碼不存在",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F3_重複投遞不重複分析與副作用.md",
+   "line": 19,
+   "text": "TEST:還沒有測試在守這條;最遲 2026-11-30 要做完,負責人 Enzo",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F3_重複投遞不重複分析與副作用.md",
+   "line": 28,
+   "text": "為什麼還不做:Phase 4 的佇列與重新投遞還沒開工,程式碼不存在",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F3_重複投遞不重複分析與副作用.md",
+   "line": 30,
+   "text": "做完之後跑 `lumos guard settle` 轉正,不要手改狀態。",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F4_舊版本寫入被拒不覆蓋.md",
+   "line": 28,
+   "text": "為什麼還不做:DSP 側的版本檢查已完成並另有合約;把觀察到的版本一路帶進執行寫入、衝突後重新規劃屬 Phase 5,還沒開工",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F4_舊版本寫入被拒不覆蓋.md",
+   "line": 30,
+   "text": "做完之後跑 `lumos guard settle` 轉正,不要手改狀態。",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F5_不可信文字不能擴權.md",
+   "line": 28,
+   "text": "為什麼還不做:分析行程目前沒有接模型,也還沒有對抗性測試素材;提示注入與信任邊界屬 Phase 7,還沒開工",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F5_不可信文字不能擴權.md",
+   "line": 30,
+   "text": "做完之後跑 `lumos guard settle` 轉正,不要手改狀態。",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F6_死信重放必須重新驗證.md",
+   "line": 28,
+   "text": "為什麼還不做:Phase 8 的死信佇列與重放閘還沒開工,程式碼不存在",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F6_死信重放必須重新驗證.md",
+   "line": 30,
+   "text": "做完之後跑 `lumos guard settle` 轉正,不要手改狀態。",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F7_總曝險到門檻就停.md",
+   "line": 28,
+   "text": "為什麼還不做:Phase 6 的權限、護欄與總體風險預留還沒開工,程式碼不存在",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  },
+  {
+   "kind": "c1",
+   "path": "Verification/事故F7_總曝險到門檻就停.md",
+   "line": 30,
+   "text": "做完之後跑 `lumos guard settle` 轉正,不要手改狀態。",
+   "related": [],
+   "why": "已轉正(status: pass)但還留著預告句",
+   "acked": false
+  }
+ ]
+}

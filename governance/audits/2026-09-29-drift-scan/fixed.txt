@@ -1,0 +1,29 @@
+# 路徑	當時行號	原文	種類	怎麼處理
+Issues/Phase11後接入大模型API的三個階段.md	3	status: open	c2	改狀態:lumos set status resolved(需求已寫進 Phase 11B 計劃,計劃已完成)
+Issues/Phase12需要可看任務階段與處置的HTML報告.md	3	status: open	c2	改狀態:lumos set status resolved(需求已寫進 Phase 12 計劃,計劃已完成)
+Issues/Phase9代使用者裁定待覆核.md	3	status: open	c2	照留:lumos drift ack DACK-af392465(等使用者逐條覆核,計劃收尾不等於覆核完)
+Issues/執行迴圈收到SIGTERM等於硬殺.md	3	status: open	c2	照留:lumos drift ack DACK-19076ec4(刻意另案處理,回頭條件還沒發生)
+Verification/Phase14增量2b驗證紀錄.md	3	status: pending	c3	未處理:增量 2b 當時的紅燈由增量 3 重錄展示批次解掉,正確改法要同時改狀態與正文說明,工具沒有這種改法
+Verification/Phase14增量2b驗證紀錄.md	5	valid_under: 僅 Phase 14 增量 2b 本工作樹(未提交、未過代碼審);全套測試、宣稱驗證器、ruff、mypy 與 Phase 13 評估 72 筆錄製離線重播;入庫展示錄製因政策升版有 8 筆模型說明找不到錄製	c4	未處理:已提交並過代碼審,前提句要改寫成提交後的說法,工具沒有改前提句的指令
+Verification/Phase14增量3驗證紀錄.md	5	valid_under: 僅 Phase 14 增量 2b＋增量 3 本工作樹(未提交、合併差異未過代碼審);全套測試、ruff、mypy、宣稱驗證器;展示批次尚未錄製	c4	未處理:已提交並過代碼審,前提句要改寫成提交後的說法,工具沒有改前提句的指令
+Verification/Phase14增量4驗證紀錄.md	5	valid_under: 僅 Phase 14 增量 4 本工作樹(未提交、未過代碼審);重播入庫批次 phase13-eval-20260925,不呼叫模型	c4	未處理:已提交並過代碼審,前提句要改寫成提交後的說法,工具沒有改前提句的指令
+Verification/事故F1_結果不明只用原鍵對帳.md	18	WHY:[2026-09-22]預告這條合約但還沒做:Phase 3 執行行程還沒開工,副作用閘與對帳的程式碼還不存在;DSP 側的保證已在 Phase 1 完成並另有合約	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F1_結果不明只用原鍵對帳.md	19	TEST:還沒有測試在守這條;最遲 2026-11-15 要做完,負責人 Enzo	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F1_結果不明只用原鍵對帳.md	28	為什麼還不做:Phase 3 執行行程還沒開工,副作用閘與對帳的程式碼還不存在;DSP 側的保證已在 Phase 1 完成並另有合約	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F1_結果不明只用原鍵對帳.md	30	做完之後跑 `lumos guard settle` 轉正,不要手改狀態。	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F2_確認前當機不重複副作用.md	18	WHY:[2026-09-22]預告這條合約但還沒做:Phase 4 的佇列、工作者生命週期與確認規則還沒開工,程式碼不存在	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F2_確認前當機不重複副作用.md	19	TEST:還沒有測試在守這條;最遲 2026-11-30 要做完,負責人 Enzo	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F2_確認前當機不重複副作用.md	28	為什麼還不做:Phase 4 的佇列、工作者生命週期與確認規則還沒開工,程式碼不存在	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F2_確認前當機不重複副作用.md	30	做完之後跑 `lumos guard settle` 轉正,不要手改狀態。	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F3_重複投遞不重複分析與副作用.md	18	WHY:[2026-09-22]預告這條合約但還沒做:Phase 4 的佇列與重新投遞還沒開工,程式碼不存在	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F3_重複投遞不重複分析與副作用.md	19	TEST:還沒有測試在守這條;最遲 2026-11-30 要做完,負責人 Enzo	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F3_重複投遞不重複分析與副作用.md	28	為什麼還不做:Phase 4 的佇列與重新投遞還沒開工,程式碼不存在	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F3_重複投遞不重複分析與副作用.md	30	做完之後跑 `lumos guard settle` 轉正,不要手改狀態。	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F4_舊版本寫入被拒不覆蓋.md	28	為什麼還不做:DSP 側的版本檢查已完成並另有合約;把觀察到的版本一路帶進執行寫入、衝突後重新規劃屬 Phase 5,還沒開工	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F4_舊版本寫入被拒不覆蓋.md	30	做完之後跑 `lumos guard settle` 轉正,不要手改狀態。	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F5_不可信文字不能擴權.md	28	為什麼還不做:分析行程目前沒有接模型,也還沒有對抗性測試素材;提示注入與信任邊界屬 Phase 7,還沒開工	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F5_不可信文字不能擴權.md	30	做完之後跑 `lumos guard settle` 轉正,不要手改狀態。	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F6_死信重放必須重新驗證.md	28	為什麼還不做:Phase 8 的死信佇列與重放閘還沒開工,程式碼不存在	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F6_死信重放必須重新驗證.md	30	做完之後跑 `lumos guard settle` 轉正,不要手改狀態。	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F7_總曝險到門檻就停.md	28	為什麼還不做:Phase 6 的權限、護欄與總體風險預留還沒開工,程式碼不存在	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
+Verification/事故F7_總曝險到門檻就停.md	30	做完之後跑 `lumos guard settle` 轉正,不要手改狀態。	c1	未處理:守衛紀錄早已轉正(status: pass),工具沒有改存量預告句的指令(guard settle 對已通過的直接回「不用再做」);留作工具改法的測試資料
