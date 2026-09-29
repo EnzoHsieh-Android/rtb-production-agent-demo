@@ -1,13 +1,13 @@
 ---
 type: issue
-status: open
+status: resolved
 created: 2026-09-24
 updated: 2026-09-24
 aliases: []
 about_code: []
 tags:
   - type/issue
-  - status/open
+  - status/resolved
 summary: |-
   FLAG: 使用者 2026-09-24 本人要求 Phase 12 產出一份 HTML,能明確看到每個任務進行到哪個階段、系統怎麼處置、結果與報告。
   DECISION: 交接文件第 19 節把「漂亮 dashboard 或複雜前端」列為非目標,但允許在說明原因、最小替代方案與成本後由使用者決定;使用者已決定要。

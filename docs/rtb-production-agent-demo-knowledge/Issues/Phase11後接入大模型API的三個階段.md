@@ -1,13 +1,13 @@
 ---
 type: issue
-status: open
+status: resolved
 created: 2026-09-24
 updated: 2026-09-24
 aliases: []
 about_code: []
 tags:
   - type/issue
-  - status/open
+  - status/resolved
 summary: |-
   FLAG: 使用者 2026-09-24 本人要求在必要階段串接大模型 API,排在 Phase 11 之後、Phase 12 之前,另開一個階段。
   DECISION: 三個接入點(使用者本人選):①異常原因假說與調查建議 ②分析端提案的風險說明文字 ③當 Phase 10「值不值得加」的候選、實測品質成本延遲。
