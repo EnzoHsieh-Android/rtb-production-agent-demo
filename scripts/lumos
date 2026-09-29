@@ -388,6 +388,37 @@ def nfc(s):
     return unicodedata.normalize("NFC", s)
 
 
+def _nfc_child(parent, name):
+    """parent 目錄底下,名字 NFC 後等於 nfc(name) 的那一個實際項目 → Path 或 None。git 回的路徑、索引鍵都是 NFC,
+    磁碟上可能是 NFD(Linux 不幫忙正規化);OSError 當成沒有。"""
+    want = nfc(name)
+    try:
+        return next((q for q in Path(parent).iterdir() if nfc(q.name) == want), None)
+    except OSError:
+        return None
+
+
+def _sh_quote(s):
+    """印給人照貼的指令裡的一個參數加 shell 引號:路徑含空白或中文時照樣貼得上去。"""
+    import shlex
+    return shlex.quote(s)
+
+
+def _phys_path(root, rel):
+    """root 底下的相對路徑(NFC)→ 磁碟上的實際路徑:直接存在就用它,不然逐層找 NFC 相同的名字;
+    找不到就回原路徑,讓呼叫端照常報「打不開」。"""
+    p = Path(root) / rel
+    if p.exists():
+        return p
+    cur = Path(root)
+    for seg in Path(rel).parts:
+        nxt = cur / seg
+        if not nxt.exists():
+            nxt = _nfc_child(cur, seg) or nxt
+        cur = nxt
+    return cur
+
+
 def strip_quotes(s):
     if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
         return s[1:-1]
@@ -664,12 +695,16 @@ class Env:
         return self._edges
 
     def find(self, arg):
-        """以 stem 或相對路徑找筆記,回傳 rel 或 None"""
+        """以 stem 或相對路徑找筆記,回傳 rel 或 None。./ 開頭(drift 的提示對 - 開頭的節點這樣印)是明確路徑,只認那一篇。"""
         a = nfc(arg.strip())
+        explicit = a.startswith("./")
+        a = a[2:] if explicit else a
         if a.lower().endswith(".md"):
             a = a[:-3]
-        if "/" in a and (a + ".md") in self.notes:
+        if (explicit or "/" in a) and (a + ".md") in self.notes:
             return a + ".md"
+        if explicit:        # ./ 開頭是明確路徑,找不到就是找不到,不退回用檔名猜(代碼審 r4 外家否決、正確性席:會寫到別篇)
+            return None
         hits = self.by_stem.get(a.rsplit("/", 1)[-1].lower())
         if hits:
             if len(hits) > 1:
@@ -2217,35 +2252,30 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
             _txt5 = (env.vault / _rel5).read_text(encoding="utf-8-sig")
         except OSError:
             continue
-        for _no5, _raw5, _pr5 in _search_visible_lines(_txt5.split("\n"), False):
-            # 「這行是不是 REVISIT」跟第一層、第二層共用 _revisit_split(存量漂移防線 [S11]):條件式回頭條件不算壞損,
-            # 它的 [by:] 期限照日期式判到期;沒帶期限的由 doctor Z 段計數
-            # 餵剝過雙反引號的那一版,跟第一層、第二層同一個輸入(代碼審 r1 正確性席、外家席:原本雙反引號範例在這裡算數)
-            _kind5, _restv = _revisit_split(_strip_inline_markup(_raw5)[0])
-            if _kind5 is None:
-                continue
+        # 「這行是不是 REVISIT」走 _revisit_lines(跟 set 把 Issue 結案時的列出共用;內部用 _revisit_split,跟第一層、第二層同一支):
+        # 條件式回頭條件不算壞損,它的 [by:] 期限照日期式判到期;沒帶期限的由 doctor Z 段計數
+        # ★已結案的 Issue 標出來★(存量漂移改法 [S6]):照樣列、照樣計數,只在那一行後面加註;只標 Issue——
+        # 已收尾的計劃常刻意留著撤除用的回頭條件,標「已結案」反而讓人以為可以刪
+        _closed5 = (_drift_str(_n5, "type") == "issue" and _drift_str(_n5, "status") in _ISSUE_CLOSED_STATUSES)
+        for _no5, _kind5, _datev, _sumv, _raw5 in _revisit_lines(_txt5):
             if _kind5 == "bad":
                 _rv_bad += 1
                 continue
-            if _kind5 == "cond":
-                _datev = _probe_parse(_restv)["by"]
-                if not _datev:
-                    continue
-                _sumv = _PROBE_LEAD_RE.sub("", _restv)
-            else:
-                _datev, _, _sumv = _restv.partition(" ")
+            if _kind5 == "cond" and not _datev:
+                continue
             try:
                 _dv = _dt5.date.fromisoformat(_datev)
             except ValueError:
                 _rv_bad += 1
                 continue
             if _dv <= _today5:
-                _rv_due.append(((_today5 - _dv).days, _datev, _sumv.strip(), _n5.stem))
+                _rv_due.append(((_today5 - _dv).days, _datev, _sumv, _n5.stem, _closed5))
     if _rv_due or _rv_bad:
         section("E5", "回訪到期(當初承認風險時許的「回頭看」)")
         _rv_due.sort(reverse=True)   # 最老優先
         # 摘要與節點名過 _esc_clean(code-revisit r1 H-1:兩天前才在逃逸帳修過的控制碼穿透洞,勿三挖)
-        _lines5 = [f"{d} {_esc_clean(sm, 60)}(逾 {ag} 天)← {_esc_clean(st, 40)}" for ag, d, sm, st in _rv_due]
+        _lines5 = [f"{d} {_esc_clean(sm, 60)}(逾 {ag} 天)← {_esc_clean(st, 40)}" + ("(這篇 Issue 已結案)" if cl else "")
+                   for ag, d, sm, st, cl in _rv_due]
         _head5 = (f"{len(_rv_due)} 件回訪到期(最老逾 {_rv_due[0][0]} 天)——到日子了,處理完把該行日期改下一次或刪行"
                   if _rv_due else "")
         if _rv_bad:
@@ -2257,7 +2287,7 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
                 _head5 = _bad_line5
         warn_soft(_lines5, _head5, advice='lumos search "REVISIT:"')
         gov_events.append({"gate": "check-revisit", "kind": "warned", "hard": False,
-                           "nodes": sorted({st for _, _, _, st in _rv_due}),
+                           "nodes": sorted({st for _, _, _, st, _c in _rv_due}),
                            "note": f"due={len(_rv_due)} bad={_rv_bad}"})
         print()
 
@@ -2270,7 +2300,7 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
     if _zl:
         section("Z", "存量漂移(已經寫進去的句子,跟別處的狀態對不上了)")
         warn_soft(_zl, f"{len(_zl)} 項要看(只列出、不擋;某一行確定照留就表態)",
-                  advice="lumos drift scan  ·  lumos drift ack <節點> <行號> --kind <種類> --reason \"…\"")
+                  advice="lumos drift scan(每筆的 lumos drift fix 指令)  ·  照留:lumos drift ack <節點> <行號> --kind <種類> --reason \"…\"")
         print()
 
     # Check E3: 意圖鏈斷義(軟,不擋,不計 issues)——[M1/S8] 精確版:decision_refs(全域格式
@@ -5241,15 +5271,7 @@ def _lint_collect(env, rel):
     # 值域執法(2026-08-05 標籤結構優化,Enzo 裁;cutoff 制不回溯——Landmark 實測野化:
     # status 13 值同義混用、FLAG 50+ 自由文字淪為備註欄,可篩選性歸零)
     _ENUM_CUTOFF = "2026-08-06"
-    _STATUS_ENUM = {
-        "system": {"doing", "done", "planned", "deferred", "rejected", "superseded", "stale"},
-        "project": {"todo", "doing", "done", "superseded"},
-        "issue": {"open", "doing", "resolved", "done", "wontfix"},
-        "verification": {"pass", "stale", "superseded", "pending", "abandoned"},
-        # pending=預告了還沒做、abandoned=決定不做了的墓碑(必要合約清單_計劃)。
-        # ★只是合法值,不代表被新規則管★:規則只認節點身上帶 guards 欄位的,手寫這兩個字行為照舊。
-        "moc": {"doing", "done"},
-    }
+    # 合法狀態表在模組層 _STATUS_ENUM(lint、drift fix 的 c2/c3 共用;存量漂移改法 第 5 節)
     _PRIORITY_ENUM = {"P0", "P1", "P2", "P3"}
     _RISK_ENUM = {"金流", "對外送出", "不可逆", "守衛面"}
     _FLAG_ENUM = {"TECHNICAL", "DECISION", "ORIGIN"}
@@ -5840,12 +5862,13 @@ def _spec_gate_keeps_rows(text, clauses):
     return keeps, variant
 
 
-def _plan_first_commit(rr, plan_repo_rel):
-    """計劃檔第一次進 git 歷史的提交(r4:frontmatter 的 created 用 lumos set 就能改,不可信);沒進歷史回 None。"""
+def _plan_first_commit(rr, plan_repo_rel, timeout=None):
+    """計劃檔第一次進 git 歷史的提交(r4:frontmatter 的 created 用 lumos set 就能改,不可信);沒進歷史回 None。
+    timeout 給了就是秒數,逾時當查不到(drift fix --kind c4 列證據用;存量漂移改法 第 5 節)。"""
     try:
         r = subprocess.run(["git", "-C", str(rr), "-c", "core.quotePath=false", "log", "--diff-filter=A", "--format=%H", "--", plan_repo_rel],
-                           capture_output=True, text=True, errors="replace")
-    except OSError:
+                           capture_output=True, text=True, errors="replace", timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
         return None
     shas = r.stdout.split() if r.returncode == 0 else []
     return shas[-1] if shas else None
@@ -9796,13 +9819,10 @@ def _plan_for_loop(env, loop_id):
     for cand in (f"{lid}_計劃.md", f"{lid}.md"):
         if (proj / cand).is_file():
             return f"Projects/{cand}"
-    try:
-        names = {nfc(q.name): q.name for q in proj.iterdir()} if proj.is_dir() else {}
-    except OSError:
-        names = {}
     for cand in (f"{lid}_計劃.md", f"{lid}.md"):
-        if nfc(cand) in names:
-            return f"Projects/{names[nfc(cand)]}"
+        q = _nfc_child(proj, cand) if proj.is_dir() else None
+        if q is not None:
+            return f"Projects/{q.name}"
     return None
 
 
@@ -9894,11 +9914,7 @@ def _plan_file_exists(env, plan_rel):
     parent = (env.vault / plan_rel).parent
     if not parent.is_dir():
         return False
-    want = nfc(Path(plan_rel).name)
-    try:
-        return any(nfc(q.name) == want for q in parent.iterdir())
-    except OSError:
-        return False
+    return _nfc_child(parent, Path(plan_rel).name) is not None
 
 
 def _escape_auto_failed(env, loop_id, stage, why):
@@ -12083,16 +12099,53 @@ def _guard_planned_idx(lines, e, claim):
     return out
 
 
-def _guard_settle_rewrite(lines, today, home_link):
-    """守衛紀錄(已改成 pass 的行)→ (改寫後的行, 找不到的句型)。只動四種預告句,其他行一字不動。"""
+# 人手補的「已轉正」段(正文):settle 句下一個非空行長這樣,改句時刪掉 settle 句本身、不再疊一行(存量漂移改法 第 2 節)
+_GUARD_MANUAL_SETTLED_RE = re.compile(r"^\(?(\d{4}-\d{2}-\d{2})\)? ?已轉正")
+_GUARD_WHY_SETTLED_DATE_RE = re.compile(r"\((\d{4}-\d{2}-\d{2}) 已轉正\)\s*$")
+
+
+def _guard_manual_settled_after(lines, i):
+    """第 i 行之後(跳過空行)的下一個非空行是不是人手補的「已轉正」段。"""
+    for ln in lines[i + 1:]:
+        if ln.strip():
+            return bool(_GUARD_MANUAL_SETTLED_RE.match(ln.strip()))
+    return False
+
+
+def _guard_prose_ops(lines):
+    """守衛紀錄裡的預告句 → [(行索引, 種類)]。種類:test/why/why-done/whynot/settle,
+    settle 句下一個非空行已是手補的「已轉正」段時記 settle-del(刪掉 settle 句那一行)。"""
     regs = _notelines_regions("\n".join(lines))
-    out, seen = [], set()
+    ops = []
     for i, ln in enumerate(lines):
         k = _guard_planned_prose(ln, regs[i] if i < len(regs) else "body", settled_ok=True)
+        if k == "settle" and _guard_manual_settled_after(lines, i):
+            k = "settle-del"
+        if k is not None:
+            ops.append((i, k))
+    return ops
+
+
+def _guard_prose_needs_date(ops):
+    """改句要不要寫日期:TEST、WHY 兩句與換成「(日期 已轉正)」的 settle 句要;只改「為什麼還不做:」或刪 settle 句不要。"""
+    return any(k in ("test", "why", "settle") for _i, k in ops)
+
+
+def _guard_settle_rewrite(lines, today, home_link):
+    """守衛紀錄(已改成 pass 的行)→ (改寫後的行, 找不到的句型)。只動四種預告句,其他行一字不動。
+    settle 句下一個非空行已是手補的「已轉正」段:刪掉 settle 句那一行(連同緊接的一個空行),算處理過、不進 missing
+    ——pending 轉正與 pass 補改走同一支,同一種句子不因入口不同而結果不同(存量漂移改法 第 2 節)。
+    today 只在要寫日期時用得到(見 _guard_prose_needs_date)。"""
+    ops = dict(_guard_prose_ops(lines))
+    out, seen, skip = [], set(), set()
+    for i, ln in enumerate(lines):
+        if i in skip:
+            continue
+        k = ops.get(i)
         if k is None:
             out.append(ln)
             continue
-        seen.add("why" if k == "why-done" else k)
+        seen.add({"why-done": "why", "settle-del": "settle"}.get(k, k))
         ind = ln[:len(ln) - len(ln.lstrip())]
         if k == "test":
             out.append(f"{ind}TEST:[{today}] 預告已轉正,合約改由 [[{home_link}]] 的正式合約行守")
@@ -12102,9 +12155,140 @@ def _guard_settle_rewrite(lines, today, home_link):
             out.append(f"{ind}預告當時{ln.lstrip()}")
         elif k == "settle":
             out.append(f"{ind}({today} 已轉正)")
+        elif k == "settle-del":
+            if i + 1 < len(lines) and not lines[i + 1].strip():
+                skip.add(i + 1)
         else:
             out.append(ln)
     return out, [k for k in _GUARD_PROSE_KINDS if k not in seen]
+
+
+def _guard_date_arg(s):
+    """--date 的值 → (日期字串, 錯誤)。格式要 YYYY-MM-DD、不晚於今天。"""
+    import datetime
+    try:
+        d = datetime.date.fromisoformat(str(s).strip())
+    except ValueError:
+        return None, f"--date 要寫成 YYYY-MM-DD,你給的是 {s!r}"
+    if d > datetime.date.today():
+        return None, f"--date {d.isoformat()} 晚於今天,轉正日期不能是未來"
+    return d.isoformat(), None
+
+
+def _guard_written_settled_dates(lines):
+    """那篇守衛紀錄裡已經寫過的轉正日期:正文手補的「<日期> 已轉正」段、摘要 WHY 行尾的「(<日期> 已轉正)」。"""
+    regs = _notelines_regions("\n".join(lines))
+    got = set()
+    for i, ln in enumerate(lines):
+        r = regs[i] if i < len(regs) else "body"
+        if r == "body":
+            m = _GUARD_MANUAL_SETTLED_RE.match(ln.strip())
+        elif r == "summary" and _guard_planned_prose(ln, r, settled_ok=True) == "why-done":
+            m = _GUARD_WHY_SETTLED_DATE_RE.search(ln)
+        else:
+            m = None
+        if m:
+            got.add(m.group(1))
+    return got
+
+
+def _git_paths_nfc(root, repo_rel):
+    """repo 相對路徑(NFC)→ git ls-files 裡 NFC 後相同的原樣路徑(無損解碼、去重、照 git 的順序);git 失敗回 None。
+    同一個名字有兩種 Unicode 拼法的檔並存時會有兩筆;合併衝突中同一條路徑列三次,去重後算一筆(代碼審 r4 正確性席)。"""
+    raw = _nodehome_git(root, "ls-files", "-z")
+    if raw is None:
+        return None
+    want = nfc(repo_rel)
+    return list(dict.fromkeys(x for x in _nodehome_split_z(raw) if nfc(x) == want))
+
+
+def _guard_raw_git_path(root, repo_rel):
+    """repo 相對路徑(NFC)→ git ls-files 列出的原樣路徑(傳回給 git 用);找不到或 git 失敗回 None。"""
+    ps = _git_paths_nfc(root, repo_rel)
+    return ps[0] if ps else None
+
+
+def _guard_pass_commit_date(root, repo_rel):
+    """守衛紀錄第一次變成 status: pass 的提交日期 → (日期, 錯誤)。那一筆若也是這個檔第一次出現的提交(匯入、搬目錄、
+    改名後重新加入)就不算。不用 git log -S <合約文字>:settle 是原地換行,出現次數不變,找不到轉正那次(設計審 r1)。"""
+    if _git_is_shallow(root):
+        return None, "這個 repo 是 shallow clone,查不到完整歷史"
+    raw = _guard_raw_git_path(root, repo_rel)
+    if raw is None:
+        return None, f"git 裡找不到 {repo_rel}(沒被追蹤,或 git 查詢失敗/逾時)"
+    log = _nodehome_git(root, "log", "--reverse", "--format=%H%x09%as", "-G", "^status: pass", "--", raw)
+    added = _nodehome_git(root, "log", "--diff-filter=A", "--format=%H", "--", raw)
+    if log is None or added is None:
+        return None, "git 查詢失敗或逾時"
+    adds = set(added.decode("utf-8", "replace").split())
+    for row in log.decode("utf-8", "replace").splitlines():
+        sha, _t, day = row.partition("\t")
+        blob = _nodehome_git(root, "show", f"{sha}:{raw}")
+        if blob is None:
+            continue
+        fm, _b = split_frontmatter(blob.decode("utf-8", "replace"))
+        if not fm or str(parse_frontmatter(fm)[0].get("status", "")).strip() != "pass":
+            continue
+        if sha in adds:
+            return None, f"第一次是 pass 的提交 {sha[:12]} 也是這個檔第一次出現的提交(整批匯入或搬過目錄),那天不是轉正日"
+        return day.strip(), None
+    return None, "歷史裡找不到它變成 pass 的提交"
+
+
+def _guard_settled_date(root, repo_rel, lines, date_arg):
+    """補改句要寫的轉正日期 → (日期, 錯誤)。依序:--date、那篇已寫的轉正日期、守衛紀錄第一次變成 pass 的提交日期;
+    推不出來回錯誤,★不拿今天充數★(存量漂移改法 第 2 節)。"""
+    if date_arg is not None:
+        return _guard_date_arg(date_arg)
+    got = _guard_written_settled_dates(lines)
+    if len(got) > 1:
+        return None, f"這篇已寫的轉正日期不一致({'、'.join(sorted(got))}),用 --date 指定"
+    if got:
+        return next(iter(got)), None
+    d, why = _guard_pass_commit_date(root, repo_rel)
+    if d is None:
+        return None, f"推不出轉正日期({why}),用 --date YYYY-MM-DD 指定"
+    return d, None
+
+
+def _guard_pass_home(env, glines):
+    """已 pass 的守衛紀錄補改句的前提:讀得出預告的合約、家節點摘要裡有這條合約綁了測試的正式行。
+    → (家節點路徑, 錯誤)。"""
+    gfm, _gb = split_frontmatter("\n".join(glines))
+    gfields = parse_frontmatter(gfm)[0] if gfm is not None else {}
+    m = re.search(r"^預告的合約:(.+)$", "\n".join(glines), re.M)
+    claim = m.group(1).strip() if m else ""
+    home = _guard_home_of_fields(gfields)
+    home_rel = env.find(home) if home else None
+    htext = env_text(env, home_rel) if home_rel else None
+    if claim and htext is not None:
+        hfm, _hb = split_frontmatter(htext)
+        if hfm is not None and _guard_formal_line(htext.split("\n"), len(hfm) + 1, claim, None) is not None:
+            return home_rel, None
+    what = ("讀不出預告的合約" if not claim else f"找不到家節點 {home or '(沒寫)'}" if htext is None
+            else f"家節點 {home_rel[:-3]} 的摘要裡沒有這條合約綁了測試的正式行")
+    return None, (f"{what}。兩條出路:這條合約其實還沒轉正——把 status 改回 pending 後走 lumos guard settle;"
+                  "或正式行寫在別處——手動改句後,對剩下的 c1 用 lumos drift ack")
+
+
+def _guard_pass_rewrite(env, root, repo_rel, glines, date_arg):
+    """已 pass 但還留著預告句的守衛紀錄 → (改寫後的行, 找不到的句型, 用的日期, 錯誤)。前提、日期、不疊都在這裡;
+    guard settle 與 drift fix --kind c1 共用(drift 往下呼叫 guard,guard 不呼叫 drift)。"""
+    home_rel, err = _guard_pass_home(env, glines)
+    if err:
+        return None, None, None, err
+    ops = _guard_prose_ops(glines)
+    day = None
+    if _guard_prose_needs_date(ops):
+        day, err = _guard_settled_date(root, repo_rel, glines, date_arg)
+        if err:
+            return None, None, None, err
+    elif date_arg is not None:
+        day, err = _guard_date_arg(date_arg)
+        if err:
+            return None, None, None, err
+    new, missing = _guard_settle_rewrite(glines, day, home_rel[:-3])
+    return new, missing, day, None
 
 
 def _guard_touched_hits(files, touched):
@@ -12192,17 +12376,68 @@ def _guard_touches(gn, env, touched):
     return False, ("" if not broken else f";這次沒碰到它管的檔{broken}")
 
 
-def cmd_guard_settle(env, ref, method):
+def cmd_guard_settle(env, ref, method=None, date=None):
     """轉正:預告行換成正式合約行並綁上測試,守衛節點轉成已通過,四種預告句改成歷史說法。
 
     ★整段拿寫入鎖、守衛紀錄一次寫入、做到一半可以補完★(存量漂移防線_計劃 [S4][S5][S19]):
     原本第一步在鎖外、第二步才經 cmd_set 拿鎖,中間斷掉會留下「家筆記是正式行、守衛紀錄還是 pending」,
-    舊版再跑 settle 找不到預告行就擋,guard-kill 記過這種卡死。"""
+    舊版再跑 settle 找不到預告行就擋,guard-kill 記過這種卡死。
+
+    ★已經 pass 但還留著預告句★(存量漂移改法 第 3 節):補改句(前提、日期、不疊跟 drift fix --kind c1 同一支);
+    前提不符回 2(以前一律回 0)。--test 只有 pending 要;--date 只給 pass 補改句用。"""
+    rel, _n = _guard_find(env, ref)
+    if rel is None:
+        print(f"擋下:找不到守衛節點 {ref}(或那篇不是這套機制建的)", file=sys.stderr)
+        return 2
+    try:
+        glines, _s, ge = load_raw_for_edit(env.vault / rel)
+    except (ValueError, RuntimeError, OSError) as ex:
+        print(f"擋下:{rel} 打不開:{ex}", file=sys.stderr)
+        return 2
+    if str(parse_frontmatter(glines[1:ge])[0].get("status")) == "pass":
+        return _guard_settle_pass(env, rel, glines, date)
+    if date is not None:
+        print("擋下:--date 只給已轉正(pass)的守衛紀錄補改預告句用;待完成的轉正日期就是今天", file=sys.stderr)
+        return 2
+    if method is None:
+        print("擋下:待完成的守衛紀錄轉正要給 --test <測試方法名>(守這條合約的那支測試)", file=sys.stderr)
+        return 2
     if not IDENT_RE.match(method or ""):
         print(f"擋下:測試方法名『{method}』不合法(只能字母/數字/底線,不能數字開頭)", file=sys.stderr)
         return 2
     with _vault_write_lock(env.vault):
         return _guard_settle_locked(env, ref, method)
+
+
+def _guard_settle_pass(env, rel, glines, date):
+    """已 pass 的守衛紀錄:還有預告句就補改(鎖外讀狀態、推日期、查前提;拿鎖後比對那一篇沒變才寫),沒有就照舊回 0。"""
+    ops = [k for _i, k in _guard_prose_ops(glines) if k != "why-done"]
+    if not ops:
+        print(f"已轉正,不用再做:{rel} 已經是 pass")
+        return 0
+    root = _vault_repo_root(env)
+    gpath = env.vault / rel
+    before = "\n".join(glines).encode("utf-8")      # load_raw_for_edit 讀到的原樣內容(已拒 BOM、CRLF)
+    try:
+        repo_rel = gpath.resolve().relative_to(Path(root).resolve()).as_posix()
+    except ValueError:
+        repo_rel = rel
+    new, missing, day, err = _guard_pass_rewrite(env, root, repo_rel, glines, date)
+    if err:
+        print(f"擋下:{rel} 已是 pass、還留著預告句,但補改不了:{err}", file=sys.stderr)
+        return 2
+    with _vault_write_lock(env.vault):
+        try:
+            if gpath.read_bytes() != before:
+                print(f"擋下:讀完之後 {rel} 被改過,重跑一次", file=sys.stderr)
+                return 2
+            atomic_write_verify(gpath, new, "status", lambda f: str(f.get("status", "")) == "pass")
+        except (ValueError, RuntimeError, OSError) as ex:
+            print(f"擋下:{rel} 寫不進去:{ex}", file=sys.stderr)
+            return 2
+    _guard_settle_missing_say(rel, missing)
+    print(f"✓ 補改:{rel} 已是 pass,預告句改成歷史說法" + (f"(轉正日期 {day})" if day else ""))
+    return 0
 
 
 def _guard_settle_locked(env, ref, method):
@@ -12294,31 +12529,47 @@ def _guard_settle_home(env, home_rel, claim, method):
     return True
 
 
-def _guard_settle_record(gpath, glines, ge, rel, home_rel, method):
-    """轉正第二步:守衛紀錄的 status、標籤、四種預告句同一次寫入。"""
-    import datetime
-    today = datetime.date.today().isoformat()
+def _guard_settle_record_lines(glines, ge, home_rel, today):
+    """轉正第二步算內容(不寫檔):守衛紀錄的 status 改 pass、同步標籤、四種預告句改寫 → (新的行, 找不到的句型, 標籤有沒有同步)。
+    settle 與 drift fix --kind c5 共用(存量漂移改法 第 4 節)。"""
     fm = edit_fm_scalar(glines[1:ge], "status", "pass")
     fm, synced = edit_fm_sync_status_tag(fm, "pass")
     new, missing = _guard_settle_rewrite(glines[:1] + fm + glines[ge:], today,
                                          home_rel[:-3] if home_rel.endswith(".md") else home_rel)
+    return new, missing, synced
 
+
+def _guard_record_ok(synced):
+    """寫後自驗:status 是 pass;標籤有同步時 status/* 只剩 status/pass。"""
     def _ok(f):
         if str(f.get("status", "")) != "pass":
             return False
         tags = [t for t in as_list(f.get("tags")) if isinstance(t, str)]
         return (not synced) or ("status/pass" in tags and all(t == "status/pass" for t in tags if t.startswith("status/")))
+    return _ok
 
+
+_GUARD_PROSE_NAMES = {"test": "摘要的 TEST 預告句", "why": "摘要的 WHY 預告句", "whynot": "正文「為什麼還不做:」",
+                      "settle": "正文「做完之後跑 lumos guard settle 轉正」"}
+
+
+def _guard_settle_missing_say(rel, missing):
+    for k in missing or ():
+        print(f"提醒:{rel} 裡找不到{_GUARD_PROSE_NAMES[k]}(被手改過?),那一句沒改寫,要的話自己改成歷史說法")
+
+
+def _guard_settle_record(gpath, glines, ge, rel, home_rel, method):
+    """轉正第二步:守衛紀錄的 status、標籤、四種預告句同一次寫入。"""
+    import datetime
+    today = datetime.date.today().isoformat()
+    new, missing, synced = _guard_settle_record_lines(glines, ge, home_rel, today)
     try:
-        atomic_write_verify(gpath, new, "status", _ok)
+        atomic_write_verify(gpath, new, "status", _guard_record_ok(synced))
     except (ValueError, RuntimeError) as ex:
         print(f"擋下:{home_rel} 已換成正式合約行,但 {rel} 寫不進去:{ex}", file=sys.stderr)
         print(f"  修好原因後重跑同一個指令會只補這一步:lumos guard settle {rel[:-3]} --test {method}", file=sys.stderr)
         return 2
-    _names = {"test": "摘要的 TEST 預告句", "why": "摘要的 WHY 預告句", "whynot": "正文「為什麼還不做:」",
-              "settle": "正文「做完之後跑 lumos guard settle 轉正」"}
-    for k in missing:
-        print(f"提醒:{rel} 裡找不到{_names[k]}(被手改過?),那一句沒改寫,要的話自己改成歷史說法")
+    _guard_settle_missing_say(rel, missing)
     print(f"✓ 轉正:{home_rel} 的預告行已換成正式合約並綁上 [test:{method}];{rel} 轉為已通過,預告句改成歷史說法")
     print("  下一步:lumos guard audit 補獨立審計,推送前的閘會查")
     return 0
@@ -13700,6 +13951,19 @@ def cmd_stale(env, match=None, candidate=False, legacy=False):
 
 # query 收案態(--active 排除集):與各 type 的 status enum 對齊(2026-08-16 圖譜結構化查詢)
 QUERY_CLOSED_STATUSES = {"done", "pass", "superseded", "resolved", "wontfix", "abandoned"}
+# 各類型的合法狀態值(值域執法,2026-08-05 標籤結構優化;原本是 _lint_collect 裡的區域字典,
+# 存量漂移改法 第 5 節抽成模組常數:lint、drift fix 的 c2 結案值與 c3 狀態值共用這一份)
+_STATUS_ENUM = {
+    "system": {"doing", "done", "planned", "deferred", "rejected", "superseded", "stale"},
+    "project": {"todo", "doing", "done", "superseded"},
+    "issue": {"open", "doing", "resolved", "done", "wontfix"},
+    "verification": {"pass", "stale", "superseded", "pending", "abandoned"},
+    # pending=預告了還沒做、abandoned=決定不做了的墓碑(必要合約清單_計劃)。
+    # ★只是合法值,不代表被新規則管★:規則只認節點身上帶 guards 欄位的,手寫這兩個字行為照舊。
+    "moc": {"doing", "done"},
+}
+# Issue 的結案值:狀態表 issue 那一格與結案集合的交集(不直接用跨類型的 QUERY_CLOSED_STATUSES;存量漂移改法 第 4、6 節)
+_ISSUE_CLOSED_STATUSES = frozenset(_STATUS_ENUM["issue"] & QUERY_CLOSED_STATUSES)
 # abandoned(棄置的守衛節點)算收案(必要合約清單_計劃):它的意思就是「決定不做了」,
 # 不加的話會永遠出現在 --active 的結果裡,而且因為沒人會再碰它,這筆髒資料不會被順手清掉。
 
@@ -14353,6 +14617,7 @@ def cmd_export_html(env, out_path, standalone=False):
 
 SCALAR_KEYS = {"status", "updated", "created", "type", "self_audit", "signed_off", "regen", "pitfall_ask", "pitfall_source", "about_code_stamp", "responsibility"}  # pitfall_* 2026-08-09 已知坑策展庫;about_code_stamp 2026-08-23(語意欄位基礎,計劃:固定席扇出降權)
 LIST_KEYS = {"verified_by", "plan_refs", "related", "tags", "aliases", "pitfall_when", "core_refs", "about_code", "lands_in"}   # aliases 2026-08-05;pitfall_when 2026-08-09(已知坑策展庫,content-trigger);core_refs 2026-08-11(升格加指針/降格拆指針,兩向都要 T1;值是純路徑非 wikilink——lumos-core-knowledge skill 明令禁跨 vault wikilink)
+_SET_COND_SLOT = "<整項新內容>"   # drift fix --kind c4 印的 lumos set 指令裡,要人填的那一項
 COND_KEYS = ("valid_under", "revalidate_when")   # 驗收前提/回頭條件:set 整欄換掉(一個值=單行、多個=清單);spec=Projects/驗收前提欄位可改_計劃
 LINK_KEYS = ("verified_by", "plan_refs", "related", "core_refs")  # S2「純連結欄位」子集(≠LIST_KEYS:那是 append 白名單,pitfall_when=content-trigger 不算連結);spec=Projects/code側刪除傳播守衛_計劃
 DATE_KEYS = {"updated", "created", "date", "decided", "ended"}
@@ -14866,6 +15131,9 @@ def _set_conditions_locked(env, rel, key, values):
     ★為什麼整欄換、不走 append/remove★:這兩欄是散文、常提到連結;append/remove 判斷「同一項」看連結目標,
     兩條提到同一篇的不同條件會被當成重複。原本四種寫法(單行、清單、空的、多行區塊)並存,一律整段拿掉重寫。"""
     vals = [str(v).strip() for v in values]
+    if any(_SET_COND_SLOT in v for v in vals):
+        print(f"擋下:值裡還留著 {_SET_COND_SLOT}(drift fix 證據頁的佔位字)——換成那一項改寫後的整句,檔案沒動", file=sys.stderr)
+        return 2
     if not vals or any(not v for v in vals):
         print(f"擋下:{key} 的每一條都不能是空的,檔案沒動(前提寫這個結論在什麼情況下才算數,回頭條件寫改到什麼該重驗)",
               file=sys.stderr)
@@ -21208,7 +21476,9 @@ _BOOKKEEPING_FILES = ("docs/.governance-log.jsonl", "docs/.usage-log.jsonl",
                       "docs/.kill-log.jsonl", "docs/.signoff-log.jsonl",
                       "governance/anchor-baseline.json",
                       # 存量漂移守衛的表態檔:跟判定檔一樣是人對發現的回應,不是程式改動(存量漂移防線 [S3])
-                      "governance/drift-acks.jsonl")
+                      "governance/drift-acks.jsonl",
+                      # 存量漂移的修復帳(drift fix 每改一筆記一行稽核紀錄;同表態檔,是人對發現的處理紀錄;存量漂移改法 第 7 節)
+                      "governance/drift-fixes.jsonl")
 # ↑ canary-log/bypass-log 2026-08-27 補（[[Issues/簿記白名單漏canary與bypass帳]] 死結根治）:
 # 審計記帳(canary record)在 loop 中發生,pass 後提交它們原本會讓留痕失效→擋推。
 # ★真效果只在 code-loop 留痕豁免這第二消費者★:pitfalls 那端 canary-log 早被
@@ -25981,6 +26251,11 @@ _DRIFT_KIND_NAMES = {"c1": "轉正了還寫預告", "c2": "計劃收尾了、連
                      "c3": "計劃收尾了、驗證紀錄還待定", "c4": "前提寫「還沒提交」",
                      "c5": "轉正做了一半", "probe": "回頭條件成立了"}
 _DRIFT_ACKS = "governance/drift-acks.jsonl"
+# 修復帳(drift fix 每改一筆記一行稽核紀錄;存量漂移改法 第 7 節)。★稽核紀錄,不是還原工具★:要退回用 git;
+# 帳也是乾淨檢查認得「工具自己的改動」的依據。進簿記檔名單 _BOOKKEEPING_FILES(那邊寫的是同一個字串)
+_DRIFT_FIXES = "governance/drift-fixes.jsonl"
+_DRIFT_FIX_KINDS = ("c1", "c2", "c3", "c4", "c5")
+_DRIFT_BOUND_KINDS = ("c2", "c3")          # 表態要綁當時連著的已收尾計劃(related)與序號(seq)的種類
 _DRIFT_GOLIVE_MARK = "drift check"
 _DRIFT_GATE_VALUES = ("block", "warn", "off")
 # ★沒寫設定時的預設★(計劃〈做法〉第 4 節第 4 點):三條門檻(考卷正例全對、工具鏈歷史重放不亂擋、噪音 ≤5)
@@ -26195,9 +26470,14 @@ def _drift_print_followups(env, rel, new_status):
     if not items:
         return
     print(f"連帶待辦(這份計劃收尾了,下面 {len(items)} 篇連著它;只列出、不擋——連結有時只是參考,是不是該結案要人看):")
+    ti = build_typed_index(env)
     for kind, p, why in items:
         print(f"  · {kind} {p[:-3]}({why})")
-        print(f"      看:lumos context {p[:-3]}")
+        print(f"      看:lumos context {_esc_clean(_drift_sh(p[:-3], node=True), 300)}")
+        if kind == "驗證紀錄" and _drift_c3_hit(env, p, override={rel: new_status}, ti=ti):
+            # c3 那一項給改法指令(存量漂移改法 [S10];單一產生處 _drift_fix_hint)
+            ln = _drift_field_line(env_text(env, p) or "", "status")
+            print(f"      改:{_drift_fix_hint('c3', p, ln)[0]}")
 
 
 # ── 在某個提交的樹上做檢查 ─────────────────────────────────────────────────────────
@@ -26347,6 +26627,42 @@ def _revisit_split(line):
         return "date", rest
     except ValueError:
         return "bad", rest
+
+
+def _revisit_lines(text):
+    """一篇筆記的每一條回頭條件 → [(行號, 種類, 日期或 None, 摘要, 原文)];種類 date/cond/bad(同 _revisit_split)。
+    剝程式碼區(_search_visible_lines)、餵剝過行內程式碼的那一版給 _revisit_split。doctor E5 與 set 把 Issue 結案時的列出
+    共用這一支(存量漂移改法 第 6 節);乙的 _probe_lines、第一層、第二層各自的逐行迴圈不在這裡。"""
+    out = []
+    for no, raw, _pr in _search_visible_lines(text.split("\n"), False):
+        kind, rest = _revisit_split(_strip_inline_markup(raw)[0])
+        if kind is None:
+            continue
+        date, summ = None, ""
+        if kind == "cond":
+            date, summ = _probe_parse(rest)["by"], _PROBE_LEAD_RE.sub("", rest)
+        elif kind == "date":
+            date, _sp, summ = rest.partition(" ")
+        out.append((no, kind, date, summ.strip(), raw))
+    return out
+
+
+def _issue_close_revisits(env, rel, new_status):
+    """lumos set <Issue> status <結案值>、drift fix --kind c2 --close 之後:列出這篇★全部★回頭條件(不只到期的),
+    提示結案了要改成結案說明或刪掉。只印、不擋、不改;行號用寫完之後從磁碟重讀的內容算(存量漂移改法 [S7])。"""
+    n = env.notes.get(rel)
+    if _drift_str(n, "type") != "issue" or str(new_status).strip() not in _ISSUE_CLOSED_STATUSES:
+        return
+    try:
+        text = _phys_path(env.vault, rel).read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return
+    rows = _revisit_lines(text)
+    if not rows:
+        return
+    print(f"這篇 Issue 結案了,還留著 {len(rows)} 行回頭條件——要改成結案說明或刪掉(只列出、不擋):")
+    for no, _k, _d, _s, raw in rows:
+        print(f"  · {_esc_clean(rel, 200)}:{no}  {_esc_clean(raw.strip(), 100)}")
 
 
 def _probe_value_err(k, v):
@@ -27048,9 +27364,26 @@ def _drift_probe_scan(nenv, tree, deadline=None):
 
 # ── 表態 ─────────────────────────────────────────────────────────────────────────────
 
+def _drift_jsonl_parse(raw):
+    """帳檔的位元組 → [dict](不是 JSON 物件的行略過)。表態檔與修復帳共用。
+    ★只在 \\n 切行★:str.splitlines() 還會在 U+2028、U+0085、換頁字元切開,而寫入端 json.dumps(ensure_ascii=False)
+    不跳脫這些字元——工具自己寫進去的一筆會被劈成兩段壞行、讀不回來,乾淨檢查與序號都跟著錯(代碼審 r1 邊界、併發席)。"""
+    import json as _j
+    out = []
+    for ln in (raw or b"").decode("utf-8", errors="replace").split("\n"):
+        if not ln.strip():
+            continue
+        try:
+            d = _j.loads(ln)
+        except (ValueError, RecursionError):
+            continue
+        if isinstance(d, dict):
+            out.append(d)
+    return out
+
+
 def _drift_load_acks(root, where=None):
     """表態檔 → [dict]。where=None 讀工作目錄;給提交讀那個提交的樹(check 只認這個,照第二層「判定檔要提交才算」)。"""
-    import json as _j
     raw = None
     if where is None:
         fp = Path(root) / _DRIFT_ACKS
@@ -27061,15 +27394,7 @@ def _drift_load_acks(root, where=None):
     else:
         bl = _nodehome_cat_blobs(root, [f"{where}:{_DRIFT_ACKS}"])
         raw = bl[0] if bl else None
-    out = []
-    for ln in (raw or b"").decode("utf-8", errors="replace").splitlines():
-        try:
-            d = _j.loads(ln)
-        except ValueError:
-            continue
-        if isinstance(d, dict) and d.get("path") and d.get("kind") in _DRIFT_KINDS:
-            out.append(d)
-    return out
+    return [d for d in _drift_jsonl_parse(raw) if d.get("path") and d.get("kind") in _DRIFT_KINDS]
 
 
 def _drift_ack_key(path, text, kind):
@@ -27077,13 +27402,70 @@ def _drift_ack_key(path, text, kind):
 
 
 def _drift_split_acked(findings, acks, vault_rel):
-    """→ (沒表態的, 已表態的)。對得上=同一路徑、一字不差的原文、同一種類(改小標題不失效)。"""
-    keys = {_drift_ack_key(a["path"], a.get("text", ""), a["kind"]) for a in acks}
+    """→ (沒表態的, 已表態的)。對得上=同一路徑、一字不差的原文、同一種類(改小標題不失效)。
+    ★c2、c3 另外要綁當時的關係★(存量漂移改法 [S8]):只看記了 related 的表態,取 seq 最大的那幾筆(同號全算),
+    全部都涵蓋現在的已收尾計劃清單才算已表態;沒記 related 的舊表態、seq 不是正整數的(手改壞了)都不算數
+    (不然會永久豁免之後才收尾的計劃;壞序號原本被當成 0 號照樣生效,代碼審 r1 外家席)。
+    沒涵蓋但以前表態過的,沒表態那一邊的發現多帶 prev_ack(最近一次當時連著哪幾篇、理由),印的時候講出來。"""
+    keys, bound = set(), {}
+    for a in acks:
+        k = _drift_ack_key(a["path"], a.get("text", ""), a["kind"])
+        if a["kind"] in _DRIFT_BOUND_KINDS:
+            if "related" in a and _drift_seq_ok(a):
+                bound.setdefault(k, []).append(a)
+        else:
+            keys.add(k)
     pre = vault_rel.rstrip("/") + "/"
     left, done = [], []
     for f in findings:
-        (done if _drift_ack_key(pre + f["path"], f["text"], f["kind"]) in keys else left).append(f)
+        k = _drift_ack_key(pre + f["path"], f["text"], f["kind"])
+        if f["kind"] not in _DRIFT_BOUND_KINDS:
+            (done if k in keys else left).append(f)
+            continue
+        top = _drift_bound_latest(bound.get(k, []))
+        cur = {nfc(str(x)) for x in f.get("related", [])}
+        if top and all(_drift_related_ok(a) and cur <= {nfc(x) for x in a["related"]} for a in top):
+            done.append(f)
+        elif top:
+            left.append(dict(f, prev_ack={"related": top[-1].get("related"), "reason": top[-1].get("reason")}))
+        else:
+            left.append(f)
     return left, done
+
+
+def _drift_ack_seq(a):
+    v = a.get("seq")
+    return v if isinstance(v, int) and not isinstance(v, bool) else 0
+
+
+def _drift_seq_ok(a):
+    v = a.get("seq")
+    return isinstance(v, int) and not isinstance(v, bool) and v > 0
+
+
+def _drift_bound_latest(rows):
+    """同一個鍵、記了 related 的表態裡 seq 最大的那幾筆(同號的全算;兩個工作樹各自追加後合併可能同號)。"""
+    if not rows:
+        return []
+    top = max(_drift_ack_seq(a) for a in rows)
+    return [a for a in rows if _drift_ack_seq(a) == top]
+
+
+def _drift_related_ok(a):
+    """related 要是字串清單;手改壞了當成沒涵蓋。"""
+    r = a.get("related")
+    return isinstance(r, list) and all(isinstance(x, str) for x in r)
+
+
+def _drift_prev_ack_line(f):
+    """c2/c3 以前表態過、現在清單多了新的 → 要印的一句;沒有回 None。"""
+    pa = f.get("prev_ack")
+    if not pa:
+        return None
+    old = [str(x) for x in pa["related"]] if isinstance(pa.get("related"), list) else []
+    more = [x for x in f.get("related", []) if nfc(str(x)) not in {nfc(y) for y in old}]
+    return (f"這篇以前表態過(最近一次當時連著 {'、'.join(x[:-3] for x in old) or '(清單壞了)'}),"
+            f"現在多了 {'、'.join(str(x)[:-3] for x in more) or '(清單壞了,讀不出)'};最近一次理由:{str(pa.get('reason') or '')[:80]}")
 
 
 def _drift_old_reason(f, acks, alive=None):
@@ -27098,14 +27480,21 @@ def _drift_old_reason(f, acks, alive=None):
     return None
 
 
-def cmd_drift_ack(env, node, line, kind, reason):
-    """lumos drift ack <節點> <行號> --kind … --reason "…":表態「這行照留」。"""
-    import datetime, secrets
+def _drift_ack_args_err(kind, reason):
     if kind not in _DRIFT_KINDS:
-        print(f"擋下:--kind 只能是 {'/'.join(_DRIFT_KINDS)}", file=sys.stderr)
-        return 2
-    if len((reason or "").strip()) < 4:
-        print("擋下:--reason 要寫為什麼照留,至少 4 個字", file=sys.stderr)
+        return f"--kind 只能是 {'/'.join(_DRIFT_KINDS)}"
+    if len((reason or "").strip()) < 4 or not _drift_one_line(reason or ""):
+        return "--reason 要寫為什麼照留,一行、至少 4 個字"
+    return _drift_placeholder_err(reason, "--reason")
+
+
+def cmd_drift_ack(env, node, line, kind, reason, dry_run=False):
+    """lumos drift ack <節點> <行號> --kind … --reason "…":表態「這行照留」。
+    c2、c3 先確認那一行當下真的是這一種發現,記下當時連著的已收尾計劃(related);每筆都記遞增序號 seq(存量漂移改法 [S8])。"""
+    import datetime, secrets
+    err = _drift_ack_args_err(kind, reason)
+    if err:
+        print(f"擋下:{err}", file=sys.stderr)
         return 2
     rel = env.find(node)
     if rel is None:
@@ -27115,11 +27504,7 @@ def cmd_drift_ack(env, node, line, kind, reason):
     if not (1 <= line <= len(lines)) or not lines[line - 1].strip():
         print(f"擋下:{rel} 沒有第 {line} 行,或那一行是空的", file=sys.stderr)
         return 2
-    root = _vault_repo_root(env)
-    try:
-        vault_rel = env.vault.resolve().relative_to(Path(root).resolve()).as_posix()
-    except ValueError:
-        vault_rel = env.vault.name
+    root, vault_rel = _drift_vault_of(env)
     head = ""
     for ln in reversed(lines[:line]):
         if ln.startswith("#"):
@@ -27128,20 +27513,681 @@ def cmd_drift_ack(env, node, line, kind, reason):
     token = "DACK-" + secrets.token_hex(4)
     rec = {"id": token, "path": f"{vault_rel}/{rel}", "text": lines[line - 1].strip(), "kind": kind,
            "reason": reason.strip(), "date": datetime.date.today().isoformat(), "heading": head, "line": line}
-    fp = Path(root) / _DRIFT_ACKS
-    try:
-        fp.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as ex:
-        print(f"擋下:建不了 {fp.parent}:{ex}", file=sys.stderr)
-        return 2
-    # 表態檔跟筆記庫其他寫入者排同一把鎖(代碼審 r1 併發席;跟治理帳其他寫入者沒共用鎖的整體問題在 Issue 那篇)
+    if kind in _DRIFT_BOUND_KINDS:
+        # 鎖外新建圖譜物件重判(大圖譜重建可能超過鎖的 30 秒接手線)
+        f, err = _drift_current_finding(Env(env.vault), rel, line, kind)
+        if err:
+            print(f"擋下:{err}", file=sys.stderr)
+            return 2
+        rec["related"] = sorted(nfc(str(x)) for x in f.get("related", []))
+    if dry_run:     # drift fix --kind c2 --keep --dry-run:判定做完、不拿鎖不寫(代碼審 r1 六席同報:原本照樣寫表態)
+        print(f"預覽(沒寫):會記一筆表態——{_esc_clean(rel, 200)} 第 {line} 行照留({_DRIFT_KIND_NAMES[kind]}),"
+              f"理由:{_esc_clean(reason.strip(), 200)}"
+              + (f";當時連著 {_esc_clean('、'.join(x[:-3] for x in rec['related']), 300)}" if rec.get("related") else ""))
+        return 0
+    # 表態檔跟筆記庫其他寫入者排同一把鎖(代碼審 r1 併發席;跟治理帳其他寫入者沒共用鎖的整體問題在 Issue 那篇);
+    # 序號在鎖內取現有最大加 1
     with _vault_write_lock(env.vault):
-        rc = _jsonl_append_verified(fp, rec, "id", token)
+        rec["seq"] = _drift_next_seq(root, _DRIFT_ACKS)
+        rc = _drift_ledger_append(root, _DRIFT_ACKS, rec)
     if rc != 0:
         return rc
     _gate_event_or_warn(root, "drift-check", "acked", f"{rel}:{line} {kind}:{reason.strip()[:80]}")
-    print(f"✓ 表態記下了({token}):{rel} 第 {line} 行照留({_DRIFT_KIND_NAMES[kind]})")
+    print(f"✓ 表態記下了({token}):{_esc_clean(rel, 200)} 第 {line} 行照留({_DRIFT_KIND_NAMES[kind]})"
+          + (f";當時連著 {_esc_clean('、'.join(x[:-3] for x in rec['related']), 300)}" if rec.get("related") else ""))
     print(f"推送前的檢查只認提交進去的表態檔:\n    git add {_DRIFT_ACKS} && git commit")
+    return 0
+
+
+def _drift_current_finding(env2, rel, line, kind):
+    """env2 是呼叫端剛新建的圖譜物件(Env(vault)):算那一篇當下的發現,第 line 行要真的是 kind → (發現, 錯誤)。
+    drift ack 的 c2/c3 與 drift fix 共用。"""
+    for f in _drift_state_findings(env2, only={rel}):
+        if f["kind"] == kind and f["line"] == line:
+            return f, None
+    return None, (f"{rel} 第 {line} 行現在不是 {kind}({_DRIFT_KIND_NAMES.get(kind, kind)}):可能已經被修掉,"
+                  "重跑 lumos drift scan 看最新清單")
+
+
+# ── 帳檔(表態檔、修復帳共用的寫法) ─────────────────────────────────────────────────
+
+def _drift_jsonl_rows(fp):
+    """帳檔 → [dict](讀不到、不是 JSON 物件的行略過;符號連結不跟)。"""
+    try:
+        raw = fp.read_bytes() if fp.is_file() and not fp.is_symlink() else b""
+    except OSError:
+        raw = b""
+    return _drift_jsonl_parse(raw)
+
+
+def _drift_next_seq(root, rel):
+    """帳檔現有最大 seq 加 1(沒有就從 1 開始);檔內的遞增序號,不是時間。呼叫端要拿著寫入鎖。"""
+    return max((_drift_ack_seq(d) for d in _drift_jsonl_rows(Path(root) / rel)), default=0) + 1
+
+
+def _drift_ledger_path_err(root, rel):
+    """帳檔寫入前的路徑檢查 → 錯誤或 None:從 repo 根往下到帳檔的每一層都不是符號連結(repo 根以上不管;
+    逐層查照 _mkdir_trusted_under_home 的寫法)、解析後的真實路徑在 repo 根底下、帳檔已存在時硬連結數是 1。
+    檢查後到寫入前的時間差不處理(存量漂移改法〈誠實界線〉)。"""
+    rootp = Path(root)
+    cur = rootp
+    try:
+        for seg in Path(rel).parts:
+            cur = cur / seg
+            if cur.is_symlink():
+                return f"{cur} 是符號連結——帳檔與它在 repo 裡的上層目錄都要是一般的檔案與目錄,不往裡寫"
+        fp = rootp / rel
+        if not fp.resolve().is_relative_to(rootp.resolve()):
+            return f"{fp} 解析後不在 repo 底下,不往裡寫"
+        if fp.exists() and fp.stat().st_nlink != 1:
+            return f"{fp} 有別的硬連結指著同一個檔,不往裡寫"
+    except OSError as ex:
+        return f"查不了 {cur}:{ex}"
+    return None
+
+
+def _drift_ledger_append(root, rel, rec):
+    """表態檔與修復帳共用的追加(存量漂移改法 第 7 節):①路徑檢查 ②檔尾不是換行先補一個 ③交給 _jsonl_append_verified
+    追加並讀回自驗。不改其他帳共用的 _jsonl_append_verified。回 rc。"""
+    fp = Path(root) / rel
+    err = _drift_ledger_path_err(root, rel)
+    if err is None:
+        try:
+            fp.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as ex:
+            err = f"建不了 {fp.parent}:{ex}"
+    err = err or _drift_ledger_path_err(root, rel)
+    if err is None:
+        try:
+            if fp.is_file() and fp.stat().st_size > 0:
+                with open(fp, "rb") as fh:
+                    fh.seek(-1, 2)
+                    tail = fh.read(1)
+                if tail != b"\n":
+                    with open(fp, "a", encoding="utf-8") as fh:
+                        fh.write("\n")
+        except OSError as ex:
+            err = f"補不了檔尾換行:{ex}"
+    if err:
+        print(f"擋下:{err}", file=sys.stderr)
+        return 2
+    return _jsonl_append_verified(fp, rec, "id", rec["id"])
+
+
+# ── 改法:drift fix(Projects/存量漂移改法_計劃)──────────────────────────────────────
+
+_DRIFT_PLACEHOLDER_RE = re.compile(r"<(?:為什麼[^<>\n]{0,30}|sha|卷證)>")
+
+
+def _drift_placeholder_err(text, what):
+    """提示裡的佔位字(<為什麼算解決…>、<sha>)原樣照抄進來 → 錯誤(代碼審 r1 合約圖譜席:照貼提示就把一篇還沒解決的
+    Issue 標成結案、理由是佔位字)。只認 _drift_fix_hint 與 c4 證據頁真的印過、而且會被貼進 --reason/--new 的那幾種
+    (為什麼…、sha、卷證);`Map<K,V>`、`<src/lib>` 這種真理由照收(代碼審 r2 正確性席、r3 邊界席)。"""
+    m = _DRIFT_PLACEHOLDER_RE.search(text or "")
+    return f"{what} 裡還留著提示的佔位字「{m.group(0)}」——換成真的內容再跑" if m else None
+
+
+def _drift_sh(v, node=False):
+    """印給人照貼的指令裡的一個參數:只由文字、數字(含中日韓文字)、底線與 ./@%+=:,- 組成就原樣,其他一律 shlex.quote
+    (代碼審 r1 資安席:檔名帶 $(…)、; 或反引號的筆記,照貼提示就會執行攻擊者的指令;正確性席:帶空白會被切成兩個參數)。
+    不直接全部 _sh_quote:它把中文也當危險字元,圖譜裡幾乎每條提示都會被包上引號;其他字元一律交給 _sh_quote。
+    node=True(drift fix 的節點參數):以 - 開頭會被當成選項,加引號也沒用(shell 會拿掉引號),補成 ./ 開頭——
+    _drift_fix_target 認得這個寫法(代碼審 r2 資安席)。"""
+    v = str(v)
+    if node and v.startswith("-"):
+        v = "./" + v
+    return v if v and re.fullmatch(r"[\w./@%+=:,-]+", v) else _sh_quote(v)
+
+
+def _drift_fix_hint(kind, path, line):
+    """一筆發現該印的改法指令 → [指令]。★提示的單一產生處★(存量漂移改法 [S10]):drift check 擋下與只列出、drift scan、
+    doctor Z 段、計劃收尾的連帶待辦都從這裡拿,不再各自教人手改。"""
+    node = _drift_sh(path[:-3] if path.endswith(".md") else path, node=True)
+    base = f"lumos drift fix {node} {line} --kind {kind}"
+    if kind == "c2":
+        return [base + ' --close --status done --reason "<為什麼算解決,附提交或測試>"',
+                base + ' --keep --reason "<為什麼還沒解決>"']
+    if kind == "c3":
+        return [base + " --status <" + "/".join(sorted(_DRIFT_C3_STATUSES)) + ">"]
+    if kind == "c4":
+        return [base + "   # 列證據、範本與預填好的 lumos set 整欄指令(c4 不自己寫檔)"]
+    if kind == "probe":
+        return [f"條件成立了:把待辦做掉後刪掉 {node} 第 {line} 行或改寫成歷史說法;照留就 "
+                f'lumos drift ack {node} {line} --kind probe --reason "<為什麼照留>"']
+    return [base]
+
+
+def _drift_print_hints(rows, stream, head="改法:"):
+    """一批發現的改法指令;c1 一篇一條(改一次整篇的預告句都改掉)。"""
+    seen, out = set(), []
+    for f in rows:
+        k = (f["kind"], f["path"]) if f["kind"] == "c1" else (f["kind"], f["path"], f["line"])
+        if k in seen:
+            continue
+        seen.add(k)
+        out += _drift_fix_hint(f["kind"], f["path"], f["line"])
+    if out:
+        print(head, file=stream)
+        for x in out[:20]:
+            print(f"    {_esc_clean(x, 300)}", file=stream)
+        if len(out) > 20:
+            print(f"    …還有 {len(out) - 20} 條(lumos drift scan 看全部)", file=stream)
+
+
+_DRIFT_C3_STATUSES = frozenset(_STATUS_ENUM["verification"] - {"pending"})
+_DRIFT_FIX_OPTS = ("date", "close", "keep", "status", "reason", "by")
+_DRIFT_FIX_ALLOWED = {"c1": {"date"}, "c2": {"close", "keep", "status", "reason"}, "c3": {"status", "by"},
+                      "c4": set(), "c5": set()}
+
+
+def _drift_one_line(t):
+    """沒有任何分行字元:不只 \\n \\r,還有 str.splitlines() 會切開的 U+2028、U+0085、換頁字元——寫進筆記或帳檔後,
+    用 splitlines 讀的人會看成兩行(代碼審 r1 邊界、資安席)。"""
+    return len(("x" + t + "x").splitlines()) == 1
+
+
+def _drift_fix_reason_ok(r):
+    return isinstance(r, str) and _drift_one_line(r) and 4 <= len(r.strip()) <= 200
+
+
+def _drift_fix_c2_args(o):
+    if bool(o.get("close")) == bool(o.get("keep")):
+        return ('--kind c2 要二擇一:--close --status <結案值> --reason "…"(Issue 解決了)'
+                '或 --keep --reason "…"(還沒解決,照留)')
+    if o.get("reason") is None:
+        return "--kind c2 要帶 --reason(一行、4 到 200 字)"
+    if _drift_placeholder_err(o["reason"], "--reason"):
+        return _drift_placeholder_err(o["reason"], "--reason")
+    if o.get("keep"):
+        return "--keep 不收 --status" if o.get("status") is not None else None
+    if o.get("status") not in _ISSUE_CLOSED_STATUSES:
+        return f"--close 的 --status 只能是 Issue 的結案值:{'/'.join(sorted(_ISSUE_CLOSED_STATUSES))}"
+    return None
+
+
+def _drift_fix_c3_args(o):
+    if o.get("status") not in _DRIFT_C3_STATUSES:
+        return f"--kind c3 要帶 --status,值只能是 {'/'.join(sorted(_DRIFT_C3_STATUSES))}(驗證紀錄的合法狀態扣掉 pending)"
+    return None
+
+
+_DRIFT_FIX_KIND_ARGS = {"c1": lambda o: None, "c2": _drift_fix_c2_args, "c3": _drift_fix_c3_args,
+                        "c4": lambda o: None, "c5": lambda o: None}
+
+
+def _drift_fix_args_err(kind, o):
+    """--kind 與參數的組合合不合 → 錯誤或 None(存量漂移改法 第 1 節的組合表)。"""
+    if kind == "probe":
+        return ("--kind probe 沒有工具改法:條件成立了就把待辦做掉,再刪掉那一行或改寫成歷史說法;"
+                "照留就 lumos drift ack <節點> <行號> --kind probe --reason \"<為什麼照留>\"")
+    if kind not in _DRIFT_FIX_KINDS:
+        return f"--kind 只能是 {'/'.join(_DRIFT_FIX_KINDS)}"
+    extra = {k for k in _DRIFT_FIX_OPTS if o.get(k) not in (None, False)} - _DRIFT_FIX_ALLOWED[kind]
+    if extra:
+        return f"--kind {kind} 不收 " + "、".join("--" + x for x in sorted(extra))
+    if o.get("date") is not None:
+        _d, err = _guard_date_arg(o["date"])
+        if err:
+            return err
+    if o.get("reason") is not None and not _drift_fix_reason_ok(o["reason"]):
+        return "--reason 要一行、4 到 200 字"
+    return _DRIFT_FIX_KIND_ARGS[kind](o)
+
+
+def _drift_fix_target(env, node):
+    """節點 → (筆記路徑, 錯誤)。同名好幾篇不猜(fix 會改檔,不能靠 env.find 取第一篇)。"""
+    a = nfc(str(node).strip())
+    explicit = a.startswith("./")                      # 提示對 - 開頭的節點印成 ./-x(_drift_sh);./ 開頭就是明確路徑
+    a = a[2:] if explicit else a
+    a = a[:-3] if a.lower().endswith(".md") else a
+    if explicit or "/" in a:        # 給了路徑就只認那一篇,不退回用檔名猜(代碼審 r3 正確性席:./-x 原本被剝掉後改用檔名猜)
+        return (a + ".md", None) if (a + ".md") in env.notes else (None, f"找不到筆記 {node}")
+    hits = env.by_stem.get(a.lower(), [])
+    if len(hits) > 1:
+        return None, f"同名筆記有 {len(hits)} 篇({'、'.join(h[:-3] for h in hits[:5])}),給完整路徑"
+    if not hits:
+        return None, f"找不到筆記 {node}"
+    return hits[0], None
+
+
+def _drift_fix_last_sha(root, repo_rel):
+    """修復帳裡這一篇最後一筆(seq 最大)的 after_sha256;沒有回 None。"""
+    rows = [d for d in _drift_jsonl_rows(Path(root) / _DRIFT_FIXES) if nfc(str(d.get("path", ""))) == nfc(repo_rel)]
+    if not rows:
+        return None
+    return _drift_bound_latest(rows)[-1].get("after_sha256")
+
+
+def _drift_fix_clean_err(root, repo_rel, raw):
+    """乾淨檢查 → 錯誤或 None:那一篇要在 git 裡有追蹤,而且跟 HEAD 沒差,或現在的指紋等於修復帳裡這一篇最後一筆的
+    after_sha256(改動全是工具自己留下的,同一篇可以一項一項修、修完一起提交)。"""
+    import hashlib
+    ps = _git_paths_nfc(root, repo_rel)
+    if not ps:
+        return f"{repo_rel} 沒被 git 追蹤(或 git 查不到)——不在版控裡,改壞了退不回來;先提交"
+    if len(ps) > 1:
+        return f"{repo_rel} 這個名字在 git 裡有 {len(ps)} 種 Unicode 拼法的檔並存,工具分不出要改哪一篇;先手動整理成一篇"
+    gp = ps[0]
+    r = _lens_git(root, "--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--quiet", "HEAD", "--", gp)   # 檔名裡的 * 不當萬用字元(r4 邊界、外家)
+    if r is None or r.returncode not in (0, 1):
+        return "git 查詢失敗或逾時(git diff HEAD),查不出這一篇乾不乾淨"
+    if r.returncode == 0 or _drift_fix_last_sha(root, repo_rel) == hashlib.sha256(raw).hexdigest():
+        return None
+    return f"{repo_rel} 有未提交的改動(不是 drift fix 自己留下的)——先提交或還原再修"
+
+
+def _drift_fix_load(env, rel, line, kind, o):
+    """第 1、2 步:乾淨檢查(--dry-run 不做)、讀那一篇(BOM、CRLF 拒絕)、鎖外新建圖譜物件確認那一行現在是這一種發現。"""
+    root, vault_rel = _drift_vault_of(env)
+    path = _phys_path(env.vault, rel)
+    try:
+        if path.is_symlink() or path.stat().st_nlink != 1:
+            return None, (f"{rel} 是符號連結或還有別的硬連結——工具用換檔的方式寫入,會把連結換成一般檔、或讓兩邊內容分岔"
+                          "(代碼審 r1 邊界席);手動改")
+        lines, _s, fe = load_raw_for_edit(path)
+    except (ValueError, OSError, UnicodeDecodeError) as ex:
+        return None, f"{rel} 打不開:{ex}"
+    cx = {"root": root, "rel": rel, "repo_rel": f"{vault_rel}/{rel}", "path": path, "lines": lines, "fe": fe,
+          "raw": "\n".join(lines).encode("utf-8"), "kind": kind, "line": line, "o": o}
+    if not o.get("dry_run") and kind != "c4":    # 只看、不寫的兩條路不做乾淨檢查(c4 只列證據)
+        err = _drift_fix_clean_err(root, cx["repo_rel"], cx["raw"])
+        if err:
+            return None, err
+    cx["env2"] = Env(env.vault)
+    cx["f"], err = _drift_current_finding(cx["env2"], rel, line, kind)
+    return (None, err) if err else (cx, None)
+
+
+def _drift_fm_status(lines, fe, status):
+    """開頭欄位的 status 改掉、同步 status/* 標籤(同 cmd_set)→ (新的開頭欄位行, 寫後自驗)。"""
+    fm = edit_fm_scalar(lines[1:fe], "status", status)
+    fm, synced = edit_fm_sync_status_tag(fm, status)
+    want = strip_quotes(fmt_scalar("status", status))
+
+    def _ok(f):
+        if str(f.get("status", "")) != want:
+            return False
+        tags = [t for t in as_list(f.get("tags")) if isinstance(t, str)]
+        return (not synced) or (f"status/{want}" in tags and all(t == f"status/{want}" for t in tags if t.startswith("status/")))
+    return fm, _ok
+
+
+def _drift_deps(cx, rels):
+    """判定依賴的其他筆記(c1、c5 的家節點)此刻的位元組 → [(路徑, 位元組)];寫入時在鎖內再比一次,判定之後被改過就不寫
+    (代碼審 r1 併發席:鎖內原本只比守衛紀錄那一篇)。建圖譜物件到這裡的時間差不處理(〈誠實界線〉)。"""
+    out = []
+    for r in rels:
+        if not r:
+            continue
+        p = _phys_path(cx["env2"].vault, r)
+        try:
+            out.append((p, p.read_bytes()))
+        except OSError:
+            out.append((p, None))
+    return out
+
+
+def _drift_no_kind(*kinds):
+    return lambda fs, _txt: not any(x["kind"] in kinds for x in fs)
+
+
+def _drift_fix_c1(cx):
+    """c1:已 pass 的守衛紀錄補改預告句(改句、前提、日期都在 guard 區段,這裡往下呼叫)。"""
+    new, missing, day, err = _guard_pass_rewrite(cx["env2"], cx["root"], cx["repo_rel"], cx["lines"], cx["o"].get("date"))
+    if err:
+        return None, err
+    names = "、".join(_GUARD_PROSE_NAMES[k] for k in missing)
+    return {"new": new, "key": "status", "check": lambda f: str(f.get("status", "")) == "pass",
+            "handled": _drift_no_kind("c1"), "extra": {}, "texts": [],
+            "deps": _drift_deps(cx, [_guard_pass_home(cx["env2"], cx["lines"])[0]]),
+            "msg": "預告句改成歷史說法" + (f"(轉正日期 {day})" if day else "") + (f";找不到{names},沒改" if names else "")}, None
+
+
+_DRIFT_BANNER_RE = re.compile(r"^[>\s#*✅★]*已結案[*★\s]*[(（:：]")
+
+
+def _drift_close_banner(body, banner):
+    """正文第一個 `# ` 標題之後、第一段之前加結案橫幅 → (新的正文行, 原本就有橫幅)。
+    標題只在圍欄外找(圍欄裡的 `# comment` 不算,代碼審 r1 邊界席);已有橫幅只認「已結案」後面接括號或冒號的形狀,
+    「已結案通知功能仍會重複寄信」這種正文不算(外家席);前面可以有 >、#、**、✅、★(本專案 Issue 的真實寫法,代碼審 r2 正確性席)。"""
+    vis = {n - 1 for n, _ln in _visible_lines(body)}
+    h = next((i for i, ln in enumerate(body) if i in vis and ln.startswith("# ")), None)
+    start = 0 if h is None else h + 1
+    j = start
+    while j < len(body) and not body[j].strip():
+        j += 1
+    if j < len(body) and _DRIFT_BANNER_RE.match(body[j]):
+        return body, True
+    if h is None:
+        return [banner, "", *body], False
+    if j > start:
+        return [*body[:j], banner, "", *body[j:]], False
+    return [*body[:start], "", banner, "", *body[start:]], False
+
+
+def _drift_fix_c2(cx):
+    """c2 --close:status 改成 Issue 的結案值、正文標題之後加結案橫幅(專案的 Issue 寫法:第一段就寫已結案)。"""
+    import datetime
+    o, lines, fe = cx["o"], cx["lines"], cx["fe"]
+    fm, ok = _drift_fm_status(lines, fe, o["status"])
+    banner = (f"> 已結案({datetime.date.today().isoformat()},{o['status']}):{o['reason'].strip().rstrip('。')}。"
+              "以下是當時的排查紀錄,不是現況。")
+    body, had = _drift_close_banner(lines[fe + 1:], banner)
+    return {"new": lines[:1] + fm + [lines[fe]] + body, "key": "status", "check": ok, "handled": _drift_no_kind("c2"),
+            "extra": {}, "texts": [] if had else [(banner, "body")],
+            "msg": f"status 改成 {o['status']}" + (";第一段已經是已結案橫幅,沒再加" if had else ",正文加了結案橫幅")}, None
+
+
+def _drift_fix_by(env, by):
+    """--by → (完整相對路徑去 .md, 錯誤)。完整路徑直接查那一篇;短名看 by_stem,找不到或同名好幾篇擋。"""
+    a = nfc(str(by).strip())
+    a = a[:-3] if a.lower().endswith(".md") else a
+    if "/" in a:
+        return (a, None) if (a + ".md") in env.notes else (None, f"--by 找不到 {by}")
+    hits = env.by_stem.get(a.lower(), [])
+    if len(hits) == 1:
+        return hits[0][:-3], None
+    if not hits:
+        return None, f"--by 找不到 {by}"
+    return None, f"--by {by} 同名好幾篇({'、'.join(h[:-3] for h in hits[:5])}),給完整路徑"
+
+
+def _drift_append_note(body, txt):
+    """正文最後一個非空行之後、隔一個空行加一行,檔尾一個換行;正文為空就放在開頭欄位結束那行之後。
+    正文最後落在沒閉合的程式碼圍欄裡擋下(用 _visible_lines 判:加一行試探,看得見才算在圍欄外)。"""
+    probe = [*body, "lumos-drift-probe"]
+    if len(probe) not in {no for no, _ln in _visible_lines(probe)}:
+        return None, "正文最後停在沒閉合的程式碼圍欄裡,不知道要加在哪——先把圍欄關好"
+    last = max((i for i, ln in enumerate(body) if ln.strip()), default=None)
+    if last is None:
+        return [txt, ""], None
+    return [*body[:last + 1], "", txt, ""], None
+
+
+def _drift_fix_c3(cx):
+    """c3:驗證紀錄的 status 改掉、正文最後加一行依狀態措辭的說明;原本的正文不改。"""
+    import datetime
+    o, lines, fe = cx["o"], cx["lines"], cx["fe"]
+    link = None
+    if o.get("by"):
+        link, err = _drift_fix_by(cx["env2"], o["by"])
+        if err:
+            return None, err
+    st = o["status"]
+    txt = f"{datetime.date.today().isoformat()} 狀態改為 {st}(存量漂移 c3)"
+    if link:
+        txt += f",由 [[{link}]] 解決" if st == "pass" else f",參考 [[{link}]]"
+    body, err = _drift_append_note(lines[fe + 1:], txt)
+    if err:
+        return None, err
+    fm, ok = _drift_fm_status(lines, fe, st)
+    return {"new": lines[:1] + fm + [lines[fe]] + body, "key": "status", "check": ok, "handled": _drift_no_kind("c3"),
+            "extra": {}, "texts": [(txt, "body")], "msg": f"status 改成 {st},正文最後加了一行說明"}, None
+
+
+def _drift_c4_key(s):
+    """卷證目錄比對用的名字:去 _計劃、NFC、不分大小寫、. 與空白轉連字號。"""
+    s = nfc(str(s))
+    s = s[:-3] if s.endswith("_計劃") else s
+    return re.sub(r"[.\s]+", "-", s).lower()
+
+
+def _drift_c4_evidence(cx):
+    """c4 的證據與範本:那篇第一次被提交的提交、卷證目錄(名字比對猜的)、範本句。"""
+    root = cx["root"]
+    sha = None if _git_is_shallow(root) else _plan_first_commit(root, cx["repo_rel"], timeout=20)
+    first = "shallow,查不到最早提交" if _git_is_shallow(root) else (sha or "查不到")
+    n = cx["env2"].notes.get(cx["rel"])
+    keys = {_drift_c4_key(link_target(x).rsplit("/", 1)[-1]) for x in as_list(n.fields.get("plan_refs") if n else None)
+            if link_target(x)}
+    rr = Path(root) / "governance" / "review-reports"
+    try:
+        dirs = sorted(d.name for d in rr.iterdir() if d.is_dir() and any(k and k in _drift_c4_key(d.name) for k in keys))
+    except OSError:
+        dirs = []
+    reports = [f"governance/review-reports/{d}" for d in dirs]
+    tpl = f"提交 {sha[:12] if sha else '<sha>'};代碼審見 {'、'.join(reports) or '<卷證>'}"
+    return {"first": first, "reports": reports, "template": tpl}
+
+
+def _drift_c4_print(cx, ev):
+    print(f"{_esc_clean(cx['rel'], 200)} 第 {cx['line']} 行(c4 前提寫「還沒提交」)的證據——只列出、不寫檔:")
+    print(f"  ①這篇第一次被提交:{ev['first']}")
+    print(f"  ②卷證目錄(用計劃名比對猜的,可能漏或多):{_esc_clean('、'.join(ev['reports']), 300) or '查不到'}")
+    print(f"  ③範本句:{_esc_clean(ev['template'], 300)}")
+    items = [str(x) for x in as_list(parse_frontmatter(cx["lines"][1:cx["fe"]])[0].get("valid_under"))]
+    hit = [k for k, x in enumerate(items) if any(w in x for w in _DRIFT_UNCOMMITTED_WORDS)]
+    print("  ④目前 valid_under 各項(本工具讀到的;跟原檔對照一下):")
+    for k, x in enumerate(items):
+        print(f"    {k + 1}. {_esc_clean(x, 300)}" + ("  ← 要改的這項" if k in hit else ""))
+    args = " ".join(_drift_sh(_SET_COND_SLOT if k in hit else x) for k, x in enumerate(items))
+    print(f"用 lumos set 整欄重寫:把 {_SET_COND_SLOT} 換成那一項改寫後的整句(原本其他內容要自己留著,範本句只是參考),"
+          "其他各項照抄:")
+    print(_esc_clean(f"    lumos set {_drift_sh(cx['rel'][:-3], node=True)} valid_under {args}", 2000))
+
+
+def _drift_fix_c4(cx):
+    """c4:只列證據、範本與一條預填好的 lumos set 整欄指令,不寫檔(回 None, None)。
+    ★c4 不自己寫開頭欄位的原始文字★:代碼審四輪裡,先是「人給片段、工具換原始文字」,再換成「工具寫整項」,都要自己判斷
+    原文是什麼 YAML 形狀(引號、全形空白、冒號後空白、控制字元、巢狀、註解、跨行…),零依賴下沒有標準 YAML 讀法可驗,
+    每輪都漏一種(r1 到 r4 邊界、外家、正確性席)。Enzo 2026-09-30 裁改走既有的 lumos set 整欄重寫:它不讀原文形狀、
+    從人給的各項整欄重寫,已過代碼審。指令裡是本工具讀到的各項,要改的那項放佔位字,人填整句後照貼。"""
+    _drift_c4_print(cx, _drift_c4_evidence(cx))
+    return None, None
+
+
+def _drift_c5_test(root, hline):
+    """家節點那條正式行綁的測試 → (測試名清單, 錯誤)。多平台專案帶平台前綴時取識別字(resolve_test_refs)。"""
+    m = INVARIANT_RE.match(hline.strip())
+    if not m:
+        return None, "讀不出家節點的正式合約行"
+    try:
+        pd = load_platforms(root)
+        names = [mm for _pl, mm in resolve_test_refs(m.group(1), pd["platforms"] if pd["multiplatform"] else {},
+                                                      pd["default_platform"])]
+    except (ValueError, OSError) as ex:
+        return None, f"解不出正式行綁的測試:{ex}"
+    return (names, None) if names else (None, "家節點的正式行沒有綁測試")
+
+
+def _drift_fix_c5(cx):
+    """c5:轉正做了一半——只改守衛紀錄(status 改 pass、同步標籤、四種預告句改寫;跟 settle 第二步同一支算內容)。"""
+    import datetime
+    lines, fe = cx["lines"], cx["fe"]
+    m = re.search(r"^預告的合約:(.+)$", "\n".join(lines), re.M)
+    home_rel = (cx["f"].get("related") or [None])[0]
+    htext = env_text(cx["env2"], home_rel) if home_rel and m else None
+    if htext is None:
+        return None, "讀不出預告的合約或家節點"
+    claim, hl = m.group(1).strip(), htext.split("\n")
+    he = _drift_fm_end(hl)
+    if _guard_planned_idx(hl, he, claim):
+        return None, f"家節點 {home_rel[:-3]} 同時有預告行與正式行,先手動刪掉預告行再跑"
+    fi = _guard_formal_line(hl, he, claim, None)
+    names, err = _drift_c5_test(cx["root"], hl[fi]) if fi is not None else (None, "家節點找不到綁了測試的正式行")
+    if err:
+        return None, err
+    new, _missing, synced = _guard_settle_record_lines(lines, fe, home_rel, datetime.date.today().isoformat())
+
+    def _handled(fs, txt):
+        fm, _b = split_frontmatter(txt)
+        st = str(parse_frontmatter(fm)[0].get("status", "")) if fm is not None else ""
+        return st == "pass" and not any(x["kind"] in ("c5", "c1") for x in fs)
+    more = f"(正式行綁了 {len(names)} 支,取第一支)" if len(names) > 1 else ""
+    return {"new": new, "key": "status", "check": _guard_record_ok(synced), "handled": _handled,
+            "extra": {"test": names[0]}, "texts": [], "deps": _drift_deps(cx, [home_rel]),
+            "msg": f"守衛紀錄轉為 pass、預告句改成歷史說法;用家節點正式行綁的測試 {names[0]}{more}"}, None
+
+
+_DRIFT_FIX_COMPUTE = {"c1": _drift_fix_c1, "c2": _drift_fix_c2, "c3": _drift_fix_c3, "c4": _drift_fix_c4,
+                      "c5": _drift_fix_c5}
+
+
+def _drift_fix_shape_err(root, texts):
+    """工具要寫的自由文字先跑筆記形狀擋的同一支判定(_ns_check_line、_ns_revisit_violations)→ 錯誤或 None;
+    不寫出一份提交前一定被擋的筆記。"""
+    if not texts:
+        return None
+    lst = _nodehome_list(root, "index")
+    if lst is None:
+        return "git 列不出檔案清單,沒辦法先跑筆記形狀擋"
+    files, reader = lst[0], _nodehome_reader(root, "index")
+    top_dirs = {p.split("/", 1)[0] for p in files if "/" in p}
+
+    def by_name(name):
+        return [p for p in files if p.rsplit("/", 1)[-1] == name and _ns_is_code(p, reader, files)]
+    for t, reg in texts:
+        v = _ns_check_line(root, t, reg, files, reader, top_dirs, by_name) + _ns_revisit_violations(t, reg, True)
+        if v:
+            return f"要寫進去的文字過不了筆記形狀擋({v[0][0]}:{v[0][1]})——{v[0][2]}"
+    return None
+
+
+def _drift_fix_changes(old, new):
+    """改前改後 → [{line, before, after}]:line 是改前的行號;新插入的行 line、before 記 null;刪掉的行 after 記 null。"""
+    import difflib
+    out = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            continue
+        for k in range(max(i2 - i1, j2 - j1)):
+            b = old[i1 + k] if i1 + k < i2 else None
+            out.append({"line": i1 + k + 1 if b is not None else None, "before": b,
+                        "after": new[j1 + k] if j1 + k < j2 else None})
+    return out
+
+
+def _drift_fix_preview(cx, res):
+    print(f"預覽(--dry-run;沒寫筆記、沒寫修復帳):{cx['rel']}——{res['msg']}")
+    for ch in _drift_fix_changes(cx["lines"], res["new"]):
+        if ch["before"] is not None:
+            print(f"  - 第 {ch['line']} 行:{_esc_clean(ch['before'], 200)}")
+        if ch["after"] is not None:
+            print(f"  + {_esc_clean(ch['after'], 200)}")
+
+
+def _drift_git_cmd(cx, head):
+    """印給人貼的 git 指令(head 例:「checkout --」、「add governance/drift-fixes.jsonl」)→ 指令或 None。
+    路徑用 git 裡的原樣拼法(Linux 上 NFD 檔名拿 NFC 路徑當 pathspec 會對不到,代碼審 r2 正確性席);★不截斷★(截斷會
+    變成另一條路徑、或剪掉收尾引號,代碼審 r3 外家否決席);加 --literal-pathspecs,檔名裡的 * ? [ 不被 git 當萬用字元展開、
+    多加到別篇(r3 資安席);路徑含控制字元就不印可照貼的指令(消毒會改掉路徑本身),回 None 由呼叫端改講怎麼找。"""
+    import unicodedata
+    ps = _git_paths_nfc(cx["root"], cx["repo_rel"])
+    p = ps[0] if ps else cx["repo_rel"]
+    if any(unicodedata.category(c)[0] == "C" for c in p):
+        return None
+    return f"git --literal-pathspecs {head} {_drift_sh(p)}"
+
+
+def _drift_git_hint(cx, head):
+    return _drift_git_cmd(cx, head) or f"git {head.split()[0]}(路徑含控制字元,不印可照貼的指令;用 git status 找到那一篇)"
+
+
+def _drift_fix_write(env, cx, res):
+    """第 5 步(鎖內):從磁碟重讀,指紋要等於判定時的才寫(atomic_write_verify);寫入例外一律轉成錯誤。"""
+    try:
+        with _vault_write_lock(env.vault):
+            if cx["path"].read_bytes() != cx["raw"]:
+                return "判定之後這一篇被改過,沒寫;重跑一次"
+            for dp, db in res.get("deps", []):
+                try:
+                    now = dp.read_bytes()
+                except OSError:
+                    now = None
+                if now != db:
+                    return f"判定之後它依賴的 {_esc_clean(str(dp.name), 120)} 被改過,沒寫;重跑一次"
+            atomic_write_verify(cx["path"], res["new"], res["key"], res["check"])
+    except (ValueError, RuntimeError, OSError) as ex:
+        return f"寫不進去,筆記沒動:{ex}"
+    return None
+
+
+def _drift_fix_verify(env, cx, res):
+    """第 6 步(鎖外):磁碟內容等於算出的改後內容,而且重建圖譜物件後這一筆已處理。★不自動還原★。"""
+    want = "\n".join(res["new"]).encode("utf-8")
+    try:
+        got = cx["path"].read_bytes()
+    except OSError:
+        got = None
+    ok = got == want and res["handled"](_drift_state_findings(Env(env.vault), only={cx["rel"]}), got.decode("utf-8"))
+    if os.environ.get("LUMOS_DRIFT_FIX_FAULT") == "verify":      # 故障注入接縫(測試用),只認 verify|ledger|moved
+        ok = False
+    if ok:
+        return None
+    return (f"寫入後內容跟預期不同(或這一筆還沒處理掉)——工具不自動還原。在 repo 根目錄跑 "
+            f"{_drift_git_hint(cx, 'checkout --')} 退回上次提交的版本(★這一篇之前用 drift fix 改過、還沒提交的也會一起退掉★,"
+            "修復帳裡那幾筆就只剩稽核紀錄;代碼審 r1 正確性、併發席);退完重跑 lumos drift scan,照新清單再修")
+
+
+def _drift_fix_record(env, cx, res):
+    """第 7 步:寫修復帳(稽核紀錄)、記治理事件。帳寫不進去回 2,不動筆記。"""
+    import datetime, hashlib, secrets
+    rec = {"id": "DFIX-" + secrets.token_hex(4), "date": datetime.date.today().isoformat(), "path": cx["repo_rel"],
+           "line": cx["line"], "kind": cx["kind"], "changed": _drift_fix_changes(cx["lines"], res["new"]),
+           "after_sha256": hashlib.sha256("\n".join(res["new"]).encode("utf-8")).hexdigest(), **res["extra"]}
+    want = "\n".join(res["new"]).encode("utf-8")
+    moved = False
+    if os.environ.get("LUMOS_DRIFT_FIX_FAULT") == "ledger":
+        rc = 2
+    else:
+        with _vault_write_lock(env.vault):
+            # 驗證在鎖外,記帳前在鎖內再比一次:帳上的指紋要是記帳那一刻磁碟上的內容(代碼審 r1 外家席)
+            try:
+                if os.environ.get("LUMOS_DRIFT_FIX_FAULT") == "moved":   # 故障注入:模擬別人在驗證與記帳之間改了這一篇
+                    cx["path"].write_bytes(want + b"\n")
+                moved = cx["path"].read_bytes() != want
+            except OSError:
+                moved = True
+            if moved:
+                rc = 2
+            else:
+                rec["seq"] = _drift_next_seq(cx["root"], _DRIFT_FIXES)
+                rc = _drift_ledger_append(cx["root"], _DRIFT_FIXES, rec)
+    if rc != 0:
+        why = ("寫好、驗過之後這一篇又被別人改了,修復帳沒記(帳上的指紋要是記帳那一刻的內容)" if moved
+               else "筆記已改好,但修復帳沒記到")
+        print(f"擋下:{why};{_esc_clean(cx['repo_rel'], 200)} 的改動用 git diff 看得到——確認沒問題就直接提交"
+              "(修復帳只是稽核紀錄,少這一筆不影響之後的修;沒提交之前,同一篇的下一項 drift fix 會因為指紋對不上帳而擋下);"
+              f"要退就 {_drift_git_hint(cx, 'checkout --')}", file=sys.stderr)
+        return 2
+    _gate_event_or_warn(cx["root"], "drift-check", "fix", f"{cx['rel']}:{cx['line']} {cx['kind']}({rec['id']})")
+    return 0
+
+
+def cmd_drift_fix(env, node, line, kind, o):
+    """lumos drift fix <節點> <行號> --kind c1..c5 [--dry-run] [種類專屬參數](Projects/存量漂移改法_計劃 第 1 節)。
+    順序:乾淨檢查 → 鎖外讀與判定、前提、git 查詢 → 算改後內容、自由文字先過形狀擋 → (--dry-run 到此)→
+    鎖內比指紋寫入 → 鎖外驗證磁碟內容與「已處理」→ 寫修復帳。不自動還原:改之前保證了 git 退得回來。"""
+    err = _drift_fix_args_err(kind, o)
+    rel = None
+    if err is None:
+        rel, err = _drift_fix_target(env, node)
+    if err is None and kind == "c2" and o.get("keep"):
+        return cmd_drift_ack(env, rel, line, "c2", o["reason"], dry_run=bool(o.get("dry_run")))   # 照留:等同帶清單的 c2 表態
+    cx = None
+    if err is None:
+        cx, err = _drift_fix_load(env, rel, line, kind, o)
+    res = None
+    if err is None:
+        res, err = _DRIFT_FIX_COMPUTE[kind](cx)
+        if err is None and res is None:
+            return 0                                                 # c4 只列證據與範本
+    err = err or _drift_fix_shape_err(cx["root"], res["texts"])
+    if err is None and o.get("dry_run"):
+        _drift_fix_preview(cx, res)
+        return 0
+    # 帳檔路徑在寫筆記之前先查(代碼審 r1 邊界席:原本寫完筆記才發現帳寫不進去,留下改了筆記、沒帳、又不讓重跑的狀態)
+    err = err or _drift_ledger_path_err(cx["root"], _DRIFT_FIXES)
+    err = err or _drift_fix_write(env, cx, res) or _drift_fix_verify(env, cx, res)
+    if err:
+        print(f"擋下:{err}", file=sys.stderr)
+        return 2
+    if _drift_fix_record(env, cx, res) != 0:
+        return 2
+    print(f"✓ drift fix {kind}:{_esc_clean(rel, 200)} 第 {line} 行——{res['msg']}")
+    if kind == "c2":
+        _issue_close_revisits(env, rel, o["status"])
+    print(f"修復帳要跟筆記一起提交:\n    {_drift_git_hint(cx, 'add ' + _DRIFT_FIXES)} && git commit")
     return 0
 
 
@@ -27179,8 +28225,11 @@ def _drift_print_findings(rows, stream, acks=None, alive=None):
         print(f"  [{f['kind']} {_DRIFT_KIND_NAMES[f['kind']]}] {_esc_clean(f['path'])}:{f['line']}  {_esc_clean(f['text'], 60)}",
               file=stream)
         print(f"      {_esc_clean(f['why'], 1000)}", file=stream)
-        old = _drift_old_reason(f, acks, alive) if acks else None
-        if old:
+        prev = _drift_prev_ack_line(f)
+        old = None if prev else (_drift_old_reason(f, acks, alive) if acks else None)
+        if prev:
+            print(f"      ({_esc_clean(prev, 400)})", file=stream)
+        elif old:
             print(f"      (這一行以前表態過、後來改了或搬了,舊理由:{old[:80]})", file=stream)
     if len(rows) > 20:
         print(f"  …還有 {len(rows) - 20} 筆", file=stream)
@@ -27218,6 +28267,7 @@ def cmd_drift_check(repo=None, diff_range=None):
     if listed:
         print(f"存量漂移檢查:這次推送碰到 {len(listed)} 處跟狀態對不上的筆記(只列出,不擋):", file=sys.stderr)
         _drift_print_findings(listed, sys.stderr, acks, alive)
+        _drift_print_hints(listed, sys.stderr)
     if not must and not unknown:
         return 0
     return _drift_report_must(root, mode, must, unknown, acks, alive)
@@ -27233,12 +28283,9 @@ def _drift_report_must(root, mode, must, unknown, acks, alive=None):
               "\n    LUMOS_SKIP_DRIFT_CHECK=1 git push", file=sys.stderr)
     _drift_print_findings(must, sys.stderr, acks, alive)
     kinds = {f["kind"] for f in must}
-    if kinds - {"probe"}:
-        # ★不叫人重跑 guard settle★(代碼審 r1 正確性席):已經 pass 的紀錄 settle 直接回「已轉正」,不會改寫
-        print("預告句那幾筆:把預告句手改成歷史說法(例:「為什麼還不做:」改成「預告當時為什麼還不做:」)。", file=sys.stderr)
-    if "probe" in kinds:
-        # 條件式的修法不一樣(乙代碼審 r1 正確性席:原本也印改預告句)
-        print("回頭條件那幾筆:條件成立了——把待辦做掉,再刪掉這行或改寫成歷史說法。", file=sys.stderr)
+    # 改法指令由 _drift_fix_hint 單一產生(存量漂移改法 [S10]):c1 到 c5 指到 lumos drift fix(c1 一篇一條),
+    # 條件式回頭條件(probe)的修法不一樣,同一支給它自己的說法
+    _drift_print_hints(must, sys.stderr, "改法(每一筆一條指令;c1 一篇一條):")
     if must:
         # 一種一行(代碼審 r2 正確性席、圖譜一致席、外家席:原本兩種都有時印成 --kind c1|probe,照貼 shell 會當成管線)
         print("不改就留著並表態(--kind 照那一筆列的種類):", file=sys.stderr)
@@ -27318,6 +28365,9 @@ def _drift_scan_print(at, left, done, bad, probs=()):
                 print(f"  {_esc_clean(f['path'])}:{f['line']}  {_esc_clean(f['text'], 70)}" + ("  (已表態)" if acked else ""))
                 if not acked:
                     print(f"      {_esc_clean(f['why'], 1000)}")
+                    if _drift_prev_ack_line(f):
+                        print(f"      ({_esc_clean(_drift_prev_ack_line(f), 400)})")
+            _drift_print_hints([f for f, acked in rows if not acked], sys.stdout, "  改法:")
     if probs:
         print(f"[回頭條件的問題] {len(probs)} 處(寫錯、沒帶期限、指不到、寫在不評估的地方、判不了):")
         for p, n, t, w in probs:
@@ -27348,7 +28398,8 @@ def _drift_doctor_lines(env):
         nd = sum(1 for f in done if f["kind"] == k)
         if rows:     # 只剩已表態的不開段(全靜默;代碼審 r2 正確性席:表態完那一段永遠不會安靜);全部清單看 drift scan
             ex = ";".join(f"{f['path'][:-3]}:{f['line']}" for f in rows[:3])
-            out.append(f"[{k}] {_DRIFT_KIND_NAMES[k]} {len(rows)} 筆(例:{ex})" + (f";另 {nd} 筆已表態" if nd else ""))
+            out.append(f"[{k}] {_DRIFT_KIND_NAMES[k]} {len(rows)} 筆(例:{ex})" + (f";另 {nd} 筆已表態" if nd else "")
+                       + ";改法例:" + _drift_fix_hint(k, rows[0]["path"], rows[0]["line"])[0])
     return out
 
 
@@ -33430,12 +34481,6 @@ def _codeloop_print_dirty_bookkeeping(repo_root, status):
     print(f"    git commit -m '{msg}' -- {quoted}")
 
 
-def _sh_quote(s):
-    """路徑含空白或中文時照樣貼得上去。"""
-    import shlex
-    return shlex.quote(s)
-
-
 def _codeloop_write(repo_root, branch, status, note, head_sha, ts):
     """寫 governance/code-loop/<branch>.json。"""
     import json
@@ -35606,7 +36651,7 @@ HELP_WHEN = {
     "prune": "剪掉填錯的 decision_ref(正規化定位;--by 移該欄、無 --by 兩欄都移)。",
     "bind": "把寫好的測試綁回合約的 KEY 行([test:])。別手改。",
     "plan": "這條合約之後才會做:一次寫好預告標記、建待完成的守衛節點、雙向連好。查那篇功能節點時會看到它,逾期會擋推送而且不准延期。",
-    "settle": "預告的那條做完了:預告行換成正式合約行並綁上測試,守衛節點就地轉成已通過。",
+    "settle": "預告的那條做完了:預告行換成正式合約行並綁上測試,守衛節點就地轉成已通過(要 --test);已經 pass 但還留著預告句時補改成歷史說法(不用 --test,可給 --date)。",
     "abandon": "預告的那條決定不做了:立墓碑而不是刪掉(下一個人看得到曾經打算做什麼)。要先 lumos signoff <守衛節點> --ref <守衛節點>。",
     "required": "看現在有幾條預告還沒做完、有沒有逾期或七天內到期。有逾期回非零。",
     "audit": "某條合約被不知道脈絡的人審過了,留 [audit:] 戳記。",
@@ -35684,10 +36729,11 @@ HELP_WHEN = {
     "note-audit record": "判定者交回報告後:照信任方向逐行收進判定檔(重的照收、輕的要來源對、上下文沒變才收)。",
     "note-audit check": "推之前自己先查一次:這段推送新寫的筆記行是不是都被已提交的判定涵蓋了(沒有就 rc1)。",
     "note-audit skip": "真的來不及審時:把從沒被判過的行記成略過(要理由、會留帳;判過推得出的不能略過)。",
-    "drift": "已經寫進去的句子因為別處狀態變了而過期:check 推送時擋、scan 健檢全圖譜、ack 表態照留、exam 拿考卷考。",
+    "drift": "已經寫進去的句子因為別處狀態變了而過期:check 推送時擋、scan 健檢全圖譜、fix 用工具改掉一筆、ack 表態照留、exam 拿考卷考。",
     "drift check": "推之前查這段推送讓哪些筆記跟狀態對不上(轉正了還留著預告句就擋,其他只列出)。",
     "drift scan": "健檢整份圖譜(或某個提交)跟狀態對不上的地方,產待修清單;不擋、不寫帳。",
-    "drift ack": "某一行確定照留時表態(要理由、要提交才算);那一行一改表態就失效。",
+    "drift ack": "某一行確定照留時表態(要理由、要提交才算);那一行一改表態就失效;c2、c3 會記下當時連著的已收尾計劃,之後多了新的就重新列出。",
+    "drift fix": "照 drift scan 的清單改掉一筆(c1 補改預告句、c2 結案或照留、c3 改狀態加一行、c4 換掉還沒提交的前提、c5 補完轉正);先 --dry-run 看改法,改完跟修復帳一起提交。",
     "drift exam": "拿考卷在被考 repo 的歷史上重放,算擋到、點到、漏、誤報與噪音;--history 對最近 N 個提交重放。",
     "home check": "這次提交(--staged)或這段推送(--diff)有沒有「每支檔有家」的新違規;有就擋。",
     "cochange": "改了 A 檔,歷史上常一起改的 B 檔要不要跟著改。rules 看規則,check 對變更集比對。",
@@ -36070,7 +37116,9 @@ def main():
                     help=f"守衛節點的短名(當檔名,前面自動加日期;{_GUARD_NAME_MAX} 字以內),例:事故F2_確認前當機不重複副作用")
     gst = gsub.add_parser("settle", help="轉正:預告行換成正式合約行並綁測試,守衛節點轉已通過")
     gst.add_argument("ref", help="守衛節點")
-    gst.add_argument("--test", dest="gs_test", required=True, help="測試方法名")
+    gst.add_argument("--test", dest="gs_test", default=None, help="測試方法名(待完成的轉正才要;已 pass 補改預告句用不到)")
+    gst.add_argument("--date", dest="gs_date", default=None, metavar="YYYY-MM-DD",
+                     help="已 pass 補改預告句時的轉正日期(不給就用那篇已寫的日期或守衛紀錄變成 pass 的提交日期)")
     gab = gsub.add_parser("abandon", help="棄置:立墓碑而不是刪掉(要先 signoff --ref)")
     gab.add_argument("ref", help="守衛節點")
     gab.add_argument("--why", dest="ga_why", help="為什麼決定不做了")
@@ -36535,6 +37583,17 @@ def main():
     dra.add_argument("dr_line", metavar="行號", type=int)
     dra.add_argument("--kind", dest="dr_kind", required=True, choices=_DRIFT_KINDS)
     dra.add_argument("--reason", dest="dr_reason", required=True)
+    drf = drsub.add_parser("fix", help="用工具改掉一筆發現(c1 到 c5;要改之前那篇要在版控裡而且乾淨;每改一筆記修復帳)")
+    drf.add_argument("dr_node", metavar="節點")
+    drf.add_argument("dr_line", metavar="行號", type=int)
+    drf.add_argument("--kind", dest="dr_kind", required=True, help="c1/c2/c3/c4/c5(照 drift scan 那一筆列的種類)")
+    drf.add_argument("--dry-run", dest="dr_dry", action="store_true", help="只印改前改後,不寫筆記、不寫帳")
+    drf.add_argument("--date", dest="dr_date", default=None, metavar="YYYY-MM-DD", help="c1:轉正日期(推不出來時要給)")
+    drf.add_argument("--close", dest="dr_close", action="store_true", help="c2:Issue 解決了,結案")
+    drf.add_argument("--keep", dest="dr_keep", action="store_true", help="c2:還沒解決,照留(等同帶清單的表態)")
+    drf.add_argument("--status", dest="dr_status", default=None, help="c2 --close 的結案值;c3 要改成的狀態")
+    drf.add_argument("--reason", dest="dr_reason", default=None, help="c2:為什麼算解決/還沒解決(一行、4 到 200 字)")
+    drf.add_argument("--by", dest="dr_by", default=None, metavar="節點", help="c3:由哪篇解決或參考哪篇")
     dre = drsub.add_parser("exam", help="拿考卷在被考 repo 的歷史上重放(不寫帳、不寫檔)")
     dre.add_argument("dr_exam", metavar="考卷.json", nargs="?", default=None)
     dre.add_argument("--repo", dest="dr_repo", required=True)
@@ -36971,7 +38030,7 @@ def main():
             return cmd_guard_plan(env, args.node, args.claim, args.gp_plan, args.gp_phase,
                                   args.gp_due, args.gp_why, args.gp_owner, args.gp_name)
         if args.gcmd == "settle":
-            return cmd_guard_settle(env, args.ref, args.gs_test)
+            return cmd_guard_settle(env, args.ref, args.gs_test, date=args.gs_date)
         if args.gcmd == "abandon":
             return cmd_guard_abandon(env, args.ref, args.ga_why)
         if args.gcmd == "required":
@@ -37027,9 +38086,18 @@ def main():
     if args.cmd == "drift-history":
         return cmd_drift_history(env, every=args.every, limit=args.limit, as_json=args.dh_json)
     if args.cmd == "drift":
+        # 明確分派三支(存量漂移改法 第 1 節;原本「不是 scan 就當 ack」,fix 會被當成 ack)
         if args.drcmd == "scan":
             return cmd_drift_scan(env, at=args.dr_at, as_json=args.dr_json, budget=args.dr_budget)
-        return cmd_drift_ack(env, args.dr_node, args.dr_line, args.dr_kind, args.dr_reason)
+        if args.drcmd == "ack":
+            return cmd_drift_ack(env, args.dr_node, args.dr_line, args.dr_kind, args.dr_reason)
+        if args.drcmd == "fix":
+            return cmd_drift_fix(env, args.dr_node, args.dr_line, args.dr_kind,
+                                 {"dry_run": args.dr_dry, "date": args.dr_date, "close": args.dr_close,
+                                  "keep": args.dr_keep, "status": args.dr_status, "reason": args.dr_reason,
+                                  "by": args.dr_by})
+        print(f"擋下:不認得的 drift 子命令 {args.drcmd}", file=sys.stderr)
+        return 2
     if args.cmd in ("set", "append", "remove"):
         rel = env.find(args.note)
         if rel is None:
@@ -37041,6 +38109,8 @@ def main():
                     # 計劃收尾時列連帶待辦(存量漂移防線 [S6]):只多印、不擋、不寫;env 是改之前載入的,連結沒變
                     _v = args.value[0] if isinstance(args.value, list) and len(args.value) == 1 else args.value
                     _drift_print_followups(env, rel, str(_v).strip())
+                    # Issue 改成結案值:列出它還留著的回頭條件(存量漂移改法 [S7];同一個位置,不塞進計劃連帶待辦)
+                    _issue_close_revisits(env, rel, str(_v).strip())
                 return rc
             if args.cmd == "remove":
                 return cmd_remove(env, rel, args.key, args.value)
