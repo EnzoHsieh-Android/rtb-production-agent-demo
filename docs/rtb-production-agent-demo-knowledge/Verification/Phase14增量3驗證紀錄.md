@@ -2,7 +2,7 @@
 type: verification
 status: pass
 date: 2026-09-27
-valid_under: 僅 Phase 14 增量 2b＋增量 3 本工作樹(未提交、合併差異未過代碼審);全套測試、ruff、mypy、宣稱驗證器;展示批次尚未錄製
+valid_under: Phase 14 增量 2b＋增量 3,已提交為 b2fc5122f100、合併差異過代碼審(卷證 governance/review-reports/code-phase14-inc3);全套測試、ruff、mypy、宣稱驗證器;展示批次代碼審 r1 後已重錄(phase14-demo-20260927)
 revalidate_when:
   - 協調者錄完 phase14-demo 批次、搬進入庫目錄之後
   - 2b＋增量 3 合併差異的代碼審改動程式之後

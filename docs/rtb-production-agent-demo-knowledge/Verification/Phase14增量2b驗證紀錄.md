@@ -1,15 +1,15 @@
 ---
 type: verification
-status: pending
+status: superseded
 date: 2026-09-26
-valid_under: 僅 Phase 14 增量 2b 本工作樹(未提交、未過代碼審);全套測試、宣稱驗證器、ruff、mypy 與 Phase 13 評估 72 筆錄製離線重播;入庫展示錄製因政策升版有 8 筆模型說明找不到錄製
+valid_under: Phase 14 增量 2b,已與增量 3 一起提交為 b2fc5122f100、合併差異過代碼審(卷證 governance/review-reports/code-phase14-inc2b);全套測試、宣稱驗證器、ruff、mypy 與 Phase 13 評估 72 筆錄製離線重播;入庫展示錄製因政策升版有 8 筆模型說明找不到錄製(增量 3 重錄展示批次後解掉,見增量 3 驗證紀錄)
 revalidate_when:
   - 協調者重錄展示批次之後
   - 增量 3 接 hold-submit 全部出口、展示分開畫程式複查與 F7 負載之後
   - 規則輪讀取次數、租約常數或政策版本再變動時
 tags:
   - type/verification
-  - status/pending
+  - status/superseded
 plan_refs:
   - "[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]"
 ---
@@ -85,3 +85,5 @@ plan_refs:
 - 守退化、不是紅綠:test_narrate_and_the_runner_book_recorded_replays_into_a_scratch_ledger 在 r2 程式上綠;把模型閘道改回「沒帶帳本用真帳本」的變異版本上它與 gate 那支翻紅。test_model_entries_only_run_with_ai_and_never_without_a_ledger 驗的是既有可達性(沒開 AI 不跑模型入口),在 r2 程式上也綠。
 - ruff、mypy、宣稱驗證器(5 條、78 支)通過;72 筆錄製重播帶 `--ledger <暫存路徑>`:找不到錄製 0、批次驗收通過。
 - 代碼審 r3 修正後全套:3368 過、1 略過、1 紅(只剩入庫展示錄製那支,等協調者重錄)。
+
+2026-09-30 狀態改為 superseded(存量漂移 c3),參考 [[Verification/Phase14增量3驗證紀錄]]

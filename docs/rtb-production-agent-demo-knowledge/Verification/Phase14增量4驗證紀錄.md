@@ -2,7 +2,7 @@
 type: verification
 status: pass
 date: 2026-09-27
-valid_under: 僅 Phase 14 增量 4 本工作樹(未提交、未過代碼審);重播入庫批次 phase13-eval-20260925,不呼叫模型
+valid_under: Phase 14 增量 4,已提交為 b2b17ea8a7de、過代碼審(卷證 governance/review-reports/code-phase14-inc4);重播入庫批次 phase13-eval-20260925,不呼叫模型
 revalidate_when:
   - 評估集(investigation_set.py)重產或錄製批次重錄之後
   - investigation_report 或 investigation_eval 的計分口徑再改時
