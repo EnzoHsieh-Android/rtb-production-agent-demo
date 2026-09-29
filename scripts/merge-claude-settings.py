@@ -10,10 +10,50 @@
 """
 from __future__ import annotations
 import json
+import os
 import re
+import shlex
 import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+
+def _py_floor_gate():
+    """被 3.14 以前的 Python 以主程式身分執行 → 問同目錄的 lumos 要一支 3.14、用它重跑自己;問不到就報錯回 2、不寫設定
+    (Projects/最低Python版本改3.14_計劃 做法第 4 點:舊版的更新程式用舊直譯器叫新版的這支,註冊照樣要寫成 3.14)。
+    ★這一段與它之前的程式必須能被 Python 3.9 解析、執行★。"""
+    if sys.version_info >= (3, 14):
+        os.environ.pop("LUMOS_REEXEC_PYTHON", None)
+        return
+    prev = os.environ.get("LUMOS_REEXEC_PYTHON")
+    if prev and os.path.realpath(prev) == os.path.realpath(sys.executable):
+        sys.stderr.write("擋下:已經用 %s 重跑過,它回報的版本仍是 %d.%d;沒寫任何設定。\n" % (prev, *sys.version_info[:2]))
+        sys.exit(2)
+    lumos = Path(__file__).resolve().parent / "lumos"
+    r = None
+    if lumos.is_file():
+        try:
+            r = subprocess.run([sys.executable, str(lumos), "python-path"], stdin=subprocess.DEVNULL,
+                               capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            r = None
+    out = (r.stdout.strip().splitlines() if r is not None and r.returncode == 0 else [])
+    if not out or not os.path.isabs(out[-1]):
+        sys.stderr.write((r.stderr if r is not None else "找不到同目錄的 lumos,問不到 3.14 在哪。\n")
+                         + "擋下:註冊掛鉤需要 Python 3.14;沒寫任何設定。\n")
+        sys.exit(2)
+    os.environ["LUMOS_REEXEC_PYTHON"] = out[-1]
+    argv = [out[-1], os.path.abspath(__file__), *sys.argv[1:]]
+    sys.stdout.flush()
+    sys.stderr.flush()
+    if os.name == "nt":
+        sys.exit(subprocess.call(argv))
+    os.execv(out[-1], argv)
+
+
+if __name__ == "__main__":
+    _py_floor_gate()
 
 # ── 兩家目標(Projects/Codex完全支援_計劃 d2,2026-09-04)──
 # Claude Code:~/.claude/settings.json 的 hooks 段;Codex CLI:~/.codex/hooks.json 頂層 hooks 段。
@@ -48,7 +88,9 @@ else:
     HOOKS_DIR = Path.home() / ".claude" / "hooks"
     _HOOKS_SUBDIR = ".claude/hooks/"
 
-_PY = shutil.which("python3") or shutil.which("python") or "python3"
+# 寫進設定的直譯器 = 正在跑這支的那一支(經上面的檢查一定是 ≥3.14);不再用 which("python3")——
+# 那常是系統內建的 3.9(Projects/最低Python版本改3.14_計劃 做法第 4 點)
+_PY = sys.executable or shutil.which("python3") or shutil.which("python") or "python3"
 # W3:${HOME} 只有 POSIX shell 展開;native Windows(Claude Code 經 cmd/PowerShell 跑 hook)
 # 不展開 → hook 路徑變字面 ${HOME} → L1/L3 靜默不觸發。Windows 用解析後的絕對 home。
 _HOME = str(Path.home()).replace("\\", "/")
@@ -104,7 +146,7 @@ def _hook_cmd(rel_path):  # rel_path = "verification-rot-check.py"
         _b = HOOK_BUDGET.get(rel_path)
         _bf = f' --budget {_b}' if _b else ''
         _bf += (' ' + HOOK_ARGS[rel_path]) if rel_path in HOOK_ARGS else ''
-        return (f'{py} "{hooks_dir}/{rel_path}" --harness codex{_bf}' if sys.platform != "win32"
+        return (f'{shlex.quote(py)} "{hooks_dir}/{rel_path}" --harness codex{_bf}' if sys.platform != "win32"
                 else f'"{py}" "{hooks_dir}/{rel_path}" --harness codex{_bf}')
     if sys.platform == "win32":
         py = _PY.replace("\\", "/")
@@ -115,7 +157,7 @@ def _hook_cmd(rel_path):  # rel_path = "verification-rot-check.py"
     _b = HOOK_BUDGET.get(rel_path)
     _bf = f' --budget {_b}' if _b else ''
     _bf += (' ' + HOOK_ARGS[rel_path]) if rel_path in HOOK_ARGS else ''
-    return f'{_PY} "${{HOME}}/.claude/hooks/{rel_path}"{_bf}'
+    return f'{shlex.quote(_PY)} "${{HOME}}/.claude/hooks/{rel_path}"{_bf}'   # 路徑含空白也要能執行(POSIX 原本沒加引號)
 
 
 HOOK_ENTRIES = {

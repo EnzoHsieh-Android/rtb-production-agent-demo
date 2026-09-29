@@ -6,8 +6,9 @@
 """dispatch-lens-hook — Claude Code PreToolUse(matcher Agent)薄殼(Projects/派工鏡頭注入_計劃,2026-09-03);
 Codex 側掛 SubagentStart(Projects/Codex完全支援_計劃 d3,2026-09-04):叫 `lumos dispatch-lens --claim` 領一席 → additionalContext。
 
-Claude 路徑只做三件事:①派工詞裡逐行找 `LUMOS-IMPACT: <base>..<head>` ②subprocess 叫 `lumos dispatch-lens`
-③把回傳文字接在派工詞尾端,經 updatedInput 送給子代理(additionalContext 實測到不了子代理)。
+Claude 路徑只做三件事:①派工詞裡逐行找 `LUMOS-IMPACT: <base>..<head>`(有 `LUMOS-ROLE-CARDS: on` 就多傳 --role-cards)
+②subprocess 叫 `lumos dispatch-lens` ③把回傳文字接在派工詞尾端,經 updatedInput 送給子代理(additionalContext 實測到不了子代理);
+lumos 失敗時回傳裡若有角色段(role_text)照附。
 其餘判斷(範圍文法、base 主線可達、消毒、快取)全在 lumos 端。
 永不 deny、永不改 permissionDecision;失敗一律放行。★2026-09-05 起超時不再靜默★:附一行固定超時句進派工詞(Codex 走 additionalContext);其他失敗仍靜默(LUMOS_HOOK_DEBUG=1 才印 stderr)。
 本檔在 ANCHOR_FILES 內:改它要 `lumos anchor approve --note`。
@@ -23,6 +24,9 @@ from pathlib import Path
 
 MARKER_RE = re.compile(r"^LUMOS-IMPACT:\s*(\S+)\s*$")
 SPEC_RE = re.compile(r"^LUMOS-SPEC:\s*(\S+)\s*$")   # 設計審用:給計劃筆記路徑(2026-09-05 第二輪審視 d2)
+# 代碼審角色鏡頭(Projects/代碼審前後端角色鏡頭_計劃):派工詞同時有這行才叫 lumos 附角色卡——
+# 只有正確性席的範本放這行,架構對齊席、資安席不放(不然每席都拿同一份題,差異化被稀釋)。
+ROLE_RE = re.compile(r"^LUMOS-ROLE-CARDS:\s*on\s*$")
 # ★2026-09-07 改寫(全 repo 審視 #14)★:舊文字教人「派工前先手跑一次暖快取」——
 # 那件事現在機器自己做了(超時不再殺子行程,它會繼續算完寫進快取)。
 # ★刻意不寫「下一席大概率就有」★:那是機率宣稱,而這個專案的規矩是機率宣稱要附
@@ -137,6 +141,20 @@ def find_marker(prompt: str) -> str | None:
         if m:
             return m.group(1)
     return None
+
+
+def wants_role_cards(prompt: str) -> bool:
+    return any(ROLE_RE.match(line.strip()) for line in prompt.split("\n"))
+
+
+def _role_text(r) -> str:
+    """lumos 失敗分支(超時、沒有圖譜、base 不在主線)也會印帶 role_text 的 JSON;讀得到就回它,讀不到回空字串。"""
+    try:
+        d = json.loads((r.stdout or "").strip().splitlines()[-1])
+    except (ValueError, IndexError, AttributeError):
+        return ""
+    t = d.get("role_text") if isinstance(d, dict) else None
+    return t if isinstance(t, str) else ""
 
 
 def find_spec_marker(prompt: str) -> str | None:
@@ -313,17 +331,29 @@ def main() -> int:
     _dl = min(max(3.0, _lens_timeout()), _cap)
     _run_tmo = min(_dl + 5, _cap)
     argv = argv + (["--deadline", f"{_dl:.2f}"] if rng else [])
+    if rng and wants_role_cards(prompt):
+        argv.append("--role-cards")
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=_run_tmo)
     except (subprocess.TimeoutExpired, OSError):
         r = None
+    if r is not None and r.returncode == 2 and not (r.stdout or "").strip() and "--role-cards" in argv:
+        # 新掛鉤配舊 lumos:舊版不認 --role-cards 會回 rc2 空輸出,不重叫的話連圖譜段都丟(代碼審 r1 外家 F2)。
+        # 掛鉤是複製進使用者目錄的,兩邊版本錯開是常態;拿掉旗標重叫一次,舊版照附圖譜段。
+        argv = [a for a in argv if a != "--role-cards"]
+        _debug("lumos 不認 --role-cards(rc2、沒輸出),多半是舊版;拿掉旗標重叫一次")
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=_run_tmo)
+        except (subprocess.TimeoutExpired, OSError):
+            r = None
     if r is None or r.returncode == 5:
         # 2026-09-05 第二輪審視 d1:超時不再靜默——今天 39 次派工 21 次放空,編排者完全不知道。附一行固定句(零自由文字)。
         what = rng or spec
         # 兩條路的機制不同,說明也要不同(r2 通才席:共用那句對設計審是假話)
         _note = (TIMEOUT_NOTE.format(what=what, cmd=rng, n=10) if rng
                  else SPEC_TIMEOUT_NOTE.format(what=what))
-        _emit_updated(tool_input, prompt, _note)
+        _role = _role_text(r) if r is not None else ""
+        _emit_updated(tool_input, prompt, _note + ("\n\n" + _role if _role else ""))
         _debug("lumos dispatch-lens 超時,已附超時說明行(那支仍在背景把快取算完)")
         # ★吞掉逾時的地方要自己講一聲★(#19 r1 外家否決席 blocker):
         # 這一條是「捕捉逾時 → 附說明 → 正常 return 0」,而 guard() 只看得到有沒有丟例外,
@@ -339,7 +369,10 @@ def main() -> int:
         return 0
 
     if r.returncode != 0:
-        _debug(f"lumos dispatch-lens rc={r.returncode}:{r.stderr.strip()[:200]},放行")
+        _role = _role_text(r)
+        if _role:   # 圖譜那段失敗,角色卡照附(角色不需要圖譜)
+            _emit_updated(tool_input, prompt, _role)
+        _debug(f"lumos dispatch-lens rc={r.returncode}:{r.stderr.strip()[:200]},{'只附角色卡' if _role else '放行'}")
         return 0
     try:
         data = json.loads(r.stdout.strip().splitlines()[-1])

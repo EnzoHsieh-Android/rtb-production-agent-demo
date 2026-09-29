@@ -7,16 +7,17 @@
   "scripts/hooks/claude/_hookevent.py": "e6585e38235b33fe309d3921b0d5ccccaa79b8bbda90a082ef16443ea054072f",
   "scripts/hooks/claude/check-graph-sync.py": "b01ec12ca4514b6f6f6904194cc2d6b747f8fca919c6a5dea9bb571c3a4974de",
   "scripts/hooks/claude/ci-status-hook.py": "63e8dc1081e87f87be7fb1add9dc752f1c765853535d5d0ce61cd14a678094d4",
-  "scripts/hooks/claude/dispatch-lens-hook.py": "9d8b0b8ace9bb78c11d82c46d2b902da5945473a83390231924d116ca9bfda5f",
+  "scripts/hooks/claude/dispatch-lens-hook.py": "41ccdb9911800508f2ae0964919335ccf9b5b8750eb167caf8364848ebb92e97",
   "scripts/hooks/claude/impact-hook.py": "16851237e0b3cecdb867e9b2dd36cc71e0f4e5c4a01cb155510d3f46df7f3e00",
   "scripts/hooks/claude/lumos-entry-hook.py": "57697cd0e456ffd0ff27dba052999e8aef16fea61d935d0eada51b8ead43e8ba",
   "scripts/hooks/claude/memory-sweep.py": "6bc21768296f6b858e0f5965206ad8c487500c79c7fd5a02bab2396105f9c634",
-  "scripts/hooks/post-commit": "754a88db17add2493587bc51e5891b8f810342d10bbddf6f7d97d6c05d3b9651",
-  "scripts/hooks/pre-commit": "1e5e6645dff0c31e774a0761430f96e14e45dcca9d311d4086f80e5fc8208cfe",
-  "scripts/hooks/pre-push": "b09a2357a90f27782bd0ca616c6f90af699f41e62e9237293c7d143713c431ff",
-  "scripts/lumos": "034fbb0f7863b92ba055c6c0066e58738ef21c51b0f53a8e1a89949637448849",
-  "scripts/merge-claude-settings.py": "69e9f960f1fea34a443bd0b45ad964856047bd92f646d0335c5d5360d3b454e8",
+  "scripts/hooks/post-commit": "f7ccea562d2e0fa83ec2e9d527b93a6f10204c541f377f425e42ad814a3a27dc",
+  "scripts/hooks/pre-commit": "5a8dc225ef018d942f6b1d5e831db9879742a9ae20d4becb1af77d8fa5ab0656",
+  "scripts/hooks/pre-push": "4d603c1c4864ed0e5d26efb520136a5a43f7b4120443ecde297896304cd69f88",
+  "scripts/lumos": "0dd23cec506249c5e9eed776a1402f6e1e89f8ac4ecd47523e09d9e851d0aeea",
+  "scripts/merge-claude-settings.py": "3324272bedc814d4d64a814c6a04ad89abdc08516cb199c52abd181c0a1ebeff",
   "scripts/templates/graph-discipline.md": "c0526500f1a339b913dcfa9a41cf2f082d63c5b2afb0bfcd8ea8caf8f87ff10f",
-  "scripts/test_lumos.py": "305d76026513b43e7d6a613d90171ca1edc5b492470b9ccae5286faa5b330412"
+  "scripts/templates/note-audit-judge.md": "88f2bb6ccf816da2e4ea195d58bb7c5bacc71af55bf9eea2bb624a5e468dc713",
+  "scripts/test_lumos.py": "68187e02954537a737f6cc97186a02d12b27c26fa86acf583d431875f9cff6d8"
  }
 }

@@ -65,9 +65,98 @@ pp_touched_file() {
   if [[ -s "$_f" ]]; then printf '%s' "$_f"; else rm -f "$_f"; fi
 }
 
-# 無 lumos / python3 → 降級放行(不為缺環境 brick push,CI 兜底)
+# 沒有 scripts/lumos → 降級放行(不為缺環境 brick push,CI 兜底);有 lumos 卻找不到 Python 3.14 → 擋下
+# (Projects/最低Python版本改3.14_計劃 做法第 3 點;PY 在下面讀完設定後才決定)
 GRAPHCTL="$REPO_ROOT/scripts/lumos"
-PY="$(command -v python3 || command -v python || true)"
+PY=""
+# ── python-launcher begin(三支 git 掛鉤與四支安裝腳本內嵌同一段,t_python_launcher_blocks_agree 逐字守一致)──
+# 只負責找一支任何版本的 python 把 lumos 叫起來;版本判斷全交給 lumos(Systems/python直譯器選擇)。
+# 固定位置排在 python3 前面:圖形用戶端的 PATH 很短,先執行 /usr/bin/python3 會在沒裝開發工具的 Mac 跳安裝對話框。
+# LUMOS_PYTHON_SEARCH_DIRS(冒號分隔)有設就換掉固定位置——測試接縫,跟 lumos 內部那份同一個。
+# LUMOS_PYTHON 有設就先試它:找不到時的說明叫人設它,第一步就不能不認。只收絕對路徑、而且真的是 python
+# (post-commit 直接把程式交給它跑,不經 lumos 驗;設成 /usr/bin/true 會假成功、漏寫跳過帳);不合格就記下原因往下找,
+# 版本夠不夠仍由 lumos 判。LUMOS_PYTHON 被略過、改用別支時當場印原因與後果:lumos 自己只認 LUMOS_PYTHON,
+# 之後的檢查會因同一個值擋下(代碼審 r3、r4;印在這段裡,七個呼叫端不必各寫一份)。
+_lumos_any_python() {
+  if _lumos_any_python_find; then
+    if [ -n "$_LUMOS_ANY_NOTE" ]; then
+      printf '%s改用 %s;但 lumos 只認 LUMOS_PYTHON,之後提交與推送前的檢查會因這個值擋下——修正它或 unset LUMOS_PYTHON。\n' \
+        "$_LUMOS_ANY_NOTE" "$_LUMOS_ANY_EXE${_LUMOS_ANY_ARG:+ $_LUMOS_ANY_ARG}" >&2
+    fi
+    return 0
+  fi
+  _LUMOS_NO_PY_MSG="$_LUMOS_ANY_NOTE$_LUMOS_NO_PY_BASE"
+  return 1
+}
+_lumos_any_python_find() {
+  _LUMOS_ANY_EXE=""; _LUMOS_ANY_ARG=""; _LUMOS_ANY_NOTE=""
+  if [ -n "${LUMOS_PYTHON:-}" ]; then
+    case "$LUMOS_PYTHON" in
+      /*|[A-Za-z]:[\\/]*)
+        if [ -x "$LUMOS_PYTHON" ] && [ "$("$LUMOS_PYTHON" -c 'print("LUMOS_PY_OK")' 2>/dev/null | tr -d '\r')" = "LUMOS_PY_OK" ]; then
+          _LUMOS_ANY_EXE="$LUMOS_PYTHON"; return 0
+        fi
+        _LUMOS_ANY_NOTE="LUMOS_PYTHON=$LUMOS_PYTHON 不存在、不能執行或不是 python,略過。
+" ;;
+      *) _LUMOS_ANY_NOTE="LUMOS_PYTHON=$LUMOS_PYTHON 不是絕對路徑,略過(相對路徑會隨目前目錄解析到別的檔)。
+" ;;
+    esac
+  fi
+  for _c in python3.14 python3.15 python3.16; do
+    if command -v "$_c" >/dev/null 2>&1; then _LUMOS_ANY_EXE="$(command -v "$_c")"; return 0; fi
+  done
+  if [ -n "${LUMOS_PYTHON_SEARCH_DIRS+x}" ]; then
+    _dirs="$LUMOS_PYTHON_SEARCH_DIRS"
+  else
+    _dirs="/opt/homebrew/bin:/usr/local/bin:${HOME:-/nonexistent}/.local/bin"
+  fi
+  _ifs="$IFS"; IFS=":"
+  for _d in $_dirs; do
+    if [ -n "$_d" ] && [ -x "$_d/python3.14" ]; then IFS="$_ifs"; _LUMOS_ANY_EXE="$_d/python3.14"; return 0; fi
+  done
+  IFS="$_ifs"
+  for _c in python3 python; do
+    if command -v "$_c" >/dev/null 2>&1; then _LUMOS_ANY_EXE="$(command -v "$_c")"; return 0; fi
+  done
+  if command -v py >/dev/null 2>&1; then _LUMOS_ANY_EXE="$(command -v py)"; _LUMOS_ANY_ARG="-3"; return 0; fi
+  return 1
+}
+_LUMOS_NO_PY_BASE="找不到任何 python(試過 python3.14、python3.15、python3.16、固定位置、python3、python、py)。
+安裝 3.14:macOS 用 brew install python@3.14 或 uv python install 3.14;Linux 用發行版的 python3.14 套件或 uv;
+Windows 用 python.org 的安裝器或 winget install Python.Python.3.14。裝在別處就設 LUMOS_PYTHON=<那支 3.14 的絕對路徑>。"
+_LUMOS_NO_PY_MSG="$_LUMOS_NO_PY_BASE"
+# ── python-launcher end ──
+# ── python-314 begin(pre-commit 與 pre-push 內嵌同一段):用上面找到的 python 問 lumos 要一支 3.14 的絕對路徑,
+# 之後這支掛鉤的呼叫都用它;找不到就讓會擋的閘擋下,★不退回舊版 Python 跑檢查★(Projects/最低Python版本改3.14_計劃 [S3])。
+_lumos_py314() {
+  LUMOS_PY=""; _LUMOS_PY_ERR=""
+  if ! _lumos_any_python; then _LUMOS_PY_ERR="$_LUMOS_NO_PY_MSG"; return 1; fi
+  _out=""
+  if _out="$("$_LUMOS_ANY_EXE" ${_LUMOS_ANY_ARG:+"$_LUMOS_ANY_ARG"} "$REPO_ROOT/scripts/lumos" python-path 2>&1)"; then
+    LUMOS_PY="$(printf '%s\n' "$_out" | tail -n 1 | tr -d '\r')"
+    # 拿到的路徑要是絕對路徑、而且真的是 3.14 以上的 python 才用:後面每一道閘都由它跑,
+    # 叫 lumos 的那支是假的(PATH 上一支會印 /usr/bin/true 的 python3.14)時,閘會全部假放行(代碼審 r3 外家席)
+    case "$LUMOS_PY" in
+      /*|[A-Za-z]:[\\/]*)
+        if [ "$("$LUMOS_PY" -c 'import sys; print("LUMOS_PY314_OK" if sys.version_info >= (3, 14) else "OLD")' 2>/dev/null | tail -n 1 | tr -d '\r')" = "LUMOS_PY314_OK" ]; then
+          return 0
+        fi ;;
+    esac
+    _out="$_out
+(lumos python-path 回的 $LUMOS_PY 不是絕對路徑、或執行起來不是 3.14 以上的 python)"
+    LUMOS_PY=""
+  fi
+  _LUMOS_PY_ERR="$_out
+(叫 lumos 用的是 $_LUMOS_ANY_EXE${_LUMOS_ANY_ARG:+ $_LUMOS_ANY_ARG};它一執行就失敗的話,可能是 Windows 商店替身)"
+  return 1
+}
+_lumos_block_no_py314() {
+  { echo ""; echo "擋下:這一道檢查要用 Python 3.14 跑 lumos,但找不到。"
+    printf '%s\n' "$_LUMOS_PY_ERR" | sed 's/^/   /'
+    echo "出口:裝 3.14,或設 LUMOS_PYTHON=<3.14 的絕對路徑>;真的要先過只能加 --no-verify(提交會記進跳過帳),不會改用舊版 Python 跑檢查。"
+    echo ""; } >&2
+}
+# ── python-314 end ──
 
 # ── 波及計算(給合約測試閘用):這裡只呼叫、不碰內容。
 # ★一次推送只算一次波及★(2026-09-07 全 repo 審視 #17,設計 [S1] 第 3 步):以前同步點名與合約測試閘各自呼叫,
@@ -115,9 +204,16 @@ bound_tests_advisory() {   # $1=diff range(暫存檔沒算出來時退回自己�
     "$PY" "$GRAPHCTL" bound-tests --diff "$1" --advisory --repo "$REPO_ROOT" || true
   fi
 }
-if [[ -z "$PY" || ! -f "$GRAPHCTL" ]]; then
-  echo "提醒:這台機器找不到 python3 或 lumos,推送前的知識庫檢查這次沒跑;推上去之後 CI 會再跑一遍兜底。" >&2
+if [[ ! -f "$GRAPHCTL" ]]; then
+  echo "提醒:這個 repo 沒有 scripts/lumos,推送前的知識庫檢查這次沒跑;推上去之後 CI 會再跑一遍兜底。" >&2
   exit 0
+fi
+# 只推刪除也擋:下面的錨點檢查不看這次推了哪些 ref、每次都叫 lumos,所以「這次要叫 lumos」恆成立(代碼審 r1 核過)。
+if _lumos_py314; then
+  PY="$LUMOS_PY"
+else
+  _lumos_block_no_py314
+  exit 1
 fi
 
 # ★同一次推送的事件要串得起來★(#19 S6):這支是逐 ref 迴圈,而錨點與健檢跑在迴圈外面
@@ -524,7 +620,7 @@ if [[ -d "$REPO_ROOT/skills/lumos-project-notes" && -f "$REPO_ROOT/scripts/test_
       echo ""
       echo "兩條路選一條:"
       echo "  1. 修到全綠再推。只重跑紅的那幾支:"
-      echo "       python3 scripts/test_lumos.py --ff -x"
+      echo "       $PY scripts/test_lumos.py --ff -x"
       echo "  2. 確定是測試本身不穩或環境問題 → git push --no-verify(後果自負;CI 還是會再跑一次)"
       echo ""
     } >&2
