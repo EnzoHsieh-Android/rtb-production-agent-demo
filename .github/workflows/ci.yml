@@ -40,3 +40,25 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: 宣稱驗證器
         run: python tools/verify_claims.py claims/
+  # 筆記漂移檢查(lumos drift check):跟 checks 平行。改寫自 lumos doctor 印的範例,拿掉 if:、||、if/then/fi
+  # 這些 tests/test_static_wiring.py 不准的寫法:本檔只在 push 觸發,不用 if:;前一版空的時候改在 env 用 GitHub 運算式補零;
+  # origin/HEAD 改成單獨一條 git remote set-head(fetch-depth: 0 會抓下所有遠端分支,origin/<預設分支> 一定在)。
+  # 回傳碼照原樣:0 沒有要處理(或 warn 只印),1 擋下,其他非零是工具或參數出錯,也紅。lumos 最低要 Python 3.14。
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: 補上遠端預設分支(讓 lumos 找得到主線)
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: git remote set-head origin "$DEFAULT_BRANCH"
+      - name: drift check
+        env:
+          BEFORE: ${{ github.event.before || '0000000000000000000000000000000000000000' }}
+          SHA: ${{ github.sha }}
+        run: python3 scripts/lumos drift check --diff "$BEFORE..$SHA" --push-remote origin --pushed-ref "$GITHUB_REF" --repo .
