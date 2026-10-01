@@ -81,7 +81,7 @@ REVISIT:[when-status:Projects/RTB_Phase4佇列與重新投遞_計劃=doing|done]
 - 「提交前逾時絕不偷偷提交」的測試只能在有限的觀察時間內確認;刻意另開脫離的行程、等觀察時間過了才提交的寫法(2026-09-22 審計員實測構造出來)擋不住。這屬於刻意規避,不在「防忘記、不防繞過」的威脅模型內;任何有限時間的測試都無法證明「永遠不會晚點提交」。
 - 測試的白箱部分(對 `_record_idempotency`、`_conn` 打補丁)綁定私有成員,重構時會跟著紅,屬刻意。
 
-型別檢查:2026-09-22 起 `store.py` 與 `server.py` 通過 mypy 嚴格模式。`Operation.params` 與 `expected_version` 都標成未驗證(`dict[str, object]` 與 `object`),`_next_state` 讀預算時用 `_is_plain_int` 收窄,型別檢查因此守得住這條不可信資料的路徑。順手修了兩個真的隱患:`cursor.lastrowid` 可能是 None(現在明確報錯並回滾),以及 `Operation.params` 與 `expected_version` 來自不可信請求,型別改標為未驗證的 `object`,由 `_validate` 用 `TypeGuard` 確認後才使用。伺服器的等待逾時改成直接設定連線的逾時,不再設定基底類別的類別變數。
+型別檢查:2026-09-22 起 `store.py` 與 `server.py` 通過 mypy 嚴格模式。`Operation.params` 與 `expected_version` 都標成未驗證(`dict[str, object]` 與 `object`),`_next_state` 讀預算時用 `is_plain_int` 收窄,型別檢查因此守得住這條不可信資料的路徑。順手修了兩個真的隱患:`cursor.lastrowid` 可能是 None(現在明確報錯並回滾),以及 `Operation.params` 與 `expected_version` 來自不可信請求,型別改標為未驗證的 `object`,由 `_validate` 用 `TypeGuard` 確認後才使用。伺服器的等待逾時改成直接設定連線的逾時,不再設定基底類別的類別變數。
 
 2026-09-22:伺服器共通行為(Host 檢查、請求本文上限、逾時、JSON 錯誤與 500 後備)與 SQLite 連線及寫入交易已抽到 [[Systems/共用行程基礎]],DSP 只保留路由、錯誤對照表與故障注入;上面這些規則的實作與防回歸現在在那一篇。
 連線建立階段(切換 WAL、建表)撞上鎖競爭,現在也回 503 store_busy(可重試),不再落到不可重試的 500;每個請求開的儲存連線在成功、領域例外與非預期例外三條路徑都會關閉,有測試守著(見共用行程基礎的測試)。

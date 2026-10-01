@@ -6,7 +6,7 @@ updated: 2026-09-26
 plan_risk: high
 summary: |-
   WHY: 2026-09-26 使用者裁定，Phase 13 評估顯示程式可算的加額判斷由程式較好，AI 退出正式加額決策；本計劃只用固定種子的合成歷史離線找新規則模式，機械核對並與窮舉基準比較，經人確認及 Issue／設計審／代碼審後才可能寫進九條或新條。出處：本次使用者對話；[[Projects/RTB_Phase13AI參與決策_計劃]]、[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]。
-  VERIFY: 本文重驗入口與預定報告指標是 --ai-judge、--batch-id、--demo-id、--ledger、--recordings-dir、--verify、governance/eval/ 下的 phase15-rule-mining.md；涉及的程式路徑以程式碼為準，開場用 `rg --files src/rtb tests` 重驗：investigation_eval.py、investigation_report.py、src/rtb/analyzer/modelgate.py、src/rtb/domain/metrics.py、src/rtb/domain/nine_rules.py、src/rtb/dsp/store.py、src/rtb/eval/investigation_cases.py、src/rtb/eval/investigation_eval.py、src/rtb/modelclient.py、src/rtb/modelledger.py、src/rtb/modelledger_view.py、src/rtb/modelrecording.py、tests/test_spawn_boundary.py、tests/eval/test_model_candidate.py、tests/model/test_shared_entry.py。
+  VERIFY: 本文重驗入口與預定報告指標是 `python -m rtb.eval.rule_mining_eval` 的 --batch-id、--demo-id、--ledger、--recordings-dir、--verify、governance/eval/ 下的 phase15-rule-mining.md（正文提到的 --ai-judge 是開工前要核對「已不存在」的 runner 舊開關，已於 Phase 14 增量 3 撤除，不是重驗入口）；涉及的程式路徑以程式碼為準，開場用 `rg --files src/rtb tests` 重驗：investigation_eval.py、investigation_report.py、src/rtb/analyzer/modelgate.py、src/rtb/domain/metrics.py、src/rtb/domain/nine_rules.py、src/rtb/dsp/store.py、src/rtb/eval/investigation_cases.py、src/rtb/eval/investigation_eval.py、src/rtb/modelclient.py、src/rtb/modelledger.py、src/rtb/modelledger_view.py、src/rtb/modelrecording.py、tests/test_spawn_boundary.py、tests/eval/test_model_candidate.py、tests/model/test_shared_entry.py。
 tags:
   - type/project
   - status/done
@@ -130,7 +130,7 @@ RETIRE-IF: 固定種子 15001、15002、15003 各以第一次 `outcome=ok` 且�
 - `Caller` 不是任意字串，模型請求與閘道都驗列舉；新 `RULE_MINING = "rule_mining"` 必須連同 [S1103] 的全體成員精確等式與 [S1134] 的 `CAPPED_CALLERS` 精確等式一起改，並測其併行預留；`tests/test_spawn_boundary.py` 的 `CALLER_USERS` 鍵及值→成員名對照也須新增，值含分析端窄函式與用 `Caller.RULE_MINING` 重算歷史鍵的評估模組。批量探索固定 K=10、每批模型呼叫一次、上述提示／輸出界限；任何超限整批拒跑，不開分塊錄製鍵。
 - Phase 13 錄製鍵依提示位元組與模型等內容產生，不能沿用 Phase 13 調查的錄製檔；新批次須獨立目錄及名稱。重錄不能覆蓋舊批次，報告雜湊要和錄製輸入版本對上。
 - `rtb.eval` 的現有生成器針對 72 筆決策案例，沒有數週的歷史資料；DSP 的日桶及調整紀錄在另一行程，評估套件不准匯入 `rtb.dsp`。本案需在評估層建純離線歷史型別與自足的重產檢查，並以測試對齊 UTC 日期與整數分語意。
-- Phase 14 在另一分支持續，這個 main 基底的 `src/rtb/domain/nine_rules.py` 已有九條純函式，但既有 `--ai-judge` 路徑仍可送提案；原 Phase 14 增量 3 文字也保留 AI 提案經規則否決。依本輪代使用者裁定，該增量 3 要移除 runner 的 AI 判斷開關，AI 決策模組只留評估重播；只有含此移除的變更合入 main，並核對 runner 無 AI 判斷開關、展示驅動不再組參數且 F7 走規則路徑，Phase 15 才能開工。當時再對照 main 的九條、模型入口與邊界測試，衝突先折回本計劃。
+- Phase 14 在另一分支持續，這個 main 基底的 `src/rtb/domain/nine_rules.py` 已有九條純函式，但既有 `--ai-judge` 路徑仍可送提案（開工前的狀態；`--ai-judge` 已於 Phase 14 增量 3 撤除）；原 Phase 14 增量 3 文字也保留 AI 提案經規則否決。依本輪代使用者裁定，該增量 3 要移除 runner 的 AI 判斷開關，AI 決策模組只留評估重播；只有含此移除的變更合入 main，並核對 runner 無 AI 判斷開關、展示驅動不再組參數且 F7 走規則路徑，Phase 15 才能開工。當時再對照 main 的九條、模型入口與邊界測試，衝突先折回本計劃。
 
 ## 要改寫的既有合約
 

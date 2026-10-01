@@ -7,7 +7,7 @@ plan_risk: high
 summary: |-
   WHY: 2026-09-26 使用者裁定把 Phase 13 評估的九條標準答案搬進正式規則；Phase 13 名稱正常案例現行規則僅 12/36，沿用只看曝光點擊會誤提案。出處：本次使用者裁定、[[Issues/現行規則只看有沒有投放就提案]]。
   WHY: 2026-09-26 第 1 輪設計審後，AI 提案要經四查詢與九條否決；列內缺值判證據不足；分步證據按輪次隔離；政策升版擋舊提案；報告分列 AI 原始、AI+規則否決與程式規則。出處：本計劃〈使用者裁定〉5–6、〈審計修正紀錄〉r1。
-  WHY: 2026-09-26 第 2 輪設計審與使用者裁定後，第 5 條七日任一天 no_data 即證據不足；DSP 預算調整改單源與 UTC 日期，A/B/C 進度由已提交列重算，AI 複查只定案一次，--hold-submit 攔全部提案出口。出處：本計劃〈使用者裁定〉7、〈審計修正紀錄〉r2。
+  WHY: 2026-09-26 第 2 輪設計審與使用者裁定後，第 5 條七日任一天 no_data 即證據不足；DSP 預算調整改單源與 UTC 日期，A/B/C 進度由已提交列重算，AI 複查只定案一次，--hold-submit 攔全部提案出口（--hold-submit 已於本計劃增量 3 撤除，見下方增量 3 那行）。出處：本計劃〈使用者裁定〉7、〈審計修正紀錄〉r2。
   WHY: 2026-09-26 第 3 輪末輪把加額三天切點移到決策時鐘，金額改用整數分精確核對，模擬 DSP 跨日生成新桶，缺狀態沿用缺現況原因；折入後由代碼審把關。出處：本計劃〈審計修正紀錄〉r3。
   WHY: 2026-09-26 增量 3 範圍變更審後，使用者裁定 AI 退出正式與展示的加額決策，保留說明／告警假說；`--ai-judge` 撤除，AI 決策模組與舊調查錄製只供 Phase 13 評估重播及授權即時錄製，F5 考題與 hold-submit 撤除。出處：本計劃〈使用者裁定〉8、〈拆增量〉3、〈審計修正紀錄〉增量 3 範圍變更審 r1。
   DEP: 本案程式與測試引用索引（以程式碼為準；重查：rg --files src tests）：src/rtb/analyzer/policy.py、src/rtb/analyzer/dsp_client.py、src/rtb/analyzer/instrumented.py、src/rtb/analyzer/investigation.py、src/rtb/analyzer/runner.py、src/rtb/domain/proposal.py、src/rtb/dsp/store.py、src/rtb/eval/investigation_cases.py、src/rtb/eval/rubric.py、src/rtb/eval/scoring.py、investigation_cases.py、scoring.py、investigation_eval.py、generator.py、frozen_policy_e8b26f6.py、policy_before_samples.py、tests/analyzer/test_ai_judge.py、tests/analyzer/test_f4_end_to_end.py、tests/analyzer/test_policy.py、tests/analyzer/test_worth_check.py、tests/eval/test_evaluation.py、tests/eval/test_investigation_eval.py、src/rtb/eval/investigation_set.py、investigation_set.py、src/rtb/dsp/seed.py、store.py、tests/analyzer/test_dsp_client.py。
