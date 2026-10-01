@@ -72,8 +72,10 @@ def _all_fresh(evidence: tuple[Evidence, ...], now: datetime) -> bool:
 
 
 class WorthCandidate(Protocol):
-    """「值不值得加」的候選判斷(Phase 10)。比照決策函式的介面用型別協定;逾時用專案既有的合作式
-    做法:實作必須經共用 HTTP 用戶端呼叫、把 `timeout_seconds` 當它的逾時(逾時丟 TimeoutError)。"""
+    """「值不值得加」的候選判斷(Phase 10)。比照決策函式的介面用型別協定。實作要把 `timeout_seconds`
+    當它的逾時,而且逾時要能真的終止那次呼叫:經共用 HTTP 用戶端帶截止時間,或像評估套件的模型候選
+    (rtb.eval.model_candidate)經模型用戶端開獨立行程群組、逾時整組強制結束。逾時丟 TimeoutError,
+    其他失敗丟任何例外,路由一律退回現行規則。"""
 
     def __call__(self, worth_input: WorthInput, timeout_seconds: float) -> WorthVerdict: ...
 
