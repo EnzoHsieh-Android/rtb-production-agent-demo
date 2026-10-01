@@ -488,6 +488,27 @@ for _ppl in ${_PP_LINES+"${_PP_LINES[@]}"}; do
   if [[ "$dr_rc" -ne 0 ]]; then
     echo "漂移檢查沒能跑完(工具錯誤或 git 太慢),這次沒檢查;CI 會再檢查一次。(上面如果印了「擋下:」,指的是這道檢查自己沒跑成,推送沒有被擋。)" >&2
   fi
+  # 回頭重讀守檔筆記(Projects/守檔筆記對照改動_計劃〈做法〉第 4 節、[S9]):這次改到的程式檔的家、而且這次也被改過的筆記,
+  # 還沒對照過這一版程式的就列出來,提醒派判定者問「哪幾行被這次改動弄得不成立了」。★只提醒、不擋★,工具自己任何情況都回 0、
+  # 輸出都走標準輸出;開關(.lumos/config.json 的 note_reread.gate)、單次略過(LUMOS_SKIP_REREAD_CHECK=1)、記帳都在工具裡判。
+  # 排在存量漂移檢查之後;最多約 30 秒(工具自己的軟上限),逐 ref 各跑一次。
+  # 上線標記:下一行那串是 lumos 找「這道提醒從哪個提交起上線」用的(範圍起點截到那裡),別改寫也別刪;
+  # 這一段的指令與註解都不准出現筆記內容審的上線字串(那道閘名接一個空白再接它的檢查子指令)——它靠那串找自己的上線點,doctor 也靠它判接線了沒:
+# lumos note-audit reread-check
+  # 範圍照存量漂移那段原樣交 遠端舊值..本地頂端、遠端名與遠端 ref 名(起點由 lumos 的 _push_range_start 算)。
+  # 標準錯誤丟掉:舊版 lumos 不認得這個子指令時 argparse 的說明印在那裡,不給人看雜訊(回傳碼 2,照下面放行)。
+  # 回傳碼:只有 130(Ctrl-C)交給 pp_stop_if_signaled 停下整支掛鉤;其他非零——含 128 以上的其他訊號,例如記憶體不夠被系統砍掉——
+  # 印一句放行:這道只提醒,被外部砍掉不該擋推送(CI 那步同理吞掉)。同檔 bound-tests --advisory、test-layers 兩段整個吞掉回傳碼,
+  # 這一段比它們多守了 Ctrl-C。
+  rr_rc=0
+  "$PY" "$GRAPHCTL" note-audit reread-check --diff "$_rsha..$_lsha" --push-remote "$_PP_REMOTE" --pushed-ref "$_rref" \
+    --repo "$REPO_ROOT" 2>/dev/null || rr_rc=$?
+  rrint_rc=0
+  [[ "$rr_rc" -eq 130 ]] && rrint_rc=130
+  pp_stop_if_signaled "$rrint_rc" "回頭重讀提醒"
+  if [[ "$rr_rc" -ne 0 ]]; then
+    echo "回頭重讀提醒這次沒跑完(rc=$rr_rc),照推——這道只提醒、不擋。" >&2
+  fi
   # ★合約測試閘:低風險這一路也要跑★(2026-09-07 全 repo 審視 #17,人裁)
   # 舊行為:這件事藏在 code-loop check 裡,而那支只在 tier=high 且推的是分支時才跑
   # ——所以「改到硬合約就跑那些合約綁的測試」這句話,在低風險推送上是假的,
