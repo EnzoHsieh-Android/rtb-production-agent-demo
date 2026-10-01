@@ -14,10 +14,11 @@
   "scripts/hooks/post-commit": "f7ccea562d2e0fa83ec2e9d527b93a6f10204c541f377f425e42ad814a3a27dc",
   "scripts/hooks/pre-commit": "5a8dc225ef018d942f6b1d5e831db9879742a9ae20d4becb1af77d8fa5ab0656",
   "scripts/hooks/pre-push": "910bb200dd4a4782c69da7110ce9360ad07f4215eda2ba883bca46664053fbb5",
-  "scripts/lumos": "5cd4216d8d8fb1f9e3b912c2476a6b00ec54fc94a2bbdd6841e6d8c83c897828",
+  "scripts/lumos": "ec608c5bf8737146c31a83ba472e22f88d9999dacf2cd5031bb3c9002624b4ce",
   "scripts/merge-claude-settings.py": "3324272bedc814d4d64a814c6a04ad89abdc08516cb199c52abd181c0a1ebeff",
   "scripts/templates/graph-discipline.md": "57c2f195b942b62def9b8735c5d6c86098ef612a0bd81ddb135f0acfc745348d",
   "scripts/templates/note-audit-judge.md": "88f2bb6ccf816da2e4ea195d58bb7c5bacc71af55bf9eea2bb624a5e468dc713",
-  "scripts/test_lumos.py": "75744324b5e086d879478ca962b0c394c3082433f45e57cea1f9c0a0bfd6c825"
+  "scripts/templates/note-audit-reread.md": "079c09fb31831ed47cb0e1898af9928209975524d01d7273c8886ba0863c0260",
+  "scripts/test_lumos.py": "7a7a06835274e5f5b1307b922906c501706b7860e4c98591536949f1245112dd"
  }
 }

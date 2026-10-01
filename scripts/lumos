@@ -1645,21 +1645,29 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
             else:
                 naked.append((rel, clean, refs))
         dangling, fake, bad_platform = [], [], []
+        t_skipped = False      # 設定檔讀不了而跳過存在性檢查時,收尾不印「都綁了」
         if bound:
             if repo_root is None:
                 print(f"  {C['Y']}—{C['X']} 無法定位 repo root,跳過 test_ref 存在性檢查(裸合約仍檢)")
             else:
                 # 多平台感知:每 ref 依平台前綴選對 root+profile 的 method set/haystack(跨 repo)。
-                pdata, split, default, methods_for, hay_for, _loose = _platform_test_index(repo_root)
-                for rel, clean, refs in bound:
+                # 設定內容讓 load_platforms 丟例外(兩個平台沒寫預設、最外層不是物件…)時只跳過存在性檢查,
+                # 不讓 doctor 整支崩潰(Issues/設定內容讓load_platforms丟例外時doctor整支崩潰)
+                try:
+                    pdata, split, default, methods_for, hay_for, _loose = _platform_test_index(repo_root)
+                    t_check = bound
+                except Exception as _te:
+                    t_check, t_skipped = [], True
+                    print(f"  {C['Y']}—{C['X']} 設定檔讀不了({_kill_esc(_te)}),跳過 test_ref 存在性檢查(裸合約仍檢)")
+                for rel, _clean, refs in t_check:
                     for seg in refs:
                         if split and ":" in seg:            # 多平台:含冒號 = 平台:名
                             plat, name = seg.split(":", 1)
                             plat, name = plat.strip(), name.strip()
                             if plat not in split:           # 未定義前綴 → 明確報錯(不誤當方法名)
                                 bad_platform.append(
-                                    f"{rel}: [test:{seg}] 平台前綴 '{plat}' 未定義於 platforms"
-                                    f"({', '.join(split)})")
+                                    f"{_kill_esc(rel)}: [test:{_kill_esc(seg)}] 平台前綴 '{_kill_esc(plat)}' 未定義於 platforms"
+                                    f"({_kill_esc(', '.join(split))})")   # 筆記與設定來的字一律跳脫(代碼審第 3、4 輪資安席)
                                 continue
                         else:                               # legacy 或無前綴段 → default 平台
                             plat, name = default, seg
@@ -1668,10 +1676,10 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
                         _attr = pdata["platforms"][plat]["profile"]["attr_hint"]
                         if name in hay_for(plat):
                             # 出現在程式碼但不是測試方法 → 偽證據(子字串巧合/被改名/拼錯屬性)
-                            fake.append(f"{rel}: [test:{seg}] 在程式碼出現,但不是 {_attr} 測試方法")
+                            fake.append(f"{_kill_esc(rel)}: [test:{_kill_esc(seg)}] 在程式碼出現,但不是 {_kill_esc(_attr)} 測試方法")
                         else:
-                            dangling.append(f"{rel}: [test:{seg}] 在程式碼中找不到")
-        if not naked and not dangling and not fake and not unaudited and not bad_platform:
+                            dangling.append(f"{_kill_esc(rel)}: [test:{_kill_esc(seg)}] 在程式碼中找不到")
+        if not naked and not dangling and not fake and not unaudited and not bad_platform and not (bound and t_skipped):
             ok(f"{len(bound)} 條 ★INVARIANT★ 都綁了真實可執行測試方法且經獨立審計 "
                "(0 裸合約 / 0 偽證據 / 0 懸空 / 0 未審 / 0 未定義平台)")
         if bad_platform:
@@ -2919,6 +2927,37 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
                       "碼被刪/改名?更新節點正文的路徑引用,或補對應節點")
         else:
             ok("筆記提到的程式檔都還在")
+    print()
+
+    # ── Check P2:殺傷力配方的原文還對不對得上程式(Projects/殺傷力配方失配提醒_計劃)──
+    # 配方失配原本只有手動跑 guard kill 才看得到(rtb 2026-10-01 巡檢一次抓到 10 條,全掛在 ★INVARIANT★ 上)。
+    # 形狀照 P 段:讀工作目錄、只提醒(warn_soft,不動回傳碼)、--ci 才落帳。判法對齊 guard kill,見 _kill_recipe_judge。
+    section("P2", "殺傷力配方的原文還對不對得上程式(提醒,不擋)")
+    if repo_root is None:
+        ok("這個專案沒有 docs/ 資料夾,跳過")
+    else:
+        try:
+            _p2 = _kill_p2_scan(env.vault, notes, repo_root)
+            if _p2["cfg_err"]:
+                warn_soft([f"設定檔讀不了:{_p2['cfg_err']}"] + [t for _st, t in _p2["items"]],
+                          "殺傷力配方這一段先跳過(算不出配方屬於哪個平台;格式不對的配方照列):",
+                          "修好 .lumos/config.json 再跑一次 lumos doctor")
+                for _stem in sorted({x for _st, _t in _p2["items"] for x in _st}) or [None]:
+                    gov_events.append({"gate": "check-p2", "kind": "warned", "hard": False,
+                                       "nodes": [_stem] if _stem else []})
+            elif _p2["items"]:
+                warn_soft([t for _st, t in _p2["items"]],
+                          f"有 {len(_p2['items'])} 條殺傷力配方的原文對不上程式(guard kill 跑到會判 drifted 或擋下;不擋):",
+                          "照每條的修法 kill-rm 舊配方、照現在的程式 kill-add 新的;程式與筆記提交後跑 lumos guard kill <節點> 確認")
+                for _stem in sorted({x for _st, _t in _p2["items"] for x in _st}) or [None]:
+                    gov_events.append({"gate": "check-p2", "kind": "warned", "hard": False,
+                                       "nodes": [_stem] if _stem else []})
+            elif _p2["total"]:
+                ok("殺傷力配方的原文都對得上")
+            else:
+                ok("沒有殺傷力配方")
+        except Exception as _e:        # 整段兜底:這一段壞掉不讓 doctor 整支中斷(照其他段用 warn_soft,軟提醒計數才對得上)
+            warn_soft([], f"這一段算不出來({_e.__class__.__name__}: {_e}),先跳過")
     print()
 
     # ── Check N:可重算數字宣稱(存查詢不存答案;成因 F「寫死易漂的值」)──
@@ -4904,11 +4943,12 @@ def _git_commit_exists(repo_root, sha):
         return False
 
 
-def _git_is_shallow(repo_root):
+def _git_is_shallow(repo_root, timeout=None):
+    """timeout 給了就當 git 的上限,逾時照 subprocess 丟 TimeoutExpired 由呼叫端接(算破壞測試背書時傳剩餘預算)。"""
     import subprocess
     try:
         r = subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=str(repo_root),
-                           capture_output=True, text=True, errors="replace")
+                           capture_output=True, text=True, errors="replace", timeout=timeout)
         return r.returncode == 0 and r.stdout.strip() == "true"
     except OSError:
         return False
@@ -6969,7 +7009,9 @@ _KNOWN_GATES = ("L2", "anchor-approve", "canary", "check-cascade", "check-revisi
                 # 2026-09-28 存量漂移守衛:擋下、提醒、跳過、判不了、表態(Projects/存量漂移防線_計劃)
                 "drift-check",
                 # 2026-10-01 回頭重讀守檔筆記:提醒、沒候選、全對照過、跳過、記錄(Projects/守檔筆記對照改動_計劃;只提醒不擋)
-                "note-reread")
+                "note-reread",
+                # 2026-10-01 殺傷力配方的原文還對不對得上程式(doctor P2,只提醒不擋;Projects/殺傷力配方失配提醒_計劃)
+                "check-p2")
 
 # 未出現清單旁的限制聲明。★單一常數★——測試比對此常數,不在測試裡複製字串
 # (逐字重複的斷言等於沒斷言)。另有一條斷言釘它含哪幾個子句,防被掏空只留殼。
@@ -7069,7 +7111,18 @@ def _render_gov_stats(rows, ded, loaded, since_days, cutoff, node, repo_root, es
             for _qid, _ent in r["dispositions"].items():
                 if not isinstance(_ent, dict):
                     continue
-                _b = _dq.setdefault(_qid, {"satisfied": 0, "na": 0, "todo": 0, "tension": 0, "auto-na": 0, "cand": 0, "cand-tension": 0})
+                _b = _dq.setdefault(_qid, {"satisfied": 0, "na": 0, "todo": 0, "tension": 0, "auto-na": 0, "cand": 0, "cand-tension": 0,
+                                           "bk-den": 0, "bk-strong": 0, "bk-none": 0, "bk-na": 0})
+                # 破壞測試背書(併發與效能表態要合約背書_計劃 RETIRE-IF):分母=帶 backing 欄位的人答(上線前的沒有這欄),不計 carried 重複
+                _bk = _ent.get("backing")
+                if isinstance(_bk, dict) and not _ent.get("auto") and not _ent.get("carried"):
+                    _b["bk-den"] += 1
+                    if _bk.get("status") == "strong":
+                        _b["bk-strong"] += 1
+                    elif _bk.get("status") == "none":
+                        _b["bk-none"] += 1
+                    elif _bk.get("status") == "n/a":
+                        _b["bk-na"] += 1
                 if _ent.get("auto"):
                     _b["auto-na"] += 1
                 elif _ent.get("status") in ("satisfied", "na", "todo", "tension"):
@@ -7087,7 +7140,9 @@ def _render_gov_stats(rows, ded, loaded, since_days, cutoff, node, repo_root, es
             _b = _dq[_qid]; _human = _b["satisfied"] + _b["na"] + _b["todo"] + _b["tension"]   # 分母含張力(r1 接手席 H4:8 na + 5 tension 不是死題)
             _tag = " ← 死題候選(人答 ≥10 次且全是不適用:題目不對或被敷衍,回頭裁刪題或加嚴)" if (_human >= 10 and _b["na"] == _human) else ""
             _cand = f"、候選題 {_b['cand']}(其中答 tension {_b['cand-tension']})" if _b["cand"] else ""
-            print(f"    {_qid}:做到了 {_b['satisfied']}、不適用 {_b['na']}、待辦 {_b['todo']}、未觸發自動 {_b['auto-na']}、張力 {_b['tension']}{_cand}{_tag}")
+            _bkt = (f"、背書分母 {_b['bk-den']}(有背書 {_b['bk-strong']}、做到了但沒有背書 {_b['bk-none']}、不適用/待辦/張力 {_b['bk-na']})"
+                    if _b["bk-den"] else "")
+            print(f"    {_qid}:做到了 {_b['satisfied']}、不適用 {_b['na']}、待辦 {_b['todo']}、未觸發自動 {_b['auto-na']}、張力 {_b['tension']}{_bkt}{_cand}{_tag}")
         for _qid, _n in sorted(_rm.items()):
             print(f"    {_qid}:審查席抓到未觸發題的問題 {_n} 次" + (" ← 觸發太窄候選(修它的 when)" if _n >= 3 else "(累積 3 次列候選)"))
         print()
@@ -7279,7 +7334,6 @@ def cmd_gov(env, node=None, since_days=90, full=False, stats=False, nags=0):
     本機開發可見性工具(非合規物)。L2 無 node → 對 Systems 為部分視圖。
     去噪(2026-07-25,呈現層——帳本身不動):同日同類 advisory(軟/warned/無 detail,如 Check S
     每次 doctor 全名單重喊)跨 commit 折疊 ×N、同群 >6 節點收單行摘要;--full 回完整逐筆。"""
-    import json
     import datetime
     docs = env.vault.parent
     cutoff = (datetime.date.today() - datetime.timedelta(days=since_days)).isoformat()
@@ -7295,18 +7349,14 @@ def cmd_gov(env, node=None, since_days=90, full=False, stats=False, nags=0):
         if not p.exists():
             return
         loaded.append(name.lstrip(".").replace("-log.jsonl", "").replace(".jsonl", ""))
-        for line in p.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                d = json.loads(line)
-            except ValueError:
-                continue
-            # ★合法 JSON 但不是物件(例如 []、null、42)也要跳過★(回頭重讀代碼審 r2 資安席 F1,比照 LOOP_CLOSE 讀帳那處 2026-09-07 的寫法):
-            # splitlines 會在 U+2028/U+2029 切行,帳裡一筆帶這種字元的事件就切出 [1] 這種碎片,原本 d.get 丟 AttributeError、gov 每次當
-            if not isinstance(d, dict):
-                continue
+        # 逐行容錯讀,用帳檔共用的 _drift_jsonl_parse(位元組 errors=replace 解碼、只在 \n 切行、壞行與非物件略過):
+        # 殘行停在半個中文字時整檔 read_text 會丟 UnicodeDecodeError 讓 gov 出錯;splitlines 會在 U+2028/U+2029 把一筆劈成兩段
+        # ★不走 _drift_jsonl_rows★(代碼審 r3 架構席):那支不跟符號連結,gov 一直跟;換過去會讓連結過來的帳悄悄讀成空的
+        try:
+            _raw = p.read_bytes()
+        except OSError:
+            return
+        for d in _drift_jsonl_parse(_raw):
             # ★物件行但欄位型別不對也跳過★(回頭重讀代碼審 r3 資安席 F3;表與理由見 _GOV_FIELD_TYPES)
             if not _gov_event_types_ok(d):
                 continue
@@ -12858,17 +12908,461 @@ def _kill_read_recipes(path):
         return None, f"kill_recipes JSON 解析失敗: {ex}"
 
 
-def cmd_guard_kill_add(env, node, invariant_substr, file, old, new, test=None,
-                       platform=None, note=""):
-    """宣告一條壞法配方進 kill_recipes + KEY 行補 [kill:recipes](同檔一次 atomic 寫)。"""
+def _kill_recipe_key(node, invariant, file, old):
+    """配方身分(Projects/併發與效能表態要合約背書_計劃):同一篇筆記裡 invariant、file、old 相同就是同一條配方。
+    kill-add 判重、kill 寫 kill-log 的 recipe_id、寫表態算背書時分組,三處都用這一支(別各寫一份比對)。
+    用 json.dumps 序列化再雜湊:直接串接會讓 ("a","bc") 跟 ("ab","c") 撞在一起。"""
+    import hashlib
     import json
+    return hashlib.sha256(json.dumps([node, invariant, file, old], ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _kill_method_name(test, multiplatform):
+    """配方 test 欄 → 實際跑的方法名:多平台時去掉「平台:」前綴,再去 Kotlin 反引號。kill 與算背書共用。"""
+    t = str(test or "")
+    m = t.split(":", 1)[1] if (":" in t and multiplatform) else t
+    return m.strip("`")
+
+
+# ── 殺傷力配方失配提醒(Projects/殺傷力配方失配提醒_計劃,三輪設計審)──
+# 配方是人寫的宣告式壞法,程式重構後原文找不到(或出現好幾次)就靜靜失效——原本只有手動跑 guard kill 才看得到。
+# 這一組給三個地方共用:kill-add 寫入時提醒、doctor P2 每次逐條數、kill-rm 用同一個身分找配方。
+# ★判法逐項對齊 cmd_guard_kill,但不改它★(它的圍欄、錯誤說明、回傳碼有既有合約與測試;抽共用會改到它的行為):
+#   基準 = 配方平台根所在 repo 的最上層;路徑照 guard kill 在「暫存資料夾/wt」裡 os.path.realpath 的走法重演;
+#   檔要在 HEAD 的提交裡(工作樹是從提交檢出的);文字模式 UTF-8 讀、原文恰好一次。
+# 兩邊不分家靠 t_kill_recipe_check_matches_guard_kill:一格一格真跑 guard kill 對照,日後誰改了判法這條先紅。
+
+def _kill_recipe_id(node, elem):
+    """配方身分(P2、kill-add 提醒、kill-rm 共用這一支)。node 一律是筆記在圖譜裡的相對路徑(跟 kill-add 判重傳的 str(rel) 同值)。
+    物件而且 invariant/file/old 都是字串 → 既有 `_kill_recipe_key`;其他(不是物件、欄位缺或型別不對)→
+    sha256(json ["malformed", node, 原始元素]),讓格式壞的配方也有身分、kill-rm 也移得掉。印出時取前 12 字元。"""
+    import hashlib
+    import json
+    if isinstance(elem, dict) and all(isinstance(elem.get(k), str) for k in ("invariant", "file", "old")):
+        return _kill_recipe_key(node, elem["invariant"], elem["file"], elem["old"])
+    return hashlib.sha256(json.dumps(["malformed", node, elem], ensure_ascii=False, sort_keys=True)
+                          .encode("utf-8")).hexdigest()
+
+
+def _kill_node_arg(rel):
+    """修法指令裡的節點寫法:圖譜相對路徑去掉 .md(env.find 認得),必要時加引號。
+    筆記名帶控制字元(換行、回行首、終端跳脫碼…)時不印出可貼的名字,改印佔位字(代碼審第 2 輪資安席:
+    引號擋得住 shell 斷字、擋不住終端把整行蓋掉)。"""
+    import shlex
+    r = str(rel)
+    if _path_special_chars(r):
+        return "'<筆記名含控制字元,先改檔名>'"
+    return shlex.quote(r[:-3] if r.endswith(".md") else r)
+
+
+def _kill_cfg_load(repo_root):
+    """讀配方要用的平台設定。回 (pdata, None) 或 (None, 讀不了的原因)。
+    ★先自己把 config.json 當 JSON 解析★:load_platforms 遇到壞 JSON 只印一句警告就退回單一預設、不丟錯,
+    靠它的例外判斷不出「讀不了」。解析得了才交給 load_platforms(cfg=…)(不讓它再讀一次檔);
+    它印到標準錯誤的警告接走(kill-add 的提醒只准多一行),丟出任何例外都當讀不了。"""
+    import contextlib
+    import io
+    import json
+    p = Path(repo_root) / ".lumos" / "config.json"
+    cfg = {}
+    if p.exists():
+        try:
+            cfg = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as ex:
+            return None, f".lumos/config.json 解析不了({ex})"
+        if not isinstance(cfg, dict):
+            return None, f".lumos/config.json 最外層要是物件,現在是 {type(cfg).__name__}"
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(buf):
+            return load_platforms(Path(repo_root), cfg=cfg), None
+    except Exception as ex:   # 內容寫錯(兩個平台沒寫預設、root 是 null…)各種例外都有
+        first = next((ln.strip() for ln in buf.getvalue().splitlines() if ln.strip()), "")
+        return None, _kill_esc(str(ex) or first or ex.__class__.__name__)   # 例外訊息帶著設定檔裡的字
+
+
+def _kill_check_ctx(repo_root):
+    """一次判定共用的狀態:設定只讀一次(load_platforms 只呼叫一次);repo 頂、提交裡的檔、檔案全文各自快取
+    (★同一支檔只讀一次★,rtb 有 73 條配方、很多指到同一支檔)。"""
+    pdata, err = _kill_cfg_load(repo_root)
+    return {"pdata": pdata, "cfg_err": err, "tops": {}, "trees": {}, "texts": {}, "canon": {}, "clash": {}}
+
+
+def _kill_plat_top(ctx, proot):
+    """平台根 → (所在 repo 的最上層, None) 或 (None, 找不到的原因)。guard kill 對平台根下 `git worktree add`,
+    工作樹的根就是那個 repo 的最上層,配方的 file 從那裡算。"""
+    import subprocess
+    key = str(proot)
+    if key in ctx["tops"]:
+        return ctx["tops"][key]
+    res = (None, "不存在")
+    if Path(proot).is_dir():
+        try:
+            # 找 repo 頂一律嚴格解碼(t_every_text_mode_git_call_tolerates_undecodable_output):解不了就判找不到,不猜路徑
+            r = subprocess.run(["git", "-C", key, "rev-parse", "--show-toplevel"],
+                               capture_output=True, text=True, errors="strict", timeout=_KILL_GIT_TIMEOUT)
+            top = r.stdout.strip()
+            if r.returncode != 0 or not top:
+                res = (None, "不在 git repo 裡")
+            elif subprocess.run(["git", "-C", top, "rev-parse", "--verify", "-q", "HEAD"],
+                                capture_output=True, timeout=_KILL_GIT_TIMEOUT).returncode != 0:
+                res = (None, "所在 repo 還沒有任何提交")
+            else:
+                res = (Path(top), None)
+        except UnicodeDecodeError:
+            res = (None, "所在 repo 的路徑讀不成 UTF-8")
+        except (OSError, subprocess.SubprocessError) as ex:
+            res = (None, f"git 問不出來({ex.__class__.__name__})")
+    ctx["tops"][key] = res
+    return res
+
+
+def _kill_tree(ctx, top):
+    """repo 頂 → (HEAD 裡每個路徑的模式, None)。guard kill 的工作樹是從 HEAD 檢出的:
+    還沒提交的新檔、被忽略的檔、子模組裡的檔它都沒有。每個 repo 頂只跑一次 git ls-tree;
+    ★讀不了也記住★(同一個 repo 的每條配方不必各重跑一次、各印一行,代碼審第 1 輪併發席),回 (None, 原因)。"""
+    import subprocess
+    key = str(top)
+    if key not in ctx["trees"]:
+        try:
+            r = subprocess.run(["git", "-C", key, "ls-tree", "-r", "-z", "--full-tree", "HEAD"],
+                               capture_output=True, timeout=_KILL_GIT_TIMEOUT)
+            why = "" if r.returncode == 0 else r.stderr.decode("utf-8", "replace").strip()[:120]
+        except (OSError, subprocess.SubprocessError) as ex:
+            why = f"{ex.__class__.__name__}: {ex}"[:120]
+        if why:
+            ctx["trees"][key] = (None, why)
+            return ctx["trees"][key]
+        modes = {}
+        for rec in r.stdout.split(b"\0"):
+            if not rec:
+                continue
+            meta, _tab, raw = rec.partition(b"\t")
+            modes[os.fsdecode(raw)] = meta.split(b" ", 1)[0].decode("ascii", "replace")
+        ctx["trees"][key] = (modes, None)
+    return ctx["trees"][key]
+
+
+# 每個 git 子程序的上限秒數:kill-add 在筆記庫寫入鎖裡判,鎖 30 秒沒放就會被別人接手(代碼審第 1 輪併發席)
+_KILL_GIT_TIMEOUT = 10
+
+
+def _kill_esc(s):
+    """字串裡的控制字元(類別走共用的 _PATH_SPECIAL_CATS:C0/C1、雙向覆寫與零寬、行與段分隔、替身字元)
+    換成看得見的 \\uXXXX;其他照原樣。專給設定檔、例外訊息這類不加引號的字(代碼審第 2 輪資安席、邊界席)。"""
+    return "".join(f"\\u{ord(c):04x}" if unicodedata.category(c) in _PATH_SPECIAL_CATS else c for c in str(s))
+
+
+def _kill_show(s):
+    """配方裡人寫的欄位印進提醒之前:加引號、跳脫引號與控制字元。筆記可能來自不可信的提交,
+    不能在提醒行裡偽造一段「修法」、或用控制字元蓋掉工具給的那段(代碼審第 1 輪資安席)。"""
+    import json
+    return _kill_esc(json.dumps(str(s), ensure_ascii=False))
+
+
+def _kill_read_blob(top, file):
+    """讀提交(HEAD)裡那支檔的全文:回 ("ok", 全文) 或 (狀態, 原因)。
+    ★讀提交、不讀工作目錄★(代碼審第 5 輪資安席、正確性席):guard kill 的工作樹就是從 HEAD 檢出的;讀工作目錄會
+    ①被只差大小寫的名字在 macOS 上互蓋、繞連結讀到 repo 外或 .git 裡的檔,②工作目錄跟 HEAD 不同(刪了、改了、沒提交的
+    git mv)時判的不是 guard kill 會看到的那份。讀法照 guard kill:UTF-8 嚴格解碼、換行正規化(文字模式開檔)。
+    不涵蓋:檢出時的轉換(.gitattributes 的 eol、smudge 過濾、LFS)——那時 guard kill 讀到的是轉換後的內容。"""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", str(top), "cat-file", "blob", f"HEAD:{file}"], capture_output=True,
+                           timeout=_KILL_GIT_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as ex:
+        return "missing", f"提交裡讀不出這支檔({ex.__class__.__name__})"
+    if r.returncode != 0:
+        return "missing", f"提交裡讀不出這支檔({_kill_esc(r.stderr.decode('utf-8', 'replace').strip()[:80])})"
+    try:
+        text = r.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        return "undecodable", "不是 UTF-8"
+    return "ok", text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _kill_recipe_judge(ctx, r):
+    """一條配方判一次。回 dict:status、detail、plat、file(、count)。status:
+    判得出來的 ok(原文恰好一次)/hits(不是一次)/missing(讀不到)/undecodable(讀不成 UTF-8);
+    path(file 不是提交裡的正式路徑);malformed(guard kill 會拒跑或程式出錯);
+    判不了的 cfg(設定檔讀不了)/noplat(平台不在設定裡)/noroot(平台根找不到、不在 git repo 或提交讀不了)。
+    對應 guard kill:ok=套上壞法而且還原得回去、hits=drifted、undecodable=讀檔出錯、malformed=error(test 名不合法)
+    或程式出錯;path 不預測 guard kill 會怎樣(見 _kill_path_issue)。
+    ★判的順序照 guard kill 走到哪一步★(代碼審第 2 輪正確性席:先判還原會把「原文對不上」講成「路徑寫錯」):
+    分平台 → test 名白名單 → 路徑與圍欄 → 開檔讀檔 → 數原文 → 套壞法(new)→ 還原。
+    欄位讀法也照它:old、file、test 沒寫當空字串,test 先轉字串再比白名單。"""
+    out = {"status": "malformed", "detail": "", "plat": "", "file": ""}
+    if not isinstance(r, dict):
+        out["detail"] = f"配方欄位格式不對(不是物件,是 {type(r).__name__})"
+        return out
+    file, plat0 = r.get("file", ""), r.get("platform")
+    try:
+        hash(plat0)
+    except TypeError:
+        out["detail"] = "配方欄位格式不對(platform 是清單或物件,guard kill 會程式出錯)"
+        return out
+    out["file"] = file if isinstance(file, str) else ""
+    if ctx["cfg_err"]:
+        out.update(status="cfg", detail=f"設定檔讀不了:{ctx['cfg_err']}")
+        return out
+    pdata = ctx["pdata"]
+    plat = plat0 or pdata["default_platform"]
+    out["plat"] = plat
+    pentry = pdata["platforms"].get(plat)
+    if pentry is None:
+        out.update(status="noplat", detail=f"平台 {_kill_show(plat)} 不在設定裡")
+        return out
+    if not _KILL_METHOD_OK_RE.fullmatch(_kill_method_name(r.get("test", ""), pdata.get("multiplatform")) or ""):
+        out["detail"] = f"配方欄位格式不對(test 名 {_kill_show(r.get('test', ''))} 不合法,guard kill 會拒跑)"
+        return out
+    # file 的型別放在分平台、test 白名單之後才判(guard kill 走到組路徑才會出錯;代碼審第 3 輪正確性席)
+    if not isinstance(file, str) or "\0" in file:
+        out["detail"] = "配方欄位格式不對(file 不是字串或含 NUL 字元,guard kill 會程式出錯)"
+        return out
+    top, why = _kill_plat_top(ctx, pentry["root"])
+    if top is None:
+        out.update(status="noroot", detail=f"平台 {_kill_show(plat)} 的根找不到({_kill_show(pentry['root'])}:{why})")
+        return out
+    modes, why = _kill_tree(ctx, top)
+    if modes is None:
+        out.update(status="noroot", detail=f"平台 {_kill_show(plat)} 的提交讀不了({_kill_show(top)}:{_kill_esc(why)})")
+        return out
+    out.update(_kill_judge_file(ctx, top, modes, r))
+    return out
+
+
+def _kill_path_issue(ctx, top, modes, file):
+    """file 是不是提交裡的正式路徑(git ls-files 列出來的那個寫法、而且是一般檔);是回空字串,不是回原因。
+    ★規定正式路徑、不模擬★(Enzo 2026-10-01 裁,代碼審第 4 輪後):前四輪一路模擬 guard kill 怎麼解析怪路徑
+    (連結、`..`、大小寫、Unicode 寫法、各種檔案系統),每輪都被抓到修正自己引進的 major;正式路徑在 guard kill 裡
+    開檔、數原文、還原都照字面走,判得準,其他寫法一律請人改寫、不預測結果。
+    另外兩條寫法規定(代碼審第 5 輪):這條路徑或任一層上層,不分大小寫與 Unicode 寫法後跟提交裡別的路徑撞名 → 不算
+    (macOS 上檢出會互蓋、可能繞連結跑到 repo 外);Windows 上含反斜線或冒號 → 不算。"""
+    if file.startswith(":"):
+        return "冒號開頭(git 還原時會當成特殊語法)"
+    if _IS_WIN and ("\\" in file or ":" in file):
+        return "含反斜線或冒號(Windows 上會被當成路徑分隔或磁碟代號)"
+    if nfc(file) != file:
+        return ("檔名是拆開的 Unicode 寫法(macOS 上 git 還原時會轉成組合寫法、對不到);"
+                "先把檔名改成組合寫法提交,再照 git ls-files 列的寫法改寫配方")
+    mode = modes.get(file)
+    if mode == "120000":
+        return "是連結,寫它指向的那支檔"
+    if mode is not None and mode not in ("100644", "100755"):
+        return "不是一般檔(子模組)"
+    if mode is None:
+        return _kill_path_hint(ctx, top, modes, file)
+    parts = file.split("/")
+    clash = _kill_clash_keys(ctx, top, modes)
+    for k in range(1, len(parts) + 1):
+        if nfc("/".join(parts[:k])).casefold() in clash:
+            return "提交裡有跟它只差大小寫或 Unicode 寫法的名字(macOS 上檢出會互相蓋掉),先改掉撞名"
+    return ""
+
+
+def _kill_clash_keys(ctx, top, modes):
+    """提交裡所有路徑與上層資料夾,不分大小寫與寫法折疊後對到兩個以上原名的鍵(每個 repo 只算一次,線性)。"""
+    key = str(top)
+    if key not in ctx["clash"]:
+        seen = {}
+        for p in modes:
+            parts = p.split("/")
+            for k in range(1, len(parts) + 1):
+                pre = "/".join(parts[:k])
+                seen.setdefault(nfc(pre).casefold(), set()).add(pre)
+        ctx["clash"][key] = {f for f, names in seen.items() if len(names) > 1}
+    return ctx["clash"][key]
+
+
+def _kill_path_hint(ctx, top, modes, file):
+    """不在提交裡的 file:去掉 `./` 與多餘斜線、不分大小寫後,提交裡剛好有一支一般檔對得上就點名;
+    含 `..` 的不建議(`..` 遇到連結時實際落點跟字面不同,代碼審第 5 輪正確性席)。"""
+    import posixpath
+    key = str(top)
+    if key not in ctx["canon"]:            # 每個 repo 只建一次「折疊後的整串路徑 → 提交裡的路徑」
+        canon = {}
+        for p, m in modes.items():
+            if m in ("100644", "100755"):
+                canon.setdefault(nfc(p).casefold(), set()).add(p)
+        ctx["canon"][key] = canon
+    base = "提交裡沒有這個路徑(沒提交、被忽略、拼錯,或寫法不是 git ls-files 列的那樣)"
+    if ".." in file.split("/") or file.startswith("/"):
+        return base
+    hits = ctx["canon"][key].get(nfc(posixpath.normpath(file)).casefold(), ())
+    if len(hits) == 1:
+        return f"提交裡沒有這個路徑,是不是 {_kill_show(next(iter(hits)))}"
+    return base
+
+
+def _kill_judge_file(ctx, top, modes, r):
+    """平台的 repo 頂找到之後:路徑是不是正式寫法、讀檔、數原文、new 能不能套。回要蓋進結果的欄位。"""
+    file = r.get("file", "")
+    why = _kill_path_issue(ctx, top, modes, file)
+    if why:
+        return {"status": "path", "detail": f"不是提交裡的正式路徑:{why}"}
+    key = (str(top), file)
+    if key not in ctx["texts"]:          # ★同一支檔只讀一次★
+        ctx["texts"][key] = _kill_read_blob(top, file)
+    st, val = ctx["texts"][key]
+    if st != "ok":
+        return {"status": st, "detail": val}
+    old = r.get("old", "")
+    if not isinstance(old, str):
+        return {"status": "malformed", "detail": "配方欄位格式不對(old 不是字串,guard kill 數原文時會程式出錯)"}
+    n = val.count(old)
+    if n != 1:
+        return {"status": "hits", "detail": f"原文出現 {n} 次", "count": n}
+    # 套壞法那一步 guard kill 改用 r["old"]、r["new"] 取值、寫回 UTF-8:old 沒寫(數的時候當空字串,空檔剛好一次)、
+    # new 不是字串或含寫不成 UTF-8 的替身字元都會出錯(代碼審第 3、4 輪正確性席)
+    new = r.get("new")
+    if "old" not in r or not isinstance(new, str) or any(unicodedata.category(c) == "Cs" for c in new):
+        return {"status": "malformed",
+                "detail": "配方欄位格式不對(old 或 new 沒寫、new 不是字串或寫不成 UTF-8,guard kill 套壞法時會程式出錯)"}
+    return {"status": "ok", "detail": ""}
+
+
+def _kill_fix_hint(rel, elem):
+    """可以直接貼的修法(kill-add 提醒與 P2 共用)。"""
+    return f"lumos guard kill-rm {_kill_node_arg(rel)} --id {_kill_recipe_id(str(rel), elem)[:12]}"
+
+
+def _kill_add_warn(env, rel, recipe):
+    """kill-add 寫入成功、放掉寫入鎖之後:這次實際寫進去的那一條原文不是恰好一次,就在標準錯誤印恰好一行提醒。
+    ★只提醒、照舊寫入★(保留「宣告不擋、跑時擋」:既有測試刻意用 kill-add 宣告失配或逃逸的配方來測 guard kill);
+    標準輸出與回傳碼不變。判斷自己出了沒預料的錯也只印一行、照舊寫入(不能比現在退步成崩潰不寫入)。"""
+    try:
+        res = _kill_recipe_judge(_kill_check_ctx(_repo_root_from_env(env)), recipe)
+        st, f = res["status"], res["file"]
+        if st == "ok":
+            return
+        fix = f"修法:{_kill_fix_hint(rel, recipe)},照現在的程式改寫後再 kill-add"
+        f = _kill_show(f)
+        if st == "hits":
+            msg = f"這條配方的原文在 {f} 出現 {res['count']} 次;guard kill 跑到它會判 drifted。{fix}"
+        elif st == "missing":
+            msg = f"{f} 讀不到({res['detail']}),沒驗原文"
+        elif st == "undecodable":
+            msg = f"{f} 讀不到({res['detail']});guard kill 跑到它會讀檔出錯。{fix}"
+        elif st == "path":
+            msg = f"{f} {res['detail']};guard kill 跑到它結果無法預期。{fix}"
+        elif st == "malformed":
+            msg = f"{res['detail']}。{fix}"
+        else:
+            msg = f"{res['detail']},沒驗原文"
+    except Exception as ex:
+        msg = f"判斷時出錯({ex.__class__.__name__}: {_kill_esc(ex)}),沒驗原文"
+    print(f"⚠ 提醒:{msg}", file=sys.stderr)
+
+
+def _kill_p2_scan(vault, notes, repo_root):
+    """doctor P2 的計算(印交給 doctor)。回 dict:cfg_err(設定檔讀不了的原因或 None)、
+    items([(節點 stem 清單, 一行文字)])、total(看過的配方條數)。
+    跳過的節點逐字照 P 段:verification 型、status 是 superseded/stale。每條、每篇各自包例外保護。"""
+    st = {"ctx": None, "items": [], "total": 0, "noroot": {}}   # noroot:平台 → [說明, 條數, 節點]:只列一條
+    for rel, n in sorted(notes.items()):
+        if n.fields.get("type") == "verification" or \
+           str(n.fields.get("status", "")).strip() in ("superseded", "stale"):
+            continue
+        if n.fields.get("kill_recipes") is None:
+            continue
+        try:
+            recipes, err = _kill_read_recipes(vault / rel)
+            if recipes is None:
+                st["items"].append(([n.stem], f"{_kill_rel(rel)} → {_kill_esc(err)}"))
+                continue
+            for i, r in enumerate(recipes, 1):
+                # 設定檔讀不了時照樣逐條走:格式不對的照列(跟它排在哪裡無關,代碼審第 1 輪規格符合席),其餘記成沒驗
+                _kill_p2_one(st, repo_root, rel, n.stem, r, i)
+        except Exception as ex:
+            st["items"].append(([n.stem], f"{_kill_rel(rel)} → 這篇判不了:{ex.__class__.__name__}: {_kill_esc(ex)}"))
+    for detail, cnt, stems in (v for _k, v in sorted(st["noroot"].items(), key=lambda kv: str(kv[0]))):
+        st["items"].append((sorted(stems), f"{detail},它底下 {cnt} 條配方沒驗"))
+    # 只要有配方、設定檔就讀了:讀不了一律講(代碼審第 2 輪正確性席:配方全是格式不對時原本不提設定檔)
+    return {"cfg_err": st["ctx"]["cfg_err"] if st["ctx"] else None, "items": st["items"], "total": st["total"]}
+
+
+def _kill_rel(rel):
+    """筆記路徑印進 P2:帶控制字元就加引號跳脫(代碼審第 2 輪資安席:檔名夾回行首能把整行蓋掉),否則照原樣。"""
+    return _kill_show(rel) if _path_special_chars(str(rel)) else str(rel)
+
+
+def _kill_p2_one(st, repo_root, rel, stem, r, idx):
+    """P2 判一條配方(idx=它在那篇的第幾條),有問題就加進 st["items"](平台根找不到的先記進 st["noroot"])。回判定狀態。
+    人寫的欄位一律經 _kill_show 印(加引號、跳脫控制字元)。"""
+    st["total"] += 1
+    if st["ctx"] is None:
+        st["ctx"] = _kill_check_ctx(repo_root)     # 設定只讀一次;沒有配方的專案完全不碰設定
+    try:
+        res = _kill_recipe_judge(st["ctx"], r)
+    except Exception as ex:
+        st["items"].append(([stem], f"{_kill_rel(rel)} → 這條判不了:{ex.__class__.__name__}: {_kill_esc(ex)}"))
+        return "error"
+    code = res["status"]
+    if code == "noroot":
+        slot = st["noroot"].setdefault(res["plat"], [res["detail"], 0, set()])
+        slot[1] += 1
+        slot[2].add(stem)
+    elif code == "malformed":
+        st["items"].append(([stem], f"{_kill_rel(rel)} → 第 {idx} 條{res['detail']}(修法:{_kill_fix_hint(rel, r)})"))
+    elif code == "noplat":
+        st["items"].append(([stem], f"{_kill_rel(rel)} → 第 {idx} 條{res['detail']},沒驗(修法:{_kill_fix_hint(rel, r)})"))
+    elif code not in ("ok", "cfg"):
+        detail = f"讀不到({res['detail']})" if code in ("missing", "undecodable") else res["detail"]
+        inv = r.get("invariant") if isinstance(r.get("invariant"), str) else ""
+        st["items"].append(([stem], f"{_kill_rel(rel)} → 平台 {_kill_show(res['plat'])} 的 {_kill_show(res['file'])}:{detail}"
+                                    f"(合約片段:{_kill_show(inv[:30])};修法:{_kill_fix_hint(rel, r)})"))
+    return code
+
+
+def cmd_guard_kill_add(env, node, invariant_substr, file, old, new, test=None,
+                       platform=None, note=None, covers=None):
+    """宣告一條壞法配方進 kill_recipes + KEY 行補 [kill:recipes](同檔一次 atomic 寫)。
+    covers(選填,逗號分隔題目 id):這條壞法涵蓋哪幾題被標 needs_backing 的棧別檢核題(寫表態算背書用)。
+    同一條配方(`_kill_recipe_key` 相同)已存在時:有帶 covers、new 相同、note/platform/test 沒帶或跟既有相同
+    → 只把 covers 換成這次的清單;其他情況照舊擋(Projects/併發與效能表態要合約背書_計劃)。
+    寫入成功後(放掉寫入鎖)會驗這條配方的原文在程式裡是不是恰好一次,不是就在標準錯誤多印一行提醒
+    (Projects/殺傷力配方失配提醒_計劃)。"""
     if old == new:
         print("擋下:要替換的舊字串和新字串一模一樣,這個突變配方等於沒改", file=sys.stderr)
         return 2
+    covers_list = None
+    if covers is not None:
+        covers_list = []
+        for q in str(covers).split(","):
+            q = q.strip()
+            if not q:
+                print("擋下:--covers 裡有空的題目 id(例:--covers java-concurrency,sql-nplus1)", file=sys.stderr)
+                return 2
+            _stk, _spec = _stack_spec_by_id(q)
+            if not (_spec and _spec.get("needs_backing")):
+                ok_ids = sorted(sp["id"] for specs in _STACK_QUESTION_SPECS.values() for sp in specs if sp.get("needs_backing"))
+                print(f"擋下:--covers 的 {q!r} 不是要背書的題目 id。可用的:{', '.join(ok_ids)}", file=sys.stderr)
+                return 2
+            if q not in covers_list:
+                covers_list.append(q)
+    # note/platform/test 為 None=這次沒帶、沿用既有值;帶了空字串才算「改成空」——只補 covers 時不必逐字重打原本的 note
+    test_arg = test
     rel = env.find(node)
     if rel is None:
         print(f"擋下:圖譜裡找不到叫 {node} 的筆記,先確認名稱或路徑(lumos search <關鍵字> 可以找)", file=sys.stderr)
         return 2
+    # ★讀—改—寫整段拿筆記庫寫入鎖★(Projects/殺傷力配方失配提醒_計劃 第 3 輪併發席:
+    # kill-rm 與 kill-add 同時改同一篇會互蓋;跟 set/append/remove 同一把)
+    warn_box = []
+    with _vault_write_lock(env.vault):
+        rc = _guard_kill_add_locked(env, rel, invariant_substr, file, old, new, test, test_arg,
+                                    platform, note, covers_list, warn_box)
+    # 驗原文要跑好幾支 git,放到鎖外(代碼審第 3 輪正確性席:每支上限 10 秒,加起來會超過鎖 30 秒的過期時間)
+    for rec in warn_box if rc == 0 else ():
+        _kill_add_warn(env, rel, rec)
+    return rc
+
+
+def _guard_kill_add_locked(env, rel, invariant_substr, file, old, new, test, test_arg,
+                           platform, note, covers_list, warn_box):
+    """cmd_guard_kill_add 拿著寫入鎖之後的那一段:讀筆記、判重、原子寫入。這次實際要寫進去的那一條放進 warn_box,
+    由呼叫端在鎖外驗原文、印提醒。"""
+    import json
     path = env.vault / rel
     try:
         lines, _, e = load_raw_for_edit(path)
@@ -12901,15 +13395,35 @@ def cmd_guard_kill_add(env, node, invariant_substr, file, old, new, test=None,
               "old": old, "new": new, "note": note or ""}
     if platform:
         recipe["platform"] = platform
+    if covers_list is not None:
+        recipe["covers"] = covers_list
     recipes, err = _kill_read_recipes(path)
     if recipes is None:
         print(f"擋下:{err}", file=sys.stderr)
         return 2
+    key = _kill_recipe_key(str(rel), invariant_substr, file, old)
+    updated = None   # (更新前 covers, 更新後 covers):只更新既有配方的 covers
     for r in recipes:
-        if r.get("invariant") == invariant_substr and r.get("file") == file and r.get("old") == old:
-            print("擋下:同一條合約、同檔、同一個舊字串的突變配方已經有了,先把舊的那條手動拿掉", file=sys.stderr)
-            return 2
-    recipes.append(recipe)
+        if not isinstance(r, dict) or _kill_recipe_key(str(rel), r.get("invariant"), r.get("file"), r.get("old")) != key:
+            continue
+        same_rest = (r.get("new") == new
+                     and (note is None or note == (r.get("note") or ""))
+                     and (platform is None or platform == r.get("platform"))
+                     and (test_arg is None or test_arg == r.get("test")))
+        if covers_list is not None and same_rest:
+            updated = (list(r.get("covers") or []), covers_list)
+            r["covers"] = covers_list
+            recipe = r      # 只更新 covers:下面驗原文驗的是既有那一條(用它自己的 platform)
+            break
+        tip = ("(要補 covers 的話,--new 要跟既有的一樣,--note/--platform/--test 不帶或跟既有一樣)"
+               if covers_list is not None else "")
+        print(f"擋下:同一條合約、同檔、同一個舊字串的突變配方已經有了,"
+              f"先用 lumos guard kill-rm {_kill_node_arg(rel)} --id {key[:12]} 拿掉舊的那條{tip}", file=sys.stderr)
+        return 2
+    # 判重之後:這次實際要寫進去的那一條交給呼叫端在鎖外驗原文(只提醒、照舊寫入——「宣告不擋、跑時擋」)
+    warn_box.append(recipe)
+    if updated is None:
+        recipes.append(recipe)
     blob = json.dumps(recipes, ensure_ascii=False)
     # 重寫 frontmatter:替換或插入 kill_recipes block(單行 compact) + KEY 行補標記
     newline = line if KILL_REF_RE.search(line) else line.rstrip() + " [kill:recipes]"
@@ -12941,7 +13455,8 @@ def cmd_guard_kill_add(env, node, invariant_substr, file, old, new, test=None,
             data = json.loads(raw)
         except ValueError:
             return False
-        if not any(r.get("invariant") == invariant_substr and r.get("old") == old for r in data):
+        if not any(r.get("invariant") == invariant_substr and r.get("old") == old
+                   and (covers_list is None or r.get("covers") == covers_list) for r in data):
             return False
         summ = fields.get("summary")
         if isinstance(summ, str):
@@ -12956,9 +13471,152 @@ def cmd_guard_kill_add(env, node, invariant_substr, file, old, new, test=None,
     except (ValueError, RuntimeError) as ex:
         print(f"擋下:{ex}", file=sys.stderr)
         return 2
-    print(f"✓ kill 配方寫入 {rel}(invariant『{invariant_substr[:24]}…』, test={test})")
+    if updated is not None:
+        print(f"✓ 只更新了既有配方的 covers({rel}):{_kill_esc(', '.join(map(str, updated[0]))) or '(無)'} → "
+              f"{_kill_esc(', '.join(updated[1]))}")   # 舊的 covers 來自筆記(代碼審第 3 輪資安席)
+        print("  下一步:把筆記提交後重跑 lumos guard kill,再重表態")
+        return 0
+    print(f"✓ kill 配方寫入 {rel}(invariant『{_kill_esc(invariant_substr[:24])}…』, test={_kill_esc(test)})")   # test 可能取自筆記的 KEY 行
     print("  下一步: lumos guard kill 跑殺傷力驗證(worktree 隔離,弄壞→測試必須翻紅)")
     return 0
+
+
+def _kill_add_template(node_arg, r):
+    """被移除的配方 → 一行照它改寫後重新宣告的 kill-add 範本(原文那一欄留給人照現在的程式填)。"""
+    import shlex
+    q = shlex.quote
+    r = r if isinstance(r, dict) else {}
+
+    def ok(v):   # 帶控制字元的欄位不放進可貼的範本(代碼審第 2 輪資安席:引號擋不住終端把整行蓋掉),改印佔位字
+        return isinstance(v, str) and v and not _path_special_chars(v)
+
+    def val(k, placeholder):
+        return q(r[k]) if ok(r.get(k)) else placeholder
+    parts = ["lumos guard kill-add", node_arg, val("invariant", "'<KEY 行片段>'"),
+             "--file", val("file", "'<檔>'"), "--old", "'<照現在的程式填原文>'", "--new", val("new", "'<壞法>'")]
+    for k in ("test", "platform", "note"):
+        if isinstance(r.get(k), str) and r[k]:
+            parts += [f"--{k}", q(r[k]) if ok(r[k]) else f"'<{k} 含控制字元,看上面的完整內容>'"]
+    cov = r.get("covers")
+    if isinstance(cov, list) and cov and all(isinstance(c, str) for c in cov):
+        parts += ["--covers", q(",".join(cov)) if ok(",".join(cov)) else "'<covers 含控制字元>'"]
+    return " ".join(parts)
+
+
+def _kill_invariants_of(recipes):
+    """配方清單裡寫得好好的(非空字串)invariant。"""
+    return [r["invariant"] for r in recipes
+            if isinstance(r, dict) and isinstance(r.get("invariant"), str) and r["invariant"]]
+
+
+def cmd_guard_kill_rm(env, node, rid):
+    """移除一條殺傷力配方(Projects/殺傷力配方失配提醒_計劃 做法 4)。失配配方的修法:先 rm 舊的、再照現在的程式 kill-add 新的
+    (配方身分含原文,不先移掉舊的就改不了)。rid=短身分(doctor P2 或 kill-add 提醒印的那串),至少 8 個十六進位字元。
+    對到零條、或對到不同完整身分的多條 → 擋下 rc2;對到的全是同一完整身分(手改造成的重複)→ 一起移除。
+    移除前把每一條的完整內容與 kill-add 範本印到標準輸出;剩下的配方都對不到的 KEY 行拿掉 [kill:recipes]。
+    kill-log 的舊紀錄不刪(歷史帳;背書計算本來就只認筆記現有的配方)。"""
+    pre = str(rid or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{8,64}", pre):
+        print(f"擋下:--id 要給 8 到 64 個十六進位字元的配方短身分(收到 {rid!r});doctor --verbose 的 P2 段"
+              "與 kill-add 提醒的修法裡都有印,給太短容易移錯", file=sys.stderr)
+        return 2
+    rel = env.find(node)
+    if rel is None:
+        print(f"擋下:圖譜裡找不到叫 {node} 的筆記,先確認名稱或路徑(lumos search <關鍵字> 可以找)", file=sys.stderr)
+        return 2
+    with _vault_write_lock(env.vault):     # 讀—改—寫整段拿鎖(跟 kill-add 同一把)
+        return _guard_kill_rm_locked(env, rel, pre)
+
+
+def _guard_kill_rm_locked(env, rel, pre):
+    from collections import Counter
+    path = env.vault / rel
+    try:
+        lines, _, e = load_raw_for_edit(path)
+    except (ValueError, RuntimeError) as ex:
+        print(f"擋下:{ex}", file=sys.stderr)
+        return 2
+    recipes, err = _kill_read_recipes(path)
+    if recipes is None:
+        print(f"擋下:{err}", file=sys.stderr)
+        return 2
+    ids = [_kill_recipe_id(str(rel), r) for r in recipes]
+    hit = sorted({i for i in ids if i.startswith(pre)})
+    if not hit:
+        print(f"擋下:{rel} 的配方裡沒有身分以 {pre} 開頭的(lumos doctor --verbose 的 P2 段逐條列出的配方,修法裡都有短身分)", file=sys.stderr)
+        return 2
+    if len(hit) > 1:
+        print(f"擋下:{pre} 對到 {len(hit)} 條不同的配方,分不清要移哪一條;給長一點的身分:", file=sys.stderr)
+        for h in hit:
+            print(f"  {h}", file=sys.stderr)
+        return 2
+    full = hit[0]
+    gone = [r for r, i in zip(recipes, ids) if i == full]
+    keep = [r for r, i in zip(recipes, ids) if i != full]
+    _kill_rm_show(_kill_node_arg(rel), gone)
+    new_lines, unmarked = _kill_rm_rewrite(lines, e, gone, keep)
+    try:
+        atomic_write_verify(path, new_lines, "kill_recipes", _kill_rm_check(str(rel), Counter(ids), full))
+    except (ValueError, RuntimeError) as ex:
+        print(f"擋下:{ex}", file=sys.stderr)
+        return 2
+    tail = f";{unmarked} 條 KEY 行已經沒有配方對得到,拿掉了 [kill:recipes] 標記" if unmarked else ""
+    print(f"✓ 從 {rel} 移除了 {len(gone)} 條配方{tail}")
+    print("  下一步:照上面的範本填好原文 kill-add 改寫後的配方,把程式與筆記提交後跑 lumos guard kill 確認真的殺得掉")
+    return 0
+
+
+def _kill_rm_show(node_arg, gone):
+    """移除前把★每一條★的完整內容與 kill-add 範本印到標準輸出(同身分的多條,new、covers 可能不一樣)。"""
+    import json
+    for r in gone:
+        print("要移除的配方(完整內容):")
+        print("  " + _kill_esc(json.dumps(r, ensure_ascii=False, sort_keys=True)))
+        print("  照現在的程式改寫後重新宣告:" + _kill_add_template(node_arg, r))
+    if len({json.dumps(r, ensure_ascii=False, sort_keys=True) for r in gone}) > 1:
+        print("  注意:這幾條身分相同但內容不同,上面逐條都印了,要留哪個設定自己挑")
+
+
+def _kill_rm_rewrite(lines, e, gone, keep):
+    """重寫開頭欄位:kill_recipes 換成剩下的(沒剩就整欄拿掉);被移除的配方對得到、剩下的都對不到的 KEY 行
+    拿掉 [kill:recipes](比對法同 kill-add:去掉標記後含 invariant 片段)。回 (新的全文行, 拿掉標記的行數)。"""
+    import json
+    gone_invs, keep_invs = _kill_invariants_of(gone), _kill_invariants_of(keep)
+    out, i, unmarked = [], 0, 0
+    while i < e:
+        ln = lines[i]
+        if i > 0 and INVARIANT_RE.match(ln.strip()) and KILL_REF_RE.search(ln):
+            clean = INV_TAG_RE.sub("", ln)
+            if any(v in clean for v in gone_invs) and not any(v in clean for v in keep_invs):
+                ln = re.sub(r"\s*\[kill:\s*recipes\s*\]", "", ln)
+                unmarked += 1
+        if ln.startswith("kill_recipes:"):
+            i += 1
+            while i < e and (lines[i].startswith("  ") or not lines[i].strip()):
+                i += 1
+            if keep:
+                out += ["kill_recipes: |-", "  " + json.dumps(keep, ensure_ascii=False)]
+            continue
+        out.append(ln)
+        i += 1
+    return out + lines[e:], unmarked
+
+
+def _kill_rm_check(node, before, full):
+    """kill-rm ★自己的寫後自驗★(kill-add 那支遇到格式壞的元素會崩潰,第 3 輪邊界席實測):
+    讀回來的配方全走共用身分函式——被移除的身分不在了、其他身分出現的次數跟移除前一樣。"""
+    import json
+    from collections import Counter
+    want = Counter({k: c for k, c in before.items() if k != full})
+
+    def check(fields):
+        raw = fields.get("kill_recipes")
+        try:
+            data = [] if raw is None else json.loads(raw if isinstance(raw, str) else str(raw))
+        except ValueError:
+            return False
+        return isinstance(data, list) and Counter(_kill_recipe_id(node, r) for r in data) == want
+    return check
 
 
 def _run_cmd_expand(run_cmd, method=None):
@@ -13120,11 +13778,20 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
     results = []
     commit = ""   # 迴圈外留痕用;多平台時記最後一組的 HEAD(各 row 的 platform 欄可辨)
     ts = datetime.datetime.now().isoformat(timespec="seconds")
+    # 背書用(Projects/併發與效能表態要合約背書_計劃):每組記 [起始索引, 完整 HEAD, 整套一起跑, flaky],迴圈後逐筆蓋章;
+    # 筆記在工作樹有未提交改動 → 讀到的配方(covers)跟沙盒那一版不同,那次算弱證據
+    marks = []   # 每組一個 dict:start(這組第一筆在 results 的索引)、head、ws(整套一起跑)、flaky
+    try:
+        node_dirty = bool(subprocess.run(["git", "-C", str(repo_root), "status", "--porcelain", "--", str(path)],
+                                         capture_output=True, text=True, errors="replace").stdout.strip())
+    except OSError:
+        node_dirty = False
     # 依 platform 分組(每平台一個 worktree + baseline per test)
     groups = {}
     for r in recipes:
         groups.setdefault(r.get("platform") or platform_override or default_plat, []).append(r)
     for plat, plist in groups.items():
+        marks.append({"start": len(results), "head": "", "ws": False, "flaky": False})
         pentry = plats.get(plat)
         if pentry is None:
             for r in plist:
@@ -13138,9 +13805,13 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
             return 2
         proot = Path(pentry["root"])
         commit = ""
+        ghead = ""   # 完整 sha 一次取得、再拿它建沙盒:先取短碼再另外建沙盒,中間有人提交就對不上
         try:
-            commit = subprocess.run(["git", "-C", str(proot), "rev-parse", "--short", "HEAD"],
-                                    capture_output=True, text=True, errors="replace").stdout.strip()
+            ghead = subprocess.run(["git", "-C", str(proot), "rev-parse", "HEAD"],
+                                   capture_output=True, text=True, errors="replace").stdout.strip()
+            if ghead:
+                commit = subprocess.run(["git", "-C", str(proot), "rev-parse", "--short", ghead],
+                                        capture_output=True, text=True, errors="replace").stdout.strip()
         except Exception:
             pass
         try:
@@ -13152,25 +13823,24 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
             print(f"⚠ {plat} repo 有未提交變更——不會進沙盒(kill 以 HEAD 為基準),配方/測試需先 commit",
                   file=(sys.stderr if as_json else sys.stdout))   # [S3] --json 純度:診斷一律 stderr
         flaky = pentry["profile"].get("scaffold_ext") in (".yaml", ".yml") or plat in ("maestro", "playwright")
+        marks[-1].update(head=ghead, ws="{method}" not in run_cmd, flaky=bool(flaky))
         # per (test) baseline 快取:同測試多配方只跑一次 baseline
         tmp_parent = tempfile.mkdtemp(prefix="lumos-kill-")
         wt = os.path.join(tmp_parent, "wt")
         wt_ok = False
         try:
-            r_add = subprocess.run(["git", "-C", str(proot), "worktree", "add", "--detach", wt],
+            r_add = subprocess.run(["git", "-C", str(proot), "worktree", "add", "--detach", wt] + ([ghead] if ghead else []),
                                    capture_output=True, text=True, errors="replace")
             if r_add.returncode != 0:
                 for r in plist:
-                    results.append({**r, "platform": plat, "verdict": "error",
+                    results.append({**r, "platform": plat, "verdict": "error", "head_sha": "",
                                     "detail": f"worktree add 失敗: {r_add.stderr.strip()[:120]}"})
                 continue
             wt_ok = True
             wt_real = os.path.realpath(wt)
             baselines = {}
             for r in plist:
-                method_full = r.get("test", "")
-                method = method_full.split(":", 1)[1] if (":" in method_full and pdata.get("multiplatform")) else method_full
-                method = method.strip("`")   # Kotlin 反引號名拆殼後進白名單
+                method = _kill_method_name(r.get("test", ""), pdata.get("multiplatform"))   # 去平台前綴、Kotlin 反引號拆殼後進白名單
                 if not _KILL_METHOD_OK_RE.fullmatch(method or ""):
                     results.append({**r, "platform": plat, "verdict": "error",
                                     "detail": f"test 名不合法(拒注入): {method!r}"})
@@ -13248,6 +13918,14 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
                 if wt_ok:
                     subprocess.run(["git", "-C", str(proot), "worktree", "prune"],
                                    capture_output=True)          # prune 放 rmtree 後(dir 已消才修行政記錄)
+    # 背書欄位蓋章:head_sha(建沙盒前出錯的已先記空字串)、recipe_id、covers、weak
+    for mi, mk in enumerate(marks):
+        m_end = marks[mi + 1]["start"] if mi + 1 < len(marks) else len(results)
+        for res in results[mk["start"]:m_end]:
+            res.setdefault("head_sha", mk["head"])
+            res["recipe_id"] = _kill_recipe_key(str(rel), res.get("invariant"), res.get("file"), res.get("old"))
+            res["covers"] = [c for c in (res.get("covers") or []) if isinstance(c, str)]
+            res["weak"] = bool(mk["ws"] or mk["flaky"] or node_dirty)
     # 留痕(docs/.kill-log.jsonl,gov 第 5 支 load 撈)——迴圈外:add 失敗 continue 的 error 也要進帳
     if True:
         log = env.vault.parent / ".kill-log.jsonl"
@@ -13268,7 +13946,10 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
                                      "platform": res.get("platform", ""),
                                      "verdict": res["verdict"], "note": res.get("note", ""),
                                      "flaky_risk": res.get("flaky_risk", False),
-                                     "tail": res.get("tail", "")}, ensure_ascii=False) + "\n")
+                                     "tail": res.get("tail", ""),
+                                     "covers": res.get("covers", []), "recipe_id": res.get("recipe_id", ""),
+                                     "head_sha": res.get("head_sha", ""), "weak": res.get("weak", False)},
+                                    ensure_ascii=False) + "\n")
     verdicts = [r["verdict"] for r in results]
     if as_json:
         print(json.dumps({"results": [{k: v for k, v in r.items() if k != "_logged"}
@@ -21041,7 +21722,7 @@ _STACK_QUESTION_SPECS = {
     "cs": [
         {"id": "cs-async", "q": '熱路徑有沒有阻塞異步(.Result/.Wait)?互不依賴的 await 有沒有 Task.WhenAll 並行?CancellationToken 斷鏈?',
          "when": ['\\bawait\\b', '\\.Result\\b', '\\.Wait\\(', 'GetAwaiter\\(', 'Task\\.Run', 'CancellationToken', 'Thread\\.Sleep', 'new Thread\\(', 'ThreadPool\\.QueueUserWorkItem', 'BackgroundWorker', '\\bWebClient\\b', '\\.GetResult\\(\\)', 'Task\\.WaitAll', 'Monitor\\.Wait']},
-        {"id": "cs-data", "q": '查詢有沒有 N+1/SELECT * 進大表?大結果集有分頁、過濾聚合下推到資料層嗎?',
+        {"id": "cs-data", "needs_backing": True, "q": '查詢有沒有 N+1/SELECT * 進大表?大結果集有分頁、過濾聚合下推到資料層嗎?',
          "when": ['\\bSELECT\\b', 'FromSql', '\\.Query(Async)?<', '\\.Include\\(', '\\.Skip\\(', '\\.Take\\(', 'IQueryable', '\\.ToList', 'SqlCommand', 'SqlDataReader', 'ExecuteReader', 'DataTable', '\\bDataSet\\b', 'SqlDataAdapter'], "when_raw": ['"(SELECT|INSERT|UPDATE|DELETE)\\s[^"]*\\b(FROM|INTO|SET|WHERE)\\b']},
         {"id": "cs-cache", "q": '熱讀路徑該不該上快取?熱路徑有沒有短命大物件(該用 Span/ValueTask)?',
          "when": ['IMemoryCache', 'HybridCache', 'IDistributedCache', 'new byte\\[', 'MemoryStream', 'Span<', 'ValueTask', 'HttpRuntime\\.Cache', 'HttpContext\\.Current', '\\bstatic\\s+(readonly\\s+)?(Dictionary|List)<']},
@@ -21063,11 +21744,11 @@ _STACK_QUESTION_SPECS = {
          "when": ['\\breactive\\(', '\\bref\\(', 'shallowRef', 'markRaw', 'toRaw', 'JSON\\.parse', 'fetch\\(', 'axios', 'data\\(\\)\\s*\\{', 'Vue\\.set\\(', 'this\\.\\$set\\(', 'Vue\\.observable', '\\$forceUpdate']},
     ],
     "sql": [
-        {"id": "sql-nplus1", "q": '這條查詢會在迴圈裡被呼叫嗎(N+1)?',
+        {"id": "sql-nplus1", "needs_backing": True, "q": '這條查詢會在迴圈裡被呼叫嗎(N+1)?',
          "when": ['\\bSELECT\\b', '\\bCURSOR\\b', '\\bWHILE\\b', 'FETCH NEXT', 'sp_executesql', '\\bEXEC\\s*\\(', 'OPENQUERY']},
         {"id": "sql-index", "q": '有沒有索引支撐?會不會大表全掃?',
          "when": ['\\bWHERE\\b', '\\bJOIN\\b', 'ORDER BY', '\\bLIKE\\b', '\\bIN\\s*\\(', 'SELECT\\s+\\*', '\\bNOT IN\\s*\\(', '\\bDISTINCT\\b']},
-        {"id": "sql-transaction", "q": '交易範圍會不會鎖太久?隔離等級是刻意選的還是吃預設(READ COMMITTED 與 SERIALIZABLE 差在哪要說得出)?多表更新的鎖順序全站一致嗎(不一致=死鎖,重試包裝只是止血)?同一查詢換參數會不會拿到爛計畫(parameter sniffing;SQL Server compat 150 沒有 PSP 優化)?',
+        {"id": "sql-transaction", "needs_backing": True, "q": '交易範圍會不會鎖太久?隔離等級是刻意選的還是吃預設(READ COMMITTED 與 SERIALIZABLE 差在哪要說得出)?多表更新的鎖順序全站一致嗎(不一致=死鎖,重試包裝只是止血)?同一查詢換參數會不會拿到爛計畫(parameter sniffing;SQL Server compat 150 沒有 PSP 優化)?',
          "when": ['BEGIN TRAN', '\\bCOMMIT\\b', '\\bROLLBACK\\b', 'ISOLATION LEVEL', '\\bUPDATE\\b', '\\bDELETE\\b', '\\bMERGE\\b', 'WITH\\s*\\((NOLOCK|UPDLOCK|HOLDLOCK)', '@\\w+', 'XACT_ABORT', '\\bTRUNCATE\\b', '\\bWAITFOR\\b', 'sp_getapplock']},
         {"id": "sql-sargable", "q": 'SARGable:索引在卻被寫法廢掉——WHERE 欄位側有沒有函式包用(ISNULL/CAST 包欄位=逐列運算廢索引;CONVERT(date,欄) 是文件化特例可 seek)?參數型別對得上欄位嗎(C# string 預設 nvarchar 打 varchar 欄=隱式轉換整表掃)?',
          "when": ['CONVERT\\(', 'CAST\\(', 'ISNULL\\(', 'COALESCE\\(', 'LOWER\\(', 'UPPER\\(', 'DATEADD\\(', '\\bYEAR\\(', '\\bMONTH\\(', 'SUBSTRING\\(', '\\b[LR]TRIM\\('], "when_raw": ["LIKE\\s*'%", "\\+\\s*'%", "'%'\\s*\\+"]},
@@ -21081,7 +21762,7 @@ _STACK_QUESTION_SPECS = {
          "when": ['\\[weak self\\]', 'Timer\\.', 'NotificationCenter', '\\.sink\\s*\\{', 'Task\\s*\\{', 'Task\\.detached', 'deinit', 'addObserver\\(', 'Timer\\.scheduledTimer', 'CADisplayLink', '\\bunowned\\b']},
         {"id": "swift-startup", "q": '啟動與捲動:首幀前有沒有同步重活(SDK init/大 plist/圖片解碼)?捲動 cell 有沒有在主線程解圖/算 layout(該預先縮圖、非同步解碼)?',
          "when": ['didFinishLaunching', 'UIImage\\(', 'CGImageSource', 'UICollectionView', 'UITableView', 'cellForRow', 'LazyVStack', 'prepareForReuse', '\\.synchronize\\(\\)', 'Bundle\\.main\\.path', 'NSDictionary\\(contentsOf', 'try!\\s']},
-        {"id": "swift-concurrency", "q": '併發正確性:actor 隔離有沒有被 nonisolated(unsafe)/@unchecked Sendable 繞掉?跨 actor 的重複 await 中間狀態會不會被別人改掉(actor reentrancy)?',
+        {"id": "swift-concurrency", "needs_backing": True, "q": '併發正確性:actor 隔離有沒有被 nonisolated(unsafe)/@unchecked Sendable 繞掉?跨 actor 的重複 await 中間狀態會不會被別人改掉(actor reentrancy)?',
          "when": ['\\bactor\\b', 'nonisolated', '@unchecked Sendable', '\\bSendable\\b', 'isolated', 'DispatchGroup', 'objc_sync_enter', 'OperationQueue', 'pthread_']},
         {"id": "swift-energy", "q": '耗電與網路:有沒有背景持續定位/輪詢/計時器(該用系統背景任務、定位精度按需)?網路請求有沒有合併批次、快取、重用連線(能量大宗是無線電喚醒,零散小請求最貴)?',
          "when": ['CLLocationManager', 'desiredAccuracy', 'startUpdatingLocation', 'BGTaskScheduler', 'Timer\\.scheduledTimer', 'URLSession', 'URLRequest', 'URLCache', 'beginBackgroundTask', 'startUpdatingLocation', 'setNeedsDisplay', 'isIdleTimerDisabled']},
@@ -21091,7 +21772,7 @@ _STACK_QUESTION_SPECS = {
          "when": ['Sync\\(', 'JSON\\.parse', 'crypto\\.\\w+Sync', 'new RegExp', 'worker_threads', '\\.exec\\(', 'while\\s*\\(\\s*true', '\\bdeasync\\b', 'Atomics\\.wait'], "when_raw": ['child_process']},
         {"id": "node-parallel", "q": '並行與上限:互不依賴的 await 有沒有 Promise.all 並行?Promise.all 的集合有沒有上限(無界 map(async) 打爆下游連線池/記憶體,該 p-limit 之類有界並行)?',
          "when": ['Promise\\.all', 'Promise\\.allSettled', '\\.map\\(\\s*async', '\\bawait\\b', '\\bcallback\\s*\\(', '\\basync\\.(series|waterfall|eachSeries)\\(', '\\.then\\(']},
-        {"id": "node-data", "q": '資料層:查詢有沒有在迴圈裡(N+1)?連線池大小有沒有依實例數算過(太大壓垮 DB、太小排隊)?大結果集有沒有 stream/分頁而不是整包 toArray?',
+        {"id": "node-data", "needs_backing": True, "q": '資料層:查詢有沒有在迴圈裡(N+1)?連線池大小有沒有依實例數算過(太大壓垮 DB、太小排隊)?大結果集有沒有 stream/分頁而不是整包 toArray?',
          "when": ['\\.query\\(', '\\.find\\(', 'findMany', '\\bSELECT\\b', 'Pool\\(', 'createPool', '\\.connect\\(', '\\.toArray\\(', 'createConnection\\(', 'mysql\\.query'], "when_raw": ['[\'"](SELECT|INSERT|UPDATE|DELETE)\\s[^\'"]*\\b(FROM|INTO|SET|WHERE)\\b']},
         {"id": "node-external", "q": '外呼與資源:每個 HTTP/DB 外呼有沒有 timeout 與 AbortSignal?長連線(keep-alive agent/DB client)有沒有重用而不是每請求新建?未處理的 rejection/error 事件會不會直接砸掉 process?',
          "when": ['fetch\\(', 'axios', 'https?\\.request', 'got\\(', 'AbortSignal', 'AbortController', 'process\\.on\\(', 'unhandledRejection', '\\bhttp\\.get\\(', '\\brequest\\(', 'superagent', 'new XMLHttpRequest'], "when_raw": ['\\.on\\([\'\\"]error']},
@@ -21116,11 +21797,11 @@ _STACK_QUESTION_SPECS = {
     # 兩邊都吃得到,平台特有的兩題(java-data 後端資料層、java-android Android 生命週期)靠觸發字
     # 自己決定要不要出現:改 Spring/JPA 的檔不會被問 Activity 洩漏,改 Activity 的檔也不會被問交易邊界。
     "java": [
-        {"id": "java-concurrency", "q": '並行與執行緒:互不依賴的等待有沒有一起飛(CompletableFuture.allOf / invokeAll),還是一條一條等?執行緒池是不是無界(newCachedThreadPool)或大小沒依下游算過?池子用完有沒有 shutdown?future.get()/join() 有沒有帶逾時(不帶=對方不回你就永遠卡著)?共享可變狀態是靠大段 synchronized 還是併發集合/不可變?',
+        {"id": "java-concurrency", "needs_backing": True, "q": '並行與執行緒:互不依賴的等待有沒有一起飛(CompletableFuture.allOf / invokeAll),還是一條一條等?執行緒池是不是無界(newCachedThreadPool)或大小沒依下游算過?池子用完有沒有 shutdown?future.get()/join() 有沒有帶逾時(不帶=對方不回你就永遠卡著)?共享可變狀態是靠大段 synchronized 還是併發集合/不可變?',
          "when": ['CompletableFuture', 'ExecutorService', 'Executors\\.', 'ForkJoinPool', '\\.submit\\(', 'invokeAll', 'parallelStream', '\\bnew Thread\\s*\\(', 'Thread\\.sleep', '\\bsynchronized\\b', '\\bvolatile\\b', 'CountDownLatch', 'ThreadLocal', 'AsyncTask', 'ScheduledExecutorService', '\\bTimer\\s*\\(']},
         {"id": "java-resources", "q": '資源關閉:每個 Connection/Statement/ResultSet/InputStream/Files.lines 有沒有 try-with-resources 包住(漏關一條就少一個連線池名額,撐久了整個服務拿不到連線)?連線池大小是算過的還是抄預設?finally 裡關閉會不會被前面的例外跳過?',
          "when": ['\\bConnection\\b', 'PreparedStatement', 'ResultSet', '\\bStatement\\b', 'InputStream', 'OutputStream', 'BufferedReader', 'FileReader', 'FileInputStream', 'Files\\.(lines|walk|newBufferedReader|newInputStream)', 'DataSource', 'Hikari', '\\.close\\(\\)', 'try\\s*\\(', '\\bfinally\\b', 'Scanner\\s*\\(']},
-        {"id": "java-data", "q": '資料層(JPA/JDBC):查詢會不會在迴圈裡跑(N+1)?LAZY 關聯是不是在迴圈裡才一筆筆載入(該 join fetch 或 @EntityGraph)?findAll / SELECT * 進大表有沒有分頁或串流?@Transactional 有沒有被同一個類別內部呼叫(代理不生效,交易根本沒開)?交易裡面有沒有夾外部呼叫(把鎖撐長)?',
+        {"id": "java-data", "needs_backing": True, "q": '資料層(JPA/JDBC):查詢會不會在迴圈裡跑(N+1)?LAZY 關聯是不是在迴圈裡才一筆筆載入(該 join fetch 或 @EntityGraph)?findAll / SELECT * 進大表有沒有分頁或串流?@Transactional 有沒有被同一個類別內部呼叫(代理不生效,交易根本沒開)?交易裡面有沒有夾外部呼叫(把鎖撐長)?',
          "when": ['@Transactional', '@Entity\\b', '@OneToMany', '@ManyToOne', '@OneToOne', 'FetchType', 'EntityManager', 'JpaRepository', 'CrudRepository', 'createQuery\\(', 'CriteriaQuery', 'findAll\\(', 'JdbcTemplate', 'executeQuery\\(', 'setAutoCommit\\(', '\\bHibernate\\b', '\\bSELECT\\b', 'getResultList\\('],
          "when_raw": ['"(SELECT|INSERT|UPDATE|DELETE)\\s[^"]*\\b(FROM|INTO|SET|WHERE)\\b']},
         {"id": "java-external", "q": '外呼:每個 HTTP/RPC 呼叫有沒有同時設連線逾時與讀取逾時(HttpURLConnection、RestTemplate 預設是無限等)?重試有沒有指數退避與次數上限?下單/付款/寄送這類不可逆的操作,重送前有沒有冪等鍵?對方掛掉時這條路徑會拖垮誰?',
@@ -35681,12 +36362,31 @@ def _mainline_ref(repo_root, remote_only=False):
     return None
 
 
+def _lens_backing_note(qid, ent, st):
+    """派工鏡頭:被標 needs_backing 的 satisfied 在 200 字截斷之後另接背書註記。形狀不對一律「記錄形狀不對」,不讓派工失敗。"""
+    if st != "satisfied":
+        return ""
+    try:
+        _stk, spec = _stack_spec_by_id(qid)
+        if not (spec and spec.get("needs_backing")):
+            return ""
+        b = ent.get("backing")
+        if isinstance(b, dict) and b.get("status") == "strong":
+            return f" ｜背書:強證據,涵蓋一面({int(b.get('recipe_count') or 0)} 條配方;第一條:{str(b.get('first_note') or '')[:40]})"
+        if isinstance(b, dict) and isinstance(b.get("reason"), str):
+            return f" ｜背書:沒有({b['reason'][:60]})"
+        return " ｜背書:沒有(記錄沒有背書欄位)" if b is None else " ｜背書:沒有(記錄形狀不對)"
+    except Exception:
+        return " ｜背書:沒有(記錄形狀不對)"
+
+
 def _lens_dispositions_lines(lines, rec):
-    """派工鏡頭附表態記錄(表態閘 S8):只列人答的題(未觸發自動 na 只給個數);工具驗過錨點存在、沒驗答案對不對——審查席反駁的就是這些答案。回人答題數。"""
+    """派工鏡頭附表態記錄(表態閘 S8):只列人答的題(未觸發自動 na 只給個數);寫入時工具驗形狀,被標 needs_backing 的
+    satisfied 另外帶本機算好的破壞測試背書註記(接在 200 字截斷之後);其餘答案對不對沒驗——審查席反駁的就是這些答案。回人答題數。"""
     disp = rec.get("dispositions") or {}
     human = [(q, e) for q, e in disp.items() if isinstance(e, dict) and not e.get("auto")]
     n_auto = sum(1 for e in disp.values() if isinstance(e, dict) and e.get("auto"))
-    lines.append(f"[表態記錄(棧別效能檢核;分支 {rec.get('branch')},版本 {str(rec.get('head_sha') or '')[:8]})——寫入時工具只驗了形狀,證據存不存在要到推送前 code-loop check 才驗,答案對不對沒人驗]")
+    lines.append(f"[表態記錄(棧別效能檢核;分支 {rec.get('branch')},版本 {str(rec.get('head_sha') or '')[:8]})——寫入時工具驗形狀,被標要背書的題另外在本機算破壞測試背書(只提醒);證據存不存在要到推送前 code-loop check 才驗,其餘答案對不對沒人驗]")
     for q, e in human:
         st = e.get("status")
         tail = (str(e.get("evidence") or "") if st == "satisfied"
@@ -35694,7 +36394,7 @@ def _lens_dispositions_lines(lines, rec):
                 # tension 四欄都給審查席看——反駁的就是這四欄(2026-09-09 兩席相反時端出張力;「｜」分隔是編排者裁的,四欄需要分隔)
                 else (f"選 {e.get('chosen') or ''}｜既有 {', '.join(str(x) for x in (e.get('existing') or []))}｜隱患 {e.get('hazard') or ''}｜建議 {e.get('suggestion') or ''}") if st == "tension"
                 else str(e.get("reason") or ""))   # 全部 str(… or ""):治理帳重建來的紀錄不重驗形狀,缺欄不能炸(r1 正確性席 f3)
-        lines.append(f"  {q} {st} — {str(tail)[:200]}")
+        lines.append(f"  {q} {st} — {str(tail)[:200]}" + _lens_backing_note(q, e, st))
     if n_auto:
         lines.append(f"  (另有 {n_auto} 題未觸發、工具自動記不適用)")
     return len(human)
@@ -37994,44 +38694,66 @@ def _codeloop_read_dispositions(repo_root, branch, marker_only=False):
 
 def _codeloop_record_valid(repo_root, rec_sha, marker_sha):
     """留痕座標有效性(pass/skip 與表態共用同一套):同 sha;或 rec_sha 是 marker_sha 的祖先且中間只動簿記檔
-    ([[Issues/code-loop-pass自失效追尾]] 的豁免)。回 (ok, 一句為什麼)。"""
+    ([[Issues/code-loop-pass自失效追尾]] 的豁免)。回 (ok, 一句為什麼)——固定二元組,既有呼叫端的說法不變。"""
+    ok, why, _unsure = _codeloop_record_valid_ex(repo_root, rec_sha, marker_sha)
+    return ok, why
+
+
+def _codeloop_missing_commit(repo_root, rec_sha, timeout):
+    """記錄的提交在這份 repo 裡找不到時的三元組:判不了只限淺 clone(缺歷史時它可能正是祖先);
+    完整歷史裡找不到的提交不可能是祖先,確定無效(代碼審 r3 正確性席:別講成判不了)。逾時照丟 TimeoutExpired 由呼叫端接。"""
+    if _git_is_shallow(repo_root, timeout=timeout):
+        return (False, (f"記錄 sha {rec_sha[:8]} 在這份 repo 裡找不到(寫錯、淺 clone、或已被清掉),"
+                        "判不了是不是祖先——先確認那個提交還在,不在就照重來的步驟重記"), True)
+    return (False, (f"記錄 sha {rec_sha[:8]} 在這份 repo 的完整歷史裡找不到(寫錯或已被清掉),"
+                    "不可能是目標的祖先——照重來的步驟重記"), False)
+
+
+def _codeloop_record_valid_ex(repo_root, rec_sha, marker_sha, timeout=None):
+    """同 `_codeloop_record_valid` 的判定,但固定回三元組 (ok, 為什麼, 判不了):判不了=git 逾時、讀不懂 git diff 的輸出、
+    讀不到簿記資料夾裡檔案的內容、或淺 clone 裡找不到那個提交(缺歷史時它可能正是祖先)。算破壞測試背書時,判不了的紀錄不能當無效丟掉
+    (那可能正是一筆 survived)。timeout 給了就用它當每次 git 的上限(算背書時傳剩餘預算)。"""
     import subprocess as _sp
+    _to = timeout if timeout is not None else _disp_git_timeout()
     if not rec_sha:
-        return False, "記錄沒有 sha"
+        return (False, "記錄沒有 sha", False)
     if rec_sha == marker_sha:
-        return True, f"同版本 {marker_sha[:8]}"
+        return (True, f"同版本 {marker_sha[:8]}", False)
     try:
         anc = _sp.run(["git", "merge-base", "--is-ancestor", rec_sha, marker_sha],
-                      capture_output=True, text=True, errors="replace", cwd=str(repo_root), timeout=_disp_git_timeout())
+                      capture_output=True, text=True, errors="replace", cwd=str(repo_root), timeout=_to)
         if anc.returncode not in (0, 1):
             # ★git 回 1 才是「不是祖先」;其他非零是那個提交在這份 repo 裡根本找不到★(代碼審 r1 通才席):
             # 寫錯的 sha、淺 clone、或物件被清掉。第一版把這種也講成「多半是壓過提交」,給了文不對題的重來指令。
-            return False, (f"記錄 sha {rec_sha[:8]} 在這份 repo 裡找不到(寫錯、淺 clone、或已被清掉),"
-                           "判不了是不是祖先——先確認那個提交還在,不在就照重來的步驟重記")
+            return _codeloop_missing_commit(repo_root, rec_sha, _to)
         if anc.returncode != 0:
             # ★講出最常見的原因與怎麼重來★(2026-09-22 rtb-production-agent-demo 回報):
             # 把本機提交壓成一個、或 rebase 之後,內容可以一模一樣,原本記的那個提交卻不再是祖先。
             # 只丟兩個 sha 的話,人看不出是自己剛做的壓提交造成的,也不知道要重跑哪兩個指令。
-            return False, (f"記錄 sha {rec_sha[:8]} 不是目標 {marker_sha[:8]} 的祖先——多半是壓過提交或 rebase 改寫過歷史"
+            return (False, (f"記錄 sha {rec_sha[:8]} 不是目標 {marker_sha[:8]} 的祖先——多半是壓過提交或 rebase 改寫過歷史"
                            "(內容沒變也一樣失效)。重來:表態 `lumos pitfalls --diff <範圍> --dispositions-template --carry`"
-                           " 再 `lumos code-loop dispositions <檔>`;審查留痕重跑 `lumos code-loop pass --note \"…\"`")
+                           " 再 `lumos code-loop dispositions <檔>`;審查留痕重跑 `lumos code-loop pass --note \"…\"`"), False)
         # ★--no-renames★:改名偵測只列新路徑,把程式檔改名搬進簿記資料夾(還能順便換副檔名)就看不到「程式檔被刪」;
         # ★-z★:預設會把中文等檔名加引號印出(core.quotepath),簿記資料夾裡的中文檔名就比不到前綴(回頭重讀代碼審 r1 資安席 F4)
         # ★--raw★(回頭重讀代碼審 r3 資安席 F2):連兩邊的檔案模式一起拿,簿記資料夾裡可執行的檔要認得出來;路徑清單跟 --name-only 同一份
         df = _sp.run(["git", "diff", "--no-ext-diff", "--raw", "--no-renames", "-z", rec_sha, marker_sha],
-                     capture_output=True, cwd=str(repo_root), timeout=_disp_git_timeout())
+                     capture_output=True, cwd=str(repo_root), timeout=_to)
     except _sp.TimeoutExpired:
-        return False, f"git 超過 {_disp_git_timeout():.0f} 秒沒回(merge-base/diff),判不了有效性"
+        return (False, f"git 超過 {_to:.0f} 秒沒回(merge-base/diff),判不了有效性", True)
     modes = _codeloop_raw_modes(df.stdout) if df.returncode == 0 else None
     if modes is None:
-        return False, f"讀不懂 git diff {rec_sha[:8]}..{marker_sha[:8]} 的輸出,判不了是不是純簿記增量"
+        return (False, f"讀不懂 git diff {rec_sha[:8]}..{marker_sha[:8]} 的輸出,判不了是不是純簿記增量", True)
     files = list(modes)
     # 簿記資料夾底下的程式檔不算簿記(只改這一個消費者;小改動閘、風險掃描、推送前測試範圍、來源髒檔合併照舊只看前綴)
-    if all(f in _BOOKKEEPING_FILES or f.startswith(_BOOKKEEPING_DIRS) for f in files) \
-            and not _codeloop_bookkeeping_code(repo_root, rec_sha, marker_sha,
-                                               {f: m_ for f, m_ in modes.items() if f not in _BOOKKEEPING_FILES}):
-        return True, f"祖先 {rec_sha[:8]}+簿記豁免(其後 {len(files)} 檔皆簿記)"
-    return False, f"記錄 sha {rec_sha[:8]} 之後動了代碼(非純簿記增量)"
+    if all(f in _BOOKKEEPING_FILES or f.startswith(_BOOKKEEPING_DIRS) for f in files):
+        _code = _codeloop_bookkeeping_code(repo_root, rec_sha, marker_sha,
+                                           {f: m_ for f, m_ in modes.items() if f not in _BOOKKEEPING_FILES},
+                                           timeout=_to, unknown=None)
+        if _code is None:
+            return (False, f"讀不到簿記資料夾裡檔案的內容,判不了 {rec_sha[:8]} 之後是不是純簿記增量", True)
+        if not _code:
+            return (True, f"祖先 {rec_sha[:8]}+簿記豁免(其後 {len(files)} 檔皆簿記)", False)
+    return (False, f"記錄 sha {rec_sha[:8]} 之後動了代碼(非純簿記增量)", False)
 
 
 def _codeloop_raw_modes(out):
@@ -38057,7 +38779,7 @@ def _codeloop_raw_modes(out):
 _CODELOOP_BOOKKEEPING_HEAD_CAP = 1024 * 1024
 
 
-def _codeloop_bookkeeping_code(repo_root, rec_sha, marker_sha, files):
+def _codeloop_bookkeeping_code(repo_root, rec_sha, marker_sha, files, timeout=None, unknown=True):
     """簿記資料夾底下這幾支裡有沒有程式檔(有就不算簿記)。files={路徑: (記錄那版模式, 目標那版模式)}(_codeloop_raw_modes)。
     判的是目標提交 marker_sha 裡那一版;那一版刪掉了(模式 000000)就判記錄 rec_sha 那一版。任一條成立就算程式檔:
     ①那一版的模式是可執行(100755),有沒有副檔名、有沒有寫 #! 都算(回頭重讀代碼審 r3 資安席 F2:沒有可用 #! 的
@@ -38083,9 +38805,10 @@ def _codeloop_bookkeeping_code(repo_root, rec_sha, marker_sha, files):
             ask.append(f"{rec_sha if deleted else marker_sha}:{f}")
     if not ask:
         return False
-    blobs = _nodehome_cat_blobs_capped(repo_root, ask, _CODELOOP_BOOKKEEPING_HEAD_CAP, timeout=_disp_git_timeout())
+    blobs = _nodehome_cat_blobs_capped(repo_root, ask, _CODELOOP_BOOKKEEPING_HEAD_CAP,
+                                       timeout=timeout if timeout is not None else _disp_git_timeout())
     if blobs is None:
-        return True
+        return unknown   # 預設保守當程式檔;算破壞測試背書時傳 None,讓呼叫端判「判不了」
     return any(head is None or _head_is_shebang(head, lenient=True) for head in blobs)
 
 
@@ -38216,6 +38939,26 @@ def _dispositions_verdict(repo_root, pf_data, marker_sha, marker_branch, at_sha,
             cfg_broken = True
     pidx = None
 
+    def _backing_warn(qid, ent):
+        """被標 needs_backing 的 satisfied 沒有 strong 背書 → 只提醒(進 warnings、單行,不進 problems、不改 blocked)。
+        自己吞掉所有例外:只提醒的功能不准被外層接成「無法驗證→擋下」(Projects/併發與效能表態要合約背書_計劃)。"""
+        try:
+            _stk, spec = _stack_spec_by_id(qid)
+            if not (spec and spec.get("needs_backing")):
+                return
+            b = ent.get("backing")
+            if isinstance(b, dict) and b.get("status") == "strong":
+                return
+            if b is None:
+                reason = "記錄沒有背書欄位"
+            elif isinstance(b, dict) and isinstance(b.get("reason"), str):
+                reason = " ".join(b["reason"].split())[:80]
+            else:
+                reason = "記錄形狀不對"
+        except Exception:
+            reason = "記錄形狀不對"
+        out["warnings"].append(f"{qid} 的已處理沒有破壞測試背書({reason})——補法見 lumos-project-notes 寫合約那節")
+
     def _one(qid, ent):
         """核對一題,回 None(過)或一句問題。★任何例外都由呼叫端接成「無法驗證」而不是整份 fail-open★
         (r1 正確性席 f1/邊界席 f1:壞 platforms 設定或 10-5 這種行號曾讓整份表態核對被吞成放行)。"""
@@ -38246,6 +38989,8 @@ def _dispositions_verdict(repo_root, pf_data, marker_sha, marker_branch, at_sha,
 
         if st == "satisfied":
             ok2, why2 = _ev(str(ent.get("evidence") or ""))
+            if ok2:
+                _backing_warn(qid, ent)
             return None if ok2 else _ev_msg("證據對不上", why2)
         if st == "tension":
             # 形狀再驗一次(治理帳重建來的紀錄不信形狀;缺欄 → 該題無法驗證,不炸整份),再對樹驗每個 existing
@@ -38587,6 +39332,168 @@ def _codeloop_marker_skipped(repo_root, reason, head_sha):
     return True
 
 
+_BACKING_BUDGET = 20.0   # 寫表態時版本驗證的總預算(秒);超過的題記 none
+
+
+def _backing_valid_rows(repo_root, head_sha, matched, cache, deadline):
+    """第 4 步後半:對得上名字的紀錄逐一判版本有效(以 sha 為鍵快取)。回 (有效紀錄, None) 或 (None, none 的原因)。
+    任一筆判不了(git 逾時或出錯)整題判 none——判不了的紀錄不能當無效丟掉,那可能正是一筆 survived。"""
+    import time as _time
+    valid, first_invalid = [], None
+    for r in matched:
+        sha = r["head_sha"]
+        if sha not in cache:
+            if _time.monotonic() > deadline:
+                return None, "紀錄太多驗不完"
+            cache[sha] = _codeloop_record_valid_ex(repo_root, sha, head_sha,
+                                                   timeout=max(0.1, min(_disp_git_timeout(), deadline - _time.monotonic())))
+        ok, why, unsure = cache[sha]
+        if unsure:
+            return None, f"版本驗證逾時或出錯:{why}"
+        if ok:
+            valid.append(r)
+        elif first_invalid is None:
+            first_invalid = why
+    if not valid:
+        return None, f"沒有在這一版程式上跑過的破壞測試({first_invalid})"
+    return valid, None
+
+
+def _backing_judge_groups(qid, valid):
+    """第 5 到 7 步:按 recipe_id 分組,看最後一筆的 covers;涵蓋這題的每一組不得有 survived、至少一筆非弱 killed。"""
+    groups, order = {}, []
+    for r in valid:
+        if r["recipe_id"] not in groups:
+            order.append(r["recipe_id"])
+        groups.setdefault(r["recipe_id"], []).append(r)
+    covering = [rid for rid in order if qid in groups[rid][-1]["covers"]]
+    if not covering:
+        return {"status": "none", "reason": "沒有涵蓋這題的配方"}
+    for rid in covering:
+        g = groups[rid]
+        if any(r["verdict"] == "survived" for r in g):
+            return {"status": "none", "reason": "有一次測試咬不住(同一版程式上有 survived)"}
+        if not any(r["verdict"] == "killed" and r["weak"] is not True for r in g):
+            return {"status": "none", "reason": "沒有強證據(只有環境失敗或弱證據)"}
+    first = groups[covering[0]][-1]
+    latest = max((r for rid in covering for r in groups[rid]), key=lambda r: str(r.get("ts") or ""))
+    return {"status": "strong", "recipe_count": len(covering),
+            "first_note": " ".join(str(first.get("note") or "").split())[:80], "head_sha": latest["head_sha"][:8]}
+
+
+def _contract_backing_one(repo_root, head_sha, qid, ent, pdata, rows, cache, deadline):
+    """算一題的破壞測試背書(Projects/併發與效能表態要合約背書_計劃〈寫表態時算背書〉算法七步)。回 backing dict。"""
+    ev = str(ent.get("evidence") or "")
+    if not ev.startswith("test:"):
+        return {"status": "none", "reason": "讀程式碼不算行為證據"}
+    plat, name = _dispositions_split_test(ev, pdata["platforms"] if pdata["multiplatform"] else {}, pdata["default_platform"])
+    if plat is None:
+        return {"status": "none", "reason": f"證據格式不對:{name}"}
+    if not rows:
+        return {"status": "none", "reason": "本機沒有破壞測試紀錄"}
+    name, mp = str(name).strip("`"), bool(pdata.get("multiplatform"))
+    matched = [r for r in rows if r["platform"] == plat and _kill_method_name(r["test"], mp) == name]
+    if not matched:
+        return {"status": "none", "reason": "平台或方法名對不上"}
+    valid, reason = _backing_valid_rows(repo_root, head_sha, matched, cache, deadline)
+    if valid is None:
+        return {"status": "none", "reason": reason}
+    return _backing_judge_groups(qid, valid)
+
+
+_FULL_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+
+
+def _backing_kill_rows(repo_root):
+    """讀本機 kill-log 給算背書用:欄位型別不對(含 weak 不是布林)、head_sha 不是完整 sha、沒有 recipe_id 的行略過,
+    再對回筆記現有配方(`_backing_note_recipes`)。head_sha 驗格式也擋掉以 - 開頭、會被 git 當成選項的值(r1 資安席)。"""
+    rows = []
+    for r in _drift_jsonl_rows(Path(repo_root) / "docs" / ".kill-log.jsonl"):
+        if not all(isinstance(r.get(k), str) for k in ("test", "platform", "verdict", "head_sha", "recipe_id")):
+            continue
+        if not isinstance(r.get("weak"), bool) or not _FULL_SHA_RE.match(r["head_sha"]) or not r["recipe_id"]:
+            continue
+        rows.append(r)
+    return _backing_note_recipes(repo_root, rows)
+
+
+def _backing_note_recipes(repo_root, rows):
+    """kill-log 行對回筆記現有的配方(代碼審 r3 資安席):recipe_id 要等於那篇筆記 kill_recipes 裡某一條的身分,
+    covers 與說明改取筆記那一條、不信帳檔那一行;對不上的行(配方已刪、node 欄亂填、筆記讀不到或在知識庫外)略過。
+    kill-log 在本 repo 進版控、誰都能在提交裡改:這一步收掉「任意題號與說明從帳檔流進背書與審查席提示」;
+    照筆記現有配方偽造一行 killed 仍擋不住(計劃〈天花板〉第 3 條同類)。"""
+    vault = _vault_in(Path(repo_root))
+    if vault is None:
+        return []
+    try:
+        vroot = vault.resolve()
+    except OSError:
+        return []
+    by_node, out = {}, []
+    for r in rows:
+        node = r.get("node")
+        if not isinstance(node, str) or not node:
+            continue
+        if node not in by_node:
+            got, p = {}, vault / node
+            try:
+                ok = (p.suffix == ".md" and not p.is_symlink() and p.is_file()
+                      and p.resolve().is_relative_to(vroot))
+            except (OSError, ValueError):
+                ok = False
+            recipes = _kill_read_recipes(p)[0] if ok else None
+            for rec in recipes or []:
+                if isinstance(rec, dict):
+                    got[_kill_recipe_key(node, rec.get("invariant"), rec.get("file"), rec.get("old"))] = rec
+            by_node[node] = got
+        rec = by_node[node].get(r["recipe_id"])
+        if rec is None:
+            continue
+        cov = rec.get("covers")
+        r["covers"] = [c for c in cov if isinstance(c, str)] if isinstance(cov, list) else []
+        r["note"] = str(rec.get("note") or "")
+        out.append(r)
+    return out
+
+
+def _backing_mark(data):
+    """拿掉所有 backing(不信手填或 --carry 帶來的);被標 needs_backing 的人工 na/todo/tension 記 n/a。回要算背書的 satisfied 題。"""
+    for ent in data.values():
+        if isinstance(ent, dict):
+            ent.pop("backing", None)
+    sat = []
+    for qid, ent in data.items():
+        if not isinstance(ent, dict) or ent.get("auto"):
+            continue
+        _stk, spec = _stack_spec_by_id(qid)
+        if not (spec and spec.get("needs_backing")):
+            continue
+        if ent.get("status") in ("na", "todo", "tension"):
+            ent["backing"] = {"status": "n/a"}
+        elif ent.get("status") == "satisfied":
+            sat.append(qid)
+    return sat
+
+
+def _contract_backing_apply(repo_root, head_sha, data, pdata):
+    """寫表態時原地改 data:先拿掉所有 backing;被標 needs_backing 的人工表態,na/todo/tension 記 n/a,satisfied 算背書。
+    算背書整段一個 try,任何例外讓所有被標且 satisfied 的題記 none 並在 stderr 講一句——只提醒的功能不准擋住寫表態
+    (寫帳本身失敗仍由呼叫端照舊回 rc2)。"""
+    import time as _time
+    sat = _backing_mark(data)
+    if not sat:
+        return
+    try:
+        rows = _backing_kill_rows(repo_root)
+        cache, deadline = {}, _time.monotonic() + _BACKING_BUDGET
+        for qid in sat:
+            data[qid]["backing"] = _contract_backing_one(repo_root, head_sha, qid, data[qid], pdata, rows, cache, deadline)
+    except Exception as e:
+        print(f"  提醒:算破壞測試背書時出錯({e.__class__.__name__}:{str(e)[:80]}),這幾題先記成沒有背書,表態照常寫", file=sys.stderr)
+        for qid in sat:
+            data[qid]["backing"] = {"status": "none", "reason": f"讀取失敗:{e.__class__.__name__}"}
+
+
 def _cmd_codeloop_dispositions(repo_root, branch, head_sha, ts, disp_file):
     """`code-loop dispositions <檔.json>`(表態閘 S4):驗形狀 → 先寫治理帳 → 再原子寫 marker。壞就 rc2 不寫並講原因。"""
     import json
@@ -38617,6 +39524,8 @@ def _cmd_codeloop_dispositions(repo_root, branch, head_sha, ts, disp_file):
         print("  規則:status 只認小寫 satisfied/na/todo/tension;satisfied 附 evidence(path:line 或 test:<名>);na/todo 附理由(去空白標點後 CJK ≥10 字或總長 ≥25 字);todo 附 issue(Issues/<名>);"
               f"tension 附 chosen(existing|suggested)、existing(既有寫法 path:line 清單,1–{_DISP_EXISTING_MAX} 項)、hazard、suggestion(同理由門檻,各 ≤{_DISP_TEXT_MAX} 字),選 suggested 再附 evidence", file=sys.stderr)
         return 2
+    # 被標 needs_backing 的題:在本機算破壞測試背書存進記錄(kill-log 不進消費專案版控,推送前與 CI 讀不到,只能在這裡算)
+    _contract_backing_apply(repo_root, head_sha, data, pdata)
     ok, why = _codeloop_dispositions_gov_log(repo_root, branch, head_sha, ts, data)
     if not ok:
         print(f"擋下:{why}——表態沒寫(CI 只讀得到治理帳:本機那份 marker 是 per-machine 狀態、不進版控,所以寫不進治理帳就等於沒表態)", file=sys.stderr)
@@ -39326,6 +40235,7 @@ HELP_WHEN = {
     "audit": "某條合約被不知道脈絡的人審過了,留 [audit:] 戳記。",
     "trace": "某條合約 → 守衛測試 → 驗證紀錄的證據鏈,反向可查爆炸半徑。",
     "kill-add": "宣告一個「故意弄壞」的配方,給 kill 驗測試守不守得住。",
+    "kill-rm": "配方失配了(doctor P2 或 kill-add 提醒說原文找不到/不只一處)要改寫時,先用它移掉舊的那條,再照印出的範本 kill-add。",
     "kill": "在隔離副本套壞法,綁的測試必須翻紅;沒翻紅=那條測試是裝飾。",
     "spec-gate": "設計寫完先過這道:條款句式合不合一條文法、每條綁了 [test:]/[manual:] 沒、回退節夠不夠;綁的測試真跑一次印紅綠(不擋)。",
     "spec-trace": "計劃的驗收條款每條綁了測試沒(綁了/靠人/未標/懸空);舊制「驗證紀錄認領」欄照印當對照。",
@@ -39811,12 +40721,19 @@ def main():
     gka = gsub.add_parser("kill-add", help="宣告壞法配方(kill_recipes+[kill:recipes],同檔原子寫)")
     gka.add_argument("node")
     gka.add_argument("invariant", help="KEY 行子字串")
-    gka.add_argument("--file", required=True, help="要弄壞的檔(相對配方平台 root)")
+    gka.add_argument("--file", required=True, help="要弄壞的檔(相對配方平台所在 repo 的最上層)")
     gka.add_argument("--old", required=True, help="literal 原文(須唯一命中)")
     gka.add_argument("--new", required=True, help="壞版本")
     gka.add_argument("--test", help="綁定測試名(缺省=KEY 行唯一 [test:] ref)")
     gka.add_argument("--platform", dest="gk_platform", help="配方所屬平台(多平台 config)")
-    gka.add_argument("--note", default="", help="業務上壞了什麼(人話)")
+    gka.add_argument("--note", default=None, help="業務上壞了什麼(人話)")
+    gka.add_argument("--covers", default=None,
+                     help="這條壞法涵蓋哪幾題要背書的棧別檢核題(逗號分隔題目 id,例 java-concurrency,sql-nplus1);"
+                          "同一條配方已存在時只更新它的 covers")
+    gkr = gsub.add_parser("kill-rm", help="移除一條殺傷力配方(失配配方的修法:先移掉舊的、再照現在的程式 kill-add;同檔原子寫)")
+    gkr.add_argument("node")
+    gkr.add_argument("--id", dest="gkr_id", required=True,
+                     help="配方短身分(doctor P2 段或 kill-add 提醒印的那串),至少 8 個十六進位字元")
     gk = gsub.add_parser("kill", help="跑殺傷力驗證:worktree 隔離→baseline 綠→套壞法→綁定測試必須翻紅")
     gk.add_argument("node")
     gk.add_argument("invariant", nargs="?", help="限某合約(KEY 行子字串;預設全部配方)")
@@ -40754,7 +41671,9 @@ def main():
         if args.gcmd == "kill-add":
             return cmd_guard_kill_add(env, args.node, args.invariant, file=args.file,
                                       old=args.old, new=args.new, test=args.test,
-                                      platform=args.gk_platform, note=args.note)
+                                      platform=args.gk_platform, note=args.note, covers=args.covers)
+        if args.gcmd == "kill-rm":
+            return cmd_guard_kill_rm(env, args.node, args.gkr_id)
         if args.gcmd == "kill":
             return cmd_guard_kill(env, args.node, invariant_substr=args.invariant,
                                   platform_override=args.gk_platform,

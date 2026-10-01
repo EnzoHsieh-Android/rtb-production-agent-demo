@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-<!-- LUMOS:GRAPH-DISCIPLINE:START v1.0 — 自動注入/更新,勿手改本區塊;改範本 scripts/templates/graph-discipline.md -->
+<!-- LUMOS:GRAPH-DISCIPLINE:START v1.2 — 自動注入/更新,勿手改本區塊;改範本 scripts/templates/graph-discipline.md -->
 ## 程式碼為主，知識圖譜補脈絡（必讀）
 
 **程式碼是「實作現在長怎樣」的最終依據（不是所有現況：部署設定、feature flag、資料庫值、生產行為都不在裡面）；`docs/rtb-production-agent-demo-knowledge/` 補的是程式碼產生不出的脈絡**：當初為什麼這樣決定、程式看不到的限制、踩過的坑、哪些方案被否決、未來什麼條件才能改。讀者主要是下一個 session 的 AI（偶爾是人），寫的時候以「沒有脈絡的人讀得懂」為準。
