@@ -733,6 +733,39 @@ def inject_additional_context(impact_data: dict) -> None:
     print(json.dumps(output, ensure_ascii=False))
 
 
+def _sibling_worktree_root(file_path: str, repo: str) -> str | None:
+    """被改的檔若在「同一個 repo 的另一個 worktree」裡,回那個 worktree 的根;其餘一律 None(照舊用 repo)。
+
+    ★為什麼要有這支★(2026-10-02 實測):session 切進 worktree 後,啟動目錄變數與 hook 行程的位置
+    都還是主 repo;拿主 repo 去查 worktree 裡的檔,lumos impact 回 0 筆、這支 hook 靜默放行——
+    照規矩開 worktree 做事的 session 反而一篇推播都收不到。
+    ★為什麼只認同一個 repo★:換成「檔在哪個 repo 就讀哪個 repo 的筆記」的話,改到一個陌生 repo
+    (例如剛 clone 的)裡的檔,就會把對方寫的筆記推進對話;原本不會。共用同一份 git 資料
+    (git-common-dir 相同)的 worktree 筆記是自己的,沒有這個問題。子模組的 common dir 不同,照舊。
+    任何一步失敗(不是絕對路徑、找不到 .git、git 逾時)都回 None——寧可照舊,不可中斷推播。"""
+    if not repo:
+        return None
+    p = Path(file_path)
+    if not p.is_absolute():
+        return None
+    root = next((d for d in p.parents if (d / ".git").exists()), None)
+    if root is None:
+        return None
+    try:
+        if root.resolve() == Path(repo).resolve():
+            return None
+
+        def _common(d):
+            r = subprocess.run(["git", "-C", str(d), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                               capture_output=True, text=True, timeout=3)
+            return Path(r.stdout.strip()).resolve() if r.returncode == 0 and r.stdout.strip() else None
+
+        mine, theirs = _common(root), _common(repo)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    return str(root) if mine is not None and mine == theirs else None
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read())
@@ -776,7 +809,8 @@ def main() -> int:
         # 現在單檔也走預算:天花板 × 0.7 減已耗,永遠明顯小於外層,逾時走自己的分支。
         _cap = _inner_budget(elapsed=(time.monotonic() - t0), default=30)
         tmo = _cap if len(paths) == 1 else min(_cap, max(3.0, left))
-        ctx = _impact_for_file(payload, repo, fp, session_id, lumos, timeout=tmo)
+        # worktree 裡的檔要拿那個 worktree 當 repo,否則 0 筆且靜默(見 _sibling_worktree_root)
+        ctx = _impact_for_file(payload, _sibling_worktree_root(fp, repo) or repo, fp, session_id, lumos, timeout=tmo)
         if ctx:
             chunks.append(ctx)
     if skipped:

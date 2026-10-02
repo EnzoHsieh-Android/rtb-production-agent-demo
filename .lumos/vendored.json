@@ -8,17 +8,17 @@
   "scripts/hooks/claude/check-graph-sync.py": "b01ec12ca4514b6f6f6904194cc2d6b747f8fca919c6a5dea9bb571c3a4974de",
   "scripts/hooks/claude/ci-status-hook.py": "63e8dc1081e87f87be7fb1add9dc752f1c765853535d5d0ce61cd14a678094d4",
   "scripts/hooks/claude/dispatch-lens-hook.py": "41ccdb9911800508f2ae0964919335ccf9b5b8750eb167caf8364848ebb92e97",
-  "scripts/hooks/claude/impact-hook.py": "16851237e0b3cecdb867e9b2dd36cc71e0f4e5c4a01cb155510d3f46df7f3e00",
+  "scripts/hooks/claude/impact-hook.py": "46b54c683d09448d61c4d4b3e97065d5957c41a337cb745075a5b3ff4fce791a",
   "scripts/hooks/claude/lumos-entry-hook.py": "57697cd0e456ffd0ff27dba052999e8aef16fea61d935d0eada51b8ead43e8ba",
   "scripts/hooks/claude/memory-sweep.py": "6bc21768296f6b858e0f5965206ad8c487500c79c7fd5a02bab2396105f9c634",
   "scripts/hooks/post-commit": "f7ccea562d2e0fa83ec2e9d527b93a6f10204c541f377f425e42ad814a3a27dc",
   "scripts/hooks/pre-commit": "5a8dc225ef018d942f6b1d5e831db9879742a9ae20d4becb1af77d8fa5ab0656",
   "scripts/hooks/pre-push": "910bb200dd4a4782c69da7110ce9360ad07f4215eda2ba883bca46664053fbb5",
-  "scripts/lumos": "bdf2199f0fc11c39c3a038dafcf65ed09760c709c9afeb1b6bdb442075b5d8bd",
+  "scripts/lumos": "e056edd4bc83ee6e04de72dd4e2f4c11f6ae987ea77e552a511bfc5bf0979158",
   "scripts/merge-claude-settings.py": "3324272bedc814d4d64a814c6a04ad89abdc08516cb199c52abd181c0a1ebeff",
   "scripts/templates/graph-discipline.md": "98c8bab8a212785a98f93e90efcef3b1b3c9146d37ba4f35614ac7b627b90a91",
   "scripts/templates/note-audit-judge.md": "88f2bb6ccf816da2e4ea195d58bb7c5bacc71af55bf9eea2bb624a5e468dc713",
   "scripts/templates/note-audit-reread.md": "079c09fb31831ed47cb0e1898af9928209975524d01d7273c8886ba0863c0260",
-  "scripts/test_lumos.py": "5a46768a9082befaecd95db6aabc127958f6fa30a086bdb9ccdd6e100c30f14c"
+  "scripts/test_lumos.py": "418a6b28abcac3c3aefc76cd5afa7945b3337ce42b8e261b6fc2eb65df7b96b3"
  }
 }
