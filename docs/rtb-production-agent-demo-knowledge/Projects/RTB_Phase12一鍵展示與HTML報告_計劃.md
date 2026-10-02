@@ -299,7 +299,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - [S1031] 展示頁應原樣顯示驗證器的輸出,擋下時逐條列出原因。[test:test_the_page_shows_the_verifier_output_verbatim]
 - [S1032] 當確認者在頁面上送出確認時,伺服器應在每個確認框都勾了、展示編號與提案雜湊對得上等人確認的那一筆、表單帶的數字摘要雜湊等於驅動程式記下的數字快照算出的雜湊時才簽發,否則拒絕。[test:test_an_approval_needs_every_computed_number_confirmed]
 - [S1033] 簽發確認要的 task_id、revision、提案雜湊、租戶設定檔、關卡、最大加額與提案決策到期應取自驅動程式記下的展示狀態,不取自表單;伺服器行程內簽發並寫進 F7 的執行端暫存資料庫,到期取 min(提案決策到期, 現在 + 固定秒數),確認人固定為 demo-operator。[test:test_the_approval_signature_takes_its_fields_from_the_demo_state_not_the_form]
-- [S1034] 當確認頁在同源(Sec-Fetch-Site 是 same-origin 或 none、Sec-Fetch-Dest 是 document)的請求下顯示模型說明時,伺服器應在 ~/.rtb/demo-reports/ 旁的收據檔追加一筆含提案雜湊、模型文字雜湊、來源與顯示時間的收據,同一份提案雜湊與模型文字雜湊只記一次,並寫進當次靜態報告;不符的請求照樣顯示頁面但不記;執行端應不讀它。[test:test_showing_a_model_note_on_the_approval_page_leaves_a_receipt](待增量 4 補做(2026-09-25 健檢發現未實作):確認頁目前沒有模型說明、也沒有收據,綁的測試不存在)
+- [S1034] 當確認頁在同源(Sec-Fetch-Site 是 same-origin 或 none、Sec-Fetch-Dest 是 document)的請求下顯示模型說明時,伺服器應在 ~/.rtb/demo-reports/ 旁的收據檔追加一筆含提案雜湊、模型文字雜湊、來源與顯示時間的收據,同一份提案雜湊與模型文字雜湊只記一次,並寫進當次靜態報告;不符的請求照樣顯示頁面但不記;執行端應不讀它。`test_showing_a_model_note_on_the_approval_page_leaves_a_receipt`(這支測試從沒以正式測試提交過)(待增量 4 補做(2026-09-25 健檢發現未實作):確認頁目前沒有模型說明、也沒有收據,綁的測試不存在)
 - [S1035] 頁面上每一種情境狀態與驗證器通過或擋下都應有文字標示,不只靠顏色。[test:test_every_status_has_a_text_label]
 - [S1036] 頁面與樣式表應不請求任何外部資源(外部網址、@import、外部字型)。[test:test_the_page_and_stylesheet_load_nothing_external]
 - [S1037] 樣式表的深色與淺色兩組配色變數,文字與背景的對比都應至少 4.5 比 1。[test:test_both_colour_schemes_have_enough_contrast]

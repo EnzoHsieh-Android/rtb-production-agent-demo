@@ -21,7 +21,7 @@ Phase 10 完成:把「配速偏低時,這個廣告值不值得加預算」抽成
 ## 對照交接文件 Phase 10 完成條件
 
 - 評估資料與正式提示/測試的外洩風險有記錄:決定紀錄的外洩紀錄一節(governance/eval/phase10-worth-adoption.md);評估集雜湊釘住、換批要記決策;評估套件不被其他層匯入,受保護五層禁止動態匯入;生成器不讀決策規則與它的測試。[test:test_the_eval_set_is_pinned_by_hash]、[test:test_nothing_outside_the_eval_package_imports_it]、[test:test_the_generator_reads_neither_the_decision_rule_nor_its_tests]
-- 依重要切片報精確率/召回率,不只報總分:5 個評分格逐格報事先指定的指標(值得加格召回率,其他格「不誤提案的比例」與類別正確率)、分子分母、錯誤子型;總平均只當參考。[test:test_the_eval_report_is_per_slice_and_marks_thin_slices]、[test:test_the_code_rule_is_scored_per_slice_like_a_candidate]
+- 依重要切片報精確率/召回率,不只報總分:5 個評分格逐格報事先指定的指標(值得加格召回率,其他格「不誤提案的比例」與類別正確率)、分子分母、錯誤子型;總平均只當參考。[test:test_the_eval_report_is_per_slice_and_marks_thin_slices]、[test-gone:test_the_code_rule_is_scored_per_slice_like_a_candidate@b2fc512]
 - 跟 LLM/程式基準比品質、成本、延遲:比較表逐格一列,現行規則實測;LLM 與 Jev 沒有候選,每個儲存格寫「沒量、原因:未導入」,不編數字。[test:test_unmeasured_candidates_show_no_numbers]
 - 範圍外或信心不足會退回:路由只在有候選、格在允許清單上時交給候選;候選逾時、例外、非法回傳、答不知道一律退回現行規則;正式路徑沒有候選、已驗證清單是空的。[test:test_only_validated_slices_reach_the_candidate]、[test:test_a_failing_or_unsure_candidate_falls_back_to_the_code_rule]、[test:test_production_wiring_has_no_candidate_and_no_validated_slice]
 - 沒達門檻時明確不採用 Jev,不調低標準:採用閘一律 fail-closed,門檻是常數;合成集與不完整證據一定不採用。[test:test_the_adoption_decision_is_no_without_measured_validated_slices]、[test:test_a_synthetic_report_can_never_be_adopted]、[test:test_a_slice_is_validated_only_when_every_bar_is_met]
