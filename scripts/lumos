@@ -2503,6 +2503,20 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
                    "跑 `lumos contracts <節點>` 把那些合約列出來,看它們是不是其實在講好幾件事——是的話一件一篇拆開;真的是同一件事就把門檻調高(專案設定 node_scope.max_contracts)。★這道量的是「還讀得完嗎」,不是「設計對不對」★")
     print()
 
+    # ── 有效 RULE 的到期與確認(Projects/筆記標籤_過時判定與按需載入_計劃〈健康檢查補一段〉[S6]):
+    # 只看新寫的提醒送不到沒人碰的舊 RULE,而到期是時間的函數——這裡連舊行一起列,★不計入問題數★(warn_soft)。
+    # 插在合約條數那段之後、[H] 之前(避開軟段截斷測試切的 [S] 到 [E1] 窗口,同下面 S8 的位置紀律)。
+    section("S16", "有效的 RULE 有沒有過期或太久沒確認(提醒,不擋)")
+    _stale16, _nodes16 = _doctor_stale_rules(notes)
+    for _st in _nodes16:     # 一篇一筆事件,同篇多條 RULE 不重複記
+        gov_events.append({"gate": "check-s16", "kind": "warned", "hard": False, "nodes": [_st]})
+    if not _stale16:
+        ok("有效的 RULE 都沒過期、半年內確認過")
+    else:
+        warn_soft(_stale16, f"{len(_stale16)} 條有效的 RULE 過期、太久沒確認或沒寫確認日期(舊行也列,不計入問題數):",
+                  "還成立就更新 [confirmed:日期];不成立就標 [status:superseded] 並寫 [被取代:…]")
+    print()
+
     # ── 每支檔有家的舊帳(2026-09-11,Projects/每支檔有家_計劃 [S28]):排在合約條數那段之後、[H] 之前——
     # 軟段截斷那支測試切的是 [S] 到 [E1],插進那個窗口會被數進去而翻紅(鄰居三段同一條位置紀律)。
     _nhl = _nodehome_ledger(_vault_repo_root(env), env.vault)
@@ -3260,7 +3274,13 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
 # 那幾行會被 lint 唸成打錯字,也不會被當成摘要行——規範直接空轉。
 SYMBOL_NAMES = {"KEY", "FLOW", "DEP", "TEST", "AUTH", "FLAG", "DECISION", "VERIFY", "CORE",
                 "PRIOR-ART", "REVISIT",
-                "WHY", "RULE", "PITFALL", "FACT"}
+                "WHY", "RULE", "PITFALL", "FACT",
+                "SEE", "RETIRE-IF"}
+# RETIRE-IF(2026-10-01,Projects/筆記標籤_過時判定與按需載入_計劃 [S2]):紀律範本叫人每篇計劃寫一行,
+# 寫進摘要時原本被 lint 當成打錯字。
+# SEE(2026-10-01,Projects/筆記格子寫法與過期檢查_計劃 第 0 步 0a):只放連結的 DEP 換個名字,
+# 算計劃連到誰時跟 DEP 同等對待(_plan_system_links)。★回退時這一筆不還原★:已寫的 SEE 行
+# (含消費專案的)要一直被認得、連結不漏算——撤範本只撤「教人寫」,不撤「認得」。
 SYMBOL_RE = re.compile(r"^(" + "|".join(sorted(SYMBOL_NAMES, key=len, reverse=True)) + r"):")
 
 # ★脈絡標記的「同一行還要有什麼」★(2026-09-21 第三階段;單源=紀律範本〈寫筆記時〉那一節)
@@ -3304,7 +3324,8 @@ _NOTE_SHAPE_PREFIX_RULES = {k: _CONTEXT_MARKER_RULES["FACT"] for k in ("FACT", "
 #   [since:YYYY-MM-DD] 什麼時候立的(必填)   [retire:<條件>] 看到什麼就該撤掉(必填)
 #   [until:YYYY-MM-DD] 硬到期日(選填)       [confirmed:YYYY-MM-DD] 最後一次確認(選填)
 #   [status:active|superseded] 預設 active  [applies:<版本或範圍>](選填)
-# 只有 since 與 retire 都寫齊、且不是 superseded 的 RULE 行,才有挑戰程式碼的效力(見紀律範本第 3 條)。
+# 同時寫齊 since、retire、confirmed 且最近半年確認過、不是 superseded 的 RULE 行,才有挑戰程式碼的效力
+# (紀律範本第 3 條與〈寫筆記時〉同一句;Projects/筆記標籤_過時判定與按需載入_計劃 [S1])。
 # 一欄位一個正則,形狀跟鄰居 TEST_REF_RE / AUDIT_REF_RE / ROLLBACK_REF_RE 一致
 # (2026-09-21 架構對齊席:原本寫成一條合併正則+dict,是這支檔裡的第二種做法)
 SINCE_REF_RE = re.compile(r"\[since:\s*([^\]]*)\]")
@@ -3319,7 +3340,11 @@ _RULE_CONFIRM_STALE_DAYS = 180
 
 
 def parse_rule_fields(rest):
-    """把 RULE: 行裡的 [key:value] 抓成 dict(重複出現取最後一個,跟鄰居一樣)。"""
+    """把 RULE: 行裡的 [key:value] 抓成 dict(重複出現取最後一個,跟鄰居一樣)。
+    新文法的行(筆記格子)走 slot_parse,不留第二套切欄位的規則;舊寫法的行照舊用逐鍵正則(值遇 ] 截斷),
+    舊行的 lint 結果不變(Projects/筆記格子寫法與過期檢查_計劃〈lint 與擋同一張表〉)。"""
+    if slot_is_new(rest):
+        return {k: v for k, v, _e in slot_parse(rest)["fields"] if k in _RULE_FIELD_RES}
     out = {}
     for k, rx in _RULE_FIELD_RES.items():
         ms = list(rx.finditer(rest))
@@ -3335,6 +3360,8 @@ def rule_field_truncated(rest):
     [retire:] 是散文,踩到的機會高很多,所以這裡主動唸出來而不是默默截掉。
     """
     bad = []
+    if slot_is_new(rest):      # 新文法的值認得成對方括號,不會被截斷;不成對的由 slot_check 唸
+        return bad
     for k, rx in _RULE_FIELD_RES.items():
         for m in rx.finditer(rest):
             if rest[m.end():m.end() + 1] == "]":
@@ -3350,14 +3377,9 @@ def _rule_date(v):
         return None
 
 
-def rule_lifecycle_warnings(rest, today=None):
-    """一條 RULE: 行的生命週期檢查,回傳警告清單(不擋)。"""
-    f = parse_rule_fields(rest)
+def _rule_legacy_shape_warnings(rest, f):
+    """舊寫法 RULE 行:值被 ] 截斷、缺 since/retire。"""
     out = []
-    # 同一行塞兩條 RULE:,後面那條沒填欄位也會借用前面的(2026-09-21 通才席 F4)
-    if rest.count("RULE:") >= 1:
-        out.append("一行只放一條 RULE:——同一行寫兩條時欄位會混在一起算,"
-                   f"沒填欄位的那條會借用旁邊的而被判過關:{rest.strip()[:40]}")
     trunc = rule_field_truncated(rest)
     if trunc:
         out.append("這幾個欄位的值裡有右中括號,會被截斷(常見於退場條件引用 [[節點]]):"
@@ -3370,29 +3392,267 @@ def rule_lifecycle_warnings(rest, today=None):
                    + "——規則要機械讀得到「什麼時候立的」和「看到什麼就該撤掉」,"
                      "散文寫的有效期沒人判得出來;寫不出退場條件,就是還沒想清楚這條該不該立"
                    + f":{rest.strip()[:40]}")
+    return out
+
+
+def _doctor_stale_rules(notes, today=None):
+    """doctor S16:有效 RULE 的 [until:] 過期、超過半年沒確認、沒寫 [confirmed:] → (要列的行, 要記帳的節點 stem,一篇一個)。
+    舊行也列;superseded 不列。抽成一支是為了測得到去重(代碼審 code-筆記格子第0步 r3 正確性席)。"""
+    import datetime as _dt
+    today = today or _dt.datetime.now(_dt.timezone.utc).astimezone().date()   # 本機日期
+    lines, seen, stems = [], set(), []
+    for rel, n in sorted(notes.items()):
+        sm = n.fields.get("summary")
+        if not isinstance(sm, str):
+            continue
+        for ln in sm.split("\n"):
+            t = ln.strip()
+            if not t.startswith("RULE:"):
+                continue
+            f = parse_rule_fields(t[len("RULE:"):])
+            if (f.get("status") or "active").lower() == "superseded":
+                continue
+            sk = _rule_stale_keys(f, today)
+            why = ("[until:] 已過期" if "until" in sk else
+                   "沒寫 [confirmed:](沒有挑戰程式碼的效力)" if not f.get("confirmed") else
+                   f"超過 {_RULE_CONFIRM_STALE_DAYS} 天沒確認" if "confirmed" in sk else None)
+            if why:
+                lines.append(f"{rel}:{why}:{(slot_parse(t[5:])['core'] or t[5:])[:40]}")   # 列句子,欄位常佔滿 40 字
+                if rel not in seen:
+                    seen.add(rel)
+                    stems.append(n.stem)
+    return lines, stems
+
+
+def _rule_stale_keys(f, today):
+    """有效 RULE 的哪幾個日期過了:"until"(到期日已過)、"confirmed"(超過 _RULE_CONFIRM_STALE_DAYS 天沒確認)。
+    lint 的生命週期提醒與 doctor S16 共用,門檻與判法只有這一份(代碼審 code-筆記格子第0步 r1 架構席)。"""
+    out = []
+    until = _rule_date(f.get("until") or "")
+    if until and until < today:
+        out.append("until")
+    conf = _rule_date(f.get("confirmed") or "")
+    if conf and (today - conf).days > _RULE_CONFIRM_STALE_DAYS:
+        out.append("confirmed")
+    return out
+
+
+def rule_lifecycle_warnings(rest, today=None):
+    """一條 RULE: 行的生命週期檢查,回傳警告清單(不擋)。"""
+    f = parse_rule_fields(rest)
+    out = []
+    # 同一行塞兩條 RULE:,後面那條沒填欄位也會借用前面的(2026-09-21 通才席 F4)
+    if rest.count("RULE:") >= 1:
+        out.append("一行只放一條 RULE:——同一行寫兩條時欄位會混在一起算,"
+                   f"沒填欄位的那條會借用旁邊的而被判過關:{rest.strip()[:40]}")
+    new = slot_is_new(rest)
+    if not new:      # 新文法的截斷與缺鍵由 slot_check 唸(筆記格子),這裡只管舊寫法
+        out += _rule_legacy_shape_warnings(rest, f)
     st = (f.get("status") or "active").lower()
     if st == "superseded":
-        out.append("這條 RULE 標了 [status:superseded],已經沒有挑戰程式碼的效力,"
-                   "只能當歷史線索;確定撤掉就把整行刪掉,別留著讓人誤讀"
-                   f":{rest.strip()[:40]}")
+        if not new:    # 新文法的行([被取代:] 只有新文法才有)由 slot_check 唸,不重複
+            out.append("這條 RULE 標了 [status:superseded],已經沒有挑戰程式碼的效力;"
+                       "留著並寫 [被取代:…](改看哪個節點或決策 節點路徑#dN;沒有接手的寫 [被取代:無 <理由>]),"
+                       "讀的人才知道該去哪裡看"
+                       f":{rest.strip()[:40]}")
     elif st != "active":
         out.append(f"[status:{st}] 不是認得的值(只收 active / superseded):{rest.strip()[:40]}")
     import datetime as _dt
     today = today or _dt.date.today()
     for key, label in (("since", "立的日期"), ("until", "到期日"), ("confirmed", "最後確認")):
         v = f.get(key)
-        if v and _rule_date(v) is None:
+        if v and _rule_date(v) is None and not new:
             out.append(f"[{key}:{v}] 不是合法日期({label}要寫成 YYYY-MM-DD):{rest.strip()[:40]}")
-    until = _rule_date(f.get("until") or "")
-    if until and until < today and st == "active":
+    stale = _rule_stale_keys(f, today) if st == "active" else []
+    if "until" in stale:
         out.append(f"這條 RULE 的 [until:{f['until']}] 已經過期({today} 了)還標著 active——"
                    "確認還要不要留:要留就往後延並補 [confirmed:],不留就刪掉或標 superseded"
                    f":{rest.strip()[:40]}")
-    conf = _rule_date(f.get("confirmed") or "")
-    if conf and (today - conf).days > _RULE_CONFIRM_STALE_DAYS and st == "active":
+    if "confirmed" in stale:
         out.append(f"這條 RULE 超過 {_RULE_CONFIRM_STALE_DAYS} 天沒人確認過"
                    f"(最後一次是 {f['confirmed']})——還成立就更新 [confirmed:],不成立就撤掉"
                    f":{rest.strip()[:40]}")
+    return out
+
+
+# ★筆記格子★(2026-10-01,Projects/筆記格子寫法與過期檢查_計劃 第 0 步):一種文法 `<前綴>:<核心一句> [鍵:值]…`。
+# 單一來源=紀律範本〈寫筆記時〉那張表;_SLOT_REQUIRED/_SLOT_ONE_OF/_SLOT_ENUM/_SLOT_CONDITIONAL 由
+# t_slots_single_table 跟範本表逐項釘住(改一邊另一邊沒跟上就紅)。第 0 步只給 lint 用(只提醒);
+# 提交時的擋是第 1 步、要掛鉤帶 --slots 才跑。
+_SLOT_KEYS = ("出處", "因", "不選", "代價", "test", "applies", "依據", "since", "retire", "confirmed", "until",
+              "status", "根因", "repro", "防回歸", "觸發", "修法", "影響", "同族", "來源", "recheck", "查", "被取代")
+_SLOT_CANON = {k.lower(): k for k in _SLOT_KEYS}
+_SLOT_REPEATABLE = frozenset(("test", "applies", "不選", "同族"))
+# 只有新文法才有的鍵:一行出現任一個就照新表判,其他照舊判準(舊 FLOW/DEP 照舊不唸,Projects/筆記格子… r3 回滾席)
+_SLOT_NEW_ONLY = frozenset(("出處", "因", "依據", "根因", "防回歸", "被取代", "recheck"))
+_SLOT_REQUIRED = {"WHY": ("出處", "因"), "RULE": ("依據", "since", "retire"), "PITFALL": ("出處", "根因"),
+                  "FACT": ("來源", "confirmed"), "FLOW": ("來源", "confirmed"), "DEP": ("來源", "confirmed")}
+_SLOT_ONE_OF = {"PITFALL": ("test", "repro", "防回歸")}
+_SLOT_ENUM = {"依據": ("人", "外部", "審計", "法規", "相容"), "來源": ("部署", "資料庫", "生產", "外部", "人工")}
+_SLOT_CONDITIONAL = (("RULE", "retire", "人裁", "until"),)     # [retire:人裁] 另必有 [until:]
+_SLOT_DATE_KEYS = ("since", "confirmed", "until")
+_SLOT_KEY_RE = re.compile(r"\[\s*([^\s:：\[\]`]{1,12})\s*[:：]")
+_SLOT_RECHECK_RE = re.compile(r"([1-9]\d{0,2})(天|週|月)")
+_SLOT_METRIC_KINDS = ("blocked", "warned", "skipped-env", "hinted", "acked")
+_SLOT_METRIC_RE = re.compile(r"度量\s+([A-Za-z0-9_-]+)\.([a-z-]+)\s*(<=|>=|==|<|>)\s*(\d+)\s*近(\d+)週")
+_SLOT_METRIC_MAX_WEEKS = 8     # 治理帳只讀檔尾 24MB,照現在寫入量約裝得下兩個月
+
+
+def slot_parse(rest):
+    """前綴冒號後面的字 → {"fields": [(鍵, 值, 錯誤或 None)], "core": 核心一句}。
+    只有白名單鍵才算欄位(鍵名英文不分大小寫、冒號收全形、冒號後空白不算);值數方括號層數,成對的照收;
+    值裡的反引號段照字面不數括號;成對反引號(行內程式碼)裡的方括號不算欄位,不成對的反引號到行尾都當正文。
+    核心一句=去掉所有欄位後剩下的字(空白壓成一格)。"""
+    fields, core, i, n = [], [], 0, len(rest)
+    while i < n:
+        c = rest[i]
+        if c == "`":
+            j = rest.find("`", i + 1)
+            if j == -1:
+                core.append(rest[i:])
+                break
+            core.append(rest[i:j + 1])
+            i = j + 1
+            continue
+        m = _SLOT_KEY_RE.match(rest, i) if c == "[" else None
+        if m and m.group(1).lower() in _SLOT_CANON:
+            key, j = _SLOT_CANON[m.group(1).lower()], _slot_value_end(rest, m.end())
+            if j >= n:
+                fields.append((key, rest[m.end():].strip(), "值裡的方括號要成對,或把值用反引號包起來"))
+                break
+            fields.append((key, rest[m.end():j].strip(), None))
+            i = j + 1
+            continue
+        core.append(c)
+        i += 1
+    return {"fields": fields, "core": " ".join("".join(core).split())}
+
+
+def _slot_value_end(rest, j):
+    """從值的開頭往後數方括號層數,回收尾那個 ] 的位置;沒收尾回 len(rest)。值裡的反引號段照字面跳過。"""
+    n, depth = len(rest), 1
+    while j < n:
+        ch = rest[j]
+        if ch == "`":
+            k2 = rest.find("`", j + 1)
+            j = n if k2 == -1 else k2 + 1
+            continue
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return j
+        j += 1
+    return n
+
+
+def slot_is_new(rest):
+    """這行是不是新文法(有任一個新文法才有的鍵)。"""
+    return any(k in _SLOT_NEW_ONLY for k, _v, _e in slot_parse(rest)["fields"])
+
+
+def _slot_retire_err(v):
+    """[retire:] 的值是不是機器式之一 → 錯誤說明或 None。when-* 走回頭條件既有的值文法檢查(同一支)。"""
+    v = (v or "").strip()
+    if v == "人裁":
+        return None
+    if v.startswith("度量"):
+        m = _SLOT_METRIC_RE.fullmatch(v)
+        if not m:
+            return "度量要寫成 度量 <閘>.<種類> <比較> <整數> 近<N>週"
+        if m.group(1) not in _KNOWN_GATES:
+            return f"度量的閘 {m.group(1)} 不在已知閘清單裡"
+        if m.group(2) not in _SLOT_METRIC_KINDS:
+            return f"度量的種類只收 {'/'.join(_SLOT_METRIC_KINDS)}"
+        if not 1 <= int(m.group(5)) <= _SLOT_METRIC_MAX_WEEKS:
+            return f"度量的週數只收 1 到 {_SLOT_METRIC_MAX_WEEKS}(治理帳只讀得到約兩個月)"
+        return None
+    if v.startswith("when-"):
+        k, _sep, val = v[5:].partition(":")
+        val = val.strip()
+        err = _probe_value_err(k, val)
+        if err:
+            return err
+        if k in ("symbol", "test") and "::" not in val:
+            return f"when-{k} 要帶路徑(路徑::名稱),撤除條件不做全庫掃"
+        return None
+    return "不是機器式(只收 when-file/when-symbol/when-test/when-status、度量、人裁)"
+
+
+def _slot_replacement_err(v):
+    v = (v or "").strip()
+    if v.startswith("無"):
+        return None if v[1:].strip() else "[被取代:無 <理由>] 要寫理由"
+    if "[[" in v or re.fullmatch(r"\S+#d\d+", v):
+        return None
+    return "[被取代:] 要寫 [[節點]]、節點路徑#dN(單寫 d3 認不出是哪篇的),或 無 <理由>"
+
+
+def slot_check(prefix, rest, today=None, commit_time=False):
+    """一行摘要照格子規格查 → 問題清單(白話字串)。冒號後什麼都沒寫的骨架行不查。
+    commit_time=True 才查未來日期(CI 跑在 UTC,台灣凌晨寫的今天在那邊還是明天;Projects/筆記格子… r3)。"""
+    body = rest.strip()
+    if not body:
+        return []
+    if prefix == "SEE":
+        if "[[" not in body or not _NS_POINTER_ONLY_RE.match(body):
+            return ["SEE 只放 [[連結]](連結之間可用 、 , ; ｜ 與 和 及 見 → 分隔;別名 [[X|…]] 與段落 [[X#…]] 不收,"
+                    "別名裡能夾帶現況句——同 FLOW/DEP 只放連結的判法),要寫句子就換別的前綴"]
+        return []
+    out, val = _slot_check_shape(slot_parse(rest))
+    out += _slot_check_required(prefix, val)
+    out += _slot_check_values(prefix, val, today, commit_time)
+    return out
+
+
+def _slot_check_shape(p):
+    """欄位寫壞、重複鍵、缺核心一句 → (問題, {鍵: 最後一個值})。"""
+    out, seen = [], {}
+    for k, v, err in p["fields"]:
+        if err:
+            out.append(f"[{k}:…] {err}")
+        seen.setdefault(k, []).append(v)
+    out += [f"[{k}:…] 寫了兩次" for k, vs in seen.items() if len(vs) > 1 and k not in _SLOT_REPEATABLE]
+    if not p["core"]:
+        out.append("缺核心一句(冒號後要有一句話,欄位之外)")
+    return out, {k: vs[-1] for k, vs in seen.items()}
+
+
+def _slot_check_required(prefix, val):
+    """必有鍵、三選一、條件式必有、列舉值。"""
+    missing = [f"[{k}:]" for k in _SLOT_REQUIRED.get(prefix, ()) if not val.get(k)]
+    grp = _SLOT_ONE_OF.get(prefix)
+    if grp and not any(val.get(k) for k in grp):
+        missing.append("、".join(grp) + " 三選一")
+    missing += [f"[{need}:]" for pf, k, trig, need in _SLOT_CONDITIONAL
+                if prefix == pf and val.get(k) == trig and not val.get(need)]
+    out = ["缺 " + "、".join(missing)] if missing else []
+    return out + [f"[{k}:{val[k]}] 只收 {'/'.join(allowed)}" for k, allowed in _SLOT_ENUM.items()
+                  if val.get(k) and val[k] not in allowed]
+
+
+def _slot_check_values(prefix, val, today, commit_time):
+    """日期、撤除條件、確認週期、作廢的值。"""
+    import datetime as _dt
+    out, today = [], today or _dt.datetime.now(_dt.timezone.utc).astimezone().date()   # 本機日期
+    for k in _SLOT_DATE_KEYS:
+        # 只收 YYYY-MM-DD:DATE_RE 先擋 20261001、週日期這些 fromisoformat 也收的寫法,再交給既有 _rule_date(不另寫日期判法)
+        d = (_rule_date(val[k]) if DATE_RE.match(val[k]) else None) if val.get(k) else today
+        if d is None:
+            out.append(f"[{k}:{val[k]}] 日期要寫成 YYYY-MM-DD")
+        elif commit_time and k != "until" and (d - today).days > 1:
+            out.append(f"[{k}:{val[k]}] 晚於今天")
+    e = _slot_retire_err(val["retire"]) if prefix == "RULE" and val.get("retire") else None
+    if e:
+        out.append(f"[retire:{val['retire']}] {e}")
+    if val.get("recheck") and not _SLOT_RECHECK_RE.fullmatch(val["recheck"]):
+        out.append(f"[recheck:{val['recheck']}] 要寫成 N天/N週/N月(N 是 1 到 999),不然照來源預設")
+    if (val.get("status") or "").lower() == "superseded":
+        e = (_slot_replacement_err(val["被取代"]) if val.get("被取代") else
+             "標了 [status:superseded] 就要寫 [被取代:…](改看哪裡;沒有接手的寫 無 <理由>)")
+        if e:
+            out.append(e)
     return out
 
 
@@ -3405,7 +3665,15 @@ def context_marker_warnings(summary_text, rules=None):
         if not line:
             continue
         m = SYMBOL_RE.match(line)
-        if not m:
+        if not m or not line[len(m.group(1)) + 1:].strip():
+            continue      # 冒號後什麼都沒寫的骨架行不唸(lumos new 留的空前綴;筆記格子〈格子規格〉空前綴)
+        if rules is None and (m.group(1) == "SEE" or (m.group(1) in _SLOT_REQUIRED
+                                                       and slot_is_new(line[len(m.group(1)) + 1:]))):
+            # 新文法的行照筆記格子那張表判(只提醒);舊寫法的行照下面的舊判準,不因新表多唸
+            rest = line[len(m.group(1)) + 1:]
+            out.extend(f"筆記格子『{m.group(1)}:』{w}:{rest.strip()[:40]}" for w in slot_check(m.group(1), rest))
+            if m.group(1) == "RULE":
+                out.extend(rule_lifecycle_warnings(rest))
             continue
         if m.group(1) == "RULE" and rules is None:
             out.extend(rule_lifecycle_warnings(line[len("RULE:"):]))
@@ -5312,7 +5580,7 @@ def _lint_collect(env, rel):
     summ = n.fields.get("summary")
     summ = summ if isinstance(summ, str) else ""
     if t in ("system", "issue") and not summ.strip():
-        errs.append(f"{t} 筆記沒有摘要區塊(FLOW:/KEY:/DEP: 那幾行),沒人能快速看懂這篇在講什麼——補上,範本可看 lumos new 產生的骨架")
+        errs.append(f"{t} 筆記沒有摘要區塊(WHY:/RULE:/PITFALL:/SEE: 那幾行),沒人能快速看懂這篇在講什麼——補上,範本可看 lumos new 產生的骨架")
 
     # aliases 宣告制(2026-08-05 Enzo 裁定,cutoff 起新 system/issue 逼「判過」不逼「有值」):
     # aliases 吃 3.5 檢索權重,湊數別名主動污染排序——故 `aliases: []`=明示判過,合法;
@@ -6204,7 +6472,7 @@ def _regress_sources(env, plan_rel):
 
 
 def _plan_system_links(note, text=None, systems_only=True):
-    """計劃連到的節點(lands_in + related + DEP 行的 [[連結]];給了 text 再加正文全部 [[連結]]),去重、保序。
+    """計劃連到的節點(lands_in + related + DEP/SEE 行的 [[連結]];給了 text 再加正文全部 [[連結]]),去重、保序。
     ★全檔唯一的「計劃連到誰」★:相依回歸(預設:只 Systems、不掃正文)、門判定訊號 2 與推送前「誰的落點被碰到」
     (text 給正文、systems_only=False 收全部節點)都走這裡——代碼審 r1 架構席:別再開第二支平行函式,兩套算法會各自漂。"""
     # 字串/清單都收(代碼審 r1);[[…]]/別名/錨點/引號一律交給既有 link_target(代碼審 r2/r3:別自己再刻一份剝括號)
@@ -6212,7 +6480,7 @@ def _plan_system_links(note, text=None, systems_only=True):
     summ = note.fields.get("summary") if note is not None else None
     if isinstance(summ, str):
         for ln in summ.split("\n"):
-            if ln.strip().startswith("DEP:"):
+            if ln.strip().startswith(("DEP:", "SEE:")):   # SEE=只放連結的 DEP(筆記格子 0a)
                 links += re.findall(r"\[\[([^\]|#]+)", ln)
     if text:   # 正文只看可見行、剝行內程式碼(代碼審 r2:圍欄裡示範語法的 [[連結]] 不是真連結,會把合格的風險低打成風險高)
         for _no, ln in _visible_lines(text.splitlines()):
@@ -6990,7 +7258,10 @@ def cmd_signoff(env, node, note, by=None, ref=None):
 _KNOWN_GATES = ("L2", "anchor-approve", "canary", "check-cascade", "check-revisit", "check-e1", "delguard", "check-e2", "check-e3", "check-lint-decl", "doctor-run",
                 "check-j", "check-k", "check-r", "check-s", "check-s2", "check-s3", "check-s4",
                 # 2026-09-10 節點範圍與索引守衛:條款測試名懸空 / 索引漏列 / 合約多到讀不完
-                "check-s5", "check-s6", "check-s7", "ci", "code-loop", "design-loop", "kill", "signoff", "bound-tests",
+                "check-s5", "check-s6", "check-s7",
+                # 2026-10-01 有效 RULE 的到期與確認:doctor S16,Projects/筆記標籤_過時判定與按需載入_計劃 [S6]
+                "check-s16",
+                "ci", "code-loop", "design-loop", "kill", "signoff", "bound-tests",
                 "daily-wrapper", "ledger-growth",
                 # #19 S1:擋人/放行/被跳過的事件會用到這兩個閘名(code-loop 已在上面)
                 "anchor", "pitfalls",
@@ -12914,7 +13185,9 @@ def _kill_recipe_key(node, invariant, file, old):
     用 json.dumps 序列化再雜湊:直接串接會讓 ("a","bc") 跟 ("ab","c") 撞在一起。"""
     import hashlib
     import json
-    return hashlib.sha256(json.dumps([node, invariant, file, old], ensure_ascii=False).encode("utf-8")).hexdigest()
+    # surrogatepass:欄位帶落單替身字元時不崩潰,其他配方的身分不變(Projects/殺傷力配方修補體驗_計劃)
+    return hashlib.sha256(json.dumps([node, invariant, file, old], ensure_ascii=False)
+                          .encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def _kill_method_name(test, multiplatform):
@@ -12941,7 +13214,7 @@ def _kill_recipe_id(node, elem):
     if isinstance(elem, dict) and all(isinstance(elem.get(k), str) for k in ("invariant", "file", "old")):
         return _kill_recipe_key(node, elem["invariant"], elem["file"], elem["old"])
     return hashlib.sha256(json.dumps(["malformed", node, elem], ensure_ascii=False, sort_keys=True)
-                          .encode("utf-8")).hexdigest()
+                          .encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def _kill_node_arg(rel):
@@ -13321,9 +13594,15 @@ def cmd_guard_kill_add(env, node, invariant_substr, file, old, new, test=None,
     同一條配方(`_kill_recipe_key` 相同)已存在時:有帶 covers、new 相同、note/platform/test 沒帶或跟既有相同
     → 只把 covers 換成這次的清單;其他情況照舊擋(Projects/併發與效能表態要合約背書_計劃)。
     寫入成功後(放掉寫入鎖)會驗這條配方的原文在程式裡是不是恰好一次,不是就在標準錯誤多印一行提醒
-    (Projects/殺傷力配方失配提醒_計劃)。"""
+    (Projects/殺傷力配方失配提醒_計劃)。--old 或 --new 整欄等於 kill-rm 範本的待填字樣就擋下(還沒填完、不是配方;
+    Projects/殺傷力配方修補體驗_計劃)。"""
     if old == new:
         print("擋下:要替換的舊字串和新字串一模一樣,這個突變配方等於沒改", file=sys.stderr)
+        return 2
+    if _kill_is_placeholder(old) or _kill_is_placeholder(new):
+        # 待填字樣原樣寫進去,guard kill 會把程式換成這串字、語法錯誤讓測試變紅,被判成殺得掉
+        # (Projects/殺傷力配方修補體驗_計劃 S4;只擋整欄等於,含有照寫)
+        print("擋下:範本的待填欄還沒填——--old 要填現在程式裡的原文、--new 要填照新原文改寫的壞法", file=sys.stderr)
         return 2
     covers_list = None
     if covers is not None:
@@ -13481,6 +13760,19 @@ def _guard_kill_add_locked(env, rel, invariant_substr, file, old, new, test, tes
     return 0
 
 
+_KILL_PH_OLD = "<照現在的程式填原文>"      # kill-rm 範本的兩個待填欄(kill-add 看到整欄等於它們就擋)
+_KILL_PH_NEW = "<照新原文改寫的壞法>"
+
+
+def _kill_is_placeholder(v):
+    """整欄(去掉前後空白與一對外圍單引號——範本用的就是單引號)等於範本的待填字樣;只是含有這串字的不算
+    (lumos 自己產生範本那行程式就含)。不剝雙引號:程式裡用雙引號包住待填字樣的字串是合法原文(代碼審第 1 輪)。"""
+    t = str(v).strip()
+    if len(t) >= 2 and t[0] == t[-1] == "'":
+        t = t[1:-1].strip()
+    return t in (_KILL_PH_OLD, _KILL_PH_NEW)
+
+
 def _kill_add_template(node_arg, r):
     """被移除的配方 → 一行照它改寫後重新宣告的 kill-add 範本(原文那一欄留給人照現在的程式填)。"""
     import shlex
@@ -13493,7 +13785,7 @@ def _kill_add_template(node_arg, r):
     def val(k, placeholder):
         return q(r[k]) if ok(r.get(k)) else placeholder
     parts = ["lumos guard kill-add", node_arg, val("invariant", "'<KEY 行片段>'"),
-             "--file", val("file", "'<檔>'"), "--old", "'<照現在的程式填原文>'", "--new", val("new", "'<壞法>'")]
+             "--file", val("file", "'<檔>'"), "--old", f"'{_KILL_PH_OLD}'", "--new", f"'{_KILL_PH_NEW}'"]
     for k in ("test", "platform", "note"):
         if isinstance(r.get(k), str) and r[k]:
             parts += [f"--{k}", q(r[k]) if ok(r[k]) else f"'<{k} 含控制字元,看上面的完整內容>'"]
@@ -13514,11 +13806,14 @@ def cmd_guard_kill_rm(env, node, rid):
     (配方身分含原文,不先移掉舊的就改不了)。rid=短身分(doctor P2 或 kill-add 提醒印的那串),至少 8 個十六進位字元。
     對到零條、或對到不同完整身分的多條 → 擋下 rc2;對到的全是同一完整身分(手改造成的重複)→ 一起移除。
     移除前把每一條的完整內容與 kill-add 範本印到標準輸出;剩下的配方都對不到的 KEY 行拿掉 [kill:recipes]。
-    kill-log 的舊紀錄不刪(歷史帳;背書計算本來就只認筆記現有的配方)。"""
+    kill-log 的舊紀錄不刪(歷史帳;背書計算本來就只認筆記現有的配方)。
+    rid 是 None(沒帶 --id)→ 唯讀列出這篇每條配方的短身分(不拿寫入鎖、不寫檔;Projects/殺傷力配方修補體驗_計劃)。"""
+    if rid is None:
+        return _guard_kill_rm_list(env, node)
     pre = str(rid or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{8,64}", pre):
-        print(f"擋下:--id 要給 8 到 64 個十六進位字元的配方短身分(收到 {rid!r});doctor --verbose 的 P2 段"
-              "與 kill-add 提醒的修法裡都有印,給太短容易移錯", file=sys.stderr)
+        print(f"擋下:--id 要給 8 到 64 個十六進位字元的配方短身分(收到 {rid!r});不帶 --id 跑一次會列出這篇每條的短身分,"
+              "doctor --verbose 的 P2 段與 kill-add 提醒的修法裡也有印,給太短容易移錯", file=sys.stderr)
         return 2
     rel = env.find(node)
     if rel is None:
@@ -13526,6 +13821,49 @@ def cmd_guard_kill_rm(env, node, rid):
         return 2
     with _vault_write_lock(env.vault):     # 讀—改—寫整段拿鎖(跟 kill-add 同一把)
         return _guard_kill_rm_locked(env, rel, pre)
+
+
+def _guard_kill_rm_list(env, node):
+    """kill-rm 沒帶 --id:唯讀列出這篇每條配方的短身分、合約片段、檔、原文開頭、test、平台(不拿鎖、不寫檔)。"""
+    import json
+    rel = env.find(node)
+    if rel is None:
+        print(f"擋下:圖譜裡找不到叫 {node} 的筆記,先確認名稱或路徑(lumos search <關鍵字> 可以找)", file=sys.stderr)
+        return 2
+    recipes, err = _kill_read_recipes(env.vault / rel)
+    if recipes is None:
+        print(f"擋下:{_kill_esc(err)}", file=sys.stderr)
+        return 2
+    if not recipes:
+        print("這篇沒有殺傷力配方")
+        return 0
+    rows = {}
+    for r in recipes:                              # 同一完整身分合成一行,各欄取第一條
+        rid = _kill_recipe_id(str(rel), r)
+        rows.setdefault(rid, [r, 0])[1] += 1
+    for rid, (r, n) in rows.items():
+        dup = f"  (同一條 ×{n},移除會一起移掉)" if n > 1 else ""
+        if not isinstance(r, dict):
+            body = json.dumps(r, ensure_ascii=False, sort_keys=True)
+            print(f"{rid[:12]}  格式壞:{_kill_show(body[:60])}{dup}")
+            continue
+        print(f"{rid[:12]}  合約 {_kill_list_cell(r, 'invariant', 30)}  檔 {_kill_list_cell(r, 'file')}"
+              f"  原文 {_kill_list_cell(r, 'old', 30)}  test {_kill_list_cell(r, 'test')}"
+              f"  平台 {_kill_list_cell(r, 'platform', empty='(預設)')}{dup}")
+    print(f"移除:lumos guard kill-rm {_kill_node_arg(rel)} --id <短身分>")
+    return 0
+
+
+def _kill_list_cell(r, k, cut=0, empty="(缺)"):
+    """列出的一欄:沒有或 null 印 empty(平台空字串也算沒寫);不是字串印型別;字串先截字(截了加 …)再跳脫。"""
+    v = r.get(k)
+    if v is None or (k == "platform" and v == ""):
+        return empty
+    if not isinstance(v, str):
+        return f"(不是字串:{type(v).__name__})"
+    if cut and len(v) > cut:
+        v = v[:cut] + "…"
+    return _kill_show(v)
 
 
 def _guard_kill_rm_locked(env, rel, pre):
@@ -13543,7 +13881,7 @@ def _guard_kill_rm_locked(env, rel, pre):
     ids = [_kill_recipe_id(str(rel), r) for r in recipes]
     hit = sorted({i for i in ids if i.startswith(pre)})
     if not hit:
-        print(f"擋下:{rel} 的配方裡沒有身分以 {pre} 開頭的(lumos doctor --verbose 的 P2 段逐條列出的配方,修法裡都有短身分)", file=sys.stderr)
+        print(f"擋下:{rel} 的配方裡沒有身分以 {pre} 開頭的(不帶 --id 跑一次會列出這篇每條的短身分)", file=sys.stderr)
         return 2
     if len(hit) > 1:
         print(f"擋下:{pre} 對到 {len(hit)} 條不同的配方,分不清要移哪一條;給長一點的身分:", file=sys.stderr)
@@ -13562,7 +13900,8 @@ def _guard_kill_rm_locked(env, rel, pre):
         return 2
     tail = f";{unmarked} 條 KEY 行已經沒有配方對得到,拿掉了 [kill:recipes] 標記" if unmarked else ""
     print(f"✓ 從 {rel} 移除了 {len(gone)} 條配方{tail}")
-    print("  下一步:照上面的範本填好原文 kill-add 改寫後的配方,把程式與筆記提交後跑 lumos guard kill 確認真的殺得掉")
+    print("  下一步:照上面的範本填好原文(--old)與照新原文改寫的壞法(--new)再 kill-add,"
+          "把程式與筆記提交後跑 lumos guard kill 確認真的殺得掉")
     return 0
 
 
@@ -13669,6 +14008,37 @@ def _kill_run(cmd, cwd, timeout, keep_re=None):
 
 
 _KILL_OUT_CAP = 256 * 1024
+
+
+def _kill_wait_new_second(state):
+    """guard kill 寫檔(套壞法、還原)之前:等到現在跟同一組上一次寫檔、上一次跑測試結束都不同秒,最多等 3 秒
+    (時鐘往回撥時不空轉)。測試工具靠「修改時間到秒 + 大小」判斷要不要重編(Python 編譯快取、macOS 內建 make),
+    同一秒寫出同大小的檔會沿用上一次的編譯結果(Projects/殺傷力驗證編譯快取誤判_計劃)。"""
+    deadline = time.time() + 3.0
+    while int(time.time()) <= max(state["w"], state["r"]) and time.time() < deadline:
+        time.sleep(0.05)
+
+
+def _kill_after_write(path, state):
+    """寫檔之後讀回修改時間:晚於上一次寫檔與上一次測試結束(取大者)就記進 state["w"]、回 True;
+    否則等 1 秒、把修改時間碰成現在(不設未來時間)再讀回,最多 3 次(只到 2 秒的檔案系統,例:FAT);都不行回 False。"""
+    floor = max(state["w"], state["r"])
+    for i in range(4):
+        try:
+            mt = int(os.stat(path).st_mtime)
+        except OSError:
+            return False
+        if mt > floor:
+            state["w"] = mt
+            return True
+        if i == 3:
+            return False
+        time.sleep(1.0)
+        try:
+            os.utime(path)
+        except OSError:
+            return False
+    return False
 
 
 def _kill_cap(txt, keep_re=None):
@@ -13786,6 +14156,10 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
                                          capture_output=True, text=True, errors="replace").stdout.strip())
     except OSError:
         node_dirty = False
+    # 每條配方先帶上 kill-rm 認得的短身分(用原配方算;Projects/殺傷力配方修補體驗_計劃):
+    # 後面 9 個組結果的地方 {**r, …} 自然帶上,人讀輸出印 id=,--json 前濾掉
+    recipes = [{**r, "_rid": _kill_recipe_id(str(rel), r)} if isinstance(r, dict) else r for r in recipes]
+    mt_warned = [False]   # 修改時間沒錯開的提醒整次只印一次
     # 依 platform 分組(每平台一個 worktree + baseline per test)
     groups = {}
     for r in recipes:
@@ -13839,6 +14213,8 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
             wt_ok = True
             wt_real = os.path.realpath(wt)
             baselines = {}
+            # 上一次寫檔讀回的秒、上一次跑測試結束的秒;unsure=還原後修改時間沒錯開、之後也還沒成功重寫的檔(編譯快取誤判_計劃)
+            mstate = {"w": 0, "r": 0, "unsure": set()}
             for r in plist:
                 method = _kill_method_name(r.get("test", ""), pdata.get("multiplatform"))   # 去平台前綴、Kotlin 反引號拆殼後進白名單
                 if not _KILL_METHOD_OK_RE.fullmatch(method or ""):
@@ -13849,8 +14225,10 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
                 note_ws = "" if "{method}" in run_cmd else " whole-suite"
                 if cmd not in baselines:
                     b_rc, b_tail, b_elapsed, b_to = _kill_run(cmd, wt, max(600.0, floor))
-                    baselines[cmd] = (b_rc, b_tail, b_elapsed, b_to)
-                b_rc, b_tail, b_elapsed, b_to = baselines[cmd]
+                    mstate["r"] = int(time.time())   # 每個測試指令的 baseline 都記(夾在配方之間)
+                    # 跑 baseline 時還有還原沒錯開的檔:這份 baseline 可能吃到舊快取,之後沿用它的配方都記弱證據(代碼審第 3 輪正確性席)
+                    baselines[cmd] = (b_rc, b_tail, b_elapsed, b_to, bool(mstate["unsure"]))
+                b_rc, b_tail, b_elapsed, b_to, b_unsure = baselines[cmd]
                 if b_to or b_rc != 0:
                     results.append({**r, "platform": plat, "verdict": "abort",
                                     "detail": f"baseline 非綠(rc={b_rc}){note_ws}", "tail": b_tail[-200:]})
@@ -13873,16 +14251,32 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
                     results.append({**r, "platform": plat, "verdict": "drifted",
                                     "detail": f"old 命中 {cnt} 次(需恰 1——配方漂移,重寫)"})
                     continue
+                _kill_wait_new_second(mstate)
                 with open(target, "w", encoding="utf-8") as _tf:
                     _tf.write(src.replace(r["old"], r["new"], 1))
+                # 有還原沒錯開的檔還沒被成功重寫:之後每一條測試都可能 import 到它的舊快取,一律算進來(代碼審第 1、2 輪正確性席)
+                mt_ok = _kill_after_write(target, mstate)
+                if mt_ok:
+                    mstate["unsure"].discard(target)
+                mt_ok = mt_ok and not mstate["unsure"] and not b_unsure
                 m_timeout = max(b_elapsed * 5, floor)
                 m_rc, m_tail, _me, m_to = _kill_run(cmd, wt, m_timeout)
-                rv = subprocess.run(["git", "-C", wt, "checkout", "--", r.get("file", "")],
+                mstate["r"] = int(time.time())
+                # 還原前也要等:測試跑得快時,還原寫回的檔可能跟壞法同一秒、同大小,下一條改別的檔、測試卻 import 這支時會吃到壞法的快取
+                _kill_wait_new_second(mstate)
+                # 還原解開連結後實際被改的那支檔(照字面認路徑):原本用配方寫的字串,file 是連結時只還原連結本身、
+                # 真檔一直停在壞法,同組後面的配方被判成強證據的 killed(代碼審第 3 輪正確性、資安席;改動前就有)
+                rv = subprocess.run(["git", "-C", wt, "checkout", "--", ":(literal)" + os.path.relpath(target, wt_real)],
                                     capture_output=True)
                 if rv.returncode != 0:
                     results.append({**r, "platform": plat, "verdict": "error",
                                     "detail": "revert 失敗——後續同組配方作廢防污染"})
                     break   # 樹已髒,本組終止(worktree 在 finally 清)
+                if _kill_after_write(target, mstate):
+                    mstate["unsure"].discard(target)
+                else:
+                    mt_ok = False
+                    mstate["unsure"].add(target)   # 還原沒錯開:這支檔重寫成功之前,這一組後面每一條都記弱證據
                 attr_excerpt = ""
                 if m_to:
                     # [S3] timeout 降弱證據(不再計 killed):掛掉可能是環境非變異
@@ -13893,6 +14287,13 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
                 else:
                     verdict = "survived"
                 res = {**r, "platform": plat, "verdict": verdict}
+                if not mt_ok:
+                    # 修改時間沒能跟上一次錯開:可能吃到舊的編譯結果——弱證據(收尾重算 weak 時算進去,迴圈裡直接設會被蓋掉)
+                    res["_mtime_unsure"] = True
+                    if not mt_warned[0]:
+                        mt_warned[0] = True
+                        print("⚠ 有配方寫檔後修改時間沒能跟上一次錯開(檔案系統時間精度太粗或時鐘異常),結果可能吃到舊的編譯快取,"
+                              "這些結果記成弱證據", file=sys.stderr)
                 if attr_excerpt:
                     res["attr_excerpt"] = attr_excerpt
                 if verdict == "killed_unattributed":
@@ -13925,7 +14326,7 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
             res.setdefault("head_sha", mk["head"])
             res["recipe_id"] = _kill_recipe_key(str(rel), res.get("invariant"), res.get("file"), res.get("old"))
             res["covers"] = [c for c in (res.get("covers") or []) if isinstance(c, str)]
-            res["weak"] = bool(mk["ws"] or mk["flaky"] or node_dirty)
+            res["weak"] = bool(mk["ws"] or mk["flaky"] or node_dirty or res.get("_mtime_unsure"))
     # 留痕(docs/.kill-log.jsonl,gov 第 5 支 load 撈)——迴圈外:add 失敗 continue 的 error 也要進帳
     if True:
         log = env.vault.parent / ".kill-log.jsonl"
@@ -13952,7 +14353,7 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
                                     ensure_ascii=False) + "\n")
     verdicts = [r["verdict"] for r in results]
     if as_json:
-        print(json.dumps({"results": [{k: v for k, v in r.items() if k != "_logged"}
+        print(json.dumps({"results": [{k: v for k, v in r.items() if k not in ("_logged", "_rid", "_mtime_unsure")}
                                       for r in results]}, ensure_ascii=False))
     else:
         # 七態(舊 timed_out 鍵已於 2026-07-29 移除:那是六態時代的殘留死鍵,
@@ -13961,8 +14362,9 @@ def cmd_guard_kill(env, node, invariant_substr=None, platform_override=None,
                 "timed_out_weak": "⚠", "survived": "✗",
                 "drifted": "⚠", "abort": "⚠", "error": "⚠"}
         for r in results:
-            print(f"{icon.get(r['verdict'],'?')} {r['verdict']:<9} {r.get('invariant','')[:30]}"
-                  f" [{r.get('test','')}] {r.get('detail','')}")
+            # id= 放在人寫的欄位前面(test 名、說明可能夾換行偽造一個 id,偽造的只會出現在真的後面)
+            print(f"{icon.get(r['verdict'],'?')} {r['verdict']:<9} id={str(r.get('_rid', ''))[:12]} "
+                  f"{str(r.get('invariant', ''))[:30]} [{r.get('test','')}] {r.get('detail','')}")
     if "survived" in verdicts:
         print("✗ 有配方 SURVIVED——綁定測試接不住宣告的壞法(稻草人證據),補強測試", file=sys.stderr)
         return 1
@@ -16529,7 +16931,8 @@ def cmd_decision_add(env, rel, content, decided, context=None, why=None):
                    and needle in nfc(str(d.get("content", "")))
                    for d in parse_decisions(_fm_of(new_lines)))
     atomic_write_verify(path, new_lines, "decisions", _check)
-    print(f"✓ decision-add {rel}: 記下一條決策「{content[:30]}」(編號 {new_id},目前有效)")
+    # 全域編號也印出來(筆記格子 [被取代:] 要寫 節點路徑#dN,只印 d3 會讓人抄到裸編號;Projects/筆記格子寫法與過期檢查_計劃)
+    print(f"✓ decision-add {rel}: 記下一條決策「{content[:30]}」(編號 {new_id},全域編號 {rel}#{new_id},目前有效)")
     return 0, f"{rel}#{new_id}"
 
 
@@ -17358,7 +17761,7 @@ TEMPLATES = {
 # new 後印出的「寫入當下教學」:符號行怎麼填 + 合約鏈,讓正確格式在執行 CLI 的此刻就在 context。
 NEW_HINT = {
     "system": [
-        "骨架建好了,摘要那幾行還是空的,要自己填:FLOW:<流程 a→b→c>  KEY:<關鍵概念/欄位>  DEP:[[依賴模組]]  TEST:<測試狀態>",
+        "骨架建好了,摘要那幾行還是空的,要自己填(格子寫法看 CLAUDE.md〈寫筆記時〉):程式碼推不推得出來先分,脈絡寫 WHY:/RULE:/PITFALL:,只放連結寫 SEE:[[依賴模組]],TEST:<測試狀態>;骨架留的空 FLOW:/KEY:/DEP: 用不到就刪",
         "要標「動了會壞」的合約,寫在 KEY 行最前面:★INVARIANT★ 是業務合約(改了就是破壞性變更),一定要綁測試 [test:測試名],再讓不知道脈絡的人審過留 [audit:];★DEBT★ 是可以改的技術債",
         "  綁測試、留審計別手改檔案,用指令:\n    lumos guard bind <節點> \"<KEY 片段>\" <測試名>\n    lumos guard audit <節點> \"<KEY 片段>\"",
         "牽涉做了就回不去的動作(正式環境遷移、上架)要標 ★IRREVERSIBLE★ 並加 [rollback:decisions] 寫怎麼退;改了難救但還救得回的標 ★CHECKPOINT★;退不了的外部動作(信已寄、下游已吃)改用 [guard:decisions] 寫怎麼防重複",
@@ -25905,7 +26308,11 @@ def _ns_check_line(repo_root, text, region, files, reader, top_dirs, by_name, re
         body = text.strip()[len(m.group(1)) + 1:].strip() if m else ""
         # 骨架留的空前綴(lumos new 產的 FLOW:/DEP:)不是現況描述;只放連結的指路行只給 FLOW/DEP(代碼審 r1、r2)
         skip = (not body) or (m and m.group(1) in ("FLOW", "DEP") and _NS_POINTER_ONLY_RE.match(body))
-        if m and not skip:
+        if m and m.group(1) == "SEE" and body and ("[[" not in body or not _NS_POINTER_ONLY_RE.match(body)):
+            # SEE 是只放連結的 DEP;夾了句子就是換個前綴繞過「現況描述要帶來源」(代碼審 code-筆記格子第0步 r1)
+            out.append(("SEE 只放連結", text.strip()[:60],
+                        "SEE 只放 [[連結]](別名與段落不收);要寫現況改用 FACT: 並帶 [來源:部署|資料庫|生產|外部|人工]"))
+        elif m and not skip:
             for _w in context_marker_warnings(text, rules=_NOTE_SHAPE_PREFIX_RULES):
                 out.append(("現況描述沒寫來源", text.strip()[:60],
                             "只准寫程式碼答不了的現況並帶 [來源:部署|資料庫|生產|外部|人工];程式碼查得到的就刪掉"))
@@ -26182,12 +26589,121 @@ def _ns_negation_doctor_lines(cfg_text):
     return r["warns"][:1] if r["bad_value"] else []
 
 
+# ★筆記前綴的結構性提醒★(Projects/筆記標籤_過時判定與按需載入_計劃〈結構性提醒〉第 0 步:W4 RULE 生命週期)
+# 自成一套,照否定現況句提醒的路但不共用它的容器與開關:子開關 note_shape.tag_hints(warn 預設 / off),
+# 只在提交前算、不進違規清單、不改回傳碼;出錯只印一句,不影響否定現況句提醒與判定(計劃 [S4][S7])。
+# 判定沿用既有 rule_lifecycle_warnings,不另寫;只看這次新寫的摘要 RULE 行(上線點之前的舊行不提醒)。
+_NS_TAG_MODES = ("warn", "off")
+
+
+def _note_shape_tag_hints_parse(text):
+    """note_shape.tag_hints → {mode, warns, bad_value};寫法同 _note_shape_negation_parse(看不懂照 warn 並講一句)。"""
+    def _r(mode, warns=(), bad_value=False):
+        return {"mode": mode, "warns": list(warns), "bad_value": bad_value}
+    if text is None:
+        return _r("warn")
+    raw = text.decode("utf-8-sig", errors="replace") if isinstance(text, (bytes, bytearray)) else str(text)
+    try:
+        data = json.loads(raw)
+    except Exception as e:
+        return _r("warn", [f".lumos/config.json 讀不了({e.__class__.__name__}),筆記前綴提醒照預設 warn"])
+    ns = data.get("note_shape") if isinstance(data, dict) else None
+    if ns is None:
+        return _r("warn")
+    if not isinstance(ns, dict):
+        return _r("warn", ["設定檔的 note_shape 不是物件,筆記前綴提醒照預設 warn"])
+    v = ns.get("tag_hints")
+    if v is None:
+        return _r("warn")
+    if not isinstance(v, str) or v not in _NS_TAG_MODES:
+        return _r("warn", [f"note_shape.tag_hints={json.dumps(v, ensure_ascii=False)} 看不懂(只認小寫 warn/off),照 warn"], True)
+    return _r(v)
+
+
+def _ns_tag_hints_prepare(cfg_text):
+    """提交前讀 note_shape.tag_hints → (容器或 None, 設定提醒, 失敗的例外類別名或 None);off 就不給容器。"""
+    try:
+        r = _note_shape_tag_hints_parse(cfg_text)
+    except Exception as e:
+        return None, [], e.__class__.__name__
+    return ({"items": [], "error": None, "seen": 0} if r["mode"] != "off" else None), r["warns"], None
+
+
+def _ns_tag_hints_collect(tags, p, text, rows):
+    """_note_shape_eval 逐篇呼叫:新寫的摘要 RULE 行跑 rule_lifecycle_warnings;丟例外就清空、記類別名、這次不再算。"""
+    if tags is None or tags.get("error") is not None:
+        return
+    try:
+        for i, ln, reg in rows:
+            if reg != "summary":
+                continue
+            tags["seen"] = tags.get("seen", 0) + 1
+            line = ln.strip()
+            if line.startswith("RULE:"):
+                tags["items"].extend((p, i, "W4", w) for w in _ns_rule_hints(line[len("RULE:"):]))
+    except Exception as e:
+        tags["items"] = []
+        tags["error"] = e.__class__.__name__
+
+
+def _ns_rule_hints(rest):
+    """一條新寫的 RULE 該提醒什麼:新文法的行照筆記格子查(提交時才查未來日期)再加日期到期;舊寫法照既有生命週期檢查。
+    (代碼審 code-筆記格子第0步 r1 正確性席:原本只跑 rule_lifecycle_warnings,範本教的新寫法缺鍵一個字都不唸。)"""
+    if slot_is_new(rest):
+        return ([f"筆記格子『RULE:』{w}" for w in slot_check("RULE", rest, commit_time=True)]   # 字樣同 lint 那條路
+                + rule_lifecycle_warnings(rest))
+    return rule_lifecycle_warnings(rest)
+
+
+def _ns_tag_hints_collected(tags, warns, fail):
+    """eval 之後 → (要印的提醒, 失敗的例外類別名或 None)。設定的提醒只在這次有新寫的摘要行時印(同否定現況句)。"""
+    if tags is None:
+        return [], fail
+    fail = fail or tags.get("error")
+    if tags.get("seen"):
+        for w in warns:
+            print(f"提醒:{w}", file=sys.stderr)
+    return ([] if fail else sorted(tags["items"], key=lambda x: (x[0], x[1]))), fail
+
+
+def _ns_tag_hints_emit(root, items, fail):
+    """印筆記前綴提醒並記一筆 hinted 帳(check=tag-hints、規則名、幾行、幾篇);任何一步出錯只印一句。★不回傳、不改判定★。"""
+    if fail:
+        print(f"提醒:筆記前綴提醒這次沒跑完({fail}),不影響這道檢查的判定", file=sys.stderr)
+        return
+    if not items:
+        return
+    try:
+        out = [f"提醒:這次提交新寫的摘要行有 {len(items)} 處前綴寫法要補(note_shape.tag_hints=warn,不擋):"]
+        out += [f"  {p}:{n}  {w}" for p, n, _r, w in items]
+        out.append("關掉這個提醒:.lumos/config.json 的 note_shape.tag_hints 設成 off")
+        print("\n".join(out), file=sys.stderr)
+        rules = sorted({r for _p, _n, r, _w in items})
+        _gate_event_or_warn(root, "note-shape", "hinted", f"這次提交:筆記前綴提醒 {len(items)} 處",
+                            extra={"check": "tag-hints", "rules": rules, "lines": len(items),
+                                   "notes": len({x[0] for x in items})})
+    except Exception as e:
+        print(f"提醒:筆記前綴提醒這次沒跑完({e.__class__.__name__}),不影響這道檢查的判定", file=sys.stderr)
+
+
+def _ns_tag_hints_doctor_lines(cfg_text):
+    """doctor 的一行:note_shape.tag_hints 是 off 或寫了看不懂的值才講(照否定現況句的先例)。"""
+    try:
+        r = _note_shape_tag_hints_parse(cfg_text)
+    except Exception:
+        return []
+    if r["mode"] == "off":
+        return ["這個專案把筆記前綴提醒關掉了(note_shape.tag_hints=off)"]
+    return r["warns"][:1] if r["bad_value"] else []
+
+
 def _note_shape_eval(repo_root, staged, base_where, tip_where, vault_rel, exclude_remote=True, mark=None, max_count=None,
-                     hints=None):
+                     hints=None, tags=None):
     """算這次的違規 → (violations[(筆記路徑, 行號, 規則, 片段, 改法)], errors[訊息])。
     hints:只有 cmd_note_shape 在 --staged、negation 不是 off 時傳 {"items": [], "error": None, "seen": 0};
     逐篇多算一次否定現況句提醒放進 items(★不進 violations,回傳值照舊兩個★),seen=要判的正文與摘要新行數。
-    提醒丟例外就清空 items、error 記例外類別名、這次提交不再算(提醒失敗不能讓閘失敗)。"""
+    提醒丟例外就清空 items、error 記例外類別名、這次提交不再算(提醒失敗不能讓閘失敗)。
+    tags:筆記前綴提醒的容器(同 hints 的規矩,各自隔離;_ns_tag_hints_collect)。"""
     reader = _nodehome_reader(repo_root, tip_where)
     lst = _nodehome_list(repo_root, tip_where)
     if lst is None:
@@ -26223,6 +26739,7 @@ def _note_shape_eval(repo_root, staged, base_where, tip_where, vault_rel, exclud
             for rule, frag, fix in _ns_revisit_violations(ln, reg, i in vis):
                 viol.append((p, i, rule, frag, fix))
         _ns_negation_collect(hints, p, text, rows)
+        _ns_tag_hints_collect(tags, p, text, rows)
     # 2) 新程式檔喚醒舊引用(筆記這次沒改也查;上線點版本裡就有的那行是舊帳,不算)
     became = _ns_became_code(repo_root, base_where if not staged else _lens_full_sha(repo_root, "HEAD"),
                              tip_where, reader)
@@ -26286,6 +26803,7 @@ def _note_shape_doctor_lines(repo_root, vault, ci=False):
                    "沒寫來源的現況描述不會被擋")
     # 否定現況句提醒的子開關:放在 ci 返回之前,推送前與 CI 路徑每次都唸(照 drift_check.old_sentence 那行)
     out += _ns_negation_doctor_lines(txt)
+    out += _ns_tag_hints_doctor_lines(txt)
     wf = root / ".github" / "workflows"
     ymls = sorted(list(wf.glob("*.yml")) + list(wf.glob("*.yaml"))) if wf.is_dir() else []
     if ymls:
@@ -26425,7 +26943,8 @@ def cmd_note_shape(repo=None, staged=False, diff_range=None):
     # 否定現況句提醒(Projects/否定現況句配回頭條件_計劃〈做法〉3):只在提交前算;讀開關在 eval 之前,off 就不傳 hints。
     # 讀設定、判定、組字樣、印出、記帳全包在 try 裡——提醒失敗只印一句,rc 照既有判定(掛鉤對 rc1 會擋提交)
     hints, neg_mode, neg_warns, neg_fail = _ns_negation_prepare(cfg_text) if staged else (None, "warn", [], None)
-    res = _note_shape_eval(root, staged, base_where, tip_where, vault_rel, hints=hints)
+    tags, tag_warns, tag_fail = _ns_tag_hints_prepare(cfg_text) if staged else (None, [], None)
+    res = _note_shape_eval(root, staged, base_where, tip_where, vault_rel, hints=hints, tags=tags)
     if res is None:
         print("筆記形狀擋:git 算不出這次的改動,跳過(fail-open)", file=sys.stderr)
         return 0
@@ -26434,6 +26953,8 @@ def cmd_note_shape(repo=None, staged=False, diff_range=None):
     rc = _note_shape_report(root, mode, mode_word, viol, errs) if (viol or errs) else 0
     if neg_items or neg_fail:
         _note_shape_negation_emit(root, neg_items, neg_mode, neg_fail)
+    tag_items, tag_fail = _ns_tag_hints_collected(tags, tag_warns, tag_fail)
+    _ns_tag_hints_emit(root, tag_items, tag_fail)
     return rc
 
 
@@ -40235,7 +40756,7 @@ HELP_WHEN = {
     "audit": "某條合約被不知道脈絡的人審過了,留 [audit:] 戳記。",
     "trace": "某條合約 → 守衛測試 → 驗證紀錄的證據鏈,反向可查爆炸半徑。",
     "kill-add": "宣告一個「故意弄壞」的配方,給 kill 驗測試守不守得住。",
-    "kill-rm": "配方失配了(doctor P2 或 kill-add 提醒說原文找不到/不只一處)要改寫時,先用它移掉舊的那條,再照印出的範本 kill-add。",
+    "kill-rm": "配方失配了(doctor P2 或 kill-add 提醒說原文找不到/不只一處)要改寫時,先用它移掉舊的那條,再照印出的範本 kill-add;不帶 --id 跑一次列出這篇每條的短身分。",
     "kill": "在隔離副本套壞法,綁的測試必須翻紅;沒翻紅=那條測試是裝飾。",
     "spec-gate": "設計寫完先過這道:條款句式合不合一條文法、每條綁了 [test:]/[manual:] 沒、回退節夠不夠;綁的測試真跑一次印紅綠(不擋)。",
     "spec-trace": "計劃的驗收條款每條綁了測試沒(綁了/靠人/未標/懸空);舊制「驗證紀錄認領」欄照印當對照。",
@@ -40732,8 +41253,8 @@ def main():
                           "同一條配方已存在時只更新它的 covers")
     gkr = gsub.add_parser("kill-rm", help="移除一條殺傷力配方(失配配方的修法:先移掉舊的、再照現在的程式 kill-add;同檔原子寫)")
     gkr.add_argument("node")
-    gkr.add_argument("--id", dest="gkr_id", required=True,
-                     help="配方短身分(doctor P2 段或 kill-add 提醒印的那串),至少 8 個十六進位字元")
+    gkr.add_argument("--id", dest="gkr_id", default=None,
+                     help="配方短身分(8 到 64 個十六進位字元);不帶就列出這篇每條配方的短身分(唯讀)")
     gk = gsub.add_parser("kill", help="跑殺傷力驗證:worktree 隔離→baseline 綠→套壞法→綁定測試必須翻紅")
     gk.add_argument("node")
     gk.add_argument("invariant", nargs="?", help="限某合約(KEY 行子字串;預設全部配方)")

@@ -18960,6 +18960,8 @@ def t_template_keeps_absence_claim_guard():
 _NOTE_CONVENTION_FILES = (
     "skills/lumos-project-notes/SKILL.md",
     "skills/lumos-project-notes/commands/03-寫回圖譜.md",
+    # 2026-10-01 筆記格子第 0 步:reference.md 原本有兩張舊的前綴表(含 WHY/RULE 的舊寫法範例),改成指回範本
+    "skills/lumos-project-notes/reference.md",
 )
 
 
@@ -30255,6 +30257,338 @@ def t_symbol_vocab_single_source_and_reach():
     check("不是符號宣告的行不誤抓(小寫/中文開頭)",
           R.match("key:x") is None and R.match("這是中文:x") is None, "")
     print("  ✓ t_symbol_vocab_single_source_and_reach")
+
+
+def t_slots_see_prefix_and_links():
+    """[S14] Projects/筆記格子寫法與過期檢查_計劃:SEE 進摘要前綴表;算計劃連結的程式也讀 SEE 行。
+    翻紅釘:①從 SYMBOL_NAMES 拿掉 SEE → 第 1、2 條紅 ②_plan_system_links 只認 DEP: → 第 3 條紅
+    ③_ns_check_line 拿掉 SEE 那段 → 「SEE 夾句子提交時擋」紅"""
+    m = _load_lumos_inproc()
+    check("SEE 在詞彙表裡", "SEE" in m.SYMBOL_NAMES, str(sorted(m.SYMBOL_NAMES)))
+    R = m.SYMBOLISH_RE
+    check("SEE: 不被 lint 當成打錯字", R.match("SEE:[[Systems/a]]").group(1) in m.SYMBOL_NAMES, "")
+    text = ("---\ntype: project\nstatus: doing\nsummary: |-\n"
+            "  SEE:[[Systems/甲]]、[[Systems/乙|別名]]\n"
+            "  DEP:[[Systems/丙]]\n"
+            "  WHY:提到 [[Systems/丁]] 不算連到\n---\n# x\n")
+    n = m._note_from_text("Projects/x_計劃.md", text, 0)
+    got = m._plan_system_links(n)
+    check("★SEE 行的連結算進計劃連到的節點★", got == ["Systems/甲", "Systems/乙", "Systems/丙"], str(got))
+    # SEE 夾句子:提交時擋(不然換個前綴就繞過「現況描述要帶來源」;代碼審 code-筆記格子第0步 r1 正確性席 C6)
+    root = _ns_repo()
+    _ns_note(root, summary="KEY:x\nSEE:Redis 連線上限是 200")
+    _ns_stage(root)
+    rc, out = _ns(root)
+    check("★SEE 夾句子提交時擋★", rc == 1 and "SEE 只放連結" in out, out[-400:])
+    _ns_reset(root)
+    _ns_note(root, summary="KEY:x\nSEE:見")
+    _ns_stage(root)
+    rc, out = _ns(root)
+    check("SEE 只有分隔字沒有連結也擋(跟 lint 同一判準)", rc == 1 and "SEE 只放連結" in out, out[-400:])
+    _ns_reset(root)
+    _ns_note(root, summary="KEY:x\nSEE:[[Systems/甲]]、[[Systems/乙]]")
+    _ns_stage(root)
+    rc, out = _ns(root)
+    check("SEE 只放連結照過", rc == 0 and "SEE 只放連結" not in out, out[-400:])
+    print("  ✓ t_slots_see_prefix_and_links")
+
+
+def _slot_need_cell(prefixes, need, req, one_of, cond, enum):
+    """範本表「必有鍵」那一格 → 填進四個投影(三選一、條件式、全必有與列舉值)。"""
+    import re as _re
+    for part in need.split("；"):
+        if "三選一" in part:
+            one_of.update({pf: tuple(_re.findall(r"`\[([^:\]`]+):", part)) for pf in prefixes})
+        elif "另必有" in part:
+            m = _re.search(r"`\[([^:\]]+):([^\]]+)\]` 另必有 `\[([^:\]]+):", part)
+            cond.update((pf, m.group(1), m.group(2), m.group(3)) for pf in prefixes)
+        else:
+            for k, v in _re.findall(r"`\[([^:\]`]+):([^\]`]*)\]`", part):
+                for pf in prefixes:
+                    req.setdefault(pf, []).append(k)
+                if "|" in v:
+                    enum[k] = tuple(v.split("|"))
+
+
+def _slot_template_projection(root):
+    """紀律範本〈寫筆記時〉那張格子表 → 結構化投影(前綴 → 全必有、三選一、條件式、列舉值)。
+    範本的寫法約定:三選一寫成「`A`、`B`、`C` 三選一」,條件式寫成「`[X:值]` 另必有 `[Y:]`」,列舉寫成 `[鍵:a` 加反斜線直線再接 `b]`(表格裡的直線要跳脫)。"""
+    import re as _re
+    tpl = (root / "scripts" / "templates" / "graph-discipline.md").read_text(encoding="utf-8")
+    sec = tpl[tpl.index("### 寫筆記時"):tpl.index("### 鐵則")]
+    req, one_of, cond, enum, special = {}, {}, set(), {}, {}
+    rows = [ln for ln in sec.splitlines() if ln.startswith("| ") and not ln.startswith(("| 前綴", "|---"))]
+    for ln in rows:
+        cells = [c.strip() for c in _re.split(r"(?<!\\)\|", ln)[1:-1]]
+        prefixes = _re.findall(r"`([A-Z-]+):`", cells[0])
+        if prefixes == ["SEE"] or not prefixes:
+            special[prefixes[0] if prefixes else cells[0]] = cells[2]
+            continue
+        _slot_need_cell(prefixes, cells[2].replace("\\|", "|"), req, one_of, cond, enum)
+    return req, one_of, cond, enum, special
+
+
+def t_slots_single_table():
+    """[S11] Projects/筆記格子寫法與過期檢查_計劃:紀律範本那張格子表與程式裡的表一致(比結構化投影,不比 markdown);
+    新文法的行照新表唸、舊寫法的行照舊判準;RULE 六個鍵在新文法的行走新解析器;[防回歸:無 理由] 算有防回歸。
+    翻紅釘:①程式表或範本表任一邊改一個鍵 → 第 1~4 條紅 ②context_marker_warnings 拿掉新文法分流 → ⑤⑥紅
+    ③parse_rule_fields 拿掉 slot_is_new 那段 → ⑦紅(新文法 retire 值含 [[連結]] 會被截斷)"""
+    m = _load_lumos_inproc()
+    root = _repo_root_for_discipline()
+    req, one_of, cond, enum, special = _slot_template_projection(root)
+    check("① 全必有鍵:範本 = 程式", {k: tuple(v) for k, v in req.items()} == dict(m._SLOT_REQUIRED),
+          f"範本 {req} / 程式 {m._SLOT_REQUIRED}")
+    check("② 三選一:範本 = 程式", one_of == dict(m._SLOT_ONE_OF), f"範本 {one_of} / 程式 {m._SLOT_ONE_OF}")
+    check("③ 條件式必有:範本 = 程式", cond == set(m._SLOT_CONDITIONAL), f"範本 {cond} / 程式 {m._SLOT_CONDITIONAL}")
+    check("④ 列舉值:範本 = 程式", enum == dict(m._SLOT_ENUM), f"範本 {enum} / 程式 {m._SLOT_ENUM}")
+    check("④ SEE 列與作廢列都在範本", "[[連結]]" in special.get("SEE", "") and
+          any("[被取代:]" in v and "[status:superseded]" in v for v in special.values()), str(special))
+    import re as _re
+    tpl = (root / "scripts" / "templates" / "graph-discipline.md").read_text(encoding="utf-8")
+    sec = tpl[tpl.index("### 寫筆記時"):tpl.index("### 鐵則")]
+    _keys = set(_re.findall(r"`\[([^:\]`\[]+):", sec)) - {"被取代"} | {"被取代"}
+    check("④ 範本表與例子出現的每個鍵,程式都認得(白名單沒漏)", _keys <= set(m._SLOT_KEYS),
+          f"程式不認得:{sorted(_keys - set(m._SLOT_KEYS))}")
+    w = m.context_marker_warnings
+    check("⑤ 冒號後什麼都沒寫的骨架行 lint 不唸", w("WHY:\nRULE:\nFACT:\nPITFALL:\nSEE:") == [], str(w("WHY:\nRULE:")))
+    # ⑤ 新文法的行照新表唸
+    got = w("WHY:決定改逐行 [出處:2026-10-01 對話]\nPITFALL:會漏 [出處:a] [根因:b] [防回歸:無 純設定錯]\n"
+            "FLOW:a→b [來源:部署]")
+    check("⑤ 新文法 WHY 缺 [因:] 要唸,[防回歸:無 理由] 算有防回歸",
+          any("WHY" in x and "[因:]" in x for x in got) and not any("PITFALL" in x for x in got), str(got))
+    check("⑤ 只帶 [來源:] 的 FLOW 不算新文法、不被新表多唸(有新文法才有的鍵才算)",
+          not any("FLOW" in x for x in got), str(got))
+    # ⑥ 舊寫法的行:照舊判準、不因新表多唸
+    old = w("FLOW:a→b→c\nDEP:[[X]]\nFACT:上限 [來源:部署]\nWHY:[2026-09-21 Enzo 裁]改成程式碼為主\n"
+            "RULE:[since:2026-09-21][retire:等 [[Systems/新閘]] 上線就撤]舊限制")
+    check("⑥ 舊 FLOW/DEP/FACT/WHY 不被新表多唸", not any("筆記格子" in x for x in old), str(old))
+    check("⑥ 舊 RULE 的值被截斷照舊唸(舊行 lint 結果不變)", any("截斷" in x for x in old), str(old))
+    # ⑦ 新文法 RULE 走新解析器:值裡的 [[連結]] 讀完整
+    f = m.parse_rule_fields("限制 [依據:人] [since:2026-10-01] [retire:人裁] [until:2027-01-01] [被取代:無 x] "
+                            "[applies:看 [[Systems/甲]] 那段]")
+    check("⑦ 新文法 RULE 的欄位走新解析器,值含 [[連結]] 不截斷", f.get("applies") == "看 [[Systems/甲]] 那段", str(f))
+    print("  ✓ t_slots_single_table")
+
+
+def t_slots_field_parser():
+    """[S8] 欄位解析(第 0 步只給 lint 用;提交時的擋在第 1 步):成對方括號、反引號包值、可重複鍵、白名單外的方括號、
+    全形冒號、行內程式碼、日期格式與未來日期(只在 commit_time 查)、空前綴、撤除條件與作廢的值。
+    翻紅釘:①值的括號計層拿掉 → [[連結]] 那條紅 ②_SLOT_REPEATABLE 清空 → 兩個 [test:] 那條紅
+    ③commit_time 判斷拿掉 → 「推送時不查未來日期」那條紅 ④條件式/列舉/機器式/三選一/recheck/作廢/度量閘任一判斷拿掉 → 對應那條紅"""
+    import datetime as _dt
+    m = _load_lumos_inproc()
+    P, C = m.slot_parse, m.slot_check
+    p = P("取代 [被取代:[[Systems/新]]] [applies:app/[id]/page.tsx] a[0:3] 與 [RFC:9110]")
+    check("成對方括號整段讀進值", dict((k, v) for k, v, _e in p["fields"]) ==
+          {"被取代": "[[Systems/新]]", "applies": "app/[id]/page.tsx"}, str(p))
+    check("白名單外的方括號是正文", p["core"] == "取代 a[0:3] 與 [RFC:9110]", p["core"])
+    check("不成對方括號算寫錯", any("方括號要成對" in x for x in
+          C("PITFALL", 'x [出處:a] [根因:b] [repro:grep -c "\\[test:" f]')), "")
+    check("值用反引號包起來就不數括號", C("PITFALL", 'x [出處:a] [根因:b] [repro:`grep -c "\\[test:" f`]') == [], "")
+    check("可重複的鍵寫兩次照過", C("PITFALL", "x [出處:a] [根因:b] [test:t1] [test:t2]") == [], "")
+    check("其他鍵寫兩次算寫錯", any("寫了兩次" in x for x in C("WHY", "x [出處:a] [出處:b] [因:c]")), "")
+    check("全形冒號與冒號後空白也認得", C("WHY", "x [出處： 2026 對話] [因: y]") == [], "")
+    check("行內程式碼裡的方括號不算欄位", C("WHY", "提到 `[因:]` 的寫法 [出處:a] [因:b]") == [], "")
+    check("欄位寫在句子前面照樣認得", C("RULE", "[依據:人][since:2026-09-01][retire:人裁][until:2027-01-01]要人簽") == [], "")
+    check("冒號後什麼都沒寫的骨架行不查", C("FLOW", "") == [] and C("DEP", "  ") == [], "")
+    check("只有欄位沒有核心一句算缺", any("核心一句" in x for x in C("WHY", "[出處:a] [因:b]")), "")
+    check("日期不是 YYYY-MM-DD 算寫錯", any("YYYY-MM-DD" in x for x in
+          C("FACT", "x [來源:部署] [confirmed:20261001]")), "")
+    today = _dt.date(2026, 10, 1)
+    fut = "x [依據:人] [since:2026-10-03] [retire:人裁] [until:2027-01-01]"
+    check("提交時:晚於今天加一天算寫錯", any("晚於今天" in x for x in C("RULE", fut, today=today, commit_time=True)), "")
+    check("推送與 CI 不查未來日期(CI 跑在 UTC)", C("RULE", fut, today=today) == [], "")
+    check("提交時:明天的日期容忍(台灣凌晨)", C("RULE", fut.replace("10-03", "10-02"), today=today, commit_time=True) == [], "")
+    check("when-symbol 不帶路徑算寫錯", any("帶路徑" in x for x in
+          C("RULE", "x [依據:人] [since:2026-09-01] [retire:when-symbol:foo]")), "")
+    check("度量週數超過 8 算寫錯", any("1 到 8" in x for x in
+          C("RULE", "x [依據:人] [since:2026-09-01] [retire:度量 note-shape.blocked < 3 近26週]")), "")
+    check("度量寫對照過", C("RULE", "x [依據:人] [since:2026-09-01] [retire:度量 note-shape.blocked < 3 近8週]") == [], "")
+    check("[被取代:d3] 認不出是哪篇的", any("單寫 d3" in x for x in
+          C("WHY", "x [出處:a] [因:b] [status:superseded] [被取代:d3]")), "")
+    check("[被取代:節點#dN] 與 [被取代:無 理由] 照過",
+          C("WHY", "x [出處:a] [因:b] [status:superseded] [被取代:Projects/甲_計劃.md#d6]") == []
+          and C("WHY", "x [出處:a] [因:b] [status:superseded] [被取代:無 限制已消失]") == [], "")
+    # 值判斷逐項各一案(代碼審 code-筆記格子第0步 r1 正確性席 C4:原本這幾項拿掉都不會紅)
+    base = "x [依據:人] [since:2026-09-01] "
+    check("條件式:[retire:人裁] 沒有 [until:] 算缺", any("[until:]" in x for x in C("RULE", base + "[retire:人裁]")), "")
+    check("列舉值:[依據:] 不在可選值裡算寫錯", any("只收" in x for x in
+          C("RULE", "x [依據:老闆] [since:2026-09-01] [retire:人裁] [until:2027-01-01]")), "")
+    check("列舉值:[來源:] 不在可選值裡算寫錯", any("只收" in x for x in C("FACT", "x [來源:程式碼] [confirmed:2026-09-01]")), "")
+    check("散文撤除條件算寫錯", any("不是機器式" in x for x in C("RULE", base + "[retire:改用新閘之後撤]")), "")
+    check("PITFALL 三選一都沒有算缺", any("三選一" in x for x in C("PITFALL", "x [出處:a] [根因:b]")), "")
+    check("[recheck:] 寫不成週期要唸", any("recheck" in x for x in
+          C("FACT", "x [來源:部署] [confirmed:2026-09-01] [recheck:每月]")), "")
+    check("作廢沒寫 [被取代:] 要唸", any("[被取代:" in x for x in
+          C("WHY", "x [出處:a] [因:b] [status:superseded]")), "")
+    check("度量的閘不在已知閘清單算寫錯", any("已知閘" in x for x in
+          C("RULE", base + "[retire:度量 no-such-gate.blocked < 3 近8週]")), "")
+    _new = {k: m.slot_is_new(f"x [{k}:v]") for k in m._SLOT_NEW_ONLY}
+    check("每個新文法專屬鍵都讓一行算新文法", all(_new.values()) and len(_new) == 7, str(_new))
+    check("只有舊鍵的行不算新文法", not m.slot_is_new("x [since:2026-09-01] [retire:a] [來源:部署] [test:t]"), "")
+    check("SEE 只放連結與分隔字照過,夾句子算寫錯",
+          C("SEE", "[[A]]、[[B]]｜[[C]]") == [] and C("SEE", "[[A]] 是付款流程") != [], "")
+    print("  ✓ t_slots_field_parser")
+
+
+def t_rule_efficacy_wording_single():
+    """[S1] Projects/筆記標籤_過時判定與按需載入_計劃:紀律範本只有一種 RULE 效力的說法(三欄齊加半年內確認),
+    程式註解跟它一致。翻紅釘:把範本任一處改回「寫齊才有挑戰程式碼的效力」(不提 confirmed/半年)→ 紅。"""
+    root = _repo_root_for_discipline()
+    tpl = (root / "scripts" / "templates" / "graph-discipline.md").read_text(encoding="utf-8")
+    import re as _re
+    sents = [x for x in _re.split(r"[。\n]", tpl) if "挑戰程式碼的效力" in x]
+    bad = [x for x in sents if not ("[confirmed:]" in x and "半年" in x and "[since:]" in x and "[retire:]" in x)]
+    check("範本每一句講 RULE 效力的都是同一個說法(since/retire/confirmed 齊、半年內確認)",
+          sents and not bad, "\n".join(bad))
+    src = (root / "scripts" / "lumos").read_text(encoding="utf-8")
+    i = src.index("SINCE_REF_RE = ")
+    check("程式註解跟範本一致", "confirmed" in src[i - 1200:i] and "半年" in src[i - 1200:i], "")
+    print("  ✓ t_rule_efficacy_wording_single")
+
+
+def t_symbol_names_retire_if():
+    """[S2] Projects/筆記標籤_過時判定與按需載入_計劃:摘要前綴表認得 RETIRE-IF,寫進摘要不再被當成打錯字。
+    翻紅釘:從 SYMBOL_NAMES 拿掉 RETIRE-IF → 紅。"""
+    v = mkvault()
+    write(v, "Projects/甲_計劃.md", "type: project\nstatus: doing\nlands_in:\n  - Systems/X\nsummary: |-\n"
+          "  RETIRE-IF: 連續兩個月零觸發就撤\n", body="# 甲\n")
+    r = run(v, "lint", "Projects/甲_計劃")
+    check("RETIRE-IF 不被當成打錯字", "非標準符號行" not in r.stdout, r.stdout)
+    print("  ✓ t_symbol_names_retire_if")
+
+
+def t_rule_superseded_keep_with_replacement():
+    """[S5] Projects/筆記標籤_過時判定與按需載入_計劃:lint 對帶 [status:superseded] 的 RULE 唸「留著並寫 [被取代:]」,
+    不再唸「整行刪掉」;有 [被取代:] 時不唸。decision-add 印出全域編號(被取代要寫 節點路徑#dN)。
+    翻紅釘:superseded 訊息改回「整行刪掉」→ 第 1 條紅;rule_lifecycle_warnings 拿掉 `if not new` 分流 → 第 2 條紅。"""
+    m = _load_lumos_inproc()
+    a = m.rule_lifecycle_warnings("[since:2020-01-01][retire:改用新閘之後撤][status:superseded]舊限制")
+    check("作廢的 RULE 唸留著並寫 [被取代:]", any("[被取代:" in x for x in a) and not any("整行刪掉" in x for x in a), str(a))
+    b = m.rule_lifecycle_warnings("[since:2020-01-01][retire:改用新閘之後撤][status:superseded][被取代:無 不再需要]舊限制")
+    check("有 [被取代:] 就不唸", not any("superseded" in x for x in b), str(b))
+    v = mkvault()
+    write(v, "Systems/D.md", "type: system\nstatus: doing\nsummary: |-\n  WHY:x\n", body="# D\n")
+    r = run(v, "decision-add", "Systems/D", "改用新判法", "--decided", "2026-10-01")
+    check("decision-add 印出全域編號", "Systems/D.md#d1" in r.stdout, r.stdout + r.stderr)
+    print("  ✓ t_rule_superseded_keep_with_replacement")
+
+
+_TAG_HEAD = "提醒:這次提交新寫的摘要行有"
+
+
+def t_rule_lifecycle_warns_at_commit():
+    """[S3] Projects/筆記標籤_過時判定與按需載入_計劃:新寫的 RULE 缺 since 或 retire,提交時印提醒、回傳碼不變;
+    之前就在的舊 RULE 行不提醒。翻紅釘:_note_shape_eval 拿掉 _ns_tag_hints_collect 那行 → ①紅;_ns_rule_hints 不走 slot_check → ③紅。"""
+    root = _ns_repo()
+    _ns_note(root, summary="KEY:x\nRULE:大額退費要人工核可")
+    _ns_stage(root)
+    rc, out = _ns(root)
+    check("①新寫的 RULE 缺 since/retire:提交時提醒", _TAG_HEAD in out and "[since:" in out, out[-600:])
+    check("①只提醒:回傳碼不變(rc0)", rc == 0, out[-300:])
+    ev = [e for e in _neg_events(root, "hinted") if e.get("check") == "tag-hints"]
+    check("①記一筆 hinted(check=tag-hints、規則名、行數)", len(ev) == 1 and ev[0].get("rules") == ["W4"]
+          and ev[0].get("lines", 0) >= 1, str(ev))
+    _nh_commit(root, "old rule")
+    _ns_note(root, summary="KEY:x\nRULE:大額退費要人工核可", body="正文多一行")
+    _ns_stage(root)
+    rc2, out2 = _ns(root)
+    check("②舊 RULE 行(之前就在)不提醒", _TAG_HEAD not in out2 and rc2 == 0, out2[-400:])
+    # ③範本教的新寫法也要唸(代碼審 code-筆記格子第0步 r1 正確性席 C1:原本新寫法缺鍵一個字都不唸)
+    root = _ns_repo()
+    _ns_note(root, summary="KEY:x\nRULE:大額退費要人工核可 [依據:人]\n"
+                           "RULE:舊限制 [依據:人] [since:2026-09-01] [retire:人裁] [until:2027-01-01] [status:superseded]")
+    _ns_stage(root)
+    rc3, out3 = _ns(root)
+    check("③新寫法缺 since/retire:提交時提醒", _TAG_HEAD in out3 and "[since:]" in out3 and "[retire:]" in out3, out3[-600:])
+    check("③格子提醒的字樣跟 lint 同一個前綴", "筆記格子『RULE:』" in out3, out3[-600:])
+    check("③新寫法作廢沒寫 [被取代:]:提交時提醒", "[被取代:" in out3 and rc3 == 0, out3[-600:])
+    print("  ✓ t_rule_lifecycle_warns_at_commit")
+
+
+def t_note_tags_hints_switch():
+    """[S4] note_shape.tag_hints:off 不出提醒、doctor 講一句;壞值照 warn 並講一句;negation=off 時本案提醒照常。
+    翻紅釘:_ns_tag_hints_prepare 不看 off → ①紅;_ns_tag_hints_doctor_lines 不接進 doctor → ②紅。"""
+    m = _load_lumos_inproc()
+    root = _ns_repo(cfg={"note_shape": {"tag_hints": "off"}})
+    _ns_note(root, summary="KEY:x\nRULE:大額退費要人工核可")
+    _ns_stage(root)
+    rc, out = _ns(root)
+    check("①tag_hints=off:不出提醒", _TAG_HEAD not in out and rc == 0, out[-400:])
+    lines = m._note_shape_doctor_lines(root, root / "docs" / "kg-knowledge", ci=True)
+    check("②off 時 doctor 講一句", any("tag_hints=off" in x for x in lines), str(lines))
+    root = _ns_repo(cfg={"note_shape": {"tag_hints": "block"}})
+    _ns_note(root, summary="KEY:x\nRULE:大額退費要人工核可")
+    _ns_stage(root)
+    rc, out = _ns(root)
+    check("③壞值照 warn 並講一句", _TAG_HEAD in out and "看不懂" in out and rc == 0, out[-500:])
+    lines = m._note_shape_doctor_lines(root, root / "docs" / "kg-knowledge", ci=True)
+    check("③壞值 doctor 也講一句", any("tag_hints" in x for x in lines), str(lines))
+    root = _ns_repo(cfg={"note_shape": {"negation": "off"}})
+    _ns_note(root, summary="KEY:x\nRULE:大額退費要人工核可")
+    _ns_stage(root)
+    rc, out = _ns(root)
+    check("④negation=off 時本案提醒照常", _TAG_HEAD in out, out[-400:])
+    print("  ✓ t_note_tags_hints_switch")
+
+
+def t_note_tags_hints_isolated():
+    """[S7] 本案的提醒出錯只印一句,不影響否定現況句提醒與回傳碼。
+    翻紅釘:拿掉 _ns_tag_hints_collect 的例外防護 → 替身直接炸出測試。"""
+    def _boom(*a, **k):
+        raise RuntimeError("boom")
+    for label, name in (("判定", "rule_lifecycle_warnings"), ("讀設定", "_note_shape_tag_hints_parse")):
+        for with_viol, want_rc in ((False, 0), (True, 1)):
+            root = _ns_repo()
+            _ns_note(root, summary="KEY:x\nRULE:大額退費要人工核可",
+                     body=("新寫 `src/a.py:5`\n" if with_viol else "") + "前端頁面還沒做")
+            _ns_stage(root)
+            rc, out = _neg_inproc(root, **{name: _boom})
+            check(f"{label}丟例外({'有' if with_viol else '沒有'}違規):只印沒跑完、rc{want_rc}、否定現況句提醒照常",
+                  rc == want_rc and "筆記前綴提醒這次沒跑完(RuntimeError)" in out and _TAG_HEAD not in out
+                  and _NEG_HEAD in out, out[-600:])
+    print("  ✓ t_note_tags_hints_isolated")
+
+
+def t_doctor_lists_stale_rules():
+    """[S6] doctor 列出有效 RULE 的 [until:] 過期、超過半年沒確認、沒寫 [confirmed:](舊行也列),不計入問題數;
+    superseded 的不列。翻紅釘:拿掉 superseded 那道跳過 → ③紅;warn_soft 改成算問題 → ④紅。"""
+    rules = ("  RULE:[since:2020-01-01][until:2020-06-30][retire:改用新閘之後撤][confirmed:2026-09-30]甲過期\n"
+             "  RULE:[since:2020-01-01][retire:改用新閘之後撤][confirmed:2020-02-01]乙太久沒確認\n"
+             "  RULE:[since:2020-01-01][retire:改用新閘之後撤]丙沒寫確認\n"
+             "  RULE:[since:2020-01-01][retire:改用新閘之後撤][status:superseded]丁已作廢\n")
+    v = mkvault()
+    write(v, "Systems/R.md", "type: system\nstatus: doing\nsummary: |-\n" + rules, body="# R\n")
+    r = run(v, "doctor")
+    seg = r.stdout.split("[S16]")[1].split("\n[")[0] if "[S16]" in r.stdout else ""
+    check("①列出過期、太久沒確認、沒寫確認", "甲過期" in seg or "已過期" in seg, seg)
+    r_all = run(v, "doctor", "--verbose")
+    seg = r_all.stdout.split("[S16]")[1].split("\n[")[0] if "[S16]" in r_all.stdout else ""
+    check("②三條都在(verbose 全列)", all(x in seg for x in ("已過期", "天沒確認", "沒寫 [confirmed:]")), seg)
+    check("③superseded 的不列", "丁已作廢" not in seg, seg)
+    v2 = mkvault()
+    write(v2, "Systems/R.md", "type: system\nstatus: doing\nsummary: |-\n  WHY:x [出處:a] [因:b]\n", body="# R\n")
+    r2 = run(v2, "doctor")
+    check("④不計入問題數(rc 跟沒有這些 RULE 時一樣)", r.returncode == r2.returncode, f"{r.returncode} vs {r2.returncode}")
+    # ⑤落治理帳、閘名登記(代碼審 code-筆記格子第0步 r2 正確性席:原本沒有測試釘住)
+    src = Path(GRAPHCTL).read_text(encoding="utf-8")
+    _i = src.index("_KNOWN_GATES = (")
+    check("⑤check-s16 有落治理帳、在已知閘名單裡", '"gate": "check-s16"' in src
+          and '"check-s16"' in src[_i:src.index(")", _i) + 1], "")
+    m = _load_lumos_inproc()
+    import datetime as _dt
+    f = m.parse_rule_fields("[since:2020-01-01][until:2020-06-30][retire:x][confirmed:2020-02-01]甲")
+    check("⑥_rule_stale_keys 判得出到期與太久沒確認", m._rule_stale_keys(f, _dt.date(2026, 10, 1)) == ["until", "confirmed"]
+          and m._rule_stale_keys(m.parse_rule_fields("[confirmed:2026-09-30]乙"), _dt.date(2026, 10, 1)) == [], "")
+    # ⑦一篇一筆事件:同一篇三條過期 RULE 只記一個節點(代碼審 code-筆記格子第0步 r3 正確性席)
+    notes = {"Systems/R.md": m._note_from_text("Systems/R.md", "---\ntype: system\nstatus: doing\nsummary: |-\n" + rules
+                                                + "---\n# R\n", 0),
+             "Systems/Q.md": m._note_from_text("Systems/Q.md", "---\ntype: system\nstatus: doing\nsummary: |-\n"
+                                                "  RULE:[since:2020-01-01][retire:x]戊沒寫確認\n---\n# Q\n", 0)}
+    lines, stems = m._doctor_stale_rules(notes, _dt.date(2026, 10, 1))
+    check("⑦列出四條(三條在 R、一條在 Q),作廢的不列", len(lines) == 4 and not any("丁" in x for x in lines), str(lines))
+    check("⑦記帳的節點一篇一個", stems == ["Q", "R"], str(stems))
+    print("  ✓ t_doctor_lists_stale_rules")
 
 
 def t_refresh_delta():
@@ -60519,6 +60853,320 @@ def t_kill_recipe_check_fs_and_git():
     check("kill-add 驗原文時已經放掉寫入鎖", rc == 0 and held == [False], f"{rc} {held}")
 
 
+def _kgk_run(root, v, *a):
+    """跑 lumos guard kill;清掉 PYTHONDONTWRITEBYTECODE(不清的話 Python 不寫編譯快取,原本的誤判重現不了)。"""
+    import subprocess as sp, os
+    e = dict(os.environ)
+    e.pop("PYTHONDONTWRITEBYTECODE", None)
+    e["LUMOS_KILL_TIMEOUT_FLOOR"] = "5"
+    return sp.run([sys.executable, GRAPHCTL, "--vault", str(v), "guard", "kill", *a], capture_output=True, text=True, cwd=root, env=e)
+
+
+def t_guard_kill_no_stale_build_cache():
+    """[S1][S2] guard kill 每次寫檔(套壞法、還原)前等到新的一秒:同一支 Python 檔兩條壞法改完一樣大,無害的第二條判 survived;
+    改完跟原檔一樣大的傷害壞法判 killed(不吃 baseline 的原檔快取);改 a 再改 b,第二次跑測試看到的 a(還原寫回的)與 b
+    的修改時間都晚於上一次跑測試結束(run_cmd 寫紀錄檔驗,不靠時序)。Projects/殺傷力驗證編譯快取誤判_計劃。"""
+    import json as _json
+    root, v = _mk_kill_env()
+    harmless = _kr_recipe("prod.py", old="def check(n):", new="def check(n): ", test="TestLimitFive")
+    killer = _kr_recipe("prod.py", old="LIMIT = 5", new="LIMIT = 99", test="TestLimitFive")
+    (v / "Systems" / "Limit.md").write_text(_kr_note([killer, harmless]), encoding="utf-8")
+    _kr_commit(root)
+    r = _kgk_run(root, v, "Systems/Limit", "--json")
+    res = _json.loads(r.stdout.strip().splitlines()[-1])["results"]
+    check("①[S1] 傷害壞法之後、改完一樣大的無害壞法 → survived(不沿用前一條的編譯結果)",
+          [x["verdict"] for x in res] == ["killed", "survived"], str([(x["verdict"], x.get("detail")) for x in res]))
+    root, v = _mk_kill_env()
+    (v / "Systems" / "Limit.md").write_text(_kr_note([_kr_recipe("prod.py", old="LIMIT = 5", new="LIMIT = 6", test="TestLimitFive")]),
+                                            encoding="utf-8")
+    _kr_commit(root)
+    r = _kgk_run(root, v, "Systems/Limit", "--json")
+    res = _json.loads(r.stdout.strip().splitlines()[-1])["results"]
+    check("②[S1] 改完跟原檔一樣大的傷害壞法 → killed(不吃 baseline 的原檔快取)", res[0]["verdict"] == "killed", str(res))
+    # [S2] 改 a 再改 b,測試同時 import 兩支;run_cmd 每次跑把 a、b 的修改時間與開始、結束牆鐘寫進紀錄檔
+    root, v = _mk_kill_env()
+    log = root.parent / "mt.log"
+    (root / "a.py").write_text("A = 1\n", encoding="utf-8")
+    (root / "b.py").write_text("B = 1\n", encoding="utf-8")
+    (root / "test_guard.py").write_text(
+        "import os, time, a, b\n"
+        f"LOG = {str(log)!r}\n"
+        "t0 = time.time()\n"
+        "def TestLimitFive():\n    assert a.A == 1 and b.B == 1\n"
+        "TestLimitFive()\n"
+        "time.sleep(1.1)\n"   # 測試跑超過 1 秒:「跑完測試記下結束秒」少了就會讓下一次寫檔落在測試結束那一秒(代碼審第 1 輪測試席)
+        "open(LOG, 'a').write(f'{t0} {os.stat(\"a.py\").st_mtime} {os.stat(\"b.py\").st_mtime} {time.time()}\\n')\n",
+        encoding="utf-8")
+    (v / "Systems" / "Limit.md").write_text(_kr_note([_kr_recipe("a.py", old="A = 1", new="A = 1  ", test="TestLimitFive"),
+                                                      _kr_recipe("b.py", old="B = 1", new="B = 1  ", test="TestLimitFive")]), encoding="utf-8")
+    _kr_commit(root)
+    r = _kgk_run(root, v, "Systems/Limit", "--json")
+    rows = [[float(x) for x in ln.split()] for ln in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+    ok = len(rows) == 3 and int(rows[2][1]) > int(rows[1][3]) and int(rows[2][2]) > int(rows[1][3]) \
+        and int(rows[1][1]) > int(rows[0][3])
+    check("③[S2] 每次寫檔(套壞法、還原)的修改時間所在的秒,都晚於上一次跑測試結束的秒(a 還原那一半也驗)", ok,
+          f"{rows} {r.stdout[-300:]} {r.stderr[-300:]}")
+    # ④配方的 file 是工作樹裡的連結:壞法寫進真檔,還原要還原真檔(原本只還原連結,真檔一直壞著,
+    #   同組後面無害的配方被判成強證據的 killed;代碼審第 3 輪正確性、資安席,改動前就有)
+    import os
+    root, v = _mk_kill_env()
+    (root / "other.py").write_text("X = 1\n", encoding="utf-8")
+    os.symlink("prod.py", root / "L.py")
+    (v / "Systems" / "Limit.md").write_text(_kr_note([_kr_recipe("L.py", old="LIMIT = 5", new="LIMIT = 99", test="TestLimitFive"),
+                                                      _kr_recipe("other.py", old="X = 1", new="X = 2", test="TestLimitFive")]),
+                                            encoding="utf-8")
+    _kr_commit(root)
+    r = _kgk_run(root, v, "Systems/Limit", "--json")
+    res = _json.loads(r.stdout.strip().splitlines()[-1])["results"]
+    check("④file 是連結 → 還原真檔,後面無害的配方判 survived", [x["verdict"] for x in res] == ["killed", "survived"],
+          str([(x["file"], x["verdict"], x.get("detail")) for x in res]))
+
+
+def t_guard_kill_no_future_mtime():
+    """[S3] 綁定測試斷言被改的檔修改時間不晚於現在時,傷不到合約的壞法判 survived(guard kill 不把修改時間設到未來)。"""
+    import json as _json
+    root, v = _mk_kill_env()
+    (root / "prod.py").write_text("LIMIT = 5\n# note\n\ndef check(n):\n    return n <= LIMIT\n", encoding="utf-8")
+    (root / "test_guard.py").write_text(
+        "import os, time, prod\n"
+        "def TestLimitFive():\n"
+        "    assert prod.check(5) and not prod.check(6)\n"
+        "    assert os.stat('prod.py').st_mtime <= time.time() + 0.5\n"
+        "TestLimitFive()\n", encoding="utf-8")
+    (v / "Systems" / "Limit.md").write_text(_kr_note([_kr_recipe("prod.py", old="# note", new="# NOTE", test="TestLimitFive")]),
+                                            encoding="utf-8")
+    _kr_commit(root)
+    r = _kgk_run(root, v, "Systems/Limit", "--json")
+    res = _json.loads(r.stdout.strip().splitlines()[-1])["results"]
+    check("①[S3] 傷不到合約的壞法 → survived(修改時間沒被設到未來)", res[0]["verdict"] == "survived", str(res))
+
+
+def t_kill_after_write_retry_no_future():
+    """[S3][S4] 寫後確認的重試分支:讀回沒晚於上一次 → 等 1 秒、把修改時間碰成現在再讀回;錯開了回 True、記進 state;
+    怎樣都錯不開(上一次在遠未來)回 False;兩種都不把修改時間設到未來。"""
+    import time
+    m = _load_lumos_inproc()
+    d = Path(tempfile.mkdtemp())
+    f = d / "x.py"
+    f.write_text("x\n", encoding="utf-8")
+    w0 = int(f.stat().st_mtime)
+    st = {"w": w0, "r": 0}
+    t0 = time.time()
+    ok = m._kill_after_write(str(f), st)
+    check("①讀回跟上一次同一秒 → 等、碰成現在、錯開後回 True、記進 state", ok is True and st["w"] > w0
+          and int(f.stat().st_mtime) > int(t0) - 1 and f.stat().st_mtime <= time.time() + 0.5, f"{ok} {st} {f.stat().st_mtime} {t0}")
+    st2 = {"w": int(time.time()) + 100, "r": 0}
+    ok2 = m._kill_after_write(str(f), st2)
+    check("②上一次在遠未來 → 重試後回 False、修改時間沒被設到未來", ok2 is False and f.stat().st_mtime <= time.time() + 0.5,
+          f"{ok2} {f.stat().st_mtime}")
+
+
+def t_guard_kill_mtime_unsure_is_weak():
+    """[S4] 寫後確認一直失敗:標準錯誤整次只印一行提醒、照常跑完;--json 與 kill-log 的 weak 為 true、--json 沒有旁路欄。"""
+    import contextlib, io, json as _json
+    m = _load_lumos_inproc()
+    root, v = _mk_kill_env()
+    # 測試指令帶 {method}(不是整套一起跑),否則 weak 本來就是 true,驗不出「時間沒錯開」有沒有算進去
+    (root / ".lumos" / "config.json").write_text('{"test": {"run_cmd": "python3 test_guard.py {method}"}}', encoding="utf-8")
+    (v / "Systems" / "Limit.md").write_text(_kr_note([_kr_recipe("prod.py", old="LIMIT = 5", new="LIMIT = 99", test="TestLimitFive"),
+                                                      _kr_recipe("prod.py", old="def check(n):", new="def check(n): ", test="TestLimitFive")]),
+                                            encoding="utf-8")
+    _kr_commit(root)
+    orig = m._kill_after_write
+    m._kill_after_write = lambda path, state: False
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            m.cmd_guard_kill(m.Env(v), "Systems/Limit", as_json=True)
+    finally:
+        m._kill_after_write = orig
+    res = _json.loads(out.getvalue().strip().splitlines()[-1])["results"]
+    check("①weak 為 true、--json 沒有旁路欄", len(res) == 2 and all(x.get("weak") is True and "_mtime_unsure" not in x for x in res),
+          str(res))
+    check("②標準錯誤整次只印一行提醒", err.getvalue().count("修改時間沒能跟上一次錯開") == 1, err.getvalue())
+    rows = _kill_log_rows_of(v)
+    check("③kill-log 也記成弱證據", rows and all(x.get("weak") is True for x in rows[-2:]), str(rows[-2:]))
+    # ④只有第一條「還原」那次沒錯開(改的是 a.py),之後兩條改的是 b.py:a.py 一直沒被成功重寫,
+    #   後面每一條的測試都可能 import 到它的舊快取,三條都記弱證據(代碼審第 1、2 輪正確性席)
+    root, v = _mk_kill_env()
+    (root / ".lumos" / "config.json").write_text('{"test": {"run_cmd": "python3 test_guard.py {method}"}}', encoding="utf-8")
+    (root / "a.py").write_text("A = 1\n", encoding="utf-8")
+    (root / "b.py").write_text("B = 1\nC = 2\n", encoding="utf-8")
+    (root / "test_guard.py").write_text("import a, b\ndef TestLimitFive():\n    assert a.A == 1\nTestLimitFive()\n", encoding="utf-8")
+    (v / "Systems" / "Limit.md").write_text(_kr_note([_kr_recipe("a.py", old="A = 1", new="A = 2", test="TestLimitFive"),
+                                                      _kr_recipe("b.py", old="B = 1", new="B = 1 ", test="TestLimitFive"),
+                                                      _kr_recipe("b.py", old="C = 2", new="C = 2 ", test="TestLimitFive")]),
+                                            encoding="utf-8")
+    _kr_commit(root)
+    calls = []
+
+    def second_fails(path, state):
+        calls.append(path)
+        return orig(path, state) if len(calls) != 2 else False   # 呼叫順序:第一條寫、第一條還原、第二條寫、第二條還原
+    m._kill_after_write = second_fails
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            m.cmd_guard_kill(m.Env(v), "Systems/Limit", as_json=True)
+    finally:
+        m._kill_after_write = orig
+    res = _json.loads(out.getvalue().strip().splitlines()[-1])["results"]
+    check("④第一條還原沒錯開(a.py 之後沒被重寫)→ 三條都記弱證據", len(res) == 3 and all(x.get("weak") is True for x in res), str(res))
+
+    def run_with(recipes, fail_at):
+        root, v = _mk_kill_env()
+        (root / ".lumos" / "config.json").write_text('{"test": {"run_cmd": "python3 test_guard.py {method}"}}', encoding="utf-8")
+        (root / "a.py").write_text("A = 1\nA2 = 1\n", encoding="utf-8")
+        (root / "b.py").write_text("B = 1\n", encoding="utf-8")
+        (root / "test_guard.py").write_text("import a, b\ndef TestLimitFive():\n    assert a.A == 1\nTestLimitFive()\n", encoding="utf-8")
+        (v / "Systems" / "Limit.md").write_text(_kr_note(recipes), encoding="utf-8")
+        _kr_commit(root)
+        n = []
+
+        def fails(path, state):
+            n.append(path)
+            return orig(path, state) if len(n) != fail_at else False
+        m._kill_after_write = fails
+        o = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(o), contextlib.redirect_stderr(io.StringIO()):
+                m.cmd_guard_kill(m.Env(v), "Systems/Limit", as_json=True)
+        finally:
+            m._kill_after_write = orig
+        return _json.loads(o.getvalue().strip().splitlines()[-1])["results"]
+    # ⑤第一條還原沒錯開,第二條把同一支 a.py 重寫成功 → 清單移出,第二條不記弱證據
+    res = run_with([_kr_recipe("a.py", old="A = 1", new="A = 2", test="TestLimitFive"),
+                    _kr_recipe("a.py", old="A2 = 1", new="A2 = 1 ", test="TestLimitFive")], 2)
+    check("⑤同一支檔之後重寫成功 → 移出清單,那一條不記弱證據", [x.get("weak") for x in res] == [True, False], str(res))
+    # ⑥第一條還原沒錯開時,第二條用另一個測試指令、在那時跑了 baseline;a.py 之後重寫成功、清單清空,
+    #   第三條沿用那份 baseline 仍要記弱證據(代碼審第 3 輪正確性席)
+    res = run_with([_kr_recipe("a.py", old="A = 1", new="A = 2", test="TestLimitFive"),
+                    _kr_recipe("a.py", old="A2 = 1", new="A2 = 1 ", test="TestOther"),
+                    _kr_recipe("b.py", old="B = 1", new="B = 1 ", test="TestOther")], 2)
+    check("⑥沿用「還有檔沒錯開」時跑的 baseline → 記弱證據", len(res) == 3 and res[1].get("weak") is True and res[2].get("weak") is True,
+          str([(x["file"], x.get("test"), x["verdict"], x.get("weak")) for x in res]))
+
+
+def t_guard_kill_rm_lists_ids():
+    """[S2] kill-rm 不帶 --id:唯讀列出那篇每條配方的短身分(前 12 字元,同 P2 與 kill-add 提醒)、合約片段、檔、原文開頭、
+    test、平台;格式壞的也列、不崩潰,身分可拿去 --id 移除;重複的合一行;沒配方印一句;控制字元不原樣印;
+    --id 給空字串照舊擋下 rc2。"""
+    m = _load_lumos_inproc()
+    node = "Systems/Limit.md"
+    long_old = "LIMIT = 5" + "x" * 40
+    good = _kr_recipe("prod.py", old=long_old)
+    esc = _kr_recipe("p\x1b[2K.py", old="A\nB")
+    nonobj = 7
+    missing = {"invariant": "上限恆為5", "file": "prod.py", "test": None, "old": 5}
+    dup = _kr_recipe("prod.py", old="def check")
+    recipes = [good, esc, nonobj, missing, dup, dict(dup)]
+    root, v = _mk_kill_env()
+    p = v / "Systems" / "Limit.md"
+    p.write_text(_kr_note(recipes), encoding="utf-8")
+    _kr_commit(root)
+    before = p.read_bytes()
+    r = _kr_lum(root, v, "guard", "kill-rm", "Systems/Limit")
+    out = r.stdout
+    rid = lambda e: m._kill_recipe_id(node, e)[:12]
+    check("①不帶 --id → rc0、筆記不變", r.returncode == 0 and p.read_bytes() == before, f"{r.returncode} {r.stderr}")
+    for label, e in (("一般", good), ("控制字元", esc), ("不是物件", nonobj), ("欄位型別錯", missing), ("重複", dup)):
+        check(f"②{label}的配方列出、帶短身分", sum(ln.startswith(rid(e)) for ln in out.splitlines()) == 1, out)
+    check("③原文先截 30 字再跳脫、截了加 …", f'原文 "{long_old[:30]}…"' in out, out)
+    check("③欄位缺或 null 印(缺)、不是字串印型別、平台沒寫印(預設)",
+          "test (缺)" in out and "原文 (不是字串:int)" in out and "平台 (預設)" in out, out)
+    check("③不是物件的印格式壞", "格式壞:" in out, out)
+    check("③重複的合成一行並註明會一起移除", "(同一條 ×2,移除會一起移掉)" in out, out)
+    check("③控制字元不原樣印出", "\x1b" not in out and "\\u001b" in out, repr(out))
+    check("③合約片段也列", '合約 "上限恆為5"' in out, out)
+    check("④最後一句給移除指令(節點可貼、短身分是佔位字)", "移除:lumos guard kill-rm Systems/Limit --id <短身分>" in out, out)
+    for label, e in (("不是物件", nonobj), ("欄位型別錯", missing)):
+        rr = _kr_lum(root, v, "guard", "kill-rm", "Systems/Limit", "--id", rid(e))
+        check(f"⑤列出的{label}身分拿去 --id 移得掉", rr.returncode == 0, rr.stderr)
+    r2 = _kr_lum(root, v, "guard", "kill-rm", "Systems/Limit", "--id", "")
+    check("⑥--id 給空字串照舊擋下 rc2", r2.returncode == 2 and "擋下" in r2.stderr, r2.stdout + r2.stderr)
+    root2, v2 = _mk_kill_env()
+    r3 = _kr_lum(root2, v2, "guard", "kill-rm", "Systems/Limit")
+    check("⑦沒有配方 → 這篇沒有殺傷力配方、rc0", r3.returncode == 0 and "這篇沒有殺傷力配方" in r3.stdout, r3.stdout + r3.stderr)
+    r4 = _kr_lum(root2, v2, "guard", "kill-rm", "Systems/Nope")
+    check("⑦找不到筆記 → 擋下 rc2", r4.returncode == 2, r4.stderr)
+    # ⑧配方欄位帶落單替身字元(手改筆記寫成 JSON 跳脫):算身分不崩潰,列得出來也移得掉
+    import json as _json
+    sur = _kr_recipe("prod.py", old="LIMIT\ud800")
+    blob = "".join(f"\\u{ord(c):04x}" if 0xD800 <= ord(c) <= 0xDFFF else c for c in _json.dumps([sur], ensure_ascii=False))
+    (v2 / "Systems" / "Limit.md").write_text(_kr_note(blob), encoding="utf-8")
+    _kr_commit(root2, "sur")
+    r5 = _kr_lum(root2, v2, "guard", "kill-rm", "Systems/Limit")
+    sid = m._kill_recipe_id(node, sur)[:12]
+    check("⑧落單替身字元:列出不崩潰、帶短身分", r5.returncode == 0 and r5.stdout.startswith(sid), r5.stdout + r5.stderr[-300:])
+    r6 = _kr_lum(root2, v2, "guard", "kill-rm", "Systems/Limit", "--id", sid)
+    check("⑧落單替身字元:拿短身分移得掉", r6.returncode == 0, r6.stderr[-300:])
+
+
+def t_guard_kill_prints_recipe_id():
+    """[S3] guard kill 人讀輸出每條結果在判定之後附 id=<短身分>,拿去 kill-rm --id 對得到那一條(缺 old 這類照常出結果的
+    格式壞配方也一樣);一條結果一行;--json 只有 JSON、各筆欄位跟改動前一樣(沒有 _rid)。"""
+    import json as _json
+    m = _load_lumos_inproc()
+    node = "Systems/Limit.md"
+    ok = _kr_recipe("prod.py", old="LIMIT = 5", new="LIMIT = 99", test="TestLimitFive")
+    noold = {"invariant": "上限恆為5", "test": "TestLimitFive", "file": "prod.py", "new": "X = 1", "note": ""}
+    forged = _kr_recipe("prod.py", old="def check", test="TestLimitFive", note="")
+    forged["invariant"] = "上限恆為5 id=deadbeefdead"
+    root, v = _mk_kill_env()
+    (v / "Systems" / "Limit.md").write_text(_kr_note([ok, noold, forged], inv_lines=[
+        "KEY:★INVARIANT★ 上限恆為5,超過必拒 [test:TestLimitFive] [kill:recipes]"]), encoding="utf-8")
+    _kr_commit(root)
+    r = _kr_lum(root, v, "guard", "kill", "Systems/Limit")
+    lines = [ln for ln in r.stdout.splitlines() if " id=" in ln]
+    check("①每條結果一行、都附 id=", len(lines) == 3, r.stdout)
+    for label, e in (("一般", ok), ("缺 old", noold), ("合約片段夾假 id", forged)):
+        want = m._kill_recipe_id(node, e)[:12]
+        hit = [ln for ln in lines if ln.split(" id=", 1)[1].startswith(want)]
+        check(f"②{label}:判定之後第一個 id= 就是它的短身分", len(hit) == 1, r.stdout)
+    rr = _kr_lum(root, v, "guard", "kill-rm", "Systems/Limit", "--id", m._kill_recipe_id(node, noold)[:12])
+    check("③缺 old 那條的 id 拿去 kill-rm 移得掉", rr.returncode == 0, rr.stderr)
+    root, v = _mk_kill_env()
+    (v / "Systems" / "Limit.md").write_text(_kr_note([ok], inv_lines=[
+        "KEY:★INVARIANT★ 上限恆為5,超過必拒 [test:TestLimitFive] [kill:recipes]"]), encoding="utf-8")
+    _kr_commit(root)
+    rj = _kr_lum(root, v, "guard", "kill", "Systems/Limit", "--json")
+    try:
+        data = _json.loads(rj.stdout)
+    except ValueError:
+        data = None
+    keys = set(data["results"][0]) if data and data.get("results") else set()
+    check("④--json 只有 JSON、結果沒有 _rid、既有 recipe_id 還在", data is not None and "_rid" not in keys
+          and "_logged" not in keys and "recipe_id" in keys and " id=" not in rj.stdout, rj.stdout[:400])
+
+
+def t_guard_kill_add_rejects_template_placeholder():
+    """[S4] kill-add 的 --old 或 --new 去掉前後空白(與一對外圍引號)後整個等於 kill-rm 範本的待填字樣 → 擋下 rc2、筆記不變;
+    只是含有這串字照常寫入(lumos 自己產生範本那行程式就含)。"""
+    base = ["guard", "kill-add", "Systems/Limit", "上限恆為5", "--file", "prod.py"]
+    for label, old, new in (("--new 是待填字樣", "LIMIT = 5", "<照新原文改寫的壞法>"),
+                            ("--old 是待填字樣(帶空白)", "  <照現在的程式填原文> ", "LIMIT = 9"),
+                            ("--new 帶外圍引號", "LIMIT = 5", "'<照新原文改寫的壞法>'")):
+        root, v = _mk_kill_env()
+        p = v / "Systems" / "Limit.md"
+        before = p.read_bytes()
+        r = _kr_lum(root, v, *base, "--old", old, "--new", new)
+        check(f"①{label} → 擋下 rc2、筆記不變", r.returncode == 2 and "待填" in r.stderr and p.read_bytes() == before,
+              f"{r.returncode} {r.stderr}")
+    root, v = _mk_kill_env()
+    (root / "tpl.py").write_text('X = "--new <照新原文改寫的壞法>"\n', encoding="utf-8")
+    _kr_commit(root, "tpl")
+    r = _kr_lum(root, v, "guard", "kill-add", "Systems/Limit", "上限恆為5", "--file", "tpl.py",
+                "--old", 'X = "--new <照新原文改寫的壞法>"', "--new", 'X = ""')
+    check("②只是含有待填字樣 → 照常寫入 rc0", r.returncode == 0, r.stdout + r.stderr)
+    # ③雙引號包住待填字樣的程式字串是合法原文(lumos 自己的常數就長這樣),不剝雙引號
+    root, v = _mk_kill_env()
+    (root / "ph.py").write_text('PH = "<照新原文改寫的壞法>"\n', encoding="utf-8")
+    _kr_commit(root, "ph")
+    r = _kr_lum(root, v, "guard", "kill-add", "Systems/Limit", "上限恆為5", "--file", "ph.py",
+                "--old", '"<照新原文改寫的壞法>"', "--new", '""')
+    check("③雙引號包住的待填字樣 → 照常寫入 rc0", r.returncode == 0, r.stdout + r.stderr)
+
+
 def t_guard_kill_rm():
     """[S6] kill-rm 只移除短身分對到的那一條(或全是同一完整身分的重複時一起移除),原子寫入,移除前印完整內容與 kill-add 範本;
     格式壞的配方也移得掉;沒有配方對得到的 KEY 行拿掉 [kill:recipes]、還對得到的保留;
@@ -60570,6 +61218,13 @@ def t_guard_kill_rm():
     check("②只移除對到的那一條", r.returncode == 0 and ra not in left and len(left) == len(recipes) - 1, f"{r.stderr} {left}")
     check("②移除前印出那條完整內容(note、covers 都在)", "上限失守" in r.stdout and "java-concurrency" in r.stdout and "LIMIT = 5" in r.stdout, r.stdout)
     check("②印出可照填的 kill-add 範本", "lumos guard kill-add Systems/Limit" in r.stdout and "--covers java-concurrency" in r.stdout, r.stdout)
+    # [S1] 範本那一行的 --new 是待填字樣、不抄舊壞法;完整內容那一行照印舊壞法(只對範本那一行斷言)
+    tpl = [ln for ln in r.stdout.splitlines() if "照現在的程式改寫後重新宣告" in ln]
+    full = [ln for ln in r.stdout.splitlines() if ln.strip().startswith("{")]
+    check("②[S1] 範本的 --new 是待填字樣、不含舊壞法;完整內容仍有舊壞法",
+          len(tpl) == 1 and "XX_BROKEN = 1" not in tpl[0] and "--new '<照新原文改寫的壞法>'" in tpl[0]
+          and any("XX_BROKEN = 1" in ln for ln in full), r.stdout)
+    check("②下一步提醒 --new 也要照新原文改寫", "--new" in r.stdout.splitlines()[-1], r.stdout)
     check("②還有配方對得到第一條 KEY 行 → 標記保留", p.read_text(encoding="utf-8").count("[kill:recipes]") == 2, p.read_text(encoding="utf-8")[:600])
     check("②沒有留下暫存檔", not [x for x in p.parent.iterdir() if "tmp" in x.name], str(list(p.parent.iterdir())))
     check("②原子寫入:新檔換上去(inode 換了),不是原地改寫", p.stat().st_ino != ino, f"{ino} {p.stat().st_ino}")
