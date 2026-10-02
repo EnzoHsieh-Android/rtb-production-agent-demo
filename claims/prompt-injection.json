@@ -37,7 +37,7 @@
     },
     {
       "path": "src/rtb/analyzer/policy.py",
-      "sha256": "aa8b5b09a9deda2ffdf58c6509cb13f3966d6d785d9504431d5462aaa15030e1"
+      "sha256": "2b7ef52d1d4cfa4970a45b1ab796efaf2f8dd3151729f27236203fe26f771182"
     },
     {
       "path": "src/rtb/analyzer/rule_round.py",
