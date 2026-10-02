@@ -48,7 +48,7 @@ Phase 1 在 DSP 端與指標計算的範圍內完成,下列缺口與偏離如實
 ## 已知缺口與偏離
 
 - 「連續 50 次一致」是手動迴圈,沒有進 CI。
-- agent 端連不到故障注入、不匯入 DSP 內部模組這兩條在 Phase 1 不宣稱已證明,因為 agent 端還不存在;Phase 2 第一次有 DSP 客戶端時必須補驗。
+- agent 端連不到故障注入、不匯入 DSP 內部模組這兩條在 Phase 1 不宣稱已證明,因為 agent 端還不存在;Phase 2 第一次有 DSP 客戶端時必須補驗。(2026-10-02 更正:開頭這個重驗事件已發生,兩條都已有測試補驗——`tests/analyzer/test_boundaries.py` 的 test_the_analyzer_package_never_imports_dsp_internals 與 test_the_agent_cannot_reach_fault_injection_on_production_style_servers,見 [[Projects/RTB_Phase2任務流程_計劃]] 與 Systems/分析行程流程與檢查點 筆記。)
 - 兩輪代碼審的第二輪都沒有外家席;指標計算沒有資安席。結論是單家族視角下未發現剩餘重要問題。
 - 仍沒有測試守護的小防護、ruff 禁用清單不完整、`__import__` 與逐行 `noqa` 擋不住等,寫在兩篇系統節點的已知缺口。
-- `getMetrics` 只回原始事實,比率由領域層自己算;金額欄位整數讀回是浮點。
+- `getMetrics` 只回原始事實,比率由領域層自己算;金額欄位整數讀回是浮點。(2026-10-02 更正:程式裡從來沒有 getMetrics 這個名字,查指標是 `src/rtb/dsp/store.py` 的 get_metrics、路由 GET /campaigns/<id>/metrics;金額從 Phase 14 增量 2a 起改存整數分、讀回固定兩位小數字串,見 [[Systems/Mock-DSP]]。)

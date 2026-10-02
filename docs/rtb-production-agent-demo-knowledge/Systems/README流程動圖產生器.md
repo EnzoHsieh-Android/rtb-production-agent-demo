@@ -14,7 +14,7 @@ tags:
   - status/done
 summary: |-
   WHY: [2026-09-24] 使用者裁定 README 產圖腳本只作文件產出物，移到 docs/assets，不增加正式或開發依賴。出處：README 代碼審第 1 輪後的使用者裁定。
-  TEST: python3 docs/assets/make_agent_flow_gif.py；ruff check .；mypy；pytest -q tests/tools tests/test_static_checks.py；GIF 抽格及 SVG XML 解析。
+  TEST: python3 docs/assets/make_agent_flow_gif.py；ruff check .；mypy；pytest -q tests/tools tests/test_static_checks.py tests/test_readme_flow_diagram.py；GIF 抽格及 SVG XML 解析。
   PITFALL: [2026-09-28 白話化推送後 CI 紅] 產生器雖然放在 docs/assets,仍在 ruff 檢查範圍內;中文長字串超過行長上限,本機只跑了守衛測試沒跑 ruff,推上去才被 CI 擋。改完圖上文字要先跑 `ruff check .`,長字串用相鄰字串字面值拆行(輸出不變)。
 verified_by:
   - "[[Verification/README流程動圖驗證]]"
@@ -33,9 +33,9 @@ WHY: [2026-09-26] 使用者指出舊圖的「蒐集資料」沒有連到廣告�
 
 WHY: [2026-09-27 Phase 14] 使用者要 README 圖跟正式決策路徑一致：分析端第一步 A 讀現況與 1h 成效，用 A 的資料初篩；配速偏低才續讀 B（歷史、過去調整）、C（逐日、1d／7d、重讀），由九條程式規則定案，值得加才算金額與送件。AI 決策與選查詢已退出正式及展示分析，圖只保留送件後給確認者看的提案說明，以及告警時的原因假說；兩支均不進加額決策。F6 人工重放及 F7 核可仍回佇列重驗。出處：[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉1–8、實際展示驅動與本次 README 工作；以 `python3 docs/assets/make_agent_flow_gif.py` 重畫並核對 [[Verification/README流程動圖驗證]]。
 
-WHY: [2026-09-28] [[Issues/流程圖把AI說明畫在送出建議之前]]：舊圖把「AI 寫提案說明」放在「送出提案」正下方、夾在送出與「收件檢查」之間，主線還得繞過它，讀的人會以為提案要先經過 AI 才進收件。改成送出提案往下直接一條實線接收件檢查；AI 說明畫在待處理佇列正上方，由佇列往上一條 AI 色虛線接過去——說明命令列只讀收件收下、交給執行的提案，被拒收或過時的不會有說明（代碼審 r1 正確性 F1：初版從送出提案岔出，跟「收件收下後」的說法矛盾，且送出那一格旁支就先亮了）。AI 色虛線的旁支跟主線一樣，走到它的起點之前畫成暗色。舊註記「送件後供確認者參考，不進決策」不符事實（人工核可表單看不到說明，見 [[Systems/展示頁面]] 同日一節），格子標題、註記與 SVG 描述統一用「收件收下後」起頭：標題「收件收下後，AI 另外寫給人看的說明；執行端不讀、不等」，註記「收件收下後另寫，只給人看，執行端不讀」（註記挪到說明格上方，免得壓到往上的虛線）。出處：協調者交辦、代碼審 r1 與本次重畫，驗證見 [[Verification/README流程動圖驗證]] 同日一節。
+WHY: [2026-09-28] [[Issues/流程圖把AI說明畫在送出建議之前]]：舊圖把「AI 寫提案說明」放在「送出提案」正下方、夾在送出與「收件檢查」之間，主線還得繞過它，讀的人會以為提案要先經過 AI 才進收件。改成送出提案往下直接一條實線接收件檢查；AI 說明畫在待處理佇列正上方，由佇列往上一條 AI 色虛線接過去——說明命令列只讀收件收下、交給執行的提案，被拒收或過時的不會有說明（代碼審 r1 正確性 F1：初版從送出提案岔出，跟「收件收下後」的說法矛盾，且送出那一格旁支就先亮了）。AI 色虛線的旁支跟主線一樣，走到它的起點之前畫成暗色。舊註記「送件後供確認者參考，不進決策」不符事實（人工核可表單看不到說明，見 [[Systems/展示頁面]] 同日一節），格子標題、註記與 SVG 描述統一用同一個說法起頭（當時是「收件收下後」，同日白話化改成「建議被收下後」，見文末〈2026-09-28 圖上文字改白話〉）：現行標題「建議被收下後，AI 另外寫一段說明給人看；執行時不看它、也不等它。」，註記「建議被收下後另寫，只給人看，執行時不看」（註記挪到說明格上方，免得壓到往上的虛線）。出處：協調者交辦、代碼審 r1 與本次重畫，驗證見 [[Verification/README流程動圖驗證]] 同日一節。
 
-WHY: [2026-09-28 代碼審 r1 正確性 F3] 這張圖原本沒有任何測試守著，說明被畫回主線不會翻紅。`tests/test_readme_flow_diagram.py` 用語法樹讀產生器模組層的 `EDGES`、`NOTES`、`CAPTIONS` 字面值（不匯入產生器：Pillow 不是專案依賴，匯入就得在 CI 跳過），斷言送出提案 → 收件檢查是主線、說明沒有出去的邊、進說明的只有佇列來的一條 AI 虛線，以及標題與註記都用「收件收下後」、不寫「確認者」。四種變異（畫回送出 → 說明 → 收件、旁支改回從送出岔出、註記改回舊說法、旁支改成實線）各自讓它翻紅。代價：`EDGES` 等要維持字面值寫法，改成用函式算出來時測試會先紅、要跟著改。防回歸：[test:test_the_readme_diagram_keeps_the_narrative_off_the_main_line]、[test:test_the_readme_diagram_says_the_narrative_comes_after_intake_the_same_way]。
+WHY: [2026-09-28 代碼審 r1 正確性 F3] 這張圖原本沒有任何測試守著，說明被畫回主線不會翻紅。`tests/test_readme_flow_diagram.py` 用語法樹讀產生器模組層的 `EDGES`、`NOTES`、`CAPTIONS` 字面值（不匯入產生器：Pillow 不是專案依賴，匯入就得在 CI 跳過），斷言送出提案 → 收件檢查是主線、說明沒有出去的邊、進說明的只有佇列來的一條 AI 虛線，以及標題與註記都用同一個說法起頭（現為「建議被收下後」，當初是「收件收下後」）、不寫「確認者」。四種變異（畫回送出 → 說明 → 收件、旁支改回從送出岔出、註記改回舊說法、旁支改成實線）各自讓它翻紅。代價：`EDGES` 等要維持字面值寫法，改成用函式算出來時測試會先紅、要跟著改。防回歸：[test:test_the_readme_diagram_keeps_the_narrative_off_the_main_line]、[test:test_the_readme_diagram_says_the_narrative_comes_after_intake_the_same_way]。
 
 本圖由同一份 `NODES`、`EDGES`、`CAPTIONS` 資料產 GIF 與 SVG，同一環境連續重畫兩次 GIF 與 SVG 的雜湊都相同。上方 2026-09-24 至 26 日的 Phase 13 畫法及抽格紀錄是歷史脈絡，不能當成現行圖；兩條 AI 旁支的時點依展示驅動（說明在送出之後、告警假說另外處理），流程定義 2026-09-28 起也把說明畫成送出後的旁支。
 

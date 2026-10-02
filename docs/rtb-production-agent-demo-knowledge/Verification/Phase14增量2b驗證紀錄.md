@@ -15,7 +15,7 @@ plan_refs:
 ---
 # Phase14增量2b驗證紀錄
 
-範圍:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b(正式規則照九條、規則輪 A/B/C 分步蒐證、缺狀態診斷、證據參照、政策升版、租約守衛與停止寬限、Phase 10 缺四查詢轉接、AI 退回開規則輪)。狀態記 pending,因為入庫展示錄製有一支測試紅(見〈未解決〉),其餘全綠。
+範圍:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 2b(正式規則照九條、規則輪 A/B/C 分步蒐證、缺狀態診斷、證據參照、政策升版、租約守衛與停止寬限、Phase 10 缺四查詢轉接、AI 退回開規則輪)。狀態記 pending,因為入庫展示錄製有一支測試紅(見〈未解決〉),其餘全綠。(2026-10-02 更正:開頭現為 superseded(見文末),由 [[Verification/Phase14增量3驗證紀錄]] 取代;〈未解決〉那支紅的測試已在 b2fc512 刪除,展示重播改由讀 phase14-demo 的 test_committed_demo_recordings_replay_f1_to_f6_with_narratives 守,已綠。)
 
 ## 紅綠(先紅:把新測試放在 HEAD 的原始碼上跑)
 

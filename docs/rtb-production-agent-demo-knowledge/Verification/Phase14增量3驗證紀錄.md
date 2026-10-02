@@ -15,7 +15,7 @@ plan_refs:
 ---
 # Phase14增量3驗證紀錄
 
-範圍:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 3(〈使用者裁定〉8、〈拆增量〉3 逐項去留清單):AI 退出正式與展示的加額決策,只留提案說明與告警原因假說;評估保留 Judge、錄製重播與授權即時加錄製。狀態 pending:展示錄製批次要協調者用真 claude 錄,錄好之前「入庫展示批次重播」那一支測試照設計是紅的。
+範圍:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 3(〈使用者裁定〉8、〈拆增量〉3 逐項去留清單):AI 退出正式與展示的加額決策,只留提案說明與告警原因假說;評估保留 Judge、錄製重播與授權即時加錄製。狀態 pending:展示錄製批次要協調者用真 claude 錄,錄好之前「入庫展示批次重播」那一支測試照設計是紅的。(2026-10-02 更正:這句寫於錄製前;開頭現為 pass,協調者已錄 phase14-demo-20260927、那支重播測試已綠,見下〈等錄製與未完成〉。開頭前兩個重驗事件——phase14-demo 入庫、合併差異過代碼審——都已發生,本篇後段的代碼審 r1–r3 與全套就是事後的結果。)
 
 ## 紅綠(新測試放在增量 3 之前的原始碼上跑)
 
@@ -44,7 +44,7 @@ plan_refs:
 
 刪除(70 支,整支檔 tests/analyzer/test_runner_model_line.py 在內):流程層 AI 那一步(續租、收據容器、RenewalSkipped、記次、停止、提交忙碌重付)、分析端驅動帶 --ai-judge 的端到端(守衛、停止、模式判一次、即時錄製、登入預檢、hold-submit、AI 提案否決與開輪)、展示 AI 輪卡與考題、故障沒走到、AI 輪數放寬、模式行、F7 共用錄製鍵、雙胞胎、`ai_fallback_problems` 守衛。每一支的原綁定條款都在原出處改綁或改 `[manual:]`(Phase 13 計劃 26 條、Phase 12 [S1028]),`lumos spec-trace` 對 Phase 12/13 計劃 0 條新增懸空。
 
-改綁(改測新語意、測試名保留):test_code_prefilters_run_before_any_model_call 等 Judge 解析與收據測試改用評估的呼叫方式;test_the_executor_never_sees_model_rounds 改用純規則提案;test_the_investigation_eval_runs_the_same_ai_judge 拿掉續租;test_narrate_and_the_runner_book_recorded_replays_into_a_scratch_ledger 只留說明那半;test_stop_grace_covers_the_longest_rule_step 改驗 AI 寬限已撤;test_the_mapped_enums_are_the_eighteen_in_the_plan 回到十八個;test_formal_flow_map_and_every_sample_route_match 48 節點/72 邊。
+改綁(改測新語意、測試名保留):test_code_prefilters_run_before_any_model_call 等 Judge 解析與收據測試改用評估的呼叫方式;test_the_executor_never_sees_model_rounds 改用純規則提案;test_the_investigation_eval_runs_the_same_ai_judge 拿掉續租;test_narrate_and_the_runner_book_recorded_replays_into_a_scratch_ledger 只留說明那半;test_stop_grace_covers_the_longest_rule_step 改驗 AI 寬限已撤;test_the_mapped_enums_are_the_eighteen_in_the_plan 回到十八個;test_formal_flow_map_and_every_sample_route_match 48 節點/72 邊。(2026-10-02 更正:同日稍晚 626cccb 拿掉沒人走的 AI 參考判斷分支,前一支改名為 `tests/demo/test_flow.py` 的 test_the_mapped_enums_are_the_seventeen_in_the_plan,流程圖斷言現在是 46 節點/67 邊,見 `tests/demo/test_page.py` 與 [[Systems/展示頁面]]。)
 
 ## F7 全規模實測([S1411])
 
@@ -86,4 +86,4 @@ plan_refs:
 - (已解)等錄製:協調者已錄 phase14-demo-20260927,test_committed_demo_recordings_replay_f1_to_f6_with_narratives 已綠。
 - 本批沒有 HYPOTHESIS:假錄製實跑 F1–F6,六個情境的假說命令列都回「沒有告警」(F6 執行端連不上平台沒達服務水準告警門檻)。要聲稱假說已驗,需要專用的告警情境補錄。
 - (代碼審 r1 已修)說明的數字核對原本只比數值,「加 500%」借曝光數 500 過關;百分比現在要對回證據裡的百分比,見〈代碼審 r1 修正〉。
-- 本計劃 [S1410] [S1418] 仍懸空,屬增量 4。
+- 本計劃 [S1410] [S1418] 仍懸空,屬增量 4。(2026-10-02 更正:增量 4 已綁,兩條現綁 `tests/eval/test_investigation_eval.py` 的報告測試,見 [[Verification/Phase14增量4驗證紀錄]]。)

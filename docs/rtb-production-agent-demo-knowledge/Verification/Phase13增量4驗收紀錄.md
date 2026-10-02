@@ -15,7 +15,7 @@ plan_refs:
 ---
 # Phase13增量4驗收紀錄
 
-範圍:Phase 13 增量 4——展示串接:七個情境的分析那一步讓 AI 參與決定(預設錄製、「哪些情境即時」清單、F7 永遠錄製)、驅動程式依每件工作的結局選預期、F5 雙胞胎與模型考題、判斷紀錄的「AI 判斷」與「程式接手」兩列、頁面標示、說明與假說兩支命令列接到展示頁、展示批次入庫前的檢查。實作細節見 [[Projects/RTB_Phase13AI參與決策_計劃]]〈實作解讀〉「增量 4」。
+範圍:Phase 13 增量 4——展示串接:七個情境的分析那一步讓 AI 參與決定(預設錄製、「哪些情境即時」清單、F7 永遠錄製)、驅動程式依每件工作的結局選預期、F5 雙胞胎與模型考題、判斷紀錄的「AI 判斷」與「程式接手」兩列、頁面標示、說明與假說兩支命令列接到展示頁、展示批次入庫前的檢查。實作細節見 [[Projects/RTB_Phase13AI參與決策_計劃]]〈實作解讀〉「增量 4」。(2026-10-02 更正:本篇驗的「展示分析那一步讓 AI 參與決定」已在 2026-09-26 Phase 14 增量 3 撤除,展示的分析端現在永遠只用九條規則、不帶 --ai-judge,見 `src/rtb/demo/driver.py` 的 analyzer_args 與 [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]〈使用者裁定〉8;下面的 pass 只是當時的驗證結果。)
 
 ## 已完成(實作者,2026-09-25)
 - 合約 [S1120]–[S1124]、[S1143]–[S1145]、[S1157]、[S1158]、[S1164]、[S1166]–[S1168] 的綁定測試全綠(tests/demo/test_ai_demo.py、tests/demo/test_ai_page.py;啟動器那一半另在 tests/demo/test_ai_launcher.py)。全程沒有呼叫真的 claude:測試用假錄製,[S1120] 那支另在 PATH 最前面放一支會記錄呼叫的假 claude,驗它一次都沒被叫。
@@ -26,7 +26,7 @@ plan_refs:
 ## 錄製批次入庫(協調者,2026-09-25)
 - 協調者用真 claude(使用者授權)照新系統提示(查詢寫成 JSON 陣列,見 [[Systems/分析行程流程與檢查點]])錄了兩批並入庫:展示批次 `recordings/model/phase13-demo/`(phase13-demo-20260925,6 份)、調查評估批次 `recordings/model/phase13-investigation-eval/`(phase13-eval-20260925,84 份)。兩批都過入庫前檢查。
 - 評估結果(governance/eval/phase13-investigation-adoption.md,重播入庫錄製重產,不呼叫模型):模型在名稱正常的 36 筆裡類別正確 17 筆(現行程式規則 12 筆);格式失敗率 32.5%(協調者看錄製判讀:多為模型在 JSON 前加推理文字);延遲中位約 4.2 秒、p95 約 7.2 秒;結論不採用(合成集照 Phase 10 規定一律不採用,延遲、格式失敗率、退回率也沒過門檻)。
-- [S1141] 與 [S1164] 綁的兩支 CI 測試(`test_the_investigation_eval_in_ci_replays_only_and_misses_nothing`、`test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6`)原本「入庫目錄不存在就跳過」,現在兩個入庫目錄都在,已真的在跑、綠。
+- [S1141] 與 [S1164] 綁的兩支 CI 測試(`test_the_investigation_eval_in_ci_replays_only_and_misses_nothing`、`test_committed_demo_recordings_have_no_ai_fallback_in_f1_to_f6`)原本「入庫目錄不存在就跳過」,現在兩個入庫目錄都在,已真的在跑、綠。(2026-10-02 更正:現在只剩調查評估那支還在;展示那支已在 b2fc512 刪除,展示重播守衛換成 `tests/demo/test_ai_demo.py` 的 test_committed_demo_recordings_replay_f1_to_f6_with_narratives、改讀 recordings/model/phase14-demo,phase13-demo 由 `tests/model/test_recording_integrity.py` 釘成唯讀歷史,見 [[Systems/一鍵展示]]。)
 
 ## 截圖(給使用者本人看,[S1125] 由使用者本人判)
 - 重拍(2026-09-25):用最終程式提交 3edf2ae 重拍全部截圖,截圖在 2026-09-25 11:41 UTC 產生(晚於 3edf2ae)。做法:在 pytest 的隔離裡(帳號家目錄與 HOME 都換成暫存目錄,不起展示伺服器、不碰真的 ~/.rtb;前後核對真帳的時間與大小沒變)用展示驅動程式跑情境,讀展示狀態庫、用靜態頁面渲染(樣式內嵌),再用 Python 版 Playwright 的 chromium 以 file:// 打開截圖。視窗 1280 寬、深色配色;詳情截圖的流程圖切到「完整總覽」,其餘明細維持預設收合(每一步的判斷內容改在流程格的浮出框裡,另有一張浮出框的截圖)。截圖放在 docs/assets/phase13-inc4/,逐張核對過下表的「看到什麼」。
@@ -55,11 +55,11 @@ plan_refs:
 - ~~淺色配色下有對比問題~~ 已修(協調者 2026-09-25 裁定,推主線前修):頁面後段把主題色重設成深色時漏了幾個狀態色(執行中、故障、考題),偏好淺色時拿到淺色那組、配上深色底;F5「模型考題沒通過」那一行變成淺粉底配淺字。補齊那幾個狀態色、故障提示改用主題變數後,深淺兩種偏好下所有看得到的文字都達 AA(測試 `test_every_visible_text_meets_aa_contrast_in_both_color_schemes`)。淺色偏好補拍一張 exam-failed-f5-light.jpg。
 - 假說卡在展示裡還沒有真的顯示過 AI 的推測:假說只在服務水準告警響時才問 AI,展示情境很短,本機實跑七個情境都沒有告警,頁面照實寫「這次沒有告警,沒有請 AI 推測原因」(有內容那一路只在測試裡用構造的狀態驗過)。
 REVISIT:2026-12-31 看展示紀錄有沒有任何一次告警響;還是沒有,就另設計一個會觸發告警的展示情境,或把假說卡從展示頁拿掉。
-- 還沒有入庫的展示錄製批次:錄製模式全部跑一次,AI 那一步全部退回程式規則(依賴協調者本機錄一批 phase13-demo-YYYYMMDD,入庫前跑 python -m rtb.demo.recordings)。
+- 還沒有入庫的展示錄製批次:錄製模式全部跑一次,AI 那一步全部退回程式規則(依賴協調者本機錄一批 phase13-demo-YYYYMMDD,入庫前跑 python -m rtb.demo.recordings)。(2026-10-02 更正:這條已不成立——同一天協調者已入庫 phase13-demo 6 份,見上〈錄製批次入庫〉;現在展示重播讀的是 recordings/model/phase14-demo。)
 - 全部跑一次沒有接展示伺服器、沒有人按確認時,F7 等人確認等到上限後標「沒有人確認」(Phase 12 的既有行為)。
 
 
 ## 前提已更新(2026-09-25,上主線時)
 - 開頭的 valid_under 與 revalidate_when 第一項寫於錄製入庫前,已過時;lumos 沒有改這兩個欄位的指令,照規矩不手改開頭,以這一節為準。
-- 現在成立的前提:主線合入 phase13-inc4 7bb86aa 時的程式;展示錄製批次 phase13-demo-20260925(6 檔)與評估批次 phase13-eval-20260925(84 檔)已入庫,由協調者經使用者授權用真 claude 錄;CI 的兩支入庫重播守衛已啟用。
-- 現在的回頭條件:系統提示、收據格式或選項一改,錄製鍵就變,要重錄兩批、重跑入庫前檢查並重拍截圖(CI 的重播守衛會先變紅提醒)。
+- 現在成立的前提:主線合入 phase13-inc4 7bb86aa 時的程式;展示錄製批次 phase13-demo-20260925(6 檔)與評估批次 phase13-eval-20260925(84 檔)已入庫,由協調者經使用者授權用真 claude 錄;CI 的兩支入庫重播守衛已啟用。(2026-10-02 更正:展示那支守衛已刪,現況見上〈錄製批次入庫〉的更正。)
+- 現在的回頭條件:系統提示、收據格式或選項一改,錄製鍵就變,要重錄兩批、重跑入庫前檢查並重拍截圖(CI 的重播守衛會先變紅提醒)。(2026-10-02:前提已變——展示的 AI 決策已撤、phase13-demo 已改為不准動的歷史證據,這條對展示批次不再適用;調查評估批次仍由 test_the_investigation_eval_in_ci_replays_only_and_misses_nothing 守著。)

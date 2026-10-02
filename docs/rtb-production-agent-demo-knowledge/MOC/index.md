@@ -47,6 +47,7 @@ updated: 2026-09-27
 - [[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]
 - [[Projects/RTB_Phase13AI參與決策_計劃]]
 - [[Projects/RTB_Phase14正式規則照九條判斷_計劃]]
+- [[Projects/RTB_Phase15AI找規則模式_計劃]]
 - [[Projects/RTB_Phase2任務流程_計劃]]
 - [[Projects/RTB_Phase3外部寫入安全_計劃]]
 - [[Projects/RTB_Phase4佇列與重新投遞_計劃]]
@@ -68,6 +69,11 @@ updated: 2026-09-27
 - [[Verification/Phase13增量1驗收紀錄]]
 - [[Verification/Phase13增量2驗收紀錄]]
 - [[Verification/Phase13增量3驗收紀錄]]
+- [[Verification/Phase13增量4驗收紀錄]]
+- [[Verification/Phase14增量2a離線驗證]]
+- [[Verification/Phase14增量2b驗證紀錄]]
+- [[Verification/Phase14增量3驗證紀錄]]
+- [[Verification/Phase14增量4驗證紀錄]]
 - [[Verification/Phase1驗收紀錄]]
 - [[Verification/Phase2驗收紀錄]]
 - [[Verification/Phase3驗收紀錄]]
@@ -90,8 +96,8 @@ updated: 2026-09-27
 
 - [[Issues/確認頁顯示AI說明時的收據還沒做]](open)
 - [[Issues/F7端到端在CI上偶爾超過60秒]](resolved)
-- [[Issues/Phase11後接入大模型API的三個階段]](open)
-- [[Issues/Phase12需要可看任務階段與處置的HTML報告]](open)
+- [[Issues/Phase11後接入大模型API的三個階段]](resolved)
+- [[Issues/Phase12需要可看任務階段與處置的HTML報告]](resolved)
 - [[Issues/Phase9代使用者裁定待覆核]](open)
 - [[Issues/共用HTTP伺服器連線名額測試在CI偶發逾時]](done)
 - [[Issues/執行端寫入前再確認沒記讀到的平台版本]](open)
@@ -99,3 +105,9 @@ updated: 2026-09-27
 - [[Issues/每支檔有家在合併提交上誤擋]](resolved)
 - [[Issues/現行規則只看有沒有投放就提案]](resolved)
 - [[Issues/Phase14後筆記漂移清理]](resolved)
+- [[Issues/存量筆記漂移等工具修復]](open)
+- [[Issues/竄改錄製檔外殼深巢狀讓錄製讀取當掉]](open)
+- [[Issues/說明提示仍寫給核可的人看]](open)
+- [[Issues/錄製模式的原因假說寫進真帳本]](resolved)
+- [[Issues/展示還留著AI參考判斷分支與說明看不到四查詢]](resolved)
+- [[Issues/流程圖把AI說明畫在送出建議之前]](resolved)
