@@ -13,12 +13,12 @@
   "scripts/hooks/claude/memory-sweep.py": "6bc21768296f6b858e0f5965206ad8c487500c79c7fd5a02bab2396105f9c634",
   "scripts/hooks/post-commit": "f7ccea562d2e0fa83ec2e9d527b93a6f10204c541f377f425e42ad814a3a27dc",
   "scripts/hooks/pre-commit": "5a8dc225ef018d942f6b1d5e831db9879742a9ae20d4becb1af77d8fa5ab0656",
-  "scripts/hooks/pre-push": "910bb200dd4a4782c69da7110ce9360ad07f4215eda2ba883bca46664053fbb5",
-  "scripts/lumos": "e056edd4bc83ee6e04de72dd4e2f4c11f6ae987ea77e552a511bfc5bf0979158",
+  "scripts/hooks/pre-push": "3fdb2bcbc317b555fe815c8082a42f5671576db66abb960f964c91c239183e35",
+  "scripts/lumos": "6cec23610eb89604e50ee6f7ab605b8a8d1fa4ea1d45e4fd921ea9110ed18dda",
   "scripts/merge-claude-settings.py": "3324272bedc814d4d64a814c6a04ad89abdc08516cb199c52abd181c0a1ebeff",
   "scripts/templates/graph-discipline.md": "98c8bab8a212785a98f93e90efcef3b1b3c9146d37ba4f35614ac7b627b90a91",
   "scripts/templates/note-audit-judge.md": "88f2bb6ccf816da2e4ea195d58bb7c5bacc71af55bf9eea2bb624a5e468dc713",
   "scripts/templates/note-audit-reread.md": "079c09fb31831ed47cb0e1898af9928209975524d01d7273c8886ba0863c0260",
-  "scripts/test_lumos.py": "418a6b28abcac3c3aefc76cd5afa7945b3337ce42b8e261b6fc2eb65df7b96b3"
+  "scripts/test_lumos.py": "54d9c0aa3ae39d31918f552baf8c2da76ec9fd256a3bcfd57559870c36c645c3"
  }
 }

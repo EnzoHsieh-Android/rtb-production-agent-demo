@@ -361,7 +361,7 @@ for _ppl in ${_PP_LINES+"${_PP_LINES[@]}"}; do
     if [[ "$ns_rc" -eq 1 ]]; then
       {
         echo ""
-        echo "逃生:照上面改寫(行號改成函式名或測試名、或釘版本 路徑@<提交編號>:行號;現況描述刪掉或帶 [來源:…]);誤擋就 LUMOS_SKIP_NOTE_SHAPE=1 單次跳過(會留帳);整個專案先只提醒 → .lumos/config.json 的 note_shape.gate 設成 warn。"
+        echo "逃生:照上面改寫(行號改成函式名或測試名、或釘版本 路徑@<提交編號>:行號;現況描述刪掉或帶 [來源:…]);碰到的筆記有指不到的測試名 → 改成真名、測試已刪寫 [test-gone:名稱];誤擋就 LUMOS_SKIP_NOTE_SHAPE=1 單次跳過(會留帳);只關測試綁定那組 → .lumos/config.json 的 note_shape.test_refs 設成 warn;整個專案先只提醒 → note_shape.gate 設成 warn。"
         echo ""
       } >&2
       exit 1
