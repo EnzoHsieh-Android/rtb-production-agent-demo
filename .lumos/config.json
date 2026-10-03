@@ -3,5 +3,8 @@
   "symbol_profile": "python",
   "test": {
     "run_cmd": "\"$(git rev-parse --git-common-dir)/../.venv/bin/python\" -m pytest tests -k {method} -q"
+  },
+  "note_shape": {
+    "test_refs": "block"
   }
 }
