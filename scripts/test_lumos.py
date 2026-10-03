@@ -55794,6 +55794,231 @@ def t_update_prints_python314_notice_and_slim_strips_floor():
 
 # ═══ 存量漂移守衛 乙:條件式回頭條件 ═══
 
+def t_drift_when_gone_evaluates():
+    """[S1] when-gone 在指定提交的樹上判:檔在不成立、刪掉成立;資料夾、連結檔、子模組算在;帶字串時字串在不成立、拿掉或刪檔
+    成立;帶字串而路徑是資料夾、含 NUL、LFS 指標、不是 UTF-8(Big5)、讀不出都判不了,原因記下來、點名時講出來。"""
+    print("t_drift_when_gone_evaluates")
+    m = _load_lumos_inproc()
+    root = _nh_repo()
+    _nh_file(root, "src/a.py", "import time\nnow = time.time()\n")
+    _nh_file(root, "src/lib/x.py", "x = 1\n")
+    (root / "src" / "bin.dat").write_bytes(b"abc\0def time.time()")
+    (root / "src" / "lfs.bin").write_bytes(b"version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 3\n")
+    (root / "src" / "big5.txt").write_bytes("時間到了 time.time()".encode("big5"))
+    import os as _os
+    _os.symlink("a.py", root / "src" / "link.py")
+    _nh_commit(root, "tree")
+    tip = _na_head(root)
+    tr = m._drift_probe_tree(root, tip)
+    cases = [("src/a.py", False), ("src/none.py", True), ("src/lib", False), ("src/link.py", False),
+             ("src/a.py::time.time()", False), ("src/a.py::datetime.now()", True), ("src/none.py::time.time()", True)]
+    bad = [(v, tr.one("gone", v)) for v, want in cases if tr.one("gone", v) is not want]
+    check("①在/消失、資料夾與連結檔算在、字串在不在", not bad, bad)
+    unknown = ["src/lib::x", "src/bin.dat::time.time()", "src/lfs.bin::oid", "src/big5.txt::time.time()", "src/link.py::time"]
+    got = {v: tr.one("gone", v) for v in unknown}
+    check("②帶字串讀不準的一律判不了", all(x is None for x in got.values()), got)
+    whys = {v: tr.gone_why.get(v, "") for v in unknown}
+    check("②判不了的原因記下來", "一般檔" in whys["src/lib::x"] and "NUL" in whys["src/bin.dat::time.time()"]
+          and "LFS" in whys["src/lfs.bin::oid"] and "UTF-8" in whys["src/big5.txt::time.time()"], whys)
+    note = m._drift_bad_note(m._drift_row_unread((("gone", "src/big5.txt::time.time()"),), (), (tr,)))
+    check("③點名講出那支檔與原因", "src/big5.txt(不是 UTF-8)" in note, note)
+    sub = m._DriftProbeTree(root, tip, set(), m._nodehome_layout([]), entries=["vendor/sub"])
+    check("④子模組(樹上的條目、不是一般檔)算在", sub.gone("vendor/sub") is False and sub.gone("vendor/other") is True, "")
+    _nh_git(root, "rm", "-q", "src/a.py")
+    _nh_commit(root, "rm")
+    tr2 = m._drift_probe_tree(root, _na_head(root))
+    check("⑤刪掉檔:只帶路徑與帶字串的都成立", tr2.one("gone", "src/a.py") is True and tr2.one("gone", "src/a.py::time.time()") is True, "")
+
+
+def t_drift_when_gone_push():
+    """[S2] 推送刪掉 when-gone 指的字串或檔:點名「這次推送讓條件成立了」、不附打錯字提示;推送沒動那支檔不列;
+    新寫一條而字串本來就不在檔裡:點名已經成立;新寫一條而路徑在終點就找不到:多附「路徑在這一版就找不到」。"""
+    print("t_drift_when_gone_push")
+    root = _dr_repo(cfg={"drift_check": {"gate": "block"}})
+    _nh_file(root, "src/a.py", "now = time.time()\n")
+    _nh_file(root, "src/other.py", "x = 1\n")
+    _nh_node(root, "Pay", summary="FLOW:a", body="REVISIT:[when-gone:src/a.py::time.time()][by:2099-12-31] 不再讀系統時間就拿掉警告")
+    _nh_commit(root, "base")
+    b0 = _na_head(root)
+    _nh_file(root, "src/other.py", "x = 2\n")
+    _nh_commit(root, "無關")
+    rc, out = _dr(root, "check", "--diff", f"{b0}..HEAD")
+    check("①推送沒動那支檔:不列", rc == 0 and "probe" not in out, out[-400:])
+    b1 = _na_head(root)
+    _nh_file(root, "src/a.py", "now = clock()\n")
+    _nh_commit(root, "拿掉 time.time()")
+    rc, out = _dr(root, "check", "--diff", f"{b1}..HEAD")
+    check("②推送刪掉那段字:點名、不附打錯字提示", rc == 1 and "這次推送讓條件成立了" in out and "找不到" not in out, out[-500:])
+    root = _dr_repo(cfg={"drift_check": {"gate": "block"}})
+    _nh_file(root, "src/a.py", "x = 1\n")
+    _nh_node(root, "Pay", summary="FLOW:a", body="REVISIT:[when-gone:src/a.py][by:2099-12-31] 檔不見就收尾")
+    _nh_commit(root, "base")
+    b0 = _na_head(root)
+    _nh_git(root, "rm", "-q", "src/a.py")
+    _nh_commit(root, "刪檔")
+    rc, out = _dr(root, "check", "--diff", f"{b0}..HEAD")
+    check("③推送刪掉檔:點名、不附打錯字提示", rc == 1 and "這次推送讓條件成立了" in out and "找不到" not in out, out[-500:])
+    b1 = _na_head(root)
+    _nh_file(root, "src/b.py", "y = 1\n")
+    _nh_node(root, "Pay", summary="FLOW:a", body="REVISIT:[when-gone:src/a.py][by:2099-12-31] 檔不見就收尾\n"
+             "REVISIT:[when-gone:src/b.py::not_there][by:2099-12-31] 字串本來就不在\n"
+             "REVISIT:[when-gone:src/typo.py][by:2099-12-31] 打錯字的路徑")
+    _nh_commit(root, "新寫兩條")
+    rc, out = _dr(root, "check", "--diff", f"{b1}..HEAD")
+    check("④新寫而字串本來就不在:點名已經成立", rc == 1 and "src/b.py::not_there" in out and "條件已經成立" in out, out[-700:])
+    typo = [ln for ln in out.split("\n") if "typo.py" in ln]
+    check("⑤新寫而路徑在終點就找不到:多附提示", typo and any("這一版就找不到" in ln for ln in out.split("\n")), out[-700:])
+    # ⑥不是程式檔(沒有程式形狀改變):刪掉資料夾裡的素材也要當候選——一般條件的候選篩選只看程式檔,when-gone 看路徑本身
+    #   與以它為前綴的資料夾
+    for label, target, rm in (("素材檔", "assets/old.txt", ["assets/old.txt"]), ("素材資料夾", "assets/icons", ["-r", "assets/icons"])):
+        root = _dr_repo(cfg={"drift_check": {"gate": "block"}})
+        _nh_file(root, "assets/old.txt", "舊素材\n")
+        _nh_file(root, "assets/icons/a.txt", "icon\n")
+        _nh_node(root, "Pay", summary="FLOW:a", body=f"REVISIT:[when-gone:{target}][by:2099-12-31] 舊素材拿掉就收尾")
+        _nh_commit(root, "base")
+        b0 = _na_head(root)
+        _nh_git(root, "rm", "-q", *rm)
+        _nh_commit(root, "刪素材")
+        rc, out = _dr(root, "check", "--diff", f"{b0}..HEAD")
+        check(f"⑥刪掉{label}(不是程式檔):點名", rc == 1 and "這次推送讓條件成立了" in out, (label, out[-500:]))
+
+
+def t_drift_when_gone_grammar():
+    """[S3][S5] when-gone 的寫法:路徑 / 開頭、含 ..(含反斜線寫法)、字串空、標記內反引號都報條件寫錯;合格不擋;字串從第一個
+    :: 切、反斜線原樣、兩端空白去掉。列舉條件鍵的訊息與文件都提到每個鍵,本 repo 的紀律區塊跟範本一致。"""
+    print("t_drift_when_gone_grammar")
+    import inspect
+    m = _load_lumos_inproc()
+    for label, ln in [("/ 開頭", "REVISIT:[when-gone:/a.py][by:2099-01-01] x"),
+                      ("..", "REVISIT:[when-gone:../a.py][by:2099-01-01] x"),
+                      ("反斜線 ..", "REVISIT:[when-gone:a\\..\\x.py][by:2099-01-01] x"),
+                      ("字串空", "REVISIT:[when-gone:a.py::][by:2099-01-01] x"),
+                      ("反引號", "REVISIT:[when-gone:a.py::`t()` x][by:2099-01-01] x")]:
+        v = m._ns_revisit_violations(ln, "body", True)
+        check(f"①{label}:報條件寫錯", [r for r, _f, _x in v] == ["條件寫錯"], (label, v))
+    check("②合格:不報", m._ns_revisit_violations("REVISIT:[when-gone:src/a.py::time.time()][by:2099-01-01] x", "body", True) == [], "")
+    pr = m._probe_parse("[when-gone:src\\a.py::  Foo::bar\\n  ][by:2099-01-01] x")
+    check("③從第一個 :: 切、路徑反斜線轉斜線、字串反斜線原樣、兩端空白去掉", pr["conds"] == [("gone", "src/a.py::Foo::bar\\n")]
+          and m._drift_cond_split(pr["conds"][0][1], "gone") == ("src/a.py", "Foo::bar\\n"), pr)
+    msgs = [m._probe_value_err("bogus", "x"), m._slot_retire_err("亂寫")]     # 兩句訊息各自要列全
+    hint = inspect.getsource(m)  # 提示那段在筆記形狀擋的否定現況句提醒裡
+    i = hint.index("條件怎麼選:")
+    hint = hint[i:i + 600]
+    root = _repo_root_for_discipline()
+    docs = [(root / "skills" / "lumos-project-notes" / "commands" / "03-寫回圖譜.md").read_text(encoding="utf-8"),
+            (root / "skills" / "lumos-project-notes" / "reference.md").read_text(encoding="utf-8"),
+            (root / "scripts" / "templates" / "graph-discipline.md").read_text(encoding="utf-8")]
+    targets = [("值驗證訊息", msgs[0].replace("、", " when-")), ("撤除條件訊息", msgs[1]), ("提醒", hint), ("03", docs[0]),
+               ("reference", docs[1]), ("範本", docs[2])]
+    miss = [(k, n) for k in m._PROBE_KEYS for n, t in targets if f"when-{k}" not in t and f"只有 {k}" not in t]
+    check("④列舉條件鍵的訊息、提醒、文件都提到每個鍵", not miss, miss)
+    claude = (root / "CLAUDE.md").read_text(encoding="utf-8")
+    check("⑤本 repo 紀律區塊跟範本一致(帶 when-gone)", "when-gone:路徑[::字串]" in claude
+          and "when-gone:路徑[::字串]" in (root / "AGENTS.md").read_text(encoding="utf-8"), "")
+
+
+def t_drift_when_gone_retire():
+    """[S4] RULE 撤除條件 [retire:when-gone:src/a.py]:只有路徑合格;推送刪掉那支檔點名撤除條件成立;撤除條件的 when-gone
+    寫 ..\\x 或標記內有反引號照 REVISIT 那條路報錯。"""
+    print("t_drift_when_gone_retire")
+    m = _load_lumos_inproc()
+    check("①只有路徑:合格", m._slot_retire_err("when-gone:src/a.py") is None, "")
+    check("②..\\x:報錯", m._slot_retire_err("when-gone:..\\x.py") is not None
+          and m._slot_retire_err("when-gone:a\\..\\x.py") is not None, "")
+    check("③標記內反引號:報錯", "反引號" in (m._slot_retire_err("when-gone:a.py::`t()`") or ""), "")
+    rule = "RULE:要人簽 [依據:人] [since:2026-09-01] [retire:when-gone:src/old.py]"
+    root = _dr_repo()
+    base = _rt_push(root, [rule], files=("src/old.py",), msg="rule")
+    _nh_git(root, "rm", "-q", "src/old.py")
+    _nh_commit(root, "刪檔")
+    rc, out = _dr(root, "check", "--diff", f"{base}..{_na_head(root)}")
+    check("④推送刪掉那支檔:點名撤除條件成立", rc == 1 and "撤除條件成立" in out, out[-500:])
+
+
+def t_drift_when_gone_review_r1():
+    """代碼審 r1:反引號檢查只看真正的 [when-gone: 標記(說明文字提到 when-gone: 後面有行內程式碼不算);字串含 [ 報錯(會被
+    第一個 ] 截斷);帶字串的大檔不整份讀進記憶體(git 與工作目錄兩種模式);讀不出判不了;工作目錄模式照樣判;預算用完判不了。"""
+    print("t_drift_when_gone_review_r1")
+    import time as _time
+    m = _load_lumos_inproc()
+    ok = "REVISIT:[when-file:src/a.py][by:2099-01-01] 寫法見 when-gone: 用 `[when-gone:路徑]` 那種"
+    check("①說明文字提到 when-gone: 後面有行內程式碼:不報", m._ns_revisit_violations(ok, "body", True) == [], m._ns_revisit_violations(ok, "body", True))
+    check("①前提:真正的標記內有反引號照報", m._ns_revisit_violations("REVISIT:[when-gone:a.py::`t`][by:2099-01-01] x", "body", True) != [], "")
+    check("②字串含 [ 報錯(REVISIT 與撤除條件)", m._probe_check_value("gone", "a.py::x[1")[1] is not None
+          and m._slot_retire_err("when-gone:a.py::x[1") is not None, "")
+    root = _nh_repo()
+    big = b"time.time()\n" + b"x" * (3 * 1048576)
+    (root / "src").mkdir(parents=True, exist_ok=True)
+    (root / "src" / "big.py").write_bytes(big)
+    _nh_file(root, "src/a.py", "now = time.time()\n")
+    _nh_commit(root, "big")
+    tip = _na_head(root)
+    for where in (tip, "disk"):
+        tr = m._drift_probe_tree(root, where)
+        got = tr.one("gone", "src/big.py::time.time()")
+        held = tr._raw.get("src/big.py")
+        check(f"③大檔({where[:6]}):判不了、沒整份讀進記憶體", got is None and not (isinstance(held, bytes) and len(held) > 2 * 1048576)
+              and "MB" in tr.gone_why.get("src/big.py::time.time()", ""), (where, got, type(held), tr.gone_why))
+    tr = m._drift_probe_tree(root, "disk")
+    check("④工作目錄模式照樣判", tr.one("gone", "src/a.py::time.time()") is False and tr.one("gone", "src/a.py::nope") is True, "")
+    tr = m._drift_probe_tree(root, tip)
+    real = m._nodehome_cat_blobs_capped
+    m._nodehome_cat_blobs_capped = lambda *a, **k: [None] * len(a[1])
+    try:
+        got = tr.one("gone", "src/a.py::time.time()")
+    finally:
+        m._nodehome_cat_blobs_capped = real
+    check("⑤讀不出:判不了、記原因", got is None and "讀不出" in tr.gone_why.get("src/a.py::time.time()", ""), (got, tr.gone_why))
+    tr = m._drift_probe_tree(root, "disk")
+    tr.deadline = _time.monotonic() - 1
+    check("⑥預算用完(工作目錄模式):判不了", tr.one("gone", "src/a.py::time.time()") is None, "")
+    # ⑦when-file 指到資料夾的提示改用 is_dir(跟 when-gone 的「在」共用)後照舊:既有提示原本沒有測試守
+    tr = m._drift_probe_tree(root, tip)
+    pr = m._probe_parse("[when-file:src][by:2099-01-01] x")
+    probs = m._drift_probe_row_problems(pr, m._drift_tree_env(root, tip, "docs/kg-knowledge"), tr)
+    pr2 = m._probe_parse("[when-file:src/a.py][by:2099-01-01] x")
+    probs2 = m._drift_probe_row_problems(pr2, m._drift_tree_env(root, tip, "docs/kg-knowledge"), tr)
+    check("⑦when-file 指到資料夾照提示、指到檔不提示", any("指到資料夾" in x for x in probs) and not any("資料夾" in x for x in probs2), (probs, probs2))
+
+
+def t_drift_when_gone_review_r2():
+    """代碼審 r2:路徑含方括號(Next.js 的 app/[id]/page.tsx)在第一個 ] 被截斷、會對還在的檔誤判——四種帶路徑的鍵與撤除條件都報錯;
+    反引號檢查跳過行內程式碼裡提到的 [when-gone:;工作目錄模式讀到一半預算用完就停;git 模式讀不出與超過上限分開講。"""
+    print("t_drift_when_gone_review_r2")
+    m = _load_lumos_inproc()
+    for k, v in (("gone", "app/[id"), ("file", "app/[id"), ("symbol", "app/[id::f"), ("test", "app/[id::t")):
+        check(f"①路徑含方括號報錯:{k}", m._probe_check_value(k, v)[1] is not None and "方括號" in (m._probe_check_value(k, v)[1] or ""),
+              m._probe_check_value(k, v))
+    check("①撤除條件也報", m._slot_retire_err("when-gone:app/[id") is not None and m._slot_retire_err("when-file:app/[id") is not None, "")
+    v = m._ns_revisit_violations("REVISIT:[when-gone:app/[id]/page.tsx][by:2099-01-01] x", "body", True)
+    check("①回頭條件行:報條件寫錯", [r for r, _f, _x in v] == ["條件寫錯"], v)
+    ok = "REVISIT:[when-file:src/a.py][by:2099-01-01] 寫法是 `[when-gone:路徑` 開頭,見 [[Projects/X]]"
+    check("②行內程式碼裡提到的 [when-gone: 不算標記", m._ns_revisit_violations(ok, "body", True) == [], m._ns_revisit_violations(ok, "body", True))
+    check("②前提:真標記照擋", m._probe_gone_backtick_err("REVISIT:[when-gone:a.py::`t`][by:2099-01-01] x") is not None, "")
+    root = _nh_repo()
+    _nh_file(root, "src/a.py", "now = time.time()\n")
+    _nh_file(root, "src/b.py", "x = 1\n")
+    big = b"time.time()\n" + b"x" * (3 * 1048576)
+    (root / "src" / "big.py").write_bytes(big)
+    _nh_commit(root, "files")
+    tr = m._drift_probe_tree(root, "disk")
+    calls = [False, False, True]
+    tr._over = lambda: calls.pop(0) if calls else True
+    check("③工作目錄模式讀到一半預算用完:回 False、沒讀到的不記", tr._read_raw(["src/a.py", "src/b.py"]) is False
+          and "src/b.py" not in tr._raw, tr._raw.keys())
+    tr = m._drift_probe_tree(root, _na_head(root))
+    tr.one("gone", "src/big.py::time.time()")
+    real = m._nodehome_cat_blobs_capped
+    m._nodehome_cat_blobs_capped = lambda *a, **k: [None] * len(a[1])
+    try:
+        tr2 = m._drift_probe_tree(root, _na_head(root))
+        tr2.one("gone", "src/a.py::time.time()")
+    finally:
+        m._nodehome_cat_blobs_capped = real
+    check("④git 模式:超過上限與讀不出分開講", "超過" in tr.gone_why.get("src/big.py::time.time()", "") and "讀不出" not in tr.gone_why.get("src/big.py::time.time()", "")
+          and tr2.gone_why.get("src/a.py::time.time()", "") == "讀不出", (tr.gone_why, tr2.gone_why))
+
+
 def t_drift_when_probes_evaluate_and_trigger():
     """[S9] 條件標記照文法解析、只認正文與摘要的可見行,四種鍵在指定提交的樹上判對(含路徑限定、status 任一值、
     筆記不存在算不成立、Python 帶型別的模組層指定),一行全部成立才算成立;check 以行為篩選單位,終點成立而起點沒有同一條
@@ -65753,6 +65978,300 @@ def t_doctor_s20_prose_retire_by_verdict_verb():
         e = m.Env.from_texts(vault, {"Projects/P_計劃.md": head + body + "\n"})
         got = m._doctor_test_ref_lines(e, root)["prose"]
         check(f"{label}:{'列' if want else '不列'}", bool(got) == want, str(got))
+
+
+
+# ── 驗收紀錄寫明驗了哪些功能(Projects/驗收紀錄寫明驗了哪些功能_計劃,2026-10-03)────────────────────
+def _sr_vault():
+    """兩篇功能 A、B,一篇計劃 P;回 vault。"""
+    v = mkvault()
+    write(v, "Systems/A.md", "type: system\nstatus: done", body="# A\n")
+    write(v, "Systems/B.md", "type: system\nstatus: done", body="# B\n")
+    write(v, "Projects/P.md", "type: project\nstatus: doing", body="# P\n")
+    return v
+
+
+def _sr_check3(v):
+    r = run(v, "doctor")
+    o = r.stdout + r.stderr
+    a = o.find("[3/4]")
+    b = o.find("[4/4]")
+    return o[a:b] if a >= 0 else ""
+
+
+def t_doctor_check3_system_refs_authoritative():
+    """[S1][S2] 有 system_refs 就只看它(正文指路連結不算);沒寫照舊從正文推,子資料夾的紀錄同樣。
+    翻紅釘:_verification_system_targets 不看 system_refs → ①紅。"""
+    v = _sr_vault()
+    write(v, "Verification/V1.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/A]]"',
+          body="# V1\n現況見 [[Systems/B]]\n")
+    sec = _sr_check3(v)
+    check("①有宣告:只要求 A 反向登記,B(指路)不算漏", "Systems/A.md 漏" in sec and "Systems/B.md 漏" not in sec, sec)
+    v = _sr_vault()
+    write(v, "Verification/sub/V2.md", "type: verification\nstatus: pass", body="# V2\n驗了 [[Systems/B]]\n")
+    sec = _sr_check3(v)
+    check("②沒宣告:照舊從正文推(子資料夾也一樣)", "Systems/B.md 漏" in sec, sec)
+
+
+def t_doctor_check3_system_refs_bad_entry():
+    """[S3][S4][S12] system_refs 寫壞的形狀都在「寫壞了」標題下列出並算 issue,不默默當成沒驗;封頂 20 項、問題數照實算。
+    翻紅釘:寫壞的項不報 → ①②紅;封頂時問題數照印出行數算 → ④紅。"""
+    import re
+    cases = [("空值", "system_refs:", "讀不出任何一項"),
+             ("空清單", "system_refs: []", "讀不出任何一項"),
+             ("多寫一句", 'system_refs:\n  - "[[Systems/A]] 主要"', "不是單一連結"),
+             ("純文字路徑", "system_refs:\n  - Systems/A", "不是單一連結"),
+             ("找不到", 'system_refs:\n  - "[[Systems/Nope]]"', "找不到這篇"),
+             ("路徑大小寫錯", 'system_refs:\n  - "[[systems/A]]"', "找不到這篇"),
+             ("不是功能筆記", 'system_refs:\n  - "[[Projects/P]]"', "不是功能筆記"),
+             ("空的項", 'system_refs:\n  - "[[#x]]"', "空的項"),
+             ("區塊寫法", "system_refs: |-\n  [[Systems/A]]", "區塊寫法"),
+             ("清單項沒縮排", 'system_refs:\n- "[[Systems/A]]"', "讀不出任何一項"),
+             ("一行多個連結", 'system_refs: "[[Systems/A]], [[Systems/B]]"', "一行寫了多個連結"),
+             ("null", "system_refs: null", "讀不出任何一項"),
+             ("波浪號", "system_refs: ~", "讀不出任何一項"),
+             ("只有註解", "system_refs: # 待補", "讀不出任何一項")]
+    for label, fm, why in cases:
+        v = _sr_vault()
+        write(v, "Verification/V.md", f"type: verification\nstatus: pass\n{fm}", body="# V\n見 [[Systems/B]]\n")
+        sec = _sr_check3(v)
+        check(f"①{label}:列在寫壞了標題下", "system_refs 寫壞了" in sec and why in sec and "Systems/B.md 漏" not in sec, sec[-600:])
+    v = _sr_vault()
+    write(v, "Systems/A2.md", "type: system\nstatus: done", body="# A2\n")
+    write(v, "Projects/A2.md", "type: project\nstatus: doing", body="# A2\n")
+    write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[A2]]"', body="# V\n")
+    sec = _sr_check3(v)
+    check("②沒寫路徑而多篇同名:寫壞、附候選", "同名的有好幾篇" in sec, sec[-600:])
+    v = _sr_vault()
+    write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[a]]"', body="# V\n")
+    write(v, "Systems/A.md", "type: system\nstatus: done\nverified_by:\n  - \"[[Verification/V]]\"", body="# A\n")
+    sec = _sr_check3(v)
+    check("③沒寫路徑的裸名不分大小寫、唯一一篇就收", "system_refs 寫壞了" not in sec, sec[-600:])
+    # 用「存在但不是功能筆記」的項:doctor 2/4 不會再報一次,才量得到 3/4 自己的計數(指到不存在的,2/4 也報、設計說重複可接受)
+    v = _sr_vault()
+    for i in range(25):
+        write(v, f"Projects/Q{i}.md", "type: project\nstatus: doing", body=f"# Q{i}\n")
+    refs = "\n".join(f'  - "[[Projects/Q{i}]]"' for i in range(25))
+    write(v, "Verification/V.md", f"type: verification\nstatus: pass\nsystem_refs:\n{refs}", body="# V\n")
+    r = run(v, "doctor")
+    o = r.stdout + r.stderr
+    sec = o[o.find("[3/4]"):o.find("[4/4]")]
+    check("④封頂:印 20 項加另 5 條、改法只印一次", "另 5 條" in sec and sec.count("[[Projects/Q") == 20 and sec.count("改法") <= 1, sec[-800:])
+    m = re.search(r"(\d+) (?:個 )?issue", o)
+    v2 = _sr_vault()
+    for i in range(25):
+        write(v2, f"Projects/Q{i}.md", "type: project\nstatus: doing", body=f"# Q{i}\n")
+    write(v2, "Verification/V.md", "type: verification\nstatus: pass\nsystem_refs:\n  - \"[[Projects/Q0]]\"", body="# V\n")
+    o2 = (lambda r: r.stdout + r.stderr)(run(v2, "doctor"))
+    m2 = re.search(r"(\d+) (?:個 )?issue", o2)
+    check("④問題數照實算全部 25 項(跟只壞 1 項的差 24)", m and m2 and int(m.group(1)) - int(m2.group(1)) == 24, f"{m and m.group(0)} {m2 and m2.group(0)}")
+
+
+def t_typed_link_target_unchanged():
+    """[S5] build_typed_index 改用抽出的單項判法後,四份清單跟原本一樣:同落點不同字面、重複壞連結、空目標跳過。"""
+    m = _load_lumos_inproc()
+    v = _sr_vault()
+    write(v, "Systems/Dup.md", "type: system\nstatus: done", body="# Dup\n")
+    write(v, "Projects/Dup.md", "type: project\nstatus: doing", body="# Dup\n")
+    write(v, "Verification/V.md", "type: verification\nstatus: pass\nrelated:\n  - \"[[Systems/A]]\"\n  - \"[[A]]\"\n"
+          "  - \"[[Systems/Nope]]\"\n  - \"[[Systems/Nope]]\"\n  - \"[[#x]]\"\n  - \"[[Dup]]\"\n  - 純文字", body="# V\n")
+    env = m.Env(v)
+    ix = m.build_typed_index(env)
+    rev_a = sorted(ix["rev"].get("Systems/A.md", []))
+    check("①同落點不同字面各算一條", rev_a == [("Verification/V.md", "related"), ("Verification/V.md", "related")], str(rev_a))
+    check("②重複的壞連結只記一次", ix["ghosts"] == [("Verification/V.md", "Systems/Nope", "related")], str(ix["ghosts"]))
+    check("③空目標跳過、多篇同名列不明確、純文字列非連結", len(ix["ambiguous"]) == 1 and ix["ambiguous"][0][3] == ["Projects/Dup.md", "Systems/Dup.md"]
+          and ix["scalars"] == [("Verification/V.md", "related", "純文字")], str(ix["ambiguous"]) + str(ix["scalars"]))
+
+
+def t_doctor_check3_system_refs_extra_backlink():
+    """[S6] 功能掛了有宣告、沒寫壞項的紀錄,而那份沒列它 → 只提醒不計問題數;掛在計劃上、或紀錄有寫壞項時不唸。"""
+    import re
+    v = _sr_vault()
+    write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/A]]"', body="# V\n")
+    write(v, "Systems/A.md", 'type: system\nstatus: done\nverified_by:\n  - "[[Verification/V]]"', body="# A\n")
+    write(v, "Systems/B.md", 'type: system\nstatus: done\nverified_by:\n  - "[[Verification/V]]"', body="# B\n")
+    write(v, "Projects/P.md", 'type: project\nstatus: doing\nverified_by:\n  - "[[Verification/V]]"', body="# P\n")
+    r0 = run(v, "doctor")
+    sec = _sr_check3(v)
+    check("①B 多掛:只提醒、給 remove 改法;P 不唸", "多掛了沒宣告它的驗收紀錄" in sec and "Systems/B.md" in sec
+          and "lumos remove Systems/B verified_by '[[Verification/V]]'" in sec and "Projects/P.md" not in sec, sec[-800:])
+    write(v, "Systems/B.md", "type: system\nstatus: done", body="# B\n")
+    r1 = run(v, "doctor")
+    m0, m1 = re.search(r"(\d+) (?:個 )?issue", r0.stdout + r0.stderr), re.search(r"(\d+) (?:個 )?issue", r1.stdout + r1.stderr)
+    check("②多掛不計問題數", m0 and m1 and m0.group(1) == m1.group(1), f"{m0 and m0.group(0)} {m1 and m1.group(0)}")
+    write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/A]]"\n  - "[[Systems/Nope]]"', body="# V\n")
+    write(v, "Systems/B.md", 'type: system\nstatus: done\nverified_by:\n  - "[[Verification/V]]"', body="# B\n")
+    sec = _sr_check3(v)
+    check("③紀錄有寫壞項時不唸多掛", "多掛了沒宣告它的驗收紀錄" not in sec, sec[-600:])
+
+
+def t_sync_verified_by_system_refs():
+    """[S7] sync 對有宣告的紀錄只補它列的;只剩寫壞項時先印指到 doctor 3/4 的一行。"""
+    v = _sr_vault()
+    write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/A]]"', body="# V\n見 [[Systems/B]]\n")
+    r = run(v, "sync-verified-by")
+    check("①只補宣告的 A,不補指路的 B", "Systems/A.md" in r.stdout and "Systems/B.md" not in r.stdout, r.stdout)
+    v = _sr_vault()
+    write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/Nope]]"', body="# V\n")
+    r = run(v, "sync-verified-by")
+    o = r.stdout + r.stderr
+    check("②只剩寫壞項:先印指到 doctor 3/4 的一行", "system_refs 寫壞" in o and "3/4" in o, o)
+
+
+def t_new_verification_no_auto_system_refs():
+    """[S8] new verification --systems 不自動寫 system_refs;之後正文補的功能照舊被要求反向登記。"""
+    v = _sr_vault()
+    r = run(v, "new", "verification", "V9", "--systems", "Systems/A")
+    p = v / "Verification" / "V9.md"
+    check("①建好了、不帶 system_refs、A 有回指", r.returncode == 0 and "system_refs" not in read(p) and "V9" in read(v / "Systems" / "A.md"), r.stdout + r.stderr)
+    p.write_text(read(p) + "\n後來也驗了 [[Systems/B]]\n", encoding="utf-8")
+    sec = _sr_check3(v)
+    check("②正文補的 B 照舊被要求反向登記", "Systems/B.md 漏" in sec, sec[-600:])
+    check("③建檔提示講 system_refs 與正文補了要自己同步", "system_refs" in r.stdout and "同步" in r.stdout, r.stdout)
+
+
+def t_system_refs_registered_field():
+    """[S9] append/remove 可用、lint 不唸欄位名;remove 拿掉最後一項後回到從正文推。"""
+    v = _sr_vault()
+    write(v, "Verification/V.md", "type: verification\nstatus: pass", body="# V\n見 [[Systems/B]]\n")
+    r = run(v, "append", "Verification/V", "system_refs", "[[Systems/A]]")
+    check("①append 成功", r.returncode == 0 and "system_refs" in read(v / "Verification" / "V.md"), r.stdout + r.stderr)
+    write(v, "Verification/L.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/A]]"', body="# L\n")
+    r = run(v, "lint", "Verification/L")
+    check("②lint 不把它當打錯的欄位名(直接寫進檔、不靠 append 成功)", "system_refs" not in (r.stdout + r.stderr), r.stdout + r.stderr)
+    sec = _sr_check3(v)
+    check("③宣告後指路的 B 不算漏", "Systems/B.md 漏" not in sec, sec[-600:])
+    r = run(v, "remove", "Verification/V", "system_refs", "[[Systems/A]]")
+    sec = _sr_check3(v)
+    check("④remove 拿掉最後一項後回到從正文推", r.returncode == 0 and "Systems/B.md 漏" in sec, (r.stdout + r.stderr)[-300:] + sec[-400:])
+
+
+def t_verification_status_case_insensitive():
+    """[S10] stale/fail/superseded 不分大小寫、前後空白:3/4、E1、sync、孤兒清單照各自原本規則處理。"""
+    v = _sr_vault()
+    write(v, "Verification/V.md", "type: verification\nstatus: ' Stale '\nsystem_refs:\n  - \"[[Systems/A]]\"", body="# V\n見 [[Systems/B]]\n")
+    sec = _sr_check3(v)
+    check("①3/4 跳過 Stale", "Systems/A.md 漏" not in sec and "Systems/B.md 漏" not in sec, sec[-500:])
+    r = run(v, "sync-verified-by")
+    check("②sync 跳過 Stale", "Systems/A.md" not in r.stdout, r.stdout)
+    write(v, "Systems/A.md", 'type: system\nstatus: done\nverified_by:\n  - "[[Verification/V]]"', body="# A\n")
+    r = run(v, "doctor")
+    o = r.stdout + r.stderr
+    check("③E1 認得 Stale 是失效背書", "失效背書" in o and "Systems/A.md" in o[o.find("[E1]"):], o[o.find("[E1]"):][:500])
+    v = _sr_vault()
+    write(v, "Verification/W.md", "type: verification\nstatus: Superseded", body="# W\n")
+    r = run(v, "doctor")
+    o = r.stdout + r.stderr
+    check("④孤兒清單豁免 Superseded", "Verification/W.md" not in o[o.find("[1/4]"):o.find("[1.5/4]")], o[o.find("[1/4]"):][:400])
+    v = _sr_vault()
+    write(v, "Verification/S.md", "type: verification\nstatus: Stale\ndate: 2026-01-01", body="# S\n")
+    r = run(v, "stale")
+    check("⑤lumos stale 清單也認得 Stale(代碼審 r1 架構對齊席 F1)", "Verification/S" in r.stdout and "無 status:stale" not in r.stdout, (r.stdout + r.stderr)[-400:])
+
+
+def t_doctor_orphan_suggest_system_refs():
+    """[S11] 孤兒紀錄有宣告且有合格項 → 只推宣告的;全寫壞 → 不推薦、叫人先修;沒宣告 → 照原本。"""
+    v = _sr_vault()
+    write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/A]]"', body="# V\n見 [[Systems/B]]\n")
+    r = run(v, "doctor", "--suggest")
+    o = r.stdout + r.stderr
+    sec = o[o.find("[1/4]"):o.find("[1.5/4]")]
+    check("①只推宣告的 A、理由寫 system_refs", "推薦 Systems/A.md" in sec and "推薦 Systems/B.md" not in sec and "system_refs 宣告" in sec, sec)
+    write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/Nope]]"', body="# V\n見 [[Systems/B]]\n")
+    r = run(v, "doctor", "--suggest")
+    o = r.stdout + r.stderr
+    sec = o[o.find("[1/4]"):o.find("[1.5/4]")]
+    check("②全寫壞:不推薦、叫人先修", "system_refs 全寫壞" in sec and "推薦 Systems/B.md" not in sec, sec)
+    write(v, "Verification/V.md", "type: verification\nstatus: pass", body="# V\n見 [[Systems/B]]\n")
+    r = run(v, "doctor", "--suggest")
+    o = r.stdout + r.stderr
+    sec = o[o.find("[1/4]"):o.find("[1.5/4]")]
+    check("③沒宣告:照原本推正文連到的 B", "推薦 Systems/B.md" in sec, sec)
+
+
+
+def t_doctor_check3_extra_hint_shell_quoted():
+    """代碼審 r1 通才席 F1:「多掛」提醒印的 lumos remove 改法要照 _drift_sh 加 shell 引號、清控制字元——
+    登記裡藏 $(…) 照貼不執行;功能檔名有空白照貼不失敗。翻紅釘:改法字串不加引號 → ①②紅。"""
+    import subprocess as sp
+    v = _sr_vault()
+    write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/A]]"', body="# V\n")
+    write(v, "Systems/My B.md", 'type: system\nstatus: done\nverified_by:\n  - "[[Verification/V|x$(touch PWNED)]]"', body="# B\n")
+    sec = _sr_check3(v)
+    line = next((l for l in sec.splitlines() if "lumos remove" in l), "")
+    cmd = line[line.find("lumos remove"):]
+    cmd = cmd[:cmd.find(",或把它補進")] if ",或把它補進" in cmd else cmd
+    work = Path(tempfile.mkdtemp(prefix="gctl-sr-q-"))
+    sp.run(["bash", "-c", "lumos() { printf '%s\\n' \"$@\" > args.txt; }; " + cmd], cwd=str(work), capture_output=True, text=True)
+    check("①藏 $(…) 的登記:照貼不會執行", not (work / "PWNED").exists() and cmd, cmd)
+    args = (work / "args.txt").read_text(encoding="utf-8").splitlines() if (work / "args.txt").exists() else []
+    check("②檔名有空白:照貼後是三個完整參數", args[:2] == ["remove", "Systems/My B"] and len(args) == 4, str(args))
+
+
+def t_doctor_orphan_suggest_declared_all():
+    """代碼審 r1 通才席 F2:孤兒紀錄宣告超過 3 項時全部列出、順序固定(不隨雜湊),不說成「較弱線索」。"""
+    v = _sr_vault()
+    for nm in ("C1", "C2", "C3", "C4", "C5"):
+        write(v, f"Systems/{nm}.md", "type: system\nstatus: done", body=f"# {nm}\n")
+    refs = "\n".join(f'  - "[[Systems/C{i}]]"' for i in (5, 3, 1, 4, 2))
+    write(v, "Verification/V.md", f"type: verification\nstatus: pass\nsystem_refs:\n{refs}", body="# V\n")
+    outs = set()
+    for seed in ("0", "1", "2", "3"):
+        r = sp_run_env(v, {"PYTHONHASHSEED": seed}, "doctor", "--suggest")
+        o = r.stdout + r.stderr
+        sec = o[o.find("[1/4]"):o.find("[1.5/4]")]
+        outs.add(tuple(l.strip() for l in sec.splitlines() if "↳" in l))
+    one = next(iter(outs))
+    check("①五項全列、不說較弱線索", sum("↳ 推薦" in l for l in one) == 5 and not any("較弱線索" in l for l in one), str(one))
+    check("②換雜湊種子順序不變", len(outs) == 1, str(outs))
+
+
+def sp_run_env(vault, extra_env, *args):
+    import subprocess as sp
+    e = dict(_os_k2.environ)
+    e.update(extra_env)
+    return sp.run([sys.executable, GRAPHCTL, "--vault", str(vault), *args], capture_output=True, text=True, env=e)
+
+
+
+def t_doctor_check3_long_name_hint_intact():
+    """代碼審 r2 通才席 F1:紀錄檔名很長時,「多掛」改法那行不被截斷——引號閉合、照貼後第 4 個參數等於登記原字面。"""
+    import subprocess as sp
+    v = _sr_vault()
+    long = "Verification/" + "長" * 80 + "/" + "長" * 60   # 分兩層:Linux 一層檔名上限 255 位元組(中文一字 3 位元組),macOS 算字元數(代碼審 r3 通才席)
+    write(v, long + ".md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/A]]"', body="# L\n")
+    reg = f"[[{long}]]"
+    write(v, "Systems/B.md", f'type: system\nstatus: done\nverified_by:\n  - "{reg}"', body="# B\n")
+    sec = _sr_check3(v)
+    line = next((l for l in sec.splitlines() if "lumos remove" in l), "")
+    cmd = line[line.find("lumos remove"):]
+    cmd = cmd[:cmd.find(",或把它補進")] if ",或把它補進" in cmd else cmd
+    work = Path(tempfile.mkdtemp(prefix="gctl-sr-l-"))
+    r = sp.run(["bash", "-c", "lumos() { printf '%s\\n' \"$@\" > args.txt; }; " + cmd], cwd=str(work), capture_output=True, text=True, timeout=10)
+    args = (work / "args.txt").read_text(encoding="utf-8").splitlines() if (work / "args.txt").exists() else []
+    check("①長檔名:改法完整、照貼後參數等於登記原字面", args == ["remove", "Systems/B", "verified_by", reg] and ",或把它補進" in line, f"{args[:3]} {line[-80:]}")
+
+
+def t_doctor_check3_bad_entry_cap_verbose_and_mixed_empty():
+    """代碼審 r2 兩席:封頂在 --verbose 時全列(跟 warn_soft 同規則、同結尾措辭);空項混在好項裡也要報空的項。"""
+    v = _sr_vault()
+    for i in range(25):
+        write(v, f"Projects/Q{i}.md", "type: project\nstatus: doing", body=f"# Q{i}\n")
+    refs = "\n".join(f'  - "[[Projects/Q{i}]]"' for i in range(25))
+    write(v, "Verification/V.md", f"type: verification\nstatus: pass\nsystem_refs:\n{refs}", body="# V\n")
+    r = run(v, "doctor", "--verbose")
+    o = r.stdout + r.stderr
+    sec = o[o.find("[3/4]"):o.find("[4/4]")]
+    check("①--verbose 全列 25 項", sec.count("[[Projects/Q") == 25, sec[-300:])
+    r = run(v, "doctor")
+    o = r.stdout + r.stderr
+    sec = o[o.find("[3/4]"):o.find("[4/4]")]
+    check("②預設封頂、結尾指路 --verbose", "另 5 條" in sec and "--verbose" in sec, sec[-300:])
+    v = _sr_vault()
+    write(v, "Verification/V.md", 'type: verification\nstatus: pass\nsystem_refs:\n  - "[[Systems/A]]"\n  - ""\n  - "#Systems/B"', body="# V\n")
+    sec = _sr_check3(v)
+    check("③空項混在好項裡也報空的項", "空的項" in sec, sec[-500:])
 
 
 if __name__ == "__main__":

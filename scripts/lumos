@@ -734,6 +734,98 @@ def status_of(env, rel):
     return v if isinstance(v, str) else ""
 
 
+_VERIF_INACTIVE = ("stale", "fail", "superseded")   # 驗收紀錄已失效或作廢:不構成雙向義務
+
+
+def _verification_status(env, rel):
+    """驗收紀錄的 status 去空白、轉小寫(Projects/驗收紀錄寫明驗了哪些功能_計劃〈做法〉2):doctor 1/4 孤兒清單、
+    3/4、E1、sync-verified-by 四處共用,各處要跳過哪些狀態維持原本各自的集合;其他讀 status 的地方照舊分大小寫
+    (lint 在提交時本來就擋不是小寫的狀態值)。"""
+    return status_of(env, rel).strip().lower()
+
+
+def _typed_link_target(env, item):
+    """具名欄位的一項 → (種類, 附帶)。build_typed_index 與驗收紀錄的 system_refs 共用,不另訂第二套規則
+    (Projects/驗收紀錄寫明驗了哪些功能_計劃〈做法〉1)。種類:
+    ok(附 (落點 rel, 連結字面))、skip(空字串,或抽完目標是空的 [[#x]]、[[|x]])、scalar(不是單一連結,附原文)、
+    ghost(寫了路徑但沒有這篇、或沒寫路徑而找不到,附字面)、ambiguous(沒寫路徑而多篇同名,附 (字面, 候選))。
+    規則:只認整個值恰為一個 wikilink;nfc、去別名與段落、去 .md;path 式不 fallback 到 stem(那是靜默猜);
+    沒寫路徑用小寫 stem 查,只收唯一候選(嚴禁靜默指第一篇)。"""
+    s = str(item).strip()
+    if not s:
+        return "skip", None
+    m = re.fullmatch(r"\[\[([^\[\]]+?)\]\]", s)
+    if not m:
+        return "scalar", s
+    t = nfc(m.group(1).split("|")[0].split("#")[0].strip())
+    if not t:
+        return "skip", None
+    tt = t[:-3] if t.lower().endswith(".md") else t
+    if "/" in tt:
+        cand = tt + ".md"
+        return ("ok", (cand, t)) if cand in env.notes else ("ghost", t)
+    cands = env.by_stem.get(tt.lower(), [])
+    if len(cands) == 1:
+        return "ok", (cands[0], t)
+    if not cands:
+        return "ghost", t
+    return "ambiguous", (t, sorted(cands))
+
+
+def _system_ref_blank(x):
+    """system_refs 一項是不是「什麼都沒寫」:空字串、null、~、只有註解(代碼審 r1 通才席 F3)。"""
+    x = str(x).strip()
+    return x in ("", "null", "~") or x.startswith("#")
+
+
+def _system_ref_item(env, item):
+    """system_refs 的一項 → (Systems rel, None) 或 (None, 原因與改法);判法就是具名欄位的 _typed_link_target,只多「要落在 Systems」。"""
+    if _system_ref_blank(item):
+        return None, "空的項——拿掉,或寫成 [[Systems/X]]"
+    kind, val = _typed_link_target(env, item)
+    raw = str(item).strip()
+    if kind == "ok":
+        return (val[0], None) if val[0].startswith("Systems/") else (None, f"指到的 {val[0]} 不是功能筆記(Systems/)")
+    if kind == "skip":
+        return None, "空的項——拿掉,或寫成 [[Systems/X]]"
+    if kind == "scalar":
+        return None, ("一行寫了多個連結——拆成一項一行" if raw.count("[[") > 1
+                      else "不是單一連結(多寫了字、純文字路徑或括號不對)——整項只寫 [[Systems/X]]")
+    if kind == "ghost":
+        return None, "找不到這篇——寫了路徑的要跟檔案路徑完全一致(大小寫也算),或只寫檔名"
+    return None, "同名的有好幾篇(" + "、".join(val[1][:3]) + ")——寫完整路徑 [[Systems/X]]"
+
+
+def _verification_system_targets(env, rel, n):
+    """一份驗收紀錄驗了哪些功能(Projects/驗收紀錄寫明驗了哪些功能_計劃〈做法〉2)→ None(已失效或作廢,呼叫端照各自原本的規則)
+    或 (宣告了沒, {Systems rel}, [(原文, 原因與改法)])。
+    沒有 system_refs 鍵 → 沒宣告,照舊用 n.targets 落在 Systems/ 的;有 → 只看它,逐項照具名欄位的單項規則判,寫壞的全列,
+    ★寫壞不默默當成沒驗★(設計審 r1 三席:鍵在而解出來空,等於靜默關掉檢查)。"""
+    if _verification_status(env, rel) in _VERIF_INACTIVE:
+        return None
+    if "system_refs" not in n.fields:
+        got = set()
+        for t in n.targets:
+            d = env.resolve(t)
+            if d and d.startswith("Systems/"):
+                got.add(d)
+        return False, got, []
+    if "system_refs" in n.block_keys:
+        return True, set(), [("system_refs: |", "區塊寫法讀不出清單——改成一項一行的 - \"[[Systems/X]]\"")]
+    raw_items = as_list(n.fields.get("system_refs"))
+    items = raw_items if any(not _system_ref_blank(x) for x in raw_items) else []   # 全是空的才算「讀不出任何一項」;混在好項裡的照報空的項(r2 通才席)
+    got, bad = set(), []
+    for it in items:
+        dest, why = _system_ref_item(env, it)
+        if dest:
+            got.add(dest)
+        else:
+            bad.append((str(it).strip() or "(空字串)", why))
+    if not items:
+        bad.append(("system_refs", "讀不出任何一項——空的,或清單項沒縮排"))
+    return True, got, bad
+
+
 TYPED_EDGE_FIELDS = ("verified_by", "plan_refs", "related")
 
 
@@ -758,37 +850,24 @@ def build_typed_index(env):
             if etype in n.block_keys:
                 continue
             for item in as_list(n.fields.get(etype)):
-                s = str(item).strip()
-                if not s:
+                kind, val = _typed_link_target(env, item)   # 單項判法共用(驗收紀錄的 system_refs 也用它)
+                if kind == "skip":
                     continue
-                m = re.fullmatch(r"\[\[([^\[\]]+?)\]\]", s)
-                if not m:
-                    scalars.append((rel, etype, s))
+                if kind == "scalar":
+                    scalars.append((rel, etype, val))
                     continue
-                t = nfc(m.group(1).split("|")[0].split("#")[0].strip())
-                if not t:
-                    continue
+                t = val[1] if kind == "ok" else (val[0] if kind == "ambiguous" else val)
                 key = (rel, t, etype)
                 if key in seen:
                     continue
                 seen.add(key)
-                tt = t[:-3] if t.lower().endswith(".md") else t
-                if "/" in tt:
-                    cand = tt + ".md"
-                    if cand in env.notes:
-                        rev[cand].append((rel, etype))
-                        fwd[rel][etype].append(cand)
-                    else:
-                        ghosts.append((rel, t, etype))
+                if kind == "ok":
+                    rev[val[0]].append((rel, etype))
+                    fwd[rel][etype].append(val[0])
+                elif kind == "ghost":
+                    ghosts.append((rel, t, etype))
                 else:
-                    cands = env.by_stem.get(tt.lower(), [])
-                    if len(cands) == 1:
-                        rev[cands[0]].append((rel, etype))
-                        fwd[rel][etype].append(cands[0])
-                    elif not cands:
-                        ghosts.append((rel, t, etype))
-                    else:
-                        ambiguous.append((rel, t, etype, sorted(cands)))
+                    ambiguous.append((rel, t, etype, val[1]))
     return {"rev": rev, "fwd": fwd, "ghosts": ghosts, "ambiguous": ambiguous, "scalars": scalars}
 
 
@@ -802,10 +881,38 @@ def _stem_hit(stem, text):
     return stem in text
 
 
-def _suggest_systems_for_orphan(env, rel, n):
+def _orphan_plan_hits(env, n):
+    """孤兒推薦第 2 種線索:plan_refs 指到的計劃、計劃正文連向的 Systems → [(sys_rel, 計劃 stem)]。"""
+    out = []
+    for pr in as_list(n.fields.get("plan_refs")):
+        pd = env.resolve(link_target(pr))
+        if pd and pd in env.notes:
+            for t in env.notes[pd].targets:
+                d = env.resolve(t)
+                if d and d.startswith("Systems/"):
+                    out.append((d, env.notes[pd].stem))
+    return out
+
+
+def _orphan_feature_hits(env, n):
+    """孤兒推薦第 3 種線索:feature 提到某 Systems stem → [(sys_rel, stem)](只用人寫的 feature,不用自動檔名;
+    整詞 + 前綴重疊抑制:一個命中 stem 是另一個的子字串就丟,留更具體者)。"""
+    feat = " ".join(str(x) for x in as_list(n.fields.get("feature")))
+    if not feat:
+        return []
+    matched = [(sr, sn.stem) for sr, sn in env.notes.items()
+               if sr.startswith("Systems/") and sn.stem and _stem_hit(sn.stem, feat)]
+    stems = [s for _, s in matched]
+    return [(sr, st) for sr, st in matched if not any(st != o and st in o for o in stems)]
+
+
+def _suggest_systems_for_orphan(env, rel, n, vt=None):
     """為 orphan Verification 推薦『最可能該掛哪個 Systems』(非 auto-fix,供人確認)。
     線索強度:本篇正文連向 Systems(3)> 經 plan_refs 計劃連到(2)> feature 提到 stem(1)。
     回傳 [(sys_rel, score, reason), ...] 依 (score, stem 長度) 降序(同分時更具體的 stem 優先)。"""
+    r = vt if vt is not None else _verification_system_targets(env, rel, n)
+    if r is not None and r[0]:      # 有宣告:只推它列的功能,依路徑排、順序固定(Projects/驗收紀錄寫明驗了哪些功能_計劃〈做法〉4)
+        return [(s_, 3, "本篇 system_refs 宣告(verified_by 未同步 → 可 sync-verified-by)") for s_ in sorted(r[1])]
     cands = {}   # sys_rel -> (score, reason)
 
     def add(sys_rel, score, reason):
@@ -816,23 +923,10 @@ def _suggest_systems_for_orphan(env, rel, n):
         d = env.resolve(t)
         if d and d.startswith("Systems/"):
             add(d, 3, "本篇正文連向(verified_by 未同步 → 可 sync-verified-by)")
-    for pr in as_list(n.fields.get("plan_refs")):        # 2) plan_refs → 計劃 → 計劃連向 Systems
-        pd = env.resolve(link_target(pr))
-        if pd and pd in env.notes:
-            for t in env.notes[pd].targets:
-                d = env.resolve(t)
-                if d and d.startswith("Systems/"):
-                    add(d, 2, f"經 plan_refs [[{env.notes[pd].stem}]] 連到")
-    # 3) feature 提到某 Systems stem(只用人寫的 feature,不用自動檔名;整詞 + 前綴重疊抑制)
-    feat = " ".join(str(x) for x in as_list(n.fields.get("feature")))
-    if feat:
-        matched = [(sr, sn.stem) for sr, sn in env.notes.items()
-                   if sr.startswith("Systems/") and sn.stem and _stem_hit(sn.stem, feat)]
-        stems = [s for _, s in matched]
-        for sr, st in matched:
-            if any(st != o and st in o for o in stems):   # st 是另一命中 stem 的子字串 → 丟(留更具體者)
-                continue
-            add(sr, 1, f"feature 提到「{st}」")
+    for d, pstem in _orphan_plan_hits(env, n):           # 2) plan_refs → 計劃 → 計劃連向 Systems
+        add(d, 2, f"經 plan_refs [[{pstem}]] 連到")
+    for sr, st in _orphan_feature_hits(env, n):          # 3) feature 提到某 Systems stem
+        add(sr, 1, f"feature 提到「{st}」")
     return sorted(((s, sc, r) for s, (sc, r) in cands.items()),
                   key=lambda x: (-x[1], -len(env.notes[x[0]].stem or "")))
 
@@ -1358,7 +1452,8 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
     def ok(msg):
         print(f"  {C['G']}✓{C['X']} {msg}")
 
-    def warn(lines, head, advice=None):
+    def warn(lines, head, advice=None, cap=None):
+        """cap:畫面最多印幾項(其餘一行「另 N 項」),問題數照實算全部——要封頂又要計數的段用它,不在呼叫端自己補差額。"""
         nonlocal issues
         # ★空清單也是一段提醒★:Check F 這種「沒有逐條、只有一句」的走 warn([]),issues 加 0,
         # 只數 warn_soft 會漏掉它(2026-09-06 全 repo 審視:收尾行說 0 issues 蓋掉七段警告)
@@ -1369,8 +1464,11 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
             _soft["lines"] += 1
             _soft["heads"].append(head)
         print(f"  {C['Y']}⚠{C['X']} {head}")
-        for l in lines:
-            print(f"      • {l}")
+        shown = list(lines) if (cap is None or _verbose) else list(lines)[:cap]   # --verbose/--ci 全列,同 warn_soft
+        for ln in shown:
+            print(f"      • {ln}")
+        if len(lines) > len(shown):
+            print(f"      … 另 {len(lines) - len(shown)} 條(lumos doctor --verbose 看全部)")
         if advice:
             print(f"  {C['B']}建議動作{C['X']}: {advice}")
         issues += len(lines)
@@ -1413,20 +1511,25 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
     # 再被這裡唸=刀子咬尾巴;作廢=該遺忘無事可辦(stale/fail 不豁免:待重驗,orphan 提醒仍有用)。
     orphans = [rel for rel in notes
                if rel.startswith("Verification/") and incoming[rel] == 0
-               and status_of(env, rel).strip() != "superseded"]
+               and _verification_status(env, rel) != "superseded"]
     if not orphans:
         ok("每份驗證紀錄都有被引用")
     elif suggest:
         print(f"  {C['Y']}⚠{C['X']} 發現 {len(orphans)} 個 Verification 沒任何 incoming link(附推薦掛載 Systems):")
         for o in sorted(orphans):
             print(f"      • {o}")
-            sug = _suggest_systems_for_orphan(env, o, notes[o])
+            _vt = _verification_system_targets(env, o, notes[o])   # 只解析一次,傳進推薦(代碼審 r1 架構對齊席 F3)
+            if _vt is not None and _vt[0] and not _vt[1]:
+                print("          ↳ (system_refs 全寫壞,先照 doctor 3/4 修)")
+                continue
+            sug = _suggest_systems_for_orphan(env, o, notes[o], vt=_vt)
+            _cap = len(sug) if (_vt is not None and _vt[0]) else 3   # 宣告的全列:它們不是「較弱線索」
             if not sug:
                 print("          ↳ (feature/plan_refs/連結皆無線索 → 人工判斷)")
-            for sys_rel, _sc, reason in sug[:3]:
+            for sys_rel, _sc, reason in sug[:_cap]:
                 print(f"          ↳ 推薦 {sys_rel}  [{reason}]")
-            if len(sug) > 3:
-                print(f"          ↳ (另有 {len(sug) - 3} 個較弱線索略過)")
+            if len(sug) > _cap:
+                print(f"          ↳ (另有 {len(sug) - _cap} 個較弱線索略過)")
         issues += len(orphans)
         print(f"  {C['B']}建議動作{C['X']}: 確認後 `lumos append <Systems> verified_by \"[[<本篇>]]\"`"
               ";若推薦理由是「本篇正文連向」(verified_by 漏寫)→ `lumos sync-verified-by` 可批次補。")
@@ -1477,6 +1580,7 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
     # 以 resolve 到的 rel 比對:path 式 [[Verification/X]] 與 basename [[X]] 等價(同篇),
     # 但 [[Projects/X]] 與 Verification/X 不同篇(第二輪審計 NEW-B)。存 Verification 的 rel。
     expected = defaultdict(set)
+    sr_bad, sr_declared = [], {}
     for rel, n in notes.items():
         if not rel.startswith("Verification/"):
             continue
@@ -1485,12 +1589,16 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
         # 失效驗證的內文連結留作歷史導航,不再構成雙向義務。
         # [真遺忘第二刀 2026-07-26] superseded 同入 skip 集:search 已預設藏作廢節點,
         # doctor 這頭不能反向強索「把作廢驗證掛回」——一邊藏一邊撿=方向打架(Codex teardown審 F3)。
-        if status_of(env, rel).strip() in ("stale", "fail", "superseded"):
+        # 跳過與「驗了誰」都在 _verification_system_targets(跟 sync-verified-by 同一支;有 system_refs 就只看它)
+        _vt = _verification_system_targets(env, rel, n)
+        if _vt is None:
             continue
-        for t in n.targets:
-            dest = resolve(t)
-            if dest and dest.startswith("Systems/"):
-                expected[dest].add(rel)
+        _dec, _got, _bad = _vt
+        for dest in _got:
+            expected[dest].add(rel)
+        if _dec:
+            sr_declared[rel] = (_got, bool(_bad))
+        sr_bad += [f"{rel}: {_esc_clean(raw, 120)} — {why}" for raw, why in _bad]
     missing = []
     for sys_rel, verif_rels in sorted(expected.items()):
         actual_rels = {resolve(link_target(a))
@@ -1499,11 +1607,31 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
         missed = sorted(notes[v].stem for v in verif_rels if v not in actual_rels)
         if missed:
             missing.append(f"{sys_rel} 漏: {' | '.join(missed)}")
-    if not missing:
+    # 功能那側多掛:有宣告、沒寫壞項的紀錄沒列這個功能,功能卻掛著它(只提醒;只看 Systems,計劃掛 verified_by 是既有做法)
+    sr_extra = []
+    for sys_rel, sn in sorted(notes.items()):
+        if not sys_rel.startswith("Systems/"):
+            continue
+        for a in as_list(sn.fields.get("verified_by")):
+            vrel = resolve(link_target(a))
+            dec = sr_declared.get(vrel)
+            if dec and not dec[1] and sys_rel not in dec[0]:
+                # 照貼的改法照 _drift_sh 加引號(代碼審 r1 通才席 F1:登記裡藏 $(…) 照貼會執行、檔名有空白會失敗)
+                # 說明照行長上限清;照貼的指令只清控制字元、不截斷(代碼審 r2 通才席:長檔名會被截在引號中間,照貼卡在續行)
+                sr_extra.append(_esc_clean(f"{sys_rel} 掛了 [[{vrel[:-3]}]],但那份的 system_refs 沒列它——", _DOCTOR_LINE_MAX)
+                                + "改法:" + _esc_clean(f"lumos remove {_drift_sh(sys_rel[:-3])} verified_by {_drift_sh(a)}", _DOCTOR_PASTE_CMD_MAX)
+                                + ",或把它補進那份的 system_refs")
+    if not (missing or sr_bad or sr_extra):
         ok("每份驗證紀錄都掛到了它驗證的功能上")
-    else:
+    if missing:
         warn(missing, f"有 {len(missing)} 篇功能筆記沒反向登記它的驗證紀錄(verified_by 漏寫):",
              "對每個 Systems 補上漏寫的 verified_by")
+    if sr_bad:      # 照 4/4 對 plan_refs 斷鏈自己報的先例;畫面封頂 20 項(warn 的 cap),問題數照實算全部
+        warn(sr_bad, f"有 {len(sr_bad)} 項 system_refs 寫壞了(驗收紀錄宣告了驗哪些功能,但這幾項讀不出來;不會默默當成沒驗):",
+             "改法:每項一行、整項只寫一個指到功能筆記的 [[Systems/X]];寫了路徑的要跟檔案路徑完全一致", cap=20)
+    if sr_extra:
+        warn_soft(sr_extra, f"有 {len(sr_extra)} 篇功能筆記多掛了沒宣告它的驗收紀錄(不計入問題數):",
+                  "確認那份紀錄真的沒驗它就拿掉這條 verified_by;真的有驗就補進紀錄的 system_refs")
     print()
 
     section("4/4", "計劃結案之後又有新驗證,計劃本身有沒有跟著更新")
@@ -2143,8 +2271,8 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
             vrel = env.resolve(link_target(item))
             if not vrel:                          # ghost → 交既有 ghost 檢查,跳過
                 continue
-            vst = status_of(env, vrel).strip()
-            if vst in ("stale", "fail", "superseded"):   # superseded=作廢背書同死(真遺忘第二刀 07-26)
+            vst = _verification_status(env, vrel)
+            if vst in _VERIF_INACTIVE:   # superseded=作廢背書同死(真遺忘第二刀 07-26);不分大小寫(跟 3/4 同一支)
                 dead_endorse.append(f"{rel} → [[{vrel}]] (status={vst})")
                 gov_events.append({"gate": "check-e1", "kind": "warned", "hard": False, "nodes": [n.stem]})
     if not dead_endorse:
@@ -3554,6 +3682,7 @@ def _doctor_cfg_bytes(root):
     return None
 
 
+_DOCTOR_PASTE_CMD_MAX = 100000   # doctor 印給人照貼的指令:只清控制字元、實際上不截斷(截在引號中間照貼會卡在續行;代碼審 system_refs r2)
 _DOCTOR_LINE_MAX = 300       # doctor 提醒行印出前清控制字元,最多這麼長(路徑與行號在最前面,截的是尾端)
 
 
@@ -3882,13 +4011,13 @@ def _slot_retire_err(v):
     if v.startswith("when-"):
         k, _sep, val = v[5:].partition(":")
         val = val.strip()
-        err = _probe_value_err(k, val)
+        err = _probe_check_value(k, val)[1] or (_PROBE_GONE_BACKTICK_MSG if k == "gone" and "`" in val else None)
         if err:
             return err
         if k in ("symbol", "test") and "::" not in val:
             return f"when-{k} 要帶路徑(路徑::名稱),撤除條件不做全庫掃"
         return None
-    return "不是機器式(只收 when-file/when-symbol/when-test/when-status、度量、人裁)"
+    return f"不是機器式(只收 {'/'.join('when-' + k for k in _PROBE_KEYS)}、度量、人裁)"
 
 
 def _slot_replacement_err(v):
@@ -15847,17 +15976,19 @@ def cmd_sync_verified_by(env, apply=False):
     from collections import defaultdict
     notes, resolve = env.notes, env.resolve
     expected = defaultdict(set)
+    n_bad = 0
     for r, n in notes.items():
         if not r.startswith("Verification/"):
             continue
         # 對齊 Check 3 skip 集(stale/fail 2026-07-15;superseded 真遺忘第二刀 2026-07-26):
         # 失效/作廢驗證不構成雙向義務,sync 不得反向補回(否則 E1 掛回又報死背書、search 藏了又被撿)。
-        if status_of(env, r).strip() in ("stale", "fail", "superseded"):
+        # 跳過與「驗了誰」跟 doctor 3/4 同一支(有 system_refs 就只看它)
+        _vt = _verification_system_targets(env, r, n)
+        if _vt is None:
             continue
-        for t in n.targets:
-            dest = resolve(t)
-            if dest and dest.startswith("Systems/"):
-                expected[dest].add(r)
+        n_bad += len(_vt[2])
+        for dest in _vt[1]:
+            expected[dest].add(r)
     planned = []
     for sys_rel, verif_rels in sorted(expected.items()):
         actual = {resolve(link_target(a))
@@ -15867,6 +15998,8 @@ def cmd_sync_verified_by(env, apply=False):
             if v not in actual:
                 vl = v[:-3] if v.endswith(".md") else v
                 planned.append((sys_rel, f"[[{vl}]]"))
+    if n_bad:       # 放在「無漏寫」之前:只剩寫壞項時不能先說全同步就結束
+        print(f"提醒:有 {n_bad} 項 system_refs 寫壞了,那幾項不補——看 lumos doctor 的 3/4 段")
     if not planned:
         print("✓ verified_by 已全同步,無漏寫")
         return 0
@@ -15874,7 +16007,7 @@ def cmd_sync_verified_by(env, apply=False):
         print(f"  {'+' if apply else '·'} {sys_rel}  ← {vl}")
     if not apply:
         print(f"\n{len(planned)} 筆待補(dry-run)。加 --apply 真寫入。")
-        print("※ 判準同 doctor Check 3:Verification 連到某 Systems 即視為驗證它。"
+        print("※ 判準同 doctor Check 3:Verification 連到某 Systems 即視為驗證它;有 system_refs 的紀錄只看它列的。"
               "若連結是『描述性提及』(如「取代 [[Systems/舊]]」)會誤補 → 先審這份 dry-run 再 --apply。")
         return 0
     print()
@@ -16397,7 +16530,7 @@ def cmd_stale(env, match=None, candidate=False, legacy=False):
     import datetime
     import math
     cands = [(rel, n) for rel, n in sorted(env.notes.items())
-             if rel.startswith("Verification/") and status_of(env, rel) == "stale"]
+             if rel.startswith("Verification/") and _verification_status(env, rel) == "stale"]   # 不分大小寫,跟 doctor 同一支
     if not cands:
         print("無 status:stale 的驗證")
         return 0
@@ -17102,7 +17235,7 @@ def cmd_export_html(env, out_path, standalone=False):
 # ═══════════════════════ 階段三: 寫側 T1(行級手術) ═══════════════════════
 
 SCALAR_KEYS = {"status", "updated", "created", "type", "self_audit", "signed_off", "regen", "pitfall_ask", "pitfall_source", "about_code_stamp", "responsibility"}  # pitfall_* 2026-08-09 已知坑策展庫;about_code_stamp 2026-08-23(語意欄位基礎,計劃:固定席扇出降權)
-LIST_KEYS = {"verified_by", "plan_refs", "related", "tags", "aliases", "pitfall_when", "core_refs", "about_code", "lands_in"}   # aliases 2026-08-05;pitfall_when 2026-08-09(已知坑策展庫,content-trigger);core_refs 2026-08-11(升格加指針/降格拆指針,兩向都要 T1;值是純路徑非 wikilink——lumos-core-knowledge skill 明令禁跨 vault wikilink)
+LIST_KEYS = {"verified_by", "plan_refs", "related", "tags", "aliases", "pitfall_when", "core_refs", "about_code", "lands_in", "system_refs"}   # aliases 2026-08-05;pitfall_when 2026-08-09(已知坑策展庫,content-trigger);core_refs 2026-08-11(升格加指針/降格拆指針,兩向都要 T1;值是純路徑非 wikilink——lumos-core-knowledge skill 明令禁跨 vault wikilink)
 # drift fix --kind c4 證據頁印的佔位字,整欄改 valid_under/revalidate_when 時原樣留著就擋(漂移修法補強 第 2 節):
 # 第一個是預填 lumos set 指令裡要人填的那一項;後兩個是範本句裡要人從清單挑的卷證目錄與查不到時的提交。
 # 證據頁的範本與預填指令都從這裡取字面。跟 _DRIFT_PLACEHOLDER_RE(擋 drift fix 的 --reason)用途不同,不合併。
@@ -19100,6 +19233,8 @@ NEW_HINT = {
     "verification": [
         "填 valid_under:<這個驗證在什麼前提下才算數>  revalidate_when:<改到什麼時候該重新驗>",
         "讓它驗證的 Systems 筆記用 verified_by 連回這篇(或事後跑 lumos sync-verified-by 補),不然只有單向連結,健檢會抓;摘要可選填 TEST:/VERIFY:",
+        "正文的每個 [[Systems/X]] 都會被當成「驗過 X」;正文要放只是指路、沒驗的功能連結時,才在開頭欄位寫 system_refs 列出真的驗了的功能"
+        "(lumos append <本篇> system_refs \"[[Systems/X]]\")——寫了之後正文再補的功能不會被檢查,要自己同步進 system_refs",
     ],
     "project": [
         "這個計劃做完後,落地的驗證紀錄要用 plan_refs 連回這篇,不然工具追不到計劃有沒有被驗證過",
@@ -27980,11 +28115,14 @@ def _ns_revisit_violations(ln, reg, visible):
 
 
 def _ns_revisit_cond_viol(ln, rest):
-    """條件式回頭條件的寫法:條件寫錯、沒帶期限 → [(規則, 片段, 改法)]。"""
+    """條件式回頭條件的寫法:條件寫錯、沒帶期限、when-gone 字串含反引號 → [(規則, 片段, 改法)]。ln 是原文、rest 是剝過的。"""
     pr = _probe_parse(rest)
     errs = list(pr["errs"])
     if pr["conds"] and pr["by"] is None:
         errs.append("沒帶期限 [by:YYYY-MM-DD](條件寫錯就永遠不會成立,期限到了至少會被唸)")
+    bt = _probe_gone_backtick_err(ln)     # 看原文:rest 是剝過行內程式碼的文字,反引號那段已經不見了
+    if bt:
+        errs.append(bt)
     if not errs:
         return []
     return [("條件寫錯", ln.strip()[:60], ";".join(errs) + "——文法見 Projects/存量漂移防線_計劃〈做法〉第 0 節")]
@@ -28184,6 +28322,7 @@ def _ns_negation_format(items, mode):
         "  條件怎麼選:跟那件東西直接綁的優先——它會在的檔 [when-file:路徑]、守它的測試 [when-test:測試名]、"
         "Python 的函式或類別 [when-symbol:路徑::名稱](只認 Python 定義;其他語言只看名字有沒有出現,改用 when-file);"
         "講的是一個流程或一份計劃,用 [when-status:Projects/名稱=done|superseded](節點不加 [[ ]]);"
+        "等某支檔或某段程式不再出現,用 [when-gone:路徑] 或 [when-gone:路徑::字串];"
         "量測、外部、人工進度這種觀測類只能寫日期 REVISIT:YYYY-MM-DD …",
         "  先確定那件事還沒發生:推送時條件已經成立,這次推送會被漂移檢查擋下;寫完可以跑 lumos drift scan 看有沒有已經成立的",
     ]
@@ -31785,7 +31924,7 @@ def _drift_check_core(root, base, tip, vault_rel, override=None, deadline=None, 
 _REVISIT_MARK_RE = re.compile(r"^(?:[-*+][ \t]+|\d+[.)][ \t]+|>[ \t]*)")
 _PROBE_TOKEN_RE = re.compile(r"[ \t]*\[(when-[A-Za-z0-9_-]*|by|closed):([^\]\n]*)\]")
 _PROBE_ANY_RE = re.compile(r"\[when-[A-Za-z0-9_-]*:[^\]\n]*\]")
-_PROBE_KEYS = ("file", "symbol", "test", "status")
+_PROBE_KEYS = ("file", "symbol", "test", "status", "gone")
 _PROBE_LEAD_RE = re.compile(r"^(?:[ \t]*\[(?:when-[A-Za-z0-9_-]*|by|closed):[^\]\n]*\])+")
 _REVISIT_CLOSED_RE = re.compile(r"\[closed:([^\]\n]*)\]")
 _REVISIT_ANY_RE = re.compile(r"REVISIT:[ \t]*(?:\d{4}-\d{2}-\d{2}|\[when-)")
@@ -31937,14 +32076,16 @@ def _issue_close_revisits(env, rel, new_status):
 def _probe_value_err(k, v):
     """一個條件標記的值合不合文法 → 錯誤說明或 None。"""
     if k not in _PROBE_KEYS:
-        return f"不認得的條件鍵 when-{k}(只有 file、symbol、test、status)"
+        return f"不認得的條件鍵 when-{k}(只有 {'、'.join(_PROBE_KEYS)})"
     if not v:
         return f"when-{k} 的值是空的"
 
     if k == "file":
-        return f"when-file 的路徑 {v} 不合法(不准 / 開頭、不准 .. 段)" if _probe_bad_path(v) else None
+        return f"when-file 的路徑 {v} 不合法(不准 / 開頭、不准 .. 段、不能含方括號)" if _probe_bad_path(v) else None
     if k in ("symbol", "test"):
         return _probe_named_err(k, v)
+    if k == "gone":
+        return _probe_gone_err(v)
     node, eq, vals = v.partition("=")
     if not eq or not node.strip() or not vals.strip():
         return "when-status 要寫成 <節點>=<值>"
@@ -31959,14 +32100,63 @@ def _probe_norm_value(k, v):
     在解析時就做,所以判定、候選篩選、「同一條」都拿同一個值。"""
     if k == "file":
         return nfc(_posix_norm(v))
+    if k == "gone":
+        path, text = _drift_cond_split(v, "gone")
+        return nfc(_posix_norm(path)) + ("::" + text if "::" in v else "")
     if k in ("symbol", "test") and "::" in v:
         path, name = v.rsplit("::", 1)
         return nfc(_posix_norm(path)) + "::" + name.strip()
     return v
 
 
+def _probe_gone_err(v):
+    """when-gone 的值:<路徑> 或 <路徑>::<字串>(從第一個 :: 切);路徑規矩同 file,帶了 :: 就要有字串。"""
+    path, text = _drift_cond_split(v, "gone")
+    if _probe_bad_path(path):
+        return f"when-gone 的路徑 {path} 不合法(不能空、不准 / 開頭、不准 .. 段、不能含方括號)"
+    if "::" in v and not text:
+        return "when-gone 的字串是空的(帶了 :: 就要寫字串)"
+    if "[" in text:
+        return "when-gone 的字串不能含方括號(標記在第一個 ] 結束,後面會被截掉);挑那段程式裡不含方括號的部分"
+    return None
+
+
+_PROBE_GONE_BACKTICK_MSG = "when-gone 的字串不能含反引號(會被當成行內程式碼剝掉);挑那段程式裡不含反引號的部分"
+
+
+def _probe_gone_backtick_err(s):
+    """回頭條件行原文裡 when-gone 那個標記(到同一個標記的 ] 為止)含反引號 → 錯誤說明或 None。共用解析器拿到的是剝過
+    行內程式碼的文字,反引號那段會被拿掉、實際比對的不是作者寫的那串,所以看原文(Projects/回頭條件消失式與生來成立_計劃
+    〈做法〉2)。RULE 撤除條件的值不剝反引號,_slot_retire_err 直接看值、用同一句訊息(代碼審 r2 架構對齊席:原本一支吃兩種輸入)。"""
+    s = s or ""
+    for m in re.finditer(r"\[(?:retire:)?when-gone:", s):
+        end = s.find("]", m.end())
+        # 只看真標記:找得到同一個標記的 ];前面的反引號是奇數個表示它在行內程式碼裡,只是在提這個寫法(代碼審 r1、r2 正確性席)
+        if end >= 0 and s.count("`", 0, m.start()) % 2 == 0 and "`" in s[m.end():end]:
+            return _PROBE_GONE_BACKTICK_MSG
+    return None
+
+
+def _probe_check_value(k, val):
+    """一個條件標記的值 → (存下來的值, 錯誤說明或 None)。回頭條件解析與 RULE 撤除條件共用(設計審 r3:撤除條件那條路原本
+    不轉反斜線,`..\\x` 會被放過)。順序照既有:反斜線先轉斜線再驗(只轉路徑那段——gone 的字串原樣)、正規化、正規化之後再驗一次。"""
+    if k in ("file", "symbol", "test"):
+        first = val.replace("\\", "/")
+    elif k == "gone":
+        path, text = _drift_cond_split(val, "gone")
+        first = path.replace("\\", "/") + ("::" + text if "::" in val else "")
+    else:
+        first = val
+    err = _probe_value_err(k, first)
+    nv = val if err else _probe_norm_value(k, val)
+    err = err or _probe_value_err(k, nv)
+    return (val if err else nv), err
+
+
 def _probe_bad_path(p):
-    return (not p) or p == "." or p.startswith("/") or ".." in p.split("/")
+    """條件標記裡的路徑不合法:空、只有 .、/ 開頭、有 .. 段、含方括號——標記在第一個 ] 結束,app/[id]/page.tsx 這種路徑會被
+    截成 app/[id、樹上永遠找不到,對一支還在的檔誤判(代碼審 r2 正確性席;when-file/symbol/test 原本也一樣)。"""
+    return (not p) or p == "." or p.startswith("/") or ".." in p.split("/") or "[" in p or "]" in p
 
 
 def _probe_named_err(k, v):
@@ -31977,7 +32167,7 @@ def _probe_named_err(k, v):
     if not name.strip():
         return f"when-{k} 的名稱是空的"
     if _probe_bad_path(path.strip()):
-        return f"when-{k} 的路徑 {path} 不合法(不能空、不准 / 開頭、不准 .. 段)"
+        return f"when-{k} 的路徑 {path} 不合法(不能空、不准 / 開頭、不准 .. 段、不能含方括號)"
     return None
 
 
@@ -32005,16 +32195,14 @@ def _probe_parse(rest):
                 errs.append(f"期限 [by:{val}] 不是 YYYY-MM-DD")
             continue
         k = key[len("when-"):]
-        # 反斜線先轉斜線再驗(代碼審 r3 正確性席:`a\..\x.py` 原本收成 x.py 過關,字面相同的 `a/../x.py` 卻被擋)
-        err = _probe_value_err(k, val.replace("\\", "/") if k in ("file", "symbol", "test") else val)
-        nv = val if err else _probe_norm_value(k, val)
-        # 正規化之後再驗一次(代碼審 r2 正確性席、邊界席:`..\x.py` 原文用 / 切不出 .. 段,轉成斜線才是 ../x.py,
-        # 原本第一層放行、check 與 scan 又默默丟掉,變成沒人看得到的死條件)
-        err = err or _probe_value_err(k, nv)
+        # 反斜線先轉斜線再驗(代碼審 r3 正確性席:`a\..\x.py` 原本收成 x.py 過關,字面相同的 `a/../x.py` 卻被擋)、
+        # 正規化之後再驗一次(代碼審 r2 正確性席、邊界席:`..\x.py` 原文用 / 切不出 .. 段)——收在 _probe_check_value,
+        # RULE 撤除條件同一支
+        nv, err = _probe_check_value(k, val)
         if err:
             errs.append(err)
             bad = True
-        conds.append((k, val if err else nv))
+        conds.append((k, nv))
     if not conds:
         errs.append("沒有條件標記")
     # bad:有條件寫錯——check 與 scan 看這個旗標決定評不評估,不拿存下來的值重驗(代碼審 r3 正確性席:寫錯的條件存的是
@@ -32215,13 +32403,23 @@ def _drift_cat(root, where, paths, timeout):
     不用「版本:路徑」:樹清單把路徑轉成 NFC 了,git 裡存的可能是 NFD、兩種混用、或相容表意字(NFC 與 NFD 都會把它換掉),
     用路徑讀永遠讀不到;路徑含換行時批次讀也整批失敗(代碼審 r2 外家席、r3 正確性席、邊界席;r2 的 NFD 重讀補不到混用
     與相容表意字,還多開一次行程、沿用整段逾時——r3 併發席、外家席、架構對齊席)。查不到編號的才退回用路徑讀。"""
+    return _nodehome_cat_blobs(root, _drift_specs(root, where, paths), timeout=timeout)
+
+
+def _drift_specs(root, where, paths):
+    """批次讀用的規格:列檔時記下的內容編號,查不到的才退回「版本:路徑」(理由見 _drift_cat)。"""
     oids = _drift_oids(root, where)
-    return _nodehome_cat_blobs(root, [oids.get(p) or f"{where}:{p}" for p in paths], timeout=timeout)
+    return [oids.get(p) or f"{where}:{p}" for p in paths]
 
 
-def _drift_cond_split(v):
-    """symbol/test 條件的值 → (路徑或空字串, 名稱)。判定、預讀、候選篩選、判不了的點名共用這一支
-    (代碼審 r5 架構對齊席:原本四處各自 rsplit,點名的範圍跟判定的範圍連三輪對不上)。"""
+def _drift_cond_split(v, k):
+    """條件的值 → (路徑或空字串, 名稱或字串)。判定、預讀、候選篩選、判不了的點名、值的驗證與正規化共用這一支
+    (代碼審 r5 架構對齊席:原本四處各自 rsplit,點名的範圍跟判定的範圍連三輪對不上)。
+    symbol/test 從最後一個 :: 切(沒有 :: 就只有名稱);gone 從第一個 :: 切(字串裡可以有 ::,沒有 :: 就只有路徑;
+    Projects/回頭條件消失式與生來成立_計劃〈做法〉2)。"""
+    if k == "gone":
+        path, _sep, text = v.partition("::")
+        return path.strip(), text.strip()
     path, name = (v.rsplit("::", 1) if "::" in v else ("", v))
     return path.strip(), name.strip()
 
@@ -32281,10 +32479,13 @@ class _DriftProbeTree:
     帶路徑的條件只讀那一支,而且一批先讀完(prefetch;代碼審 r1、r2 併發席:原本先是整批讀全庫,後來一支檔開一次 git)。
     樹上有、讀不出來的檔記成 None,碰到它的條件算判不了,不算不成立(代碼審 r2 外家席)。status 不在這裡判。"""
 
-    def __init__(self, root, where, files, layout, deadline=None):
+    def __init__(self, root, where, files, layout, deadline=None, entries=None):
         import time as _t
         self.root, self.where, self.files, self.layout, self.deadline, self._t = root, where, files, layout, deadline, _t
         self._text, self._corpus, self._py, self._unread, self._names = {}, {}, {}, {}, {}
+        # when-gone:全部條目(一般檔以外的連結檔、子模組也在;資料夾從前綴推)、原始位元組、判不了的原因
+        # (Projects/回頭條件消失式與生來成立_計劃〈做法〉3:既有 _text 是用替代字元解碼過的,誤讀的內容也會「找不到字串」)
+        self.entries, self._dirs, self._raw, self.gone_why = set(entries if entries is not None else files), None, {}, {}
 
     def _over(self):
         return self.deadline is not None and self._t.monotonic() >= self.deadline
@@ -32315,9 +32516,73 @@ class _DriftProbeTree:
         return True
 
     def prefetch(self, conds):
-        """帶路徑的 symbol/test 條件指到的檔,一個行程讀完;讀不了不管,輪到那條時再判。"""
-        paths = {_drift_cond_split(v)[0] for k, v in conds if k in ("symbol", "test")} - {""}
+        """帶路徑的 symbol/test 條件指到的檔,一個行程讀完;帶字串的 when-gone 讀原始位元組;讀不了不管,輪到那條時再判。"""
+        paths = {_drift_cond_split(v, k)[0] for k, v in conds if k in ("symbol", "test")} - {""}
         self._read(sorted(p for p in paths if p in self.files))
+        raw = {_drift_cond_split(v, k)[0] for k, v in conds if k == "gone" and _drift_cond_split(v, k)[1]}
+        self._read_raw(sorted(p for p in raw if p in self.files))
+
+    def present(self, path):
+        """when-gone 的「在」:一般檔、連結檔、子模組,或它是資料夾(有以 path/ 開頭的條目)。"""
+        return path in self.entries or self.is_dir(path)
+
+    def is_dir(self, path):
+        """樹上有以 path/ 開頭的條目。when-gone 的「在」與 when-file「指到資料夾」的提示共用(代碼審 r1 架構對齊席)。"""
+        if self._dirs is None:
+            self._dirs = {q.rsplit("/", i)[0] for q in self.entries for i in range(1, q.count("/") + 1)}
+        return path.rstrip("/") in self._dirs
+
+    def _read_raw(self, paths):
+        """原始位元組(不解碼)讀進 _raw;讀不了(git 失敗、預算用完)回 False,單支讀不出記成 None。"""
+        todo = [p for p in paths if p not in self._raw]
+        if not todo:
+            return True
+        if self._over():
+            return False
+        if self.where == "disk":
+            for p in todo:
+                if self._over():
+                    return False
+                try:
+                    f = Path(self.root) / p
+                    # 先看大小:超過上限不讀進記憶體(只記「太大」)
+                    self._raw[p] = _DRIFT_RAW_TOO_BIG if f.stat().st_size > _DRIFT_GONE_MAX_BYTES else f.read_bytes()
+                except OSError:
+                    self._raw[p] = None
+            return True
+        left = 60 if self.deadline is None else max(1, self.deadline - self._t.monotonic())
+        # 帶上限的批次讀(先問大小、超過的不讀進記憶體;代碼審 r1 架構對齊席、正確性席:原本整份讀進來才判太大,
+        # 200 MB 的檔駐留約 1.1 GB);用列檔時記下的內容編號讀(同 _drift_cat 的理由)。超過上限與讀不出都回 None
+        specs = _drift_specs(self.root, self.where, todo)
+        blobs = _nodehome_cat_blobs_capped(self.root, specs, _DRIFT_GONE_MAX_BYTES, timeout=left)
+        if blobs is None:
+            return False
+        # 帶上限的批次讀把「太大」與「讀不出」都回 None;只對這幾支再問一次大小,分開講(代碼審 r2 架構對齊席)
+        miss = [i for i, b in enumerate(blobs) if b is None]
+        sizes = _nodehome_cat_sizes(self.root, [specs[i] for i in miss], timeout=left) if miss else []
+        for i, n in zip(miss, sizes or [None] * len(miss)):
+            if n is not None and n > _DRIFT_GONE_MAX_BYTES:
+                blobs[i] = _DRIFT_RAW_TOO_BIG
+        self._raw.update(zip(todo, blobs))
+        return True
+
+    def gone(self, v):
+        """when-gone 一個條件 → True / False / None(判不了;原因記在 gone_why[v])。"""
+        path, text = _drift_cond_split(v, "gone")
+        if not self.present(path):
+            return True
+        if not text:
+            return False
+        if path not in self.files:
+            self.gone_why[v] = "帶字串時路徑要是一般檔(這裡是資料夾、連結檔或子模組)"
+            return None
+        if not self._read_raw([path]):
+            return None
+        body, why = _drift_gone_text(self._raw.get(path))
+        if why:
+            self.gone_why[v] = why
+            return None
+        return text not in body
 
     def names_in(self, paths, test):
         """樹上有的那幾支裡、屬於這一類(test=True 測試檔,False 一般程式檔)的全文 → _DriftNames;讀不了(預算、git)
@@ -32338,8 +32603,11 @@ class _DriftProbeTree:
     def unread_for(self, k, v):
         """這一個 symbol/test 條件判定時依賴、而且讀不出來的檔:帶路徑的看那一支,不帶路徑的看同一類(程式或測試)語料。
         跟 one() 用同一支拆條件、同一個分類(代碼審 r5 架構對齊席、外家席:原本點名用整棵樹累積的讀不出清單,
-        前一行讀過的測試檔會混進這一行的說明)。"""
-        path, _name = _drift_cond_split(v)
+        前一行讀過的測試檔會混進這一行的說明)。when-gone 判不了的點名那支檔、括號裡講原因。"""
+        if k == "gone":
+            why = self.gone_why.get(v)
+            return [f"{_drift_cond_split(v, k)[0]}({why})"] if why else []
+        path, _name = _drift_cond_split(v, k)
         if path:
             return [path] if path in self._text and self._text[path] is None else []
         test = k == "test"
@@ -32371,11 +32639,13 @@ class _DriftProbeTree:
         return name in names[0] or (not test and (name in names[1] or name in names[2]))
 
     def one(self, k, v):
-        """file/symbol/test 一個條件 → True / False / None(判不了)。"""
+        """file/symbol/test/gone 一個條件 → True / False / None(判不了)。"""
         if k == "file":
             return v in self.files
+        if k == "gone":
+            return self.gone(v)
         test = k == "test"
-        path, name = _drift_cond_split(v)
+        path, name = _drift_cond_split(v, k)
         if path:
             if path not in self.files:
                 return False
@@ -32390,6 +32660,28 @@ class _DriftProbeTree:
         return None if self._unread[test] else False
 
 
+_DRIFT_GONE_MAX_BYTES = 2 * 1048576     # 帶字串的 when-gone 讀的那支檔超過這麼大就判不了
+_DRIFT_LFS_HEAD = b"version https://git-lfs.github.com/spec/"
+_DRIFT_RAW_TOO_BIG = object()
+
+
+def _drift_gone_text(b):
+    """帶字串的 when-gone 讀到的位元組 → (文字, None) 或 (None, 判不了的原因)。讀不準的一律判不了:誤讀成亂碼也會「找不到
+    字串」、讓條件提早成立(設計審 r1、r2 正確性席、邊界席:Big5 這類沒有 NUL 的舊編碼實跑誤判)。"""
+    if b is None:
+        return None, "讀不出"
+    if b is _DRIFT_RAW_TOO_BIG or len(b) > _DRIFT_GONE_MAX_BYTES:
+        return None, f"超過 {_DRIFT_GONE_MAX_BYTES // 1048576} MB"
+    if b"\0" in b:
+        return None, "含 NUL(二進位檔或 UTF-16)"
+    if b.startswith(_DRIFT_LFS_HEAD):
+        return None, "是 Git LFS 指標檔"
+    try:
+        return b.decode("utf-8-sig"), None
+    except UnicodeDecodeError:
+        return None, "不是 UTF-8"
+
+
 def _drift_probe_tree(root, where, deadline=None):
     """→ _DriftProbeTree 或 None(git 列不出路徑、不是 git 專案、或預算已用完)。where:完整提交編號或 'disk'。"""
     import time as _t
@@ -32398,7 +32690,7 @@ def _drift_probe_tree(root, where, deadline=None):
     lst = _drift_disk_list(root) if where == "disk" else _drift_list(root, where)
     if lst is None:
         return None
-    return _DriftProbeTree(root, where, set(lst[0]), _nodehome_layout(lst[1]), deadline)
+    return _DriftProbeTree(root, where, set(lst[0]), _nodehome_layout(lst[1]), deadline, entries=lst[1])
 
 
 def _drift_probe_one(tree, env, k, v):
@@ -32461,7 +32753,10 @@ def _drift_probe_cond_candidate(k, v, ch, vault_pre, tenv, tip_text):
     if k == "status":
         rel = _drift_status_target(tenv, v)[0]
         return rel is None or (vault_pre + rel) in ch["touched"]
-    path, name = _drift_cond_split(v)
+    if k == "gone":
+        path = _drift_cond_split(v, k)[0]
+        return path in ch["touched"] or any(t.startswith(path + "/") for t in ch["touched"])
+    path, name = _drift_cond_split(v, k)
     if path:
         return path in ch["touched"]
     if ch["code_shape"]:
@@ -32512,11 +32807,23 @@ def _drift_probe_check(root, base, tip, vault_rel, tenv, deadline=None, override
         verdict = None if _out() else _drift_probe_judge(
             lambda c: _drift_probe_line(_tree(tip), tenv, c), lambda c: _drift_probe_line(_tree(base), benv, c), pr, old)
         if verdict is None:
-            unknown.append(f"{p}:{no} 的條件判不了(" + ("超過預算" if _out() else "git 讀不出程式檔或筆記"
+            unknown.append(f"{p}:{no} 的條件判不了(" + ("超過預算" if _out() else "讀不出或讀不準的程式檔或筆記"
                            + _drift_bad_note(_drift_row_unread(pr["conds"], (tenv, benv), (trees.get(tip), trees.get(base))))) + ")")
         elif verdict:
-            must.append({"kind": kind, "path": p, "line": no, "text": tx, "related": [], "why": verdict})
+            must.append({"kind": kind, "path": p, "line": no, "text": tx, "related": [],
+                         "why": verdict + _drift_gone_typo_hint(pr, old, _tree(tip))})
     return must, [], unknown
+
+
+def _drift_gone_typo_hint(pr, old, tree):
+    """新寫(起點沒有同一條)而且 when-gone 的路徑在終點版本就找不到 → 點名後面多一句;這次推送刪掉檔讓條件成立的(起點有
+    同一條)不加——刪檔是 when-gone 最主要的合法觸發(Projects/回頭條件消失式與生來成立_計劃〈做法〉4)。判定函式不認得
+    任何條件鍵,這句加在判定之後。"""
+    if old or tree is None:
+        return ""
+    if any(k == "gone" and not tree.present(_drift_cond_split(v, k)[0]) for k, v in pr["conds"]):
+        return "——when-gone 的路徑在這一版就找不到:打錯字、全形符號,或是被 gitignore 的檔?"
+    return ""
 
 
 def _drift_with_layout(ch, base, tip, tree_of):
@@ -32572,7 +32879,7 @@ def _drift_row_unread(conds, envs, trees):
                 rel, n, _want = _drift_status_target(env, v)
                 if n is not None and _note_unreadable(n):
                     out.add(rel)
-        elif k in ("symbol", "test"):
+        elif k in ("symbol", "test", "gone"):
             for t in trees:
                 if t is not None:
                     out.update(t.unread_for(k, v))
@@ -32665,8 +32972,7 @@ def _drift_probe_row_problems(pr, nenv, tree, need_by=True):
     for k, v in pr["conds"]:
         if k == "status" and nenv.resolve(link_target(v.partition("=")[0].strip())) is None:
             bad.append(f"when-status 指的筆記 {v.partition('=')[0].strip()} 找不到(改名或刪了?)")
-        if k == "file" and tree is not None and v not in tree.files \
-                and any(f.startswith(v.rstrip("/") + "/") for f in tree.files):
+        if k == "file" and tree is not None and v not in tree.files and tree.is_dir(v):
             bad.append(f"when-file 指到資料夾 {v}(要指一支檔)")
         w = _drift_probe_path_warn(k, v, tree)
         if w:
@@ -32700,7 +33006,7 @@ def _drift_probe_scan(nenv, tree, deadline=None, extract=None, kind="probe"):
             ok = None if _over() else _drift_probe_line(tree, nenv, tuple(pr["conds"]))
             if ok is None:
                 probs.append((p, no, tx, tag + ("判不了(超過預算)" if _over() else
-                              "判不了(git 讀不出程式檔或筆記" + _drift_bad_note(_drift_row_unread(pr["conds"], (nenv,), (tree,))) + ")")))
+                              "判不了(讀不出或讀不準的程式檔或筆記" + _drift_bad_note(_drift_row_unread(pr["conds"], (nenv,), (tree,))) + ")")))
             elif ok:
                 found.append({"kind": kind, "path": p, "line": no, "text": tx, "related": [],
                               "why": "撤除條件已經成立,這條限制該撤了" if kind == "retire" else
@@ -43984,7 +44290,7 @@ HELP_WHEN = {
     "spec-gate": "設計寫完先過這道:條款句式合不合一條文法、每條綁了 [test:]/[manual:] 沒、回退節夠不夠;綁的測試真跑一次印紅綠(不擋)。",
     "spec-trace": "計劃的驗收條款每條綁了測試沒(綁了/靠人/未標/懸空);舊制「驗證紀錄認領」欄照印當對照。",
     "signoff": "業務方點頭了,留簽核痕跡(規則還符不符合業務,測試買不到,要人確認)。",
-    "sync-verified-by": "驗證紀錄建了但功能筆記沒反向登記,幫你補 verified_by。預設 dry-run,--apply 才寫。",
+    "sync-verified-by": "驗證紀錄建了但功能筆記沒反向登記,幫你補 verified_by(紀錄寫了 system_refs 就只看它列的)。預設 dry-run,--apply 才寫。",
     "search": "進場第一步:這件事圖譜有沒有記、在哪篇。0 命中先換同義詞;--code 連程式碼一起搜。",
     "decisions": "當初為什麼這樣決定、翻案了嗎。--superseded 全庫掃被推翻的。",
     "stale": "我改了某個流程/環境,哪些驗證該重驗(--candidate --match <關鍵字>);或列已過期的驗證。",
@@ -44586,7 +44892,7 @@ def main():
     p.add_argument("note")
     p.add_argument("key")
     p.add_argument("value", nargs="+")
-    p = sub.add_parser("append", help="list 欄位追加(verified_by/plan_refs/related/tags)")
+    p = sub.add_parser("append", help="list 欄位追加(verified_by/plan_refs/system_refs/related/tags)")
     p.add_argument("note")
     p.add_argument("key")
     p.add_argument("value")
@@ -44610,7 +44916,7 @@ def main():
     p.add_argument("type", choices=("system", "verification", "issue", "project"))
     p.add_argument("name")
     p.add_argument("--plan", help="verification 專用:plan_refs 回指的計劃節點(逗號分隔)")
-    p.add_argument("--systems", help="verification 專用:同步 append verified_by 的 Systems(逗號分隔)")
+    p.add_argument("--systems", help="verification 專用:同步 append verified_by 的 Systems(逗號分隔);不會自動寫 system_refs")
     p.add_argument("--code", action="append", default=None, metavar="檔",
                    help="system/issue:這篇管哪幾支程式檔(repo 相對路徑,可重複;寫進 about_code)")
     p.add_argument("--responsibility", default=None,

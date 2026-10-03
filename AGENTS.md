@@ -50,7 +50,7 @@
 
 例：`PITFALL:分派入口收到空清單會靜默成功 [出處:2026-09-30 事故] [根因:呼叫端沒判空] [test:t_dispatch_empty_list]`
 
-- **RULE 的效力**：同時寫齊 `[since:]` `[retire:]` `[confirmed:]` 且最近半年確認過、沒被標 `[status:superseded]`，才有挑戰程式碼的效力（見上面第 3 條）。`[retire:]` 只收機器式：`when-file:路徑`、`when-symbol:路徑::名稱`、`when-test:路徑::名稱`、`when-status:節點=值`、`度量 …`、`人裁`。
+- **RULE 的效力**：同時寫齊 `[since:]` `[retire:]` `[confirmed:]` 且最近半年確認過、沒被標 `[status:superseded]`，才有挑戰程式碼的效力（見上面第 3 條）。`[retire:]` 只收機器式：`when-file:路徑`、`when-symbol:路徑::名稱`、`when-test:路徑::名稱`、`when-status:節點=值`、`when-gone:路徑[::字串]`、`度量 …`、`人裁`。
 - **現況描述**：**程式碼查得到的一律不寫**；只標「以程式碼為準」加查詢不再算數。沒帶來源的 FACT/FLOW/DEP、新寫的程式行號引用，提交時會被擋（行號改寫成「哪支檔的哪個函式」、寫測試名，或釘版本 `路徑@<提交編號>:行號`；誤擋用 `LUMOS_SKIP_NOTE_SHAPE=1` 單次跳過、會留帳，但推上主線時 CI 照樣會擋，要改寫或把專案設成 warn）。
 - 鍵的意思、撤除條件與作廢的寫法細節在 lumos-project-notes skill。`KEY:` 新寫只用於合約行（`KEY:★INVARIANT★` 等）；舊筆記的 KEY 不用追改。
 

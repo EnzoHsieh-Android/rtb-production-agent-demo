@@ -14,6 +14,11 @@ tags:
   - status/pass
 plan_refs:
   - "[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]"
+system_refs:
+  - "[[Systems/分析行程流程與檢查點]]"
+  - "[[Systems/確定性指標計算]]"
+  - "[[Systems/評估與Jev決策點]]"
+  - "[[Systems/Mock-DSP]]"
 ---
 # Phase14增量2a離線驗證
 
@@ -22,7 +27,7 @@ plan_refs:
 ## 紅綠與離線結果
 
 - [S1414] 逐日對 1d/7d 的 Fraction 精確核對、整數分儲存與固定兩位字串：先紅後綠；test_daily_rows_must_match_the_longer_windows、test_amounts_are_stored_as_integer_cents_and_returned_as_fixed_decimal_strings 通過。
-- [S1415] 正常與種子預算操作單源、後續減額不擠掉最新加額、D±3 與後段未滿為空、舊資料遷移：先紅後綠；test_past_adjustments_include_normal_budget_operations、test_old_adjustment_seed_tables_migrate_to_the_single_operation_source 通過。正式規則的三天切點留待後續子增量。(2026-10-02 更正:增量 2b 已接上,現在由 `src/rtb/domain/nine_rules.py` 的 RECENT_DAYS 判,見 Systems/正式九條判斷領域規則 筆記。)
+- [S1415] 正常與種子預算操作單源、後續減額不擠掉最新加額、D±3 與後段未滿為空、舊資料遷移：先紅後綠；test_past_adjustments_include_normal_budget_operations、test_old_adjustment_seed_tables_migrate_to_the_single_operation_source 通過。正式規則的三天切點留待後續子增量。(2026-10-02 更正:增量 2b 已接上,現在由 `src/rtb/domain/nine_rules.py` 的 RECENT_DAYS 判,見 [[Systems/正式九條判斷領域規則]]。)
 - [S1422] 50 列上限與完整七日摘要：先紅後綠；test_bounded_history_preserves_recent_budget_changes 通過。
 - [S1423] 最近加額 D±3 桶超過 30 日後仍保留：先紅後綠；test_latest_raise_daily_buckets_survive_rolling_retention 通過。
 - [S1425] 帶時區時間戳、未滿三天讀取及評估 72 筆：先紅後綠；test_adjustment_timestamp_preserves_recorded_receipts、test_adjustment_timestamp_preserves_recorded_receipts_for_all_72_cases 通過。以入庫錄製離線重播 72 筆，缺錄製 0、批次問題 0，未呼叫即時模型。
@@ -32,7 +37,7 @@ plan_refs:
 
 ## 待驗
 
-可綁埠環境須跑 DSP 與分析端 HTTP 測試、完整 F1–F7 午夜前後情境、全套與宣稱驗證器。增量 2 後續須接正式九條規則、分步蒐證、政策版本與完整決策時鐘三天切點。(2026-10-02 更正:這四項已在增量 2b 落地,見 [[Verification/Phase14增量3驗證紀錄]](2b 紀錄已被它取代)與 Systems/正式九條判斷領域規則 筆記。)
+可綁埠環境須跑 DSP 與分析端 HTTP 測試、完整 F1–F7 午夜前後情境、全套與宣稱驗證器。增量 2 後續須接正式九條規則、分步蒐證、政策版本與完整決策時鐘三天切點。(2026-10-02 更正:這四項已在增量 2b 落地,見 [[Verification/Phase14增量3驗證紀錄]](2b 紀錄已被它取代)與 [[Systems/正式九條判斷領域規則]]。)
 
 ## 代碼審 r1 修正（2026-09-26）
 
