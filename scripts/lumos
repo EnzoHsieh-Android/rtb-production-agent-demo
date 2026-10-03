@@ -1231,6 +1231,35 @@ def _gate_event(repo_root, gate, kind, note, *, hard=False, head_sha=None,
         return False
 
 
+def _gate_event_fit(repo_root, gate, kind, note, extra, list_key, *, hard=False, head_sha=None, nodes=None, nodes_cap=None):
+    """整行(照 _ledger_append 的量法,量 _gate_event_build 組出的完整事件)超過 4096 位元組:extra[list_key] 從尾端丟到裝得下,
+    丟了就記 extra[list_key + "_truncated"];清單丟光(或本來沒有)仍超過、而且給了 nodes_cap,nodes 多於它就截到 nodes_cap 並記同一個旗標。
+    回傳 nodes(可能被截過),呼叫端拿它寫帳——量的跟寫的是同一行(舊句檢查帳與筆記形狀擋的放寬帳共用;
+    Projects/舊行尾追加不算新寫_計劃〈做法〉5)。留幾筆用二分找(整行長度隨筆數單調),不逐筆丟——逐筆重量是平方時間,
+    兩萬筆要幾十秒(代碼審 r1 四席實量)。"""
+    import json as _j
+    nodes = list(nodes or [])
+
+    def size():
+        ev = _gate_event_build(repo_root, gate, kind, note, hard=hard, head_sha=head_sha, nodes=nodes, extra=extra)
+        return len((_j.dumps(ev, ensure_ascii=False) + "\n").encode("utf-8"))
+    rows = extra.get(list_key)
+    if rows and size() > 4096:
+        extra[list_key + "_truncated"] = True              # 旗標先放進去再量(舊寫法逐筆丟時旗標也算在長度裡)
+        full, lo, hi = list(rows), 0, len(rows) - 1          # 找最多能留幾筆:留 lo 筆裝得下(0 筆也算「裝得下」的下界)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            rows[:] = full[:mid]
+            if size() <= 4096:
+                lo = mid
+            else:
+                hi = mid - 1
+        rows[:] = full[:lo]
+    if nodes_cap is not None and len(nodes) > nodes_cap and size() > 4096:
+        nodes = nodes[:nodes_cap]
+        extra[list_key + "_truncated"] = True
+    return nodes
+
 def _gate_event_or_warn(repo_root, gate, kind, note, **kw):
     """落帳,寫不進去就在 stderr 講一句。★永遠不改變呼叫端的判定★(#19 S7)。"""
     ok = _gate_event(repo_root, gate, kind, note, **kw)
@@ -2290,7 +2319,7 @@ def run_doctor(env: Env, strict: bool, color: bool, suggest=False, ci=False, ver
         # 摘要與節點名過 _esc_clean(code-revisit r1 H-1:兩天前才在逃逸帳修過的控制碼穿透洞,勿三挖)
         _lines5 = [f"{d} {_esc_clean(sm, 60)}(逾 {ag} 天)← {_esc_clean(st, 40)}" + ("(這篇 Issue 已結案)" if cl else "")
                    for ag, d, sm, st, cl in _rv_due]
-        _head5 = (f"{len(_rv_due)} 件回訪到期(最老逾 {_rv_due[0][0]} 天)——到日子了,處理完把該行日期改下一次或刪行"
+        _head5 = (f"{len(_rv_due)} 件回訪到期(最老逾 {_rv_due[0][0]} 天)——到日子了,處理完把該行日期改下一次、刪掉,或在那一行加 [closed:日期 理由]"
                   if _rv_due else "")
         if _rv_bad:
             # 壞損數進 head 不進 lines(H-2:cap3 會把它吞進「另 N 條」隱形——head 恆可見)
@@ -6373,7 +6402,13 @@ def _excluded_line(line):
     if not m:
         return None
     cls, reason = m.group(1).strip("*_ "), m.group(2).strip().strip("*_ ").strip()   # 粗體寫法 `- **已排除:金流:** 理由` 的星號不進理由(全面實測抓到理由被記成「** 純本機…」)
-    return cls, reason, (cls in _DOOR_CLASS_ZH.values() and len(re.findall(r"[^\W_]", reason)) >= 4)
+    return cls, reason, (cls in _DOOR_CLASS_ZH.values() and _real_chars(reason) >= 4)
+
+
+def _real_chars(s):
+    """實字數:字母、數字或漢字(標點、空白、底線不算)。「已排除」行理由與回頭條件結案理由共用
+    (Projects/回頭條件寫法補齊_計劃〈做法〉2.2,設計審 r1 架構對齊席:不抄第二份)。"""
+    return len(re.findall(r"[^\W_]", s or ""))
 
 
 def _door_exclusions(text):
@@ -23392,6 +23427,35 @@ _PITFALL_BLACKLIST = ("方案評比", "canary 相容性", "誠實天花板", "�
 # ★形狀(2026-09-09 棧別提問表態閘 S2)★:每題 {id, q, when}——id 穩定代號(改措辭不改 id、改語意才換 id;表態與統計都以 id 為鍵),
 # q 原文,when 觸發 regex 清單(對「改動內容的行」剝字串、跳註解後不分大小寫比對,任一命中=適用;空 when/壞 regex 由
 # t_stack_question_triggers 釘)。舊消費者要的 {棧: [原文…]} 由下方 _STACK_PERF_QUESTIONS 派生,語意不變。
+# ── 外部回應碼(Projects/外部回應碼語意要有出處_計劃):共用形狀的單一來源是下面兩組「正規式字串」──
+# 題目表八題的 when/when_raw 直接放這兩組字串(由 _STACK_TRIGGERS 照現行 re.I 編譯);鏡頭另編譯同兩組字串(_EXTCODE_RX_*)。
+# ★不放已編譯物件進題目表★:_STACK_TRIGGERS 會再 re.compile(..., re.I),對已編譯物件帶旗標會載入即錯(設計審 r2 通才席)。
+# 每條開頭的 ^(?=.{0,2000}$) 讓超過 2000 字的行(壓縮檔、base64)直接不比;重複次數一律有上限,長行不會變慢(設計審 r1 邊界席實測 \w* 版 8 萬字 29 秒)。
+# 名稱片段:識別字恰好是 code/status/result,或以 resp|result|ret|return|err|error|status|response 接 code 結尾,或以 status 結尾
+# ——zipCode、countryCode、promoCode、return、error 都不算(設計審 r2 正確性席)。
+_EXTCODE_GUARD = r"^(?=.{0,2000}$)"
+_EXTCODE_NAME = (r"(?<![A-Za-z0-9_])(?:code|status|result"
+                 r"|[A-Za-z0-9_]{0,30}(?:resp|result|ret|return|err|error|status|response)_?code"
+                 r"|[A-Za-z0-9_]{0,30}status)(?![A-Za-z0-9_])")
+_EXTCODE_QNUM = r"[\"']\d{3,6}[\"']"
+# D 組:沒有引號的整數碼——剝字串後仍看得到,放題目表 when 欄(when 不能空)。不含單獨的 status/response 名稱(多半是 HTTP 狀態碼)。
+_EXTCODE_WHEN = (
+    _EXTCODE_GUARD + r".*?(?:(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,30}(?:resp|result|ret|return|err|error)_?code"
+    r"|(?<![A-Za-z0-9_.])(?:resp|res|result|response)\.code)(?![A-Za-z0-9_])\s*(?:===?|!==?)\s*\d{3,6}(?![\d.])",
+)
+# A 比較(要名稱片段)、B 分支(case "2000" / 行首 "2000" ->)、C 集合(in ( [ { 開頭是引號數字,要名稱片段):要看字串,放 when_raw。
+_EXTCODE_WHEN_RAW = (
+    _EXTCODE_GUARD + r"(?=.*?" + _EXTCODE_NAME + r").*?(?:(?:===?|!==?)\s*" + _EXTCODE_QNUM + r"|" + _EXTCODE_QNUM
+    + r"\s*(?:===?|!==?)|\.equals\(\s*" + _EXTCODE_QNUM + r"|" + _EXTCODE_QNUM + r"\s*\.equals\()",
+    _EXTCODE_GUARD + r"(?:.*?\bcase\s+" + _EXTCODE_QNUM + r"|\s*" + _EXTCODE_QNUM + r"\s*(?:,\s*" + _EXTCODE_QNUM + r"\s*){0,10}->)",
+    _EXTCODE_GUARD + r"(?=.*?" + _EXTCODE_NAME + r").*?\bin\s*[\(\[\{]\s*" + _EXTCODE_QNUM,
+)
+_EXTCODE_Q = ("外部回應碼:這次改動拿外部系統(金流、第三方 API)回來的代碼做判斷。每個碼在官方文件裡的原文意思寫在哪篇筆記?"
+              "FACT 行要帶 [來源:外部],官方網址寫在 [查:] 欄(不要寫進來源標記)。沒有就先寫一篇,最好寫進改到那支檔的家;"
+              "特別確認『流程結束』這類碼是不是真的等於業務成功。")
+_EXTCODE_STACKS = ("kt", "cs", "vue", "swift", "node", "py", "java", "dart")   # sql 不呼叫外部 API,不加
+
+
 _STACK_QUESTION_SPECS = {
     "kt": [
         {"id": "kt-compose", "q": 'Compose:昂貴計算有沒有 remember?不穩定型別/缺穩定 key 會不會讓重組失控(stability report 可查)?副作用有沒有放在 LaunchedEffect/DisposableEffect 且 key 選對(讀了會變的輸入卻用 Unit 當 key=永不重跑;key 太寬=每次重組重跑;2026-09-08 補,KDS 18 處 LaunchedEffect 有 9 處 Unit key)?',
@@ -23544,7 +23608,13 @@ _STACK_QUESTION_SPECS = {
                   'sqflite', 'openDatabase', 'rawQuery', 'Hive\\.']},
     ],
 }
-_STACK_PERF_QUESTIONS = {_k: [_s["q"] for _s in _v] for _k, _v in _STACK_QUESTION_SPECS.items()}   # 派生:舊語意(命中棧整組原文)
+# 外部回應碼題(八棧各一):shape_only=只看形狀——不因「改動超過行數門檻就整組適用」而亮,也不進下面的舊語意整組清單
+for _stk in _EXTCODE_STACKS:
+    _STACK_QUESTION_SPECS[_stk].append({"id": f"{_stk}-extcode", "q": _EXTCODE_Q, "when": list(_EXTCODE_WHEN),
+                                        "when_raw": list(_EXTCODE_WHEN_RAW), "shape_only": True})
+_STACK_PERF_QUESTIONS = {_k: [_s["q"] for _s in _v if not _s.get("shape_only")] for _k, _v in _STACK_QUESTION_SPECS.items()}   # 派生:舊語意(命中棧整組原文;shape_only 題不進)
+_EXTCODE_RX_PLAIN = tuple(re.compile(_p, re.I) for _p in _EXTCODE_WHEN)      # 鏡頭用:同兩組字串、同 re.I
+_EXTCODE_RX_RAW = tuple(re.compile(_p, re.I) for _p in _EXTCODE_WHEN_RAW)
 # when=範式詞+反面詞(2026-09-09 Enzo:用爛的方法寫同一個功能不能亮不同題或不亮——舊法/土法會出現的字也讓同一題亮;反面詞要具體到不誤傷,Thread\( 不是 Thread)
 # 第三欄 when_raw(r1 外家 finder f7 → code-反面詞 r1 單席 f1 改成逐 pattern):只有這幾條要看字串內容(.on("error"、LIKE '%、
 # import from "./x"、"SELECT 、require('child_process')),同題其他 pattern 照樣剝字串——整題看字串會讓 log 訊息裡的 SELECT/JSON.parse 變假命中
@@ -23896,7 +23966,7 @@ def _stack_applicability(lines_by_stack, threshold):
         rows, app = [], []
         for spec, (qid, pats, pats_raw) in zip(specs, _STACK_TRIGGERS[stk]):
             hits = []
-            if over:
+            if over and not spec.get("shape_only"):
                 hits = [f"行數>{threshold}"]
             else:
                 for pat in pats:
@@ -27208,23 +27278,73 @@ def _notelines_regions(text):
     return out
 
 
-def _notelines_parse_added(raw):
-    """git diff -U0 輸出 → {新路徑: [(新行號, 行文字)]}。"""
-    out, path, n = {}, None, 0
+_NOTELINES_HUNK_RE = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def _notelines_parse_hunks(raw):
+    """git diff -U0 輸出 → [{"a": 舊路徑原樣或 None, "b": 新路徑原樣或 None, "segs": [(舊行號, [被刪行], 新行號, [被加行])]}]。
+    ★照 @@ 的計數走★:在區塊裡只看計數、不看長相,計數吃完才回到檔頭狀態——內容行 `++ x` 在 diff 裡是 `+++ x`,
+    原本用 startswith("+++ ") 判檔頭,同檔後面的新行全漏查(Projects/舊行尾追加不算新寫_計劃〈做法〉1,設計審 r1 三席實測)。
+    空白開頭的上下文行計入兩邊行號,並把區塊切成幾個改動段(本機 diff.interHunkContext 會讓 -U0 夾進上下文行);
+    `\\ No newline` 不吃計數。路徑照現行:去掉 a/、b/ 與尾端 TAB;被 git 加引號的路徑與 /dev/null 給 None。"""
+    files, st = [], {"cur": None, "seg": None, "ro": 0, "rn": 0, "o": 0, "n": 0}
     for ln in raw.decode("utf-8", errors="surrogateescape").split("\n"):
-        if ln.startswith("+++ "):
-            p = ln[4:].rstrip("\t")                # 含空白的檔名 git 會在檔頭尾端補一個 TAB
-            path = nfc(p[2:]) if p.startswith("b/") else None
+        if (st["ro"] > 0 or st["rn"] > 0) and _notelines_hunk_line(st, ln):
             continue
-        if ln.startswith("@@"):
-            m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", ln)
-            n = int(m.group(1)) if m else 0
+        st["ro"] = st["rn"] = 0                         # 計數吃完(或對不上的壞輸出):這行照檔頭讀
+        st["seg"] = None
+        _notelines_header_line(st, files, ln)
+    return files
+
+
+def _notelines_hunk_line(st, ln):
+    """區塊裡照計數吃一行 → 吃了回 True;計數對不上回 False(呼叫端改照檔頭讀)。上下文行結束目前的改動段。"""
+    c = ln[:1]
+    if c == "\\":
+        return True
+    if c == " " and st["ro"] > 0 and st["rn"] > 0:
+        st["seg"] = None
+        st["o"], st["n"], st["ro"], st["rn"] = st["o"] + 1, st["n"] + 1, st["ro"] - 1, st["rn"] - 1
+        return True
+    side = {"-": ("ro", "o", 1), "+": ("rn", "n", 3)}.get(c)
+    if side is None or st[side[0]] <= 0:
+        return False
+    if st["seg"] is None:
+        st["seg"] = (st["o"], [], st["n"], [])
+        st["cur"]["segs"].append(st["seg"])
+    st["seg"][side[2]].append(ln[1:])
+    st[side[1]] += 1
+    st[side[0]] -= 1
+    return True
+
+
+def _notelines_header_line(st, files, ln):
+    """區塊外的一行:diff --git 開新的一篇、--- / +++ 記路徑、@@ 進區塊;其他(index、rename、Binary…)略過。"""
+    if ln.startswith("diff --git "):
+        st["cur"] = {"a": None, "b": None, "segs": []}
+        files.append(st["cur"])
+    elif ln.startswith(("--- ", "+++ ")):
+        if st["cur"] is None:
+            st["cur"] = {"a": None, "b": None, "segs": []}
+            files.append(st["cur"])
+        p_ = ln[4:].rstrip("\t")                       # 含空白的檔名 git 會在檔頭尾端補一個 TAB
+        want = "a/" if ln[0] == "-" else "b/"
+        st["cur"]["a" if ln[0] == "-" else "b"] = p_[2:] if p_.startswith(want) else None
+    elif ln.startswith("@@") and st["cur"] is not None:
+        m = _NOTELINES_HUNK_RE.match(ln)
+        if m:
+            st["o"], st["ro"] = int(m.group(1)), int(m.group(2) or 1)
+            st["n"], st["rn"] = int(m.group(3)), int(m.group(4) or 1)
+
+def _notelines_parse_added(raw):
+    """git diff -U0 輸出 → {新路徑: [(新行號, 行文字)]}。包 _notelines_parse_hunks(只交出被加的行),回傳形狀照舊。"""
+    out = {}
+    for f in _notelines_parse_hunks(raw):
+        if f["b"] is None:
             continue
-        if path is None or ln.startswith("---"):
-            continue
-        if ln.startswith("+"):
-            out.setdefault(path, []).append((n, ln[1:]))
-            n += 1
+        p = nfc(f["b"])
+        for _o, _d, n, adds in f["segs"]:
+            out.setdefault(p, []).extend((n + i, t) for i, t in enumerate(adds))
     return out
 
 
@@ -27238,8 +27358,10 @@ def _ns_git(repo_root, *args):
 
 
 def _ns_diff(repo_root, *args):
+    """筆記閘取改動的共用 diff。★釘 --inter-hunk-context=0 與 --diff-algorithm=myers★:本機設了 diff.interHunkContext
+    會讓 -U0 夾進上下文行、diff.algorithm 會改區塊切法,本機與 CI 結果就不一樣(Projects/舊行尾追加不算新寫_計劃〈做法〉1)。"""
     return _ns_git(repo_root, "diff", "-U0", "-M", "--no-color", "--no-ext-diff", "--no-textconv",
-                   "--src-prefix=a/", "--dst-prefix=b/", *args)
+                   "--inter-hunk-context=0", "--diff-algorithm=myers", "--src-prefix=a/", "--dst-prefix=b/", *args)
 
 
 def _ns_mainline_refs(repo_root):
@@ -27448,6 +27570,196 @@ class _NotelinesNet:
         return self._m.get(p, ())
 
 
+
+# ── 舊行尾補括號不算新寫(Projects/舊行尾追加不算新寫_計劃〈做法〉1)──
+_NS_APPEND_MIN_OLD = 8                  # 舊行去頭尾空白後至少幾個碼點
+_NS_APPEND_MAX_TAIL = 300               # 補上的括號去頭尾空白後至多幾個碼點(消費專案實測 193 處最長 279)
+_NS_APPEND_MAX_LINE = 2000              # 新行至多幾個碼點
+_NS_APPEND_BASE_MAX_BYTES = 524288      # 起點版本單篇大於這個就不配
+_NS_APPEND_MAX_FILES = 200              # 有候選的篇超過這麼多就這次全不配(總量上限,代碼審 r1 併發席實量)
+_NS_APPEND_MAX_PAIRS = 20000            # 候選對超過這麼多就這次全不配
+_NS_APPEND_MAX_TOTAL_BYTES = 32 * 1048576   # 起點加終點要讀的位元組總和超過這麼多就這次全不配(代碼審 r2 併發席:單篇上限管不到總量)
+
+
+def _ns_paren_groups_only(t):
+    """t(已去頭尾空白)是不是只由括號群組成、群間只有空白:半形 ( ) 與全形 （ ） 視為同一種、可混用、可巢狀,
+    群外有任何別的字就不算。行內程式碼裡的括號照算(單邊括號就配不起來,偏嚴)。"""
+    depth = 0
+    for ch in t:
+        if ch in "(（":
+            depth += 1
+        elif ch in ")）":
+            if depth == 0:
+                return False
+            depth -= 1
+        elif depth == 0 and not ch.isspace():
+            return False
+    return bool(t) and depth == 0
+
+
+def _ns_is_tail_append(ol, nl):
+    """一對(被刪的行, 被加的行)是不是「舊行原封不動、只在句尾補括號」:只去尾端空白比;舊行至少 8 個碼點、新行至多 2000、
+    補上的那段去頭尾空白後是純括號群而且至多 300 個碼點(〈做法〉1)。開頭縮排要一樣——startswith 本來就會要求。"""
+    o2, n2 = ol.rstrip(), nl.rstrip()
+    if len(n2) <= len(o2) or len(n2) > _NS_APPEND_MAX_LINE or not n2.startswith(o2) or len(o2.strip()) < _NS_APPEND_MIN_OLD:
+        return False
+    t = n2[len(o2):].strip()
+    return len(t) <= _NS_APPEND_MAX_TAIL and _ns_paren_groups_only(t)
+
+
+def _ns_nfc_clash_errs(allp, vault_rel, paths):
+    """被檢查版本裡 NFC 正規化後同名、原樣不同的筆記(NFC 與 NFD 兩種寫法並存),而且這次有新寫的行 → 錯誤訊息清單。
+    新行抽取以 NFC 當鍵,兩篇的新行會併成一篇、另一篇整篇漏查(代碼審 r2 資安席、邊界席:配對表那條路 r1 已整組不配,
+    這是更早一層的同一個洞,本來就有);判不了就擋下說清楚,不猜哪一篇是新寫的。
+    ★allp 要給 _nodehome_list 的「所有路徑」清單(第二個回傳值)★:它逐筆 NFC 化、不去重,同一個 NFC 名字出現兩次以上就是並存;
+    第一個回傳值是以 NFC 為鍵的字典,兩種寫法在那裡已經併成一筆,拿它永遠數不到並存(r2 折入時實測 macOS 暫存區)。"""
+    import collections
+    cnt = collections.Counter(f for f in allp if f.startswith(vault_rel + "/") and f.endswith(".md"))
+    hit = {nfc(p) for p in paths}
+    return [f"{k}:同一篇筆記的檔名有兩種 Unicode 寫法並存({n} 份),檢查不了哪一份是新寫的——改成同一種寫法再提交"
+            for k, n in sorted(cnt.items()) if n > 1 and k in hit]
+
+
+def _ns_append_nfc_clash(raw):
+    """diff 裡 NFC 正規化後同名、原樣路徑不同的篇 → 那些 NFC 鍵。配對表與查表都用 NFC 當鍵,兩篇撞在一起時一篇的舊行
+    會被拿去扣另一篇的新違規(代碼審 r1 資安席、正確性席實測:NFC 與 NFD 兩種寫法的同名筆記並存),這種篇整組不配。"""
+    seen = {}
+    for f in _notelines_parse_hunks(raw):
+        for q in (f["a"], f["b"]):
+            if q is not None:
+                seen.setdefault(nfc(q), set()).add(q)
+    return {k for k, v in seen.items() if len(v) > 1}
+
+
+def _ns_append_candidates(raw):
+    """diff → [(新路徑原樣, [(舊行號, 舊行原文, 新行號, 新行原文)])]:同一個改動段刪幾行就加幾行才配、第 i 條對第 i 條,
+    只留「新行去尾端空白後以舊行去尾端空白開頭、只多一段括號」而且長度在上限內的對。改名、新增刪除、被 git 加引號的路徑不配。"""
+    out = []
+    for f in _notelines_parse_hunks(raw):
+        a, b = f["a"], f["b"]
+        if a is None or b is None or a != b or not b.endswith(".md"):
+            continue
+        got = [(o + k, ol, n + k, nl) for o, dels, n, adds in f["segs"] if len(dels) == len(adds)
+               for k, (ol, nl) in enumerate(zip(dels, adds)) if _ns_is_tail_append(ol, nl)]
+        if got:
+            out.append((b, got))
+    return out
+
+
+def _notelines_append_pairs(repo_root, staged, base_where, tip_where, vault_rel):
+    """只在句尾補括號的舊行 → (配對表 {NFC 路徑: {終點版本行號: 舊行原文}}, 原因)。原因 "cap"=候選篇數、對數或要讀的
+    位元組總和超過上限,這次全不配——不算失敗,但呼叫端要說出來、推送時記帳;其他原因見下。
+    起點就用呼叫端自己的範圍起點(提交前是釘住的 HEAD sha);沒有起點版本、沒有候選篇不算失敗。失敗原因只有兩種:
+    "git"(git 呼叫失敗)與例外類別名,這時配對表是空的、這次全不配對、照整行查。單篇讀不到、太大、不是 UTF-8、
+    起點那行對不上、區塊或圍欄或重建標記不同,只有那一篇(那一行)不配。例外在這裡吞掉(同 _ns_negation_prepare)。"""
+    try:
+        if not base_where or base_where == _EMPTY_TREE_SHA:
+            return {}, None
+        d = (_ns_diff(repo_root, "--cached", base_where, "--", vault_rel) if staged
+             else _ns_diff(repo_root, base_where, tip_where, "--", vault_rel))
+        if d is None:
+            return {}, "git"
+        clash = _ns_append_nfc_clash(d)
+        cands = [(b, got) for b, got in _ns_append_candidates(d) if "\n" not in b and nfc(b) not in clash]
+        if not cands:
+            return {}, None
+        if len(cands) > _NS_APPEND_MAX_FILES or sum(len(g) for _b, g in cands) > _NS_APPEND_MAX_PAIRS:
+            return {}, "cap"                    # 總量超過上限:這次全不配(偏嚴,不算失敗,但要說出來、記帳;代碼審 r2 通才席)
+        blobs, why = _ns_append_read_blobs(repo_root, base_where, tip_where, [b for b, _g in cands])
+        if why:
+            return {}, why
+        out = {}
+        for (b, got), ob, nb in zip(cands, blobs[:len(cands)], blobs[len(cands):]):
+            ok = _ns_append_same_context(ob, nb, got)
+            if ok:
+                out[nfc(b)] = ok
+        return out, None
+    except Exception as e:
+        return {}, e.__class__.__name__
+
+
+def _ns_append_read_blobs(repo_root, base_where, tip_where, paths):
+    """候選篇的起點與終點版本一次批次讀(提交前的終點是暫存區 `:路徑`)→ (起點們+終點們的位元組清單, None),
+    git 失敗回 (None, "git"),要讀的位元組總和(單篇上限內的)超過 _NS_APPEND_MAX_TOTAL_BYTES 回 (None, "cap")。"""
+    tip_spec = "" if tip_where == "index" else tip_where
+    specs = [f"{base_where}:{b}" for b in paths] + [f"{tip_spec}:{b}" for b in paths]
+    sizes = _nodehome_cat_sizes(repo_root, specs)
+    if sizes is None:
+        return None, "git"
+    if sum(n for n in sizes if n is not None and n <= _NS_APPEND_BASE_MAX_BYTES) > _NS_APPEND_MAX_TOTAL_BYTES:
+        return None, "cap"
+    blobs = _nodehome_cat_blobs_capped(repo_root, specs, _NS_APPEND_BASE_MAX_BYTES)
+    return (None, "git") if blobs is None else (blobs, None)
+
+def _ns_append_same_context(ob, nb, got):
+    """一篇的起點與終點位元組、候選對 → {終點行號: 舊行原文}:起點那一行要等於被刪的行(都去尾端空白)、兩邊同一個區塊、
+    都在圍欄外、重建標記兩個版本相同;讀不到或不是 UTF-8 回空表(只有這一篇不配)。"""
+    if ob is None or nb is None:
+        return {}
+    try:
+        ot, nt = ob.decode("utf-8-sig"), nb.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return {}
+    if _ns_is_regen(ot) != _ns_is_regen(nt):
+        return {}
+    ols, nls = ot.split("\n"), nt.split("\n")
+    oreg, nreg = _notelines_regions(ot), _notelines_regions(nt)
+    ovis, nvis = {no for no, _l in _visible_lines(ols)}, {no for no, _l in _visible_lines(nls)}
+    return {nno: ol for ono, ol, nno, nl in got
+            if 1 <= ono <= len(ols) and 1 <= nno <= len(nls)
+            and ols[ono - 1].rstrip() == ol.rstrip() and nls[nno - 1].rstrip() == nl.rstrip()
+            and oreg[ono - 1] == nreg[nno - 1] and ono in ovis and nno in nvis}
+
+
+class _NotelinesPairs:
+    """配對表,★用到才算★(同 _NotelinesNet 的形狀:建構只存參數、第一次呼叫才跑、失敗用旗標):table() 第一次呼叫才跑
+    _notelines_append_pairs,整個範圍一次、之後重用;失敗時 failed 為真、error 記原因("git" 或例外類別名),table() 回空表
+    (Projects/舊行尾追加不算新寫_計劃〈做法〉2,設計審 r3 架構席:不另寫閉包加元組那種第二套)。"""
+
+    def __init__(self, repo_root, staged, base_where, tip_where, vault_rel):
+        self.args, self._t, self.failed, self.error = (repo_root, staged, base_where, tip_where, vault_rel), None, False, None
+        self.capped = False
+
+    def table(self):
+        if self._t is None:
+            self._t, self.error = _notelines_append_pairs(*self.args)
+            self.capped = self.error == "cap"
+            self.failed = self.error is not None and not self.capped
+            if self.capped:     # 超過總量上限:這次補括號的行全部照整行查——說出來,不然清舊筆記的人照提示做仍被擋、看不出原因
+                print(f"提醒:這次舊行尾補括號的候選太多(超過 {_NS_APPEND_MAX_FILES} 篇、{_NS_APPEND_MAX_PAIRS} 對或要讀的檔案總和"
+                      f"超過上限),全部照整行查;分幾次提交或推送就能只查補上的那段", file=sys.stderr)
+        return self._t
+
+
+_NS_FRAG_KEY_RULES = ("程式行號引用", "釘版本不合法")
+def _ns_append_subtract(pairs, p, pv, old_viol, cut):
+    """一篇的違規 pv → 扣掉配到的舊行本來就有的後留下的;扣掉的記進 cut[(路徑, 行號)]=[規則…]。
+    這篇沒有違規就不呼叫(配對用到才算)。old_viol(舊行原文, 行號) → 舊行的違規清單。
+    ★只扣照片段比的規則(_NS_FRAG_KEY_RULES:程式行號引用、釘版本,鍵是(規則, 片段)、照計數扣)★,整行層級的規則一律不扣:
+    鍵只有規則名(或固定的改法)的規則,扣了的話括號裡新寫的東西會借舊行的債溜過——「現況描述沒寫來源」(代碼審 r1 通才席;
+    Enzo 2026-10-03 裁「括號要帶來源才放寬」,括號帶了 [來源:…] 整行就不犯這條)、「SEE 只放連結」與三條回頭條件規則
+    (代碼審 r2 通才席、正確性席;r3 六席指出回頭條件那兩條原本在計劃裡寫成照改法扣)同一族,收成一條規則,不逐條比規則名。
+    新規則預設不扣;要扣在那條規則自己的計劃寫明並加進 _NS_FRAG_KEY_RULES。"""
+    import collections
+    tp = pairs.table().get(nfc(p)) or {}
+    if not tp:
+        return pv
+    keep, base = [], {}
+    for v in pv:
+        o = tp.get(v[1])
+        if o is None or v[2] not in _NS_FRAG_KEY_RULES:
+            keep.append(v)
+            continue
+        if v[1] not in base:
+            base[v[1]] = collections.Counter((r, f) for r, f, _x in old_viol(o, v[1]) if r in _NS_FRAG_KEY_RULES)
+        k = (v[2], v[3])
+        if base[v[1]][k] > 0:
+            base[v[1]][k] -= 1
+            cut.setdefault((p, v[1]), []).append(v[2])
+        else:
+            keep.append(v)
+    return keep
+
 def _notelines_rows(text, linenos, texts, keep_other, net):
     """一篇筆記裡算新寫的行 → [(行號, 行文字, 區塊)]。linenos:staged 的新增行號;texts:推送範圍逐提交新增的文字;
     net:回推送範圍淨差異新增行號的函式(只拿來核對開頭欄位其他欄,用到才呼叫)。"""
@@ -27642,29 +27954,49 @@ def _ns_check_line(repo_root, text, region, files, reader, top_dirs, by_name, re
 
 
 def _ns_revisit_violations(ln, reg, visible):
-    """新寫的一行回頭條件或條件標記合不合規矩(存量漂移防線 [S10])→ [(規則, 片段, 改法)]。
-    用跟 E5、第二層同一支 _revisit_split;圍欄裡的、行內程式碼裡的是範例,不管。"""
+    """新寫的一行回頭條件或條件標記合不合規矩(存量漂移防線 [S10];回頭條件寫法補齊〈做法〉1.2、2.5)→ [(規則, 片段, 改法)]。
+    用跟 E5、第二層同一支 _revisit_split(每個區塊都先算,開頭欄位清單項的行首形狀也認得);圍欄裡的、行內程式碼裡的是範例,不管。"""
     if not visible:
         return []
     probe = _strip_inline_markup(ln)[0]
     table = probe.lstrip().startswith("|")
+    kind, rest = _revisit_split(probe)
+    out, dead = [], False
     if reg in ("body", "summary") and not table:
-        kind, rest = _revisit_split(probe)
         if kind == "bad":
-            return [("回頭條件格式不合", ln.strip()[:60],
-                     "REVISIT: 後面第一個位置要是日期 YYYY-MM-DD,或條件標記加期限:REVISIT:[when-file:路徑][by:YYYY-MM-DD] 待辦")]
+            out.append(("回頭條件格式不合", ln.strip()[:60],
+                        "REVISIT: 後面第一個位置要是日期 YYYY-MM-DD,或條件標記加期限:REVISIT:[when-file:路徑][by:YYYY-MM-DD] 待辦"))
         if kind == "cond":
-            pr = _probe_parse(rest)
-            errs = list(pr["errs"])
-            if pr["conds"] and pr["by"] is None:
-                errs.append("沒帶期限 [by:YYYY-MM-DD](條件寫錯就永遠不會成立,期限到了至少會被唸)")
-            if errs:
-                return [("條件寫錯", ln.strip()[:60], ";".join(errs) + "——文法見 Projects/存量漂移防線_計劃〈做法〉第 0 節")]
+            out += _ns_revisit_cond_viol(ln, rest)
+        if kind in ("date", "cond"):
+            out += _ns_revisit_closed_viol(ln, probe)       # 結案文法跟日期與條件文法同範圍(代碼審 r1 架構對齊席)
+    elif _revisit_dead_place(probe, reg):
+        out.append(("條件寫在不評估的地方", ln.strip()[:60],
+                    "條件標記只在正文與摘要的 REVISIT 行生效;寫在表格或開頭欄位其他欄裡不會被判,移到 REVISIT 行"))
+        dead = True
+    if not dead and _revisit_misplaced(probe):
+        out.append(("回頭條件寫在句中", ln.strip()[:60], _REVISIT_MISPLACED_FIX))
+    return out
+
+
+def _ns_revisit_cond_viol(ln, rest):
+    """條件式回頭條件的寫法:條件寫錯、沒帶期限 → [(規則, 片段, 改法)]。"""
+    pr = _probe_parse(rest)
+    errs = list(pr["errs"])
+    if pr["conds"] and pr["by"] is None:
+        errs.append("沒帶期限 [by:YYYY-MM-DD](條件寫錯就永遠不會成立,期限到了至少會被唸)")
+    if not errs:
         return []
-    if _PROBE_ANY_RE.search(probe):
-        return [("條件寫在不評估的地方", ln.strip()[:60],
-                 "條件標記只在正文與摘要的 REVISIT 行生效;寫在表格或開頭欄位其他欄裡不會被判,移到 REVISIT 行")]
-    return []
+    return [("條件寫錯", ln.strip()[:60], ";".join(errs) + "——文法見 Projects/存量漂移防線_計劃〈做法〉第 0 節")]
+
+
+def _ns_revisit_closed_viol(ln, probe):
+    """REVISIT 行的結案標記寫錯 → [(規則, 片段, 改法)](回頭條件寫法補齊〈做法〉2.5)。"""
+    cl = _revisit_closed(probe)
+    if not cl["errs"]:
+        return []
+    return [("結案標記寫錯", ln.strip()[:60], ";".join(cl["errs"]) + "——寫法:在那一行加 [closed:YYYY-MM-DD 理由]"
+             "(建議放行尾,理由至少 4 個字、不放連結),一行一個")]
 
 
 def _ns_became_code(repo_root, base_where, tip_where, reader_tip):
@@ -27814,15 +28146,22 @@ def _ns_negation_snippet(vis, pos):
     return ("…" if a > 0 else "") + vis[a:b] + ("…" if b < len(vis) else "")
 
 
-def _ns_negation_hints(path, text, rows):
+def _ns_negation_hints(path, text, rows, pairs=None):
     """一篇的路徑、終點全文、_notelines_new(..., keep_other=True) 回的 rows → [(路徑, 行號, 片段, 形狀)]。
-    只看 body/summary 區塊、圍欄外的行;形狀:原文去掉行首空白後 | 開頭=table、# 開頭=heading、其他 prose。"""
+    只看 body/summary 區塊、圍欄外的行;形狀:原文去掉行首空白後 | 開頭=table、# 開頭=heading、其他 prose。
+    pairs(_NotelinesPairs):這一行有命中才查;是只在句尾補括號的舊行、可見文字以舊行的可見文字開頭時,
+    只留起點落在追加段的命中(Projects/舊行尾追加不算新寫_計劃〈做法〉3);不以舊行開頭就照整行。"""
     vis_nos = {no for no, _l in _visible_lines(text.split("\n"))}
     out = []
     for i, ln, reg in rows:
         if reg not in ("body", "summary") or i not in vis_nos:
             continue
         vis, hits = _ns_negation_hits(ln)
+        if hits and pairs is not None:
+            o = (pairs.table().get(nfc(path)) or {}).get(i)
+            ovis = _strip_inline_markup(o)[0].strip() if o is not None else None
+            if ovis and vis.startswith(ovis):
+                hits = [h for h in hits if h[1] >= len(ovis)]
         if not hits:
             continue
         t = ln.lstrip()
@@ -27888,13 +28227,14 @@ def _note_shape_negation_config(text):
     return r["mode"], r["warns"]
 
 
-def _ns_negation_collect(hints, p, text, rows):
-    """_note_shape_eval 逐篇呼叫:hints 是 None 或已經失敗就不算;丟例外就清空 items、error 記例外類別名,這次提交不再算。"""
+def _ns_negation_collect(hints, p, text, rows, pairs=None):
+    """_note_shape_eval 逐篇呼叫:hints 是 None 或已經失敗就不算;丟例外就清空 items、error 記例外類別名,這次提交不再算。
+    pairs:_NotelinesPairs,轉給 _ns_negation_hints(只看句尾補的括號)。"""
     if hints is None or hints.get("error") is not None:
         return
     try:
         hints["seen"] = hints.get("seen", 0) + sum(1 for _i, _l, r in rows if r in ("body", "summary"))
-        hints["items"].extend(_ns_negation_hints(p, text, rows))
+        hints["items"].extend(_ns_negation_hints(p, text, rows, pairs))
     except Exception as e:
         hints["items"] = []
         hints["error"] = e.__class__.__name__
@@ -28287,23 +28627,25 @@ def _ns_deleted_summary_lines(repo_root, *args):
     # 旗標照 _ns_diff:關外部差異程式與文字轉換(被打開的資料夾可以放屬性檔指一支自訂驅動器去執行;
     # t_lumos_content_diffs_all_disable_external_drivers 守這條)、不上色(color.ui=always 會夾色碼)
     d = _ns_git(repo_root, "diff", "--no-renames", "-U0", "--no-color", "--no-ext-diff", "--no-textconv",
-                "--src-prefix=a/", "--dst-prefix=b/", *args)
+                "--inter-hunk-context=0", "--diff-algorithm=myers", "--src-prefix=a/", "--dst-prefix=b/", *args)
     if d is None:
         return None
-    out, last_ind = [], None
-    for ln in d.decode("utf-8", errors="replace").split("\n"):
-        if not ln.startswith("-") or ln.startswith("---"):
+    out = []
+    # 照 @@ 計數讀被刪行(共用 _notelines_parse_hunks;原本用 startswith("---") 判檔頭,內容是 -- x 的被刪行會被當成檔頭,
+    # 代碼審 code-舊行尾追加不算新寫 r1 架構席);續行只在同一個改動段裡接
+    for f in _notelines_parse_hunks(d):
+        for _o, dels, _n, _a in f["segs"]:
             last_ind = None
-            continue
-        body = ln[1:]
-        t, ind = body.strip(), _ns_indent(body)
-        if SYMBOL_RE.match(t):
-            out.append(t)
-            last_ind = ind
-        elif t and last_ind is not None and ind > last_ind:
-            out[-1] += " " + t
-        else:
-            last_ind = None
+            for ln in dels:
+                body = ln.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+                t, ind = body.strip(), _ns_indent(body)
+                if SYMBOL_RE.match(t):
+                    out.append(t)
+                    last_ind = ind
+                elif t and last_ind is not None and ind > last_ind:
+                    out[-1] += " " + t
+                else:
+                    last_ind = None
     return out
 
 
@@ -28420,8 +28762,11 @@ def _ns_slot_extra(sviol, mixed=False):
 
 
 def _note_shape_eval(repo_root, staged, base_where, tip_where, vault_rel, exclude_remote=True, mark=None, max_count=None,
-                     hints=None, tags=None, slots=None):
+                     hints=None, tags=None, slots=None, relaxed=None):
     """算這次的違規 → (violations[(筆記路徑, 行號, 規則, 片段, 改法)], errors[訊息])。
+    舊行原封不動、只在句尾補括號的行(_NotelinesPairs)只報比舊行多出來的違規,扣減在那一篇收進總表之前做,
+    被扣過的行照樣被「新程式檔喚醒」那一路看到(Projects/舊行尾追加不算新寫_計劃〈做法〉2)。
+    relaxed:只有 cmd_note_shape 推送時傳 {};喚醒那一路跑完後才定案寫進 count/rules/pairs/error(〈做法〉5)。
     hints:只有 cmd_note_shape 在 --staged、negation 不是 off 時傳 {"items": [], "error": None, "seen": 0};
     逐篇多算一次否定現況句提醒放進 items(★不進 violations,回傳值照舊兩個★),seen=要判的正文與摘要新行數。
     提醒丟例外就清空 items、error 記例外類別名、這次提交不再算(提醒失敗不能讓閘失敗)。
@@ -28458,16 +28803,22 @@ def _note_shape_eval(repo_root, staged, base_where, tip_where, vault_rel, exclud
     notes, errs, old_by = res
     if slots is not None:
         slots["notes"], slots["old_by"] = notes, old_by
+    errs = list(errs) + _ns_nfc_clash_errs(lst[1], vault_rel, [p for p, _t, _r in notes])
+    pairs, cut = _NotelinesPairs(repo_root, staged, base_where, tip_where, vault_rel), {}
     for p, text, rows in notes:
         regen = _ns_is_regen(text)
         vis = {no for no, _l in _visible_lines(text.split("\n"))}
-        for i, ln, reg in rows:
-            if reg != "other":
-                for rule, frag, fix in _ns_check_line(repo_root, ln, reg, files, reader, top_dirs, by_name, regen):
-                    viol.append((p, i, rule, frag, fix))
-            for rule, frag, fix in _ns_revisit_violations(ln, reg, i in vis):
-                viol.append((p, i, rule, frag, fix))
-        _ns_negation_collect(hints, p, text, rows)
+        regs = {i: reg for i, _l, reg in rows}
+
+        def line_viol(ln, i, reg=None, regen=regen, vis=vis, regs=regs):
+            reg = regs.get(i) if reg is None else reg
+            out = list(_ns_check_line(repo_root, ln, reg, files, reader, top_dirs, by_name, regen)) if reg != "other" else []
+            return out + list(_ns_revisit_violations(ln, reg, i in vis))
+        pv = [(p, i, rule, frag, fix) for i, ln, reg in rows for rule, frag, fix in line_viol(ln, i, reg)]
+        if pv:
+            pv = _ns_append_subtract(pairs, p, pv, lambda o, i, f=line_viol: f(o, i), cut)
+        viol.extend(pv)
+        _ns_negation_collect(hints, p, text, rows, pairs)
         _ns_tag_hints_collect(tags, p, text, rows)
     # 2) 新程式檔喚醒舊引用(筆記這次沒改也查;上線點版本裡就有的那行是舊帳,不算)
     became = _ns_became_code(repo_root, base_where if not staged else _lens_full_sha(repo_root, "HEAD"),
@@ -28508,14 +28859,30 @@ def _note_shape_eval(repo_root, staged, base_where, tip_where, vault_rel, exclud
                             continue
                         viol.append((p, n, rule + "(新程式檔喚醒)", frag,
                                      "這支檔這次才變成程式檔,舊筆記裡指向它的行號也會錯位:" + fix))
+    if relaxed is not None:
+        _ns_relaxed_settle(relaxed, cut, viol, pairs)
     return viol, errs
+
+
+def _ns_relaxed_settle(relaxed, cut, viol, pairs):
+    """喚醒那一路跑完才定案放寬帳的口徑(〈做法〉5):被喚醒那一路報了任何違規的行整行拿掉、條數整行不算;
+    pairs 只記有違規被減掉的行;配對失敗記原因。"""
+    import collections
+    woke = {(v[0], v[1]) for v in viol if v[2].endswith("(新程式檔喚醒)")}
+    fin = {k: r for k, r in cut.items() if k not in woke}
+    relaxed["count"] = sum(len(r) for r in fin.values())
+    relaxed["rules"] = dict(collections.Counter(x for r in fin.values() for x in r))
+    relaxed["pairs"] = [[p, n] for p, n in sorted(fin)]
+    relaxed["error"] = pairs.error if pairs.failed else None
+    relaxed["capped"] = pairs.capped
 
 
 def _note_shape_doctor_lines(repo_root, vault, ci=False):
     """lumos doctor 開頭的筆記形狀擋提醒(Projects/筆記形狀擋_計劃 [S8][S11]):
     ①開關不是 block 就講(照 node_home.gate 先例:關掉要看得見);②專案 CI 沒呼叫 note-shape --diff、
     或沒抓完整歷史(淺層 clone 算不出範圍)就給要貼的那一步——lumos update 不會動各專案的 CI 設定;
-    ③上線點之後、已推上遠端卻違反兩條規則的新增行(抓 --no-verify 繞過)。"""
+    ③上線點之後、已推上遠端卻違反兩條規則的新增行(抓 --no-verify 繞過;舊行尾補括號照第一層同一支扣減,起點是上線點,
+    幾次推送各補的括號累積超過上限就會唸——訊息列出這幾種可能,Projects/舊行尾追加不算新寫_計劃〈做法〉7)。"""
     out = []
     root = Path(repo_root)
     txt = _doctor_cfg_bytes(root)
@@ -28590,7 +28957,8 @@ def _note_shape_doctor_lines(repo_root, vault, ci=False):
         if viol:
             shown = "; ".join(f"{_esc_clean(p, 200)}:{n} {rule} {_esc_clean(frag, 200)}" for p, n, rule, frag, _f in viol[:10])
             more = f"(另有 {len(viol) - 10} 處)" if len(viol) > 10 else ""
-            out.append(f"已推上遠端({ref})卻違反筆記形狀擋的新增行 {len(viol)} 處(多半是 --no-verify 繞過):{shown}{more}")
+            out.append(f"已推上遠端({ref})卻違反筆記形狀擋的新增行 {len(viol)} 處(可能是 warn 模式或 --no-verify 繞過、引用的檔後來才變成"
+                       f"程式檔、改名後補字,或幾次推送各補的括號累積超過 {_NS_APPEND_MAX_TAIL} 字):{shown}{more}")
     return out
 
 
@@ -28607,6 +28975,11 @@ _NS_TR_PREFIX_RE = re.compile(r"^([^:：\s`\[\]]+)\s*[:：]\s*")
 _NS_TR_SUMMARY_KEY_RE = re.compile(r"summary\s*:\s*\S")
 _NS_TR_HAS_REF_RE = re.compile(r"\[\s*test(?:-gone)?\s*[:：]", re.I)
 _NS_TR_HEAD = "碰到的筆記裡有指不到真測試的綁定"
+# doctor S20 散文撤除候選的「裁定:」前綴——★只認緊貼的寫法★:裁定直接接冒號,或中間只夾一個括號(日期、說明)。
+# 代碼審 r1 到 r3 同一類三次:放寬成「裁定到冒號之間任意字」會把「裁定撤除這條,理由:改寫後…」當成改寫前綴挖掉,真撤除漏列
+_NS_TR_VERDICT_RE = re.compile(r"裁定\s*(?:[(（][^)）\n]{0,80}[)）])?\s*[:：]\s*")
+_NS_TR_KEEP_LEAD_RE = re.compile(r"^[\W_]*已?(?:改寫|改為|改成|保留|維持)")      # 裁定後(前面任何標點)接這些 → 那段在講改寫或保留
+_NS_TR_KEEP_WORD_RE = re.compile(r"(?<![不未無需])(?<!沒有)保留(?![字區期])")       # 「不、未、無需、沒有保留」與「保留字、區、期」不算保留
 
 
 def _note_shape_test_refs_parse(text):
@@ -29037,6 +29410,33 @@ def _ns_tr_format(trmode, trviol, mode_word):
     return "\n".join(lines)
 
 
+def _ns_tr_says_retire(ln):
+    """一行下一層說明是不是在講撤除:先把「裁定…:改寫/改為/改成/保留/維持…」那幾段(到下一個裁定或行尾)挖掉,
+    剩下的字照舊判——有「撤除」、沒有「保留」(rtb 清理循環第 2 輪回傳:改寫說明順帶提到撤除被誤列)。
+    ★只挖段、不整行跳過★:代碼審 r2 通才席——上一版有「裁定」就只看冒號後那段,「裁定撤除這條,理由:…」、
+    「撤除這條(使用者裁定,見 https://…)」這種真撤除會被漏掉,而這份候選是散文撤除唯一的網。"""
+    ms = list(_NS_TR_VERDICT_RE.finditer(ln))
+    drop = [(m.start(), ms[k + 1].start() if k + 1 < len(ms) else len(ln)) for k, m in enumerate(ms)
+            if _NS_TR_KEEP_LEAD_RE.match(ln[m.end():ms[k + 1].start() if k + 1 < len(ms) else len(ln)])]
+    rest, at = [], 0
+    for a, b in drop:
+        rest.append(ln[at:a])
+        at = b
+    rest = "".join(rest) + ln[at:]
+    return "撤除" in rest and not _NS_TR_KEEP_WORD_RE.search(rest)
+
+
+def _ns_tr_sub_says_retire(lines, no):
+    """條款定義行(第 no 行)的下一層子項(緊接在後、縮排比它深的連續行;遇到空行就停)有沒有一行在講撤除。"""
+    ind = len(lines[no - 1]) - len(lines[no - 1].lstrip())
+    for ln in lines[no:]:
+        if not ln.strip() or len(ln) - len(ln.lstrip()) <= ind:
+            return False
+        if _ns_tr_says_retire(ln):
+            return True
+    return False
+
+
 def _doctor_test_ref_lines(env, repo_root):
     """doctor S20:全庫每一篇照〈做法〉3 判(判存在只做第①道)→ {類別: [字串]};另列散文撤除候選。"""
     pidx = _platform_test_index(repo_root)
@@ -29052,16 +29452,11 @@ def _doctor_test_ref_lines(env, repo_root):
             cats[c].append(_esc_clean(f"{rel}:{no}  {why} {nm}".rstrip(), _DOCTOR_LINE_MAX))   # 整行清控制字元(通才席 F7,同 S19)
         lines = text.split("\n")
         for no, _reg, _pf, sp, kind, _span in _ns_test_ref_lines(rel, text):
-            if kind != "clause" or not any(x for x in _test_names_of(sp)[0]):
-                continue
-            ind = len(lines[no - 1]) - len(lines[no - 1].lstrip())
-            for ln in lines[no:]:
-                if not ln.strip() or len(ln) - len(ln.lstrip()) <= ind:
-                    break
-                if "撤除" in ln and "保留" not in ln:
-                    cats["prose"].append(_esc_clean(f"{rel}:{no}  條款仍掛 [test:],下一層寫了撤除", _DOCTOR_LINE_MAX))
-                    break
+            # 已標作廢的條款另由「作廢還掛活測試」那條管,這裡不重複列
+            if kind == "clause" and not _ns_tr_retired(sp) and any(_test_names_of(sp)[0]) and _ns_tr_sub_says_retire(lines, no):
+                cats["prose"].append(_esc_clean(f"{rel}:{no}  條款仍掛 [test:],下一層寫了撤除", _DOCTOR_LINE_MAX))
     return cats
+
 
 
 def cmd_note_shape(repo=None, staged=False, diff_range=None, slots_flag=False):
@@ -29072,7 +29467,8 @@ def cmd_note_shape(repo=None, staged=False, diff_range=None, slots_flag=False):
     索引與設定、第②道到被推的版本找,兩邊對不上時只提醒(_ns_tr_guard)。
     有違規(擋下,或 warn 模式的提醒)與跳過才寫治理帳,沒違規的放行不寫——刻意跟每支檔有家每次都寫 passed 不同:
     每次提交一筆沒資訊的行正是 rtb 回饋抱怨的帳本雜訊。例外:提交前另有否定現況句提醒(只提醒、不算違規、
-    不改 rc)時記一筆 hinted,只有幾行、幾篇兩個整數(Projects/否定現況句配回頭條件_計劃〈做法〉4)。"""
+    不改 rc)時記一筆 hinted,只有幾行、幾篇兩個整數(Projects/否定現況句配回頭條件_計劃〈做法〉4);推送時舊行尾補括號
+    減掉了違規、或配對失敗,記一筆 relaxed(Projects/舊行尾追加不算新寫_計劃〈做法〉5,提交前不記)。"""
     root = Path(repo).resolve() if repo else None
     if root is None:
         r = _lens_git(".", "rev-parse", "--show-toplevel")
@@ -29145,7 +29541,9 @@ def cmd_note_shape(repo=None, staged=False, diff_range=None, slots_flag=False):
     tags, tag_warns, tag_fail = _ns_tag_hints_prepare(cfg_text) if staged else (None, [], None)
     smode, slots = _ns_slots_prepare(root, staged, slots_flag, mode, cfg_text, tip_where)
     box = slots if slots is not None else {}   # 測試綁定要碰到的筆記:一律帶容器;不帶 mark2 時格子不跑(格子另由 slots 判)
-    res = _note_shape_eval(root, staged, base_where, tip_where, vault_rel, hints=hints, tags=tags, slots=box)
+    relaxed = None if staged else {}
+    res = _note_shape_eval(root, staged, base_where, tip_where, vault_rel, hints=hints, tags=tags, slots=box,
+                           relaxed=relaxed)
     if res is None:
         print("筆記形狀擋:git 算不出這次的改動,跳過(fail-open)", file=sys.stderr)
         return 0
@@ -29156,12 +29554,45 @@ def cmd_note_shape(repo=None, staged=False, diff_range=None, slots_flag=False):
     neg_items, neg_fail = _ns_negation_collected(hints, neg_warns, neg_fail)
     rc = (_note_shape_report(root, mode, mode_word, viol, errs, slot=(smode, sviol), tr=(trmode, trviol, trinfo))
           if (viol or errs or sviol or trviol) else 0)
+    _ns_relaxed_record(root, base_where, tip_where, relaxed)
     if neg_items or neg_fail:
         _note_shape_negation_emit(root, neg_items, neg_mode, neg_fail)
     tag_items, tag_fail = _ns_tag_hints_collected(tags, tag_warns, tag_fail)
     _ns_tag_hints_emit(root, tag_items, tag_fail)
     return rc
 
+
+def _ns_relaxed_record(root, base_where, tip_where, relaxed):
+    """推送時的放寬帳(Projects/舊行尾追加不算新寫_計劃〈做法〉5):有違規因舊行尾補括號被減掉記 state done;配對失敗而
+    這次本來有違規記 git-failed 或 error;候選超過總量上限記 capped。這是「沒違規的放行不寫帳」的第三個例外。
+    ★不去重★:一次推好幾條分支、範圍重疊時掛鉤逐分支呼叫,同一行會各記一筆(各帶自己的 head_sha 與同一個 attempt_id),
+    統計時照(attempt_id, 路徑, 行號)去重——r1、r2 兩版去重各自出洞(記號檔壞內容與非原子;只認路徑行號會吞掉別條分支、
+    pairs 被裁掉的列認不得、每次推送都讀帳),代碼審 r3 整類拿掉,寧可多記不少記。
+    ★不回傳、不改判定★:出錯只印一句。relaxed 是 None(提交前)或空的就不記。"""
+    if not relaxed:
+        return
+    try:
+        err = relaxed.get("error")
+        if err:
+            ex = {"check": "append-only", "state": "git-failed" if err == "git" else "error",
+                  "base_sha": base_where, "head_sha": tip_where}
+            if err != "git":
+                ex["error"] = err
+            _gate_event_or_warn(root, "note-shape", "relaxed", f"這次推送:舊行尾補括號的配對失敗({err}),照整行查",
+                                head_sha=tip_where, extra=ex)
+        if relaxed.get("capped"):
+            _gate_event_or_warn(root, "note-shape", "relaxed", "這次推送:舊行尾補括號的候選超過總量上限,全部照整行查",
+                                head_sha=tip_where, extra={"check": "append-only", "state": "capped",
+                                                            "base_sha": base_where, "head_sha": tip_where})
+        if relaxed.get("count"):
+            note = f"這次推送:舊行尾補括號,減掉舊行本來就有的違規 {relaxed['count']} 條"
+            ex = {"check": "append-only", "state": "done", "base_sha": base_where, "head_sha": tip_where,
+                  "violations": relaxed["count"], "rules": relaxed["rules"], "pairs": list(relaxed["pairs"]),
+                  "pairs_total": len(relaxed["pairs"])}
+            _gate_event_fit(root, "note-shape", "relaxed", note, ex, "pairs", head_sha=tip_where)
+            _gate_event_or_warn(root, "note-shape", "relaxed", note, head_sha=tip_where, extra=ex)
+    except Exception as e:
+        print(f"提醒:放寬帳這次沒記成({e.__class__.__name__}),不影響這道檢查的判定", file=sys.stderr)
 
 def _ns_negation_prepare(cfg_text):
     """提交前讀 note_shape.negation → (hints 或 None, mode, 設定提醒, 失敗的例外類別名或 None);off 就不傳 hints。"""
@@ -29229,13 +29660,19 @@ def _note_shape_report(root, mode, mode_word, viol, errs, slot=None, tr=None):
     ex = _ns_slot_extra(sviol, mixed=bool(viol or errs)) if sviol else {}
     if trviol:
         ex = _ns_tr_extra_merged(ex, trmode, trviol, trinfo, shape=bool(viol or errs))
+    if viol:
+        # 規則別計數:撤除條件要數某一條規則擋了幾次(回頭條件寫法補齊〈做法〉2.8;欄名同放寬帳的 rules)
+        import collections
+        ex = dict(ex, rules=dict(collections.Counter(v[2] for v in viol)))
     kw = {"extra": ex} if ex else {}
     count = (f"新違規 {len(viol) + len(errs)} 條" + (f"、格子缺漏 {len(sviol)} 行" if sviol else "")
              + (f"、測試綁定 {len(trviol)} 條" if trviol else ""))
     if blocked:
         if mode == "block" and (viol or errs):     # 只因格子擋時,格子那段自己有收尾句(r1 架構席、通才席:這句講的是另一種原因)
             print("內容還在工作目錄,改完再提交(這道檢查不動筆記、不動暫存區)。為什麼擋:筆記只留程式碼推不出來的東西,"
-                  "推得出來的一寫進去就會過期——見 Projects/筆記形狀擋_計劃。", file=sys.stderr)
+                  "推得出來的一寫進去就會過期——見 Projects/筆記形狀擋_計劃。補舊句的更正:舊句一個字不動、只在句尾補一段括號"
+                  f"(括號群、去頭尾空白後 {_NS_APPEND_MAX_TAIL} 字內;沒寫來源的現況描述要在括號裡帶 [來源:…])才只查補上的那段,"
+                  "見 Projects/舊行尾追加不算新寫_計劃。", file=sys.stderr)
         _gate_event_or_warn(root, "note-shape", "blocked", f"{mode_word}:{count}", hard=True, nodes=nodes, **kw)
         return 1
     # warn 模式有違規也記一筆(照鄰居的 warned;沒違規的放行才不寫——代碼審 r1 架構對齊席)
@@ -29251,7 +29688,7 @@ _NOTE_AUDIT_GATE_VALUES = ("block", "warn", "off")
 _NOTE_AUDIT_VERDICT_DIR = "governance/note-verdicts"
 _NOTE_AUDIT_WORK_DIR = ".lumos/note-audit"
 _NOTE_AUDIT_TEMPLATE = "scripts/templates/note-audit-judge.md"
-_NOTE_AUDIT_PROMPT_VERSION = 1                          # 範本檔改一個字就升版,並重跑 68 句小實驗(計劃 S14)
+_NOTE_AUDIT_PROMPT_VERSION = 2                          # 範本檔改一個字就升版,並重跑 68 句小實驗(計劃 S14;t_note_audit_judge_template_pinned 釘雜湊)
 _NOTE_AUDIT_BATCH = 150
 _NOTE_AUDIT_SEARCH_CAP = 20000
 _NOTE_AUDIT_VERDICT_NAME_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{32}\.json$")
@@ -29471,7 +29908,8 @@ def _note_base_status(repo_root, base_where, vault_rel, pairs, p, _late, to, str
 
 
 def _note_audit_items(repo_root, base_where, tip_where, vault_rel):
-    """這次要審的每一行 → (items, errs) 或 None。item={id, path, line, text, region, heading, done, context, ctx_fp}。
+    """這次要審的每一行 → (items, errs) 或 None。item={id, path, line, text, region, heading, done, context, ctx_fp},
+    舊行尾補括號的行另有 old/appended/tail(_note_audit_mark_appended)。
     一般新寫的行借第一層的共用函式(推送前掛鉤的標記、不逐提交判);被收尾的計劃整篇進完成審(已翻案的決策不進)。"""
     import hashlib
     reader = _nodehome_reader(repo_root, tip_where)
@@ -29519,11 +29957,38 @@ def _note_audit_items(repo_root, base_where, tip_where, vault_rel):
                           "text": ln, "region": reg, "heading": heads[i - 1], "done": done,
                           "context": (lines[max(0, i - 3):i - 1], lines[i:i + 2]),
                           "ctx_fp": hashlib.sha256("\n".join(ctx).encode("utf-8")).hexdigest()[:16]})
+    lst = _nodehome_list(repo_root, tip_where) if items else None
+    if lst is not None:
+        errs = list(errs) + _ns_nfc_clash_errs(lst[1], vault_rel, [it["path"] for it in items])
+    _note_audit_mark_appended(items, _NotelinesPairs(repo_root, False, base_where, tip_where, vault_rel))
     return items, errs
 
 
+def _note_audit_mark_appended(items, pairs):
+    """只在句尾補括號的舊行標追加段(Projects/舊行尾追加不算新寫_計劃〈做法〉4):item 多 appended(原行從舊行去尾端空白
+    之後切下的那段,保留 CR)、old(舊行去尾端空白)、tail(舊句去頭尾空白的 sha256 前 16 碼)。★同一個內容編號的每一處都配到
+    同一句舊句才標★,有一處沒配或舊句不同,那個編號每一處都整行送審(既有 PITFALL:同編號幾處共用一個判定)。完成審的行不標。"""
+    import hashlib
+    if not items:
+        return                                  # 沒有送審項目就不跑配對(用到才算)
+    table, got = pairs.table(), {}
+    if pairs.failed:   # 只印不記帳:第二層每個入口(prepare、record、check、skip、doctor)都會走到,記帳會一次失敗記好幾筆;
+        # 推送時的失敗由第一層的 relaxed 帳(state git-failed/error)記(代碼審 r2 架構對齊席問過)
+        print(f"提醒:舊行尾補括號的配對這次沒跑成({pairs.error}),補括號的行整行送審", file=sys.stderr)
+    for it in items:
+        o = None if it["done"] else (table.get(nfc(it["path"])) or {}).get(it["line"])
+        got.setdefault(it["id"], []).append(o)
+    for it in items:
+        olds = got[it["id"]]
+        if any(x is None for x in olds) or len({x.rstrip() for x in olds}) != 1:
+            continue
+        o = olds[0].rstrip()
+        it["old"], it["appended"] = olds[0].rstrip("\n"), it["text"][len(o):]      # 舊句照原樣印(CRLF 不換掉 CR)
+        it["tail"] = hashlib.sha256(o.strip().encode("utf-8")).hexdigest()[:16]
+
+
 def _note_audit_parse_verdict(raw):
-    """判定檔內容 → dict 或 None(壞掉)。"""
+    """判定檔內容 → dict 或 None(壞掉)。列可帶 tail(只判句尾的範圍,舊句雜湊 16 碼十六進位);格式不對整份當壞。"""
     import json as _j
     try:
         d = _j.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
@@ -29534,6 +29999,8 @@ def _note_audit_parse_verdict(raw):
     for r in d["rows"]:
         if not isinstance(r, dict) or not isinstance(r.get("id"), str) or r.get("class") not in ("CODE", "MIXED", "CONTEXT", "SKIP"):
             return None
+        if "tail" in r and not (isinstance(r["tail"], str) and re.fullmatch(r"[0-9a-f]{16}", r["tail"])):
+            return None                     # 只判句尾的範圍欄要是 16 碼十六進位(舊行尾追加不算新寫 [S40])
     return d
 
 
@@ -29563,18 +30030,33 @@ def _note_audit_load_verdicts(repo_root, where):
     return docs, bad
 
 
-def _note_audit_fold(docs):
-    """判定怎麼算(計劃〈做法〉第 2 節):對每個內容編號——①一般判定逐筆,被申訴過就換成所有指名它的申訴裡最重的結果;
-    ②取最重(CODE > MIXED > CONTEXT);③沒有任何判定時,有略過就算略過。→ {id: 'CODE'|'MIXED'|'CONTEXT'|'SKIP'}。
-    跟讀檔順序無關。"""
+def _note_audit_dispute_map(docs):
+    """申訴 → {(被申訴的判定檔名, 內容編號): {申訴列的 tail 或 None: 所有指名它的申訴裡最重的結果}}。套用見 _note_audit_dispute_for。"""
     disputes = {}
     for _name, d in docs.items():
-        if d["kind"] == "申訴" and d.get("disputes"):
-            for r in d["rows"]:
-                if r["class"] in _NOTE_AUDIT_WEIGHT:
-                    k = (d["disputes"], r["id"])
-                    if k not in disputes or _NOTE_AUDIT_WEIGHT[r["class"]] > _NOTE_AUDIT_WEIGHT[disputes[k]]:
-                        disputes[k] = r["class"]
+        if d["kind"] != "申訴" or not d.get("disputes"):
+            continue
+        for r in d["rows"]:
+            m = disputes.setdefault((d["disputes"], r["id"]), {})
+            t = r.get("tail")
+            if r["class"] in _NOTE_AUDIT_WEIGHT and (t not in m or _NOTE_AUDIT_WEIGHT[r["class"]] > _NOTE_AUDIT_WEIGHT[m[t]]):
+                m[t] = r["class"]
+    return disputes
+
+
+def _note_audit_dispute_for(disputes, name, row):
+    """一列判定被申訴換成什麼(沒被申訴回 None):整行的申訴(不帶 tail)換掉同編號的每一種範圍;只判句尾的申訴只換同一個
+    tail 的列——不然只判句尾的申訴會把同編號的整行 CODE 蓋成 CONTEXT(代碼審 r2 正確性席、資安席);r1 原本整個分範圍,
+    整行申訴又對不上只判句尾的判定(r1 資安席)。兩種都有就取最重。"""
+    m = disputes.get((name, row["id"])) or {}
+    got = [m[k] for k in {None, row.get("tail")} if k in m]
+    return max(got, key=lambda c: _NOTE_AUDIT_WEIGHT[c]) if got else None
+
+def _note_audit_fold_scoped(docs):
+    """判定怎麼算(計劃〈做法〉第 2 節)照(內容編號, tail 或 None)分開:①一般判定逐筆,被申訴過就換成所有指名它的申訴裡
+    最重的結果;②同一個鍵取最重(CODE > MIXED > CONTEXT)。→ ({(id, tail): 類}, {有略過的 id})。跟讀檔順序無關。
+    tail 是只判句尾的範圍(Projects/舊行尾追加不算新寫_計劃〈做法〉4),沒有就是判整行。"""
+    disputes = _note_audit_dispute_map(docs)
     best, skipped = {}, set()
     for name, d in docs.items():
         if d["kind"] == "略過":
@@ -29586,14 +30068,46 @@ def _note_audit_fold(docs):
             c = r["class"]
             if c not in _NOTE_AUDIT_WEIGHT:
                 continue
-            c = disputes.get((name, r["id"]), c)
-            if r["id"] not in best or _NOTE_AUDIT_WEIGHT[c] > _NOTE_AUDIT_WEIGHT[best[r["id"]]]:
-                best[r["id"]] = c
-    out = dict(best)
+            k = (r["id"], r.get("tail"))
+            c = _note_audit_dispute_for(disputes, name, r) or c
+            if k not in best or _NOTE_AUDIT_WEIGHT[c] > _NOTE_AUDIT_WEIGHT[best[k]]:
+                best[k] = c
+    return best, skipped
+
+
+def _note_audit_fold(docs):
+    """每個內容編號一個判定:同編號下所有範圍(整行與各個只判句尾的)取最重;沒有任何判定時,有略過就算略過。
+    → {id: 'CODE'|'MIXED'|'CONTEXT'|'SKIP'}。給不比範圍的地方用:doctor 事後掃描、skip 的「判過了、不能略過」檢查
+    (Projects/舊行尾追加不算新寫_計劃〈做法〉4);要比範圍的地方用 _note_audit_class_for。"""
+    best, skipped = _note_audit_fold_scoped(docs)
+    out = {}
+    for (i, _t), c in best.items():
+        if i not in out or _NOTE_AUDIT_WEIGHT[c] > _NOTE_AUDIT_WEIGHT[out[i]]:
+            out[i] = c
     for i in skipped:
         out.setdefault(i, "SKIP")
     return out
 
+
+def _note_audit_show_class(scoped, it):
+    """印給人看的那一格:算得到就印判定;同編號只有別的範圍(只判句尾的)判定時印「只判過句尾」,不印成「沒判過」。"""
+    c = _note_audit_class_for(scoped, it)
+    if c:
+        return c
+    if not any(i == it["id"] for i, _t in scoped[0]):
+        return "沒判過"
+    return "判過的是別的句尾" if it.get("tail") else "只判過句尾,這次整行送審"
+
+
+def _note_audit_class_for(scoped, it):
+    """一個送審項目現在算哪個判定(prepare、record、check 共用):帶 tail 的項目在「整行判定」與「同一個 tail 的判定」裡取最重,
+    沒帶的只看整行判定——只判句尾的判定不涵蓋整行送審的項目;略過只在這些都沒有時才算。scoped=_note_audit_fold_scoped 的結果。"""
+    best, skipped = scoped
+    keys = [(it["id"], None)] + ([(it["id"], it["tail"])] if it.get("tail") else [])
+    got = [best[k] for k in keys if k in best]
+    if got:
+        return max(got, key=lambda c: _NOTE_AUDIT_WEIGHT[c])
+    return "SKIP" if it["id"] in skipped else None
 
 def _note_audit_covered(cls):
     return cls in ("CONTEXT", "SKIP")
@@ -29769,16 +30283,21 @@ def _note_audit_head_split(rows, cur, it):
 
 
 def _note_audit_render_list(orchestrator, tip, batch, prompt):
-    """清單檔 → (內容, 清單指紋)。本文=頂端提交+逐行;指紋=本文的雜湊(開頭不算,所以開頭能寫出指紋給判定者照抄)。"""
+    """清單檔 → (內容, 清單指紋)。本文=頂端提交+逐行;指紋=本文的雜湊(開頭不算,所以開頭能寫出指紋給判定者照抄)。
+    舊行尾補括號的項目標頭多「| 尾 <舊句雜湊>」,`>>>` 那行之後多印「舊句…」「只判這次補在句尾的…」兩行,都照原樣印
+    (CRLF 不換掉 CR;Projects/舊行尾追加不算新寫_計劃〈做法〉4)。"""
     import hashlib
     body = [f"頂端提交: {tip}", ""]
     for it in batch:
         body.append(f"## {it['id']} | {it['region']} | {it['heading'] or '-'} | {it['path']}:{it['line']}"
-                    + (" | 完成審" if it["done"] else ""))
+                    + (" | 完成審" if it["done"] else "") + (f" | 尾 {it['tail']}" if it.get("tail") else ""))
         body.append(f"上下文指紋: {it['ctx_fp']}")
         body.append("~~~~text")
         body.extend(f"    {x}" for x in it["context"][0])
         body.append(f">>> {it['text']}")
+        if it.get("tail"):          # 舊行尾補括號:只判句尾那段(Projects/舊行尾追加不算新寫_計劃〈做法〉4)
+            body.append(f"舊句(起點版本已有,不在這次判的範圍): {it['old']}")
+            body.append(f"只判這次補在句尾的: {it['appended']}")
         body.extend(f"    {x}" for x in it["context"][1])
         body.append("~~~~")
         body.append("")
@@ -29791,22 +30310,33 @@ def _note_audit_render_list(orchestrator, tip, batch, prompt):
 
 
 def _note_audit_parse_list(text):
-    """清單檔 → {orchestrator, model, version, fp, fp_ok, tip, rows:{id: [每一處的上下文指紋,排序過]}} 或 None。"""
+    """清單檔 → {orchestrator, model, version, fp, fp_ok, tip, rows:{id: [每一處的上下文指紋,排序過]}, tails:{id: 只判句尾的範圍}}
+    或 None。"""
     import hashlib
     if "\n---本文---\n" not in text:
         return None
     head, body = text.split("\n---本文---\n", 1)
     meta = dict(re.findall(r"^(編排者|判定者模型|派工詞版本|清單指紋): (.+)$", head, re.M))
     m = re.search(r"^頂端提交: ([0-9a-f]{40})$", body, re.M)
-    rows = {}
-    for rid, fp in re.findall(r"^## ([0-9a-f]{16}) \|.*\n上下文指紋: ([0-9a-f]{16})$", body, re.M):
+    rows, tails = {}, {}
+    for rid, tail, fp in re.findall(r"^## ([0-9a-f]{16}) \|.*?(?: \| 尾 ([0-9a-f]{16}))?\n上下文指紋: ([0-9a-f]{16})$", body, re.M):
         rows.setdefault(rid, []).append(fp)
+        if tail:
+            tails[rid] = tail
     rows = {k: sorted(v) for k, v in rows.items()}
     if not meta.get("清單指紋") or not m:
         return None
     return {"orchestrator": meta.get("編排者"), "model": meta.get("判定者模型"), "version": meta.get("派工詞版本"),
             "fp": meta["清單指紋"], "fp_ok": hashlib.sha256(body.encode("utf-8")).hexdigest()[:16] == meta["清單指紋"],
-            "tip": m.group(1), "rows": rows}
+            "tip": m.group(1), "rows": rows, "tails": tails}
+
+
+def _note_audit_scoped_row(lst, row):
+    """清單上這行只給判定者看句尾那段(標頭帶尾)時,判定列多帶 tail:判定只對這個範圍有效(舊行尾追加不算新寫〈做法〉4)。"""
+    tail = lst.get("tails", {}).get(row["id"])
+    if tail:
+        row["tail"] = tail
+    return row
 
 
 def _note_audit_parse_report(text):
@@ -29956,10 +30486,10 @@ def cmd_note_audit_prepare(repo=None, diff_range=None, orchestrator=None, only=N
     docs, bad = _note_audit_load_verdicts(root, None)
     for n in bad:
         print(f"提醒:判定檔 {n} 壞掉了(讀不成 JSON 或缺欄位),當作不存在", file=sys.stderr)
-    fold = _note_audit_fold(docs)
+    fold = _note_audit_fold_scoped(docs)
     # 同一個內容編號的每一處都列(同一小標題下一字不差的兩行,上下文可能一處是脈絡、一處是現況;代碼審 r1 兩席)
     want = set(only) if only else None
-    pending = [it for it in items if (it["id"] in want if want is not None else not _note_audit_covered(fold.get(it["id"])))]
+    pending = [it for it in items if (it["id"] in want if want is not None else not _note_audit_covered(_note_audit_class_for(fold, it)))]
     if not pending:
         print("沒有待審的筆記行")
         return 0
@@ -29995,7 +30525,9 @@ def cmd_note_audit_prepare(repo=None, diff_range=None, orchestrator=None, only=N
 
 def cmd_note_audit_record(repo=None, diff_range=None, prepared=None, reports=None, dispute=False, disputes=None):
     """lumos note-audit record --diff A..B --prepared <清單> --report <報告>…[--dispute --disputes <判定檔>]
-    (計劃〈做法〉第 3 節第 5 點)。照信任方向逐行收:重的(CODE/MIXED)照收,輕的(CONTEXT)要來源對、上下文沒變才收。"""
+    (計劃〈做法〉第 3 節第 5 點)。照信任方向逐行收:重的(CODE/MIXED)照收,輕的(CONTEXT)要來源對、上下文沒變才收。
+    清單上標頭帶尾的那行,判定列多寫 tail(_note_audit_scoped_row);結尾的「還沒涵蓋」跟 check 同一個算法
+    (_note_audit_class_for;Projects/舊行尾追加不算新寫_計劃〈做法〉4)。"""
     root = _note_audit_root(repo)
     if root is None:
         return 2
@@ -30067,8 +30599,8 @@ def cmd_note_audit_record(repo=None, diff_range=None, prepared=None, reports=Non
             if not heavy and cur_ctx.get(rid) != lst["rows"][rid]:      # 每一處的上下文都要跟清單上的一樣
                 dropped.append((rid, "上下文變了或那行不在了,輕的判定不收"))
                 continue
-            keep.append({"id": rid, "class": cls, "evidence": ev, "reason": why,
-                         "evidence_ok": _note_audit_check_evidence(root, lst["tip"], ev) if heavy else None})
+            keep.append(_note_audit_scoped_row(lst, {"id": rid, "class": cls, "evidence": ev, "reason": why,
+                                                     "evidence_ok": _note_audit_check_evidence(root, lst["tip"], ev) if heavy else None}))
         if not keep:
             print(f"{rp}:沒有能收的行", file=sys.stderr)
             for rid, why in dropped[:10]:
@@ -30089,13 +30621,13 @@ def cmd_note_audit_record(repo=None, diff_range=None, prepared=None, reports=Non
         for rid, why in dropped[:10]:
             print(f"  沒收 {rid}:{why}", file=sys.stderr)
     docs, _bad = _note_audit_load_verdicts(root, None)
-    fold = _note_audit_fold(docs)
-    left = [it for it in items if not _note_audit_covered(fold.get(it["id"]))]
+    fold = _note_audit_fold_scoped(docs)
+    left = [it for it in items if not _note_audit_covered(_note_audit_class_for(fold, it))]
     print(f"寫了 {len(written)} 個判定檔:" + ", ".join(written))
     if left:
         print(f"還沒被涵蓋的行 {len(left)} 行(判了推得出/一半一半但還在的要刪或改,沒人判的要再 prepare):")
         for it in left[:20]:
-            print(f"  {it['path']}:{it['line']}  [{fold.get(it['id'], '沒判過')}]  {it['text'].strip()[:60]}")
+            print(f"  {it['path']}:{it['line']}  [{_note_audit_show_class(fold, it)}]  {it['text'].strip()[:60]}")
     if written:
         print("判定檔要提交才算數:\n    git add " + _NOTE_AUDIT_VERDICT_DIR + " && git commit")
     return 0
@@ -30129,19 +30661,19 @@ def cmd_note_audit_check(repo=None, diff_range=None):
     docs, bad = _note_audit_load_verdicts(root, tip)
     for n in bad:
         print(f"提醒:判定檔 {n} 壞掉了,當作不存在", file=sys.stderr)
-    fold = _note_audit_fold(docs)
-    left = [it for it in items if not _note_audit_covered(fold.get(it["id"]))]
+    fold = _note_audit_fold_scoped(docs)
+    left = [it for it in items if not _note_audit_covered(_note_audit_class_for(fold, it))]
     if not left and not errs:
         return 0
     wdocs, _wb = _note_audit_load_verdicts(root, None)
-    wfold = _note_audit_fold(wdocs)
-    uncommitted = [it for it in left if _note_audit_covered(wfold.get(it["id"]))]
+    wfold = _note_audit_fold_scoped(wdocs)
+    uncommitted = [it for it in left if _note_audit_covered(_note_audit_class_for(wfold, it))]
     head = "擋下" if mode == "block" else "提醒(note_audit.gate=warn,不擋)"
     print(f"{head}:這次推送有 {len(left)} 行新寫的筆記還沒被判定涵蓋(筆記內容審)——", file=sys.stderr)
     for e in errs:
         print(f"  {e}", file=sys.stderr)
     for it in left[:20]:
-        print(f"  {it['path']}:{it['line']}  [{fold.get(it['id'], '沒判過')}]  {it['text'].strip()[:60]}", file=sys.stderr)
+        print(f"  {it['path']}:{it['line']}  [{_note_audit_show_class(fold, it)}]  {it['text'].strip()[:60]}", file=sys.stderr)
     if len(left) > 20:
         print(f"  …還有 {len(left) - 20} 行", file=sys.stderr)
     print(f"派判定者審:\n    lumos note-audit prepare --diff {diff_range} --orchestrator <claude|codex>", file=sys.stderr)
@@ -30157,7 +30689,9 @@ def cmd_note_audit_check(repo=None, diff_range=None):
 
 
 def cmd_note_audit_skip(repo=None, diff_range=None, note=None):
-    """lumos note-audit skip --diff A..B --note "理由"(計劃〈做法〉第 3 節第 7 點):只略過從來沒被判過的行。"""
+    """lumos note-audit skip --diff A..B --note "理由"(計劃〈做法〉第 3 節第 7 點):只略過從來沒被判過的行。
+    「沒被判過」跟 check 同一個算法(_note_audit_class_for:只判句尾的判定不算整行送審項目的判定);同編號下任何範圍
+    判了推得出或一半一半就不能略過(_note_audit_fold 不比範圍;Projects/舊行尾追加不算新寫_計劃〈做法〉4)。"""
     root = _note_audit_root(repo)
     if root is None:
         return 2
@@ -30172,10 +30706,10 @@ def cmd_note_audit_skip(repo=None, diff_range=None, note=None):
         return 2
     items, _errs = got
     docs, _bad = _note_audit_load_verdicts(root, None)
-    fold = _note_audit_fold(docs)
-    judged = set(fold)
-    todo = sorted({it["id"] for it in items if it["id"] not in judged})
+    fold = _note_audit_fold(docs)               # 不比範圍:同編號下任何一份判了推得出,就不能略過
     heavy = sorted({it["id"] for it in items if fold.get(it["id"]) in ("CODE", "MIXED")})
+    scoped = _note_audit_fold_scoped(docs)      # 可以略過的=check 也判沒涵蓋的(跟 check 同一個算法,代碼審 r1 邊界席)
+    todo = sorted({it["id"] for it in items if _note_audit_class_for(scoped, it) is None} - set(heavy))
     if heavy:
         print(f"注意:{len(heavy)} 行已經判了推得出或一半一半,不能略過——要刪、改,或申訴", file=sys.stderr)
     if not todo:
@@ -31249,10 +31783,16 @@ def _drift_check_core(root, base, tip, vault_rel, override=None, deadline=None, 
 #   REVISIT:[when-file:src/x/runner.py][by:2026-12-31] 補啟動環境不含金鑰的測試
 # 條件成立或到期,任一先到就該處理;推送讓條件從不成立變成立時擋。
 _REVISIT_MARK_RE = re.compile(r"^(?:[-*+][ \t]+|\d+[.)][ \t]+|>[ \t]*)")
-_PROBE_TOKEN_RE = re.compile(r"[ \t]*\[(when-[A-Za-z0-9_-]*|by):([^\]\n]*)\]")
+_PROBE_TOKEN_RE = re.compile(r"[ \t]*\[(when-[A-Za-z0-9_-]*|by|closed):([^\]\n]*)\]")
 _PROBE_ANY_RE = re.compile(r"\[when-[A-Za-z0-9_-]*:[^\]\n]*\]")
 _PROBE_KEYS = ("file", "symbol", "test", "status")
-_PROBE_LEAD_RE = re.compile(r"^(?:[ \t]*\[(?:when-[A-Za-z0-9_-]*|by):[^\]\n]*\])+")
+_PROBE_LEAD_RE = re.compile(r"^(?:[ \t]*\[(?:when-[A-Za-z0-9_-]*|by|closed):[^\]\n]*\])+")
+_REVISIT_CLOSED_RE = re.compile(r"\[closed:([^\]\n]*)\]")
+_REVISIT_ANY_RE = re.compile(r"REVISIT:[ \t]*(?:\d{4}-\d{2}-\d{2}|\[when-)")
+_REVISIT_QUOTES = {"「": "」", "『": "』", "“": "”"}
+_REVISIT_MISPLACED_FIX = ("回頭條件要獨立一行、行首寫 REVISIT:,冒號後直接接日期或條件標記;前面最多一層列表或引用記號(- 1. >),"
+                          "核取方塊、粗體、星號、刪除線都不行;一行只寫一條。要結案就在那一行加 [closed:日期 理由]。"
+                          "只是在提這個寫法就用行內程式碼或全形引號「」包起來")
 
 
 def _revisit_split(line):
@@ -31276,15 +31816,97 @@ def _revisit_split(line):
         return "bad", rest
 
 
+def _revisit_closed(probe):
+    """一行 REVISIT 的結案標記 → {"closed": 合格的那一段原文或 None, "errs": [原因]}(Projects/回頭條件寫法補齊_計劃〈做法〉2.2)。
+    掃整行可見文字裡全部 [closed:…](值切到第一個 ]):YYYY-MM-DD(形狀加 fromisoformat,緊湊寫法不收)、空白、理由至少 4 個實字;
+    一行兩個以上算錯。不比結案日期跟今天(本機與 CI 時區不同會誤擋,設計審 r1)。呼叫端負責「這行是 REVISIT 行」。"""
+    import datetime
+    ms = list(_REVISIT_CLOSED_RE.finditer(probe))
+    if not ms:
+        return {"closed": None, "errs": []}
+    if len(ms) > 1:
+        return {"closed": None, "errs": [f"一行只能有一個結案標記(這行有 {len(ms)} 個)"]}
+    val = ms[0].group(1).strip()
+    date, _sp, reason = val.partition(" ")
+    errs = []
+    try:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            raise ValueError
+        datetime.date.fromisoformat(date)
+    except ValueError:
+        errs.append(f"結案日期 {date or '(空)'} 不是 YYYY-MM-DD")
+    if _real_chars(reason) < 4:
+        errs.append("結案理由至少 4 個字(字母、數字或漢字;行內程式碼不算)")
+    return {"closed": None if errs else ms[0].group(0), "errs": errs}
+
+
+def _revisit_misplaced(probe):
+    """一行可見文字(已剝行內程式碼)裡寫錯位置的回頭條件 → [位置…](空=沒有)。
+    每一處「REVISIT: 後面接 YYYY-MM-DD 或 [when-」都看:這行是 REVISIT 行時行首那一處是正牌的,不算;在一對引號裡面的
+    (全形「」『』“”,前面有開引號、到它之前還沒收、後面真的有收;半形 " 不認)是範例,不算(Projects/回頭條件寫法補齊_計劃〈做法〉1.1)。"""
+    hits = [m.start() for m in _REVISIT_ANY_RE.finditer(probe)]
+    if not hits:
+        return []
+    head = None
+    if _revisit_split(probe)[0] is not None:
+        s = probe.lstrip()
+        head = len(probe) - len(_REVISIT_MARK_RE.sub("", s, count=1))
+    inq = _revisit_quote_states(probe, hits)
+    return [i for i, q in zip(hits, inq) if i != head and not q]
+
+
+def _revisit_quote_states(probe, hits):
+    """每個位置(由小到大)在不在一對引號裡面 → [bool]:「」『』“” 看前面最後出現的是開還是收,而且後面要真的有對應的收引號
+    (沒收的落單引號不算)。半形 " 不認:它分不出開與收,落單的 5" 後面另有一對 "…" 時會把句中的回頭條件藏起來(代碼審 r1、r2
+    兩輪各補一種組合都還有洞,整類拿掉);英文引號的範例句用行內程式碼包起來。整行只掃一遍(一行四萬處原本要 40 秒)。"""
+    closer = {c: o for o, c in _REVISIT_QUOTES.items()}
+    last = {c: probe.rfind(c) for c in _REVISIT_QUOTES.values()}
+    open_, out, pos = dict.fromkeys(_REVISIT_QUOTES, False), [], 0
+    for i in hits:
+        for ch in probe[pos:i]:
+            if ch in open_:
+                open_[ch] = True
+            elif ch in closer:
+                open_[closer[ch]] = False
+        pos = i
+        out.append(any(v and last[_REVISIT_QUOTES[o]] > i for o, v in open_.items()))
+    return out
+
+
+def _revisit_dead_place(probe, reg):
+    """條件標記寫在不評估的地方:表格行或開頭欄位 summary 以外的欄,而且有條件標記。_probe_lines、第一層、Z 段的句中清單共用
+    (代碼審 r1 架構對齊席:原本三處各寫一份條件式)。"""
+    return (probe.lstrip().startswith("|") or reg not in ("body", "summary")) and bool(_PROBE_ANY_RE.search(probe))
+
+
+def _revisit_misplaced_lines(text):
+    """一篇筆記裡寫錯位置的回頭條件 → [(行號, 原文)];可見行(圍欄外、剝行內程式碼)逐行看,開頭欄位也算。只給 doctor Z 段用——
+    不併進 _probe_lines 的「寫在不評估的地方」(那份還有 Z 段既有那行與 drift scan 兩個讀者,設計審 r2)。"""
+    lines = text.split("\n")
+    regs = _notelines_regions(text)
+    out = []
+    for no, ln in _visible_lines(lines):
+        probe = _strip_inline_markup(ln)[0]
+        if _revisit_dead_place(probe, regs[no - 1]):
+            continue        # 已經算進 _probe_lines 的「寫在不評估的地方」,不重算(同第一層 _ns_revisit_violations 的不重報)
+        if _revisit_misplaced(probe):
+            out.append((no, ln.strip()))
+    return out
+
+
 def _revisit_lines(text):
     """一篇筆記的每一條回頭條件 → [(行號, 種類, 日期或 None, 摘要, 原文)];種類 date/cond/bad(同 _revisit_split)。
     剝程式碼區(_search_visible_lines)、餵剝過行內程式碼的那一版給 _revisit_split。doctor E5 與 set 把 Issue 結案時的列出
-    共用這一支(存量漂移改法 第 6 節);乙的 _probe_lines、第一層、第二層各自的逐行迴圈不在這裡。"""
+    共用這一支(存量漂移改法 第 6 節);乙的 _probe_lines、第一層、第二層各自的逐行迴圈不在這裡。
+    已寫合格結案標記的行不回(兩個呼叫端都要排除,不另加參數)。"""
     out = []
     for no, raw, _pr in _search_visible_lines(text.split("\n"), False):
-        kind, rest = _revisit_split(_strip_inline_markup(raw)[0])
+        probe = _strip_inline_markup(raw)[0]
+        kind, rest = _revisit_split(probe)
         if kind is None:
             continue
+        if kind != "bad" and _revisit_closed(probe)["closed"]:
+            continue        # 合格結案的不回(E5 不唸、Issue 結案不列;回頭條件寫法補齊〈做法〉2.4)
         date, summ = None, ""
         if kind == "cond":
             date, summ = _probe_parse(rest)["by"], _PROBE_LEAD_RE.sub("", rest)
@@ -31307,7 +31929,7 @@ def _issue_close_revisits(env, rel, new_status):
     rows = _revisit_lines(text)
     if not rows:
         return
-    print(f"這篇 Issue 結案了,還留著 {len(rows)} 行回頭條件——要改成結案說明或刪掉(只列出、不擋):")
+    print(f"這篇 Issue 結案了,還留著 {len(rows)} 行回頭條件——要改成結案說明、刪掉,或在那一行加 [closed:日期 理由](只列出、不擋):")
     for no, _k, _d, _s, raw in rows:
         print(f"  · {_esc_clean(rel, 200)}:{no}  {_esc_clean(raw.strip(), 100)}")
 
@@ -31370,6 +31992,8 @@ def _probe_parse(rest):
             break
         pos = m.end()
         key, val = m.group(1), m.group(2).strip()
+        if key == "closed":
+            continue        # 結案標記只在這裡跳過(讓後面的 [by:] 照讀得到);驗與判在 _revisit_closed 一處
         if key == "by":
             if by is not None:
                 errs.append("期限寫了兩個")
@@ -31413,10 +32037,10 @@ def _probe_lines(text):
         table = probe.lstrip().startswith("|")
         if regs[i - 1] in ("body", "summary") and not table:
             kind, rest = _revisit_split(probe)
-            if kind == "cond":
-                out.append((i, ln.strip(), _probe_parse(rest)))
+            if kind == "cond" and not _revisit_closed(probe)["closed"]:
+                out.append((i, ln.strip(), _probe_parse(rest)))     # 合格結案的不抽(照 _retire_lines 跳過 superseded)
             continue
-        if _PROBE_ANY_RE.search(probe):
+        if _revisit_dead_place(probe, regs[i - 1]):
             dead.append((i, ln.strip(), "寫在表格行裡,不評估" if table else "寫在開頭欄位裡 summary 以外的欄,不評估"))
     return out, dead
 
@@ -32270,6 +32894,22 @@ def _drift_ack_text(text, lines, line, kind):
     return lines[line - 1].strip()
 
 
+def _drift_ack_line_err(rel, text, lines, line, kind):
+    """表態指到的那一行能不能表態 → 擋下的原因或 None。"""
+    if not (1 <= line <= len(lines)) or not lines[line - 1].strip():
+        return f"{rel} 沒有第 {line} 行,或那一行是空的"
+    if kind == "retire" and line not in _ns_summary_logical(text or ""):
+        # 判定給的原文是摘要條目接回續行的整條、行號是條目第一行;給續行或摘要區外的行號,記下的表態永遠對不上
+        # (撤除條件末輪遺留四項第 1 項:原本照記、回成功,下次推送照擋)
+        return (f"{rel} 第 {line} 行不是摘要裡一條的第一行——--kind retire 要給擋下訊息列的那個行號"
+                "(RULE 那一條的第一行,欄位寫在續行也一樣)")
+    probe = _strip_inline_markup(lines[line - 1])[0]
+    if kind == "probe" and _revisit_split(probe)[0] == "cond" and _revisit_closed(probe)["closed"]:
+        # 已結案的行不會被列成發現,這只擋手打錯行號;兩處各自靜音同一條會讓人搞不清是誰關的(回頭條件寫法補齊〈做法〉2.6)
+        return f"{rel} 第 {line} 行已經寫了結案標記,不用表態(要留著提醒就拿掉 [closed:…])"
+    return None
+
+
 def cmd_drift_ack(env, node, line, kind, reason, dry_run=False, names=None):
     """lumos drift ack <節點> <行號> --kind … --reason "…":表態「這行照留」。
     c2、c3 先確認那一行當下真的是這一種發現,記下當時連著的已收尾計劃(related);每筆都記遞增序號 seq(存量漂移改法 [S8])。
@@ -32284,14 +32924,9 @@ def cmd_drift_ack(env, node, line, kind, reason, dry_run=False, names=None):
         return _node_not_found(env, node, write_side=True)
     text = env_text(env, rel)
     lines = (text or "").split("\n")
-    if not (1 <= line <= len(lines)) or not lines[line - 1].strip():
-        print(f"擋下:{rel} 沒有第 {line} 行,或那一行是空的", file=sys.stderr)
-        return 2
-    if kind == "retire" and line not in _ns_summary_logical(text or ""):
-        # 判定給的原文是摘要條目接回續行的整條、行號是條目第一行;給續行或摘要區外的行號,記下的表態永遠對不上
-        # (撤除條件末輪遺留四項第 1 項:原本照記、回成功,下次推送照擋)
-        print(f"擋下:{rel} 第 {line} 行不是摘要裡一條的第一行——--kind retire 要給擋下訊息列的那個行號"
-              "(RULE 那一條的第一行,欄位寫在續行也一樣)", file=sys.stderr)
+    err = _drift_ack_line_err(rel, text, lines, line, kind)
+    if err:
+        print(f"擋下:{err}", file=sys.stderr)
         return 2
     root, vault_rel = _drift_vault_of(env)
     head = _drift_ack_heading(lines, line)
@@ -34165,20 +34800,9 @@ def _drift_m1_rows(rows, n):
 
 def _drift_m1_fit(root, kind, note, hard, tip, nodes, extra):
     """整行(照 _ledger_append 的量法,量 _gate_event_build 組出的完整事件)超過 4096 位元組:先從只列出、再從要處理尾端丟 rows;
-    丟光還超過 → nodes 截到 20;再超過照寫。有截就記 rows_truncated。"""
-    import json as _j
-
-    def size():
-        ev = _gate_event_build(root, "drift-check", kind, note, hard=hard, head_sha=tip, nodes=nodes, extra=extra)
-        return len((_j.dumps(ev, ensure_ascii=False) + "\n").encode("utf-8"))
-    rows = extra.get("rows")
-    while rows and size() > 4096:
-        rows.pop()           # rows 是要處理在前、只列出在後,從尾端丟就是先丟只列出
-        extra["rows_truncated"] = True
-    if len(nodes) > 20 and size() > 4096:
-        nodes = nodes[:20]
-        extra["rows_truncated"] = True
-    return nodes
+    丟光還超過 → nodes 截到 20;再超過照寫。有截就記 rows_truncated。裁法走共用的 _gate_event_fit(行為不變)。"""
+    return _gate_event_fit(root, "drift-check", kind, note, extra, "rows", hard=hard, head_sha=tip, nodes=nodes,
+                           nodes_cap=20)
 
 
 def _drift_m1_ledger_miss(root, tip, state):
@@ -34371,16 +34995,26 @@ def _drift_doctor_lines(env):
     out = []
     # 乙:只讀筆記、不評估條件(要看哪些成立跑 drift scan)
     n_rows = n_noby = n_bad = n_dead = 0
+    mis = []
     for p in env.notes:
-        rows, dead = _probe_lines(env_text(env, p) or "")
+        txt = env_text(env, p) or ""
+        rows, dead = _probe_lines(txt)
         n_rows += len(rows)
         n_dead += len(dead)
         n_noby += sum(1 for _n, _t, pr in rows if pr["by"] is None)
         n_bad += sum(1 for _n, _t, pr in rows if pr["errs"])
+        mis += [(p, no) for no, _t in _revisit_misplaced_lines(txt)]
+    parts = []
     if n_rows or n_dead:
-        out.append(f"條件式回頭條件 {n_rows} 條(由 lumos drift scan 評估)"
-                   + (f";沒帶期限 {n_noby} 條" if n_noby else "") + (f";寫錯的 {n_bad} 條" if n_bad else "")
-                   + (f";寫在不評估的地方 {n_dead} 處" if n_dead else ""))
+        parts.append(f"條件式回頭條件 {n_rows} 條(由 lumos drift scan 評估)"
+                     + (f";沒帶期限 {n_noby} 條" if n_noby else "") + (f";寫錯的 {n_bad} 條" if n_bad else "")
+                     + (f";寫在不評估的地方 {n_dead} 處" if n_dead else ""))
+    if mis:
+        # 接在第一行、不另起一行:Z 段也受軟段 3 條上限,另起一行在 c1 到 c5 多時會被收掉(回頭條件寫法補齊〈做法〉1.3)
+        ex = ";".join(f"{_esc_clean(p[:-3], 80)}:{no}" for p, no in sorted(mis)[:3])
+        parts.append(f"寫在句中的 REVISIT {len(mis)} 行(例:{ex})——搬成獨立一行,要結案就在那一行加 [closed:日期 理由]")
+    if parts:
+        out.append(";".join(parts))
     for k in ("c1", "c2", "c3", "c4", "c5"):
         rows = [f for f in left if f["kind"] == k]
         nd = sum(1 for f in done if f["kind"] == k)
@@ -34925,7 +35559,8 @@ def _ci_jobs_list(pairs, limit=5):
 
 def _note_audit_doctor_lines(repo_root, vault, ci=False):
     """doctor 的筆記內容審提醒(計劃 S16):開關不是 block、專案 CI 沒呼叫 note-audit check(跳過註解行)、
-    事後掃描遠端頂端沒被涵蓋的新增筆記行、主線歷史裡判定檔被刪過幾次。"""
+    事後掃描遠端頂端沒被涵蓋的新增筆記行、主線歷史裡判定檔被刪過幾次。事後掃描★不比範圍★:同編號下所有判定(整行與只判句尾的)
+    取最重再判,起點跟推送時不同、比範圍只會誤報(Projects/舊行尾追加不算新寫_計劃〈做法〉4)。"""
     out = []
     root = Path(repo_root)
     txt = _doctor_cfg_bytes(root)
@@ -39027,6 +39662,8 @@ def _codeloop_git_branch(repo_root):
 # 沿用既有 helper(_git_commit_exists / INVARIANT_RE 家族 / _vault_in 的排序規則)。
 # 消毒原則(r2/r3 載荷席):來自圖譜或 diff 的自由文字零輸出——只印固定字彙、base 已追蹤路徑、
 # base 版合約行(KEY: 行)。清單本身仍用工作樹圖譜算(d3:能藏不能說)。
+# 例外(2026-10-03 Projects/外部回應碼語意要有出處_計劃):diff 模式另印帶 [來源:外部] 的事實行——只從 base 版讀、
+# 在注入框內;設計審模式(從分支工作樹讀)不印,維持上面的原則。
 # rc:0=成功(含 0 篇,text 空)/2=輸入或 git 壞/3=vault 缺/4=base 不在主線
 # ---------------------------------------------------------------------------
 _LENS_HEADER = "lumos 自動附加:本次改動的固定席節點(來源 impact --diff,只供參考)"
@@ -39380,6 +40017,152 @@ def _contract_key_matches(text, with_kind=False):
     return out
 
 
+# ── 外部回應碼(Projects/外部回應碼語意要有出處_計劃):外部事實行掃描、形狀判斷、改到的碼 ──
+_LENS_EXT_HEADER = "外部事實(筆記抄錄的官方或第三方來源,可能過期;有疑問查 [查:] 欄的原文)"
+_LENS_EXTPICK_HEADER = "外部碼表(改動碰到外部回應碼比對而補選)"
+_LENS_EXT_MAX_ROWS = 10
+_LENS_EXT_MAX_CHARS = 300
+_LENS_EXTPICK_MAX = 3
+_EXT_FACT_PREFIX_RE = re.compile(r"^\s*(?:[-*>]\s+)?(?:" + "|".join(_NOTE_SHAPE_PREFIX_RULES) + r"):")
+_EXTCODE_QNUM_RE = re.compile(r"[\"'](\d{3,6})[\"']")
+_EXTCODE_INT_RE = re.compile(r"(?:===?|!==?)\s*(\d{3,6})(?![\d.])")
+
+
+def _external_fact_lines(text):
+    """★全檔唯一的「外部事實行」掃描★(與 _contract_key_matches 對稱):逐行認 FACT/FLOW/DEP 開頭(允許前置空白與 - * > 列表符號)、
+    _CTX_SOURCE_RE 比到「外部」的行;``` 或 ~~~ 圍起來的區塊內不算;帶 [status:superseded] 的不收。回 [整行(去頭尾空白)]。"""
+    out, fence = [], None
+    for line in str(text).split("\n"):
+        st = line.strip()
+        if st.startswith(("```", "~~~")):
+            mk = st[:3]
+            fence = mk if fence is None else (None if fence == mk else fence)
+            continue
+        if fence is not None or not _EXT_FACT_PREFIX_RE.match(line):
+            continue
+        if not any(x.group(1) == "外部" for x in _CTX_SOURCE_RE.finditer(line)) or "[status:superseded]" in line:
+            continue
+        out.append(st)
+    return out
+
+
+def _lens_ext_fact_rows(body, codes):
+    """一篇筆記要印的外部事實段(縮排行清單;沒有外部事實行回 [])。含改到的碼(整段數字比對)的行排前面,
+    最多 _LENS_EXT_MAX_ROWS 行、每行最多 _LENS_EXT_MAX_CHARS 字。"""
+    rows = _external_fact_lines(body)
+    if not rows:
+        return []
+    if codes:
+        pats = [re.compile(r"(?<!\d)" + re.escape(c) + r"(?!\d)") for c in sorted(codes)]
+        has = [any(p.search(r) for p in pats) for r in rows]
+        rows = [r for r, h in zip(rows, has) if h] + [r for r, h in zip(rows, has) if not h]
+    out = ["  " + _LENS_EXT_HEADER]
+    for r in rows[:_LENS_EXT_MAX_ROWS]:
+        out.append("    " + (r[:_LENS_EXT_MAX_CHARS] + "…(截)" if len(r) > _LENS_EXT_MAX_CHARS else r))
+    if len(rows) > _LENS_EXT_MAX_ROWS:
+        out.append(f"    另有 {len(rows) - _LENS_EXT_MAX_ROWS} 行外部事實未顯示")
+    return out
+
+
+def _lens_ext_rows_for(body, ext):
+    """渲染用:只有 diff 模式傳 ext(設計審從工作樹讀,傳 None、不印外部事實行)。"""
+    return [] if ext is None else _lens_ext_fact_rows(body, ext.get("codes") or set())
+
+
+def _extcode_hit(line):
+    """這一行改動有沒有外部碼比對形狀。正規化跟題目表同一支 _stack_norm_line:when 欄比剝字串的行、when_raw 欄比保留字串的行。"""
+    raw = _stack_norm_line(line, keep_strings=True)
+    if raw is None:
+        return False
+    if any(p.search(raw) for p in _EXTCODE_RX_RAW):
+        return True
+    plain = _stack_norm_line(line)
+    return plain is not None and any(p.search(plain) for p in _EXTCODE_RX_PLAIN)
+
+
+def _extcode_codes(added_lines):
+    """改到的碼:只看命中形狀的增行,取引號裡的 3~6 位數字與比較運算後的 3~6 位整數。"""
+    codes = set()
+    for line in added_lines:
+        if not _extcode_hit(line):
+            continue
+        raw = _stack_norm_line(line, keep_strings=True) or ""
+        codes.update(_EXTCODE_QNUM_RE.findall(raw))
+        codes.update(_EXTCODE_INT_RE.findall(_stack_norm_line(line) or ""))
+    return codes
+
+
+def _lens_changed_lines(repo_root, base_sha, head_sha, timeout):
+    """鏡頭用的改動行(增行, 增刪行):對已驗過的完整 sha 範圍跑 git diff -U0,過濾跟 pitfalls --diff 同一支 _stack_changed_ok
+    (帶 _vendored_skip 算的自裝檔豁免)與測試檔判斷。取不到回 None。
+    ★已知重複★:pitfalls --diff 的改動行收集內聯在大迴圈裡、跟行號與其他掃描交錯,這次沒抽(計劃 REVISIT 2026-12-03)。"""
+    rng = f"{base_sha}..{head_sha}"
+    r = _lens_git(repo_root, "diff", "--no-ext-diff", "--no-textconv", "-U0", rng, timeout=timeout)
+    if r is None or r.returncode != 0:
+        return None
+    vend = _vendored_skip(repo_root, rng)
+    added, changed, state = [], [], {"cur": "", "old": ""}
+    for line in r.stdout.splitlines():
+        if _lens_diff_header(line, state):
+            continue
+        cur = state["cur"]
+        if not cur or _PITFALL_DIFF_TEST_PAT.search(cur) or not _stack_changed_ok(cur, vend):
+            continue
+        if line.startswith("+"):
+            added.append(line[1:])
+            changed.append(line[1:])
+        elif line.startswith("-"):
+            changed.append(line[1:])
+    return added, changed
+
+
+def _lens_diff_header(line, state):
+    """git diff 的檔頭行:更新 state 裡目前這支檔(cur)與刪除前的檔名(old);是檔頭回 True。整檔刪除(+++ /dev/null)歸到舊名。"""
+    if line.startswith("diff --git "):
+        state["cur"], state["old"] = "", ""
+    elif line.startswith("--- a/"):
+        state["old"] = line[6:]
+    elif line.startswith("+++ /dev/null"):
+        state["cur"] = state["old"]
+    elif line.startswith("+++ b/"):
+        state["cur"] = line[6:]
+    elif not line.startswith(("+++", "---", "@@", "index ")):
+        return False
+    return True
+
+
+def _lens_extcode_section(root, base_sha, head_sha, results, listed, base_tree, vault_rel, deadline):
+    """外部碼表補選:回 (extcode_status, 改到的碼, [(節點路徑, 要印的行)])。
+    時間沿用鏡頭同一個 _t0/_LENS_INNER_BUDGET/_LENS_FALLBACK_RESERVE 算出的 deadline;每次 git 呼叫前算剩餘秒數,
+    不足 1 秒就停(狀態 truncated),逾時夾在剩餘秒數內。"""
+    import time as _time
+
+    def _rem():
+        return deadline - _time.monotonic()
+    if _rem() < 1:
+        return "truncated", set(), []
+    cl = _lens_changed_lines(root, base_sha, head_sha, timeout=min(20.0, _rem()))
+    if cl is None:
+        return ("truncated" if _rem() < 1 else "none"), set(), []
+    if not any(_extcode_hit(ln) for ln in cl[1]):
+        return "none", set(), []
+    codes, picks, listed_nodes = _extcode_codes(cl[0]), [], {it["node"] for it in listed}
+    for v in results:
+        if len(picks) >= _LENS_EXTPICK_MAX:
+            break
+        node = str(v.get("node", ""))
+        rel = vault_rel + node
+        if v.get("pinned") or node in listed_nodes or rel not in base_tree:
+            continue
+        if _rem() < 1:
+            return "truncated", codes, picks
+        sh = _lens_git(root, "show", f"{base_sha}:{rel}", quote=True, timeout=min(20.0, _rem()))
+        rows = _lens_ext_fact_rows(sh.stdout, codes) if (sh is not None and sh.returncode == 0) else []
+        if rows:
+            picks.append((rel, rows))
+    return "picked", codes, picks
+
+
 def _lens_contract_lines(text, cap=40):
     """base 版節點全文裡的合約行(截到 200 字、最多 cap 條,給派工鏡頭印)。"""
     return [s[:200] for s, _m in _contract_key_matches(text)][:cap]
@@ -39397,7 +40180,7 @@ def _lens_contract_rows(text):
 
 
 # v1.2 備援段:所有邏輯只用 base 樹;預算=hook 內層 45 秒總帳扣 impact 已耗
-_LENS_SCHEMA = 2
+_LENS_SCHEMA = 3   # 3:2026-10-03 外部事實行與外部碼表補選(輸出多了段落與 extcode_status)
 _LENS_INNER_BUDGET = 45.0
 _LENS_FALLBACK_RESERVE = 5.0
 _LENS_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,120}$")
@@ -40004,7 +40787,7 @@ def cmd_dispatch_lens_status(repo=None):
     return 0
 
 
-def _lens_render_listed(lines, listed, read_body, cap, max_lines, bidx):
+def _lens_render_listed(lines, listed, read_body, cap, max_lines, bidx, ext=None):
     """兩種鏡頭(diff 模式 / spec 模式)共用的節點渲染(架構 r1 D:原本複製一份、截斷提示已漏一邊):
     每篇印節點路徑+種類+合約類別、牽連檔、合約行(帶綁定測試徽章,超過 40 行截並說明)、INVARIANT 小計;超過 cap 只列名;超過 max_lines 截。
     read_body(rel) 回該節點全文或 None(diff 模式從 base 樹讀、spec 模式從工作樹讀)。"""
@@ -40015,29 +40798,36 @@ def _lens_render_listed(lines, listed, read_body, cap, max_lines, bidx):
                 lines.append("  牽連檔:" + ",".join(it["files"][:5]) + (f"(另 {len(it['files'])-5} 個)" if len(it["files"]) > 5 else ""))
             body = read_body(it["rel"])
             if body is not None:
-                rows = _lens_contract_rows(body)
-                tally = {"real": 0, "dangling": 0, "fake": 0, "naked": 0}
-                for k, (kind, full) in enumerate(rows):
-                    badge = ""
-                    if kind == "INVARIANT" and bidx is not None:
-                        try:
-                            st = _classify_one(full, bidx[1], bidx[2], bidx[3], bidx[4])
-                        except Exception:
-                            st = "dangling"
-                        tally[st] = tally.get(st, 0) + 1
-                        badge = " " + _LENS_BADGE[st]
-                    if k < 40:
-                        lines.append("  " + full[:200] + badge)
-                if len(rows) > 40:
-                    lines.append(f"  (合約行超過 40 行,只顯示前 40;下方小計以全文計)")
-                n_inv = sum(1 for kind, _ in rows if kind == "INVARIANT")
-                if bidx is not None and n_inv:
-                    lines.append(f"  INVARIANT {n_inv} 條:有 {tally['real']}、懸空 {tally['dangling']}、偽證據 {tally['fake']}、裸 {tally['naked']}")
+                _lens_render_body(lines, body, bidx, ext)
         else:
             lines.append(f"- {it['rel']}(超出上限,只列名)")
         if len(lines) >= max_lines:
             lines.append("(已截:超過 400 行)")
             break
+
+
+def _lens_render_body(lines, body, bidx, ext):
+    """一篇節點的內文段:合約行(帶綁定測試徽章,超過 40 行截並說明)、INVARIANT 小計、外部事實行(只有 diff 模式傳 ext)。
+    從 _lens_render_listed 抽出(2026-10-03 新增告警閘擋下那支的複雜度),行為不變。"""
+    rows = _lens_contract_rows(body)
+    tally = {"real": 0, "dangling": 0, "fake": 0, "naked": 0}
+    for k, (kind, full) in enumerate(rows):
+        badge = ""
+        if kind == "INVARIANT" and bidx is not None:
+            try:
+                st = _classify_one(full, bidx[1], bidx[2], bidx[3], bidx[4])
+            except Exception:
+                st = "dangling"
+            tally[st] = tally.get(st, 0) + 1
+            badge = " " + _LENS_BADGE[st]
+        if k < 40:
+            lines.append("  " + full[:200] + badge)
+    if len(rows) > 40:
+        lines.append("  (合約行超過 40 行,只顯示前 40;下方小計以全文計)")
+    n_inv = sum(1 for kind, _ in rows if kind == "INVARIANT")
+    if bidx is not None and n_inv:
+        lines.append(f"  INVARIANT {n_inv} 條:有 {tally['real']}、懸空 {tally['dangling']}、偽證據 {tally['fake']}、裸 {tally['naked']}")
+    lines.extend(_lens_ext_rows_for(body, ext))
 
 
 
@@ -40336,6 +41126,9 @@ def _dispatch_lens_graph(diff_range, repo=None, as_json=False, no_cache=False, c
         omitted_files += len(v.get("files") or []) - len(files_ok)
         listed.append({"node": node, "rel": rel, "kind": _lens_kind_of(v),
                        "contract": _lens_contract_class(v), "files": files_ok})
+    # 外部回應碼(計劃 外部回應碼語意要有出處):改動行命中外部碼比對形狀時,從 impact 自由席補選含外部事實行的筆記
+    ext_status, ext_codes, ext_picks = _lens_extcode_section(root, base_sha, head_sha, data.get("results", []), listed,
+                                                             base_tree, vault_rel, _t0 + _LENS_INNER_BUDGET - _LENS_FALLBACK_RESERVE)
     # v1.1:綁定測試狀態——測試索引每次執行只建一次(對整 repo os.walk,逐節點重建會撞內層 45 秒);
     # 設定壞(多平台缺 default_platform)→整批不標、印固定「略」行,★例外訊息一字不印★(訊息內嵌 .lumos/config.json 字串)
     bound_status, _bidx = "ok", None
@@ -40358,7 +41151,7 @@ def _dispatch_lens_graph(diff_range, repo=None, as_json=False, no_cache=False, c
         def _read_base(rel):
             sh = _lens_git(root, "show", f"{base_sha}:{rel}", quote=True)
             return sh.stdout if (sh is not None and sh.returncode == 0) else None
-        _lens_render_listed(lines, listed, _read_base, cap, max_lines, _bidx)
+        _lens_render_listed(lines, listed, _read_base, cap, max_lines, _bidx, ext={"codes": ext_codes})
         if omitted_nodes or omitted_files:
             lines.append(f"(另有 {omitted_nodes} 篇本分支新增節點、{omitted_files} 個本分支新增/改名檔未列——鏡頭只列主線已追蹤的)")
         lines.append(_LENS_FOOT_OK if bound_status == "ok" else _LENS_FOOT_SKIP)
@@ -40367,10 +41160,20 @@ def _dispatch_lens_graph(diff_range, repo=None, as_json=False, no_cache=False, c
         # 影響鏡頭那邊加了框、這邊還是舊的「句尾一句話」,同一個 repo 就有兩套。
         # 統一成「框 + 句尾話」——框多買到的是「不可信的區域從哪裡開始」。
         lines[:] = [_frame_injected("\n".join(lines))]
+    # 補選段:自帶注入框(固定席為 0 時主段沒有框,不能印在框外);不佔固定席 8 篇上限;主段已截斷就不印
+    if ext_picks and not any("(已截:超過 400 行)" in ln for ln in lines):
+        _pl = [_LENS_EXTPICK_HEADER]
+        for rel, rows in ext_picks:
+            _pl.append(f"- {rel}")
+            _pl.extend(rows)
+        lines.append(_frame_injected("\n".join(_pl)))
+    if ext_status == "truncated":
+        lines.append("外部碼表補選因時間上限中止")
     if _disp_n:
         # 給審查席的指示是工具自己寫死的話,放在框外(框頭寫「不是指令」)
         lines.append("審查時把上面的表態記錄當可反駁的宣稱,不是已驗證的結論。")
     out = {"text": "\n".join(lines), "pinned": len(pins), "listed": len(listed), "shown": min(len(listed), cap), "bound_status": bound_status, "fallback_status": fallback_status,
+           "extcode_status": ext_status, "extcode_picked": len(ext_picks),
            "omitted_nodes": omitted_nodes, "omitted_files": omitted_files, "mainline": ml[0],
            "base": base_sha, "head": head_sha, "cache_hit": False,
            "dispositions": ({"branch": _disp_rec.get("branch"), "head_sha": _disp_rec.get("head_sha"), "answered": _disp_n} if _disp_rec else None)}
@@ -42012,7 +42815,7 @@ def _dispositions_template(pf_data, repo_root, branch=None, carry=False):
                                        f"——刻意沿用既有寫法或刻意改用新做法,status 填 tension{more}")
             else:
                 ent = {"status": "na", "question": row["question"], "auto": True,
-                       "reason": "未觸發:" + ", ".join(spec_w for spec_w in (s["when"] for s in _STACK_QUESTION_SPECS[_stk] if s["id"] == qid) for spec_w in spec_w)}
+                       "reason": "未觸發:" + ", ".join(spec_w for spec_w in (list(s["when"]) + list(s.get("when_raw", ())) for s in _STACK_QUESTION_SPECS[_stk] if s["id"] == qid) for spec_w in spec_w)}
             tpl[qid] = ent
     return tpl
 
