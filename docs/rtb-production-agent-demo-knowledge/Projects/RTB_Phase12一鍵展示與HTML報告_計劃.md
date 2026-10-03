@@ -2,7 +2,7 @@
 type: project
 status: done
 created: 2026-09-24
-updated: 2026-09-27
+updated: 2026-10-02
 self_audit: gpt-5.6-sol/2026-09-24
 tags:
   - type/project
@@ -10,7 +10,6 @@ tags:
 lands_in:
   - Systems/一鍵展示
   - Systems/分析行程流程與檢查點
-  - Systems/展示頁面
   - Systems/展示頁面
 ---
 # RTB_Phase12一鍵展示與HTML報告_計劃
@@ -152,7 +151,7 @@ RETIRE-IF: 使用者決定不再需要本機展示(或改成有正式部署的�
 
 ### 頁面分區
 
-- 頂端摘要:展示編號、開始時間(UTC)、花費(從花費帳唯讀開法按展示編號加總;單一情境重跑時分開列「這次重跑的花費」與「上一次全部跑一次的花費」)(2026-10-02 更正:計劃寫了但沒接上——花費帳按展示編號加總的讀法有了,但展示狀態組裝時花費寫死為空、沒人呼叫那個讀法,現況頁面「本次 AI 費用」恆顯示「—」;是否補做待使用者決定,見 [[Systems/一鍵展示]]、[[Systems/模型用戶端]])、驗證器版本雜湊與提交編號、目前進度(幾個情境跑完、共幾個);不列錄製或即時(使用者 2026-09-25 裁定)。
+- 頂端摘要:展示編號、開始時間(UTC)、花費(從花費帳唯讀開法按展示編號加總;單一情境重跑時分開列「這次重跑的花費」與「上一次全部跑一次的花費」)(2026-10-02 更正:計劃寫了但沒接上——花費帳按展示編號加總的讀法有了,但展示狀態組裝時花費寫死為空、沒人呼叫那個讀法,現況頁面「本次 AI 費用」恆顯示「—」;2026-10-03 使用者裁定不補做、把頁面上的費用欄位與展示狀態的兩個費用欄位拿掉,見 [[Systems/一鍵展示]]、[[Systems/模型用戶端]])、驗證器版本雜湊與提交編號、目前進度(幾個情境跑完、共幾個);不列錄製或即時(使用者 2026-09-25 裁定)。
 - 展示在跑時最上方固定一條「現在進度」:第幾個情境、情境名、目前節點、已經在這一步多久(伺服器產生當下算好)、上一個判斷;F7 改顯示各節點的筆數彙總(已放行、等人確認)。
 - 主流程圖:整頁一張橫向的流程圖(泳道換行排,整張圖不用橫捲),高亮「正在跑的情境」或「選看的情境」實際走過的完整路徑;目前節點帶固定錨點,每 2 秒重讀時畫面停在那裡;F7 在節點旁顯示筆數徽章。
 - 情境清單:F1–F7 每列一行(代碼、標題、狀態、一句結果),每列是切換選看情境的連結;正在跑或選看的那一列標明。
@@ -218,7 +217,7 @@ RETIRE-IF: 使用者決定不再需要本機展示(或改成有正式部署的�
 - src/rtb/demo/page.py:render_page(state: DemoState, *, form_token: str) -> str;〔2026-09-24 Codex 第二版改定,協調者轉達:render_page(state, *, form_token, selected: ScenarioCode | None = None)——閒置時畫選看的情境,執行中自動跟目前情境;情境清單每列是連到 /?scenario=F3 的連結,查詢參數只接受 ScenarioCode 成員,其他值當沒選(由 2b 伺服器解析後傳入)。目前節點畫成 <g id="current">,執行中 meta refresh 的網址帶 #current。〕render_report(state: DemoState) -> str(靜態報告:同一套版面,沒有任何表單、沒有自動重讀);escape_text(s: str) -> str;CONTENT_SECURITY_POLICY: str(給 2b 放進回應標頭的值);STYLESHEET_PATH 常數(樣式表的網址路徑,例如 "/static/demo.css")。
 
 資料結構:
-- DemoState:demo_id(str)、started_at(datetime,UTC)、model_mode(ModelMode:RECORDED 錄製、LIVE 即時)、model_cost_usd(Decimal | None,這次展示的模型花費估計)、verifier_digest(str | None)、commit(str | None)、running(bool)、scenarios(tuple[Scenario, ...])、verifier(VerifierResult | None)、known_limits(tuple[str, ...])、comparison(Comparison | None)、approval(ApprovalForm | None)。
+- DemoState:demo_id(str)、started_at(datetime,UTC)、model_mode(ModelMode:RECORDED 錄製、LIVE 即時)、model_cost_usd(Decimal | None,這次展示的模型花費估計)、verifier_digest(str | None)、commit(str | None)、running(bool)、scenarios(tuple[Scenario, ...])、verifier(VerifierResult | None)、known_limits(tuple[str, ...])、comparison(Comparison | None)、approval(ApprovalForm | None)。(2026-10-03 更正:model_cost_usd 已拿掉,見上方〈頁面分區〉頂端摘要那條)
 - Scenario:code(ScenarioCode:F1…F7)、title(str)、what_it_tests(str,一句白話)、status(ScenarioStatus:PENDING 待跑、RUNNING 進行中、DONE 照預期跑完、INCOMPLETE 沒跑完)、incomplete_reason(str | None)、timeline(tuple[TimelineStep, ...])、dispositions(tuple[Disposition, ...])、dsp(DspState | None)、audit(tuple[str, ...])、model_step(ModelStep | None)、hypothesis(Hypothesis | None)。
 - TimelineStep:stage(Stage:領取、分析、提案、送件、執行前檢查、寫入、結果不明、對帳、擋下、待核可、重放、接續任務、完成——用 Enum 成員)、at(datetime,UTC)、detail(str,可能含不可信文字)。
 - Disposition:code(str,系統的擋下原因、處置或死信原因代碼)、explanation(str,白話)。頁面另有一張常數對照表 DISPOSITION_TEXT: dict[str, str],2b 會把系統列舉成員對進來;這一步你先放 Phase 12 計劃提到的幾個示範代碼即可,並提供 disposition_text(code) -> str,查不到時顯示「(沒有白話說明:{代碼})」。
@@ -242,7 +241,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - render_report(state) -> str:樣式與固定流程格腳本內嵌在報告裡,不連外部資源;七個情境各一張縮小的主流程圖(高亮自己的路徑),流程格浮出框附判斷內容與出處(設計審 r1 c5、r2 n11)。
 - ScenarioStatus 補 AWAITING_APPROVAL(顯示「等你確認」),跟 INCOMPLETE 分開(設計審 r1 k2)。
 - VerifierResult 補 verified_at(datetime)與 demo_id(str):標明驗證器結果取自哪一次全部跑一次(設計審 r1 x7)。
-- DemoState 補 last_full_run_cost_usd(Decimal | None)與 model_mode_reason(str | None)(設計審 r1 d2、q1)。
+- DemoState 補 last_full_run_cost_usd(Decimal | None)與 model_mode_reason(str | None)(設計審 r1 d2、q1)。(2026-10-03 更正:last_full_run_cost_usd 已拿掉,同上)
 - ApprovalForm 補 demo_id(str)與顯示用的數字摘要雜湊(設計審 r1 x3、r2 n14)。
 - Scenario 補 source_demo_id(str)、ran_at(datetime)、model_mode(ModelMode):每個情境自己的出處(設計審 r2 n17)。
 - Disposition 改成 category(str,列舉類別)加 code(str,成員名)兩欄;處置說明對照表的鍵是 (category, code)(設計審 r2 n10)。
@@ -262,7 +261,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - 增量 3(我們實作;Phase 11 驗證器已在主線):前後比較資料(從造假示範產生)、README、最終驗收(驗證器全部通過、已知缺口照實列)。
 
 依賴(對 Phase 11B 的需求,折入時列給 Phase 11B;兩項都進 Phase 11B 增量 2 之後,增量 1 的模型入口子項才開工):
-- 花費帳唯讀開法補一個「按展示編號加總」的讀法(目前只有按時間區間取),頁面的花費從它讀。(2026-10-02 更正:讀法已補,但頁面沒接上、恆顯示「—」,見上方〈頁面分區〉頂端摘要那條)
+- 花費帳唯讀開法補一個「按展示編號加總」的讀法(目前只有按時間區間取),頁面的花費從它讀。(2026-10-02 更正:讀法已補,但頁面沒接上、恆顯示「—」;2026-10-03 頁面的費用欄位已拿掉,這個讀法目前沒有呼叫端,見上方〈頁面分區〉頂端摘要那條)
 - 模型說明與假說兩支入口也收 --ledger(錄製模式時把帳導到指定路徑),跟評估入口一致。(2026-10-02 更正:已做;兩支入口另收 --recorded-ledger(判成錄製才用),展示驅動實際傳的是後者,見 [[Systems/一鍵展示]])
 
 ## 合約候選
@@ -285,7 +284,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - [S1015] 當任何 POST 請求(全部跑一次、單一情境重跑、核可)沒帶本次啟動產生的表單值、來源標頭不是本機、或情境代碼不是七個之一時,展示伺服器應拒絕,不啟動驅動程式也不簽核可。[test:test_a_cross_site_or_malformed_trigger_is_refused]
 - [S1016] 展示伺服器比對表單隨機值應用 hmac.compare_digest。[test:test_form_tokens_are_compared_in_constant_time]
 - [S1017] 當請求的主機標頭不是本機時,展示伺服器的每一個路由(含 HTML 頁與樣式表)應拒絕,並回帶內容安全政策標頭的錯誤頁。[test:test_every_route_rejects_a_non_local_host]
-- [S1018] 展示伺服器應只綁回送位址,頁面與進度讀取不寫任何資料庫;唯一例外是 GET /approve 追加顯示收據到收據檔。(2026-10-02 更正:收據沒有實作,這個例外現在不存在,GET /approve 也不寫;見 [[Issues/確認頁顯示AI說明時的收據還沒做]])[test:test_the_demo_server_binds_loopback_and_page_reads_write_nothing]
+- [S1018] 展示伺服器應只綁回送位址,頁面與進度讀取不寫任何資料庫;唯一例外是 GET /approve 追加顯示收據到收據檔。(2026-10-02 更正:收據沒有實作,這個例外現在不存在,GET /approve 也不寫;2026-10-03 收據撤除不做;見 [[Issues/確認頁顯示AI說明時的收據還沒做]])[test:test_the_demo_server_binds_loopback_and_page_reads_write_nothing]
 - [S1019] 當查詢參數 scenario 不是七個情境代碼之一時,展示伺服器應當成沒選看任何情境產生頁面,不回錯誤也不把參數值放進頁面。[test:test_an_unknown_scenario_query_is_treated_as_no_selection]
 - [S1020] 當單一情境重跑完時,伺服器顯示的展示狀態應只換掉那一個情境,其他六個情境(含各自的出處)、流程圖與已知限制原樣保留。[test:test_a_scenario_rerun_keeps_the_other_six_scenarios_intact]
 - [S1021] 當單一情境重跑時,伺服器應不啟動驗證器,頁面的驗證器結果應標明取自哪一次全部跑一次(時間與展示編號)。[test:test_a_single_scenario_rerun_does_not_run_the_verifier_and_labels_the_old_result]
@@ -301,7 +300,7 @@ Codex 第三版追加(2026-09-24,協調者轉達;設計審 r1、r2 折入的介�
 - [S1031] 展示頁應原樣顯示驗證器的輸出,擋下時逐條列出原因。[test:test_the_page_shows_the_verifier_output_verbatim]
 - [S1032] 當確認者在頁面上送出確認時,伺服器應在每個確認框都勾了、展示編號與提案雜湊對得上等人確認的那一筆、表單帶的數字摘要雜湊等於驅動程式記下的數字快照算出的雜湊時才簽發,否則拒絕。[test:test_an_approval_needs_every_computed_number_confirmed]
 - [S1033] 簽發確認要的 task_id、revision、提案雜湊、租戶設定檔、關卡、最大加額與提案決策到期應取自驅動程式記下的展示狀態,不取自表單;伺服器行程內簽發並寫進 F7 的執行端暫存資料庫,到期取 min(提案決策到期, 現在 + 固定秒數),確認人固定為 demo-operator。[test:test_the_approval_signature_takes_its_fields_from_the_demo_state_not_the_form]
-- [S1034] 當確認頁在同源(Sec-Fetch-Site 是 same-origin 或 none、Sec-Fetch-Dest 是 document)的請求下顯示模型說明時,伺服器應在 ~/.rtb/demo-reports/ 旁的收據檔追加一筆含提案雜湊、模型文字雜湊、來源與顯示時間的收據,同一份提案雜湊與模型文字雜湊只記一次,並寫進當次靜態報告;不符的請求照樣顯示頁面但不記;執行端應不讀它。`test_showing_a_model_note_on_the_approval_page_leaves_a_receipt`(這支測試從沒以正式測試提交過)(待增量 4 補做(2026-09-25 健檢發現未實作):確認頁目前沒有模型說明、也沒有收據,綁的測試不存在)(2026-10-02 更正:增量 4 已結束仍沒做;補做或撤掉待使用者裁定,見 [[Issues/確認頁顯示AI說明時的收據還沒做]])
+- [S1034] 當確認頁在同源(Sec-Fetch-Site 是 same-origin 或 none、Sec-Fetch-Dest 是 document)的請求下顯示模型說明時,伺服器應在 ~/.rtb/demo-reports/ 旁的收據檔追加一筆含提案雜湊、模型文字雜湊、來源與顯示時間的收據,同一份提案雜湊與模型文字雜湊只記一次,並寫進當次靜態報告;不符的請求照樣顯示頁面但不記;執行端應不讀它。`test_showing_a_model_note_on_the_approval_page_leaves_a_receipt`(這支測試從沒以正式測試提交過)(待增量 4 補做(2026-09-25 健檢發現未實作):確認頁目前沒有模型說明、也沒有收據,綁的測試不存在)(2026-10-02 更正:增量 4 已結束仍沒做;補做或撤掉待使用者裁定,見 [[Issues/確認頁顯示AI說明時的收據還沒做]]) (2026-10-03 撤除:使用者改裁 AI 說明不進核可表單,確認頁不會顯示說明,收據不做) [status:superseded] [被取代:[[Projects/RTB_Phase11B大模型接入_計劃]]] [manual:已撤除,見 Phase 11B 計劃決策紀錄]
 - [S1035] 頁面上每一種情境狀態與驗證器通過或擋下都應有文字標示,不只靠顏色。[test:test_every_status_has_a_text_label]
 - [S1036] 頁面與樣式表應不請求任何外部資源(外部網址、@import、外部字型)。[test:test_the_page_and_stylesheet_load_nothing_external]
 - [S1037] 樣式表的深色與淺色兩組配色變數,文字與背景的對比都應至少 4.5 比 1。[test:test_both_colour_schemes_have_enough_contrast]

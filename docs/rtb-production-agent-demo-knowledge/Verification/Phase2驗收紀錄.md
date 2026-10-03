@@ -2,8 +2,12 @@
 type: verification
 status: pass
 date: 2026-09-23
-valid_under: "Python 3.14.6 與 sqlite3 3.53.3、pytest 9.1.1、ruff 0.16.8,macOS 本機;Phase 2 在提交 43abea8(2026-09-22)收尾,這篇是 2026-09-23 補寫,重跑用的是提交 1eace79;分析行程只有 advance() 驅動函式,沒有任務佇列與多工作者(Phase 4 增量 3b)"
-revalidate_when: "改動 src/rtb/domain、src/rtb/analyzer 或提案收件口(src/rtb/executor/inbox_store.py、inbox_server.py)時重跑;升級 Python、SQLite、pytest 或 ruff 主版本時重驗;Phase 4 增量 3b 給分析行程加任務租約時,重驗「並行推進同一任務只有一個寫得進去」這條的前提"
+valid_under:
+  - Python 3.14.6 與 sqlite3 3.53.3、pytest 9.1.1、ruff 0.16.8,macOS 本機;Phase 2 在提交 43abea8(2026-09-22)收尾,這篇是 2026-09-23 補寫,重跑用的是提交 1eace79;分析行程只有 advance() 驅動函式,沒有任務佇列與多工作者(Phase 4 增量 3b)
+  - "2026-10-03 補:Phase 4 增量 3b 給分析行程加任務租約後,「並行推進同一任務只有一個寫得進去」的前提在 [[Verification/Phase4驗收紀錄]] 重驗(事故 F3:同一時間只有持有有效租約的一方推進與花費);改動之後的全套最近一次記在驗收紀錄的是 [[Verification/Phase14增量4驗證紀錄]](2026-09-27,3360 過、1 略過);之後的改動(Phase 15 等)只有 CI 與各自提交的測試,沒有驗收紀錄"
+revalidate_when:
+  - 改動 src/rtb/domain、src/rtb/analyzer 或提案收件口(src/rtb/executor/inbox_store.py、inbox_server.py)時重跑
+  - 升級 Python、SQLite、pytest 或 ruff 主版本時重驗
 tags:
   - type/verification
   - status/pass

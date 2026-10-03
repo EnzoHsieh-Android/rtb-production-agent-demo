@@ -2,11 +2,10 @@
 type: verification
 status: pass
 date: 2026-09-27
-valid_under: Phase 14 增量 2b＋增量 3,已提交為 b2fc5122f100、合併差異過代碼審(卷證 governance/review-reports/code-phase14-inc3);全套測試、ruff、mypy、宣稱驗證器;展示批次代碼審 r1 後已重錄(phase14-demo-20260927)
-revalidate_when:
-  - 協調者錄完 phase14-demo 批次、搬進入庫目錄之後
-  - 2b＋增量 3 合併差異的代碼審改動程式之後
-  - 分析端驅動、展示驅動或說明入口的參數再變動時
+valid_under:
+  - Phase 14 增量 2b＋增量 3,已提交為 b2fc5122f100、合併差異過代碼審(卷證 governance/review-reports/code-phase14-inc3);全套測試、ruff、mypy、宣稱驗證器;展示批次代碼審 r1 後已重錄(phase14-demo-20260927)
+  - "2026-10-03 補:revalidate_when 原本的前兩項(協調者錄完 phase14-demo 搬進入庫目錄、合併差異的代碼審改動程式)已在本篇後段處理:phase14-demo-20260927 已入庫並重播通過,代碼審 r1–r3 修正後全套重跑"
+revalidate_when: 分析端驅動、展示驅動或說明入口的參數再變動時
 tags:
   - type/verification
   - status/pass

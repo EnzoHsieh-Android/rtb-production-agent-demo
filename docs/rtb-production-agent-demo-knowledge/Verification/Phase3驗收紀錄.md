@@ -2,8 +2,13 @@
 type: verification
 status: pass
 date: 2026-09-23
-valid_under: "Python 3.14.6 與 sqlite3 3.53.3、pytest 9.1.1、ruff 0.16.8,macOS 本機;程式版本為提交 3119238;模擬 DSP 與收件口都只綁本機回送位址、以獨立行程執行;執行迴圈是單一執行者、一次一筆,佇列與多工作者是 Phase 4;對帳的「舊請求不會晚到」靠模擬 DSP 提供的作廢(墓碑),真實 DSP 不一定有這個能力"
-revalidate_when: "改動 src/rtb/executor、src/rtb/dsp 或 src/rtb/domain 時重跑全套;升級 Python、SQLite、pytest 或 ruff 主版本時重驗;Phase 4 佇列與多工作者上線時,重驗單一執行者鎖與對帳的前提(那時鎖與 fencing 改由佇列側負責);真實 DSP 換掉模擬 DSP 時,重驗作廢能力是否存在,沒有就要改回十題第 10 題的轉人工"
+valid_under:
+  - Python 3.14.6 與 sqlite3 3.53.3、pytest 9.1.1、ruff 0.16.8,macOS 本機;程式版本為提交 3119238;模擬 DSP 與收件口都只綁本機回送位址、以獨立行程執行;執行迴圈是單一執行者、一次一筆,佇列與多工作者是 Phase 4;對帳的「舊請求不會晚到」靠模擬 DSP 提供的作廢(墓碑),真實 DSP 不一定有這個能力
+  - "2026-10-03 補:Phase 4 佇列與多工作者上線後,單一執行者鎖改成租約與收據互斥,對帳前提在 [[Verification/Phase4驗收紀錄]] 重驗(多工作者下重啟恢復只碰沒人持有的、F1 殺傷力配方在隔離副本重跑全紅);改動之後的全套最近一次記在驗收紀錄的是 [[Verification/Phase14增量4驗證紀錄]](2026-09-27,3360 過、1 略過);之後的改動(Phase 15 等)只有 CI 與各自提交的測試,沒有驗收紀錄"
+revalidate_when:
+  - 改動 src/rtb/executor、src/rtb/dsp 或 src/rtb/domain 時重跑全套
+  - 升級 Python、SQLite、pytest 或 ruff 主版本時重驗
+  - 真實 DSP 換掉模擬 DSP 時,重驗作廢能力是否存在,沒有就要改回十題第 10 題的轉人工
 tags:
   - type/verification
   - status/pass

@@ -4,9 +4,10 @@ status: pass
 date: 2026-09-25
 valid_under:
   - 主線合入 phase13-inc3 1049913 時的程式;評估批次還沒錄,決定紀錄寫 72 筆找不到錄製、不採用
+  - "2026-10-03 補:調查評估批次已用真 claude 錄製入庫(recordings/model/phase13-investigation-eval),CI 重播已啟用;採用口徑改成 AI 原始、AI+規則否決、程式規則三列後,在 [[Verification/Phase14增量4驗證紀錄]] 重播重產(找不到錄製 0 筆、結論仍不採用)"
 revalidate_when:
-  - 第一次用真的 claude 錄調查評估批次並入庫時(CI 那支重播測試會從跳過轉成啟用)
   - 系統提示、標準答案或採用門檻再改時
+  - 調查評估批次重錄時
 tags:
   - type/verification
   - status/pass

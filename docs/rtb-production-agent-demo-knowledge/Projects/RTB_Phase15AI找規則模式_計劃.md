@@ -2,7 +2,7 @@
 type: project
 status: done
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-10-02
 plan_risk: high
 summary: |-
   WHY: 2026-09-26 使用者裁定，Phase 13 評估顯示程式可算的加額判斷由程式較好，AI 退出正式加額決策；本計劃只用固定種子的合成歷史離線找新規則模式，機械核對並與窮舉基準比較，經人確認及 Issue／設計審／代碼審後才可能寫進九條或新條。出處：本次使用者對話；[[Projects/RTB_Phase13AI參與決策_計劃]]、[[Projects/RTB_Phase14正式規則照九條判斷_計劃]]。

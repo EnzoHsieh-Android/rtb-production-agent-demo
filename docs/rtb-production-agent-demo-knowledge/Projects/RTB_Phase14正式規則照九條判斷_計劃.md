@@ -2,7 +2,7 @@
 type: project
 status: done
 created: 2026-09-26
-updated: 2026-09-27
+updated: 2026-10-02
 plan_risk: high
 summary: |-
   WHY: 2026-09-26 使用者裁定把 Phase 13 評估的九條標準答案搬進正式規則；Phase 13 名稱正常案例現行規則僅 12/36，沿用只看曝光點擊會誤提案。出處：本次使用者裁定、[[Issues/現行規則只看有沒有投放就提案]]。

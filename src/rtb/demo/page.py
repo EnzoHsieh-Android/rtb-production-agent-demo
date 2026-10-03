@@ -4,7 +4,6 @@
 import base64
 import hashlib
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Final
 
@@ -27,7 +26,6 @@ from rtb.demo.state import (
     DemoState,
     FlowGraph,
     FlowNode,
-    ModelMode,
     ModelSource,
     NodeKind,
     Scenario,
@@ -464,28 +462,25 @@ def _render_summary(state: DemoState) -> str:
     # 「AI 判不提案、故障沒走到」也算跑完([S1144] 不算沒跑完;代碼審 r1 p2),另外標幾個沒走到
     done = sum(item.status in _FINISHED for item in state.scenarios)
     untouched = sum(item.status is ScenarioStatus.NOT_EXERCISED for item in state.scenarios)
-    cost = "—" if state.model_cost_usd is None else f"{_decimal(state.model_cost_usd)} 美元"
     started = "—" if state.started_at is None else _format_time(state.started_at)
     verdict, source = _verifier_summary(state)
     primary: tuple[tuple[str, str, str | None], ...] = (
         ("已完成情境", f"{done} / {len(state.scenarios)}",
          f"其中 {untouched} 個 AI 判不提案（不提出調整建議），故障沒走到" if untouched else None),
         ("自動查核", verdict, source),
-        ("本次 AI 費用", cost, None),
         ("開始時間", started, None),
     )
     notice = ""
     if state.is_sample:
         notice = (
             '<p class="sample-notice"><strong>範例預覽</strong>'
-            '本頁使用預設範例資料。情境結果、AI 文字、費用與查核狀態皆供版面展示，'
+            '本頁使用預設範例資料。情境結果、AI 文字與查核狀態皆供版面展示，'
             '不代表本次實際執行。</p>'
         )
         primary = (
             ("展示情境", f"{len(state.scenarios)} 個", None),
             ("自動查核（範例值）", verdict, source),
             ("資料來源", "預設範例", None),
-            ("AI 費用（範例值）", cost, None),
             ("範例時間", started, None),
         )
     cards = "".join(
@@ -493,18 +488,10 @@ def _render_summary(state: DemoState) -> str:
         f"{f'<small>{escape_text(detail)}</small>' if detail is not None else ''}</dd></div>"
         for label, value, detail in primary
     )
-    last_cost = (
-        f"{_decimal(state.last_full_run_cost_usd)} 美元"
-        if state.last_full_run_cost_usd is not None
-        else "沒有呼叫 AI，沒有費用"  # 代碼審 r2 g7:沒有費用不是沒有完整執行紀錄
-        if state.model_mode is ModelMode.NOT_CALLED
-        else "尚無完整執行紀錄"
-    )
     technical = (
         ("本次展示編號", state.demo_id or "—"),
         ("自動查核資料識別碼", state.verifier_digest or "尚未產生"),
         ("程式版本", state.commit or "尚未記錄"),
-        ("上次完整執行 AI 費用", last_cost),
     )
     rows = "".join(
         f"<div><dt>{escape_text(label)}</dt><dd>{escape_text(value)}</dd></div>"
@@ -555,10 +542,6 @@ def _render_verifier_detail(verifier: VerifierResult | None) -> str:
         f"{blocked}<details class=\"meta-details verifier-output\"><summary>自動查核原樣輸出"
         f"</summary>{_plain_lines(verifier.lines)}</details>"
     )
-
-
-def _decimal(value: Decimal) -> str:
-    return format(value, "f")
 
 
 def _budget(value: int) -> str:

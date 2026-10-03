@@ -2,8 +2,12 @@
 type: verification
 status: pass
 date: 2026-09-24
-valid_under: "程式版本為 main d845ce2(推送範圍 cd24279..d845ce2,11B 增量 1)加 Linux 群組判斷修正 ec597f0;Python 3.14.6,macOS 本機,CI Ubuntu;模型後端是本機 Claude Code 2.1.281(使用者本人裁定改用 Claude Code,保留換 API 的介面);還沒做過任何即時實測,錄製目錄沒有批次紀錄"
-revalidate_when: "11B 增量 2 完成時改寫成整份 11B 驗收紀錄;本機做即時實測並錄製後補上實測數字;claude 升版、改動 src/rtb/model*.py、src/rtb/eval/model_candidate.py、src/rtb/eval/record.py 時重跑 tests/model、tests/eval 與驗證器"
+valid_under:
+  - 程式版本為 main d845ce2(推送範圍 cd24279..d845ce2,11B 增量 1)加 Linux 群組判斷修正 ec597f0;Python 3.14.6,macOS 本機,CI Ubuntu;模型後端是本機 Claude Code 2.1.281(使用者本人裁定改用 Claude Code,保留換 API 的介面);還沒做過任何即時實測,錄製目錄沒有批次紀錄
+  - "2026-10-03 補:11B 增量 2 併進 Phase 13 增量 1,由 [[Verification/Phase13增量1驗收紀錄]] 驗(本篇沒改寫成整份 11B 紀錄);真 claude 的錄製批次已入庫,模型呼叫的錄製觀測數字記在 [[Verification/Phase14增量4驗證紀錄]];「值不值得加」的模型候選仍沒錄"
+revalidate_when:
+  - claude 升版、改動 src/rtb/model*.py、src/rtb/eval/model_candidate.py、src/rtb/eval/record.py 時重跑 tests/model、tests/eval 與驗證器
+  - 「值不值得加」的模型候選第一次錄製批次時補上實測數字
 tags:
   - type/verification
   - status/pass

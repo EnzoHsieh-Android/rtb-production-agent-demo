@@ -2,7 +2,7 @@
 type: system
 status: done
 created: 2026-09-24
-updated: 2026-09-27
+updated: 2026-10-02
 responsibility: 重畫 README 的 GIF 與 SVG 流程圖，不參與正式分析或執行流程。
 self_audit: gpt-5.6-sol/2026-09-25
 aliases: []

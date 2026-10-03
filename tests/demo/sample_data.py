@@ -6,7 +6,6 @@ import re
 import shutil
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from itertools import pairwise
 from pathlib import Path
 
@@ -319,7 +318,6 @@ def make_demo_state(*, running: bool = False) -> DemoState:
         is_sample=True,
         started_at=NOW,
         model_mode=ModelMode.RECORDED,
-        model_cost_usd=Decimal("0.42"),
         verifier_digest="check-abc123",
         commit="2026-09-24-demo",
         running=running,
@@ -347,7 +345,6 @@ def make_demo_state(*, running: bool = False) -> DemoState:
             last_decision=current_scenario.path[-1] if current_scenario.path else None,
         ) if running else None,
         observed_at=observed_at,
-        last_full_run_cost_usd=Decimal("0.42"),
         model_mode_reason="沒有開即時開關",
     )
 

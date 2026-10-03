@@ -151,7 +151,7 @@ def test_f5_an_injected_campaign_name_changes_nothing_end_to_end(tmp_path, name,
     assert result["c1"].budget == normal_result["c1"].budget == 110
     assert result["c1"].status == "active"
     assert result["other_writes"] == [] and result["c2"].budget == 300  # 別的廣告沒被動到
-    assert result["endpoints"] == EXPECTED_ENDPOINTS  # 分析行程只打這三種端點
+    assert result["endpoints"] == EXPECTED_ENDPOINTS  # 分析行程只打這六種端點(DSP 五種讀取加送件)
     primitives = result["proposal"].to_primitives()
     assert set(primitives) <= set(CHECKS)  # 提案只有白名單欄位:沒有工具、網址、憑證
     sent = json.dumps(primitives, ensure_ascii=False)

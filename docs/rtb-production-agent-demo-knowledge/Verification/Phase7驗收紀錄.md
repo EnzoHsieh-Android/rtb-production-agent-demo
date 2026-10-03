@@ -2,8 +2,13 @@
 type: verification
 status: pass
 date: 2026-09-23
-valid_under: "Python 3.14.6 與 sqlite3 3.50.6、pytest 9.1.1、ruff 0.16.8,macOS 本機;程式版本為提交 0ef3ad1;分析行程沒有接語言模型,決策是示範規則;模擬 DSP 只有廣告名稱一種文字欄位,沒有素材文字、落地頁網址;不可信文字上限 512 字、模擬 DSP 名稱上限 4096 字是使用者裁定值"
-revalidate_when: "改動 src/rtb/domain/evidence.py、src/rtb/analyzer/dsp_client.py、src/rtb/analyzer/policy.py、src/rtb/executor/inbox_server.py 的拒收路徑、或模擬 DSP 查廣告的回應時重跑全套;分析行程接上語言模型、或模擬 DSP 加素材文字等新的文字欄位時,重驗事故 F5 的差異測試與端到端並延伸到新欄位;換真的 DSP 時核對它的狀態、編號值域與名稱長度上限"
+valid_under:
+  - Python 3.14.6 與 sqlite3 3.50.6、pytest 9.1.1、ruff 0.16.8,macOS 本機;程式版本為提交 0ef3ad1;分析行程沒有接語言模型,決策是示範規則;模擬 DSP 只有廣告名稱一種文字欄位,沒有素材文字、落地頁網址;不可信文字上限 512 字、模擬 DSP 名稱上限 4096 字是使用者裁定值
+  - "2026-10-03 補:分析行程後來接上語言模型(Phase 11B、13),AI 退出加額決策後事故 F5 在 [[Verification/Phase14增量3驗證紀錄]] 重驗(名稱誘導不影響九條判定、說明的數字核對另核多種百分比寫法);模擬 DSP 仍只有廣告名稱一種文字欄位;改動之後的全套最近一次記在驗收紀錄的是 [[Verification/Phase14增量4驗證紀錄]](2026-09-27,3360 過、1 略過);之後的改動(Phase 15 等)只有 CI 與各自提交的測試,沒有驗收紀錄"
+revalidate_when:
+  - 改動 src/rtb/domain/evidence.py、src/rtb/analyzer/dsp_client.py、src/rtb/analyzer/policy.py、src/rtb/executor/inbox_server.py 的拒收路徑、或模擬 DSP 查廣告的回應時重跑全套
+  - 模擬 DSP 加素材文字等新的文字欄位、或 AI 重新參與決策時,重驗事故 F5 的差異測試與端到端並延伸到新欄位
+  - 換真的 DSP 時核對它的狀態、編號值域與名稱長度上限
 tags:
   - type/verification
   - status/pass

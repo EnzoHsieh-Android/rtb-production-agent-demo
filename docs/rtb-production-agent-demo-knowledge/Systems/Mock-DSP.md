@@ -2,7 +2,7 @@
 type: system
 status: doing
 created: 2026-09-21
-updated: 2026-09-27
+updated: 2026-10-02
 responsibility: 負責 Mock DSP 的廣告狀態、版本、操作歷史與冪等紀錄的儲存與原子提交、型別化錯誤,以及獨立行程的 HTTP 介面與故障注入;不負責指標計算與 agent 端的任何邏輯。
 aliases: []
 about_code:
@@ -56,7 +56,7 @@ verified_by:
 kill_recipes: |-
   [{"invariant": "同一把冪等鍵最多只套用一次", "test": "test_same_key_same_payload_applies_once_and_returns_original_result", "file": "src/rtb/dsp/store.py", "old": "        if existing is not None:\n            return existing", "new": "        if False:\n            return existing", "note": "重送不再回原結果,同一把鍵被套用第二次"}, {"invariant": "事故 F1 的 DSP 側", "test": "test_timeout_before_commit_client_sees_timeout_and_dsp_never_commits_later", "file": "src/rtb/dsp/server.py", "old": "            time.sleep(self.server.hang_seconds)  # 不論客戶端是否還在,都不提交\n            raise NoResponse", "new": "            time.sleep(self.server.hang_seconds)", "note": "提交前逾時睡醒後繼續往下提交"}, {"invariant": "預期版本跟現況不符", "test": "test_a_future_expected_version_is_rejected_not_only_a_stale_one", "file": "src/rtb/dsp/store.py", "old": "        if current.version != op.expected_version:", "new": "        if current.version > op.expected_version:", "note": "只擋舊版本,未來版本照樣放行"}, {"invariant": "要嘛全部生效", "test": "test_failure_between_state_change_and_idempotency_record_rolls_everything_back", "file": "src/rtb/dsp/store.py", "old": "            if self._conn.in_transaction:  # SQLite 有時已自行回滾;再回滾會蓋掉真正的原因\n                self._conn.execute(\"ROLLBACK\")", "new": "            if self._conn.in_transaction:  # SQLite 有時已自行回滾;再回滾會蓋掉真正的原因\n                self._conn.execute(\"COMMIT\")", "note": "中途失敗時把半途狀態提交而不是回滾"}]
 decision_refs_ai:
-  - "Projects/RTB_Agent_Phase0架構.md#d7"
+  - "Projects/RTB_Agent_Phase0架構.md#d11"
 ---
 # Mock-DSP
 

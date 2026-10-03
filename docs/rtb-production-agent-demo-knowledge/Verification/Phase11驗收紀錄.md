@@ -2,7 +2,9 @@
 type: verification
 status: pass
 date: 2026-09-24
-valid_under: "程式版本為 main 403eb39(推送範圍 eda93c1..403eb39,含增量 1、增量 1 代碼審三輪的修正、增量 2);Python 3.14.6,macOS 本機;五份宣稱清單在 claims/;驗證器指令 python tools/verify_claims.py claims/;使用者本人裁定的兩條(清單不帶結果、F7 在新工作多跑一次照舊紅燈就重跑)"
+valid_under:
+  - 程式版本為 main 403eb39(推送範圍 eda93c1..403eb39,含增量 1、增量 1 代碼審三輪的修正、增量 2);Python 3.14.6,macOS 本機;五份宣稱清單在 claims/;驗證器指令 python tools/verify_claims.py claims/;使用者本人裁定的兩條(清單不帶結果、F7 在新工作多跑一次照舊紅燈就重跑)
+  - "2026-10-03 補:之後驗證器(證據測試加 -P)與 claims/*.json 多次改動,驗證器與它的測試在 [[Verification/Phase12增量3驗收紀錄]]、[[Verification/Phase14增量3驗證紀錄]]、[[Verification/Phase14增量4驗證紀錄]] 重跑通過;prompt-injection 的 policy 在 Phase 14 增量 3 改寫,語意由該增量代碼審的資安席與鏡頭 A 另外看過(卷證 governance/review-reports/code-phase14-inc3),記在 [[Verification/Phase14增量3驗證紀錄]];之後 claims 只更新指紋、沒改 policy,也沒新增第六條宣稱"
 revalidate_when: "改動 tools/verify_claims.py、tools/claim_hashes.py、claims/*.json、CI 的 claims 工作、pyproject 的 pytest 設定,或五條宣稱範圍內的程式時重跑驗證器與它的測試;新增第六條宣稱或改寫任一條 policy 時,另外派審查員看語意是否仍充分"
 tags:
   - type/verification

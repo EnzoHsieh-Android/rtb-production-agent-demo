@@ -2,7 +2,7 @@
 type: project
 status: done
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-10-02
 tags:
   - type/project
   - status/done
@@ -13,6 +13,7 @@ lands_in:
   - Systems/Mock-DSP
   - Systems/寫入能力憑證
   - Systems/執行迴圈
+  - Systems/共用行程基礎
 ---
 # RTB_Phase3外部寫入安全_計劃
 
@@ -104,8 +105,7 @@ RETIRE-IF: 若 Phase 4 以後的 F1~F3 自動測試持續只靠 DSP 端的冪等
 - 查證逾時次數:每把鍵累計(對帳查詢與執行後驗證查詢共用),跨重啟保存;達到上限(暫用 5)之後,再記逾時一律拒絕,只能轉人工(代碼「查證逾時達上限」)。
 - 筆數上限:每把鍵的歷史列有上限(暫用 50),超過就拒絕寫入。正常路徑最多 14 列(開始 1、三次送出各一列轉結果不明 3、兩次重送 2、查到 1、逾時 5、轉人工 1、人工處置 1),碰不到上限;**進入轉人工的那一列、人工處置那一列與重啟恢復那一列不受上限**,前兩者每把鍵最多各一次、重啟恢復每次進入嘗試中最多一次,所以豁免不會讓表無限長,也保證卡在上限的鍵仍能轉人工、仍能被人結案,一把鍵撞上限也不會讓整批重啟恢復回滾(代碼審第 1 輪正確性席指出重啟恢復原本沒豁免)。(第 2 輪四席獨立指出:原本連轉人工都寫不進去,廣告會永久鎖住。)
 - 整張表的保留期限跟收件表一起決定。
-REVISIT:[when-status:Projects/RTB_Phase4佇列與重新投遞_計劃=doing|done][by:2026-11-30] Phase 4 做佇列時,決定已結案嘗試的保留期限與清理方式(跟收件表的保留期限一起)。
-(2026-10-02:條件已成立——Phase 4 早已 done(早於這行 09-30 寫下);Phase 4 沒有另訂已結案嘗試的保留期,現況是嘗試紀錄只增不改、不會被清,見 [[Systems/外部寫入嘗試紀錄]];要不要另訂清理方式,待人裁)
+(2026-10-03 撤除一條回頭條件:它寫下的當下條件就已成立,從沒提醒過任何人;使用者裁定撤掉。原本要回頭的事——決定已結案嘗試的保留期限與清理方式;現況嘗試紀錄只增不改、不會被清,見 [[Systems/外部寫入嘗試紀錄]]——目前沒有排程。)
 - 重啟恢復:單一執行者的前提下,啟動時所有目前狀態是嘗試中的鍵,一律新增一列轉成結果不明;其他鍵完全不動。Phase 4 有多個工作者時改由 lease 判斷。
 
 ### 合約
@@ -365,7 +365,7 @@ REVISIT:[when-status:Projects/RTB_Phase4佇列與重新投遞_計劃=doing|done]
 - [S61] 當 DSP 對寫入回其他 4xx,嘗試應轉人工並帶「本地請求錯誤」,這一輪以系統錯誤結束、啟動程式以非零代碼結束;增量 1 的結果代碼只新增這一個,既有代碼不變。[test:test_other_client_errors_escalate_as_local_request_errors_and_stop_the_runner]
 - [S62] 當全表未結案已滿,處理一筆應不寫收件表、不寫嘗試紀錄、不呼叫 DSP 寫入,提案留在待處理,不以系統錯誤結束。[test:test_a_full_unresolved_table_leaves_the_proposal_pending]
   - 後記(2026-09-23):由 Phase 4 增量 1 的 [S115] 取代:全表已滿改成記下最後一次失敗、放掉租約,計入投遞次數。
-- [S63] 共用 HTTP 用戶端的標頭列舉應恰好是冪等鍵與能力憑證兩個;其他標頭名稱(包括故障注入標頭)應被拒絕。(2026-10-02 更正:Phase 9 增量 3 加了 DSP 唯讀稽核金鑰標頭,現況是三個;綁定測試已斷言三個,但測試名仍寫 exactly_idempotency_key_and_capability,見 [[Systems/共用行程基礎]])[test:test_client_headers_are_exactly_idempotency_key_and_capability]
+- [S63] 共用 HTTP 用戶端的標頭列舉應恰好是冪等鍵與能力憑證兩個;其他標頭名稱(包括故障注入標頭)應被拒絕。(2026-10-02 更正:Phase 9 增量 3 加了 DSP 唯讀稽核金鑰標頭,現況是三個;綁定測試已斷言三個,但測試名仍寫 exactly_idempotency_key_and_capability(2026-10-03 使用者同意改名,因工具擋下暫緩,見 [[Issues/存量筆記漂移等工具修復]]),見 [[Systems/共用行程基礎]])[test:test_client_headers_are_exactly_idempotency_key_and_capability]
 - [S64] 當 DSP 對寫入回表上沒列的狀態碼(例如 3xx),嘗試應記成結果不明。[test:test_an_unlisted_status_is_recorded_as_unknown]
 - [S65] 每一列嘗試中都應記下這次送出所帶憑證的到期時間,缺了應拒絕寫入;重簽重送那一列應是新憑證的到期時間。[test:test_every_send_records_the_capability_expiry]
 - [S66] 轉進已提交待驗證應帶寫入後版本,缺了應拒絕寫入。[test:test_entering_committed_unverified_requires_the_written_version]
@@ -517,8 +517,7 @@ REVISIT:[when-status:Projects/RTB_Phase4佇列與重新投遞_計劃=doing|done]
 ### 不做的事(增量 4 範圍)
 
 - 不做人工處置的操作介面(命令列或網頁);增量 1 的人工處置入口只在程式裡可呼叫。
-REVISIT:[when-file:src/rtb/executor/approve.py][by:2026-12-31] Phase 6 人工核准上線時,把轉人工的處置接上人工核准介面。
-(2026-10-02:條件已成立但對錯了檔——這支檔 2026-09-23 就存在(早於這行 09-30 寫下),它簽的是待核可提案的核可,不是轉人工嘗試的處置;人工處置函式至今沒有正式呼叫端,見 [[Systems/外部寫入嘗試紀錄]];要改綁哪個事件或排進哪一期,待人裁)
+(2026-10-03 撤除一條回頭條件:它寫下的當下條件就已成立,從沒提醒過任何人;使用者裁定撤掉。原本要回頭的事——把轉人工的處置接上人工核准介面;人工處置函式至今沒有正式呼叫端,見 [[Systems/外部寫入嘗試紀錄]]——目前沒有排程。)
 - 不做多工作者與 lease(Phase 4)。
 
 ### 回退(增量 4)

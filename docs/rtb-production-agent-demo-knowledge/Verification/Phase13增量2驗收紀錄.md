@@ -1,6 +1,6 @@
 ---
 type: verification
-status: pass
+status: superseded
 date: 2026-09-25
 valid_under:
   - 主線合入 phase13-inc2 0b4cf29 時的程式(b757a80);所有模型呼叫在測試裡都是假 claude 或錄製,沒有真的錄製批次入庫
@@ -9,7 +9,7 @@ revalidate_when:
   - 第一次用真的 claude 跑開 AI 的分析端時
 tags:
   - type/verification
-  - status/pass
+  - status/superseded
 plan_refs:
   - "[[Projects/RTB_Phase13AI參與決策_計劃]]"
 ---
@@ -35,3 +35,5 @@ plan_refs:
 ## 已知限制
 - 名稱注入仍能翻動「提不提案」,翻不動金額、廣告與動作;威脅模型是防疏忽,不防存心繞過。
 - 還沒有真的錄製批次;開 AI 的即時模式要使用者本人用 claude 跑。(2026-10-02 更正:2026-09-25 已入庫真 claude 錄的 phase13-demo 與 phase13-investigation-eval 兩批,但開 AI 的分析端後來整條撤除,這條限制已無對象,見 [[Verification/Phase13增量4驗收紀錄]]。)
+
+2026-10-03 狀態改為 superseded,參考 [[Verification/Phase14增量3驗證紀錄]](被取代:本篇驗的「開 AI 的分析端由 AI 在有上限的調查裡決定要不要提案」與 --ai-judge 迴圈已在 Phase 14 增量 3(b2fc512)整條撤除,AI 退出加額決策;撤除後的行為由那篇驗);理由:使用者 2026-10-03 裁定驗的功能已撤除的驗收紀錄標成已被取代。

@@ -348,7 +348,8 @@ def _aggregate_used(tx: attempt_store.ExecutorTransaction, tenant: str, now: dat
 
 
 def precheck(proposal: Proposal, view: CampaignView | None) -> BlockCode | None:
-    """執行前檢查裡看 DSP 現況的三條硬規則;「不在投放」排在版本之前,代碼比較有意義。
+    """執行前檢查的四條硬規則:三條看 DSP 現況,加上 Phase 8 的政策版本;「不在投放」排在版本之前,
+    代碼比較有意義。
 
     比例上限(可核可)不在這裡:Phase 6 增量 3 搬到簽發之後,硬規則一律先判,否則同時違反比例與
     單一廣告上限的提案會先停在待核可、等一張注定用不上的核可。比例的基準仍是這裡讀到的現況:版本

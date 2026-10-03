@@ -2,16 +2,20 @@
 type: verification
 status: pass
 date: 2026-09-22
-valid_under: "Python 3.14.6 與 sqlite3 3.53.3、pytest 9.1.1、ruff 0.16.8,macOS 本機;程式版本為提交 45af951;Mock DSP 只綁定本機回送位址且以獨立行程執行;只驗 DSP 端與指標計算,agent 端還不存在"
-revalidate_when: "改動 src/rtb/dsp 或 src/rtb/domain 時重跑全套;升級 Python、SQLite、pytest 或 ruff 的主版本時重驗;Phase 2 讓 agent 端第一次接上 DSP 客戶端時,補驗 agent 端連不到故障注入與不匯入 DSP 內部模組這兩條"
+valid_under:
+  - Python 3.14.6 與 sqlite3 3.53.3、pytest 9.1.1、ruff 0.16.8,macOS 本機;程式版本為提交 45af951;Mock DSP 只綁定本機回送位址且以獨立行程執行;只驗 DSP 端與指標計算,agent 端還不存在
+  - "2026-10-03 補:Phase 2 第一次接上 DSP 客戶端後,分析端連不到故障注入與不匯入 DSP 內部模組兩條已由 tests/analyzer/test_boundaries.py 補驗(Phase 2 計劃 S52、S53),隨 [[Verification/Phase2驗收紀錄]] 的 tests/analyzer 重跑通過;改動之後的全套最近一次記在驗收紀錄的是 [[Verification/Phase14增量4驗證紀錄]](2026-09-27,3360 過、1 略過);之後的改動(Phase 15 等)只有 CI 與各自提交的測試,沒有驗收紀錄"
+revalidate_when:
+  - 改動 src/rtb/dsp 或 src/rtb/domain 時重跑全套
+  - 升級 Python、SQLite、pytest 或 ruff 的主版本時重驗
 tags:
   - type/verification
   - status/pass
 plan_refs:
   - "[[Projects/RTB_Agent_Phase0架構]]"
 decision_refs_ai:
-  - "Projects/RTB_Agent_Phase0架構.md#d7"
-  - "Projects/RTB_Agent_Phase0架構.md#d9"
+  - "Projects/RTB_Agent_Phase0架構.md#d11"
+  - "Projects/RTB_Agent_Phase0架構.md#d10"
 ---
 # Phase1驗收紀錄
 

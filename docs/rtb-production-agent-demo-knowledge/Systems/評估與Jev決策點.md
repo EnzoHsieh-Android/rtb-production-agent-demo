@@ -2,7 +2,7 @@
 type: system
 status: doing
 created: 2026-09-24
-updated: 2026-09-27
+updated: 2026-10-02
 responsibility: 負責「值不值得加」判斷點的離線評估:評分表、合成評估集與生成器、逐格計分與報告、比較表、逐格採用決定與人讀的決定紀錄,接入點 3 的模型候選(旁路紀錄、整批停下、子集、批次紀錄、比較表模型列),以及 Phase 13 AI 調查的評估(九格評分與標準答案、72 筆含誘導雙胞胎的評估集與生成器、直接呼叫 AI 決策函式的評估執行器(Phase 14 起正式路徑不呼叫 AI,其他套件匯入 AI 決策模組由 [S1429] 的匯入禁令擋)、逐格報告與不採用的決定、錄製批次驗收);不負責判斷點本身、路由與 AI 決策函式(在分析端);除了經模型用戶端寫花費帳與呼叫模型,不讀寫任何資料庫、不啟動子行程;不被任何其他套件匯入
 aliases: []
 about_code:
@@ -54,7 +54,6 @@ verified_by:
   - "[[Verification/Phase11B增量1驗收紀錄]]"
   - "[[Verification/Phase13增量3驗收紀錄]]"
   - "[[Verification/Phase14增量2a離線驗證]]"
-  - "[[Verification/Phase14增量2b驗證紀錄]]"
   - "[[Verification/Phase14增量3驗證紀錄]]"
   - "[[Verification/Phase14增量4驗證紀錄]]"
 ---

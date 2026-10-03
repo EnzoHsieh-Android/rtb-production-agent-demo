@@ -15,9 +15,9 @@
 四查詢怎麼分步讀、輪次怎麼算,在 `rule_round`([[Systems/分析行程流程與檢查點]]);這支檔只收已驗證的
 領域型別,`queries=None` 表示「還沒讀四查詢,判到配速就停」,給規則輪的步驟 A 用。
 
-已知限制:這支示範規則永遠把提案的修訂序號當成 1,不會追蹤同一個任務先前送過幾次修訂;
-一個任務被收件口退回(SubmitStale)之後重新分析,示範規則不會自動送出下一個修訂——這個限制
-不影響 S49 的合約(規則本身的判斷邏輯),留給接上真正決策邏輯的後面階段一併解決。
+已知限制:這支規則永遠把提案的修訂序號當成 1,不會追蹤同一個任務先前送過幾次修訂;一個任務被
+收件口退回(SubmitStale)之後重新分析,不會自動送出下一個修訂——這個限制不影響 S49 的合約(規則
+本身的判斷邏輯),Phase 14 換成正式九條時沒有一併處理。
 """
 
 from collections.abc import Mapping
@@ -337,7 +337,7 @@ def build_proposal(task: TaskRow | None, evidence: tuple[Evidence, ...],
     if not is_plain_number(budget):  # underpacing 已經驗過,這裡只是給型別檢查看
         raise AssertionError("underpacing 為 True 時 budget 一定是數字")
     # 小額預算乘 1.1 四捨五入可能還是原值(例如 1、2),那就不是「調高」;用 max 保證至少 +1。
-    # 上限截在 Proposal 允許的最大值:budget 已經逼近上限時,示範規則寧可送出「漲到上限」的
+    # 上限截在 Proposal 允許的最大值:budget 已經逼近上限時,規則寧可送出「漲到上限」的
     # 提案,也不要讓 Proposal 建構式丟例外、被上層的廣義例外處理悶成 FAILED。
     new_budget = min(max(round(budget * (1 + BUDGET_INCREASE_FRACTION)), int(budget) + 1),
                      MAX_INT)

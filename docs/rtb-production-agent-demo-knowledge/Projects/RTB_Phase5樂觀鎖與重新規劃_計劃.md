@@ -2,7 +2,7 @@
 type: project
 status: done
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-10-02
 tags:
   - type/project
   - status/done
@@ -10,6 +10,7 @@ lands_in:
   - Systems/分析行程流程與檢查點
   - Systems/執行迴圈
   - Systems/提案收件口
+  - Systems/外部寫入嘗試紀錄
 ---
 # RTB_Phase5樂觀鎖與重新規劃_計劃
 

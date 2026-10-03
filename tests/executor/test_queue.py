@@ -103,7 +103,7 @@ def _proposal_rows(db):
         conn.close()
 
 
-def test_an_old_inbox_database_migrates_to_four_dispositions_without_losing_data(tmp_path):
+def test_an_old_inbox_database_migrates_to_the_current_dispositions_without_losing_data(tmp_path):
     db = tmp_path / "executor.db"
     _phase3_database(db)
     InboxStore(db).close()
@@ -114,7 +114,7 @@ def test_an_old_inbox_database_migrates_to_four_dispositions_without_losing_data
         columns = [r[1] for r in conn.execute("PRAGMA table_info(proposals)")]
         for name in ("lease_until", "lease_seq", "lease_owner", "deliveries"):
             assert columns.count(name) == 1
-        # 資料庫層限制已換成四態:新成員寫得進去,不認得的照樣擋
+        # 資料庫層限制已換成現行的處置成員:新成員寫得進去,不認得的照樣擋
         conn.execute("UPDATE proposals SET disposition = 'dead_letter' WHERE revision = 2")
         conn.execute("UPDATE proposals SET disposition = 'in_progress' WHERE revision = 2")
         with pytest.raises(sqlite3.IntegrityError):
@@ -253,11 +253,18 @@ def test_an_acknowledged_proposal_is_never_handed_out_again(h):
         with h.store.transaction() as tx:
             delivery = h.store.receive(tx, h.clock(), "w1")
             assert ack(tx, delivery.receipt)
+    h.submit(task_id="t4", campaign_id="c4")  # 死信:投遞次數用完、每次都沒能開始嘗試
+    for _ in range(MAX_DELIVERIES):
+        with h.store.transaction() as tx:
+            delivery = h.store.receive(tx, h.clock(), "w1")
+            assert h.store.release(tx, delivery.receipt, h.clock(), LastFailure.DSP_UNAVAILABLE)
+    assert receive(h) is None  # 這次改標死信
     h.clock.advance(seconds=LEASE + 1)  # 租約早就過了
 
-    assert receive(h) is None
-    assert [row(h, t)[:2] for t in ("t1", "t2", "t3")] == [
-        ("pending", "handed_off"), ("pending", "blocked"), ("expired", None)]
+    assert receive(h) is None  # 死信要人重放(Phase 8)才回到待處理,自己不會再交出去
+    assert [row(h, t)[:2] for t in ("t1", "t2", "t3", "t4")] == [
+        ("pending", "handed_off"), ("pending", "blocked"), ("expired", None),
+        ("pending", "dead_letter")]
 
 
 # ---- [S101] ----

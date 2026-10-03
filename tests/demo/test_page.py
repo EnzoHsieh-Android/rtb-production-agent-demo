@@ -9,7 +9,6 @@ import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from itertools import pairwise
 
 import pytest
@@ -1081,19 +1080,12 @@ def test_no_current_means_no_progress_bar_even_when_running() -> None:
     assert 'class="current-progress"' not in html
 
 
-def test_model_mode_cost_progress_and_utc_are_visible_in_summary() -> None:
-    state = replace(
-        make_demo_state(),
-        model_mode=ModelMode.RECORDED,
-        model_cost_usd=Decimal("0.42"),
-        is_sample=False,
-    )
+def test_model_mode_progress_and_utc_are_visible_in_summary() -> None:
+    state = replace(make_demo_state(), model_mode=ModelMode.RECORDED, is_sample=False)
     html = render_page(state, form_token="token")
 
     assert "AI 說明方式" not in html and "錄製回應（沒有即時連線）" not in html
-    assert "0.42 美元" in html
     assert "沒有開即時開關" not in html
-    assert "上次完整執行 AI 費用" in html
     assert "UTC" in html
     assert "7 / 7" in html
 
@@ -1588,12 +1580,18 @@ def test_a_step_back_in_the_middle_of_a_path_still_shows_where_it_returns() -> N
     assert re.search(r'<g class="flow-return">.*?回到：領取建議', svg, re.DOTALL)
 
 
-def test_the_cost_line_says_no_ai_was_called_instead_of_no_run() -> None:
-    """[代碼審 r2 g7] 這次沒有呼叫 AI:技術資訊的費用照實寫,不寫「尚無完整執行紀錄」。"""
-    state = replace(make_demo_state(), is_sample=False, model_mode=ModelMode.NOT_CALLED,
-                    model_cost_usd=None, last_full_run_cost_usd=None, full_demo_id="d")
-    markup = render_page(state, form_token="t")
-    assert "尚無完整執行紀錄" not in markup and "沒有呼叫 AI，沒有費用" in markup
+def test_no_page_shows_an_ai_cost_line() -> None:
+    """2026-10-03 使用者裁定拿掉 AI 費用欄位:費用從沒接上花費帳、永遠顯示「—」,
+    與其顯示假的空值,不如不顯示。範例、沒呼叫 AI、錄製、即時四種情況都不准出現費用字樣。"""
+    base = make_demo_state()
+    for state in (
+        replace(base, is_sample=True),
+        replace(base, is_sample=False, model_mode=ModelMode.NOT_CALLED, full_demo_id="d"),
+        replace(base, is_sample=False, model_mode=ModelMode.RECORDED),
+        replace(base, is_sample=False, model_mode=ModelMode.LIVE),
+    ):
+        markup = render_page(state, form_token="t")
+        assert "費用" not in markup and "美元" not in markup
 
 
 # ---- 代碼審 r3(Phase 12 增量 2)----

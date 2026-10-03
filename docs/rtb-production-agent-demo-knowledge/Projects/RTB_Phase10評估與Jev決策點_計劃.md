@@ -2,13 +2,14 @@
 type: project
 status: done
 created: 2026-09-24
-updated: 2026-09-27
+updated: 2026-10-02
 tags:
   - type/project
   - status/done
 lands_in:
   - Systems/分析行程流程與檢查點
   - Systems/評估與Jev決策點
+  - Systems/任務流程領域模型
 decisions:
   - content: Phase 10 的評估對象是「要不要提案調整」列裡的「值不值得加」子判斷;結論不採用 Jev,這次不回答 Phase 0 路由表標 Jev 的「證據夠不夠」「下一步查什麼」「繼續或停止」三列
     id: d1

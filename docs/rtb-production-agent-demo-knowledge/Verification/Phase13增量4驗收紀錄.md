@@ -1,6 +1,6 @@
 ---
 type: verification
-status: pass
+status: superseded
 date: 2026-09-25
 valid_under:
   - 分支 phase13-inc4 的程式;所有 AI 回應在測試與截圖裡都是錄製或假錄製,沒有真的展示錄製批次入庫
@@ -9,7 +9,7 @@ revalidate_when:
   - 驅動程式的結局判法、頁面的 AI 步驟卡或三種標示的寫法再改時
 tags:
   - type/verification
-  - status/pass
+  - status/superseded
 plan_refs:
   - "[[Projects/RTB_Phase13AI參與決策_計劃]]"
 ---
@@ -63,3 +63,5 @@ REVISIT:2026-12-31 看展示紀錄有沒有任何一次告警響;還是沒有,�
 - 開頭的 valid_under 與 revalidate_when 第一項寫於錄製入庫前,已過時;lumos 沒有改這兩個欄位的指令,照規矩不手改開頭,以這一節為準。
 - 現在成立的前提:主線合入 phase13-inc4 7bb86aa 時的程式;展示錄製批次 phase13-demo-20260925(6 檔)與評估批次 phase13-eval-20260925(84 檔)已入庫,由協調者經使用者授權用真 claude 錄;CI 的兩支入庫重播守衛已啟用。(2026-10-02 更正:展示那支守衛已刪,現況見上〈錄製批次入庫〉的更正。)
 - 現在的回頭條件:系統提示、收據格式或選項一改,錄製鍵就變,要重錄兩批、重跑入庫前檢查並重拍截圖(CI 的重播守衛會先變紅提醒)。(2026-10-02:前提已變——展示的 AI 決策已撤、phase13-demo 已改為不准動的歷史證據,這條對展示批次不再適用;調查評估批次仍由 test_the_investigation_eval_in_ci_replays_only_and_misses_nothing 守著。)
+
+2026-10-03 狀態改為 superseded,參考 [[Verification/Phase14增量3驗證紀錄]](被取代:本篇驗的「一鍵展示讓分析那一步由 AI 參與決定」、F5 雙胞胎與模型考題、展示的 AI 判斷列已在 Phase 14 增量 3(b2fc512)撤除,展示改成九條規則決定、AI 只寫說明,phase14-demo 的重播由那篇驗);理由:使用者 2026-10-03 裁定驗的功能已撤除的驗收紀錄標成已被取代。

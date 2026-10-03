@@ -3,8 +3,8 @@ type: verification
 status: pass
 date: 2026-09-25
 valid_under:
-  - README Phase 14 流程圖（2026-09-27）依使用者裁定 1–8、正式九條規則及展示驅動核對，GIF 與 SVG 共用節點與路徑資料。
-  - 系統 Python 3.14.6、Pillow 12.2.0、字型 /System/Library/Fonts/Hiragino Sans GB.ttc；同一環境連續重畫的 GIF、SVG 雜湊相同。
+  - README 流程圖 2026-09-28 白話版(a7fcaff),依使用者裁定 1–8、正式九條規則及展示驅動核對,在本篇〈圖上文字改白話〉一節重畫重驗;之後 c4daa8f 只把產生器長字串拆行,畫出來的圖逐位元相同;GIF 與 SVG 共用節點與路徑資料。
+  - 系統 Python 3.14.6、Pillow 12.2.0、字型 /System/Library/Fonts/Hiragino Sans GB.ttc;同一環境連續重畫的 GIF、SVG 雜湊相同。
 revalidate_when: 展示分析的規則輪 A/B/C、九條判定、AI 說明或告警假說的時點、F6/F7 回佇列路徑、README 文案、產圖腳本、字型或 Pillow 版本改變時，重跑產圖、抽格及 SVG 解析。
 tags:
   - type/verification

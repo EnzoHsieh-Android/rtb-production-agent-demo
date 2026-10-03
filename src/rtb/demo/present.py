@@ -334,7 +334,7 @@ def build_demo_state(  # noqa: PLR0913 - 伺服器依在跑的是哪一種展示
     mode, mode_reason = _demo_mode(scenarios)
     return DemoState(
         demo_id=shown_id, started_at=started, model_mode=mode,
-        model_cost_usd=None, verifier_digest=_line_value(lines, "驗證器 sha256:"),
+        verifier_digest=_line_value(lines, "驗證器 sha256:"),
         commit=_line_value(lines, "提交編號:"), running=running, scenarios=scenarios,
         verifier=None if verifier is None else VerifierResult(
             verifier.passed, verifier.lines, verifier.reasons, verifier.verified_at,

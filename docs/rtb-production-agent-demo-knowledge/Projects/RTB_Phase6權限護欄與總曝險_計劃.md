@@ -2,7 +2,7 @@
 type: project
 status: done
 created: 2026-09-23
-updated: 2026-09-27
+updated: 2026-10-02
 tags:
   - type/project
   - status/done
@@ -12,6 +12,8 @@ lands_in:
   - Systems/寫入能力憑證
   - Systems/提案收件口
   - Systems/分析行程流程與檢查點
+  - Systems/可觀測查詢
+  - Systems/任務流程領域模型
 ---
 # RTB_Phase6權限護欄與總曝險_計劃
 

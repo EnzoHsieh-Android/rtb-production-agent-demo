@@ -1,6 +1,6 @@
 ---
 type: verification
-status: pass
+status: stale
 date: 2026-09-25
 valid_under:
   - 主線合入 phase12-inc1 b49932c 時的程式;展示預設不呼叫 AI(Phase 13 未接)
@@ -9,7 +9,7 @@ revalidate_when:
   - 展示伺服器的收尾或確認頁流程再改時
 tags:
   - type/verification
-  - status/pass
+  - status/stale
 plan_refs:
   - "[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]]"
 ---
@@ -36,3 +36,5 @@ plan_refs:
 ## 已知限制
 - 伺服器被 SIGKILL 時子行程仍會變孤兒(沒有處理;計劃有 REVISIT)。
 - 「關終端機」的測試用假終端機加補送 SIGHUP 重現,沒有真的經過 zsh(CI 不一定有 zsh)。
+
+2026-10-03 狀態改為 stale;理由:開頭兩個重驗事件都已發生。第一個(Phase 13 增量 4 把 AI 接進展示)之後 AI 決策又在 Phase 14 增量 3 撤掉,展示重播在 [[Verification/Phase14增量3驗證紀錄]] 重驗過;第二個(展示伺服器的收尾或確認頁流程再改)在 554aa98(2026-09-27,主頁判斷等你確認改成跟確認頁同源、中止時清掉確認請求)發生,那次提交有自己的測試與三輪代碼審,但沒有任何驗收紀錄重驗本篇的真瀏覽器確認流程與收尾殘留行程檢查,所以標過期,等下次重驗。

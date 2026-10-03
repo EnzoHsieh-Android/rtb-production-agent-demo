@@ -28,9 +28,9 @@ class EvidenceKind(StrEnum):
     CAMPAIGN_STATE = "campaign_state"
     METRICS = "metrics"
     CAMPAIGN_TEXT = "campaign_text"  # 廣告名稱這類不可信文字;只能配不可信文字的信任標記
-    # Phase 13 增量 2 的四種收據(AI 追加查詢的結果,程式從原始回應算出的扁平數字字串與短代號):
-    # 只給 AI 決策函式與展示頁讀;現行決策規則、不提案原因與建提案拿到的證據只有上面三種(AI 決策
-    # 函式在入口濾掉),原始回應另存調查原始資料表,不進證據表
+    # Phase 13 增量 2 的四種收據(追加查詢的結果,程式從原始回應算出的扁平數字字串與短代號):
+    # Phase 14 增量 3 起只剩評估的 AI 判斷讀;不提案原因與建提案拿到的證據只有上面三種,正式規則輪
+    # 改讀同一輪四查詢存在調查原始資料表的原始回應(白名單驗過),原始回應不進證據表
     LONGER_WINDOW = "longer_window"
     CHANGE_HISTORY = "change_history"
     DAILY_TREND = "daily_trend"

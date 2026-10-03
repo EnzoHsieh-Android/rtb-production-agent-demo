@@ -2,8 +2,10 @@
 type: verification
 status: pass
 date: 2026-09-24
-valid_under: "程式版本為 main eade8e7(推送範圍 ec597f0..eade8e7,只含 Phase 12 增量 1 與合入主線的整合修正;展示頁面、2b 資料對應與展示伺服器不在內);Python 3.14.6,macOS 本機;CI Ubuntu(run 36013610073 重跑後綠)"
-revalidate_when: "Phase 12 增量 2(展示頁面、2b 資料對應、展示伺服器)完成推上 main 時,改寫成整份 Phase 12 驗收紀錄;改動 src/rtb/demo、src/rtb/analyzer/runner.py、src/rtb/httpkit.py、src/rtb/httpclient.py 或 claims/ 時重跑 tests/demo、全套與驗證器"
+valid_under:
+  - 程式版本為 main eade8e7(推送範圍 ec597f0..eade8e7,只含 Phase 12 增量 1 與合入主線的整合修正;展示頁面、2b 資料對應與展示伺服器不在內);Python 3.14.6,macOS 本機;CI Ubuntu(run 36013610073 重跑後綠)
+  - "2026-10-03 補:Phase 12 增量 2、3 已推上 main,當時的驗收各在 [[Verification/Phase12增量2驗收紀錄]] 與 [[Verification/Phase12增量3驗收紀錄]](本篇沒改寫成整份 Phase 12 紀錄);改動之後的全套最近一次記在驗收紀錄的是 [[Verification/Phase14增量4驗證紀錄]](2026-09-27,3360 過、1 略過);之後的改動(Phase 15 等)只有 CI 與各自提交的測試,沒有驗收紀錄"
+revalidate_when: 改動 src/rtb/demo、src/rtb/analyzer/runner.py、src/rtb/httpkit.py、src/rtb/httpclient.py 或 claims/ 時重跑 tests/demo、全套與驗證器
 tags:
   - type/verification
   - status/pass

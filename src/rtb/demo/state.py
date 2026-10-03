@@ -3,7 +3,6 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
 from enum import Enum
 
 
@@ -282,7 +281,6 @@ class DemoState:
     demo_id: str
     started_at: datetime | None  # 還沒有任何展示時是空的
     model_mode: ModelMode
-    model_cost_usd: Decimal | None
     verifier_digest: str | None
     commit: str | None
     running: bool
@@ -294,7 +292,6 @@ class DemoState:
     flow: FlowGraph
     current: CurrentStep | None
     observed_at: datetime | None = None
-    last_full_run_cost_usd: Decimal | None = None
     model_mode_reason: str | None = None
     is_sample: bool = False
     full_demo_id: str | None = None  # 最近一次跑完的全部跑一次;空的就是還沒有完整執行過

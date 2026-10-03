@@ -4,9 +4,10 @@ status: pass
 date: 2026-09-25
 valid_under:
   - 主線合入 phase13-inc1 1eadb13 時的程式;所有模型呼叫在測試裡都是假 claude 或錄製,沒有真的錄製批次入庫
+  - "2026-10-03 補:第一次用真 claude 錄的說明批次已入庫(phase13-demo,現讀 phase14-demo),說明重播與數字核對規則的改動在 [[Verification/Phase14增量3驗證紀錄]] 重驗;原因假說還沒有真錄製(展示情境沒觸發告警)"
 revalidate_when:
   - 模型閘道、數字核對規則或花費帳判上限的方式再改時
-  - 第一次用真的 claude 錄說明與假說的批次時
+  - 第一次用真的 claude 錄到原因假說(有服務水準告警的情境)時
 tags:
   - type/verification
   - status/pass
