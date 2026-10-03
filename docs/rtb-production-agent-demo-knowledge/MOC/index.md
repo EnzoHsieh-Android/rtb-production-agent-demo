@@ -94,7 +94,7 @@ updated: 2026-10-02
 
 ## Issue
 
-- [[Issues/確認頁顯示AI說明時的收據還沒做]](open)
+- [[Issues/確認頁顯示AI說明時的收據還沒做]](resolved)
 - [[Issues/F7端到端在CI上偶爾超過60秒]](resolved)
 - [[Issues/Phase11後接入大模型API的三個階段]](resolved)
 - [[Issues/Phase12需要可看任務階段與處置的HTML報告]](resolved)
