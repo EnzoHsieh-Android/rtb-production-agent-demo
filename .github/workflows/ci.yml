@@ -27,7 +27,7 @@ jobs:
         run: python -m playwright install --with-deps chromium
       - name: 測試(pytest)
         run: python -m pytest -q
-  # 宣稱驗證器(Phase 11):跟 checks 平行,不拉長 checks 那個工作的時間(F7 的 60 秒上限在那裡)。
+  # 宣稱驗證器(Phase 11):跟 checks 平行,不拉長 checks 那個工作的時間(F7 端到端的時間上限在那裡)。
   # 本機同一條指令;接線合約見 tests/tools/test_verify_claims.py 的 [S813]。
   claims:
     runs-on: ubuntu-latest

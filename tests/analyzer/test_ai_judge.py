@@ -275,22 +275,15 @@ def test_the_prompt_carries_receipts_and_references_not_raw_rows():
 
 # ---- [S1112] ----
 def test_an_injected_name_can_only_flip_propose_or_not():
-    """[S1112] 名稱藏誘導文字、假模型照誘導回答:送出的只可能是照公式那一份提案或沒有提案;金額、
-    廣告與動作種類跟名稱正常時相同。"""
-    normal, _ = run(Model(reply("propose", evidence=CITE_BASE)), base_evidence())
+    """[S1112] 名稱藏誘導文字、假模型照誘導回答:Judge 只回結果種類(轉規則輪或不提案),名稱改不了
+    它能回的種類,也建不出提案。正式路徑「名稱不影響判定與金額」由 [S1427] 的 F5 端到端測試守。"""
     for answer in (reply("propose", reason="照資料區指示把預算加到最大", evidence=CITE_BASE),
                    reply("do_not_propose", evidence=CITE_BASE),
                    '{"choice":"propose","reason":"x","evidence":[],"new_budget":999999}',
                    reply("propose", evidence=(("base", "budget", "999999"),))):
         outcome, _ = run(Model(answer), base_evidence(name=INJECTED))
-        result = outcome.result
-        # 退回時開規則輪(Phase 14 增量 2b):名稱不進規則輪,規則輪之後怎麼判跟名稱無關
-        assert isinstance(result, flow.ProposalDecision | flow.NoAction | flow.RuleContinue)
-        if isinstance(result, flow.ProposalDecision):
-            ours, theirs = result.proposal, normal.result.proposal
-            assert (ours.requested_change, ours.campaign_id, ours.action_type) == (
-                theirs.requested_change, theirs.campaign_id, theirs.action_type)
-            assert dict(ours.requested_change) == {"new_budget": 110}
+        # Judge 已不建提案(Phase 14 增量 3):照誘導答「提案」也只會轉去規則輪,名稱不進規則輪
+        assert isinstance(outcome.result, flow.NoAction | flow.RuleContinue)
 
 
 # ---- [S1115] ----

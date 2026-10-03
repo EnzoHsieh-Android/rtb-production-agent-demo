@@ -1,4 +1,5 @@
-"""以系統 Python 與 Pillow 產出 README 流程圖；對照 src/rtb/demo/flow.py。
+"""以系統 Python 與 Pillow 產出 README 流程圖；畫法參考展示流程，
+但節點自己定義，不跟 src/rtb/demo/flow.py 的節點鍵對齊。
 
 執行：python3 docs/assets/make_agent_flow_gif.py [--font 字型檔]
 Pillow 只用於文件產出，不列入專案依賴。顏色取自 demo.css 的深色主題。

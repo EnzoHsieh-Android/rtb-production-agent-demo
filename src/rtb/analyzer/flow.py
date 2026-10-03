@@ -27,7 +27,7 @@ AI 不參與決策(Phase 14 增量 3,計劃〈使用者裁定〉8):原本 Phase 
 (`AiContext`、`AiOutcome`、`QueryMore`)移到 `investigation`。這裡只留規則輪也用的 `NoAction`、
 `ProposalDecision`、`RuleContinue`。
 
-三個介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
+這些介面用 `typing.Protocol`(不是全域慣用的 `Callable[[Args], Ret]`):它們各自有具名的
 多個參數與語意(不是單純「一個函式」),`Protocol` 讓型別檢查器能核對實作簽章、也讓文件
 掛在介面本身,是刻意的選擇,不是要在專案裡另立一套慣用法;現有 `Callable` 用法(單一動作
 的簡單回呼)不受影響。
@@ -226,7 +226,7 @@ class _Step:
 _StepOutcome = _Step | None
 
 
-def advance(  # noqa: PLR0913 - 三個可替換介面加時間、中斷鉤子、租約擁有者與操作查詢
+def advance(  # noqa: PLR0913 - 可替換介面加時間、中斷鉤子、租約擁有者與操作查詢
     store: TaskStore,
     task_id: str,
     evidence_source: EvidenceSource,

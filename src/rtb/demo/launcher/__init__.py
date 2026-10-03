@@ -300,7 +300,8 @@ def run_entry(entry: str, args: Sequence[str], keys: DemoKeys, *, root: Path,  #
               user_env: Mapping[str, str], timeout_seconds: float, live_model: bool = False,
               stop: threading.Event | None = None) -> EntryRun:
     """跑一次模型入口(不是常駐行程,不等就緒那一行):標準錯誤寫進根目錄的紀錄檔,自己的行程群組。
-    三個模型變數只在 live_model(情境列在即時清單)時帶,由 child_env 統一決定(代碼審 r1 h3)。
+    模型變數(三個設定加登入權杖)只在 live_model(情境列在即時清單)時帶,由 child_env 統一決定
+    (代碼審 r1 h3)。
     逾時或停止旗標一設就先 SIGTERM 整組、再硬殺,回逾時(代碼審 r1 l1:展示收尾時不留孤兒)。"""
     log_path = root / f"{entry}-{os.getpid()}-{threading.get_ident()}.log"
     env = child_env(Role.MODEL_ENTRY, keys,

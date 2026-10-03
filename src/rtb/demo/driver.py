@@ -1495,7 +1495,7 @@ CANCELLED = "展示故障:伺服器結束,展示被停止"
 PROJECT_ROOT = Path(launcher.SRC).parent
 # 入庫的展示錄製(只供重播;Phase 14 增量 3 起只含說明與假說,[S1428])。舊的 phase13-demo 唯讀留作歷史
 DEMO_RECORDINGS = PROJECT_ROOT / "recordings" / "model" / "phase14-demo"
-# 驗證器自己跑 77 支證據測試(本機約 45 秒),它自己的期限 900 秒;外層比它長,正常逾時由驗證器自己
+# 驗證器自己跑全部證據測試(本機約 45 秒),它自己的期限 900 秒;外層比它長,正常逾時由驗證器自己
 # 收掉證據測試並印出原因,外層只是最後一道
 VERIFIER_TIMEOUT_SECONDS = 960.0
 
