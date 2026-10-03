@@ -2,6 +2,7 @@
 type: verification
 status: pass
 date: 2026-09-23
+updated: 2026-10-03
 valid_under:
   - Python 3.14.6 與 sqlite3 3.50.6、pytest 9.1.1、ruff 0.16.8,macOS 本機;程式版本為提交 0ef3ad1;分析行程沒有接語言模型,決策是示範規則;模擬 DSP 只有廣告名稱一種文字欄位,沒有素材文字、落地頁網址;不可信文字上限 512 字、模擬 DSP 名稱上限 4096 字是使用者裁定值
   - "2026-10-03 補:分析行程後來接上語言模型(Phase 11B、13),AI 退出加額決策後事故 F5 在 [[Verification/Phase14增量3驗證紀錄]] 重驗(名稱誘導不影響九條判定、說明的數字核對另核多種百分比寫法);模擬 DSP 仍只有廣告名稱一種文字欄位;改動之後的全套最近一次記在驗收紀錄的是 [[Verification/Phase14增量4驗證紀錄]](2026-09-27,3360 過、1 略過);之後的改動(Phase 15 等)只有 CI 與各自提交的測試,沒有驗收紀錄"
@@ -27,7 +28,7 @@ Phase 7 的五個增量(證據型別與分析端白名單、模擬 DSP 廣告名
 
 - **F5 通過**:正式合約在 [[Systems/分析行程流程與檢查點]],主綁 [test:test_f5_an_injected_campaign_name_changes_nothing_end_to_end](真的模擬 DSP、分析行程、收件口與執行迴圈,十份對抗性素材各跑一整條路,DSP 恰好一次改預算 100 到 110、跟名稱正常時相同)。獨立審計卷證 governance/review-reports/rtb-phase7提示注入與信任邊界/f5-audit.md。
 - **不可信資料選不了任意工具或網址、改不了政策、擴不了資源範圍、讀不到金鑰**:
-  - 工具、網址、憑證、政策覆寫、指令:提案白名單拒收夾帶這些欄位 [test:test_unknown_fields_are_rejected_so_nothing_can_be_smuggled_in];端到端再確認提案只有白名單欄位、分析行程只打讀現況、讀指標、送提案三種端點。
+  - 工具、網址、憑證、政策覆寫、指令:提案白名單拒收夾帶這些欄位 [test:test_unknown_fields_are_rejected_so_nothing_can_be_smuggled_in];端到端再確認提案只有白名單欄位、分析行程只打讀現況、讀指標、送提案三種端點。(2026-10-03 更正:這是 2026-09-23 驗收當時的三種;2026-09-27 提交 b2fc512(Phase 14 正式規則改照九條)起,綁定測試斷言的是 DSP 五種讀取加送件共六種端點,以程式碼為準:`grep -n "EXPECTED_ENDPOINTS =" -A1 tests/analyzer/test_f5_end_to_end.py`)
   - 改政策、擴權(動作與金額):差異測試 [test:test_no_adversarial_campaign_name_changes_the_decision](決策與提案雜湊不變)、端到端兩支 [test:test_f5_an_injected_campaign_name_changes_nothing_end_to_end]、[test:test_f5_an_injected_name_on_a_healthy_campaign_triggers_no_write]。
   - 資源範圍:執行期由簽發器與執行前檢查綁定 [test:test_the_executor_refuses_to_sign_outside_its_current_tenant_configuration]、[test:test_each_failed_precheck_blocks_the_proposal_without_a_write];執行行程不讀、不送理由摘要 [test:test_the_execution_side_never_reads_free_text]。
   - 讀不到金鑰:[test:test_the_analyzer_can_neither_read_the_signing_key_nor_import_the_signer]。

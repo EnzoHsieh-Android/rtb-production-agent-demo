@@ -2,7 +2,7 @@
 type: project
 status: done
 created: 2026-09-22
-updated: 2026-10-02
+updated: 2026-10-03
 tags:
   - type/project
   - status/done
@@ -196,6 +196,8 @@ RETIRE-IF: 若 Phase 4 以後的 F1~F3 自動測試持續只靠 DSP 端的冪等
 3. 租戶與上限的來源:執行行程自己的設定檔,見上。
 
 (2026-09-30 回頭看:已做——一鍵展示啟動器給分析端的環境走白名單、不含金鑰,test_demo_processes_get_only_whitelisted_environment 的 ANALYZER 組守著(8ff8c95,[[Projects/RTB_Phase12一鍵展示與HTML報告_計劃]] [S1003]);清金鑰在啟動器,直接手動跑 runner.py 沒有這層保護)
+(2026-10-03 補:必答清單「用測試證明分析行程拿不到金鑰」那題寫的「那支程式必須清掉金鑰環境變數並補上測試」沒有照做——`src/rtb/analyzer/runner.py` 至今不讀也不清環境變數(`rg -n "environ" src/rtb/analyzer/runner.py` 0 筆),分析行程原始碼只是不讀金鑰變數的名稱;防線只有展示啟動器的白名單。要讓 runner 自己清掉金鑰並補測試,還是接受只靠啟動器白名單並寫明理由,由使用者裁定。)
+REVISIT:2026-12-31 由使用者裁定分析端驅動命令列(`src/rtb/analyzer/runner.py`)要不要自己清掉三把金鑰的環境變數並補測試;裁定接受現狀就把理由寫進這裡並撤掉這行。
 
 ### 既有 DSP 測試怎麼接(第 1 輪可測性席指出:照字面實作,綁在 Mock-DSP 合約上的寫入測試會全部先被 401 擋掉)
 

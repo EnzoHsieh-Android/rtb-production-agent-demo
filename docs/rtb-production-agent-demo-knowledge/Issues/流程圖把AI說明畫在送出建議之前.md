@@ -2,7 +2,7 @@
 type: issue
 status: resolved
 created: 2026-09-27
-updated: 2026-09-28
+updated: 2026-10-03
 aliases: []
 about_code:
   - src/rtb/demo/flow.py
@@ -31,7 +31,7 @@ summary: |-
 
 ## 結案(2026-09-28,含代碼審 r1 修正)
 - 展示流程圖:說明節點從「寫好調整建議 → 送去執行」之間拿出來,改成從「排隊等執行」(收件收下、交給執行落的那一格)岔出去的旁支;被拒收或過時的建議不會有說明。旁支用 `SideBranch` 結構化宣告展開(跟回頭轉換同一套,不另開裸清單,代碼審 r1 a_1);寫好建議 → 送出只剩一條邊,邊數 68 → 67。觀察器與 F1–F7 實際路徑不變。細節見 [[Systems/一鍵展示]] 與 [[Systems/展示頁面]] 同日一節。防回歸:[test:test_the_narrative_is_a_side_branch_after_the_proposal_is_accepted]、[test:test_the_side_branch_is_not_listed_as_an_untaken_branch]。
-- 人工核可表單:照交辦只改提示、不改資料流——拿掉「再閱讀 AI 產生的參考說明」,改成「逐項確認程式算出的數字;同意後建議回到排隊,寫入前照樣重新檢查」;沒有說明時照實寫原因:組表單時不帶說明、一鍵展示要等情境整段跑完才產說明。讓表單拿到說明是另一件事,這次不做。防回歸:[test:test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets]。
+- 人工核可表單:照交辦只改提示、不改資料流——拿掉「再閱讀 AI 產生的參考說明」,改成「逐項確認程式算出的數字;同意後建議回到排隊,寫入前照樣重新檢查」;沒有說明時照實寫原因:組表單時不帶說明、一鍵展示要等情境整段跑完才產說明。讓表單拿到說明是另一件事,這次不做(2026-10-03 使用者裁定 AI 說明只放報告與展示頁的情境明細、不進核可表單,這件不做,見 [[Projects/RTB_Phase11B大模型接入_計劃]] 決策紀錄)。防回歸:[test:test_the_approval_form_does_not_promise_an_ai_narrative_it_never_gets]。
 - README 動圖與靜態圖:送出提案直下接收件檢查,AI 說明從待處理佇列往上的旁支;標題、註記、描述統一用「收件收下後」;重產 GIF/SVG,連續兩次雜湊相同;新增產生器守衛測試,四種變異都會翻紅。見 [[Systems/README流程動圖產生器]]、[[Verification/README流程動圖驗證]]。
 - README 的 F1–F7 截圖照同一做法重播入庫錄製重拍,帳本前後 stat 不變;r1 修正後再重播比對情境詳情,不需重拍。README 本文沒動。
 - 驅動與說明模組的註解不再寫「給核可的人看」;送給模型的系統提示沒改(會讓錄製失效),另開 [[Issues/說明提示仍寫給核可的人看]],等下次重錄一起改。

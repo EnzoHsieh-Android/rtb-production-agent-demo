@@ -2,9 +2,10 @@
 type: verification
 status: pass
 date: 2026-09-27
+updated: 2026-10-03
 valid_under:
   - Phase 14 增量 2b＋增量 3,已提交為 b2fc5122f100、合併差異過代碼審(卷證 governance/review-reports/code-phase14-inc3);全套測試、ruff、mypy、宣稱驗證器;展示批次代碼審 r1 後已重錄(phase14-demo-20260927)
-  - "2026-10-03 補:revalidate_when 原本的前兩項(協調者錄完 phase14-demo 搬進入庫目錄、合併差異的代碼審改動程式)已在本篇後段處理:phase14-demo-20260927 已入庫並重播通過,代碼審 r1–r3 修正後全套重跑"
+  - "2026-10-03 補:revalidate_when 原本列的「協調者錄完 phase14-demo 搬進入庫目錄」「合併差異的代碼審改動程式」兩項已在本篇後段處理(phase14-demo-20260927 首批兩檔入庫並重播通過,代碼審 r1–r3 修正後全套重跑);之後 626cccb(2026-09-27 12:26)改說明入口送的證據與提示並同批號重錄兩檔,觸發「說明入口的參數再變動」,2026-10-03 在 3f2d82c 上重跑重播與相關測試通過,見文末〈626cccb 重錄後的重驗〉"
 revalidate_when: 分析端驅動、展示驅動或說明入口的參數再變動時
 tags:
   - type/verification
@@ -14,7 +15,7 @@ plan_refs:
 ---
 # Phase14增量3驗證紀錄
 
-範圍:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 3(〈使用者裁定〉8、〈拆增量〉3 逐項去留清單):AI 退出正式與展示的加額決策,只留提案說明與告警原因假說;評估保留 Judge、錄製重播與授權即時加錄製。狀態 pending:展示錄製批次要協調者用真 claude 錄,錄好之前「入庫展示批次重播」那一支測試照設計是紅的。(2026-10-02 更正:這句寫於錄製前;開頭現為 pass,協調者已錄 phase14-demo-20260927、那支重播測試已綠,見下〈等錄製與未完成〉。開頭前兩個重驗事件——phase14-demo 入庫、合併差異過代碼審——都已發生,本篇後段的代碼審 r1–r3 與全套就是事後的結果。)
+範圍:[[Projects/RTB_Phase14正式規則照九條判斷_計劃]] 增量 3(〈使用者裁定〉8、〈拆增量〉3 逐項去留清單):AI 退出正式與展示的加額決策,只留提案說明與告警原因假說;評估保留 Judge、錄製重播與授權即時加錄製。狀態 pending:展示錄製批次要協調者用真 claude 錄,錄好之前「入庫展示批次重播」那一支測試照設計是紅的。(2026-10-02 更正:這句寫於錄製前;開頭現為 pass,協調者已錄 phase14-demo-20260927、那支重播測試已綠,見下〈等錄製與未完成〉。原本的重驗事件「phase14-demo 入庫」「合併差異過代碼審」都已發生,本篇後段的代碼審 r1–r3 與全套就是事後的結果;之後 626cccb 同批號重錄的重驗見文末〈626cccb 重錄後的重驗〉。)
 
 ## 紅綠(新測試放在增量 3 之前的原始碼上跑)
 
@@ -86,3 +87,9 @@ plan_refs:
 - 本批沒有 HYPOTHESIS:假錄製實跑 F1–F6,六個情境的假說命令列都回「沒有告警」(F6 執行端連不上平台沒達服務水準告警門檻)。要聲稱假說已驗,需要專用的告警情境補錄。
 - (代碼審 r1 已修)說明的數字核對原本只比數值,「加 500%」借曝光數 500 過關;百分比現在要對回證據裡的百分比,見〈代碼審 r1 修正〉。
 - 本計劃 [S1410] [S1418] 仍懸空,屬增量 4。(2026-10-02 更正:增量 4 已綁,兩條現綁 `tests/eval/test_investigation_eval.py` 的報告測試,見 [[Verification/Phase14增量4驗證紀錄]]。)
+
+## 626cccb 重錄後的重驗(2026-10-03 補)
+
+- 觸發:626cccb(2026-09-27 12:26,本篇代碼審 r3 之後)改了說明入口送給模型的證據與提示(`src/rtb/analyzer/narrate.py`:只送實際拿到的證據,不再把規則輪的四種查詢列成空槽),並用同一個批號 phase14-demo-20260927 重錄入庫目錄的兩個錄製檔(兩檔刪、兩檔加;`git log -- recordings/model/phase14-demo` 最後一筆就是它)。本篇前段講的重播通過,指的是換新之前那兩檔。
+- 重驗:2026-10-03 在 3f2d82c 上跑 `tests/demo/test_ai_demo.py` 20 passed(含 test_committed_demo_recordings_replay_f1_to_f6_with_narratives,用的是 626cccb 重錄後的兩檔),`tests/analyzer/test_narrate.py` 與 `tests/demo/test_flow.py` 93 passed;F7 全規模那支 1 passed(20.3 秒、DSP 讀取 2700 次)。全套沒有重跑,交給推送前的閘與 CI。
+- 626cccb 本身的代碼審卷證在 `governance/review-reports/code-demo-cleanup/`。

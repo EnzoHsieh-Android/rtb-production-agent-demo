@@ -2,6 +2,7 @@
 type: verification
 status: pass
 date: 2026-09-26
+updated: 2026-10-03
 valid_under:
   - 僅 Phase 14 增量 2a 本工作樹（含代碼審 r1 修正）；全套測試（含綁本機埠的 HTTP 測試）、宣稱驗證器與 72 筆錄製重播；未跑午夜前後的真實完整 F1–F7 展示
   - "2026-10-03 補:讀取白名單、政策版本與錄製鍵在增量 2b 再變動,2b+3 合併提交 b2fc512 的全套、宣稱驗證器與錄製重播記在 [[Verification/Phase14增量3驗證紀錄]];午夜前後實跑完整 F1–F7 展示仍沒做"
@@ -46,7 +47,7 @@ plan_refs:
 
 實跑結果（2026-09-26，本機可綁埠）：
 
-- 全套 `pytest -q -p no:cacheprovider`：3305 passed、1 skipped、0 failed（892 秒）。修前兩次全套紅的 test_ai_judge 兩支、test_narrate 一支這次綠，修前失敗訊息是呼叫途中收到 SIGTERM，屬當次執行環境被中斷，非本分支邏輯；test_the_suite_never_touches_the_real_ledger 這次也綠（修前紅是跑測期間一鍵展示伺服器寫真帳本，另見 Issues，不在本次修）。
+- 全套 `pytest -q -p no:cacheprovider`：3305 passed、1 skipped、0 failed（892 秒）。修前兩次全套紅的 test_ai_judge 兩支、test_narrate 一支這次綠，修前失敗訊息是呼叫途中收到 SIGTERM，屬當次執行環境被中斷，非本分支邏輯；test_the_suite_never_touches_the_real_ledger 這次也綠（修前紅是跑測期間一鍵展示伺服器寫真帳本，另見 Issues，不在本次修）。(2026-10-03 更正:同一個 Issue 後來查明,當天真帳本新增的列除了 12:31 那批對得上展示頁,其餘都是 84 筆一批的評估錄製重播(16:00、16:39、17:14、17:40 等),是重播沒帶帳本、經模型閘道退路寫進去的;r1 修前那次全套落在 16:00 前後,照時段對得上的是評估重播,不是展示伺服器,見 [[Issues/錄製模式的原因假說寫進真帳本]]。)
 - `ruff check src tests`、`mypy`（94 檔）通過；`tools/verify_claims.py claims/`：5 條宣稱、78 支證據測試通過（五份清單依改動重貼雜湊，宣稱語意未變）。
 - `python -m rtb.eval.investigation_eval --verify`（空 HOME、只重播、未呼叫模型）：驗收通過。
 
@@ -59,7 +60,7 @@ plan_refs:
 - 鏡頭B 1：test_seven_day_totals_never_overflow_into_a_server_error 改寫為日桶每天上限、七天合計經 HTTP 由讀取層收下；修前紅（沒有每天上限）。
 - 鏡頭A 2、鏡頭B 3、架構 r1 第 3 條：只改圖譜（Mock-DSP 邊界、分析行程白名單 RULE、計劃增量 2b 待辦）。
 
-實跑（2026-09-26）：全套 3306 passed、1 skipped、1 failed——失敗的是 test_the_suite_never_touches_the_real_ledger：跑測期間本機有一個非本次啟動的一鍵展示伺服器（`rtb.demo.server --work-dir /tmp/rtb-demo`，10:55 起）在跑，帳本大小在跑測期間變了，即 Issues〈錄製模式的原因假說寫進真帳本〉記的已知原因，非本分支造成（上一輪同一支在沒有展示伺服器時是綠的）。ruff、mypy 通過；宣稱驗證器 5 條、78 支證據測試通過；72 筆錄製重播（空 HOME、只重播）驗收通過。
+實跑（2026-09-26）：全套 3306 passed、1 skipped、1 failed——失敗的是 test_the_suite_never_touches_the_real_ledger：跑測期間本機有一個非本次啟動的一鍵展示伺服器（`rtb.demo.server --work-dir /tmp/rtb-demo`，10:55 起）在跑，帳本大小在跑測期間變了，即 Issues〈錄製模式的原因假說寫進真帳本〉記的已知原因，非本分支造成（上一輪同一支在沒有展示伺服器時是綠的）。(2026-10-03 更正:同一個 Issue 後來查明寫入者不是展示伺服器——r2 這次全套落在 r2 收斂(治理帳 17:09)與 r3 收斂(17:36)之間,同時段真帳本那筆是 17:14 的 84 筆評估錄製重播,經模型閘道退路寫進去,見 [[Issues/錄製模式的原因假說寫進真帳本]]。)ruff、mypy 通過；宣稱驗證器 5 條、78 支證據測試通過；72 筆錄製重播（空 HOME、只重播）驗收通過。
 
 ## 代碼審 r3 修正（2026-09-26，末輪）
 
@@ -68,6 +69,6 @@ plan_refs:
 - 鏡頭A 3／外家 finder 2、外家 finder 1：test_a_legacy_day_whose_every_value_is_over_the_daily_limit_becomes_no_data、test_stored_date_keyed_buckets_over_the_daily_limit_read_as_missing 修前紅、修後綠。
 - 架構對齊 1：`DAILY_MAX_COUNT` 改用 `SQLITE_INTEGER_MAX`（純重構，既有測試守）。
 
-實跑（2026-09-26）：全套 3310 passed、1 skipped、1 failed——仍是 test_the_suite_never_touches_the_real_ledger：失敗訊息顯示真帳本在 17:40:11 被寫（全套 17:39 開跑、本分支沒有碰模型帳本的程式），同時段本機有非本次啟動的一鍵展示伺服器在跑（r2 時已記），屬 Issues〈錄製模式的原因假說寫進真帳本〉的已知原因。ruff、mypy 通過；宣稱驗證器 5 條、78 支證據測試通過；72 筆錄製重播（空 HOME）驗收通過。
+實跑（2026-09-26）：全套 3310 passed、1 skipped、1 failed——仍是 test_the_suite_never_touches_the_real_ledger：失敗訊息顯示真帳本在 17:40:11 被寫（全套 17:39 開跑、本分支沒有碰模型帳本的程式），同時段本機有非本次啟動的一鍵展示伺服器在跑（r2 時已記），屬 Issues〈錄製模式的原因假說寫進真帳本〉的已知原因。(2026-10-03 更正:同一個 Issue 後來查明 17:40 時展示伺服器已經關了,17:40 那筆是 84 筆一批的評估錄製重播,照驗證步驟跑的 72 筆錄製重播沒帶帳本、經模型閘道退路寫進真帳本,見 [[Issues/錄製模式的原因假說寫進真帳本]]。)ruff、mypy 通過；宣稱驗證器 5 條、78 支證據測試通過；72 筆錄製重播（空 HOME）驗收通過。
 
 REVISIT:2026-10-10 在 UTC 午夜前後各實跑一次完整 F1–F7 展示，確認跨日後七個完整日與可提案（[S1426] 的展示那半）。
